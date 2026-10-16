@@ -28,6 +28,7 @@ function renderInput(overrides?: Partial<Parameters<typeof MessageInput>[0]>) {
     disabled: false,
     otters: OTTERS,
     conversationId: 'conv-mention',
+    inputHeight: 120,
     staged: [] as StagedAttachment[],
     onRemoveAttachment: vi.fn(),
     onPickFiles: vi.fn(),

@@ -608,6 +608,65 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
+  it('近底小幅上滚脱锚（F20261016inbs 弹回 bug 根因回归锚）：pinned 用户滚到距底 40px 处 wheel 上滚 30px → 必须脱锚，不得被「未归因且近底→回锚」吞掉', async () => {
+    // 复现派工描述的 bug：wheel 脱锚（takeUserControl 置 floating）后，紧随的 scroll 事件
+    // 中位移不足 100px 仍在底部附近（isNearBottom 阈值 100）→ 旧实现的 else 分支
+    // 「未归因且近底 → pinRef.current = true」重新贴底，覆盖 wheel 意图；下一次 React 提交
+    // （流式期间几乎每 token 一次）执行贴底写入 → 弹回最下方。单次位移超 100px 才能逃掉。
+    const pinRef = { current: true }
+    const { root, div } = renderList({ pinRef })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      // 滚到距底 40px：scrollTop = 2000 - 660 - 40 = 1300（仍在 100px 阈值内 = 近底）。
+      // 先 fireScroll 建立基线（真实浏览器中贴底用户历经多次 scroll 事件，采样基线存在；
+      // jsdom 程序写入不触发事件，需显式建立）
+      const st = instrumentRW(scrollerOf(), 2000, 1300)
+      st.top = 1300
+      fireScroll() // 基线：lastScrollTop=1300（位移 0，维持 pinned）
+      expect(pinRef.current).toBe(true)
+      // 用户 wheel 向上脱锚（真实事件通道）
+      act(() => { scrollerOf().dispatchEvent(new WheelEvent('wheel', { deltaY: -30 })) })
+      expect(pinRef.current, 'wheel 向上应立即脱锚').toBe(false)
+      // 紧随的 scroll 事件：位移向上 30px（不足 100px，距底 70px 仍近底）——旧实现在此回锚
+      st.top = 1270
+      fireScroll()
+      expect(pinRef.current, '近底小幅上滚的 scroll 必须保持脱锚（这是弹回 bug 的核心断言）').toBe(false)
+      // 下一次内容增长（流式 token）：floating 不打扰，无贴底写入（弹回消失）
+      fireRO(contentRO(), 1400)
+      await sleep(80)
+      expect(st.writes, '脱锚后内容增长不得写入 scrollTop（弹回路径）').toBe(0)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('内容收缩 clamp 保护（F20261016inbs）：scrollHeight 缩小引发的向下 clamp 位移不脱锚不回锚，pinned 保持 pinned', async () => {
+    // 场景：pinned 用户 + 内容收缩（如流式面板折叠）→ scrollHeight 缩小 → 浏览器 clamp
+    // 把 scrollTop 压低（位移向上）→ 若只按「向上位移一律脱锚」会误伤 pinned 用户。
+    // 修法规格：scrollHeight 未缩小才脱锚；收缩期间 pinned 保持 pinned。
+    // jsdom 伪造型：scrollHeight 从 2000 缩到 1300（缩 700），scrollTop 1300 → clamp 到 640
+    const pinRef = { current: true }
+    const { root, div } = renderList({ pinRef })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      const st = instrumentRW(scrollerOf(), 2000, 1300)
+      st.top = 1300
+      fireScroll() // 建立基线 lastScrollTop=1300, scrollHeight=2000
+      expect(pinRef.current).toBe(true)
+      // 内容收缩：scrollHeight 缩小 + clamp 向下压 scrollTop
+      Object.defineProperty(scrollerOf(), 'scrollHeight', { configurable: true, get: () => 1300 })
+      st.top = 640 // clamp 后位置（向上位移 660px）
+      fireScroll()
+      expect(pinRef.current, '内容收缩 clamp 期间 pinned 用户保持 pinned（不得误脱锚）').toBe(true)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
   it('审视建议补测②：restore 后 TTL 窗口内用户上拖——位移优先归因不被陈旧条目吞', async () => {
     const pinRef = { current: true }
     let loadMoreFired = false

@@ -14,6 +14,9 @@ interface MessageInputProps {
   placeholder?: string
   otters: Otter[]
   conversationId: string | null
+  /** F20261016inbs：玻璃框固定高度（px）——由 ChatView 分割条状态驱动，与输入内容无关
+   *  （搭档拍板：固定边界，绝不做输入内容驱动高度）。textarea 占满玻璃框内部滚动 */
+  inputHeight: number
   /** 多模态 Phase 1：附件中转区状态与操作（提升到 ChatView 层以随发送流转） */
   staged: StagedAttachment[]
   onRemoveAttachment: (id: string) => void
@@ -22,7 +25,7 @@ interface MessageInputProps {
   onDismissUploadError?: () => void
 }
 
-export function MessageInput({ onSend, disabled, placeholder = '输入消息... Enter 发送, @ 提及小獭', otters, conversationId, staged, onRemoveAttachment, onPickFiles, uploadError, onDismissUploadError }: MessageInputProps) {
+export function MessageInput({ onSend, disabled, placeholder = '输入消息... Enter 发送, @ 提及小獭', otters, conversationId, inputHeight, staged, onRemoveAttachment, onPickFiles, uploadError, onDismissUploadError }: MessageInputProps) {
   const { draft, saveDraft, clearDraft } = useDraftCache(conversationId)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   /** F20260916ment：弹层选中过的獭 ID（Slack 模式——选中即绑定身份，不再从文本反解析）。
@@ -39,13 +42,10 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
   /** 附件携带时允许空文本发送（纯图/纯文件消息），与纯文本发送互斥条件分开判定 */
   const canSend = !disabled && (draft.trim().length > 0 || staged.some(s => !s.uploading))
 
-  /** F20261015inpd：输入框独立滚动区——textarea 高度由 CSS 控制（min-h-[24px] max-h-[120px]），
-   *  不再 JS 写 style.height 撑高容器。旧实现 autoResize() 每个按键写 style.height，容器
-   *  被撑高挤压消息列表视口，scrollTop 累计 clamp 损失在封顶帧一次性补回（输入多行时中间栏
-   *  跳动，10/15 搭档报告）。新方案：输入框区独立滚动（ChatView 固定 max-h-[160px]），
-   *  textarea 用 CSS min-h/max-h 控制，内容超出 max-h 后 textarea 内部滚动（overflow-y-auto），
-   *  容器高度恒定——消息列表视口高度恒定，跳动机制链第一环（视口压缩）消失。
-   *  微信桌面端/Telegram Desktop 同方案。 */
+  /** F20261016inbs 输入框固定边界（搭档拍板：微信式固定隔离边界）：玻璃框高度由
+   *  inputHeight（分割条拖动状态）决定，与输入内容无关——内容超出时 textarea 内部滚动
+   *  （overflow-y-auto 独立滚动，消息框/输入框两框各自滚动）。旧方案（F20261015inpd 的
+   *  field-sizing: content + min-h/max-h 自适应撑高）按搭档拍板废弃：越复杂越容易出错。 */
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
@@ -178,6 +178,9 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
         )}
 
         {/* 附件中转区：缩略图/文件卡 + 移除按钮；上传中半透明+loading 态 */}
+        {/* F20261016inbs：附件暂存行堆在玻璃框上方但在固定高容器外（覆盖层自然长高，
+            消息列表衬垫随 overlay 实高动态兜住，F20261015inpd §5 的溢出遮挡问题一并
+            根治）；固定高容器内的玻璃框不受附件挤压，textarea 可用空间恒定 */}
         {(staged.length > 0 || uploadError) && (
           <div className="mb-2 flex flex-wrap gap-2 px-1">
             {staged.map(s => (
@@ -220,7 +223,8 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
           </div>
         )}
 
-        <div className="flex items-end gap-2 glass-input rounded-3xl px-4 py-2.5 transition">
+        <div className="flex flex-col" style={{ height: inputHeight }}>
+        <div className="flex-1 min-h-0 flex items-end gap-2 glass-input rounded-3xl px-4 py-2.5 transition">
           {/* 多模态 Phase 1：附件选择入口。图片数已达上限仍允许选（可选中文档），后端注入前还会硬校验 */}
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -257,7 +261,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             }}
             disabled={disabled}
             placeholder={placeholder}
-            className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none min-h-[24px] max-h-[120px] leading-relaxed disabled:opacity-50 overflow-y-auto field-sizing-content"
+            className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none h-full leading-relaxed disabled:opacity-50 overflow-y-auto"
           />
           <MagicWordHelp />
           {/* F20260913ctlv：双发送模式——主=steer（打断插话，默认）/ 副=followUp（排队等这轮
@@ -284,6 +288,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
         <p className="text-[10px] text-stone-400 text-center mt-1.5">
           Enter 发送（steer 插话） · 排队按钮 = followUp · Shift+Enter 换行 · @ 提及小獭{stagedImageCount > 0 ? ` · 已选图片 ${stagedImageCount}/${MAX_IMAGES_PER_SEND}` : ''}
         </p>
+        </div>
       </div>
     </div>
   )

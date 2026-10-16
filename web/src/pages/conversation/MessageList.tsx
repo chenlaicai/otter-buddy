@@ -220,6 +220,13 @@ interface MessageListProps {
    *  几何快照升级为意图驱动状态机——共享 ref 透传形状不变（index 新消息计数/发言回底直读写） */
   pinRef: RefObject<boolean>
   newMessagesCount?: number
+  /** F20261016inbs：底部衬垫高度（px）——输入覆盖层实高，由 ChatView ResizeObserver 实测。
+   *  旧方案是视口 paddingBottom 写死 170px（单行输入实高 ~72px → 滚到底时最后一条消息
+   *  悬在输入框上方 ~98px 死区；附件/错误行超高时反向压住消息底部）。新方案：视口零 padding
+   *  （F20261015inpd 视口恒定成果保持），预留搬到滚动内容末尾等高衬垫——衬垫随覆盖层实高
+   *  动态变化，pinned 用户由既有贴底补偿保持齐平（衬垫长高也是内容长高，contentObserver
+   *  兑底），floating 用户不打扰 */
+  bottomSpacerPx?: number
   /** 跳底按钮回调：滚动与置 pin 在本组件内完成，回调只承担计数清零等业务侧处理 */
   onJumpToBottom?: () => void
   onLoadMore?: () => void
@@ -240,7 +247,7 @@ function isNearBottom(el: HTMLElement, threshold = 100): boolean {
 
 export function MessageList({
   messages, state, onStopStream, onRetryMessage, onRetry, onGoToSettings, otters,
-  conversationId, pinRef, newMessagesCount = 0, onJumpToBottom, onLoadMore,
+  conversationId, pinRef, newMessagesCount = 0, bottomSpacerPx = 0, onJumpToBottom, onLoadMore,
   loadingMore,
   unreadSeparatorSeq, highlightMessageId,
   userName, linkedResources,
@@ -309,6 +316,9 @@ export function MessageList({
   const pinWritesRef = useRef<ScrollLedgerEntry[]>([])
   const rafPinIdRef = useRef(0)
   const lastScrollTopRef = useRef(0)
+  /** F20261016inbs：上次采样的 scrollHeight——内容收缩判定基线（handleScroll 内比对），
+   *  采样点与 lastScrollTopRef 同一处（handleScroll 末尾），中间无观测缺口 */
+  const lastScrollHeightRef = useRef(0)
   const touchStartYRef = useRef<number | null>(null)
 
   /** 程序性滚动统一入口：所有代码发起的 scrollTop 写入必须走这里（写入点收敛）。
@@ -449,18 +459,27 @@ export function MessageList({
 
   /** F20261008scpg 滚动事件归因：先账本（程序写入自证），后用户位移分类。
    * 分类序：回锚优先于脱锚——clamp 落底/用户滚到底都是安全方向（默认意图=跟随）；
-   * 向上位移脱锚只认「不在底部附近」的位移（滚动条上拖/键盘上翻的无事件兑底签名）。
+   * 向上位移脱锚 F20261016inbs 起不受 100px nearBottom 阈值限制（见下方内联注释）。
    * F20260921urdo 判定换轨退役：到底标记已读回调（onReachBottom）已删除（打开路径已 ack） */
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     const now = Date.now()
     pinWritesRef.current = pinWritesRef.current.filter(e => now - e.ts < LEDGER_TTL_MS && !e.interrupted)
-    /** 向上位移且不在底部：用户接管优先——滚动条上拖兑底签名。程序 pin 写入永远
-     *  向底部（不会向上移），匹配到的条目若视口实际向上则必是用户在程序写入后接管 */
+    /** 向上位移：用户接管优先——滚动条上拖/键盘上翻的无事件兑底签名。程序 pin 写入
+     *  永远向底部（不会向上移），匹配不到账本直接脱锚安全（restore 写入只发生在 floating 态）。
+     *  F20261016inbs 弹回修复：旧条件是 movedUp && !nearBottom（100px 阈值）——wheel 脱锚后
+     *  紧随的 scroll 位移不足 100px 仍在底部附近，落入 else 分支的「未归因且近底 → 回锚」
+     *  重新贴底，覆盖 wheel 意图；下一次 React 提交（流式期间几乎每 token 一次）执行贴底
+     *  写入 → 用户被弹回最下方（搭档 10-16 报告「上滚一两行被弹回底部」，单次位移超 100px
+     *  才能逃掉）。修法：账本未归因的向上位移一律脱锚，不受 nearBottom 阈值限制；
+     *  「未归因且近底 → 回锚」仅承接非向上位移（向下滚回底部，回锚合法）。
+     *  唯一例外：scrollHeight 缩小时浏览器 clamp 引发的向上位移是被动几何调整（内容收缩
+     *  把 scrollTop 压低），不是用户意图——收缩期间不脱锚，pinned 用户保持 pinned */
     const movedUp = el.scrollTop < lastScrollTopRef.current - 1
+    const shrank = el.scrollHeight < lastScrollHeightRef.current - 1
     const nearBottom = isNearBottom(el)
-    if (movedUp && !nearBottom) {
+    if (movedUp && !shrank) {
       takeUserControl()
     } else {
       let attributed = false
@@ -479,6 +498,9 @@ export function MessageList({
         break
       }
       if (!attributed) {
+        // F20261016inbs：本分支现在只承接非向上位移与收缩 clamp——向下滚回底部附近
+        // 回锚合法；收缩 clamp 后落底同理（pinned 保持）。向上位移已在上方分支脱锚，
+        // 不可能到达这里的「近底回锚」路径（弹回 bug 的旧通道已堵死）
         if (nearBottom) {
           pinRef.current = true
         }
@@ -491,6 +513,7 @@ export function MessageList({
       onLoadMore()
     }
     lastScrollTopRef.current = el.scrollTop
+    lastScrollHeightRef.current = el.scrollHeight
   }, [onLoadMore, loadingMore, pinRef, takeUserControl])
 
   /** 首次渲染滚到底部（R0：mount 即 pinned——容器带 key，切会话 remount 时同样经此贴底） */
@@ -511,6 +534,7 @@ export function MessageList({
     prevMessagesLenRef.current = 0
     pinWritesRef.current = []
     lastScrollTopRef.current = 0
+    lastScrollHeightRef.current = 0
     cancelAnimationFrame(rafPinIdRef.current)
   }, [conversationId, pinRef])
 
@@ -594,7 +618,10 @@ export function MessageList({
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative" style={{ paddingBottom: '170px' }}>
+    // F20261016inbs：视口 paddingBottom 写死 170px 已删——预留搬到滚动内容末尾等高衬垫
+    // （下方 bottomSpacer div）。视口 clientHeight 恒定（F20261015inpd 根治成果）不可回退：
+    // 任何「改视口高度」的补偿路径都会重新引入 clamp 跳动机制链
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
       {loadingMore && (
         <div className="text-center py-2 text-xs text-stone-400">加载中...</div>
       )}
@@ -628,6 +655,11 @@ export function MessageList({
             <MessageItem message={item.message} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === item.message.id} userName={userName} />
           </div>
         ))}
+        {/* F20261016inbs：底部衬垫——高度 = 输入覆盖层实高（bottomSpacerPx，ChatView
+            ResizeObserver 实测后透传）。渲染在 contentRef（内容包裹 div）末尾：衬垫是滚动
+            内容的一部分，contentObserver 能观测其长高/缩短，pinned 用户由既有贴底补偿保持
+            齐平（与消息长高同一路径），floating 用户不被打扰。aria-hidden：无语义内容 */}
+        {bottomSpacerPx > 0 && <div aria-hidden="true" data-testid="bottom-spacer" style={{ height: bottomSpacerPx }} />}
         </div>
       </div>
       {newMessagesCount > 0 && onJumpToBottom && (
