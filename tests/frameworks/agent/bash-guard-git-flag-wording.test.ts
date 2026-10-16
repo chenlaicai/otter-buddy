@@ -92,7 +92,7 @@ describe("F20261015gwr1 放行侧（豁免正道 + 空格一致性不变量）",
   });
 });
 
-describe("F20261016smrj 修复轮（检视獭1519 一审严重 1 + 建议 1/2/3）", () => {
+describe("F20261015gwr1 修复轮（检视獭1519 一审严重 1 + 建议 1/2/3）", () => {
   it("严重 1：附着+动态混合形态 -c\"$P\" commit → 双层拦（红线：同语义不得拼接反判）", () => {
     expect(prod(`git -c"$P" commit`)).toBeTruthy();
     expect(wv(`git -c"$P" commit`).verdict).toBe("BLOCK");
@@ -132,5 +132,50 @@ describe("F20261016smrj 修复轮（检视獭1519 一审严重 1 + 建议 1/2/3�
 
   it("严重 1 对称面：附着+动态 alias 定义（键+! 可见证）→ opaque 拦", () => {
     expect(prod(`git -c"alias.pwn=!$P" pwn`)).toBeTruthy();
+  });
+});
+
+describe("F20261015gwr1 修复轮二（检视獭1519 delta 残留 1/2，大獭 16/10 10:27 裁决）", () => {
+  it("残留 1 放行侧：越位扫参不误判——参数词 push 不当子命令位，与静态形态同判", () => {
+    expect(prod(`git -C /repo log -G push`)).toBeNull();
+    expect(prod(`git -C"$P" log -G push`)).toBeNull();
+    const r = wv(`git -C"$P" log -G push`);
+    expect(r.verdict).toBe("ALLOW");
+    expect(r.verdict === "ALLOW" && r.mode).toBe("positive");
+  });
+
+  it("残留 1 拦截侧：子命令位写族照拦（前瞻停位不弃权；取值旗标吞值后仍命中写族）", () => {
+    expect(prod(`git -C"$P" commit`)).toBeTruthy();
+    expect(prod(`git -c"$P" -C /repo push`)).toBeTruthy();
+    expect(wv(`git -c"$P" -C /repo push`).verdict).toBe("BLOCK");
+  });
+
+  it("残留 1 红线守恒：git -C\"$P\" status 只读面照常放（停位后无写族命中）", () => {
+    expect(prod(`git -C"$P" status`)).toBeNull();
+    expect(wv(`git -C"$P" status`).verdict).toBe("ALLOW");
+  });
+
+  it("残留 2：bare git stash wv ≡ git stash push（main-cwd 形态，wv 半边对称补齐，落点入账）", () => {
+    // main-cwd 形态（检视獭1519 delta 探针同款）——工作区 cwd 写面归沙盒区（OTTER_RUNTIME_REGIONS）不判主仓写
+    const wvMain = (cmd: string) => evaluateWriteVerdict(cmd, projectRoot, projectRoot);
+    const bare = wvMain(`git stash`);
+    expect(bare).toMatchObject({ verdict: "BLOCK", mode: "positive" });
+    expect(bare.verdict === "BLOCK" && bare.mode === "positive" && bare.mainHits.length > 0).toBe(true);
+    expect(wvMain(`git stash`).verdict).toBe(wvMain(`git stash push`).verdict);
+    expect(prod(`git stash`) === null).toBe(prod(`git stash push`) === null);
+  });
+
+  it("残留 2 旗标形同口径：git stash -m x ≡ git stash push -m x（main-cwd 双层同判）", () => {
+    const wvMain = (cmd: string) => evaluateWriteVerdict(cmd, projectRoot, projectRoot);
+    expect(wvMain(`git stash -m x`).verdict).toBe(wvMain(`git stash push -m x`).verdict);
+    expect(wvMain(`git stash -m x`).verdict).toBe("BLOCK");
+    // 落点入账证据（mainHits 非空即入账）：修复前 bare/旗标形 targets=[] 被洗白
+    const flagForm = wvMain(`git stash -m x`);
+    expect(flagForm.verdict === "BLOCK" && flagForm.mode === "positive" && flagForm.mainHits.length > 0).toBe(true);
+  });
+
+  it("残留 2 只读面守恒：git stash list 双层照常放", () => {
+    expect(prod(`git stash list`)).toBeNull();
+    expect(wv(`git stash list`).verdict).toBe("ALLOW");
   });
 });

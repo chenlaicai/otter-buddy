@@ -28,7 +28,7 @@ const GIT_READONLY_WHITELIST = new Set([
  *  注意 bare 形态（git branch / git tag / git remote / git config，无参数）：
  *  git 语义里 bare 是只读列表（branch→list / tag→list / remote→list /
  *  config→list），语义同对应的显式只读 flag，故放行；`git config k v` 等带值形态必须有
- *  flag 才放行，否则回落写族保守拦。**stash 例外（F20261016smrj 建议 2 正名）**：bare
+ *  flag 才放行，否则回落写族保守拦。**stash 例外（F20261015gwr1 修复轮 建议 2 正名）**：bare
  *  `git stash` ≡ `git stash push`（git-stash(1) 明文，旧注释「stash→list」是错的）——
  *  写形态，不放行；只读面收窄为显式 list / show / stash@{n}。
  *  安全不变量：识别逻辑只接受「bare 或明确只读 flag 的形态」；含写语义参数一律不放行。
@@ -36,7 +36,7 @@ const GIT_READONLY_WHITELIST = new Set([
 const AMBIGUOUS_READONLY_FLAGS: Record<string, (args: string[]) => boolean> = {
   // git branch：bare 或 -a/-r/-v/-vv/--show-current/--list 只读
   branch: (a) => a.length === 0 || a.every(x => /^-[arv]+$|^--(show-current|list|all|remotes|verbose)$/.test(x)),
-  // git stash：只限显式 list / show（可带 stash@{n}）——bare ≡ push（写）不放行（F20261016smrj）
+  // git stash：只限显式 list / show（可带 stash@{n}）——bare ≡ push（写）不放行（F20261015gwr1 修复轮）
   //  （空参 a.every 恒真——必须 a.length > 0 显式堵 vacuous truth）
   stash: (a) => a.length > 0 && a.every(x => /^(list|show|stash@\{\d+\})$/.test(x)),
   // git tag：bare（=list）或 -l/--list/-n 只读（建/删 tag 带值 → 不在此列）

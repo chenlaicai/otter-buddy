@@ -274,7 +274,7 @@ function evalRedirects(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRe
   return null;
 }
 
-/** F20261016smrj（M-46f0e74d 建议 1，检视獭1519）：git 段自身写证据——词面证洗白的
+/** F20261015gwr1 修复轮（M-46f0e74d 建议 1，检视獭1519）：git 段自身写证据——词面证洗白的
  *  禁入键从全局 reason 字符串改为段自身证据（不依赖段序）：段内携带可证主仓落点
  *  （-C 链静态解析入主仓树）或不可证落点（动态 -c/-C 值/--git-dir|--work-tree 覆盖/
  *  core.* 树发现改写）→ true（洗白不得覆盖——`pushd /tmp && git -C "/repo/x y" commit`
@@ -317,7 +317,7 @@ function gitSegSelfWriteEvidence(seg: Segment, projectRoot: string): boolean {
       continue;
     }
     if (w.startsWith("-c") && w.length > 2) {
-      // F20261016smrj 建议 3：attached -c<kv> 同样查 core.* 树发现改写
+      // F20261015gwr1 修复轮 建议 3：attached -c<kv> 同样查 core.* 树发现改写
       if (/^core\.(worktree|bare|gitdir)=/i.test(w.slice(2))) return true;
       i++;
       continue;
@@ -357,7 +357,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
         if (name !== null) v = resolveAssign(name, acc.segments);
       }
       if (v === null) return "dynamic-path";
-      // F20261016smrj（M-46f0e74d 建议 3，检视獭1519）：core.worktree/bare/gitdir 配置改写
+      // F20261015gwr1 修复轮（M-46f0e74d 建议 3，检视獭1519）：core.worktree/bare/gitdir 配置改写
       // 树发现——落点计算不可信，fail-closed（与 prod 侧 gitDashCTargetsWorktree 对称）
       if (w === "-c" && /^core\.(worktree|bare|gitdir)=/i.test(v)) return "dynamic-path";
       if (w === "-C") cTarget = v;
@@ -392,7 +392,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
       continue;
     }
     if (w.startsWith("-c") && w.length > 2) {
-      // F20261016smrj（建议 3）：attached -c<kv> 同样查 core.* 树发现改写
+      // F20261015gwr1 修复轮（建议 3）：attached -c<kv> 同样查 core.* 树发现改写
       if (/^core\.(worktree|bare|gitdir)=/i.test(w.slice(2))) return "dynamic-path";
       i++;
       continue;
@@ -425,7 +425,15 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   }
   if (sub === "reset" && !rest.some(a => a === "--hard")) return null;
   if (sub === "clean" && !rest.some(a => /^-[a-zA-Z]*f/.test(a))) return null;
-  if (sub === "stash" && rest[0] !== "push") return null;
+  // F20261015gwr1 修复轮二（delta 残留 2，检视獭1519）：wv 半边对称补齐——bare `git stash`
+  //  ≡ `git stash push`（git-stash(1) 明文）+ 旗标形（stash -m …）同归写，与 prod
+  //  isWriteVerbAt 同口径；显式 list/show 等非写面照旧不入账。旧 `rest[0] !== "push"` 把
+  //  bare/旗标形归非写（prod 收 wv 不收=只落一条链反判）。stash pop/apply/drop 写面漏判
+  //  另立 issue 归口（M-026d87ff 伞旁），不在本行扩面。
+  if (sub === "stash") {
+    const s0 = rest[0];
+    if (s0 !== undefined && s0 !== "push" && !s0.startsWith("-")) return null;
+  }
   const base = cTarget !== null ? evalPath(cTarget, cwd) : cwd;
   if (base === null) return "dynamic-path";
   acc.targets.push({ path: workTreeOverride !== null ? (evalPath(workTreeOverride, cwd) ?? base) : base, via: "git", segmentIndex: acc.index, access: "write" });
@@ -560,7 +568,7 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
         if (name !== null) v = resolveAssign(name, acc.segments);
       }
       if (v === null) return "dynamic-path";
-      // F20261016smrj（建议 3 同步）：core.* 树发现改写——fail-closed（两走查同形同治）
+      // F20261015gwr1 修复轮（建议 3 同步）：core.* 树发现改写——fail-closed（两走查同形同治）
       if (w === "-c" && /^core\.(worktree|bare|gitdir)=/i.test(v)) return "dynamic-path";
       if (w === "-C") cTarget = v;
       i += 2;
@@ -1318,7 +1326,7 @@ export function evaluateWriteTargets(command: string, projectRoot: string, start
 
   const main = evaluateFromModel(model, projectRoot, startCwd, { payload: scriptPayload });
   if (main.kind === "unevaluated") {
-    // F20261015gwr1 收窄（corpus 守恒）+ F20261016smrj 建议 1（检视獭1519）：洗白禁入键
+    // F20261015gwr1 收窄（corpus 守恒）+ F20261015gwr1 修复轮 建议 1（检视獭1519）：洗白禁入键
     // =git 段自身证据（不依赖段序/全局 reason）——段内携带可证主仓落点或不可证落点时
     // 词面证不得洗白；无 -C 且全静态（96a21f3c pushd+remote-push）维持词面证放行
     //（能力 4 既有语义+双签背书，corpus 棘轮保绿）。

@@ -139,21 +139,24 @@ export const GIT_WRITE_SUBS = new Set(["commit", "rebase", "merge", "cherry-pick
  *  commit-tree/merge-base 词族。走查与 extractGitAliasShell/evalGitWrite 同构（c107
  *  教训：不合并走查，语义注释对齐）。动态值位照常消费后找子命令；动态旗标/子命令位
  *  →false（间接构造不追，#1513 边界）。 */
+/** git 取值型全局旗标（旗标词后跟独立值词）——gitWriteSubcommandHit 与 lookAheadWriteSubcommand
+ *  两走查共享（词表漂移会再造静动反判；走查不合并=c107 教训，语义注释对齐）。 */
+const GIT_VALUE_FLAGS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--exec-path", "--namespace"]);
+
 export function gitWriteSubcommandHit(seg: Segment): boolean {
   if (seg.argv0 !== "git") return false;
   const words = seg.words;
-  const VALUE_FLAGS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--exec-path", "--namespace"]);
   let i = 1;
   while (i < words.length) {
     const w = words[i].evaluated;
     if (w === null) {
-      // F20261016smrj（M-46f0e74d 严重 1，检视獭1519）：动态词位不弃权——后续静态写族
+      // F20261015gwr1 修复轮（M-46f0e74d 严重 1，检视獭1519）：动态词位不弃权——后续静态写族
       // 子命令照判 write（`git -c"$P" commit`/`git -C$P commit` 附着+动态混合形态曾双层
       // fail-open，同语义空格/附着拼接反判）。红线：后续无写族子命令（`git -C"$P" status`
       //）照常 false，只读面不误拦。间接构造（整词动态子命令 `git "$X"`）仍不追（#1513）。
       return lookAheadWriteSubcommand(words, i + 1);
     }
-    if (VALUE_FLAGS.has(w)) {
+    if (GIT_VALUE_FLAGS.has(w)) {
       const nxt = words[i + 1]?.evaluated ?? null;
       i += words[i + 1] !== undefined && !(nxt ?? "").startsWith("-") ? 2 : 1; // 值位（含动态值）照常消费
       continue;
@@ -165,7 +168,7 @@ export function gitWriteSubcommandHit(seg: Segment): boolean {
 }
 
 /** 写族子命令判定（严格语义，位置定在 words[i]）：push 排除 --dry-run/-n、stash 限 push
- *  （F20261016smrj 建议 2：bare `git stash` ≡ `git stash push`——git 原生语义，缺省即 push）
+ *  （F20261015gwr1 修复轮 建议 2：bare `git stash` ≡ `git stash push`——git 原生语义，缺省即 push）
  *  、reset 限 --hard、clean 限 f 旗标；词等值天然排除 commit-tree/merge-base 词族。 */
 // eslint-disable-next-line complexity -- 写族子命令严格语义逐分支（push 排除/stash 限定/reset --hard 限定/clean f 旗标，r2-C 基线形态穷举）
 function isWriteVerbAt(words: Word[], i: number): boolean {
@@ -180,12 +183,24 @@ function isWriteVerbAt(words: Word[], i: number): boolean {
   return false;
 }
 
-/** F20261016smrj（严重 1）：动态词位后的写族前瞻——静态写族子命令（含限定词）任一命中
- *  即判 write。 */
+/** F20261015gwr1 修复轮二（delta 残留 1，检视獭1519）：动态词位后的写族前瞻——与主走查
+ *  同构（旗标/取值旗标消费后停在首个静态非旗标词=子命令位）就地判 write 即停，**不越位
+ *  扫参数**——旧版从 from 全量扫描把参数词当子命令位（`git -C"$P" log -G push` 的 push 被
+ *  isWriteVerbAt 命中 → 与静态 `git -C /repo log -G push` 反判=本 PR 病核复发，误拦方向）。
+ *  取值旗标必须吞值（`git -c"$P" -C /repo commit` 的 /repo 是值不是子命令位，漏吞=新 fail-open）。
+ *  动态词跳过不追（间接构造不追，#1513）；后续无静态非旗标词（`git -C"$P" status` 红线）照常 false。 */
 function lookAheadWriteSubcommand(words: Word[], from: number): boolean {
-  for (let j = from; j < words.length; j++) {
-    if (words[j].evaluated === null) continue; // 动态词非静态子命令候选
-    if (isWriteVerbAt(words, j)) return true;
+  let j = from;
+  while (j < words.length) {
+    const w = words[j].evaluated;
+    if (w === null) { j++; continue; } // 动态词跳过（非静态子命令候选）
+    if (GIT_VALUE_FLAGS.has(w)) {
+      const nxt = words[j + 1]?.evaluated ?? null;
+      j += words[j + 1] !== undefined && !(nxt ?? "").startsWith("-") ? 2 : 1; // 值位照常消费（漏吞=值词误当子命令位）
+      continue;
+    }
+    if (w.startsWith("-")) { j++; continue; }
+    return isWriteVerbAt(words, j); // 首个静态非旗标词=子命令位，就地判定（勿越位扫参数）
   }
   return false;
 }
@@ -311,7 +326,7 @@ export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
   while (i < words.length) {
     const w = words[i].evaluated;
     if (w === null) {
-      // F20261016smrj（严重 1 对称面）：附着+动态 alias 定义（`-c"alias.x=!$P"`）——
+      // F20261015gwr1 修复轮（严重 1 对称面）：附着+动态 alias 定义（`-c"alias.x=!$P"`）——
       // 键+! 字面前缀可见证、载荷动态 → opaque（与 evaluate 词位同病同治）；其余动态词位
       // 间接构造不追（#1513），后续定义位扫描失去锚，按无定义位处置
       const p = literalPrefixOf(words[i]);
