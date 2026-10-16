@@ -145,7 +145,18 @@ getExtractor()
     });
   });
 
-process.on("message", async (msg: EmbedRequest | EmbedBatchRequest) => {
+/**
+ * F20261016slvg：显式串行队列——promise chain 保证同一时刻最多一个推理在途。
+ * 现状 onnxruntime-node 的 session.run 原生同步阻塞，事件循环停摆期间后续消息
+ * 排队，「偶然串行」；显式 chain 把这一不变量写进代码——未来换异步 backend /
+ * IOBinding / 改回 worker_threads 时不依赖偶然性（onnxruntime 1.23.2 长文本 ×
+ * 并发>1 的 lost-wakeup 死锁前提是并发，串行是硬约束）。
+ * 原生挂死时 chain 停摆——由主进程侧无进展看门狗兜底（语义不变）。
+ */
+let inferenceChain: Promise<void> = Promise.resolve();
+
+/** 单条/批量请求的串行处理体（原 process.on 直接挂载的逻辑，不变） */
+async function handleInferenceMessage(msg: EmbedRequest | EmbedBatchRequest): Promise<void> {
   if (msg.type === "embed") {
     try {
       const fn = await getExtractor();
@@ -181,6 +192,16 @@ process.on("message", async (msg: EmbedRequest | EmbedBatchRequest) => {
       });
     }
   }
+}
+
+process.on("message", (msg: EmbedRequest | EmbedBatchRequest) => {
+  // F20261016slvg：吞错保险丝——handle 内部已逐分支 try/catch，此处防御性
+  // 保证 chain 永不断裂（断裂会静默停摆整个 worker）
+  inferenceChain = inferenceChain
+    .then(() => handleInferenceMessage(msg))
+    .catch(() => {
+      /* unreachable：handle 内全量 try/catch */
+    });
 });
 
 // 父进程 kill/断连：直接退出，不留半死孤儿
