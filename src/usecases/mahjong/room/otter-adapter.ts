@@ -247,3 +247,21 @@ export async function wakeOtterForDecision(
 export function shouldSkipWake(engine: SanmaEngine, dp: DecisionPoint): boolean {
   return isTrivialDecision(engine, dp);
 }
+
+// ─────────────────── 真人回话注入 prompt（下局开局，独立 user 消息） ───────────────────
+
+/** 围栏提示：注入消息只求一句自然回应，不要求动作/工具——回复文本不回传对局（仅入 session 上下文） */
+export function buildChatInjectionPrompt(
+  msgs: ReadonlyArray<{ seat: Seat; name: string; text: string }>,
+  roundNo: number,
+): string {
+  const lines: string[] = [];
+  lines.push(`# 牌桌聊天（东${roundNo}局开局注入）`);
+  lines.push("上一局打牌期间，牌桌上有人对你说了：");
+  for (const m of msgs) {
+    lines.push(`  [${m.seat}号位 ${m.name}] ${m.text}`);
+  }
+  lines.push("");
+  lines.push("请只回复一句话自然接话（不要调用工具、不要输出 JSON）。随后你会收到本局的牌局决策请求。");
+  return lines.join("\n");
+}

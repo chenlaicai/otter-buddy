@@ -11,10 +11,18 @@
  *   - 獭：wakeOtterForDecision（SDK 直调；重试 1 次；失败规则代理兜底）
  *   - 每步落地即落帧（appendFrame）并广播 {events, decision, frameSeq}
  *   - 断线重连：recover(roomId) = 最新帧 restoreEngine + 续推
+ *
+ * F20261015mjsg 收尾三钩（大獭裁决归引擎层）：
+ *   - isSeated(otterId)：D2 精确谓词——入座且对局进行中，对话侧据此自动应答「打牌中」
+ *   - addChat + 下局开局注入：真人回话入队（按 otter 座位分队），下局开局后经 gateway
+ *     直调注入各 otter session（方案口径：不走运行中 reset/不走 systemPrompt）
+ *   - onGameover 回调：局终一次性上报 GameoverReport（终局名次/役种亮点/獭发言/代理代打数），
+ *     bootstrap 接 SendEntry 发战报卡（recover 已终局的牌局不补发——防跨重启重复播报）
  */
 
 import { SanmaEngine, restoreEngine, notation } from "../engine/engine";
 import { proxyChooseAction, isTrivialDecision } from "../engine/proxy";
+import { buildChatInjectionPrompt } from "./otter-adapter";
 import type {
   DecisionPoint,
   EngineAction,
@@ -22,23 +30,11 @@ import type {
   GameConfig,
   Seat,
 } from "../engine/types";
+import type { Logger } from "../../ports/logger";
 import type { SqliteFrameStore } from "./frames";
 import { wakeOtterForDecision, type OtterGateway, type WakeResult } from "./otter-adapter";
-
-export type RoomEvent =
-  | {
-      type: "game";
-      roomId: string;
-      gameId: string;
-      events: readonly EngineEvent[];
-      decision: DecisionPoint | null;
-      frameSeq: number;
-      wake?: { via: "trivial" | "proxy" | "otter" | "fallback" | "human" | "timeout-fallback"; speech?: string; fallbackReason?: string; attempts?: number };
-    }
-  | { type: "human-wait"; roomId: string; seat: Seat; deadline: string }
-  | { type: "error"; roomId: string; message: string };
-
-export type RoomEventListener = (event: RoomEvent) => void;
+export type { ChatMessage, GameoverReport, RoomEvent, RoomEventListener, RoomView } from "./room-types";
+import type { ChatMessage, GameoverReport, RoomEvent, RoomEventListener, RoomView } from "./room-types";
 
 /** 房间粒度事件总线（SSE/WS 订阅点） */
 export class RoomBus {
@@ -78,6 +74,10 @@ export interface RoomServiceDeps {
   humanTimeoutMs?: number;
   /** 超时后宽限（默认 15000，宽限内广播 deadline；到期代理自动摸切） */
   humanGraceMs?: number;
+  /** F20261015mjsg 局终回调（战报卡数据口）——bootstrap 装配 SendEntry；失败仅告警不回滚牌局 */
+  onGameover?: (report: GameoverReport) => void | Promise<void>;
+  /** 失败路径留痕（回调/注入异常）；缺省静默降级 */
+  logger?: Pick<Logger, "warn">;
 }
 
 interface AwaitingHuman {
@@ -92,36 +92,18 @@ interface RoomInternal {
   engine: SanmaEngine;
   chain: Promise<void>;
   awaiting: AwaitingHuman | null;
-}
-
-export interface RoomView {
-  roomId: string;
-  gameId: string;
-  status: string;
-  roundNo: number;
-  honba: number;
-  sticks: number;
-  dealer: Seat;
-  phase: string | null;
-  seatWinds: string[];
-  wallRemaining: number;
-  doraIndicators: string[];
-  players: Array<{
-    seat: Seat;
-    name: string;
-    kind: string;
-    points: number;
-    hand: string[] | null;
-    melds: Array<{ type: string; tiles: string[]; from?: string }>;
-    kita: string[];
-    discards: string[];
-    riichi: boolean;
-    riichiTurn: number;
-    ippatsu: boolean;
-  }>;
-  decision: DecisionPoint | null;
-  awaitingHuman: { seat: Seat; deadline: string } | null;
-  settlement: unknown;
+  startedAt: number;
+  /** 局终已上报（防重复：loop 顶只 fire 一次） */
+  reportedOver: boolean;
+  /** 待注入聊天（按 otterId 分队；下局开局消费，成功即清、失败保留次局重试） */
+  chatQueues: Map<string, ChatMessage[]>;
+  /** 战报累积器（publishGame/step 单点采集；内部可变、上报时作 readonly 视图） */
+  report: {
+    ranking: GameoverReport["ranking"] | null;
+    highlights: Array<GameoverReport["highlights"][number]>;
+    speeches: Array<GameoverReport["speeches"][number]>;
+    proxyFallbacks: number;
+  };
 }
 
 export class RoomService {
@@ -144,7 +126,7 @@ export class RoomService {
     const events = engine.startRound();
     this.deps.store.createGame(gameId, roomId, config);
     this.deps.store.appendFrame(gameId, engine.state, null);
-    const room: RoomInternal = { roomId, gameId, engine, chain: Promise.resolve(), awaiting: null };
+    const room = this.newRoom(roomId, gameId, engine);
     this.rooms.set(roomId, room);
     this.publishGame(room, events, engine.decisionPoint(), 0);
     this.kick(roomId);
@@ -162,7 +144,7 @@ export class RoomService {
     const frame = this.deps.store.latestFrame(game.id);
     if (!frame) return null;
     const engine = restoreEngine(frame.state);
-    const room: RoomInternal = { roomId, gameId: game.id, engine, chain: Promise.resolve(), awaiting: null };
+    const room = this.newRoom(roomId, game.id, engine);
     this.rooms.set(roomId, room);
     if (engine.state.status !== "playing") return { gameId: game.id };
     this.kick(roomId);
@@ -193,6 +175,44 @@ export class RoomService {
 
   subscribe(roomId: string, listener: RoomEventListener): () => void {
     return this.deps.bus.subscribe(roomId, listener);
+  }
+
+  /**
+   * D2 精确谓词：该 otter 当前入座于**进行中**的牌局（终局房间不算——对局已了不再防护）。
+   * 对话派发点据此自动应答「打牌中」，不进 LLM 推理（不触发水位换世）。
+   */
+  isSeated(otterId: string): boolean {
+    for (const room of this.rooms.values()) {
+      if (room.engine.state.status !== "playing") continue;
+      if (room.engine.state.config.players.some((p) => p.kind === "otter" && p.otterId === otterId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // ── 真人回话 ──
+
+  /** 真人回话入队（按 otter 座位分队；广播 chat 事件供实时回显） */
+  addChat(roomId: string, seat: Seat, text: string): { ok: true } | { ok: false; reason: string } {
+    const room = this.rooms.get(roomId);
+    if (!room) return { ok: false, reason: "room not found" };
+    if (room.engine.state.status !== "playing") return { ok: false, reason: "game already finished" };
+    const player = room.engine.state.config.players[seat];
+    if (!player) return { ok: false, reason: `invalid seat ${seat}` };
+    const trimmed = text.trim();
+    if (!trimmed) return { ok: false, reason: "text empty" };
+    if (trimmed.length > 500) return { ok: false, reason: "text too long (max 500)" };
+    const msg: ChatMessage = { seat, name: player.name, text: trimmed, at: new Date().toISOString() };
+    for (const p of room.engine.state.config.players) {
+      if (p.kind === "otter" && p.otterId) {
+        const q = room.chatQueues.get(p.otterId) ?? [];
+        q.push(msg);
+        room.chatQueues.set(p.otterId, q);
+      }
+    }
+    this.deps.bus.publish(roomId, { type: "chat", roomId, seat, text: trimmed, at: msg.at });
+    return { ok: true };
   }
 
   // ── 真人注入 ──
@@ -266,6 +286,21 @@ export class RoomService {
 
   // ── 推进内核 ──
 
+  /** 房间内部对象工厂（createRoom/recover 共用——新字段单点初始化） */
+  private newRoom(roomId: string, gameId: string, engine: SanmaEngine): RoomInternal {
+    return {
+      roomId,
+      gameId,
+      engine,
+      chain: Promise.resolve(),
+      awaiting: null,
+      startedAt: Date.now(),
+      reportedOver: false,
+      chatQueues: new Map(),
+      report: { ranking: null, highlights: [], speeches: [], proxyFallbacks: 0 },
+    };
+  }
+
   private kick(roomId: string): void {
     const room = this.rooms.get(roomId);
     if (!room) return;
@@ -282,12 +317,13 @@ export class RoomService {
       guard += 1;
       if (guard > 10_000) throw new Error("advance loop exceeded step guard");
       const engine = room.engine;
-      if (engine.state.status !== "playing") return;
+      if (engine.state.status !== "playing") {
+        await this.fireGameover(room);
+        return;
+      }
       const dp = engine.decisionPoint();
       if (!dp) {
-        const events = engine.nextRound();
-        const seq = this.storeFrame(room, null);
-        this.publishGame(room, events, engine.decisionPoint(), seq);
+        await this.advanceRound(room);
         continue;
       }
       // ① 真人 → park（等 HTTP 注入；超时链广播 deadline → 宽限后代理）
@@ -321,6 +357,7 @@ export class RoomService {
     wake?: WakeResult,
   ): void {
     const events = room.engine.apply(seat, action).events;
+    this.collectStepReport(room, seat, via, wake);
     const seq = this.storeFrame(room, action);
     const dp = room.engine.decisionPoint();
     const wakeField =
@@ -382,6 +419,15 @@ export class RoomService {
     frameSeq: number,
     wake?: Extract<RoomEvent, { type: "game" }>["wake"],
   ): void {
+    // 战报累积：每局结算（役种亮点）+ 终局名次——engine.round.settlement 只留末局，跨局在此聚合
+    const roundNo = room.engine.state.roundNo;
+    for (const ev of events) {
+      if (ev.type === "win" || ev.type === "drawEnd" || ev.type === "abortive") {
+        room.report.highlights.push({ roundNo, settlement: ev.settlement });
+      } else if (ev.type === "gameOver") {
+        room.report.ranking = ev.ranking;
+      }
+    }
     this.deps.bus.publish(room.roomId, {
       type: "game",
       roomId: room.roomId,
@@ -391,5 +437,94 @@ export class RoomService {
       frameSeq,
       ...(wake ? { wake } : {}),
     });
+  }
+
+  /** 结算停驻→推进下局：落帧+广播+聊天注入（自 loop 拆出——控 loop 语句数） */
+  private async advanceRound(room: RoomInternal): Promise<void> {
+    const events = room.engine.nextRound();
+    const seq = this.storeFrame(room, null);
+    this.publishGame(room, events, room.engine.decisionPoint(), seq);
+    // 下局开局注入：真人回话作为首段 user 消息进各 otter session（方案口径）
+    await this.injectPendingChat(room);
+  }
+
+  /** 战报累积（自 step 拆出——控 step 复杂度）：獭发言 + 代理代打（trivial/human/proxy 按设计不算代打） */
+  private collectStepReport(
+    room: RoomInternal,
+    seat: Seat,
+    via: "trivial" | "proxy" | "otter" | "fallback" | "human" | "timeout-fallback",
+    wake?: WakeResult,
+  ): void {
+    if (wake && wake.via === "otter" && wake.speech !== undefined) {
+      const p = room.engine.state.round?.players[seat];
+      room.report.speeches.push({ seat, name: p?.name ?? String(seat), text: wake.speech });
+    }
+    if (via === "fallback" || via === "timeout-fallback") room.report.proxyFallbacks += 1;
+  }
+
+  /** 下局开局聊天注入：各 otter 并行直调（per-otter 锁由端口自带）；成功清队、失败留次局重试 */
+  private async injectPendingChat(room: RoomInternal): Promise<void> {
+    if (room.chatQueues.size === 0) return;
+    // 终局轮过渡（东4 结束→gameOver）不注入——牌局已了，队随房间释放
+    if (room.engine.state.status !== "playing") return;
+    const roundNo = room.engine.state.roundNo;
+    await Promise.all(
+      [...room.chatQueues.entries()].map(async ([otterId, msgs]) => {
+        if (msgs.length === 0) return;
+        try {
+          await this.deps.gateway.invoke(otterId, buildChatInjectionPrompt(msgs, roundNo));
+          room.chatQueues.set(otterId, []);
+        } catch (e) {
+          this.deps.logger?.warn("mahjong chat injection failed, kept for next round", {
+            roomId: room.roomId,
+            otterId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }),
+    );
+  }
+
+  /** 局终一次性上报（loop 顶触发；回调异常仅告警——牌局状态不回滚） */
+  private async fireGameover(room: RoomInternal): Promise<void> {
+    if (room.reportedOver) return;
+    room.reportedOver = true;
+    const cb = this.deps.onGameover;
+    if (!cb) return;
+    const cfg = room.engine.state.config;
+    // 名次：gameOver 事件优先（nextRound 产生，已在 publishGame 采集）；缺失回退末局点数
+    const finalPlayers = room.engine.state.round?.players;
+    const ranking = room.report.ranking
+      ?? (finalPlayers
+        ? [...finalPlayers]
+            .map((p) => ({ seat: p.seat, name: p.name, points: p.points }))
+            .sort((a, b) => b.points - a.points)
+        : []);
+    const report: GameoverReport = {
+      roomId: room.roomId,
+      gameId: room.gameId,
+      seed: cfg.seed,
+      players: cfg.players.map((p, i) => ({
+        seat: i as Seat,
+        name: p.name,
+        kind: p.kind,
+        ...(p.otterId ? { otterId: p.otterId } : {}),
+      })),
+      ranking,
+      highlights: room.report.highlights,
+      speeches: room.report.speeches,
+      proxyFallbacks: room.report.proxyFallbacks,
+      startedAt: room.startedAt,
+      endedAt: Date.now(),
+    };
+    try {
+      await cb(report);
+    } catch (e) {
+      this.deps.logger?.warn("mahjong onGameover callback failed", {
+        roomId: room.roomId,
+        gameId: room.gameId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 }
