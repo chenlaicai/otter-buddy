@@ -167,6 +167,17 @@ export async function createAndStartRetryWorker(
     return null;
   }
 
+  // F20261016slvg 对抗审视洞 2 处置：pending 任务 attempts 一次性赦免归零。
+  // claim 即 attempts+1 的语义被超时循环（不计失败）反复 claim 撑大——2026-10-16
+  // 活锁 4h40m 后存量积压大量 attempts≥3，不重置的话新代码上线后遇到一次硬错误
+  // 就会成批 dead-letter（markTaskAttemptFailed 判死看的是被撑大的 attempts）。
+  if (typeof repos.memoryQueue.resetPendingAttempts === "function") {
+    const reset = await repos.memoryQueue.resetPendingAttempts();
+    if (reset > 0) {
+      logger.info(`Reset attempts for ${reset} pending embedding tasks (amnesty after livelock)`);
+    }
+  }
+
   // F20260812mrcq Part 1 审视 M8：存量暗化条目迁移
   // 扫描已存在的暗化条目，批量 enqueueRetry 入队
   const existing = await repos.memoryReader.scanDarkEntries(true);  // includeDead=true：之前若曾有 dead 也尝试重新 embed

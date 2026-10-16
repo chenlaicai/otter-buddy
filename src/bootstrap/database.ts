@@ -9,7 +9,7 @@ import { initDatabase, closeDatabase } from "@frameworks/db/database";
 import { initSchema } from "@frameworks/db/schema";
 import { initModels } from "@frameworks/llm/models-factory";
 import { ModelPool } from "@frameworks/llm/model-pool";
-import { initEmbeddingService } from "@frameworks/embedding/embedding-service";
+import { initEmbeddingService } from "@frameworks/embedding/embedding-init";
 import type { EmbeddingGateway, EmbedModelMeta } from "@usecases/memory/embedding-gateway";
 import { ensureBgeM3Model } from "@frameworks/embedding/ensure-model";
 import { migrateDatabase, migrateExistingData, migrateFeatureBodyToChunks, migrateMessageSegments } from "@frameworks/db/migration";

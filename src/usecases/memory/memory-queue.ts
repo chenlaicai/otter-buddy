@@ -31,6 +31,12 @@ export interface MemoryQueue {
   /** F20260812mrcq Part 1：task 成功，删除 task 行 */
   markTaskDone(entryId: string): Promise<void>;
   /**
+   * F20261016slvg：启动迁移用——把 pending 任务的 attempts 归零、next_retry_at 置为立即可重试。
+   * 可选方法：claim 即 attempts+1 的语义被超时循环撑大后，存量任务需要一次性赦免
+   * （对抗审视洞 2 处置，只在 createAndStartRetryWorker 启动时调用）。
+   */
+  resetPendingAttempts?(): Promise<number>;
+  /**
    * F20260812mrcq Part 1：task 失败，更新 last_error。
    * 若 attempts >= maxAttempts，status 转 'dead'。
    */
