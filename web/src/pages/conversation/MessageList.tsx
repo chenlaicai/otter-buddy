@@ -316,6 +316,9 @@ export function MessageList({
   const pinWritesRef = useRef<ScrollLedgerEntry[]>([])
   const rafPinIdRef = useRef(0)
   const lastScrollTopRef = useRef(0)
+  /** F20261016inbs：上次采样的 scrollHeight——内容收缩判定基线（handleScroll 内比对），
+   *  采样点与 lastScrollTopRef 同一处（handleScroll 末尾），中间无观测缺口 */
+  const lastScrollHeightRef = useRef(0)
   const touchStartYRef = useRef<number | null>(null)
 
   /** 程序性滚动统一入口：所有代码发起的 scrollTop 写入必须走这里（写入点收敛）。
@@ -456,18 +459,27 @@ export function MessageList({
 
   /** F20261008scpg 滚动事件归因：先账本（程序写入自证），后用户位移分类。
    * 分类序：回锚优先于脱锚——clamp 落底/用户滚到底都是安全方向（默认意图=跟随）；
-   * 向上位移脱锚只认「不在底部附近」的位移（滚动条上拖/键盘上翻的无事件兑底签名）。
+   * 向上位移脱锚 F20261016inbs 起不受 100px nearBottom 阈值限制（见下方内联注释）。
    * F20260921urdo 判定换轨退役：到底标记已读回调（onReachBottom）已删除（打开路径已 ack） */
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     const now = Date.now()
     pinWritesRef.current = pinWritesRef.current.filter(e => now - e.ts < LEDGER_TTL_MS && !e.interrupted)
-    /** 向上位移且不在底部：用户接管优先——滚动条上拖兑底签名。程序 pin 写入永远
-     *  向底部（不会向上移），匹配到的条目若视口实际向上则必是用户在程序写入后接管 */
+    /** 向上位移：用户接管优先——滚动条上拖/键盘上翻的无事件兑底签名。程序 pin 写入
+     *  永远向底部（不会向上移），匹配不到账本直接脱锚安全（restore 写入只发生在 floating 态）。
+     *  F20261016inbs 弹回修复：旧条件是 movedUp && !nearBottom（100px 阈值）——wheel 脱锚后
+     *  紧随的 scroll 位移不足 100px 仍在底部附近，落入 else 分支的「未归因且近底 → 回锚」
+     *  重新贴底，覆盖 wheel 意图；下一次 React 提交（流式期间几乎每 token 一次）执行贴底
+     *  写入 → 用户被弹回最下方（搭档 10-16 报告「上滚一两行被弹回底部」，单次位移超 100px
+     *  才能逃掉）。修法：账本未归因的向上位移一律脱锚，不受 nearBottom 阈值限制；
+     *  「未归因且近底 → 回锚」仅承接非向上位移（向下滚回底部，回锚合法）。
+     *  唯一例外：scrollHeight 缩小时浏览器 clamp 引发的向上位移是被动几何调整（内容收缩
+     *  把 scrollTop 压低），不是用户意图——收缩期间不脱锚，pinned 用户保持 pinned */
     const movedUp = el.scrollTop < lastScrollTopRef.current - 1
+    const shrank = el.scrollHeight < lastScrollHeightRef.current - 1
     const nearBottom = isNearBottom(el)
-    if (movedUp && !nearBottom) {
+    if (movedUp && !shrank) {
       takeUserControl()
     } else {
       let attributed = false
@@ -486,6 +498,9 @@ export function MessageList({
         break
       }
       if (!attributed) {
+        // F20261016inbs：本分支现在只承接非向上位移与收缩 clamp——向下滚回底部附近
+        // 回锚合法；收缩 clamp 后落底同理（pinned 保持）。向上位移已在上方分支脱锚，
+        // 不可能到达这里的「近底回锚」路径（弹回 bug 的旧通道已堵死）
         if (nearBottom) {
           pinRef.current = true
         }
@@ -498,6 +513,7 @@ export function MessageList({
       onLoadMore()
     }
     lastScrollTopRef.current = el.scrollTop
+    lastScrollHeightRef.current = el.scrollHeight
   }, [onLoadMore, loadingMore, pinRef, takeUserControl])
 
   /** 首次渲染滚到底部（R0：mount 即 pinned——容器带 key，切会话 remount 时同样经此贴底） */
@@ -518,6 +534,7 @@ export function MessageList({
     prevMessagesLenRef.current = 0
     pinWritesRef.current = []
     lastScrollTopRef.current = 0
+    lastScrollHeightRef.current = 0
     cancelAnimationFrame(rafPinIdRef.current)
   }, [conversationId, pinRef])
 
