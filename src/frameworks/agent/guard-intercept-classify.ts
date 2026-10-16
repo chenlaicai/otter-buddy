@@ -55,6 +55,14 @@ const FINGERPRINTS: ReadonlyArray<{ fragment: string; cls: GuardRuleClass }> = [
   { fragment: "git alias shell 展开（! 前缀）执行任意载荷", cls: { ruleId: "alias_shell_payload", layer: "bypass_guard" } },
   { fragment: "git alias shell 展开（! 前缀）注入载荷", cls: { ruleId: "alias_shell_payload", layer: "bypass_guard" } },
   { fragment: "当前 bash 工作目录在主仓", cls: { ruleId: "main_write", layer: "r1_gate" } },
+  // F20261016grdl 1b（G1 归因）：main_write 落点文案指纹——:1935 rewriteMainWriteBlockMsg
+  // 主文案（sessionCwd 版）是 10/16 全部 70 条 unknown 的直接来源（文案不在表→凑进
+  // UNKNOWN_RULE 兑底，且 self_kill 兑底值使 #1353 疑似误拦降级失效）。
+  // 注：redirect 相对路径分支与主文案共用 :1935（通用文案），指纹层只到文案级
+  // 分辨率（ruleId=main_write_resolve），出口级归因（redirect/literal/oneliner）
+  // 不在本层（需守卫出口埋 ruleId——属 #844 后续）；无 cwd 版文案（MAIN_WRITE_BLOCK_MSG）
+  // 已由上一条「当前 bash 工作目录在主仓」覆盖。
+  { fragment: "写命令落点解析到主仓（session 工作目录=", cls: { ruleId: "main_write_resolve", layer: "r1_gate" } },
   { fragment: "主仓 data/", cls: { ruleId: "data_destructive", layer: "r1_gate" } },
   { fragment: "PR 合入是搭档专属动作", cls: { ruleId: "pr_merge", layer: "permission" } },
   // sleep 干净文案特征（发射点已剥 SLEEP_REASON_PREFIX，落账无前缀）

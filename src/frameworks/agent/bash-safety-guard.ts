@@ -1180,10 +1180,10 @@ function judgeShellCSegment(
 }
 
 /** 段级判定（checkSegmentStructuralWrite 的单段处理，抽函数控圈复杂度） */
- 
+// eslint-disable-next-line max-statements -- F20261016grdl 1a'-B/E：onelinerPathsOutsideMain 豁免 +1 语句（落点感知豁免挂段级）；语句数 26=判定分支逐形态对应，合并会牺牲「一形态一分支」可读性（同 :1056 先例）
 function judgeSegment(
   rawSeg: string,
-  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; oneLinerReadOnly: boolean; depth: number; skipGitWrite?: boolean },
+  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; oneLinerReadOnly: boolean; depth: number; skipGitWrite?: boolean; onelinerPathsOutsideMain?: boolean },
 ): boolean {
   // #1285 r1 严重 1 连带：子壳包装剥壳（`(git commit)` / `{ git commit; }`）
   const seg = stripSubshellWrap(rawSeg);
@@ -1203,6 +1203,9 @@ function judgeSegment(
     // 裸 `python3 script.py` 不是 one-liner 通道（写面由重定向/git 族承担）。
     // 只读豁免：oneLinerReadOnly（全命令基座，与正则通道同一豁免值——
     // 豁免基座对齐：拦截与豁免同一提取基座，载荷只读性由既有白名单承担）。
+    // F20261016grdl 1a'-B：落点感知豁免——非只读载荷但全部绝对路径落主仓外
+    //（或 cd 段锚定非主仓 cwd）时放行（例 6 实证：save('/tmp/x') 写动词 fail-closed 误拦）。
+    if (ctx.onelinerPathsOutsideMain) return false;
     return segHasOneLiner && !ctx.oneLinerReadOnly;
   }
   // ③a' git 落点（#1285 r1 严重 1：词包装 git 写族全绕——正则锚只认赋值前缀，
@@ -1225,7 +1228,14 @@ function judgeSegment(
     if (ctx.skipGitWrite) return false;
     // F20261015glfp（M-bf4049a3）：git -C 落点豁免（段级）——-C 目标累积解析后落
     // worktree 区时本段 git 写非主仓写，与 cwd 形态等价豁免；其他段照常判定。
+    // F20261016grdl rebase 合并：#1519 词级化后探针改 gseg（词法段），glfp 豁免同吃 gseg；
+    // grdl 的段内 cwd 豁免保留（1a'-E）。
     if (gitDashCTargetsWorktree(gseg, ctx.projectRoot, ctx.sessionCwd)) return false;
+    // F20261016grdl 1a'-E：段内生效 cwd 落 worktree 区（段序列 cwd 跟踪注入）——
+    // cd <worktree> 后的 git 写段落点是该树，与 skipGitWrite 同语义放行。
+    // 保守面：sessionCwd 是 data/workspaces（非 git 树）或未跟踪 → 不豁免。
+    if (ctx.projectRoot && ctx.sessionCwd && path.isAbsolute(ctx.sessionCwd)
+        && (path.normalize(ctx.sessionCwd) + path.sep).startsWith(path.normalize(path.join(ctx.projectRoot, ".otter/worktrees")) + path.sep)) return false;
     return true;
   }
   // ③b shell 解释器落点 → 洞1：提取 -c 载荷递归判定（r1 严重 2：三态拆分）
@@ -1254,13 +1264,27 @@ function judgeSegment(
 function checkSegmentStructuralWrite(
   command: string,
   oneLinerReadOnly: boolean,
-  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; depth: number; skipGitWrite?: boolean },
+  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; depth: number; skipGitWrite?: boolean; onelinerPathsOutsideMain?: boolean },
 ): boolean {
   const depth = ctx.depth;
   if (depth <= 0) return true; // 嵌套超深 → 保守拦（与 heredoc 体同先例）
-  const jctx = { logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnly, depth, skipGitWrite: ctx.skipGitWrite };
+  // F20261016grdl 1a'-E：段序列 cwd 跟踪——splitShellSegments 切段后遇 cd 段
+  //  更新跟踪 cwd，git 段判定用「段内生效 cwd」而非命令级 sessionCwd。
+  //  修复：`cat > <ws>/m <<EOF…EOF` + `cd <worktree> && git commit` 混合段命令
+  //  ——cd 在中段，命令级豁免（modelCdExemption 首段链 / cwdInGitWorktree 锚
+  //  sessionCwd）都够不到，git 写段被误拦（G1 例 1 族 E）。跟踪语义与 shell 一致：
+  //  cd 段沿语句序影响后续段；被 &/| 切断的 cd 段不影响（splitShellSegments 段
+  //  自带 joiner 语义不在此重建，保守面：cd 段含变量/不可静态求值 → 跳过不更新）。
+  let trackedCwd = ctx.sessionCwd;
+  const jctx = { logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnly, depth, skipGitWrite: ctx.skipGitWrite, onelinerPathsOutsideMain: ctx.onelinerPathsOutsideMain };
   for (const seg of splitShellSegments(command)) {
-    if (judgeSegment(seg, jctx)) return true;
+    const cdMatch = /^cd\s+(?!\.\.?(?:\/|\s|$))(\S+)\s*$/.exec(seg.trim());
+    if (cdMatch) {
+      const t = cdMatch[1].replace(/^["']|["']$/g, "");
+      if (t.startsWith("/") && !/[$`]/.test(t)) trackedCwd = t;
+      continue; // cd 段自身非写段
+    }
+    if (judgeSegment(seg, trackedCwd === ctx.sessionCwd ? jctx : { ...jctx, sessionCwd: trackedCwd })) return true;
   }
   // 洞1d 补面：管道到 shell 且喂入内容含 one-liner 载荷（echo '…' | bash）
   if (/\|\s*(?:sudo\s+)?(?:bash|sh|zsh)\b/.test(command) && ONELINER_PRE_GATE.test(command) && !oneLinerReadOnly) {
@@ -1732,10 +1756,29 @@ function hasRealCdSegment(command: string): boolean {
  *  与 #1038 数据破坏检测的差异：不跟踪 cd（感知对齐方案下 LLM 需显式 cd），
  *  只做「当前文本是否含主仓写形态」的静态判定——简单可靠，无状态。 */
 
+/** F20261016grdl 1a'（G1 归因族 A治根）：运行时区域排除——判定基元下沉。
+ *  data/workspaces（对话工作区）、.otter/worktrees（worktree）、.otter/workforms
+ *  物理在主仓树内但语义不属「主仓工作树」——R1 允许写区，写判定不应看见。
+ *  同源契约：区域清单与 write-target-evaluator.ts OTTER_RUNTIME_REGIONS
+ *  （:124）语义同步，改动须两侧同步。
+ *  root 级锚定防 decoy：区域 = projectRoot/<region> 前缀精确锚定，
+ *  主仓内 src/data/workspaces 之类的同名嵌套路径不匹配（G1 对照组）。 */
+const MAIN_CHECKOUT_WRITE_EXEMPT_REGIONS = ["data/workspaces", ".otter/worktrees", ".otter/workforms"] as const;
+
 function isInsideMainCheckout(target: string, projectRoot: string): boolean {
   const r = path.normalize(projectRoot).toLowerCase();
   const t = path.normalize(target).toLowerCase();
-  return t === r || t.startsWith(r + path.sep);
+  if (!(t === r || t.startsWith(r + path.sep))) return false;
+  // F20261016grdl 1a'：排除区下沉到基元——此前豁免以「通道×形态」散落修补
+  // （redirect 相对路径 :2015 / 相对路径写 :2025 / git -C :1044），绝对路径形态
+  // （heredoc cat >、字面落点）没有任何豁免分支，10/16 六例误拦族 A 的结构根因
+  // （G1 归因报告族 A：healing 043bb7e9/2828e798/0765e2e7/bc49f605）。
+  // 基元级下沉 = 三通道（redirect/字面/one-liner 锚）一次继承豁免。
+  for (const region of MAIN_CHECKOUT_WRITE_EXEMPT_REGIONS) {
+    const regionAbs = path.normalize(path.join(projectRoot, region)).toLowerCase();
+    if (t === regionAbs || t.startsWith(regionAbs + path.sep)) return false;
+  }
+  return true;
 }
 
 /** #1240（F20261006c1240）：heredoc 解释器判定（负门专用，python/node 双族）。
@@ -1850,6 +1893,104 @@ interface MainCheckoutWriteCtx {
 /** 写族通道循环（checkMainCheckoutWrite 内层，抽函数控圈复杂度）：
  *  git 写族/heredoc/one-liner 正则通道 + #1285 段首结构通道。
  *  命中返回拦截文案，未命中返回 null。 */
+/** F20261016grdl 1a'-B（G1 例 6 族 B 补）：one-liner 载荷落点感知豁免。
+ *  例 6 实证：`cd <主仓外> && python3 -c "…im.save('/tmp/x.png')…"` —— save 是写动词
+ *  不在只读白名单（fail-closed 正确），但载荷内全部绝对路径字面量落主仓外
+ *  （/tmp），落点无从落主仓——仍拦是误拦。
+ *  判据（与 scriptHeredocAbsPathsInsideMain 同构反向）：
+ *  ① 提取载荷内全部绝对路径字面量（POSIX）；
+ *  ② 任一路径落主仓树内（排除区外）→ 不豁免（fail-closed）；
+ *  ③ 无任何绝对路径字面量 → 落点由 cwd 决定：cd 段目标可静态求值且不在
+ *     主仓树内 → 豁免；否则不豁免（cwd 不可知面保守）。
+ *  注意：cd 目标在排除区（worktree）时——排除区是 git 工作树，python 相对路径
+ *  写落排除区合法（R1 允许），同样豁免。 */
+// eslint-disable-next-line max-statements -- F20261016grdl delta（检视 H1/H3）：否决面逐形态对应（拼接/f-string/join/解包/续行各一条 + 字面量逐判），合并会模糊 fail-closed 边界（H1/H3 教训：以提取器证伪代替 fail-closed 即洞）
+function onelinerAbsPathsOutsideMain(command: string, projectRoot: string): boolean {
+  const payloads: string[] = [];
+  for (const interp of ["python", "node"] as const) {
+    const ps = extractOneLinerPayloads(command, interp);
+    if (ps) payloads.push(...ps);
+  }
+  if (payloads.length === 0) return false;
+  // F20261016grdl delta 修复（检视 H1/H3）：载荷内完备性——不再「任一绝对路径存在即跳过相对写校验」。
+  // H1：`open('src/index.ts','w'); print('/tmp/decoy')` —— decoy 绝对路径掩蔽同载荷相对写（基线拦，v1 豁免放）。
+  // H3：`open('/tmp/'+'../../Users/…/src/x.ts','w')` —— 拼接穿越，提取器只见 /tmp/（基线拦，v1 豁免放）。
+  // 修法：逐个字符串字面量判——绝对字面量必须落主仓外；相对路径字面量必须 resolve(cd 锚定) 落主仓外；
+  // 任何动态形态（拼接 +、f-string {}、os.path.join 多参、变量引用）出现在载荷 → 整体不豁免（fail-closed）。
+  const cwdBase = segmentCdTarget(command, projectRoot);
+  let sawAnyPayload = false;
+  for (const body of payloads) {
+    // ① 动态形态否决（H3 拼接穿越面 + 变量/f-string 派生路径面）：
+    //    字符串拼接（'…'+'…'）、f-string 插值（{} 含 / ）、os.path.join、open(*a) 解包、
+    //    反斜杠续行（pythonBodyReadOnly 同款保守）——任一出现即整体不豁免
+    if (/[`\\]/.test(body)) return false;
+    if (/'[\s,)]*\+|\+[\s,(]*'/.test(body)) return false; // 字符串拼接
+    if (/f"[^"]*\{|f'[^']*\{/.test(body)) return false;     // f-string 插值路径
+    if (/os\.path\.join\s*\(/.test(body)) return false;   // join 多参派生
+    if (/open\s*\(\s*\*/.test(body)) return false;         // 解包穿透
+    // ② 字符串字面量逐个判（H1 decoy 面：相对路径写必须过 resolve，不能被同载荷绝对路径豁免）
+    const STR_LIT = /'([^']*)'|"([^"]*)"/g;
+    let m: RegExpExecArray | null;
+    let sawPathLit = false;
+    while ((m = STR_LIT.exec(body)) !== null) {
+      const lit = (m[1] ?? m[2] ?? "");
+      // 非路径字面量跳过：无 / 或 .（纯值字符串 'x'、'utf8'、'w' 等）
+      if (!/[/.]/.test(lit)) continue;
+      sawPathLit = true;
+      if (lit.startsWith("/")) {
+        // 绝对字面量：normalize 后必须落主仓外（排除区/树外均可）
+        if (isInsideMainCheckout(path.normalize(lit), projectRoot)) return false;
+      } else {
+        // 相对路径字面量：resolve 到 cd 锚定 cwd；无 cd 锚定 → cwd=sessionCwd（主仓树内不可知面）→ 不豁免
+        if (!cwdBase) return false;
+        const resolved = path.resolve(cwdBase, lit);
+        if (isInsideMainCheckout(resolved, projectRoot)) return false;
+      }
+    }
+    sawAnyPayload = true;
+    // ③ 载荷内无任何路径字面量：写动词无从落点——同 ② 无 cd 锚定不豁免；有锚定（cd 落主仓外）才豁免
+    if (!sawPathLit && !cwdBase) return false;
+  }
+  return sawAnyPayload;
+}
+
+/** F20261016grdl 1a'-E（G1 例 1 族 E：混合段 git 字面误拦）：段级 cd 豁免。
+ *  命令形态：`cat > <workspace>/m.txt <<EOF…EOF` + `cd <worktree> && git commit -F …`——
+ *  modelCdExemption 只认首段链 cd（首段是 cat → 无豁免），cwdInGitWorktree 锚
+ *  sessionCwd（=workspace 非 git 工作树 → 不豁免），git 写族字面通道吃掉 commit 段。
+ *  但 cd 段在命令中段的 shell 语义与首段完全相同：cd 后的 git 写落点是 cd 目标。
+ *  本函数：任一段位 cd 目标可静态求值且落排除区（worktrees/workspaces）时，
+ *  该 cd 段之后（沿 &&/;/\n 语句序，不含被 &/| 切断的子 shell——cd 只影响子 shell）
+ *  的 git 写族字面命中免除拦截。保守面：cd 目标含变量/展开不可求值、落主仓、
+ *  或 cd 段被 &/| 切断 → 不豁免（保持 fail-closed）。 */
+/**
+ * F20261016grdl delta 修复（检视 H1/H3）：cd 段锚定目标提取（返回 cwd 基准）。
+ *  与 segmentCdExemptsGitLiteral 同判定逻辑，但返回目标路径供落点 resolve 用
+ *  （onelinerAbsPathsOutsideMain 相对路径分支需要 resolve(cwdBase, rel)）。
+ */
+function segmentCdTarget(command: string, projectRoot: string): string | null {
+  const segs = command.split(/\n|&&|\|\||;|&(?=&)|\|(?=\|)/).map(s => s.trim()).filter(Boolean);
+  for (let i = 0; i < segs.length; i++) {
+    // 排除 . / .. 相对 cd（不改变到已知绝对落点）——负向先行锚段首，路径内 . 不误伤
+    const m = /^cd\s+(?!\.\.?(?:\/|\s|$))(\S+)\s*$/.exec(segs[i]);
+    if (!m) continue;
+    const target = m[1].replace(/^['"]|['"]$/g, "");
+    // cd 目标必须可静态求值：无变量/展开、绝对路径
+    if (!target.startsWith("/") || /[$`]/.test(target)) continue;
+    if (isInsideMainCheckout(path.normalize(target), projectRoot)) continue;
+    // cd 段被 & / | 切断（子 shell）→ cd 不影响后续段，不锚定
+    const after = command.slice(command.indexOf(segs[i]) + segs[i].length);
+    const nextJoiner = /^\s*(&&|\|\||[;&|\n])/.exec(after)?.[1] ?? "";
+    if (nextJoiner === "&" || nextJoiner === "|") continue;
+    return path.normalize(target);
+  }
+  return null;
+}
+
+function segmentCdExemptsGitLiteral(command: string, projectRoot: string): boolean {
+  return segmentCdTarget(command, projectRoot) !== null;
+}
+
 function checkWriteChannels(
   command: string,
   ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; heredocReadOnly?: boolean; oneLinerReadOnly: boolean; depth: number; skipGitLiteral?: boolean },
@@ -1857,9 +1998,9 @@ function checkWriteChannels(
   // git 写族字面通道——cwd 上移豁免（skipGitLiteral）只跳过它，其余通道照常
   //（F20261014cwsp S1 收窄；具名恒等比较替代魔法索引，数组增删不错位）。
   for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
-    if (pattern === GIT_WRITE_LITERAL_PATTERN && ctx.skipGitLiteral) continue;
+    if (pattern === GIT_WRITE_LITERAL_PATTERN && (ctx.skipGitLiteral || (ctx.projectRoot && segmentCdExemptsGitLiteral(command, ctx.projectRoot)))) continue;
     if (!pattern.test(command)) continue;
-    if (writeChannelExempt(pi, ctx)) continue;
+    if (writeChannelExempt(pi, { ...ctx, command })) continue;
     ctx.logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
     return rewriteMainWriteBlockMsg(ctx.sessionCwd);
   }
@@ -1871,7 +2012,10 @@ function checkWriteChannels(
   // F20261014cwsp S1 处置：cwd 上移豁免（skipGitLiteral）同样免除结构通道的
   // git 写族段判定（git 落点是 cwd 上移发现的 git 工作树，非主仓）；one-liner/
   // bash -c 载荷等其余段结构照常跑（逃逸面收口）。
-  if (checkSegmentStructuralWrite(command, ctx.oneLinerReadOnly, { ...ctx, skipGitWrite: ctx.skipGitLiteral })) {
+  if (checkSegmentStructuralWrite(command, ctx.oneLinerReadOnly, { ...ctx, skipGitWrite: ctx.skipGitLiteral
+      // F20261016grdl 1a'-B：one-liner 落点感知豁免同样作用于结构通道（同一豁免基座原则——
+      // 例 6 实际拦截出口在此：非只读载荷（save）+ 段结构检测命中，正则通道豁免了结构通道没豁）
+      , onelinerPathsOutsideMain: ctx.projectRoot ? onelinerAbsPathsOutsideMain(command, ctx.projectRoot) : false })) {
     ctx.logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via wrapped one-liner (no cd)", { command: command.substring(0, 200) });
     return rewriteMainWriteBlockMsg(ctx.sessionCwd);
   }
@@ -1886,9 +2030,12 @@ function checkWriteChannels(
  *    不可判定）→ 不豁免，保守拦。
  *  - pi=1..4（one-liner 通道，#1275）：吃 oneLinerReadOnly（全部同型载荷提取成功
  *    且全部只读才豁免，白名单外/提取失败保守拦；ruby/perl 只读全拦 fail-closed 起步 S-5）。 */
-function writeChannelExempt(pi: number, ctx: { heredocReadOnly?: boolean; oneLinerReadOnly: boolean }): boolean {
+function writeChannelExempt(pi: number, ctx: { command?: string; projectRoot?: string; heredocReadOnly?: boolean; oneLinerReadOnly: boolean }): boolean {
   if (pi === 0 && ctx.heredocReadOnly) return true;
+  // F20261016grdl 1a'-B：one-liner 落点感知豁免——非只读载荷但全部绝对路径落
+  // 主仓外（或 cd 段锚定非主仓 cwd）时放行（例 6：cd 树外 && python3 -c save('/tmp/x')）
   if (pi >= 1 && pi <= 4 && ctx.oneLinerReadOnly) return true;
+  if (pi >= 1 && pi <= 4 && ctx.projectRoot && ctx.command && onelinerAbsPathsOutsideMain(ctx.command, ctx.projectRoot)) return true;
   if ((pi === 5 || pi === 6) && ctx.heredocReadOnly) return true;
   return false;
 }

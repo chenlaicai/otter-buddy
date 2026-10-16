@@ -24,7 +24,7 @@ const CASES: Array<[string, string, boolean]> = [
   ["cd worktree 后相对写 → 放（cd 豁免）", `cd ${WT} && git commit -m x`, false],
   ["cd worktree 后 || 备用链 → 放（#1360 修复面）", `cd ${WT} && node -e "console.log(1)" || echo fallback`, false],
   ["cd worktree 后 git commit 真管道（V2 段级）→ 放（#1170：管道右段不影响首段 cd 链）", `cd ${WT} && git commit -m x | tail -1`, false],
-  ["cd worktree 后 node -e 写 worktree | tail（parseOk=false 落 V1，真管道杀豁免）→ 拦", `cd ${WT} && node -e "require('fs').writeFileSync('/repo/.otter/worktrees/wt/data/x','1')" | tail -1`, true],
+  ["cd worktree 后 node -e 写 worktree | tail（parseOk=false 落 V1，F20261016grdl 1a'-B 落排除区）→ 放", `cd ${WT} && node -e "require('fs').writeFileSync('/repo/.otter/worktrees/wt/data/x','1')" | tail -1`, false],
   ["只读命令 → 放", "ls -la", false],
   ["$W/.. 爬升（#1381 负门）→ 旧链放（cd 豁免灰区 #1363，求值器回落）——现状基线", `W=${WT}; cd $W/../../../main && touch foo`, false],
   ["heredoc 体写主仓（#1240 负门）→ 拦", `cd /tmp && python3 - <<'PY'\nopen("${ROOT}/data/x","w")\nPY`, true],

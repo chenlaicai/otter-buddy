@@ -96,12 +96,12 @@ describe("F20261008gdcc 双链一致性：cd 豁免族（同一命令 parseOk �
     );
   });
 
-  it("真管道负门（node 写 worktree | tail）：双链一致拦截（管道杀豁免不因 || 修复外溢）", () => {
-    // 管道形态在 V2 段级语义放行 git 写（#1170），但 node 写载荷 + 管道的保守拦截
-    // 是两链共享的负门——此形态若一侧放行一侧拦即真割裂。
+  it("真管道负门（node 写 worktree | tail）：双链一致放行（F20261016grdl 1a'-B 行为变更：载荷绝对路径落排除区）", () => {
+    // F20261016grdl 1a'-B（G1 同族）：node 写载荷落 worktree（排除区）→ 落点感知豁免，
+    // 双链一致放行。旧「管道杀豁免」负门的拦截面（写主仓）由下一用例钉住。
     expectDualConsistent(
       `cd ${WT} && node -e "require('fs').writeFileSync('${WT}/data/x','1')" | tail -1`,
-      "BLOCK",
+      "ALLOW",
     );
   });
 
