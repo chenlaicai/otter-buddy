@@ -6,6 +6,7 @@
  *   POST /rooms/:roomId/join   入座（body: {seat}）→ 返回该座私有视图
  *   POST /rooms/:roomId/start  开局幂等确认（建房已开局——回执当前状态；未知房 404）
  *   POST /rooms/:roomId/actions 真人动作注入（body: {seat, action}；停驻在该座才接受）
+ *   POST /rooms/:roomId/chat  真人回话（body: {seat, text}；入队，下局开局注入各 otter session）
  *   GET  /rooms/:roomId/view?seat= 视图（无 seat=观战全览）
  *   GET  /rooms/:roomId/frames 复盘帧链（默认不带快照；?state=1 带全量快照）+ 链完整性
  *   GET  /rooms/:roomId/events SSE 实时推送（RoomBus 房间粒度）
@@ -97,6 +98,22 @@ export class MahjongController {
     if (!res.ok) return ctx.json({ error: res.reason }, 400);
     const view = this.rooms.view(roomId, body.seat as Seat);
     return ctx.json({ accepted: true, view });
+  }
+
+  /** 真人回话（入队→下局开局注入各 otter session；404 未知房 / 409 已终局） */
+  async chat(ctx: Context): Promise<Response> {
+    const roomId = ctx.req.param("roomId") ?? "";
+    const body = (await ctx.req.json().catch(() => ({}))) as { seat?: number; text?: unknown };
+    if (body.seat !== 0 && body.seat !== 1 && body.seat !== 2) return badRequest(ctx, "seat 必须为 0/1/2");
+    if (typeof body.text !== "string") return badRequest(ctx, "text 必填（字符串）");
+    const res = this.rooms.addChat(roomId, body.seat as Seat, body.text);
+    if (!res.ok) {
+      if (res.reason === "room not found") return ctx.json({ error: res.reason }, 404);
+      if (res.reason === "game already finished") return ctx.json({ error: res.reason }, 409);
+      return ctx.json({ error: res.reason }, 400);
+    }
+    const view = this.rooms.view(roomId, body.seat as Seat);
+    return ctx.json({ accepted: true, roomId, seat: body.seat, view });
   }
 
   /** 视图：?seat= 私有（含手牌）；缺省观战全览 */

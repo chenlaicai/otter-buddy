@@ -184,4 +184,50 @@ describe("三麻将局 API", () => {
     expect(notParked.status).toBe(400);
     rooms.close("bad-room2");
   });
+
+  it("真人回话端点：404 未知房/400 校验/200 入队回执/409 终局拒收", async () => {
+    const post = async (path: string, body: unknown): Promise<Response> =>
+      app.request(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    // 未知房 404
+    expect((await post("/api/mahjong/rooms/nope/chat", { seat: 1, text: "hi" })).status).toBe(404);
+
+    // 建房即开局
+    const created = await json(
+      await post("/api/mahjong/rooms", { roomId: ROOM, seed: "api-chat-seed", players: PLAYERS }),
+    );
+    expect(created.status).toBe("playing");
+
+    // 400：坏 seat / 非字符串 text / 缺 text
+    expect((await post(`/api/mahjong/rooms/${ROOM}/chat`, { seat: 7, text: "x" })).status).toBe(400);
+    expect((await post(`/api/mahjong/rooms/${ROOM}/chat`, { seat: 1, text: 123 })).status).toBe(400);
+    expect((await post(`/api/mahjong/rooms/${ROOM}/chat`, { seat: 1 })).status).toBe(400);
+
+    // 200：入队回执（含视图，供页面刷新）
+    const ok = (await json(
+      await post(`/api/mahjong/rooms/${ROOM}/chat`, { seat: 1, text: " 加油！" }),
+    )) as Record<string, any>;
+    expect(ok.accepted).toBe(true);
+    expect(ok.seat).toBe(1);
+    expect(ok.view.status).toBe("playing");
+
+    // 驱动到终局 → 409
+    let guard = 0;
+    for (;;) {
+      guard += 1;
+      if (guard > 20000) throw new Error("chat test drive guard");
+      const view = await waitHumanOrDone(ROOM);
+      if (view.status === "finished") break;
+      const injected = await post(`/api/mahjong/rooms/${ROOM}/actions`, {
+        seat: 1,
+        action: view.decision.actions[0],
+      });
+      expect(injected.status).toBe(200);
+    }
+    expect((await post(`/api/mahjong/rooms/${ROOM}/chat`, { seat: 1, text: "晚了" })).status).toBe(409);
+  });
 });

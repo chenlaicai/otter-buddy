@@ -265,6 +265,7 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
     app.post("/api/mahjong/rooms/:roomId/join", (ctx) => m.join(ctx));
     app.post("/api/mahjong/rooms/:roomId/start", (ctx) => m.start(ctx));
     app.post("/api/mahjong/rooms/:roomId/actions", (ctx) => m.action(ctx));
+    app.post("/api/mahjong/rooms/:roomId/chat", (ctx) => m.chat(ctx));
     app.get("/api/mahjong/rooms/:roomId/view", (ctx) => m.view(ctx));
     app.get("/api/mahjong/rooms/:roomId/frames", (ctx) => m.frames(ctx));
     app.get("/api/mahjong/rooms/:roomId/events", (ctx) => m.events(ctx));
