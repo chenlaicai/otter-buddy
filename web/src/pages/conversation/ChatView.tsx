@@ -99,7 +99,13 @@ export function ChatView(props: ChatViewProps) {
 
   /** 分割条拖动：pointerdown 捕获起点 → window 级 pointermove（拖出分割条热区仍跟踪，
    *  setPointerCapture 在 iframe/边界场景不可靠，window 监听 + pointerup 兜底更稳）→
-   *  pointerup 持久化。拖动只写 inputHeight（玻璃框固定高），overlay 实高随之变化，衬垫经 RO 链同步 */
+   *  pointerup/pointercancel 持久化。拖动只写 inputHeight（玻璃框固定高），overlay 实高随之
+   *  变化，衬垫经 RO 链同步。
+   *  R2 竞态修复（检视獭发现）：onUp 不得读 inputHeightRef（useEffect 镜像在 move 与 up
+   *  同一 React batch 内未 flush，读到拖动前旧值——同帧松手持久化陈旧高度，CI flake 的
+   *  「拖到 160 存 120/152」即此）：改为闭包内局部 latest 变量，move 同步写入，零 React
+   *  时序依赖。pointercancel（触屏被电话/手势打断）与 up 同路径：按当前最新高度收尾，
+   *  高度不随悬空指针漂移。 */
   const inputHeightRef = useRef(inputHeight)
   useEffect(() => { inputHeightRef.current = inputHeight }, [inputHeight])
   const handleSplitterPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -107,22 +113,25 @@ export function ChatView(props: ChatViewProps) {
     const overlay = overlayRef.current
     if (!overlay) return
     const startY = e.clientY
-    const startHeight = inputHeight
+    const startHeight = inputHeightRef.current
+    let latestHeight = startHeight
     const maxHeight = inputHeightMax(overlay)
     const onMove = (ev: PointerEvent) => {
       const delta = startY - ev.clientY
-      setInputHeight(Math.min(Math.max(startHeight + delta, INPUT_HEIGHT_MIN), maxHeight))
+      latestHeight = Math.min(Math.max(startHeight + delta, INPUT_HEIGHT_MIN), maxHeight)
+      setInputHeight(latestHeight)
     }
-    const onUp = () => {
+    const onFinish = () => {
       window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      // 松手持久化：下次进入恢复。经 ref 镜像读最新值（onMove 的 setState 是异步的，
-      // 直接闭包读 inputHeight 拿到的是拖动起点旧值）
-      localStorage.setItem(INPUT_SPLIT_KEY, String(inputHeightRef.current))
+      window.removeEventListener('pointerup', onFinish)
+      window.removeEventListener('pointercancel', onFinish)
+      // 松手持久化：下次进入恢复。读闭包局部 latest（同帧 up 时 useEffect 镜像未 flush）
+      localStorage.setItem(INPUT_SPLIT_KEY, String(latestHeight))
     }
     window.addEventListener('pointermove', onMove, { passive: true })
-    window.addEventListener('pointerup', onUp, { passive: true })
-  }, [inputHeight])
+    window.addEventListener('pointerup', onFinish, { passive: true })
+    window.addEventListener('pointercancel', onFinish, { passive: true })
+  }, [])
 
   /** F20260916sgcl：发送成功后清空中转区——此前 MessageInput 直接透传 staged 给 onSend，
    *  没有任何环节调 clearAll/takeForSend，导致悬浮附件发送后不消失、下一条消息还会重复携带。
@@ -138,7 +147,12 @@ export function ChatView(props: ChatViewProps) {
   }
 
   return (
-    <main className="flex-1 glass rounded-3xl flex flex-col overflow-hidden">
+    // F20261016inbs R1：relative 显式锚定输入覆盖层（absolute bottom-0）的 containing block。
+    // 背景：dev 下 .glass 的标准 backdrop-filter（建 CB）锚 main 内盒；build 压缩丢弃标准
+    // 属性只留 -webkit-（不建 CB）→ 覆盖层漂到外层 wrapper 底、探出 main 13px、死区 38px
+    // （CI 实测，检视獭发现；本地 dev 25px 绿是环境差异掩盖的断言失实）。relative 使两
+    // 环境一致锚 main，不依赖 backdrop-filter 副作用。
+    <main className="relative flex-1 glass rounded-3xl flex flex-col overflow-hidden">
       {/* Chat Header */}
       <div className="px-1 py-3 flex items-center justify-between border-b border-white/40 flex-shrink-0">
         <div className="flex items-center gap-2">

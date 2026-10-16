@@ -119,6 +119,23 @@ describe('F20261016inbs 分割条拖动 + 持久化', () => {
     expect(window.localStorage.getItem('otter.chat.inputHeight')).toBe('200')
   })
 
+  it('拖动中同帧松手（F20261016inbs R2 修复回归锚）：最后一次 move 与 up 在同一 React batch 内——持久化必须存最后写入值，不得读 useEffect 镜像 ref 的陈旧值', () => {
+    // 竞态复现：pointermove 后 setState 尚未 commit，pointerup 即刻到达（拖动最后一帧
+    // 与松手同帧——真实拖动在快速松手/CI 慢帧下可现）。旧实现 onUp 读 inputHeightRef，
+    // 该 ref 由 useEffect([inputHeight]) 同步——同一 act/批次内 useEffect 未跑，读到拖动前旧值，
+    // 持久化陈旧高度（检视獭 CI flake 的 152 = 拖动倒数第二步值的同源现象）。
+    // 修法：onUp 读闭包内局部 latest 变量（move 同步写入，无 React 时序依赖）。
+    const { container } = renderChatView()
+    const splitter = container.querySelector('[role="separator"]') as HTMLElement
+    // 单一 act 内一口气 down → move(±80) → up：useEffect 在 act 结束才 flush
+    act(() => {
+      splitter.dispatchEvent(new PointerEvent('pointerdown', { clientY: 500, bubbles: true }))
+      window.dispatchEvent(new PointerEvent('pointermove', { clientY: 420 }))
+      window.dispatchEvent(new PointerEvent('pointerup'))
+    })
+    expect(window.localStorage.getItem('otter.chat.inputHeight'), '同帧松手持久化最后写入值 200，不是拖动前旧值 120').toBe('200')
+  })
+
   it('clamp 下限 64px：下拖过头不缩没', () => {
     const { container } = renderChatView()
     const splitter = container.querySelector('[role="separator"]') as HTMLElement

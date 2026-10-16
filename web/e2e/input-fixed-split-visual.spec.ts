@@ -207,19 +207,31 @@ test.describe('F20261016inbs 输入框固定边界（vite 隔离实例）', () =
       el!.scrollTop = el!.scrollHeight
     })
     await page.waitForTimeout(300)
-    const gap = await page.evaluate(() => {
+    const m = await page.evaluate(() => {
       const msgs = document.querySelectorAll('[data-message-id]')
       const last = msgs[msgs.length - 1] as HTMLElement
       const glass = document.querySelector('.glass-input') as HTMLElement
-      const lastBottom = last.getBoundingClientRect().bottom
-      const glassTop = glass.getBoundingClientRect().top
-      return Math.round(glassTop - lastBottom)
+      const overlay = glass.closest('.absolute.bottom-0') as HTMLElement
+      const scroller = (() => { const el0 = document.querySelector('[data-message-id]'); let el = el0 as HTMLElement | null; while (el && !el.classList.contains('overflow-y-auto')) el = el.parentElement; return el! })()
+      const main = scroller.closest('main') as HTMLElement
+      const mcs = getComputedStyle(main)
+      const mainInnerBottom = main.getBoundingClientRect().bottom - parseFloat(mcs.borderBottomWidth) - parseFloat(mcs.paddingBottom)
+      return {
+        gap: Math.round(glass.getBoundingClientRect().top - last.getBoundingClientRect().bottom),
+        distToBottom: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+        overlayBottom: Math.round(overlay.getBoundingClientRect().bottom),
+        mainInnerBottom: Math.round(mainInnerBottom),
+        overlayAnchoredToMain: Math.abs(overlay.getBoundingClientRect().bottom - mainInnerBottom) <= 1,
+      }
     })
-    // 旧 bug：滚到底时最后一条消息悬在输入框上方 ~98px（170 写死 vs 72 实高）。
-    // 新方案实测 gap = 25px = 消息 mb-4(16px) + overlay 顶部 pt-2(8px) + 圆整 1px
-    // ——这是正常呼吸空间（消息与输入框不重叠也不悬空）；断言 ≤ 30px 防死区回归
-    // （旧 bug 是 98px：任何 >30px 的间隙都意味着预留/实高错位文又回来了）
-    expect(gap).toBeLessThanOrEqual(30)
+    // 结构断言（环境无关，R1 锚定后 dev/prod 一致）：overlay 底 == main 内盒底。
+    // 旧 bug（检视獭发现，CI 实测 38px）：build 压缩丢标准 backdrop-filter → 覆盖层
+    // 漂到外层 wrapper（探出 main 13px）；main 显式 relative 后两环境都锚 main 内盒
+    expect(m.overlayAnchoredToMain, '覆盖层必须锚定 main 内盒底（dev/prod 一致，不依赖 backdrop-filter 副作用）').toBe(true)
+    expect(m.distToBottom).toBe(0)
+    // 语义断言：gap = 消息 mb-4(16px) + overlay 顶部 pt-2(8px) + 圆整 1 ≈ 25px（旧 bug 98px 死区）。
+    // 阈值 ≤30px：任何超出意味着预留/实高错位又回来了
+    expect(m.gap).toBeLessThanOrEqual(30)
     await page.screenshot({ path: 'test-results/inbs-5-no-deadzone.png' })
   })
 })

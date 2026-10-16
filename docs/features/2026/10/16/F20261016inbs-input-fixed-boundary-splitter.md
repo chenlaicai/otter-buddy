@@ -114,7 +114,28 @@ else { ...账本匹配... if (!attributed && nearBottom) pinRef.current = true }
 
 **不受影响**：scroll-pin 状态机其余逻辑（账本/wheel/touch/键盘监听）、contentObserver、F20261015inpd 视口恒定（保持）、wireframe/preview 卡片。
 
-## 5. 取舍
+## 5. 设计取舍（含机制识别检查点判定 + 机制预算四问）
+
+### 5.1 机制识别检查点判定（修法决策树④——新增机制，逐项打勾）
+
+- [x] 新增配置字段/枚举/开关——localStorage key `otter.chat.inputHeight`（用户偏好持久化）
+- [ ] 新增状态生命周期——分割条拖动中状态是瞬时 React state，无创建→存活→销毁生命周期
+- [ ] 新增定时任务/后台进程
+- [ ] 新增信号类型/消息格式
+- [x] 新增持久化存储——上述 localStorage 条目（浏览器端，非服务端）
+- [ ] 新增决策分支（结果被记住并影响后续行为）——拖动写高度属用户操作非自动决策
+- [x] 新增跨模块调用路径——ChatView → MessageList 新增 bottomSpacerPx prop 链
+
+命中 3 项 → 涉及净新增机制 → 走修法决策树④（新增机制）。为什么不是①②③：分割条/固定边界/动态衬垫是本 PR 的**本体交付物**（搭档拍板的方案），不是既有机制的修补——无既有「分割条机制」可在其语义内修（①）、无问题机制可收窄（②）、无机制可删（③）。
+
+### 5.2 机制预算四问（作者当场作答）
+
+1. **谁需要它**——搭档 chen（用户本人）：10-16 拍板「我手动可以移动这个隔离边界来改变上下两个框的大小」。固定 120px 对长输入用户太高/短输入用户太矮，手动调节是用户显式需求；微信桌面端同构交互。
+2. **失败后果**——用户可感知：拖不动（高度锁死在 120，可用但不便）或拖过头（clamp 兕底 64px/容器 55%，不会破坏布局）；持久化失败回退默认 120px（存储异常已处理）。无系统级后果——纯前端 UI 偏好，不涉数据/服务。
+3. **后续机制**——新状态（inputHeight + localStorage）可能出错的场景及修法：(a) 存储值被算改/旧版本残留 → loadInputHeight 已拦（NaN/缺失回退默认）；(b) 容器尺寸变化（窗口 resize/移动端旋转）后持久化值超新上限 → 拖动时实时 clamp，但静态展示时不 clamp（可接受：只影响一次拖动）；(c) 未来若多窗口/多设备同步偏好——localStorage 天然不同步，需升级服务端偏好存储时本 key 成迁移项。
+4. **退役条件**——出现以下信号时删：搭档反馈固定 120 足够不需拖动（机制退化为一个常量）；或后续改回内容驱动高度（搭档拍板否决的方向复活）；或分割条拖动交互在目标设备上不可用（触屏无 pointer 环境）且无替代交互。
+
+### 5.3 取舍表
 
 | 取舍 | 理由 |
 |------|------|
@@ -122,6 +143,7 @@ else { ...账本匹配... if (!attributed && nearBottom) pinRef.current = true }
 | 未测量（clientHeight=0）时上限不设限 | clamp 只在有真实容器尺寸时才有意义，否则误吞持久化的合理高度（单测实锤抓到：jsdom 下 180px 被吞回 120） |
 | 附件行在固定容器外 | 附件不挤压 textarea（规格要求）；overlay 长高由衬垫动态兜住，F20261015inpd §5 一并根治 |
 | shrank 用「缩小 >1px」判定 | 抵抗亚像素抖动（RO 精度/圆整）；1px 阈值与 movedUp 判定同款 |
+| shrank 豁免口径（检视建议：混合位移可能吞意图） | 评估：收缩期间若用户同时上滚，向上位移被豁免吞（不脱锚）——但窗口极短（收缩是单帧事件）且收缩后用户继续滚动会再触发 handleScroll（非收缩帧恢复一律脱锚）；收窄方案（位移分解归因到收缩量 vs 用户量）需引入几何账本二重记账，复杂度收益比低，判更差 |
 | 持久化在 pointerup（非 move 节流） | move 是高频路径不碰 storage；up 是终态一次写 |
 | 删 field-sizing | 搭档拍板「不做内容驱动」；且 field-sizing 在低版本浏览器回退为固定 24px 反而与固定边界方案冲突 |
 
@@ -161,8 +183,25 @@ $ npx vitest run src/pages/conversation/MessageList.test.tsx
 | 2 拖分割条 | 上拖 80px → 200px；下拖过头 → clamp 64px；localStorage='200' | ✅ |
 | 3 重载恢复 | 拖到 160 → reload → 恢复 160px | ✅ |
 | 4 输入不改边界 | fill 20 行 → 玻璃框/textarea 高度不变；scrollHeight > clientHeight（内部滚动） | ✅ |
-| 5 死区归零 | 滚到底（distToBottom=0）时最后消息与玻璃框 gap=25px（= mb-4 16 + pt-2 8 + 圆整 1；旧 bug 98px）；断言 ≤30px | ✅ |
+| 5 死区归零 | 滚到底（distToBottom=0）时 **overlay 底贴 main 内盒底（结构性断言，环境无关）**；最后消息与玻璃框 gap=25px（= mb-4 16 + pt-2 8 + 圆整 1；旧 bug 98px）≤30px | ✅ |
+| 双环境 | dev 与 build+preview 双模式均 4/4（R1 锚定前 dev 25px / prod 38px 环境差异实锁） | ✅ |
 | 像素自检 | 三态截图底部亮带 122/66/139px ≈ 边界 120/64/160（含 hint 行） | ✅ |
+
+### 6.5 检视轮修复（R1/R2，2026-10-16）
+
+**R1 覆盖层锚定环境差异（检视獭严重1，CI 实测 38px vs 作者 dev 实测 25px）**：
+- 现象：e2e 场景 5 在 CI（build+serve）稳定 38px、本地 dev 25px；作者首报「gap=25px 4 场景全绿 ✅」仅测了 dev 模式，**断言与汇报失实**（检视獭判断成立，作者认账）。
+- 根因（探针链闭合）：dev 下 `.glass` 的标准 `backdrop-filter` 建立包含块（containing block）→ 覆盖层 absolute bottom-0 锚 main 内盒底（707px）；build 压缩（lightningcss）从 `.glass` 规则**丢弃标准 backdrop-filter 只留 -webkit- 前缀版**，而 `-webkit-backdrop-filter` 不建包含块（空白页对比实验：std 建 CB、-webkit- 不建）→ 覆盖层漂到外层 relative wrapper 底（720px）→ 探出 main 13px → gap 38。决定性实验：prod 页面手动给 main 加 `position:relative` → overlay 底即回 707。
+- 修法：main 加 `relative` 类显式锚定（不依赖 backdrop-filter 副作用），dev/prod 双环境一致；e2e 场景 5 升级为**结构性断言**（overlayAnchoredToMain）+ 语义 gap 断言。
+- 失败证据链：修复前 prod 38px 红两连（CI 日志 run 38853419818）+ 本地 build+preview 复现 38px；修复后双环境 4/4 绿。
+
+**R2 分割条持久化竞态（检视獭严重2，jsdom 确定性复现 + CI flake 152 双证）**：
+- 现象：拖到 160 松手存 120/152（拖动倒数第二步值）；CI e2e 场景 2/3 flake。
+- 根因：onUp 读 `inputHeightRef`（useEffect([inputHeight]) 镜像）——同帧 move+up 时 useEffect 未 flush，读到拖动前旧值。
+- 修法：onUp（及 pointercancel，一并修检视建议）读闭包内局部 `latestHeight`（move 同步写入，零 React 时序依赖）；deps 从 [inputHeight] 改 []（startHeight 也读 ref 镜像，拖动中重建 callback 不再可能）。
+- 失败证据链：新增回归单测「拖动中同帧松手」修复前 1 failed（存 '120' 期望 '200'）→ 修复后 9/9 绿。
+
+**其余处置**：机制预算四问补进本文档 §5.2（检视严重3）；rebase 到 origin/main（B1 机械项，check job 的 behind-main 红因此消除）；「附件暂存行/提示行内容驱动」按大獭裁决拍板=显式解释不修（瞬态收纳，打字内容永不变边界，衬垫实测跟随）；shrank 豁免见 §5.3 取舍表。
 
 ### 6.4 既有回归锚
 
