@@ -2218,11 +2218,14 @@ describe("#1275 delta r4：python open-mode 门嵌套括号穿透修复（检视
     )).toBeNull();
   });
 
-  it("S1 对照：open 直接写 mode → 拦（原有判定不回退）", () => {
+  it("S1 对照：open 直接写 mode → 放（F20261016grdl 1a'-B 行为变更：写动词+落点感知——绝对路径全部树外不再 fail-closed）", () => {
+    // F20261016grdl 1a'-B（G1 例 6 同族）：写动词（open 'w'）+ 落点 /tmp（树外）
+    // → 落点感知豁免放行。旧行为（写动词 fail-closed 不看落点）是误拦面。
+    // 拦截面不回退的部分由「相对路径写」「主仓落点写」用例钉住。
     expect(checkBashCommandSafety(
       `python3 -c "open('/tmp/f.txt','w').write('x')"`,
       mainPid, undefined, { projectRoot }
-    )).not.toBeNull();
+    )).toBeNull();
   });
   // ── delta r4 收尾（大獭裁决：S1 修复本体同族穿透，修完直送终审）──
   it("delta r4 收尾：open(*a) 位置解包逃逸 → 拦（one-liner 面）", () => {
@@ -3213,11 +3216,12 @@ describe("F20261008gduc P0-1：V1 兜底链 cd 豁免 —— || 备用链不误�
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
-  it("cd worktree && node -e 写 worktree 文件 | tail（真管道，parseOk=false 落 V1 链）→ 仍拦截（管道杀 V1 豁免不因 || 修复而变）", () => {
-    // 不误伤面钉住：真管道在 V1 兜底链仍杀豁免（lookaround 正则只放 ||，不放 |）。
-    // node -e 载荷含换行 → parseOk=false 落 V1 链，恰好是本次修复面的「不误伤一侧」。
+  it("cd worktree && node -e 写 worktree 文件 | tail（真管道，parseOk=false 落 V1 链）→ 放行（F20261016grdl 1a'-B 行为变更：载荷绝对路径落排除区）", () => {
+    // F20261016grdl 1a'-B（G1 同族）：node 写载荷落 worktree（排除区，R1 合法写区），
+    // 落点感知豁免放行——旧「真管道杀豁免」负门只适用于落点不可知/落主仓的写。
+    // 管道负门的拦截面（写主仓/相对路径写）由同 describe 其余用例钉住。
     const cmd = `cd /repo/.otter/worktrees/wt && node -e "require('fs').writeFileSync('/repo/.otter/worktrees/wt/data/x','1')" | tail -1`;
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
   it("#1240 负门不因 || 旁路：cd worktree && python heredoc 体绝对路径写主仓（带 || echo）→ 仍拦截", () => {

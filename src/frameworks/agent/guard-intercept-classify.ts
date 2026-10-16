@@ -55,6 +55,11 @@ const FINGERPRINTS: ReadonlyArray<{ fragment: string; cls: GuardRuleClass }> = [
   { fragment: "git alias shell 展开（! 前缀）执行任意载荷", cls: { ruleId: "alias_shell_payload", layer: "bypass_guard" } },
   { fragment: "git alias shell 展开（! 前缀）注入载荷", cls: { ruleId: "alias_shell_payload", layer: "bypass_guard" } },
   { fragment: "当前 bash 工作目录在主仓", cls: { ruleId: "main_write", layer: "r1_gate" } },
+  // F20261016grdl 1b（G1 归因）：main_write 落点族三文案指纹——:1935 主文案是 10/16 全部
+  // 70 条 unknown 的直接来源（文案不在表里→凑进 UNKNOWN_RULE 兑底），拆三指纹归因到
+  // 出口（redirect/literal/oneliner），为 #844 误报聚合提供分辨率
+  { fragment: "写命令落点解析到主仓（session 工作目录=", cls: { ruleId: "main_write_resolve", layer: "r1_gate" } },
+  { fragment: "主仓相对路径写落点解析到主仓", cls: { ruleId: "main_write_resolve", layer: "r1_gate" } },
   { fragment: "主仓 data/", cls: { ruleId: "data_destructive", layer: "r1_gate" } },
   { fragment: "PR 合入是搭档专属动作", cls: { ruleId: "pr_merge", layer: "permission" } },
   // sleep 干净文案特征（发射点已剥 SLEEP_REASON_PREFIX，落账无前缀）
