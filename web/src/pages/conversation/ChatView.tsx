@@ -1,5 +1,5 @@
-import { type RefObject } from 'react'
-import { Archive, ShieldAlert, Activity } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { Archive, ShieldAlert, Activity, GripHorizontal } from 'lucide-react'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message, LocalLinkedResource as LinkedResource } from '../../lib/mappers'
 import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
@@ -39,9 +39,90 @@ interface ChatViewProps {
   onRejectCard?: () => void
 }
 
+/** F20261016inbs：输入框固定边界分割条常量。搭档拍板（微信式）：消息框与输入框之间隔离
+ *  边界固定、两框各自滚动、输入内容不改变边界，用户可手动拖动分割条改变上下两框大小。
+ *  localStorage 持久化——下次进入恢复；clamp 下限保单行可用，上限防输入框吃掉整个聊天区 */
+const INPUT_SPLIT_KEY = 'otter.chat.inputHeight'
+const INPUT_HEIGHT_DEFAULT = 120
+const INPUT_HEIGHT_MIN = 64
+/** 上限取容器高的 55%——不是常量而是容器实高的比例（拖动时实时 clamp） */
+function inputHeightMax(overlayEl: HTMLElement): number {
+  const containerH = overlayEl.parentElement?.clientHeight ?? 0
+  // 未测量（clientHeight=0，如 jsdom）时不设上限——clamp 只在有真实容器尺寸时才有意义；
+  // 否则会把持久化的合理高度误吞到回退档（真实浏览器 mount 后 clientHeight 恒 >0）
+  return containerH > 0 ? Math.floor(containerH * 0.55) : Infinity
+}
+function clampInputHeight(px: number, overlayEl: HTMLElement): number {
+  return Math.min(Math.max(px, INPUT_HEIGHT_MIN), inputHeightMax(overlayEl))
+}
+/** 读持久化高度，异常值（缺失/NaN/越界）回退默认——存储可能被外部篡改或来自旧版本 */
+function loadInputHeight(overlayEl: HTMLElement): number {
+  const rawStr = localStorage.getItem(INPUT_SPLIT_KEY)
+  if (rawStr == null) return INPUT_HEIGHT_DEFAULT
+  const raw = Number(rawStr)
+  // 注意：Number(null)===0 非 NaN——getItem 缺失时已提前返回，这里只需拦真 NaN（'abc' 等）
+  if (!Number.isFinite(raw)) return INPUT_HEIGHT_DEFAULT
+  return clampInputHeight(raw, overlayEl)
+}
+
 export function ChatView(props: ChatViewProps) {
   const { conversation: c } = props
   const staging = useAttachmentStaging(props.conversationId || null)
+  /** F20261016inbs：输入覆盖层容器 ref——ResizeObserver 观测目标（实高含分割条+附件行+玻璃框+
+   *  底部提示行），实高变化时同步 bottomSpacerPx 给 MessageList 做等高衬垫。首帧 mount 前
+   *  为 null（0px 兜底），mount 后立即触发（无内容时玻璃框实高 = inputHeight，衬垫即就位） */
+  const overlayRef = useRef<HTMLDivElement>(null)
+  /** 分割条拖动中的输入框高度——与输入内容无关（固定边界拍板），仅拖动/恢复时变化 */
+  const [inputHeight, setInputHeight] = useState(INPUT_HEIGHT_DEFAULT)
+  const [bottomSpacerPx, setBottomSpacerPx] = useState(0)
+
+  /** mount/首帧：恢复持久化高度（需 overlay 已挂载才能 clamp 容器比例上限） */
+  useEffect(() => {
+    const overlay = overlayRef.current
+    if (!overlay) return
+    setInputHeight(loadInputHeight(overlay))
+  }, [])
+
+  /** overlay 实高 → bottomSpacerPx：动态衬垫的单一数据源。依赖 [inputHeight] 重跑无妨
+   *  （ResizeObserver.observe 同一目标幂等）；RO 回调在内容真实变化时同步，不依赖 deps */
+  useEffect(() => {
+    const overlay = overlayRef.current
+    if (typeof ResizeObserver === 'undefined' || !overlay) return
+    const ro = new ResizeObserver(entries => {
+      const entry = entries[entries.length - 1]
+      const h = entry?.contentRect?.height ?? 0
+      setBottomSpacerPx(Math.round(h))
+    })
+    ro.observe(overlay)
+    return () => ro.disconnect()
+  }, [inputHeight])
+
+  /** 分割条拖动：pointerdown 捕获起点 → window 级 pointermove（拖出分割条热区仍跟踪，
+   *  setPointerCapture 在 iframe/边界场景不可靠，window 监听 + pointerup 兜底更稳）→
+   *  pointerup 持久化。拖动只写 inputHeight（玻璃框固定高），overlay 实高随之变化，衬垫经 RO 链同步 */
+  const inputHeightRef = useRef(inputHeight)
+  useEffect(() => { inputHeightRef.current = inputHeight }, [inputHeight])
+  const handleSplitterPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const overlay = overlayRef.current
+    if (!overlay) return
+    const startY = e.clientY
+    const startHeight = inputHeight
+    const maxHeight = inputHeightMax(overlay)
+    const onMove = (ev: PointerEvent) => {
+      const delta = startY - ev.clientY
+      setInputHeight(Math.min(Math.max(startHeight + delta, INPUT_HEIGHT_MIN), maxHeight))
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      // 松手持久化：下次进入恢复。经 ref 镜像读最新值（onMove 的 setState 是异步的，
+      // 直接闭包读 inputHeight 拿到的是拖动起点旧值）
+      localStorage.setItem(INPUT_SPLIT_KEY, String(inputHeightRef.current))
+    }
+    window.addEventListener('pointermove', onMove, { passive: true })
+    window.addEventListener('pointerup', onUp, { passive: true })
+  }, [inputHeight])
 
   /** F20260916sgcl：发送成功后清空中转区——此前 MessageInput 直接透传 staged 给 onSend，
    *  没有任何环节调 clearAll/takeForSend，导致悬浮附件发送后不消失、下一条消息还会重复携带。
@@ -122,6 +203,7 @@ export function ChatView(props: ChatViewProps) {
         highlightMessageId={props.highlightMessageId}
         userName={props.userName}
         linkedResources={props.linkedResources}
+        bottomSpacerPx={bottomSpacerPx}
       />
 
       {/* 卡片提交预览槽位（强制且永久，无直接发送开关）：summary 全文 + data JSON 全文默认可见 */}
@@ -156,14 +238,30 @@ export function ChatView(props: ChatViewProps) {
         </div>
       )}
 
-      {/* Input：F20261015inpd 覆盖层——absolute 悬浮在底部，脱离文档流不挤压消息列表。
-          消息列表 padding-bottom 预留 170px，视口高度恒定，输入框撑高零干扰。 */}
-      <div className="absolute bottom-0 left-0 right-0 z-10">
+      {/* Input：F20261015inpd 覆盖层 + F20261016inbs 固定边界——absolute 悬浮底部，脱离
+          文档流不挤压消息列表；顶部 8px 分割条热区（可拖），实高经 ResizeObserver 同步给
+          MessageList 做等高衬垫（旧写死 170px 预留已删，死区归零） */}
+      <div ref={overlayRef} className="absolute bottom-0 left-0 right-0 z-10">
+        {/* 分割条热区：输入区顶沿，拖动改变固定高度（仅拖动可变——输入内容不改变边界） */}
+        <div
+          onPointerDown={handleSplitterPointerDown}
+          className="group relative h-2 -mt-2 cursor-row-resize touch-none z-20"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="拖动调整输入框高度"
+          title="拖动调整输入框高度"
+        >
+          {/* 视觉手柄：默认隐蔽，hover/拖动时显现 */}
+          <span className="absolute inset-x-0 -top-0.5 bottom-1 flex items-start justify-center pointer-events-none">
+            <GripHorizontal className="w-4 h-2 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden="true" />
+          </span>
+        </div>
         <MessageInput
           onSend={handleSendWithStaging}
           disabled={c?.status === 'archived'}
           otters={props.otters}
           conversationId={props.conversationId}
+          inputHeight={inputHeight}
           staged={staging.staged}
           onRemoveAttachment={staging.remove}
           onPickFiles={staging.addFiles}

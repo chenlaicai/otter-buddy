@@ -220,6 +220,13 @@ interface MessageListProps {
    *  几何快照升级为意图驱动状态机——共享 ref 透传形状不变（index 新消息计数/发言回底直读写） */
   pinRef: RefObject<boolean>
   newMessagesCount?: number
+  /** F20261016inbs：底部衬垫高度（px）——输入覆盖层实高，由 ChatView ResizeObserver 实测。
+   *  旧方案是视口 paddingBottom 写死 170px（单行输入实高 ~72px → 滚到底时最后一条消息
+   *  悬在输入框上方 ~98px 死区；附件/错误行超高时反向压住消息底部）。新方案：视口零 padding
+   *  （F20261015inpd 视口恒定成果保持），预留搬到滚动内容末尾等高衬垫——衬垫随覆盖层实高
+   *  动态变化，pinned 用户由既有贴底补偿保持齐平（衬垫长高也是内容长高，contentObserver
+   *  兑底），floating 用户不打扰 */
+  bottomSpacerPx?: number
   /** 跳底按钮回调：滚动与置 pin 在本组件内完成，回调只承担计数清零等业务侧处理 */
   onJumpToBottom?: () => void
   onLoadMore?: () => void
@@ -240,7 +247,7 @@ function isNearBottom(el: HTMLElement, threshold = 100): boolean {
 
 export function MessageList({
   messages, state, onStopStream, onRetryMessage, onRetry, onGoToSettings, otters,
-  conversationId, pinRef, newMessagesCount = 0, onJumpToBottom, onLoadMore,
+  conversationId, pinRef, newMessagesCount = 0, bottomSpacerPx = 0, onJumpToBottom, onLoadMore,
   loadingMore,
   unreadSeparatorSeq, highlightMessageId,
   userName, linkedResources,
@@ -594,7 +601,10 @@ export function MessageList({
   }
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative" style={{ paddingBottom: '170px' }}>
+    // F20261016inbs：视口 paddingBottom 写死 170px 已删——预留搬到滚动内容末尾等高衬垫
+    // （下方 bottomSpacer div）。视口 clientHeight 恒定（F20261015inpd 根治成果）不可回退：
+    // 任何「改视口高度」的补偿路径都会重新引入 clamp 跳动机制链
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
       {loadingMore && (
         <div className="text-center py-2 text-xs text-stone-400">加载中...</div>
       )}
@@ -628,6 +638,11 @@ export function MessageList({
             <MessageItem message={item.message} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === item.message.id} userName={userName} />
           </div>
         ))}
+        {/* F20261016inbs：底部衬垫——高度 = 输入覆盖层实高（bottomSpacerPx，ChatView
+            ResizeObserver 实测后透传）。渲染在 contentRef（内容包裹 div）末尾：衬垫是滚动
+            内容的一部分，contentObserver 能观测其长高/缩短，pinned 用户由既有贴底补偿保持
+            齐平（与消息长高同一路径），floating 用户不被打扰。aria-hidden：无语义内容 */}
+        {bottomSpacerPx > 0 && <div aria-hidden="true" data-testid="bottom-spacer" style={{ height: bottomSpacerPx }} />}
         </div>
       </div>
       {newMessagesCount > 0 && onJumpToBottom && (
