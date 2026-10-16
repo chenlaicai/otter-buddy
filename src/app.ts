@@ -121,6 +121,11 @@ export interface BuiltApp {
   agentGateway: PiSessionFactory;
   agentInvoker: AgentInvoker;
   schedulerService: SchedulerService;
+  /** F20261016ebrt：查询 lane（search_memory，延迟优先） */
+  queryEmbedding: EmbeddingGateway;
+  /** F20261016ebrt：写入 lane（store/sync/retry，吞吐优先） */
+  writeEmbedding: EmbeddingGateway;
+  /** 兼容存量测试访问 available/构造 StoreMemory——等价 writeEmbedding */
   embeddingService: EmbeddingGateway;
   modelPool: ModelPool;
   /** F20260812mrcq Part 1：embedding 重试 worker（vec 禁用时为 null） */
@@ -201,29 +206,30 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     syncApiKeyToAgentAuth(config.llm, logger);
   }
   // ── 数据层初始化 ──
-  const { db, otterConfigProvider, model, modelPool, embeddingService, dispose: disposeEmbedding } =
+  const { db, otterConfigProvider, model, modelPool, queryEmbedding, writeEmbedding, dispose: disposeEmbedding } =
     await initDatabaseAndModels(config, logger, options.models);
   const repos = initRepositoriesWithDb(db, logger);
   await postInitDatabase(db, repos, logger);
 
   // F20260811mrpy Part 3：Embedding 版本锚校验（在 memory index 写入前完成）
   // 模型/维度不一致时禁用 vec 路径（降级状态经检索结果 vecCoverage 暴露，F20260821evaf）
-  const embeddingVersionCheck = await verifyEmbeddingVersion(embeddingService, repos, logger);
+  const embeddingVersionCheck = await verifyEmbeddingVersion(queryEmbedding, repos, logger);
   if (!embeddingVersionCheck.vecEnabled) {
     logger.warn(`Embedding vec path disabled due to ${embeddingVersionCheck.reason}`);
   }
   // ── 记忆索引 + 文档同步 ──
-  const memoryIndex = createMemoryIndex(repos, embeddingService, logger);
+  // F20261016ebrt：写入 lane 服务 store/sync（吞吐），查询 lane 只服务 search（延迟）
+  const memoryIndex = createMemoryIndex(repos, writeEmbedding, logger);
   const syncResult = await syncDocuments(repos, memoryIndex, logger, options.rootDir ?? process.cwd());
   postSyncMigrations(db, logger, syncResult);
 
   // F20260812mrcq Part 1：embedding 重试 worker + 存量暗化条目迁移
   // #949：worker 本体不再自持定时器——由下方 PatrolWorker 统一驱动（tickNow 巡检）
-  const retryWorker = await createAndStartRetryWorker(repos, embeddingService, logger);
+  const retryWorker = await createAndStartRetryWorker(repos, writeEmbedding, logger);
   // F20260825sgnw（#401）：RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
   // 审视发现 1：对齐 startScheduler 开关模式，测试/CI 可关（否则 buildApp 每次起 setInterval + git 采集副作用）
   const rhiScanWorker = createRhiScanWorker({
-    db, repos, embeddingService, logger,
+    db, repos, embeddingService: writeEmbedding, logger,
     rootDir: options.rootDir ?? process.cwd(),
   });
   // #927：獭间信号老化扫描——独立于 daily review 调度链（9/10-9/13 断档期唯一消费方停摆的教训），
@@ -280,7 +286,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     workspaceGateway,
     dataDir,
   });
-  const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
+  const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService: queryEmbedding, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
   // F20260813mren 审视二轮：sync_docs 工具注入——海獭写完文档可立即触发同步入库
   // 审视三轮 A-10：rootDir 透传——worktree 流程下文槛在 worktree，海獭可传 worktree 绝对路径
   // F20260920uhuc：agentInvoker 延迟绑定容器——buildOtterToolClient 先于 agentInvoker 构造
@@ -501,7 +507,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     otterConfigProvider,
     queryOtterProfile,
     schedulerService, cronParser, dispatchChainEngine, messageBroadcaster,
-    featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: embeddingService,
+    featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: queryEmbedding,
     processInboundRecruit, inboundApiKey, getBridgeStatus,
     // F20260825rweb（#402）：RHI 面板 API 依赖
     rhiScanWorker,
@@ -629,7 +635,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   return {
     app, db, config, logger, controllers,
     usecases: uc, repos, agentGateway, agentInvoker, schedulerService,
-    embeddingService, modelPool, retryWorker,
+    queryEmbedding, writeEmbedding,
+    // 兼容存量测试：available 检查 + 构造 StoreMemory 用（写入 lane）
+    embeddingService: writeEmbedding, modelPool, retryWorker,
     dispose: async () => {
       if (disposed) return;
       disposed = true;

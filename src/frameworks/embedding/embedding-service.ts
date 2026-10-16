@@ -18,6 +18,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import type { EmbeddingGateway, EmbedModelMeta } from "@usecases/memory/embedding-gateway";
+import { EmbedTimeoutError } from "@usecases/memory/embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 
 interface EmbeddingConfig {
@@ -107,6 +108,14 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * 查询路径并发 embed 排队，单次 ~230ms（短文本）可接受。
    */
   private static readonly MAX_IN_FLIGHT = 1;
+  /**
+   * F20261016ebrt：batch 超时预算——从 1s/条 放宽到 5s/条，且不低于单条的 30s。
+   * 旧预算（texts.length×1s）在长文本（~1000 token/条，实测 1-2s/条）+ 高负载下
+   * 必超，把「慢」误判成「死」触发自愈杀 worker（2026-10-15 21:22 事故链）。
+   * 上限仍 120s 防真死锁拖太久。
+   */
+  private static readonly BATCH_TIMEOUT_PER_TEXT_MS = 5_000;
+  private static readonly BATCH_TIMEOUT_FLOOR_MS = 30_000;
   /** 测试用覆盖超时（ms） */
   private static testTimeoutOverride: number | null = null;
   /** 测试用覆盖 in-flight 上限 */
@@ -183,6 +192,19 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       if (generation !== this.workerGeneration) return;
       this.handleWorkerExit(code, signal);
     });
+  }
+
+  /**
+   * F20261016ebrt：慢≠死判别——只有本代零成功才视为真死锁并自愈重建。
+   * 本代有成功记录说明 worker 活着（只是这批慢），只 reject 不动 worker。
+   * 这是「超时自杀」语义收窄的核心：把 1s/条 误杀慢 worker 的路径堵死，
+   * 保留 onnxruntime lost-wakeup 真死锁的逃生通道（零成功 + 超时 = 死）。
+   */
+  private restartWorkerIfHung(reason: string): void {
+    if (this.workerEmbedSucceeded === 0) {
+      this.restartWorker(reason);
+    }
+    // 有成功记录：worker 健康，这批超时只是慢——不杀，让调用方走 retry
   }
 
   /**
@@ -440,9 +462,9 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
           inflight,
           text: EmbeddingServiceImpl.textProfile(text),
         };
-        // F20261015selfheal：超时是 worker 假死的唯一可观测信号——触发自愈重建
-        this.restartWorker(`embed timeout after ${timeoutMs}ms`);
-        reject(new Error(`Embed timeout after ${timeoutMs}ms, falling back to FTS5-only`));
+        // F20261016ebrt：慢≠死——本代有成功记录说明 worker 活着，只 reject 不杀
+        this.restartWorkerIfHung(`embed timeout after ${timeoutMs}ms`);
+        reject(new EmbedTimeoutError(`Embed timeout after ${timeoutMs}ms, falling back to FTS5-only`));
       }, timeoutMs);
     });
 
@@ -480,9 +502,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       }
     });
 
-    // batch 超时按条数缩放：每条约 500ms，上限 120s
-    const timeoutMs = Math.min(
-      texts.length * 1_000,
+    // F20261016ebrt：batch 超时预算——5s/条，不低于 30s（对齐单条），上限 120s
+    // 测试环境 testTimeoutOverride 覆盖（与 embed() 同口径，否则测试等不到生产预算）
+    const timeoutMs = EmbeddingServiceImpl.testTimeoutOverride ?? Math.min(
+      Math.max(texts.length * EmbeddingServiceImpl.BATCH_TIMEOUT_PER_TEXT_MS, EmbeddingServiceImpl.BATCH_TIMEOUT_FLOOR_MS),
       120_000,
     );
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -502,11 +525,9 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
           inflight,
           firstText: EmbeddingServiceImpl.textProfile(texts[0] ?? ""),
         };
-        // F20261015selfheal：batch 超时同样是 worker 假死的可观测信号——触发自愈重建
-        // （onnxruntime 竞态卡死的是整个 worker 进程，单条/批量同样永久挂起；
-        //  batch 路径不重建则 #1460 泄漏家族在批量路径上未闭合）
-        this.restartWorker(`embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`);
-        reject(new Error(`Embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`));
+        // F20261016ebrt：慢≠死——本代有成功记录说明 worker 活着，只 reject 不杀
+        this.restartWorkerIfHung(`embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`);
+        reject(new EmbedTimeoutError(`Embed batch timeout after ${timeoutMs}ms (${texts.length} texts)`));
       }, timeoutMs);
     });
 
@@ -556,13 +577,21 @@ const noopLogger: Logger = {
 };
 
 /**
- * 初始化 Embedding 服务。
- * fork 子进程运行 bge-m3 模型，通过 IPC（serialization: advanced）通信。
+ * 初始化 Embedding 服务（F20261016ebrt：读写双 lane）。
+ *
+ * fork 两个独立子进程，各自加载一份 bge-m3：
+ * - queryService：只服务 search_memory 查询 embed（延迟优先，不排在回填后面）
+ * - writeService：服务 store/sync/retry 回填 embed（吞吐优先，可放开了批量）
+ *
+ * 为什么必须分进程：onnxruntime 1.23.2 要求 worker 内串行（MAX_IN_FLIGHT=1，
+ * 长文×并发>1 必死锁）——串行是原生约束，但「串行」≠「共用一条队列」。
+ * 共用时回填/写入把查询排队拖死（处理直接影响读）。两进程各自串行，互不排队。
+ * 代价：2 份 bge-m3 ≈ 4.5GB，比「重启时短暂双份 + 泄漏」更可控。
  */
 export async function initEmbeddingService(
   embedConfig?: EmbeddingConfig,
   logger?: Logger,
-): Promise<{ service: EmbeddingGateway; dispose: () => void }> {
+): Promise<{ queryService: EmbeddingGateway; writeService: EmbeddingGateway; dispose: () => void }> {
   const workerPath = embedConfig?.workerPath ?? path.join(__dirname, "bge-m3-worker.js");
   // F20261015kill：worker 工厂——超时自愈重建时复用同一配置 fork
   // serialization:'advanced' 走 structured clone，Float32Array 保真（默认 JSON 会退化成对象）
@@ -578,10 +607,15 @@ export async function initEmbeddingService(
     },
     serialization: "advanced",
   });
-  const service = new EmbeddingServiceImpl(workerFactory(), logger || noopLogger, workerFactory);
+  const queryService = new EmbeddingServiceImpl(workerFactory(), logger || noopLogger, workerFactory);
+  const writeService = new EmbeddingServiceImpl(workerFactory(), logger || noopLogger, workerFactory);
 
   return {
-    service,
-    dispose: () => service.dispose(),
+    queryService,
+    writeService,
+    dispose: () => {
+      queryService.dispose();
+      writeService.dispose();
+    },
   };
 }

@@ -9,6 +9,7 @@ import { initSchema } from "@frameworks/db/schema";
 import { EmbeddingRetryWorker } from "@usecases/memory/embedding-retry-worker";
 import { createAndStartRetryWorker } from "../../../src/bootstrap/memory";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import { EmbedTimeoutError } from "@usecases/memory/embedding-gateway";
 import type { Repositories } from "../../../src/bootstrap/types";
 import type DatabaseType from "better-sqlite3";
 import { createTestLogger } from "../../helpers/logger";
@@ -226,6 +227,52 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     const finalStatus = getTaskStatus("orphan");
     expect(finalStatus!.status).toBe("dead");
     expect(finalStatus!.attempts).toBe(3);
+  });
+
+  describe("F20261016ebrt 超时不算 dead-letter", () => {
+    it("EmbedTimeoutError 不计入 maxAttempts，条目保持 pending", async () => {
+      insertEntry("timeout-entry", "timeout content that is long enough");
+      await repo.enqueueRetry("timeout-entry", new Error("init"));
+
+      const timeoutGw = makeEmbeddingGateway(async () => {
+        throw new EmbedTimeoutError("Embed timeout after 200ms, falling back to FTS5-only");
+      });
+      const worker = new EmbeddingRetryWorker(repo, repo, repo, timeoutGw, createTestLogger(), 30_000, 3);
+
+      // 连续 5 次超时（远超 maxAttempts=3）——若超时计入 dead-letter，3 次就该 dead
+      for (let round = 0; round < 5; round++) {
+        db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
+        await worker.tickNow();
+      }
+
+      const row = db.prepare(
+        `SELECT status, attempts FROM embedding_tasks WHERE entry_id = 'timeout-entry'`
+      ).get() as { status: string; attempts: number } | undefined;
+
+      // 关键断言：仍是 pending（没被 dead-letter 埋掉）
+      expect(row).toBeDefined();
+      expect(row!.status).toBe("pending");
+    });
+
+    it("普通错误仍计入 maxAttempts，3 次转 dead", async () => {
+      insertEntry("err-entry", "error content that is long enough");
+      await repo.enqueueRetry("err-entry", new Error("init"));
+
+      const failGw = makeEmbeddingGateway(async () => { throw new Error("real failure"); });
+      const worker = new EmbeddingRetryWorker(repo, repo, repo, failGw, createTestLogger(), 30_000, 3);
+
+      for (let round = 0; round < 4; round++) {
+        db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
+        await worker.tickNow();
+      }
+
+      const row = db.prepare(
+        `SELECT status FROM embedding_tasks WHERE entry_id = 'err-entry'`
+      ).get() as { status: string } | undefined;
+
+      expect(row).toBeDefined();
+      expect(row!.status).toBe("dead");
+    });
   });
 
   describe("F20261013ebps 熔断", () => {

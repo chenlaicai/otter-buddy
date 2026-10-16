@@ -68,7 +68,7 @@ process.on("message", () => {
 `
       );
 
-      const { service, dispose } = await initEmbeddingService({
+      const { writeService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -105,7 +105,7 @@ process.on("message", (msg) => {
 `
       );
 
-      const { service, dispose } = await initEmbeddingService({
+      const { writeService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -146,7 +146,7 @@ process.on("message", (msg) => {
 `
       );
 
-      const { service, dispose } = await initEmbeddingService({
+      const { writeService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -184,7 +184,7 @@ process.on("message", (msg) => {
 `
       );
 
-      const { service, dispose } = await initEmbeddingService({
+      const { writeService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -213,7 +213,7 @@ process.on("message", (msg) => {
 `
       );
 
-      const { service, dispose } = await initEmbeddingService({
+      const { writeService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -256,7 +256,7 @@ process.on("message", (msg) => {
 `
     );
 
-    const { service, dispose } = await initEmbeddingService({
+    const { writeService: service, dispose } = await initEmbeddingService({
       workerPath: mockWorkerPath,
       workerExecArgv: [],
     });
@@ -303,7 +303,7 @@ process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } }
 `
     );
 
-    const { service, dispose } = await initEmbeddingService({
+    const { writeService: service, dispose } = await initEmbeddingService({
       workerPath: mockWorkerPath,
       workerExecArgv: [],
     });
@@ -379,7 +379,7 @@ process.on("message", () => {});
 `
       );
 
-      const { service, dispose } = await initEmbeddingService({
+      const { writeService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -416,7 +416,7 @@ process.on("message", () => {});
 `
       );
 
-      const { service, dispose } = await initEmbeddingService({
+      const { writeService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -541,4 +541,142 @@ if (process.env.OTTER_EMBED_TEST_GENERATION === "1") {
         fs.unlinkSync(mockWorkerPath);
       }
     });
+});
+
+// F20261016ebrt：慢≠死语义收窄——超时只杀真死锁，不杀慢 worker
+describe("超时语义收窄（慢≠死）", () => {
+    // F20261016ebrt：慢≠死——本代有成功记录的 worker 超时不得被杀
+    it("本代有成功记录时超时只 reject 不杀 worker（慢≠死）", async () => {
+      EmbeddingServiceImpl.setTestTimeoutOverride(150);
+      const mockWorkerPath = writeMockWorker(
+        "mock-slow-not-dead-worker.mjs",
+        `
+let count = 0;
+process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+process.on("message", (msg) => {
+  if (msg.type !== "embed") return;
+  count++;
+  if (count === 1) {
+    // 第一条立即成功——让本代有 workerEmbedSucceeded 记录
+    process.send({ type: "result", embedding: new Float32Array(4), id: msg.id });
+  }
+  // 后续不回——模拟慢/卡，但本代已证明 worker 活着
+});
+`
+      );
+
+      const workerFactory = () => forkMock(mockWorkerPath);
+      const service = new EmbeddingServiceImpl(workerFactory(), noopLogger, workerFactory);
+
+      try {
+        const svcInternal = service as unknown as {
+          readyState: { ready: boolean };
+          restartTimestamps: number[];
+        };
+        await waitFor(() => svcInternal.readyState.ready, "initial ready");
+
+        // 第一条成功
+        const first = await service.embed("fast one");
+        expect(first).toBeInstanceOf(Float32Array);
+        expect(svcInternal.restartTimestamps.length).toBe(0);
+
+        // 第二条超时——但本代有成功记录，不得触发 restartWorker
+        await expect(service.embed("slow one")).rejects.toThrow("Embed timeout");
+        expect(svcInternal.restartTimestamps.length).toBe(0);
+
+        // worker 还活着：ready 仍为 true（没被杀掉重建）
+        expect(svcInternal.readyState.ready).toBe(true);
+      } finally {
+        service.dispose();
+        EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        fs.unlinkSync(mockWorkerPath);
+      }
+    });
+
+    // F20261016ebrt：本代零成功 + 超时 = 真死锁，仍要自愈
+    it("本代零成功时超时触发自愈重建（真死锁逃生通道保留）", async () => {
+      EmbeddingServiceImpl.setTestTimeoutOverride(150);
+      const mockWorkerPath = writeMockWorker(
+        "mock-true-hang-worker.mjs",
+        `
+process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+process.on("message", () => {}); // 全不回——真死锁
+`
+      );
+
+      let generation = 0;
+      const service = new EmbeddingServiceImpl(
+        forkMock(mockWorkerPath, { OTTER_EMBED_TEST_GENERATION: "0" }),
+        noopLogger,
+        () => forkMock(mockWorkerPath, { OTTER_EMBED_TEST_GENERATION: String(++generation) }),
+      );
+
+      try {
+        const svcInternal = service as unknown as {
+          readyState: { ready: boolean };
+          restartTimestamps: number[];
+        };
+        await waitFor(() => svcInternal.readyState.ready, "initial ready");
+
+        await expect(service.embed("hang")).rejects.toThrow("Embed timeout");
+        // 零成功 + 超时 = 死锁，必须重建
+        expect(svcInternal.restartTimestamps.length).toBe(1);
+      } finally {
+        service.dispose();
+        EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        fs.unlinkSync(mockWorkerPath);
+      }
+    });
+});
+
+// F20261016ebrt：读写双 lane——查询不排在回填后面
+describe("读写双 lane 隔离", () => {
+  it("queryService 与 writeService 是独立实例，互不排队", async () => {
+    const mockWorkerPath = writeMockWorker(
+      "mock-lane-worker.mjs",
+      `
+process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+process.on("message", (msg) => {
+  if (msg.type !== "embed") return;
+  if (msg.text === "write one") {
+    // 写入请求永不回——把 write lane 永久占住
+    return;
+  }
+  process.send({ type: "result", embedding: new Float32Array(4), id: msg.id });
+});
+`
+    );
+
+    const { queryService, writeService, dispose } = await initEmbeddingService({
+      workerPath: mockWorkerPath,
+      workerExecArgv: [],
+    });
+
+    try {
+      await waitFor(() => queryService.available && writeService.available, "both lanes ready");
+
+      // 两 lane 是独立实例（各自 fork 的 worker 进程）
+      expect(queryService).not.toBe(writeService);
+
+      // write lane 被一个永不返回的请求占住
+      void writeService.embed("write one").catch(() => "hung" as const);
+      const svcWrite = writeService as unknown as { pendingRequests: Map<number, unknown> };
+      await waitFor(() => svcWrite.pendingRequests.size >= 1, "write lane busy");
+
+      // query lane 不受影响——write 卡死时 query 仍能立刻拿到结果
+      const queryResult = await Promise.race([
+        queryService.embed("query one"),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("query blocked by write")), 1000)),
+      ]);
+      expect(queryResult).toBeInstanceOf(Float32Array);
+      expect(queryResult.length).toBe(4);
+
+      // write 确实还在挂着（没被误当成已完成）
+      expect(svcWrite.pendingRequests.size).toBeGreaterThanOrEqual(1);
+      // 不 await writePending——它要 30s 才超时，dispose 时会 reject（已 catch）
+    } finally {
+      dispose();
+      fs.unlinkSync(mockWorkerPath);
+    }
+  });
 });
