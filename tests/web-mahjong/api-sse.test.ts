@@ -122,6 +122,12 @@ describe("api.js × 真实 Hono 路由", () => {
     }
     throw new Error("真人未停驻");
   }
+  it("#1532 api.chat 回话封装：POST /chat → {accepted:true, seat}", async () => {
+    await api.createRoom({ roomId: ROOM, seed: "chat-seed", players: PLAYERS });
+    const res = (await api.chat(ROOM, 1, "在吗")) as Record<string, any>;
+    expect(res.accepted).toBe(true);
+    expect(res.seat).toBe(1);
+  });
 });
 
 // ───────────────────────── ② sse.js 重连/恢复策略 ─────────────────────────
@@ -362,7 +368,16 @@ describe("真 SSE 端点桥接（hello/game/human-wait）", () => {
     expect(waitFrame.roomId).toBe(ROOM);
     expect(Number.isNaN(new Date(waitFrame.deadline).getTime())).toBe(false);
 
-    // ④ close：状态收在 closed，不再新增帧
+    // ④ 真人回话 → chat 帧（含 from/name——#1532 页面回显与观战端同流的字段基础）
+    await api.chat(ROOM, 1, "测试回话");
+    await waitUntil(() => frames.some((f) => f.type === "chat"), 3000, "chat 帧");
+    const chatFrame = frames.find((f) => f.type === "chat");
+    expect(chatFrame.text).toBe("测试回话");
+    expect(chatFrame.from).toBe("human");
+    expect(chatFrame.name).toBe("你");
+    expect(chatFrame.seat).toBe(1);
+
+    // ⑤ close：状态收在 closed，不再新增帧
     handle.close();
     expect(handle.status()).toBe("closed");
     const count = frames.length;
