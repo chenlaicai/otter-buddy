@@ -132,6 +132,13 @@ export function resolvePayloadScript(payloadWord: Word, flagWord: Word, commandT
  *  的 push --dry-run 排除/stash push 限定/reset --hard 限定见 gitWriteSubcommandHit）。 */
 export const GIT_WRITE_SUBS = new Set(["commit", "rebase", "merge", "cherry-pick", "apply", "reset", "clean", "push", "stash", "pull"]);
 
+/** F20261016gdfv（#1522）：git stash 写族子命令全集（git-stash(1) 明文）——push/pop/apply/
+ *  drop/clear/store/branch 均改工作区或 stash ref；缺省（bare）≡ push（明文）；旗标形
+ *  （stash -m …）= push 形态。只读面=list/show/create（create 只打印对象名不落 stash
+ *  ref/不动工作区——git-stash(1) 明文，归读面）。两侧共享（isWriteVerbAt / evalGitWrite
+ *  / 写族正则同步），词表漂移=静动/双链反判。 */
+export const STASH_WRITE_SUBS = new Set(["push", "pop", "apply", "drop", "clear", "store", "branch"]);
+
 /** F20261016gwr1（M-46f0e74d）：git 写族子命令判定（词级，prod 严格语义）——引号含空格/
  *  attached/反引号值全覆盖（旧 GIT_WRITE_SUBCOMMAND 正则 \S+ 词面解析对这三形态整体
  *  失明=fail-open 实证，正则已退役）。语义=旧正则锚同款（r2-C 基线）：push 排除
@@ -167,16 +174,17 @@ export function gitWriteSubcommandHit(seg: Segment): boolean {
   return isWriteVerbAt(words, i);
 }
 
-/** 写族子命令判定（严格语义，位置定在 words[i]）：push 排除 --dry-run/-n、stash 限 push
- *  （F20261016gwr1 修复轮 建议 2：bare `git stash` ≡ `git stash push`——git 原生语义，缺省即 push）
+/** 写族子命令判定（严格语义，位置定在 words[i]）：push 排除 --dry-run/-n、stash 限写族全集
+ *  （F20261016gdfv/#1522：pop/apply/drop/clear/store/branch 真写面收编——旧「限 push」漏拦；
+ *  bare ≡ push（F20261016gwr1 修复轮 建议 2）；读面 list/show/create 不入）
  *  、reset 限 --hard、clean 限 f 旗标；词等值天然排除 commit-tree/merge-base 词族。 */
-// eslint-disable-next-line complexity -- 写族子命令严格语义逐分支（push 排除/stash 限定/reset --hard 限定/clean f 旗标，r2-C 基线形态穷举）
+// eslint-disable-next-line complexity -- 写族子命令严格语义逐分支（push 排除/stash 写族全集/reset --hard 限定/clean f 旗标，r2-C 基线形态穷举）
 function isWriteVerbAt(words: Word[], i: number): boolean {
   const sub = words[i]?.evaluated ?? null;
   if (sub === null) return false;
   const next = words[i + 1]?.evaluated ?? null;
   if (sub === "commit" || sub === "rebase" || sub === "merge" || sub === "cherry-pick" || sub === "apply") return true;
-  if (sub === "stash") return next === null || next === "push" || (next !== null && next.startsWith("-"));
+  if (sub === "stash") return next === null || STASH_WRITE_SUBS.has(next) || (next !== null && next.startsWith("-"));
   if (sub === "push") return next !== "--dry-run" && next !== "-n";
   if (sub === "reset") return next === "--hard";
   if (sub === "clean") return next !== null && /^-[a-zA-Z]*f/.test(next);

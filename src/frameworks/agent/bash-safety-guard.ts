@@ -247,7 +247,7 @@ const SCRIPT_PATH_EXTRACT = /(?:^|[;&|`$(])\s*(?:sudo\s+)?(?:(?:bash|sh)\s+)?((?
 
 /** F20260916gtlr：脚本路径解析——相对路径基于 projectRoot（=主仓根，海獭 bash cwd 恒为主仓）resolve 并归一化。
  *  返回 true 表示解析到主仓 scripts（目标是进程1 的管理脚本）。projectRoot 缺失时保守按主仓对待。
- *  大小写归一化与 resolvesToMainData 同步（同根因：macOS case-insensitive FS 漏拦）。 */
+ *  大小写归一化与 classifyDestructiveTarget 同步（同根因：macOS case-insensitive FS 漏拦）。 */
 function resolvesToMainCheckout(scriptPath: string, projectRoot?: string): boolean {
   if (!projectRoot) return true; // 保守退化
   if (scriptPath.startsWith("~")) return true; // ~ 不展开，保守拦截
@@ -379,36 +379,57 @@ function checkKillSegment(ctx: KillSegmentCtx): string | null {
  *  路径前段 glob 变形（dat[glob]…）不覆盖——主流形态覆盖后由对抗审视评估是否补面。 */
 const DATA_DESTRUCTIVE_MSG = "bash 命令对主仓 data/（运行时数据：metrics/logs/workspaces）执行了删除/移动操作。data/ 是主服务运行时数据，海獭不得直接改删：验证类操作请在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根 ~/.otter/alpha/）；需临时数据目录时用 os.tmpdir() 或 worktree 内路径；确需清理主仓数据时报告搭档人工执行（data/backups/ 有定期备份兑底）。";
 
+/** F20261016gdfv（M-c78df9d4，宪法洞表修复）：主仓内容树破坏面文案（非 data/ 目标）。
+ *  X1/X2 探针实证：主仓根/内容树的 rm 等曾 prod:ALLOW / wv:BLOCK 双层反判——
+ *  data-destructive 只盖 data/，内容树目标漏拦。与 wv pathWithinMain 同口径豁免运行时区。 */
+const MAIN_DESTRUCTIVE_MSG = "bash 命令对主仓内容区执行了删除/移动操作（rm/mv/find -delete 落点在主仓 git 内容树，非 data/）。主仓内容受 R1 红线保护（改动须走 worktree+PR）：请在 worktree（.otter/worktrees/）内操作；worktree 区/工作区/运行时区清理不受限；确需动主仓内容时报告搭档人工执行。";
+
 /** 路径参数解析到主仓 data/ 下（含 data/ 本身）？
  *  cwd：相对路径的解析基准（跟踪 cd 后的当前目录）；projectRoot：主仓根（data 根的比较基准）。
  *  两者角色不同——cwd 只影响解析，主仓归属只看 projectRoot。
  *  大小写归一化：比较双侧 toLowerCase（macOS case-insensitive FS 上 `dAta/` 实际命中
  *  主仓 data/，区分大小写比较会漏拦——检视獭-1040 严重发现，修复与本函数同步应用于
  *  resolvesToMainCheckout） */
-function resolvesToMainData(target: string, cwd: string, projectRoot?: string, sessionCwd?: string): boolean {
-  if (!projectRoot) return true; // projectRoot 缺失时保守拦截（与 resolvesToMainCheckout 同策略）
-  if (target.startsWith("~")) return true; // ~ 不展开，保守拦截（~/…/otter-buddy/data 可能指向主仓）
-  // 尾部 glob 剥除：data/metrics/* → data/metrics（glob 只影响目录内容范围，不影响目录归属）
+/** 破坏命令目标落点分类（F20261016gdfv，M-c78df9d4）："data"=主仓 data/（9/17 事故面）；
+ *  "mainTree"=主仓内容树（git 内容区，非 data）；null=非主仓保护面。保守面（projectRoot
+ *  缺失/~ 前缀/cwd 不可知）归 "data"——沿用旧 resolvesToMainData 的保守文案与语义，
+ *  ~ 误拦面（GAP 键 TS-21cee677/TS-a32f51e7）另单治理不动。
+ *  cwd：相对路径解析基准（跟踪 cd 后的当前目录）；大小写归一化（macOS case-insensitive FS）。 */
+type DestructiveZone = "data" | "mainTree" | null;
+
+// eslint-disable-next-line complexity -- 破坏目标落点分类形态穷举（data/内容树双域+own-ws/~ 保守面+运行时区三豁免，F20261016gdfv 目标域扩面后 17）
+function classifyDestructiveTarget(target: string, cwd: string, projectRoot?: string, sessionCwd?: string): DestructiveZone {
+  if (!projectRoot) return "data"; // projectRoot 缺失时保守拦截（与 resolvesToMainCheckout 同策略）
+  if (target.startsWith("~")) return "data"; // ~ 不展开，保守拦截（~/…/otter-buddy/data 可能指向主仓）
+  // 尾部 glob 剥除：data/metrics/* -> data/metrics（glob 只影响目录内容范围，不影响目录归属）
   const stripped = target.replace(/\/+$/, "").replace(/\/[*?]+$/, "");
-  if (!stripped) return false;
-  // 相对路径且 cwd 不可知（cd ~ 后）→ 静态无法解析，保守拦截
-  if (!path.isAbsolute(stripped) && !cwd) return true;
+  if (!stripped) return null;
+  // 相对路径且 cwd 不可知（cd ~ 后）-> 静态无法解析，保守拦截
+  if (!path.isAbsolute(stripped) && !cwd) return "data";
   const resolved = path.isAbsolute(stripped)
     ? path.normalize(stripped)
     : path.normalize(path.resolve(cwd, stripped));
-  const dataRoot = path.normalize(path.join(projectRoot, "data"));
-  // 大小写归一化后比较（同上注释）
+  const rootLower = path.normalize(projectRoot).toLowerCase();
   const resolvedLower = resolved.toLowerCase();
-  const dataRootLower = dataRoot.toLowerCase();
   // F20261014cwsp S2/S8 处置：仅豁免**本会话工作区子树**（sessionCwd 归一化后前缀）——
-  // `rm -rf data`（cwd=自己工作区，清自己缓存）放行（10/14 三连误拦实证）；
-  // 整树豁免是越权面（round-2 S8：对话 A 一行 `rm -rf ../OTHER-conv` 可销毁对话 B
-  // 整个工作区，legacy 无 sessionCwd 形态也失守）。无 sessionCwd 不豁免——守旧行为。
+  // 清自己工作区缓存放行（10/14 三连误拦实证）；整树豁免是越权面（round-2 S8）。
+  // 无 sessionCwd 不豁免——守旧行为。
   if (sessionCwd && path.isAbsolute(sessionCwd)) {
     const ownWs = path.normalize(sessionCwd).toLowerCase();
-    if (resolvedLower === ownWs || resolvedLower.startsWith(ownWs + path.sep)) return false;
+    if (resolvedLower === ownWs || resolvedLower.startsWith(ownWs + path.sep)) return null;
   }
-  return resolvedLower === dataRootLower || resolvedLower.startsWith(dataRootLower + path.sep);
+  const dataRootLower = path.normalize(path.join(projectRoot, "data")).toLowerCase();
+  if (resolvedLower === dataRootLower || resolvedLower.startsWith(dataRootLower + path.sep)) return "data";
+  // F20261016gdfv（M-c78df9d4）：主仓内容树补齐——X1/X2 反判的 prod 侧缺口（rm -rf 主仓根
+  //  曾漏拦）。与 wv pathWithinMain 同口径豁免运行时区（OTTER_RUNTIME_REGIONS 三区）——
+  //  worktree 清理/工作区操作照常放；边界同 wv（精确子树前缀，裸区目录名不豁免）。
+  if (resolvedLower === rootLower || resolvedLower.startsWith(rootLower + path.sep)) {
+    for (const region of ["/.otter/worktrees/", "/.otter/workforms", "/data/workspaces/"]) {
+      if (resolvedLower.startsWith(rootLower + region.toLowerCase())) return null;
+    }
+    return "mainTree";
+  }
+  return null;
 }
 
 /** 提取段内非 flag 路径参数（去引号，滤 flag） */
@@ -418,19 +439,29 @@ function pathArgsOf(seg: string): string[] {
     .filter(a => a && !a.startsWith("-"));
 }
 
-/** 形态检测：段是否对主仓 data/ 执行删除/移动（cwd 为相对路径解析基准） */
-function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sessionCwd?: string): { kind: string; hit: boolean } {
+/** 形态检测：段是否对主仓保护面（data/ 或内容树）执行删除/移动（cwd 为相对路径解析基准）。
+ *  F20261016gdfv：目标域从 data/ 扩主仓内容树（M-c78df9d4 X1/X2 反判面）；mv 双端判定
+ *  （源=主仓内容被移走，目标=移入主仓——旧版只查源，mv 入主仓曾双层反判）。 */
+function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sessionCwd?: string): { kind: string; zone: DestructiveZone } {
+  const zoneOf = (args: string[]): DestructiveZone => {
+    let z: DestructiveZone = null;
+    for (const a of args) {
+      const t = classifyDestructiveTarget(a, cwd, projectRoot, sessionCwd);
+      if (t === "data") return "data"; // data 面优先（更严文案）
+      if (t === "mainTree") z = "mainTree";
+    }
+    return z;
+  };
   if (isKillAtCommandPosition(seg, /\br(?:m|mdir)\b/)) {
-    return { kind: "rm", hit: pathArgsOf(seg).some(a => resolvesToMainData(a, cwd, projectRoot, sessionCwd)) };
+    return { kind: "rm", zone: zoneOf(pathArgsOf(seg)) };
   }
   if (isKillAtCommandPosition(seg, /\bmv\b/)) {
-    const args = pathArgsOf(seg);
-    return { kind: "mv", hit: args.length > 0 && resolvesToMainData(args[0], cwd, projectRoot, sessionCwd) };
+    return { kind: "mv", zone: zoneOf(pathArgsOf(seg)) };
   }
   if (isKillAtCommandPosition(seg, /\bfind\b/) && /(?:^|\s)-delete\b/.test(seg)) {
-    return { kind: "find -delete", hit: pathArgsOf(seg).some(a => resolvesToMainData(a, cwd, projectRoot, sessionCwd)) };
+    return { kind: "find -delete", zone: zoneOf(pathArgsOf(seg)) };
   }
-  return { kind: "", hit: false };
+  return { kind: "", zone: null };
 }
 
 /** #1038：主仓 data/ 破坏性操作检测。返回拦截文案或 null。
@@ -440,6 +471,7 @@ function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sess
  *  F20261014cwsp：起始 cwd 显式入参（session 工作目录）。统一工作区后獭 bash cwd=
  *  对话工作区，不能再以 projectRoot（主仓）为解析基准——否则未 cd 的工作区相对
  *  命令（如 `rm -rf data` 清工作区缓存）解析到主仓 data/ 被误拦（10/14 三连实证）。 */
+// eslint-disable-next-line complexity -- 破坏目标域分类分流（data/mainTree 两文案+豁免面）+ cd 跟踪，每分支对应一种已实证形态（F20261016gdfv 目标域扩面后 13）
 function checkDataDirDestructive(command: string, logger: Logger | undefined, ctx: GuardCwdCtx): string | null {
   const segments = command.split(/&&|\|\||[;&\n]/).map(s => s.trim()).filter(Boolean);
   let cwd = ctx.sessionCwd ? path.normalize(ctx.sessionCwd) : (ctx.projectRoot ? path.normalize(ctx.projectRoot) : "");
@@ -451,10 +483,10 @@ function checkDataDirDestructive(command: string, logger: Logger | undefined, ct
       cwd = path.isAbsolute(target) ? path.normalize(target) : (cwd ? path.normalize(path.resolve(cwd, target)) : "");
       continue;
     }
-    const { kind, hit } = segmentDestructive(seg, cwd, ctx.projectRoot, ctx.sessionCwd);
-    if (hit) {
-      logger?.warn(`[bash-safety-guard] BLOCKED ${kind} targeting main-checkout data/`, { command: command.substring(0, 200) });
-      return DATA_DESTRUCTIVE_MSG;
+    const { kind, zone } = segmentDestructive(seg, cwd, ctx.projectRoot, ctx.sessionCwd);
+    if (zone !== null) {
+      logger?.warn(`[bash-safety-guard] BLOCKED ${kind} targeting main-checkout ${zone}`, { command: command.substring(0, 200) });
+      return zone === "data" ? DATA_DESTRUCTIVE_MSG : MAIN_DESTRUCTIVE_MSG;
     }
   }
   return null;
@@ -1139,7 +1171,7 @@ function stripSubshellWrap(seg: string): string {
  *  也不识命令组内 git 写族（预存洞，旧基线 git 正则锚同样不含壳字符）。
  *  fail-closed 收窄：壳落点 + 段内含 git 写族字面即拦（与 ③d 未知落点同策略）。
  *  剥壳重判（stripSubshellWrap）只覆盖「全段单壳」形态；壳内多命令/嵌套壳由本闸兜底。 */
-const SUBSHELL_GIT_WRITE_GATE = /[({][^)}]*\bgit\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push|push\b|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+const SUBSHELL_GIT_WRITE_GATE = /[({][^)}]*\bgit\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\b(?!\s+(?:list|show|create)\b)|push\b|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
 
 /** ③b shell 落点处理（judgeSegment 内层，抽函数控圈复杂度/语句数）：
  *  三态拆分（r1 严重 2）+ 载荷递归 + 剩余 token 重判（r1 严重 3）。 */
@@ -1303,7 +1335,7 @@ function checkSegmentStructuralWrite(
 const REDIRECT_PATTERN = /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!["'\w])\d*>>?\s*[^|&;\n'"]+/;  // 重定向（含 echo x > file 中段形态 + 2> 数字前缀）
 /** git 写族字面通道（MAIN_WRITE_PATTERNS 末项）——cwd 上移豁免（skipGitLiteral）
  *  只免除本通道；具名引用替代魔法索引（round-2 建议）。定义先于数组（as const 引用）。 */
-const GIT_WRITE_LITERAL_PATTERN = /(?:^|[|&]|&&|\|\||[;\n])\s*(?:[A-Za-z_]\w*=\S*\s+)*git\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\s+push)\b/;  // git 写族（#1285 洞3：赋值前缀 \S+→\S*，空赋值 `FOO= git commit` 同拦）
+const GIT_WRITE_LITERAL_PATTERN = /(?:^|[|&]|&&|\|\||[;\n])\s*(?:[A-Za-z_]\w*=\S*\s+)*git\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\b(?!\s+(?:list|show|create)\b))\b/;  // git 写族（#1285 洞3：赋值前缀 \S+→\S*，空赋值 `FOO= git commit` 同拦）
 
 const MAIN_WRITE_PATTERNS = [
   REDIRECT_PATTERN,
@@ -2127,7 +2159,7 @@ function rewriteMainWriteBlockMsg(sessionCwd?: string): string {
 function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   const { command, logger, projectRoot, sessionCwd, heredocReadOnly, oneLinerReadOnlyOverride } = ctx;
   const depth = ctx.depth ?? 3;
-  if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
+  if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 classifyDestructiveTarget 同策略）
   // F20261008h304（#1304）：git 写族/one-liner 通道基座换数据体剥除文本（判据见
   // blankDataHeredocBodies 注释）；cd 豁免/重定向/白名单仍用原始文本（cd 段与重定向
   // 落点是真实 shell 语义，且重定向通道已有自己的剥体基座）。

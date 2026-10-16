@@ -43,7 +43,7 @@ import { statSync } from "node:fs";
 import path from "node:path";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
 import { proveNoWrite, DYNAMIC_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
-import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS } from "./payload-extract-aux";
+import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS, STASH_WRITE_SUBS } from "./payload-extract-aux";
 import type { Word } from "./command-lexer";
 
 // ────────────────────────────── 类型 ──────────────────────────────
@@ -77,7 +77,7 @@ export type UnevalReason =
 // ────────────────────────────── 常量与基础工具 ──────────────────────────────
 
 /** 落点参数位词表（Phase 1）。argv0 裸名匹配。rm=全部非旗标参数（删除落点）。 */
-const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir", "rm"]);
+const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir", "rm", "find"]);
 /** 修 F20261015smrj 通道 b：扩展词表写命令（install/ln/chmod/chown/chgrp/truncate）——旧集合只有
  *  tee/cp/mv/touch/mkdir，其余写命令写面命中但落点提取空 → 误当无写放行（通道 b）。 */
 const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "chgrp", "truncate"]);
@@ -425,14 +425,13 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   }
   if (sub === "reset" && !rest.some(a => a === "--hard")) return null;
   if (sub === "clean" && !rest.some(a => /^-[a-zA-Z]*f/.test(a))) return null;
-  // F20261016gwr1 修复轮二（delta 残留 2，检视獭1519）：wv 半边对称补齐——bare `git stash`
-  //  ≡ `git stash push`（git-stash(1) 明文）+ 旗标形（stash -m …）同归写，与 prod
-  //  isWriteVerbAt 同口径；显式 list/show 等非写面照旧不入账。旧 `rest[0] !== "push"` 把
-  //  bare/旗标形归非写（prod 收 wv 不收=只落一条链反判）。stash pop/apply/drop 写面漏判
-  //  另立 issue 归口（M-026d87ff 伞旁），不在本行扩面。
+  // F20261016gwr1 修复轮二（delta 残留 2）：bare `git stash` ≡ `git stash push`（git-stash(1)
+  //  明文）+ 旗标形（stash -m …）同归写。F20261016gdfv（#1522）：stash 写族全集收编
+  //  （pop/apply/drop/clear/store/branch 真写面）——与 prod isWriteVerbAt 共享
+  //  STASH_WRITE_SUBS 同口径；读面 list/show/create 不入账（create 只打对象名不落 ref）。
   if (sub === "stash") {
     const s0 = rest[0];
-    if (s0 !== undefined && s0 !== "push" && !s0.startsWith("-")) return null;
+    if (s0 !== undefined && !STASH_WRITE_SUBS.has(s0) && !s0.startsWith("-")) return null;
   }
   const base = cTarget !== null ? evalPath(cTarget, cwd) : cwd;
   if (base === null) return "dynamic-path";
@@ -441,8 +440,13 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
 }
 
 /** 词表命令落点（cp/mv 第二非旗标参数；tee/touch/mkdir 全部非旗标参数）。返回 UnevalReason | null。 */
+// eslint-disable-next-line complexity -- 词表命令落点形态穷举（cp/mv 双参+find -delete 条件写面+~ 豁免，F20261016gdfv 破坏词表补齐后 14）
 function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
   if (!TARGET_ARG_COMMANDS.has(bare)) return null;
+  // F20261016gdfv（M-c78df9d4 破坏词表补齐）：find 仅 -delete 表达式是破坏写面（读形态
+  //  find 不入账）；落点=全部非旗标参数（表达式值混入落点集合=保守面，与 tee/touch 同款
+  //  fail-closed 哲学）。此前 find 不在词表→`find /repo -delete` 双层放行（真破坏面）。
+  if (bare === "find" && !seg.words.some(w => w.evaluated === "-delete")) return null;
   const nonFlagArgs: string[] = [];
   for (let i = 1; i < seg.words.length; i++) {
     const w = seg.words[i].evaluated;

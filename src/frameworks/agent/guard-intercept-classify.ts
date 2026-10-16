@@ -63,6 +63,10 @@ const FINGERPRINTS: ReadonlyArray<{ fragment: string; cls: GuardRuleClass }> = [
   // 不在本层（需守卫出口埋 ruleId——属 #844 后续）；无 cwd 版文案（MAIN_WRITE_BLOCK_MSG）
   // 已由上一条「当前 bash 工作目录在主仓」覆盖。
   { fragment: "写命令落点解析到主仓（session 工作目录=", cls: { ruleId: "main_write_resolve", layer: "r1_gate" } },
+  // F20261016gdfv（M-c78df9d4）：破坏命令落主仓内容树（非 data/）新文案（main_write 族）。
+  // 原「写命令落点解析到主仓」宽 fragment 按合入顺序提案删除（#1527 先合，其含
+  // 「（session 工作目录=」的具体形态先命中且归因更细，宽窄两形态 first-hit 互吞）。
+  { fragment: "对主仓内容区执行了删除/移动操作", cls: { ruleId: "main_write", layer: "r1_gate" } },
   { fragment: "主仓 data/", cls: { ruleId: "data_destructive", layer: "r1_gate" } },
   { fragment: "PR 合入是搭档专属动作", cls: { ruleId: "pr_merge", layer: "permission" } },
   // sleep 干净文案特征（发射点已剥 SLEEP_REASON_PREFIX，落账无前缀）
