@@ -34,8 +34,16 @@ causal_links: ["F20261015gali", "F20261015glfp", "F20261015gsub"]
 1. **词级化而非再补正则**：gate 正则已修过三轮（S1 偶然命中、X1 旗标加宽、今次引号盲）——每次补一层漏一层（c107 教训的正则版）。词法层本就存在且归一引号/attached/转义，写族判定与落点解析全部改走词级（`gitWriteSubcommandHit` + `gitDashCTargetsWorktree` 词级化），**旧 GIT_WRITE_SUBCOMMAND 正则两侧退役**（同源镜像契约随共享词级真相源结构性治愈）。
 2. **严格/宽词表双语义如实分立**：prod gate 严格语义（push 排除 --dry-run/-n、stash 限 push、reset 限 --hard、clean 限 f 旗标——r2-C 基线原文）≠ 求值器 isWrite 宽词表（双签终版 2026-10-12：reset/clean/stash/pull 一律写族、落点判在上层）——此前「同源」注释掩盖了这处分歧（记档说一套代码做一套同族），现两词表分立命名 + 注释互指。
 3. **洗白面收窄到 P5 家族（corpus 棘轮教出的精确刀口）**：git 写族 + `dynamic-path`（git 调用自身参数动态——-c/-C 值可改写树发现，落点真不可证）不洗白；`cwd-unresolvable`/`parse-failed` 族维持词面证放行——**能力 4 既有语义 + 双签背书**（corpus 96a21f3c `pushd <wt> && git push -u origin <branch> && popd` 正面 ALLOW：pushd 不进 cd 跟踪是 Phase 1 设计内缺口，词面证是其既定兜底）。首版 wash-guard 过宽（全 reason 禁洗）被棘轮拦红——corpus 守恒闸是对的，收窄后棘轮精确复位。
-4. **严格 fail-closed 面不变**：--git-dir/--work-tree 覆盖、core.worktree/core.bare/core.gitdir 配置改写树发现、动态 -c 值、~ 前缀、worktrees 根自身一律不豁免（gitDashCTargetsWorktree 词级化后语义保持）。
+4. **严格 fail-closed 面**：--git-dir/--work-tree 覆盖、动态 -c 值、~ 前缀、worktrees 根自身一律不豁免（gitDashCTargetsWorktree 词级化后语义保持）；**core.worktree/core.bare/core.gitdir 配置改写树发现是净新增**（检视獭1519 建议 4 正名：18b0577a 基线零命中——旧正则对此无任何检查）——prod 侧不豁免 + wv 侧 fail-closed（F20261016smrj 建议 3 对称）。
 5. **known-gap 意外收获**：走查循环体 `i += 2; continue` 在 for 循环里被 i++ 追加推进（跳词过冲）——审查实证的低级陷阱，改 while 形态并注记「勿改 for」。
+
+## 一审修复轮留痕（检视獭1519 request-changes + 大獭 16/10 09:46 裁决）
+
+- **严重 1 已修（单点谓词，双层同愈）**：附着+动态混合形态（`git -c"$P" commit`/`git -C$P commit`/`git -C"$P" commit`）曾双层 fail-open（同语义空格/附着拼接反判——本 PR 自己钉的病核换个拼接就复活）——修法：gitWriteSubcommandHit 动态词位不弃权，**后续静态写族子命令前瞻判 write**；红线 `git -C"$P" status` 只读面照常放（前瞻无写族命中）；对称面：附着+动态 alias 定义（键+! 可见证）→ opaque 拦
+- **建议 1 已修**：洗白禁入键从全局 reason 字符串改为 **git 段自身证据**（gitSegSelfWriteEvidence——可证主仓落点/不可证落点/树发现改写→禁洗，无 -C 且全静态→词面证语义保留），不依赖段序（前导 pushd 改 reason 不再旁落）；corpus 96a21f3c 保绿（棘轮无 GAP_DIFF）
+- **建议 2 已修**：bare `git stash` ≡ `git stash push`（git-stash(1) 明文）——三侧之一的 git-readonly-whitelist 白名单注释「stash→list」是**事实错误**（branch/tag/remote/config 才是 bare=list），stash 只读面收窄为显式 list/show；附带排掉 `[] .every` vacuous-truth 坑；第四对不变量钉死
+- **建议 3 已修（尽力→全收）**：wv core.worktree/bare/gitdir 树发现改写 → dynamic-path fail-closed（evalGitWrite + evalGitAdd 两同形走查同治）
+- **建议 4 已修**：头注释正名（退役正则不得以活权威口气出现）+ 本取舍条 core.* 改「净新增」
 
 ## 机制识别检查点（修法决策树）
 

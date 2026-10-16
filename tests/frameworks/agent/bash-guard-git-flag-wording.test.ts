@@ -91,3 +91,46 @@ describe("F20261015gwr1 放行侧（豁免正道 + 空格一致性不变量）",
     }
   });
 });
+
+describe("F20261016smrj 修复轮（检视獭1519 一审严重 1 + 建议 1/2/3）", () => {
+  it("严重 1：附着+动态混合形态 -c\"$P\" commit → 双层拦（红线：同语义不得拼接反判）", () => {
+    expect(prod(`git -c"$P" commit`)).toBeTruthy();
+    expect(wv(`git -c"$P" commit`).verdict).toBe("BLOCK");
+  });
+
+  it("严重 1：附着 -C\"$P\" commit → 双层拦", () => {
+    expect(prod(`git -C"$P" commit`)).toBeTruthy();
+    expect(wv(`git -C"$P" commit`).verdict).toBe("BLOCK");
+  });
+
+  it("严重 1：附着 -C$P commit（无引号拼接）→ 双层拦", () => {
+    expect(prod(`git -C$P commit`)).toBeTruthy();
+    expect(wv(`git -C$P commit`).verdict).toBe("BLOCK");
+  });
+
+  it("红线：git -C\"$P\" status 只读面不误拦（后续无写族子命令）", () => {
+    expect(prod(`git -C"$P" status`)).toBeNull();
+    expect(wv(`git -C"$P" status`).verdict).toBe("ALLOW");
+  });
+
+  it("建议 1：前导 pushd 改全局 reason 不旁落洗白（段自身证据触发）", () => {
+    expect(prod(`pushd /tmp && git -C "/repo/work space" commit`)).toBeTruthy();
+    expect(wv(`pushd /tmp && git -C "/repo/work space" commit`).verdict).toBe("BLOCK");
+  });
+
+  it("建议 2：bare git stash ≡ git stash push（第四对不变量）", () => {
+    expect(prod(`git stash`) === null).toBe(prod(`git stash push`) === null);
+    expect(prod(`git stash`)).toContain("写命令落点解析到主仓");
+  });
+
+  it("建议 3：wv core.worktree 树发现改写 → fail-closed（与 prod 对称）", () => {
+    expect(prod(`git -c core.worktree=/repo -C ${WT} commit`)).toBeTruthy();
+    const r = wv(`git -c core.worktree=/repo -C ${WT} commit`);
+    expect(r.verdict).toBe("BLOCK");
+    expect(r.mode).toBe("fail-closed");
+  });
+
+  it("严重 1 对称面：附着+动态 alias 定义（键+! 可见证）→ opaque 拦", () => {
+    expect(prod(`git -c"alias.pwn=!$P" pwn`)).toBeTruthy();
+  });
+});
