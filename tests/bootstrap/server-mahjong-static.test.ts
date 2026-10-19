@@ -15,6 +15,7 @@ import path from "node:path";
 import { buildHttpApp } from "../../src/bootstrap/server";
 import type { initControllers } from "../../src/bootstrap/controllers";
 import type { Logger } from "../../src/usecases/ports/logger";
+import { withIdentity } from "../helpers/with-identity";
 
 type Controllers = ReturnType<typeof initControllers>;
 
@@ -46,7 +47,7 @@ describe("三麻牌局页静态挂载（web-mahjong）", () => {
     spaRoot = mkdtempSync(path.join(tmpdir(), "spa-root-"));
     writeFileSync(path.join(spaRoot, "index.html"), "<html><div id='root'>SPA</div></html>");
 
-    app = buildHttpApp(minimalControllers(), logger, spaRoot, pageRoot);
+    app = withIdentity(buildHttpApp(minimalControllers(), logger, spaRoot, pageRoot));
   });
 
   afterAll(() => {
@@ -93,7 +94,7 @@ describe("三麻牌局页静态挂载（web-mahjong）", () => {
   });
 
   it("staticRoot=false（关静态页）时牌局页路由一并不挂", async () => {
-    const bare = buildHttpApp(minimalControllers(), logger, false);
+    const bare = withIdentity(buildHttpApp(minimalControllers(), logger, false));
     expect((await bare.request("/mahjong")).status).toBe(404);
     expect((await bare.request("/mahjong/any")).status).toBe(404);
   });
@@ -105,7 +106,7 @@ describe("仓库内真页面可达", () => {
 
   beforeAll(() => {
     expect(existsSync(path.join(pageRoot, "index.html")), `页面根不存在：${pageRoot}`).toBe(true);
-    app = buildHttpApp(minimalControllers(), logger, false, pageRoot);
+    app = withIdentity(buildHttpApp(minimalControllers(), logger, false, pageRoot));
   });
 
   it("index.html 含牌桌挂载点与入口脚本", async () => {

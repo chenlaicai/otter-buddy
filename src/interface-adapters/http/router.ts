@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { randomUUID } from "crypto";
 import type { Logger } from "@usecases/ports/logger";
+import { identityMiddleware, type Identity } from "./identity-middleware";
 import type { ConversationController } from "./controllers/conversation-controller";
 import type { OtterController } from "./controllers/otter-controller";
 import type { MessageController } from "./controllers/message-controller";
@@ -246,14 +247,22 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
     await next();
 
     const duration = Date.now() - start;
+    // #1322（F20261016autz）：身份中间件已在 next 链内解析——带上 userId 供访问日志审计
+    const identity = c.get('identity' as never) as Identity | undefined;
     logger.info('HTTP request completed', {
       requestId,
+      userId: identity?.userId,
+      role: identity?.role,
       method: c.req.method,
       path: c.req.path,
       statusCode: c.res.status,
       duration,
     });
   });
+
+  /** #1322（F20261016autz）：对话域鉴权层——身份声明 + 路由策略表 + fail-closed 兜底，
+   *  挂在 requestId 之后、所有路由之前（一处覆盖既有与新增端点） */
+  app.use('*', identityMiddleware());
 
   registerConvRoutes(app, ctrl);
   registerMsgRoutes(app, ctrl);

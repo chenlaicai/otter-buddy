@@ -56,7 +56,10 @@ function parseArgs() {
 async function resolveDbPath(explicit) {
   if (explicit) return explicit;
   try {
-    const res = await fetch('http://localhost:3000/api/settings');
+    // #1322（F20261016autz）：/api/settings 已接鉴权——脚本侧带身份头（对旧服务无头可兼容，头被忽略）
+    const res = await fetch('http://localhost:3000/api/settings', {
+      headers: { 'X-Otter-User-Id': 'script:migrate-sanxing-wushen', 'X-Otter-User-Role': 'admin' },
+    });
     const json = await res.json();
     if (json.dbPath) return json.dbPath.startsWith('/') ? json.dbPath : join(repoRoot, json.dbPath);
   } catch { /* 服务不在线，退回默认 */ }

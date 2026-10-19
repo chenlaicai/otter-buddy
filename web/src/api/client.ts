@@ -25,6 +25,7 @@ import type {
   SignalEventsResponseDTO,
   DispatchRecordsResponseDTO,
 } from '@contract/api'
+import { identityHeaders } from './identity'
 
 const BASE = '/api'
 
@@ -55,9 +56,12 @@ export class InvokeAbortError extends ApiError {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  // #1322（F20261016autz）：身份头恒并入；调用方自带 headers 时整体替换语义保留
+  //（如 uploadAttachments 传 {} = 不设 Content-Type 让浏览器带 multipart boundary）
+  const { headers: initHeaders, ...initRest } = init ?? {}
   const res = await fetch(`${BASE}${url}`, {
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-    ...init,
+    ...initRest,
+    headers: { ...(initHeaders ?? { 'Content-Type': 'application/json' }), ...identityHeaders() },
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }))
@@ -130,7 +134,7 @@ export function markRead(conversationId: string, messageSeq: number): Promise<Ma
 export function sendMessage(conversationId: string, body: SendMessageRequestDTO): Promise<Response> {
   return fetch(`${BASE}/conversations/${conversationId}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...identityHeaders() },
     body: JSON.stringify(body),
   })
 }
@@ -204,7 +208,7 @@ export async function abortInvoke(invokeId: string, otterId: string): Promise<{ 
 export function retryInvoke(invokeId: string): Promise<Response> {
   return fetch(`${BASE}/invokes/${invokeId}/retry`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...identityHeaders() },
   })
 }
 
@@ -213,7 +217,7 @@ export function retryInvoke(invokeId: string): Promise<Response> {
 export function retryOtter(otterId: string, conversationId: string): Promise<Response> {
   return fetch(`${BASE}/otters/${otterId}/retry?conversationId=${encodeURIComponent(conversationId)}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...identityHeaders() },
   })
 }
 

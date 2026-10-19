@@ -13,6 +13,7 @@ import { buildHttpApp } from "../../src/bootstrap/server";
 import { SPA_ROUTES } from "@contract/web/pages";
 import type { initControllers } from "../../src/bootstrap/controllers";
 import type { Logger } from "../../src/usecases/ports/logger";
+import { withIdentity } from "../helpers/with-identity";
 
 type Controllers = ReturnType<typeof initControllers>;
 
@@ -40,7 +41,7 @@ describe("buildHttpApp SPA fallback（F20260920spa）", () => {
     // SPA 只有一个 index.html 入口
     writeFileSync(path.join(staticRoot, "index.html"), "<html><div id='root'>SPA</div></html>");
     writeFileSync(path.join(staticRoot, "otter-icon.png"), "fake-icon");
-    app = buildHttpApp(minimalControllers(), logger, staticRoot);
+    app = withIdentity(buildHttpApp(minimalControllers(), logger, staticRoot));
   });
 
   afterAll(() => {
@@ -78,7 +79,7 @@ describe("buildHttpApp SPA fallback（F20260920spa）", () => {
   });
 
   it("staticRoot=false 时不挂任何页面路由", async () => {
-    const bare = buildHttpApp(minimalControllers(), logger, false);
+    const bare = withIdentity(buildHttpApp(minimalControllers(), logger, false));
     expect((await bare.request("/health")).status).toBe(404);
   });
 
