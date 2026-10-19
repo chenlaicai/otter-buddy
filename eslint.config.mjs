@@ -58,6 +58,37 @@ export default tseslint.config(
     },
   },
   {
+    // 牌局页（web-mahjong/，F20261015mjsg 模块四）：浏览器环境原生 ES 模块
+    files: ["web-mahjong/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        location: "readonly",
+        history: "readonly",
+        navigator: "readonly",
+        sessionStorage: "readonly",
+        localStorage: "readonly",
+        fetch: "readonly",
+        console: "readonly",
+        EventSource: "readonly",
+        URL: "readonly",
+        TextEncoder: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        globalThis: "readonly",
+        HTMLElement: "readonly",
+      },
+    },
+    rules: {
+      "no-console": "off",
+    },
+  },
+  {
     files: ["web/src/**/*.{ts,tsx}"],
     plugins: { "react-hooks": reactHooks },
     rules: {
