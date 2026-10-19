@@ -660,20 +660,9 @@ export { loadAllowedServicePorts };
  *  cd 豁免（管道右段在子进程、分号段继承 cwd——shell 语义）。
  *  cd 目标可静态求值且非主仓 → 豁免；目标含展开不可求值 → 不豁免（保守，与 V1
  *  「引号假 cd 不豁免」同向）。 */
-export function modelCdExemption(command: string, v1Fallback: (c: string) => boolean, targetVeto?: (target: string) => boolean): boolean {
+export function modelCdExemption(command: string, v1Fallback: (c: string) => boolean): boolean {
   const model = parseOnce(command);
   if (!model.parseOk) return v1Fallback(command); // 解析失败回 V1 判定（保守侧一致）
-  // F20261019syml（M-ed285d7c）：显式意图豁免只在「声明形态=真实落点」时成立——链上
-  // 任一 cd 目标经 symlink 撒谎（字面形态与真实落点归类分歧）即整体不豁免，落严格
-  // 通道按真实落点判（诚实 cd 主仓照旧豁免——探针实证显式意图边界不动）。预扫覆盖
-  // 整条链（含首 cd 授予短路看不见的后段 cd）。
-  if (targetVeto) {
-    for (const seg of model.segments) {
-      if (effectiveCommandOfSegment(seg) !== "cd") continue;
-      const t = cdSegmentStaticTarget(seg, model);
-      if (t !== null && targetVeto(t)) return false;
-    }
-  }
   // 找首段链上的 cd：从段 0 开始沿 && 链前进，遇 cd 则解析目标；遇非 cd 命令段则停。
   // 关键 shell 语义（V1 行为保持）：cd 段自己被 & 后台化或 | 管道化时，cd 只影响
   // 子 shell——父 shell cwd 不变，后续段落主仓 → 不豁免。判定：cd 段的「下游
