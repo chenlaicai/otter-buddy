@@ -163,6 +163,32 @@ describe("牌局页浏览器真机渲染", () => {
     await page.close();
   }, 120_000);
 
+  it("#1532 聊天回显：入座后发言 → SSE chat 帧进日志（无控制台报错）", async () => {
+    const errors: string[] = [];
+    const page: Page = await browser.newPage({ viewport: { width: 1280, height: 940 } });
+    page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+    page.on("console", (m) => {
+      if (m.type() === "error" && !m.text().includes("favicon")) errors.push(`console: ${m.text()}`);
+    });
+
+    await page.goto(`${base}/mahjong/${ROOM}`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector('#overlayBox [data-do="join"]', { timeout: 15_000 });
+    await page.click('[data-do="join"][data-seat="1"]');
+    await page.waitForSelector("#hand .tile", { timeout: 15_000 });
+
+    // 聊天条入座后可见（观战隐藏由 app.js 门控；本条验「在座」方向）
+    await page.waitForSelector("#chatBar:not([hidden])", { timeout: 5_000 });
+    await page.fill("#chatInput", "第一句测试发言");
+    await page.press("#chatInput", "Enter");
+
+    // 自己的话经 SSE chat 帧回显进对局日志（修复前无 #chatBar/无消费分支 → 本选择器必挂）
+    await page.waitForSelector("#log li.is-chat", { timeout: 5_000 });
+    const line = await page.locator("#log li.is-chat").first().textContent();
+    expect(String(line)).toContain("第一句测试发言");
+    expect(errors, `控制台报错：${errors.join(" | ")}`).toEqual([]);
+    await page.close();
+  });
+
   it("观战入口：无座进场三家手牌可见", async () => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 940 } });
     await page.goto(`${base}/mahjong/${ROOM}`, { waitUntil: "domcontentloaded" });

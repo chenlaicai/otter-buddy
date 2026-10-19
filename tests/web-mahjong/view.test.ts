@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 // @ts-expect-error 页面层原生 JS（无类型声明）——与 scripts/*.mjs 测试同一惯例，运行时 import 纯函数
-import { actionBar, chunks, fieldInfo, handTileCount, panelsByPosition, seatLayout, sortHand, tileAction, tileGlyph, tileKindIndex, tileLabel, tileState } from "../../web-mahjong/js/view.js";
+import { actionBar, chunks, fieldInfo, formatChatLine, handTileCount, panelsByPosition, seatLayout, sortHand, tileAction, tileGlyph, tileKindIndex, tileLabel, tileState } from "../../web-mahjong/js/view.js";
 
 type Any = Record<string, any>;
 
@@ -361,5 +361,17 @@ describe("场况栏", () => {
     const panels = panelsByPosition(view, 0);
     expect(panels.right.discards.map((d: Any) => d.riichi)).toEqual([false, false, true, false]);
     expect(panels.right.discards[2].glyph).toBe(tileGlyph("3z"));
+  });
+});
+
+describe("#1532 formatChatLine 聊天行格式化", () => {
+  it("自己/他者/獭标记/名字缺省回退", () => {
+    // ownSeat 命中显「你」且**忽略 fixture name**——name:"B" 仍显「你」，坏实现直接返回 name 会红（检视发现3）
+    expect(formatChatLine({ seat: 1, name: "B", from: "human", text: "加油" }, 1)).toBe("你：加油");
+    expect(formatChatLine({ seat: 0, name: "阿獭", from: "otter", text: "收到！" }, 1)).toBe("阿獭（獭）：收到！");
+    expect(formatChatLine({ seat: 2, name: "C", from: "human", text: "hi" }, 1)).toBe("C：hi");
+    expect(formatChatLine({ seat: 0, from: "otter", text: "x" }, 1)).toBe("0号位（獭）：x");
+    // 观战端（ownSeat=null）：按 name 直排不套「你」——name:"B" 期望 "B：yo"，坏实现「永远返回你」会红
+    expect(formatChatLine({ seat: 1, name: "B", from: "human", text: "yo" }, null)).toBe("B：yo");
   });
 });
