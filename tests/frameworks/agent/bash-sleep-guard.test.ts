@@ -81,6 +81,19 @@ describe("bash_sleep 发射点（circuit-breaker-helpers）", () => {
     expect(reason).toContain("wait 工具");
   });
 
+  // #1540：sleep 拦截文案补 wait+until 探活示范（等服务启动场景的具体正道，
+  // until 语义已实测：固定时长等待 + 醒后单命令检查，未就绪是正常返回；
+  // G3：示范值不带引号伪语法（照抄含引号会被 wait 工具 WAIT_UNTIL_FORBIDDEN 拒）
+  it("#1540 sleep 文案含 wait+until 探活示范", () => {
+    const abortOverride = vi.fn();
+    const session = attach(abortOverride);
+    session.emit(sdkToolStart("bash", { command: "sleep 30" }));
+    expect(abortOverride).toHaveBeenCalledOnce();
+    const reason = abortOverride.mock.calls[0][0] as string;
+    expect(reason).toContain("until 填 curl -sf localhost:3001/");
+    expect(reason).toContain("值不带引号");
+  });
+
   it("`sleep 2` 微 sleep 不拦（阈值下）", () => {
     const abortOverride = vi.fn();
     const session = attach(abortOverride);
