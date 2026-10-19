@@ -36,6 +36,10 @@ interface RecordingGateway extends OtterGateway {
   /** 每次 chat 注入的调用（含目标 otter——注入按 otter 座位分队并行） */
   chatInvocations: Array<{ otterId: string; prompt: string }>;
   chatFailuresLeft: number;
+  /** chat 注入的应答文本（可置空白测「不广播」分支） */
+  chatReply: string;
+  /** chat 注入前钩子（竞态测试：注入窗口内往队里塞消息）——至多触发一次由测试自控 */
+  onChatInvoke?: () => void;
 }
 
 function recordingGateway(): RecordingGateway {
@@ -43,15 +47,17 @@ function recordingGateway(): RecordingGateway {
     prompts: [],
     chatInvocations: [],
     chatFailuresLeft: 0,
+    chatReply: "收到！",
     async invoke(otterId: string, prompt: string): Promise<string> {
       gw.prompts.push(prompt);
       if (prompt.includes("# 牌桌聊天")) {
         gw.chatInvocations.push({ otterId, prompt });
+        gw.onChatInvoke?.();
         if (gw.chatFailuresLeft > 0) {
           gw.chatFailuresLeft -= 1;
           throw new Error("gateway down");
         }
-        return "收到！";
+        return gw.chatReply;
       }
       const matches = [...prompt.matchAll(/^\s*(\d+)\. (\{.*\})$/gm)];
       if (matches.length === 0) return "我无法解析局面（非 JSON 回复）";
@@ -86,21 +92,22 @@ async function driveUntilFinished(svc: RoomService, roomId: string): Promise<voi
   }
 }
 
-describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
-  let db: Database.Database;
-  let store: SqliteFrameStore;
-  let bus: RoomBus;
-  let events: RoomEvent[];
+let db: Database.Database;
+let store: SqliteFrameStore;
+let bus: RoomBus;
+let events: RoomEvent[];
 
-  beforeEach(() => {
-    db = new Database(":memory:");
-    initSchema(db);
-    store = new SqliteFrameStore(db);
-    bus = new RoomBus();
-    events = [];
-    bus.subscribe("r1", (e) => events.push(e));
-  });
-  afterEach(() => db.close());
+beforeEach(() => {
+  db = new Database(":memory:");
+  initSchema(db);
+  store = new SqliteFrameStore(db);
+  bus = new RoomBus();
+  events = [];
+  bus.subscribe("r1", (e) => events.push(e));
+});
+afterEach(() => db.close());
+
+describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
 
   it("isSeated：入座且进行中 true；未知 otter false；终局后 false", async () => {
     const svc = new RoomService({
@@ -133,7 +140,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
     expect(svc.addChat("r1", 0, "x".repeat(501))).toMatchObject({ ok: false });
     expect(svc.addChat("r1", 1, "  加油！ ")).toEqual({ ok: true });
     const chatEv = events.find((e) => e.type === "chat");
-    expect(chatEv).toMatchObject({ seat: 1, text: "加油！" });
+    expect(chatEv).toMatchObject({ seat: 1, text: "加油！", from: "human", name: "B" });
     svc.close("r1");
   });
 
@@ -329,5 +336,63 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
     await new Promise((r) => setTimeout(r, 80));
     expect(svc.view("r1", null)).toBeNull(); // 到期出 Map
     svc.close("r1"); // 不存在也幂等
+  });
+});
+
+describe("#1532 獭侧回应广播（注入回合；harness 模块级共用）", () => {
+  it("#1532 獭侧：注入回应广播 chat 事件（from=otter，观战端同流可见）", async () => {
+    const gw = recordingGateway();
+    const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000 });
+    svc.createRoom("r1", cfg("chat-echo-seed"));
+    expect(svc.addChat("r1", 1, "有人在吗")).toEqual({ ok: true });
+    await driveUntilFinished(svc, "r1");
+
+    const otterChats = events.filter(
+      (e): e is Extract<RoomEvent, { type: "chat" }> => e.type === "chat" && e.from === "otter",
+    );
+    expect(otterChats.length).toBe(2); // 两个 otter 座位各注入一次各回应一次（跨局首迁即回）
+    expect(otterChats.map((c) => c.seat).sort()).toEqual([0, 2]);
+    expect(otterChats.map((c) => c.name).sort()).toEqual(["A", "C"]);
+    for (const c of otterChats) expect(c.text).toBe("收到！");
+    // 人类回话事件同构带 from/name
+    expect(events.some((e) => e.type === "chat" && e.from === "human" && e.name === "B")).toBe(true);
+  });
+
+  it("#1532 獭侧：空白回应不广播（session 已注入但不留空泡）", async () => {
+    const gw = recordingGateway();
+    gw.chatReply = "   ";
+    const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000 });
+    svc.createRoom("r1", cfg("chat-echo-blank"));
+    expect(svc.addChat("r1", 1, "能听到吗")).toEqual({ ok: true });
+    await driveUntilFinished(svc, "r1");
+
+    expect(gw.chatInvocations.length).toBeGreaterThan(0); // 注入发生过
+    expect(events.filter((e) => e.type === "chat" && e.from === "otter")).toHaveLength(0);
+    expect(events.some((e) => e.type === "chat" && e.from === "human")).toBe(true);
+  });
+
+  it("#1532 检视发现2：注入窗口内 addChat 不丢——快照换队，窗口内消息留次局补注入", async () => {
+    const gw = recordingGateway();
+    let svcRef: RoomService | null = null;
+    let midPushed = false;
+    gw.onChatInvoke = () => {
+      if (midPushed || !svcRef) return;
+      midPushed = true;
+      // 模拟注入窗口（LLM 调用在途）内真人发言：addChat push 进活队
+      expect(svcRef.addChat("r1", 1, "窗口内的话")).toEqual({ ok: true });
+    };
+    const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000 });
+    svcRef = svc;
+    svc.createRoom("r1", cfg("chat-race-seed"));
+    expect(svc.addChat("r1", 1, "先说这句")).toEqual({ ok: true });
+    await driveUntilFinished(svc, "r1");
+
+    // 双 otter 队列同构；以 otter-a 为准：首迁只带旧消息、窗口内消息次迁必达（修复前被 set([]) 丢弃 → 红）
+    const aInv = gw.chatInvocations.filter((c) => c.otterId === "otter-a");
+    expect(aInv.length).toBe(2);
+    expect(aInv[0]!.prompt).toContain("先说这句");
+    expect(aInv[0]!.prompt).not.toContain("窗口内的话");
+    expect(aInv[1]!.prompt).toContain("窗口内的话"); // 关键断言：窗口内消息不丢
+    svc.close("r1");
   });
 });

@@ -138,7 +138,8 @@ cmd_start() {
       rm -f "$PID_FILE"
       exit 1
     fi
-    if curl -sf "http://localhost:$PORT/api/settings" >/dev/null 2>&1; then
+    # #1322（F20261016autz）：/api/settings 已接鉴权——健康探针带身份头（无头 401 → curl -sf 判失败）
+    if curl -sf -H 'X-Otter-User-Id: script:otter-buddy.sh' -H 'X-Otter-User-Role: admin' "http://localhost:$PORT/api/settings" >/dev/null 2>&1; then
       echo ""
       echo "[ok] Started (PID $pid) -> http://localhost:$PORT"
       echo "     Logs: $LOG_FILE"

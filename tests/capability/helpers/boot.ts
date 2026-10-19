@@ -17,6 +17,7 @@ import { initFauxModels } from "../../../src/frameworks/llm/models-factory";
 import { ModelPool } from "../../../src/frameworks/llm/model-pool";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { createTestLogger } from "../../helpers/logger";
+import { withIdentity } from "../../helpers/with-identity";
 import { spawnSync } from "node:child_process";
 
 export interface CapabilityContext {
@@ -243,6 +244,8 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
   }
 
   const ready = built;
+  // #1322（F20261016autz）：capability 装配的 app 注入默认身份（否则被鉴权层 401）
+  withIdentity(ready.app);
   return {
     built: ready,
     tmpDir,

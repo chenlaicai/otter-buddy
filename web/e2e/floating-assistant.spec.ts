@@ -80,7 +80,10 @@ test.describe('浮动獭（F20260924wast）', () => {
 
     // 断言全局唯一：侧栏 web 助理分组只有一条（经 API 直查——绕开 DOM 折叠态）。
     // K5：前两行 input enabled 前置断言已排除 0 条，收紧为恒等于 1（防断言空转）
-    const res = await page.request.get('/api/conversations?kind=web-assistant&limit=10')
+    const res = await page.request.get('/api/conversations?kind=web-assistant&limit=10', {
+      // #1322：对话域已接鉴权——直连 API 也带身份头
+      headers: { 'X-Otter-User-Id': 'e2e', 'X-Otter-User-Role': 'admin' },
+    })
     expect(res.ok()).toBeTruthy()
     const { items } = await res.json() as { items: Array<{ id: string }> }
     expect(items.length).toBe(1)

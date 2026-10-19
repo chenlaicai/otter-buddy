@@ -34,7 +34,8 @@ die() { echo "Error: $1" >&2; exit 1; }
 wait_healthy() {
   local deadline=$((SECONDS + HEALTH_TIMEOUT))
   while [ $SECONDS -lt $deadline ]; do
-    if curl -sf -o /dev/null "${BASE_URL}/api/settings"; then
+    # #1322（F20261016autz）：/api/settings 已接鉴权——健康等待带身份头（无头 401 会让探针永远不绿）
+    if curl -sf -o /dev/null -H 'X-Otter-User-Id: script:e2e-server.sh' -H 'X-Otter-User-Role: admin' "${BASE_URL}/api/settings"; then
       echo "e2e server healthy at ${BASE_URL}"
       return 0
     fi

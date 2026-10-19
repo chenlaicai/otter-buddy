@@ -45,7 +45,7 @@ export type RoomEvent =
       wake?: { via: "trivial" | "proxy" | "otter" | "fallback" | "human" | "timeout-fallback"; speech?: string; fallbackReason?: string; attempts?: number };
     }
   | { type: "human-wait"; roomId: string; seat: Seat; deadline: string }
-  | { type: "chat"; roomId: string; seat: Seat; text: string; at: string }
+  | { type: "chat"; roomId: string; seat: Seat; name: string; from: "human" | "otter"; text: string; at: string }
   | { type: "error"; roomId: string; message: string };
 
 export type RoomEventListener = (event: RoomEvent) => void;
