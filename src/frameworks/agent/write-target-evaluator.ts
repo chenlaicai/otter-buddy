@@ -1219,8 +1219,12 @@ function writerContent(seg: Segment, cwd: string): WriteFaceEntry[] | null {
 }
 
 /** 重定向写面内容重建（原 writerContent 尾段语义原样拆出）：追加先验不可知；echo/printf
- *  静态参数重建；cat/tee 单 heredoc 体重建（含展开则不可知）；其余不可重建 → null。 */
-// eslint-disable-next-line complexity -- echo/printf（单参/多参）/heredoc/追加分支=已实证写法枚举
+ *  静态参数重建；cat/tee 单 heredoc 体重建（含展开则不可知）；其余不可重建 → null。
+ *  delta1 附带修（假重建=逃逸面）：printf 单 format 参数旧重建丢 format（重建为空串=
+ *  把非空文件谎报成空内容，`printf 'touch /repo/x\n' > f && bash f` 被判良性放行）——
+ *  单参=内容本体按 printf 转义语义重建；% 指令无参代入 → null（不可重建不猜）；
+ *  多参数保历史 %s\n 近似（TS-20610ff1 等冻结形态口径不动）。 */
+// eslint-disable-next-line complexity -- echo/printf（单参/多参/%指令）/heredoc/追加分支=已实证写法枚举（合并会遮蔽单参假重建修复）
 function redirectWriteContent(seg: Segment, redirect: Segment["redirects"][number]): string | null {
   if (redirect.op.includes(">>")) return null; // 追加：先验内容不可知
   const bare = bareName(seg.argv0);
@@ -1228,7 +1232,9 @@ function redirectWriteContent(seg: Segment, redirect: Segment["redirects"][numbe
     const vals = seg.words.slice(1).map(w => w.evaluated);
     if (vals.some(v => v === null)) return null;
     const args = vals.filter((v): v is string => v !== null && !v.startsWith("-"));
-    return bare === "printf" ? args.slice(1).join("\n") : args.join(" ");
+    if (bare === "echo") return args.join(" ");
+    if (args.length >= 2) return args.slice(1).join("\n");
+    return args.length === 0 ? "" : printfFormatContent(args[0]);
   }
   if ((bare === "cat" || bare === "tee") && seg.heredocs.length === 1) {
     const hd = seg.heredocs[0];
@@ -1236,6 +1242,26 @@ function redirectWriteContent(seg: Segment, redirect: Segment["redirects"][numbe
     return hd.body;
   }
   return null;
+}
+
+/** printf format 内容重建（单 format 参数形态）：%%→%、反斜杠转义按 bash printf 语义
+ *  解释（实测：未知转义 \q 原样两字符保留、\n 等解释、\0nnn 八进制）；% 指令无参代入
+ *  → null（不可重建不猜——假重建=谎报内容，delta1 附带修）。 */
+function printfFormatContent(fmt: string): string | null {
+  if (fmt.replace(/%%/g, "").includes("%")) return null; // % 指令无参代入——不可重建
+  const simple: Record<string, string> = { a: "\x07", b: "\b", e: "\x1b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "\\": "\\", "'": "'", '"': '"' };
+  let out = "";
+  for (let i = 0; i < fmt.length; i++) {
+    const c = fmt[i];
+    if (c === "%") { out += "%"; i++; continue; } // %% → %（前闸已证无裸 % 指令）
+    if (c !== "\\") { out += c; continue; }
+    const n = fmt[i + 1];
+    if (n !== undefined && n in simple) { out += simple[n]; i++; continue; }
+    const oct = n === "0" ? /^0([0-7]{1,3})/.exec(fmt.slice(i + 1)) : null; // \0nnn 八进制
+    if (oct !== null) { out += String.fromCharCode(parseInt(oct[1], 8)); i += oct[0].length; continue; }
+    out += c; // 未知转义原样两字符（bash printf 实测语义）
+  }
+  return out;
 }
 
 /** argv 写面目标提取（F20261019wvcp 造-执对收编）：cp/mv/install/ln/tee/curl/wget/dd 不经

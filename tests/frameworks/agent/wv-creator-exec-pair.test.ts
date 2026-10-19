@@ -223,6 +223,12 @@ describe("delta1（检视獭1554）：管道写段 + 旗标形态 + 覆盖语义
       const v = evaluateWriteVerdict("echo \"touch /repo/data/pwn\" | tee /tmp/f.sh > /tmp/g.sh && bash /tmp/g.sh", ROOT);
       expectFailClosed(v, "script-payload-dynamic");
     });
+
+    it("附带修 printf 单 format 假重建：单参 format 即内容本体（旧重建丢 format=谎报空内容）", () => {
+      const v = evaluateWriteVerdict("printf 'touch /repo/data/pwn\\n' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      expect(v.mode).toBe("positive");
+    });
   });
 
   describe("放行侧（不误伤——管道写段仍判内容、误拦修正）", () => {
@@ -258,6 +264,11 @@ describe("delta1（检视獭1554）：管道写段 + 旗标形态 + 覆盖语义
 
     it("发现2 形态6 非配对：cp -t 写 DIR/basename 而执行 DIR——不是造-执对（DIR 是目录）", () => {
       const v = evaluateWriteVerdict("cp -t /tmp/g.sh /src/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+    });
+
+    it("附带修 printf 单参不误伤：良性单 format 按内容判读放行", () => {
+      const v = evaluateWriteVerdict("printf 'echo hi\\n' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
       expect(v.verdict).toBe("ALLOW");
     });
   });
