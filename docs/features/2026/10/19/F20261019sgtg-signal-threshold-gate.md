@@ -8,6 +8,11 @@ created_in_conversation: 9993f9b1-bea7-41b6-9313-bc33ba23f77e
 tags: [health, signals, rhi, tech-debt]
 modules: [health]
 created_at: 2026-10-19
+intent:
+  problem: "RHI density/hotspot 触发口径过宽：post_merge_fix_density 是或门（次数≥3 或 占比≥30%），次数门在大分母下失效——月产 200+ commit 的仓库里任何合入 30 天内的特性都能凑够 3 条 bugfix；hotspot 无 fan-in 意识，专报高扇入枢纽文件。实测 52 条 open 存量里 43 条占比仅 1–12%，16 条 open hotspot 全部指向 fan-in≥29 的枢纽（正是 density 主动排除的那批）。按现行消费规则这类 warning 永远聚合不成升级条件，是注定无人消费的清单"
+  expected_effect: "signals 表 open 且 triage_status IS NULL 的 post_merge_fix_density+hotspot 由处置前 29 条降至 0 条；新口径对 52 条存量模拟仅 9 条存活（消除 43）；16 条 open hotspot 全部不再报（均指向 fan-in≥29 枢纽）"
+  verify_by:
+    type: metric_probe
 causal_links:
   - "#1051"
   - "#1335"
