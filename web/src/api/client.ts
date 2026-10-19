@@ -431,6 +431,7 @@ export interface MatterDTO {
   originMessageId: string | null
   ownerOtterId: string | null
   level: 'L1' | 'L2' | null
+  closureKind: 'fact' | 'decision' | null
   state: string
   waitingOn: string | null
   waitingFor: string | null

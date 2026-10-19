@@ -18,6 +18,7 @@ function makeMatter(overrides: Partial<Matter> = {}): Matter {
     originMessageId: null,
     ownerOtterId: null,
     level: null,
+    closureKind: null,
     state: 'OPEN',
     waitingOn: null,
     waitingFor: null,

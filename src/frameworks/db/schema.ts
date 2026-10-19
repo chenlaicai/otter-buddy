@@ -828,6 +828,7 @@ function createMattersTable(db: Database.Database): void {
       origin_message_id TEXT,
       owner_otter_id TEXT,
       level TEXT,
+      closure_kind TEXT,
       state TEXT NOT NULL,
       waiting_on TEXT,
       waiting_for TEXT,
@@ -843,6 +844,14 @@ function createMattersTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_matters_state ON matters(state);
     CREATE INDEX IF NOT EXISTS idx_matters_waiting_on ON matters(waiting_on);
   `);
+
+  // #1457（F20261019fckd）：存量库迁移——closure_kind 列（存量 NULL 保守视同 decision，守卫不放开）。
+  // 同 healing_events introduced_by_pr 幂等模式（F20260824ax376）：列已存在时 SQLite 抛错，静默忽略。
+  try {
+    db.exec(`ALTER TABLE matters ADD COLUMN closure_kind TEXT`);
+  } catch {
+    // 列已存在，忽略
+  }
 }
 
 

@@ -17,6 +17,7 @@ const OPEN: Matter = {
   originMessageId: null,
   ownerOtterId: "owner-1",
   level: "L2",
+  closureKind: null,
   state: "WAITING_PARTNER",
   waitingOn: "partner",
   waitingFor: "拍板",
