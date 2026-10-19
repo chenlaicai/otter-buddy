@@ -1154,9 +1154,13 @@ function shellScriptFileArg(seg: Segment): { word: Word; dynamic: boolean } | nu
 }
 
 /** 造文件段内容重建（牙2）：echo/printf 静态参数、cat/tee 定界 heredoc 体 → 可重建；
- *  其他写法（cp/mv/追加/含展开参数）→ content=null（不可重建=dynamic）。 */
-// eslint-disable-next-line complexity -- F20261014smrj 牙2 内容重建（echo/printf/cat/tee/heredoc/重定向）形态穷举，分支=已实证写法枚举
-function writerContent(seg: Segment, cwd: string): { target: string; content: string | null } | null {
+ *  其他写法（cp/mv/追加/含展开参数）→ content=null（不可重建=dynamic）。
+ *  F20261019wvcp（M-026d87ff）：扩 argv 写面——cp/mv/install/ln/tee/curl/wget/dd 不经
+ *  重定向的落盘写同为造段（造-执对收编），内容一律不可重建 → content=null。 */
+// eslint-disable-next-line complexity -- F20261014smrj 牙2 内容重建 + F20261019wvcp argv 写面形态穷举，分支=已实证写法枚举
+function writerContent(seg: Segment, cwd: string): { targets: string[]; content: string | null; copyOf?: string } | null {
+  const argvWrite = argvWriterContent(seg, cwd);
+  if (argvWrite !== null) return argvWrite;
   let redirect: Segment["redirects"][number] | null = null;
   for (const r of seg.redirects) {
     if (!isWriteRedirect(r.op) || isFdDup(r.op, r.target)) continue;
@@ -1166,21 +1170,77 @@ function writerContent(seg: Segment, cwd: string): { target: string; content: st
   if (redirect === null || redirect.target === null) return null;
   const target = evalPath(redirect.target, cwd);
   if (target === null) return null;
-  if (redirect.op.includes(">>")) return { target, content: null }; // 追加：先验内容不可知
+  if (redirect.op.includes(">>")) return { targets: [target], content: null }; // 追加：先验内容不可知
   const bare = bareName(seg.argv0);
   if (bare === "echo" || bare === "printf") {
     const vals = seg.words.slice(1).map(w => w.evaluated);
-    if (vals.some(v => v === null)) return { target, content: null };
+    if (vals.some(v => v === null)) return { targets: [target], content: null };
     const args = vals.filter((v): v is string => v !== null && !v.startsWith("-"));
     const content = bare === "printf" ? args.slice(1).join("\n") : args.join(" ");
-    return { target, content };
+    return { targets: [target], content };
   }
   if ((bare === "cat" || bare === "tee") && seg.heredocs.length === 1) {
     const hd = seg.heredocs[0];
-    if (!hd.delimQuoted && /[$`]/.test(hd.body)) return { target, content: null };
-    return { target, content: hd.body };
+    if (!hd.delimQuoted && /[$`]/.test(hd.body)) return { targets: [target], content: null };
+    return { targets: [target], content: hd.body };
   }
-  return { target, content: null };
+  return { targets: [target], content: null };
+}
+
+/** argv 写面目标提取（F20261019wvcp 造-执对收编）：cp/mv/install/ln/tee/curl/wget/dd 不经
+ *  重定向的落盘写——内容一律不可重建（copy/download/管道输入）→ content=null（fail-closed，
+ *  与 `echo "$X" > f && bash f` 既有 script-payload-dynamic 机制同语义：造出内容是权威
+ *  载荷，不可重建就不猜）。cp/mv 多源附 dest/basename(src) 候选（`cp a /tmp/` 目录形态
+ *  写入 dest/basename）；目标词动态不入候选（执行面同动态路径时 script-path-dynamic 兜住，
+ *  无需配对）。 */
+// eslint-disable-next-line complexity -- argv 写面旗标/参数形态穷举（curl -o 三形态/dd of=/cp 多源），分支=已实证写法枚举
+function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; content: null } | null {
+  const bare = bareName(seg.argv0);
+  const words = seg.words.slice(1);
+  const args = words.map(w => w.evaluated).filter((v): v is string => v !== null && !v.startsWith("-"));
+  const targets: string[] = [];
+  let copyOf: string | undefined;
+  if (bare === "cp" || bare === "mv" || bare === "install" || bare === "ln") {
+    if (args.length < 2) return null;
+    const dest = evalPath(args[args.length - 1], cwd);
+    if (dest === null) return null;
+    targets.push(dest);
+    const srcs = args.slice(0, -1);
+    for (const src of srcs) {
+      const base = path.basename(src);
+      if (base !== "" && base !== "." && base !== "..") targets.push(`${dest}/${base}`);
+    }
+    // 保内容拷贝：单源时内容=源文件内容（链内造源可透传判读——corpus TS-402d73e5 守恒）
+    if (srcs.length === 1) copyOf = evalPath(srcs[0], cwd) ?? undefined;
+  } else if (bare === "tee") {
+    for (const a of args) { const t = evalPath(a, cwd); if (t !== null) targets.push(t); }
+  } else if (bare === "curl" || bare === "wget") {
+    targets.push(...curlOutputTargets(words, cwd));
+  } else if (bare === "dd") {
+    for (const w of words) {
+      const v = w.evaluated;
+      if (v !== null && v.startsWith("of=")) { const t = evalPath(v.slice(3), cwd); if (t !== null) targets.push(t); }
+    }
+  } else return null;
+  return targets.length > 0 ? { targets, content: null, ...(copyOf !== undefined ? { copyOf } : {}) } : null;
+}
+
+/** curl/wget 输出目标提取：-o/-O/--output 三形态（分离值/`=`值/附着值）。 */
+// eslint-disable-next-line complexity -- curl/wget 输出旗标形态穷举（三形态×值位），分支=已实证旗标枚举（c107 教训：合并会再制造旗标解析 bug）
+function curlOutputTargets(words: Word[], cwd: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const v = words[i].evaluated;
+    if (v === null) continue;
+    let cand: string | null = null;
+    if (v === "-o" || v === "-O" || v === "--output") {
+      const nxt = words[i + 1]?.evaluated ?? null;
+      if (nxt !== null) { cand = nxt; i++; }
+    } else if (v.startsWith("--output=")) cand = v.slice("--output=".length);
+    else if (/^-[oO].+/.test(v)) cand = v.slice(2);
+    if (cand !== null) { const t = evalPath(cand, cwd); if (t !== null) out.push(t); }
+  }
+  return out;
 }
 
 /** 载荷主仓字面量闸（与窄提取「载荷含主仓树字面量一律回落」同源口径的反向判据）：
@@ -1218,6 +1278,36 @@ function judgeScriptPayload(text: string, projectRoot: string, cwd: string, acc:
   return null;
 }
 
+/** 配对判读（F20261019wvcp 抽出）：回扫写段找造出 sPath 的那一段——内容可重建走内容
+ *  判读，不可知 fail-closed；管道段排除（本段 stdout 进管道=下一段经管道接入）——管道
+ *  消费侧才是落盘写方（echo a | tee x 的 tee 才是写方；`echo x > f | wc` 不是；joiner
+ *  挂入端，探针实证 tee.joiner="|"）。 */
+function pairPlanFor(sPath: string, segs: Segment[], cwdAt: (string | null)[], upTo: number): SegPayloadPlan | undefined {
+  for (let j = 0; j < upTo; j++) {
+    if (segs[j + 1]?.joiner === "|") continue;
+    const w = writerContent(segs[j], cwdAt[j] as string);
+    if (w === null || !w.targets.includes(sPath)) continue;
+    if (w.content !== null) return { status: "content", text: w.content };
+    return w.copyOf !== undefined ? chainContentPlan(w.copyOf, segs, cwdAt, j) : { status: "dynamic" };
+  }
+  return undefined;
+}
+
+/** 链内源内容透传（F20261019wvcp）：cp/mv/install/ln 是保内容拷贝——源文件是同命令链内
+ *  造出的（heredoc/echo 静态内容）则内容透传可判读（corpus TS-402d73e5 服务脚本形态守恒
+ *  的关键）；外部源/追不到/链式拷贝超深 → dynamic（内容不可知→fail-closed，delta5 口径）。
+ *  逆序扫（同路径后写覆盖前写；追加写 content=null 吃到即 fail-closed，保守侧一致）。 */
+function chainContentPlan(src: string, segs: Segment[], cwdAt: (string | null)[], upTo: number, depth = 0): SegPayloadPlan {
+  if (depth > 4) return { status: "dynamic" };
+  for (let k = upTo - 1; k >= 0; k--) {
+    const w = writerContent(segs[k], cwdAt[k] as string);
+    if (w === null || !w.targets.includes(src)) continue;
+    if (w.content !== null) return { status: "content", text: w.content };
+    return w.copyOf !== undefined ? chainContentPlan(w.copyOf, segs, cwdAt, k, depth + 1) : { status: "dynamic" };
+  }
+  return { status: "dynamic" };
+}
+
 /** 段级载荷计划（牙2 造-执对 + 牙3 三态）：先扫「命令内造脚本再执行」对（造出内容为权威载荷），
  *  其余外置脚本段取条目级载荷信息；显式声明与造-执均缺省时求值器自查 fs 证缺席（delta2 修法——
  *  「缺省=absent」的静默 fail-open 已收：未提供载荷 ≠ 缺席）。delta3 修法（严重 2）：cwd 解析
@@ -1237,12 +1327,7 @@ function buildScriptPayloadPlan(model: CommandModel, projectRoot: string, startC
     const v = ex.word.evaluated;
     if (cwdAt !== null && !ex.dynamic && v !== null) {
       const sPath = evalPath(v, cwdAt[i]);
-      for (let j = 0; j < i && sPath !== null && planned === undefined; j++) {
-        if (segs[j].joiner === "|") continue;
-        const w = writerContent(segs[j], cwdAt[j]);
-        if (w === null || w.target !== sPath) continue;
-        planned = w.content === null ? { status: "dynamic" } : { status: "content", text: w.content };
-      }
+      if (sPath !== null) planned = pairPlanFor(sPath, segs, cwdAt, i);
     }
     let absence: SegPayloadPlan | null = null;
     if (planned === undefined && entry === undefined && cwdAt !== null && absenceAllowed && !ex.dynamic && v !== null) {
