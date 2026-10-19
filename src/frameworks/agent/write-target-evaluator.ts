@@ -1225,17 +1225,28 @@ function writerContent(seg: Segment, cwd: string): WriteFaceEntry[] | null {
  *  终版语义：format 是内容骨架（单/多参同走 printfFormatContent——bash 实测无转换符时
  *  多余实参被忽略），仅裸 %s 可精确代入、转义仅白名单可解释，其余一律 null（不猜，
  *  fail-closed 兜住）。 */
+// eslint-disable-next-line complexity -- echo/printf（选项位/-v/--/format 位歧义/白名单转义）/heredoc/追加分支=已实证 bash 语义枚举（合并会遮蔽假重建修复）
 function redirectWriteContent(seg: Segment, redirect: Segment["redirects"][number]): string | null {
   if (redirect.op.includes(">>")) return null; // 追加：先验内容不可知
   const bare = bareName(seg.argv0);
   if (bare === "echo" || bare === "printf") {
     const vals = seg.words.slice(1).map(w => w.evaluated);
     if (vals.some(v => v === null)) return null;
-    const args = vals.filter((v): v is string => v !== null && !v.startsWith("-"));
-    if (bare === "echo") return args.join(" ");
-    // printf（delta2 S1）：format 即骨架，单/多参同走 format 重建（旧多参分支丢 format=哑参逃逸；
-    //   含转换符的多参旧 %s\n 近似仅保留在裸 %s 代入内，format 字面部分不再丢）
-    return printfFormatContent(args[0] ?? "", args.slice(1));
+    if (bare === "echo") {
+      const args = vals.filter((v): v is string => v !== null && !v.startsWith("-"));
+      return args.join(" ");
+    }
+    // printf（delta3 修——检视獭1554 delta2 发现 1-3 根因）：不无条件丢 `-` 词——bash
+    //   builtin 实测：选项位仅 -v NAME/--（`-e`/`--version` 报错空输出），dash 实参是
+    //   %s 数据不挡（`printf '%s %s\n' 'rm' '-rf /repo'` 载荷在被丢实参里=假良性）。
+    //   语义：前导 `--` 消费后 format/实参全保留（含 dash 词，逐词精确重建）；无 `--`
+    //   而 format 位是 dash 词 =选项位歧义（builtin 报错空输出 vs POSIX format 输出
+    //   vs -v 变量落点）→ null 不猜（既有 fail-closed 兜住）。
+    const ws = vals as string[];
+    const shifted = ws[0] === "--";
+    const rest = shifted ? ws.slice(1) : ws;
+    if (!shifted && (rest[0] ?? "").startsWith("-")) return null; // 选项位歧义——不猜
+    return printfFormatContent(rest[0] ?? "", rest.slice(1));
   }
   if ((bare === "cat" || bare === "tee") && seg.heredocs.length === 1) {
     const hd = seg.heredocs[0];

@@ -329,3 +329,66 @@ describe("delta2（检视獭1554 复审）：printf 假重建绕破面收口", (
     });
   });
 });
+
+/**
+ * delta3 回归钉（检视獭1554 delta2 复审发现 1-3——重建器「过滤器×渲染」交互逃逸）：
+ *  根因=printf 分支无条件丢 `-` 词（旧 echo 式旗标过滤）——dash 实参是 %s 数据不挡
+ *  （bash builtin 实测选项位仅 -v NAME/--，`-e`/`--version` 报错空输出）。修法：前导
+ *  `--` 消费后 format/实参全保留逐词精确重建；无 `--` 而 format 位是 dash 词=选项位
+ *  歧义（builtin 报错空输出 vs POSIX format 输出 vs -v 变量落点）→ null 兜底。
+ *  编码注记：TS 字符串 '\\n'=literal 反斜杠n（format 内被 printf 解释/实参内原样保留），
+ *  '\n'=真换行（实参内保留=运行时脚本换行分段）——两口径运行时语义不同，双钉防混。
+ */
+describe("delta3（检视獭1554 复审）：printf 过滤器×渲染交互逃逸收口", () => {
+  describe("拦截侧（交互逃逸面——修前 3 形态假良性 + 2 歧义形态）", () => {
+    it("发现1 dash 实参载荷（真换行口径）：实参不被旗标过滤丢弃，%s 空位不再假良性", () => {
+      const v = evaluateWriteVerdict("printf '\\n%s\\n' '-e\ntouch /repo/data/pwn' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("发现2 -- 与 dash-format 双过筛谎报空内容：-- 消费后 format 即内容（escape 解释）", () => {
+      const v = evaluateWriteVerdict("printf -- '-e\\ntouch /repo/data/pwn' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("发现3 载荷藏被丢实参：`rm` `'-rf /repo'` 两实参都进重建（bash 对拍 `rm -rf /repo\\n`）", () => {
+      const v = evaluateWriteVerdict("printf '%s %s\\n' 'rm' '-rf /repo' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("歧义闸：无 -- 的 dash-format（builtin 报错空输出 vs POSIX format 输出不可判）→ null 兜底", () => {
+      const v = evaluateWriteVerdict("printf '-e\\ntouch /repo/data/pwn' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expectFailClosed(v, "script-payload-dynamic");
+    });
+
+    it("歧义闸：-v 变量落点形态（stdout 空 vs POSIX format 输出不可判）→ null 兜底", () => {
+      const v = evaluateWriteVerdict("printf -v x '%s' touch > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expectFailClosed(v, "script-payload-dynamic");
+    });
+  });
+
+  describe("放行侧（精确重建不误伤 + 双口径语义对照）", () => {
+    it("literal \\n 口径对照：实参内反斜杠n 运行时被 bash 折叠成 -etouch（touch 未执行）——重建如实一致，放行", () => {
+      const v = evaluateWriteVerdict("printf '\\n%s\\n' '-e\\ntouch /repo/data/pwn' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+    });
+
+    it("真换行口径良性镜像：dash 实参换行段是 echo（无写面）→ 放行", () => {
+      const v = evaluateWriteVerdict("printf '\\n%s\\n' '-e\necho hi' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+    });
+
+    it("良性 dash 实参精确重建（不被过滤丢词）：%s 代入 '-foo' 按内容判读放行", () => {
+      const v = evaluateWriteVerdict("printf '%s\\n' '-foo' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+    });
+
+    it("-- 消费后良性 dash-format（bash 对拍 `-e` 字面输出）→ 放行", () => {
+      const v = evaluateWriteVerdict("printf -- '-e\\n' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+    });
+  });
+});
