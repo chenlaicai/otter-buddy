@@ -25,7 +25,7 @@ causal_links:
 
 - 架构层有统一日志设施：`src/usecases/ports/logger.ts`（接口）+ `src/frameworks/logger.ts`（PinoLogger 实现，DIP 注入式）。**但仓储层（db/）是模块级导出函数，无 logger 注入通道**。
 - ESLint `src/**/*.ts` 全局 `no-console: "warn"`（eslint.config.mjs）；scripts/、web/、web-mahjong/ 分块豁免。
-- 全仓 src/ 共 **11 处 console.\* 调用点**（朴紊 grep 命中 19 行中 8 行是注释；计数经对抗审视独立重算修正）：修前 10 处带 `// eslint-disable-next-line no-console` 注释、**本案是唯一漏网**——这就是「只有它落 annotation」的根因。同目录先例：`schema.ts:220`（`-- schema 初始化不能依赖 frameworks/logger`）。既有豁免中 `models-factory.ts:128` 的 disable 无 `-- 理由` 后缀（历史存量，与本案无关，仅如实标注）。
+- 全仓 src/ 共 **11 处 console.\* 调用点**（朴素 grep 命中 19 行中 8 行是注释；计数经对抗审视独立重算修正）：修前 10 处带 `// eslint-disable-next-line no-console` 注释、**本案是唯一漏网**——这就是「只有它落 annotation」的根因。同目录先例：`schema.ts:220`（`-- schema 初始化不能依赖 frameworks/logger`）。既有豁免中 `models-factory.ts:128` 的 disable 无 `-- 理由` 后缀（历史存量，与本案无关，仅如实标注）。
 
 ### 2. 触发条件判定：异常分支防御日志，非运行时噪声
 
