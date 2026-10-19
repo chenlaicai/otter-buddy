@@ -64,7 +64,7 @@ export function createListMattersTool(ctx: ToolContext, matterRepo: MatterReposi
     }
     const lines = matters.map(m =>
       `[${matterShortAnchor(m.id)}] ${m.title}\n` +
-      `  状态: ${m.state}${m.level ? ` · ${m.level}` : ''}${m.ownerOtterId ? ` · owner=${m.ownerOtterId.slice(0, 8)}` : ''}\n` +
+      `  状态: ${m.state}${m.level ? ` · ${m.level}` : ''}${m.closureKind ? ` · ${m.closureKind}` : ''}${m.ownerOtterId ? ` · owner=${m.ownerOtterId.slice(0, 8)}` : ''}\n` +
       (m.waitingOn ? `  等待: ${m.waitingOn}${m.waitingFor ? `（${m.waitingFor}）` : ''}\n` : '') +
       (m.resolution ? `  结果: ${m.resolution.length > 100 ? m.resolution.slice(0, 100) + '…' : m.resolution}` : ''),
     );
@@ -84,12 +84,24 @@ export function createListMattersTool(ctx: ToolContext, matterRepo: MatterReposi
   };
 }
 
+/** F20261019fckd：closure_kind 参数校验（影响宣告权分流，非法值显式报错不静默吞） */
+function validateClosureKindParam(params: Record<string, unknown>): string | null {
+  if (params.closure_kind === undefined) return null;
+  const kind = (params.closure_kind as string | undefined)?.trim();
+  if (kind !== 'fact' && kind !== 'decision') {
+    return `[错误] closure_kind 只能是 'fact'（事实型——owner 可携机器证据直关 L2）或 'decision'（判断型——搭档确认闸），不传=不改存量值。`;
+  }
+  return null;
+}
+
 /** transition_matter 参数校验（拆出控 exec 复杂度） */
 function validateTransitionParams(params: Record<string, unknown>): string | null {
   const to = params.to as string | undefined;
   if (!to || !VALID_STATES.includes(to)) {
     return `[错误] to 必须是合法状态：${VALID_STATES.join(' / ')}。`;
   }
+  const kindError = validateClosureKindParam(params);
+  if (kindError) return kindError;
   const resolution = (params.resolution as string | undefined)?.trim();
   if (to === 'SUPERSEDED' && !resolution) {
     return "[错误] 迁移到 SUPERSEDED 必须填 resolution（被哪件新 matter 取代——写新 matter 的短锚或标题）。";
@@ -107,6 +119,13 @@ function buildTransitionEcho(m: { id: string; title: string; state: string; reso
     (m.waitingOn ? `\n  等待: ${m.waitingOn}${m.waitingFor ? `（${m.waitingFor}）` : ''}` : '');
 }
 
+/** F20261019fckd：closure_kind 参数解析（合法值透传，非法值已在上层报错） */
+function parseClosureKindParam(params: Record<string, unknown>): TransitionMatterInput['closureKind'] {
+  if (params.closure_kind === undefined) return undefined;
+  const kind = (params.closure_kind as string | undefined)?.trim();
+  return kind === 'fact' || kind === 'decision' ? kind : undefined;
+}
+
 /** tool 参数 → usecase 输入（未传字段不给值——null 在 usecase 语义 = 显式清空） */
 function buildTransitionInput(ctx: ToolContext, params: Record<string, unknown>, matterId: string): TransitionMatterInput {
   const input: TransitionMatterInput = {
@@ -115,6 +134,7 @@ function buildTransitionInput(ctx: ToolContext, params: Record<string, unknown>,
     actor: ctx.otterId,
     resolution: (params.resolution as string | undefined)?.trim() || null,
     waitingFor: (params.waiting_for as string | undefined)?.trim() || null,
+    closureKind: parseClosureKindParam(params),
   };
   if (params.waiting_on !== undefined) {
     input.waitingOn = (params.waiting_on as string).trim() || null;
@@ -163,13 +183,14 @@ export function createTransitionMatterTool(ctx: ToolContext, matterRepo: MatterR
   };
   return {
     name: "transition_matter",
-    description: "迁移本对话一件待办的状态（matters 表——状态迁移走 usecase 单入口）. When: 通道 A 对话直复——搭档回复了某件 open matter 的裁决，獭代执行板上迁移并复述确认（on_behalf_of='partner'）；或獭认领 OPEN 事项（→WAITING_OTTER）、宣称完成（→DONE_PENDING_CONFIRM）. Not for: 查清单（用 list_matters）/ 跨对话迁移（守卫拒绝）. Output: 迁移确认（新状态 + 结果/等待方回显）. GOTCHA: ①迁移矩阵守卫（非法组合拒绝）；②触发者守卫——partner 专属迁移（裁决/翻案/不做）须 on_behalf_of='partner' 代执行声明，owner 专属迁移（干完呈拍板/宣称完成）须 owner 自己或 on_behalf_of=<ownerId>；③宣告权——L2 闭环（DONE_PENDING_CONFIRM→CLOSED）必须搭档确认，代执行声明 on_behalf_of='partner' 也算（resolution 必填「代搭档执行：<原话>」）；④闭环类迁移必须填 resolution；⑤代执行（on_behalf_of 非空）任何迁移都必须填 resolution——写明「代搭档执行：<原话>」留痕.",
+    description: "迁移本对话一件待办的状态（matters 表——状态迁移走 usecase 单入口）. When: 通道 A 对话直复——搭档回复了某件 open matter 的裁决，獭代执行板上迁移并复述确认（on_behalf_of='partner'）；或獭认领 OPEN 事项（→WAITING_OTTER）、宣称完成（→DONE_PENDING_CONFIRM）. Not for: 查清单（用 list_matters）/ 跨对话迁移（守卫拒绝）. Output: 迁移确认（新状态 + 结果/等待方回显）. GOTCHA: ①迁移矩阵守卫（非法组合拒绝）；②触发者守卫——partner 专属迁移（裁决/翻案/不做）须 on_behalf_of='partner' 代执行声明，owner 专属迁移（干完呈拍板/宣称完成）须 owner 自己或 on_behalf_of=<ownerId>；③宣告权（闭环口径分流）——L2 闭环（DONE_PENDING_CONFIRM→CLOSED）：decision 型（含未标注的存量件）必须搭档确认，代执行声明 on_behalf_of='partner' 也算（resolution 必填「代搭档执行：<原话>」）；fact 型（closure_kind='fact'，可迁移时补标）owner 可直关，但 resolution 必带机器证据（#PR号 / commit sha；mergedAt 关键词不单独算），缺证据照拒；④闭环类迁移必须填 resolution；⑤代执行（on_behalf_of 非空）任何迁移都必须填 resolution——写明「代搭档执行：<原话>」留痕.",
     parameters: {
       type: "object",
       properties: {
         matter_id: { type: "string", description: "matter 短锚（M-xxxxxxxx）或完整 UUID" },
         to: { type: "string", enum: [...VALID_STATES], description: "目标状态" },
-        resolution: { type: "string", description: "裁决/闭环结果（闭环类迁移必填；代搭档执行写明「代搭档执行：<原话>」）" },
+        resolution: { type: "string", description: "裁决/闭环结果（闭环类迁移必填；代搭档执行写明「代搭档执行：<原话>」；fact 型直关必带机器证据：#PR号或 commit sha）" },
+        closure_kind: { type: "string", enum: ["fact", "decision"], description: "补标闭环口径（可选）：fact=机器可验证事实（PR MERGED/issue CLOSED——owner 可携机器证据直关 L2）；decision=判断型（保留搭档确认闸）；不传=不改存量值（存量未标注视同 decision）" },
         waiting_on: { type: "string", description: "迁移后的等待方（otter:<id> / partner / none）" },
         waiting_for: { type: "string", description: "在等什么动作（一句话）" },
         payload: { type: "string", description: "决策请求挂点（L2 简报三层结构 JSON——呈拍板时附）" },
@@ -178,6 +199,24 @@ export function createTransitionMatterTool(ctx: ToolContext, matterRepo: MatterR
       required: ["matter_id", "to"],
     },
     execute: exec,
+  };
+}
+
+/** F20261019fckd：register 的 closure_kind 解析（非法值当未标注——登记失败比错标代价高，安全方向保守） */
+function parseRegisterClosureKind(params: Record<string, unknown>): 'fact' | 'decision' | null {
+  const kind = (params.closure_kind as string | undefined)?.trim();
+  return kind === 'fact' || kind === 'decision' ? kind : null;
+}
+
+/** register_matter 参数解析（拆出控 exec 复杂度） */
+function buildRegisterParams(ctx: ToolContext, params: Record<string, unknown>) {
+  return {
+    conversationId: ctx.conversationId,
+    title: (params.title as string | undefined)?.trim() || '',
+    ownerOtterId: (params.owner_otter_id as string | undefined)?.trim() || ctx.otterId,
+    level: (params.level as 'L1' | 'L2' | undefined) ?? null,
+    closureKind: parseRegisterClosureKind(params),
+    waitingFor: (params.waiting_for as string | undefined)?.trim() || null,
   };
 }
 
@@ -200,20 +239,16 @@ export function createTransitionMatterTool(ctx: ToolContext, matterRepo: MatterR
  */
 export function createRegisterMatterTool(ctx: ToolContext, matterRepo: MatterRepository): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
-    const title = (params.title as string | undefined)?.trim();
-    if (!title) {
+    const parsed = buildRegisterParams(ctx, params);
+    if (!parsed.title) {
       return errorResponse("[错误] title 必填——一句话说清这件事（如「回头再看的重构项」）。");
     }
     const register = new RegisterMatter(matterRepo);
     try {
       const created = await register.execute({
-        conversationId: ctx.conversationId,
-        title,
-        ownerOtterId: (params.owner_otter_id as string | undefined)?.trim() || ctx.otterId,
-        level: (params.level as 'L1' | 'L2' | undefined) ?? null,
+        ...parsed,
         initialState: 'OPEN',
         waitingOn: null,
-        waitingFor: (params.waiting_for as string | undefined)?.trim() || null,
       });
       return textResponse(
         `[matter] 已登记 ${matterShortAnchor(created.id)}「${created.title}」（状态 OPEN，owner=${(created.ownerOtterId ?? '').slice(0, 8) || '未指派'}）`,
@@ -224,13 +259,14 @@ export function createRegisterMatterTool(ctx: ToolContext, matterRepo: MatterRep
   };
   return {
     name: "register_matter",
-    description: "登记本对话一件待办（matters 表——准入路径 2：搭档手动登记）. When: 搭档在待办板点「+」合成 html-matter-action register 回执、獭被唤醒后照做登记（initialState=OPEN）；或獭在对话里识别搭档说「回头再说/记下这件事」主动登记. Not for: L2 决策拍板项（那走 yield 打标自动登记，准入路径 1）/ 迁移状态（用 transition_matter）. Output: 登记确认（新 matter 短锚 + 状态 OPEN）. GOTCHA: ①登记即 OPEN（非 WAITING_PARTNER——那是 yield 打标路径的态）；②owner 缺省=登记獭自己（认领）；③登记后若要知道后续谁接，看板上 owner。",
+    description: "登记本对话一件待办（matters 表——准入路径 2：搭档手动登记）. When: 搭档在待办板点「+」合成 html-matter-action register 回执、獭被唤醒后照做登记（initialState=OPEN）；或獭在对话里识别搭档说「回头再说/记下这件事」主动登记. Not for: L2 决策拍板项（那走 yield 打标自动登记，准入路径 1）/ 迁移状态（用 transition_matter）. Output: 登记确认（新 matter 短锚 + 状态 OPEN）. GOTCHA: ①登记即 OPEN（非 WAITING_PARTNER——那是 yield 打标路径的态）；②owner 缺省=登记獭自己（认领）；③登记后若要知道后续谁接，看板上 owner；④closure_kind 可选标注闭环口径：fact=事实型（交付物机器可验证——PR MERGED 等，owner 后续可携证据直关 L2）/decision=判断型（默认，需搭档确认闭环）",
     parameters: {
       type: "object",
       properties: {
         title: { type: "string", description: "一句话事情名（必填）" },
         owner_otter_id: { type: "string", description: "负责獭（缺省=登记獭自己认领）" },
         level: { type: "string", enum: ["L1", "L2"], description: "决策分级（缺省不标；L0 不产生 matter——准入白名单产生不了）" },
+        closure_kind: { type: "string", enum: ["fact", "decision"], description: "闭环口径（可选）：fact=事实型（交付物机器可验证——PR MERGED/issue CLOSED，L2 闭环 owner 可携证据直关）/decision=判断型（保留搭档确认闸）；缺省不标（视同 decision）" },
         waiting_for: { type: "string", description: "在等什么动作（一句话，可选）" },
       },
       required: ["title"],
