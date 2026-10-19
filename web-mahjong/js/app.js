@@ -592,15 +592,21 @@ function bindEvents() {
   });
 
   // #1532：聊天发送（回显靠 SSE chat 帧，不本地假回显——断线时不会自己骗自己）
+  // 在途防抖（检视发现5）：首请求未返回前再触发直接丢弃——双击 Enter/按钮不会发重复消息
+  let chatSending = false;
   const sendChat = async () => {
+    if (chatSending) return;
     const input = $("chatInput");
     const text = input.value.trim();
     if (!text || state.seat === null) return;
+    chatSending = true;
     try {
       await api.chat(state.roomId, state.seat, text);
       input.value = "";
     } catch (err) {
       toast(err.message || "发送失败");
+    } finally {
+      chatSending = false;
     }
   };
   $("chatSend").addEventListener("click", sendChat);
