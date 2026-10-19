@@ -45,6 +45,7 @@ causal_links:
 ### 不做（边界）
 
 - 聊天历史持久化/断线补拉（issue 内标「可选」的 GET chat 历史——本篇不做，队列仍内存态）
+- **獭回应经下局注入回合才广播**（既有注入机制语义——你说一句，獭下局才回），**体感延迟一局**；局中实时问答回合的发言仍走 wake.speech 既有链路（检视发现6 补档）
 - 表情/私聊等增强；鉴权（#1322 鉴权横切獭并行，本篇不碰 `interface-adapters/http` 鉴权面）
 
 ## 影响范围
@@ -74,3 +75,23 @@ causal_links:
 
 - PR：fix/mahjong-chat-echo → main（本篇写就时未建）
 - 后续（不阻塞）：GET chat 历史断线补拉（随 issue #1532 可选项排期）；聊天队列持久化随 frames 表一并考虑
+
+## 机制识别检查点判定（检视发现4补录）
+
+- 命中项：「新增信号类型/消息格式」——chat 帧扩形（room-types.ts：+name/+from）
+- 判定：**命中但不涉净新增机制**——本篇是对 F20261016mjsg 模块三「内嵌聊天框」**既有回显半场的补齐**（该帧在本篇之前已有 type/seat/text/at 四字段与消费语义，本篇仅补发言主体标识与消费面），无新配置、无新状态、无新存储、无新信号类型（type 仍为既有 chat），故维持 `Modification-Class: narrow-fix`（commit-convention.md:22 口径）
+
+## 实现记录（对抗检视处置，2026-10-19，麻将引擎獭）
+
+PR #1536 第一轮（聊天回显检视獭）：1 严重 + 5 建议，大獭逐条裁决后处置如下，全部为「修」：
+
+| 发现 | 处置 | 证据/锚点 |
+|---|---|---|
+| 1 严重 CI 红（PR body 缺测试改动声明段） | PR body 追加模板段（方向：收紧——删除行系 hook 重构/注释编号/导入扩展，断言只增不减） | check-pr-tests 闸模板 |
+| 2 注入窗口真人消息竞态丢失（pre-existing） | **本 PR 修**：`injectPendingChat` 移入 room-chat.ts 重构为「同步段原子快照换队 → 并发注入 → 失败合并回队首（旧前新后）」；竞态测试先行红（`/tmp/chat-race-red.txt`：expected 1 to be 2——窗口消息被 set([]) 抹掉）后绿（12/12） | room-chat.ts；room-report-chat 竞态例 |
+| 3 formatChatLine 断言空转 | fixture name 换 B/C——ownSeat 命中显「你」忽略 name、观战端按 name 直排两条均改可红数据；修正自相矛盾注释 | view.test.ts 例内 |
+| 4 docs commit 缺 Modification-Class + 检查点论证句 | amend 补 `Modification-Class: docs-config`；本节上文补论证句 | git 历史 + 本节 |
+| 5 maxlength 100/500 不一致 + sendChat 无防抖 | maxlength=500 对齐服务端；在途置位 chatSending 丢弃双击重复 | index.html/app.js |
+| 6 獺回应延迟未显式留档 | 「不做」节补体感延迟一局一行 | 上文「不做」节 |
+
+RED/GREEN 原始日志（/tmp 三天被清，重跑可复现）：首轮7例红→42绿（PR 评论留痕）、竞态例红→绿（本节）；全仓回归见 PR。
