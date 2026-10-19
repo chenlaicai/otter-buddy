@@ -234,7 +234,10 @@ export class DispatchChainEngine {
       depth++;
       const result = await this.executeOneHop({
         conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder,
-        triggerMessageId: depth === 1 ? triggerMessageId : undefined,
+        // F20261019rpay（#1553）：triggerMessageId 透传所有 hop（原先仅首 hop）——后续 hop 反复以
+        // 同一 messageId 点火时，buildMessageWithContext 靠它识别已消费旧消息的重放并打「历史」标记；
+        // executeOneHop 内 excludeIds.add(triggerMessageId) 同步保证 hop≥2 不双份。
+        triggerMessageId,
         ledgerSource,
         chainSourceMessageIds,
         steerText: pendingSteerText, // #530 注入上一 hop 的 steer 文案

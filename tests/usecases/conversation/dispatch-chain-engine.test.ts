@@ -509,6 +509,43 @@ describe("buildMessageWithContext 触发消息时间戳与重放标记（#1553 /
     expect(result).not.toContain("（历史 · ");
     expect(result).toContain("重试内容");
   });
+
+  it("集成：executeChain 两 hop，hop2 重放触发带「历史」标记（#1553 主场景：链内 hop≥2）", async () => {
+    const m = makeMocks();
+    // 未读批按调用次数返回：hop1 触发消息新鲜（在未读批）；hop2 已消费（不在未读批）
+    let call = 0;
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      call++;
+      return call === 1
+        ? [{ id: "e-trigger", entryType: "user", senderType: "user", senderId: "user", senderName: "chen", body: "高危这个你拉个新glm", sequenceNum: 5, invokeId: null, yieldTargets: null, createdAt: new Date().toISOString() }]
+        : [];
+    });
+    (m.entryRepo as unknown as { getEntryById: unknown }).getEntryById = vi.fn().mockResolvedValue({ id: "e-trigger", createdAt: "2026-10-19T01:42:00.000Z" });
+    // 行级 tsp：hop1(otter-worker) yield 回 otter2 → hop2(otter2) 收尾
+    (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) =>
+      id === "m-work"
+        ? { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: ["otter2"], endedAt: "2026-09-10T00:00:00Z" }
+        : { id, status: "completed", otterId: "otter2", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" });
+
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const hopMessages: string[] = [];
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "高危这个你拉个新glm", senderId: "user",
+      initialTargets: ["otter-worker"], triggerMessageId: "e-trigger",
+      invokeFn: async (params: { otterId: string; userMessageContent: string }) => {
+        hopMessages.push(params.userMessageContent);
+        return params.otterId === "otter-worker" ? { messageId: "m-work", aggregatedTargets: ["otter2"] } : { messageId: "m2" };
+      },
+    });
+
+    expect(hopMessages).toHaveLength(2);
+    // hop1：触发消息新鲜（在未读批）→ 无「历史」标记
+    expect(hopMessages[0]).not.toContain("（历史 · ");
+    // hop2：触发消息已消费（不在未读批）→ 重放带「历史」标记 + 真实 createdAt（#1553 主场景：链内 hop≥2）
+    expect(hopMessages[1]).toContain("（历史 · ");
+    expect(hopMessages[1]).toContain("09:42");
+    expect(hopMessages[1]).toContain("高危这个你拉个新glm");
+  });
 });
 
 describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => {

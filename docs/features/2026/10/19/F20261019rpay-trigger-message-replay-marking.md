@@ -44,15 +44,18 @@ causal_links:
 
 判定不依赖猜测：用「触发 id 是否在本轮未读批 + `getEntryById` 是否为真实 entry」双信号区分，无时间阈值启发式。
 
-**demand #1（同一 messageId 不应重复触发新回合）的定性**：11 次点火是派发链 hop（每 hop 唤醒下一只是编排本职，不是重复投递）。真正缺陷是触发被误当新消息 → LLM 反复当新指令处理。本修复通过「重放即标记」让 LLM 识别旧话不再当新指令（historyNote 语义兜底），从语义面消除「重复触发新回合」。若后续实测仍存在**非编排**的冗余点火（同一 signal 被非链路径重复 invokeTarget），再补 `isSignalConsumed` 路由闸——留作跟进，避免在未确认唤醒路径前过度建设（最简实现检查）。
+**检视獭关键修正（异体对抗，delta1 轮）**：初版修复不可达主场景——案发 11 次重放全在链内 hop≥2，而 `executeChainInner` 原先 `triggerMessageId: depth === 1 ? … : undefined`（dispatch-chain-engine.ts:237）→ hop≥2 无 id，`resolveTriggerPresentation` 首行短路，修复失效。单测手动传 id恰好绕开真实路径。**修正**：`triggerMessageId` 透传所有 hop（行 240），`executeOneHop` 内 `excludeIds.add(triggerMessageId)` 同步保证 hop≥2 不双份；并补 executeChain 两 hop 集成用例直攻主路径。
+
+**demand #1（同一 messageId 不应重复触发新回合）的定性**：11 次点火是派发链 hop（每 hop 唤醒下一只是编排本职，不是重复投递，21 hop 照跑是预期）。真正缺陷是触发被误当新消息 → LLM 反复当新指令处理。本修复通过「重放即标记」让 LLM 识别旧话不再当新指令（historyNote 语义兜底），从语义面消除「重复触发新回合」。issue 关闭标准「重放不再触发新回合」的准确口径是「LLM 不再把重放当新指令重复应答」（已在 issue 侧同步），而非「hop 不再跑」（那会破坏编排）。
 
 ## 验证
 
 **失败用例证据（bugfix Verification 硬规则）**：
 - 修复前（`git stash` 源改动后复跑）：`重放触发（真实 entry 但不在本轮未读批）→ 带「历史」标记 + 真实 createdAt` 失败——`AssertionError: expected '## 在场成员\n\n## 当前时间\n- 2026-10-19 20:3…' to contain '（历史 · '`
-- 修复后：3 个用例全过（`Tests 3 passed`）。
+- 修复后：4 个用例全过（`Tests 4 passed`）。
+- **集成用例（直攻主路径）**：`executeChain 两 hop，hop2 重放触发带「历史」标记`——临时回退 line 237 截断后复跑，hop2 失败 `AssertionError: expected '…' to contain '（历史 · '`，证实该用例真实校验 hop≥2 主场景（非手动传 id 绕路径）；恢复截断修复后通过。
 
-**回归**：全量 `npx vitest run` —— `Test Files 400 passed, Tests 6322 passed | 6 skipped`，零失败零回归（6 skipped 为既有跳过项）。既有 `buildMessageWithContext` 测试不传 `triggerMessageId`，新判定分支对其为 no-op，表现不变。
+**回归**：全量 `npx vitest run` —— `Test Files 400 passed, Tests 6323 passed | 6 skipped`，零失败零回归（6 skipped 为既有跳过项）。既有 `buildMessageWithContext` 测试不传 `triggerMessageId`，新判定分支对其为 no-op，表现不变。
 
 **最简实现检查**：已过阶梯——改单文件 `buildMessageWithContext` 呈现层 + 判定复用现有 `getUnreadEntries`/`getEntryById`，无新依赖、无新表、无新机制；比「引入幂等键 + 重放台账」更简且不改语义。已采简弃繁。
 
@@ -62,7 +65,8 @@ causal_links:
 
 ## 测试改动声明
 
-新增 `tests/usecases/conversation/dispatch-chain-engine.test.ts` 中 3 个用例（未删改既有用例）：
+新增 `tests/usecases/conversation/dispatch-chain-engine.test.ts` 中 4 个用例（未删改既有用例）：
 1. 重放触发 → 带「历史」标记 + 真实 createdAt（修复前失败、修复后通过）
 2. 新鲜触发 → 无「历史」标记（回归护栏）
 3. 非 entry 触发 → 不误标（回归护栏）
+4. executeChain 两 hop 集成用例（#1553 主场景：链内 hop≥2）→ hop2 重放触发带「历史」标记（临时回退 line 237 截断后失败、修复后通过——直攻真实路径，防单测绕路径盲区）
