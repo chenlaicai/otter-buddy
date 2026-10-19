@@ -70,7 +70,6 @@
   --section-scroll-max-h: 10rem;
   --list-scroll-max-h: 400px;
   --compact-scroll-max-h: 300px;
-  --preview-scroll-max-h: 240px;
 
   /* 玻璃不透明度全局系数（设置页滑杆可调 0.45~1.0，越低越透；
      各层 token 用 calc 按系数缩放，reduced-transparency 兜底直接
