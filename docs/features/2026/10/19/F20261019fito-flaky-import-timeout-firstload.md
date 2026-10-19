@@ -71,5 +71,5 @@ const { buildGuardInterceptContext } = await import("@frameworks/agent/pi-sessio
 
 ## 留痕
 
-- matter：M-db8181b9（flaky 排查待办）→ 修复合入后闭环
+- matter：M-db8181b9（flaky 排查待办）→ 修复合入后闭环；同型策略评估 M-8bed173f（testTimeout 统一策略，已实证两例）
 - 排查由搭档 2026-10-19 指令触发（「把这个flaky测试用例分析下吧，看看是啥情况」）
