@@ -74,9 +74,13 @@ describe("command-model 结构模型", () => {
       const m = parseOnce("cmd >| f.txt");
       expect(m.segments[0].redirects[0].op).toBe(">|");
     });
-    it("$VAR 目标不可求值 → target=null", () => {
+    it("$VAR 目标不可求值 → target=null + targetWord 保留（F20261019f714 溯源用）", () => {
       const m = parseOnce("cmd > $OUT");
-      expect(m.segments[0].redirects).toEqual([{ op: ">", target: null }]);
+      expect(m.segments[0].redirects[0].op).toBe(">");
+      expect(m.segments[0].redirects[0].target).toBeNull();
+      // 目标词原始词对象保留（含 var part 的动态目标词不进 words——写求值器
+      // 同命令赋值溯源依赖此字段，纯字面目标不携带）
+      expect(m.segments[0].redirects[0].targetWord?.parts[0]?.type).toBe("var");
     });
   });
 

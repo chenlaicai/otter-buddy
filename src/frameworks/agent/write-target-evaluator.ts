@@ -205,6 +205,27 @@ function isPureVarWord(w: Word): string | null {
   return name !== varPart.text ? name : null; // 匹配上（name≠text）返回变量名；未匹配（形态怪异）回落
 }
 
+/** F20261019f714（M-f7148deb 第 3 条）：词表命令落点参数的同命令赋值溯源。
+ *  语义与 evalCdTarget/git -C "$VAR" 溯源同口径（BC-5：同命令内赋值才溯源，
+ *  环境变量/外部来源一律不猜）：纯 $VAR 词 → resolveAssign；var+字面拼接 →
+ *  与 cd 同构的拼接守卫（结果含 .. 一律 null——爬升红线保持）；其余不可求值
+ *  形态（cmdsub/arith/多 var 拼接等）→ null 由调用方走 dynamic-path fail-closed。
+ *  背景：`cd <worktree> && OLD=…; NEW=…; mv "$OLD" "$NEW"` 落点参数 $VAR 无溯源面
+ *  → dynamic-path → 旧链 fail-closed 误拦（healing f3d5ebe5，worktree 内合法重构被拦）。
+ *  溯源成功后落点照常走 evalPath+主仓树判定——落主仓仍拦，保护零削弱。
+ *  var+字面拼接形态与 cd 目标共用同一实现（resolveVarConcatCdTarget：同命令赋值、
+ *  `..` 爬升守卫、空结果守卫——两调用面语义必须同步，回归锁两侧测试）。 */
+function resolveTargetArgWord(w: Word, segments: Segment[]): string | null {
+  if (w.evaluated !== null) return w.evaluated;
+  const name = isPureVarWord(w);
+  if (name !== null) {
+    const v = resolveAssign(name, segments);
+    return v !== null && !DYNAMIC_RE.test(v) ? v : null;
+  }
+  // var+字面拼接（$W/sub）：与 cd 目标同一守卫——溯源后全量拼接，含 .. / 溯源不出 → null
+  return resolveVarConcatCdTarget(w, segments);
+}
+
 /** 从词对象求 cd 目标（evaluated 直取 / 纯 $VAR 词同命令溯源）。null = 不可解。
  *  审视 §3.1 修订：非纯 var 词（含字面后缀 $W/..、前缀拼接）一律 null——
   * 「求值不出」必须回落保守侧，不能错误求值后放行。 */
@@ -212,8 +233,8 @@ function isPureVarWord(w: Word): string | null {
  *  （`$W/.otter/worktrees/x`，无 .. 后缀）——var 同命令溯源后与字面部分全量拼接
  *  （后缀完整保留，evalPath 归一，不存在 #1381「丢后缀爬升」面）。守卫：结果含
  *  `..` 一律 null 回落——c-po 负门（$W/..、$W/../../../）形态字节级不变；var 溯源
- *  不出 / cmdsub/arith 等展开 part → null。仅限 cd 目标词（evalCdTarget），
- *  不改词法求值与其余求值面。回归锁：bash-guard-cd-forms-s1.test.ts B7/c-po 对。 */
+ *  不出 / cmdsub/arith 等展开 part → null。调用面：cd 目标词（evalCdTarget）与
+ *  词表命令落点参数（resolveTargetArgWord）——两面共用同一守卫，回归锁两侧测试。 */
 function resolveVarConcatCdTarget(w: Word, segments: Segment[]): string | null {
   if (!w.parts.every(p => p.type === "lit" || p.type === "var")) return null;
   if (!w.parts.some(p => p.type === "var")) return null;
@@ -339,8 +360,19 @@ function evalRedirects(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRe
   for (const r of seg.redirects) {
     if (!isWriteRedirect(r.op)) continue;
     if (isFdDup(r.op, r.target)) continue; // 2>&1 等 fd 复制非文件写
-    if (r.target === null) return "dynamic-path";
-    const resolved = evalPath(r.target, cwd);
+    // F20261019f714（M-f7148deb 第 3 条）：重定向目标含 var part 时同命令赋值溯源
+    //（与词表命令落点参数同口径 BC-5）。目标词在模型层保留（RedirTarget.targetWord
+    // ——词法层动态目标词不进 words，探针实证 echo hi > $OUT 的 $OUT 只在 redirect 上）；
+    // 溯源不出（for 变量/环境变量来源）→ dynamic-path 保守。
+    // 实现史鉴：初版用段内 words.find(var) 宽回退——把段内无关 var 词错误卷入
+    //（for…kill $pid 2>/dev/null 的 $pid 被当重定向目标 → touchstone 翻红），
+    // 改为模型层显式携带目标词，不做任何模糊匹配。
+    let resolvedTarget: string | null = r.target;
+    if (r.target === null && r.targetWord !== undefined) {
+      resolvedTarget = resolveTargetArgWord(r.targetWord, acc.segments ?? [seg]);
+    }
+    if (resolvedTarget === null) return "dynamic-path";
+    const resolved = evalPath(resolvedTarget, cwd);
     if (resolved === null) return "dynamic-path";
     acc.targets.push({ path: resolved, via: "redirect", segmentIndex: acc.index, access: "write" });
   }
@@ -522,7 +554,7 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
   if (bare === "find" && !seg.words.some(w => w.evaluated === "-delete")) return null;
   const nonFlagArgs: string[] = [];
   for (let i = 1; i < seg.words.length; i++) {
-    const w = seg.words[i].evaluated;
+    const w = resolveTargetArgWord(seg.words[i], acc.segments ?? [seg]);
     if (w === null) return "dynamic-path";
     if (w.startsWith("-")) continue;
     nonFlagArgs.push(w);
