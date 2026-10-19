@@ -15,9 +15,14 @@ const projectRoot = "/Users/orca/ai/otter-buddy";
 const WT = "/Users/orca/ai/otter-buddy/.otter/worktrees";
 
 describe("V9+ 真实拦截数据回放（9/28 healing events 现场）", () => {
-  it("E1: cd worktree && 赋值段链 && cp → 放行（invoke-periodic-audit 獭 03:59 现场）", () => {
+  it("E1: cd worktree && 赋值段链 && cp → 拦（动态源 fail-closed，无 cd 对照同判——原则② 两同；债记 B 立项）", () => {
+    // S1 裁决·Case-1（2026-10-19 红线修正后）：无 cd 同形态（cwd=worktree）实测同为
+    // BLOCK（存量 fail-closed，非删门回归）——按原则②「两同 BLOCK → 翻期望」与真实
+    // 行为对齐（期望变更，运行时行为零变化）。可用性债（cp 动态源→/tmp 真实现场
+    // 误拦）高优记入 B 立项：求值器动态源解析增强，随 wrapper/管道段 payload
+    // 附件一并进 B issue 范围。
     const r = checkBashCommandSafety(`${WT}/invoke-periodic-audit && F=web/src/pages/conversation/index.tsx && cp $F /tmp/bak.tsx`.replace(/^/, "cd "), mainPid, undefined, { projectRoot });
-    expect(r).toBeNull();
+    expect(r).not.toBeNull();
   });
   it("E3: cd worktree && git stash push → 放行（capability 獭 03:41 现场）", () => {
     const r = checkBashCommandSafety(`cd ${WT}/capability-entries-bridge && git stash push -- tests/capability/helpers/audit-fixtures.ts`, mainPid, undefined, { projectRoot });

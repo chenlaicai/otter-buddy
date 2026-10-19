@@ -1143,9 +1143,12 @@ describe("F20260922scwd 主仓写拦截（感知对齐保护闸）", () => {
     expect(result).toBeNull();
   });
 
-  it("cd /repo && git commit -m 'x'（cd 主仓后 git 写）→ 放行（显式意图）", () => {
+  // S1 裁决（方向 A，2026-10-19）：cd 豁免门删除后本形态交求值器落点判——cwd=主仓
+  // 根的 git commit 即主仓写（求值器语料 c020/BC-1 同判；无 cd 对照 `git commit`@主仓
+  // 同为 BLOCK）。原「显式意图放行」是豁免门整条放行语义（S1 同源，期望翻转）。
+  it("cd /repo && git commit -m 'x'（cd 主仓后 git 写）→ 拦（BC-1 落点判，求值器语料 c020 同判）", () => {
     const result = checkBashCommandSafety("cd /repo && git commit -m 'x'", mainPid, undefined, { projectRoot });
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
   });
 
   it("echo x > /wt/file.txt（绝对路径写非主仓）→ 放行", () => {
@@ -1229,9 +1232,12 @@ describe("F20260922scwd 检视严重 1/2 绕过形态回归（mimo 终审检视�
     expect(result).toBeNull();
   });
 
-  it("cd worktree && echo x > file.txt（段首真 cd + 相对路径写）→ 放行", () => {
+  // S1 裁决原则②（两同对照，探针实测 2026-10-19）：落点 /repo/worktree/file.txt 在主仓
+  // 树内且非运行时排除区三区（data/workspaces/.otter/worktrees/.otter/workforms）→ BLOCK；
+  // 无 cd 对照（sessionCwd=/repo/worktree echo file.txt）同为 BLOCK。
+  it("cd worktree && echo x > file.txt（段首真 cd + 相对路径写）→ 拦（落点落主仓树内非排除区，无 cd 对照同判）", () => {
     const result = checkBashCommandSafety("cd worktree && echo x > file.txt", mainPid, undefined, { projectRoot });
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
   });
 
   // ── #1038 语义保持：纯 echo 引号文本仍放行 ──
@@ -2723,25 +2729,25 @@ JS`;
   });
 
   // ── 放行面（防误拦）──
-  it("#1308 放行面：cd /tmp + cat 管道 + 体纯读主仓绝对路径 → 放行（纯读探查正道）", () => {
+  it("#1308 放行面：cd /tmp + cat 管道 + 体纯读主仓绝对路径 → 拦（切换后与无 cd 兄弟用例同判 fail-closed——原则② 两同）", () => {
     const cmd = `cd /tmp && cat <<'PY' | python3 -
 print(open('${projectRoot}/package.json').read()[:10])
 PY`;
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
-  it("#1308 放行面：cd /tmp + cat 管道 + 相对路径写（cwd=/tmp）→ 放行（负门不触发）", () => {
+  it("#1308 放行面：cd /tmp + cat 管道 + 相对路径写（cwd=/tmp）→ 拦（求值器管道馈体 fail-closed，无 cd 对照探针同判——原则② 两同）", () => {
     const cmd = `cd /tmp && cat <<'PY' | python3 -
 open('scratch/out.txt','w').write('x')
 PY`;
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
-  it("#1308 放行面：cat 管道 + 体写非主仓绝对路径 → 放行", () => {
+  it("#1308 放行面：cat 管道 + 体写非主仓绝对路径 → 拦（管道馈体载荷不入求值 fail-closed，无 cd 对照探针同判——原则② 两同）", () => {
     const cmd = `cd /tmp && cat <<'PY' | python3 -
 open('/tmp/probe-ok.json','w').write('{}')
 PY`;
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
   it("#1308 放行面：无 cd + cat 管道 + 体纯读 → F20261016gses 切换后 fail-closed（求值器管道馈体主仓字面量闸保守面——行为差分已知项；正道绕行：python3 - <<EOF 直供体或落盘 /tmp）", () => {
@@ -2781,11 +2787,11 @@ PY`;
   });
 
   // ── 检视 r1 发现 2：短路或（||）形态——右侧不执行，体是纯数据 ──
-  it("#1308-r1 放行面：cd + cat <<PY || python3 - + 体写主仓字样 → 放行（|| 短路，python 不执行，负门不触发）", () => {
+  it("#1308-r1 放行面：cd + cat <<PY || python3 - + 体写主仓字样 → 拦（与无 cd 兄弟用例同判 fail-closed——原则② 两同）", () => {
     const cmd = `cd /tmp && cat <<'PY' || python3 -
 open('${projectRoot}/data/x.json','w')
 PY`;
-    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
   it("#1308-r1 放行面：无 cd + cat <<PY || python3 - + 体写主仓字样 → F20261016gses 切换后拦截（求值器 || 短路不外溢、体含主仓写字面量 fail-closed——行为差分已知项）", () => {

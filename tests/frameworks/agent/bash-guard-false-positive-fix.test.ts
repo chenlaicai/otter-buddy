@@ -192,8 +192,11 @@ describe("F20260924gfpn：变量赋值前缀不破坏 cd 检测（#5）", () => 
     expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
   });
 
-  it("W=/repo; cd $W && git commit -m x → 放行", () => {
-    expect(checkBashCommandSafety("W=/repo; cd $W && git commit -m x", mainPid, undefined, opts)).toBeNull();
+  // S1 裁决原则②/BC-1（2026-10-19）：W=/repo → cd 链后 cwd=主仓根，git commit 落点
+  // /repo（求值器正向命中）；无 cd 对照 `git commit`@/repo 同为 BLOCK。原放行期望
+  // 是 cd 豁免门整条放行语义（S1 同源）。
+  it("W=/repo; cd $W && git commit -m x → 拦（cd 链解析落主仓根，BC-1）", () => {
+    expect(checkBashCommandSafety("W=/repo; cd $W && git commit -m x", mainPid, undefined, opts)).not.toBeNull();
   });
 
   it("FOO=1 BAR=2; cd /wt && git commit -m x（多赋值前缀）→ 放行", () => {

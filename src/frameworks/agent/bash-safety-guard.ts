@@ -17,13 +17,13 @@ import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
-import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads, extractHeredocSpans } from "./quoted-text-sanitizer";
+import { shouldSanitizeForScan, sanitizeQuotedText, stripHeredocPayloads, extractHeredocSpans } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
 
 /** F20260928slan：sleep 命令位置判定——复用 kill-segment-finder 的位置感知
  * （isKillAtCommandPosition 对任意 pattern 通用，sleep 词元复用同一套位置白名单） */
 const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillAtCommandPosition(text, pattern);
-import { checkWithModel, modelParseOk, modelCdExemption } from "./guard-model-judge";
+import { checkWithModel, modelParseOk } from "./guard-model-judge";
 import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit } from "./payload-extract-aux";
@@ -1277,6 +1277,13 @@ function judgeSegment(
     // 保守面：sessionCwd 是 data/workspaces（非 git 树）或未跟踪 → 不豁免。
     if (ctx.projectRoot && ctx.sessionCwd && path.isAbsolute(ctx.sessionCwd)
         && (path.normalize(ctx.sessionCwd) + path.sep).startsWith(path.normalize(path.join(ctx.projectRoot, ".otter/worktrees")) + path.sep)) return false;
+    // S1 裁决原则①（收窄版，2026-10-19）：段内生效 cwd 锚定主仓树**外**（绝对路径
+    // 且不落 projectRoot——`cd /wt && git commit`）→ git 写落点非主仓，求值器先判
+    // 已 ALLOW，本通道再拦即形态判覆盖落点判（FULL≠EVAL 双判据，delta2 S1 同病）。
+    // 主仓树内（含会话工作区/相对/未知锚点）与 push/stash/-C 语义求值器无基座，
+    // 本通道仍是唯一拦截——照拦不放水。
+    if (ctx.projectRoot && ctx.sessionCwd && path.isAbsolute(ctx.sessionCwd)
+        && !(path.normalize(ctx.sessionCwd) + path.sep).startsWith(path.normalize(ctx.projectRoot) + path.sep)) return false;
     return true;
   }
   // ③b shell 解释器落点 → 洞1：提取 -c 载荷递归判定（r1 严重 2：三态拆分）
@@ -1317,11 +1324,24 @@ function checkSegmentStructuralWrite(
   //  cd 段沿语句序影响后续段；被 &/| 切断的 cd 段不影响（splitShellSegments 段
   //  自带 joiner 语义不在此重建，保守面：cd 段含变量/不可静态求值 → 跳过不更新）。
   let trackedCwd = ctx.sessionCwd;
+  // S1 修后 V9 面（2026-10-19）：纯赋值段入表，cd 目标 `\$W` 按赋值表展开——
+  // 求值器 evalCdTarget 读赋值链（同基座），本通道保守跳过会把求值器已 ALLOW 的
+  // 放行面拦下（`W=<wt>; cd \$W && git push` 整链 BLOCK 的双判据复现）。
+  const assignVars = new Map<string, string>();
   const jctx = { logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnly, depth, skipGitWrite: ctx.skipGitWrite, onelinerPathsOutsideMain: ctx.onelinerPathsOutsideMain };
   for (const seg of splitShellSegments(command)) {
+    const pureAssign = /^([A-Za-z_]\w*)=(\S+)$/.exec(seg.trim());
+    if (pureAssign) { assignVars.set(pureAssign[1], pureAssign[2]); continue; }
     const cdMatch = /^cd\s+(?!\.\.?(?:\/|\s|$))(\S+)\s*$/.exec(seg.trim());
     if (cdMatch) {
-      const t = cdMatch[1].replace(/^["']|["']$/g, "");
+      let t = cdMatch[1].replace(/^["']|["']$/g, "");
+      // B7 定点修（条件解禁 2026-10-19）：`$W` 纯引用与 `$W/后缀` 拼接均按赋值表展开
+      //（与求值器 evalCdTarget 同基座——后缀含 `..` 不展开保持保守跳过，与求值器
+      // c-po 回落口径对齐）。
+      const varRef = /^(\$(\w+))(\/.*)?$/.exec(t);
+      if (varRef && assignVars.has(varRef[2]) && !(varRef[3] && varRef[3].includes(".."))) {
+        t = assignVars.get(varRef[2])! + (varRef[3] ?? "");
+      }
       if (t.startsWith("/") && !/[$`]/.test(t)) trackedCwd = t;
       continue; // cd 段自身非写段
     }
@@ -1689,29 +1709,7 @@ export function pythonHeredocBodiesReadOnly(command: string): boolean {
 }
 
 
-function isPureAssignPrefix(seg: string): boolean {
-  const words = seg.split(/\s+/).filter(Boolean);
-  return words.length > 0 && words.every(w => /^[A-Za-z_]\w*=\S*$/.test(w));
-}
 
-function hasRealCdSegment(command: string): boolean {
-  const basis = stripQuotedTextSpans(command);
-  // F20261008gduc：裸 \| 会把 || 备用链首字符当管道命中。带 lookaround 的负向断言
-  // 只命中真管道；|| 备用链放行拆开两条各自判定的路径。
-  if (/(?<!&)&(?!&)|(?<!\|)\|(?!\|)/.test(basis)) return false;
-  const segs = basis.split(/&&|\|\||[;\n]/).map(s => s.trim()).filter(Boolean);
-  let first = "";
-  for (const s of segs) {
-    if (isPureAssignPrefix(s)) continue; // 赋值段跳过（不改变 shell 状态）
-    first = s;
-    break;
-  }
-  if (!first) return false;
-  const m = first.match(/^cd\s+(.+)$/);
-  if (!m) return false;
-  const target = m[1].replace(/^["']|["']$/g, "").trim();
-  return target !== "" && target !== ".";
-}
 
 /** 主仓写检测（F20260922scwd）：未 cd 时拦截落点为主仓的写命令。
  *  与 #1038 数据破坏检测的差异：不跟踪 cd（感知对齐方案下 LLM 需显式 cd），
@@ -1854,23 +1852,13 @@ interface MainCheckoutWriteCtx {
 
 /** F20261016gses P0 路由切换后的主仓写判定（见下方 checkMainCheckoutWrite 本体）。 */
 
-/** #1240（F20261006c1240）cd 豁免负门判定：模型版 cd 豁免生效时，
- *  python/node heredoc 体含绝对路径落主仓 → 体非只读拦 / 体只读放行；
- *  体无绝对路径落主仓 → 放行（cd 豁免原语义）。
- *  #1309（F20261009dpve）：第二触发条件——体含动态路径源签名即阻断（与
- *  绝对路径无关）。根因：负门只锚绝对路径字面量，路径来自环境变量/外部输入时
- *  字面量不存在 → 负门失明，cd 豁免 return null 旁路全部写判定（含 denylist——
- *  它在负门之后的主仓写判定链内，无消费点）。无 cd 链靠 pythonBodyReadOnly
- *  fail-closed（import os 即 false → 通道不豁免）拦住同体，cd 链缺等价防线。
- *  签名小而准（攻击链核心是「路径来自外部可控源」）：python 的
- *  os.environ/environ/getenv/input(/sys.argv，node 的 process.env；动态源
- *  遇 open 写面即拦（与绝对路径负门同构：只读体仍放行——纯读探查正道）。
- *  纯程序内字符串拼接（p='/data/'; q=p+'x'）不拦——落点要么可见（绝对路径
- *  负门管）要么与主仓无关，不加宽松拼接签名避免误伤正道。
- *  检视 r1 处置（发现 1/2/4）：负门触发后直接体感知拦，
- *  不再依赖 MAIN_WRITE_PATTERNS[0] 通道正则接力——wrapper（env/sudo）与无 `-` 形态
- *  通道正则不认（拦截链解耦缺口），node 侧 isNodeHeader 同型首词语义失效。
- *  返回 null = 放行（含 cd 豁免生效与负门放行两义），BLOCK_MSG = 拦。 */
+/** heredoc 体负门（后置兜底，S1 裁决方向 A 2026-10-19）：求值器 ALLOW 后兜
+ *  wrapper/管道段 heredoc 载荷不入求值的残余（#1240/#1308 语义；cd 与无 cd 同语义，
+ *  原则②——求值器 payload 附件根治面立 B issue）。按 shell 语义提取 heredoc 解释器
+ *（wrapper/sudo、管道右段、cd 短链）识别 python/node 体——任一体含绝对路径字面量
+ *  解析落主仓，或含动态源落点形态（os.environ/input/process.env——#1309 声明面），
+ *  且体非只读 → 拦；体只读（纯读探查正道）/无负门面 → null 继续。只加拦不放行：
+ *  上游求值器判 BLOCK 的不会到达此处。调用点已判 projectRoot 非空。 */
 const PY_DYNAMIC_PATH_SOURCE = /\b(?:os\.)?environ\b|\bgetenv\s*\(|\binput\s*\(|\bsys\.argv\b/;
 const NODE_DYNAMIC_PATH_SOURCE = /\bprocess\.env\b/;
 function scriptHeredocBodiesTouchDynamicPathSource(command: string): boolean {
@@ -1882,7 +1870,7 @@ function scriptHeredocBodiesTouchDynamicPathSource(command: string): boolean {
   return false;
 }
 
-function cdExemptionWithVeto(command: string, logger: Logger | undefined, ctx: GuardCwdCtx): string | null {
+function heredocWriteVeto(command: string, logger: Logger | undefined, ctx: GuardCwdCtx): string | null {
   // 调用点（checkMainCheckoutWrite）已判 projectRoot 非空才走到——非空断言收窄
   const projectRoot = ctx.projectRoot as string;
   const absPathVeto = scriptHeredocAbsPathsInsideMain(command, projectRoot);
@@ -1891,7 +1879,7 @@ function cdExemptionWithVeto(command: string, logger: Logger | undefined, ctx: G
   // 负门触发：体非只读 → 拦（写/执行签名）；体只读 → 放行（纯读探查正道）。
   // 两触发条件同构消费：绝对路径负门拦「可见落点」面，动态源负门拦「不可见落点」面。
   if (!scriptHeredocBodiesReadOnlySegmentAware(command)) {
-    logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (heredoc body vetoed under cd exemption)", { command: command.substring(0, 200), dynamic: dynamicVeto });
+    logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (heredoc body veto, post-eval backstop)", { command: command.substring(0, 200), dynamic: dynamicVeto });
     return rewriteMainWriteBlockMsg(ctx.sessionCwd);
   }
   return null;
@@ -1953,7 +1941,9 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
   // F20261016gses P0 路由切换：判定主体换 evaluateWriteVerdict（语义求值器）——
   // 主仓写判定这一类规则升级为语义判据（同一套 bash 守卫的规则更新，非双系统）。
-  // 保留面前置：cd 豁免 veto（V1 独有负门与求值器 cwd 链同语义双保险）。
+  // S1 裁决（方向 A，2026-10-19 大獭拍板）：求值器先判 + 负门后置兜底——
+  // 删除面：cd 豁免门先行 return（形态判覆盖落点判：`cd X && <写主仓>` 经
+  // modelCdExemption→cdExemptionWithVeto 短路求值器，delta2 复核 S1 整条放行）。
   // 删除面（语义重叠，求值器落点语义覆盖）：MAIN_WRITE_PATTERNS 通道循环（git 写族
   // /heredoc/one-liner 正则）、REDIRECT_PATTERN 重定向落点、echo 敏感词豁免、
   // oneLinerReadOnly 预计算（正则只认通道形态不认落点）。
@@ -1961,7 +1951,6 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // （包装词/子壳/管道喂 shell 的段首结构——sudo env python -c 写、timeout 5 node -e
   // 写的逃生面收口）与 heredoc 体感知（python/node 体白名单——kill/os.remove
   // 非重叠危险面）。
-  if (modelCdExemption(command, hasRealCdSegment)) return cdExemptionWithVeto(command, logger, { projectRoot, sessionCwd });
   const verdict = evaluateWriteVerdict(command, projectRoot, sessionCwd ?? projectRoot);
   if (verdict.verdict === "BLOCK") {
     logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (write-verdict)", {
@@ -1972,6 +1961,11 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
     });
     return rewriteMainWriteBlockMsg(sessionCwd, verdict);
   }
+  // 负门后置兜底（只加拦不放行，cd/无 cd 同语义——裁决原则②）：求值器 ALLOW 后
+  // 兜 heredoc 体绝对路径/动态源写主仓（wrapper/管道段 heredoc 载荷不入求值的 Y 类
+  // 残余——求值器 payload 附件根治面立 B issue 继续）；体只读/无负门面 → null 继续。
+  const veto = heredocWriteVeto(command, logger, { projectRoot, sessionCwd });
+  if (veto) return veto;
   // 互补面后置：段首结构判定（包装词/子壳/管道——求值器无此基座，旧通道保留）。
   // 只读豁免保留（oneLinerPayloadReadOnly + wrappedOneLinerPayloadsReadOnly 双基座）——
   // 结构通道的拦截面是「包装形态下的 one-liner 写」，载荷只读仍是豁免面（求值器

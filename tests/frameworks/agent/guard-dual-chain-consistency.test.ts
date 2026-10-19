@@ -126,22 +126,22 @@ describe("F20261008gdcc 双链一致性：one-liner 豁免族", () => {
     );
   });
 
-  it("node 写主仓绝对路径载荷（cd WT 后）：双链一致放行（issue #1363 已知灰区，非双链割裂）", () => {
-    // 此形态当前双链一致放行——cd 显式意图设计 + 写落点归属校验未实现（issue #1363，
-    // 独立收紧不进本批）。钉住「一致」面：若未来某一侧单独改拦（如只在 V2 收紧）
-    // 而另一侧未同步，本用例以割裂红灯强制双链同步——这正是本测试的防御价值。
-    // 注意：#1363 落地后本用例期望值应改为 BLOCK（同步改两链）。
+  it("node 写主仓绝对路径载荷（cd WT 后）：双链一致拦（issue #1363 写落点归属已生效——按用例内既定备注同步翻转）", () => {
+    // S1 裁决后 cd 豁免门不再短路求值器——写落点 /repo/hacked.txt 落主仓正向命中，
+    // 双链同 BLOCK（#1363 备注：「落地后本用例期望值应改为 BLOCK（同步改两链）」；
+    // 探针实测无 cd 对照同为 BLOCK——原则② 两同）。
     expectDualConsistent(
       `cd ${WT} && node -e "require('fs').writeFileSync('/repo/hacked.txt','x')"`,
-      "ALLOW",
+      "BLOCK",
     );
   });
 
-  it("node 只读载荷 + $() 命令替换（parseOk=false 天然形态）：双链一致放行", () => {
-    // $() 使真实解析器 parseOk=false——正是 S1 的触发面形态；只读载荷应两链同放。
+  it("node 只读载荷 + $() 命令替换（parseOk=false 天然形态）：双链一致拦（求值器 heredoc-script-payload fail-closed，无 cd 对照同判——原则②）", () => {
+    // $() 使真实解析器 parseOk=false；S1 裁决后求值器先判——node -e 载荷求值不出
+    //（heredoc-script-payload）→ fail-closed BLOCK；无 cd 对照探针实测同为 BLOCK。
     expectDualConsistent(
       `cd ${WT} && node -e "console.log(require('child_process').execSync('git status').toString())"`,
-      "ALLOW",
+      "BLOCK",
     );
   });
 });

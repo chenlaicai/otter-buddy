@@ -199,6 +199,27 @@ function isPureVarWord(w: Word): string | null {
 /** 从词对象求 cd 目标（evaluated 直取 / 纯 $VAR 词同命令溯源）。null = 不可解。
  *  审视 §3.1 修订：非纯 var 词（含字面后缀 $W/..、前缀拼接）一律 null——
   * 「求值不出」必须回落保守侧，不能错误求值后放行。 */
+/** B7 定点修（S1 方向A·Case-2 条件解禁，2026-10-19）：var+字面拼接 cd 目标
+ *  （`$W/.otter/worktrees/x`，无 .. 后缀）——var 同命令溯源后与字面部分全量拼接
+ *  （后缀完整保留，evalPath 归一，不存在 #1381「丢后缀爬升」面）。守卫：结果含
+ *  `..` 一律 null 回落——c-po 负门（$W/..、$W/../../../）形态字节级不变；var 溯源
+ *  不出 / cmdsub/arith 等展开 part → null。仅限 cd 目标词（evalCdTarget），
+ *  不改词法求值与其余求值面。回归锁：bash-guard-cd-forms-s1.test.ts B7/c-po 对。 */
+function resolveVarConcatCdTarget(w: Word, segments: Segment[]): string | null {
+  if (!w.parts.every(p => p.type === "lit" || p.type === "var")) return null;
+  if (!w.parts.some(p => p.type === "var")) return null;
+  let out = "";
+  for (const p of w.parts) {
+    if (p.type === "lit") { out += p.text; continue; }
+    const name = p.text.replace(/^\$\{?(\w+)\}?$/, "$1");
+    if (name === p.text) return null;
+    const v = resolveAssign(name, segments);
+    if (v === null) return null;
+    out += v;
+  }
+  if (out === "" || out.includes("..")) return null;
+  return out;
+}
 function evalCdTarget(seg: Segment, segments: Segment[], cwd: string): string | null {
   const w1: Word | undefined = seg.words[1];
   if (!w1) return null;
@@ -206,8 +227,13 @@ function evalCdTarget(seg: Segment, segments: Segment[], cwd: string): string | 
   if (target === null) {
     // evaluated=null = 词含 var/cmdsub/动态 part——只认「纯 $VAR 词」溯源；其余一律回落
     const name = isPureVarWord(w1);
-    if (name === null) return null;
-    target = resolveAssign(name, segments);
+    if (name === null) {
+      const built = resolveVarConcatCdTarget(w1, segments);
+      if (built === null) return null;
+      target = built;
+    } else {
+      target = resolveAssign(name, segments);
+    }
   } else if (DYNAMIC_RE.test(target)) {
     // evaluated 值内含动态段（如 "$W/x" 部分展开）：同为非纯形态，回落
     const name = isPureVarWord(w1);
