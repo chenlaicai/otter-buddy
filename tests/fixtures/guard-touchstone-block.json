@@ -826,7 +826,8 @@
       "command": "cd /repo/../elsewhere && touch x",
       "verdict": "BLOCK",
       "adjudication": [
-        "獭审 override：`..` 路径归一化拒绝（能力6）→ 不可证 fail-closed"
+        "F20261019gses rebase 回归修（evalPath 可静态爬升收窄）：/repo/../elsewhere 词法解析=/elsewhere 树外 → 本条原 BLOCK 理由（能力6 .. 拒绝）失效。但改判 ALLOW 需动 block 池确定性判决=改考试口径，属棘轮收缩须带守恒验收，不在本回归修范围——仍按原判 BLOCK 归入 gaps（reason 更新为 cwd 爬升解析后树外零写面）",
+        "獭审 override：.. 路径归一化拒绝（能力6，首跑口径）→ 不可证 fail-closed"
       ],
       "source": {
         "types": [
@@ -1990,7 +1991,8 @@
       "id": "TS-smrjdir02",
       "command": "/dev/null",
       "adjudication": [
-        "delta4 复核发现（检视獭1360 2026-10-14，严重1）：段首直执（./x、/x）真存在脚本零判读——同链一堵一漏（bash 同链牙3 堵住、直执行位双层全漏），curl -o 下载+直执真写主仓。修法：shellScriptFileArg 通道域扩直执行位（与 hasOpaqueScriptExec 同源判定），同构三态自动接上（真存在→unreadable、真不存在→absent、造-执对→内容判读）；正向钉死不许回归"
+        "delta4 复核发现（检视獭1360 2026-10-14，严重1）：段首直执（./x、/x）真存在脚本零判读——同链一堵一漏（bash 同链牙3 堵住、直执行位双层全漏），curl -o 下载+直执真写主仓。修法：shellScriptFileArg 通道域扩直执行位（与 hasOpaqueScriptExec 同源判定），同构三态自动接上（真存在→unreadable、真不存在→absent、造-执对→内容判读）；正向钉死不许回归",
+        "F20261019gses P0 裁决翻正（2026-10-15）：运行时 payload sourcing 上线后「真存在→unreadable fail-closed」保守面被真实读取判读取代（特性文档硬验收项「生产链路必须真实注入载荷」）——/dev/null 读出零写面内容，正面 ALLOW。探针原始对抗意图（下载+直执真写主仓）由同 PR 新增直执内容判读负门用例保留（writer 直执 BLOCK 实证）。断言口径同 write-target-evaluator.test.ts「P0 sourcing 接线」用例"
       ],
       "kind": "synthetic_probe",
       "source": {

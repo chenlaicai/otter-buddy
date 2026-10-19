@@ -62,16 +62,13 @@ export interface AttachGuardsParams {
   projectRoot?: string;
   /** F20261014cwsp：session 工作目录（invoke 时的对话工作区）——守卫落点判定基准 */
   sessionCwd?: string;
-  /** F20261016grdl 二期 2a/2b：沙箱接防标记——与 spawnHook 同源同点求值
-   *  （R-2b：探测与挂钩同一 isSandboxEnabled()，session 创建时一次求值，不缓存）。
-   *  true → 守卫 main_write 族退役（枚举表）；false/缺省 → 写面回位。 */
+  /** F20261016gsbx 二期 2a/2b：沙箱 spawnHook 真实挂载决策（session 创建点绑定，R-2b）——
+   *  true 时守卫 main_write 文件写族退役；不可用回位（降级不降安全）。 */
   sandboxGuarded?: boolean;
   /** F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本；fire-and-forget） */
   onGuardIntercept?: (input: { command: string; reason: string }) => void;
-  /** F20261010gshw：写落点求值器影子接线（观察模式）——旧链判定后无论拦否均回调，
-   *  只记录不干预（零干预铁律）；透传 attachCircuitBreaker，由 pi-session-factory
-   *  构造（闭包带 sink），本层零 healing 依赖。 */
-  onShadowEval?: (input: { command: string; oldBlock: string | null }) => void;
+  /** F20261019gses P0 影子下线：onShadowEval（观察期对照回调）已删——主判定切
+   *  evaluateWriteVerdict 后无「旧链 vs 新链」对照面。 */
 }
 
 /** _attachGuards 返回类型 */
@@ -90,7 +87,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, sandboxGuarded: params.sandboxGuarded, onGuardIntercept: params.onGuardIntercept, onShadowEval: params.onShadowEval });
+  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, sandboxGuarded: params.sandboxGuarded });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
   const cb = getConfig().circuitBreaker;
@@ -211,7 +208,7 @@ export function attachCircuitBreaker(
   otterId: string,
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
-  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; sandboxGuarded?: boolean; onGuardIntercept?: (input: { command: string; reason: string }) => void; onShadowEval?: (input: { command: string; oldBlock: string | null }) => void },
+  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void; sandboxGuarded?: boolean },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
   // F20260830bsgr：bash 安全守卫——读取主进程 PID
   // F20260830fabt-r2: 每次检查都实时读 PID 文件（不缓存），支持热重启换 PID
@@ -297,28 +294,17 @@ export function attachCircuitBreaker(
     }
   });
 
-  /** F20261010gshw：影子通知（零干预——异常吞掉，不影响判定与 abort） */
-  function notifyShadowEval(command: string, rawSafetyBlock: string | null): void {
-    if (!options?.onShadowEval || !command.trim()) return;
-    try {
-      options.onShadowEval({ command, oldBlock: rawSafetyBlock });
-    } catch {
-      // 零干预铁律：影子异常不外溢
-    }
-  }
+  /** F20261019gses P0 影子下线：观察期对照机制（notifyShadowEval 影子记账）随转正删除——
+   *  主判定已切 evaluateWriteVerdict，无「旧链 vs 新链」对照面。 */
 
   /** bash 守卫判定 + abort 发射（自 subscribe 回调拆出控复杂度）。
    *  F20260928slan：sleep 拦截（感知问题）与 kill 域（安全问题）前缀分流——守卫返回带
    *  SLEEP_REASON_PREFIX 标记的 reason 时发射 `bash_sleep:`，否则 `bash_safety:`。判定用
    *  startsWith（delta-3 备注：精确匹配，禁用 includes），此发射点是 `bash_sleep:` 的唯一产源（D5a）。
-   *  F20261010gshw：影子接线——旧链判定出结果后（拦与不拦都）调 onShadowEval
-   *  只记录不干预：真误拦候选（旧链拦+求值器会放）/ EVAL_GAIN（旧链放+求值器
-   *  会拦）双向落 healing_events。onShadowEval 由 pi-session-factory 构造（闭包带
-   *  sink/ids/projectRoot），本层零 healing 依赖（分层对齐：helpers 不依赖 repo）。 */
+   *  F20261019gses P0 影子下线：onShadowEval 影子记账（观察期对照机制）已删。 */
   function abortOnUnsafeBash(command: string, toolCallId?: string): boolean {
     const mainPid = getMainPid();
     const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd, sandboxGuarded: options?.sandboxGuarded });
-    notifyShadowEval(command, rawSafetyBlock);
     if (!rawSafetyBlock) return false;
     const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
     const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd(), command);

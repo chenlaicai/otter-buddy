@@ -23,11 +23,11 @@ import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder
 /** F20260928slan：sleep 命令位置判定——复用 kill-segment-finder 的位置感知
  * （isKillAtCommandPosition 对任意 pattern 通用，sleep 词元复用同一套位置白名单） */
 const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillAtCommandPosition(text, pattern);
-import { allSegmentsGitReadonly } from "./git-readonly-whitelist";
-import { checkWithModel, modelParseOk, modelCdExemption } from "./guard-model-judge";
+import { checkWithModel, modelParseOk } from "./guard-model-judge";
 import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS } from "./payload-extract-aux";
+import { evaluateWriteVerdict } from "./write-verdict";
 
 export type { AllowedService };
 
@@ -40,9 +40,8 @@ interface GuardCwdCtx {
   projectRoot?: string;
   /** session 工作目录（invoke 时的对话工作区）——落点判定的 cwd 语义基准 */
   sessionCwd?: string;
-  /** F20261016grdl 二期 2b：沙箱接防标记（同 GuardOptions.sandboxGuarded——
-   *  V1 OnText 链 / checkPidIndependentRules / 递归路径共用，退役面同枚举表） */
-  sandboxGuarded?: boolean;
+  /** F20261016gsbx 二期 2b：沙箱接防时="file-write"——main_write 文件写族退役（G3 枚举表） */
+  writeChannelSkip?: "file-write";
 }
 
 /** 守卫放行判定输入（#844）：projectRoot 用于定位白名单文件 */
@@ -52,13 +51,9 @@ export interface GuardOptions {
    *  统一工作区后獭 bash cwd=工作区，data 破坏/主仓写判定的相对路径解析基准
    *  必须从 projectRoot（恒=主仓）换成本值，否则未 cd 的工作区命令被误拦。 */
   sessionCwd?: string;
-  /** F20261016grdl 二期 2b：沙箱接防标记——bash 物理沙箱（F20261015phys）
-   *  启用时（同源探测：与 spawnHook 同一 isSandboxEnabled()，session 创建时
-   *  一次求值透传），守卫的 main_write 文件写落点判定面整体退役（沙箱 deny
-   *  file-write* 物理接防，事证非预判）；沙箱不可用（非 macOS / =off）时
-   *  不传 → 写面回位（降级不降安全）。
-   *  退役范围（G3 枚举表，缺表不退役）：仅 main_write 文件写落点族；
-   *  git 写族（R1 红线）、data 破坏族、网络外发族（2c 窄规则）保留预判。 */
+  /** F20261016gsbx 二期 2a/2b：沙箱 spawnHook 真实挂载决策（session 创建点绑定，R-2b）——
+   *  true 时守卫 main_write 文件写族退役（沙箱 deny file-write* 物理接防）；
+   *  不可用/未绑定（readOnly 合成会话）→ 写面回位（降级不降安全）。 */
   sandboxGuarded?: boolean;
 }
 
@@ -729,13 +724,6 @@ const PERL_ONELINER_FORM = "perl[\\d.]*\\s+(?:-[A-Za-z]+\\s+)*-e" + ONELINER_PAY
 
 type OneLinerInterp = "python" | "node" | "ruby" | "perl";
 
-/** 通道正则（MAIN_WRITE_PATTERNS slice 后 index 1-4）。 */
-const ONELINER_CHANNEL_PATTERNS: Record<OneLinerInterp, RegExp> = {
-  python: new RegExp(ONELINER_ANCHOR + PY_ONELINER_FORM),
-  node: new RegExp(ONELINER_ANCHOR + NODE_ONELINER_FORM),
-  ruby: new RegExp(ONELINER_ANCHOR + RUBY_ONELINER_FORM),
-  perl: new RegExp(ONELINER_ANCHOR + PERL_ONELINER_FORM),
-};
 
 /** 预闸正则（checkMainCheckoutWrite 内 oneLinerReadOnly 预计算用——与通道同源）。 */
 const ONELINER_PRE_GATE = new RegExp("\\b(?:" + PY_ONELINER_FORM + "|" + NODE_ONELINER_FORM + "|" + RUBY_ONELINER_FORM + "|" + PERL_ONELINER_FORM + ")");
@@ -823,6 +811,10 @@ interface SegmentHead {
   head: string;
   /** 落点在全段中的字符 offset（shell -c 载荷定位用）；-1 = 无落点。 */
   offset: number;
+  /** F20261019gses F1 修复：落点前是否消耗过包装词（sudo/env/timeout/nohup 等
+   *  WRAPPER_SPECS 族）——true=包装形态（求值器无此基座，结构通道承担）；
+   *  false=plain/纯赋值前缀（求值器判定完备，结构通道不得重复拦）。 */
+  wrapped: boolean;
 }
 
 /** 单 token 扫描（tokenizeSegment 内层，抽函数控圈复杂度）。
@@ -883,16 +875,18 @@ function skipWrapperArgs(tokens: { text: string; offset: number }[], k: number, 
 function parseSegmentHead(seg: string): SegmentHead | null {
   const tokens = tokenizeSegment(seg);
   if (tokens === null) return null;
-  if (tokens.length === 0) return { head: "", offset: -1 };
+  if (tokens.length === 0) return { head: "", offset: -1, wrapped: false };
   let k = 0;
+  let wrapped = false;
   for (;;) {
-    if (k >= tokens.length) return { head: "", offset: -1 };
+    if (k >= tokens.length) return { head: "", offset: -1, wrapped };
     const t = tokens[k].text;
-    // 赋值前缀（含空值 #1285 洞3：FOO= 合法赋值）
+    // 赋值前缀（含空值 #1285 洞3：FOO= 合法赋值）——不算包装
     if (/^[A-Za-z_]\w*=\S*$/.test(t)) { k++; continue; }
     const base = tokenBasename(t);
     const spec = WRAPPER_SPECS[base];
-    if (!spec) return { head: base, offset: tokens[k].offset };
+    if (!spec) return { head: base, offset: tokens[k].offset, wrapped };
+    wrapped = true;
     k = skipWrapperArgs(tokens, k + 1, spec);
   }
 }
@@ -1193,12 +1187,9 @@ function judgeShellCSegment(
 ): boolean {
   const ex = extractShellCPayload(seg, offset);
   if (ex.kind === "FILE") return false; // bash script.sh——写面在脚本文件自身，不在本层
-  if (ex.kind === "FAIL_CLOSED") return true; // -c 存在但旗标形态白名单外/未闭合 → fail-closed
-  // F20261016gsbx 二期 2c：R1 直推 + S5 网络外发窄规则不在本层借道——实现单点在
-  //  checkNarrowRules（自带消息，文案不说谎；载荷递归已内置），此处只判写面。
-  // 递归：载荷作为独立命令重走主仓写判定（基座对齐——同一 checkMainCheckoutWrite）
-  // F20261016gsbx 二期 2b：writeChannelSkip 透传——载荷内文件写族随外层退役（缺透传曾致
-  //  bash -c 载荷 one-liner 退役不完整）；git 写族/data 破坏族在载荷递归内保留。
+  if (ex.kind === "FAIL_CLOSED") return true; // -c 存在但旗标形态白名单外/未闭合 → fail-closed（G3 缺表不退役）
+  // 递归：载荷作为独立命令重走主仓写判定（基座对齐——同一 checkMainCheckoutWrite，
+  //  F20261016gsbx writeChannelSkip 随递归透传）
   const payloadHit = checkMainCheckoutWrite({ command: ex.payload, logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, depth: ctx.depth - 1, writeChannelSkip: ctx.writeChannelSkip }) !== null;
   if (payloadHit) return true;
   // F20261006gfvl 合并修（原 #1315）：载荷内 rm/mv/find -delete 主仓 data 破坏感知——
@@ -1239,26 +1230,35 @@ function judgeSegment(
   const segHasOneLiner = ONELINER_PRE_GATE.test(seg);
   if (parsed === null) {
     // 解析失败（未闭合引号等）——段内含 one-liner/shell 特征才拦
-    // F20261016gsbx 二期 2b：沙箱接防时 one-liner（文件写族）随枚举表退役；shell -c
-    // 特征保持 fail-closed（解析失败无法递归载荷，git 写族/data 破坏族可能藏于载荷）。
+    // F20261016gsbx 2b：one-liner 文件写族随枚举表退役；shell -c 特征保持 fail-closed（缺表不退役）
     if (ctx.writeChannelSkip === "file-write") return segHasShellC;
     return segHasOneLiner || segHasShellC;
   }
-  const { head, offset } = parsed;
+  const { head, offset, wrapped } = parsed;
   if (head === "") return false;
-  // ③a one-liner 解释器落点（python/node/ruby/perl，含版本号尾缀）
+  // ③a one-liner 解释器落点（python/node/ruby/perl，含版本号尾缀）。
+  // F20261019gses F1 修复（检视对抗审视 + 大獭 L1 裁决）：收窄到**包装形态**
+  // （wrapped=true——sudo/env/timeout/nohup 等前缀，求值器 argv 基座不含包装词，
+  // 探针实证：sudo env/timeout/nohup 包装写主仓求值器全放——真盲区由本通道收口）。
+  // plain/纯赋值前缀（FOO=1 python3 -c）交求值器落点判（判定完备：写主仓 BLOCK/
+  // 写树外 ALLOW/动态 f-string fail-closed，探针 7 形态验证）——本通道不得重复
+  // 形态判，否则写 /tmp 的合法 one-liner 被误拦（F1 实证：python3 -c 写 /tmp
+  // 求值器 ALLOW 整链 BLOCK 的双判据冲突）。
   const interpKey = ONELINER_INTERP_NAMES[head.replace(/[\d.]+$/, "")];
   if (interpKey) {
     // 通道判定：段内含该解释器的 one-liner 形态（-c/-e/--eval）才命中——
     // 裸 `python3 script.py` 不是 one-liner 通道（写面由重定向/git 族承担）。
     // 只读豁免：oneLinerReadOnly（全命令基座，与正则通道同一豁免值——
     // 豁免基座对齐：拦截与豁免同一提取基座，载荷只读性由既有白名单承担）。
+    // F1（F20261019gses delta 复核）：③a 收窄到包装形态——plain one-liner 交求值器
+    // 落点判（形态判退位，双判据冲突根因修复）；求值器对包装形态无 argv 基座，
+    // 结构通道是唯一拦截。
     // F20261016grdl 1a'-B：落点感知豁免——非只读载荷但全部绝对路径落主仓外
     //（或 cd 段锚定非主仓 cwd）时放行（例 6 实证：save('/tmp/x') 写动词 fail-closed 误拦）。
-    if (ctx.onelinerPathsOutsideMain) return false;
-    // F20261016grdl 二期 2b：沙箱接防时 one-liner 载荷判定退役（枚举表文件写族）
+    // F20261016gsbx 二期 2b：沙箱接防时 one-liner 文件写族随 G3 枚举表退役
     if (ctx.writeChannelSkip === "file-write") return false;
-    return segHasOneLiner && !ctx.oneLinerReadOnly;
+    if (ctx.onelinerPathsOutsideMain) return false;
+    return wrapped && segHasOneLiner && !ctx.oneLinerReadOnly;
   }
   // ③a' git 落点（#1285 r1 严重 1：词包装 git 写族全绕——正则锚只认赋值前缀，
   // `env git commit` / `sudo git commit` / `timeout 5 git commit` 曾全放）。
@@ -1288,6 +1288,13 @@ function judgeSegment(
     // 保守面：sessionCwd 是 data/workspaces（非 git 树）或未跟踪 → 不豁免。
     if (ctx.projectRoot && ctx.sessionCwd && path.isAbsolute(ctx.sessionCwd)
         && (path.normalize(ctx.sessionCwd) + path.sep).startsWith(path.normalize(path.join(ctx.projectRoot, ".otter/worktrees")) + path.sep)) return false;
+    // S1 裁决原则①（收窄版，2026-10-19）：段内生效 cwd 锚定主仓树**外**（绝对路径
+    // 且不落 projectRoot——`cd /wt && git commit`）→ git 写落点非主仓，求值器先判
+    // 已 ALLOW，本通道再拦即形态判覆盖落点判（FULL≠EVAL 双判据，delta2 S1 同病）。
+    // 主仓树内（含会话工作区/相对/未知锚点）与 push/stash/-C 语义求值器无基座，
+    // 本通道仍是唯一拦截——照拦不放水。
+    if (ctx.projectRoot && ctx.sessionCwd && path.isAbsolute(ctx.sessionCwd)
+        && !(path.normalize(ctx.sessionCwd) + path.sep).startsWith(path.normalize(ctx.projectRoot) + path.sep)) return false;
     return true;
   }
   // ③b shell 解释器落点 → 洞1：提取 -c 载荷递归判定（r1 严重 2：三态拆分）
@@ -1304,17 +1311,8 @@ function judgeSegment(
   // fail-closed 收窄版：未知词 + 段内含 one-liner/shell-c 特征才拦——
   // `timeout 5 node -e 写` 是典型包装绕过；纯未知命令（make/gradle build）
   // 不含 one-liner 形态不拦（误拦面收口）。
-  if (ctx.writeChannelSkip === "file-write") {
-    // F20261016gsbx 二期 2b：one-liner 载荷（文件写族）随枚举表退役——`timeout 5 node -e 写`
-    // 同族同退（沙箱物理接防）；包装壳内 shell -c 不整体放行——定位 shell 词走载荷递归
-    //（载荷内 git 写族/data 破坏族/网络族/R1 直推保留，G3「缺表不退役」）。
-    if (!segHasShellC) return false;
-    const shellM = /\b((?:[\w./-]*\/)?(?:bash|sh|zsh|dash|ksh)\d*)\s+-c\s/i.exec(seg);
-    if (shellM && shellM.index !== undefined) {
-      return judgeShellCSegment(seg, shellM.index, { ...ctx, depth: ctx.depth - 1 });
-    }
-    return true; // shell -c 特征在但定位不到 shell 词——fail-closed 保持
-  }
+  // F20261016gsbx 2b：one-liner 特征随写面退役，shell -c 特征保持 fail-closed（缺表不退役）
+  if (ctx.writeChannelSkip === "file-write") return segHasShellC;
   return segHasOneLiner || segHasShellC;
 }
 
@@ -1339,11 +1337,24 @@ function checkSegmentStructuralWrite(
   //  cd 段沿语句序影响后续段；被 &/| 切断的 cd 段不影响（splitShellSegments 段
   //  自带 joiner 语义不在此重建，保守面：cd 段含变量/不可静态求值 → 跳过不更新）。
   let trackedCwd = ctx.sessionCwd;
+  // S1 修后 V9 面（2026-10-19）：纯赋值段入表，cd 目标 `\$W` 按赋值表展开——
+  // 求值器 evalCdTarget 读赋值链（同基座），本通道保守跳过会把求值器已 ALLOW 的
+  // 放行面拦下（`W=<wt>; cd \$W && git push` 整链 BLOCK 的双判据复现）。
+  const assignVars = new Map<string, string>();
   const jctx = { logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnly, depth, skipGitWrite: ctx.skipGitWrite, onelinerPathsOutsideMain: ctx.onelinerPathsOutsideMain, writeChannelSkip: ctx.writeChannelSkip };
   for (const seg of splitShellSegments(command)) {
+    const pureAssign = /^([A-Za-z_]\w*)=(\S+)$/.exec(seg.trim());
+    if (pureAssign) { assignVars.set(pureAssign[1], pureAssign[2]); continue; }
     const cdMatch = /^cd\s+(?!\.\.?(?:\/|\s|$))(\S+)\s*$/.exec(seg.trim());
     if (cdMatch) {
-      const t = cdMatch[1].replace(/^["']|["']$/g, "");
+      let t = cdMatch[1].replace(/^["']|["']$/g, "");
+      // B7 定点修（条件解禁 2026-10-19）：`$W` 纯引用与 `$W/后缀` 拼接均按赋值表展开
+      //（与求值器 evalCdTarget 同基座——后缀含 `..` 不展开保持保守跳过，与求值器
+      // c-po 回落口径对齐）。
+      const varRef = /^(\$(\w+))(\/.*)?$/.exec(t);
+      if (varRef && assignVars.has(varRef[2]) && !(varRef[3] && varRef[3].includes(".."))) {
+        t = assignVars.get(varRef[2])! + (varRef[3] ?? "");
+      }
       if (t.startsWith("/") && !/[$`]/.test(t)) trackedCwd = t;
       continue; // cd 段自身非写段
     }
@@ -1362,59 +1373,10 @@ function checkSegmentStructuralWrite(
 }
 
 
-/** 主仓写操作形态（F20260922scwd）：重定向/heredoc/python patch/git 写族 */
-const REDIRECT_PATTERN = /(?:^|[;&\n]|&&|\|\|)\s*(?:>|>>|<<<)\s*[^|&;\n]+|(?<!["'\w])\d*>>?\s*[^|&;\n'"]+/;  // 重定向（含 echo x > file 中段形态 + 2> 数字前缀）
-/** git 写族字面通道（MAIN_WRITE_PATTERNS 末项）——cwd 上移豁免（skipGitLiteral）
- *  只免除本通道；具名引用替代魔法索引（round-2 建议）。定义先于数组（as const 引用）。 */
-const GIT_WRITE_LITERAL_PATTERN = /(?:^|[|&]|&&|\|\||[;\n])\s*(?:[A-Za-z_]\w*=\S*\s+)*git\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\b(?!\s+(?:list|show|create)\b))\b/;  // git 写族（#1285 洞3：赋值前缀 \S+→\S*，空赋值 `FOO= git commit` 同拦）
-
-const MAIN_WRITE_PATTERNS = [
-  REDIRECT_PATTERN,
-  /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\/)?python[\d.]*\s+-\s*<<["']?/,       // python heredoc patch（delta r1：含版本号/路径形态；delta 2：多级+绝对路径）
-  // #1275：pattern[1]-pattern[4] 是 one-liner 通道（python -c / node -e / ruby -e / perl -e）。
-  // 载荷是否只读不由正则承担（正则只认通道形态），由下方 oneLinerReadOnly 预计算豁免。
-  ONELINER_CHANNEL_PATTERNS.python,
-  ONELINER_CHANNEL_PATTERNS.node,
-  ONELINER_CHANNEL_PATTERNS.ruby,
-  ONELINER_CHANNEL_PATTERNS.perl,
-  // #1308（F20261009cphr）：cat 管道 heredoc 通道——`cat <<'PY' | python3 -` 体经管道
-  // 进入解释器真执行，无 cd 形态下 pattern[1] 不认（要求 python 在 `<<` 前）。
-  // 与 pattern[1] 同豁免基座：heredocReadOnly（scriptHeredocBodiesReadOnlySegmentAware
-  // 含管道右段识别，纯读体放行，写体不豁免保守拦）。左段词表（cat/tee 外数据通道词）
-  // 不限制——右段解释器才是执行面判定锚；通道形态只认紧邻单管道，`| |` 空段不命中；
-  // lookaround 排除 `||`（短路或，右侧不执行）；`<<-?` 覆盖 strip-tab 形态（检视 r1
-  // 发现 1：`cat <<-PY | python3 -` 双形态漏，与 HEREDOC_OPEN 基座对齐）。
-  /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\s+)?<<-?\s*["']?[A-Za-z_][\w-]*["']?\s*(?<!\|)\|(?!\|)\s*(?:sudo\s+|env\s+|command\s+|nice\s+|nohup\s+|exec\s+|time\s+)*(?:[\w./-]+\/)?python[\d.]*\s*-/,
-  /(?:^|&&|\|\||[;&\n])\s*(?:[\w./-]+\s+)?<<-?\s*["']?[A-Za-z_][\w-]*["']?\s*(?<!\|)\|(?!\|)\s*(?:sudo\s+|env\s+|command\s+|nice\s+|nohup\s+|exec\s+|time\s+)*(?:[\w./-]+\/)?node\s*-/,
-  // D2：段首锚含单 | / &（`cd /wt | git commit` / `& git commit` 同样是新命令段）
-  // F20260924gfpn：① merge → merge(?!-) 负向断言——`git merge-base`（只读）曾被 merge\b
-  // 吞成写操作（9/23 台账实测 BLOCKED）；同组其他词审计：commit→commit(?!-tree)（commit-tree
-  // 是 plumbing 只读，前缀吞噬同型），cherry-pick/apply/rebase/stash push 无 - 开头只读派生。
-  // ② 段首锚前加赋值前缀串（[A-Za-z_]\w*=\S+\s+）*——`FOO=1 git commit` 的赋值是 shell
-  // 前缀不是子命令，原锚要求 git 紧邻段首会漏此形态（写族判定绕过面）。
-  GIT_WRITE_LITERAL_PATTERN,
-] as const;
-
-/** F20260924gfpn：git 只读子命令白名单（精确全称，非前缀匹配）。
- *  9/23 台账根因②：黑名单思维缺白名单出口——git 后跟明确只读子命令时仍走主仓写判定，
- *  merge-base 之外的只读面（log/diff/show/…）全靠「恰好不在写族正则里」兜底，脆弱。
- *  安全红线：① 白名单词必须精确匹配子命令全称（首词元相等），`git log-f` 等变形不命中；
- *  ② 白名单只管「跳过 git 写族判定」——整条命令的重定向/data 破坏/kill 族判定照常跑，
- *  链式绕过（`git log && git commit` / `git log; rm -rf data`）仍被拦。
- *  注意：白名单不含 merge——merge 的真写判定已由写族正则 merge(?!-) 精确承担，
- *  merge-base 走「既不在写族、又不在白名单需要确认」的路径：它不是写族（负向断言后），
- *  且不需要 cd 豁免（只读），因此自然放行。
- */
-/** 复合命令判定（D2 处置：单 & 后台 / | 管道同样切开命令段——
- *  `cd /wt & git commit` 的 cd 在后台子 shell，父 shell cwd 不变，commit 落主仓；
- *  `echo 'find x' > f & git commit` 与 && 形态一字符之差） */
-const COMPOUND_SEPARATOR = /&&|\|\||[;&\n|]/;
-
-/** 提取重定向目标路径（去引号，取 > 后第一个词元；剥 2>/1> 数字前缀） */
-function extractRedirectTarget(command: string): string | null {
-  const m = command.match(/\d*>>?\s*["']?([^|&;\n'"\s]+)/);
-  return m?.[1] ?? null;
-}
+/** F20261019gses P0 删除：MAIN_WRITE_PATTERNS / REDIRECT_PATTERN / GIT_WRITE_LITERAL_PATTERN /
+ *  ONELINER_CHANNEL_PATTERNS / SUBSHELL_GIT_WRITE_GATE 的独立消费点（V1 写通道正则族——
+ *  语义重叠面，evaluateWriteVerdict 落点语义覆盖；结构通道内的 git 写族段判定由
+ *  checkSegmentStructuralWrite 内部正则承担）。*/
 
 // ── #1207（F20260930l573）：heredoc 体感知判定（delta r1：豁免方向反转）──
 // 根因：MAIN_WRITE_PATTERNS[1]（python heredoc patch 通道）按通道形态整体拦，
@@ -1759,61 +1721,8 @@ export function pythonHeredocBodiesReadOnly(command: string): boolean {
   return scriptBodiesReadOnly(command, pythonBodyReadOnly, isPythonHeader);
 }
 
-/** 从命令文本中把「已验证只读」的 script 解释器 heredoc 体等长替换为空格
- *  （重定向判定用）。依据：验证过的 python/node 体内容对 shell 重定向语义不可见
- *  （体里 > 是语言内语法不是 shell 重定向）；bare/未闭合/非 python/node 体原样
- *  保留——bash/sh 体是可执行内容（`bash <<EOF` 直接执行体），体里 `> file` 是
- *  shell 层真实重定向，隐去即攻击面（delta r1 自查修正：初版对 bare python 体
- *  也隐去，`python3 - <<EOF\n...\n> src/x` 的体尾重定向会逃过 REDIRECT 判定）。 */
-function blankVerifiedScriptBodies(command: string): string {
-  const spans = extractHeredocSpans(command)
-    .filter(sp => sp.closed && (isPythonHeader(sp.header) && pythonBodyReadOnly(sp.body)
-      || isNodeHeader(sp.header) && nodeBodyReadOnly(sp.body))
-      && (sp.quoted || !/[$`]/.test(sp.body)));
-  if (spans.length === 0) return command;
-  let out = "";
-  let cursor = 0;
-  for (const sp of spans) {
-    out += command.slice(cursor, sp.start) + " ".repeat(sp.end - sp.start);
-    cursor = sp.end;
-  }
-  return out + command.slice(cursor);
-}
 
-/** 段首内容是否纯赋值前缀（VAR=value 形态，可任意多个） */
-function isPureAssignPrefix(seg: string): boolean {
-  const words = seg.split(/\s+/).filter(Boolean);
-  return words.length > 0 && words.every(w => /^[A-Za-z_]\w*=\S*$/.test(w));
-}
 
-/** cd 段精确判定（检视严重 1/D2 处置）：首段真 cd 且无后台/管道符才豁免。
- *  首段 cd（`git commit && cd /tmp` 写在 cd 前不算）、非平凡目标（cd . 不算）、
- *  无 & / |（后台子 shell / 管道切断 cd 父 shell 效应，`cd /wt & git commit` 落主仓）。
- *  F20260923qbsw：复合切断检查在引号剥离基准上进行——引号内 | & 是数据（gh comment
- *  body 里的 markdown 表格/逻辑或），不构成 shell 复合（#984 第二误拦面）。
- *  F20260924gfpn：首段判定跳过纯赋值前缀段——`W=/path; cd $W/...` 的赋值段
- *  不改变 shell 状态（9/23 台账连环拦现场形态）；剥除赋值前缀后首个「真命令段」
- *  须为 cd（赋值前缀后 cd 前再出现其他命令段 → 该段不是 cd，不豁免）。 */
-function hasRealCdSegment(command: string): boolean {
-  const basis = stripQuotedTextSpans(command);
-  // F20261008gduc：裸 \| 会把 || 备用链首字符当管道命中（#1170 修复只落在 V2 段级
-  // 语义、V1 兜底链未同步的复发面，近 7 天 main_write 误拦大头）。与同函数下一行
-  // 切分正则（认识 \|\|）对齐——带 lookaround 的负向断言只命中真管道；
-  // || 备用链放行拆开两条各自判定的路径，真管道（| tail）仍在此杀豁免。
-  if (/(?<!&)&(?!&)|(?<!\|)\|(?!\|)/.test(basis)) return false; // (?<!&)&(?!&) 防 && 误命中；\| 带 lookaround 防 || 误命中
-  const segs = basis.split(/&&|\|\||[;\n]/).map(s => s.trim()).filter(Boolean);
-  let first = "";
-  for (const s of segs) {
-    if (isPureAssignPrefix(s)) continue; // 赋值段跳过（不改变 shell 状态）
-    first = s;
-    break;
-  }
-  if (!first) return false;
-  const m = first.match(/^cd\s+(.+)$/);
-  if (!m) return false;
-  const target = m[1].replace(/^["']|["']$/g, "").trim();
-  return target !== "" && target !== ".";
-}
 
 /** 主仓写检测（F20260922scwd）：未 cd 时拦截落点为主仓的写命令。
  *  与 #1038 数据破坏检测的差异：不跟踪 cd（感知对齐方案下 LLM 需显式 cd），
@@ -1952,183 +1861,19 @@ interface MainCheckoutWriteCtx {
   oneLinerReadOnlyOverride?: boolean;
   /** 洞1 bash -c 递归深度（默认 3，嵌套超深保守拦） */
   depth?: number;
-  /** F20261016grdl 二期 2b：文件写落点通道退役开关（沙箱接防时 ="file-write"）。
-   *  G3 枚举表粒度：退役 = redirect（pi=0）+ one-liner（pi=1-4）+ cat 管道 heredoc
-   *  （pi=5/6）+ 段结构通道的 one-liner/bash -c 载荷判定；保留 = git 写族字面
-   *  （R1 红线）+ 段结构通道的 git 写族判定（枚举表「缺表不退役」的表本体）。 */
+  /** F20261016gsbx 二期 2b：="file-write" 时 main_write 文件写族退役（沙箱接防） */
   writeChannelSkip?: "file-write";
 }
-/** 写族通道循环（checkMainCheckoutWrite 内层，抽函数控圈复杂度）：
- *  git 写族/heredoc/one-liner 正则通道 + #1285 段首结构通道。
- *  命中返回拦截文案，未命中返回 null。 */
-/** F20261016grdl 1a'-B（G1 例 6 族 B 补）：one-liner 载荷落点感知豁免。
- *  例 6 实证：`cd <主仓外> && python3 -c "…im.save('/tmp/x.png')…"` —— save 是写动词
- *  不在只读白名单（fail-closed 正确），但载荷内全部绝对路径字面量落主仓外
- *  （/tmp），落点无从落主仓——仍拦是误拦。
- *  判据（与 scriptHeredocAbsPathsInsideMain 同构反向）：
- *  ① 提取载荷内全部绝对路径字面量（POSIX）；
- *  ② 任一路径落主仓树内（排除区外）→ 不豁免（fail-closed）；
- *  ③ 无任何绝对路径字面量 → 落点由 cwd 决定：cd 段目标可静态求值且不在
- *     主仓树内 → 豁免；否则不豁免（cwd 不可知面保守）。
- *  注意：cd 目标在排除区（worktree）时——排除区是 git 工作树，python 相对路径
- *  写落排除区合法（R1 允许），同样豁免。 */
-// eslint-disable-next-line max-statements -- F20261016grdl delta（检视 H1/H3）：否决面逐形态对应（拼接/f-string/join/解包/续行各一条 + 字面量逐判），合并会模糊 fail-closed 边界（H1/H3 教训：以提取器证伪代替 fail-closed 即洞）
-function onelinerAbsPathsOutsideMain(command: string, projectRoot: string): boolean {
-  const payloads: string[] = [];
-  for (const interp of ["python", "node"] as const) {
-    const ps = extractOneLinerPayloads(command, interp);
-    if (ps) payloads.push(...ps);
-  }
-  if (payloads.length === 0) return false;
-  // F20261016grdl delta 修复（检视 H1/H3）：载荷内完备性——不再「任一绝对路径存在即跳过相对写校验」。
-  // H1：`open('src/index.ts','w'); print('/tmp/decoy')` —— decoy 绝对路径掩蔽同载荷相对写（基线拦，v1 豁免放）。
-  // H3：`open('/tmp/'+'../../Users/…/src/x.ts','w')` —— 拼接穿越，提取器只见 /tmp/（基线拦，v1 豁免放）。
-  // 修法：逐个字符串字面量判——绝对字面量必须落主仓外；相对路径字面量必须 resolve(cd 锚定) 落主仓外；
-  // 任何动态形态（拼接 +、f-string {}、os.path.join 多参、变量引用）出现在载荷 → 整体不豁免（fail-closed）。
-  const cwdBase = segmentCdTarget(command, projectRoot);
-  let sawAnyPayload = false;
-  for (const body of payloads) {
-    // ① 动态形态否决（H3 拼接穿越面 + 变量/f-string 派生路径面）：
-    //    字符串拼接（'…'+'…'）、f-string 插值（{} 含 / ）、os.path.join、open(*a) 解包、
-    //    反斜杠续行（pythonBodyReadOnly 同款保守）——任一出现即整体不豁免
-    if (/[`\\]/.test(body)) return false;
-    if (/'[\s,)]*\+|\+[\s,(]*'/.test(body)) return false; // 字符串拼接
-    if (/f"[^"]*\{|f'[^']*\{/.test(body)) return false;     // f-string 插值路径
-    if (/os\.path\.join\s*\(/.test(body)) return false;   // join 多参派生
-    if (/open\s*\(\s*\*/.test(body)) return false;         // 解包穿透
-    // ② 字符串字面量逐个判（H1 decoy 面：相对路径写必须过 resolve，不能被同载荷绝对路径豁免）
-    const STR_LIT = /'([^']*)'|"([^"]*)"/g;
-    let m: RegExpExecArray | null;
-    let sawPathLit = false;
-    while ((m = STR_LIT.exec(body)) !== null) {
-      const lit = (m[1] ?? m[2] ?? "");
-      // 非路径字面量跳过：无 / 或 .（纯值字符串 'x'、'utf8'、'w' 等）
-      if (!/[/.]/.test(lit)) continue;
-      sawPathLit = true;
-      if (lit.startsWith("/")) {
-        // 绝对字面量：normalize 后必须落主仓外（排除区/树外均可）
-        if (isInsideMainCheckout(path.normalize(lit), projectRoot)) return false;
-      } else {
-        // 相对路径字面量：resolve 到 cd 锚定 cwd；无 cd 锚定 → cwd=sessionCwd（主仓树内不可知面）→ 不豁免
-        if (!cwdBase) return false;
-        const resolved = path.resolve(cwdBase, lit);
-        if (isInsideMainCheckout(resolved, projectRoot)) return false;
-      }
-    }
-    sawAnyPayload = true;
-    // ③ 载荷内无任何路径字面量：写动词无从落点——同 ② 无 cd 锚定不豁免；有锚定（cd 落主仓外）才豁免
-    if (!sawPathLit && !cwdBase) return false;
-  }
-  return sawAnyPayload;
-}
 
-/** F20261016grdl 1a'-E（G1 例 1 族 E：混合段 git 字面误拦）：段级 cd 豁免。
- *  命令形态：`cat > <workspace>/m.txt <<EOF…EOF` + `cd <worktree> && git commit -F …`——
- *  modelCdExemption 只认首段链 cd（首段是 cat → 无豁免），cwdInGitWorktree 锚
- *  sessionCwd（=workspace 非 git 工作树 → 不豁免），git 写族字面通道吃掉 commit 段。
- *  但 cd 段在命令中段的 shell 语义与首段完全相同：cd 后的 git 写落点是 cd 目标。
- *  本函数：任一段位 cd 目标可静态求值且落排除区（worktrees/workspaces）时，
- *  该 cd 段之后（沿 &&/;/\n 语句序，不含被 &/| 切断的子 shell——cd 只影响子 shell）
- *  的 git 写族字面命中免除拦截。保守面：cd 目标含变量/展开不可求值、落主仓、
- *  或 cd 段被 &/| 切断 → 不豁免（保持 fail-closed）。 */
-/**
- * F20261016grdl delta 修复（检视 H1/H3）：cd 段锚定目标提取（返回 cwd 基准）。
- *  与 segmentCdExemptsGitLiteral 同判定逻辑，但返回目标路径供落点 resolve 用
- *  （onelinerAbsPathsOutsideMain 相对路径分支需要 resolve(cwdBase, rel)）。
- */
-function segmentCdTarget(command: string, projectRoot: string): string | null {
-  const segs = command.split(/\n|&&|\|\||;|&(?=&)|\|(?=\|)/).map(s => s.trim()).filter(Boolean);
-  for (let i = 0; i < segs.length; i++) {
-    // 排除 . / .. 相对 cd（不改变到已知绝对落点）——负向先行锚段首，路径内 . 不误伤
-    const m = /^cd\s+(?!\.\.?(?:\/|\s|$))(\S+)\s*$/.exec(segs[i]);
-    if (!m) continue;
-    const target = m[1].replace(/^['"]|['"]$/g, "");
-    // cd 目标必须可静态求值：无变量/展开、绝对路径
-    if (!target.startsWith("/") || /[$`]/.test(target)) continue;
-    if (isInsideMainCheckout(path.normalize(target), projectRoot)) continue;
-    // cd 段被 & / | 切断（子 shell）→ cd 不影响后续段，不锚定
-    const after = command.slice(command.indexOf(segs[i]) + segs[i].length);
-    const nextJoiner = /^\s*(&&|\|\||[;&|\n])/.exec(after)?.[1] ?? "";
-    if (nextJoiner === "&" || nextJoiner === "|") continue;
-    return path.normalize(target);
-  }
-  return null;
-}
+/** F20261019gses P0 路由切换后的主仓写判定（见下方 checkMainCheckoutWrite 本体）。 */
 
-function segmentCdExemptsGitLiteral(command: string, projectRoot: string): boolean {
-  return segmentCdTarget(command, projectRoot) !== null;
-}
-
-function checkWriteChannels(
-  command: string,
-  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; heredocReadOnly?: boolean; oneLinerReadOnly: boolean; depth: number; skipGitLiteral?: boolean; writeChannelSkip?: "file-write" },
-): string | null {
-  // git 写族字面通道——cwd 上移豁免（skipGitLiteral）只跳过它，其余通道照常
-  //（F20261014cwsp S1 收窄；具名恒等比较替代魔法索引，数组增删不错位）。
-  for (const [pi, pattern] of MAIN_WRITE_PATTERNS.slice(1).entries()) {
-    if (pattern === GIT_WRITE_LITERAL_PATTERN && (ctx.skipGitLiteral || (ctx.projectRoot && segmentCdExemptsGitLiteral(command, ctx.projectRoot)))) continue;
-    if (!pattern.test(command)) continue;
-    // F20261016grdl 二期 2b：沙箱接防时文件写落点通道退役（枚举表——redirect pi=0
-    // 在循环外先行，此处 pi=1-4 one-liner + pi=5/6 cat 管道 heredoc；git 字面
-    // 不在跳过列表）。沙箱 deny file-write* 物理接防。
-    if (ctx.writeChannelSkip === "file-write" && pattern !== GIT_WRITE_LITERAL_PATTERN) continue;
-    if (writeChannelExempt(pi, { ...ctx, command })) continue;
-    ctx.logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (no cd)", { command: command.substring(0, 200) });
-    return rewriteMainWriteBlockMsg(ctx.sessionCwd);
-  }
-  // #1285 洞1/洞2：正则通道之外的段首结构检测——bash -c 载荷递归（洞1）+
-  // 词表外包装词落点判定（洞2，换结构不扩词表）。与正则通道同一豁免基座
-  // （oneLinerReadOnly），命中同一拦截文案（拦截面同口径）。
-  // 挂点在 git 写族循环内：cd 豁免已过、git 只读白名单未命中才走到——
-  // 与正则通道同一判定位置，无新增豁免面。
-  // F20261014cwsp S1 处置：cwd 上移豁免（skipGitLiteral）同样免除结构通道的
-  // git 写族段判定（git 落点是 cwd 上移发现的 git 工作树，非主仓）；one-liner/
-  // bash -c 载荷等其余段结构照常跑（逃逸面收口）。
-  if (checkSegmentStructuralWrite(command, ctx.oneLinerReadOnly, { ...ctx, skipGitWrite: ctx.skipGitLiteral, writeChannelSkip: ctx.writeChannelSkip
-      // F20261016grdl 1a'-B：one-liner 落点感知豁免同样作用于结构通道（同一豁免基座原则——
-      // 例 6 实际拦截出口在此：非只读载荷（save）+ 段结构检测命中，正则通道豁免了结构通道没豁）
-      , onelinerPathsOutsideMain: ctx.projectRoot ? onelinerAbsPathsOutsideMain(command, ctx.projectRoot) : false })) {
-    ctx.logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via wrapped one-liner (no cd)", { command: command.substring(0, 200) });
-    return rewriteMainWriteBlockMsg(ctx.sessionCwd);
-  }
-  return null;
-}
-
-/** #1308（F20261009cphr）：写族通道豁免判定（从 checkWriteChannels 循环体抽出，控圈复杂度）。
- *  通道豁免三档，同一基座原则：
- *  - pi=0（python heredoc patch，#1207）与 pi=5/6（cat 管道 heredoc，#1308 新增）：
- *    吃 heredocReadOnly（scriptHeredocBodiesReadOnlySegmentAware，含管道右段识别）
- *    ——纯读体放行，写体不豁免保守拦；heredocReadOnly 缺省（V1 兑底链体已剥离
- *    不可判定）→ 不豁免，保守拦。
- *  - pi=1..4（one-liner 通道，#1275）：吃 oneLinerReadOnly（全部同型载荷提取成功
- *    且全部只读才豁免，白名单外/提取失败保守拦；ruby/perl 只读全拦 fail-closed 起步 S-5）。 */
-function writeChannelExempt(pi: number, ctx: { command?: string; projectRoot?: string; heredocReadOnly?: boolean; oneLinerReadOnly: boolean }): boolean {
-  if (pi === 0 && ctx.heredocReadOnly) return true;
-  // F20261016grdl 1a'-B：one-liner 落点感知豁免——非只读载荷但全部绝对路径落
-  // 主仓外（或 cd 段锚定非主仓 cwd）时放行（例 6：cd 树外 && python3 -c save('/tmp/x')）
-  if (pi >= 1 && pi <= 4 && ctx.oneLinerReadOnly) return true;
-  if (pi >= 1 && pi <= 4 && ctx.projectRoot && ctx.command && onelinerAbsPathsOutsideMain(ctx.command, ctx.projectRoot)) return true;
-  if ((pi === 5 || pi === 6) && ctx.heredocReadOnly) return true;
-  return false;
-}
-
-/** #1240（F20261006c1240）cd 豁免负门判定：模型版 cd 豁免生效时，
- *  python/node heredoc 体含绝对路径落主仓 → 体非只读拦 / 体只读放行；
- *  体无绝对路径落主仓 → 放行（cd 豁免原语义）。
- *  #1309（F20261009dpve）：第二触发条件——体含动态路径源签名即阻断（与
- *  绝对路径无关）。根因：负门只锚绝对路径字面量，路径来自环境变量/外部输入时
- *  字面量不存在 → 负门失明，cd 豁免 return null 旁路全部写判定（含 denylist——
- *  它在负门之后的主仓写判定链内，无消费点）。无 cd 链靠 pythonBodyReadOnly
- *  fail-closed（import os 即 false → 通道不豁免）拦住同体，cd 链缺等价防线。
- *  签名小而准（攻击链核心是「路径来自外部可控源」）：python 的
- *  os.environ/environ/getenv/input(/sys.argv，node 的 process.env；动态源
- *  遇 open 写面即拦（与绝对路径负门同构：只读体仍放行——纯读探查正道）。
- *  纯程序内字符串拼接（p='/data/'; q=p+'x'）不拦——落点要么可见（绝对路径
- *  负门管）要么与主仓无关，不加宽松拼接签名避免误伤正道。
- *  检视 r1 处置（发现 1/2/4）：负门触发后直接体感知拦，
- *  不再依赖 MAIN_WRITE_PATTERNS[0] 通道正则接力——wrapper（env/sudo）与无 `-` 形态
- *  通道正则不认（拦截链解耦缺口），node 侧 isNodeHeader 同型首词语义失效。
- *  返回 null = 放行（含 cd 豁免生效与负门放行两义），BLOCK_MSG = 拦。 */
+/** heredoc 体负门（后置兜底，S1 裁决方向 A 2026-10-19）：求值器 ALLOW 后兜
+ *  wrapper/管道段 heredoc 载荷不入求值的残余（#1240/#1308 语义；cd 与无 cd 同语义，
+ *  原则②——求值器 payload 附件根治面立 B issue）。按 shell 语义提取 heredoc 解释器
+ *（wrapper/sudo、管道右段、cd 短链）识别 python/node 体——任一体含绝对路径字面量
+ *  解析落主仓，或含动态源落点形态（os.environ/input/process.env——#1309 声明面），
+ *  且体非只读 → 拦；体只读（纯读探查正道）/无负门面 → null 继续。只加拦不放行：
+ *  上游求值器判 BLOCK 的不会到达此处。调用点已判 projectRoot 非空。 */
 const PY_DYNAMIC_PATH_SOURCE = /\b(?:os\.)?environ\b|\bgetenv\s*\(|\binput\s*\(|\bsys\.argv\b/;
 const NODE_DYNAMIC_PATH_SOURCE = /\bprocess\.env\b/;
 function scriptHeredocBodiesTouchDynamicPathSource(command: string): boolean {
@@ -2140,11 +1885,7 @@ function scriptHeredocBodiesTouchDynamicPathSource(command: string): boolean {
   return false;
 }
 
-function cdExemptionWithVeto(command: string, logger: Logger | undefined, ctx: GuardCwdCtx & { writeChannelSkip?: "file-write" }): string | null {
-  // F20261016gsbx 二期 2b：沙箱接防时 heredoc 体写面负门退役（G3 枚举表 heredoc 族）——
-  //  真写主仓由沙箱 deny file-write* 物理拒；体级 data 破坏/危险判定（checkHeredocScriptBodies）
-  //  不在本负门面，照常跑（保留族）。
-  if (ctx.writeChannelSkip === "file-write") return null;
+function heredocWriteVeto(command: string, logger: Logger | undefined, ctx: GuardCwdCtx): string | null {
   // 调用点（checkMainCheckoutWrite）已判 projectRoot 非空才走到——非空断言收窄
   const projectRoot = ctx.projectRoot as string;
   const absPathVeto = scriptHeredocAbsPathsInsideMain(command, projectRoot);
@@ -2153,7 +1894,7 @@ function cdExemptionWithVeto(command: string, logger: Logger | undefined, ctx: G
   // 负门触发：体非只读 → 拦（写/执行签名）；体只读 → 放行（纯读探查正道）。
   // 两触发条件同构消费：绝对路径负门拦「可见落点」面，动态源负门拦「不可见落点」面。
   if (!scriptHeredocBodiesReadOnlySegmentAware(command)) {
-    logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (heredoc body vetoed under cd exemption)", { command: command.substring(0, 200), dynamic: dynamicVeto });
+    logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (heredoc body veto, post-eval backstop)", { command: command.substring(0, 200), dynamic: dynamicVeto });
     return rewriteMainWriteBlockMsg(ctx.sessionCwd);
   }
   return null;
@@ -2192,116 +1933,82 @@ function blankDataHeredocBodies(command: string): string {
 /** F20261014cwsp：会话工作目录感知的主仓写拦截文案——统一工作区下獭 bash cwd=
  *  对话工作区，拦截语义从「位置判定」（未 cd 即拦）转为「落点判定」（解析后主仓内才拦）。
  *  sessionCwd 在场时给出落点语义文案；缺省（旧调用形态）保持原文案。 */
-function rewriteMainWriteBlockMsg(sessionCwd?: string): string {
+/** F20261014cwsp：会话工作目录感知的主仓写拦截文案。F20261019gses P0 结构化输出：
+ *  verdict 的 mainHits 落点 / fail-closed 原因进文案。 */
+function rewriteMainWriteBlockMsg(sessionCwd: string | undefined, verdict?: ReturnType<typeof evaluateWriteVerdict>): string {
+  const detail = verdict === undefined
+    ? ""
+    : verdict.mode === "fail-closed"
+      ? "（写落点求值不出，fail-closed）"
+      : "mainHits" in verdict && verdict.mainHits !== undefined && verdict.mainHits.length > 0
+        ? `（写落点：${verdict.mainHits.slice(0, 3).map(t => t.path).join("、")}${verdict.mainHits.length > 3 ? " 等" : ""}）`
+        : "";
   if (sessionCwd) {
-    return `写命令落点解析到主仓（session 工作目录=${sessionCwd}）被拦截——写代码/文档请用 worktree（.otter/worktrees/）绝对路径；写主仓受 R1 红线约束，请确认意图。`;
+    return `写命令落点解析到主仓（session 工作目录=${sessionCwd}）被拦截${detail}——写代码/文档请用 worktree（.otter/worktrees/）绝对路径；写主仓受 R1 红线约束，请确认意图。`;
   }
-  return MAIN_WRITE_BLOCK_MSG;
+  return MAIN_WRITE_BLOCK_MSG + detail;
 }
 
  
 function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
-  const { command, logger, projectRoot, sessionCwd, heredocReadOnly, oneLinerReadOnlyOverride } = ctx;
+  const { command, logger, projectRoot, sessionCwd } = ctx;
   const depth = ctx.depth ?? 3;
-  if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 classifyDestructiveTarget 同策略）
-  // F20261008h304（#1304）：git 写族/one-liner 通道基座换数据体剥除文本（判据见
-  // blankDataHeredocBodies 注释）；cd 豁免/重定向/白名单仍用原始文本（cd 段与重定向
-  // 落点是真实 shell 语义，且重定向通道已有自己的剥体基座）。
-  const scanForWriteChannels = blankDataHeredocBodies(command);
-  // #1170 根治：模型版 cd 豁免——管道/分号不再杀死豁免（`cd wt && git commit | tail` 放行）
-  // #1240（F20261006c1240）：cd 豁免加负门——python/node heredoc 体含绝对路径落主仓时不豁免，
-  // 防止 `cd /tmp && python3 - <<'PY'…open('<repo>/…','w')…PY` 顶层豁免放行逃逸。
-  if (modelCdExemption(command, hasRealCdSegment)) return cdExemptionWithVeto(command, logger, { projectRoot, sessionCwd, writeChannelSkip: ctx.writeChannelSkip });
-  // F20260924gfpn：git 写族字面判定先于只读白名单——写族正则
-  // （merge(?!-) 负向断言后）在命令文本上跑，命中即拦；`git stash push` 的 push 在写族
-  // 正则内，先于白名单命中，杜绝 stash 白名单词被显式写子命令借壳。
-  // 判定基准：原始命令（非剥后）——heredoc 是 python/node 的 stdin 数据通道，patch 语义
-  // 由 python 进程在运行时解释，静态层把 `python3 - <<EOF` 整体当写形态保守拦是对的；
-  // 要跑 heredoc 分析脚本先 cd worktree（落点即 worktree，cd 豁免在最前）。
-  // F20260924gfpn-r1（检视严重 F1 处置）：白名单命中只「跳过 git 写族循环」、不 return null——
-  // 原实现命中即跳出整个 checkMainCheckoutWrite，把下方 REDIRECT_PATTERN 重定向防线整体旁路
-  // （`git log > /repo/hacked.txt` 在 main 拦、PR 误放行，拦截侧回归）。白名单语义收窄为：
-  // 仅免除 git 写族字面判定，重定向/data 破坏等其余判定照常跑。
-  const gitReadonlyCmd = allSegmentsGitReadonly(command);
-  // F20261014cwsp S1/S2 处置：git 写族 cwd 感知收窄为「cwd 在显式 git 工作树内」——
-  // 落点是该树自身的 git 操作才免除字面通道；cwd 在主仓树内（含 data/workspaces/
-  // 会话工作区，非 git 工作树，git 写族会向上发现主仓 .git 写主仓）与树外任意目录
-  //（落点不确定，fail-closed）都不豁免。锚点要求 sessionCwd 绝对路径（检视 S1：
-  // 相对 cwd 的树外判定恒真 = 恒豁免，默认引导形态即逃逸）。
+  if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
+  // F20261019gses P0 路由切换：判定主体换 evaluateWriteVerdict（语义求值器）——
+  // 主仓写判定这一类规则升级为语义判据（同一套 bash 守卫的规则更新，非双系统）。
+  // S1 裁决（方向 A，2026-10-19 大獭拍板）：求值器先判 + 负门后置兜底——
+  // 删除面：cd 豁免门先行 return（形态判覆盖落点判：`cd X && <写主仓>` 经
+  // modelCdExemption→cdExemptionWithVeto 短路求值器，delta2 复核 S1 整条放行）。
+  // 删除面（语义重叠，求值器落点语义覆盖）：MAIN_WRITE_PATTERNS 通道循环（git 写族
+  // /heredoc/one-liner 正则）、REDIRECT_PATTERN 重定向落点、echo 敏感词豁免、
+  // oneLinerReadOnly 预计算（正则只认通道形态不认落点）。
+  // 保留面后置（互补非重叠——求值器无对应基座）：checkSegmentStructuralWrite
+  // （包装词/子壳/管道喂 shell 的段首结构——sudo env python -c 写、timeout 5 node -e
+  // 写的逃生面收口）与 heredoc 体感知（python/node 体白名单——kill/os.remove
+  // 非重叠危险面）。
+  // F20261016gsbx 二期 2b：沙箱接防时 main_write 文件写族退役（G3 枚举表门控）——
+  // 求值器（文件写落点语义）与 heredoc 写面负门让位于沙箱 deny file-write* 物理接防；
+  // 保留面（段结构 fail-closed/git 写族/data 破坏族/2c 窄规则）照跑；沙箱不可用=写面回位。
+  if (ctx.writeChannelSkip !== "file-write") {
+    const verdict = evaluateWriteVerdict(command, projectRoot, sessionCwd ?? projectRoot);
+    if (verdict.verdict === "BLOCK") {
+      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (write-verdict)", {
+        command: command.substring(0, 200),
+        mode: verdict.mode,
+        reason: verdict.mode === "fail-closed" ? verdict.reason : undefined,
+        targets: "mainHits" in verdict ? verdict.mainHits?.slice(0, 5).map(t => `${t.access}:${t.path}`) : undefined,
+      });
+      return rewriteMainWriteBlockMsg(sessionCwd, verdict);
+    }
+    // 负门后置兜底（只加拦不放行，cd/无 cd 同语义——裁决原则②）：求值器 ALLOW 后
+    // 兜 heredoc 体绝对路径/动态源写主仓（wrapper/管道段 heredoc 载荷不入求值的 Y 类
+    // 残余——求值器 payload 附件根治面立 B issue 继续）；体只读/无负门面 → null 继续。
+    const veto = heredocWriteVeto(command, logger, { projectRoot, sessionCwd });
+    if (veto) return veto;
+  }
+  // 互补面后置：段首结构判定（包装词/子壳/管道——求值器无此基座，旧通道保留）。
+  // 只读豁免保留（oneLinerPayloadReadOnly + wrappedOneLinerPayloadsReadOnly 双基座）——
+  // 结构通道的拦截面是「包装形态下的 one-liner 写」，载荷只读仍是豁免面（求值器
+  // 判 ALLOW 的只读载荷不应被结构通道重复拦——但写载荷求值器判 BLOCK 已在上方
+  // 返回，此处只处理求值器 ALLOW 但结构通道命中写形态的残余——只读豁免同口径）。
+  const oneLinerReadOnly = ONELINER_PRE_GATE.test(command)
+    ? (oneLinerPayloadReadOnly(command) || wrappedOneLinerPayloadsReadOnly(command))
+    : false;
+  // git 写族段豁免：cwd 在显式 git 工作树内（sessionCwd 绝对路径锚定）时，git 写族
+  // 段的落点是该树自身（旧链 cwdInGitWorktree 同语义——求值器已按落点判过 ALLOW，
+  // 结构通道不再重复拦 git 写族段；包装词/子壳等其余段结构照常跑）。
   const GIT_WORKTREE_PREFIX = ".otter/worktrees";
   const cwdInGitWorktree = sessionCwd !== undefined && path.isAbsolute(sessionCwd)
     && (path.normalize(sessionCwd) + path.sep).startsWith(path.normalize(path.join(projectRoot, GIT_WORKTREE_PREFIX)) + path.sep);
-  // #1275：one-liner 载荷只读判定只在命令实际含 one-liner 形态时提取一次
-  // （正则通道命中与否的豁免依据）；非 one-liner 命令无提取开销。
-  // #1285 洞2：词表内包装形态下豁免基座补 wrappedOneLinerPayloadsReadOnly——
-  // 拦截（段首解析器）与豁免（ONELINER_ANCHOR 词表）基座不同源时，以剥前缀后
-  // 剩余文本为同一基座重算（基座对齐，timeout/env -i 只读不误拦）。
-  const oneLinerReadOnly = oneLinerReadOnlyOverride !== undefined
-    ? oneLinerReadOnlyOverride
-    : ONELINER_PRE_GATE.test(scanForWriteChannels)
-      ? (oneLinerPayloadReadOnly(scanForWriteChannels) || wrappedOneLinerPayloadsReadOnly(scanForWriteChannels))
-      : false;
-  if (!gitReadonlyCmd) {
-    const channelHit = checkWriteChannels(scanForWriteChannels, { logger, projectRoot, sessionCwd: ctx.sessionCwd, heredocReadOnly, oneLinerReadOnly, depth, skipGitLiteral: cwdInGitWorktree, writeChannelSkip: ctx.writeChannelSkip });
-    if (channelHit) return channelHit;
-  }
-  // #1038 语义兼容：echo '...' >> file 形态，引号内含 rm/mv/find 敏感词元且目标非 data/ → 放行。
-  // 豁免粒度收窄到重定向段（检视严重 1 处置）：整条 return null 会连带放行 && 后的 git 写族
-  // （`echo 'find x' > notes.md && git commit -m y` 的 commit 被误豁免）——只豁免纯重定向命令。
-  // D2：复合判定含单 & / |（后台/管道同样连带）。
-  if (!COMPOUND_SEPARATOR.test(command) && !/>>?\s*['"]?[^'"\s]*data[^'"\s]*['"]?/.test(command)
-      && /echo\s+['"].*\b(?:rm|mv|find)\b.*['"].*>>?/.test(command)) {
-    return null; // echo 'rm ...' >> file：引号内文本，目标非 data/，无复合命令，与 #1038 同口径放行
-  }
-  // F20260923qbsw：重定向判定在引号剥离基准上进行——引号内 > >> --> 是文本数据
-  // （gh issue comment --body 的 HTML 注释/markdown 引用），不是 shell 重定向
-  // （#984 循环拦截事故：连拦 3 次中断獭回合，healing 4d692fb6/e671f577）。
-  // 危险通道（bash -c/heredoc）内引号不剥离，载荷内重定向仍可见（stripQuotedTextSpans 守住）。
-  // #1207 delta r1：仅「引号定界+已闭合+只读白名单验证通过」的 python/node 体才
-  // 等长隐去（体内容对 shell 重定向语义不可见）；bare/未闭合/白名单外体保留——
-  // 体尾 `> file` 是 shell 层真实重定向，隐去即攻击面。V1 链（heredocReadOnly
-  // 未传）输入已是体剥离文本，无需再处理。
-  const syntaxBasis = heredocReadOnly !== undefined
-    ? stripQuotedTextSpans(blankVerifiedScriptBodies(command))
-    : stripQuotedTextSpans(command);
-  // 重定向形态单独判定（D1 处置：abs-target 豁免只适用重定向，不跨 pattern 泄漏——
-  // git 写族落点是 .git/cwd 不是重定向目标，`git commit -m x > /dev/null` 高频尾缀形态曾全豁免）
-  // F20261016grdl 二期 2b：沙箱接防时重定向通道退役（枚举表文件写族；沙箱物理接防）。
-  if (ctx.writeChannelSkip !== "file-write" && REDIRECT_PATTERN.test(syntaxBasis)) {
-    const target = extractRedirectTarget(syntaxBasis);
-    // F20261014cwsp：cwd 感知——相对路径重定向的真实落点是 session 工作目录
-    // （统一工作区后獭 bash cwd=工作区），仅当解析后主仓内才拦；无 sessionCwd
-    // （旧调用形态）退回保守行为：相对目标一律拦。
-    const targetInMain = (() => {
-      if (!target) return true;
-      if (path.isAbsolute(target)) {
-        // F20260923hsyn：主仓树下但属合法工作区（data/workspaces/）——重定向落点豁免
-        // （9/23 排查实证：tail log > data/workspaces/<id>/x.log 被误拦；工作区是 sandbox 语义，
-        //  与 data/metrics|logs 等运行时数据性质不同，DATA_DESTRUCTIVE 层另有 rm/mv 防线）。
-        const r = path.normalize(projectRoot).toLowerCase();
-        const t = path.normalize(target).toLowerCase();
-        if (t.startsWith(path.join(r, 'data', 'workspaces') + path.sep)) return false;
-        return isInsideMainCheckout(target, projectRoot);
-      }
-      if (ctx.sessionCwd) {
-        const resolved = path.resolve(ctx.sessionCwd, target);
-        // F20261014cwsp S2 处置：树内 workspaces 落点豁免——相对路径经 sessionCwd
-        // 解析到 data/workspaces/ 内是会话工作区写（sandbox 语义），不拦
-        //（与 F20260923hsyn 绝对路径豁免同构；相对形态是统一工作区下的主流形态）。
-        const workspacesDir = path.normalize(path.join(projectRoot, "data", "workspaces")) + path.sep;
-        if ((path.normalize(resolved) + path.sep).toLowerCase().startsWith(workspacesDir.toLowerCase())) return false;
-        return isInsideMainCheckout(resolved, projectRoot);
-      }
-      return true;
-    })();
-    const isAbsNonMain = target && !targetInMain;
-    if (!isAbsNonMain) {
-      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via redirect (no cd)", { command: command.substring(0, 200) });
-      return rewriteMainWriteBlockMsg(sessionCwd);
-    }
+  if (checkSegmentStructuralWrite(blankDataHeredocBodies(command), oneLinerReadOnly, { logger, projectRoot, sessionCwd, depth, skipGitWrite: cwdInGitWorktree, writeChannelSkip: ctx.writeChannelSkip })) {
+    logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via wrapped one-liner (no cd)", { command: command.substring(0, 200) });
+    return rewriteMainWriteBlockMsg(sessionCwd);
   }
   return null;
 }
+
+// ── #1207（F20260930l573）：shell/node heredoc 体级判定（delta r1：白名单反转）──
+// 初版 node 体用危险签名 denylist（不命中即放行）——计算键 p['k'+'ill'] /
 
 // ── #1207（F20260930l573）：shell/node heredoc 体级判定（delta r1：白名单反转）──
 // 初版 node 体用危险签名 denylist（不命中即放行）——计算键 p['k'+'ill'] /
@@ -2326,6 +2033,8 @@ interface HeredocJudgeCtx {
   projectRoot?: string;
   /** F20261014cwsp：session 工作目录（透传供壳体递归 V1 链的 cwd 感知判定） */
   sessionCwd?: string;
+  /** F20261016gsbx 二期 2b：写面退役标记透传（壳体递归 V1 链的写判定） */
+  writeChannelSkip?: "file-write";
 }
 
 /** shell 体分支：递归体级判定（限深）+ V1 全量链；命中返回拦截文案 */
@@ -2334,7 +2043,7 @@ function judgeShellHeredocBody(sp: { header: string; body: string }, ctx: Heredo
     return `${SHELL_HEREDOC_BODY_MSG}\n【体内命中】shell 体嵌套超过判定深度上限（保守拦）`;
   }
   const inner = checkHeredocScriptBodies(sp.body, ctx, depth - 1);
-  const r = inner ?? checkBashCommandSafetyOnText(sp.body, ctx.mainPid, ctx.logger, ctx.allowedServices, { projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd });
+  const r = inner ?? checkBashCommandSafetyOnText(sp.body, ctx.mainPid, ctx.logger, ctx.allowedServices, { projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, writeChannelSkip: ctx.writeChannelSkip });
   if (r) {
     ctx.logger?.warn("[bash-safety-guard] BLOCKED dangerous op in shell heredoc body", { header: sp.header.substring(0, 80) });
     return `${SHELL_HEREDOC_BODY_MSG}\n【体内命中】${r.split("\n")[0]}`;
@@ -2353,7 +2062,20 @@ function checkHeredocScriptBodies(command: string, ctx: HeredocJudgeCtx, depth =
       if (hit) return hit;
       continue;
     }
-    if (isPythonHeader(sp.header)) continue; // 豁免/拦截由主仓写检测体感知路径承担
+    if (isPythonHeader(sp.header)) {
+      // F20261019gses P0：python 体判定与 node 同构化——旧链靠 mainWrite 的 python
+      // heredoc 通道形态拦截（pythonBodyReadOnly fail-closed），路由切换后通道删除，
+      // 体感知白名单判定归位到本函数（kill/os.remove/shutil.rmtree 等非重叠危险面在
+      // 白名单外拦；写落点语义已由 evaluateWriteVerdict 判过，此处只看非重叠面）。
+      // 与 mainWrite 同口径：无 projectRoot 时不判（链头「无 projectRoot 保守放行」约定，
+      // 体判定不扩大无 root 场景的拦截面——guard-v2-behavior 无 opts 用例口径）。
+      if (ctx.projectRoot === undefined) continue;
+      if (!(sp.closed && pythonBodyReadOnly(sp.body) && (sp.quoted || !/[$`]/.test(sp.body)))) {
+        ctx.logger?.warn("[bash-safety-guard] BLOCKED non-readonly python heredoc body", { header: sp.header.substring(0, 80) });
+        return NODE_HEREDOC_BODY_MSG.replace("node", "python");
+      }
+      continue;
+    }
     if (isNodeHeader(sp.header) && !(sp.closed && nodeBodyReadOnly(sp.body) && (sp.quoted || !/[$`]/.test(sp.body)))) {
       ctx.logger?.warn("[bash-safety-guard] BLOCKED non-readonly node heredoc body", { header: sp.header.substring(0, 80) });
       return NODE_HEREDOC_BODY_MSG;
@@ -2362,7 +2084,7 @@ function checkHeredocScriptBodies(command: string, ctx: HeredocJudgeCtx, depth =
   return null;
 }
 
-// ──────────── F20261016gsbx 二期 2c：保留面窄规则（R1 直推 + S5 网络外发）────────────
+// ──────────── F20261016gsbx 二期 2c：保留面窄规则（R1 直推 + .git 直写 + S5 网络外发）────────────
 // 与写面退役无关（沙箱对网络/gitDir 全放），双路径恒跑；自带拦截消息（判定说真话，
 // 不借道写面文案）。走查复用写面同款原语（切段/落点解析/shell -c 载荷递归/尾段重判），
 // argv 落点判定——引号内提及（echo 'git push origin main'）不误拦。
@@ -2468,15 +2190,61 @@ function protectedPushHit(segText: string): string | null {
       if (sawRemote) return PROTECTED_PUSH_BLOCK_MSG; // refspec 位动态——目标不可校验，fail-closed
       continue; // remote 位动态可容忍（remote 名不等于目标分支）
     }
-    // 审视严重2：--all/--mirror 引用集不可枚举（--all 会把 main 一并推上 origin=直推；
-    // --mirror 含 refs/heads/*）——与动态 refspec 同款 fail-closed。
+    // 审视严重2（delta 1）：--all/--mirror 引用集不可枚举（--all 会把 main 一并推上
+    // origin=直推；--mirror 含 refs/heads/*）——与动态 refspec 同款 fail-closed。
     // --delete 不在此列：冻结双签口径「git push --delete（远端目标）非写」（corpus 条目
-    // 6c93a372/61d75232 等5条钉 worktree→ALLOW），受保护 refspec/动态组合已被上文覆盖。
+    // 6c93a372/61d75232 等钉 worktree→ALLOW），受保护 refspec/动态组合已被下文覆盖。
     if (w === "--all" || w === "--mirror") return PROTECTED_PUSH_BLOCK_MSG;
     if (w === "-o" || w === "--push-option") { i++; continue; } // 取值旗标吞值
     if (w.startsWith("-")) continue;
     if (!sawRemote) { sawRemote = true; continue; } // 首个非旗标词=remote
     if (refspecHitsProtectedBranch(w)) return PROTECTED_PUSH_BLOCK_MSG;
+  }
+  return null;
+}
+
+/** .git 目录/文件路径段判定（任何仓根的 .git——主仓/worktree 共享 gitDir，路径段比 root 锚定多盖伪相对路径）。 */
+function gitDirPathHit(p: string): boolean {
+  return /(^|\/)\.git(\/|$)/.test(p);
+}
+
+const GIT_DIR_WRITE_BLOCK_MSG = "落点为 .git 内文件的写操作恒拦（git 元数据直写=HEAD/config/refs 操纵面；不经 git 命令的 .git 文件写与 git 写族同辖，沙箱 .git 白名单不构成许可）。请改用 git 命令操作仓库；确需动 .git 元数据请呈搭档确认。";
+
+/** 写 API 实参正则（open/writeFileSync 等，抽取实参路径供 gitDirPathHit 判）。 */
+const WRITE_API_CALL = /(?:^|[^\w.])(?:with\s+)?(?:[A-Za-z_]\w*\s*=\s*)?(?:open|writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|File\.(?:open|write|open3)|IO\.(?:write|binwrite))\s*\(\s*(['"])([^'"]+)\1/;
+
+/** 审视严重1探针（delta 1）：.git 落点写恒拦（双路径恒跑）——重定向落点（词级+剥引号裸文本双扫）
+ *  + tee 实参 + 译器载荷内写 API 实参（head 门控防 echo 引号提及误拦）。
+ *  边界：rm 等破坏形归 data 破坏族（含 corpus 3b399252 双签条件口径）；cp/dd 等间接写不追。 */
+function gitDirWriteHit(segText: string): string | null {
+  // ① 重定向落点：词级（引号精确）
+  const seg = parseOnce(segText, 2).segments[0] ?? null;
+  if (seg) {
+    for (let i = 0; i < seg.words.length - 1; i++) {
+      const w = seg.words[i].evaluated;
+      const nxt = seg.words[i + 1].evaluated;
+      if (w !== null && /^>{1,2}$|^\d+>{1,2}$/.test(w) && nxt !== null && gitDirPathHit(nxt)) return GIT_DIR_WRITE_BLOCK_MSG;
+    }
+  }
+  // ①b 粘连形态（hack>/x/.git/y）：剥引号文本正则扫（引号提及已剥，不误拦）
+  const stripped = stripQuotedTextSpans(segText);
+  for (const m of stripped.matchAll(/(?:^|[^>=-])>{1,2}\s*([^\s;|&]+)/g)) {
+    if (gitDirPathHit(m[1])) return GIT_DIR_WRITE_BLOCK_MSG;
+  }
+  // ② tee 实参（词级 evaluated）
+  const parsed = parseSegmentHead(segText);
+  if (parsed && parsed.head === "tee" && seg) {
+    for (const word of seg.words) {
+      if (word.evaluated !== null && gitDirPathHit(word.evaluated)) return GIT_DIR_WRITE_BLOCK_MSG;
+    }
+  }
+  // ③ 写 API 实参：译器头（python/node/ruby/perl -c 载荷）或裸语句形态（heredoc 体行）
+  const headIsInterp = parsed !== null && SCRIPT_RUNNERS.has(parsed.head.replace(/\d+$/, ""));
+  const stmtStart = /^\s*(?:with\s+)?(?:[A-Za-z_]\w*\s*=\s*)?(?:open|writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|File\.(?:open|write|open3)|IO\.(?:write|binwrite))\s*\(/.test(segText);
+  if (headIsInterp || stmtStart) {
+    for (const m of segText.matchAll(new RegExp(WRITE_API_CALL.source, "g"))) {
+      if (gitDirPathHit(m[2])) return GIT_DIR_WRITE_BLOCK_MSG;
+    }
   }
   return null;
 }
@@ -2535,52 +2303,6 @@ function networkExfilHit(segText: string): string | null {
   return hosts.every(networkDestWhitelisted) ? null : NETWORK_EXFIL_BLOCK_MSG;
 }
 
-/** .git 路径段判定（任何仓根的 .git——主仓/worktree 共享 gitDir，路径段比 root 锚定多盖伪相对路径）。 */
-function gitDirPathHit(p: string): boolean {
-  return /(^|\/)\.git(\/|$)/.test(p);
-}
-
-const GIT_DIR_WRITE_BLOCK_MSG = "落点为 .git 内文件的写操作恒拦（git 元数据直写=HEAD/config/refs 操纵面；不经 git 命令的 .git 文件写与 git 写族同辖，沙箱 .git 白名单不构成许可）。请改用 git 命令操作仓库；确需动 .git 元数据请呈搭档确认。";
-
-/** 写 API 实参正则（open/writeFileSync 等，抽取实参路径供 gitDirPathHit 判）。 */
-const WRITE_API_CALL = /(?:^|[^\w.])(?:with\s+)?(?:[A-Za-z_]\w*\s*=\s*)?(?:open|writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|File\.(?:open|write|open3)|IO\.(?:write|binwrite))\s*\(\s*(['"])([^'"]+)\1/;
-
-/** 审视严重1探针：.git 落点写恒拦（双路径恒跑）——重定向落点（词级+剥引号裸文本双扫）
- *  + tee 实参 + 译器载荷内写 API 实参（head 门控防 echo 引号提及误拦）。
- *  边界：rm 等破坏形归 data 破坏族（含 3b399252 双签条件口径）；cp/dd 等间接写不追。 */
-function gitDirWriteHit(segText: string): string | null {
-  // ① 重定向落点：词级（引号精确）
-  const seg = parseOnce(segText, 2).segments[0] ?? null;
-  if (seg) {
-    for (let i = 0; i < seg.words.length - 1; i++) {
-      const w = seg.words[i].evaluated;
-      const nxt = seg.words[i + 1].evaluated;
-      if (w !== null && /^>{1,2}$|^\d+>{1,2}$/.test(w) && nxt !== null && gitDirPathHit(nxt)) return GIT_DIR_WRITE_BLOCK_MSG;
-    }
-  }
-  // ①b 粘连形态（hack>/x/.git/y）：剥引号文本正则扫（引号提及已剥，不误拦）
-  const stripped = stripQuotedTextSpans(segText);
-  for (const m of stripped.matchAll(/(?:^|[^>=-])>{1,2}\s*([^\s;|&]+)/g)) {
-    if (gitDirPathHit(m[1])) return GIT_DIR_WRITE_BLOCK_MSG;
-  }
-  // ② tee 实参（词级 evaluated）
-  const parsed = parseSegmentHead(segText);
-  if (parsed && parsed.head === "tee" && seg) {
-    for (const word of seg.words) {
-      if (word.evaluated !== null && gitDirPathHit(word.evaluated)) return GIT_DIR_WRITE_BLOCK_MSG;
-    }
-  }
-  // ③ 写 API 实参：译器头（python/node/ruby/perl -c 载荷）或裸语句形态（heredoc 体行）
-  const headIsInterp = parsed !== null && SCRIPT_RUNNERS.has(parsed.head.replace(/\d+$/, ""));
-  const stmtStart = /^\s*(?:with\s+)?(?:[A-Za-z_]\w*\s*=\s*)?(?:open|writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|File\.(?:open|write|open3)|IO\.(?:write|binwrite))\s*\(/.test(segText);
-  if (headIsInterp || stmtStart) {
-    for (const m of segText.matchAll(new RegExp(WRITE_API_CALL.source, "g"))) {
-      if (gitDirPathHit(m[2])) return GIT_DIR_WRITE_BLOCK_MSG;
-    }
-  }
-  return null;
-}
-
 /** 2c 窄规则唯一实现点（checkBashCommandSafety 入口 + checkPidIndependentRules 递归面共用）。 */
 function checkNarrowRules(command: string, logger?: Logger): string | null {
   const push = narrowRuleWalk(command, 3, protectedPushHit);
@@ -2606,17 +2328,16 @@ function checkNarrowRules(command: string, logger?: Logger): string | null {
 function checkPidIndependentRules(command: string, logger: Logger | undefined, ctx: GuardCwdCtx): string | null {
   const prMerge = checkPrMergeCommand(command, logger);
   if (prMerge) return prMerge;
-  // F20261016gsbx 二期 2c 保留面窄规则（R1 直推 + S5 网络外发）——与写面退役无关，恒跑；
-  //  自带消息（判定说真话，不借道写面文案）。实现单点 checkNarrowRules，此处为 OnText
-  //  递归面（heredoc/子壳体）的入口镜像（与既有规则族同放置模式）。
+  // F20261016gsbx 二期 2c 保留面窄规则（R1 直推 + .git 直写 + S5 网络外发）——与写面退役
+  //  无关恒跑；自带消息（判定说真话）。实现单点 checkNarrowRules，此处为 OnText 递归面
+  // （heredoc/子壳体）的入口镜像（与既有规则族同放置模式）。
   const narrow = checkNarrowRules(command, logger);
   if (narrow) return narrow;
   const preGate = ONELINER_PRE_GATE.test(command);
   const oneLinerReadOnly = preGate
     ? oneLinerPayloadSet(command) !== null
     : false;
-  // F20261016grdl 二期 2b：沙箱接防时文件写落点族退役（枚举表）；git 写族保留。
-  const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnlyOverride: oneLinerReadOnly, writeChannelSkip: ctx.sandboxGuarded ? "file-write" : undefined });
+  const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnlyOverride: oneLinerReadOnly, writeChannelSkip: ctx.writeChannelSkip });
   if (mainWrite) return mainWrite;
   return checkDataDirDestructive(command, logger, ctx);
 }
@@ -2631,11 +2352,11 @@ function checkWhenMainPidMissing(
   if (scriptKill) return withDiagnostics(scriptKill, command, null);
   // F20260922pmgd / #1038：PR 合入与 data 破坏判定不依赖 mainPid（与 kill 族保守放行的
   // 差异：只需命令文本/projectRoot，无退化理由）
-  const pidFree = checkPidIndependentRules(command, logger, { projectRoot: guardOptions?.projectRoot, sessionCwd: guardOptions?.sessionCwd, sandboxGuarded: guardOptions?.sandboxGuarded });
+  const pidFree = checkPidIndependentRules(command, logger, { projectRoot: guardOptions?.projectRoot, sessionCwd: guardOptions?.sessionCwd, writeChannelSkip: guardOptions?.sandboxGuarded ? "file-write" : undefined });
   if (pidFree) return withDiagnostics(pidFree, command, null);
   // #1207（F20260930l573）：heredoc 体级判定不依赖 PID（shell 体递归在 PID=0 下
   // 与 V1 主链同口径保守放行 kill，不引入额外缺口）
-  const bodyHit = checkHeredocScriptBodies(command, { mainPid: 0, logger, allowedServices: [], projectRoot: guardOptions?.projectRoot, sessionCwd: guardOptions?.sessionCwd });
+  const bodyHit = checkHeredocScriptBodies(command, { mainPid: 0, logger, allowedServices: [], projectRoot: guardOptions?.projectRoot, sessionCwd: guardOptions?.sessionCwd, writeChannelSkip: guardOptions?.sandboxGuarded ? "file-write" : undefined });
   return bodyHit ? withDiagnostics(bodyHit, command, null) : null;
 }
 
@@ -2661,7 +2382,7 @@ export function checkBashCommandSafety(
   guardOptions?: GuardOptions,
 ): string | null {
   if (!command.trim()) return null;
-  // F20261016gsbx 二期 2c：保留面窄规则（R1 直推受保护分支 + S5 网络外发）在双链分派前
+  // F20261016gsbx 二期 2c：保留面窄规则（R1 直推/.git 直写 + S5 网络外发）在双链分派前
   //  统一执行（唯一实现点 checkNarrowRules；V2 模型链不跑 checkPidIndependentRules，
   //  V1 脱敏快路径会把引号载荷当数据——故在此入口处先判）。
   const narrowHit = checkNarrowRules(command, logger);
@@ -2672,6 +2393,9 @@ export function checkBashCommandSafety(
   const allowedServices = guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [];
   const projectRoot = guardOptions?.projectRoot;
   const sessionCwd = guardOptions?.sessionCwd;
+  // F20261016gsbx 二期 2b：沙箱接防位（GuardOptions.sandboxGuarded，session 创建点绑定）
+  //  → main_write 文件写族退役标记（唯一入口换算，全链透传）
+  const writeChannelSkip = guardOptions?.sandboxGuarded ? ("file-write" as const) : undefined;
 
   // F20260928grv2（guard-v2-redesign）：统一结构模型判定层——kill 族/管道到 shell/
   // U1 kill 0/U5 bash<file 由模型层承担（#1170 管道豁免误杀、#1171 文本误伤、
@@ -2708,13 +2432,10 @@ export function checkBashCommandSafety(
     // #1240 检视 r1：负门触发后内部直接调用 scriptHeredocBodiesReadOnlySegmentAware
     // 体感知拦（不经通道正则接力）；此传入值只服务非 cd 豁免形态（负门未触发面）——
     // python/node 双族段感知版替换 python-only 版，覆盖 node heredoc 同型失效。
-    // F20261016grdl 二期 2b：沙箱接防时文件写落点族退役（G3 枚举表：redirect/
-    // heredoc 字面/one-liner——沙箱 deny file-write* 物理接防）；git 写族（R1 红线）
-    // 在 checkMainCheckoutWrite 内部保留（见 writeChannelSkip 透传）。
-    const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot, sessionCwd, heredocReadOnly: scriptHeredocBodiesReadOnlySegmentAware(command), writeChannelSkip: guardOptions?.sandboxGuarded ? "file-write" : undefined });
+    const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot, sessionCwd, heredocReadOnly: scriptHeredocBodiesReadOnlySegmentAware(command), writeChannelSkip });
     if (mainWrite) return withDiagnostics(mainWrite, command, mainPid);
     // #1207（F20260930l573）：shell/node heredoc 体级危险判定（原始命令，体在场）
-    const bodyHit = checkHeredocScriptBodies(command, { mainPid, logger, allowedServices, projectRoot, sessionCwd });
+    const bodyHit = checkHeredocScriptBodies(command, { mainPid, logger, allowedServices, projectRoot, sessionCwd, writeChannelSkip });
     if (bodyHit) return withDiagnostics(bodyHit, command, mainPid);
     return null;
   }
@@ -2729,13 +2450,13 @@ export function checkBashCommandSafety(
   const heredocStripped = stripHeredocPayloads(command);
 
   // #858：内嵌文本脱敏——脱敏后干净（纯数据操作）→ 放行；仍命中 → 继续原文本路径
-  const sanitizedResult = checkSanitizedPath(heredocStripped, mainPid, logger, allowedServices, { projectRoot, sessionCwd, sandboxGuarded: guardOptions?.sandboxGuarded });
+  const sanitizedResult = checkSanitizedPath(heredocStripped, mainPid, logger, allowedServices, { projectRoot, sessionCwd, writeChannelSkip });
   if (sanitizedResult === null) return null;
 
   // F20260928slan：sleep 拦截标记（SLEEP_REASON_PREFIX）保留至发射点——circuit-breaker-helpers
   // 据此分流 `bash_sleep:` 前缀并自行剥离（此发射点是 bash_sleep: 唯一产源，D5a）。诊断文案用干净文案。
   const scan = (text: string): string | null => {
-    const r = checkBashCommandSafetyOnText(text, mainPid, logger, allowedServices, { projectRoot, sessionCwd, sandboxGuarded: guardOptions?.sandboxGuarded });
+    const r = checkBashCommandSafetyOnText(text, mainPid, logger, allowedServices, { projectRoot, sessionCwd, writeChannelSkip });
     if (!r) return null;
     return r.startsWith(SLEEP_REASON_PREFIX)
       ? SLEEP_REASON_PREFIX + withDiagnostics(stripSleepMarkerIfPresent(r), text, mainPid)
@@ -2743,6 +2464,16 @@ export function checkBashCommandSafety(
   };
   const result = scan(heredocStripped);
   if (result) return result;
+
+  // F20261019gses F1 修订：原文语义判定（write-verdict）已 ALLOW 时，归一化文本的
+  // 判读翻转不采纳——剥引号是归一化链自造形态（open('f','w') 剥成 open('f',w)，
+  // 引号内 mode 变裸词→判读翻转 fail-closed），非原文真风险。归一化链只兜「剥引号
+  // 出土新写词面」的真差异（差分集合逻辑）。
+  const ctxHere = { projectRoot, sessionCwd, writeChannelSkip };
+  if (ctxHere.projectRoot !== undefined
+      && evaluateWriteVerdict(command, ctxHere.projectRoot, ctxHere.sessionCwd ?? ctxHere.projectRoot).verdict === "ALLOW") {
+    return null;
+  }
 
   return scanNormalizedWithOneLinerExemption(heredocStripped, command, scan);
 }

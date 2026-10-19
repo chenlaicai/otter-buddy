@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { Logger } from "@usecases/ports/logger";
 import { createRouter } from "@interface-adapters/http/router";
 import { getMetricsRegistry } from "@frameworks/metrics/registry";
@@ -10,8 +10,15 @@ import type { initControllers } from "./controllers";
 
 type Controllers = ReturnType<typeof initControllers>;
 
-/** 组装 Hono app（路由 + SPA fallback），不监听端口——测试可直接 app.request */
-export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoot: string | false): Hono {
+/** 组装 Hono app（路由 + SPA fallback），不监听端口——测试可直接 app.request。
+ *  @param mahjongStaticRoot 三麻牌局页根目录（页面层静态挂载·缺口④）；缺省跟随 staticRoot 开关——
+ *  staticRoot=false（测试关静态页）时不挂 */
+export function buildHttpApp(
+  controllers: Controllers,
+  logger: Logger,
+  staticRoot: string | false,
+  mahjongStaticRoot: string | false = staticRoot === false ? false : resolve(process.cwd(), "web-mahjong"),
+): Hono {
   const app = new Hono();
 
   app.onError((err, c) => {
@@ -29,6 +36,28 @@ export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoo
   });
 
   app.route("/", createRouter(controllers, logger));
+
+  // 页面层：三麻牌局页（F20261015mjsg 模块四）。独立原生单页、不进 web/ 的 vite 构建链；
+  // 必须先于下方 SPA fallback 注册——app.get("*") 会把 /mahjong/:roomId 吞成 SPA 入口
+  //（方案模块四「注意与 SPA fallback 的交互」）。/mahjong=大厅（建房/入座），/mahjong/:roomId=牌局页
+  if (mahjongStaticRoot !== false) {
+    const mahjongRoot = resolve(mahjongStaticRoot);
+    const indexHtml = async (): Promise<Response> => {
+      try {
+        const content = await readFile(join(mahjongRoot, "index.html"), "utf-8");
+        return new Response(content, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      } catch {
+        return new Response("mahjong entry not found", { status: 404 });
+      }
+    };
+    app.get("/mahjong", () => indexHtml());
+    app.get("/mahjong/:roomId", () => indexHtml());
+    // 资源 URL /mahjong/assets/* → 文件 <mahjongRoot>/*（serveStatic 把 URL 路径拼在 root 后，需改写）
+    app.use(
+      "/mahjong/assets/*",
+      serveStatic({ root: mahjongRoot, rewriteRequestPath: (path) => path.slice("/mahjong/assets".length) }),
+    );
+  }
 
   if (staticRoot !== false) {
     // F20260901chun：旧 URL 301 重定向到 /im（防外链断裂）
@@ -49,6 +78,10 @@ export function buildHttpApp(controllers: Controllers, logger: Logger, staticRoo
       // API 路由未命中 → 404，不 fallback 到 SPA
       if (c.req.path.startsWith("/api/")) {
         return c.json({ error: "Not found" }, 404);
+      }
+      // 页面层：/mahjong* 已由上方显式路由负责，走到这里 = 入口文件缺失 → 404，不回落 SPA
+      if (c.req.path === "/mahjong" || c.req.path.startsWith("/mahjong/")) {
+        return c.text("mahjong entry not found", 404);
       }
       try {
         const content = await readFile(resolve(staticRootResolved, "index.html"), "utf-8");

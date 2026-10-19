@@ -1,0 +1,1 @@
+恢复快照：F20261010gshw capability_test 还原 main 原文（fb0724d8 曾改写为「n/a 转正下线」说明——历史文档保持合入时点语义；悬空指针由 lint:capability 棘轮 70 入账，同构先例 F20260920uhuc/F20261014cwsp）

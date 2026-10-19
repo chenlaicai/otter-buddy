@@ -127,9 +127,10 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       expect(r).toEqual({ kind: "unevaluated", reason: "cwd-unresolvable" });
     });
 
-    it("cd /repo/../.. && touch x（.. 爬升）→ unevaluated dynamic-path（保守不猜）", () => {
+    it("cd /repo/../.. && touch x（.. 爬升）→ 词法解析到 /（F20261019gses：可静态爬升则解析；首跑「不猜」保守口径退役）", () => {
       const r = evaluateWriteTargets("cd /repo/../.. && touch x", ROOT);
-      expect(r.kind).toBe("unevaluated");
+      // 爬升后 cwd=/，touch x 落 /x 树外零写面 → evaluated 放行
+      expect(r.kind).toBe("evaluated");
     });
   });
 
@@ -225,14 +226,18 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       if (r.kind === "evaluated") expect(r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(false);
     });
 
-    it("拦截侧负门：node -e 载荷含 .. 爬升字面量（§3.1 逃逸形态原样：<wt>/../../../main/y）→ 回落（爬升不猜）", () => {
+    it("拦截侧：node -e 载荷含 .. 爬升字面量（<wt>/../../../main/y）→ 词法爬升命中主仓 evaluated（F20261019gses：拦截面不放松，reason 从回落收窄为落点命中）", () => {
       const r = evaluateWriteTargets(`node -e "fs.writeFileSync('${WT}/../../../main/y', 'z')"`, ROOT);
-      expect(r).toEqual({ kind: "unevaluated", reason: "heredoc-script-payload" });
+      expect(r.kind).toBe("evaluated");
+      expect(r.kind === "evaluated" && r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(true);
     });
 
-    it("拦截侧负门：node -e 载荷字符串拼接 .. 爬升（'<wt>/x'+'/../../../main/y'）→ 回落（折叠后含 .. 同拒）", () => {
+    it("拦截侧：node -e 载荷字符串拼接 .. 爬升（'<wt>/x'+'/../../../main/y'）→ 折叠词法爬升落 /repo/.otter/main/y（运行区白名单外=.otter 杂散主仓写面）→ evaluated 命中主仓判定域仍拦（F20261019gses：拦截面不放松，与首跑回落同拦不同 reason）", () => {
       const r = evaluateWriteTargets(`node -e "fs.writeFileSync('${WT}/x'+'/../../../main/y', 'z')"`, ROOT);
-      expect(r).toEqual({ kind: "unevaluated", reason: "heredoc-script-payload" });
+      // WT=/repo/.otter/worktrees/wt：+x 中缀后爬 3 级=/repo/.otter，再拼 main/y → /repo/.otter/main/y；
+      // OTTER_RUNTIME_REGIONS 只豁免 worktrees/workforms/data-workspaces，.otter 杂散面属主仓判定域
+      expect(r.kind).toBe("evaluated");
+      expect(r.kind === "evaluated" && r.targets.some(t => pathWithinMain(t.path, ROOT))).toBe(true);
     });
 
     it("拦截侧：node -e argv[2] 映射第二实参（off-by-one 修正后）→ evaluated 落第二实参落点（曾误判 ALLOW 真值主仓）", () => {
@@ -610,8 +615,17 @@ echo "=== commit exit: $? ==="`;
       expect(ok.verdict).toBe("ALLOW");
     });
 
-    it("delta2：未提供载荷且脚本存在 → fail-closed（未接线≠缺席）；/dev/null 为「存在文件」稳定替身", () => {
-      expect(evaluateWriteVerdict("bash /dev/null", ROOT)).toMatchObject({ verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable" });
+    it("P0 sourcing 接线：未提供载荷且脚本存在 → 真实读取判读（/dev/null 零写面内容 → content 判读零落点放行）", () => {
+      // F20261019gses P0：未接线≠缺席 的未接线态已被真实读取取代——存在即读出内容按内容判读；
+      // /dev/null 读出空串=零写面脚本，正面 ALLOW（fail-closed 仅剩真读不出形态）
+      expect(evaluateWriteVerdict("bash /dev/null", ROOT)).toMatchObject({ verdict: "ALLOW", mode: "positive" });
+    });
+
+    it("P0 sourcing 接线：存在且内容含主仓写 → content 判读拦（未接线盲放被根治）", () => {
+      const dir = path.join(os.tmpdir(), "guard-p0-src-block");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "evil.sh"), "echo x > /repo/data/pwn\n");
+      expect(evaluateWriteVerdict(`bash ${path.join(dir, "evil.sh")}`, ROOT)).toMatchObject({ verdict: "BLOCK", mode: "positive" });
     });
 
     it("delta2：显式声明 absent=证明源 → 放（声明+记档校验面，不做 fs 复核）", () => {
@@ -754,9 +768,9 @@ describe("delta3 修法（严重1 execv 族词表 + 严重 2 cwd 错位假缺席
       expect(v.mode).toBe("positive");
     });
 
-    it("对照：可溯源 cd + 存在脚本 → fail-closed unreadable（/dev/null 稳定替身）", () => {
+    it("对照：可溯源 cd + 存在脚本 → 真实读取判读（/dev/null 空内容零写面放行；P0 sourcing 接线后）", () => {
       expect(evaluateWriteVerdict("cd /dev && bash null", ROOT)).toMatchObject({
-        verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable",
+        verdict: "ALLOW", mode: "positive",
       });
     });
 
@@ -804,12 +818,12 @@ describe("delta3 修法（严重1 execv 族词表 + 严重 2 cwd 错位假缺席
 });
 
 describe("delta4 修法（严重 1：段首直执行位同构三态，检视獭1360 delta4 复核）", () => {
-  it("直执真存在 → fail-closed unreadable（/dev/null 稳定替身）——与 bash 同链一视同仁", () => {
+  it("直执真存在 → 真实读取判读（/dev/null 空内容零写面放行）——与 bash 同链一视同仁（P0 sourcing）", () => {
     expect(evaluateWriteVerdict("/dev/null", ROOT)).toMatchObject({
-      verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable",
+      verdict: "ALLOW", mode: "positive",
     });
     expect(evaluateWriteVerdict("bash /dev/null", ROOT)).toMatchObject({
-      verdict: "BLOCK", mode: "fail-closed", reason: "script-payload-unreadable",
+      verdict: "ALLOW", mode: "positive",
     });
   });
 
@@ -830,9 +844,9 @@ describe("delta4 修法（严重 1：段首直执行位同构三态，检视獭1
     expect(v.mode).toBe("positive");
   });
 
-  it("对照：不可求值直执路径（含 ..）→ script-path-dynamic fail-closed；替换型载荷垃圾解析不误收（能力 8 口径不回归）", () => {
+  it("对照：树外直执路径（含 ..）→ 词法爬升树外+fs 证缺席放行（F20261019gses）；替换型载荷垃圾解析不误收（能力 8 口径不回归）", () => {
     expect(evaluateWriteVerdict("/tmp/d/../x-smrj.sh", ROOT)).toMatchObject({
-      verdict: "BLOCK", mode: "fail-closed", reason: "script-path-dynamic",
+      verdict: "ALLOW",
     });
     const v = evaluateWriteVerdict(`node -e "import('/repo/dist-probe/x.js')"`, ROOT);
     expect(v.verdict).toBe("ALLOW");
@@ -863,8 +877,8 @@ describe("delta5 修法（严重 2：动态直执行位词文本收口——与 
     });
   });
 
-  it("静态直执三态不回归（真存在 → unreadable fail-closed，/dev/null 稳定替身）", () => {
-    expect(evaluateWriteVerdict("/dev/null", ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-payload-unreadable" });
+  it("静态直执三态（P0 sourcing 接线：真存在 → 真实读取判读，/dev/null 空内容零写面放行）", () => {
+    expect(evaluateWriteVerdict("/dev/null", ROOT)).toMatchObject({ verdict: "ALLOW", mode: "positive" });
   });
 
   it("运行器族 carve：/usr/bin/python3 与 python3 同族同判（argv0 自身不当脚本）", () => {
@@ -893,12 +907,12 @@ describe("delta5 修法（严重 2：动态直执行位词文本收口——与 
 
 // ────────── delta7 修法（严重 1：受管族 carve 收窄，检视獭1360 delta6 复核） ──────────
 describe("delta7 修法（严重 1：树外同名受管族负门——wv 侧无名字豁免）", () => {
-  it("负门：树外同名受管族脚本真存在直执 → unreadable fail-closed（三态不看名字）", () => {
+  it("负门：树外同名受管族脚本真存在直执 → 真实读取判读内容含主仓写 → 拦（三态不看名字，sourcing 后看内容）", () => {
     const dir = path.join(os.tmpdir(), "guard-delta7-fake");
     const fake = path.join(dir, "otter-buddy.sh");
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(fake, "touch /repo/data/pwn\n");
-    expect(evaluateWriteVerdict(fake, ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-payload-unreadable" });
+    expect(evaluateWriteVerdict(fake, ROOT)).toMatchObject({ verdict: "BLOCK", mode: "positive" });
   });
 });
 
@@ -918,9 +932,9 @@ describe("delta8 修法（`~` 前缀族收口——前缀空间穷举负门）",
     expect(evaluateWriteVerdict("bash ~user/x.sh", ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-path-dynamic" });
   });
 
-  it("负门：../x.sh 相对上级路径前缀 → script-path-dynamic（含 .. 不可求值，对称同判）", () => {
-    expect(evaluateWriteVerdict("../x.sh", ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-path-dynamic" });
-    expect(evaluateWriteVerdict("bash ../x.sh", ROOT)).toMatchObject({ verdict: "BLOCK", reason: "script-path-dynamic" });
+  it("负门转正：../x.sh 相对上级直执 → 词法爬升树外+fs 证缺席放行（F20261019gses：可静态爬升；首跑「含 .. 不可求值对称同判」口径退役）", () => {
+    expect(evaluateWriteVerdict("../x.sh", ROOT)).toMatchObject({ verdict: "ALLOW" });
+    expect(evaluateWriteVerdict("bash ../x.sh", ROOT)).toMatchObject({ verdict: "ALLOW" });
   });
 
   it("中缀斜杠族维持不收（能力 8 误收防线——TS-b42e23be 翻红实证，独立工单呈拍板）", () => {

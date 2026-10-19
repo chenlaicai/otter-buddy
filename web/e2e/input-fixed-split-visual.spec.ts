@@ -9,6 +9,8 @@
  *   4. 输入内容不改变边界（多行 → 玻璃框高度不变，textarea 内部滚动）
  *   5. 死区归零：滚到底时最后一条消息紧贴输入框上沿（旧 bug 是悬空 98px 死区）
  *   6. 视觉截图（人审证据）
+ *   7+8. F20261016pcov 卡片预览进覆盖层：发送/拒绝按钮真 hit-test 可点（旧 bug 被透明
+ *        overlay 吞点击）+ 衬垫含卡片高
  */
 import { test, expect } from '@playwright/test'
 
@@ -18,7 +20,7 @@ import { test, expect } from '@playwright/test'
  *  模块请求 pathname 不以 /api/ 开头，天然不命中。
  *  DTO 形状对齐 api-contract：ConversationListItemDTO / EntryDTO / ParticipantDTO /
  *  KeyInfoDTO / UnreadStateDTO / InvokeListResponseDTO / SettingsDTO */
-async function mockApi(page: import('@playwright/test').Page) {
+async function mockApi(page: import('@playwright/test').Page, opts?: { cardBody?: string }) {
   await page.route(url => {
     try { return new URL(url).pathname.startsWith('/api/') } catch { return false }
   }, async route => {
@@ -53,7 +55,7 @@ async function mockApi(page: import('@playwright/test').Page) {
         entryType: 'message',
         senderType: i % 2 === 0 ? 'user' : 'otter',
         senderId: i % 2 === 0 ? 'user' : 'otter-1',
-        body: `消息 ${i + 1}：视觉自查行 ${'█'.repeat(20 + (i % 5))}`,
+        body: i === 29 && opts?.cardBody ? opts.cardBody : `消息 ${i + 1}：视觉自查行 ${'█'.repeat(20 + (i % 5))}`,
         invokeId: null,
         yieldTargets: null,
         status: 'completed',
@@ -97,8 +99,8 @@ async function mockApi(page: import('@playwright/test').Page) {
 
 const MSG_SEL = '[data-message-id]'
 /** 打开会话页：等真实消息渲染 + 输入区就位 + RO 首帧稳定 */
-async function openConversation(page: import('@playwright/test').Page) {
-  await mockApi(page)
+async function openConversation(page: import('@playwright/test').Page, opts?: { cardBody?: string }) {
+  await mockApi(page, opts)
   await page.goto('/conversation/conv-inbs-probe')
   await page.waitForSelector('textarea', { timeout: 15_000 })
   await page.waitForTimeout(800) // RO 首帧回调 + 衬垫渲染稳定
@@ -233,5 +235,102 @@ test.describe('F20261016inbs 输入框固定边界（vite 隔离实例）', () =
     // 阈值 ≤30px：任何超出意味着预留/实高错位又回来了
     expect(m.gap).toBeLessThanOrEqual(30)
     await page.screenshot({ path: 'test-results/inbs-5-no-deadzone.png' })
+  })
+})
+
+/** F20261016pcov：卡片预览槽位进覆盖层（搭档 10-16 报告「交互卡片触发的回答点不了」）。
+ *  根因：预览卡是 main 文档流子元素，输入覆盖层（absolute bottom-0 z-10）透明叠其上——
+ *  hit-test 照吃，发送/拒绝按钮点击全被吞。修法：卡片挪进覆盖层内（分割条下方、
+ *  输入框上方），衬垫自然含卡片高。真值验证必须真浏览器 hit-test（jsdom 无布局）。
+ *  卡片触发链：mock 一条含 ```html-card importance="high"``` 的 otter 消息（默认展开）→
+ *  iframe 挂载注册 registry → frame 内调 window.otterCard.submit()（source=iframe win，
+ *  白名单自动通过）→ 预览槽位出现。 */
+const CARD_BODY = [
+  '```html-card title="答案确认卡" importance="high"',
+  '<div><p>请确认你的答案</p></div>',
+  '```',
+].join('\n')
+
+test.describe('F20261016pcov 卡片预览进覆盖层（vite 隔离实例）', () => {
+  test('7: 发送按钮真 hit-test 可点（旧 bug：透明 overlay 吞点击）+ 衬垫含卡片', async ({ page }) => {
+    const posts: string[] = []
+    page.on('request', req => {
+      if (req.method() === 'POST' && /\/api\/conversations\/[^/]+\/messages$/.test(new URL(req.url()).pathname)) {
+        posts.push(req.postData() ?? '')
+      }
+    })
+    await openConversation(page, { cardBody: CARD_BODY })
+
+    // importance=high 默认展开 → iframe 挂载并注册 registry
+    const card = page.locator('[data-card-id]')
+    await expect(card).toBeVisible()
+    const frame = page.frameLocator('[data-card-id] iframe')
+    await frame.locator('body').waitFor({ timeout: 15_000 })
+
+    // 卡片内提交（桥 API，source=iframe contentWindow 白名单自动通过）→ 预览槽位出现
+    await frame.locator('body').evaluate(() =>
+      (window as unknown as { otterCard: { submit: (p: unknown) => void } }).otterCard.submit({ summary: '确认发送以下答案', data: { answer: '是' } }),
+    )
+    const preview = page.locator('[data-testid="card-preview"]')
+    // 预览出现断言用文本锚（testid 无关）——失败证据链需在旧 DOM 上复现「被吞」而非 testid 缺失
+    await expect(page.getByText('以下内容由水獭卡片生成')).toBeVisible()
+
+    // 命中测试：发送按钮中心点 elementFromPoint 必须命中按钮自身（旧 bug：overlay 吞掉 hit-test）。
+    // 文本锚找按钮（不依赖 testid）：MessageInput 发送按钮无文本（仅图标），此处文本匹配唯一
+    const hit = await page.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('button'))
+      const btn = btns.find(b => b.textContent === '发送') as HTMLElement | undefined
+      if (!btn) return false
+      const r = btn.getBoundingClientRect()
+      const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+      return el === btn || btn.contains(el)
+    })
+    expect(hit, '发送按钮必须可命中（旧 bug：透明 overlay 吞点击）').toBe(true)
+
+    // DOM 结构契约（testid）：预览卡必须在覆盖层内 + 衬垫含卡片高
+    await expect(preview).toBeVisible()
+    const inOverlay = await page.evaluate(() => {
+      const card0 = document.querySelector('[data-testid="card-preview"]')
+      const glass = document.querySelector('.glass-input')
+      return !!card0 && !!glass && glass.closest('.absolute.bottom-0')!.contains(card0)
+    })
+    expect(inOverlay, '预览卡必须是输入覆盖层的子元素').toBe(true)
+
+    // 衬垫含卡片：overlay 实高（分割条+预览卡+输入区）≈ 消息列表末尾衬垫
+    const pad = await page.evaluate(() => {
+      const glass = document.querySelector('.glass-input') as HTMLElement
+      const overlay = glass.closest('.absolute.bottom-0') as HTMLElement
+      const spacer = document.querySelector('[data-testid="bottom-spacer"]') as HTMLElement
+      return { overlayH: overlay.getBoundingClientRect().height, spacerH: spacer.getBoundingClientRect().height }
+    })
+    expect(Math.abs(pad.spacerH - pad.overlayH), '衬垫应等于 overlay 实高（含预览卡）').toBeLessThanOrEqual(2)
+
+    // 真点击 → 回执发出（html-card-reply 路由卡片作者）+ 预览消失
+    await page.locator('button', { hasText: '发送' }).click({ timeout: 5_000 })
+    await expect(preview).toBeHidden()
+    expect(posts.some(p => p.includes('html-card-reply')), '回执 body 应含 html-card-reply 围栏').toBe(true)
+    await page.screenshot({ path: 'test-results/pcov-1-confirm-clickable.png' })
+  })
+
+  test('8: 拒绝按钮可点（同层命中），拒绝后预览消失且不发回执', async ({ page }) => {
+    const posts: string[] = []
+    page.on('request', req => {
+      if (req.method() === 'POST' && /\/api\/conversations\/[^/]+\/messages$/.test(new URL(req.url()).pathname)) {
+        posts.push(req.postData() ?? '')
+      }
+    })
+    await openConversation(page, { cardBody: CARD_BODY })
+    const frame = page.frameLocator('[data-card-id] iframe')
+    await frame.locator('body').waitFor({ timeout: 15_000 })
+    await frame.locator('body').evaluate(() =>
+      (window as unknown as { otterCard: { submit: (p: unknown) => void } }).otterCard.submit({ summary: '确认发送以下答案', data: { answer: '否' } }),
+    )
+    const preview = page.locator('[data-testid="card-preview"]')
+    await expect(page.getByText('以下内容由水獭卡片生成')).toBeVisible()
+    await page.locator('button', { hasText: '拒绝' }).click({ timeout: 5_000 })
+    await expect(page.getByText('以下内容由水獭卡片生成')).toBeHidden()
+    await expect(preview).toBeHidden()
+    expect(posts.some(p => p.includes('html-card-reply')), '拒绝不应发回执').toBe(false)
+    await page.screenshot({ path: 'test-results/pcov-2-reject-clickable.png' })
   })
 })

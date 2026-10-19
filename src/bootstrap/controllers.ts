@@ -54,6 +54,14 @@ import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
+/** F20261015mjsg 三麻将局域装配（可选） */
+import type Database from "better-sqlite3";
+import type { SdkInvokePort } from "@usecases/ports/sdk-invoke-port";
+import { SqliteFrameStore } from "@usecases/mahjong/room/frames";
+import { RoomBus, RoomService } from "@usecases/mahjong/room/room-service";
+import { sendGameoverReport } from "@usecases/mahjong/room/gameover-report";
+import { SdkOtterGateway } from "@usecases/mahjong/room/otter-adapter";
+import { MahjongController } from "@interface-adapters/http/controllers/mahjong-controller";
 
 
 /** 未配置 inbound 时的空实现，避免 as unknown as 双重断言 */
@@ -115,6 +123,31 @@ export interface ControllerDeps {
   skillDirectory?: SkillDirectory;
   /** F20260929scfx：能力库全书——系统提示词分节 + 工具清单数据源 */
   promptDirectory?: PromptDirectory;
+  /** F20261015mjsg：三麻将局域装配（db + SDK 直调口）——齐备才暴露 /api/mahjong 路由 */
+  mahjongDeps?: { db: Database.Database; sdkPort: SdkInvokePort };
+}
+
+/** F20261015mjsg：三麻将局域装配（gateway 不带 conversationId = 纯 session 直调不落对话 entry——S1/S2 口径） */
+function buildMahjongController(deps: ControllerDeps, logger: Logger): MahjongController | undefined {
+  if (!deps.mahjongDeps) return undefined;
+  const store = new SqliteFrameStore(deps.mahjongDeps.db);
+  const rooms = new RoomService({
+    store,
+    gateway: new SdkOtterGateway(deps.mahjongDeps.sdkPort),
+    bus: new RoomBus(),
+    logger,
+    // F20261015mjsg 模块五：局终战报卡——首个 otter 座位挂靠对话发 html-card + 登记 fact
+    onGameover: (report) => sendGameoverReport({
+      sendEntry: deps.uc.sendEntry,
+      conversationRepo: deps.repos.conversation,
+      linkResource: (input) => deps.uc.manageKeyInfo.linkResource(input),
+      logger,
+    }, report),
+  });
+  // F20261015mjsg D2：入座谓词挂接（装配内完成——同 agentDispatchService 先例）——
+  // 对话侧对入座獭自动应答「打牌中」不进 LLM（防局中水位换世打穿牌局上下文）
+  deps.agentInvoker.attachMahjongSeatQuery({ isSeated: (otterId: string) => rooms.isSeated(otterId) });
+  return new MahjongController(rooms, store, logger);
 }
 
 function buildChannelController(deps: ControllerDeps) {
@@ -217,6 +250,8 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
   /** F20261013csv3 T1：unfurl 预览卡控制器（先建实例——T2 的 keyInfo 装配需引用其预抓取） */
   const unfurlController = new UnfurlController(logger, repos.unfurlCache);
 
+  const mahjongController = buildMahjongController(deps, logger);
+
   /** 多模态 Phase 1（审视修复 R4/R7）：附件注入服务——校验+真图+document 文本组装均在此（usecases 层策略） */
   const attachmentInjection = buildAttachmentInjection(deps, appConfig, repos, logger);
 
@@ -283,5 +318,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     prompts: deps.promptDirectory ? new PromptController(deps.promptDirectory, logger) : undefined,
     // F20260912avlb：活动页三域台账只读（三 repo + conversation 表 join 在场态）
     activity: buildActivityController(repos, logger),
+    // F20261015mjsg：三麻将局 API（可选装配）
+    mahjong: mahjongController,
   };
 }

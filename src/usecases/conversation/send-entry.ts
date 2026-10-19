@@ -60,7 +60,8 @@ export interface CreateInvokeInput {
 /** 创建 speak 条目输入 */
 export interface CreateSpeakEntryInput {
   conversationId: string;
-  invokeId: string;
+  /** 可缺省（F20261015mjsg D2：牌局托管应答等无 invoke 场景——落 null，FK 约束由 ?? null 守住） */
+  invokeId?: string;
   otterId: string;
   body: string;
   /** F20260916hcel：可选元数据（如 cardSchemaVersion） */
@@ -333,7 +334,7 @@ export class SendEntry {
       senderType: "otter",
       senderId: input.otterId,
       body: input.body,
-      invokeId: input.invokeId,
+      invokeId: input.invokeId ?? null,
       yieldTargets: null,
       status: "completed",
       source: null,

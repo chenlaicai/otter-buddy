@@ -35,8 +35,11 @@ describe("F20261016gsbx 2b：写面条件退役——沙箱可用（退役放行
     expect(guard(`bash -c "echo x > ${ROOT}/gsbx-z.txt"`, true)).toBeNull();
   });
 
-  it("G3 缺表不退役：嵌套引号不可解析的 shell -c 形态保持拦截（解析失败无法递归载荷，保守 fail-closed）", () => {
-    expect(guard(`bash -c "python3 -c \\"open('${ROOT}/gsbx-y.txt','w').write('y')\\""`, true)).not.toBeNull();
+  it("G3 缺表不退役：换行断开的 -c 段首形态保持拦截（载荷无法递归，保守 fail-closed）", () => {
+    // 注：旧测试用的嵌套引号形态已被 #1523 新解析器解析开（解析力提升，正确随写面退役）——
+    // fail-closed 钉子换用文档钉的另一异常形态：`bash -e\n-c '…'` 的 -c 段首（F202600606gfvl）
+    expect(guard(`bash -e
+-c 'echo x > ${ROOT}/gsbx-y.txt'`, true)).not.toBeNull();
   });
 
   it("T1 heredoc 字面写主仓 → 退役放行", () => {
