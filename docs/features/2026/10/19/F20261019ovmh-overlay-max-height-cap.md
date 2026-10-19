@@ -38,7 +38,7 @@ summary: |
 2. **预览卡**：`flex-shrink-0` → `min-h-0 flex flex-col overflow-hidden`（唯一可收缩项）；内部内容区（summary + dataJson）独立 `flex-1 min-h-0 overflow-y-auto`——超限时卡片内部滚动，不撑破封顶
 3. **恒可见件**：卡片提示行/按钮行加 `shrink-0`，分割条热区加 `shrink-0`——封顶挤压时发送/拒绝按钮、拖拽热区不被压没。⚠️ 此条纯类名方案在输入拖高档位实测不成立（检视獭-1552 严重 1：MessageInput 根节点 flex-shrink-0 不可收缩，卡片可被压穿地板），R2 已以 JS 几何修正（见 R2 节）——shrink-0 保留为辅助，硬保障由动态地板承担
 
-旧 `max-h-[var(--preview-scroll-max-h)]`（JSON pre 单独 240px 限高）删除：封顶 + 整卡内部滚动后它是冗余层；`--preview-scroll-max-h` CSS 变量保留未动（web/src/styles/globals.css:73，或另有引用，保守不删）。
+旧 `max-h-[var(--preview-scroll-max-h)]`（JSON pre 单独 240px 限高）删除：封顶 + 整卡内部滚动后它是冗余层；`--preview-scroll-max-h` CSS 变量同步删除（大獭 13:06 拍板：本 PR 正是清理这片区域的，留死配置自相矛盾；全仓零引用已验证）。
 
 **衬垫机制零改动自动正确**：ResizeObserver 观测 overlay 实高（封顶 clamp 后的实高）→ bottomSpacerPx 同步——不存在「衬垫按未封顶自然高度算、消息被吞进 overlay 背后」的错位（e2e 场景 9 断言 `|spacer - overlay| ≤ 2px` 验证）。
 
