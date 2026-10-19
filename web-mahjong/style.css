@@ -128,6 +128,32 @@ button:focus-visible, .tile:focus-visible { outline: 2px solid var(--accent-hi);
 .log li { border-left: 2px solid var(--line); padding-left: 6px; }
 .log li.is-wake { border-left-color: var(--accent); color: var(--text); }
 .log li.is-err { border-left-color: var(--danger); color: var(--danger); }
+.log li.is-chat { border-left-color: var(--purple); color: var(--text); }
+
+/* ───────────── 聊天条（#1532：入座后可用，观战隐藏） ───────────── */
+.chat-bar { display: flex; gap: 6px; margin-top: 6px; }
+.chat-bar[hidden] { display: none; }
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-deep);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.chat-input:focus { outline: none; border-color: var(--line-hi); }
+.chat-send {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.chat-send:hover { background: var(--accent-hi); }
 
 /* ───────────── 玩家面板 ───────────── */
 .p-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
