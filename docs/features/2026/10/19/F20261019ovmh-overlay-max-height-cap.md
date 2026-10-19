@@ -85,7 +85,7 @@ e2e 跑法：worktree web/ 下 `npx vite --port 3116 --strictPort` + `E2E_BASE_U
 | e2e 场景 10b（1280×900 拖顶+大卡） | 输入收紧 ~380、按钮可点（检视 P4 态修复） |
 | 全 spec 回归（场景 1-9 含 inbs 拖拽/pcov 按钮可点） | 9 场景全绿（无卡拖拽行为零变化：场景 2 仍 clamp 55%） |
 | `cd web && npx tsc --noEmit` | exit 0 |
-| web vitest 全量 | 71 文件 715 用例全绿 |
+| web vitest 全量 | 71 文件 719 用例全绿 |
 
 截图：`ovmh-10a-maxed.png`（对话工作区，拖顶+大卡收紧态）；探针 JSON 留对话工作区。
 
