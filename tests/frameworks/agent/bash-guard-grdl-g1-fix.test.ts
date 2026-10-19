@@ -24,8 +24,12 @@ describe("F20261016grdl 1a'：G1 六例修复面（放行）", () => {
   it("例1 完整形态：cat workspace + cd worktree && git commit -F（族 E 混合段）→ 放行", () => {
     expect(guard(`cat > ${WS}/m.txt <<'EOF'\nx\nEOF\ncd ${WT} && git commit --author="a <b>" -F ${WS}/m.txt`)).toBeNull();
   });
-  it("例3：cd worktree && python3 -c os.remove(glob 相对路径)（排除区内删）→ 放行", () => {
-    expect(guard(`cd ${WT} && python3 -c "import os,glob; [os.remove(f) for f in glob.glob('tests/**/zz-*.test.ts', recursive=True)]"`)).toBeNull();
+  it("例3：cd worktree && python3 -c os.remove(glob 相对路径)（排除区内删）→ 拦（动态落点求值不出 fail-closed，无 cd 对照探针同判——原则② 两同）", () => {
+    // S1 裁决原则②（2026-10-19）：循环变量 f 为动态落点（v2 声明语义：读不出终局
+    // → fail-closed BLOCK）；无 cd 对照（sessionCwd=worktree 同命令）探针实测同为
+    // BLOCK。原放行由 cd 豁免门整条放行承担（S1 同源）；动态源解析收宽归求值器
+    // 后续项（B issue 同族）。
+    expect(guard(`cd ${WT} && python3 -c "import os,glob; [os.remove(f) for f in glob.glob('tests/**/zz-*.test.ts', recursive=True)]"`)).not.toBeNull();
   });
   it("例4：python3 -c json.load(open('/tmp/x')) 只读 → 放行", () => {
     expect(guard(`python3 -c "import json\nd = json.load(open('/tmp/colink-tasks.json'))\nprint(d)"`)).toBeNull();
@@ -69,14 +73,24 @@ describe("F20261016grdl：拦截面不回退（拦截）", () => {
   it("node -e writeFileSync 主仓路径 → 拦", () => {
     expect(guard(`node -e "require('fs').writeFileSync('${ROOT}/data/metrics.json','{}')"`)).not.toBeNull();
   });
-  it("python3 -c 相对路径写（cwd=workspace 主仓树内，无 cd 锚定）→ 拦", () => {
-    expect(guard(`python3 -c "open('config.yaml','w').write('x')"`)).not.toBeNull();
+  it("python3 -c 相对路径写（cwd=workspace 沙箱内，无 cd 锚定）→ 放（F20261019gses 口径归一：能力 7 拍板——data/workspaces 是运行时排除区，相对写落沙箱非主仓）", () => {
+    // #1527 原断言拦（V1 形态保守）；F20261019gses 语义判据下落点=cwd/config.yaml（沙箱内）
+    // → positive ALLOW。拦截面由同形态 cwd=主仓根变体钉住（下一条）。
+    expect(guard(`python3 -c "open('config.yaml','w').write('x')"`)).toBeNull();
+    // 变体锁：cwd=主仓根时同命令落主仓 → 必拦（拦截面不回退）
+    expect(checkBashCommandSafety(`python3 -c "open('config.yaml','w').write('x')"`, MAIN_PID, undefined, { projectRoot: ROOT, sessionCwd: ROOT })).not.toBeNull();
   });
-  it("掩蔽写：只读载荷 + 'node' 掩蔽相对路径写 → 拦（聚合洞已修）", () => {
-    expect(guard(`node -e "console.log(require('fs').readFileSync('/tmp/f','utf8').length)" && 'node' -e "require('fs').writeFileSync('config.yaml','x')"`)).not.toBeNull();
+  it("掩蔽写：只读载荷 + 'node' 掩蔽相对路径写 → 放（落点沙箱内；掩蔽形态不洗白主仓落点，变体锁钉住）", () => {
+    // #1527 原断言拦（聚合洞修复时代保守）；语义判据下 'node' 掩蔽段与 node 段同解析，
+    // 落点=cwd/config.yaml（沙箱内）→ ALLOW。掩蔽写落主仓时变体锁必拦。
+    expect(guard(`node -e "console.log(require('fs').readFileSync('/tmp/f','utf8').length)" && 'node' -e "require('fs').writeFileSync('config.yaml','x')"`)).toBeNull();
+    expect(checkBashCommandSafety(`'node' -e "require('fs').writeFileSync('config.yaml','x')"`, MAIN_PID, undefined, { projectRoot: ROOT, sessionCwd: ROOT })).not.toBeNull();
   });
-  it("H1：decoy 树外绝对路径掩蔽同载荷相对写 → 拦（检视 1527 严重 1，载荷内完备性）", () => {
-    expect(guard(`python3 -c "open('src/index.ts','w').write('x'); print('/tmp/decoy')"`)).not.toBeNull();
+  it("H1：decoy 树外绝对路径掩蔽同载荷相对写 → 放（落点沙箱内；decoy 不改真实落点，变体锁钉住）", () => {
+    // #1527 原断言拦（H1 载荷内完备性保守面）；语义判据下相对写落点=cwd/src/index.ts
+    //（沙箱内），/tmp/decoy 只是 print 参数非写目标 → ALLOW。cwd=主仓根变体必拦。
+    expect(guard(`python3 -c "open('src/index.ts','w').write('x'); print('/tmp/decoy')"`)).toBeNull();
+    expect(checkBashCommandSafety(`python3 -c "open('src/index.ts','w').write('x'); print('/tmp/decoy')"`, MAIN_PID, undefined, { projectRoot: ROOT, sessionCwd: ROOT })).not.toBeNull();
   });
   it("H3：拼接穿越 '/tmp/'+'../../…主仓' → 拦（提取器只见 /tmp/，拼接形态 fail-closed）", () => {
     expect(guard(`python3 -c "open('/tmp/'+'../../Users/orca/ai/otter-buddy/src/x.ts','w').write('x')"`)).not.toBeNull();
@@ -119,12 +133,17 @@ describe("F20261016grdl：段级 cd 豁免（族 E）边界", () => {
   it("cd $VAR && git commit（变量不可求值）→ 拦（保守）", () => {
     expect(guard(`cd $W && git commit -m x`)).not.toBeNull();
   });
-  it("cd worktree & git commit（& 切断子 shell）→ 拦（保守）", () => {
-    expect(guard(`cd ${WT} & git commit -m x`)).not.toBeNull();
+  it("cd worktree & git commit（& 切断子 shell）→ 放（cwd=沙箱：git commit 落排除区无 repo 空写面；主仓 cwd 变体必拦）", () => {
+    // #1527 原断言拦（保守）；F20261019gses cd 外溢修复（resolveCwdAt/evaluateFromModel
+    // 双处）：& 右段 cwd=startCwd。沙箱内无 .git → git commit 空写面 ALLOW。
+    // cwd=主仓根变体：git commit 落主仓 .git → 必拦（真漏拦面修复验证锁）。
+    expect(guard(`cd ${WT} & git commit -m x`)).toBeNull();
+    expect(checkBashCommandSafety(`cd ${WT} & git commit -m x`, MAIN_PID, undefined, { projectRoot: ROOT, sessionCwd: ROOT })).not.toBeNull();
   });
-  it("cd 主仓 && git commit（cwd 跟踪不豁免主仓目标；#cwsp 已知边界行为）→ 放行（显式意图，旧行为保持）", () => {
-    // F20261014cwsp 测试注释：模型版豁免不区分 cd 目标是否主仓——显式意图放行，
-    // 收紧属 cd 豁免语义重议（独立立项）。本用例钉住该已知边界不变。
-    expect(guard(`cd ${ROOT} && git commit -m x`)).toBeNull();
+  it("cd 主仓 && git commit（cwd 跟踪不豁免主仓目标；#cwsp 已知边界行为）→ 拦（BC-1 落点判，2026-10-19 期望翻转）", () => {
+    // S1 裁决（方向 A）：求值器先判后 cd 主仓的 git commit 即主仓写（语料 c020/BC-1
+    // 同判）。原注释「显式意图放行、收紧独立立项」的前提是 cd 豁免门存在——门已删，
+    // 边界行为按落点语义收紧，无 cd 对照 `git commit`@主仓同为 BLOCK。
+    expect(guard(`cd ${ROOT} && git commit -m x`)).not.toBeNull();
   });
 });

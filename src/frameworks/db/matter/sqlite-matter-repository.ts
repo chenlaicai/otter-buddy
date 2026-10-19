@@ -15,6 +15,7 @@ export interface MatterRow {
   origin_message_id: string | null;
   owner_otter_id: string | null;
   level: string | null;
+  closure_kind: string | null;
   state: string;
   waiting_on: string | null;
   waiting_for: string | null;
@@ -35,6 +36,7 @@ export function rowToMatter(row: MatterRow): Matter {
     originMessageId: row.origin_message_id,
     ownerOtterId: row.owner_otter_id,
     level: (row.level as Matter['level']) ?? null,
+    closureKind: (row.closure_kind as Matter['closureKind']) ?? null,
     state: row.state as Matter['state'],
     waitingOn: row.waiting_on,
     waitingFor: row.waiting_for,
@@ -70,9 +72,9 @@ export class SqliteMatterRepository implements MatterRepository {
     this.db.prepare(`
       INSERT INTO matters (
         id, conversation_id, title, origin_message_id, owner_otter_id,
-        level, state, waiting_on, waiting_for, payload, resolution, resolved_by,
+        level, closure_kind, state, waiting_on, waiting_for, payload, resolution, resolved_by,
         created_at, updated_at, closed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       matter.id,
       matter.conversationId,
@@ -80,6 +82,7 @@ export class SqliteMatterRepository implements MatterRepository {
       matter.originMessageId,
       matter.ownerOtterId,
       matter.level,
+      matter.closureKind,
       matter.state,
       matter.waitingOn,
       matter.waitingFor,
@@ -109,12 +112,12 @@ export class SqliteMatterRepository implements MatterRepository {
   async transition(
     id: string,
     fromState: Matter['state'],
-    patch: Partial<Pick<Matter, 'state' | 'waitingOn' | 'waitingFor' | 'payload' | 'resolution' | 'resolvedBy' | 'ownerOtterId' | 'level'>> & { updatedAt: string; closedAt?: string | null },
+    patch: Partial<Pick<Matter, 'state' | 'waitingOn' | 'waitingFor' | 'payload' | 'resolution' | 'resolvedBy' | 'ownerOtterId' | 'level' | 'closureKind'>> & { updatedAt: string; closedAt?: string | null },
   ): Promise<Matter | null> {
     const result = this.db.prepare(`
       UPDATE matters SET
         state = ?, waiting_on = ?, waiting_for = ?, payload = ?,
-        resolution = ?, resolved_by = ?, updated_at = ?, closed_at = ?
+        resolution = ?, resolved_by = ?, closure_kind = COALESCE(?, closure_kind), updated_at = ?, closed_at = ?
       WHERE id = ? AND state = ?
     `).run(
       patch.state!,
@@ -123,6 +126,7 @@ export class SqliteMatterRepository implements MatterRepository {
       patch.payload ?? null,
       patch.resolution ?? null,
       patch.resolvedBy ?? null,
+      patch.closureKind ?? null,
       patch.updatedAt,
       patch.closedAt !== undefined ? patch.closedAt : null,
       id,

@@ -15,6 +15,15 @@
 export type MatterLevel = 'L1' | 'L2';
 
 /**
+ * 闭环口径（F20261019fckd，#1457）：区分两类闭环的宣告权语义。
+ * - 'fact'：事实型——完成状态机器可验证（PR MERGED / issue CLOSED / 产物入库），
+ *   L2 闭环时 owner 可携机器证据直关（resolution 必含 #PR号 / commit sha 锚点）
+ * - 'decision'：判断型——完成质量由人认定（效果/方向验收），L2 闭环必须搭档确认
+ * - null：存量行未标注——保守视同 decision（守卫不放开，不许弱化）
+ */
+export type MatterClosureKind = 'fact' | 'decision';
+
+/**
  * 状态机当前态（§2 五存续态 + 两终态出口）。
  * 合法迁移矩阵见 matter-transitions.ts——未列入矩阵的迁移一律非法，
  * usecase 单入口（transition-matter.ts）拒绝。
@@ -55,6 +64,8 @@ export interface Matter {
   /** 负责獭——打回/唤醒/重派三处路由依据（WAITING_PARTNER 态下保留） */
   ownerOtterId: string | null;
   level: MatterLevel | null;
+  /** 闭环口径（F20261019fckd）：fact=机器可验证事实可 owner 直关；decision/null=保留 partner 确认闸 */
+  closureKind: MatterClosureKind | null;
   state: MatterState;
   waitingOn: MatterWaitingOn | null;
   /** 在等什么动作（一句话） */

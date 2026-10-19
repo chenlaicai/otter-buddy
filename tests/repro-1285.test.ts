@@ -1,15 +1,13 @@
 // #1285 三洞复现载荷的真断言回归（原修复前探针：13 载荷修复前实测全部 ALLOWED，
 // 修复后全部应 BLOCKED——r1 检视 B 级处置：伪断言 expect(true).toBe(true) 改真断言）
+// F20261019gses F1 修订：W 落点改为 projectRoot 动态拼接（旧固定 /repo 与测试的
+// projectRoot=__dirname 不匹配——F1 落点语义判据下虚构落点不在主仓树内而放行；
+// 空赋值前缀洞的本体是「赋值不破坏拦截」，落点对齐后语义判据同拦）。
 import { describe, it, expect } from "vitest";
 import { checkBashCommandSafety } from "../src/frameworks/agent/bash-safety-guard";
+import { join } from "node:path";
 
-// F20261016grdl 1a'-B 行为变更适配：W 落点从硬编码 /repo 改为 projectRoot 真实路径——
-// 「写动词 fail-closed 不看落点」翻转为「落点感知」后，/repo 字面路径落在测试 projectRoot
-//（__dirname）树外会被（正确的）落点感知豁免放行；#1285 语义是「空赋值前缀绕过通道」，
-// 落点改真主仓路径后该绕过面仍应拦（通道命中语义不变）。
-import path from "node:path";
-const MAIN = path.resolve(__dirname);
-const W = `write payload: require('fs').writeFileSync('${MAIN}/config.yaml','x')`;
+const W = `require('fs').writeFileSync(${JSON.stringify(join(__dirname, "config.yaml"))},'x')`;
 const cases: [string, string][] = [
   ["洞1a bash -c", `bash -c 'node -e "${W}"'`],
   ["洞1b sh -c", `sh -c 'node -e "${W}"'`],

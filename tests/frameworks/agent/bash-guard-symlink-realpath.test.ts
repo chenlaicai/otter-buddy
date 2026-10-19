@@ -82,8 +82,12 @@ describe("F20261019syml 放行侧（链清理/反向链/基线形态不误伤）
     expect(prod(`rm -rf /tmp/symreal-nonexistent`)).toBeNull();
   });
 
-  it("显式意图边界不动：诚实 cd 主仓内容树 && git commit 照旧放行（:1154 同语义真路径版）", () => {
-    expect(prod(`cd ${srcDir} && git commit --author="守卫修复獭 <otter-buddy>" -m a`)).toBeNull();
+  it("显式意图边界（三轮修订）：诚实 cd 主仓内容树 && git commit 按求值器落点判拦（S1 同源，期望翻转）", () => {
+    // S1 裁决（方向 A，2026-10-19）：cd 豁免门删除后本形态交求值器落点判——cwd=主仓
+    // 根的 git commit 即主仓写（bash-safety-guard.test.ts:1148 同形态已翻转；求值器
+    // 语料 c020/BC-1 同判）。原「显式意图放行」是 V1 豁免门整条放行语义，随 #1523
+    // 退役——与 R1「主仓改动走 worktree+PR」一致化。
+    expect(prod(`cd ${root} && git commit --author="守卫修复獭 <otter-buddy>" -m a`)).toBeTruthy();
   });
 });
 
@@ -119,13 +123,14 @@ describe("F20261019syml 二轮：`..`-after-symlink 变体（检视严重 1 回�
     expect(prod(`rm -rf ${link}/../src`)).toBeTruthy();
   });
 
-  it("多级 .. 穿链：git -C <link>/../.. 真实落点 <root> 的父级（树外）——git 写族树外 fail-closed 仍拦", () => {
-    // <link>/../.. = <root>/src/../../ = <root> 的父级（树外）。落点虽不落主仓，但 git 写族对
-    // 树外落点按 F20261014cwsp S1 既定语义 fail-closed 不豁免（「树外任意目录（落点不确定，
-    // fail-closed）都不豁免」，bash-safety-guard.ts cwdInGitWorktree 注释）——开「-C 树外即豁免」
-    // 会放出外部 worktree 间接写主仓 .git 的口子（git worktree add /tmp/x 后 -C 写入真落主仓
-    // .git），本轮不引入新豁免面（二轮设计取舍，见特性文档）。穿链解析本身的正确性由「基元」
-    // 例钉死（link/../probe1.txt 真落 <root> 判主仓）。
+  it("多级 .. 穿链：git -C <link>/../.. 真实落点 <root> 的父级（树外）——结构兜底通道 fail-closed 仍拦", () => {
+    // <link>/../.. = <root>/src/../../ = <root> 的父级（树外）。三轮（#1523 集成）复核：
+    // 求值器正证据契约判无主仓写 ALLOW，但结构兜底通道（checkSegmentStructuralWrite
+    // git 写族段——F20261014cwsp S1「树外任意目录（落点不确定）不豁免」语义的保留面，
+    // 对非工作树 cwd 的 git 写族 fail-closed，「只加拦不放行」）最终 BLOCK——可观测
+    // 语义与二轮取舍 6 一致（维持拦截）。同通道把「外部 worktree 间接写主仓 .git」
+    //（git worktree add /tmp/x 后 -C 写入）也关在 fail-closed 侧（取舍 6 修订）。穿链
+    // 解析正确性由「基元」例钉死（link/../probe1.txt 真落 <root> 判主仓）。
     expect(prod(`git -C ${link}/../.. commit --author="守卫修复獭 <otter-buddy>" -m a`)).toBeTruthy();
   });
 

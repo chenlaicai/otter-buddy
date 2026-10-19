@@ -15,13 +15,14 @@
  *    触发者身份 = onBehalfOf ?? actor
  * 3. 宣告权守卫（L2 闭环分权）：DONE_PENDING_CONFIRM → CLOSED 时
  *    level=L2 必须搭档确认（触发者身份须为 partner，可代执行声明）；
- *    L1 獭可自关留痕（搭档可翻案重开）
+ *    L1 獭可自关留痕（搭档可翻案重开）；F20261019fckd（#1457）分流：
+ *    closureKind='fact' 且 resolution 携机器证据时 owner 可直关；decision/null 闸不变
  * 4. 幂等：已是目标态短路返回；repo.transition 条件更新（WHERE state = ?）——
  *    并发迁移只有一方成功，另一方读到 changes=0 走幂等/冲突语义
  */
 
 import { DomainError } from '@entities/errors';
-import type { Matter, MatterState } from '@entities/matter/matter';
+import type { Matter, MatterClosureKind, MatterState } from '@entities/matter/matter';
 import { findMatterTransition, type MatterTransition } from '@entities/matter/matter-transitions';
 import type { MatterRepository } from './matter-repository';
 
@@ -33,10 +34,26 @@ export interface TransitionMatterInput {
   actor: string;
   /** §3.5 代执行声明：'partner' | otterId——声明后按被代理者身份过守卫（留痕 actor 字段） */
   onBehalfOf?: string;
+  /** F20261019fckd 补标闭环口径（迁移时可标，写入留痕）：'fact' | 'decision'；未传不改动存量值 */
+  closureKind?: MatterClosureKind | null;
   resolution?: string | null;
   waitingOn?: string | null;
   waitingFor?: string | null;
   payload?: string | null;
+}
+
+/**
+ * 机器证据判定（F20261019fckd，#1457）：fact 型 owner 直关的补偿条件。
+ * 认可形态（须命中其一）：
+ * ① #PR/issue 号（#后 2-6 位数字）
+ * ② 7-40 位 hex commit sha
+ * mergedAt/mergeCommit 关键词仅是辅助描述信号，不单独构成证据（对抗审视
+ * 建议 1 收紧：否则「见上文 mergedAt」零锚点散文可直关，违背验收标准③
+ * 「必含机器事实锚点」——关键词须与①或②同现，而同现时①/②已独立成立）
+ */
+export function hasMachineEvidence(text: string): boolean {
+  return /#[0-9]{2,6}\b/.test(text)
+    || /\b[0-9a-f]{7,40}\b/i.test(text);
 }
 
 /** 触发者分类（守卫 2/3 的输入） */
@@ -52,15 +69,38 @@ function actorAllowed(transition: MatterTransition, actorType: 'partner' | 'owne
   return transition.allowed.includes('any_otter') && actor !== 'partner';
 }
 
-/** 宣告权守卫：L2 matter 的闭环必须搭档确认（§2 闭环宣告权表；代执行声明也算搭档确认路径） */
-function assertCloseAuthority(matter: Matter, to: MatterState, actorIdentity: string): void {
-  if (matter.state === 'DONE_PENDING_CONFIRM' && to === 'CLOSED' && matter.level === 'L2'
-    && actorIdentity !== 'partner') {
-    throw new DomainError(
-      '宣告权拒绝：L2 matter 的闭环必须搭档确认（DONE_PENDING_CONFIRM → CLOSED 仅 partner（含代执行声明）可触发）',
-      'validation',
-    );
+/**
+ * 宣告权守卫（§2 闭环宣告权表 + F20261019fckd fact 分流）：
+ * - L1：獭自关留痕（搭档可翻案）——不变
+ * - L2 decision/null：必须搭档确认（触发者身份须为 partner，含代执行声明）——不变
+ * - L2 fact：owner 可携机器证据直关（resolution 必含 #PR号/commit sha 锚点，缺证据照拒）；
+ *   partner 确认路径不受影响（搭档永远有权确认）
+ */
+function assertCloseAuthority(
+  matter: Matter, to: MatterState, actorIdentity: string,
+  resolution: string | null | undefined, patchedClosureKind: MatterClosureKind | null | undefined,
+): void {
+  if (matter.state !== 'DONE_PENDING_CONFIRM' || to !== 'CLOSED' || matter.level !== 'L2'
+    || actorIdentity === 'partner') {
+    return; // 非 L2 闭环场景 / 搭档亲自确认——不拦
   }
+  // 补标优先于存量值（本次调用补标 fact + 直关一步合法；审计面 closure_kind 列留痕）
+  const effectiveKind = patchedClosureKind ?? matter.closureKind ?? null;
+  if (effectiveKind === 'fact') {
+    if (!resolution || !hasMachineEvidence(resolution)) {
+      throw new DomainError(
+        '宣告权拒绝：fact 型 L2 matter 的 owner 直关必须携机器证据——resolution 须含 PR/issue 号（如 #1535）'
+        + '或 7-40 位 commit sha（mergedAt/mergeCommit 关键词不单独构成证据）',
+        'validation',
+      );
+    }
+    return; // fact 型 + 机器证据齐备 → owner 直关放行
+  }
+  throw new DomainError(
+    '宣告权拒绝：L2 matter 的闭环必须搭档确认（DONE_PENDING_CONFIRM → CLOSED 仅 partner（含代执行声明）可触发；'
+    + 'fact 型可由 owner 携机器证据直关——本件不是 fact 型或未补标）',
+    'validation',
+  );
 }
 
 /**
@@ -85,7 +125,8 @@ function defaultWaitingOnForTransition(matter: Matter, to: MatterState, actor: s
 }
 
 /** 守卫编排：矩阵 + 触发者 + 宣告权（execute 只做编排；触发者身份 = 代执行声明 ?? 实际执行者） */
-function assertTransitionAllowed(matter: Matter, to: MatterState, actor: string, onBehalfOf?: string): void {
+function assertTransitionAllowed(matter: Matter, input: TransitionMatterInput): void {
+  const { to } = input;
   const transition = findMatterTransition(matter.state, to);
   if (!transition) {
     throw new DomainError(
@@ -93,16 +134,16 @@ function assertTransitionAllowed(matter: Matter, to: MatterState, actor: string,
       'validation',
     );
   }
-  const identity = onBehalfOf ?? actor;
+  const identity = input.onBehalfOf ?? input.actor;
   const actorType = classifyActor(identity, matter.ownerOtterId);
   if (!actorAllowed(transition, actorType, identity)) {
     throw new DomainError(
       `非法迁移触发者：${matter.state} → ${to} 只能由 ${transition.allowed.join('/')} 触发，` +
-      `当前触发者 ${identity}（${actorType}${onBehalfOf ? `，代执行声明于 ${actor}` : ''}）无权`,
+      `当前触发者 ${identity}（${actorType}${input.onBehalfOf ? `，代执行声明于 ${input.actor}` : ''}）无权`,
       'validation',
     );
   }
-  assertCloseAuthority(matter, to, identity);
+  assertCloseAuthority(matter, to, identity, input.resolution, input.closureKind);
 }
 
 /** resolvedBy 归一化（§1 口径：partner / otter:<id>） */
@@ -121,6 +162,8 @@ function buildTransitionPatch(
     waitingFor: input.waitingFor ?? matter.waitingFor,
     payload: input.payload ?? matter.payload,
     resolution: input.resolution ?? matter.resolution,
+    // F20261019fckd：补标留痕（closure_kind 列持久化）；未传不动存量值
+    closureKind: input.closureKind !== undefined ? input.closureKind : matter.closureKind,
     // resolvedBy 统一记实际执行獭（审计谁动了表）——被代理者身份经 resolution「代搭档执行：<原话>」留痕
     resolvedBy: normalizedActor(input.actor),
     updatedAt: now,
@@ -143,7 +186,7 @@ export class TransitionMatter {
     }
 
     // ---- 守卫 1+2+3：矩阵 + 触发者 + 宣告权 ----
-    assertTransitionAllowed(matter, input.to, input.actor, input.onBehalfOf);
+    assertTransitionAllowed(matter, input);
 
     const updated = await this.repo.transition(matter.id, matter.state, buildTransitionPatch(matter, input, new Date().toISOString()));
     if (!updated) {

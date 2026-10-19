@@ -178,9 +178,10 @@ describe("F20260924gfpn：cd worktree + git 写族正道（台账连环拦现场
     expect(checkBashCommandSafety("cd /repo/.otter/worktrees/wt1 && git apply /tmp/p.diff", mainPid, undefined, opts)).toBeNull();
   });
 
-  // 未 cd 的 git add -A（cd 豁免只到 cd 前；git add 不在写族正则但落主仓语义——现状不拦，保持）
-  it("git add -A（未 cd，add 本身不在写族判定内）→ 放行（现状保持）", () => {
-    expect(checkBashCommandSafety("git add -A", mainPid, undefined, opts)).toBeNull();
+  // 未 cd 的 git add -A：旧链「现状不拦保持」——F20261019gses 语义判据下 git add 落点=主仓
+  // 索引（evaluateWriteTargets git 通道），切换后拦截（漏拦补上面，差分审计 274 收益面之一）
+  it("git add -A（未 cd，add 落主仓索引）→ F20261019gses 切换后拦截（漏拦补上）", () => {
+    expect(checkBashCommandSafety("git add -A", mainPid, undefined, opts)).not.toBeNull();
   });
 });
 
@@ -191,8 +192,11 @@ describe("F20260924gfpn：变量赋值前缀不破坏 cd 检测（#5）", () => 
     expect(checkBashCommandSafety(cmd, mainPid, undefined, opts)).toBeNull();
   });
 
-  it("W=/repo; cd $W && git commit -m x → 放行", () => {
-    expect(checkBashCommandSafety("W=/repo; cd $W && git commit -m x", mainPid, undefined, opts)).toBeNull();
+  // S1 裁决原则②/BC-1（2026-10-19）：W=/repo → cd 链后 cwd=主仓根，git commit 落点
+  // /repo（求值器正向命中）；无 cd 对照 `git commit`@/repo 同为 BLOCK。原放行期望
+  // 是 cd 豁免门整条放行语义（S1 同源）。
+  it("W=/repo; cd $W && git commit -m x → 拦（cd 链解析落主仓根，BC-1）", () => {
+    expect(checkBashCommandSafety("W=/repo; cd $W && git commit -m x", mainPid, undefined, opts)).not.toBeNull();
   });
 
   it("FOO=1 BAR=2; cd /wt && git commit -m x（多赋值前缀）→ 放行", () => {

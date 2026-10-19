@@ -68,3 +68,23 @@ created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 **影响范围（二轮增量）**：判定语义仅在「`..` 紧跟 symlink 分量」形态变化（原词法折叠=逃逸面，现逐分量=真实落点）；诚实 `..`（无链）两侧行为逐比特不变（normalize 与逐分量对无链路径同结果）；虚构路径恒等返回不变（exam 棘轮零 GAP_DIFF 复证）；区域尾杠（M-cf899ad2）/显式意图边界继续不动。
 
 **验证（二轮）**：①固化失败：8 例 `..` 回归钉 6 红（redirect/cd/git -C/删穿/多级/基元）+ 2 绿（诚实 `..` 放行、wv 同链判拦）；②修后：同文件 20/20 绿；**全仓 npx vitest run 397 files 6205 passed + 6 skipped 零失败**；exam 棘轮 3/3 无 GAP_DIFF；③测试文件特性编号同步 F20261016syml→F20261019syml（大獭 81da02e2 委托）；④首跑全量 7 失败定性为负载 flake（6 例 5s 超时 + mahjong game-shot 集成抖动）：同 6 文件隔离复跑 73/73 绿 + 二次全量零失败交叉实证。
+
+## 三轮（#1523 合并集成，2026-10-19）
+
+**背景**：main 合入 #1523「守卫单一求值器终态」（主仓写判定整体升级 `evaluateWriteVerdict` 语义判据，bash-safety-guard 删 main_write 重叠面），与本特性的去折叠改动在 bash-safety-guard.ts / write-target-evaluator.ts 硬冲突。集成原则（大獭指导）：**#1523 架构为准不回退 + 去折叠语义等价落位**。
+
+**冲突解法**：bash-safety-guard 两处大冲突全取 main 侧（evaluateWriteVerdict 主体 + one-liner/cd 豁免面删除，S1 裁决不回退）；import 两处取并集后按实际引用清理（孤儿 statSync 去除）。
+
+**去折叠语义等价落位（二轮 8 处的迁移）**：
+
+1. **evalPath `..` 分支**：`climbPath` 词法爬升（字符串弹栈跨 symlink 分量与内核逐分量落点分歧 = `..`-after-symlink 同款逃逸面）→ 保留 `..` 交下游 `pathWithinMain`/fs 逐分量解析（非 symlink 形态两者逐比特同语义，exam 988 语料无扰；rebase 修的 `git -C ../` 误拦案例同样被 safeRealpath 修住）。climbPath 随之删除（无残留）。
+2. **gitSegSelfWriteEvidence -C 累积**：两处 `path.normalize(v)` 去折叠（同二轮 R4/R5）。
+3. **「末分量不穿链」等价落位**：`WriteTarget.entryOp`（rm=目录项操作）→ `pathEntryWithinMain`（父目录逐分量解析 + 末分量名保留）——`rm <link>` 只删链接不穿目标仍放行，`rm <root>` 删主仓根仍拦；find 起点/内容写保持全解析。
+4. **孤儿清理（无残留）**：`cdFormDiverges`/`isInsideMainCheckoutRaw`（一轮撒谎形态否决器）——其守卫的 cd 豁免门已随 #1523 删除，同语义由求值器真实落点正证据承担（撒谎 cd 目标解析真身后落主仓写即 BLOCK）。
+
+**语义迁移钉（测试对齐主侧 S1 口径）**：
+
+- **显式意图边界翻转**：`cd 主仓 && git commit` 放行→拦（主侧 bash-safety-guard.test.ts:1148 同形态已翻转：「原『显式意图放行』是豁免门整条放行语义（S1 同源，期望翻转）」）——与 R1「主仓改动走 worktree+PR」一致化。
+- **取舍 6 三轮复核：结论不变（多级树外例维持拦截）**，依据更新——结构兜底通道（checkSegmentStructuralWrite git 写族段，F20261014cwsp S1「树外不豁免」语义的保留面）对非工作树 cwd 的 git 写族 fail-closed「只加拦不放行」，覆盖求值器正证据 ALLOW；**外部 worktree 间接写主仓 .git 口子同被该通道关在 fail-closed 侧**（二轮取舍 6 担心的口子随判据迁移自动闭合）。
+
+**验证（三轮）**：回归钉 20/20（两处语义迁移钉按主侧口径改写并注锚）；exam 棘轮 3/3 无 GAP_DIFF（climbPath→保留 `..` 对非 symlink 语料逐比特同语义实证）；**全仓 397 files 6219 passed + 6 skipped 零失败**（首跑过，无 flake）；tsc / eslint 净。
