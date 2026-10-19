@@ -248,6 +248,29 @@ describe("detectSignals", () => {
     const signals = detectSignals(commits, [], [], { now: NOW, hotspotThreshold: 3 });
     expect(signals.find(s => s.type === "hotspot")).toBeUndefined();
   });
+
+  it("hotspot：高扇入枢纽文件排除（与 density 单一真相源，#1051 方案 1）", () => {
+    // 实测现场：open 存量 15 条全指向 app.ts / platforms.ts / index.tsx / agent-invoker.ts
+    // ——正是 post_merge_fix_density 用 FAN_IN_THRESHOLD=10 主动排除的那批枢纽。同一仓库
+    // 一个检测器认定「枢纽被碰是常态」、另一个拿它报警，自相矛盾。修后两者共用
+    // computeFanInExclusions。
+    const letters = "abcdefghijkmnpqr";
+    const hubCommits = Array.from({ length: 10 }, (_, i) =>
+      commit(`h${i}`, i + 1, `[F2026082${i < 5 ? 0 : 1}e${letters[i]}${letters[(i + 5) % 12]}xy][agent][Feature Update] 触碰枢纽 ${i}`, ["src/hub.ts"]));
+    // 对照组：src/leaf.ts 被改 5 次（> 阈值 3）但扇入只有 1 → 应正常报警
+    const leafCommits = Array.from({ length: 5 }, (_, i) =>
+      commit(`l${i}`, i + 1, `[F20260901z${letters[i]}aa][agent][Feature Update] 普通文件 ${i}`, ["src/leaf.ts"]));
+    const commits = [...hubCommits, ...leafCommits];
+    const chains = buildFeatureChains(commits, [], { now: NOW });
+    const signals = detectSignals(commits, chains, [], { now: NOW, hotspotThreshold: 3 });
+
+    // 枢纽被排除（不占警报位，观测走 health_snapshots）
+    expect(signals.find(s => s.type === "hotspot" && s.filePath === "src/hub.ts")).toBeUndefined();
+    // 非枢纽源码文件不受影响，照常报警
+    const hot = signals.find(s => s.type === "hotspot");
+    expect(hot).toBeDefined();
+    expect(hot!.filePath).toBe("src/leaf.ts");
+  });
 });
 
 describe("Issue #644：结构化证据 + 置信度", () => {

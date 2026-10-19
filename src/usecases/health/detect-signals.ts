@@ -9,7 +9,7 @@ import type { ParsedCommit } from "./commit-parser";
 
 import type { CollectedHealingEvent } from "./healing-collector";
 import type { FeatureChain } from "./chain-builder";
-import { detectPostMergeFixDensity } from "./post-merge-fix-density";
+import { detectPostMergeFixDensity, computeFanInExclusions } from "./post-merge-fix-density";
 import { SIGNAL_REGISTRY } from "./signal-registry";
 import type { SignalType, SignalSeverity } from "./signal-registry";
 
@@ -107,7 +107,7 @@ export function detectSignals(
 
   signals.push(...detectBugRecurrence(inWindow, options, now));
   signals.push(...detectChainStall(chains));
-  signals.push(...detectHotspot(inWindow, options));
+  signals.push(...detectHotspot(inWindow, chains, options));
   signals.push(...detectBehaviorDefect(healingEvents, options, now));
   signals.push(...detectHotspotImbalance(inWindow, options));
   // Issue #647：合并后修复密度（「哪个特性不对劲」，排除清单后；文件级 bug_recurrence 兑「哪里在出血」）
@@ -382,19 +382,32 @@ function isTestFile(filePath: string): boolean {
     || /\.spec\.[^/]+$/i.test(filePath);
 }
 
-/** hotspot：文件修改次数超阈值（窗口内全类型 commit 计数，排除测试文件） */
+/** hotspot：文件修改次数超阈值（窗口内全类型 commit 计数，排除测试文件 + 高扇入枢纽）
+ *  Why 排除高扇入（#1051 方案 1，2026-10-19）：实测 open 存量 15 条全指向 src/app.ts（19 次）、
+ *  src/bootstrap/platforms.ts（19）、web/src/pages/conversation/index.tsx（23）、
+ *  agent-invoker.ts（29）、tool-factory.ts（24）——**正是 post_merge_fix_density 用
+ *  FAN_IN_THRESHOLD=10 主动排除的那批枢纽文件**（实测近 60 天 fan-in：app.ts×65 /
+ *  platforms.ts×56 / index.tsx×50 / agent-invoker.ts×55）。同一仓库一个检测器认定
+ *  「枢纽文件被碰是常态」、另一个拿它报警，自相矛盾。枢纽被高频触碰是架构使然，
+ *  不是异常——文件热度属观测数据，归 health_snapshots 快照，不占警报位。
+ *  排除清单复用 computeFanInExclusions（与 density 同源，避免双源漂移——见
+ *  post-merge-fix-density.ts 的单一真相源注释）。 */
 function detectHotspot(
   commits: SignalCommitInput[],
+  chains: FeatureChain[],
   options: DetectOptions,
 ): DetectedSignal[] {
   const threshold = options.hotspotThreshold ?? 10;
   const reg = SIGNAL_REGISTRY.hotspot;
+  const excludedSet = new Set(computeFanInExclusions(chains).map(x => x.file));
 
   const fileCounts = new Map<string, number>();
   for (const c of commits) {
     for (const f of c.filesChanged) {
       // Why: 测试文件联动修改是正常节奏，混入热点会稀释信号质量
       if (isTestFile(f)) continue;
+      // Why: 高扇入枢纽被多特性触碰是架构使然（见函数注释），非文件热点
+      if (excludedSet.has(f)) continue;
       fileCounts.set(f, (fileCounts.get(f) ?? 0) + 1);
     }
   }
