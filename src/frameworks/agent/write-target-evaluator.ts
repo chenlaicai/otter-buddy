@@ -513,21 +513,42 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
 }
 
 /** 词表命令落点（cp/mv 第二非旗标参数；tee/touch/mkdir 全部非旗标参数）。返回 UnevalReason | null。 */
-// eslint-disable-next-line complexity -- 词表命令落点形态穷举（cp/mv 双参+find -delete 条件写面+~ 豁免，F20261016gdfv 破坏词表补齐后 14）
+// eslint-disable-next-line complexity, max-statements -- 词表命令落点形态穷举（cp/mv 双参+find -delete 条件写面+cp -t 目标前置+~ 豁免，F20261016gdfv 破坏词表补齐 + delta1 发现 3 归一后 25）
 function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
   if (!TARGET_ARG_COMMANDS.has(bare)) return null;
   // F20261016gdfv（M-c78df9d4 破坏词表补齐）：find 仅 -delete 表达式是破坏写面（读形态
   //  find 不入账）；落点=全部非旗标参数（表达式值混入落点集合=保守面，与 tee/touch 同款
   //  fail-closed 哲学）。此前 find 不在词表→`find /repo -delete` 双层放行（真破坏面）。
   if (bare === "find" && !seg.words.some(w => w.evaluated === "-delete")) return null;
+  // delta1（检视獭1554 发现 3）：拷贝族目标前置形态与 argv 写面（pairing）统一解析——
+  //  旧版把 -t 的目标目录词当位置词，`cp -t /tmp src` 的 dest 误算成 src（源被当写面、
+  //  真目标 /tmp 漏）；--target-directory= 形态则掉 uncovered-cmd——同族两形态两套语义。
+  const isCopy = bare === "cp" || bare === "mv";
   const nonFlagArgs: string[] = [];
+  let targetDir: string | null = null;
   for (let i = 1; i < seg.words.length; i++) {
     const w = seg.words[i].evaluated;
     if (w === null) return "dynamic-path";
+    if (isCopy) {
+      if (w === "-t" || w === "--target-directory") {
+        const v = seg.words[i + 1]?.evaluated ?? null;
+        if (v === null) return "dynamic-path"; // 目标目录动态——落点不可证
+        targetDir = v;
+        i++;
+        continue;
+      }
+      if (w.startsWith("--target-directory=")) { targetDir = w.slice("--target-directory=".length); continue; }
+    }
     if (w.startsWith("-")) continue;
     nonFlagArgs.push(w);
   }
-  const destArgs = (bare === "cp" || bare === "mv") ? nonFlagArgs.slice(1) : nonFlagArgs;
+  let destArgs: string[];
+  if (isCopy && targetDir !== null) {
+    // 目标前置：写入 DIR/basename(源)（DIR 本身入候选与常规形态 dest 同待遇）
+    destArgs = nonFlagArgs.length === 0 ? [] : [targetDir, ...nonFlagArgs.map(s => `${targetDir}/${path.basename(s)}`)];
+  } else {
+    destArgs = isCopy ? nonFlagArgs.slice(1) : nonFlagArgs;
+  }
   if (destArgs.length === 0) return "uncovered-cmd"; // 词表命令无落点参数：形态未知，保守回落
   for (const d of destArgs) {
     if (d.startsWith("~")) {
@@ -565,28 +586,23 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
     return null;
   };
   // 参数即落点：curl -o / wget -O / dd of=——只在**落点词**本身不可求值时才 dynamic-path，
-  //  无关词含 var/cmdsub 不触发（curl 无 -o 是只读，不得误伤）。
+  //  无关词含 var/cmdsub 不触发（curl 无 -o 是只读，不得误伤）。delta1（发现 2）：旗标
+  //  解析与造-执配对共用 downloadWriteTargets（一条语义一个接口——两套解析=发现 3 病灶），
+  //  合并短旗标簇/长旗标/默认落盘/remote-name 同面收齐。
   if (bare === "curl" || bare === "wget" || bare === "dd") {
-    for (let i = 1; i < words.length; i++) {
-      const w = words[i].evaluated;
-      if (bare === "dd") {
+    if (bare === "dd") {
+      for (let i = 1; i < words.length; i++) {
         const raw = words[i].evaluated;
         if (raw === null) continue; // 无关词（如 if=$VAR）不卡
         const of = /^of=(.+)$/.exec(raw);
         // eslint-disable-next-line max-depth -- F20261014smrj dd of= 旗标分支内嵌错误早退（早退即返回，不可平铺）
         if (of !== null) { const e = push(of[1]); if (e !== null) return e; }
-        continue;
       }
-      if (w === null) continue; // 无关词含 var/cmdsub → 跳过（非落点）
-      const inline = /^(?:--output|-[oO])=(.+)$/.exec(w);
-      if (inline !== null) { const e = push(inline[1]); if (e !== null) return e; continue; }
-      if (/^(?:--output|-[oO])$/.test(w)) {
-        const tv = words[i + 1]?.evaluated;
-        if (tv === undefined || tv === null) return "dynamic-path"; // 落点词不可求值
-        const e = push(tv); if (e !== null) return e;
-        i++; // 消耗落点词
-      }
+      return null;
     }
+    const r = downloadWriteTargets(words, cwd, bare === "wget" ? "wget" : "curl");
+    if (r.dynTarget) return "dynamic-path"; // 落点词不可求值
+    for (const t of r.targets) acc.targets.push({ path: t, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
     return null;
   }
   // 原地编辑（sed -i / perl -pi / ruby -pi）：目标=脚本/表达式之后的文件参数。
@@ -609,15 +625,29 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
     return null;
   }
   // 词表写命令：install/ln（dest=最后非旗标）/ chmod/chown/chgrp/truncate（路径=首参之后）
+  //  delta1（发现 3 归一）：install/ln 同收目标前置形态（-t DIR / --target-directory=DIR）
+  const isDestLast = bare === "install" || bare === "ln";
   const nonFlagArgs: string[] = [];
+  let targetDir: string | null = null;
   for (let i = 1; i < words.length; i++) {
     const w = words[i].evaluated;
     if (w === null) return "dynamic-path"; // 落点词不可求值
+    if (isDestLast) {
+      if (w === "-t" || w === "--target-directory") {
+        const v = words[i + 1]?.evaluated ?? null;
+        if (v === null) return "dynamic-path";
+        targetDir = v;
+        i++;
+        continue;
+      }
+      if (w.startsWith("--target-directory=")) { targetDir = w.slice("--target-directory=".length); continue; }
+    }
     if (w.startsWith("-") && w !== "-") continue;
     nonFlagArgs.push(w);
   }
   let destArgs: string[];
-  if (bare === "install" || bare === "ln") destArgs = nonFlagArgs.slice(-1); // dest=最后非旗标参数
+  if (isDestLast && targetDir !== null) destArgs = nonFlagArgs.length === 0 ? [] : [targetDir, ...nonFlagArgs.map(s => `${targetDir}/${path.basename(s)}`)];
+  else if (isDestLast) destArgs = nonFlagArgs.slice(-1); // dest=最后非旗标参数
   else destArgs = nonFlagArgs.slice(1); // chmod/chown/chgrp/truncate：路径=mode/owner/size 之后
   if (destArgs.length === 0) return "uncovered-cmd"; // 无落点参数：形态未知，保守回落
   for (const d of destArgs) { const e = push(d); if (e !== null) return e; }
@@ -1153,38 +1183,59 @@ function shellScriptFileArg(seg: Segment): { word: Word; dynamic: boolean } | nu
   return interpreterScriptFileArg(seg);
 }
 
+/** 单写面落点：同一段可有多个写面（argv + 重定向），content/copyOf 逐面独立——
+ *  cp 带重定向时 copyOf 只属拷贝目标，重定向目标内容不可知（delta1 发现 4/7 结构前置）。 */
+interface WriteFaceEntry {
+  target: string;
+  content: string | null;
+  copyOf?: string;
+}
+
 /** 造文件段内容重建（牙2）：echo/printf 静态参数、cat/tee 定界 heredoc 体 → 可重建；
  *  其他写法（cp/mv/追加/含展开参数）→ content=null（不可重建=dynamic）。
  *  F20261019wvcp（M-026d87ff）：扩 argv 写面——cp/mv/install/ln/tee/curl/wget/dd 不经
- *  重定向的落盘写同为造段（造-执对收编），内容一律不可重建 → content=null。 */
-// eslint-disable-next-line complexity -- F20261014smrj 牙2 内容重建 + F20261019wvcp argv 写面形态穷举，分支=已实证写法枚举
-function writerContent(seg: Segment, cwd: string): { targets: string[]; content: string | null; copyOf?: string } | null {
+ *  重定向的落盘写同为造段（造-执对收编），内容一律不可重建 → content=null。
+ *  delta1（检视獭1554 发现 7）：argv 写面与重定向写面取**并集**——tee 带重定向时双写面
+ *  同记（`tee f > g` 的 g 不再被 argv 面遮蔽漏配对），逐面独立 content/copyOf。 */
+function writerContent(seg: Segment, cwd: string): WriteFaceEntry[] | null {
+  const entries: WriteFaceEntry[] = [];
   const argvWrite = argvWriterContent(seg, cwd);
-  if (argvWrite !== null) return argvWrite;
+  if (argvWrite !== null) {
+    for (const t of argvWrite.targets) {
+      entries.push({ target: t, content: null, ...(argvWrite.copyOf !== undefined ? { copyOf: argvWrite.copyOf } : {}) });
+    }
+  }
   let redirect: Segment["redirects"][number] | null = null;
   for (const r of seg.redirects) {
     if (!isWriteRedirect(r.op) || isFdDup(r.op, r.target)) continue;
     redirect = r;
     break;
   }
-  if (redirect === null || redirect.target === null) return null;
-  const target = evalPath(redirect.target, cwd);
-  if (target === null) return null;
-  if (redirect.op.includes(">>")) return { targets: [target], content: null }; // 追加：先验内容不可知
+  if (redirect !== null && redirect.target !== null) {
+    const target = evalPath(redirect.target, cwd);
+    if (target !== null) entries.push({ target, content: redirectWriteContent(seg, redirect) });
+  }
+  return entries.length > 0 ? entries : null;
+}
+
+/** 重定向写面内容重建（原 writerContent 尾段语义原样拆出）：追加先验不可知；echo/printf
+ *  静态参数重建；cat/tee 单 heredoc 体重建（含展开则不可知）；其余不可重建 → null。 */
+// eslint-disable-next-line complexity -- echo/printf（单参/多参）/heredoc/追加分支=已实证写法枚举
+function redirectWriteContent(seg: Segment, redirect: Segment["redirects"][number]): string | null {
+  if (redirect.op.includes(">>")) return null; // 追加：先验内容不可知
   const bare = bareName(seg.argv0);
   if (bare === "echo" || bare === "printf") {
     const vals = seg.words.slice(1).map(w => w.evaluated);
-    if (vals.some(v => v === null)) return { targets: [target], content: null };
+    if (vals.some(v => v === null)) return null;
     const args = vals.filter((v): v is string => v !== null && !v.startsWith("-"));
-    const content = bare === "printf" ? args.slice(1).join("\n") : args.join(" ");
-    return { targets: [target], content };
+    return bare === "printf" ? args.slice(1).join("\n") : args.join(" ");
   }
   if ((bare === "cat" || bare === "tee") && seg.heredocs.length === 1) {
     const hd = seg.heredocs[0];
-    if (!hd.delimQuoted && /[$`]/.test(hd.body)) return { targets: [target], content: null };
-    return { targets: [target], content: hd.body };
+    if (!hd.delimQuoted && /[$`]/.test(hd.body)) return null;
+    return hd.body;
   }
-  return { targets: [target], content: null };
+  return null;
 }
 
 /** argv 写面目标提取（F20261019wvcp 造-执对收编）：cp/mv/install/ln/tee/curl/wget/dd 不经
@@ -1192,20 +1243,25 @@ function writerContent(seg: Segment, cwd: string): { targets: string[]; content:
  *  与 `echo "$X" > f && bash f` 既有 script-payload-dynamic 机制同语义：造出内容是权威
  *  载荷，不可重建就不猜）。cp/mv 多源附 dest/basename(src) 候选（`cp a /tmp/` 目录形态
  *  写入 dest/basename）；目标词动态不入候选（执行面同动态路径时 script-path-dynamic 兜住，
- *  无需配对）。 */
-// eslint-disable-next-line complexity -- argv 写面旗标/参数形态穷举（curl -o 三形态/dd of=/cp 多源），分支=已实证写法枚举
-function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; content: null } | null {
+ *  无需配对）。delta1（检视獭1554 发现 2/3）：拷贝族目标前置形态（-t DIR / --target-directory
+ *  =DIR）与常规形态统一解析——目标=DIR/basename(src)，不再把 -t 的目标词当源文件。 */
+// eslint-disable-next-line complexity, max-statements -- argv 写面旗标/参数形态穷举（curl -o 三形态/dd of=/cp 多源/-t 目标前置），分支=已实证写法枚举
+function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; content: null; copyOf?: string } | null {
   const bare = bareName(seg.argv0);
   const words = seg.words.slice(1);
   const args = words.map(w => w.evaluated).filter((v): v is string => v !== null && !v.startsWith("-"));
   const targets: string[] = [];
   let copyOf: string | undefined;
   if (bare === "cp" || bare === "mv" || bare === "install" || bare === "ln") {
-    if (args.length < 2) return null;
-    const dest = evalPath(args[args.length - 1], cwd);
-    if (dest === null) return null;
-    targets.push(dest);
-    const srcs = args.slice(0, -1);
+    const fam = copyFamilyArgs(words);
+    if (fam === null) return null;
+    const targetDirForm = fam.targetDir !== null;
+    const srcs = targetDirForm ? fam.positionals : fam.positionals.slice(0, -1);
+    const dest = targetDirForm
+      ? (fam.positionals.length === 0 || fam.targetDir === null ? null : evalPath(fam.targetDir, cwd))
+      : (fam.positionals.length < 2 ? null : evalPath(fam.positionals[fam.positionals.length - 1], cwd));
+    if (dest === null || srcs.length === 0) return null;
+    if (!targetDirForm) targets.push(dest);
     for (const src of srcs) {
       const base = path.basename(src);
       if (base !== "" && base !== "." && base !== "..") targets.push(`${dest}/${base}`);
@@ -1215,7 +1271,7 @@ function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; cont
   } else if (bare === "tee") {
     for (const a of args) { const t = evalPath(a, cwd); if (t !== null) targets.push(t); }
   } else if (bare === "curl" || bare === "wget") {
-    targets.push(...curlOutputTargets(words, cwd));
+    targets.push(...downloadWriteTargets(words, cwd, bare).targets);
   } else if (bare === "dd") {
     for (const w of words) {
       const v = w.evaluated;
@@ -1225,22 +1281,112 @@ function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; cont
   return targets.length > 0 ? { targets, content: null, ...(copyOf !== undefined ? { copyOf } : {}) } : null;
 }
 
-/** curl/wget 输出目标提取：-o/-O/--output 三形态（分离值/`=`值/附着值）。 */
-// eslint-disable-next-line complexity -- curl/wget 输出旗标形态穷举（三形态×值位），分支=已实证旗标枚举（c107 教训：合并会再制造旗标解析 bug）
-function curlOutputTargets(words: Word[], cwd: string): string[] {
-  const out: string[] = [];
+/** 拷贝族（cp/mv/install/ln）参数解析（delta1 发现 2/3）：目标前置形态 -t DIR /
+ *  --target-directory=DIR / --target-directory DIR——目标目录从位置词剥离（否则 dest
+ *  误算成源文件），其余位置词=源。未知旗标不消耗值位（历史口径，install -m 755 的 755
+ *  仍入位置词=保守多候选）；目标目录动态/缺失 → null（落点不可证，交动态牙口）。 */
+function copyFamilyArgs(words: Word[]): { targetDir: string | null; positionals: string[] } | null {
+  const positionals: string[] = [];
+  let targetDir: string | null = null;
   for (let i = 0; i < words.length; i++) {
     const v = words[i].evaluated;
     if (v === null) continue;
-    let cand: string | null = null;
-    if (v === "-o" || v === "-O" || v === "--output") {
+    if (v === "-t" || v === "--target-directory") {
       const nxt = words[i + 1]?.evaluated ?? null;
-      if (nxt !== null) { cand = nxt; i++; }
-    } else if (v.startsWith("--output=")) cand = v.slice("--output=".length);
-    else if (/^-[oO].+/.test(v)) cand = v.slice(2);
-    if (cand !== null) { const t = evalPath(cand, cwd); if (t !== null) out.push(t); }
+      if (nxt === null) return null;
+      targetDir = nxt;
+      i++;
+      continue;
+    }
+    if (v.startsWith("--target-directory=")) { targetDir = v.slice("--target-directory=".length); continue; }
+    if (v.startsWith("-")) continue;
+    positionals.push(v);
   }
-  return out;
+  return { targetDir, positionals };
+}
+
+/** 下载/输出旗标落点（delta1 发现 2，替换 curlOutputTargets）：curl/wget 输出旗标全形态——
+ *  分离值/`=`值/附着值（既有三形态）+ 合并短旗标簇（curl -so/-sfo、wget -qO 及附着值）
+ *  + 长旗标（--output-document=/--output-file=/--directory-prefix=）+ 默认落盘
+ *  （curl -O/--remote-name → basename(URL)；wget 无输出文档旗标 → saveDir/basename(URL)）。
+ *  一条语义一个接口：造-执配对（writerContent）与正写通道（evalExtendedWriteTargets）共用。
+ *  旗标语义差异如实分工具（c107 教训：合并会再制造旗标解析 bug）：curl -o=输出文档
+ *  /-O=remote-name（无值）；wget -O=输出文档/-o=日志文件（日志同为落盘写面）。
+ *  未知短旗标可能带值——停扫该簇（防误提取把旗标值当落点）；簇内 o/O 在停扫位之后=残余记档。 */
+interface DownloadWrite { targets: string[]; dynTarget: boolean }
+
+const DOWNLOAD_NO_VALUE_SHORT = new Set(["s", "S", "f", "v", "k", "q", "i", "I", "l", "L", "n", "N", "4", "6", "#", "g", "G", "R", "M"]);
+
+// eslint-disable-next-line complexity, max-statements, max-lines-per-function -- curl/wget 旗标形态穷举（簇/=/附着 × 值位 × 工具语义差异）+ 位置参数/默认落盘域同函数（拆分=两套解析=发现 3 病灶），分支=已实证旗标枚举（c107 教训：合并会再制造旗标解析 bug）
+function downloadWriteTargets(words: Word[], cwd: string, tool: "curl" | "wget"): DownloadWrite {
+  const targets: string[] = [];
+  const posArgs: string[] = [];
+  let dynTarget = false;
+  let remoteName = false; // curl -O/--remote-name（或短簇内 O）→ 落盘 basename(URL)
+  let saveDir: string | null = null; // wget -P/--directory-prefix → 默认落盘目录
+  let sawOutputDoc = false; // wget -O/--output-document（显式输出文档取代默认落盘）
+  let noDownload = false; // wget --spider/--dry-run（不落盘，无默认写面）
+  const pushVal = (val: string | null): void => {
+    if (val === null) { dynTarget = true; return; }
+    if (val === "") return; // 空值位（-o=）无落点——旧三形态正则 (.+) 同口径
+    if (val.startsWith("~")) { if (val.includes("..")) dynTarget = true; return; } // 家目录落点同 push() 口径：纯 ~ =非主仓树；~/.. 可爬升=不可证
+    const t = evalPath(val, cwd);
+    if (t !== null) targets.push(t);
+  };
+  for (let i = 0; i < words.length; i++) {
+    const v = words[i].evaluated;
+    if (v === null) continue; // 无关词动态跳过（落点位动态由 pushVal 记 dynTarget）
+    if (v === "--") { for (const u of words.slice(i + 1)) { const e = u.evaluated; if (e !== null) posArgs.push(e); } break; }
+    if (v.startsWith("--")) {
+      const eq = v.indexOf("=");
+      const name = eq === -1 ? v : v.slice(0, eq);
+      const inline = eq === -1 ? null : v.slice(eq + 1);
+      const outDoc = (tool === "curl" && name === "--output") || (tool === "wget" && (name === "--output-document" || name === "--output-file"));
+      if (outDoc) {
+        if (inline !== null) pushVal(inline);
+        else { pushVal(words[i + 1]?.evaluated ?? null); i++; }
+        if (tool === "wget" && name === "--output-document") sawOutputDoc = true;
+        continue;
+      }
+      if (tool === "curl" && (name === "--remote-name" || name === "--remote-name-all")) { remoteName = true; continue; }
+      if (tool === "wget" && name === "--directory-prefix") {
+        const val = inline !== null ? inline : (words[i + 1]?.evaluated ?? null);
+        if (inline === null) i++;
+        if (val === null) dynTarget = true; else if (val !== "") saveDir = val;
+        continue;
+      }
+      if (tool === "wget" && (name === "--spider" || name === "--dry-run")) { noDownload = true; continue; }
+      continue; // 其他长旗标：自含（=值）或无值——分离值形态漏认=残余记档（误消耗位置词防护优先）
+    }
+    if (v.startsWith("-") && v.length > 1) {
+      const cluster = v.slice(1);
+      let skipNext = false;
+      for (let k = 0; k < cluster.length; k++) {
+        const ch = cluster[k];
+        const rest = cluster.slice(k + 1);
+        const attached = rest.startsWith("=") ? rest.slice(1) : rest; // -o=f 历史口径值=f（三形态「=值」口径）
+        const attachedForm = attached !== "";
+        const val = attachedForm ? attached : (words[i + 1]?.evaluated ?? null);
+        if (tool === "curl" && ch === "o") { pushVal(val); skipNext = !attachedForm; break; }
+        if (tool === "wget" && (ch === "O" || ch === "o")) { pushVal(val); skipNext = !attachedForm; sawOutputDoc = ch === "O" || sawOutputDoc; break; }
+        if (tool === "wget" && ch === "P") { dynTarget = val === null || dynTarget; saveDir = val !== null && val !== "" ? val : saveDir; skipNext = !attachedForm; break; }
+        if (tool === "curl" && ch === "O") { remoteName = true; continue; } // curl -O 无值，继续扫簇（-sO 等）
+        if (!DOWNLOAD_NO_VALUE_SHORT.has(ch)) break; // 未知短旗标可能带值——停扫（漏认=残余记档，假写面=误拦优先防）
+      }
+      if (skipNext) i++;
+      continue;
+    }
+    posArgs.push(v); // 位置参数（URL/源词）
+  }
+  const defaultSave = (tool === "curl" && remoteName) || (tool === "wget" && !sawOutputDoc && !noDownload);
+  if (defaultSave) {
+    for (const u of posArgs) {
+      const base = path.basename(u);
+      if (base === "" || base === "." || base === ".." || /[?#]/.test(base)) continue;
+      pushVal(saveDir !== null ? `${saveDir}/${base}` : base);
+    }
+  }
+  return { targets, dynTarget };
 }
 
 /** 载荷主仓字面量闸（与窄提取「载荷含主仓树字面量一律回落」同源口径的反向判据）：
@@ -1278,17 +1424,23 @@ function judgeScriptPayload(text: string, projectRoot: string, cwd: string, acc:
   return null;
 }
 
-/** 配对判读（F20261019wvcp 抽出）：回扫写段找造出 sPath 的那一段——内容可重建走内容
- *  判读，不可知 fail-closed；管道段排除（本段 stdout 进管道=下一段经管道接入）——管道
- *  消费侧才是落盘写方（echo a | tee x 的 tee 才是写方；`echo x > f | wc` 不是；joiner
- *  挂入端，探针实证 tee.joiner="|"）。 */
+/** 配对判读（F20261019wvcp 抽出；delta1 修法——检视獭1554 发现 1/4）：回扫写段找造出
+ *  sPath 的那一段——**逆序扫（后写覆盖前写，与 chainContentPlan 同语义，发现 4）**：
+ *  同路径多写段时运行时生效的是最后一次写（`echo ok > f && echo pwn > f` 的 pwn），
+ *  顺扫取先写会让良性先写遮蔽恶意后写。内容可重建走内容判读，不可知 fail-closed。
+ *  管道段不再排除（发现 1 回归修）：bash 语义里重定向/argv 写面不受管道影响
+ *  （`echo pwn > f | wc` 的 echo 仍是 f 的造段——重定向优先于管道；管道只影响内容来源
+ *  可判读性，由 content=null 承担）；旧排除把「写段 stdout 进管道」整段跳过 =
+ *  `echo pwn > f | wc && bash f` 造-执对漏配（基线 BLOCK → 曾放行的回归）。 */
 function pairPlanFor(sPath: string, segs: Segment[], cwdAt: (string | null)[], upTo: number): SegPayloadPlan | undefined {
-  for (let j = 0; j < upTo; j++) {
-    if (segs[j + 1]?.joiner === "|") continue;
-    const w = writerContent(segs[j], cwdAt[j] as string);
-    if (w === null || !w.targets.includes(sPath)) continue;
-    if (w.content !== null) return { status: "content", text: w.content };
-    return w.copyOf !== undefined ? chainContentPlan(w.copyOf, segs, cwdAt, j) : { status: "dynamic" };
+  for (let j = upTo - 1; j >= 0; j--) {
+    const entries = writerContent(segs[j], cwdAt[j] as string);
+    if (entries === null) continue;
+    for (const e of entries) {
+      if (e.target !== sPath) continue;
+      if (e.content !== null) return { status: "content", text: e.content };
+      return e.copyOf !== undefined ? chainContentPlan(e.copyOf, segs, cwdAt, j) : { status: "dynamic" };
+    }
   }
   return undefined;
 }
@@ -1300,10 +1452,13 @@ function pairPlanFor(sPath: string, segs: Segment[], cwdAt: (string | null)[], u
 function chainContentPlan(src: string, segs: Segment[], cwdAt: (string | null)[], upTo: number, depth = 0): SegPayloadPlan {
   if (depth > 4) return { status: "dynamic" };
   for (let k = upTo - 1; k >= 0; k--) {
-    const w = writerContent(segs[k], cwdAt[k] as string);
-    if (w === null || !w.targets.includes(src)) continue;
-    if (w.content !== null) return { status: "content", text: w.content };
-    return w.copyOf !== undefined ? chainContentPlan(w.copyOf, segs, cwdAt, k, depth + 1) : { status: "dynamic" };
+    const entries = writerContent(segs[k], cwdAt[k] as string);
+    if (entries === null) continue;
+    for (const e of entries) {
+      if (e.target !== src) continue;
+      if (e.content !== null) return { status: "content", text: e.content };
+      return e.copyOf !== undefined ? chainContentPlan(e.copyOf, segs, cwdAt, k, depth + 1) : { status: "dynamic" };
+    }
   }
   return { status: "dynamic" };
 }
