@@ -286,6 +286,8 @@ describe('SSE 断连重连补偿（F20260924ircc，issue #1160）', () => {
     onload: (() => void) | null = null
     constructor() { FakeXHR.instances.push(this) }
     open() {}
+    // #1322：SSE 订阅现在会设身份头（生产 XHR 标配方法，fake 补齐）
+    setRequestHeader() {}
     send() {}
     abort() {}
     /** 模拟服务端推流（数据增长触发 onprogress） */

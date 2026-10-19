@@ -316,3 +316,15 @@ export function settlementModel(events) {
     players: null,
   };
 }
+
+/**
+ * 聊天行格式化（#1532）：ownSeat 命中显「你」，獭发言带（獭）标记，名字缺省回退号位。
+ * 纯函数——传输层只发 chat 帧（seat/from/name/text），怎么排由视图层定。
+ * @param {{seat: number, name?: string, from?: string, text: string}} ev
+ * @param {number|null} ownSeat
+ */
+export function formatChatLine(ev, ownSeat = null) {
+  const who = ev.seat === ownSeat ? "你" : (ev.name || `${ev.seat}号位`);
+  const tag = ev.from === "otter" ? "（獭）" : "";
+  return `${who}${tag}：${ev.text}`;
+}

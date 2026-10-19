@@ -79,12 +79,9 @@ budget_bytes: 10750
 
 ## issue 产出规范
 issue 必含案发现场（证据真实、含锚点）与影响。方案两态——「已排查结论」（附证据链）或「排查方向（假设）」（标置信度）；禁裸方案；写不出标「暂不修复」。**标签/标题/聚合硬规则**（真相源 `scripts/lint-issue-labels.mjs`）：type+priority+daily-review 各一；标题 `[模块] 一句话摘要`；同根因合一条。不完整率 >5% 日报标红
-**验证断言必填**：每个 issue body 含「验证断言」段——`断言`（可证伪含数据源）/`检查方式`/`到期`（+30 天）；写不出 = 问题定义不清，重写。回查由 regression-verify 到期执行。
-
-**关闭标准必填**（搭档拍板）：每个 issue body 含「关闭标准」段——可验证的关闭条件；写不出 = 不该存在（并入他 issue 或转文档）。
-**断言豁免标注**：纯决策/容器型 issue，「验证断言」段首行标 `暂不验证：<原因>`——回查跳过。## 止损线检查（P0-c）
+**验证断言/关闭标准必填**：每个 issue body 含「验证断言」段（可证伪含数据源/检查方式/到期+30天，regression-verify 到期回查）；每个 issue body 含「关闭标准」段（可验证关闭条件，搭档拍板）——断言写不出=问题定义不清重写；关闭标准写不出=不该存在（并入或转文档）；纯决策/容器型断言段首行标 `暂不验证：<原因>` 回查跳过。
+**候选池**：观察/评估类发现不立案，进日报末尾「候选池」段——细则见 9:30 任务。
+## 止损线检查（P0-c）
 每日查评测止损线（详规见特性文档 2026-09-02；脚本 `cd <主仓> && node scripts/lint-intent.mjs`）：①新增 intent 率 <80%；②golden-results 从未执行；③≥5 PR 场景 passed 全 true。触发 → 开 issue（owner=大獭）
 
-**golden 执行对账**：近 24h 合入软代码 PR（`gh pr list --state merged` 筛 modules 含 prompts//.pi/）× golden-results.jsonl——缺记录/fail 悬置/pending 超 72h → 开 issue（owner=大獭）
-
-**verify_by 豁免**：对账前读 PR 特性文档 `intent.verify_by.type`——∈ {static_only, human_judge} 判「豁免」并日报标注「豁免：#<PR> (<type>)」；capability_test/golden_replay 应落账不豁免；缺声明照判缺记录
+**golden 执行对账+豁免**：近 24h 合入软代码 PR（`gh pr list --state merged` 筛 modules 含 prompts//.pi/）× golden-results.jsonl——缺记录/fail 悬置/pending 超 72h → 开 issue（owner=大獭）；对账前读 PR 特性文档 `intent.verify_by.type`——∈ {static_only, human_judge} 判「豁免」并日报标注「豁免：#<PR> (<type>)」，capability_test/golden_replay 应落账不豁免，缺声明照判缺记录

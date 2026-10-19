@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, ExternalLink, FileText, Folder, FolderOpen, Loader2 } from 'lucide-react'
 import { MarkdownContent } from './MessageList'
+import { identityHeaders } from '../../api/identity'
 import { Modal } from '../../components/Modal'
 // Why: Workspace DTO 单一真相源在 api-contract（issue #558）——本文件曾是手工同步副本，
 // 迁移后直接引用契约，与后端靠 web tsc --noEmit 锁死漂移
@@ -53,7 +54,7 @@ async function fetchDir(conversationId: string, path?: string): Promise<Workspac
   const url = path
     ? `/api/conversations/${conversationId}/workspace?path=${encodeURIComponent(path)}`
     : `/api/conversations/${conversationId}/workspace`
-  const res = await fetch(url)
+  const res = await fetch(url, { headers: identityHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: '加载失败' }))
     throw new Error(err.error || '加载失败')
@@ -63,7 +64,7 @@ async function fetchDir(conversationId: string, path?: string): Promise<Workspac
 
 /** 从 API 加载文件内容 */
 async function fetchFile(conversationId: string, path: string): Promise<WorkspaceFileContent> {
-  const res = await fetch(`/api/conversations/${conversationId}/workspace/file?path=${encodeURIComponent(path)}`)
+  const res = await fetch(`/api/conversations/${conversationId}/workspace/file?path=${encodeURIComponent(path)}`, { headers: identityHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: '加载失败' }))
     throw new Error(err.error || '加载失败')
@@ -381,7 +382,7 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
       const reqBody: WorkspaceRevealRequest = { path: entry.path }
       const res = await fetch(`/api/conversations/${conversationId}/workspace/reveal`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...identityHeaders() },
         body: JSON.stringify(reqBody),
       })
       if (!res.ok) {

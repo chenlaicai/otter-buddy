@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { identityHeaders } from '../../api/identity'
 
 /**
  * #576（F20260901emps）：数据源 GET /api/skills（ResourceLoader 真相源）。
@@ -217,12 +218,12 @@ export default function SkillsPage() {
     // F20260929scfx：双源并行拉取（skills + prompts）；prompts 失败降级 null
     // （卷首/卷末编跳过），skills 失败才整书降级
     Promise.all([
-      fetch('/api/skills')
+      fetch('/api/skills', { headers: identityHeaders() })
         .then(res => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
           return res.json() as Promise<{ skills: { name: string; description: string; body?: string }[] }>
         }),
-      fetch('/api/prompts')
+      fetch('/api/prompts', { headers: identityHeaders() })
         .then(res => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
           return res.json() as Promise<PromptData>

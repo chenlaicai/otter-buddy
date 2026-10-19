@@ -25,6 +25,7 @@ ALPHA_PORT_MAX=3198
 ALPHA_SLOTS=50            # 3100-3198 偶数共 50 槽
 HEALTH_PATH="/api/settings"
 HEALTH_TIMEOUT=60         # 主服务冷启动含 embedding 模型加载，放宽到 60s
+                          # #1322（F20261016autz）：/api/settings 已接鉴权——探针必须带身份头，无头 401 会被 curl -sf 判为不健康
 
 # ── 基础 helpers ────────────────────────────────────────────
 
@@ -201,7 +202,7 @@ wait_for_health_or_exit() {
   local waited=0
   echo "Waiting for API on port $port ..." >&2
   while [ "$waited" -lt "$max_wait" ]; do
-    if curl -sf "http://localhost:$port$HEALTH_PATH" >/dev/null 2>&1; then
+    if curl -sf -H 'X-Otter-User-Id: script:alpha.sh' -H 'X-Otter-User-Role: admin' "http://localhost:$port$HEALTH_PATH" >/dev/null 2>&1; then
       return 0
     fi
     if ! is_pid_alive "$pid"; then

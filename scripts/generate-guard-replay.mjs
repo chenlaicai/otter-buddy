@@ -29,13 +29,14 @@ function argOf(name, def) {
 }
 
 // dbPath 发现：--db > 环境回退（与 daily-health-check 的 sqlite3 直查前置纪律同源：
-// 先 curl /api/settings 确认 dbPath；脚本形态下由调用方传入或用默认布局）
+// 先 curl -H 'X-Otter-User-Id: script:guard-replay' http://localhost:3000/api/settings 确认 dbPath
+//（#1322 已接鉴权，无头会 401）；脚本形态下由调用方传入或用默认布局）
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dbPath = resolve(argOf("--db", `${repoRoot}/data/otter.db`));
 const outPath = resolve(argOf("--out", `${repoRoot}/data/guard-replay-candidates`));
 
 if (!existsSync(dbPath)) {
-  console.error(`[guard-replay] db 不存在：${dbPath}（先 curl -s http://localhost:3000/api/settings 确认 dbPath，用 --db 传入）`);
+  console.error(`[guard-replay] db 不存在：${dbPath}（先 curl -s -H 'X-Otter-User-Id: script:guard-replay' http://localhost:3000/api/settings 确认 dbPath，用 --db 传入）`);
   process.exit(2);
 }
 

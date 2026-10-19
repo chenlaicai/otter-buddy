@@ -7,6 +7,7 @@ import { useDraftCache } from '../../hooks/use-draft-cache'
 import { ATTACHMENT_ACCEPT, MAX_IMAGES_PER_SEND, MAX_FILES_PER_UPLOAD, fmtBytes } from '../../lib/attachments'
 import type { StagedAttachment, UploadErrorInfo } from './hooks/useAttachmentStaging'
 import { MagicWordHelp } from './MagicWordHelp'
+import { withIdentity } from '../../api/identity'
 
 interface MessageInputProps {
   onSend: (text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[], mode?: 'steer' | 'followUp') => void
@@ -187,7 +188,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
               <div key={s.id} className={`relative group rounded-xl glass-card p-1.5 flex items-center gap-2 ${s.uploading ? 'opacity-60' : ''}`}>
                 {s.kind === 'image' ? (
                   <img
-                    src={s.localPreviewUrl || `/api/attachments/${s.id}`}
+                    src={s.localPreviewUrl || withIdentity(`/api/attachments/${s.id}`)}
                     alt={s.originalName}
                     className="w-12 h-12 rounded-lg object-cover"
                   />

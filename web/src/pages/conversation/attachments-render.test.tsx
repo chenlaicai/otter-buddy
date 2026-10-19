@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MessageList } from './MessageList'
+import { withIdentity } from '../../api/identity'
 import type { LocalMessage, LocalAttachment } from '../../lib/mappers'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
@@ -56,8 +57,14 @@ describe('MessageList 附件渲染（多模态 Phase 1）', () => {
       atts: [att('att-img-1', 'image', 'photo.png', 1024 * 1024)],
     }
     render([msg])
-    const img = container.querySelector('img[src="/api/attachments/att-img-1"]')
+    // 定位用前缀选择器（jsdom 对值含 ? 的 = 属性选择器有解析缺陷），全值用字符串比对：
+    // 既是精确契约（含身份 query），又不被该缺陷误导
+    const img = container.querySelector('img[src^="/api/attachments/att-img-1"]')
     expect(img).not.toBeNull()
+    expect(img!.getAttribute('src')).toBe(withIdentity('/api/attachments/att-img-1'))
+    // #1322：直链身份 query 通道的字面契约（防 withIdentity 自身回归被自引用断言掩盖）
+    expect(img!.getAttribute('src')).toContain('otterUserId=web-ui')
+    expect(img!.getAttribute('src')).toContain('otterRole=admin')
     expect(img!.getAttribute('alt')).toBe('photo.png')
   })
 
@@ -68,7 +75,9 @@ describe('MessageList 附件渲染（多模态 Phase 1）', () => {
       atts: [att('att-doc-1', 'document', 'notes.txt', 4096)],
     }
     render([msg])
-    const link = container.querySelector<HTMLAnchorElement>('a[href="/api/attachments/att-doc-1"]')
+    const link = container.querySelector<HTMLAnchorElement>('a[href^="/api/attachments/att-doc-1"]')
+    expect(link).not.toBeNull()
+    expect(link!.getAttribute('href')).toBe(withIdentity('/api/attachments/att-doc-1'))
     expect(link).not.toBeNull()
     expect(link!.textContent).toContain('notes.txt')
     expect(link!.textContent).toContain('4.0KB')
@@ -91,8 +100,11 @@ describe('MessageList 附件渲染（多模态 Phase 1）', () => {
       atts: [att('att-i', 'image', 'pic.png'), att('att-d', 'document', 'data.csv', 512)],
     }
     render([msg])
-    expect(container.querySelector('img[src="/api/attachments/att-i"]')).not.toBeNull()
-    expect(container.querySelector('a[href="/api/attachments/att-d"]')!.textContent).toContain('data.csv')
+    expect(container.querySelector('img[src^="/api/attachments/att-i"]')).not.toBeNull()
+    const csv = container.querySelector<HTMLAnchorElement>('a[href^="/api/attachments/att-d"]')
+    expect(csv).not.toBeNull()
+    expect(csv!.getAttribute('href')).toBe(withIdentity('/api/attachments/att-d'))
+    expect(csv!.textContent).toContain('data.csv')
   })
 
   it('无附件消息不受影响（不渲染附件块）', () => {

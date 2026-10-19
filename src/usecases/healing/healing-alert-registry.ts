@@ -94,9 +94,16 @@ export const healingAlertRegistry = new HealingAlertRegistry();
  * 详情查询走台账工具——不在此重复全量信息。
  */
 export function renderHealingAlerts(alerts: HealingAlert[]): string {
-  const lines = alerts.map(a =>
-    `- [${a.createdAt}] ${a.errorType}：${a.description.length > 120 ? a.description.slice(0, 120) + '…' : a.description}`
-    + `（发起獭：${a.otterId}）`,
-  );
+  // #1545 次要发现修复：聚合提醒的 ids 段不参与 120 字符截断——截断会让 ids 全量
+  // 仅首条可见（298 条超限聚合现场），大獭无从定位事件族；改为「摘要截断 + ids 段完整」
+  // 两段拼接，台账查询指引保留
+  const lines = alerts.map(a => {
+    const idsMatch = a.description.match(/ids：([\w,-]+)。/);
+    const idsSegment = idsMatch ? idsMatch[0] : '';
+    const body = idsSegment ? a.description.replace(idsSegment, '') : a.description;
+    const truncated = body.length > 120 ? body.slice(0, 120) + '…' : body;
+    return `- [${a.createdAt}] ${a.errorType}：${truncated}${idsSegment ? ' ' + idsSegment : ''}`
+      + `（发起獭：${a.otterId}）`;
+  });
   return `## ⚠️ 高危 healing 事件提醒（小獭上报，需你处置）\n以下 ${alerts.length} 条 severity:high 事件已落台账待处置，请当场裁决或确认已知后继续。\n详情与处置用 manage_healing_events(action=query) 查。\n${lines.join('\n')}`;
 }

@@ -77,11 +77,12 @@ const TRANSITIONS: ReadonlyMap<string, MatterTransition> = new Map([
     allowed: ['partner'],
     note: '裁决为「打回/再改」时',
   }],
-  // DONE_PENDING_CONFIRM → CLOSED：见宣告权表——L1=獭自关；L2=必须搭档确认
+  // DONE_PENDING_CONFIRM → CLOSED：见宣告权表——L1=獭自关；L2 分流（F20261019fckd）：
+  // decision/null=必须搭档确认；fact=owner 可携机器证据直关（守卫见 transition-matter）
   ['DONE_PENDING_CONFIRM->CLOSED', {
     from: 'DONE_PENDING_CONFIRM', to: 'CLOSED',
     allowed: ['owner', 'partner'],
-    note: 'L1=獭自关留痕；L2=必须搭档确认（宣告权分权，守卫见 transition-matter）',
+    note: 'L1=獭自关留痕；L2 按闭环口径分流：decision/null=必须搭档确认，fact=owner 携机器证据直关（F20261019fckd）',
   }],
   // DONE_PENDING_CONFIRM → WAITING_OTTER：搭档打回（闭环确认不通过）
   ['DONE_PENDING_CONFIRM->WAITING_OTTER', {

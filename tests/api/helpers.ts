@@ -10,6 +10,7 @@ import { vi } from "vitest";
 import { Hono } from "hono";
 import { MessageBroadcaster } from "../../src/usecases/im/message-broadcaster";
 import { createRouter, type Controllers } from "../../src/interface-adapters/http/router";
+import { withIdentity } from "../helpers/with-identity";
 import { ConversationController } from "../../src/interface-adapters/http/controllers/conversation-controller";
 import { MessageController } from "../../src/interface-adapters/http/controllers/message-controller";
 import { InvokeController } from "../../src/interface-adapters/http/controllers/invoke-controller";
@@ -564,7 +565,8 @@ export function createTestApp(deps: TestDeps): Hono {
   // 暴露 broadcaster 给测试（用于配置 mock invokeConversation 的事件推送）
   (app as any).__mockBroadcaster = broadcaster;
 
-  return app;
+  // #1322（F20261016autz）：业务用例注入默认身份；鉴权矩阵用裸 app（identity-middleware.test.ts）
+  return withIdentity(app);
 }
 
 /** 创建类型安全的 mock deps，各测试按需覆盖 */

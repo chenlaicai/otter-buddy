@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { identityHeaders } from '../../api/identity'
 import { Globe, ImageOff } from 'lucide-react'
 
 /** F20261008csf1 P1 + F20261013csv3 T1：链类 unfurl 预览卡（数据先行架构）。
@@ -68,7 +69,7 @@ const POLL_MAX_ATTEMPTS = 12
 /** 抓取（可被测试 mock：export 后测试 vi.mock 本模块或直接 stub fetch） */
 export async function fetchUnfurl(url: string): Promise<UnfurlResponse | null> {
   try {
-    const resp = await fetch(`/api/unfurl?url=${encodeURIComponent(url)}`)
+    const resp = await fetch(`/api/unfurl?url=${encodeURIComponent(url)}`, { headers: identityHeaders() })
     if (!resp.ok) return null
     return (await resp.json()) as UnfurlResponse
   } catch {

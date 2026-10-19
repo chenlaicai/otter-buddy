@@ -1131,21 +1131,22 @@ export class SchedulerService {
     }
   }
 
-  /** F20261008hcpa（#1356 层3）：high 超龄事件推 healing-alert-registry。
-   *  从 resolveEffectiveBody 抽出降复杂度——职责独立（提醒推送 vs body 解析）。
-   *  审视建议 A：resolver 解析前置于事务之前（ageOutHighAndNotify 之前）——不可达时
-   *  跳过 age-out（事件保持 open 等下轮，而非「先 dismiss 后发现丢提醒」）；
-   *  审视建议 B：改走 enqueueBatchAggregated，超限聚合不静默丢。 */
+  /** #1545：超龄 unbound high 识别 + 提醒推送（不处置）。
+   *  F20261008hcpa（#1356 层3）原实现的 age-out 会把超龄 high 置 dismissed——#1545
+   *  判定为与设计意图相悖（high 不被时间静默/bind≠resolve/#1361 层3 硬规则），收窄为：
+   *  findAgedUnboundHigh 只读识别 → 推 alert-registry 引导 bind_issue 归口 → 事件保持
+   *  open。resolver 解析前置保留（提醒通道仍是前置条件）；enqueueBatchAggregated 保留
+   *  （审视建议 A/B 的语义仍成立，只是「先 dismiss 后提醒」改为「只提醒不 dismiss」）。 */
   private async notifyAgedHighEvents(): Promise<void> {
     if (!this.healingRepo) return;
-    // 先解析提醒目的地：不可达（healing 主对话未就绪等）则本轮不动台账——
-    // 提醒通道是 age-out 的前置条件而非事后补充，避免「已 dismissed 但提醒没送出」
+    // 先解析提醒目的地：不可达（healing 主对话未就绪等）则本轮跳过（只读识别无副作用，
+    // 无需再防「已 dismissed 但提醒没送出」——该风险随 dismiss 一并移除）
     const targetConversationId = await this.healingConversationIdResolver?.();
     if (!targetConversationId) {
-      this.logger.warn('healing 提醒目的地不可达，跳过本轮 high 超龄 age-out（事件保持 open 等下轮）');
+      this.logger.warn('healing 提醒目的地不可达，跳过本轮 high 超龄提醒（事件保持 open 等下轮）');
       return;
     }
-    const agedHigh = await this.healingRepo.ageOutHighAndNotify(2);
+    const agedHigh = await this.healingRepo.findAgedUnboundHigh(2);
     if (agedHigh.length === 0) return;
     healingAlertRegistry.enqueueBatchAggregated(
       targetConversationId,
@@ -1154,11 +1155,11 @@ export class SchedulerService {
         conversationId: e.conversationId,
         otterId: e.otterId,
         errorType: e.errorType,
-        description: `[high 超龄已 dismissed（48h 无人处置）] ${e.description}`,
+        description: `[high 超龄 48h 未归口，待 bind_issue] ${e.description}`,
         createdAt: e.createdAt,
       })),
     );
-    this.logger.warn('healing high 事件超龄 48h，已 dismiss 并推送升级提醒', {
+    this.logger.warn('healing unbound high 事件超龄 48h 未归口，已推送提醒（事件保持 open）', {
       count: agedHigh.length,
       ids: agedHigh.map(e => e.id),
       alertPushed: true,
@@ -1187,9 +1188,9 @@ export class SchedulerService {
       return task.body;
     }
     try {
-      // F20261008hcpa（#1356 选 A）：autoStaleDismiss 现排除 high（low/medium 可时间静默）；
-      // high 超龄走独立通道——ageOutHighAndNotify(2) 取回后推 healing-alert-registry，
-      // 48h 挂账（比 30 天 staleDays 紧得多、留一天调度冗余防漏跑翻转）即提醒大獭「该事件已超龄 dismissed，请跟进」。
+      // #1545：autoStaleDismiss 排除 high（low/medium 可时间静默）不变；high 超龄走
+      // 独立识别通道——findAgedUnboundHigh(2) 只读取回后推 healing-alert-registry，提醒
+      // 大獭「该事件超龄 48h 未归口，请 bind_issue 跟进」，事件保持 open（不再 dismiss）。
       // 推送目的地固定 healing 主对话（定时任务对话结束后该对话仍是大獭在场的主通道）。
       await this.healingRepo.autoStaleDismiss(30);
       await this.notifyAgedHighEvents();

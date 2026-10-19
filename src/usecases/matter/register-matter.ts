@@ -13,7 +13,7 @@
  */
 
 import { DomainError } from '@entities/errors';
-import type { Matter, MatterLevel, MatterState } from '@entities/matter/matter';
+import type { Matter, MatterClosureKind, MatterLevel, MatterState } from '@entities/matter/matter';
 import type { MatterRepository } from './matter-repository';
 
 /** 登记输入 */
@@ -25,6 +25,8 @@ export interface RegisterMatterInput {
   /** 负责獭：路径 1=发起 yield 的獭 */
   ownerOtterId?: string | null;
   level?: MatterLevel | null;
+  /** F20261019fckd：闭环口径——fact=机器可验证事实（owner 可携证据直关 L2）；decision=判断型（保留 partner 确认闸）；缺省 null 保守视同 decision */
+  closureKind?: MatterClosureKind | null;
   /** 登记即态：路径 1=WAITING_PARTNER；路径 2/3=OPEN */
   initialState: Extract<MatterState, 'WAITING_PARTNER' | 'OPEN'>;
   waitingOn?: string | null;
@@ -38,19 +40,24 @@ export function matterShortAnchor(id: string): string {
   return `M-${id.slice(0, 8)}`;
 }
 
+/** 登记准入校验（拆出控 execute 复杂度）：title 必填 + initialState 白名单 */
+function assertRegisterInput(input: RegisterMatterInput): void {
+  if (!input.title?.trim()) {
+    throw new DomainError('matter 登记失败：title 必填（一句话事情名）', 'validation');
+  }
+  if (input.initialState !== 'WAITING_PARTNER' && input.initialState !== 'OPEN') {
+    throw new DomainError(
+      `matter 登记失败：initialState 只能是 WAITING_PARTNER（准入路径 1）或 OPEN（路径 2/3），收到 ${input.initialState}`,
+      'validation',
+    );
+  }
+}
+
 export class RegisterMatter {
   constructor(private readonly repo: MatterRepository) {}
 
   async execute(input: RegisterMatterInput): Promise<Matter> {
-    if (!input.title?.trim()) {
-      throw new DomainError('matter 登记失败：title 必填（一句话事情名）', 'validation');
-    }
-    if (input.initialState !== 'WAITING_PARTNER' && input.initialState !== 'OPEN') {
-      throw new DomainError(
-        `matter 登记失败：initialState 只能是 WAITING_PARTNER（准入路径 1）或 OPEN（路径 2/3），收到 ${input.initialState}`,
-        'validation',
-      );
-    }
+    assertRegisterInput(input);
 
     const now = new Date().toISOString();
     const matter: Matter = {
@@ -60,6 +67,7 @@ export class RegisterMatter {
       originMessageId: input.originMessageId ?? null,
       ownerOtterId: input.ownerOtterId ?? null,
       level: input.level ?? null,
+      closureKind: input.closureKind ?? null,
       state: input.initialState,
       waitingOn: input.waitingOn ?? (input.initialState === 'WAITING_PARTNER' ? 'partner' : null),
       waitingFor: input.waitingFor ?? null,
