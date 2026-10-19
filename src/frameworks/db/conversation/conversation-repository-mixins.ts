@@ -207,6 +207,7 @@ export function updateLastReadSeq(
       "SELECT last_read_seq FROM conversation_participants WHERE conversation_id = ? AND otter_id = ?"
     ).get(conversationId, otterId) as { last_read_seq: number | null } | undefined;
     if (current && current.last_read_seq != null && current.last_read_seq >= seq) {
+      // eslint-disable-next-line no-console -- 仓储层模块级函数无 logger 注入通道（同 schema.ts sqlite-vec 先例）；防御日志有事故溯源价值（F20261014czgd：零日志曾致同类事故全靠推断定位），不能删
       console.warn(`[cursor-guard] updateLastReadSeq 单调性拦截：${otterId}@${conversationId} 现值 ${current.last_read_seq} ≥ 写入值 ${seq}，已拒绝`);
     }
   }
