@@ -6,7 +6,7 @@
  * 「judge 考试」（guard-touchstone-exam）与影子投影同用本判据，口径不得分叉。
  */
 import type { WriteTarget, UnevalReason, WriteEvalResult, ScriptPayloadInfo } from "./write-target-evaluator";
-import { evaluateWriteTargets, pathWithinMain } from "./write-target-evaluator";
+import { evaluateWriteTargets, pathWithinMain, pathEntryWithinMain } from "./write-target-evaluator";
 
 export type WriteVerdictResult =
   | { verdict: "ALLOW"; mode: "positive"; targets: WriteTarget[] }
@@ -21,7 +21,7 @@ export type WriteVerdictResult =
 export function evaluateWriteVerdict(command: string, projectRoot: string, startCwd: string = projectRoot, scriptPayload?: ScriptPayloadInfo): WriteVerdictResult {
   const r = evaluateWriteTargets(command, projectRoot, startCwd, scriptPayload);
   if (r.kind === "unevaluated") return { verdict: "BLOCK", mode: "fail-closed", reason: r.reason };
-  const mainHits = r.targets.filter(t => t.access === "write" && pathWithinMain(t.path, projectRoot));
+  const mainHits = r.targets.filter(t => t.access === "write" && (t.entryOp ? pathEntryWithinMain(t.path, projectRoot) : pathWithinMain(t.path, projectRoot)));
   if (mainHits.length > 0) return { verdict: "BLOCK", mode: "positive", targets: r.targets, mainHits };
   return { verdict: "ALLOW", mode: "positive", targets: r.targets };
 }
