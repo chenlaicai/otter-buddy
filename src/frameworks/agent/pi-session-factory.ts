@@ -27,7 +27,7 @@ import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { createAgentSessionStore } from "./agent-session-store";
 import { classifyGuardInterceptReason } from "./guard-intercept-classify";
-import { recordShadowEval, type ShadowHealingSink } from "./shadow-eval-recorder";
+// F20261019gses P0 影子下线：shadow-eval-recorder import 已删（观察期对照机制随转正移除）
 import { sanitizeQuotedText } from "./quoted-text-sanitizer";
 
 /**
@@ -940,18 +940,8 @@ export class PiSessionFactory implements AgentGateway {
    * 双向对照落 healing_events（真误拦候选 / EVAL_GAIN）。只记录不干预；
    * healingRepo 缺失时无回调（影子静默关）。projectRoot 与拦截钩子同源（process.cwd()）。
    */
-  private buildShadowEvalHook(
-    otterId: string,
-    ids: { messageId?: string; conversationId?: string },
-  ): ((input: { command: string; oldBlock: string | null }) => void) | undefined {
-    const healingRepo = this.cfg.healingRepo;
-    if (!healingRepo) return undefined;
-    const sink = healingRepo as unknown as ShadowHealingSink;
-    const projectRoot = getRepoRoot();
-    return ({ command, oldBlock }) => {
-      recordShadowEval({ command, oldBlock, otterId, ids, projectRoot, sink, logger: this.logger });
-    };
-  }
+  /** F20261019gses P0 影子下线：buildShadowEvalHook（观察期对照构造）已删——主判定切
+   *  evaluateWriteVerdict 后无「旧链 vs 新链」对照面，shadow-eval-recorder 模块整体移除。 */
 
   /** 使用 session 执行 invoke（F20260911pspl：session 由 _acquirePooled 获取，本方法不再创建；
    *  F20260913ctlv：wrappedHandler 启动游标推进 + pushCursorOnStartup 在此） */
@@ -994,7 +984,7 @@ export class PiSessionFactory implements AgentGateway {
         this.logger.debug('[execute] Using pooled session', { otterId, sessionKey });
 
         // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）+ 守卫拦截 healing（F20260831aksp T3）
-        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: getRepoRoot(), sessionCwd: resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data"), onGuardIntercept: this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }), onShadowEval: this.buildShadowEvalHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }) });
+        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: getRepoRoot(), sessionCwd: resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data"), onGuardIntercept: this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }) });
 
         // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);
