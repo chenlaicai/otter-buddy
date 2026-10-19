@@ -65,17 +65,19 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
      *  invoke 模型重映射——invoke_id 为 PK 锚点）。schema.ts 单点登记
      *  （#506 模式：bootstrap 无条件幂等 initSchema，老库自动补建）。 */
     createRestartPendingResumesTable(db);
+    /** F20261015mjsg 三麻：牌局元数据 + 逐帧快照（断线恢复/复盘/哈希链）。新表走 #506 幂等补建 */
+    createMahjongTables(db);
 
     db.exec("COMMIT");
 
     // 记录 Schema 初始化完成日志
     if (logger) {
       const duration = Date.now() - startTime;
-      // 42 regular tables + 5 virtual tables (FTS/vec) = 47 total
-      // (含多模态 attachments 2表 + PR4 paper trading 9表 + F20260912avlb dispatch_records + F20261006mtlp matters)
+      // 42 regular tables + 5 virtual tables (FTS/vec) = 47 total → +2 mahjong = 49 total
+      // (含多模态 attachments 2表 + PR4 paper trading 9表 + F20260912avlb dispatch_records + F20261006mtlp matters + F20261015mjsg mahjong 2表)
       logger.info('Schema initialized', {
         duration,
-        tables: 47,
+        tables: 49,
       });
       /** #506: 补建差集——新库差集=全部表（与现状等价）；老库无缺表时差集为空不打扰 */
       const created = listTableNames(db).filter(t => !tablesBefore.includes(t));
@@ -99,6 +101,31 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
 function listTableNames(db: Database.Database): string[] {
   return (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
     .all() as Array<{ name: string }>).map(r => r.name);
+}
+
+/** F20261015mjsg：三麻牌局比赛元数据 + 逐帧快照（哈希链：prev_hash→hash 防篡改，断线从最新帧恢复） */
+function createMahjongTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mahjong_games (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL,
+      seed TEXT NOT NULL,
+      status TEXT NOT NULL,
+      config_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS mahjong_frames (
+      game_id TEXT NOT NULL REFERENCES mahjong_games(id),
+      seq INTEGER NOT NULL,
+      action_json TEXT,
+      state_json TEXT NOT NULL,
+      prev_hash TEXT,
+      hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (game_id, seq)
+    );
+  `);
 }
 
 /** 对话上下文：conversations + messages + message_events + conversation_otters */

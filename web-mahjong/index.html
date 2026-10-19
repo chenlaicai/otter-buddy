@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>獭桌三麻</title>
+<link rel="stylesheet" href="/mahjong/assets/style.css">
+</head>
+<body>
+<!-- 牌局页（F20261015mjsg 模块四）：/mahjong = 大厅，/mahjong/:roomId = 牌局。
+     所有内容由 js/app.js 从 /api/mahjong 视图渲染，此处只给挂载点。 -->
+<div id="app" data-state="loading">
+  <header id="field" class="field" aria-label="场况"></header>
+
+  <main class="table">
+    <section id="left" class="player player--left" aria-label="上家"></section>
+
+    <section class="center" aria-label="牌桌中央">
+      <div id="claim" class="claim" hidden></div>
+      <div id="turnStatus" class="turn-status"></div>
+      <ol id="log" class="log" aria-label="牌局动态"></ol>
+    </section>
+
+    <section id="right" class="player player--right" aria-label="下家"></section>
+  </main>
+
+  <section id="self" class="self" aria-label="自己">
+    <div class="self-row self-row--meta">
+      <div id="selfInfo" class="self-info"></div>
+      <div id="selfMelds" class="melds"></div>
+      <div id="selfKita" class="kita" aria-label="拔北"></div>
+    </div>
+    <div id="selfDiscards" class="discards discards--self" aria-label="自己的牌河"></div>
+    <div id="actionbar" class="actionbar" role="toolbar" aria-label="动作"></div>
+    <div id="hand" class="hand" aria-label="手牌"></div>
+  </section>
+
+  <div id="overlay" class="overlay" hidden>
+    <div id="overlayBox" class="overlay-box" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <div id="toast" class="toast" hidden role="status"></div>
+</div>
+
+<script type="module" src="/mahjong/assets/js/app.js"></script>
+</body>
+</html>
