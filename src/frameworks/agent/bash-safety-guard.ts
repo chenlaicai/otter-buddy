@@ -19,6 +19,7 @@ import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
 import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads, extractHeredocSpans } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
+import { INDIRECT_KILL_BLOCK_MSG, PKILL_BYNAME_BLOCK_MSG } from "./kill-block-messages";
 
 /** F20260928slan：sleep 命令位置判定——复用 kill-segment-finder 的位置感知
  * （isKillAtCommandPosition 对任意 pattern 通用，sleep 词元复用同一套位置白名单） */
@@ -352,13 +353,13 @@ function checkKillSegment(ctx: KillSegmentCtx): string | null {
   if (isPkill) {
     if (pkillTargetsOtter(segment) || pkillTargetsOtter(outerContext)) {
       logger?.warn("[bash-safety-guard] BLOCKED pkill/killall targeting otter processes", { mainPid, segment: segment.substring(0, 200) });
-      return "bash 命令包含按名匹配的批量终止命令（pkill/killall），可能影响主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。";
+      return PKILL_BYNAME_BLOCK_MSG;
     }
     return null;
   }
   if (hasIndirectPidTarget(pidTextA, pipeSourced) || hasIndirectPidTarget(pidTextB, pipeSourced)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill with indirect PID target", { mainPid, segment: segment.substring(0, 200) });
-    return "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop（alpha 实例的标准清理方式，勿用组合杀）；若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+    return INDIRECT_KILL_BLOCK_MSG;
   }
   if (PID_FILE_REFERENCE.test(segment)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill referencing .otter-buddy.pid file", { mainPid, segment: segment.substring(0, 200) });

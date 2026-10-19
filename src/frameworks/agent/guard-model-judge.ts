@@ -27,6 +27,8 @@ import path from "path";
 import { loadAllowedServicePorts } from "./allowed-service-ports";
 import type { AllowedService } from "./allowed-service-ports";
 import { SLEEP_REASON_PREFIX, buildSleepBlockMessage } from "./sleep-command-guard";
+// #1540（F20261019kbpc）：kill 族文案唯一文案源（V1/V2 同文案契约由 import 强制，替代人肉拷贝同步）
+import { INDIRECT_KILL_BLOCK_MSG as INDIRECT_BLOCK_MSG, PKILL_BYNAME_BLOCK_MSG } from "./kill-block-messages";
 
 // ────────────────────────────── 词表（与 V1 对齐迁移） ──────────────────────────────
 
@@ -199,7 +201,7 @@ function judgeKillSegment(
   if (isPkill) {
     if (pkillTargetsOtterModel(seg)) {
       logger?.warn("[guard-v2] BLOCKED pkill/killall targeting otter processes", { mainPid, depth });
-      return "bash 命令包含按名匹配的批量终止命令（pkill/killall），可能影响主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。";
+      return PKILL_BYNAME_BLOCK_MSG;
     }
     return null;
   }
@@ -218,7 +220,7 @@ function judgeKillSegment(
     // #844 规则 2b 模型版：kill $VAR 且 VAR 在同命令内被赋值为白名单端口 lsof 结果
     if (killVarSourcedFromWhitelistedLsof(seg, model, allowedServices)) return null;
     logger?.warn("[guard-v2] BLOCKED kill with indirect PID target", { mainPid, depth });
-    return "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop（alpha 实例的标准清理方式，勿用组合杀）；若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+    return INDIRECT_BLOCK_MSG;
   }
   // 管道右段：stdin 即间接来源（V1 pipeSourced 语义：lsof|grep|xargs 链尾的
   // kill / xargs kill 从 stdin 读目标——上游存在且非白名单 lsof → 间接拦。
@@ -535,8 +537,7 @@ function judgeSleepCommand(model: CommandModel, logger: Logger | undefined): str
 
 /** 判定层 v2 主入口：模型判定。返回拦截文案或 null。
  *  caller 负责：parseOk=false 时走 V1 兜底链（本函数不兜底——D3 分层）。 */
-/** 间接目标拦截文案（V1 同文案——含误拦退出引导） */
-const INDIRECT_BLOCK_MSG = "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop（alpha 实例的标准清理方式，勿用组合杀）；若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+/** 间接目标拦截文案：唯一文案源在 kill-block-messages.ts（INDIRECT_KILL_BLOCK_MSG，#1540）*/
 
 /** V1 cmdLevel 三条规则的模型版（完整继承——F20260902gvrd 收紧口径 + F20260923glay
  *  node --eval 扩展）：
@@ -607,7 +608,7 @@ export function checkWithModel(
       // 注意：引号定界 heredoc（数据）已在上方 continue，不会进这里。
       if (/\b(?:kill|skill|pkill|killall)\b/i.test(p.raw)) {
         logger?.warn("[guard-v2] BLOCKED unparseable payload containing kill tokens", { mainPid, kind: p.kind });
-        return "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop（alpha 实例的标准清理方式，勿用组合杀）；若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+        return INDIRECT_BLOCK_MSG;
       }
       continue;
     }

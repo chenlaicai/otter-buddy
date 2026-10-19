@@ -875,6 +875,21 @@ describe("F20260917alph 拦截文案指向 alpha.sh + 组合杀回归", () => {
     expect(result).toContain("scripts/alpha.sh start");
   });
 
+  // #1540：self_kill 族拦截文案补 kill-by-pid 出口指引（含 --project 归属声明示例）——
+  // 关闭标准 1「grep 可验含 kill-by-pid 出口指引」的单测锚点（G1：断言锁完整示例串防文案断指）
+  const KILL_BY_PID_EXAMPLE = "node scripts/restart-service.mjs kill-by-pid <pid> --project /abs/path";
+
+  it("#1540 非字面 PID kill 文案含 kill-by-pid 出口指引（含 --project 归属声明）", () => {
+    const result = checkBashCommandSafety("kill $(lsof -ti :3000)", mainPid);
+    expect(result).toContain(KILL_BY_PID_EXAMPLE);
+  });
+
+  it("#1540 pkill 按名批量终止文案含 kill-by-pid 出口指引", () => {
+    const result = checkBashCommandSafety("pkill node", mainPid);
+    expect(result).not.toBeNull();
+    expect(result).toContain(KILL_BY_PID_EXAMPLE);
+  });
+
   it("lsof -ti :3000 | xargs kill 管道组合杀 → 拦截", () => {
     const result = checkBashCommandSafety("lsof -ti :3000 | xargs kill", mainPid);
     expect(result).not.toBeNull();

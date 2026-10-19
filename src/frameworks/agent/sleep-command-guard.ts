@@ -46,7 +46,7 @@ function parseSleepDurationSeconds(token: string): number | null {
 /** sleep 拦截文案（kill 域文案零共用——sleep 是感知问题非安全问题，措辞向引导而非禁止）。
  *  V2 模型版（guard-model-judge judgeSleepCommand）复用本构造——语义一致防漂移（S5 去重后唯一文案源）。 */
 export function buildSleepBlockMessage(durationDesc: string): string {
-  return `检测到你使用了 sleep 等待（约 ${durationDesc}）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么、为什么要等这么久，然后改用 wait 工具（wait 的 seconds/reason/until 参数支持等待+理由自证+可选的苏醒检查命令）。`;
+  return `检测到你使用了 sleep 等待（约 ${durationDesc}）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么、为什么要等这么久，然后改用 wait 工具（wait 的 seconds/reason/until 参数支持等待+理由自证+可选的苏醒检查命令）。等服务启动的示范：wait 的 seconds 填 20、reason 写「等 dev server 起监听」、until 填 curl -sf localhost:3001/——until 是醒后自动执行的单命令探活（值不带引号/管道，禁元字符；未就绪是正常返回，可再补一轮），全程对搭档可见可解释。`;
 }
 
 /** 判定函数签名（位置感知由守卫主文件注入——与 kill 族同一份逻辑，口径一致防漂移） */
