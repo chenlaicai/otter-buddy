@@ -13,6 +13,9 @@
  *   机械边界（F20260922dfch 严重 1 处置）：除声明文件外，每个历史文档的变更行必须全部落在 frontmatter
  *   块内（首个 --- 至次个 ---）；正文实质修改（增/删非空行）即使配 .doc-fix 也拒绝放行——「仅限元数据」
  *   是机制不是约定。提交后由使用者删除 .doc-fix（lint 仅提示；忘删 fail-closed：残留且未变更的声明不开启通道）。
+ *   F20261019f714（M-f7148deb 第 2 条）：第二开口「链接订正」——全部变更行是成对的纯 markdown 链接路径
+ *   替换（`](path)` 内 path 变化、行内其余字节相同）时放行（需 .doc-fix 声明）。链接路径是「指向哪」的
+ *   机械事实（文档 rename 后的引用链同步），与 frontmatter 元数据订正同性质；正文观点/非链接字节仍拦。
  *   R 形态 rename（#1257，F20261001lrbk）：git mv 产生的 R 配对此前被双重误拦（isAddedOnBranch 按
  *   oldPath 判历史 + checkFrontmatterScope 单路径 diff 把 rename 展开成全文新增）——纯 rename
  *   （similarity 100%，内容零变化）本质是文件名级元数据订正。修复：R 配对改从全量 diff 取 hunks，
@@ -300,6 +303,109 @@ export function findViolations(ctx = stagedCtx()) {
   return { errors, entries, degraded: false };
 }
 
+/** F20261019f714：行差异是否仅在「链接路径 / 反引号内 .md 文件名 token」——
+ *  剥全部 ](path) 链接段与 `file.md` 反引号文件名段后骨架须相同；
+ *  且至少一个路径/token 发生了变化。反引号 token 限定 .md 文件名形态
+ *  （[A-Za-z0-9_-/]+\.md）——正文里任意反引号术语不在订正语义内（宁拦勿放）。 */
+function differsOnlyInLinkPaths(oldLine, newLine) {
+  const LINK_RE = /\]\(([^)#\s]+?)(#[^)]*)?\)/g;
+  const TOKEN_RE = /`([A-Za-z0-9_\-/]+\.md)`/g;
+  const stripAll = (s) => {
+    const segs = [];
+    let last = 0;
+    for (const m of s.matchAll(LINK_RE)) { segs.push(s.slice(last, m.index)); last = m.index + m[0].length; }
+    for (const m of s.matchAll(TOKEN_RE)) { segs.push(s.slice(last, m.index)); last = m.index + m[0].length; }
+    segs.push(s.slice(last));
+    return segs.join("");
+  };
+  if (stripAll(oldLine) !== stripAll(newLine)) return false;
+  const collect = (s) => [
+    ...[...s.matchAll(LINK_RE)].map(m => m[1]),
+    ...[...s.matchAll(TOKEN_RE)].map(m => m[1]),
+  ];
+  const op = collect(oldLine);
+  const np = collect(newLine);
+  return op.length === np.length && op.some((p, i) => p !== np[i]);
+}
+
+/** F20261019f714：diff 段内全部变更行是否为成对纯链接/文件名订正（含纯 rename 的
+ *  similarity/Binary 头部行干扰过滤——rename 段头部有 similarity index/old mode 等元行）。
+ *  M 形态与 R 形态 rename+编辑 共用。 */
+function linkFixPairsOk(diffSection) {
+  const removed = [];
+  const added = [];
+  let pos = 0;
+  const hunks = [...diffSection.matchAll(/@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/g)];
+  for (const hm of hunks) {
+    const hunkStartInDiff = diffSection.indexOf(hm[0], pos);
+    const headerLineEnd = diffSection.indexOf("\n", hunkStartInDiff);
+    const bodyStart = headerLineEnd === -1 ? diffSection.length : headerLineEnd + 1;
+    pos = bodyStart;
+    const nextHunk = diffSection.indexOf("\n@@", pos);
+    const body = diffSection.slice(bodyStart, nextHunk === -1 ? undefined : nextHunk + 1);
+    for (const raw of body.split("\n")) {
+      if (raw.startsWith("+++") || raw.startsWith("---")) continue; // diff 头
+      if (raw.startsWith("+")) added.push(raw.slice(1));
+      else if (raw.startsWith("-")) removed.push(raw.slice(1));
+      else if (raw.trim() !== "") return false; // 异常上下文行（-U0 下应无）→ 无法证明
+    }
+  }
+  if (removed.length === 0 || removed.length !== added.length) return false;
+  const pool = [...added];
+  for (const old of removed) {
+    const idx = pool.findIndex(nl => differsOnlyInLinkPaths(old, nl));
+    if (idx === -1) return false;
+    pool.splice(idx, 1);
+  }
+  return pool.length === 0;
+}
+
+/** F20261019f714（M-f7148deb 第 2 条）：链接订正开口校验——历史文档的全部变更行是成对的
+ *  纯链接路径/文件名 token 替换（删行与增行一一配对，每对只在链接路径或反引号内
+ *  .md 文件名上不同，行内其余字节相同）。非成对/正文变更 → outOfScope（宁拦勿放）。
+ *  语义边界：链接路径与文件名引用是「指向哪」的机械事实，不是内容观点——rename 后的
+ *  同步订正与 frontmatter 元数据订正同性质（事实约束：通常伴随同 commit 的 R 纯改名）。 */
+function checkLinkFixScope(files, entries = {}, ctx = stagedCtx()) {
+  const outOfScope = [];
+  for (const file of files) {
+    const entry = entries[file] ?? {};
+    if (entry.oldPath && entry.oldPath !== file) {
+      // R 形态 rename：无 hunk（纯 rename，R100/零编辑）不属链接订正语义——纯改名
+      // 由 rename 通道（checkRenameScope）管辖；本通道只收 rename+编辑且编辑全部
+      // 是链接/文件名订正的形态（R096 实例：sgpa 改名+父方案链接同步）。
+      let diff;
+      try {
+        diff = ctx.diffU0M();
+      } catch {
+        outOfScope.push(file);
+        continue;
+      }
+      const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const seg = diff.match(
+        new RegExp(`diff --git a/${esc(entry.oldPath)} b/${esc(file)}\\n[\\s\\S]*?(?:(?=\\n(?:diff --git ))|$)`)
+      );
+      if (!seg) { outOfScope.push(file); continue; }
+      // 无 hunk（纯 rename R100 或 Binary 零 hunk）不属本通道管辖——纯改名与 Binary
+      // 伪装的判定由 rename 通道三同验（similarity 100% + 零 hunk + 非 Binary）把守
+      //（Binary 零 hunk ≠ 内容零变化，本通道不得接管放行——严重 1 裁决在案）。
+      const hasHunks = /@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/.test(seg[0]);
+      const isBinary = /Binary files .* differ/.test(seg[0]) || /GIT binary patch/.test(seg[0]);
+      if (!hasHunks || isBinary) { outOfScope.push(file); continue; }
+      if (!linkFixPairsOk(seg[0])) outOfScope.push(file);
+      continue;
+    }
+    let diff;
+    try {
+      diff = ctx.diffU0(file);
+    } catch {
+      outOfScope.push(file);
+      continue;
+    }
+    if (!linkFixPairsOk(diff)) outOfScope.push(file);
+  }
+  return { ok: outOfScope.length === 0, outOfScope };
+}
+
 function main() {
   const { errors, entries } = findViolations();
   const ctx = stagedCtx();
@@ -316,10 +422,23 @@ function main() {
       console.warn(`  提示：.doc-fix 为一次性声明文件，提交后请删除（git rm .doc-fix；忘删 fail-closed 不构成绕过）。`);
       process.exit(0);
     }
-    console.error(`[lint:historical-docs] .doc-fix 声明存在，但以下历史文档的变更超出 frontmatter 块（正文实质修改）：`);
+    // F20261019f714（M-f7148deb 第 2 条）：第二开口——链接订正（.doc-fix 声明 + 全部变更行
+    // 是成对纯链接路径替换）。语义：链接路径是「指向哪」的机械事实（rename 同步订正），
+    // 与 frontmatter 元数据订正同性质；正文观点/非链接字节变更仍拦。
+    // 输入集 = scope.outOfScope（第一开口未消化的部分——R100 纯 rename 已被 rename 通道
+    // 放行、frontmatter 内编辑已被 fm 通道放行，剩余的才是本通道裁决对象）。
+    const linkScope = checkLinkFixScope(scope.outOfScope, entries, ctx);
+    if (linkScope.ok) {
+      console.warn(`[lint:historical-docs] .doc-fix 声明文件存在且变更均为纯链接路径订正，放行 ${errors.length} 个历史文档修改：`);
+      for (const f of errors) console.warn(`  M ${f}`);
+      console.warn(`  声明理由：${sanitize(declaration.reason)}`);
+      console.warn(`  提示：.doc-fix 为一次性声明文件，提交后请删除（git rm .doc-fix；忘删 fail-closed 不构成绕过）。`);
+      process.exit(0);
+    }
+    console.error(`[lint:historical-docs] .doc-fix 声明存在，但以下历史文档的变更超出 frontmatter 块且非纯链接路径订正（正文实质修改）：`);
     for (const f of scope.outOfScope) console.error(`  M ${f}`);
     console.error(`
-.doc-fix 开口仅限元数据订正（frontmatter 块内）。正文内容/设计修改禁止回改——
+.doc-fix 开口仅限元数据订正（frontmatter 块内）或纯链接路径订正（rename 后的引用同步）。正文内容/设计修改禁止回改——
 请新建特性文档记录变化（frontmatter from/supersedes 关联前文），或将本次正文改动撤销后重新提交。`);
     process.exit(1);
   }
@@ -329,11 +448,13 @@ function main() {
   console.error(`
 错误：已合入的特性文档是交付时点的快照，禁止修改使其反映"当前状态"。
 
-正当通道（二选一）：
+正当通道（三选一）：
   ① 元数据订正（frontmatter 字段修正 / id 对齐 / 格式订正）：
      在仓库根目录新建 .doc-fix 文件并 staged 进同一个 commit，内容写清订正理由（≥10 字符）。
      声明文件随 commit 历史与 PR commits 可见（squash 合并下不进 main 净 diff）；提交后删除该文件。
      变更行须全部落在 frontmatter 块内——正文修改即使配 .doc-fix 也会被拒。
+  ①b 链接订正（F20261019f714）：同①需 .doc-fix 声明；变更行须全部是成对的纯 markdown
+     链接路径替换（行内其余字节不变）——文档 rename 后的引用链同步适用此通道。
   ② 内容/设计修改：
      禁止回改历史文档——新建特性文档记录变化（frontmatter from/supersedes 关联前文）。
 ${declaration.hint}`);

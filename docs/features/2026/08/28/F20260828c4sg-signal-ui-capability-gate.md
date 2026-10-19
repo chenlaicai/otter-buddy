@@ -12,7 +12,7 @@ from: [F20260826mwrd]
 
 # 獭间信号 C4：prompt 义务 + UI 徽章 + capability 收口
 
-**父方案**：[F20260826mwrd](../26/F20260826mwrd.md) Part 1（词表改版）+ Part 5（UI 徽章）+ 验收节 C4 行（prompt + 前端 + 每日对账 + capability 收口闸）。C1-C3 已交付传输/解析/路由管道，本期补齐**消费侧闭环**：海獭知道义务（prompt）、搭档看得见信号（UI）、每日有人对账（health-check）、验收锚点兑现（capability 转真）。
+**父方案**：[F20260826mwrd](../26/F20260826mwrd-magic-words-l10n-signal-protocol.md) Part 1（词表改版）+ Part 5（UI 徽章）+ 验收节 C4 行（prompt + 前端 + 每日对账 + capability 收口闸）。C1-C3 已交付传输/解析/路由管道，本期补齐**消费侧闭环**：海獭知道义务（prompt）、搭档看得见信号（UI）、每日有人对账（health-check）、验收锚点兑现（capability 转真）。
 
 ## 交付内容
 

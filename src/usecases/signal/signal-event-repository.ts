@@ -3,7 +3,7 @@
  *
  * 写路径：halt_otter 工具调用（C1）；signal-parser 拦截（C2）。
  * 读路径：halt 查询工具（C1 大獭侧）；裁决工具（C2）；UI DTO（C4）。
- * 每列消费方声明见 F20260826mwrd.md「新增 schema 字段消费方声明」。
+ * 每列消费方声明见 F20260826mwrd-magic-words-l10n-signal-protocol.md「新增 schema 字段消费方声明」。
  */
 
 import type { SignalEvent, SignalQueryFilter } from '@entities/signal/signal-event';

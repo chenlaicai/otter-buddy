@@ -12,7 +12,7 @@ from: [F20260826mwrd]
 
 # 獭间信号 C1：halt 投递管道
 
-**父方案**：[F20260826mwrd](./F20260826mwrd.md) Part 3（halt 投递机制）+ Part 2（signal_events 数据模型）。本 PR 是其分期计划 C1（地基），C2 signal-parser / C3 healing 路由+L2 扫描 / C4 prompt+UI 后续交付。
+**父方案**：[F20260826mwrd](./F20260826mwrd-magic-words-l10n-signal-protocol.md) Part 3（halt 投递机制）+ Part 2（signal_events 数据模型）。本 PR 是其分期计划 C1（地基），C2 signal-parser / C3 healing 路由+L2 扫描 / C4 prompt+UI 后续交付。
 
 ## 交付内容
 

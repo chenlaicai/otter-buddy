@@ -33,7 +33,7 @@ function makeSignal(overrides: Partial<LocalMessageSignal> = {}): LocalMessageSi
     type: 'objection',
     severity: 'medium',
     status: 'pending',
-    payload: '与母方案锚点冲突（F20260826mwrd.md:86）',
+    payload: '与母方案锚点冲突（F20260826mwrd-magic-words-l10n-signal-protocol.md:86）',
     fromOtterId: 'otter-small-1',
     createdAt: '2026-08-27T10:00:00.000Z',
     ...overrides,
@@ -46,14 +46,14 @@ describe('SignalBadge 三态渲染（母方案 Part 5 状态机）', () => {
     const badge = container.querySelector('[data-testid="signal-badge"]')!
     expect(badge.textContent).toContain('objection')
     expect(badge.textContent).toContain('未裁决')
-    expect(badge.textContent).not.toContain('F20260826mwrd.md:86') // 未展开
+    expect(badge.textContent).not.toContain('F20260826mwrd-magic-words-l10n-signal-protocol.md:86') // 未展开
     expect(badge.querySelector('button')!.className).toContain('amber')
   })
 
   it('点击展开 payload 正文 + 时间戳', () => {
     act(() => { root.render(<SignalBadge signal={makeSignal()} />) })
     act(() => { container.querySelector('button')!.click() })
-    expect(container.textContent).toContain('F20260826mwrd.md:86')
+    expect(container.textContent).toContain('F20260826mwrd-magic-words-l10n-signal-protocol.md:86')
     expect(container.textContent).toContain('2026-08-27T10:00:00.000Z')
   })
 
