@@ -1,5 +1,5 @@
 ---
-id: F20261016gsbx
+id: F20261019gsbx
 title: bash 守卫二期换血：沙箱接防写面条件退役（2a/2b）+ R1 直推与 S5 网络外发保留面窄规则（2c）
 summary: |
   F20261016grdp 第二步落地。2a 沙箱探测（probeSandboxAvailability：平台+env+profile 构建）
