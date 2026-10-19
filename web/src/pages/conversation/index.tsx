@@ -26,6 +26,7 @@ import { useCardBridge } from './hooks/useCardBridge'
 import * as api from '../../api/client'
 import { ApiError, InvokeAbortError } from '../../api/client'
 import { consumeSSE } from '../../api/sse'
+import { identityHeaders } from '../../api/identity'
 
 async function loadInitialData(): Promise<{
   conversations: LocalConversation[]
@@ -809,6 +810,8 @@ export default function ConversationPage() {
       }
       xhr = new XMLHttpRequest()
       xhr.open('GET', `/api/conversations/${activeId}/subscribe`)
+      // #1322（F20261016autz）：SSE 订阅也带身份头（XHR 可设头——这正是不用 EventSource 的额外好处）
+      Object.entries(identityHeaders()).forEach(([k, v]) => xhr!.setRequestHeader(k, v))
       let buffer = ''
       let currentEvent = ''
       let currentData = ''
