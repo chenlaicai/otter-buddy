@@ -14,6 +14,7 @@ import { buildApp, type BuiltApp } from "../../src/app";
 import { loadConfig, resetConfigForTests } from "../../src/frameworks/config";
 import { initFauxModels } from "../../src/frameworks/llm/models-factory";
 import { createCapturingLogger, type CapturedLogs } from "../helpers/logger";
+import { withIdentity } from "../helpers/with-identity";
 
 /** 立即上报 load error 的 stub embedding worker（CJS：tmp 目录无 package.json type:module） */
 const STUB_WORKER = `
@@ -63,6 +64,8 @@ describe("buildApp 组装根启动", () => {
       syncAuth: false,
       startScheduler: false,
     });
+    // #1322（F20261016autz）：真实装配的 app 也注入默认身份（否则被鉴权层 401）
+    withIdentity(built.app);
   }, 180_000);
 
   afterAll(() => {

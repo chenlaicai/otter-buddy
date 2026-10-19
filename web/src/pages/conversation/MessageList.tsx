@@ -12,6 +12,7 @@ import { resolveOtterVisual } from '../../lib/otter-visual'
 import { getUserAvatar } from '../../lib/otter-avatars'
 import { OtterAvatar } from '../../components/OtterAvatar'
 import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
+import { withIdentity } from '../../api/identity'
 import { fmtBytes } from '../../lib/attachments'
 import { parseCardTitle, parseCardImportance, extractFoldedSummary } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
@@ -755,12 +756,12 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
           {images.map(a => (
             <button
               key={a.id}
-              onClick={() => setLightbox({ src: `/api/attachments/${a.id}`, alt: a.originalName })}
+              onClick={() => setLightbox({ src: withIdentity(`/api/attachments/${a.id}`), alt: a.originalName })}
               className="block text-left cursor-zoom-in"
               aria-label={`放大查看 ${a.originalName}`}
             >
               <img
-                src={`/api/attachments/${a.id}`}
+                src={withIdentity(`/api/attachments/${a.id}`)}
                 alt={a.originalName}
                 loading="lazy"
                 className={`rounded-xl object-cover hover:opacity-90 transition ${images.length > 1 ? 'w-full aspect-square' : 'max-w-[260px] max-h-[260px]'} ${isUser ? 'border border-white/60' : 'border border-black/5'}`}
@@ -772,7 +773,7 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
       {audios.length > 0 && (
         <div className="space-y-1.5">
           {audios.map(a => (
-            <audio key={a.id} controls preload="none" src={`/api/attachments/${a.id}`} className="w-full max-w-[320px] h-10" />
+            <audio key={a.id} controls preload="none" src={withIdentity(`/api/attachments/${a.id}`)} className="w-full max-w-[320px] h-10" />
           ))}
         </div>
       )}
@@ -781,7 +782,7 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
           {documentsAndVideos.map(a => (
             <a
               key={a.id}
-              href={`/api/attachments/${a.id}`}
+              href={withIdentity(`/api/attachments/${a.id}`)}
               className="inline-flex items-center gap-2 glass-card rounded-xl px-3 py-1.5 text-xs text-stone-600 hover:bg-white/50 transition max-w-full"
               title={a.originalName}
             >
