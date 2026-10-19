@@ -51,11 +51,15 @@ export const FIX_COUNT_THRESHOLD = 3;
  *  Why 0.15（#1051 方案 1）：实测 open 存量 ratio 分布呈双群——噪音群 1–12%（分母
  *  15–236，纯次数门凑够）、真信号群 15–29%。15% 取在两群断层里，实测 52 条存量仅
  *  9 条达标（归零或个位数，符合 #1051 验收断言）。
- *  另注（诚实声明，PR #1560 检视严重发现 3）：未达阈值的链不产出 signal，而
- *  health_snapshots 目前只落 cost_output / overview / distribution / health_index /
- *  fix_interval 五类（sqlite 实测），**没有链级密度落点**——所以被压掉的占比在信号
- *  之外无历史序列，实时兜底只有 /api/health/chains。这不是「观测不丢」，是有意让其
- *  静默；若要历史序列需另补快照行，属后续事项。 */
+ *  另注（诚实声明，PR #1560 检视严重发现 3 + delta 复核 A/B 订正）：未达阈值的链不
+ *  产出 signal，而 health_snapshots **没有链级（per-feature）密度落点**——快照里只有
+ *  全仓级指标（bugfix_ratio / bugfix_count / bugfix_ratio_of_fid），chain_states 也只是
+ *  active/orphan/regressed 计数（sqlite 实测），不含单链的 bugfix 分子/分母。所以被
+ *  压掉的**单链占比**在信号之外无历史序列，实时兜底只有 /api/health/chains；这不是
+ *  「观测不丢」，是有意让其静默。若要历史序列需另补快照行，属后续事项（需过机制预算
+ *  四问）。
+ *  注意：此结论**只适用于 density**。hotspot 不同——被排除的枢纽热度仍进快照
+ *  （distribution/file_hotspots，见 detect-signals.ts），那里「观测不丢」成立。 */
 export const FIX_RATIO_THRESHOLD = 0.15;
 
 /** 排除清单阈值：文件被 ≥ 此数个不同特性触碰即高扇入枢纽，进排除清单。
