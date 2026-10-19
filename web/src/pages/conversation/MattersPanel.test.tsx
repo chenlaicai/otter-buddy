@@ -30,6 +30,7 @@ function matter(partial: Partial<MatterDTO> & { id: string }): MatterDTO {
     originMessageId: null,
     ownerOtterId: null,
     level: 'L2',
+    closureKind: null,
     state: 'OPEN',
     waitingOn: null,
     waitingFor: null,

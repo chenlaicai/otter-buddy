@@ -157,6 +157,7 @@ describe('transition_matter 代执行（§3.5 通道 A 工具面——S1 修复�
       originMessageId: null,
       ownerOtterId: 'otter-owner',
       level: 'L2',
+      closureKind: null,
       state: 'WAITING_PARTNER',
       waitingOn: 'partner',
       waitingFor: '选 A/B',

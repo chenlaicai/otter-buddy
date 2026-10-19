@@ -8,6 +8,8 @@ export interface MatterDTO {
   originMessageId: string | null;
   ownerOtterId: string | null;
   level: 'L1' | 'L2' | null;
+  /** F20261019fckd：闭环口径——fact=机器可验证事实可 owner 携证据直关；decision/null=搭档确认闸 */
+  closureKind: 'fact' | 'decision' | null;
   state: string;
   waitingOn: string | null;
   waitingFor: string | null;
@@ -28,6 +30,7 @@ export function toMatterDTO(matter: Matter): MatterDTO {
     originMessageId: matter.originMessageId,
     ownerOtterId: matter.ownerOtterId,
     level: matter.level,
+    closureKind: matter.closureKind,
     state: matter.state,
     waitingOn: matter.waitingOn,
     waitingFor: matter.waitingFor,
