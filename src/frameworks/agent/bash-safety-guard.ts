@@ -27,7 +27,7 @@ import { allSegmentsGitReadonly } from "./git-readonly-whitelist";
 import { checkWithModel, modelParseOk, modelCdExemption } from "./guard-model-judge";
 import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
-import { extractGitAliasShell, gitWriteSubcommandHit, GIT_VALUE_FLAGS } from "./payload-extract-aux";
+import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS } from "./payload-extract-aux";
 
 export type { AllowedService };
 
@@ -2372,7 +2372,7 @@ function checkHeredocScriptBodies(command: string, ctx: HeredocJudgeCtx, depth =
 /** 受保护分支集（R1：main/develop/生产分支禁止直推）；命中即拦，不分 cwd。 */
 const PROTECTED_PUSH_BRANCHES = new Set(["main", "master", "develop", "production", "prod"]);
 
-const PROTECTED_PUSH_BLOCK_MSG = "git push 目标含受保护分支（main/master/develop/production）或动态 refspec——R1 红线：禁止直推受保护分支，请走 feature 分支 + PR；动态目标无法静态校验，请用字面量分支名（如 feature/xxx）推送。";
+const PROTECTED_PUSH_BLOCK_MSG = "git push 目标含受保护分支、动态 refspec 或 --all/--mirror 不可枚举多引用形态——R1 红线：禁止直推受保护分支，请走 feature 分支 + PR（git push -u origin feature/xxx 字面 refspec）；确需批量/镜像推送请呈搭档确认后人工执行。";
 
 /** S5 网络外发白名单（合法 POST 目标）：项目自身 MCP 端点 + 回环；扩展=改本常量走 PR。 */
 const NETWORK_EXFIL_WHITELIST = ["huawei-colink.com", "localhost", "127.0.0.1", "::1"];
@@ -2468,6 +2468,11 @@ function protectedPushHit(segText: string): string | null {
       if (sawRemote) return PROTECTED_PUSH_BLOCK_MSG; // refspec 位动态——目标不可校验，fail-closed
       continue; // remote 位动态可容忍（remote 名不等于目标分支）
     }
+    // 审视严重2：--all/--mirror 引用集不可枚举（--all 会把 main 一并推上 origin=直推；
+    // --mirror 含 refs/heads/*）——与动态 refspec 同款 fail-closed。
+    // --delete 不在此列：冻结双签口径「git push --delete（远端目标）非写」（corpus 条目
+    // 6c93a372/61d75232 等5条钉 worktree→ALLOW），受保护 refspec/动态组合已被上文覆盖。
+    if (w === "--all" || w === "--mirror") return PROTECTED_PUSH_BLOCK_MSG;
     if (w === "-o" || w === "--push-option") { i++; continue; } // 取值旗标吞值
     if (w.startsWith("-")) continue;
     if (!sawRemote) { sawRemote = true; continue; } // 首个非旗标词=remote
@@ -2530,12 +2535,63 @@ function networkExfilHit(segText: string): string | null {
   return hosts.every(networkDestWhitelisted) ? null : NETWORK_EXFIL_BLOCK_MSG;
 }
 
+/** .git 路径段判定（任何仓根的 .git——主仓/worktree 共享 gitDir，路径段比 root 锚定多盖伪相对路径）。 */
+function gitDirPathHit(p: string): boolean {
+  return /(^|\/)\.git(\/|$)/.test(p);
+}
+
+const GIT_DIR_WRITE_BLOCK_MSG = "落点为 .git 内文件的写操作恒拦（git 元数据直写=HEAD/config/refs 操纵面；不经 git 命令的 .git 文件写与 git 写族同辖，沙箱 .git 白名单不构成许可）。请改用 git 命令操作仓库；确需动 .git 元数据请呈搭档确认。";
+
+/** 写 API 实参正则（open/writeFileSync 等，抽取实参路径供 gitDirPathHit 判）。 */
+const WRITE_API_CALL = /(?:^|[^\w.])(?:with\s+)?(?:[A-Za-z_]\w*\s*=\s*)?(?:open|writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|File\.(?:open|write|open3)|IO\.(?:write|binwrite))\s*\(\s*(['"])([^'"]+)\1/;
+
+/** 审视严重1探针：.git 落点写恒拦（双路径恒跑）——重定向落点（词级+剥引号裸文本双扫）
+ *  + tee 实参 + 译器载荷内写 API 实参（head 门控防 echo 引号提及误拦）。
+ *  边界：rm 等破坏形归 data 破坏族（含 3b399252 双签条件口径）；cp/dd 等间接写不追。 */
+function gitDirWriteHit(segText: string): string | null {
+  // ① 重定向落点：词级（引号精确）
+  const seg = parseOnce(segText, 2).segments[0] ?? null;
+  if (seg) {
+    for (let i = 0; i < seg.words.length - 1; i++) {
+      const w = seg.words[i].evaluated;
+      const nxt = seg.words[i + 1].evaluated;
+      if (w !== null && /^>{1,2}$|^\d+>{1,2}$/.test(w) && nxt !== null && gitDirPathHit(nxt)) return GIT_DIR_WRITE_BLOCK_MSG;
+    }
+  }
+  // ①b 粘连形态（hack>/x/.git/y）：剥引号文本正则扫（引号提及已剥，不误拦）
+  const stripped = stripQuotedTextSpans(segText);
+  for (const m of stripped.matchAll(/(?:^|[^>=-])>{1,2}\s*([^\s;|&]+)/g)) {
+    if (gitDirPathHit(m[1])) return GIT_DIR_WRITE_BLOCK_MSG;
+  }
+  // ② tee 实参（词级 evaluated）
+  const parsed = parseSegmentHead(segText);
+  if (parsed && parsed.head === "tee" && seg) {
+    for (const word of seg.words) {
+      if (word.evaluated !== null && gitDirPathHit(word.evaluated)) return GIT_DIR_WRITE_BLOCK_MSG;
+    }
+  }
+  // ③ 写 API 实参：译器头（python/node/ruby/perl -c 载荷）或裸语句形态（heredoc 体行）
+  const headIsInterp = parsed !== null && SCRIPT_RUNNERS.has(parsed.head.replace(/\d+$/, ""));
+  const stmtStart = /^\s*(?:with\s+)?(?:[A-Za-z_]\w*\s*=\s*)?(?:open|writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|File\.(?:open|write|open3)|IO\.(?:write|binwrite))\s*\(/.test(segText);
+  if (headIsInterp || stmtStart) {
+    for (const m of segText.matchAll(new RegExp(WRITE_API_CALL.source, "g"))) {
+      if (gitDirPathHit(m[2])) return GIT_DIR_WRITE_BLOCK_MSG;
+    }
+  }
+  return null;
+}
+
 /** 2c 窄规则唯一实现点（checkBashCommandSafety 入口 + checkPidIndependentRules 递归面共用）。 */
 function checkNarrowRules(command: string, logger?: Logger): string | null {
   const push = narrowRuleWalk(command, 3, protectedPushHit);
   if (push) {
     logger?.warn("[bash-safety-guard] BLOCKED protected-branch push (R1 narrow)", { command: command.substring(0, 200) });
     return push;
+  }
+  const gitDirWrite = narrowRuleWalk(command, 3, gitDirWriteHit);
+  if (gitDirWrite) {
+    logger?.warn("[bash-safety-guard] BLOCKED .git direct write (R1-adjacent narrow)", { command: command.substring(0, 200) });
+    return gitDirWrite;
   }
   const exfil = narrowRuleWalk(command, 3, networkExfilHit);
   if (exfil) {

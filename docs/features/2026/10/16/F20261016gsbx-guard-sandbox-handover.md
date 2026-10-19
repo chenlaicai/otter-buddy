@@ -58,7 +58,11 @@ data 破坏族、引导类（sleep→wait、脚本自杀、kill 族）、PR merg
 - **R1 git push 直推受保护分支**：词级 refspec 判定（dst 侧命中 main/master/develop/
   production/prod 即拦，`HEAD:main`/`:main`/`+main` 全形态覆盖）；refspec 位动态词
   fail-closed（目标不可校验，R1 红线不盲跑）；bare push 与 `--dry-run`/`-n` 继承既有
-  语义（r2-C：dry-run 非写；bare=保留面语义）
+  语义（r2-C：dry-run 非写；bare=保留面语义）；`--all`/`--mirror` 多引用形态按动态同款
+  fail-closed（delta 1 审视严重2）；`--delete` 例外见 delta 1 节（冻结双签口径）
+- **R1 近亲：.git 落点写恒拦**（delta 1 审视严重1）：redirect 落点（词级+剥引号文本双扫）
+  + tee 实参 + 译器载荷内写 API 实参，命中 `.git` 路径段即拦，双路径恒跑——封堵
+  「退役面 × 沙箱 gitDir 白名单」交叠区（HEAD/config/refs 直写双层裸奔）
 - **S5 网络外发**：curl/wget POST/PUT 上传族（-X POST/--data*/-F/-T/--post-*/短参簇全形态）
   + 非白名单目的拦；上传但目的不可静态校验（动态 URL）fail-closed；GET/下载面不动
   （窄规则）；白名单 = NETWORK_EXFIL_WHITELIST（huawei-colink.com 项目 MCP 端点 + 回环），
@@ -97,16 +101,45 @@ data 破坏族、引导类（sleep→wait、脚本自杀、kill 族）、PR merg
 
 ## 行为变更与已知边界
 
-- 新拦截面：`git push` 受保护 refspec（此前 worktree cwd 下放行）+ curl/wget POST/PUT
-  非白名单目的（此前仅词表污染误拦、无专门判定）+ 动态 refspec fail-closed
+- 新拦截面：`git push` 受保护 refspec（此前 worktree cwd 下放行）+ `--all`/`--mirror` 多引用
+  push + `.git` 落点直写（redirect/tee/写 API 实参）+ curl/wget POST/PUT 非白名单目的
+  （此前仅词表污染误拦、无专门判定）+ 动态 refspec fail-closed
 - 不翻既有钉住契约：`cd 主仓 && git commit → 放行`（grdl-g1:128 已知边界 #cwsp，「收紧属
   cd 豁免语义重议独立立项」）——本特性只动 main_write 文件写族，git 写族语义不动
 - 声明边界（窄规则不追）：one-liner（node -e 等）载荷内嵌套 shell 字符串（#1513 间接构造
   同界）；xargs 等词包装首词不在落点解析器；scp/rsync 非 HTTP 上传面；多 URL 混合
   （静态 URL 全白名单 + 动态词夹带第二目标）——与既有「间接构造不追」边界同口径
+- 声明边界（delta 1 记档，检视建议 A1/A2/A3）：
+  - A1：python 直调网络库（requests.post 等）外发不覆盖——预存在面（一期前同样无拦截），
+    与「one-liner 载荷内嵌套 shell 不追」同族；二期不覆盖，归 P2 另议
+  - A2：`git push origin main --dry-run`（后置旗标）仍误拦——isVerbAt 只看紧邻词的已知
+    代价，真 git 无写效果；修与不修均可，此处记档不改
+  - A3：loopback POST 白名单=自有服务驱动面（测试已钉显式接受），与 #1530 族联动观察
+  - `.git` 写面恒拦覆盖写入形态（redirect/tee/写 API 实参）；rm 等破坏形归 data 破坏族
+   （含 3b399252 双签条件口径）；cp/dd 等间接写、脚本文件内写不追（与写面同界）
 
 ## 遗留
 
 - guard-touchstone 试金石 corpus 追加退役面/保留面标本：契约「进库冻结、追加须双签+呈报」
   ——本 PR 不单方面动 corpus，标本以 bash-guard-gsbx-phase2.test.ts 承载，corpus 追加待双签
-- 「cd 主仓 && git commit」边界收紧 = cd 豁免语义重议（既有独立立项，见 grdl-g1:128 注）
+- 「cd 主仓 && git commit」边界收紧 = cd 豁免语义重议（既有独立立项，见 grdl-g1:128 注；
+  #1544 已立案同族——本特性封的是「不经 git 命令的 .git 文件写」，#1544 是「git 命令经
+  模型 cd 豁免落主仓」，两口分开收）
+
+## 审视处置记录（delta 1，检视獭-守卫 2026-10-19 round-1）
+
+结论「需要修改」2 严重 + 1 基础，本节记处置：
+
+- **严重 1（.git 直写双层裸奔）→ 已修**：新增 `.git` 落点写恒拦探针（checkNarrowRules
+  内，双路径生效），修法取检视建议的「窄规则恒拦」而非 profile 收窄（影响面小）；
+  P1a/P1b/P1c 标本已补钉（含控制组：非 .git 落点写仍随退役放行、引号提及不误拦）
+- **严重 2（--all/--mirror 多引用旁路）→ 已修**：`--all`/`--mirror` 按动态 refspec 同款
+  fail-closed；P2a/P2b 标本已补钉，P2c 控制组（feature 推送不误伤）保留
+- **--delete 处置与检视建议偏离（带证据）**：检视建议 `--delete` 同样无差别 fail-closed，
+  与冻结双签 corpus 冲突——条目 6c93a372/61d75232/a7ae968d/3b399252/5bfc2d8e 裁决原话
+  「git push --delete（远端目标）非写」且钉 `cwd=worktree→ALLOW`（feature 远端清理是
+  post-merge 常规流）。故 `--delete` 保持放行（受保护 refspec/动态/--all 组合已被既有判定
+  覆盖），零 corpus 翻案；此偏离交 delta 复核裁决
+- **基础（BEHIND）→ 已修**：rebase 吸收 main（#1533 未合，按仲裁序其合入后可能需二次
+  rebase）
+- **建议 A1/A2/A3 → 记档**（见「行为变更与已知边界」声明边界节）
