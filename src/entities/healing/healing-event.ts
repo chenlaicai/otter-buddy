@@ -82,7 +82,8 @@ export type HealingResolutionAction =
 /** 修复决策记录 */
 export interface HealingResolution {
   action: HealingResolutionAction;
-  decidedBy: 'user' | 'agent';
+  /** user=搭档裁决 / agent=獭处置 / system=调度器机制自动行为（如 autoStaleDismiss 超龄清理，#1545） */
+  decidedBy: 'user' | 'agent' | 'system';
   decidedAt: string;
   notes: string;
 }
