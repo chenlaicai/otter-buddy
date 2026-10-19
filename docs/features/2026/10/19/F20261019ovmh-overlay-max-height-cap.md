@@ -89,6 +89,11 @@ e2e 跑法：worktree web/ 下 `npx vite --port 3116 --strictPort` + `E2E_BASE_U
 
 截图：`ovmh-10a-maxed.png`（对话工作区，拖顶+大卡收紧态）；探针 JSON 留对话工作区。
 
+## 后续可选（检视獭-1552 delta 观察级，大獭 13:17 拍板本轮不加）
+
+- **拖动中卡片到达竞态加固**：`onFinish`（ChatView.tsx）松手时对 `latestHeight` 补一次 `min(latestHeight, cardLimitRef.current)` 重 clamp——拖拽进行中 cardId 变更（预览卡由本页 iframe submit 触发，持指中难发生）时，最终高度可能越收紧上限并持久化。后果有界（卡片地板仍在、按钮承诺不破；下次 cardId 事件/重载自愈）。已验证机制本轮不动，留档待后续顺手落。
+- 卡片离场输入不回弹（保持收紧值，可再拖）：未承诺回弹，合理，仅记录。
+
 ## 关联
 
 - 上游：F20261016pcov（卡片迁入覆盖层，本单封其 S1 挂账）、F20261015inpd（覆盖层）、F20261016inbs（分割条）
