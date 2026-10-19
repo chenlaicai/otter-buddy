@@ -11,6 +11,8 @@
  *   6. 视觉截图（人审证据）
  *   7+8. F20261016pcov 卡片预览进覆盖层：发送/拒绝按钮真 hit-test 可点（旧 bug 被透明
  *        overlay 吞点击）+ 衬垫含卡片高
+ *   9. F20261019ovmh 覆盖层总高封顶：短视口+大卡片 → overlay ≤ main 60% + 卡片内部滚动
+ *        + 按钮恒可见 + 衬垫按封顶后实高（#1538）
  */
 import { test, expect } from '@playwright/test'
 
@@ -332,5 +334,59 @@ test.describe('F20261016pcov 卡片预览进覆盖层（vite 隔离实例）', (
     await expect(preview).toBeHidden()
     expect(posts.some(p => p.includes('html-card-reply')), '拒绝不应发回执').toBe(false)
     await page.screenshot({ path: 'test-results/pcov-2-reject-clickable.png' })
+  })
+})
+
+test.describe('F20261019ovmh 覆盖层总高封顶（vite 隔离实例）', () => {
+  test('9: 短视口+大卡片 → overlay 封顶 60% + 卡片内部滚动 + 按钮恒可见 + 衬垫按封顶实高', async ({ page }) => {
+    // 短视口复现 #1538 案发条件：矮屏幕 + 预览卡数据区展开
+    await page.setViewportSize({ width: 640, height: 480 })
+    await openConversation(page, { cardBody: CARD_BODY })
+    const frame = page.frameLocator('[data-card-id] iframe')
+    await frame.locator('body').waitFor({ timeout: 15_000 })
+    // 大 payload（限内：summary ≤500 字符 + data ≤2KB，validateCardSubmitPayload 上限——
+    // 超限会被静默拒，卡片不出现）：summary 拉满 + dataJson 撑到 ~1.9KB，480px 视口下展开
+    // 态自然高远超 60% 预算，足以触发封顶 + 内部滚动
+    await frame.locator('body').evaluate(() => {
+      const summary = '大卡片提交摘要：'.padEnd(240, '长') + '，以上数据请逐项核对后发送，确认无误再点发送按钮，避免误发不可撤回的回执。'
+      const rows = Array.from({ length: 8 }, (_, i) => ({ id: i, name: 'field-item-'.concat(String(i)).padEnd(4), value: 'x'.repeat(150), note: '备注'.repeat(4) }))
+      ;(window as unknown as { otterCard: { submit: (p: { summary: string; data: unknown }) => void } }).otterCard.submit({ summary, data: { form: '长表单核对', rows } })
+    })
+    await expect(page.getByText('以下内容由水獭卡片生成')).toBeVisible()
+    await page.waitForTimeout(300) // RO 回调 + 封顶布局稳定
+
+    const m = await page.evaluate(() => {
+      const main = document.querySelector('main') as HTMLElement
+      const overlay = document.querySelector('.absolute.bottom-0') as HTMLElement
+      const card = document.querySelector('[data-testid="card-preview"]') as HTMLElement
+      const scrollArea = card.querySelector('.overflow-y-auto') as HTMLElement
+      const spacer = document.querySelector('[data-testid="bottom-spacer"]') as HTMLElement
+      const btns = Array.from(document.querySelectorAll('button'))
+      const sendBtn = btns.find(b => b.textContent === '发送') as HTMLElement | undefined
+      const r = sendBtn!.getBoundingClientRect()
+      const hit = sendBtn ? (() => { const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return el === sendBtn || sendBtn.contains(el as Node) })() : false
+      return {
+        mainH: main.getBoundingClientRect().height,
+        overlayH: overlay.getBoundingClientRect().height,
+        spacerH: spacer.getBoundingClientRect().height,
+        scrollClientH: scrollArea.clientHeight,
+        scrollScrollH: scrollArea.scrollHeight,
+        btnVisibleInViewport: r.top >= 0 && r.bottom <= window.innerHeight && r.height > 0,
+        btnHit: hit,
+      }
+    })
+    // 封顶生效：overlay ≤ main 60%（+1px 取整容差）
+    expect(m.overlayH, `overlay ${m.overlayH} 应封顶 ≤ main ${m.mainH} 的 60%`).toBeLessThanOrEqual(m.mainH * 0.6 + 1)
+    // 消息区恒留 ≥40%（-1px 容差）——#1538 的修复目标本尊
+    expect(m.mainH - m.overlayH, `消息可见区应 ≥ main 的 39%`).toBeGreaterThanOrEqual(m.mainH * 0.39)
+    // 溢出走卡片内部滚动（内容被收进滚动区而非撑破封顶）
+    expect(m.scrollScrollH, '滚动区内容应溢出（scrollHeight > clientHeight）').toBeGreaterThan(m.scrollClientH)
+    // 按钮行恒可见可点（#1535 成果不被封顶回退）
+    expect(m.btnVisibleInViewport, '发送按钮应在视口内').toBe(true)
+    expect(m.btnHit, '发送按钮应可命中').toBe(true)
+    // 衬垫按封顶后实高同步（RO 观测的是 clamp 后的实高——无「衬垫按自然高度算」的错位）
+    expect(Math.abs(m.spacerH - m.overlayH), '衬垫应等于 overlay 封顶后实高').toBeLessThanOrEqual(2)
+
+    await page.screenshot({ path: 'test-results/ovmh-9-maxed.png' })
   })
 })

@@ -223,13 +223,23 @@ export function ChatView(props: ChatViewProps) {
       {/* Input：F20261015inpd 覆盖层 + F20261016inbs 固定边界——absolute 悬浮底部，脱离
           文档流不挤压消息列表；顶部 8px 分割条热区（可拖），实高经 ResizeObserver 同步给
           MessageList 做等高衬垫（旧写死 170px 预留已删，死区归零）。
-          F20261016pcov：卡片预览槽位也在覆盖层内（分割条下方、输入框上方）——见卡片块注释 */}
-      <div ref={overlayRef} className="absolute bottom-0 left-0 right-0 z-10">
+          F20261016pcov：卡片预览槽位也在覆盖层内（分割条下方、输入框上方）。
+          F20261019ovmh（#1538）：覆盖层总高封顶容器高的 60%——#1535 把卡片迁入后，短视口
+          + 大卡片（数据 JSON 展开态最坏 ~550px）+ 输入框拉满（55%）叠加可吃掉整个消息区。
+          封顶用 max-h-[60%]（百分比锚 containing block = main，非 60vh——矮窗口里 vh 可能
+          大于 main 实高，overflow-hidden 的 main 会直接裁掉溢出部分，把 bug 换个形态带回来）。
+          消息区恒留 ≥40%。溢出时卡片内容区内部滚动，按钮行 + 输入框恒可见（见卡片块）。
+          衬垫机制零改动自动正确：RO 观测 overlay 实高，max-h clamp 后实高 = 封顶值，衬垫
+          同步封顶——不会出现衬垫按未封顶自然高度算、消息被吞进 overlay 背后的错位。
+          ⚠️ 容器不加 overflow-hidden：分割条热区（h-2 -mt-2）靠负 margin 探出 overlay 顶沿
+          8px，容器级裁切会把热区连同 hit-test 一起裁掉（拖拽失效，e2e 场景 2/3 实证）；
+          溢出收敛由卡片自身 min-h-0 + overflow-hidden 承担（flex 收缩不需要容器裁切） */}
+      <div ref={overlayRef} className="absolute bottom-0 left-0 right-0 z-10 max-h-[60%] flex flex-col">
         {/* 分割条热区：输入区顶沿，拖动改变固定高度（仅拖动可变——输入内容不改变边界）。
             卡片在分割条下方：分割条永远在整个输入区（含卡片）的顶沿，拖动语义不变 */}
         <div
           onPointerDown={handleSplitterPointerDown}
-          className="group relative h-2 -mt-2 cursor-row-resize touch-none z-20"
+          className="group relative h-2 -mt-2 cursor-row-resize touch-none z-20 shrink-0"
           role="separator"
           aria-orientation="horizontal"
           aria-label="拖动调整输入框高度"
@@ -246,22 +256,27 @@ export function ChatView(props: ChatViewProps) {
             覆盖层（absolute bottom-0 z-10）叠放——覆盖层透明但命中测试照吃，把发送/拒绝
             按钮的点击全吞了；卡片弹出还会压矮消息视口。现挪进覆盖层内（分割条下方、输入
             框上方）：覆盖层实高自然含卡片（ResizeObserver 同步给 MessageList 做等高衬垫，
-            三笔账一次结清：按钮可点 + 衬垫含卡片 + 卡片不再压视口）。卡片自身限高
-            （JSON 区 240px + summary 自然高度），避免大卡片吃掉整个聊天区 */}
+            三笔账一次结清：按钮可点 + 衬垫含卡片 + 卡片不再压视口）。
+            F20261019ovmh（#1538）卡片自身不再 flex-shrink-0：覆盖层封顶（60%）后卡片是
+            唯一可收缩项（分割条 h-2 固定、MessageInput 底部玻璃框固定高 + pb-5/pt-2 自带
+            shrink 兜底），超限时收缩 + 内容区内部滚动（overflow-y-auto），发送/拒绝按钮
+            行 shrink-0 恒可见——#1535 的首要目标是按钮可点，封顶不能把按钮滚出视野 */}
         {props.cardPreview && (
-          <div data-testid="card-preview" className="mx-1 mb-2 rounded-2xl border border-amber-200/60 bg-amber-50/90 backdrop-blur-sm px-4 py-3 flex-shrink-0">
-            <div className="flex items-start gap-1.5 text-[11px] text-amber-700 mb-2">
+          <div data-testid="card-preview" className="mx-1 mb-2 rounded-2xl border border-amber-200/60 bg-amber-50/90 backdrop-blur-sm px-4 py-3 flex-shrink flex flex-col min-h-0 overflow-hidden">
+            <div className="flex items-start gap-1.5 text-[11px] text-amber-700 mb-2 shrink-0">
               <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>以下内容由水獭卡片生成，请核对后发送；已提交的卡片不可重复提交，修改答案请让水獭重发新卡</span>
             </div>
-            <div className="text-sm text-stone-700 whitespace-pre-wrap break-all mb-2">{props.cardPreview.summary}</div>
-            {props.cardPreview.dataJson !== null && (
-              <details open className="mb-2">
-                <summary className="text-[11px] text-stone-500 cursor-pointer select-none">数据 JSON（全文）</summary>
-                <pre className="mt-1 text-[11px] text-stone-500 bg-white/60 rounded-lg px-3 py-2 whitespace-pre-wrap break-all max-h-[var(--preview-scroll-max-h)] overflow-y-auto">{props.cardPreview.dataJson}</pre>
-              </details>
-            )}
-            <div className="flex gap-2">
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="text-sm text-stone-700 whitespace-pre-wrap break-all mb-2">{props.cardPreview.summary}</div>
+              {props.cardPreview.dataJson !== null && (
+                <details open className="mb-2">
+                  <summary className="text-[11px] text-stone-500 cursor-pointer select-none">数据 JSON（全文）</summary>
+                  <pre className="mt-1 text-[11px] text-stone-500 bg-white/60 rounded-lg px-3 py-2 whitespace-pre-wrap break-all">{props.cardPreview.dataJson}</pre>
+                </details>
+              )}
+            </div>
+            <div className="flex gap-2 shrink-0">
               <button
                 onClick={props.onConfirmCard}
                 className="px-3 py-1 text-xs font-medium text-white rounded-xl shadow-glow transition"
