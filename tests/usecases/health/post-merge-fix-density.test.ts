@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectPostMergeFixDensity, computeFanInExclusions, FAN_IN_THRESHOLD, LARGE_CHAIN_FILES, RATIO_MIN_DENOMINATOR } from "@usecases/health/post-merge-fix-density";
+import { detectPostMergeFixDensity, computeFanInExclusions, FAN_IN_THRESHOLD, LARGE_CHAIN_FILES, FIX_RATIO_THRESHOLD } from "@usecases/health/post-merge-fix-density";
 import type { SignalCommitInput } from "@usecases/health/detect-signals";
 import { parseCommit } from "@usecases/health/commit-parser";
 import type { FeatureChain } from "@usecases/health/chain-builder";
@@ -180,7 +180,10 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
     expect(signals.find(s => s.featureId === "F20260901xbad")).toBeUndefined();
   });
 
-  it("最小分母保护：窗口内 <5 条 commit 时占比支不启用（2 bugfix / 3 commit 不触发）", () => {
+  it("小分母不触发：2 bugfix / 3 commit 不触发（次数门未过）", () => {
+    // 注（PR #1560 检视建议 4）：原为「最小分母保护」——分母 <5 时强制 ratio=0。
+    // 双门 AND 下该下限已由次数门接管并移除（它会造成非单调悬崖，见下一条回归）。
+    // 本例仍不触发，但理由从「占比支未启用」变为「次数门 2 <3 未过」
     const commits = [
       commit("b1", 2, "[F20260901yccc][agent][BugFix] 1", ["src/feat-a.ts"]),
       commit("b2", 3, "[F20260901yccc][agent][BugFix] 2", ["src/feat-a.ts"]),
@@ -188,6 +191,22 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
     ];
     const { signals } = detectPostMergeFixDensity({ commits, chains: [smallChain("F20260901yccc")], now: NOW });
     expect(signals.find(s => s.featureId === "F20260901yccc")).toBeUndefined();
+  });
+
+  it("无非单调悬崖：3 bugfix / 4 commit = 75% 应触发（原最小分母下限拦杀的形态）", () => {
+    // PR #1560 检视建议 4 回归：旧下限造成 3/4=75% 被拦、3/5=60% 反而触发（密度更高
+    // 反而更不可能报警）。下限移除后占比按实算，单调：密度越高越容易触发。
+    // 原设计下限的顾虑「合入后仅 1 条 bugfix → 100% 触发是荒谬的」由次数门 ≥3 接管
+    const commits = [
+      commit("b1", 1, "[F20260901yddd][agent][BugFix] 1", ["src/feat-a.ts"]),
+      commit("b2", 2, "[F20260901yddd][agent][BugFix] 2", ["src/feat-b.ts"]),
+      commit("b3", 3, "[F20260901yddd][agent][BugFix] 3", ["src/feat-c.ts"]),
+      commit("f1", 2, "[F20260901yddd][agent][Feature Update] 填充分母", ["src/unrelated.ts"]),
+    ];
+    const { signals } = detectPostMergeFixDensity({ commits, chains: [smallChain("F20260901yddd")], now: NOW });
+    const sig = signals.find(s => s.featureId === "F20260901yddd");
+    expect(sig).toBeDefined();
+    expect(sig!.evidence).toContain("3/4 = 75%");
   });
 
   it("排除清单：高扇入文件不计入分子（≥10 特性触碰；FID 后缀纯字母）", () => {
@@ -259,7 +278,7 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
   it("分档与阈值常量符合实查依据（文档锚点：2026-09-01 实测 137 链）", () => {
     expect(LARGE_CHAIN_FILES).toBe(6);
     expect(FAN_IN_THRESHOLD).toBe(10);
-    expect(RATIO_MIN_DENOMINATOR).toBe(5);
+    expect(FIX_RATIO_THRESHOLD).toBe(0.15);
   });
 });
 

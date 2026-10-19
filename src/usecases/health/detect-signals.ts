@@ -389,9 +389,14 @@ function isTestFile(filePath: string): boolean {
  *  FAN_IN_THRESHOLD=10 主动排除的那批枢纽文件**（实测近 60 天 fan-in：app.ts×65 /
  *  platforms.ts×56 / index.tsx×50 / agent-invoker.ts×55）。同一仓库一个检测器认定
  *  「枢纽文件被碰是常态」、另一个拿它报警，自相矛盾。枢纽被高频触碰是架构使然，
- *  不是异常——文件热度属观测数据，归 health_snapshots 快照，不占警报位。
+ *  不是异常——枢纽被高频触碰属架构常态而非异常信号。诚实声明：health_snapshots 无
+ *  文件热度落点，排除即静默（实时兜底 /api/health/chains），非「观测不丢」。
  *  排除清单复用 computeFanInExclusions（与 density 同源，避免双源漂移——见
- *  post-merge-fix-density.ts 的单一真相源注释）。 */
+ *  post-merge-fix-density.ts 的单一真相源注释）。
+ *  诚实声明（PR #1560 检视严重发现 3）：health_snapshots 目前只落 cost_output /
+ *  overview / distribution / health_index / fix_interval 五类（sqlite 实测），**无文件
+ *  热度落点**——被排除的枢纽热度在信号之外无历史序列，实时兜底只有 /api/health/
+ *  chains。这是有意让它静默，不是「观测不丢」；若要历史序列需另补快照行。 */
 function detectHotspot(
   commits: SignalCommitInput[],
   chains: FeatureChain[],

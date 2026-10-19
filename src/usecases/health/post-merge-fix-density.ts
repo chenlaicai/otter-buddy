@@ -6,12 +6,11 @@
  * 「特性不对劲」（warning——是待查证不是定罪，不预设立场，只统计出血）。
  *
  * 双门 AND 的由来（#1051 产出-消费断链治理，#1335 阈值口径拍板）：原口径是
- * 「次数 ≥3 **或** 占比 ≥30%」的或门。实测 sqlite 40 条 open 存量里 **39 条只过了
- * 次数门**——占比 1–12%，分母 40–236 条 commit。在月产 200+ commit 的仓库里，任何
+ * 「次数 ≥3 **或** 占比 ≥30%」的或门。实测 sqlite 52 条 open 存量里 **43 条只过了
+ * 次数门**——占比 1–12%，分母 15–236 条 commit。在月产 200+ commit 的仓库里，任何
  * 合入 30 天内的特性都会凑够 3 条 bugfix，次数门在大分母下形同虚设（实测样本
  * #435 = 3 次 / 111 条 = 3%）。占比下限 15% 取自实测分布的断层：噪音群 1–12%，
- * 真信号群 23–50%，15% 恰落在断层内。未过阈值的链仍进 health_snapshots 快照
- * （观测不丢，只是不再占警报位）。
+ * 真信号群 15–29%，15% 恰落在断层内。
  *
  * 三条边界（缺一不可，issue #647）：
  * 1. 高扇入文件排除清单：被 ≥FAN_IN_THRESHOLD 个特性触碰的文件自动进清单（实测
@@ -50,13 +49,14 @@ export const LARGE_FEATURE_WINDOW_DAYS = 30;
 export const FIX_COUNT_THRESHOLD = 3;
 /** 触发阈值：bugfix 占窗口全部 commit 比例 ≥ 此值。
  *  Why 0.15（#1051 方案 1）：实测 open 存量 ratio 分布呈双群——噪音群 1–12%（分母
- *  40–236，纯次数门凑够）、真信号群 23–50%。15% 落在两群之间的断层里，实测 40 条
- *  存量仅 5 条存活（归零或个位数，符合 #1051 验收断言）。 */
+ *  15–236，纯次数门凑够）、真信号群 15–29%。15% 取在两群断层里，实测 52 条存量仅
+ *  9 条达标（归零或个位数，符合 #1051 验收断言）。
+ *  另注（诚实声明，PR #1560 检视严重发现 3）：未达阈值的链不产出 signal，而
+ *  health_snapshots 目前只落 cost_output / overview / distribution / health_index /
+ *  fix_interval 五类（sqlite 实测），**没有链级密度落点**——所以被压掉的占比在信号
+ *  之外无历史序列，实时兜底只有 /api/health/chains。这不是「观测不丢」，是有意让其
+ *  静默；若要历史序列需另补快照行，属后续事项。 */
 export const FIX_RATIO_THRESHOLD = 0.15;
-/** 占比判定的最小分母：窗口内全部 commit 低于此值时占比支不启用。
- *  Why：分母 <5 时占比失真（合入后仅 1 条 bugfix → 100% 触发是荒谬的）；
- *  小样本场景由次数阈值（≥3）单支把关。 */
-export const RATIO_MIN_DENOMINATOR = 5;
 
 /** 排除清单阈值：文件被 ≥ 此数个不同特性触碰即高扇入枢纽，进排除清单。
  *  实测（2026-09-01，30/60 天窗口分布一致）：app.ts×22 / platforms.ts×18 /
@@ -136,12 +136,13 @@ function detectChainFixDensity(ctx: {
 
   // 占比支最小分母保护：分母 <RATIO_MIN_DENOMINATOR 时占比失真（合入后仅 1 条 bugfix
   // → 100% 触发是荒谬的），小样本场景由次数阈值单支把关
-  // 双门最小分母保护：分母 <RATIO_MIN_DENOMINATOR 时占比失真（合入后仅 1 条 bugfix
-  // → 100% 触发是荒谬的）。AND 语义下小分母窗口不再由次数门单支把关——ratio 置 0
-  // 即直接不产出，薄证据链（<5 条 commit）本来就该落快照而非警报位（#1051 方案 1）
-  const ratio = inWindow.length >= RATIO_MIN_DENOMINATOR ? bugfixHits / inWindow.length : 0;
   // 双门 AND（#1051 方案 1）：两道门都要过。原「或门」让次数门在大分母下失守——
-  // 月产 200+ commit 的仓库里，合入 30 天内的特性几乎必然凑够 3 条 bugfix
+  // 月产 200+ commit 的仓库里，合入 30 天内的特性几乎必然凑够 3 条 bugfix。
+  // 占比直接按实算，不再设最小分母下限：原设计的「分母 <5 占比失真」顾虑（合入后
+  // 仅 1 条 bugfix → 100% 触发是荒谬的）在 AND 语义下已由次数门接管——占比只在
+  // 次数 ≥3 时才可能过关，1 条 bugfix 无论如何过不了。而保留下限会造成**非单调悬崖**
+  //（PR #1560 检视建议 4）：3 bugfix/4 commit=75% 双门皆过却被拦，3/5=60% 反而触发。
+  const ratio = inWindow.length > 0 ? bugfixHits / inWindow.length : 0;
   if (bugfixHits < FIX_COUNT_THRESHOLD || ratio < FIX_RATIO_THRESHOLD) return null;
 
   return {
