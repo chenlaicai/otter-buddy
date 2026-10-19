@@ -40,6 +40,7 @@
  * 求值纯判定：除牙3 缺席证明的 fs stat 只读查询（fsAbsentPlan，delta2 修法）外无 IO、无状态、不写任何存储（机制识别检查点：只读 fs 查询已记档特性文档）。
  */
 import { readFileSync } from "node:fs";
+import { safeRealpath } from "./fs-realpath";
 import path from "node:path";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
 import { proveNoWrite, DYNAMIC_IMPORT_FACE, MAIN_LIT_CONCAT_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
@@ -57,6 +58,8 @@ export interface WriteTarget {
   segmentIndex: number;
   /** 访问类型（能力 8：只读披露不构成写证据）——只有 write 参与拦截判定，read 是事实披露 */
   access: "write" | "read";
+  /** 目录项操作标记（rm 等 unlink 语义）：写证据判定按「末分量不穿链」（pathEntryWithinMain） */
+  entryOp?: boolean;
 }
 
 export type WriteEvalResult =
@@ -125,10 +128,29 @@ function bareName(argv0: string | null): string | null {
 //  fail-closed 不受本区影响（block 池 attack-rename-channel.sh 等残余面仍如实钉 BLOCK）。
 const OTTER_RUNTIME_REGIONS = ["/.otter/worktrees/", "/.otter/workforms", "/data/workspaces/"];
 export function pathWithinMain(absPath: string, projectRoot: string): boolean {
-  const p = normalizePath(absPath);
-  const root = normalizePath(projectRoot);
+  // F20261019syml（M-ed285d7c）：symlink 穿透归一——字符串落点在运行时区但真实落点在
+  //  主仓内容树的穿链形态（ln -s + 写/删穿链）在此收口；区基同 realpath 后按原 region
+  //  尾杠形态重建前缀（裸区目录名豁免语义逐字保持：带尾杠=仅子树，不带=含裸名——
+  //  M-cf899ad2 口径之争不受本刀影响）。
+  return pathWithinMainCore(normalizePath(safeRealpath(absPath)), projectRoot);
+}
+
+/** 目录项判定（rm 等 unlink 语义——末分量不穿链）：`rm <link>` 只删链接/目录项本身
+ *  不穿目标内容（F20261019syml 一轮「末分量不穿链」在求值器侧等价落位）。真实落点=
+ *  父目录逐分量解析 + 末分量名保留；`rm <root>` 删主仓根仍按根判 BLOCK（树内=写主仓）。
+ *  find 起点/内容写不适用（find <link> 穿链遍历目标内容——走 pathWithinMain）。 */
+export function pathEntryWithinMain(absPath: string, projectRoot: string): boolean {
+  return pathWithinMainCore(normalizePath(path.join(safeRealpath(path.dirname(absPath)), path.basename(absPath))), projectRoot);
+}
+
+/** 判定核（p 须已解析归一）：运行时区豁免前缀 + 主仓树内判定。 */
+function pathWithinMainCore(p: string, projectRoot: string): boolean {
+  const rootNorm = normalizePath(projectRoot);
+  const root = normalizePath(safeRealpath(rootNorm));
   for (const region of OTTER_RUNTIME_REGIONS) {
-    if (p.startsWith(`${root}${region}`)) return false;
+    const regionBase = normalizePath(safeRealpath(rootNorm + region.replace(/\/+$/, "")));
+    const prefix = region.endsWith("/") ? `${regionBase}/` : regionBase;
+    if (p.startsWith(prefix)) return false;
   }
   if (p === root) return true;
   return p.startsWith(root.endsWith("/") ? root : `${root}/`);
@@ -139,33 +161,20 @@ function normalizePath(p: string): string {
   return p.replace(/\/{2,}/g, "/").replace(/(.+)\/$/, "$1");
 }
 
-/** 词法路径爬升（纯字符串分段栈：空段/`.` 跳过，`..` 出栈，普通段入栈；栈空再出=根 `/`）。
- *  确定性与边界：与 shell 词法语义一致——不触盘、不解析 symlink（projectRoot 全链均按
- *  词法绝对路径判定，同口径）；路径开头是 `/` 时绝对词直接爬升，否则先拼 cwd 再爬升。
- *  F20261019gses rebase 回归修（大獭 2026-10-16 派工）：`..` 从首跑「一律不猜」收窄为
- *  「可静态爬升则解析」——`path.resolve(cwd, '../')` 是确定性的（wt/src + ../ = wt
- *  自树仍在 worktree 区），`git -C ../ commit` 从 worktree 子目录发车曾 fail-closed
- *  误拦（bash-safety-guard-git-dashc.test.ts 第 6 例 rebase 后翻红实证）。动态形态
- *  （$/`/~）不进本函数（evalPath 前置短路）——`$W/../main` 类溯源面口径不变。 */
-function climbPath(p: string): string {
-  const out: string[] = [];
-  for (const seg of p.split("/")) {
-    if (seg === "" || seg === ".") continue;
-    if (seg === "..") { out.pop(); continue; }
-    out.push(seg);
-  }
-  return `/${out.join("/")}`;
-}
-
 /** 路径词求值：相对 → cwd 拼接；含 $/`/~（家目录）→ null（动态，unevaluated）。
- *  ~ 按主仓 home 不可知原则不猜；.. 可静态爬升则词法解析（climbPath——F20261019gses
- *  收窄，见 climbPath 注释；首跑「不猜爬升结果」保守口径就此退役，`cd /repo/../..`
- *  现解析到 `/`）。 */
+ *  ~ 按主仓 home 不可知原则不猜；`..` 保留不爬升（F20261019syml 三轮落位：下游
+ *  pathWithinMain/fs 按内核逐分量解析——词法爬升跨 symlink 弹栈即 `..`-after-symlink
+ *  逃逸面），`cd /repo/../..` 落点由 safeRealpath 解析到真实父级。 */
 function evalPath(word: string, cwd: string): string | null {
   if (word === null || word === undefined) return null;
   if (/[$`~]/.test(word)) return null;
   if (word.includes("..")) {
-    return climbPath(word.startsWith("/") ? word : `${cwd.endsWith("/") ? cwd : `${cwd}/`}${word}`);
+    // F20261019syml 二轮落位（合并集成）：`..` 保留不爬升——climbPath 词法弹栈在
+    // symlink 分量上与内核逐分量落点分歧（`<wt>/link/../x` 弹成 `<wt>/x`，真实落点
+    // `<root>/x` = `..`-after-symlink 逃逸面）。下游 pathWithinMain（safeRealpath
+    // 逐分量）/fs stat 按内核语义解析；非 symlink 形态词法爬升与逐分量结果相同
+    // （虚构路径亦同），语义无漂移。climbPath 随之删除（无残留）。
+    return normalizePath(word.startsWith("/") ? word : `${cwd.endsWith("/") ? cwd : `${cwd}/`}${word}`);
   }
   if (word.startsWith("/")) return normalizePath(word);
   return normalizePath(`${cwd.endsWith("/") ? cwd : `${cwd}/`}${word}`);
@@ -360,7 +369,7 @@ function gitSegSelfWriteEvidence(seg: Segment, projectRoot: string): boolean {
       const v = words[i + 1]?.evaluated ?? null;
       if (v === null) return true;
       if (!path.isAbsolute(v)) return true; // 相对 -C 无基准——不可证
-      base = path.normalize(v);
+      base = v; // 不词法折叠（F20261019syml 落位）：pathWithinMain 内 safeRealpath 逐分量收口
       hasC = true;
       i += 2;
       continue;
@@ -368,7 +377,7 @@ function gitSegSelfWriteEvidence(seg: Segment, projectRoot: string): boolean {
     if (w.startsWith("-C") && w.length > 2) {
       const v = w.slice(2);
       if (!path.isAbsolute(v)) return true;
-      base = path.normalize(v);
+      base = v; // 同上：折叠留给 safeRealpath
       hasC = true;
       i++;
       continue;
@@ -527,7 +536,10 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
     }
     const resolved = evalPath(d, cwd);
     if (resolved === null) return "dynamic-path";
-    acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
+    // rm = 目录项操作（unlink 语义）：标记 entryOp，判定走「末分量不穿链」——
+    // `rm <link>` 只删链接本身不穿目标（F20261019syml 等价落位）；find/cp/mv/touch/
+    // mkdir 落点是内容/目录语义，保持全解析。
+    acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write", ...(bare === "rm" ? { entryOp: true as const } : {}) });
   }
   return null;
 }
