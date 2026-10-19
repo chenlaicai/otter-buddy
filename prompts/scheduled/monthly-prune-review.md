@@ -7,7 +7,7 @@ task_name: 月度剪枝审视（D3 剪枝出口）
 三层候选源（全部附检索方式与命中明细，供裁决者质疑）：
 1. skill 层：对 .pi/skills/ 全量 skill，逐个 search_memory 检索「skill 名」的最后实质引用 + list_messages 检索对话流提及——静默超 90 天入候选。注意代理信号局限：命中可能是「讨论」而非「使用」，清单必须附命中明细原文。
 2. 机制层：sqlite3 直查 otter-buddy.db——RHI stalled/regressed 态特性链（链长期无推进/出过回退）+ scheduled_task_executions 长期零产出任务。
-3. **issue 层**：全量 open issue，实质静默超 14 天入候选（统一阈值，不再按 tech-debt 放宽）——「实质静默」定义：无认领、无关联 open PR、无评论推进，例行 ping / 标签补齐 / 重开不算实质更新。判定材料用 `gh issue list --state open --json number,updatedAt,comments --jq` 取最后实质评论时间；P0/P1 bug 类 issue 不入剪枝候选（高优排期项，不是剪枝对象）。候选项附：静默天数 / 有无验证断言与关闭标准 / 最后实质动作。批量处置方式：可合并（同域同根因）/ 可关闭（关闭标准已满足或已被取代）/ 待搭档特赦（写明为何留）——批量操作一律呈卡裁决后执行，不自行关。
+3. **issue 层**：全量 open issue，实质静默超 14 天入候选（统一阈值）——「实质静默」判定：无认领、无关联 open PR、无评论推进，例行 ping / 标签补齐 / 重开不算实质更新。判定材料：`gh issue list --state open --json number,updatedAt,comments --jq` 取最后评论时间（gh comments 最后评论日作「最近活动」代理，不逐条判实质/例行，判读成本高——月度频率可接受）；P0/P1 bug 类 issue 不入剪枝候选（高优排期项，不是剪枝对象）。候选项附：静默天数 / 有无验证断言与关闭标准 / 最后实质动作。批量处置：可合并（同域同根因）/ 可关闭（关闭标准已满足或已被取代）/ 待搭档特赦（写明为何留）——批量操作一律呈卡裁决后执行，不自行关。
 4. 禁用项：orphan 态是 doc-gap 语义不是僵尸组件，不进候选；prompt 段落层首轮不实现（F 文档决策）。
 
 产出：html-card 候选清单卡（组件名/最后引用时间/静默天数/命中明细/删除影响面/建议动作：删/留观/保留），逐项留 otterCard.submit 按钮交搭档裁决。删除一律走 PR 可回滚（剪枝 PR 与功能 PR 同标准：同签名同审视）。
