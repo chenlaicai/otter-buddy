@@ -22,8 +22,8 @@ function git(cwd: string, args: string[]) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }
 
-function runLint(cwd: string) {
-  const r = spawnSync("node", [LINT], { cwd, encoding: "utf8", env: { ...process.env } });
+function runLint(cwd: string, args: string[] = []) {
+  const r = spawnSync("node", [LINT, ...args], { cwd, encoding: "utf8", env: { ...process.env } });
   return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", status: r.status ?? -1 };
 }
 
@@ -32,6 +32,7 @@ const REFEREE = "docs/features/2026/01/02/F20260102ref-referencing-doc.md";
 const TARGET_CONTENT = `---\nid: F20260101tgt\ntitle: 被引用文档\nchange_type: feature\n---\n\n# 被引用文档\n\n正文。\n`;
 const REFEREE_CONTENT = `---\nid: F20260102ref\ntitle: 引用方文档\nchange_type: feature\n---\n\n# 引用方文档\n\n- [被引用文档](../01/F20260101tgt-old-feature.md) — 详见
 - 文件清单：\`F20260101tgt-old-feature.md\`
+-- 旧观点：本表只读
 `;
 
 let repo: string;
@@ -124,5 +125,66 @@ describe("lint-historical-docs 链接订正通道（F20261019f714，M-f7148deb �
     const r = runLint(repo);
     expect(r.status).not.toBe(0);
     git(repo, ["reset", "-q", "--hard", "HEAD"]);
+  });
+
+  it("S3 负例：内容以 --/++ 开头的观点改写行夹带链接对（前缀碰撞）→ 仍拦", () => {
+    // 合法 rename + 一对合法链接/token 订正，再夹带一对 `-- 旧观点` → `++ 新观点` 改写：
+    // 旧版跳 ---/+++ 字面行时这对因 diff 渲染恰成 ---/+++ 而隐形，配对账平 → 放行（fail-open）。
+    const renamed = "docs/features/2026/01/01/F20260101tgt-new-slug.md";
+    git(repo, ["mv", TARGET, renamed]);
+    fs.writeFileSync(
+      path.join(repo, REFEREE),
+      REFEREE_CONTENT
+        .replace("../01/F20260101tgt-old-feature.md", "../01/F20260101tgt-new-slug.md")
+        .replace("`F20260101tgt-old-feature.md`", "`F20260101tgt-new-slug.md`")
+        .replace("-- 旧观点：本表只读", "++ 新观点：本表可写"),
+    );
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "链接同步夹带 --/++ 观点行改写（测试负例）\n");
+    git(repo, ["add", "-A"]);
+    const r = runLint(repo);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("正文实质修改");
+    git(repo, ["reset", "-q", "--hard", "HEAD"]);
+  });
+
+  it("J1 负例：无任何 rename 的纯改链接指向（改溯源主张）→ 仍拦（rename 对账）", () => {
+    fs.writeFileSync(
+      path.join(repo, REFEREE),
+      REFEREE_CONTENT.replace("../01/F20260101tgt-old-feature.md", "../01/F20260101tgt-retargeted.md"),
+    );
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "无 rename 纯改链接指向（测试负例）\n");
+    git(repo, ["add", "-A"]);
+    const r = runLint(repo);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("正文实质修改");
+    git(repo, ["reset", "-q", "--hard", "HEAD"]);
+  });
+
+  it("S2 base 模式（CI per-commit 回放）：rename+引用同步+声明同 commit → --base 放行；后继观点改写 commit → 整段拦", () => {
+    const renamed = "docs/features/2026/01/01/F20260101tgt-cibase.md";
+    git(repo, ["mv", TARGET, renamed]);
+    fs.writeFileSync(
+      path.join(repo, REFEREE),
+      REFEREE_CONTENT
+        .replace("../01/F20260101tgt-old-feature.md", "../01/F20260101tgt-cibase.md")
+        .replace("`F20260101tgt-old-feature.md`", "`F20260101tgt-cibase.md`"),
+    );
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "base 模式：改名引用同步声明（测试正例）\n");
+    git(repo, ["add", "-A"]);
+    git(repo, ["commit", "-q", "-m", "feat: rename + link sync"]);
+    const ok = runLint(repo, ["--base", "origin/main"]);
+    expect(ok.status).toBe(0); // S2：链接订正通道在 --base 回放同样生效（修复前此 commit 必红）
+    // 后继 commit：观点改写（带声明）——逐 commit 回放必须在第二个 commit 转红
+    fs.writeFileSync(
+      path.join(repo, REFEREE),
+      fs.readFileSync(path.join(repo, REFEREE), "utf8").replace("# 引用方文档", "# 引用方文档（观点改）"),
+    );
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "base 模式：观点改写（测试负例）\n");
+    git(repo, ["add", "-A"]);
+    git(repo, ["commit", "-q", "-m", "feat: opinion change"]);
+    const bad = runLint(repo, ["--base", "origin/main"]);
+    expect(bad.status).not.toBe(0);
+    expect(bad.stderr).toContain("正文实质修改");
+    git(repo, ["reset", "-q", "--hard", "origin/main"]);
   });
 });

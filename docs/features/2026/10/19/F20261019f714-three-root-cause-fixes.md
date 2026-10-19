@@ -19,7 +19,7 @@ modules:
   - src/frameworks/agent/write-target-evaluator.ts
   - src/frameworks/agent/command-model.ts
   - src/frameworks/agent/bash-safety-guard.ts
-capability_test: tests/frameworks/agent/bash-guard-processname-diagnostic.test.ts（关联三套：create-bound 3 例、lint-historical-docs-linkfix 5 例、target-arg-var-source 9 例，修复前均红）
+capability_test: tests/frameworks/agent/bash-guard-processname-diagnostic.test.ts（关联：create-bound 3 例、lint-historical-docs-linkfix 8 例、target-arg-var-source 14 例；审视修复轮修复前实测 6 红 → 修复后全绿）
 ---
 
 # 三项次发现根因修复（M-f7148deb）
@@ -56,10 +56,20 @@ capability_test: tests/frameworks/agent/bash-guard-processname-diagnostic.test.t
 
 **实勘纠正（对台账叙述）**：healing f34409ce（07:46 high，node -e 案发）**不是**路径误伤也不是进程名误拦——逐行二分实测：无 exec 面的 node -e 载荷（含路径字面量）求值放行，该载荷命中的是 `execFileSync(` 的 exec 类负门（拍板的不可证 fail-closed）。本 PR 不放宽该负门；该事件归口时应记「exec 负门真阳性，设计语义保持」。
 
+## 对抗审视修复轮（S1/S2/S3/J1，delta1）
+
+检视獭1561 异体审视结论 request-changes（3 严重 + 3 建议）；逐条处置：S1/S2/S3 必修 + J1 本 PR 顺手，J2（stripAll 双正则顺序，fail-closed 向）/J3（回显对相对路径 token 残留误标，纯诊断）登记 follow-up 待办 M-e595e8f2。修复全部改根因，无阈值/无掩码。
+
+- **S1 溯源顺序倒置放水（保护回退）**：resolveAssign 旧版取「全局最后一次赋值」不看使用点先后——`T=主仓路径; mv a.ts "$T"; T=/tmp/无害` 后绑值把运行时落点洗白成树外（守卫层实测放行，重定向同形态同放）。修法：resolveAssign 位置化（beforeIdx=使用点段号，严格小于），同段前缀赋值不参与本段词展开（bash 先展开后赋值）——单点收口，mv/重定向/git -C/git add/cd 五个调用面同步传导（resolveTargetArgWord/resolveVarConcatCdTarget/evalCdTarget 签名带位）。修后：后绑形态按使用点前赋值判主仓正拦；同段前缀形态 dynamic-path fail-closed。
+- **S2 链接订正通道未接 CI per-commit 回放（B1 红灯根因）**：runBaseMode 只有 frontmatter 路由、无 checkLinkFixScope——rename+引用同步的合法 commit 在工作区模式过、CI --base 回放必红（特性文档声明与代码不符）。修法：runBaseMode 接入同构第二开口路由（含失败文案对齐）+ --base 等价命令本地实测 exit 0（逐 commit 回放 ec5185d1：8 个历史文档经通道放行）；新增 base 模式正/负例测试。
+- **S3 diff 头前缀碰撞 fail-open**：linkFixPairsOk 在 hunk 体（首个 @@ 之后）内跳过 `---`/`+++` 字面行——hunk 体内根本不存在 diff 头，被跳过的只会是内容恰以 `--`/`++` 开头的正文行，观点改写夹带一对链接替换可隐形过闸（审视沙盒实测 exit 0）。修法：删跳行（头行天然在首个 @@ 之前），全部 +/- 行入配对账；新增 --/++ 夹带负例（修复前红 → 修复后拦）。
+- **J1 第二开口无 rename 对账**：纯把链接改指向无关文档（无任何 rename）曾放行——改指向是改溯源主张，不是机械同步。修法：linkFixPairs 返回 (旧,新) 路径对清单，与同变更集真实 rename 对逐对对账（basename 对口径——引用形态既有相对路径也有裸文件名 token，F-id 文件名在 docs 树内唯一，basename 对即身份对）；新增无 rename 纯改指向负例。
+
 ## 测试与证据
 
 - **修复前失败（三连，基线源码换入实测）**：① round-trip `expected null to be 1361` 红；② 链接订正通道正例在基线 lint 全拦红；③ 基线换入 9 例红（案发 mv 放行/求值器溯源/E1 债偿还/重定向溯源/拼接/主仓正拦 + 3 例进程名回显误标）。
-- **修复后**：针对性 4 套 25 例全绿 + 全量 vitest 全绿 + `tsc --noEmit` 0 error + pre-commit 全闸（check/lint:docs/historical/prompt-anchors 等）通过。
+- **审视修复轮修复前失败（同法换入实测）**：6 红——S1 后绑 mv/重定向放行 ×2 + 同段前缀假放行 + S3 夹带过闸 + J1 纯改指向过闸 + S2 base 回放红；修复后全绿。
+- **修复后**：针对性 4 套 33 例全绿（create-bound 3 + 链接订正 8（含 6 负例）+ $VAR 溯源 14 + 进程名回显 8）+ 全量 vitest **402 文件 6282 passed（6 skipped 为既有）** + `tsc --noEmit` 0 error + pre-commit 全闸 + `--base origin/main` CI 等价回放 exit 0。
 
 ## 影响范围与负向验收
 
@@ -69,4 +79,4 @@ capability_test: tests/frameworks/agent/bash-guard-processname-diagnostic.test.t
 
 ## 下一步
 
-PR 交大獭编排异体对抗审视，搭档终审；f34409ce 等误拦事件的台账归口收尾由大獭处置（结论见「实勘纠正」段）。
+PR 交大獭编排异体对抗审视（已回检视獭1561 delta 复审），搭档终审；f34409ce 等误拦事件的台账归口收尾由大獭处置（结论见「实勘纠正」段）。J2/J3 已登记 follow-up 待办 M-e595e8f2。
