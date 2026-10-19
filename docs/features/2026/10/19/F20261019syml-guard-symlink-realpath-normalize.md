@@ -4,7 +4,7 @@ title: bash 守卫——symlink 逃逸链 realpath 归一化（ln -s 主仓→wo
 summary: M-ed285d7c（#1515 delta 建议 2 立档）：ln -s <主仓内容> <worktrees 区>/link 后 git -C <link> 写族 / cd <link> && 写 / echo > <link>/f / rm <link>/sub 的字符串落点在运行时区（豁免命中）而真实落点在主仓内容树——两步全放。判定基元（wv pathWithinMain / prod isInsideMainCheckout、classifyDestructiveTarget、git -C 落点累积）路径比较前 symlink 穿透归一（safeRealpath 最深存在祖先回拼）；显式意图豁免加「声明形态=真实落点」分歧一票否决（诚实 cd 主仓照旧放行）
 type: BugFix
 date: 2026-10-19
-capability_test: "n/a（change_type=BugFix）：回归钉 tests/frameworks/agent/bash-guard-symlink-realpath.test.ts（拦截侧 5 + 放行侧 4 + 基元 3，真 fs symlink 拓扑）"
+capability_test: "n/a（change_type=BugFix）：回归钉 tests/frameworks/agent/bash-guard-symlink-realpath.test.ts（首轮 12 + 二轮 `..`-after-symlink 回归钉 8，真 fs symlink 拓扑，合计 20）"
 intent:
   problem: "M-ed285d7c（#1515 delta 建议 2 立档）：symlink 逃逸链两步全放——ln -s <主仓内容> <worktrees 区>/link 之后，git -C <link> 写族 / cd <link> && git commit / echo x > <link>/f / rm -rf <link>/sub 的字符串落点在运行时区（判定豁免命中）而真实落点在主仓内容树；判定基元纯字符串路径比较（pathWithinMain / isInsideMainCheckout / classifyDestructiveTarget / git -C 落点累积均无 realpath），与 cwd 形态共享既有边界（显式意图豁免不辨声明真伪）"
   expected_effect: "逃逸链收口：ln -s + 写/删穿链形态两层同判拦截（git -C <link> 写族、cd <link> && git commit、echo > <link>/f、rm <link>/sub、rm <link>/*、多级 cd 撒谎链）；不误伤面钉死（rm <link> 链清理、反向链写穿落 worktree、诚实 cd 主仓显式意图、基线 worktree 形态、虚构路径 identity）；全量 vitest 零回归 + guard-touchstone exam 棘轮无 GAP_DIFF（语料判定零漂移）"
@@ -51,3 +51,20 @@ created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 
 - **固化失败（修前）**：`bash-guard-symlink-realpath.test.ts` 10 例 6 failed——4 逃逸面（git -C / cd / 写穿 / 删穿）+ 反向链 + 基元穿链红，放行侧 4 绿（证据 `symlink-before-fix.txt`）。
 - **修后**：同文件 12/12 绿（+多级撒谎链 +诚实 cd 真路径版）；**全仓 npx vitest run 373 files 5791 passed + 6 skipped**（基线 372/5779 + 新 12）零回归；guard-touchstone exam 棘轮**无 GAP_DIFF**（identity 归一零漂移，冻结语料零改动）；lint / npx tsc --noEmit 净。
+
+## 二轮修复（`..`-after-symlink，检视 r1 严重 1，2026-10-19）
+
+**案情**（检视獭1533 一审 review 5545631648 严重 1）：`..` 紧跟 symlink 分量时守卫口径与内核落点分歧——`path.normalize`/JS 版 `realpathSync` 在 symlink 解析**前**词法折叠 `..`（`<wt>/link/../probe1.txt` 折成 `<wt>/probe1.txt`，判 worktrees 区放行），内核逐分量落点=`<root>/probe1.txt`（主仓内容树）。修前固化 6 红（redirect / cd / git -C / 删穿链 / 多级 / 基元），honest-`..` 与 wv 侧 2 例绿。
+
+**根因两半**：①基元半——safeRealpath 前置 normalize + JS 版 realpathSync 同样词法折叠（`link/../src` 直接 ENOENT）；②调用点半——基元之外 8 处调用点在 safeRealpath **之前**就把 `..` 折叠掉（基元修了也看不见）：classifyDestructiveTarget、checkDataDirDestructive cwd 跟踪、git -C 累积 resolveTarget、heredoc 绝对路径扫描、one-liner 路径字面量、segmentCdTarget 预扫+主环、cd 豁免 targetVeto 回调、redirect 通道（工作区豁免快捷判定）。
+
+**修法**（检视处置建议 1）：①fs-realpath.ts 去前置 normalize，存在段解析换 `fs.realpathSync.native`（realpath(3) 逐分量：先解链再弹 `..`）；保留「最深存在祖先+尾段回拼」（realpath(3) 对不存在尾段恒 ENOENT）；新增 `joinNoFold`（拼接不折叠，折叠留给 safeRealpath）。②8 处调用点去折叠；cdFormDiverges 传参改 raw（normalize 会把撒谎形态洗成同类=不杀豁免）；segmentCdTarget 返回 cwdBase=真身；redirect 工作区豁免改按真身判（折叠形态可假豁免）。wv 侧零改动（evalPath 对 `..` 返 null→unevaluated→fail-closed，已拦，测试钉死）。
+
+**设计取舍（二轮增量）**：
+
+- **取舍 5：`..` 语义=内核逐分量**（先解链再弹栈）。尾段回拼保留；尾段含 `..` 时（仅祖先不可解析才会入尾段）对已解析真基座词法折叠——此时内核本就 ENOENT（写落空），守卫偏保守方向，无逃逸面。
+- **取舍 6（⚠️ 与测试草稿相抵，delta 重点复审）**：多级例 `git -C <link>/../.. commit`（真落 `<root>` 父级=树外）**维持拦截**而非放行——git 写族对树外落点按 F20261014cwsp S1 既定语义 fail-closed 不豁免（bash-safety-guard.ts cwdInGitWorktree 注释：「树外任意目录（落点不确定，fail-closed）都不豁免」）。开「-C 树外即豁免」会放出**外部 worktree 间接写主仓 .git** 的口子（`git worktree add /tmp/x` 后 `git -C /tmp/x commit` 真写主仓 .git），本轮红线=不引入新豁免面。穿链解析正确性由基元例钉死；树外放行如需打开属独立工单+搭档拍板。
+
+**影响范围（二轮增量）**：判定语义仅在「`..` 紧跟 symlink 分量」形态变化（原词法折叠=逃逸面，现逐分量=真实落点）；诚实 `..`（无链）两侧行为逐比特不变（normalize 与逐分量对无链路径同结果）；虚构路径恒等返回不变（exam 棘轮零 GAP_DIFF 复证）；区域尾杠（M-cf899ad2）/显式意图边界继续不动。
+
+**验证（二轮）**：①固化失败：8 例 `..` 回归钉 6 红（redirect/cd/git -C/删穿/多级/基元）+ 2 绿（诚实 `..` 放行、wv 同链判拦）；②修后：同文件 20/20 绿；**全仓 npx vitest run 397 files 6205 passed + 6 skipped 零失败**；exam 棘轮 3/3 无 GAP_DIFF；③测试文件特性编号同步 F20261016syml→F20261019syml（大獭 81da02e2 委托）；④首跑全量 7 失败定性为负载 flake（6 例 5s 超时 + mahjong game-shot 集成抖动）：同 6 文件隔离复跑 73/73 绿 + 二次全量零失败交叉实证。

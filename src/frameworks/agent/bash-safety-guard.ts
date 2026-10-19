@@ -28,7 +28,7 @@ import { checkWithModel, modelParseOk, modelCdExemption } from "./guard-model-ju
 import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit } from "./payload-extract-aux";
-import { safeRealpath, safeRealpathParent } from "./fs-realpath";
+import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
 export type { AllowedService };
 
@@ -408,8 +408,8 @@ function classifyDestructiveTarget(target: string, cwd: string, projectRoot?: st
   // 相对路径且 cwd 不可知（cd ~ 后）-> 静态无法解析，保守拦截
   if (!path.isAbsolute(stripped) && !cwd) return "data";
   const resolvedRaw = path.isAbsolute(stripped)
-    ? path.normalize(stripped)
-    : path.normalize(path.resolve(cwd, stripped));
+    ? stripped
+    : joinNoFold(cwd, stripped);
   // F20261019syml（M-ed285d7c）：symlink 穿透归一——默认末分量不穿链（unlink/rename
   //  语义：rm <link> 删链本体无害放行；link 作父目录时由 dirname 侧穿链收口）；原目标
   //  带尾杠/glob（操作发生在链内，如 rm link/* 删进真实目录）时全穿链。
@@ -489,7 +489,7 @@ function checkDataDirDestructive(command: string, logger: Logger | undefined, ct
     if (isKillAtCommandPosition(seg, /\bcd\b/)) {
       const target = seg.split(/\s+/)[1]?.replace(/^["']|["']$/g, "");
       if (!target || target.startsWith("~")) { cwd = ""; continue; } // ~ / 无参无法静态解析 → 后续按保守路径处理
-      cwd = path.isAbsolute(target) ? path.normalize(target) : (cwd ? path.normalize(path.resolve(cwd, target)) : "");
+      cwd = path.isAbsolute(target) ? safeRealpath(target) : (cwd ? safeRealpath(joinNoFold(cwd, target)) : "");
       continue;
     }
     const { kind, zone } = segmentDestructive(seg, cwd, ctx.projectRoot, ctx.sessionCwd);
@@ -1108,8 +1108,8 @@ function gitDashCTargetsWorktree(gseg: Segment, projectRoot?: string, sessionCwd
   const resolveTarget = (v: string): boolean => {
     if (v.startsWith("~")) return false;
     const resolved = path.isAbsolute(v)
-      ? path.normalize(v)
-      : base !== null ? path.normalize(path.resolve(base, v)) : null;
+      ? v // 不词法折叠（F20261019syml 二轮）；函数尾 safeRealpath(base) 逐分量收口
+      : base !== null ? joinNoFold(base, v) : null;
     if (resolved === null) return false;
     base = resolved;
     hasC = true;
@@ -1931,7 +1931,7 @@ function scriptHeredocAbsPathsInsideMain(command: string, projectRoot: string): 
       // POSIX 绝对路径才与本仓 projectRoot 同族可判；Windows 盘符路径在 mac/linux 主仓
       // 判定下永不落主仓（normalize 后不含 projectRoot 前缀）——直接跳过不阻断。
       if (!raw.startsWith("/")) continue;
-      const resolved = path.normalize(raw);
+      const resolved = raw; // 不词法折叠（F20261019syml 二轮）；isInsideMainCheckout 内 safeRealpath 收口
       if (isInsideMainCheckout(resolved, projectRoot)) return true;
     }
   }
@@ -2004,11 +2004,11 @@ function onelinerAbsPathsOutsideMain(command: string, projectRoot: string): bool
       sawPathLit = true;
       if (lit.startsWith("/")) {
         // 绝对字面量：normalize 后必须落主仓外（排除区/树外均可）
-        if (isInsideMainCheckout(path.normalize(lit), projectRoot)) return false;
+        if (isInsideMainCheckout(lit, projectRoot)) return false; // 不前置折叠（二轮）
       } else {
         // 相对路径字面量：resolve 到 cd 锚定 cwd；无 cd 锚定 → cwd=sessionCwd（主仓树内不可知面）→ 不豁免
         if (!cwdBase) return false;
-        const resolved = path.resolve(cwdBase, lit);
+        const resolved = joinNoFold(cwdBase, lit); // 不折叠；isInsideMainCheckout 内逐分量收口（二轮）
         if (isInsideMainCheckout(resolved, projectRoot)) return false;
       }
     }
@@ -2042,7 +2042,7 @@ function segmentCdTarget(command: string, projectRoot: string): string | null {
     if (!lm) continue;
     const lt = lm[1].replace(/^[ '"]|[ '"]$/g, "");
     if (!lt.startsWith("/") || /[$`]/.test(lt)) continue;
-    if (cdFormDiverges(path.normalize(lt), projectRoot)) return null;
+    if (cdFormDiverges(lt, projectRoot)) return null;
   }
   for (let i = 0; i < segs.length; i++) {
     // 排除 . / .. 相对 cd（不改变到已知绝对落点）——负向先行锚段首，路径内 . 不误伤
@@ -2051,12 +2051,12 @@ function segmentCdTarget(command: string, projectRoot: string): string | null {
     const target = m[1].replace(/^['"]|['"]$/g, "");
     // cd 目标必须可静态求值：无变量/展开、绝对路径
     if (!target.startsWith("/") || /[$`]/.test(target)) continue;
-    if (isInsideMainCheckout(path.normalize(target), projectRoot)) continue;
+    if (isInsideMainCheckout(target, projectRoot)) continue;
     // cd 段被 & / | 切断（子 shell）→ cd 不影响后续段，不锚定
     const after = command.slice(command.indexOf(segs[i]) + segs[i].length);
     const nextJoiner = /^\s*(&&|\|\||[;&|\n])/.exec(after)?.[1] ?? "";
     if (nextJoiner === "&" || nextJoiner === "|") continue;
-    return path.normalize(target);
+    return safeRealpath(target); // cwdBase=真身（逐分量），`..`-after-symlink 不被折叠洗白（二轮）
   }
   return null;
 }
@@ -2209,7 +2209,7 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // #1170 根治：模型版 cd 豁免——管道/分号不再杀死豁免（`cd wt && git commit | tail` 放行）
   // #1240（F20261006c1240）：cd 豁免加负门——python/node heredoc 体含绝对路径落主仓时不豁免，
   // 防止 `cd /tmp && python3 - <<'PY'…open('<repo>/…','w')…PY` 顶层豁免放行逃逸。
-  if (modelCdExemption(command, hasRealCdSegment, (t) => cdFormDiverges(path.normalize(t), projectRoot))) return cdExemptionWithVeto(command, logger, { projectRoot, sessionCwd });
+  if (modelCdExemption(command, hasRealCdSegment, (t) => cdFormDiverges(t, projectRoot))) return cdExemptionWithVeto(command, logger, { projectRoot, sessionCwd });
   // F20260924gfpn：git 写族字面判定先于只读白名单——写族正则
   // （merge(?!-) 负向断言后）在命令文本上跑，命中即拦；`git stash push` 的 push 在写族
   // 正则内，先于白名单命中，杜绝 stash 白名单词被显式写子命令借壳。
@@ -2276,17 +2276,17 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
         // （9/23 排查实证：tail log > data/workspaces/<id>/x.log 被误拦；工作区是 sandbox 语义，
         //  与 data/metrics|logs 等运行时数据性质不同，DATA_DESTRUCTIVE 层另有 rm/mv 防线）。
         const r = path.normalize(projectRoot).toLowerCase();
-        const t = path.normalize(target).toLowerCase();
+        const t = safeRealpath(target).toLowerCase(); // 工作区豁免按真身判（二轮：折叠形态可假豁免）
         if (t.startsWith(path.join(r, 'data', 'workspaces') + path.sep)) return false;
         return isInsideMainCheckout(target, projectRoot);
       }
       if (ctx.sessionCwd) {
-        const resolved = path.resolve(ctx.sessionCwd, target);
+        const resolved = joinNoFold(ctx.sessionCwd, target); // 不折叠（二轮）
         // F20261014cwsp S2 处置：树内 workspaces 落点豁免——相对路径经 sessionCwd
         // 解析到 data/workspaces/ 内是会话工作区写（sandbox 语义），不拦
         //（与 F20260923hsyn 绝对路径豁免同构；相对形态是统一工作区下的主流形态）。
         const workspacesDir = path.normalize(path.join(projectRoot, "data", "workspaces")) + path.sep;
-        if ((path.normalize(resolved) + path.sep).toLowerCase().startsWith(workspacesDir.toLowerCase())) return false;
+        if ((safeRealpath(resolved) + path.sep).toLowerCase().startsWith(workspacesDir.toLowerCase())) return false;
         return isInsideMainCheckout(resolved, projectRoot);
       }
       return true;
