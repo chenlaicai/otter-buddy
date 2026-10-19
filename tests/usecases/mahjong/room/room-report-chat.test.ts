@@ -38,6 +38,8 @@ interface RecordingGateway extends OtterGateway {
   chatFailuresLeft: number;
   /** chat 注入的应答文本（可置空白测「不广播」分支） */
   chatReply: string;
+  /** chat 注入前钩子（竞态测试：注入窗口内往队里塞消息）——至多触发一次由测试自控 */
+  onChatInvoke?: () => void;
 }
 
 function recordingGateway(): RecordingGateway {
@@ -50,6 +52,7 @@ function recordingGateway(): RecordingGateway {
       gw.prompts.push(prompt);
       if (prompt.includes("# 牌桌聊天")) {
         gw.chatInvocations.push({ otterId, prompt });
+        gw.onChatInvoke?.();
         if (gw.chatFailuresLeft > 0) {
           gw.chatFailuresLeft -= 1;
           throw new Error("gateway down");
@@ -366,5 +369,30 @@ describe("#1532 獭侧回应广播（注入回合；harness 模块级共用）",
     expect(gw.chatInvocations.length).toBeGreaterThan(0); // 注入发生过
     expect(events.filter((e) => e.type === "chat" && e.from === "otter")).toHaveLength(0);
     expect(events.some((e) => e.type === "chat" && e.from === "human")).toBe(true);
+  });
+
+  it("#1532 检视发现2：注入窗口内 addChat 不丢——快照换队，窗口内消息留次局补注入", async () => {
+    const gw = recordingGateway();
+    let svcRef: RoomService | null = null;
+    let midPushed = false;
+    gw.onChatInvoke = () => {
+      if (midPushed || !svcRef) return;
+      midPushed = true;
+      // 模拟注入窗口（LLM 调用在途）内真人发言：addChat push 进活队
+      expect(svcRef.addChat("r1", 1, "窗口内的话")).toEqual({ ok: true });
+    };
+    const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000 });
+    svcRef = svc;
+    svc.createRoom("r1", cfg("chat-race-seed"));
+    expect(svc.addChat("r1", 1, "先说这句")).toEqual({ ok: true });
+    await driveUntilFinished(svc, "r1");
+
+    // 双 otter 队列同构；以 otter-a 为准：首迁只带旧消息、窗口内消息次迁必达（修复前被 set([]) 丢弃 → 红）
+    const aInv = gw.chatInvocations.filter((c) => c.otterId === "otter-a");
+    expect(aInv.length).toBe(2);
+    expect(aInv[0]!.prompt).toContain("先说这句");
+    expect(aInv[0]!.prompt).not.toContain("窗口内的话");
+    expect(aInv[1]!.prompt).toContain("窗口内的话"); // 关键断言：窗口内消息不丢
+    svc.close("r1");
   });
 });

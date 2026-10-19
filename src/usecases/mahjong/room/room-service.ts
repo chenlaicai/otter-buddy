@@ -22,8 +22,7 @@
 
 import { SanmaEngine, restoreEngine, notation } from "../engine/engine";
 import { proxyChooseAction, isTrivialDecision } from "../engine/proxy";
-import { buildChatInjectionPrompt } from "./otter-adapter";
-import { publishOtterChat } from "./room-chat";
+import { injectPendingChat } from "./room-chat";
 import type {
   DecisionPoint,
   EngineAction,
@@ -433,8 +432,11 @@ export class RoomService {
     const events = room.engine.nextRound();
     const seq = this.storeFrame(room, null);
     this.publishGame(room, events, room.engine.decisionPoint(), seq);
-    // 下局开局注入：真人回话作为首段 user 消息进各 otter session（方案口径）
-    await this.injectPendingChat(room);
+    // 下局开局注入：真人回话作为首段 user 消息进各 otter session（方案口径；竞态口径见 room-chat.ts）
+    await injectPendingChat(
+      { gateway: this.deps.gateway, bus: this.deps.bus, logger: this.deps.logger },
+      room,
+    );
   }
 
   /** 战报累积（自 step 拆出——控 step 复杂度）：獭发言 + 代理代打（trivial/human/proxy 按设计不算代打） */
@@ -452,30 +454,6 @@ export class RoomService {
   }
 
   /** 下局开局聊天注入：各 otter 并行直调（per-otter 锁由端口自带）；成功清队、失败留次局重试 */
-  private async injectPendingChat(room: RoomInternal): Promise<void> {
-    if (room.chatQueues.size === 0) return;
-    // 终局轮过渡（东4 结束→gameOver）不注入——牌局已了，队随房间释放
-    if (room.engine.state.status !== "playing") return;
-    const roundNo = room.engine.state.roundNo;
-    await Promise.all(
-      [...room.chatQueues.entries()].map(async ([otterId, msgs]) => {
-        if (msgs.length === 0) return;
-        try {
-          const reply = await this.deps.gateway.invoke(otterId, buildChatInjectionPrompt(msgs, roundNo));
-          room.chatQueues.set(otterId, []);
-          // #1532：獭回应广播进 chat 流（页面回显/观战同流）；空白不发泡（room-chat.ts）
-          publishOtterChat(this.deps.bus, room.roomId, room.engine.state.config.players, otterId, reply);
-        } catch (e) {
-          this.deps.logger?.warn("mahjong chat injection failed, kept for next round", {
-            roomId: room.roomId,
-            otterId,
-            error: e instanceof Error ? e.message : String(e),
-          });
-        }
-      }),
-    );
-  }
-
   /** 终局房宽限驱逐（检视发现3）：到期出 Map；代际校验（gameId）防误删同 roomId 重开的新局 */
   private scheduleEvict(room: RoomInternal): void {
     if (room.evictTimer) clearTimeout(room.evictTimer);
