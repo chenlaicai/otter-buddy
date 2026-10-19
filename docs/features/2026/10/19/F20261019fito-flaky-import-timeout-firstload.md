@@ -67,7 +67,7 @@ const { buildGuardInterceptContext } = await import("@frameworks/agent/pi-sessio
 
 - 仅测试文件 1 个（guard-intercept-classify.test.ts），生产代码零改动
 - 消除 CI 偶发假红（此前冷跑高发）；对测试语义零影响（断言未动）
-- 同型风险排查建议（不在本 PR 范围）：其他测试文件内 `await import` 重型模块的用例同款隐患——留观即可，无须预防性改造
+- 同型风险（已实证第二例）：commit 过程中 pre-commit smoke:boot 冒烟（tests/app/build-app.test.ts > 健康端点可用）撞出同型 5s 超时（全栈装配成本 × 负载），重试即过、与本修复零交集。**处置：另立待办**——评估 testTimeout 策略（重成本用例统一设宽窗或全局调整），不在本 PR 扩散
 
 ## 留痕
 
