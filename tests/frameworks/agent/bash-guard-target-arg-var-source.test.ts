@@ -102,4 +102,27 @@ describe("F20261019f714 词表命令落点参数 $VAR 同命令赋值溯源（M-
       }
     });
   });
+
+  describe("S1 位置化（对抗审视：赋值晚于使用不得洗白运行时落点）", () => {
+    it("mv 后绑洗白：T=主仓; mv a.ts \"$T\"; T=无害 → 按使用点前赋值判主仓（旧版取全局后绑 → 树外放行 = fail-open）", () => {
+      const cmd = `T=${projectRoot}/src/x.ts; mv a.ts "$T"; T=/tmp/innocent.md`;
+      const r = evaluateWriteTargets(cmd, projectRoot, projectRoot);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") {
+        expect(r.targets.some(t => t.path === `${projectRoot}/src/x.ts`)).toBe(true);
+      }
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot, sessionCwd: projectRoot })).not.toBeNull();
+    });
+
+    it("重定向同形态：T=主仓路径; echo hi > \"$T\"; T=无害 → 拦", () => {
+      const cmd = `T=${projectRoot}/out.txt; echo hi > "$T"; T=/tmp/innocent.md`;
+      expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot, sessionCwd: projectRoot })).not.toBeNull();
+    });
+
+    it("同段前缀赋值不参与本段词展开（bash 先展开后赋值）：T=无害 mv a.ts \"$T\" → dynamic-path fail-closed", () => {
+      const cmd = `T=innocent.md mv a.ts "$T"`;
+      const r = evaluateWriteTargets(cmd, projectRoot, sessionCwd);
+      expect(r).toMatchObject({ kind: "unevaluated", reason: "dynamic-path" });
+    });
+  });
 });

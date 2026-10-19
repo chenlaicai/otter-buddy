@@ -180,12 +180,17 @@ function evalPath(word: string, cwd: string): string | null {
   return normalizePath(`${cwd.endsWith("/") ? cwd : `${cwd}/`}${word}`);
 }
 
-/** 同命令赋值溯源：取变量名的最后一次静态赋值（#918 同口径）。
- *  BC-5 边界：仅同命令内 assignments——父 shell 环境变量不溯（回落）。 */
-function resolveAssign(name: string, segments: Segment[]): string | null {
+/** 同命令赋值溯源：取变量名在**使用点之前**的最后一次静态赋值（#918 同口径 + S1 位置化）。
+ *  BC-5 边界：仅同命令内 assignments——父 shell 环境变量不溯（回落）。
+ *  S1 修法（对抗审视）：shell 展开时点语义——只认段号 < beforeIdx（使用点）的赋值：
+ *  `T=主仓路径; mv a "$T"; T=无害` 的后绑不得洗白运行时落点（旧版取全局最后一次赋值
+ *  → 用后绑值判树外放行 = fail-open 放水）；同段前缀赋值由「严格小于」自然排除
+ *  （bash 对本段词先展开后赋值，前缀值不参与本段词展开）。 */
+function resolveAssign(name: string, segments: Segment[], beforeIdx: number): string | null {
   const assign = segments
-    .filter(s => s.joiner !== "&" && s.joiner !== "|")
-    .flatMap(s => s.assignments)
+    .map((s, i) => ({ s, i }))
+    .filter(({ s, i }) => i < beforeIdx && s.joiner !== "&" && s.joiner !== "|")
+    .flatMap(({ s }) => s.assignments)
     .filter(a => a.name === name && a.value !== null && !DYNAMIC_RE.test(a.value))
     .pop();
   return assign?.value ?? null;
@@ -214,16 +219,18 @@ function isPureVarWord(w: Word): string | null {
  *  → dynamic-path → 旧链 fail-closed 误拦（healing f3d5ebe5，worktree 内合法重构被拦）。
  *  溯源成功后落点照常走 evalPath+主仓树判定——落主仓仍拦，保护零削弱。
  *  var+字面拼接形态与 cd 目标共用同一实现（resolveVarConcatCdTarget：同命令赋值、
- *  `..` 爬升守卫、空结果守卫——两调用面语义必须同步，回归锁两侧测试）。 */
-function resolveTargetArgWord(w: Word, segments: Segment[]): string | null {
+ *  `..` 爬升守卫、空结果守卫——两调用面语义必须同步，回归锁两侧测试）。
+ *  位置化（S1）：beforeIdx = 使用点段号（acc.index）——只认其前赋值，同段前缀与
+ *  后绑赋值均不参与（展开时点语义，见 resolveAssign 注）。 */
+function resolveTargetArgWord(w: Word, segments: Segment[], beforeIdx: number): string | null {
   if (w.evaluated !== null) return w.evaluated;
   const name = isPureVarWord(w);
   if (name !== null) {
-    const v = resolveAssign(name, segments);
+    const v = resolveAssign(name, segments, beforeIdx);
     return v !== null && !DYNAMIC_RE.test(v) ? v : null;
   }
   // var+字面拼接（$W/sub）：与 cd 目标同一守卫——溯源后全量拼接，含 .. / 溯源不出 → null
-  return resolveVarConcatCdTarget(w, segments);
+  return resolveVarConcatCdTarget(w, segments, beforeIdx);
 }
 
 /** 从词对象求 cd 目标（evaluated 直取 / 纯 $VAR 词同命令溯源）。null = 不可解。
@@ -234,8 +241,9 @@ function resolveTargetArgWord(w: Word, segments: Segment[]): string | null {
  *  （后缀完整保留，evalPath 归一，不存在 #1381「丢后缀爬升」面）。守卫：结果含
  *  `..` 一律 null 回落——c-po 负门（$W/..、$W/../../../）形态字节级不变；var 溯源
  *  不出 / cmdsub/arith 等展开 part → null。调用面：cd 目标词（evalCdTarget）与
- *  词表命令落点参数（resolveTargetArgWord）——两面共用同一守卫，回归锁两侧测试。 */
-function resolveVarConcatCdTarget(w: Word, segments: Segment[]): string | null {
+ *  词表命令落点参数（resolveTargetArgWord）——两面共用同一守卫，回归锁两侧测试。
+ *  位置化（S1）：beforeIdx = 使用点段号，同 resolveAssign 展开时点语义。 */
+function resolveVarConcatCdTarget(w: Word, segments: Segment[], beforeIdx: number): string | null {
   if (!w.parts.every(p => p.type === "lit" || p.type === "var")) return null;
   if (!w.parts.some(p => p.type === "var")) return null;
   let out = "";
@@ -243,14 +251,14 @@ function resolveVarConcatCdTarget(w: Word, segments: Segment[]): string | null {
     if (p.type === "lit") { out += p.text; continue; }
     const name = p.text.replace(/^\$\{?(\w+)\}?$/, "$1");
     if (name === p.text) return null;
-    const v = resolveAssign(name, segments);
+    const v = resolveAssign(name, segments, beforeIdx);
     if (v === null) return null;
     out += v;
   }
   if (out === "" || out.includes("..")) return null;
   return out;
 }
-function evalCdTarget(seg: Segment, segments: Segment[], cwd: string): string | null {
+function evalCdTarget(seg: Segment, segments: Segment[], cwd: string, beforeIdx: number): string | null {
   const w1: Word | undefined = seg.words[1];
   if (!w1) return null;
   let target: string | null = w1.evaluated;
@@ -258,17 +266,17 @@ function evalCdTarget(seg: Segment, segments: Segment[], cwd: string): string | 
     // evaluated=null = 词含 var/cmdsub/动态 part——只认「纯 $VAR 词」溯源；其余一律回落
     const name = isPureVarWord(w1);
     if (name === null) {
-      const built = resolveVarConcatCdTarget(w1, segments);
+      const built = resolveVarConcatCdTarget(w1, segments, beforeIdx);
       if (built === null) return null;
       target = built;
     } else {
-      target = resolveAssign(name, segments);
+      target = resolveAssign(name, segments, beforeIdx);
     }
   } else if (DYNAMIC_RE.test(target)) {
     // evaluated 值内含动态段（如 "$W/x" 部分展开）：同为非纯形态，回落
     const name = isPureVarWord(w1);
     if (name === null) return null;
-    target = resolveAssign(name, segments);
+    target = resolveAssign(name, segments, beforeIdx);
   }
   if (target === null || target === "-" || DYNAMIC_RE.test(target)) return null;
   const _p = evalPath(target, cwd);
@@ -299,7 +307,7 @@ export function resolveCwdAt(segments: Segment[], startCwd: string): string[] | 
     const bare = bareName(seg.argv0);
     if (bare === "pushd" || bare === "popd") return null;
     if (bare === "cd") {
-      const resolved = evalCdTarget(seg, segments, cwd);
+      const resolved = evalCdTarget(seg, segments, cwd, i);
       if (resolved === null) return null;
       cwd = resolved;
       // cd 段若通过 &/| 连接到下一段：cd 在子 shell/管道内执行，父 shell cwd 不变——
@@ -369,7 +377,7 @@ function evalRedirects(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRe
     // 改为模型层显式携带目标词，不做任何模糊匹配。
     let resolvedTarget: string | null = r.target;
     if (r.target === null && r.targetWord !== undefined) {
-      resolvedTarget = resolveTargetArgWord(r.targetWord, acc.segments ?? [seg]);
+      resolvedTarget = resolveTargetArgWord(r.targetWord, acc.segments ?? [seg], acc.segments ? acc.index : 0);
     }
     if (resolvedTarget === null) return "dynamic-path";
     const resolved = evalPath(resolvedTarget, cwd);
@@ -459,7 +467,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
       let v = words[i + 1]?.evaluated ?? null;
       if (v === null && words[i + 1] !== undefined && acc.segments !== undefined) {
         const name = isPureVarWord(words[i + 1]);
-        if (name !== null) v = resolveAssign(name, acc.segments);
+        if (name !== null) v = resolveAssign(name, acc.segments, acc.index);
       }
       if (v === null) return "dynamic-path";
       // F20261016gwr1 修复轮（M-46f0e74d 建议 3，检视獭1519）：core.worktree/bare/gitdir 配置改写
@@ -476,7 +484,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
       let v = words[i + 1]?.evaluated ?? null;
       if (v === null && words[i + 1] !== undefined && acc.segments !== undefined) {
         const name = isPureVarWord(words[i + 1]);
-        if (name !== null) v = resolveAssign(name, acc.segments);
+        if (name !== null) v = resolveAssign(name, acc.segments, acc.index);
       }
       if (v === null) return "dynamic-path";
       if (w === "--work-tree") workTreeOverride = v;
@@ -554,7 +562,7 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
   if (bare === "find" && !seg.words.some(w => w.evaluated === "-delete")) return null;
   const nonFlagArgs: string[] = [];
   for (let i = 1; i < seg.words.length; i++) {
-    const w = resolveTargetArgWord(seg.words[i], acc.segments ?? [seg]);
+    const w = resolveTargetArgWord(seg.words[i], acc.segments ?? [seg], acc.segments ? acc.index : 0);
     if (w === null) return "dynamic-path";
     if (w.startsWith("-")) continue;
     nonFlagArgs.push(w);
@@ -677,7 +685,7 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
       let v = words[i + 1]?.evaluated ?? null;
       if (v === null && words[i + 1] !== undefined && acc.segments !== undefined) {
         const name = isPureVarWord(words[i + 1]);
-        if (name !== null) v = resolveAssign(name, acc.segments);
+        if (name !== null) v = resolveAssign(name, acc.segments, acc.index);
       }
       if (v === null) return "dynamic-path";
       // F20261016gwr1 修复轮（建议 3 同步）：core.* 树发现改写——fail-closed（两走查同形同治）
@@ -1489,7 +1497,7 @@ function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: s
     if (seg.joiner !== "&" && seg.joiner !== "|" && bareName(seg.argv0) === "cd") {
       const nextJoiner = model.segments[i + 1]?.joiner ?? "";
       if (nextJoiner !== "&" && nextJoiner !== "|") {
-        const r = evalCdTarget(seg, model.segments, cwd);
+        const r = evalCdTarget(seg, model.segments, cwd, acc.index);
         if (r !== null) cwd = r;
       }
     }
