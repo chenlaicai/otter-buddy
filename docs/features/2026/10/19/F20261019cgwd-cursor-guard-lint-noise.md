@@ -1,9 +1,9 @@
 ---
 id: F20261019cgwd
 title: cursor-guard lint 噪声归零——console.warn 补 disable 注释对齐项目豁免惯例
-summary: 修复 issue #1537：conversation-repository-mixins.ts:210 的 cursor-guard 单调性拦截 console.warn 是全仓 src/ 下唯一无豁免的 console.*（其余 18 处均带 disable 注释），每轮 CI lint 落 warning annotation 挂所有 PR。排查判定该 warn 属异常分支防御日志（仅真拦截时触发，F20261014czgd 注明「零日志曾致同类事故全靠推断定位」），不可删；归口 logger 需为仓储模块级函数开注入通道属过度工程。修法 = 补 `eslint-disable-next-line no-console` 注释（同 schema.ts:220 sqlite-vec 先例），CI annotation 归零。
+summary: 修复 issue #1537：conversation-repository-mixins.ts:210 的 cursor-guard 单调性拦截 console.warn 是全仓 src/ 下唯一无豁免注释的 console.* 调用点（修前 11 处调用点中 10 处带 disable，仅它漏），每轮 CI lint 落 warning annotation 挂所有 PR。排查判定该 warn 属异常分支防御日志（仅真拦截时触发，F20261014czgd 注明「零日志曾致同类事故全靠推断定位」），不可删；归口 logger 需为仓储模块级函数开注入通道属过度工程。修法 = 补 `eslint-disable-next-line no-console` 注释（同 schema.ts:220 sqlite-vec 先例），CI annotation 归零。
 change_type: fix
-capability_test: "npx eslint src 全量 0 warning（修前 1 warning: no-console @ conversation-repository-mixins.ts:210）；vitest run 396 文件 6199 passed 全绿（含 cursor-zero-guard 7 用例）；npm run check（build+lint+schema+smoke:boot+arg-parse）全过"
+capability_test: "npx eslint src 全量 0 warning（修前 1 warning: no-console @ conversation-repository-mixins.ts:210）；vitest run 396 文件 6199 passed 全绿（含 cursor-zero-guard 9 用例）；npm run check（build+lint+schema+smoke:boot+arg-parse）全过"
 created_in_conversation: 6b8384a6-6c88-495f-8edb-7ef2175dcc2e
 created_at: 2026-10-19
 tags: [bugfix, ci, lint, db, logging]
@@ -25,7 +25,7 @@ causal_links:
 
 - 架构层有统一日志设施：`src/usecases/ports/logger.ts`（接口）+ `src/frameworks/logger.ts`（PinoLogger 实现，DIP 注入式）。**但仓储层（db/）是模块级导出函数，无 logger 注入通道**。
 - ESLint `src/**/*.ts` 全局 `no-console: "warn"`（eslint.config.mjs）；scripts/、web/、web-mahjong/ 分块豁免。
-- 全仓 src/ 共 19 处 console.*：修前 18 处均带 `// eslint-disable-next-line no-console -- 理由` 注释，**本案是唯一漏网**——这就是「只有它落 annotation」的根因。同目录先例：`schema.ts:220`（`-- schema 初始化不能依赖 frameworks/logger`）。
+- 全仓 src/ 共 **11 处 console.\* 调用点**（朴紊 grep 命中 19 行中 8 行是注释；计数经对抗审视独立重算修正）：修前 10 处带 `// eslint-disable-next-line no-console` 注释、**本案是唯一漏网**——这就是「只有它落 annotation」的根因。同目录先例：`schema.ts:220`（`-- schema 初始化不能依赖 frameworks/logger`）。既有豁免中 `models-factory.ts:128` 的 disable 无 `-- 理由` 后缀（历史存量，与本案无关，仅如实标注）。
 
 ### 2. 触发条件判定：异常分支防御日志，非运行时噪声
 
@@ -35,7 +35,7 @@ causal_links:
 
 | 方案 | 判定 | 理由 |
 |---|---|---|
-| ✅ 补 disable 注释 + 理由 | 采纳 | 与全仓 18 处既有惯例一致（尤其同目录 schema.ts 先例）；零侵入；理由留痕说明为何不能用 logger |
+| ✅ 补 disable 注释 + 理由 | 采纳 | 与全仓既有 10 处 disable 惯例一致（尤其同目录 schema.ts 先例）；零侵入；理由留痕说明为何不能用 logger |
 | 归口 PinoLogger | 否决 | 仓储模块级函数需改签名注入 logger，侵入所有调用点；schema.ts 先例已确立「db 层初始化/兜底日志不依赖 frameworks/logger」边界 |
 | 降 debug 级 | 否决 | 项目无 debug 开关机制；且不解决 lint 静态告警本身 |
 | 删除日志 | 否决 | 违背 F20261014czgd 的事故溯源教训（零日志曾致全靠推断定位） |
