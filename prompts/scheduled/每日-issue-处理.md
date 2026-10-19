@@ -10,10 +10,13 @@ task_name: 每日 issue 处理
 
 1. **今日新建的 daily-review issue**（8:30 健康检查 / 9:00 healing 分析 / 7:30 未闭环扫描产出）
 2. **昨天新建的非 daily-review issue**（海獭运行中产出：bug / tech-debt / enhancement / 无标签）
-3. **D 类排期 issue 全量**（吸收原 backlog digest 职责）：open 的 tech-debt / enhancement / 无标签 issue——逐条列编号、标题、年龄（天）、一句话简评（为什么值得做/为什么可以不做），按「建议本周做」/「可延期」/「建议关闭（过时）」预分组
+3. **D 类排期 issue 轮换切片（吸收原 backlog digest 职责）**：open 的 tech-debt / enhancement / 无标签 issue 按最后评论时间升序取最旧 25 条为当日切片（gh comments 最后评论日作「最近活动」代理，不逐条判实质/例行，判读成本高）——逐条列编号、标题、年龄（天）、一句话简评（为什么值得做/为什么可以不做），按「建议本周做」/「可延期」/「建议关闭（过时）」预分组。切片外条目不列出，但切片内发生处置的自动滚出，次日补入新最旧条目；全量盘点职责移交月度剪枝审视。另附当日新建 P1/P0 全量（不占 25 条额度）——高优不因轮换埋没
 4. **任意 open 的标签不完整 issue**：缺 type 或缺 priority 的，按创建时间从早到晚每日补标 ≤5 条——依据标题+body 语义判断，`gh issue edit <N> --add-label` 补齐；拿不准类型的在 issue 评论留问待人工，不强打
+5. **候选池（8:30 日报末尾）**：当日候选池内容列入清单末尾「候选池」段（编号 CP-日期-序号 + 一句话线索）——搭档勾选后才转正式 issue；未勾选次日继续展示，连续 7 天未勾自动出池。状态载体：候选即日报文本（不建库不建表）——执行 7 天出池时按当日 8:30 日报逐条核对首次出现日（消息历史可检索），无则视为出池
 
 ## 产出：今日勾选清单
+
+清单头第一行固定为**熔断状态**：`净增熔断：open N | 昨日新增 x / 关闭 y | 状态：正常/触发`——open > 60 或单月净增 > 20 时标「触发」（附命中线名：open 线 / 净增线）；触发期限的是无勾选的自发立案（只允许 P0/P1 与搭档点名项直接立），搭档在清单上勾选即点名，勾选项不受熔断限制；同时在日报提醒搭档可提前月度剪枝。
 
 对每条输入做分类分流，产出一句话判断 + 建议动作：
 
@@ -50,7 +53,7 @@ task_name: 每日 issue 处理
 1. **已修复但未关闭的 issue（语义级）**：扫描**近 7 天合入的 PR**，对其标题/正文与 open issue 做语义匹配——PR 描述用「issue #N」「修复了 #N」等非关键词行文的也要抓到（历史案例）。命中即留评论说明后关闭。工具：`gh pr list --state merged --search "merged:>YYYY-MM-DD"`（7 天前日期）+ `gh issue list --state open` 逐条语义比对
 1b. **认领回收**：扫描全部 open issue 的 otter-claim 认领（搜 issue 评论 `otter-claim` 标记）——认领超 48h 无后续 PR、无评论更新、对应对话无活动的，留问询评论；再过 24h 仍无响应的发 `otter-claim-release` 解除认领（防锁孤儿：对话被限流冻结/挂死时释放锁——阈值基准：429 冻结案例 5h，留 10 倍余量）。回收记录写进当日产出
 2. **daily-review issue 超期关闭**：超过 3 天的 daily-review issue，如果对应问题已在 main 修复，留评论后关闭
-3. **stale issue**：超 14 天无更新的 issue（非 daily-review、非 tech-debt——tech-debt 放宽到 30 天，常等排期），留评论标记 stale 并关闭
+3. **stale issue**：非 daily-review issue 实质静默超 14 天 → 留 stale 评论后关闭。口径：初筛用最后评论时间（例行 ping 不重置时钟），关前必查认领标记与关联 open PR——任一存在即不关转剪枝候选。例外：daily-review 走第 2 条；tech-debt 不走 stale 关闭，实质静默超 14 天进月度剪枝候选
 
 ## RHI 链看护（只提醒不接管）
 
