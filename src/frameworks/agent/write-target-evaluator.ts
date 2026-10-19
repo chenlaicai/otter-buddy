@@ -126,7 +126,7 @@ function bareName(argv0: string | null): string | null {
 //  fail-closed 不受本区影响（block 池 attack-rename-channel.sh 等残余面仍如实钉 BLOCK）。
 const OTTER_RUNTIME_REGIONS = ["/.otter/worktrees/", "/.otter/workforms", "/data/workspaces/"];
 export function pathWithinMain(absPath: string, projectRoot: string): boolean {
-  // F20261016syml（M-ed285d7c）：symlink 穿透归一——字符串落点在运行时区但真实落点在
+  // F20261019syml（M-ed285d7c）：symlink 穿透归一——字符串落点在运行时区但真实落点在
   //  主仓内容树的穿链形态（ln -s + 写/删穿链）在此收口；区基同 realpath 后按原 region
   //  尾杠形态重建前缀（裸区目录名豁免语义逐字保持：带尾杠=仅子树，不带=含裸名——
   //  M-cf899ad2 口径之争不受本刀影响）。

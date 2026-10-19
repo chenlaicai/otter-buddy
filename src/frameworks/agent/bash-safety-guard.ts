@@ -410,7 +410,7 @@ function classifyDestructiveTarget(target: string, cwd: string, projectRoot?: st
   const resolvedRaw = path.isAbsolute(stripped)
     ? path.normalize(stripped)
     : path.normalize(path.resolve(cwd, stripped));
-  // F20261016syml（M-ed285d7c）：symlink 穿透归一——默认末分量不穿链（unlink/rename
+  // F20261019syml（M-ed285d7c）：symlink 穿透归一——默认末分量不穿链（unlink/rename
   //  语义：rm <link> 删链本体无害放行；link 作父目录时由 dirname 侧穿链收口）；原目标
   //  带尾杠/glob（操作发生在链内，如 rm link/* 删进真实目录）时全穿链。
   const actsInside = target !== stripped;
@@ -431,7 +431,7 @@ function classifyDestructiveTarget(target: string, cwd: string, projectRoot?: st
   //  worktree 清理/工作区操作照常放；边界同 wv（精确子树前缀，裸区目录名不豁免）。
   if (resolvedLower === rootLower || resolvedLower.startsWith(rootLower + path.sep)) {
     for (const region of ["/.otter/worktrees/", "/.otter/workforms", "/data/workspaces/"]) {
-      // F20261016syml：区基同 realpath，尾杠形态逐字保持（带尾杠=仅子树，不带=含裸名）
+      // F20261019syml：区基同 realpath，尾杠形态逐字保持（带尾杠=仅子树，不带=含裸名）
       const regionBase = path.normalize(safeRealpath(projectRoot + region.replace(/\/+$/, ""))).toLowerCase();
       const prefix = region.endsWith("/") ? regionBase + path.sep : regionBase;
       if (resolvedLower.startsWith(prefix)) return null;
@@ -1154,7 +1154,7 @@ function gitDashCTargetsWorktree(gseg: Segment, projectRoot?: string, sessionCwd
     break; // 子命令位——后续词是子命令参数非 git 全局旗标
   }
   if (!hasC || base === null) return false;
-  // F20261016syml（M-ed285d7c）：-C 目标 symlink 穿透归一——git -C <link>（链进主仓内容）
+  // F20261019syml（M-ed285d7c）：-C 目标 symlink 穿透归一——git -C <link>（链进主仓内容）
   //  不得因字符串形态在 worktrees 下沉层而豁免。
   const wtRoot = safeRealpath(path.normalize(path.join(projectRoot, ".otter/worktrees")));
   const realBase = safeRealpath(base);
@@ -1809,7 +1809,7 @@ function hasRealCdSegment(command: string): boolean {
  *  主仓内 src/data/workspaces 之类的同名嵌套路径不匹配（G1 对照组）。 */
 const MAIN_CHECKOUT_WRITE_EXEMPT_REGIONS = ["data/workspaces", ".otter/worktrees", ".otter/workforms"] as const;
 
-/** 字符串形态归类（不做 realpath）——F20261016syml 撒谎形态分歧对比的基准侧。 */
+/** 字符串形态归类（不做 realpath）——F20261019syml 撒谎形态分歧对比的基准侧。 */
 function isInsideMainCheckoutRaw(target: string, projectRoot: string): boolean {
   const r = path.normalize(projectRoot).toLowerCase();
   const t = path.normalize(target).toLowerCase();
@@ -1822,7 +1822,7 @@ function isInsideMainCheckoutRaw(target: string, projectRoot: string): boolean {
 }
 
 function isInsideMainCheckout(target: string, projectRoot: string): boolean {
-  // F20261016syml（M-ed285d7c）：symlink 穿透归一——写穿链（echo > <link>/f）真实落点
+  // F20261019syml（M-ed285d7c）：symlink 穿透归一——写穿链（echo > <link>/f）真实落点
   //  判主仓；区基同 realpath（.otter/worktrees 本身是链时豁免面不塌）。
   const r = path.normalize(safeRealpath(projectRoot)).toLowerCase();
   const t = path.normalize(safeRealpath(target)).toLowerCase();
@@ -1839,7 +1839,7 @@ function isInsideMainCheckout(target: string, projectRoot: string): boolean {
   return true;
 }
 
-/** F20261016syml：cd 目标撒谎形态判定——字符串形态归类与真实落点归类分歧
+/** F20261019syml：cd 目标撒谎形态判定——字符串形态归类与真实落点归类分歧
  *  （字面在运行时区/区外而真身落主仓内容树，或反向）时禁发显式意图豁免，落严格
  *  通道按真实落点判。同归类不杀（macOS /tmp→/private/tmp 等无辜链不误伤）。 */
 function cdFormDiverges(target: string, projectRoot: string): boolean {
@@ -2035,7 +2035,7 @@ function onelinerAbsPathsOutsideMain(command: string, projectRoot: string): bool
  */
 function segmentCdTarget(command: string, projectRoot: string): string | null {
   const segs = command.split(/\n|&&|\|\||;|&(?=&)|\|(?=\|)/).map(s => s.trim()).filter(Boolean);
-  // F20261016syml：撒谎 cd 一票否决——链上任一 cd 目标形态与真实落点分歧 → 整链不锚定
+  // F20261019syml：撒谎 cd 一票否决——链上任一 cd 目标形态与真实落点分歧 → 整链不锚定
   // （诚实主仓 cd 照旧 continue——显式意图边界不动）。预扫覆盖全链（含首 cd 早返后的段）。
   for (const seg of segs) {
     const lm = /^cd\s+(?!\.\.?(?:\/|\s|$))(\S+)\s*$/.exec(seg);

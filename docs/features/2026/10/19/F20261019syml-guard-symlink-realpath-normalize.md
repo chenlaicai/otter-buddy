@@ -1,9 +1,9 @@
 ---
-id: F20261016syml
+id: F20261019syml
 title: bash 守卫——symlink 逃逸链 realpath 归一化（ln -s 主仓→worktrees 区 + 写/删穿链两步全放收口）
 summary: M-ed285d7c（#1515 delta 建议 2 立档）：ln -s <主仓内容> <worktrees 区>/link 后 git -C <link> 写族 / cd <link> && 写 / echo > <link>/f / rm <link>/sub 的字符串落点在运行时区（豁免命中）而真实落点在主仓内容树——两步全放。判定基元（wv pathWithinMain / prod isInsideMainCheckout、classifyDestructiveTarget、git -C 落点累积）路径比较前 symlink 穿透归一（safeRealpath 最深存在祖先回拼）；显式意图豁免加「声明形态=真实落点」分歧一票否决（诚实 cd 主仓照旧放行）
 type: BugFix
-date: 2026-10-16
+date: 2026-10-19
 capability_test: "n/a（change_type=BugFix）：回归钉 tests/frameworks/agent/bash-guard-symlink-realpath.test.ts（拦截侧 5 + 放行侧 4 + 基元 3，真 fs symlink 拓扑）"
 intent:
   problem: "M-ed285d7c（#1515 delta 建议 2 立档）：symlink 逃逸链两步全放——ln -s <主仓内容> <worktrees 区>/link 之后，git -C <link> 写族 / cd <link> && git commit / echo x > <link>/f / rm -rf <link>/sub 的字符串落点在运行时区（判定豁免命中）而真实落点在主仓内容树；判定基元纯字符串路径比较（pathWithinMain / isInsideMainCheckout / classifyDestructiveTarget / git -C 落点累积均无 realpath），与 cwd 形态共享既有边界（显式意图豁免不辨声明真伪）"
@@ -12,6 +12,8 @@ intent:
     type: behavior_check
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 ---
+
+编号溯源：原 F20261016syml（2026-10-16 创建），2026-10-19 特性编号顺延（日期段 10/16→10/19，合入定稿按 F20260914prdb「定稿时改名为合入当天日期」，搭档指令「顺延特性编号的日期」）改为现号。
 
 ## 排查结论（案情与根因，修前探针实证）
 

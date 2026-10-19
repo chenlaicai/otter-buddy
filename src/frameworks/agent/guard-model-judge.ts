@@ -17,7 +17,7 @@
  *   词样字面量、$VAR 传参（r1-S3 口径由模型层继承）
  * - 白名单外零变化（V1 234 用例锁定——精确表述，避免全量宣称）
  */
-/* eslint-disable max-statements, complexity, max-params, max-lines -- 判定层承载 V1 全量规则 + V2 白名单新拦 + r1 五项处置，450 行与规则密度本质冲突（max-depth 已随 F20261016syml cdSegmentStaticTarget 抽取退役） */
+/* eslint-disable max-statements, complexity, max-params, max-lines -- 判定层承载 V1 全量规则 + V2 白名单新拦 + r1 五项处置，450 行与规则密度本质冲突（max-depth 已随 F20261019syml cdSegmentStaticTarget 抽取退役） */
 
 import type { Logger } from "@usecases/ports/logger";
 import type { CommandModel, Segment, Payload } from "./command-model";
@@ -663,7 +663,7 @@ export { loadAllowedServicePorts };
 export function modelCdExemption(command: string, v1Fallback: (c: string) => boolean, targetVeto?: (target: string) => boolean): boolean {
   const model = parseOnce(command);
   if (!model.parseOk) return v1Fallback(command); // 解析失败回 V1 判定（保守侧一致）
-  // F20261016syml（M-ed285d7c）：显式意图豁免只在「声明形态=真实落点」时成立——链上
+  // F20261019syml（M-ed285d7c）：显式意图豁免只在「声明形态=真实落点」时成立——链上
   // 任一 cd 目标经 symlink 撒谎（字面形态与真实落点归类分歧）即整体不豁免，落严格
   // 通道按真实落点判（诚实 cd 主仓照旧豁免——探针实证显式意图边界不动）。预扫覆盖
   // 整条链（含首 cd 授予短路看不见的后段 cd）。
@@ -705,7 +705,7 @@ export function modelCdExemption(command: string, v1Fallback: (c: string) => boo
   return false;
 }
 
-/** cd 段静态目标求值（F20261016syml 抽出共用）：静态词直接用；单变量引用 →
+/** cd 段静态目标求值（F20261019syml 抽出共用）：静态词直接用；单变量引用 →
  *  同命令赋值段溯源（F20260924gfpn #5：W=/repo; cd $W 的 $W 溯源到赋值）；多次
  *  赋值只认最后一次（#918）；首 part 变量 + 尾部静态拼接溯源后拼接尾部。
  *  溯源后仍含展开（$/…）或非平凡目标（空/.）→ null（不可静态求值，保守不豁免）。 */
