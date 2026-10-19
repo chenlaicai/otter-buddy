@@ -12,6 +12,11 @@
 import { describe, expect, it } from "vitest";
 import { classifyGuardInterceptReason, UNKNOWN_RULE } from "@frameworks/agent/guard-intercept-classify";
 import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
+// F20261019fito：静态 import（原 4 个用例内动态 await import）——pi-session-factory 模块图
+// 首载（数十依赖 + vitest transform）约 5s，恰好顶满 vitest 默认 testTimeout=5000ms，
+// 首个用例「基础字段」独扛加载成本 → 冷缓存/高负载时偶发超时（flaky）。提到文件顶层后
+// 加载成本不进任何用例计时窗，断言零变化。
+import { buildGuardInterceptContext } from "@frameworks/agent/pi-session-factory";
 
 /** 用真实命令触发守卫，返回守卫真实文案（null = 未拦，测试自身失败——探针失效即红，不会静默漏检） */
 function guardReason(command: string, mainPid = 12345, projectRoot = "/repo"): string {
@@ -126,20 +131,17 @@ describe("classifyGuardInterceptReason · 真实文案回归（探针 = 守卫�
 
 describe("buildGuardInterceptContext · 落账字段组装（B3 处置：hook 链路单测）", () => {
   it("基础字段：ruleId/ruleLayer/commandHead/hasWorktreePath 齐全", async () => {
-    const { buildGuardInterceptContext } = await import("@frameworks/agent/pi-session-factory");
     const ctx = buildGuardInterceptContext("git commit -m x", "当前 bash 工作目录在主仓（未 cd 到 worktree）。落点为主仓的写命令被拦截", false, 0);
     expect(ctx).toMatchObject({ layer: "framework", ruleId: "main_write", ruleLayer: "r1_gate", hasWorktreePath: false });
     expect(ctx.commandHead).toBe("git commit -m x");
   });
 
   it("hasWorktreePath：命令含 worktree 路径时为 true（#1207 误报特征）", async () => {
-    const { buildGuardInterceptContext } = await import("@frameworks/agent/pi-session-factory");
     const ctx = buildGuardInterceptContext("cd /Users/orca/ai/otter-buddy/.otter/worktrees/foo && git add x", "当前 bash 工作目录在主仓（未 cd 到 worktree）。", false, 0);
     expect(ctx).toMatchObject({ ruleId: "main_write", hasWorktreePath: true });
   });
 
   it("commandHead：截短 120 字符（对齐 description 前缀口径），脱敏作用于敏感词元", async () => {
-    const { buildGuardInterceptContext } = await import("@frameworks/agent/pi-session-factory");
     // sanitizeQuotedText 语义：替换敏感词元（如 kill 族）而非剥引号内容（#858 口径）
     const longCmd = "echo 'payload' " + "x".repeat(200);
     const ctx = buildGuardInterceptContext(longCmd, "当前 bash 工作目录在主仓（未 cd 到 worktree）。", false, 0);
@@ -150,7 +152,6 @@ describe("buildGuardInterceptContext · 落账字段组装（B3 处置：hook �
   });
 
   it("repeated 时带 repeatedIntercept 计数", async () => {
-    const { buildGuardInterceptContext } = await import("@frameworks/agent/pi-session-factory");
     const ctx = buildGuardInterceptContext("pkill otter-buddy", "bash 命令包含按名匹配的批量终止命令（pkill/killall）。", true, 2);
     expect(ctx.repeatedIntercept).toBe(3);
     expect(ctx).toMatchObject({ ruleId: "self_kill_byname" });
