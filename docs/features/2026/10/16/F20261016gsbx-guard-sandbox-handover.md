@@ -11,6 +11,11 @@ summary: |
   「网络外发零防护窗口」。R-2 失败引导在 spawnHook 包裹层（SBPL with-message 实测不达
   stderr）。G2 对表 S3：白名单补 .otter/workforms/。
 change_type: feature
+intent:
+  problem: "沙箱接防写面条件退役后，R1 直推受保护分支与网络外发处于零防护窗口（一期检视发现 6 挂账），且探测与挂载一致性、解析失败降级、退役面回位等语义缺结构保证，G2 对表发现 S3 白名单缺口。"
+  expected_effect: "沙箱可用时 main_write 文件写族交沙箱物理接防、守卫按 G3 枚举表条件退役且解析失败 fail-closed 回位；沙箱不可用时守卫全量回位、安全档位不降；双路径下 git push 受保护 refspec（含 --all/--mirror 多引用与动态面 fail-closed）、.git 落点直写恒拦、POST/PUT 非白名单外发均被拦且自带拦截消息——capability test 逐条钉住。"
+  verify_by:
+    type: capability_test
 capability_test: tests/frameworks/agent/bash-guard-gsbx-phase2.test.ts
 created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
 causal_links:
@@ -140,6 +145,7 @@ data 破坏族、引导类（sleep→wait、脚本自杀、kill 族）、PR merg
   「git push --delete（远端目标）非写」且钉 `cwd=worktree→ALLOW`（feature 远端清理是
   post-merge 常规流）。故 `--delete` 保持放行（受保护 refspec/动态/--all 组合已被既有判定
   覆盖），零 corpus 翻案；此偏离交 delta 复核裁决
-- **基础（BEHIND）→ 已修**：rebase 吸收 main（#1533 未合，按仲裁序其合入后可能需二次
-  rebase）
+- **基础（BEHIND）→ 已修**：吸收 main 至 e6419fa4（两段 merge：d250219d 收口上一世已解
+  全部冲突；c2859f94 并入其后新进 10 提交——#1533/#1523 均已含，#1533 symlink 归一化与
+  本分支保留面零冲突自动合并；全量 vitest 399 文件 6314 绿后推送）
 - **建议 A1/A2/A3 → 记档**（见「行为变更与已知边界」声明边界节）
