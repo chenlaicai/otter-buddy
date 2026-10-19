@@ -264,6 +264,11 @@ export class PiSessionFactory implements AgentGateway {
   // 匹配时执行（stale steal 后旧 invoke 苏醒不得删新 invoke 的条目）。epoch 缺失 = 铸造点
   // 未执行（真 bug），set 侧拒绝注册 + warn（D3 fail-loud）。
   private readonly activeSessions = new Map<string, { abort: () => Promise<void>; steer?: (text: string) => Promise<unknown>; toolCallCount: number; guardAbortReason?: string; epoch?: InvokeEpoch }>();
+  /** F20261016gsbx 二期 2a（R-2b）：session → spawnHook 真实挂载决策。
+   *  在 session 创建点与挂载同瞬求值后绑定；attachGuards 消费本位而非现场再探测
+   *（探测报可用但挂钩未挂载=裸跑零告警的最危险模式，绑定后结构上不可能）。
+   *  缺席（readOnly 合成会话）→ 消费侧回退 false（写面回位，安全方向）。 */
+  private readonly sandboxGuardedBySession = new WeakMap<AgentSession, boolean>();
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private readonly lockManager: SimpleLockManager;
   private readonly sessionRestore: SessionRestore;
@@ -994,7 +999,11 @@ export class PiSessionFactory implements AgentGateway {
         this.logger.debug('[execute] Using pooled session', { otterId, sessionKey });
 
         // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）+ 守卫拦截 healing（F20260831aksp T3）
-        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: getRepoRoot(), sessionCwd: resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data"), onGuardIntercept: this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }), onShadowEval: this.buildShadowEvalHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }) });
+        //    F20261016gsbx 二期 2a/2b：sandboxGuarded 消费 session 创建点绑定的挂载决策位
+        //   （WeakMap，与 spawnHook 挂载同一次 probeSandboxAvailability 结果）——R-2b 约束：
+        //    探测与挂载不可能分歧（分歧=裸跑零告警的最危险模式）；沙箱接防时守卫
+        //    main_write 族退役（G3 枚举表）；不可用时写面回位（降级不降安全）。
+        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: getRepoRoot(), sessionCwd: resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data"), sandboxGuarded: this.sandboxGuardedBySession.get(session) ?? false, onGuardIntercept: this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }), onShadowEval: this.buildShadowEvalHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }) });
 
         // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);
@@ -1320,7 +1329,8 @@ export class PiSessionFactory implements AgentGateway {
     // readOnly 合成会话（readOnly=true）不需要沙箱——只有 read 工具，无 bash。
     const repoRoot = getRepoRoot();
     const dataDir = this.cfg.dataDir ?? "./data";
-    const baseToolsOverride = readOnly ? undefined : createSandboxedTools(workspaceCwd, repoRoot, dataDir);
+    const baseToolsOverrideRaw = readOnly ? undefined : createSandboxedTools(workspaceCwd, repoRoot, dataDir);
+    const baseToolsOverride = baseToolsOverrideRaw?.tools;
     const { session } = await piCodingAgent.createAgentSession({
       model: resolvedModel,
       sessionManager,
@@ -1332,6 +1342,8 @@ export class PiSessionFactory implements AgentGateway {
       settingsManager: settingsManager ?? undefined,
       ...(baseToolsOverride ? { baseToolsOverride } : {}),
     });
+    // F20261016gsbx 二期 2a（R-2b）：挂载决策绑定到 session——attachGuards 消费本位。
+    if (baseToolsOverrideRaw) this.sandboxGuardedBySession.set(session, baseToolsOverrideRaw.sandboxGuarded);
     if (hasDeferred) {
       // F20261008tecn（检视发现 2）：激活集计算抽纯函数 computeActiveToolNames，单测锁语义
       session.setActiveToolsByName(computeActiveToolNames(filteredCodingTools, filteredCustomTools));

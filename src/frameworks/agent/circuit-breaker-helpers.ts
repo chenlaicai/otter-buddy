@@ -62,6 +62,10 @@ export interface AttachGuardsParams {
   projectRoot?: string;
   /** F20261014cwsp：session 工作目录（invoke 时的对话工作区）——守卫落点判定基准 */
   sessionCwd?: string;
+  /** F20261016grdl 二期 2a/2b：沙箱接防标记——与 spawnHook 同源同点求值
+   *  （R-2b：探测与挂钩同一 isSandboxEnabled()，session 创建时一次求值，不缓存）。
+   *  true → 守卫 main_write 族退役（枚举表）；false/缺省 → 写面回位。 */
+  sandboxGuarded?: boolean;
   /** F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本；fire-and-forget） */
   onGuardIntercept?: (input: { command: string; reason: string }) => void;
   /** F20261010gshw：写落点求值器影子接线（观察模式）——旧链判定后无论拦否均回调，
@@ -86,7 +90,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, onShadowEval: params.onShadowEval });
+  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, sandboxGuarded: params.sandboxGuarded, onGuardIntercept: params.onGuardIntercept, onShadowEval: params.onShadowEval });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
   const cb = getConfig().circuitBreaker;
@@ -207,7 +211,7 @@ export function attachCircuitBreaker(
   otterId: string,
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
-  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void; onShadowEval?: (input: { command: string; oldBlock: string | null }) => void },
+  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; sandboxGuarded?: boolean; onGuardIntercept?: (input: { command: string; reason: string }) => void; onShadowEval?: (input: { command: string; oldBlock: string | null }) => void },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
   // F20260830bsgr：bash 安全守卫——读取主进程 PID
   // F20260830fabt-r2: 每次检查都实时读 PID 文件（不缓存），支持热重启换 PID
@@ -313,7 +317,7 @@ export function attachCircuitBreaker(
    *  sink/ids/projectRoot），本层零 healing 依赖（分层对齐：helpers 不依赖 repo）。 */
   function abortOnUnsafeBash(command: string, toolCallId?: string): boolean {
     const mainPid = getMainPid();
-    const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd });
+    const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd, sandboxGuarded: options?.sandboxGuarded });
     notifyShadowEval(command, rawSafetyBlock);
     if (!rawSafetyBlock) return false;
     const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
