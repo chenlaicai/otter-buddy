@@ -1220,11 +1220,11 @@ function writerContent(seg: Segment, cwd: string): WriteFaceEntry[] | null {
 
 /** 重定向写面内容重建（原 writerContent 尾段语义原样拆出）：追加先验不可知；echo/printf
  *  静态参数重建；cat/tee 单 heredoc 体重建（含展开则不可知）；其余不可重建 → null。
- *  delta1 附带修（假重建=逃逸面）：printf 单 format 参数旧重建丢 format（重建为空串=
- *  把非空文件谎报成空内容，`printf 'touch /repo/x\n' > f && bash f` 被判良性放行）——
- *  单参=内容本体按 printf 转义语义重建；% 指令无参代入 → null（不可重建不猜）；
- *  多参数保历史 %s\n 近似（TS-20610ff1 等冻结形态口径不动）。 */
-// eslint-disable-next-line complexity -- echo/printf（单参/多参/%指令）/heredoc/追加分支=已实证写法枚举（合并会遮蔽单参假重建修复）
+ *  printf 假重建治理（delta1 附带修 + delta2 S1/S2）：旧重建单参丢 format、多参丢 format、
+ *  八进制/十六进制转义不解释——三种假重建=把非空文件谎报成错内容=逃逸面（探针实证）。
+ *  终版语义：format 是内容骨架（单/多参同走 printfFormatContent——bash 实测无转换符时
+ *  多余实参被忽略），仅裸 %s 可精确代入、转义仅白名单可解释，其余一律 null（不猜，
+ *  fail-closed 兜住）。 */
 function redirectWriteContent(seg: Segment, redirect: Segment["redirects"][number]): string | null {
   if (redirect.op.includes(">>")) return null; // 追加：先验内容不可知
   const bare = bareName(seg.argv0);
@@ -1233,8 +1233,9 @@ function redirectWriteContent(seg: Segment, redirect: Segment["redirects"][numbe
     if (vals.some(v => v === null)) return null;
     const args = vals.filter((v): v is string => v !== null && !v.startsWith("-"));
     if (bare === "echo") return args.join(" ");
-    if (args.length >= 2) return args.slice(1).join("\n");
-    return args.length === 0 ? "" : printfFormatContent(args[0]);
+    // printf（delta2 S1）：format 即骨架，单/多参同走 format 重建（旧多参分支丢 format=哑参逃逸；
+    //   含转换符的多参旧 %s\n 近似仅保留在裸 %s 代入内，format 字面部分不再丢）
+    return printfFormatContent(args[0] ?? "", args.slice(1));
   }
   if ((bare === "cat" || bare === "tee") && seg.heredocs.length === 1) {
     const hd = seg.heredocs[0];
@@ -1244,22 +1245,45 @@ function redirectWriteContent(seg: Segment, redirect: Segment["redirects"][numbe
   return null;
 }
 
-/** printf format 内容重建（单 format 参数形态）：%%→%、反斜杠转义按 bash printf 语义
- *  解释（实测：未知转义 \q 原样两字符保留、\n 等解释、\0nnn 八进制）；% 指令无参代入
- *  → null（不可重建不猜——假重建=谎报内容，delta1 附带修）。 */
-function printfFormatContent(fmt: string): string | null {
-  if (fmt.replace(/%%/g, "").includes("%")) return null; // % 指令无参代入——不可重建
-  const simple: Record<string, string> = { a: "\x07", b: "\b", e: "\x1b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "\\": "\\", "'": "'", '"': '"' };
-  let out = "";
+/** printf 转义白名单（可精确重建的解释集，bash printf 实测口径）：\a\b\e\f\n\r\t\v\\'"。
+ *  白名单外一律 null——含 bash 同样会解释的 \nnn 八进制/\xHH/\uHHHH 等（delta2 S2 修法
+ *  保守路，#1513 不军备化之尺）：转义形态穷举=军备化反面（漏一个形态=谎报内容=逃逸面，
+ *  S2 八进制/\xHH 实证），不猜就 fail-closed 兜住。 */
+const PRINTF_ESCAPES: Record<string, string> = { a: "\x07", b: "\b", e: "\x1b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "\\": "\\", "'": "'", '"': '"' };
+
+/** printf format 内容重建（delta2 S1/S2 修）：format 是内容骨架——bash 实测无转换符时
+ *  多余实参被忽略（S1 哑参逃逸：旧多参分支丢 format，单参修复加一个哑参即绕破）；
+ *  转换符仅裸 %s 可精确代入（format 按 bash 语义复用耗尽实参，末趟缺失位补空串），
+ *  其余转换符（%d/%x/宽度精度修饰/孤立%）→ null 不猜；转义仅白名单可解释，其余
+ *  （\nnn 八进制/\xHH/未知）→ null（假重建=谎报内容=逃逸面）。 */
+// eslint-disable-next-line complexity, max-statements -- format 词法令牌流（%s/%%/转义白名单）+ 复用渲染，分支=已实证 bash printf 语义枚举（合并会遮蔽假重建修复）
+function printfFormatContent(fmt: string, args: string[]): string | null {
+  type Tok = { t: "lit"; v: string } | { t: "s" };
+  const toks: Tok[] = [];
+  let lit = "";
   for (let i = 0; i < fmt.length; i++) {
     const c = fmt[i];
-    if (c === "%") { out += "%"; i++; continue; } // %% → %（前闸已证无裸 % 指令）
-    if (c !== "\\") { out += c; continue; }
-    const n = fmt[i + 1];
-    if (n !== undefined && n in simple) { out += simple[n]; i++; continue; }
-    const oct = n === "0" ? /^0([0-7]{1,3})/.exec(fmt.slice(i + 1)) : null; // \0nnn 八进制
-    if (oct !== null) { out += String.fromCharCode(parseInt(oct[1], 8)); i += oct[0].length; continue; }
-    out += c; // 未知转义原样两字符（bash printf 实测语义）
+    if (c === "%") {
+      const n = fmt[i + 1];
+      if (n === "%") { lit += "%"; i++; continue; }
+      if (n === "s") { if (lit !== "") { toks.push({ t: "lit", v: lit }); lit = ""; } toks.push({ t: "s" }); i++; continue; }
+      return null; // 其余转换符（%d/%x/宽度修饰/孤立%）——不猜
+    }
+    if (c === "\\") {
+      const n = fmt[i + 1];
+      if (n !== undefined && n in PRINTF_ESCAPES) { lit += PRINTF_ESCAPES[n]; i++; continue; }
+      return null; // 白名单外转义（S2）——不猜，fail-closed 兜住
+    }
+    lit += c;
+  }
+  if (lit !== "") toks.push({ t: "lit", v: lit });
+  const sCount = toks.reduce((n, tk) => n + (tk.t === "s" ? 1 : 0), 0);
+  if (sCount === 0) return toks.map(tk => tk.t === "lit" ? tk.v : "").join(""); // 无转换符：format 即内容（多余实参忽略，S1）
+  const passes = Math.max(1, Math.ceil(args.length / sCount)); // format 复用耗尽实参（bash 语义）
+  let out = "";
+  let a = 0;
+  for (let p = 0; p < passes; p++) {
+    for (const tk of toks) out += tk.t === "lit" ? tk.v : (a < args.length ? args[a++] : "");
   }
   return out;
 }
@@ -1292,7 +1316,8 @@ function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; cont
       const base = path.basename(src);
       if (base !== "" && base !== "." && base !== "..") targets.push(`${dest}/${base}`);
     }
-    // 保内容拷贝：单源时内容=源文件内容（链内造源可透传判读——corpus TS-402d73e5 守恒）
+    // 保内容拷贝：单源时内容=源文件内容（链内造源可透传判读——corpus TS-402d73e5 守恒）。
+    // 边界（F20261019syml）：ln -s 的透传只判内容；穿链写主仓的负门归 symlink realpath 归一化（wv 通道），两层各管一段。
     if (srcs.length === 1) copyOf = evalPath(srcs[0], cwd) ?? undefined;
   } else if (bare === "tee") {
     for (const a of args) { const t = evalPath(a, cwd); if (t !== null) targets.push(t); }

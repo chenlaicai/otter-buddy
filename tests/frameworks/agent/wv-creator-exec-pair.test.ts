@@ -273,3 +273,59 @@ describe("delta1（检视獭1554）：管道写段 + 旗标形态 + 覆盖语义
     });
   });
 });
+
+/**
+ * delta2 回归钉（检视獭1554 delta 复审 S1/S2——printf 附带修自身的假重建绕破面）：
+ *  S1 多参哑参（旧多参分支丢 format）、S2 八进制转义、S2b 十六进制转义、
+ *  S1' 转换符携带字面载荷（旧 %s\n 近似丢 format 字面部分）。修法=保守路：
+ *  format 是内容骨架（bash 实测无转换符时多余实参被忽略），仅裸 %s 精确代入、
+ *  转义仅白名单可解释，其余一律 null → 既有 fail-closed 兜住（#1513 不军备化）。
+ */
+describe("delta2（检视獭1554 复审）：printf 假重建绕破面收口", () => {
+  describe("拦截侧（绕破面——修前 4 形态全放行）", () => {
+    it("S1 多参哑参：format 无转换符时多余实参被忽略，format 即内容（旧重建丢 format）", () => {
+      const v = evaluateWriteVerdict("printf 'touch /repo/data/pwn\\n' a > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("S1 三哑参同族：format 骨架不因实参数变化", () => {
+      const v = evaluateWriteVerdict("printf 'touch /repo/data/pwn' a b c > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("S1' 转换符携带字面载荷：裸 %s 代入不得丢 format 字面部分（旧 %s\\n 近似绕破）", () => {
+      const v = evaluateWriteVerdict("printf 'touch /repo/data/pwn %s\\n' a > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("BLOCK");
+      expect(v.mode).toBe("positive");
+    });
+
+    it("S2 八进制转义：\\nnn 无前导 0 bash 同样解释——白名单外转义 null 走 fail-closed", () => {
+      const v = evaluateWriteVerdict("printf '\\164\\157\\165\\143\\150\\40\\057\\162\\145\\160\\157\\057\\144\\141\\164\\141\\057\\160\\167\\156\\n' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expectFailClosed(v, "script-payload-dynamic");
+    });
+
+    it("S2b 十六进制转义：\\xHH 同族不解释即不猜，fail-closed 兜住", () => {
+      const v = evaluateWriteVerdict("printf '\\x74ouch /repo/data/pwn\\n' > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expectFailClosed(v, "script-payload-dynamic");
+    });
+  });
+
+  describe("放行侧（不误伤 + 冻结口径不动）", () => {
+    it("S1 不误伤：良性 format + 哑参按内容判读放行", () => {
+      const v = evaluateWriteVerdict("printf 'echo hi\\n' a b > /tmp/g.sh && bash /tmp/g.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+    });
+
+    it("冻结口径不动：含转换符多参 %s\\n 形态（write-target-evaluator.test.ts:651 同款）", () => {
+      const v = evaluateWriteVerdict("cd /tmp/p && printf '%s\\n' 'echo hi' > s.sh && bash s.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+    });
+
+    it("format 复用语义（bash 对拍口径）：多实参逐个代入按内容判读放行", () => {
+      const v = evaluateWriteVerdict("cd /tmp/p && printf '%s\\n' 'echo hi' 'echo yo' > s.sh && bash s.sh", ROOT);
+      expect(v.verdict).toBe("ALLOW");
+    });
+  });
+});
