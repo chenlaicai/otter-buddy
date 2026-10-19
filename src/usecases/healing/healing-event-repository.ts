@@ -10,16 +10,18 @@ export interface HealingEventRepository {
   /** F20260818cbkr：按 otter 查最近指定类型事件（created_at 倒序），熔断判定数据源 */
   findRecentByOtter(otterId: string, errorType: string, limit?: number): Promise<HealingEvent[]>;
   updateStatus(id: string, status: HealingEventStatus): Promise<void>;
+  /** #1545 缺陷③：带 resolution 的单条 dismiss——终态记录三列齐（status/resolution/resolved_at）。 */
+  dismiss(id: string, resolution: HealingResolution): Promise<void>;
   resolve(id: string, resolution: HealingResolution): Promise<void>;
   getStats(): Promise<HealingEventStats>;
   /** 自动清理：dismiss 超过 N 天未更新的 open 事件。
    *  F20261008hcpa（#1356 选 A）：high 升级信号（如 #844 变体重试 ≥3 次升级）永不
-   *  被时间静默——排除 high 走独立通道（ageOutHighAndNotify 推 healing-alert-registry）。 */
+   *  被时间静默——排除 high 走独立通道（#1545 后 findAgedUnboundHigh 只读识别 + 提醒，不处置）。 */
   autoStaleDismiss(staleDays: number): Promise<number>;
-  /** F20261008hcpa（#1356 选 A）：查超龄 high open 事件并置 dismissed（升级提醒通道）。
-   *  返回被处置的事件供调度层推 alert-registry——high 是升级信号，
-   *  即使超龄也不能无声消失（与 autoStaleDismiss 的 low/medium 静默语义分层）。 */
-  ageOutHighAndNotify(staleDays: number): Promise<HealingEvent[]>;
+  /** #1545：超龄 unbound high 只读识别（升级提醒通道）——不置任何状态。
+   *  bound high 不在取回面（去留随 issue 生命周期）；unbound high 保持 open 等 bind_issue
+   *  归口（#1361 层3 硬规则），提醒送达后由獭处置。取代旧 ageOutHighAndNotify。 */
+  findAgedUnboundHigh(staleDays: number): Promise<HealingEvent[]>;
 
   /**
    * F20260825b424：按 filter 批量 resolve，替代逐条 ID 操作。
