@@ -337,6 +337,98 @@ test.describe('F20261016pcov 卡片预览进覆盖层（vite 隔离实例）', (
   })
 })
 
+test.describe('F20261019ovmh-R2 卡片态输入让步（检视獭-1552 严重 1 处置）', () => {
+  /** 拖分割条到指定意图高度（move startY-N = 高度 +N，clamp 生效后为实际值） */
+  async function dragTo(page: import('@playwright/test').Page, targetH: number) {
+    const splitter = page.locator('[role="separator"]')
+    const box = await splitter.boundingBox()
+    const startY = box!.y + box!.height / 2
+    const cur = await page.evaluate(() => parseInt(document.querySelector('.glass-input')!.parentElement!.style.height!, 10))
+    await page.mouse.move(box!.x + box!.width / 2, startY)
+    await page.mouse.down()
+    await page.mouse.move(box!.x + box!.width / 2, startY - (targetH - cur), { steps: 8 })
+    await page.mouse.up()
+    await page.waitForTimeout(350) // RO 回调 + 布局稳定
+  }
+
+  async function measureR2(page: import('@playwright/test').Page) {
+    return page.evaluate(() => {
+      const main = document.querySelector('main')!
+      const overlay = document.querySelector('.absolute.bottom-0')!
+      const card = document.querySelector('[data-testid="card-preview"]')!
+      const inputBox = document.querySelector('.glass-input')!.parentElement!
+      const sendBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent === '发送') as HTMLElement
+      const sendR = sendBtn!.getBoundingClientRect()
+      const mainR = main.getBoundingClientRect()
+      const inMain = sendR.bottom <= mainR.bottom + 0.5 && sendR.top >= mainR.top
+      const midX = Math.min(Math.max(sendR.x + sendR.width / 2, 1), window.innerWidth - 1)
+      const hitEl = inMain ? document.elementFromPoint(midX, sendR.y + sendR.height / 2) : null
+      const hit = !!hitEl && (hitEl === sendBtn || sendBtn.contains(hitEl))
+      return {
+        inputH: parseInt(inputBox.style.height, 10),
+        overlayH: Math.round(overlay.getBoundingClientRect().height),
+        mainH: Math.round(mainR.height),
+        cap: Math.floor(main.getBoundingClientRect().height * 0.6),
+        cardH: Math.round(card.getBoundingClientRect().height),
+        sendVisible: inMain,
+        sendHit: hit,
+        inputBoxBottomInMain: inputBox.getBoundingClientRect().bottom <= mainR.bottom + 0.5,
+      }
+    })
+  }
+
+  async function openBigCard(page: import('@playwright/test').Page) {
+    await openConversation(page, { cardBody: CARD_BODY })
+    const frame = page.frameLocator('[data-card-id] iframe')
+    await frame.locator('body').waitFor({ timeout: 15_000 })
+    await frame.locator('body').evaluate(() => {
+      const summary = '大卡片提交摘要：'.padEnd(240, '长') + '，以上数据请逐项核对后发送，确认无误再点发送按钮，避免误发不可撤回的回执。'
+      const rows = Array.from({ length: 8 }, (_, i) => ({ id: i, name: 'field-item-'.concat(String(i)).padEnd(4), value: 'x'.repeat(150), note: '备注'.repeat(4) }))
+      ;(window as unknown as { otterCard: { submit: (p: { summary: string; data: unknown }) => void } }).otterCard.submit({ summary, data: { form: '长表单核对', rows } })
+    })
+    await page.waitForSelector('[data-testid="card-preview"]', { timeout: 5_000 })
+    await page.waitForTimeout(400)
+  }
+
+  test('10a: 矮屏(640x480)拖高档+大卡：输入让步收紧 133、卡片地板 68、按钮可点、输入不出界', async ({ page }) => {
+    await page.setViewportSize({ width: 640, height: 480 })
+    await openBigCard(page)
+    // 拖到顶（意图远超上限）：收紧上限 = min(217, 237-36)=201 - 地板68 = 133
+    await dragTo(page, 999)
+    const m = await measureR2(page)
+    // 输入被收紧（不再吃掉卡片预算）：640x480 实测 main=396, cap=237, limitRaw=201, 地板=68 → 133
+    expect(m.inputH, `输入收紧到 133（实测 main=${m.mainH}）`).toBeLessThanOrEqual(135)
+    expect(m.inputH).toBeGreaterThanOrEqual(64)
+    // 卡片地板：按钮行所在的卡不塌没
+    expect(m.cardH, '卡片 ≥ 地板 68').toBeGreaterThanOrEqual(66)
+    // 发送按钮在 main 内且真命中（hit-test，#1535 核心承诺在拖高档保住）
+    expect(m.sendVisible).toBe(true)
+    expect(m.sendHit).toBe(true)
+    // 输入盒（hint 行在内）不出 main 底（检视 P2 出界态修复）
+    expect(m.inputBoxBottomInMain).toBe(true)
+    // overlay 恰装满封顶（零和验证）：|overlay - cap| ≤ 2
+    expect(Math.abs(m.overlayH - m.cap), `overlay=${m.overlayH} ≈ cap=${m.cap}`).toBeLessThanOrEqual(2)
+    await page.screenshot({ path: 'test-results/ovmh-10a-maxed.png' })
+    // 拖回 120：恢复正常（自愈路径，检视 P5 拖 160 态同被 clamp 覆盖于上）
+    await dragTo(page, 120)
+    const m2 = await measureR2(page)
+    expect(m2.inputH).toBe(120)
+    expect(m2.sendHit).toBe(true)
+  })
+
+  test('10b: 大屏(1280x900)拖顶+大卡：上限由 55% 绑定 → 收紧 380，按钮可点', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await openBigCard(page)
+    await dragTo(page, 999)
+    const m = await measureR2(page)
+    // 1280x900 实测 main≈816: cap=489, 55%=448 与 453 取小=448, budget=5, 地板68 → 380
+    expect(m.inputH, `输入收紧到 ~380（实测 main=${m.mainH}）`).toBeLessThanOrEqual(382)
+    expect(m.cardH).toBeGreaterThanOrEqual(66)
+    expect(m.sendHit, '大屏拖顶按钮仍可点（检视 P4 态修复）').toBe(true)
+    expect(m.inputBoxBottomInMain).toBe(true)
+  })
+})
+
 test.describe('F20261019ovmh 覆盖层总高封顶（vite 隔离实例）', () => {
   test('9: 短视口+大卡片 → overlay 封顶 60% + 卡片内部滚动 + 按钮恒可见 + 衬垫按封顶实高', async ({ page }) => {
     // 短视口复现 #1538 案发条件：矮屏幕 + 预览卡数据区展开

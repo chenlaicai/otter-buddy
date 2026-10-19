@@ -45,6 +45,18 @@ interface ChatViewProps {
 const INPUT_SPLIT_KEY = 'otter.chat.inputHeight'
 const INPUT_HEIGHT_DEFAULT = 120
 const INPUT_HEIGHT_MIN = 64
+/** F20261019ovmh-R2（检视獭-1552 严重 1 处置）：卡片在场时输入有效上限动态收紧的几何常量。
+ *  实测校准（检视獭探针 + 本单复测）：
+ *  - INPUT_ROOT_OVERHEAD 28 = MessageInput root 的 pt-2(8) + pb-5(20)；提示行在
+ *    style={height:inputHeight} 盒内（MessageInput.tsx:226），故 root 高 = inputHeight + 28 恒等
+ *  - SPLITTER_H 8 = 分割条热区 h-2
+ *  - CARD_FLOOR_MAX 44 = 卡片按钮行(~30) + 警示行(~14)——封顶零和下卡片收缩的最低保障，
+ *    极端大卡片时不再抬高地板（消息区优先） */
+const INPUT_ROOT_OVERHEAD = 28
+const SPLITTER_H = 8
+/** 卡片地板 = py-3×2(24) + 警示行(~14) + 按钮行(~30)：按钮行可达是硬承诺（#1535 核心
+ *  价值），警示行随地板一并保住；极端大卡片时不再抬高地板（消息区优先） */
+const CARD_FLOOR_MAX = 68
 /** 上限取容器高的 55%——不是常量而是容器实高的比例（拖动时实时 clamp） */
 function inputHeightMax(overlayEl: HTMLElement): number {
   const containerH = overlayEl.parentElement?.clientHeight ?? 0
@@ -54,6 +66,25 @@ function inputHeightMax(overlayEl: HTMLElement): number {
 }
 function clampInputHeight(px: number, overlayEl: HTMLElement): number {
   return Math.min(Math.max(px, INPUT_HEIGHT_MIN), inputHeightMax(overlayEl))
+}
+/** F20261019ovmh-R2：卡片在场时输入有效上限 + 卡片地板。零和公式：输入高 + 固定开销
+ *  （分割条 8 + root 28）+ 卡片高 ≤ 封顶 floor(60%·main)。谁让步：输入让步（大獭方向
+ *  拍板，检视方案 a/c 组合）——卡片是即时任务（待决），输入高度是偏好。地板计算以
+ *  「无地板上限 limitRaw」为参照（非用户当前值）：拖到无地板上限时也保证卡片按钮行可见，
+ *  与当前拖到哪无关，拖动中卡片不变 → 地板稳定。无卡时 limit=Infinity（行为零变化）。
+ *  返回 floor：卡片 minHeight 用——若 60% 预算装不下地板（矮视口极端态），宁可让 overlay
+ *  溢出 main 底也不裁按钮（#1538 保消息区 vs #1535 保按钮可点，不互相牺牲） */
+function cardAwareInputLimit(overlayEl: HTMLElement): { limit: number; floor: number } {
+  const card = overlayEl.querySelector('[data-testid="card-preview"]') as HTMLElement | null
+  if (!card) return { limit: Infinity, floor: 0 }
+  const mainH = overlayEl.parentElement?.clientHeight ?? 0
+  if (mainH <= 0) return { limit: Infinity, floor: 0 } // 未测量（jsdom）不收紧，同 inputHeightMax 兜底
+  const cap = Math.floor(mainH * 0.6)
+  const limitRaw = Math.min(inputHeightMax(overlayEl), cap - SPLITTER_H - INPUT_ROOT_OVERHEAD)
+  const cardBudget = cap - SPLITTER_H - INPUT_ROOT_OVERHEAD - limitRaw
+  if (card.scrollHeight <= cardBudget) return { limit: limitRaw, floor: 0 } // 卡片全放下，零地板
+  const floor = Math.min(CARD_FLOOR_MAX, card.scrollHeight - cardBudget)
+  return { limit: limitRaw - floor, floor }
 }
 /** 读持久化高度，异常值（缺失/NaN/越界）回退默认——存储可能被外部篡改或来自旧版本 */
 function loadInputHeight(overlayEl: HTMLElement): number {
@@ -76,12 +107,29 @@ export function ChatView(props: ChatViewProps) {
   const [inputHeight, setInputHeight] = useState(INPUT_HEIGHT_DEFAULT)
   const [bottomSpacerPx, setBottomSpacerPx] = useState(0)
 
-  /** mount/首帧：恢复持久化高度（需 overlay 已挂载才能 clamp 容器比例上限） */
+  /** mount/首帧：恢复持久化高度（需 overlay 已挂载才能 clamp 容器比例上限）。
+   *  F20261019ovmh-R2：恢复也过卡片态收紧 clamp——卡片在场时存的旧高度（可能超收紧上限）
+   *  开场即收回，不等首次拖动 */
   useEffect(() => {
     const overlay = overlayRef.current
     if (!overlay) return
-    setInputHeight(loadInputHeight(overlay))
+    setInputHeight(clampInputHeight(loadInputHeight(overlay), overlay))
   }, [])
+
+  /** F20261019ovmh-R2：卡片出现/换卡时重算收紧上限，超限的当前高度立即收回（不等拖动）。
+   *  依赖 cardId：同卡内容恒定（summary/data 不可变）scrollHeight 不变；换卡/卡片消失时
+   *  重算。拖动中卡片不变 → 上限稳定，不会拖拽中途突变 */
+  const cardLimitRef = useRef<number>(Infinity)
+  const [cardFloorPx, setCardFloorPx] = useState(0)
+  const cardId = props.cardPreview?.cardId ?? null
+  useEffect(() => {
+    const overlay = overlayRef.current
+    if (!overlay) return
+    const { limit, floor } = cardAwareInputLimit(overlay)
+    cardLimitRef.current = limit
+    setCardFloorPx(floor)
+    setInputHeight(h => Math.min(h, limit))
+  }, [cardId])
 
   /** overlay 实高 → bottomSpacerPx：动态衬垫的单一数据源。依赖 [inputHeight] 重跑无妨
    *  （ResizeObserver.observe 同一目标幂等）；RO 回调在内容真实变化时同步，不依赖 deps */
@@ -115,7 +163,9 @@ export function ChatView(props: ChatViewProps) {
     const startY = e.clientY
     const startHeight = inputHeightRef.current
     let latestHeight = startHeight
-    const maxHeight = inputHeightMax(overlay)
+    // F20261019ovmh-R2：拖动 clamp 用卡片态收紧上限（无卡 = Infinity，即原 55% 上限）。
+    // 拖动期间卡片不变 → 上限稳定；ref 镜像供卡片出现 effect 后的拖动读最新值，避免闭包旧值
+    const maxHeight = Math.min(cardLimitRef.current, inputHeightMax(overlay))
     const onMove = (ev: PointerEvent) => {
       const delta = startY - ev.clientY
       latestHeight = Math.min(Math.max(startHeight + delta, INPUT_HEIGHT_MIN), maxHeight)
@@ -228,7 +278,8 @@ export function ChatView(props: ChatViewProps) {
           + 大卡片（数据 JSON 展开态最坏 ~550px）+ 输入框拉满（55%）叠加可吃掉整个消息区。
           封顶用 max-h-[60%]（百分比锚 containing block = main，非 60vh——矮窗口里 vh 可能
           大于 main 实高，overflow-hidden 的 main 会直接裁掉溢出部分，把 bug 换个形态带回来）。
-          消息区恒留 ≥40%。溢出时卡片内容区内部滚动，按钮行 + 输入框恒可见（见卡片块）。
+          常规态消息区恒留 ≥40%（R2 极端态——矮视口装不下卡片地板时宁溢出不裁按钮，见
+          cardAwareInputLimit）。溢出时卡片内容区内部滚动；输入让步/卡片地板见 R2 几何。
           衬垫机制零改动自动正确：RO 观测 overlay 实高，max-h clamp 后实高 = 封顶值，衬垫
           同步封顶——不会出现衬垫按未封顶自然高度算、消息被吞进 overlay 背后的错位。
           ⚠️ 容器不加 overflow-hidden：分割条热区（h-2 -mt-2）靠负 margin 探出 overlay 顶沿
@@ -257,12 +308,13 @@ export function ChatView(props: ChatViewProps) {
             按钮的点击全吞了；卡片弹出还会压矮消息视口。现挪进覆盖层内（分割条下方、输入
             框上方）：覆盖层实高自然含卡片（ResizeObserver 同步给 MessageList 做等高衬垫，
             三笔账一次结清：按钮可点 + 衬垫含卡片 + 卡片不再压视口）。
-            F20261019ovmh（#1538）卡片自身不再 flex-shrink-0：覆盖层封顶（60%）后卡片是
-            唯一可收缩项（分割条 h-2 固定、MessageInput 底部玻璃框固定高 + pb-5/pt-2 自带
-            shrink 兜底），超限时收缩 + 内容区内部滚动（overflow-y-auto），发送/拒绝按钮
-            行 shrink-0 恒可见——#1535 的首要目标是按钮可点，封顶不能把按钮滚出视野 */}
+            按钮行恒可见（检视獭-1552 实测打脸过绝对承诺：卡片 min-h-0 可塌到 0，按钮随之
+            被裁——R2 处置改为 JS 几何：卡片在场时输入有效上限动态收紧、给卡片留地板，见
+            cardAwareInputLimit）。卡片地板动态设 minHeight（R2：封顶零和下若 60% 预算装
+            不下地板，宁可让 overlay 溢出 main 底也不裁按钮——issue #1538 保消息区优先，
+            #1535 保按钮可点优先，两个保障不因封顶互相牺牲） */}
         {props.cardPreview && (
-          <div data-testid="card-preview" className="mx-1 mb-2 rounded-2xl border border-amber-200/60 bg-amber-50/90 backdrop-blur-sm px-4 py-3 flex-shrink flex flex-col min-h-0 overflow-hidden">
+          <div data-testid="card-preview" className="mx-1 mb-2 rounded-2xl border border-amber-200/60 bg-amber-50/90 backdrop-blur-sm px-4 py-3 flex-shrink flex flex-col min-h-0 overflow-hidden" style={{ minHeight: cardFloorPx }}>
             <div className="flex items-start gap-1.5 text-[11px] text-amber-700 mb-2 shrink-0">
               <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>以下内容由水獭卡片生成，请核对后发送；已提交的卡片不可重复提交，修改答案请让水獭重发新卡</span>

@@ -164,3 +164,97 @@ describe('F20261019ovmh 覆盖层总高封顶（类名契约——布局语义�
     expect(first.getAttribute('role'), '分割条 z-20 在最上，拖动语义不因封顶改变').toBe('separator')
   })
 })
+
+describe('F20261019ovmh-R2 卡片态输入让步（检视獭-1552 严重 1 处处置：拖高档不再裁按钮）', () => {
+  /** 原型级 stub（渲染前安装 → mount effect 直接读到真实几何；jsdom 元素级 scrollHeight
+   *  恒 0 且 effect 在 rerender 提交时跑、晚于元素 stub 的时机，原型级是唯一稳法） */
+  const protoStubs: Array<[object, PropertyKey, PropertyDescriptor | undefined]> = []
+  function stubProp(proto: object, key: PropertyKey, value: number) {
+    protoStubs.push([proto, key, Object.getOwnPropertyDescriptor(proto, key)])
+    Object.defineProperty(proto, key, { configurable: true, get: () => value })
+  }
+  function restoreStubs() {
+    while (protoStubs.length) {
+      const [proto, key, desc] = protoStubs.pop()!
+      if (desc) Object.defineProperty(proto, key, desc)
+      else delete (proto as Record<PropertyKey, unknown>)[key]
+    }
+  }
+  /** main=600 → 55%上限 330 / 封顶 360；卡片 scrollHeight 按需 */
+  function setup(mainH: number, cardScrollH: number | null, persisted?: string) {
+    stubProp(HTMLElement.prototype, 'clientHeight', mainH)
+    if (cardScrollH !== null) stubProp(HTMLElement.prototype, 'scrollHeight', cardScrollH)
+    if (persisted !== undefined) window.localStorage.setItem('otter.chat.inputHeight', persisted)
+  }
+
+  it('大卡在场：拖高档 clamp 到收紧上限 256（min(330,324)=324 − 地板68），非旧 330', () => {
+    try {
+      setup(600, 500)
+      const { container } = renderChatView(BIG_CARD)
+      const splitter = container.querySelector('[role="separator"]') as HTMLElement
+      act(() => {
+        splitter.dispatchEvent(new PointerEvent('pointerdown', { clientY: 500, bubbles: true }))
+      })
+      act(() => {
+        window.dispatchEvent(new PointerEvent('pointermove', { clientY: 0 })) // 上拖 500 → 原上限 330
+      })
+      const box = container.querySelector('.glass-input')?.parentElement as HTMLElement
+      expect(box.style.height, '封顶360−开销36=324；55%=330→min=324；budget 324-324? cardBudget=360-36-324=0 → 地板 min(68,500-0)=68 → 324-68=256').toBe('256px')
+      act(() => { window.dispatchEvent(new PointerEvent('pointerup')) })
+    } finally { restoreStubs() }
+  })
+
+  it('卡片 minHeight 地板 68：封顶零和下按钮行不被压没', () => {
+    try {
+      setup(600, 500)
+      const { container } = renderChatView(BIG_CARD)
+      const card = container.querySelector('[data-testid="card-preview"]') as HTMLElement
+      expect(card.style.minHeight, '大卡（scroll 500 > budget 0）时地板 = min(68, 500-0) = 68px').toBe('68px')
+    } finally { restoreStubs() }
+  })
+
+  it('小卡全放下（main 2000：budget 64 > 卡高 40）：零地板、上限不收紧仍 55%=1100', () => {
+    try {
+      setup(2000, 40) // cap=1200，limitRaw=min(1100, 1164)=1100，cardBudget=1164-1100=64 ≥ 40
+      const { container } = renderChatView(BIG_CARD)
+      const card = container.querySelector('[data-testid="card-preview"]') as HTMLElement
+      expect(card.style.minHeight, '卡片预算内全放下 → 零地板').toBe('0px')
+      const splitter = container.querySelector('[role="separator"]') as HTMLElement
+      act(() => {
+        splitter.dispatchEvent(new PointerEvent('pointerdown', { clientY: 500, bubbles: true }))
+      })
+      act(() => {
+        window.dispatchEvent(new PointerEvent('pointermove', { clientY: -700 })) // 上拖 1200 → 1320
+      })
+      const box = container.querySelector('.glass-input')?.parentElement as HTMLElement
+      expect(box.style.height, '小卡不额外占预算，上限仍 55%=1100（与无卡一致）').toBe('1100px')
+      act(() => { window.dispatchEvent(new PointerEvent('pointerup')) })
+    } finally { restoreStubs() }
+  })
+
+  it('持久化 300（超收紧上限 256）：卡片在场时立即收回，不等拖动', () => {
+    try {
+      setup(600, 500, '300')
+      const { container } = renderChatView(BIG_CARD)
+      const box = container.querySelector('.glass-input')?.parentElement as HTMLElement
+      expect(box.style.height, '卡片在场时 300 > 收紧上限 256 → mount 即收回').toBe('256px')
+    } finally { restoreStubs() }
+  })
+
+  it('无卡时上限不收紧（55% 原行为零变化）', () => {
+    try {
+      setup(600, null)
+      const { container } = renderChatView(null)
+      const splitter = container.querySelector('[role="separator"]') as HTMLElement
+      act(() => {
+        splitter.dispatchEvent(new PointerEvent('pointerdown', { clientY: 500, bubbles: true }))
+      })
+      act(() => {
+        window.dispatchEvent(new PointerEvent('pointermove', { clientY: 0 }))
+      })
+      const box = container.querySelector('.glass-input')?.parentElement as HTMLElement
+      expect(box.style.height, '无卡 = 既有行为：clamp 到 55%=330（inbs 契约不回退）').toBe('330px')
+      act(() => { window.dispatchEvent(new PointerEvent('pointerup')) })
+    } finally { restoreStubs() }
+  })
+})
