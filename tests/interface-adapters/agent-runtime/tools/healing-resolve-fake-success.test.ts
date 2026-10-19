@@ -8,7 +8,7 @@
  * 1. 全失败：全部 ID 不存在 → isError=true，失败计数 N/N，列明无效 ID，库无变更
  * 2. 部分失败：1 真 1 假混合 → isError=true，「N/M 成功」，真 ID 已处置、假 ID 列明
  * 3. 全成功：全部 ID 存在 → 原成功回执路径不回归
- * 4. dismiss 路径同语义（updateStatus 同样吞掉 changes=0）
+ * 4. dismiss 路径同语义（#1545 后走 repo.dismiss：吞掉 changes=0 的旧风险已由 WHERE status='open' + assertUpdated 收口，此处断言「不存在 ID」的 dismiss fail-closed；「已终态（非 open）」的同类断言在 stale-severity 测试——两类失败面分开钉住）
  * 5. repo 层防护：resolve/updateStatus 对不存在 ID 抛错（changes=0 fail-closed）
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';

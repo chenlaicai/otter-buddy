@@ -205,9 +205,11 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
     const ids = params.eventIds as string[];
     if (!ids?.length) return errorResponse("[错误] eventIds 不能为空");
     if (action === 'resolve' || action === 'dismiss') {
+      // #1545 缺陷③：dismiss 与 resolve 同构落 resolution——此前 dismiss 走 updateStatus
+      // 丢弃 resolutionNotes，终态记录只剩 status+resolved_at（「为何 dismiss」不可考）
       const fn = action === 'resolve'
         ? (id: string) => healingRepo.resolve(id, { action: ((params.resolutionAction as string) ?? 'no_action') as HealingResolutionAction, decidedBy: 'agent' as const, decidedAt: new Date().toISOString(), notes: (params.resolutionNotes as string) ?? '' })
-        : (id: string) => healingRepo.updateStatus(id, 'dismissed');
+        : (id: string) => healingRepo.dismiss(id, { action: ((params.resolutionAction as string) ?? 'no_action') as HealingResolutionAction, decidedBy: 'agent' as const, decidedAt: new Date().toISOString(), notes: (params.resolutionNotes as string) ?? '' });
       const res = await Promise.allSettled(ids.map(fn));
       const succeeded = res.filter(r => r.status === 'fulfilled').length;
       if (succeeded < ids.length) {
@@ -223,7 +225,7 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
   };
   return {
     name: "manage_healing_events",
-    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略 / 同族事件批量归口到 issue. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve/batch_bind）. query 默认过滤健康探针心跳事件（includeProbe: true 可含，仅诊断用）. batch_resolve: 按 filter 批量处置（filterStatus/filterErrorType/filterRuleId/filterBoundIssue/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. ⚠️批量闸：未归口 high 事件禁批量静默——先 batch_bind 归口（high 的推荐路径）或逐条处置；已归口（bound）high 可随 issue 收尾批量 resolve（filterBoundIssue=N）. batch_bind：按 filter 批量归口到 GitHub issue（bind≠resolve，事件保持 open 直到修复合入后收尾）——issueNumber 必填且须为真实存在的 issue 编号（幻觉编号会使后续 filterBoundIssue 收尾静默终结 high，bind 前用 gh issue view 确认）+ 至少一个过滤条件（防异质归口），guard_intercept 事件族按 filterErrorType=guard_intercept + filterRuleId=<指纹> 分组归口；high 不设闸（归口是结构化认领非静默，恰是 high 的推荐去向）；只作用未归口 open 事件；单批 100，truncated=true 需再次执行. GOTCHA: resolve/dismiss 对不存在的 eventId 返回 isError 并列明失败 ID（fail-closed——假成功曾致回执与库状态不一致）；部分失败时同样返回 isError——需检查响应中失败计数.",
+    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略 / 同族事件批量归口到 issue. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve/batch_bind）. query 默认过滤健康探针心跳事件（includeProbe: true 可含，仅诊断用）. batch_resolve: 按 filter 批量处置（filterStatus/filterErrorType/filterRuleId/filterBoundIssue/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. ⚠️批量闸：未归口 high 事件禁批量静默——先 batch_bind 归口（high 的推荐路径）或逐条处置；已归口（bound）high 可随 issue 收尾批量 resolve（filterBoundIssue=N）. batch_bind：按 filter 批量归口到 GitHub issue（bind≠resolve，事件保持 open 直到修复合入后收尾）——issueNumber 必填且须为真实存在的 issue 编号（幻觉编号会使后续 filterBoundIssue 收尾静默终结 high，bind 前用 gh issue view 确认）+ 至少一个过滤条件（防异质归口），guard_intercept 事件族按 filterErrorType=guard_intercept + filterRuleId=<指纹> 分组归口；high 不设闸（归口是结构化认领非静默，恰是 high 的推荐去向）；只作用未归口 open 事件；单批 100，truncated=true 需再次执行. GOTCHA: resolve/dismiss 对不存在或已终态（非 open）的 eventId 返回 isError 并列明失败 ID（fail-closed——假成功曾致回执与库状态不一致；dismiss 仅作用 open 态——已终态的再 dismiss 同样报错，防重复处置静默吞）；部分失败时同样返回 isError——需检查响应中失败计数.",
     parameters: {
       type: "object",
       properties: {

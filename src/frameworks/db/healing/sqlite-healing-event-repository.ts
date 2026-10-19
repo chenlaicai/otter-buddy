@@ -74,6 +74,18 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     assertUpdated(result, 'healing event', id);
   }
 
+  async dismiss(id: string, resolution: HealingResolution): Promise<void> {
+    const now = new Date().toISOString();
+    // #1545 缺陷③：单条 dismiss 落 resolution——终态记录不再只有 status+resolved_at 两列，
+    // 「为何 dismiss」可考（2026-10-19 事件：298 条空 resolution 只能靠代码阅读反推）。
+    // WHERE 带 status='open'：dismiss 已终态事件属语义错配（重复处置），fail-closed 抛错
+    // 对齐 assertUpdated 口径（#1370/#1391）。
+    const result = this.db.prepare(
+      "UPDATE healing_events SET status = 'dismissed', resolution = ?, resolved_at = ? WHERE id = ? AND status = 'open'",
+    ).run(JSON.stringify(resolution), now, id);
+    assertUpdated(result, 'healing event', id);
+  }
+
   async resolve(id: string, resolution: HealingResolution): Promise<void> {
     const now = new Date().toISOString();
     // #1370：同上，changes=0 fail-closed——「消费即处置」闭环的回执可信度靠此保证
@@ -113,33 +125,37 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     const cutoff = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000).toISOString();
     const now = new Date().toISOString();
     // F20261008hcpa（#1356 选 A）：severity <> 'high'——high 升级信号不被时间静默，
-    // 走 ageOutHighAndNotify 独立通道（推 alert-registry 提醒后再 dismiss）。
+    // 走超龄识别独立通道（#1545 后 findAgedUnboundHigh 只读识别 + alert-registry 提醒，不 dismiss）。
+    // #1545 处置轮 S2：dismiss 终态记录三列齐——此前只写 status+resolved_at，与旧 age-out
+    // 同构的审计断链写路径（缺陷③第三条孪生）；decidedBy='system' 标注调度器自动行为
+    // （非 user/agent 决策），notes 落清理规则供反查。
+    const resolution = JSON.stringify({
+      action: 'no_action',
+      decidedBy: 'system',
+      decidedAt: now,
+      notes: `${staleDays}d 超龄自动清理（autoStaleDismiss，low/medium 时间静默通道）`,
+    } satisfies HealingResolution);
     const result = this.db.prepare(`
-      UPDATE healing_events SET status = 'dismissed', resolved_at = ?
+      UPDATE healing_events SET status = 'dismissed', resolution = ?, resolved_at = ?
       WHERE status = 'open' AND created_at < ? AND severity <> 'high'
-    `).run(now, cutoff);
+    `).run(resolution, now, cutoff);
     return result.changes;
   }
 
-  /** F20261008hcpa（#1356 选 A）：超龄 high open 事件「先取后置 dismissed」。
-   *  返回被处置事件供调度层推 healing-alert-registry——high 即使超龄也须留痕提醒，
-   *  不能无声消失（与 autoStaleDismiss 的静默语义分层）。同一事务内完成取+置，
-   *  防「取到了但 dismiss 失败」致下轮重复提醒。 */
-  async ageOutHighAndNotify(staleDays: number): Promise<HealingEvent[]> {
+  /** #1545：超龄 unbound high 只读识别——age-out 从「处置者」收窄为「识别+提醒者」。
+   *  取回 status='open' AND severity='high' AND created_at<cutoff AND bound_issue IS NULL 的事件，
+   *  **不改任何状态**：bound high 去留跟随 issue 生命周期（bind≠resolve，修复合入后
+   *  batch_resolve+filterBoundIssue 收尾）；unbound high 保持 open 等 bind_issue 归口
+   *  （#1361 层3「high 必须 bind_issue」硬规则）——时间静默/时间处置都违反设计意图。
+   *  只读无并发窗口，取代旧 ageOutHighAndNotify 的 UPDATE...RETURNING 事务。 */
+  async findAgedUnboundHigh(staleDays: number): Promise<HealingEvent[]> {
     const cutoff = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000).toISOString();
-    const now = new Date().toISOString();
-    // 审视 D 修复：UPDATE ... RETURNING 原子取回「本进程实际 dismiss 的行」——
-    // 跨进程双实例同时跑 age-out 时，后到者 WHERE status='open' 匹配 0 行、RETURNING 空，
-    // 不会重复推送提醒（原 SELECT+UPDATE 两步不看 changes，两边都认为自己 dismiss 成功）。
-    // better-sqlite3 同步事务保证同进程原子；数据面 UPDATE 本身幂等，此处修复的是提醒面重复。
-    return this.db.transaction(() => {
-      const rows = this.db.prepare(`
-        UPDATE healing_events SET status = 'dismissed', resolved_at = ?
-        WHERE status = 'open' AND severity = 'high' AND created_at < ?
-        RETURNING *
-      `).all(now, cutoff) as HealingEventRow[];
-      return rows.map(rowToHealingEvent);
-    })();
+    const rows = this.db.prepare(`
+      SELECT * FROM healing_events
+      WHERE status = 'open' AND severity = 'high' AND created_at < ? AND bound_issue IS NULL
+      ORDER BY created_at ASC
+    `).all(cutoff) as HealingEventRow[];
+    return rows.map(rowToHealingEvent);
   }
 
   /** F20261008gfrc：批量闸的 high 探测——与 batchResolveByFilter 同 WHERE 语义，只 count。
