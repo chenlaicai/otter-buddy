@@ -96,7 +96,7 @@ describe("F20261008gdcc 双链一致性：cd 豁免族（同一命令 parseOk �
     );
   });
 
-  it("真管道负门（node 写 worktree | tail）：F20261016gses F1 修订——V2 落点语义放行（写 worktree 树内）；V1 归一化兜底仍拦（剥引号后载荷提取失败的保守面，遗留差异记档）", () => {
+  it("真管道负门（node 写 worktree | tail）：F20261019gses F1 修订——V2 落点语义放行（写 worktree 树内）；V1 归一化兜底仍拦（剥引号后载荷提取失败的保守面，遗留差异记档）", () => {
     // F1 后双链分裂如实断言：parseOk=true 链走 verdict 落点判（ALLOW）；parseOk=false
     // 兜底链归一化剥引号→载荷提取失败→保守拦。分裂根因是归一化保守面与落点语义的
     // 口径差，非 F1 回归（写 worktree 树内无主仓写面）。
@@ -146,7 +146,7 @@ describe("F20261008gdcc 双链一致性：one-liner 豁免族", () => {
   });
 });
 
-describe("F20261016gses F1 一致性锁（③a 收窄到包装形态——检视对抗审视 F4 建议）", () => {
+describe("F20261019gses F1 一致性锁（③a 收窄到包装形态——检视对抗审视 F4 建议）", () => {
   beforeEach(() => {
     vi.mocked(modelParseOk).mockReturnValue(true);
   });

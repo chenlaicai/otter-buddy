@@ -73,8 +73,8 @@ describe("F20261016grdl：拦截面不回退（拦截）", () => {
   it("node -e writeFileSync 主仓路径 → 拦", () => {
     expect(guard(`node -e "require('fs').writeFileSync('${ROOT}/data/metrics.json','{}')"`)).not.toBeNull();
   });
-  it("python3 -c 相对路径写（cwd=workspace 沙箱内，无 cd 锚定）→ 放（F20261016gses 口径归一：能力 7 拍板——data/workspaces 是运行时排除区，相对写落沙箱非主仓）", () => {
-    // #1527 原断言拦（V1 形态保守）；F20261016gses 语义判据下落点=cwd/config.yaml（沙箱内）
+  it("python3 -c 相对路径写（cwd=workspace 沙箱内，无 cd 锚定）→ 放（F20261019gses 口径归一：能力 7 拍板——data/workspaces 是运行时排除区，相对写落沙箱非主仓）", () => {
+    // #1527 原断言拦（V1 形态保守）；F20261019gses 语义判据下落点=cwd/config.yaml（沙箱内）
     // → positive ALLOW。拦截面由同形态 cwd=主仓根变体钉住（下一条）。
     expect(guard(`python3 -c "open('config.yaml','w').write('x')"`)).toBeNull();
     // 变体锁：cwd=主仓根时同命令落主仓 → 必拦（拦截面不回退）
@@ -134,7 +134,7 @@ describe("F20261016grdl：段级 cd 豁免（族 E）边界", () => {
     expect(guard(`cd $W && git commit -m x`)).not.toBeNull();
   });
   it("cd worktree & git commit（& 切断子 shell）→ 放（cwd=沙箱：git commit 落排除区无 repo 空写面；主仓 cwd 变体必拦）", () => {
-    // #1527 原断言拦（保守）；F20261016gses cd 外溢修复（resolveCwdAt/evaluateFromModel
+    // #1527 原断言拦（保守）；F20261019gses cd 外溢修复（resolveCwdAt/evaluateFromModel
     // 双处）：& 右段 cwd=startCwd。沙箱内无 .git → git commit 空写面 ALLOW。
     // cwd=主仓根变体：git commit 落主仓 .git → 必拦（真漏拦面修复验证锁）。
     expect(guard(`cd ${WT} & git commit -m x`)).toBeNull();

@@ -805,7 +805,7 @@ interface SegmentHead {
   head: string;
   /** 落点在全段中的字符 offset（shell -c 载荷定位用）；-1 = 无落点。 */
   offset: number;
-  /** F20261016gses F1 修复：落点前是否消耗过包装词（sudo/env/timeout/nohup 等
+  /** F20261019gses F1 修复：落点前是否消耗过包装词（sudo/env/timeout/nohup 等
    *  WRAPPER_SPECS 族）——true=包装形态（求值器无此基座，结构通道承担）；
    *  false=plain/纯赋值前缀（求值器判定完备，结构通道不得重复拦）。 */
   wrapped: boolean;
@@ -1228,7 +1228,7 @@ function judgeSegment(
   const { head, offset, wrapped } = parsed;
   if (head === "") return false;
   // ③a one-liner 解释器落点（python/node/ruby/perl，含版本号尾缀）。
-  // F20261016gses F1 修复（检视对抗审视 + 大獭 L1 裁决）：收窄到**包装形态**
+  // F20261019gses F1 修复（检视对抗审视 + 大獭 L1 裁决）：收窄到**包装形态**
   // （wrapped=true——sudo/env/timeout/nohup 等前缀，求值器 argv 基座不含包装词，
   // 探针实证：sudo env/timeout/nohup 包装写主仓求值器全放——真盲区由本通道收口）。
   // plain/纯赋值前缀（FOO=1 python3 -c）交求值器落点判（判定完备：写主仓 BLOCK/
@@ -1241,7 +1241,7 @@ function judgeSegment(
     // 裸 `python3 script.py` 不是 one-liner 通道（写面由重定向/git 族承担）。
     // 只读豁免：oneLinerReadOnly（全命令基座，与正则通道同一豁免值——
     // 豁免基座对齐：拦截与豁免同一提取基座，载荷只读性由既有白名单承担）。
-    // F1（F20261016gses delta 复核）：③a 收窄到包装形态——plain one-liner 交求值器
+    // F1（F20261019gses delta 复核）：③a 收窄到包装形态——plain one-liner 交求值器
     // 落点判（形态判退位，双判据冲突根因修复）；求值器对包装形态无 argv 基座，
     // 结构通道是唯一拦截。
     // F20261016grdl 1a'-B：落点感知豁免——非只读载荷但全部绝对路径落主仓外
@@ -1360,7 +1360,7 @@ function checkSegmentStructuralWrite(
 }
 
 
-/** F20261016gses P0 删除：MAIN_WRITE_PATTERNS / REDIRECT_PATTERN / GIT_WRITE_LITERAL_PATTERN /
+/** F20261019gses P0 删除：MAIN_WRITE_PATTERNS / REDIRECT_PATTERN / GIT_WRITE_LITERAL_PATTERN /
  *  ONELINER_CHANNEL_PATTERNS / SUBSHELL_GIT_WRITE_GATE 的独立消费点（V1 写通道正则族——
  *  语义重叠面，evaluateWriteVerdict 落点语义覆盖；结构通道内的 git 写族段判定由
  *  checkSegmentStructuralWrite 内部正则承担）。*/
@@ -1850,7 +1850,7 @@ interface MainCheckoutWriteCtx {
   depth?: number;
 }
 
-/** F20261016gses P0 路由切换后的主仓写判定（见下方 checkMainCheckoutWrite 本体）。 */
+/** F20261019gses P0 路由切换后的主仓写判定（见下方 checkMainCheckoutWrite 本体）。 */
 
 /** heredoc 体负门（后置兜底，S1 裁决方向 A 2026-10-19）：求值器 ALLOW 后兜
  *  wrapper/管道段 heredoc 载荷不入求值的残余（#1240/#1308 语义；cd 与无 cd 同语义，
@@ -1918,7 +1918,7 @@ function blankDataHeredocBodies(command: string): string {
 /** F20261014cwsp：会话工作目录感知的主仓写拦截文案——统一工作区下獭 bash cwd=
  *  对话工作区，拦截语义从「位置判定」（未 cd 即拦）转为「落点判定」（解析后主仓内才拦）。
  *  sessionCwd 在场时给出落点语义文案；缺省（旧调用形态）保持原文案。 */
-/** F20261014cwsp：会话工作目录感知的主仓写拦截文案。F20261016gses P0 结构化输出：
+/** F20261014cwsp：会话工作目录感知的主仓写拦截文案。F20261019gses P0 结构化输出：
  *  verdict 的 mainHits 落点 / fail-closed 原因进文案。 */
 function rewriteMainWriteBlockMsg(sessionCwd: string | undefined, verdict?: ReturnType<typeof evaluateWriteVerdict>): string {
   const detail = verdict === undefined
@@ -1939,7 +1939,7 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   const { command, logger, projectRoot, sessionCwd } = ctx;
   const depth = ctx.depth ?? 3;
   if (!projectRoot) return null; // 无 projectRoot 时保守放行（与 resolvesToMainData 同策略）
-  // F20261016gses P0 路由切换：判定主体换 evaluateWriteVerdict（语义求值器）——
+  // F20261019gses P0 路由切换：判定主体换 evaluateWriteVerdict（语义求值器）——
   // 主仓写判定这一类规则升级为语义判据（同一套 bash 守卫的规则更新，非双系统）。
   // S1 裁决（方向 A，2026-10-19 大獭拍板）：求值器先判 + 负门后置兜底——
   // 删除面：cd 豁免门先行 return（形态判覆盖落点判：`cd X && <写主仓>` 经
@@ -2041,7 +2041,7 @@ function checkHeredocScriptBodies(command: string, ctx: HeredocJudgeCtx, depth =
       continue;
     }
     if (isPythonHeader(sp.header)) {
-      // F20261016gses P0：python 体判定与 node 同构化——旧链靠 mainWrite 的 python
+      // F20261019gses P0：python 体判定与 node 同构化——旧链靠 mainWrite 的 python
       // heredoc 通道形态拦截（pythonBodyReadOnly fail-closed），路由切换后通道删除，
       // 体感知白名单判定归位到本函数（kill/os.remove/shutil.rmtree 等非重叠危险面在
       // 白名单外拦；写落点语义已由 evaluateWriteVerdict 判过，此处只看非重叠面）。
@@ -2191,7 +2191,7 @@ export function checkBashCommandSafety(
   const result = scan(heredocStripped);
   if (result) return result;
 
-  // F20261016gses F1 修订：原文语义判定（write-verdict）已 ALLOW 时，归一化文本的
+  // F20261019gses F1 修订：原文语义判定（write-verdict）已 ALLOW 时，归一化文本的
   // 判读翻转不采纳——剥引号是归一化链自造形态（open('f','w') 剥成 open('f',w)，
   // 引号内 mode 变裸词→判读翻转 fail-closed），非原文真风险。归一化链只兜「剥引号
   // 出土新写词面」的真差异（差分集合逻辑）。

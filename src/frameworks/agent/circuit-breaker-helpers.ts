@@ -64,7 +64,7 @@ export interface AttachGuardsParams {
   sessionCwd?: string;
   /** F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本；fire-and-forget） */
   onGuardIntercept?: (input: { command: string; reason: string }) => void;
-  /** F20261016gses P0 影子下线：onShadowEval（观察期对照回调）已删——主判定切
+  /** F20261019gses P0 影子下线：onShadowEval（观察期对照回调）已删——主判定切
    *  evaluateWriteVerdict 后无「旧链 vs 新链」对照面。 */
 }
 
@@ -291,14 +291,14 @@ export function attachCircuitBreaker(
     }
   });
 
-  /** F20261016gses P0 影子下线：观察期对照机制（notifyShadowEval 影子记账）随转正删除——
+  /** F20261019gses P0 影子下线：观察期对照机制（notifyShadowEval 影子记账）随转正删除——
    *  主判定已切 evaluateWriteVerdict，无「旧链 vs 新链」对照面。 */
 
   /** bash 守卫判定 + abort 发射（自 subscribe 回调拆出控复杂度）。
    *  F20260928slan：sleep 拦截（感知问题）与 kill 域（安全问题）前缀分流——守卫返回带
    *  SLEEP_REASON_PREFIX 标记的 reason 时发射 `bash_sleep:`，否则 `bash_safety:`。判定用
    *  startsWith（delta-3 备注：精确匹配，禁用 includes），此发射点是 `bash_sleep:` 的唯一产源（D5a）。
-   *  F20261016gses P0 影子下线：onShadowEval 影子记账（观察期对照机制）已删。 */
+   *  F20261019gses P0 影子下线：onShadowEval 影子记账（观察期对照机制）已删。 */
   function abortOnUnsafeBash(command: string, toolCallId?: string): boolean {
     const mainPid = getMainPid();
     const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd });
