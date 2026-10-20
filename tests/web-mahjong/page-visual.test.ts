@@ -101,9 +101,23 @@ describe("牌局页浏览器真机渲染", () => {
     await page.click('[data-do="join"][data-seat="1"]');
     await page.waitForSelector("#hand .tile", { timeout: 15_000 });
 
-    const view: any = await (await fetch(`${base}/api/mahjong/rooms/${ROOM}/view?seat=1`)).json();
-    const handCount = await page.locator("#hand .tile").count();
-    expect(handCount, "手牌张数应与服务端私有视图一致").toBe(view.players[1].hand.length);
+    // ②b 手牌张数与服务端私有视图一致——**收敛后再断言**（不是放松成「∈{13,14}」）：
+    //     两侧是两个真相源（页面 state.view vs 直连 API），同步采样会撞上时序缝：
+    //     页面还停在发牌前的 13 张、服务端已是发牌后的 14 张 → 假阴性（2026-10-20 CI 实挂一例）。
+    //     轮询到两侧相等（≤6s，靠 SSE game 事件驱动页面重渲染）；真不一致就是真断言失败。
+    let view: any = null;
+    let handCount = -1;
+    for (let i = 0; i < 60; i++) {
+      view = await (await fetch(`${base}/api/mahjong/rooms/${ROOM}/view?seat=1`)).json();
+      const viewLen: number = view.players[1].hand.length;
+      handCount = await page.locator("#hand .tile").count();
+      if (handCount === viewLen) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(
+      handCount,
+      `手牌张数应与服务端私有视图一致（收敛 6s 仍不等：页面=${handCount} 服务端=${view?.players[1]?.hand?.length}）`,
+    ).toBe(view.players[1].hand.length);
 
     // ③ 牌面是 Unicode 麻将字符（不是空、不是图片）
     // tsconfig lib 无 DOM（types: ["node"]）——页面侧表达式一律从 globalThis 拿
