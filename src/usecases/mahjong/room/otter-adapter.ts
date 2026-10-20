@@ -115,7 +115,10 @@ export function buildWakePrompt(engine: SanmaEngine, dp: DecisionPoint, feedback
     lines.push(`上次回复不可用：${feedback}`);
   }
   lines.push("");
-  lines.push('只回复一个 JSON 对象（可含 ```json 围栏），形如 {"action": 0, "speech": "一句桌上发言"}；speech 可省略。');
+  lines.push(
+    '只回复一个 JSON 对象（可含 ```json 围栏），形如 {"action": 0, "speech": "一句桌上发言"}；' +
+      "speech 必填——像牌桌上的真人一样带一句简短人味发言（吐槽/评牌/报听/情绪/垃圾话均可，≤30字，别报数字流水账）。",
+  );
   return lines.join("\n");
 }
 

@@ -714,7 +714,8 @@ function handleStreamEvent(ev) {
     if (settle) state.streamSettle = settle;
     else if (engineEvents.some((e) => e.type === "deal")) state.streamSettle = null;
     if (ev.wake?.speech) pushLog(`${ev.wake.via}：${ev.wake.speech}`, "is-wake");
-    else if (ev.wake) pushLog(`（${ev.wake.via}${ev.wake.fallbackReason ? ` · ${ev.wake.fallbackReason}` : ""}）`);
+    // #1564-1：内部降级细节（fallbackReason）不进对局日志——只给中性「代打」标签
+    else if (ev.wake && (ev.wake.via === "fallback" || ev.wake.via === "timeout-fallback")) pushLog("（代打）");
     safeRefresh();
     return;
   }
