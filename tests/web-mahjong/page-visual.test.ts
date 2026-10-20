@@ -237,6 +237,26 @@ describe("牌局页浏览器真机渲染", () => {
     await page.waitForSelector("#log li.is-chat", { timeout: 5_000 });
     const line = await page.locator("#log li.is-chat").first().textContent();
     expect(String(line)).toContain("第一句测试发言");
+
+    // 消息栏惯例（playtest 反馈 2026-10-20 19:25：原来一行往右滚不对劲）：
+    // ① 日志必须是**纵列上下滚**——computed flexDirection 回归锁，改回 row 就是横排老毛病复现
+    const logCss = await page.evaluate(() => {
+      const cs = (globalThis as any).getComputedStyle((globalThis as any).document.querySelector("#log"));
+      return { dir: String(cs.flexDirection), overflow: String(cs.overflowY), height: Number.parseFloat(cs.height) };
+    });
+    expect(logCss.dir, "日志应为纵列 column-reverse（DOM 新在前 × 反向 = 视觉新在底）").toBe("column-reverse");
+    expect(logCss.overflow, "日志列应可纵向滚动").toBe("auto");
+    expect(logCss.height, "日志列应有固定可见高度（非随消息无限长）").toBeGreaterThan(0);
+
+    // ② 新发言必须插在 DOM 首位（unshift）——改 push 会让新消息沉顶，
+    //    在 column-reverse 视觉里就是「旧消息盖住新消息」，本断言会红
+    const lines = await page.locator("#log li").allInnerTexts();
+    const chatIdx = lines.findIndex((t) => t.includes("第一句测试发言"));
+    const joinIdx = lines.findIndex((t) => t.includes("你坐上南家"));
+    expect(chatIdx, "本条发言应已进日志").toBeGreaterThanOrEqual(0);
+    expect(joinIdx, "入座日志行应在（更早推入，用作顺序对照）").toBeGreaterThanOrEqual(0);
+    expect(chatIdx, "新发言应比入座行更靠 DOM 前排（unshift×column-reverse 才有「新在底」）").toBeLessThan(joinIdx);
+
     expect(errors, `控制台报错：${errors.join(" | ")}`).toEqual([]);
     await page.close();
   });
