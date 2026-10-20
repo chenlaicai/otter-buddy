@@ -33,9 +33,9 @@ chen 2026-10-20 上午实机试玩三麻（房间 sanma-1020，东风战 35000 �
 | 3 | 獭全程不发言（无聊） | 发言闸门过紧 | `检视1/3` narrow-fix |
 | 5 | 局终无结算停顿，瞬间自动换局 | 体验 → 新能力 | `检视5/6` mechanism-addition |
 | 6 | 无停局/删房接口 + runaway | 止血 → 新能力 | `检视5/6` mechanism-addition |
-
-> 锚点口径（抗 rebase）：commit 一律以 subject 前缀引用（`git log --grep` 可定位），hash 两次因 rebase 断链已弃用。
 | 4 | 打牌特效不一致 | **核实为 by design**（见「不做」） | 无代码改动 |
+
+> 锚点口径（抗 rebase）：commit 一律以 subject 前缀引用（`git log --grep` 可定位，如 `git log --grep '检视2：立直后摸打约束'`）；hash 两次因 rebase 断链已弃用。
 
 ### #2 立直后摸打约束（正确性）
 
@@ -77,7 +77,7 @@ chen 2026-10-20 上午实机试玩三麻（房间 sanma-1020，东风战 35000 �
 
 ## 测试与证据
 
-- **RED→GREEN**（#2）：复跑口径（检视建议1 修正）——**当前测试 × 修复前引擎（`daeac012`）** 4 例红（`/tmp/mj-riichi-red2.txt`，全为缺陷断言红：候选集过宽×2 / 非摸切拒不生效 / 禁副露不生效——无测试构造错误），修复后 engine.test.ts 10 例全绿；本 PR 新增 5 例（4 例立直约束 + 1 例 kakan 无立直门）
+- **RED→GREEN**（#2）：复跑口径（检视建议1 修正）——**当前测试 × 修复前引擎（`daeac012`——修复分支起点的 main 基线，属 main 祖先链提交，永不因本分支 rebase 换号）** 4 例红（`/tmp/mj-riichi-red2.txt`，全为缺陷断言红：候选集过宽×2 / 非摸切拒不生效 / 禁副露不生效——无测试构造错误），修复后 engine.test.ts 10 例全绿；本 PR 新增 5 例（4 例立直约束 + 1 例 kakan 无立直门）
 - **生命周期**：room-lifecycle.test.ts 新增 4 例（停驻不自动换局+继续放行 / 超时自动继续 / stopRoom 出 Map+通知 / runaway 到限停局）；既有驱动器补「结算停驻点继续」适配（room-service.test 9 例、room-report-chat 12 例、api 4 例均绿）
 - **HTTP 契约**（检视建议5）：tests/api/mahjong.test.ts 新增 continue/stop 契约例（continue 404/400/200/409 四态 + stop 404/200×2，长停驻服务可控行验证放行路径）
 - 全量回归数据见 PR body（pre-existing 超时 flaky 附隔离复跑证据）
