@@ -4346,6 +4346,7 @@ describe('#1048: 看门狗克制（放弃 ≠ 失败）', () => {
     entryRepo: ReturnType<typeof createMockEntryRepo>;
     agentInvoke: ReturnType<typeof createMockAgentInvoke>;
     router: { routeDirectSignal: ReturnType<typeof vi.fn> };
+    now?: () => number;
   }) {
     const nextTime = new Date('2025-06-15T09:00:00.000Z');
     return new SchedulerService({
@@ -4357,6 +4358,7 @@ describe('#1048: 看门狗克制（放弃 ≠ 失败）', () => {
       cronParser: createMockCronParser(nextTime) as unknown as CronParser,
       logger: mockLogger,
       signalRouter: opts.router as never,
+      now: opts.now,
     });
   }
 
@@ -4457,6 +4459,42 @@ describe('#1048: 看门狗克制（放弃 ≠ 失败）', () => {
       // 修复前固化失败：旧语义落 'failed'（判死=失败）并计 consecutiveFailures
       expect(executions[0]!.status).toBe('skipped');
       expect(taskRepo.incrementConsecutiveFailures).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15_000);
+
+  it('W4 进展探测墙钟对齐：陈旧产出不算进展（回归：this.now() 单调钟不可与 entry.createdAt 墙钟混比）', async () => {
+    vi.useFakeTimers();
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      const routeDirectSignal = vi.fn().mockResolvedValue('invoked');
+      seedNoOutputTask(taskRepo, convRepo, entryRepo, 'task-w4');
+      // 锚点后只有一条 2 小时前的陈旧产出——不算静默窗内进展
+      (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockImplementation(async () => [
+        {
+          id: 'stale-1', senderId: 'other-otter', entryType: 'speak',
+          body: 'old noise', yieldTargets: null, metadata: null,
+          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        },
+      ]);
+      // 注入偏移单调钟：模拟生产 this.now()（performance.now，进程启动起算）与墙钟零点不同
+      const service = makeSwappedService1048({
+        taskRepo, convRepo, sendEntry, entryRepo, agentInvoke,
+        router: { routeDirectSignal },
+        now: () => Date.now() - 10_000_000,
+      });
+      const errPromise = service.trigger('task-w4').catch(e => e);
+      await vi.advanceTimersByTimeAsync(65_000);
+      const outcome = await Promise.race([errPromise, Promise.resolve('still-waiting')]);
+      // 回归固化：时间源混用时 sinceMs（单调钟）恒小于 createdAt（墙钟）→ 探测恒报「有进展」
+      // → 静默判死永不触发 → 本用例挂到 24h 语义（修复前失败：'still-waiting'）
+      expect(outcome).not.toBe('still-waiting');
+      expect((outcome as Error).message).toContain('看门狗放弃');
     } finally {
       vi.useRealTimers();
     }
