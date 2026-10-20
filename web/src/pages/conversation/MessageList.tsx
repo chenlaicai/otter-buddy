@@ -197,6 +197,11 @@ export { MarkdownContent }
 const LEDGER_TTL_MS = 1000
 const LEDGER_EPS_PX = 4
 const TOUCH_UNPIN_PX = 10
+/** F20261020lmld：加载更多的近顶触发带（px）。旧 el.scrollTop === 0 严格相等两重打不到：
+ *  ①触控板惯性常停在 0.5px 等分数位置（视觉即「到顶」）；②到顶静止后继续上滚零位移 →
+ *  无 scroll 事件 → 死锁（repro-loadmore4 实测：第一批后续滚 15 大步零反应）。
+ *  带宽取 8：覆盖分数停位与「视觉到顶」，不误伤正常阅读区 */
+const LOAD_MORE_TOP_PX = 8
 /** 程序写入语义标签：pin=贴底补偿/跳底按钮/mount 起始贴底；restore=上翻加载恢复（init 已并入 pin——
  *  mount 贴底本就是 pin 语义，且账本 expected=scrollHeight 不会是 0，避免小值陈旧条目误吞位移归因） */
 type ScrollWriteTag = 'pin' | 'restore'
@@ -232,6 +237,8 @@ interface MessageListProps {
   onJumpToBottom?: () => void
   onLoadMore?: () => void
   loadingMore?: boolean
+  /** F20261020lmld：是否还有更早历史——控制顶部可见入口渲染（false/缺省不渲染，防假入口） */
+  hasMoreBefore?: boolean
   unreadSeparatorSeq?: number | null
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
@@ -249,7 +256,7 @@ function isNearBottom(el: HTMLElement, threshold = 100): boolean {
 export function MessageList({
   messages, state, onStopStream, onRetryMessage, onRetry, onGoToSettings, otters,
   conversationId, pinRef, newMessagesCount = 0, bottomSpacerPx = 0, onJumpToBottom, onLoadMore,
-  loadingMore,
+  loadingMore, hasMoreBefore = false,
   unreadSeparatorSeq, highlightMessageId,
   userName, linkedResources,
 }: MessageListProps) {
@@ -337,6 +344,18 @@ export function MessageList({
     pinRef.current = false
     for (const e of pinWritesRef.current) e.interrupted = true
   }, [pinRef])
+
+  /** F20261020lmld 加载触发统一入口（scroll 近顶 / wheel 近顶 / 触摸 / 按键 / 按钮五通道）。
+ *  死锁修复核心：到顶静止后继续上滚零位移 → 无 scroll 事件 → 旧触发永不命中；
+ *  wheel/触摸/按键通道在近顶带内直接触发（意图驱动按批加载，不自动连拉——
+ *  自动续批会在用户停在顶部时一口气拉完全量历史，不可接受）。
+ *  臂 restore pending 与旧路径同语义（记触发时距顶距离，W8 消费）；重入由 loadingMore 拦 */
+  const fireLoadMore = useCallback(() => {
+    const el = scrollRef.current
+    if (!onLoadMore || loadingMore) return
+    pendingScrollRestoreRef.current = el?.scrollTop ?? 0
+    onLoadMore()
+  }, [onLoadMore, loadingMore])
 
   /** F20261008f1fx 零间隙贴底（H1 修复）：DOM commit 后、浏览器绘制前同步写入底部（useLayoutEffect 同步语义，
    *  非 useEffect——后者在绘制后，间隙仍在）。第一轮（F20261008scpg）的 RO→rAF 链存在
@@ -507,15 +526,11 @@ export function MessageList({
         }
       }
     }
-    // 到达顶部，触发加载更多（位置触发，与 pin 状态无关）
-    if (el.scrollTop === 0 && onLoadMore && !loadingMore) {
-      // 记录距顶距离（用户视觉位置直接量——scrollTop=0 时为 0，与 scrollHeight 无关）
-      pendingScrollRestoreRef.current = el.scrollTop
-      onLoadMore()
-    }
+    // 到达顶部附近，触发加载更多（位置触发，与 pin 状态无关；F20261020lmld 严格相等→近顶带）
+    if (el.scrollTop <= LOAD_MORE_TOP_PX) fireLoadMore()
     lastScrollTopRef.current = el.scrollTop
     lastScrollHeightRef.current = el.scrollHeight
-  }, [onLoadMore, loadingMore, pinRef, takeUserControl])
+  }, [fireLoadMore, pinRef, takeUserControl])
 
   /** 首次渲染滚到底部（R0：mount 即 pinned——容器带 key，切会话 remount 时同样经此贴底） */
   useEffect(() => {
@@ -544,14 +559,24 @@ export function MessageList({
   useEffect(() => {
     const el = scrollRef.current
     if (!el || state !== 'normal') return
-    const onWheel = (e: WheelEvent) => { if (e.deltaY < 0) takeUserControl() }
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) {
+        takeUserControl()
+        // F20261020lmld：近顶带上滚 = 加载意图（到顶零位移时 scroll 事件不会来，这里是唯一通道）
+        if ((scrollRef.current?.scrollTop ?? 0) <= LOAD_MORE_TOP_PX) fireLoadMore()
+      }
+    }
     const onTouchStart = (e: TouchEvent) => { touchStartYRef.current = e.touches[0]?.clientY ?? null }
     const onTouchMove = (e: TouchEvent) => {
       const startY = touchStartYRef.current
       const cur = e.touches[0]?.clientY
       // 手指下移超阈值 = 内容上翻（脱锚方向）
       if (startY == null || cur == null) return
-      if (cur - startY > TOUCH_UNPIN_PX) takeUserControl()
+      if (cur - startY > TOUCH_UNPIN_PX) {
+        takeUserControl()
+        // F20261020lmld：触摸端同理——近顶带上翻即加载意图
+        if ((scrollRef.current?.scrollTop ?? 0) <= LOAD_MORE_TOP_PX) fireLoadMore()
+      }
     }
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'PageUp' && e.key !== 'Home' && e.key !== 'ArrowUp') return
@@ -564,6 +589,8 @@ export function MessageList({
       // ownerDocument）仍处理——测试与辅助技术依赖 window 级分发
       if (t && typeof t.ownerDocument !== 'undefined' && t.ownerDocument !== document) return
       takeUserControl()
+      // F20261020lmld：按键上翻同理（PageUp/Home/ArrowUp 在顶部零位移时无 scroll 事件）
+      if ((scrollRef.current?.scrollTop ?? 0) <= LOAD_MORE_TOP_PX) fireLoadMore()
     }
     el.addEventListener('wheel', onWheel, { passive: true, capture: true })
     el.addEventListener('touchstart', onTouchStart, { passive: true })
@@ -575,9 +602,9 @@ export function MessageList({
       el.removeEventListener('touchmove', onTouchMove)
       window.removeEventListener('keydown', onKeyDown)
     }
-    // Why: 同 observer effect——conversationId（容器 key 重建）+ state（loading 分支无容器）
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversationId, state])
+    // Why: conversationId（容器 key 重建）+ state（loading 分支无容器）时重建监听；
+    // fireLoadMore 随 props 变化重新绑定（旧实现 eslint-disable 的 stale 闭包风险一并消除）
+  }, [conversationId, state, fireLoadMore, takeUserControl])
 
   // —— 条件渲染分支（hooks 全部执行完毕后才能 return，见文件内 F20260814qswp 注释）——
   if (state === 'no-llm') {
@@ -637,6 +664,19 @@ export function MessageList({
             不可直接观测滚动容器（其 contentRect.height 是视口布局高度，内容变化不触发）。
             普通 block div 高度随内容真实变化；包一层对布局无影响（block 默认占满宽度） */}
         <div ref={contentRef}>
+        {/* F20261020lmld：可见加载入口——旧实现唯一 UI 是「加载中」一闪而过，功能不可感知
+            （搭档 10-20 报告「没有加载更多功能」）。hasMoreBefore=false 不渲染（防假入口） */}
+        {hasMoreBefore && (
+          <div className="flex justify-center py-2">
+            <button
+              onClick={fireLoadMore}
+              disabled={loadingMore}
+              className="px-3 py-1 text-xs rounded-full text-stone-500 bg-stone-100 hover:bg-stone-200 disabled:opacity-50"
+            >
+              {loadingMore ? '加载中...' : '加载更早消息'}
+            </button>
+          </div>
+        )}
         {/* F20260913ctlv：活动段分组（「新一轮」分隔线）已退役——彻底切换后无轮次概念，
             时间线就是 entries 按序流，invoke 边界由居中条目（⚡/🌙/→）表达 */}
         {/* F20261008csf1 P1：混排渲染——产物摘要卡（文类）插在其登记时间对应的消息位置 */}
