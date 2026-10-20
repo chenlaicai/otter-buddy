@@ -15,8 +15,9 @@
  *     生成且稳定），解析失败的行**不动并单独列出**（fail-loud，不静默跳过）。
  *  B. hotspot：**文件扇入 ≥ FAN_IN_THRESHOLD 的退出**。扇入用与线上同一口径重算——
  *     `git log --since='<window-days> days ago'` 数该文件被多少个不同 FID 触碰。
- *     这与 computeFanInExclusions 的判定一致（单一真相源），而不是无差别扫掉全部 hotspot：
- *     新口径下产出端已排除枢纽，合并后仍 open 的非枢纽 hotspot 是真信号，必须保留。
+ *     判定规则与线上 computeFanInExclusions **同口径**（同一阈值 + 同一 60 天窗）——但**不是复用**：
+ *     那边吃 chains、这里从 git log 独立重算，属同口径镜像而非单一真相源。之所以不无差别
+ *     扫掉全部 hotspot：新口径下产出端已排除枢纽，合并后仍 open 的非枢纽 hotspot 是真信号，必须保留。
  *
  * 阈值镜像说明：--min-count / --min-ratio / --fan-in / --window-days 的默认值必须与
  * src/usecases/health/post-merge-fix-density.ts 的 FIX_COUNT_THRESHOLD / FIX_RATIO_THRESHOLD /
@@ -200,7 +201,8 @@ function main() {
     }
     for (const s of hSweep) {
       const note = `产出口径已调整（#1051 方案 1，PR #1560）：hotspot 已加高扇入枢纽排除` +
-        `（FAN_IN_THRESHOLD=${args.fanIn}，与 density 复用 computeFanInExclusions 单一真相源）。` +
+        `（FAN_IN_THRESHOLD=${args.fanIn}，按线上同一阈值同一窗口重算——与 density 的 computeFanInExclusions ` +
+        `同口径但非同一函数，本脚本从 git log 独立镜像重算）。` +
         `本条指向 ${s.file_path} —— 近 ${args.windowDays} 天扇入 ${s.fanIn}，枢纽被多特性高频触碰是架构使然、` +
         ` 非文件热点。合并后清扫退出（观测仍落 health_snapshots 的 distribution/file_hotspots，历史序列在）。` +
         (s.issue_number ? `（绑定 issue #${s.issue_number}）` : "");

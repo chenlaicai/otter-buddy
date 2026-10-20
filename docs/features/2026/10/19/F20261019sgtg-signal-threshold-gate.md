@@ -1,7 +1,7 @@
 ---
 id: F20261019sgtg
 title: "RHI density/hotspot 产出口径调整：双门 AND + 高扇入枢纽排除（#1051 方案 1）"
-summary: "根治「产出-消费断链」——post_merge_fix_density 由「次数≥3 或 占比≥30%」的或门改为「次数≥3 且 占比≥15%」的双门，hotspot 复用 computeFanInExclusions 排除高扇入枢纽文件。实测 sqlite：52 条 open density 存量里 43 条低于新阈值（9 条达标），16 条 open hotspot 存量全灭（全部指向 fan-in≥29 的枢纽）。观测落点区分写：hotspot 被排除的枢纽热度仍落 health_snapshots（distribution/file_hotspots，历史序列在，观测不丢）；density 的链级密度快照里无落点（只有全仓级 bugfix_ratio），被压掉的单链占比是有意静默。"
+summary: "根治「产出-消费断链」——post_merge_fix_density 由「次数≥3 或 占比≥30%」的或门改为「次数≥3 且 占比≥15%」的双门，hotspot 复用 computeFanInExclusions 排除高扇入枢纽文件。实测 sqlite：52 条 open density 存量里绝大多数低于新阈值（达标者个位数，随 30 天窗口滑动，当日实测 8–9 条），16 条 open hotspot 存量全灭（全部指向 fan-in≥29 的枢纽）。观测落点区分写：hotspot 被排除的枢纽热度仍落 health_snapshots（distribution/file_hotspots，历史序列在，观测不丢）；density 的链级密度快照里无落点（只有全仓级 bugfix_ratio），被压掉的单链占比是有意静默。"
 change_type: feature
 capability_test: "n/a: 确定性检测器逻辑变更，由单元测试覆盖（tests/usecases/health/post-merge-fix-density.test.ts 16 例 / detect-signals.test.ts 含新增 fan-in 排除例），无 LLM 参与、无对话能力面"
 created_in_conversation: 9993f9b1-bea7-41b6-9313-bc33ba23f77e
@@ -10,7 +10,7 @@ modules: [health]
 created_at: 2026-10-19
 intent:
   problem: "RHI density/hotspot 触发口径过宽：post_merge_fix_density 是或门（次数≥3 或 占比≥30%），次数门在大分母下失效——月产 200+ commit 的仓库里任何合入 30 天内的特性都能凑够 3 条 bugfix；hotspot 无 fan-in 意识，专报高扇入枢纽文件。实测 52 条 open 存量里 43 条占比仅 1–12%，16 条 open hotspot 全部指向 fan-in≥29 的枢纽（正是 density 主动排除的那批）。按现行消费规则这类 warning 永远聚合不成升级条件，是注定无人消费的清单"
-  expected_effect: "signals 表 open 且 triage_status IS NULL 的 density+hotspot 由处置前 29 条降至**9 条个位数**（新口径下仍达标的真信号，符合 #1051「归零或个位数」验收）；新口径对 52 条存量实测 9 条达标 / 43 条为旧或门口径噪音；16 条 open hotspot 全部指向 fan-in≥29 枢纽（新口径产出端即排除，合并后由 sweep 脚本退出）。低于阈值者合并后由 scripts/sweep-stale-signals.mjs 幂等清扫——该脚本两类都扫（density 按双门阈值、hotspot 按文件扇入），旧口径未合并前会回涨，见已知代价 1。"
+  expected_effect: "signals 表 open 且 triage_status IS NULL 的 density+hotspot 由处置前 29 条降至**个位数**（新口径下仍达标的真信号，符合 #1051「归零或个位数」验收）。注意这是**随窗口滑动的活数字**：当日实测 8 条（前一日 9），因 evidence 被旧口径持续刷新、单链占比会随 30 天窗滑出滑入，故验收看「个位数」而非固定值；新口径对 52 条 open density 存量当日实测 8 条达标 / 44 条为旧或门口径噪音；16 条 open hotspot 全部指向 fan-in≥29 枢纽（新口径产出端即排除，合并后由 sweep 脚本退出）。低于阈值者合并后由 scripts/sweep-stale-signals.mjs 幂等清扫——该脚本两类都扫（density 按双门阈值、hotspot 按文件扇入），旧口径未合并前会回涨，见已知代价 1。"
   verify_by:
     type: metric_probe
 causal_links:
@@ -120,7 +120,7 @@ open 的 density 52 条 + hotspot 16 条逐条 dismiss，note 写判断结论（
 **为什么是收窄而不是修 bug**：或门/无 fan-in 排除在当时的设计语境下都有其道理（早期仓库 commit 量小，3 条 bugfix 确实是信号）。但仓库规模变化后口径失真——这属于「机制的管辖边界需要重新划定」，即决策树②的典型场景。
 
 **已知代价（诚实列出）**：
-1. **density 可能变得很少触发**：新口径下 52 条存量仅 9 条达标（17%）。#647 曾把 post_merge_fix_density 列为「PR2 的灵魂信号」，收窄后它可能长期静默。**缓解不是「仍进快照」**——health_snapshots 里只有全仓级 `bugfix_ratio` / `bugfix_count` / `bugfix_ratio_of_fid`，`chain_states` 也只是 active/orphan/regressed 计数，**没有 per-feature 的链级密度落点**（sqlite 实测），被压掉的单链占比在信号之外无历史序列，实时兑底只有 `/api/health/chains`。阈值是模块顶部常量，可单点回调；是否补链级快照行属后续事项（需补行过机制预算四问）。**此结论只适用于 density**：hotspot 被排除的枢纽热度仍落 `distribution/file_hotspots` 快照（74 行，metadata 完整携带被排除的枢纽文件），那里「观测不丢」成立。
+1. **density 可能变得很少触发**：新口径下 52 条存量里达标的仅个位数（当日实测 8 条、前一日 9 条，约 15–17%——**随 30 天窗口滑动的活数字**，单链占比会被旧口径扫描持续刷新）。#647 曾把 post_merge_fix_density 列为「PR2 的灵魂信号」，收窄后它可能长期静默。**缓解不是「仍进快照」**——health_snapshots 里只有全仓级 `bugfix_ratio` / `bugfix_count` / `bugfix_ratio_of_fid`，`chain_states` 也只是 active/orphan/regressed 计数，**没有 per-feature 的链级密度落点**（sqlite 实测），被压掉的单链占比在信号之外无历史序列，实时兑底只有 `/api/health/chains`。阈值是模块顶部常量，可单点回调；是否补链级快照行属后续事项（需补行过机制预算四问）。**此结论只适用于 density**：hotspot 被排除的枢纽热度仍落 `distribution/file_hotspots` 快照（74 行，metadata 完整携带被排除的枢纽文件），那里「观测不丢」成立。
 2. **次数门下限不变**：`2/5 = 40%`（占比门过了但次数门 2<3）仍不产出——2 次事件是薄证据链，单点事件不构成「补丁摞补丁」的模式。（注：原稿举的「#465 即此形态」是错的，#465 实为 3/18 = 17%，属应存活真信号，见检视修复轮。）
 3. **hotspot 排除依赖 chains 的扇入统计**：chains 为空时（如某些测试场景）不排除任何文件，行为退回原样——这是刻意的（无链数据就没有扇入事实可依），不是缺陷。
 
@@ -152,12 +152,20 @@ open 的 density 52 条 + hotspot 16 条逐条 dismiss，note 写判断结论（
 
 **本轮修复纪律**：每条改口附机械核对输出（grep 定位 + sqlite 实测），声明-正文-脚本-验收四者一致性自查过后才交。
 
+## 末轮文案修正（二次 delta 的 3 条残留，检视明示改完即放行）
+
+| # | 残留 | 修复 |
+|---|---|---|
+| 1 | delta 建议 C 被派工未销：`post-merge-fix-density.ts` 里两行旧注释仍在（引用已删常量 `RATIO_MIN_DENOMINATOR`，且与紧随其后的新注释自相矛盾；grep 全仓唯一命中就是它） | 两行已删 |
+| 2 | **B 病轻度现身**：sweep 脚本注释与 `--apply` 会写进 59 条持久留痕的 note 都写「与 density **复用** computeFanInExclusions **单一真相源**」——实际是同口径镜像重算（同阈值、同 60 天窗，但从 git log 独立算，并未调用该函数） | 两处改为「同口径但非同一函数，本脚本从 git log 独立镜像重算」。会在持久留痕里的那句尤其不能留假话 |
+| 3 | `expected_effect` 的「9 条」是时间敏感数字：10-20 实测已漂到 8（id=476 随滑窗 15%→14% 出双门），evidence 被旧口径持续刷新、单链占比随 30 天窗滑出滑入 | 前向性声明（summary / `expected_effect` / 已知代价 1 / 验证）统一改为「个位数（当日实测 8–9）」并显式注明是随窗口滑动的活数字；各轮的历史记录保留当时数字不动（它们是带日期的事实记录）
+
 ## 验证
 
 - 已过最简实现检查：生产代码无新文件、无新依赖；最重的改动是 `detectHotspot` 加一个参数，复用既有 `computeFanInExclusions` 而非重写扇入统计。另新增一次性运维脚本 `scripts/sweep-stale-signals.mjs`（检视建议 6：把手工清扫 SQL 入仓为幂等脚本，避免补丁抵抗；delta 复核 C 项后补上 hotspot 清扫）。
 - 单元测试：`post-merge-fix-density.test.ts` 16 例通过（含新增「#1051 噪音形态不产出：3 bugfix / 111 commit = 3%」核心回归）；`detect-signals.test.ts` 通过（含新增「hotspot：高扇入枢纽文件排除（与 density 单一真相源）」，带对照组验证非枢纽源码文件仍正常报警）
 - 类型检查：`npx tsc --noEmit` 通过
-- 存量实测：新口径模拟（次数≥3 且 占比≥15%）→ 52 条 open density 存活 9 条、消除 43 条；16 条 open hotspot 全部指向 fan-in≥29 的枢纽，全部消除
+- 存量实测（分日跑，数字随窗口滑动）：2026-10-19 首跑 52 条 open density 达标 9 / 低于阈值 43；10-20 复跑达标 8 / 清扫 60（id=476 随滑窗从 15% 落到 14% 出双门）。**验收以「个位数」为准而非固定值**。16 条 open hotspot 全部指向 fan-in≥29 的枢纽，全部消除
 - 断言（#1051 验收）：实施后 `signals` 表 open 且 `triage_status IS NULL` 的 density/hotspot 归零或个位数（sqlite 实测输出附 PR）
 
 ## 关联

@@ -138,8 +138,6 @@ function detectChainFixDensity(ctx: {
   const chainFiles = new Set([...chain.touchFiles].filter(f => !excludedSet.has(f)));
   const bugfixHits = countBugfixHits(inWindow, chainFiles);
 
-  // 占比支最小分母保护：分母 <RATIO_MIN_DENOMINATOR 时占比失真（合入后仅 1 条 bugfix
-  // → 100% 触发是荒谬的），小样本场景由次数阈值单支把关
   // 双门 AND（#1051 方案 1）：两道门都要过。原「或门」让次数门在大分母下失守——
   // 月产 200+ commit 的仓库里，合入 30 天内的特性几乎必然凑够 3 条 bugfix。
   // 占比直接按实算，不再设最小分母下限：原设计的「分母 <5 占比失真」顾虑（合入后
