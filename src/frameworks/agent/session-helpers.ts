@@ -54,7 +54,7 @@ export function getOtterToolNamesForType(
     "get_active_participants", "get_html_card_contract",
     "manage_healing_events",
     "create_scheduled_task",
-    "workspace_info", "workspace_list", "workspace_read", "workspace_write",
+    "workspace_info", "workspace_list", "workspace_read", "workspace_write", "workspace_delete",
     "link_memory", "get_related", "unlink_memory",
     "sync_docs",
     "query_dispatch_ledger", // F20260821i336：派工台账查询工具
@@ -89,7 +89,7 @@ export function getOtterToolNamesForType(
     "get_active_participants", "get_html_card_contract",
     "create_scheduled_task", "manage_healing_events",
     "restart_otter",
-    "workspace_info", "workspace_list", "workspace_read", "workspace_write",
+    "workspace_info", "workspace_list", "workspace_read", "workspace_write", "workspace_delete", // #1484：临时件回收机械路径
     "link_memory", "get_related", "unlink_memory",
     "sync_docs",
     "query_signals", // F20260826mwrd C1：小獭可查信号台账（halt_otter 仅 big 型）

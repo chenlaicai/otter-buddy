@@ -88,6 +88,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
+    expect(tools).toContain("workspace_delete"); // #1484：临时件回收机械路径
     // F20260813mren: 记忆关系层工具
     expect(tools).toContain("link_memory");
     expect(tools).toContain("get_related");
@@ -98,7 +99,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("resolve_signal"); // F20260826mwrd C2：裁决写路径（big）
     expect(tools).toContain("unhalt_otter"); // #927：halt 解除（big 编排域）
     expect(tools).toContain("merge_pr"); // F20260922pmgd：PR 合入授权闸（big 型唯一合入通道）
-    expect(tools).toHaveLength(36);
+    expect(tools).toHaveLength(37); // #1484：+workspace_delete（36→37）
   });
 
   it("small otter 应包含消息/记忆/上下文/术语/产物/参与者/工作区/定时任务/自愈管理/自身重启工具，不含管理类工具", () => {
@@ -127,6 +128,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
+    expect(tools).toContain("workspace_delete"); // #1484：临时件回收（大小獭均可）
     // F20260813mren: 记忆关系层工具（大小獭都能用）
     expect(tools).toContain("link_memory");
     expect(tools).toContain("get_related");
@@ -135,7 +137,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("list_matters"); // F20261006mtlp P1：小獭可查待办板
     expect(tools).toContain("transition_matter"); // F20261006mtlp P1：通道 A 代执行迁移（守卫在 usecase）
     expect(tools).not.toContain("resolve_signal"); // F20260826mwrd C2：裁决仅 big
-    expect(tools).toHaveLength(31);
+    expect(tools).toHaveLength(32); // #1484：+workspace_delete（31→32）
     // halt_otter / resolve_signal / unhalt_otter 是编排/裁决动作，仅 big 型
     expect(tools).not.toContain("halt_otter");
     expect(tools).not.toContain("unhalt_otter"); // #927：解除同样仅 big
@@ -188,6 +190,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("query_signals"); // F20260826mwrd C1
     expect(tools).toContain("unhalt_otter"); // #927：halt 解除（big 编排域）
     expect(tools).toContain("merge_pr"); // F20260922pmgd：undefined 按 big 处理，含合入授权闸
-    expect(tools).toHaveLength(36);
+    expect(tools).toContain("workspace_delete"); // #1484：undefined 路径同样含回收动词
+    expect(tools).toHaveLength(37); // #1484：+workspace_delete（36→37）
   });
 });

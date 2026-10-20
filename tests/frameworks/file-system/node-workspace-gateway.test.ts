@@ -163,4 +163,102 @@ describe("NodeWorkspaceGateway", () => {
   it("getWorkspacePath 返回正确路径", () => {
     expect(gw.getWorkspacePath(convId)).toBe(path.join(tmpDir, "workspaces", convId));
   });
+
+  // ── deletePath（#1484 临时件回收）──
+
+  describe("deletePath", () => {
+    it("删除文件并返回 deleted=file", async () => {
+      await gw.ensureWorkspace(convId);
+      await gw.writeFile(convId, "tmp.txt", "junk");
+      const result = await gw.deletePath(convId, "tmp.txt");
+      expect(result).toEqual({ deleted: "file" });
+      expect(await gw.exists(convId)).toBe(true); // 只删文件，不动工作区
+      await expect(gw.readFile(convId, "tmp.txt")).rejects.toThrow();
+    });
+
+    it("删除空目录并返回 deleted=directory", async () => {
+      await gw.ensureWorkspace(convId);
+      await gw.writeFile(convId, "empty-dir/.keep", "x");
+      await gw.deletePath(convId, "empty-dir/.keep");
+      const result = await gw.deletePath(convId, "empty-dir");
+      expect(result).toEqual({ deleted: "directory" });
+    });
+
+    it("非空目录默认拒绝删除（须 recursive=true）", async () => {
+      await gw.ensureWorkspace(convId);
+      await gw.writeFile(convId, "tree/a.txt", "a");
+      await expect(gw.deletePath(convId, "tree")).rejects.toThrow("Directory not empty");
+      // 防误删：文件仍在
+      expect(await gw.readFile(convId, "tree/a.txt")).toBe("a");
+    });
+
+    it("recursive=true 整树删除非空目录", async () => {
+      await gw.ensureWorkspace(convId);
+      await gw.writeFile(convId, "tree/a.txt", "a");
+      await gw.writeFile(convId, "tree/sub/b.txt", "b");
+      const result = await gw.deletePath(convId, "tree", { recursive: true });
+      expect(result).toEqual({ deleted: "directory" });
+      await expect(gw.readFile(convId, "tree/a.txt")).rejects.toThrow();
+    });
+
+    it("拒绝删除工作区根（空路径 / .）", async () => {
+      await gw.ensureWorkspace(convId);
+      await gw.writeFile(convId, "keep.txt", "k");
+      await expect(gw.deletePath(convId, "", { recursive: true })).rejects.toThrow("workspace root");
+      await expect(gw.deletePath(convId, ".", { recursive: true })).rejects.toThrow("workspace root");
+      expect(await gw.exists(convId)).toBe(true);
+      expect(await gw.readFile(convId, "keep.txt")).toBe("k");
+    });
+
+    it("拒绝 .. 路径穿越", async () => {
+      await gw.ensureWorkspace(convId);
+      await expect(gw.deletePath(convId, "../../victim.txt", { recursive: true })).rejects.toThrow("Path traversal");
+    });
+
+    it("拒绝 symlink 逃逸目标的删除", async () => {
+      await gw.ensureWorkspace(convId);
+      const root = path.join(tmpDir, "workspaces", convId);
+      await fs.writeFile(path.join(tmpDir, "victim.txt"), "victim");
+      await fs.symlink(tmpDir, path.join(root, "escape"));
+      await expect(gw.deletePath(convId, "escape/victim.txt")).rejects.toThrow("Symlink escape");
+      // 外部文件安然无恙
+      expect(await fs.readFile(path.join(tmpDir, "victim.txt"), "utf-8")).toBe("victim");
+    });
+
+    it("删除 symlink 链接本身（lstat 口径，不跟随目标）", async () => {
+      await gw.ensureWorkspace(convId);
+      const root = path.join(tmpDir, "workspaces", convId);
+      await fs.writeFile(path.join(root, "real.txt"), "real");
+      await fs.symlink(path.join(root, "real.txt"), path.join(root, "link.txt"));
+      const result = await gw.deletePath(convId, "link.txt");
+      expect(result).toEqual({ deleted: "file" });
+      // 目标文件不受影响
+      expect(await gw.readFile(convId, "real.txt")).toBe("real");
+    });
+
+    it("目标不存在时抛 ENOENT 类错误", async () => {
+      await gw.ensureWorkspace(convId);
+      await expect(gw.deletePath(convId, "ghost.txt")).rejects.toThrow();
+    });
+
+    it("recursive 整树删除时树内嵌套 symlink 不跟随目标（外部无恙，语义钉）", async () => {
+      // 检视獭 2026-10-20 建议 1：fs.rm 不跟 symlink 是安全依赖但语义未锁——钉回归护栏
+      await gw.ensureWorkspace(convId);
+      const root = path.join(tmpDir, "workspaces", convId);
+      await fs.writeFile(path.join(tmpDir, "outside.txt"), "outside");
+      await fs.mkdir(path.join(root, "tree/sub"), { recursive: true });
+      await fs.writeFile(path.join(root, "tree/sub/a.txt"), "a");
+      // 文件型与目录型两种逃逸 symlink 各一（嵌套在树内，resolveSafe 不校验后代）
+      await fs.symlink(path.join(tmpDir, "outside.txt"), path.join(root, "tree/sub/evil-file-link"));
+      await fs.symlink(tmpDir, path.join(root, "tree/sub/evil-dir-link"));
+      const result = await gw.deletePath(convId, "tree", { recursive: true });
+      expect(result).toEqual({ deleted: "directory" });
+      // 外部目标完好：递归删除不跟随 symlink
+      expect(await fs.readFile(path.join(tmpDir, "outside.txt"), "utf-8")).toBe("outside");
+      const outsideNames = await fs.readdir(tmpDir);
+      expect(outsideNames).toContain("outside.txt");
+      expect(outsideNames).toContain("workspaces");
+      expect(outsideNames).toHaveLength(2); // tmpDir 未被目录型 symlink 反向吞删
+    });
+  });
 });
