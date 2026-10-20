@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectPostMergeFixDensity, computeFanInExclusions, FAN_IN_THRESHOLD, LARGE_CHAIN_FILES, RATIO_MIN_DENOMINATOR } from "@usecases/health/post-merge-fix-density";
+import { detectPostMergeFixDensity, computeFanInExclusions, FAN_IN_THRESHOLD, LARGE_CHAIN_FILES, FIX_RATIO_THRESHOLD } from "@usecases/health/post-merge-fix-density";
 import type { SignalCommitInput } from "@usecases/health/detect-signals";
 import { parseCommit } from "@usecases/health/commit-parser";
 import type { FeatureChain } from "@usecases/health/chain-builder";
@@ -44,18 +44,24 @@ function largeChain(featureId: string): FeatureChain {
 }
 
 describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
-  it("恰好 3 次 bugfix 触发（≥ 阈值边界）", () => {
+  it("双门 AND：3 次 bugfix 且占比达标（次数门+比率门下限边界）", () => {
+    // #1051 方案 1：原只验次数门（3 条 bugfix 无分母）——AND 语义下分母 3 <5 时
+    // 占比置 0 不产出，故补足 filler 到 3/10 = 30%（占比 ≥15%）
     const commits = [
       commit("b1", 2, "[F20260901xaaa][agent][BugFix] 1", ["src/feat-a.ts"]),
       commit("b2", 4, "[F20260901xaaa][agent][BugFix] 2", ["src/feat-b.ts"]),
       commit("b3", 6, "[F20260901xaaa][agent][BugFix] 3", ["src/feat-c.ts"]),
     ];
+    while (commits.length < 10) {
+      commits.push(commit(`f${commits.length}`, 3, "[F20260901xaaa][agent][Feature Update] filler", ["src/unrelated.ts"]));
+    }
     const { signals } = detectPostMergeFixDensity({ commits, chains: [smallChain("F20260901xaaa")], now: NOW });
     const sig = signals.find(s => s.featureId === "F20260901xaaa");
     expect(sig).toBeDefined();
     expect(sig!.type).toBe("post_merge_fix_density");
     expect(sig!.severity).toBe("warning"); // 「不对劲」是待查证不是定罪
     expect(sig!.evidence).toContain("3 次");
+    expect(sig!.evidence).toContain("3/10 = 30%");
   });
 
   it("窗口边界：小修档 14 天——第 15 天的 bugfix 不计入（合入 8 天前，2/8=25% 且次数 2<3 → 不触发）", () => {
@@ -75,12 +81,16 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
   });
 
   it("大特性档 30 天窗口：合入后第 20 天的 bugfix 计入（小修档会漏）", () => {
-    // 链合于 25 天前，bugfix 在合入后 5/12/20 天——只有大档（30天）窗口够得着第 20 天
+    // 链合于 25 天前，bugfix 在合入后 5/12/20 天——只有大档（30天）窗口够得着第 20 天。
+    // 补 filler 到 3/14 ≈ 21%（双门 AND 下占比门也要过，#1051 方案 1）
     const commits = [
       commit("b1", 5, "[F20260901zaaa][agent][BugFix] 1", ["src/big-0.ts"]),
       commit("b2", 12, "[F20260901zaaa][agent][BugFix] 2", ["src/big-1.ts"]),
       commit("b3", 20, "[F20260901zaaa][agent][BugFix] 3", ["src/big-2.ts"]),
     ];
+    while (commits.length < 14) {
+      commits.push(commit(`f${commits.length}`, 3, "[F20260901zaaa][agent][Feature Update] filler", ["src/unrelated.ts"]));
+    }
     const { signals } = detectPostMergeFixDensity({ commits, chains: [largeChain("F20260901zaaa")], now: NOW });
     const sig = signals.find(s => s.featureId === "F20260901zaaa");
     expect(sig).toBeDefined();
@@ -101,23 +111,25 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
   });
 
   it("合入截断（检视严重发现 1）：占比分母只数合入后 commit——合入前填料不得稀释占比", () => {
-    // 链合于 5 天前。合入后：2 bugfix + 3 filler（分母 5，2/5=40% ≥30% → 触发）；
-    // 另有 10 条合入前 filler——若未截断分母 15、占比 13% → 永不触发
+    // 链合于 5 天前。合入后：3 bugfix + 3 filler（分母 6，3/6=50% ≥15% → 触发）；
+    // 另有 20 条合入前 filler——若未截断分母 26、占比 3/26=12% <15% → 永不触发
+    // （填料数按双门 AND 口径定标：保证「截断/不截断」两种情形分居阈值两侧，测试有鉴别力）
     const chain5 = chain("F20260901zeee", ["src/feat-a.ts", "src/feat-b.ts", "src/feat-c.ts", "src/feat-d.ts", "src/feat-e.ts"], 5);
     const commits = [
       commit("b1", 2, "[F20260901zeee][agent][BugFix] 1", ["src/feat-a.ts"]),
       commit("b2", 3, "[F20260901zeee][agent][BugFix] 2", ["src/feat-b.ts"]),
+      commit("b3", 4, "[F20260901zeee][agent][BugFix] 3", ["src/feat-c.ts"]),
       commit("f1", 2, "[F20260901zeee][agent][Feature Update] 合入后", ["src/other.ts"]),
       commit("f2", 3, "[F20260901zeee][agent][Feature Update] 合入后", ["src/other.ts"]),
       commit("f3", 4, "[F20260901zeee][agent][Feature Update] 合入后", ["src/other.ts"]),
     ];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       commits.push(commit(`pre${i}`, 6 + i, "[F20260901zfff][agent][Feature Update] 合入前填料", ["src/pre.ts"]));
     }
     const { signals } = detectPostMergeFixDensity({ commits, chains: [chain5], now: NOW });
     const sig = signals.find(s => s.featureId === "F20260901zeee");
     expect(sig).toBeDefined();
-    expect(sig!.evidence).toContain("2/5 = 40%"); // 分母不含合入前填料
+    expect(sig!.evidence).toContain("3/6 = 50%"); // 分母不含合入前填料
   });
 
   it("恰好占比 30% 触发（≥ 比率边界）：3 bugfix / 10 commit = 30%", () => {
@@ -138,7 +150,9 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
     expect(sig!.evidence).toContain("3/10 = 30%");
   });
 
-  it("纯占比支触发：2 bugfix / 5 commit = 40%（次数 <3 但占比 ≥30%，最小分母 5 达标）", () => {
+  it("次数门下限：2 bugfix / 5 commit = 40% 占比再高也不触发（次数门未过，双门 AND）", () => {
+    // #1051 方案 1：原口径（或门）此形态会触发。AND 语义下 2 次 bugfix 证据链太薄
+    // ——单点事件不构成「补丁摞补丁」，落 health_snapshots 快照而非警报位
     const commits: SignalCommitInput[] = [
       commit("b1", 2, "[F20260901xbbb][agent][BugFix] 1", ["src/feat-a.ts"]),
       commit("b2", 4, "[F20260901xbbb][agent][BugFix] 2", ["src/feat-b.ts"]),
@@ -147,10 +161,29 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
       commit("f3", 2, "[F20260901xbbb][agent][Feature Update] f", ["src/other.ts"]),
     ];
     const { signals } = detectPostMergeFixDensity({ commits, chains: [smallChain("F20260901xbbb")], now: NOW });
-    expect(signals.find(s => s.featureId === "F20260901xbbb")).toBeDefined();
+    expect(signals.find(s => s.featureId === "F20260901xbbb")).toBeUndefined();
   });
 
-  it("最小分母保护：窗口内 <5 条 commit 时占比支不启用（2 bugfix / 3 commit 不触发）", () => {
+  it("#1051 噪音形态不产出：3 bugfix / 111 commit = 3%（实测存量 #435 形态）", () => {
+    // 核心回归（#1051 方案 1）：sqlite 实测 open 存量 40 条里 39 条是这个形态——
+    // 次数门过了（3 ≥3），但分母 111 条 commit、占比仅 3%。月产 200+ commit 的仓库里
+    // 任何合入 30 天内的特性都会凑够 3 条 bugfix，次数门在大分母下形同虚设。
+    // 新口径（双门 AND）下此形态不得产出 signal
+    const commits: SignalCommitInput[] = [];
+    for (let i = 0; i < 3; i++) {
+      commits.push(commit(`b${i}`, 2 + i, `[F20260901xbad][agent][BugFix] ${i}`, [`src/feat-${String.fromCharCode(97 + i)}.ts`]));
+    }
+    while (commits.length < 111) {
+      commits.push(commit(`f${commits.length}`, 3, "[F20261001ybbb][agent][Feature Update] filler", ["src/unrelated.ts"]));
+    }
+    const { signals } = detectPostMergeFixDensity({ commits, chains: [largeChain("F20260901xbad")], now: NOW });
+    expect(signals.find(s => s.featureId === "F20260901xbad")).toBeUndefined();
+  });
+
+  it("小分母不触发：2 bugfix / 3 commit 不触发（次数门未过）", () => {
+    // 注（PR #1560 检视建议 4）：原为「最小分母保护」——分母 <5 时强制 ratio=0。
+    // 双门 AND 下该下限已由次数门接管并移除（它会造成非单调悬崖，见下一条回归）。
+    // 本例仍不触发，但理由从「占比支未启用」变为「次数门 2 <3 未过」
     const commits = [
       commit("b1", 2, "[F20260901yccc][agent][BugFix] 1", ["src/feat-a.ts"]),
       commit("b2", 3, "[F20260901yccc][agent][BugFix] 2", ["src/feat-a.ts"]),
@@ -158,6 +191,22 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
     ];
     const { signals } = detectPostMergeFixDensity({ commits, chains: [smallChain("F20260901yccc")], now: NOW });
     expect(signals.find(s => s.featureId === "F20260901yccc")).toBeUndefined();
+  });
+
+  it("无非单调悬崖：3 bugfix / 4 commit = 75% 应触发（原最小分母下限拦杀的形态）", () => {
+    // PR #1560 检视建议 4 回归：旧下限造成 3/4=75% 被拦、3/5=60% 反而触发（密度更高
+    // 反而更不可能报警）。下限移除后占比按实算，单调：密度越高越容易触发。
+    // 原设计下限的顾虑「合入后仅 1 条 bugfix → 100% 触发是荒谬的」由次数门 ≥3 接管
+    const commits = [
+      commit("b1", 1, "[F20260901yddd][agent][BugFix] 1", ["src/feat-a.ts"]),
+      commit("b2", 2, "[F20260901yddd][agent][BugFix] 2", ["src/feat-b.ts"]),
+      commit("b3", 3, "[F20260901yddd][agent][BugFix] 3", ["src/feat-c.ts"]),
+      commit("f1", 2, "[F20260901yddd][agent][Feature Update] 填充分母", ["src/unrelated.ts"]),
+    ];
+    const { signals } = detectPostMergeFixDensity({ commits, chains: [smallChain("F20260901yddd")], now: NOW });
+    const sig = signals.find(s => s.featureId === "F20260901yddd");
+    expect(sig).toBeDefined();
+    expect(sig!.evidence).toContain("3/4 = 75%");
   });
 
   it("排除清单：高扇入文件不计入分子（≥10 特性触碰；FID 后缀纯字母）", () => {
@@ -189,6 +238,9 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
       commit("b2", 4, "[F20260901zaaa][agent][BugFix] 2", ["src/feat-b.ts"]),
       commit("b3", 6, "[F20260901zaaa][agent][BugFix] 3", ["src/feat-c.ts"]),
     ];
+    while (commits.length < 10) {
+      commits.push(commit(`f${commits.length}`, 3, "[F20260901zaaa][agent][Feature Update] filler", ["src/unrelated.ts"]));
+    }
     const { signals } = detectPostMergeFixDensity({
       commits, chains: [...hubChains, smallChain("F20260901zaaa")], now: NOW,
     });
@@ -226,7 +278,7 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
   it("分档与阈值常量符合实查依据（文档锚点：2026-09-01 实测 137 链）", () => {
     expect(LARGE_CHAIN_FILES).toBe(6);
     expect(FAN_IN_THRESHOLD).toBe(10);
-    expect(RATIO_MIN_DENOMINATOR).toBe(5);
+    expect(FIX_RATIO_THRESHOLD).toBe(0.15);
   });
 });
 
