@@ -180,12 +180,17 @@ function evalPath(word: string, cwd: string): string | null {
   return normalizePath(`${cwd.endsWith("/") ? cwd : `${cwd}/`}${word}`);
 }
 
-/** 同命令赋值溯源：取变量名的最后一次静态赋值（#918 同口径）。
- *  BC-5 边界：仅同命令内 assignments——父 shell 环境变量不溯（回落）。 */
-function resolveAssign(name: string, segments: Segment[]): string | null {
+/** 同命令赋值溯源：取变量名在**使用点之前**的最后一次静态赋值（#918 同口径 + S1 位置化）。
+ *  BC-5 边界：仅同命令内 assignments——父 shell 环境变量不溯（回落）。
+ *  S1 修法（对抗审视）：shell 展开时点语义——只认段号 < beforeIdx（使用点）的赋值：
+ *  `T=主仓路径; mv a "$T"; T=无害` 的后绑不得洗白运行时落点（旧版取全局最后一次赋值
+ *  → 用后绑值判树外放行 = fail-open 放水）；同段前缀赋值由「严格小于」自然排除
+ *  （bash 对本段词先展开后赋值，前缀值不参与本段词展开）。 */
+function resolveAssign(name: string, segments: Segment[], beforeIdx: number): string | null {
   const assign = segments
-    .filter(s => s.joiner !== "&" && s.joiner !== "|")
-    .flatMap(s => s.assignments)
+    .map((s, i) => ({ s, i }))
+    .filter(({ s, i }) => i < beforeIdx && s.joiner !== "&" && s.joiner !== "|")
+    .flatMap(({ s }) => s.assignments)
     .filter(a => a.name === name && a.value !== null && !DYNAMIC_RE.test(a.value))
     .pop();
   return assign?.value ?? null;
@@ -205,6 +210,29 @@ function isPureVarWord(w: Word): string | null {
   return name !== varPart.text ? name : null; // 匹配上（name≠text）返回变量名；未匹配（形态怪异）回落
 }
 
+/** F20261019f714（M-f7148deb 第 3 条）：词表命令落点参数的同命令赋值溯源。
+ *  语义与 evalCdTarget/git -C "$VAR" 溯源同口径（BC-5：同命令内赋值才溯源，
+ *  环境变量/外部来源一律不猜）：纯 $VAR 词 → resolveAssign；var+字面拼接 →
+ *  与 cd 同构的拼接守卫（结果含 .. 一律 null——爬升红线保持）；其余不可求值
+ *  形态（cmdsub/arith/多 var 拼接等）→ null 由调用方走 dynamic-path fail-closed。
+ *  背景：`cd <worktree> && OLD=…; NEW=…; mv "$OLD" "$NEW"` 落点参数 $VAR 无溯源面
+ *  → dynamic-path → 旧链 fail-closed 误拦（healing f3d5ebe5，worktree 内合法重构被拦）。
+ *  溯源成功后落点照常走 evalPath+主仓树判定——落主仓仍拦，保护零削弱。
+ *  var+字面拼接形态与 cd 目标共用同一实现（resolveVarConcatCdTarget：同命令赋值、
+ *  `..` 爬升守卫、空结果守卫——两调用面语义必须同步，回归锁两侧测试）。
+ *  位置化（S1）：beforeIdx = 使用点段号（acc.index）——只认其前赋值，同段前缀与
+ *  后绑赋值均不参与（展开时点语义，见 resolveAssign 注）。 */
+function resolveTargetArgWord(w: Word, segments: Segment[], beforeIdx: number): string | null {
+  if (w.evaluated !== null) return w.evaluated;
+  const name = isPureVarWord(w);
+  if (name !== null) {
+    const v = resolveAssign(name, segments, beforeIdx);
+    return v !== null && !DYNAMIC_RE.test(v) ? v : null;
+  }
+  // var+字面拼接（$W/sub）：与 cd 目标同一守卫——溯源后全量拼接，含 .. / 溯源不出 → null
+  return resolveVarConcatCdTarget(w, segments, beforeIdx);
+}
+
 /** 从词对象求 cd 目标（evaluated 直取 / 纯 $VAR 词同命令溯源）。null = 不可解。
  *  审视 §3.1 修订：非纯 var 词（含字面后缀 $W/..、前缀拼接）一律 null——
   * 「求值不出」必须回落保守侧，不能错误求值后放行。 */
@@ -212,9 +240,10 @@ function isPureVarWord(w: Word): string | null {
  *  （`$W/.otter/worktrees/x`，无 .. 后缀）——var 同命令溯源后与字面部分全量拼接
  *  （后缀完整保留，evalPath 归一，不存在 #1381「丢后缀爬升」面）。守卫：结果含
  *  `..` 一律 null 回落——c-po 负门（$W/..、$W/../../../）形态字节级不变；var 溯源
- *  不出 / cmdsub/arith 等展开 part → null。仅限 cd 目标词（evalCdTarget），
- *  不改词法求值与其余求值面。回归锁：bash-guard-cd-forms-s1.test.ts B7/c-po 对。 */
-function resolveVarConcatCdTarget(w: Word, segments: Segment[]): string | null {
+ *  不出 / cmdsub/arith 等展开 part → null。调用面：cd 目标词（evalCdTarget）与
+ *  词表命令落点参数（resolveTargetArgWord）——两面共用同一守卫，回归锁两侧测试。
+ *  位置化（S1）：beforeIdx = 使用点段号，同 resolveAssign 展开时点语义。 */
+function resolveVarConcatCdTarget(w: Word, segments: Segment[], beforeIdx: number): string | null {
   if (!w.parts.every(p => p.type === "lit" || p.type === "var")) return null;
   if (!w.parts.some(p => p.type === "var")) return null;
   let out = "";
@@ -222,14 +251,14 @@ function resolveVarConcatCdTarget(w: Word, segments: Segment[]): string | null {
     if (p.type === "lit") { out += p.text; continue; }
     const name = p.text.replace(/^\$\{?(\w+)\}?$/, "$1");
     if (name === p.text) return null;
-    const v = resolveAssign(name, segments);
+    const v = resolveAssign(name, segments, beforeIdx);
     if (v === null) return null;
     out += v;
   }
   if (out === "" || out.includes("..")) return null;
   return out;
 }
-function evalCdTarget(seg: Segment, segments: Segment[], cwd: string): string | null {
+function evalCdTarget(seg: Segment, segments: Segment[], cwd: string, beforeIdx: number): string | null {
   const w1: Word | undefined = seg.words[1];
   if (!w1) return null;
   let target: string | null = w1.evaluated;
@@ -237,17 +266,17 @@ function evalCdTarget(seg: Segment, segments: Segment[], cwd: string): string | 
     // evaluated=null = 词含 var/cmdsub/动态 part——只认「纯 $VAR 词」溯源；其余一律回落
     const name = isPureVarWord(w1);
     if (name === null) {
-      const built = resolveVarConcatCdTarget(w1, segments);
+      const built = resolveVarConcatCdTarget(w1, segments, beforeIdx);
       if (built === null) return null;
       target = built;
     } else {
-      target = resolveAssign(name, segments);
+      target = resolveAssign(name, segments, beforeIdx);
     }
   } else if (DYNAMIC_RE.test(target)) {
     // evaluated 值内含动态段（如 "$W/x" 部分展开）：同为非纯形态，回落
     const name = isPureVarWord(w1);
     if (name === null) return null;
-    target = resolveAssign(name, segments);
+    target = resolveAssign(name, segments, beforeIdx);
   }
   if (target === null || target === "-" || DYNAMIC_RE.test(target)) return null;
   const _p = evalPath(target, cwd);
@@ -278,7 +307,7 @@ export function resolveCwdAt(segments: Segment[], startCwd: string): string[] | 
     const bare = bareName(seg.argv0);
     if (bare === "pushd" || bare === "popd") return null;
     if (bare === "cd") {
-      const resolved = evalCdTarget(seg, segments, cwd);
+      const resolved = evalCdTarget(seg, segments, cwd, i);
       if (resolved === null) return null;
       cwd = resolved;
       // cd 段若通过 &/| 连接到下一段：cd 在子 shell/管道内执行，父 shell cwd 不变——
@@ -339,8 +368,19 @@ function evalRedirects(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRe
   for (const r of seg.redirects) {
     if (!isWriteRedirect(r.op)) continue;
     if (isFdDup(r.op, r.target)) continue; // 2>&1 等 fd 复制非文件写
-    if (r.target === null) return "dynamic-path";
-    const resolved = evalPath(r.target, cwd);
+    // F20261019f714（M-f7148deb 第 3 条）：重定向目标含 var part 时同命令赋值溯源
+    //（与词表命令落点参数同口径 BC-5）。目标词在模型层保留（RedirTarget.targetWord
+    // ——词法层动态目标词不进 words，探针实证 echo hi > $OUT 的 $OUT 只在 redirect 上）；
+    // 溯源不出（for 变量/环境变量来源）→ dynamic-path 保守。
+    // 实现史鉴：初版用段内 words.find(var) 宽回退——把段内无关 var 词错误卷入
+    //（for…kill $pid 2>/dev/null 的 $pid 被当重定向目标 → touchstone 翻红），
+    // 改为模型层显式携带目标词，不做任何模糊匹配。
+    let resolvedTarget: string | null = r.target;
+    if (r.target === null && r.targetWord !== undefined) {
+      resolvedTarget = resolveTargetArgWord(r.targetWord, acc.segments ?? [seg], acc.segments ? acc.index : 0);
+    }
+    if (resolvedTarget === null) return "dynamic-path";
+    const resolved = evalPath(resolvedTarget, cwd);
     if (resolved === null) return "dynamic-path";
     acc.targets.push({ path: resolved, via: "redirect", segmentIndex: acc.index, access: "write" });
   }
@@ -427,7 +467,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
       let v = words[i + 1]?.evaluated ?? null;
       if (v === null && words[i + 1] !== undefined && acc.segments !== undefined) {
         const name = isPureVarWord(words[i + 1]);
-        if (name !== null) v = resolveAssign(name, acc.segments);
+        if (name !== null) v = resolveAssign(name, acc.segments, acc.index);
       }
       if (v === null) return "dynamic-path";
       // F20261016gwr1 修复轮（M-46f0e74d 建议 3，检视獭1519）：core.worktree/bare/gitdir 配置改写
@@ -444,7 +484,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
       let v = words[i + 1]?.evaluated ?? null;
       if (v === null && words[i + 1] !== undefined && acc.segments !== undefined) {
         const name = isPureVarWord(words[i + 1]);
-        if (name !== null) v = resolveAssign(name, acc.segments);
+        if (name !== null) v = resolveAssign(name, acc.segments, acc.index);
       }
       if (v === null) return "dynamic-path";
       if (w === "--work-tree") workTreeOverride = v;
@@ -513,21 +553,42 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
 }
 
 /** 词表命令落点（cp/mv 第二非旗标参数；tee/touch/mkdir 全部非旗标参数）。返回 UnevalReason | null。 */
-// eslint-disable-next-line complexity -- 词表命令落点形态穷举（cp/mv 双参+find -delete 条件写面+~ 豁免，F20261016gdfv 破坏词表补齐后 14）
+// eslint-disable-next-line complexity, max-statements -- 词表命令落点形态穷举（cp/mv 双参+find -delete 条件写面+cp -t 目标前置+~ 豁免，F20261016gdfv 破坏词表补齐 + delta1 发现 3 归一后 25）
 function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
   if (!TARGET_ARG_COMMANDS.has(bare)) return null;
   // F20261016gdfv（M-c78df9d4 破坏词表补齐）：find 仅 -delete 表达式是破坏写面（读形态
   //  find 不入账）；落点=全部非旗标参数（表达式值混入落点集合=保守面，与 tee/touch 同款
   //  fail-closed 哲学）。此前 find 不在词表→`find /repo -delete` 双层放行（真破坏面）。
   if (bare === "find" && !seg.words.some(w => w.evaluated === "-delete")) return null;
+  // delta1（检视獭1554 发现 3）：拷贝族目标前置形态与 argv 写面（pairing）统一解析——
+  //  旧版把 -t 的目标目录词当位置词，`cp -t /tmp src` 的 dest 误算成 src（源被当写面、
+  //  真目标 /tmp 漏）；--target-directory= 形态则掉 uncovered-cmd——同族两形态两套语义。
+  const isCopy = bare === "cp" || bare === "mv";
   const nonFlagArgs: string[] = [];
+  let targetDir: string | null = null;
   for (let i = 1; i < seg.words.length; i++) {
-    const w = seg.words[i].evaluated;
+    const w = resolveTargetArgWord(seg.words[i], acc.segments ?? [seg], acc.segments ? acc.index : 0);
     if (w === null) return "dynamic-path";
+    if (isCopy) {
+      if (w === "-t" || w === "--target-directory") {
+        const v = seg.words[i + 1]?.evaluated ?? null;
+        if (v === null) return "dynamic-path"; // 目标目录动态——落点不可证
+        targetDir = v;
+        i++;
+        continue;
+      }
+      if (w.startsWith("--target-directory=")) { targetDir = w.slice("--target-directory=".length); continue; }
+    }
     if (w.startsWith("-")) continue;
     nonFlagArgs.push(w);
   }
-  const destArgs = (bare === "cp" || bare === "mv") ? nonFlagArgs.slice(1) : nonFlagArgs;
+  let destArgs: string[];
+  if (isCopy && targetDir !== null) {
+    // 目标前置：写入 DIR/basename(源)（DIR 本身入候选与常规形态 dest 同待遇）
+    destArgs = nonFlagArgs.length === 0 ? [] : [targetDir, ...nonFlagArgs.map(s => `${targetDir}/${path.basename(s)}`)];
+  } else {
+    destArgs = isCopy ? nonFlagArgs.slice(1) : nonFlagArgs;
+  }
   if (destArgs.length === 0) return "uncovered-cmd"; // 词表命令无落点参数：形态未知，保守回落
   for (const d of destArgs) {
     if (d.startsWith("~")) {
@@ -565,28 +626,23 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
     return null;
   };
   // 参数即落点：curl -o / wget -O / dd of=——只在**落点词**本身不可求值时才 dynamic-path，
-  //  无关词含 var/cmdsub 不触发（curl 无 -o 是只读，不得误伤）。
+  //  无关词含 var/cmdsub 不触发（curl 无 -o 是只读，不得误伤）。delta1（发现 2）：旗标
+  //  解析与造-执配对共用 downloadWriteTargets（一条语义一个接口——两套解析=发现 3 病灶），
+  //  合并短旗标簇/长旗标/默认落盘/remote-name 同面收齐。
   if (bare === "curl" || bare === "wget" || bare === "dd") {
-    for (let i = 1; i < words.length; i++) {
-      const w = words[i].evaluated;
-      if (bare === "dd") {
+    if (bare === "dd") {
+      for (let i = 1; i < words.length; i++) {
         const raw = words[i].evaluated;
         if (raw === null) continue; // 无关词（如 if=$VAR）不卡
         const of = /^of=(.+)$/.exec(raw);
         // eslint-disable-next-line max-depth -- F20261014smrj dd of= 旗标分支内嵌错误早退（早退即返回，不可平铺）
         if (of !== null) { const e = push(of[1]); if (e !== null) return e; }
-        continue;
       }
-      if (w === null) continue; // 无关词含 var/cmdsub → 跳过（非落点）
-      const inline = /^(?:--output|-[oO])=(.+)$/.exec(w);
-      if (inline !== null) { const e = push(inline[1]); if (e !== null) return e; continue; }
-      if (/^(?:--output|-[oO])$/.test(w)) {
-        const tv = words[i + 1]?.evaluated;
-        if (tv === undefined || tv === null) return "dynamic-path"; // 落点词不可求值
-        const e = push(tv); if (e !== null) return e;
-        i++; // 消耗落点词
-      }
+      return null;
     }
+    const r = downloadWriteTargets(words, cwd, bare === "wget" ? "wget" : "curl");
+    if (r.dynTarget) return "dynamic-path"; // 落点词不可求值
+    for (const t of r.targets) acc.targets.push({ path: t, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
     return null;
   }
   // 原地编辑（sed -i / perl -pi / ruby -pi）：目标=脚本/表达式之后的文件参数。
@@ -609,15 +665,29 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
     return null;
   }
   // 词表写命令：install/ln（dest=最后非旗标）/ chmod/chown/chgrp/truncate（路径=首参之后）
+  //  delta1（发现 3 归一）：install/ln 同收目标前置形态（-t DIR / --target-directory=DIR）
+  const isDestLast = bare === "install" || bare === "ln";
   const nonFlagArgs: string[] = [];
+  let targetDir: string | null = null;
   for (let i = 1; i < words.length; i++) {
     const w = words[i].evaluated;
     if (w === null) return "dynamic-path"; // 落点词不可求值
+    if (isDestLast) {
+      if (w === "-t" || w === "--target-directory") {
+        const v = words[i + 1]?.evaluated ?? null;
+        if (v === null) return "dynamic-path";
+        targetDir = v;
+        i++;
+        continue;
+      }
+      if (w.startsWith("--target-directory=")) { targetDir = w.slice("--target-directory=".length); continue; }
+    }
     if (w.startsWith("-") && w !== "-") continue;
     nonFlagArgs.push(w);
   }
   let destArgs: string[];
-  if (bare === "install" || bare === "ln") destArgs = nonFlagArgs.slice(-1); // dest=最后非旗标参数
+  if (isDestLast && targetDir !== null) destArgs = nonFlagArgs.length === 0 ? [] : [targetDir, ...nonFlagArgs.map(s => `${targetDir}/${path.basename(s)}`)];
+  else if (isDestLast) destArgs = nonFlagArgs.slice(-1); // dest=最后非旗标参数
   else destArgs = nonFlagArgs.slice(1); // chmod/chown/chgrp/truncate：路径=mode/owner/size 之后
   if (destArgs.length === 0) return "uncovered-cmd"; // 无落点参数：形态未知，保守回落
   for (const d of destArgs) { const e = push(d); if (e !== null) return e; }
@@ -645,7 +715,7 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
       let v = words[i + 1]?.evaluated ?? null;
       if (v === null && words[i + 1] !== undefined && acc.segments !== undefined) {
         const name = isPureVarWord(words[i + 1]);
-        if (name !== null) v = resolveAssign(name, acc.segments);
+        if (name !== null) v = resolveAssign(name, acc.segments, acc.index);
       }
       if (v === null) return "dynamic-path";
       // F20261016gwr1 修复轮（建议 3 同步）：core.* 树发现改写——fail-closed（两走查同形同治）
@@ -1153,34 +1223,272 @@ function shellScriptFileArg(seg: Segment): { word: Word; dynamic: boolean } | nu
   return interpreterScriptFileArg(seg);
 }
 
+/** 单写面落点：同一段可有多个写面（argv + 重定向），content/copyOf 逐面独立——
+ *  cp 带重定向时 copyOf 只属拷贝目标，重定向目标内容不可知（delta1 发现 4/7 结构前置）。 */
+interface WriteFaceEntry {
+  target: string;
+  content: string | null;
+  copyOf?: string;
+}
+
 /** 造文件段内容重建（牙2）：echo/printf 静态参数、cat/tee 定界 heredoc 体 → 可重建；
- *  其他写法（cp/mv/追加/含展开参数）→ content=null（不可重建=dynamic）。 */
-// eslint-disable-next-line complexity -- F20261014smrj 牙2 内容重建（echo/printf/cat/tee/heredoc/重定向）形态穷举，分支=已实证写法枚举
-function writerContent(seg: Segment, cwd: string): { target: string; content: string | null } | null {
+ *  其他写法（cp/mv/追加/含展开参数）→ content=null（不可重建=dynamic）。
+ *  F20261019wvcp（M-026d87ff）：扩 argv 写面——cp/mv/install/ln/tee/curl/wget/dd 不经
+ *  重定向的落盘写同为造段（造-执对收编），内容一律不可重建 → content=null。
+ *  delta1（检视獭1554 发现 7）：argv 写面与重定向写面取**并集**——tee 带重定向时双写面
+ *  同记（`tee f > g` 的 g 不再被 argv 面遮蔽漏配对），逐面独立 content/copyOf。 */
+function writerContent(seg: Segment, cwd: string): WriteFaceEntry[] | null {
+  const entries: WriteFaceEntry[] = [];
+  const argvWrite = argvWriterContent(seg, cwd);
+  if (argvWrite !== null) {
+    for (const t of argvWrite.targets) {
+      entries.push({ target: t, content: null, ...(argvWrite.copyOf !== undefined ? { copyOf: argvWrite.copyOf } : {}) });
+    }
+  }
   let redirect: Segment["redirects"][number] | null = null;
   for (const r of seg.redirects) {
     if (!isWriteRedirect(r.op) || isFdDup(r.op, r.target)) continue;
     redirect = r;
     break;
   }
-  if (redirect === null || redirect.target === null) return null;
-  const target = evalPath(redirect.target, cwd);
-  if (target === null) return null;
-  if (redirect.op.includes(">>")) return { target, content: null }; // 追加：先验内容不可知
+  if (redirect !== null && redirect.target !== null) {
+    const target = evalPath(redirect.target, cwd);
+    if (target !== null) entries.push({ target, content: redirectWriteContent(seg, redirect) });
+  }
+  return entries.length > 0 ? entries : null;
+}
+
+/** 重定向写面内容重建（原 writerContent 尾段语义原样拆出）：追加先验不可知；echo/printf
+ *  静态参数重建；cat/tee 单 heredoc 体重建（含展开则不可知）；其余不可重建 → null。
+ *  printf 假重建治理（delta1 附带修 + delta2 S1/S2）：旧重建单参丢 format、多参丢 format、
+ *  八进制/十六进制转义不解释——三种假重建=把非空文件谎报成错内容=逃逸面（探针实证）。
+ *  终版语义：format 是内容骨架（单/多参同走 printfFormatContent——bash 实测无转换符时
+ *  多余实参被忽略），仅裸 %s 可精确代入、转义仅白名单可解释，其余一律 null（不猜，
+ *  fail-closed 兜住）。 */
+// eslint-disable-next-line complexity -- echo/printf（选项位/-v/--/format 位歧义/白名单转义）/heredoc/追加分支=已实证 bash 语义枚举（合并会遮蔽假重建修复）
+function redirectWriteContent(seg: Segment, redirect: Segment["redirects"][number]): string | null {
+  if (redirect.op.includes(">>")) return null; // 追加：先验内容不可知
   const bare = bareName(seg.argv0);
   if (bare === "echo" || bare === "printf") {
     const vals = seg.words.slice(1).map(w => w.evaluated);
-    if (vals.some(v => v === null)) return { target, content: null };
-    const args = vals.filter((v): v is string => v !== null && !v.startsWith("-"));
-    const content = bare === "printf" ? args.slice(1).join("\n") : args.join(" ");
-    return { target, content };
+    if (vals.some(v => v === null)) return null;
+    if (bare === "echo") {
+      const args = vals.filter((v): v is string => v !== null && !v.startsWith("-"));
+      return args.join(" ");
+    }
+    // printf（delta3 修——检视獭1554 delta2 发现 1-3 根因）：不无条件丢 `-` 词——bash
+    //   builtin 实测：选项位仅 -v NAME/--（`-e`/`--version` 报错空输出），dash 实参是
+    //   %s 数据不挡（`printf '%s %s\n' 'rm' '-rf /repo'` 载荷在被丢实参里=假良性）。
+    //   语义：前导 `--` 消费后 format/实参全保留（含 dash 词，逐词精确重建）；无 `--`
+    //   而 format 位是 dash 词 =选项位歧义（builtin 报错空输出 vs POSIX format 输出
+    //   vs -v 变量落点）→ null 不猜（既有 fail-closed 兜住）。
+    const ws = vals as string[];
+    const shifted = ws[0] === "--";
+    const rest = shifted ? ws.slice(1) : ws;
+    if (!shifted && (rest[0] ?? "").startsWith("-")) return null; // 选项位歧义——不猜
+    return printfFormatContent(rest[0] ?? "", rest.slice(1));
   }
   if ((bare === "cat" || bare === "tee") && seg.heredocs.length === 1) {
     const hd = seg.heredocs[0];
-    if (!hd.delimQuoted && /[$`]/.test(hd.body)) return { target, content: null };
-    return { target, content: hd.body };
+    if (!hd.delimQuoted && /[$`]/.test(hd.body)) return null;
+    return hd.body;
   }
-  return { target, content: null };
+  return null;
+}
+
+/** printf 转义白名单（可精确重建的解释集，bash printf 实测口径）：\a\b\e\f\n\r\t\v\\'"。
+ *  白名单外一律 null——含 bash 同样会解释的 \nnn 八进制/\xHH/\uHHHH 等（delta2 S2 修法
+ *  保守路，#1513 不军备化之尺）：转义形态穷举=军备化反面（漏一个形态=谎报内容=逃逸面，
+ *  S2 八进制/\xHH 实证），不猜就 fail-closed 兜住。 */
+const PRINTF_ESCAPES: Record<string, string> = { a: "\x07", b: "\b", e: "\x1b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "\\": "\\", "'": "'", '"': '"' };
+
+/** printf format 内容重建（delta2 S1/S2 修）：format 是内容骨架——bash 实测无转换符时
+ *  多余实参被忽略（S1 哑参逃逸：旧多参分支丢 format，单参修复加一个哑参即绕破）；
+ *  转换符仅裸 %s 可精确代入（format 按 bash 语义复用耗尽实参，末趟缺失位补空串），
+ *  其余转换符（%d/%x/宽度精度修饰/孤立%）→ null 不猜；转义仅白名单可解释，其余
+ *  （\nnn 八进制/\xHH/未知）→ null（假重建=谎报内容=逃逸面）。 */
+// eslint-disable-next-line complexity, max-statements -- format 词法令牌流（%s/%%/转义白名单）+ 复用渲染，分支=已实证 bash printf 语义枚举（合并会遮蔽假重建修复）
+function printfFormatContent(fmt: string, args: string[]): string | null {
+  type Tok = { t: "lit"; v: string } | { t: "s" };
+  const toks: Tok[] = [];
+  let lit = "";
+  for (let i = 0; i < fmt.length; i++) {
+    const c = fmt[i];
+    if (c === "%") {
+      const n = fmt[i + 1];
+      if (n === "%") { lit += "%"; i++; continue; }
+      if (n === "s") { if (lit !== "") { toks.push({ t: "lit", v: lit }); lit = ""; } toks.push({ t: "s" }); i++; continue; }
+      return null; // 其余转换符（%d/%x/宽度修饰/孤立%）——不猜
+    }
+    if (c === "\\") {
+      const n = fmt[i + 1];
+      if (n !== undefined && n in PRINTF_ESCAPES) { lit += PRINTF_ESCAPES[n]; i++; continue; }
+      return null; // 白名单外转义（S2）——不猜，fail-closed 兜住
+    }
+    lit += c;
+  }
+  if (lit !== "") toks.push({ t: "lit", v: lit });
+  const sCount = toks.reduce((n, tk) => n + (tk.t === "s" ? 1 : 0), 0);
+  if (sCount === 0) return toks.map(tk => tk.t === "lit" ? tk.v : "").join(""); // 无转换符：format 即内容（多余实参忽略，S1）
+  const passes = Math.max(1, Math.ceil(args.length / sCount)); // format 复用耗尽实参（bash 语义）
+  let out = "";
+  let a = 0;
+  for (let p = 0; p < passes; p++) {
+    for (const tk of toks) out += tk.t === "lit" ? tk.v : (a < args.length ? args[a++] : "");
+  }
+  return out;
+}
+
+/** argv 写面目标提取（F20261019wvcp 造-执对收编）：cp/mv/install/ln/tee/curl/wget/dd 不经
+ *  重定向的落盘写——内容一律不可重建（copy/download/管道输入）→ content=null（fail-closed，
+ *  与 `echo "$X" > f && bash f` 既有 script-payload-dynamic 机制同语义：造出内容是权威
+ *  载荷，不可重建就不猜）。cp/mv 多源附 dest/basename(src) 候选（`cp a /tmp/` 目录形态
+ *  写入 dest/basename）；目标词动态不入候选（执行面同动态路径时 script-path-dynamic 兜住，
+ *  无需配对）。delta1（检视獭1554 发现 2/3）：拷贝族目标前置形态（-t DIR / --target-directory
+ *  =DIR）与常规形态统一解析——目标=DIR/basename(src)，不再把 -t 的目标词当源文件。 */
+// eslint-disable-next-line complexity, max-statements -- argv 写面旗标/参数形态穷举（curl -o 三形态/dd of=/cp 多源/-t 目标前置），分支=已实证写法枚举
+function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; content: null; copyOf?: string } | null {
+  const bare = bareName(seg.argv0);
+  const words = seg.words.slice(1);
+  const args = words.map(w => w.evaluated).filter((v): v is string => v !== null && !v.startsWith("-"));
+  const targets: string[] = [];
+  let copyOf: string | undefined;
+  if (bare === "cp" || bare === "mv" || bare === "install" || bare === "ln") {
+    const fam = copyFamilyArgs(words);
+    if (fam === null) return null;
+    const targetDirForm = fam.targetDir !== null;
+    const srcs = targetDirForm ? fam.positionals : fam.positionals.slice(0, -1);
+    const dest = targetDirForm
+      ? (fam.positionals.length === 0 || fam.targetDir === null ? null : evalPath(fam.targetDir, cwd))
+      : (fam.positionals.length < 2 ? null : evalPath(fam.positionals[fam.positionals.length - 1], cwd));
+    if (dest === null || srcs.length === 0) return null;
+    if (!targetDirForm) targets.push(dest);
+    for (const src of srcs) {
+      const base = path.basename(src);
+      if (base !== "" && base !== "." && base !== "..") targets.push(`${dest}/${base}`);
+    }
+    // 保内容拷贝：单源时内容=源文件内容（链内造源可透传判读——corpus TS-402d73e5 守恒）。
+    // 边界（F20261019syml）：ln -s 的透传只判内容；穿链写主仓的负门归 symlink realpath 归一化（wv 通道），两层各管一段。
+    if (srcs.length === 1) copyOf = evalPath(srcs[0], cwd) ?? undefined;
+  } else if (bare === "tee") {
+    for (const a of args) { const t = evalPath(a, cwd); if (t !== null) targets.push(t); }
+  } else if (bare === "curl" || bare === "wget") {
+    targets.push(...downloadWriteTargets(words, cwd, bare).targets);
+  } else if (bare === "dd") {
+    for (const w of words) {
+      const v = w.evaluated;
+      if (v !== null && v.startsWith("of=")) { const t = evalPath(v.slice(3), cwd); if (t !== null) targets.push(t); }
+    }
+  } else return null;
+  return targets.length > 0 ? { targets, content: null, ...(copyOf !== undefined ? { copyOf } : {}) } : null;
+}
+
+/** 拷贝族（cp/mv/install/ln）参数解析（delta1 发现 2/3）：目标前置形态 -t DIR /
+ *  --target-directory=DIR / --target-directory DIR——目标目录从位置词剥离（否则 dest
+ *  误算成源文件），其余位置词=源。未知旗标不消耗值位（历史口径，install -m 755 的 755
+ *  仍入位置词=保守多候选）；目标目录动态/缺失 → null（落点不可证，交动态牙口）。 */
+function copyFamilyArgs(words: Word[]): { targetDir: string | null; positionals: string[] } | null {
+  const positionals: string[] = [];
+  let targetDir: string | null = null;
+  for (let i = 0; i < words.length; i++) {
+    const v = words[i].evaluated;
+    if (v === null) continue;
+    if (v === "-t" || v === "--target-directory") {
+      const nxt = words[i + 1]?.evaluated ?? null;
+      if (nxt === null) return null;
+      targetDir = nxt;
+      i++;
+      continue;
+    }
+    if (v.startsWith("--target-directory=")) { targetDir = v.slice("--target-directory=".length); continue; }
+    if (v.startsWith("-")) continue;
+    positionals.push(v);
+  }
+  return { targetDir, positionals };
+}
+
+/** 下载/输出旗标落点（delta1 发现 2，替换 curlOutputTargets）：curl/wget 输出旗标全形态——
+ *  分离值/`=`值/附着值（既有三形态）+ 合并短旗标簇（curl -so/-sfo、wget -qO 及附着值）
+ *  + 长旗标（--output-document=/--output-file=/--directory-prefix=）+ 默认落盘
+ *  （curl -O/--remote-name → basename(URL)；wget 无输出文档旗标 → saveDir/basename(URL)）。
+ *  一条语义一个接口：造-执配对（writerContent）与正写通道（evalExtendedWriteTargets）共用。
+ *  旗标语义差异如实分工具（c107 教训：合并会再制造旗标解析 bug）：curl -o=输出文档
+ *  /-O=remote-name（无值）；wget -O=输出文档/-o=日志文件（日志同为落盘写面）。
+ *  未知短旗标可能带值——停扫该簇（防误提取把旗标值当落点）；簇内 o/O 在停扫位之后=残余记档。 */
+interface DownloadWrite { targets: string[]; dynTarget: boolean }
+
+const DOWNLOAD_NO_VALUE_SHORT = new Set(["s", "S", "f", "v", "k", "q", "i", "I", "l", "L", "n", "N", "4", "6", "#", "g", "G", "R", "M"]);
+
+// eslint-disable-next-line complexity, max-statements, max-lines-per-function -- curl/wget 旗标形态穷举（簇/=/附着 × 值位 × 工具语义差异）+ 位置参数/默认落盘域同函数（拆分=两套解析=发现 3 病灶），分支=已实证旗标枚举（c107 教训：合并会再制造旗标解析 bug）
+function downloadWriteTargets(words: Word[], cwd: string, tool: "curl" | "wget"): DownloadWrite {
+  const targets: string[] = [];
+  const posArgs: string[] = [];
+  let dynTarget = false;
+  let remoteName = false; // curl -O/--remote-name（或短簇内 O）→ 落盘 basename(URL)
+  let saveDir: string | null = null; // wget -P/--directory-prefix → 默认落盘目录
+  let sawOutputDoc = false; // wget -O/--output-document（显式输出文档取代默认落盘）
+  let noDownload = false; // wget --spider/--dry-run（不落盘，无默认写面）
+  const pushVal = (val: string | null): void => {
+    if (val === null) { dynTarget = true; return; }
+    if (val === "") return; // 空值位（-o=）无落点——旧三形态正则 (.+) 同口径
+    if (val.startsWith("~")) { if (val.includes("..")) dynTarget = true; return; } // 家目录落点同 push() 口径：纯 ~ =非主仓树；~/.. 可爬升=不可证
+    const t = evalPath(val, cwd);
+    if (t !== null) targets.push(t);
+  };
+  for (let i = 0; i < words.length; i++) {
+    const v = words[i].evaluated;
+    if (v === null) continue; // 无关词动态跳过（落点位动态由 pushVal 记 dynTarget）
+    if (v === "--") { for (const u of words.slice(i + 1)) { const e = u.evaluated; if (e !== null) posArgs.push(e); } break; }
+    if (v.startsWith("--")) {
+      const eq = v.indexOf("=");
+      const name = eq === -1 ? v : v.slice(0, eq);
+      const inline = eq === -1 ? null : v.slice(eq + 1);
+      const outDoc = (tool === "curl" && name === "--output") || (tool === "wget" && (name === "--output-document" || name === "--output-file"));
+      if (outDoc) {
+        if (inline !== null) pushVal(inline);
+        else { pushVal(words[i + 1]?.evaluated ?? null); i++; }
+        if (tool === "wget" && name === "--output-document") sawOutputDoc = true;
+        continue;
+      }
+      if (tool === "curl" && (name === "--remote-name" || name === "--remote-name-all")) { remoteName = true; continue; }
+      if (tool === "wget" && name === "--directory-prefix") {
+        const val = inline !== null ? inline : (words[i + 1]?.evaluated ?? null);
+        if (inline === null) i++;
+        if (val === null) dynTarget = true; else if (val !== "") saveDir = val;
+        continue;
+      }
+      if (tool === "wget" && (name === "--spider" || name === "--dry-run")) { noDownload = true; continue; }
+      continue; // 其他长旗标：自含（=值）或无值——分离值形态漏认=残余记档（误消耗位置词防护优先）
+    }
+    if (v.startsWith("-") && v.length > 1) {
+      const cluster = v.slice(1);
+      let skipNext = false;
+      for (let k = 0; k < cluster.length; k++) {
+        const ch = cluster[k];
+        const rest = cluster.slice(k + 1);
+        const attached = rest.startsWith("=") ? rest.slice(1) : rest; // -o=f 历史口径值=f（三形态「=值」口径）
+        const attachedForm = attached !== "";
+        const val = attachedForm ? attached : (words[i + 1]?.evaluated ?? null);
+        if (tool === "curl" && ch === "o") { pushVal(val); skipNext = !attachedForm; break; }
+        if (tool === "wget" && (ch === "O" || ch === "o")) { pushVal(val); skipNext = !attachedForm; sawOutputDoc = ch === "O" || sawOutputDoc; break; }
+        if (tool === "wget" && ch === "P") { dynTarget = val === null || dynTarget; saveDir = val !== null && val !== "" ? val : saveDir; skipNext = !attachedForm; break; }
+        if (tool === "curl" && ch === "O") { remoteName = true; continue; } // curl -O 无值，继续扫簇（-sO 等）
+        if (!DOWNLOAD_NO_VALUE_SHORT.has(ch)) break; // 未知短旗标可能带值——停扫（漏认=残余记档，假写面=误拦优先防）
+      }
+      if (skipNext) i++;
+      continue;
+    }
+    posArgs.push(v); // 位置参数（URL/源词）
+  }
+  const defaultSave = (tool === "curl" && remoteName) || (tool === "wget" && !sawOutputDoc && !noDownload);
+  if (defaultSave) {
+    for (const u of posArgs) {
+      const base = path.basename(u);
+      if (base === "" || base === "." || base === ".." || /[?#]/.test(base)) continue;
+      pushVal(saveDir !== null ? `${saveDir}/${base}` : base);
+    }
+  }
+  return { targets, dynTarget };
 }
 
 /** 载荷主仓字面量闸（与窄提取「载荷含主仓树字面量一律回落」同源口径的反向判据）：
@@ -1218,6 +1526,45 @@ function judgeScriptPayload(text: string, projectRoot: string, cwd: string, acc:
   return null;
 }
 
+/** 配对判读（F20261019wvcp 抽出；delta1 修法——检视獭1554 发现 1/4）：回扫写段找造出
+ *  sPath 的那一段——**逆序扫（后写覆盖前写，与 chainContentPlan 同语义，发现 4）**：
+ *  同路径多写段时运行时生效的是最后一次写（`echo ok > f && echo pwn > f` 的 pwn），
+ *  顺扫取先写会让良性先写遮蔽恶意后写。内容可重建走内容判读，不可知 fail-closed。
+ *  管道段不再排除（发现 1 回归修）：bash 语义里重定向/argv 写面不受管道影响
+ *  （`echo pwn > f | wc` 的 echo 仍是 f 的造段——重定向优先于管道；管道只影响内容来源
+ *  可判读性，由 content=null 承担）；旧排除把「写段 stdout 进管道」整段跳过 =
+ *  `echo pwn > f | wc && bash f` 造-执对漏配（基线 BLOCK → 曾放行的回归）。 */
+function pairPlanFor(sPath: string, segs: Segment[], cwdAt: (string | null)[], upTo: number): SegPayloadPlan | undefined {
+  for (let j = upTo - 1; j >= 0; j--) {
+    const entries = writerContent(segs[j], cwdAt[j] as string);
+    if (entries === null) continue;
+    for (const e of entries) {
+      if (e.target !== sPath) continue;
+      if (e.content !== null) return { status: "content", text: e.content };
+      return e.copyOf !== undefined ? chainContentPlan(e.copyOf, segs, cwdAt, j) : { status: "dynamic" };
+    }
+  }
+  return undefined;
+}
+
+/** 链内源内容透传（F20261019wvcp）：cp/mv/install/ln 是保内容拷贝——源文件是同命令链内
+ *  造出的（heredoc/echo 静态内容）则内容透传可判读（corpus TS-402d73e5 服务脚本形态守恒
+ *  的关键）；外部源/追不到/链式拷贝超深 → dynamic（内容不可知→fail-closed，delta5 口径）。
+ *  逆序扫（同路径后写覆盖前写；追加写 content=null 吃到即 fail-closed，保守侧一致）。 */
+function chainContentPlan(src: string, segs: Segment[], cwdAt: (string | null)[], upTo: number, depth = 0): SegPayloadPlan {
+  if (depth > 4) return { status: "dynamic" };
+  for (let k = upTo - 1; k >= 0; k--) {
+    const entries = writerContent(segs[k], cwdAt[k] as string);
+    if (entries === null) continue;
+    for (const e of entries) {
+      if (e.target !== src) continue;
+      if (e.content !== null) return { status: "content", text: e.content };
+      return e.copyOf !== undefined ? chainContentPlan(e.copyOf, segs, cwdAt, k, depth + 1) : { status: "dynamic" };
+    }
+  }
+  return { status: "dynamic" };
+}
+
 /** 段级载荷计划（牙2 造-执对 + 牙3 三态）：先扫「命令内造脚本再执行」对（造出内容为权威载荷），
  *  其余外置脚本段取条目级载荷信息；显式声明与造-执均缺省时求值器自查 fs 证缺席（delta2 修法——
  *  「缺省=absent」的静默 fail-open 已收：未提供载荷 ≠ 缺席）。delta3 修法（严重 2）：cwd 解析
@@ -1237,12 +1584,7 @@ function buildScriptPayloadPlan(model: CommandModel, projectRoot: string, startC
     const v = ex.word.evaluated;
     if (cwdAt !== null && !ex.dynamic && v !== null) {
       const sPath = evalPath(v, cwdAt[i]);
-      for (let j = 0; j < i && sPath !== null && planned === undefined; j++) {
-        if (segs[j].joiner === "|") continue;
-        const w = writerContent(segs[j], cwdAt[j]);
-        if (w === null || w.target !== sPath) continue;
-        planned = w.content === null ? { status: "dynamic" } : { status: "content", text: w.content };
-      }
+      if (sPath !== null) planned = pairPlanFor(sPath, segs, cwdAt, i);
     }
     let absence: SegPayloadPlan | null = null;
     if (planned === undefined && entry === undefined && cwdAt !== null && absenceAllowed && !ex.dynamic && v !== null) {
@@ -1457,7 +1799,7 @@ function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: s
     if (seg.joiner !== "&" && seg.joiner !== "|" && bareName(seg.argv0) === "cd") {
       const nextJoiner = model.segments[i + 1]?.joiner ?? "";
       if (nextJoiner !== "&" && nextJoiner !== "|") {
-        const r = evalCdTarget(seg, model.segments, cwd);
+        const r = evalCdTarget(seg, model.segments, cwd, acc.index);
         if (r !== null) cwd = r;
       }
     }

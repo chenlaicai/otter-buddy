@@ -1,9 +1,16 @@
 /**
  * post_merge_fix_density: 合并后修复密度检测（Issue #647 项 6，PR2 的灵魂信号）
  *
- * 规则（合议定稿）：特性合入后窗口期内（小修 14 天 / 大特性 30 天），触碰链文件的
- * bugfix ≥3 次 或 占链窗口内全部 commit 的 ≥30% → 报「特性不对劲」（warning——
- * 是待查证不是定罪，不预设立场，只统计出血）。
+ * 规则（2026-10-19 调整，#1051 方案 1）：特性合入后窗口期内（小修 14 天 / 大特性
+ * 30 天），触碰链文件的 bugfix ≥3 次 **且** 占链窗口内全部 commit 的 ≥15% → 报
+ * 「特性不对劲」（warning——是待查证不是定罪，不预设立场，只统计出血）。
+ *
+ * 双门 AND 的由来（#1051 产出-消费断链治理，#1335 阈值口径拍板）：原口径是
+ * 「次数 ≥3 **或** 占比 ≥30%」的或门。实测 sqlite 52 条 open 存量里 **43 条只过了
+ * 次数门**——占比 1–12%，分母 15–236 条 commit。在月产 200+ commit 的仓库里，任何
+ * 合入 30 天内的特性都会凑够 3 条 bugfix，次数门在大分母下形同虚设（实测样本
+ * #435 = 3 次 / 111 条 = 3%）。占比下限 15% 取自实测分布的断层：噪音群 1–12%，
+ * 真信号群 15–29%，15% 恰落在断层内。
  *
  * 三条边界（缺一不可，issue #647）：
  * 1. 高扇入文件排除清单：被 ≥FAN_IN_THRESHOLD 个特性触碰的文件自动进清单（实测
@@ -40,12 +47,20 @@ export const LARGE_FEATURE_WINDOW_DAYS = 30;
 
 /** 触发阈值：窗口内触碰链文件的 bugfix ≥ 此次数 */
 export const FIX_COUNT_THRESHOLD = 3;
-/** 触发阈值：bugfix 占窗口全部 commit 比例 ≥ 此值 */
-export const FIX_RATIO_THRESHOLD = 0.3;
-/** 占比判定的最小分母：窗口内全部 commit 低于此值时占比支不启用。
- *  Why：分母 <5 时占比失真（合入后仅 1 条 bugfix → 100% 触发是荒谬的）；
- *  小样本场景由次数阈值（≥3）单支把关。 */
-export const RATIO_MIN_DENOMINATOR = 5;
+/** 触发阈值：bugfix 占窗口全部 commit 比例 ≥ 此值。
+ *  Why 0.15（#1051 方案 1）：实测 open 存量 ratio 分布呈双群——噪音群 1–12%（分母
+ *  15–236，纯次数门凑够）、真信号群 15–29%。15% 取在两群断层里，实测 52 条存量仅
+ *  9 条达标（归零或个位数，符合 #1051 验收断言）。
+ *  另注（诚实声明，PR #1560 检视严重发现 3 + delta 复核 A/B 订正）：未达阈值的链不
+ *  产出 signal，而 health_snapshots **没有链级（per-feature）密度落点**——快照里只有
+ *  全仓级指标（bugfix_ratio / bugfix_count / bugfix_ratio_of_fid），chain_states 也只是
+ *  active/orphan/regressed 计数（sqlite 实测），不含单链的 bugfix 分子/分母。所以被
+ *  压掉的**单链占比**在信号之外无历史序列，实时兜底只有 /api/health/chains；这不是
+ *  「观测不丢」，是有意让其静默。若要历史序列需另补快照行，属后续事项（需过机制预算
+ *  四问）。
+ *  注意：此结论**只适用于 density**。hotspot 不同——被排除的枢纽热度仍进快照
+ *  （distribution/file_hotspots，见 detect-signals.ts），那里「观测不丢」成立。 */
+export const FIX_RATIO_THRESHOLD = 0.15;
 
 /** 排除清单阈值：文件被 ≥ 此数个不同特性触碰即高扇入枢纽，进排除清单。
  *  实测（2026-09-01，30/60 天窗口分布一致）：app.ts×22 / platforms.ts×18 /
@@ -123,10 +138,14 @@ function detectChainFixDensity(ctx: {
   const chainFiles = new Set([...chain.touchFiles].filter(f => !excludedSet.has(f)));
   const bugfixHits = countBugfixHits(inWindow, chainFiles);
 
-  // 占比支最小分母保护：分母 <RATIO_MIN_DENOMINATOR 时占比失真（合入后仅 1 条 bugfix
-  // → 100% 触发是荒谬的），小样本场景由次数阈值单支把关
-  const ratio = inWindow.length >= RATIO_MIN_DENOMINATOR ? bugfixHits / inWindow.length : 0;
-  if (bugfixHits < FIX_COUNT_THRESHOLD && ratio < FIX_RATIO_THRESHOLD) return null;
+  // 双门 AND（#1051 方案 1）：两道门都要过。原「或门」让次数门在大分母下失守——
+  // 月产 200+ commit 的仓库里，合入 30 天内的特性几乎必然凑够 3 条 bugfix。
+  // 占比直接按实算，不再设最小分母下限：原设计的「分母 <5 占比失真」顾虑（合入后
+  // 仅 1 条 bugfix → 100% 触发是荒谬的）在 AND 语义下已由次数门接管——占比只在
+  // 次数 ≥3 时才可能过关，1 条 bugfix 无论如何过不了。而保留下限会造成**非单调悬崖**
+  //（PR #1560 检视建议 4）：3 bugfix/4 commit=75% 双门皆过却被拦，3/5=60% 反而触发。
+  const ratio = inWindow.length > 0 ? bugfixHits / inWindow.length : 0;
+  if (bugfixHits < FIX_COUNT_THRESHOLD || ratio < FIX_RATIO_THRESHOLD) return null;
 
   return {
     type: reg.type,

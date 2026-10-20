@@ -7,7 +7,7 @@
     "generated_at": "2026-10-12T10:52:25.895869Z",
     "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
     "pool": "条件期望库（无 cd cwd 不可反查——worktree→ALLOW / 主仓→BLOCK 双态各跑）",
-    "count": 105,
+    "count": 104,
     "restate_changes": {
       "git_policy_flip": 68,
       "to_conditional": 108,
@@ -3586,43 +3586,6 @@
             "event_id": "bf2b13de-1bd1-4e52-a349-052d493c63d6",
             "ts": "2026-10-10T07:10:43.567Z",
             "conversation_id": "27398619-8e0b-4147-8230-93e23f1a01ac",
-            "rule_id": "main_write",
-            "resolution": "",
-            "status": "open"
-          }
-        ]
-      },
-      "fp_marked": [],
-      "kind": "real_command",
-      "conditional": true,
-      "expectations": [
-        {
-          "cwd": "worktree",
-          "verdict": "ALLOW"
-        },
-        {
-          "cwd": "main",
-          "verdict": "BLOCK"
-        }
-      ]
-    },
-    {
-      "id": "TS-80b0e7bc",
-      "command": "P=/repo/data/workspaces/wsid/sync-probe/docs/features; mv $P/F20261012dmb-dm-message-bubble-inline-layout.md $P/hold.md; cat > $P/F20261012dmb-minimal-probe.md <<'EOF'\n---\nid: F20261012dmb\ntitle: 测试探针文档\nsummary: 同步管线故障定位用的最小探针。\nchange_type: feature\ncapability_test: n/a\ncreated_in_conversation: 0401284f-dff7-4927-af60-3516a984529d\ntags: [test]\n---\n\n# 探针\n\n正文。\nEOF\necho written",
-      "adjudication": [
-        "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
-        "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
-      ],
-      "source": {
-        "types": [
-          "guard_intercept"
-        ],
-        "anchors": [
-          {
-            "source": "guard_intercept",
-            "event_id": "80b0e7bc-0167-4626-be48-0c679933b43e",
-            "ts": "2026-10-12T09:22:03.035Z",
-            "conversation_id": "0401284f-dff7-4927-af60-3516a984529d",
             "rule_id": "main_write",
             "resolution": "",
             "status": "open"

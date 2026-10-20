@@ -12,7 +12,7 @@ from: [F20260826mwrd]
 
 # 獭间信号 C2：signal-parser + resolve_signal
 
-**父方案**：[F20260826mwrd](../26/F20260826mwrd.md) Part 2（signal-parser 与 `<signal>` 通道 + 裁决写路径）。C1 已交付 halt 投递管道（[F20260826sgpa](../26/F20260826sgpa.md)），本期补齐 objection/blocked 的完整闭环：小獭发信号 → 台账落 pending → 大獭 resolve_signal 裁决 → resolved/dismissed 留痕。
+**父方案**：[F20260826mwrd](../26/F20260826mwrd-magic-words-l10n-signal-protocol.md) Part 2（signal-parser 与 `<signal>` 通道 + 裁决写路径）。C1 已交付 halt 投递管道（[F20260826sgpa](../26/F20260826sgpa-halt-signal-pipeline.md)），本期补齐 objection/blocked 的完整闭环：小獭发信号 → 台账落 pending → 大獭 resolve_signal 裁决 → resolved/dismissed 留痕。
 
 ## 交付内容
 

@@ -15,14 +15,13 @@ const projectRoot = "/Users/orca/ai/otter-buddy";
 const WT = "/Users/orca/ai/otter-buddy/.otter/worktrees";
 
 describe("V9+ 真实拦截数据回放（9/28 healing events 现场）", () => {
-  it("E1: cd worktree && 赋值段链 && cp → 拦（动态源 fail-closed，无 cd 对照同判——原则② 两同；债记 B 立项）", () => {
-    // S1 裁决·Case-1（2026-10-19 红线修正后）：无 cd 同形态（cwd=worktree）实测同为
-    // BLOCK（存量 fail-closed，非删门回归）——按原则②「两同 BLOCK → 翻期望」与真实
-    // 行为对齐（期望变更，运行时行为零变化）。可用性债（cp 动态源→/tmp 真实现场
-    // 误拦）高优记入 B 立项：求值器动态源解析增强，随 wrapper/管道段 payload
-    // 附件一并进 B issue 范围。
+  it("E1: cd worktree && 赋值段链 && cp → 放行（落点可溯源：$F 同命令赋值，cp 落点 /tmp 树外）", () => {
+    // F20261019f714（M-f7148deb 第 3 条）：词表命令落点参数 $VAR 同命令赋值溯源落地
+    //（resolveTargetArgWord，与 cd 溯源同口径）——cp $F 的 $F 可求值，落点 /tmp/bak.tsx
+    // 树外→正面 ALLOW。旧期望「拦（动态源 fail-closed）」是遗留可用性债
+    //（原注释：高优记入 B 立项——求值器动态源解析增强），本次偿还，B 立项范围收窄。
     const r = checkBashCommandSafety(`${WT}/invoke-periodic-audit && F=web/src/pages/conversation/index.tsx && cp $F /tmp/bak.tsx`.replace(/^/, "cd "), mainPid, undefined, { projectRoot });
-    expect(r).not.toBeNull();
+    expect(r).toBeNull();
   });
   it("E3: cd worktree && git stash push → 放行（capability 獭 03:41 现场）", () => {
     const r = checkBashCommandSafety(`cd ${WT}/capability-entries-bridge && git stash push -- tests/capability/helpers/audit-fixtures.ts`, mainPid, undefined, { projectRoot });
