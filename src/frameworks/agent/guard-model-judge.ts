@@ -345,6 +345,10 @@ function judgePipeToShell(model: CommandModel, mainPid: number, logger: Logger |
       const t = w.evaluated ?? w.parts.map(p => p.text).join("");
       return /\b(?:kill|pkill|killall|skill|killall5)\b/i.test(t);
     }) || isKillSegmentQuick(prevSeg)
+      // F20261020c2sm（B3 基座修）：上游 heredoc 体同样计入——体经管道喂 shell 是真执行
+      //（cat <<'EOF' | bash 体含 kill），体不在 words 里（heredocs 独立结构）旧扫描漏
+      //（旧拦截靠 V1 空 token 陷阱歪打正着，陷阱修后由本词样基座接管）。
+      || prevSeg.heredocs.some(h => /\b(?:kill|pkill|killall|skill|killall5)\b/i.test(h.body))
       // V1 口径保持：注释 token 的词样也计入（curl | bash # kill 42877——V1 文本扫
       // 不辨注释；注释词样虽是数据但白名单外行为不变原则优先）
       || /\b(?:kill|pkill|killall|skill|killall5)\b/i.test(prevSeg.commentText ?? "");

@@ -29,6 +29,7 @@ import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
+import { segmentStdoutContent } from "./write-target-evaluator";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
 export type { AllowedService };
@@ -875,9 +876,10 @@ const tokenBasename = (t: string): string => {
   return base.toLowerCase();
 };
 
-/** 跳过一个包装词及其旗标参数（parseSegmentHead 内层，抽函数控圈复杂度）。
+/** 跳过一个包装词及其旗标参数（parseSegmentHead/stdinShellKind 共用内层——wrapper
+ *  吞食规则单一真相源，抽函数控圈复杂度）。
  *  确定性吞食（防贪婪误吞解释器名）：flags 连续 - 开头 / assigns FOO=v / duration 单个数值。 */
-function skipWrapperArgs(tokens: { text: string; offset: number }[], k: number, spec: WrapperSpec): number {
+function skipWrapperArgs(tokens: ReadonlyArray<{ text: string }>, k: number, spec: WrapperSpec): number {
   if (spec.flags) while (k < tokens.length && /^-/.test(tokens[k].text)) k++;
   if (spec.assigns) while (k < tokens.length && /^[A-Za-z_]\w*=\S*$/.test(tokens[k].text)) k++;
   if (spec.duration && k < tokens.length && /^\d/.test(tokens[k].text)) k++;
@@ -946,6 +948,7 @@ type FlagScan =
 function scanShellFlags(tokens: string[]): FlagScan {
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
+    if (tok === "") continue; // F20261020c2sm：空白切分残留空 token 非形态异常
     if (tok === "-c") return { kind: "C_FOUND" };
     // 带值旗标：-o/+o <optname>
     // F20261006gfvl 修正：-C 是无参 noclobber 旗标（大写 C 已在 SHELL_FLAG_WHITELIST 字符类），
@@ -963,6 +966,7 @@ function scanShellFlags(tokens: string[]): FlagScan {
     }
     if (SHELL_FLAG_WHITELIST.test(tok)) continue; // 白名单短旗标（含 -C 无参 noclobber）
     if (tok === "-") return { kind: "FILE" }; // heredoc stdin 标记（bash - <<'EOF'）——交外层 heredoc 检测
+    if (tok.startsWith("<<")) return { kind: "FILE" }; // F20261020c2sm：heredoc stdin 投递（bash <<'EOF'——dash 可省）同交体判通道，不按「旗标位非旗标」误拦
     if (/^--/.test(tok)) return { kind: "FAIL_CLOSED" }; // 长旗标（V5/V7 已收口）
     // F20261006gfvl 修正：-C 后遇非旗标 token（如 bash -C /tmp -c 'x' 的 /tmp）——
     // 真 bash 实测 /tmp 被当脚本文件名报 is a directory，payload 不执行。
@@ -1003,7 +1007,7 @@ function extractShellCPayload(seg: string, shellOffset: number): ShellCExtract {
   // `bash -o pipefail -c 'x'` 的 `pipefail` 值无前缀 → argM 从值后重新匹配 -c 成功、
   // flagStr 只含 -o（白名单内）→ 值被静默跳过（R1-R4 绕过实锤）。修复：逐 token 扫描，
   // 带值旗标的值 token 一并消费并校验，白名单外 fail-closed。
-  const tokens = after.trim().split(/\s+/);
+  const tokens = after.trim() === "" ? [] : after.trim().split(/\s+/); // F20261020c2sm：空参段不留幻影空 token（旧 "".split→[""] 被当「旗标位非旗标」FAIL_CLOSED）
   const scan = scanShellFlags(tokens);
   if (scan.kind === "FILE") return { kind: "FILE" };
   if (scan.kind === "FAIL_CLOSED") return { kind: "FAIL_CLOSED" };
@@ -1233,6 +1237,114 @@ function judgeShellCSegment(
     }
   }
   return false;
+}
+
+/** `-c` 载荷是否 stdin 中继（r1 严重 1——检视獭1565：`printf 'touch x' | bash -c sh`
+ *  双通道落空）：载荷是裸 shell 名时命令是 stdin 中继（`sh` 读管道内容真执行，写面在
+ *  stdin 里），按载荷递归只判 `sh` 词则两通道都看不着管道内容。载荷含任一 stdin 读入
+ *  shell 段即中继（`bash -c 'echo x; sh'` 真 bash 同样吃 stdin）；载荷解析失败/递归深度
+ *  耗尽 → fail-closed 按中继判（管道内容至少会被判一遍）。 */
+function isStdinRelayPayload(payload: string, depth: number): boolean {
+  const model = parseOnce(payload);
+  if (!model.parseOk) return true;
+  return model.segments.some(s => stdinShellKind(s, depth) === "stdin");
+}
+
+/** stdin 喂入 shell 段的尾参分类（stdinShellKind 内层，抽函数控语句数）：
+ *  -c 中继判定（严重 1）+ `-s` 旗标语义（建议 3a）+ lone `-` 族残余面（建议 3b）。 */
+function stdinShellTailKind(rest: string[], depth: number): "stdin" | "other" {
+  const scan = scanShellFlags(rest);
+  if (scan.kind === "C_FOUND") {
+    // -c 形态：载荷写面由 judgeShellCSegment 载荷递归承担；载荷自身是 stdin 读入
+    // shell 时本段是 stdin 中继，写面在管道内容里 → "stdin" 交管道喂入判定（严重 1）。
+    // attached 旗标组含 c（-xc）不被 scanShellFlags 认作 C_FOUND——载荷落旗标位
+    // FAIL_CLOSED 由结构通道 fail-closed 收口，不静默放行。
+    const cIdx = rest.indexOf("-c");
+    const payload = rest[cIdx + 1];
+    if (payload === undefined) return "other"; // -c 后无载荷词——结构通道 FAIL_CLOSED 收口
+    return depth <= 0 || isStdinRelayPayload(payload, depth - 1) ? "stdin" : "other";
+  }
+  if (scan.kind === "FAIL_CLOSED") return "other"; // 文件参/白名单外旗标——judgeShellCSegment fail-closed 收口（既有口径）
+  // FILE：无 -c 纯旗标形态——按 stdin 语义分类
+  if (rest.some(r => /^[-+][A-Za-z]*s[A-Za-z]*$/.test(r))) return "stdin"; // -s 读 stdin（操作数 $0/$n 不改喂入——`bash -s -`≡`bash -s`）
+  if (rest.includes("-")) return "other"; // lone `-` 族 pre-existing 放行面——残余记档不扩面
+  return "stdin"; // 裸 bash/纯旗标：管道在场即 stdin 喂入（无管道由调用方 joiner 过滤）
+}
+
+/** stdin 喂入 shell 段分类（F20261020c2sm）：段首（跳赋值前缀/wrapper 词）是 shell
+ *  解释器且 stdin 是命令文本来源 → "stdin"（写面在 stdin 内容里）。
+ *  r1 delta（检视獭1565 裁决——保护回退面收口，三件）：
+ *  ①`-c` 载荷是裸 shell（stdin 中继）→ "stdin"（严重 1，见 isStdinRelayPayload）；
+ *  ②wrapper 解析对齐 WRAPPER_SPECS+skipWrapperArgs 基座（严重 2——旧自立 6 词表与
+ *    仓库词表漂移，timeout/env/setsid/watch/stdbuf/xargs 带参形态静默漏判）；
+ *  ③`-s` 旗标语义（建议 3a：`bash -s -` ≡ `bash -s`，lone `-` 是 $0 操作数不改喂入）。
+ *  文件参/形态异常 → "other"（U5/FILE/FAIL_CLOSED 既有口径不收）；lone `-` 族
+ * （`bash -`/`bash -e -`）pre-existing 放行面保持不扩面（建议 3b 残余记档）。 */
+function stdinShellKind(seg: Segment, depth = 3): "stdin" | "other" | "none" {
+  const evals = seg.words.map(w => w.evaluated);
+  if (evals.some(e => e === null)) return "other"; // 动态词——既有口径不收
+  const texts = evals as string[];
+  const tokens = texts.map(text => ({ text }));
+  let i = 0;
+  for (;;) {
+    if (i >= texts.length) return "none";
+    const w = texts[i];
+    if (/^[A-Za-z_]\w*=/.test(w)) { i++; continue; } // 赋值前缀
+    const spec = WRAPPER_SPECS[tokenBasename(w)];
+    if (!spec) break;
+    i = skipWrapperArgs(tokens, i + 1, spec);
+  }
+  const base = tokenBasename(texts[i]).replace(/\d+$/, "");
+  if (!SHELL_INTERP_NAMES.has(base)) return "none";
+  return stdinShellTailKind(texts.slice(i + 1), depth);
+}
+
+const STDIN_SHELL_OPAQUE_MSG = "管道喂入 shell 执行的脚本内容未经守卫逐条判定（上游非静态可判源：cat/curl/变量/命令替换），绕过面不可接受。该命令不允许：请改写为 bash -c '<载荷>' 形态（载荷可逐条判定）或把脚本内容拆成独立命令执行；若确认此命令本意安全，请改用保持原语义的不含管道喂 shell 的方式达成目的；无法规避时告知搭档人工执行。";
+
+/** stdin 喂入 shell 载荷判定（F20261020c2sm，M-49a4909d C2 误判族现存活跃面）：arg-less
+ *  shell 段（裸 bash/纯旗标无 -c——写面在 stdin 内容里）的判定。旧实现由 scanShellFlags
+ *  空 token 陷阱（`"".trim().split(/\\s+/)`→[""]，幻影空 token 被当「旗标位非旗标」
+ *  FAIL_CLOSED）意外拦下全部形态——连良性静态载荷（printf 'echo hi' | bash）与树外/
+ *  工作区写都吃「落点解析到主仓」误拦且文案错定因；`bash -` 同语义却走 FILE 放行
+ *  （判据分裂实证）；`bash -e` 等带旗标形态反而漏放（保护面碎片化）。
+ *  语义：管道上游静态可判（echo/printf 静态词——segmentStdoutContent 与重定向写面同一
+ *  重建基座）→ 载荷递归走同一 checkMainCheckoutWrite（与 bash -c 载荷同基座：写主仓
+ *  拦/树外放/工作区豁免）；上游不透明 → fail-closed 拦（U5 族「脚本内容未经逐条判定」
+ *  正确定因）；无管道上游（裸 bash stdin=EOF）→ 无写面放行（与 bash - 既有口径一致）。 */
+function stdinShellFeederVeto(
+  command: string,
+  depth: number,
+  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; writeChannelSkip?: "file-write" },
+): string | null {
+  const model = parseOnce(command);
+  if (!model.parseOk) return null; // 解析失败形态由 V1 兜底链既有 fail-closed 承担
+  const segs = model.segments;
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i];
+    if (stdinShellKind(seg) !== "stdin") continue;
+    if (seg.heredocs.length > 0) continue; // heredoc stdin 体在场——体判通道已逐条判
+    if (seg.joiner !== "|") continue; // 裸 bash/非管道上游：stdin 无内容（EOF）无写面
+    const feeder = segs[i - 1];
+    if (feeder === undefined) continue;
+    // 静态可判源：echo/printf 静态词（同一重建基座）；裸 cat + 定界 heredoc（体即 stdout）
+    const heredoc = feeder.heredocs.length === 1 ? feeder.heredocs[0] : null;
+    const catBody = heredoc !== null && ((feeder.argv0 ?? "").split("/").pop() === "cat" && feeder.words.length === 1 && (heredoc.delimQuoted || !/[$`]/.test(heredoc.body)))
+      ? heredoc.body
+      : null;
+    const content = segmentStdoutContent(feeder) ?? catBody;
+    if (content === null || depth <= 0) {
+      ctx.logger?.warn("[bash-safety-guard] BLOCKED pipe-fed shell (opaque stdin source)", { command: command.substring(0, 200) });
+      return STDIN_SHELL_OPAQUE_MSG;
+    }
+    // 性能债（r1 建议 4 记档不修）：载荷递归每层重复 parseOnce——载荷小、深度有限，
+    // 优化需引入解析缓存/共享上下文（低收益高扰动），换取「载荷与命令同一判定基座」。
+    // kill 面（B3 口径——载荷是被执行的真实命令文本）：词样拦截与上游词样检测同口径，
+    // 递归上下文（bash -c 嵌套管道——模型层不递归跑 judgePipeToShell）由本检査兜住
+    if (/\b(?:kill|pkill|killall|skill|killall5)\b/i.test(content)) return INDIRECT_KILL_BLOCK_MSG;
+    const hit = checkMainCheckoutWrite({ command: content, logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, depth: depth - 1, writeChannelSkip: ctx.writeChannelSkip });
+    if (hit !== null) return hit; // 载荷写面命中——沿用命中通道文案（含正确落点定因）
+  }
+  return null;
 }
 
 /** 段级判定（checkSegmentStructuralWrite 的单段处理，抽函数控圈复杂度） */
@@ -2024,6 +2136,10 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
     logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via wrapped one-liner (no cd)", { command: command.substring(0, 200) });
     return rewriteMainWriteBlockMsg(sessionCwd);
   }
+  // F20261020c2sm：stdin 喂入 shell 载荷判定（M-49a4909d C2 现存面）——管道静态载荷递归判
+  //（与 bash -c 载荷同基座）/ 不透明源 fail-closed 正确定因 / 裸 bash 无写面放行
+  const stdinVeto = stdinShellFeederVeto(command, depth, { logger, projectRoot, sessionCwd, writeChannelSkip: ctx.writeChannelSkip });
+  if (stdinVeto !== null) return stdinVeto;
   return null;
 }
 
