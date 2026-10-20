@@ -639,17 +639,14 @@ describe("StoreMemory - F20261013ebps 批量 embed + 槽位流速控制", () => 
     expect(repo.storedEmbeddings).toHaveLength(0);
   });
 
-  it("replaceChunksBySource：支持 acquireSlot 时发起 batch 前先等空闲槽（软限流，检视 #1465 严重发现 1）", async () => {
+  it("replaceChunksBySource：embedBatch 带 waitSlot 软限流 + salvage（F20261020slvg：槽位等待内嵌，取代 acquireSlot 配对）", async () => {
     const repo = statefulRepo();
-    const events: string[] = [];
+    const optsSeen: Array<{ waitSlot?: boolean; salvage?: unknown }> = [];
     const embedding: EmbeddingGateway = {
       available: true,
       embed: async () => new Float32Array([0.1]),
-      acquireSlot: async () => {
-        events.push("acquire");
-      },
-      embedBatch: async (texts: string[]) => {
-        events.push("batch");
+      embedBatch: async (texts: string[], opts?: { waitSlot?: boolean; salvage?: unknown }) => {
+        optsSeen.push(opts ?? {});
         return texts.map(() => new Float32Array([0.1]));
       },
     };
@@ -658,7 +655,10 @@ describe("StoreMemory - F20261013ebps 批量 embed + 槽位流速控制", () => 
     await store.replaceChunksBySource(chunkInputs(2));
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(events).toEqual(["acquire", "batch"]);
+    // waitSlot 软限流 + salvage 回调都传给了 embedBatch
+    expect(optsSeen).toHaveLength(1);
+    expect(optsSeen[0].waitSlot).toBe(true);
+    expect(typeof optsSeen[0].salvage).toBe("function");
     expect(repo.storedEmbeddings).toHaveLength(2);
   });
 });

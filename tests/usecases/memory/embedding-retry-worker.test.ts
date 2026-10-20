@@ -9,7 +9,7 @@ import { initSchema } from "@frameworks/db/schema";
 import { EmbeddingRetryWorker } from "@usecases/memory/embedding-retry-worker";
 import { createAndStartRetryWorker } from "../../../src/bootstrap/memory";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
-import { EmbedTimeoutError } from "@usecases/memory/embedding-gateway";
+import { EmbedTimeoutError, EmbedBackpressureError, EmbedTransientError } from "@usecases/memory/embedding-gateway";
 import type { Repositories } from "../../../src/bootstrap/types";
 import type DatabaseType from "better-sqlite3";
 import { createTestLogger } from "../../helpers/logger";
@@ -332,6 +332,7 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
       expect(getVecCount()).toBe(10);
     });
   });
+
 });
 
 describe("F20260812mrcq Part 1 审视 M3 - createAndStartRetryWorker 存量迁移", () => {
@@ -392,5 +393,134 @@ describe("F20260812mrcq Part 1 审视 M3 - createAndStartRetryWorker 存量迁�
     const worker = await createAndStartRetryWorker(mockRepos, mockEmbedding, createTestLogger());
     expect(worker).toBeNull();  // vec 禁用时不启动
     migDb.close();
+  });
+});
+
+describe("F20261020slvg 背压不计 attempts + salvage 落库去重", () => {
+  it("EmbedBackpressureError 不计入 maxAttempts 且终止本轮（条目保持 pending）", async () => {
+    insertEntry("bp-entry", "backpressure content that is long enough");
+    await repo.enqueueRetry("bp-entry", new Error("init"));
+
+    const bpGw = makeEmbeddingGateway((): Promise<Float32Array> => {
+      throw new EmbedBackpressureError("Embedding backpressure: 1 in-flight requests exceed limit 1");
+    });
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, bpGw, createTestLogger(), 30_000, 3);
+
+    for (let round = 0; round < 4; round++) {
+      db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
+      await worker.tickNow();
+    }
+
+    const row = getTaskStatus("bp-entry");
+    // 关键断言：仍是 pending 且 attempts 未被背压消耗（claim 的 attempts+1 来自 claimPendingTasks 自身）
+    expect(row).not.toBeNull();
+    expect(row!.status).toBe("pending");
+    expect(getVecCount()).toBe(0);
+  });
+
+  it("超时后 salvage 晚到向量落库 + markTaskDone 去重（双轨）", async () => {
+    insertEntry("salvage-entry", "salvage content that is long enough");
+    await repo.enqueueRetry("salvage-entry", new Error("init"));
+
+    // mock：调用方 promise 超时 reject，但通过 opts.salvage 晚到结果
+    const timeoutThenSalvageGw: EmbeddingGateway = {
+      available: true,
+      embed: (_text: string, opts?: { salvage?: (v: Float32Array) => void }) => {
+        // 调用方 30s 超时语义：直接 reject EmbedTimeoutError（模拟超时已发生）
+        // 稍后 salvage 晚到向量（模拟 worker 响应到达）
+        setTimeout(() => opts?.salvage?.(SAMPLE_VEC), 10);
+        return Promise.reject(new EmbedTimeoutError("Embed timeout after 30ms"));
+      },
+    };
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, timeoutThenSalvageGw, createTestLogger(), 30_000, 3);
+
+    await worker.tickNow();
+    // salvage 是异步 fire-and-forget——等它落库
+    for (let i = 0; i < 100 && getVecCount() === 0; i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    // 晚到向量经 salvage 落库，任务行被 markTaskDone 删除
+    expect(getVecCount()).toBe(1);
+    expect(getTaskStatus("salvage-entry")).toBeNull();
+  });
+
+  it("tickNow 重入守卫：in-flight tick 期间不并发进入", async () => {
+    insertEntry("reentry-entry", "reentry content that is long enough");
+    await repo.enqueueRetry("reentry-entry", new Error("init"));
+
+    let release: (() => void) | null = null;
+    const slowGw = makeEmbeddingGateway(
+      () => new Promise<Float32Array>((resolve) => { release = () => resolve(SAMPLE_VEC); }),
+    );
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, slowGw, createTestLogger(), 30_000, 3);
+
+    const first = worker.tickNow();
+    const second = worker.tickNow(); // in-flight——应立即返回（不消费）
+    await second;
+    // TS 收窄 workaround：release 在闭包内赋值，外层读需断言回联合类型
+    (release as (() => void) | null)?.();
+    await first;
+
+    expect(getVecCount()).toBe(1);
+  });
+});
+
+describe("F20261020slvg 对抗审视修复", () => {
+  it("EmbedTransientError 不计入 maxAttempts——反复瞬态失败后条目仍 pending", async () => {
+    insertEntry("transient-entry", "transient content that is long enough");
+    await repo.enqueueRetry("transient-entry", new Error("init"));
+    // 预置 attempts 撑大（模拟活锁期被反复 claim）
+    db.prepare(`UPDATE embedding_tasks SET attempts = 5 WHERE entry_id = 'transient-entry'`).run();
+
+    const transientGw = makeEmbeddingGateway((): Promise<Float32Array> => {
+      throw new EmbedTransientError("Embedding worker restarting (watchdog)");
+    });
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, transientGw, createTestLogger(), 30_000, 3);
+
+    for (let round = 0; round < 4; round++) {
+      db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
+      await worker.tickNow();
+    }
+
+    // 瞬态错误不埋单：仍 pending（若走 markTaskAttemptFailed，attempts=6 ≥ 3 必 dead）
+    const row = getTaskStatus("transient-entry");
+    expect(row).not.toBeNull();
+    expect(row!.status).toBe("pending");
+  });
+
+  it("纯超时轮不计入熔断（吸收态修正）——连续 4 轮全超时后仍继续消费", async () => {
+    for (let i = 0; i < 3; i++) {
+      insertEntry(`absorb-${i}`, `absorb content ${i}`);
+      await repo.enqueueRetry(`absorb-${i}`, new Error("init"));
+    }
+    // 全部超时
+    const timeoutGw = makeEmbeddingGateway(async () => {
+      throw new EmbedTimeoutError("Embed timeout after 30ms");
+    });
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, timeoutGw, createTestLogger(), 30_000, 3);
+    for (let round = 0; round < 4; round++) {
+      db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
+      await worker.tickNow();
+    }
+
+    // 换成功 gateway——熔断未开（纯超时轮不算全失败），立即能继续消费
+    const okGw = makeEmbeddingGateway(async () => SAMPLE_VEC);
+    const okWorker = new EmbeddingRetryWorker(repo, repo, repo, okGw, createTestLogger(), 30_000, 3);
+    db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
+    await okWorker.tickNow();
+    expect(getVecCount()).toBe(3);
+    expect(getTaskStatus("absorb-0")).toBeNull();
+  });
+
+  it("resetPendingAttempts：pending 任务 attempts 归零并立即可重试", async () => {
+    insertEntry("amnesty-entry", "amnesty content that is long enough");
+    await repo.enqueueRetry("amnesty-entry", new Error("init"));
+    db.prepare(`UPDATE embedding_tasks SET attempts = 7 WHERE entry_id = 'amnesty-entry'`).run();
+
+    const reset = await repo.resetPendingAttempts!();
+    expect(reset).toBeGreaterThanOrEqual(1);
+    const row = getTaskStatus("amnesty-entry");
+    expect(row!.attempts).toBe(0);
   });
 });

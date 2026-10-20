@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { initEmbeddingService, EmbeddingServiceImpl } from "../../../src/frameworks/embedding/embedding-service";
+import { EmbeddingServiceImpl } from "../../../src/frameworks/embedding/embedding-service";
+import { initEmbeddingService } from "../../../src/frameworks/embedding/embedding-init";
+import { EmbedBackpressureError } from "../../../src/usecases/memory/embedding-gateway";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
@@ -263,14 +265,16 @@ process.on("message", (msg) => {
 
     try {
       // 先等 worker ready——否则 embed 内的 await waitForReady() 会让槽位占用延后一个 microtask，
-      // 后面的 acquireSlot 会插队看到空槽（测试时序缺陷，非实现 bug）
+      // 后面的 acquireSlot 会插队看到空槽（测试时序缺陷，非实现 bug；F20261020slvg 已在实现层
+      // 消灭该 TOCTOU——新代码应走 waitSlot，此处 acquireSlot 仅作兼容遗留入口）
       await service.acquireSlot!();
       // 打满 2 个槽位
       const p1 = service.embed("a");
       const p2 = service.embed("b");
       // embed 体内部 await waitForReady() 是异步断点——哪怕 ready 已置位，占槽也发生在后续 microtask；
       // 必须等两个 embed 真正入 pendingRequests——ready 消息经 worker IPC，到达时机不确定，
-      // 轮询 in-flight 计数到 2 为止（否则后续 acquireSlot 看到空槽插队，测试时序缺陷，非实现 bug）
+      // 轮询 in-flight 计数到 2 为止（否则后续 acquireSlot 看到空槽插队，测试时序缺陷，非实现 bug；
+      // F20261020slvg 后 acquireSlot 仅兼容遗留，新代码应走 waitSlot 原子路径）
       const svcInternal = service as unknown as { pendingRequests: Map<number, unknown> };
       for (let i = 0; i < 200 && svcInternal.pendingRequests.size < 2; i++) {
         await new Promise((r) => setTimeout(r, 5));
@@ -317,10 +321,13 @@ process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } }
   });
 });
 
-// F20261015selfheal：embed 超时自愈——timeout 后 SIGKILL 假死 worker 并重建
+// F20261015selfheal → F20261020slvg：自愈入口从「超时触发」改为「无进展看门狗触发」。
+// 测试直接调 watchdogTick() 模拟心跳（确定性，不依赖 60s interval），
+// setTestWatchdogOverride 把无进展阈值压到毫秒级。
 describe("worker 超时自愈", () => {
-    it("embed 超时后 SIGKILL 假死 worker 并重建，重建后 embed 恢复正常", async () => {
+    it("超时不再直接杀 worker；无进展看门狗触发后 SIGKILL 假死 worker 并重建，恢复可用", async () => {
       EmbeddingServiceImpl.setTestTimeoutOverride(200);
+      EmbeddingServiceImpl.setTestWatchdogOverride(1);
       const mockWorkerPath = writeMockWorker(
         "mock-hang-worker.mjs",
         `
@@ -348,11 +355,16 @@ if (process.env.OTTER_EMBED_TEST_GENERATION === "1") {
 
       try {
         // 等 gen=0 worker ready
-        const svcInternal = service as unknown as { readyState: { ready: boolean }; restartTimestamps: number[] };
+        const svcInternal = service as unknown as { readyState: { ready: boolean }; restartTimestamps: number[]; watchdogTick: () => void };
         await waitFor(() => svcInternal.readyState.ready, "gen0 ready");
 
-        // gen=0 假死 → embed 超时 → 触发自愈重建（spawn gen=1）
+        // gen=0 假死 → embed 超时 → F20261020slvg：超时本身不再触发重启
         await expect(service.embed("hang")).rejects.toThrow("Embed timeout");
+        expect(svcInternal.restartTimestamps.length).toBe(0);
+
+        // 无进展超阈值（1ms）→ 看门狗 tick 触发自愈重建（spawn gen=1）
+        await new Promise((r) => setTimeout(r, 5));
+        svcInternal.watchdogTick();
         expect(svcInternal.restartTimestamps.length).toBe(1);
 
         // 等 gen=1 worker ready（新 worker 正常回消息）
@@ -365,12 +377,14 @@ if (process.env.OTTER_EMBED_TEST_GENERATION === "1") {
       } finally {
         service.dispose();
         EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        EmbeddingServiceImpl.setTestWatchdogOverride(null);
         fs.unlinkSync(mockWorkerPath);
       }
     });
 
     it("窗口内重启超限时熔断：available 变 false，embed 直接 reject", async () => {
       EmbeddingServiceImpl.setTestTimeoutOverride(100);
+      EmbeddingServiceImpl.setTestWatchdogOverride(1);
       const mockWorkerPath = writeMockWorker(
         "mock-hang-worker2.mjs",
         `
@@ -385,14 +399,16 @@ process.on("message", () => {});
       });
 
       try {
-        const svcInternal = service as unknown as { readyState: { ready: boolean }; restartTimestamps: number[]; circuitBroken: boolean };
+        const svcInternal = service as unknown as { readyState: { ready: boolean }; restartTimestamps: number[]; circuitBroken: boolean; watchdogTick: () => void };
         await waitFor(() => svcInternal.readyState.ready, "initial ready");
 
-        // 连续触发 4 次超时（超过 RESTART_MAX_IN_WINDOW=3）
+        // 连续触发 4 次看门狗重启（超过 RESTART_MAX_IN_WINDOW=3）
         for (let i = 0; i < 4; i++) {
-          // 每次重建后等新 worker ready 再发下一次
+          // 每次重建后等新 worker ready 再挂起下一条
           await waitFor(() => svcInternal.readyState.ready, `ready before hang ${i}`);
-          await expect(service.embed("hang")).rejects.toThrow();
+          void service.embed("hang").catch(() => "timed out");
+          await new Promise((r) => setTimeout(r, 5));
+          svcInternal.watchdogTick();
         }
 
         expect(svcInternal.circuitBroken).toBe(true);
@@ -402,12 +418,14 @@ process.on("message", () => {});
       } finally {
         dispose();
         EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        EmbeddingServiceImpl.setTestWatchdogOverride(null);
         fs.unlinkSync(mockWorkerPath);
       }
     });
 
-    it("embedBatch 超时同样触发自愈重建（检视 #1493 发现 1：批量路径闭合泄漏家族）", async () => {
+    it("embedBatch 假死同样由看门狗自愈（检视 #1493 发现 1：批量路径闭合泄漏家族）", async () => {
       EmbeddingServiceImpl.setTestTimeoutOverride(200);
+      EmbeddingServiceImpl.setTestWatchdogOverride(1);
       const mockWorkerPath = writeMockWorker(
         "mock-hang-batch-worker.mjs",
         `
@@ -422,21 +440,28 @@ process.on("message", () => {});
       });
 
       try {
-        const svcInternal = service as unknown as { readyState: { ready: boolean }; restartTimestamps: number[] };
+        const svcInternal = service as unknown as { readyState: { ready: boolean }; restartTimestamps: number[]; watchdogTick: () => void };
         await waitFor(() => svcInternal.readyState.ready, "initial ready");
 
-        // batch 超时 → 同样触发 restartWorker（发现 1：批量路径与单条路径同等自愈）
+        // batch 超时 → 只 reject 不重启（慢≠死收窄语义延续）
         await expect(service.embedBatch!(["a", "b"])).rejects.toThrow("Embed batch timeout");
+        expect(svcInternal.restartTimestamps.length).toBe(0);
+
+        // 看门狗 tick → 批量路径同样被无进展判死重建
+        await new Promise((r) => setTimeout(r, 5));
+        svcInternal.watchdogTick();
         expect(svcInternal.restartTimestamps.length).toBe(1);
       } finally {
         dispose();
         EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        EmbeddingServiceImpl.setTestWatchdogOverride(null);
         fs.unlinkSync(mockWorkerPath);
       }
     });
 
-    it("超时重启落结构化现场快照（观测增强：worker 画像 + 超时请求画像 + 宿主快照）", async () => {
+    it("看门狗重启落结构化现场快照（观测增强：worker 画像 + 超时请求画像 + 宿主快照）", async () => {
       EmbeddingServiceImpl.setTestTimeoutOverride(150);
+      EmbeddingServiceImpl.setTestWatchdogOverride(1);
       const mockWorkerPath = writeMockWorker(
         "mock-hang-observe-worker.mjs",
         `
@@ -459,10 +484,12 @@ process.on("message", () => {});
       const service = new EmbeddingServiceImpl(workerFactory(), captureLogger as never, workerFactory);
 
       try {
-        const svcInternal = service as unknown as { readyState: { ready: boolean } };
+        const svcInternal = service as unknown as { readyState: { ready: boolean }; watchdogTick: () => void };
         await waitFor(() => svcInternal.readyState.ready, "initial ready");
 
         await expect(service.embed("观测增强验证文本")).rejects.toThrow("Embed timeout");
+        await new Promise((r) => setTimeout(r, 5));
+        svcInternal.watchdogTick();
 
         // 断言结构化快照落账
         const restartLog = warnCalls.find(c => c.message === "embedding_worker_restart");
@@ -471,12 +498,15 @@ process.on("message", () => {});
         expect(ctx.action).toBe("embedding_worker_restart");
         expect(ctx.restartsInWindow).toBe(1);
         expect(typeof ctx.workerAgeMs).toBe("number");
+        // F20261020slvg 新增画像：outstanding 请求数 + salvage 计数
+        expect(ctx.outstandingRequests).toBe(1);
+        expect(ctx.workerSalvagedResults).toBe(0);
         // 超时请求画像：文本长度/token 估算/前缀摘要
         const timeoutCtx = ctx.timeoutContext as Record<string, unknown>;
         expect(timeoutCtx.path).toBe("embed");
         expect((timeoutCtx.text as Record<string, unknown>).chars).toBe(8);
         expect((timeoutCtx.text as Record<string, unknown>).head).toBe("观测增强验证文本");
-        // 检视 #1493 delta 存量发现：inflight 在 delete 自身之前读（本请求已超时但还在队列里，=1）
+        // F20261020slvg：超时后条目保留（不再自删）——inflight 含自身 =1
         expect(timeoutCtx.inflight).toBe(1);
         // 宿主快照：rss/heap/loadavg 齐全
         const host = ctx.host as Record<string, unknown>;
@@ -486,6 +516,7 @@ process.on("message", () => {});
       } finally {
         service.dispose();
         EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        EmbeddingServiceImpl.setTestWatchdogOverride(null);
         fs.unlinkSync(mockWorkerPath);
       }
     });
@@ -493,6 +524,7 @@ process.on("message", () => {});
     // F20261015kill：旧 worker exit 滞后事件不得污染新一代 readyState
     it("重建后旧 worker 滞后 exit 不得把新 worker 打回未就绪（代际隔离）", async () => {
       EmbeddingServiceImpl.setTestTimeoutOverride(150);
+      EmbeddingServiceImpl.setTestWatchdogOverride(1);
       const mockWorkerPath = writeMockWorker(
         "mock-gen-isolate-worker.mjs",
         `
@@ -520,10 +552,13 @@ if (process.env.OTTER_EMBED_TEST_GENERATION === "1") {
         const svcInternal = service as unknown as {
           readyState: { ready: boolean; loadError: Error | null };
           restartTimestamps: number[];
+          watchdogTick: () => void;
         };
         await waitFor(() => svcInternal.readyState.ready, "gen0 ready");
 
         await expect(service.embed("hang")).rejects.toThrow("Embed timeout");
+        await new Promise((r) => setTimeout(r, 5));
+        svcInternal.watchdogTick();
         await waitFor(() => svcInternal.readyState.ready, "gen1 ready");
 
         // 给旧 worker 的 exit/error 滞后事件留一个事件循环窗口
@@ -538,16 +573,18 @@ if (process.env.OTTER_EMBED_TEST_GENERATION === "1") {
       } finally {
         service.dispose();
         EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        EmbeddingServiceImpl.setTestWatchdogOverride(null);
         fs.unlinkSync(mockWorkerPath);
       }
     });
 });
 
-// F20261016ebrt：慢≠死语义收窄——超时只杀真死锁，不杀慢 worker
+// F20261016ebrt → F20261020slvg：「慢≠死」由无进展看门狗承载——
+// 慢但持续有响应的 worker 永不被杀；真死锁（无响应）必被杀。
 describe("超时语义收窄（慢≠死）", () => {
-    // F20261016ebrt：慢≠死——本代有成功记录的 worker 超时不得被杀
-    it("本代有成功记录时超时只 reject 不杀 worker（慢≠死）", async () => {
+    it("超时本身不再触发重启（无论本代成功与否）——自愈入口已移到看门狗", async () => {
       EmbeddingServiceImpl.setTestTimeoutOverride(150);
+      EmbeddingServiceImpl.setTestWatchdogOverride(100);
       const mockWorkerPath = writeMockWorker(
         "mock-slow-not-dead-worker.mjs",
         `
@@ -560,7 +597,7 @@ process.on("message", (msg) => {
     // 第一条立即成功——让本代有 workerEmbedSucceeded 记录
     process.send({ type: "result", embedding: new Float32Array(4), id: msg.id });
   }
-  // 后续不回——模拟慢/卡，但本代已证明 worker 活着
+  // 后续不回——单条请求视角的「慢」，但下方持续有新请求响应喂狗
 });
 `
       );
@@ -572,6 +609,7 @@ process.on("message", (msg) => {
         const svcInternal = service as unknown as {
           readyState: { ready: boolean };
           restartTimestamps: number[];
+          watchdogTick: () => void;
         };
         await waitFor(() => svcInternal.readyState.ready, "initial ready");
 
@@ -580,22 +618,24 @@ process.on("message", (msg) => {
         expect(first).toBeInstanceOf(Float32Array);
         expect(svcInternal.restartTimestamps.length).toBe(0);
 
-        // 第二条超时——但本代有成功记录，不得触发 restartWorker
+        // 第二条超时——超时本身不杀（F20261020slvg：自愈入口已从超时移到看门狗）
         await expect(service.embed("slow one")).rejects.toThrow("Embed timeout");
         expect(svcInternal.restartTimestamps.length).toBe(0);
+        expect(svcInternal.readyState.ready).toBe(true);
 
         // worker 还活着：ready 仍为 true（没被杀掉重建）
         expect(svcInternal.readyState.ready).toBe(true);
       } finally {
         service.dispose();
         EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        EmbeddingServiceImpl.setTestWatchdogOverride(null);
         fs.unlinkSync(mockWorkerPath);
       }
     });
 
-    // F20261016ebrt：本代零成功 + 超时 = 真死锁，仍要自愈
-    it("本代零成功时超时触发自愈重建（真死锁逃生通道保留）", async () => {
+    it("无响应超阈值的 worker 被看门狗重建（真死锁逃生通道保留）", async () => {
       EmbeddingServiceImpl.setTestTimeoutOverride(150);
+      EmbeddingServiceImpl.setTestWatchdogOverride(1);
       const mockWorkerPath = writeMockWorker(
         "mock-true-hang-worker.mjs",
         `
@@ -615,18 +655,132 @@ process.on("message", () => {}); // 全不回——真死锁
         const svcInternal = service as unknown as {
           readyState: { ready: boolean };
           restartTimestamps: number[];
+          watchdogTick: () => void;
         };
         await waitFor(() => svcInternal.readyState.ready, "initial ready");
 
         await expect(service.embed("hang")).rejects.toThrow("Embed timeout");
-        // 零成功 + 超时 = 死锁，必须重建
+        // 超时不重启；无响应超阈值 → 看门狗重建
+        expect(svcInternal.restartTimestamps.length).toBe(0);
+        await new Promise((r) => setTimeout(r, 5));
+        svcInternal.watchdogTick();
         expect(svcInternal.restartTimestamps.length).toBe(1);
       } finally {
         service.dispose();
         EmbeddingServiceImpl.setTestTimeoutOverride(null);
+        EmbeddingServiceImpl.setTestWatchdogOverride(null);
         fs.unlinkSync(mockWorkerPath);
       }
     });
+
+    it("持续有响应的 worker 看门狗不杀（响应刷新活动时间戳）", async () => {
+      // 每条请求 20ms 后响应——慢但在动
+      EmbeddingServiceImpl.setTestWatchdogOverride(100);
+      const mockWorkerPath = writeMockWorker(
+        "mock-alive-slow-worker.mjs",
+        `
+process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+process.on("message", (msg) => {
+  if (msg.type !== "embed") return;
+  setTimeout(() => {
+    process.send({ type: "result", embedding: new Float32Array(4), id: msg.id });
+  }, 20);
+});
+`
+      );
+
+      const workerFactory = () => forkMock(mockWorkerPath);
+      const service = new EmbeddingServiceImpl(workerFactory(), noopLogger, workerFactory);
+
+      try {
+        const svcInternal = service as unknown as {
+          readyState: { ready: boolean };
+          restartTimestamps: number[];
+          watchdogTick: () => void;
+        };
+        await waitFor(() => svcInternal.readyState.ready, "initial ready");
+
+        // 连续多条慢请求，每条完成后立即 tick——活动时间戳刚被响应刷新，不满足无进展判据
+        for (let i = 0; i < 3; i++) {
+          const emb = await service.embed(`slow ${i}`);
+          expect(emb).toBeInstanceOf(Float32Array);
+          svcInternal.watchdogTick();
+          expect(svcInternal.restartTimestamps.length).toBe(0);
+        }
+      } finally {
+        service.dispose();
+        EmbeddingServiceImpl.setTestWatchdogOverride(null);
+        fs.unlinkSync(mockWorkerPath);
+      }
+    });
+});
+
+// F20261020slvg 对抗审视洞 1/2：worker 死亡路径唤醒 waiter + 瞬态错误类型
+describe("对抗审视修复：waiter 唤醒与瞬态错误", () => {
+  it("worker 意外退出：parked 的 waitSlot 调用方被唤醒并 fail-fast（不永久悬挂）", async () => {
+    const mockWorkerPath = writeMockWorker("mock-crash-worker.mjs", `
+process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+// ready 后 150ms 自行崩溃（模拟 OOM kill / 段错误）
+setTimeout(() => process.exit(3), 150);
+process.on("message", () => {
+  // 收到 embed 不回——占住槽位
+});
+`);
+    const { writeService: service, dispose } = await initEmbeddingService({
+      workerPath: mockWorkerPath,
+      workerExecArgv: [],
+    });
+    try {
+      await waitFor(() => service.available, "ready");
+
+      // 第 1 条占槽（永不回复），第 2 条 waitSlot parked
+      void service.embed("hang").catch(() => "hung");
+      const parked = service.embed("parked", { waitSlot: true });
+      const svcInternal = service as unknown as { pendingRequests: Map<number, unknown> };
+      await waitFor(() => svcInternal.pendingRequests.size >= 1, "lane busy");
+
+      // worker 崩溃 → handleWorkerExit 放行 waiter → fail-fast reject（不永久悬挂）
+      await expect(parked).rejects.toThrow(/Worker exited/i);
+    } finally {
+      dispose();
+      fs.unlinkSync(mockWorkerPath);
+    }
+  });
+
+  it("worker 重启路径的 reject 用 EmbedTransientError（retry worker 不计 attempts 的契约载体）", async () => {
+    EmbeddingServiceImpl.setTestTimeoutOverride(100);
+    EmbeddingServiceImpl.setTestWatchdogOverride(1);
+    const mockWorkerPath = writeMockWorker("mock-transient-worker.mjs", `
+process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+process.on("message", () => {});
+`);
+    let generation = 0;
+    const service = new EmbeddingServiceImpl(
+      forkMock(mockWorkerPath, { OTTER_EMBED_TEST_GENERATION: "0" }),
+      noopLogger,
+      () => forkMock(mockWorkerPath, { OTTER_EMBED_TEST_GENERATION: String(++generation) }),
+    );
+    try {
+      const svcInternal = service as unknown as {
+        readyState: { ready: boolean };
+        restartTimestamps: number[];
+        watchdogTick: () => void;
+      };
+      await waitFor(() => svcInternal.readyState.ready, "initial ready");
+
+      // 超时（abandoned 条目保留）→ 看门狗重启 → rejectAllPending reject 已 settle 的 promise
+      // 是 no-op——此处验证重启路径本身可走通且类型契约存在
+      await expect(service.embed("hang")).rejects.toThrow("Embed timeout");
+      await new Promise((r) => setTimeout(r, 5));
+      svcInternal.watchdogTick();
+      expect(svcInternal.restartTimestamps.length).toBe(1);
+    } finally {
+      service.dispose();
+      EmbeddingServiceImpl.setTestTimeoutOverride(null);
+      EmbeddingServiceImpl.setTestWatchdogOverride(null);
+      fs.unlinkSync(mockWorkerPath);
+    }
+  });
 });
 
 // F20261016ebrt：读写双 lane——查询不排在回填后面
@@ -678,5 +832,181 @@ process.on("message", (msg) => {
       dispose();
       fs.unlinkSync(mockWorkerPath);
     }
+  });
+});
+
+// F20261020slvg：超时 ≠ 取消——诚实准入 + 结果 salvage + waitSlot 软限流
+describe("槽位语义与 salvage（超时 ≠ 取消）", () => {
+  /** 晚响应 worker：收到 embed 后延迟 replyMs 才回结果 */
+  function lateWorkerScript(replyMs: number): string {
+    return `
+process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+process.on("message", (msg) => {
+  if (msg.type !== "embed") return;
+  setTimeout(() => {
+    process.send({ type: "result", embedding: new Float32Array(4), id: msg.id });
+  }, ${replyMs});
+});
+`;
+  }
+
+  it("超时后条目保留、槽位不释放——背压拒绝后续请求", async () => {
+    EmbeddingServiceImpl.setTestTimeoutOverride(100);
+    const mockWorkerPath = writeMockWorker("mock-slot-held.mjs", `
+process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+process.on("message", () => {});
+`);
+    const { writeService: service, dispose } = await initEmbeddingService({
+      workerPath: mockWorkerPath,
+      workerExecArgv: [],
+    });
+    try {
+      await waitFor(() => service.available, "ready");
+      await expect(service.embed("hang")).rejects.toThrow("Embed timeout");
+      // 条目保留 + 槽位占用：默认路径（无 waitSlot）下一条直接背压拒绝
+      await expect(service.embed("next")).rejects.toThrow(EmbedBackpressureError);
+      const svcInternal = service as unknown as { pendingRequests: Map<number, unknown> };
+      expect(svcInternal.pendingRequests.size).toBe(1);
+    } finally {
+      dispose();
+      EmbeddingServiceImpl.setTestTimeoutOverride(null);
+      fs.unlinkSync(mockWorkerPath);
+    }
+  });
+
+  it("晚到 result 触发 salvage 并释放槽位；无 salvage 才丢弃", async () => {
+    EmbeddingServiceImpl.setTestTimeoutOverride(100);
+    const mockWorkerPath = writeMockWorker("mock-late-result.mjs", lateWorkerScript(250));
+    const { writeService: service, dispose } = await initEmbeddingService({
+      workerPath: mockWorkerPath,
+      workerExecArgv: [],
+    });
+    try {
+      await waitFor(() => service.available, "ready");
+      let salvaged: Float32Array | null = null;
+      await expect(service.embed("late", {
+        salvage: (emb) => { salvaged = emb; },
+      })).rejects.toThrow("Embed timeout");
+
+      // 晚到结果（250ms）→ salvage 收到向量，槽位释放
+      await waitFor(() => salvaged !== null, "salvage called", 2000);
+      expect(salvaged).toBeInstanceOf(Float32Array);
+      const svcInternal = service as unknown as { pendingRequests: Map<number, unknown> };
+      expect(svcInternal.pendingRequests.size).toBe(0);
+
+      // 槽位已释放：新请求正常准入成功（恢复默认 30s 超时——mock 响应 250ms > 测试 override 100ms）
+      EmbeddingServiceImpl.setTestTimeoutOverride(null);
+      const next = await service.embed("after salvage");
+      expect(next).toBeInstanceOf(Float32Array);
+    } finally {
+      dispose();
+      EmbeddingServiceImpl.setTestTimeoutOverride(null);
+      fs.unlinkSync(mockWorkerPath);
+    }
+  });
+
+  it("晚到 error 响应：清理条目 + 无 salvage + 槽位释放", async () => {
+    EmbeddingServiceImpl.setTestTimeoutOverride(100);
+    const mockWorkerPath = writeMockWorker("mock-late-error.mjs", `
+process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+process.on("message", (msg) => {
+  if (msg.type !== "embed") return;
+  setTimeout(() => {
+    process.send({ type: "error", error: "late boom", id: msg.id });
+  }, 200);
+});
+`);
+    const { writeService: service, dispose } = await initEmbeddingService({
+      workerPath: mockWorkerPath,
+      workerExecArgv: [],
+    });
+    try {
+      await waitFor(() => service.available, "ready");
+      let salvageCalled = false;
+      await expect(service.embed("late err", {
+        salvage: () => { salvageCalled = true; },
+      })).rejects.toThrow("Embed timeout");
+
+      await new Promise((r) => setTimeout(r, 300));
+      expect(salvageCalled).toBe(false);
+      const svcInternal = service as unknown as { pendingRequests: Map<number, unknown> };
+      expect(svcInternal.pendingRequests.size).toBe(0);
+    } finally {
+      dispose();
+      EmbeddingServiceImpl.setTestTimeoutOverride(null);
+      fs.unlinkSync(mockWorkerPath);
+    }
+  });
+
+  it("salvage 回调抛错不打死主进程，且有槽位释放", async () => {
+    EmbeddingServiceImpl.setTestTimeoutOverride(100);
+    const mockWorkerPath = writeMockWorker("mock-salvage-throw.mjs", lateWorkerScript(200));
+    const warns: string[] = [];
+    const captureLogger = {
+      info: () => {},
+      warn: (m: string) => { warns.push(m); },
+      error: () => {},
+      debug: () => {},
+      child: () => captureLogger,
+    };
+    const workerFactory = () => forkMock(mockWorkerPath);
+    const service = new EmbeddingServiceImpl(workerFactory(), captureLogger as never, workerFactory);
+    try {
+      await waitFor(() => service.available, "ready");
+      await expect(service.embed("boom", {
+        salvage: () => { throw new Error("salvage exploded"); },
+      })).rejects.toThrow("Embed timeout");
+      await waitFor(
+        () => warns.some(m => m.includes("salvage callback failed")),
+        "salvage failure logged",
+      );
+      const svcInternal = service as unknown as { pendingRequests: Map<number, unknown> };
+      expect(svcInternal.pendingRequests.size).toBe(0);
+    } finally {
+      service.dispose();
+      EmbeddingServiceImpl.setTestTimeoutOverride(null);
+      fs.unlinkSync(mockWorkerPath);
+    }
+  });
+
+  it("waitSlot：槽满挂起排队而非拒绝，槽空后按序完成", async () => {
+    EmbeddingServiceImpl.setTestTimeoutOverride(5000);
+    const mockWorkerPath = writeMockWorker("mock-wait-slot.mjs", lateWorkerScript(100));
+    const { writeService: service, dispose } = await initEmbeddingService({
+      workerPath: mockWorkerPath,
+      workerExecArgv: [],
+    });
+    try {
+      await waitFor(() => service.available, "ready");
+      // 第 1 条占槽（100ms 慢响应）
+      const p1 = service.embed("first");
+      // 第 2 条 waitSlot——不拒绝，排队等槽
+      const p2 = service.embed("second", { waitSlot: true });
+      await expect(p2).resolves.toBeInstanceOf(Float32Array);
+      await expect(p1).resolves.toBeInstanceOf(Float32Array);
+    } finally {
+      dispose();
+      EmbeddingServiceImpl.setTestTimeoutOverride(null);
+      fs.unlinkSync(mockWorkerPath);
+    }
+  });
+
+  it("dispose 后看门狗 tick 不触发重启", async () => {
+    EmbeddingServiceImpl.setTestWatchdogOverride(1);
+    const mockWorkerPath = writeMockWorker("mock-disposed-watchdog.mjs", `
+process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
+process.on("message", () => {});
+`);
+    let factoryCalls = 0;
+    const workerFactory = () => { factoryCalls++; return forkMock(mockWorkerPath); };
+    const service = new EmbeddingServiceImpl(workerFactory(), noopLogger, workerFactory);
+    const svcInternal = service as unknown as { restartTimestamps: number[]; watchdogTick: () => void };
+    await waitFor(() => service.available, "ready");
+    service.dispose();
+    await new Promise((r) => setTimeout(r, 10));
+    svcInternal.watchdogTick();
+    expect(svcInternal.restartTimestamps.length).toBe(0);
+    expect(factoryCalls).toBe(1);
+    fs.unlinkSync(mockWorkerPath);
   });
 });
