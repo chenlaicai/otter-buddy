@@ -17,6 +17,10 @@ import { lex, type Token, type Word } from "./command-lexer";
 export interface RedirTarget {
   op: string;          // > >> 2> &> >| <> < << <<< &>>
   target: string | null; // evaluated 目标词；null=不可求值（$VAR 目标等）
+  /** F20261019f714（M-f7148deb 第 3 条）：目标词原始词对象（含 var part 时词法不进
+   *  words——evaluated=null 的目标词在此保留 parts 供写求值器同命令赋值溯源；
+   *  纯字面目标词为省内存不存（words/…无消费面））*/
+  targetWord?: Word;
 }
 
 export interface Segment {
@@ -149,11 +153,13 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
         // 重定向目标=下一 word（若有）
         const nextT = tokens[i + 1];
         let target: string | null = null;
+        let targetWord: Word | undefined;
         if (nextT && nextT.type === "word") {
           target = nextT.word!.evaluated;
+          if (target === null) targetWord = nextT.word!; // F20261019f714：动态目标词保留（溯源用）
           i++; // 消费目标词
         }
-        cur.redirects.push({ op, target });
+        cur.redirects.push({ op, target, ...(targetWord !== undefined ? { targetWord } : {}) });
         i++;
         continue;
       }

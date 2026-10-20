@@ -8,17 +8,24 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
   constructor(private readonly db: Database.Database) {}
 
   async create(event: HealingEvent): Promise<void> {
+    // F20261019f714（M-f7148deb 第 1 条）：bound_issue/bound_at 入 INSERT 列清单。
+    // 修复前：调用方/种子数据直接给 boundIssue/boundAt 会被静默丢弃（INSERT 不含
+    // 两列，库内落 NULL）——round-trip 契约破缺，测试曾用直插 SQL 绕过（隐性契约）。
+    // 现在列全量写入，与 eventToRow/rowToHealingEvent 双向映射对齐：任何写入路径
+    // 不得静默丢字段。
     const row = eventToRow(event);
     this.db.prepare(`
       INSERT INTO healing_events (
         id, message_id, conversation_id, otter_id, error_type, severity,
-        description, suggestion, context, status, resolution, created_at, resolved_at, introduced_by_pr
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        description, suggestion, context, status, resolution, created_at, resolved_at, introduced_by_pr,
+        bound_issue, bound_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id, row.message_id, row.conversation_id, row.otter_id,
       row.error_type, row.severity, row.description, row.suggestion,
       row.context, row.status, row.resolution, row.created_at, row.resolved_at,
       row.introduced_by_pr,
+      row.bound_issue ?? null, row.bound_at ?? null,
     );
   }
 

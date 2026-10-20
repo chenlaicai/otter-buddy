@@ -627,7 +627,12 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
     ["主服务脚本", new RegExp(SERVICE_SCRIPT_KILL.source, "gi")],
     ["eval 引用", /\beval\b/gi],
     ["PID 文件引用", /\.otter-buddy\.pid/g],
-    ["进程名模式", /\b(?:otter-buddy|otter_buddy|dist\/src\/main|main\.js|node)\b/g],
+    // F20261019f714（M-f7148deb 第 3 条）：收窄到真实进程名语义——紧邻 `/` 的匹配是
+    // 路径型 token（/…/otter-buddy/…、…/dist/src/main.js）不是进程名，不参与回显。
+    // 该模式仅做诊断回显、不参与拦截判定（locateTriggerContext 注释在案；F20260924gfpn
+    // 曾实测证伪同名「第五缺陷」误判），但回显误标曾连续误导两次根因归因——路径命中
+    // 不再挂「进程名模式」标签；kill/pkill 目标语义的判定在 kill-segment 通道，不受此改影响。
+    ["进程名模式", /(?<!\/)\b(?:otter-buddy|otter_buddy|dist\/src\/main|main\.js|node)\b(?!\/)/g],
   ];
   for (const [name, pat] of patterns) {
     const re = new RegExp(pat.source, pat.flags.includes("g") ? pat.flags : pat.flags + "g");

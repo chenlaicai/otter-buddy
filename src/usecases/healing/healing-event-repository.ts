@@ -2,6 +2,8 @@ import type { HealingEvent, HealingEventStats, HealingEventStatus, HealingResolu
 
 /** Healing event 持久化仓库接口 */
 export interface HealingEventRepository {
+  /** 创建事件（全字段 round-trip 契约：含 boundIssue/boundAt 归口两列——
+   * F20261019f714：任何字段不得静默丢弃，写入后 findById 必须能读回同值） */
   create(event: HealingEvent): Promise<void>;
   findById(id: string): Promise<HealingEvent | null>;
   findOpen(limit?: number): Promise<HealingEvent[]>;
