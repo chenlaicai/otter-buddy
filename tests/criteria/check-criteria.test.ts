@@ -21,6 +21,7 @@ const FIXSTER_FILES = [
   ".pi/SYSTEM.md",
   "docs/README.md",
   ".pi/skills/adversarial-review/references/review-dimensions.md",
+  ".pi/skills/code-implementation/SKILL.md",
   "criteria/invariants.json",
   "criteria/waivers.json",
   "scripts/check-criteria.mjs",
