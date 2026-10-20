@@ -23,6 +23,7 @@ import { externalizeHistoricalToolResults } from "./toolresult-externalizer";
 // F20260920uhuc：compaction-hook 导入退役（session_before_compact 钩子随时机权回收而退役）
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { buildHaltBlockReason } from "@usecases/signal/halt-block-reason";
+import { buildToolSignature } from "./tool-call-circuit-breaker";
 
 /** pi-coding-agent 模块类型（动态加载） */
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -112,8 +113,9 @@ export class ModelRuntimeRegistry {
               // 返回 { block, reason } → SDK agent-loop 对该次调用生成 isError tool result
               // （reason 正文）返回 LLM。读 ALS store 拿当前 invoke 的 otterId（fail-open：
               // 读不到 store 时放行，见 haltToolCallGuard 注释）。
-              pi.on("tool_call", (event: { toolName?: string }) => {
-                return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, event.toolName);
+              pi.on("tool_call", (event: { toolName?: string; input?: unknown }) => {
+                return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, event.toolName)
+                  ?? loopBlockGuard(otterInvokeStorage.getStore(), event.toolName, event.input);
               });
               // S1（R20260810piab）：otter system prompt 注入 system role。
               // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
@@ -301,6 +303,10 @@ export interface OtterInvokeContext {
   otterId: string;
   /** F20260903cmpk：otter 显示名（otters.name）——压缩钩子合成 prompt 的 meta 行用（#770 检视发现 2） */
   displayName?: string;
+  /** F20261020hlbk（#1556）：per-turn 循环硬熔断标记（签名→阻断理由）。检测器报警时写入，
+   *  tool_call 门读到即物理阻断该工具后续调用（speak/yield 豁免）。粘滞不被穿插调用清零，
+   *  堵死「speak 重置 steerStrikes」逃逸；随本 store（每 execute 新建）生灭，作用域=至回合结束。 */
+  loopBlockedTools?: Map<string, string>;
 }
 
 export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
@@ -334,4 +340,32 @@ export function haltToolCallGuard(
   if (directives.length === 0) return undefined;
   const reason = buildHaltBlockReason(directives);
   return reason ? { block: true, reason } : undefined;
+}
+
+/**
+ * F20261020hlbk（#1556）：循环工具硬熔断的 tool_call 门（物理阻断）。
+ *
+ * 检测器（ToolCallCircuitBreaker）报警时把循环签名写进 store.loopBlockedTools（粘滞，
+ * 不被穿插调用清零），本门在**每次工具执行前**读到即返回 {block, reason} → SDK 生成
+ * isError tool result、工具不执行——这是唯一的物理截断点（steer 只是建议、terminate
+ * 整轮 abort 可重试致循环复活）。对准 AC1「检测器报警后无法继续调用该工具（物理截断）」。
+ *
+ * - speak/yield 豁免：硬熔断后獭必须仍能 speak 报告 + yield 交棒逃生（F20260806cbsx）。
+ * - fail-open：store / loopBlockedTools 缺失时放行（镜像 haltToolCallGuard，不误伤正常工具流）。
+ */
+export function loopBlockGuard(
+  store: OtterInvokeContext | undefined,
+  toolName?: string,
+  input?: unknown,
+): { block: true; reason: string } | undefined {
+  const map = store?.loopBlockedTools;
+  if (!toolName || !map) return undefined;
+  if (toolName === 'speak' || toolName === 'yield') return undefined;
+  const sig = buildToolSignature(toolName, input);
+  const reason = map.get(sig);
+  if (reason === undefined) return undefined;
+  return {
+    block: true,
+    reason: `「循环硬熔断」${toolName} 因重复调用触发循环熔断，本回合内已禁用（物理截断，${reason}）。请勿再调用 ${toolName}；如需继续请换用其他工具，或用 speak 汇报当前状态后调用 yield 交棒。`,
+  };
 }
