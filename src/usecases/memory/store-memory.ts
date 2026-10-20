@@ -108,10 +108,28 @@ export class StoreMemory {
    * F20260812mrcq Part 1：fire-and-forget embedding 的统一封装。
    * embed 成功 → storeEmbedding；任一失败 → enqueueRetry 入队（ON CONFLICT 保留 attempts）。
    * 三处调用点（execute / replaceBySource / replaceChunksBySource）共用，避免重复。
+   *
+   * F20261020slvg：
+   * - waitSlot——活消息不再弹回 retry 队列等 1h tick，而是 FIFO 排队，
+   *   由 worker 真实吞吐节流（回填泄洪期间活消息也能及时 embedding）。
+   * - salvage 双轨——超时只是「不再等」：enqueueRetry 兜底入队，同时 worker
+   *   晚到的向量经 salvage 落库 + markTaskDone 去重。窗口内可能重算一次，
+   *   storeEmbedding 是 DELETE+INSERT 幂等覆盖，收敛不发散。
+   *   注：晚到 salvage 可能给已删 entry 写孤儿 vec 行——searchVec 有
+   *   JOIN memory_entries 守卫，孤儿永不浮现，惰性垃圾接受（窗口现状即存在）。
    */
   private fireAndForgetEmbed(entryId: string, content: string): void {
     this.embeddingGateway
-      .embed(this.truncateForEmbed(content))
+      .embed(this.truncateForEmbed(content), {
+        waitSlot: true,
+        salvage: (emb) => {
+          void this.writer.storeEmbedding(entryId, emb)
+            .then(() => this.queue.markTaskDone(entryId))
+            .catch(err =>
+              this.logger.warn(`Embedding salvage failed for ${entryId} (task stays in retry queue): ${err}`),
+            );
+        },
+      })
       .then((emb) => {
         this.writer.storeEmbedding(entryId, emb).catch((err) => {
           this.logger.warn(`Failed to store embedding for ${entryId}: ${err}`);
@@ -225,9 +243,8 @@ export class StoreMemory {
    * 流速控制（对抗审视 #1465 严重发现 1）：sync 启动期 600+ 文档串行 await
    * replaceChunksBySource，但 embed 是 fire-and-forget——前一批未完成后一批已发起，
    * 前 50 篇即可耗尽背压 slot，第 51 篇起全部 reject 走 retry 慢路径。
-   * 发起 batch 前先 acquireSlot 挂起等空闲槽——软限流替代硬溢出，sync 速度
-   * 由 worker 真实吞吐节流，batch 收益不被背压拒绝切断。
-   * acquireSlot 不可用（mock / 旧实现）时保持原行为。
+   * F20261020slvg：waitSlot 直接内嵌 embedBatch（槽满挂起，唤醒→准入在同一同步段），
+   * 软限流替代硬溢出，sync 速度由 worker 真实吞吐节流。
    */
   private fireAndForgetEmbedBatch(items: Array<{ id: string; content: string }>): void {
     if (items.length === 0) return;
@@ -236,10 +253,25 @@ export class StoreMemory {
     if (typeof gateway.embedBatch === "function") {
       const embedBatch = gateway.embedBatch.bind(gateway);
       const texts = items.map(item => this.truncateForEmbed(item.content));
-      const ready = typeof gateway.acquireSlot === "function"
-        ? gateway.acquireSlot()
-        : Promise.resolve();
-      ready.then(() => embedBatch(texts))
+      // F20261020slvg：waitSlot 内嵌进 embedBatch（替代 acquireSlot→embedBatch 两步配对，
+      // 消灭唤醒后到准入之间的 TOCTOU 竞态）；salvage 同 fireAndForgetEmbed 双轨语义
+      embedBatch(texts, {
+        waitSlot: true,
+        salvage: (embeddings) => {
+          void (async () => {
+            for (let i = 0; i < items.length; i++) {
+              try {
+                await this.writer.storeEmbedding(items[i].id, embeddings[i]);
+                await this.queue.markTaskDone(items[i].id);
+              } catch (err) {
+                this.logger.warn(
+                  `Embedding batch salvage failed for ${items[i].id} (task stays in retry queue): ${err}`,
+                );
+              }
+            }
+          })();
+        },
+      })
         .then((embeddings) => {
           for (let i = 0; i < items.length; i++) {
             this.writer.storeEmbedding(items[i].id, embeddings[i]).catch((err) => {

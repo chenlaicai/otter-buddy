@@ -90,3 +90,19 @@ export function markTaskAttemptFailed(db: Database.Database, entryId: string, er
     WHERE entry_id = ?
   `).run(errMsg, maxAttempts, entryId);
 }
+
+/**
+ * F20261020slvg 对抗审视洞 2 处置：启动时重置 pending 任务的 attempts 归零。
+ * claim 即 attempts+1，而超时循环（不计失败）会反复 claim 把 attempts 撑到 ≥3——
+ * 2026-10-16 活锁 4h40m 后存量 2905 条积压大量 attempts 虚高，不重置的话上线后
+ * 遇到一次硬错误（或旧版瞬态错误）就成批 dead-letter。只在启动迁移调一次。
+ * 返回重置的行数。
+ */
+export function resetPendingAttempts(db: Database.Database): number {
+  const result = db.prepare(`
+    UPDATE embedding_tasks
+    SET attempts = 0, next_retry_at = datetime('now')
+    WHERE status = 'pending' AND attempts > 0
+  `).run();
+  return result.changes;
+}
