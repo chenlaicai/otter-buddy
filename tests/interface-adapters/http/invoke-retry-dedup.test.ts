@@ -37,11 +37,10 @@ function makeInvoke(overrides: Partial<Invoke>): Invoke {
   } as Invoke;
 }
 
-function makeRepo(latest: Invoke | null, active: Invoke | null): InvokeRepository {
+function makeRepo(latest: Invoke | null): InvokeRepository {
   return {
     getInvokes: vi.fn().mockResolvedValue(latest ? [latest] : []),
     getInvokeById: vi.fn().mockResolvedValue(latest),
-    getActiveInvokeByOtterId: vi.fn().mockResolvedValue(active),
   } as unknown as InvokeRepository;
 }
 
@@ -77,31 +76,48 @@ function findDedupConflict(c: ReturnType<typeof makeContext>) {
 describe("F20261020ided retryByOtter 判重去重", () => {
   it("①latest invoke 为 running → 409 + code=otter_invoke_running，不触达链引擎", async () => {
     const running = makeInvoke({ id: "inv-running", status: "running", endedAt: null });
-    const controller = new InvokeController(makeRepo(running, running), logger);
+    const agentInvoker = {
+      isRunning: vi.fn().mockReturnValue(false),
+      invokeConversation: vi.fn(),
+    };
+    const dispatchChainEngine = { executeChain: vi.fn().mockResolvedValue(undefined) };
+    const controller = new InvokeController(
+      makeRepo(running),
+      logger,
+      agentInvoker as never,
+      dispatchChainEngine as never,
+    );
 
     const c = makeContext();
     const res = await controller.retryByOtter(c as never);
 
     expect(findDedupConflict(c)).toBeDefined();
+    // 固化「不触达链引擎/SDK」：判重拒绝后任何下游调用都不得发生
+    expect(agentInvoker.invokeConversation).not.toHaveBeenCalled();
+    expect(dispatchChainEngine.executeChain).not.toHaveBeenCalled();
     void res;
   });
 
-  it("②DB 终态但 SDK 层 isRunning → 409 + code=otter_invoke_running", async () => {
+  it("②DB 终态但 SDK 层 isRunning → 409 + code=otter_invoke_running，不触达链引擎", async () => {
     const failed = makeInvoke({ id: "inv-failed", status: "failed" });
     const agentInvoker = {
       isRunning: vi.fn().mockReturnValue(true),
       invokeConversation: vi.fn(),
     };
+    const dispatchChainEngine = { executeChain: vi.fn().mockResolvedValue(undefined) };
     const controller = new InvokeController(
-      makeRepo(failed, null),
+      makeRepo(failed),
       logger,
       agentInvoker as never,
+      dispatchChainEngine as never,
     );
 
     const c = makeContext();
     await controller.retryByOtter(c as never);
 
     expect(findDedupConflict(c)).toBeDefined();
+    expect(agentInvoker.invokeConversation).not.toHaveBeenCalled();
+    expect(dispatchChainEngine.executeChain).not.toHaveBeenCalled();
   });
 
   it("③DB 终态 + SDK 层空闲 → 放行（abort 终态化收敛中重试合法，窗口竞态裁决保留）", async () => {
@@ -112,7 +128,7 @@ describe("F20261020ided retryByOtter 判重去重", () => {
     };
     const dispatchChainEngine = { executeChain: vi.fn().mockResolvedValue(undefined) };
     const controller = new InvokeController(
-      makeRepo(failed, null),
+      makeRepo(failed),
       logger,
       agentInvoker as never,
       dispatchChainEngine as never,
@@ -135,7 +151,7 @@ describe("F20261020ided retryByOtter 判重去重", () => {
     };
     const dispatchChainEngine = { executeChain: vi.fn().mockResolvedValue(undefined) };
     const controller = new InvokeController(
-      makeRepo(aborted, null),
+      makeRepo(aborted),
       logger,
       agentInvoker as never,
       dispatchChainEngine as never,

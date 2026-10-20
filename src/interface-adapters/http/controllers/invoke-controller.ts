@@ -148,6 +148,11 @@ export class InvokeController {
         );
       }
       // ②DB 终态但 SDK 层还在跑（abort 终态化收敛中）→ 同样判重拒绝
+      // 检视獭-1571 建议2：agentInvoker 未注入时②层静默失效（invoke 创建后、库行 running
+      // 落账前的时序窗口只有②层能兜）——生产 wiring 恒注入，但降级必须显形不静默。
+      if (!this.agentInvoker) {
+        this.logger?.warn("retryByOtter: agentInvoker not injected, SDK-layer dedup (layer ②) silently degraded", { otterId });
+      }
       if (this.agentInvoker?.isRunning(otterId)) {
         return c.json(
           { error: "otter is currently running, retry rejected", code: "otter_invoke_running" },
