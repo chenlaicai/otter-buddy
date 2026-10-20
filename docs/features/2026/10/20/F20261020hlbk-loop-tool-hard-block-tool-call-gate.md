@@ -135,13 +135,13 @@ execute() ──创建 store{…, loopBlockedTools: Map}──┐
 - **物理截断**：`tool_call` 返回 `{block, reason}` → 工具不执行（SDK 生成 isError tool result），无垃圾产物。对准 AC1「报警后无法继续调用该工具（物理截断）」。
 - **粘滞逃逸堵死**：Map 独立于 `steerStrikes`，一次报警后签名记入，穿插 speak（allow）不会清零——「复又发作」的 relapse 调用被物理阻断（直接修发作 2）。
 - **签名一致**：写入用 `buildToolSignature(toolName, e.args)`（tool_execution_start），读取用 `buildToolSignature(toolName, event.input)`（tool_call）。对 create_linked_resource（rawToolSignature 落 `return toolName`，常量签名）二者恒等 == "create_linked_resource"，事故场景稳健。
-- **报警边界**：检测在 `tool_execution_start`，故报警那次（如第 6 次）已执行，第 7+ 次被门阻断——对准 AC「报警后无法继续调用」与假设 A「≥6 次时硬熔断」（熔断阈值即 maxConsecutiveIdentical=5 → 第 6 次报警）。
+- **报警边界**：`tool_execution_start`（检测/标记）先于 `prepareToolCall` 门（阻断）——逐调用 await，串行/并行同构，故阈值那次（第 6 次）即被门拦截，实际「1–5 次执行、第 6 次起阻断」。对准 AC「报警后无法继续调用」与假设 A「≥6 次时硬熔断」（熔断阈值即 maxConsecutiveIdentical=5 → 第 6 次报警）。〔2026-10-20 检视订正（建议 2）：原文「报警那次已执行、第 7+ 次阻断」off-by-one，与 SDK 时序不符——实现比原文描述更强、方向保守〕
 
 ### 5.4 逃生与失效面
 
 - `speak` / `yield` 永不阻断——硬熔断后獭仍能报告 + 交棒（F20260806cbsx：不能阻断报告/收尾）。
 - fail-open：store / `loopBlockedTools` 缺失时放行（镜像 haltToolCallGuard）。
-- 已知限制（非本特性回归）：①「恰 5 次 + 变化 speak 交替」模式可能同时逃过连续（<6）与滑窗（speak digest 各异）检测——那是**检测灵敏度**问题，非本修复的**执行**缺口（AC1 针对执行）；②模型反复调同一阻断工具只产生 bounded isError 噪声、零副作用，远优于现状产垃圾，且 yield 强制交棒是兜底。
+- 已知限制（非本特性回归）：①「恰 5 次 + 变化 speak 交替」模式可能同时逃过连续（<6）与滑窗（speak digest 各异）检测——那是**检测灵敏度**问题，非本修复的**执行**缺口（AC1 针对执行）；②模型反复调同一阻断工具只产生 bounded isError 噪声、零副作用，远优于现状产垃圾，且 yield 强制交棒是兜底；③`terminate`→`circuit_break` abort 可重试（retry-policy.ts:15），编排层重试开新 execute 即新建 store 清空粘滞 Map——同签名循环（事故形态）因门拦截使 strike 不累积、不可达 terminate，仅 ≥6 签名交替极端形态可达，属 pre-existing 非回归〔2026-10-20 检视建议 3 补记〕。
 
 ### 5.5 机制预算四问（判 ④ 机制新增，必答）
 
