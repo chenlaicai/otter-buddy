@@ -121,6 +121,27 @@ export class MahjongController {
     return ctx.json({ accepted: true, roomId, seat: body.seat, view });
   }
 
+  /** #1564-5：结算停驻推进——「继续」按钮（404 未知房 / 409 已终局 / 400 非停驻态） */
+  async continueRound(ctx: Context): Promise<Response> {
+    const roomId = ctx.req.param("roomId") ?? "";
+    const res = this.rooms.continueRound(roomId);
+    if (!res.ok) {
+      if (res.reason === "room not found") return ctx.json({ error: res.reason }, 404);
+      if (res.reason === "game already finished") return ctx.json({ error: res.reason }, 409);
+      return ctx.json({ error: res.reason }, 400);
+    }
+    const view = this.rooms.view(roomId, null);
+    return ctx.json({ accepted: true, roomId, ...(view ? { view } : {}) });
+  }
+
+  /** #1564-6：停局/删房——终局/进行中均可（防 runaway 止血阀） */
+  async stop(ctx: Context): Promise<Response> {
+    const roomId = ctx.req.param("roomId") ?? "";
+    const res = this.rooms.stopRoom(roomId);
+    if (!res.ok) return ctx.json({ error: res.reason }, 404);
+    return ctx.json({ stopped: true, roomId });
+  }
+
   /** 视图：?seat= 私有（含手牌）；缺省观战全览 */
   async view(ctx: Context): Promise<Response> {
     const roomId = ctx.req.param("roomId") ?? "";

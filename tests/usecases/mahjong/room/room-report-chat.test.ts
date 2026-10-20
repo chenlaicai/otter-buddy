@@ -116,6 +116,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
+      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("seated-seed"));
     expect(svc.isSeated("otter-a")).toBe(true);
@@ -133,6 +134,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
+      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("chat-validate"));
     expect(svc.addChat("nope", 0, "hi")).toEqual({ ok: false, reason: "room not found" });
@@ -152,6 +154,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
+      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("chat-seed-1"));
     expect(svc.addChat("r1", 1, "这局好好打")).toEqual({ ok: true });
@@ -178,6 +181,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
+      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("chat-seed-2"));
     expect(svc.addChat("r1", 1, "重试可见吗")).toEqual({ ok: true });
@@ -200,6 +204,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
+      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
       onGameover: (r) => {
         reports.push(r);
       },
@@ -242,6 +247,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
+      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
       onGameover: () => {
         throw new Error("card send failed");
       },
@@ -266,6 +272,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
+      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
       onGameover: (r) => {
         reports.push(r);
       },
@@ -281,6 +288,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
+      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
       onGameover: (r) => {
         reports.push(r);
       },
@@ -299,6 +307,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
+      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
       evictFinishedMs: 200,
     });
     const first = svc.createRoom("r1", cfg("evict-seed-1"));
@@ -328,6 +337,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
+      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
       evictFinishedMs: 20,
     });
     svc.createRoom("r1", cfg("evict-seed-3"));
@@ -342,7 +352,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
 describe("#1532 獭侧回应广播（注入回合；harness 模块级共用）", () => {
   it("#1532 獭侧：注入回应广播 chat 事件（from=otter，观战端同流可见）", async () => {
     const gw = recordingGateway();
-    const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000 });
+    const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000, settleHoldMs: 10 });
     svc.createRoom("r1", cfg("chat-echo-seed"));
     expect(svc.addChat("r1", 1, "有人在吗")).toEqual({ ok: true });
     await driveUntilFinished(svc, "r1");
@@ -361,7 +371,7 @@ describe("#1532 獭侧回应广播（注入回合；harness 模块级共用）",
   it("#1532 獭侧：空白回应不广播（session 已注入但不留空泡）", async () => {
     const gw = recordingGateway();
     gw.chatReply = "   ";
-    const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000 });
+    const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000, settleHoldMs: 10 });
     svc.createRoom("r1", cfg("chat-echo-blank"));
     expect(svc.addChat("r1", 1, "能听到吗")).toEqual({ ok: true });
     await driveUntilFinished(svc, "r1");
@@ -381,7 +391,7 @@ describe("#1532 獭侧回应广播（注入回合；harness 模块级共用）",
       // 模拟注入窗口（LLM 调用在途）内真人发言：addChat push 进活队
       expect(svcRef.addChat("r1", 1, "窗口内的话")).toEqual({ ok: true });
     };
-    const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000 });
+    const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000, settleHoldMs: 10 });
     svcRef = svc;
     svc.createRoom("r1", cfg("chat-race-seed"));
     expect(svc.addChat("r1", 1, "先说这句")).toEqual({ ok: true });

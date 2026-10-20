@@ -117,7 +117,13 @@ function renderField() {
     <span class="f-item f-dora">宝牌指示 ${dora}</span>
     <span class="f-item">座位 ${f.winds.map((w) => w.cn).join("/")}</span>
     <span class="f-spacer"></span>
+    ${stopBtnHtml()}
     <span class="conn" data-on="${state.conn === "open" ? 1 : 0}">● ${esc(connText)}</span>`;
+}
+
+/** #1564-6：停局入口（POST /stop）——终局/进行中均可停，防真人离桌 runaway 烧 token */
+function stopBtnHtml() {
+  return '<button type="button" class="btn btn--ghost" data-do="stop">停局</button>';
 }
 
 function renderPlayers() {
@@ -210,7 +216,12 @@ function renderCenter() {
       )
       .join("")}`;
   } else if (settle) {
-    status.innerHTML = `<div><b>${esc(settle.title)}</b></div>${settleHtml(settle)}`;
+    // #1564-5：局终结算停驻——展示结算 + 「继续」按钮（服务端停驻中；终局由 gameover 分支接管）
+    // 末局（东风战第 4 局）继续 = 进终局，文案如实（检视建议6）
+    const canContinue = state.view?.status === "playing";
+    const continueLabel = (state.view?.roundNo ?? 0) >= 4 ? "查看终局 →" : "继续下一局 →";
+    status.innerHTML = `<div><b>${esc(settle.title)}</b></div>${settleHtml(settle)}` +
+      (canContinue ? `<div><button class="btn" data-do="settle-continue">${esc(continueLabel)}</button></div>` : "");
   } else if (state.view.status === "finished") {
     status.innerHTML = "<div><b>本局结束</b></div>";
   } else if (dp) {
@@ -520,6 +531,30 @@ function bindEvents() {
     if (el) onHandClick(el.dataset.code);
   });
 
+  $("turnStatus").addEventListener("click", async (e) => {
+    const el = e.target.closest('[data-do="settle-continue"]');
+    if (!el) return;
+    try {
+      await api.continueRound(state.roomId);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // #1564-6：停局按钮（场况栏）——confirm 后 POST /stop，成功回大厅
+  $("field").addEventListener("click", async (e) => {
+    const el = e.target.closest('[data-do="stop"]');
+    if (!el) return;
+    if (!window.confirm("确定停局？本局将立即终止（进行中/终局均可停）")) return;
+    try {
+      await api.stop(state.roomId);
+      toast("已停局");
+      goLobby();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err));
+    }
+  });
+
   $("actionbar").addEventListener("click", (e) => {
     const el = e.target.closest("[data-btn]");
     if (!el) return;
@@ -714,7 +749,8 @@ function handleStreamEvent(ev) {
     if (settle) state.streamSettle = settle;
     else if (engineEvents.some((e) => e.type === "deal")) state.streamSettle = null;
     if (ev.wake?.speech) pushLog(`${ev.wake.via}：${ev.wake.speech}`, "is-wake");
-    else if (ev.wake) pushLog(`（${ev.wake.via}${ev.wake.fallbackReason ? ` · ${ev.wake.fallbackReason}` : ""}）`);
+    // #1564-1：内部降级细节（fallbackReason）不进对局日志——只给中性「代打」标签
+    else if (ev.wake && (ev.wake.via === "fallback" || ev.wake.via === "timeout-fallback")) pushLog("（代打）");
     safeRefresh();
     return;
   }

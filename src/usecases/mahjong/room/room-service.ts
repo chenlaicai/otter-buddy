@@ -23,6 +23,7 @@
 import { SanmaEngine, restoreEngine, notation } from "../engine/engine";
 import { proxyChooseAction, isTrivialDecision } from "../engine/proxy";
 import { injectPendingChat } from "./room-chat";
+import { settleRoundEndFlow, continueSettlement, stopRoomFlow, guardHumanIdleStrike, type LifecycleResult } from "./room-lifecycle";
 import type {
   DecisionPoint,
   EngineAction,
@@ -54,6 +55,12 @@ interface RoomInternal {
   reportedOver: boolean;
   /** 终局宽限驱逐定时器（scheduleEvict；close/同房重开后由代际校验失效） */
   evictTimer?: ReturnType<typeof setTimeout>;
+  /** #1564-5：局终结算停驻定时器（有真人的房暂停等「继续」，到期自动继续） */
+  settleTimer?: ReturnType<typeof setTimeout>;
+  /** #1564-5：结算停驻已放行（继续按钮/超时置位；loop 直推下局后复位，防重 park） */
+  settleResumed: boolean;
+  /** #1564-6：真人连续超时代打计数（离桌 runaway 界；真人注入动作清零） */
+  humanIdleStrikes: number;
   /** 待注入聊天（按 otterId 分队；下局开局消费，成功即清、失败保留次局重试） */
   chatQueues: Map<string, ChatMessage[]>;
   /** 战报累积器（publishGame/step 单点采集；内部可变、上报时作 readonly 视图） */
@@ -143,7 +150,21 @@ export class RoomService {
       clearTimeout(room.awaiting.forceTimer);
       room.awaiting = null;
     }
+    if (room.settleTimer) clearTimeout(room.settleTimer);
     this.rooms.delete(roomId);
+  }
+
+  /** #1564-5：结算停驻推进——真人点「继续」或超时到期后进下局 */
+  continueRound(roomId: string): LifecycleResult {
+    return continueSettlement(this.rooms.get(roomId), () => this.kick(roomId));
+  }
+
+  /** #1564-6：停局/删房——终局/进行中均可停（防 runaway 止血阀）；广播通知后出 Map */
+  stopRoom(roomId: string): LifecycleResult {
+    return stopRoomFlow(this.rooms.get(roomId), () => {
+      this.deps.bus.publish(roomId, { type: "error", roomId, message: "牌局已停（主动停局）" });
+      this.close(roomId);
+    });
   }
 
   /** 等待当前推进链静止（parked/终了/空闲）——测试与轮询用 */
@@ -212,6 +233,7 @@ export class RoomService {
     clearTimeout(room.awaiting.deadlineTimer);
     clearTimeout(room.awaiting.forceTimer);
     room.awaiting = null;
+    room.humanIdleStrikes = 0; // #1564-6：真人回场清零离桌计数
     try {
       this.step(room, seat, action, "human");
     } catch (e) {
@@ -284,6 +306,8 @@ export class RoomService {
       awaiting: null,
       startedAt: Date.now(),
       reportedOver: false,
+      settleResumed: false,
+      humanIdleStrikes: 0,
       chatQueues: new Map(),
       report: { ranking: null, highlights: [], speeches: [], proxyFallbacks: 0 },
     };
@@ -311,6 +335,8 @@ export class RoomService {
       }
       const dp = engine.decisionPoint();
       if (!dp) {
+        // #1564-5：有真人的房局终结算停驻（等「继续」或超时自动继续）；纯獭/代理房直推
+        if (settleRoundEndFlow(room, this.deps.settleHoldMs ?? 30_000, () => this.kick(room.roomId)) === "parked") return;
         await this.advanceRound(room);
         continue;
       }
@@ -379,6 +405,12 @@ export class RoomService {
     const forceTimer = setTimeout(() => {
       if (!room.awaiting) return;
       room.awaiting = null;
+      // #1564-6：真人离桌 runaway 界——到限通知并停局（真人注入动作清零计数）
+      const stopNotice = (): void => {
+        this.deps.bus.publish(room.roomId, { type: "error", roomId: room.roomId, message: "真人长时间未操作，已自动停局（可在大厅重新建房）" });
+        this.close(room.roomId);
+      };
+      if (guardHumanIdleStrike(room, this.deps.humanIdleStrikeLimit ?? 10, stopNotice)) return;
       try {
         this.step(room, dp.seat, proxyChooseAction(room.engine, dp), "timeout-fallback");
       } catch (e) {

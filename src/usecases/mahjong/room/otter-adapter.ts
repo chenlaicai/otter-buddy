@@ -3,7 +3,7 @@
  * ⚠️ 不走 AgentInvoker 对话链（S1/S2 处置定死：对话链灌 entry 会污染牌局时间线）。
  *
  * 决策唤醒协议（方案口径）：快照（**不含他家手牌**）+ 合法操作集 → 要求回复
- * `{"action": <动作对象或合法集序号>, "speech": "可选一句话"}`。
+ * `{"action": <动作对象或合法集序号>, "speech": "一句桌上发言"}`（speech 必填，与 prompt 口径一致——空串/纯空白视同未提供，不进事件）。
  * - 解析容错：从回复中抽取第一个平衡 JSON 对象（含 ```json 围栏）；action 为序号或对象均可
  * - 非法/不可解析 → 携错误反馈重试 1 次；仍失败 → 规则代理兜底（fallbackReason 留痕）
  * - 端口异常/超时 → 同样走重试与兜底
@@ -115,7 +115,10 @@ export function buildWakePrompt(engine: SanmaEngine, dp: DecisionPoint, feedback
     lines.push(`上次回复不可用：${feedback}`);
   }
   lines.push("");
-  lines.push('只回复一个 JSON 对象（可含 ```json 围栏），形如 {"action": 0, "speech": "一句桌上发言"}；speech 可省略。');
+  lines.push(
+    '只回复一个 JSON 对象（可含 ```json 围栏），形如 {"action": 0, "speech": "一句桌上发言"}；' +
+      "speech 必填——像牌桌上的真人一样带一句简短人味发言（吐槽/评牌/报听/情绪/垃圾话均可，≤30字，别报数字流水账）。",
+  );
   return lines.join("\n");
 }
 
@@ -163,7 +166,9 @@ export type ParseResult =
 export function parseActionReply(text: string, legal: readonly EngineAction[]): ParseResult {
   const obj = extractJson(text);
   if (!obj) return { ok: false, error: "回复中未找到 JSON 对象" };
-  const speech = typeof obj.speech === "string" ? (obj.speech as string) : undefined;
+  // 空串/纯空白 speech 视同未提供（检视建议7：不携带空串进事件，防前端判空歧义）
+  const rawSpeech = typeof obj.speech === "string" ? (obj.speech as string) : undefined;
+  const speech = rawSpeech !== undefined && rawSpeech.trim() !== "" ? rawSpeech : undefined;
   let candidate: unknown = obj.action;
   if (typeof candidate === "number") {
     if (!Number.isInteger(candidate) || candidate < 0 || candidate >= legal.length) {
