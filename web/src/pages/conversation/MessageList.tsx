@@ -17,6 +17,7 @@ import { fmtBytes } from '../../lib/attachments'
 import { parseCardTitle, parseCardImportance, extractFoldedSummary } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { remarkBareLink } from '../../lib/remark-bare-link'
+import { remarkAutolinkTrim } from '../../lib/remark-autolink-trim'
 import { HtmlCard } from './HtmlCard'
 import { SignalBadge } from './SignalBadge'
 import { UnfurlCard } from './UnfurlCard'
@@ -165,6 +166,10 @@ const eventLogComponents: Components = { code: CardAwareCode, pre: CardAwarePre,
 
 const REMARK_PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [
   [remarkGfm, { singleTilde: false }],
+  // F20261020wabt：autolink 全角尾巴修剪须在 remarkBareLink 之前——裸链判定依赖
+  // 修剪后的 url===text，顺序反了带尾巴的裸链 url 与 text 同步修剪仍一致，但
+  // 防御顺序敏感（后续插件读的是本插件修过的 url），固定放前。
+  remarkAutolinkTrim,
   remarkHtmlCardIndex,
   remarkBareLink,
 ]
