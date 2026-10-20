@@ -230,4 +230,81 @@ describe("三麻将局 API", () => {
     }
     expect((await post(`/api/mahjong/rooms/${ROOM}/chat`, { seat: 1, text: "晚了" })).status).toBe(409);
   });
+
+  it("继续/停局端点契约：continue 404/400/200/409 + stop 404/200（#1564-5/#1564-6）", async () => {
+    // 自建长停驻服务（settleHoldMs=60s）——停驻窗口可控，不靠 10ms 自动放行抢拍
+    const rooms2 = new RoomService({
+      store,
+      gateway: { invoke: async () => { throw new Error("api test 无 otter 座位——不应触发唤醒"); } },
+      bus: new RoomBus(),
+      humanTimeoutMs: 60_000,
+      humanGraceMs: 60_000,
+      settleHoldMs: 60_000,
+    });
+    const app2 = createRouter({ mahjong: new MahjongController(rooms2, store, logger) } as unknown as Controllers, logger);
+    const post2 = async (path: string, body?: unknown): Promise<Response> =>
+      app2.request(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body ?? {}),
+      });
+    const view2 = async (roomId: string): Promise<Record<string, any>> =>
+      (await json(await app2.request(`/api/mahjong/rooms/${roomId}/view`))) as Record<string, any>;
+    const waitView = async (roomId: string, label: string): Promise<Record<string, any>> => {
+      for (let i = 0; i < 4000; i++) {
+        const v = await view2(roomId);
+        if (v.status === "finished" || v.awaitingHuman || v.settlement) return v;
+        await sleep(5);
+      }
+      throw new Error(`waitView timeout: ${label}`);
+    };
+    const R = "api-life-1";
+    try {
+      // 未知房：continue/stop 均 404
+      expect((await post2("/api/mahjong/rooms/nope/continue")).status).toBe(404);
+      expect((await post2("/api/mahjong/rooms/nope/stop")).status).toBe(404);
+
+      // 建房（human 在 1 号座）→ 非停驻态 continue 400（等真人动作时）
+      const created = (await json(await post2("/api/mahjong/rooms", { roomId: R, seed: "api-life-seed", players: PLAYERS }))) as Record<string, any>;
+      expect(created.status).toBe("playing");
+      let v = await waitView(R, "first await");
+      expect(v.awaitingHuman).toBeTruthy();
+      expect((await post2(`/api/mahjong/rooms/${R}/continue`)).status).toBe(400);
+
+      // 驱动到局终停驻（settlement 可见 = 停驻中，60s 不自动放行）→ continue 200
+      for (;;) {
+        if (v.settlement) break;
+        if (v.status === "finished") throw new Error("unexpected early finish before settle park");
+        expect((await post2(`/api/mahjong/rooms/${R}/actions`, { seat: 1, action: v.decision.actions[0] })).status).toBe(200);
+        v = await waitView(R, "drive to settle");
+      }
+      const continued = (await json(await post2(`/api/mahjong/rooms/${R}/continue`))) as Record<string, any>;
+      expect(continued.accepted).toBe(true);
+
+      // 续跑至终局（局终停驻处放行）→ continue 409
+      for (;;) {
+        v = await waitView(R, "drive to gameover");
+        if (v.status === "finished") break;
+        if (v.settlement) {
+          expect((await post2(`/api/mahjong/rooms/${R}/continue`)).status).toBe(200);
+          continue;
+        }
+        expect((await post2(`/api/mahjong/rooms/${R}/actions`, { seat: 1, action: v.decision.actions[0] })).status).toBe(200);
+      }
+      expect((await post2(`/api/mahjong/rooms/${R}/continue`)).status).toBe(409);
+      // 终局房可停（止血阀对已终局同样可关）→ 200；再停 404（已出 Map）
+      expect((await post2(`/api/mahjong/rooms/${R}/stop`)).status).toBe(200);
+      expect((await post2(`/api/mahjong/rooms/${R}/stop`)).status).toBe(404);
+
+      // 进行中停局：新局直接停 → 200，视图随即 404（房已出 Map）
+      const R2 = "api-life-2";
+      await json(await post2("/api/mahjong/rooms", { roomId: R2, seed: "api-life-seed-2", players: PLAYERS }));
+      const stopped = (await json(await post2(`/api/mahjong/rooms/${R2}/stop`))) as Record<string, any>;
+      expect(stopped.stopped).toBe(true);
+      expect((await app2.request(`/api/mahjong/rooms/${R2}/view`)).status).toBe(404);
+    } finally {
+      rooms2.close(R);
+      rooms2.close("api-life-2");
+    }
+  });
 });

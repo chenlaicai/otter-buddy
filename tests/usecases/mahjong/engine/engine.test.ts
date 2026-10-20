@@ -180,4 +180,24 @@ describe("立直后摸打约束（#1564-2）", () => {
     const dp = e.decisionPoint()!;
     expect(dp.actions.some((a) => a.type === "ankan" && a.kind === "1s")).toBe(true);
   });
+
+  it("立直后加杠（kakan）无立直门——碰刻+第四张在手时候选照常（检视建议3）", () => {
+    // 白盒局面：碰刻 5s + 摸到第四张 5s（现实规则中立直与碰不共存——
+    // 本例钉的是实现口径：kakan 构建不受立直门影响，防后续误加门）
+    const e = new SanmaEngine(cfg("riichi-kakan-5s"));
+    e.startRound();
+    const r = e.state.round!;
+    const p = r.players[r.turn];
+    p.melds = [{ type: "pon", tiles: parseTiles("555s"), from: "kamicha" }];
+    p.hand = [...parseTiles("123p456p789s1z"), ...parseTiles("5s")];
+    p.riichi = true;
+    p.ippatsu = false;
+    r.drawn = p.hand[p.hand.length - 1]!;
+    r.drawnRinshan = false;
+    r.phase = "turn";
+    const dp = e.decisionPoint()!;
+    expect(dp.actions.some((a) => a.type === "kakan" && a.tile === "5s")).toBe(true);
+    // 摸切候选不受影响：立直后仍只剩刚摸的那张
+    expect(dp.actions.filter((a) => a.type === "discard")).toEqual([{ type: "discard", tile: "5s" }]);
+  });
 });

@@ -71,6 +71,12 @@ describe("parseActionReply 解析契约", () => {
       action: LEGAL[4],
       speech: "过",
     });
+    // 空串/纯空白 speech 视同未提供（不携带进事件——检视建议7加固）
+    const emptySpeech = parseActionReply('{"type":"pass","speech":""}', LEGAL) as { ok: true; speech?: string };
+    expect(emptySpeech.ok).toBe(true);
+    expect(emptySpeech.speech).toBeUndefined();
+    const blankSpeech = parseActionReply('{"type":"pass","speech":"   "}', LEGAL) as { ok: true; speech?: string };
+    expect(blankSpeech.speech).toBeUndefined();
     // 立直弃牌（riichi 位精确匹配）
     expect(parseActionReply('{"action": 1}', LEGAL)).toMatchObject({ ok: true, action: LEGAL[1] });
     expect(parseActionReply('{"action": {"type":"discard","tile":"1z","riichi":false}}', LEGAL)).toMatchObject({
