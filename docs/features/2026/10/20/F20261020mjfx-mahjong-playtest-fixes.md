@@ -3,7 +3,7 @@ id: F20261020mjfx
 title: 三麻 playtest 六问题修复（#1564）
 summary: chen 实机试玩六条问题一次修——立直后仅摸切+禁副露（正确性）、局终结算停驻+停局接口+离桌 runaway 界（体验/止血）、fallback 内部细节不外显、唤醒发言必填；特效不一致核实为 by design 留档
 change_type: fix
-capability_test: "四块行为钉：①立直后动作集仅 tsumo/tsumogiri/kan/ron/pass（engine 新增 4 例，RED→GREEN）②结算停驻不自动换局+continue 放行+超时自动继续（room-lifecycle 4 例）③stopRoom 出 Map+通知、runaway 到限停局（同文件）④fallback 日志无内部原因串、speech 必填（既有 parseActionReply 例 37 例全绿）"
+capability_test: "四块行为钉：①立直后动作集仅 tsumo/tsumogiri/kan/ron/pass（engine 新增 5 例，RED→GREEN）②结算停驻不自动换局+continue 放行+超时自动继续（room-lifecycle 4 例）③stopRoom 出 Map+通知、runaway 到限停局（同文件）④fallback 日志无内部原因串、speech 必填（room-service 9 例全绿，含 speech 空串断言 2 条）"
 created_in_conversation: a00f8fec-1ec0-4c63-9b1d-27b5756b2fc8
 intent:
   problem: "chen 2026-10-20 实机 playtest（房间 sanma-1020）报六条：①fallback 内部错误串漏进对局日志 ②立直后仍能摸牌/连摸三张（游戏正确性）③獭全程不发言 ④打牌特效不一致 ⑤局终无结算停顿瞬间换局 ⑥无停局接口+真人离桌后自动换局 runaway 烧 token。"
@@ -22,17 +22,19 @@ causal_links:
 
 ## 背景
 
-chen 2026-10-20 上午实机试玩三麻（房间 sanma-1020，东风战 35000 点），打出六条问题（issue #1564），大獭分诊立案后派麻将引擎獭修复。四 commit 三个分类声明收口（见下）。
+chen 2026-10-20 上午实机试玩三麻（房间 sanma-1020，东风战 35000 点），打出六条问题（issue #1564），大獭分诊立案后派麻将引擎獭修复。七个 commit 收口（实现 4 + 首轮检视处置 3，分类声明见下）。
 
 ## 分诊与修复
 
 | # | 问题 | 分诊 | commit |
 |---|---|---|---|
-| 2 | 立直后还能摸牌/连续摸三张 | 游戏正确性，最高优先 | `10ff7640` narrow-fix |
-| 1 | 「fallback · 回复中未找到 JSON 对象」漏进对话 | 内部降级外泄 | `aef5dc42` narrow-fix |
-| 3 | 獭全程不发言（无聊） | 发言闸门过紧 | `aef5dc42` narrow-fix |
-| 5 | 局终无结算停顿，瞬间自动换局 | 体验 → 新能力 | `92dcfd97` mechanism-addition |
-| 6 | 无停局/删房接口 + runaway | 止血 → 新能力 | `92dcfd97` mechanism-addition |
+| 2 | 立直后还能摸牌/连续摸三张 | 游戏正确性，最高优先 | `检视2` narrow-fix |
+| 1 | 「fallback · 回复中未找到 JSON 对象」漏进对话 | 内部降级外泄 | `检视1/3` narrow-fix |
+| 3 | 獭全程不发言（无聊） | 发言闸门过紧 | `检视1/3` narrow-fix |
+| 5 | 局终无结算停顿，瞬间自动换局 | 体验 → 新能力 | `检视5/6` mechanism-addition |
+| 6 | 无停局/删房接口 + runaway | 止血 → 新能力 | `检视5/6` mechanism-addition |
+
+> 锚点口径（抗 rebase）：commit 一律以 subject 前缀引用（`git log --grep` 可定位），hash 两次因 rebase 断链已弃用。
 | 4 | 打牌特效不一致 | **核实为 by design**（见「不做」） | 无代码改动 |
 
 ### #2 立直后摸打约束（正确性）
@@ -76,7 +78,7 @@ chen 2026-10-20 上午实机试玩三麻（房间 sanma-1020，东风战 35000 �
 ## 测试与证据
 
 - **RED→GREEN**（#2）：复跑口径（检视建议1 修正）——**当前测试 × 修复前引擎（`daeac012`）** 4 例红（`/tmp/mj-riichi-red2.txt`，全为缺陷断言红：候选集过宽×2 / 非摸切拒不生效 / 禁副露不生效——无测试构造错误），修复后 engine.test.ts 10 例全绿；本 PR 新增 5 例（4 例立直约束 + 1 例 kakan 无立直门）
-- **生命周期**：room-lifecycle.test.ts 新增 4 例（停驻不自动换局+继续放行 / 超时自动继续 / stopRoom 出 Map+通知 / runaway 到限停局）；既有驱动器补「结算停驻点继续」适配（room-service.test 13 例、room-report-chat 9 例、api 3 例均绿）
+- **生命周期**：room-lifecycle.test.ts 新增 4 例（停驻不自动换局+继续放行 / 超时自动继续 / stopRoom 出 Map+通知 / runaway 到限停局）；既有驱动器补「结算停驻点继续」适配（room-service.test 9 例、room-report-chat 12 例、api 4 例均绿）
 - **HTTP 契约**（检视建议5）：tests/api/mahjong.test.ts 新增 continue/stop 契约例（continue 404/400/200/409 四态 + stop 404/200×2，长停驻服务可控行验证放行路径）
 - 全量回归数据见 PR body（pre-existing 超时 flaky 附隔离复跑证据）
 
