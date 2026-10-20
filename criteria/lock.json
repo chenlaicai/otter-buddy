@@ -2,9 +2,9 @@
   "version": 1,
   "algorithm": "sha256",
   "files": {
-    "criteria/invariants.json": "d1ff282f5f3c1992c0213efe085c978d2a2e67a8224ca5bc9cf42152a4261d06",
+    "criteria/invariants.json": "b651ffdb3f2ac1c0c07f41b41243d6dd5083421f19091eb75f393e8ef45a8ca2",
     "scripts/check-criteria.mjs": "b20aa1cae29201dbb01740b023ca71f152c1a51ca5c10c06668ad2a2876416e3",
     "criteria/waivers.json": "c312bd2f1f4a1ebed86c08b3ccba9814e50ead8ea0e832798ca56f0358532a75"
   },
-  "combined": "cf953251712f00d571c2d81ec744c83a35b677a4fe847ac2b69018461ef05c50"
+  "combined": "35af7214f5a627a0f4cb6505f434a2dfe616e91eaa52a266c73a9ec91a91ae4f"
 }

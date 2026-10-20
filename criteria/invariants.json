@@ -63,6 +63,27 @@
       "pattern": "处置自述不作证据",
       "rationale": "反自述核验规程（核验必须对照 diff/命令输出/文件原文）——momo5502 案例「worker 自述注入」教训的本仓落点，删掉即检视退回采信「我验证了」自述的假核验形态",
       "waiver_eligible": true
+    },
+    {
+      "id": "ci-design-face-confirmation",
+      "file": ".pi/skills/code-implementation/SKILL.md",
+      "pattern": "改起来贵不贵",
+      "rationale": "设计面确认纪律签名句（模块切分/关键接口/核心数据结构过目拍板，2026-10-20 外部洞察共识②+搭档定调）——删掉即实现期抽象设计回到 AI 自由发挥，信任链条上游失守",
+      "waiver_eligible": true
+    },
+    {
+      "id": "ci-acceptance-assertion",
+      "file": ".pi/skills/code-implementation/SKILL.md",
+      "pattern": "才标「人工判读」并说明为何不可机械化",
+      "rationale": "验收标准断言化签名句（机械断言优先，2026-10-20 搭档定调「规格可执行化」落点）——删掉即验收回到不可判散文，验证有效性无法测量",
+      "waiver_eligible": true
+    },
+    {
+      "id": "ci-impact-selfcheck",
+      "file": ".pi/skills/code-implementation/SKILL.md",
+      "pattern": "走新文档追加说明或补新记忆条目",
+      "rationale": "影响面当场自检分流签名句（含搭档 2026-10-20 否决事后「可能过期」提醒的现场语境）——删掉即文档腐烂无人当场补、或回改历史文档铁律失去分流指引",
+      "waiver_eligible": true
     }
   ]
 }
