@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { SanmaEngine, IllegalActionError, notation } from "../../../../src/usecases/mahjong/engine/engine";
+import { parseTiles } from "../../../../src/entities/mahjong/tile";
 import type { GameConfig, Seat } from "../../../../src/usecases/mahjong/engine/types";
 
 function cfg(seed: string): GameConfig {
@@ -119,5 +120,64 @@ describe("SanmaEngine", () => {
     const ha = a.state.round!.players.map((p) => p.hand.map(notation).join(""));
     const hb = b.state.round!.players.map((p) => p.hand.map(notation).join(""));
     expect(ha).not.toEqual(hb);
+  });
+});
+
+// ─── #1564-2 立直后摸打约束：仅摸切 + 暗杠听牌形不变（RED→GREEN）───
+
+describe("立直后摸打约束（#1564-2）", () => {
+  /** 白盒造一个立直态：当前家 riichi=true，手牌 = hand13 + drawn（drawn 入手并由 r.drawn 引用） */
+  function forceRiichiTurn(hand13: string, drawn: string): SanmaEngine {
+    const e = new SanmaEngine(cfg(`riichi-${hand13}-${drawn}`));
+    e.startRound();
+    const r = e.state.round!;
+    const p = r.players[r.turn];
+    p.hand = [...parseTiles(hand13), ...parseTiles(drawn)];
+    p.riichi = true;
+    p.ippatsu = false;
+    r.drawn = p.hand[p.hand.length - 1]!;
+    r.drawnRinshan = false;
+    r.phase = "turn";
+    return e;
+  }
+
+  it("立直后打牌候选仅剩刚摸的那张（tsumogiri），其余手牌张不可打", () => {
+    const e = forceRiichiTurn("123p456p789s11z22p", "9s");
+    const dp = e.decisionPoint()!;
+    const discards = dp.actions.filter((a) => a.type === "discard");
+    expect(discards).toEqual([{ type: "discard", tile: "9s" }]);
+  });
+
+  it("立直后打非摸切张被引擎拒绝（IllegalActionError）", () => {
+    const e = forceRiichiTurn("123p456p789s11z22p", "9s");
+    const seat = e.decisionPoint()!.seat;
+    // 打非摸切的1p → 拒
+    expect(() => e.apply(seat, { type: "discard", tile: "1p" })).toThrow(IllegalActionError);
+    // 摸切 9s 合法可执行
+    expect(() => e.apply(seat, { type: "discard", tile: "9s" })).not.toThrow();
+  });
+
+  it("立直后副露（碰/大明杠）不进候选——只能荣和或过", () => {
+    const e = forceRiichiTurn("123p456p789s11z22p", "9s");
+    const r = e.state.round!;
+    const me = r.turn;
+    const next = ((me + 1) % 3) as Seat;
+    const third = ((me + 2) % 3) as Seat;
+    r.players[next]!.hand = parseTiles("1z345p789s55s19m22s");
+    r.players[third]!.hand = parseTiles("19m111p555s333p45z");
+    // 立直家摸切 → 无人鸣 9s → 下家摸牌后打 1z
+    e.apply(me, { type: "discard", tile: "9s" });
+    e.apply(next, { type: "discard", tile: "1z" });
+    const dp = e.decisionPoint()!;
+    expect(dp.kind).toBe("claim");
+    expect(dp.seat).toBe(me);
+    expect(dp.actions.some((a) => a.type === "pon" || a.type === "daiminkan")).toBe(false);
+    expect(dp.actions.some((a) => a.type === "pass")).toBe(true);
+  });
+
+  it("立直后暗杠/加杠照常提供（雀魂口径：无听牌不变限制）", () => {
+    const e = forceRiichiTurn("111s23s567p789p99p", "1s");
+    const dp = e.decisionPoint()!;
+    expect(dp.actions.some((a) => a.type === "ankan" && a.kind === "1s")).toBe(true);
   });
 });
