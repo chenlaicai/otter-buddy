@@ -119,7 +119,14 @@ export class InvokeController {
    *  F20260913ctlv test17（搭档拍板）：獭锚重试——重试的是「该獭的 session」（上下文载体），
    *  invoke 只是 session 上的一次执行记录。invokeId 锚的「重试哪次」是伪精度（triggerMessageId
    *  在链引擎未被消费、retry prompt 不引用旧 invoke），故改为獭锚简化链路。
-   *  定位：该獭最近一次非 completed invoke（无可重试目标 409）；session 上下文承载原始任务。 */
+   *  定位：该獭最近一次非 completed invoke（无可重试目标 409）；session 上下文承载原始任务。
+   *
+   *  F20261020ided 判重去重：「同獭 running 时重试/再派工」必须在判重层被拒，而不是下沉到
+   *  session 锁 30s 超时后裸抛「[错误] Lock acquire timeout…」（现场：前端 116ms 双击重试
+   *  按钮各放行一条，第二条撞锁超时）。判重语义三层（与 abort/retry 窗口竞态裁决一致）：
+   *  ①invoke 库行 running → 明确在跑 → 409 otter_invoke_running
+   *  ②DB 终态 + AgentInvoker.isRunning → SDK 层还在跑 → 409
+   *  ③两者皆否 → 放行（abort 终态化收敛中重试合法，不得误拦） */
   async retryByOtter(c: Context): Promise<Response> {
     try {
       const otterId = param(c, "id");
@@ -132,6 +139,25 @@ export class InvokeController {
       const latest = recent[0];
       if (!latest) {
         return c.json({ error: "no invoke found for this otter" }, 404);
+      }
+      // ①库行 running → 明确在跑 → 判重拒绝（F20261020ided）
+      if (latest.status === "running") {
+        return c.json(
+          { error: "otter is currently running, retry rejected", code: "otter_invoke_running" },
+          409,
+        );
+      }
+      // ②DB 终态但 SDK 层还在跑（abort 终态化收敛中）→ 同样判重拒绝
+      // 检视獭-1571 建议2：agentInvoker 未注入时②层静默失效（invoke 创建后、库行 running
+      // 落账前的时序窗口只有②层能兜）——生产 wiring 恒注入，但降级必须显形不静默。
+      if (!this.agentInvoker) {
+        this.logger?.warn("retryByOtter: agentInvoker not injected, SDK-layer dedup (layer ②) silently degraded", { otterId });
+      }
+      if (this.agentInvoker?.isRunning(otterId)) {
+        return c.json(
+          { error: "otter is currently running, retry rejected", code: "otter_invoke_running" },
+          409,
+        );
       }
       if (latest.status === "completed") {
         return c.json({ error: `otter's latest invoke is not in a retryable status: ${latest.status}` }, 409);
