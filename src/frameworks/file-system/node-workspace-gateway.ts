@@ -131,4 +131,41 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
       isDirectory: stat.isDirectory(),
     };
   }
+
+  /**
+   * 删除文件或目录（#1484）。安全口径与读写同构 + 根保护：
+   * - resolveSafe 拒绝路径穿越与 symlink 逃逸（与 readFile/writeFile 同一入口）
+   * - 拒绝删除工作区根（relativePath 为空/. 时 resolved === root；整区回收是 removeWorkspace 的事，不走这里）
+   * - lstat 口径判类型：symlink 按链接本身删除，不跟随目标
+   * - 目录：空目录可直接删（rmdir）；非空目录必须 options.recursive=true（防止误删整树）
+   */
+  async deletePath(
+    conversationId: string,
+    relativePath: string,
+    options?: { recursive?: boolean },
+  ): Promise<{ deleted: "file" | "directory" }> {
+    const root = this.workspaceRoot(conversationId);
+    const fullPath = await this.resolveSafe(conversationId, relativePath);
+    if (fullPath === root) {
+      throw new Error("Refusing to delete workspace root");
+    }
+    const stat = await fs.lstat(fullPath);
+    if (stat.isDirectory()) {
+      if (options?.recursive) {
+        await fs.rm(fullPath, { recursive: true, force: false });
+      } else {
+        try {
+          await fs.rmdir(fullPath);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === "ENOTEMPTY") {
+            throw new Error("Directory not empty: pass recursive=true to delete the whole tree", { cause: err });
+          }
+          throw err;
+        }
+      }
+      return { deleted: "directory" };
+    }
+    await fs.unlink(fullPath);
+    return { deleted: "file" };
+  }
 }

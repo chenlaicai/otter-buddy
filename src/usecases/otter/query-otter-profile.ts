@@ -50,6 +50,7 @@ const TOOL_DISPLAY_CATALOG: OtterProfileDTO["tools"] = [
   { name: "workspace_write", description: "向工作区写入文件", group: "工作区" },
   { name: "workspace_list", description: "列出工作区中指定目录的内容", group: "工作区" },
   { name: "workspace_info", description: "获取当前对话的工作区信息", group: "工作区" },
+  { name: "workspace_delete", description: "删除工作区中的文件或目录", group: "工作区" },
   { name: "create_scheduled_task", description: "创建定时任务", group: "调度" },
 ];
 
