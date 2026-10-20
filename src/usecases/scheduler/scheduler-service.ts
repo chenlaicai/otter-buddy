@@ -71,8 +71,27 @@ const CATCHUP_CONV_QUOTA = 1;
  *  静默窗判死会误杀「被闸门保留、等待恢复」的信号——判活优先看台账（in_progress 即活），
  *  闸门冻结由信号保留语义兜住（恢复后补扫点燃），不靠 scheduler 轮询硬等。 */
 const LEDGER_WATCH_POLL_MS = 15_000;
-/** #775 执行级看门狗硬上限：与链路径 MAX_CHAIN_TIMEOUT_MS 同值。 */
-const LEDGER_WATCH_HARD_LIMIT_MS = 24 * 60 * 60 * 1000;
+/** #1048 看门狗克制（2026-10-20 搭档定调）：定时任务允许漏一次执行（如系统停止期间），
+ *  兜底/看门狗必须克制——看门狗职责从「判死仲裁」降级为「清坑保洁」，不再等满 24h 追求
+ *  精确终态：静默窗无产出 / 持续活跃超窗即放弃等待（WatchdogAbandonedError → skipped，
+ *  不计 consecutiveFailures，不触发 3 连败熔断——#516 教训：误杀被熔断放大成静默停跑）。
+ *  任务可于下次调度补跑、信号由补扫消化，放弃是常态操作不是异常。
+ *  基线 2h：正常任务时长上限 ~1h（日报级），2h 留一倍余量（与 #1449 孤儿扫描阈值同源判断）。 */
+const WATCH_ABANDON_BASELINE_MS = 2 * 60 * 60 * 1000;
+/** 放弃窗口 = max(基线 2h, 2×静默窗)——timeoutMinutes 配大静默窗的任务留一倍余量。 */
+function resolveAbandonWindowMs(silenceMs: number): number {
+  return Math.max(WATCH_ABANDON_BASELINE_MS, silenceMs * 2);
+}
+
+/** #1048：看门狗主动放弃等待（非任务失败）——落 skipped 不计熔断（同锁冲突/闸门拦截
+ *  「非任务失败」分账语义）。「放弃」=不再等终态（任务可能仍在后台跑完、可能由补扫消化），
+ *  与「失败」（链 settle 后报错 / 429 配额耗尽判死）分道。 */
+export class WatchdogAbandonedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WatchdogAbandonedError';
+  }
+}
 
 /** #642: 429/rate_limit 类错误的最大重试次数。超过此次数仍 429 → 判死（配额耗尽不会自愈，续期无意义） */
 const MAX_429_RETRIES = 3;
@@ -87,8 +106,8 @@ const MAX_QUOTA_FALLBACK_RETRIES = 1;
  *  背景：8-24/25/26《每日 issue 处理》被 15 分钟一刀切误杀——链实际跑到 18:47 正常收尾，
  *  底层工作完成但账面记 failed，3 次熔断后 status=error 静默停跑。
  *  默认静默窗 15 分钟（resolveChainSilenceMs 内联），任务级 timeoutMinutes 可覆盖。 */
-/** 硬上限：无论链是否活跃，总时长超过即判死（防真死循环占住调度器） */
-const MAX_CHAIN_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+/** 硬上限（#1048 收口）：无论链是否活跃，总时长超过 resolveAbandonWindowMs(silenceMs)
+ *  即放弃等待（防真死循环占住调度器；原恒 24h 等待退役）。 */
 /** 非链降级路径（未注入 dispatchChainEngine）：单次 invoke 5 分钟一刀切（旧语义保留） */
 const SINGLE_INVOKE_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -1076,7 +1095,9 @@ export class SchedulerService {
           } catch (retryError) {
             // 降级重试失败（含 fallback 模型同池耗尽）——走原失败路径，error 换为重试错误（更接近现场）
             this.logger.error('Quota-exhausted fallback retry failed', retryError as Error, { taskId: task.id });
-            await this.handleTaskExecutionFailure(executionId, task.id, retryError, options?.skipConsecutiveFailureTracking);
+            // #1048：fallback 重试同样可能被看门狗放弃——与主路径同账（skipped 不计熔断），
+            // 否则放弃经由重试路径会重新耦合进 3 连败熔断（#516 二阶伤害从后门回流）。
+            status = await this.finishFallbackRetry(executionId, task.id, retryError, options?.skipConsecutiveFailureTracking);
             throw retryError;
           }
         }
@@ -1094,6 +1115,14 @@ export class SchedulerService {
         // 非任务失败」：execution 记 skipped、不 increment consecutiveFailures、不触发熔断；
         // 信号已由路由器保留在台账，恢复窗口由补扫消化。Why 仍 rethrow：手动触发者需感知。
         if (error instanceof DirectChainGatedError) {
+          status = 'skipped';
+          await this.handleExecutionSkipped(executionId, error);
+          throw error;
+        }
+        // #1048：看门狗主动放弃（静默判死/超放弃窗口）=「停止等待」而非「任务失败」——
+        // 与锁冲突/闸门拦截同族的「非任务失败」：记 skipped、不计 consecutiveFailures、
+        // 不触发 3 连败熔断。Why 仍 rethrow：调用方需感知本轮没等到终态。
+        if (error instanceof WatchdogAbandonedError) {
           status = 'skipped';
           await this.handleExecutionSkipped(executionId, error);
           throw error;
@@ -1334,8 +1363,9 @@ export class SchedulerService {
     // 链引擎读行级 tsp，不再消费 turn 级 aggregatedTargets），
     // 否则降级为直接 invoke（兼容未注入的旧装配）。超时语义分路径：
     // - 链路径（#516）：静默容忍窗 + 硬上限。窗口内链无新消息才判死；有新消息即续期。
-    //   任务级 timeoutMinutes 覆盖静默窗（默认 15 分钟），硬上限恒 24h。链 settle 即返回，
-    //   不与链竞速——短任务不被拖到静默窗满。
+    //   任务级 timeoutMinutes 覆盖静默窗（默认 15 分钟）；硬上限 #1048 收口为
+    //   max(2h, 2×静默窗)。判死/超上限 = 放弃等待（skipped 落账），非任务失败。
+    //   链 settle 即返回，不与链竞速——短任务不被拖到静默窗满。
     // - 非链路径：单次 invoke 5 分钟一刀切（旧语义保留，无链可观测）。
     // 链引擎自身有 maxChainDepth 安全限制，超时只是 scheduler 层的兜底防线。
     if (this.dispatchChainEngine) {
@@ -1388,24 +1418,43 @@ export class SchedulerService {
   /** #516: 链活跃看门狗。与链 promise 竞速：链 settle（成功/失败）→ 透传返回/抛错；
    *  静默窗（silenceMs）到 → 探测锚点消息之后是否有新消息（任一状态都算链活跃）：
    *  - 有 → 链活跃，续期等待下一个静默窗口
-   *  - 无（含探测失败）→ 判死，抛 Agent invocation timeout
-   *  总时长恒受 MAX_CHAIN_TIMEOUT_MS 硬上限约束，防真死循环占住调度器。
+   *  - 无（含探测失败）→ 判死，抛 WatchdogAbandonedError（#1048：放弃≠失败）
+   *  总时长恒受 resolveAbandonWindowMs(silenceMs) 放弃窗口约束，防真死循环占住调度器。
    *  Why 含探测失败判死：链消息流不可读（DB 故障等）时链产出无从验证，继续等待只会永远占位。 */
   /** #775 S4a：执行级台账判活看门狗（换轨路径专用）。
+  /** #1048 克制化：换轨执行看门狗——判活靠消息终态，放弃靠静默窗。
    *  与 watchChainWithActivity（静默窗判死）的本质区别：链路径握着 chainPromise 能等 settle；
    *  换轨后点火是路由器 fire-and-forget，无法握 promise——判活只能靠消息终态：
    *  - 锚点目标全部有终态消息 → 执行收工
-   *  - 仍有目标 streaming → 活着，续期
-   *  - 无产出 → 保守等下一轮，硬上限兜底 */
+   *  - 仍有产出（任一状态）→ 活着，续期
+   *  - 静默窗零产出 → 放弃等待（原「保守等下一轮、24h 硬上限兜底」退役） */
   private async watchExecutionByLedger(task: ScheduledTask, anchorMessageId: string): Promise<void> {
-    const deadline = this.now() + LEDGER_WATCH_HARD_LIMIT_MS;
+    // #1048：静默窗判死 + 放弃窗口收口（原「无产出保守等到 24h 硬上限」是 issue 根因签名：
+    // 10-12 三条 execution 各等满 24h+12s 才落账）。放弃 ≠ 失败：超窗即停等，落 skipped。
+    const silenceMs = this.resolveChainSilenceMs(task);
+    const deadline = this.now() + resolveAbandonWindowMs(silenceMs);
+    let lastProgressAt = this.now();
     while (this.now() < deadline) {
       await new Promise(r => setTimeout(r, LEDGER_WATCH_POLL_MS));
       // F20260908rlcp：从 dispatch_attempts 台账改为消息终态判定
       const settled = await this.isMessageSettled(task.conversationId, anchorMessageId);
       if (settled) return;
+      // #1048 静默窗：锚点后有新产出 = 链仍有进展（与 isChainStillActive「任一状态都算链
+      // 活跃」同语义）；静默窗内零产出（含探测失败——判不出活按死处理，同「机械清理比
+      // 等 24h 安全」的判断）→ 放弃等待。闸门冻结保留的信号由补扫点燃兜住，不靠本看门狗
+      // 硬等（原 #775 注释的「保守等」被搭档克制原则取代：漏一次可接受）。
+      const progressed = await this.hasFreshOutputAfter(anchorMessageId, silenceMs);
+      if (progressed) {
+        lastProgressAt = this.now();
+      } else if (this.now() - lastProgressAt >= silenceMs) {
+        throw new WatchdogAbandonedError(
+          `看门狗放弃：锚点后 ${Math.round(silenceMs / 60_000)} 分钟无新产出，停止等待（非任务失败；下次调度可补跑，信号由补扫消化）`,
+        );
+      }
     }
-    throw new Error(`Agent invocation timeout (ledger watch exceeded hard limit ${LEDGER_WATCH_HARD_LIMIT_MS / 3_600_000}h)`);
+    throw new WatchdogAbandonedError(
+      `看门狗放弃：执行持续活跃超 ${resolveAbandonWindowMs(silenceMs) / 3_600_000} 小时未 settle，停止等待（防假死占位）`,
+    );
   }
 
   /** F20260908rlcp：信号终态判定（F20260913ctlv 批2 切 entries）——锚点目标是否全部有终态产出。
@@ -1434,6 +1483,26 @@ export class SchedulerService {
     }
   }
 
+  /** #1048：锚点后最近产出是否落在静默窗内（进展探测）。
+   *  与 isChainStillActive「任一状态都算链活跃」同语义；查询失败按无进展处理（判不出活按死）。
+   *  Why cutoff 用 Date.now()（墙钟）：entry.createdAt 是墙钟时间戳，比较必须墙钟对墙钟——
+   *  this.now() 是单调钟（performance.now，进程启动起算，供看门狗窗口计时防墙钟跳变），
+   *  两者零点不同不可混比，否则 cutoff 恒小于 createdAt、探测恒报「有进展」（W4 回归用例）。
+   *  Why limit 200：取末条判 recency 需要窗口内条目序列，上限截爆量；getEntriesAfter 按
+   *  sequence_num ASC 返回（sqlite-entry-repository 实现），末条=返回集内最新。截断时（锚点后
+   *  >200 条）末条可能偏旧 → 保守判无进展 → 提前放弃——可漏原则下可接受（skipped 不计熔断）。
+   *  isChainStillActive 的 limit=1 是存在性探测（任一条即算活跃），语义不同故不同值。 */
+  private async hasFreshOutputAfter(anchorMessageId: string, silenceMs: number): Promise<boolean> {
+    try {
+      const after = await this.entryRepo.getEntriesAfter(anchorMessageId, 200);
+      if (!Array.isArray(after) || after.length === 0) return false;
+      const latest = after[after.length - 1]!;
+      return new Date(latest.createdAt).getTime() > Date.now() - silenceMs;
+    } catch {
+      return false;
+    }
+  }
+
   private async watchChainWithActivity(
     task: ScheduledTask,
     anchorMessageId: string | undefined,
@@ -1450,11 +1519,11 @@ export class SchedulerService {
       // 防御：无锚点无法探测活性，退化为静默窗一刀切（不应发生——createSystemMessage 必有 id）
       await Promise.race([settled, new Promise(r => setTimeout(r, this.resolveChainSilenceMs(task)))]);
       if (this.settleOutcome(chainSettled)) return;
-      throw new Error('Agent invocation timeout');
+      throw new WatchdogAbandonedError('看门狗放弃：静默窗内链无新产出，停止等待（非任务失败；下次调度可补跑）');
     }
 
     const silenceMs = this.resolveChainSilenceMs(task);
-    const deadline = Date.now() + MAX_CHAIN_TIMEOUT_MS;
+    const deadline = Date.now() + resolveAbandonWindowMs(silenceMs);
     // #642: 429 重试计数器——连续 429 超过 MAX_429_RETRIES 次即判死
     let consecutive429Count = 0;
     while (Date.now() < deadline) {
@@ -1473,7 +1542,8 @@ export class SchedulerService {
         ?? await this.isChainStillActive(anchorMessageId);
       if (!alive) {
         if (this.settleOutcome(chainSettled)) return;
-        throw new Error('Agent invocation timeout');
+        // #1048：判死即放弃（放弃≠失败——#516 教训：误杀被 3 连败熔断放大成静默停跑）
+        throw new WatchdogAbandonedError('看门狗放弃：静默窗内锚点后无新产出，停止等待（非任务失败；下次调度可补跑）');
       }
 
       // #642: 检测链是否卡在 429 重试循环
@@ -1481,7 +1551,9 @@ export class SchedulerService {
         anchorMessageId, task.id, consecutive429Count,
       );
     }
-    throw new Error(`Agent invocation timeout (chain exceeded hard limit ${MAX_CHAIN_TIMEOUT_MS / 3_600_000}h)`);
+    throw new WatchdogAbandonedError(
+      `看门狗放弃：链持续活跃超 ${resolveAbandonWindowMs(silenceMs) / 3_600_000} 小时未 settle，停止等待（防假死占位）`,
+    );
   }
 
   /** #642: 等待静默窗或链 settle。提取为 helper 减少 watchChainWithActivity 语句数。 */
@@ -1647,6 +1719,22 @@ export class SchedulerService {
 
   /** #654: 锁冲突跳过记账——execution 记 skipped（非 failed），不 increment consecutiveFailures、
    *  不触发 3 连败熔断。errorMessage 留下锁冲突痕迹供面板/排查可见。 */
+  /** #1048：fallback 重试失败的记账分道——看门狗放弃 → skipped（不计熔断），其余 → 失败记账。
+   *  返回落账状态供调用方同步 status（拆 helper 另为控 max-depth）。 */
+  private async finishFallbackRetry(
+    executionId: string,
+    taskId: string,
+    retryError: unknown,
+    skipConsecutiveFailureTracking?: boolean,
+  ): Promise<'skipped' | 'failed'> {
+    if (retryError instanceof WatchdogAbandonedError) {
+      await this.handleExecutionSkipped(executionId, retryError);
+      return 'skipped';
+    }
+    await this.handleTaskExecutionFailure(executionId, taskId, retryError, skipConsecutiveFailureTracking);
+    return 'failed';
+  }
+
   private async handleExecutionSkipped(executionId: string, error: unknown): Promise<void> {
     const errorMessage = error instanceof Error ? error.message : String(error);
     try {
