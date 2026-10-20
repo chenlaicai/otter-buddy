@@ -210,7 +210,10 @@ function renderCenter() {
       )
       .join("")}`;
   } else if (settle) {
-    status.innerHTML = `<div><b>${esc(settle.title)}</b></div>${settleHtml(settle)}`;
+    // #1564-5：局终结算停驻——展示结算 + 「继续」按钮（服务端停驻中；终局由 gameover 分支接管）
+    const canContinue = state.view?.status === "playing";
+    status.innerHTML = `<div><b>${esc(settle.title)}</b></div>${settleHtml(settle)}` +
+      (canContinue ? `<div><button class="btn" data-do="settle-continue">继续下一局 →</button></div>` : "");
   } else if (state.view.status === "finished") {
     status.innerHTML = "<div><b>本局结束</b></div>";
   } else if (dp) {
@@ -518,6 +521,16 @@ function bindEvents() {
   $("hand").addEventListener("click", (e) => {
     const el = e.target.closest("[data-code]");
     if (el) onHandClick(el.dataset.code);
+  });
+
+  $("turnStatus").addEventListener("click", async (e) => {
+    const el = e.target.closest('[data-do="settle-continue"]');
+    if (!el) return;
+    try {
+      await api.continueRound(state.roomId);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err));
+    }
   });
 
   $("actionbar").addEventListener("click", (e) => {

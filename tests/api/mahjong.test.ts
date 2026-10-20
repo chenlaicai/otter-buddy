@@ -44,7 +44,7 @@ describe("三麻将局 API", () => {
         throw new Error("api test 无 otter 座位——不应触发唤醒");
       },
     };
-    rooms = new RoomService({ store, gateway, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000 });
+    rooms = new RoomService({ store, gateway, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000, settleHoldMs: 10 });
     logger = createTestLogger();
     const controller = new MahjongController(rooms, store, logger);
     app = createRouter({ mahjong: controller } as unknown as Controllers, logger);

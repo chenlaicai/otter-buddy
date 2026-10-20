@@ -198,6 +198,11 @@ describe("RoomService 全流程", () => {
         expect(res.ok).toBe(true);
         continue;
       }
+      // #1564-5：结算停驻（有真人的房局终暂停）——测试驱动点「继续」
+      if (view!.settlement) {
+        expect(svc.continueRound(roomId).ok).toBe(true);
+        continue;
+      }
       // 非停驻但 settled —— 推进链空转保护
       await new Promise((r) => setTimeout(r, 5));
     }

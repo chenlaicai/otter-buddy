@@ -124,4 +124,8 @@ export interface RoomServiceDeps {
   logger?: Pick<Logger, "warn">;
   /** 检视发现3：终局房宽限出 Map 的毫秒数（≤0 = 立即驱逐；默认 10 分钟——宽限内 view/recover 可用） */
   evictFinishedMs?: number;
+  /** #1564-5：局终结算停驻时长（有真人的房暂停等「继续」；默认 30 秒，到期自动继续） */
+  settleHoldMs?: number;
+  /** #1564-6：真人连续超时代打上限（到限自动停局防 runaway；默认 10） */
+  humanIdleStrikeLimit?: number;
 }
