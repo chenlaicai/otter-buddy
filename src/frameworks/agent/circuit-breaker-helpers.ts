@@ -2,7 +2,7 @@
  * 熔断器相关的辅助函数
  */
 
-import { ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
+import { ToolCallCircuitBreaker, buildToolSignature } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import type { Logger } from "@usecases/ports/logger";
 import { getContextWindowTokens, getLastStopReason } from "./context-tokens";
@@ -67,6 +67,9 @@ export interface AttachGuardsParams {
   sandboxGuarded?: boolean;
   /** F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本；fire-and-forget） */
   onGuardIntercept?: (input: { command: string; reason: string }) => void;
+  /** F20261020hlbk（#1556）：per-turn 循环硬熔断标记（签名→理由）。检测器报警时写入，
+   *  tool_call 门（loopBlockGuard）读到即物理阻断该工具后续调用。 */
+  loopBlockedTools?: Map<string, string>;
   /** F20261019gses P0 影子下线：onShadowEval（观察期对照回调）已删——主判定切
    *  evaluateWriteVerdict 后无「旧链 vs 新链」对照面。 */
 }
@@ -87,7 +90,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, sandboxGuarded: params.sandboxGuarded });
+  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, sandboxGuarded: params.sandboxGuarded, loopBlockedTools: params.loopBlockedTools });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
   const cb = getConfig().circuitBreaker;
@@ -208,7 +211,7 @@ export function attachCircuitBreaker(
   otterId: string,
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
-  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void; sandboxGuarded?: boolean },
+  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void; sandboxGuarded?: boolean; loopBlockedTools?: Map<string, string> },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
   // F20260830bsgr：bash 安全守卫——读取主进程 PID
   // F20260830fabt-r2: 每次检查都实时读 PID 文件（不缓存），支持热重启换 PID
@@ -264,6 +267,12 @@ export function attachCircuitBreaker(
       }
 
       const result = circuitBreaker.check(toolName, e.args);
+      // F20261020hlbk（#1556）：循环报警（steer/terminate）→ 粘滞标记，tool_call 门据此
+      // 物理阻断后续同签名调用（硬熔断）。speak/yield 豁免（报告 + 交棒是唯一逃生口）。
+      // 粘滞 Map 独立于 steerStrikes，穿插 speak（allow）不清零——堵死「复又发作」逃逸。
+      if ((result.action === "steer" || result.action === "terminate") && toolName !== "speak" && toolName !== "yield") {
+        options?.loopBlockedTools?.set(buildToolSignature(toolName, e.args), result.reason ?? "循环重复调用");
+      }
       if (result.action === "terminate") {
         // terminate 时清除所有计时器（避免其他并行工具的计时器在 abort 后继续运行）
         clearEventTimer();
