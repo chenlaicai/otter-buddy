@@ -1095,7 +1095,9 @@ export class SchedulerService {
           } catch (retryError) {
             // 降级重试失败（含 fallback 模型同池耗尽）——走原失败路径，error 换为重试错误（更接近现场）
             this.logger.error('Quota-exhausted fallback retry failed', retryError as Error, { taskId: task.id });
-            await this.handleTaskExecutionFailure(executionId, task.id, retryError, options?.skipConsecutiveFailureTracking);
+            // #1048：fallback 重试同样可能被看门狗放弃——与主路径同账（skipped 不计熔断），
+            // 否则放弃经由重试路径会重新耦合进 3 连败熔断（#516 二阶伤害从后门回流）。
+            status = await this.finishFallbackRetry(executionId, task.id, retryError, options?.skipConsecutiveFailureTracking);
             throw retryError;
           }
         }
@@ -1416,8 +1418,8 @@ export class SchedulerService {
   /** #516: 链活跃看门狗。与链 promise 竞速：链 settle（成功/失败）→ 透传返回/抛错；
    *  静默窗（silenceMs）到 → 探测锚点消息之后是否有新消息（任一状态都算链活跃）：
    *  - 有 → 链活跃，续期等待下一个静默窗口
-   *  - 无（含探测失败）→ 判死，抛 Agent invocation timeout
-   *  总时长恒受 MAX_CHAIN_TIMEOUT_MS 硬上限约束，防真死循环占住调度器。
+   *  - 无（含探测失败）→ 判死，抛 WatchdogAbandonedError（#1048：放弃≠失败）
+   *  总时长恒受 resolveAbandonWindowMs(silenceMs) 放弃窗口约束，防真死循环占住调度器。
    *  Why 含探测失败判死：链消息流不可读（DB 故障等）时链产出无从验证，继续等待只会永远占位。 */
   /** #775 S4a：执行级台账判活看门狗（换轨路径专用）。
   /** #1048 克制化：换轨执行看门狗——判活靠消息终态，放弃靠静默窗。
@@ -1441,7 +1443,7 @@ export class SchedulerService {
       // 活跃」同语义）；静默窗内零产出（含探测失败——判不出活按死处理，同「机械清理比
       // 等 24h 安全」的判断）→ 放弃等待。闸门冻结保留的信号由补扫点燃兜住，不靠本看门狗
       // 硬等（原 #775 注释的「保守等」被搭档克制原则取代：漏一次可接受）。
-      const progressed = await this.hasFreshOutputAfter(anchorMessageId, this.now() - silenceMs);
+      const progressed = await this.hasFreshOutputAfter(anchorMessageId, silenceMs);
       if (progressed) {
         lastProgressAt = this.now();
       } else if (this.now() - lastProgressAt >= silenceMs) {
@@ -1481,14 +1483,21 @@ export class SchedulerService {
     }
   }
 
-  /** #1048：锚点后最近产出的时间是否在 sinceMs 之后（静默窗进展探测）。
-   *  与 isChainStillActive「任一状态都算链活跃」同语义；查询失败按无进展处理（判不出活按死）。 */
-  private async hasFreshOutputAfter(anchorMessageId: string, sinceMs: number): Promise<boolean> {
+  /** #1048：锚点后最近产出是否落在静默窗内（进展探测）。
+   *  与 isChainStillActive「任一状态都算链活跃」同语义；查询失败按无进展处理（判不出活按死）。
+   *  Why cutoff 用 Date.now()（墙钟）：entry.createdAt 是墙钟时间戳，比较必须墙钟对墙钟——
+   *  this.now() 是单调钟（performance.now，进程启动起算，供看门狗窗口计时防墙钟跳变），
+   *  两者零点不同不可混比，否则 cutoff 恒小于 createdAt、探测恒报「有进展」（W4 回归用例）。
+   *  Why limit 200：取末条判 recency 需要窗口内条目序列，上限截爆量；getEntriesAfter 按
+   *  sequence_num ASC 返回（sqlite-entry-repository 实现），末条=返回集内最新。截断时（锚点后
+   *  >200 条）末条可能偏旧 → 保守判无进展 → 提前放弃——可漏原则下可接受（skipped 不计熔断）。
+   *  isChainStillActive 的 limit=1 是存在性探测（任一条即算活跃），语义不同故不同值。 */
+  private async hasFreshOutputAfter(anchorMessageId: string, silenceMs: number): Promise<boolean> {
     try {
       const after = await this.entryRepo.getEntriesAfter(anchorMessageId, 200);
       if (!Array.isArray(after) || after.length === 0) return false;
       const latest = after[after.length - 1]!;
-      return new Date(latest.createdAt).getTime() > sinceMs;
+      return new Date(latest.createdAt).getTime() > Date.now() - silenceMs;
     } catch {
       return false;
     }
@@ -1710,6 +1719,22 @@ export class SchedulerService {
 
   /** #654: 锁冲突跳过记账——execution 记 skipped（非 failed），不 increment consecutiveFailures、
    *  不触发 3 连败熔断。errorMessage 留下锁冲突痕迹供面板/排查可见。 */
+  /** #1048：fallback 重试失败的记账分道——看门狗放弃 → skipped（不计熔断），其余 → 失败记账。
+   *  返回落账状态供调用方同步 status（拆 helper 另为控 max-depth）。 */
+  private async finishFallbackRetry(
+    executionId: string,
+    taskId: string,
+    retryError: unknown,
+    skipConsecutiveFailureTracking?: boolean,
+  ): Promise<'skipped' | 'failed'> {
+    if (retryError instanceof WatchdogAbandonedError) {
+      await this.handleExecutionSkipped(executionId, retryError);
+      return 'skipped';
+    }
+    await this.handleTaskExecutionFailure(executionId, taskId, retryError, skipConsecutiveFailureTracking);
+    return 'failed';
+  }
+
   private async handleExecutionSkipped(executionId: string, error: unknown): Promise<void> {
     const errorMessage = error instanceof Error ? error.message : String(error);
     try {
