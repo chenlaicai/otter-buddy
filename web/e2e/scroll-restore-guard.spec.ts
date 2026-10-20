@@ -76,7 +76,11 @@ test.describe('F20261020wcsr 微信式重构 e2e 护栏', () => {
     await page.waitForTimeout(1000)
     await wheelTo(page, 150)
     await page.waitForTimeout(1500)
-    // 等加载余波稳定（近顶位置可能已触发过加载，等满让既有批次落完）
+    // 触发 prepend 前置轻推（镜川 delta-D 修复：轻推必须在采样**之前**——原序采样后轻推
+    // 使锚点 y 偏移 50px 直接进入判据，任何场景误红；对调后轻推位移进入采样基准，
+    // prepend 成为采样后唯一位移事件）
+    await page.evaluate(() => { const e2 = (window as unknown as { __findScroller(): HTMLElement }).__findScroller(); e2.scrollTop = Math.max(e2.scrollTop - 50, 0) })
+    await page.waitForTimeout(800) // 轻推后稳定（惯性/布局落定）
     // 锚点采样（镜川 delta-C 修复：采样必须在 prepend 前的稳定窗口、锚必须在视口内——
     // 初版采样于中部、wheelTo(100) 后锚已离屏不在锚定保护范围；滚回补偿又使断言恒绿。
     // 正确范式：prepend 前视口首条消息作锚，prepend 后直接测其视口 y，无滚回步骤——
@@ -84,8 +88,6 @@ test.describe('F20261020wcsr 微信式重构 e2e 护栏', () => {
     const anchorBefore = await page.evaluate(() => (window as unknown as { __anchorMsgRect(): { id: string; top: number } | null }).__anchorMsgRect())
     expect(anchorBefore, '近顶应有可见锚点消息').toBeTruthy()
     const msgsBefore = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().querySelectorAll('[data-message-id]').length)
-    // 触发 prepend：轻推一把确保哨兵 intersecting（已在预触发带内则立即触发）
-    await page.evaluate(() => { const e2 = (window as unknown as { __findScroller(): HTMLElement }).__findScroller(); e2.scrollTop = Math.max(e2.scrollTop - 50, 0) })
     await page.waitForTimeout(6000) // 加载 + 渲染窗口
     const msgsAfter = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().querySelectorAll('[data-message-id]').length)
     console.log(`[锚2] msgs ${msgsBefore} → ${msgsAfter}，锚点=${anchorBefore!.id}@${anchorBefore!.top}px`)
