@@ -71,3 +71,38 @@ created_by: 守卫修复獭
 - **裸名反判保留**（知情取舍，A′ 明确保留）：`rm -rf .otter/workforms`（本体豁免照旧）vs `rm -rf .otter/worktrees`（尾杠=仅子树，裸名主仓域）——尾杠形态设计差异，非洞；若未来要统一需另拍板
 - **B 案（root 锚定 `.otter/` 全豁免）死案存档**：delta 机械实验翻 11 条 block 全放水（含 local-stash-backup 真实备份面），比 A 的保守侧改动更危险（F20261016gdfv:61 在案）
 - 2026-10-09 族翻红后，「目录改名退役」类一次性操作（在 `.otter/workforms-<名>` 开工作区）会被拦——运营纪律改走 `.otter/worktrees/`（R4.5 同源），罕见形态人工放行（chen 拍板时已知悉此代价）
+
+## 审视 S1 处置（delta，2026-10-20 守卫修复獭）
+
+来源：检视獭1578 首轮审视建议 S1（非阻断）——「guard-write-eval-corpus.json 的 4 条 ledger 样本（c080/c081/c083/c084，2026-10-09 workforms-retire 同族）verdict 仍 ALLOW 未随重裁同步，shadow-write-eval.mjs 下次影子跑会报假警报」；大獭裁决「合入前顺手收」路由本獭。机制识别检查点逐项核对全否（shadow status 系纯运行时报告分支，不持久化不影响后续行为）→ 修法决策树① narrow-fix，Modification-Class: narrow-fix。
+
+### 处置 1：4 条 verdict 随 A′ 重裁同步（S1 字面）
+
+- `tests/fixtures/guard-write-eval-corpus.json` c080/c081/c083/c084：verdict ALLOW→BLOCK，note 追加【重裁 2026-10-20·A′】留痕（与 guard-touchstone 翻红条目同源口径：workforms-retire 仿名 sibling 不豁免，隐式写/载荷写落主仓判定域），verdictBy 更新；c082（worktrees 子树正道）不动——同族同判，不拆条
+
+### 处置 2：shadow 截断剔除条件对齐预注册（S1 达标的必要部分）
+
+- **现象**（实跑取证，非推测）：处置 1 单独落地后跑 shadow，c080/c081 → AGREE（假警报消除）但 c083/c084 → RED-LINE-ESCAPE×2（假警报换形态）——截断载荷（commandHead 120 字符、引号不闭合、写调用在丢失的载荷尾部）下求值器判 evaluated 空集放行而非 FALLBACK，原剔除条件 `isTruncatedPayload && evalVerdict === "FALLBACK"` 不覆盖
+- **论证（为何改剔除条件而非其他）**：
+  1. 预注册原文「两类样本均从切换判据分母剔除」（scripts/shadow-write-eval.mjs 注释，F20261009phs2 预注册）——「均剔除」= 无条件；实现只剔 FALLBACK 是「截断→回落」单路径假设。实测截断 21 条仅 5 条 FALLBACK、16 条给出判定，实现与预注册的差距由数据实证
+  2. 剔除语义 =「语料源缺陷不是求值器的覆盖缺口」——截断命令不是完整命令，其上的任何求值器输出都不度量求值器
+  3. 不放宽任何真实防线：全形态行为由合成样本 + touchstone 钉死（guard-touchstone-corpus.test.ts 断言 workforms-retire 族全 BLOCK），截断样本留档不删、TRUNCATED_PAYLOAD 剔除数照旧单独披露
+  4. 被否路径：修求值器「引号不闭合载荷判回落」（治本方向但超 S1 范围、影响 c044 等一批样本，转记档）；只翻 c080/c081 不翻 c083/c084（同族拆判，违同族同判纪律）；给 c083/c084 补 EXPECTED-CROSS 标注（语义撒谎——它们正是 main_write 维度）
+- 修改：`scripts/shadow-write-eval.mjs` 剔除分支一行对齐 + 注释记档（无新增文件/依赖，已过最简实现检查）
+
+### 验证（shadow 三跑数字链，dist = PR #1578 边界匹配 build）
+
+| 状态 | AGREE | GAIN | OVERBLOCK | RED-LINE-ESCAPE | BOTH-DIVERGE | 判据 |
+|---|---|---|---|---|---|---|
+| 基线 HEAD（git stash 对照） | 71 | 29 | 1（c091 预存） | 0 | 16（含 c080/c081） | 未达标（误拦 1） |
+| 仅处置 1 | 73 | 27 | 1 | 2（c083/c084 假警报换形态） | 14 | 未达标 |
+| 处置 1+2（最终） | 72 | 15 | 0 | 0 | 14 | **达标**（剔除跨规则 6/截断 21） |
+
+- 不能误伤的一侧：非截断样本 status 判定逻辑零改动（BOTH-DIVERGE 14 条全为预存样本，与基线 16 − c080/c081 转 AGREE 对账闭合）；CROSS_RULE 6 条剔除照旧；c080/c081 拦截侧由 touchstone 测试 + 本 PR 钉子 5 组固化（放行侧 worktrees/workforms 本体+子树同批固化）
+- 基线证据文件：对话工作区 shadow-baseline-head.json（git stash 复跑产出，pre-existing 声明硬门禁合规）
+- 全仓 vitest 见 PR Verification 节
+
+### 记档（不入本 PR，Discovered Issues 归口）
+
+- 观察项 A：求值器对引号不闭合/截断 node -e 载荷判 evaluated 空集放行（fail-open 形态）——真实命令引号不闭合 bash 起不来，实际不可利用（低危），但「空集=有把握放行」的口径值得求值器覆盖 gap 治理时一并看
+- 观察项 B：c091（`python3 -c "import ast; ast.parse(open(...).read())"` 截断样本）求值器判 BLOCK 疑似对只读链误判——剔除后不可确证是否截断误导，留 M-141dde95 影子观察域，不随本 PR 排期
