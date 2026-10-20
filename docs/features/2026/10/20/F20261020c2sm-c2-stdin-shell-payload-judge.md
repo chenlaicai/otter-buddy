@@ -3,7 +3,7 @@ id: F20261020c2sm
 title: C2 工作区落点误判族收口——stdin 喂入 shell 载荷判定语义化（空 token 陷阱修复 + 静态载荷递归判 + 不透明源正确定因）
 summary: M-49a4909d C2（写工作区被拦）分层复现：#1240 负门面已被 F20261016grdl 区域下沉修复（经典形态防退化钉在位）；现存活跃面=scanShellFlags 空 token 陷阱（空参段幻影 token 被当「旗标位非旗标」FAIL_CLOSED）——arg-less shell 段（裸 bash/X | bash）全形态误拦且错定因（良性/树外/工作区写都报「落点解析到主仓」），bash - 同语义分裂、bash -e 漏放。修法：陷阱修正 + 管道静态可判载荷（segmentStdoutContent 同基座）递归判 + 不透明源 fail-closed 正确定因 + kill 面补 heredoc 体（B3）。双向变好：写主仓照拦、带旗标旧漏洞收口。
 change_type: fix
-capability_test: tests/frameworks/agent/bash-guard-stdin-shell-feed.test.ts（拦截侧 18 + 放行侧 17 = 35 例——初版 23 钉 + r1 delta 12 钉，初版修前 10 红/r1 钉修前 7 红）+ bash-guard-heredoc-body-strip B3 回归 + 全量 406 files 6456 passed + 6 skipped 零失败（flake 基线对照见验证节）+ tsc/eslint 零报
+capability_test: tests/frameworks/agent/bash-guard-stdin-shell-feed.test.ts（拦截侧 18 + 放行侧 17 = 35 例——初版 23 钉 + r1 delta 12 钉，初版修前 10 红/r1 钉修前 7 红）+ bash-guard-heredoc-body-strip B3 回归 + 全量 406 files 零失败（统一 CI 口径：run 39366501391 check 全量批 6466 passed + 11 skipped/6477——本地时点计数因环境 skip 与 main 集成漂移，以 CI 为准）+ tsc/eslint 零报（flake 基线对照见验证节）
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 ---
 
@@ -39,7 +39,7 @@ M-49a4909d 症状「写工作区被拦」（10/14-15 夜 conversation 0d48b657 r
 
 - 行为变化面（初版 + r1 delta 合并口径）：①arg-less shell 段（裸 bash/sh/纯旗标无 -c）与其管道上游：可判载荷从「一律拦」变「按内容判」，不透明源拦截不变（文案变）；②带旗标形态（`bash -e`/`bash -s`/`bash -s -`）从「漏放/判据分裂」变「同判」；③**wrapper 包装形态**（`timeout 5 bash`/`env -i bash`/`setsid bash`/`watch bash`/`stdbuf bash`/`xargs bash` 等 WRAPPER_SPECS 全族）从「静默漏判」回归判定链（r1 严重 2——初版自立 6 词表漂移，本句即检视裁定的失实修正）；④`-c` 载荷=裸 shell 的 stdin 中继（`X | bash -c sh`）管道内容从「双通道落空」变「递归判」（r1 严重 1）。
 - heredoc python/node 体判、bash -c 非中继载荷递归、U5 文件形态、kill 命令位判定均不动；#1240 负门（cdExemptionWithVeto）不动。
-- 全量 406 files 6456 passed + 6 skipped 零失败（含 guard-touchstone exam/corpus 守恒、B3 回归、wv 62 钉）。
+- 全量 406 files 零失败（含 guard-touchstone exam/corpus 守恒、B3 回归、wv 62 钉）；数字统一 CI 口径（run 39366501391 check 全量批 6466 passed + 11 skipped/6477，R3 裁决——详见验证节）。
 
 ## 验证
 
@@ -47,7 +47,7 @@ M-49a4909d 症状「写工作区被拦」（10/14-15 夜 conversation 0d48b657 r
 - **修后**：同文件 **23/23 绿**；探针语义矩阵 20/20（拦截 10：不透明源×2/静态载荷写主仓/data 破坏/bash -c 递归/wrapper sudo/带旗标收口/cat heredoc|bash 写主仓/bash heredoc 体写主仓；放行 10：良性载荷/树外/工作区(C2)/裸 bash/sh/bash -/heredoc 树外/echo|sh/cat heredoc|bash 写工作区(C2)/C2 经典回归）
 - **B3 反向洞防护回归**：`cat <<'EOF' | bash` 体含 kill → 照拦（bash-guard-heredoc-body-strip.test.ts 原钉不动，全量绿）
 - **对照组（不能误伤的反面）**：heredoc python 写主仓照拦、重定向写主仓照拦
-- 全量 406 files 6439 passed + 6 skipped 零失败；tsc / eslint 零报；最简检查：复用既有重建基座与判定链，无新依赖/新文件（测试除外）
+- 全量 406 files 6439 passed + 6 skipped 零失败（初版时点本地计数，权威口径见 delta 验证节）；tsc / eslint 零报；最简检查：复用既有重建基座与判定链，无新依赖/新文件（测试除外）
 
 ## 审视修复轮（delta r1——检视獭1565 对抗审视，2 严重 + 2 建议）
 
@@ -70,7 +70,7 @@ M-49a4909d 症状「写工作区被拦」（10/14-15 夜 conversation 0d48b657 r
 ### 残余记档（不扩面，修复时须同步翻红对应钉）
 
 - **`X | bash -` 族 pre-existing 放行面**（建议 3b）：lone `-` 归 other 不判管道内容——`printf 'touch <主仓>' | bash -` 仍 ALLOW（origin/main 基线对照证据在案，检视獭51 形态矩阵附证）。钉在放行侧「残余记档」条（修复本面时该钉须同步翻红）。
-- **xargs 语义近似**：`X | xargs bash` 的真实语义是 stdin→args（`bash <args>` 非 stdin 执行），WRAPPER_SPECS 对齐后按 stdin 喂入判（保守侧，可能误拦 xargs 形态的良性写词样载荷）——与「词表漂移收口」裁决同向，记档备查。
+- **xargs 语义近似（双向，R2 补记——检视獭 delta 复核）**：`X | xargs bash` 的真实语义是 stdin→args（`bash <args>` 非 stdin 执行），WRAPPER_SPECS 对齐后按 stdin 喂入判，两个方向都有偏差：①误拦半边——良性写词样载荷被当命令判（保守侧）；②**漏放半边**——`printf '/tmp/pwn.sh' | xargs bash`（脚本名经 args 喂入 → `bash /tmp/pwn.sh` 执行树外脚本）ALLOW，而直书 `bash /tmp/pwn.sh` 被结构通道 FAIL_CLOSED 拦——树外脚本名经 xargs args 通道漏放。注：main 上同形态 pipe 面的 BLOCK 是空 token 陷阱 bug 产物、非设计保护，其消失不算回退。与 R1 值参 wrapper 盲区（M-c36b9847）同属 wrapper 基座治理域，收编时一并处理。
 - **attached 旗标组含 c（`bash -xc '…'`）**：scanShellFlags 只认精确 `-c`，attached 形态的载荷落旗标位 FAIL_CLOSED 由结构通道拦（fail-closed 收口，不静默放行）；`bash -c 'sh -n'` 类 noexec 中继按中继判（保守侧，罕见）。
 - **`bash -o pipefail`（带值旗标）形态**：旧洞未扩，FILE 口径不变（初版已记档）。
 
@@ -83,5 +83,5 @@ M-49a4909d 症状「写工作区被拦」（10/14-15 夜 conversation 0d48b657 r
 
 - **修前红固化**：12 新钉对未修源码复跑 **7 failed**（全部为拦截侧新钉——严重 1×3/严重 2×3/建议 3a×1），放行侧 5 钉修前即绿（防误伤面，修后须保持）
 - **修后**：同文件 **35/35 绿**（初版 23 钉零回归 + 新 12 钉）；tsc 0 / eslint 0（max-statements 超限已按代码库惯例抽函数 stdinShellTailKind，未用 disable 注释）
-- **全量**：406 files **6456 passed + 6 skipped 零失败**（零失败整跑一次达成）；并行 flake 交叉证据：另两次整跑各随机红 2-3 例（5s 超时类：build-app 健康端点/cursor-zero-guard，两次整跑失败集不同）→ 隔离复跑 16/16 绿 → **stash 基线（零本改动）整跑同样红同 2 文件**（pre-existing 实锤，M-d39f3327 同款签名）——非本改动引入，符合 pre-existing 声明硬门禁
+- **全量**：406 files **零失败**（本地整跑一次达成，检视复跑/合并 main 后复跑均绿）；计数三时点漂移（本地 6456/6469、检视 6471）系环境 skip 与 main 集成所致——**R3 裁决统一 CI 口径：run 39366501391 check 全量批 6466 passed + 11 skipped (6477)**（总数与本地口径一致，passed/skipped 切分差系 CI 环境 skip）；并行 flake 交叉证据：另两次整跑各随机红 2-3 例（5s 超时类：build-app 健康端点/cursor-zero-guard，两次整跑失败集不同）→ 隔离复跑 16/16 绿 → **stash 基线（零本改动）整跑同样红同 2 文件**（pre-existing 实锤，M-d39f3327 同款签名）——非本改动引入，符合 pre-existing 声明硬门禁
 - **最简检查**：修法复用既有 WRAPPER_SPECS/skipWrapperArgs/scanShellFlags/parseOnce 基座，净删除重复词表，无新依赖/新文件/新配置
