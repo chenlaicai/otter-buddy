@@ -341,7 +341,7 @@ export class SanmaEngine {
       if (res.valid) actions.push({ type: "tsumo" });
     }
 
-    // 暗杠（雀魂口径：立直后仍可暗杠/加杠，枪杠风险自挘——无「听牌不变」限制）
+    // 暗杠（雀魂口径：立直后仍可暗杠/加杠，枪杠风险自担——无「听牌不变」限制）
     const cnt = countsByKind(p.hand);
     for (let k = 0; k < 34; k++) {
       if (cnt[k] !== 4 || !isSanmaKind(k)) continue;
