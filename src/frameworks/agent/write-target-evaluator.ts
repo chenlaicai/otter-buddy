@@ -1144,27 +1144,49 @@ const SCRIPT_FILE_RUNNERS = new Set<string>([...SHELL_INTERPRETERS, "source", ".
 
 /** 段首直执行位判定（路径形态词）——delta4（严重 1）+ delta5（严重 2，动态双层全漏）
  *  + delta8（`~` 前缀族 + 含斜杠相对路径词，检视獭1360 delta7 复核：`~/x.sh` 双层全漏、
- *  前缀空间穷举新缺口）：与 hasOpaqueScriptExec 直执分支、guard-model-judge U5 生产层
+ *  前缀空间穷举新缺口）+ M-1438463a 词文本收编补完（穷举表例外 1/4 收口）：
+ *  与 hasOpaqueScriptExec 直执分支、guard-model-judge U5 生产层
  *  同源共用（一条语义一个接口——经 isDirectExecScriptSeg 段级口径三处共用）。词文本口径
  *  （前缀空间穷举，delta8 方法论落档）：
- *  ① 路径前缀词文本（./x、/x 排 //、../x——词首特殊字符形态；中缀斜杠族（scripts/x.sh
- *  等）收编会误收非壳载荷垃圾解析的参数词（能力 8 同族——TS-b42e23be 实测翻红），
- *  按「扰动 frozen 考试的收编必须独立工单带守恒验收」（大獭 M-026d87ff 裁决原则）
- *  不并入本刀，见穷举表呈拍板）；② `~` 前缀族（~/ 与 ~/user 形态——evalPath 不可解 →
- *  dynamic fail-closed，与 bash ~/x.sh 同款保守。**镜像注记**：resolvesToMainCheckout
+ *  ① 路径前缀词文本（./x、/x——词首特殊字符形态）；② `//` 前缀族（M-1438463a，穷举表
+ *  例外 1 收口：`//x` ≡ `/x` 功能等价——path.normalize 折叠双斜杠实证，下游 evalPath/
+ *  resolvesToMainCheckout 天然同判，旁路只在词文本层；裸 `//` 除外——JS 注释行标记，
+ *  delta4 防线保持）；③ 中缀斜杠族（M-1438463a，穷举表例外 4 收口：scripts/x.sh、
+ *  node_modules/.bin/x——形状判别见 middleSlashPathShaped 误收防线：非壳载荷垃圾词
+ *  形状不符，能力 8 同族 TS-b42e23be 守恒）；④ `~` 前缀族（~/ 与 ~/user 形态——evalPath
+ *  不可解 → dynamic fail-closed，与 bash ~/x.sh 同款保守。**镜像注记**：resolvesToMainCheckout
  *  （bash-safety-guard.ts，F20260916gtlr）对 `~` 显式「不展开，保守拦截」——两处镜像
- *  义务：改一处另一处注记跟着走）；③ 纯展开词（$P）保守收进通道 → 动态直执走
+ *  义务：改一处另一处注记跟着走）；⑤ 纯展开词（$P）保守收进通道 → 动态直执走
  *  script-path-dynamic fail-closed（与 bash $P 同款）。
  *  残余面（记档）：非斜杠动态命令位（foo$BAR）不收——与 kill${IFS}… 类不误伤的边界取舍
- *  （delta5 既定 + 单测钉死，对称入口例外见穷举表）；wrapper 剥除形态两层同缺（记档）。 */
+ *  （delta5 既定 + 单测钉死，对称入口例外见穷举表）；反斜杠转义组合（scripts\/x、\x2f
+ *  拼接）不满足形状不收——与既有 ./x 家族转义组合边缘同级（记档）；wrapper 剥除形态两层同缺（记档）。 */
 export function isDirectExecArgv0(word: Word | null | undefined): boolean {
   if (word === undefined || word === null) return false;
   const litRaw = word.parts.map(p => (p.type === "lit" || p.type === "escape" ? p.text ?? "" : "")).join("");
   const fullRaw = word.parts.map(p => p.text ?? "").join("");
   if ((litRaw.startsWith("./") || litRaw.startsWith("../") || (litRaw.startsWith("/") && !litRaw.startsWith("//")))) return true;
+  // ② // 前缀族（M-1438463a）：//x ≡ /x（含展开位 //$VAR——litRaw/fullRaw 分野区分裸 //）
+  if (litRaw.startsWith("//") && fullRaw !== "//") return true;
   if (fullRaw.startsWith("~")) return true;
-  // 纯展开词（词文本为空且求值不出）：命令位是展开结果——可能是脚本路径，保守收进通道
+  // ③ 中缀斜杠族（M-1438463a）：相对路径含目录分量
+  if (middleSlashPathShaped(word)) return true;
+  // ⑤ 纯展开词（词文本为空且求值不出）：命令位是展开结果——可能是脚本路径，保守收进通道
   return litRaw === "" && word.evaluated === null;
+}
+
+/** 中缀斜杠族形状判定（M-1438463a 内层，抽函数控语句数）：lit/escape 原文拼接 +
+ *  展开/转义序列位（var/cmdsub/arith/unknown/hex）以 x 占位参与形状（scripts/$X →
+ *  scripts/x 同收 → 动态位走 script-path-dynamic fail-closed）。形状=路径安全字符集
+ *  （词字符+._-）+ ≥1 内部斜杠无空段——两道误收防线：①非壳载荷垃圾词（readFileSync
+ * （'tests/…','utf8'）类——括号/逗号/引号残渣）形状不符不收（能力 8 同族，TS-b42e23be
+ *  守恒）；②例外 2 边界（foo$BAR 非斜杠动态词，kill${IFS} 不误伤）由「必须含斜杠」天然保住。 */
+function middleSlashPathShaped(word: Word): boolean {
+  let shape = "";
+  for (const p of word.parts) {
+    shape += p.type === "lit" || p.type === "escape" ? p.text ?? "" : "x";
+  }
+  return /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+$/.test(shape);
 }
 
 /** 运行器族 argv0（解释器/脚本语言运行器，basename 口径）：argv0 是运行器族时脚本位
@@ -1209,7 +1231,7 @@ function interpreterScriptFileArg(seg: Segment): { word: Word; dynamic: boolean 
 }
 
 /** shell 外置脚本执行段识别：解释器族或 source/. + 无 -c/-e 载荷旗标，或段首直执行位
- *  （delta4 修法严重 1：./x、/x 排 // 样式，delta5 词文本口径扩纯展开词——脚本位=argv0 词
+ *  （delta4 修法严重 1：./x、/x 样式，M-1438463a 收编 // 与中缀斜杠族，delta5 词文本口径扩纯展开词——脚本位=argv0 词
  *  本身；造-执对/显式声明/缺席证明
  *  同构三态自动接上：真存在→unreadable fail-closed、真不存在→absent 放行，与 bash x 一视同仁）。
  *  返回脚本位词与是否动态（生成/求值不出路径）；null=非外置脚本段。 */
@@ -1625,7 +1647,7 @@ function hasOpaqueScriptExec(model: CommandModel, scriptText: boolean = true): b
     // 口径镜像 evalSegment：动态脚本位 + source/. 非 shell 解释器 → 通道放行（现役放行题
     //  5d98a85e source <(sed …) 保守面），不计入不透明执行；bash $P 等动态位照算（通道拦 script-path-dynamic）
     if (ex !== null && !(ex.dynamic && !SHELL_INTERPRETERS.has(bareName(seg.argv0) ?? ""))) return true;
-    // 段首直执（./x、/x）：仅脚本正文类模型（根/bash-c/heredoc 体）判定——替换型载荷（cmdsub/
+    // 段首直执（./x、/x、//x、中缀斜杠族——M-1438463a 起口径同 isDirectExecArgv0，裸 // 除外）：仅脚本正文类模型（根/bash-c/heredoc 体）判定——替换型载荷（cmdsub/
     //  backtick/procsub）的非壳文本（JS/Python）壳解析会把参数/字面量误收成段首路径（能力 8
     //  import(主仓路径) 30517746 口径实测翻红）；解释器脚本位判定仍全层生效（echo $(bash x.sh) 拦）
     //  （delta5 起词文本口径——纯展开词一并收，误收防线不变）

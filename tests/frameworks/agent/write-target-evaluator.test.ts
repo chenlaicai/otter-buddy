@@ -937,11 +937,65 @@ describe("delta8 修法（`~` 前缀族收口——前缀空间穷举负门）",
     expect(evaluateWriteVerdict("bash ../x.sh", ROOT)).toMatchObject({ verdict: "ALLOW" });
   });
 
-  it("中缀斜杠族维持不收（能力 8 误收防线——TS-b42e23be 翻红实证，独立工单呈拍板）", () => {
-    // 收编会误收非壳载荷垃圾解析的参数词（真实目录路径→unreadable fail-closed）——大獭 M-026d87ff
-    // 裁决原则「扰动 frozen 考试的收编必须独立工单带守恒验收」，见穷举表呈拍板
-    const v = evaluateWriteVerdict("scripts/x.sh > /tmp/out", ROOT);
-    expect(v).toMatchObject({ verdict: "ALLOW", mode: "positive" });
+});
+
+// ────────── M-1438463a 词文本收编补完（// 前缀族 + 中缀斜杠族——穷举表例外 1/4 收口） ──────────
+describe("M-1438463a 词文本收编补完（// 前缀族 + 中缀斜杠族，守恒验收）", () => {
+  it("④ // 前缀族功能等价收编：//tmp/…≡/tmp/… 造-执对内容判读 → 拦，三链对称同判", () => {
+    expect(evaluateWriteVerdict("echo touch /repo/data/pwn > /tmp/x-wtcl.sh && //tmp/x-wtcl.sh", ROOT).verdict).toBe("BLOCK");
+    expect(evaluateWriteVerdict("echo touch /repo/data/pwn > //tmp/x-wtcl.sh && /tmp/x-wtcl.sh", ROOT).verdict).toBe("BLOCK");
+    expect(evaluateWriteVerdict("echo touch /repo/data/pwn > /tmp/x-wtcl.sh && bash //tmp/x-wtcl.sh", ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("④ // 前缀族同构三态：缺席臂放行、零写面内容臂正面放（非一律拦）", () => {
+    expect(evaluateWriteVerdict("//tmp/no-such-wtcl-1360.sh", ROOT)).toMatchObject({ verdict: "ALLOW", mode: "positive" });
+    expect(evaluateWriteVerdict("echo echo hi > /tmp/x-wtcl.sh && //tmp/x-wtcl.sh", ROOT)).toMatchObject({ verdict: "ALLOW", mode: "positive" });
+  });
+
+  it("④ 裸 //（JS 注释行标记）维持不收——delta4 防线保持（防注释行误命中）", () => {
+    expect(evaluateWriteVerdict("// script payload samples with verdict", ROOT).verdict).toBe("ALLOW");
+    expect(evaluateWriteVerdict("//", ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("④ // 后接展开同收：//$P 动态 fail-closed 与 bash //$P 对称同判", () => {
+    for (const cmd of ["//$P", "bash //$P"]) {
+      expect(evaluateWriteVerdict(cmd, ROOT)).toMatchObject({
+        verdict: "BLOCK", mode: "fail-closed", reason: "script-path-dynamic",
+      });
+    }
+  });
+
+  it("⑤ 中缀斜杠族收编：真存在直执真实读取判读（主仓写内容）→ 拦，与 bash 侧对称同判", () => {
+    const dir = path.join(os.tmpdir(), "guard-wtcl-mid");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "x-wtcl.sh"), "touch /repo/data/pwn\n");
+    expect(evaluateWriteVerdict(`cd ${os.tmpdir()} && guard-wtcl-mid/x-wtcl.sh`, ROOT).verdict).toBe("BLOCK");
+    expect(evaluateWriteVerdict(`cd ${os.tmpdir()} && bash guard-wtcl-mid/x-wtcl.sh`, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("⑤ 中缀斜杠族同构三态：缺席臂放行、零写面内容臂放行", () => {
+    expect(evaluateWriteVerdict("cd /tmp && no-such-wtcl-dir/x.sh", ROOT)).toMatchObject({ verdict: "ALLOW" });
+    const dir = path.join(os.tmpdir(), "guard-wtcl-mid2");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "x-wtcl.sh"), "echo hi\n");
+    expect(evaluateWriteVerdict(`cd ${os.tmpdir()} && guard-wtcl-mid2/x-wtcl.sh`, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("引号形态剥壳同判（穷举表引号行）：'//tmp/…' 与裸形态同判", () => {
+    expect(evaluateWriteVerdict("echo touch /repo/data/pwn > /tmp/x-wtcl.sh && '//tmp/x-wtcl.sh'", ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("误收防线守恒（TS-b42e23be 同型）：非壳载荷垃圾词（括号/逗号/引号残渣的真实目录词）不收", () => {
+    expect(evaluateWriteVerdict(`node -e "const c = JSON.parse(require('fs').readFileSync('tests/fixtures/guard-write-eval-corpus.json','utf8')); console.log(c)"`, ROOT).verdict).toBe("ALLOW");
+    expect(evaluateWriteVerdict("readFileSync('tests/fixtures/x.json','utf8') > /tmp/out", ROOT)).toMatchObject({ verdict: "ALLOW", mode: "positive" });
+  });
+
+  it("⑤ 中缀斜杠动态词同收：scripts/$X 走 script-path-dynamic，与 bash scripts/$X 对称同判", () => {
+    for (const cmd of ["scripts/$X", "bash scripts/$X"]) {
+      expect(evaluateWriteVerdict(cmd, ROOT)).toMatchObject({
+        verdict: "BLOCK", mode: "fail-closed", reason: "script-path-dynamic",
+      });
+    }
   });
 });
 

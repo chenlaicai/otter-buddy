@@ -256,7 +256,9 @@ const SCRIPT_PATH_EXTRACT = /(?:^|[;&|`$(])\s*(?:sudo\s+)?(?:(?:bash|sh)\s+)?((?
 
 /** F20260916gtlr：脚本路径解析——相对路径基于 projectRoot（=主仓根，海獭 bash cwd 恒为主仓）resolve 并归一化。
  *  返回 true 表示解析到主仓 scripts（目标是进程1 的管理脚本）。projectRoot 缺失时保守按主仓对待。
- *  大小写归一化与 classifyDestructiveTarget 同步（同根因：macOS case-insensitive FS 漏拦）。 */
+ *  大小写归一化与 classifyDestructiveTarget 同步（同根因：macOS case-insensitive FS 漏拦）。
+ *  镜像注记（M-1438463a）：`//` 前缀族词文本收编后本函数不变——path.normalize 折叠
+ *  `//x`≡`/x`（node 实证），`//<主仓>/scripts/…` 形态天然同判，无旁路面。 */
 function resolvesToMainCheckout(scriptPath: string, projectRoot?: string): boolean {
   if (!projectRoot) return true; // 保守退化
   if (scriptPath.startsWith("~")) return true; // ~ 不展开，保守拦截
