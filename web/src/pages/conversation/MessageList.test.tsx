@@ -345,6 +345,8 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     newMessagesCount?: number
     onJumpToBottom?: () => void
     onLoadMore?: () => void
+    hasMoreBefore?: boolean
+    loadingMore?: boolean
   }
   function renderList(opts: RenderOpts): { root: Root; div: HTMLDivElement } {
     const div = document.createElement('div')
@@ -365,6 +367,8 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
           newMessagesCount={opts.newMessagesCount}
           onJumpToBottom={opts.onJumpToBottom}
           onLoadMore={opts.onLoadMore}
+          hasMoreBefore={opts.hasMoreBefore}
+          loadingMore={opts.loadingMore}
         />,
       )
     })
@@ -532,6 +536,86 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
       st.top = 0
       fireScroll()
       expect(pinRef.current, 'restore 写入的 scroll 不应回锚/脱锚').toBe(false)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('F20261020lmld 死锁回归锚：到顶静止后 wheel 上滚（零位移）应触发加载', async () => {
+    // 死锁现场（repro-loadmore4 实测）：到顶后 scrollTop=0 静止，继续上滚不产生位移 →
+    // 无 scroll 事件 → 旧实现只认 scroll 事件的加载触发永不命中 → 历史永远加载不出
+    const pinRef = { current: true }
+    let loadCount = 0
+    const { root, div } = renderList({ pinRef, onLoadMore: () => { loadCount++ } })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      instrumentRW(scrollerOf(), 2000, 0) // 静止在顶（scrollTop=0，且无 scroll 事件）
+      act(() => { scrollerOf().dispatchEvent(new WheelEvent('wheel', { deltaY: -100 })) })
+      expect(loadCount, 'wheel 上滚在顶部应触发加载（不依赖 scroll 位移）').toBe(1)
+      act(() => { scrollerOf().dispatchEvent(new WheelEvent('wheel', { deltaY: -100 })) })
+      expect(loadCount, '连续 wheel 上滚 = 持续加载意图，按批触发').toBe(2)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('F20261020lmld 触发带容差：分数 scrollTop（0.5px 近顶静止）应触发加载', async () => {
+    // 触控板惯性常停在非整数位置（0.5px 视觉上即「到顶」），旧 el.scrollTop === 0 严格相等永远打不到
+    const pinRef = { current: true }
+    let loadCount = 0
+    const { root, div } = renderList({ pinRef, onLoadMore: () => { loadCount++ } })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      instrumentRW(scrollerOf(), 2000, 0.5)
+      fireScroll()
+      expect(loadCount, '近顶分数位置的 scroll 事件应触发加载').toBe(1)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('F20261020lmld 可见入口：hasMoreBefore=true 渲染「加载更早消息」按钮，点击触发加载', async () => {
+    const pinRef = { current: true }
+    let loadCount = 0
+    const { root, div } = renderList({ pinRef, onLoadMore: () => { loadCount++ }, hasMoreBefore: true })
+    try {
+      const btn = Array.from(div.querySelectorAll('button')).find(b => b.textContent?.includes('加载更早消息'))
+      expect(btn, '应渲染可见加载入口').toBeTruthy()
+      act(() => { btn!.click() })
+      expect(loadCount, '点击入口应触发加载').toBe(1)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('F20261020lmld 入口收敛：hasMoreBefore=false 不渲染按钮（防假入口）', async () => {
+    const pinRef = { current: true }
+    const { root, div } = renderList({ pinRef, onLoadMore: () => {}, hasMoreBefore: false })
+    try {
+      const btn = Array.from(div.querySelectorAll('button')).find(b => b.textContent?.includes('加载更早消息'))
+      expect(btn, '无更多历史时不应渲染入口').toBeFalsy()
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('F20261020lmld 重入护栏：loadingMore 期间 wheel 不重复触发', async () => {
+    const pinRef = { current: true }
+    let loadCount = 0
+    const { root, div } = renderList({ pinRef, onLoadMore: () => { loadCount++ }, loadingMore: true })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      instrumentRW(scrollerOf(), 2000, 0)
+      act(() => { scrollerOf().dispatchEvent(new WheelEvent('wheel', { deltaY: -100 })) })
+      expect(loadCount, '加载在途时不应重复触发').toBe(0)
     } finally {
       act(() => { root.unmount() })
       div.remove()
