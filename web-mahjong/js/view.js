@@ -134,6 +134,22 @@ export function fieldInfo(view) {
 }
 
 /**
+ * 牌河模型（playerPanel 与 riverTable 共用一处推导，避免立直横置标记两边漂移）。
+ * riichiTurn 是 1 基序号 → 立直宣言的那张下标 = riichiTurn - 1（下标越界即无标记）。
+ */
+function riverModels(p) {
+  const riichiIndex = p.riichi ? p.riichiTurn - 1 : -1;
+  return p.discards.map((code, i) => ({
+    code,
+    glyph: tileGlyph(code),
+    label: tileLabel(code),
+    red: isRed(code),
+    riichi: i === riichiIndex,
+    tsumogiri: false,
+  }));
+}
+
+/**
  * 单个玩家面板的渲染视图模型（自顶向下：副露/拔北/牌河/点数/手牌）。
  * 可见性口径来自引擎视图：viewer===seat 或观战（hand 非 null）才拿得到牌面。
  */
@@ -143,7 +159,6 @@ export function playerPanel(view, seat, viewer) {
   const dp = view.decision;
   const visible = Array.isArray(p.hand);
   const tiles = visible ? sortHand(p.hand) : [];
-  const riichiIndex = p.riichi ? p.riichiTurn - 1 : -1;
   const wind = view.seatWinds[seat];
   return {
     seat,
@@ -173,14 +188,63 @@ export function playerPanel(view, seat, viewer) {
       tiles: m.tiles.map((code) => ({ code, glyph: tileGlyph(code), label: tileLabel(code), red: isRed(code) })),
     })),
     kita: p.kita.map((code) => ({ code, glyph: tileGlyph(code), label: tileLabel(code), red: isRed(code) })),
-    discards: p.discards.map((code, i) => ({
-      code,
-      glyph: tileGlyph(code),
-      label: tileLabel(code),
-      red: isRed(code),
-      riichi: i === riichiIndex,
-      tsumogiri: false,
-    })),
+    discards: riverModels(p),
+  };
+}
+
+/**
+ * 玩家条（v3 座位角信息条）＝玩家面板去掉牌河。
+ * 牌河交给 riverTable 单点渲染——同一状态只留一个渲染点，避免两处不同步（D4）。
+ */
+export function playerStrip(view, seat, viewer) {
+  const panel = playerPanel(view, seat, viewer);
+  if (!panel) return null;
+  const strip = { ...panel };
+  delete strip.discards;
+  return strip;
+}
+
+/**
+ * 三个座位的玩家条，按 v3 座向取名：top=上家（桌心远侧）/ right=下家（桌心右侧）/ self=自己（近侧）。
+ * 座位环仍由 seatLayout 视角变换给出（left=上家 → v3 顶位）。
+ */
+export function stripsByPosition(view, viewer) {
+  const layout = seatLayout(viewer);
+  return {
+    top: playerStrip(view, layout.left, viewer),
+    right: playerStrip(view, layout.right, viewer),
+    self: playerStrip(view, layout.bottom, viewer),
+  };
+}
+
+/**
+ * 桌心视图模型（v3 主骨架）：三家牌河围桌心三方 + 中央信息盘数据。
+ *
+ * D1 定稿：牌字符**全正朝向**（不倒不侧），旋转的是摆放位置不是字符——
+ * top=上家河（远侧）/ right=下家河（右侧）/ self=自己河（近侧），三块矩形区围住 hub。
+ * hub 复用 fieldInfo（D3：信息盘承载场况主显示，与左上角标不同屏双显）。
+ *
+ * @param {object} view  RoomView
+ * @param {number|null} viewer  观战传 null（座位环按 seat0 为底）
+ * @returns {{top: object, right: object, self: object, hub: object}}
+ */
+export function riverTable(view, viewer) {
+  const layout = seatLayout(viewer);
+  const riverOf = (seat) => {
+    const p = view.players.find((x) => x.seat === seat);
+    if (!p) return { seat, tiles: [], riichi: false, isCurrent: false };
+    return {
+      seat,
+      tiles: riverModels(p),
+      riichi: p.riichi,
+      isCurrent: view.decision !== null && view.decision.seat === seat,
+    };
+  };
+  return {
+    top: riverOf(layout.left),
+    right: riverOf(layout.right),
+    self: riverOf(layout.bottom),
+    hub: fieldInfo(view),
   };
 }
 
