@@ -71,7 +71,7 @@ T5：回归护栏——四锚不回归（F20261010vwst §3.3 要求）+ 原始�
 
 ## 未决问题
 
-- U1：html-card 高度 transition 等主动样式变更命中 scroll anchoring suppression trigger（规范 §2.2.2：对 anchor→scroller 路径元素的 position/margin/padding/width/height 修改抑制调整）的实际命中面——规范明文可枚举，但我们 DOM 结构的实测覆盖度只能在实现期 e2e 确认（F20261008scpg U1 同源）。若关键场景被抑制，降级方案见「设计取舍」T2 行。
+- U1：html-card 高度 transition 等主动样式变更命中 scroll anchoring suppression trigger（规范 §2.2.2：对 anchor→scroller 路径元素的 position/margin/padding/width/height 修改抑制调整）的实际命中面——规范明文可枚举，但我们 DOM 结构的实测覆盖度只能在实现期 e2e 确认（F20261008scpg U1 同源）。若关键场景被抑制，降级方案见「设计取舍」T2 行。**执行验证状态补注（镜川 delta 元问题，2026-10-20）**：wcsr 三 e2e 用例（锚 2/4/5）依赖 E2E_REPLICA_DATA 复刻环境，CI 同样 skip（run 39401025996 日志证实 `-` 前缀）——本 spec 目前无任何执行验证环境，「恒绿/必红」类断言缺陷结构性不可发现（本轮已实证两例：初版锚 2 恒绿、delta-A NaN 必红，均在 CI 绿 run 里安然存在）。合并前必须在 alpha 复刻环境手动跑通一轮；跑通前本文档的 e2e 验证口径应视为「未验证」。
 - U2：scroll anchoring 与我们 pinned 贴底写入（programScroll）在同帧的交互次序（浏览器调整时机 = style/layout 后、paint 前；我们的 useLayoutEffect 写入在 React commit 后）——理论上正交（锚定只补偿 anchor 上方变化，贴底写入是视口下方目标），实测确认。
 
 ## 方案设计
@@ -237,4 +237,9 @@ index.tsx:482 `api.listEntries(activeId, 20, oldest.id)` → 50。timeline 窗�
 - 建议 1（兜底×锚定双补偿叠加窗口）→ 不预防性加层，alpha 跑锚 5 时如见超限先核对此叠加（镜川原判，采纳为观察项）。
 - 通过面留档：账本退役论证代码级核验成立（全仓唯一直接 scrollTop 写入在 programScroll，五调用点方向全向下）；哨兵 effect 重挂语义正确；T1-T4 + 镜澜三处修订逐一落地。
 
-（delta 复审结论待回填）
+### delta 复审第 2 轮（2026-10-20，镜川）：处置核验 A/B 合格、CI 复绿确认；新严重 C + 元问题
+
+- **严重 C（锚 2 滚回步骤使核心断言恒绿）→ 已修复**：滚回 `scrollTop += (r.top - scRect.top) - beforeTop` 把锚点精确放回采样位——锚定生效/失效两场景验算均绿，断言与验收对象完全解耦（「测量动作破坏被测量」结构问题）。按镜川修复方向重写：锚点采样移到 prepend 前稳定窗口（近顶 150px 阅读位）、取当时视口首条消息作锚、prepend 后直接测视口 y、**删滚回步骤**——生效≈原位，失效被顶下一整批高度必红。锚 2（近顶、原生锚定路径）与锚 5（绝对顶、手写兜底路径）互补成完整覆盖。
+- 元问题（CI 同 skip 事实链）→ 已录入 U1 补注（含「跑通前 e2e 验证口径视为未验证」的诚实标注）。
+
+（delta 复审第 3 轮结论待回填）
