@@ -46,8 +46,8 @@ if (el.scrollTop === 0 && onLoadMore && !loadingMore) {
   - **取舍修正**：原报方案 B「加载完成后若仍在顶部附近自动续批」被否——W8 距顶恢复语义下用户每批加载后仍停在顶部，自动续批会把全量历史一口气拉完（长会话数十请求连发），改为按批意图驱动：用户滚一次出一批，停手即停。
 - **B. 近顶触发带**：`el.scrollTop === 0` → `<= LOAD_MORE_TOP_PX`（8px），覆盖分数停位与「视觉到顶」，不误伤正常阅读区。
 - **C. 可见入口按钮**：内容顶部渲染「加载更早消息」按钮（hasMoreBefore=true 时），点击直接触发；加载中置灰「加载中...」；hasMoreBefore=false 不渲染（防假入口）。
-- **重入护栏**：loadingMore 在途时各通道直接 return（父层 loadMoreBefore 的 loadingMoreRef 双保险不变）。
-- **W8 restore 语义不动**：各触发通道统一走 fireLoadMore，臂 pendingScrollRestoreRef = 触发时距顶距离，与旧路径同语义（F20261008w8lt 消费逻辑零改动）。
+- **重入护栏**：loadingMore 在途时各通道直接 return（父层 loadMoreBefore 的 loadingMoreRef 同步护栏是硬闸——prop 回传有事件→setState→prop 间隙，极端连击下组件层护栏会漏一轮，由父层同步 ref 兕底；组件层不加第三道 ref，生命周期同步成本大于收益）。
+- **W8 restore 语义不动**：各触发通道统一走 fireLoadMore，臂 pendingScrollRestoreRef = 触发时距顶距离，与旧路径同语义（F20261008w8lt 消费逻辑零改动）；R0 切会话重置时清残留 pending（检视 A1，防旧会话距顶距离残留一帧）。
 
 机制判定：不命中机制清单（无新配置字段/状态生命周期/定时任务/信号/持久化/跨模块调用；load-more 功能语义不变）→ `narrow-fix`。
 
@@ -95,6 +95,14 @@ UI 截图核对：布局完好，无溢出/错位。
 1. **wheel 优先于 IntersectionObserver 哨兵**：哨兵方案（原报方案 A）需要在内容顶部插 sentinel 元素 + IO 管理生命周期，与 W8 restore 的 useLayoutEffect 消费门交互面大；wheel/touch/keydown 意图事件与既有「意图脱锚」监听器（F20261008scpg）同处挂载，改动面更小且语义更准（用户意图 vs 位置巧合）。scroll 通道保留近顶带位置触发作兜底（滚动条拖拽场景）。
 2. **不自动续批**：见上文取舍修正。
 3. **入口按钮放滚动内容顶部**：跟随内容滚动自然露出，不占独立视口高度（F20261015inpd 视口恒定成果不回退）。
+
+## 对抗审视处置（检视蕕-1568，2026-10-20）
+
+- S1（严重）：CI 被分支落后 main 拦截——rebase main 后重跑（本 delta 一并落）
+- A1（建议）：R0 重置不清 pendingScrollRestoreRef，切会话残留一帧——已修（一行）
+- A2（建议）：重入口径文档与实现不符——已改述（真实硬闸 = 父层 loadingMoreRef，文档如实标注）
+- A3（建议）：loadMoreBefore 失败无用户反馈（既有缺陷非本 PR 引入）——不入本 PR（窄修原则），待搭档定夺立案/入日报候选池
+- 作者焦点清单 6 项核对全过；「否决自动续批」取舍经检视方独立挑战后确认成立
 
 ## 遗留
 

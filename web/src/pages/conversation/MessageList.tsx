@@ -349,7 +349,11 @@ export function MessageList({
  *  死锁修复核心：到顶静止后继续上滚零位移 → 无 scroll 事件 → 旧触发永不命中；
  *  wheel/触摸/按键通道在近顶带内直接触发（意图驱动按批加载，不自动连拉——
  *  自动续批会在用户停在顶部时一口气拉完全量历史，不可接受）。
- *  臂 restore pending 与旧路径同语义（记触发时距顶距离，W8 消费）；重入由 loadingMore 拦 */
+ *  臂 restore pending 与旧路径同语义（记触发时距顶距离，W8 消费）。
+ *  重入口径（检视 A2 修正）：loadingMore prop 拦事件级重复；**同步硬闸在父层
+ *  loadingMoreRef（index.tsx loadMoreBefore 入口）**——prop 回传有事件→setState→prop
+ *  间隙，极端连击下本层护栏会漏一轮，靠父层同步 ref 兜底（组件层不加第三道 ref，
+ *  生命周期同步成本大于收益） */
   const fireLoadMore = useCallback(() => {
     const el = scrollRef.current
     if (!onLoadMore || loadingMore) return
@@ -544,13 +548,16 @@ export function MessageList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** 切换会话时重置状态（R0：新会话 pinned 起步；账本/采样基线一并清空） */
+  /** 切换会话时重置状态（R0：新会话 pinned 起步；账本/采样基线一并清空）
+   *  F20261020lmld delta（检视 A1）：清 pendingScrollRestoreRef——旧实现只靠 [messages] 消费门
+   *  「下一次头部变化」解除，切会话时残留一帧旧会话的距顶距离 */
   useEffect(() => {
     pinRef.current = true
     prevMessagesLenRef.current = 0
     pinWritesRef.current = []
     lastScrollTopRef.current = 0
     lastScrollHeightRef.current = 0
+    pendingScrollRestoreRef.current = null
     cancelAnimationFrame(rafPinIdRef.current)
   }, [conversationId, pinRef])
 
