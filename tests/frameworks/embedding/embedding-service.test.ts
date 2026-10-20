@@ -265,14 +265,16 @@ process.on("message", (msg) => {
 
     try {
       // 先等 worker ready——否则 embed 内的 await waitForReady() 会让槽位占用延后一个 microtask，
-      // 后面的 acquireSlot 会插队看到空槽（测试时序缺陷，非实现 bug）
+      // 后面的 acquireSlot 会插队看到空槽（测试时序缺陷，非实现 bug；F20261016slvg 已在实现层
+      // 消灭该 TOCTOU——新代码应走 waitSlot，此处 acquireSlot 仅作兼容遗留入口）
       await service.acquireSlot!();
       // 打满 2 个槽位
       const p1 = service.embed("a");
       const p2 = service.embed("b");
       // embed 体内部 await waitForReady() 是异步断点——哪怕 ready 已置位，占槽也发生在后续 microtask；
       // 必须等两个 embed 真正入 pendingRequests——ready 消息经 worker IPC，到达时机不确定，
-      // 轮询 in-flight 计数到 2 为止（否则后续 acquireSlot 看到空槽插队，测试时序缺陷，非实现 bug）
+      // 轮询 in-flight 计数到 2 为止（否则后续 acquireSlot 看到空槽插队，测试时序缺陷，非实现 bug；
+      // F20261016slvg 后 acquireSlot 仅兼容遗留，新代码应走 waitSlot 原子路径）
       const svcInternal = service as unknown as { pendingRequests: Map<number, unknown> };
       for (let i = 0; i < 200 && svcInternal.pendingRequests.size < 2; i++) {
         await new Promise((r) => setTimeout(r, 5));

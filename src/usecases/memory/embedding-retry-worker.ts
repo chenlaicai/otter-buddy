@@ -100,8 +100,8 @@ export class EmbeddingRetryWorker {
   }
 
   /**
-   * 事件驱动一次额外 tick（worker ready 后立即跑，不等 30s）。
-   * bootstrap 在 embeddingGateway 'ready' 事件时调用。
+   * 立即跑一轮 tick（当前唯一驱动：PatrolWorker 每 1h 巡检调用，见 app.ts）。
+   * 启动首轮由 createAndStartRetryWorker 自跑，无事件接线。
    *
    * F20261016slvg：重入守卫——逐条 waitSlot 后单个 tick 可能跑几十分钟（吞吐由
    * worker 真实速度节流），PatrolWorker 下个小时再调 tickNow 会并发 tick。

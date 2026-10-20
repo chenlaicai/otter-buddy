@@ -33,7 +33,7 @@ export interface MemoryQueue {
   /**
    * F20261016slvg：启动迁移用——把 pending 任务的 attempts 归零、next_retry_at 置为立即可重试。
    * 可选方法：claim 即 attempts+1 的语义被超时循环撑大后，存量任务需要一次性赦免
-   * （对抗审视洞 2 处置，只在 createAndStartRetryWorker 启动时调用）。
+   * （对抗审视洞 2 处置；可选即为兼容未实现的 mock/旧 repo，语义上仅启动迁移使用）。
    */
   resetPendingAttempts?(): Promise<number>;
   /**
