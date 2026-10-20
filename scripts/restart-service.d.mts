@@ -42,7 +42,10 @@ export interface KillByPidCheckInput {
   mainPid: number | null;
   selfPid: number;
   selfPpid: number;
-  allowedRoot: string;
+  allowedRoots: string[];
 }
 
 export declare function assertKillByPidSafe(input: KillByPidCheckInput): ResolvePortEntryOk | ResolvePortEntryErr;
+
+/** #1580：kill-by-pid 合法根构造（otter 工作根 + alpha 规范数据根） */
+export declare function killByPidAllowedRoots(otterRoot: string): string[];

@@ -26,6 +26,7 @@
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -194,25 +195,43 @@ function withLock(lockPath, fn) {
   return { ok: false, error: `白名单写锁争用超时（${lockPath}）——请稍后重试` };
 }
 
+/**
+ * #1580：kill-by-pid 合法根构造（导出供单测覆盖 wiring）——otter 工作根 + alpha 规范数据根。
+ * alpha 根与 alpha.sh 的 `alpha_root_dir()` 为双源真相，单测有机械对齐断言防漂移（检视 A4）。
+ */
+export function killByPidAllowedRoots(otterRoot) {
+  return [path.resolve(otterRoot, ".."), path.join(os.homedir(), ".otter", "alpha")];
+}
+
 // ── F20261008hcpa：kill-by-pid 纯校验逻辑（导出供单测；主流程经 main-guard 保护）──
 
 /**
  * kill-by-pid 校验（F20261008hcpa，#1356 层2 疏通）。
  *
  * 纯函数——PID 存活/cwd 归属的 lsof 探测由调用方（主流程）做，本函数只校验
- * 「可静态判定的不变式」：PID 合法性、主进程/自身/父进程拒绝、projectDir 在工作根内。
+ * 「可静态判定的不变式」：PID 合法性、主进程/自身/父进程拒绝、projectDir 在合法根内。
  * 返回 { ok: true } 或 { ok: false, error }。
+ *
+ * #1580：allowedRoot 单根 → allowedRoots 多根——alpha 规范数据根（~/.otter/alpha/<hash>，
+ * alpha.sh:51-53 alpha_root_dir）不在 otter 工作根（/Users/orca/ai）之下，单根校验把
+ * alpha 实例的受控终止通道整个堵死（「启」有 alpha.sh，「停」无合法出路）。口径与
+ * resolvePortEntry 的 allowedRoots 统一：任一根之下且非任一根本身即合法。
+ * 安全不变式不削弱：mainPid/selfPid 拒绝、cwd 归属校验照旧。
  */
-export function assertKillByPidSafe({ pid, projectDir, mainPid, selfPid, selfPpid, allowedRoot }) {
+export function assertKillByPidSafe({ pid, projectDir, mainPid, selfPid, selfPpid, allowedRoots }) {
   if (!Number.isInteger(pid) || pid <= 1) {
     return { ok: false, error: `PID ${pid} 非法（须 >1——init/launchd 恒拒）` };
   }
   if (!projectDir) {
     return { ok: false, error: "kill-by-pid 必须带 --project /abs/path 声明归属目录" };
   }
-  const relRoot = path.relative(allowedRoot, projectDir);
-  if (relRoot.startsWith("..") || path.isAbsolute(relRoot) || relRoot === "") {
-    return { ok: false, error: `--project (${projectDir}) 必须在 otter 工作根 (${allowedRoot}) 之下且非根本身` };
+  const roots = allowedRoots ?? [];
+  const insideRoot = roots.some((root) => {
+    const relRoot = path.relative(root, projectDir);
+    return !(relRoot.startsWith("..") || path.isAbsolute(relRoot) || relRoot === "");
+  });
+  if (!insideRoot) {
+    return { ok: false, error: `--project (${projectDir}) 必须在 otter 工作根/alpha 数据根 (${roots.join(" / ") || "未配置"}) 之下且非根本身` };
   }
   if (mainPid !== null && pid === mainPid) {
     return { ok: false, error: `PID ${pid} 是 otter-buddy 主进程——拒绝终止` };
@@ -261,7 +280,8 @@ if (isMain) {
       mainPid: kbMainPid,
       selfPid: process.pid,
       selfPpid: process.ppid,
-      allowedRoot: path.resolve(otterRoot, ".."),
+      // #1580：合法根双根——otter 工作根 + alpha 规范数据根（alpha.sh alpha_root_dir）
+      allowedRoots: killByPidAllowedRoots(otterRoot),
     });
     if (!kbCheck.ok) die(kbCheck.error);
     // 校验 ③：cwd 归属
