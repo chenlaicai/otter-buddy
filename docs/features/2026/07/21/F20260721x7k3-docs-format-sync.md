@@ -198,7 +198,7 @@ grep -r "pi-integration-analysis" docs/**/*.md | grep -v "R20260717y3k8" | wc -l
 **更新引用的文件**：
 - `F20260715f4k9-frameworks-layer-implementation.md`
 - `F20260715k4p2-frameworks-layer-implementation.md`
-- `F20260716i5n2.md`
+- `F20260716i5n2-interface-adapters-layer.md`
 - `F20260716sq6e-pi-agent-core-vs-coding-agent.md`
 - `F20260716t2ab-tool-skill-mechanism.md`
 - `F20260716zq9q-conversation-session-architecture.md`

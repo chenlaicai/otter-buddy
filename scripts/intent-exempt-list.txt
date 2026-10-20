@@ -33,7 +33,7 @@ docs/features/2026/07/15/F20260715f4k9-frameworks-layer-implementation.md
 docs/features/2026/07/15/F20260715k4p2-frameworks-layer-implementation.md
 docs/features/2026/07/16/F20260716bte2-agent-circuit-breaker.md
 docs/features/2026/07/16/F20260716hkv3-terminology-library.md
-docs/features/2026/07/16/F20260716i5n2.md
+docs/features/2026/07/16/F20260716i5n2-interface-adapters-layer.md
 docs/features/2026/07/16/F20260716szw8-memory-progressive-disclosure.md
 docs/features/2026/07/16/F20260716t2ab-tool-skill-mechanism.md
 docs/features/2026/07/16/F20260716ttf7-system-integration-and-startup.md
@@ -159,7 +159,7 @@ docs/features/2026/08/26/F20260826avtr-otter-avatars-pixel-art.md
 docs/features/2026/08/26/F20260826dpao-deps-task-dependabot-only.md
 docs/features/2026/08/26/F20260826fpbd-feishu-partner-binding.md
 docs/features/2026/08/26/F20260826fuid-feishu-user-identity.md
-docs/features/2026/08/26/F20260826mwrd.md
+docs/features/2026/08/26/F20260826mwrd-magic-words-l10n-signal-protocol.md
 docs/features/2026/08/26/F20260826o46s-otter-summon-stuck-report.md
 docs/features/2026/08/26/F20260826rcmp-memory-phase0-retrieval-logging.md
 docs/features/2026/08/26/F20260826rsme-restart-auto-resume.md
@@ -167,7 +167,7 @@ docs/features/2026/08/26/F20260826scd2-stock-data-tool.md
 docs/features/2026/08/26/F20260826scd3-stock-analysis-skill.md
 docs/features/2026/08/26/F20260826scd4-stock-hk-and-action-advice.md
 docs/features/2026/08/26/F20260826scl1-stock-cli-data-bridge.md
-docs/features/2026/08/26/F20260826sgpa.md
+docs/features/2026/08/26/F20260826sgpa-halt-signal-pipeline.md
 docs/features/2026/08/27/F20260827c2sg-signal-c2-parser-adjudication.md
 docs/features/2026/08/27/F20260827c3hr-healing-routing-l2-stop-scan.md
 docs/features/2026/08/27/F20260827cbdg-html-card-badge-copy.md

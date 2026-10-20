@@ -12,7 +12,7 @@ from: [F20260826mwrd]
 
 # 獭间信号 C3：healing 高危路由 + L2 停下扫描
 
-**父方案**：[F20260826mwrd](../26/F20260826mwrd.md) Part 4（healing 高危路由）+ Part 6（L2「停下」检测保底）。C1 交付 halt 投递管道、C2 交付 signal-parser 与裁决写路径，本期补齐两个消费侧管道：高危事件「谁来当场看」和用户安全词「谁来保底听」。
+**父方案**：[F20260826mwrd](../26/F20260826mwrd-magic-words-l10n-signal-protocol.md) Part 4（healing 高危路由）+ Part 6（L2「停下」检测保底）。C1 交付 halt 投递管道、C2 交付 signal-parser 与裁决写路径，本期补齐两个消费侧管道：高危事件「谁来当场看」和用户安全词「谁来保底听」。
 
 ## 交付内容
 

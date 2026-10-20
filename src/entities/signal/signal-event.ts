@@ -4,7 +4,7 @@
  * 獭间结构化信号的持久化台账。C1 落地 halt 类型（大獭停小獭的审计记录），
  * C2 起 objection/blocked 经 signal-parser 入库，共享同一表。
  *
- * 设计依据：docs/features/2026/08/26/F20260826mwrd.md Part 2 数据模型。
+ * 设计依据：docs/features/2026/08/26/F20260826mwrd-magic-words-l10n-signal-protocol.md Part 2 数据模型。
  * 与 healing_events 分池的理由见该文档「为什么不复用 healing_events 表」。
  */
 
