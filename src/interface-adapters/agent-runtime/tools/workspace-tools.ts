@@ -71,11 +71,40 @@ function createWorkspaceWriteTool(ctx: ToolContext, workspaceGateway: WorkspaceG
   };
 }
 
+function createWorkspaceDeleteTool(ctx: ToolContext, workspaceGateway: WorkspaceGateway): AgentTool {
+  return {
+    name: "workspace_delete",
+    description: "删除工作区中的文件或目录. When: 回收工作区沙箱内的临时件/草稿（合入善后清整、时效性清理）. Not for: 删项目代码文件 → 在 worktree 内走 git；整个工作区回收 → 对话归档时系统整体删除. Output: 删除确认（含类型）. BOUNDARY: 只作用本对话工作区，路径穿越/symlink 逃逸/工作区根删除均拒绝. GOTCHA: 不可逆无回收站——目录须 recursive=true 才整树删除；删前建议先 workspace_list 确认目标.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "文件或目录路径（相对于工作区根目录）" },
+        recursive: { type: "boolean", description: "删除目录时是否递归删除整树（默认 false；非空目录不传会拒绝；文件忽略此参数）" },
+      },
+      required: ["path"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      const relPath = typeof params.path === "string" ? params.path : "";
+      if (!relPath.trim()) {
+        return errorResponse("[错误] path 不能为空。工作区根目录不许删除（整区回收随对话归档）。");
+      }
+      const recursive = params.recursive === true;
+      try {
+        const result = await workspaceGateway.deletePath(ctx.conversationId, relPath, { recursive });
+        return textResponse(`已删除${result.deleted === "directory" ? "目录" : "文件"}: ${relPath}`);
+      } catch (err) {
+        return errorResponse(`[错误] 删除失败: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  };
+}
+
 export function createWorkspaceTools(ctx: ToolContext, workspaceGateway: WorkspaceGateway): AgentTool[] {
   return [
     createWorkspaceInfoTool(ctx, workspaceGateway),
     createWorkspaceListTool(ctx, workspaceGateway),
     createWorkspaceReadTool(ctx, workspaceGateway),
     createWorkspaceWriteTool(ctx, workspaceGateway),
+    createWorkspaceDeleteTool(ctx, workspaceGateway),
   ];
 }

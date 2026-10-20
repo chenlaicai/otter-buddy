@@ -82,7 +82,8 @@
         "workspace_info",
         "workspace_list",
         "workspace_read",
-        "workspace_write"
+        "workspace_write",
+        "workspace_delete"
       ]
     }
   },
