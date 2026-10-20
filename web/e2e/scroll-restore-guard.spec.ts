@@ -52,46 +52,55 @@ const SAMPLER = `
   })()
 `
 
-/** 滚轮上翻到指定 scrollTop 附近（步进防惯性过冲） */
-async function wheelTo(page: import('@playwright/test').Page, targetTop: number) {
-  const el = page.locator(MSG_SEL).first().locator('xpath=ancestor::*[contains(@class,"overflow-y-auto")][1]')
-  const box = await el.boundingBox()
-  if (box) await page.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height / 2, 300))
-  for (let i = 0; i < 60; i++) {
-    const cur = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().scrollTop)
-    if (cur <= targetTop) break
-    await page.mouse.wheel(0, -200)
-    await page.waitForTimeout(30)
-  }
-}
-
 test.describe('F20261020wcsr 微信式重构 e2e 护栏', () => {
   test('锚 2：中部阅读 prepend 零跳变（scroll anchoring 核心验收）', async ({ page }) => {
     test.setTimeout(180_000)
     await page.addInitScript(SAMPLER)
     await page.goto(`/conversation/${CONV}`)
     await page.waitForSelector(MSG_SEL, { timeout: 30_000 })
-    // 贴底 → 上翻到近顶阅读位（哨兵预触发带内，等第一批加载触发的位置）
-    await page.evaluate(() => { const e2 = (window as unknown as { __findScroller(): HTMLElement }).__findScroller(); e2.scrollTop = e2.scrollHeight })
-    await page.waitForTimeout(1000)
-    await wheelTo(page, 150)
-    await page.waitForTimeout(1500)
-    // 触发 prepend 前置轻推（镜川 delta-D 修复：轻推必须在采样**之前**——原序采样后轻推
-    // 使锚点 y 偏移 50px 直接进入判据，任何场景误红；对调后轻推位移进入采样基准，
-    // prepend 成为采样后唯一位移事件）
-    await page.evaluate(() => { const e2 = (window as unknown as { __findScroller(): HTMLElement }).__findScroller(); e2.scrollTop = Math.max(e2.scrollTop - 50, 0) })
-    await page.waitForTimeout(800) // 轻推后稳定（惯性/布局落定）
-    // 锚点采样（镜川 delta-C 修复：采样必须在 prepend 前的稳定窗口、锚必须在视口内——
-    // 初版采样于中部、wheelTo(100) 后锚已离屏不在锚定保护范围；滚回补偿又使断言恒绿。
-    // 正确范式：prepend 前视口首条消息作锚，prepend 后直接测其视口 y，无滚回步骤——
-    // 生效→≈原位（浏览器锚定保持），失效→被顶下一整批高度（数百 px）必红）
-    const anchorBefore = await page.evaluate(() => (window as unknown as { __anchorMsgRect(): { id: string; top: number } | null }).__anchorMsgRect())
-    expect(anchorBefore, '近顶应有可见锚点消息').toBeTruthy()
-    const msgsBefore = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().querySelectorAll('[data-message-id]').length)
-    await page.waitForTimeout(6000) // 加载 + 渲染窗口
-    const msgsAfter = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().querySelectorAll('[data-message-id]').length)
-    console.log(`[锚2] msgs ${msgsBefore} → ${msgsAfter}，锚点=${anchorBefore!.id}@${anchorBefore!.top}px`)
-    expect(msgsAfter, '哨兵应触发加载（消息数增长）').toBeGreaterThan(msgsBefore)
+    // 执行验证发现的编排范式（alpha 复刻实证 + 探针归因）：连拉/冷却的存在使「先避开再触发」
+    // 的编排必然踩冷却点（prepend 在 wheel 途中自然发生，采样时已是第 3 批后冷却态）。
+    // 正确范式与锚 5 同型：冷却解除循环 + 批完成才采样断言——差异只在采样位置：
+    // 锚 2 停在近顶阅读位（scrollTop ≈ 100-300，浏览器锚定工作区），锚 5 停在绝对顶（手写兜底区）。
+    const scrollerLoc = page.locator(MSG_SEL).first().locator('xpath=ancestor::*[contains(@class,"overflow-y-auto")][1]')
+    const box = await scrollerLoc.boundingBox()
+    if (box) await page.mouse.move(box.x + box.width / 2, box.y + 200)
+    await page.mouse.wheel(0, -100) // 脱锚（pinned 贴底会覆盖后续手动 scrollTop）
+    await page.waitForTimeout(200)
+
+    let anchor = { id: null as string | null, y: null as number | null }
+    let msgsBefore = 0
+    let msgsAfter = 0
+    for (let attempt = 0; attempt < 5; attempt++) {
+      // msgsBefore 采样必须在 scrollTop=150 写入**之前**（探针实证：写入后哨兵立即在带内，
+      // IO 在等待窗内就触发加载，采样在加载后 → msgsBefore=msgsAfter 误判「未加载」）
+      msgsBefore = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().querySelectorAll('[data-message-id]').length)
+      // 停在近顶阅读位（预触发带内但非绝对顶——锚定可选锚点的工作区）
+      await page.evaluate(() => { const e2 = (window as unknown as { __findScroller(): HTMLElement }).__findScroller(); e2.scrollTop = 150 })
+      await page.waitForTimeout(300) // 写入落帧即可，不等加载（加载正是要观测的事件）
+      // 锚点采样（prepend 发生前最后一帧的视口首条完整可见消息）
+      anchor = await page.evaluate(() => {
+        const el = (window as unknown as { __findScroller(): HTMLElement }).__findScroller()
+        const scRect = el.getBoundingClientRect()
+        const msgs = el.querySelectorAll('[data-message-id]')
+        for (const m of msgs) {
+          const r = m.getBoundingClientRect()
+          if (r.bottom > scRect.top && r.top < scRect.bottom) {
+            return { id: m.getAttribute('data-message-id'), y: Math.round(r.top - scRect.top) }
+          }
+        }
+        return { id: null, y: null }
+      })
+      await page.waitForTimeout(6000)
+      msgsAfter = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().querySelectorAll('[data-message-id]').length)
+      if (msgsAfter > msgsBefore) break
+      // 冷却中：下滚解除（程序写入亦触发 handleScroll 向下位移解除），下一轮再试
+      await page.evaluate(() => { const e2 = (window as unknown as { __findScroller(): HTMLElement }).__findScroller(); e2.scrollTop = 800 })
+      await page.waitForTimeout(500)
+    }
+    console.log(`[锚2] msgs ${msgsBefore} → ${msgsAfter}，锚点=${anchor.id}@y=${anchor.y}px`)
+    expect(msgsAfter, '经冷却解除循环后应完成一批加载（断言必达）').toBeGreaterThan(msgsBefore)
+    expect(anchor.id, '近顶应有可见锚点消息').not.toBeNull()
     // 核心验收：prepend 后锚点消息视口 y 与加载前偏移 ≤4px——直接测，无滚回。
     // 锚定生效：浏览器在 prepend 的 layout 轮次把 scrollTop 补偿高度增量，锚点消息视口位置不变；
     // 失效：scrollTop 不变而上方插入一批高度，锚点消息被顶出视口（y 偏移数百 px 或直接离屏）
@@ -101,10 +110,10 @@ test.describe('F20261020wcsr 微信式重构 e2e 护栏', () => {
       if (!m) return null
       const scRect = el.getBoundingClientRect()
       return Math.round(m.getBoundingClientRect().top - scRect.top)
-    }, anchorBefore!.id)
-    console.log(`[锚2] 锚点消息视口 y：加载前 ${anchorBefore!.top} → 加载后 ${posNow}（判据偏移 ≤4px）`)
+    }, anchor.id!)
+    console.log(`[锚2] 锚点消息视口 y：加载前 ${anchor.y} → 加载后 ${posNow}（判据偏移 ≤4px）`)
     expect(posNow, 'prepend 后锚点消息应在 DOM 可查').not.toBeNull()
-    expect(Math.abs(posNow! - anchorBefore!.top), `scroll anchoring 失效：锚点消息视口 y 偏移 ${Math.abs(posNow! - anchorBefore!.top)}px（>4px）`).toBeLessThanOrEqual(4)
+    expect(Math.abs(posNow! - anchor.y!), `scroll anchoring 失效：锚点消息视口 y 偏移 ${Math.abs(posNow! - anchor.y!)}px（>4px）`).toBeLessThanOrEqual(4)
   })
 
   test('锚 4：哨兵连拉限幅（≤3 批后停，下滚解除）', async ({ page }) => {
@@ -141,16 +150,23 @@ test.describe('F20261020wcsr 微信式重构 e2e 护栏', () => {
     // 滚到绝对顶部触发加载——显式控制批次：下滚-上滚循环解除冷却直到本批确实加载，
     // 断言只在该批上执行（不依赖默认时序，核心 ≤5px 断言必达——镜川严重 1④：
     // 默认时序落冷却态时 else 只 console.log，断言形同虚设）
-    let before = { firstId: null as string | null }
+    let before = { firstId: null as string | null, firstY: null as number | null }
     let msgsBefore = 0
     let msgsAfter = 0
     for (let attempt = 0; attempt < 4; attempt++) {
       before = await page.evaluate(() => {
         const el = (window as unknown as { __findScroller(): HTMLElement }).__findScroller()
         el.scrollTop = 0
-        return new Promise<{ firstId: string | null }>(resolve =>
+        return new Promise<{ firstId: string | null; firstY: number | null }>(resolve =>
           requestAnimationFrame(() => requestAnimationFrame(() => {
-            resolve({ firstId: el.querySelector('[data-message-id]')?.getAttribute('data-message-id') ?? null })
+            const first = el.querySelector('[data-message-id]')
+            const scRect = el.getBoundingClientRect()
+            resolve({
+              firstId: first?.getAttribute('data-message-id') ?? null,
+              // 基线 y 必须采样（执行验证发现：scrollTop=0 时视口顶部有哨兵+加载按钮占位 ≈53px，
+              // 首条消息的 y 本来就不是 0——判据是绝对值≤5px 会系统性误红，正确判据是前后偏移）
+              firstY: first ? Math.round(first.getBoundingClientRect().top - scRect.top) : null,
+            })
           })))
       })
       msgsBefore = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().querySelectorAll('[data-message-id]').length)
@@ -161,10 +177,10 @@ test.describe('F20261020wcsr 微信式重构 e2e 护栏', () => {
       await page.evaluate(() => { const e2 = (window as unknown as { __findScroller(): HTMLElement }).__findScroller(); e2.scrollTop = 800 })
       await page.waitForTimeout(500)
     }
-    console.log(`[锚5] 顶部 msgs ${msgsBefore} → ${msgsAfter}，加载前首条=${before.firstId}`)
+    console.log(`[锚5] 顶部 msgs ${msgsBefore} → ${msgsAfter}，加载前首条=${before.firstId}@y=${before.firstY}`)
     expect(msgsAfter, '经冷却解除循环后应完成一批加载（断言必达，不静默跳过）').toBeGreaterThan(msgsBefore)
-    // 加载前首条消息应仍在视口顶部附近（兜底把它推回原位）——
-    // 断言其视口内位置偏移 ≤5px（与锚 2 同判据；旧无保护时用户会被顶下去一整批高度）
+    // 加载前首条消息应仍在视口原位置（兜底把它推回）——判据是前后 y 偏移 ≤5px（非绝对值：
+    // scrollTop=0 时首条 y=哨兵+按钮占位高，本身非零）；旧无保护时用户会被顶下去一整批高度
     const pos = await page.evaluate((firstId: string | null) => {
       const el = (window as unknown as { __findScroller(): HTMLElement }).__findScroller()
       const scRect = el.getBoundingClientRect()
@@ -173,9 +189,10 @@ test.describe('F20261020wcsr 微信式重构 e2e 护栏', () => {
       const r = m.getBoundingClientRect()
       return Math.round(r.top - scRect.top)
     }, before.firstId)
-    console.log(`[锚5] 加载前首条消息视口位置=${pos}px（判据 ≤5px）`)
+    console.log(`[锚5] 首条消息视口 y：加载前 ${before.firstY} → 加载后 ${pos}（判据偏移 ≤5px）`)
     expect(pos, '加载前首条消息应在 DOM 中可查（prepend 不删既有消息）').not.toBeNull()
-    expect(Math.abs(pos!), `绝对顶部兜底后首条消息视口位置 ${pos}px 超允许值`).toBeLessThanOrEqual(5)
+    expect(before.firstY, '加载前首条基线 y 应已采样').not.toBeNull()
+    expect(Math.abs(pos! - before.firstY!), `绝对顶部兜底后首条消息视口 y 偏移 ${Math.abs(pos! - before.firstY!)}px 超允许值`).toBeLessThanOrEqual(5)
   })
 })
 
