@@ -28,11 +28,11 @@ chen 2026-10-20 上午实机试玩三麻（房间 sanma-1020，东风战 35000 �
 
 | # | 问题 | 分诊 | commit |
 |---|---|---|---|
-| 2 | 立直后还能摸牌/连续摸三张 | 游戏正确性，最高优先 | `d72dba71` narrow-fix |
-| 1 | 「fallback · 回复中未找到 JSON 对象」漏进对话 | 内部降级外泄 | `e524ea66` narrow-fix |
-| 3 | 獭全程不发言（无聊） | 发言闸门过紧 | `e524ea66` narrow-fix |
-| 5 | 局终无结算停顿，瞬间自动换局 | 体验 → 新能力 | `060f6532` mechanism-addition |
-| 6 | 无停局/删房接口 + runaway | 止血 → 新能力 | `060f6532` mechanism-addition |
+| 2 | 立直后还能摸牌/连续摸三张 | 游戏正确性，最高优先 | `10ff7640` narrow-fix |
+| 1 | 「fallback · 回复中未找到 JSON 对象」漏进对话 | 内部降级外泄 | `aef5dc42` narrow-fix |
+| 3 | 獭全程不发言（无聊） | 发言闸门过紧 | `aef5dc42` narrow-fix |
+| 5 | 局终无结算停顿，瞬间自动换局 | 体验 → 新能力 | `92dcfd97` mechanism-addition |
+| 6 | 无停局/删房接口 + runaway | 止血 → 新能力 | `92dcfd97` mechanism-addition |
 | 4 | 打牌特效不一致 | **核实为 by design**（见「不做」） | 无代码改动 |
 
 ### #2 立直后摸打约束（正确性）
@@ -49,7 +49,7 @@ chen 2026-10-20 上午实机试玩三麻（房间 sanma-1020，东风战 35000 �
 ### #1 fallback 外泄 + #3 獭不发言
 
 - #1：`web-mahjong/js/app.js:717` 把 `wake.fallbackReason`（如「回复中未找到 JSON 对象」）直渲染进对局日志。改为 fallback/timeout-fallback 只给中性「（代打）」标签；排查链路走 frame 存储与服务端事件元数据（fallbackReason 仍在事件里，只是不外显）
-- #3：唤醒 prompt「speech 可省略」导致几乎全场无发言 → 改必填（≤30 字人味：吐槽/评牌/报听/情绪）。**节流阀维持方案 S3 口径不变**（trivial 回合不唤醒 LLM，防刷屏+省 token）——发言集中在非平凡回合（鸣牌窗/立直/杠/和了决策点）
+- #3：唤醒 prompt「speech 可省略」导致几乎全场无发言 → 改必填（≤30 字人味：吐槽/评牌/报听/情绪）。**节流阀维持方案 S3 口径不变**（trivial 回合不唤醒 LLM，防刷屏+省 token）——发言集中在非平凡回合（鸣牌窗/立直/杠/和了决策点）；附带加固（检视建议7）：LLM 回空串/纯空白 speech 视同未提供，不携带进事件（防前端判空歧义）
 
 ### #5/#6 局终结算停驻 + 停局接口（mechanism-addition）
 
@@ -62,8 +62,8 @@ chen 2026-10-20 上午实机试玩三麻（房间 sanma-1020，东风战 35000 �
 - ④有更窄的替代？「只加 stop 接口不做停驻」可省一个状态，但 chen 的核心痛点是结算体验，砍停驻=不解决问题
 
 **行为**：
-- 有真人的房局终不再瞬间换局——挂停驻定时器（`settleHoldMs` 默认 30s）；到期自动继续；页面「继续下一局 →」按钮即刻放行（`settleResumed` 放行位防重 park）；纯獭/代理房维持直推（无人可等）
-- `POST /api/mahjong/rooms/:roomId/continue`（404 未知房/409 已终局/400 非停驻态）；`POST /api/mahjong/rooms/:roomId/stop`（终局/进行中均可停：广播通知+清全部定时器+房间出 Map）
+- 有真人的房局终不再瞬间换局——挂停驻定时器（`settleHoldMs` 默认 30s）；到期自动继续；页面「继续」按钮即刻放行（`settleResumed` 放行位防重 park）；末局（第 4 局）按钮文案为「查看终局 →」（继续即进终局，如实标注）；纯獭/代理房维持直推（无人可等）
+- `POST /api/mahjong/rooms/:roomId/continue`（404 未知房/409 已终局/400 非停驻态）；`POST /api/mahjong/rooms/:roomId/stop`（终局/进行中均可停：广播通知+清全部定时器+房间出 Map）；**页面入口**：场况栏「停局」按钮（confirm 后调 `api.stop`，成功回大厅——检视严重1 修复，接口不再无 UI 调用点）
 - **离桌 runaway 界**：真人连续超时代打计数（`humanIdleStrikeLimit` 默认 10）到限自动停局并广播；真人注入动作清零（回场不误伤）
 
 **实现拆分**：生命周期函数（settleRoundEndFlow/continueSettlement/stopRoomFlow/guardHumanIdleStrike）自 room-service 拆至 `room-lifecycle.ts`（room-service 顶 max-lines 450；定时器回调不进 class，room 内部态经结构化参数注入——与 room-chat.ts/gameover-report.ts 拆分同先例）
@@ -75,11 +75,13 @@ chen 2026-10-20 上午实机试玩三麻（房间 sanma-1020，东风战 35000 �
 
 ## 测试与证据
 
-- **RED→GREEN**（#2）：修复前 3 例红（`/tmp/mj-riichi-red.txt`：tsumogiri 候选/非摸切拒绝/禁副露），修复后 engine 13 例全绿；新增 4 例（含暗杠照常）
+- **RED→GREEN**（#2）：复跑口径（检视建议1 修正）——**当前测试 × 修复前引擎（`daeac012`）** 4 例红（`/tmp/mj-riichi-red2.txt`，全为缺陷断言红：候选集过宽×2 / 非摸切拒不生效 / 禁副露不生效——无测试构造错误），修复后 engine.test.ts 10 例全绿；本 PR 新增 5 例（4 例立直约束 + 1 例 kakan 无立直门）
 - **生命周期**：room-lifecycle.test.ts 新增 4 例（停驻不自动换局+继续放行 / 超时自动继续 / stopRoom 出 Map+通知 / runaway 到限停局）；既有驱动器补「结算停驻点继续」适配（room-service.test 13 例、room-report-chat 9 例、api 3 例均绿）
+- **HTTP 契约**（检视建议5）：tests/api/mahjong.test.ts 新增 continue/stop 契约例（continue 404/400/200/409 四态 + stop 404/200×2，长停驻服务可控行验证放行路径）
 - 全量回归数据见 PR body（pre-existing 超时 flaky 附隔离复跑证据）
 
 ## 已知残留
 
 - 立直后暗杠的「雀魂是否完全无限制」口径按「立直后可杠」实现——若后续 playtest 发现雀魂实操有更细限制（如杠后同巡限制），再按实测调
+- **拔北口径**（检视建议4 留档）：引擎立直后不提供拔北（`engine.ts` 既有门，注释自标「引擎口径」）；雀魂三麻立直后可否拔北未实测核实（域外判断，置信度中）——若实测口径不同再调
 - 结算停驻只在「有真人座位」的房生效；真人中途退座（座位无人接管）的边界与离桌界共用计数逻辑，未单独做 UI 提示
