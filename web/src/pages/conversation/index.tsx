@@ -364,7 +364,7 @@ export default function ConversationPage() {
    * 断连后新产生的条目；补齐靠重进会话（首屏拉尾页盖住最新）或上翻扩窗（游标前移扩大
    * 可达范围））。
    * 进循环条件：游标后条目总数 > 200——与单轮增量无关。用户上翻 loadMoreBefore 扩窗后
-   * （每页 20 条），窗口 >200 时每轮审计都会进循环（每轮 2+ 请求、O(窗口) 传输）——
+   * （每批 50 条，F20261020wcsr 起），窗口 >200 时每轮审计都会进循环（每轮 2+ 请求、O(窗口) 传输）——
    * 这是 after=oldest 设计的已知取舍（F20260921 末位游标低位缺口风险不可回退）。
    * in-flight 游标语义：tmp-/err- 乐观条目按 id 前缀排除、不作游标，但游标本身可以是
    * in-flight 状态的真实条目（如活跃獭正在流式的 speak 是窗口最旧真实条目时）——无 correctness
@@ -479,7 +479,9 @@ export default function ConversationPage() {
     loadingMoreRef.current = true
     setLoadingMore(true)
     try {
-      const resp = await api.listEntries(activeId, 20, oldest.id)
+      // F20261020wcsr：每批 20→50 条（与 Telegram 一致：ChatActivity.java loadMessages 50 条/批；
+      // 50 条 ≈ 2-3 屏，兼顾请求数与 prepend 高度稳定性）
+      const resp = await api.listEntries(activeId, 50, oldest.id)
       if (resp.entries.length === 0) { setHasMoreBefore(false); return }
       const olderMsgs = resp.entries.map(mapEntryDTO) // ASC
       setHasMoreBefore(resp.hasMore)
