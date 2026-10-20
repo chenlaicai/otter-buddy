@@ -1111,10 +1111,17 @@ export class AgentTurnOrchestrator {
     const endOtter = await callbacks.getOtterById(otterId);
     callbacks.emitInvokeEnd(invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId, endBody, otterName: endOtter?.name, otterType: endOtter?.type, otterColor: endOtter?.color ?? null });
 
-    this.safeEmitEvent(callbacks, {
-      event: 'error',
-      data: { message: errorMessage, invokeId, otterId },
-    });
+    // F20261020ided：error 事件仅在 invoke_end 落账失败时作兜底发射——正常路径下
+    // invoke_end 居中条已承载错误文案（实时/历史同源同文案），error 事件再发会让
+    // 前端「error 处理器」额外造一条 otter 气泡（DB 无对应 entry，刷新后气泡消失，
+    // 表现为「实时渲染与历史渲染不一致」）。invokeEndEntryId 存在 = 错误已被 invoke_end
+    // 完整承载，跳过 error 事件；落账失败才发 error 保证用户可见。
+    if (!invokeEndEntryId) {
+      this.safeEmitEvent(callbacks, {
+        event: 'error',
+        data: { message: errorMessage, invokeId, otterId },
+      });
+    }
 
     return { invokeId, duration: Date.now() - startTime };
   }
