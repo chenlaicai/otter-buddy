@@ -104,7 +104,7 @@ describe("classifyGuardInterceptReason · 真实文案回归（探针 = 守卫�
   it("sleep_block：sleep 干净文案（发射点已剥前缀形态）", () => {
     // sleep 拦截走独立判定入口（checkSleepGuard），其 reason 前缀在发射点被剥。
     // 此处直接用其干净文案特征构造（含特征片段的合法形态），锁定指纹有效性。
-    const cleanSleepReason = "检测到你使用了 sleep 等待（约 30 秒）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么、为什么要等这么久，然后改用 wait 工具（wait 的 seconds/reason/until 参数支持等待+理由自证+可选的苏醒检查命令）。";
+    const cleanSleepReason = "检测到你使用了 sleep 等待（约 30 秒）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么、为什么要等这么久，然后改用 wait 工具（wait 的 seconds/reason/until 参数支持等待+理由自证+可选的苏醒检查命令）。等服务启动的示范：wait 的 seconds 填 20、reason 写「等 dev server 起监听」、until 填 curl -sf localhost:3001/——until 是醒后自动执行的单命令探活（值不带引号/管道，禁元字符；未就绪是正常返回，可再补一轮），全程对搭档可见可解释。";
     expect(classifyGuardInterceptReason(cleanSleepReason)).toMatchObject({ ruleId: "sleep_block", layer: "habit" });
   });
 

@@ -108,7 +108,7 @@ export class DispatchChainEngine {
       healingRepo?: HealingEventRepository;
       /** F20260913ctlv 彻底切换：entries/invoke 仓库（未读注入 + hop 产出判定数据源）。
        *  未注入时（旧装配/测试桩）降级读 messages——生产装配必注入。 */
-      entryRepo?: { getUnreadEntries(conversationId: string, otterId: string): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null; createdAt?: string | null; attachments?: Array<{ kind: string; originalName: string }> }>>; getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null }>> };
+      entryRepo?: { getUnreadEntries(conversationId: string, otterId: string): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null; createdAt?: string | null; attachments?: Array<{ kind: string; originalName: string }> }>>; getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null }>>; getEntryById?(id: string): Promise<{ id: string; createdAt?: string | null } | null> };
       invokeRepo?: { getInvokeById(invokeId: string): Promise<{ id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null> };
       /** F20260920trrt：闲置预警新口径（seq 差 + 时间护栏）读时聚合接口。
        *  SQLite 实现已提供；测试桩可部分 mock（可选方法，未注入时预警降级为 null）。 */
@@ -234,7 +234,10 @@ export class DispatchChainEngine {
       depth++;
       const result = await this.executeOneHop({
         conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder,
-        triggerMessageId: depth === 1 ? triggerMessageId : undefined,
+        // F20261019rpay（#1553）：triggerMessageId 透传所有 hop（原先仅首 hop）——后续 hop 反复以
+        // 同一 messageId 点火时，buildMessageWithContext 靠它识别已消费旧消息的重放并打「历史」标记；
+        // executeOneHop 内 excludeIds.add(triggerMessageId) 同步保证 hop≥2 不双份。
+        triggerMessageId,
         ledgerSource,
         chainSourceMessageIds,
         steerText: pendingSteerText, // #530 注入上一 hop 的 steer 文案
@@ -912,8 +915,15 @@ export class DispatchChainEngine {
       { senderName: triggerSenderName }, senderId, senderId, partnerLabel, staticResolver,
     );
 
+    // F20261019rpay（#1553）：触发消息时间戳 + 重放标记。触发消息若为已消费旧消息的重放（不在本轮
+    // 未读批、却是真实 entry），必须带「历史」标记并用其真实 createdAt，而非本轮时刻 fmtTime()——
+    // 否则 30 分钟前的旧话会被 LLM 当「刚发的新消息」当新指令处理（#1553，与 #1431 同型）。
+    // 非 entry 触发（retry/resume 传 invokeId，getEntryById 为 null）保持原新鲜呈现。
+    const { createdAt: triggerCreatedAt, isReplay: triggerIsReplay } = await this.resolveTriggerPresentation(unreadAll, triggerMessageId);
+    const triggerTimeStr = triggerIsReplay ? `历史 · ${fmtTime(triggerCreatedAt)}` : fmtTime(triggerCreatedAt);
+
     if (filtered.length === 0) {
-      const result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${historyNote}\n[${triggerLabel}]（${fmtTime()}）${userMessageContent}${idleWarning ? `\n\n${idleWarning}` : ''}`;
+      const result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${historyNote}\n[${triggerLabel}]（${triggerTimeStr}）${userMessageContent}${idleWarning ? `\n\n${idleWarning}` : ''}`;
       return { message: result, batchMaxSeq };
     }
     const names = await this.resolveSenderNames(filtered);
@@ -931,8 +941,25 @@ export class DispatchChainEngine {
 
     // F20260928wxid（检视建议 2）：触发消息带发送者标签（triggerLabel 已在前置段计算）——
     // 原本读批剔除后裸文追加，一问一答流（窗口唯一消息即触发消息）称呼不进海獭视野
-    const result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${historyNote}\n${formatted}\n\n[${triggerLabel}]（${fmtTime()}）${userMessageContent}${idleWarning ? `\n\n${idleWarning}` : ''}`;
+    const result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${historyNote}\n${formatted}\n\n[${triggerLabel}]（${triggerTimeStr}）${userMessageContent}${idleWarning ? `\n\n${idleWarning}` : ''}`;
     return { message: result, batchMaxSeq };
+  }
+
+  /** F20261019rpay（#1553）：触发消息「新鲜 vs 重放」判定 + 真实 createdAt。
+   *  重放 = 真实 entry 但不在本轮未读批（已被消费、派发链后续 hop 重复以同一 messageId 点火）。
+   *  双信号判定（unreadAll 命中 + getEntryById），非时间阈值启发式。 */
+  private async resolveTriggerPresentation(
+    unreadAll: Array<{ id: string; createdAt?: string | null }>,
+    triggerMessageId?: string,
+  ): Promise<{ createdAt: string | null; isReplay: boolean }> {
+    if (!triggerMessageId) return { createdAt: null, isReplay: false };
+    const inUnread = unreadAll.find(m => m.id === triggerMessageId);
+    if (inUnread) return { createdAt: inUnread.createdAt ?? null, isReplay: false };
+    if (this.deps.entryRepo?.getEntryById) {
+      const entry = await this.deps.entryRepo.getEntryById(triggerMessageId);
+      if (entry) return { createdAt: entry.createdAt ?? null, isReplay: true };
+    }
+    return { createdAt: null, isReplay: false };
   }
 
   /** buildPendingPreview 已退役（F20260908rlcp：台账退役后数据源不存在） */

@@ -26,7 +26,7 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
-import { buildSandboxProfile, isSandboxEnabled, createSandboxSpawnHook, createSandboxedTools } from "@frameworks/agent/bash-sandbox";
+import { buildSandboxProfile, isSandboxEnabled, probeSandboxAvailability, createSandboxSpawnHook, createSandboxedTools } from "@frameworks/agent/bash-sandbox";
 
 describe("bash-sandbox", () => {
   afterEach(() => {
@@ -143,17 +143,69 @@ describe("bash-sandbox", () => {
   });
 
   describe("createSandboxedTools", () => {
-    it("应返回 7 个工具（read/write/edit/bash/grep/find/ls）", () => {
-      const tools = createSandboxedTools("/tmp", "/Users/orca/ai/otter-buddy", "/Users/orca/ai/otter-buddy/data");
+    it("应返回 7 个工具 + sandboxGuarded 挂载决策（F20261016gsbx R-2b）", () => {
+      const { tools, sandboxGuarded } = createSandboxedTools("/tmp", "/Users/orca/ai/otter-buddy", "/Users/orca/ai/otter-buddy/data");
       expect(Object.keys(tools).sort()).toEqual(["bash", "edit", "find", "grep", "ls", "read", "write"]);
+      // 挂载决策与 spawnHook 同一次探测产出——消费方（守卫退役开关）用本值禁止另行探测
+      expect(sandboxGuarded).toBe(true);
     });
 
-    it("非 macOS 时 bash 无沙箱包裹", async () => {
+    it("非 macOS 时 bash 无沙箱包裹，sandboxGuarded=false（写面回位，降级不降安全）", async () => {
       vi.mocked(platform).mockReturnValue("linux");
       const { createSandboxedTools: createTools } = await import("@frameworks/agent/bash-sandbox");
-      const tools = createTools("/tmp", "/Users/orca/ai/otter-buddy", "/Users/orca/ai/otter-buddy/data");
+      const { tools, sandboxGuarded } = createTools("/tmp", "/Users/orca/ai/otter-buddy", "/Users/orca/ai/otter-buddy/data");
       expect(tools.bash).toBeDefined();
+      expect(sandboxGuarded).toBe(false);
       vi.mocked(platform).mockReturnValue("darwin");
+    });
+  });
+
+  describe("probeSandboxAvailability（2a 可用性探测，R-2b 同源）", () => {
+    it("macOS 默认可用", () => {
+      vi.stubEnv("OTTER_BASH_SANDBOX", "");
+      expect(probeSandboxAvailability("/Users/orca/ai/otter-buddy", "/Users/orca/ai/otter-buddy/data")).toBe(true);
+    });
+
+    it("OTTER_BASH_SANDBOX=off → 不可用", () => {
+      vi.stubEnv("OTTER_BASH_SANDBOX", "off");
+      expect(probeSandboxAvailability("/Users/orca/ai/otter-buddy", "/Users/orca/ai/otter-buddy/data")).toBe(false);
+    });
+
+    it("非 macOS → 不可用", async () => {
+      vi.mocked(platform).mockReturnValue("linux");
+      const { probeSandboxAvailability: probe } = await import("@frameworks/agent/bash-sandbox");
+      expect(probe("/Users/orca/ai/otter-buddy", "/Users/orca/ai/otter-buddy/data")).toBe(false);
+      vi.mocked(platform).mockReturnValue("darwin");
+    });
+  });
+
+  describe("R-2 失败引导文案（包裹层）", () => {
+    function wrap(cmd: string): string {
+      const hook = createSandboxSpawnHook("/Users/orca/ai/otter-buddy", "/Users/orca/ai/otter-buddy/data");
+      return hook({ command: cmd, cwd: "/tmp", env: {} }).command;
+    }
+
+    it("包裹文案含失败引导（仅失败分支输出——成功零噪音）", () => {
+      const wrapped = wrap("echo hi");
+      expect(wrapped).toContain("[bash-sandbox]");
+      expect(wrapped).toContain("Operation not permitted");
+      expect(wrapped).toContain("worktree");
+      // R-2b：exit 65 附条件措辞（不单凭 65 判定沙箱失效）
+      expect(wrapped).toContain("diff(1)");
+    });
+
+    it.skipIf(process.platform !== "darwin")("集成：拒写 stderr 含 worktree 引导（真执行）", () => {
+      // SBPL (with message) 实测不达 stderr——引导只能在包裹层出（scratch-sbx-msg 实验归档）
+      const wrapped = wrap(`echo x > /Users/orca/ai/otter-buddy/.sandbox-smoke-probe`);
+      let stderr = "";
+      try {
+        execSync(wrapped, { encoding: "utf-8", timeout: 10000 });
+      } catch (e) {
+        stderr = String((e as { stderr?: string }).stderr ?? "");
+      }
+      expect(stderr).toContain("Operation not permitted");
+      expect(stderr).toContain("[bash-sandbox]");
+      expect(stderr).toContain("worktree");
     });
   });
 

@@ -17,8 +17,9 @@ import fs from "fs";
 import path from "path";
 import type { Logger } from "@usecases/ports/logger";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs, type AllowedService } from "./allowed-service-ports";
-import { shouldSanitizeForScan, sanitizeQuotedText, stripHeredocPayloads, extractHeredocSpans } from "./quoted-text-sanitizer";
+import { shouldSanitizeForScan, sanitizeQuotedText, stripQuotedTextSpans, stripHeredocPayloads, extractHeredocSpans } from "./quoted-text-sanitizer";
 import { findKillSegments, isKillAtCommandPosition } from "./kill-segment-finder";
+import { INDIRECT_KILL_BLOCK_MSG, PKILL_BYNAME_BLOCK_MSG } from "./kill-block-messages";
 
 /** F20260928slan：sleep 命令位置判定——复用 kill-segment-finder 的位置感知
  * （isKillAtCommandPosition 对任意 pattern 通用，sleep 词元复用同一套位置白名单） */
@@ -26,7 +27,7 @@ const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillA
 import { checkWithModel, modelParseOk } from "./guard-model-judge";
 import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
-import { extractGitAliasShell, gitWriteSubcommandHit } from "./payload-extract-aux";
+import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
@@ -41,6 +42,8 @@ interface GuardCwdCtx {
   projectRoot?: string;
   /** session 工作目录（invoke 时的对话工作区）——落点判定的 cwd 语义基准 */
   sessionCwd?: string;
+  /** F20261016gsbx 二期 2b：沙箱接防时="file-write"——main_write 文件写族退役（G3 枚举表） */
+  writeChannelSkip?: "file-write";
 }
 
 /** 守卫放行判定输入（#844）：projectRoot 用于定位白名单文件 */
@@ -50,6 +53,10 @@ export interface GuardOptions {
    *  统一工作区后獭 bash cwd=工作区，data 破坏/主仓写判定的相对路径解析基准
    *  必须从 projectRoot（恒=主仓）换成本值，否则未 cd 的工作区命令被误拦。 */
   sessionCwd?: string;
+  /** F20261016gsbx 二期 2a/2b：沙箱 spawnHook 真实挂载决策（session 创建点绑定，R-2b）——
+   *  true 时守卫 main_write 文件写族退役（沙箱 deny file-write* 物理接防）；
+   *  不可用/未绑定（readOnly 合成会话）→ 写面回位（降级不降安全）。 */
+  sandboxGuarded?: boolean;
 }
 
 /** 读取主进程 PID 文件，返回 PID 或 null。每次调用都读文件（不缓存）。 */
@@ -346,13 +353,13 @@ function checkKillSegment(ctx: KillSegmentCtx): string | null {
   if (isPkill) {
     if (pkillTargetsOtter(segment) || pkillTargetsOtter(outerContext)) {
       logger?.warn("[bash-safety-guard] BLOCKED pkill/killall targeting otter processes", { mainPid, segment: segment.substring(0, 200) });
-      return "bash 命令包含按名匹配的批量终止命令（pkill/killall），可能影响主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。";
+      return PKILL_BYNAME_BLOCK_MSG;
     }
     return null;
   }
   if (hasIndirectPidTarget(pidTextA, pipeSourced) || hasIndirectPidTarget(pidTextB, pipeSourced)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill with indirect PID target", { mainPid, segment: segment.substring(0, 200) });
-    return "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop（alpha 实例的标准清理方式，勿用组合杀）；若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+    return INDIRECT_KILL_BLOCK_MSG;
   }
   if (PID_FILE_REFERENCE.test(segment)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill referencing .otter-buddy.pid file", { mainPid, segment: segment.substring(0, 200) });
@@ -1194,13 +1201,14 @@ const SUBSHELL_GIT_WRITE_GATE = /[({][^)}]*\bgit\s+(?:commit(?!-tree)|rebase|mer
 function judgeShellCSegment(
   seg: string,
   offset: number,
-  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; oneLinerReadOnly: boolean; depth: number },
+  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; oneLinerReadOnly: boolean; depth: number; writeChannelSkip?: "file-write" },
 ): boolean {
   const ex = extractShellCPayload(seg, offset);
   if (ex.kind === "FILE") return false; // bash script.sh——写面在脚本文件自身，不在本层
-  if (ex.kind === "FAIL_CLOSED") return true; // -c 存在但旗标形态白名单外/未闭合 → fail-closed
-  // 递归：载荷作为独立命令重走主仓写判定（基座对齐——同一 checkMainCheckoutWrite）
-  const payloadHit = checkMainCheckoutWrite({ command: ex.payload, logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, depth: ctx.depth - 1 }) !== null;
+  if (ex.kind === "FAIL_CLOSED") return true; // -c 存在但旗标形态白名单外/未闭合 → fail-closed（G3 缺表不退役）
+  // 递归：载荷作为独立命令重走主仓写判定（基座对齐——同一 checkMainCheckoutWrite，
+  //  F20261016gsbx writeChannelSkip 随递归透传）
+  const payloadHit = checkMainCheckoutWrite({ command: ex.payload, logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, depth: ctx.depth - 1, writeChannelSkip: ctx.writeChannelSkip }) !== null;
   if (payloadHit) return true;
   // F20261006gfvl 合并修（原 #1315）：载荷内 rm/mv/find -delete 主仓 data 破坏感知——
   // 复用 checkDataDirDestructive 完整通道（含 cd 跟踪循环），不逐段独立 segmentDestructive。
@@ -1231,7 +1239,7 @@ function judgeShellCSegment(
 // eslint-disable-next-line max-statements -- F20261016grdl 1a'-B/E：onelinerPathsOutsideMain 豁免 +1 语句（落点感知豁免挂段级）；语句数 26=判定分支逐形态对应，合并会牺牲「一形态一分支」可读性（同 :1056 先例）
 function judgeSegment(
   rawSeg: string,
-  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; oneLinerReadOnly: boolean; depth: number; skipGitWrite?: boolean; onelinerPathsOutsideMain?: boolean },
+  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; oneLinerReadOnly: boolean; depth: number; skipGitWrite?: boolean; onelinerPathsOutsideMain?: boolean; writeChannelSkip?: "file-write" },
 ): boolean {
   // #1285 r1 严重 1 连带：子壳包装剥壳（`(git commit)` / `{ git commit; }`）
   const seg = stripSubshellWrap(rawSeg);
@@ -1240,6 +1248,8 @@ function judgeSegment(
   const segHasOneLiner = ONELINER_PRE_GATE.test(seg);
   if (parsed === null) {
     // 解析失败（未闭合引号等）——段内含 one-liner/shell 特征才拦
+    // F20261016gsbx 2b：one-liner 文件写族随枚举表退役；shell -c 特征保持 fail-closed（缺表不退役）
+    if (ctx.writeChannelSkip === "file-write") return segHasShellC;
     return segHasOneLiner || segHasShellC;
   }
   const { head, offset, wrapped } = parsed;
@@ -1263,6 +1273,8 @@ function judgeSegment(
     // 结构通道是唯一拦截。
     // F20261016grdl 1a'-B：落点感知豁免——非只读载荷但全部绝对路径落主仓外
     //（或 cd 段锚定非主仓 cwd）时放行（例 6 实证：save('/tmp/x') 写动词 fail-closed 误拦）。
+    // F20261016gsbx 二期 2b：沙箱接防时 one-liner 文件写族随 G3 枚举表退役
+    if (ctx.writeChannelSkip === "file-write") return false;
     if (ctx.onelinerPathsOutsideMain) return false;
     return wrapped && segHasOneLiner && !ctx.oneLinerReadOnly;
   }
@@ -1317,6 +1329,8 @@ function judgeSegment(
   // fail-closed 收窄版：未知词 + 段内含 one-liner/shell-c 特征才拦——
   // `timeout 5 node -e 写` 是典型包装绕过；纯未知命令（make/gradle build）
   // 不含 one-liner 形态不拦（误拦面收口）。
+  // F20261016gsbx 2b：one-liner 特征随写面退役，shell -c 特征保持 fail-closed（缺表不退役）
+  if (ctx.writeChannelSkip === "file-write") return segHasShellC;
   return segHasOneLiner || segHasShellC;
 }
 
@@ -1329,7 +1343,7 @@ function judgeSegment(
 function checkSegmentStructuralWrite(
   command: string,
   oneLinerReadOnly: boolean,
-  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; depth: number; skipGitWrite?: boolean; onelinerPathsOutsideMain?: boolean },
+  ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; depth: number; skipGitWrite?: boolean; onelinerPathsOutsideMain?: boolean; writeChannelSkip?: "file-write" },
 ): boolean {
   const depth = ctx.depth;
   if (depth <= 0) return true; // 嵌套超深 → 保守拦（与 heredoc 体同先例）
@@ -1345,7 +1359,7 @@ function checkSegmentStructuralWrite(
   // 求值器 evalCdTarget 读赋值链（同基座），本通道保守跳过会把求值器已 ALLOW 的
   // 放行面拦下（`W=<wt>; cd \$W && git push` 整链 BLOCK 的双判据复现）。
   const assignVars = new Map<string, string>();
-  const jctx = { logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnly, depth, skipGitWrite: ctx.skipGitWrite, onelinerPathsOutsideMain: ctx.onelinerPathsOutsideMain };
+  const jctx = { logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnly, depth, skipGitWrite: ctx.skipGitWrite, onelinerPathsOutsideMain: ctx.onelinerPathsOutsideMain, writeChannelSkip: ctx.writeChannelSkip };
   for (const seg of splitShellSegments(command)) {
     const pureAssign = /^([A-Za-z_]\w*)=(\S+)$/.exec(seg.trim());
     if (pureAssign) { assignVars.set(pureAssign[1], pureAssign[2]); continue; }
@@ -1867,6 +1881,8 @@ interface MainCheckoutWriteCtx {
   oneLinerReadOnlyOverride?: boolean;
   /** 洞1 bash -c 递归深度（默认 3，嵌套超深保守拦） */
   depth?: number;
+  /** F20261016gsbx 二期 2b：="file-write" 时 main_write 文件写族退役（沙箱接防） */
+  writeChannelSkip?: "file-write";
 }
 
 /** F20261019gses P0 路由切换后的主仓写判定（见下方 checkMainCheckoutWrite 本体）。 */
@@ -1970,21 +1986,26 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // （包装词/子壳/管道喂 shell 的段首结构——sudo env python -c 写、timeout 5 node -e
   // 写的逃生面收口）与 heredoc 体感知（python/node 体白名单——kill/os.remove
   // 非重叠危险面）。
-  const verdict = evaluateWriteVerdict(command, projectRoot, sessionCwd ?? projectRoot);
-  if (verdict.verdict === "BLOCK") {
-    logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (write-verdict)", {
-      command: command.substring(0, 200),
-      mode: verdict.mode,
-      reason: verdict.mode === "fail-closed" ? verdict.reason : undefined,
-      targets: "mainHits" in verdict ? verdict.mainHits?.slice(0, 5).map(t => `${t.access}:${t.path}`) : undefined,
-    });
-    return rewriteMainWriteBlockMsg(sessionCwd, verdict);
+  // F20261016gsbx 二期 2b：沙箱接防时 main_write 文件写族退役（G3 枚举表门控）——
+  // 求值器（文件写落点语义）与 heredoc 写面负门让位于沙箱 deny file-write* 物理接防；
+  // 保留面（段结构 fail-closed/git 写族/data 破坏族/2c 窄规则）照跑；沙箱不可用=写面回位。
+  if (ctx.writeChannelSkip !== "file-write") {
+    const verdict = evaluateWriteVerdict(command, projectRoot, sessionCwd ?? projectRoot);
+    if (verdict.verdict === "BLOCK") {
+      logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (write-verdict)", {
+        command: command.substring(0, 200),
+        mode: verdict.mode,
+        reason: verdict.mode === "fail-closed" ? verdict.reason : undefined,
+        targets: "mainHits" in verdict ? verdict.mainHits?.slice(0, 5).map(t => `${t.access}:${t.path}`) : undefined,
+      });
+      return rewriteMainWriteBlockMsg(sessionCwd, verdict);
+    }
+    // 负门后置兜底（只加拦不放行，cd/无 cd 同语义——裁决原则②）：求值器 ALLOW 后
+    // 兜 heredoc 体绝对路径/动态源写主仓（wrapper/管道段 heredoc 载荷不入求值的 Y 类
+    // 残余——求值器 payload 附件根治面立 B issue 继续）；体只读/无负门面 → null 继续。
+    const veto = heredocWriteVeto(command, logger, { projectRoot, sessionCwd });
+    if (veto) return veto;
   }
-  // 负门后置兜底（只加拦不放行，cd/无 cd 同语义——裁决原则②）：求值器 ALLOW 后
-  // 兜 heredoc 体绝对路径/动态源写主仓（wrapper/管道段 heredoc 载荷不入求值的 Y 类
-  // 残余——求值器 payload 附件根治面立 B issue 继续）；体只读/无负门面 → null 继续。
-  const veto = heredocWriteVeto(command, logger, { projectRoot, sessionCwd });
-  if (veto) return veto;
   // 互补面后置：段首结构判定（包装词/子壳/管道——求值器无此基座，旧通道保留）。
   // 只读豁免保留（oneLinerPayloadReadOnly + wrappedOneLinerPayloadsReadOnly 双基座）——
   // 结构通道的拦截面是「包装形态下的 one-liner 写」，载荷只读仍是豁免面（求值器
@@ -1999,7 +2020,7 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   const GIT_WORKTREE_PREFIX = ".otter/worktrees";
   const cwdInGitWorktree = sessionCwd !== undefined && path.isAbsolute(sessionCwd)
     && (path.normalize(sessionCwd) + path.sep).startsWith(path.normalize(path.join(projectRoot, GIT_WORKTREE_PREFIX)) + path.sep);
-  if (checkSegmentStructuralWrite(blankDataHeredocBodies(command), oneLinerReadOnly, { logger, projectRoot, sessionCwd, depth, skipGitWrite: cwdInGitWorktree })) {
+  if (checkSegmentStructuralWrite(blankDataHeredocBodies(command), oneLinerReadOnly, { logger, projectRoot, sessionCwd, depth, skipGitWrite: cwdInGitWorktree, writeChannelSkip: ctx.writeChannelSkip })) {
     logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via wrapped one-liner (no cd)", { command: command.substring(0, 200) });
     return rewriteMainWriteBlockMsg(sessionCwd);
   }
@@ -2032,6 +2053,8 @@ interface HeredocJudgeCtx {
   projectRoot?: string;
   /** F20261014cwsp：session 工作目录（透传供壳体递归 V1 链的 cwd 感知判定） */
   sessionCwd?: string;
+  /** F20261016gsbx 二期 2b：写面退役标记透传（壳体递归 V1 链的写判定） */
+  writeChannelSkip?: "file-write";
 }
 
 /** shell 体分支：递归体级判定（限深）+ V1 全量链；命中返回拦截文案 */
@@ -2040,7 +2063,7 @@ function judgeShellHeredocBody(sp: { header: string; body: string }, ctx: Heredo
     return `${SHELL_HEREDOC_BODY_MSG}\n【体内命中】shell 体嵌套超过判定深度上限（保守拦）`;
   }
   const inner = checkHeredocScriptBodies(sp.body, ctx, depth - 1);
-  const r = inner ?? checkBashCommandSafetyOnText(sp.body, ctx.mainPid, ctx.logger, ctx.allowedServices, { projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd });
+  const r = inner ?? checkBashCommandSafetyOnText(sp.body, ctx.mainPid, ctx.logger, ctx.allowedServices, { projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, writeChannelSkip: ctx.writeChannelSkip });
   if (r) {
     ctx.logger?.warn("[bash-safety-guard] BLOCKED dangerous op in shell heredoc body", { header: sp.header.substring(0, 80) });
     return `${SHELL_HEREDOC_BODY_MSG}\n【体内命中】${r.split("\n")[0]}`;
@@ -2081,16 +2104,260 @@ function checkHeredocScriptBodies(command: string, ctx: HeredocJudgeCtx, depth =
   return null;
 }
 
+// ──────────── F20261016gsbx 二期 2c：保留面窄规则（R1 直推 + .git 直写 + S5 网络外发）────────────
+// 与写面退役无关（沙箱对网络/gitDir 全放），双路径恒跑；自带拦截消息（判定说真话，
+// 不借道写面文案）。走查复用写面同款原语（切段/落点解析/shell -c 载荷递归/尾段重判），
+// argv 落点判定——引号内提及（echo 'git push origin main'）不误拦。
+// 声明边界：one-liner（node -e 等）载荷内嵌套 shell 字符串不追（#1513 间接构造同界）；
+// 词包装首词不在落点解析器（xargs curl）不追；数据 heredoc 体是数据不是操作。
+
+/** 受保护分支集（R1：main/develop/生产分支禁止直推）；命中即拦，不分 cwd。 */
+const PROTECTED_PUSH_BRANCHES = new Set(["main", "master", "develop", "production", "prod"]);
+
+const PROTECTED_PUSH_BLOCK_MSG = "git push 目标含受保护分支、动态 refspec 或 --all/--mirror 不可枚举多引用形态——R1 红线：禁止直推受保护分支，请走 feature 分支 + PR（git push -u origin feature/xxx 字面 refspec）；确需批量/镜像推送请呈搭档确认后人工执行。";
+
+/** S5 网络外发白名单（合法 POST 目标）：项目自身 MCP 端点 + 回环；扩展=改本常量走 PR。 */
+const NETWORK_EXFIL_WHITELIST = ["huawei-colink.com", "localhost", "127.0.0.1", "::1"];
+
+const NETWORK_EXFIL_BLOCK_MSG = "检测到向非白名单目标 POST/PUT 上传数据（S5 密钥外发面预判）。合法外发目标请登记 NETWORK_EXFIL_WHITELIST（含项目 MCP 端点 huawei-colink.com/回环）或改用 MCP/项目工具通道；确需临时外发请呈搭档确认后人工执行。";
+
+/** 2c 窄规则通用走查：命令文本 → 原子（段/壳内/shell -c 载荷/命令替换），逐原子 probe。
+ *  probe 返回消息 = 命中；depth 限递归（与写面递归同保守面）。 */
+function narrowRuleWalk(command: string, depth: number, probe: (segText: string) => string | null): string | null {
+  if (depth <= 0) return null;
+  for (const rawSeg of splitShellSegments(blankDataHeredocBodies(command))) {
+    const hit = narrowWalkAtom(stripSubshellWrap(rawSeg), depth, probe);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** shell -c 形态落点定位（段首解析器 + 包装词定位，与写面 ③d 同口径）。 */
+function locateShellCOffset(seg: string): number {
+  const parsed = parseSegmentHead(seg);
+  if (parsed !== null && SHELL_INTERP_NAMES.has(parsed.head.replace(/\d+$/, ""))) return parsed.offset;
+  const m = /\b((?:[\w./-]*\/)?(?:bash|sh|zsh|dash|ksh)\d*)\s+-c\s/i.exec(seg);
+  return m && m.index !== undefined ? m.index : -1;
+}
+
+/** 单原子（段）走查：probe → shell -c 载荷/尾段递归 → 命令替换递归。 */
+function narrowWalkAtom(seg: string, depth: number, probe: (segText: string) => string | null): string | null {
+  const hit = probe(seg);
+  if (hit) return hit;
+  const shellOffset = locateShellCOffset(seg);
+  if (shellOffset >= 0) {
+    const ex = extractShellCPayload(seg, shellOffset);
+    if (ex.kind !== "FILE" && ex.kind !== "FAIL_CLOSED") {
+      const inner = narrowRuleWalk(ex.payload, depth - 1, probe);
+      if (inner) return inner;
+      const tail = seg.slice(ex.consumedEnd).trim();
+      return tail ? narrowRuleWalk(tail, depth - 1, probe) : null;
+    }
+  }
+  // 命令替换递归（`X=$(curl -X POST …)`——$()/反引号内是执行面）
+  for (const m of seg.matchAll(/\$\(([^()]*)\)|`([^`]+)`/g)) {
+    const sub = narrowRuleWalk(m[1] ?? m[2] ?? "", depth - 1, probe);
+    if (sub) return sub;
+  }
+  return null;
+}
+
+/** git 旗标/取值旗标消费 → 子命令位（与 payload-extract-aux.gitWriteSubcommandHit 同语义）。 */
+function gitSubcommandIndex(words: { evaluated: string | null }[]): number {
+  let i = 1;
+  while (i < words.length) {
+    const w = words[i].evaluated;
+    if (w === null) return -1; // 动态词位——间接构造不追（#1513 同界）
+    if (GIT_VALUE_FLAGS.has(w)) {
+      const nxt = words[i + 1]?.evaluated ?? null;
+      i += words[i + 1] !== undefined && !(nxt ?? "").startsWith("-") ? 2 : 1;
+      continue;
+    }
+    if (w.startsWith("-")) { i++; continue; }
+    return i;
+  }
+  return -1;
+}
+
+/** refspec 是否指向受保护分支（dst 侧；无冒号=同名 dst）。 */
+function refspecHitsProtectedBranch(refspec: string): boolean {
+  const rs = refspec.startsWith("+") ? refspec.slice(1) : refspec;
+  const colon = rs.indexOf(":");
+  const dst = colon >= 0 ? rs.slice(colon + 1) : rs;
+  if (dst === "") return false;
+  const name = dst.replace(/^refs\/heads\//, "");
+  return PROTECTED_PUSH_BRANCHES.has(name.toLowerCase());
+}
+
+/** R1 窄规则探针：git push 直推受保护分支（词级 refspec 判定）。
+ *  静态命中受保护 refspec → 拦；refspec 位动态词 → fail-closed（R1 红线不盲跑）；
+ *  bare push（无 refspec）不动（保留面语义——feature 分支推送是合法正道）。 */
+function protectedPushHit(segText: string): string | null {
+  const parsed = parseSegmentHead(segText);
+  if (parsed === null || parsed.head !== "git") return null;
+  const gseg = parseOnce(segText.slice(parsed.offset), 1).segments[0] ?? null;
+  if (gseg === null || gseg.argv0 !== "git") return null;
+  const words = gseg.words;
+  const subIdx = gitSubcommandIndex(words);
+  if (subIdx < 0 || words[subIdx]?.evaluated !== "push") return null;
+  // 既有语义继承（r2-C）：--dry-run/-n 不产生写效果——与 isWriteVerbAt 同口径（只看紧邻词）
+  const nextAfterPush = words[subIdx + 1]?.evaluated ?? null;
+  if (nextAfterPush === "--dry-run" || nextAfterPush === "-n") return null;
+  let sawRemote = false;
+  for (let i = subIdx + 1; i < words.length; i++) {
+    const w = words[i].evaluated;
+    if (w === null) {
+      if (sawRemote) return PROTECTED_PUSH_BLOCK_MSG; // refspec 位动态——目标不可校验，fail-closed
+      continue; // remote 位动态可容忍（remote 名不等于目标分支）
+    }
+    // 审视严重2（delta 1）：--all/--mirror 引用集不可枚举（--all 会把 main 一并推上
+    // origin=直推；--mirror 含 refs/heads/*）——与动态 refspec 同款 fail-closed。
+    // --delete 不在此列：冻结双签口径「git push --delete（远端目标）非写」（corpus 条目
+    // 6c93a372/61d75232 等钉 worktree→ALLOW），受保护 refspec/动态组合已被下文覆盖。
+    if (w === "--all" || w === "--mirror") return PROTECTED_PUSH_BLOCK_MSG;
+    if (w === "-o" || w === "--push-option") { i++; continue; } // 取值旗标吞值
+    if (w.startsWith("-")) continue;
+    if (!sawRemote) { sawRemote = true; continue; } // 首个非旗标词=remote
+    if (refspecHitsProtectedBranch(w)) return PROTECTED_PUSH_BLOCK_MSG;
+  }
+  return null;
+}
+
+/** .git 目录/文件路径段判定（任何仓根的 .git——主仓/worktree 共享 gitDir，路径段比 root 锚定多盖伪相对路径）。 */
+function gitDirPathHit(p: string): boolean {
+  return /(^|\/)\.git(\/|$)/.test(p);
+}
+
+const GIT_DIR_WRITE_BLOCK_MSG = "落点为 .git 内文件的写操作恒拦（git 元数据直写=HEAD/config/refs 操纵面；不经 git 命令的 .git 文件写与 git 写族同辖，沙箱 .git 白名单不构成许可）。请改用 git 命令操作仓库；确需动 .git 元数据请呈搭档确认。";
+
+/** 写 API 实参正则（open/writeFileSync 等，抽取实参路径供 gitDirPathHit 判）。 */
+const WRITE_API_CALL = /(?:^|[^\w.])(?:with\s+)?(?:[A-Za-z_]\w*\s*=\s*)?(?:open|writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|File\.(?:open|write|open3)|IO\.(?:write|binwrite))\s*\(\s*(['"])([^'"]+)\1/;
+
+/** 审视严重1探针（delta 1）：.git 落点写恒拦（双路径恒跑）——重定向落点（词级+剥引号裸文本双扫）
+ *  + tee 实参 + 译器载荷内写 API 实参（head 门控防 echo 引号提及误拦）。
+ *  边界：rm 等破坏形归 data 破坏族（含 corpus 3b399252 双签条件口径）；cp/dd 等间接写不追。 */
+function gitDirWriteHit(segText: string): string | null {
+  // ① 重定向落点：词级（引号精确）
+  const seg = parseOnce(segText, 2).segments[0] ?? null;
+  if (seg) {
+    for (let i = 0; i < seg.words.length - 1; i++) {
+      const w = seg.words[i].evaluated;
+      const nxt = seg.words[i + 1].evaluated;
+      if (w !== null && /^>{1,2}$|^\d+>{1,2}$/.test(w) && nxt !== null && gitDirPathHit(nxt)) return GIT_DIR_WRITE_BLOCK_MSG;
+    }
+  }
+  // ①b 粘连形态（hack>/x/.git/y）：剥引号文本正则扫（引号提及已剥，不误拦）
+  const stripped = stripQuotedTextSpans(segText);
+  for (const m of stripped.matchAll(/(?:^|[^>=-])>{1,2}\s*([^\s;|&]+)/g)) {
+    if (gitDirPathHit(m[1])) return GIT_DIR_WRITE_BLOCK_MSG;
+  }
+  // ② tee 实参（词级 evaluated）
+  const parsed = parseSegmentHead(segText);
+  if (parsed && parsed.head === "tee" && seg) {
+    for (const word of seg.words) {
+      if (word.evaluated !== null && gitDirPathHit(word.evaluated)) return GIT_DIR_WRITE_BLOCK_MSG;
+    }
+  }
+  // ③ 写 API 实参：译器头（python/node/ruby/perl -c 载荷）或裸语句形态（heredoc 体行）
+  const headIsInterp = parsed !== null && SCRIPT_RUNNERS.has(parsed.head.replace(/\d+$/, ""));
+  const stmtStart = /^\s*(?:with\s+)?(?:[A-Za-z_]\w*\s*=\s*)?(?:open|writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|File\.(?:open|write|open3)|IO\.(?:write|binwrite))\s*\(/.test(segText);
+  if (headIsInterp || stmtStart) {
+    for (const m of segText.matchAll(new RegExp(WRITE_API_CALL.source, "g"))) {
+      if (gitDirPathHit(m[2])) return GIT_DIR_WRITE_BLOCK_MSG;
+    }
+  }
+  return null;
+}
+
+/** 目的地址是否白名单（回环 + 项目 MCP 端点；子域同享）。 */
+function networkDestWhitelisted(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  return NETWORK_EXFIL_WHITELIST.some(w => h === w || h.endsWith("." + w));
+}
+
+/** curl/wget 上传动词判定（抽函数控 max-statements）：POST/PUT 上传族全形态。 */
+function uploadVerbHit(head: string, words: { evaluated: string | null }[]): boolean {
+  const isCurl = head === "curl";
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i].evaluated;
+    if (w === null) continue;
+    if (isCurl) {
+      if (w === "-X" || w === "--request") {
+        const v = (words[i + 1]?.evaluated ?? "").toUpperCase();
+        if (v === "POST" || v === "PUT") return true;
+      } else if (/^(?:-X|--request=)(?:POST|PUT)$/i.test(w)) {
+        return true;
+      } else if (w === "-d" || w === "-F" || w === "-T" || /^--(?:data|form|upload-file|json)/.test(w)) {
+        return true;
+      } else if ((/^-\w$/.test(w) && /[dFT]/.test(w.slice(1))) || /^-[dFT]\S/.test(w)) {
+        return true; // 短参簇/attached 值形（-sSd / -d@f / -Ff=@x）
+      }
+    } else {
+      if (/^--post-(?:data|file)/.test(w) || /^--method=(?:POST|PUT)$/i.test(w)) return true;
+      if (w === "--method") {
+        const v = (words[i + 1]?.evaluated ?? "").toUpperCase();
+        if (v === "POST" || v === "PUT") return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** S5 窄规则探针：POST/PUT 上传族 + 非白名单目的（密钥外发面预判）。
+ *  上传动词 + 无可静态校验的目的 → fail-closed；GET/下载面不动（窄规则）。 */
+function networkExfilHit(segText: string): string | null {
+  const parsed = parseSegmentHead(segText);
+  if (parsed === null || (parsed.head !== "curl" && parsed.head !== "wget")) return null;
+  const gseg = parseOnce(segText.slice(parsed.offset), 1).segments[0] ?? null;
+  if (gseg === null) return null;
+  const words = gseg.words;
+  if (!uploadVerbHit(parsed.head, words)) return null;
+  const hosts: string[] = [];
+  for (const word of words) {
+    const w = word.evaluated;
+    if (w === null) continue;
+    const um = /^https?:\/\/(?:[^@\s/]*@)?(\[[^\]]+\]|[^/:\s]+)(?::\d+)?/.exec(w.replace(/^--url=/, ""));
+    if (um) hosts.push(um[1]);
+  }
+  if (hosts.length === 0) return NETWORK_EXFIL_BLOCK_MSG; // 上传但目的不可静态校验——fail-closed
+  return hosts.every(networkDestWhitelisted) ? null : NETWORK_EXFIL_BLOCK_MSG;
+}
+
+/** 2c 窄规则唯一实现点（checkBashCommandSafety 入口 + checkPidIndependentRules 递归面共用）。 */
+function checkNarrowRules(command: string, logger?: Logger): string | null {
+  const push = narrowRuleWalk(command, 3, protectedPushHit);
+  if (push) {
+    logger?.warn("[bash-safety-guard] BLOCKED protected-branch push (R1 narrow)", { command: command.substring(0, 200) });
+    return push;
+  }
+  const gitDirWrite = narrowRuleWalk(command, 3, gitDirWriteHit);
+  if (gitDirWrite) {
+    logger?.warn("[bash-safety-guard] BLOCKED .git direct write (R1-adjacent narrow)", { command: command.substring(0, 200) });
+    return gitDirWrite;
+  }
+  const exfil = narrowRuleWalk(command, 3, networkExfilHit);
+  if (exfil) {
+    logger?.warn("[bash-safety-guard] BLOCKED network exfil upload (S5 narrow)", { command: command.substring(0, 200) });
+    return exfil;
+  }
+  return null;
+}
+
 /** F20260922pmgd：不依赖 mainPid 的独立规则合集（PR 合入 + data 破坏）——
  *  抽出供 checkBashCommandSafetyOnText 与 checkWhenMainPidMissing 共用（圈复杂度控制）。 */
 function checkPidIndependentRules(command: string, logger: Logger | undefined, ctx: GuardCwdCtx): string | null {
   const prMerge = checkPrMergeCommand(command, logger);
   if (prMerge) return prMerge;
+  // F20261016gsbx 二期 2c 保留面窄规则（R1 直推 + .git 直写 + S5 网络外发）——与写面退役
+  //  无关恒跑；自带消息（判定说真话）。实现单点 checkNarrowRules，此处为 OnText 递归面
+  // （heredoc/子壳体）的入口镜像（与既有规则族同放置模式）。
+  const narrow = checkNarrowRules(command, logger);
+  if (narrow) return narrow;
   const preGate = ONELINER_PRE_GATE.test(command);
   const oneLinerReadOnly = preGate
     ? oneLinerPayloadSet(command) !== null
     : false;
-  const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnlyOverride: oneLinerReadOnly });
+  const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnlyOverride: oneLinerReadOnly, writeChannelSkip: ctx.writeChannelSkip });
   if (mainWrite) return mainWrite;
   return checkDataDirDestructive(command, logger, ctx);
 }
@@ -2105,11 +2372,11 @@ function checkWhenMainPidMissing(
   if (scriptKill) return withDiagnostics(scriptKill, command, null);
   // F20260922pmgd / #1038：PR 合入与 data 破坏判定不依赖 mainPid（与 kill 族保守放行的
   // 差异：只需命令文本/projectRoot，无退化理由）
-  const pidFree = checkPidIndependentRules(command, logger, { projectRoot: guardOptions?.projectRoot, sessionCwd: guardOptions?.sessionCwd });
+  const pidFree = checkPidIndependentRules(command, logger, { projectRoot: guardOptions?.projectRoot, sessionCwd: guardOptions?.sessionCwd, writeChannelSkip: guardOptions?.sandboxGuarded ? "file-write" : undefined });
   if (pidFree) return withDiagnostics(pidFree, command, null);
   // #1207（F20260930l573）：heredoc 体级判定不依赖 PID（shell 体递归在 PID=0 下
   // 与 V1 主链同口径保守放行 kill，不引入额外缺口）
-  const bodyHit = checkHeredocScriptBodies(command, { mainPid: 0, logger, allowedServices: [], projectRoot: guardOptions?.projectRoot, sessionCwd: guardOptions?.sessionCwd });
+  const bodyHit = checkHeredocScriptBodies(command, { mainPid: 0, logger, allowedServices: [], projectRoot: guardOptions?.projectRoot, sessionCwd: guardOptions?.sessionCwd, writeChannelSkip: guardOptions?.sandboxGuarded ? "file-write" : undefined });
   return bodyHit ? withDiagnostics(bodyHit, command, null) : null;
 }
 
@@ -2135,12 +2402,20 @@ export function checkBashCommandSafety(
   guardOptions?: GuardOptions,
 ): string | null {
   if (!command.trim()) return null;
+  // F20261016gsbx 二期 2c：保留面窄规则（R1 直推/.git 直写 + S5 网络外发）在双链分派前
+  //  统一执行（唯一实现点 checkNarrowRules；V2 模型链不跑 checkPidIndependentRules，
+  //  V1 脱敏快路径会把引号载荷当数据——故在此入口处先判）。
+  const narrowHit = checkNarrowRules(command, logger);
+  if (narrowHit) return withDiagnostics(narrowHit, command, mainPid);
   if (mainPid === null) return checkWhenMainPidMissing(command, logger, guardOptions);
 
   // #844：白名单热加载（与 PID 文件同策略：每次判定重读，mtime 缓存去抖）
   const allowedServices = guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [];
   const projectRoot = guardOptions?.projectRoot;
   const sessionCwd = guardOptions?.sessionCwd;
+  // F20261016gsbx 二期 2b：沙箱接防位（GuardOptions.sandboxGuarded，session 创建点绑定）
+  //  → main_write 文件写族退役标记（唯一入口换算，全链透传）
+  const writeChannelSkip = guardOptions?.sandboxGuarded ? ("file-write" as const) : undefined;
 
   // F20260928grv2（guard-v2-redesign）：统一结构模型判定层——kill 族/管道到 shell/
   // U1 kill 0/U5 bash<file 由模型层承担（#1170 管道豁免误杀、#1171 文本误伤、
@@ -2177,10 +2452,10 @@ export function checkBashCommandSafety(
     // #1240 检视 r1：负门触发后内部直接调用 scriptHeredocBodiesReadOnlySegmentAware
     // 体感知拦（不经通道正则接力）；此传入值只服务非 cd 豁免形态（负门未触发面）——
     // python/node 双族段感知版替换 python-only 版，覆盖 node heredoc 同型失效。
-    const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot, sessionCwd, heredocReadOnly: scriptHeredocBodiesReadOnlySegmentAware(command) });
+    const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot, sessionCwd, heredocReadOnly: scriptHeredocBodiesReadOnlySegmentAware(command), writeChannelSkip });
     if (mainWrite) return withDiagnostics(mainWrite, command, mainPid);
     // #1207（F20260930l573）：shell/node heredoc 体级危险判定（原始命令，体在场）
-    const bodyHit = checkHeredocScriptBodies(command, { mainPid, logger, allowedServices, projectRoot, sessionCwd });
+    const bodyHit = checkHeredocScriptBodies(command, { mainPid, logger, allowedServices, projectRoot, sessionCwd, writeChannelSkip });
     if (bodyHit) return withDiagnostics(bodyHit, command, mainPid);
     return null;
   }
@@ -2195,13 +2470,13 @@ export function checkBashCommandSafety(
   const heredocStripped = stripHeredocPayloads(command);
 
   // #858：内嵌文本脱敏——脱敏后干净（纯数据操作）→ 放行；仍命中 → 继续原文本路径
-  const sanitizedResult = checkSanitizedPath(heredocStripped, mainPid, logger, allowedServices, { projectRoot, sessionCwd });
+  const sanitizedResult = checkSanitizedPath(heredocStripped, mainPid, logger, allowedServices, { projectRoot, sessionCwd, writeChannelSkip });
   if (sanitizedResult === null) return null;
 
   // F20260928slan：sleep 拦截标记（SLEEP_REASON_PREFIX）保留至发射点——circuit-breaker-helpers
   // 据此分流 `bash_sleep:` 前缀并自行剥离（此发射点是 bash_sleep: 唯一产源，D5a）。诊断文案用干净文案。
   const scan = (text: string): string | null => {
-    const r = checkBashCommandSafetyOnText(text, mainPid, logger, allowedServices, { projectRoot, sessionCwd });
+    const r = checkBashCommandSafetyOnText(text, mainPid, logger, allowedServices, { projectRoot, sessionCwd, writeChannelSkip });
     if (!r) return null;
     return r.startsWith(SLEEP_REASON_PREFIX)
       ? SLEEP_REASON_PREFIX + withDiagnostics(stripSleepMarkerIfPresent(r), text, mainPid)
@@ -2214,7 +2489,7 @@ export function checkBashCommandSafety(
   // 判读翻转不采纳——剥引号是归一化链自造形态（open('f','w') 剥成 open('f',w)，
   // 引号内 mode 变裸词→判读翻转 fail-closed），非原文真风险。归一化链只兜「剥引号
   // 出土新写词面」的真差异（差分集合逻辑）。
-  const ctxHere = { projectRoot, sessionCwd };
+  const ctxHere = { projectRoot, sessionCwd, writeChannelSkip };
   if (ctxHere.projectRoot !== undefined
       && evaluateWriteVerdict(command, ctxHere.projectRoot, ctxHere.sessionCwd ?? ctxHere.projectRoot).verdict === "ALLOW") {
     return null;

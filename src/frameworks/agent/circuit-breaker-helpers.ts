@@ -40,9 +40,9 @@ function appendDevServerGuidance(reason: string, projectRoot: string, command?: 
     const allowed = loadAllowedServicePorts(projectRoot);
     if (allowed.length > 0) {
       const ports = allowed.map(s => s.port).join("、");
-      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node scripts/restart-service.mjs <port>（脚本内部做 PID/cwd 校验后终止）；端口未声明且项目在 otter 工作根内的，可加 --project /abs/path --add 现场声明（#1069）。`;
+      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node scripts/restart-service.mjs <port>（脚本内部做 PID/cwd 校验后终止）；按 PID 终止自己起的进程（含非白名单端口）：node scripts/restart-service.mjs kill-by-pid <pid> --project /abs/path（#1540，--project 声明归属目录）；端口未声明且项目在 otter 工作根内的，可加 --project /abs/path --add 现场声明（#1069）。`;
     }
-    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：node scripts/restart-service.mjs <port> --project /abs/path --add 可现场声明并重启（#1069，限 otter 工作根内项目，脚本内部做 PID/cwd 校验）；范围外项目请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档）。`;
+    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：node scripts/restart-service.mjs <port> --project /abs/path --add 可现场声明并重启（#1069，限 otter 工作根内项目，脚本内部做 PID/cwd 校验）；按 PID 终止自己起的进程：node scripts/restart-service.mjs kill-by-pid <pid> --project /abs/path（#1540，--project 声明归属目录）；范围外项目请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档）。`;
   } catch {
     return reason;
   }
@@ -62,6 +62,9 @@ export interface AttachGuardsParams {
   projectRoot?: string;
   /** F20261014cwsp：session 工作目录（invoke 时的对话工作区）——守卫落点判定基准 */
   sessionCwd?: string;
+  /** F20261016gsbx 二期 2a/2b：沙箱 spawnHook 真实挂载决策（session 创建点绑定，R-2b）——
+   *  true 时守卫 main_write 文件写族退役；不可用回位（降级不降安全）。 */
+  sandboxGuarded?: boolean;
   /** F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本；fire-and-forget） */
   onGuardIntercept?: (input: { command: string; reason: string }) => void;
   /** F20261019gses P0 影子下线：onShadowEval（观察期对照回调）已删——主判定切
@@ -84,7 +87,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept });
+  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, sandboxGuarded: params.sandboxGuarded });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
   const cb = getConfig().circuitBreaker;
@@ -205,7 +208,7 @@ export function attachCircuitBreaker(
   otterId: string,
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
-  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void },
+  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void; sandboxGuarded?: boolean },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
   // F20260830bsgr：bash 安全守卫——读取主进程 PID
   // F20260830fabt-r2: 每次检查都实时读 PID 文件（不缓存），支持热重启换 PID
@@ -301,7 +304,7 @@ export function attachCircuitBreaker(
    *  F20261019gses P0 影子下线：onShadowEval 影子记账（观察期对照机制）已删。 */
   function abortOnUnsafeBash(command: string, toolCallId?: string): boolean {
     const mainPid = getMainPid();
-    const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd });
+    const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd, sandboxGuarded: options?.sandboxGuarded });
     if (!rawSafetyBlock) return false;
     const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
     const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd(), command);

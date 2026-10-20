@@ -19,6 +19,9 @@
  * 白名单边界（可写路径）：
  * - data/workspaces/  —— 獭会话工作区
  * - .otter/worktrees/ —— 獭开发 worktree
+ * - .otter/workforms/ —— 獭运行时自治区（F20261016gsbx G2 对表：与 worktrees 同性质、
+ *                       口径应齐——此前在 OTTER_RUNTIME_REGIONS（write-target-evaluator）
+ *                       但漏在本白名单，沙箱侧误拦反例）
  * - .git/             —— worktree 内 git 操作需要写 objects/worktrees/refs
  *                       （检视发现 4：worktree 的 .git 是文件指向主仓 .git/worktrees/<name>，
  *                        git hash-object -w / update-index 的落点在主仓 .git/ 下）
@@ -82,12 +85,16 @@ export function buildSandboxProfile(repoRoot: string, dataDir: string): string {
   const repo = toRealPath(repoRoot);
   const workspaces = toRealPath(join(dataDir, "workspaces"));
   const worktrees = toRealPath(join(repo, ".otter", "worktrees"));
+  // F20261016gsbx G2 对表（S3）：补 workforms 运行时自治区——与 worktrees 同性质的
+  //  .otter/ 运行时区域，write-target-evaluator OTTER_RUNTIME_REGIONS 已有、本白名单漏配。
+  //  目录可能不存在——toRealPath 失败回退原样（deny 对不存在路径仍有效）。
+  const workforms = toRealPath(join(repo, ".otter", "workforms"));
   const gitDir = toRealPath(join(repo, ".git"));
   const alphaRoot = toRealPath(join(homedir(), ".otter", "alpha"));
   const tmp = toRealPath(tmpdir());
 
   // profile 缓存 key：所有路径拼接——路径不变则 profile 不变
-  const key = [repo, workspaces, worktrees, gitDir, alphaRoot, tmp].join("|");
+  const key = [repo, workspaces, worktrees, workforms, gitDir, alphaRoot, tmp].join("|");
   if (cachedProfile && cachedProfileKey === key) return cachedProfile;
 
   // SBPL 顺序覆盖语义（后写胜出）：先 deny 主仓全集，再 allow 白名单子路径。
@@ -100,6 +107,7 @@ export function buildSandboxProfile(repoRoot: string, dataDir: string): string {
     // 白名单：獭的合法写面
     `(allow file-write* (subpath "${workspaces}"))`,
     `(allow file-write* (subpath "${worktrees}"))`,
+    `(allow file-write* (subpath "${workforms}"))`,
     // worktree 内 git 操作需要写主仓 .git/（objects/worktrees/refs）——检视发现 4
     `(allow file-write* (subpath "${gitDir}"))`,
     `(allow file-write* (subpath "${alphaRoot}"))`,
@@ -127,6 +135,32 @@ export function isSandboxEnabled(): boolean {
 }
 
 /**
+ * 2a 沙箱可用性探测（F20261016gsbx，R-2b 约束）：与 spawnHook 挂载判定同一真相源——
+ * 平台 macOS 且 OTTER_BASH_SANDBOX≠off 且 profile 注入成功（buildSandboxProfile 不抛）。
+ * 不缓存：每次调用现求值（env 变更即失效）；profile 本体仍按 key 缓存。
+ * 消费方必须用本函数或 createSandboxedTools 返回的挂载决策——自行再探测会产生
+ * 「探测报可用但挂钩未挂载=命令裸跑零告警」的最危险模式（R-2b）。
+ */
+export function probeSandboxAvailability(repoRoot: string, dataDir: string): boolean {
+  if (!isSandboxEnabled()) return false;
+  try {
+    buildSandboxProfile(repoRoot, dataDir);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * R-2 失败引导文案（F20261016gsbx）：LLM 无路径解析能力，指引靠正道文案。
+ * 实测归档（scratch-sbx-msg 实验）：SBPL (deny … (with message …)) 语法合法但消息
+ * 进系统日志不进 stderr——LLM 唯一可见面是命令 stderr，故引导只能在包裹层出。
+ * 仅失败时追加一行（成功零噪音）：拒写（Operation not permitted）→ 指引 worktree/
+ * 对话工作区正道；exit 65 → 附条件措辞（R-2b 实测：65 与 diff(1) 等内层退出码混淆，
+ * 不得单凭 65 判定沙箱失效）。 */
+const FAILURE_GUIDANCE_SUFFIX = `; _sb=$?; if [ "$_sb" -ne 0 ]; then if [ "$_sb" -eq 65 ]; then echo "[bash-sandbox] exit 65：若非内层命令自身语义（diff(1) 同码），可能是沙箱 profile 解析异常——请报告服务异常，勿重试" >&2; else echo "[bash-sandbox] 命令失败（exit $_sb）。若见 Operation not permitted：落点在沙箱只读域（主仓/宿主目录 OS 级拒写）——写文件请用 worktree（.otter/worktrees/）或对话工作区（data/workspaces/）；写主仓走 PR" >&2; fi; fi; exit "$_sb"`;
+
+/**
  * 构建 sandbox spawnHook——每条 bash 命令执行前改写 command，裹上 sandbox-exec。
  *
  * 包裹语义：`sandbox-exec -p '<profile>' /bin/bash -c '<原命令>'`
@@ -139,8 +173,16 @@ export function createSandboxSpawnHook(repoRoot: string, dataDir: string): BashS
   const profile = buildSandboxProfile(repoRoot, dataDir);
   return (ctx: BashSpawnContext): BashSpawnContext => ({
     ...ctx,
-    command: `sandbox-exec -p ${JSON.stringify(profile)} /bin/bash -c ${escapeCommand(ctx.command)}`,
+    // R-2 失败引导在包裹层（FAILURE_GUIDANCE_SUFFIX）——见其注释的实测依据
+    command: `sandbox-exec -p ${JSON.stringify(profile)} /bin/bash -c ${escapeCommand(ctx.command)}${FAILURE_GUIDANCE_SUFFIX}`,
   });
+}
+
+/** createSandboxedTools 返回值：工具集 + spawnHook 真实挂载决策（R-2b 同点求值——
+ *  消费方（守卫退役开关）必须用 sandboxGuarded 本值，禁止另行探测）。 */
+export interface SandboxedToolsResult {
+  tools: Record<string, AgentTool>;
+  sandboxGuarded: boolean;
 }
 
 /**
@@ -160,7 +202,7 @@ export function createSandboxSpawnHook(repoRoot: string, dataDir: string): BashS
  * @param dataDir 主仓 data/ 目录绝对路径
  * @returns 完整工具集（可直接传入 createAgentSession 的 baseToolsOverride）
  */
-export function createSandboxedTools(cwd: string, repoRoot: string, dataDir: string): Record<string, AgentTool> {
+export function createSandboxedTools(cwd: string, repoRoot: string, dataDir: string): SandboxedToolsResult {
   const base = {
     read: createReadTool(cwd),
     write: createWriteTool(cwd),
@@ -169,10 +211,13 @@ export function createSandboxedTools(cwd: string, repoRoot: string, dataDir: str
     find: createFindTool(cwd),
     ls: createLsTool(cwd),
   };
-  if (!isSandboxEnabled()) {
-    // 非 macOS / 显式禁用——bash 无沙箱
-    return { ...base, bash: createBashTool(cwd) };
+  // 2a（R-2b）：挂载判定与可用性探测同函数同瞬求值——挂载与否与 sandboxGuarded 报告
+  // 不可能分歧（同一次 probeSandboxAvailability 结果决定两面）。
+  const sandboxGuarded = probeSandboxAvailability(repoRoot, dataDir);
+  if (!sandboxGuarded) {
+    // 非 macOS / 显式禁用 / profile 构建失败——bash 无沙箱，守卫写面回位（降级不降安全）
+    return { tools: { ...base, bash: createBashTool(cwd) }, sandboxGuarded: false };
   }
   const spawnHook = createSandboxSpawnHook(repoRoot, dataDir);
-  return { ...base, bash: createBashTool(cwd, { spawnHook }) };
+  return { tools: { ...base, bash: createBashTool(cwd, { spawnHook }) }, sandboxGuarded: true };
 }

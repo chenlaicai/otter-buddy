@@ -464,6 +464,90 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
   });
 });
 
+describe("buildMessageWithContext 触发消息时间戳与重放标记（#1553 / F20261019rpay）", () => {
+  it("重放触发（真实 entry 但不在本轮未读批）→ 带「历史」标记 + 真实 createdAt，非本轮时刻", async () => {
+    const m = makeMocks();
+    // 未读批为空：触发消息已被消费（游标已越过它），不在 unreadAll → 重放
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const getEntryById = vi.fn().mockResolvedValue({ id: "e-trigger", createdAt: "2026-10-19T01:42:00.000Z" });
+    (m.entryRepo as unknown as { getEntryById: unknown }).getEntryById = getEntryById;
+
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "高危这个你拉个新glm", "user", "## 在场成员", new Set(["e-trigger"]), "e-trigger");
+
+    // 触发消息带「历史」标记（重放）
+    expect(result).toContain("（历史 · ");
+    expect(result).toContain("高危这个你拉个新glm");
+    // 用真实 createdAt（01:42 UTC = 09:42 Asia/Shanghai），不是本轮时刻
+    expect(result).toContain("09:42");
+  });
+
+  it("新鲜触发（在本轮未读批）→ 无「历史」标记", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-trigger", entryType: "user", senderType: "user", senderId: "user", senderName: "chen", body: "新消息", sequenceNum: 5, invokeId: null, yieldTargets: null, createdAt: new Date().toISOString() },
+    ]);
+
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "新消息", "user", "## 在场成员", new Set(["e-trigger"]), "e-trigger");
+
+    // 新鲜触发不带「历史」标记
+    expect(result).not.toContain("（历史 · ");
+    expect(result).toContain("新消息");
+  });
+
+  it("非 entry 触发（retry/resume 传 invokeId，getEntryById 空）→ 保持新鲜呈现不误标", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const getEntryById = vi.fn().mockResolvedValue(null);
+    (m.entryRepo as unknown as { getEntryById: unknown }).getEntryById = getEntryById;
+
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "重试内容", "user", "## 在场成员", undefined, "invoke-xyz");
+
+    // 非 entry 触发：不带「历史」标记（不是重放）
+    expect(result).not.toContain("（历史 · ");
+    expect(result).toContain("重试内容");
+  });
+
+  it("集成：executeChain 两 hop，hop2 重放触发带「历史」标记（#1553 主场景：链内 hop≥2）", async () => {
+    const m = makeMocks();
+    // 未读批按调用次数返回：hop1 触发消息新鲜（在未读批）；hop2 已消费（不在未读批）
+    let call = 0;
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      call++;
+      return call === 1
+        ? [{ id: "e-trigger", entryType: "user", senderType: "user", senderId: "user", senderName: "chen", body: "高危这个你拉个新glm", sequenceNum: 5, invokeId: null, yieldTargets: null, createdAt: new Date().toISOString() }]
+        : [];
+    });
+    (m.entryRepo as unknown as { getEntryById: unknown }).getEntryById = vi.fn().mockResolvedValue({ id: "e-trigger", createdAt: "2026-10-19T01:42:00.000Z" });
+    // 行级 tsp：hop1(otter-worker) yield 回 otter2 → hop2(otter2) 收尾
+    (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) =>
+      id === "m-work"
+        ? { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: ["otter2"], endedAt: "2026-09-10T00:00:00Z" }
+        : { id, status: "completed", otterId: "otter2", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" });
+
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const hopMessages: string[] = [];
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "高危这个你拉个新glm", senderId: "user",
+      initialTargets: ["otter-worker"], triggerMessageId: "e-trigger",
+      invokeFn: async (params: { otterId: string; userMessageContent: string }) => {
+        hopMessages.push(params.userMessageContent);
+        return params.otterId === "otter-worker" ? { messageId: "m-work", aggregatedTargets: ["otter2"] } : { messageId: "m2" };
+      },
+    });
+
+    expect(hopMessages).toHaveLength(2);
+    // hop1：触发消息新鲜（在未读批）→ 无「历史」标记
+    expect(hopMessages[0]).not.toContain("（历史 · ");
+    // hop2：触发消息已消费（不在未读批）→ 重放带「历史」标记 + 真实 createdAt（#1553 主场景：链内 hop≥2）
+    expect(hopMessages[1]).toContain("（历史 · ");
+    expect(hopMessages[1]).toContain("09:42");
+    expect(hopMessages[1]).toContain("高危这个你拉个新glm");
+  });
+});
+
 describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => {
   function makeEngine(m: ReturnType<typeof makeMocks>, partnerOpenId: string | undefined) {
     return new DispatchChainEngine({

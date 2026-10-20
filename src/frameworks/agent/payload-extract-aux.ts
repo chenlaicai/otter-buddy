@@ -147,8 +147,9 @@ export const STASH_WRITE_SUBS = new Set(["push", "pop", "apply", "drop", "clear"
  *  教训：不合并走查，语义注释对齐）。动态值位照常消费后找子命令；动态旗标/子命令位
  *  →false（间接构造不追，#1513 边界）。 */
 /** git 取值型全局旗标（旗标词后跟独立值词）——gitWriteSubcommandHit 与 lookAheadWriteSubcommand
- *  两走查共享（词表漂移会再造静动反判；走查不合并=c107 教训，语义注释对齐）。 */
-const GIT_VALUE_FLAGS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--exec-path", "--namespace"]);
+ *  两走查共享（词表漂移会再造静动反判；走查不合并=c107 教训，语义注释对齐）。
+ *  F20261016gsbx 导出：受保护分支直推窄规则同基座复用（单一真相源）。 */
+export const GIT_VALUE_FLAGS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--exec-path", "--namespace"]);
 
 export function gitWriteSubcommandHit(seg: Segment): boolean {
   if (seg.argv0 !== "git") return false;
