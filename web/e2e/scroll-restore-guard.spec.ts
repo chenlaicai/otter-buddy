@@ -87,18 +87,20 @@ test.describe('F20261020wcsr 微信式重构 e2e 护栏', () => {
     const msgsAfter = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().querySelectorAll('[data-message-id]').length)
     console.log(`[锚2] msgs ${msgsBefore} → ${msgsAfter}，锚点=${anchorBefore!.id}@${anchorBefore!.top}px`)
     expect(msgsAfter, '哨兵应触发加载（消息数增长）').toBeGreaterThan(msgsBefore)
-    // 核心验收：滚回锚点消息（scrollIntoView 到视口内），断言其视口 y 与加载前偏移 ≤4px——
+    // 核心验收：滚回锚点消息（把它带回视口内与加载前同 y 位置），断言其视口 y 与加载前偏移 ≤4px——
     // scroll anchoring 失效时 prepend 会把锚点消息顶下去一整批高度（数百 px），必红；
-    // 生效时浏览器保持锚点原位，偏移在亚像素到个位像素
-    await page.evaluate((id: string) => {
+    // 生效时浏览器保持锚点原位，偏移在亚像素到个位像素。
+    // beforeTop 作参数传入（镜川 delta-A 修复：读 window.__anchorBeforeTop 是 NaN bug——
+    // 全文件从未赋值该全局，scrollTop += NaN → CSSOM 钳 0 → 跳绝对顶部必红）
+    await page.evaluate(([id, beforeTop]: [string, number]) => {
       const el = (window as unknown as { __findScroller(): HTMLElement }).__findScroller()
       const m = el.querySelector(`[data-message-id="${id}"]`)
       if (m) {
         const scRect = el.getBoundingClientRect()
         const r = m.getBoundingClientRect()
-        el.scrollTop += (r.top - scRect.top) - (window as unknown as { __anchorBeforeTop?: number }).__anchorBeforeTop!
+        el.scrollTop += (r.top - scRect.top) - beforeTop
       }
-    }, anchorBefore!.id)
+    }, [anchorBefore!.id, anchorBefore!.top])
     // 直接测量：prepend 后锚点消息当前视口 y 与加载前差值（判据用它现在的真实位置）
     const posNow = await page.evaluate((id: string) => {
       const el = (window as unknown as { __findScroller(): HTMLElement }).__findScroller()

@@ -3,6 +3,12 @@ id: F20261020wcsr
 title: 消息加载机制微信式重构：哨兵分页 + 原生视觉锚定 + 自研机制退役
 doc_type: feature
 
+intent:
+  problem: "消息历史加载与滚动稳定机制为自研堆：手写五通道触发（F20261020lmld 死锁根因=到顶零位移无 scroll 事件）+ 关浏览器 scroll anchoring 后枚举高度源打补丁（F20261010vwst 判死刑：枚举源是开放集合，bug 是封闭集合）+ write ledger 账本模拟平台白送的事件语义。9 轮补丁史证明该路线不可持续；专项研究（Telegram 一手源码 + W3C 规范）证实抖动不是标准机制漏洞，搭档立项微信式重构。"
+  expected_effect: "上翻接近顶部 200px 即自动加载（哨兵 IO，死锁形态结构性免疫）；prepend 后阅读位置由浏览器 scroll anchoring 保持（零跳变手感）；贴底跟随收敛为「到底才跟随」单语义；每批 50 条减少上翻次数；自研机制净删除（账本/恢复链/四通道退役）。"
+  verify_by:
+    type: behavior_check
+
 summary: |
   消息历史加载与滚动稳定机制按微信/Telegram 标准模式重构。专项研究结论：当初的抖动/跳底问题不是标准机制的漏洞，而是「关掉浏览器 scroll anchoring + 枚举高度源打补丁」自研路线的结构性产出（三大根因逐项对照标准机制全部空集化）。本特性：①顶部 IntersectionObserver 哨兵分页替掉手写多通道触发；②启用浏览器原生 scroll anchoring（删 overflow-anchor:'none'），prepend 位置保持交给浏览器；③自研机制大规模退役（pendingScrollRestore 手写恢复链、write ledger 账本、五通道意图监听——scroll-pin 状态机收敛为极简「到底才跟随」）；④每批 20→50 条。四锚 e2e 护栏护回归。
 
