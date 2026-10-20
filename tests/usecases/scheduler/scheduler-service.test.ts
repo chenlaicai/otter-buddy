@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SchedulerService, type CronParser } from '@usecases/scheduler/scheduler-service';
+import { SchedulerService, WatchdogAbandonedError, type CronParser } from '@usecases/scheduler/scheduler-service';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SendEntry } from '@usecases/conversation/send-entry';
@@ -2111,8 +2111,11 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       await vi.advanceTimersByTimeAsync(61_000);
       const err = await errPromise;
 
-      expect(err).toBeInstanceOf(Error);
-      expect(err.message).toBe('Agent invocation timeout');
+      // #1048 语义调整（断言随之更新，理由入 F20261020wgrt 特性文档「对旧特性的改动」）：
+      // 静默判死从「任务失败（failed + 计熔断）」改为「看门狗放弃（skipped 不计熔断）」——
+      // 判死=主动停止等待≠任务失败，防误杀被 3 连败熔断放大成静默停跑（#516 教训）。
+      expect(err).toBeInstanceOf(WatchdogAbandonedError);
+      expect(err.message).toContain('看门狗放弃');
     } finally {
       vi.useRealTimers();
       neverResolve(undefined); // 清理
