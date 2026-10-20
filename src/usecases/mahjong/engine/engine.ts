@@ -295,12 +295,17 @@ export class SanmaEngine {
     const wall = r.wall;
     const justCalled = r.justCalled?.seat === seat ? r.justCalled : undefined;
 
-    // 打牌（食替过滤）
+    // 打牌（食替过滤）；立直后仅允许摸切刚摸的那张（#1564-2）
+    const drawnNotation = r.drawn ? notation(r.drawn) : undefined;
     const seen = new Set<string>();
     for (const t of p.hand) {
       const n = notation(t);
       if (seen.has(n)) continue;
       seen.add(n);
+      if (p.riichi) {
+        if (drawnNotation !== undefined && n === drawnNotation) actions.push({ type: "discard", tile: n });
+        continue;
+      }
       const chk = canDiscard({ concealed: p.hand, melds, justCalled, discard: t });
       if (chk.ok) actions.push({ type: "discard", tile: n });
     }
@@ -336,7 +341,7 @@ export class SanmaEngine {
       if (res.valid) actions.push({ type: "tsumo" });
     }
 
-    // 暗杠
+    // 暗杠（雀魂口径：立直后仍可暗杠/加杠，枪杠风险自担——无「听牌不变」限制）
     const cnt = countsByKind(p.hand);
     for (let k = 0; k < 34; k++) {
       if (cnt[k] !== 4 || !isSanmaKind(k)) continue;
@@ -409,12 +414,15 @@ export class SanmaEngine {
       }
     }
     if (!chankan) {
+      // 立直后不能副露（碰/大明杠）——只能荣和或过（#1564-2）
       if (
+        !p.riichi &&
         canCall({ request: { type: "pon", called: tile }, concealed: p.hand, melds: p.melds, turnWindow: true }).ok
       ) {
         actions.push({ type: "pon" });
       }
       if (
+        !p.riichi &&
         canCall({
           request: { type: "daiminkan", called: tile },
           concealed: p.hand,

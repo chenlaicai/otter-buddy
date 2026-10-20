@@ -66,6 +66,10 @@ export function createApi(opts = {}) {
     action: (roomId, seat, action) => post(room(roomId, "/actions"), { seat, action }),
     /** 真人回话 → {accepted:true, roomId, seat, view}（#1532：入队广播 chat 帧，回显靠 SSE） */
     chat: (roomId, seat, text) => post(room(roomId, "/chat"), { seat, text }),
+    /** #1564-5：结算停驻「继续下一局」 */
+    continueRound: (roomId) => post(room(roomId, "/continue")),
+    /** #1564-6：停局/删房 */
+    stop: (roomId) => post(room(roomId, "/stop")),
     /** 断线恢复（最新帧还原 + 续推） */
     recover: (roomId) => post(room(roomId, "/recover")),
     /** 视图：seat 缺省 = 观战全览（三家手牌可见） */

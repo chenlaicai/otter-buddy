@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SchedulerService, type CronParser } from '@usecases/scheduler/scheduler-service';
+import { SchedulerService, WatchdogAbandonedError, type CronParser } from '@usecases/scheduler/scheduler-service';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SendEntry } from '@usecases/conversation/send-entry';
@@ -2111,8 +2111,11 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       await vi.advanceTimersByTimeAsync(61_000);
       const err = await errPromise;
 
-      expect(err).toBeInstanceOf(Error);
-      expect(err.message).toBe('Agent invocation timeout');
+      // #1048 语义调整（断言随之更新，理由入 F20261020wgrt 特性文档「对旧特性的改动」）：
+      // 静默判死从「任务失败（failed + 计熔断）」改为「看门狗放弃（skipped 不计熔断）」——
+      // 判死=主动停止等待≠任务失败，防误杀被 3 连败熔断放大成静默停跑（#516 教训）。
+      expect(err).toBeInstanceOf(WatchdogAbandonedError);
+      expect(err.message).toContain('看门狗放弃');
     } finally {
       vi.useRealTimers();
       neverResolve(undefined); // 清理
@@ -4327,4 +4330,173 @@ describe('#1449 running 执行体滞留挤占治理', () => {
     expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
     expect(result.executionId).toBeDefined();
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #1048：看门狗克制（放弃 ≠ 失败）——2026-10-20 搭档定调「定时任务允许漏一次执行，
+// 兜底/看门狗必须克制」。看门狗从「判死仲裁」降级为「清坑保洁」：静默窗无产出 /
+// 持续活跃超窗即放弃等待（落 skipped，不计 consecutiveFailures，不触发 3 连败熔断），
+// 不再空转 24h 硬上限追精确终态。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('#1048: 看门狗克制（放弃 ≠ 失败）', () => {
+  function makeSwappedService1048(opts: {
+    taskRepo: ReturnType<typeof createMockTaskRepo>;
+    convRepo: ReturnType<typeof createMockConvRepo>;
+    sendEntry: ReturnType<typeof createMockSendEntry>;
+    entryRepo: ReturnType<typeof createMockEntryRepo>;
+    agentInvoke: ReturnType<typeof createMockAgentInvoke>;
+    router: { routeDirectSignal: ReturnType<typeof vi.fn> };
+    now?: () => number;
+  }) {
+    const nextTime = new Date('2025-06-15T09:00:00.000Z');
+    return new SchedulerService({
+      taskRepo: opts.taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: opts.convRepo as unknown as ConversationRepository,
+      sendEntry: opts.sendEntry as unknown as SendEntry,
+      entryRepo: opts.entryRepo as unknown as EntryRepository,
+      agentInvokePort: opts.agentInvoke as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(nextTime) as unknown as CronParser,
+      logger: mockLogger,
+      signalRouter: opts.router as never,
+      now: opts.now,
+    });
+  }
+
+  /** W1/W3 共用场景：换轨已点火，锚点后目标 otter-1 零产出 → 永不 settle、永不进展 */
+  function seedNoOutputTask(taskRepo: ReturnType<typeof createMockTaskRepo>, convRepo: ReturnType<typeof createMockConvRepo>, entryRepo: ReturnType<typeof createMockEntryRepo>, taskId: string): void {
+    taskRepo._store.set(taskId, makeTask({ id: taskId, timeoutMinutes: 1 }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    // sendEntry mock 首条锚点 id = 'entry-1'；预置入 entryRepo 使 isMessageSettled 进入产出探测
+    entryRepo._addEntry({ id: 'entry-1', senderId: 'system', yieldTargets: ['otter-1'] });
+  }
+
+  it('W1 换轨看门狗静默判死：锚点后无产出超静默窗即放弃，不再空转 24h 硬上限', async () => {
+    vi.useFakeTimers();
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      const routeDirectSignal = vi.fn().mockResolvedValue('invoked');
+      seedNoOutputTask(taskRepo, convRepo, entryRepo, 'task-w1');
+
+      const service = makeSwappedService1048({
+        taskRepo, convRepo, sendEntry, entryRepo, agentInvoke,
+        router: { routeDirectSignal },
+      });
+      const errPromise = service.trigger('task-w1').catch(e => e);
+      // 静默窗 1 分钟（timeoutMinutes=1）+ 轮询余量
+      await vi.advanceTimersByTimeAsync(65_000);
+      const outcome = await Promise.race([errPromise, Promise.resolve('still-waiting')]);
+      // 修复前固化失败：看门狗无产出仍空转至 24h 硬上限（ledger watch exceeded hard limit），
+      // 65s 时 trigger 未落任何终态 → outcome='still-waiting'
+      expect(outcome).not.toBe('still-waiting');
+      expect((outcome as Error).message).toContain('看门狗放弃');
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15_000);
+
+  it('W2 持续活跃但永不 settle：放弃窗口收口为 max(2h, 2×静默窗)，不再等满 24h', async () => {
+    vi.useFakeTimers();
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      const routeDirectSignal = vi.fn().mockResolvedValue('invoked');
+      seedNoOutputTask(taskRepo, convRepo, entryRepo, 'task-w2');
+      // 持续「有噪音产出」（非目标獭）→ 静默窗永不触发，但目标獭永不产出 → 永不 settle
+      (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockImplementation(async () => [
+        {
+          id: `noise-${Math.random()}`, senderId: 'other-otter', entryType: 'speak',
+          body: 'noise', yieldTargets: null, metadata: null,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const service = makeSwappedService1048({
+        taskRepo, convRepo, sendEntry, entryRepo, agentInvoke,
+        router: { routeDirectSignal },
+      });
+      const errPromise = service.trigger('task-w2').catch(e => e);
+      // 放弃窗口 = max(2h, 2×1min) = 2h + 余量
+      await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000 + 20_000);
+      const outcome = await Promise.race([errPromise, Promise.resolve('still-waiting')]);
+      // 修复前固化失败：24h 硬上限未到，trigger 无终态 → 'still-waiting'
+      expect(outcome).not.toBe('still-waiting');
+      expect((outcome as Error).message).toContain('看门狗放弃');
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15_000);
+
+  it('W3 看门狗放弃落 skipped、不计 consecutiveFailures（放弃≠失败，不触发 3 连败熔断）', async () => {
+    vi.useFakeTimers();
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      const routeDirectSignal = vi.fn().mockResolvedValue('invoked');
+      seedNoOutputTask(taskRepo, convRepo, entryRepo, 'task-w3');
+
+      const service = makeSwappedService1048({
+        taskRepo, convRepo, sendEntry, entryRepo, agentInvoke,
+        router: { routeDirectSignal },
+      });
+      const errPromise = service.trigger('task-w3').catch(e => e);
+      await vi.advanceTimersByTimeAsync(65_000);
+      const err = await Promise.race([errPromise, Promise.resolve('still-waiting')]);
+      // 修复前固化失败：24h 硬上限未到 → 'still-waiting'（不挂死，干净断言失败）
+      expect(err).not.toBe('still-waiting');
+      expect((err as Error).message).toContain('看门狗放弃');
+      const executions = [...taskRepo._executions.values()];
+      expect(executions).toHaveLength(1);
+      // 修复前固化失败：旧语义落 'failed'（判死=失败）并计 consecutiveFailures
+      expect(executions[0]!.status).toBe('skipped');
+      expect(taskRepo.incrementConsecutiveFailures).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15_000);
+
+  it('W4 进展探测墙钟对齐：陈旧产出不算进展（回归：this.now() 单调钟不可与 entry.createdAt 墙钟混比）', async () => {
+    vi.useFakeTimers();
+    try {
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      const routeDirectSignal = vi.fn().mockResolvedValue('invoked');
+      seedNoOutputTask(taskRepo, convRepo, entryRepo, 'task-w4');
+      // 锚点后只有一条 2 小时前的陈旧产出——不算静默窗内进展
+      (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockImplementation(async () => [
+        {
+          id: 'stale-1', senderId: 'other-otter', entryType: 'speak',
+          body: 'old noise', yieldTargets: null, metadata: null,
+          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        },
+      ]);
+      // 注入偏移单调钟：模拟生产 this.now()（performance.now，进程启动起算）与墙钟零点不同
+      const service = makeSwappedService1048({
+        taskRepo, convRepo, sendEntry, entryRepo, agentInvoke,
+        router: { routeDirectSignal },
+        now: () => Date.now() - 10_000_000,
+      });
+      const errPromise = service.trigger('task-w4').catch(e => e);
+      await vi.advanceTimersByTimeAsync(65_000);
+      const outcome = await Promise.race([errPromise, Promise.resolve('still-waiting')]);
+      // 回归固化：时间源混用时 sinceMs（单调钟）恒小于 createdAt（墙钟）→ 探测恒报「有进展」
+      // → 静默判死永不触发 → 本用例挂到 24h 语义（修复前失败：'still-waiting'）
+      expect(outcome).not.toBe('still-waiting');
+      expect((outcome as Error).message).toContain('看门狗放弃');
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15_000);
 });
