@@ -997,6 +997,55 @@ describe("M-1438463a 词文本收编补完（// 前缀族 + 中缀斜杠族，�
       });
     }
   });
+
+  // —— r1 delta（检视獭1570 严重 1/2 + 建议 1：拼写变体矩阵——对称入口原则自查，病史第 4 次复发）——
+
+  it("严重1 词中空段折叠：x//y ≡ x/y 同判（真文件主仓写内容裸/bash 双侧拦，改写空段零逃逸）", () => {
+    const dir = path.join(os.tmpdir(), "guard-wtcl-mid");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "x-wtcl.sh"), "touch /repo/data/pwn\n");
+    for (const word of ["guard-wtcl-mid/x-wtcl.sh", "guard-wtcl-mid//x-wtcl.sh", "guard-wtcl-mid///x-wtcl.sh", "guard-wtcl-mid/./x-wtcl.sh", "'guard-wtcl-mid//x-wtcl.sh'"]) {
+      for (const prefix of ["", "bash "]) {
+        expect(evaluateWriteVerdict(`cd ${os.tmpdir()} && ${prefix}${word}`, ROOT).verdict).toBe("BLOCK");
+      }
+    }
+  });
+
+  it("严重2 非 ASCII 字符集：中文目錄/x.sh 裸/bash 同判拦（CJK 命名是常态非 exotic）", () => {
+    const dir = path.join(os.tmpdir(), "中文目錄");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "x-wtcl.sh"), "touch /repo/data/pwn\n");
+    for (const word of ["中文目錄/x-wtcl.sh", "中文目錄//x-wtcl.sh"]) {
+      for (const prefix of ["", "bash "]) {
+        expect(evaluateWriteVerdict(`cd ${os.tmpdir()} && ${prefix}${word}`, ROOT).verdict).toBe("BLOCK");
+      }
+    }
+    // 前缀族带 CJK 也收（既有规则本无字符集限制）——缺席臂照走三态放行
+    expect(evaluateWriteVerdict("//tmp/中文目錄-no-such-wtcl.sh", ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("严重2 误收防线复测：CJK 置于引号垃圾词内仍不收（括号/逗号残渣挡）", () => {
+    expect(evaluateWriteVerdict(`node -e "const f=require('fs').readFileSync('中文目錄/資料.json','utf8'); console.log(f)"`, ROOT).verdict).toBe("ALLOW");
+    expect(evaluateWriteVerdict("readFileSync('中文目錄/資料.json','utf8') > /tmp/out", ROOT)).toMatchObject({ verdict: "ALLOW", mode: "positive" });
+  });
+
+  it("裸纯斜杠词（//、///…）不收——JS/TS 注释行标记（//、/// <reference>）防线扩展", () => {
+    for (const cmd of ["//", "///", "////", "/// reference path=x", "// script payload samples with verdict"]) {
+      expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+    }
+  });
+
+  it("拼写变体矩阵·不收侧（决策钉死）：尾斜杠（POSIX 目录语义 exec 必失败零写面）/反斜杠转义（残余）/例外 2 非斜杠动态词", () => {
+    const dir = path.join(os.tmpdir(), "guard-wtcl-mid");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "x-wtcl.sh"), "touch /repo/data/pwn\n");
+    // 尾斜杠：bash 侧保守拦不对称但零攻击面（exec 必失败）——记档决策，收编须翻红本钉
+    expect(evaluateWriteVerdict(`cd ${os.tmpdir()} && guard-wtcl-mid/x-wtcl.sh/`, ROOT)).toMatchObject({ verdict: "ALLOW" });
+    // 反斜杠转义组合：残余记档（与 ./x 家族转义边缘同级）
+    expect(evaluateWriteVerdict(`cd ${os.tmpdir()} && guard-wtcl-mid\\/x-wtcl.sh`, ROOT)).toMatchObject({ verdict: "ALLOW" });
+    // 例外 2 边界（delta5 既定）
+    expect(evaluateWriteVerdict("foo$BAR > /tmp/out", ROOT)).toMatchObject({ verdict: "ALLOW", mode: "positive" });
+  });
 });
 
 describe("#1432：node import/require 目标只读豁免（F20261014nirw）", () => {

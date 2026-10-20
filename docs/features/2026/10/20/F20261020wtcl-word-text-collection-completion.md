@@ -1,7 +1,7 @@
 ---
 id: F20261020wtcl
 title: 词文本收编补完——// 前缀族与中缀斜杠族收编（前缀空间穷举表例外 1/4 收口）
-summary: delta8（F20261015smrj）前缀空间穷举表两例外收口：例外 1 `//x` ≡ `/x` 功能性旁路（delta4 防 JS 注释误命中而排 //，旁路只在词文本层——path.normalize 折叠双斜杠实证下游天然同判）+ 例外 4 中缀斜杠族（scripts/x 等）不对称缺口。修法=isDirectExecArgv0 内补两族（形状判别：路径安全字符集+≥1 内部斜杠；裸 // 除外保 JS 注释防线），三牙/三态/造-执对通道全复用。frozen 三库（795/82/105 含 TS-b42e23be）零翻转守恒验收通过。
+summary: delta8（F20261015smrj）前缀空间穷举表两例外收口：例外 1 `//x` ≡ `/x` 功能性旁路（delta4 防 JS 注释误命中而排 //，旁路只在词文本层——path.normalize 折叠双斜杠实证下游天然同判）+ 例外 4 中缀斜杠族（scripts/x 等）不对称缺口。修法=isDirectExecArgv0 内补两族（形状判别：路径安全字符集+≥1 内部斜杠；裸 // 除外保 JS 注释防线），三牙/三态/造-执对通道全复用。r1 轮补词中空段折叠+Unicode 字符集（检视獭1570 两严重）。frozen 三库（796/82/104 含 TS-b42e23be）零翻转守恒验收通过。
 capability_test: tests/frameworks/agent/write-target-evaluator.test.ts（M-1438463a describe 9 钉 + 全文件 140/140）+ guard-touchstone-exam/corpus/v2-real-replay 三库守恒（31 passed + 6 skipped 零翻转）+ 全量 407 files 6486 passed + 6 skipped 零失败 + tsc/eslint 零报
 change_type: fix
 intent:
@@ -49,13 +49,27 @@ delta8（F20261015smrj）前缀空间穷举表 17 形态双层实测留 4 例外
 ## 验证
 
 - **单测**：M-1438463a describe 9 钉——// 收编三链对称拦（`//tmp/…` 造-执对×3）、同构三态放（缺席臂+零写面内容臂）、裸 // 防线（TS-b42e23be 同型注释行）、`//$P` 动态对称、中缀收编对称拦（tmpdir 真文件×裸/bash）、中缀三态放、引号形态剥壳同判、TS-b42e23be 同型误收防线（node -e 垃圾词 ALLOW + 裸垃圾词 ALLOW）、`scripts/$X` 动态对称；write-target-evaluator 全文件 140/140
-- **守恒验收（本单成立前提，M-026d87ff 裁决原则）**：guard-touchstone-exam（795/82/105 含 TS-b42e23be）+ guard-touchstone-corpus + guard-v2-real-replay 三库 **31 passed + 6 skipped 零翻转**
+- **守恒验收（本单成立前提，M-026d87ff 裁决原则）**：guard-touchstone-exam（**796/82/104** 含 TS-b42e23be——实测口径；#1561 fixture 迁移（TS-80b0e7bc 条件池→放行池）后由 795/82/105 漂移，r1 建议 1 订正）+ guard-touchstone-corpus + guard-v2-real-replay 三库 **31 passed + 6 skipped 零翻转**
 - **全量**：407 files **6486 passed + 6 skipped 零失败**；tsc 0 / eslint 0
 - **穷举表行级对照**（delta8 表 17 形态）：例外 1 行（`//x.sh`）翻「双层同判 ✓」、例外 4 行（`scripts/x.sh`、`node_modules/.bin/x`）翻「同判 ✓」，其余行经既有 delta4/5/8 单测钉死零变化；例外 2（`foo$BAR`）与例外 3（纯词 vs bash 文件操作数）边界保持
 - **最简实现**：单一判定函数内补族 + 1 个内部纯函数，无新依赖/新通道/新文件（测试除外）
 
 ## 残余记档（修复时须同步翻红对应钉/本节）
 
-- **反斜杠转义组合**（`scripts\/x`、`\x2f` 拼接）不满足形状不收——与既有 `./x` 家族转义组合边缘同级（改口径须全家族同改）
-- **`//path` 形状的 JS 注释行起点**（如注释行 `//tmp/x is a path` 的段首词 `//tmp/x`）会被收——fail-closed 方向（真存在→内容判读/目录→unreadable 拦；`//tmp` 类注释起点罕见），与 `/*` 注释标记今日既有面同类，入误拦台账口径
+- **反斜杠转义组合**（`scripts\/x`、`\x2f` 拼接）不满足形状不收（单测钉死）——与既有 `./x` 家族转义组合边缘同级（改口径须全家族同改）
+- **尾斜杠形态**（`x/y/`）不收（单测钉死，r1 决策）：POSIX 目录语义下 exec 必失败（ENOTDIR/EACCES）零写面；bash 侧经 normalize 保守拦——不对称但零攻击面，非拼写变体逃逸（不可执行）
+- **字符集外路径字符**（`+ @ %` 空格等非 `\p{L}\p{N}._-` 字符）不满足形状不收（**知情取舍**，r1 严重 2 降级面）：误收防线（垃圾词括号/逗号/引号残渣拒收）与覆盖罕见路径名不可兼得时取防线侧；bash 侧仍拦，裸形态漏放记档。CJK/Unicode 字母数字已收（r1 严重 2 修复）
+- **`//path` 形状的 JS 注释行起点**（如注释行 `//tmp/x is a path` 的段首词 `//tmp/x`）会被收——fail-closed 方向（真存在→内容判读/目录→unreadable 拦；`//tmp` 类注释起点罕见），与 `/*` 注释标记今日既有面同类，入误拦台账口径；裸纯斜杠词（`//`、`///`…）已排除（r1 防线扩展）
 - wrapper 剥除形态两层同缺、xargs stdin→args 语义近似（F20261020c2sm R2 记档）均不变
+
+## r1 审视修复轮（delta，检视獭1570：2 严重 + 1 建议）
+
+| 发现 | 内容 | 处置 |
+|---|---|---|
+| 严重 1 | 词中空段 `dir//x.sh` 直执漏放（`x/y` 改写 `x//y` 零成本逃逸；本单自己的 `//≡/` 折叠论证只应用在词首，同词自相矛盾） | **已修**：形状层折叠词中斜杠串（`x//y`≡`x/y`），等价论证贯彻到底；变体矩阵钉死 |
+| 严重 2 | 非 ASCII 目录 `中文目錄/x.sh` 直执漏放（字符集 ASCII-only；且同文件带 `//` 会被收、不带就漏，判定分叉） | **已修**：字符集扩 `\p{L}\p{N}`（含 CJK）+ 误收防线复测（引号垃圾词仍不收）+ 三库守恒复跑零翻转——未降级记档（守住）；字符集外罕见字符降级记档（知情取舍，见残余节） |
+| 建议 1 | 文档 795/82/105 vs 实测 796/82/104（#1561 fixture 迁移口径漂移） | **已改**：文档/PR body 对齐实测口径 |
+
+**病史自查**（检视獭定性「delta8 对称入口原则在收编族内第四次复发」）：本轮修复以「同一词的拼写变体矩阵」为自查单元——收（`x/y`、`x//y`、`x///y`、`x/./y`、`./x/y`、引号形态、CJK、动态形态）/不收（尾斜杠、转义、例外 2、纯斜杠注释符）两侧全部决策钉死（write-target-evaluator r1 delta 钉组），无未决变体。
+
+**验证（r1）**：变体矩阵 5 钉 + 防线复测钉全绿；write-target-evaluator 145/145；守恒三库二次独立复跑零翻转；全量 407 files 6491 passed + 6 skipped 零失败；tsc/eslint 零报。

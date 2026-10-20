@@ -1166,8 +1166,9 @@ export function isDirectExecArgv0(word: Word | null | undefined): boolean {
   const litRaw = word.parts.map(p => (p.type === "lit" || p.type === "escape" ? p.text ?? "" : "")).join("");
   const fullRaw = word.parts.map(p => p.text ?? "").join("");
   if ((litRaw.startsWith("./") || litRaw.startsWith("../") || (litRaw.startsWith("/") && !litRaw.startsWith("//")))) return true;
-  // ② // 前缀族（M-1438463a）：//x ≡ /x（含展开位 //$VAR——litRaw/fullRaw 分野区分裸 //）
-  if (litRaw.startsWith("//") && fullRaw !== "//") return true;
+  // ② // 前缀族（M-1438463a）：//x ≡ /x（含展开位 //$VAR）——裸纯斜杠词（//、///…）除外：
+  //    JS/TS 注释行标记（//、/// <reference>），词形即注释符，执行必失败零写面（防注释误命中）
+  if (litRaw.startsWith("//") && !/^\/+$/u.test(fullRaw)) return true;
   if (fullRaw.startsWith("~")) return true;
   // ③ 中缀斜杠族（M-1438463a）：相对路径含目录分量
   if (middleSlashPathShaped(word)) return true;
@@ -1186,7 +1187,12 @@ function middleSlashPathShaped(word: Word): boolean {
   for (const p of word.parts) {
     shape += p.type === "lit" || p.type === "escape" ? p.text ?? "" : "x";
   }
-  return /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+$/.test(shape);
+  // r1 修（检视獭1570 严重 1）：词中空段折叠——x//y ≡ x/y（normalize 折叠实证，与词首
+  //  //≡/ 同一等价论证贯彻到底；旧正则空段不匹配致 x/y 改写 x//y 零成本逃逸）
+  const folded = shape.replace(/\/{2,}/g, "/");
+  // r1 修（检视獭1570 严重 2）：字符集扩 Unicode 字母/数字（含 CJK——中文目录命名是
+  //  常态非 exotic）；误收防线不变：括号/逗号/引号/等号等垃圾词残渣不入字符集
+  return /^[\p{L}\p{N}._-]+(?:\/[\p{L}\p{N}._-]+)+$/u.test(folded);
 }
 
 /** 运行器族 argv0（解释器/脚本语言运行器，basename 口径）：argv0 是运行器族时脚本位
