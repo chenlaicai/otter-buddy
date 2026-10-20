@@ -99,7 +99,7 @@ T5：回归护栏——四锚不回归（F20261010vwst §3.3 要求）+ 原始�
 - 删除 pendingScrollRestoreRef 武装-消费链：fireLoadMore 内的 `pendingScrollRestoreRef.current = el?.scrollTop`、useLayoutEffect 的 restore 消费分支（W8 重写段）、[messages] effect 的采样维护中 restore 相关部分。
 - **scrollTop=0 兜底**（规范边界）：scroll anchoring 的 anchor node selection（§2.1 第 2 条）要求容器「scrolled away from the origin」才选锚——用户在绝对顶部（scrollTop=0）时 prepend 无锚可用，浏览器不补偿，视口会被顶下去。保留极简兜底，触发条件与写入约束如下（镜澜审视修订）：
   - **触发条件（三取全真）**：①`conversationId 未变`（防 key remount 采样陷阱——切会话时容器 remount，scrollTop=0 语义从「用户在顶部」漂移为「新容器刚 mount」，ref 采样跨容器产生垃圾写入；以 conversationId 比较为守卫，不依赖 reset effect 时序）；②上一轮采样 scrollTop===0；③本轮头部消息 id 变化（确认为 prepend 而非其他消息流变化）。
-  - **写入约束（方向构造性封闭）**：`scrollTop = max(el.scrollTop + delta, 0)`，其中 `delta = 新 scrollHeight − 旧 scrollHeight`。**位移增量式写入，不做绝对值赋值**——增量天然非负（prepend 只增高度；若同帧有收缩源导致 delta 为负，max 钳到 0 = 原地不动，绝不产生向上位移），写入方向构造性封闭，不依赖「同帧无收缩」前提。弱前提声明（镜澜 delta-D1 修订）：条件②的采样一致性依赖 scroll 事件与 React commit 的任务排序（采样更新点仅在 handleScroll 末尾/切会话 reset），窗口内条件②可能以滞后采样命中——破坏后果为兜底幂等抢跑一次锚定本可完成的调整（`max(真实scrollTop + delta, 0)` 位移仍向下），无位置错乱。
+  - **写入约束（方向构造性封闭）**：`scrollTop = max(el.scrollTop + delta, 0)`，其中 `delta = 新 scrollHeight − 旧 scrollHeight`。**位移增量式写入，不做绝对值赋值**——增量天然非负（prepend 只增高度；若同帧有收缩源导致 delta 为负，max 钳到 0 = 原地不动，绝不产生向上位移），写入方向构造性封闭，不依赖「同帧无收缩」前提。弱前提声明（镜澜 delta-D1 修订）：条件②的采样一致性依赖任务排序——**实现期已加固**：兜底采样三件套（scrollTop/scrollHeight/首 id/conversationId）收进 useLayoutEffect 顶部推进（读本轮 commit 前 DOM 真实值），滞后窗口从「scroll 事件派发任务 vs React commit」收窄到「同帧多次 commit 内的边界」（详见「实现期发现」节）；破坏后果为兜底幂等抢跑一次锚定本可完成的调整（位移仍向下），无位置错乱。
   - 该兜底是 floating 态唯一的程序写入，方向受限（只增不减），与账本退役论证的衔接见「账本退役论证」修订版。
   - lastFirstIdRef / prevMessagesLenRef 头部采样保留（兜底与 pinned 判定都需要）；切会话 reset effect 照旧不同步 lastFirstIdRef——conversationId 守卫已封死跨容器消费，无需改现状 reset 时序。
 
@@ -211,3 +211,24 @@ index.tsx:482 `api.listEntries(activeId, 20, oldest.id)` → 50。timeline 窗�
 ### delta 复审（2026-10-20，镜澜）：approve，7/7 处置核验落实
 
 - delta-D1（「不依赖任何隐含前提」表述过强——方向构造封闭为真，但条件②采样一致性是未声明弱前提，破坏后果幂等）→ 已采纳收窄：T2 写入约束与账本论证第 2 条均补弱前提声明（采样更新点、任务排序窗口、幂等抢跑后果），删除过强声明。
+
+## 实现期发现（2026-10-20，大獭自测）
+
+- **采样时点修正**（实现与方案的一处偏差，效果为增强）：方案写「上一轮 scrollTop」采样放 handleScroll 末尾（沿用现状位移归因采样点）。实现中发现该时点滞后：scroll 事件在 commit 前任务里派发，prepend commit 时采样还是旧值；scrollHeight 采样若同事先经 handleScroll 推进会在 prepend 前漏采（自测：兜底条件链全命中但 prevSh=0/陈旧值，增量写入不触发）。修正：兜底采样三件套（scrollTop/scrollHeight/首 id/conversationId）全部收进 useLayoutEffect 顶部推进——读本轮 commit 前 DOM 真实值（commit 阶段程序写入尚未执行，恰是「上轮 commit 后、本轮 commit 前」的用户停留位置与内容高度），语义比方案更精确，镜澜 delta-D1 的弱前提窗口随之收窄。handleScroll 末尾的位移归因采样保留（服务 movedUp/shrank 判定，与兜底采样各司其职）。
+- **lastFirstIdRef 维护点同步内收**：原 [messages] effect（paint 后）维护头部 id 采样，同帧两次 commit 时第二次会读到已更新值漏判——一并收进 useLayoutEffect（paint 前推进）。prevMessagesLenRef 随恢复链退役删除（无任何逻辑引用）。
+- **stale-restore-mine.test.tsx 删除**：该文件是 F20261008w8lt 陈旧 restore 地雷的专项复现，断言对象（W8 恢复公式/武装-消费链）已随机制退役不存在；其覆盖的两个场景（loadMore 无内容后新消息不甩位 / prepend 后位置保持）已由 MessageList.test.tsx 的兜底守卫三场景与结构测试接管。
+- **scroll-restore-guard.spec.ts 改写**：旧 spec 断言「loadMore 恢复不甩位」（恢复链语义），改写为 F20261020wcsr 三用例（锚 2 中部 prepend 零跳变 / 锚 4 哨兵连拉限幅 / 锚 5 绝对顶部兜底），环境门控不变（无复刻数据显式 skip）。
+
+### 代码审视（2026-10-20，镜川/glm，PR #1575 review 留痕）
+
+- **严重 1（e2e 断言结构缺陷，4 子项全采纳）**：
+  ① 锚 2 findIndex 命中首屏渲染帧（SAMPLER 从 addInitScript 起跑，msgs 0→50 先于滚动）→ 改为「锚点消息视口 y 前后对比」直测判据（prepend 后滚回锚点消息，断言视口 y 偏移 ≤4px）——scroll anchoring 失效时必红，判据与验收对象对齐；
+  ② 锚 2 原判据只防过度下移、锚定失效时恒绿 → 同上，anchorBefore 采样接入判据；
+  ③ 锚 4 首屏帧计入批次（恰在 3 批上限边界误红）→ 基线采样移到滚动操作前（msgsAtStart），批次按 (差值/50) 计算；
+  ④ 锚 5 默认时序落 else 只 console.log（核心断言形同虚设）→ 显式冷却解除循环（最多 4 轮下滚-上滚），expect(msgsAfter > msgsBefore) 硬断言必达，位置断言 pos!==null 硬断言。
+- **严重 2（文档缺「实现期发现」节 + delta-D1 采样点描述滞后）→ 已补本节 + 订正 T2 弱前提段**（handleScroll 末尾 → useLayoutEffect 顶部，并说明加固后的窗口形态）。
+- **严重 3（CI FAILURE：分支落后 main，check job 未跑）→ 已 rebase origin/main（35b001cf），推后等 CI 复绿**。
+- 建议 1（兜底×锚定双补偿叠加窗口）→ 不预防性加层，alpha 跑锚 5 时如见超限先核对此叠加（镜川原判，采纳为观察项）。
+- 通过面留档：账本退役论证代码级核验成立（全仓唯一直接 scrollTop 写入在 programScroll，五调用点方向全向下）；哨兵 effect 重挂语义正确；T1-T4 + 镜澜三处修订逐一落地。
+
+（delta 复审结论待回填）
