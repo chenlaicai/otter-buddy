@@ -13,6 +13,16 @@
  * segmentStdoutContent 与重定向写面同一重建基座）→ 载荷递归走同一
  * checkMainCheckoutWrite（写主仓拦/树外放/工作区豁免）；不透明源 → fail-closed
  * 拦（U5 族「脚本内容未经逐条判定」正确定因）；裸 bash 无写面放行。
+ *
+ * r1 delta（检视獭1565 对抗审视裁决——保护回退面收口）：
+ * ④严重 1：`X | bash -c sh`（-c 载荷=裸 shell 名）是 stdin 中继，管道内容真执行——
+ *   旧实现见 -c 即跳过、递归只判 `sh` 词，双通道落空（main BLOCK→PR ALLOW）；
+ * ⑤严重 2：stdinShellKind 自立 6 词 wrapper 词表与 WRAPPER_SPECS 漂移——
+ *   timeout/env/setsid/watch/stdbuf/xargs 带参包装形态全静默漏判（#1275/#1278
+ *   词表病灶复刻）；对齐 WRAPPER_SPECS+skipWrapperArgs 同基座；
+ * ⑥建议 3a：`bash -s -` 与 `bash -s` 同语义同判（lone `-` 是 $0 操作数）；
+ * ⑦建议 3b：`X | bash -` 族 pre-existing 放行面**不扩面**——lone `-` 归 other，
+ *   残余记档（特性文档），钉住防静默漂移。
  */
 import { describe, it, expect } from "vitest";
 import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
@@ -75,6 +85,40 @@ describe("stdin 喂入 shell 载荷判定（C2 现存面）", () => {
     it("kill 面（嵌套递归）：bash -c 载荷内管道喂 shell 含 kill 词样 → 拦（递归上下文兜住）", () => {
       expect(guard(`bash -c 'echo "kill 42877" | bash'`)).not.toBeNull();
     });
+
+    // —— r1 delta（检视獭1565 严重 1/2 + 建议 3a：保护回退面收口）——
+
+    it("严重1 stdin 中继：printf 静态载荷|bash -c sh（-c 载荷=裸 shell）→ 管道内容真执行，写主仓拦", () => {
+      const r = guard(`printf 'touch ${MP}' | bash -c sh`);
+      expect(r).not.toBeNull();
+      expect(r).toContain("写命令落点解析到主仓"); // 递归判管道内容——命中通道文案
+    });
+
+    it("严重1 不透明源 cat|bash -c sh（stdin 中继）→ fail-closed（U5 正确定因）", () => {
+      const r = guard("cat /tmp/f.sh | bash -c sh");
+      expect(r).not.toBeNull();
+      expect(r).toContain("未经守卫逐条判定");
+    });
+
+    it("严重1 嵌套中继：载荷 bash -c 'bash -c sh' 递归同判管道内容 → 拦", () => {
+      expect(guard(`printf 'touch ${MP}' | bash -c 'bash -c sh'`)).not.toBeNull();
+    });
+
+    it("严重2 wrapper 带参 timeout 5 bash：词表对齐 WRAPPER_SPECS 同判 → 拦（旧静默净放行）", () => {
+      expect(guard(`echo 'touch ${MP}' | timeout 5 bash`)).not.toBeNull();
+    });
+
+    it("严重2 wrapper env -i bash（旗标位）→ 拦", () => {
+      expect(guard(`echo 'touch ${MP}' | env -i bash`)).not.toBeNull();
+    });
+
+    it("严重2 wrapper stdbuf -o0 bash（内联旗标）→ 拦", () => {
+      expect(guard(`echo 'touch ${MP}' | stdbuf -o0 bash`)).not.toBeNull();
+    });
+
+    it("建议3a bash -s -（与 bash -s 同语义）：静态载荷写主仓 → 拦（旧判据分裂漏放）", () => {
+      expect(guard(`echo 'touch ${MP}' | bash -s -`)).not.toBeNull();
+    });
   });
 
   describe("放行侧（C2 症状消除——可判内容按内容判、无写面不拦）", () => {
@@ -124,6 +168,28 @@ describe("stdin 喂入 shell 载荷判定（C2 现存面）", () => {
 
     it("对照：重定向写主仓 → 照拦", () => {
       expect(guard(`echo x > ${MP}`)).not.toBeNull();
+    });
+
+    // —— r1 delta 放行侧（内容判非一律拦 + 残余记档钉）——
+
+    it("严重1 良性静态载荷|bash -c sh（stdin 中继）→ 放行（内容判）", () => {
+      expect(guard(`printf 'echo hi' | bash -c sh`)).toBeNull();
+    });
+
+    it("严重2 wrapper 良性载荷|timeout 5 bash → 放行（同基座内容判，非一律拦）", () => {
+      expect(guard(`printf 'echo hi' | timeout 5 bash`)).toBeNull();
+    });
+
+    it("建议3a 良性载荷|bash -s - → 放行", () => {
+      expect(guard(`printf 'echo hi' | bash -s -`)).toBeNull();
+    });
+
+    it("裸 bash -c sh（stdin=EOF 无管道）→ 放行", () => {
+      expect(guard("bash -c sh")).toBeNull();
+    });
+
+    it("残余记档（建议3b 不扩面）：X|bash - 族 pre-existing 放行面保持——lone `-` 归 other 不判管道内容（特性文档残余节，修复时本钉须同步翻红）", () => {
+      expect(guard(`printf 'touch ${MP}' | bash -`)).toBeNull();
     });
   });
 });
