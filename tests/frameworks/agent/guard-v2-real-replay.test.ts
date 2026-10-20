@@ -111,6 +111,10 @@ EOF`;
     const cmd = `git stash push -m test-wip -- src/frameworks/agent/pi-session-factory.ts`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
   });
+  // 层差注记（大獭裁决 2026-10-14，M-3f8d8a0d 跨库对照；2026-10-20 落位）：双法院两案非反判——
+  // 求值器法院管「写没写主仓」（远端操作零本地树写→ALLOW，见 guard-touchstone TS-smrjreg18f0c467/
+  // c170d88c 层差注记同文）；本用例属策略层法院「破坏性远端操作」负门（R1.4 远端删分支→BLOCK）。
+  // 两层各司其职，与 touchstone 同命令 ALLOW 不构成反判（跨产线全等命中仅此一对，2026-10-20 重核无新增）。
   it("1013-B2: git push --delete（cwd 主仓）→ 拦（样本 8ae8edb8）", () => {
     const cmd = `git push origin --delete feature/F20261012orcl-acceptance-oracle-gate`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
@@ -125,6 +129,10 @@ EOF`;
   });
   it("1013-B5: bash script.sh（script_file_exec 负门）→ 拦（样本 040c8fc8/7daea038/cadd6a06）", () => {
     // 注：7daea038 实为 main_write 拦 do-commit.sh（脚本头注释自陈把 worktree 路径移出命令行规避守卫进程名模式），与 script_file_exec 同构同判；脚本内容 git -C "$WT" add/commit，按 O-2 理想口径可议放行，但 V1 现状 = BLOCK，翻转须重裁
+    // 注（2026-10-20 M-3f8d8a0d 层差注记落位，承接上注「翻转须重裁」钩子）：重裁已兑现——signal d5f2ae9a
+    // + 2026-10-14 全天候选裁决构成重裁，结论=ALLOW（脚本内容 git -C "$WT" add/commit 实质安全，
+    // v2 载荷判读→ALLOW，见 guard-touchstone TS-smrjregc0c9c6a6/3064857e/cb2c9109 层差注记同文）。
+    // 终态以 v2 为准；本用例钉 V1 现状=BLOCK 系层差记档（两法院口径，非终局裁决），V1 链退役或翻转时本期望随之更新。
     const cmd = `bash data/workspaces/7b41e085-5c21-4bd1-adfe-dc3ef051753d/wt-test.sh tests/frameworks/agent/guard-touchstone-corpus.test.ts`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeTruthy();
   });
