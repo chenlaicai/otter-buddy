@@ -49,7 +49,8 @@ alnk 机制（autolink 尾巴修剪）已存在并验证有效，本次是在其
 - 遍历 mdast `link` 节点，`https?://` 起头且尾部非法（与 alnk 的 `URL_TRAILING_CHAR` 正则同源判定：RFC 3986 合法尾字符反向剥离）时修剪
 - `link.url` 与链接文本同步修剪（autolink 的文本是 URL 字面量，文本带尾巴会展示误导）；剥下的碎片作为普通文本接回链接节点之后，阅读连续不丢字
 - 尾部干净的链接直通零开销；GFM 已正确排除的半角尾巴（不平衡 `)`）不出现，平衡括号属 URL 本体不误剥
-- 文本与尾巴错位时尽力而为停剥（不破坏原文）
+- 显式链接 `[label](url)` 的 url 尾巴同样修剪（带中文尾巴的 href 同样点不开，修剪是净改善）；label 与 url 无关不动
+- 已知边界（与 alnk 同源）：全角标点后紧跟 ASCII 字母时（如 `http://a.com/1。b`），反向剥离到全角标点为止、尾字母残留 url——尾字母本身是合法 URL 字符。Web/IM 行为一致，非本 PR 引入
 
 **为何不在 Web 端也做文本投影**：Web 渲染管线是 ReactMarkdown 直出组件，无服务端投影环节；mdast 层改节点覆盖行内链接 + 裸链 unfurl（remarkBareLink 读 url===text 判定升级 UnfurlCard）全链路，且无 stringify round-trip 改写其他语法的风险。alnk 必须改出站文本（IM 渲染器在远端），本插件改解析树——同一判定逻辑，各取各层。
 
@@ -58,7 +59,7 @@ alnk 机制（autolink 尾巴修剪）已存在并验证有效，本次是在其
 **失败证据链（troubleshooting 5a 固化）**：
 
 - 修复前：失败测试因插件模块不存在而失败（`Failed to resolve import "./remark-autolink-trim"`）；最小复现脚本输出 `link.url = "http://127.0.0.1:5000）。"`（本档 §2）
-- 修复后：`web/src/lib/remark-autolink-trim.test.ts` 7 项全过（搭档实证现场 / alnk 同款现场 / 干净直通 / query+fragment 保留 / 半角括号语义 / 显式链接不动 / 与 remarkBareLink 协作）；web 全量 731 测试绿；`tsc --noEmit` 干净
+- 修复后：`web/src/lib/remark-autolink-trim.test.ts` 11 项全过（搭档实证现场 / alnk 同款现场 / 干净直通 / query+fragment 保留 / 半角括号语义 / 显式链接 url 尾巴修剪 label 不动 / 与 remarkBareLink 协作 / 同段多链接顺序回归×2 / 容器内链接 / 已知边界锁定）；`MessageList.test.tsx` 集成用例锁 REMARK_PLUGINS 顺序 + 渲染后 href 干净；web 全量测试绿；`tsc --noEmit` 干净
 
 ## 5. 影响范围
 

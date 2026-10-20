@@ -33,7 +33,7 @@ export const remarkAutolinkTrim: Plugin<[], Root> = () => {
   return (tree) => {
     // 第一遍：收集命中链接的修剪动作（含从文本尾部剥下的碎片）。
     // 不在遍历中就地 splice 父级 children——先快照收集，第二遍统一插回。
-    const edits: Array<{ parent: Parent; index: number; link: Link }> = []
+    const edits: Array<{ parent: Parent; link: Link; fragments: Nodes[] }> = []
 
     const collect = (node: Nodes, parent?: Parent) => {
       if (node.type === 'link' && parent) {
@@ -62,9 +62,7 @@ export const remarkAutolinkTrim: Plugin<[], Root> = () => {
               } else break // 文本与尾巴错位（不应发生）——尽力而为，停剥不破坏
             }
             if (rest.length > 0) fragments.unshift({ type: 'text', value: rest }) // 未剥净兜底
-            edits.push({ parent, index: parent.children.indexOf(link), link })
-            // 碎片暂存到 link.data，第二遍统一插回（避免遍历中 splice 快照失效）
-            link.data = { ...link.data, autolinkTrimFragments: fragments } as Link['data']
+            edits.push({ parent, link, fragments })
           }
         }
       }
@@ -75,12 +73,16 @@ export const remarkAutolinkTrim: Plugin<[], Root> = () => {
     }
     collect(tree)
 
-    // 第二遍：碎片按链接位置接回父级子序列
-    for (const { parent, index, link } of edits) {
-      const fragments = (link.data as { autolinkTrimFragments?: Nodes[] } | undefined)?.autolinkTrimFragments
-      if (!fragments || fragments.length === 0) continue
+    // 第二遍：碎片按链接位置接回父级子序列。index 现查不快照——第一遍不 splice
+    // （碎片只在第二遍插入），但同 parent 多个命中链接时前一次插入会使后续链接
+    // 位置偏移，快照 index 必然失效（alnk 原版用倒序替换防同族问题：
+    // message-body-projection.ts「倒序替换，保证前面的 offset 不失效」）。
+    // 这里节点引用未变，现查 indexOf 恒准，与倒序等效且更直白。
+    for (const { parent, link, fragments } of edits) {
+      if (fragments.length === 0) continue
+      const index = parent.children.indexOf(link)
+      if (index < 0) continue // 链接已不在父级（不应发生）——防御跳过不破坏
       parent.children.splice(index + 1, 0, ...(fragments as Parent['children']))
-      delete (link.data as { autolinkTrimFragments?: Nodes[] }).autolinkTrimFragments
     }
   }
 }
