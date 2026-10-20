@@ -3,6 +3,16 @@ id: F20261020wtcl
 title: 词文本收编补完——// 前缀族与中缀斜杠族收编（前缀空间穷举表例外 1/4 收口）
 summary: delta8（F20261015smrj）前缀空间穷举表两例外收口：例外 1 `//x` ≡ `/x` 功能性旁路（delta4 防 JS 注释误命中而排 //，旁路只在词文本层——path.normalize 折叠双斜杠实证下游天然同判）+ 例外 4 中缀斜杠族（scripts/x 等）不对称缺口。修法=isDirectExecArgv0 内补两族（形状判别：路径安全字符集+≥1 内部斜杠；裸 // 除外保 JS 注释防线），三牙/三态/造-执对通道全复用。frozen 三库（795/82/105 含 TS-b42e23be）零翻转守恒验收通过。
 capability_test: tests/frameworks/agent/write-target-evaluator.test.ts（M-1438463a describe 9 钉 + 全文件 140/140）+ guard-touchstone-exam/corpus/v2-real-replay 三库守恒（31 passed + 6 skipped 零翻转）+ 全量 407 files 6486 passed + 6 skipped 零失败 + tsc/eslint 零报
+change_type: fix
+intent:
+  problem: "delta8（F20261015smrj）前缀空间穷举表两例外未收：例外 1 `//x` ≡ `/x` 功能性旁路（delta4 防 JS 注释误命中而排 //，旁路只在词文本层）+ 例外 4 中缀斜杠族（scripts/x 等）不对称缺口——裸直执不进三牙三态，bash 侧早已收"
+  expected_effect: "`//tmp/…`/`scripts/x` 裸直执进三牙三态（主仓写内容拦/缺席放行）与 bash 侧对称同判；裸 `//`（JS 注释标记）与 foo$BAR 类例外 2 边界不误收；frozen 三库（含 TS-b42e23be）零翻转"
+  verify_by:
+    type: behavior_check
+modules:
+  - src/frameworks/agent/write-target-evaluator.ts
+  - src/frameworks/agent/bash-safety-guard.ts
+  - tests/frameworks/agent/write-target-evaluator.test.ts
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 created_by: 守卫修复獭
 ---
