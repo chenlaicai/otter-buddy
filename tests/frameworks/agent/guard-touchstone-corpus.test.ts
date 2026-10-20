@@ -114,15 +114,18 @@ describe('guard-touchstone 三库冻结完整性', () => {
     // 2026-10-14 F20261014smrj delta4：block +2 负门 + allow +1 正门（段首直执同构三态双向，TS-smrjdir 前缀）
     //  ——追加依据大獭 delta4 工单（检视獭1360 delta4 严重1 扩面修裁决）；TS-0a7d41ee 补显式缺席声明
     //  （防考题机器依赖，verdict 不变）。
-    expect(allow.meta.count).toBe(796); // +1 = TS-80b0e7bc cond→allow 迁移（F20261019f714 期望翻面呈报件，原则②同款）
-    expect(block.meta.count).toBe(82); // 50 真实语料 + 14 合成对抗负门（严重1）+ 4 三牙负门（工单②）+ 4 exec 负门（delta2）+ 8 delta3 负门（execv 族+cd $VAR）+ 2 delta4 负门（段首直执）
+    // 2026-10-20 M-cf899ad2 A′（chen「按推荐」拍板）：workforms-retire sibling 运行时区边界匹配重裁——
+    //  2026-10-09 族 5 条 allow→block 翻红（3 条 git commit 形态 + 2 条 node -e 载荷写，后者系 #1561
+    //  fixture 迁移带入、gdfv 实验基线未见）：allow 796→791 / block 82→87（守恒不变，同族同判）。
+    expect(allow.meta.count).toBe(791); // +1 = TS-80b0e7bc cond→allow 迁移（F20261019f714 期望翻面呈报件，原则②同款）−5 = A′ 同族重裁翻红
+    expect(block.meta.count).toBe(87); // 50 真实语料 + 14 合成对抗负门（严重1）+ 4 三牙负门（工单②）+ 4 exec 负门（delta2）+ 8 delta3 负门（execv 族+cd $VAR）+ 2 delta4 负门（段首直执）+ 5 A′ 同族重裁翻红
     expect(cond.meta.count).toBe(104); // -1 = TS-80b0e7bc 迁出（同上）
     // 真实语料守恒 921（不含 TS-smrj 前缀新增：32 负门 + 29 回归/正门）
     const addedGate = [...allow.entries, ...block.entries, ...cond.entries].filter((e) => e.id.startsWith('TS-smrj')).length;
     expect(allow.meta.count + block.meta.count + cond.meta.count - addedGate).toBe(921);
     // 变更计数锚（重刷期望前后差异，详见 touchstone-recheck-diff.md）
     expect(allow.meta.restate_changes).toMatchObject({
-      git_policy_flip: 68, to_conditional: 108, o2_pooled: 26, o2_excl: 20, ledger_dispose: 8,
+      git_policy_flip: 68, to_conditional: 108, o2_pooled: 26, o2_excl: 20, ledger_dispose: 8, cf899ad2_region_recheck: 5,
     });
   });
 });

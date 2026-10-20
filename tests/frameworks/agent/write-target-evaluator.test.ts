@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { evaluateWriteTargets, pathWithinMain, resolveCwdAt } from "@frameworks/agent/write-target-evaluator";
+import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
 import { parseOnce } from "@frameworks/agent/command-model";
 import { SCRIPT_EXEC_FACE, dotExecCommandHits, proveNoWrite } from "@frameworks/agent/write-word-face";
 import { evaluateWriteVerdict } from "@frameworks/agent/write-verdict";
@@ -1080,5 +1081,52 @@ describe("#1432：node import/require 目标只读豁免（F20261014nirw）", ()
     if (r.kind === "evaluated") {
       expect(r.targets.map(t => t.path).some(p => p.includes("[") || p.includes(","))).toBe(false);
     }
+  });
+});
+
+// ────────── M-cf899ad2 A′ 运行时区边界匹配（仿名 sibling 不豁免——chen 2026-10-20「按推荐」拍板落码） ──────────
+describe("M-cf899ad2 A′ 运行时区边界匹配（workforms 本体+子树豁免照旧、仿名 sibling 拦）", () => {
+  it("wv 判定核：仿名 sibling 不豁免（workforms-x/retire/evil 均主仓判定域）", () => {
+    for (const p of [`${ROOT}/.otter/workforms-x/payload`, `${ROOT}/.otter/workforms-retire/f`, `${ROOT}/.otter/workforms-evil`]) {
+      expect(pathWithinMain(p, ROOT)).toBe(true);
+    }
+  });
+
+  it("wv 判定核：workforms 本体+子树豁免照旧（A′ 边界内），worktrees 尾杠对照与 root 锚定防 decoy 不变", () => {
+    expect(pathWithinMain(`${ROOT}/.otter/workforms`, ROOT)).toBe(false);
+    expect(pathWithinMain(`${ROOT}/.otter/workforms/sub/x`, ROOT)).toBe(false);
+    expect(pathWithinMain(`${ROOT}/.otter/worktrees/wt/f`, ROOT)).toBe(false);
+    expect(pathWithinMain(`${ROOT}/.otter/worktrees`, ROOT)).toBe(true); // 尾杠=仅子树，裸名主仓域
+    expect(pathWithinMain(`${ROOT}/.otter/worktrees-x`, ROOT)).toBe(true); // 仿名对照
+    expect(pathWithinMain(`${ROOT}/src/data/workspaces/decoy`, ROOT)).toBe(true); // root 锚定防嵌套 decoy
+  });
+
+  it("wv 端到端：echo 写仿名 sibling → BLOCK；写运行时区子树 → ALLOW", () => {
+    expect(evaluateWriteVerdict(`echo pwn > ${ROOT}/.otter/workforms-x/payload`, ROOT).verdict).toBe("BLOCK");
+    expect(evaluateWriteVerdict(`echo pwn > ${ROOT}/.otter/worktrees-x/p`, ROOT).verdict).toBe("BLOCK");
+    expect(evaluateWriteVerdict(`echo pwn > ${ROOT}/.otter/workforms/sub/x`, ROOT).verdict).toBe("ALLOW");
+    expect(evaluateWriteVerdict(`echo pwn > ${ROOT}/.otter/worktrees/wt/p`, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("prod 通道同判（同源契约镜像）：仿名破坏/内容写 → BLOCK；本体/子树清理正道 → ALLOW", () => {
+    for (const cmd of [
+      `rm -rf ${ROOT}/.otter/workforms-retire`,
+      `rm -rf ${ROOT}/.otter/workforms-x`,
+      `rm -rf ${ROOT}/.otter/worktrees-x`,
+      `echo pwn > ${ROOT}/.otter/workforms-evil/p`,
+    ]) {
+      expect(checkBashCommandSafety(cmd, 999999, undefined, { projectRoot: ROOT })).not.toBeNull();
+    }
+    for (const cmd of [
+      `rm -rf ${ROOT}/.otter/workforms`,
+      `rm -rf ${ROOT}/.otter/workforms/sub`,
+      `rm -rf ${ROOT}/.otter/worktrees/wt`,
+    ]) {
+      expect(checkBashCommandSafety(cmd, 999999, undefined, { projectRoot: ROOT })).toBeNull();
+    }
+  });
+
+  it("台账翻转面钉死：workforms-retire 语料形态（2026-10-09 旧裁决）现判 BLOCK（重裁对齐）", () => {
+    expect(evaluateWriteVerdict(`cd ${ROOT}/.otter/workforms-retire && git commit -m x`, ROOT).verdict).toBe("BLOCK");
   });
 });

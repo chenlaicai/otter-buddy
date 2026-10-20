@@ -441,10 +441,12 @@ function classifyDestructiveTarget(target: string, cwd: string, projectRoot?: st
   //  worktree 清理/工作区操作照常放；边界同 wv（精确子树前缀，裸区目录名不豁免）。
   if (resolvedLower === rootLower || resolvedLower.startsWith(rootLower + path.sep)) {
     for (const region of ["/.otter/worktrees/", "/.otter/workforms", "/data/workspaces/"]) {
-      // F20261019syml：区基同 realpath，尾杠形态逐字保持（带尾杠=仅子树，不带=含裸名）
+      // F20261019syml：区基同 realpath，尾杠形态逐字保持（带尾杠=仅子树）；
+      // M-cf899ad2 A′（2026-10-20 拍板）：不带尾杠=本体+子树（边界匹配，仿名 sibling 不豁免）
       const regionBase = path.normalize(safeRealpath(projectRoot + region.replace(/\/+$/, ""))).toLowerCase();
-      const prefix = region.endsWith("/") ? regionBase + path.sep : regionBase;
-      if (resolvedLower.startsWith(prefix)) return null;
+      const inSubtree = resolvedLower.startsWith(regionBase + path.sep);
+      const inBare = !region.endsWith("/") && resolvedLower === regionBase;
+      if (inSubtree || inBare) return null;
     }
     return "mainTree";
   }
@@ -1864,7 +1866,8 @@ export function pythonHeredocBodiesReadOnly(command: string): boolean {
  *  data/workspaces（对话工作区）、.otter/worktrees（worktree）、.otter/workforms
  *  物理在主仓树内但语义不属「主仓工作树」——R1 允许写区，写判定不应看见。
  *  同源契约：区域清单与 write-target-evaluator.ts OTTER_RUNTIME_REGIONS
- *  （:124）语义同步，改动须两侧同步。
+ *  （:124）语义同步，改动须两侧同步。M-cf899ad2 A′（2026-10-20）：两侧边界匹配语义
+ *  已统一（本函数原生即精确名+子树，wv 侧同日跟进）。
  *  root 级锚定防 decoy：区域 = projectRoot/<region> 前缀精确锚定，
  *  主仓内 src/data/workspaces 之类的同名嵌套路径不匹配（G1 对照组）。 */
 const MAIN_CHECKOUT_WRITE_EXEMPT_REGIONS = ["data/workspaces", ".otter/worktrees", ".otter/workforms"] as const;

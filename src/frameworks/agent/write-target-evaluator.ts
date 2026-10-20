@@ -130,8 +130,8 @@ const OTTER_RUNTIME_REGIONS = ["/.otter/worktrees/", "/.otter/workforms", "/data
 export function pathWithinMain(absPath: string, projectRoot: string): boolean {
   // F20261019syml（M-ed285d7c）：symlink 穿透归一——字符串落点在运行时区但真实落点在
   //  主仓内容树的穿链形态（ln -s + 写/删穿链）在此收口；区基同 realpath 后按原 region
-  //  尾杠形态重建前缀（裸区目录名豁免语义逐字保持：带尾杠=仅子树，不带=含裸名——
-  //  M-cf899ad2 口径之争不受本刀影响）。
+  //  尾杠形态重建前缀（M-cf899ad2 A′ 落码 2026-10-20：带尾杠=仅子树，不带=本体+子树，
+  //  仿名 sibling 不豁免——旧裸前缀使 .otter/workforms-x 任意内容写免检=藏匿面）。
   return pathWithinMainCore(normalizePath(safeRealpath(absPath)), projectRoot);
 }
 
@@ -143,14 +143,17 @@ export function pathEntryWithinMain(absPath: string, projectRoot: string): boole
   return pathWithinMainCore(normalizePath(path.join(safeRealpath(path.dirname(absPath)), path.basename(absPath))), projectRoot);
 }
 
-/** 判定核（p 须已解析归一）：运行时区豁免前缀 + 主仓树内判定。 */
+/** 判定核（p 须已解析归一）：运行时区豁免前缀 + 主仓树内判定。
+ *  M-cf899ad2 A′（2026-10-20 chen「按推荐」拍板）：边界匹配——精确名（尾杠形态不含）或子树，
+ *  仿名 sibling 不豁免（与 bash-safety-guard isInsideMainCheckout 同源契约统一语义）。 */
 function pathWithinMainCore(p: string, projectRoot: string): boolean {
   const rootNorm = normalizePath(projectRoot);
   const root = normalizePath(safeRealpath(rootNorm));
   for (const region of OTTER_RUNTIME_REGIONS) {
     const regionBase = normalizePath(safeRealpath(rootNorm + region.replace(/\/+$/, "")));
-    const prefix = region.endsWith("/") ? `${regionBase}/` : regionBase;
-    if (p.startsWith(prefix)) return false;
+    const inSubtree = p.startsWith(`${regionBase}/`);
+    const inBare = !region.endsWith("/") && p === regionBase;
+    if (inSubtree || inBare) return false;
   }
   if (p === root) return true;
   return p.startsWith(root.endsWith("/") ? root : `${root}/`);

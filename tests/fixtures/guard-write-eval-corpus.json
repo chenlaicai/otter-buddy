@@ -670,19 +670,19 @@
       "id": "c080",
       "command": "cd /Users/orca/ai/otter-buddy/.otter/workforms-retire && git commit --author=\"大獭 <otter-buddy>\" -F /tmp/csf3-commit-msg.",
       "expect": "UNEVAL_UNKNOWN",
-      "verdict": "ALLOW",
+      "verdict": "BLOCK",
       "source": "ledger",
-      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）",
-      "verdictBy": "守卫修复獭-20261009"
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）｜【重裁 2026-10-20·A′】随 guard-touchstone cf899ad2_region_recheck 5 条同族翻红同步（M-cf899ad2，chen 2026-10-20「按推荐」+ 大獭 17:55 S1 裁决：重裁收尾不留一半）：.otter/workforms 运行时区边界匹配——workforms-retire 仿名 sibling 不豁免，隐式写/载荷写落点=主仓判定域 → BLOCK；原 verdict ALLOW（2026-10-09「写证据落点全树外→放行」裁决）作废。",
+      "verdictBy": "守卫修复獭-20261020（A′ 重裁同步）"
     },
     {
       "id": "c081",
       "command": "cd /Users/orca/ai/otter-buddy/.otter/workforms-retire && git commit --author=\"大獭 <otter-buddy>\" -m \"[F20261009csf3][web]",
       "expect": "UNEVAL_UNKNOWN",
-      "verdict": "ALLOW",
+      "verdict": "BLOCK",
       "source": "ledger",
-      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）",
-      "verdictBy": "守卫修复獭-20261009"
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决）｜【重裁 2026-10-20·A′】随 guard-touchstone cf899ad2_region_recheck 5 条同族翻红同步（M-cf899ad2，chen 2026-10-20「按推荐」+ 大獭 17:55 S1 裁决：重裁收尾不留一半）：.otter/workforms 运行时区边界匹配——workforms-retire 仿名 sibling 不豁免，隐式写/载荷写落点=主仓判定域 → BLOCK；原 verdict ALLOW（2026-10-09「写证据落点全树外→放行」裁决）作废。",
+      "verdictBy": "守卫修复獭-20261020（A′ 重裁同步）"
     },
     {
       "id": "c082",
@@ -697,19 +697,19 @@
       "id": "c083",
       "command": "cd /Users/orca/ai/otter-buddy/.otter/workforms-retire && node -e \"\nconst fs=require('fs');\nconst p='web/src/pages/conver",
       "expect": "UNEVAL_UNKNOWN",
-      "verdict": "ALLOW",
+      "verdict": "BLOCK",
       "source": "ledger",
-      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决） [truncated-payload: commandHead 120 字符截断，载荷不完整——回落=源数据上限，非求值器缺口]",
-      "verdictBy": "守卫修复獭-20261009"
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决） [truncated-payload: commandHead 120 字符截断，载荷不完整——回落=源数据上限，非求值器缺口]｜【重裁 2026-10-20·A′】随 guard-touchstone cf899ad2_region_recheck 5 条同族翻红同步（M-cf899ad2，chen 2026-10-20「按推荐」+ 大獭 17:55 S1 裁决：重裁收尾不留一半）：.otter/workforms 运行时区边界匹配——workforms-retire 仿名 sibling 不豁免，隐式写/载荷写落点=主仓判定域 → BLOCK；原 verdict ALLOW（2026-10-09「写证据落点全树外→放行」裁决）作废。",
+      "verdictBy": "守卫修复獭-20261020（A′ 重裁同步）"
     },
     {
       "id": "c084",
       "command": "cd /Users/orca/ai/otter-buddy/.otter/workforms-retire && node -e \"\nconst fs = require('fs');\nconst p = 'web/src/pages/co",
       "expect": "UNEVAL_UNKNOWN",
-      "verdict": "ALLOW",
+      "verdict": "BLOCK",
       "source": "ledger",
-      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决） [truncated-payload: commandHead 120 字符截断，载荷不完整——回落=源数据上限，非求值器缺口]",
-      "verdictBy": "守卫修复獭-20261009"
+      "note": "台账 2026-10-09 ruleId=main_write（期望待人工裁决） [truncated-payload: commandHead 120 字符截断，载荷不完整——回落=源数据上限，非求值器缺口]｜【重裁 2026-10-20·A′】随 guard-touchstone cf899ad2_region_recheck 5 条同族翻红同步（M-cf899ad2，chen 2026-10-20「按推荐」+ 大獭 17:55 S1 裁决：重裁收尾不留一半）：.otter/workforms 运行时区边界匹配——workforms-retire 仿名 sibling 不豁免，隐式写/载荷写落点=主仓判定域 → BLOCK；原 verdict ALLOW（2026-10-09「写证据落点全树外→放行」裁决）作废。",
+      "verdictBy": "守卫修复獭-20261020（A′ 重裁同步）"
     },
     {
       "id": "c085",

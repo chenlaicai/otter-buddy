@@ -98,13 +98,18 @@ for (const s of corpus.samples) {
   // 两类样本均从切换判据分母剔除（预注册：判据量的是求值器职责域内的表现，语料源缺陷
   // 与别族拦截不是求值器的覆盖缺口）；剔除数单独披露在 CROSS_RULE/TRUNCATED_PAYLOAD
   // 计数字段，达标结论口径 = 「main_write 完整命令子集」。
+  // F20261020rgbd S1 delta（2026-10-20）：截断样本剔除条件从「仅回落（FALLBACK）剔除」
+  // 对齐预注册「均剔除」——实测截断载荷下求值器不止回落一种形态：c083/c084 判 evaluated
+  // 空集放行（写调用在丢失的载荷尾部）、c091 疑似截断误导错判，三例均属语料源缺陷的
+  // 不可信输出而非求值器覆盖缺口，无条件剔除才是预注册本义（全形态由合成样本 +
+  // touchstone 钉死，guard-touchstone-corpus.test.ts 断言 workforms-retire 族全 BLOCK）。
   const isCrossRule = /EXPECTED-CROSS|ruleId=(?!main_write)\S+/.test(s.note ?? "");
   const isTruncatedPayload = /truncated-payload/.test(s.note ?? "");
 
   let status;
   if (evalVerdict === "EVAL-ERROR" || oldVerdict === "OLD-ERROR") status = "ERROR";
   else if (isCrossRule && expect === "BLOCK" && evalVerdict === "ALLOW") status = "EXPECTED-CROSS-RULE"; // 跨规则：剔除判据
-  else if (isTruncatedPayload && evalVerdict === "FALLBACK") status = "TRUNCATED-PAYLOAD"; // 截断载荷：源数据上限，剔除判据
+  else if (isTruncatedPayload) status = "TRUNCATED-PAYLOAD"; // 截断载荷：源数据上限，无条件剔除判据（预注册「均剔除」，S1 delta 对齐——不只回落形态）
   else if (evalVerdict === "FALLBACK") status = "FALLBACK"; // 回落：终态=旧链（shadow 记录回落事实）
   else if (evalVerdict === expect && oldVerdict === expect) status = "AGREE";
   else if (evalVerdict !== expect && oldVerdict === expect) status = evalVerdict === "BLOCK" ? "EVAL-OVERBLOCK" : "RED-LINE-ESCAPE";
