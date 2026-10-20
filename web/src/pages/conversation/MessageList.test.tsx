@@ -798,3 +798,38 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 })
+
+describe('F20261020wabt Web 消息链接全角尾巴修剪（渲染链集成）', () => {
+  /**
+   * 锁两件事：① REMARK_PLUGINS 顺序（remarkAutolinkTrim 须在 remarkBareLink 之前——
+   * 顺序反了本测试红）② 全链路渲染行为（mdast 插件 → UnfurlAwareLink → <a href>）。
+   * 单元层覆盖在 src/lib/remark-autolink-trim.test.ts，此处是集成的唯一锚。
+   */
+  function renderOtterBody(content: string) {
+    act(() => {
+      root.render(
+        <MessageList
+          messages={[msg({ content })]}
+          state="normal"
+          onStopStream={() => {}}
+          onRetryMessage={() => {}}
+          onRetry={() => {}}
+          onGoToSettings={() => {}}
+          otters={[]}
+          conversationId="conv-1"
+          pinRef={{ current: true }}
+        />,
+      )
+    })
+  }
+
+  it('行内裸链带全角尾巴 → href 干净可点，尾巴留在链接外文本流', () => {
+    renderOtterBody('任务已完成，服务仍在运行（http://127.0.0.1:5000）。')
+    const a = container.querySelector('a[href^="http://127.0.0.1"]')
+    expect(a, '链接应渲染').toBeTruthy()
+    expect(a!.getAttribute('href'), 'href 不含全角尾巴').toBe('http://127.0.0.1:5000')
+    expect(a!.textContent, '链接文本同步修剪').toBe('http://127.0.0.1:5000')
+    // 尾巴回到链接外（阅读连续不丢字）
+    expect(container.textContent).toContain('http://127.0.0.1:5000）。')
+  })
+})
