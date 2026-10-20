@@ -639,7 +639,7 @@ describe("StoreMemory - F20261013ebps 批量 embed + 槽位流速控制", () => 
     expect(repo.storedEmbeddings).toHaveLength(0);
   });
 
-  it("replaceChunksBySource：embedBatch 带 waitSlot 软限流 + salvage（F20261016slvg：槽位等待内嵌，取代 acquireSlot 配对）", async () => {
+  it("replaceChunksBySource：embedBatch 带 waitSlot 软限流 + salvage（F20261020slvg：槽位等待内嵌，取代 acquireSlot 配对）", async () => {
     const repo = statefulRepo();
     const optsSeen: Array<{ waitSlot?: boolean; salvage?: unknown }> = [];
     const embedding: EmbeddingGateway = {

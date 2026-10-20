@@ -109,7 +109,7 @@ export class StoreMemory {
    * embed 成功 → storeEmbedding；任一失败 → enqueueRetry 入队（ON CONFLICT 保留 attempts）。
    * 三处调用点（execute / replaceBySource / replaceChunksBySource）共用，避免重复。
    *
-   * F20261016slvg：
+   * F20261020slvg：
    * - waitSlot——活消息不再弹回 retry 队列等 1h tick，而是 FIFO 排队，
    *   由 worker 真实吞吐节流（回填泄洪期间活消息也能及时 embedding）。
    * - salvage 双轨——超时只是「不再等」：enqueueRetry 兜底入队，同时 worker
@@ -243,7 +243,7 @@ export class StoreMemory {
    * 流速控制（对抗审视 #1465 严重发现 1）：sync 启动期 600+ 文档串行 await
    * replaceChunksBySource，但 embed 是 fire-and-forget——前一批未完成后一批已发起，
    * 前 50 篇即可耗尽背压 slot，第 51 篇起全部 reject 走 retry 慢路径。
-   * F20261016slvg：waitSlot 直接内嵌 embedBatch（槽满挂起，唤醒→准入在同一同步段），
+   * F20261020slvg：waitSlot 直接内嵌 embedBatch（槽满挂起，唤醒→准入在同一同步段），
    * 软限流替代硬溢出，sync 速度由 worker 真实吞吐节流。
    */
   private fireAndForgetEmbedBatch(items: Array<{ id: string; content: string }>): void {
@@ -253,7 +253,7 @@ export class StoreMemory {
     if (typeof gateway.embedBatch === "function") {
       const embedBatch = gateway.embedBatch.bind(gateway);
       const texts = items.map(item => this.truncateForEmbed(item.content));
-      // F20261016slvg：waitSlot 内嵌进 embedBatch（替代 acquireSlot→embedBatch 两步配对，
+      // F20261020slvg：waitSlot 内嵌进 embedBatch（替代 acquireSlot→embedBatch 两步配对，
       // 消灭唤醒后到准入之间的 TOCTOU 竞态）；salvage 同 fireAndForgetEmbed 双轨语义
       embedBatch(texts, {
         waitSlot: true,

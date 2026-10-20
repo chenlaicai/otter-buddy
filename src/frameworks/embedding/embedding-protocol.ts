@@ -1,5 +1,5 @@
 /**
- * F20261016slvg：embedding IPC 协议与请求簿记类型（从 embedding-service.ts 拆出，压文件行数）。
+ * F20261020slvg：embedding IPC 协议与请求簿记类型（从 embedding-service.ts 拆出，压文件行数）。
  * 主进程（EmbeddingServiceImpl）与 bge-m3 worker 子进程共享的消息形状 + pending 簿记结构。
  */
 
@@ -34,11 +34,11 @@ type PendingRequest = {
   resolve: (value: Float32Array) => void;
   reject: (error: Error) => void;
   /**
-   * F20261016slvg：调用方已超时放弃。条目保留（槽位不释放）直到 worker 响应——
+   * F20261020slvg：调用方已超时放弃。条目保留（槽位不释放）直到 worker 响应——
    * 响应到达时走 salvage（若有）而非丢弃。根治「白算的向量无人消费」。
    */
   abandoned?: boolean;
-  /** F20261016slvg：晚到结果的持久化回调（超时前由调用方注入） */
+  /** F20261020slvg：晚到结果的持久化回调（超时前由调用方注入） */
   salvage?: (embedding: Float32Array) => void;
 };
 
@@ -46,9 +46,9 @@ type PendingRequest = {
 type PendingBatchRequest = {
   resolve: (value: Float32Array[]) => void;
   reject: (error: Error) => void;
-  /** F20261016slvg：同 PendingRequest.abandoned */
+  /** F20261020slvg：同 PendingRequest.abandoned */
   abandoned?: boolean;
-  /** F20261016slvg：晚到整批结果的持久化回调 */
+  /** F20261020slvg：晚到整批结果的持久化回调 */
   salvage?: (embeddings: Float32Array[]) => void;
 };
 

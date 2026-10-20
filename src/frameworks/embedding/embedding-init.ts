@@ -1,5 +1,5 @@
 /**
- * F20261016slvg：embedding 服务初始化（从 embedding-service.ts 拆出，压文件行数上限）。
+ * F20261020slvg：embedding 服务初始化（从 embedding-service.ts 拆出，压文件行数上限）。
  * 读写双 lane 的 fork 装配 + dispose 聚合。
  */
 

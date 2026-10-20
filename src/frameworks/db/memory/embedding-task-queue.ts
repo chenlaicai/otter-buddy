@@ -92,7 +92,7 @@ export function markTaskAttemptFailed(db: Database.Database, entryId: string, er
 }
 
 /**
- * F20261016slvg 对抗审视洞 2 处置：启动时重置 pending 任务的 attempts 归零。
+ * F20261020slvg 对抗审视洞 2 处置：启动时重置 pending 任务的 attempts 归零。
  * claim 即 attempts+1，而超时循环（不计失败）会反复 claim 把 attempts 撑到 ≥3——
  * 2026-10-16 活锁 4h40m 后存量 2905 条积压大量 attempts 虚高，不重置的话上线后
  * 遇到一次硬错误（或旧版瞬态错误）就成批 dead-letter。只在启动迁移调一次。

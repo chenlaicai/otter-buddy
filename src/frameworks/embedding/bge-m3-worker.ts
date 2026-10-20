@@ -146,7 +146,7 @@ getExtractor()
   });
 
 /**
- * F20261016slvg：显式串行队列——promise chain 保证同一时刻最多一个推理在途。
+ * F20261020slvg：显式串行队列——promise chain 保证同一时刻最多一个推理在途。
  * 现状 onnxruntime-node 的 session.run 原生同步阻塞，事件循环停摆期间后续消息
  * 排队，「偶然串行」；显式 chain 把这一不变量写进代码——未来换异步 backend /
  * IOBinding / 改回 worker_threads 时不依赖偶然性（onnxruntime 1.23.2 长文本 ×
@@ -195,7 +195,7 @@ async function handleInferenceMessage(msg: EmbedRequest | EmbedBatchRequest): Pr
 }
 
 process.on("message", (msg: EmbedRequest | EmbedBatchRequest) => {
-  // F20261016slvg：吞错保险丝——handle 内部已逐分支 try/catch，此处防御性
+  // F20261020slvg：吞错保险丝——handle 内部已逐分支 try/catch，此处防御性
   // 保证 chain 永不断裂（断裂会静默停摆整个 worker）
   inferenceChain = inferenceChain
     .then(() => handleInferenceMessage(msg))

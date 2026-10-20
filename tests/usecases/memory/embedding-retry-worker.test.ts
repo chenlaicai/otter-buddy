@@ -396,7 +396,7 @@ describe("F20260812mrcq Part 1 审视 M3 - createAndStartRetryWorker 存量迁�
   });
 });
 
-describe("F20261016slvg 背压不计 attempts + salvage 落库去重", () => {
+describe("F20261020slvg 背压不计 attempts + salvage 落库去重", () => {
   it("EmbedBackpressureError 不计入 maxAttempts 且终止本轮（条目保持 pending）", async () => {
     insertEntry("bp-entry", "backpressure content that is long enough");
     await repo.enqueueRetry("bp-entry", new Error("init"));
@@ -466,7 +466,7 @@ describe("F20261016slvg 背压不计 attempts + salvage 落库去重", () => {
   });
 });
 
-describe("F20261016slvg 对抗审视修复", () => {
+describe("F20261020slvg 对抗审视修复", () => {
   it("EmbedTransientError 不计入 maxAttempts——反复瞬态失败后条目仍 pending", async () => {
     insertEntry("transient-entry", "transient content that is long enough");
     await repo.enqueueRetry("transient-entry", new Error("init"));

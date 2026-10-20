@@ -1,5 +1,5 @@
 ---
-id: F20261016slvg
+id: F20261020slvg
 title: embedding 诚实准入 + 结果 salvage + 无进展看门狗——根治「超时≠取消」缺位导致的写 lane 活锁
 summary: '#1521 双 lane 上线当天写 lane 活锁 4h40m（200% CPU、RSS 10.9G、重试 100% 超时、2905 backlog 零收敛）。真根因是 12 次提交从未建立的「超时≠取消」不变量：超时只删主进程 promise 并提前释放槽位，worker 照算、结果静默丢弃、任务回队列无限重算。修复：超时只标记 abandoned，条目保留到 worker 响应（准入量测 worker 真实占用）；晚到结果经 salvage 回调落库去重；「死」的判定从墙钟超预算改为「lane 占用且无任何响应 5 分钟」看门狗。'
 change_type: fix

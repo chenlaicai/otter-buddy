@@ -265,7 +265,7 @@ process.on("message", (msg) => {
 
     try {
       // 先等 worker ready——否则 embed 内的 await waitForReady() 会让槽位占用延后一个 microtask，
-      // 后面的 acquireSlot 会插队看到空槽（测试时序缺陷，非实现 bug；F20261016slvg 已在实现层
+      // 后面的 acquireSlot 会插队看到空槽（测试时序缺陷，非实现 bug；F20261020slvg 已在实现层
       // 消灭该 TOCTOU——新代码应走 waitSlot，此处 acquireSlot 仅作兼容遗留入口）
       await service.acquireSlot!();
       // 打满 2 个槽位
@@ -274,7 +274,7 @@ process.on("message", (msg) => {
       // embed 体内部 await waitForReady() 是异步断点——哪怕 ready 已置位，占槽也发生在后续 microtask；
       // 必须等两个 embed 真正入 pendingRequests——ready 消息经 worker IPC，到达时机不确定，
       // 轮询 in-flight 计数到 2 为止（否则后续 acquireSlot 看到空槽插队，测试时序缺陷，非实现 bug；
-      // F20261016slvg 后 acquireSlot 仅兼容遗留，新代码应走 waitSlot 原子路径）
+      // F20261020slvg 后 acquireSlot 仅兼容遗留，新代码应走 waitSlot 原子路径）
       const svcInternal = service as unknown as { pendingRequests: Map<number, unknown> };
       for (let i = 0; i < 200 && svcInternal.pendingRequests.size < 2; i++) {
         await new Promise((r) => setTimeout(r, 5));
@@ -321,7 +321,7 @@ process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } }
   });
 });
 
-// F20261015selfheal → F20261016slvg：自愈入口从「超时触发」改为「无进展看门狗触发」。
+// F20261015selfheal → F20261020slvg：自愈入口从「超时触发」改为「无进展看门狗触发」。
 // 测试直接调 watchdogTick() 模拟心跳（确定性，不依赖 60s interval），
 // setTestWatchdogOverride 把无进展阈值压到毫秒级。
 describe("worker 超时自愈", () => {
@@ -358,7 +358,7 @@ if (process.env.OTTER_EMBED_TEST_GENERATION === "1") {
         const svcInternal = service as unknown as { readyState: { ready: boolean }; restartTimestamps: number[]; watchdogTick: () => void };
         await waitFor(() => svcInternal.readyState.ready, "gen0 ready");
 
-        // gen=0 假死 → embed 超时 → F20261016slvg：超时本身不再触发重启
+        // gen=0 假死 → embed 超时 → F20261020slvg：超时本身不再触发重启
         await expect(service.embed("hang")).rejects.toThrow("Embed timeout");
         expect(svcInternal.restartTimestamps.length).toBe(0);
 
@@ -498,7 +498,7 @@ process.on("message", () => {});
         expect(ctx.action).toBe("embedding_worker_restart");
         expect(ctx.restartsInWindow).toBe(1);
         expect(typeof ctx.workerAgeMs).toBe("number");
-        // F20261016slvg 新增画像：outstanding 请求数 + salvage 计数
+        // F20261020slvg 新增画像：outstanding 请求数 + salvage 计数
         expect(ctx.outstandingRequests).toBe(1);
         expect(ctx.workerSalvagedResults).toBe(0);
         // 超时请求画像：文本长度/token 估算/前缀摘要
@@ -506,7 +506,7 @@ process.on("message", () => {});
         expect(timeoutCtx.path).toBe("embed");
         expect((timeoutCtx.text as Record<string, unknown>).chars).toBe(8);
         expect((timeoutCtx.text as Record<string, unknown>).head).toBe("观测增强验证文本");
-        // F20261016slvg：超时后条目保留（不再自删）——inflight 含自身 =1
+        // F20261020slvg：超时后条目保留（不再自删）——inflight 含自身 =1
         expect(timeoutCtx.inflight).toBe(1);
         // 宿主快照：rss/heap/loadavg 齐全
         const host = ctx.host as Record<string, unknown>;
@@ -579,7 +579,7 @@ if (process.env.OTTER_EMBED_TEST_GENERATION === "1") {
     });
 });
 
-// F20261016ebrt → F20261016slvg：「慢≠死」由无进展看门狗承载——
+// F20261016ebrt → F20261020slvg：「慢≠死」由无进展看门狗承载——
 // 慢但持续有响应的 worker 永不被杀；真死锁（无响应）必被杀。
 describe("超时语义收窄（慢≠死）", () => {
     it("超时本身不再触发重启（无论本代成功与否）——自愈入口已移到看门狗", async () => {
@@ -618,7 +618,7 @@ process.on("message", (msg) => {
         expect(first).toBeInstanceOf(Float32Array);
         expect(svcInternal.restartTimestamps.length).toBe(0);
 
-        // 第二条超时——超时本身不杀（F20261016slvg：自愈入口已从超时移到看门狗）
+        // 第二条超时——超时本身不杀（F20261020slvg：自愈入口已从超时移到看门狗）
         await expect(service.embed("slow one")).rejects.toThrow("Embed timeout");
         expect(svcInternal.restartTimestamps.length).toBe(0);
         expect(svcInternal.readyState.ready).toBe(true);
@@ -715,7 +715,7 @@ process.on("message", (msg) => {
     });
 });
 
-// F20261016slvg 对抗审视洞 1/2：worker 死亡路径唤醒 waiter + 瞬态错误类型
+// F20261020slvg 对抗审视洞 1/2：worker 死亡路径唤醒 waiter + 瞬态错误类型
 describe("对抗审视修复：waiter 唤醒与瞬态错误", () => {
   it("worker 意外退出：parked 的 waitSlot 调用方被唤醒并 fail-fast（不永久悬挂）", async () => {
     const mockWorkerPath = writeMockWorker("mock-crash-worker.mjs", `
@@ -835,7 +835,7 @@ process.on("message", (msg) => {
   });
 });
 
-// F20261016slvg：超时 ≠ 取消——诚实准入 + 结果 salvage + waitSlot 软限流
+// F20261020slvg：超时 ≠ 取消——诚实准入 + 结果 salvage + waitSlot 软限流
 describe("槽位语义与 salvage（超时 ≠ 取消）", () => {
   /** 晚响应 worker：收到 embed 后延迟 replyMs 才回结果 */
   function lateWorkerScript(replyMs: number): string {

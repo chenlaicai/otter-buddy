@@ -23,7 +23,7 @@ export class EmbedTimeoutError extends Error {
 }
 
 /**
- * F20261016slvg：背压错误——lane 占用（in-flight 满且调用方未要求排队）。
+ * F20261020slvg：背压错误——lane 占用（in-flight 满且调用方未要求排队）。
  * retry worker 见此错误不计入 maxAttempts：这是「现在忙」，不是「这条坏了」，
  * 任务保持 pending 按退避下次再来。
  */
@@ -35,7 +35,7 @@ export class EmbedBackpressureError extends Error {
 }
 
 /**
- * F20261016slvg：瞬态错误——worker 重建/崩溃/熔断期间 rejectAllPending 用的类型。
+ * F20261020slvg：瞬态错误——worker 重建/崩溃/熔断期间 rejectAllPending 用的类型。
  * 对抗审视洞 2（埋单链）：claim 即 attempts+1，超时循环会把 attempts 撑到 ≥3；
  * 若 worker 重启的 reject 走普通 Error → markTaskAttemptFailed → 成批 dead-letter。
  * 瞬态错误与超时/背压同待遇：不计 attempts，任务保持 pending 重来。
@@ -48,7 +48,7 @@ export class EmbedTransientError extends Error {
 }
 
 /**
- * F20261016slvg：embed 调用选项。
+ * F20261020slvg：embed 调用选项。
  *
  * 核心不变量（根治 #1521 后写 lane 活锁）：**超时 ≠ 取消**。
  * - 超时只是「调用者不再等待」（reject 调用方 promise），请求条目保留到 worker 响应为止，
@@ -65,7 +65,7 @@ export interface EmbedCallOptions {
   salvage?: (embedding: Float32Array) => void;
 }
 
-/** F20261016slvg：embedBatch 调用选项（语义同 EmbedCallOptions，salvage 收整批） */
+/** F20261020slvg：embedBatch 调用选项（语义同 EmbedCallOptions，salvage 收整批） */
 export interface EmbedBatchCallOptions {
   waitSlot?: boolean;
   salvage?: (embeddings: Float32Array[]) => void;

@@ -35,7 +35,7 @@ export class EmbeddingRetryWorker {
   /** F20261016ebrt：单次 tick 最多连吃几批（积压泄洪）。50×20=1000 条/tick 上限 */
   private static readonly MAX_DRAIN_ROUNDS = 20;
   /**
-   * F20261016slvg 对抗审视洞 4：单次 tick 时间预算。waitSlot 节流后 tick 时长由
+   * F20261020slvg 对抗审视洞 4：单次 tick 时间预算。waitSlot 节流后 tick 时长由
    * worker 真实吞吐决定（2905 条 × 慢推理可达几十小时），而 PatrolWorker 串行
    * await 每个 duty——不设预算会把对账/信号扫描等其余 duty 全部饿死。
    * 到点即收，下个整点 tick 续吃（任务 claim 后未完成会按退避自动回队）。
@@ -103,7 +103,7 @@ export class EmbeddingRetryWorker {
    * 立即跑一轮 tick（当前唯一驱动：PatrolWorker 每 1h 巡检调用，见 app.ts）。
    * 启动首轮由 createAndStartRetryWorker 自跑，无事件接线。
    *
-   * F20261016slvg：重入守卫——逐条 waitSlot 后单个 tick 可能跑几十分钟（吞吐由
+   * F20261020slvg：重入守卫——逐条 waitSlot 后单个 tick 可能跑几十分钟（吞吐由
    * worker 真实速度节流），PatrolWorker 下个小时再调 tickNow 会并发 tick。
    * claimPendingTasks 的 next_retry_at 退避天然挡重复 claim，此处显式守卫更干净。
    */
@@ -136,7 +136,7 @@ export class EmbeddingRetryWorker {
       return;
     }
 
-    // F20261016ebrt：积压泄洪 + F20261016slvg 洞 3/4/5 修正（详见 drainRounds 内注释）
+    // F20261016ebrt：积压泄洪 + F20261020slvg 洞 3/4/5 修正（详见 drainRounds 内注释）
     const totals = await this.drainRounds();
     // 对抗审视洞 5：tick 收尾打点——积压收敛的可观测抓手
     if (totals.claimed > 0) {
@@ -152,7 +152,7 @@ export class EmbeddingRetryWorker {
 
   /**
    * F20261016ebrt：积压泄洪——吃满一批立即再 claim，直到队列见底或达轮次上限。
-   * F20261016slvg：泄洪自节流——逐条 waitSlot 后节奏由 worker 真实吞吐决定，
+   * F20261020slvg：泄洪自节流——逐条 waitSlot 后节奏由 worker 真实吞吐决定，
    * 不再往忙 lane 灌请求；lane 满时终止本轮（不算失败）。
    * 对抗审视洞 4：tick 时间预算——waitSlot 节流后单个 tick 可跑几十小时，
    * PatrolWorker 串行 await duty 会全部饿死；到点即收，下个 tick 续。
@@ -180,7 +180,7 @@ export class EmbeddingRetryWorker {
 
   /**
    * drain 轮间停机判定（从 drainRounds 拆出压复杂度）。
-   * F20261016slvg 对抗审视洞 3：熔断吸收态修正——「全失败」只数硬失败
+   * F20261020slvg 对抗审视洞 3：熔断吸收态修正——「全失败」只数硬失败
    * （markTaskAttemptFailed 路径）。纯超时轮是「lane 慢」的正常路径（salvage
    * 还在后台落库），计入熔断会让 retry worker 在慢机器上 3 轮后自我砖化。
    */
@@ -210,7 +210,7 @@ export class EmbeddingRetryWorker {
   /**
    * F20261013ebps：处理已 claim 的任务批次（从 tick 拆出，降复杂度）。
    *
-   * F20261016slvg：
+   * F20261020slvg：
    * - 逐条 waitSlot——吞吐由 worker 真实速度节流（槽位占用到 worker 响应为止），
    *   不再往忙 lane 里塞请求。
    * - 传 salvage——超时只是「不再等」，worker 晚到的向量照样落库 + markTaskDone，
@@ -254,7 +254,7 @@ export class EmbeddingRetryWorker {
   }
 
   /**
-   * F20261016slvg：单条任务的 embed——waitSlot 软限流 + salvage 双轨。
+   * F20261020slvg：单条任务的 embed——waitSlot 软限流 + salvage 双轨。
    * salvage 里 service 已包裹吞错；此处再兜一层：失败留 pending，下个 tick 重来。
    */
   private async embedWithSalvage(task: EmbeddingTask): Promise<Float32Array> {
@@ -287,7 +287,7 @@ export class EmbeddingRetryWorker {
     task: EmbeddingTask,
     err: unknown,
   ): Promise<"busy" | "timeout" | "transient" | "hard"> {
-    // F20261016slvg：背压——「现在忙」不是「这条坏了」，不计 attempts。
+    // F20261020slvg：背压——「现在忙」不是「这条坏了」，不计 attempts。
     // 注：waitSlot 下正常不可达（等待循环与准入检查同同步段取同值），
     // 纯防御——防未来重构破坏原子性时把可恢复任务埋掉
     if (err instanceof EmbedBackpressureError) {
@@ -298,14 +298,14 @@ export class EmbeddingRetryWorker {
     }
     // F20261016ebrt：超时 ≠ 坏条目——不计入 maxAttempts，不 dead-letter。
     // 超时是「这批太慢/worker 暂时忙」，3 次就埋掉会把可恢复条目永久暗化。
-    // F20261016slvg：超时后 salvage 仍有机会把结果落库（双轨）。
+    // F20261020slvg：超时后 salvage 仍有机会把结果落库（双轨）。
     if (err instanceof EmbedTimeoutError) {
       this.logger.warn(
         `Embedding retry timeout for ${task.entryId} (not counted toward dead-letter, salvage may still land it): ${err}`,
       );
       return "timeout";
     }
-    // F20261016slvg 对抗审视洞 2：瞬态错误（worker 重建/崩溃/熔断/send 失败）不计
+    // F20261020slvg 对抗审视洞 2：瞬态错误（worker 重建/崩溃/熔断/send 失败）不计
     // attempts——claim 即 attempts+1 已被超时循环撑大，瞬态错误再计数会成批 dead-letter
     if (err instanceof EmbedTransientError) {
       this.logger.warn(
