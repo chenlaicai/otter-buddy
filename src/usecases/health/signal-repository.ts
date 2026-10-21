@@ -141,7 +141,9 @@ export class SignalRepository {
   /** Issue #1563：dismiss 后同键 re-fire 的 re-open 分支——原行复活（occurrences+1、
    *  last_seen/evidence 刷新，first_seen/created_at 不动），status='open' + resolved_at
    *  置 NULL 回未接单队列；triage_note 保留作历史痕迹（F20260917trig §6 抹平语义下
-   *  dismiss 时 triage_status/issue_number 已置 NULL，re-open 后即「未接单」） */
+   *  dismiss 时 triage_status/issue_number 已置 NULL，re-open 后即「未接单」）。
+   *  triaged_at 置 NULL（检视发现 1）：re-open 非归口动作，残留上次归口时间戳会与
+   *  「未接单」状态自相矛盾，三字段（triage_status/issue_number/triaged_at）统一归位 */
   private reopenDismissed(
     existing: SignalRecord,
     signal: UpsertSignal,
@@ -152,6 +154,7 @@ export class SignalRepository {
       .prepare(`UPDATE signals SET
           status = 'open',
           resolved_at = NULL,
+          triaged_at = NULL,
           last_seen = ?,
           occurrences = occurrences + 1,
           evidence = ?,
@@ -166,6 +169,7 @@ export class SignalRepository {
       ...this.coalesceExisting(existing, signal, detailJson, now),
       status: "open",
       resolved_at: null,
+      triaged_at: null, // 与 DB UPDATE 归位一致（不只信 coalesceExisting 拼装，#644 教训）
     };
   }
 

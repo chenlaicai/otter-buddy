@@ -43,8 +43,8 @@ Issue #1563（搭档 2026-10-20 卡片回执点名立案）：`SignalRepository.
 ## 实现要点
 
 - `upsert` 匹配拆两步：先查同键 open 行（原有 SQL，变量更名 openRow）；无命中再查同键最新行（任意状态）按 status 分派——dismissed 走 `reopenDismissed`，其余走 `insertNew`
-- `reopenDismissed`：UPDATE 刷新 status='open'、resolved_at=NULL、last_seen/occurrences/evidence/evidence_detail(COALESCE)/confidence(COALESCE)/severity/suggested_action(COALESCE)——列集与 open 累加分支同构；first_seen/created_at 不动（原行历史时间轴保留）；triage_note 保留（F20260917trig §6 抹平语义下 dismiss 时 triage_status/issue_number 已置 NULL，re-open 后即「未接单」，走完整处置流程）
-- 返回值拼装复用 `coalesceExisting` + status/resolved_at 覆写
+- `reopenDismissed`：UPDATE 刷新 status='open'、resolved_at=NULL、triaged_at=NULL（检视发现 1 处置：re-open 非归口动作，残留归口时间戳与「未接单」矛盾，triage_status/issue_number/triaged_at 三字段统一归位；triage_note 保留）、last_seen/occurrences/evidence/evidence_detail(COALESCE)/confidence(COALESCE)/severity/suggested_action(COALESCE)——列集与 open 累加分支同构；first_seen/created_at 不动（原行历史时间轴保留）；F20260917trig §6 抹平语义下 re-open 后即「未接单」，走完整处置流程
+- 返回值拼装复用 `coalesceExisting` + status/resolved_at/triaged_at 覆写（DB 实态与拼装一致性断言补齐，#644 教训）
 - 存量孪生行清扫仍由 `scripts/sweep-stale-signals.mjs` 承担（本修复管增量不产孪生，存量治理脚本继续有效）
 
 ## 验证
@@ -54,8 +54,9 @@ Issue #1563（搭档 2026-10-20 卡片回执点名立案）：`SignalRepository.
 - 修复前（固化失败，改动仅测试文件）：`Tests  5 failed | 22 passed (27)`——5 个新用例全红且因预期原因（dismiss 后 re-fire 新开行 r2.id≠r1.id、triage_note=null、同键行数 6/16、孪生组 9、first_seen 被重置）
 - 修复后：`Tests  27 passed (27)`
 - 全量回归：`npm test` → `Test Files 410 passed (410) / Tests 6555 passed | 6 skipped (6561)`
-- 新用例清单：dismiss re-fire re-open 原行｜triage_note 历史保留｜dismiss↔re-fire 循环行数恒 1｜口径变更窗口重放孪生行 0（9 组模拟 PR #1560 现场）｜re-open 不回改 first_seen｜resolved 后 re-fire 仍新开行（回归锁定，修复前天然绿，不计入失败证据——#1583 计数口径）
+- 新用例清单：dismiss re-fire re-open 原行｜triage_note 历史保留｜dismiss↔re-fire 循环行数恒 1｜口径变更窗口重放孪生行 0（9 组模拟 PR #1560 现场）｜re-open 不回改 first_seen｜re-open 归位 triaged_at（未接单三字段一致，检视发现 1 处置）｜resolved 后 re-fire 仍新开行（回归锁定，修复前天然绿，不计入失败证据——#1583 计数口径）
 - 既有测试零改动（含「resolved 后同键再触发新开一行（历史保留）」契约测试）
+- 检视发现 1 处置轮（triaged_at 归位）：固化失败 `1 failed | 27 passed (28)` → 处置后 `28 passed (28)`；全量 `6553 passed | 3 failed | 6 skipped`——3 个失败为 build-app 健康端点 / command-lexer 性能基准（<30ms 份额预算）/ cursor-zero-guard，均非本改动面，隔离单跑 62/62 全绿，判定为全量并发负载下 flaky（时序敏感型），非回归
 
 ### 验收标准（断言化）
 

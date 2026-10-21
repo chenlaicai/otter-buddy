@@ -458,6 +458,26 @@ describe("Issue #1563：dismiss 后 re-fire 缺口（同键孪生行）", () => 
     expect(r3.occurrences).toBe(2);
   });
 
+  it("re-open 归位 triaged_at（未接单三字段一致，检视发现 1）", () => {
+    const { repo } = makeRepoWithDb();
+    const r1 = repo.upsert(baseSignal);
+    const b = repo.triage(r1.id, "bind_issue", { issueNumber: 123, note: "归口 #123" });
+    expect(b.ok).toBe(true);
+    expect(repo.dismiss(r1.id)).toBe(true);
+    const r2 = repo.upsert(baseSignal);
+    expect(r2.id).toBe(r1.id);
+    // re-open = 未接单：triage_status/issue_number/triaged_at 全归位，triage_note 保留历史
+    expect(r2.triage_status).toBeNull();
+    expect(r2.issue_number).toBeNull();
+    expect(r2.triaged_at).toBeNull(); // 修复前：残留 bind 时的归口时间戳 → 必红
+    expect(r2.triage_note).toBe("归口 #123"); // 历史痕迹保留
+    // DB 实态同步验证（不只信 TS 拼装返回值，#644 教训）
+    const open = repo.findOpen();
+    expect(open).toHaveLength(1);
+    expect(open[0]!.triaged_at).toBeNull();
+    expect(open[0]!.triage_note).toBe("归口 #123");
+  });
+
   it("resolved 后同键 re-fire 仍新开行（历史保留契约不回退）", () => {
     // 回归锁定：修复前天然绿，非失败证据（#1583 计数口径）
     const { repo } = makeRepoWithDb();
