@@ -67,7 +67,7 @@ export function resolveGameEmbedPath(url: string | null | undefined): string | n
 /** 加载超时阈值（ms）——loading 态超此限无 onLoad 即判错误（超时探针） */
 export const GAME_EMBED_LOAD_TIMEOUT_MS = 15000
 
-export function GameEmbedPanel({ url, title, heightClass = 'h-[600px]' }: {
+export function GameEmbedPanel({ url, title, heightClass = 'h-[380px]' }: {
   url: string | null
   title: string
   /** inline 展开态默认紧凑预览（h-[380px]，配合卡片限宽 480px，时间轴里不喧宾夺主）；

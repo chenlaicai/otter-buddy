@@ -143,7 +143,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
           放大态时内联位让位 modal（单实例，避免双 iframe 双 SSE）） */}
       {gameExpanded && !enlarged && (
         <div className="mt-2">
-          <GameEmbedPanel url={resource.url} title={resource.title} heightClass="h-[380px]" />
+          <GameEmbedPanel url={resource.url} title={resource.title} />
         </div>
       )}
       {/* T2：PR 卡 diff stat（unfurl join 投影——additions/deletions 仅 github-api PR 记录携带） */}
