@@ -36,7 +36,7 @@ async function ackPending(ctx: ToolContext, pending: ManageScheduledTaskPending,
 export function createManageScheduledTaskPendingTool(ctx: ToolContext, pending: ManageScheduledTaskPending): AgentTool {
   return {
     name: 'manage_scheduled_task_pending',
-    description: '管理本对话的定时任务待执行列表. When: 提醒显示有 pending，需查看任务并决定补执行或跳过. Not for: 创建/修改定时任务 → create_scheduled_task；让工具代办执行（ack 只销账）. Output: list=任务名/触发时间/pending id；detail=任务全文；ack=处置回执. GOTCHA: detail/ack 会重查同 cron 槽位 completed，已直发覆盖时不要重复补执行；ack 必须带 resolution=executed|skipped 和一句话理由. BOUNDARY: 仅当前角色名下的 pending，ack 后不再提醒.',
+    description: '管理本对话的定时任务待执行列表. When: 提醒显示有 pending，需查看任务并决定补执行或跳过. Not for: 创建定时任务 → create_scheduled_task；让工具代办执行（ack 只销账）. Output: list=任务名/触发时间/pending id；detail=任务全文；ack=处置回执. GOTCHA: detail/ack 会重查同 cron 槽位 completed，已直发覆盖时不要重复补执行；ack 必须带 resolution=executed|skipped 和一句话理由. BOUNDARY: 仅当前角色名下的 pending，ack 后不再提醒.',
     parameters: {
       type: 'object',
       properties: {

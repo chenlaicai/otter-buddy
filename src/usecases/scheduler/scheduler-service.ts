@@ -413,12 +413,19 @@ export class SchedulerService {
     }
   }
 
-  /** 锚点后是否有近期产出证据。message_id 为空表示锚点尚未建立，按无证据处理。 */
+  /** 锚点后是否有本执行的近期生命周期/发言证据。
+   *  运行中的 execution.messageId 是系统锚点，不是 invokeId：先找锚点后的 invoke_start，
+   *  再只认同一 invoke 的 start/speak。start 保住重启后尚未首次发言的当前执行；
+   *  搭档发言及其他 invoke（包括同獭另一轮）不能给僵尸续命。 */
   private async hasExecutionFreshOutput(execution: ScheduledTaskExecution): Promise<boolean> {
     if (!execution.messageId) return false;
     try {
       const after = await this.entryRepo.getEntriesAfter(execution.messageId, 200);
-      return after.some(entry => Date.now() - new Date(entry.createdAt).getTime() <= RUNNING_STUCK_THRESHOLD_MS);
+      const invokeId = after.find(entry => entry.entryType === 'invoke_start' && entry.invokeId)?.invokeId;
+      if (!invokeId) return false;
+      return after.some(entry => (entry.entryType === 'invoke_start' || entry.entryType === 'speak')
+        && entry.invokeId === invokeId
+        && Date.now() - new Date(entry.createdAt).getTime() <= RUNNING_STUCK_THRESHOLD_MS);
     } catch (error) {
       this.logger.warn('执行侧产出证据查询失败（按无证据处理）', {
         executionId: execution.id, error: error instanceof Error ? error.message : String(error),
@@ -1185,6 +1192,7 @@ export class SchedulerService {
       executionStartMs = this.now();
       try {
         const anchor = await this.createSystemSignalEntry(task, effectiveBody, executorOtterId);
+        await this.attachExecutionAnchor(executionId, anchor.id);
         // Why 传入锚点 entry id：链看门狗用它探测链活性（#516），记账校验用它圈定执行窗口（#517）
         await this.invokeAgentWithTimeout(task, effectiveBody, anchor.id, executorOtterId);
         // #517: invoke 正常 resolve 不代表 agent 成功——orchestrator 的 failTerminal/abortTerminal
@@ -1426,6 +1434,11 @@ export class SchedulerService {
       });
       await this.recordReapHealing(task, exec.id);
     }
+  }
+
+  /** 在 invoke 前持久化锚点：进程崩溃留下的 running 才能在重启后按同一 invoke 证据对账。 */
+  private async attachExecutionAnchor(executionId: string, messageId: string): Promise<void> {
+    await this.taskRepo.updateExecutionStatus(executionId, { status: 'running', messageId });
   }
 
   private async createExecution(executionId: string, taskId: string, now: string): Promise<void> {
@@ -2064,6 +2077,7 @@ export class SchedulerService {
     const executorOtterId = await this.resolveExecutorOtterId(task);
     if (!executorOtterId) throw new DomainError('no-such-role-in-roster', 'validation');
     const retryAnchor = await this.createSystemSignalEntry(task, effectiveBody, executorOtterId);
+    await this.attachExecutionAnchor(executionId, retryAnchor.id);
     await this.invokeAgentWithTimeout(task, effectiveBody, retryAnchor.id, executorOtterId);
     await this.assertNoFailedInvokes(task.conversationId, retryAnchor.id);
     await this.completeExecution(executionId, task.conversationId, retryAnchor.id);

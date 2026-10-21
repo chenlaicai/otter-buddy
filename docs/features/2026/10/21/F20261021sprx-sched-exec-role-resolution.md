@@ -273,13 +273,16 @@ if busy:
 
 ## 实现要点与自检记录（2026-10-21）
 
-- 按名解析落在 `resolve-executor-otter.ts`：active participants ⨝ active otters，`roleToType` 仅含 `大獭→big`，同名 small 不匹配；同角色多实例按 invoke/speak 最近活跃选择。解析失败才读旧 `talkingStonePassedTo[0]`，字段全程保留；不可用则 skipped + low healing。现基线重新 grep 后 scheduler 内剩 7 处旧字段直接消费，均为 healing 的 otterId 归属并容忍空值；reap/直投/重启/quota 重试均传解析结果。
+- 按名解析落在 `resolve-executor-otter.ts`：active participants ⨝ active otters，`roleToType` 仅含 `大獭→big`，同名 small 不匹配；同角色多实例按 invoke/speak 最近活跃选择。解析失败才读旧 `talkingStonePassedTo[0]`，字段全程保留；不可用则 skipped + low healing。delta 复核重新 grep 后 scheduler 内剩 8 处旧字段代码消费 + 1 处注释，代码消费均为 healing 的 otterId 归属并容忍空值；reap/直投/重启/quota 重试均传解析结果。
 - pending 使用 SQLite 部分唯一索引 `(task_id) WHERE status='pending'`；忙判扫描所有 running execution（无 20 条窗口，含本任务历史），本轮 execution 只排除自身。入列直接 INSERT completed(message_id=NULL)，绕过空 messageId FK；同槽位 running/completed 抑制，failed/skipped 不抑制。detail/ack 的“已直发覆盖”只认 completed 且 message_id 非空，避免 pending 自身 completed 把补执行永久误判为已覆盖。
-- once 在建立 running 前先解析再忙判；忙时 skipped + system entry 明示将删除且承诺未执行，不入 pending。闲时正常直发。function executor 不走角色/pending 通道，保留原函数互斥。
+- once 在建立 running 前先解析再忙判；忙时 skipped + system entry 明示将删除且承诺未执行，不入 pending；executions 台账随任务行 CASCADE 删除，可见性由保留的 system entry 承担。闲时正常直发。function executor 不走角色/pending 通道，保留原函数互斥。
 - `scheduledTaskAlerts` 是 DB 状态镜像，每次唤醒按当前獭 name 精确过滤，非零即注入计数+最近任务名/时间，不含 body；ack 后状态变 consumed 才消失。新 tool 提供 list/detail/ack，ack 条件更新保证幂等，reason/resolution 必填；加入大獭白名单与 deferred manifest。
 - `senderOtterType` 与 senderColor 在 entries 读路径同批 join otters 投影，DTO 优先于名册兜底；任务 UI 只读展示执行角色，不再写历史 otterId。
 - 迁移幂等补列并全量回填（含 disabled）；sender_id 只在原值确为 otter ID 时同步到名册内当前大獭，system 不动。生产在线 backup 副本经 `initDatabaseAndModels` 完整启动及二次启动验证：16/16 角色非空、disabled=3、旧字段保留=16、pending 表+两索引齐全、SQLite error=0；foreign_key_check 前后均 4 条既有 execution 孤儿，增量 0 且逐项一致，未擅自清洗。
 - `deleteExpiredPendingInvokes` 与 `hasInflightExecutionOnOtter` 在当前基线全仓检索均无后者定义/调用残留，前者也不存在；没有 :362 引用可替换。互斥分支已删除，reapPreempting/reapStale 保留。
 - 保留件有效性根因：`PiSessionFactory.isRunning` 对 activeSessions 任意条目都判活，残留 session 可使超龄行永不释放（高置信；DB 无历史池快照，不能把该推断写成历史现场实录）。现改为 execution 侧证据优先：锚点后 2h 内有产出才保活；有锚点但无产出即使 session 残留也 reap；无锚点的停机冻结形态保留原保护。启动对账保留近期产出 execution，其余单次 UPDATE 翻篇，随后可立即 claim；避免把已发言工作仅因 running 残留误翻 failed。
+- delta 修复（PR #1599 第一轮对抗审视）：同槽位不再用墙钟字符串等值，而由现有 `croner` 按 cron + timezone 计算真实 `[slotStart, slotEnd)`，同时供 running/completed 抑制与 detail/ack 直发覆盖检查；准点、毫秒差和相邻槽位均有真实 SQLite/解析器用例。判活只认系统锚点后本次 invoke 的新鲜 `invoke_start` / `speak`，搭档、其他獭或同獭其他 invoke 均不续命；`invoke_start` 保留尚未首次发言的当前执行。执行锚点改为 invoke 前写入 running 行（quota 重试同步更新），否则崩溃遗留行没有可查证据。旧版本遗留且无锚点的 running 无法反推 invoke，仍按无证据翻篇；不再保留“对话内任意新 entry 即可保活”的宽松口径。
+- 忙判性能建议的量化处置：生产副本为 16 个任务 / 5 个对话，且任务为日/周/月级触发，当前不是热点；本 PR 不复制一套与 `resolveExecutorOtter` 可能漂移的 SQL 角色解析规则，后续规模上升再基于真实指标收口。
 - 自检负面向：本变更有意废除“忙时 skip”“空 talkingStonePassedTo 创建报错”和“启动对账所有 running 一律 failed”三项旧契约；completed 现含“入列即完成”语义。互斥重启保护改由忙判承接，看门狗放弃型 skip、跑飞超时与 pending 滞留告警不在本特性扩大治疗。最简检查：未新增服务/事件总线；角色映射、pending 仓储和提醒均为单一实现，沿用现有 DI/SQLite/DynamicContext/tool 白名单。
-- 验证：后端主套件 414 文件 / 6579 passed + 6 skipped；web 72 文件 / 737 passed，build 通过；tsc/eslint/tool-manifest/prompt/docs/tests/criteria 闸通过。生产副本启动验证如上。capability：录音网关确定性回放 1 passed（提醒按角色进入 wire user message、正文不注入、tool 实调成功、list 不消费）；真 LLM 行为用例因当前环境未配置端点显式 skip 1，不宣称真模型采样已通过。
+- 验证：后端主套件 414 文件 / 6623 passed + 6 skipped；web 72 文件 / 737 passed，build 通过；tsc/eslint/tool-manifest/prompt/docs/tests/criteria 闸通过。delta 相关 4 文件 131 项通过，含真实毫秒差、相邻槽位、混合发送者、invoke 前锚点与未首次 speak 用例；`npm run check` 通过。生产副本启动验证如上。capability：录音网关确定性回放 1 passed（提醒按角色进入 wire user message、正文不注入、tool 实调成功、list 不消费）；真 LLM 行为用例因当前环境未配置端点显式 skip 1，不宣称真模型采样已通过。
+- delta 负面向与最简检查：收窄掉“对话内任意新 entry 可保活”的误判；旧版本遗留的无锚点 running 无法反推 invoke，仍按无证据翻篇，不伪造保活证据。复用现有 `messageId` 与 croner，无新列/新依赖/新服务；仅为槽位计算增加一个小型纯函数，为运行中锚点增加一次既有仓储 UPDATE。已过最简检查。

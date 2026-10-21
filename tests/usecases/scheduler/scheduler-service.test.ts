@@ -572,6 +572,12 @@ describe('SchedulerService - trigger', () => {
         logger: mockLogger,
       });
 
+      let anchorAtInvoke: string | null | undefined;
+      agentInvoke.invokeConversation.mockImplementation(async () => {
+        const running = [...taskRepo._executions.values()].find(e => e.status === 'running');
+        anchorAtInvoke = typeof running?.messageId === 'string' ? running.messageId : null;
+        return { messageId: 'agent-msg-1', duration: 0 };
+      });
       const result = await service.trigger('task-1');
 
       // 验证返回了 executionId
@@ -579,6 +585,8 @@ describe('SchedulerService - trigger', () => {
 
       // 验证执行记录创建时初始状态为 running
       expect(taskRepo._executionInitialStatuses.get(result.executionId)).toBe('running');
+      // 锚点在 invoke 前已落库，崩溃遗留的 running 才能在重启后按本 invoke 判活。
+      expect(anchorAtInvoke).toBe('entry-1');
 
       // 验证执行记录最终状态为 completed（mock 通过 Object.assign 原地更新）
       const execution = taskRepo._executions.get(result.executionId);
@@ -4429,10 +4437,38 @@ describe('#1449 running 执行体滞留挤占治理', () => {
     expect(healingRepo._events.some(e => e.severity === 'high')).toBe(true);
   });
 
-  it('session 出池但锚点后有近期产出：不误杀真实工作', async () => {
+  it('session 出池但本次 invoke 有近期 speak：不误杀真实工作', async () => {
     const { service, taskRepo, entryRepo } = setupStuck({ isOtterRunning: () => false });
     taskRepo._executions.get('stuck-exec-1')!.messageId = 'anchor-stuck';
-    entryRepo.getEntriesAfter = vi.fn(async () => [{ createdAt: new Date().toISOString() }]) as never;
+    entryRepo.getEntriesAfter = vi.fn(async () => [
+      { entryType: 'invoke_start', invokeId: 'invoke-stuck', createdAt: new Date().toISOString() },
+      { entryType: 'speak', invokeId: 'invoke-stuck', createdAt: new Date().toISOString() },
+    ]) as never;
+    await (service as unknown as { tickReal(): Promise<void> }).tickReal();
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('running');
+  });
+
+  it('锚点后只有搭档及其他 invoke 的新鲜发言：不给僵尸执行续命', async () => {
+    const { service, taskRepo, entryRepo, healingRepo } = setupStuck({ isOtterRunning: () => true });
+    taskRepo._executions.get('stuck-exec-1')!.messageId = 'anchor-stuck';
+    entryRepo.getEntriesAfter = vi.fn(async () => [
+      { entryType: 'invoke_start', invokeId: 'invoke-stuck', createdAt: new Date(Date.now() - 3 * HOURS).toISOString() },
+      { entryType: 'user', senderType: 'user', createdAt: new Date().toISOString() },
+      { entryType: 'speak', invokeId: 'invoke-other', senderId: 'otter-1', createdAt: new Date().toISOString() },
+      { entryType: 'speak', invokeId: 'invoke-another-otter', senderId: 'otter-2', createdAt: new Date().toISOString() },
+    ]) as never;
+    await (service as unknown as { tickReal(): Promise<void> }).tickReal();
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    expect(healingRepo._events.some(e => e.severity === 'high')).toBe(true);
+  });
+
+  it('本次 invoke 刚启动尚未首次 speak：保留当前执行，不误判为僵尸', async () => {
+    const { service, taskRepo, entryRepo } = setupStuck({ isOtterRunning: () => false });
+    taskRepo._executions.get('stuck-exec-1')!.messageId = 'anchor-stuck';
+    entryRepo.getEntriesAfter = vi.fn(async () => [
+      { entryType: 'invoke_start', invokeId: 'invoke-stuck', createdAt: new Date().toISOString() },
+      { entryType: 'user', senderType: 'user', createdAt: new Date().toISOString() },
+    ]) as never;
     await (service as unknown as { tickReal(): Promise<void> }).tickReal();
     expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('running');
   });
@@ -4445,7 +4481,10 @@ describe('#1449 running 执行体滞留挤占治理', () => {
     });
     taskRepo._executions.get('stuck-exec-1')!.messageId = 'anchor-stuck';
     entryRepo.getEntriesAfter = vi.fn(async (id: string) => id === 'anchor-recent'
-      ? [{ createdAt: new Date().toISOString() }] : []) as never;
+      ? [
+        { entryType: 'invoke_start', invokeId: 'invoke-recent', createdAt: new Date().toISOString() },
+        { entryType: 'speak', invokeId: 'invoke-recent', createdAt: new Date().toISOString() },
+      ] : []) as never;
     await service.start();
     service.stop();
     expect(taskRepo._executions.get('recent-exec')!.status).toBe('running');

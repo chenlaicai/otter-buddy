@@ -67,4 +67,19 @@ describe('SqliteScheduledTaskPendingItemRepository', () => {
     ) VALUES ('direct-exec', 'task-1', ?, ?, 'completed', 'anchor-entry')`).run(SLOT, SLOT);
     expect(await repo.hasDirectCompletionInSlot('task-1', SLOT)).toBe(true);
   });
+
+  it('同 cron 槽位容忍真实毫秒差，但不吞并相邻槽位', async () => {
+    const insert = db.prepare(`INSERT INTO scheduled_task_executions (
+      id, task_id, triggered_at, completed_at, status, message_id
+    ) VALUES (?, ?, ?, ?, ?, ?)`);
+    insert.run('exec-current', 'task-1', '2026-10-21T01:00:00.037Z', null, 'running', null);
+    insert.run('exec-previous', 'task-1', '2026-10-20T01:00:00.819Z', null, 'running', null);
+    insert.run('exec-direct', 'task-1', '2026-10-21T01:00:00.103Z', '2026-10-21T01:00:01.000Z', 'completed', 'invoke-direct');
+
+    const sameSlot = '2026-10-21T01:00:00.819Z';
+    expect(await repo.hasExecutionInSlot('task-1', sameSlot, ['running'])).toBe(true);
+    expect(await repo.hasDirectCompletionInSlot('task-1', sameSlot)).toBe(true);
+    expect(await repo.hasExecutionInSlot('task-1', '2026-10-22T01:00:00.001Z', ['running'])).toBe(false);
+    expect(await repo.hasDirectCompletionInSlot('task-1', '2026-10-22T01:00:00.001Z')).toBe(false);
+  });
 });

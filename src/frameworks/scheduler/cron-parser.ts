@@ -1,6 +1,25 @@
 import type { CronParser } from '@usecases/scheduler/scheduler-service';
 import { Cron } from 'croner';
 
+export interface CronSlot {
+  start: string;
+  end: string;
+}
+
+/** 返回 triggeredAt 所属的真实 cron 槽位 [start, end)。
+ *  previousRuns 不包含参考时间所在秒，因此向后探一秒，准点触发也不会错归上一槽位。 */
+export function resolveCronSlot(cron: string, timezone: string, triggeredAt: string): CronSlot {
+  const triggeredMs = new Date(triggeredAt).getTime();
+  if (!Number.isFinite(triggeredMs)) throw new Error(`Invalid scheduled trigger time: ${triggeredAt}`);
+  const job = new Cron(cron, { timezone });
+  const probe = new Date(Math.floor(triggeredMs / 1000) * 1000 + 1000);
+  const start = job.previousRuns(1, probe)[0];
+  if (!start || start.getTime() > triggeredMs) throw new Error(`Cannot resolve cron slot for ${triggeredAt}`);
+  const end = job.nextRun(start);
+  if (!end) throw new Error(`Cannot resolve next cron slot for ${triggeredAt}`);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 /**
  * Cron 解析器实现
  * 使用 croner 库解析 cron 表达式并计算下次触发时间

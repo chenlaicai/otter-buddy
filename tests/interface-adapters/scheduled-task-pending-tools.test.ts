@@ -64,7 +64,9 @@ describe('manage_scheduled_task_pending', () => {
   it('detail/ack 前重查直发 completed（message_id 非空），覆盖双跑残留缝', async () => {
     db.prepare(`INSERT INTO scheduled_task_executions (
       id, task_id, triggered_at, completed_at, status, message_id
-    ) VALUES ('direct-exec', 'task-1', ?, ?, 'completed', 'anchor')`).run(SLOT, SLOT);
+    ) VALUES ('direct-exec', 'task-1', ?, ?, 'completed', 'anchor')`)
+      .run('2026-10-21T01:00:00.037Z', '2026-10-21T01:00:01.000Z');
+    expect(SLOT).not.toBe('2026-10-21T01:00:00.037Z');
     const detail = JSON.parse(text(await tool.execute('t1', { action: 'detail', pendingId: 'p-1' })));
     expect(detail.covered).toBe(true);
     const ack = JSON.parse(text(await tool.execute('t2', {

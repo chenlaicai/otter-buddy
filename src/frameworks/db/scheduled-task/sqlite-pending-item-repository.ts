@@ -8,6 +8,7 @@ import type {
   ScheduledTaskPendingItemRepository,
   ScheduledTaskPendingListItem,
 } from '@usecases/scheduler/pending-item-repository';
+import { resolveCronSlot } from '@frameworks/scheduler/cron-parser';
 
 interface PendingItemRow {
   id: string;
@@ -73,23 +74,35 @@ export class SqliteScheduledTaskPendingItemRepository implements ScheduledTaskPe
 
   async hasExecutionInSlot(taskId: string, triggeredAt: string, statuses: ExecutionStatus[], excludeExecutionId?: string): Promise<boolean> {
     if (statuses.length === 0) return false;
+    const slot = this.getSlot(taskId, triggeredAt);
+    if (!slot) return false;
     const placeholders = statuses.map(() => '?').join(', ');
     const row = this.db.prepare(`
       SELECT 1 AS present FROM scheduled_task_executions
-      WHERE task_id = ? AND triggered_at = ? AND status IN (${placeholders})
+      WHERE task_id = ? AND triggered_at >= ? AND triggered_at < ? AND status IN (${placeholders})
         AND (? IS NULL OR id != ?)
       LIMIT 1
-    `).get(taskId, triggeredAt, ...statuses, excludeExecutionId ?? null, excludeExecutionId ?? null) as { present: number } | undefined;
+    `).get(taskId, slot.start, slot.end, ...statuses, excludeExecutionId ?? null, excludeExecutionId ?? null) as { present: number } | undefined;
     return row?.present === 1;
   }
 
   async hasDirectCompletionInSlot(taskId: string, triggeredAt: string): Promise<boolean> {
+    const slot = this.getSlot(taskId, triggeredAt);
+    if (!slot) return false;
     const row = this.db.prepare(`
       SELECT 1 AS present FROM scheduled_task_executions
-      WHERE task_id = ? AND triggered_at = ? AND status = 'completed' AND message_id IS NOT NULL
+      WHERE task_id = ? AND triggered_at >= ? AND triggered_at < ?
+        AND status = 'completed' AND message_id IS NOT NULL
       LIMIT 1
-    `).get(taskId, triggeredAt) as { present: number } | undefined;
+    `).get(taskId, slot.start, slot.end) as { present: number } | undefined;
     return row?.present === 1;
+  }
+
+  private getSlot(taskId: string, triggeredAt: string): { start: string; end: string } | null {
+    const task = this.db.prepare('SELECT cron, timezone FROM scheduled_tasks WHERE id = ?')
+      .get(taskId) as { cron: string | null; timezone: string } | undefined;
+    if (!task?.cron) return null;
+    return resolveCronSlot(task.cron, task.timezone, triggeredAt);
   }
 
   async consume(input: {
