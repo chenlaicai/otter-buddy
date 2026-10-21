@@ -8,7 +8,7 @@ import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
 import { redactSecrets, redactMetadataSecrets } from "@usecases/security/redact-secrets";
-// F20261021gmbe（检视发现 2 修复）：白名单正则前後端唯一真相源——同引 api-contract
+// F20261021gmbe（检视发现 2 修复）：白名单正则前后端唯一真相源——同引 api-contract
 import { GAME_URL_PATTERN, GAME_URL_MESSAGE } from "@contract/api/key-info";
 
 export interface LinkedResourceInput {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink, RefreshCw, Loader2 } from 'lucide-react'
-// F20261021gmbe（检视发现 2 修复）：白名单正则前後端唯一真相源——同引 api-contract
+// F20261021gmbe（检视发现 2 修复）：白名单正则前后端唯一真相源——同引 api-contract
 import { GAME_URL_PATTERN } from '@contract/api/key-info'
 
 /** F20261021gmbe E1：宿主内嵌游戏面板。
