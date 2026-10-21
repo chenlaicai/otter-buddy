@@ -1117,11 +1117,11 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
-    description: "创建链接资源（统一产物模型）. When: 记录关键决策/事实/PR/worktree/分支/file/url 等产物. Not for: 普通对话回复 → 直接 speak. Output: 资源 ID + 状态 + group. GOTCHA: fact 类型 ≤ 500 字符；长内容（方案、设计文档）必须先用 write 写文件再创 file 资源指向路径；pr/worktree/branch 类型必须带 groupId=特性文档编号（否则报错）. BOUNDARY: conversationId 和 linkedBy 由系统注入. TIP: 资源只走状态流转不删除——记录类动作完成后不再链式触发后续.",
+    description: "创建链接资源（统一产物模型）. When: 记录关键决策/事实/PR/worktree/分支/file/url/游戏牌局等产物. Not for: 普通对话回复 → 直接 speak. Output: 资源 ID + 状态 + group. GOTCHA: fact 类型 ≤ 500 字符；长内容（方案、设计文档）必须先用 write 写文件再创 file 资源指向路径；pr/worktree/branch 类型必须带 groupId=特性文档编号（否则报错）；game 类型 url 必须为 /mahjong/<房间号> 相对路径（绝对 URL/外部站点永拒）. BOUNDARY: conversationId 和 linkedBy 由系统注入. TIP: 资源只走状态流转不删除——记录类动作完成后不再链式触发后续.",
     parameters: {
       type: "object",
       properties: {
-        resourceType: { type: "string", description: "资源类型：fact（文本事实）, pr, worktree, branch, file, url" },
+        resourceType: { type: "string", description: "资源类型：fact（文本事实）, pr, worktree, branch, file, url, game（游戏内嵌：url 必须为本应用牌局路由相对路径 /mahjong/<房间号>，如 /mahjong/sanma-embed-test——中间栏渲染为展开即玩的游戏卡；外部 URL/绝对 URL 永不内嵌，写入硬拒）" },
         url: { type: "string", description: "资源 URL 或路径（非 fact 类型必填）" },
         content: { type: "string", description: "事实文本内容（fact 必填，≤500 字符的简短摘要）" },
         title: { type: "string", description: "资源标题" },
