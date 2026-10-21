@@ -3283,7 +3283,7 @@ describe('#775 S4a: scheduler 换轨', () => {
     convRepo._addConversation('conv-1', { status: 'active' });
   }
 
-  it('A1 换轨生效：trigger 走 routeDirectSignal（不再直连 executeChain/agentInvokePort）', async () => {
+  it('A1 换轨生效：trigger 走 routeDirectSignal（不再直连 executeChain/agentInvokePort）', { timeout: 15_000 }, async () => {
     vi.useFakeTimers();
     try {
       const taskRepo = createMockTaskRepo();
@@ -3314,7 +3314,7 @@ describe('#775 S4a: scheduler 换轨', () => {
     } finally {
       vi.useRealTimers();
     }
-  }, 15_000);
+  });
 
   it('A3 启动对账：start() 把僵尸 running 执行翻篇为 failed', async () => {
     const taskRepo = createMockTaskRepo();
@@ -4014,7 +4014,7 @@ describe('#1068 换轨路径: quota-exhausted 降级（signalRouter 生产形态
     return { service, taskRepo, routeDirectSignal, restartModelAliases, getRouteCallCount: () => routeCallCount };
   }
 
-  it('换轨形态：第一次 invoke quota 失败（invoke_end failed entry）-> assertNoFailedInvokes 抛错 -> 降级 restart -> 重投新信号成功 -> completed', async () => {
+  it('换轨形态：第一次 invoke quota 失败（invoke_end failed entry）-> assertNoFailedInvokes 抛错 -> 降级 restart -> 重投新信号成功 -> completed', { timeout: 20_000 }, async () => {
     const { service, taskRepo, routeDirectSignal, restartModelAliases, getRouteCallCount } =
       buildSwappedFallbackService({ failFirstInvoke: true });
 
@@ -4033,9 +4033,9 @@ describe('#1068 换轨路径: quota-exhausted 降级（signalRouter 生产形态
     expect(routeDirectSignal.mock.calls[0][0]).toBe('conv-1');
     // execution 终态 completed
     expect(taskRepo._executions.get(result.executionId)!.status).toBe('completed');
-  }, 20_000);
+  });
 
-  it('换轨形态：quota 失败但单模型池无 fallback -> 不降级，execution failed', async () => {
+  it('换轨形态：quota 失败但单模型池无 fallback -> 不降级，execution failed', { timeout: 20_000 }, async () => {
     const { service, taskRepo, restartModelAliases, getRouteCallCount } =
       buildSwappedFallbackService({ failFirstInvoke: true, modelAliases: ['kimi'] });
 
@@ -4048,7 +4048,7 @@ describe('#1068 换轨路径: quota-exhausted 降级（signalRouter 生产形态
     expect(getRouteCallCount()).toBe(1);
     const executions = [...taskRepo._executions.values()];
     expect(executions[0]!.status).toBe('failed');
-  }, 20_000);
+  });
 });
 
 describe('#1545：超龄 unbound high 识别提醒（findAgedUnboundHigh → alert-registry，不处置）', () => {
@@ -4370,7 +4370,7 @@ describe('#1048: 看门狗克制（放弃 ≠ 失败）', () => {
     entryRepo._addEntry({ id: 'entry-1', senderId: 'system', yieldTargets: ['otter-1'] });
   }
 
-  it('W1 换轨看门狗静默判死：锚点后无产出超静默窗即放弃，不再空转 24h 硬上限', async () => {
+  it('W1 换轨看门狗静默判死：锚点后无产出超静默窗即放弃，不再空转 24h 硬上限', { timeout: 15_000 }, async () => {
     vi.useFakeTimers();
     try {
       const taskRepo = createMockTaskRepo();
@@ -4396,9 +4396,9 @@ describe('#1048: 看门狗克制（放弃 ≠ 失败）', () => {
     } finally {
       vi.useRealTimers();
     }
-  }, 15_000);
+  });
 
-  it('W2 持续活跃但永不 settle：放弃窗口收口为 max(2h, 2×静默窗)，不再等满 24h', async () => {
+  it('W2 持续活跃但永不 settle：放弃窗口收口为 max(2h, 2×静默窗)，不再等满 24h', { timeout: 15_000 }, async () => {
     vi.useFakeTimers();
     try {
       const taskRepo = createMockTaskRepo();
@@ -4431,9 +4431,9 @@ describe('#1048: 看门狗克制（放弃 ≠ 失败）', () => {
     } finally {
       vi.useRealTimers();
     }
-  }, 15_000);
+  });
 
-  it('W3 看门狗放弃落 skipped、不计 consecutiveFailures（放弃≠失败，不触发 3 连败熔断）', async () => {
+  it('W3 看门狗放弃落 skipped、不计 consecutiveFailures（放弃≠失败，不触发 3 连败熔断）', { timeout: 15_000 }, async () => {
     vi.useFakeTimers();
     try {
       const taskRepo = createMockTaskRepo();
@@ -4462,9 +4462,9 @@ describe('#1048: 看门狗克制（放弃 ≠ 失败）', () => {
     } finally {
       vi.useRealTimers();
     }
-  }, 15_000);
+  });
 
-  it('W4 进展探测墙钟对齐：陈旧产出不算进展（回归：this.now() 单调钟不可与 entry.createdAt 墙钟混比）', async () => {
+  it('W4 进展探测墙钟对齐：陈旧产出不算进展（回归：this.now() 单调钟不可与 entry.createdAt 墙钟混比）', { timeout: 15_000 }, async () => {
     vi.useFakeTimers();
     try {
       const taskRepo = createMockTaskRepo();
@@ -4498,5 +4498,5 @@ describe('#1048: 看门狗克制（放弃 ≠ 失败）', () => {
     } finally {
       vi.useRealTimers();
     }
-  }, 15_000);
+  });
 });

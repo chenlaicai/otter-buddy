@@ -23,6 +23,7 @@ Tests verify what the system DOES, not how it does it internally.
 - 不写这些（覆盖填充）：mapper/DTO 字段抄送、pass-through 委托、与实现锁步的镜像断言
 - 判别口诀：**断言失败时，用户或调用方能感知吗？** 不能 → 这个测试不该存在
 - **测试涉时间一律注入时钟**：用 fake timer（`vi.useFakeTimers`）或显式 `now` 参数构造相对时间，禁止硬编码会过期的绝对日期字面量参与与真实时钟的差值计算。写的时候绿的测试可能在任意未来日期炸成假失败——正确性靠写法保证，不靠事后扫描。（lint-date-bombs 扫描器已退役，本规范是唯一防线）
+- **重成本用例超时策略（testTimeout 策略统一定案）**：vitest 默认 testTimeout=5s 顶不住重成本用例（全量并发负载下 P99 翻倍即顶线，实证：flaky 四件套单跑 1-3s、全量下间歇性超时）。判据——用例满足其一即为「重成本」，必须显式宽窗：①结构性重活（临时 git 仓库、spawn 子进程、真 sqlite 全栈装配、Playwright 真浏览器、整场模拟、全仓扫描）；②常态耗时 >2s（全量实测）。形态统一：整文件结构性重活 → 文件级 `vi.setConfig({ testTimeout: 20_000 })`（新增用例自动继承）；文件内单点重用例 → 用例级对象形 `it(name, { timeout: 20_000 }, fn)`。宽窗数值按余量原则：常态 P99 的 3-5 倍，默认 20_000 起步（重波动用例可更高，如 game-harness-tools 30_000）；存量显式窗收编形态时数值可按同原则归一（如归入文件级窗）但**不得收紧**（余量只增不减）。写法边界：it/test 用例级**禁止 jest 三参形 `it(name, fn, timeout)`**（A 类存量已全收编为对象形）；hook（beforeAll 等）vitest 无 options 形态，尾参数值是唯一合法形态；tests/capability/（B 类真 LLM 长流程）三参形带公式化数值，独立域暂不收编；全局默认 5s 不动——快用例快死，真挂发现快
 - **db 迁移测试三不变量（事故教训）**：迁移函数（migration.ts 新增/修改迁移函数、或 schema.ts 表结构变更）的测试断言必须覆盖三层——①**数据**（行数/内容）；②**结构**（从 sqlite_master 取迁移前后每张受影响表的 DDL，断言 PK/UNIQUE/FK/虚拟表形态（fts5/vec0）等价）；③**功能探针**（迁移后执行依赖表结构的真实操作：ON CONFLICT 写入、FTS5 MATCH、vec0 KNN——结构丢失时这些操作会炸，行数断言不会）。只断言行数的迁移测试 = 没测（现场：数据完美、结构全毁、全绿通过；同类事故已踩两次，出处见 git 历史）。
 
 ### B 类硬规则

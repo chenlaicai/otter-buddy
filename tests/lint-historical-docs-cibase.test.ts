@@ -13,7 +13,9 @@
  * 5. 分支新建文档修改放行（isAddedOnBranch 的 range 内自洽：log 上界 = 父 commit）
  * 6. --base 缺参数 → exit 2（调用错误，立即红）
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+// F20261021ttos：临时 git 仓库结构性重活（7/10 用例常态 >2s），文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+vi.setConfig({ testTimeout: 20_000 });
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as fs from "node:fs";

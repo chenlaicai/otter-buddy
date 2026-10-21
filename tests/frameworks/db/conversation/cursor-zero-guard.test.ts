@@ -146,7 +146,7 @@ describe("F20261014czgd 游标归零防线", () => {
       expect(result.batchMaxSeq).toBe(0);
     });
 
-    it("③ pushCursorOnStartup 对 batchMaxSeq<=0 直接 return（真调守卫纯函数）", async () => {
+    it("③ pushCursorOnStartup 对 batchMaxSeq<=0 直接 return（真调守卫纯函数）", { timeout: 20_000 }, async () => {  // F20261021ttos：重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
       // 真调守卫纯函数（pi-session-factory.ts 导出的 shouldPushCursorOnStartup），
       // 验证拦截语义：batchMaxSeq=0 → false（不推进），batchMaxSeq>0 → true（推进）
       db.prepare("INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq) VALUES ('p1','conv-1','otter-1','active','2026-01-01T00:00:00Z',5)").run();
