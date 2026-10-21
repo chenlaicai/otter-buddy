@@ -1,6 +1,6 @@
 // F20261014ghst：game-dev-harness 原子工具的 A 类测试（行为契约：输入输出是确定数据）
 // 跑真浏览器与真 PNG，走 vitest；每个用例独立 spawn，避免状态互串。
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,6 +11,9 @@ const SHOT = path.join(REPO, "scripts/game/game-shot.mjs");
 const DIFF = path.join(REPO, "scripts/game/game-diff.mjs");
 const STATE = path.join(REPO, "scripts/game/game-state.mjs");
 const GAME = path.join(REPO, "game/index.html");
+
+// F20261021ttos：真浏览器+真 PNG 结构性重活，全量并发下 P99 贴默认 5s 线——文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+vi.setConfig({ testTimeout: 30_000 });  // 30s：真浏览器+PNG 对比负载波动大（实测 P99 冲 26s+），常态 6s 按 5 倍余量
 
 let tmp: string;
 beforeAll(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ghst-")); });
@@ -37,7 +40,7 @@ describe("game-dev-harness 原子工具", () => {
     expect(out).toContain("similarity=100.00%");
     expect(out).toContain("mismatchRatio=0.0000");
     expect(out).toContain("PASS");
-  }, 30000);
+  });
 
   it("game-diff 检出跨 seed 差异：战斗场景下烟雾粒子累积后两 seed 图像必须不同", () => {
     const a = path.join(tmp, "s1.png"), b = path.join(tmp, "s2.png");
@@ -63,7 +66,7 @@ describe("game-dev-harness 原子工具", () => {
     expect(p).toBeTruthy();
     expect(parseFloat(m![1])).toBeGreaterThan(0);
     expect(parseInt(p![1], 10)).toBeGreaterThanOrEqual(10);
-  }, 30000);
+  });
 
   it("__loadState 直达终战后同 seed 双跑仍 similarity=100%", () => {
     const statePath = path.join(tmp, "battle.json");
@@ -82,7 +85,7 @@ describe("game-dev-harness 原子工具", () => {
     const out = diff(a, b);
     expect(out).toContain("similarity=100.00%");
     expect(out).toContain("PASS");
-  }, 30000);
+  });
 
   it("game-state 输出 JSON 含关键字段（B2 验收）", () => {
     const out = execFileSync("node", [STATE, "--seed=42", GAME], { encoding: "utf8", cwd: REPO });
@@ -92,7 +95,7 @@ describe("game-dev-harness 原子工具", () => {
     expect(state).toHaveProperty("started");
     expect(state).toHaveProperty("player");
     expect(state).toHaveProperty("bag");
-  }, 15000);
+  });
 
   it("__loadState 拒绝非对象参数", () => {
     const statePath = path.join(tmp, "bad.json");
@@ -101,5 +104,5 @@ describe("game-dev-harness 原子工具", () => {
     try { shot([`--state=${statePath}`, `--out=${path.join(tmp, "x.png")}`]); }
     catch { failed = true; }
     expect(failed).toBe(true);
-  }, 15000);
+  });
 });

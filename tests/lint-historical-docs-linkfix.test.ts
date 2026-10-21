@@ -9,7 +9,9 @@
  * 双向断言：链接订正放行 / 正文观点修改仍拦 / 非成对仍拦 / 无声明仍拦。
  * 独立迷你 fixture（与 rename 主套件同款隔离方式）。
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+// F20261021ttos：临时 git 仓库结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+vi.setConfig({ testTimeout: 20_000 });
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";

@@ -8,7 +8,9 @@
  * 截图输出：MAHJONG_SHOT_DIR 环境变量指定目录（默认 os.tmpdir()/mahjong-shots），
  * 供人工/AI 目视复核，不入库。
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+// F20261021ttos：Playwright 真浏览器结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+vi.setConfig({ testTimeout: 20_000 });
 import { serve } from "@hono/node-server";
 import { chromium, type Browser, type Page } from "playwright";
 import { mkdirSync, rmSync } from "node:fs";
@@ -81,7 +83,7 @@ describe("牌局页浏览器真机渲染", () => {
     if (!process.env.MAHJONG_SHOT_DIR) rmSync(SHOT_DIR, { recursive: true, force: true });
   }, 60_000);
 
-  it("入座遮罩 → 牌桌渲染 → 轮到自己可点牌（无控制台报错）", async () => {
+  it("入座遮罩 → 牌桌渲染 → 轮到自己可点牌（无控制台报错）", { timeout: 120_000 }, async () => {
     const errors: string[] = [];
     const page: Page = await browser.newPage({ viewport: { width: 1280, height: 940 } });
     page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
@@ -227,7 +229,7 @@ describe("牌局页浏览器真机渲染", () => {
     expect(errors, errors.join("\n")).toEqual([]);
     await page.screenshot({ path: path.join(SHOT_DIR, "03-after-discard.png"), fullPage: true });
     await page.close();
-  }, 120_000);
+  });
 
   it("#1532 聊天回显：入座后发言 → SSE chat 帧进日志（无控制台报错）", async () => {
     const errors: string[] = [];
@@ -275,7 +277,7 @@ describe("牌局页浏览器真机渲染", () => {
     await page.close();
   });
 
-  it("观战入口：无座进场三家手牌可见", async () => {
+  it("观战入口：无座进场三家手牌可见", { timeout: 60_000 }, async () => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 940 } });
     await page.goto(`${base}/mahjong/${ROOM}`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector('[data-do="spectate"]', { timeout: 15_000 });
@@ -293,9 +295,9 @@ describe("牌局页浏览器真机渲染", () => {
     expect(await page.locator("#selfInfo .badge--kind", { hasText: "观战" }).count()).toBe(1);
     await page.screenshot({ path: path.join(SHOT_DIR, "04-spectate.png"), fullPage: true });
     await page.close();
-  }, 60_000);
+  });
 
-  it("窄屏（<940px）断点重排：台面单列纵队 + 场况角标入流", async () => {
+  it("窄屏（<940px）断点重排：台面单列纵队 + 场况角标入流", { timeout: 60_000 }, async () => {
     const page = await browser.newPage({ viewport: { width: 720, height: 1000 } });
     await page.goto(`${base}/mahjong/${ROOM}`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector('[data-do="spectate"]', { timeout: 15_000 });
@@ -317,9 +319,9 @@ describe("牌局页浏览器真机渲染", () => {
     expect(narrow.riverCols, "窄屏牌河仍 6 列（紧凑而非拆列）").toBe(6);
     await page.screenshot({ path: path.join(SHOT_DIR, "06-narrow.png"), fullPage: true });
     await page.close();
-  }, 60_000);
+  });
 
-  it("桌心互斥（信息盘 ↔ 结算停驻）与 claim 浮层不拦动作栏（v3 CSS 契约）", async () => {
+  it("桌心互斥（信息盘 ↔ 结算停驻）与 claim 浮层不拦动作栏（v3 CSS 契约）", { timeout: 120_000 }, async () => {
     const errors: string[] = [];
     const page: Page = await browser.newPage({ viewport: { width: 1280, height: 940 } });
     page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
@@ -409,9 +411,9 @@ describe("牌局页浏览器真机渲染", () => {
     });
     expect(errors, errors.join("\n")).toEqual([]);
     await page.close();
-  }, 120_000);
+  });
 
-  it("大厅页 /mahjong：建房表单在位", async () => {
+  it("大厅页 /mahjong：建房表单在位", { timeout: 60_000 }, async () => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 940 } });
     await page.goto(`${base}/mahjong`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#overlayBox h2", { timeout: 15_000 });
@@ -419,5 +421,5 @@ describe("牌局页浏览器真机渲染", () => {
     expect(await page.locator("[data-seat-kind]").count()).toBe(3);
     await page.screenshot({ path: path.join(SHOT_DIR, "05-lobby.png"), fullPage: true });
     await page.close();
-  }, 60_000);
+  });
 });

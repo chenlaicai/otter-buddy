@@ -109,7 +109,7 @@ afterEach(() => db.close());
 
 describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
 
-  it("isSeated：入座且进行中 true；未知 otter false；终局后 false", async () => {
+  it("isSeated：入座且进行中 true；未知 otter false；终局后 false", { timeout: 20_000 }, async () => {  // F20261021ttos：重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
     const svc = new RoomService({
       store,
       gateway: recordingGateway(),

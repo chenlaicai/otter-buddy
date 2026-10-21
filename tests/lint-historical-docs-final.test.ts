@@ -4,7 +4,9 @@
  * 与 lint-historical-docs-rename.test.ts 分离：主 describe 体近 eslint
  * max-lines-per-function（220）上限，增量用例独立成文件（同 rename 通道文件先例）。
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+// F20261021ttos：临时 git 仓库结构性重活（#1366 四件套实证），文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+vi.setConfig({ testTimeout: 20_000 });
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as fs from "node:fs";
