@@ -1,4 +1,9 @@
-/** 链接资源 DTO（统一产物模型，resourceType="fact" 为文本类事实） */
+/** 链接资源 DTO（统一产物模型，resourceType="fact" 为文本类事实）
+ *  resourceType 开放字符串，已用值：fact（文本事实）/url（外部链接）/file（文档路径）
+ *  /pr/worktree/branch（F 特性产物，三型必带 groupId）/game（F20261021gmbe 游戏内嵌——
+ *  url 必须为本应用麻将牌局路由 ^/mahjong/[\\w-]+$ 全匹配，中间栏 ArtifactCard 渲染为
+ *  宿主内嵌 iframe 面板；外部 URL 永不内嵌，写入侧 validateGameUrl 硬拒）。
+ *  新增资源型须过 F20261021gmbe「后续形态接入契约」论证（语义独立性 vs url 型泛化污染）。 */
 export interface LinkedResourceDTO {
   id: string;
   conversationId: string;

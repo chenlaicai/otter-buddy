@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { GitPullRequest, FileText, Lightbulb, Pin, PinOff, ExternalLink } from 'lucide-react'
+import { GitPullRequest, FileText, Lightbulb, Pin, PinOff, ExternalLink, Gamepad2, Maximize2 } from 'lucide-react'
 import type { LocalLinkedResource } from '../../lib/mappers'
+import { GameEmbedPanel, resolveGameEmbedPath } from './GameEmbedPanel'
+import { Modal } from '../../components/Modal'
 
 /** F20261008csf1 P1：文类产物摘要卡。
  *
@@ -21,6 +23,7 @@ const TYPE_BADGES: Record<string, { label: string; icon: typeof FileText; badgeC
   pr: { label: 'PR', icon: GitPullRequest, badgeClass: 'bg-emerald-50 text-emerald-600 border-emerald-200/60' },
   file: { label: '文档', icon: FileText, badgeClass: 'bg-sky-50 text-sky-600 border-sky-200/60' },
   fact: { label: '事实', icon: Lightbulb, badgeClass: 'bg-amber-50 text-amber-600 border-amber-200/60' },
+  game: { label: '游戏', icon: Gamepad2, badgeClass: 'bg-violet-50 text-violet-600 border-violet-200/60' },
 }
 
 /** F20261013csv3 T2：file/fact 卡折叠态摘要行最大字符数——content 首行摘要 */
@@ -42,6 +45,8 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
   onTogglePin: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  /** F20261021gmbe：game 放大态（modal 全屏）——与 expanded 独立（放大必先展开） */
+  const [enlarged, setEnlarged] = useState(false)
   const badge = TYPE_BADGES[resource.type] ?? {
     label: resource.type,
     icon: FileText,
@@ -49,10 +54,34 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
   }
   const Icon = badge.icon
 
+  // F20261021gmbe：game 型——白名单校验（同源 ^/mahjong/[\w-]+$ 全匹配），不通过降级摘要卡
+  const isGame = resource.type === 'game'
+  const gamePath = isGame ? resolveGameEmbedPath(resource.url) : null
+  /** 展开态：game 超出 max-w-md，撑满中间栏（牌桌 ≥940px 断点直接可玩） */
+  const gameExpanded = isGame && gamePath !== null && expanded
+
   const body = (() => {
     if (resource.type === 'fact') {
       // fact 全文 ≤500 字（FACT_CONTENT_MAX_LENGTH），卡内直出——这就是「结论卡」的信息增量
       return <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap break-words">{resource.content}</p>
+    }
+    if (gamePath) {
+      // F20261021gmbe：game 卡折叠态（与现摘要卡视觉一致）——房间号 + 展开玩入口；
+      // 展开态 body 让位面板（不重复显示 url 文本）
+      if (expanded) return null
+      const roomId = gamePath.split('/').pop()
+      return (
+        <div className="flex items-center gap-2">
+          <p className="text-xs text-stone-400 truncate">房间 {roomId}</p>
+          <button
+            onClick={() => setExpanded(true)}
+            className="text-xs text-otter-500 hover:underline flex-shrink-0"
+            data-testid="game-expand"
+          >
+            展开玩
+          </button>
+        </div>
+      )
     }
     // T2：file 卡折叠态摘要行（content 首行摘要）——不再只有标题+URL
     const snippet = firstLineSnippet(resource.content)
@@ -71,7 +100,9 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
   return (
     <div
       data-artifact-id={resource.id}
-      className={`my-2 rounded-xl border px-3.5 py-3 max-w-md transition ${
+      className={`my-2 rounded-xl border px-3.5 py-3 transition ${
+        gameExpanded ? 'w-full' : 'max-w-md'
+      } ${
         pinned
           ? 'border-otter-300/60 bg-otter-50/50'
           : 'border-stone-200/80 bg-stone-50/70'
@@ -107,6 +138,13 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
         </button>
       </div>
       {body}
+      {/* F20261021gmbe：game 展开态——宿主内嵌游戏面板（白名单内同源 iframe；收起即卸载断 SSE；
+          放大态时内联位让位 modal（单实例，避免双 iframe 双 SSE）） */}
+      {gameExpanded && !enlarged && (
+        <div className="mt-2">
+          <GameEmbedPanel url={resource.url} title={resource.title} />
+        </div>
+      )}
       {/* T2：PR 卡 diff stat（unfurl join 投影——additions/deletions 仅 github-api PR 记录携带） */}
       {resource.type === 'pr' && unfurl?.additions != null && unfurl?.deletions != null && (
         <p className="text-[11px] mt-1">
@@ -120,7 +158,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
       {resource.type === 'pr' && resource.url && !unfurl && (
         <p className="text-[11px] text-stone-400 mt-1">未抓取（将自动补抓）</p>
       )}
-      {expanded && resource.type !== 'fact' && resource.content && (
+      {expanded && resource.type !== 'fact' && resource.type !== 'game' && resource.content && (
         <p className="mt-2 text-sm text-stone-600 leading-relaxed whitespace-pre-wrap break-words border-t border-stone-200/60 pt-2">
           {resource.content}
         </p>
@@ -137,6 +175,25 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
             打开
           </a>
         )}
+        {isGame && gamePath && expanded && (
+          <>
+            <button
+              onClick={() => { setExpanded(false); setEnlarged(false) }}
+              className="text-stone-400 hover:text-stone-600"
+              data-testid="game-collapse"
+            >
+              收起
+            </button>
+            <button
+              onClick={() => setEnlarged(true)}
+              className="inline-flex items-center gap-0.5 text-otter-500 hover:underline"
+              data-testid="game-enlarge"
+            >
+              <Maximize2 className="w-3 h-3" />
+              放大
+            </button>
+          </>
+        )}
         {!expanded && resource.type !== 'fact' && resource.content && resource.content.length > FOLDED_SNIPPET_MAX && (
           <button
             onClick={() => setExpanded(true)}
@@ -147,6 +204,30 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
         )}
         {resource.auto && <span>自动登记</span>}
       </div>
+      {/* F20261021gmbe：放大 modal（90vw，牌桌完整体验）——收起/关闭即卸载 */}
+      {gameExpanded && enlarged && (
+        <GameEnlargeModal
+          url={resource.url}
+          title={resource.title}
+          onClose={() => setEnlarged(false)}
+        />
+      )}
     </div>
+  )
+}
+
+/** F20261021gmbe：放大态 modal——复用 Modal（焦点管理/Escape/栈）；宽度 90vw，
+ *  iframe 高度扣掉 header/内边距（modal 内容区上限 calc(80vh-120px)） */
+function GameEnlargeModal({ url, title, onClose }: {
+  url: string | null
+  title: string
+  onClose: () => void
+}) {
+  return (
+    <Modal isOpen onClose={onClose} title={title} width="90vw">
+      <div className="-m-5" style={{ width: 'calc(100% + 2.5rem)' }}>
+        <GameEmbedPanel url={url} title={title} heightClass="h-[calc(80vh-170px)]" />
+      </div>
+    </Modal>
   )
 }

@@ -48,6 +48,20 @@ export function validateGroupIdRequired(resourceType: string, groupId: string | 
   );
 }
 
+/** F20261021gmbe：game 型 url 白名单——仅本应用麻将牌局路由（全匹配，非前缀）。
+ *  与 web 端 GameEmbedPanel resolveGameEmbedPath 同口径（写入时固化数据卫生，防
+ *  未来白名单扩展时存量脏数据变内嵌面；与 pr/worktree 的 groupId 校验同构）。 */
+export const GAME_URL_PATTERN = /^\/mahjong\/[\w-]+$/;
+
+export const GAME_URL_MESSAGE =
+  "game 类型资源的 url 必须是本应用麻将牌局路由（^/mahjong/[\\w-]+$ 全匹配）。外部 URL 永不内嵌（安全底线 E5），请改用 url 类型或新窗口链接。";
+
+export function validateGameUrl(resourceType: string, url: string | undefined | null): DomainError | null {
+  if (resourceType !== "game") return null;
+  if (url && GAME_URL_PATTERN.test(url)) return null;
+  return new DomainError(GAME_URL_MESSAGE, "validation");
+}
+
 export class ManageKeyInfo {
   constructor(
     private readonly repo: ConversationRepository,
@@ -88,6 +102,9 @@ export class ManageKeyInfo {
     if (input.resourceType !== "fact" && !input.url) {
       throw new DomainError("非 fact 类型资源必须提供 url", "validation");
     }
+    // F20261021gmbe：game 型 url 前缀白名单（必做——写入时固化数据卫生）
+    const gameUrlErr = validateGameUrl(input.resourceType, input.url);
+    if (gameUrlErr) throw gameUrlErr;
   }
 
   /** 索引内容取自已脱敏的 resource（二轮审视#5：取 raw input 会让 fact 本体与 FTS 一致性依赖 StoreMemory 隐式脱敏） */
