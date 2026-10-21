@@ -153,6 +153,13 @@ describe("SqliteEntryRepository - 条目基础操作", () => {
   });
 
   describe("getEntries", () => {
+    it("读时投影 senderOtterType：历史大獭不在名册也能带出 big", async () => {
+      db.prepare("UPDATE otters SET id = 'history-big', type = 'big' WHERE id = 'otter-1'").run();
+      await repo.createEntry(entryFixture({ senderId: 'history-big' }));
+      const entries = await repo.getEntries('conv-1');
+      expect(entries[0]?.senderOtterType).toBe('big');
+    });
+
     it("should get entries by conversation", async () => {
       await repo.createEntry(entryFixture({ id: "entry-1", sequenceNum: 1 }));
       await repo.createEntry(entryFixture({ id: "entry-2", sequenceNum: 2 }));

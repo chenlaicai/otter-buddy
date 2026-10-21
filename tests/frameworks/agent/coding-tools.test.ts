@@ -83,6 +83,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("get_html_card_contract");
     expect(tools).toContain("manage_healing_events");
     expect(tools).toContain("create_scheduled_task");
+    expect(tools).toContain("manage_scheduled_task_pending");
     expect(tools).toContain("restart_otter");
     expect(tools).toContain("workspace_info");
     expect(tools).toContain("workspace_list");
@@ -99,7 +100,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("resolve_signal"); // F20260826mwrd C2：裁决写路径（big）
     expect(tools).toContain("unhalt_otter"); // #927：halt 解除（big 编排域）
     expect(tools).toContain("merge_pr"); // F20260922pmgd：PR 合入授权闸（big 型唯一合入通道）
-    expect(tools).toHaveLength(37); // #1484：+workspace_delete（36→37）
+    expect(tools).toHaveLength(38); // F20261021sprx：+manage_scheduled_task_pending（37→38）
   });
 
   it("small otter 应包含消息/记忆/上下文/术语/产物/参与者/工作区/定时任务/自愈管理/自身重启工具，不含管理类工具", () => {
@@ -191,6 +192,6 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("unhalt_otter"); // #927：halt 解除（big 编排域）
     expect(tools).toContain("merge_pr"); // F20260922pmgd：undefined 按 big 处理，含合入授权闸
     expect(tools).toContain("workspace_delete"); // #1484：undefined 路径同样含回收动词
-    expect(tools).toHaveLength(37); // #1484：+workspace_delete（36→37）
+    expect(tools).toHaveLength(38); // F20261021sprx：+manage_scheduled_task_pending（37→38）
   });
 });

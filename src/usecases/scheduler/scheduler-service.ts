@@ -7,8 +7,11 @@ import type { MessageBroadcaster } from '@usecases/im/message-broadcaster';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ScheduledTaskRepository } from '@usecases/scheduled-task/scheduled-task-repository';
 import type { ManageScheduledTask } from '@usecases/scheduled-task/manage-scheduled-task';
+import type { OtterRepository } from '@usecases/otter/otter-repository';
+import type { ScheduledTaskPendingItemRepository } from './pending-item-repository';
+import { resolveExecutorOtter } from './resolve-executor-otter';
 import type { ManageSession } from '@usecases/otter/manage-session';
-import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
+import type { ScheduledTask, ScheduledTaskExecution } from '@entities/scheduled-task/scheduled-task';
 import type { Entry } from '@entities/conversation/entry';
 import type { Logger } from '@usecases/ports/logger';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
@@ -162,6 +165,9 @@ export interface SchedulerServiceOptions {
   /** #1449：目标獭是否活跃执行中（可选）——孤儿 running 执行扫描的判活回调。
    *  未注入按「无存活」处理（保守清理）。 */
   isOtterRunning?: (otterId: string) => boolean;
+  /** F20261021sprx：角色 → 当前名册实例的实体查询，以及忙时待执行列表。 */
+  otterRepo?: Pick<OtterRepository, 'getById'>;
+  pendingItemRepo?: ScheduledTaskPendingItemRepository;
 }
 
 export class SchedulerService {
@@ -181,6 +187,8 @@ export class SchedulerService {
    *  缺省 = 无存活（最保守：判不出活就当死，机械清理比等 24h 安全）。
    *  生产由 AgentInvoker（委托 PiSessionFactory.isRunning）注入；测试注入假实现。 */
   private readonly isOtterRunning?: (otterId: string) => boolean;
+  private readonly otterRepo?: Pick<OtterRepository, 'getById'>;
+  private readonly pendingItemRepo?: ScheduledTaskPendingItemRepository;
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
@@ -217,6 +225,8 @@ export class SchedulerService {
     this.messageBroadcaster = options.messageBroadcaster;
     this.agentInvokePort = options.agentInvokePort;
     this.isOtterRunning = options.isOtterRunning;
+    this.otterRepo = options.otterRepo;
+    this.pendingItemRepo = options.pendingItemRepo;
     this.cronParser = options.cronParser;
     this.logger = options.logger;
     this.healingRepo = options.healingRepo;
@@ -284,12 +294,13 @@ export class SchedulerService {
 
   /** 启动调度器 */
   async start(): Promise<void> {
-    // #775：启动对账——僵尸 running 执行翻篇（进程内无存活 running 跨越重启）。
-    // 对账失败不阻塞启动（仅日志）：脏行只影响面板展示，不影响调度正确性。
+    // 启动对账以执行侧证据为准：有近期产出≠僵尸，不能因行仍 running 误杀已落账工作。
+    // 无证据的在同一 UPDATE 中翻篇，返回后 claim 立即可走，消除「已清行但仍被 running 拒」的缝。
     try {
-      const stale = await this.taskRepo.failAllRunningExecutions();
+      const preserveExecutionIds = await this.findRunningExecutionsWithFreshOutput();
+      const stale = await this.taskRepo.failAllRunningExecutions(preserveExecutionIds);
       if (stale > 0) {
-        this.logger.warn(`启动对账：${stale} 条僵尸 running 执行记录已翻篇为 failed`, { stale });
+        this.logger.warn(`启动对账：${stale} 条无近期产出证据的 running 执行已翻篇为 failed`, { stale, preserved: preserveExecutionIds.length });
       }
     } catch (err) {
       this.logger.warn('启动对账失败（不阻塞启动）', { error: err instanceof Error ? err.message : String(err) });
@@ -402,15 +413,45 @@ export class SchedulerService {
     }
   }
 
+  /** 锚点后是否有近期产出证据。message_id 为空表示锚点尚未建立，按无证据处理。 */
+  private async hasExecutionFreshOutput(execution: ScheduledTaskExecution): Promise<boolean> {
+    if (!execution.messageId) return false;
+    try {
+      const after = await this.entryRepo.getEntriesAfter(execution.messageId, 200);
+      return after.some(entry => Date.now() - new Date(entry.createdAt).getTime() <= RUNNING_STUCK_THRESHOLD_MS);
+    } catch (error) {
+      this.logger.warn('执行侧产出证据查询失败（按无证据处理）', {
+        executionId: execution.id, error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  }
+
+  /** 启动对账只保留有近期产出证据的 running；其余由仓储单次 UPDATE 原子翻篇。 */
+  private async findRunningExecutionsWithFreshOutput(): Promise<string[]> {
+    const running = await this.taskRepo.getRunningExecutions();
+    const preserve: string[] = [];
+    for (const execution of running) {
+      if (await this.hasExecutionFreshOutput(execution)) preserve.push(execution.id);
+    }
+    return preserve;
+  }
+
+  /** session 池只说明“疑似占用”；超龄行还须看执行侧证据，避免挂死 session 让 reap 永不 fire。 */
+  private async isExecutionAlive(task: ScheduledTask, execution: ScheduledTaskExecution): Promise<boolean> {
+    if (await this.hasExecutionFreshOutput(execution)) return true;
+    const targetOtter = await this.resolveExecutorOtterId(task);
+    if (!targetOtter || !this.isOtterRunning?.(targetOtter)) return false;
+    // 无锚点的停机冻结形态保留旧保护；有锚点仍必须有产出证据，防残留 session 永久占位。
+    return !execution.messageId;
+  }
+
   /** #1449：单任务孤儿清理（reapStaleRunningExecutions 抽取，控复杂度）。 */
   private async reapStaleRunningExecutionsForTask(task: ScheduledTask, cutoff: number): Promise<void> {
-    const executions = await this.taskRepo.getExecutions(task.id, { limit: 10 });
+    const executions = await this.taskRepo.getRunningExecutions(task.id);
     for (const exec of executions) {
-      if (exec.status !== 'running') continue;
       if (new Date(exec.triggeredAt).getTime() > cutoff) continue;
-      const targetOtter = task.talkingStonePassedTo[0];
-      // 判不出活按死处理（未注入 isOtterRunning 的装配=降级基线，机械清理比等 24h 安全）
-      if (targetOtter && this.isOtterRunning?.(targetOtter)) continue;
+      if (await this.isExecutionAlive(task, exec)) continue;
       // 账面翻篇 + high healing 落账，不 halt——halt 是 invoke 作用域的人用停手令
       //（halt-registry 头注释：无活跃 invoke 打标=孤儿指令，跨 invoke 残留污染下一次触发）。
       // 「执行方真活着但 isRunning 漏报」的低概率场景由 healing 落账承担可见性，不需要 halt 兜底。
@@ -419,6 +460,7 @@ export class SchedulerService {
         completedAt: new Date().toISOString(),
         errorMessage: `孤儿执行清理：running 滞留超 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h 且无存活执行方，轮询扫描机械释放`,
       });
+      const targetOtter = await this.resolveExecutorOtterId(task);
       this.logger.warn('孤儿扫描: running 执行已机械释放', {
         taskId: task.id, executionId: exec.id, triggeredAt: exec.triggeredAt, targetOtter,
       });
@@ -458,36 +500,90 @@ export class SchedulerService {
     }
   }
 
-  /** #1471：在途互斥守卫查询——执行獭上是否存在其他任务的存活 running 执行。
-   *  存活 = running 且未超过滞留阈值（#1449 同口径：超阈值执行会被轮询扫描判死/claim 放行，
-   *  不构成受害者——重启它无害）。
-   *  实现：逐任务查 getExecutions（复用现有接口，不扩仓储接口面）。任务数 ~10 量级、
-   *  每任务取 5 条，触发时一次，代价可忽略。
-   *  宽严分析：prompt 已落库但发言石未消化的「待点火」执行也记 running——按宽口径视为在途，
-   *  宁跳过一轮不焚其上下文。查询失败保守放行（维持现状语义：重启照常），与 claim 路径的
-   *  台账判活双保险。 */
-  private async hasInflightExecutionOnOtter(task: ScheduledTask, otterId: string): Promise<boolean> {
+  /** F20261021sprx：角色解析后的当前执行实例；旧字段只在名册解析失败时兜底。 */
+  private async resolveExecutorOtterId(task: ScheduledTask): Promise<string | undefined> {
+    const resolution = await resolveExecutorOtter(task, { convRepo: this.convRepo, otterRepo: this.otterRepo });
+    return resolution.otter?.id;
+  }
+
+  /** 宽口径忙判定：session 在池/在流，或该獭身上任何任务仍有 running execution（含本任务）。 */
+  private async isExecutorBusy(task: ScheduledTask, executorOtterId: string, currentExecutionId?: string): Promise<boolean> {
     try {
-      const tasks = await this.getAllActiveTasks();
-      const now = Date.now();
-      for (const t of tasks) {
-        if (t.id === task.id) continue;
-        if (!t.talkingStonePassedTo.includes(otterId)) continue;
-        const executions = await this.taskRepo.getExecutions(t.id, { limit: 5 });
-        const inflight = executions.some(e =>
-          e.status === 'running' && now - new Date(e.triggeredAt).getTime() < RUNNING_STUCK_THRESHOLD_MS,
-        );
-        if (inflight) return true;
+      // 已 halt 的 session 由 reapPreempting 判死翻篇，不再把残留 streaming 当活跃占用。
+      if (!haltRegistry.isHalted(executorOtterId) && this.isOtterRunning?.(executorOtterId)) return true;
+      const executions = await this.taskRepo.getRunningExecutions();
+      for (const execution of executions) {
+        // 本任务历史 running 必须计入；只排除本轮刚建立、尚未点火的 execution 自身。
+        if (execution.id === currentExecutionId) continue;
+        // getById 含 disabled：disabled 任务的 running 残留同样是该獭的执行占用。
+        const candidate = await this.taskRepo.getById(execution.taskId);
+        if (!candidate) continue;
+        const candidateExecutor = await this.resolveExecutorOtterId(candidate);
+        if (candidateExecutor === executorOtterId) return true;
       }
       return false;
-    } catch (err) {
-      this.logger.warn('在途互斥查询失败（保守放行重启）', {
-        taskId: task.id,
-        otterId,
-        error: err instanceof Error ? err.message : String(err),
+    } catch (error) {
+      // 保持既有降级：忙判数据源故障不阻塞任务，重启/直发照常。
+      this.logger.warn('执行獭忙判查询失败（保守放行）', {
+        taskId: task.id, otterId: executorOtterId,
+        error: error instanceof Error ? error.message : String(error),
       });
       return false;
     }
+  }
+
+  private async recordExecutorResolutionFailure(task: ScheduledTask): Promise<void> {
+    this.logger.warn('定时任务执行者角色在名册中无匹配，旧实例 fallback 也不可用', {
+      taskId: task.id,
+      conversationId: task.conversationId,
+      executorRole: task.executorRole,
+    });
+    if (!this.healingRepo) return;
+    const now = new Date().toISOString();
+    try {
+      await this.healingRepo.create({
+        id: crypto.randomUUID(),
+        messageId: '',
+        conversationId: task.conversationId,
+        otterId: task.talkingStonePassedTo[0] ?? '',
+        errorType: 'other',
+        severity: 'low',
+        description: `定时任务「${task.name}」执行者角色「${task.executorRole}」在对话名册中无匹配（no-such-role-in-roster）`,
+        suggestion: '检查任务 executorRole 与对话 active 参与者；同名小獭不匹配大獭角色',
+        context: { taskId: task.id, executorRole: task.executorRole, reason: 'no-such-role-in-roster' },
+        status: 'open',
+        resolution: null,
+        createdAt: now,
+        resolvedAt: null,
+      });
+    } catch (err) {
+      this.logger.warn('执行者解析失败 healing 落账失败（不阻塞 skip 落账）', {
+        taskId: task.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** 入列的 execution 直接以 completed 插入，绕开 completeExecution 的空 messageId FK 雷。 */
+  private async createCompletedExecution(executionId: string, taskId: string, triggeredAt: string): Promise<void> {
+    await this.taskRepo.createExecution({
+      id: executionId,
+      taskId,
+      triggeredAt,
+      completedAt: new Date().toISOString(),
+      status: 'completed',
+      errorMessage: null,
+      messageId: null,
+    });
+  }
+
+  private async notifyOnceBusySkip(task: ScheduledTask): Promise<void> {
+    const body = `[定时任务未执行] 一次性任务「${task.name}」触发时执行獭「${task.executorRole}」正忙，本轮已记 skipped；任务将按 once 语义删除，承诺未执行。请需要时重新创建任务或手动补执行。`;
+    const { entry } = await this.sendEntry.createSystemEntry({ conversationId: task.conversationId, body });
+    this.messageBroadcaster?.broadcastEvent(task.conversationId, {
+      event: 'entry.system',
+      data: { entryId: entry.id, content: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt },
+    });
   }
 
   /** #1449：挤占 skip 落 healing（low）——触发被拒即见，不等 2h 硬兜底。
@@ -968,11 +1064,10 @@ export class SchedulerService {
         throw err;
       });
 
-      await this.createExecution(executionId, task.id, now);
-      executionEstablished = true;
-
       // PR4: function executor 分支——纯代码执行，无 LLM 会话
       if (task.executorType === 'function') {
+        await this.createExecution(executionId, task.id, now);
+        executionEstablished = true;
         if (!this.functionRegistry) {
           throw new DomainError('Function registry not injected', 'validation');
         }
@@ -1018,27 +1113,63 @@ export class SchedulerService {
         }
       }
 
-      // F20260815rstrt: 触发前重启执行獭的 session（保持干净上下文）
-      if (task.restartBeforeInvoke && task.talkingStonePassedTo.length > 0) {
-        const executorOtterId = task.talkingStonePassedTo[0];
+      // agent 任务在建立 running 行之前解析/忙判：入列路径只直插 completed，避免同 ID 双插。
+      const resolution = await resolveExecutorOtter(task, { convRepo: this.convRepo, otterRepo: this.otterRepo });
+      if (!resolution.otter) {
+        status = 'skipped';
+        await this.createExecution(executionId, task.id, now);
+        executionEstablished = true;
+        await this.handleExecutionSkipped(executionId, new Error('no-such-role-in-roster'));
+        await this.recordExecutorResolutionFailure(task);
+        return { executionId };
+      }
+      const executorOtterId = resolution.otter.id;
+      const busy = await this.isExecutorBusy(task, executorOtterId, executionId);
+
+      if (task.scheduleType === 'once' && busy) {
+        // once 行在 triggerTask 正常返回后删除，不能入 pending（FK 会悬空）；有声删除保留可见性。
+        status = 'skipped';
+        await this.createExecution(executionId, task.id, now);
+        executionEstablished = true;
+        await this.handleExecutionSkipped(executionId, new Error('once task skipped: executor otter is busy'));
+        await this.notifyOnceBusySkip(task);
+        return { executionId };
+      }
+
+      if (task.scheduleType !== 'once' && busy) {
+        // 同槽位 running/completed 已覆盖本轮，failed/skipped 不抑制（pending 兜失败重试）。
+        const covered = this.pendingItemRepo
+          ? await this.pendingItemRepo.hasExecutionInSlot(task.id, now, ['running', 'completed'], executionId)
+          : false;
+        if (!covered && this.pendingItemRepo) {
+          await this.pendingItemRepo.enqueue({
+            id: crypto.randomUUID(),
+            taskId: task.id,
+            conversationId: task.conversationId,
+            role: task.executorRole,
+            triggeredAt: now,
+            status: 'pending',
+            consumedAt: null,
+            resolution: null,
+            resolutionReason: null,
+          });
+        }
+        await this.createCompletedExecution(executionId, task.id, now);
+        executionEstablished = true;
+        status = 'completed';
+        this.logger.info('Task trigger recorded in pending list (executor busy)', {
+          taskId: task.id, executionId, executorOtterId, suppressedDuplicate: covered,
+        });
+        return { executionId };
+      }
+
+      await this.createExecution(executionId, task.id, now);
+      executionEstablished = true;
+
+      // F20260815rstrt: 仅确认执行獭空闲后才允许触发前重启，避免焚毁在途上下文。
+      if (task.restartBeforeInvoke) {
         if (!this.manageSession) {
           this.logger.warn('restartBeforeInvoke skipped: manageSession not injected', { taskId: task.id, otterId: executorOtterId });
-        } else if (await this.hasInflightExecutionOnOtter(task, executorOtterId)) {
-          // #1471 在途互斥守卫：换世会焚毁执行獭的在途上下文——若该獭上仍有其他任务
-          // 的存活 running 执行（含其 prompt 已落库、等待发言石消化的「待点火」执行），
-          // 本任务重启会把它掐断（案发现场：8:00 补丁清单被 8:30 健康检查的重启掐断，
-          // 同獭串行任务互相残杀）。
-          // 处置：不重启、直接记账 skipped 退出——与执行被掐死相比，本轮不跑代价低
-          // （挤占 healing 让跳过可见，下个 cron 窗口自然补跑）。
-          // 只挡 restart 步骤（speak 路径不挡——那条路径不焚上下文，由 claim 锁天然串行）。
-          await this.handleExecutionSkipped(executionId, new Error('restartBeforeInvoke skipped: executor otter has inflight execution'));
-          // 挤占可见性与 claim 挤占同族，共用 1h 节流窗（同任务同小时只落一条）。
-          void this.recordPreemptionSkipHealing(task, '互斥保护');
-          this.logger.info('Task skipped: restartBeforeInvoke blocked by inflight execution on executor otter', {
-            taskId: task.id,
-            otterId: executorOtterId,
-          });
-          return { executionId };
         } else {
           try {
             await this.manageSession.restartSession(executorOtterId,
@@ -1053,9 +1184,9 @@ export class SchedulerService {
 
       executionStartMs = this.now();
       try {
-        const anchor = await this.createSystemSignalEntry(task, effectiveBody);
+        const anchor = await this.createSystemSignalEntry(task, effectiveBody, executorOtterId);
         // Why 传入锚点 entry id：链看门狗用它探测链活性（#516），记账校验用它圈定执行窗口（#517）
-        await this.invokeAgentWithTimeout(task, effectiveBody, anchor.id);
+        await this.invokeAgentWithTimeout(task, effectiveBody, anchor.id, executorOtterId);
         // #517: invoke 正常 resolve 不代表 agent 成功——orchestrator 的 failTerminal/abortTerminal
         // 将 invoke 置 failed 后正常返回 TurnResult，链引擎 allSettled 消化 rejection，
         // 锁超时/agent 异常无法经由 reject 传递到 scheduler 层。
@@ -1236,8 +1367,7 @@ export class SchedulerService {
   private async claimAndValidateTask(task: ScheduledTask, now: string): Promise<void> {
     // #641: 检查是否存在未超时的 running execution，避免重复触发竞态
     // 同 task 存在 running execution → 拒绝 claim，记 skipped（非 failed）
-    const runningExecutions = await this.taskRepo.getExecutions(task.id, { limit: 5 });
-    const stuckExecutions = runningExecutions.filter(exec => exec.status === 'running');
+    const stuckExecutions = await this.taskRepo.getRunningExecutions(task.id);
     // #1449：僵尸判定阈值从 24h（MAX_CHAIN_TIMEOUT_MS）收紧到 2h（RUNNING_STUCK_THRESHOLD_MS）——
     //   轮询扫描（reapStaleRunningExecutions）每 5min 会在 2h 阈值机械清理滞留执行体，
     //   此处 2h 未清理即视为「扫描未及」的僵尸直接放行（阈值倒挂消除：防僵尸窗 ≤ 清理窗）。
@@ -1250,12 +1380,12 @@ export class SchedulerService {
       exec.status === 'running' &&
       Date.now() - new Date(exec.triggeredAt).getTime() < RUNNING_STUCK_THRESHOLD_MS
     );
-    if (hasRunning) {
-      // #1449：挤占 skip 落 healing（low，1h 节流）——触发被拒即见，与 #814 错过对账互补。
-      //   fire-and-forget 不阻塞 claim 拒绝主路径（落账失败只少一条可见性记录）。
+    if (hasRunning && task.executorType === 'function') {
+      // function executor 无 pending 角色通道，保留互斥避免同一代码函数双跑。
       void this.recordPreemptionSkipHealing(task);
       throw new DomainError('Task already has a running execution, skipping this trigger', 'validation');
     }
+    // agent 任务不再在 claim 阶段 skip：后续宽口径忙判将本轮转为 pending（入列即完成）。
 
     const claimed = await this.taskRepo.claimTask(task.id, now, now);
     if (!claimed) {
@@ -1276,14 +1406,14 @@ export class SchedulerService {
    *  用户停机/限流冻结场景 isRunning=true 且未 halt → 不动它（信号保留语义由补扫消化）。 */
   private async reapPreemptingExecutions(
     task: ScheduledTask,
-    runningExecutions: Array<{ id: string; status: string; triggeredAt: string }>,
+    runningExecutions: ScheduledTaskExecution[],
   ): Promise<void> {
     const cutoff = Date.now() - RUNNING_STUCK_THRESHOLD_MS;
     for (const exec of runningExecutions) {
       if (new Date(exec.triggeredAt).getTime() > cutoff) continue;
-      const targetOtter = task.talkingStonePassedTo[0];
+      const targetOtter = await this.resolveExecutorOtterId(task);
       const halted = targetOtter ? haltRegistry.isHalted(targetOtter) : false;
-      if (!halted && targetOtter && this.isOtterRunning?.(targetOtter)) continue;
+      if (!halted && await this.isExecutionAlive(task, exec)) continue;
       // 账面翻篇 + healing，不 halt（同 reapStaleRunningExecutionsForTask 头注释——
       // halt 无活跃 invoke 消费=孤儿指令，会 block 本 reap 放行的新触发，治的病以新形态复发）。
       await this.taskRepo.updateExecutionStatus(exec.id, {
@@ -1314,12 +1444,12 @@ export class SchedulerService {
    *  原 createSystemMessage 写 messages（senderType='system'）已退役。
    *  广播 entry.system SSE（前端时间线居中系统条目实时可见；无 broadcaster 时静默降级）。
    *  scheduled_tasks.sender_id 保留原值不动——它是「任务归谁」的业务字段，不是信号发出者。 */
-  private async createSystemSignalEntry(task: ScheduledTask, body?: string): Promise<{ id: string; body: string | null }> {
+  private async createSystemSignalEntry(task: ScheduledTask, body: string | undefined, executorOtterId: string): Promise<{ id: string; body: string | null }> {
     const effectiveBody = body ?? task.body;
     const { entry } = await this.sendEntry.createSystemEntry({
       conversationId: task.conversationId,
       body: effectiveBody,
-      yieldTargets: task.talkingStonePassedTo,
+      yieldTargets: [executorOtterId],
       senderName: `scheduler:${task.name}`,
     });
     // 广播（best-effort，不阻塞触发链）
@@ -1333,7 +1463,7 @@ export class SchedulerService {
     return { id: entry.id, body: entry.body };
   }
 
-  private async invokeAgentWithTimeout(task: ScheduledTask, body?: string, anchorMessageId?: string): Promise<void> {
+  private async invokeAgentWithTimeout(task: ScheduledTask, body: string | undefined, anchorMessageId: string | undefined, executorOtterId: string): Promise<void> {
     // #775 S4a 换轨（最优先分支）：注入路由器时投信号 → 路由器点火。
     // - 闸门生效：用户停机/限流熔断期间信号保留（skipped_halted/skipped_rate_limited），
     //   等用户显式恢复/窗口过后补扫点燃——不再绕过闸门（09-03 ihlt 同形态盲区封死）。
@@ -1345,14 +1475,14 @@ export class SchedulerService {
     //   DirectChainGatedError 记 skipped，不会进入等待循环）。
     // 回滚面：摘除 platforms.ts 的 signalRouter 注入即回直连链（降级基线不变）。
     if (this.signalRouter) {
-      if (anchorMessageId && task.talkingStonePassedTo.length > 0) {
+      if (anchorMessageId) {
         // #775 S4a：直投通道（原点独占点火权）。Why 不用 routePendingSignals：
         // ① 整会话扫描会把任务锚点外的历史 pending 也点爁（触发面失控）；
         // ② 闸门拦截时静默保留信号会让本方法空转轮询到硬上限（执行假死一天）——
         //    直投被闸门拒时抛 DirectChainGatedError，调用方记 skipped（非 failed），
         //    信号保留在台账，恢复后由补扫/下次触发消化。
         // 补扫兜底：若路由器点火前进程崩溃，锚点消息无账，重启补扫按台账判据点燃（双跑被幂等记账+阻尼挡住）。
-        await this.signalRouter.routeDirectSignal(task.conversationId, anchorMessageId, task.talkingStonePassedTo[0]);
+        await this.signalRouter.routeDirectSignal(task.conversationId, anchorMessageId, executorOtterId);
         await this.watchExecutionByLedger(task, anchorMessageId);
         return;
       }
@@ -1373,7 +1503,7 @@ export class SchedulerService {
         conversationId: task.conversationId,
         userMessageContent: body ?? task.body,
         senderId: task.senderId,
-        initialTargets: task.talkingStonePassedTo,
+        initialTargets: [executorOtterId],
         // F20261012swsg（#1430）：定时任务 prompt 是 scheduler 合成文本（senderType='system'）——
         // 不进安全词扫描（案发源头：雷达 prompt 自带「停下，」被误扫）。此路径永不触发 L2 急停提醒。
         triggerSenderType: "system",
@@ -1395,12 +1525,12 @@ export class SchedulerService {
       // 已消费的消息不再重注入（原口径：失败保持未读重注入）。取舍理由：启动成功=消息已进 LLM 上下文，
       // 中途失败重注入会重复消费；失败场景由 invoke 级重试/告警承接，不靠游标回退。
       const unread = this.entryRepo.getUnreadEntries
-        ? await this.entryRepo.getUnreadEntries(task.conversationId, task.talkingStonePassedTo[0])
+        ? await this.entryRepo.getUnreadEntries(task.conversationId, executorOtterId)
         : [];
       const batchMaxSeq = unread.length > 0 ? Math.max(...unread.map(e => e.sequenceNum)) : undefined;
       await Promise.race([
         this.agentInvokePort.invokeConversation({
-          otterId: task.talkingStonePassedTo[0],
+          otterId: executorOtterId,
           conversationId: task.conversationId,
           userMessageContent: body ?? task.body,
           senderId: task.senderId,
@@ -1931,8 +2061,10 @@ export class SchedulerService {
     executionId: string,
     now: string,
   ): Promise<void> {
-    const retryAnchor = await this.createSystemSignalEntry(task, effectiveBody);
-    await this.invokeAgentWithTimeout(task, effectiveBody, retryAnchor.id);
+    const executorOtterId = await this.resolveExecutorOtterId(task);
+    if (!executorOtterId) throw new DomainError('no-such-role-in-roster', 'validation');
+    const retryAnchor = await this.createSystemSignalEntry(task, effectiveBody, executorOtterId);
+    await this.invokeAgentWithTimeout(task, effectiveBody, retryAnchor.id, executorOtterId);
     await this.assertNoFailedInvokes(task.conversationId, retryAnchor.id);
     await this.completeExecution(executionId, task.conversationId, retryAnchor.id);
     try {
@@ -1977,7 +2109,7 @@ export class SchedulerService {
       this.logger.warn('Quota-exhausted fallback skipped: manageSession/modelPool not injected', { taskId: task.id });
       return { retried: false };
     }
-    const executorOtterId = task.talkingStonePassedTo[0];
+    const executorOtterId = await this.resolveExecutorOtterId(task);
     if (!executorOtterId) return { retried: false };
 
     const defaultAlias = this.modelPool.getDefaultAlias();

@@ -49,6 +49,7 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     timezone: 'Asia/Shanghai',
     body: '早上好！',
     description: null,
+    executorRole: '大獭',
     talkingStonePassedTo: ['otter-1'],
     senderId: 'otter-1',
     status: 'active',
@@ -102,6 +103,10 @@ function createMockTaskRepo() {
     getAllActive: vi.fn(async () => {
       return Array.from(store.values()).filter(t => t.status === 'active');
     }),
+    getAll: vi.fn(async () => Array.from(store.values())),
+    getRunningExecutions: vi.fn(async (taskId?: string) =>
+      Array.from(executions.values()).filter(e => e.status === 'running' && (!taskId || e.taskId === taskId)) as never,
+    ),
     update: vi.fn(async (task: ScheduledTask) => {
       store.set(task.id, { ...task });
     }),
@@ -154,7 +159,18 @@ function createMockTaskRepo() {
         .slice(0, options?.limit ?? 20),
     ),
     getExecutionCount: vi.fn(async () => 0),
-    failAllRunningExecutions: vi.fn(async () => 0),
+    failAllRunningExecutions: vi.fn(async (preserveIds: string[] = []) => {
+      let changed = 0;
+      for (const execution of executions.values()) {
+        if (execution.status !== 'running' || preserveIds.includes(execution.id as string)) continue;
+        Object.assign(execution, {
+          status: 'failed', completedAt: new Date().toISOString(),
+          errorMessage: '进程重启对账：锚点后无近期产出证据',
+        });
+        changed++;
+      }
+      return changed;
+    }),
   };
 }
 
@@ -211,7 +227,9 @@ function createMockConvRepo() {
     createParticipant: vi.fn(),
     createParticipants: vi.fn(),
     getParticipant: vi.fn(),
-    getActiveParticipants: vi.fn(),
+    getActiveParticipants: vi.fn(async () => []),
+    getLastInvokeStartedAtByOtter: vi.fn(() => new Map()),
+    getLastSpeakBySender: vi.fn(() => new Map()),
     updateParticipantLeave: vi.fn(),
     updateTokenUsage: vi.fn(async () => {}),
     updateLastReadTurnNumber: vi.fn().mockResolvedValue(undefined),
@@ -964,6 +982,10 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
         healingRepo: healingRepo as never,
         tickImpl: async () => {}, // 轮询隔离
       });
+      (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+        hasExecutionInSlot: vi.fn(async () => true),
+        enqueue: vi.fn(async () => true),
+      };
       await service.start();
       service.stop();
 
@@ -1406,6 +1428,49 @@ describe('SchedulerService - once 任务调度', () => {
   });
 
   describe("once 任务调度", () => {
+    it("once 忙时：skip + 系统消息有声删除，不入 pending；闲时正常入 pending 语义不适用", async () => {
+      const now = new Date('2025-06-15T08:00:00.000Z');
+      vi.setSystemTime(now);
+      const taskRepo = createMockTaskRepo();
+      const convRepo = createMockConvRepo();
+      const sendEntry = createMockSendEntry();
+      const entryRepo = createMockEntryRepo();
+      const agentInvoke = createMockAgentInvoke();
+      const systemEntryBodies: string[] = [];
+      (sendEntry.createSystemEntry as ReturnType<typeof vi.fn>).mockImplementation(async (input: { body: string }) => {
+        if (input.body) systemEntryBodies.push(input.body);
+        return { entry: { id: 'once-busy-notice', body: null, description: null, sequenceNum: 1 } };
+      });
+      taskRepo._store.set('task-once', makeTask({
+        id: 'task-once', scheduleType: 'once', cron: '',
+        triggerAt: '2025-06-15T09:00:00.000Z',
+      }));
+      convRepo._addConversation('conv-1', { status: 'active' });
+      const service = new SchedulerService({
+        taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+        convRepo: convRepo as unknown as ConversationRepository,
+        sendEntry: sendEntry as unknown as SendEntry,
+        entryRepo: entryRepo as unknown as EntryRepository,
+        agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+        cronParser: { getNextTime: () => new Date('2025-06-15T09:00:00.000Z') } as unknown as CronParser,
+        logger: mockLogger,
+        isOtterRunning: () => true,
+      });
+      const pendingEnqueue = vi.fn(async () => true);
+      (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+        hasExecutionInSlot: vi.fn(async () => false), enqueue: pendingEnqueue,
+      };
+      await service.start();
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+
+      expect(pendingEnqueue).not.toHaveBeenCalled();
+      expect(agentInvoke.invokeConversation).not.toHaveBeenCalled();
+      expect(taskRepo._store.has('task-once')).toBe(false);
+      expect([...taskRepo._executions.values()][0]?.status).toBe('skipped');
+      expect(systemEntryBodies.some(body => body.includes('一次性任务') && body.includes('承诺未执行'))).toBe(true);
+      service.stop();
+    });
+
     it("once 任务 triggerAt 在未来 -> setTimeout 调度", async () => {
       const now = new Date('2025-06-15T08:00:00.000Z');
       vi.setSystemTime(now);
@@ -1780,11 +1845,9 @@ describe('SchedulerService - restartBeforeInvoke', () => {
   });
 });
 
-// ─── #1471: restartBeforeInvoke 在途互斥守卫 ────────────────────────────
-// 案发现场：8:00 补丁清单被 8:30 健康检查的触发前重启掐断（同獭串行任务互相残杀）。
-// 守卫语义：执行獭上有其他任务的存活 running 执行 → 不重启、记 skipped 退出。
+// ─── F20261021sprx：忙时待执行列表（取代 #1471 互斥 skip 守卫） ─────────
 
-describe('SchedulerService - #1471 restartBeforeInvoke 在途互斥守卫', () => {
+describe('SchedulerService - F20261021sprx 忙时待执行列表', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-15T08:59:00.000Z'));
@@ -1829,7 +1892,7 @@ describe('SchedulerService - #1471 restartBeforeInvoke 在途互斥守卫', () =
     return { service, agentInvoke };
   }
 
-  it('执行獭有存活 running 执行时：不重启、不 invoke、记 skipped', async () => {
+  it('执行獭有其他任务 running 时：不重启、不 invoke，入 pending 且 execution 直接 completed', async () => {
     const { taskRepo, convRepo } = setupTwoTasksOneOtter();
     // 预置：task-1 有一条 10 分钟前触发的存活 running 执行（案发现场还原）
     taskRepo._executions.set('exec-1', {
@@ -1839,18 +1902,23 @@ describe('SchedulerService - #1471 restartBeforeInvoke 在途互斥守卫', () =
     const restartSession = vi.fn(async () => ({ id: 'new-session' }));
     const healingRepo = makeObservableHealingRepo();
     const { service, agentInvoke } = buildService({ taskRepo, convRepo, restartSession, healingRepo });
+    const pending: Array<Record<string, unknown>> = [];
+    (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+      hasExecutionInSlot: vi.fn(async () => false),
+      enqueue: vi.fn(async (item: Record<string, unknown>) => { pending.push(item); return true; }),
+    };
 
-    // 只触发 task-2（直接调 triggerTask 确定性高于定时器推进——假定时器下首轮 tick 会同时拉起两任务）
     await service.trigger('task-2');
 
     expect(restartSession).not.toHaveBeenCalled();
     expect(agentInvoke.invokeConversation).not.toHaveBeenCalled();
-    // 记账 skipped（非 failed——不污染 consecutiveFailures）
     const task2Exec = Array.from(taskRepo._executions.values()).find(e => e.taskId === 'task-2');
-    expect(task2Exec?.status).toBe('skipped');
-    // 挤占 healing 落账（守卫路径传 reason='互斥保护'，与 claim 挤占区分）
-    expect(healingRepo._events.length).toBe(1);
-    expect(healingRepo._events[0].description).toContain('互斥保护');
+    expect(task2Exec?.status).toBe('completed');
+    expect(task2Exec?.completedAt).toBeTruthy();
+    expect(task2Exec?.messageId ?? null).toBeNull();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ taskId: 'task-2', role: '大獭', status: 'pending' });
+    expect(healingRepo._events.filter(e => String(e.description).includes('互斥保护'))).toHaveLength(0);
   });
 
   it('执行獭无在途执行时：正常重启 + invoke（守卫不误伤）', async () => {
@@ -1883,7 +1951,7 @@ describe('SchedulerService - #1471 restartBeforeInvoke 在途互斥守卫', () =
     expect(agentInvoke.invokeConversation).toHaveBeenCalled();
   });
 
-  it('在途执行已超滞留阈值（僵尸）时：不拦截（超阈值执行由 reap/claim 判死路径管）', async () => {
+  it('在途执行已超滞留阈值时：仍按宽口径入列（僵尸清理由保留的 reap 负责）', async () => {
     const { taskRepo, convRepo } = setupTwoTasksOneOtter();
     // task-1 的 running 执行触发于 3 小时前（超 RUNNING_STUCK_THRESHOLD_MS=2h）
     taskRepo._executions.set('exec-1', {
@@ -1892,11 +1960,35 @@ describe('SchedulerService - #1471 restartBeforeInvoke 在途互斥守卫', () =
     });
     const restartSession = vi.fn(async () => ({ id: 'new-session' }));
     const { service, agentInvoke } = buildService({ taskRepo, convRepo, restartSession });
+    const pending: Array<Record<string, unknown>> = [];
+    (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+      hasExecutionInSlot: vi.fn(async () => false),
+      enqueue: vi.fn(async (item: Record<string, unknown>) => { pending.push(item); return true; }),
+    };
 
     await service.trigger('task-2');
 
-    expect(restartSession).toHaveBeenCalled();
-    expect(agentInvoke.invokeConversation).toHaveBeenCalled();
+    expect(pending).toHaveLength(1);
+    expect(restartSession).not.toHaveBeenCalled();
+    expect(agentInvoke.invokeConversation).not.toHaveBeenCalled();
+  });
+
+  it('disabled 任务的 running 残留也计入执行獭忙判', async () => {
+    const { taskRepo, convRepo } = setupTwoTasksOneOtter();
+    taskRepo._store.get('task-1')!.status = 'disabled';
+    taskRepo._executions.set('exec-disabled-running', {
+      id: 'exec-disabled-running', taskId: 'task-1', triggeredAt: new Date().toISOString(),
+      completedAt: null, status: 'running', errorMessage: null, messageId: null,
+    });
+    const { service, agentInvoke } = buildService({ taskRepo, convRepo, restartSession: vi.fn(async () => ({})) });
+    const pending: Array<Record<string, unknown>> = [];
+    (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+      hasExecutionInSlot: vi.fn(async () => false),
+      enqueue: vi.fn(async (item: Record<string, unknown>) => { pending.push(item); return true; }),
+    };
+    await service.trigger('task-2');
+    expect(pending).toHaveLength(1);
+    expect(agentInvoke.invokeConversation).not.toHaveBeenCalled();
   });
 
   it('在途查询抛错时：保守放行（重启照常，不阻塞任务）', async () => {
@@ -1960,7 +2052,7 @@ describe('#332: dispatchChainEngine 注入后 invokeAgentWithTimeout 走链引�
     expect(calls.length).toBe(1);
     const callArg = calls[0][0];
     expect(callArg.conversationId).toBe('conv-chain');
-    expect(callArg.initialTargets).toEqual(['otter-1', 'otter-2']);
+    expect(callArg.initialTargets).toEqual(['otter-1']);
     expect(callArg.senderId).toBe('boss');
 
     // 直接 invoke 未被调用（链引擎接管）
@@ -2904,7 +2996,7 @@ describe('#641: claim 前检查 running execution', () => {
     vi.useRealTimers();
   });
 
-  it('存在未超时 running execution 时拒绝 claim，记 skipped', async () => {
+  it('存在未超时 running execution 时先入 pending，同槽位抑制重复入列且 execution 记 completed', async () => {
     const now = new Date('2026-09-01T10:00:00.000Z');
     vi.setSystemTime(now);
 
@@ -2940,11 +3032,14 @@ describe('#641: claim 前检查 running execution', () => {
       logger: mockLogger,
     });
 
-    // 手动触发应被跳过（存在 running execution）
-    await expect(service.trigger('task-1')).rejects.toThrow('Task already has a running execution');
-    // #1208：claim 被拒落 skipped execution 行（触发事实可见，此前 0 行 = 静默）
+    (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+      hasExecutionInSlot: vi.fn(async () => true),
+      enqueue: vi.fn(async () => { throw new Error('同槽位已覆盖，不应重复入列'); }),
+    };
+    const result = await service.trigger('task-1');
+    expect(result.executionId).toBeTruthy();
     expect(taskRepo._executions.size).toBe(1);
-    expect(Array.from(taskRepo._executions.values())[0].status).toBe('skipped');
+    expect(Array.from(taskRepo._executions.values())[0].status).toBe('completed');
     // last_triggered_at 已刷新（catch 块兜底补刷——claim 被拒时 claimTask 在 running
     //   检查前置拦截，原 claimTask 未执行，需显式补刷让 reconcile 知道本轮已跑过）
     expect(taskRepo._store.get('task-1')!.lastTriggeredAt).toBe('2026-09-01T10:00:00.000Z');
@@ -3629,13 +3724,39 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
   });
 });
 
+describe('F20261021sprx 执行者解析失败', () => {
+  it('名册无角色且 fallback 不可用：skipped + low healing，不直发', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const agentInvoke = createMockAgentInvoke();
+    const healingRepo = makeObservableHealingRepo();
+    taskRepo._store.set('task-no-role', makeTask({ id: 'task-no-role' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+      otterRepo: { getById: async () => null },
+    });
+    await service.trigger('task-no-role');
+    expect(agentInvoke.invokeConversation).not.toHaveBeenCalled();
+    expect([...taskRepo._executions.values()][0]?.status).toBe('skipped');
+    expect(healingRepo._events.some(e => e.severity === 'low' && String(e.description).includes('no-such-role-in-roster'))).toBe(true);
+  });
+});
+
 describe('#1208 根修：动态 skip 可见性（11 天零执行记录生产现场）', () => {
   // 9/18–9/29 生产现场：regression-verify 每天 11:00 触发→ resolveEffectiveBody 返 null
   // （上游无断言段 issue / gh 故障）→ skip 不落 execution、不刷 last_triggered_at
   // → last_triggered_at 永远 NULL → reconcile 误报「错过触发窗口」+ prompt-discipline
   // skipped-24h-ratio 指标全盲。根修：skip 落 skipped execution 行 + 刷 last_triggered_at。
 
-  it('claim 被拒（running execution 存在）→ execution 记 skipped 且 last_triggered_at 刷新', async () => {
+  it('running execution 存在 → 触发事实记 completed 且 last_triggered_at 刷新（pending 口径）', async () => {
     vi.useFakeTimers(); // #1208：隔离轮询 tick——只验证 trigger() 单次行为，不让 tick 反复触发灌入 executions
     try {
       const healingRepo = makeObservableHealingRepo();
@@ -3662,14 +3783,18 @@ describe('#1208 根修：动态 skip 可见性（11 天零执行记录生产现�
         healingRepo: healingRepo as never,
         tickImpl: async () => {}, // 轮询隔离
       });
+      (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+        hasExecutionInSlot: vi.fn(async () => true),
+        enqueue: vi.fn(async () => true),
+      };
       await service.trigger('task-claim-skip').catch(() => undefined);
       service.stop();
 
-      // #1208：claim 被拒也要落 skipped execution 行（否则「今日是否跑过」不可见）
+      // F20261021sprx：忙时触发仍落 execution，但改为入列即 completed（不再 claim skip）。
       expect(taskRepo._executions.size).toBe(1);
       const exec = Array.from(taskRepo._executions.values())[0];
-      expect(exec.status).toBe('skipped');
-      expect(String(exec.errorMessage)).toContain('running execution');
+      expect(exec.status).toBe('completed');
+      expect(exec.errorMessage ?? null).toBeNull();
       // 且 last_triggered_at 已刷新（claim 副作用）
       expect(taskRepo._store.get('task-claim-skip')!.lastTriggeredAt).not.toBe(before);
       // claim 被拒仍属正常跳过，不落前置 healing
@@ -3718,14 +3843,14 @@ describe('#1208 根修：动态 skip 可见性（11 天零执行记录生产现�
       expect(taskRepo._executions.size).toBe(0);
       expect(taskRepo._statusUpdates.some(u => u.id === 'task-disabled-skip' && u.status === 'disabled')).toBe(true);
 
-      // 任务 2：claim 被拒（running execution）→ 旗标若泄漏会吞掉此行；复位后必须落 skipped
+      // 任务 2：running execution → 旗标若泄漏会吞掉此行；复位后必须落 completed
       (taskRepo as Record<string, unknown>).getExecutions = vi.fn(async (taskId: string) =>
         taskId === 'task-next'
           ? [{ id: 'exec-run', status: 'running', triggeredAt: new Date().toISOString() }]
           : []);
       await service.trigger('task-next').catch(() => undefined);
       expect(taskRepo._executions.size).toBe(1);
-      expect(Array.from(taskRepo._executions.values())[0].status).toBe('skipped');
+      expect(Array.from(taskRepo._executions.values())[0].status).toBe('completed');
       await service.stop();
     } finally {
       vi.useRealTimers();
@@ -4203,7 +4328,7 @@ describe('#1449 running 执行体滞留挤占治理', () => {
       tickImpl: async () => {}, // 轮询隔离：手动调 tickReal / trigger
       isOtterRunning: opts.isOtterRunning,
     });
-    return { service, taskRepo, convRepo, agentInvoke, healingRepo, task, stuckAt };
+    return { service, taskRepo, convRepo, entryRepo, agentInvoke, healingRepo, task, stuckAt };
   }
 
   // Why 只冻 Date 不冻定时器：trigger 路径的看门狗/超时 race 依赖真实 setTimeout
@@ -4247,37 +4372,42 @@ describe('#1449 running 执行体滞留挤占治理', () => {
     expect(haltRegistry.isHalted('otter-1')).toBe(false);
   });
 
-  it('挤占 skip 落 healing（low）：滞留未超 2h → 本轮 skip + low healing 落账', async () => {
+  it('滞留未超 2h → 本轮入 pending 即 completed，不再落挤占 skip healing', async () => {
     const { service, taskRepo, healingRepo } = setupStuck({
       stuckAgeMs: 30 * 60_000, // 30min，未超 2h 阈值
       isOtterRunning: () => true,
     });
 
-    const err = await service.trigger('task-1').catch(e => e);
-    expect(err.message).toContain('already has a running execution');
+    (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+      hasExecutionInSlot: vi.fn(async () => false),
+      enqueue: vi.fn(async () => true),
+    };
+    await service.trigger('task-1');
 
-    // skip 行已落（#1208 语义保持）
-    const skipped = [...taskRepo._executions.values()].filter(e => e.status === 'skipped');
-    expect(skipped.length).toBe(1);
-    // low healing 落账（挤占即见）
+    const completed = [...taskRepo._executions.values()].filter(e => e.status === 'completed');
+    expect(completed.length).toBe(1);
     expect(healingRepo._events.some(e =>
       e.severity === 'low' && String(e.description).includes('挤占')
-    )).toBe(true);
+    )).toBe(false);
     // 滞留执行未被清理（未超阈值 + 獭活着）
     expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('running');
   });
 
-  it('挤占 skip healing 同任务 1h 节流：连续两次挤占只落一条 low', async () => {
+  it('连续两次忙时触发均入列即 completed，不再产生挤占 skip healing', async () => {
     const { service, healingRepo } = setupStuck({
       stuckAgeMs: 30 * 60_000,
       isOtterRunning: () => true,
     });
 
-    await service.trigger('task-1').catch(() => {});
-    await service.trigger('task-1').catch(() => {});
+    (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+      hasExecutionInSlot: vi.fn(async () => false),
+      enqueue: vi.fn(async () => true),
+    };
+    await service.trigger('task-1');
+    await service.trigger('task-1');
 
     const lows = healingRepo._events.filter(e => e.severity === 'low' && String(e.description).includes('挤占'));
-    expect(lows.length).toBe(1);
+    expect(lows.length).toBe(0);
   });
 
   it('用户停机场景保护：滞留超 2h 但獭仍 running（闸门冻结）→ 不清仓、信号保留由补扫消化', async () => {
@@ -4289,6 +4419,37 @@ describe('#1449 running 执行体滞留挤占治理', () => {
     await service.trigger('task-1').catch(() => {});
     // 滞留执行未被翻篇——信号保留语义由补扫消化，scheduler 不抢刽子手
     expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('running');
+  });
+
+  it('session 残留但锚点后无产出：超 2h 仍 reap（修复选择性失效）', async () => {
+    const { service, taskRepo, healingRepo } = setupStuck({ isOtterRunning: () => true });
+    taskRepo._executions.get('stuck-exec-1')!.messageId = 'anchor-stuck';
+    await (service as unknown as { tickReal(): Promise<void> }).tickReal();
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    expect(healingRepo._events.some(e => e.severity === 'high')).toBe(true);
+  });
+
+  it('session 出池但锚点后有近期产出：不误杀真实工作', async () => {
+    const { service, taskRepo, entryRepo } = setupStuck({ isOtterRunning: () => false });
+    taskRepo._executions.get('stuck-exec-1')!.messageId = 'anchor-stuck';
+    entryRepo.getEntriesAfter = vi.fn(async () => [{ createdAt: new Date().toISOString() }]) as never;
+    await (service as unknown as { tickReal(): Promise<void> }).tickReal();
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('running');
+  });
+
+  it('启动对账保留近期产出执行、翻篇无证据执行，随后可立即进入忙判/claim', async () => {
+    const { service, taskRepo, entryRepo } = setupStuck({ isOtterRunning: () => true });
+    taskRepo._executions.set('recent-exec', {
+      id: 'recent-exec', taskId: 'task-1', triggeredAt: new Date(Date.now() - 3 * HOURS).toISOString(),
+      completedAt: null, status: 'running', errorMessage: null, messageId: 'anchor-recent',
+    });
+    taskRepo._executions.get('stuck-exec-1')!.messageId = 'anchor-stuck';
+    entryRepo.getEntriesAfter = vi.fn(async (id: string) => id === 'anchor-recent'
+      ? [{ createdAt: new Date().toISOString() }] : []) as never;
+    await service.start();
+    service.stop();
+    expect(taskRepo._executions.get('recent-exec')!.status).toBe('running');
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
   });
 
   it('已 halt 打标的执行方视为死亡：isRunning=true 但 halt 已标 → 仍清仓放行', async () => {

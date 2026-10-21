@@ -26,6 +26,7 @@ export async function ensureHealingScheduler(deps: {
       cron: REGRESSION_VERIFY_CRON,
       timezone: 'Asia/Shanghai',
       body: '[regression-verify]',
+      executorRole: '大獭',
       talkingStonePassedTo: [deps.bigOtterId],
       senderId: 'system',
     });
@@ -40,6 +41,7 @@ export async function ensureHealingScheduler(deps: {
     cron: HEALING_CRON,
     timezone: 'Asia/Shanghai',
     body: '[self-healing-analysis]',
+    executorRole: '大獭',
     talkingStonePassedTo: [deps.bigOtterId],
     senderId: 'system',
   });

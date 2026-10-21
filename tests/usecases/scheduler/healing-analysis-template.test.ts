@@ -38,6 +38,7 @@ function makeHealingTask(): ScheduledTask {
     timezone: 'Asia/Shanghai',
     body: '[self-healing-analysis]',
     description: null,
+    executorRole: '大獭',
     talkingStonePassedTo: ['otter-1'],
     senderId: 'system',
     status: 'active',
@@ -96,6 +97,7 @@ function createMockTaskRepo(task: ScheduledTask) {
     resetConsecutiveFailures: vi.fn(async () => ({})),
     updateStatus: vi.fn(async () => ({})),
     getExecutions: vi.fn(async () => []),
+    getRunningExecutions: vi.fn(async () => []),
     getExecutionCount: vi.fn(async () => 0),
   } as unknown as ScheduledTaskRepository;
 }

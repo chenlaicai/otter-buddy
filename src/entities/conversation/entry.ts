@@ -60,6 +60,8 @@ export interface Entry {
   /** F20260921otcl：发送者出生色（色板 key；仅 otter 条目有值，大獭/未回填为 null）。
    *  读路径 join otters 填充，不入库 */
   senderColor?: string | null;
+  /** F20261021sprx：发送者类型读时投影（otters 真相源）；名册外历史发言也能正确渲染。 */
+  senderOtterType?: 'big' | 'small';
   contextTokens: number | null;
   contextTokensMax: number | null;
   createdAt: string;

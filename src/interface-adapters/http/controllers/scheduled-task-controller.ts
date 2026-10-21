@@ -46,6 +46,7 @@ export class ScheduledTaskController {
         description: body.description,
         restartBeforeInvoke: body.restartBeforeInvoke,
         timeoutMinutes: body.timeoutMinutes,
+        executorRole: body.executorRole,
         talkingStonePassedTo: body.talkingStonePassedTo,
         senderId: body.senderId,
       });
@@ -100,6 +101,7 @@ export class ScheduledTaskController {
         body: body.body,
         description: body.description,
         watchlist: body.watchlist,
+        executorRole: body.executorRole,
         talkingStonePassedTo: body.talkingStonePassedTo,
         status: body.status,
         restartBeforeInvoke: body.restartBeforeInvoke,

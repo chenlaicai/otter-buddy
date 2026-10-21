@@ -369,7 +369,8 @@ export interface CreateScheduledTaskRequestDTO {
   body: string
   /** F20260915desc: 人类可读任务描述（可选） */
   description?: string | null
-  talkingStonePassedTo: string[]
+  executorRole?: string
+  talkingStonePassedTo?: string[]
   senderId?: string
   restartBeforeInvoke?: boolean
   timeoutMinutes?: number | null
@@ -384,6 +385,7 @@ export interface UpdateScheduledTaskRequestDTO {
   description?: string | null
   /** #610: watchlist-only patch——只替换 body JSON 中的 watchlist 字段，无需携带 prompt 全文。与 body 互斥。 */
   watchlist?: string[]
+  executorRole?: string
   talkingStonePassedTo?: string[]
   status?: 'active' | 'disabled' | 'error'
   restartBeforeInvoke?: boolean
