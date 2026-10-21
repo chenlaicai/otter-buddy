@@ -44,8 +44,16 @@ Dependabot 自动创建了 9 个依赖升级 PR，需要统一处理（决策来
 
 ## 变更说明
 
-- `package.json`：9 个依赖版本号提升
+- `package.json`：8 个依赖版本号提升（playwright 见下，已从本批次剔除）
 - `package-lock.json`：lockfile 同步更新
+
+### 检视处置：playwright 从本批次剔除（保留 1.63.0 精确钉版）
+
+检视发现（PR #1605 检视报告建议 1）：#1445（commit 1dea920d）引入 playwright 时声明「精确对齐 web 已装版本，复用 Chromium 缓存」——本 PR 原将根仓 playwright 升 1.64.1 且解除钉版（改 caret），与 web/ 子项目（@playwright/test ^1.63.0，实际解析 1.63.x）的对齐被双向破坏（版本偏移 + 钉版机制解除）。
+
+处置（L1 拍板）：**#1445 对齐约束（人的架构决策）优先于 Dependabot 的 minor 升级意图**——从本批次剔除 playwright 升级，恢复 `"playwright": "1.63.0"` 精确钉版（对齐机制完整保留，Chromium 缓存单份）。替代方案否决理由：同 PR 动 web/ 超出 Dependabot 覆盖范围（web 是独立 npm 项目，改动面不可控）；升级+记偏移则缓存双份且钉版机制仍被解除。
+
+跟进项：playwright 升级转为「与 web/ 侧协同」——待 web/ 升级 @playwright/test 时两侧同版本协同升级（届时根仓保留精确钉版形态）。Dependabot 下次再提 playwright 升级时按本决策挡回，直至 web 侧协同窗口出现。
 
 ### 现场处置记录
 
@@ -55,7 +63,9 @@ Dependabot 自动创建了 9 个依赖升级 PR，需要统一处理（决策来
 
 vitest 5.0.5 传递依赖 rolldown ~1.2.14 → 解析到 1.2.15。rolldown 1.2.15 的 `@rolldown/binding-freebsd-x64@1.2.15` **上游未发布**（registry 最新仅 1.2.14），但 rolldown 的 optionalDependencies 仍声明它——mac 本地 npm 生成 lockfile 时裁掉该条目，Linux CI `npm ci` 校验锁完整性即报 `Missing: @rolldown/binding-freebsd-x64@1.2.15`（EUSAGE，首轮 CI check job 失败实证）。
 
-处置：`package.json` 新增 devDependencies 直接锁定 `rolldown@1.2.14`（1.2.14 全平台 binding 完整），绕过残缺版本。属 workaround，rolldown 后续版本修复发布后可移除。
+处置：`package.json` 新增 devDependencies 直接锁定 `rolldown@1.2.14`（1.2.14 全平台 binding 完整），绕过残缺版本。属 workaround。
+
+退役通道（检视建议 2 处置）：**退役条件 = rolldown 发布 ≥1.2.16 且其 optionalDependencies 含已实际发布的 `@rolldown/binding-freebsd-x64`（registry 可解析）后，移除 devDependencies 的 rolldown 精确锁定，复跑 `npm ci`（Linux）+ build/lint/test 全绿后合入**。触发器与跟踪：issue #1606（owner：依赖升级自动化批次——每批开工前检查 rolldown 上游状态，命中退役条件即顺手移除；30 天未命中由 regression-verify 断言回查兜底提醒）。
 
 ## Verification
 
