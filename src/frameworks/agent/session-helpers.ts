@@ -53,7 +53,7 @@ export function getOtterToolNamesForType(
     "list_artifacts", "update_artifact_status",
     "get_active_participants", "get_html_card_contract",
     "manage_healing_events",
-    "create_scheduled_task",
+    "create_scheduled_task", "manage_scheduled_task_pending",
     "workspace_info", "workspace_list", "workspace_read", "workspace_write", "workspace_delete",
     "link_memory", "get_related", "unlink_memory",
     "sync_docs",
@@ -425,6 +425,11 @@ export function buildMessageWithContext(
   // #1227 M1：pending 信号裁决提醒（借用式，消费即删）——大獭编排义务的物理可见面
   if (dynamicContext?.signalAlerts) {
     parts.push(dynamicContext.signalAlerts);
+  }
+
+  // F20261021sprx：待执行列表是 DB 状态镜像，不做 take/consume；ack 前每轮唤醒都提醒。
+  if (dynamicContext?.scheduledTaskAlerts) {
+    parts.push(dynamicContext.scheduledTaskAlerts);
   }
 
   if (dynamicContext?.workspacePath) {

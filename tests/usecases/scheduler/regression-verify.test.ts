@@ -93,6 +93,7 @@ describe('#1208 buildRegressionVerifyBody 心跳', () => {
       timezone: 'Asia/Shanghai',
       body: '[regression-verify]',
       description: null,
+      executorRole: '大獭',
       talkingStonePassedTo: ['otter-1'],
       senderId: 'otter-1',
       status: 'active',

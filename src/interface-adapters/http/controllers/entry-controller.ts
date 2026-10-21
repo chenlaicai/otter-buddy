@@ -109,6 +109,7 @@ function toEntryDTO(e: Entry & { events?: FoldedStepDTO[] }): EntryDTO {
     senderName: e.senderName,
     // F20260921otcl：发送者出生色透出（repo 读路径 join otters 填充；user/system 条目 null）
     senderColor: e.senderColor ?? null,
+    ...(e.senderOtterType && { senderOtterType: e.senderOtterType }),
     contextTokens: e.contextTokens,
     contextTokensMax: e.contextTokensMax,
     createdAt: e.createdAt,

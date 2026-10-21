@@ -905,11 +905,11 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const snapshotName = isUser ? (m.sn || '').trim() : ''
   const remoteFallbackName = m.src === 'feishu' ? '飞书成员' : ''
   const name = isUser ? (snapshotName || remoteFallbackName || userDisplayName) : resolveDisplayName(m, otters)
-  // F20260921otcl：消息自带身份优先（事件携带 scolor），名册补充 type；均缺失时
-  //  resolveOtterVisual 内部 fnv1a 展示回退——大獭判定优先消息/名册 type
+  // F20261021sprx：entries 自带 type 优先；名册只补缺失，名册外历史大獭不再按 small 渲染。
   const otterInfo = otters.find(o => o.id === m.si)
+  const resolvedType = m.stype ?? otterInfo?.type
   const { color } = isUser ? { color: null } : resolveOtterVisual(m.si, {
-    type: otterInfo?.type,
+    type: resolvedType,
     color: m.scolor != null ? m.scolor : otterInfo?.color,
   })
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
@@ -930,7 +930,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
         />
       ) : (
         <div className="mt-0.5">
-          <OtterAvatar otterId={m.si} name={name} type={otterInfo?.type} color={m.scolor != null ? m.scolor : otterInfo?.color} />
+          <OtterAvatar otterId={m.si} name={name} type={resolvedType} color={m.scolor != null ? m.scolor : otterInfo?.color} />
         </div>
       )}
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>

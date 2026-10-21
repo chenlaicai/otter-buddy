@@ -270,7 +270,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
     expect(engine.mechanical).toEqual(["手动"]); // 机械档案
   });
 
-  it("V6 超时降级：合成超时 → 机械档案 + 正常换世（D9 永不阻塞）", async () => {
+  it("V6 超时降级：合成超时 → 机械档案 + 正常换世（D9 永不阻塞）", { timeout: 10_000 }, async () => {
     const sdk = makeSdkPort({
       synth: () => new Promise((_resolve, reject) => setTimeout(() => reject(new Error("provider down")), 500)),
     });
@@ -285,7 +285,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
 
     expect(session.id).toBe("sess-new");
     expect(restarts[0].summary).toContain("机械转储"); // 降级档案完整入档
-  }, 10_000);
+  });
 
   it("V6 fail-closed：截断摘要（stopReason=length）拒入库 → 降级机械档案", async () => {
     const sdk = makeSdkPort({ synth: async () => synthResult("截断的摘要…", "length") });

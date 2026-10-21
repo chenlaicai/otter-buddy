@@ -74,7 +74,7 @@ describe("buildApp 组装根启动", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("健康端点可用（全栈装配完成）", async () => {
+  it("健康端点可用（全栈装配完成）", { timeout: 20_000 }, async () => {  // F20261021ttos：全栈装配（真 sqlite+faux LLM）重成本，#1366 四件套实证
     const res = await built.app.request("/api/health/memory");
     expect(res.status).toBe(200);
   });

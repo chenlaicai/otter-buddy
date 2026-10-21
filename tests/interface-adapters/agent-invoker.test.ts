@@ -19,6 +19,7 @@ import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { OtterSession } from "@entities/otter/otter-session";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { ScheduledTaskPendingItemRepository } from "@usecases/scheduler/pending-item-repository";
 import { createTestLogger } from "../helpers/logger";
 import { mockSendEntry } from "../helpers/mock-send-entry";
 import { MessageBroadcaster } from "../../src/usecases/im/message-broadcaster";
@@ -84,7 +85,7 @@ function mockAgentInvoke(options: {
 function makeInvoker(
   sdk: SdkInvokePort,
   sendEntry: ReturnType<typeof mockSendEntry>,
-  opts?: { manageSession?: ManageSession; healingRepo?: HealingEventRepository; broadcaster?: MessageBroadcaster },
+  opts?: { manageSession?: ManageSession; healingRepo?: HealingEventRepository; broadcaster?: MessageBroadcaster; pendingRepo?: ScheduledTaskPendingItemRepository },
 ): AgentInvoker {
   return new AgentInvoker(
     sdk,
@@ -101,6 +102,7 @@ function makeInvoker(
     sendEntry,
     // invokeRepo（熔断摘要读 invoke_events——最小面）
     { getInvokeEvents: async () => [] } as never,
+    undefined, undefined, undefined, opts?.pendingRepo,
   );
 }
 
@@ -550,6 +552,34 @@ describe("水位触发端到端（F20260922handoff 死链修复语义锁）", ()
     // 交接已触发（restartSession 被调）+ 交接清旧值后本轮 invoke 重新写回 350K
     expect(restarts.length).toBeGreaterThan(0);
     expect(invoker["handoffState"].getLastCtxTokens("otter-1")).toBe(350_000);
+  });
+
+  it("scheduledTaskAlerts：按獭名角色过滤，非消费即删且不注入任务正文", async () => {
+    let capturedAlert: string | undefined;
+    let listCalls = 0;
+    const pendingRepo = {
+      list: async (_conversationId: string, role?: string) => {
+        listCalls++;
+        return role === 'Test Otter' ? [{
+          id: 'p1', taskId: 't1', conversationId: 'conv-1', role: 'Test Otter',
+          taskName: '大正文任务', triggeredAt: '2026-10-21T01:00:00.000Z',
+          status: 'pending' as const, consumedAt: null, resolution: null, resolutionReason: null,
+        }] : [];
+      },
+    } as unknown as ScheduledTaskPendingItemRepository;
+    const sdk = mockAgentInvoke({
+      invokeImpl: async (_otterId, _message, opts) => {
+        capturedAlert = (opts as unknown as { dynamicContext?: { scheduledTaskAlerts?: string } })?.dynamicContext?.scheduledTaskAlerts;
+        return { text: 'ok' };
+      },
+    });
+    const invoker = makeInvoker(sdk, mockSendEntry(), { pendingRepo });
+    await invoker.invokeConversation({ otterId: 'otter-1', conversationId: 'conv-1', userMessageContent: 'hello', senderId: 'user-1' });
+    expect(listCalls).toBe(1);
+    expect(capturedAlert).toContain('大正文任务');
+    expect(capturedAlert).toContain('manage_scheduled_task_pending');
+    expect(capturedAlert).not.toContain('补执行正文');
+    expect(pendingRepo.list).toBeTypeOf('function');
   });
 
   it("未超阈值：不触发交接，ctxTokens 仅写回", async () => {

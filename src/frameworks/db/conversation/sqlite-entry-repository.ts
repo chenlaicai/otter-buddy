@@ -61,19 +61,21 @@ function rowToEntry(row: EntryRow): Entry {
   };
 }
 
-/** F20260921otcl：批量填充 entries 的 senderColor（读路径 join otters，不入库）。
- *  仅 senderType='otter' 的条目查询；user/system 条目保持 undefined。 */
-async function attachSenderColors(db: Database.Database, entries: Entry[]): Promise<void> {
+/** F20260921otcl：批量填充 entries 的发送者身份（读路径 join otters，不入库）。
+ *  F20261021sprx：同批带出 type，名册外历史发言不再靠名册猜 small。 */
+async function attachSenderIdentity(db: Database.Database, entries: Entry[]): Promise<void> {
   const otterIds = [...new Set(entries.filter(e => e.senderType === "otter" && e.senderId).map(e => e.senderId as string))];
   if (otterIds.length === 0) return;
   const placeholders = otterIds.map(() => "?").join(", ");
   const rows = db.prepare(`
-    SELECT id, color FROM otters WHERE id IN (${placeholders})
-  `).all(...otterIds) as Array<{ id: string; color: string | null }>;
-  const colorById = new Map(rows.map(r => [r.id, r.color]));
+    SELECT id, color, type FROM otters WHERE id IN (${placeholders})
+  `).all(...otterIds) as Array<{ id: string; color: string | null; type: string }>;
+  const identityById = new Map(rows.map(r => [r.id, r]));
   for (const e of entries) {
     if (e.senderType === "otter" && e.senderId) {
-      e.senderColor = colorById.get(e.senderId) ?? null;
+      const identity = identityById.get(e.senderId);
+      e.senderColor = identity?.color ?? null;
+      if (identity?.type === 'big' || identity?.type === 'small') e.senderOtterType = identity.type;
     }
   }
 }
@@ -227,7 +229,7 @@ export class SqliteEntryRepository implements EntryRepository {
     if (!row) return null;
     const entry = rowToEntry(row);
     await this.attachAttachments([entry]);
-    await attachSenderColors(this.db, [entry]);
+    await attachSenderIdentity(this.db, [entry]);
     return entry;
   }
 
@@ -253,7 +255,7 @@ export class SqliteEntryRepository implements EntryRepository {
     const rows = this.db.prepare(sql).all(...params) as EntryRow[];
     const entries = rows.map(rowToEntry);
     await this.attachAttachments(entries);
-    await attachSenderColors(this.db, entries);
+    await attachSenderIdentity(this.db, entries);
     return entries;
   }
 
@@ -279,7 +281,7 @@ export class SqliteEntryRepository implements EntryRepository {
     ).all(entry.conversation_id, entry.sequence_num, count) as EntryRow[];
     const entries = rows.map(rowToEntry);
     await this.attachAttachments(entries);
-    await attachSenderColors(this.db, entries);
+    await attachSenderIdentity(this.db, entries);
     return entries;
   }
 
@@ -293,7 +295,7 @@ export class SqliteEntryRepository implements EntryRepository {
     ).all(entry.conversation_id, entry.sequence_num, count) as EntryRow[];
     const entries = rows.map(rowToEntry);
     await this.attachAttachments(entries);
-    await attachSenderColors(this.db, entries);
+    await attachSenderIdentity(this.db, entries);
     return entries;
   }
 

@@ -67,7 +67,7 @@ describe("SearchMemory - progressive disclosure", () => {
     storeEntry(db, { ...BASE_ENTRY, id: "e3", content: "这是一条完全不相关的内容，关于烹饪食谱和食材准备" });
   });
 
-  it("detail_level=snippet 返回匹配片段（默认行为）", async () => {
+  it("detail_level=snippet 返回匹配片段（默认行为）", { timeout: 20_000 }, async () => {  // F20261021ttos：重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
     const result = await searchMemory.search({ query: "记忆系统", limit: 5 });
 
     expect(result.entries.length).toBeGreaterThan(0);

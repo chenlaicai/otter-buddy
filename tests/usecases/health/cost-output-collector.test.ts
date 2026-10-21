@@ -269,7 +269,7 @@ describe("collectInvokeStats（F20260914usgm：单次问答均值）", () => {
 });
 
 describe("collectFdocCounts", () => {
-  it("返回 per-date F 文档数数组（仓库真实数据）", async () => {
+  it("返回 per-date F 文档数数组（仓库真实数据）", { timeout: 20_000 }, async () => {  // F20261021ttos：重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
     const repoPath = resolve(__dirname, "../../../");
     const results = await collectFdocCounts(repoPath);
     // 仓库有 F 文档，结果应为非空数组

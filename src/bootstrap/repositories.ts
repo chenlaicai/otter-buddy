@@ -10,6 +10,7 @@ import { SqliteSettingsRepository } from "@frameworks/db/settings/sqlite-setting
 import { SqliteFeatureRepository } from "@frameworks/db/document/sqlite-feature-repository";
 import { SqliteResearchRepository } from "@frameworks/db/document/sqlite-research-repository";
 import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
+import { SqliteScheduledTaskPendingItemRepository } from "@frameworks/db/scheduled-task/sqlite-pending-item-repository";
 import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-repository";
 import { SqliteHealingEventRepository } from "@frameworks/db/healing/sqlite-healing-event-repository";
 import { SqliteSignalEventRepository } from "@frameworks/db/signal/sqlite-signal-repository";
@@ -52,6 +53,7 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     feature: new SqliteFeatureRepository(db),
     research: new SqliteResearchRepository(db),
     scheduledTask: new SqliteScheduledTaskRepository(db),
+    scheduledTaskPending: new SqliteScheduledTaskPendingItemRepository(db),
     connection: new SqliteConnectionRepository(db),
     healingEvent: new SqliteHealingEventRepository(db),
     signalEvent: new SqliteSignalEventRepository(db),

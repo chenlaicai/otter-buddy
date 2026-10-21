@@ -7,6 +7,7 @@
     "unlink_memory": "deferred",
     "update_artifact_status": "deferred",
     "create_scheduled_task": "deferred",
+    "manage_scheduled_task_pending": "deferred",
     "query_dispatch_ledger": "deferred",
     "list_rhi_signals": "deferred",
     "triage_signal": "deferred",
@@ -73,7 +74,8 @@
       "tools": [
         "halt_otter",
         "unhalt_otter",
-        "resolve_signal"
+        "resolve_signal",
+        "manage_scheduled_task_pending"
       ]
     },
     "workspace": {

@@ -92,6 +92,8 @@ export interface LocalMessage {
   /** F20260921otcl：发送者出生色（SSE 事件携带 / entries DTO 投影；
    *  缺失时 resolveOtterVisual 展示回退。otterType 走 SSE 事件字段/名册，不入 LocalMessage） */
   scolor?: string | null
+  /** F20261021sprx：entries DTO 携带的发送者类型；优先于名册查询。 */
+  stype?: 'big' | 'small'
   content: string
   /** 消息生命周期状态；仅历史查询（DTO）路径携带，SSE 实时构造的消息为 undefined（视同 completed/对应事件态） */
   status?: LocalMessageStatus
@@ -296,9 +298,9 @@ export function mapEntryDTO(dto: EntryDTO): LocalMessage {
     entryType: dto.entryType,
     invokeId: dto.invokeId ?? undefined,
     // F20260921otcl：发送者出生色透出（repo join otters 投影；大獭/未回填 null）。
-    //  type 不随 entry 携带（方案 §4：entries 只补 senderColor）——渲染时从
-    //  otters 名册查 id 得 type，名册未到且 color=null 时 resolveOtterVisual 走回退
     scolor: dto.senderColor ?? null,
+    // F20261021sprx：entry 自带 type 优先，名册只作缺失时兜底。
+    stype: dto.senderOtterType,
     // F20260913ctlv test17：invoke_end 的 metadata.invokeStatus 透出（重试按钮数据源）
     ...(dto.metadata?.invokeStatus === 'failed' || dto.metadata?.invokeStatus === 'aborted' ? { invokeStatus: dto.metadata.invokeStatus } : {}),
     // F20260916hcel：html-card schema版本透出
@@ -374,6 +376,7 @@ export interface LocalScheduledTask {
   body: string
   /** F20260915desc: 人类可读任务描述（可选），面板优先显示 */
   description: string | null
+  executorRole: string
   talkingStonePassedTo: string[]
   senderId: string
   status: 'active' | 'disabled' | 'error'
@@ -407,6 +410,8 @@ export interface ScheduledTaskDTO {
   timezone: string
   body: string
   description: string | null
+  /** 新后端透出；旧服务端/缓存 DTO 可缺省，由 mapper 默认大獭。 */
+  executorRole?: string
   talkingStonePassedTo: string[]
   senderId: string
   status: string
@@ -440,6 +445,7 @@ export function mapScheduledTaskDTO(dto: ScheduledTaskDTO): LocalScheduledTask {
     timezone: dto.timezone,
     body: dto.body,
     description: dto.description ?? null,
+    executorRole: dto.executorRole ?? '大獭',
     talkingStonePassedTo: dto.talkingStonePassedTo,
     senderId: dto.senderId,
     status: dto.status as 'active' | 'disabled' | 'error',

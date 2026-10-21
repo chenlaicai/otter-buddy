@@ -37,6 +37,7 @@ export async function ensureRecruitingScheduler(deps: {
     cron: RECRUITING_SUMMARY_CRON,
     timezone: RECRUITING_SUMMARY_TIMEZONE,
     body,
+    executorRole: '大獭',
     talkingStonePassedTo: [deps.bigOtterId],
     senderId: 'system',
   });

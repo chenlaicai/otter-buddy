@@ -62,8 +62,9 @@ export function createCreateScheduledTaskTool(
           description: params.description != null ? (params.description as string).trim() : undefined,
           restartBeforeInvoke: (params.restartBeforeInvoke as boolean) ?? false,
           timeoutMinutes: params.timeoutMinutes != null ? Number(params.timeoutMinutes) : undefined,
-          talkingStonePassedTo: [ctx.otterId],
-          senderId: ctx.otterId,
+          executorRole: '大獭',
+          talkingStonePassedTo: [],
+          senderId: 'system',
         });
 
         const scheduleDesc = scheduleType === "once"

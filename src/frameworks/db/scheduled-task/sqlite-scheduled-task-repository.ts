@@ -31,12 +31,12 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     this.db.prepare(`
       INSERT INTO scheduled_tasks (
         id, conversation_id, name, schedule_type, cron, trigger_at, timezone, body, description,
-        talking_stone_passed_to, sender_id, status, consecutive_failures,
+        executor_role, talking_stone_passed_to, sender_id, status, consecutive_failures,
         last_triggered_at, restart_before_invoke, timeout_minutes, executor_type, function_name, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id, row.conversation_id, row.name, row.schedule_type, row.cron, row.trigger_at, row.timezone,
-      row.body, row.description, row.talking_stone_passed_to, row.sender_id, row.status,
+      row.body, row.description, row.executor_role, row.talking_stone_passed_to, row.sender_id, row.status,
       row.consecutive_failures, row.last_triggered_at, row.restart_before_invoke, row.timeout_minutes,
       row.executor_type, row.function_name, row.created_at, row.updated_at,
     );
@@ -76,13 +76,13 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     this.db.prepare(`
       UPDATE scheduled_tasks SET
         name = ?, schedule_type = ?, cron = ?, trigger_at = ?, timezone = ?, body = ?, description = ?,
-        talking_stone_passed_to = ?, sender_id = ?, status = ?,
+        executor_role = ?, talking_stone_passed_to = ?, sender_id = ?, status = ?,
         consecutive_failures = ?, last_triggered_at = ?, restart_before_invoke = ?, timeout_minutes = ?,
         executor_type = ?, function_name = ?, updated_at = ?
       WHERE id = ?
     `).run(
       row.name, row.schedule_type, row.cron, row.trigger_at, row.timezone, row.body, row.description,
-      row.talking_stone_passed_to, row.sender_id, row.status,
+      row.executor_role, row.talking_stone_passed_to, row.sender_id, row.status,
       row.consecutive_failures, row.last_triggered_at, row.restart_before_invoke, row.timeout_minutes,
       row.executor_type, row.function_name, row.updated_at,
       row.id,
@@ -144,16 +144,25 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     );
   }
 
-  /** #775：启动对账——进程内不可能有存活的 running 执行跨越重启（同 markStaleInProgressFailed
-   *  的死亡证明逻辑，dispatch-attempt 侧先例）。不 increment consecutiveFailures：
-   *  僵尸行是进程死亡痕迹，非任务失败证据（重启前的失败已由异常路径记账）。 */
-  async failAllRunningExecutions(): Promise<number> {
+  async getRunningExecutions(taskId?: string): Promise<ScheduledTaskExecution[]> {
+    const rows = this.db.prepare(`
+      SELECT * FROM scheduled_task_executions
+      WHERE status = 'running' AND (? IS NULL OR task_id = ?)
+      ORDER BY triggered_at DESC
+    `).all(taskId ?? null, taskId ?? null) as ScheduledTaskExecutionRow[];
+    return rows.map(rowToExecution);
+  }
+
+  /** 启动对账不 increment consecutiveFailures；保留 ID 由 scheduler 以锚点后近期产出计算。 */
+  async failAllRunningExecutions(preserveExecutionIds: string[] = []): Promise<number> {
+    const placeholders = preserveExecutionIds.map(() => '?').join(', ');
+    const preserveClause = preserveExecutionIds.length > 0 ? `AND id NOT IN (${placeholders})` : '';
     const result = this.db.prepare(`
       UPDATE scheduled_task_executions
       SET status = 'failed', completed_at = ?,
-          error_message = COALESCE(error_message || '; ', '') || '进程重启对账：执行被中断，无存活现场（启动死亡证明）'
-      WHERE status = 'running'
-    `).run(new Date().toISOString());
+          error_message = COALESCE(error_message || '; ', '') || '进程重启对账：执行被中断，锚点后无近期产出证据'
+      WHERE status = 'running' ${preserveClause}
+    `).run(new Date().toISOString(), ...preserveExecutionIds);
     return result.changes;
   }
 

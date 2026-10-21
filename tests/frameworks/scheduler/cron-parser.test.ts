@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
+import { resolveCronSlot, SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 
 describe("SimpleCronParser", () => {
   afterEach(() => {
@@ -107,6 +107,26 @@ describe("SimpleCronParser", () => {
 
       // 两者应返回相同结果
       expect(withRef.getTime()).toBe(withoutRef.getTime());
+    });
+  });
+
+  describe("resolveCronSlot", () => {
+    it.each([
+      "2026-10-21T01:00:00.000Z",
+      "2026-10-21T01:00:00.037Z",
+      "2026-10-21T01:00:00.819Z",
+    ])("准点及毫秒差均归入当前槽位：%s", triggeredAt => {
+      expect(resolveCronSlot("0 9 * * *", "Asia/Shanghai", triggeredAt)).toEqual({
+        start: "2026-10-21T01:00:00.000Z",
+        end: "2026-10-22T01:00:00.000Z",
+      });
+    });
+
+    it("同一 cron 在不同时区使用各自的槽位边界", () => {
+      expect(resolveCronSlot("0 9 * * *", "UTC", "2026-10-21T09:00:00.500Z")).toEqual({
+        start: "2026-10-21T09:00:00.000Z",
+        end: "2026-10-22T09:00:00.000Z",
+      });
     });
   });
 });

@@ -17,6 +17,7 @@ export interface ScheduledTaskRow {
   timezone: string;
   body: string;
   description: string | null;
+  executor_role: string;
   talking_stone_passed_to: string;  // JSON array
   sender_id: string;
   status: string;
@@ -62,6 +63,7 @@ export function rowToScheduledTask(row: ScheduledTaskRow): ScheduledTask {
     timezone: row.timezone,
     body: row.body,
     description: row.description ?? null,
+    executorRole: row.executor_role ?? '大獭',
     talkingStonePassedTo,
     senderId: row.sender_id,
     status: row.status as ScheduledTaskStatus,
@@ -100,6 +102,7 @@ export function taskToRow(task: ScheduledTask): ScheduledTaskRow {
     timezone: task.timezone,
     body: task.body,
     description: task.description ?? null,
+    executor_role: task.executorRole,
     talking_stone_passed_to: JSON.stringify(task.talkingStonePassedTo),
     sender_id: task.senderId,
     status: task.status,

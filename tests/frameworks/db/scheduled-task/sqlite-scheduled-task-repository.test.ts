@@ -34,6 +34,7 @@ function createTaskFixture(overrides: Partial<ScheduledTask> = {}): ScheduledTas
     timezone: "Asia/Shanghai",
     body: "请生成今日对话总结",
     description: null,
+    executorRole: '大獭',
     talkingStonePassedTo: ["otter-1"],
     senderId: "user-1",
     status: "active",

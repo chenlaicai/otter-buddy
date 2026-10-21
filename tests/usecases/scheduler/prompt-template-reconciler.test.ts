@@ -34,6 +34,7 @@ function makeTask(overrides: Partial<ScheduledTask>): ScheduledTask {
     timezone: 'Asia/Shanghai',
     body: 'old body',
     description: null,
+    executorRole: '大獭',
     talkingStonePassedTo: ['otter-1'],
     senderId: 'system',
     status: 'active',

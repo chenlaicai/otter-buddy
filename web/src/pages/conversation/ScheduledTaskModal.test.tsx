@@ -9,16 +9,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { ScheduledTaskModal } from './ScheduledTaskModal'
-import type { LocalOtter } from '../../lib/mappers'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
 let root: Root
-
-const mockOtters: LocalOtter[] = [
-  { id: 'otter-1', name: '大獭', type: 'big', createdAt: '2025-01-01' },
-]
 
 beforeEach(() => {
   container = document.createElement('div')
@@ -36,7 +31,7 @@ afterEach(() => {
 function renderModal(
   onSave: (data: {
     name: string; cron: string; timezone: string; body: string;
-    talkingStonePassedTo: string[]; restartBeforeInvoke: boolean
+    executorRole: string; restartBeforeInvoke: boolean
   }) => void = () => {},
   overrides: Record<string, unknown> = {},
 ) {
@@ -44,7 +39,6 @@ function renderModal(
     root.render(
       <ScheduledTaskModal
         mode={(overrides.mode as 'create' | 'edit') ?? 'create'}
-        otters={mockOtters}
         onSave={onSave}
         onClose={() => {}}
         {...(overrides.task ? { task: overrides.task as never } : {})}
@@ -96,6 +90,15 @@ function fillRequiredFields() {
 }
 
 describe('ScheduledTaskModal restartBeforeInvoke toggle', () => {
+  it('执行角色只读展示大獭，不再提供历史獭 ID 复选', () => {
+    renderModal()
+    const roleInput = document.querySelector('input[aria-label="执行角色"]') as HTMLInputElement
+    expect(roleInput.value).toBe('大獭')
+    expect(roleInput.readOnly).toBe(true)
+    expect(document.body.textContent).toContain('触发时按对话名册解析当前实例')
+    expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(0)
+  })
+
   it('toggle 默认为关闭状态', () => {
     renderModal()
     const toggle = findToggle()
@@ -145,7 +148,7 @@ describe('ScheduledTaskModal restartBeforeInvoke toggle', () => {
       task: {
         id: 't1', conversationId: 'c1', name: '已有任务', scheduleType: 'cron',
         cron: '0 9 * * *', triggerAt: null, timezone: 'Asia/Shanghai', body: 'body',
-        talkingStonePassedTo: ['otter-1'], senderId: 'otter-1', status: 'active',
+        executorRole: '大獭', talkingStonePassedTo: [], senderId: 'system', status: 'active',
         consecutiveFailures: 0, lastTriggeredAt: null, restartBeforeInvoke: true,
         nextTriggerAt: null, createdAt: '', updatedAt: '',
       },
@@ -160,7 +163,7 @@ describe('ScheduledTaskModal restartBeforeInvoke toggle', () => {
       task: {
         id: 't1', conversationId: 'c1', name: '已有任务', scheduleType: 'cron',
         cron: '0 9 * * *', triggerAt: null, timezone: 'Asia/Shanghai', body: 'body',
-        talkingStonePassedTo: ['otter-1'], senderId: 'otter-1', status: 'active',
+        executorRole: '大獭', talkingStonePassedTo: [], senderId: 'system', status: 'active',
         consecutiveFailures: 0, lastTriggeredAt: null, restartBeforeInvoke: false,
         nextTriggerAt: null, createdAt: '', updatedAt: '',
       },

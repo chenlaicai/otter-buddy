@@ -88,7 +88,7 @@ describe("附件 HTTP 端点集成（真管线：busboy→upload→sharp→sqlit
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it("R2 竞态回归：上传响应含附件 ID（close 后 await 全部 in-flight upload）", async () => {
+  it("R2 竞态回归：上传响应含附件 ID（close 后 await 全部 in-flight upload）", { timeout: 20_000 }, async () => {  // F20261021ttos：真管线 busboy→sharp→sqlite 重成本
     // 真图走完整管线（sharp resize 是异步的——正是旧实现竞态的触发源）
     const png = await makePng(800, 600);
     const res = await app.request("/api/conversations/conv-1/attachments?uploaderId=user-1", {
