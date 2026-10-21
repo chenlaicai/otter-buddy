@@ -68,8 +68,16 @@ export class SignalRepository {
   constructor(private readonly db: Database.Database) {}
 
   /**
-   * upsert：open 状态的同键信号 occurrences+1 / last_seen 刷新；
-   * 无匹配则新开一行。返回受影响行。
+   * upsert：同键信号 occurrences+1 / last_seen 刷新；无匹配则新开一行。返回受影响行。
+   *
+   * 同键 re-fire 语义（Issue #1563 re-fire 缺口修复）：
+   * - 同键有 open 行 → 累加（原有行为）
+   * - 无 open 行且最新行是 dismissed → re-open 原行（occurrences+1 + status='open' +
+   *   resolved_at 置 NULL），triage_note 保留作历史痕迹——dismiss 留痕不再被同键孪生行旁路
+   * - 无 open 行且最新行是 resolved（或无同键行）→ 新开一行（复发=新事件，历史保留契约）
+   *
+   * 匹配序刻意优先 open 行而非「同键最新行」：存量库可能存在 open/dismissed 并存的
+   * 孪生对（PR #1560 现场），优先累加 open 行可避免 re-open 再制造双 open 并存。
    */
   upsert(signal: UpsertSignal, seenAt: Date = new Date()): SignalRecord {
     const now = seenAt.toISOString();
@@ -77,7 +85,7 @@ export class SignalRepository {
       ? JSON.stringify(signal.evidenceDetail)
       : null;
 
-    const existing = this.db
+    const openRow = this.db
       .prepare(`
         SELECT * FROM signals
         WHERE status = 'open' AND signal_type = ?
@@ -87,7 +95,7 @@ export class SignalRepository {
       `)
       .get(signal.signalType, signal.featureId, signal.filePath) as SignalRecord | undefined;
 
-    if (existing) {
+    if (openRow) {
       // Issue #644：UPDATE 分支必须同步刷 evidence_detail + confidence——只刷旧三字段
       // 会导致存量信号的置信分层永远不更新（合议审读 §3.1）。COALESCE 语义：本次未传
       // 时不覆盖旧值（旧行为调用方不受影响）；窗口滑动重算时传新值覆盖。
@@ -106,12 +114,59 @@ export class SignalRepository {
             suggested_action = COALESCE(?, suggested_action)
           WHERE id = ?`)
         .run(now, signal.evidence, detailJson, signal.confidence ?? null,
-             signal.severity, signal.suggestedAction, existing.id);
-      return this.coalesceExisting(existing, signal, detailJson, now);
+             signal.severity, signal.suggestedAction, openRow.id);
+      return this.coalesceExisting(openRow, signal, detailJson, now);
+    }
+
+    // Issue #1563：无 open 行时查同键最新行（任意状态）分派——dismissed 命中走 re-open
+    // 不新开孪生行；resolved 命中走 INSERT（复发=新事件）。
+    const latest = this.db
+      .prepare(`
+        SELECT * FROM signals
+        WHERE signal_type = ?
+          AND COALESCE(feature_id, '') = COALESCE(?, '')
+          AND COALESCE(file_path, '') = COALESCE(?, '')
+        ORDER BY id DESC LIMIT 1
+      `)
+      .get(signal.signalType, signal.featureId, signal.filePath) as SignalRecord | undefined;
+
+    if (latest && latest.status === "dismissed") {
+      return this.reopenDismissed(latest, signal, detailJson, now);
     }
 
     // id 为 INTEGER PRIMARY KEY AUTOINCREMENT（Phase 0 schema 定义），用自增 id 而非 UUID
     return this.insertNew(signal, detailJson, now);
+  }
+
+  /** Issue #1563：dismiss 后同键 re-fire 的 re-open 分支——原行复活（occurrences+1、
+   *  last_seen/evidence 刷新，first_seen/created_at 不动），status='open' + resolved_at
+   *  置 NULL 回未接单队列；triage_note 保留作历史痕迹（F20260917trig §6 抹平语义下
+   *  dismiss 时 triage_status/issue_number 已置 NULL，re-open 后即「未接单」） */
+  private reopenDismissed(
+    existing: SignalRecord,
+    signal: UpsertSignal,
+    detailJson: string | null,
+    now: string,
+  ): SignalRecord {
+    this.db
+      .prepare(`UPDATE signals SET
+          status = 'open',
+          resolved_at = NULL,
+          last_seen = ?,
+          occurrences = occurrences + 1,
+          evidence = ?,
+          evidence_detail = COALESCE(?, evidence_detail),
+          confidence = COALESCE(?, confidence),
+          severity = ?,
+          suggested_action = COALESCE(?, suggested_action)
+        WHERE id = ?`)
+      .run(now, signal.evidence, detailJson, signal.confidence ?? null,
+           signal.severity, signal.suggestedAction, existing.id);
+    return {
+      ...this.coalesceExisting(existing, signal, detailJson, now),
+      status: "open",
+      resolved_at: null,
+    };
   }
 
   /** INSERT 新行分支（upsert 拆出控行数）——triage 四字段取默认值 NULL

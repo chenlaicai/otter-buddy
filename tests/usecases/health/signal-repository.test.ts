@@ -370,3 +370,102 @@ describe("Issue #645 审视 S1：severity/suggested_action 档位推进（僵尸
     expect(repo.findOpen()[0]!.suggested_action).toBe("观察或链复盘：确认是暂停还是废弃");
   });
 });
+
+describe("Issue #1563：dismiss 后 re-fire 缺口（同键孪生行）", () => {
+  function makeRepoWithDb(): { repo: SignalRepository; db: Database.Database } {
+    const db = new Database(":memory:");
+    initSchema(db);
+    migrateDatabase(db, console as never);
+    return { repo: new SignalRepository(db), db };
+  }
+
+  const baseSignal = {
+    signalType: "bug_recurrence",
+    severity: "critical",
+    featureId: null,
+    filePath: "src/invoker.ts",
+    evidence: "agent invoker 3 次",
+    suggestedAction: "强制根因分析",
+  };
+
+  it("dismiss 后同键 re-fire：re-open 原行而非新开孪生行", () => {
+    const { repo } = makeRepoWithDb();
+    const r1 = repo.upsert(baseSignal);
+    expect(repo.dismiss(r1.id)).toBe(true);
+    const r2 = repo.upsert({ ...baseSignal, evidence: "re-fire" });
+    expect(r2.id).toBe(r1.id); // 修复前：新开一行 → 必红
+    expect(r2.status).toBe("open");
+    expect(r2.resolved_at).toBeNull();
+    expect(r2.occurrences).toBe(2);
+    expect(repo.findOpen()).toHaveLength(1);
+    expect(repo.findByStatus("dismissed")).toHaveLength(0);
+  });
+
+  it("dismiss 后 re-fire 保留 triage_note 历史痕迹（处置结论不被旁路）", () => {
+    const { repo } = makeRepoWithDb();
+    const r1 = repo.upsert(baseSignal);
+    const d = repo.triage(r1.id, "dismiss", { note: "误报，阈值问题" });
+    expect(d.ok).toBe(true);
+    const r2 = repo.upsert(baseSignal);
+    expect(r2.id).toBe(r1.id);
+    expect(r2.triage_note).toBe("误报，阈值问题"); // 修复前：新行 note=null → 必红
+    expect(r2.triage_status).toBeNull(); // re-open = 未接单，走完整处置流程
+  });
+
+  it("dismiss↔re-fire 循环：同键行数恒 1（孪生行 0）", () => {
+    const { repo, db } = makeRepoWithDb();
+    let r = repo.upsert(baseSignal);
+    for (let i = 0; i < 5; i++) {
+      repo.dismiss(r.id);
+      r = repo.upsert({ ...baseSignal, evidence: `re-fire #${i}` });
+    }
+    expect(r.occurrences).toBe(6);
+    const cnt = (db.prepare(
+      "SELECT COUNT(*) as cnt FROM signals WHERE signal_type = ? AND COALESCE(feature_id, '') = COALESCE(?, '') AND COALESCE(file_path, '') = COALESCE(?, '')",
+    ).get(baseSignal.signalType, baseSignal.featureId, baseSignal.filePath) as { cnt: number }).cnt;
+    expect(cnt).toBe(1); // 修复前：6 行 → 必红
+  });
+
+  it("口径变更窗口重放（#1563 关闭标准）：dismiss 窗口内持续 re-fire，孪生行产生数为 0", () => {
+    const { repo, db } = makeRepoWithDb();
+    // 模拟 PR #1560 现场：9 条误 dismiss 信号在 dismiss 窗口期被旧口径扫描持续命中
+    for (let i = 0; i < 9; i++) {
+      const sig = { ...baseSignal, filePath: `src/mod-${i}.ts` };
+      const r = repo.upsert(sig);
+      repo.dismiss(r.id);
+      repo.upsert(sig); // 旧口径扫描持续命中
+      repo.upsert(sig);
+      repo.upsert(sig);
+    }
+    const dup = db.prepare(
+      "SELECT signal_type, feature_id, file_path, COUNT(*) as cnt FROM signals GROUP BY signal_type, feature_id, file_path HAVING cnt > 1",
+    ).all();
+    expect(dup).toHaveLength(0); // 修复前：9 组孪生 → 必红
+    expect(repo.findOpen()).toHaveLength(9); // 全部 re-open 回未接单队列
+    expect(repo.findByStatus("dismissed")).toHaveLength(0);
+  });
+
+  it("re-open 不回改 first_seen / created_at（原行历史时间轴保留）", () => {
+    const { repo } = makeRepoWithDb();
+    const t1 = new Date("2026-10-01T00:00:00Z");
+    const t2 = new Date("2026-10-02T00:00:00Z");
+    const r1 = repo.upsert(baseSignal, t1);
+    repo.dismiss(r1.id, t2);
+    const r3 = repo.upsert(baseSignal, t2);
+    expect(r3.id).toBe(r1.id);
+    expect(r3.first_seen).toBe(t1.toISOString()); // 修复前：新行 first_seen=t2 → 必红
+    expect(r3.last_seen).toBe(t2.toISOString());
+    expect(r3.occurrences).toBe(2);
+  });
+
+  it("resolved 后同键 re-fire 仍新开行（历史保留契约不回退）", () => {
+    // 回归锁定：修复前天然绿，非失败证据（#1583 计数口径）
+    const { repo } = makeRepoWithDb();
+    const r1 = repo.upsert(baseSignal);
+    repo.resolve(r1.id);
+    const r2 = repo.upsert(baseSignal);
+    expect(r2.id).not.toBe(r1.id);
+    expect(repo.findByStatus("resolved")).toHaveLength(1);
+    expect(repo.findOpen()).toHaveLength(1);
+  });
+});
