@@ -45,6 +45,7 @@ import type { ManageSession } from "@usecases/otter/manage-session";
 import type { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
+import type { ScheduledTaskPendingItemRepository } from "@usecases/scheduler/pending-item-repository";
 import type { ManageConnection } from "@usecases/im/manage-connection";
 import type { AssistantSessionManager } from "@usecases/im/assistant-session";
 /** F20260924wast：web 助理开户 */
@@ -68,6 +69,7 @@ export interface Repositories {
   feature: FeatureRepository;
   research: ResearchRepository;
   scheduledTask: ScheduledTaskRepository;
+  scheduledTaskPending: ScheduledTaskPendingItemRepository;
   connection: ConnectionRepository;
   healingEvent: HealingEventRepository;
   /** F20260826mwrd C1：獭间结构化信号台账（halt 落账；C2 objection/blocked） */

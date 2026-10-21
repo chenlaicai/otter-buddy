@@ -48,6 +48,13 @@ describe("buildMessageWithContext（F20261021gtbf 换世任务简报时效提醒
     expect(out).toBe("用户消息");
   });
 
+  it("scheduledTaskAlerts 非消费即删：有 pending 每轮注入，空态不注入", () => {
+    const alert = '<system-reminder>有 2 条定时任务待执行</system-reminder>';
+    expect(buildMessageWithContext('', '第一轮', { scheduledTaskAlerts: alert })).toContain(alert);
+    expect(buildMessageWithContext('', '第二轮', { scheduledTaskAlerts: alert })).toContain(alert);
+    expect(buildMessageWithContext('', '无 pending', {})).not.toContain('定时任务待执行');
+  });
+
   it("拼装顺序不回归：会话摘要 → 时效提醒 → 用户消息殿后", () => {
     const out = buildMessageWithContext("", "用户消息", { sessionSummary: "S" });
     const iSummary = out.indexOf("## 会话摘要");

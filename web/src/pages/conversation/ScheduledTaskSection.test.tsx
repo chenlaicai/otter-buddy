@@ -24,6 +24,7 @@ function makeTask(overrides: Partial<LocalScheduledTask> = {}): LocalScheduledTa
     timezone: 'Asia/Shanghai',
     body: '测试消息',
     description: null,
+    executorRole: '大獭',
     talkingStonePassedTo: ['otter-1'],
     senderId: 'otter-1',
     status: 'active',

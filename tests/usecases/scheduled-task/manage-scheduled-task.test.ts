@@ -66,6 +66,10 @@ function mockRepo() {
     getExecutionCount: vi.fn(async (taskId: string) => {
       return (storedExecutions.get(taskId) ?? []).length;
     }),
+    getRunningExecutions: vi.fn(async (taskId?: string) => {
+      if (taskId) return (storedExecutions.get(taskId) ?? []).filter(e => e.status === 'running');
+      return [...storedExecutions.values()].flat().filter(e => e.status === 'running');
+    }),
     failAllRunningExecutions: vi.fn(async () => 0),
   } satisfies ScheduledTaskRepository & {
     _storedTasks: Map<string, ScheduledTask>;
@@ -170,17 +174,20 @@ describe("ManageScheduledTask", () => {
       expect(notProvided.description).toBeNull();
     });
 
-    it("talkingStonePassedTo 为空数组 -> 抛出 DomainError（kind='validation'）", async () => {
+    it("executorRole 为空白 -> 抛出 DomainError；旧 talkingStonePassedTo 空数组合法", async () => {
       const repo = mockRepo();
       const manager = new ManageScheduledTask(repo);
 
       const err = await manager
-        .create(validInput({ talkingStonePassedTo: [] }))
+        .create(validInput({ executorRole: '  ' }))
         .catch((e) => e);
-
       expect(err).toBeInstanceOf(DomainError);
       expect(err.kind).toBe("validation");
-      expect(err.message).toContain("talkingStonePassedTo");
+      expect(err.message).toContain("executorRole");
+
+      const task = await manager.create(validInput({ talkingStonePassedTo: [], executorRole: undefined }));
+      expect(task.executorRole).toBe('大獭');
+      expect(task.talkingStonePassedTo).toEqual([]);
     });
 
     it("未传 timezone 时默认为 'Asia/Shanghai'", async () => {

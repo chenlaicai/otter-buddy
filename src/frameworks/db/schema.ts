@@ -566,6 +566,7 @@ function createScheduledTaskTables(db: Database.Database): void {
       timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
       body TEXT NOT NULL CHECK (length(body) <= 10000),
       description TEXT CHECK (description IS NULL OR length(description) <= 500),
+      executor_role TEXT NOT NULL DEFAULT '大獭',
       talking_stone_passed_to TEXT NOT NULL DEFAULT '[]',
       sender_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'error')),
@@ -595,6 +596,25 @@ function createScheduledTaskTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_executions_task ON scheduled_task_executions(task_id, triggered_at);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_task_pending_items (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id),
+      role TEXT NOT NULL,
+      triggered_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'consumed')),
+      consumed_at TEXT,
+      resolution TEXT CHECK (resolution IS NULL OR resolution IN ('executed', 'skipped')),
+      resolution_reason TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_pending_task_active
+      ON scheduled_task_pending_items(task_id) WHERE status = 'pending';
+    CREATE INDEX IF NOT EXISTS idx_scheduled_pending_conversation_role
+      ON scheduled_task_pending_items(conversation_id, role, status, triggered_at);
   `);
 }
 

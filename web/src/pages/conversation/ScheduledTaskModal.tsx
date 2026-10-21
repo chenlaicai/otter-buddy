@@ -1,19 +1,18 @@
 import { useState } from 'react'
 import { Clock, Loader } from 'lucide-react'
 import { Modal, ModalButton } from '../../components/Modal'
-import type { LocalScheduledTask, LocalOtter } from '../../lib/mappers'
+import type { LocalScheduledTask } from '../../lib/mappers'
 
 interface Props {
   mode: 'create' | 'edit'
   task?: LocalScheduledTask | null
-  otters: LocalOtter[]
   onSave: (data: {
     name: string
     cron: string
     timezone: string
     body: string
     description: string
-    talkingStonePassedTo: string[]
+    executorRole: string
     restartBeforeInvoke: boolean
   }) => void
   onClose: () => void
@@ -37,28 +36,17 @@ const TIMEZONES = [
   'UTC',
 ]
 
-export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Props) {
+export function ScheduledTaskModal({ mode, task, onSave, onClose }: Props) {
   const [name, setName] = useState(task?.name ?? '')
   const [cron, setCron] = useState(task?.cron ?? '0 9 * * *')
   const [timezone, setTimezone] = useState(task?.timezone ?? 'Asia/Shanghai')
   const [body, setBody] = useState(task?.body ?? '')
   const [description, setDescription] = useState(task?.description ?? '')
-  const [selectedOtters, setSelectedOtters] = useState<string[]>(
-    task?.talkingStonePassedTo ?? (otters.length === 1 ? [otters[0].id] : [])
-  )
   const [restartBeforeInvoke, setRestartBeforeInvoke] = useState(task?.restartBeforeInvoke ?? false)
   const [saving, setSaving] = useState(false)
 
   // 表单验证
-  const isValid = name.trim() && body.trim() && selectedOtters.length > 0 && cron.split(/\s+/).length === 5
-
-  const handleToggleOtter = (otterId: string) => {
-    setSelectedOtters(prev =>
-      prev.includes(otterId)
-        ? prev.filter(id => id !== otterId)
-        : [...prev, otterId]
-    )
-  }
+  const isValid = name.trim() && body.trim() && cron.split(/\s+/).length === 5
 
   const handleSave = async () => {
     if (!isValid || saving) return
@@ -70,7 +58,7 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
         timezone,
         body: body.trim(),
         description: description.trim(),
-        talkingStonePassedTo: selectedOtters,
+        executorRole: task?.executorRole ?? '大獭',
         restartBeforeInvoke,
       })
     } finally {
@@ -176,34 +164,17 @@ export function ScheduledTaskModal({ mode, task, otters, onSave, onClose }: Prop
           </div>
         </div>
 
-        {/* 目标 Otter */}
+        {/* 执行角色：只声明角色，触发时解析当前名册实例，避免绑定历史獭。 */}
         <div>
-          <label className="block text-sm font-medium text-stone-700 mb-1.5">
-            行动权传递给 <span className="text-red-400">*</span>
-          </label>
-          {otters.length === 0 ? (
-            <div className="text-sm text-stone-400">暂无可用的 Otter</div>
-          ) : (
-            <div className="space-y-2">
-              {otters.map(otter => (
-                <label
-                  key={otter.id}
-                  className="flex items-center gap-2 p-2 rounded-lg hover:bg-stone-50 cursor-pointer transition"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedOtters.includes(otter.id)}
-                    onChange={() => handleToggleOtter(otter.id)}
-                    className="rounded border-stone-300 text-otter-500 focus:ring-otter-500"
-                  />
-                  <div className="w-6 h-6 rounded-full bg-otter-100 flex items-center justify-center text-xs font-bold text-otter-600">
-                    {otter.name.charAt(0)}
-                  </div>
-                  <span className="text-sm text-stone-700">{otter.name}</span>
-                </label>
-              ))}
-            </div>
-          )}
+          <label className="block text-sm font-medium text-stone-700 mb-1.5">执行角色</label>
+          <input
+            type="text"
+            value={task?.executorRole ?? '大獭'}
+            readOnly
+            aria-label="执行角色"
+            className="form-input w-full bg-stone-50 text-stone-600"
+          />
+          <div className="text-xs text-stone-400 mt-1">触发时按对话名册解析当前实例，不再绑定历史獭。</div>
         </div>
 
         {/* 每次触发前重启獭生 */}

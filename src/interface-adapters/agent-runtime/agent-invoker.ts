@@ -30,6 +30,8 @@ import type { ConversationRepository } from "@usecases/conversation/conversation
 import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled-task-repository";
 import type { ManageContext } from "@usecases/otter/manage-context";
 import type { MatterRepository } from "@usecases/matter/matter-repository";
+import type { ScheduledTaskPendingItemRepository } from "@usecases/scheduler/pending-item-repository";
+import { renderScheduledTaskAlerts } from "@usecases/scheduler/scheduled-task-alerts";
 import type { LinkedResource } from "@entities/conversation/conversation";
 import type { OtterSession } from "@entities/otter/otter-session";
  
@@ -212,6 +214,8 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly engine?: HandoffEngineDeps,
     /** F20261006mtlp P1：matters 仓库（机械供料 handoff_open_matters 数据源；可选注入） */
     private readonly matterRepo?: MatterRepository,
+    /** F20261021sprx：每次唤醒读取待执行状态镜像（非消费即删）。 */
+    private readonly scheduledTaskPendingRepo?: ScheduledTaskPendingItemRepository,
   ) {
     this.agentDispatchService = agentDispatchService;
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
@@ -426,7 +430,8 @@ export class AgentInvoker implements AgentTurnPort {
     // F20260826mwrd C3（Part 4）：高危 healing 事件提醒——仅 big 獭消费（编排者处置义务），
     // small 獭 invoke 不取队列（队列滞留，大獭下轮补提醒）。失败不阻断主流程（台账在，提醒可再等）。
     // otterType 查询与下方 otter 复用：此处仅取 type，会话中 otter 主体仍在 streaming 消息创建后取。
-    const otterType = (await this.queryOtter.getById(otterId))?.type;
+    const invokedOtter = await this.queryOtter.getById(otterId);
+    const otterType = invokedOtter?.type;
     if (otterType === 'big') {
       const alerts = healingAlertRegistry.takeAll(conversationId);
       if (alerts.length > 0) {
@@ -440,10 +445,27 @@ export class AgentInvoker implements AgentTurnPort {
         this.logger.info('Signal resolution alerts injected', { otterId, conversationId, count: signalAlerts.length });
       }
     }
+    if (this.scheduledTaskPendingRepo) {
+      try {
+        const otterName = invokedOtter?.name;
+        const pendingItems = otterName
+          ? await this.scheduledTaskPendingRepo.list(conversationId, otterName)
+          : [];
+        const scheduledTaskAlerts = otterName ? renderScheduledTaskAlerts(pendingItems, otterName) : undefined;
+        if (scheduledTaskAlerts) {
+          dynamicContext.scheduledTaskAlerts = scheduledTaskAlerts;
+          this.logger.info('Scheduled task pending alerts injected', { otterId, conversationId, count: pendingItems.length });
+        }
+      } catch (err) {
+        this.logger.warn('Scheduled task pending alert query failed (non-fatal)', {
+          otterId, conversationId, error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     this.logger.debug('Dynamic context built', { otterId, hasSummary: !!dynamicContext.sessionSummary, hasWorkspace: !!dynamicContext.workspacePath });
 
     this.logger.debug('Creating invoke (timeline model)', { otterId, conversationId });
-    const otter = await this.queryOtter.getById(otterId);
+    const otter = invokedOtter;
 
     // F20260913ctlv 彻底切换：不再创建 streaming 主 message（messages 表停写 UI 消息）。
     // invoke 开始 = createInvoke + invoke_start entry + invoke.start SSE（唯一路径，失败硬抛）

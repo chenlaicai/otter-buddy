@@ -105,7 +105,10 @@ export async function createAgentGateway(options: {
     // Why: 默认目录基于代码位置解析（#429）；注入参数 override 优先
     identityPromptDir: options.identityPromptDir ?? path.resolve(getRepoRoot(), "prompts/identity"),
     createTools: (ctx, repo, log) => {
-      const tools = createTools(ctx, repo, log, options.workspaceGateway, manageScheduledTaskRef ?? undefined);
+      const scheduledTaskDeps = manageScheduledTaskRef
+        ? { manage: manageScheduledTaskRef, pending: repos.scheduledTaskPending }
+        : undefined;
+      const tools = createTools(ctx, repo, log, options.workspaceGateway, scheduledTaskDeps);
       if (repo) tools.push(createManageHealingEventsTool(ctx, repo));
       return tools;
     },
@@ -249,6 +252,7 @@ function buildAgentInvoker(o: {
     o.handoffEngine,
     // F20261006mtlp P1：matters 仓库——机械供料 handoff_open_matters 数据源
     o.repos.matter,
+    o.repos.scheduledTaskPending,
   );
 }
 
@@ -311,6 +315,8 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
       // #1449：孤儿 running 执行扫描判活回调——AgentInvoker 委托 PiSessionFactory.isRunning，
       //   有执行现场（用户停机冻结等）不动它，无现场（网关断连/进程假死）机械释放。
       isOtterRunning: (otterId: string) => agentInvoker.isRunning?.(otterId) ?? false,
+      otterRepo: repos.otter,
+      pendingItemRepo: repos.scheduledTaskPending,
     }),
   );
 

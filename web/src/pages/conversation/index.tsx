@@ -1707,7 +1707,6 @@ export default function ConversationPage() {
         <ScheduledTaskModal
           mode={scheduledTaskModal.type === 'create' ? 'create' : 'edit'}
           task={scheduledTaskModal.task}
-          otters={activeOtters}
           onSave={async (data) => {
             if (scheduledTaskModal.type === 'create') {
               await createScheduledTask(data)

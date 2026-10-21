@@ -357,6 +357,7 @@ export function makeScheduledTask(overrides: Partial<{
     triggerAt: overrides.triggerAt ?? null,
     timezone: overrides.timezone ?? "Asia/Shanghai",
     body: overrides.body ?? "Remember to check in",
+    executorRole: '大獭',
     talkingStonePassedTo: overrides.talkingStonePassedTo ?? ["otter-1"],
     senderId: overrides.senderId ?? "otter-1",
     status: overrides.status ?? ("active" as const),

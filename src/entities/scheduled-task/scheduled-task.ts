@@ -25,6 +25,9 @@ export interface ScheduledTask {
   /** F20260915desc: 人类可读任务描述（≤500 字符）。面板优先显示此字段；
    *  未填时面板回退渲染 body/functionName（executorType=function 时 body 常为 '{}'） */
   description: string | null;
+  /** 执行者角色名。agent 任务触发时按对话 active 名册解析到当前实例。 */
+  executorRole: string;
+  /** 旧实体 ID 绑定，仅作角色解析失败时的兼容读取；新写入不再绑定执行实例。 */
   talkingStonePassedTo: string[];
   senderId: string;
   status: ScheduledTaskStatus;
@@ -52,6 +55,22 @@ export interface ScheduledTaskExecution {
   status: ExecutionStatus;
   errorMessage: string | null;
   messageId: string | null;
+}
+
+export type ScheduledTaskPendingStatus = 'pending' | 'consumed';
+export type ScheduledTaskPendingResolution = 'executed' | 'skipped';
+
+/** 忙时触发的待执行项：调度器入列即完成，后续由角色匹配的獭自主处置。 */
+export interface ScheduledTaskPendingItem {
+  id: string;
+  taskId: string;
+  conversationId: string;
+  role: string;
+  triggeredAt: string;
+  status: ScheduledTaskPendingStatus;
+  consumedAt: string | null;
+  resolution: ScheduledTaskPendingResolution | null;
+  resolutionReason: string | null;
 }
 
 /** 状态转换校验 */

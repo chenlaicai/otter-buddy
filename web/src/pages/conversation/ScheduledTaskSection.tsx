@@ -156,6 +156,9 @@ export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrig
             )
           })()}
 
+          {/* 执行角色 */}
+          <div className="text-xs text-stone-500 mb-2">执行角色：{task.executorRole}</div>
+
           {/* 特性标签 */}
           {task.restartBeforeInvoke && (
             <div className="text-xs text-otter-600 mb-2 flex items-center gap-1">

@@ -21,6 +21,9 @@ import { createTriageSignalTool, createListRhiSignalsTool } from "./rhi-signal-t
 import { DomainError } from "@entities/errors";
 import { createWorkspaceTools } from "./workspace-tools";
 import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
+import { createManageScheduledTaskPendingTool } from "./scheduled-task-pending-tools";
+import { ManageScheduledTaskPending } from "@usecases/scheduler/manage-scheduled-task-pending";
+import type { ScheduledTaskPendingItemRepository } from "@usecases/scheduler/pending-item-repository";
 import { checkBashCommandSafety, readMainProcessPid } from "@frameworks/agent/bash-safety-guard";
 import { getRepoRoot } from "@frameworks/repo-root";
 import { findKillSegments } from "@frameworks/agent/kill-segment-finder";
@@ -1506,7 +1509,21 @@ function createQueryDispatchLedgerTool(ctx: ToolContext): AgentTool {
   };
 }
 
-export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, manageScheduledTask?: ManageScheduledTask): AgentTool[] {
+type ScheduledTaskToolDeps = ManageScheduledTask | {
+  manage: ManageScheduledTask;
+  pending: ScheduledTaskPendingItemRepository;
+};
+
+function appendScheduledTaskTools(tools: AgentTool[], ctx: ToolContext, deps?: ScheduledTaskToolDeps): void {
+  if (!deps) return;
+  const manage = 'manage' in deps ? deps.manage : deps;
+  tools.push(createCreateScheduledTaskTool(ctx, manage));
+  if ('pending' in deps) {
+    tools.push(createManageScheduledTaskPendingTool(ctx, new ManageScheduledTaskPending(deps.pending, manage.repo)));
+  }
+}
+
+export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, scheduledTaskDeps?: ScheduledTaskToolDeps): AgentTool[] {
   // F20260826mwrd C1：signal 仓库经 ToolContext.signalRepo 注入（避免参数继续膨胀）
   const signalRepo = ctx.signalRepo;
   // F20261006mtlp P1：matter 仓库经 ToolContext.matterRepo 注入（同 signalRepo 模式）
@@ -1548,9 +1565,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   if (workspaceGateway) {
     tools.push(...createWorkspaceTools(ctx, workspaceGateway));
   }
-  if (manageScheduledTask) {
-    tools.push(createCreateScheduledTaskTool(ctx, manageScheduledTask));
-  }
+  appendScheduledTaskTools(tools, ctx, scheduledTaskDeps);
   // F20260920stkx：stock_data / paper_trade 工具随能力整体移除（实验结论文档 R20260920stkx）
   // F20260826mwrd C1：halt 工具（仅 signalRepo 注入时注册；编排大獭用——
   // small 型 whitelist 不含 halt_otter，天然隔离；query_signals 两型均可用）

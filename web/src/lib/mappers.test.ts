@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { mapSessionDTO, mapOtterDTO, mapParticipantDTO } from './mappers'
+import { mapSessionDTO, mapOtterDTO, mapParticipantDTO, mapEntryDTO } from './mappers'
 import type { LocalMessage } from './mappers'
-import type { OtterSessionDTO, OtterDTO, ParticipantDTO } from '@contract/api'
+import type { OtterSessionDTO, OtterDTO, ParticipantDTO, EntryDTO } from '@contract/api'
 
 function makeDTO(overrides: Partial<OtterSessionDTO> = {}): OtterSessionDTO {
   return {
@@ -17,6 +17,19 @@ function makeDTO(overrides: Partial<OtterSessionDTO> = {}): OtterSessionDTO {
     ...overrides,
   } as OtterSessionDTO
 }
+
+describe('mapEntryDTO senderOtterType（名册外历史发言身份）', () => {
+  it('DTO 自带 big 类型优先进入本地消息，不依赖名册', () => {
+    const dto = {
+      id: 'e1', conversationId: 'c1', sequenceNum: 1, entryType: 'speak',
+      senderType: 'otter', senderId: 'history-big', senderName: '大獭', senderColor: null,
+      senderOtterType: 'big', body: '历史发言', invokeId: null, yieldTargets: null,
+      status: 'completed', source: 'web', contextTokens: null, contextTokensMax: null,
+      createdAt: '2026-10-21T00:00:00Z', completedAt: null,
+    } as EntryDTO
+    expect(mapEntryDTO(dto)).toMatchObject({ stype: 'big', si: 'history-big' })
+  })
+})
 
 describe('mapSessionDTO (F20260805rsto)', () => {
   it('保留 previousSessionId（链式展示依赖）', () => {
