@@ -117,15 +117,15 @@ function expectRatchet(pool: 'allow' | 'block' | 'cond', actual: GapMap): void {
 }
 
 describe('guard-touchstone judge 考试（全量复跑）', () => {
-  it(`放行池 ${allow.entries.length} 条全部正面 ALLOW（fail-closed 不算过）`, () => {
+  it(`放行池 ${allow.entries.length} 条全部正面 ALLOW（fail-closed 不算过）`, { timeout: 60_000 }, () => {  // F20261021ttos：重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
     expectRatchet('allow', allowGaps());
-  }, 60_000);
+  });
 
-  it(`拦截池 ${block.entries.length} 条全部 BLOCK（正面落点或 fail-closed 终局）`, () => {
+  it(`拦截池 ${block.entries.length} 条全部 BLOCK（正面落点或 fail-closed 终局）`, { timeout: 60_000 }, () => {
     expectRatchet('block', blockGaps());
-  }, 60_000);
+  });
 
-  it(`条件期望 ${cond.entries.length} 条双态各跑（worktree→正面 ALLOW / 主仓→BLOCK）`, () => {
+  it(`条件期望 ${cond.entries.length} 条双态各跑（worktree→正面 ALLOW / 主仓→BLOCK）`, { timeout: 60_000 }, () => {
     expectRatchet('cond', condGaps());
-  }, 60_000);
+  });
 });

@@ -9,7 +9,7 @@ import { describe, it } from "vitest";
 import { expectSampledBehavior } from "./capability/helpers/assert-behavior";
 
 describe("expectSampledBehavior budgetMs（#1187）", () => {
-  it("前瞻拦截：预算 900ms、worst 500ms、3 采各 300ms——#1/#2 跑，#3 前瞻拦截（600+500>900）", async () => {
+  it("前瞻拦截：预算 900ms、worst 500ms、3 采各 300ms——#1/#2 跑，#3 前瞻拦截（600+500>900）", { timeout: 10_000 }, async () => {
     let ran = 0;
     await expectSampledBehavior("budget-forward", 3, 1, async (i) => {
       ran++;
@@ -18,9 +18,9 @@ describe("expectSampledBehavior budgetMs（#1187）", () => {
     }, { budgetMs: 900, sampleWorstMs: 500 });
     // #1 起跑 elapsed≈0；#2 起跑 elapsed≈300（300+500<900 跑）；#3 起跑 elapsed≈600（600+500>900 SKIP）
     if (ran > 2) throw new Error(`前瞻未生效：ran=${ran}（应 ≤2）`);
-  }, 10_000);
+  });
 
-  it("在途保护对齐检视语义：worst=实际耗时上限时，最后样本不越预算", async () => {
+  it("在途保护对齐检视语义：worst=实际耗时上限时，最后样本不越预算", { timeout: 10_000 }, async () => {
     let ran = 0;
     await expectSampledBehavior("budget-tail", 2, 1, async (i) => {
       ran++;
@@ -29,18 +29,18 @@ describe("expectSampledBehavior budgetMs（#1187）", () => {
     }, { budgetMs: 1000, sampleWorstMs: 400 });
     // #1 elapsed 0；#2 elapsed 400（400+400<1000 跑）——两个都跑，总耗时 800 ≤ 1000
     if (ran !== 2) throw new Error(`ran=${ran} 应为 2（worst 精确时不误拦）`);
-  }, 10_000);
+  });
 
-  it("无 budgetMs：行为不变，全部采样执行", async () => {
+  it("无 budgetMs：行为不变，全部采样执行", { timeout: 5_000 }, async () => {
     let ran = 0;
     await expectSampledBehavior("no-budget", 3, 3, async (i) => {
       ran++;
       return { ok: true, detail: `#${i + 1}` };
     });
     if (ran !== 3) throw new Error(`ran=${ran} 应为 3`);
-  }, 5_000);
+  });
 
-  it("SKIP 后 successes 不足 minSuccess 时断言红（方向保护）", async () => {
+  it("SKIP 后 successes 不足 minSuccess 时断言红（方向保护）", { timeout: 10_000 }, async () => {
     let assertionError: unknown;
     try {
       await expectSampledBehavior("skip-red", 3, 2, async () => {
@@ -54,5 +54,5 @@ describe("expectSampledBehavior budgetMs（#1187）", () => {
     if (!assertionError) throw new Error("SKIP 致采样不足时应断言红，未抛错");
     const msg = String(assertionError);
     if (!msg.includes("SKIP")) throw new Error(`断言消息应含 SKIP 明细：${msg.slice(0, 200)}`);
-  }, 10_000);
+  });
 });

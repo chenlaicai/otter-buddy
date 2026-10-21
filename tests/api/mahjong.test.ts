@@ -69,7 +69,7 @@ describe("三麻将局 API", () => {
     throw new Error("waitHumanOrDone timeout");
   }
 
-  it("建房→视图/入座/开局幂等→真人注入跑完→帧链+SSE+恢复", async () => {
+  it("建房→视图/入座/开局幂等→真人注入跑完→帧链+SSE+恢复", { timeout: 20_000 }, async () => {  // F20261021ttos：重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
     // ① 建房即开局
     const created = await json(
       await app.request("/api/mahjong/rooms", {
