@@ -248,7 +248,7 @@ interface MessageListProps {
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
   userName?: string
-  /** F20261008csf1 P1：文类产物摘要卡数据源（linked_resources，pr/file/fact 类型混排进时间轴） */
+  /** F20261008csf1 P1：混排产物数据源（linked_resources，pr/file/fact/game 类型混排进时间轴；F20261021gmbe 接入 game） */
   linkedResources?: LocalLinkedResource[]
   /** 信号轨迹（F20260902u5tr）：服务端推导的投石信号投递状态（可选，未加载时不渲染轨迹） */
 }
@@ -289,7 +289,7 @@ export function MessageList({
     // 窗口外产物不显示，上翻加载到覆盖其诞生时刻时自然出现
     const windowFloor = messages.length ? messages[0].ts : ''
     const artifacts = (linkedResources ?? [])
-      .filter(r => ['pr', 'file', 'fact'].includes(r.type) && r.status === 'active')
+      .filter(r => ['pr', 'file', 'fact', 'game'].includes(r.type) && r.status === 'active')
       .filter(r => (r.createdAt ?? '') >= windowFloor)
     for (const r of artifacts) {
       const ts = r.createdAt ?? ''

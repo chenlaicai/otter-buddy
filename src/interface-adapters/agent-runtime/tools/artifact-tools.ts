@@ -19,7 +19,7 @@ export function createListArtifactsTool(ctx: ToolContext): AgentTool {
       type: "object",
       properties: {
         status: { type: "string", enum: ["active", "superseded", "archived"], description: "按状态过滤（不传则排除 archived）" },
-        resourceType: { type: "string", description: "按资源类型过滤（fact/pr/worktree/branch/file/url）" },
+        resourceType: { type: "string", description: "按资源类型过滤（fact/pr/worktree/branch/file/url/game）" },
         groupId: { type: "string", description: "按特性分组 ID 过滤" },
       },
     },

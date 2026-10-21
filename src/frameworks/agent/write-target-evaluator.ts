@@ -1304,7 +1304,7 @@ function writerContent(seg: Segment, cwd: string): WriteFaceEntry[] | null {
  *  其余（\' \a \x \e \0…）反斜杠字面保留。 */
 const DQ_SPECIAL_AFTER = new Set(["$", "`", '"', "\\", "\n"]);
 
-/** 双引号反斜杠语义分歧闸（检视獭1597 严重 2 治标防线，根修前纵深 M-f89f1ff3）：bash
+/** 双引号反斜杠语义分歧闸（检视獭1597 严重 2 治标防线，M-f89f1ff3 根修后降级纵深冗余）：bash
  *  双引号内 \X（X 非上列五符）产出反斜杠字面（"a\'b" → a\'b 两字符），词法层 evalEscape
  *  却按「任意 \X → X」丢反斜杠（command-lexer 双引号扫描 escape part，根因归 M-f89f1ff3
  *  独立根修）——源码形态命中此面时 evaluated 词面与 bash 真值分歧，内容重建必然谎报。
@@ -1316,7 +1316,7 @@ const DQ_SPECIAL_AFTER = new Set(["$", "`", '"', "\\", "\n"]);
  *  一处闸（printf "a\'b" 同丢反斜杠假重建），重定向写面/管道喂入/载荷递归判读同收益。
  *  治标口径（诚实记档）：本闸只判「可否重建」不修词义——良性双引号转义写（printf
  *  "#!/bin/bash\necho hi\n" 造-执对）会随 null 走 fail-closed 保守拦，精确恢复归根修后
- *  本闸自动降级纵深冗余（大獭裁决：不复制词法语义进求值器=双真相源）。 */
+ *  本闸自动降级纵深冗余（大獭裁决：不复制词法语义进求值器=双真相源）——根修（2026-10-21 M-f89f1ff3）已落：非特殊对不再产生 escape part，本闸仅剩尾部截断 \ 一个触发面，保留作纵深防御。 */
 function wordDivergesFromBash(w: Word): boolean {
   return w.parts.some(p => {
     if (p.type !== "escape" || p.quoted !== "double") return false; // 未引/单引 \X → X 是 bash 正确语义
@@ -1413,10 +1413,10 @@ const PRINTF_ESCAPES: Record<string, string> = { a: "\x07", b: "\b", e: "\x1b", 
  *  修错配非军备化扩张（#1513 尺）。\e 出表后新 bash 良性 ANSI 色码会被保守拦（取舍记档）。
  *  端到端实证：echo -e "ok ; touch \\' x \\'" 落盘 \' 是活命令结构，旧表 \'→' 制造假引号串
  *  吞命令结构可漏判——收窄后白名单外 → null fail-closed。
- *  严重 2（检视獭1597 第 2 轮）上游闸：双引号内 \X（X 非 bash 五符特殊）的反斜杠在词法层
- *  就已被 evalEscape 丢掉（`echo -e "a\nb"` evaluated=anb，decode 根本看不到 \n）——分歧
- *  检测在 segmentStdoutContent 入口 wordDivergesFromBash（本函数唯一调用方），不在此处
- *  重复判（单点真相源）。 */
+ *  严重 2（检视獭1597 第 2 轮）上游闸：双引号内 \X 丢反斜杠的假重建面已由 M-f89f1ff3
+ *  词法层根修收口（非特殊对拆两字符 lit，evaluated=bash 真值），wordDivergesFromBash
+ *  闸随之降级纵深冗余——闸在 segmentStdoutContent 入口（本函数唯一调用方），此处不重复判
+ *  （单点真相源）。 */
 const ECHO_ESCAPES: Record<string, string> = { a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "\\": "\\" };
 
 /** printf format 内容重建（delta2 S1/S2 修）：format 是内容骨架——bash 实测无转换符时
