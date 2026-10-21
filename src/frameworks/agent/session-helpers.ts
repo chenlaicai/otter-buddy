@@ -370,7 +370,7 @@ export function shouldInjectSessionPreamble(entries: Array<{ type: string; [key:
  */
 export const TASK_BRIEF_FRESHNESS_REMINDER = `## 任务简报时效提醒（换世核验）
 本世是重启/交接后的新世（上方会话摘要即前世档案）。systemPrompt 中的任务简报是派工当时写的，其中的任务可能已交付、被撤或过期（幽灵工单）——开工前先核实：
-1. 对照交接档案「① 下一步」与未闭环事项（matters）核实简报任务是否仍有效
+1. 对照交接档案中的任务状态/下一步指引与未闭环事项（matters）核实简报任务是否仍有效
 2. 已交付/过期 → 拒收并在发言中说明（附证据：产物/PR/记忆锚点），转做交接档案指定的下一步，不重复实现
 3. 仍有效 → 正常开工
 不核实就照单开工的后果：对已合入的修复重开重复 PR（历史上已多次实证）。`;

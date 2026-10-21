@@ -2,13 +2,13 @@
 id: F20261021gtbf
 title: 幽灵工单根因治理——任务简报世代边界（换世时效核验 + 身份文案时效纪律）
 summary: restart 后旧 systemPrompt 任务段照进新世已五次流通（M-1326410e）。机制链三环：otter_config.systemPrompt 召唤时写死无世代边界 + restartSession 只更新 modelAlias 原样沿用 + SMALL_OTTER.md「先把这件事干好」无条件服从句。修法双层防御：机制层（buildMessageWithContext 换世首轮随 sessionSummary 注入「任务简报时效提醒」，首世/非首轮不注入）+ 模板层（SMALL_OTTER.md 加时效纪律）。机制识别检查点全否，narrow-fix。
-capability_test: "n/a: 注入面文案与消息拼装逻辑变更无对外行为契约——session-helpers 5 新增用例（放行/拦截/顺序/锚点）+ 消费方 63 例 + capability 重启獭生套件 + 全量 6554 passed 零失败"
+capability_test: "n/a: 注入面文案与消息拼装逻辑变更无对外行为契约——session-helpers 5 新增用例（放行/拦截/顺序/锚点）+ 消费方 63 例 + capability 重启獭生套件 + 全量 6554 passed 零失败。golden 豁免声明（沿 #1318/#1377 先例，F20261014gvbx 对账口径）：本 PR 不涉 golden_replay 断言面，golden-results.jsonl 无本 PR 记录系按设计不落账而非漏跑，不计缺记录"
 change_type: fix
 intent:
   problem: "M-1326410e（2026-10-15 立）：restart 后旧 systemPrompt 任务段带进新世，已五次流通（10-08 P0-1/P0-2 工单经三代 restart 照进 10-15/10-19/10-20 各世，每次都被新世 LLM 人工核对拒收才没出重复 PR——拒收靠自发，机制零防线）"
-  expected_effect: "换世首轮的任务简报自带时效核验指令（机制层）+ 身份文案常驻时效纪律（模板层）——幽灵工单从「靠 LLM 自觉拒收」升为「机制明文要求核验」，重复 PR 风险前置拦截"
+  expected_effect: "换世首轮 user 消息含「任务简报时效提醒」段（buildMessageWithContext 断言 toContain）、首世/非首轮消息不含（断言 not.toContain）；SMALL_OTTER.md 含时效纪律句（文本在案可查）——幽灵工单处置从自发行为变为有机制指令依据，重复 PR 风险在开工前被显式核验环节拦截"
   verify_by:
-    type: behavior_check
+    type: capability_test
 modules:
   - src/frameworks/agent/session-helpers.ts
   - prompts/identity/SMALL_OTTER.md
@@ -36,7 +36,7 @@ created_by: 守卫修复獭
 
 机制识别检查点逐项：新增配置字段/枚举/开关 ❌（固定文案常量无配置）｜新增状态生命周期 ❌｜新增定时任务/后台进程 ❌｜新增信号类型/消息格式 ❌（消息内追加固定文案段，无新 schema，与 healingAlerts/signalAlerts 同型）｜新增持久化存储 ❌｜新增决策分支 ❌（sessionSummary 既有分支内追加，无新分支）｜新增跨模块调用路径 ❌。→ 修法决策树①（既有机制语义内修）。
 
-**修 1（机制层，主修）**：`src/frameworks/agent/session-helpers.ts` `buildMessageWithContext` 的 sessionSummary 分支追加 `TASK_BRIEF_FRESHNESS_REMINDER`（任务简报时效提醒：对照交接档案「① 下一步」/matters 核实→已交付拒收附证据→仍有效开工）。注入条件复用「sessionSummary 存在 = 换世」判定：首世无档案不注入（任务简报是新鲜的），换世首轮注入（isFirstTurn 门保证，不逐轮堆积——F20260922ctxi 防堆积口径）。文案系注入面，不含 F/R 编号锚点（lint-prompt-anchors 口径，测试固化）。
+**修 1（机制层，主修）**：`src/frameworks/agent/session-helpers.ts` `buildMessageWithContext` 的 sessionSummary 分支追加 `TASK_BRIEF_FRESHNESS_REMINDER`（任务简报时效提醒：对照交接档案中的任务状态/下一步指引与未闭环事项（matters）核实→已交付拒收附证据→仍有效开工）。**段名泛指措辞（检视獭1585 建议 S2 采纳）**：不引用具体段名——七段合成档案的「① 下一步」与机械降级档案（含熔断 synthesizePast=false 路径）的「① 交接意图书」段名不同，泛指「任务状态/下一步指引」两种形态都兜住。注入条件复用「sessionSummary 存在 = 换世」判定：首世无档案不注入（任务简报是新鲜的），换世首轮注入（isFirstTurn 门保证，不逐轮堆积——F20260922ctxi 防堆积口径）。文案系注入面，不含 F/R 编号锚点（lint-prompt-anchors 口径，测试固化）。
 
 **修 2（模板层，辅修）**：`prompts/identity/SMALL_OTTER.md` 时效纪律句——「先把这件事干好」后补「但任务简报有派工时效：若交接档案/对话历史/产物台账显示已交付/被撤/过期（幽灵工单），以现实为准拒收并附证据」。作用面：非换世场景（派工文本过期但没换世）也生效。BIG_OTTER.md 未改（大獭文案无「本职工作」无条件句；机制层对大小獭普适——buildMessageWithContext 系 invoke 统一链路）。
 
