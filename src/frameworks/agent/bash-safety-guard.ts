@@ -29,7 +29,7 @@ import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
-import { segmentStdoutContent } from "./write-target-evaluator";
+import { segmentStdoutContent, evalInterpreterStdinBody } from "./write-target-evaluator";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
 export type { AllowedService };
@@ -775,6 +775,9 @@ const ONELINER_EXTRACT_PATTERNS: Record<OneLinerInterp, RegExp> = {
 
 /** shell 解释器名（洞1 识别面——basename 归一后比对）。 */
 const SHELL_INTERP_NAMES = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+/** 多调分发器二进制（M-38fb45c0 A 面）：<dispatcher> <shell 子命令> = shell 语义别名
+ *  （busybox sh ≡ sh，sudo/bash wrapper 同先例）——分发器自身非 shell 子命令时不属本面。 */
+const MULTI_CALL_DISPATCHERS = new Set(["busybox", "toybox"]);
 
 /** one-liner 解释器名 → 通道 key（洞2 落点判定）。 */
 const ONELINER_INTERP_NAMES: Record<string, OneLinerInterp> = {
@@ -1298,6 +1301,12 @@ function stdinShellKind(seg: Segment, depth = 3): "stdin" | "other" | "none" {
     if (!spec) break;
     i = skipWrapperArgs(tokens, i + 1, spec);
   }
+  // M-38fb45c0（A 面）：多调分发器（busybox/toybox <shell 子命令>）= shell 语义别名——
+  //  `busybox sh` ≡ `sh` 进同一 stdin 判定链（curl|busybox sh / 静态载荷|busybox sh 双洞收口）
+  if (i + 1 < texts.length && MULTI_CALL_DISPATCHERS.has(tokenBasename(texts[i]))
+    && SHELL_INTERP_NAMES.has(tokenBasename(texts[i + 1]).replace(/\d+$/, ""))) {
+    i++;
+  }
   const base = tokenBasename(texts[i]).replace(/\d+$/, "");
   if (!SHELL_INTERP_NAMES.has(base)) return "none";
   return stdinShellTailKind(texts.slice(i + 1), depth);
@@ -1305,6 +1314,72 @@ function stdinShellKind(seg: Segment, depth = 3): "stdin" | "other" | "none" {
 
 const STDIN_SHELL_OPAQUE_MSG = "管道喂入 shell 执行的脚本内容未经守卫逐条判定（上游非静态可判源：cat/curl/变量/命令替换），绕过面不可接受。该命令不允许：请改写为 bash -c '<载荷>' 形态（载荷可逐条判定）或把脚本内容拆成独立命令执行；若确认此命令本意安全，请改用保持原语义的不含管道喂 shell 的方式达成目的；无法规避时告知搭档人工执行。";
 
+// ── M-38fb45c0 管道直执族 B 面：解释器 stdin 喂入（大獭 2026-10-21 裁决 A+B）──
+const STDIN_INTERP_BLOCK_MSG = "管道喂入 shell/解释器（python/node 等）执行的脚本内容未能正面证明安全（上游不透明/载荷不完整/写调用落点不可求值/只读白名单外），fail-closed 拦截。该命令不允许：请把脚本内容落盘为文件后拆步执行（可逐条判定），或改写为可静态判定的载荷形态；若确认此命令本意安全，请告知搭档人工执行。";
+
+/** 解释器 stdin 喂入段分类（M-38fb45c0 B 面）：段首（跳赋值前缀/wrapper）是脚本解释器
+ *  且程序来源是 stdin（裸词/单短旗标/lone -——-c/-e/--x=v/脚本文件参走既有载荷通道不收）
+ *  → stdin。wrapper 内包的 feed（env python）也归类——消息归因覆盖，判定仍以求值器
+ *  裸词域（bareName）为界（wrapper 形态保守 fail-closed，不放行只改文案）。 */
+function interpreterStdinKind(seg: Segment): { kind: "stdin"; lang: string } | { kind: "none" } {
+  const evals = seg.words.map(w => w.evaluated);
+  if (evals.some(e => e === null)) return { kind: "none" };
+  const texts = evals as string[];
+  const tokens = texts.map(text => ({ text }));
+  let i = 0;
+  for (;;) {
+    if (i >= texts.length) return { kind: "none" };
+    const w = texts[i];
+    if (/^[A-Za-z_]\w*=/.test(w)) { i++; continue; }
+    const spec = WRAPPER_SPECS[tokenBasename(w)];
+    if (!spec) break;
+    i = skipWrapperArgs(tokens, i + 1, spec);
+  }
+  const name = tokenBasename(texts[i]);
+  const lang = SCRIPT_RUNNERS.has(name) ? name : name.replace(/\d+$/, "");
+  if (!SCRIPT_RUNNERS.has(lang)) return { kind: "none" };
+  const rest = texts.slice(i + 1);
+  if (rest.every(t => /^-[a-zA-Z]$/.test(t) || t === "-")) return { kind: "stdin", lang };
+  return { kind: "none" };
+}
+
+/** M-38fb45c0：命令内是否存在管道 feed 形态（shell 族 stdinShellKind + 解释器族
+ *  interpreterStdinKind，fail-closed 消息归因用——feed 家族的 fail-closed 一律按
+ *  feed 口径归因，不被「落点为主仓」错定因带偏；写主仓 positive 归因不受影响）。 */
+function interpreterFeedFormPresent(command: string): boolean {
+  const model = parseOnce(command);
+  if (!model.parseOk) return false;
+  return model.segments.some(s => s.joiner === "|" && s.heredocs.length === 0
+    && (interpreterStdinKind(s).kind === "stdin" || stdinShellKind(s) === "stdin"));
+}
+
+/** M-38fb45c0 B 面：解释器 stdin 喂入只读白名单正面证明（guard 侧证明器域）——全部 feed
+ *  形态静态可判、无写词面、且语言只读白名单证明器判只读才 true（求值器窄提取据此放行
+ *  空集面——红线3：空集本身不作放行依据，只有正面证明算数）。perl/ruby/osascript 无
+ *  证明器恒 false（判不出 → fail-closed，宁可误拦微增不可漏放）。 */
+function interpreterFeedReadOnlyFlag(command: string): boolean {
+  const model = parseOnce(command);
+  if (!model.parseOk) return false;
+  const segs = model.segments;
+  let seen = false;
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i];
+    const kind = interpreterStdinKind(seg);
+    if (kind.kind !== "stdin" || seg.joiner !== "|" || seg.heredocs.length > 0) continue;
+    const feeder = segs[i - 1];
+    if (feeder === undefined) return false;
+    // 内容源与 wte interpreterStdinFeedContent 同收窄（echo/printf 静态词；cat 馈体=#1308 契约不收）
+    const content = segmentStdoutContent(feeder);
+    if (content === null) return false;
+    if (evalInterpreterStdinBody(content).kind !== "no-write") return false;
+    const proven = kind.lang === "python" || kind.lang === "python3" ? pythonBodyReadOnly(content)
+      : kind.lang === "node" ? nodeBodyReadOnly(content)
+        : false;
+    if (!proven) return false;
+    seen = true;
+  }
+  return seen;
+}
 /** stdin 喂入 shell 载荷判定（F20261020c2sm，M-49a4909d C2 误判族现存活跃面）：arg-less
  *  shell 段（裸 bash/纯旗标无 -c——写面在 stdin 内容里）的判定。旧实现由 scanShellFlags
  *  空 token 陷阱（`"".trim().split(/\\s+/)`→[""]，幻影空 token 被当「旗标位非旗标」
@@ -2107,7 +2182,10 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // 求值器（文件写落点语义）与 heredoc 写面负门让位于沙箱 deny file-write* 物理接防；
   // 保留面（段结构 fail-closed/git 写族/data 破坏族/2c 窄规则）照跑；沙箱不可用=写面回位。
   if (ctx.writeChannelSkip !== "file-write") {
-    const verdict = evaluateWriteVerdict(command, projectRoot, sessionCwd ?? projectRoot);
+    // M-38fb45c0 B 面：解释器 stdin 喂入只读白名单正面证明结果线程进求值器（窄提取空集面
+    //  只认正面证明放行——红线3）；fail-closed 归因映射在下方返回点（红线4 feed 口径）
+    const feedReadOnly = interpreterFeedReadOnlyFlag(command);
+    const verdict = evaluateWriteVerdict(command, projectRoot, sessionCwd ?? projectRoot, undefined, feedReadOnly);
     if (verdict.verdict === "BLOCK") {
       logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (write-verdict)", {
         command: command.substring(0, 200),
@@ -2115,7 +2193,11 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
         reason: verdict.mode === "fail-closed" ? verdict.reason : undefined,
         targets: "mainHits" in verdict ? verdict.mainHits?.slice(0, 5).map(t => `${t.access}:${t.path}`) : undefined,
       });
-      return rewriteMainWriteBlockMsg(sessionCwd, verdict);
+      // M-38fb45c0 红线 4：feed 形态的 fail-closed 归因走 feed 口径消息——不再被
+      //  「落点为主仓的写命令」错定因带偏（写主仓 positive 归因仍走落点文案）
+      return verdict.mode === "fail-closed" && interpreterFeedFormPresent(command)
+        ? STDIN_INTERP_BLOCK_MSG
+        : rewriteMainWriteBlockMsg(sessionCwd, verdict);
     }
     // 负门后置兜底（只加拦不放行，cd/无 cd 同语义——裁决原则②）：求值器 ALLOW 后
     // 兜 heredoc 体绝对路径/动态源写主仓（wrapper/管道段 heredoc 载荷不入求值的 Y 类
@@ -2139,7 +2221,8 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
     && (path.normalize(sessionCwd) + path.sep).startsWith(path.normalize(path.join(projectRoot, GIT_WORKTREE_PREFIX)) + path.sep);
   if (checkSegmentStructuralWrite(blankDataHeredocBodies(command), oneLinerReadOnly, { logger, projectRoot, sessionCwd, depth, skipGitWrite: cwdInGitWorktree, writeChannelSkip: ctx.writeChannelSkip })) {
     logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via wrapped one-liner (no cd)", { command: command.substring(0, 200) });
-    return rewriteMainWriteBlockMsg(sessionCwd);
+    // M-38fb45c0 红线 4：feed 形态命中（wget 写面未知落点等先手面）归因走 feed 口径
+    return interpreterFeedFormPresent(command) ? STDIN_INTERP_BLOCK_MSG : rewriteMainWriteBlockMsg(sessionCwd);
   }
   // F20261020c2sm：stdin 喂入 shell 载荷判定（M-49a4909d C2 现存面）——管道静态载荷递归判
   //（与 bash -c 载荷同基座）/ 不透明源 fail-closed 正确定因 / 裸 bash 无写面放行
