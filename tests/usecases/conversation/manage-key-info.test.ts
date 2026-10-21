@@ -344,3 +344,97 @@ describe("ManageKeyInfo - F20260829gvid groupId 必填校验（#580）", () => {
     ).rejects.toThrow("必须提供 groupId");
   });
 });
+
+describe("ManageKeyInfo.linkResource game url whitelist (F20261021gmbe)", () => {
+  it("game + 白名单内 url（/^/mahjong/[\\w-]+$/ 全匹配）→ 放行", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    const result = await uc.linkResource({
+      conversationId: "conv-1",
+      resourceType: "game",
+      url: "/mahjong/9f8e7d6c",
+      title: "三麻对局",
+      linkedBy: "otter-1",
+      autoLinked: true,
+    });
+
+    expect(result.resourceType).toBe("game");
+    expect(repo.linkResource).toHaveBeenCalledOnce();
+  });
+
+  it("game + 穿越变体（/../ 出白名单）→ 拒绝", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await expect(
+      uc.linkResource({
+        conversationId: "conv-1",
+        resourceType: "game",
+        url: "/mahjong/../api",
+        linkedBy: "otter-1",
+        autoLinked: true,
+      }),
+    ).rejects.toThrow("必须是本应用麻将牌局路由");
+  });
+
+  it("game + 多段路径 /mahjong/a/b（非全匹配）→ 拒绝", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await expect(
+      uc.linkResource({
+        conversationId: "conv-1",
+        resourceType: "game",
+        url: "/mahjong/a/b",
+        linkedBy: "otter-1",
+        autoLinked: true,
+      }),
+    ).rejects.toThrow("必须是本应用麻将牌局路由");
+  });
+
+  it("game + 外部 URL → 拒绝（外部 URL 永不内嵌，E5 底线）", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await expect(
+      uc.linkResource({
+        conversationId: "conv-1",
+        resourceType: "game",
+        url: "http://evil.com/mahjong/x",
+        linkedBy: "otter-1",
+        autoLinked: true,
+      }),
+    ).rejects.toThrow("必须是本应用麻将牌局路由");
+  });
+
+  it("game + 缺 url → 拒绝（非 fact 必带 url 的通用闸先行）", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await expect(
+      uc.linkResource({
+        conversationId: "conv-1",
+        resourceType: "game",
+        linkedBy: "otter-1",
+        autoLinked: true,
+      }),
+    ).rejects.toThrow("非 fact 类型资源必须提供 url");
+  });
+
+  it("非 game 型不受影响：url 型任意外链放行（白名单只管 game）", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    const result = await uc.linkResource({
+      conversationId: "conv-1",
+      resourceType: "url",
+      url: "https://example.com/任意",
+      linkedBy: "user-1",
+      autoLinked: false,
+    });
+
+    expect(result.resourceType).toBe("url");
+    expect(repo.linkResource).toHaveBeenCalledOnce();
+  });
+});

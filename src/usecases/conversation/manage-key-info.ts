@@ -8,6 +8,8 @@ import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
 import { redactSecrets, redactMetadataSecrets } from "@usecases/security/redact-secrets";
+// F20261021gmbe（检视发现 2 修复）：白名单正则前后端唯一真相源——同引 api-contract
+import { GAME_URL_PATTERN, GAME_URL_MESSAGE } from "@contract/api/key-info";
 
 export interface LinkedResourceInput {
   conversationId: string;
@@ -46,6 +48,16 @@ export function validateGroupIdRequired(resourceType: string, groupId: string | 
     `${GROUP_ID_REQUIRED_MESSAGE_PREFIX}。漏传会让 list_artifacts 按组检索落空（gssf/ptun 两次案例，#580）`,
     "validation",
   );
+}
+
+/** F20261021gmbe：game 型 url 白名单——仅本应用麻将牌局路由（全匹配，非前缀）。
+ *  正则与报错文案来自 api-contract（前后端唯一真相源，检视发现 2）；
+ *  写入时固化数据卫生，防未来白名单扩展时存量脏数据变内嵌面。 */
+
+export function validateGameUrl(resourceType: string, url: string | undefined | null): DomainError | null {
+  if (resourceType !== "game") return null;
+  if (url && GAME_URL_PATTERN.test(url)) return null;
+  return new DomainError(GAME_URL_MESSAGE, "validation");
 }
 
 export class ManageKeyInfo {
@@ -88,6 +100,9 @@ export class ManageKeyInfo {
     if (input.resourceType !== "fact" && !input.url) {
       throw new DomainError("非 fact 类型资源必须提供 url", "validation");
     }
+    // F20261021gmbe：game 型 url 前缀白名单（必做——写入时固化数据卫生）
+    const gameUrlErr = validateGameUrl(input.resourceType, input.url);
+    if (gameUrlErr) throw gameUrlErr;
   }
 
   /** 索引内容取自已脱敏的 resource（二轮审视#5：取 raw input 会让 fact 本体与 FTS 一致性依赖 StoreMemory 隐式脱敏） */

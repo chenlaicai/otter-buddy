@@ -5,12 +5,12 @@ import { FACT_CONTENT_MAX_LENGTH } from "@usecases/conversation/manage-key-info"
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 
 function makeLinkedResourceTool() {
-  const linkCalls: Array<{ content?: string }> = [];
+  const linkCalls: Array<{ content?: string; resourceType?: string; url?: string }> = [];
   const client = {
     conversation: {
     },
     resource: {
-      link: async (input: { content?: string }) => {
+      link: async (input: { content?: string; resourceType?: string; url?: string }) => {
         linkCalls.push(input);
         return { id: "res-1", resourceType: "fact", status: "active", groupId: null };
       },
@@ -192,5 +192,39 @@ describe("speak 活类卡自动登记（调用点守卫，issue #1401 当场修�
     await tool.execute("c1", { body: '普通发言。\n```html-card title="普卡"\n<div>x</div>\n```' });
 
     expect(linkCalls).toHaveLength(0);
+  });
+});
+
+describe("create_linked_resource 工具层 game 类型（F20261021gmbe 缺口补齐）", () => {
+  it("game + 白名单 url 放行，透传 resourceType=game 到 resource.link", async () => {
+    const { tool, linkCalls } = makeLinkedResourceTool();
+
+    const res = await tool.execute("c1", {
+      resourceType: "game",
+      url: "/mahjong/sanma-embed-test",
+      title: "三麻对局",
+    });
+
+    expect(res.content[0].text).toContain("Linked resource created: res-1");
+    expect(linkCalls).toHaveLength(1);
+    expect(linkCalls[0].resourceType).toBe("game");
+  });
+
+  it("game + 缺 url → 工具层拦截（非 fact 必带 url）", async () => {
+    const { tool, linkCalls } = makeLinkedResourceTool();
+
+    const res = await tool.execute("c1", { resourceType: "game", title: "缺 url" });
+
+    expect(res.content[0].text).toContain("[错误]");
+    expect(res.content[0].text).toContain("url 不能为空");
+    expect(linkCalls).toHaveLength(0);
+  });
+
+  it("工具描述向 LLM 枚举 game 类型与 url 格式约束（防枚举漂移回归）", () => {
+    const { tool } = makeLinkedResourceTool();
+    const resourceTypeDesc = JSON.stringify((tool.parameters as { properties: Record<string, { description?: string }> }).properties);
+    expect(resourceTypeDesc).toContain("game");
+    expect(resourceTypeDesc).toContain("/mahjong/<房间号>");
+    expect(tool.description).toContain("game");
   });
 });
