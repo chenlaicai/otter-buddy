@@ -360,6 +360,22 @@ export function shouldInjectSessionPreamble(entries: Array<{ type: string; [key:
 }
 
 /**
+ * F20261021gtbf：换世首轮的任务简报时效提醒（幽灵工单防御）。
+ *
+ * 机制根源（M-1326410e，五次流通实证）：otter_config.systemPrompt 是 summon 时写死的自由文本，
+ * restart/换世后原样沿用（restartSession 只更新 modelAlias）——旧任务段无世代边界照进新世，
+ * 新世照单开工就会对已交付任务重开重复 PR。本提醒随前情档案（sessionSummary）同批注入，
+ * 把「开工前核实时效」从 LLM 自发纪律升为机制指令；仅换世首轮注入（isFirstTurn 门保证），
+ * 不逐轮堆积。文案是注入面（进 LLM 上下文）——按 lint-prompt-anchors 口径不含编号锚点。
+ */
+export const TASK_BRIEF_FRESHNESS_REMINDER = `## 任务简报时效提醒（换世核验）
+本世是重启/交接后的新世（上方会话摘要即前世档案）。systemPrompt 中的任务简报是派工当时写的，其中的任务可能已交付、被撤或过期（幽灵工单）——开工前先核实：
+1. 对照交接档案中的任务状态/下一步指引与未闭环事项（matters）核实简报任务是否仍有效
+2. 已交付/过期 → 拒收并在发言中说明（附证据：产物/PR/记忆锚点），转做交接档案指定的下一步，不重复实现
+3. 仍有效 → 正常开工
+不核实就照单开工的后果：对已合入的修复重开重复 PR（历史上已多次实证）。`;
+
+/**
  * 构建包含动态上下文的用户消息。
  * S1（R20260810piab）：system prompt（otterPrompt + identity）已改由 extension
  * before_agent_start handler 注入 system role，不再拼在 user message 里。
@@ -379,6 +395,10 @@ export function buildMessageWithContext(
 
   if (dynamicContext?.sessionSummary) {
     parts.push(`## 会话摘要\n${dynamicContext.sessionSummary}`);
+    /** F20261021gtbf：换世首轮随前情档案注入任务简报时效提醒——sessionSummary 存在 =
+     *  重启/交接换世（首世无档案不注入）。幽灵工单防御的机制层，与身份文案
+     *  （SMALL_OTTER.md 时效纪律）构成双层防御。 */
+    parts.push(TASK_BRIEF_FRESHNESS_REMINDER);
   }
 
   // F20260825hndf：件②文件轨迹（借用式，消费即删）
