@@ -9,7 +9,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { evaluateWriteTargets, pathWithinMain, resolveCwdAt } from "@frameworks/agent/write-target-evaluator";
+import { evaluateWriteTargets, pathWithinMain, resolveCwdAt, segmentStdoutContent } from "@frameworks/agent/write-target-evaluator";
 import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
 import { parseOnce } from "@frameworks/agent/command-model";
 import { SCRIPT_EXEC_FACE, dotExecCommandHits, proveNoWrite } from "@frameworks/agent/write-word-face";
@@ -1216,7 +1216,7 @@ describe("echo 转义假重建收编（M-e4a199a1：echo -e \\xHH 假重建逃�
     expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
   });
 
-  it("变体：双引号内 \\xHH 解码语义同单引号（词求值后同字面）→ 拦", () => {
+  it("变体：双引号内 \\xHH 解码语义同单引号（bash 真值同；词法层双引号丢反斜杠的分歧面由严重 2 闸兜住）→ 拦", () => {
     const cmd = 'echo -e "touch \\x2frepo\\x2fdata\\x2fpwn" > /tmp/g.sh && bash /tmp/g.sh';
     expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
   });
@@ -1261,5 +1261,73 @@ describe("echo 转义假重建收编（M-e4a199a1：echo -e \\xHH 假重建逃�
   it("回归：printf 白名单外转义（S2 口径）仍 fail-closed", () => {
     const cmd = "printf 'touch \\x2frepo\\x2fdata\\x2fx' > /tmp/g.sh && bash /tmp/g.sh";
     expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+});
+
+describe("双引号反斜杠分歧闸（检视獭1597 严重 2：单反斜杠源码形态假重建逃逸——治标防线，根修 M-f89f1ff3）", () => {
+  const segOf = (cmd: string) => {
+    const seg = parseOnce(cmd).segments[0];
+    if (seg === undefined) throw new Error("no segment parsed");
+    return seg;
+  };
+
+  // ===== 拦截侧（严重 2 主诉：词法层丢反斜杠 → 假引号串吞命令结构 → 谎报 ALLOW）=====
+  it("拦截：attack 单反斜杠 \\' 吞命令结构端到端（检视獭1597 实证形态，修复前 ALLOW）→ fail-closed BLOCK", () => {
+    const cmd = String.raw`echo -e "echo hi > /tmp/log \' ; touch /repo/data/pwn \' " > /tmp/g.sh && bash /tmp/g.sh`;
+    const r = evaluateWriteVerdict(cmd, ROOT);
+    expect(r.verdict).toBe("BLOCK");
+    expect(r.mode).toBe("fail-closed");
+  });
+
+  it("拦截：control 同构纯字面（差分对照，与 attack 唯一差异=那条反斜杠）→ BLOCK（递归判读直读到 touch 主仓写）", () => {
+    const cmd = String.raw`echo -e "echo hi > /tmp/log ; touch /repo/data/pwn " > /tmp/g.sh && bash /tmp/g.sh`;
+    const r = evaluateWriteVerdict(cmd, ROOT);
+    expect(r.verdict).toBe("BLOCK");
+    expect(r.mode).toBe("positive");
+  });
+
+  it("拦截：printf 同族同病（%s 实参双引号 \\'）造-执对 → fail-closed BLOCK（同基座同收益）", () => {
+    const cmd = String.raw`printf '%s' "echo hi > /tmp/log \' ; touch /repo/data/pwn \' " > /tmp/g.sh && bash /tmp/g.sh`;
+    const r = evaluateWriteVerdict(cmd, ROOT);
+    expect(r.verdict).toBe("BLOCK");
+    expect(r.mode).toBe("fail-closed");
+  });
+
+  it("拦截：管道喂入变体（echo -e 双引号 \\'）→ 拦（feeder 分歧 → 不透明 stdin fail-closed）", () => {
+    const cmd = String.raw`echo -e "echo hi > /tmp/log \' ; touch /repo/data/pwn \' " | bash`;
+    expect(checkBashCommandSafety(cmd, 42877, undefined, { projectRoot: ROOT })).toBeTruthy();
+  });
+
+  // ===== 分歧单元（词面 vs 原文对位——part.text 保原文字符位，分歧即 null）=====
+  it("分歧闸：echo \"it\\'s\" → null（词面 it's 与 bash 真值 it\\'s 分歧，重建必谎报）", () => {
+    expect(segmentStdoutContent(segOf(String.raw`echo "it\'s"`))).toBeNull();
+  });
+
+  it("分歧闸：echo -e \"a\\nb\" → null（双引号 \\n 反斜杠词法层丢弃，修复前谎报 anb）", () => {
+    expect(segmentStdoutContent(segOf(String.raw`echo -e "a\nb"`))).toBeNull();
+  });
+
+  it("分歧闸：printf %s 双引号 \\' 实参 → null（printf 同族同病，同基座同收益）", () => {
+    expect(segmentStdoutContent(segOf(String.raw`printf '%s' "a\'b"`))).toBeNull();
+  });
+
+  // ===== 反证（闸不误伤：词义与 bash 一致的形态照旧精确重建）=====
+  it("反证：echo \"a\\\\'b\"（双反斜杠，修复轮 1 形态）→ 精确重建 a\\'b 不吃闸", () => {
+    expect(segmentStdoutContent(segOf(String.raw`echo "a\\'b"`))).toBe("a\\'b");
+  });
+
+  it("反证：echo -e 'a\\nb'（单引号转义走 decode 白名单）→ 解码重建 a<LF>b 不受影响", () => {
+    expect(segmentStdoutContent(segOf("echo -e 'a\\nb'"))).toBe("a\nb");
+  });
+
+  // ===== 不误伤（良性双引号转义写落工作区——内容不可重建但落点无害）=====
+  it("放行：echo \"it\\'s fine\" 写工作区 → ALLOW 不误伤", () => {
+    const cmd = `cd ${WT} && ` + String.raw`echo "it\'s fine" > out.txt`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("放行：printf \"a\\nb\\n\" 双引号转义良性写落工作区 → ALLOW（内容不可重建不伤落点判定）", () => {
+    const cmd = `cd ${WT} && ` + String.raw`printf "a\nb\n" > out.txt`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
   });
 });

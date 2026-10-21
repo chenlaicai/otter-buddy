@@ -1300,10 +1300,37 @@ function writerContent(seg: Segment, cwd: string): WriteFaceEntry[] | null {
  *  写面内容重建同一语义基座（printfFormatContent/选项位歧义闸单一真相源），管道喂入
  *  shell 的载荷判定（bash-safety-guard stdinShellFeederVeto）共用。其余命令
  * （cat/curl/管道输入/含展开词）→ null 不可判（调用方 fail-closed）。 */
+/** bash 双引号内反斜杠特殊符集合（POSIX/bash 引用语义）：反斜杠仅这五者前有特殊含义，
+ *  其余（\' \a \x \e \0…）反斜杠字面保留。 */
+const DQ_SPECIAL_AFTER = new Set(["$", "`", '"', "\\", "\n"]);
+
+/** 双引号反斜杠语义分歧闸（检视獭1597 严重 2 治标防线，根修前纵深 M-f89f1ff3）：bash
+ *  双引号内 \X（X 非上列五符）产出反斜杠字面（"a\'b" → a\'b 两字符），词法层 evalEscape
+ *  却按「任意 \X → X」丢反斜杠（command-lexer 双引号扫描 escape part，根因归 M-f89f1ff3
+ *  独立根修）——源码形态命中此面时 evaluated 词面与 bash 真值分歧，内容重建必然谎报。
+ *  实证（attack/control 差分，检视獭1597 第 2 轮）：echo -e "… \' ; touch 主仓 … \'" 落盘
+ *  \' 是活命令结构（; 真分隔、touch 真执行），重建丢反斜杠制造假引号串吞命令结构 → 递归
+ *  判读读到无害内容 → 谎报 ALLOW（端到端逃逸）。修法=分歧即 null 不猜 fail-closed。
+ *  对位精度：WordPart.text 保原文两字符位，part 级即天然对位（不做事后字符串下标映射——
+ *  escape 折叠 2→1 后下标错位是伪对位）；放 segmentStdoutContent 基座=echo/printf 同族同病
+ *  一处闸（printf "a\'b" 同丢反斜杠假重建），重定向写面/管道喂入/载荷递归判读同收益。
+ *  治标口径（诚实记档）：本闸只判「可否重建」不修词义——良性双引号转义写（printf
+ *  "#!/bin/bash\necho hi\n" 造-执对）会随 null 走 fail-closed 保守拦，精确恢复归根修后
+ *  本闸自动降级纵深冗余（大獭裁决：不复制词法语义进求值器=双真相源）。 */
+function wordDivergesFromBash(w: Word): boolean {
+  return w.parts.some(p => {
+    if (p.type !== "escape" || p.quoted !== "double") return false; // 未引/单引 \X → X 是 bash 正确语义
+    const after = p.text[1];
+    return after === undefined || !DQ_SPECIAL_AFTER.has(after);
+  });
+}
+
 export function segmentStdoutContent(seg: Segment): string | null {
   const bare = bareName(seg.argv0);
   if (bare !== "echo" && bare !== "printf") return null;
-  const vals = seg.words.slice(1).map(w => w.evaluated);
+  const argWords = seg.words.slice(1);
+  if (argWords.some(wordDivergesFromBash)) return null; // 双引号反斜杠分歧——重建必谎报（严重 2 闸）
+  const vals = argWords.map(w => w.evaluated);
   if (vals.some(v => v === null)) return null;
   if (bare === "echo") return echoFormatContent(vals as string[]);
   const ws = vals as string[];
@@ -1324,7 +1351,7 @@ export function segmentStdoutContent(seg: Segment): string | null {
  *  （\xHH/\nnn 八进制/\c 产生性截断/\'/\"/\e/未知）→ null 不猜（delta2 S2 保守路同口径，
  *  #1513 不军备化之尺；白名单=ECHO_ESCAPES 收窄子表非 PRINTF 原表——检视獭1597 严重 1）；
  *  无解码时实参字面 join 精确重建。 */
-// eslint-disable-next-line complexity, max-statements -- echo 旗标解析 + 转义解码流（bash 实测语义枚举），合并分支会遮蔽假重建修复语义
+// eslint-disable-next-line max-statements -- echo 旗标解析 + 转义解码流（bash 实测语义枚举），合并分支会遮蔽假重建修复语义
 function echoFormatContent(vals: string[]): string | null {
   let decode = false;
   let i = 0;
@@ -1385,7 +1412,11 @@ const PRINTF_ESCAPES: Record<string, string> = { a: "\x07", b: "\b", e: "\x1b", 
  *  5.x 可能解码）——出表归 fail-closed。在 PRINTF_ESCAPES 基础上收窄三键（去 e/'/"），
  *  修错配非军备化扩张（#1513 尺）。\e 出表后新 bash 良性 ANSI 色码会被保守拦（取舍记档）。
  *  端到端实证：echo -e "ok ; touch \\' x \\'" 落盘 \' 是活命令结构，旧表 \'→' 制造假引号串
- *  吞命令结构可漏判——收窄后白名单外 → null fail-closed。 */
+ *  吞命令结构可漏判——收窄后白名单外 → null fail-closed。
+ *  严重 2（检视獭1597 第 2 轮）上游闸：双引号内 \X（X 非 bash 五符特殊）的反斜杠在词法层
+ *  就已被 evalEscape 丢掉（`echo -e "a\nb"` evaluated=anb，decode 根本看不到 \n）——分歧
+ *  检测在 segmentStdoutContent 入口 wordDivergesFromBash（本函数唯一调用方），不在此处
+ *  重复判（单点真相源）。 */
 const ECHO_ESCAPES: Record<string, string> = { a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "\\": "\\" };
 
 /** printf format 内容重建（delta2 S1/S2 修）：format 是内容骨架——bash 实测无转换符时
