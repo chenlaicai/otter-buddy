@@ -51,8 +51,15 @@ Dependabot 自动创建了 9 个依赖升级 PR，需要统一处理（决策来
 
 复用了昨日（10-21）另一条对话线遗留的孤儿 worktree `deps-bump-20261021`（零 commit、零推送、无产物登记，疑似断档半成品）：丢弃其过期改动，rebase 到最新 main（fe807285）后在本 worktree 内完成本轮升级。
 
+### 已知问题：rolldown 1.2.15 上游发布残缺
+
+vitest 5.0.5 传递依赖 rolldown ~1.2.14 → 解析到 1.2.15。rolldown 1.2.15 的 `@rolldown/binding-freebsd-x64@1.2.15` **上游未发布**（registry 最新仅 1.2.14），但 rolldown 的 optionalDependencies 仍声明它——mac 本地 npm 生成 lockfile 时裁掉该条目，Linux CI `npm ci` 校验锁完整性即报 `Missing: @rolldown/binding-freebsd-x64@1.2.15`（EUSAGE，首轮 CI check job 失败实证）。
+
+处置：`package.json` 新增 devDependencies 直接锁定 `rolldown@1.2.14`（1.2.14 全平台 binding 完整），绕过残缺版本。属 workaround，rolldown 后续版本修复发布后可移除。
+
 ## Verification
 
 - `npm run build`：通过
 - `npm run lint`：通过
 - `npm test`：6629 通过 / 8 失败——失败集合（generate-guard-replay ×4、game-harness-tools ×4、page-visual ×1）与最新 main 对照**完全一致**，均为存量失败/环境性失败，非本次升级引入（main 与升级分支逐文件对照验证，2026-10-22 01:07）
+- 首轮 CI check job 失败后锁定 rolldown 1.2.14 复跑：build ✅ lint ✅ test 同样 6629 通过 / 同 8 个存量失败（2026-10-22 01:15）
