@@ -1216,7 +1216,7 @@ describe("echo 转义假重建收编（M-e4a199a1：echo -e \\xHH 假重建逃�
     expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
   });
 
-  it("变体：双引号内 \\xHH 解码语义同单引号（bash 真值同；词法层双引号丢反斜杠的分歧面由严重 2 闸兜住）→ 拦", () => {
+  it("变体：双引号内 \\xHH 解码语义同单引号（词求值后同字面——M-f89f1ff3 根修后 bash 真值对齐；\\x 不在 decode 白名单 fail-closed）→ 拦", () => {
     const cmd = 'echo -e "touch \\x2frepo\\x2fdata\\x2fpwn" > /tmp/g.sh && bash /tmp/g.sh';
     expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
   });
@@ -1264,7 +1264,7 @@ describe("echo 转义假重建收编（M-e4a199a1：echo -e \\xHH 假重建逃�
   });
 });
 
-describe("双引号反斜杠分歧闸（检视獭1597 严重 2：单反斜杠源码形态假重建逃逸——治标防线，根修 M-f89f1ff3）", () => {
+describe("双引号反斜杠语义（检视獭1597 严重 2：治标闸 + M-f89f1ff3 根修——假重建逃逸收口）", () => {
   const segOf = (cmd: string) => {
     const seg = parseOnce(cmd).segments[0];
     if (seg === undefined) throw new Error("no segment parsed");
@@ -1286,11 +1286,11 @@ describe("双引号反斜杠分歧闸（检视獭1597 严重 2：单反斜杠源
     expect(r.mode).toBe("positive");
   });
 
-  it("拦截：printf 同族同病（%s 实参双引号 \\'）造-执对 → fail-closed BLOCK（同基座同收益）", () => {
+  it("拦截：printf 同族同病（%s 实参双引号 \\'）造-执对 → BLOCK（M-f89f1ff3 根修后重建转真值，递归判读直读到 touch 主仓写 → positive）", () => {
     const cmd = String.raw`printf '%s' "echo hi > /tmp/log \' ; touch /repo/data/pwn \' " > /tmp/g.sh && bash /tmp/g.sh`;
     const r = evaluateWriteVerdict(cmd, ROOT);
     expect(r.verdict).toBe("BLOCK");
-    expect(r.mode).toBe("fail-closed");
+    expect(r.mode).toBe("positive");
   });
 
   it("拦截：管道喂入变体（echo -e 双引号 \\'）→ 拦（feeder 分歧 → 不透明 stdin fail-closed）", () => {
@@ -1298,17 +1298,17 @@ describe("双引号反斜杠分歧闸（检视獭1597 严重 2：单反斜杠源
     expect(checkBashCommandSafety(cmd, 42877, undefined, { projectRoot: ROOT })).toBeTruthy();
   });
 
-  // ===== 分歧单元（词面 vs 原文对位——part.text 保原文字符位，分歧即 null）=====
-  it("分歧闸：echo \"it\\'s\" → null（词面 it's 与 bash 真值 it\\'s 分歧，重建必谎报）", () => {
-    expect(segmentStdoutContent(segOf(String.raw`echo "it\'s"`))).toBeNull();
+  // ===== 根修后真值重建（M-f89f1ff3：词法层对齐 bash 双引号反斜杠语义，治标闸降级不触发）=====
+  it("根修：echo \"it\\'s\" → 精确重建 it\\'s（词义= bash 真值，治标闸降级不触发——修复前丢反斜杠谎报 it's）", () => {
+    expect(segmentStdoutContent(segOf(String.raw`echo "it\'s"`))).toBe("it\\'s");
   });
 
-  it("分歧闸：echo -e \"a\\nb\" → null（双引号 \\n 反斜杠词法层丢弃，修复前谎报 anb）", () => {
-    expect(segmentStdoutContent(segOf(String.raw`echo -e "a\nb"`))).toBeNull();
+  it("根修：echo -e \"a\\nb\" → 解码重建 a<LF>b（bash 真值——修复前词法层丢反斜杠谎报 anb）", () => {
+    expect(segmentStdoutContent(segOf(String.raw`echo -e "a\nb"`))).toBe("a\nb");
   });
 
-  it("分歧闸：printf %s 双引号 \\' 实参 → null（printf 同族同病，同基座同收益）", () => {
-    expect(segmentStdoutContent(segOf(String.raw`printf '%s' "a\'b"`))).toBeNull();
+  it("根修：printf %s 双引号 \\' 实参 → 精确重建 a\\'b（printf 同基座同收益）", () => {
+    expect(segmentStdoutContent(segOf(String.raw`printf '%s' "a\'b"`))).toBe("a\\'b");
   });
 
   // ===== 反证（闸不误伤：词义与 bash 一致的形态照旧精确重建）=====
