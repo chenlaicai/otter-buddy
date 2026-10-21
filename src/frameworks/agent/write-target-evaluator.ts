@@ -1305,13 +1305,57 @@ export function segmentStdoutContent(seg: Segment): string | null {
   if (bare !== "echo" && bare !== "printf") return null;
   const vals = seg.words.slice(1).map(w => w.evaluated);
   if (vals.some(v => v === null)) return null;
-  const args = vals.filter((v): v is string => v !== null && !v.startsWith("-"));
-  if (bare === "echo") return args.join(" ");
+  if (bare === "echo") return echoFormatContent(vals as string[]);
   const ws = vals as string[];
   const shifted = ws[0] === "--";
   const rest = shifted ? ws.slice(1) : ws;
   if (!shifted && (rest[0] ?? "").startsWith("-")) return null; // 选项位歧义——不猜
   return printfFormatContent(rest[0] ?? "", rest.slice(1));
+}
+
+/** echo 内容重建（M-e4a199a1 收编，echo -e 转义假重建逃逸修）：bash echo 旗标语义
+ *  （bash 3.2 实测口径）——前导 /^-[nEe]+$/ 连续词是旗标（-n 去尾换行（内容判定无关）
+ *  -e 解码转义、-E 禁解码，e/E 按出现序后者覆盖），此后一切词（含 -xxx/中后部 -e/--，
+ *  bash echo 不识别 -- 终止符）全是实参；实参字面 join（bash 实参间单空格）。
+ *  旧实现在此三处假重建（谎报内容=逃逸面）：①-e 旗标被无条件丢弃 → \xHH/\0nnn 转义
+ *  不解码谎报良性（M-e4a199a1 实证：echo -e 'touch \x2f…' bash 输出载荷执行 vs
+ *  判定 ALLOW）；②一切 - 开头词被丢（echo foo -e 少重建一个实参）；③-- 被丢。
+ *  -e 解码时转义仅 PRINTF_ESCAPES 白名单可解释（与 printf 同基座同白名单），白名单外
+ *  （\xHH/\nnn 八进制/\c 产生性截断/未知）→ null 不猜（delta2 S2 保守路同口径，
+ *  #1513 不军备化之尺）；无解码时实参字面 join 精确重建。 */
+// eslint-disable-next-line complexity, max-statements -- echo 旗标解析 + 转义解码流（bash 实测语义枚举），合并分支会遮蔽假重建修复语义
+function echoFormatContent(vals: string[]): string | null {
+  let decode = false;
+  let i = 0;
+  for (; i < vals.length; i++) {
+    const w = vals[i];
+    if (/^-[nEe]+$/.test(w)) {
+      for (const ch of w.slice(1)) {
+        if (ch === "e") decode = true;
+        else if (ch === "E") decode = false; // bash 实测：e/E 后者覆盖
+        // n：去尾换行——内容判定无关，忽略
+      }
+      continue;
+    }
+    break; // 第一个非旗标词起全是实参（-x 等未知旗标词 bash echo 当实参）
+  }
+  const args = vals.slice(i);
+  if (!decode) return args.join(" "); // 字面输出（bash 不解码任何转义）——精确重建
+  const parts: string[] = [];
+  for (const arg of args) {
+    let out = "";
+    for (let k = 0; k < arg.length; k++) {
+      const c = arg[k];
+      if (c === "\\") {
+        const n = arg[k + 1];
+        if (n !== undefined && n in PRINTF_ESCAPES) { out += PRINTF_ESCAPES[n]; k++; continue; }
+        return null; // 白名单外转义（\xHH/\0nnn/\c/未知）——不猜 fail-closed
+      }
+      out += c;
+    }
+    parts.push(out);
+  }
+  return parts.join(" ");
 }
 
 function redirectWriteContent(seg: Segment, redirect: Segment["redirects"][number]): string | null {
