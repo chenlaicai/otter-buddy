@@ -8,6 +8,8 @@ import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
 import { redactSecrets, redactMetadataSecrets } from "@usecases/security/redact-secrets";
+// F20261021gmbe（检视发现 2 修复）：白名单正则前後端唯一真相源——同引 api-contract
+import { GAME_URL_PATTERN, GAME_URL_MESSAGE } from "@contract/api/key-info";
 
 export interface LinkedResourceInput {
   conversationId: string;
@@ -49,12 +51,8 @@ export function validateGroupIdRequired(resourceType: string, groupId: string | 
 }
 
 /** F20261021gmbe：game 型 url 白名单——仅本应用麻将牌局路由（全匹配，非前缀）。
- *  与 web 端 GameEmbedPanel resolveGameEmbedPath 同口径（写入时固化数据卫生，防
- *  未来白名单扩展时存量脏数据变内嵌面；与 pr/worktree 的 groupId 校验同构）。 */
-export const GAME_URL_PATTERN = /^\/mahjong\/[\w-]+$/;
-
-export const GAME_URL_MESSAGE =
-  "game 类型资源的 url 必须是本应用麻将牌局路由（^/mahjong/[\\w-]+$ 全匹配）。外部 URL 永不内嵌（安全底线 E5），请改用 url 类型或新窗口链接。";
+ *  正则与报错文案来自 api-contract（前后端唯一真相源，检视发现 2）；
+ *  写入时固化数据卫生，防未来白名单扩展时存量脏数据变内嵌面。 */
 
 export function validateGameUrl(resourceType: string, url: string | undefined | null): DomainError | null {
   if (resourceType !== "game") return null;

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink, RefreshCw, Loader2 } from 'lucide-react'
+// F20261021gmbe（检视发现 2 修复）：白名单正则前後端唯一真相源——同引 api-contract
+import { GAME_URL_PATTERN } from '@contract/api/key-info'
 
 /** F20261021gmbe E1：宿主内嵌游戏面板。
  *
@@ -20,9 +22,10 @@ import { ExternalLink, RefreshCw, Loader2 } from 'lucide-react'
  * 折叠态不挂 iframe（E4——省连接，时间轴扫读性优先）。 */
 
 /** F20261021gmbe：游戏内嵌白名单模式——仅本应用麻将牌局路由。
- *  后续新形态接入=往白名单数组加本应用路由前缀（方案「后续形态接入契约」1）；
+ *  正则引自 api-contract（前后端唯一真相源，检视发现 2）；数组形态保留扩展位，
+ *  后续新形态接入=往数组加本应用路由前缀（方案「后续形态接入契约」1）；
  *  未接入白名单的资源型/URL 一律降级摘要卡，内嵌是显式开通的特权。 */
-const GAME_EMBED_PATTERNS: RegExp[] = [/^\/mahjong\/[\w-]+$/]
+const GAME_EMBED_PATTERNS: RegExp[] = [GAME_URL_PATTERN]
 
 /** 协议（scheme）前缀：http:、javascript:、data: 等——绝对 URL/危险协议一律拒绝 */
 const SCHEME_PREFIX = /^[a-zA-Z][a-zA-Z\d+\-.]*:/
@@ -67,7 +70,8 @@ export const GAME_EMBED_LOAD_TIMEOUT_MS = 15000
 export function GameEmbedPanel({ url, title, heightClass = 'h-[600px]' }: {
   url: string | null
   title: string
-  /** inline 展开态 h-[600px]（中间栏 ≥940px 直接可玩）；放大 modal 态 h-[85vh] */
+  /** inline 展开态 h-[600px]（中间栏 ≥940px 直接可玩）；放大 modal 态 h-[calc(80vh-170px)]
+   *  （扣 Modal header/padding，内容区上限 calc(80vh-120px) 内；检视发现 3 修注释漂移） */
   heightClass?: string
 }) {
   const embedPath = resolveGameEmbedPath(url)

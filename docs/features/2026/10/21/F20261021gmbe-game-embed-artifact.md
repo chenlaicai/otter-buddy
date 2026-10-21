@@ -221,6 +221,14 @@ T5：安全边界不破坏——game 面板 iframe 仅限**同源白名单**（`
 - 展开态：w-full（撑满中间栏，≥940px 牌桌断点直接可玩）；iframe h-[600px]
 - 放大态：Modal width=90vw，iframe h-[calc(80vh-170px)]（扣 header/padding，内容区上限 calc(80vh-120px) 内）
 
+### 检视 delta（2026-10-21，检视獭 glm 三条建议发现处置）
+
+| 发现 | 处置 | 落地 |
+|------|------|------|
+| 1. 放大 modal Escape/Tab 在 iframe 聚焦时失效 | **反驳（注明）** | iframe 键盘事件派发进内部 document 不冒泡父页是浏览器级行为，非本实现缺陷；鼠标关闭双出路（X + scrim，Modal.tsx:115/130）始终可用；键盘在 iframe 内属游戏操作域；contentWindow 转发方案有导航重挂/泄漏面，收益不值复杂度。已在 GameEnlargeModal 注释与本节留痕 |
+| 2. 白名单正则前后端双份漂移面 | **修复** | GAME_URL_PATTERN/GAME_URL_MESSAGE 迁至 api-contract/api/key-info.ts（前后端唯一真相源）；manage-key-info.ts 与 GameEmbedPanel.tsx 同引（先例：CARD_MAX_PER_MESSAGE 同走 @contract 运行时值导入，tool-helpers.ts）；GAME_EMBED_PATTERNS 数组形态保留扩展位 |
+| 3. GameEmbedPanel heightClass 注释 h-[85vh] 与实现不符 | **修复** | 注释改为 h-[calc(80vh-170px)]（含扣减口径） |
+
 ## 下一步
 
 1. 对抗审视（检视獭，异模型——重点：E1 宿主直渲安全边界、白名单绕过面、机制四问论证）

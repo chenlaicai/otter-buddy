@@ -217,7 +217,12 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
 }
 
 /** F20261021gmbe：放大态 modal——复用 Modal（焦点管理/Escape/栈）；宽度 90vw，
- *  iframe 高度扣掉 header/内边距（modal 内容区上限 calc(80vh-120px)） */
+ *  iframe 高度扣掉 header/内边距（modal 内容区上限 calc(80vh-120px)）。
+ *  键盘局限（检视发现 1 反驳注明）：iframe 一且获得焦点（打牌/聊天输入是必然操作），
+ *  键盘事件派发进 iframe 内部 document 不冒泡父页——Escape/Tab trap 在此时失效，
+ *  这是 iframe 嵌入的浏览器级行为（非本实现缺陷）。鼠标关闭始终可用（X 按钮 + scrim
+ *  点击，Modal.tsx:115/130）；键盘在 iframe 内属游戏操作域。向 iframe 转发 Escape
+ *  需 contentWindow 挂监听（同源可行但有导航重挂/泄漏面），收益不值复杂度，不修。 */
 function GameEnlargeModal({ url, title, onClose }: {
   url: string | null
   title: string
