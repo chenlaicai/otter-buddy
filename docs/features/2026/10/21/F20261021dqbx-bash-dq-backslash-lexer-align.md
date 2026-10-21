@@ -1,8 +1,8 @@
 ---
 id: F20261021dqbx
 title: bash 双引号反斜杠语义对齐——parseOnce 词法层根修（M-f89f1ff3）
-summary: "command-lexer 双引号扫描对任意 \\X 一律走 evalEscape 丢反斜杠（\\' → '），与 bash 引用语义（双引号内反斜杠仅 $ ` \" \\ 换行五者前特殊，其余反斜杠字面保留两字符）错配——词法层丢字符即词义谎报，#1597 严重 2 单反斜杠假重建逃逸（attack/control 差分端到端 ALLOW）的真根因。修法=非特殊对归位 lit part（文本保原文两字符，evaluated=bash 真值），escape part 只留五符真转义（evalEscape 语义不动）；净 +3 代码行。治标闸 wordDivergesFromBash 随 part 归位自动降级纵深冗余（#1597 F20261021eche 记档承诺兑现）。全变体矩阵 10 用例 + #1597 测试 4 处诚实翻转。"
-capability_test: "n/a: 判定语义变更由单测钉死——command-lexer-dq-backslash 矩阵 10 例 + write-target-evaluator 186 例 + 全量 6606 passed（1 例 pre-existing 超时 flake 有基线铁证，M-d39f3327 台账）。golden 豁免声明（沿 #1318/#1377 先例，F20261014gvbx 对账口径）：本 PR 不涉 golden_replay 断言面，golden-results.jsonl 无本 PR 记录系按设计不落账而非漏跑，不计缺记录"
+summary: "command-lexer 双引号扫描对任意 \\X 一律走 evalEscape 丢反斜杠（\\' → '），与 bash 引用语义（双引号内反斜杠仅 $ ` \" \\ 换行五者前特殊，其余反斜杠字面保留两字符）错配——词法层丢字符即词义谎报，#1597 严重 2 单反斜杠假重建逃逸（attack/control 差分端到端 ALLOW）的真根因。修法=非特殊对归位 lit part（文本保原文两字符，evaluated=bash 真值），escape part 只留五符真转义（evalEscape 语义不动）；净 +3 代码行。治标闸 wordDivergesFromBash 随 part 归位自动降级纵深冗余（#1597 F20261021eche 记档承诺兑现）。全变体矩阵 11 用例（含尾反斜杠残留触发面回归钉）+ #1597 测试 4 处诚实翻转。"
+capability_test: "n/a: 判定语义变更由单测钉死——command-lexer-dq-backslash 矩阵 11 例 + write-target-evaluator 186 例 + 全量 6606 passed（1 例 pre-existing 超时 flake 有基线铁证，M-d39f3327 台账）。golden 豁免声明（沿 #1318/#1377 先例，F20261014gvbx 对账口径）：本 PR 不涉 golden_replay 断言面，golden-results.jsonl 无本 PR 记录系按设计不落账而非漏跑，不计缺记录"
 change_type: fix
 intent:
   problem: "M-f89f1ff3：parseOnce 双引号内 \\X 丢反斜杠致词义与 bash 真值分歧——词法层丢字符是 #1597 严重 2 假重建逃逸（单反斜杠 \\' 吞命令结构端到端 ALLOW）的真根因，治标闸兜住 echo 内容面但 evalPath 落点词/路径词等非内容面仍错位"
@@ -65,7 +65,7 @@ created_at: 2026-10-21T15:20:00+08:00
 - **源码**：`src/frameworks/agent/command-lexer.ts` 双引号扫描分支（净 +3 代码行）；`write-target-evaluator.ts` 仅注释校准（治标闸降级说明）
 - **语义变化面**：双引号非特殊 `\X` 的 evaluated 从 X 变 `\X`（修复本体）——下游 evalWord/evalPath/词面/重建基座全变真值；**#1597 测试 4 处诚实翻转**（3 个「分歧闸 → null」→ 精确重建 bash 真值；printf 造-执对 fail-closed → positive——重建转真值后递归判读直读到 `;` 真分隔 + touch 主仓写，比 fail-closed 更强）+ `\xHH` 变体标题校准（词求值后同字面已为真，兜住它的是 decode 白名单）
 - **不回退面**（反证钉死）：未引 `\X`→X、单引纯字面、五符特殊对转义、#1597 attack 形态 fail-closed BLOCK、#1240/#1513 负门
-- **测试**：新增 `command-lexer-dq-backslash.test.ts` 矩阵 10 例；全量 6606 passed + 6 skipped（1 例 pre-existing 超时 flake 见验证节基线铁证）
+- **测试**：新增 `command-lexer-dq-backslash.test.ts` 矩阵 11 例（含残留触发面回归钉）；全量 6606 passed + 6 skipped（1 例 pre-existing 超时 flake 见验证节基线铁证）
 
 ## 验证
 
@@ -81,13 +81,13 @@ created_at: 2026-10-21T15:20:00+08:00
   expected 'positive' to be 'fail-closed'（printf 造-执对）
 ```
 
-**修复后输出**：矩阵 10/10 ✓；write-target-evaluator 186/186 ✓（4 断言翻转为真值语义）；command-model + stdin-feed 全绿；全量 411 files 6606 passed + 6 skipped。
+**修复后输出**：矩阵 11/11 ✓；write-target-evaluator 186/186 ✓（4 断言翻转为真值语义）；command-model + stdin-feed 全绿；全量 411 files 6606 passed + 6 skipped。
 
 **验收标准（机械断言）**：
 
 | 场景 | 操作 | 预期结果 |
 |---|---|---|
-| 非特殊对词义 | `npx vitest run tests/frameworks/agent/command-lexer-dq-backslash.test.ts` | 10 passed |
+| 非特殊对词义 | `npx vitest run tests/frameworks/agent/command-lexer-dq-backslash.test.ts` | 11 passed |
 | 五符特殊对不变形 | 同上（「特殊对」用例） | `\$`→`$`、`\\`→`\`、`\`+LF→删，全过 |
 | 反证（未引/单引不动） | 同上（「反证」2 用例） | 全过 |
 | #1597 attack 不回退 | 同上（attack 用例）+ write-target-evaluator.test.ts | fail-closed BLOCK |
@@ -103,7 +103,7 @@ created_at: 2026-10-21T15:20:00+08:00
 ## 残余记档
 
 - **ANSI-C `$'...'` 转义族**：lexer unknown part → fail-closed（检视獭1597 探针 5 双对照实证），转义语义另族治理，非本 PR
-- **尾部截断 `\` 残余**：病态输入（未闭合引号+尾反斜杠）仍走 escape 保守路径，治标闸兜住 fail-closed——保留纵深
+- **尾部截断 `\` 残余**：病态输入（未闭合引号+尾反斜杠）仍走 escape 保守路径，治标闸兜住 fail-closed——保留纵深，并已补直接回归钉（检视獭1600 建议 1：escape 单字符 part 断言 + segmentStdoutContent null 双断言）
 - **echo decode 白名单外 fail-closed**：`\xHH` 等 bash echo -e 可解码的转义仍不重建（#1513 不军备化之尺，收窄口径 F20261021eche delta2 S2）——非本 PR
 - **M-d39f3327 并行负载超时预算**：cursor-zero-guard ③ 在 411-worker 全量下贴线 5s 随机红（基线复现）——独立台账排期，本 PR 只记不修
 

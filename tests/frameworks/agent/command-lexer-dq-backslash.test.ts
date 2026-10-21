@@ -90,4 +90,10 @@ describe("双引号反斜杠语义矩阵（M-f89f1ff3：\\ 仅 $ ` \" \\ 换行�
     expect(r.verdict).toBe("BLOCK");
     expect(r.mode).toBe("fail-closed"); // 根修后重建转真值，echo -e 白名单外 \' → null fail-closed
   });
+
+  it("残留触发面回归钉（检视獭1600 建议 1）：echo \"a\\（尾反斜杠+未闭合）→ escape(\"\\\\\") part 在 + segmentStdoutContent null（治标闸唯一残留触发面）", () => {
+    const seg = segOf("echo \"a\\");
+    expect(seg.words[1].parts.some(p => p.type === "escape" && p.text === "\\")).toBe(true);
+    expect(segmentStdoutContent(seg)).toBeNull();
+  });
 });
