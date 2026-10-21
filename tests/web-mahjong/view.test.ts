@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from "vitest";
 // @ts-expect-error 页面层原生 JS（无类型声明）——与 scripts/*.mjs 测试同一惯例，运行时 import 纯函数
-import { actionBar, chunks, fieldInfo, formatChatLine, handTileCount, panelsByPosition, seatLayout, sortHand, tileAction, tileGlyph, tileKindIndex, tileLabel, tileState } from "../../web-mahjong/js/view.js";
+import { actionBar, chunks, fieldInfo, formatChatLine, handTileCount, panelsByPosition, playerStrip, riverTable, seatLayout, sortHand, stripsByPosition, tileAction, tileGlyph, tileKindIndex, tileLabel, tileState } from "../../web-mahjong/js/view.js";
 
 type Any = Record<string, any>;
 
@@ -361,6 +361,122 @@ describe("场况栏", () => {
     const panels = panelsByPosition(view, 0);
     expect(panels.right.discards.map((d: Any) => d.riichi)).toEqual([false, false, true, false]);
     expect(panels.right.discards[2].glyph).toBe(tileGlyph("3z"));
+  });
+});
+
+describe("桌心 riverTable（v3 骨架：三家牌河围桌心三方 + 中央信息盘）", () => {
+  /** 三座位各有可辨识的牌河/名字；seat1 立直于第 2 巡 */
+  function tableView(): Any {
+    const v = makeView({ dealer: 0 });
+    v.players.forEach((p: Any, i: number) => {
+      p.name = `P${i}`;
+      p.hand = ["1m"];
+      p.discards = [`${i + 1}z`, `${i + 1}m`, "7s"];
+    });
+    v.players[1].riichi = true;
+    v.players[1].riichiTurn = 2;
+    return v;
+  }
+
+  it("视角变换下三家牌河归位：top=上家(+2) / right=下家(+1) / self=自己；观战按 seat0 为底", () => {
+    const v = tableView();
+    const t0 = riverTable(v, 0);
+    expect([t0.top.seat, t0.right.seat, t0.self.seat]).toEqual([2, 1, 0]);
+    const t1 = riverTable(v, 1);
+    expect([t1.top.seat, t1.right.seat, t1.self.seat]).toEqual([0, 2, 1]);
+    const t2 = riverTable(v, 2);
+    expect([t2.top.seat, t2.right.seat, t2.self.seat]).toEqual([1, 0, 2]);
+    expect([riverTable(v, null).top.seat, riverTable(v, null).self.seat]).toEqual([2, 0]);
+  });
+
+  it("牌河内容是该座位自己打的牌，牌字符带正朝向字形与人读名（D1：不旋转字符）", () => {
+    const t = riverTable(tableView(), 1); // top=seat0 / right=seat2 / self=seat1
+    expect(t.top.tiles.map((x: Any) => x.code)).toEqual(["1z", "1m", "7s"]);
+    expect(t.right.tiles.map((x: Any) => x.code)).toEqual(["3z", "3m", "7s"]);
+    expect(t.self.tiles.map((x: Any) => x.code)).toEqual(["2z", "2m", "7s"]);
+    for (const x of [...t.top.tiles, ...t.right.tiles, ...t.self.tiles]) {
+      expect(x.glyph).toBe(tileGlyph(x.code));
+      expect(x.label).toBe(tileLabel(x.code));
+      expect(x).not.toHaveProperty("rotate");
+      expect(x).not.toHaveProperty("flip");
+    }
+  });
+
+  it("立直横置标记保留（riichiTurn 为 1 基序号 → 下标 -1），与 playerPanel 同源单点推导", () => {
+    const t = riverTable(tableView(), 1); // self=seat1（立直在第 2 巡）
+    expect(t.self.tiles.map((x: Any) => x.riichi)).toEqual([false, true, false]);
+    expect(t.top.tiles.map((x: Any) => x.riichi)).toEqual([false, false, false]);
+    // playerPanel 与 riverTable 共用 riverModels——不会两边漂移
+    expect(panelsByPosition(tableView(), 1).bottom.discards).toEqual(t.self.tiles);
+  });
+
+  it("空牌河给空数组（容器占位归 DOM 层）；无立直/非当前家默认值正确", () => {
+    const t = riverTable(makeView(), 0);
+    expect(t.self.tiles).toEqual([]);
+    expect(t.top.riichi).toBe(false);
+    expect(t.top.isCurrent).toBe(false);
+  });
+
+  it("hub 复用 fieldInfo：局数/本场/供托/余牌/宝牌（D3：信息盘不自己造数据）", () => {
+    const v = makeView({ decision: { kind: "turn", seat: 2, actions: [] } });
+    const hub = riverTable(v, 0).hub;
+    expect(hub).toEqual(fieldInfo(v));
+    expect(hub.roundLabel).toBe("東一局");
+    expect(hub.honbaLabel).toBe("2 本場");
+    expect(hub.wallLabel).toBe("余牌 60");
+    expect(hub.doraIndicators[0].glyph).toBe(tileGlyph("5s"));
+  });
+
+  it("当前行动家标到对应牌河（isCurrent）", () => {
+    const v = makeView({ decision: { kind: "turn", seat: 2, actions: [] } });
+    const t = riverTable(v, 0); // top=seat2
+    expect(t.top.isCurrent).toBe(true);
+    expect(t.right.isCurrent).toBe(false);
+    expect(t.self.isCurrent).toBe(false);
+  });
+});
+
+describe("玩家条 playerStrip / stripsByPosition（v3 座位角信息条，不含牌河）", () => {
+  it("含名字/风/点数/立直/手牌/副露，牌河字段被摘出（D4：牌河只有一个渲染点）", () => {
+    const v = makeView({ dealer: 1 });
+    v.players[1].hand = ["1m", "9p"];
+    v.players[1].riichi = true;
+    v.players[1].riichiTurn = 3;
+    v.players[1].melds = [{ type: "pon", tiles: ["1z", "1z", "1z"] }];
+    const s = playerStrip(v, 1, 1);
+    expect(s).not.toHaveProperty("discards");
+    expect(s.name).toBe("P1");
+    expect(s.wind).toBe("南"); // seatWinds[1] = south
+    expect(s.isMe).toBe(true);
+    expect(s.isDealer).toBe(true);
+    expect(s.riichi).toBe(true);
+    expect(s.hand.visible).toBe(true);
+    expect(s.hand.tiles).toHaveLength(2);
+    expect(s.melds.map((m: Any) => m.cn)).toEqual(["碰"]);
+  });
+
+  it("stripsByPosition 视角归位 top=上家 / right=下家 / self=自己", () => {
+    const v = makeView();
+    v.players.forEach((p: Any) => {
+      p.hand = ["1m"];
+    });
+    const s0 = stripsByPosition(v, 0);
+    expect([s0.top.seat, s0.right.seat, s0.self.seat]).toEqual([2, 1, 0]);
+    expect(s0.self.isMe).toBe(true);
+    const s2 = stripsByPosition(v, 2);
+    expect([s2.top.seat, s2.right.seat, s2.self.seat]).toEqual([1, 0, 2]);
+    // 观战：都不是「我」，但三家牌面全可见（观战态玩家条扩展手牌的前提）
+    const spec = stripsByPosition(v, null);
+    expect(spec.self.isMe).toBe(false);
+    expect(spec.self.isSpectator).toBe(true);
+    expect(spec.top.hand.visible).toBe(true);
+  });
+
+  it("座位缺座（玩家表不全）返回 null，渲染层不炸", () => {
+    const v = makeView();
+    v.players = v.players.filter((p: Any) => p.seat !== 2);
+    expect(playerStrip(v, 2, 0)).toBeNull();
+    expect(stripsByPosition(v, 0).top).toBeNull();
   });
 });
 
