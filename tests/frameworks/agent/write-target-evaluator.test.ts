@@ -1231,6 +1231,27 @@ describe("echo 转义假重建收编（M-e4a199a1：echo -e \\xHH 假重建逃�
     expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
   });
 
+  // ===== 表内但 echo 不认的边界（检视獭1597 建议 2：修复轮补钉）=====
+  it("边界：\\'（printf 专属转义，echo 字面保留）→ fail-closed 拦", () => {
+    const cmd = String.raw`echo -e "a\\'b" > /tmp/g.sh && bash /tmp/g.sh`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("边界：\"（printf 专属转义，echo 字面保留）→ fail-closed 拦", () => {
+    const cmd = String.raw`echo -e 'a\"b' > /tmp/g.sh && bash /tmp/g.sh`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("边界：\\e（版本差异项，bash 3.2 字面）→ fail-closed 拦", () => {
+    const cmd = String.raw`echo -e 'a\eb' > /tmp/g.sh && bash /tmp/g.sh`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("边界：\\' 吞命令结构端到端（检视獭1597 实证：旧表 \\'→' 制造假引号串）→ fail-closed 拦", () => {
+    const cmd = String.raw`echo -e "ok ; touch \\' x \\'" > /tmp/g.sh && bash /tmp/g.sh`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
   // ===== 回归不误伤（printf 族既有口径不动）=====
   it("回归：printf %s 白名单转义既有行为不动", () => {
     const cmd = "cd " + WT + " && printf 'a\\nb\\n' > out.txt";

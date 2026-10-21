@@ -37,9 +37,11 @@ created_by: 守卫修复獭
 | 前导旗标 `/^-[nEe]+$/` | 解析（e=decode 开、E=decode 关（后者覆盖）、n=忽略） | bash 实测 |
 | 第一个非旗标词起 | 全部实参（含 -xxx/--）字面保留 | bash 实测（-x 当实参、echo 无 -- 语义） |
 | decode=off（默认/-E 赢） | 实参字面 join——精确重建 | bash 不解码任何转义 |
-| decode=on（-e 赢） | PRINTF_ESCAPES 白名单解码；白名单外（\xHH/\0nnn 八进制/\c 产生性截断/未知）→ **null 不猜** | delta2 S2 保守路同口径（#1513 不军备化之尺——转义形态穷举=军备化反面，漏一个=谎报=逃逸面） |
+| decode=on（-e 赢） | **ECHO_ESCAPES 收窄子表**（PRINTF_ESCAPES 去 e/'/" 三键——修复轮严重 1）解码；白名单外（\xHH/\0nnn 八进制/\c 产生性截断/\'/\"/\e/未知）→ **null 不猜** | delta2 S2 保守路同口径（#1513 不军备化之尺——转义形态穷举=军备化反面，漏一个=谎报=逃逸面） |
 
-**白名单外 fail-closed 的取舍**（诚实记档）：\xHH/\0nnn bash 实测可精确解码（理论上可精确重建），但走形态穷举=军备化反面（printf S2 的论据）；归 null 后保守侧误拦良性 `echo -e '\x41'`（输出 A）类命令——fail-closed 保守侧可接受，与 printf 族一致。**该口径还有鲁棒红利**：bash 3.2 与 5.x 的 echo -e \xHH 解码行为存在版本差异（bash 手册未列 \xHH），「不猜」口径不依赖版本行为。
+**白名单外 fail-closed 的取舍**（诚实记档）：\xHH/\0nnn bash 实测可精确解码（理论上可精确重建），但走形态穷举=军备化反面（printf S2 的论据）；归 null 后保守侧误拦良性 `echo -e '\x41'`（输出 A）类命令——fail-closed 保守侧可接受，与 printf 族一致。版本差异表述（修复轮措辞收窄，检视獭1597 建议 1）：白名单**外**的「不猜」口径不依赖版本行为；但白名单**内**的 `\e` 恰是版本差异项（bash 3.2 字面/5.x 可能解码）——故修复轮把 `\e` 出表归 fail-closed（新 bash 良性 ANSI 色码会被保守拦，取舍在此记档）。
+
+**修复轮严重 1（白名单错配收窄，检视獭1597）**：初版 echo decode 直接复用 PRINTF_ESCAPES——把 printf 专属的 `\'` `\"` 与版本差异项 `\e` 带进 echo 白名单，而 bash echo 对这三者不解码（实测 od 字节级：`echo -e 'a\'b'` → `a \\ ' b` 字面）。端到端实证：`echo -e "ok ; touch \\' x \\'"` 落盘 `\'` 是活命令结构，旧表 `\'→'` 制造假引号串吞命令结构可漏判——同族第 4 面假重建，恰是「同基座对齐」时照抄 printf 表带进来的。修法=新增 ECHO_ESCAPES 收窄子表（去三键）+ 4 条边界用例钉死（`\'`/`\"`/`\e` fail-closed + 吞命令结构端到端）——修错配非军备化扩张。
 
 **下游同收益**：segmentStdoutContent 被 redirectWriteContent（重定向写面内容重建）+ bash-safety-guard stdinShellFeederVeto（管道喂入 shell 载荷判定）共用——一处修复两面收益。
 
@@ -69,3 +71,4 @@ created_by: 守卫修复獭
 
 - echo 旗标还有 POSIX xpg_echo 环境差异（SHELLOPTS xpg_echo 下无 -e 也解码）——判定按 bash 默认口径（bash -c 单测实测基线），xpg_echo 场景罕见不入本单
 - printf 分支的「选项位歧义 → null」口径与 echo 的「前导旗标解析」不同（bash printf 支持 -- 终止符而 echo 不支持）——两族语义差异属实测事实，各自忠实实现，非口径漂移
+- **解析层附带发现（修复轮，非本 PR 面）**：command-model parseOnce 对双引号内 `\'`（一反斜杠+引号）解成 `'`（解掉反斜杠），与 bash 语义（双引号内 \ 后 ' 非特殊对→反斜杠保留）不一致——边界用例构造时实测发现。影响面：evaluated 词面与 bash 有微差，echo decode 层对此已 fail-closed 兜住（本 PR 面不受损）；解析层对齐属独立面，归 command-model 语义治理候选

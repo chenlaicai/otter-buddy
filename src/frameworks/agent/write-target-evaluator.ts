@@ -1321,8 +1321,9 @@ export function segmentStdoutContent(seg: Segment): string | null {
  *  不解码谎报良性（M-e4a199a1 实证：echo -e 'touch \x2f…' bash 输出载荷执行 vs
  *  判定 ALLOW）；②一切 - 开头词被丢（echo foo -e 少重建一个实参）；③-- 被丢。
  *  -e 解码时转义仅 PRINTF_ESCAPES 白名单可解释（与 printf 同基座同白名单），白名单外
- *  （\xHH/\nnn 八进制/\c 产生性截断/未知）→ null 不猜（delta2 S2 保守路同口径，
- *  #1513 不军备化之尺）；无解码时实参字面 join 精确重建。 */
+ *  （\xHH/\nnn 八进制/\c 产生性截断/\'/\"/\e/未知）→ null 不猜（delta2 S2 保守路同口径，
+ *  #1513 不军备化之尺；白名单=ECHO_ESCAPES 收窄子表非 PRINTF 原表——检视獭1597 严重 1）；
+ *  无解码时实参字面 join 精确重建。 */
 // eslint-disable-next-line complexity, max-statements -- echo 旗标解析 + 转义解码流（bash 实测语义枚举），合并分支会遮蔽假重建修复语义
 function echoFormatContent(vals: string[]): string | null {
   let decode = false;
@@ -1348,8 +1349,8 @@ function echoFormatContent(vals: string[]): string | null {
       const c = arg[k];
       if (c === "\\") {
         const n = arg[k + 1];
-        if (n !== undefined && n in PRINTF_ESCAPES) { out += PRINTF_ESCAPES[n]; k++; continue; }
-        return null; // 白名单外转义（\xHH/\0nnn/\c/未知）——不猜 fail-closed
+        if (n !== undefined && n in ECHO_ESCAPES) { out += ECHO_ESCAPES[n]; k++; continue; }
+        return null; // 白名单外转义（\xHH/\0nnn/\c/\'/\"/\e/未知）——不猜 fail-closed
       }
       out += c;
     }
@@ -1378,6 +1379,14 @@ function redirectWriteContent(seg: Segment, redirect: Segment["redirects"][numbe
  *  保守路，#1513 不军备化之尺）：转义形态穷举=军备化反面（漏一个形态=谎报内容=逃逸面，
  *  S2 八进制/\xHH 实证），不猜就 fail-closed 兜住。 */
 const PRINTF_ESCAPES: Record<string, string> = { a: "\x07", b: "\b", e: "\x1b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "\\": "\\", "'": "'", '"': '"' };
+
+/** echo 解码白名单（F20261021eche 修复轮严重 1，检视獭1597：白名单错配收窄）：bash echo
+ *  转义表从不含 \' \\"（printf 专属）——实测字面保留；\e 是版本差异项（bash 3.2 字面/
+ *  5.x 可能解码）——出表归 fail-closed。在 PRINTF_ESCAPES 基础上收窄三键（去 e/'/"），
+ *  修错配非军备化扩张（#1513 尺）。\e 出表后新 bash 良性 ANSI 色码会被保守拦（取舍记档）。
+ *  端到端实证：echo -e "ok ; touch \\' x \\'" 落盘 \' 是活命令结构，旧表 \'→' 制造假引号串
+ *  吞命令结构可漏判——收窄后白名单外 → null fail-closed。 */
+const ECHO_ESCAPES: Record<string, string> = { a: "\x07", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "\\": "\\" };
 
 /** printf format 内容重建（delta2 S1/S2 修）：format 是内容骨架——bash 实测无转换符时
  *  多余实参被忽略（S1 哑参逃逸：旧多参分支丢 format，单参修复加一个哑参即绕破）；
