@@ -70,8 +70,8 @@ export const GAME_EMBED_LOAD_TIMEOUT_MS = 15000
 export function GameEmbedPanel({ url, title, heightClass = 'h-[600px]' }: {
   url: string | null
   title: string
-  /** inline 展开态 h-[600px]（中间栏 ≥940px 直接可玩）；放大 modal 态 h-[calc(80vh-170px)]
-   *  （扣 Modal header/padding，内容区上限 calc(80vh-120px) 内；检视发现 3 修注释漂移） */
+  /** inline 展开态默认紧凑预览（h-[380px]，配合卡片限宽 480px，时间轴里不喧宾夺主）；
+   *  放大 modal 态 h-[calc(80vh-170px)]（扣 Modal header/padding，内容区上限 calc(80vh-120px) 内）。 */
   heightClass?: string
 }) {
   const embedPath = resolveGameEmbedPath(url)

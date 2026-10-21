@@ -57,7 +57,8 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
   // F20261021gmbe：game 型——白名单校验（同源 ^/mahjong/[\w-]+$ 全匹配），不通过降级摘要卡
   const isGame = resource.type === 'game'
   const gamePath = isGame ? resolveGameEmbedPath(resource.url) : null
-  /** 展开态：game 超出 max-w-md，撑满中间栏（牌桌 ≥940px 断点直接可玩） */
+  /** 展开态：game 紧凑内嵌（限宽+降高，时间轴预览窗不喧宾夺主；搭档反馈「牌桌比中间栏还大」优化）。
+   *  认真玩走「放大」modal（90vw 全屏）。 */
   const gameExpanded = isGame && gamePath !== null && expanded
 
   const body = (() => {
@@ -101,7 +102,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
     <div
       data-artifact-id={resource.id}
       className={`my-2 rounded-xl border px-3.5 py-3 transition ${
-        gameExpanded ? 'w-full' : 'max-w-md'
+        gameExpanded ? 'w-full max-w-[480px]' : 'max-w-md'
       } ${
         pinned
           ? 'border-otter-300/60 bg-otter-50/50'
@@ -142,7 +143,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
           放大态时内联位让位 modal（单实例，避免双 iframe 双 SSE）） */}
       {gameExpanded && !enlarged && (
         <div className="mt-2">
-          <GameEmbedPanel url={resource.url} title={resource.title} />
+          <GameEmbedPanel url={resource.url} title={resource.title} heightClass="h-[380px]" />
         </div>
       )}
       {/* T2：PR 卡 diff stat（unfurl join 投影——additions/deletions 仅 github-api PR 记录携带） */}

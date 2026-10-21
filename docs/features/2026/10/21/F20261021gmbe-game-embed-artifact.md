@@ -229,6 +229,32 @@ T5：安全边界不破坏——game 面板 iframe 仅限**同源白名单**（`
 | 2. 白名单正则前后端双份漂移面 | **修复** | GAME_URL_PATTERN/GAME_URL_MESSAGE 迁至 api-contract/api/key-info.ts（前后端唯一真相源）；manage-key-info.ts 与 GameEmbedPanel.tsx 同引（先例：CARD_MAX_PER_MESSAGE 同走 @contract 运行时值导入，tool-helpers.ts）；GAME_EMBED_PATTERNS 数组形态保留扩展位 |
 | 3. GameEmbedPanel heightClass 注释 h-[85vh] 与实现不符 | **修复** | 注释改为 h-[calc(80vh-170px)]（含扣减口径） |
 
+## 实景回归修复（2026-10-21，搭档实测「没看到」）
+
+### 预注册
+
+- 预期：game 资源已登记，但时间轴入口仍沿用旧的 pr/file/fact 白名单，导致卡片在挂载前被过滤。
+- 验证标准：同一 game 资源的 timeline 回归用例在修复前失败，加入 game 后通过，且旧类型与 iframe 测试不回归。
+- 放弃条件：若 game 已能进入 timeline，则改查资源加载、分页窗口或实际渲染错误，不修改白名单。
+
+### 根因与修复
+
+实际与预注册一致。`MessageList.tsx` 的混排过滤器只放行 pr/file/fact；`ArtifactCard` 虽已实现 game 渲染，但永远收不到 game 资源。过滤器加入 game，并在 `ArtifactCard.test.tsx` 增加真实时间轴用例，锁定「消息 → 游戏卡 → 展开玩入口」完整路径。
+
+该用例修复前按预期失败（timeline 仅有消息、没有 g1），修复后通过。新增测试属于 A 类代码行为：resource type/status 输入确定，timeline 顺序由代码决定。
+
+### 验证
+
+- `cd web && npm test -- src/pages/conversation/ArtifactCard.test.tsx src/pages/conversation/ArtifactCard.game.test.tsx src/pages/conversation/GameEmbedPanel.test.tsx`：3 文件 29 用例全绿。
+- 全量 Web 测试、lint、tsc 与 CI 结果见本 PR 后续验证记录。
+
+## 紧凑化优化（2026-10-21，搭档实测「牌桌比中间栏还大」）
+
+- 问题：展开态撑满中间栏（iframe 878px×600px），在时间轴流里喧宾夺主。
+- 调整（L1 技术取舍，大獭拍板）：内嵌展开态改紧凑预览窗——卡片限宽 480px、高度降 380px，时间轴里为适中小窗；「放大」modal 保持 90vw 全屏体验不变。
+- 影响面：`ArtifactCard.tsx`（展开态宽度类 `w-full` → `w-full max-w-[480px]`）、`GameEmbedPanel.tsx`（inline 态注释口径，heightClass 传入 `h-[380px]`）。安全边界/白名单/放大态不动。
+- 验证：上述 3 测试文件 29 用例仍全绿（不断言具体尺寸）；3102 实测截图确认卡片 480px / iframe 448×380。
+
 ## 下一步
 
 1. 对抗审视（检视獭，异模型——重点：E1 宿主直渲安全边界、白名单绕过面、机制四问论证）
