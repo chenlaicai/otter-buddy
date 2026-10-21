@@ -240,7 +240,7 @@ interface MessageListProps {
   onJumpToBottom?: () => void
   onLoadMore?: () => void
   loadingMore?: boolean
-  /** F20261021lmcd：加载历史失败态——true 时加载入口进入错误态（用户可见反馈 + 重试入口） */
+  /** F20261021lmfe：加载历史失败态——true 时加载入口进入错误态（用户可见反馈 + 重试入口） */
   loadMoreError?: boolean
   /** F20261020lmld：是否还有更早历史——控制顶部可见入口渲染（false/缺省不渲染，防假入口） */
   hasMoreBefore?: boolean
@@ -493,7 +493,7 @@ export function MessageList({
       const entry = entries[entries.length - 1]
       if (!entry?.isIntersecting) return
       if (loadingMore || !hasMoreBefore) return
-      /** F20261021lmcd（issue #1581）：失败态阻断自动通道——哨兵重挂后 IO 初始回调必 fire 一次，
+      /** F20261021lmfe（issue #1581）：失败态阻断自动通道——哨兵重挂后 IO 初始回调必 fire 一次，
        *  不阻断则失败→loadingMore 翻转→effect 重跑→IO 重挂→再拉，成隐性重试风暴；
        *  错误解除只走手动按钮（fireLoadMore 不拦，重试语义由父层 loadMoreBefore 清错实现） */
       if (loadMoreError) return

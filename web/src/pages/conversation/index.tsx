@@ -75,7 +75,7 @@ export default function ConversationPage() {
   // 双向分页状态
   const [hasMoreBefore, setHasMoreBefore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
-  /** F20261021lmcd（issue #1581）：loadMoreBefore 失败态——之前 catch 只 console.error，
+  /** F20261021lmfe（issue #1581）：loadMoreBefore 失败态——之前 catch 只 console.error，
    *  加载历史失败（网络断/服务端错/游标失效）用户零感知；错误态驱动按钮反馈 + 重试入口 */
   const [loadMoreError, setLoadMoreError] = useState(false)
   const loadingMoreRef = useRef(false)
@@ -481,7 +481,7 @@ export default function ConversationPage() {
     if (!oldest?.id) return
     loadingMoreRef.current = true
     setLoadingMore(true)
-    setLoadMoreError(false) // F20261021lmcd：开始加载即清错误态（重试语义——手动按钮点击即重试）
+    setLoadMoreError(false) // F20261021lmfe：开始加载即清错误态（重试语义——手动按钮点击即重试）
     try {
       // F20261020wcsr：每批 20→50 条（与 Telegram 一致：ChatActivity.java loadMessages 50 条/批；
       // 50 条 ≈ 2-3 屏，兼顾请求数与 prepend 高度稳定性）
@@ -495,9 +495,11 @@ export default function ConversationPage() {
       }))
     } catch (err) {
       console.error('Failed to load more history:', err)
-      // F20261021lmcd（issue #1581）：失败置错误态——按钮进入「加载失败，点击重试」态
-      // （哨兵自动通道失败同样只在按钮体现，不弹窗不打断阅读）
-      setLoadMoreError(true)
+      // F20261021lmfe（issue #1581）：失败置错误态——按钮进入「加载失败，点击重试」态
+      // （哨兵自动通道失败同样只在按钮体现，不弹窗不打断阅读）。
+      // 会话归属判权（检视 A1）：请求发起后切会话，旧请求迟到失败不得把错误旗标泄入新会话 UI——
+      // activeIdRef 是当前会话即时值，与本次请求闭包捕获的 activeId 不一致即丢弃
+      if (activeIdRef.current === activeId) setLoadMoreError(true)
     } finally {
       loadingMoreRef.current = false
       setLoadingMore(false)
@@ -524,7 +526,7 @@ export default function ConversationPage() {
     if (activeId) {
       loadConversationDetail(activeId)
     }
-    // F20261021lmcd：切会话清失败态——错误属于上一会话的那一次请求，不得阻断新会话自动通道
+    // F20261021lmfe：切会话清失败态——错误属于上一会话的那一次请求，不得阻断新会话自动通道
     setLoadMoreError(false)
     // F20260921spcm：SPA 路由切换对话时组件不重挂载，旧守门条件 `!allMessages[activeId]`
     // 在缓存命中时跳过拉取——切走期间海獭的新发言永久不可见（SSE 只订当前对话且无回放）。

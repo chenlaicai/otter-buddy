@@ -25,7 +25,7 @@ interface ChatViewProps {
   onLoadMore?: () => void
   loadingMore?: boolean
   hasMoreBefore?: boolean
-  /** F20261021lmcd：加载历史失败态（透传给 MessageList 加载入口） */
+  /** F20261021lmfe：加载历史失败态（透传给 MessageList 加载入口） */
   loadMoreError?: boolean
   unreadSeparatorSeq?: number | null
   highlightMessageId?: string | null
