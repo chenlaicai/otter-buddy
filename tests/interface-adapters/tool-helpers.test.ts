@@ -77,6 +77,36 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     const body = '```html-card-reply card="m:0"\n{}\n```';
     expect(validateSpeakBody(undefined, body)).toBeNull();
   });
+
+  // F20261022cfme（#959）：嵌套围栏 under-measure 修复回归——改 remark 解析后体积完整测量。
+  it("F20261022cfme：嵌套围栏（开4内嵌3）卡片体积完整测量——超 64KB 被拒（修复前正则 under-measure 漏报）", () => {
+    const big = "x".repeat(70000);
+    const body = '````html-card title="嵌套大卡"\n<p>head</p>\n```\nembedded\n```\n' + big + '\n````';
+    const result = validateSpeakBody(undefined, body);
+    expect(result).toContain("超出");
+    expect(result).toContain("体积限制");
+  });
+
+  it("F20261022cfme：嵌套围栏（开4内嵌3）卡片体积小——通过", () => {
+    const body = '````html-card title="嵌套小卡"\n<p>head</p>\n```\nembedded\n```\n<div>tail</div>\n````';
+    expect(validateSpeakBody(undefined, body)).toBeNull();
+  });
+
+  it("F20261022cfme：反引号开 + ~~~ 嵌套卡片体积完整测量——超 64KB 被拒", () => {
+    const big = "x".repeat(70000);
+    const body = '```html-card title="波浪嵌套"\n<p>head</p>\n~~~\nembedded\n~~~\n' + big + '\n```';
+    const result = validateSpeakBody(undefined, body);
+    expect(result).toContain("超出");
+    expect(result).toContain("体积限制");
+  });
+
+  it("F20261022cfme：嵌套围栏卡计数为 1 张（内嵌代码块不误计为独立卡，count/measure 同源）", () => {
+    const one = '````html-card title="嵌套"\n<p>a</p>\n```\ncode\n```\n<b>b</b>\n````';
+    expect(hasCardFences(one)).toBe(true);
+    // 2 张嵌套卡同 message：计数应为 2（不超限），且内嵌围栏不额外计卡
+    const two = one + '\n' + one;
+    expect(validateSpeakBody(undefined, two)).toBeNull();
+  });
 });
 
 describe("hasCardFences", () => {
