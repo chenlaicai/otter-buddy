@@ -69,9 +69,10 @@ issue #959（P2 tech-debt，PR #958 对抗审视发现 S1；清账批次关闭�
 
 ### 4.5 检视发现处置（PR #1621，检视獭-1621）
 
-0 严重 + 2 建议，均采纳「改了更好」：
+初轮 0 严重 + 2 建议（S1/S2）、delta 复核新增 1 建议（S3），均采纳「改了更好」：
 - **S1（性能）**：`validateSpeakBody` 内 count/measure 各自全量解析 + tool-factory 入库第三次。处置：`validateSpeakBody` 一次 `collectCardFenceNodes` 派生 count+size，body 侧 presence 复用 `cardCount === 0`——含卡消息校验路径从 2 次解析降到 1 次（入库 `hasCardFences` 因跨调用栈保留）。行为不变。
 - **S2（口径分裂）**：「卡片写在 speak 外」检测用 `HTML_CARD_FENCE` 正则，与 count 的 remark 口径分裂（假阳性：散文提及围栏字样误判）。处置：presence 检测改 `hasCardFences`（remark 口径），与计数/体积同源；删 `HTML_CARD_FENCE` 正则，全文件统一 remark。非本 PR 引入的回归（修复前后一致），但口径分裂被显式化后收口。
+- **S3（测试牙齿，delta 新发现）**：S2 的两条行为变化（① body 假围栏字样 + assistant 真卡由「放行丢卡」变「拦截」；② assistant 散文提及围栏字样由「误拦」变「放行」）缺有牙用例——旧 speak-外用例在旧正则下也全绿，presence 回退抓不到。处置：补 2 条有牙用例（case A/B），本地实证旧正则下均红（case A 丢卡放行、case B 误拦），修复前红/修复后绿。
 
 ## 5. 变更文件
 
@@ -89,8 +90,10 @@ issue #959（P2 tech-debt，PR #958 对抗审视发现 S1；清账批次关闭�
 | 反引号开波浪嵌 超体积 | `validateSpeakBody`（``` 开 + ~~~ 内嵌 + 70KB 后缀） | 返回含「超出」 | 机械 PASS |
 | count/measure 同源 | `hasCardFences(嵌套卡)` + 两张嵌套卡 message | true / 返回 null（不超限） | 机械 PASS |
 | S2 presence 反向 | body 有卡时 `validateSpeakBody` 不报 speak 外 | 返回 null | 机械 PASS |
-| 全量回归 | `npx vitest run tests/interface-adapters/tool-helpers.test.ts` | 36 passed | 机械 PASS |
-| 广域回归 | `npx vitest run tests/interface-adapters/` | 585 passed | 机械 PASS |
+| S3 牙齿（case A） | body 假字样 + assistant 真卡 | 报 speak 之外（旧正则下红，自证） | 机械 PASS |
+| S3 牙齿（case B） | assistant 散文提及围栏字样 | 返回 null（旧正则下红，自证） | 机械 PASS |
+| 全量回归 | `npx vitest run tests/interface-adapters/tool-helpers.test.ts` | 38 passed | 机械 PASS |
+| 广域回归 | `npx vitest run tests/interface-adapters/` | 587 passed | 机械 PASS |
 | 类型 | `npx tsc --noEmit` | 零错误 | 机械 PASS |
 | Lint | `npx eslint <改动文件>` | 零错误 | 机械 PASS |
 | 修复前对照（bug 实证） | 旧正则量嵌套 case | 仅 11 字节（under-measure）→ 修复前测试红、修复后绿 | 机械 PASS |

@@ -113,6 +113,17 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     // assistant 与 body 都有卡：不报「卡片写在 speak 外」（反向补全）
     expect(validateSpeakBody(card, card)).toBeNull();
   });
+
+  // F20261022cfme（S3 补牙）：S2 两条行为变化的有牙回归——旧正则下修复前红（case A 丢卡放行、case B 误拦）。
+  it("F20261022cfme（S2 行为）：body 假围栏字样 + assistant 真卡——仍报 speak 之外（防静默丢卡回退）", () => {
+    const turn = '```html-card title="外"\n<div>x</div>\n```';
+    const body = '说明：\n\n    ```html-card\n    字样\n';
+    expect(validateSpeakBody(turn, body)).toContain("speak 之外");
+  });
+
+  it("F20261022cfme（S2 行为）：assistant 散文提及围栏字样——不误报 speak 之外（防误拦回退）", () => {
+    expect(validateSpeakBody("这里提到 ```html-card 这种写法", "正常正文")).toBeNull();
+  });
 });
 
 describe("hasCardFences", () => {
