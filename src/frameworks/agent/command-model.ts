@@ -12,8 +12,9 @@
 
 import { lex, type Token, type Word } from "./command-lexer";
 // 值引用（非 cycle：payload-extract-aux 对本模块仅 import type，运行时单向）——
-// 段首解析与 SCRIPT_RUNNERS 单一真相源在 payload-extract-aux（F20261022vwfg）
-import { resolveExecHead, SCRIPT_RUNNERS } from "./payload-extract-aux";
+// 段首解析与 SCRIPT_RUNNERS/SHELL_INTERPRETERS 单一真相源在 payload-extract-aux（F20261022vwfg）
+import { resolveExecHead, SCRIPT_RUNNERS, SHELL_INTERPRETERS } from "./payload-extract-aux";
+export { SHELL_INTERPRETERS };
 
 // ────────────────────────────── 类型 ──────────────────────────────
 
@@ -81,8 +82,8 @@ function isRedirOp(op: string): boolean {
     || (op.startsWith("2>") || op.startsWith("1>") || op.startsWith("0<"));
 }
 
-/** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10） */
-export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh", "ash"]);
+/** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10）——SHELL_INTERPRETERS 归 payload-extract-aux
+ *  单一真相源（F20261022vwfg delta 1 迁入，本行 re-export 保持既有引用面） */
 // SCRIPT_RUNNERS 归 payload-extract-aux 单一真相源（本模块曾有同名单本地副本，
 // 双份清单正是识别域漂移源——F20261022vwfg 收敛）
 

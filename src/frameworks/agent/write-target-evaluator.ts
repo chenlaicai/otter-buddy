@@ -44,7 +44,7 @@ import { safeRealpath } from "./fs-realpath";
 import path from "node:path";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
 import { proveNoWrite, DYNAMIC_IMPORT_FACE, MAIN_LIT_CONCAT_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
-import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS, STASH_WRITE_SUBS, resolveExecHead, isStdinFeedRest } from "./payload-extract-aux";
+import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS, STASH_WRITE_SUBS, resolveExecHead, isStdinFeedRest, TARGET_ARG_COMMANDS, EXTENDED_TARGET_COMMANDS } from "./payload-extract-aux";
 import type { Word } from "./command-lexer";
 
 // ────────────────────────────── 类型 ──────────────────────────────
@@ -79,11 +79,9 @@ export type UnevalReason =
 
 // ────────────────────────────── 常量与基础工具 ──────────────────────────────
 
-/** 落点参数位词表（Phase 1）。argv0 裸名匹配。rm=全部非旗标参数（删除落点）。 */
-const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir", "rm", "find"]);
-/** 修 F20261015smrj 通道 b：扩展词表写命令（install/ln/chmod/chown/chgrp/truncate）——旧集合只有
- *  tee/cp/mv/touch/mkdir，其余写命令写面命中但落点提取空 → 误当无写放行（通道 b）。 */
-const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "chgrp", "truncate"]);
+/** 落点参数位词表（Phase 1）。argv0 裸名匹配。rm=全部非旗标参数（删除落点）。
+ *  F20261022vwfg delta 1：TARGET_ARG_COMMANDS/EXTENDED_TARGET_COMMANDS 迁
+ *  payload-extract-aux（值吞食守卫引用，本模块 import，单一真相源）。 */
 
 /** git 写族判定：F20261016gwr1（M-46f0e74d）正则锚已退役——\S+ 词面解析对引号含空格/
  *  attached/反引号三形态整体失明（fail-open 实证）。单一真相源=词级

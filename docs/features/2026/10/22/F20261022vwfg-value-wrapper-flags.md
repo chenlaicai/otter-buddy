@@ -1,7 +1,7 @@
 ---
 id: F20261022vwfg
 title: 值参 wrapper 盲区收编——带值旗标吞食 + -c 载荷 relay 换 resolveExecHead 基座（M-c36b9847）
-summary: "M-c36b9847 值参 wrapper 盲区治理（#1604 记档残余）+ M-3fc9962b B+1 长旗标落钉。基线复现：8/8 带值分写形态全 ALLOW 漏放（curl|sudo -u root bash 等——skipWrapperArgs 不吞值 token，段首落值词走丢执行名）；连带实证同族两活洞：包装/版本名/分发器 -c 载荷 relay 裸 argv0 键控不递归（sudo python -c 'touch 主仓' 同款 ALLOW）+ 载荷旗标扫描可被值词劫持。修法三件套同轮（缺 B 即 block→allow 保护回退）：A=valueFlags 值吞食（必带值旗标对称入表，防贪婪：可选值旗标不入表、值恰为解释器名按真语法吞）+ sudo 吞尽回退 shell（sudo(8) 实证，nice/nohup 反证不入表）；B=matchInterpreterPayloads 换 resolveExecHead 基座（SCRIPT_RUNNERS 双清单收敛）；C=载荷旗标扫描限 headIndex 后。"
+summary: "M-c36b9847 值参 wrapper 盲区治理（#1604 记档残余）+ M-3fc9962b B+1 长旗标落钉。基线复现：8/8 带值分写形态全 ALLOW 漏放（curl|sudo -u root bash 等——skipWrapperArgs 不吞值 token，段首落值词走丢执行名）；连带实证同族两活洞：包装/版本名/分发器 -c 载荷 relay 裸 argv0 键控不递归（sudo python -c 'touch 主仓' 同款 ALLOW）+ 载荷旗标扫描可被值词劫持。修法三件套同轮（缺 B 即 block→allow 保护回退）：A=valueFlags 值吞食（必带值旗标对称入表；可选值旗标不入表、执行词值不吞保守归位——delta 严重 1 零翻转）+ sudo 吞尽回退 shell（sudo(8) 实证，nice/nohup 反证不入表）；B=matchInterpreterPayloads 换 resolveExecHead 基座（SCRIPT_RUNNERS 双清单收敛）；C=载荷旗标扫描限 headIndex 后。"
 capability_test: "n/a: 判定语义收编由行为矩阵钉死——bash-guard-value-wrapper-flags 域覆盖矩阵（43 形态 + 域覆盖断言防选择偏差 + 段首归位机制钉 + 两侧识别域一致）+ pipe-direct-exec 22 形态同判表更新 + 全量 6677 passed 零失败。golden 豁免声明（沿 #1318/#1377 先例）：不涉 golden_replay 断言面，无 golden-results.jsonl 记录系按设计不落账"
 change_type: fix
 intent:
@@ -56,12 +56,23 @@ busybox sh -c 'touch /repo/data/pwn'    → ALLOW ✗（"busybox" 不在 SHELL_I
 
 ### A. skipWrapperArgs 值吞食（payload-extract-aux.ts）
 
-`WrapperSpec.valueFlags`：必带值旗标的短/长拼写对称入表（env: -u/--unset/-C/--chdir/-S/--split-string/-P；sudo: -u/--user/-g/--group/-U/-p/-C/-D/-R/-T/-r/-t 族；timeout: -s/--signal/-k/--kill-after；nice: -n/--adjustment；watch: -n/--interval；stdbuf: -o/-e/-i 族；xargs: -I/-n/-d/-P/-s/-L/-a 族）。吞食循环改为单 while 交错吞（flags+值 / assigns / duration），多值旗标交错（sudo -u root -g wheel）自然覆盖。
+`WrapperSpec.valueFlags`：必带值旗标的短/长拼写对称入表。表内清单（穷举，注释/表/本文档枚举节三处同轴，测试穷举锁机械保障）：
 
-**防贪婪边界**（f9d66a6a 既有教训延伸到值吞食）：
-- 只收「必带值」旗标——可选值旗标（sudo --preserve-env[=list]）不入表，否则 `sudo --preserve-env bash` 会吞掉解释器名；
-- 值恰为解释器名时按真实 wrapper 语法吞值（`env -u bash` = unset 变量 bash，不是命令）——语义与真实执行一致；
-- 无值旗标（sudo -n / env -i / sudo -E）不吞，对照矩阵钉住。
+- env: -u/--unset/-C/--chdir/-S/--split-string
+- nice: -n/--adjustment
+- timeout: -s/--signal/-k/--kill-after
+- watch: -n/--interval
+- stdbuf: -o/--output/-e/--error/-i/--input
+- sudo: -u/--user/-g/--group/-U/--other-user/-p/--prompt/-C/--close-from/-D/--chdir/-R/--chroot/-T/--command-timeout/-r/--role/-t/--type
+- xargs: -I/-n/--max-args/-d/--delimiter/-P/--max-procs/-s/--max-chars/-L/-a/--arg-file
+
+吞食循环改为单 while 交错吞（flags+值 / assigns / duration），多值旗标交错（sudo -u root -g wheel）自然覆盖。三条硬边界（delta 严重 1 教训固化）：
+
+1. **只收「必带值」旗标**——GNU 可选值旗标（值只能合写：xargs -i[replace-str] / --replace[=str] / -l[max-lines] / --max-lines[=n]）一律不入表：分写时后随 token 是命令不是值（`xargs -i bash` 的 bash 是命令）；
+2. **后随值 token 形似执行词时不吞**（looksLikeExecWord：解释器/壳/分发器/wrapper/写命令/git/取数族）——保守归位为段首，与基线判罚零翻转（同命令不得反判）；`env -u bash ls` 的 head 归位 bash 而非 ls 即此边界（放弃语义归位换零翻转）；
+3. **表内每项必有矩阵钉**——穷举断言防选择性覆盖（w-xargs 域曾恰好绕开自埋错旗标，正是严重 1 漏网机制）。
+
+无值旗标（sudo -n / env -i / sudo -E）不吞，对照矩阵钉住；值恰为解释器名（`sudo -u bash` / `env -u bash`）按边界 2 保守归位。
 
 **吞尽回退**（resolveExecHead）：wrapper 吞尽全段无执行词时，真实语义是 wrapper 的默认执行——`sudo` 无命令跑 shell（sudo(8)「If no command is specified, an interactive shell is executed」man 实证），`curl | sudo` / `curl | sudo -u root` / `curl | sudo -t bash` 按 sh 归位 fail-closed；反向实证 nice/nohup 无命令仅 usage 报错（本机实测）不入回退表，`curl | nice` 保持放行；setsid 本机无从实证按残余记档。
 
@@ -98,6 +109,27 @@ busybox sh -c 'touch /repo/data/pwn'    → ALLOW ✗（"busybox" 不在 SHELL_I
 - 新增 `bash-guard-value-wrapper-flags.test.ts`：43 形态域覆盖矩阵 + REQUIRED_DOMAINS 覆盖断言（防选择偏差）+ 段首归位机制钉（16 形态 resolveExecHead 断言）+ 两侧识别域一致参数化；
 - `bash-guard-pipe-direct-exec.test.ts`：22 形态同判表收编 2 形态进 FEED_FORMS，「残余诚实钉」（现状钉 none）翻为「收编钉」（stdin）——断言强度不变（两侧同判双断言保留），仅预期随修复翻转；
 - 全量 417 文件 6677 passed 零失败；touchstone 语料全绿（语料内 xargs -I{} 为合写形态不受值吞食影响）；lint / lint:tests 通过。
+
+## delta 复核处置（检视獭1611 严重 1，2026-10-22）
+
+**发现（审视主张，双版本对拍实证）**：valueFlags 表混入 GNU 可选值旗标（xargs -i/--replace/-l/--max-lines）与 env -P，分写形态值吞食吃掉命令词 → head=null → 7+ 形态 block→allow 保护回退，「零保护回退」主张被打破；三重自相矛盾（代码入表 vs 注释「可选值旗标不入表」vs 本文档枚举节未列）。
+
+**本方复现与扩大**：对拍复现 8/8 审视形态，并扩大发现同族 7 形态（xargs -I python / timeout -s python / nice -n python / stdbuf -o python / watch -n python / sudo -p python / env -u bash 类——**必带值旗标** + 执行词值），删 5 项 alone 收不掉（它们不在删单上）。
+
+**处置（裁决 4 项全覆盖 + 扩大族收口）**：
+
+1. 表删 5 项（xargs -i/--replace/-l/--max-lines、env -P）——可选值旗标分写后随 token 是命令，回基线正确判罚；
+2. 回归形态全补钉：8 审视形态 + 7 扩大族 + 2 命令词值形态共 17 形态钉 BLOCK/基线锚定（含 `env -u FOO -P bash` 穿透形态）；
+3. 三重矛盾消除：注释/表/枚举节三处同轴 + 测试穷举锁（改表不同步即断）；
+4. 防选择性覆盖：「表内每项必有矩阵钉」穷举断言（flag-coverage 44 形态逐项入钉）。
+
+**新增机制（扩大族的收口件）**：looksLikeExecWord 值吞食守卫——值 token 形似执行词（解释器/壳/分发器/wrapper/写命令/git/取数族）时不吞、保守归位段首。缺此件时删 5 项仍留扩大族翻转。全族对拍 22/22 判罚与基线一致（含 `sudo -u root` 新拦收紧面保持）。
+
+**残余（诚实边界）**：
+
+- 值吞食语义取舍：`env -u bash ls` head 保守归位 bash（真实命令是 ls）——放弃语义归位换基线零翻转；
+- 未知命令词（无专门判定面）做值时两侧判罚同为放行，吞值不产生翻转，不入守卫词表（不军备化 #1513）；
+- `env -P /bin bash` 类（删 -P 后走 flags 吞食盲区）回基线漏放态（pre-existing）——按 M-3fe59a8e 先例 env -P 处理属外延扩张须搭档点头，不随本 PR 扩面。
 
 ## 残余与边界
 

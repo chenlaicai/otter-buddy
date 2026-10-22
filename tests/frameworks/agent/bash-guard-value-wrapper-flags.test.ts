@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { checkBashCommandSafety, interpreterStdinKind } from "@frameworks/agent/bash-safety-guard";
 import { interpreterStdinFeedContent } from "@frameworks/agent/write-target-evaluator";
 import { parseOnce } from "@frameworks/agent/command-model";
-import { resolveExecHead } from "@frameworks/agent/payload-extract-aux";
+import { resolveExecHead, WRAPPER_SPECS } from "@frameworks/agent/payload-extract-aux";
 
 const ROOT = "/repo";
 const guard = (cmd: string): string | null => checkBashCommandSafety(cmd, 99999, undefined, { projectRoot: ROOT });
@@ -73,6 +73,71 @@ const CASES: Array<{ tags: string[]; cmd: string; expect: "block" | "allow" }> =
   { tags: ["c-payload", "relay-dispatcher"], cmd: `busybox sh -c 'touch /repo/data/pwn'`, expect: "block" },
   // ── 值词伪装旗标（C 面）：-p 的值恰为 -c，不得劫持载荷旗标位 ──
   { tags: ["c-payload", "masquerade", "w-sudo"], cmd: `sudo -p -c python -c 'touch /repo/data/pwn'`, expect: "block" },
+  // ── delta 严重 1 回归钉（可选值旗标 + 执行词值不吞守卫——同命令不得反判） ──
+  { tags: ["regress-optional-value", "w-xargs"], cmd: `${SH} | xargs -i bash`, expect: "block" },
+  { tags: ["regress-optional-value", "w-xargs"], cmd: `${PY} | xargs -i python`, expect: "block" },
+  { tags: ["regress-optional-value", "w-xargs"], cmd: `${SH} | xargs --replace bash`, expect: "block" },
+  { tags: ["regress-optional-value", "w-xargs"], cmd: `${SH} | xargs -l bash`, expect: "block" },
+  { tags: ["regress-optional-value", "w-xargs"], cmd: `${SH} | xargs --max-lines bash`, expect: "block" },
+  { tags: ["regress-optional-value", "w-env"], cmd: `${SH} | env -P bash`, expect: "block" },
+  { tags: ["regress-optional-value", "w-env"], cmd: `${PY} | env -P python`, expect: "block" },
+  { tags: ["regress-optional-value", "w-env"], cmd: `${SH} | env -u FOO -P bash`, expect: "block" },
+  // 执行词值不吞（删 5 项 alone 收不到的广义族）
+  { tags: ["regress-exec-value", "w-xargs"], cmd: `${PY} | xargs -I python`, expect: "block" },
+  { tags: ["regress-exec-value", "w-timeout"], cmd: `${PY} | timeout -s python`, expect: "block" },
+  { tags: ["regress-exec-value", "w-nice"], cmd: `${PY} | nice -n python`, expect: "block" },
+  { tags: ["regress-exec-value", "w-stdbuf"], cmd: `${PY} | stdbuf -o python`, expect: "block" },
+  { tags: ["regress-exec-value", "w-watch"], cmd: `${PY} | watch -n python`, expect: "block" },
+  { tags: ["regress-exec-value", "w-sudo"], cmd: `${PY} | sudo -p python`, expect: "block" },
+  { tags: ["regress-exec-value", "value-is-interpreter", "w-env"], cmd: `${SH} | env -u bash`, expect: "block" },
+  { tags: ["regress-exec-value", "value-is-interpreter", "w-env"], cmd: `${SH} | env -u bash ls`, expect: "block" },
+  { tags: ["regress-exec-value", "c-payload", "w-sudo"], cmd: `sudo -p python -c 'touch /repo/data/pwn'`, expect: "block" },
+  { tags: ["regress-exec-value", "c-payload", "w-xargs"], cmd: `xargs -I python -c 'touch /repo/data/pwn'`, expect: "block" },
+  // 命令词值（写族/git 族不吞——保守归位同基线）
+  { tags: ["regress-cmd-word-value", "w-xargs"], cmd: `${SH} | xargs -I git commit`, expect: "block" },
+  { tags: ["regress-cmd-word-value", "w-xargs"], cmd: `${SH} | xargs -i rm foo`, expect: "allow" }, // 锚定基线判罚（head=rm 同基线，foo 相对落点非主仓写）
+  // ── flag-coverage：表内每项必有钉（穷举断言见下，此处为逐项形态） ──
+  { tags: ["flag-coverage", "w-env"], cmd: `${PY} | env --unset FOO python`, expect: "block" },
+  { tags: ["flag-coverage", "w-env"], cmd: `${PY} | env -C /tmp python`, expect: "block" },
+  { tags: ["flag-coverage", "w-env"], cmd: `${PY} | env --chdir /tmp python`, expect: "block" },
+  { tags: ["flag-coverage", "w-env"], cmd: `${PY} | env -S x python`, expect: "block" },
+  { tags: ["flag-coverage", "w-env"], cmd: `${PY} | env --split-string x python`, expect: "block" },
+  { tags: ["flag-coverage", "w-nice"], cmd: `${PY} | nice --adjustment 5 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-timeout"], cmd: `${SH} | timeout --signal KILL 5 bash`, expect: "block" },
+  { tags: ["flag-coverage", "w-timeout"], cmd: `${SH} | timeout -k 5 3 bash`, expect: "block" },
+  { tags: ["flag-coverage", "w-timeout"], cmd: `${SH} | timeout --kill-after 5 3 bash`, expect: "block" },
+  { tags: ["flag-coverage", "w-watch"], cmd: `${SH} | watch --interval 1 bash`, expect: "block" },
+  { tags: ["flag-coverage", "w-stdbuf"], cmd: `${PY} | stdbuf --output 0 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-stdbuf"], cmd: `${PY} | stdbuf -e 0 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-stdbuf"], cmd: `${PY} | stdbuf --error 0 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-stdbuf"], cmd: `${PY} | stdbuf -i 0 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-stdbuf"], cmd: `${PY} | stdbuf --input 0 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo --group wheel python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo -U user python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo --other-user user python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo -p pw python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo --prompt pw python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo -C 5 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo --close-from 5 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo -D /tmp python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo --chdir /tmp python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo -R /srv python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo --chroot /srv python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo -T 30 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo --command-timeout 30 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo -r role python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo --role role python`, expect: "block" },
+  { tags: ["flag-coverage", "w-sudo"], cmd: `${PY} | sudo --type t python`, expect: "block" },
+  { tags: ["flag-coverage", "w-xargs"], cmd: `${PY} | xargs --max-args 1 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-xargs"], cmd: `${PY} | xargs -d x python`, expect: "block" },
+  { tags: ["flag-coverage", "w-xargs"], cmd: `${PY} | xargs --delimiter x python`, expect: "block" },
+  { tags: ["flag-coverage", "w-xargs"], cmd: `${PY} | xargs -P 2 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-xargs"], cmd: `${PY} | xargs --max-procs 2 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-xargs"], cmd: `${PY} | xargs -s 100 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-xargs"], cmd: `${PY} | xargs --max-chars 100 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-xargs"], cmd: `${PY} | xargs -L 1 python`, expect: "block" },
+  { tags: ["flag-coverage", "w-xargs"], cmd: `${PY} | xargs -a file python`, expect: "block" },
+  { tags: ["flag-coverage", "w-xargs"], cmd: `${PY} | xargs --arg-file file python`, expect: "block" },
   // ── 良性对照（收编不误伤） ──
   { tags: ["benign", "short-split", "w-sudo"], cmd: `sudo -u root ls`, expect: "allow" },
   { tags: ["benign", "short-split", "w-env"], cmd: `env -u FOO ls`, expect: "allow" },
@@ -88,6 +153,7 @@ const REQUIRED_DOMAINS = [
   "feed", "c-payload", "exhausted", "anti-greedy", "benign",
   "short-split", "long-split", "inline-eq", "glued", "value-flag-double", "value-is-interpreter", "masquerade",
   "relay-wrap", "relay-version", "relay-dispatcher", "b1-long-flag",
+  "regress-optional-value", "regress-exec-value", "regress-cmd-word-value", "flag-coverage",
   "w-sudo", "w-env", "w-timeout", "w-nice", "w-stdbuf", "w-xargs", "w-watch",
 ];
 
@@ -116,15 +182,27 @@ describe("M-c36b9847 值参 wrapper 盲区收编矩阵（F20261022vwfg）", () =
       ["stdbuf -o 0 python", "python"],
       ["xargs -I {} python", "python"],
       ["sudo -u root -g wheel python", "python"],
-      // 值恰为解释器名——按真实 wrapper 语法吞值（env -u bash = unset 变量 bash）
-      ["env -u bash ls", "ls"],
-      ["sudo -t bash ls", "ls"],
+      // 值恰为解释器名——不吞、保守归位为段首（delta 严重 1：吞值会让 head 走丢，
+      //  基线判罚翻转；放弃真实语义归位换零翻转，语义取舍见 F20261022vwfg delta 节）
+      ["env -u bash ls", "bash"],
+      ["sudo -t bash ls", "bash"],
+      ["sudo -u bash", "bash"],
+      ["sudo -t bash", "bash"],
+      ["env -u bash", "bash"],
+      // 可选值旗标（不入表）：分写后随 token 是命令（delta 严重 1 回归钉）
+      ["xargs -i bash", "bash"],
+      ["env -P bash", "bash"],
+      // 执行词值不吞（广义族）
+      ["xargs -I python", "python"],
+      ["timeout -s python", "python"],
+      // 命令词值不吞（写族/git 族——保守归位同基线）
+      ["xargs -i rm foo", "rm"],
+      ["xargs -I git commit", "git"],
       // 防贪婪：无值旗标不吞
       ["sudo -n bash", "bash"],
       ["env -i python", "python"],
       // 吞尽回退：sudo 无命令=跑 shell（sudo(8)）；nice/env 无命令不执行
       ["sudo -u root", "sh"],
-      ["sudo -t bash", "sh"],
       ["nice", null],
       ["env -u FOO", null],
     ];
@@ -132,6 +210,37 @@ describe("M-c36b9847 值参 wrapper 盲区收编矩阵（F20261022vwfg）", () =
       const model = parseOnce(`true | ${form}`);
       const seg = model.segments[model.segments.length - 1];
       expect(resolveExecHead(seg)?.name ?? null, form).toBe(want);
+    }
+  });
+
+  it("valueFlags 表穷举锁（三重同轴机械保障）：表内每项必须在此登记，改表必须同步此处 + 注释 + F 文档枚举节", () => {
+    const EXPECTED: Record<string, string[]> = {
+      env: ["-u", "--unset", "-C", "--chdir", "-S", "--split-string"],
+      nice: ["-n", "--adjustment"],
+      timeout: ["-s", "--signal", "-k", "--kill-after"],
+      watch: ["-n", "--interval"],
+      stdbuf: ["-o", "--output", "-e", "--error", "-i", "--input"],
+      sudo: ["-u", "--user", "-g", "--group", "-U", "--other-user", "-p", "--prompt", "-C", "--close-from", "-D", "--chdir", "-R", "--chroot", "-T", "--command-timeout", "-r", "--role", "-t", "--type"],
+      xargs: ["-I", "-n", "--max-args", "-d", "--delimiter", "-P", "--max-procs", "-s", "--max-chars", "-L", "-a", "--arg-file"],
+    };
+    for (const [name, spec] of Object.entries(WRAPPER_SPECS)) {
+      const actual = [...(spec.valueFlags ?? [])].sort();
+      const want = (EXPECTED[name] ?? []).slice().sort();
+      expect(actual, `WRAPPER_SPECS.${name}.valueFlags 与登记不符——三重同轴（注释/表/F 文档枚举节）`).toEqual(want);
+    }
+    for (const name of Object.keys(EXPECTED)) {
+      expect(WRAPPER_SPECS[name], `登记的 ${name} 不在 WRAPPER_SPECS`).toBeDefined();
+    }
+  });
+
+  it("表内每项必有矩阵钉（防选择性覆盖——delta 严重 1 漏网机制）", () => {
+    for (const [name, spec] of Object.entries(WRAPPER_SPECS)) {
+      for (const flag of spec.valueFlags ?? []) {
+        const hit = CASES.some(c => c.cmd.includes(name) && c.cmd
+          .split(/\s+/)
+          .some(tok => tok === flag || tok.startsWith(`${flag}=`) || (flag.length === 2 && tok.length > 2 && tok.startsWith(flag))));
+        expect(hit, `valueFlags ${name}.${flag} 无对应矩阵钉`).toBe(true);
+      }
     }
   });
 
