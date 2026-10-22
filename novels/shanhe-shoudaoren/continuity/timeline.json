@@ -1,0 +1,107 @@
+{
+  "schema": "shanhe/timeline@1",
+  "notes": "时间线账本。规划期事件标 planned（正文写到才转 written）；正文事件按章推进在 events 中追加，story_time 用书中历法（大宁朝：开国—承光—景和）。正文每章推进须校验与上一章 story_time 的间隔合理。",
+  "prehistory": [
+    {
+      "id": "T-P0",
+      "story_time": "大宁开国（立国元年，约216年前）",
+      "content": "定鼎渠成——七大工之首，首剥开国功卒，无名营『老营』之源",
+      "status": "planned"
+    },
+    {
+      "id": "T-P1",
+      "story_time": "约140年前",
+      "content": "龙脉陵成（七大工之二）",
+      "status": "planned"
+    },
+    {
+      "id": "T-P2",
+      "story_time": "约40年前",
+      "content": "北垣长城成（七大工之三）",
+      "status": "planned"
+    },
+    {
+      "id": "T-P3",
+      "story_time": "约30年前",
+      "content": "汴口漕枢成（七大工之四）；『香都』名之黑市渐起",
+      "status": "planned"
+    }
+  ],
+  "events": [
+    {
+      "id": "T-001",
+      "story_time": "承光十七年",
+      "content": "导沧大工动工（七大工之五）",
+      "status": "planned"
+    },
+    {
+      "id": "T-002",
+      "story_time": "承光二十年秋",
+      "content": "导沧大工成：沧浪江南移三百里，落雁川三万一千口整册剥名，人随川没；官册口径『迁民三万安置他乡』",
+      "status": "planned"
+    },
+    {
+      "id": "T-003",
+      "story_time": "承光二十年冬",
+      "content": "祝九龄走沉川道，失一目、失结义兄弟、失一段记忆；旧刀账该年空白",
+      "status": "planned"
+    },
+    {
+      "id": "T-004",
+      "story_time": "承光廿九年（约15年前）",
+      "content": "裴洗尘自剥其名（前身乱世人屠，屠村旧案）",
+      "status": "planned"
+    },
+    {
+      "id": "T-005",
+      "story_time": "景和十年三月上旬",
+      "content": "黑水峡十七尸案发，V1开卷（对应第002章）",
+      "status": "planned"
+    },
+    {
+      "id": "T-006",
+      "story_time": "景和十年三月中—八月",
+      "content": "第一卷主体：柳泉→顺平→雒口→湖域→黑水峡→沉川湖畔",
+      "status": "planned"
+    },
+    {
+      "id": "T-007",
+      "story_time": "景和十年八月末",
+      "content": "V1卷末：岑潮归名、裴洗尘死、陆停舟出雍州（对应第101—120章）",
+      "status": "planned"
+    },
+    {
+      "id": "T-008",
+      "story_time": "景和十年九月起",
+      "content": "V2《沉川湖》：湖域、旧渡、碑村（对应第121—240章）",
+      "status": "planned"
+    },
+    {
+      "id": "T-009",
+      "story_time": "全书正传跨度约4年（景和十年—十四年），尾声在大归名后十年",
+      "content": "V1—V8 主体与尾声",
+      "status": "planned"
+    },
+    {
+      "id": "T-010",
+      "story_time": "景和十年三月初十",
+      "content": "岑缨抵柳泉认兄：县衙/庙/坟三处碰壁，栅栏外遥祭十六号坟",
+      "status": "written",
+      "chapter": 11
+    },
+    {
+      "id": "T-011",
+      "story_time": "景和十年四月初二",
+      "content": "岑缨到镖局：柄尾暗纹认刀存疑；忆册梦停二月初三总钩立起",
+      "status": "written",
+      "chapter": 12
+    },
+    {
+      "id": "T-012",
+      "story_time": "承光二十年腊月",
+      "content": "（追述）祝九龄失忆半月，空账页成谜——老账页发现于景和十年",
+      "status": "written",
+      "chapter": 9
+    }
+  ]
+}

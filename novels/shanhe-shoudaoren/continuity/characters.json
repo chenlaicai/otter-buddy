@@ -1,0 +1,741 @@
+{
+  "schema": "shanhe/characters@2",
+  "notes": "人物账本。status: planned=规划确定但正文未写 / written=正文已落地（正文写到才可改）。secret=true 的条目是剧透层，正文按总纲节奏揭，禁止提前泄露到角色对话外的叙述中。knowledge_edges 分两层：written=角色已在正文中知道的事实（每条含首知章节；开写前只含开篇已知）；planned=规划中后续会知道/揭示的（含预计揭示卷次）。刀卷(dao_juan)清单随章追加。",
+  "characters": [
+    {
+      "id": "C-001",
+      "name": "陆停舟",
+      "aliases": [],
+      "role": "主角",
+      "first_chapter_planned": 1,
+      "status": "planned",
+      "one_line": "归义镖局收刀人，替死者送刀回家的人",
+      "key_facts": [
+        {
+          "fact": "26岁，襁褓中被祝九龄拾于道口，无信物",
+          "status": "planned",
+          "secret": false
+        },
+        {
+          "fact": "可能是落雁川遗孤（成百遗孤之一，无血统特权——V8 反高潮答案）",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 8
+        },
+        {
+          "fact": "认刀礼可见死者最后一程，且记性不可磨灭（自身之谜，V3揭）",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 3
+        },
+        {
+          "fact": "身负众名（十七刀+韩仓刀之锚），问名指对其失准",
+          "status": "planned",
+          "secret": false,
+          "reveal_volume": 1
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "镖行三约的行规面（刀有铭/鞘藏命/收刀送家）",
+            "since": "开篇已知"
+          },
+          {
+            "fact": "照见死者最后一程之能（ch4 首次完整，断后者）",
+            "since": 4
+          },
+          {
+            "fact": "黑水峡案全貌一角：官册补抄/文牒预制/焚凭据/湖腔订刀人/条箱两批",
+            "since": 10
+          },
+          {
+            "fact": "真正的抹在人脑不在纸上（通济栈全员忘货主）",
+            "since": 10
+          },
+          {
+            "fact": "岑缨梦停二月初三，早于案发——梦/名/刀/账四线互吸",
+            "since": 12
+          },
+          {
+            "fact": "受盯：斗笠人探局、脚店店主疑练家子、假同乡探底",
+            "since": 10
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [
+            "剥名术的存在与V1手法",
+            "裴洗尘是黑水峡凶手"
+          ],
+          "does_not_know_yet": [
+            {
+              "fact": "奉名司全貌",
+              "until_volume": 3
+            },
+            {
+              "fact": "导沧大工真相",
+              "until_volume": 2
+            },
+            {
+              "fact": "自身照见之能的来历",
+              "until_volume": 3
+            },
+            {
+              "fact": "与顾辞同源",
+              "until_volume": 6
+            }
+          ]
+        }
+      },
+      "dao_juan": {
+        "planned": [
+          "韩仓·关门刀(ch88入)",
+          "岑潮·断流半式(借识不借刀)"
+        ],
+        "written": []
+      },
+      "arc": "替死者送刀 → 替无名者讨名 → 以身锚大归名、半空其忆而全其名",
+      "voice": "短句，账房口，名词说话"
+    },
+    {
+      "id": "C-002",
+      "name": "祝九龄",
+      "role": "师父",
+      "first_chapter_planned": 2,
+      "status": "planned",
+      "one_line": "归义镖局总镖头，独眼，二十四年前走沉川道丢了眼和兄弟",
+      "key_facts": [
+        {
+          "fact": "承光二十年冬走沉川道，失一目、失结义兄弟、失一段记忆",
+          "status": "planned",
+          "secret": false,
+          "reveal_volume": 1
+        },
+        {
+          "fact": "旧刀账承光二十年页空白，事后补写『无名氏若干』",
+          "status": "planned",
+          "secret": false,
+          "reveal_volume": 1
+        },
+        {
+          "fact": "曾在『迁民』册边按过手印（不知情的小恶）",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 1
+        },
+        {
+          "fact": "死于无名（V3卷末，天下无人记得他死）",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 3
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "沉川道那年『兄弟们没了』",
+            "since": "开篇已知"
+          },
+          {
+            "fact": "自己丢了一段记性",
+            "since": "开篇已知"
+          },
+          {
+            "fact": "空账页是自己补的",
+            "since": "开篇已知"
+          },
+          {
+            "fact": "对陆停舟承认：承光二十年腊月半个月记性全失，空账页『无名氏若干』是自己补写",
+            "since": 9
+          },
+          {
+            "fact": "沉川道旧事：三十年前十二去三回、左眼丢在那儿（对陆停舟首度详述压案缘由）",
+            "since": 8
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [
+            "谁抹的（他自己也是受害者——V1末由陆停舟拼出）"
+          ],
+          "does_not_know_yet": [
+            {
+              "fact": "旧部中有奉名司的人（V3致死之因）",
+              "until_volume": 3
+            }
+          ]
+        }
+      },
+      "arc": "守小局的老人 → V3死于无名 → 终局名复碑立柳泉",
+      "voice": "糙、省、护犊子"
+    },
+    {
+      "id": "C-003",
+      "name": "岑缨",
+      "role": "女主角",
+      "first_chapter_planned": 11,
+      "status": "written",
+      "one_line": "顺平绣娘，岑潮之妹，以忆册对抗遗忘",
+      "key_facts": [
+        {
+          "fact": "兄长被剥名后仅剩残影，靠每日重写忆册留痕",
+          "status": "planned",
+          "secret": false
+        },
+        {
+          "fact": "每月梦见兄长教她握刀，案发前后梦停",
+          "status": "planned",
+          "secret": false,
+          "reveal_volume": 1
+        },
+        {
+          "fact": "第11章首登场（携三年兄妹家书到柳泉认兄）；此前第3章仅以旧账/来信线索存在",
+          "status": "planned",
+          "secret": false,
+          "reveal_volume": 1
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "兄长走镖的路线与家书内容",
+            "since": "开篇已知"
+          },
+          {
+            "fact": "兄长失联的月份（与梦停时间重合的直觉）",
+            "since": "开篇已知"
+          },
+          {
+            "fact": "官册无岑潮、庙不立牌、坟不许进——外部抹名正面撞墙",
+            "since": 11
+          },
+          {
+            "fact": "『我没有尸，我有账』立誓；忆册随身不离",
+            "since": 11
+          },
+          {
+            "fact": "认出第三口无铭新刀柄尾暗纹=兄长信中自证之刀（存疑未落名）",
+            "since": 12
+          },
+          {
+            "fact": "梦停于二月初三（自觉，不懂原理）",
+            "since": 12
+          },
+          {
+            "fact": "家书成例十二年、一年三封共三十六封；末封正月十七（未拆压于针线笸箩下）",
+            "since": 11
+          },
+          {
+            "fact": "父母早亡，岑家只剩兄妹二人",
+            "since": 11
+          },
+          {
+            "fact": "梦于二月初三骤停（自觉，不懂原理）",
+            "since": 12
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [
+            "梦=残名之影的直觉（V1不点破原理）",
+            "兄长被剥名的真相与归名"
+          ],
+          "does_not_know_yet": [
+            {
+              "fact": "剥名术原理全貌",
+              "until_volume": 2
+            },
+            {
+              "fact": "《川调》即沉川名谱",
+              "until_volume": 2
+            }
+          ]
+        }
+      },
+      "arc": "绣娘 → V1末兄归名后留局任记名人 → 终局著《山河收刀录》，末章为半忘的丈夫重讲其人",
+      "voice": "细、韧、针脚般的耐心"
+    },
+    {
+      "id": "C-004",
+      "name": "何大有",
+      "role": "伙计/暖线",
+      "first_chapter_planned": 6,
+      "status": "planned",
+      "one_line": "趟子手，大嗓门大饭量，其亡兄之刀由陆停舟送归",
+      "key_facts": [
+        {
+          "fact": "第6章远景露面（寡妇抱刀夜）、第16章重场（城南站台护局）",
+          "status": "planned",
+          "secret": false
+        },
+        {
+          "fact": "身负亡兄之锚，剥名的手抹不掉他（V1种36章，V3兑付）",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 3
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "局里人情冷暖",
+            "since": "开篇已知"
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [
+            "亡兄之刀的账（与陆停舟的旧谊）"
+          ],
+          "does_not_know_yet": [
+            {
+              "fact": "自己是锚人（V3才明白）",
+              "until_volume": 3
+            }
+          ]
+        }
+      },
+      "arc": "伙计 → 还刀盟的腿 → 终局柳泉把头、说书人",
+      "voice": "市井热闹，重情"
+    },
+    {
+      "id": "C-005",
+      "name": "韩仓",
+      "role": "老镖师（V1亡）",
+      "first_chapter_planned": 8,
+      "status": "written",
+      "one_line": "『关门刀』，一辈子守门，最后一趟守渡口",
+      "key_facts": [
+        {
+          "fact": "第087章死于断后，刀立门中不倒；刀入刀卷（ch88）",
+          "status": "planned",
+          "secret": false
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "旧年守渡口所见『过兵』（无名营调防）",
+            "since": "开篇已知"
+          },
+          {
+            "fact": "对陆停舟讲述沉川道旧事：回程丢名、九名剩六名、同伴疯于数手指",
+            "since": 8
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [],
+          "does_not_know_yet": []
+        }
+      },
+      "arc": "守门人 → V1最大牺牲 → 刀在刀卷、名在碑林",
+      "voice": "老兵，话少"
+    },
+    {
+      "id": "C-006",
+      "name": "周小满",
+      "role": "学徒/传承线",
+      "first_chapter_planned": 5,
+      "status": "planned",
+      "one_line": "街童，周贵之子；周贵在儿子出生后把「小满」刻上刀——牵挂之铭，非得名之由",
+      "key_facts": [
+        {
+          "fact": "V1第一归名礼的小认者（ch19）",
+          "status": "planned",
+          "secret": false
+        },
+        {
+          "fact": "ch115拜陆停舟为师",
+          "status": "planned",
+          "secret": false
+        }
+      ],
+      "knowledge_edges": {
+        "written": [],
+        "planned": {
+          "knows_by_v1_end": [
+            "爹的刀是锚、归名礼的规矩"
+          ],
+          "does_not_know_yet": []
+        }
+      },
+      "arc": "街童 → 学徒 → 终局新一代收刀人，末章出镖",
+      "voice": "不哭，问实话"
+    },
+    {
+      "id": "C-015",
+      "name": "哑叔",
+      "role": "无名者样本",
+      "first_chapter_planned": 18,
+      "status": "planned",
+      "one_line": "白丁流民，原镖师，剥名后夜里还喊得出趟子号子",
+      "key_facts": [
+        {
+          "fact": "V1归名失败（老母已痴、认者不清，ch91）",
+          "status": "planned",
+          "secret": false
+        },
+        {
+          "fact": "V3『认者不必血亲』后由小满认他",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 3
+        }
+      ],
+      "knowledge_edges": {
+        "written": [],
+        "planned": {
+          "knows_by_v1_end": [],
+          "does_not_know_yet": [
+            {
+              "fact": "自己是谁（连他自己也不知——无名者的定义）",
+              "until_volume": 3
+            }
+          ]
+        }
+      },
+      "arc": "无名者 → 随行 → 终局沉川名碑第一个被指认的『无名氏』",
+      "voice": "喊得出号子，说不出名"
+    },
+    {
+      "id": "C-007",
+      "name": "岑潮",
+      "role": "V1亡者（遗忆出场）",
+      "first_chapter_planned": 3,
+      "status": "planned",
+      "one_line": "永宁镖局镖头，无名镖队之首，破刀藏货单至死攥刀；其半把无铭刀自ch2起就在十七口刀中，ch51以刀路确认身份",
+      "key_facts": [
+        {
+          "fact": "以镖行规矩坑了剥名术一道：破己刀、藏货单于柄、至死攥刀留锚",
+          "status": "planned",
+          "secret": false,
+          "reveal_volume": 1
+        },
+        {
+          "fact": "第107章归名（V1最大不可逆）",
+          "status": "planned",
+          "secret": false
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "（遗物层面）正月十七家书『柄尾有纹的是我的』（末封，此后断绝）；断后者死状：面南、断后、刀断人未退",
+            "since": 12
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [],
+          "does_not_know_yet": []
+        }
+      },
+      "arc": "死者 → 名复于世（不复其命）",
+      "voice": "只在残影与家书中"
+    },
+    {
+      "id": "C-008",
+      "name": "阿灶婆",
+      "role": "守烬人（V2亡）",
+      "first_chapter_planned": 42,
+      "status": "planned",
+      "one_line": "空龛守烬人，落雁川幸存者，会《川调》",
+      "key_facts": [
+        {
+          "fact": "当年在外赶集得脱，回来村子没了；空龛原是给她自己上香",
+          "status": "planned",
+          "secret": false,
+          "reveal_volume": 1
+        },
+        {
+          "fact": "《川调》是沉川名谱的口传载体（V2揭）",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 2
+        },
+        {
+          "fact": "V2护碑拓死，归湖",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 2
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "村子一夜没了的亲历",
+            "since": "开篇已知"
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [],
+          "does_not_know_yet": [
+            {
+              "fact": "《川调》是沉川名谱（她只当是家乡小调）",
+              "until_volume": 2
+            }
+          ]
+        }
+      },
+      "arc": "守烬 → V2死 → 川调传世",
+      "voice": "小调与执念：香不能断"
+    },
+    {
+      "id": "C-009",
+      "name": "佟半城",
+      "role": "V1中Boss→被剥者的长期赎罪线",
+      "first_chapter_planned": 21,
+      "status": "planned",
+      "one_line": "白事行柳泉行首，平庸之恶的具象，被上头活剥后寄名守墙——活着赎罪到终局",
+      "key_facts": [
+        {
+          "fact": "ch031被当众活剥（『退休』）",
+          "status": "planned",
+          "secret": false
+        },
+        {
+          "fact": "ch033寄名礼入镖局账，守无名墙",
+          "status": "planned",
+          "secret": false
+        },
+        {
+          "fact": "忏悔清单=可救名单首稿（ch059廿七名）",
+          "status": "planned",
+          "secret": false
+        },
+        {
+          "fact": "V1卷末不死：活着守墙，长期人物线开至终局（柳泉无名墙的守墙人）",
+          "status": "planned",
+          "secret": false
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "白事行内外规矩与历年『大活』底细",
+            "since": "开篇已知"
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [
+            "被自己效力的机器反噬的滋味",
+            "廿七个所焚之名"
+          ],
+          "does_not_know_yet": []
+        }
+      },
+      "arc": "恶人 → 被机器吞噬 → 在寄名下赎后半生，长守无名墙至终局",
+      "voice": "胖、爱哭、周到"
+    },
+    {
+      "id": "C-010",
+      "name": "裴洗尘",
+      "role": "V1大反派",
+      "first_chapter_planned": 17,
+      "status": "planned",
+      "one_line": "奉名司外圈收名客，动手前必问尊姓，杀完人礼葬",
+      "key_facts": [
+        {
+          "fact": "前身乱世人屠，自剥其名赎罪兼逃罪（忘是慈悲=忏悔+自我开脱的混合物）",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 1
+        },
+        {
+          "fact": "问名指需知名为引，对杂名者失准",
+          "status": "planned",
+          "secret": false
+        },
+        {
+          "fact": "他礼葬过的名字反过来成为他的锚与败因（ch103）",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 1
+        },
+        {
+          "fact": "死求收名而无人知其名——全书第一个救不回来的名字（ch105）",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 1
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "自己已经没有名字（自剥者无锚）",
+            "since": "开篇已知"
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [],
+          "does_not_know_yet": []
+        }
+      },
+      "arc": "刽子手 → 败于自己的仪式 → 永失其名（主题之疤）",
+      "voice": "谦和、记性好、对所有人有礼"
+    },
+    {
+      "id": "C-011",
+      "name": "顾辞",
+      "role": "镜像人物",
+      "first_chapter_planned": 53,
+      "status": "planned",
+      "one_line": "奉名司外派文吏，账房刀子嘴，与陆停舟同源两途",
+      "key_facts": [
+        {
+          "fact": "同为落雁川襁褓遗孤，孤院养大成为机器零件（V6揭同源）",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 6
+        },
+        {
+          "fact": "ch067『错』给一页账（明帮暗害莫辨，实为暗帮线之始）",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 6
+        },
+        {
+          "fact": "ch097留书『活锚当沉』",
+          "status": "planned",
+          "secret": false
+        },
+        {
+          "fact": "V6哭城前夜反正，泄大祭之期而死",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 6
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "奉名司账目体系",
+            "since": "开篇已知"
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [
+            "陆停舟是『活锚』的情报价值"
+          ],
+          "does_not_know_yet": [
+            {
+              "fact": "与陆停舟同源（V6才知道/承认）",
+              "until_volume": 6
+            }
+          ]
+        }
+      },
+      "arc": "机器的零件 → 良知苏醒 → 以死反正，碑上罪功并书",
+      "voice": "名字要写工整"
+    },
+    {
+      "id": "C-013",
+      "name": "祝雁回",
+      "role": "祝九龄之女",
+      "first_chapter_planned": 74,
+      "status": "planned",
+      "one_line": "账房出身转镖师，V4失左臂转军师，终局首任女总镖头；V1 ch74以账房身份具名露面",
+      "key_facts": [
+        {
+          "fact": "V4夺烬册失左臂",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 4
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "镖局账目",
+            "since": "开篇已知"
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [],
+          "does_not_know_yet": [
+            {
+              "fact": "父亲旧账页的秘密（V3才拼全）",
+              "until_volume": 3
+            }
+          ]
+        }
+      },
+      "arc": "账房 → 镖师 → 军师 → 总镖头",
+      "voice": "算得快，说得少"
+    },
+    {
+      "id": "C-012",
+      "name": "奉名使",
+      "role": "终局对手",
+      "first_chapter_planned": 481,
+      "status": "planned",
+      "one_line": "奉名司之首，无名，导沧大工执行文吏，算学大家",
+      "key_facts": [
+        {
+          "fact": "自剥其名后仅剩职务人格运转",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 7
+        },
+        {
+          "fact": "信条：三万对三百万（他算了三十年的算式）",
+          "status": "planned",
+          "secret": false,
+          "reveal_volume": 5
+        },
+        {
+          "fact": "终局具名囚于罪己碑之阴，以罪为名",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 8
+        }
+      ],
+      "knowledge_edges": {
+        "written": [
+          {
+            "fact": "七大工与烬册全账",
+            "since": "开篇已知"
+          }
+        ],
+        "planned": {
+          "knows_by_v1_end": [],
+          "does_not_know_yet": []
+        }
+      },
+      "arc": "算式本身 → 被更大的算式击败（三万加三百万）",
+      "voice": "算学口，无我称谓"
+    },
+    {
+      "id": "C-014",
+      "name": "癸十一（后自择名『还川』）",
+      "role": "承名者线",
+      "first_chapter_planned": 601,
+      "status": "planned",
+      "one_line": "承名者，载北垣之引，V6解束后自择名",
+      "key_facts": [
+        {
+          "fact": "解束后会求人别救他——工具是安全的",
+          "status": "planned",
+          "secret": true,
+          "reveal_volume": 6
+        },
+        {
+          "fact": "祝雁回收为义弟，终局读书种柳、平凡",
+          "status": "planned",
+          "secret": false,
+          "reveal_volume": 8
+        }
+      ],
+      "knowledge_edges": {
+        "written": [],
+        "planned": {
+          "knows_by_v1_end": [],
+          "does_not_know_yet": [
+            {
+              "fact": "自己是人不是工具（V6解束后才学）",
+              "until_volume": 6
+            }
+          ]
+        }
+      },
+      "arc": "工具 → 学着当人 → 平凡（本书给他的全部奖赏）",
+      "voice": "岁字编号的童声"
+    }
+  ]
+}

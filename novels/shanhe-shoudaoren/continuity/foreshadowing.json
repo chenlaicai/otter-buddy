@@ -1,0 +1,180 @@
+{
+  "schema": "shanhe/foreshadowing@1",
+  "notes": "伏笔账本。status: planned=规划已定但正文未种下 / planted=正文已种下 / resolved=正文已收回（记resolved_chapter）。secret 条目正文叙述不得提前点破。收卷超前的伏笔禁止提前收。",
+  "foreshadowings": [
+    {
+      "id": "F-001",
+      "content": "陆停舟照见死者最后一程之谜（认刀礼副产品，非名术）",
+      "planted_chapter": 4,
+      "resolve_target": "V3·三约真相",
+      "status": "planted",
+      "anchor": "ch4：夜验断刀照见断后者最后一程；ch12 岑缨梦停对上"
+    },
+    {
+      "id": "F-002",
+      "content": "祝九龄旧刀账承光二十年空账页、事后补写『无名氏』",
+      "planted_chapter": 9,
+      "resolve_target": "V3·祝九龄死于自己补写的无名氏之手",
+      "status": "planted",
+      "anchor": "ch9：空账页『无名氏若干』为祝九龄病后补写；ch12 之前 ch8 沉川道旧事铺底"
+    },
+    {
+      "id": "F-003",
+      "content": "白事行纸人规矩『纸人不点睛』，点睛纸人可挂名",
+      "planted_chapter": 22,
+      "resolve_target": "V2·湖祭",
+      "status": "planned"
+    },
+    {
+      "id": "F-004",
+      "content": "空龛『香不能断』、阿灶婆身世、《川调》",
+      "planted_chapter": 41,
+      "resolve_target": "V2·川籍碑/川调揭底",
+      "status": "planned"
+    },
+    {
+      "id": "F-005",
+      "content": "裴洗尘自剥其名，问不出、救不回",
+      "planted_chapter": 46,
+      "resolve_target": "V1 ch105·湖葬无名",
+      "status": "planned"
+    },
+    {
+      "id": "F-006",
+      "content": "顾辞『错』给的账页与孤院笔迹",
+      "planted_chapter": 67,
+      "resolve_target": "V6·顾辞反正/同源揭",
+      "status": "planned"
+    },
+    {
+      "id": "F-007",
+      "content": "银鞘『湖』字火印——银子来路指向沉川湖",
+      "planted_chapter": 52,
+      "resolve_target": "V2·湖底银鞘",
+      "status": "planned"
+    },
+    {
+      "id": "F-008",
+      "content": "何大有身负亡兄之锚，抹不掉",
+      "planted_chapter": 36,
+      "resolve_target": "V3·镖局剥名时独他不忘",
+      "status": "planned"
+    },
+    {
+      "id": "F-009",
+      "content": "镖行三约真实来历（民间锚定系统）与空名牌",
+      "planted_chapter": 65,
+      "resolve_target": "V3·三约真相",
+      "status": "planned"
+    },
+    {
+      "id": "F-010",
+      "content": "缉事司查银不查名——两司之墙",
+      "planted_chapter": 71,
+      "resolve_target": "V6/V7·庙堂裂缝可用",
+      "status": "planned"
+    },
+    {
+      "id": "F-011",
+      "content": "归名礼之价：行礼者自焚等重之忆（陆停舟记忆账单起记）",
+      "planted_chapter": 19,
+      "resolve_target": "V7账单到期/V8总支付",
+      "status": "planned"
+    },
+    {
+      "id": "F-012",
+      "content": "湖心灯火——湖在动、工有寿",
+      "planted_chapter": 80,
+      "resolve_target": "V2·湖忆旧/V8·归潮",
+      "status": "planned"
+    },
+    {
+      "id": "F-013",
+      "content": "无名营制式军刀（无铭火印编号）",
+      "planted_chapter": 45,
+      "resolve_target": "V3·老营",
+      "status": "planned"
+    },
+    {
+      "id": "F-014",
+      "content": "湖域无梦（雍州无梦之个体呈现）",
+      "planted_chapter": 76,
+      "resolve_target": "V8·雍州梦回",
+      "status": "planned"
+    },
+    {
+      "id": "F-015",
+      "content": "小满之刀与『三年为期』",
+      "planted_chapter": 115,
+      "resolve_target": "V8末章·首尾相衔",
+      "status": "planned"
+    },
+    {
+      "id": "F-016",
+      "content": "梦停与案发时间重合（残名之影）——岑缨直觉，原理不点破",
+      "planted_chapter": 12,
+      "resolve_target": "V1末归名礼时读者自明",
+      "status": "planted",
+      "anchor": "ch12：忆册梦记二月初三骤停，早于案发近一月；岑缨直觉，原理未点破"
+    },
+    {
+      "id": "F-017",
+      "content": "老铁口证词（订刀人湖腔）——ch57其人遇害后成绝证",
+      "planted_chapter": 7,
+      "resolve_target": "V1 ch110清账时引用",
+      "status": "planted",
+      "anchor": "ch7：老铁口证词（湖腔订刀人/三倍定金/不刻铭）"
+    },
+    {
+      "id": "F-018",
+      "content": "小满留局、哑叔随行的缘分（ch117）",
+      "planted_chapter": 117,
+      "resolve_target": "V3·认者不必血亲",
+      "status": "planned"
+    },
+    {
+      "id": "F-019",
+      "content": "丙辰远影掠湖（ch101）——镇湖承名者",
+      "planted_chapter": 101,
+      "resolve_target": "V2正面登场",
+      "status": "planned"
+    },
+    {
+      "id": "F-020",
+      "content": "奉名司一纸调令撤灰衣换白事行血——机器不在乎输一场",
+      "planted_chapter": 111,
+      "resolve_target": "V3机构压顶",
+      "status": "planned"
+    },
+    {
+      "id": "F-021",
+      "content": "老会首私语初代总镖头与空名牌传说",
+      "planted_chapter": 65,
+      "resolve_target": "V3·无名祖师真相",
+      "status": "planned"
+    },
+    {
+      "id": "F-022",
+      "content": "沧浪十八帮欠无名者旧渡血债",
+      "planted_chapter": 0,
+      "planned_volume": 2,
+      "resolve_target": "V8·跟受益的百姓打最难一仗",
+      "status": "planned",
+      "note": "V2旧渡一役种，规划先行登记"
+    },
+    {
+      "id": "F-023",
+      "content": "『一名一认』万灯模式（V1第一归名即雏形）",
+      "planted_chapter": 19,
+      "resolve_target": "V5验证/V8万认",
+      "status": "planned"
+    },
+    {
+      "id": "F-024",
+      "content": "陆停舟可能是落雁川遗孤（成百之一，反高潮答案）",
+      "planted_chapter": 4,
+      "resolve_target": "V8·任何人都可以是收刀人",
+      "status": "planned"
+    }
+  ]
+}

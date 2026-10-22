@@ -1,0 +1,25 @@
+{
+  "schema": "shanhe/progress@1",
+  "goal": {
+    "total_chapters": 960,
+    "total_chars_target": 2400000,
+    "total_chars_range": [
+      2000000,
+      3000000
+    ],
+    "per_chapter_chars": [
+      2400,
+      2700
+    ],
+    "volumes": 8
+  },
+  "current": {
+    "chapters_written": 12,
+    "chars_written": 30995,
+    "next_chapter": 13,
+    "current_volume": 1,
+    "last_written_chapter": 12,
+    "last_batch_pr": null
+  },
+  "notes": "written=已落盘正文；planned=规划。禁止把规划/提纲计入完成量。每章正文落盘后：chapters_written+1、chars_written+=实际字数（去标题去空白）、next_chapter+1；每卷完稿时 current_volume+1。"
+}
