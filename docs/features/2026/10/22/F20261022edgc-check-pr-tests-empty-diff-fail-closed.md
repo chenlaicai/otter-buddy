@@ -39,7 +39,7 @@ modules: [ci]
 
 - `main()` 在 `parseNumstat` 后加空判定面分支：`files.length === 0` → 拒判信息（含 base、cwd 与处置指引）+ `exit 1`
 - 退出码文档同步：0 通过 / 1 违规 / 1 拒判（diff 为空）
-- 测试补三形态（tests/criteria/check-pr-tests.test.ts）：空 diff 拒判、干净仓拒判、base 不可解析 fail-closed 钉住
+- 测试补四形态（tests/criteria/check-pr-tests.test.ts）：空 diff 拒判、干净仓拒判、base 不可解析 fail-closed 钉住、空 diff+有声明仍拒判（S1，锁拒判分支先于 body 判定）
 
 ## 取舍与剩余风险
 
@@ -70,3 +70,5 @@ Tests  19 passed (19)
 
 - P3 空 diff → `✗ diff 为空，拒判（fail-closed）` **exit 1**（原 exit 0 假绿，洞已封）
 - P1 正判面无回归：删断言无声明仍 exit 1 + fail-closed 提示
+
+Delta（S1，检视獭1616 建议采纳）：补「空 diff + 有测试改动声明 → 仍拒判」钉（20/20 绿），锁住拒判分支位于 body 判定之前——未来若分支被挪位，此钉即红。

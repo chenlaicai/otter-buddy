@@ -184,6 +184,13 @@ describe("空 diff 拒判（M-0f8cf262 假绿面 fail-closed）", () => {
     expect(r.output).toContain("diff 为空");
   });
 
+  it("红：空 diff + 有测试改动声明 → 仍拒判（S1：钉住拒判分支先于 body 判定）", () => {
+    const dir = makeGitRepo("src-file");
+    const r = runPrTestsBase(dir, "HEAD", "## 测试改动声明\n方向：收紧");
+    expect(r.status).toBe(1);
+    expect(r.output).toContain("diff 为空");
+  });
+
   it("红：base 不可解析 → fail-closed exit 1（git 错误不吞）", () => {
     const dir = makeGitRepo("src-file");
     const r = runPrTestsBase(dir, "nosuchref", undefined);
