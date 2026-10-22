@@ -96,3 +96,74 @@ describe("放行侧（收编不误拦）", () => {
     expect(isAllow("sed -i 's/x/y/' out.txt")).toBe(true);
   });
 });
+
+// ———— delta1（检视獭1619 对抗审视严重 1/2/3 + 建议 4/5/6 处置）————
+// 严重 1/2 同根：archiveFamilyTargets 长旗标值位污染——子串判只读 + 值词抢目标槽（放水面）。
+// 严重 3：dirWrite 缺省 "." 点分量不折叠，配对面放水（提取面对照 BLOCK 坐实非取舍）。
+
+describe("delta1 值位污染修复（发现 1/2）：长旗标值位不抢目标槽", () => {
+  it("S1 rsync 长旗标不误判 dry-run——--numeric-ids 含 n 不再判只读", () => {
+    expect(isBlock("rsync -a --numeric-ids /src/ /repo/dest/")).toBe(true);
+    expect(isBlock("rsync -a --numeric-ids /src/ /tmp/d/ && . /tmp/d/g.sh")).toBe(true);
+    expect(isAllow("rsync -a --numeric-ids /src/ /tmp/d/")).toBe(true); // 放行侧对称
+  });
+  it("S1 rsync 带值长旗标值位不占 dest 槽（尾置 --exclude 不改 dest 判定）", () => {
+    expect(isBlock("rsync -a /src/ /repo/dest/ --exclude '*.log'")).toBe(true);
+    expect(isAllow("rsync -a /src/ /tmp/d/ --exclude '*.log'")).toBe(true);
+  });
+  it("S1 对称变体：短旗标值位（-e 吞值）同洞同修", () => {
+    expect(isBlock("rsync -a /src/ /repo/dest/ -e ssh")).toBe(true);
+    expect(isAllow("rsync -a /src/ /tmp/d/ -e ssh")).toBe(true);
+  });
+  it("S2 tar 带值长旗标分写吞值位——值词不抢归档槽（pos[0]）", () => {
+    expect(isBlock("tar --owner root -cz /repo/out.tar /src")).toBe(true);
+    expect(isBlock("tar --files-from /tmp/list.txt -cz /repo/out.tar")).toBe(true);
+    expect(isBlock("tar --exclude build -cz /repo/out.tar /src")).toBe(true);
+  });
+  it("S2 放行侧：良性 tar 带值/布尔长旗标不误拦（值位不乱归档槽）", () => {
+    expect(isAllow("tar --exclude build -cz /tmp/o.tar /src")).toBe(true);
+    expect(isAllow("tar --verbose -cz /tmp/o.tar /src")).toBe(true);
+  });
+  it("S2 fallback：未收录长旗标值位不可静态识别 → 保守拦（不被词面证洗白）", () => {
+    expect(isBlock("tar --mystery val -cz /repo/out.tar /src")).toBe(true);
+    expect(isBlock("rsync -a /src/ /repo/dest/ --mystery val")).toBe(true);
+    // 怪形尾置歧义（--mystery x 可能是值位也可能是 dest）→ 同保守拦（误拦可接受面，
+    // fail-closed 优先；不建值位猜测模型，#1513 不军备化之尺）
+    expect(isBlock("rsync -a /src/ /tmp/d/ --mystery x")).toBe(true);
+  });
+  it("写目标槽不可求值（dyn）→ 保守拦（词面证盲区不洗白，探针 probe-wash 实证面）", () => {
+    expect(isBlock("tar -xf /tmp/e.tar -C \"$D\"")).toBe(true);
+    expect(isBlock("rsync -a /src/ \"$D\"")).toBe(true);
+    expect(isBlock("unzip /tmp/e.zip -d \"$D\"")).toBe(true);
+  });
+  it("dyn 归档名槽不误伤（x 态良性：$A 是读面归档名）", () => {
+    expect(isAllow("tar -xf \"$A\" -C /tmp")).toBe(true);
+  });
+});
+
+describe("delta1 点折叠（发现 3）：缺省 cwd 目录性写面点分量归一", () => {
+  it("S3 tar/unzip 缺省落 cwd（target=\".\"）+ dot 执行 → 前缀命中拒判", () => {
+    expect(isBlock("tar -xf /tmp/e.tar && . g.sh")).toBe(true);
+    expect(isBlock("unzip /tmp/e.zip && . g.sh")).toBe(true);
+  });
+  it("S3 不对称对照保持：ROOT 态同 target 提取面仍拦", () => {
+    expect(isBlock("unzip /tmp/e.zip && . /repo/g.sh", ROOT)).toBe(true);
+  });
+});
+
+describe("delta1 纯读集与分界钉（建议 4/5/6）", () => {
+  it("A4 unzip -p/-c/-v 纯读 → ALLOW（原误拦），解包面不松", () => {
+    expect(isAllow("unzip -p /repo/x.zip", ROOT)).toBe(true);
+    expect(isAllow("unzip -c /repo/x.zip", ROOT)).toBe(true);
+    expect(isAllow("unzip -v /repo/x.zip", ROOT)).toBe(true);
+    expect(isBlock("unzip /repo/x.zip -d /repo/dir")).toBe(true);
+  });
+  it("A5 /tmp vs /tmp2 兄弟目录分界钉（双向，前缀匹配不吃兄弟目录）", () => {
+    expect(isAllow("tar -xf /tmp/e.tar -C /tmp && . /tmp2/g.sh")).toBe(true);
+    expect(isAllow("tar -xf /tmp/e.tar -C /tmp2 && . /tmp/g.sh")).toBe(true);
+  });
+  it("A6 tar xf/cf 传统无横线形态 → 保守 uncovered 拦（行为钉）", () => {
+    expect(isBlock("tar xf /tmp/e.tar -C /tmp && . /tmp/g.sh")).toBe(true);
+    expect(isBlock("tar cf /repo/out.tar /src")).toBe(true);
+  });
+});

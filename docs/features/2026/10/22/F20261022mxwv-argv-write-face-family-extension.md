@@ -67,6 +67,28 @@ modules: [guard]
 ## 剩余风险与非目标（诚实边界）
 
 - rsync dest 一律目录性写面（前缀匹配）——单文件 dest 形态略过宽（保守侧，fail-closed 方向）
-- tar 旗标簇解析只认 f 值位与常见长旗标——冷僻形态（--files-from 等）落 unknown→uncovered-cmd 保守拦
+- ~~tar 旗标簇解析只认 f 值位与常见长旗标——冷僻形态落 unknown→uncovered-cmd 保守拦~~ **（delta1 订正：此宣称与实现不符——旧实现长旗标一律跳过、值位污染归档槽（严重 2），且 uncovered-cmd 会被词面证洗白（非保守拦）。订正后口径见 delta1 节）**
 - wget `-qO-` 假阳落点（F20261021pdex 归档 M-f6762368 的旗标提取面）**不在本单射程**，维持记档
 - M-48ac4e39（find -exec 执行体破坏面）/ M-dd668952（stash 落点豁免洗白）经基座分析为异构（前者 guard 破坏面规则、后者 evalGitWrite 落点解析），按拆单结论独立处理
+
+## delta1（检视獭1619 对抗审视 r1 处置，2026-10-22）
+
+检视结论：3 严重 + 3 建议（PR #1619 review 留痕）。全部本 delta 处置：
+
+| 发现 | 根因（实测钉死） | 修法 |
+|---|---|---|
+| S1 rsync 长旗标子串误判只读 + 值位污染 dest 槽 | `v.slice(1).includes("n")` 把 --numeric-ids/--no-owner 等误判 dry-run；带值长旗标值词入 pos 抢末位置槽（`--exclude '*.log'` 尾置 → dest=*.log，真实落点脱离提取） | 长旗标仅 --dry-run 判只读（短簇 -an 保留）；语义类表（布尔/带值）分写吞值位；短值位旗标（-e/-B：簇尾后缀或下一词）同类同修（S1-4） |
+| S2 tar 带值长旗标值位污染归档槽 | `--owner root` 分写值词入 pos 抢 pos[0]，真实归档名沦源词（已解析形态污染，超出原记档的「冷僻旗标 unknown」边界） | 带值长旗标（--owner/--group/--files-from 等）分写吞值位（-T 同）；未收录长旗标值位歧义（后随词=首位置词）保守回落 |
+| S3 dirWrite "." 点折叠缺位（配对面） | normalizePath 不折叠点分量，前缀 `/wt/.//` 恒不匹配（同一 target 提取面 BLOCK/配对面放水，坐实缺位非取舍） | normalizePath 折叠 . 分量（根因载体，docstring 原承诺兑现）；writeFaceMatches 比较前两侧归一（幂等双保险） |
+| 建议 4 unzip 纯读集缺 -p | `-p/-c/-v` 同语义纯读却产 dirWrite 误面 | 纯读字母簇 `^-[ltZpcv]+$` 对称收齐（-lv 簇同判） |
+| 建议 5 /tmp vs /tmp2 分界钉缺失 | 简报宣称已钉实际无钉（行为正确但无回归钉） | 双向分界钉落地（矩阵 A5） |
+| 建议 6 tar xf 传统形态未钉 | 裸模式词不进解析（保守正确但无钉） | 补解析（首参模式字母簇，V7 `tar key [archive]` 语义，review 认可「更佳」）+ 行为钉（矩阵 A6） |
+
+**delta1 附带发现（严重 1/2 修法中实测暴露的第三扇放水门）**：能力 4 词面证（proveNoWrite）对 argv 写面族工具内写语义全盲——`tar cf /repo/out.tar /src`（归档写主仓）、`tar -xf /tmp/e.tar -C "$D"`（动态解包槽）求值出的 uncovered-cmd/dynamic-path 被词面证洗成正面 ALLOW（探针 /tmp/probe-wash.ts 实证；三牙 UNPROVABLE_TEETH 注释记载的同款洗白口）。不堵此门，「unknown→保守拦」的 fallback 修法就是假修。处置：族内目标槽不可静态钉（形态未知/值位歧义/动态槽）统一落新 reason `argv-write-uncovered` 并入 UNPROVABLE_TEETH（三牙同哲学：不可证面不进词面证豁免）。**行为变化如实披露**：`rsync -a /src/ "$D"` 类动态槽形态从（洗白）ALLOW 收紧为 BLOCK，`tar -xf "$A" -C /tmp` 类归档名读面形态不受影响（矩阵钉）——收紧方向非回归。
+
+**不军备化（#1513 之尺，delta1 继承）**：长旗标语义类表**非穷举**——布尔/带值两表收录 rsync(1)/tar(1) 常用形态，未收录长旗标不建值位猜测模型，仅在后随词可能占据决定性槽位（rsync dest=末位置 / tar 归档=首位置）时保守回落；`--no-*` 否定形与 `--k=v` 内联值形按语义规则免表。
+
+### Verification（delta1 证据链）
+
+- **修复前红证**：矩阵首轮 22 passed | 7 failed（S1×3/S2/S3/A4/A6 全红=放水面/误拦面实证）；基线探针 /tmp/probe-1619-delta1-baseline.ts 先行钉死检视主张（S1×3/S2×2/S3 不对称/A4 误拦全部复现，另实出 S1-4 短值位同类洞）
+- **修复后绿证**：矩阵 32/32（delta1 新增 13 钉）；守卫域全量回归 **76 文件 2100 passed | 6 skipped**（含 touchstone 三池零翻转——corpus fixtures 实查零 tar/unzip/rsync 命令，棘轮无涉）；基线探针 34/34 全 ✓

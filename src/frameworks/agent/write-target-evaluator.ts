@@ -70,6 +70,7 @@ export type UnevalReason =
   | "parse-failed"        // parseOnce parseOk=false
   | "dynamic-path"        // $VAR/命令替换落点，同命令内无法溯源
   | "uncovered-cmd"       // 词表外命令携带写特征（重定向已单独算，此处指参数位疑似写）
+  | "argv-write-uncovered" // delta1：argv 写面族（tar/unzip/rsync）目标槽不可静态钉（形态未知/值位歧义/动态槽）——工具内写语义 proveNoWrite 词面证盲区，不进能力 4 豁免（UNPROVABLE_TEETH，三牙同哲学）
   | "heredoc-script-payload" // Python/JS 等脚本载荷（Phase 1 不求值）
   | "cwd-unresolvable"    // pushd/popd/cd $VAR 溯源不出
   | "script-path-dynamic"       // F20261014smrj 牙1：生成/动态脚本路径（$(gen).sh / $VAR.sh 族）——一律拦不进词面证豁免
@@ -157,9 +158,12 @@ function pathWithinMainCore(p: string, projectRoot: string): boolean {
   return p.startsWith(root.endsWith("/") ? root : `${root}/`);
 }
 
-/** 轻量路径归一（不触盘：仅处理 . / 重复斜杠 / 尾斜杠；.. 保守保留） */
+/** 轻量路径归一（不触盘：折叠 . 分量 / 重复斜杠 / 尾斜杠；.. 保守保留不爬升） */
 function normalizePath(p: string): string {
-  return p.replace(/\/{2,}/g, "/").replace(/(.+)\/$/, "$1");
+  if (p === "") return "";
+  const abs = p.startsWith("/");
+  const joined = p.split("/").filter((c) => c !== "" && c !== ".").join("/");
+  return abs ? `/${joined}` : (joined === "" ? "." : joined);
 }
 
 /** 路径词求值：相对 → cwd 拼接；含 $/`/~（家目录）→ null（动态，unevaluated）。
@@ -667,8 +671,11 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
   if (bare === "tar" || bare === "unzip" || bare === "rsync") {
     const r = archiveFamilyTargets(bare, words.slice(1));
     if (r === "read-only") return null;
-    if (r === "unknown") return "uncovered-cmd"; // 形态未知，保守回落
-    if (r.dyn) return "dynamic-path"; // 写目标词不可求值
+    // delta1：目标槽不可静态钉（形态未知/值位歧义/动态槽）→ argv-write-uncovered——
+    // 落 uncovered-cmd/dynamic-path 会被能力 4 词面证洗成 ALLOW（词面证盲于工具内写语义），
+    // 保守回落必须兕住洗白口（探针 /tmp/probe-wash.ts 实证的放水门）。
+    if (r === "unknown") return "argv-write-uncovered"; // 形态未知，保守回落
+    if (r.dyn) return "argv-write-uncovered"; // 写目标词不可求值
     for (const t of r.targets) { const e = push(t); if (e !== null) return e; }
     return null;
   }
@@ -1228,6 +1235,10 @@ const UNPROVABLE_TEETH: ReadonlySet<UnevalReason> = new Set<UnevalReason>([
   "script-path-dynamic",
   "script-payload-dynamic",
   "script-payload-unreadable",
+  // delta1（检视獭1619 发现 1/2 修法附带）：argv 写面族目标槽不可静态钉同属词面证盲区
+  //（proveNoWrite 对 tar cf 写归档/rsync 写 dest 一无所见）——原落 uncovered-cmd/dynamic-path
+  // 被能力 4 词面证洗成正面 ALLOW（/tmp/probe-wash.ts 实证的放水门），不入豁免集即兕不住。
+  "argv-write-uncovered",
 ]);
 
 /** shell 外置脚本执行段（解释器族 ∪ source/.）——三牙判定的触发面 */
@@ -1567,27 +1578,99 @@ function inPlaceEditFiles(words: Word[]): { files: Array<string | null> } | null
   return { files: nonFlagWords.filter(v => v !== "").slice(1) }; // 滤掉 BSD 空备份后缀，跳过脚本/表达式
 }
 
+/** 长旗标语义类（delta1，检视獭1619 发现 1/2 修法）：布尔类（无值位）/带值类（分写吞值位，
+ *  getopt_long 语义——值位取下一词）。**非穷举**（#1513 不军备化之尺：语义类收编，不追穷举
+ *  变体）：未收录长旗标仅在后随词可能占据决定性槽位（rsync dest=末位置 / tar 归档=首位置）
+ *  时保守回落 unknown，其余按布尔跳过（中间值位不碰决定性槽位，免疫证明见各分支注释）。
+ *  `--no-*` 否定形与 `--k=v` 内联值形不入表：前者恒布尔、后者值位内联无污染。 */
+const RSYNC_LONG_BOOL: ReadonlySet<string> = new Set([
+  "--archive", "--recursive", "--links", "--perms", "--times", "--group", "--owner", "--devices",
+  "--specials", "--hard-links", "--acls", "--xattrs", "--sparse", "--whole-file", "--inplace",
+  "--append", "--append-verify", "--update", "--delete", "--delete-before", "--delete-during",
+  "--delete-delay", "--delete-after", "--delete-excluded", "--force", "--ignore-errors", "--quiet",
+  "--verbose", "--human-readable", "--progress", "--stats", "--numeric-ids", "--checksum",
+  "--compress", "--itemize-changes", "--from0", "--mkpath", "--old-args",
+]);
+const RSYNC_LONG_VALUE: ReadonlySet<string> = new Set([
+  "--exclude", "--exclude-from", "--include", "--include-from", "--filter", "--files-from",
+  "--compare-dest", "--copy-dest", "--link-dest", "--backup-dir", "--suffix", "--partial-dir",
+  "--temp-dir", "--log-file", "--out-format", "--bwlimit", "--chmod", "--chown", "--timeout",
+  "--contimeout", "--protocol", "--iconv", "--compress-level", "--block-size", "--max-size",
+  "--min-size", "--max-delete", "--max-alloc", "--port", "--config", "--usermap", "--groupmap",
+  "--password-file", "--early-input", "--debug", "--stderr",
+]);
+const TAR_LONG_BOOL: ReadonlySet<string> = new Set([
+  "--verbose", "--verify", "--totals", "--null", "--verbatim-files-from", "--numeric-owner",
+  "--absolute-names", "--dereference", "--hard-dereference", "--keep-old-files", "--same-owner",
+  "--same-permissions", "--ignore-zeros", "--ignore-failed-read", "--anchored", "--wildcards",
+  "--ignore-case", "--wildcards-match-slash", "--delay-directory-restore", "--one-file-system",
+  "--fast-read", "--occurrence",
+]);
+const TAR_LONG_VALUE: ReadonlySet<string> = new Set([
+  "--owner", "--group", "--files-from", "--exclude", "--exclude-from", "--transform",
+  "--strip-components", "--newer", "--newer-mtime", "--after-date", "--mode", "--mtime",
+  "--to-command", "--use-compress-program", "--compress-program", "--checkpoint",
+  "--checkpoint-action", "--format", "--sort", "--level", "--index-file", "--owner-map",
+  "--group-map", "--volno-file", "--rmt-command", "--info-script", "--new-volume-script", "--add-file",
+]);
+
+/** 短簇值位判定（delta1 发现 1 同类：rsync -e rsh / -B block-size）：命中值位旗标且为簇尾
+ *  字母时值位在下一词（-ae ssh），否则值位为簇内后缀（-aesh）无需吞词。 */
+function rsyncClusterEatsValue(cs: string): boolean {
+  for (const vk of ["e", "B"]) {
+    const k = cs.indexOf(vk);
+    if (k >= 0) return k === cs.length - 1;
+  }
+  return false;
+}
+
 /** 解包/同步族（tar/unzip/rsync）写目标解析（M-f6762368 族外延收编，提取与造-执对共用）：
  *  tar：x=解包写（-C 目录缺省 cwd，目录性写面）；c/r/u=归档文件写（-f/首位置词，精确面）；
- *  t=纯读无写面；模式不明 → unknown（提取面保守 uncovered-cmd）。归档名不是写目标（解包
+ *  t=纯读无写面；模式不明 → unknown（提取面保守 argv-write-uncovered）。归档名不是写目标（解包
  *  写的是目录，创建写的是归档本体）——只有写目标槽不可求值才 dyn（不伤 `$A -C /tmp` 良性形态）。
- *  unzip：-l/-t/-Z 纯读；否则解包写（-d 目录缺省 cwd，目录性写面）。
- *  rsync：-n/--dry-run 无写；dest=末位置参数（目录性写面——dest 形态不猜，保守前缀匹配）。 */
+ *  unzip：-l/-t/-Z/-p/-c/-v 纯读；否则解包写（-d 目录缺省 cwd，目录性写面）。
+ *  rsync：-n/--dry-run 无写；dest=末位置参数（目录性写面——dest 形态不猜，保守前缀匹配）。
+ *  delta1（检视獭1619 发现 1/2）：长旗标值位污染修复——只读判定只认 --dry-run/-n（原 includes("n")
+ *  子串把 --numeric-ids 等误判只读）、带值长旗标分写吞值位（原值词入 pos 抢目标槽 → 漏拦）、
+ *  未收录长旗标值位歧义时保守回落。发现 3 附带：目标 "." 的点分量由 normalizePath 折叠。 */
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- tar 旗标簇/长旗标/三模式 + unzip 纯读集 + rsync dry-run 穷举解析（每分支=一种已实证命令形态），与 evalExtendedWriteTargets 先例同款豁免（行为等价拆分交 delta 复核定夺）
 function archiveFamilyTargets(
   bare: "tar" | "unzip" | "rsync",
   argWords: Word[],
 ): { targets: string[]; dirWrite: boolean; dyn: boolean } | "read-only" | "unknown" {
+  // 位置词预扫（决定性槽位判据）：含不可求值词（保守侧）。
+  const rawPosIdx: number[] = [];
+  for (let i = 0; i < argWords.length; i++) {
+    const v = argWords[i].evaluated;
+    if (v === null || v === "-" || !v.startsWith("-")) rawPosIdx.push(i);
+  }
   if (bare === "rsync") {
     let readonly = false;
+    let destSlotAmbiguous = false;
     const pos: Array<string | null> = [];
-    for (const w of argWords) {
-      const v = w.evaluated;
+    const lastPosIdx = rawPosIdx.length > 0 ? rawPosIdx[rawPosIdx.length - 1] : -1;
+    for (let i = 0; i < argWords.length; i++) {
+      const v = argWords[i].evaluated;
       if (v === "--dry-run") { readonly = true; continue; }
-      if (v !== null && v.startsWith("-") && v !== "-") { if (v.slice(1).includes("n")) readonly = true; continue; }
+      if (v !== null && v.startsWith("--")) {
+        // 发现 1：长旗标仅 --dry-run 判只读（原 includes("n") 把 --numeric-ids/--no-owner 等误判只读）
+        if (v.startsWith("--no-") || v.includes("=")) continue;
+        if (RSYNC_LONG_BOOL.has(v)) continue;
+        if (RSYNC_LONG_VALUE.has(v)) { i++; continue; } // 分写吞值位，值词不入 pos
+        // 未收录长旗标：后随词=末位置词（dest 槽）且更早还有位置词时，值位/dest 槽不可分辨
+        if (i + 1 === lastPosIdx && rawPosIdx.some((k) => k < i + 1)) destSlotAmbiguous = true;
+        continue; // 中间值位不碰末位置槽（dest=末位置词免疫证明），按布尔跳过
+      }
+      if (v !== null && v.startsWith("-") && v !== "-") {
+        const cs = v.slice(1);
+        if (cs.includes("n")) readonly = true; // 短簇 n=dry-run（-an ✓ 同原语义）
+        if (rsyncClusterEatsValue(cs)) i++; // 值位短旗标（-e/-B）吞值词，不入 pos
+        continue;
+      }
       pos.push(v);
     }
-    if (readonly) return "read-only";
+    if (readonly) return "read-only"; // dry-run 无写——值位歧义不推翻只读判定
+    if (destSlotAmbiguous) return "unknown";
     if (pos.length === 0) return "unknown";
     const dest = pos[pos.length - 1];
     return dest === null ? { targets: [], dirWrite: true, dyn: true } : { targets: [dest], dirWrite: true, dyn: false };
@@ -1599,39 +1682,64 @@ function archiveFamilyTargets(
     for (let i = 0; i < argWords.length; i++) {
       const v = argWords[i].evaluated;
       if (v === "-d") { dirFlag = true; dir = argWords[i + 1]?.evaluated ?? null; i++; continue; }
-      if (v === "-l" || v === "-t" || v === "-Z") { readonly = true; }
+      // 纯读集（建议 4）：-l/-t/-Z + -p/-c/-v（stdout/列表面）——纯读字母簇对称（-lv 同判）
+      if (v !== null && /^-[ltZpcv]+$/.test(v)) { readonly = true; }
     }
     if (readonly) return "read-only";
     if (dirFlag && dir === null) return { targets: [], dirWrite: true, dyn: true };
     return { targets: [dirFlag && dir !== null ? dir : "."], dirWrite: true, dyn: false };
   }
-  // tar：旗标簇内 f 吃值（-xzf file.tar）；长旗标 --directory/--file/--list/--extract/--create/--append/--update
+  // tar：旗标簇内 f 吃值（-xzf file.tar / 传统无横线 cf out.tar 同语义）；长旗标 --directory/
+  //  --file/--list/--extract/--create/--append/--update 显式；其余长旗标走语义类表。
   let mode = "";
   let fFlag = false;
   let fVal: string | null = null;
   let chdirFlag = false;
   let chdir: string | null = null;
   const pos: Array<string | null> = [];
+  let archiveSlotAmbiguous = false;
+  const firstPosIdx = rawPosIdx.length > 0 ? rawPosIdx[0] : -1;
+  // 簇解析（横线/传统无横线共用）：f 吃值（簇尾后缀=值，否则值位在下一词）
+  const takeCluster = (cs: string): boolean => {
+    const fi = cs.indexOf("f");
+    if (fi >= 0) {
+      fFlag = true;
+      const rest = cs.slice(fi + 1);
+      if (rest !== "") { fVal = rest; }
+      mode += cs.slice(0, fi);
+      return rest === ""; // f 值位在下一词
+    }
+    mode += cs;
+    return false;
+  };
   for (let i = 0; i < argWords.length; i++) {
     const v = argWords[i].evaluated;
     if (v === "-C" || v === "--directory") { chdirFlag = true; chdir = argWords[i + 1]?.evaluated ?? null; i++; continue; }
     if (v !== null && v.startsWith("--directory=")) { chdirFlag = true; chdir = v.slice("--directory=".length); continue; }
     if (v === "-f" || v === "--file") { fFlag = true; fVal = argWords[i + 1]?.evaluated ?? null; i++; continue; }
+    if (v === "-T") { i++; continue; } // 值位=成员清单文件（读面），吞值防污染（同 --files-from）
     if (v !== null && v.startsWith("--file=")) { fFlag = true; fVal = v.slice("--file=".length); continue; }
     if (v === "--list" || v === "--list-filenames") { mode += "t"; continue; }
     if (v === "--extract" || v === "--get") { mode += "x"; continue; }
     if (v === "--create") { mode += "c"; continue; }
     if (v === "--append") { mode += "r"; continue; }
     if (v === "--update") { mode += "u"; continue; }
-    if (v !== null && v.startsWith("--")) continue;
+    if (v !== null && v.startsWith("--")) {
+      // 发现 2：带值长旗标分写吞值位（原值词入 pos 抢 pos[0] 归档槽 → 漏拦）
+      if (v.startsWith("--no-") || v.includes("=")) continue;
+      if (TAR_LONG_BOOL.has(v)) continue;
+      if (TAR_LONG_VALUE.has(v)) { i++; continue; }
+      // 未收录长旗标：后随词=首位置词（归档槽候选）且还有其它位置词时，值位/归档槽不可分辨
+      if (i + 1 === firstPosIdx && rawPosIdx.length > 1) archiveSlotAmbiguous = true;
+      continue;
+    }
     if (v !== null && v.startsWith("-") && v !== "-") {
-      const cs = v.slice(1);
-      const fi = cs.indexOf("f");
-      if (fi >= 0) {
-        const rest = cs.slice(fi + 1);
-        if (rest !== "") { fFlag = true; fVal = rest; } else { fFlag = true; fVal = argWords[i + 1]?.evaluated ?? null; i++; }
-        mode += cs.slice(0, fi);
-      } else mode += cs;
+      if (takeCluster(v.slice(1))) { fVal = argWords[i + 1]?.evaluated ?? null; i++; }
+      continue;
+    }
+    // 传统无横线形态（建议 6 解析扩展，review 认可「更佳」）：首参=模式字母簇（V7 tar key [archive] files）
+    if (i === 0 && v !== null && /^[xcrut][A-Za-z]*$/.test(v)) {
+      if (takeCluster(v)) { fVal = argWords[i + 1]?.evaluated ?? null; i++; }
       continue;
     }
     pos.push(v);
@@ -1641,6 +1749,7 @@ function archiveFamilyTargets(
     return { targets: [chdirFlag && chdir !== null ? chdir : "."], dirWrite: true, dyn: false };
   }
   if (mode.includes("c") || mode.includes("r") || mode.includes("u")) {
+    if (archiveSlotAmbiguous && !fFlag) return "unknown"; // 发现 2 同类：归档槽 vs 值位不可分辨
     if (fFlag) return fVal === null ? { targets: [], dirWrite: false, dyn: true } : { targets: [fVal], dirWrite: false, dyn: false };
     const first = pos[0];
     return first === undefined ? "unknown" : (first === null ? { targets: [], dirWrite: false, dyn: true } : { targets: [first], dirWrite: false, dyn: false });
@@ -1874,12 +1983,16 @@ function pairPlanFor(sPath: string, segs: Segment[], cwdAt: (string | null)[], u
 }
 
 /** 写面落点匹配（M-f6762368）：精确路径命中，或目录性写面（tar/unzip/rsync）前缀命中——
- *  解包/同步写入目标目录下任意文件，执行段路径落在写目录内即同对。 */
+ *  解包/同步写入目标目录下任意文件，执行段路径落在写目录内即同对。delta1（发现 3）：
+ *  比较前两侧点折叠（normalizePath）——缺省落 cwd 的 target "." 拼前缀成 /wt/.// 恒不匹配
+ *  的配对面放水（提取面对照 BLOCK 坐实缺位非取舍）。 */
 function writeFaceMatches(e: WriteFaceEntry, sPath: string): boolean {
-  if (e.target === sPath) return true;
+  const target = normalizePath(e.target);
+  const sp = normalizePath(sPath);
+  if (target === sp) return true;
   if (e.dirWrite !== true) return false;
-  const prefix = e.target.endsWith("/") ? e.target : `${e.target}/`;
-  return sPath.startsWith(prefix);
+  const prefix = target.endsWith("/") ? target : `${target}/`;
+  return sp.startsWith(prefix);
 }
 
 /** 链内源内容透传（F20261019wvcp）：cp/mv/install/ln 是保内容拷贝——源文件是同命令链内
