@@ -634,6 +634,13 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
     ["PID 文件引用", /\.otter-buddy\.pid/g],
     // F20261019f714（M-f7148deb 第 3 条）：收窄到真实进程名语义——紧邻 `/` 的匹配是
     // 路径型 token（/…/otter-buddy/…、…/dist/src/main.js）不是进程名，不参与回显。
+    // J3 补充（F20261022j2j3）：旧实现 (?<!\/) 只挡绝对路径邻接，相对路径形态
+    // `dist/src/main`（d 前是空格）仍命中。曾尝试可变宽 lookbehind `(?<![^\s/]*\/)`
+    // 表达「token 含 / 不标」，实测 V8（node v24）下该 pattern 对「同 token 前缀段
+    // 含 /」的 `a/bdist` 形态判定与预期不符（最小复现：/(?<![^\s/]*\/)dist/g 在
+    // "a/bdist" 上命中 @3），可靠性不足——改为执行期 token 判定：正则原样匹配，
+    // 命中后检查匹配片段或 token 前缀段（同空白分隔 token 内、起点之前的部分）含 /
+    // 则跳过，语义即建议的「token 含 / 一律不标」，且不误伤真实进程名形态。
     // 该模式仅做诊断回显、不参与拦截判定（locateTriggerContext 注释在案；F20260924gfpn
     // 曾实测证伪同名「第五缺陷」误判），但回显误标曾连续误导两次根因归因——路径命中
     // 不再挂「进程名模式」标签；kill/pkill 目标语义的判定在 kill-segment 通道，不受此改影响。
@@ -647,6 +654,14 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
     let firstSnippet = "";
     let firstIndex = 0;
     while ((m = re.exec(command)) !== null && hits.length < 6) {
+      // J3（F20261022j2j3）：「进程名模式」执行期 token 判定——匹配片段本身含 /，或
+      // 同空白分隔 token 的前缀段（token 起点到匹配起点之间）含 /，即路径型 token，
+      // 跳过不标。lookbehind 方案不可靠（V8 可变宽 lookbehind 实测行为与预期不符），
+      // 故在循环内判定；仅影响诊断回显，不影响拦截。
+      if (name === "进程名模式") {
+        const tokenStart = Math.max(command.lastIndexOf(" ", m.index - 1), command.lastIndexOf("\t", m.index - 1), command.lastIndexOf("\n", m.index - 1)) + 1;
+        if (m[0].includes("/") || command.slice(tokenStart, m.index).includes("/")) continue;
+      }
       const start = Math.max(0, m.index - 10);
       const end = Math.min(command.length, m.index + m[0].length + 10);
       // PID 脱敏铁律（F20260831aksp）：片段中的真实主进程 PID 替换为占位符——
