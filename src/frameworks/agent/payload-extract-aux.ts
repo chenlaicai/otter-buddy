@@ -11,40 +11,80 @@ import type { Word } from "./command-lexer";
 
 /** shell 递归/脚本载荷解释器族（与 bash-safety-guard 脚本族同源口径） */
 export const SCRIPT_RUNNERS = new Set(["python", "python3", "node", "perl", "ruby", "osascript"]);
+/** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10）——F20261022vwfg delta 1：自 command-model
+ *  迁入（值吞食守卫要引用；command-model re-export 保持既有引用面） */
+export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh", "ash"]);
+/** 写命令词（argv 落点写面）——F20261022vwfg delta 1：自 write-target-evaluator 迁入
+ *  （同理由：值吞食守卫引用，wte 从此处 import） */
+export const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir", "rm", "find"]);
+export const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "chgrp", "truncate"]);
+
+/** 值吞食守卫（delta 严重 1 修复）：带值旗标的值 token 若形似「本守卫有专门判定面的
+ *  命令词」（解释器/壳/分发器/wrapper/写命令/git/取数族），不吞——按基线口径保守归位
+ *  为段首（吞掉会让 head 走丢，基线判罚 block→allow 翻转，同命令不得反判）。
+ *  其余未知命令词两侧判罚同为放行，吞值不产生翻转，不入表（不军备化 #1513）。
+ *  惰性构造（WRAPPER_SPECS/MULTI_CALL 在本区块之后定义，避免模块加载 TDZ）。 */
+let execLikeWords: Set<string> | null = null;
+function looksLikeExecWord(text: string): boolean {
+  if (execLikeWords === null) {
+    execLikeWords = new Set<string>([
+      ...SCRIPT_RUNNERS, ...SHELL_INTERPRETERS, ...MULTI_CALL_DISPATCHERS,
+      ...Object.keys(WRAPPER_SPECS), ...TARGET_ARG_COMMANDS, ...EXTENDED_TARGET_COMMANDS,
+      "git", "curl", "wget", "ssh",
+    ]);
+  }
+  return execLikeWords.has(canonicalExecName(tokenBasename(text)));
+}
+
 /** 包装词旗标形态表：包装词 → 跳过时吞食后续 token 的规则。
  *  词表外未知包装词一律 fail-closed——三轮枚举爆破的教训：不扩词表换结构，
  *  但「已知包装词」仍需一张表承载其旗标语法；表的职责从「枚举全宇宙包装词」
  *  收窄为「描述已知词的旗标形态」，未知词由结构兜底拦。
  *  吞食规则（确定性，防贪婪误吞解释器名）：
- *    flags: 吞连续的 - 开头 token；
- *    args:  吞「前一 token 是带参旗标」的后随一个非 - token（如 -n 5 / -o0 不同——
- *           -o0 是合写旗标属 flags；-n 5 分写则 5 属 args）。简单可靠规则：
- *           flags 吞完后，若最后一个被吞旗标在 takesValue 集合且其本身无内联值
- *           （长度==2 的短旗标），再吞一个 token；
+ *    flags: 吞连续的 - 开头 token（含合写/内联值形态：-o0 / --user=root 属之）；
+ *    valueFlags: 必带值旗标分写形态（M-c36b9847 值参盲区收编）——恰为集合成员的
+ *           旗标 token（无内联值，token 本身即旗标名，如 -u / --user）后随的一个
+ *           token 是它的值（FOO/root/KILL），一并吞食。三条硬边界（delta 严重 1
+ *           教训入注释——注释/表/矩阵登记三处同轴，穷举不留暗格）：
+ *           ① 只收「必带值」旗标，GNU 可选值旗标（值只能合写：xargs -i[replace-str]
+ *             / --replace[=str] / -l[max-lines] / --max-lines[=n]）一律不入表——
+ *             分写时后随 token 是命令不是值（xargs -i bash 的 bash 是命令）；
+ *           ② 后随值 token 形似执行词时不吞（looksLikeExecWord 守卫）——保守归位
+ *             为段首，与基线判罚零翻转；
+ *           ③ 表内每一项必须有矩阵钉（穷举断言防选择性覆盖）；
  *    assigns: env 专有——吞 FOO=v 形态；
  *    duration: timeout 专有——旗标吞完后吞一个时长 token（\d 开头或数字+单位）。
  *  delta r1（检视獭1604）：本表随段首解析收敛迁入共享内层（guard/wte 同一识别域）；
- *  值旗标分写形态（-u FOO / -n 5 后随值）不吞是已知盲区（M-c36b9847），归 wrapper
- *  基座治理，不在本次收编面。 */
+ *  值旗标分写形态不吞的盲区（M-c36b9847）由本层 valueFlags 收编（F20261022vwfg）。
+ *  表内清单（穷举，改动须同步矩阵登记与 F20261022vwfg 枚举节）：
+ *    env: -u/--unset/-C/--chdir/-S/--split-string；nice: -n/--adjustment；
+ *    timeout: -s/--signal/-k/--kill-after；watch: -n/--interval；
+ *    stdbuf: -o/--output/-e/--error/-i/--input；
+ *    sudo: -u/--user/-g/--group/-U/--other-user/-p/--prompt/-C/--close-from/
+ *          -D/--chdir/-R/--chroot/-T/--command-timeout/-r/--role/-t/--type；
+ *    xargs: -I/-n/--max-args/-d/--delimiter/-P/--max-procs/-s/--max-chars/-L/-a/--arg-file。 */
 export interface WrapperSpec {
   flags?: boolean;   // 吞连续 - 开头 token
+  /** 必带值旗标集合（分写形态：旗标后随一个值 token）——恰为成员且值不形似执行词才吞；
+   *  合写形态（-o0 / --user=root）由 flags 域覆盖，不在此表 */
+  valueFlags?: ReadonlySet<string>;
   assigns?: boolean; // 吞 FOO=v token（可夹于 flags 之后）
   duration?: boolean; // 吞一个时长/数值 token（timeout/watch -n 之外的独立参数）
 }
 export const WRAPPER_SPECS: Record<string, WrapperSpec> = {
-  env: { flags: true, assigns: true },
-  nice: { flags: true, duration: true },      // nice -n 5（-n 带值）/ nice -5
-  timeout: { flags: true, duration: true },   // timeout [-s KILL] 5 cmd
-  watch: { flags: true, duration: true },     // watch -n 1 cmd
+  env: { flags: true, assigns: true, valueFlags: new Set(["-u", "--unset", "-C", "--chdir", "-S", "--split-string"]) },
+  nice: { flags: true, duration: true, valueFlags: new Set(["-n", "--adjustment"]) },      // nice -n 5（-n 带值）/ nice -5
+  timeout: { flags: true, duration: true, valueFlags: new Set(["-s", "--signal", "-k", "--kill-after"]) },   // timeout [-s KILL] 5 cmd
+  watch: { flags: true, duration: true, valueFlags: new Set(["-n", "--interval"]) },       // watch -n 1 cmd
   setsid: { flags: true },
-  stdbuf: { flags: true },                    // stdbuf -o0 -eL（值内联旗标）
+  stdbuf: { flags: true, valueFlags: new Set(["-o", "--output", "-e", "--error", "-i", "--input"]) }, // stdbuf -o0（合写）/ stdbuf -o 0（分写）
   arch: {},
-  sudo: { flags: true },
+  sudo: { flags: true, valueFlags: new Set(["-u", "--user", "-g", "--group", "-U", "--other-user", "-p", "--prompt", "-C", "--close-from", "-D", "--chdir", "-R", "--chroot", "-T", "--command-timeout", "-r", "--role", "-t", "--type"]) }, // -h/--host 歧义（help/远程）不入表
   nohup: {},
   command: { flags: true },
   exec: { flags: true },
   time: { flags: true },
-  xargs: { flags: true },                     // xargs -I{}（值内联）——-I {} 分写形态保守不吞（落点 {} 非解释器自然放行交后续层）
+  xargs: { flags: true, valueFlags: new Set(["-I", "-n", "--max-args", "-d", "--delimiter", "-P", "--max-procs", "-s", "--max-chars", "-L", "-a", "--arg-file"]) }, // GNU 可选值旗标 -i/--replace/-l/--max-lines 不入表（见②）；xargs -I{}（值内联）/ xargs -I {}（分写收编）
 };
 
 /** 多调分发器二进制（M-38fb45c0 A 面）：<dispatcher> <子命令> = 子命令语义别名
@@ -60,11 +100,27 @@ export const tokenBasename = (t: string): string => {
 
 /** 跳过一个包装词及其旗标参数（parseSegmentHead/stdinShellKind/resolveExecHead 共用
  *  内层——wrapper 吞食规则单一真相源，抽函数控圈复杂度）。
- *  确定性吞食（防贪婪误吞解释器名）：flags 连续 - 开头 / assigns FOO=v / duration 单个数值。 */
+ *  确定性吞食（防贪婪误吞解释器名）：flags 连续 - 开头（valueFlags 成员吞一个后随值 token）
+ *  / assigns FOO=v / duration 单个数值。 */
+// eslint-disable-next-line complexity -- 吞食语法四类穷举（flags/valueFlags 值/assigns/duration）是 wrapper 段首归位的判定面，拆函数会把单点吞食规则切碎（delta 严重 1 修复的核心守卫面——先例 resolveExecHead 同款豁免）
 export function skipWrapperArgs(tokens: ReadonlyArray<{ text: string }>, k: number, spec: WrapperSpec): number {
-  if (spec.flags) while (k < tokens.length && /^-/.test(tokens[k].text)) k++;
-  if (spec.assigns) while (k < tokens.length && /^[A-Za-z_]\w*=\S*$/.test(tokens[k].text)) k++;
-  if (spec.duration && k < tokens.length && /^\d/.test(tokens[k].text)) k++;
+  let durationTaken = false;
+  while (k < tokens.length) {
+    const t = tokens[k].text;
+    if (spec.flags && /^-/.test(t)) {
+      k++;
+      // 值参分写形态（M-c36b9847）：旗标恰为 valueFlags 成员（无内联值，token 即旗标名）
+      //  → 后随一个 token 是它的值（env -u FOO / sudo -u root / timeout -s KILL），一并吞。
+      //  两条硬边界（防贪婪 + 防基线判罚翻转）：只对「必带值」旗标成立（可选值旗标不入表）；
+      //  后随 token 形似执行词时不吞（looksLikeExecWord——吞掉会让 head 走丢，
+      //  基线 block→allow 翻转；保守归位为段首才是同命令不反判口径）。
+      if (spec.valueFlags?.has(t) && k < tokens.length && !looksLikeExecWord(tokens[k].text)) k++;
+      continue;
+    }
+    if (spec.assigns && /^[A-Za-z_]\w*=\S*$/.test(t)) { k++; continue; }
+    if (spec.duration && !durationTaken && /^\d/.test(t)) { durationTaken = true; k++; continue; }
+    break;
+  }
   return k;
 }
 
@@ -95,6 +151,12 @@ export interface ExecHead {
  *  同基座）→ 多调分发器子命令归位（busybox sh ≡ sh；裸分发器默认 applet ash）→
  *  版本名归一（canonicalExecName）。段首链动态词（evaluated=null）→ null（判不出，
  *  调用方保守处理）。 */
+/** 无命令回退=跑 shell 的包装词（F20261022vwfg）：包装词吞尽全段、无执行词时的真实
+ *  语义是 shell 执行（管道喂入=shell 读上游，fail-closed 归位 sh）。依据：sudo(8)
+ *  「If no command is specified, an interactive shell is executed」；反向实证：
+ *  nice/nohup 无命令仅 usage 报错（非 shell）不入表；setsid 本机无从实证按残余记档。 */
+export const SHELL_EXEC_ON_EMPTY = new Set(["sudo"]);
+
 // eslint-disable-next-line complexity -- 解析序四段穷举（赋值前缀/wrapper 吞食/分发器归位/版本归一）是识别域一致性的判定面，拆函数会把单段首解析真相源切碎（delta r1 收敛核心——先例 interpreterScriptFileArg 双域判定豁免同款）
 export function resolveExecHead(seg: Segment): ExecHead | null {
   const words = seg.words;
@@ -105,11 +167,16 @@ export function resolveExecHead(seg: Segment): ExecHead | null {
     const t = words[i]?.evaluated ?? null;
     if (t === null) return null;
     if (/^[A-Za-z_]\w*=/.test(t)) { i++; continue; } // 赋值前缀不算包装
-    const spec = WRAPPER_SPECS[tokenBasename(t)];
+    const wrapperBase = tokenBasename(t);
+    const spec = WRAPPER_SPECS[wrapperBase];
     if (!spec) break;
     wrapped = true;
     i = skipWrapperArgs(tokens, i + 1, spec);
-    if (i >= words.length) return null;
+    if (i >= words.length) {
+      return SHELL_EXEC_ON_EMPTY.has(wrapperBase)
+        ? { name: "sh", headIndex: words.length - 1, wrapped: true }
+        : null;
+    }
   }
   const rawBase = tokenBasename(words[i].evaluated!);
   if (MULTI_CALL_DISPATCHERS.has(rawBase)) {
