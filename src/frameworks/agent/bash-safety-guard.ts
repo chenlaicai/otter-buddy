@@ -27,7 +27,7 @@ const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillA
 import { checkWithModel, modelParseOk } from "./guard-model-judge";
 import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
-import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS } from "./payload-extract-aux";
+import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS, WRAPPER_SPECS, tokenBasename, skipWrapperArgs, resolveExecHead, isStdinFeedRest } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
 import { segmentStdoutContent, evalInterpreterStdinBody } from "./write-target-evaluator";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
@@ -774,47 +774,11 @@ const ONELINER_EXTRACT_PATTERNS: Record<OneLinerInterp, RegExp> = {
 //   cd/npm/npx 等高频词在表内不会误拦）。
 
 /** shell 解释器名（洞1 识别面——basename 归一后比对）。 */
-const SHELL_INTERP_NAMES = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
-/** 多调分发器二进制（M-38fb45c0 A 面）：<dispatcher> <shell 子命令> = shell 语义别名
- *  （busybox sh ≡ sh，sudo/bash wrapper 同先例）——分发器自身非 shell 子命令时不属本面。 */
-const MULTI_CALL_DISPATCHERS = new Set(["busybox", "toybox"]);
+const SHELL_INTERP_NAMES = new Set(["bash", "sh", "zsh", "dash", "ksh", "ash"]);
 
 /** one-liner 解释器名 → 通道 key（洞2 落点判定）。 */
 const ONELINER_INTERP_NAMES: Record<string, OneLinerInterp> = {
   python: "python", python3: "python", node: "node", ruby: "ruby", perl: "perl",
-};
-
-/** 包装词旗标形态表：包装词 → 跳过时吞食后续 token 的规则。
- *  词表外未知包装词一律 fail-closed——三轮枚举爆破的教训：不扩词表换结构，
- *  但「已知包装词」仍需一张表承载其旗标语法；表的职责从「枚举全宇宙包装词」
- *  收窄为「描述已知词的旗标形态」，未知词由结构兜底拦。
- *  吞食规则（确定性，防贪婪误吞解释器名）：
- *    flags: 吞连续的 - 开头 token；
- *    args:  吞「前一 token 是带参旗标」的后随一个非 - token（如 -n 5 / -o0 不同——
- *           -o0 是合写旗标属 flags；-n 5 分写则 5 属 args）。简单可靠规则：
- *           flags 吞完后，若最后一个被吞旗标在 takesValue 集合且其本身无内联值
- *           （长度==2 的短旗标），再吞一个 token；
- *    assigns: env 专有——吞 FOO=v 形态；
- *    duration: timeout 专有——旗标吞完后吞一个时长 token（\d 开头或数字+单位）。 */
-interface WrapperSpec {
-  flags?: boolean;   // 吞连续 - 开头 token
-  assigns?: boolean; // 吞 FOO=v token（可夹于 flags 之后）
-  duration?: boolean; // 吞一个时长/数值 token（timeout/watch -n 之外的独立参数）
-}
-const WRAPPER_SPECS: Record<string, WrapperSpec> = {
-  env: { flags: true, assigns: true },
-  nice: { flags: true, duration: true },      // nice -n 5（-n 带值）/ nice -5
-  timeout: { flags: true, duration: true },   // timeout [-s KILL] 5 cmd
-  watch: { flags: true, duration: true },     // watch -n 1 cmd
-  setsid: { flags: true },
-  stdbuf: { flags: true },                    // stdbuf -o0 -eL（值内联旗标）
-  arch: {},
-  sudo: { flags: true },
-  nohup: {},
-  command: { flags: true },
-  exec: { flags: true },
-  time: { flags: true },
-  xargs: { flags: true },                     // xargs -I{}（值内联）——-I {} 分写形态保守不吞（落点 {} 非解释器自然放行交后续层）
 };
 
 /** 段首解析后落点在这些词上 → 明显非解释器/非 shell，放行交后续层判定
@@ -877,21 +841,7 @@ function tokenizeSegment(seg: string): { text: string; offset: number }[] | null
   return tokens;
 }
 
-const tokenBasename = (t: string): string => {
-  const stripped = t.replace(/^["']|["']$/g, "");
-  const base = stripped.includes("/") ? stripped.split("/").pop()! : stripped;
-  return base.toLowerCase();
-};
 
-/** 跳过一个包装词及其旗标参数（parseSegmentHead/stdinShellKind 共用内层——wrapper
- *  吞食规则单一真相源，抽函数控圈复杂度）。
- *  确定性吞食（防贪婪误吞解释器名）：flags 连续 - 开头 / assigns FOO=v / duration 单个数值。 */
-function skipWrapperArgs(tokens: ReadonlyArray<{ text: string }>, k: number, spec: WrapperSpec): number {
-  if (spec.flags) while (k < tokens.length && /^-/.test(tokens[k].text)) k++;
-  if (spec.assigns) while (k < tokens.length && /^[A-Za-z_]\w*=\S*$/.test(tokens[k].text)) k++;
-  if (spec.duration && k < tokens.length && /^\d/.test(tokens[k].text)) k++;
-  return k;
-}
 
 /** 段首 token 解析器（洞2 换结构核心）：跳过「赋值前缀 + 已知包装词（含旗标）」
  *  后返回落点 token。引号感知——引号内空格不切 token。解析失败（未闭合引号等）
@@ -1291,25 +1241,12 @@ function stdinShellKind(seg: Segment, depth = 3): "stdin" | "other" | "none" {
   const evals = seg.words.map(w => w.evaluated);
   if (evals.some(e => e === null)) return "other"; // 动态词——既有口径不收
   const texts = evals as string[];
-  const tokens = texts.map(text => ({ text }));
-  let i = 0;
-  for (;;) {
-    if (i >= texts.length) return "none";
-    const w = texts[i];
-    if (/^[A-Za-z_]\w*=/.test(w)) { i++; continue; } // 赋值前缀
-    const spec = WRAPPER_SPECS[tokenBasename(w)];
-    if (!spec) break;
-    i = skipWrapperArgs(tokens, i + 1, spec);
-  }
-  // M-38fb45c0（A 面）：多调分发器（busybox/toybox <shell 子命令>）= shell 语义别名——
-  //  `busybox sh` ≡ `sh` 进同一 stdin 判定链（curl|busybox sh / 静态载荷|busybox sh 双洞收口）
-  if (i + 1 < texts.length && MULTI_CALL_DISPATCHERS.has(tokenBasename(texts[i]))
-    && SHELL_INTERP_NAMES.has(tokenBasename(texts[i + 1]).replace(/\d+$/, ""))) {
-    i++;
-  }
-  const base = tokenBasename(texts[i]).replace(/\d+$/, "");
-  if (!SHELL_INTERP_NAMES.has(base)) return "none";
-  return stdinShellTailKind(texts.slice(i + 1), depth);
+  // delta r1（检视獭1604 严重 3）：段首解析收敛 resolveExecHead 共享内层——多调分发器
+  //  子命令归位（busybox sh ≡ sh）+ 裸分发器默认 applet ash（curl|busybox 最短攻击
+  //  形态收编）+ 版本名归一同基座，与 wte 侧同识别域。
+  const head = resolveExecHead(seg);
+  if (head === null || !SHELL_INTERP_NAMES.has(head.name)) return "none";
+  return stdinShellTailKind(texts.slice(head.headIndex + 1), depth);
 }
 
 const STDIN_SHELL_OPAQUE_MSG = "管道喂入 shell 执行的脚本内容未经守卫逐条判定（上游非静态可判源：cat/curl/变量/命令替换），绕过面不可接受。该命令不允许：请改写为 bash -c '<载荷>' 形态（载荷可逐条判定）或把脚本内容拆成独立命令执行；若确认此命令本意安全，请改用保持原语义的不含管道喂 shell 的方式达成目的；无法规避时告知搭档人工执行。";
@@ -1317,29 +1254,19 @@ const STDIN_SHELL_OPAQUE_MSG = "管道喂入 shell 执行的脚本内容未经�
 // ── M-38fb45c0 管道直执族 B 面：解释器 stdin 喂入（大獭 2026-10-21 裁决 A+B）──
 const STDIN_INTERP_BLOCK_MSG = "管道喂入 shell/解释器（python/node 等）执行的脚本内容未能正面证明安全（上游不透明/载荷不完整/写调用落点不可求值/只读白名单外），fail-closed 拦截。该命令不允许：请把脚本内容落盘为文件后拆步执行（可逐条判定），或改写为可静态判定的载荷形态；若确认此命令本意安全，请告知搭档人工执行。";
 
-/** 解释器 stdin 喂入段分类（M-38fb45c0 B 面）：段首（跳赋值前缀/wrapper）是脚本解释器
- *  且程序来源是 stdin（裸词/单短旗标/lone -——-c/-e/--x=v/脚本文件参走既有载荷通道不收）
- *  → stdin。wrapper 内包的 feed（env python）也归类——消息归因覆盖，判定仍以求值器
- *  裸词域（bareName）为界（wrapper 形态保守 fail-closed，不放行只改文案）。 */
-function interpreterStdinKind(seg: Segment): { kind: "stdin"; lang: string } | { kind: "none" } {
-  const evals = seg.words.map(w => w.evaluated);
-  if (evals.some(e => e === null)) return { kind: "none" };
-  const texts = evals as string[];
-  const tokens = texts.map(text => ({ text }));
-  let i = 0;
-  for (;;) {
-    if (i >= texts.length) return { kind: "none" };
-    const w = texts[i];
-    if (/^[A-Za-z_]\w*=/.test(w)) { i++; continue; }
-    const spec = WRAPPER_SPECS[tokenBasename(w)];
-    if (!spec) break;
-    i = skipWrapperArgs(tokens, i + 1, spec);
-  }
-  const name = tokenBasename(texts[i]);
-  const lang = SCRIPT_RUNNERS.has(name) ? name : name.replace(/\d+$/, "");
-  if (!SCRIPT_RUNNERS.has(lang)) return { kind: "none" };
-  const rest = texts.slice(i + 1);
-  if (rest.every(t => /^-[a-zA-Z]$/.test(t) || t === "-")) return { kind: "stdin", lang };
+/** 解释器 stdin 喂入段分类（M-38fb45c0 B 面）：段首是脚本解释器且程序来源是 stdin
+ *  （裸词/单短旗标/lone -——-c/-e/--x=v/脚本文件参走既有载荷通道不收）→ stdin。
+ *  delta r1（检视獭1604 严重 1/2 同根因收敛）：段首解析与 wte interpreterStdinFeedContent
+ *  同走 resolveExecHead 共享内层（跳赋值前缀/wrapper/分发器 + 版本名归一）。旧注释宣称
+ *  「wrapper 形态保守 fail-closed 只改文案」与实测相反（guard 归类 feed、求值器裸词域
+ *  看不见 → evaluated 空集放行）——识别域两侧一致后 wrapper/版本别名形态真同判，
+ *  该宣称随之成真并升级为完整判定（静态可判正面证明同尺放行/不可证 fail-closed）。
+ *  （export：供「两侧识别域一致」参数化断言与 wte 侧对照——一条语义一个接口。） */
+export function interpreterStdinKind(seg: Segment): { kind: "stdin"; lang: string } | { kind: "none" } {
+  const head = resolveExecHead(seg);
+  if (head === null || !SCRIPT_RUNNERS.has(head.name)) return { kind: "none" };
+  const rest = seg.words.slice(head.headIndex + 1).map(w => w.evaluated);
+  if (isStdinFeedRest(rest)) return { kind: "stdin", lang: head.name };
   return { kind: "none" };
 }
 

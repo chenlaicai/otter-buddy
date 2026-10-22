@@ -117,3 +117,41 @@ BLOCK(误拦)   | echo 'print(1)' | python
 - **F20261020c2sm（stdin 喂入 shell 判定）**：语义零变化——A 面只是把 busybox/toybox 多调分发器的 shell 子命令归位进它的判定链（wrapper-alias 同先例）；`cat <<EOF | bash` 的 catBody 提取仍是 shell 面专属（#1308 契约边界）
 - **F20261009cphr（#1308 cat 管道 heredoc）**：契约保持——管道馈体载荷不入求值、fail-closed；本 PR 初版曾翻转（4 例回归红），已收窄恢复并在取舍段记档
 - **M-38fb45c0 matter**：主张「curl|bash ALLOW」经基线复现判定过时（F20261020c2sm 已收口），但复现过程挖出 busybox 双洞与词面证洗白口两真洞，均本 PR 收口——matter 处置以本文档基线矩阵为准
+
+
+---
+
+## delta r1：对抗审视修复（检视獭1604 三严重 + 两建议，2026-10-21）
+
+**审查结论**：3 严重 + 2 建议，结论「需要修改」。三处严重同根因：**guard 侧认定的 feed 形态域 ⊃ wte 侧识别域**——guard 以为在管、求值器看不见 → evaluated 空集放行（两个组件各自的声明都对、合起来就是洞的结构性版本）。主链核验通过项（正面证明制、#1308 契约、洗白口关门、corpus 守恒）不动。
+
+### 发现与修法
+
+| # | 发现 | 根因锚点 | 修法 |
+|---|---|---|---|
+| 1 | wrapper+解释器 feed 全漏（`echo <静态有害> \| env python` ALLOW；sudo/timeout/nohup/xargs 变体同漏；guard 注释宣称「wrapper 形态保守 fail-closed 只改文案」与实测相反） | `isScriptRunnerSeg`（payload-extract-aux.ts）裸 argv0 词判定 = `evalScriptPayloadNarrow` 入口闸——wrapper 形态在此被拒，feed 分支不可达 | 段首解析收敛 `resolveExecHead` 共享内层（跳赋值前缀 + WRAPPER_SPECS 同基座 wrapper + 分发器 + 版本归一），guard/wte 两侧同走 |
+| 2 | 版本名归一单侧（`echo 'import os' \| python2` ALLOW） | guard `replace(/\d+$/,"")` 归一认、wte 入口闸裸词拒——各写各的归一 | `canonicalExecName` 单一归一真相源（python2/python3.11/perl5.x→族名；pypy*→python 语义别名） |
+| 3 | 裸 busybox/toybox 默认 ash 漏放（`curl \| busybox`、`busybox ash`、裸 `ash` 全 ALLOW——比已修 `busybox sh` 少打两个字符的最短攻击形态） | SHELL_INTERP_NAMES 无 `ash` + 多调分发器只认显式 shell 子命令 | SHELL_INTERP_NAMES/SHELL_INTERPRETERS 补 `ash`；分发器无子命令按默认 applet `ash` 归位 |
+| 4（建议） | 测试注释悬空 F 文档 ID（F20261021cxpp） | 笔误 | → F20261021pdex |
+| 5（建议） | 18 用例矩阵全落裸词域交集（wrapper/版本别名/裸分发器零用例——矩阵选择偏差是三漏放共同温床） | 矩阵无域覆盖断言 | 新增「两侧识别域一致」参数化断言（22 形态逐项同判）+ wrapper/版本别名/裸分发器域扩矩阵（拦截/放行双侧） |
+
+### 设计取舍
+
+1. **收敛共享内层而非单侧打补丁**：三发现同根因 = 段首解析两处各写各的。把 WRAPPER_SPECS/skipWrapperArgs/tokenBasename/MULTI_CALL_DISPATCHERS 迁入 payload-extract-aux（guard/wte 共同底层），`resolveExecHead` 作为唯一段首解析真相源——把 wte 单点改成「也认 wrapper」会留下第三处漂移点；共享内层 + 参数化一致性断言才结构性堵死单侧漂移。
+2. **wrapper 形态从「归因覆盖、判定旁路」升级为完整判定**：旧注释的「保守 fail-closed 只改文案」与实测相反（实为放行）。修后 wrapper feed 与裸词同尺：静态可判 + 正面证明只读 → 放行（`echo 'print(1)' \| env python`）；不可证/不透明/写词面 → fail-closed / 落点归因——声明变真的同时不误拦良性 wrapper 形态。
+3. **值参 wrapper 盲区不带入**（M-c36b9847）：`sudo -u root python`/`env -u FOO python` 等分写带值形态，skipWrapperArgs 不吞后随值 → 段首落「root/FOO」→ **两侧同判不识别**（一致性 ✓、覆盖性 ✗）。补齐值旗标建模 = wrapper 基座改造（贪婪误吞解释器名的误拦风险），按 #1513 不军备化原则归 wrapper 基座治理单，测试以「残余诚实钉」钉住现状。
+4. **裸分发器默认 applet 按 fail-closed 归位**：busybox 无子命令 = 默认 applet ash；toybox 同保守归位（实机裸跑语义存疑，红线3 同尺宁可误拦不可漏放）。`busybox --list` 等旗标形态交尾参分类与 `bash --help` 同尺，不特判。
+5. **不扩面清单（如实记档）**：C 族（bash <(curl)/sh -c "$(curl)") 维持钉现状；文件形态 wrapper（`env python x.py`）的残闸与文件位识别已同步收敛（防「残闸认脚本段、文件位看不见」新误拦），但牙1/牙3 runner 信号（isRunnerArgv0 仍裸 argv0）与 fsContentPlan 覆盖仍属 wrapper 基座治理面，不冒充已收编；guard one-liner 通道 headIsInterp 的归一（pypy3 面）为单侧内部口径、不在两侧一致性断言域，随 one-liner 通道收编单处理。
+
+### 影响范围
+
+- `payload-extract-aux.ts`：共享内层迁入 + resolveExecHead/canonicalExecName/isStdinFeedRest 新增；isScriptRunnerSeg 归一化；RUNNER_JUNCTION 补 ash
+- `bash-safety-guard.ts`：SHELL_INTERP_NAMES + ash；stdinShellKind/interpreterStdinKind 收敛共享内层（export 供一致性断言）；注释纠偏（「wrapper 保守 fail-closed」宣称与实现不符处）
+- `write-target-evaluator.ts`：interpreterStdinFeedContent 收敛（export）；evalSegment 残闸改 isScriptRunnerSeg；interpreterScriptFileArg 段首收敛
+- `command-model.ts`：SHELL_INTERPRETERS + ash（SCRIPT_FILE_RUNNERS 由其派生联动）
+
+### 验证
+
+- 新增：wrapper feed 拦/放两侧、版本别名归一两侧、裸分发器/ash 归位两侧、「两侧识别域一致」参数化断言（22 形态）、M-c36b9847 残余诚实钉
+- 回归：既有 18 例原样（#1308 cat 馈体契约、洗白口 feed 关门、C 族钉现状、wget 残余钉、cd 豁免不翻转）
+- 全仓 vitest 全绿 + tsc/eslint 零错误

@@ -44,7 +44,7 @@ import { safeRealpath } from "./fs-realpath";
 import path from "node:path";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
 import { proveNoWrite, DYNAMIC_IMPORT_FACE, MAIN_LIT_CONCAT_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
-import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS, STASH_WRITE_SUBS } from "./payload-extract-aux";
+import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS, STASH_WRITE_SUBS, resolveExecHead, isStdinFeedRest } from "./payload-extract-aux";
 import type { Word } from "./command-lexer";
 
 // ────────────────────────────── 类型 ──────────────────────────────
@@ -817,13 +817,17 @@ function wellFormedScriptBody(body: string): boolean {
 
 /** M-38fb45c0 B 面：解释器 stdin 喂入形态（程序来源=stdin：裸词/单短旗标/lone -，无
  *  -c/-e/脚本文件参）+ 上游静态内容重建（与 shell 面 stdinShellFeederVeto 同一基座）。
- *  非 feed 形态 → undefined（既有通道不收）；feed 形态 → 上游内容（不透明源=null）。 */
-function interpreterStdinFeedContent(seg: Segment, prev: Segment | undefined): string | null | undefined {
+ *  非 feed 形态 → undefined（既有通道不收）；feed 形态 → 上游内容（不透明源=null）。
+ *  delta r1（检视獭1604 严重 1/2 同根因收敛）：段首解析与 guard interpreterStdinKind 同走
+ *  resolveExecHead 共享内层（跳赋值前缀/wrapper/分发器 + 版本名归一）——旧裸 argv0 词域
+ *  使 guard 认定的 feed 形态域 ⊃ 本函数识别域（env python/wrapper 族「guard 以为在管、
+ *  求值器看不见」→ 窄提取 feed 分支不可达 → evaluated 空集放行，静态有害全 ALLOW 实证）。
+ *  （export：供「两侧识别域一致」参数化断言与 guard 侧对照——一条语义一个接口。） */
+export function interpreterStdinFeedContent(seg: Segment, prev: Segment | undefined): string | null | undefined {
   if (seg.joiner !== "|" || prev === undefined) return undefined;
-  const name = bareName(seg.argv0);
-  if (name === null || (!SCRIPT_RUNNERS.has(name) && !SCRIPT_RUNNERS.has(name.replace(/\d+$/, "")))) return undefined;
-  const rest = seg.words.slice(1).map(w2 => w2.evaluated);
-  if (!rest.every(t => t !== null && (/^-[a-zA-Z]$/.test(t) || t === "-"))) return undefined; // 值旗标（-c/-e/--x=v）参形不收——那走既有载荷通道
+  const head = resolveExecHead(seg);
+  if (head === null || !SCRIPT_RUNNERS.has(head.name)) return undefined;
+  if (!isStdinFeedRest(seg.words.slice(head.headIndex + 1).map(w2 => w2.evaluated))) return undefined; // 值旗标（-c/-e/--x=v）参形不收——那走既有载荷通道
   // 内容源收窄：只收 echo/printf 静态词（segmentStdoutContent 同基座）。cat+heredoc 馈体
   //  **不收**——#1308 契约（F20261009cphr）：管道馈体载荷不入求值、fail-closed 保守面
   //（正道绕行=python3 - <<EOF 直供体），catBody 提取是 shell 面 stdinShellFeederVeto 专属。
@@ -1295,15 +1299,19 @@ export function isDirectExecScriptSeg(seg: Segment): boolean {
  *  F20261019gses P0：SCRIPT_RUNNERS 文件形态（node x.mjs / python x.py）接入同通道——
  *  K 类 34 条缺口主通道；只认「静态路径 + 可读后缀」保守面，动态路径交牙1。 */
 const SCRIPT_FILE_SUFFIXES = /\.(?:sh|bash|zsh|mjs|cjs|js|mts|cts|ts|py|pyw|rb|pl|pm|scpt|applescript)$/;
-// eslint-disable-next-line complexity -- 双域判定（shell 解释器族 + SCRIPT_RUNNERS 文件形态）通道穷举
+ 
 function interpreterScriptFileArg(seg: Segment): { word: Word; dynamic: boolean } | null {
-  const bare = bareName(seg.argv0);
-  if (bare === null) return null;
-  const isShellRunner = SCRIPT_FILE_RUNNERS.has(bare);
-  const isScriptRunner = SCRIPT_RUNNERS.has(bare);
+  // delta r1（检视獭1604 严重 1 连带）：段首解析收敛 resolveExecHead 共享内层——wrapper/
+  //  版本别名形态的文件位（env python x.py）不再因裸 argv0 词（"env"）漏识别，与残闸
+  //  （isScriptRunnerSeg 同内层）保持同一识别域，防「残闸认脚本段、文件位看不见」误拦。
+  const head = resolveExecHead(seg);
+  if (head === null) return null;
+  const isShellRunner = SCRIPT_FILE_RUNNERS.has(head.name);
+  const isScriptRunner = SCRIPT_RUNNERS.has(head.name);
   if (!isShellRunner && !isScriptRunner) return null;
-  if (seg.args.includes("-c") || seg.args.includes("-e")) return null;
-  for (const w of seg.words.slice(1)) {
+  const restWords = seg.words.slice(head.headIndex + 1);
+  if (restWords.some(w2 => w2.evaluated === "-c" || w2.evaluated === "-e")) return null;
+  for (const w of restWords) {
     const raw = w.parts.map(p => (p.type === "lit" || p.type === "escape" ? p.text ?? "" : "")).join("");
     const head = w.evaluated ?? raw;
     if (head.startsWith("-")) continue; // 旗标位（-n 检查态等）不当脚本位
@@ -1891,7 +1899,7 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
   //  已扩到 SCRIPT_RUNNERS 文件形态，下方三牙分支（scriptArg !== null）接住并走载荷计划
   //  三态（含 P0 运行时 sourcing：fsContentPlan 真实读取）；本行只拦「skip 且非外置脚本位」
   //  的残余（-e/-c 载荷不可求值等真黑盒形态）。
-  if (narrow === "skip" && bare !== null && SCRIPT_RUNNERS.has(bare) && shellScriptFileArg(seg) === null) return "heredoc-script-payload";
+  if (narrow === "skip" && isScriptRunnerSeg(seg) && shellScriptFileArg(seg) === null) return "heredoc-script-payload";
 
   // 能力 1（heredoc 体脚本投递）：shell 解释器段 heredoc 体=stdin 投递脚本，与 bash -c 载荷
   //  同判据递归求值（TS-c047 放水实证）；-n 不递归；不可证→回落（能力 4 词面证同判据）。
