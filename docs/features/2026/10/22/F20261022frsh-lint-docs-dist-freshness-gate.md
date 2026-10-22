@@ -7,8 +7,8 @@ summary: |
   （PR #1397 实证）。修复：新增 dist 新鲜度闸（evaluateDistFreshness 纯函数）——
   validator/parser 源目录任一 .ts 修改时刻 >= dist 产物最早写入时刻即判 dist 陈旧，
   import 前报错提示 rebuild（fail-closed 等号保守判陈旧）。目录级对比（非依赖图）：
-  validator 新增 import 自动入列无需维护清单，误报方向安全（多一次 rebuild 提示），
-  假绿方向被闸死。pre-commit/CI 不受影响（都在 build 后跑，dist 恒新鲜）。
+  validator 新增 import（限两目录内）自动入列，跨目录依赖出现时需扩列（当前无
+  此形态），误报方向安全（多一次 rebuild 提示），假绿方向被闸死。pre-commit/CI 不受影响（都在 build 后跑，dist 恒新鲜）。
   5 个新增测试锁定判据。
 change_type: fix
 capability_test: tests/lint/lint-docs.test.ts
@@ -81,9 +81,14 @@ mtime 误报方向安全（让人 rebuild，不产生假绿）。唯一已知边
 
 **为什么取目录级对比而非依赖图级**：依赖图级（精确追踪 validator 的 import 闭包）要维护
 清单或解析模块图（~40-60 行）；目录级（src/entities/document + src/usecases/document 两个
-源目录整体 vs dist 对应产物）零维护——validator 未来新增 import 自动入列。代价是误报面
-略宽（改了 validator 不依赖的同目录文件也报陈旧），但误报成本 = 一次多余的 rebuild 提示，
-方向安全（fail-closed），假绿方向被闸死。
+源目录整体 vs dist 对应产物）在**这两目录内**零维护——validator 目录内新增 import 自动
+入列。代价一：误报面略宽（改了 validator 不依赖的同目录文件也报陈旧），但误报成本 =
+一次多余的 rebuild 提示，方向安全（fail-closed），假绿方向被闸死。代价二：**跨目录
+import 不入闸面**（如 validator 未来 `import from "../shared/foo"`）——foo.ts 改动不触发
+陈旧判，需同步扩列（当前无此形态，已核实 validator/parser 的 import 均为同目录叶子或
+npm 包）。不扩面到 src 全树的取舍（检视獭-1614 发现 2 讨论定案）：全树扩面会让任何无关
+src 改动都拦文档预检（高频误报劣化 lint 工具体验），两目录面恰是 validator/parser 的
+实际依赖面，跨目录形态出现时扩列成本一行。
 
 **为什么是报错提示而非自动 build**：lint 工具静默改环境（触发 build）会让 lint 行为不可预测
 且重（build 含全量 tsc + bge-m3 下载）；报错 + 明确指引（`npm run build`）符合 lint gate

@@ -53,8 +53,8 @@ export function findDuplicateIds(entries) {
  *  修改未进 dist（陈旧），lint 结果基于旧 validator 不可信（假绿——issue 现场：
  *  本地旧 dist 绿、CI fresh build 红）。等号保守判陈旧（写入同刻无法证明已含）。
  *
- *  目录级而非依赖图级：validator 新增 import 无需同步维护清单；误报方向安全
- *  （多提示一次 rebuild），假绿方向被闸死。
+ *  目录级而非依赖图级：两目录内新增 import 自动入列（跨目录依赖出现时需扩列，
+ *  当前无此形态）；误报方向安全（多提示一次 rebuild），假绿方向被闸死。
  *
  *  返回 { fresh: true } / { fresh: true, skipped: true }（任一侧为空——dist 缺失
  *  归调用方「未构建」检查管，此处不误报）/ { fresh: false, newestSrc }（供报错指路）。 */
@@ -102,7 +102,8 @@ async function main() {
 
   // #1400 / F20261022frsh: dist 新鲜度闸——在 import 前把关，陈旧 dist 即拒绝运行
   // （假绿防线：旧 validator 不含新规则 → 绿是假绿，误导预检）。覆盖面 = validator
-  // 与 parser 的源目录（目录级，新增 import 自动入列）。
+  // 与 parser 的源目录（目录级；目录内新增 import 自动入列，跨目录依赖出现时需
+  // 同步扩列——当前无此形态）。
   const fresh = evaluateDistFreshness(
     [
       ...collectMtimes(root, path.join(root, "src/entities/document"), ".ts"),
