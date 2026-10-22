@@ -37,7 +37,7 @@ issue #1612（P2 tech-debt，2026-10-22 立案）：对话待办 M-d781032a（20
 | 3 | `.pi/skills/code-implementation/SKILL.md`（步骤 7 文档段） | 「pre-commit 的 lint-historical-docs 会机械拦截」 | 「lint-historical-docs 机械拦截是 otter-buddy 单仓 pre-commit hook，其他仓缺 hook 时以异体审视兜底」 |
 | 4 | `.pi/skills/writing-skills/references/SKILL-TEMPLATE.md`（历史文档不可变段） | 「机械拦截：pre-commit 的 scripts/lint-historical-docs.mjs」 | 「机械拦截：otter-buddy 单仓 pre-commit 的 scripts/lint-historical-docs.mjs（.githooks 域）；其他仓缺该 hook，铁律以异体审视兜底」 |
 
-**范围说明**：issue 预估「改动 1-2 处表述」，实际同病灶误导表述有 3 个文件共 4 处（含 .doc-fix 括号句）——留一处即误导残留，故同质修全。仍属修法决策树①（既有语义内修，narrow-fix）：不新增机制、不改拦截行为，纯文案条件化。
+**范围说明**：issue 预估「改动 1-2 处表述」，实际同病灶误导表述有 3 个文件共 4 处（含 .doc-fix 括号句）——留一处即误导残留，故同质修全。Modification-Class: docs-config——纯文案条件化（不新增机制、不改拦截行为、不动步骤结构），不经修法决策树（语义上属既有表述内修）。
 
 ## 4. 边界与在途提示
 
