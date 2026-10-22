@@ -15,7 +15,7 @@ capability_test: "n/a: 核心行为为确定性工具控制流，由 tests/inter
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 created_at: 2026-10-22
 tags: [wait-tool, polling, bash-guard, sleep, timeout, abort-safety]
-modules: [src/interface-adapters/agent-runtime/tools/tool-factory.ts, src/frameworks/agent/sleep-command-guard.ts, tests/interface-adapters/agent-runtime/tools/wait-tool.test.ts, tests/frameworks/agent/bash-sleep-guard.test.ts]
+modules: [src/interface-adapters/agent-runtime/tools/tool-factory.ts, src/frameworks/agent/sleep-command-guard.ts, tests/interface-adapters/agent-runtime/tools/wait-tool.test.ts, tests/interface-adapters/agent-runtime/tools/wait-tool-real-probe.test.ts, tests/frameworks/agent/bash-sleep-guard.test.ts]
 causal_links:
   - F20260928slan（sleep 工具化与 wait/until 既有安全边界；本特性补齐其终结轮询心智的未竟语义）
   - F20261019kbpc（sleep 文案的 until 单次探活示范；本特性同步为预算内轮询）
@@ -42,7 +42,8 @@ causal_links:
 - 立即执行第一次探测；exit 0 表示就绪并返回真实耗时与探测次数。
 - 非零表示尚未就绪，每隔 10 秒再探测；不另增 interval 参数。
 - 单次检查超时取 `min(30 秒, 剩余预算)`；预算耗尽返回最后一次退出码/stderr，不后台继续轮询。
-- 保留 2KB 输出截断、原有 seconds 上限和 reason 回显。
+- 子进程每流硬缓冲上限为 1 MiB，返回上下文仍截断为 2048 字符；大输出不会吞掉 exit 0，超过硬上限明确报执行错误而非伪造命令退出码。
+- 保留原有 seconds 上限和 reason 回显。
 
 示例：`wait seconds=120 reason="等 PR #1604 CI 变绿" until="gh pr checks 1604"`。这里描述的是工具参数语义，实际调用走结构化参数，不把示例字符串再交给 shell。
 
@@ -55,11 +56,9 @@ causal_links:
 
 ## 机制识别与 Modification-Class
 
-机械清单按偏严口径判定：**命中「被记住的决策分支」**——wait 工具 description 与 sleep 守卫文案现在明确引导「等 CI / 服务 / 状态用 until，一次调用内轮询」。
+按机制识别清单逐项核对，**均不命中**：不新增配置字段（10 秒间隔与 1 MiB 缓冲是实现常量）；不新增持久化状态生命周期或定时任务（仅既有同步工具调用内的局部计时器，非 scheduled task）；不新增信号格式、持久化或跨模块调用路径（wait 与守卫既有指向关系不变）。「被记住的决策分支」限定为写入数据库/配置/记忆/文件并影响后续行为的分支；本次只有运行时局部变量与 description 引导，无结果落盘，故不命中。初稿曾按偏严口径把 description 也报为命中，独立检视已按清单原文纠正。
 
-其余项：不新增配置字段（10 秒间隔为实现常量）；不新增持久化状态生命周期或定时任务（仅既有同步工具调用内的局部计时器，非 scheduled task）；不新增信号格式、持久化或跨模块调用路径（wait 与守卫既有指向关系不变）。
-
-因此仍判修法决策树①、**Modification-Class: narrow-fix**：这是既有 wait/until 同一参数契约、同步调用生命周期与安全边界内的能力补全；命中的仅是软代码行为分支说明，不构成净新增系统机制。采用轻对抗，由大獭另召异模型检视獭审视，实现者不自审、不合自己的 PR。
+因此判修法决策树①、**Modification-Class: narrow-fix**：这是既有 wait/until 同一参数契约、同步调用生命周期与安全边界内的能力补全，不构成净新增系统机制。采用轻对抗，由大獭另召异模型检视獭审视，实现者不自审、不合自己的 PR。
 
 ## 验收标准
 
@@ -75,13 +74,19 @@ causal_links:
 
 ## 验证
 
-- `npm test`：最终代码全量 416 文件，6678 passed、6 skipped、0 failed；pretest 全量 ESLint 通过。
-- `npx tsc --noEmit` 与 `npm run build`：通过。
-- 聚焦测试：`wait-tool.test.ts` + `bash-sleep-guard.test.ts` 共 25 用例通过；含立即成功、第三次成功、预算超时、两种 abort 时序、命令替换拒执行与描述引导。
+- delta 最终 `npm test`：417 文件，6680 passed、6 skipped、0 failed；pretest 全量 ESLint 通过。
+- delta `npx tsc --noEmit` 与相关文件 ESLint：通过；提交钩子再次执行 build。
+- delta 聚焦测试：3 文件共 27 用例通过；含立即成功、第三次成功、预算超时、两种 abort 时序、命令替换拒执行、真实 >2KB 输出成功与 2048 字符上下文截断。
 - 真实构建产物探针（非 mock，临时脚本位于对话工作区）：`test -f <就绪文件>` 第 3 次探测/20047ms 成功；持续未就绪 5003ms 停止；阻塞 `tail -f /dev/null` 在 5004ms 预算停止；管道注入首次执行前拒绝；轮询间隔 abort 104ms 返回 AbortError。
 - 自检捕获并修复：初版只向 execFile 传 AbortSignal，模拟阻塞子进程不回调时 promise 仍挂起；新增「执行中 abort」用例先红，随后在工具边界加入 abort race，真实/模拟两种时序均通过。
-- B 类验证限制：`sleep-announce.capability.test.ts` 与 Golden Gate 已实际启动，但本机未配置 LLM 端点，分别 1 skipped、10 skipped；不记为行为通过。A 类与真实探针不依赖 LLM，其结果有效。
-- pre-existing 失败声明：无（最终全量 0 failed），无需也无权虚构基线对照。
+- B 类验证限制：`sleep-announce.capability.test.ts` 与 Golden Gate 已实际启动，但本机未配置 LLM 端点，分别 1 skipped、10 skipped；不记为行为通过。Golden Gate: n/a（当前执行环境未配置 LLM 端点，无法产生真跑结果）。A 类与真实探针不依赖 LLM，其结果有效。
+- pre-existing 失败声明：无（初轮最终全量 0 failed），无需也无权虚构基线对照。
+
+## 对抗审视处置
+
+1. **maxBuffer 语义偏差：接受并修复（更好）**。每流硬缓冲提至 1 MiB，返回仍截 2048 字符；硬上限错误单独归因，普通非数值错误码不再冒充 exit code。独立真实子进程测试锁定 >2KB 成功语义。
+2. **B7 豁免句式：接受并修复（更好）**。PR Verification 与本文补标准句式，同时保留 skip 事实，不声称行为通过。
+3. **预算耗尽文案：部分接受（更好）**。移除无条件「增大 seconds」建议；不按同码/多码猜 CI 是否定局——pending 可持续同码，确定失败也可能变化，工具不解析 CI 状态。改为按退出码语义判读，仅确认仍在等待时增预算。
 
 ## 影响与已知限制
 

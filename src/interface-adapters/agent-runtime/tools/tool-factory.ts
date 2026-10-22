@@ -573,8 +573,10 @@ const WAIT_SECONDS_MAX = 600;
 const WAIT_SECONDS_MAX_WITH_UNTIL = 560;
 /** until 苏醒检查命令的执行超时（execFileAsync timeout） */
 const WAIT_UNTIL_TIMEOUT_MS = 30_000;
-/** until 输出截断上限（2KB，防巨量输出污染上下文） */
+/** until 返回上下文的输出截断上限（2048 字符，防巨量输出污染上下文） */
 const WAIT_UNTIL_OUTPUT_MAX = 2048;
+/** 子进程每流硬缓冲上限；maxBuffer 超限会杀进程，不能拿上下文截断值充当此值。 */
+const WAIT_UNTIL_SUBPROCESS_BUFFER_MAX = 1024 * 1024;
 /** F20261022wtpr：条件等待使用固定探测间隔；不新增獭可调配置。 */
 const WAIT_UNTIL_POLL_INTERVAL_MS = 10_000;
 
@@ -610,8 +612,13 @@ function abortPromise(signal: AbortSignal): Promise<never> {
 
 function formatUntilFailure(err: unknown, command: string): string {
   const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean; stderr?: string; message?: string };
-  const exitDesc = e.killed ? "检查超时" : `exit code ${e.code ?? "unknown"}`;
   const detail = (e.stderr || e.message || "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
+  if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+    return `${command} 检查输出超过 1 MiB 硬上限被终止：请让命令自身收敛输出${detail ? `：${detail}` : ""}`;
+  }
+  const exitDesc = e.killed
+    ? "检查超时"
+    : typeof e.code === "number" ? `exit code ${e.code}` : `检查执行错误（${e.code ?? "unknown"}）`;
   return `${command} ${exitDesc}${detail ? `：${detail}` : ""}`;
 }
 
@@ -625,7 +632,7 @@ async function probeUntil(
   try {
     const execution = execFileAsync(cmd, cmdArgs, {
       timeout: timeoutMs,
-      maxBuffer: WAIT_UNTIL_OUTPUT_MAX,
+      maxBuffer: WAIT_UNTIL_SUBPROCESS_BUFFER_MAX,
       ...(signal ? { signal } : {}),
     });
     const { stdout, stderr } = await (signal
@@ -669,7 +676,7 @@ async function runUntilPolling(
     await waitDelay(Math.min(WAIT_UNTIL_POLL_INTERVAL_MS, remainingAfterCheckMs), signal);
   }
 
-  return `\nuntil 条件未通过（共 ${attempts} 次探测；最后一次 ${lastFailure}）。\n请检查 until 的退出码语义，或增大 seconds 后重试。`;
+  return `\nuntil 条件未通过（共 ${attempts} 次探测；最后一次 ${lastFailure}）。\n请按 until 的退出码语义判断是尚未就绪还是已经失败；仅确认仍在等待时再增大 seconds。`;
 }
 /** until 禁用的 shell 元字符 + 单双引号（D4③：sh -c '…' 形态经空白切 argv 语义扭曲，显式拒绝给出可操作提示）。
  *  用 RegExp 构造避免字符类内裸引号——lint 的 stripTsComments 不解析正则字面量，

@@ -148,6 +148,7 @@ describe("F20260928slan wait 工具", () => {
     expect(text).toContain("exit code 2");
     expect(text).toContain("some stderr detail");
     expect(text).toContain("条件等待预算：15 秒");
+    expect(text).toContain("仅确认仍在等待时再增大 seconds");
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -170,6 +171,17 @@ describe("F20260928slan wait 工具", () => {
     expect(text).toContain("苏醒检查");
     expect(text).toContain("CI pass");
     expect(text).toContain("第 1 次探测");
+  });
+
+  it("成功输出返回上下文仍截断为 2048 字符", async () => {
+    const tool = findWait();
+    execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
+      cb(null, { stdout: "x".repeat(5000), stderr: "" });
+    });
+    const result = await tool.execute("t1", { seconds: 5, until: "gh pr checks" });
+    const text = result.content[0].text;
+    expect(text).toContain("x".repeat(2048));
+    expect(text).not.toContain("x".repeat(2049));
   });
 
   it("CI pending 后在同一次 wait 内重试，第三次成功并返回实际耗时", async () => {
