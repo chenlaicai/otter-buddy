@@ -9,6 +9,12 @@ export interface ModelInfoDTO {
   contextWindow?: number;
 }
 
+/** 默认陪打獭条目（F20261022mjls：settings mahjong.defaultOtters） */
+export interface MahjongDefaultOtterDTO {
+  otterId: string;
+  name: string;
+}
+
 /** Settings 响应 DTO */
 export interface SettingsDTO {
   /** 模型列表（唯一真相源 config.yaml models[] 条目，apiKey/apiBaseUrl 不下发） */
@@ -17,6 +23,8 @@ export interface SettingsDTO {
   defaultModelAlias: string;
   /** 用户显示名（海獭称呼搭档用的名字，空字符串表示未设置） */
   userName: string;
+  /** F20261022mjls：默认陪打獭（空数组 = 未配置；建房 otter 座位缺省时回填） */
+  defaultOtters: MahjongDefaultOtterDTO[];
   port: number;
   dbPath: string;
   embeddingModelPath: string;
@@ -34,4 +42,6 @@ export interface UpdateSettingsRequestDTO {
   defaultModelAlias?: string;
   /** 用户显示名（海獭称呼搭档用的名字，传空字符串清除） */
   userName?: string;
+  /** F20261022mjls：默认陪打獭（传空数组清除） */
+  defaultOtters?: MahjongDefaultOtterDTO[];
 }

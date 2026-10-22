@@ -71,6 +71,13 @@ describe("牌局页浏览器真机渲染", () => {
       body: JSON.stringify({ roomId: ROOM, seed: "visual-seed", players: PLAYERS }),
     });
     expect(res.status).toBe(201);
+    // F20261022mjls：建房开等待房——真机渲染前先开局（页面在新语义下点「开始」触发，测试直接走 API 等价物）
+    const started = await fetch(`${base}/api/mahjong/rooms/${ROOM}/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(started.status).toBe(200);
 
     browser = await chromium.launch();
   }, 120_000);
@@ -421,5 +428,57 @@ describe("牌局页浏览器真机渲染", () => {
     expect(await page.locator("[data-seat-kind]").count()).toBe(3);
     await page.screenshot({ path: path.join(SHOT_DIR, "05-lobby.png"), fullPage: true });
     await page.close();
+  });
+
+  // F20261022mjls：建房≠开局——waiting 遮罩真机验证（开始按钮可见可点、座位就绪况、换獭入口）
+  it("F20261022mjls 等待遮罩：开始按钮 + 座位就绪 + 换獭入口，点击后发牌进牌桌", { timeout: 120_000 }, async () => {
+    const errors: string[] = [];
+    const page = await browser.newPage({ viewport: { width: 1280, height: 940 } });
+    page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+    page.on("console", (m) => {
+      if (m.type() === "error" && !m.text().includes("favicon")) errors.push(`console: ${m.text()}`);
+    });
+    const R = "visual-lobby";
+    const res = await fetch(`${base}/api/mahjong/rooms`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roomId: R, seed: "visual-lobby-seed", players: [
+        { kind: "human", name: "chen" },
+        { kind: "otter", name: "小獭一号", otterId: "otter-a" },
+        { kind: "otter", name: "小獭二号", otterId: "otter-c" },
+      ] }),
+    });
+    expect(res.status).toBe(201);
+    await page.goto(`${base}/mahjong/${R}`, { waitUntil: "domcontentloaded" });
+
+    // ① waiting 遮罩：开始按钮可见且在视口内 + 两只 otter 座位有换獭入口
+    await page.waitForSelector('[data-do="start-game"]', { timeout: 15_000 });
+    const btnRect: any = await page.evaluate(() => {
+      const el = (globalThis as any).document.querySelector('[data-do="start-game"]');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height, vw: (globalThis as any).innerWidth, vh: (globalThis as any).innerHeight };
+    });
+    expect(btnRect, "开始按钮缺失").not.toBeNull();
+    expect(btnRect.w, `开始按钮不可见：${JSON.stringify(btnRect)}`).toBeGreaterThan(0);
+    expect(btnRect.h).toBeGreaterThan(0);
+    expect(btnRect.x, `开始按钮飞出视口：${JSON.stringify(btnRect)}`).toBeGreaterThanOrEqual(0);
+    expect(btnRect.y).toBeGreaterThanOrEqual(0);
+    expect(btnRect.x + btnRect.w).toBeLessThanOrEqual(btnRect.vw);
+    expect(btnRect.y + btnRect.h).toBeLessThanOrEqual(btnRect.vh);
+    expect(await page.locator("[data-lobby-otter]").count(), "两个 otter 座位各一换獭输入").toBe(2);
+    await page.screenshot({ path: path.join(SHOT_DIR, "06-waiting.png"), fullPage: true });
+
+    // ② 点「开始」→ 发牌进牌桌（手牌 13+，遮罩关）
+    await page.click('[data-do="start-game"]');
+    await page.waitForSelector("#hand .tile", { timeout: 15_000 });
+    await page.waitForTimeout(300); // 等首帧渲染稳定
+    const handCount = await page.locator("#hand .tile").count();
+    expect(handCount, `start 后手牌应 13+，实得 ${handCount}`).toBeGreaterThanOrEqual(13);
+    expect(await page.locator('[data-do="start-game"]').count()).toBe(0); // 遮罩已关
+    await page.screenshot({ path: path.join(SHOT_DIR, "07-started.png"), fullPage: false });
+    expect(errors, `页面报错：${errors.join("; ")}`).toEqual([]);
+    await page.close();
+    rooms.close(R);
   });
 });

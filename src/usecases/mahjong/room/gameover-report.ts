@@ -14,7 +14,8 @@
 
 import { CARD_SCHEMA_VERSION } from "@contract/api/html-card";
 import type { GameoverReport } from "./room-types";
-import type { Settlement } from "../engine/types";
+import type { SanmaEngine } from "../engine/engine";
+import type { Seat, Settlement } from "../engine/types";
 import type { SendEntry } from "../../conversation/send-entry";
 import type { ConversationRepository } from "../../conversation/conversation-repository";
 import type { LinkedResourceInput } from "../../conversation/manage-key-info";
@@ -28,6 +29,47 @@ export interface GameoverReportDeps {
 }
 
 type NameOf = (seat: number) => string;
+
+/** F20261022mjls：战报组装（自 RoomService.fireGameover 拆出——控 max-lines）。
+ *  名次：gameOver 事件优先（nextRound 产生，已在 publishGame 采集）；缺失回退末局点数 */
+export function buildGameoverReport(room: {
+  roomId: string;
+  gameId: string;
+  engine: SanmaEngine;
+  report: {
+    ranking: GameoverReport["ranking"] | null;
+    highlights: Array<GameoverReport["highlights"][number]>;
+    speeches: Array<GameoverReport["speeches"][number]>;
+    proxyFallbacks: number;
+  };
+  startedAt: number;
+}): GameoverReport {
+  const cfg = room.engine.state.config;
+  const finalPlayers = room.engine.state.round?.players;
+  const ranking = room.report.ranking
+    ?? (finalPlayers
+      ? [...finalPlayers]
+          .map((p) => ({ seat: p.seat, name: p.name, points: p.points }))
+          .sort((a, b) => b.points - a.points)
+      : []);
+  return {
+    roomId: room.roomId,
+    gameId: room.gameId,
+    seed: cfg.seed,
+    players: cfg.players.map((p, i) => ({
+      seat: i as Seat,
+      name: p.name,
+      kind: p.kind,
+      ...(p.otterId ? { otterId: p.otterId } : {}),
+    })),
+    ranking,
+    highlights: room.report.highlights,
+    speeches: room.report.speeches,
+    proxyFallbacks: room.report.proxyFallbacks,
+    startedAt: room.startedAt,
+    endedAt: Date.now(),
+  };
+}
 
 /** 中止流局条款中文标签（AbortiveDrawKind 三值） */
 const ABORTIVE_LABEL: Record<string, string> = {

@@ -70,7 +70,7 @@ describe("三麻将局 API", () => {
   }
 
   it("建房→视图/入座/开局幂等→真人注入跑完→帧链+SSE+恢复", { timeout: 20_000 }, async () => {  // F20261021ttos：重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
-    // ① 建房即开局
+    // ① 建房开等待房（F20261022mjls 建房≠开局）
     const created = await json(
       await app.request("/api/mahjong/rooms", {
         method: "POST",
@@ -78,7 +78,7 @@ describe("三麻将局 API", () => {
         body: JSON.stringify({ roomId: ROOM, seed: "api-seed-1", players: PLAYERS }),
       }),
     );
-    expect(created.status).toBe("playing");
+    expect(created.status).toBe("waiting");
     expect(created.seed).toBe("api-seed-1");
 
     // ② SSE 首帧 hello（读一段即断开）
@@ -91,7 +91,9 @@ describe("三麻将局 API", () => {
     expect(helloLine).toContain(ROOM);
     await reader.cancel();
 
-    // ③ 视图：入座私有（含手牌）+ 观战全览 + 开局幂等回执
+    // ③ 开始（F20261022mjls：waiting→playing 发牌起跑）→ 入座私有（含手牌）+ 观战全览 + start 幂等
+    const started = await json(await app.request(`/api/mahjong/rooms/${ROOM}/start`, { method: "POST" }));
+    expect(started.status).toBe("playing");
     const joined = await json(
       await app.request(`/api/mahjong/rooms/${ROOM}/join`, {
         method: "POST",
@@ -103,8 +105,8 @@ describe("三麻将局 API", () => {
     expect(joined.view.players[0].hand).toBeNull();
     const spectate = (await json(await app.request(`/api/mahjong/rooms/${ROOM}/view`))) as Record<string, any>;
     expect(spectate.players.every((p: { hand: string[] | null }) => p.hand !== null)).toBe(true);
-    const started = await json(await app.request(`/api/mahjong/rooms/${ROOM}/start`, { method: "POST" }));
-    expect(started.status).toBe("playing");
+    const startedAgain = await json(await app.request(`/api/mahjong/rooms/${ROOM}/start`, { method: "POST" }));
+    expect(startedAgain.status).toBe("playing"); // 幂等：重复 start 回执当前态
 
     // ④ 真人注入循环跑完东风战
     let guard = 0;
@@ -196,11 +198,12 @@ describe("三麻将局 API", () => {
     // 未知房 404
     expect((await post("/api/mahjong/rooms/nope/chat", { seat: 1, text: "hi" })).status).toBe(404);
 
-    // 建房即开局
+    // 建房开等待房 + start 开局（F20261022mjls）
     const created = await json(
       await post("/api/mahjong/rooms", { roomId: ROOM, seed: "api-chat-seed", players: PLAYERS }),
     );
-    expect(created.status).toBe("playing");
+    expect(created.status).toBe("waiting");
+    await post(`/api/mahjong/rooms/${ROOM}/start`, {});
 
     // 400：坏 seat / 非字符串 text / 缺 text
     expect((await post(`/api/mahjong/rooms/${ROOM}/chat`, { seat: 7, text: "x" })).status).toBe(400);
@@ -264,9 +267,10 @@ describe("三麻将局 API", () => {
       expect((await post2("/api/mahjong/rooms/nope/continue")).status).toBe(404);
       expect((await post2("/api/mahjong/rooms/nope/stop")).status).toBe(404);
 
-      // 建房（human 在 1 号座）→ 非停驻态 continue 400（等真人动作时）
+      // 建房（human 在 1 号座）+ start 开局 → 非停驻态 continue 400（等真人动作时）
       const created = (await json(await post2("/api/mahjong/rooms", { roomId: R, seed: "api-life-seed", players: PLAYERS }))) as Record<string, any>;
-      expect(created.status).toBe("playing");
+      expect(created.status).toBe("waiting"); // F20261022mjls：建房 waiting
+      await post2(`/api/mahjong/rooms/${R}/start`);
       let v = await waitView(R, "first await");
       expect(v.awaitingHuman).toBeTruthy();
       expect((await post2(`/api/mahjong/rooms/${R}/continue`)).status).toBe(400);
