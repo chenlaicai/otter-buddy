@@ -132,6 +132,10 @@ const EXEC_NAME_ALIASES: Record<string, string> = { pypy: "python" };
 export function canonicalExecName(raw: string): string {
   const base = tokenBasename(raw);
   const stripped = base.replace(/[\d.]+$/, "");
+  // M-f6762368 dot 对称根修：版本剥离不许吃空词——dot-source 的「.」全由剥离字符（[\d.]+）
+  // 构成，剥成空名会让 SCRIPT_FILE_RUNNERS.has(".") 恒 false，source/dot 同义词不对称
+  //（探针 P1/P10 实证：dot 执行段不进载荷判读直接放行）。剥空即回原文。
+  if (stripped === "") return base;
   return EXEC_NAME_ALIASES[stripped] ?? stripped;
 }
 

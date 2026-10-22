@@ -40,6 +40,9 @@
     "TS-c137": "正面 BLOCK（写落点误报主仓）",
     "TS-c138": "正面 BLOCK（写落点误报主仓）",
     "TS-a8570f53": "fail-closed(parse-failed)"
+  ,
+    "TS-4a2dc895": "fail-closed(script-payload-dynamic)（M-f6762368 有意重定基：sed -i 造段×node 执行段同链造-执对，absence 证明为 TOCTOU 假证明，fail-closed 是修复语义）",
+    "TS-f3b397ad": "fail-closed(script-payload-dynamic)（M-f6762368 有意重定基：sed -i 造段×node 执行段配对，内容不可重建 fail-closed）"
   },
   "block": {
     "TS-cb4cc057": "放水（求值器判 ALLOW——拦截池必须拦）",

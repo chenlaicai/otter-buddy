@@ -617,6 +617,7 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
   const words = seg.words;
   // 先判是否本函数管辖的命令——不管的命令直接返回 null（不得因词含 var/cmdsub 就报 dynamic-path）
   const handled = bare === "curl" || bare === "wget" || bare === "dd" || bare === "sed" || bare === "perl" || bare === "ruby"
+    || bare === "tar" || bare === "unzip" || bare === "rsync"
     || EXTENDED_TARGET_COMMANDS.has(bare);
   if (!handled) return null;
   const push = (d: string): UnevalReason | null => {
@@ -653,19 +654,22 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
   //  BSD `sed -i '' expr file` 空备份后缀、表达式含反引号（evaluated=null）均非落点——只对**文件落点词**
   //  不可求值才 dynamic-path（旧版收 nonFlag 时遇 expr 反引号即误报 dynamic-path，TS-f005a5a9 实证）。
   if (bare === "sed" || bare === "perl" || bare === "ruby") {
-    const inplace = words.some(w => { const v = w.evaluated ?? ""; return /^-[a-zA-Z]*i[a-zA-Z]*$/.test(v) || /^-\w*p\w*$/.test(v); });
-    if (!inplace) return null;
-    const nonFlagWords: Array<string | null> = [];
-    for (let i = 1; i < words.length; i++) {
-      const v = words[i].evaluated;
-      if (v !== null && v.startsWith("-") && v !== "-") continue;
-      nonFlagWords.push(v);
-    }
-    const files = nonFlagWords.filter(v => v !== "").slice(1); // 滤掉 BSD 空备份后缀，跳过脚本/表达式
-    for (const d of files) {
+    const r = inPlaceEditFiles(words);
+    if (r === null) return null;
+    for (const d of r.files) {
       if (d === null) return "dynamic-path"; // 文件落点词不可求值
       const e = push(d); if (e !== null) return e;
     }
+    return null;
+  }
+  // 解包/同步族（M-f6762368 族外延收编）：tar/unzip/rsync 写目标提取与造-执对共用
+  //  archiveFamilyTargets（一条语义一个接口）；纯读形态（tar -t / unzip -l|-t|-Z / rsync -n）无写面。
+  if (bare === "tar" || bare === "unzip" || bare === "rsync") {
+    const r = archiveFamilyTargets(bare, words.slice(1));
+    if (r === "read-only") return null;
+    if (r === "unknown") return "uncovered-cmd"; // 形态未知，保守回落
+    if (r.dyn) return "dynamic-path"; // 写目标词不可求值
+    for (const t of r.targets) { const e = push(t); if (e !== null) return e; }
     return null;
   }
   // 词表写命令：install/ln（dest=最后非旗标）/ chmod/chown/chgrp/truncate（路径=首参之后）
@@ -1348,6 +1352,9 @@ interface WriteFaceEntry {
   target: string;
   content: string | null;
   copyOf?: string;
+  /** 目录性写面（M-f6762368：tar/unzip 解包、rsync 同步）——写入落在 target 目录下任意文件，
+   *  配对按前缀匹配（内容不可知 → content=null fail-closed）。 */
+  dirWrite?: boolean;
 }
 
 /** 造文件段内容重建（牙2）：echo/printf 静态参数、cat/tee 定界 heredoc 体 → 可重建；
@@ -1361,7 +1368,7 @@ function writerContent(seg: Segment, cwd: string): WriteFaceEntry[] | null {
   const argvWrite = argvWriterContent(seg, cwd);
   if (argvWrite !== null) {
     for (const t of argvWrite.targets) {
-      entries.push({ target: t, content: null, ...(argvWrite.copyOf !== undefined ? { copyOf: argvWrite.copyOf } : {}) });
+      entries.push({ target: t, content: null, ...(argvWrite.dirWrite === true ? { dirWrite: true } : {}), ...(argvWrite.copyOf !== undefined ? { copyOf: argvWrite.copyOf } : {}) });
     }
   }
   let redirect: Segment["redirects"][number] | null = null;
@@ -1544,6 +1551,104 @@ function printfFormatContent(fmt: string, args: string[]): string | null {
   return out;
 }
 
+/** 原地编辑文件落点解析（M-f6762368 抽出共用——写目标提取与造-执对一条语义一个接口）：
+ *  sed -i / perl -pi / ruby -pi 的文件参数（脚本/表达式之后）。BSD `sed -i '' expr file` 空备份后缀、
+ *  表达式含反引号（evaluated=null）均非落点；null 元素=文件落点词不可求值（调用方定夺：提取面
+ *  dynamic-path fail-closed，配对面跳过交 script-path-dynamic 兜）。返回 null=非原地编辑形态。 */
+function inPlaceEditFiles(words: Word[]): { files: Array<string | null> } | null {
+  const inplace = words.some(w => { const v = w.evaluated ?? ""; return /^-[a-zA-Z]*i[a-zA-Z]*$/.test(v) || /^-\w*p\w*$/.test(v); });
+  if (!inplace) return null;
+  const nonFlagWords: Array<string | null> = [];
+  for (let i = 1; i < words.length; i++) {
+    const v = words[i].evaluated;
+    if (v !== null && v.startsWith("-") && v !== "-") continue;
+    nonFlagWords.push(v);
+  }
+  return { files: nonFlagWords.filter(v => v !== "").slice(1) }; // 滤掉 BSD 空备份后缀，跳过脚本/表达式
+}
+
+/** 解包/同步族（tar/unzip/rsync）写目标解析（M-f6762368 族外延收编，提取与造-执对共用）：
+ *  tar：x=解包写（-C 目录缺省 cwd，目录性写面）；c/r/u=归档文件写（-f/首位置词，精确面）；
+ *  t=纯读无写面；模式不明 → unknown（提取面保守 uncovered-cmd）。归档名不是写目标（解包
+ *  写的是目录，创建写的是归档本体）——只有写目标槽不可求值才 dyn（不伤 `$A -C /tmp` 良性形态）。
+ *  unzip：-l/-t/-Z 纯读；否则解包写（-d 目录缺省 cwd，目录性写面）。
+ *  rsync：-n/--dry-run 无写；dest=末位置参数（目录性写面——dest 形态不猜，保守前缀匹配）。 */
+// eslint-disable-next-line max-lines-per-function, max-statements, complexity -- tar 旗标簇/长旗标/三模式 + unzip 纯读集 + rsync dry-run 穷举解析（每分支=一种已实证命令形态），与 evalExtendedWriteTargets 先例同款豁免（行为等价拆分交 delta 复核定夺）
+function archiveFamilyTargets(
+  bare: "tar" | "unzip" | "rsync",
+  argWords: Word[],
+): { targets: string[]; dirWrite: boolean; dyn: boolean } | "read-only" | "unknown" {
+  if (bare === "rsync") {
+    let readonly = false;
+    const pos: Array<string | null> = [];
+    for (const w of argWords) {
+      const v = w.evaluated;
+      if (v === "--dry-run") { readonly = true; continue; }
+      if (v !== null && v.startsWith("-") && v !== "-") { if (v.slice(1).includes("n")) readonly = true; continue; }
+      pos.push(v);
+    }
+    if (readonly) return "read-only";
+    if (pos.length === 0) return "unknown";
+    const dest = pos[pos.length - 1];
+    return dest === null ? { targets: [], dirWrite: true, dyn: true } : { targets: [dest], dirWrite: true, dyn: false };
+  }
+  if (bare === "unzip") {
+    let readonly = false;
+    let dir: string | null = null;
+    let dirFlag = false;
+    for (let i = 0; i < argWords.length; i++) {
+      const v = argWords[i].evaluated;
+      if (v === "-d") { dirFlag = true; dir = argWords[i + 1]?.evaluated ?? null; i++; continue; }
+      if (v === "-l" || v === "-t" || v === "-Z") { readonly = true; }
+    }
+    if (readonly) return "read-only";
+    if (dirFlag && dir === null) return { targets: [], dirWrite: true, dyn: true };
+    return { targets: [dirFlag && dir !== null ? dir : "."], dirWrite: true, dyn: false };
+  }
+  // tar：旗标簇内 f 吃值（-xzf file.tar）；长旗标 --directory/--file/--list/--extract/--create/--append/--update
+  let mode = "";
+  let fFlag = false;
+  let fVal: string | null = null;
+  let chdirFlag = false;
+  let chdir: string | null = null;
+  const pos: Array<string | null> = [];
+  for (let i = 0; i < argWords.length; i++) {
+    const v = argWords[i].evaluated;
+    if (v === "-C" || v === "--directory") { chdirFlag = true; chdir = argWords[i + 1]?.evaluated ?? null; i++; continue; }
+    if (v !== null && v.startsWith("--directory=")) { chdirFlag = true; chdir = v.slice("--directory=".length); continue; }
+    if (v === "-f" || v === "--file") { fFlag = true; fVal = argWords[i + 1]?.evaluated ?? null; i++; continue; }
+    if (v !== null && v.startsWith("--file=")) { fFlag = true; fVal = v.slice("--file=".length); continue; }
+    if (v === "--list" || v === "--list-filenames") { mode += "t"; continue; }
+    if (v === "--extract" || v === "--get") { mode += "x"; continue; }
+    if (v === "--create") { mode += "c"; continue; }
+    if (v === "--append") { mode += "r"; continue; }
+    if (v === "--update") { mode += "u"; continue; }
+    if (v !== null && v.startsWith("--")) continue;
+    if (v !== null && v.startsWith("-") && v !== "-") {
+      const cs = v.slice(1);
+      const fi = cs.indexOf("f");
+      if (fi >= 0) {
+        const rest = cs.slice(fi + 1);
+        if (rest !== "") { fFlag = true; fVal = rest; } else { fFlag = true; fVal = argWords[i + 1]?.evaluated ?? null; i++; }
+        mode += cs.slice(0, fi);
+      } else mode += cs;
+      continue;
+    }
+    pos.push(v);
+  }
+  if (mode.includes("x")) {
+    if (chdirFlag && chdir === null) return { targets: [], dirWrite: true, dyn: true };
+    return { targets: [chdirFlag && chdir !== null ? chdir : "."], dirWrite: true, dyn: false };
+  }
+  if (mode.includes("c") || mode.includes("r") || mode.includes("u")) {
+    if (fFlag) return fVal === null ? { targets: [], dirWrite: false, dyn: true } : { targets: [fVal], dirWrite: false, dyn: false };
+    const first = pos[0];
+    return first === undefined ? "unknown" : (first === null ? { targets: [], dirWrite: false, dyn: true } : { targets: [first], dirWrite: false, dyn: false });
+  }
+  if (mode.includes("t")) return "read-only";
+  return "unknown";
+}
+
 /** argv 写面目标提取（F20261019wvcp 造-执对收编）：cp/mv/install/ln/tee/curl/wget/dd 不经
  *  重定向的落盘写——内容一律不可重建（copy/download/管道输入）→ content=null（fail-closed，
  *  与 `echo "$X" > f && bash f` 既有 script-payload-dynamic 机制同语义：造出内容是权威
@@ -1552,12 +1657,13 @@ function printfFormatContent(fmt: string, args: string[]): string | null {
  *  无需配对）。delta1（检视獭1554 发现 2/3）：拷贝族目标前置形态（-t DIR / --target-directory
  *  =DIR）与常规形态统一解析——目标=DIR/basename(src)，不再把 -t 的目标词当源文件。 */
 // eslint-disable-next-line complexity, max-statements -- argv 写面旗标/参数形态穷举（curl -o 三形态/dd of=/cp 多源/-t 目标前置），分支=已实证写法枚举
-function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; content: null; copyOf?: string } | null {
+function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; content: null; copyOf?: string; dirWrite?: boolean } | null {
   const bare = bareName(seg.argv0);
   const words = seg.words.slice(1);
   const args = words.map(w => w.evaluated).filter((v): v is string => v !== null && !v.startsWith("-"));
   const targets: string[] = [];
   let copyOf: string | undefined;
+  let dirWrite = false;
   if (bare === "cp" || bare === "mv" || bare === "install" || bare === "ln") {
     const fam = copyFamilyArgs(words);
     if (fam === null) return null;
@@ -1584,8 +1690,23 @@ function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; cont
       const v = w.evaluated;
       if (v !== null && v.startsWith("of=")) { const t = evalPath(v.slice(3), cwd); if (t !== null) targets.push(t); }
     }
+  } else if (bare === "sed" || bare === "perl" || bare === "ruby") {
+    // M-f6762368 族外延：原地编辑写面（内容不可重建 → content=null fail-closed）
+    const r = inPlaceEditFiles(seg.words);
+    if (r === null) return null;
+    for (const d of r.files) {
+      if (d === null) continue; // 落点不可求值——动态执行路径由 script-path-dynamic 兜
+      const t = evalPath(d, cwd);
+      if (t !== null) targets.push(t);
+    }
+  } else if (bare === "tar" || bare === "unzip" || bare === "rsync") {
+    // M-f6762368 族外延：解包/同步目录性写面（前缀匹配，内容不可知 fail-closed）
+    const r = archiveFamilyTargets(bare, words);
+    if (r === "read-only" || r === "unknown") return null;
+    for (const t of r.targets) { const p = evalPath(t, cwd); if (p !== null) targets.push(p); }
+    dirWrite = r.dirWrite;
   } else return null;
-  return targets.length > 0 ? { targets, content: null, ...(copyOf !== undefined ? { copyOf } : {}) } : null;
+  return targets.length > 0 ? { targets, content: null, ...(dirWrite ? { dirWrite } : {}), ...(copyOf !== undefined ? { copyOf } : {}) } : null;
 }
 
 /** 拷贝族（cp/mv/install/ln）参数解析（delta1 发现 2/3）：目标前置形态 -t DIR /
@@ -1744,12 +1865,21 @@ function pairPlanFor(sPath: string, segs: Segment[], cwdAt: (string | null)[], u
     const entries = writerContent(segs[j], cwdAt[j] as string);
     if (entries === null) continue;
     for (const e of entries) {
-      if (e.target !== sPath) continue;
+      if (!writeFaceMatches(e, sPath)) continue;
       if (e.content !== null) return { status: "content", text: e.content };
       return e.copyOf !== undefined ? chainContentPlan(e.copyOf, segs, cwdAt, j) : { status: "dynamic" };
     }
   }
   return undefined;
+}
+
+/** 写面落点匹配（M-f6762368）：精确路径命中，或目录性写面（tar/unzip/rsync）前缀命中——
+ *  解包/同步写入目标目录下任意文件，执行段路径落在写目录内即同对。 */
+function writeFaceMatches(e: WriteFaceEntry, sPath: string): boolean {
+  if (e.target === sPath) return true;
+  if (e.dirWrite !== true) return false;
+  const prefix = e.target.endsWith("/") ? e.target : `${e.target}/`;
+  return sPath.startsWith(prefix);
 }
 
 /** 链内源内容透传（F20261019wvcp）：cp/mv/install/ln 是保内容拷贝——源文件是同命令链内
@@ -1762,7 +1892,7 @@ function chainContentPlan(src: string, segs: Segment[], cwdAt: (string | null)[]
     const entries = writerContent(segs[k], cwdAt[k] as string);
     if (entries === null) continue;
     for (const e of entries) {
-      if (e.target !== src) continue;
+      if (!writeFaceMatches(e, src)) continue;
       if (e.content !== null) return { status: "content", text: e.content };
       return e.copyOf !== undefined ? chainContentPlan(e.copyOf, segs, cwdAt, k, depth + 1) : { status: "dynamic" };
     }
