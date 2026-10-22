@@ -91,7 +91,8 @@ modules: [novels/shanhe-shoudaoren, docs/features]
 - 差异检查：`git diff --check` 通过；全部改动仅新增小说目录与本特性文档。
 - 对抗审读 round 1：独立 review `5609374554` 提出 6 个严重项、4 个建议项；全部经主编核实并处置。统一人物年龄、双刀证物链、外锚记忆规则与末信/梦停/案发时间线，重建逐章账本，修改远期重复揭示规划；详见 PR review 与 delta 处置回复。
 - delta round 1（review `5609723606`）：S1/S4/S5 与 A/B/C 已修复，D 部分执行不阻塞；S2/S3/S6 继续定点修订。明确蒙面主顾与护送验货者分工、全库统一普通梦/梦停规则，校正已写章节卡、人物状态和日期。
-- delta round 2 仍待原独立检视者确认；CI 基线已 rebase 到最新 main。
+- delta round 2（review `5609923729`）：**通过**。最后三处账本/规划旧口径闭环，无新增阻塞或建议。独立检视实测正文、12 条 JSONL 与 progress 均为 30,834 字；D 项部分执行但判定不阻塞。单账号环境 GitHub 不允许作者 approve 自己 PR，故通过结论以 COMMENT review 留痕。
+- head `adfa9369` 的 pre-commit `npm run check` 与 `lint:docs` 通过；远端 `check`、`e2e`、`golden-selftest` 三项 CI 全部通过（Actions run `39731915485`，`gh pr checks 1615` 2026-10-22 实测）。
 
 全书 960 章与 200—300 万字是未完目标；本批完成量仅为上述 12 章、30,834 字，未宣称完稿。
 
