@@ -18,8 +18,8 @@ export type WriteVerdictResult =
  *  · evaluated 且写落点 ∩ 主仓树内 = ∅ → ALLOW（positive，含证明无写/只读披露）
  *  · unevaluated → BLOCK（fail-closed，§3.3）
  *  只读披露（access=read）不构成写证据（能力 8/证明演算规则 3）。 */
-export function evaluateWriteVerdict(command: string, projectRoot: string, startCwd: string = projectRoot, scriptPayload?: ScriptPayloadInfo): WriteVerdictResult {
-  const r = evaluateWriteTargets(command, projectRoot, startCwd, scriptPayload);
+export function evaluateWriteVerdict(command: string, projectRoot: string, startCwd: string = projectRoot, scriptPayload?: ScriptPayloadInfo, feedReadOnly?: boolean): WriteVerdictResult {
+  const r = evaluateWriteTargets(command, projectRoot, startCwd, scriptPayload, feedReadOnly);
   if (r.kind === "unevaluated") return { verdict: "BLOCK", mode: "fail-closed", reason: r.reason };
   const mainHits = r.targets.filter(t => t.access === "write" && (t.entryOp ? pathEntryWithinMain(t.path, projectRoot) : pathWithinMain(t.path, projectRoot)));
   if (mainHits.length > 0) return { verdict: "BLOCK", mode: "positive", targets: r.targets, mainHits };

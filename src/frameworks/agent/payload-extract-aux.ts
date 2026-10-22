@@ -11,6 +11,123 @@ import type { Word } from "./command-lexer";
 
 /** shell 递归/脚本载荷解释器族（与 bash-safety-guard 脚本族同源口径） */
 export const SCRIPT_RUNNERS = new Set(["python", "python3", "node", "perl", "ruby", "osascript"]);
+/** 包装词旗标形态表：包装词 → 跳过时吞食后续 token 的规则。
+ *  词表外未知包装词一律 fail-closed——三轮枚举爆破的教训：不扩词表换结构，
+ *  但「已知包装词」仍需一张表承载其旗标语法；表的职责从「枚举全宇宙包装词」
+ *  收窄为「描述已知词的旗标形态」，未知词由结构兜底拦。
+ *  吞食规则（确定性，防贪婪误吞解释器名）：
+ *    flags: 吞连续的 - 开头 token；
+ *    args:  吞「前一 token 是带参旗标」的后随一个非 - token（如 -n 5 / -o0 不同——
+ *           -o0 是合写旗标属 flags；-n 5 分写则 5 属 args）。简单可靠规则：
+ *           flags 吞完后，若最后一个被吞旗标在 takesValue 集合且其本身无内联值
+ *           （长度==2 的短旗标），再吞一个 token；
+ *    assigns: env 专有——吞 FOO=v 形态；
+ *    duration: timeout 专有——旗标吞完后吞一个时长 token（\d 开头或数字+单位）。
+ *  delta r1（检视獭1604）：本表随段首解析收敛迁入共享内层（guard/wte 同一识别域）；
+ *  值旗标分写形态（-u FOO / -n 5 后随值）不吞是已知盲区（M-c36b9847），归 wrapper
+ *  基座治理，不在本次收编面。 */
+export interface WrapperSpec {
+  flags?: boolean;   // 吞连续 - 开头 token
+  assigns?: boolean; // 吞 FOO=v token（可夹于 flags 之后）
+  duration?: boolean; // 吞一个时长/数值 token（timeout/watch -n 之外的独立参数）
+}
+export const WRAPPER_SPECS: Record<string, WrapperSpec> = {
+  env: { flags: true, assigns: true },
+  nice: { flags: true, duration: true },      // nice -n 5（-n 带值）/ nice -5
+  timeout: { flags: true, duration: true },   // timeout [-s KILL] 5 cmd
+  watch: { flags: true, duration: true },     // watch -n 1 cmd
+  setsid: { flags: true },
+  stdbuf: { flags: true },                    // stdbuf -o0 -eL（值内联旗标）
+  arch: {},
+  sudo: { flags: true },
+  nohup: {},
+  command: { flags: true },
+  exec: { flags: true },
+  time: { flags: true },
+  xargs: { flags: true },                     // xargs -I{}（值内联）——-I {} 分写形态保守不吞（落点 {} 非解释器自然放行交后续层）
+};
+
+/** 多调分发器二进制（M-38fb45c0 A 面）：<dispatcher> <子命令> = 子命令语义别名
+ *  （busybox sh ≡ sh）——delta r1：裸分发器（无子命令）按默认 applet ash 归位
+ *  （busybox 默认 shell；toybox 同保守归位——最短攻击形态收编，检视獭1604 严重 3）。 */
+export const MULTI_CALL_DISPATCHERS = new Set(["busybox", "toybox"]);
+
+export const tokenBasename = (t: string): string => {
+  const stripped = t.replace(/^["']|["']$/g, "");
+  const base = stripped.includes("/") ? stripped.split("/").pop()! : stripped;
+  return base.toLowerCase();
+};
+
+/** 跳过一个包装词及其旗标参数（parseSegmentHead/stdinShellKind/resolveExecHead 共用
+ *  内层——wrapper 吞食规则单一真相源，抽函数控圈复杂度）。
+ *  确定性吞食（防贪婪误吞解释器名）：flags 连续 - 开头 / assigns FOO=v / duration 单个数值。 */
+export function skipWrapperArgs(tokens: ReadonlyArray<{ text: string }>, k: number, spec: WrapperSpec): number {
+  if (spec.flags) while (k < tokens.length && /^-/.test(tokens[k].text)) k++;
+  if (spec.assigns) while (k < tokens.length && /^[A-Za-z_]\w*=\S*$/.test(tokens[k].text)) k++;
+  if (spec.duration && k < tokens.length && /^\d/.test(tokens[k].text)) k++;
+  return k;
+}
+
+/** 执行名归一（识别域一致性共享内层）：剥路径 → 版本后缀剥离（python2/python3.11/
+ *  perl5.36 → python/perl）→ 别名归一（pypy* → python 族——pypy 执行 Python 语义，
+ *  pythonBodyReadOnly 同判据适用）。识别域比对一律用归一名——单侧各写各的归一
+ *  正是检视獭1604 严重 2 的漂移源（guard 归一认 python2、wte 入口闸裸词拒收）。 */
+const EXEC_NAME_ALIASES: Record<string, string> = { pypy: "python" };
+export function canonicalExecName(raw: string): string {
+  const base = tokenBasename(raw);
+  const stripped = base.replace(/[\d.]+$/, "");
+  return EXEC_NAME_ALIASES[stripped] ?? stripped;
+}
+
+export interface ExecHead {
+  /** 归一化执行名（SCRIPT_RUNNERS/SHELL 名单比对用） */
+  name: string;
+  /** 执行名所在 words 下标（其后是执行参） */
+  headIndex: number;
+  /** 落点前消耗过 wrapper/多调分发器 */
+  wrapped: boolean;
+}
+
+/** 段首执行名解析（guard/wte 识别域一致性共享内层——检视獭1604 严重 1/2/3 同根因
+ *  收敛）：两侧各自解析段首时 guard 认定 feed 形态域 ⊃ wte 识别域（wte 裸 argv0 词
+ *  不跳 wrapper/不归一版本名），guard 以为在管、求值器看不见 → evaluated 空集放行。
+ *  解析序：跳赋值前缀（不算包装）→ 跳 wrapper 词及其旗标/赋值/时长参（WRAPPER_SPECS
+ *  同基座）→ 多调分发器子命令归位（busybox sh ≡ sh；裸分发器默认 applet ash）→
+ *  版本名归一（canonicalExecName）。段首链动态词（evaluated=null）→ null（判不出，
+ *  调用方保守处理）。 */
+// eslint-disable-next-line complexity -- 解析序四段穷举（赋值前缀/wrapper 吞食/分发器归位/版本归一）是识别域一致性的判定面，拆函数会把单段首解析真相源切碎（delta r1 收敛核心——先例 interpreterScriptFileArg 双域判定豁免同款）
+export function resolveExecHead(seg: Segment): ExecHead | null {
+  const words = seg.words;
+  const tokens = words.map(w => ({ text: w.evaluated ?? "" }));
+  let i = 0;
+  let wrapped = false;
+  for (;;) {
+    const t = words[i]?.evaluated ?? null;
+    if (t === null) return null;
+    if (/^[A-Za-z_]\w*=/.test(t)) { i++; continue; } // 赋值前缀不算包装
+    const spec = WRAPPER_SPECS[tokenBasename(t)];
+    if (!spec) break;
+    wrapped = true;
+    i = skipWrapperArgs(tokens, i + 1, spec);
+    if (i >= words.length) return null;
+  }
+  const rawBase = tokenBasename(words[i].evaluated!);
+  if (MULTI_CALL_DISPATCHERS.has(rawBase)) {
+    const next = words[i + 1]?.evaluated ?? null;
+    if (next !== null && next.length > 0 && !next.startsWith("-")) {
+      return { name: canonicalExecName(next), headIndex: i + 1, wrapped: true };
+    }
+    return { name: "ash", headIndex: i, wrapped: true }; // 裸分发器=默认 applet ash
+  }
+  return { name: canonicalExecName(rawBase), headIndex: i, wrapped };
+}
+
+/** 解释器 stdin 喂入的执行参白名单（两侧共用）：裸词/单短旗标/lone -（-c/-e/--x=v/
+ *  脚本文件参走既有载荷通道不收）；空参（裸 python）也算——stdin 即程序来源。 */
+export function isStdinFeedRest(rest: Array<string | null>): boolean {
+  return rest.every(t => t !== null && (/^-[a-zA-Z]$/.test(t) || t === "-"));
+}
+
 
 /** 病型 A：check-only 形态=语法检查（读脚本不执行）——node --check/-c、perl -c、ruby -c、
  *  python -m py_compile、--syntax-only（bash/sh -n 不在 SCRIPT_RUNNERS，本就走正常段求值）。
@@ -75,7 +192,7 @@ export function reassemblySpan(commandText: string, start: number): string {
 
 /** 病型 C 负门②：新 runner 交界——重组 span 内分隔符后出现另一解释器执行形态（非 check-only）
  *  → 跨段藏写风险，回落不猜。echo/printf 等内建非 runner 不算交界。 */
-const RUNNER_JUNCTION = /(?:^|[;&|\n])\s*(?:sudo\s+)?(?:bash|zsh|ksh|sh|node|python3?|perl|ruby|osascript)\s+[^\n;&|]*/g;
+const RUNNER_JUNCTION = /(?:^|[;&|\n])\s*(?:sudo\s+)?(?:bash|zsh|ksh|ash|sh|node|python3?|perl|ruby|osascript)\s+[^\n;&|]*/g;
 
 export function runnerJunctionUnsafe(span: string): boolean {
   for (const m of span.matchAll(RUNNER_JUNCTION)) {
@@ -92,10 +209,14 @@ export function hasPayloadFlag(seg: Segment): boolean {
   return seg.words.some(w => w.evaluated === "-c" || w.evaluated === "-e" || w.evaluated === "-");
 }
 
-/** 段是否脚本解释器段（argv0 命中 SCRIPT_RUNNERS） */
+/** 段是否脚本解释器段（段首执行名归一后命中 SCRIPT_RUNNERS——resolveExecHead 共用
+ *  内层：跳赋值前缀/wrapper/分发器 + 版本名归一，与 guard interpreterStdinKind、wte
+ *  interpreterStdinFeedContent 同一识别域）。delta r1（检视獭1604 严重 1/2 根因）：
+ *  旧裸 argv0 词判定是窄提取入口闸——env python（argv0="env"）、python2 在此被拒，
+ *  feed 分支不可达 → evaluated 空集放行；归一后 wrapper/版本别名形态同尺进窄提取。 */
 export function isScriptRunnerSeg(seg: Segment): boolean {
-  const bare = (seg.argv0 ?? "").split("/").pop() ?? "";
-  return seg.argv0 !== null && SCRIPT_RUNNERS.has(bare);
+  const head = resolveExecHead(seg);
+  return head !== null && SCRIPT_RUNNERS.has(head.name);
 }
 
 /** 模型是否含脚本载荷族（解释器载荷旗标段或 cmdsub/var 展开词） */

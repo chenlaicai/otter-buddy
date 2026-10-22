@@ -79,7 +79,7 @@ function isRedirOp(op: string): boolean {
 }
 
 /** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10） */
-export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh", "ash"]);
 /** 脚本载荷解释器（one-liner 执行通道） */
 const SCRIPT_RUNNERS = new Set(["python", "python3", "node", "perl", "ruby", "osascript"]);
 
