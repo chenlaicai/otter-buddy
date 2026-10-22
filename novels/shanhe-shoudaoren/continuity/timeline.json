@@ -30,78 +30,129 @@
   "events": [
     {
       "id": "T-001",
-      "story_time": "承光十七年",
-      "content": "导沧大工动工（七大工之五）",
-      "status": "planned"
+      "story_time": "景和十年三月初三",
+      "content": "黑水峡十七镖师遇害",
+      "status": "written",
+      "chapter": 2
     },
     {
       "id": "T-002",
-      "story_time": "承光二十年秋",
-      "content": "导沧大工成：沧浪江南移三百里，落雁川三万一千口整册剥名，人随川没；官册口径『迁民三万安置他乡』",
-      "status": "planned"
+      "story_time": "景和十年三月初三",
+      "content": "王二麻之刀送讫其母（吃三碗咸面、第一个谎『不疼』）",
+      "status": "written",
+      "chapter": 1
     },
     {
       "id": "T-003",
-      "story_time": "承光二十年冬",
-      "content": "祝九龄走沉川道，失一目、失结义兄弟、失一段记忆；旧刀账该年空白",
-      "status": "planned"
+      "story_time": "景和十年三月初四",
+      "content": "镖局赴黑水峡收刀：17口刀入库（11有铭+5无铭新刀+半把旧断刀）",
+      "status": "written",
+      "chapter": 2
     },
     {
       "id": "T-004",
-      "story_time": "承光廿九年（约15年前）",
-      "content": "裴洗尘自剥其名（前身乱世人屠，屠村旧案）",
-      "status": "planned"
+      "story_time": "景和十年三月初五至初九",
+      "content": "查册碰壁（五里墩补抄）；十一口有铭刀认主",
+      "status": "written",
+      "chapter": 3
     },
     {
       "id": "T-005",
-      "story_time": "景和十年三月上旬",
-      "content": "黑水峡十七尸案发，V1开卷（对应第002章）",
-      "status": "planned"
+      "story_time": "景和十年三月初十夜",
+      "content": "陆停舟首次完整照见（断后者最后一程，听见水声）",
+      "status": "written",
+      "chapter": 4
     },
     {
       "id": "T-006",
-      "story_time": "景和十年三月中—八月",
-      "content": "第一卷主体：柳泉→顺平→雒口→湖域→黑水峡→沉川湖畔",
-      "status": "planned"
+      "story_time": "景和十年三月十八至廿二",
+      "content": "送刀：小满刀留局、周小满入局拜师；孙五刀当场拒收回局",
+      "status": "written",
+      "chapter": 5
     },
     {
       "id": "T-007",
-      "story_time": "景和十年八月末",
-      "content": "V1卷末：岑潮归名、裴洗尘死、陆停舟出雍州（对应第101—120章）",
-      "status": "planned"
+      "story_time": "景和十年三月廿三至廿五",
+      "content": "赵大河刀跪接收一文；何保刀留门墩、寡妇掌灯自取（账面存局待认）",
+      "status": "written",
+      "chapter": 6
     },
     {
       "id": "T-008",
-      "story_time": "景和十年九月起",
-      "content": "V2《沉川湖》：湖域、旧渡、碑村（对应第121—240章）",
-      "status": "planned"
+      "story_time": "景和十年三月廿六",
+      "content": "老铁口证词：五口新刀腊月初八急单、湖腔订刀人、第三口柄尾暗纹多验一息",
+      "status": "written",
+      "chapter": 7
     },
     {
       "id": "T-009",
-      "story_time": "全书正传跨度约4年（景和十年—十四年），尾声在大归名后十年",
-      "content": "V1—V8 主体与尾声",
-      "status": "planned"
+      "story_time": "景和十年三月廿七夜",
+      "content": "祝九龄压案拍碎茶碗；韩仓吐沉川道旧事（二十四年前十二去三回）",
+      "status": "written",
+      "chapter": 8
     },
     {
       "id": "T-010",
+      "story_time": "景和十年三月廿八至月末",
+      "content": "空账页发现：承光二十年『无名氏若干』为祝九龄病后补写；其失忆半月",
+      "status": "written",
+      "chapter": 9
+    },
+    {
+      "id": "T-011",
+      "story_time": "景和十年三月末至四月初",
+      "content": "脚店查线：条箱两批/通济栈全员忘货主/数名之梦；陆停舟自知被盯",
+      "status": "written",
+      "chapter": 10
+    },
+    {
+      "id": "T-012",
       "story_time": "景和十年三月初十",
       "content": "岑缨抵柳泉认兄：县衙/庙/坟三处碰壁，栅栏外遥祭十六号坟",
       "status": "written",
       "chapter": 11
     },
     {
-      "id": "T-011",
+      "id": "T-013",
       "story_time": "景和十年四月初二",
-      "content": "岑缨到镖局：柄尾暗纹认刀存疑；忆册梦停二月初三总钩立起",
+      "content": "岑缨凭绣样认领礼物刀；忆册梦停二月初三总钩立起",
       "status": "written",
       "chapter": 12
     },
     {
-      "id": "T-012",
-      "story_time": "承光二十年腊月",
-      "content": "（追述）祝九龄失忆半月，空账页成谜——老账页发现于景和十年",
+      "id": "T-014",
+      "story_time": "（前史）去年腊月初八",
+      "content": "蒙面湖腔主顾向老铁口订五口无铭新刀（三倍定金），腊月廿八取货",
+      "status": "written",
+      "chapter": 7
+    },
+    {
+      "id": "T-015",
+      "story_time": "（前史）承光二十年（24年前）",
+      "content": "沉川道：祝九龄十二去三回丢左眼；承光二十年腊月失忆半月、空账页",
       "status": "written",
       "chapter": 9
+    },
+    {
+      "id": "T-016",
+      "story_time": "（前史）景和十年正月十七",
+      "content": "岑潮末封家书（『柄尾有纹的，给你留着』），此后断绝",
+      "status": "written",
+      "chapter": 3
+    },
+    {
+      "id": "T-017",
+      "story_time": "（前史）景和十年二月初三",
+      "content": "岑缨教握刀梦骤停（剥名症状，角色不知）",
+      "status": "written",
+      "chapter": 12
+    },
+    {
+      "id": "T-018",
+      "story_time": "（前史）景和十年二月廿八",
+      "content": "无名镖队过石桥铺官卡（镖头栏空白）",
+      "status": "written",
+      "chapter": 3
     }
   ]
 }
