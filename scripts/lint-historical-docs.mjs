@@ -310,19 +310,24 @@ export function findViolations(ctx = stagedCtx()) {
 function differsOnlyInLinkPaths(oldLine, newLine) {
   const LINK_RE = /\]\(([^)#\s]+?)(#[^)]*)?\)/g;
   const TOKEN_RE = /`([A-Za-z0-9_\-/]+\.md)`/g;
+  // J2 修复（F20261022j2j3）：双 RE 各扫一遍的顺序剥离会把「token 先于链接」的同行
+  // 形态骨架切坏（第二趟从 token 位再切，中间段丢失）导致合法 rename 同步订正误拒。
+  // 改为两 RE 的 match 按位置统一排序单趟扫——剥离与收集共用同一份位置序，两函数
+  // 语义天然一致（collect 此前各 RE 拼接的顺序与 stripAll 剥离顺序本就可能不一致，
+  // 同序后顺带消掉这个潜在错位）。
+  const matches = (s) => [
+    ...[...s.matchAll(LINK_RE)].map((m) => ({ index: m.index, length: m[0].length, value: m[1] })),
+    ...[...s.matchAll(TOKEN_RE)].map((m) => ({ index: m.index, length: m[0].length, value: m[1] })),
+  ].sort((a, b) => a.index - b.index);
   const stripAll = (s) => {
     const segs = [];
     let last = 0;
-    for (const m of s.matchAll(LINK_RE)) { segs.push(s.slice(last, m.index)); last = m.index + m[0].length; }
-    for (const m of s.matchAll(TOKEN_RE)) { segs.push(s.slice(last, m.index)); last = m.index + m[0].length; }
+    for (const m of matches(s)) { segs.push(s.slice(last, m.index)); last = m.index + m.length; }
     segs.push(s.slice(last));
     return segs.join("");
   };
   if (stripAll(oldLine) !== stripAll(newLine)) return false;
-  const collect = (s) => [
-    ...[...s.matchAll(LINK_RE)].map(m => m[1]),
-    ...[...s.matchAll(TOKEN_RE)].map(m => m[1]),
-  ];
+  const collect = (s) => matches(s).map((m) => m.value);
   const op = collect(oldLine);
   const np = collect(newLine);
   return op.length === np.length && op.some((p, i) => p !== np[i]);
