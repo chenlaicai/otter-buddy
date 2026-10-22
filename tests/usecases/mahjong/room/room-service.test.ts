@@ -223,6 +223,7 @@ describe("RoomService 全流程", () => {
       humanGraceMs: 60_000,
     });
     svc.createRoom("r1", cfg("room-seed-1"));
+    await svc.startRoom("r1");
     await driveUntilFinished(svc, "r1");
 
     const gameEvents = events.filter((e) => e.type === "game");
@@ -261,6 +262,7 @@ describe("RoomService 全流程", () => {
       ],
     };
     svc.createRoom("r1", config);
+    await svc.startRoom("r1");
     await svc.settled("r1");
     expect(svc.view("r1", null)!.awaitingHuman).not.toBeNull();
     // 不注入：等超时+宽限自动摸切
@@ -282,6 +284,7 @@ describe("RoomService 全流程", () => {
       humanGraceMs: 60_000,
     });
     svc1.createRoom("r1", cfg("recover-room"));
+    await svc1.startRoom("r1");
     // 走到第一个真人停驻
     await svc1.settled("r1");
     const before = svc1.view("r1", null)!;
@@ -324,6 +327,7 @@ describe("RoomService 全流程", () => {
       humanGraceMs: 60_000,
     });
     svc.createRoom("r1", cfg("bad-action-seed"));
+    await svc.startRoom("r1");
     const humanSeat = [0, 1, 2].find((s) => svc.view("r1", null)!.players[s]!.kind === "human")! as 0 | 1 | 2;
 
     // 推进到真人停驻（dealer 是 otter 位时链自驱至人位）

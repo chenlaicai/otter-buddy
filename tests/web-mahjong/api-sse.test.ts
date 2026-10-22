@@ -78,8 +78,11 @@ describe("api.js × 真实 Hono 路由", () => {
   it("建房 → join 私有视图 → 观战全览 → 动作注入逐字透传 → 复盘帧链", async () => {
     const created = await api.createRoom({ roomId: ROOM, seed: "client-seed", players: PLAYERS });
     expect(created.roomId).toBe(ROOM);
-    expect(created.status).toBe("playing");
+    expect(created.status).toBe("waiting"); // F20261022mjls：建房开等待房
     expect(created.seed).toBe("client-seed");
+    // 开始：waiting→playing 发牌起跑
+    const began = await api.start(ROOM);
+    expect(began.status).toBe("playing");
 
     // 入座：自己看得到手牌，别家看不到
     const joined = await api.join(ROOM, 1);
@@ -102,7 +105,7 @@ describe("api.js × 真实 Hono 路由", () => {
     // 动作只对停驻座生效：注给隔壁座（proxy）→ 400；不是“同一动作重放”——那会碰上并发重停驻的时序
     await expect(api.action(ROOM, 0, action)).rejects.toMatchObject({ status: 400 });
 
-    // 幂等开局回执 + 复盘帧链
+    // 幂等开局回执（重复 start 不报错）+ 复盘帧链
     const started = await api.start(ROOM);
     expect(started.status).toBe("playing");
     const frames = await api.frames(ROOM);
@@ -124,6 +127,7 @@ describe("api.js × 真实 Hono 路由", () => {
   }
   it("#1532 api.chat 回话封装：POST /chat → {accepted:true, seat}", async () => {
     await api.createRoom({ roomId: ROOM, seed: "chat-seed", players: PLAYERS });
+    await api.start(ROOM); // F20261022mjls：waiting 房 chat 会 409，先开局
     const res = (await api.chat(ROOM, 1, "在吗")) as Record<string, any>;
     expect(res.accepted).toBe(true);
     expect(res.seat).toBe(1);
@@ -275,6 +279,13 @@ describe("真 SSE 端点桥接（hello/game/human-wait）", () => {
         body: JSON.stringify({ roomId: ROOM, seed: "sse-seed", players: PLAYERS }),
       }),
     );
+    await json(
+      await app.request(`/api/mahjong/rooms/${ROOM}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      }),
+    ); // F20261022mjls：建房开等待房，先开局才有 game/human-wait 推送
 
     const frames: any[] = [];
     const statuses: string[] = [];

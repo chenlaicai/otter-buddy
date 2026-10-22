@@ -401,6 +401,39 @@ function renderOverlay() {
         <button type="button" class="btn btn--primary" data-do="enter">进牌桌</button>
         <button type="button" class="btn btn--ghost" data-do="copyLink">复制链接</button>
       </div>`;
+    return;
+  }
+  // F20261022mjls：等待房遮罩——座位就绪况 + 「开始」按钮 + 换獭入口（开始前可自定义陪打獭）
+  if (state.overlay === "waiting") {
+    const lobby = state.view?.lobby;
+    const seatRow = (p, i) => `
+      <div class="seat-card">
+        <span class="s-name">${SEAT_CN[p.seat] ?? p.seat}家 · ${esc(p.name)}</span>
+        <span class="s-otter">${
+          p.kind === "human"
+            ? "等真人入座（点开始后开打）"
+            : p.kind === "proxy"
+              ? "陪打（规则代理）"
+              : p.otterId
+                ? `獭（LLM）· ${esc(p.otterId)}`
+                : "獭（LLM）· 开始时用默认陪打獭"
+        }</span>
+        ${p.kind !== "human" && p.kind !== "proxy" ? `
+        <label class="s-pick">换獭 otterId
+          <input data-lobby-otter="${i}" value="${esc(p.otterId ?? "")}" placeholder="留空 = 用默认陪打獭">
+        </label>` : ""}
+      </div>`;
+    box.innerHTML = `
+      <h2>等待开始 · ${esc(state.roomId)}</h2>
+      <p>座位就绪后点「开始」才发牌起跑（1 小时未开始自动清房）。可先把链接发给入座的人。</p>
+      <div class="seat-pick">${(lobby?.players ?? []).map(seatRow).join("")}</div>
+      <div class="row"><input readonly value="${esc(location.origin + "/mahjong/" + state.roomId)}" id="inviteLink"></div>
+      <div class="row">
+        <button type="button" class="btn btn--primary" data-do="start-game">开始</button>
+        <button type="button" class="btn btn--ghost" data-do="copyLink">复制邀请链接</button>
+        <button type="button" class="btn btn--muted" data-do="lobby">回大厅</button>
+      </div>`;
+    return;
   }
 }
 
@@ -416,12 +449,12 @@ function lobbyHtml() {
     <label>名字
       <input data-seat-name="${i}" value="${i === 0 ? "你" : `獭${i}`}">
     </label>
-    <label data-otter-field="${i}" ${i === 0 ? "" : "hidden"}>otterId
-      <input data-seat-otter="${i}" placeholder="otter id（otter 座位必填）">
+    <label data-otter-field="${i}" ${i === 0 ? "" : "hidden"}>otterId（留空 = 开始时用默认陪打獭）
+      <input data-seat-otter="${i}" placeholder="otter id（可留空）">
     </label>`;
   return `
     <h2>开一局三麻</h2>
-    <p>东风战 · 35000 点起 · 1 真人 + 2 獭（或陪打）。建房即开局，随后分享链接入座。</p>
+    <p>东风战 · 35000 点起 · 1 真人 + 2 獭（或陪打）。建房只开等待房，进牌桌点「开始」才发牌（F20261022mjls）。</p>
     <div class="row">${[0, 1, 2].map(seatRow).join("")}</div>
     <div class="row">
       <label>seed（可选，牌谱可复现）
@@ -429,7 +462,7 @@ function lobbyHtml() {
       </label>
     </div>
     <div class="row">
-      <button type="button" class="btn btn--primary" data-do="create">建房开局</button>
+      <button type="button" class="btn btn--primary" data-do="create">建房（开等待房）</button>
       <button type="button" class="btn btn--ghost" data-do="presetProxy">全部陪打（先试跑）</button>
       <button type="button" class="btn btn--muted" data-do="close">取消</button>
     </div>`;
@@ -538,7 +571,7 @@ async function createRoom(cfg) {
   const res = await api.createRoom(cfg);
   state.roomId = res.roomId;
   history.pushState({}, "", `/mahjong/${encodeURIComponent(res.roomId)}`);
-  pushLog(`房间 ${res.roomId} 已开局（seed ${res.seed}）`, "is-wake");
+  pushLog(`房间 ${res.roomId} 已创建（seed ${res.seed}）——等待点「开始」开局`, "is-wake");
   // 建房者坐在配置为真人的那一座；全是獭/陪打则观战
   const mySeat = cfg.players.findIndex((p) => p.kind === "human");
   await enterRoom(mySeat >= 0 ? mySeat : null, { created: true });
@@ -557,11 +590,13 @@ async function enterRoom(seat, opts = {}) {
     // 方案模块四流程：join 入座（拿该座私有视图）→ start 幂等开局确认
     const entered = state.seat === null ? await api.view(state.roomId, null) : await api.join(state.roomId, state.seat);
     state.view = entered.view ?? entered;
-    // start 回执内部是 seats=null 的全览视图——只当“开局/恢复确认”用，绝不覆盖 state.view（否则坐家用全览 = 看得见对手底牌）
-    await api.start(state.roomId).catch(() => {});
+    // F20261022mjls：不再自动 start——建房只开等待房，搭档点「开始」才开局（api.start 调用移至等待遮罩按钮）
     state.screen = "room";
     state.streamSettle = null;
-    state.overlay = opts.join ? "join" : opts.created ? "created" : null;
+    // F20261022mjls：waiting 房停在等待遮罩（开始按钮）；playing 直进牌桌；created 旧遮罩废弃
+    const status = state.view?.status ?? "playing";
+    // waiting 房：优先等待遮罩（开始按钮）——入座选择退后（start 前 seat 概念尚不生效）
+    state.overlay = status === "waiting" ? "waiting" : opts.join ? "join" : null;
     pushLog(state.seat === null ? "进入观战" : `你坐上${SEAT_CN[state.seat]}家`);
     render();
     startStream();
@@ -667,6 +702,8 @@ function bindEvents() {
       }
     } else if (what === "create") {
       await onCreate();
+    } else if (what === "start-game") {
+      await onStartGame();
     } else if (what === "presetProxy") {
       document.querySelectorAll("[data-seat-kind]").forEach((s) => {
         if (s.dataset.seatKind !== "0") s.value = "proxy";
@@ -721,14 +758,50 @@ async function onCreate() {
     const kind = document.querySelector(`[data-seat-kind="${i}"]`)?.value ?? "proxy";
     const name = document.querySelector(`[data-seat-name="${i}"]`)?.value?.trim() || `座位${i}`;
     const otterId = document.querySelector(`[data-seat-otter="${i}"]`)?.value?.trim();
-    return { kind, name, ...(kind === "otter" ? { otterId: otterId || undefined } : {}) };
+    return { kind, name, ...(kind === "otter" && otterId ? { otterId } : {}) };
   };
   const players = [pick(0), pick(1), pick(2)];
   const seed = document.getElementById("seedInput")?.value?.trim();
   try {
     await createRoom({ ...(seed ? { seed } : {}), players });
   } catch (e) {
-    toast(e.message || "建房失败（otter 座位要填 otterId；房间号重复会 409）");
+    toast(e.message || "建房失败（房间号重复会 409）——开始时可换獭重试");
+  }
+}
+
+/** F20261022mjls：等待房「开始」——收集换獭输入，POST /start（带 players 覆盖）后进牌桌 */
+async function onStartGame() {
+  const lobbyPlayers = state.view?.lobby?.players ?? [];
+  const pick = (i) => {
+    const cur = lobbyPlayers[i];
+    if (!cur) return null;
+    if (cur.kind === "human" || cur.kind === "proxy") return { kind: cur.kind, name: cur.name };
+    const override = document.querySelector(`[data-lobby-otter="${i}"]`)?.value?.trim();
+    const otterId = override || cur.otterId;
+    return otterId ? { kind: "otter", name: cur.name, otterId } : { kind: "otter", name: cur.name };
+  };
+  const players = [pick(0), pick(1), pick(2)].filter(Boolean);
+  const needOverride = players.some((p, i) => {
+    const cur = lobbyPlayers[i];
+    return JSON.stringify(p) !== JSON.stringify(cur ? { kind: cur.kind, name: cur.name, ...(cur.otterId ? { otterId: cur.otterId } : {}) } : p);
+  });
+  try {
+    const res = await api.start(state.roomId, needOverride ? { players } : undefined);
+    const view = res.view;
+    // PR#1609 delta（检视建议 3）：房已被清理（终局驱逐/等待超时）时后端回 view:null + status:"gone"——
+    // 不渲染空桌，提示回大厅重开
+    if (!view) {
+      toast("房间已不在（终局驱逐或等待超时）——请回大厅重新建房");
+      goLobby();
+      return;
+    }
+    state.view = state.seat === null ? view : await api.view(state.roomId, state.seat);
+    state.overlay = null;
+    pushLog("牌局开始", "is-wake");
+    render();
+    startStream();
+  } catch (e) {
+    toast(e.message || "开始失败（獭不可用或房间已清理）");
   }
 }
 

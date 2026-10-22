@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- RoomService 单类编排层：推进链/真人停驻/落帧广播/lobby 生命周期共享 room 内部态与 deps 注入，继续拆分需在函数间传 room+deps 闭包上下文，剖裂不变量（lobby/waiting 已拆 room-lobby.ts 后仍超 max-lines——剩余为不可再拆的编排核心；参照 engine.ts 单类先例） */
+
 /**
  * 牌局房间服务（方案模块三编排层）——引擎推进 + 节流阀 + 獭唤醒 + 真人等待/超时
  * + 落帧 + 房间粒度广播（SSE 上联在 http 层）。
@@ -24,6 +26,7 @@ import { SanmaEngine, restoreEngine, notation } from "../engine/engine";
 import { proxyChooseAction, isTrivialDecision } from "../engine/proxy";
 import { injectPendingChat } from "./room-chat";
 import { settleRoundEndFlow, continueSettlement, stopRoomFlow, guardHumanIdleStrike, type LifecycleResult } from "./room-lifecycle";
+import { buildGameoverReport } from "./gameover-report";
 import type {
   DecisionPoint,
   EngineAction,
@@ -32,6 +35,14 @@ import type {
   Seat,
 } from "../engine/types";
 import { wakeOtterForDecision, type WakeResult } from "./otter-adapter";
+import {
+  buildLobbyView,
+  clearLobbyEvict,
+  scheduleLobbyEvict,
+  startLobbyRoom,
+  type StartResult,
+} from "./room-lobby";
+export type { StartResult } from "./room-lobby";
 export type { ChatMessage, GameoverReport, RoomEvent, RoomEventListener, RoomServiceDeps, RoomView } from "./room-types";
 export { RoomBus } from "./room-types";
 import type { ChatMessage, GameoverReport, RoomEvent, RoomEventListener, RoomServiceDeps, RoomView } from "./room-types";
@@ -51,8 +62,10 @@ interface RoomInternal {
   chain: Promise<void>;
   awaiting: AwaitingHuman | null;
   startedAt: number;
-  /** 局终已上报（防重复：loop 顶只 fire 一次；recover 已终局也置位） */
+  /** 终局已上报（防重复：loop 顶只 fire 一次；recover 已终局也置位） */
   reportedOver: boolean;
+  /** F20261022mjls：lobby TTL 驱逐定时器（waiting 房超时未开始自动清房） */
+  lobbyEvictTimer?: ReturnType<typeof setTimeout>;
   /** 终局宽限驱逐定时器（scheduleEvict；close/同房重开后由代际校验失效） */
   evictTimer?: ReturnType<typeof setTimeout>;
   /** #1564-5：局终结算停驻定时器（有真人的房暂停等「继续」，到期自动继续） */
@@ -81,14 +94,19 @@ export class RoomService {
     this.humanTimeoutMs = deps.humanTimeoutMs ?? 15_000;
     this.humanGraceMs = deps.humanGraceMs ?? 15_000;
     this.evictFinishedMs = deps.evictFinishedMs ?? 10 * 60_000;
+    this.lobbyTtlMs = deps.lobbyTtlMs ?? 3_600_000;
   }
 
   /** 终局房宽限出 Map（检视发现3）：宽限内 view/recover 可用（页面终局展示），到期驱逐防 rooms Map 无界 */
   private readonly evictFinishedMs: number;
 
+  /** F20261022mjls：lobby 等待房 TTL（1 小时未开始自动清房防占位） */
+  private readonly lobbyTtlMs: number;
+
   // ── 生命周期 ──
 
-  /** 建房开局：配牌 + 首帧 + 广播，推进异步起跑 */
+  /** 建房开 lobby 等待房（F20261022mjls 建房≠开局）：配座位不上牌、不发牌不起跑。
+   *  返回 waiting 房；搭档在牌桌点「开始」才 startRoom 发牌起跑。*/
   createRoom(roomId: string, config: GameConfig): { gameId: string } {
     const existing = this.rooms.get(roomId);
     if (existing) {
@@ -98,15 +116,57 @@ export class RoomService {
       this.close(roomId);
     }
     const gameId = `${roomId}-${Date.now().toString(36)}`;
-    const engine = new SanmaEngine(config);
-    const events = engine.startRound();
-    this.deps.store.createGame(gameId, roomId, config);
+    const engine = new SanmaEngine(config); // 构造即 waiting（不发牌）
+    this.deps.store.createGame(gameId, roomId, config, "waiting");
     this.deps.store.appendFrame(gameId, engine.state, null);
     const room = this.newRoom(roomId, gameId, engine);
     this.rooms.set(roomId, room);
-    this.publishGame(room, events, engine.decisionPoint(), 0);
-    this.kick(roomId);
+    this.scheduleLobby(room);
+    this.deps.bus.publish(roomId, { type: "game", roomId, gameId, events: [], decision: null, frameSeq: 0 });
     return { gameId };
+  }
+
+  /** F20261022mjls：waiting→playing 发牌起跑（牌桌「开始」按钮）——实现在 room-lobby.ts startLobbyRoom */
+  async startRoom(
+    roomId: string,
+    playersOverride?: ReadonlyArray<{ kind: string; name: string; otterId?: string }>,
+  ): Promise<StartResult> {
+    return startLobbyRoom(roomId, playersOverride, {
+      getRoom: (id) => this.rooms.get(id) ?? this.recoverToLobby(id),
+      defaultOtters: this.deps.defaultOtters,
+      checkOtterUsable: this.deps.checkOtterUsable,
+      onSeatsChanged: (room, config) => {
+        room.engine = new SanmaEngine(config);
+        this.deps.store.updateGameConfig(room.gameId, config);
+      },
+      beginPlay: (room) => this.beginPlay(room),
+    });
+  }
+
+  /** 开始后的发牌起跑链：清 lobby 定时器 → 发牌（内存即 playing，发牌即事实）→ 落库落帧 → 广播 → kick。
+   *  检视严重发现修复（PR#1609 delta）：db 写失败自兑降级 warn——内存牌局是真相源，库帧可后续 recover 补；
+   *  不得把异常抛给 startLobbyRoom 外层（否则接口谎报「房保持 waiting」而实际已开局） */
+  private beginPlay(room: RoomInternal): void {
+    clearLobbyEvict(room);
+    const events = room.engine.startRound(); // waiting→playing + 发牌
+    try {
+      this.deps.store.updateGameStatus(room.gameId, "playing");
+      this.storeFrame(room, null);
+    } catch (e) {
+      this.deps.logger?.warn("mahjong beginPlay persist failed (in-memory game continues)", {
+        roomId: room.roomId,
+        gameId: room.gameId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+    this.publishGame(room, events, room.engine.decisionPoint(), 0);
+    this.kick(room.roomId);
+  }
+
+  /** 恢复或拉回 waiting 房（startRoom 对不在内存的房间先尝试 recover） */
+  private recoverToLobby(roomId: string): RoomInternal | null {
+    const rec = this.recover(roomId);
+    return rec ? this.rooms.get(roomId) ?? null : null;
   }
 
   /**
@@ -123,6 +183,11 @@ export class RoomService {
     const room = this.newRoom(roomId, game.id, engine);
     this.rooms.set(roomId, room);
     if (engine.state.status !== "playing") {
+      if (engine.state.status === "waiting") {
+        // F20261022mjls：恢复到 lobby 等待房——不进推进链，重挂 TTL（搭档可继续点开始）
+        this.scheduleLobby(room);
+        return { gameId: game.id };
+      }
       // 恢复到已终局：不进推进链且 reportedOver 置位（战报不重复 fire）；status 幂等补写——
       // 覆盖「终局后进程即崩、updateGameStatus 未及落库」的窗口（检视发现3）
       room.reportedOver = true;
@@ -145,6 +210,7 @@ export class RoomService {
   close(roomId: string): void {
     const room = this.rooms.get(roomId);
     if (!room) return;
+    clearLobbyEvict(room);
     if (room.awaiting) {
       clearTimeout(room.awaiting.deadlineTimer);
       clearTimeout(room.awaiting.forceTimer);
@@ -188,6 +254,17 @@ export class RoomService {
   isSeated(otterId: string): boolean {
     for (const room of this.rooms.values()) {
       if (room.engine.state.status !== "playing") continue;
+      if (room.engine.state.config.players.some((p) => p.kind === "otter" && p.otterId === otterId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** F20261022mjls：该 otter 是否在 waiting 房座位上（对话侧可提示「在等你点开始」） */
+  isWaitingSeat(otterId: string): boolean {
+    for (const room of this.rooms.values()) {
+      if (room.engine.state.status !== "waiting") continue;
       if (room.engine.state.config.players.some((p) => p.kind === "otter" && p.otterId === otterId)) {
         return true;
       }
@@ -254,6 +331,8 @@ export class RoomService {
     const room = this.rooms.get(roomId);
     if (!room) return null;
     const { engine } = room;
+    // F20261022mjls：lobby 等待态——座位就绪况 + 可开始（未发牌，无牌面字段）
+    if (engine.state.status === "waiting") return buildLobbyView(roomId, room.gameId, engine);
     const r = engine.state.round;
     if (!r) return null;
     const dp = engine.decisionPoint();
@@ -291,6 +370,7 @@ export class RoomService {
         ? { seat: room.awaiting.seat, deadline: new Date(Date.now() + this.humanTimeoutMs).toISOString() }
         : null,
       settlement: r.settlement ?? null,
+      lobby: null,
     };
   }
 
@@ -329,7 +409,9 @@ export class RoomService {
       guard += 1;
       if (guard > 10_000) throw new Error("advance loop exceeded step guard");
       const engine = room.engine;
+      // F20261022mjls：非 playing 分流——waiting 是停驻态（等「开始」不出循环）；finished 走终局上报
       if (engine.state.status !== "playing") {
+        if (engine.state.status === "waiting") return;
         await this.fireGameover(room);
         return;
       }
@@ -340,26 +422,34 @@ export class RoomService {
         await this.advanceRound(room);
         continue;
       }
-      // ① 真人 → park（等 HTTP 注入；超时链广播 deadline → 宽限后代理）
-      const player = engine.state.round!.players[dp.seat];
-      if (player.kind === "human") {
-        this.parkHuman(room, dp);
-        return;
-      }
-      // ①.5 proxy 座位（非真人非獭）：规则代理直接执行（不走唤醒）
-      if (player.kind !== "otter") {
-        this.step(room, dp.seat, proxyChooseAction(engine, dp), isTrivialDecision(engine, dp) ? "trivial" : "proxy");
-        continue;
-      }
-      // ② 节流阀：trivial 直接代理
-      if (isTrivialDecision(engine, dp)) {
-        this.step(room, dp.seat, proxyChooseAction(engine, dp), "trivial");
-        continue;
-      }
-      // ③ 獭唤醒（SDK 直调；失败兜底）
-      const wake: WakeResult = await wakeOtterForDecision({ gateway: this.deps.gateway, engine }, dp);
-      this.step(room, dp.seat, wake.action, wake.via === "otter" ? "otter" : "fallback", wake);
+      const acted = await this.actOnDecision(room, dp);
+      if (acted === "parked") return; // 真人停驻：让位等 HTTP 注入
     }
+  }
+
+  /** 单决策点推进（自 loop 拆出——控 loop 语句数）：真人 park / proxy 直打 / 节流阀 / 獭唤醒 */
+  private async actOnDecision(room: RoomInternal, dp: DecisionPoint): Promise<"parked" | "advanced"> {
+    const engine = room.engine;
+    // ① 真人 → park（等 HTTP 注入；超时链广播 deadline → 宽限后代理）
+    const player = engine.state.round!.players[dp.seat];
+    if (player.kind === "human") {
+      this.parkHuman(room, dp);
+      return "parked";
+    }
+    // ①.5 proxy 座位（非真人非獭）：规则代理直接执行（不走唤醒）
+    if (player.kind !== "otter") {
+      this.step(room, dp.seat, proxyChooseAction(engine, dp), isTrivialDecision(engine, dp) ? "trivial" : "proxy");
+      return "advanced";
+    }
+    // ② 节流阀：trivial 直接代理
+    if (isTrivialDecision(engine, dp)) {
+      this.step(room, dp.seat, proxyChooseAction(engine, dp), "trivial");
+      return "advanced";
+    }
+    // ③ 獭唤醒（SDK 直调；失败兜底）
+    const wake: WakeResult = await wakeOtterForDecision({ gateway: this.deps.gateway, engine }, dp);
+    this.step(room, dp.seat, wake.action, wake.via === "otter" ? "otter" : "fallback", wake);
+    return "advanced";
   }
 
   /** 单步：apply + 落帧 + 广播（动作非法在此抛出，由调用方处置） */
@@ -439,15 +529,7 @@ export class RoomService {
     frameSeq: number,
     wake?: Extract<RoomEvent, { type: "game" }>["wake"],
   ): void {
-    // 战报累积：每局结算（役种亮点）+ 终局名次——engine.round.settlement 只留末局，跨局在此聚合
-    const roundNo = room.engine.state.roundNo;
-    for (const ev of events) {
-      if (ev.type === "win" || ev.type === "drawEnd" || ev.type === "abortive") {
-        room.report.highlights.push({ roundNo, settlement: ev.settlement });
-      } else if (ev.type === "gameOver") {
-        room.report.ranking = ev.ranking;
-      }
-    }
+    collectReportEvents(room.report, room.engine.state.roundNo, events);
     this.deps.bus.publish(room.roomId, {
       type: "game",
       roomId: room.roomId,
@@ -502,6 +584,16 @@ export class RoomService {
     room.evictTimer = timer;
   }
 
+  /** F20261022mjls：lobby TTL 驱逐接线（scheduleLobbyEvict 适配 room 内部态） */
+  private scheduleLobby(room: RoomInternal): void {
+    scheduleLobbyEvict(room, this.lobbyTtlMs, (notice) => {
+      const cur = this.rooms.get(room.roomId);
+      if (!cur || cur.gameId !== room.gameId) return; // 已换代
+      this.deps.bus.publish(room.roomId, { type: "error", roomId: room.roomId, message: notice });
+      this.close(room.roomId);
+    });
+  }
+
   /** 局终一次性上报（loop 顶触发；回调异常仅告警——牌局状态不回滚） */
   private async fireGameover(room: RoomInternal): Promise<void> {
     if (room.reportedOver) return;
@@ -519,32 +611,7 @@ export class RoomService {
     this.scheduleEvict(room);
     const cb = this.deps.onGameover;
     if (!cb) return;
-    const cfg = room.engine.state.config;
-    // 名次：gameOver 事件优先（nextRound 产生，已在 publishGame 采集）；缺失回退末局点数
-    const finalPlayers = room.engine.state.round?.players;
-    const ranking = room.report.ranking
-      ?? (finalPlayers
-        ? [...finalPlayers]
-            .map((p) => ({ seat: p.seat, name: p.name, points: p.points }))
-            .sort((a, b) => b.points - a.points)
-        : []);
-    const report: GameoverReport = {
-      roomId: room.roomId,
-      gameId: room.gameId,
-      seed: cfg.seed,
-      players: cfg.players.map((p, i) => ({
-        seat: i as Seat,
-        name: p.name,
-        kind: p.kind,
-        ...(p.otterId ? { otterId: p.otterId } : {}),
-      })),
-      ranking,
-      highlights: room.report.highlights,
-      speeches: room.report.speeches,
-      proxyFallbacks: room.report.proxyFallbacks,
-      startedAt: room.startedAt,
-      endedAt: Date.now(),
-    };
+    const report = buildGameoverReport(room);
     try {
       await cb(report);
     } catch (e) {
@@ -553,6 +620,21 @@ export class RoomService {
         gameId: room.gameId,
         error: e instanceof Error ? e.message : String(e),
       });
+    }
+  }
+}
+
+/** 战报事件累积（自 publishGame 拆出——控 max-lines）：结算亮点 + 终局名次（settlement 只留末局，跨局聚合） */
+function collectReportEvents(
+  report: RoomInternal["report"],
+  roundNo: number,
+  events: readonly EngineEvent[],
+): void {
+  for (const ev of events) {
+    if (ev.type === "win" || ev.type === "drawEnd" || ev.type === "abortive") {
+      report.highlights.push({ roundNo, settlement: ev.settlement });
+    } else if (ev.type === "gameOver") {
+      report.ranking = ev.ranking;
     }
   }
 }
