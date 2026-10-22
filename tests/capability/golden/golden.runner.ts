@@ -46,6 +46,12 @@ export interface GoldenScenario {
   modelTag: string;
   /** 软行为场景：trajectory 断言覆盖不了，跑完由检视獭人工判定 */
   manualReview: boolean;
+  /** 长链场景覆盖 settle 窗口（默认 180_000）。多跳编排链（如 b5 检视链 4 跳）
+   *  默认窗口不够走完，按场景拉长。 */
+  settleMs?: number;
+  /** 长链场景覆盖 it 超时帽（默认 1_800_000）。须满足
+   *  sampling.n × (300_000 + settleMs) ≤ timeoutMs − 120_000（expectSampledBehavior 预算算术）。 */
+  timeoutMs?: number;
 }
 
 /** 场景断言函数的上下文：boot 装配 + 本次采样的消息历史 */
@@ -295,7 +301,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
             const r = await runOneSample(ctx, golden, assert);
             if (r.ok) successes++;
             return r;
-          }, { budgetMs: 1_680_000, sampleWorstMs: 480_000 });
+          }, { budgetMs: (golden.timeoutMs ?? 1_800_000) - 120_000, sampleWorstMs: 300_000 + (golden.settleMs ?? 180_000) });
         } catch (err) {
           appendResult({
             ts: new Date().toISOString(),
@@ -321,7 +327,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
           manual: false,
           passed: successes >= golden.sampling.minSuccess, // 自动场景 passed = successes >= minSuccess（v6.3，mimo 新发现 2 + glm-flash 发现 7）
         });
-      }, 1_800_000); // 30 分钟超时（采样 × 每轮完整 agent 回合 ~30-60s）
+      }, golden.timeoutMs ?? 1_800_000); // 超时帽默认 30 分钟（采样 × 每轮完整 agent 回合 ~30-60s），长链场景经 golden.timeoutMs 覆盖（#1603）
     }
   });
 }
@@ -330,7 +336,8 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
  * 多跳等待（2026-09-02）：首跳 completed 后再观察一段 settle 窗口（链引擎可能继续派发
  * 下一个 hop——如大獭 summon 后 yield 给小獭，小獭又需 30-60s 完整回合）。源测试
  * talking-stone-routing 用 afterSeq 两段式等待；golden 通用化：首终态后 settle 窗口
- * 内若消息数还在涨则继续等，静止后断言。窗口独立于首跳超时，总上限 = 首跳 + 180s。 */
+ * 内若消息数还在涨则继续等，静止后断言。窗口独立于首跳超时，总上限 = 首跳 + settleMs
+ * （默认 180s，长链场景经 golden.settleMs 覆盖，#1603）。 */
 async function runOneSample(
   ctx: CapabilityContext,
   golden: GoldenScenario,
@@ -345,8 +352,9 @@ async function runOneSample(
   // 静止阈值 90s（18 轮无新增终态）：串行接棒的第二跳可能 30-60s 才开始 streaming，
   // 10s 静止会在「上一跳完成→下一跳开始」的间隙误判链静止（glm-flash delta 发现 1：
   // 首跑 3/3 靠并行重叠掩盏，串行接棒 >15s 的链会假 fail）。90s = 第二跳时长上限
-  // 与总窗口 180s 的折中，代价是单跳场景多等 90s。
-  const deadline = Date.now() + 180_000;
+  // 与总窗口的折中，代价是单跳场景多等 90s。
+  const settleMs = golden.settleMs ?? 180_000;
+  const deadline = Date.now() + settleMs;
   let lastCount = -1;
   let stableRounds = 0;
   while (Date.now() < deadline) {
@@ -356,7 +364,14 @@ async function runOneSample(
     // 计数含 streaming/speaking：下一跳已开始（非终态但存在）就不算静止
     if (otterAny === lastCount) {
       stableRounds++;
-      if (stableRounds >= 18) break; // 90s 无新消息（含非终态）→ 链静止
+      /** 90s 无新 otter 消息 **且无进行中回合**（streaming/running）才判链静止：
+       *  「XX 开始行动～」占位是 system st 不入 otterAny 计数，thinking/工具调用期
+       *  计数不变但 invoke 未完，仅凭计数判静止会把链截在中途（#1603 诊断实证：
+       *  检视獭审查思考数分钟被截，断言报「未出具检视意见」假 fail）。 */
+      const hasActive = messages.some(
+        (m) => m.status === "streaming" || m.status === "speaking", // invokes.running 已投影为 streaming（assert-behavior status 映射）
+      );
+      if (stableRounds >= 18 && !hasActive) break; // 90s 无新消息（含非终态）且无活跃回合 → 链静止
     } else {
       stableRounds = 0;
       lastCount = otterAny;

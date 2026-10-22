@@ -573,8 +573,111 @@ const WAIT_SECONDS_MAX = 600;
 const WAIT_SECONDS_MAX_WITH_UNTIL = 560;
 /** until 苏醒检查命令的执行超时（execFileAsync timeout） */
 const WAIT_UNTIL_TIMEOUT_MS = 30_000;
-/** until 输出截断上限（2KB，防巨量输出污染上下文） */
+/** until 返回上下文的输出截断上限（2048 字符，防巨量输出污染上下文） */
 const WAIT_UNTIL_OUTPUT_MAX = 2048;
+/** 子进程每流硬缓冲上限；maxBuffer 超限会杀进程，不能拿上下文截断值充当此值。 */
+const WAIT_UNTIL_SUBPROCESS_BUFFER_MAX = 1024 * 1024;
+/** F20261022wtpr：条件等待使用固定探测间隔；不新增獭可调配置。 */
+const WAIT_UNTIL_POLL_INTERVAL_MS = 10_000;
+
+/** 可中断计时器：完成/中断两条路径都清理资源。 */
+function waitDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error("等待已中断"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** 中断是工具边界自己的契约：即使子进程实现未因 signal 回调，也不能挂住 wait。 */
+function abortPromise(signal: AbortSignal): Promise<never> {
+  return new Promise<never>((_, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+}
+
+function formatUntilFailure(err: unknown, command: string): string {
+  const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean; stderr?: string; message?: string };
+  const detail = (e.stderr || e.message || "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
+  if (e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+    return `${command} 检查输出超过 1 MiB 硬上限被终止：请让命令自身收敛输出${detail ? `：${detail}` : ""}`;
+  }
+  const exitDesc = e.killed
+    ? "检查超时"
+    : typeof e.code === "number" ? `exit code ${e.code}` : `检查执行错误（${e.code ?? "unknown"}）`;
+  return `${command} ${exitDesc}${detail ? `：${detail}` : ""}`;
+}
+
+/** 单次探测只返回事实，不决定是否重试；输出统一截 2KB。 */
+async function probeUntil(
+  untilArgv: string[],
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<{ ready: boolean; text: string }> {
+  const [cmd, ...cmdArgs] = untilArgv;
+  try {
+    const execution = execFileAsync(cmd, cmdArgs, {
+      timeout: timeoutMs,
+      maxBuffer: WAIT_UNTIL_SUBPROCESS_BUFFER_MAX,
+      ...(signal ? { signal } : {}),
+    });
+    const { stdout, stderr } = await (signal
+      ? Promise.race([execution, abortPromise(signal)])
+      : execution);
+    const out = (stdout ?? "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
+    const err = (stderr ?? "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
+    return { ready: true, text: `输出：${out || "（无输出）"}${err ? `\nstderr：${err}` : ""}` };
+  } catch (err) {
+    if (signal?.aborted) signal.throwIfAborted();
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    return { ready: false, text: formatUntilFailure(err, cmd) };
+  }
+}
+
+/** F20261022wtpr：立即探测，未就绪时在 seconds 总预算内重试。
+ *  不引入 shell；signal 同时终止子进程和探测间隔，wait 返回后不留轮询。 */
+async function runUntilPolling(
+  untilArgv: string[],
+  seconds: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  const [cmd] = untilArgv;
+  const deadline = Date.now() + seconds * 1000;
+  let attempts = 0;
+  let lastFailure = "unknown";
+
+  while (attempts === 0 || Date.now() < deadline) {
+    signal?.throwIfAborted();
+    attempts += 1;
+    const remainingMs = Math.max(1, deadline - Date.now());
+    const probe = await probeUntil(untilArgv, Math.min(WAIT_UNTIL_TIMEOUT_MS, remainingMs), signal);
+    if (probe.ready && Date.now() <= deadline) {
+      const elapsedSeconds = seconds - Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      return `\nuntil 条件通过（第 ${attempts} 次探测，已等待 ${elapsedSeconds} 秒）。\n苏醒检查（${cmd}）${probe.text}`;
+    }
+    lastFailure = probe.ready ? `${cmd} 检查返回时已超过等待预算` : probe.text;
+
+    const remainingAfterCheckMs = deadline - Date.now();
+    if (remainingAfterCheckMs <= 0) break;
+    await waitDelay(Math.min(WAIT_UNTIL_POLL_INTERVAL_MS, remainingAfterCheckMs), signal);
+  }
+
+  return `\nuntil 条件未通过（共 ${attempts} 次探测；最后一次 ${lastFailure}）。\n请按 until 的退出码语义判断是尚未就绪还是已经失败；仅确认仍在等待时再增大 seconds。`;
+}
 /** until 禁用的 shell 元字符 + 单双引号（D4③：sh -c '…' 形态经空白切 argv 语义扭曲，显式拒绝给出可操作提示）。
  *  用 RegExp 构造避免字符类内裸引号——lint 的 stripTsComments 不解析正则字面量，
  *  裸引号会致后续注释剥离失效（已知限制，lint 文件头注释自述）。 */
@@ -623,32 +726,13 @@ function validateUntil(
   return { untilArgv };
 }
 
-/** wait 子步骤：执行 until 苏醒检查——execFileAsync 无 shell 展开，timeout 30s，输出截 2KB；
- *  非零 exit 不抛错，exit code + stderr 截断一并返回（苏醒检查「还没好」是正常答案，A1）。 */
-async function runUntilCheck(untilArgv: string[]): Promise<string> {
-  const [cmd, ...cmdArgs] = untilArgv;
-  try {
-    const { stdout, stderr } = await execFileAsync(cmd, cmdArgs, {
-      timeout: WAIT_UNTIL_TIMEOUT_MS,
-      maxBuffer: WAIT_UNTIL_OUTPUT_MAX,
-    });
-    const out = (stdout ?? "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
-    const err = (stderr ?? "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
-    return `\n苏醒检查（${cmd}）输出：${out || "（无输出）"}${err ? `\nstderr：${err}` : ""}`;
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean; stderr?: string };
-    const exitDesc = e.killed ? `超时（>${WAIT_UNTIL_TIMEOUT_MS / 1000}s 被杀）` : `exit code ${e.code ?? "unknown"}`;
-    const stderrText = (e.stderr ?? "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
-    return `\n苏醒检查（${cmd}）未通过：${exitDesc}${stderrText ? `\nstderr：${stderrText}` : ""}——「还没好」是正常答案，请自行判读是否继续等待。`;
-  }
-}
-
 /** wait 子步骤：回显 reason——返回文本以「等待原因：<reason>」开头；缺 reason 时附轻提示（A2）。 */
 function buildWaitEcho(reason: string | undefined, seconds: number, untilResultText: string): ToolResponse {
   const reasonEcho = reason
     ? `等待原因：${reason}`
     : `等待原因：（未填——搭档看到的是无交代的等待，下次请填 reason：为什么在等 + 为什么是这个时长）`;
-  return textResponse(`${reasonEcho}\n已等待 ${seconds} 秒。${untilResultText}`);
+  const timingEcho = untilResultText ? `条件等待预算：${seconds} 秒。` : `已等待 ${seconds} 秒。`;
+  return textResponse(`${reasonEcho}\n${timingEcho}${untilResultText}`);
 }
 
 /** F20260928slan：wait 工具——等待指定时长（替代裸 sleep），理由自证 + 可选苏醒检查。
@@ -658,13 +742,13 @@ function buildWaitEcho(reason: string | undefined, seconds: number, untilResultT
 function createWaitTool(logger?: Logger): AgentTool {
   return {
     name: "wait",
-    description: "等待指定时长（替代裸 sleep）. When: 需要等待异步操作完成（CI 检查、服务启动、退避重试）时——调用顺序必须：先调 speak(body) 告诉搭档你在等什么、为什么，speak 返回后再调用本工具开始等待（顺序反了搭档会先看到进度条黑盒）. Not for: 5 秒以下的短等待（搭档无感，可直接 bash sleep）. 等待即黑盒——reason 参数是你对搭档的交代，不填理由的等待会让搭档看着进度条干着急. Output: 等待完成确认（+ until 检查命令的输出）.",
+    description: "等待指定时长或条件就绪（替代裸 sleep）. When: 等 CI 变绿、服务启动、状态就绪或退避重试时——先调 speak(body) 告诉搭档在等什么、为什么，再调用本工具. Not for: 5 秒以下的短等待. 等待即黑盒——reason 参数是你对搭档的交代. Output: 等待完成确认；带 until 时在一次调用内立即探测，未就绪每 10 秒重试，直到条件为真或 seconds 总预算耗尽（直到才轮询，不要写 bash 轮询）.",
     parameters: {
       type: "object",
       properties: {
         seconds: {
           type: "number",
-          description: "等待秒数，必填，范围 5-600。<5 拒绝（搭档无感的等待用 bash sleep）；>600 拒绝——超过 10 分钟触发 per-event 熔断，应拆多次轮询（带 until 的 wait 循环）或改用 create_scheduled_task 定时任务。带 until 时上限 560（预算闭合：seconds + until 30s + 余量 ≤ 600s 熔断窗）",
+          description: "等待秒数，必填，范围 5-600；带 until 时为条件等待总预算，上限 560（预留单次检查时间窗）。<5 拒绝；>600 超过 per-event 熔断窗，长周期任务改用 create_scheduled_task。",
         },
         reason: {
           type: "string",
@@ -672,12 +756,12 @@ function createWaitTool(logger?: Logger): AgentTool {
         },
         until: {
           type: "string",
-          description: "可选——苏醒检查命令（单命令，禁管道/重定向/分号/引号等 shell 元字符）——等待结束后执行并把输出返回。轮询场景（等 CI/等服务起）推荐带上：返回值让你立刻知道「等的东西好了没」。带过滤需求请让命令自身支持（如 gh pr checks --json）或接受全量输出自行判读。非零 exit 返回错误文本不抛错——「还没好」是正常答案。",
+          description: "可选——条件检查命令（单命令，禁管道/重定向/分号/引号等 shell 元字符）。等 CI / 服务 / 状态就用它：exit 0=就绪，立即探测；非零每 10 秒重试，直到通过或 seconds 总预算耗尽。例：gh pr checks 123。带过滤需求请让命令自身支持（如 gh pr checks --json）或接受全量输出自行判读。超时返回最后一次退出码与 stderr，不在后台继续轮询。",
         },
       },
       required: ["seconds"],
     },
-    execute: async (_id: string, params: Record<string, unknown>) => {
+    execute: async (_id: string, params: Record<string, unknown>, signal?: AbortSignal) => {
       const seconds = params.seconds as number;
       const reason = (params.reason as string | undefined)?.trim();
       const until = params.until as string | undefined;
@@ -695,11 +779,10 @@ function createWaitTool(logger?: Logger): AgentTool {
       if ("error" in untilCheck) return untilCheck.error;
       const untilArgv = untilCheck.untilArgv;
 
-      // 3. Node 侧 setTimeout promise sleep（不经 bash）
-      await new Promise<void>((resolve) => setTimeout(resolve, seconds * 1000));
-
-      // 4. 苏醒检查（若带 until）+ 5. 回显 reason
-      const untilResultText = untilArgv.length > 0 ? await runUntilCheck(untilArgv) : "";
+      // 3. 带 until 时先探测，按剩余预算轮询；无 until 保持固定时长等待。
+      const untilResultText = untilArgv.length > 0
+        ? await runUntilPolling(untilArgv, seconds, signal)
+        : (await waitDelay(seconds * 1000, signal), "");
       return buildWaitEcho(reason, seconds, untilResultText);
     },
   };

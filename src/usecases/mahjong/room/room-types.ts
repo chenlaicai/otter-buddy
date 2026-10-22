@@ -7,6 +7,7 @@ import type { DecisionPoint, EngineEvent, Seat, Settlement } from "../engine/typ
 import type { Logger } from "../../ports/logger";
 import type { SqliteFrameStore } from "./frames";
 import type { OtterGateway } from "./otter-adapter";
+import type { MahjongDefaultOtter } from "../../settings/settings-keys";
 
 /** 真人回话（下局开局注入各 otter session；本条即时广播供聊天框回显） */
 export interface ChatMessage {
@@ -54,6 +55,12 @@ export interface RoomView {
   roomId: string;
   gameId: string;
   status: string;
+  /** F20261022mjls：waiting（lobby）态字段——座位就绪况与开始可用性；playing/finished 时 null */
+  lobby: {
+    players: ReadonlyArray<{ seat: Seat; name: string; kind: string; otterId?: string; defaultApplied?: boolean }>;
+    canStart: boolean;
+    notice?: string;
+  } | null;
   roundNo: number;
   honba: number;
   sticks: number;
@@ -128,4 +135,11 @@ export interface RoomServiceDeps {
   settleHoldMs?: number;
   /** #1564-6：真人连续超时代打上限（到限自动停局防 runaway；默认 10） */
   humanIdleStrikeLimit?: number;
+  /** F20261022mjls：lobby 等待房 TTL 毫秒（超时未开始自动清房防占位；默认 1 小时） */
+  lobbyTtlMs?: number;
+  /** F20261022mjls：獭可用性校验（active 且未 dissolved）；缺省不校验（测试/降级）。
+   *  返回 null = 可用；否则返回拒绝原因（如 "otter not found"） */
+  checkOtterUsable?: (otterId: string) => Promise<string | null>;
+  /** F20261022mjls：默认陪打獭配置读取（settings key mahjong.defaultOtters）；缺省无默认回填 */
+  defaultOtters?: () => Promise<MahjongDefaultOtter[] | null>;
 }

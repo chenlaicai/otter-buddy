@@ -6,7 +6,8 @@
  * - 带 until 时 seconds ≤ 560（D6 预算裕量；561 拒绝）
  * - until 过 checkBashCommandSafety 主链（命中即拒绝并透传拦截文案，S1）
  * - until 禁元字符/单双引号（A1/D4③）
- * - until 非零 exit 返回错误文本不抛错（exit code + stderr 截断返回）
+ * - F20261022wtpr：until 立即探测，非零在 seconds 总预算内每 10s 重试；
+ *   成功/超时返回真实探测次数，abort 清理计时器；安全校验在首次执行前完成
  * - 回显 reason / 缺省附轻提示（A2）
  * - 注册进全獭工具集
  *
@@ -40,7 +41,18 @@ function findWait() {
   return tool!;
 }
 
-/** 推进 wait 工具内的 setTimeout（seconds 秒）后返回 execute promise 结果 */
+it("工具描述引导等 CI / 服务 / 状态使用 until，并明确一次调用内轮询", () => {
+  const tool = findWait();
+  expect(tool.description).toContain("等 CI 变绿、服务启动、状态就绪");
+  expect(tool.description).toContain("每 10 秒重试");
+  expect(tool.parameters).toMatchObject({
+    properties: {
+      until: { description: expect.stringContaining("等 CI / 服务 / 状态就用它") },
+    },
+  });
+});
+
+/** 推进无 until 的固定时长 wait；条件等待用例按自身预算推进。 */
 async function runWait(tool: ReturnType<typeof findWait>, params: Record<string, unknown>) {
   const execPromise = tool.execute("t1", params);
   // 让 execute 走到 await setTimeout（微任务冲刷）
@@ -92,7 +104,7 @@ describe("F20260928slan wait 工具", () => {
     execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
       cb(null, { stdout: "pass\n", stderr: "" });
     });
-    const result = await runWait(tool, { seconds: 560, until: "gh pr checks" });
+    const result = await tool.execute("t1", { seconds: 560, until: "gh pr checks" });
     expect(result.isError).toBeUndefined();
     expect(result.content[0].text).toContain("苏醒检查");
   });
@@ -119,7 +131,7 @@ describe("F20260928slan wait 工具", () => {
     expect(result.content[0].text).toContain("data/");
   });
 
-  it("until 非零 exit 返回错误文本不抛错（exit code + stderr，A1 失败路径）", async () => {
+  it("until 持续非零时在 seconds 预算内重试，超时返回最后一次错误且不留计时器", async () => {
     const tool = findWait();
     execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
       const err = new Error("command failed") as Error & { code: number; stderr: string };
@@ -127,13 +139,17 @@ describe("F20260928slan wait 工具", () => {
       err.stderr = "some stderr detail";
       cb(err, { stdout: "", stderr: "some stderr detail" });
     });
-    const result = await runWait(tool, { seconds: 5, until: "gh pr checks" });
-    // 不抛错——错误文本返回
+    const execPromise = tool.execute("t1", { seconds: 15, until: "gh pr checks" });
+    await vi.advanceTimersByTimeAsync(15_000);
+    const result = await execPromise;
     expect(result.isError).toBeUndefined();
     const text = result.content[0].text;
-    expect(text).toContain("未通过");
+    expect(text).toContain("until 条件未通过（共 2 次探测");
     expect(text).toContain("exit code 2");
     expect(text).toContain("some stderr detail");
+    expect(text).toContain("条件等待预算：15 秒");
+    expect(text).toContain("仅确认仍在等待时再增大 seconds");
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("缺 reason 附轻提示（A2 牵引力，不增强制）", async () => {
@@ -150,10 +166,87 @@ describe("F20260928slan wait 工具", () => {
     execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
       cb(null, { stdout: "CI pass\n", stderr: "" });
     });
-    const result = await runWait(tool, { seconds: 5, until: "gh pr checks", reason: "等 CI" });
+    const result = await tool.execute("t1", { seconds: 5, until: "gh pr checks", reason: "等 CI" });
     const text = result.content[0].text;
     expect(text).toContain("苏醒检查");
     expect(text).toContain("CI pass");
+    expect(text).toContain("第 1 次探测");
+  });
+
+  it("成功输出返回上下文仍截断为 2048 字符", async () => {
+    const tool = findWait();
+    execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
+      cb(null, { stdout: "x".repeat(5000), stderr: "" });
+    });
+    const result = await tool.execute("t1", { seconds: 5, until: "gh pr checks" });
+    const text = result.content[0].text;
+    expect(text).toContain("x".repeat(2048));
+    expect(text).not.toContain("x".repeat(2049));
+  });
+
+  it("CI pending 后在同一次 wait 内重试，第三次成功并返回实际耗时", async () => {
+    const tool = findWait();
+    let attempts = 0;
+    execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
+      attempts += 1;
+      if (attempts < 3) {
+        const err = new Error("pending") as Error & { code: number };
+        err.code = 1;
+        cb(err, { stdout: "pending", stderr: "" });
+      } else {
+        cb(null, { stdout: "CI green", stderr: "" });
+      }
+    });
+    const execPromise = tool.execute("t1", { seconds: 30, until: "gh pr checks 1604", reason: "等 CI 变绿" });
+    await vi.advanceTimersByTimeAsync(20_000);
+    const result = await execPromise;
+    expect(result.content[0].text).toContain("第 3 次探测，已等待 20 秒");
+    expect(result.content[0].text).toContain("CI green");
+    expect(execFileMock.mock.calls[0][0]).toBe("gh");
+    expect(execFileMock.mock.calls[0][1]).toEqual(["pr", "checks", "1604"]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("轮询间隔内 abort 会停止等待且不发起下一次探测", async () => {
+    const tool = findWait();
+    execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (e: Error | null) => void) => {
+      const err = new Error("pending") as Error & { code: number };
+      err.code = 1;
+      cb(err);
+    });
+    const controller = new AbortController();
+    const execPromise = tool.execute("t1", { seconds: 30, until: "gh pr checks 1604" }, controller.signal);
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+    await expect(execPromise).rejects.toMatchObject({ name: "AbortError" });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("探测子进程执行中 abort 会透传 signal 并中断 wait", async () => {
+    const tool = findWait();
+    let childSignal: AbortSignal | undefined;
+    execFileMock.mockImplementation((_cmd: string, _args: string[], opts: { signal?: AbortSignal }) => {
+      childSignal = opts.signal;
+      // 不回调：模拟阻塞中的子进程，只有 abort 能结束等待。
+    });
+    const controller = new AbortController();
+    const execPromise = tool.execute("t1", { seconds: 30, until: "gh pr checks 1604" }, controller.signal);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(childSignal).toBe(controller.signal);
+    controller.abort();
+    await expect(execPromise).rejects.toMatchObject({ name: "AbortError" });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("命令替换在首次执行前拒绝，不进入轮询", async () => {
+    const tool = findWait();
+    let executed = false;
+    execFileMock.mockImplementation(() => { executed = true; });
+    const result = await tool.execute("t1", { seconds: 30, until: "gh pr checks $(id)" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("变量替换");
+    expect(executed).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   // ─── r1 发现 1 锁定：until 载荷杀主形态必拦（真 mainPid 链路，非 null 旁路） ───

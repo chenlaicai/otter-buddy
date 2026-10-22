@@ -37,6 +37,22 @@ function makeGitRepo(kind: "test-file" | "src-file" | "apparatus-file"): string 
   return dir;
 }
 
+function runPrTestsBase(dir: string, base: string, body: string | undefined) {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (body === undefined) delete env.PR_BODY;
+  else env.PR_BODY = body;
+  try {
+    const stdout = execFileSync("node", [PR_TESTS, "--base", base], {
+      cwd: dir,
+      encoding: "utf8",
+      env,
+    });
+    return { status: 0, output: stdout };
+  } catch (e: any) {
+    return { status: e.status as number, output: String(e.stdout ?? "") + String(e.stderr ?? "") };
+  }
+}
+
 function runPrTests(dir: string, body: string | undefined) {
   const env: NodeJS.ProcessEnv = { ...process.env };
   if (body === undefined) delete env.PR_BODY;
@@ -144,5 +160,41 @@ describe("check-pr-tests 集成（真实 git diff + 真 CLI）", () => {
   it("绿：验收装置删改带声明（方向收紧）→ PASS", () => {
     const dir = makeGitRepo("apparatus-file");
     expect(runPrTests(dir, "## 测试改动声明\n方向：收紧").status).toBe(0);
+  });
+});
+
+describe("空 diff 拒判（M-0f8cf262 假绿面 fail-closed）", () => {
+  it("红：base=HEAD 空 diff → 拒判 exit 1（不作「无删除行」放行）", () => {
+    const dir = makeGitRepo("src-file");
+    const r = runPrTestsBase(dir, "HEAD", undefined);
+    expect(r.status).toBe(1);
+    expect(r.output).toContain("diff 为空");
+    expect(r.output).toContain("拒判");
+  });
+
+  it("红：干净仓（无任何变更）→ 同样拒判，不静默放行", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "prtests-empty-"));
+    tmpDirs.push(dir);
+    execSync(
+      "git init -q && git config user.email t@t && git config user.name t && git commit -q --allow-empty -m init",
+      { cwd: dir },
+    );
+    const r = runPrTestsBase(dir, "HEAD", undefined);
+    expect(r.status).toBe(1);
+    expect(r.output).toContain("diff 为空");
+  });
+
+  it("红：空 diff + 有测试改动声明 → 仍拒判（S1：钉住拒判分支先于 body 判定）", () => {
+    const dir = makeGitRepo("src-file");
+    const r = runPrTestsBase(dir, "HEAD", "## 测试改动声明\n方向：收紧");
+    expect(r.status).toBe(1);
+    expect(r.output).toContain("diff 为空");
+  });
+
+  it("红：base 不可解析 → fail-closed exit 1（git 错误不吞）", () => {
+    const dir = makeGitRepo("src-file");
+    const r = runPrTestsBase(dir, "nosuchref", undefined);
+    expect(r.status).toBe(1);
+    expect(r.output).toContain("git diff 失败");
   });
 });
