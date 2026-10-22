@@ -31,11 +31,16 @@ function runLint(cwd: string, args: string[] = []) {
 
 const TARGET = "docs/features/2026/01/01/F20260101tgt-old-feature.md";
 const REFEREE = "docs/features/2026/01/02/F20260102ref-referencing-doc.md";
+// J2 回归 fixture（F20261022j2j3）：同一行内反引号 token 先于 markdown 链接的形态——
+// 修复前 differsOnlyInLinkPaths 的 stripAll 先剥链接再剥 token（第二趟从 token 位再切），
+// 该形态骨架被切坏导致合法 rename 同步订正误拒。
+const REFEREE2 = "docs/features/2026/01/03/F20260103rf2-referencing-doc.md";
 const TARGET_CONTENT = `---\nid: F20260101tgt\ntitle: 被引用文档\nchange_type: feature\n---\n\n# 被引用文档\n\n正文。\n`;
 const REFEREE_CONTENT = `---\nid: F20260102ref\ntitle: 引用方文档\nchange_type: feature\n---\n\n# 引用方文档\n\n- [被引用文档](../01/F20260101tgt-old-feature.md) — 详见
 - 文件清单：\`F20260101tgt-old-feature.md\`
 -- 旧观点：本表只读
 `;
+const REFEREE2_CONTENT = `---\nid: F20260103rf2\ntitle: 引用方文档二\nchange_type: feature\n---\n\n# 引用方文档二\n\n同行两处引用：\`F20260101tgt-old-feature.md\` 与 [被引用文档](../01/F20260101tgt-old-feature.md) 详见。\n`;
 
 let repo: string;
 
@@ -48,6 +53,8 @@ beforeAll(() => {
   fs.mkdirSync(path.join(repo, "docs/features/2026/01/02"), { recursive: true });
   fs.writeFileSync(path.join(repo, TARGET), TARGET_CONTENT);
   fs.writeFileSync(path.join(repo, REFEREE), REFEREE_CONTENT);
+  fs.mkdirSync(path.join(repo, "docs/features/2026/01/03"), { recursive: true });
+  fs.writeFileSync(path.join(repo, REFEREE2), REFEREE2_CONTENT);
   fs.writeFileSync(path.join(repo, "README.md"), "# repo\n");
   git(repo, ["add", "."]);
   git(repo, ["commit", "-q", "-m", "main: historical docs"]);
@@ -77,6 +84,22 @@ describe("lint-historical-docs 链接订正通道（F20261019f714，M-f7148deb �
     expect(r.status).toBe(0);
     expect(r.stderr).toContain("纯链接路径订正");
     // 清理：恢复现场供后续用例
+    git(repo, ["reset", "-q", "--hard", "HEAD"]);
+  });
+
+  it("J2 回归：同一行内反引号 token 先于链接的 rename 同步订正 → 放行（修复前 stripAll 双正则顺序误拒）", () => {
+    const renamed = "docs/features/2026/01/01/F20260101tgt-new-slug.md";
+    git(repo, ["mv", TARGET, renamed]);
+    // 同一行内 token 在前、链接在后，两处同步订正，其余字节全等
+    fs.writeFileSync(
+      path.join(repo, REFEREE2),
+      REFEREE2_CONTENT.replaceAll("F20260101tgt-old-feature.md", "F20260101tgt-new-slug.md"),
+    );
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "文档改名后的引用链同步订正（token 先于链接的同行形态）\n");
+    git(repo, ["add", "-A"]);
+    const r = runLint(repo);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("纯链接路径订正");
     git(repo, ["reset", "-q", "--hard", "HEAD"]);
   });
 
