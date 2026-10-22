@@ -77,6 +77,53 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     const body = '```html-card-reply card="m:0"\n{}\n```';
     expect(validateSpeakBody(undefined, body)).toBeNull();
   });
+
+  // F20261022cfme（#959）：嵌套围栏 under-measure 修复回归——改 remark 解析后体积完整测量。
+  it("F20261022cfme：嵌套围栏（开4内嵌3）卡片体积完整测量——超 64KB 被拒（修复前正则 under-measure 漏报）", () => {
+    const big = "x".repeat(70000);
+    const body = '````html-card title="嵌套大卡"\n<p>head</p>\n```\nembedded\n```\n' + big + '\n````';
+    const result = validateSpeakBody(undefined, body);
+    expect(result).toContain("超出");
+    expect(result).toContain("体积限制");
+  });
+
+  it("F20261022cfme：嵌套围栏（开4内嵌3）卡片体积小——通过", () => {
+    const body = '````html-card title="嵌套小卡"\n<p>head</p>\n```\nembedded\n```\n<div>tail</div>\n````';
+    expect(validateSpeakBody(undefined, body)).toBeNull();
+  });
+
+  it("F20261022cfme：反引号开 + ~~~ 嵌套卡片体积完整测量——超 64KB 被拒", () => {
+    const big = "x".repeat(70000);
+    const body = '```html-card title="波浪嵌套"\n<p>head</p>\n~~~\nembedded\n~~~\n' + big + '\n```';
+    const result = validateSpeakBody(undefined, body);
+    expect(result).toContain("超出");
+    expect(result).toContain("体积限制");
+  });
+
+  it("F20261022cfme：嵌套围栏卡计数为 1 张（内嵌代码块不误计为独立卡，count/measure 同源）", () => {
+    const one = '````html-card title="嵌套"\n<p>a</p>\n```\ncode\n```\n<b>b</b>\n````';
+    expect(hasCardFences(one)).toBe(true);
+    // 2 张嵌套卡同 message：计数应为 2（不超限），且内嵌围栏不额外计卡
+    const two = one + '\n' + one;
+    expect(validateSpeakBody(undefined, two)).toBeNull();
+  });
+
+  it("F20261022cfme（S2）：「卡片写在 speak 外」检测——body 有卡时不误报（presence 复用 count，remark 口径）", () => {
+    const card = '```html-card title="a"\n<x/>\n```';
+    // assistant 与 body 都有卡：不报「卡片写在 speak 外」（反向补全）
+    expect(validateSpeakBody(card, card)).toBeNull();
+  });
+
+  // F20261022cfme（S3 补牙）：S2 两条行为变化的有牙回归——旧正则下修复前红（case A 丢卡放行、case B 误拦）。
+  it("F20261022cfme（S2 行为）：body 假围栏字样 + assistant 真卡——仍报 speak 之外（防静默丢卡回退）", () => {
+    const turn = '```html-card title="外"\n<div>x</div>\n```';
+    const body = '说明：\n\n    ```html-card\n    字样\n';
+    expect(validateSpeakBody(turn, body)).toContain("speak 之外");
+  });
+
+  it("F20261022cfme（S2 行为）：assistant 散文提及围栏字样——不误报 speak 之外（防误拦回退）", () => {
+    expect(validateSpeakBody("这里提到 ```html-card 这种写法", "正常正文")).toBeNull();
+  });
 });
 
 describe("hasCardFences", () => {
