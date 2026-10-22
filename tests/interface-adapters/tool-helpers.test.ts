@@ -107,6 +107,12 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     const two = one + '\n' + one;
     expect(validateSpeakBody(undefined, two)).toBeNull();
   });
+
+  it("F20261022cfme（S2）：「卡片写在 speak 外」检测——body 有卡时不误报（presence 复用 count，remark 口径）", () => {
+    const card = '```html-card title="a"\n<x/>\n```';
+    // assistant 与 body 都有卡：不报「卡片写在 speak 外」（反向补全）
+    expect(validateSpeakBody(card, card)).toBeNull();
+  });
 });
 
 describe("hasCardFences", () => {

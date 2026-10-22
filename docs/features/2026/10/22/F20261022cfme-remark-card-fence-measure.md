@@ -67,12 +67,18 @@ issue #959（P2 tech-debt，PR #958 对抗审视发现 S1；清账批次关闭�
 
 已过阶梯：仓库已有实现（复用投影层 remark 管线）→ **零新依赖**（remark/remarkGfm/unist-util-visit/mdast 均为投影层已装已用）→ 一处提取函数 `collectCardFenceNodes` 替代两个正则（删 `HTML_CARD_FENCE_GLOBAL` + measure 内联 fence 正则），代码净减且口径统一。确认已最简。
 
+### 4.5 检视发现处置（PR #1621，检视獭-1621）
+
+0 严重 + 2 建议，均采纳「改了更好」：
+- **S1（性能）**：`validateSpeakBody` 内 count/measure 各自全量解析 + tool-factory 入库第三次。处置：`validateSpeakBody` 一次 `collectCardFenceNodes` 派生 count+size，body 侧 presence 复用 `cardCount === 0`——含卡消息校验路径从 2 次解析降到 1 次（入库 `hasCardFences` 因跨调用栈保留）。行为不变。
+- **S2（口径分裂）**：「卡片写在 speak 外」检测用 `HTML_CARD_FENCE` 正则，与 count 的 remark 口径分裂（假阳性：散文提及围栏字样误判）。处置：presence 检测改 `hasCardFences`（remark 口径），与计数/体积同源；删 `HTML_CARD_FENCE` 正则，全文件统一 remark。非本 PR 引入的回归（修复前后一致），但口径分裂被显式化后收口。
+
 ## 5. 变更文件
 
 | 文件 | 变更 |
 |---|---|
-| `src/interface-adapters/agent-runtime/tools/tool-helpers.ts` | `measureCardFenceBytes`/`countCardFences` 改用 `collectCardFenceNodes`（remark 解析）；删 `HTML_CARD_FENCE_GLOBAL` 与 measure 内联正则；`HTML_CARD_FENCE`（单数）保留给 speak-外检测 |
-| `tests/interface-adapters/tool-helpers.test.ts` | 新增 4 用例（嵌套开4内嵌3 超体积拒/小体积过、波浪嵌超体积拒、count 同源计数） |
+| `src/interface-adapters/agent-runtime/tools/tool-helpers.ts` | `measureCardFenceBytes`/`countCardFences` 改用 `collectCardFenceNodes`（remark 解析）；`validateSpeakBody` 一次解析派生 count+size（S1）；「卡片写在 speak 外」检测改 `hasCardFences`（S2）；删 `HTML_CARD_FENCE`/`HTML_CARD_FENCE_GLOBAL`/measure 内联正则，全文件统一 remark |
+| `tests/interface-adapters/tool-helpers.test.ts` | 新增 5 用例（嵌套开4内嵌3 超体积拒/小体积过、波浪嵌超体积拒、count 同源计数、S2 presence 反向不误报） |
 
 ## 6. 验证（验收标准断言化）
 
@@ -82,8 +88,9 @@ issue #959（P2 tech-debt，PR #958 对抗审视发现 S1；清账批次关闭�
 | 嵌套开4内嵌3 小体积 | `validateSpeakBody`（同结构 + 小后缀） | 返回 null | 机械 PASS |
 | 反引号开波浪嵌 超体积 | `validateSpeakBody`（``` 开 + ~~~ 内嵌 + 70KB 后缀） | 返回含「超出」 | 机械 PASS |
 | count/measure 同源 | `hasCardFences(嵌套卡)` + 两张嵌套卡 message | true / 返回 null（不超限） | 机械 PASS |
-| 全量回归 | `npx vitest run tests/interface-adapters/tool-helpers.test.ts` | 35 passed | 机械 PASS |
-| 广域回归 | `npx vitest run tests/interface-adapters/` | 584 passed | 机械 PASS |
+| S2 presence 反向 | body 有卡时 `validateSpeakBody` 不报 speak 外 | 返回 null | 机械 PASS |
+| 全量回归 | `npx vitest run tests/interface-adapters/tool-helpers.test.ts` | 36 passed | 机械 PASS |
+| 广域回归 | `npx vitest run tests/interface-adapters/` | 585 passed | 机械 PASS |
 | 类型 | `npx tsc --noEmit` | 零错误 | 机械 PASS |
 | Lint | `npx eslint <改动文件>` | 零错误 | 机械 PASS |
 | 修复前对照（bug 实证） | 旧正则量嵌套 case | 仅 11 字节（under-measure）→ 修复前测试红、修复后绿 | 机械 PASS |

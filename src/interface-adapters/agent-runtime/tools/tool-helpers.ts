@@ -12,10 +12,6 @@ import remarkGfm from "remark-gfm";
 import type { Code, Nodes } from "mdast";
 import { visit } from "unist-util-visit";
 
-/** F20260804hcob: html-card 围栏检测（``` 与 ~~~ 两种合法围栏，与渲染侧对齐）。
- *  仅用于「卡片写在 speak 外」的有无判定（不受围栏嵌套影响），体积/计数测量走下方 remark 解析。 */
-const HTML_CARD_FENCE = /(?:```|~~~)html-card(?!-reply)/;
-
 /** F20261022cfme：解析管线与投影层 message-body-projection.ts 的 parser 逐字节对齐——
  *  同一 remark + remarkGfm(singleTilde:false)，围栏边界判定与前端渲染（react-markdown）一致。
  *  为什么弃正则改 remark（#959）：正则在嵌套围栏处提前截断 under-measure——
@@ -36,16 +32,9 @@ function collectCardFenceNodes(body: string): Code[] {
 }
 
 /** 统计 body 中的 html-card 围栏数量（含 html-card-play 活类围栏）。
- *  F20261022cfme：与 measureCardFenceBytes 同源（collectCardFenceNodes），计数与体积口径一致。 */
+ *  F20261022cfme：与 validateSpeakBody 的体积测量同源（collectCardFenceNodes），计数与体积口径一致。 */
 function countCardFences(body: string): number {
   return collectCardFenceNodes(body).length;
-}
-
-/** 提取 body 中每张 html-card 围栏的内容字节数（UTF-8，含活类围栏）。
- *  F20260916hcel：校验口径是「单卡 ≤CARD_MAX_BYTES」，只量围栏内 HTML，不量正文散文。
- *  F20261022cfme：改 remark 解析，修复嵌套围栏 under-measure。 */
-function measureCardFenceBytes(body: string): number[] {
-  return collectCardFenceNodes(body).map((n) => new TextEncoder().encode(n.value ?? "").length);
 }
 
 /**
@@ -56,14 +45,17 @@ function measureCardFenceBytes(body: string): number[] {
 export function validateSpeakBody(turnAssistantText: string | undefined, cleanBody: string): string | null {
   if (!cleanBody || cleanBody.trim().length === 0) return "[错误] body 不能为空。请提供你的最终答复内容，然后重新调用 speak。";
 
-  /** 新增：检测卡片数量（第 3 张起用户看到降级的源码块，不可读） */
-  const cardCount = countCardFences(cleanBody);
+  /** F20261022cfme（S1 性能）：一次 remark 解析派生计数与体积，避免重复解析 */
+  const cardNodes = collectCardFenceNodes(cleanBody);
+  const cardCount = cardNodes.length;
+
+  /** 检测卡片数量（第 3 张起用户看到降级的源码块，不可读） */
   if (cardCount > CARD_MAX_PER_MESSAGE) {
     return `[错误] 检测到 ${cardCount} 张 html-card 卡片，但单消息最多支持 ${CARD_MAX_PER_MESSAGE} 张（第 3 张起用户会看到降级的源码块，不可读）。请将内容合并为 ${CARD_MAX_PER_MESSAGE} 张卡片，或分多次 speak 输出。`;
   }
 
   /** F20260916hcel：校验单卡体积（只量围栏内 HTML，不量正文散文） */
-  const cardSizes = measureCardFenceBytes(cleanBody);
+  const cardSizes = cardNodes.map((n) => new TextEncoder().encode(n.value ?? "").length);
   for (let i = 0; i < cardSizes.length; i++) {
     if (cardSizes[i] > CARD_MAX_BYTES) {
       const kb = (cardSizes[i] / 1024).toFixed(1);
@@ -72,7 +64,9 @@ export function validateSpeakBody(turnAssistantText: string | undefined, cleanBo
     }
   }
 
-  if (turnAssistantText !== undefined && HTML_CARD_FENCE.test(turnAssistantText) && !HTML_CARD_FENCE.test(cleanBody)) {
+  /** F20260804hcob + F20261022cfme（S2 口径统一）：「卡片写在 speak 外」检测改 hasCardFences（remark 口径），
+   *  与计数/体积同源；body 侧复用 cardCount === 0，避免对 cleanBody 二次解析。 */
+  if (turnAssistantText !== undefined && hasCardFences(turnAssistantText) && cardCount === 0) {
     return "[错误] 检测到你把 ```html-card 卡片写在了 speak 之外的文本里——那段文本不会进入消息，搭档根本看不到卡片。请把完整的 ```html-card 围栏（含全部 HTML）原样移入本次 speak 的 body 参数，重新调用 speak。";
   }
   return null;
