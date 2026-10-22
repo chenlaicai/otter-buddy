@@ -154,7 +154,9 @@ describe("三麻将局 API", () => {
     });
     expect(bad1.status).toBe(400);
 
-    const bad2 = await app.request("/api/mahjong/rooms", {
+    // PR#1609 delta（检视建议 1）：otter 座位缺 otterId 不再 400——占位座位，开始时回填默认陪打獭；
+    // 非法形状（非 3 项/kind 未知/name 非串）仍 400（上面 bad1）
+    const noIdOk = await app.request("/api/mahjong/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -162,7 +164,9 @@ describe("三麻将局 API", () => {
         players: [{ kind: "otter", name: "noId" }, { kind: "human", name: "h" }, { kind: "proxy", name: "p" }],
       }),
     });
-    expect(bad2.status).toBe(400);
+    expect(noIdOk.status).toBe(201);
+    expect(((await noIdOk.json()) as Record<string, unknown>).status).toBe("waiting"); // 占位 otter 座位开等待房
+    expect((await app.request("/api/mahjong/rooms/bad-room/view")).status).toBe(200);
 
     expect((await app.request("/api/mahjong/rooms/nope/view")).status).toBe(404);
     expect((await app.request("/api/mahjong/rooms/nope/frames")).status).toBe(404);
@@ -309,6 +313,58 @@ describe("三麻将局 API", () => {
     } finally {
       rooms2.close(R);
       rooms2.close("api-life-2");
+    }
+  });
+
+  // PR#1609 delta（检视建议 1）：默认獭 HTTP 入口可达——占位 otter 座位建房 201，start 回填默认陪打獭
+  it("F20261022mjls 默认獭回填 HTTP 链路：占位 otter 座位建房 → start 回填默认獭开局", async () => {
+    const defaults = [
+      { otterId: "default-a", name: "默认A" },
+      { otterId: "default-b", name: "默认B" },
+    ];
+    const rooms3 = new RoomService({
+      store,
+      gateway: { invoke: async () => "（proxy 房不应唤醒）" },
+      bus: new RoomBus(),
+      humanTimeoutMs: 60_000,
+      humanGraceMs: 60_000,
+      settleHoldMs: 10,
+      defaultOtters: async () => defaults,
+    });
+    const app3 = createRouter({ mahjong: new MahjongController(rooms3, store, logger) } as unknown as Controllers, logger);
+    const R = "api-default-otters";
+    try {
+      // 占位 otter 座位（无 otterId）经 HTTP 建房：201 waiting（检视前这里被 parsePlayers 拒 400——不可达）
+      const created = (await (
+        await app3.request("/api/mahjong/rooms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roomId: R,
+            seed: "api-default-seed",
+            players: [
+              { kind: "human", name: "chen" },
+              { kind: "otter", name: "小獭一号" },
+              { kind: "otter", name: "小獭二号" },
+            ],
+          }),
+        })
+      ).json()) as Record<string, any>;
+      expect(created.status).toBe("waiting");
+      // start（不带 players 覆盖）：回填默认獭后开局 playing
+      const started = (await (
+        await app3.request(`/api/mahjong/rooms/${R}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        })
+      ).json()) as Record<string, any>;
+      expect(started.status).toBe("playing");
+      // 回填实证：全览视图两个 otter 座位是默认獭（kind=otter），且库内 config 回写
+      const view = (await (await app3.request(`/api/mahjong/rooms/${R}/view`)).json()) as Record<string, any>;
+      expect(view.players.map((p: Record<string, any>) => p.kind)).toEqual(["human", "otter", "otter"]);
+    } finally {
+      rooms3.close(R);
     }
   });
 });

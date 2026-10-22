@@ -36,7 +36,9 @@ export interface StartLobbyDeps<R extends { engine: SanmaEngine; gameId: string 
  *  - 幂等：非 waiting 房重复 start 返回 alreadyStarted 不报错（牌桌刷新重进不误触发）
  *  - 可选 players 覆盖：座位 kind/name/otterId 可在开始时重配（默认獭回填/自定义切换）
  *  - 獭可用性校验（deps.checkOtterUsable 注入时）：otterId 无效/dissolved → 报错不开局（不产生半开局房）
- *  - 默认獭回填（deps.defaultOtters 注入时）：建房时 otter 座位未传 otterId（占位），开始时回填 */
+ *  - 默认獭回填（deps.defaultOtters 注入时）：建房时 otter 座位未传 otterId（占位），开始时回填
+ *  - 失败语义（PR#1609 delta 修复）：try 只覆盖 beginPlay **之前**的同步配置段（座位/獭校验/引擎重建）——
+ *    那段失败才真「房保持 waiting」；beginPlay 内发牌即事实，db 写失败由 beginPlay 自兑降级继续推（见其注释） */
 export async function startLobbyRoom<R extends { engine: SanmaEngine; gameId: string }>(
   roomId: string,
   playersOverride: ReadonlyArray<{ kind: string; name: string; otterId?: string }> | undefined,
@@ -58,10 +60,10 @@ export async function startLobbyRoom<R extends { engine: SanmaEngine; gameId: st
     if (playersOverride !== undefined || players !== base) {
       deps.onSeatsChanged(room, { ...room.engine.state.config, players } as GameConfig);
     }
-    deps.beginPlay(room); // waiting→playing + 发牌 + 落库落帧广播 + kick
+    deps.beginPlay(room); // waiting→playing + 发牌（发牌即事实；beginPlay 自兑 db 异常，不再抛出）
     return { ok: true, view: null };
   } catch (e) {
-    // 默认獭缺失等同步段抛错 → 报错引导；房保持 waiting 未被破坏
+    // 只兜 beginPlay 之前的同步段（默认獭缺失/座位配置非法）——此时房保持 waiting 未被破坏
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
 }
@@ -142,17 +144,17 @@ export async function applyDefaultOtters(
   });
 }
 
-/** 獭可用性校验（active 且未 dissolved）——任一 otter 座位不可用返回报错文案，全可用返回 null */
+/** 獭可用性校验（active 且未 dissolved）——任一 otter 座位不可用返回报错文案，全可用返回 null。
+ *  PR#1609 delta（检视建议 4）：Promise.all 并行校验（座位互不依赖） */
 export async function checkOttersUsable(
   players: ReadonlyArray<{ kind: string; name: string; otterId?: string }>,
   check: (otterId: string) => Promise<string | null>,
 ): Promise<string | null> {
-  for (const p of players) {
-    if (p.kind !== "otter") continue;
-    const bad = await check(p.otterId ?? "");
-    if (bad !== null) {
-      return `座位 otterId 不可用：${p.otterId}（${bad}）——请在大厅重选陪打獭`;
-    }
-  }
-  return null;
+  const otterSeats = players.filter((p) => p.kind === "otter");
+  const results = await Promise.all(otterSeats.map((p) => check(p.otterId ?? "")));
+  const badIdx = results.findIndex((r) => r !== null);
+  if (badIdx === -1) return null;
+  const bad = results[badIdx]!;
+  const seat = otterSeats[badIdx]!;
+  return `座位 otterId 不可用：${seat.otterId}（${bad}）——请在大厅重选陪打獭`;
 }

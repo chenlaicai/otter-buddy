@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- RoomService 单类编排层：推进链/真人停驻/落帧广播/lobby 生命周期共享 room 内部态与 deps 注入，继续拆分需在函数间传 room+deps 闭包上下文，剖裂不变量（lobby/waiting 拆 room-lobby.ts 后仍超——剩余为不可再拆的编排核心；参照 engine.ts 单类先例） */
+/* eslint-disable max-lines -- RoomService 单类编排层：推进链/真人停驻/落帧广播/lobby 生命周期共享 room 内部态与 deps 注入，继续拆分需在函数间传 room+deps 闭包上下文，剖裂不变量（lobby/waiting 已拆 room-lobby.ts 后仍超 max-lines——剩余为不可再拆的编排核心；参照 engine.ts 单类先例） */
 
 /**
  * 牌局房间服务（方案模块三编排层）——引擎推进 + 节流阀 + 獭唤醒 + 真人等待/超时
@@ -143,12 +143,22 @@ export class RoomService {
     });
   }
 
-  /** 开始后的发牌起跑链：清 lobby 定时器 → 发牌 → 落库落帧广播 → kick */
+  /** 开始后的发牌起跑链：清 lobby 定时器 → 发牌（内存即 playing，发牌即事实）→ 落库落帧 → 广播 → kick。
+   *  检视严重发现修复（PR#1609 delta）：db 写失败自兑降级 warn——内存牌局是真相源，库帧可后续 recover 补；
+   *  不得把异常抛给 startLobbyRoom 外层（否则接口谎报「房保持 waiting」而实际已开局） */
   private beginPlay(room: RoomInternal): void {
     clearLobbyEvict(room);
     const events = room.engine.startRound(); // waiting→playing + 发牌
-    this.deps.store.updateGameStatus(room.gameId, "playing");
-    this.storeFrame(room, null);
+    try {
+      this.deps.store.updateGameStatus(room.gameId, "playing");
+      this.storeFrame(room, null);
+    } catch (e) {
+      this.deps.logger?.warn("mahjong beginPlay persist failed (in-memory game continues)", {
+        roomId: room.roomId,
+        gameId: room.gameId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
     this.publishGame(room, events, room.engine.decisionPoint(), 0);
     this.kick(room.roomId);
   }

@@ -252,6 +252,83 @@ describe("F20261022mjls 建房≠开局", () => {
     }
   });
 
+  // PR#1609 delta（检视建议 2）：waiting 房 recover→start 链路——「恢复真相源」核心承诺防护断言
+  it("⑧ waiting 房断线恢复：新实例按库恢复 waiting 房，重挂 TTL 后 start 正常开局", async () => {
+    const first = setup({ lobbyTtlMs: 300_000 });
+    try {
+      const { gameId } = first.svc.createRoom("r1", humanCfg("lobby-8"));
+      first.svc.close("r1"); // 模拟进程重启/内存丢失（库内首帧 waiting）
+      expect(first.svc.view("r1", null)).toBeNull();
+      // 新实例（同库同 store）：start 走 recoverToLobby 拉回 waiting 房 → 直接开局
+      const revived = new RoomService({
+        store: first.store,
+        gateway: scriptedGateway(),
+        bus: new RoomBus(),
+        humanTimeoutMs: 60_000,
+        humanGraceMs: 60_000,
+        lobbyTtlMs: 300_000,
+      });
+      try {
+        const res = await revived.startRoom("r1");
+        expect(res.ok).toBe(true);
+        const view = revived.view("r1", null)!;
+        expect(view.status).toBe("playing");
+        expect(view.gameId).toBe(gameId); // 恢复的是同一场（不是新 gameId）
+        expect(first.store.findGameByRoom("r1")!.status).toBe("playing");
+      } finally {
+        revived.close("r1");
+      }
+    } finally {
+      first.svc.close("r1");
+      first.db.close();
+    }
+  });
+});
+
+describe("F20261022mjls 建房≠开局（獭校验段——自上段拆出控 describe 行数）", () => {
+  let db: Database.Database;
+  let svc: RoomService;
+
+  beforeEach(() => {
+    ({ db, svc } = setup());
+  });
+  afterEach(() => {
+    svc.close("r1");
+    db.close();
+  });
+
+  // PR#1609 delta（检视严重发现）：beginPlay 落库失败自兑——内存照常开局，接口不撒谎
+  it("⑦b beginPlay 落库失败自兑：db 写入抛错时内存照常开局，接口仍 ok:true（事实一致）", async () => {
+    const base = setup();
+    try {
+      // 构造 updateGameStatus 抛错的 store 代理（sqlite 锁模拟）：帧链照走，仅 status 落库失败
+      const brokenStore = Object.create(base.store) as typeof base.store;
+      brokenStore.updateGameStatus = () => {
+        throw new Error("sqlite locked (simulated)");
+      };
+      const svcBroken = new RoomService({
+        store: brokenStore,
+        gateway: scriptedGateway(),
+        bus: new RoomBus(),
+        humanTimeoutMs: 60_000,
+        humanGraceMs: 60_000,
+      });
+      try {
+        svcBroken.createRoom("r1", humanCfg("lobby-9"));
+        const res = await svcBroken.startRoom("r1");
+        // 修复前：db 抛错穿透外层 catch → ok:false 谎报「房保持 waiting」（实际已发牌）
+        // 修复后：beginPlay 自兑 → ok:true，内存 playing（真相源），接口与事实一致
+        expect(res.ok).toBe(true);
+        expect(svcBroken.view("r1", null)!.status).toBe("playing");
+      } finally {
+        svcBroken.close("r1");
+      }
+    } finally {
+      base.svc.close("r1");
+      base.db.close();
+    }
+  });
+
   it("⑦ start 獭可用性校验——无效/dissolved otterId 报错不开局，房保持 waiting", async () => {
     const svc7 = setup({
       checkOtterUsable: async (otterId: string) => {

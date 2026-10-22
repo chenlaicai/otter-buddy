@@ -44,12 +44,13 @@ export class MahjongController {
   }
 
   /** body.players 合法性（3 座位/种类/otterId 齐全）——通过即返回配置，否则 null */
+  /** PR#1609 delta（检视建议 1）：otter 座位允许缺省 otterId（占位——建房/开始时走 applyDefaultOtters 默认回填）；
+   *  非法形状（非数组/非 3 项/name 非串/kind 未知）仍拒 */
   private static parsePlayers(raw: unknown): GameConfig["players"] | null {
     const players = raw;
     if (!Array.isArray(players) || players.length !== 3) return null;
     for (const p of players as PlayerConfig[]) {
       if (!p || typeof p.name !== "string" || !KINDS.has(p.kind)) return null;
-      if (p.kind === "otter" && !p.otterId) return null;
     }
     return players as unknown as GameConfig["players"];
   }
@@ -59,7 +60,7 @@ export class MahjongController {
     const body = (await ctx.req.json().catch(() => ({}))) as CreateBody;
     const players = MahjongController.parsePlayers(body.players);
     if (!players) {
-      return badRequest(ctx, "players 必须为 3 个合法座位配置（otter 座位需 otterId）");
+      return badRequest(ctx, "players 必须为 3 个合法座位配置（otter 座位 otterId 可缺省——开始时回填默认陪打獭）");
     }
     const roomId = typeof body.roomId === "string" && body.roomId ? body.roomId : randomUUID();
     const seed = typeof body.seed === "string" && body.seed ? body.seed : `seed-${randomUUID()}`;
@@ -89,7 +90,7 @@ export class MahjongController {
     let playersOverride: ReadonlyArray<PlayerConfig> | undefined;
     if (body.players !== undefined) {
       const parsed = MahjongController.parsePlayers(body.players);
-      if (!parsed) return badRequest(ctx, "players 覆盖必须为 3 个合法座位配置（otter 座位需 otterId）");
+      if (!parsed) return badRequest(ctx, "players 覆盖必须为 3 个合法座位配置（otter 座位 otterId 可缺省——回填默认陪打獭）");
       playersOverride = parsed;
     }
     let res;
@@ -103,13 +104,12 @@ export class MahjongController {
       if (res.reason === "room not found") return ctx.json({ error: res.reason }, 404);
       return ctx.json({ error: res.reason }, 400);
     }
+    // PR#1609 delta（检视建议 3）：回执必带 view 字段——前端拿不到 view 不渲染牌桌，消除
+    // alreadyStarted+驱逐边缘「无 view 空桌」困惑；无 view 时显式带 null（前端据此提示回大厅）
     const view = this.rooms.view(roomId, null);
     if (view) return ctx.json({ roomId, status: view.status, view });
-    // 幂等分支房已被清理（终局驱逐后）：回执已开局状态
-    if (res.alreadyStarted) return ctx.json({ roomId, status: "already started" });
-    const recovered = this.rooms.recover(roomId);
-    if (recovered) return ctx.json({ roomId, status: "recovered", gameId: recovered.gameId });
-    return ctx.json({ error: "room not found" }, 404);
+    // 房已被清理（终局驱逐后）——view: null 语义显式化，前端提示而非渲染空桌
+    return ctx.json({ roomId, status: "gone", view: null });
   }
 
   /** 真人动作注入（须停驻在该座位） */

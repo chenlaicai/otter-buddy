@@ -788,7 +788,14 @@ async function onStartGame() {
   try {
     const res = await api.start(state.roomId, needOverride ? { players } : undefined);
     const view = res.view;
-    if (view) state.view = state.seat === null ? view : await api.view(state.roomId, state.seat);
+    // PR#1609 delta（检视建议 3）：房已被清理（终局驱逐/等待超时）时后端回 view:null + status:"gone"——
+    // 不渲染空桌，提示回大厅重开
+    if (!view) {
+      toast("房间已不在（终局驱逐或等待超时）——请回大厅重新建房");
+      goLobby();
+      return;
+    }
+    state.view = state.seat === null ? view : await api.view(state.roomId, state.seat);
     state.overlay = null;
     pushLog("牌局开始", "is-wake");
     render();

@@ -167,3 +167,30 @@ settle → finished（现有）
 - 负面向验收：本变更破坏的旧契约 = 「createRoom 即 playing」的调用方预期（四个测试文件 + 两个 API 测试适配）；「POST /rooms 响应 status 恒 playing」的契约改为 waiting（前端 api.js 注释同步）。无绕过既有保护的路径——止血阀/fireGameover/恢复通道均在 waiting 下走新分支而非被绕过。
 - Golden Gate：n/a（本变更纯代码逻辑 A 类，无 prompt/skill/协议层改动——capability_test 字段声明的 lobby-start.test.ts 为 A 类行为契约测试）
 - CI：推送后 gh run watch 验证（结果待 PR 后回填）
+
+---
+
+## 检视处置记录（PR#1609 delta，2026-10-22，实现獭按大獭裁决修复）
+
+检视獭结论「需要修改」（1 严重 + 5 建议），大獭全采纳。处置逐条：
+
+| # | 发现 | 处置 | 落点 |
+|---|---|---|---|
+| 严重 | beginPlay 内 db 写失败时接口谎报「房保持 waiting」（实际已发牌） | 方案 (a)：beginPlay 自兑 db 异常降级 warn + 继续推进（内存牌局是真相源）；startLobbyRoom 的 try 只兜 beginPlay 前的同步配置段；注释同步修正 | `room-service.ts` beginPlay + `room-lobby.ts` startLobbyRoom 注释 |
+| 建议1 | 默认獭回填从 HTTP 层不可达（parsePlayers 拒空 otterId） | 放松 parsePlayers：otter 座位允许缺 otterId（占位）；非法形状仍 400。create/start 两入口均可达 | `mahjong-controller.ts` parsePlayers + 文案 |
+| 建议2 | waiting recover→start 链路无测试 | 补用例⑧：close 后新实例同库 startRoom → 恢复同 gameId 并开局 playing | `lobby-start.test.ts` ⑧ |
+| 建议3 | alreadyStarted+驱逐边缘前端渲染空桌 | start 端点无 view 时显式回 `view:null + status:"gone"`；前端判 null → toast + 回大厅，不渲染空桌 | `mahjong-controller.ts` start 尾段 + `app.js` onStartGame |
+| 建议4 | checkOttersUsable 串行 | Promise.all 并行 + 保留首个不可用座位报错文案 | `room-lobby.ts` checkOttersUsable |
+| 建议5 | room-service.ts 头注释数字漂移（豁免理由成立） | 去掉具体行数，只留「仍超 max-lines——编排核心不可再拆」 | `room-service.ts` 头 eslint-disable |
+
+### delta 新增测试（3 条）
+
+- ⑦b beginPlay 落库失败自兑：updateGameStatus 抛错（模拟 sqlite 锁）→ 接口仍 ok:true 且内存 playing（修复前会谎报 waiting）
+- ⑧ waiting 房断线恢复：close 后新实例同库 startRoom → 同 gameId 开局 playing（「恢复真相源」防护断言）
+- API 层默认獭回填可达：占位 otter 座位经 HTTP 建房 201 → start 回填默认獭 playing（原 parsePlayers 400 拒入——不可达缺陷的回归门）；另「非法输入」用例的 no-otterId 断言从 400 改 201+waiting（语义适配）
+
+### delta 验证（实现者自报）
+
+- ✅ lobby-start.test.ts 9/9（原 7 + ⑦b + ⑧）；api/mahjong.test.ts 5/5（含新默认獭 HTTP 链路用例）
+- ✅ 全量 `npm test`：417 文件 6685 passed / 6 skipped；tsc 0 error；eslint 0 error
+- 语义适配声明（测试弱化防线）：api/mahjong.test.ts 「非法输入」用例中 no-otterId 座位断言 400→201 是检视建议 1 的行为变更本体（放松 parsePlayers 是采纳的修复，非弱化）——PR body 声明段已同步
