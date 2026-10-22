@@ -227,7 +227,7 @@
         ],
         "planned": {
           "knows_by_v1_end": [
-            "梦=残名之影的直觉（V1不点破原理）",
+            "梦停为剥名未竟症状的直觉（V1不点破原理；早年梦为普通离行梦）",
             "兄长被剥名的真相与归名"
           ],
           "does_not_know_yet": [
@@ -388,7 +388,7 @@
       "role": "V1亡者（遗忆出场）",
       "first_chapter_planned": 3,
       "status": "planned",
-      "one_line": "永宁镖局镖头，无名镖队之首，破刀藏货单至死攥刀；其半把无铭刀自ch2起就在十七口刀中，ch51以刀路确认身份",
+      "one_line": "永宁镖局镖头（40 岁，长岑缨十九岁），无名镖队之首，破刀藏货单至死攥刀；其半把无铭刀自ch2起就在十七口刀中，ch51以刀路确认身份",
       "key_facts": [
         {
           "fact": "以镖行规矩坑了剥名术一道：破己刀、藏货单于柄、至死攥刀留锚",
@@ -400,6 +400,11 @@
           "fact": "第107章归名（V1最大不可逆）",
           "status": "planned",
           "secret": false
+        },
+        {
+          "fact": "【作者层秘密（planned）】岑潮非订刀主顾：交接验货时看中第三口新刀买下送妹、随末信寄图样；不知官银来路与剥名局，未掌握可警告妹妹的实情",
+          "status": "planned",
+          "secret": true
         }
       ],
       "knowledge_edges": {
@@ -491,6 +496,11 @@
           "fact": "V1卷末不死：活着守墙，长期人物线开至终局（柳泉无名墙的守墙人）",
           "status": "planned",
           "secret": false
+        },
+        {
+          "fact": "【作者层秘密（planned）】蒙面订刀主顾=佟半城：腊月初八以三倍外路官银订五口无铭新刀；察觉礼物刀经手破绽后调整交接、导入黑水峡杀局",
+          "status": "planned",
+          "secret": true
         }
       ],
       "knowledge_edges": {
@@ -563,7 +573,7 @@
       "name": "顾辞",
       "role": "镜像人物",
       "first_chapter_planned": 53,
-      "status": "written",
+      "status": "planned",
       "one_line": "奉名司外派文吏，账房刀子嘴，与陆停舟同源两途",
       "key_facts": [
         {
@@ -617,7 +627,7 @@
       "name": "祝雁回",
       "role": "祝九龄之女",
       "first_chapter_planned": 74,
-      "status": "written",
+      "status": "planned",
       "one_line": "账房出身转镖师，V4失左臂转军师，终局首任女总镖头；V1 ch74以账房身份具名露面",
       "key_facts": [
         {
@@ -652,7 +662,7 @@
       "name": "奉名使",
       "role": "终局对手",
       "first_chapter_planned": 481,
-      "status": "written",
+      "status": "planned",
       "one_line": "奉名司之首，无名，导沧大工执行文吏，算学大家",
       "key_facts": [
         {
