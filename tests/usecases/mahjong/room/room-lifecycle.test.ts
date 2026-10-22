@@ -86,6 +86,7 @@ describe("牌局生命周期：结算停驻 / 停局 / 离桌界（#1564-5/#1564
       settleHoldMs: 60_000, // 停驻足够长：测试内不自动继续
     });
     svc.createRoom("r1", cfg("settle-pause-seed"));
+    await svc.startRoom("r1");
     await driveToSettlement(svc, "r1");
     // 停驻实证：150ms 后仍在停驻（修复前局终瞬间自动换局）
     await new Promise((r) => setTimeout(r, 150));
@@ -112,6 +113,7 @@ describe("牌局生命周期：结算停驻 / 停局 / 离桌界（#1564-5/#1564
       settleHoldMs: 40,
     });
     svc.createRoom("r1", cfg("settle-auto-seed"));
+    await svc.startRoom("r1");
     await driveToSettlement(svc, "r1");
     // 不点继续：等超时自动进下局
     await new Promise((r) => setTimeout(r, 250));
@@ -131,6 +133,7 @@ describe("牌局生命周期：结算停驻 / 停局 / 离桌界（#1564-5/#1564
       humanGraceMs: 60_000,
     });
     svc.createRoom("r1", cfg("stop-seed-1"));
+    await svc.startRoom("r1");
     await svc.settled("r1");
     expect(svc.view("r1", null)).not.toBeNull();
     expect(svc.stopRoom("r1")).toMatchObject({ ok: true });
@@ -160,6 +163,7 @@ describe("牌局生命周期：结算停驻 / 停局 / 离桌界（#1564-5/#1564
       ],
     };
     svc.createRoom("r1", config);
+    await svc.startRoom("r1");
     await new Promise((r) => setTimeout(r, 400));
     expect(svc.view("r1", null)).toBeNull(); // 到限自动停局
     const notices = events.filter((e) => e.type === "error" && e.message.includes("自动停局"));

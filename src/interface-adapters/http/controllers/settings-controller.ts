@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import type { Logger } from "@usecases/ports/logger";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
-import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
+import { USER_DISPLAY_NAME_KEY, MAHJONG_DEFAULT_OTTERS_KEY, parseMahjongDefaultOtters, type MahjongDefaultOtter } from "@usecases/settings/settings-keys";
 import { handleError } from "../http-error";
 import { safeJsonBody } from "../parse-json-body";
 import type { SettingsDTO, UpdateSettingsRequestDTO } from "@contract/api/settings";
@@ -31,19 +31,21 @@ export class SettingsController {
     private readonly writeDefaultModel: WriteDefaultModel,
   ) {}
 
-  private buildDTO(userName: string): SettingsDTO {
+  private buildDTO(userName: string, defaultOtters: MahjongDefaultOtter[]): SettingsDTO {
     return {
       ...this.settings,
       models: this.modelPool.getModelInfos(),
       defaultModelAlias: this.modelPool.getDefaultAlias(),
       userName,
+      defaultOtters,
     };
   }
 
   async getSettings(c: Context): Promise<Response> {
     try {
       const userName = (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY)) ?? '';
-      return c.json(this.buildDTO(userName));
+      const defaultOtters = parseMahjongDefaultOtters(await this.settingsRepo.get(MAHJONG_DEFAULT_OTTERS_KEY)) ?? [];
+      return c.json(this.buildDTO(userName, defaultOtters));
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -69,10 +71,29 @@ export class SettingsController {
         await this.settingsRepo.update(USER_DISPLAY_NAME_KEY, cleaned);
         this.logger.info("User display name updated", { userName: cleaned });
       }
+      if (body.defaultOtters !== undefined) {
+        const err = this.validateDefaultOtters(body.defaultOtters);
+        if (err) return c.json({ error: err }, 400);
+        await this.settingsRepo.update(MAHJONG_DEFAULT_OTTERS_KEY, JSON.stringify(body.defaultOtters));
+        this.logger.info('Mahjong default otters updated', { count: body.defaultOtters.length });
+      }
       const userName = (await this.settingsRepo.get(USER_DISPLAY_NAME_KEY)) ?? '';
-      return c.json(this.buildDTO(userName));
+      const defaultOtters = parseMahjongDefaultOtters(await this.settingsRepo.get(MAHJONG_DEFAULT_OTTERS_KEY)) ?? [];
+      return c.json(this.buildDTO(userName, defaultOtters));
     } catch (err) {
       return handleError(c, err, this.logger);
     }
+  }
+
+  /** F20261022mjls：默认陪打獭入参校验（自 updateSettings 拆出——控复杂度）；通过返回 null */
+  private validateDefaultOtters(raw: unknown): string | null {
+    if (!Array.isArray(raw)) return 'defaultOtters 必须是 [{otterId, name}] 数组';
+    for (const item of raw) {
+      const rec = item as Partial<MahjongDefaultOtter>;
+      if (typeof rec?.otterId !== 'string' || !rec.otterId || typeof rec?.name !== 'string' || !rec.name) {
+        return 'defaultOtters 每项需含非空 otterId 与 name';
+      }
+    }
+    return null;
   }
 }

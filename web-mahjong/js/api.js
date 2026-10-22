@@ -52,7 +52,7 @@ export function createApi(opts = {}) {
   const room = (roomId, suffix) => `/api/mahjong/rooms/${encodeRoom(roomId)}${suffix}`;
 
   return {
-    /** 建房即开局 → {roomId, gameId, seed, status}（201；已存在 409） */
+    /** 建房开等待房 → {roomId, gameId, seed, status:'waiting'}（201；已存在 409） */
     createRoom: (payload) => call("/api/mahjong/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -60,8 +60,8 @@ export function createApi(opts = {}) {
     }),
     /** 入座 → {roomId, seat, view}（私有视图，含手牌） */
     join: (roomId, seat) => post(room(roomId, "/join"), { seat }),
-    /** 开局幂等回执（未知房尝试 recover，仍无 → 404） */
-    start: (roomId) => post(room(roomId, "/start")),
+    /** F20261022mjls：开始（waiting→playing 发牌起跑；body 可选 players 覆盖；幂等） */
+    start: (roomId, payload) => post(room(roomId, "/start"), payload),
     /** 真人动作注入 → {accepted:true, view}（400 = 非该座停驻或动作非法） */
     action: (roomId, seat, action) => post(room(roomId, "/actions"), { seat, action }),
     /** 真人回话 → {accepted:true, roomId, seat, view}（#1532：入队广播 chat 帧，回显靠 SSE） */

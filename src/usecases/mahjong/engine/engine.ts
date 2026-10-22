@@ -110,7 +110,8 @@ export class SanmaEngine {
   private events: EngineEvent[] = [];
 
   constructor(config: GameConfig) {
-    this.state = { config, status: "playing", roundNo: 1, honba: 0, sticks: 0 };
+    // F20261022mjls：构造即 lobby 等待态（不发牌）；startRound 完成 waiting→playing
+    this.state = { config, status: "waiting", roundNo: 1, honba: 0, sticks: 0 };
   }
 
   private get round(): RoundState {
@@ -138,8 +139,10 @@ export class SanmaEngine {
 
   // ─────────────────────────── 轮次生命周期 ───────────────────────────
 
-  /** 开局/开新一轮：确定性配牌 + 庄家第一摸 */
+  /** 开局/开新一轮：确定性配牌 + 庄家第一摸。首次调用完成 waiting→playing（建房≠开局，F20261022mjls）；
+   *  nextRound 内部重入复用（playing 局终推进重配牌），故不拒绝 playing 重入——幂等保护在 RoomService.startRoom */
   startRound(): EngineEvent[] {
+    if (this.state.status === "waiting") this.state.status = "playing";
     this.events = [];
     const cfg = this.state.config;
     const prev = this.state.round;

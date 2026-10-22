@@ -84,13 +84,14 @@ export class SqliteFrameStore {
 
   // ── 比赛元数据 ──
 
-  createGame(id: string, roomId: string, config: GameState["config"]): void {
+  /** F20261022mjls：status 可选（默认 playing 兼容旧调用）；waiting = lobby 等待房 */
+  createGame(id: string, roomId: string, config: GameState["config"], status = "playing"): void {
     const now = new Date().toISOString();
     this.db
       .prepare(
         "INSERT INTO mahjong_games (id, room_id, seed, status, config_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
-      .run(id, roomId, config.seed, "playing", JSON.stringify(config), now, now);
+      .run(id, roomId, config.seed, status, JSON.stringify(config), now, now);
   }
 
   getGame(id: string): GameRecord | null {
@@ -113,6 +114,13 @@ export class SqliteFrameStore {
     this.db
       .prepare("UPDATE mahjong_games SET status = ?, updated_at = ? WHERE id = ?")
       .run(status, new Date().toISOString(), id);
+  }
+
+  /** F20261022mjls：lobby 开始时回写座位配置（默认獭回填/自定义覆盖后的最终 players）——恢复/review 用真相源 */
+  updateGameConfig(id: string, config: GameState["config"]): void {
+    this.db
+      .prepare("UPDATE mahjong_games SET config_json = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(config), new Date().toISOString(), id);
   }
 
   // ── 帧 ──

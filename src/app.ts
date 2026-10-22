@@ -520,6 +520,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     signalRouter,
     // F20261015mjsg：三麻将局域装配（db + PiSessionFactory 作为 SdkInvokePort）
     mahjongDeps: { db, sdkPort: agentGateway },
+    // F20261022mjls：麻将默认陪打獭/獭可用性校验依赖（settings + otter repo）
+    mahjongOtterDeps: { settingsRepo: repos.settings, otterRepo: repos.otter },
     // 多模态 Phase 1（D1 修复）：显式传递附件 repo——漏传会导致附件路由生产 404
     attachmentRepo: repos.attachment,
     // 微信连接管理（issue #566）

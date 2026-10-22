@@ -119,6 +119,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("seated-seed"));
+    await svc.startRoom("r1");
     expect(svc.isSeated("otter-a")).toBe(true);
     expect(svc.isSeated("otter-c")).toBe(true);
     expect(svc.isSeated("otter-x")).toBe(false);
@@ -137,6 +138,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("chat-validate"));
+    await svc.startRoom("r1");
     expect(svc.addChat("nope", 0, "hi")).toEqual({ ok: false, reason: "room not found" });
     expect(svc.addChat("r1", 0, "   ")).toMatchObject({ ok: false });
     expect(svc.addChat("r1", 0, "x".repeat(501))).toMatchObject({ ok: false });
@@ -157,6 +159,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("chat-seed-1"));
+    await svc.startRoom("r1");
     expect(svc.addChat("r1", 1, "这局好好打")).toEqual({ ok: true });
     await driveUntilFinished(svc, "r1");
 
@@ -184,6 +187,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("chat-seed-2"));
+    await svc.startRoom("r1");
     expect(svc.addChat("r1", 1, "重试可见吗")).toEqual({ ok: true });
     await driveUntilFinished(svc, "r1");
 
@@ -196,6 +200,10 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
     svc.close("r1");
   });
 
+});
+
+
+describe("收尾三钩：onGameover 战报（自上段拆出——控 describe 行数）", () => {
   it("局终 onGameover 一次性上报：名次守恒/跨局结算亮点/獭发言/代打数", async () => {
     const reports: GameoverReport[] = [];
     const svc = new RoomService({
@@ -210,6 +218,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       },
     });
     svc.createRoom("r1", cfg("over-seed-1"));
+    await svc.startRoom("r1");
     await driveUntilFinished(svc, "r1");
 
     expect(reports.length).toBe(1);
@@ -258,6 +267,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       },
     });
     svc.createRoom("r1", cfg("over-throw"));
+    await svc.startRoom("r1");
     await driveUntilFinished(svc, "r1");
     expect(warnings.some((w) => w.includes("onGameover"))).toBe(true);
     expect(svc.view("r1", null)!.status).toBe("finished");
@@ -278,6 +288,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       },
     });
     svc1.createRoom("r1", cfg("over-recover"));
+    await svc1.startRoom("r1");
     await driveUntilFinished(svc1, "r1");
     expect(reports).toHaveLength(1);
     svc1.close("r1");
@@ -311,6 +322,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       evictFinishedMs: 200,
     });
     const first = svc.createRoom("r1", cfg("evict-seed-1"));
+    await svc.startRoom("r1");
     await driveUntilFinished(svc, "r1");
 
     // ① 宽限内 view 可用（页面终局展示不破）+ status 落库（updateGameStatus 不再是死代码）
@@ -319,14 +331,32 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
     expect(store.findGameByRoom("r1")!.status).toBe("finished"); // updateGameStatus 落库实证
     expect(svc.getGameId("r1")).toBe(first.gameId); // 宽限期内仍占位
 
-    // ② 同 roomId 重开：终局旧房出 Map，新 gameId（修复前永久 409）
-    const reopened = svc.createRoom("r1", cfg("evict-seed-2"));
-    expect(reopened.gameId).not.toBe(first.gameId);
-    expect(svc.view("r1", null)!.status).toBe("playing");
-
     // ③ 代际校验：旧房驱逐定时器到期不得误删新房
     await new Promise((r) => setTimeout(r, 260));
-    expect(svc.view("r1", null)!.status).toBe("playing");
+    expect(svc.view("r1", null)).toBeNull(); // 重开段已移至下条用例；旧房到期出 Map
+    svc.close("r1");
+  });
+
+  it("F20261022mjls 追证：终局房重开 = waiting 房，start 后 playing（同 roomId 新 gameId）", async () => {
+    const svc = new RoomService({
+      store,
+      gateway: recordingGateway(),
+      bus,
+      humanTimeoutMs: 60_000,
+      humanGraceMs: 60_000,
+      settleHoldMs: 10,
+      evictFinishedMs: 10,
+    });
+    svc.createRoom("r1", cfg("evict-seed-1b"));
+    await svc.startRoom("r1");
+    await driveUntilFinished(svc, "r1");
+    // 同 roomId 重开：终局旧房出 Map（修复前永久 409），新 gameId；新房 waiting 未发牌
+    const first = svc.getGameId("r1");
+    const reopened = svc.createRoom("r1", cfg("evict-seed-2b"));
+    expect(reopened.gameId).not.toBe(first);
+    expect(svc.view("r1", null)!.status).toBe("waiting"); // F20261022mjls：重开房停在等待态
+    await svc.startRoom("r1");
+    expect(svc.view("r1", null)!.status).toBe("playing"); // start 后发牌起跑
     svc.close("r1");
   });
 
@@ -341,6 +371,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       evictFinishedMs: 20,
     });
     svc.createRoom("r1", cfg("evict-seed-3"));
+    await svc.startRoom("r1");
     await driveUntilFinished(svc, "r1");
     expect(svc.view("r1", null)).not.toBeNull(); // 驱逐前可读
     await new Promise((r) => setTimeout(r, 80));
@@ -354,6 +385,7 @@ describe("#1532 獭侧回应广播（注入回合；harness 模块级共用）",
     const gw = recordingGateway();
     const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000, settleHoldMs: 10 });
     svc.createRoom("r1", cfg("chat-echo-seed"));
+    await svc.startRoom("r1");
     expect(svc.addChat("r1", 1, "有人在吗")).toEqual({ ok: true });
     await driveUntilFinished(svc, "r1");
 
@@ -373,6 +405,7 @@ describe("#1532 獭侧回应广播（注入回合；harness 模块级共用）",
     gw.chatReply = "   ";
     const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000, settleHoldMs: 10 });
     svc.createRoom("r1", cfg("chat-echo-blank"));
+    await svc.startRoom("r1");
     expect(svc.addChat("r1", 1, "能听到吗")).toEqual({ ok: true });
     await driveUntilFinished(svc, "r1");
 
@@ -394,6 +427,7 @@ describe("#1532 獭侧回应广播（注入回合；harness 模块级共用）",
     const svc = new RoomService({ store, gateway: gw, bus, humanTimeoutMs: 60_000, humanGraceMs: 60_000, settleHoldMs: 10 });
     svcRef = svc;
     svc.createRoom("r1", cfg("chat-race-seed"));
+    await svc.startRoom("r1");
     expect(svc.addChat("r1", 1, "先说这句")).toEqual({ ok: true });
     await driveUntilFinished(svc, "r1");
 
