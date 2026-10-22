@@ -1012,7 +1012,11 @@ function evalScriptPayloadNarrow(seg: Segment, projectRoot: string, acc: Segment
     }
     return "extracted";
   }
-  const flagIdx = seg.words.findIndex(w => w.evaluated === "-e" || w.evaluated === "-c");
+  // F20261022vwfg：旗标扫描限段首执行词之后——wrapper 值词可恰为 "-c"（sudo -p -c python
+  //  -c '载荷'）：全段扫描会把 prompt 值误当载荷旗标（值参 masquerade 同族盲区）。
+  const execHead = resolveExecHead(seg);
+  if (execHead === null) return "skip";
+  const flagIdx = seg.words.findIndex((w, i) => i > execHead.headIndex && (w.evaluated === "-e" || w.evaluated === "-c"));
   let script: string | null;
   let cMode = false;
   let tailArgs: Array<string | null> = [];

@@ -224,9 +224,11 @@ describe("delta r1 检视修复（检视獭1604 三严重 + 两建议）", () =>
       "python", "python3", "python2", "python3.11", "pypy3", "node", "perl", "ruby", "osascript",
       "env python", "sudo node", "timeout 5 python", "nohup python", "xargs python", "nice -n 5 python",
       "busybox python",
+      // F20261022vwfg 值参 wrapper 盲区收编后归位：带值旗标分写形态不再走丢执行名
+      "sudo -u root python", "env -u FOO python",
     ];
     const NON_FEED_FORMS = [
-      "cat", "python x.py", "python -c code", "python --version", "sudo -u root python", "env -u FOO python",
+      "cat", "python x.py", "python -c code", "python --version",
     ];
     it("guard interpreterStdinKind ⟺ wte interpreterStdinFeedContent：22 形态逐项同判", () => {
       for (const form of [...FEED_FORMS, ...NON_FEED_FORMS]) {
@@ -240,12 +242,12 @@ describe("delta r1 检视修复（检视獭1604 三严重 + 两建议）", () =>
         expect(guardSees, `域分类与预期不符：${form}`).toBe(FEED_FORMS.includes(form));
       }
     });
-    it("残余诚实钉（M-c36b9847 值参 wrapper 盲区）：sudo -u root python 两侧同判不识别（现状钉，归 wrapper 基座治理）", () => {
+    it("收编钉（M-c36b9847 值参 wrapper 盲区已收编，F20261022vwfg）：sudo -u root python 两侧同判 stdin 识别", () => {
       const model = parseOnce("echo 'x' | sudo -u root python");
       const seg = model.segments[model.segments.length - 1];
       const prev = model.segments[model.segments.length - 2];
-      expect(interpreterStdinKind(seg).kind).toBe("none");
-      expect(interpreterStdinFeedContent(seg, prev)).toBeUndefined();
+      expect(interpreterStdinKind(seg).kind).toBe("stdin");
+      expect(interpreterStdinFeedContent(seg, prev)).not.toBeUndefined();
     });
   });
 });
