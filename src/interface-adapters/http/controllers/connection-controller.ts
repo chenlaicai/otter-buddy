@@ -6,34 +6,19 @@ import { safeJsonBody } from "../parse-json-body";
 import {
   toConnectionDTO,
   toConnectionSessionDTO,
-  type CreateConnectionRequestDTO,
   type EnterConversationRequestDTO,
 } from "../dto/connection-dto";
+
+// F20261023cnct（issue #1063）：死端点下线——list/create/getSession/leaveConversation 四个
+// HTTP 方法已删（对应 GET/POST /api/connections、GET :id/session、POST :id/leave）。
+// usecase ManageConnection 方法全部保留给 IM 命令体系（feishu command-dispatcher.ts /
+// weixin message-processor.ts 复用 leaveConversation 等），仅 HTTP 层退役。
 
 export class ConnectionController {
   constructor(
     private readonly manageConnection: ManageConnection,
     private readonly logger: Logger,
   ) {}
-
-  async list(c: Context): Promise<Response> {
-    try {
-      const connections = await this.manageConnection.listConnections();
-      return c.json(connections.map(toConnectionDTO));
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
-  async create(c: Context): Promise<Response> {
-    try {
-      const body = await safeJsonBody<CreateConnectionRequestDTO>(c);
-      const connection = await this.manageConnection.createConnection(body.name, body.externalId);
-      return c.json(toConnectionDTO(connection), 201);
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
 
   async getById(c: Context): Promise<Response> {
     try {
@@ -48,35 +33,12 @@ export class ConnectionController {
     }
   }
 
-  async getSession(c: Context): Promise<Response> {
-    try {
-      const id = param(c, "id");
-      const conversation = await this.manageConnection.getCurrentConversation(id);
-      if (!conversation) {
-        return c.json({ error: "No active session" }, 404);
-      }
-      return c.json(conversation);
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
   async enterConversation(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
       const body = await safeJsonBody<EnterConversationRequestDTO>(c);
       const session = await this.manageConnection.enterConversation(id, body.conversationId);
       return c.json(toConnectionSessionDTO(session));
-    } catch (err) {
-      return handleError(c, err, this.logger);
-    }
-  }
-
-  async leaveConversation(c: Context): Promise<Response> {
-    try {
-      const id = param(c, "id");
-      await this.manageConnection.leaveConversation(id);
-      return c.json({ status: "left" });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
