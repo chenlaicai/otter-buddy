@@ -640,18 +640,24 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
   //  合并短旗标簇/长旗标/默认落盘/remote-name 同面收齐。
   if (bare === "curl" || bare === "wget" || bare === "dd") {
     if (bare === "dd") {
+      // W2（M-a38446f9）：of= 槽位判读钉形状（parts 首字面量）——旧版动态词一律跳过 =「无目标」
+      //  正面断言无写（`dd of="$D"` 实放水）；末位 of= 相关词决定落点（dd 操作数后写覆盖），
+      //  末动态/未知形状 → 落点不可证 argv-write-uncovered；已知名称操作数不误伤。
+      let lastOf: ReturnType<typeof ddOfSlot> = null;
       for (let i = 1; i < words.length; i++) {
-        const raw = words[i].evaluated;
-        if (raw === null) continue; // 无关词（如 if=$VAR）不卡
-        const of = /^of=(.+)$/.exec(raw);
-        // eslint-disable-next-line max-depth -- F20261014smrj dd of= 旗标分支内嵌错误早退（早退即返回，不可平铺）
-        if (of !== null) { const e = push(of[1]); if (e !== null) return e; }
+        const s = ddOfSlot(words[i]);
+        if (s !== null) lastOf = s;
       }
+      if (lastOf !== null && lastOf.dyn) return "argv-write-uncovered";
+      if (lastOf !== null && !lastOf.dyn && lastOf.val !== "") { const e = push(lastOf.val); if (e !== null) return e; }
       return null;
     }
-    const r = downloadWriteTargets(words, cwd, bare === "wget" ? "wget" : "curl");
-    if (r.dynTarget) return "dynamic-path"; // 落点词不可求值
+    const r = downloadWriteTargets(words.slice(1), cwd, bare === "wget" ? "wget" : "curl");
+    // W1（M-a38446f9，同 #1619 tar 族口径）：落点槽不可证（dyn）→ argv-write-uncovered——
+    //  落 dynamic-path 会被能力 4 词面证洗成 ALLOW（wget -P "$D" 等词面盲形态实证，probe-wash2）。
+    if (r.dynTarget) return "argv-write-uncovered"; // 落点词不可求值
     for (const t of r.targets) acc.targets.push({ path: t, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
+    if (r.unpinnedDir !== null) acc.targets.push({ path: r.unpinnedDir, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
     return null;
   }
   // 原地编辑（sed -i / perl -pi / ruby -pi）：目标=脚本/表达式之后的文件参数。
@@ -1374,14 +1380,21 @@ interface WriteFaceEntry {
  *  重定向的落盘写同为造段（造-执对收编），内容一律不可重建 → content=null。
  *  delta1（检视獭1554 发现 7）：argv 写面与重定向写面取**并集**——tee 带重定向时双写面
  *  同记（`tee f > g` 的 g 不再被 argv 面遮蔽漏配对），逐面独立 content/copyOf。 */
+/** W3（M-a38446f9）：argv 写面结果 → 配对面条目——精确目标与目录性写面（未钉 basename 的
+ *  落盘目录）分开建面（dirWrite 只标目录面，不把精确目标接成前缀面）。 */
+function argvWriteEntries(argvWrite: { targets: string[]; copyOf?: string; dirWrite?: boolean; dirTargets?: string[] }): WriteFaceEntry[] {
+  const entries: WriteFaceEntry[] = [];
+  for (const t of argvWrite.targets) {
+    entries.push({ target: t, content: null, ...(argvWrite.dirWrite === true ? { dirWrite: true } : {}), ...(argvWrite.copyOf !== undefined ? { copyOf: argvWrite.copyOf } : {}) });
+  }
+  for (const d of argvWrite.dirTargets ?? []) entries.push({ target: d, content: null, dirWrite: true });
+  return entries;
+}
+
 function writerContent(seg: Segment, cwd: string): WriteFaceEntry[] | null {
   const entries: WriteFaceEntry[] = [];
   const argvWrite = argvWriterContent(seg, cwd);
-  if (argvWrite !== null) {
-    for (const t of argvWrite.targets) {
-      entries.push({ target: t, content: null, ...(argvWrite.dirWrite === true ? { dirWrite: true } : {}), ...(argvWrite.copyOf !== undefined ? { copyOf: argvWrite.copyOf } : {}) });
-    }
-  }
+  if (argvWrite !== null) entries.push(...argvWriteEntries(argvWrite));
   let redirect: Segment["redirects"][number] | null = null;
   for (const r of seg.redirects) {
     if (!isWriteRedirect(r.op) || isFdDup(r.op, r.target)) continue;
@@ -1758,6 +1771,22 @@ function archiveFamilyTargets(
   return "unknown";
 }
 
+/** W2（M-a38446f9）：dd 操作数 of= 槽位判读（parts 首字面量钉形状）。返回：dyn=true →
+ *  动态/未知形状 of= 槽（落点不可证）；val → 静态 of= 值（空串=of= 空值，open('') 必败无写）；
+ *  null → 非 of= 相关（已知名称操作数或无名垃圾——dd 操作数全为 name=value，拒识报错即无写）。 */
+function ddOfSlot(w: Word): { dyn: true } | { dyn: false; val: string } | null {
+  const raw = w.evaluated;
+  if (raw !== null) {
+    const of = /^of=(.*)$/.exec(raw);
+    return of !== null ? { dyn: false, val: of[1] } : null;
+  }
+  const first = w.parts[0];
+  const firstLit = first !== undefined && first.type === "lit" ? first.text : "";
+  if (firstLit.startsWith("of=")) return { dyn: true };
+  if (/^(?:if|conv|bs|count|skip|seek|status|iflag|oflag)=/.test(firstLit)) return null;
+  return { dyn: true }; // 纯 var/cmdsub 或未知形状操作数——可能是 of= → 落点不可证
+}
+
 /** argv 写面目标提取（F20261019wvcp 造-执对收编）：cp/mv/install/ln/tee/curl/wget/dd 不经
  *  重定向的落盘写——内容一律不可重建（copy/download/管道输入）→ content=null（fail-closed，
  *  与 `echo "$X" > f && bash f` 既有 script-payload-dynamic 机制同语义：造出内容是权威
@@ -1766,11 +1795,12 @@ function archiveFamilyTargets(
  *  无需配对）。delta1（检视獭1554 发现 2/3）：拷贝族目标前置形态（-t DIR / --target-directory
  *  =DIR）与常规形态统一解析——目标=DIR/basename(src)，不再把 -t 的目标词当源文件。 */
 // eslint-disable-next-line complexity, max-statements -- argv 写面旗标/参数形态穷举（curl -o 三形态/dd of=/cp 多源/-t 目标前置），分支=已实证写法枚举
-function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; content: null; copyOf?: string; dirWrite?: boolean } | null {
+function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; content: null; copyOf?: string; dirWrite?: boolean; dirTargets?: string[] } | null {
   const bare = bareName(seg.argv0);
   const words = seg.words.slice(1);
   const args = words.map(w => w.evaluated).filter((v): v is string => v !== null && !v.startsWith("-"));
   const targets: string[] = [];
+  const dirTargets: string[] = [];
   let copyOf: string | undefined;
   let dirWrite = false;
   if (bare === "cp" || bare === "mv" || bare === "install" || bare === "ln") {
@@ -1793,7 +1823,10 @@ function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; cont
   } else if (bare === "tee") {
     for (const a of args) { const t = evalPath(a, cwd); if (t !== null) targets.push(t); }
   } else if (bare === "curl" || bare === "wget") {
-    targets.push(...downloadWriteTargets(words, cwd, bare).targets);
+    const r = downloadWriteTargets(words, cwd, bare);
+    targets.push(...r.targets);
+    // W3（M-a38446f9）：未钉 basename → 目录性写面（同名下载造-执对按前缀配对）
+    if (r.unpinnedDir !== null) dirTargets.push(r.unpinnedDir);
   } else if (bare === "dd") {
     for (const w of words) {
       const v = w.evaluated;
@@ -1815,7 +1848,7 @@ function argvWriterContent(seg: Segment, cwd: string): { targets: string[]; cont
     for (const t of r.targets) { const p = evalPath(t, cwd); if (p !== null) targets.push(p); }
     dirWrite = r.dirWrite;
   } else return null;
-  return targets.length > 0 ? { targets, content: null, ...(dirWrite ? { dirWrite } : {}), ...(copyOf !== undefined ? { copyOf } : {}) } : null;
+  return targets.length > 0 || dirTargets.length > 0 ? { targets, content: null, ...(dirTargets.length > 0 ? { dirTargets } : {}), ...(dirWrite ? { dirWrite } : {}), ...(copyOf !== undefined ? { copyOf } : {}) } : null;
 }
 
 /** 拷贝族（cp/mv/install/ln）参数解析（delta1 发现 2/3）：目标前置形态 -t DIR /
@@ -1850,7 +1883,7 @@ function copyFamilyArgs(words: Word[]): { targetDir: string | null; positionals:
  *  旗标语义差异如实分工具（c107 教训：合并会再制造旗标解析 bug）：curl -o=输出文档
  *  /-O=remote-name（无值）；wget -O=输出文档/-o=日志文件（日志同为落盘写面）。
  *  未知短旗标可能带值——停扫该簇（防误提取把旗标值当落点）；簇内 o/O 在停扫位之后=残余记档。 */
-interface DownloadWrite { targets: string[]; dynTarget: boolean }
+interface DownloadWrite { targets: string[]; dynTarget: boolean; unpinnedDir: string | null }
 
 const DOWNLOAD_NO_VALUE_SHORT = new Set(["s", "S", "f", "v", "k", "q", "i", "I", "l", "L", "n", "N", "4", "6", "#", "g", "G", "R", "M"]);
 
@@ -1859,6 +1892,8 @@ function downloadWriteTargets(words: Word[], cwd: string, tool: "curl" | "wget")
   const targets: string[] = [];
   const posArgs: string[] = [];
   let dynTarget = false;
+  let unpinnedOperand = false; // W3（M-a38446f9）：动态/未知形状 URL 操作数存在（basename 未钉）
+  let unpinnedDir: string | null = null;
   let remoteName = false; // curl -O/--remote-name（或短簇内 O）→ 落盘 basename(URL)
   let saveDir: string | null = null; // wget -P/--directory-prefix → 默认落盘目录
   let sawOutputDoc = false; // wget -O/--output-document（显式输出文档取代默认落盘）
@@ -1872,8 +1907,8 @@ function downloadWriteTargets(words: Word[], cwd: string, tool: "curl" | "wget")
   };
   for (let i = 0; i < words.length; i++) {
     const v = words[i].evaluated;
-    if (v === null) continue; // 无关词动态跳过（落点位动态由 pushVal 记 dynTarget）
-    if (v === "--") { for (const u of words.slice(i + 1)) { const e = u.evaluated; if (e !== null) posArgs.push(e); } break; }
+    if (v === null) { unpinnedOperand = true; continue; } // 动态词未被已知旗标吞值位=可能是 URL 操作数（W3）
+    if (v === "--") { for (const u of words.slice(i + 1)) { const e = u.evaluated; if (e !== null) posArgs.push(e); else unpinnedOperand = true; } break; }
     if (v.startsWith("--")) {
       const eq = v.indexOf("=");
       const name = eq === -1 ? v : v.slice(0, eq);
@@ -1922,8 +1957,16 @@ function downloadWriteTargets(words: Word[], cwd: string, tool: "curl" | "wget")
       if (base === "" || base === "." || base === ".." || /[?#]/.test(base)) continue;
       pushVal(saveDir !== null ? `${saveDir}/${base}` : base);
     }
+    // W3（M-a38446f9）：动态/未知形状 URL 操作数——basename 未钉，不正面断言无写：写面=落盘
+    //  目录的**目录性写面**（ROOT cwd 目录即主仓 → 拦；工作区 cwd 豁免 → 放；造-执对按前缀
+    //  配对兜同名下载）。显式输出文档/不落盘形态无此写面（单文件/零落盘，未钉操作数不产生新面）。
+    if (unpinnedOperand) {
+      const dir = saveDir ?? ".";
+      if (dir.startsWith("~")) { if (dir.includes("..")) dynTarget = true; } // ~/.. 可爬升=不可证
+      else { const t = evalPath(dir, cwd); if (t !== null) unpinnedDir = t; }
+    }
   }
-  return { targets, dynTarget };
+  return { targets, dynTarget, unpinnedDir };
 }
 
 /** 载荷主仓字面量闸（与窄提取「载荷含主仓树字面量一律回落」同源口径的反向判据）：
