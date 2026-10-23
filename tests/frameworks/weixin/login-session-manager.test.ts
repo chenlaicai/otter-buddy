@@ -45,7 +45,8 @@ function scriptFetch(script: unknown[]) {
     vi.unstubAllGlobals();
   };
   vi.stubGlobal("fetch", fetchMock);
-  return stopFn;
+  // calls：fetch 调用探针（测试侧同步点用，不作断言——lint no-restricted-syntax 禁调用参数断言）
+  return Object.assign(stopFn, { calls: fetchMock.mock.calls });
 }
 
 describe("WeixinLoginSessionManager", () => {
@@ -346,16 +347,22 @@ describe("WeixinLoginSessionManager already_connected（#1112 binded_redirect �
 
   it("已取消会话收到 binded_redirect：保持 cancelled 不覆写（无落盘副作用无需善后）", async () => {
     const store = new WeixinAccountStore({ stateDir: tempStateDir() });
-    restore = scriptFetch([
+    const probe = scriptFetch([
       { ret: 0, qrcode: "qr", qrcode_img_content: "https://x" },
       ...Array.from({ length: 30 }, () => () => ({ status: "wait" })),
       { status: "binded_redirect" },
     ]);
+    restore = probe;
     mgr = new WeixinLoginSessionManager({ accountStore: store, logger });
     const { id } = mgr.start();
     await vi.waitFor(() => expect(mgr.get(id)!.qrcodeUrl).toBeDefined());
     expect(mgr.cancel(id)).toBe(true);
-    await new Promise((r) => setTimeout(r, 300)); // 等后台 flow 走到 binded_redirect
+    // A1 确定性等待：fetch 探针计数到位 = 后台 flow 已消耗完 wait 脚本拿到
+    // binded_redirect（1 次 qrcode + 31 次 status = 32 次调用），消除固定 sleep
+    // 与脚本回放窗口的时序竞态；不用调用参数断言（lint 禁绑定实现细节）
+    await vi.waitFor(() => {
+      if (probe.calls.length < 32) throw new Error("flow not reached binded_redirect yet");
+    });
     expect(mgr.get(id)!.status).toBe("cancelled");
     expect(store.listAccounts()).toHaveLength(0);
   });
