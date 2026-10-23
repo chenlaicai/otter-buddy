@@ -13,6 +13,18 @@ import type { WeixinQrStatus, WeixinQrStatusResp } from "./types";
  * need_verifycode / verify_code_blocked：微信对新设备/风控场景要求的配对码
  * 流程（openclaw 插件走 stdin 输入）。CLI 场景通过 verifyCodeInput 回调注入。
  */
+/**
+ * 登录结果（#1112）：
+ * - alreadyConnected：binded_redirect 终态——扫码的 bot 已绑定本实例，
+ *   服务端不签发新凭证，本地已有凭证继续有效。语义是成功「已连接过」，
+ *   不是登录失败（参考实现 openclaw-weixin@2.4.6 login-qr.ts WeixinQrWaitResult
+ *   注释：treat as successful outcome "already done" rather than a login failure）。
+ * - 常规分支：confirmed 落盘后的新账号。
+ */
+export type WeixinLoginResult =
+  | { alreadyConnected: true }
+  | { accountId: string; ilinkUserId?: string };
+
 export class WeixinLoginFlow {
   private static readonly MAX_WAIT_MS = 5 * 60_000;
 
@@ -31,9 +43,9 @@ export class WeixinLoginFlow {
   ) {}
 
   /**
-   * 执行完整登录。返回账号 id（已落盘）。
+   * 执行完整登录。返回账号 id（已落盘）或 binded_redirect 已连接终态。
    */
-  async run(): Promise<{ accountId: string; ilinkUserId?: string }> {
+  async run(): Promise<WeixinLoginResult> {
     const qr = await this.deps.api.requestQrCode();
     if (!qr.qrcode) {
       throw new Error(`申请二维码失败: ret=${qr.ret} errmsg=${qr.errmsg ?? "(none)"}`);
@@ -43,13 +55,13 @@ export class WeixinLoginFlow {
     const deadline = Date.now() + WeixinLoginFlow.MAX_WAIT_MS;
     while (Date.now() < deadline) {
       const next = await this.pollRound(qr.qrcode);
-      if (next) return { accountId: next.accountId, ilinkUserId: next.ilinkUserId };
+      if (next) return next;
     }
     throw new Error("等待扫码超时（5 分钟）");
   }
 
-  /** 一轮状态轮询：返回确认结果（null = 继续轮询） */
-  private async pollRound(qrcode: string): Promise<{ accountId: string; ilinkUserId?: string } | null> {
+  /** 一轮状态轮询：返回终态结果（null = 继续轮询） */
+  private async pollRound(qrcode: string): Promise<WeixinLoginResult | null> {
     const st = await this.pollOnce(qrcode);
     this.deps.onStatus?.(st.status ?? "unknown");
 
@@ -58,6 +70,9 @@ export class WeixinLoginFlow {
     }
 
     const outcome = await this.handleNonConfirmed(st, qrcode);
+    if (outcome === "already-connected") {
+      return { alreadyConnected: true };
+    }
     if (outcome === "abort-loop") {
       return null; // wait/scaned 等继续轮询
     }
@@ -75,7 +90,7 @@ export class WeixinLoginFlow {
 
 
   /** confirmed 落盘并返回账号信息 */
-  private confirm(st: WeixinQrStatusResp): { accountId: string; ilinkUserId?: string } {
+  private confirm(st: WeixinQrStatusResp): WeixinLoginResult {
     if (!st.bot_token) throw new Error("扫码 confirmed 但未返回 bot_token");
     // #571 审视 S2：confirmed 下发的 baseurl 零校验落盘会被 platforms.ts 拿去建
     // 带 bot_token 的正式 client——Authorization 随行长驻，恶意域=长效凭证泄露。
@@ -97,9 +112,13 @@ export class WeixinLoginFlow {
 
   /**
    * 非 confirmed 状态处理。
-   * 返回："abort-loop"（继续外层轮询）或带码轮询后的新状态（可能 confirmed）。
+   * 返回："already-connected"（binded_redirect 终态）/ "abort-loop"（继续外层轮询）/
+   * 带码轮询后的新状态（可能 confirmed）。
    */
-  private async handleNonConfirmed(st: WeixinQrStatusResp, qrcode: string): Promise<"abort-loop" | WeixinQrStatusResp> {
+  private async handleNonConfirmed(
+    st: WeixinQrStatusResp,
+    qrcode: string,
+  ): Promise<"already-connected" | "abort-loop" | WeixinQrStatusResp> {
     switch (st.status) {
       case "expired":
         throw new Error("二维码已过期，请重新发起登录");
@@ -118,6 +137,13 @@ export class WeixinLoginFlow {
         // 原实现在原网关轮询到 5 分钟超时永远等不到 confirmed。
         this.switchGateway(st);
         return "abort-loop";
+      case "binded_redirect":
+        // #1112：终态——扫码的 bot 已绑定本实例，服务端不签发新凭证，本地凭证
+        // 继续有效（参考实现 openclaw-weixin@2.4.6 login-qr.ts:389 语义：
+        // alreadyConnected = 成功「已连接过此实例，无需重复连接」，非登录失败）。
+        // 原实现在 default 分支继续轮询到 5 分钟超时（与 #571 同族：状态未处理致超时）。
+        this.deps.logger.info("Weixin login: binded_redirect, bot already bound to this instance");
+        return "already-connected";
       default:
         // wait / scaned：透传状态给上层继续轮询
         return "abort-loop";

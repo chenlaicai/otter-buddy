@@ -513,7 +513,7 @@ export function listActiveConversations(): Promise<ActiveConversationDTO[]> {
 
 export interface WeixinLoginSessionDTO {
   id: string
-  status: 'pending' | 'waiting_scan' | 'scaned' | 'success' | 'expired' | 'error' | 'cancelled'
+  status: 'pending' | 'waiting_scan' | 'scaned' | 'success' | 'already_connected' | 'expired' | 'error' | 'cancelled'
   qrcodePng?: string
   qrcodeUrl?: string
   accountId?: string
