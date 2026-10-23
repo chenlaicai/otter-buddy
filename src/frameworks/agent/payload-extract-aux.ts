@@ -199,6 +199,31 @@ export function isStdinFeedRest(rest: Array<string | null>): boolean {
   return rest.every(t => t !== null && (/^-[a-zA-Z]$/.test(t) || t === "-"));
 }
 
+/** M-48ac4e39 delta（检视獭1630 严重1/建议2/建议3 双层同源收敛）：find 执行体引导词
+ *  ——-exec/-execdir/-ok/-okdir。-ok/-okdir 与 -exec 唯一差异是逐项交互确认（echo y 可
+ *  喂答绕过、破坏力等价），同族同收。词位精确比对（tokenBasename 归一）——-name 参数值
+ *  等数据位（引号整词 '-exec rm' 是单 token）不触发，段文本子串正则的历史误命中由此消除。 */
+export const FIND_EXEC_LEADS = new Set(["-exec", "-execdir", "-ok", "-okdir"]);
+/** find 执行体破坏动词（M-48ac4e39 双层同词表：rm/rmdir/mv，含路径形 /bin/rm——tokenBasename 剥路径）。 */
+export const FIND_EXEC_VERBS = new Set(["rm", "rmdir", "mv"]);
+
+/** 执行体程序名落点判定（guard/wte 双层同源）：从引导词后一词起，跳 WRAPPER_SPECS
+ *  包装词（对称入口原则——直挂 `env rm` 有 wrapper 剥除、执行体位 `-exec env rm` 不剥
+ *  是不对称缺口，检视獭1630 建议2 顺收）；落点引号整词（'mv -f'）取首 token 判
+ *  （fail-closed：无效程序名也是破坏意图，与 prod 段文本正则历史口径一致——检视獭1630
+ *  建议3 两层分叉收敛）。执行体泛化（sh -c 任意载荷）按 #1513 口径记档不追。 */
+export function findExecVerbAt(tokens: ReadonlyArray<{ text: string }>, startIndex: number): boolean {
+  let k = startIndex;
+  for (;;) {
+    const t = tokens[k]?.text;
+    if (t === undefined) return false;
+    const base = tokenBasename(t);
+    const spec = WRAPPER_SPECS[base];
+    if (spec !== undefined) { k = skipWrapperArgs(tokens, k + 1, spec); continue; }
+    return FIND_EXEC_VERBS.has(base.split(/\s+/)[0]);
+  }
+}
+
 
 /** 病型 A：check-only 形态=语法检查（读脚本不执行）——node --check/-c、perl -c、ruby -c、
  *  python -m py_compile、--syntax-only（bash/sh -n 不在 SCRIPT_RUNNERS，本就走正常段求值）。
