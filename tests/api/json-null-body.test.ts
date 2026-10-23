@@ -31,7 +31,7 @@ import { ConversationController } from "@interface-adapters/http/controllers/con
 import { fakeAgentGateway } from "../helpers/agent-gateway.fake";
 import type { TestDeps } from "./helpers";
 
-describe("#891: JSON null body 不崩 500（13 端点回归）", () => {
+describe("#891: JSON null body 不崩 500（12 端点回归）", () => {
   let deps: TestDeps;
   let app: ReturnType<typeof createTestApp>;
 
@@ -131,20 +131,15 @@ describe("#891: JSON null body 不崩 500（13 端点回归）", () => {
     expect(res.status).not.toBe(500);
   });
 
-  it("POST /api/connections（connection-controller:29）", async () => {
-    const res = await createConnectionApp().request("/api/connections", { method: "POST", ...nullBody });
-    // entity typeof 守卫 → usecase validation → 400
-    expect(res.status).toBe(400);
-  });
-
-  it("POST /api/connections/:id/enter（connection-controller:66）", async () => {
+  // F20261023cnct（issue #1063）：POST /api/connections（create）用例随死端点下线删除
+  it("POST /api/connections/:id/enter（connection-controller enterConversation）", async () => {
     const res = await createConnectionApp().request("/api/connections/conn-1/enter", { method: "POST", ...nullBody });
     // conn-1 不存在 → not_found → 404（先于 body 消费）
     expect(res.status).toBe(404);
   });
 });
 
-/** connection 两端点：helpers 的 createTestApp 用 stub，参照 connection.test.ts 独立建真实 app */
+/** connection 存活端点（enter）：helpers 的 createTestApp 用 stub，参照 connection.test.ts 独立建真实 app */
 function createConnectionApp(): Hono {
   const db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
@@ -156,7 +151,6 @@ function createConnectionApp(): Hono {
   );
   const ctrl = new ConnectionController(manageConnection, createTestLogger() as never);
   const app = new Hono();
-  app.post("/api/connections", (c) => ctrl.create(c));
   app.post("/api/connections/:id/enter", (c) => ctrl.enterConversation(c));
   return app;
 }
