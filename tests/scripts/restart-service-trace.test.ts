@@ -5,10 +5,10 @@
  * （regression-verify 2026-10-23 到期回查判「无法判定」的缺口：无运行日志表）。
  * traceUsage 落 append-only JSONL（data/metrics/restart-service-usage.jsonl），
  * 成功/拒绝双通道留痕——「正道走了但被拒」正是死链的自动取证通道
- * （2026-10-22 colink 现场只能事后人工回查）。写失败静默：留痕是可观测性副产物，
- * 不得反过来让受控终止更脆。
+ * （2026-10-22 colink 现场只能事后人工回查）。写失败不抛、stderr 提示（#1632 检视建议 1）：
+ * 留痕是可观测性副产物，不得反过来让受控终止更脆，但静默断供也不可接受。
  */
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -40,7 +40,10 @@ describe("F20261023ktru traceUsage 执行留痕", () => {
     expect(lines).toHaveLength(2);
   });
 
-  it("写失败静默不抛（留痕不得反噬受控终止主流程）", () => {
+  it("写失败不抛且 stderr 提示（留痕不得反噬受控终止，但断供必须可见）", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(() => traceUsage({ action: "x", outcome: "killed" }, "/dev/null/impossible/usage.jsonl")).not.toThrow();
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

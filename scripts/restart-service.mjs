@@ -43,14 +43,18 @@ function die(msg, extra = {}) {
  * F20261023ktru（#1069）：执行级使用痕迹——「restart-service.mjs 被使用 ≥1 次」此前无数据源
  * 可查（regression-verify 断言②「无法判定」缺口：无运行日志表）。append-only JSONL，每条含
  * ts/action/outcome；die() 拒绝路径同样留痕（「正道走了但被拒」是死链的自动取证通道，
- * 2026-10-22 colink 现场只能事后人工回查）。写失败静默——留痕是可观测性副产物，
- * 不得反过来让受控终止更脆。导出供单测（tmp 目录注入 tracePath）；主流程经 main-guard 保护。
+ * 2026-10-22 colink 现场只能事后人工回查）。写失败不抛、stderr 提示（#1632 检视建议 1）——
+ * 留痕是可观测性副产物，不得反过来让受控终止更脆，但静默断供也不可接受。
+ * 导出供单测（tmp 目录注入 tracePath）；主流程经 main-guard 保护。
  */
 export function traceUsage(record, tracePath = path.join(otterRoot, "data", "metrics", "restart-service-usage.jsonl")) {
   try {
     fs.mkdirSync(path.dirname(tracePath), { recursive: true });
     fs.appendFileSync(tracePath, `${JSON.stringify({ ts: new Date().toISOString(), ...record })}\n`);
-  } catch { /* 留痕失败不影响受控终止主流程 */ }
+  } catch (err) {
+    // 写失败不阻主流程，但不静默——留痕是断言②的数据源，静默断供无从察觉（#1632 检视建议 1）
+    console.error(`[restart-service] 留痕写入失败（${tracePath}）：${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /**
