@@ -35,7 +35,7 @@ budget_bytes: 10750
 
 ## worktree/分支收敛段（判定矩阵真相源：post-merge-cleanup）
 
-`git worktree list --porcelain` + `git branch --list 'feat*/*' 'fix/*' 'chore/*' 'refactor/*' 'hotfix/*'` 全量扫，逐分支 `gh pr list --head <b> --state all --json number,state --limit 1` 关联 PR 终态，按矩阵处置：MERGED/CLOSED + 干净 → **自动清理**（先停实例，post-merge-cleanup 硬验证闸）+ 产物 archived；MERGED/CLOSED + dirty → 日报列待搭档裁决；OPEN → 跳过；无 PR + 干净 → mtime >48h 且无 otter-claim 认领（issue 评论精确匹配 `worktree=<名>`，禁模糊搜；两证缺一即保留标「疑似在途」）→ 废弃候选；无 PR + dirty → WIP 待认领；detached-HEAD 无分支 → 待裁决（注 HEAD sha，禁自动删）。报告行：`worktree 收敛: 自动清 N ｜ OPEN M ｜ 待裁决 K ｜ 登记缺失 L`（K 桶含 dirty/WIP/废弃候选/detached-HEAD/疑似在途，逐项列正文）。对账：active 产物 url 不在 worktree list → archived；磁盘有登记无计 L（承接出生登记）。
+`git worktree list --porcelain` + `git branch --format='%(refname:short)'`（保护分支除外全形态；glob 白名单漏形态）全量扫，逐分支 `gh pr list --head <b> --state all --json number,state --limit 1` 关联 PR 终态，按 post-merge-cleanup skill 判定矩阵处置（速记：已终结+干净→自动清理+产物 archived，硬验证闸；dirty 一律不自动删→待裁决；OPEN→跳过；无 PR→两证核验；detached→待裁决注 sha）。报告行：`worktree 收敛: 自动清 N ｜ OPEN M ｜ 待裁决 K ｜ 登记缺失 L`（K 桶逐项列）。对账：active 产物 url 不在盘→archived；盘上有登记缺失计 L（承接出生登记）。
 
 ## 观测器信噪比自监控（误报率比检出率更决定告警生死）
 1. **昨日统计**（日报末尾固定段）：healing resolve X / dismiss Y（dismiss 率 = Y/(X+Y)）；RHI 不处置率 L/(M+K+L)（取昨日日报闭环自检行）；产给搭档物件数。人工 dismiss 用时间差 <30 天分离
