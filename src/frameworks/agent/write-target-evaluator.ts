@@ -560,14 +560,29 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   return null;
 }
 
+/** M-48ac4e39（单 B）：find 破坏表达式判读——-delete，或 -exec/-execdir + 破坏动词
+ *  （rm/rmdir/mv，含路径形 /bin/rm，与 prod segmentDestructive 同词表同语义）。执行体
+ *  泛化（任意载荷，如 sh -c '…'）按 #1513 口径记档不追，只收词表内破坏动词。 */
+function findDestructiveExpr(words: Word[]): boolean {
+  if (words.some(w => w.evaluated === "-delete")) return true;
+  for (let i = 0; i < words.length - 1; i++) {
+    const w = words[i].evaluated;
+    if (w !== "-exec" && w !== "-execdir") continue;
+    const verb = words[i + 1].evaluated;
+    if (verb !== null && /(?:^|\/)(?:rm|rmdir|mv)$/.test(verb)) return true;
+  }
+  return false;
+}
+
 /** 词表命令落点（cp/mv 第二非旗标参数；tee/touch/mkdir 全部非旗标参数）。返回 UnevalReason | null。 */
-// eslint-disable-next-line complexity, max-statements -- 词表命令落点形态穷举（cp/mv 双参+find -delete 条件写面+cp -t 目标前置+~ 豁免，F20261016gdfv 破坏词表补齐 + delta1 发现 3 归一后 25）
+// eslint-disable-next-line complexity, max-statements -- 词表命令落点形态穷举（cp/mv 双参+find 破坏表达式条件写面（-delete/-exec）+cp -t 目标前置+~ 豁免，F20261016gdfv 破坏词表补齐 + M-48ac4e39 执行体收编 + delta1 发现 3 归一后 25）
 function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
   if (!TARGET_ARG_COMMANDS.has(bare)) return null;
-  // F20261016gdfv（M-c78df9d4 破坏词表补齐）：find 仅 -delete 表达式是破坏写面（读形态
+  // F20261016gdfv（M-c78df9d4 破坏词表补齐）：find 仅破坏表达式是破坏写面（读形态
   //  find 不入账）；落点=全部非旗标参数（表达式值混入落点集合=保守面，与 tee/touch 同款
   //  fail-closed 哲学）。此前 find 不在词表→`find /repo -delete` 双层放行（真破坏面）。
-  if (bare === "find" && !seg.words.some(w => w.evaluated === "-delete")) return null;
+  // M-48ac4e39（单 B）：破坏表达式扩 -exec/-execdir + rm/rmdir/mv（执行体词表缺口）。
+  if (bare === "find" && !findDestructiveExpr(seg.words)) return null;
   // delta1（检视獭1554 发现 3）：拷贝族目标前置形态与 argv 写面（pairing）统一解析——
   //  旧版把 -t 的目标目录词当位置词，`cp -t /tmp src` 的 dest 误算成 src（源被当写面、
   //  真目标 /tmp 漏）；--target-directory= 形态则掉 uncovered-cmd——同族两形态两套语义。

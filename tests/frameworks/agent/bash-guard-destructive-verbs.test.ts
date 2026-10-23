@@ -86,3 +86,40 @@ describe("F20261016gdfv stash 写族子命令收编（#1522）", () => {
     expect(wvMain(`git stash`).verdict).toBe("BLOCK");
   });
 });
+
+describe("M-48ac4e39 find -exec 执行体破坏词表补齐（单 B）", () => {
+  it("拦截侧：-exec 破坏动词双层同判（B1/B2：\\; 终结 + + 终结）", () => {
+    expect(prod(`find /repo/data -name x -exec rm {} \\;`)).toBeTruthy();
+    expect(prod(`find /repo/data -name x -exec rm -rf {} +`)).toBeTruthy();
+    expect(wvMain(`find /repo/data -name x -exec rm {} \\;`).verdict).toBe("BLOCK");
+    expect(wvMain(`find /repo/data -name x -exec rm -rf {} +`).verdict).toBe("BLOCK");
+  });
+  it("拦截侧：-execdir（B5）与 -exec mv 移走主仓内容（B6）", () => {
+    expect(prod(`find /repo/data -name x -execdir rm {} \\;`)).toBeTruthy();
+    expect(prod(`find /repo/data -name x -exec mv {} /tmp/ \\;`)).toBeTruthy();
+    expect(wvMain(`find /repo/data -name x -execdir rm {} \\;`).verdict).toBe("BLOCK");
+    expect(wvMain(`find /repo/data -name x -exec mv {} /tmp/ \\;`).verdict).toBe("BLOCK");
+  });
+  it("拦截侧：无-name 形态（B7）与执行体路径形动词", () => {
+    expect(prod(`find /repo/data -exec rm {} \\;`)).toBeTruthy();
+    expect(prod(`find /repo -name x -exec /bin/rm {} \\;`)).toBeTruthy();
+    expect(wvMain(`find /repo/data -exec rm {} \\;`).verdict).toBe("BLOCK");
+    expect(wvMain(`find /repo -name x -exec /bin/rm {} \\;`).verdict).toBe("BLOCK");
+  });
+  it("拦截侧：载荷内形态同愈（复用 checkDataDirDestructive 通道）", () => {
+    expect(prod(`bash -c 'find /repo/data -exec rm {} \\;'`)).toBeTruthy();
+  });
+  it("放行侧：读形态/非破坏执行体/外部根/worktree 清理正道不误伤", () => {
+    expect(prod(`find /repo -name x`)).toBeNull();
+    expect(prod(`find /repo -name x -exec cat {} \\;`)).toBeNull();
+    expect(prod(`find /tmp -name x -exec rm {} \\;`)).toBeNull();
+    expect(prod(`find /repo/.otter/worktrees/wt -name tmp -exec rm {} \\;`)).toBeNull(); // worktree 清理正道（与 -delete 钉同待遇）
+    expect(wv(`find /tmp -name x -exec rm {} \\;`).verdict).toBe("ALLOW");
+    expect(wvMain(`find /repo -name x -exec cat {} \\;`).verdict).toBe("ALLOW");
+  });
+  it("守恒：-delete 既有面不动（F20261016gdfv 钉）", () => {
+    expect(prod(`find /repo -name x -delete`)).toBeTruthy();
+    expect(prod(`find /repo/.otter/worktrees/wt -name tmp -delete`)).toBeNull();
+    expect(wvMain(`find /repo -name x -delete`).verdict).toBe("BLOCK");
+  });
+});

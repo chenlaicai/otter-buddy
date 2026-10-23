@@ -479,8 +479,14 @@ function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sess
   if (isKillAtCommandPosition(seg, /\bmv\b/)) {
     return { kind: "mv", zone: zoneOf(pathArgsOf(seg)) };
   }
-  if (isKillAtCommandPosition(seg, /\bfind\b/) && /(?:^|\s)-delete\b/.test(seg)) {
-    return { kind: "find -delete", zone: zoneOf(pathArgsOf(seg)) };
+  if (isKillAtCommandPosition(seg, /\bfind\b/)) {
+    // M-48ac4e39（词表补齐族单 B）：find 执行体破坏词表缺口——-exec/-execdir + rm/rmdir/mv
+    //  与 -delete 同语义（对走查树批量删/移，落点=走查根 pathArgsOf 同款）；执行体泛化
+    //  （任意载荷）按 #1513 口径记档不追，只收词表内破坏动词（含路径形 /bin/rm）。
+    if (/(?:^|\s)-delete\b/.test(seg)) return { kind: "find -delete", zone: zoneOf(pathArgsOf(seg)) };
+    if (/(?:^|\s)-(?:execdir|exec)\s+["']?(?:\S*\/)?(?:rm|rmdir|mv)\b/.test(seg)) {
+      return { kind: "find -exec", zone: zoneOf(pathArgsOf(seg)) };
+    }
   }
   return { kind: "", zone: null };
 }
