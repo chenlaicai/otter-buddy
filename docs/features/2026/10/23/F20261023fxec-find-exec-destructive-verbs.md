@@ -39,12 +39,16 @@ wv find 条件写面）。但 **-exec/-execdir 执行体形态**不在词表—�
 
 ## 修法（双层同词表，对称入口）
 
-- **prod（bash-safety-guard.ts segmentDestructive）**：find 分支扩第二表达式——
-  `-(?:execdir|exec)\s+["']?(?:\S*\/)?(?:rm|rmdir|mv)\b`（含路径形 /bin/rm、可引号）→
-  kind "find -exec"，zone = zoneOf(pathArgsOf)（落点=走查根，与 -delete 同款）
-- **wv（write-target-evaluator.ts findDestructiveExpr）**：find 破坏表达式判读扩
-  -exec/-execdir + 词表动词（(?:^|\/)(?:rm|rmdir|mv)$）；命中后沿用既有保守收集
-  （落点=全部非旗标参数，表达式值混入=取舍 4 保守面，tee/touch 同款 fail-closed 哲学）
+- **prod（bash-safety-guard.ts segmentDestructive）**：find 分支第二表达式——词位判定
+  （tokenizeSegment 后找执行体引导词），kind "find -exec"/"find -ok"，zone = zoneOf(pathArgsOf)
+  （落点=走查根，与 -delete 同款）；tokenize 失败（未闭合引号）回退段文本正则（不弱于修复前）
+- **wv（write-target-evaluator.ts findDestructiveExpr）**：find 破坏表达式判读扩执行体
+  引导词 + 词表动词；命中后沿用既有保守收集（落点=全部非旗标参数，表达式值混入=取舍 4
+  保守面，tee/touch 同款 fail-closed 哲学）
+- **执行体判定双层同源（payload-extract-aux.ts findExecVerbAt，delta 收敛）**：引导词
+  {-exec/-execdir/-ok/-okdir} 词位精确（tokenBasename 归一）→ 跳 WRAPPER_SPECS 包装词
+  （skipWrapperArgs 吞食规则单一真相源）→ 落点动词表 {rm, rmdir, mv}（含路径形 /bin/rm、
+  引号整词 'mv -f' 取首 token 判）
 - **载荷同愈**：`bash -c 'find … -exec rm …'` 经 checkDataDirDestructive 完整通道
   （F20261006gfvl 复用声明）自动覆盖，钉死
 
@@ -60,6 +64,27 @@ wv find 条件写面）。但 **-exec/-execdir 执行体形态**不在词表—�
 - **修复后绿证**：bash-guard-destructive-verbs 矩阵 **16/16**（新增 5 钉：双层拦截侧×3
   + 载荷同愈 + 放行侧/守恒）；守卫域 77 文件 2128 passed | 6 skipped（touchstone 三池
   零翻转——corpus 实查零 find 破坏形态）；全仓 **422 文件 6781 passed | 6 skipped** 零回归
+- **delta 绿证（检视獭1630 处置后）**：矩阵 **20/20**（新增 4 钉：-ok/-okdir 双层×6、
+  wrapper 对称×8、引号整词×4、不误伤对照×6）；全仓 **422 文件 6785 passed | 6 skipped**
+  零回归（+4=新增 it）；eslint 四文件零告警
+
+## delta 处置记录（检视獭1630 初轮，2026-10-23）
+
+| 发现 | 级别 | 处置 | 依据 |
+|---|---|---|---|
+| -ok/-okdir 同族未收且未披露 | 严重 | **修**：双层收编（词表补齐族口径内） | -ok 与 -exec 唯一差异是逐项交互确认，`echo y \| find … -ok rm {} \;` 喂答绕过、破坏力等价；同语义同待遇原则（与 -delete 先例同款） |
+| wrapper 形态双层同漏（`-exec env rm`） | 建议 | **修**：执行体位 wrapper 剥除对称延伸 | 复用 WRAPPER_SPECS/skipWrapperArgs 既有基座（零新词表，非穷举军备化）；直挂 `env rm` 已拦、执行体不拦是不对称缺口（对称入口原则） |
+| 引号整词双层分叉（`-exec 'mv -f'`） | 建议 | **修**：wv 收紧对齐（fail-closed 方向） | 无效程序名也是破坏意图，与 prod 段文本正则历史口径一致；两层同词表同待遇目标 |
+
+**附带效应（修正误拦）**：词位判定消除段文本子串正则对数据位的误命中——
+`find /repo -name '-exec rm'`（-name 参数值是数据位，find 不会执行 rm）由 prod 误拦
+变双层 ALLOW（钉守恒断言）。-delete 的段文本正则数据位假阳性（`-name '-delete'` 误拦）
+属既有保守面，本单 scope 未动。
+
+**检视獭1630 供台账观察（本单不修，转台账）**：①误拦画像精确化——引号内 `|` 前导
+**且**含主仓绝对路径才触发 isKillAtCommandPosition 误拦（纯模式串不含主仓路径时不拦），
+比实现者报备画像更窄，归 M-2edf95d5/#1353 误拦台账族；②xargs 管道面双层 ALLOW 属
+管道数据流既有类，非本单词表口径。
 
 ## 剩余风险与非目标（诚实边界）
 
@@ -68,8 +93,12 @@ wv find 条件写面）。但 **-exec/-execdir 执行体形态**不在词表—�
   分析通道独立评审
 - **引号盲区误拦（既有类，非本单引入）**：破坏规则的词位判定（isKillAtCommandPosition）+
   段文本正则不识别引号内数据位——开发期只读 grep 模式串含 `find … -delete`/`-exec rm`
-  字样且 find 词元前是 `|` 等白名单前导字符时被误拦（本次开发实证一次，命中详情已报）；
-  与 M-2edf95d5/#1353 误拦台账同族，本单不修（修法=引号感知分词，独立面）
-- `-exec` 动词形如 `rm-x`/引号内动词（`-exec 'rm'`）等边缘拼写未穷举（\b 边界 + 可选
-  引号覆盖常见形态；怪形漏=保守侧残余，fail-open 方向仅限破坏动词拼写变体）
+  字样且 find 词元前是 `|` 等白名单前导字符时被误拦（本次开发实证一次，命中详情已报；
+  delta 复核画像精确化：且含主仓绝对路径才触发）；与 M-2edf95d5/#1353 误拦台账同族，
+  本单不修（修法=引号感知分词，独立面）
+- **管道数据流面（既有类）**：xargs/管道形态双层 ALLOW 属管道数据流判读域（检视獭1630
+  观察②），非本单词表口径，残余于该域治理
+- 动词拼写变体（`rm-x`/反引号形）未穷举——词位精确 + tokenBasename 归一覆盖常见形态；
+  引号整词已收（'mv -f' 取首 token 判）；怪形漏=保守侧残余，fail-open 方向仅限破坏动词
+  拼写变体
 - cd 跟踪/子壳不跟踪等 F20260918mrdp 既有 Known Limitations 原样

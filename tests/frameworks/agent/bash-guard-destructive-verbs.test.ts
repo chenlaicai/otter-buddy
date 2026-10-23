@@ -123,3 +123,38 @@ describe("M-48ac4e39 find -exec 执行体破坏词表补齐（单 B）", () => {
     expect(wvMain(`find /repo -name x -delete`).verdict).toBe("BLOCK");
   });
 });
+
+describe("M-48ac4e39 delta（检视獭1630）：-ok 同族 + wrapper 对称 + 引号整词对齐", () => {
+  it("严重1：-ok/-okdir 执行体破坏词表双层收编（交互确认可 echo y 喂答绕过）", () => {
+    expect(prod(`find /repo/data -name x -ok rm {} \\;`)).toBeTruthy();
+    expect(prod(`find /repo/data -name x -okdir rmdir {} \\;`)).toBeTruthy();
+    expect(prod(`echo y | find /repo/data -ok rm {} \\;`)).toBeTruthy(); // 喂答绕过交互确认，破坏力与 -exec 等价
+    expect(wvMain(`find /repo/data -name x -ok rm {} \\;`).verdict).toBe("BLOCK");
+    expect(wvMain(`find /repo/data -name x -okdir rmdir {} \\;`).verdict).toBe("BLOCK");
+    expect(wvMain(`echo y | find /repo/data -ok rm {} \\;`).verdict).toBe("BLOCK");
+  });
+  it("建议2：执行体 wrapper 剥除对称延伸（与直挂 env rm 同判，WRAPPER_SPECS 同基座）", () => {
+    expect(prod(`find /repo/data -name x -exec env rm {} \\;`)).toBeTruthy();
+    expect(prod(`find /repo/data -name x -exec env -i rm {} \\;`)).toBeTruthy();
+    expect(prod(`find /repo/data -name x -ok nice rm {} \\;`)).toBeTruthy();
+    expect(prod(`find /repo/data -name x -exec timeout 5 rm {} \\;`)).toBeTruthy();
+    expect(wvMain(`find /repo/data -name x -exec env rm {} \\;`).verdict).toBe("BLOCK");
+    expect(wvMain(`find /repo/data -name x -exec env -i rm {} \\;`).verdict).toBe("BLOCK");
+    expect(wvMain(`find /repo/data -name x -ok nice rm {} \\;`).verdict).toBe("BLOCK");
+    expect(wvMain(`find /repo/data -name x -exec timeout 5 rm {} \\;`).verdict).toBe("BLOCK");
+  });
+  it("建议3：引号整词动词双层同判（'mv -f' 无效程序名亦破坏意图，fail-closed）", () => {
+    expect(prod(`find /repo/data -name x -exec 'mv -f' {} \\;`)).toBeTruthy();
+    expect(prod(`find /repo/data -name x -exec 'rm' {} \\;`)).toBeTruthy();
+    expect(wvMain(`find /repo/data -name x -exec 'mv -f' {} \\;`).verdict).toBe("BLOCK");
+    expect(wvMain(`find /repo/data -name x -exec 'rm' {} \\;`).verdict).toBe("BLOCK");
+  });
+  it("放行侧：数据位/非破坏执行体/wrapper+非破坏动词不误伤", () => {
+    expect(prod(`find /repo -name '-exec rm'`)).toBeNull(); // -name 参数值是数据位（引号整词单 token），词位判定不触发
+    expect(prod(`find /repo -name x -ok echo {} \\;`)).toBeNull();
+    expect(prod(`find /repo -name x -exec env cat {} \\;`)).toBeNull();
+    expect(wvMain(`find /repo -name '-exec rm'`).verdict).toBe("ALLOW");
+    expect(wvMain(`find /repo -name x -ok echo {} \\;`).verdict).toBe("ALLOW");
+    expect(wvMain(`find /repo -name x -exec env cat {} \\;`).verdict).toBe("ALLOW");
+  });
+});

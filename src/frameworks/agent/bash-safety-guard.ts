@@ -27,7 +27,7 @@ const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillA
 import { checkWithModel, modelParseOk } from "./guard-model-judge";
 import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
-import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS, WRAPPER_SPECS, tokenBasename, skipWrapperArgs, resolveExecHead, isStdinFeedRest } from "./payload-extract-aux";
+import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS, WRAPPER_SPECS, tokenBasename, skipWrapperArgs, resolveExecHead, isStdinFeedRest, FIND_EXEC_LEADS, findExecVerbAt } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
 import { segmentStdoutContent, evalInterpreterStdinBody } from "./write-target-evaluator";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
@@ -484,7 +484,20 @@ function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sess
     //  与 -delete 同语义（对走查树批量删/移，落点=走查根 pathArgsOf 同款）；执行体泛化
     //  （任意载荷）按 #1513 口径记档不追，只收词表内破坏动词（含路径形 /bin/rm）。
     if (/(?:^|\s)-delete\b/.test(seg)) return { kind: "find -delete", zone: zoneOf(pathArgsOf(seg)) };
-    if (/(?:^|\s)-(?:execdir|exec)\s+["']?(?:\S*\/)?(?:rm|rmdir|mv)\b/.test(seg)) {
+    // delta（检视獭1630）：执行体判定改词位（findExecVerbAt 双层同源）——-ok/-okdir 同族
+    //  收（交互确认可 echo y 喂答绕过）、wrapper 剥除对称延伸（env rm）、引号整词对齐；
+    //  数据位（-name '-exec rm'）不再被段文本子串误命中。tokenize 失败（未闭合引号）回退
+    //  段文本正则（不弱于修复前口径，fail-closed）。
+    const tokens = tokenizeSegment(seg);
+    if (tokens !== null) {
+      for (let i = 0; i < tokens.length; i++) {
+        const lead = tokenBasename(tokens[i].text);
+        if (!FIND_EXEC_LEADS.has(lead)) continue;
+        if (findExecVerbAt(tokens, i + 1)) {
+          return { kind: lead === "-ok" || lead === "-okdir" ? "find -ok" : "find -exec", zone: zoneOf(pathArgsOf(seg)) };
+        }
+      }
+    } else if (/(?:^|\s)-(?:execdir|exec|okdir|ok)\s+["']?(?:\S*\/)?(?:rm|rmdir|mv)\b/.test(seg)) {
       return { kind: "find -exec", zone: zoneOf(pathArgsOf(seg)) };
     }
   }

@@ -44,7 +44,7 @@ import { safeRealpath } from "./fs-realpath";
 import path from "node:path";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
 import { proveNoWrite, DYNAMIC_IMPORT_FACE, MAIN_LIT_CONCAT_IMPORT_FACE, openCallUnknownMode, payloadWriteFaceHit, SCRIPT_EXEC_FACE, dotExecCommandHits, classifyOpenModeArg } from "./write-word-face";
-import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS, STASH_WRITE_SUBS, resolveExecHead, isStdinFeedRest, TARGET_ARG_COMMANDS, EXTENDED_TARGET_COMMANDS } from "./payload-extract-aux";
+import { isCheckOnlySeg, checkOnlyFileArgs, SCRIPT_RUNNERS, isScriptRunnerSeg, detectScriptPayload, resolvePayloadScript, extractGitAliasShell, gitWriteSubcommandHit, GIT_WRITE_SUBS, STASH_WRITE_SUBS, resolveExecHead, isStdinFeedRest, TARGET_ARG_COMMANDS, EXTENDED_TARGET_COMMANDS, tokenBasename, FIND_EXEC_LEADS, findExecVerbAt } from "./payload-extract-aux";
 import type { Word } from "./command-lexer";
 
 // ────────────────────────────── 类型 ──────────────────────────────
@@ -560,16 +560,16 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   return null;
 }
 
-/** M-48ac4e39（单 B）：find 破坏表达式判读——-delete，或 -exec/-execdir + 破坏动词
- *  （rm/rmdir/mv，含路径形 /bin/rm，与 prod segmentDestructive 同词表同语义）。执行体
- *  泛化（任意载荷，如 sh -c '…'）按 #1513 口径记档不追，只收词表内破坏动词。 */
+/** M-48ac4e39（单 B）：find 破坏表达式判读——-delete，或执行体引导词（-exec/-execdir/
+ *  -ok/-okdir）+ 破坏动词（rm/rmdir/mv，含路径形 /bin/rm，与 prod segmentDestructive 同词表
+ *  同语义）。执行体判定走 findExecVerbAt 双层同源（delta 检视獭1630：-ok 同族收编/wrapper
+ *  剥除对称/引号整词对齐）；执行体泛化（任意载荷，如 sh -c '…'）按 #1513 口径记档不追。 */
 function findDestructiveExpr(words: Word[]): boolean {
   if (words.some(w => w.evaluated === "-delete")) return true;
-  for (let i = 0; i < words.length - 1; i++) {
-    const w = words[i].evaluated;
-    if (w !== "-exec" && w !== "-execdir") continue;
-    const verb = words[i + 1].evaluated;
-    if (verb !== null && /(?:^|\/)(?:rm|rmdir|mv)$/.test(verb)) return true;
+  const tokens = words.map(w => ({ text: w.evaluated ?? "" }));
+  for (let i = 0; i < tokens.length; i++) {
+    if (!FIND_EXEC_LEADS.has(tokenBasename(tokens[i].text))) continue;
+    if (findExecVerbAt(tokens, i + 1)) return true;
   }
   return false;
 }
