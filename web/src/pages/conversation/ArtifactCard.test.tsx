@@ -161,4 +161,14 @@ describe('产物卡混排（F20261008csf1）', () => {
     expect(container.textContent).toContain('PR')
     expect(container.textContent).toContain('修复空指针')
   })
+
+  it('game 卡进入时间轴并可展开玩（F20261021gmbe 实景回归）', () => {
+    renderTimeline(
+      [msg('m1', '2026-10-08T09:00:00Z')],
+      [res('g1', 'game', '2026-10-08T09:30:00Z', { url: '/mahjong/test-room', title: '大獭的麻将桌' })],
+    )
+    expect(timelineOrder()).toEqual(['m1', 'g1'])
+    expect(container.textContent).toContain('大獭的麻将桌')
+    expect(container.querySelector('[data-testid="game-expand"]')).not.toBeNull()
+  })
 })

@@ -11,6 +11,10 @@
 /* eslint-disable max-lines-per-function, max-statements, complexity, max-depth */
 
 import { lex, type Token, type Word } from "./command-lexer";
+// 值引用（非 cycle：payload-extract-aux 对本模块仅 import type，运行时单向）——
+// 段首解析与 SCRIPT_RUNNERS/SHELL_INTERPRETERS 单一真相源在 payload-extract-aux（F20261022vwfg）
+import { resolveExecHead, SCRIPT_RUNNERS, SHELL_INTERPRETERS } from "./payload-extract-aux";
+export { SHELL_INTERPRETERS };
 
 // ────────────────────────────── 类型 ──────────────────────────────
 
@@ -78,10 +82,10 @@ function isRedirOp(op: string): boolean {
     || (op.startsWith("2>") || op.startsWith("1>") || op.startsWith("0<"));
 }
 
-/** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10） */
-export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
-/** 脚本载荷解释器（one-liner 执行通道） */
-const SCRIPT_RUNNERS = new Set(["python", "python3", "node", "perl", "ruby", "osascript"]);
+/** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10）——SHELL_INTERPRETERS 归 payload-extract-aux
+ *  单一真相源（F20261022vwfg delta 1 迁入，本行 re-export 保持既有引用面） */
+// SCRIPT_RUNNERS 归 payload-extract-aux 单一真相源（本模块曾有同名单本地副本，
+// 双份清单正是识别域漂移源——F20261022vwfg 收敛）
 
 /** cmdsub 递归深度上限（D2/S2：≤2 层，超限=载荷不可知） */
 const MAX_DEPTH = 2;
@@ -312,22 +316,27 @@ function collectPayloads(tokens: Token[], text: string, depth: number): { payloa
 
 /** 词是否是解释器载荷调用（bash -c 'cmd' / python -c 'code'）→ 返回全部载荷
  *  （一个段内多个 -c 载荷词并列：`bash -c 'kill 1' bash -c 'pkill x'`——V1 #1154 S2
- *  逐载荷语义：一个都不能被首个良性载荷遮蔽） */
-function matchInterpreterPayloads(argv0: string | null, words: Word[]): Array<{ raw: string; kind: Payload["kind"] }> | null {
-  if (argv0 === null) return null;
-  const bare = argv0.split("/").pop() ?? argv0;
+ *  逐载荷语义：一个都不能被首个良性载荷遮蔽）
+ *  F20261022vwfg：段首解析换 resolveExecHead 共享内层——旧版裸 argv0 键控漏掉
+ *  wrapper 形态与版本名（sudo python -c / python3.11 -c 的载荷从不递归进 payloads，
+ *  写面无从判定、与裸形态判罚分叉）；-c/-e 扫描限 headIndex 之后（防 wrapper
+ *  值词伪装旗标：sudo -p -c python -c '载荷'——prompt 值 -c 不是载荷旗标）。 */
+function matchInterpreterPayloads(seg: Segment): Array<{ raw: string; kind: Payload["kind"] }> | null {
+  const head = resolveExecHead(seg);
+  if (head === null) return null;
+  const words = seg.words;
   const out: Array<{ raw: string; kind: Payload["kind"] }> = [];
-  if (SHELL_INTERPRETERS.has(bare)) {
+  if (SHELL_INTERPRETERS.has(head.name)) {
     // 全部 -c 后的载荷词（并列多载荷）
-    for (let i = 1; i < words.length - 1; i++) {
+    for (let i = head.headIndex + 1; i < words.length - 1; i++) {
       if (words[i].evaluated === "-c") {
         out.push({ raw: words[i + 1].parts.map(p => p.type === "lit" || p.type === "escape" ? p.text : "").join("") || words[i + 1].evaluated || "", kind: "bash-c" });
       }
     }
     return out.length > 0 ? out : null;
   }
-  if (SCRIPT_RUNNERS.has(bare)) {
-    for (let i = 1; i < words.length - 1; i++) {
+  if (SCRIPT_RUNNERS.has(head.name)) {
+    for (let i = head.headIndex + 1; i < words.length - 1; i++) {
       if (words[i].evaluated === "-c" || words[i].evaluated === "-e") {
         out.push({ raw: words[i + 1].evaluated ?? "", kind: "cmdsub" });
       }
@@ -353,7 +362,7 @@ export function parseOnce(text: string, depth = 0): CommandModel {
   // bash -c / 脚本解释器载荷：段级补充递归（全部载荷——#1154 S2 逐载荷语义）
   const payloads = [...collected.payloads, ...subshellPayloads];
   for (const seg of segments) {
-    const interps = matchInterpreterPayloads(seg.argv0, seg.words);
+    const interps = matchInterpreterPayloads(seg);
     if (interps) {
       for (const interp of interps) {
         if (depth >= MAX_DEPTH) {

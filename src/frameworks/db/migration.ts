@@ -222,6 +222,81 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
  *  schema.ts 新库已含两列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。
  *  幂等：PRAGMA 检测（同 ensureSignalsTriageColumns 模式）。 */
   ensureHealingEventsBoundIssueColumns(db, logger);
+
+  /** F20261021sprx：执行者角色列 + 全量存量任务（含 disabled）惰性回填。 */
+  migrateScheduledTaskExecutorRoles(db, logger);
+}
+
+/** 执行者改为「角色声明 + 触发时名册解析」。旧 talking_stone_passed_to 保留作 fallback，
+ *  sender_id 仅在该值仍指向 otters 实体时同步到当前名册大獭；system 等语义值不改。 */
+type ExecutorRoleMigrationTask = {
+  id: string; conversation_id: string; talking_stone_passed_to: string;
+  sender_id: string; executor_role: string;
+};
+
+type ExecutorRoleMigrationStats = { roleBackfilled: number; senderBackfilled: number; unresolved: number };
+
+function legacyOtterId(raw: string): string | undefined {
+  try {
+    const ids = JSON.parse(raw) as unknown;
+    return Array.isArray(ids) && typeof ids[0] === 'string' ? ids[0] : undefined;
+  } catch {
+    return undefined; // 脏旧值保留现场，不阻塞其他任务迁移
+  }
+}
+
+function findCurrentBigOtter(db: Database.Database, conversationId: string, role: string): { id: string } | undefined {
+  return db.prepare(`
+    SELECT o.id
+    FROM conversation_participants p
+    JOIN otters o ON o.id = p.otter_id
+    WHERE p.conversation_id = ? AND p.status = 'active'
+      AND o.status = 'active' AND o.name = ? AND o.type = 'big'
+    ORDER BY COALESCE((
+      SELECT MAX(i.started_at) FROM invokes i
+      WHERE i.conversation_id = p.conversation_id AND i.otter_id = o.id
+    ), o.created_at) DESC
+    LIMIT 1
+  `).get(conversationId, role) as { id: string } | undefined;
+}
+
+function migrateOneExecutorRole(db: Database.Database, task: ExecutorRoleMigrationTask, stats: ExecutorRoleMigrationStats, backfillRole: boolean): void {
+  const legacyId = legacyOtterId(task.talking_stone_passed_to);
+  const legacyOtter = legacyId
+    ? db.prepare('SELECT name FROM otters WHERE id = ?').get(legacyId) as { name: string } | undefined
+    : undefined;
+  // 仅首次补列从旧字段回填；后续启动尊重用户/API 对 executorRole 的修改。
+  const role = backfillRole ? (legacyOtter?.name ?? task.executor_role ?? '大獭') : task.executor_role;
+  if (backfillRole && legacyOtter && task.executor_role !== role) {
+    db.prepare('UPDATE scheduled_tasks SET executor_role = ? WHERE id = ?').run(role, task.id);
+    stats.roleBackfilled++;
+  }
+  const senderIsOtter = db.prepare('SELECT 1 AS present FROM otters WHERE id = ?').get(task.sender_id);
+  if (!senderIsOtter) return;
+  const current = findCurrentBigOtter(db, task.conversation_id, role);
+  if (!current) {
+    stats.unresolved++;
+  } else if (current.id !== task.sender_id) {
+    db.prepare('UPDATE scheduled_tasks SET sender_id = ? WHERE id = ? AND sender_id = ?').run(current.id, task.id, task.sender_id);
+    stats.senderBackfilled++;
+  }
+}
+
+function migrateScheduledTaskExecutorRoles(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare('PRAGMA table_info(scheduled_tasks)').all() as Array<{ name: string }>;
+  const backfillRole = !columns.some(col => col.name === 'executor_role');
+  if (backfillRole) {
+    db.prepare("ALTER TABLE scheduled_tasks ADD COLUMN executor_role TEXT NOT NULL DEFAULT '大獭'").run();
+    logger.info('Added executor_role column to scheduled_tasks table');
+  }
+  const tasks = db.prepare(`
+    SELECT id, conversation_id, talking_stone_passed_to, sender_id, executor_role FROM scheduled_tasks
+  `).all() as ExecutorRoleMigrationTask[];
+  const stats: ExecutorRoleMigrationStats = { roleBackfilled: 0, senderBackfilled: 0, unresolved: 0 };
+  db.transaction(() => {
+    for (const task of tasks) migrateOneExecutorRole(db, task, stats, backfillRole);
+  })();
+  logger.info('Scheduled task executor role migration checked', stats);
 }
 
 /**

@@ -8,6 +8,11 @@
  * 复用 dist/ 里编译好的 validator + parser（单一真相源，不重复规则）。
  * 依赖：pre-commit hook 已跑 `npm run check`（= build）产出 dist/。
  *
+ * F20261022frsh（#1400）: 新增 dist 新鲜度闸——src 修改晚于 dist 构建即报错
+ * （陈旧 dist 假绿防线）。issue 现场：本地 dist 停在旧 commit 时跑 lint:docs
+ * 用旧 validator 逻辑假绿、误导「预检干净」判断，CI fresh build 才报红返工。
+ * pre-commit 路径不受影响（check 的 build 先行，dist 恒新鲜）。
+ *
  * F20261009fdid（#1274）: 新增 id 唯一性检查——文档 id 是 sync_docs 入库的
  * 主键性质标识，两个文件共用同一 id 会导致后同步覆盖前同步（#1274 实证：
  * F20260824ax376 组 fix-lock 篇内容在记忆库被 pr-evaluation 后同步覆盖丢失）。
@@ -42,17 +47,48 @@ export function findDuplicateIds(entries) {
   return dupes;
 }
 
-function walk(dir) {
+/** #1400 / F20261022frsh: dist 新鲜度检查（纯函数，供测试 import）。
+ *  srcEntries / distEntries: Array<{ rel: string, mtimeMs: number }>。
+ *  判据（fail-closed）：src 最新修改时刻 >= dist 产物最早写入时刻 → 这次 src
+ *  修改未进 dist（陈旧），lint 结果基于旧 validator 不可信（假绿——issue 现场：
+ *  本地旧 dist 绿、CI fresh build 红）。等号保守判陈旧（写入同刻无法证明已含）。
+ *
+ *  目录级而非依赖图级：两目录内新增 import 自动入列（跨目录依赖出现时需扩列，
+ *  当前无此形态）；误报方向安全（多提示一次 rebuild），假绿方向被闸死。
+ *
+ *  返回 { fresh: true } / { fresh: true, skipped: true }（任一侧为空——dist 缺失
+ *  归调用方「未构建」检查管，此处不误报）/ { fresh: false, newestSrc }（供报错指路）。 */
+export function evaluateDistFreshness(srcEntries, distEntries) {
+  if (srcEntries.length === 0 || distEntries.length === 0) {
+    return { fresh: true, skipped: true };
+  }
+  const newestSrc = srcEntries.reduce((a, b) => (b.mtimeMs > a.mtimeMs ? b : a));
+  const oldestDist = distEntries.reduce((a, b) => (b.mtimeMs < a.mtimeMs ? b : a));
+  if (newestSrc.mtimeMs >= oldestDist.mtimeMs) {
+    return { fresh: false, newestSrc: newestSrc.rel };
+  }
+  return { fresh: true };
+}
+
+function walk(dir, ext = ".md") {
   const out = [];
   let entries;
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
   catch { return out; }
   for (const e of entries) {
     const full = path.join(dir, e.name);
-    if (e.isDirectory()) out.push(...walk(full));
-    else if (e.name.endsWith(".md")) out.push(full);
+    if (e.isDirectory()) out.push(...walk(full, ext));
+    else if (e.name.endsWith(ext)) out.push(full);
   }
   return out;
+}
+
+/** #1400: 递归收集 dir 下 ext 文件的 { rel, mtimeMs }（rel = 仓库根相对路径）。 */
+function collectMtimes(root, dir, ext) {
+  return walk(dir, ext).map((full) => ({
+    rel: path.relative(root, full),
+    mtimeMs: fs.statSync(full).mtimeMs,
+  }));
 }
 
 async function main() {
@@ -61,6 +97,27 @@ async function main() {
 
   if (!fs.existsSync(path.join(root, "dist/src/entities/document/frontmatter-validator.js"))) {
     console.error("[lint:docs] dist/ 未构建。请先 `npm run build`。");
+    process.exit(1);
+  }
+
+  // #1400 / F20261022frsh: dist 新鲜度闸——在 import 前把关，陈旧 dist 即拒绝运行
+  // （假绿防线：旧 validator 不含新规则 → 绿是假绿，误导预检）。覆盖面 = validator
+  // 与 parser 的源目录（目录级；目录内新增 import 自动入列，跨目录依赖出现时需
+  // 同步扩列——当前无此形态）。
+  const fresh = evaluateDistFreshness(
+    [
+      ...collectMtimes(root, path.join(root, "src/entities/document"), ".ts"),
+      ...collectMtimes(root, path.join(root, "src/usecases/document"), ".ts"),
+    ],
+    [
+      ...collectMtimes(root, path.join(root, "dist/src/entities/document"), ".js"),
+      ...collectMtimes(root, path.join(root, "dist/src/usecases/document"), ".js"),
+    ],
+  );
+  if (!fresh.fresh) {
+    console.error(`✗ [lint:docs] dist/ 产物陈旧（#1400 假绿防线）：${fresh.newestSrc} 的修改未进构建，` +
+      "当前跑的是旧 validator 逻辑，结果不可信（本地绿 ≠ CI 绿）");
+    console.error("  请先 `npm run build` 重新构建后再跑 lint:docs。");
     process.exit(1);
   }
 

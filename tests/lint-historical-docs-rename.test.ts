@@ -11,7 +11,9 @@
  * （similarity 100%）本质是文件名级元数据订正。修复后：R100 + .doc-fix 放行；
  * 无声明拦截；rename+frontmatter 编辑按两侧边界校验放行；rename+正文编辑仍拦。
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+// F20261021ttos：临时 git 仓库结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+vi.setConfig({ testTimeout: 20_000 });
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";

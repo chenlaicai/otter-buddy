@@ -79,6 +79,10 @@ function breaksWord(c: string): boolean {
     || c === "\\" || c === "$" || c === "`" || OP_CHARS.has(c);
 }
 
+/** bash 双引号内反斜杠特殊对后随字符集（POSIX/bash 引用语义）：反斜杠仅这五者前有转义作用，
+ *  其余（\' \a \x \n …）反斜杠字面保留两字符——M-f89f1ff3 判据（详见 F20261021dqbx）。 */
+const DQ_BACKSLASH_SPECIAL = new Set(["$", "`", '"', "\\", "\n"]);
+
 /** escape part 静态求值：\c → c（bash 引用语义）；\newline → 空串。hex 不在此求值（保守）。 */
 function evalEscape(raw: string): string {
   if (raw.length === 2 && raw[1] !== "\n") return raw[1];
@@ -332,7 +336,7 @@ export function lex(text: string): LexResult {
         i = close + 1;
         continue;
       }
-      if (c === '"') { // 双引号：内嵌 \$ \` \\ 转义 + $ 展开 + ` 展开
+      if (c === '"') { // 双引号：内嵌 \$ \` \" \\ 转义（+反斜杠换行续行）+ $ 展开 + ` 展开；其余 \X 字面保留
         const s = i;
         i++;
         let closed = false;
@@ -340,9 +344,12 @@ export function lex(text: string): LexResult {
           const dc = text[i];
           if (dc === '"') { closed = true; i++; break; }
           if (dc === "\\") {
-            const e = i;
+            const nx = text[i + 1];
+            // M-f89f1ff3：反斜杠仅五符前特殊——非特殊对反斜杠字面保留（lit 两字符，evaluated=bash
+            // 真值）；escape 只留真转义（含尾部截断 \ 保守空值）。判据详见 F20261021dqbx。
+            const kind = nx !== undefined && !DQ_BACKSLASH_SPECIAL.has(nx) ? "lit" : "escape";
+            parts.push({ type: kind, text: text.slice(i, Math.min(i + 2, n)), quoted: "double" });
             i += 2;
-            parts.push({ type: "escape", text: text.slice(e, Math.min(i, n)), quoted: "double" });
             continue;
           }
           if (dc === "$") { scanExpansion("double"); continue; }

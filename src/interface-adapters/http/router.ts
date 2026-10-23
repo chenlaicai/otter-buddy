@@ -180,12 +180,10 @@ function registerUnfurlRoutes(app: Hono, c: Controllers): void {
 }
 
 function registerConnectionRoutes(app: Hono, c: Controllers): void {
-  app.get("/api/connections", (ctx) => c.connection.list(ctx));
-  app.post("/api/connections", (ctx) => c.connection.create(ctx));
+  // F20261023cnct（issue #1063）：死端点下线——GET/POST /api/connections、GET :id/session、
+  // POST :id/leave 已退役（前端 PR #1055 后零调用），仅存活端点保留；usecase 方法留命令体系。
   app.get("/api/connections/:id", (ctx) => c.connection.getById(ctx));
-  app.get("/api/connections/:id/session", (ctx) => c.connection.getSession(ctx));
   app.post("/api/connections/:id/enter", (ctx) => c.connection.enterConversation(ctx));
-  app.post("/api/connections/:id/leave", (ctx) => c.connection.leaveConversation(ctx));
   app.get("/api/connections/:id/conversations", (ctx) => c.connection.listActiveConversations(ctx));
 }
 

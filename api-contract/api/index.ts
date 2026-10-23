@@ -9,6 +9,8 @@ export type * from "./key-info";
 export type * from "./settings";
 export type * from "./activity";
 export type * from "./rhi";
+// F20261023cnct：IM 连接管理存活端点契约迁入（issue #1063 死端点下线后的契约同步）
+export type * from "./connection";
 // F20261013csv3 T5：foldInvokeEvents 迁入 contract 层（前后端共用——后端批量投影 +
 // 前端 SessionModal 展开同源，消除双端漂移面）
 export { foldInvokeEvents } from "./invoke-event-fold";

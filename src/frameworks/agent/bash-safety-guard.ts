@@ -27,9 +27,9 @@ const isCommandPositionFor = (text: string, pattern: RegExp): boolean => isKillA
 import { checkWithModel, modelParseOk } from "./guard-model-judge";
 import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
-import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS } from "./payload-extract-aux";
+import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS, WRAPPER_SPECS, tokenBasename, skipWrapperArgs, resolveExecHead, isStdinFeedRest, FIND_EXEC_LEADS, findExecVerbAt } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
-import { segmentStdoutContent } from "./write-target-evaluator";
+import { segmentStdoutContent, evalInterpreterStdinBody } from "./write-target-evaluator";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
 export type { AllowedService };
@@ -479,8 +479,27 @@ function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sess
   if (isKillAtCommandPosition(seg, /\bmv\b/)) {
     return { kind: "mv", zone: zoneOf(pathArgsOf(seg)) };
   }
-  if (isKillAtCommandPosition(seg, /\bfind\b/) && /(?:^|\s)-delete\b/.test(seg)) {
-    return { kind: "find -delete", zone: zoneOf(pathArgsOf(seg)) };
+  if (isKillAtCommandPosition(seg, /\bfind\b/)) {
+    // M-48ac4e39（词表补齐族单 B）：find 执行体破坏词表缺口——-exec/-execdir + rm/rmdir/mv
+    //  与 -delete 同语义（对走查树批量删/移，落点=走查根 pathArgsOf 同款）；执行体泛化
+    //  （任意载荷）按 #1513 口径记档不追，只收词表内破坏动词（含路径形 /bin/rm）。
+    if (/(?:^|\s)-delete\b/.test(seg)) return { kind: "find -delete", zone: zoneOf(pathArgsOf(seg)) };
+    // delta（检视獭1630）：执行体判定改词位（findExecVerbAt 双层同源）——-ok/-okdir 同族
+    //  收（交互确认可 echo y 喂答绕过）、wrapper 剥除对称延伸（env rm）、引号整词对齐；
+    //  数据位（-name '-exec rm'）不再被段文本子串误命中。tokenize 失败（未闭合引号）回退
+    //  段文本正则（不弱于修复前口径，fail-closed）。
+    const tokens = tokenizeSegment(seg);
+    if (tokens !== null) {
+      for (let i = 0; i < tokens.length; i++) {
+        const lead = tokenBasename(tokens[i].text);
+        if (!FIND_EXEC_LEADS.has(lead)) continue;
+        if (findExecVerbAt(tokens, i + 1)) {
+          return { kind: lead === "-ok" || lead === "-okdir" ? "find -ok" : "find -exec", zone: zoneOf(pathArgsOf(seg)) };
+        }
+      }
+    } else if (/(?:^|\s)-(?:execdir|exec|okdir|ok)\s+["']?(?:\S*\/)?(?:rm|rmdir|mv)\b/.test(seg)) {
+      return { kind: "find -exec", zone: zoneOf(pathArgsOf(seg)) };
+    }
   }
   return { kind: "", zone: null };
 }
@@ -634,6 +653,14 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
     ["PID 文件引用", /\.otter-buddy\.pid/g],
     // F20261019f714（M-f7148deb 第 3 条）：收窄到真实进程名语义——紧邻 `/` 的匹配是
     // 路径型 token（/…/otter-buddy/…、…/dist/src/main.js）不是进程名，不参与回显。
+    // J3 补充（F20261022j2j3）：旧实现 (?<!\/) 只挡绝对路径邻接，相对路径形态
+    // `dist/src/main`（d 前是空格）仍命中。曾尝试可变宽 lookbehind `(?<![^\s/]*\/)`
+    // 表达「token 含 / 不标」，但该写法与 (?<!\/) 等价——`[^\s/]*` 字符类本身排除
+    // `/` 跨不过 `/`，数学上只够到紧邻字符，达不到预期（#1620 审视纠错：是正则
+    // 写错，非 V8 缺陷；正确写法 `(?<![^\s]*\/[^\s]*)` 可达目标语义）。改为执行期
+    // token 判定：正则原样匹配，命中后检查匹配片段或 token 前缀段（同空白分隔 token
+    // 内、起点之前的部分）含 / 则跳过，语义即建议的「token 含 / 一律不标」；执行期
+    // 判定较 lookbehind 更直白可控（诊断面粒度允许），不误伤真实进程名形态。
     // 该模式仅做诊断回显、不参与拦截判定（locateTriggerContext 注释在案；F20260924gfpn
     // 曾实测证伪同名「第五缺陷」误判），但回显误标曾连续误导两次根因归因——路径命中
     // 不再挂「进程名模式」标签；kill/pkill 目标语义的判定在 kill-segment 通道，不受此改影响。
@@ -647,6 +674,14 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
     let firstSnippet = "";
     let firstIndex = 0;
     while ((m = re.exec(command)) !== null && hits.length < 6) {
+      // J3（F20261022j2j3）：「进程名模式」执行期 token 判定——匹配片段本身含 /，或
+      // 同空白分隔 token 的前缀段（token 起点到匹配起点之间）含 /，即路径型 token，
+      // 跳过不标。lookbehind 等价方案见上方模式注释（初写正则不达预期后改此路径，
+      // 非 V8 缺陷）；仅影响诊断回显，不影响拦截。
+      if (name === "进程名模式") {
+        const tokenStart = Math.max(command.lastIndexOf(" ", m.index - 1), command.lastIndexOf("\t", m.index - 1), command.lastIndexOf("\n", m.index - 1)) + 1;
+        if (m[0].includes("/") || command.slice(tokenStart, m.index).includes("/")) continue;
+      }
       const start = Math.max(0, m.index - 10);
       const end = Math.min(command.length, m.index + m[0].length + 10);
       // PID 脱敏铁律（F20260831aksp）：片段中的真实主进程 PID 替换为占位符——
@@ -774,44 +809,11 @@ const ONELINER_EXTRACT_PATTERNS: Record<OneLinerInterp, RegExp> = {
 //   cd/npm/npx 等高频词在表内不会误拦）。
 
 /** shell 解释器名（洞1 识别面——basename 归一后比对）。 */
-const SHELL_INTERP_NAMES = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+const SHELL_INTERP_NAMES = new Set(["bash", "sh", "zsh", "dash", "ksh", "ash"]);
 
 /** one-liner 解释器名 → 通道 key（洞2 落点判定）。 */
 const ONELINER_INTERP_NAMES: Record<string, OneLinerInterp> = {
   python: "python", python3: "python", node: "node", ruby: "ruby", perl: "perl",
-};
-
-/** 包装词旗标形态表：包装词 → 跳过时吞食后续 token 的规则。
- *  词表外未知包装词一律 fail-closed——三轮枚举爆破的教训：不扩词表换结构，
- *  但「已知包装词」仍需一张表承载其旗标语法；表的职责从「枚举全宇宙包装词」
- *  收窄为「描述已知词的旗标形态」，未知词由结构兜底拦。
- *  吞食规则（确定性，防贪婪误吞解释器名）：
- *    flags: 吞连续的 - 开头 token；
- *    args:  吞「前一 token 是带参旗标」的后随一个非 - token（如 -n 5 / -o0 不同——
- *           -o0 是合写旗标属 flags；-n 5 分写则 5 属 args）。简单可靠规则：
- *           flags 吞完后，若最后一个被吞旗标在 takesValue 集合且其本身无内联值
- *           （长度==2 的短旗标），再吞一个 token；
- *    assigns: env 专有——吞 FOO=v 形态；
- *    duration: timeout 专有——旗标吞完后吞一个时长 token（\d 开头或数字+单位）。 */
-interface WrapperSpec {
-  flags?: boolean;   // 吞连续 - 开头 token
-  assigns?: boolean; // 吞 FOO=v token（可夹于 flags 之后）
-  duration?: boolean; // 吞一个时长/数值 token（timeout/watch -n 之外的独立参数）
-}
-const WRAPPER_SPECS: Record<string, WrapperSpec> = {
-  env: { flags: true, assigns: true },
-  nice: { flags: true, duration: true },      // nice -n 5（-n 带值）/ nice -5
-  timeout: { flags: true, duration: true },   // timeout [-s KILL] 5 cmd
-  watch: { flags: true, duration: true },     // watch -n 1 cmd
-  setsid: { flags: true },
-  stdbuf: { flags: true },                    // stdbuf -o0 -eL（值内联旗标）
-  arch: {},
-  sudo: { flags: true },
-  nohup: {},
-  command: { flags: true },
-  exec: { flags: true },
-  time: { flags: true },
-  xargs: { flags: true },                     // xargs -I{}（值内联）——-I {} 分写形态保守不吞（落点 {} 非解释器自然放行交后续层）
 };
 
 /** 段首解析后落点在这些词上 → 明显非解释器/非 shell，放行交后续层判定
@@ -874,21 +876,7 @@ function tokenizeSegment(seg: string): { text: string; offset: number }[] | null
   return tokens;
 }
 
-const tokenBasename = (t: string): string => {
-  const stripped = t.replace(/^["']|["']$/g, "");
-  const base = stripped.includes("/") ? stripped.split("/").pop()! : stripped;
-  return base.toLowerCase();
-};
 
-/** 跳过一个包装词及其旗标参数（parseSegmentHead/stdinShellKind 共用内层——wrapper
- *  吞食规则单一真相源，抽函数控圈复杂度）。
- *  确定性吞食（防贪婪误吞解释器名）：flags 连续 - 开头 / assigns FOO=v / duration 单个数值。 */
-function skipWrapperArgs(tokens: ReadonlyArray<{ text: string }>, k: number, spec: WrapperSpec): number {
-  if (spec.flags) while (k < tokens.length && /^-/.test(tokens[k].text)) k++;
-  if (spec.assigns) while (k < tokens.length && /^[A-Za-z_]\w*=\S*$/.test(tokens[k].text)) k++;
-  if (spec.duration && k < tokens.length && /^\d/.test(tokens[k].text)) k++;
-  return k;
-}
 
 /** 段首 token 解析器（洞2 换结构核心）：跳过「赋值前缀 + 已知包装词（含旗标）」
  *  后返回落点 token。引号感知——引号内空格不切 token。解析失败（未闭合引号等）
@@ -1288,23 +1276,72 @@ function stdinShellKind(seg: Segment, depth = 3): "stdin" | "other" | "none" {
   const evals = seg.words.map(w => w.evaluated);
   if (evals.some(e => e === null)) return "other"; // 动态词——既有口径不收
   const texts = evals as string[];
-  const tokens = texts.map(text => ({ text }));
-  let i = 0;
-  for (;;) {
-    if (i >= texts.length) return "none";
-    const w = texts[i];
-    if (/^[A-Za-z_]\w*=/.test(w)) { i++; continue; } // 赋值前缀
-    const spec = WRAPPER_SPECS[tokenBasename(w)];
-    if (!spec) break;
-    i = skipWrapperArgs(tokens, i + 1, spec);
-  }
-  const base = tokenBasename(texts[i]).replace(/\d+$/, "");
-  if (!SHELL_INTERP_NAMES.has(base)) return "none";
-  return stdinShellTailKind(texts.slice(i + 1), depth);
+  // delta r1（检视獭1604 严重 3）：段首解析收敛 resolveExecHead 共享内层——多调分发器
+  //  子命令归位（busybox sh ≡ sh）+ 裸分发器默认 applet ash（curl|busybox 最短攻击
+  //  形态收编）+ 版本名归一同基座，与 wte 侧同识别域。
+  const head = resolveExecHead(seg);
+  if (head === null || !SHELL_INTERP_NAMES.has(head.name)) return "none";
+  return stdinShellTailKind(texts.slice(head.headIndex + 1), depth);
 }
 
 const STDIN_SHELL_OPAQUE_MSG = "管道喂入 shell 执行的脚本内容未经守卫逐条判定（上游非静态可判源：cat/curl/变量/命令替换），绕过面不可接受。该命令不允许：请改写为 bash -c '<载荷>' 形态（载荷可逐条判定）或把脚本内容拆成独立命令执行；若确认此命令本意安全，请改用保持原语义的不含管道喂 shell 的方式达成目的；无法规避时告知搭档人工执行。";
 
+// ── M-38fb45c0 管道直执族 B 面：解释器 stdin 喂入（大獭 2026-10-21 裁决 A+B）──
+const STDIN_INTERP_BLOCK_MSG = "管道喂入 shell/解释器（python/node 等）执行的脚本内容未能正面证明安全（上游不透明/载荷不完整/写调用落点不可求值/只读白名单外），fail-closed 拦截。该命令不允许：请把脚本内容落盘为文件后拆步执行（可逐条判定），或改写为可静态判定的载荷形态；若确认此命令本意安全，请告知搭档人工执行。";
+
+/** 解释器 stdin 喂入段分类（M-38fb45c0 B 面）：段首是脚本解释器且程序来源是 stdin
+ *  （裸词/单短旗标/lone -——-c/-e/--x=v/脚本文件参走既有载荷通道不收）→ stdin。
+ *  delta r1（检视獭1604 严重 1/2 同根因收敛）：段首解析与 wte interpreterStdinFeedContent
+ *  同走 resolveExecHead 共享内层（跳赋值前缀/wrapper/分发器 + 版本名归一）。旧注释宣称
+ *  「wrapper 形态保守 fail-closed 只改文案」与实测相反（guard 归类 feed、求值器裸词域
+ *  看不见 → evaluated 空集放行）——识别域两侧一致后 wrapper/版本别名形态真同判，
+ *  该宣称随之成真并升级为完整判定（静态可判正面证明同尺放行/不可证 fail-closed）。
+ *  （export：供「两侧识别域一致」参数化断言与 wte 侧对照——一条语义一个接口。） */
+export function interpreterStdinKind(seg: Segment): { kind: "stdin"; lang: string } | { kind: "none" } {
+  const head = resolveExecHead(seg);
+  if (head === null || !SCRIPT_RUNNERS.has(head.name)) return { kind: "none" };
+  const rest = seg.words.slice(head.headIndex + 1).map(w => w.evaluated);
+  if (isStdinFeedRest(rest)) return { kind: "stdin", lang: head.name };
+  return { kind: "none" };
+}
+
+/** M-38fb45c0：命令内是否存在管道 feed 形态（shell 族 stdinShellKind + 解释器族
+ *  interpreterStdinKind，fail-closed 消息归因用——feed 家族的 fail-closed 一律按
+ *  feed 口径归因，不被「落点为主仓」错定因带偏；写主仓 positive 归因不受影响）。 */
+function interpreterFeedFormPresent(command: string): boolean {
+  const model = parseOnce(command);
+  if (!model.parseOk) return false;
+  return model.segments.some(s => s.joiner === "|" && s.heredocs.length === 0
+    && (interpreterStdinKind(s).kind === "stdin" || stdinShellKind(s) === "stdin"));
+}
+
+/** M-38fb45c0 B 面：解释器 stdin 喂入只读白名单正面证明（guard 侧证明器域）——全部 feed
+ *  形态静态可判、无写词面、且语言只读白名单证明器判只读才 true（求值器窄提取据此放行
+ *  空集面——红线3：空集本身不作放行依据，只有正面证明算数）。perl/ruby/osascript 无
+ *  证明器恒 false（判不出 → fail-closed，宁可误拦微增不可漏放）。 */
+function interpreterFeedReadOnlyFlag(command: string): boolean {
+  const model = parseOnce(command);
+  if (!model.parseOk) return false;
+  const segs = model.segments;
+  let seen = false;
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i];
+    const kind = interpreterStdinKind(seg);
+    if (kind.kind !== "stdin" || seg.joiner !== "|" || seg.heredocs.length > 0) continue;
+    const feeder = segs[i - 1];
+    if (feeder === undefined) return false;
+    // 内容源与 wte interpreterStdinFeedContent 同收窄（echo/printf 静态词；cat 馈体=#1308 契约不收）
+    const content = segmentStdoutContent(feeder);
+    if (content === null) return false;
+    if (evalInterpreterStdinBody(content).kind !== "no-write") return false;
+    const proven = kind.lang === "python" || kind.lang === "python3" ? pythonBodyReadOnly(content)
+      : kind.lang === "node" ? nodeBodyReadOnly(content)
+        : false;
+    if (!proven) return false;
+    seen = true;
+  }
+  return seen;
+}
 /** stdin 喂入 shell 载荷判定（F20261020c2sm，M-49a4909d C2 误判族现存活跃面）：arg-less
  *  shell 段（裸 bash/纯旗标无 -c——写面在 stdin 内容里）的判定。旧实现由 scanShellFlags
  *  空 token 陷阱（`"".trim().split(/\\s+/)`→[""]，幻影空 token 被当「旗标位非旗标」
@@ -2107,7 +2144,10 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // 求值器（文件写落点语义）与 heredoc 写面负门让位于沙箱 deny file-write* 物理接防；
   // 保留面（段结构 fail-closed/git 写族/data 破坏族/2c 窄规则）照跑；沙箱不可用=写面回位。
   if (ctx.writeChannelSkip !== "file-write") {
-    const verdict = evaluateWriteVerdict(command, projectRoot, sessionCwd ?? projectRoot);
+    // M-38fb45c0 B 面：解释器 stdin 喂入只读白名单正面证明结果线程进求值器（窄提取空集面
+    //  只认正面证明放行——红线3）；fail-closed 归因映射在下方返回点（红线4 feed 口径）
+    const feedReadOnly = interpreterFeedReadOnlyFlag(command);
+    const verdict = evaluateWriteVerdict(command, projectRoot, sessionCwd ?? projectRoot, undefined, feedReadOnly);
     if (verdict.verdict === "BLOCK") {
       logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (write-verdict)", {
         command: command.substring(0, 200),
@@ -2115,7 +2155,11 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
         reason: verdict.mode === "fail-closed" ? verdict.reason : undefined,
         targets: "mainHits" in verdict ? verdict.mainHits?.slice(0, 5).map(t => `${t.access}:${t.path}`) : undefined,
       });
-      return rewriteMainWriteBlockMsg(sessionCwd, verdict);
+      // M-38fb45c0 红线 4：feed 形态的 fail-closed 归因走 feed 口径消息——不再被
+      //  「落点为主仓的写命令」错定因带偏（写主仓 positive 归因仍走落点文案）
+      return verdict.mode === "fail-closed" && interpreterFeedFormPresent(command)
+        ? STDIN_INTERP_BLOCK_MSG
+        : rewriteMainWriteBlockMsg(sessionCwd, verdict);
     }
     // 负门后置兜底（只加拦不放行，cd/无 cd 同语义——裁决原则②）：求值器 ALLOW 后
     // 兜 heredoc 体绝对路径/动态源写主仓（wrapper/管道段 heredoc 载荷不入求值的 Y 类
@@ -2139,7 +2183,8 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
     && (path.normalize(sessionCwd) + path.sep).startsWith(path.normalize(path.join(projectRoot, GIT_WORKTREE_PREFIX)) + path.sep);
   if (checkSegmentStructuralWrite(blankDataHeredocBodies(command), oneLinerReadOnly, { logger, projectRoot, sessionCwd, depth, skipGitWrite: cwdInGitWorktree, writeChannelSkip: ctx.writeChannelSkip })) {
     logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via wrapped one-liner (no cd)", { command: command.substring(0, 200) });
-    return rewriteMainWriteBlockMsg(sessionCwd);
+    // M-38fb45c0 红线 4：feed 形态命中（wget 写面未知落点等先手面）归因走 feed 口径
+    return interpreterFeedFormPresent(command) ? STDIN_INTERP_BLOCK_MSG : rewriteMainWriteBlockMsg(sessionCwd);
   }
   // F20261020c2sm：stdin 喂入 shell 载荷判定（M-49a4909d C2 现存面）——管道静态载荷递归判
   //（与 bash -c 载荷同基座）/ 不透明源 fail-closed 正确定因 / 裸 bash 无写面放行

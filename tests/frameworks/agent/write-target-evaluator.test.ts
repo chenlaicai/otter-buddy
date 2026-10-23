@@ -9,7 +9,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { evaluateWriteTargets, pathWithinMain, resolveCwdAt } from "@frameworks/agent/write-target-evaluator";
+import { evaluateWriteTargets, pathWithinMain, resolveCwdAt, segmentStdoutContent } from "@frameworks/agent/write-target-evaluator";
 import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
 import { parseOnce } from "@frameworks/agent/command-model";
 import { SCRIPT_EXEC_FACE, dotExecCommandHits, proveNoWrite } from "@frameworks/agent/write-word-face";
@@ -1128,5 +1128,206 @@ describe("M-cf899ad2 A′ 运行时区边界匹配（workforms 本体+子树豁�
 
   it("台账翻转面钉死：workforms-retire 语料形态（2026-10-09 旧裁决）现判 BLOCK（重裁对齐）", () => {
     expect(evaluateWriteVerdict(`cd ${ROOT}/.otter/workforms-retire && git commit -m x`, ROOT).verdict).toBe("BLOCK");
+  });
+});
+
+describe("echo 转义假重建收编（M-e4a199a1：echo -e \\xHH 假重建逃逸——F20261021eche）", () => {
+  // ===== 拦截侧（假重建修复：重建不出谎报良性，真载荷被拦/不可重建 fail-closed）=====
+  it("拦截：echo -e \\xHH 转义载荷写脚本执行 → BLOCK（matter 主诉，修复前假重建=谎报良性）", () => {
+    const cmd = "echo -e 'touch \\x2frepo\\x2fdata\\x2fpwn' > /tmp/g.sh && bash /tmp/g.sh";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("拦截：echo -e \\0nnn 八进制转义载荷 → BLOCK（bash 同样解码的实证形态）", () => {
+    const cmd = "echo -e 'touch \\057repo\\057data\\057x' > /tmp/g.sh && bash /tmp/g.sh";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("拦截：echo -e \\xHH 管道喂入 bash → 拦（stdinShellFeederVeto 同基座同收益）", () => {
+    const cmd = "echo -e 'touch \\x2frepo\\x2fdata\\x2fpwn' | bash";
+    expect(checkBashCommandSafety(cmd, 42877, undefined, { projectRoot: ROOT })).toBeTruthy();
+  });
+
+  it("拦截：\\c 产生性截断转义 → fail-closed（不猜）", () => {
+    const cmd = "echo -e 'a\\cb' > /tmp/g.sh && bash /tmp/g.sh";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("拦截：解码后精确重建命中主仓写载荷（白名单内转义可解释）", () => {
+    // \x2f 不可用（白名单外）——用白名单内 \n 拼接同样构成载荷
+    const cmd = "echo -e 'touch /repo/data\\ny' > /tmp/g.sh && bash /tmp/g.sh";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  // ===== 放行侧（不误伤：字面/旗标/中后部 - 词精确重建，无写载荷）=====
+  it("放行：echo 纯字面（无 -e）→ 精确重建不误伤", () => {
+    const cmd = "cd " + WT + " && echo hello world > out.txt";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("放行：echo -n 旗标（去尾换行，内容判定无关）→ 不误伤", () => {
+    const cmd = "cd " + WT + " && echo -n 'no newline' > out.txt";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("放行：echo foo -e（中后部 -e 是实参，bash 实测）→ 不误伤不丢词", () => {
+    const cmd = "cd " + WT + " && echo foo -e > out.txt";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("放行：echo 'a\\nb'（无 -e 转义字面输出）→ 字面保留不误判解码", () => {
+    const cmd = "cd " + WT + " && echo 'a\\nb' > out.txt";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("放行：echo -E（显式禁转义）\\xHH 字面输出 → 字面非载荷不误伤", () => {
+    const cmd = "cd " + WT + " && echo -E 'touch \\x2frepo' > out.txt";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("放行：echo --（bash echo 不识别 -- 终止符，是实参）→ 保留不丢", () => {
+    const cmd = "cd " + WT + " && echo -- -e foo > out.txt";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  // ===== 拼写变体矩阵（收编族纪律：fact 84708931 四次复发之尺）=====
+  it("变体：组合旗标 -ne 解码生效（-n -e 合写）→ \\xHH fail-closed 拦", () => {
+    const cmd = "echo -ne 'touch \\x2frepo\\x2fdata\\x2fpwn' > /tmp/g.sh && bash /tmp/g.sh";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("变体：组合旗标 -en 解码生效 → \\xHH fail-closed 拦", () => {
+    const cmd = "echo -en 'touch \\x2frepo\\x2fdata\\x2fpwn' > /tmp/g.sh && bash /tmp/g.sh";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("变体：-e -E（e 先 E 后，bash 实测 E 覆盖=字面）→ 字面不误拦", () => {
+    const cmd = "cd " + WT + " && echo -e -E 'touch \\x2frepo' > out.txt";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("变体：-E -e（E 先 e 后，bash 实测 e 覆盖=解码）→ \\xHH fail-closed 拦", () => {
+    const cmd = "echo -E -e 'touch \\x2frepo\\x2fdata\\x2fpwn' > /tmp/g.sh && bash /tmp/g.sh";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("变体：-x 未知旗标词归实参（bash 实测 echo -x foo 输出 '-x foo'）→ 不误伤", () => {
+    const cmd = "cd " + WT + " && echo -x foo > out.txt";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("变体：双引号内 \\xHH 解码语义同单引号（词求值后同字面——M-f89f1ff3 根修后 bash 真值对齐；\\x 不在 decode 白名单 fail-closed）→ 拦", () => {
+    const cmd = 'echo -e "touch \\x2frepo\\x2fdata\\x2fpwn" > /tmp/g.sh && bash /tmp/g.sh';
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("变体：多实参多空格词间单空格 join（bash 实参语义）→ 不误伤", () => {
+    const cmd = "cd " + WT + " && echo 'a  b' c-d > out.txt";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("变体：echo 无实参（空输出）→ 不误伤", () => {
+    const cmd = "cd " + WT + " && echo > out.txt";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  // ===== 表内但 echo 不认的边界（检视獭1597 建议 2：修复轮补钉）=====
+  it("边界：\\'（printf 专属转义，echo 字面保留）→ fail-closed 拦", () => {
+    const cmd = String.raw`echo -e "a\\'b" > /tmp/g.sh && bash /tmp/g.sh`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("边界：\"（printf 专属转义，echo 字面保留）→ fail-closed 拦", () => {
+    const cmd = String.raw`echo -e 'a\"b' > /tmp/g.sh && bash /tmp/g.sh`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("边界：\\e（版本差异项，bash 3.2 字面）→ fail-closed 拦", () => {
+    const cmd = String.raw`echo -e 'a\eb' > /tmp/g.sh && bash /tmp/g.sh`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  it("边界：\\' 吞命令结构端到端（检视獭1597 实证：旧表 \\'→' 制造假引号串）→ fail-closed 拦", () => {
+    const cmd = String.raw`echo -e "ok ; touch \\' x \\'" > /tmp/g.sh && bash /tmp/g.sh`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+
+  // ===== 回归不误伤（printf 族既有口径不动）=====
+  it("回归：printf %s 白名单转义既有行为不动", () => {
+    const cmd = "cd " + WT + " && printf 'a\\nb\\n' > out.txt";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("回归：printf 白名单外转义（S2 口径）仍 fail-closed", () => {
+    const cmd = "printf 'touch \\x2frepo\\x2fdata\\x2fx' > /tmp/g.sh && bash /tmp/g.sh";
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("BLOCK");
+  });
+});
+
+describe("双引号反斜杠语义（检视獭1597 严重 2：治标闸 + M-f89f1ff3 根修——假重建逃逸收口）", () => {
+  const segOf = (cmd: string) => {
+    const seg = parseOnce(cmd).segments[0];
+    if (seg === undefined) throw new Error("no segment parsed");
+    return seg;
+  };
+
+  // ===== 拦截侧（严重 2 主诉：词法层丢反斜杠 → 假引号串吞命令结构 → 谎报 ALLOW）=====
+  it("拦截：attack 单反斜杠 \\' 吞命令结构端到端（检视獭1597 实证形态，修复前 ALLOW）→ fail-closed BLOCK", () => {
+    const cmd = String.raw`echo -e "echo hi > /tmp/log \' ; touch /repo/data/pwn \' " > /tmp/g.sh && bash /tmp/g.sh`;
+    const r = evaluateWriteVerdict(cmd, ROOT);
+    expect(r.verdict).toBe("BLOCK");
+    expect(r.mode).toBe("fail-closed");
+  });
+
+  it("拦截：control 同构纯字面（差分对照，与 attack 唯一差异=那条反斜杠）→ BLOCK（递归判读直读到 touch 主仓写）", () => {
+    const cmd = String.raw`echo -e "echo hi > /tmp/log ; touch /repo/data/pwn " > /tmp/g.sh && bash /tmp/g.sh`;
+    const r = evaluateWriteVerdict(cmd, ROOT);
+    expect(r.verdict).toBe("BLOCK");
+    expect(r.mode).toBe("positive");
+  });
+
+  it("拦截：printf 同族同病（%s 实参双引号 \\'）造-执对 → BLOCK（M-f89f1ff3 根修后重建转真值，递归判读直读到 touch 主仓写 → positive）", () => {
+    const cmd = String.raw`printf '%s' "echo hi > /tmp/log \' ; touch /repo/data/pwn \' " > /tmp/g.sh && bash /tmp/g.sh`;
+    const r = evaluateWriteVerdict(cmd, ROOT);
+    expect(r.verdict).toBe("BLOCK");
+    expect(r.mode).toBe("positive");
+  });
+
+  it("拦截：管道喂入变体（echo -e 双引号 \\'）→ 拦（feeder 分歧 → 不透明 stdin fail-closed）", () => {
+    const cmd = String.raw`echo -e "echo hi > /tmp/log \' ; touch /repo/data/pwn \' " | bash`;
+    expect(checkBashCommandSafety(cmd, 42877, undefined, { projectRoot: ROOT })).toBeTruthy();
+  });
+
+  // ===== 根修后真值重建（M-f89f1ff3：词法层对齐 bash 双引号反斜杠语义，治标闸降级不触发）=====
+  it("根修：echo \"it\\'s\" → 精确重建 it\\'s（词义= bash 真值，治标闸降级不触发——修复前丢反斜杠谎报 it's）", () => {
+    expect(segmentStdoutContent(segOf(String.raw`echo "it\'s"`))).toBe("it\\'s");
+  });
+
+  it("根修：echo -e \"a\\nb\" → 解码重建 a<LF>b（bash 真值——修复前词法层丢反斜杠谎报 anb）", () => {
+    expect(segmentStdoutContent(segOf(String.raw`echo -e "a\nb"`))).toBe("a\nb");
+  });
+
+  it("根修：printf %s 双引号 \\' 实参 → 精确重建 a\\'b（printf 同基座同收益）", () => {
+    expect(segmentStdoutContent(segOf(String.raw`printf '%s' "a\'b"`))).toBe("a\\'b");
+  });
+
+  // ===== 反证（闸不误伤：词义与 bash 一致的形态照旧精确重建）=====
+  it("反证：echo \"a\\\\'b\"（双反斜杠，修复轮 1 形态）→ 精确重建 a\\'b 不吃闸", () => {
+    expect(segmentStdoutContent(segOf(String.raw`echo "a\\'b"`))).toBe("a\\'b");
+  });
+
+  it("反证：echo -e 'a\\nb'（单引号转义走 decode 白名单）→ 解码重建 a<LF>b 不受影响", () => {
+    expect(segmentStdoutContent(segOf("echo -e 'a\\nb'"))).toBe("a\nb");
+  });
+
+  // ===== 不误伤（良性双引号转义写落工作区——内容不可重建但落点无害）=====
+  it("放行：echo \"it\\'s fine\" 写工作区 → ALLOW 不误伤", () => {
+    const cmd = `cd ${WT} && ` + String.raw`echo "it\'s fine" > out.txt`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
+  });
+
+  it("放行：printf \"a\\nb\\n\" 双引号转义良性写落工作区 → ALLOW（内容不可重建不伤落点判定）", () => {
+    const cmd = `cd ${WT} && ` + String.raw`printf "a\nb\n" > out.txt`;
+    expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
   });
 });

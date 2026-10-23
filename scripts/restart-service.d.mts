@@ -42,7 +42,16 @@ export interface KillByPidCheckInput {
   mainPid: number | null;
   selfPid: number;
   selfPpid: number;
-  allowedRoot: string;
+  allowedRoots: string[];
 }
 
 export declare function assertKillByPidSafe(input: KillByPidCheckInput): ResolvePortEntryOk | ResolvePortEntryErr;
+
+/** #1580：kill-by-pid 合法根构造（otter 工作根 + alpha 规范数据根） */
+export declare function killByPidAllowedRoots(otterRoot: string): string[];
+
+/** F20261023ktru（#1069）：执行级使用痕迹——append-only JSONL（ts 自动补齐 + 业务字段，
+ * action/outcome/pid/projectDir 等）。tracePath 缺省落 <otterRoot>/data/metrics/
+ * restart-service-usage.jsonl（断言②「被使用 ≥1 次」的数据源），单测注入 tmp 路径。
+ * 写失败静默不抛。 */
+export declare function traceUsage(record: Record<string, unknown>, tracePath?: string): void;

@@ -137,7 +137,8 @@ export interface GameConfig {
 
 export interface GameState {
   readonly config: GameConfig;
-  status: "playing" | "finished";
+  /** F20261022mjls：waiting = lobby 等待态（房建好、座位配置就绪、未发牌——构造后未 startRound 前） */
+  status: "waiting" | "playing" | "finished";
   /** 当前局号（1-4 东风战；跨局继承） */
   roundNo: 1 | 2 | 3 | 4;
   honba: number;

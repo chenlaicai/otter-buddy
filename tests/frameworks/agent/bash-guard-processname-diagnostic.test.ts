@@ -45,6 +45,16 @@ describe("进程名诊断回显收窄（F20261019f714，M-f7148deb 第 3 条）"
     expect(r).toBeNull();
   });
 
+  it("①(c) 相对路径形态 dist/src/main.js（J3，F20261022j2j3）：仍拦（sleep），但不再回显「进程名模式」误标签", () => {
+    // J3 案发现场：相对路径形态只被旧正則的 (?<!\/) 挡住绝对路径邻接，`dist/src/main`
+    // 的 `d` 前是空格仍命中「进程名模式」。收窄为「token 含 / 一律不标」后，路径片段
+    // 不再挂进程名标签；拦截本身由 sleep 规则承担（保护零削弱）。
+    const r = checkBashCommandSafety("cd /tmp/proj && dist/src/main.js --port 3100 && sleep 5", mainPid, undefined, ctx);
+    expect(r).not.toBeNull();
+    expect(r!).toContain("sleep");
+    expect(r!).not.toContain("进程名模式");
+  });
+
   it("②(a) pkill -f 真实进程名：仍拦 + 「进程名模式」真命中回显保持", () => {
     const r = checkBashCommandSafety("pkill -f otter-buddy", mainPid, undefined, ctx);
     expect(r).not.toBeNull();

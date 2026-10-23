@@ -26,15 +26,35 @@
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const otterRoot = path.resolve(__dirname, "..");
 
-function die(msg) {
+function die(msg, extra = {}) {
   console.error(`[restart-service] 拒绝：${msg}`);
+  traceUsage({ outcome: "rejected", detail: msg, ...extra });
   process.exit(1);
+}
+
+/**
+ * F20261023ktru（#1069）：执行级使用痕迹——「restart-service.mjs 被使用 ≥1 次」此前无数据源
+ * 可查（regression-verify 断言②「无法判定」缺口：无运行日志表）。append-only JSONL，每条含
+ * ts/action/outcome；die() 拒绝路径同样留痕（「正道走了但被拒」是死链的自动取证通道，
+ * 2026-10-22 colink 现场只能事后人工回查）。写失败不抛、stderr 提示（#1632 检视建议 1）——
+ * 留痕是可观测性副产物，不得反过来让受控终止更脆，但静默断供也不可接受。
+ * 导出供单测（tmp 目录注入 tracePath）；主流程经 main-guard 保护。
+ */
+export function traceUsage(record, tracePath = path.join(otterRoot, "data", "metrics", "restart-service-usage.jsonl")) {
+  try {
+    fs.mkdirSync(path.dirname(tracePath), { recursive: true });
+    fs.appendFileSync(tracePath, `${JSON.stringify({ ts: new Date().toISOString(), ...record })}\n`);
+  } catch (err) {
+    // 写失败不阻主流程，但不静默——留痕是断言②的数据源，静默断供无从察觉（#1632 检视建议 1）
+    console.error(`[restart-service] 留痕写入失败（${tracePath}）：${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /**
@@ -194,25 +214,43 @@ function withLock(lockPath, fn) {
   return { ok: false, error: `白名单写锁争用超时（${lockPath}）——请稍后重试` };
 }
 
+/**
+ * #1580：kill-by-pid 合法根构造（导出供单测覆盖 wiring）——otter 工作根 + alpha 规范数据根。
+ * alpha 根与 alpha.sh 的 `alpha_root_dir()` 为双源真相，单测有机械对齐断言防漂移（检视 A4）。
+ */
+export function killByPidAllowedRoots(otterRoot) {
+  return [path.resolve(otterRoot, ".."), path.join(os.homedir(), ".otter", "alpha")];
+}
+
 // ── F20261008hcpa：kill-by-pid 纯校验逻辑（导出供单测；主流程经 main-guard 保护）──
 
 /**
  * kill-by-pid 校验（F20261008hcpa，#1356 层2 疏通）。
  *
  * 纯函数——PID 存活/cwd 归属的 lsof 探测由调用方（主流程）做，本函数只校验
- * 「可静态判定的不变式」：PID 合法性、主进程/自身/父进程拒绝、projectDir 在工作根内。
+ * 「可静态判定的不变式」：PID 合法性、主进程/自身/父进程拒绝、projectDir 在合法根内。
  * 返回 { ok: true } 或 { ok: false, error }。
+ *
+ * #1580：allowedRoot 单根 → allowedRoots 多根——alpha 规范数据根（~/.otter/alpha/<hash>，
+ * alpha.sh:51-53 alpha_root_dir）不在 otter 工作根（/Users/orca/ai）之下，单根校验把
+ * alpha 实例的受控终止通道整个堵死（「启」有 alpha.sh，「停」无合法出路）。口径与
+ * resolvePortEntry 的 allowedRoots 统一：任一根之下且非任一根本身即合法。
+ * 安全不变式不削弱：mainPid/selfPid 拒绝、cwd 归属校验照旧。
  */
-export function assertKillByPidSafe({ pid, projectDir, mainPid, selfPid, selfPpid, allowedRoot }) {
+export function assertKillByPidSafe({ pid, projectDir, mainPid, selfPid, selfPpid, allowedRoots }) {
   if (!Number.isInteger(pid) || pid <= 1) {
     return { ok: false, error: `PID ${pid} 非法（须 >1——init/launchd 恒拒）` };
   }
   if (!projectDir) {
     return { ok: false, error: "kill-by-pid 必须带 --project /abs/path 声明归属目录" };
   }
-  const relRoot = path.relative(allowedRoot, projectDir);
-  if (relRoot.startsWith("..") || path.isAbsolute(relRoot) || relRoot === "") {
-    return { ok: false, error: `--project (${projectDir}) 必须在 otter 工作根 (${allowedRoot}) 之下且非根本身` };
+  const roots = allowedRoots ?? [];
+  const insideRoot = roots.some((root) => {
+    const relRoot = path.relative(root, projectDir);
+    return !(relRoot.startsWith("..") || path.isAbsolute(relRoot) || relRoot === "");
+  });
+  if (!insideRoot) {
+    return { ok: false, error: `--project (${projectDir}) 必须在 otter 工作根/alpha 数据根 (${roots.join(" / ") || "未配置"}) 之下且非根本身` };
   }
   if (mainPid !== null && pid === mainPid) {
     return { ok: false, error: `PID ${pid} 是 otter-buddy 主进程——拒绝终止` };
@@ -261,9 +299,10 @@ if (isMain) {
       mainPid: kbMainPid,
       selfPid: process.pid,
       selfPpid: process.ppid,
-      allowedRoot: path.resolve(otterRoot, ".."),
+      // #1580：合法根双根——otter 工作根 + alpha 规范数据根（alpha.sh alpha_root_dir）
+      allowedRoots: killByPidAllowedRoots(otterRoot),
     });
-    if (!kbCheck.ok) die(kbCheck.error);
+    if (!kbCheck.ok) die(kbCheck.error, { action: "kill-by-pid", pid, projectDir: kbProjectDir });
     // 校验 ③：cwd 归属
     let kbCwd = null;
     try {
@@ -271,16 +310,17 @@ if (isMain) {
     } catch { /* 进程可能已退出 */ }
     const kbMatch = kbCwd && kbCwd.match(/^n(.+)$/m);
     const kbProcCwd = kbMatch ? kbMatch[1] : null;
-    if (!kbProcCwd) die(`无法解析 PID ${pid} 的工作目录（进程不存在或刚退出）——拒绝`);
+    if (!kbProcCwd) die(`无法解析 PID ${pid} 的工作目录（进程不存在或刚退出）——拒绝`, { action: "kill-by-pid", pid, projectDir: kbProjectDir });
     const kbRel = path.relative(kbProjectDir, kbProcCwd);
     if (kbRel.startsWith("..") || path.isAbsolute(kbRel)) {
-      die(`PID ${pid} 的 cwd (${kbProcCwd}) 不在声明项目目录 (${kbProjectDir}) 下——拒绝终止`);
+      die(`PID ${pid} 的 cwd (${kbProcCwd}) 不在声明项目目录 (${kbProjectDir}) 下——拒绝终止`, { action: "kill-by-pid", pid, projectDir: kbProjectDir });
     }
     try {
       process.kill(pid, "SIGTERM");
       console.log(`[restart-service] kill-by-pid: SIGTERM → PID ${pid}（cwd ${kbProcCwd}，校验通过）`);
+      traceUsage({ action: "kill-by-pid", outcome: "killed", pid, projectDir: kbProjectDir, cwd: kbProcCwd });
     } catch (err) {
-      die(`kill(${pid}) 失败：${err instanceof Error ? err.message : String(err)}`);
+      die(`kill(${pid}) 失败：${err instanceof Error ? err.message : String(err)}`, { action: "kill-by-pid", pid, projectDir: kbProjectDir });
     }
     process.exit(0);
   }
@@ -308,7 +348,7 @@ if (isMain) {
     whitelistPath: path.join(otterRoot, ".otter", "allowed-service-ports.json"),
     allowedRoots: [path.resolve(otterRoot, "..")],
   });
-  if (!resolved.ok) die(resolved.error);
+  if (!resolved.ok) die(resolved.error, { action: "restart-port", port, projectDir });
   const { declaredDir, declared } = resolved;
   if (declared) {
     console.log(`[restart-service] 端口 ${port} 已声明写回白名单（projectDir=${declaredDir}）——后续重启无需 --add。`);
@@ -330,22 +370,23 @@ if (isMain) {
   }
   if (pids.length === 0) {
     console.log(`[restart-service] 端口 ${port} 无监听进程，无需终止。`);
+    traceUsage({ action: "restart-port", outcome: "no_listener", port, projectDir: declaredDir });
     process.exit(0);
   }
 
   // ── 校验 ③：每个 PID 的 cwd 必须在声明项目目录下 ──
   for (const pid of pids) {
-    if (pid === mainPid) die(`PID ${pid} 是 otter-buddy 主进程——拒绝终止（白名单配置有误，请检查端口声明）`);
+    if (pid === mainPid) die(`PID ${pid} 是 otter-buddy 主进程——拒绝终止（白名单配置有误，请检查端口声明）`, { action: "restart-port", port, projectDir: declaredDir });
     let cwd = null;
     try {
       cwd = execFileSync("lsof", ["-a", `-p`, String(pid), "-d", "cwd", "-Fn"], { encoding: "utf-8" });
     } catch { /* 进程可能已退出 */ }
     const m = cwd && cwd.match(/^n(.+)$/m);
     const procCwd = m ? m[1] : null;
-    if (!procCwd) die(`无法解析 PID ${pid} 的工作目录（进程可能刚退出）——拒绝，请重试`);
+    if (!procCwd) die(`无法解析 PID ${pid} 的工作目录（进程可能刚退出）——拒绝，请重试`, { action: "restart-port", port, projectDir: declaredDir });
     const rel = path.relative(declaredDir, procCwd);
     if (rel.startsWith("..") || path.isAbsolute(rel)) {
-      die(`PID ${pid} 的 cwd (${procCwd}) 不在声明项目目录 (${declaredDir}) 下——拒绝终止`);
+      die(`PID ${pid} 的 cwd (${procCwd}) 不在声明项目目录 (${declaredDir}) 下——拒绝终止`, { action: "restart-port", port, projectDir: declaredDir });
     }
   }
 
@@ -355,9 +396,10 @@ if (isMain) {
       process.kill(pid, "SIGTERM");
       console.log(`[restart-service] SIGTERM → PID ${pid}（端口 ${port}，cwd 校验通过）`);
     } catch (err) {
-      die(`kill(${pid}) 失败：${err instanceof Error ? err.message : String(err)}`);
+      die(`kill(${pid}) 失败：${err instanceof Error ? err.message : String(err)}`, { action: "restart-port", port, projectDir: declaredDir });
     }
   }
   console.log(`[restart-service] 端口 ${port} 旧进程已发 SIGTERM（${pids.length} 个）。请用项目自己的启动命令重启 dev server。`);
+  traceUsage({ action: "restart-port", outcome: "killed", port, projectDir: declaredDir, count: pids.length });
   process.exit(0);
 }

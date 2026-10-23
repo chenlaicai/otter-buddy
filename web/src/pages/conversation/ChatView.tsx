@@ -25,6 +25,8 @@ interface ChatViewProps {
   onLoadMore?: () => void
   loadingMore?: boolean
   hasMoreBefore?: boolean
+  /** F20261021lmfe：加载历史失败态（透传给 MessageList 加载入口） */
+  loadMoreError?: boolean
   unreadSeparatorSeq?: number | null
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼 */
@@ -265,6 +267,7 @@ export function ChatView(props: ChatViewProps) {
         onLoadMore={props.onLoadMore}
         loadingMore={props.loadingMore}
         hasMoreBefore={props.hasMoreBefore}
+        loadMoreError={props.loadMoreError}
         unreadSeparatorSeq={props.unreadSeparatorSeq}
         highlightMessageId={props.highlightMessageId}
         userName={props.userName}

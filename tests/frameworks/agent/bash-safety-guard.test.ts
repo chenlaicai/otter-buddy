@@ -17,6 +17,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { checkBashCommandSafety, readMainProcessPid } from "@frameworks/agent/bash-safety-guard";
+import { getRepoRoot } from "@frameworks/repo-root";
 
 describe("readMainProcessPid", () => {
   let tmpDir: string;
@@ -876,8 +877,10 @@ describe("F20260917alph 拦截文案指向 alpha.sh + 组合杀回归", () => {
   });
 
   // #1540：self_kill 族拦截文案补 kill-by-pid 出口指引（含 --project 归属声明示例）——
-  // 关闭标准 1「grep 可验含 kill-by-pid 出口指引」的单测锚点（G1：断言锁完整示例串防文案断指）
-  const KILL_BY_PID_EXAMPLE = "node scripts/restart-service.mjs kill-by-pid <pid> --project /abs/path";
+  // 关闭标准 1「grep 可验含 kill-by-pid 出口指引」的单测锚点（G1：断言锁完整示例串防文案断指）。
+  // F20261023ktru（#1069）：示例串随文案改仓根绝对路径——期望独立计算（getRepoRoot + join，
+  // 不引模块常量防自证）。
+  const KILL_BY_PID_EXAMPLE = `node ${path.join(getRepoRoot(), "scripts", "restart-service.mjs")} kill-by-pid <pid> --project /abs/path`;
 
   it("#1540 非字面 PID kill 文案含 kill-by-pid 出口指引（含 --project 归属声明）", () => {
     const result = checkBashCommandSafety("kill $(lsof -ti :3000)", mainPid);

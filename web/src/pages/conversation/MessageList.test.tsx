@@ -371,6 +371,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     onLoadMore?: () => void
     hasMoreBefore?: boolean
     loadingMore?: boolean
+    loadMoreError?: boolean
     conversationId?: string
   }
   function renderList(opts: RenderOpts): { root: Root; div: HTMLDivElement } {
@@ -394,6 +395,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
           onLoadMore={opts.onLoadMore}
           hasMoreBefore={opts.hasMoreBefore}
           loadingMore={opts.loadingMore}
+          loadMoreError={opts.loadMoreError}
         />,
       )
     })
@@ -668,6 +670,40 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     const v2 = renderList({ pinRef: { current: true }, hasMoreBefore: false, onLoadMore: () => { loadCount++ } })
     try {
       expect(v2.div.querySelector('[data-testid="load-sentinel"]'), 'hasMoreBefore=false 时哨兵不渲染').toBeNull()
+    } finally {
+      act(() => { v2.root.unmount() })
+      v2.div.remove()
+    }
+  })
+
+  it('F20261021lmfe 失败态反馈：loadMoreError → 按钮错误态可重试；哨兵自动通道阻断（防失败重试风暴）', async () => {
+    const pinRef = { current: true }
+    let loadCount = 0
+    const { root, div } = renderList({ pinRef, onLoadMore: () => { loadCount++ }, hasMoreBefore: true, loadMoreError: true })
+    try {
+      // 失败态按钮：用户可见的错误反馈 + 可点击重试（不是 disabled 死按钮）
+      const btn = [...div.querySelectorAll('button')].find(b => b.textContent?.includes('加载'))
+      expect(btn, 'hasMoreBefore=true 时应渲染可见按钮').toBeTruthy()
+      expect(btn!.textContent, '失败态按钮文案必须自明（加载失败+重试指引）').toContain('加载失败')
+      expect(btn!.textContent, '重试入口指引').toContain('重试')
+      expect((btn as HTMLButtonElement).disabled, '失败态按钮必须可点击（重试入口）').toBe(false)
+      // 哨兵自动通道阻断：error 态下 IO 触发不得自动重试（否则失败→重挂→再拉循环风暴）
+      fireSentinel(true)
+      expect(loadCount, 'error 态自动通道必须静默').toBe(0)
+      // 手动点击仍放行（重试入口可用）
+      act(() => { btn!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+      expect(loadCount, '手动按钮不受 error 阻断').toBe(1)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+    // error 清除后按钮恢复常态文案、自动通道恢复
+    const v2 = renderList({ pinRef: { current: true }, onLoadMore: () => { loadCount++ }, hasMoreBefore: true, loadMoreError: false })
+    try {
+      const btn2 = [...v2.div.querySelectorAll('button')].find(b => b.textContent?.includes('加载'))
+      expect(btn2!.textContent, 'error 清除后按钮恢复常态').toContain('加载更早消息')
+      fireSentinel(true)
+      expect(loadCount, 'error 清除后自动通道恢复').toBe(2)
     } finally {
       act(() => { v2.root.unmount() })
       v2.div.remove()

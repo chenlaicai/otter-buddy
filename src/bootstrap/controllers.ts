@@ -58,6 +58,8 @@ import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-
 import type Database from "better-sqlite3";
 import type { SdkInvokePort } from "@usecases/ports/sdk-invoke-port";
 import { SqliteFrameStore } from "@usecases/mahjong/room/frames";
+import { MAHJONG_DEFAULT_OTTERS_KEY, parseMahjongDefaultOtters } from "@usecases/settings/settings-keys";
+import type { OtterRepository } from "@usecases/otter/otter-repository";
 import { RoomBus, RoomService } from "@usecases/mahjong/room/room-service";
 import { sendGameoverReport } from "@usecases/mahjong/room/gameover-report";
 import { SdkOtterGateway } from "@usecases/mahjong/room/otter-adapter";
@@ -125,6 +127,11 @@ export interface ControllerDeps {
   promptDirectory?: PromptDirectory;
   /** F20261015mjsg：三麻将局域装配（db + SDK 直调口）——齐备才暴露 /api/mahjong 路由 */
   mahjongDeps?: { db: Database.Database; sdkPort: SdkInvokePort };
+  /** F20261022mjls：麻将默认陪打獭/獭可用性校验的依赖（settings repo + otter repo）——可选注入 */
+  mahjongOtterDeps?: {
+    settingsRepo: SettingsRepository;
+    otterRepo: Pick<OtterRepository, "getByIds">;
+  };
 }
 
 /** F20261015mjsg：三麻将局域装配（gateway 不带 conversationId = 纯 session 直调不落对话 entry——S1/S2 口径） */
@@ -136,6 +143,20 @@ function buildMahjongController(deps: ControllerDeps, logger: Logger): MahjongCo
     gateway: new SdkOtterGateway(deps.mahjongDeps.sdkPort),
     bus: new RoomBus(),
     logger,
+    // F20261022mjls：默认陪打獭（settings mahjong.defaultOtters）与獭可用性校验（active 且未 dissolved）
+    ...(deps.mahjongOtterDeps
+      ? {
+          defaultOtters: async () =>
+            parseMahjongDefaultOtters(await deps.mahjongOtterDeps!.settingsRepo.get(MAHJONG_DEFAULT_OTTERS_KEY)),
+          checkOtterUsable: async (otterId: string): Promise<string | null> => {
+            const found = await deps.mahjongOtterDeps!.otterRepo.getByIds([otterId]);
+            const otter = found.get(otterId);
+            if (!otter) return "otter not found";
+            if (otter.status === "dissolved") return "otter dissolved";
+            return null;
+          },
+        }
+      : {}),
     // F20261015mjsg 模块五：局终战报卡——首个 otter 座位挂靠对话发 html-card + 登记 fact
     onGameover: (report) => sendGameoverReport({
       sendEntry: deps.uc.sendEntry,

@@ -240,13 +240,15 @@ interface MessageListProps {
   onJumpToBottom?: () => void
   onLoadMore?: () => void
   loadingMore?: boolean
+  /** F20261021lmfe：加载历史失败态——true 时加载入口进入错误态（用户可见反馈 + 重试入口） */
+  loadMoreError?: boolean
   /** F20261020lmld：是否还有更早历史——控制顶部可见入口渲染（false/缺省不渲染，防假入口） */
   hasMoreBefore?: boolean
   unreadSeparatorSeq?: number | null
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
   userName?: string
-  /** F20261008csf1 P1：文类产物摘要卡数据源（linked_resources，pr/file/fact 类型混排进时间轴） */
+  /** F20261008csf1 P1：混排产物数据源（linked_resources，pr/file/fact/game 类型混排进时间轴；F20261021gmbe 接入 game） */
   linkedResources?: LocalLinkedResource[]
   /** 信号轨迹（F20260902u5tr）：服务端推导的投石信号投递状态（可选，未加载时不渲染轨迹） */
 }
@@ -259,7 +261,7 @@ function isNearBottom(el: HTMLElement, threshold = 100): boolean {
 export function MessageList({
   messages, state, onStopStream, onRetryMessage, onRetry, onGoToSettings, otters,
   conversationId, pinRef, newMessagesCount = 0, bottomSpacerPx = 0, onJumpToBottom, onLoadMore,
-  loadingMore, hasMoreBefore = false,
+  loadingMore, hasMoreBefore = false, loadMoreError = false,
   unreadSeparatorSeq, highlightMessageId,
   userName, linkedResources,
 }: MessageListProps) {
@@ -287,7 +289,7 @@ export function MessageList({
     // 窗口外产物不显示，上翻加载到覆盖其诞生时刻时自然出现
     const windowFloor = messages.length ? messages[0].ts : ''
     const artifacts = (linkedResources ?? [])
-      .filter(r => ['pr', 'file', 'fact'].includes(r.type) && r.status === 'active')
+      .filter(r => ['pr', 'file', 'fact', 'game'].includes(r.type) && r.status === 'active')
       .filter(r => (r.createdAt ?? '') >= windowFloor)
     for (const r of artifacts) {
       const ts = r.createdAt ?? ''
@@ -491,15 +493,19 @@ export function MessageList({
       const entry = entries[entries.length - 1]
       if (!entry?.isIntersecting) return
       if (loadingMore || !hasMoreBefore) return
+      /** F20261021lmfe（issue #1581）：失败态阻断自动通道——哨兵重挂后 IO 初始回调必 fire 一次，
+       *  不阻断则失败→loadingMore 翻转→effect 重跑→IO 重挂→再拉，成隐性重试风暴；
+       *  错误解除只走手动按钮（fireLoadMore 不拦，重试语义由父层 loadMoreBefore 清错实现） */
+      if (loadMoreError) return
       if (autoChainCountRef.current >= AUTO_CHAIN_MAX_BATCHES) return // 冷却中（自动通道静默；手动按钮不受限）
       autoChainCountRef.current += 1
       fireLoadMore()
     }, { root, threshold: 0, rootMargin: `${SENTINEL_ROOT_MARGIN_PX}px 0px 0px 0px` })
     io.observe(sentinel)
     return () => io.disconnect()
-    // Why: hasMoreBefore/loadingMore 翻转需重评估哨兵（hasMoreBefore=false 时 render 卸载哨兵，
-    // effect 清理；loadingMore 完成后再 intersecting 需重新判定连拉）；fireLoadMore 随 props 重绑
-  }, [conversationId, state, hasMoreBefore, loadingMore, fireLoadMore])
+    // Why: hasMoreBefore/loadingMore/loadMoreError 翻转需重评估哨兵（hasMoreBefore=false 时 render 卸载哨兵，
+    // effect 清理；loadingMore 完成后再 intersecting 需重新判定连拉；loadMoreError 阻断自动通道）；fireLoadMore 随 props 重绑
+  }, [conversationId, state, hasMoreBefore, loadingMore, loadMoreError, fireLoadMore])
 
   /** F20261008scpg 滚动事件处理（F20261020wcsr 账本退役简化版）：位移方向分类 + 连拉冷却解除。
    * 分类序：回锚优先于脱锚——clamp 落底/用户滚到底都是安全方向（默认意图=跟随）；
@@ -668,9 +674,11 @@ export function MessageList({
             <button
               onClick={fireLoadMore}
               disabled={loadingMore}
-              className="px-3 py-1 text-xs rounded-full text-stone-500 bg-stone-100 hover:bg-stone-200 disabled:opacity-50"
+              className={loadMoreError
+                ? "px-3 py-1 text-xs rounded-full text-red-500 bg-red-50 hover:bg-red-100 disabled:opacity-50"
+                : "px-3 py-1 text-xs rounded-full text-stone-500 bg-stone-100 hover:bg-stone-200 disabled:opacity-50"}
             >
-              {loadingMore ? '加载中...' : '加载更早消息'}
+              {loadingMore ? '加载中...' : loadMoreError ? '加载失败，点击重试' : '加载更早消息'}
             </button>
           </div>
         )}
@@ -897,11 +905,11 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const snapshotName = isUser ? (m.sn || '').trim() : ''
   const remoteFallbackName = m.src === 'feishu' ? '飞书成员' : ''
   const name = isUser ? (snapshotName || remoteFallbackName || userDisplayName) : resolveDisplayName(m, otters)
-  // F20260921otcl：消息自带身份优先（事件携带 scolor），名册补充 type；均缺失时
-  //  resolveOtterVisual 内部 fnv1a 展示回退——大獭判定优先消息/名册 type
+  // F20261021sprx：entries 自带 type 优先；名册只补缺失，名册外历史大獭不再按 small 渲染。
   const otterInfo = otters.find(o => o.id === m.si)
+  const resolvedType = m.stype ?? otterInfo?.type
   const { color } = isUser ? { color: null } : resolveOtterVisual(m.si, {
-    type: otterInfo?.type,
+    type: resolvedType,
     color: m.scolor != null ? m.scolor : otterInfo?.color,
   })
   const nameColor = isUser ? 'text-stone-600' : color?.nameClass || 'text-otter-500'
@@ -922,7 +930,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
         />
       ) : (
         <div className="mt-0.5">
-          <OtterAvatar otterId={m.si} name={name} type={otterInfo?.type} color={m.scolor != null ? m.scolor : otterInfo?.color} />
+          <OtterAvatar otterId={m.si} name={name} type={resolvedType} color={m.scolor != null ? m.scolor : otterInfo?.color} />
         </div>
       )}
       <div className={`flex flex-col ${isUser ? 'items-end' : ''}`} style={{ maxWidth: '72%' }}>

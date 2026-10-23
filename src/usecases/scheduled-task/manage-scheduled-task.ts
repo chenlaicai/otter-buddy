@@ -31,6 +31,15 @@ function validateScheduleFields(input: CreateScheduledTaskInput): string | null 
   return null;
 }
 
+function normalizeScheduleInput(input: CreateScheduledTaskInput): Pick<ScheduledTask, 'scheduleType' | 'cron' | 'triggerAt'> {
+  const scheduleType = input.scheduleType ?? 'cron';
+  return {
+    scheduleType,
+    cron: scheduleType === 'once' ? '' : input.cron!,
+    triggerAt: scheduleType === 'once' ? input.triggerAt! : null,
+  };
+}
+
 /** #610: watchlist-only patch 语义——读旧 body JSON、只替换 watchlist 字段。
  *  返回 null 表示 body 不是合法 JSON 对象（旧格式/非 JSON body 不兼容此通道），由调用方抛 400，
  *  避免把非 JSON body 静默重写而丢内容。其他字段（prompt 等）原样保留，调用方无需携带 prompt 全文。 */
@@ -62,8 +71,8 @@ function validateCreateInput(input: CreateScheduledTaskInput): string | null {
   if (input.description !== undefined && input.description !== null && !isValidDescription(input.description)) {
     return 'description must be 500 characters or less';
   }
-  if (!input.talkingStonePassedTo || input.talkingStonePassedTo.length === 0) {
-    return 'talkingStonePassedTo must be non-empty';
+  if (!isValidExecutorRole(input.executorRole)) {
+    return 'executorRole must be non-empty';
   }
 
   const timeoutError = validateTimeoutMinutes(input.timeoutMinutes);
@@ -79,6 +88,10 @@ function validateTimeoutMinutes(value: number | null | undefined): string | null
     return `Invalid timeoutMinutes: ${value} (must be integer 1-1440)`;
   }
   return null;
+}
+
+export function isValidExecutorRole(role: string | undefined): boolean {
+  return role === undefined || role.trim().length > 0;
 }
 
 export interface CreateScheduledTaskInput {
@@ -98,7 +111,9 @@ export interface CreateScheduledTaskInput {
   restartBeforeInvoke?: boolean;
   /** #516: 任务级链超时配置（分钟）。null/缺省 = 调度器默认（15 分钟）。上限 1440（24h）。 */
   timeoutMinutes?: number | null;
-  talkingStonePassedTo: string[];
+  /** agent 执行者角色名（默认大獭）；talkingStonePassedTo 仅为旧实例绑定的兼容写入面。 */
+  executorRole?: string;
+  talkingStonePassedTo?: string[];
   senderId?: string;
   /** PR4: 执行器类型（agent=LLM 会话，function=纯代码） */
   executorType?: 'agent' | 'function';
@@ -115,6 +130,7 @@ export interface UpdateScheduledTaskInput {
   body?: string;
   /** F20260915desc: 任务描述。传 null 清除。 */
   description?: string | null;
+  executorRole?: string;
   talkingStonePassedTo?: string[];
   status?: ScheduledTaskStatus;
   /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
@@ -135,7 +151,7 @@ export type TaskChangeCallback = (taskId: string, action: 'created' | 'updated' 
 export class ManageScheduledTask {
   private onChangeCallbacks: TaskChangeCallback[] = [];
 
-  constructor(private readonly repo: ScheduledTaskRepository) {}
+  constructor(readonly repo: ScheduledTaskRepository) {}
 
   /** 注册任务变更回调（用于通知 SchedulerService 清理 timer） */
   onChange(callback: TaskChangeCallback): void {
@@ -154,19 +170,17 @@ export class ManageScheduledTask {
       throw new DomainError(validationError, 'validation');
     }
 
-    const scheduleType = input.scheduleType ?? 'cron';
     const now = new Date().toISOString();
     const task: ScheduledTask = {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
       name: input.name,
-      scheduleType,
-      cron: scheduleType === 'once' ? '' : input.cron!,
-      triggerAt: scheduleType === 'once' ? input.triggerAt! : null,
+      ...normalizeScheduleInput(input),
       timezone: input.timezone ?? 'Asia/Shanghai',
       body: input.body,
       description: input.description ?? null,
-      talkingStonePassedTo: input.talkingStonePassedTo,
+      executorRole: input.executorRole ?? '大獭',
+      talkingStonePassedTo: input.talkingStonePassedTo ?? [],
       // F20260903s4fn：任务触发消息是「系统说的」——senderId 归属 system，不偷目标獭。
       // 历史默认值 talkingStonePassedTo[0] 是发送者语义与展示归属的混淆（生产实证：60+ 条
       // system 消息挂獭 id）。展示归属由前端显示层解决，数据层不撒谎。
@@ -236,6 +250,7 @@ export class ManageScheduledTask {
       timezone: input.timezone ?? task.timezone,
       body: effectiveBody,
       description: input.description !== undefined ? input.description : task.description,
+      executorRole: input.executorRole ?? task.executorRole,
       talkingStonePassedTo: input.talkingStonePassedTo ?? task.talkingStonePassedTo,
       status: input.status ?? task.status,
       restartBeforeInvoke: input.restartBeforeInvoke ?? task.restartBeforeInvoke,
@@ -272,8 +287,11 @@ export class ManageScheduledTask {
       throw new DomainError('body must be 10000 characters or less', 'validation');
     }
 
-    if (input.description !== undefined && input.description !== null && !isValidDescription(input.description)) {
+    if (typeof input.description === 'string' && !isValidDescription(input.description)) {
       throw new DomainError('description must be 500 characters or less', 'validation');
+    }
+    if (!isValidExecutorRole(input.executorRole)) {
+      throw new DomainError('executorRole must be non-empty', 'validation');
     }
 
     // #610: watchlist patch 格式校验——通用通道不做 A 股代码格式假设，只保证结构。

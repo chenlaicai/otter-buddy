@@ -8,7 +8,9 @@
  * 4. staged .doc-fix 声明文件（理由≥10字符）→ 放行（F20260922dfch 显式开口）
  * 5. .doc-fix 理由不足 / 未 staged → 拦截（声明必须进索引区才生效）
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+// F20261021ttos：临时 git 仓库结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+vi.setConfig({ testTimeout: 20_000 });
 import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";

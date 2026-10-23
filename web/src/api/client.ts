@@ -24,6 +24,10 @@ import type {
   HealingEventsResponseDTO,
   SignalEventsResponseDTO,
   DispatchRecordsResponseDTO,
+  ConnectionDTO,
+  ConnectionSessionDTO,
+  EnterConversationRequestDTO,
+  ActiveConversationDTO,
 } from '@contract/api'
 import { identityHeaders } from './identity'
 
@@ -369,7 +373,8 @@ export interface CreateScheduledTaskRequestDTO {
   body: string
   /** F20260915desc: 人类可读任务描述（可选） */
   description?: string | null
-  talkingStonePassedTo: string[]
+  executorRole?: string
+  talkingStonePassedTo?: string[]
   senderId?: string
   restartBeforeInvoke?: boolean
   timeoutMinutes?: number | null
@@ -384,6 +389,7 @@ export interface UpdateScheduledTaskRequestDTO {
   description?: string | null
   /** #610: watchlist-only patch——只替换 body JSON 中的 watchlist 字段，无需携带 prompt 全文。与 body 互斥。 */
   watchlist?: string[]
+  executorRole?: string
   talkingStonePassedTo?: string[]
   status?: 'active' | 'disabled' | 'error'
   restartBeforeInvoke?: boolean
@@ -487,30 +493,9 @@ export function listExecutions(taskId: string, options?: { limit?: number; offse
 }
 
 // ── Connections (IM 大厅) ──
+// F20261023cnct：契约类型迁 @contract/api/connection（issue #1063 契约同步，双端单一真相源）
 
-export interface ConnectionDTO {
-  id: string
-  name: string
-  externalId: string
-  externalType: string
-  metadata: Record<string, unknown> | null
-  status: string
-  createdAt: string
-  updatedAt: string
-}
-
-export interface ConnectionSessionDTO {
-  id: string
-  connectionId: string
-  conversationId: string
-  status: string
-  joinedAt: string
-  releasedAt: string | null
-}
-
-export interface EnterConversationRequestDTO {
-  conversationId: string
-}
+export type { ConnectionDTO, ConnectionSessionDTO, EnterConversationRequestDTO } from '@contract/api'
 
 export function getConnection(id: string): Promise<ConnectionDTO> {
   return request(`/connections/${id}`)
@@ -520,7 +505,7 @@ export function enterConversation(connectionId: string, body: EnterConversationR
   return request(`/connections/${connectionId}/enter`, { method: 'POST', body: JSON.stringify(body) })
 }
 
-export function listActiveConversations(): Promise<Array<{ id: string; title: string; occupiedBy?: string }>> {
+export function listActiveConversations(): Promise<ActiveConversationDTO[]> {
   return request('/connections/any/conversations')
 }
 
@@ -528,7 +513,7 @@ export function listActiveConversations(): Promise<Array<{ id: string; title: st
 
 export interface WeixinLoginSessionDTO {
   id: string
-  status: 'pending' | 'waiting_scan' | 'scaned' | 'success' | 'expired' | 'error' | 'cancelled'
+  status: 'pending' | 'waiting_scan' | 'scaned' | 'success' | 'already_connected' | 'expired' | 'error' | 'cancelled'
   qrcodePng?: string
   qrcodeUrl?: string
   accountId?: string

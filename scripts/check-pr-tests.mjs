@@ -10,7 +10,7 @@
  * 触发口径取严：任何删除行即触发（不按「删>增」的净删除口径——净额口径漏「删 2 加 2 空断言」
  * 的零净弱化，见特性文档设计取舍段）。
  *
- * 退出码：0 通过 / 1 违规（弱化无声明、放宽无理由、有删除行但无 PR body 可核）。
+ * 退出码：0 通过 / 1 违规（弱化无声明、放宽无理由、有删除行但无 PR body 可核）/ 1 拒判（diff 为空，M-0f8cf262）。
  * 用法：node scripts/check-pr-tests.mjs [--base <ref>] [--pr-body-file <path>]
  * PR body 来源：--pr-body-file 或环境变量 PR_BODY（CI pull_request 事件注入）。
  */
@@ -119,6 +119,17 @@ function main() {
   }
 
   const files = parseNumstat(diff);
+  // M-0f8cf262 假绿面治理：diff 为空 = 无判定对象，不等于「无删除行」——常见成因是
+  // 进程 cwd 不在 PR 工作树（主仓/无关仓/分支未更新）时 base...HEAD 无差异。空判定面
+  // 一律拒判（fail-closed），不作「无删除行」放行，防测试弱化从空 diff 溜走。
+  if (files.length === 0) {
+    console.error(
+      `[check-pr-tests] ✗ diff 为空，拒判（fail-closed）：${args.base}...HEAD 无任何文件变化。` +
+        `进程 cwd=${process.cwd()}——若此处不是 PR 工作树（主仓/无关仓/分支未更新），请在 PR 工作树内重跑；` +
+        `空判定面不作「无删除行」放行。`,
+    );
+    process.exit(1);
+  }
   const triggering = files.filter(
     (f) =>
       (isTestPath(f.path) ||

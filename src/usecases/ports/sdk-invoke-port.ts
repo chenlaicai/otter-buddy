@@ -71,6 +71,8 @@ export interface DynamicContext {
   healingAlerts?: string;
   /** #1227 M1：pending 信号裁决提醒（大獭 invoke 头部注入，借用式消费即删） */
   signalAlerts?: string;
+  /** F20261021sprx：定时任务待执行提醒（状态镜像；pending 非零就每次注入，ack 才消失） */
+  scheduledTaskAlerts?: string;
 }
 
 /** invoke() 选项 */

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import type { ModelInfoDTO } from '@contract/api'
@@ -265,15 +266,19 @@ export default function ConversationListPage() {
         <BigOtterModelDropdown models={models} defaultAlias={defaultAlias} selectedModel={selectedModel} onSelect={setSelectedModel} />
       </Modal>
 
-      {ctxMenu && activeConvForMenu && activeConvForMenu.status !== 'archived' && (
+      {/* 对话右键菜单：Portal 挂 document.body（F20261023pmnu，#1006）——与 WorkspacePanel ctxMenu 同款防护：
+          根容器未来若引入 transform/backdrop-filter（整页过渡动画等）会成为 containing block，
+          后代 fixed 元素退化为相对容器定位、菜单按「右键坐标 + 容器偏移」飞出视口；挂 body 一劳永逸 */}
+      {ctxMenu && activeConvForMenu && activeConvForMenu.status !== 'archived' && createPortal(
         <>
           <div className="fixed inset-0 z-40" onClick={closeCtxMenu} />
-          <div className="fixed glass-overlay rounded-2xl p-1 z-50 min-w-[150px]" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
+          <div className="fixed glass-overlay rounded-2xl p-1 z-50 min-w-[150px]" style={{ left: ctxMenu.x, top: ctxMenu.y }} data-testid="convlist-ctx-menu">
             <div onClick={() => ctxAction(activeConvForMenu.pinned ? 'unpin' : 'pin', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">
               {activeConvForMenu.pinned ? '取消置顶' : '置顶'}
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
     </>
   )

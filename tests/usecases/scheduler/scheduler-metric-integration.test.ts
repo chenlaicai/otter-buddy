@@ -44,6 +44,7 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     timezone: 'Asia/Shanghai',
     body: 'body',
     description: null,
+    executorRole: '大獭',
     talkingStonePassedTo: ['otter-1'],
     senderId: 'otter-1',
     status: 'active',
@@ -74,6 +75,7 @@ interface MockRepo {
   incrementConsecutiveFailures: ReturnType<typeof vi.fn>;
   resetConsecutiveFailures: ReturnType<typeof vi.fn>;
   getExecutions: ReturnType<typeof vi.fn>;
+  getRunningExecutions: ReturnType<typeof vi.fn>;
   getExecutionCount: ReturnType<typeof vi.fn>;
 }
 
@@ -104,6 +106,7 @@ function createMockRepo(): MockRepo {
     incrementConsecutiveFailures: vi.fn(async () => 1),
     resetConsecutiveFailures: vi.fn(async () => undefined),
     getExecutions: vi.fn(async () => []),
+    getRunningExecutions: vi.fn(async () => []),
     getExecutionCount: vi.fn(async () => 0),
   };
 }
