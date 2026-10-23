@@ -62,7 +62,7 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
    - 检测 dirty state：`git -C <worktree-path> status --porcelain`
      - 有未提交变更 → **不自动删除**，报告搭档决策
      - 干净 → `git worktree remove <path>`（失败重试一次，仍失败记录跳过）
-   - 清理元数据残留：检查 `.git/worktrees/<name>/` 是否还存在，存在则 `rm -rf`
+   - 清理元数据残留：检查 `.git/worktrees/<name>/` 是否还存在，存在则 `git worktree prune` 清理（git 内建等效路径；`rm -rf` 落主仓 git 树会被安全守卫拦，实证 2026-10-23）
    - **硬验证闸（2026-10-09 虚报实证后补）**：每步清理动作后必须回查存在性，退出码 + 磁盘状态双重确认，失败必进报告 ERROR 段——「命令执行了」≠「清理成功」，汇报 ✅ 必须对齐磁盘真实状态（事故实证：dirty worktree 使 remove 默认拒绝，执行者未查退出码照样汇报「已清理」，目录在磁盘又躺了半天）：
      - worktree 删后：`git worktree list | grep <path>` 零命中 + `<path>/.git` 文件不存在 → 才算 ✅；任一仍存在 → ❌ 进报告，禁止打勾
      - 分支删后：`git branch --list <branch>` 零命中才算 ✅
@@ -133,6 +133,21 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
    - 无关联 PR → **零 commit ≠ 废弃**：空/无 commit 的 worktree 唯一合法结论是「可能正在开工」，禁止直接判残留。删前必核两证：① 目录 mtime >48h 无更新；② 无活跃 otter-claim 认领（在 issue 评论 otter-claim 注释中精确匹配 `worktree=<worktree名>` 字段，禁止模糊搜短名，认领协议见 worktree-isolation 步骤 2）。两证皆成立才列废弃候选；任一不成立 → 保留并在报告中标注「疑似在途」（撞车事故的镜像风险：清理线误删刚开工的现场与撞车同源）
 4. **呈现清单**：列出待清理项（worktree 路径 + 分支名 + PR 状态），等搭档确认
 5. **执行清理**：确认后逐项执行上述单 PR 清理流程
+
+### 判定矩阵（worktree/分支收敛口径唯一真相源）
+
+daily-health-check 收敛段与 worktree-converge 定时任务均引用本表，不复制细则（防多副本漂移）：
+
+| PR 终态 | worktree/分支状态 | 处置 |
+|---|---|---|
+| MERGED/CLOSED | 干净 | 自动清理 + 产物 archived（硬验证闸） |
+| MERGED/CLOSED | dirty | 待裁决（报告搭档）；搭档裁决清盘时 zero-loss：先 patch 归档 `data/patches/<name>-wip-<date>.patch` + 产物登记，再清盘 |
+| OPEN | 任意 | 跳过（活跃工作） |
+| 无 PR | 干净 | 两证核验（mtime >48h + issue 评论精确匹配 `worktree=<名>` 无 otter-claim；两证缺一保留标「疑似在途」）→ 废弃候选入待裁决 |
+| 无 PR | dirty | WIP 待认领 |
+| detached-HEAD 无分支 | — | 待裁决（注 HEAD sha，禁自动删） |
+
+安全边界：dirty 一律不自动删；自动清理仅限「已终结 + 干净」；保护分支（main/develop/production 或仓库定义）一律跳过不删；无 PR 判定沿用「零 commit ≠ 废弃」两证纪律。
 
 ## 产出
 
