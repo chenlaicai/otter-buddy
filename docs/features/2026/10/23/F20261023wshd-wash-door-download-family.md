@@ -1,7 +1,7 @@
 ---
 id: F20261023wshd
 title: 词面证洗白第三门收口——curl/wget/dd 族 dyn/未覆盖形态不进能力 4 豁免（M-a38446f9）
-summary: curl/wget/dd 族目标槽不可静态钉的形态被 proveNoWrite 词面证洗成正面 ALLOW 或被提取器静默断言无写（探针实证四形态：dyn 槽洗白、dd of= 动态槽静默跳过、默认落盘未钉 basename 静默断言、argv0 伪目标）；收口为「目标槽不可证 → argv-write-uncovered（不进词面证豁免）+ 未钉 basename 落目录性写面」，与 #1619 tar/unzip/rsync 族同哲学。
+summary: curl/wget/dd 族目标槽不可静态钉的形态被 proveNoWrite 词面证洗成正面 ALLOW 或被提取器静默断言无写（探针实证：dyn 槽洗白、dd of= 动态槽静默跳过、默认落盘未钉 basename 静默断言、argv0 伪目标，含附着/内联词法变体）；收口为「目标槽不可证 → argv-write-uncovered（不进词面证豁免）+ 未钉 basename 落目录性写面」，与 #1619 tar/unzip/rsync 族同哲学。
 change_type: fix
 capability_test: "n/a: 纯 A 类求值器行为修复，无 LLM 参与行为"
 intent:
@@ -53,9 +53,38 @@ W3/W4 耦合：W4 的伪目标（basename(argv0) 落 cwd）在 ROOT cwd 下**侥
 - **W4**：downloadWriteTargets 调用面统一 `words.slice(1)`（与造-执对面同口径，argv0 不入
   位置参数）
 
-**不军备化（#1513 之尺）**：dd 已知操作数名单为 POSIX dd 操作数全集（10 个，封闭集合非穷举
-追变体）；下载族未引入新值位表——W3 的目录性写面让「未钉」本身成为保守正确答案（无需猜
-值位归属）。
+**不军备化（#1513 之尺）**：dd 操作数名称封闭集（POSIX 十个：if/of/bs/cbs/ibs/obs/conv/count/
+skip/seek，其中 of= 为落点槽单独判读 + GNU 扩展 status/iflag/oflag），非穷举追变体；
+下载族未引入新值位表——W3 的目录性写面让「未钉」本身成为保守正确答案（无需猜值位归属）。
+
+## delta r1（检视獭1625 对抗审视处置，2026-10-23）
+
+初轮结论 request-changes：**S1 严重——附着形态 dyn 输出槽漏收**（检视獭独立焦点，矩阵外）：
+`-o"$D"`/`-o="$D"`/`--output="$D"`/`-O"$D"` 等附着/内联形态整词 evaluated=null，进不了分离
+形态的 dynTarget 通路——ROOT 下正面断言无写、WT 下造-执对攻击链复活（`curl --output="$D" u
+&& . ./g.sh` ALLOW 实证），同语义不同词法形态安全语义分叉。另 S2（`--output-dir`+`-O` 组合
+同族失真）、S3（dd 封闭集缺 cbs/ibs/obs，「全集」宣称与实现不符）。
+
+处置（大獭 L1 裁定全收）：
+
+| 发现 | 修法 | 钉 |
+|---|---|---|
+| S1 附着/内联 dyn 写槽 | **dynWordSlot 旗标形状判读**（parts 首字面量钉形状，ddOfSlot 同手法，不建值位表）：动态余部=写槽值（curl -o"$D"/--output="$D"、wget -O"$D"/-P"$D" 等）→ dynTarget；=不可解析簇续/动态旗标名（-q"$D" 可藏 o 写槽、--header"$H" 可拼出任意旗标）→ 保守 dynTarget；=非写旗标值位（-e"$H"、--header="$H"）→ 精确跳过不误伤 | S1×3 钉（含造-执对链与不误伤对照） |
+| S2 curl --output-dir | 与 wget --directory-prefix 同语义收编（curl man 证实 -O/--remote-name/-o 同受，节内全适用）：值 dyn → dynTarget；静态目录 + 输出文档相对名两钉（原名+前缀名，保守两向覆盖 wget -P×-O 不确定面） | S2×3 钉 |
+| S3 dd 封闭集 | cbs/ibs/obs 一行补齐 + 文档「全集」宣称订正 | S3 钉 |
+
+**诚实边界②改写（原切割被检视獭驳回、大獭认可驳回——订正）**：S1 不是建值位猜测模型，是
+**已在册解析形态的 dyn 版本对齐**（静态簇走查/长旗标语义本就在代码里，dyn 词法形态同语义
+对齐），#1513 之尺红线不动。内联形态（`--header="$H"`）值位归属旗标名已钉（getopt 语义）
+→ 精确判读；分离值的纯动态词（`--header "$H"`）仍保守入未钉操作数（无法区分值位/URL）。
+
+### Verification（delta r1 证据链）
+
+- 修复前红证：矩阵 16 passed | 5 failed（S1×3/S2/S3 全红=附着词法放水面实证）；探针
+  /tmp/probe-s1-parts.ts 钉死附着形态 parts 形状
+- 修复后绿证：wash-door 矩阵 **21/21**（delta r1 新增 8 钉）；守卫域 77 文件 2122 passed |
+  6 skipped；全仓 **422 文件 6782 passed | 6 skipped** 零回归；检视獭探针材料 /tmp/wshd-probe/
+  保留供 delta 复核
 
 ## Verification（证据链）
 
@@ -77,9 +106,12 @@ W3/W4 耦合：W4 的伪目标（basename(argv0) 落 cwd）在 ROOT cwd 下**侥
 
 - dd 「无 name=value 形状的已知词 = dd 拒识报错即无写」依赖 dd 操作数全为 name=value 的语义
   （POSIX dd 无无名操作数）；若某变体接受无名词，该形态回落成漏——已核 GNU/BSD dd 一致拒绝
-- W3 保守面：下载命令带任意动态词（含动态旗标值，如 `--header "$H"`）+ 同目录执行链 → 拦
-  （无法静态区分动态词是旗标值还是 URL 操作数——不建值位猜测模型，#1513 之尺）；纯下载无
-  执行链时工作区豁免保持（无误拦）
+- W3 保守面：**分离值的纯动态词**（如 `--header "$H"`）仍无法静态区分是旗标值还是 URL 操作数
+  ——保守入未钉操作数（不建值位猜测模型，#1513 之尺）；带执行链时同目录保守拦，纯下载无
+  执行链时工作区豁免保持（无误拦）。**内联形态**（`--header="$H"`）值位归属已钉，精确判读
+  不误伤（delta r1 订正——原边界一刀切含内联形态，不实）
+- curl `--next` 多节语义未建模（--output-dir 节内适用的边界不钉）——单节形态全覆盖，多节
+  组合保守侧行为未逐节核
 - sed/perl/ruby 族 dyn 槽走 dynamic-path 但由 INPLACE_FACE 词面兜住不洗白（探针 X1/X2 实证
   BLOCK）——不在本单射程，维持现状
 - 词面证洗白是通用机制：未来新写面族若词面 regex 漏收，同门仍会开——根治（dynamic-path 整体

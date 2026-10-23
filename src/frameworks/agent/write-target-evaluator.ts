@@ -1771,6 +1771,43 @@ function archiveFamilyTargets(
   return "unknown";
 }
 
+/** S1（检视獭1625）：动态词（附着/内联形态）旗标形状判读——parts 首字面量钉形状，
+ *  **在册解析形态的 dyn 版本对齐**（ddOfSlot 同手法，不建值位表）。返回：
+ *  "write-slot"：动态余部是写槽值（curl -o"$D"/--output="$D"、wget -O"$D"/-P"$D" 等）
+ *   → 落点不可证 dynTarget；"cluster-tail"：动态余部是不可解析簇续（-q"$D" 可藏 o 写槽）
+ *   或旗标名本身随动态拼接（--header"$H" 可拼出任意旗标）→ 保守 dynTarget；
+ *  "value"：动态余部是旗标值位（-e"$H"、--header="$H"）→ 非写面非 URL 操作数，跳过；
+ *  "operand"：纯动态/URL 前缀词 → URL 操作数候选（W3 未钉 basename）。 */
+function dynWordSlot(w: Word, tool: "curl" | "wget"): "write-slot" | "value" | "cluster-tail" | "operand" {
+  const first = w.parts[0];
+  const lead = first !== undefined && first.type === "lit" ? first.text : "";
+  if (!lead.startsWith("-")) return "operand";
+  if (lead.startsWith("--")) {
+    const eq = lead.indexOf("=");
+    if (eq === -1) return "cluster-tail"; // 旗标名随动态余部拼接 → 可解析成任意写旗标，保守
+    const name = lead.slice(0, eq);
+    const writeLong = tool === "curl"
+      ? name === "--output" || name === "--output-dir"
+      : name === "--output-document" || name === "--output-file" || name === "--directory-prefix";
+    return writeLong ? "write-slot" : "value"; // 内联值位归属旗标名已钉（getopt 语义）
+  }
+  return shortClusterSlot(lead.slice(1), tool);
+}
+
+/** S1 短旗标簇走查（与静态簇解析同口径）：写槽字母命中→值位 dyn；未知字母停扫（动态余部
+ *  是其值位）；纯无值簇+动态续 → 续段可藏写槽字母，保守。 */
+function shortClusterSlot(cluster: string, tool: "curl" | "wget"): "write-slot" | "value" | "cluster-tail" {
+  for (let k = 0; k < cluster.length; k++) {
+    const ch = cluster[k];
+    if (tool === "curl" && ch === "o") return "write-slot"; // 附着/后续值位=输出文档写槽
+    if (tool === "wget" && (ch === "O" || ch === "o" || ch === "P")) return "write-slot";
+    if (tool === "curl" && ch === "O") continue; // remoteName 无值，续扫
+    if (DOWNLOAD_NO_VALUE_SHORT.has(ch)) continue;
+    return "value"; // 未知短旗标可能带值——动态余部是其值位（静态解析同口径停扫）
+  }
+  return "cluster-tail"; // 纯无值簇+动态续——续段是更多簇字符，可藏写槽字母 → 保守
+}
+
 /** W2（M-a38446f9）：dd 操作数 of= 槽位判读（parts 首字面量钉形状）。返回：dyn=true →
  *  动态/未知形状 of= 槽（落点不可证）；val → 静态 of= 值（空串=of= 空值，open('') 必败无写）；
  *  null → 非 of= 相关（已知名称操作数或无名垃圾——dd 操作数全为 name=value，拒识报错即无写）。 */
@@ -1783,7 +1820,7 @@ function ddOfSlot(w: Word): { dyn: true } | { dyn: false; val: string } | null {
   const first = w.parts[0];
   const firstLit = first !== undefined && first.type === "lit" ? first.text : "";
   if (firstLit.startsWith("of=")) return { dyn: true };
-  if (/^(?:if|conv|bs|count|skip|seek|status|iflag|oflag)=/.test(firstLit)) return null;
+  if (/^(?:if|conv|bs|cbs|ibs|obs|count|skip|seek|status|iflag|oflag)=/.test(firstLit)) return null;
   return { dyn: true }; // 纯 var/cmdsub 或未知形状操作数——可能是 of= → 落点不可证
 }
 
@@ -1891,6 +1928,7 @@ const DOWNLOAD_NO_VALUE_SHORT = new Set(["s", "S", "f", "v", "k", "q", "i", "I",
 function downloadWriteTargets(words: Word[], cwd: string, tool: "curl" | "wget"): DownloadWrite {
   const targets: string[] = [];
   const posArgs: string[] = [];
+  const outDocVals: string[] = []; // S2：显式输出文档名（供落盘目录前缀钉）
   let dynTarget = false;
   let unpinnedOperand = false; // W3（M-a38446f9）：动态/未知形状 URL 操作数存在（basename 未钉）
   let unpinnedDir: string | null = null;
@@ -1898,6 +1936,7 @@ function downloadWriteTargets(words: Word[], cwd: string, tool: "curl" | "wget")
   let saveDir: string | null = null; // wget -P/--directory-prefix → 默认落盘目录
   let sawOutputDoc = false; // wget -O/--output-document（显式输出文档取代默认落盘）
   let noDownload = false; // wget --spider/--dry-run（不落盘，无默认写面）
+  const noteOutDoc = (val: string | null): void => { if (val !== null && val !== "") outDocVals.push(val); };
   const pushVal = (val: string | null): void => {
     if (val === null) { dynTarget = true; return; }
     if (val === "") return; // 空值位（-o=）无落点——旧三形态正则 (.+) 同口径
@@ -1907,7 +1946,14 @@ function downloadWriteTargets(words: Word[], cwd: string, tool: "curl" | "wget")
   };
   for (let i = 0; i < words.length; i++) {
     const v = words[i].evaluated;
-    if (v === null) { unpinnedOperand = true; continue; } // 动态词未被已知旗标吞值位=可能是 URL 操作数（W3）
+    if (v === null) {
+      // S1（检视獭1625）：附着/内联形态 dyn 词——旗标形状判读后分流（原一律当操作数，
+      //  写槽 dyn 进不了 dynTarget 通路 → 静默断言无写/造-执对复活）
+      const slot = dynWordSlot(words[i], tool);
+      if (slot === "operand") unpinnedOperand = true;
+      else if (slot !== "value") dynTarget = true; // write-slot / cluster-tail → 落点不可证
+      continue;
+    }
     if (v === "--") { for (const u of words.slice(i + 1)) { const e = u.evaluated; if (e !== null) posArgs.push(e); else unpinnedOperand = true; } break; }
     if (v.startsWith("--")) {
       const eq = v.indexOf("=");
@@ -1915,13 +1961,17 @@ function downloadWriteTargets(words: Word[], cwd: string, tool: "curl" | "wget")
       const inline = eq === -1 ? null : v.slice(eq + 1);
       const outDoc = (tool === "curl" && name === "--output") || (tool === "wget" && (name === "--output-document" || name === "--output-file"));
       if (outDoc) {
-        if (inline !== null) pushVal(inline);
-        else { pushVal(words[i + 1]?.evaluated ?? null); i++; }
+        const val = inline !== null ? inline : (words[i + 1]?.evaluated ?? null);
+        if (inline === null) i++;
+        pushVal(val);
+        noteOutDoc(val);
         if (tool === "wget" && name === "--output-document") sawOutputDoc = true;
         continue;
       }
       if (tool === "curl" && (name === "--remote-name" || name === "--remote-name-all")) { remoteName = true; continue; }
-      if (tool === "wget" && name === "--directory-prefix") {
+      if ((tool === "wget" && name === "--directory-prefix") || (tool === "curl" && name === "--output-dir")) {
+        // S2（检视獭1625）：curl --output-dir 与 wget --directory-prefix 同语义（落盘目录）——
+        //  curl man 证实 -O/--remote-name/-o 同受（节内全适用，含节前旗标）
         const val = inline !== null ? inline : (words[i + 1]?.evaluated ?? null);
         if (inline === null) i++;
         if (val === null) dynTarget = true; else if (val !== "") saveDir = val;
@@ -1939,8 +1989,8 @@ function downloadWriteTargets(words: Word[], cwd: string, tool: "curl" | "wget")
         const attached = rest.startsWith("=") ? rest.slice(1) : rest; // -o=f 历史口径值=f（三形态「=值」口径）
         const attachedForm = attached !== "";
         const val = attachedForm ? attached : (words[i + 1]?.evaluated ?? null);
-        if (tool === "curl" && ch === "o") { pushVal(val); skipNext = !attachedForm; break; }
-        if (tool === "wget" && (ch === "O" || ch === "o")) { pushVal(val); skipNext = !attachedForm; sawOutputDoc = ch === "O" || sawOutputDoc; break; }
+        if (tool === "curl" && ch === "o") { pushVal(val); noteOutDoc(val); skipNext = !attachedForm; break; }
+        if (tool === "wget" && (ch === "O" || ch === "o")) { pushVal(val); noteOutDoc(val); skipNext = !attachedForm; sawOutputDoc = ch === "O" || sawOutputDoc; break; }
         if (tool === "wget" && ch === "P") { dynTarget = val === null || dynTarget; saveDir = val !== null && val !== "" ? val : saveDir; skipNext = !attachedForm; break; }
         if (tool === "curl" && ch === "O") { remoteName = true; continue; } // curl -O 无值，继续扫簇（-sO 等）
         if (!DOWNLOAD_NO_VALUE_SHORT.has(ch)) break; // 未知短旗标可能带值——停扫（漏认=残余记档，假写面=误拦优先防）
@@ -1949,6 +1999,14 @@ function downloadWriteTargets(words: Word[], cwd: string, tool: "curl" | "wget")
       continue;
     }
     posArgs.push(v); // 位置参数（URL/源词）
+  }
+  // S2（检视獭1625）：落盘目录覆盖输出文档相对名（curl man 证实 -O/-o 同受）——原名与前缀名
+  //  两钉（保守两向覆盖 wget -P×-O 组合语义不确定面；绝对/家目录名不套前缀）。
+  if (saveDir !== null) {
+    for (const val of outDocVals) {
+      if (val.startsWith("/") || val.startsWith("~")) continue;
+      pushVal(`${saveDir}/${val}`);
+    }
   }
   const defaultSave = (tool === "curl" && remoteName) || (tool === "wget" && !sawOutputDoc && !noDownload);
   if (defaultSave) {
