@@ -45,7 +45,8 @@ function scriptFetch(script: unknown[]) {
     vi.unstubAllGlobals();
   };
   vi.stubGlobal("fetch", fetchMock);
-  return stopFn;
+  // calls：fetch 调用探针（测试侧同步点用，不作断言——lint no-restricted-syntax 禁调用参数断言）
+  return Object.assign(stopFn, { calls: fetchMock.mock.calls });
 }
 
 describe("WeixinLoginSessionManager", () => {
@@ -304,5 +305,69 @@ describe("WeixinLoginSessionManager", () => {
       expect(mgr.get(id)!.status).toBe("cancelled");
       expect(onSuccess).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("WeixinLoginSessionManager already_connected（#1112 binded_redirect 终态）", () => {
+  let restore: () => void;
+  let mgr: WeixinLoginSessionManager;
+
+  afterEach(() => {
+    mgr?.dispose();
+    restore?.();
+    vi.restoreAllMocks();
+  });
+
+  it("binded_redirect → already_connected 终态：不落盘不热启动", async () => {
+    const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+    restore = scriptFetch([
+      { ret: 0, qrcode: "qr", qrcode_img_content: "https://x" },
+      { status: "binded_redirect" },
+    ]);
+    const onSuccess = vi.fn();
+    mgr = new WeixinLoginSessionManager({ accountStore: store, logger, onSuccess });
+    const { id } = mgr.start();
+    await vi.waitFor(() => expect(mgr.get(id)!.status).toBe("already_connected"));
+    expect(store.listAccounts()).toHaveLength(0);
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it("already_connected 是终态：cancel() 拒绝（不产生假 cancelled）", async () => {
+    const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+    restore = scriptFetch([
+      { ret: 0, qrcode: "qr" },
+      { status: "binded_redirect" },
+    ]);
+    mgr = new WeixinLoginSessionManager({ accountStore: store, logger });
+    const { id } = mgr.start();
+    await vi.waitFor(() => expect(mgr.get(id)!.status).toBe("already_connected"));
+    expect(mgr.cancel(id)).toBe(false);
+    expect(mgr.get(id)!.status).toBe("already_connected");
+  });
+
+  it("已取消会话收到 binded_redirect：保持 cancelled 不覆写（无落盘副作用无需善后）", async () => {
+    const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+    const probe = scriptFetch([
+      { ret: 0, qrcode: "qr", qrcode_img_content: "https://x" },
+      ...Array.from({ length: 30 }, () => () => ({ status: "wait" })),
+      { status: "binded_redirect" },
+    ]);
+    restore = probe;
+    mgr = new WeixinLoginSessionManager({ accountStore: store, logger });
+    const { id } = mgr.start();
+    await vi.waitFor(() => expect(mgr.get(id)!.qrcodeUrl).toBeDefined());
+    expect(mgr.cancel(id)).toBe(true);
+    // A1 确定性等待：fetch 探针计数到位 = 后台 flow 已消耗完 wait 脚本拿到
+    // binded_redirect（1 次 qrcode + 31 次 status = 32 次调用），消除固定 sleep
+    // 与脚本回放窗口的时序竞态；不用调用参数断言（lint 禁绑定实现细节）
+    await vi.waitFor(() => {
+      if (probe.calls.length < 32) throw new Error("flow not reached binded_redirect yet");
+    });
+    // settle 一拍：探针在请求入口计数，响应固定延迟 10ms——不断言跑在响应处理前
+    // 观测的是转移前状态（突变不红）。settle 50ms 后守卫语义才可观测（检视獭-1629
+    // 实测：删守卫 + settle 50ms → 用例必红）。
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mgr.get(id)!.status).toBe("cancelled");
+    expect(store.listAccounts()).toHaveLength(0);
   });
 });

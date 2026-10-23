@@ -66,6 +66,15 @@ function makeFlow(store: WeixinAccountStore) {
   });
 }
 
+/** confirmed 结果收窄（#1112 run() 返回 union 后测试解构用） */
+function expectConfirmed(result: import("@frameworks/weixin/login-flow").WeixinLoginResult): {
+  accountId: string;
+  ilinkUserId?: string;
+} {
+  if ("alreadyConnected" in result) throw new Error("expected confirmed result, got alreadyConnected");
+  return result;
+}
+
 describe("WeixinLoginFlow (#571 scaned_but_redirect)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -82,7 +91,7 @@ describe("WeixinLoginFlow (#571 scaned_but_redirect)", () => {
     try {
       const store = new WeixinAccountStore({ stateDir: tempStateDir() });
       const flow = makeFlow(store);
-      const { accountId, ilinkUserId } = await flow.run();
+      const { accountId, ilinkUserId } = expectConfirmed(await flow.run());
       expect(ilinkUserId).toBe("u-1");
       expect(accountId).toMatch(/^weixin-/);
       const pollUrls = calls.filter((u) => u.includes("get_qrcode_status"));
@@ -212,7 +221,7 @@ describe("WeixinLoginFlow (#571 scaned_but_redirect)", () => {
     ]);
     try {
       const store = new WeixinAccountStore({ stateDir: tempStateDir() });
-      const { accountId } = await makeFlow(store).run();
+      const { accountId } = expectConfirmed(await makeFlow(store).run());
       // 账号照常落盘（登录不炸），但恶意 baseurl 被白名单拦下不持久化
       const account = store.getAccount(accountId);
       expect(account?.token).toBe("tok-leak");
@@ -253,6 +262,58 @@ describe("WeixinLoginFlow (#571 scaned_but_redirect)", () => {
       const pollUrls = calls.filter((u) => u.includes("get_qrcode_status"));
       expect(pollUrls.every((u) => u.includes("ilinkai.weixin.qq.com"))).toBe(true);
       expect(vi.mocked(logger.warn).mock.calls.length).toBeGreaterThan(0);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("WeixinLoginFlow (#1112 binded_redirect)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("binded_redirect 终态：返回 alreadyConnected，不落盘不抛错", async () => {
+    const { restore } = scriptFetch([
+      { ret: 0, qrcode: "qr-1" },
+      { status: "binded_redirect" },
+    ]);
+    try {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      const result = await makeFlow(store).run();
+      expect(result).toEqual({ alreadyConnected: true });
+      expect(store.listAccounts()).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it("binded_redirect 后不再轮询（一轮即终态，不空转到 5 分钟超时）", async () => {
+    const { calls, restore } = scriptFetch([
+      { ret: 0, qrcode: "qr-1" },
+      { status: "binded_redirect" },
+    ]);
+    try {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      await makeFlow(store).run();
+      const pollUrls = calls.filter((u) => u.includes("get_qrcode_status"));
+      expect(pollUrls).toHaveLength(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("binded_redirect 与 confirmed 的返回形态可区分（union 判别）", async () => {
+    const { restore } = scriptFetch([
+      { ret: 0, qrcode: "qr-1" },
+      { status: "confirmed", bot_token: "tok", ilink_user_id: "u-9" },
+    ]);
+    try {
+      const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+      const result = await makeFlow(store).run();
+      expect("alreadyConnected" in result).toBe(false);
+      expect("accountId" in result).toBe(true);
     } finally {
       restore();
     }

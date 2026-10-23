@@ -8,6 +8,7 @@ const STATUS_LABEL: Record<WeixinLoginSessionDTO['status'], string> = {
   waiting_scan: '等待扫码',
   scaned: '已扫码，请在微信中确认',
   success: '连接成功',
+  already_connected: '该微信已连接过，无需重复连接',
   expired: '二维码已过期',
   error: '连接失败',
   cancelled: '已取消',
@@ -34,11 +35,15 @@ export function QRCodeLoginCard({ lineName, onLoginConfirmed }: QRCodeLoginCardP
       try {
         const s = await api.getWeixinLogin(id)
         setSession(s)
-        if (['success', 'expired', 'error', 'cancelled'].includes(s.status)) {
+        if (['success', 'already_connected', 'expired', 'error', 'cancelled'].includes(s.status)) {
           if (pollTimer.current) window.clearInterval(pollTimer.current)
           if (s.status === 'success') {
             showToast(`「${lineName ?? '助理'}」已连接`, 'success')
             onLoginConfirmed?.(s.accountId)
+          } else if (s.status === 'already_connected') {
+            // #1112 binded_redirect 终态：bot 已绑定本实例，本地凭证继续有效——
+            // 不触发 onLoginConfirmed（无新账号可建线）
+            showToast('该微信已连接过此实例，无需重复连接', 'info')
           } else if (s.status === 'error') {
             showToast(s.error ?? '登录失败', 'error')
           }
