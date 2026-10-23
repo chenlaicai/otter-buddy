@@ -23,7 +23,7 @@ issue #1079（P2 tech-debt，PR #1075 检视 D3（检视imux））。关闭标�
 
 ## 2. 方案设计
 
-单测试文件 `web/src/pages/im/index.test.tsx`，按 issue 三路组织 describe。测试惯例对齐仓库既有实践（OtterProfileCard.test.tsx）：@testing-library/react（render/fireEvent/screen），`vi.mock` 静默 Toast 与二维码子组件（stub 暴露「模拟扫码确认」按钮直触 `onLoginConfirmed` 回调，把 ImPage 内部 handleLoginConfirmed 同号识别/建线路径拉进测试面），`vi.spyOn(api, ...)` 桩网络层。
+单测试文件 `web/src/pages/im/index.test.tsx`，按 issue 三路组织 describe。测试惯例对齐仓库既有实践：@testing-library/react（render/fireEvent/screen，OtterProfileCard.test.tsx 同款），`vi.mock` 静默 Toast 与二维码子组件 + `vi.spyOn(api, ...)` 桩网络层（惯例锚点 AppLayout.test.tsx:34 的 vi.mock('../../api/client')）。
 
 ### 三路用例清单（19 用例，对齐关闭标准「≥ 正文清单」）
 
@@ -37,7 +37,7 @@ issue #1079（P2 tech-debt，PR #1075 检视 D3（检视imux））。关闭标�
 
 **机制判定**：纯测试增量（无新机制、无行为变更），机制识别检查点全项不命中——判定结论：无机制预算，四问不适用。
 
-**Mock 面取舍**：二维码子组件（QRCodeLoginCard/FeishuQRCodeLoginCard）内部有自己的轮询与登录会话逻辑，属独立测试面——本单按 issue 范围 stub 掉，只验证 ImPage 与其的集成点（lineName 传递、onLoginConfirmed 回调），不做子组件内测（超范围）。
+**Mock 面取舍（检视 1626-2 处置后表述）**：二维码子组件（QRCodeLoginCard/FeishuQRCodeLoginCard）内部有自己的轮询与登录会话逻辑，本单按 issue 范围 stub 掉，只验证 ImPage 与其的集成点（lineName 传递、onLoginConfirmed 回调）。事实现状：两子组件目录下零测试文件——即集成缝两侧均无防线（真组件单侧改 prop 名测试全绿而生产静默断链）；组件级测试超出本单范围，已入待立案清单（净增熔断期不立 issue）。
 
 **弹层断言口径**：覆盖确认弹层用 `role="dialog"` 定位（源码带 `aria-label="同号覆盖确认"`），两步错误语义断言 toast 文案 + 弹层保留/关闭 + 后续 API 调用面（provision 是否执行）三重证据，单靠文案断言会漏行为回归。
 
@@ -53,6 +53,7 @@ issue #1079（P2 tech-debt，PR #1075 检视 D3（检视imux））。关闭标�
 | web vitest 全绿（关闭标准） | `cd web && npx vitest run` | Test Files 76 passed / Tests 778 passed |
 | 类型无漂移 | `cd web && npx tsc --noEmit` | exit 0 零输出 |
 | 测试有牙（负向自证） | 改坏 confirmOverwrite delete 失败分支 toast 文案后复跑 | 「两步错误语义 · delete 失败」用例红（本地验证过：mock 时序问题 5 红→修复后 19 绿，测试确实咬住行为） |
+| 双 toast 现状钉入（检视 1626-1） | 「provision 失败」用例同时断言「创建失败，请重试」+「旧账号已清理…」两条 toast | 两断言绿 = 现状锁定；生产侧消除误导 toast 后该断言红即提示同步测试 |
 
 **最简检查**：已过最简阶梯——单文件 19 用例直测现状，无新依赖（@testing-library/react 仓库已有），无 helper 抽象（3 个本地小函数 enterNaming/enterConnecting/stubThenRender 即够）；确认已最简。
 

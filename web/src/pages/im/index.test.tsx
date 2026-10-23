@@ -201,6 +201,9 @@ describe('② 覆盖确认弹层', () => {
     })
     expect(api.deleteWeixinAccount).toHaveBeenCalledWith('acc-old')
     expect(showToast).toHaveBeenCalledWith('旧账号已清理，但建线失败——请重新新建助理连接', 'error')
+    // 检视 1626-1 钉入：现状双 toast（finalizeLine 先发「创建失败，请重试」，confirmOverwrite 再发指引）。
+    // 覆盖场景下前者误导（已 resetFlow 无法重试），生产侧消除另行处置；此断言锁行为现状防漂移。
+    expect(showToast).toHaveBeenCalledWith('创建失败，请重试', 'error')
     expect(screen.queryByRole('dialog', { name: '同号覆盖确认' })).toBeNull()
     // resetFlow：回到新建按钮
     screen.getByText('＋ 新建助理连接')
