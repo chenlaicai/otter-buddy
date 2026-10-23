@@ -31,7 +31,7 @@ import { ConversationController } from "@interface-adapters/http/controllers/con
 import { fakeAgentGateway } from "../helpers/agent-gateway.fake";
 import type { TestDeps } from "./helpers";
 
-describe("#891: JSON null body 不崩 500（13 端点回归）", () => {
+describe("#891: JSON null body 不崩 500（12 端点回归）", () => {
   let deps: TestDeps;
   let app: ReturnType<typeof createTestApp>;
 
