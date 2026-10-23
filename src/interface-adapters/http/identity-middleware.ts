@@ -62,6 +62,7 @@ export const POLICY_TABLE: readonly PolicyRule[] = [
   },
   // ── 族内例外（必须先于同族 admin 规则命中）──
   { methods: ["POST"], path: /^\/api\/otters\/[^/]+\/retry$/, policy: "write", note: "会话重试=用户级交互，非建散重启" },
+  // F20261023cnct（issue #1063）：POST :id/leave 已随死端点下线，正则 leave 分支休眠保留（零行为变化，防未来误挂时语义退化）
   { methods: ["POST"], path: /^\/api\/connections\/[^/]+\/(enter|leave)$/, policy: "write", note: "IM 进出会话=用户级交互，非通道凭据注册" },
   { methods: ["POST"], path: /^\/api\/memory\/search\/similar$/, policy: "authenticated", note: "语义是检索（POST 形态的读），不按写兜底" },
   // ── admin（建散/凭据/自动化/配置等系统级写）──
@@ -74,6 +75,8 @@ export const POLICY_TABLE: readonly PolicyRule[] = [
   { methods: ["POST", "PATCH", "DELETE"], path: /^\/api\/scheduled-tasks(\/|$)/, policy: "admin", note: "定时任务增改删+立即触发（服务器侧自动化）" },
   { methods: ["POST"], path: /^\/api\/conversations\/[^/]+\/scheduled-tasks$/, policy: "admin", note: "会话级定时任务创建" },
   { methods: ["POST"], path: /^\/api\/health\/(scan|signals)/, policy: "admin", note: "体检扫描与 healing 信号处置" },
+  // F20261023cnct（issue #1063）：POST /api/connections（create）已随死端点下线，本规则休眠但保留作防御纵深——
+  // 若未来误挂 POST /api/connections* 写口，仍强制 admin 档（删规则会跌入 fail-closed 兜底 write = 安全降级）
   { methods: ["POST", "DELETE"], path: /^\/api\/connections(\/|$)/, policy: "admin", note: "通道（微信/飞书 ilink）注册" },
   {
     methods: ["POST", "PATCH", "DELETE"],

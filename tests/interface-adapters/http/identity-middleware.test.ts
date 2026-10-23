@@ -44,13 +44,14 @@ describe("resolvePolicy：路由策略表矩阵", () => {
       ["POST", "/api/conversations/c1/scheduled-tasks", "admin"],
       ["POST", "/api/health/scan", "admin"],
       ["POST", "/api/health/signals/s1/triage", "admin"],
-      ["POST", "/api/connections", "admin"],
+      // F20261023cnct（issue #1063）：POST /api/connections（create）已下线，矩阵行删除；
+      // identity-middleware.ts 的 admin 兼规则保留作防御纵深（防误挂降级），见源码注释。
       ["POST", "/api/weixin/login", "admin"],
       ["DELETE", "/api/feishu/apps/a1", "admin"],
       // 族内例外（必须先于同族 admin 命中——顺序敏感）
       ["POST", "/api/otters/o1/retry", "write"],
       ["POST", "/api/connections/c1/enter", "write"],
-      ["POST", "/api/connections/c1/leave", "write"],
+      // F20261023cnct（issue #1063）：POST :id/leave 已下线，矩阵行删除（enter 保留为活端点）
       // 读语义的 POST 形态不按写兜底
       ["POST", "/api/memory/search/similar", "authenticated"],
     ];

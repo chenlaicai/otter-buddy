@@ -24,6 +24,10 @@ import type {
   HealingEventsResponseDTO,
   SignalEventsResponseDTO,
   DispatchRecordsResponseDTO,
+  ConnectionDTO,
+  ConnectionSessionDTO,
+  EnterConversationRequestDTO,
+  ActiveConversationDTO,
 } from '@contract/api'
 import { identityHeaders } from './identity'
 
@@ -489,30 +493,9 @@ export function listExecutions(taskId: string, options?: { limit?: number; offse
 }
 
 // ── Connections (IM 大厅) ──
+// F20261023cnct：契约类型迁 @contract/api/connection（issue #1063 契约同步，双端单一真相源）
 
-export interface ConnectionDTO {
-  id: string
-  name: string
-  externalId: string
-  externalType: string
-  metadata: Record<string, unknown> | null
-  status: string
-  createdAt: string
-  updatedAt: string
-}
-
-export interface ConnectionSessionDTO {
-  id: string
-  connectionId: string
-  conversationId: string
-  status: string
-  joinedAt: string
-  releasedAt: string | null
-}
-
-export interface EnterConversationRequestDTO {
-  conversationId: string
-}
+export type { ConnectionDTO, ConnectionSessionDTO, EnterConversationRequestDTO } from '@contract/api'
 
 export function getConnection(id: string): Promise<ConnectionDTO> {
   return request(`/connections/${id}`)
@@ -522,7 +505,7 @@ export function enterConversation(connectionId: string, body: EnterConversationR
   return request(`/connections/${connectionId}/enter`, { method: 'POST', body: JSON.stringify(body) })
 }
 
-export function listActiveConversations(): Promise<Array<{ id: string; title: string; occupiedBy?: string }>> {
+export function listActiveConversations(): Promise<ActiveConversationDTO[]> {
   return request('/connections/any/conversations')
 }
 
