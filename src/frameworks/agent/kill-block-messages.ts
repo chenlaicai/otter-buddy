@@ -14,7 +14,21 @@
  * ⚠️ 分类锚片段（guard-intercept-classify.ts 指纹依赖，改动需同步 classifier）：
  * - 「终止进程的目标为变量或命令替换」→ self_kill_nonliteral
  * - 「按名匹配的批量终止命令」→ self_kill_byname
+ *
+ * F20261023ktru（#1069）：kill-by-pid 正道指引的脚本路径改仓根绝对路径——相对形态
+ * `node scripts/restart-service.mjs` 仅在仓根 cwd 成立，外部项目对话（colink/
+ * guangdongdianlitest 等）的獭 cwd 不在仓内，照做即 Cannot find module（2026-10-22
+ * colink 獭 09:45Z 二拦 bounce 实证，healing_events self_kill_nonliteral）。repo-root
+ * 是无框架依赖的叶子工具（仅 node:fs/node:path），不破坏本模块无环约束（#1540）。
+ * alpha.sh 指引保持 worktree 相对形态：alpha 实例只存在于 otter-buddy worktree，
+ * 「在 worktree 内跑 scripts/alpha.sh」在该语义域内可解析（非目标，见 F20261023ktru）。
  */
+import { join } from "node:path";
+import { getRepoRoot } from "../repo-root";
+
+/** F20261023ktru（#1069）：受控出口脚本的仓根绝对路径——任意 cwd 可执行的唯一形态。 */
+export const RESTART_SERVICE_SCRIPT = join(getRepoRoot(), "scripts", "restart-service.mjs");
+const KILL_BY_PID_EXAMPLE = `node ${RESTART_SERVICE_SCRIPT} kill-by-pid <pid> --project /abs/path`;
 
 /**
  * self_kill_nonliteral：非字面量 PID kill（变量/命令替换目标）拦截文案。
@@ -22,7 +36,7 @@
  */
 export const INDIRECT_KILL_BLOCK_MSG =
   "bash 命令中终止进程的目标为变量或命令替换（非字面量 PID），无法判断是否针对主进程。该命令不允许——" +
-  "若需清理自己起的 dev server/测试进程，用受控出口按 PID 终止：node scripts/restart-service.mjs kill-by-pid <pid> --project /abs/path" +
+  `若需清理自己起的 dev server/测试进程，用受控出口按 PID 终止：${KILL_BY_PID_EXAMPLE}` +
   "（#1540：--project 声明进程归属目录，脚本内部做 PID/cwd 归属校验后才终止、主进程恒拒；起进程时请记下 PID 与归属目录，清理即可走这条正道）；" +
   "若需终止/重启验证实例，在 worktree 内跑 scripts/alpha.sh stop（alpha 实例的标准清理方式，勿用组合杀）；" +
   "若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；" +
@@ -35,6 +49,6 @@ export const INDIRECT_KILL_BLOCK_MSG =
  */
 export const PKILL_BYNAME_BLOCK_MSG =
   "bash 命令包含按名匹配的批量终止命令（pkill/killall），可能影响主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。" +
-  "若需清理自己起的 dev server/测试进程，用受控出口按 PID 终止：node scripts/restart-service.mjs kill-by-pid <pid> --project /abs/path" +
+  `若需清理自己起的 dev server/测试进程，用受控出口按 PID 终止：${KILL_BY_PID_EXAMPLE}` +
   "（#1540：--project 声明进程归属目录，脚本内部做 PID/cwd 归属校验后才终止、主进程恒拒；起进程时请记下 PID 与归属目录，清理即可走这条正道）；" +
   "若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。";
