@@ -1,6 +1,7 @@
 import qrcode from "qrcode";
 import type { Logger } from "@usecases/ports/logger";
 import { WeixinLoginFlow } from "./login-flow";
+import type { WeixinLoginResult } from "./login-flow";
 import { WeixinApiClient } from "./api-client";
 import type { WeixinAccountStore } from "./account-store";
 
@@ -11,8 +12,9 @@ import type { WeixinAccountStore } from "./account-store";
  * 前端轮询会话状态渲染二维码与进度。与 CLI 共用 login-flow，差异仅在
  * onQrCode 回调：CLI 渲终端 ASCII，这里渲染 PNG dataURL 推给前端。
  *
- * 生命周期：wait/scaned → confirmed（成功，账号落盘）/ expired / error /
- * cancelled。终态会话保留 10 分钟（供前端取终态）后清理。
+ * 生命周期：wait/scaned → confirmed（成功，账号落盘）/ binded_redirect
+ * （already_connected，#1112）/ expired / error / cancelled。终态会话保留
+ * 10 分钟（供前端取终态）后清理。
  */
 
 export type WeixinLoginSessionStatus =
@@ -20,9 +22,19 @@ export type WeixinLoginSessionStatus =
   | "waiting_scan" // 码已出，等扫码
   | "scaned" // 已扫码，等确认
   | "success" // confirmed，账号已落盘
+  | "already_connected" // #1112：binded_redirect——bot 已绑定本实例，不发新凭证不落盘
   | "expired"
   | "error"
   | "cancelled";
+
+/** 终态集合（success/already_connected/expired/error/cancelled 不可再流转） */
+const TERMINAL_STATUSES: ReadonlySet<WeixinLoginSessionStatus> = new Set([
+  "success",
+  "already_connected",
+  "expired",
+  "error",
+  "cancelled",
+]);
 
 export interface WeixinLoginSession {
   id: string;
@@ -98,7 +110,7 @@ export class WeixinLoginSessionManager {
 
     void flow
       .run()
-      .then(({ accountId, ilinkUserId }) => this.handleFlowSuccess(session, accountId, ilinkUserId))
+      .then((result) => this.handleFlowResult(session, result))
       .catch((err) => {
         if (session.status === "cancelled") return;
         const msg = err instanceof Error ? err.message : String(err);
@@ -114,6 +126,25 @@ export class WeixinLoginSessionManager {
   get(id: string): WeixinLoginSession | undefined {
     const s = this.sessions.get(id);
     return s ? { ...s } : undefined;
+  }
+
+  /**
+   * flow 完成总分流（#1112）：alreadyConnected（binded_redirect）→ already_connected
+   * 终态，不落盘不热启动（本地凭证继续有效，既有账号与 poller 不受影响）；
+   * 其余走 handleFlowSuccess 分流（#592）。
+   * 已取消会话收到 alreadyConnected：保持 cancelled（无任何落盘副作用，无需善后）。
+   */
+  private handleFlowResult(session: WeixinLoginSession, result: WeixinLoginResult): void {
+    if ("alreadyConnected" in result) {
+      if (session.status === "cancelled") {
+        this.deps.logger.info("Weixin login already connected after cancel; nothing to persist", { sessionId: session.id });
+        return;
+      }
+      session.status = "already_connected";
+      this.deps.logger.info("Weixin login: already connected to this instance (binded_redirect)", { sessionId: session.id });
+      return;
+    }
+    this.handleFlowSuccess(session, result.accountId, result.ilinkUserId);
   }
 
   /** flow 完成分流（#592）：cancelled+account_deleted → 删号取消，不落盘不热启动；
@@ -143,7 +174,11 @@ export class WeixinLoginSessionManager {
   cancel(id: string): boolean {
     const s = this.sessions.get(id);
     if (!s) return false;
-    if (s.status === "success" || s.status === "error" || s.status === "expired") return false;
+    // 语义与既有行为一致：success/error/expired/already_connected 不可取消；
+    // 已 cancelled 的重复 cancel 幂等返回 true（不收进此判断，保持存量契约）
+    if (s.status === "success" || s.status === "already_connected" || s.status === "error" || s.status === "expired") {
+      return false;
+    }
     s.status = "cancelled";
     return true;
   }
@@ -165,7 +200,7 @@ export class WeixinLoginSessionManager {
   cancelByAccountId(accountId: string): number {
     let cancelled = 0;
     for (const s of this.sessions.values()) {
-      if (s.accountId === accountId && !["success", "error", "expired", "cancelled"].includes(s.status)) {
+      if (s.accountId === accountId && !TERMINAL_STATUSES.has(s.status)) {
         s.status = "cancelled";
         s.cancellationReason = "account_deleted";
         cancelled++;
@@ -182,7 +217,7 @@ export class WeixinLoginSessionManager {
   cancelByIlinkUserId(ilinkUserId: string): number {
     let cancelled = 0;
     for (const s of this.sessions.values()) {
-      if (s.ilinkUserId === ilinkUserId && !["success", "error", "expired", "cancelled"].includes(s.status)) {
+      if (s.ilinkUserId === ilinkUserId && !TERMINAL_STATUSES.has(s.status)) {
         s.status = "cancelled";
         s.cancellationReason = "account_deleted";
         cancelled++;
@@ -208,7 +243,7 @@ export class WeixinLoginSessionManager {
   /** 停止全部活跃会话（测试/进程关闭用；已终态的不动） */
   dispose(): void {
     for (const s of this.sessions.values()) {
-      if (!["success", "error", "expired", "cancelled"].includes(s.status)) {
+      if (!TERMINAL_STATUSES.has(s.status)) {
         s.status = "cancelled";
       }
     }
@@ -219,7 +254,7 @@ export class WeixinLoginSessionManager {
     setTimeout(() => {
       const now = Date.now();
       for (const [id, s] of this.sessions) {
-        const done = ["success", "error", "expired", "cancelled"].includes(s.status);
+        const done = TERMINAL_STATUSES.has(s.status);
         if (done && now - new Date(s.createdAt).getTime() > SESSION_TTL_MS) {
           this.sessions.delete(id);
         }

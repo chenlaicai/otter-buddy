@@ -10,13 +10,16 @@
  * 经 checkWithModel 调用——issue 根因恰是 V2 漂移，故 V2 链必须有独立锚点）。
  */
 import { describe, expect, it } from "vitest";
+import { join } from "node:path";
+import { getRepoRoot } from "../../../src/frameworks/repo-root";
 import { checkWithModel } from "../../../src/frameworks/agent/guard-model-judge";
 import {
   INDIRECT_KILL_BLOCK_MSG,
   PKILL_BYNAME_BLOCK_MSG,
 } from "../../../src/frameworks/agent/kill-block-messages";
 
-const KILL_BY_PID_EXAMPLE = "node scripts/restart-service.mjs kill-by-pid <pid> --project /abs/path";
+// F20261023ktru（#1069）：示例串随文案改仓根绝对路径——期望独立计算（不引模块常量防自证）
+const KILL_BY_PID_EXAMPLE = `node ${join(getRepoRoot(), "scripts", "restart-service.mjs")} kill-by-pid <pid> --project /abs/path`;
 
 describe("#1540 V2 链文案锚（guard-model-judge → kill-block-messages 唯一文案源）", () => {
   it("V2 非字面 PID kill 返回共享文案（恒等锁定，含 kill-by-pid 完整示例串）", () => {
