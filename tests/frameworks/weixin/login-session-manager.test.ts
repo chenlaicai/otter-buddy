@@ -363,6 +363,10 @@ describe("WeixinLoginSessionManager already_connected（#1112 binded_redirect �
     await vi.waitFor(() => {
       if (probe.calls.length < 32) throw new Error("flow not reached binded_redirect yet");
     });
+    // settle 一拍：探针在请求入口计数，响应固定延迟 10ms——不断言跑在响应处理前
+    // 观测的是转移前状态（突变不红）。settle 50ms 后守卫语义才可观测（检视獭-1629
+    // 实测：删守卫 + settle 50ms → 用例必红）。
+    await new Promise((r) => setTimeout(r, 50));
     expect(mgr.get(id)!.status).toBe("cancelled");
     expect(store.listAccounts()).toHaveLength(0);
   });
