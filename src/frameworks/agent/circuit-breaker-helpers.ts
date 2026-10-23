@@ -12,6 +12,8 @@ import type { Model, Api } from "@earendil-works/pi-ai";
 import { getConfig } from "@frameworks/config";
 import type { OutputGuardConfig } from "./output-guard";
 import { attachOutputGuard } from "./output-guard";
+// F20261023ktru（#1069）：自有项目提醒里的正道脚本路径同走仓根绝对路径（外部项目 cwd 不可解析相对路径）
+import { RESTART_SERVICE_SCRIPT } from "./kill-block-messages";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { checkBashCommandSafety, readMainProcessPid, SLEEP_REASON_PREFIX, stripSleepMarkerIfPresent } from "./bash-safety-guard";
 import { loadAllowedServicePorts } from "./allowed-service-ports";
@@ -32,7 +34,8 @@ import { loadAllowedServicePorts } from "./allowed-service-ports";
  */
 const PROCESS_OPS_SHAPE = /\b(?:p?kill|killall\d?|pgrep|skill|lsof)\b|restart-service/;
 
-function appendDevServerGuidance(reason: string, projectRoot: string, command?: string): string {
+// F20261023ktru（#1069）：导出供单测覆盖指引分支（此前零测试覆盖，双分支相对路径漏网的根因）
+export function appendDevServerGuidance(reason: string, projectRoot: string, command?: string): string {
   // 命令感知：非进程操作形态的拦截（heredoc 探查/重定向/主仓写等）不附加 dev-server
   // 引导——内容与拦截原因无关，只会误导排查方向。command 未传（历史调用方）保持旧行为。
   if (command !== undefined && !PROCESS_OPS_SHAPE.test(command)) return reason;
@@ -40,9 +43,9 @@ function appendDevServerGuidance(reason: string, projectRoot: string, command?: 
     const allowed = loadAllowedServicePorts(projectRoot);
     if (allowed.length > 0) {
       const ports = allowed.map(s => s.port).join("、");
-      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node scripts/restart-service.mjs <port>（脚本内部做 PID/cwd 校验后终止）；按 PID 终止自己起的进程（含非白名单端口）：node scripts/restart-service.mjs kill-by-pid <pid> --project /abs/path（#1540，--project 声明归属目录）；端口未声明且项目在 otter 工作根内的，可加 --project /abs/path --add 现场声明（#1069）。`;
+      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node ${RESTART_SERVICE_SCRIPT} <port>（脚本内部做 PID/cwd 校验后终止）；按 PID 终止自己起的进程（含非白名单端口）：node ${RESTART_SERVICE_SCRIPT} kill-by-pid <pid> --project /abs/path（#1540，--project 声明归属目录）；端口未声明且项目在 otter 工作根内的，可加 --project /abs/path --add 现场声明（#1069）。`;
     }
-    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：node scripts/restart-service.mjs <port> --project /abs/path --add 可现场声明并重启（#1069，限 otter 工作根内项目，脚本内部做 PID/cwd 校验）；按 PID 终止自己起的进程：node scripts/restart-service.mjs kill-by-pid <pid> --project /abs/path（#1540，--project 声明归属目录）；范围外项目请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档）。`;
+    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：node ${RESTART_SERVICE_SCRIPT} <port> --project /abs/path --add 可现场声明并重启（#1069，限 otter 工作根内项目，脚本内部做 PID/cwd 校验）；按 PID 终止自己起的进程：node ${RESTART_SERVICE_SCRIPT} kill-by-pid <pid> --project /abs/path（#1540，--project 声明归属目录）；范围外项目请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档）。`;
   } catch {
     return reason;
   }
