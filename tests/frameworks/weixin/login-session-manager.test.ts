@@ -306,3 +306,57 @@ describe("WeixinLoginSessionManager", () => {
     });
   });
 });
+
+describe("WeixinLoginSessionManager already_connected（#1112 binded_redirect 终态）", () => {
+  let restore: () => void;
+  let mgr: WeixinLoginSessionManager;
+
+  afterEach(() => {
+    mgr?.dispose();
+    restore?.();
+    vi.restoreAllMocks();
+  });
+
+  it("binded_redirect → already_connected 终态：不落盘不热启动", async () => {
+    const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+    restore = scriptFetch([
+      { ret: 0, qrcode: "qr", qrcode_img_content: "https://x" },
+      { status: "binded_redirect" },
+    ]);
+    const onSuccess = vi.fn();
+    mgr = new WeixinLoginSessionManager({ accountStore: store, logger, onSuccess });
+    const { id } = mgr.start();
+    await vi.waitFor(() => expect(mgr.get(id)!.status).toBe("already_connected"));
+    expect(store.listAccounts()).toHaveLength(0);
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it("already_connected 是终态：cancel() 拒绝（不产生假 cancelled）", async () => {
+    const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+    restore = scriptFetch([
+      { ret: 0, qrcode: "qr" },
+      { status: "binded_redirect" },
+    ]);
+    mgr = new WeixinLoginSessionManager({ accountStore: store, logger });
+    const { id } = mgr.start();
+    await vi.waitFor(() => expect(mgr.get(id)!.status).toBe("already_connected"));
+    expect(mgr.cancel(id)).toBe(false);
+    expect(mgr.get(id)!.status).toBe("already_connected");
+  });
+
+  it("已取消会话收到 binded_redirect：保持 cancelled 不覆写（无落盘副作用无需善后）", async () => {
+    const store = new WeixinAccountStore({ stateDir: tempStateDir() });
+    restore = scriptFetch([
+      { ret: 0, qrcode: "qr", qrcode_img_content: "https://x" },
+      ...Array.from({ length: 30 }, () => () => ({ status: "wait" })),
+      { status: "binded_redirect" },
+    ]);
+    mgr = new WeixinLoginSessionManager({ accountStore: store, logger });
+    const { id } = mgr.start();
+    await vi.waitFor(() => expect(mgr.get(id)!.qrcodeUrl).toBeDefined());
+    expect(mgr.cancel(id)).toBe(true);
+    await new Promise((r) => setTimeout(r, 300)); // 等后台 flow 走到 binded_redirect
+    expect(mgr.get(id)!.status).toBe("cancelled");
+    expect(store.listAccounts()).toHaveLength(0);
+  });
+});
