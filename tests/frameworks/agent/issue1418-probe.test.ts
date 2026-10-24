@@ -5,7 +5,7 @@ describe("#1418 探针：issue 案发现场在当前守卫下的真实裁决", (
   const mainPid = 99999;
   const projectRoot = "/repo";
   const sessionCwd = "/repo/data/workspaces/wsid";
-  const mainCwd = "/repo"; // 主仓 cwd——相对路径 data/… 应解析到主仓 data/
+  // 注：生产 sessionCwd 恒为会话工作区；主仓 cwd 形态由 case9（cd 跟踪）覆盖
 
   it("case1: rm 绝对路径 workspace 沙箱文件（bcb118fb 原形态）→ ALLOW", () => {
     const cmd = "rm /repo/data/workspaces/wsid/claim-1374.md /repo/data/workspaces/wsid/F20261009qdlq-lexer-quoted-dollar-rawquote.md";
