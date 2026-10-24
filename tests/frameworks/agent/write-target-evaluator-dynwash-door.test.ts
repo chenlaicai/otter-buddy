@@ -95,7 +95,7 @@ describe("B2 真爬升面（临时目录构造 repo：ws 落 repo 树内、wt �
       fs.rmSync(base, { recursive: true, force: true });
     }
   });
-  it("delta1（检视猭1636 严重 1）：--work-tree 覆盖不丢 gitdir 侧入账（双入账）——真爬升面下 stash/commit 双形态均 BLOCK", async () => {
+  it("delta1（检视獭1636 严重 1）：--work-tree 覆盖不丢 gitdir 侧入账（双入账）——真爬升面下 stash/commit 双形态均 BLOCK", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const os = await import("node:os");

@@ -108,7 +108,7 @@ fail-closed）。
   正确 ALLOW，非洞）
 - lint + tsc --noEmit 干净
 
-## delta1 处置（检视猭1636 初轮 request-changes，2026-10-24）
+## delta1 处置（检视獭1636 初轮 request-changes，2026-10-24）
 
 **严重 1（--work-tree 覆盖丢爬升锚定）已修**：探针复现比报告更广——不仅
 `--work-tree <ws>`，`--work-tree /tmp/x stash drop`@ws 也 ALLOW（override 落非豁免区同样把

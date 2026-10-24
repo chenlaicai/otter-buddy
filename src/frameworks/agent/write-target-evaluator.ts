@@ -165,7 +165,7 @@ function pathWithinMainCore(p: string, projectRoot: string): boolean {
  *  修法：git 写族段 base 落运行时区时，fs 爬升锄定真实 gitdir（.git 目录=本体仓；
  *  .git 文件=linked worktree 指回主仓 .git/worktrees/<n>——政策豁免：worktree 是 R1
  *  认可的正道写区；元数据物理上仍写共享 gitdir 的 worktrees/<n> 子区（stash/commit
- *  亦写共享 refs/index，检视猭1636 建议 3 论证修正），拦截语义按「写 worktree」豁免）。
+ *  亦写共享 refs/index，检视獭1636 建议 3 论证修正），拦截语义按「写 worktree」豁免）。
  *  base 路径不存在时不做爬升推定（已清理的 worktree
  *  路径爬升必命中主仓 .git——但 git 在不存在的 cwd 无法运行，推定无意义，维持豁免语义，
  *  guard-v2-real-replay E3/E4 回放面宁放不误拦）。只读 fs（existsSync/statSync），
@@ -572,7 +572,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoo
   // 双签终版（2026-10-12）：pull=fetch+merge/rebase 归写按落点判（检视獭驳回「pull 非写」）
   if (!GIT_WRITE_SUBS.has(sub)) return null;
   // F20261024dwtg A2：缓判落地——到这里的都是写族，旗标区动态值升级为 fail-closed
-  //  （`git -C"$P" commit` → dynamic-path，与旧行为同判）。已知边界（检视猭1636 建议 1，
+  //  （`git -C"$P" commit` → dynamic-path，与旧行为同判）。已知边界（检视獭1636 建议 1，
   //  #1513「间接构造不追」口径记档）：子命令位本身动态（`git "$OP" drop`）在上一行已
   //  返 null → 词面证豁免面 ALLOW——与改前同判（改前旗标循环 w===null 处直接返回同判），
   //  非本单引入。
@@ -608,14 +608,14 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoo
   //  发现 gitdir，data/workspaces 等非 git 树 cwd 的 git 写实际落主仓 .git（stash drop/pop
   //  写 refs/stash 栈）。锄定后 base=gitdir 所在树，豁免不再洗白。worktree（.git 文件）
   //  不锄定——政策豁免（worktree 是 R1 认可的正道写区；元数据物理上仍写共享 gitdir
-  //  的 worktrees/<n> 子区，检视猭1636 建议 3 论证修正）。projectRoot 缺席（旧测试假想
+  //  的 worktrees/<n> 子区，检视獭1636 建议 3 论证修正）。projectRoot 缺席（旧测试假想
   //  路径）维持原语义。
   let anchored = base;
   if (projectRoot !== undefined && !pathWithinMain(base, projectRoot)) {
     const anchor = gitCrawlAnchor(base);
     if (anchor !== null) anchored = anchor;
   }
-  // delta1（检视猭1636 严重 1）：双入账——git 真实写面 = gitdir 侧（refs/index 元数据，
+  // delta1（检视獭1636 严重 1）：双入账——git 真实写面 = gitdir 侧（refs/index 元数据，
   //  anchored）+ work-tree 侧（工作树文件，override 求值）并列 push。旧版 override 存在
   //  时整条替换落点，爬升锄定值被丢弃（`git --work-tree <ws>/tmp stash drop` 实证 ALLOW
   //  绕过——stash 写主仓 refs 完全出账）。override 求不出时维持回落语义（gitdir 侧已在账）。
