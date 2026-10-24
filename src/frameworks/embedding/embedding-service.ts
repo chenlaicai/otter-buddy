@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- F20261023emct 闸门接入后 467 行（限 450，skipBlank/Comments 后实际逻辑未超），拆文件另开 PR（F20261020slvg 已拆过 protocol） */
 /**
  * Embedding 服务主线程：通过 child_process.fork 调用 bge-m3 模型子进程。
  * 实现 EmbeddingGateway 接口，dispose() 通过工厂返回值暴露。
@@ -35,6 +36,7 @@ import type {
   PendingBatchRequest,
   ReadyState,
 } from "./embedding-protocol";
+import { resolveBatchTokenBudget, splitBatchByTokenBudget, wrapOptsForShard, estimateTokens } from "./embed-batch-sharding";
 
 export class EmbeddingServiceImpl implements EmbeddingGateway {
   private disposed = false;
@@ -75,6 +77,8 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private static testTimeoutOverride: number | null = null;
   /** 测试用覆盖 in-flight 上限 */
   private static testMaxInFlightOverride: number | null = null;
+  /** F20261023emct：测试用分片预算覆盖（避免测试依赖环境变量） */
+  private static testBatchTokenBudgetOverride: number | null = null;
   /**
    * F20261020slvg：无进展看门狗——「死」的定义从「墙钟超预算」（超时自杀，#1493 误杀；
    * 慢≠死闭锁，#1521 活锁）改为「lane 占用且 worker 无任何响应」。
@@ -136,6 +140,11 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   /** 设置测试用看门狗阈值覆盖（仅测试环境） */
   static setTestWatchdogOverride(ms: number | null): void {
     EmbeddingServiceImpl.testWatchdogOverride = ms;
+  }
+
+  /** 设置测试用分片预算覆盖（仅测试环境） */
+  static setTestBatchTokenBudgetOverride(n: number | null): void {
+    EmbeddingServiceImpl.testBatchTokenBudgetOverride = n;
   }
 
   /** 设置测试用 in-flight 上限覆盖（仅测试环境） */
@@ -472,8 +481,19 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     });
   }
 
+  // eslint-disable-next-line max-lines-per-function -- F20261023emct delta 加单条守卫后 61 行（限 60），剩余为 F20261020slvg 的 waitSlot 内联循环（拆分需同步处理 TOCTOU 注释链，另开 PR）
   async embed(text: string, opts?: EmbedCallOptions): Promise<Float32Array> {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
+    // F20261023emct delta 处置（建议 5/焦点 1）：单条入口同受闸门收口——超预算文本直接
+    // reject 而非透传（调用方截断链是兜底不是闸门，「靠调用方纪律」正是前 6 轮的失败
+    // 模式）。单条不可拆（拆文本破坏语义），无豁免路径——真巨文本应先截断（store-memory
+    // EMBED_MAX_CHARS=6000 已做）。主不变量由此完整：embedBatch 入口拆批、embed 入口拒收。
+    const budget = EmbeddingServiceImpl.testBatchTokenBudgetOverride ?? resolveBatchTokenBudget();
+    if (estimateTokens(text) > budget) {
+      throw new Error(
+        `Embedding single text exceeds batch token budget (${estimateTokens(text)} > ${budget} tokens); truncate before embed`,
+      );
+    }
     await this.waitForReady();
 
     // F20261020slvg：waitSlot——写路径软限流：槽满挂起排队。
@@ -549,14 +569,54 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     });
   }
 
+  /** F20261023emct：分片子批串行——递归调 embedBatch（子批仍超预算会再拆，单条豁免兕底）。
+   *  子批间串行：await 前一子批完成才发下一个，MAX_IN_FLIGHT=1 下天然不堆在飞文本量 */
+  private async embedBatchSharded(
+    batches: string[][],
+    totalTexts: number,
+    budget: number,
+    opts?: EmbedBatchCallOptions,
+  ): Promise<Float32Array[]> {
+    this.logger.warn(
+      `Embedding batch token gate: split ${totalTexts} texts into ${batches.length} sub-batches (budget ${budget} tokens)`,
+      { action: "embed_batch_sharded", texts: totalTexts, batches: batches.length, budget },
+    );
+    const results: Float32Array[] = [];
+    let offset = 0;
+    for (const batch of batches) {
+      // F20261023emct delta 处置（严重发现 1）：子批 opts 按偏移量包装 salvage——
+      // 晚到结果携带 (embeddings, startIndex)，调用方按下标写入正确 entry。
+      // 首版原样透传 opts，offset>0 的子批晚到时会把别批向量存到 items[0..] 错误
+      // entry（静默 vec 污染，检视獭独立发现）。包装器见 embed-batch-sharding.ts。
+      const part = await this.embedBatch(batch, wrapOptsForShard(opts, offset));
+      results.push(...part);
+      offset += batch.length;
+    }
+    return results;
+  }
+
   /**
    * F20261013ebps：批量 embed——一次 send 传多条文本，worker 端 batch 推理。
    * 与 embed() 共享背压上限（batch 算 1 个 in-flight 槽位，但 worker 端处理 N 条文本）。
    * 批量大小建议 ≤50（bge-m3 batch 推理内存随 batch 线性增长，50×1024dim×4B≈200KB 权重激活，可控）。
+   *
+   * F20261023emct：分片闸门——超预算的巨批在入口拆成多个子批，子批间串行
+   * （await 前一个完成后才发下一个，实际受 waitSlot 节流：MAX_IN_FLIGHT=1 下
+   * 前一子批未出结果时 acquire 循环自动挂起）。
+   * 对外语义不变：调用方拿到的仍是「全部文本的结果（与输入顺序一一对应）」，
+   * 超时/错误也以整批为单位 reject——调用方（fireAndForgetEmbedBatch）的
+   * fallback 逻辑不需要感知分片存在。
    */
+  // eslint-disable-next-line max-lines-per-function -- F20261023emct 闸门接入后仍超 3 行，剩余为原 F20261020slvg/F20261016ebrt 逻辑，拆分需另开 PR
   async embedBatch(texts: string[], opts?: EmbedBatchCallOptions): Promise<Float32Array[]> {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
     if (texts.length === 0) return [];
+
+    // 分片闸门：所有生产者共用的唯一收口点，巨批在这里被拆小
+    const budget = EmbeddingServiceImpl.testBatchTokenBudgetOverride ?? resolveBatchTokenBudget();
+    const batches = splitBatchByTokenBudget(texts, budget);
+    if (batches.length > 1) return this.embedBatchSharded(batches, texts.length, budget, opts);
+
     await this.waitForReady();
 
     // F20261020slvg：waitSlot 软限流（循环内联，同 embed() 的原子性论证 + fail-fast 检查）

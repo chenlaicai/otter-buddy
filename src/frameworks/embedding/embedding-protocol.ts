@@ -24,7 +24,7 @@ interface EmbedBatchRequest {
  * F20260811mrpy Part 3：ready 消息携带 meta（modelId/modelRev/dim）。
  * worker 加载完模型 + dummy embed 拿到 dims 后发送。
  */
-type EmbedResponse =
+export type EmbedResponse =
   | { type: "ready"; meta: EmbedModelMeta }
   | { type: "result"; embedding: Float32Array; id: number }
   | { type: "batch-result"; embeddings: Float32Array[]; id: number }
@@ -61,7 +61,6 @@ interface ReadyState {
 export type {
   EmbedRequest,
   EmbedBatchRequest,
-  EmbedResponse,
   PendingRequest,
   PendingBatchRequest,
   ReadyState,

@@ -23,6 +23,12 @@ async function main(): Promise<void> {
   const configPath = parseConfigPathArg(process.argv.slice(2));
   const built = await buildApp({ logger, configPath });
   listen(built.app, built.config.server.port, logger);
+  // F20261023emct：listen 先行，重初始化（document sync + retry worker + 暗化迁移）
+  // 异步补上——health 端点最先可用，不再被启动期全库同步堵 30s+（10-23 雪崩死循环根因之一）。
+  // fire-and-forget：失败已内部 catch 落日志，不拖垮已就绪的 HTTP 服务。
+  built.postListenInit().catch((err) => {
+    logger.error("postListenInit failed", err instanceof Error ? err : new Error(String(err)));
+  });
 
   // ── 进程级安全网：最后一道防线，防止未处理异常/rejection 导致进程裸死 ──
 
