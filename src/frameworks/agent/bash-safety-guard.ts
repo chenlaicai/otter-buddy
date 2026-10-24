@@ -29,7 +29,7 @@ import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS, WRAPPER_SPECS, tokenBasename, skipWrapperArgs, resolveExecHead, isStdinFeedRest, FIND_EXEC_LEADS, findExecVerbAt } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
-import { segmentStdoutContent, evalInterpreterStdinBody } from "./write-target-evaluator";
+import { segmentStdoutContent, evalInterpreterStdinBody, gitCrawlAnchor } from "./write-target-evaluator";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
 export type { AllowedService };
@@ -1468,8 +1468,14 @@ function judgeSegment(
     // 已 ALLOW，本通道再拦即形态判覆盖落点判（FULL≠EVAL 双判据，delta2 S1 同病）。
     // 主仓树内（含会话工作区/相对/未知锚点）与 push/stash/-C 语义求值器无基座，
     // 本通道仍是唯一拦截——照拦不放水。
+    // F20261024dwtg delta2 补裁（大獭，2026-10-24）：树外豁免收紧「真 git 树外」——
+    //  段内 cwd 树外但自身可上爬发现 .git（tmp 真 repo 的子目录、沙箱 repo 内嵌套层）时，
+    //  git 写的真实落点是爬升锚定的那个 repo——该落点未经任何求值/裁决面覆盖，豁免
+    //  会把未知 git 树的写面放出账。求值器侧（F20261024dwtg 单 B）同语义锚定后按
+    //  pathWithinMain 判；本通道照此收窄：爬升发现 .git → 不豁免（保守拦）。
     if (ctx.projectRoot && ctx.sessionCwd && path.isAbsolute(ctx.sessionCwd)
-        && !(path.normalize(ctx.sessionCwd) + path.sep).startsWith(path.normalize(ctx.projectRoot) + path.sep)) return false;
+        && !(path.normalize(ctx.sessionCwd) + path.sep).startsWith(path.normalize(ctx.projectRoot) + path.sep)
+        && gitCrawlAnchor(path.normalize(ctx.sessionCwd)) === null) return false;
     return true;
   }
   // ③b shell 解释器落点 → 洞1：提取 -c 载荷递归判定（r1 严重 2：三态拆分）
