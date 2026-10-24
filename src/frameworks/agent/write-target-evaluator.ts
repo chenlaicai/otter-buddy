@@ -171,7 +171,7 @@ function pathWithinMainCore(p: string, projectRoot: string): boolean {
  *  guard-v2-real-replay E3/E4 回放面宁放不误拦）。只读 fs（existsSync/statSync），
  *  与 fsAbsentPlan/fsContentPlan 同一信任口径（机制识别检查点：只读 fs 查询已记档特性文档）；
  *  TOCTOU 窗口同牙3 记档。 */
-function gitCrawlAnchor(dir: string): string | null {
+export function gitCrawlAnchor(dir: string): string | null {
   let cur = normalizePath(dir);
   if (!existsSync(cur)) return null; // 不存在的落点不推定（已清理 worktree 面宁放不误拦）
   for (let hops = 0; hops < 40; hops++) {

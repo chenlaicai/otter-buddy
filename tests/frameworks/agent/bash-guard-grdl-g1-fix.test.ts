@@ -133,15 +133,38 @@ describe("F20261016grdl：段级 cd 豁免（族 E）边界", () => {
   it("cd $VAR && git commit（变量不可求值）→ 拦（保守）", () => {
     expect(guard(`cd $W && git commit -m x`)).not.toBeNull();
   });
-  it("cd worktree & git commit（& 切断子 shell）→ 拦（F20261024dwtg .git 爬升锄定后语义翻转）", () => {
+  it("cd worktree & git commit（& 切断子 shell）→ 拦（F20261024dwtg .git 爬升锄定后语义翻转）", async () => {
     // #1527 原断言拦（保守）；F20261019gses cd 外溢修复（resolveCwdAt/evaluateFromModel
     // 双处）：& 右段 cwd=startCwd。旧注释「沙箱内无 .git → git commit 空写面 ALLOW」
     // 的前提在 M-dd668952 修复后不再成立：data/workspaces 落主仓树内，git 真实语义
     // 向上爬升发现主仓 .git → git commit 实际写主仓元数据（stash drop 同族实证）。
     // F20261024dwtg：行为按真实落点语义收紧——沙箱 cwd 的 git 写=主仓写，拦。
     // cwd=主仓根变体：同样必拦（不变）。
-    expect(guard(`cd ${WT} & git commit -m x`)).not.toBeNull();
-    expect(checkBashCommandSafety(`cd ${WT} & git commit -m x`, MAIN_PID, undefined, { projectRoot: ROOT, sessionCwd: ROOT })).not.toBeNull();
+    // CI 兼容（2026-10-24 check 红四轮实证 + 根因定位）：本用例爬升语义依赖两个环境前提——
+    //  ①假想 WT 路径存在（dev 机真实存在该 worktree；CI runner 无 → gitCrawlAnchor base
+    //   不存在不推定回落放行）②guard() 包装默认 sessionCwd=WS（本对话工作区字面路径）
+    //   在 dev 机真实存在（.git 爬升链生效 → 锚定主仓 BLOCK）；CI checkout 干净无此目录
+    //   → 爬升不了 → t(WS) 落点=WS 本体（排除区）→ ALLOW。CI diag2 实证该分叉。
+    //  解法：git 段 cwd 从 tmpWt 下钻一层（tmpWt/inner 非 git 子目录）——爬升发现 tmpWt/.git
+    //   锚定临时 repo 本体（树外于 ROOT → 主仓命中 BLOCK）；tmpWt 先 realpath 穿透（macOS
+    //   /var→/private/var symlink 坑：V1 链与求值器双链前缀错位，CI 第三轮红实证）。
+    //  ⚠️ 为什么不用「sessionCwd=tmpWt 的 git 写必拦」：git 写段 cwd 落真 git 树（.git 目录
+    //   本体）时求值器锚定=本体树，projectRoot=tmpWt 时树内=主仓命中 BLOCK——但这恰好是
+    //   V1 链 modelCdExemption「worktree 豁免」的放行面（语义重稜，钉不住爬升语义本身）。
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const os = await import("node:os");
+    const { execSync } = await import("node:child_process");
+    const tmpWt = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "grdl-wt-")));
+    try {
+      execSync(`git init -q ${tmpWt}`);
+      const inner = path.join(tmpWt, "inner");
+      fs.mkdirSync(inner);
+      expect(guard(`cd ${inner} & git commit -m x`, inner)).not.toBeNull();
+      expect(checkBashCommandSafety(`cd ${inner} & git commit -m x`, MAIN_PID, undefined, { projectRoot: ROOT, sessionCwd: ROOT })).not.toBeNull();
+    } finally {
+      fs.rmSync(tmpWt, { recursive: true, force: true });
+    }
   });
   it("cd 主仓 && git commit（cwd 跟踪不豁免主仓目标；#cwsp 已知边界行为）→ 拦（BC-1 落点判，2026-10-19 期望翻转）", () => {
     // S1 裁决（方向 A）：求值器先判后 cd 主仓的 git commit 即主仓写（语料 c020/BC-1

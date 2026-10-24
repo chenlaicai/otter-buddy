@@ -129,7 +129,16 @@ describe("B2 真爬升面（临时目录构造 repo：ws 落 repo 树内、wt �
       const repo = path.join(base, "repo");
       fs.mkdirSync(repo, { recursive: true });
       execSync(`git init -q ${repo}`);
-      execSync(`git -C ${repo} commit -q --allow-empty -m x`);
+      execSync(`git -C ${repo} commit -q --allow-empty -m x`, {
+        env: {
+          ...process.env,
+          // CI runner 无全局 git identity（check job 红实证 2026-10-24），测试内显式注入
+          GIT_AUTHOR_NAME: "probe",
+          GIT_AUTHOR_EMAIL: "probe@example.com",
+          GIT_COMMITTER_NAME: "probe",
+          GIT_COMMITTER_EMAIL: "probe@example.com",
+        },
+      });
       const wt = path.join(base, "wt");
       execSync(`git -C ${repo} worktree add -q ${wt} -b probe`);
       const v = evaluateWriteVerdict("git stash drop", repo, wt);
