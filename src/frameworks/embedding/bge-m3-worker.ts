@@ -18,6 +18,7 @@
  */
 
 import { resolveEnvSettings, type WorkerConfig } from "./embedding-env-config";
+import { postResponse as post } from "./embedding-worker-ipc";
 
 if (typeof process.send !== "function") {
   throw new Error("embedding worker must be started via child_process.fork (IPC channel)");
@@ -43,11 +44,8 @@ interface EmbedModelMeta {
   dim: number;
 }
 
-type EmbedResponse =
-  | { type: "ready"; meta: EmbedModelMeta }
-  | { type: "result"; embedding: Float32Array; id: number }
-  | { type: "batch-result"; embeddings: Float32Array[]; id: number }
-  | { type: "error"; error: string; id: number };
+// F20261023emct：本地 EmbedResponse 类型已随 post() 迁至 embedding-worker-ipc.ts
+// （其内部经 embedding-protocol 导入同一形状）
 
 type Extractor = (text: string | string[], options?: unknown) => Promise<{ data: Float32Array; dims: number[] }>;
 
@@ -60,11 +58,6 @@ function readWorkerConfig(): WorkerConfig {
   } catch {
     return {};
   }
-}
-
-function post(msg: EmbedResponse): void {
-  // serialization:'advanced' 下 TypedArray 走 structured clone，保真
-  process.send?.(msg);
 }
 
 /**
