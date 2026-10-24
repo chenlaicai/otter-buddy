@@ -133,11 +133,14 @@ describe("F20261016grdl：段级 cd 豁免（族 E）边界", () => {
   it("cd $VAR && git commit（变量不可求值）→ 拦（保守）", () => {
     expect(guard(`cd $W && git commit -m x`)).not.toBeNull();
   });
-  it("cd worktree & git commit（& 切断子 shell）→ 放（cwd=沙箱：git commit 落排除区无 repo 空写面；主仓 cwd 变体必拦）", () => {
+  it("cd worktree & git commit（& 切断子 shell）→ 拦（F20261024dwtg .git 爬升锄定后语义翻转）", () => {
     // #1527 原断言拦（保守）；F20261019gses cd 外溢修复（resolveCwdAt/evaluateFromModel
-    // 双处）：& 右段 cwd=startCwd。沙箱内无 .git → git commit 空写面 ALLOW。
-    // cwd=主仓根变体：git commit 落主仓 .git → 必拦（真漏拦面修复验证锁）。
-    expect(guard(`cd ${WT} & git commit -m x`)).toBeNull();
+    // 双处）：& 右段 cwd=startCwd。旧注释「沙箱内无 .git → git commit 空写面 ALLOW」
+    // 的前提在 M-dd668952 修复后不再成立：data/workspaces 落主仓树内，git 真实语义
+    // 向上爬升发现主仓 .git → git commit 实际写主仓元数据（stash drop 同族实证）。
+    // F20261024dwtg：行为按真实落点语义收紧——沙箱 cwd 的 git 写=主仓写，拦。
+    // cwd=主仓根变体：同样必拦（不变）。
+    expect(guard(`cd ${WT} & git commit -m x`)).not.toBeNull();
     expect(checkBashCommandSafety(`cd ${WT} & git commit -m x`, MAIN_PID, undefined, { projectRoot: ROOT, sessionCwd: ROOT })).not.toBeNull();
   });
   it("cd 主仓 && git commit（cwd 跟踪不豁免主仓目标；#cwsp 已知边界行为）→ 拦（BC-1 落点判，2026-10-19 期望翻转）", () => {

@@ -39,7 +39,7 @@
  *
  * 求值纯判定：除牙3 缺席证明的 fs stat 只读查询（fsAbsentPlan，delta2 修法）外无 IO、无状态、不写任何存储（机制识别检查点：只读 fs 查询已记档特性文档）。
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync, existsSync } from "node:fs";
 import { safeRealpath } from "./fs-realpath";
 import path from "node:path";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
@@ -157,6 +157,40 @@ function pathWithinMainCore(p: string, projectRoot: string): boolean {
   if (p === root) return true;
   return p.startsWith(root.endsWith("/") ? root : `${root}/`);
 }
+
+/** F20261024dwtg（M-dd668952 单 B）：git 写面落点的 .git 爬升锚定。
+ *  背景：git 真实语义是从 cwd 向上爬升发现 .git（discover git dir）——data/workspaces
+ *  等运行时区不是 git 树，爬升会命中主仓 .git：`git stash drop` 实际写主仓元数据
+ *  （.git/refs、stash 引用），但 evalGitWrite 落点=cwd 被运行时区豁免洗白（wv ALLOW 洞）。
+ *  修法：git 写族段 base 落运行时区时，fs 爬升锄定真实 gitdir（.git 目录=本体仓；
+ *  .git 文件=worktree 指回主仓 .git/worktrees/<n>，worktree 专属元数据区——语义=写
+ *  worktree 自身，维持豁免不锄定）。base 路径不存在时不做爬升推定（已清理的 worktree
+ *  路径爬升必命中主仓 .git——但 git 在不存在的 cwd 无法运行，推定无意义，维持豁免语义，
+ *  guard-v2-real-replay E3/E4 回放面宁放不误拦）。只读 fs（existsSync/statSync），
+ *  与 fsAbsentPlan/fsContentPlan 同一信任口径（机制识别检查点：只读 fs 查询已记档特性文档）；
+ *  TOCTOU 窗口同牙3 记档。 */
+function gitCrawlAnchor(dir: string): string | null {
+  let cur = normalizePath(dir);
+  if (!existsSync(cur)) return null; // 不存在的落点不推定（已清理 worktree 面宁放不误拦）
+  for (let hops = 0; hops < 40; hops++) {
+    const dotGit = `${cur}/.git`;
+    try {
+      const st = statSync(dotGit);
+      if (st.isDirectory()) return cur; // .git 目录=本体仓锄定
+      if (st.isFile()) return null; // .git 文件=linked worktree——写 worktree 专属元数据，不锄定
+    } catch {
+      // 无 .git——继续向上爬
+    }
+    const parent = path.dirname(cur);
+    if (parent === cur) return null; // 到根仍未发现——非 git 树上下文（不锄定，交上游语义）
+    cur = parent;
+  }
+  return null;
+}
+
+/** 求值器语义注（M-dd668952）：.git 爬升锄定只改「运行时区豁免的 git 写面落点」语义——
+ *  通用落点判定（pathWithinMain）不接爬升（touch "$D" 等非 git 写仍按落点字面量判，
+ *  $D 求不出时本就 dynamic-path fail-closed，无爬升需求）；git 写族以外不扩面。 */
 
 /** 轻量路径归一（不触盘：折叠 . 分量 / 重复斜杠 / 尾斜杠；.. 保守保留不爬升） */
 function normalizePath(p: string): string {
@@ -455,7 +489,7 @@ function gitSegSelfWriteEvidence(seg: Segment, projectRoot: string): boolean {
 
 /** git 写族落点（-C 目标优先，无 -C → cwd）。返回 UnevalReason | null。 */
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- git 全局旗标形态穷举（-C/-c/--git-dir/--work-tree × =值/空格值）+ 写族子命令判定，每分支对应一种已实证形态（c107 词切分错位教训：合并会再制造旗标解析 bug）；F20261014smrj 加 -C "$VAR" 赋值溯源后超 60 行
-function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
+function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot?: string): UnevalReason | null {
   if (seg.argv0 !== "git") return null; // argv0 必须字面 git——非 git 命令不進旗标循环
   //  （旧版 argv0===null 守卫后从 words[1] 扫，echo "unclosed 的 words[1]=null 被误读为
   //  git 旗标位的动态值——c044 parse-failed 语义被覆盖为 dynamic-path 的回归教训）
@@ -466,9 +500,15 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   let i = 1;
   let cTarget: string | null = null;
   let workTreeOverride: string | null = null;
+  // F20261024dwtg A2：旗标区动态值缓判（pendingDyn）——落点/旗标不可静态溯源只对【写族】
+  //  子命令有意义：`git -C"$P" status/log` 只读无写面，落点不可知无所谓（原立即 return
+  //  dynamic-path 后被能力 4 词面证洗回 ALLOW，dynamic-path 入 UNPROVABLE_TEETH 后若仍
+  //  立即返回则误拦只读面——bash-guard-git-flag-wording 红线用例）。缓判到子命令分类后：
+  //  写族 → 返 dynamic-path fail-closed（与原行为同判）；只读/无静态子命令 → 原语义。
+  let pendingDyn: UnevalReason | null = null;
   while (i < words.length) {
     const w = words[i].evaluated;
-    if (w === null) return "dynamic-path";
+    if (w === null) { pendingDyn = "dynamic-path"; i++; continue; }
     if (w === "-C" || w === "-c") {
       // F20261014smrj：-C "$VAR" 纯 var 词同命令赋值溯源（与 evalCdTarget 同口径）——旧版直读
       //  word.evaluated（var 词恒 null）使 `git -C "$WT" commit` 恒 fail-closed（do-commit 载荷判读实证面）。
@@ -477,7 +517,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
         const name = isPureVarWord(words[i + 1]);
         if (name !== null) v = resolveAssign(name, acc.segments, acc.index);
       }
-      if (v === null) return "dynamic-path";
+      if (v === null) { pendingDyn = "dynamic-path"; i += 2; continue; }
       // F20261016gwr1 修复轮（M-46f0e74d 建议 3，检视獭1519）：core.worktree/bare/gitdir 配置改写
       // 树发现——落点计算不可信，fail-closed（与 prod 侧 gitDashCTargetsWorktree 对称）
       if (w === "-c" && /^core\.(worktree|bare|gitdir)=/i.test(v)) return "dynamic-path";
@@ -494,7 +534,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
         const name = isPureVarWord(words[i + 1]);
         if (name !== null) v = resolveAssign(name, acc.segments, acc.index);
       }
-      if (v === null) return "dynamic-path";
+      if (v === null) { pendingDyn = "dynamic-path"; i += 2; continue; }
       if (w === "--work-tree") workTreeOverride = v;
       i += 2;
       continue;
@@ -529,6 +569,9 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   // 写族口径单一真相源=GIT_WRITE_SUBS（F20261016gwr1 词级共享，旧正则锚已退役）；
   // 双签终版（2026-10-12）：pull=fetch+merge/rebase 归写按落点判（检视獭驳回「pull 非写」）
   if (!GIT_WRITE_SUBS.has(sub)) return null;
+  // F20261024dwtg A2：缓判落地——到这里的都是写族，旗标区动态值升级为 fail-closed
+  //  （`git -C"$P" commit` → dynamic-path，与旧行为同判；只读 status/log 在上一行已返 null）
+  if (pendingDyn !== null) return pendingDyn;
   const rest = words.slice(i + 1).map(w => w.evaluated).filter((v): v is string => v !== null);
   if (sub === "push") {
     if (rest.some(a => a === "--dry-run" || a === "-n")) return null;
@@ -556,7 +599,15 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalRea
   }
   const base = cTarget !== null ? evalPath(cTarget, cwd) : cwd;
   if (base === null) return "dynamic-path";
-  acc.targets.push({ path: workTreeOverride !== null ? (evalPath(workTreeOverride, cwd) ?? base) : base, via: "git", segmentIndex: acc.index, access: "write" });
+  // F20261024dwtg（M-dd668952）：base 落运行时区时 .git 爬升锄定——git 真实语义向上
+  //  发现 gitdir，data/workspaces 等非 git 树 cwd 的 git 写实际落主仓 .git（stash drop/pop
+  //  写 refs/refs/stash 栈）；锄定后 base=gitdir 所在树，豁免不再洗白。worktree（.git 文件）
+  //  不锄定——写 worktree 专属元数据维持豁免。projectRoot 缺席（旧测试假想路径）维持原语义。
+  let anchored = base;
+  if (projectRoot !== undefined && !pathWithinMain(base, projectRoot) && gitCrawlAnchor(base) !== null) {
+    anchored = gitCrawlAnchor(base) as string;
+  }
+  acc.targets.push({ path: workTreeOverride !== null ? (evalPath(workTreeOverride, cwd) ?? anchored) : anchored, via: "git", segmentIndex: acc.index, access: "write" });
   return null;
 }
 
@@ -743,9 +794,12 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
   let i = 1;
   let cTarget: string | null = null;
   let workTreeOverride: string | null = null;
+  // F20261024dwtg A2：与 evalGitWrite 同步——旗标区动态值缓判到子命令分类后（只读 git
+  //  面不因 -C 值求不出而 fail-closed；git -C"$P" add 写面在 add 确认后落地 pendingDyn）
+  let pendingDyn: UnevalReason | null = null;
   while (i < words.length) {
     const w = words[i].evaluated;
-    if (w === null) return "dynamic-path";
+    if (w === null) { pendingDyn = "dynamic-path"; i++; continue; }
     if (w === "-C" || w === "-c") {
       // F20261014smrj：与 evalGitWrite 同步——纯 var 词赋值溯源（旧版两函数同形 bug，git add 段先截）
       let v = words[i + 1]?.evaluated ?? null;
@@ -753,7 +807,7 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
         const name = isPureVarWord(words[i + 1]);
         if (name !== null) v = resolveAssign(name, acc.segments, acc.index);
       }
-      if (v === null) return "dynamic-path";
+      if (v === null) { pendingDyn = "dynamic-path"; i += 2; continue; }
       // F20261016gwr1 修复轮（建议 3 同步）：core.* 树发现改写——fail-closed（两走查同形同治）
       if (w === "-c" && /^core\.(worktree|bare|gitdir)=/i.test(v)) return "dynamic-path";
       if (w === "-C") cTarget = v;
@@ -765,6 +819,8 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
     break;
   }
   if (i >= words.length || words[i].evaluated !== "add") return null;
+  // F20261024dwtg A2：缓判落地——到这里的都是 git add 写面，旗标区动态值升级 fail-closed
+  if (pendingDyn !== null) return pendingDyn;
   i++;
   const base = cTarget !== null ? evalPath(cTarget, cwd) : cwd;
   if (base === null) return "dynamic-path";
@@ -1260,6 +1316,15 @@ const UNPROVABLE_TEETH: ReadonlySet<UnevalReason> = new Set<UnevalReason>([
   //（proveNoWrite 对 tar cf 写归档/rsync 写 dest 一无所见）——原落 uncovered-cmd/dynamic-path
   // 被能力 4 词面证洗成正面 ALLOW（/tmp/probe-wash.ts 实证的放水门），不入豁免集即兕不住。
   "argv-write-uncovered",
+  // F20261024dwtg（M-05415afd 单 A）：dynamic-path 整体入集——通用机制根治词面证洗白门。
+  //  #1619（argv-write-uncovered）/#1625（curl/wget/dd 族）收的都是具体族，词面 regex 与
+  //  词表差集动词漏收同门未来仍会开（实证：find 在 TARGET_ARG_COMMANDS 不在 WRITE_FACE_WORDS
+  //  ——`find "$D" -delete` 落 dynamic-path 被词面证洗成 e2e 正面 ALLOW，含 bash -c 载荷通道）。
+  //  语义：落点不可静态溯源与目标槽不可静态钉同属「求值器证明不了」的词面证盲区，一律不进
+  //  能力 4 豁免。回归面对照：静态落点/词面证豁免面不受影响（proveNoWrite 洗白口只在
+  //  unevaluated 时参与，evaluated 命令零交集）；git push -u origin x 等全静态远端形态
+  //  由 gitSelfEvidence=false 路径维持（corpus 96a21f3c 面守恒）。
+  "dynamic-path",
 ]);
 
 /** shell 外置脚本执行段（解释器族 ∪ source/.）——三牙判定的触发面 */
@@ -2318,7 +2383,7 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
   if (err !== null) return err;
   const gitAddErr = evalGitAdd(seg, cwd, acc);
   if (gitAddErr !== null) return gitAddErr;
-  const gitErr = evalGitWrite(seg, cwd, acc);
+  const gitErr = evalGitWrite(seg, cwd, acc, projectRoot);
   if (gitErr !== null) return gitErr;
   if (bare !== null) {
     const cmdErr = evalTargetArgCommand(bare, seg, cwd, acc);
