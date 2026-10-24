@@ -108,6 +108,30 @@ fail-closed）。
   正确 ALLOW，非洞）
 - lint + tsc --noEmit 干净
 
+## delta1 处置（检视猭1636 初轮 request-changes，2026-10-24）
+
+**严重 1（--work-tree 覆盖丢爬升锚定）已修**：探针复现比报告更广——不仅
+`--work-tree <ws>`，`--work-tree /tmp/x stash drop`@ws 也 ALLOW（override 落非豁免区同样把
+主仓 refs 写面丢出账）。修法=检视建议的双入账：anchored（gitdir 侧）无条件入账 +
+workTreeOverride 求值成功时追加第二条（work-tree 侧）；override 求不出维持回落语义。
+B2 新增 delta1 用例（分离值/attached/override 落 repo 外三形态均 BLOCK）锁死。
+
+**严重 2（CI lint:pr-tests 闸）已修**：PR body 补「## 测试改动声明」段（见 PR）。
+
+**建议 1（pendingDyn 丢弃族）记档**：子命令位动态（`git "$OP" drop`）返 null 走词面证豁免
+——与改前同判（改前旗标循环 w===null 处直接返回同判），非本单引入；#1513「间接构造不追」
+口径记档不收。源码 :572 注释补边界说明。
+
+**建议 2（gitCrawlAnchor 双调用 + as string）已修**：改单次调用 const anchor 模式（顺手收）。
+
+**建议 3（.git 文件注释不实）已修**：论证改「政策豁免：worktree 是 R1 认可的正道写区；
+元数据物理上仍写共享 gitdir 的 worktrees/<n> 子区，stash/commit 亦写共享 refs/index」——
+行为不变（豁免），论证如实。
+
+**--git-dir= 跳过组合（检视报告 H2c）**：大獭裁决「记档不追」——`--git-dir=` 旗标当前
+直接 continue 跳过不入账，与 --work-tree 组合可把 gitdir 侧指到任意处；独立面不在本单
+病灶谱系（M-dd668952 的 wv(session) 洗白已由爬升锄定收口），记档待后续独立单。
+
 ## 非目标（记档不追）
 
 - 词表外命令 evaluated 空集静默断言（`7z a "$D"`/`zip -r`/`pip download -d`）：提取层

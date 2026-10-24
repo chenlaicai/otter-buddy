@@ -95,6 +95,30 @@ describe("B2 真爬升面（临时目录构造 repo：ws 落 repo 树内、wt �
       fs.rmSync(base, { recursive: true, force: true });
     }
   });
+  it("delta1（检视猭1636 严重 1）：--work-tree 覆盖不丢 gitdir 侧入账（双入账）——真爬升面下 stash/commit 双形态均 BLOCK", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const os = await import("node:os");
+    const { execSync } = await import("node:child_process");
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "dwtg-b2-"));
+    try {
+      const repo = path.join(base, "repo");
+      fs.mkdirSync(path.join(repo, "data", "workspaces", "conv1"), { recursive: true });
+      execSync(`git init -q ${repo}`);
+      const ws = path.join(repo, "data", "workspaces", "conv1");
+      // 分离值形态：gitdir 侧锄定主仓 + work-tree 侧落 ws（双入账均在账 → 主仓命中 BLOCK）
+      const v1 = evaluateWriteVerdict(`git --work-tree ${ws} stash drop`, repo, ws);
+      expect(v1.verdict).toBe("BLOCK");
+      // attached 形态同判
+      const v2 = evaluateWriteVerdict(`git --work-tree=${ws} commit -m x`, repo, ws);
+      expect(v2.verdict).toBe("BLOCK");
+      // override 落非豁免区（repo 外）也 BLOCK——gitdir 侧（主仓 refs）不再被丢出账
+      const v3 = evaluateWriteVerdict(`git --work-tree ${path.join(base, "out")} stash drop`, repo, ws);
+      expect(v3.verdict).toBe("BLOCK");
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
   it("cwd=真 worktree git stash drop → ALLOW（worktree 专属元数据区，语义=写 worktree 维持豁免）", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
