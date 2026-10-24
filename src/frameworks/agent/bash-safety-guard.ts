@@ -411,6 +411,10 @@ type DestructiveZone = "data" | "mainTree" | null;
 // eslint-disable-next-line complexity -- 破坏目标落点分类形态穷举（data/内容树双域+own-ws/~ 保守面+运行时区三豁免，F20261016gdfv 目标域扩面后 17）
 function classifyDestructiveTarget(target: string, cwd: string, projectRoot?: string, sessionCwd?: string): DestructiveZone {
   if (!projectRoot) return "data"; // projectRoot 缺失时保守拦截（与 resolvesToMainCheckout 同策略）
+  // #1418：macOS 废纸篓正道白名单——~/.Trash 精确前缀放行（仅 mv 目的端受益；rm 源端命中时
+  //  由 segmentDestructive 的 kind 判定收口，~/.Trash 作为 rm 目标本就无害）。
+  //  其余 ~ 前缀仍保守拦截（~/…/otter-buddy/data 可能指向主仓，展开判不了静态安全）。
+  if (target === "~/.Trash" || target.startsWith("~/.Trash/")) return null;
   if (target.startsWith("~")) return "data"; // ~ 不展开，保守拦截（~/…/otter-buddy/data 可能指向主仓）
   // 尾部 glob 剥除：data/metrics/* -> data/metrics（glob 只影响目录内容范围，不影响目录归属）
   const stripped = target.replace(/\/+$/, "").replace(/\/[*?]+$/, "");
