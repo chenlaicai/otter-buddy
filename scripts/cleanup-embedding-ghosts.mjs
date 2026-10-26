@@ -17,6 +17,15 @@
  * 安全设计（对齐 cleanup-memory-pollution.mjs 模式）：
  *  - 默认 dry-run：只统计报告，不写 DB（readonly 打开）
  *  - --apply 才执行删除；删除前自动备份 DB 文件
+ *  - --online（配合 --apply）：不停机在线清理（2026-10-26 搭档授权模式）。
+ *    备份改走 better-sqlite3 db.backup()（SQLite 在线备份 API，含 WAL 已提交数据——
+ *    copyFileSync 只复制主 DB，在线运行时会丢 WAL 内容）；busy_timeout 15s 等待
+ *    主服务写锁释放。并发安全依据（src/frameworks/db/memory/embedding-task-queue.ts）：
+ *    ① markTaskDone=DELETE / markTaskAttemptFailed=UPDATE——被删任务的运行中回写
+ *       命中 0 行，不复活；② enqueueRetry 前置校验 entry 不存在即 no-op，与删除
+ *       条件互斥，不会边删边插；③ claim 后行被删则 content=''，entry-deleted 分支
+ *       UPDATE 0 行，安全；④ NOT EXISTS 删除条件保证 entry 存活的有效任务不受影响。
+ *    缺省（无 --online）保持停机模式语义：copyFileSync 备份足够且更简单。
  *  - 只删 embedding_tasks 行——不动 memory_entries / vec / fts 任何数据
  *  - 入库中任务（pending 且 last_error IS NULL）不在清理范围：正常在途任务
  *    的 entry 必然存在（enqueueRetry 前置校验已断源），entry 不存在的 pending
@@ -24,7 +33,8 @@
  *
  * 用法：
  *   node scripts/cleanup-embedding-ghosts.mjs                    # dry-run 报告
- *   node scripts/cleanup-embedding-ghosts.mjs --apply            # 执行清理
+ *   node scripts/cleanup-embedding-ghosts.mjs --apply            # 停机清理（cp 备份）
+ *   node scripts/cleanup-embedding-ghosts.mjs --apply --online   # 在线清理（SQLite 在线备份）
  *   node scripts/cleanup-embedding-ghosts.mjs --db=/path/to.db   # 指定 DB（默认 data/otter-buddy.db）
  */
 
@@ -36,9 +46,10 @@ const __filename = fileURLToPath(import.meta.url);
 const rootDir = path.resolve(path.dirname(__filename), "..");
 
 function parseArgs(argv) {
-  const args = { apply: false, db: path.join(rootDir, "data", "otter-buddy.db") };
+  const args = { apply: false, online: false, db: path.join(rootDir, "data", "otter-buddy.db") };
   for (const arg of argv) {
     if (arg === "--apply") args.apply = true;
+    else if (arg === "--online") args.online = true;
     else if (arg.startsWith("--db=")) args.db = arg.slice(5);
   }
   return args;
@@ -54,6 +65,8 @@ if (!fs.existsSync(args.db)) {
 }
 
 const db = new Database(args.db, args.apply ? undefined : { readonly: true });
+// 在线/停机 apply 统一设置：与主服务写连接短暂互斥时等待而非立刻 SQLITE_BUSY
+if (args.apply) db.pragma("busy_timeout = 15000");
 
 // ---------- 扫描 ----------
 
@@ -91,7 +104,7 @@ for (const row of errorForms) {
 console.log(`[ghost-subset] 其中 last_error='entry deleted' 且 pending/dead（代理口径子集）: ${ghostCount} 条`);
 
 if (!args.apply) {
-  console.log("\ndry-run 模式（默认）：只报告不删除。加 --apply 执行清理。");
+  console.log("\ndry-run 模式（默认）：只报告不删除。加 --apply 执行清理（停机）；--apply --online 在线清理。");
   db.close();
   process.exit(0);
 }
@@ -99,13 +112,19 @@ if (!args.apply) {
 // ---------- 执行清理 ----------
 
 // 备份（对齐 cleanup-memory-pollution.mjs：删除前自动备份，防误删）
-const backupPath = `${args.db}.bak-embed-ghost-${Date.now()}`;
-fs.copyFileSync(args.db, backupPath);
-console.log(`已备份: ${backupPath}`);
+// --online：SQLite 在线备份 API，含 WAL 已提交数据（cp 主 DB 在线会丢 WAL）；
+// 缺省停机模式：copyFileSync 足够（无 WAL 在飞写入）。
+const backupPath = `${args.db}.bak-embed-ghost${args.online ? "-online" : ""}-${Date.now()}`;
+if (args.online) {
+  await db.backup(backupPath);
+} else {
+  fs.copyFileSync(args.db, backupPath);
+}
+console.log(`已备份${args.online ? "（在线，含 WAL）" : ""}: ${backupPath}`);
 
 // delta 复审口径修正：按真定义（entry NOT EXISTS）删除，代理口径只是其子集。
-// 安全前提：停机运行（搭档人工执行）；replaceEntriesBySource 同 id 回插是同步
-// 事务流程，不会落盘「entry 暂不存在但即将回插」的中间态。
+// 停机模式：replaceEntriesBySource 同 id 回插是同步事务流程，不会落盘
+// 「entry 暂不存在但即将回插」的中间态；在线模式的并发安全依据见文件头。
 const deleted = db.prepare(`
   DELETE FROM embedding_tasks
   WHERE entry_id NOT IN (SELECT id FROM memory_entries)
