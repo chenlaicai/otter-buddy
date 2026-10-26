@@ -135,7 +135,7 @@ describe("F20261016grdl：段级 cd 豁免（族 E）边界", () => {
   });
   it("cd worktree & git commit：非官方路径卫星写主仓 gitdir → 拦；R1 正道 worktree → 放", async () => {
     // #1527 原断言拦（保守）；F20261019gses 曾按「沙箱无 .git 空写面」翻 ALLOW；
-    // F20261024dwtg 修复后发现：真正该钉的是实际 gitdir，而非目录字面或 /tmp 真 repo。
+    // F20261026dwtg 修复后发现：真正该钉的是实际 gitdir，而非目录字面或 /tmp 真 repo。
     // 本用例临时构造 repo 与 linked worktree，CI 不依赖宿主机已有 worktree/workspace。
     // & 右段 cwd=startCwd：satellite 是 startCwd，树外且 gitdir=<repo>/.git/worktrees/wt
     // → 实写主仓共享 refs/objects，双层 BLOCK；独立外仓的 linked worktree（gitdir 不属主仓）

@@ -1,5 +1,5 @@
 ---
-id: F20261024dwtg
+id: F20261026dwtg
 title: 词面证洗白通用机制根治（dynamic-path 整体入 UNPROVABLE_TEETH）+ git 写面 .git 爬升锚定（M-05415afd / M-dd668952）
 summary: "#1619/#1625 逐族收编后词面 regex 与词表差集动词仍漏收（实证 find 族 e2e 放水）——dynamic-path 整体入 UNPROVABLE_TEETH 通用根治，不再逐族追；配套 git 旗标区动态值缓判保只读面；git 写面落点=cwd 落运行时区时 fs 爬升锚定真实 gitdir（data/workspaces 的 stash drop/pop 实际写主仓 .git 被豁免洗白收口）"
 change_type: fix
@@ -10,7 +10,7 @@ intent:
   verify_by:
     type: behavior_check
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
-created_at: 2026-10-24
+created_at: 2026-10-26
 from:
   tasks:
     - "M-05415afd"
@@ -18,6 +18,8 @@ from:
 ---
 
 # 词面证洗白通用机制根治 + git 写面 .git 爬升锚定（M-05415afd / M-dd668952）
+
+> 编号溯源：原 F20261024dwtg（2026-10-24 建档），2026-10-26 合入定稿按 F20260914prdb「定稿时改名为合入当天日期」及搭档指令「特性编号的日期要顺延」改为 F20261026dwtg；分支历史 commit 保留旧编号，双向可搜。
 
 ## 背景与病灶
 

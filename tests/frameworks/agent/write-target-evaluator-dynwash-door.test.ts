@@ -1,5 +1,5 @@
 /**
- * F20261024dwtg（M-05415afd + M-dd668952）：dynamic-path 洗白通用门 + git 写面 .git 爬升收口。
+ * F20261026dwtg（M-05415afd + M-dd668952）：dynamic-path 洗白通用门 + git 写面 .git 爬升收口。
  *
  * 单 A（M-05415afd）背景：#1619/#1625 收的是具体族（argv-write-uncovered / tar-unzip-rsync /
  * curl-wget-dd），词面 regex 差集动词（find 在 TARGET_ARG_COMMANDS 不在 WRITE_FACE_WORDS）

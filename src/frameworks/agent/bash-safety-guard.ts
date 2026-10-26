@@ -1401,7 +1401,7 @@ function normalizePathForGuard(p: string): string {
   return abs ? `/${joined}` : (joined === "" ? "." : joined);
 }
 
-/** F20261024dwtg 案 B：树外 git 写是否可豁免（只读 fs；单函数承载 gitdir 归属，避免
+/** F20261026dwtg 案 B：树外 git 写是否可豁免（只读 fs；单函数承载 gitdir 归属，避免
  *  judgeSegment 主流程膨胀）。独立外仓及其 linked worktree 放行；非官方路径的主仓卫星
  *  gitdir 落主仓 .git 树则不豁免；R1 官方 worktree 由调用方先行豁免。 */
 function treeOutsideGitWriteExempt(projectRoot: string, sessionCwd: string): boolean {
@@ -1486,7 +1486,7 @@ function judgeSegment(
     // 保守面：sessionCwd 是 data/workspaces（非 git 树）或未跟踪 → 不豁免。
     if (ctx.projectRoot && ctx.sessionCwd && path.isAbsolute(ctx.sessionCwd)
         && (path.normalize(ctx.sessionCwd) + path.sep).startsWith(path.normalize(path.join(ctx.projectRoot, ".otter/worktrees")) + path.sep)) return false;
-    // F20261024dwtg delta2 复核严重 1 案 B：树外 git 写按实际 gitdir 判，不再把
+    // F20261026dwtg delta2 复核严重 1 案 B：树外 git 写按实际 gitdir 判，不再把
     // 「.git 文件」与「无 git 树」混为一谈。独立外仓（含其 linked worktree）放行；
     // 非官方路径的卫星仓若 gitdir 落主仓 .git 树则不豁免（拦）。
     if (ctx.projectRoot && ctx.sessionCwd && treeOutsideGitWriteExempt(ctx.projectRoot, ctx.sessionCwd)) return false;
@@ -2203,7 +2203,7 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // 段的落点是该树自身（旧链 cwdInGitWorktree 同语义——求值器已按落点判过 ALLOW，
   // 结构通道不再重复拦 git 写族段；包装词/子壳等其余段结构照常跑）。
   const GIT_WORKTREE_PREFIX = ".otter/worktrees";
-  // F20261024dwtg delta2 复核严重 1（检视獭1636）案 B：扩面「真 git 树外」——sessionCwd
+  // F20261026dwtg delta2 复核严重 1（检视獭1636）案 B：扩面「真 git 树外」——sessionCwd
   //  爬升发现 .git 目录（树外本体 repo，git 写真落该树自身非主仓）同语义豁免；收窄面：
   //  爬升发现 .git 文件（linked worktree 卫星仓——gitdir 落主仓 .git/worktrees/<n>，
   //  stash/commit 实写主仓 gitdir，取舍 6 攻击面同族）不豁免（拦）。

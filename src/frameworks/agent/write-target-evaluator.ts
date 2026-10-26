@@ -205,7 +205,7 @@ export function gitCrawlInfo(dir: string): GitCrawlInfo | null {
   return null;
 }
 
-/** F20261024dwtg（M-dd668952 单 B）：git 写面落点的 .git 爬升锚定。
+/** F20261026dwtg（M-dd668952 单 B）：git 写面落点的 .git 爬升锚定。
  *  背景：git 真实语义是从 cwd 向上爬升发现 .git（discover git dir）——data/workspaces
  *  等运行时区不是 git 树，爬升会命中主仓 .git：`git stash drop` 实际写主仓元数据
  *  （.git/refs、stash 引用），但 evalGitWrite 落点=cwd 被运行时区豁免洗白（wv ALLOW 洞）。
@@ -549,7 +549,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoo
   let i = 1;
   let cTarget: string | null = null;
   let workTreeOverride: string | null = null;
-  // F20261024dwtg A2：旗标区动态值缓判（pendingDyn）——落点/旗标不可静态溯源只对【写族】
+  // F20261026dwtg A2：旗标区动态值缓判（pendingDyn）——落点/旗标不可静态溯源只对【写族】
   //  子命令有意义：`git -C"$P" status/log` 只读无写面，落点不可知无所谓（原立即 return
   //  dynamic-path 后被能力 4 词面证洗回 ALLOW，dynamic-path 入 UNPROVABLE_TEETH 后若仍
   //  立即返回则误拦只读面——bash-guard-git-flag-wording 红线用例）。缓判到子命令分类后：
@@ -618,7 +618,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoo
   // 写族口径单一真相源=GIT_WRITE_SUBS（F20261016gwr1 词级共享，旧正则锚已退役）；
   // 双签终版（2026-10-12）：pull=fetch+merge/rebase 归写按落点判（检视獭驳回「pull 非写」）
   if (!GIT_WRITE_SUBS.has(sub)) return null;
-  // F20261024dwtg A2：缓判落地——到这里的都是写族，旗标区动态值升级为 fail-closed
+  // F20261026dwtg A2：缓判落地——到这里的都是写族，旗标区动态值升级为 fail-closed
   //  （`git -C"$P" commit` → dynamic-path，与旧行为同判）。已知边界（检视獭1636 建议 1，
   //  #1513「间接构造不追」口径记档）：子命令位本身动态（`git "$OP" drop`）在上一行已
   //  返 null → 词面证豁免面 ALLOW——与改前同判（改前旗标循环 w===null 处直接返回同判），
@@ -651,7 +651,7 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoo
   }
   const base = cTarget !== null ? evalPath(cTarget, cwd) : cwd;
   if (base === null) return "dynamic-path";
-  // F20261024dwtg（M-dd668952）：base 落运行时区时 .git 爬升锄定——git 真实语义向上
+  // F20261026dwtg（M-dd668952）：base 落运行时区时 .git 爬升锄定——git 真实语义向上
   //  发现 gitdir，data/workspaces 等非 git 树 cwd 的 git 写实际落主仓 .git（stash drop/pop
   //  写 refs/stash 栈）。锄定后 base=gitdir 所在树，豁免不再洗白。worktree（.git 文件）
   //  不锄定——政策豁免（worktree 是 R1 认可的正道写区；元数据物理上仍写共享 gitdir
@@ -872,7 +872,7 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot?
   let i = 1;
   let cTarget: string | null = null;
   let workTreeOverride: string | null = null;
-  // F20261024dwtg A2：与 evalGitWrite 同步——旗标区动态值缓判到子命令分类后（只读 git
+  // F20261026dwtg A2：与 evalGitWrite 同步——旗标区动态值缓判到子命令分类后（只读 git
   //  面不因 -C 值求不出而 fail-closed；git -C"$P" add 写面在 add 确认后落地 pendingDyn）
   let pendingDyn: UnevalReason | null = null;
   while (i < words.length) {
@@ -897,7 +897,7 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot?
     break;
   }
   if (i >= words.length || words[i].evaluated !== "add") return null;
-  // F20261024dwtg A2：缓判落地——到这里的都是 git add 写面，旗标区动态值升级 fail-closed
+  // F20261026dwtg A2：缓判落地——到这里的都是 git add 写面，旗标区动态值升级 fail-closed
   if (pendingDyn !== null) return pendingDyn;
   i++;
   const base = cTarget !== null ? evalPath(cTarget, cwd) : cwd;
@@ -1407,7 +1407,7 @@ const UNPROVABLE_TEETH: ReadonlySet<UnevalReason> = new Set<UnevalReason>([
   //（proveNoWrite 对 tar cf 写归档/rsync 写 dest 一无所见）——原落 uncovered-cmd/dynamic-path
   // 被能力 4 词面证洗成正面 ALLOW（/tmp/probe-wash.ts 实证的放水门），不入豁免集即兕不住。
   "argv-write-uncovered",
-  // F20261024dwtg（M-05415afd 单 A）：dynamic-path 整体入集——通用机制根治词面证洗白门。
+  // F20261026dwtg（M-05415afd 单 A）：dynamic-path 整体入集——通用机制根治词面证洗白门。
   //  #1619（argv-write-uncovered）/#1625（curl/wget/dd 族）收的都是具体族，词面 regex 与
   //  词表差集动词漏收同门未来仍会开（实证：find 在 TARGET_ARG_COMMANDS 不在 WRITE_FACE_WORDS
   //  ——`find "$D" -delete` 落 dynamic-path 被词面证洗成 e2e 正面 ALLOW，含 bash -c 载荷通道）。
