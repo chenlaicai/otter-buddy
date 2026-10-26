@@ -84,6 +84,7 @@ describe("bash_sleep 发射点（circuit-breaker-helpers）", () => {
   // #1540：sleep 拦截文案补 wait+until 探活示范（等服务启动场景的具体正道）。
   // F20261022wtpr：until 升级为一次 wait 内的条件轮询；保留无引号示范锚点。
   // G3：示范值不带引号伪语法（照抄含引号会被 wait 工具 WAIT_UNTIL_FORBIDDEN 拒）
+  // F20261026wfpb（#1623）：文案补 gh pr checks 裸命令三态退出码语义与 fail-fast。
   it("#1540 sleep 文案含 wait+until 探活示范", () => {
     const abortOverride = vi.fn();
     const session = attach(abortOverride);
@@ -95,6 +96,9 @@ describe("bash_sleep 发射点（circuit-breaker-helpers）", () => {
     expect(reason).toContain("等 CI / 服务 / 状态就用 until");
     expect(reason).toContain("未就绪每 10 秒重试");
     expect(reason).toContain("不要写 bash 轮询");
+    expect(reason).toContain("0=全绿、1=有失败、8=pending");
+    expect(reason).toContain("失败（exit 1）会立即停止轮询");
+    expect(reason).toContain("勿加 --json 或 --watch");
   });
 
   it("`sleep 2` 微 sleep 不拦（阈值下）", () => {
