@@ -158,6 +158,52 @@ function pathWithinMainCore(p: string, projectRoot: string): boolean {
   return p.startsWith(root.endsWith("/") ? root : `${root}/`);
 }
 
+/** 爬升信息：发现点 + 形态（.git 目录=本体仓；.git 文件=linked worktree/submodule 卫星）。 */
+export interface GitCrawlInfo {
+  /** 发现 .git 的树（爬升链上命中点） */
+  tree: string;
+  /** .git 是目录（本体仓）还是文件（卫星仓——worktree/submodule） */
+  kind: "dir" | "file";
+  /** kind=file 时解析出的实际 gitdir（gitdir: 指针，绝对路径）；不可解析/不适用为 null */
+  gitdir: string | null;
+}
+
+/** delta2 复核严重 1（检视猭1636）配套：读取 .git 文件的 gitdir 指针（linked worktree/
+ *  submodule 形态）。返回绝对路径或 null（非文件/不可读/格式不对）。
+ *  git-worktree(1)：.git 文件内容形如 "gitdir: <abs-path>"（或相对主 worktree 的路径）。 */
+export function gitdirFromDotGitFile(dotGitFile: string): string | null {
+  try {
+    const content = readFileSync(dotGitFile, "utf8").trim();
+    if (!content.startsWith("gitdir:")) return null;
+    const p = content.slice("gitdir:".length).trim();
+    if (p === "") return null;
+    return path.isAbsolute(p) ? normalizePath(p) : normalizePath(path.resolve(path.dirname(dotGitFile), p));
+  } catch {
+    return null;
+  }
+}
+
+/** gitCrawlAnchor 的全信息版：区分「无 .git」（null）与「linked worktree（.git 文件）」
+ * （kind=file——gitCrawlAnchor 对此返 null 是政策豁免口径，双义洞实证 delta2 严重 1）。 */
+export function gitCrawlInfo(dir: string): GitCrawlInfo | null {
+  let cur = normalizePath(dir);
+  if (!existsSync(cur)) return null; // 不存在的落点不推定（已清理 worktree 面宁放不误拦）
+  for (let hops = 0; hops < 40; hops++) {
+    const dotGit = `${cur}/.git`;
+    try {
+      const st = statSync(dotGit);
+      if (st.isDirectory()) return { tree: cur, kind: "dir", gitdir: null }; // .git 目录=本体仓
+      if (st.isFile()) return { tree: cur, kind: "file", gitdir: gitdirFromDotGitFile(dotGit) };
+    } catch {
+      // 无 .git——继续向上爬
+    }
+    const parent = path.dirname(cur);
+    if (parent === cur) return null; // 到根仍未发现——非 git 树上下文
+    cur = parent;
+  }
+  return null;
+}
+
 /** F20261024dwtg（M-dd668952 单 B）：git 写面落点的 .git 爬升锚定。
  *  背景：git 真实语义是从 cwd 向上爬升发现 .git（discover git dir）——data/workspaces
  *  等运行时区不是 git 树，爬升会命中主仓 .git：`git stash drop` 实际写主仓元数据
@@ -612,8 +658,23 @@ function evalGitWrite(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoo
   //  路径）维持原语义。
   let anchored = base;
   if (projectRoot !== undefined && !pathWithinMain(base, projectRoot)) {
-    const anchor = gitCrawlAnchor(base);
-    if (anchor !== null) anchored = anchor;
+    const info = gitCrawlInfo(base);
+    if (info?.kind === "dir") {
+      // .git 目录=本体仓：爬升命中主仓时 anchored=主仓根（workspaces/stash 病灶）；
+      // 命中独立外仓时 anchored=外仓根，pathWithinMain=false 维持放行（/tmp scratch 自由度）。
+      anchored = info.tree;
+    } else if (info?.kind === "file" && info.gitdir !== null) {
+      // delta2 复核严重 1 案 B：.git 文件必须解析 gitdir 指针，不能把 null 当「无 git 树」。
+      // 非官方路径的 linked worktree/submodule 若实际 gitdir 落主仓 .git 树，stash/commit
+      // 实写主仓共享 refs/objects——补 gitdir 入账，pathWithinMain 判 BLOCK。
+      // R1 正道写区例外：base 在主仓 .otter/worktrees/ 下的正常 worktree 写维持豁免，
+      // 否则会把 worktree 内提交这一规定工作流一并封死。独立外仓 gitdir 不落主仓，自然放行。
+      const approvedWorktree = `${normalizePath(safeRealpath(projectRoot))}/.otter/worktrees/`;
+      const normalizedBase = `${normalizePath(safeRealpath(base))}/`;
+      if (!normalizedBase.startsWith(approvedWorktree) && pathWithinMain(info.gitdir, projectRoot)) {
+        acc.targets.push({ path: info.gitdir, via: "git", segmentIndex: acc.index, access: "write" });
+      }
+    }
   }
   // delta1（检视獭1636 严重 1）：双入账——git 真实写面 = gitdir 侧（refs/index 元数据，
   //  anchored）+ work-tree 侧（工作树文件，override 求值）并列 push。旧版 override 存在

@@ -29,7 +29,7 @@ import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS, WRAPPER_SPECS, tokenBasename, skipWrapperArgs, resolveExecHead, isStdinFeedRest, FIND_EXEC_LEADS, findExecVerbAt } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
-import { segmentStdoutContent, evalInterpreterStdinBody, gitCrawlAnchor } from "./write-target-evaluator";
+import { segmentStdoutContent, evalInterpreterStdinBody, gitCrawlInfo } from "./write-target-evaluator";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
 export type { AllowedService };
@@ -1393,7 +1393,30 @@ function stdinShellFeederVeto(
 }
 
 /** 段级判定（checkSegmentStructuralWrite 的单段处理，抽函数控圈复杂度） */
-// eslint-disable-next-line max-statements -- F20261016grdl 1a'-B/E：onelinerPathsOutsideMain 豁免 +1 语句（落点感知豁免挂段级）；语句数 26=判定分支逐形态对应，合并会牺牲「一形态一分支」可读性（同 :1056 先例）
+/** gitdir 归属判定的轻量路径归一（与 write-target-evaluator 同形：折叠 ./重复斜杠/尾斜杠，
+ *  不折叠 ..——路径真实语义由 safeRealpath 先穿透）。 */
+function normalizePathForGuard(p: string): string {
+  const abs = p.startsWith("/");
+  const joined = p.split("/").filter(c => c !== "" && c !== ".").join("/");
+  return abs ? `/${joined}` : (joined === "" ? "." : joined);
+}
+
+/** F20261024dwtg 案 B：树外 git 写是否可豁免（只读 fs；单函数承载 gitdir 归属，避免
+ *  judgeSegment 主流程膨胀）。独立外仓及其 linked worktree 放行；非官方路径的主仓卫星
+ *  gitdir 落主仓 .git 树则不豁免；R1 官方 worktree 由调用方先行豁免。 */
+function treeOutsideGitWriteExempt(projectRoot: string, sessionCwd: string): boolean {
+  if (!path.isAbsolute(sessionCwd)) return false;
+  if ((path.normalize(sessionCwd) + path.sep).startsWith(path.normalize(projectRoot) + path.sep)) return false;
+  const info = gitCrawlInfo(path.normalize(sessionCwd));
+  if (info?.kind === "dir") return true; // 独立外仓本体：放行
+  if (info?.kind === "file") {
+    const mainGit = `${normalizePathForGuard(safeRealpath(projectRoot))}/.git/`;
+    return info.gitdir !== null && !(`${normalizePathForGuard(safeRealpath(info.gitdir))}/`.startsWith(mainGit));
+  }
+  return true; // 真 git 树外：保留原 S1 放行面
+}
+
+// eslint-disable-next-line max-statements -- 每分支对应一种已实证形态；gitdir 归属另抽 treeOutsideGitWriteExempt 控制主流程
 function judgeSegment(
   rawSeg: string,
   ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; oneLinerReadOnly: boolean; depth: number; skipGitWrite?: boolean; onelinerPathsOutsideMain?: boolean; writeChannelSkip?: "file-write" },
@@ -1463,19 +1486,10 @@ function judgeSegment(
     // 保守面：sessionCwd 是 data/workspaces（非 git 树）或未跟踪 → 不豁免。
     if (ctx.projectRoot && ctx.sessionCwd && path.isAbsolute(ctx.sessionCwd)
         && (path.normalize(ctx.sessionCwd) + path.sep).startsWith(path.normalize(path.join(ctx.projectRoot, ".otter/worktrees")) + path.sep)) return false;
-    // S1 裁决原则①（收窄版，2026-10-19）：段内生效 cwd 锚定主仓树**外**（绝对路径
-    // 且不落 projectRoot——`cd /wt && git commit`）→ git 写落点非主仓，求值器先判
-    // 已 ALLOW，本通道再拦即形态判覆盖落点判（FULL≠EVAL 双判据，delta2 S1 同病）。
-    // 主仓树内（含会话工作区/相对/未知锚点）与 push/stash/-C 语义求值器无基座，
-    // 本通道仍是唯一拦截——照拦不放水。
-    // F20261024dwtg delta2 补裁（大獭，2026-10-24）：树外豁免收紧「真 git 树外」——
-    //  段内 cwd 树外但自身可上爬发现 .git（tmp 真 repo 的子目录、沙箱 repo 内嵌套层）时，
-    //  git 写的真实落点是爬升锚定的那个 repo——该落点未经任何求值/裁决面覆盖，豁免
-    //  会把未知 git 树的写面放出账。求值器侧（F20261024dwtg 单 B）同语义锚定后按
-    //  pathWithinMain 判；本通道照此收窄：爬升发现 .git → 不豁免（保守拦）。
-    if (ctx.projectRoot && ctx.sessionCwd && path.isAbsolute(ctx.sessionCwd)
-        && !(path.normalize(ctx.sessionCwd) + path.sep).startsWith(path.normalize(ctx.projectRoot) + path.sep)
-        && gitCrawlAnchor(path.normalize(ctx.sessionCwd)) === null) return false;
+    // F20261024dwtg delta2 复核严重 1 案 B：树外 git 写按实际 gitdir 判，不再把
+    // 「.git 文件」与「无 git 树」混为一谈。独立外仓（含其 linked worktree）放行；
+    // 非官方路径的卫星仓若 gitdir 落主仓 .git 树则不豁免（拦）。
+    if (ctx.projectRoot && ctx.sessionCwd && treeOutsideGitWriteExempt(ctx.projectRoot, ctx.sessionCwd)) return false;
     return true;
   }
   // ③b shell 解释器落点 → 洞1：提取 -c 载荷递归判定（r1 严重 2：三态拆分）
@@ -2189,8 +2203,26 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // 段的落点是该树自身（旧链 cwdInGitWorktree 同语义——求值器已按落点判过 ALLOW，
   // 结构通道不再重复拦 git 写族段；包装词/子壳等其余段结构照常跑）。
   const GIT_WORKTREE_PREFIX = ".otter/worktrees";
-  const cwdInGitWorktree = sessionCwd !== undefined && path.isAbsolute(sessionCwd)
+  // F20261024dwtg delta2 复核严重 1（检视猭1636）案 B：扩面「真 git 树外」——sessionCwd
+  //  爬升发现 .git 目录（树外本体 repo，git 写真落该树自身非主仓）同语义豁免；收窄面：
+  //  爬升发现 .git 文件（linked worktree 卫星仓——gitdir 落主仓 .git/worktrees/<n>，
+  //  stash/commit 实写主仓 gitdir，取舍 6 攻击面同族）不豁免（拦）。
+  const approvedWorktreeCwd = sessionCwd !== undefined && path.isAbsolute(sessionCwd)
     && (path.normalize(sessionCwd) + path.sep).startsWith(path.normalize(path.join(projectRoot, GIT_WORKTREE_PREFIX)) + path.sep);
+  const crawl = sessionCwd !== undefined && path.isAbsolute(sessionCwd)
+    ? gitCrawlInfo(path.normalize(sessionCwd)) : null;
+  const externalIndependentGit = crawl !== null && (() => {
+    // 沙箱（data/workspaces）与主仓任意子目录不得因 pathWithinMain=false 获 git 豁免；
+    // 仅 cwd 字面树外且实际 gitdir 不落主仓 .git 树时才扩独立仓/独立卫星豁免。
+    const mainRoot = `${normalizePathForGuard(safeRealpath(projectRoot))}/`;
+    const cwd = `${normalizePathForGuard(safeRealpath(sessionCwd!))}/`;
+    if (cwd.startsWith(mainRoot)) return false;
+    if (crawl.kind === "dir") return true;
+    if (crawl.gitdir === null) return false;
+    const mainGit = `${mainRoot}.git/`;
+    return !(`${normalizePathForGuard(safeRealpath(crawl.gitdir))}/`.startsWith(mainGit));
+  })();
+  const cwdInGitWorktree = approvedWorktreeCwd || externalIndependentGit;
   if (checkSegmentStructuralWrite(blankDataHeredocBodies(command), oneLinerReadOnly, { logger, projectRoot, sessionCwd, depth, skipGitWrite: cwdInGitWorktree, writeChannelSkip: ctx.writeChannelSkip })) {
     logger?.warn("[bash-safety-guard] BLOCKED main-checkout write via wrapped one-liner (no cd)", { command: command.substring(0, 200) });
     // M-38fb45c0 红线 4：feed 形态命中（wget 写面未知落点等先手面）归因走 feed 口径

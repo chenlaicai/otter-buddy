@@ -162,3 +162,43 @@ B2 新增 delta1 用例（分离值/attached/override 落 repo 外三形态均 B
   无此形态，真实使用中若浮出按误拦台账归档（M-2edf95d5 同域）
 - .git 爬升锚定引入 fs 只读查询进 evalGitWrite（原纯判定函数）——性能（单次命令多次
   statSync，≤40 跳/段）与 TOCTOU（判定与执行之间 .git 可能变化）已记档，与牙3 同口径
+
+## delta2/delta3 处置（2026-10-24 至 2026-10-26）
+
+### CI 环境兼容与追溯
+
+delta2 的 CI check 红并非同一根因反复重试：B2 真 repo 用例缺 git identity；grdl-g1
+依赖宿主机假想 worktree/workspace 路径；macOS `/var` symlink 使双链路径错位。修正为
+临时目录真实构造 repo、显式注入 identity、路径 realpath 归一。期间诊断输出均已移除，
+最终用例不依赖宿主机特定 worktree/workspace 是否存在。
+
+### 严重 1：`.git` 文件双义与案 B 最终边界（L1）
+
+`gitCrawlAnchor` 对「无 git 树」和「linked worktree 的 `.git` 文件」都返回 null，不能拿
+`anchor===null` 当「真 git 树外」。新增 `gitCrawlInfo` / `gitdirFromDotGitFile`，按实际
+gitdir 判归属，最终三态：
+
+| 场景 | 最终判定 | 理由 |
+|---|---|---|
+| 非官方路径的主仓 linked worktree/submodule，实际 gitdir 落主仓 `.git` 树 | BLOCK | stash/commit 实写主仓共享 refs/objects；求值器补 gitdir 入账 + V1 结构链不豁免 |
+| 独立外仓本体或其 linked worktree，实际 gitdir 不落主仓 `.git` 树 | ALLOW | /tmp scratch 自由度；写落点与主仓无关 |
+| 主仓 `.otter/worktrees/` 下 R1 正道 worktree | ALLOW | 不封死规定的提交流程；「真实共享 gitdir」不自动等同「应拦」，R1 正道是显式政策例外 |
+
+`gitCrawlInfo.kind=dir` 只证明存在本体仓，不直接等于拦截；树外独立仓放行，主仓 workspaces
+爬升命中主仓本体才拦截。`pathWithinMain` 对运行时沙箱/worktree 返回 false，故 V1 扩豁免
+改用「cwd 字面树外 + gitdir 不属主仓 `.git`」双条件，避免主仓任意子目录获得 `skipGitWrite`。
+
+### 建议 2/3/4
+
+- **宽度**：独立外仓及其卫星保持放行，与同族树外文件写语义对齐；`git stash/commit`
+  对照用例钉住。
+- **grdl-g1 断言来源**：不再把临时独立仓的 V1 形态拦截误写成「求值器主仓命中」。最终
+  用例临时构造主仓卫星、独立卫星、官方 worktree 三态，全部直调 guard；CI 无宿主路径依赖。
+- **文档**：本节补齐新判据、政策例外与测试改动。原 B2「临时 repo 的 linked worktree
+  @树外 stash drop」由 ALLOW 翻 BLOCK，属严重 1 的攻击面收紧，不是 R1 正道豁免回退。
+
+### 红绿证据
+
+- 定向 4 文件 128/128 绿（dynwash-door/grdl-g1/gsbx-phase2/git-dashc）。
+- 守卫目录 80 文件 / 2162 测试绿；全仓 426 文件 / 6824 测试绿；`tsc --noEmit` 通过。
+

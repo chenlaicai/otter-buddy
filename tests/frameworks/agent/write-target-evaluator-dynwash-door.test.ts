@@ -142,7 +142,66 @@ describe("B2 真爬升面（临时目录构造 repo：ws 落 repo 树内、wt �
       const wt = path.join(base, "wt");
       execSync(`git -C ${repo} worktree add -q ${wt} -b probe`);
       const v = evaluateWriteVerdict("git stash drop", repo, wt);
+      expect(v.verdict).toBe("BLOCK");
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+  it("delta3（检视猭1636 严重 1 案 B）：树外 linked worktree 卫星 gitdir 落主仓树 → git 写拦（取舍 6 攻击面收口）", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const os = await import("node:os");
+    const { execSync } = await import("node:child_process");
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "dwtg-b2-"));
+    try {
+      const repo = path.join(base, "repo");
+      fs.mkdirSync(repo, { recursive: true });
+      execSync(`git init -q ${repo}`);
+      execSync(`git -C ${repo} commit -q --allow-empty -m x`, {
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "probe",
+          GIT_AUTHOR_EMAIL: "probe@example.com",
+          GIT_COMMITTER_NAME: "probe",
+          GIT_COMMITTER_EMAIL: "probe@example.com",
+        },
+      });
+      // 卫星：wt 是 repo 的 linked worktree（.git 文件 → gitdir=<repo>/.git/worktrees/wt），
+      //  wt 本体在 repo 树外（base/wt），且不在 R1 官方 .otter/worktrees 正道区——stash/commit
+      // 实写主仓共享 gitdir，求值器补 gitdir 入账 → BLOCK（取舍 6 攻击面收口）。
+      const wt = path.join(base, "wt");
+      execSync(`git -C ${repo} worktree add -q ${wt} -b probe`);
+      const v = evaluateWriteVerdict("git stash drop", repo, wt);
+      expect(v.verdict).toBe("BLOCK");
+      // R1 正道 worktree 对照：同 repo 的卫星落 .otter/worktrees 下，正常提交不被误拦。
+      const approved = path.join(repo, ".otter/worktrees/probe");
+      execSync(`git -C ${repo} worktree add -q ${approved} -b approved`);
+      expect(evaluateWriteVerdict("git stash drop", repo, approved).verdict).toBe("ALLOW");
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+  it("delta3 对照（建议 2 宽度）：独立外仓（gitdir 不落主仓树）→ git 写维持放行", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const os = await import("node:os");
+    const { execSync } = await import("node:child_process");
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "dwtg-b2-"));
+    try {
+      const repo = path.join(base, "repo"); // 主仓位
+      const ext = path.join(base, "ext");   // 独立外仓（gitdir=<ext>/.git 不落 repo 树）
+      fs.mkdirSync(repo, { recursive: true });
+      fs.mkdirSync(ext, { recursive: true });
+      execSync(`git init -q ${repo}`);
+      execSync(`git init -q ${ext}`);
+      // 外仓本体（.git 目录）：求值器锄定=本体树，pathWithinMain=false → ALLOW
+      const v = evaluateWriteVerdict("git commit -m x", repo, ext);
       expect(v.verdict).toBe("ALLOW");
+      // 外仓内嵌套子目录（爬升锄定外仓本体）：同 ALLOW
+      const inner = path.join(ext, "inner");
+      fs.mkdirSync(inner);
+      const v2 = evaluateWriteVerdict("git stash drop", repo, inner);
+      expect(v2.verdict).toBe("ALLOW");
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }
