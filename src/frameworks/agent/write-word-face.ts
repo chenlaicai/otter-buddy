@@ -103,7 +103,7 @@ function readStringLiteralArg(script: string, start: number): { text: string; dy
  *  os.chmod/chown/utime/truncate、np.save/savez、extractall（#1423 dbm 族同源）。connect 由
  *  connectCallWriteHits 单独按 mode=ro 判（TS-74bbed93 只读连接非写）。 */
 const PAYLOAD_WRITE_FACE =
-  /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|renameSync|unlinkSync|rmSync|mkdirSync|rmdirSync|truncateSync)\s*\(|\bfs\.(?:write|writev)\s*\(|\bos\.(?:remove|rename|mkdir|makedirs|rmdir|mknod|replace|chmod|chown|utime|truncate)\s*\(|\bshutil\.(?:copy|copy2|copytree|move|rmtree)\s*\(|\bnp\.(?:save|savez|savez_compressed)\s*\(|\.\s*(?:writelines|truncate|unlink)\s*\(|(?<!stdout)(?<!stderr)\.\s*write\s*\(|Path\s*\(\s*["'][^"']*["']\s*\)\s*\.\s*write_(?:text|bytes)\s*\(|\.\s*extractall\s*\(/;
+  /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|renameSync|unlinkSync|rmSync|mkdirSync|rmdirSync|truncateSync)\s*\(|\bfs\.(?:write|writev)\s*\(|\bos\.(?:remove|rename|mkdir|makedirs|rmdir|mknod|replace|chmod|chown|utime|truncate)\s*\(|\bshutil\.(?:copy|copy2|copytree|move|rmtree)\s*\(|\bnp\.(?:save|savez|savez_compressed)\s*\(|\.\s*(?:writelines|truncate|unlink|mkdir|rmdir|touch|rename|write_text|write_bytes|symlink_to|hardlink_to)\s*\(|(?<!stdout)(?<!stderr)\.\s*write\s*\(|Path\s*\(\s*["'][^"']*["']\s*\)\s*\.\s*(?:write_(?:text|bytes)|mkdir|rmdir|unlink|touch|rename|replace|symlink_to|hardlink_to)\s*\(|\.\s*extractall\s*\(/;
 /** 重定向落点词面（排除 fd 复制 2>&1/>&2、比较/箭头 =>/->/<=/>=）；&>/<>/>> 单列 */
 const REDIRECT_FACE = /(?:&>{1,2}|<>|(?<![=\-<>&])>{1,2}(?!&|\(|=|\s*\/dev\/(?:null|std(?:out|err))))/;
 

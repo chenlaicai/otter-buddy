@@ -7,7 +7,7 @@
     "generated_at": "2026-10-12T10:52:25.895869Z",
     "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
     "pool": "拦截试金石",
-    "count": 87,
+    "count": 91,
     "kinds": "synthetic_probe / shadow_case / real_command / residual_face(真实误拦残余面§3.3-①如实钉)",
     "restate_changes": {
       "git_policy_flip": 68,
@@ -2189,6 +2189,90 @@
         "v2_expect": "BLOCK",
         "diff": true,
         "basis": "M-cf899ad2 A′ 同族扩展（chen 2026-10-20 按推荐）"
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-gpg1x01",
+      "command": "python3 -c 'from pathlib import Path; Path(\"/repo/data/pwn\").mkdir()'",
+      "adjudication": [
+        "F20261026gpg1（M-a09944aa①机理修正版）：Path(lit).mkdir() 词面证洗白洞——PAYLOAD_WRITE_FACE 缺 pathlib 写族方法（write_text 有、mkdir/rmdir/unlink/touch/rename 无）→ proveNoWrite 洗成零写面 evaluated 空集 ALLOW。修法=pathlib 写族方法词面+提取通道同族归位（write_text 先例）"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "M-a09944aa delta 记档",
+            "channel": "python -c 载荷写提取白名单"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-gpg1x02",
+      "command": "python3 -c 'from pathlib import Path; Path(\"/repo/data/pwn\").rmdir()'",
+      "adjudication": [
+        "F20261026gpg1：同 TS-gpg1x01 族（rmdir 面）"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "M-a09944aa delta 记档",
+            "channel": "python -c 载荷写提取白名单"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-gpg1x04",
+      "command": "echo '/repo/data/pwntree' | xargs -I{} sh -c 'mkdir -p {}'",
+      "adjudication": [
+        "F20261026gpg1：xargs 模板注入位形态（占位符在 -c 模板内，路径来自上游实参）——重建拼接后递归判，攻击面同 TS-gpg1x03"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "M-a09944aa delta 记档",
+            "channel": "xargs 模板注入"
+          }
+        ]
+      },
+      "verdict": "BLOCK"
+    },
+    {
+      "id": "TS-gpg1x06",
+      "command": "python3 -c 'from pathlib import Path; Path(\"/repo/data/x\").rename(Path(\"/repo/data/y\"))'",
+      "adjudication": [
+        "F20261026gpg1：Path(lit).rename 双参形态（src/dst 双落点提取）——提取通道第二形态"
+      ],
+      "kind": "synthetic_probe",
+      "source": {
+        "types": [
+          "adversarial_probe"
+        ],
+        "anchors": [
+          {
+            "source": "review",
+            "reviewer": "M-a09944aa delta 记档",
+            "channel": "python -c 载荷写提取白名单"
+          }
+        ]
       },
       "verdict": "BLOCK"
     }
