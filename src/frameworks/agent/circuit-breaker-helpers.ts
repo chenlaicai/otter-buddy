@@ -333,13 +333,18 @@ export function attachCircuitBreaker(
     options?.onGuardIntercept?.({ command, reason });
   }
 
+  // eslint-disable-next-line complexity -- 守卫判定/引导文案/单点落账/门接管与 abort 降级五段同序，拆开会分散「同一次拦截只落一次账」不变量（F20261026gobs N1）
   function abortOnUnsafeBash(command: string, toolCallId?: string): "aborted" | "deferred" | null {
     const mainPid = getMainPid();
     const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd, sandboxGuarded: options?.sandboxGuarded });
     if (!rawSafetyBlock) return null;
     const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
     const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd(), command);
-    recordGuardIntercept(command, safetyBlock, mainPid, isSleepBlock ? "sleep" : "safety");
+    // delta-r2（检视獭1646 N1）：门激活时由门单点落 healing，abort 链不得双落（6h ≥3 次升级
+    // 计数与事件噪声会翻倍）；门失活时 abort 链仍负责落账，降级路径守恒。
+    if (!options?.guardGateActive?.()) {
+      recordGuardIntercept(command, safetyBlock, mainPid, isSleepBlock ? "sleep" : "safety");
+    }
     clearEventTimer(toolCallId);
     // F20261026gobs delta-r1（检视獭1646 S3）：tool_call 门（bashGuardGate）已接管 bash 守卫判定
     //（同源同参）——门在 beforeToolCall 以显式 reason 落痕返回 LLM；SDK prepareToolCall 的

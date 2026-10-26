@@ -122,4 +122,10 @@ GUARD: BLOCK -> …（kill 族拦）
 - **S3（已处置）**：单点接管消双拦 + SDK 集成测试钉死（runToolCall 真实 prepareToolCall 路径：双拦判定面 toolResult 含显式理由、非 Operation aborted；对照案钉住 SDK L500 优先于 L507 的既定语义）
 - **精确机制待钉（降级声明，A2）**：M-2bf6e98c「静默 exit 0」的精确合成点（abort 竞态 vs 沙箱中和 vs 自动重试替换）静态分析未完全钉死；delta-r1 修复后**不再声称「必然带显式痕迹」**——准确口径：门激活时被拦命令不执行、toolResult 必含显式守卫理由（集成测试背书）；门失活（store 缺失）降级为 abort 兑底链，显式落痕由系统提醒消息承载（非 toolResult）。精确机制待下次现场复现补钉
 - **性能余项**：门接管后 bash 守卫判定单点执行（delta-r1 消除了门与 abort 链的双层重复判定开销）；per-event 计时器由 tool_execution_end 清理（immediate 结果亦发 end 事件，已核 agent-loop.js L396）
+
+### delta-r2 可观测性守恒（检视獭1646 N1/N2）
+
+- **N1 healing 单点落账**：门激活时 abortOnUnsafeBash 不再 recordGuardIntercept，由 tool_call 门落；门失活时 abort 链照旧落。避免同一拦截两条 guard_intercept 导致 #844「6h ≥3 次」计数双倍加速。SDK 集成测试补 intercepts=[] 钉死 deferred 不双落。
+- **N2 消费链迁移显式声明**：门激活场景不再走 `session.abort()`，因此 orchestrator L1 自动重试、#731 guard bounce、agent-metrics 的 `bash_safety:`/`bash_sleep:` reason 消费族不触发。替代消费链为「toolResult 显式 isError → LLM 可见理由 → 循环熔断/事件门兜底」，安全判定与 healing 不丢；但**原 L1 自动重试与 bounce 次数、metrics 的 abort 型拦截事件口径会下降**，属有意迁移，不得拿新旧绝对量直接做趋势比较。门失活时旧 abort 链与消费口径完整保留。
+- **根因边界不变**：静默 exit 0 的原始精确合成点仍未完全钉死，本 PR 是 tool_call 层鲁棒覆盖 + 显式反馈，不宣称已证明所有历史静默样本均由此一机制产生。
 - **职责外观察**：`kill 0`（杀自身进程组）在已知 mainPid 路径本就不在字面等值拦截面（pids=[0] 不含 mainPid）——pre-existing 语义，非本单回归，供大獭定夺是否另立台账

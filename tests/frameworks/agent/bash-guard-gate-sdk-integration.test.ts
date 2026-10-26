@@ -101,6 +101,7 @@ describe("S3 集成：双拦下 LLM 可见 toolResult 显式落痕（runToolCall
   it("① 守卫拦 + abort 链同判 → toolResult 含「被安全守卫拦截（命令未执行）」而非 Operation aborted", async () => {
     const store = makeStore();
     const session = mockSession();
+    const intercepts: string[] = [];
     attachCircuitBreaker(
       session as never,
       "otter-s3",
@@ -111,6 +112,7 @@ describe("S3 集成：双拦下 LLM 可见 toolResult 显式落痕（runToolCall
         sessionCwd: store.guardSessionCwd,
         sandboxGuarded: false,
         guardGateActive: () => true, // 门激活（生产接线：store.guardProjectRoot != null）
+        onGuardIntercept: (input) => { intercepts.push(input.reason); },
       },
     );
 
@@ -134,6 +136,8 @@ describe("S3 集成：双拦下 LLM 可见 toolResult 显式落痕（runToolCall
     expect(shown).not.toContain("Operation aborted"); // 未被 abort 文案覆盖
     expect(state.executed).toBe(false); // 被拦命令未执行（副作用断言）
     expect(session.state.abortCount).toBe(0); // 全程无 abort
+    // delta-r2（N1）：abort 链 deferred 不得落 healing——本拦截只由门单点落账，双落会污染 6h 升级计数
+    expect(intercepts).toEqual([]);
   });
 
   it("② 兜底面：门失活（guardGateActive=false）→ abort 链照旧 abort（降级不降安全）", () => {
