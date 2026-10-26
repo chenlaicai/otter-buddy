@@ -88,14 +88,36 @@ describe("② M-a09944aa②：xargs replace-str 注入（修复前全 ALLOW）",
     expect(guard(`echo "mkdir -p src/tree" | xargs -i bash -c {}`)).toBeNull();
   });
 
-  it("无 replace 旗标的追加形态不在本类（xargs touch 词级注入归 M-c36b9847 wrapper 基座治理域记档）", () => {
-    // 钉现状：追加形态 ALLOW（不冒充已收——独立 matter 域）
-    expect(guard(`echo "${ROOT}/data/pwnfile" | xargs touch`)).toBeNull();
+  it("值耗型旗标前置/后置/合写全收（delta r1 检视严重 1：-n/-P/-s 前置即静默失效，复用 WRAPPER_SPECS.xargs.valueFlags 吞值修）", () => {
+    for (const cmd of [
+      `printf 'mkdir -p ${ROOT}/data/pwntree' | xargs -n 1 -i bash -c {}`,
+      `echo "mkdir -p ${ROOT}/data/x" | xargs -i -n 1 bash -c {}`,
+      `echo "mkdir -p ${ROOT}/data/x" | xargs -P 4 -i bash -c {}`,
+      `echo "mkdir -p ${ROOT}/data/x" | xargs -s 100 -I{} bash -c 'mkdir -p {}'`,
+      `echo "mkdir -p ${ROOT}/data/x" | xargs --max-args=1 -i bash -c {}`,
+      `echo "mkdir -p ${ROOT}/data/x" | xargs -n1 -i bash -c {}`, // 合写内联值形态
+    ]) {
+      expect(guard(cmd), cmd).toBeTruthy();
+    }
+    // -n 1 拆行语义（printf %s\n 多行逐行注入）同样收
+    expect(guard(`printf '%s\n' 'mkdir -p ${ROOT}/data/pwn1' | xargs -n 1 -i bash -c {}`)).toBeTruthy();
+    // BSD/GNU 分歧声明：本表按 GNU xargs 语义（-I 必带值、-i 可选值默认 {}）。
+    // BSD -i 无参语义等价 GNU -I{}（macOS 实测同），不另设表。
+  });
+
+  it("解释器直挂形态：xargs -i python3 -c {} 有害载荷拦/良性放（建议②钉死：-c 在场不读 stdin，判定走 -c 载荷=上游内容注入，词面证据兑住）", () => {
+    expect(guard(`echo 'open("${ROOT}/pwn1", "w")' | xargs -i python3 -c {}`)).toBeTruthy();
+    expect(guard(`echo 'print(1)' | xargs -i python3 -c {}`)).toBeNull();
   });
 
   it("kill 注入面：echo 'kill -9 123' | xargs -i bash -c {} → 拦（kill 消息归因）", () => {
     const r = guard(`echo "kill -9 123" | xargs -i bash -c {}`);
     expect(r).toBeTruthy();
+  });
+
+  it("无 replace 旗标的追加形态不在本类（xargs touch 词级注入归 M-c36b9847 wrapper 基座治理域记档）", () => {
+    // 钉现状：追加形态 ALLOW（不冒充已收——独立 matter 域）
+    expect(guard(`echo "${ROOT}/data/pwnfile" | xargs touch`)).toBeNull();
   });
 });
 

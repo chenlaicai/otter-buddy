@@ -48,7 +48,7 @@ created_at: 2026-10-26T13:00:00+08:00
 | `curl \| env python`（无 -c） | BLOCK | feed 通道已有矩阵钉（对照） |
 | 截断载荷 `python3 -c 'ast.parse(open("x").read()); open("/repo/pwn","w")` | BLOCK | M-2ad7c58d A 项**已不成立**：heredoc-script-payload 回落 → V1 fail-closed 拦（#1544 链已有） |
 | c091 `ast.parse(open().read())` 只读链 | evaluated（读披露） | M-2ad7c58d B 项**疑点消解**：guard-write-eval-corpus c091 note 明载「truncated-payload 源数据上限，非求值器缺口」，shadow 口径已剔除 |
-| GA-3 良性截断只读 `python3 -c 'ast.parse(open("x").read()` | BLOCK | **pre-existing FPOS**（origin/main 同拦）——保守向误拦非本批引入，记档不动（#1513 尺度） |
+| GA-3 良性截断只读 `python3 -c 'ast.parse(open("x").read()` | sessionCwd 在场：BLOCK / 缺席：ALLOW | **delta r1 订正**：初版「origin/main 同拦」表述不精确致声明失实——真相是判定依赖 sessionCwd（worktree cwd 时良构门拒→回落拦；无 cwd 旧世界只读放行）。检视獭实测 ALLOW（无 cwd 形态）、本獭实测 BLOCK（有 cwd 形态）都对。定性：cwd 在场时的拦是保守向（截断载荷不可求值回落）非 FPOS 无需修；本批不改 |
 
 ### 与记忆的对照修正
 
@@ -81,7 +81,7 @@ created_at: 2026-10-26T13:00:00+08:00
 
 - **matter ③ env -P 扩面**：明确不做——搭档单独点头边界（M-3fe59a8e 先例）保持
 - **xargs 默认追加形态**（`echo path | xargs touch` 词级注入）：F20261020c2sm R2 已记档归 wrapper 基座治理域（M-c36b9847），与 `touch $(cmd)` 命令替换面同级——不越界收（#1513 不军备化：xargs 常规用法海量，追加形态全收进上游词级递归 = 巨大误伤面）。独立测试钉现状 ALLOW
-- **GA-3 pre-existing FPOS**（良性截断只读误拦）：保守向，origin/main 同判，非本批引入——记档待 wrapper 基座治理单统一裁
+- GA-3 良性截断只读：delta r1 订正——判定依赖 sessionCwd（在场 BLOCK/缺席 ALLOW）；cwd 在场时是保守向回落非 FPOS，待裁项撤回；初版「origin/main 同拦」表述不精确作废
 
 ## 测试
 
@@ -109,7 +109,19 @@ LEAK | echo "/repo/pwntree" | xargs -i bash -c 'mkdir -p {}'
 
 ## 残余记档
 
+### delta r1（检视獭1643 初轮 3 严重 + 4 建议处置记档，2026-10-26）
+
+- **严重 1**（值耗型旗标前置静默失效）：修法=复用 WRAPPER_SPECS.xargs.valueFlags 吞值（大獭处置口径，不自造第二套表）——-n/-P/-s/-d/-L/-a 及长短合写形态全收（测试 6 形态钉）
+- **严重 2**（GA-3 基线声明失实）：订正如上——真相是判定依赖 sessionCwd 参数形态，初版「origin/main 同拦」表述不精确；探针教训：基线声明必须钉参数形态
+- **严重 3**（PR body 缺测试改动声明）：已补「## 测试改动声明」段
+- **建议①**（pathlib chmod 同族残留）：已收——Path(lit).chmod/lchmod/chown 双约束族 + 裸名族（全语料 0 误伤面实测）；裸 replace 保持排除（81 条字符串方法误伤面）
+- **建议②**（python 直挂无测试钉）：已收——xargsReplaceInjection 接解释器族（python/node/ruby/perl，node -e 同接），shell/解释器分形态重建（shell=裸命令文本递归；解释器=`interp -c '代码'`引号塔重建），良性豁免 xargsInjectionBenign 接 judgeMainWriteChannel 预计算 + 结构通道双挂；连带修 pre-existing 死代码 oneLinerReadOnlyOverride（声明从未消费，取或接线）
+- **建议③**（BSD/GNU 分歧）：BSD -i 无参语义等价 GNU -I{}（macOS 实测），不另设表——测试注释声明
+- **建议④**（#1641/#1643 合并序冲突）：大獭已仲裁 #1641 先行本单语义合并，rebase 冲突处置留合并时
+
+### 原残余面
+
 - xargs 默认追加形态（词级注入）现状 ALLOW——归 M-c36b9847 wrapper 基座治理域（F20261020c2sm R2 同判）
-- GA-3 良性截断只读 FPOS（pre-existing）——保守向误拦，待统一裁
+- GA-3 良性截断只读：判定依赖 sessionCwd（delta r1 订正，初版声明失实）——保守向非 FPOS，待裁项撤回；探针参数形态差（cwd 在场与否）是差异源，两方实测都对
 - xargs 注入形态未进 touchstone 三库（exam 棘轮考官域所限）——独立测试 bash-guard-gpg1-fixes 长期钉
 - env -P 扩面未做（搭档单独点头边界）
