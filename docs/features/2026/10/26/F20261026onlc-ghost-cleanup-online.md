@@ -3,6 +3,11 @@ id: F20261026onlc
 title: embedding 幽灵清理脚本在线模式——SQLite 在线备份（含 WAL）+ 并发安全论证
 summary: 'cleanup-embedding-ghosts.mjs 新增 --online（配合 --apply）：不停机清理幽灵任务。备份从 copyFileSync 换为 better-sqlite3 db.backup()（SQLite 在线备份 API，含 WAL 已提交数据——cp 主 DB 在线会丢 WAL 内容），busy_timeout 15s 等待主服务写锁。并发安全经读码论证：markTaskDone=DELETE / markTaskAttemptFailed=UPDATE，被删任务的运行中回写命中 0 行不复活；enqueueRetry 前置校验与删除条件互斥不边删边插；NOT EXISTS 保证有效任务不受影响。2026-10-26 生产在线实跑：删 1880 条幽灵、1349 条有效任务原样、备份 integrity_check ok、服务零重启。'
 change_type: feature
+intent:
+  problem: 清理脚本只有停机模式（cp 备份丢 WAL 已提交数据），搭档要求不停机在线清理
+  expected_effect: --apply --online 可在主服务运行中安全清理幽灵任务，在线备份含 WAL，有效任务不受影响
+  verify_by:
+    type: behavior_check
 capability_test: "n/a: 运维脚本（A 类），无 LLM 参与行为"
 modules: [memory, scripts]
 created_at: 2026-10-26
