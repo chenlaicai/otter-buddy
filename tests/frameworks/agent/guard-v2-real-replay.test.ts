@@ -182,3 +182,57 @@ describe("#1432 node import/require 只读豁免回放（10-12 现场 b4471a4f/0
     expect(checkBashCommandSafety(`node -e "const c = require('child_process')"`, mainPid, undefined, gopts)).toBeTruthy();
   });
 });
+
+describe("#1635 主仓只读 grep 引号参数误拦回放（10-23/10-24 现场，isKillAtCommandPosition 引号盲区）", () => {
+  // 现场形态：cd 主仓 + 只读检索管道。危险词（rm / find -delete）出现在 grep 引号
+  // 模式参数内（数据位），被 checkDataDirDestructive → isKillAtCommandPosition 的
+  // VALID_CMD_PRECEDERS 把引号内 \|（grep alternation 转义竖线）当 shell 管道误判
+  // 命令位（healing 987a40c3=rm 命中 / af548d08=find -delete 命中，日志锚
+  // otter-buddy.log L2259621 / L2238313）。
+  const gopts = { projectRoot, sessionCwd: `${projectRoot}/data/workspaces/3241317b-99d6-4d78-9248-ff208a7461bc` };
+
+  it("1635-A1: 10-24 现场命令（grep -i \"write\\|rm\\|destruct\" 引号内 rm）原样回放 → 放行", () => {
+    const cmd = `cd ${projectRoot} && grep -rn "main_write" src/frameworks/agent/bash-safety-guard.ts | head -10; grep -n "grep" src/frameworks/agent/bash-safety-guard.ts | grep -i "write\\|rm\\|destruct" | head -5`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1635-A2: 10-23 现场命令（grep 模式引号内 find -delete 词面）原样回放 → 放行", () => {
+    const cmd = `cd ${projectRoot} && grep -n "find" src/frameworks/agent/bash-safety-guard.ts | grep -iv "finding\\|defined\\|refind" | head -15 && echo ===WV=== && grep -n "\\"find\\"\\|'find'\\|find -delete\\|" src/frameworks/agent/bash-safety-guard.ts | head -5`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1635-A3: gh issue create heredoc 正文含 find -delete 字样（文档数据体）→ 放行", () => {
+    const cmd = `cd ${projectRoot} && gh issue create --title "[guard] 只读检索被误拦" --body "$(cat <<'EOF'\n## 案发现场\n\n\`find -delete\` 词面出现在 grep 引号参数里被误拦。\nEOF\n)"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1635-A4: issue 关闭标准形态 grep -n \"find\" src/... 纯净形 → 放行", () => {
+    const cmd = `cd ${projectRoot} && grep -n "find" src/frameworks/agent/bash-safety-guard.ts | head -5`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1635-B1 负例: 命令位真 rm 主仓文件 → 仍拦", () => {
+    const cmd = `cd ${projectRoot} && rm -f src/test.txt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1635-B2 负例: 命令位真 find -delete 主仓树 → 仍拦", () => {
+    const cmd = `cd ${projectRoot} && find src -name "*.tmp" -delete`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1635-B3 负例: 双引号内 $() 展开的真命令位写 → 仍拦（引号感知不豁免命令替换）", () => {
+    const cmd = `cd ${projectRoot} && echo "$(rm -f src/x.txt)"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1635-B4 负例: 引号内真 rm 执行体（bash -c 载荷）→ 仍拦", () => {
+    const cmd = `cd ${projectRoot} && bash -c "rm -f src/x.txt"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1635-B5 负例: heredoc shell 体执行真 rm → 仍拦（剥体不豁免 shell 体判定）", () => {
+    const cmd = `cd ${projectRoot} && bash <<'SH'\nrm -f src/x.txt\nSH`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+});

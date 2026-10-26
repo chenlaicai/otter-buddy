@@ -517,7 +517,14 @@ function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sess
  *  命令（如 `rm -rf data` 清工作区缓存）解析到主仓 data/ 被误拦（10/14 三连实证）。 */
 // eslint-disable-next-line complexity -- 破坏目标域分类分流（data/mainTree 两文案+豁免面）+ cd 跟踪，每分支对应一种已实证形态（F20261016gdfv 目标域扩面后 13）
 function checkDataDirDestructive(command: string, logger: Logger | undefined, ctx: GuardCwdCtx): string | null {
-  const segments = command.split(/&&|\|\||[;&\n]/).map(s => s.trim()).filter(Boolean);
+  // #1635：剥 heredoc 体后扫描（与 checkGitAliasShellInjection X5 同构）——heredoc
+  // 体是数据（写入 issue/PR 正文的文本），体内 find -delete 字样被本规则的词元
+  // 扫描误命中（10-23 gh issue create 现场：issue 正文描述守卫规则时自身撞规则）。
+  // heredoc 体的真实危险面由专职层覆盖（checkHeredocScriptBodies 递归 V1 全量链 /
+  // heredocWriteVeto 体感知负门），剥体不产生真洞；stripHeredocPayloads 对展开
+  // 特征/未闭合体保守不剥（fail-closed）。
+  const scanText = stripHeredocPayloads(command);
+  const segments = scanText.split(/&&|\|\||[;&\n]/).map(s => s.trim()).filter(Boolean);
   let cwd = ctx.sessionCwd ? path.normalize(ctx.sessionCwd) : (ctx.projectRoot ? path.normalize(ctx.projectRoot) : "");
   for (const seg of segments) {
     // 形态 0：cd 更新跟踪 cwd（后续段的相对路径基准）
