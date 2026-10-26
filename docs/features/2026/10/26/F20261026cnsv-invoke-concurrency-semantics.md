@@ -9,7 +9,8 @@ summary: |
   事故暴露的四层 gap（入口不收敛 / 锁超时裸抛 / steal 纯时长误判 / 失真注释）。
   方案四件套：①设计定稿——锁保留、职责=串行一致性防线；②入口收敛——链调度
   hop 对 running 獭转 followUp 注入；③锁超时兜底降级——等锁超时不再裸抛，转
-  followUp 排队；④steal 双条件——「超时 + 持有者不活跃」才强制接管，消灭活任务
+  followUp 排队；④steal 双条件——「超时且行态×SDK态脱节」才强制接管，双活一致
+  的长任务不被误抢，#599 僵尸形态仍可接管
   误判。
 
 causal_links:
@@ -97,7 +98,7 @@ F20260913ctlv 退役清单第 8 项「per-otter 锁」自本档起废止（历�
 同一海獭执行体，任意时刻至多一个 invoke 在运行（串行不变式）。
 层间分工：
   1. 主防线——调度入口：目标 running 时新任务不直接 invoke，转 followUp
-     注入当前 session 的 SDK 原生队列（续轮消化，不打断、不丢轮）
+     注入当前 session 的 SDK 原生队列（续轮消化，不打断；单委托不丢轮，见 D2）
   2. 兜底防线——session 锁：等锁超时后不再裸抛，自动降级为 followUp 注入
   3. 完全失败——锁 + followUp 双不可用（池状态异常）：快速失败 + 人话错误
   4. 僵尸清理——steal：仅当「超阈值 且 持有者不活跃」才强制接管
@@ -115,29 +116,54 @@ activeSessions 生命周期管理需要互斥点；完全去锁要求重写 sess
 ```
 目标獭 factory.isRunning(target) === true
   → factory.followUp(otterId, hopPrompt)   // hopPrompt = 链引擎为该 hop 构造的派工指令
-    ├─ true  → 本 hop 以「已投递（delegated）」结算，链引擎内存循环终止，
-    │          后续链路由发言链机制自然延续（followUp 续轮的 yield 同样触发
-    │          行级 talkingStonePassedTo 读取 → 下一 hop 调度，与用户消息
-    │          followUp 消化后的链延续同构）
-    └─ false → 降级直接 invokeFn（与 signal-router:206 降级语义一致，覆盖
+    ├─ true  → 本 hop 以「已投递（delegated）」结算（纯日志标注，见记账声明），
+    │          委托链 T 的内存循环终止
+    └─ false → 降级直接 invokeFn（与 signal-router:246 降级语义一致，覆盖
                isRunning 判定与实际状态间的竞态窗口）
 ```
 
-依据：signal-router 对 running 獭的生产语义即 isRunning → followUp
-（signal-router.ts:220-248），SDK followUp 语义「run only after the agent would
-otherwise stop」（pi-agent-core/dist/agent.d.ts:97）——续轮在当前 invoke 的
-prompt() 内 drain，产出发言正常走 entries 管道，发言链 hook 对 drain 续轮生效
-（生产实证：用户消息 followUp 注入后的 speak/yield 均正常落链）。
+**链延续机制（修订：如实描述，Mimo 发现 1）**：followUp 注入后，委托消息在
+**持有者 invoke 的 prompt() 内 drain 消化**（SDK 语义「run only after the agent
+would otherwise stop」，pi-agent-core/dist/agent.d.ts:91-92）。持有者续轮的
+speak/yield 落 entries 时覆盖式更新 invokes 行的 talkingStonePassedTo
+（send-entry.ts:378，last-write-wins）；持有者 invokeFn 的 promise 由**其原始
+链 S 的 executeChainInner 循环** await，prompt() 返回后链 S 读 invokes 行终态
+tsp 路由下一跳。即：**委托 hop 的后续路由借用持有者原链 S 的循环完成**，
+不存在独立的「发言链 hook」（行级 tsp 的唯一路由消费点是链引擎内存循环，
+signal-router:172-178 明文禁止獭产出消息作信号源）。功能上链得到延续，
+机制上是「借道」而非「自然延续」——实现与排查都需按此理解。
+
+**多委托约束（单飞行委托）**：tsp 为 last-write-wins，同獭两个以上 in-flight
+委托时中间轮的 yield 目标会失去路由（Mimo 发现 1a）。约束：**同獭至多一个
+in-flight 委托**——poolMeta 增加内存态 in-flight 委托标志，已有时新 hop
+快速失败（人话错误「目标海獭已有排队任务在消化」+ healing 落账）。「不丢轮」
+承诺相应收缩为「单委托不丢轮」；多委托场景显式拒绝而非静默丢。标志为
+纯内存并发防护（见机制识别检查点）。
+
+**异常路径（已知限制，显式声明）**：持有者 run 走 error/abort 早返回时
+drain 不发生，委托消息滞留 SDK 队列（Mimo 发现 1b）：10min 内 session 复用
+则消化；池 TTL evict 则随 session 销毁。处置：followUp 投递成功时 factory
+落 healing event 留痕（type=tool_use_feedback 之外的自愈事件，可追溯），
+销毁从「静默」变「有账可查」；验证用例覆盖消息去向。此为接受的已知限制。
+
+依据与取舍声明（修订：Mimo 发现 5）：signal-router 对 running 獭的**默认**
+注入是 steer（ctlv test13 拍板，用户插话即时打断），followUp 仅用户显式选
+「排队」时走（signal-router.ts:228-246）。链式派工选 followUp 是**本方案的
+主动取舍**（链式派工不构成打断运行中任务的理由），不是「对齐用户消息现状」；
+steer 仍保留给用户显式插话。
 
 通用 retry API（`POST /api/invokes/:id/retry`，invoke-controller.ts:102-112）
 对齐 F20261020ided 的 retryByOtter 判重：库行 running 或 SDK isRunning → 409
 「忙碌中」。前端已走 retryOtter（有判重），该端点属残留 API，对齐后两个入口
 防线一致。
 
-**记账语义声明（审计取舍）**：followUp 注入的 hop，其续轮产出 entries 的
-invoke_id 归属当前运行的 invoke（无独立 invoke 边界事件）。时间线呈现为「该獭
-继续发言」，功能正确性（发言可见、链延续、行动权流转）不受影响，审计粒度变粗
-是接受的代价——换取的是不打断运行中任务、不丢轮、不撞锁。
+**记账语义声明（修订：Mimo 发现 2/7，两处统一）**：followUp 注入的 hop 不建
+invoke 行、不写台账终态——「delegated」仅为 factory 层日志标注（无持久化承载；
+recordAttemptSettle 台账已随 F20260908rlcp 退役，invokes.status 有 DB CHECK
+封闭 4 值，均非可扩展承载面）。续轮产出的 entries 归属持有者 invoke；后续 hop
+的路由与记账（chainSourceMessageIds / triggerMessageId）归属链 S（Mimo 发现
+1c，显式接受）。时间线呈现为「该獭继续发言」，审计粒度变粗是接受的代价——
+换取不打断运行中任务、不撞锁、单委托不丢轮。
 
 ### D3｜锁超时兜底降级：等锁超时不再裸抛，转 followUp（治 G2/G4）
 
@@ -145,9 +171,11 @@ invoke_id 归属当前运行的 invoke（无独立 invoke 边界事件）。时�
 
 ```
 等锁 timeout（30s 保留）
+  → 若锁条目 handoffMode 置位 → 不注入（旧世即将 dispose，注入会静默丢消息，
+    Mimo 发现 4）→ 快速失败人话文案 + healing 落账
   → this.followUp(otterId, message)   // followUp 从 poolMeta 取引用，无需持锁
      ├─ true  → 返回「queued」型结果（不落错误事件；该消息将在持有者
-     │          invoke 的 drain 续轮被消化）
+     │          invoke 的 drain 续轮被消化）+ healing 留痕（异常路径可追溯）
      └─ false → 池状态异常（锁被占但 session 不 streaming）→ 快速失败，
                 错误文案人话化（「目标海獭状态异常，消息未能送达，请稍后
                 重试」）+ healing event 落账，替代裸 `[错误] Lock acquire
@@ -156,25 +184,35 @@ invoke_id 归属当前运行的 invoke（无独立 invoke 边界事件）。时�
 
 等锁时长维持 30s：入口收敛后真实撞锁仅剩竞态窗口与交接持锁两个场景——竞态
 窗口内持有者通常毫秒级放锁；交接持锁（uhuc 设计：窗口内 invoke 锁排队，换世
-后消化）依赖等待而非注入（followUp 注入即将 dispose 的旧世会丢消息），30s
-等待是正确行为。交接锁超时对齐约束沿用 uhuc「对抗审视严重发现 1」既有决策。
+后消化）依赖等待而非注入（followUp 注入即将 dispose 的旧世会丢消息）。事实
+修正（Mimo 发现 4）：handoff 锁 key 的 waiter 超时是 120s
+（session-helpers.ts:117 HANDOFF_LOCK_WAITER_TIMEOUT_MS），非 30s；交接极端
+场景（>120s）超时后走 handoffMode 快速失败分支，不注入。
 
-### D4｜steal 双条件：「超阈值 且 持有者不活跃」才强制接管（治 G5）
+### D4｜steal 双条件：「超阈值 且 行态×SDK态不一致」才强制接管（治 G5，修订：Mimo 发现 3）
 
-`session-helpers.ts` steal 分支（:179-204）升级：
+原草案「持有者活跃度 = SDK isRunning 或 invokes 行 running 任一为活」被证伪：
+#599 僵尸形态（abort 后 run 未 settle）isStreaming 恒 true（agent.js:351/:382，
+settle 才置 false）+ 行 running —— 与活的长任务在两个存在性信号上**完全同形**，
+该判据会让 steal 对僵尸永久失效。
+
+修订判据：超 stealThresholdMs 后，查「invokes 行 status × factory.isRunning」
+的**一致性**（全部既有信号，无新机制）：
 
 ```
 持有超 stealThresholdMs（300s）
-  → 检查持有者活跃度（注入 isActive 回调：查该 otter 的 SDK isRunning /
-    invokes 表 running 行——两者任一为活即视为活跃）
-     ├─ 活跃   → 不 steal，继续等待（活的长任务合法，本案 483s 实证）
-     └─ 不活跃 → 维持现行为：generation += 1 接管
+  → 行 status == 'running' 且 SDK isRunning == true
+      → 双活一致 = 活的长任务（本案 483s 实证）→ 不 steal，继续等待
+  → 行 status ∈ 终态（aborted/failed/completed）且 SDK isRunning == true
+      → 行已死 SDK 未 settle = #599 僵尸形态 → steal
+  → 行 status == 'running' 且 SDK isRunning == false
+      → 孤儿行（DB/SDK 脱节）→ steal
 ```
 
-实现注：session-helpers 不直接依赖 DB/SDK——通过构造注入 `isActive` 回调
-（与现有 stealThresholdMs 同层的依赖注入），生产装配处（pi-session-factory）
-提供实现。时长阈值 300s 维持不变：双条件后它只是「触发检查的时机」而非
-「充分判死条件」。
+僵尸形态（run 未 settle）的接管路径就此保留——#599 要治的正是它。实现注：
+session-helpers 通过构造注入 `probe` 回调（行态×SDK态查询，生产装配处实现），
+与 stealThresholdMs 同层依赖注入。时长阈值 300s 维持不变：双条件后它只是
+「触发检查的时机」而非「充分判死条件」。
 
 ### D5｜文档与注释修正（治 G1 残留 / 失真注释）
 
@@ -197,17 +235,22 @@ invoke_id 归属当前运行的 invoke（无独立 invoke 边界事件）。时�
 
 ## 风险与约束
 
-- **R1 hop 结算语义**：followUp 注入的 hop 以「delegated」结算，链引擎的
-  recordAttemptSettle 需新增该终态（台账可读，区别于 completed/failed）——
-  实现时确认台账 schema 对新终态的兼容性
+- **R1 单飞行委托标志（修订：Mimo 发现 2/7）**：单委托约束靠 poolMeta 内存
+  标志——无持久化、无台账终态（delegated 仅日志标注，不写任何持久面）；风险：
+  标志泄漏（持有者正常 drain 后未清）会永久拒绝后续委托——实现时必须在 drain
+  完成/持有者 invoke 终态处清理，验证用例覆盖泄漏场景
 - **R2 竞态窗口残留**：isRunning 检查与 invoke 之间的窄窗口由 D3 锁兜底覆盖，
   理论闭环；e2e 需覆盖「检查通过后立即撞锁」场景验证降级路径
 - **R3 followUp 注入的 hop prompt 格式**：链引擎派工指令与用户消息的上下文
   呈现差异（drain 注入是否需要前缀说明「这是链式派工」）——实现时以实测
   续轮的模型理解为准，必要时加一行注入前缀
-- **R4 交接窗口**：交接持锁 + 新 hop 到达 → 等 30s 锁超时 → followUp 此时
-  session 状态取决于交接进度，可能落入「快速失败」分支——频率极低（交接窗口
-  5-60s），失败有人话文案 + healing 落账，可接受；不为此加复杂度
+- **R4 交接窗口（修订：Mimo 发现 4，补静默丢失路径）**：交接持锁期间新 hop
+  到达 → handoff key waiter 超时 120s（session-helpers.ts:117，非 30s）→
+  若不看 handoffMode 直接 followUp：旧世 dispose 前仍 isStreaming=true →
+  followUp 返回 true 但队列随 session 销毁——**账面已投递、实际静默丢消息
+  （比快速失败更糟）**。处置：D3 降级分支先查锁条目 handoffMode，置位则
+  不注入，直接快速失败（人话文案 + healing）；频率极低（交接窗口 5-60s，
+  120s 超时仅极端合成场景），可接受
 
 ## 设计取舍
 
@@ -217,37 +260,43 @@ invoke_id 归属当前运行的 invoke（无独立 invoke 边界事件）。时�
 | 主防线位置：入口检查 vs 锁内排队 | 入口收敛（D2） | 拉长锁等待让所有调用方排队 | 锁 waiter 不应承担调度职责（30s 干等即本案事故）；followUp 是 SDK 原生排队，无新机制 |
 | busy 时注入方式：followUp vs steer | followUp | steer（打断当前任务） | 链式派工不构成「打断当前任务」的理由；steer 保留给用户显式标急（ctlv 语义不变） |
 | 锁超时处理：裸抛 vs 降级注入 | 降级 followUp（D3） | 直接抛错但改文案 | followUp 无需持锁即可用，降级成本近零；裸抛丢轮的代价（本案实证）远大于降级复杂度 |
-| steal 判定：纯时长 vs 双条件 | 时长 + 活跃（D4） | 拉长阈值至 10 分钟 | 拉长阈值治标：任何固定阈值都存在合法长任务越过它；活跃检查直接对准「僵尸」定义本身 |
+| steal 判定：纯时长 vs 双条件 | 时长 + 行态×SDK态一致性（D4 修订） | 拉长阈值至 10 分钟；或「SDK+行任一活即活」判据 | 拉长阈值治标；「任一活即活」被 Mimo 证伪——#599 僵尸（run 未 settle）与活任务在存在性信号上同形，会让 steal 永久失效；一致性判据直接区分「双活=真活 / 单活=脱节」 |
 | followUp hop 的 invoke 记账 | 归属当前 invoke（粒度变粗） | 为 drain 续轮伪造独立 invoke 边界 | 伪造边界需改 SDK 事件流或注入合成事件，复杂度高收益低；审计粒度换功能正确性 |
 
-**机制识别检查点**：本方案不涉及净新增机制——无新增配置字段/状态生命周期/
-定时任务/信号类型/持久化存储/跨模块调用路径；D2/D3 为既有机制（followUp、锁）
-的调用路径扩展，D4 为既有 steal 分支的判定条件收紧，D5 为注释修正。机制预算
-四问跳过（判定依据：followUp 队列为 SDK 既有机制且生产在用；「delegated」
-结算终态为台账既有枚举的扩展，非新状态生命周期——若实现时发现台账枚举封闭
-需破例，升级为机制新增重新过门）。
+**机制识别检查点（修订：Mimo 发现 2，原「四问跳过」依据被证伪，补过门）**：
+本方案涉及一处内存态标志扩展——单飞行委托标志（poolMeta，D2）。四问：
+①谁需要：executeOneHop 并发防护，防多委托 last-write-wins 丢路由；②失败后果：
+标志泄漏会让后续委托被永久拒绝（已列 R1，验证覆盖）；③后续机制依赖它吗：无
+（纯并发防护，无其他消费方）；④退役条件：若未来 dispatcher 改为支持多委托
+路由（tsp 改多写或队列化），标志随之删除。判定：内存态、无持久化、不碰 DB
+schema、不碰 CHECK 枚举、依赖面单一——过门通过，纳入本方案范围。其余三项
+（D3 降级、D4 probe 回调、D5 注释）仍为既有机制调用路径扩展与条件收紧。
 
 **大版本重构判断**：非大版本重构——锁保留、架构不动，属「入口收敛补全 +
 既有机制语义对齐」，9/20 已完成锁去留的零基重推，本档引用其结论。
 
-## 验证
+## 验证（修订：Mimo 发现 6，补反例与已知限制用例）
 
-- 单测：①executeOneHop 对 isRunning=true 目标走 followUp 且 delegated 结算；
-  followUp=false 降级 invokeFn；②锁超时转 followUp 成功路径不落错误事件；
-  followUp=false 路径落人话文案 + healing；③steal 双条件：超阈值但持有者
-  活跃 → 不接管；不活跃 → 接管（generation 语义不变）；④通用 retry 端点
-  running → 409
+- 单测：①executeOneHop 对 isRunning=true 目标走 followUp 且日志 delegated；
+  followUp=false 降级 invokeFn；②锁超时转 followUp 成功路径不落错误事件 +
+  healing 留痕；followUp=false 路径落人话文案 + healing；③steal 双条件三分支：
+  双活一致（行 running+SDK 活）→ 不接管；#599 僵尸（行终态+SDK 仍 streaming）
+  → 接管；孤儿行（行 running+SDK 死）→ 接管（generation 语义不变）；④通用
+  retry 端点 running → 409；⑤单飞行委托标志：第二个 in-flight 委托被快速
+  失败拒绝；持有者 drain 完成后标志清理（无泄漏）；⑥handoffMode 置位时
+  锁超时不注入、走快速失败
 - e2e（复现本案）：invoke A 持锁长任务运行中触发 yield 链 hop → 断言无
-  Lock timeout 错误、hop 消息经 A 的 drain 续轮消化、链延续（下一 hop 正常
-  调度）、发言落 entries
-- 回归：signal-router 用户消息路径既有测试全绿；交接（uhuc/hspx）既有测试全绿；
-  scheduler 既有测试全绿（确认未被波及）
+  Lock timeout 错误、hop 消息经 A 的 drain 续轮消化、后续路由经链 S 循环
+  延续（下一 hop 正常调度）、发言落 entries
+- 已知限制用例（固化预期行为防回归）：①持有者 error/abort 早返回时委托消息
+  去向（10min 内复用则消化；池 evict 则随 session 销毁——断言 healing 留痕
+  存在，不断言消息必然消化）；②多委托第二个被拒绝（不静默丢）
 
 ## 改动范围
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| src/usecases/conversation/dispatch-chain-engine.ts | 修改 | executeOneHop 增加 isRunning → followUp 分支 + delegated 结算终态 |
+| src/usecases/conversation/dispatch-chain-engine.ts | 修改 | executeOneHop 增加 isRunning → followUp 分支（含单飞行委托拒绝）|
 | src/frameworks/agent/pi-session-factory.ts | 修改 | 锁超时降级 followUp；修正 :438 失真注释 |
 | src/frameworks/agent/session-helpers.ts | 修改 | steal 双条件（注入 isActive 回调） |
 | src/interface-adapters/http/controllers/invoke-controller.ts | 修改 | 通用 retry 端点补 409 判重（对齐 retryByOtter） |
