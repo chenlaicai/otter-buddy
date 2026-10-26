@@ -10,7 +10,8 @@ summary: |
   方案四件套：①设计定稿——锁保留、职责=串行一致性防线；②入口收敛——链调度
   hop 对 running 獭转 followUp 注入；③锁超时兜底降级——等锁超时不再裸抛，转
   followUp 排队；④steal 双条件——「超时且行态×SDK态脱节」才强制接管，双活一致
-  的长任务不被误抢，#599 僵尸形态仍可接管
+  的长任务不被误抢，#599 僵尸形态仍可接管；「completed+SDK 活」的 drain 窗口
+  （D2 委托消化时段）明确不接管
   误判。
 
 causal_links:
@@ -124,7 +125,7 @@ activeSessions 生命周期管理需要互斥点；完全去锁要求重写 sess
 
 **链延续机制（修订：如实描述，Mimo 发现 1）**：followUp 注入后，委托消息在
 **持有者 invoke 的 prompt() 内 drain 消化**（SDK 语义「run only after the agent
-would otherwise stop」，pi-agent-core/dist/agent.d.ts:91-92）。持有者续轮的
+would otherwise stop」，pi-agent-core/dist/agent.d.ts:91-92 @0.86.1）。持有者续轮的
 speak/yield 落 entries 时覆盖式更新 invokes 行的 talkingStonePassedTo
 （send-entry.ts:378，last-write-wins）；持有者 invokeFn 的 promise 由**其原始
 链 S 的 executeChainInner 循环** await，prompt() 返回后链 S 读 invokes 行终态
@@ -139,6 +140,12 @@ in-flight 委托**——poolMeta 增加内存态 in-flight 委托标志，已有
 快速失败（人话错误「目标海獭已有排队任务在消化」+ healing 落账）。「不丢轮」
 承诺相应收缩为「单委托不丢轮」；多委托场景显式拒绝而非静默丢。标志为
 纯内存并发防护（见机制识别检查点）。
+
+**约束边界声明（Mimo delta D3）**：单飞行标志只覆盖链委托（executeOneHop
+路径）；用户显式排队的 followUp 消息（signal-router :232-240）不经过该标志，
+「用户排队消息 + 链委托」混排时 drain 仍逐轮消化、tsp last-write-wins 的
+中间轮路由丢失风险仍存在。频率低（用户显式排队 + 同窗口链委托撞同獭），
+列为已知限制不治理；后续若要收敛，需 tsp 多写或队列化改造（超出本档范围）。
 
 **异常路径（已知限制，显式声明）**：持有者 run 走 error/abort 早返回时
 drain 不发生，委托消息滞留 SDK 队列（Mimo 发现 1b）：10min 内 session 复用
@@ -203,16 +210,31 @@ settle 才置 false）+ 行 running —— 与活的长任务在两个存在性�
 持有超 stealThresholdMs（300s）
   → 行 status == 'running' 且 SDK isRunning == true
       → 双活一致 = 活的长任务（本案 483s 实证）→ 不 steal，继续等待
-  → 行 status ∈ 终态（aborted/failed/completed）且 SDK isRunning == true
-      → 行已死 SDK 未 settle = #599 僵尸形态 → steal
+  → 行 status ∈ {aborted, failed} 且 SDK isRunning == true
+      → 行已死 SDK 未 settle = #599 僵尸形态（行态画像是 aborted/failed，
+        orchestrator.ts:998/#599 现场）→ steal
+  → 行 status ∈ {aborted, failed, completed} 且 SDK isRunning == false
+      → 行已死 SDK 已死 = 双死脱节 → steal（正常路径 release 在 finally 必跑，
+        双死仍持锁本身就是异常）
+  → 行 status == 'completed' 且 SDK isRunning == true
+      → **不 steal**（Mimo delta D1 回归修正）：completed 是 yield 落账后的
+        正常态——createYieldEntry 在 yield 工具执行时即置行 completed
+        （send-entry.ts:378-379），而 prompt() 尚未返回、drain 续轮正在消化
+        followUp 队列（正是 D2 委托消息的消化时段）。此组合是「收尾中」
+        而非僵尸；若 steal 会打断正在消化委托的 drain，与 D2 直接冲突。
+        （「yield 后 run 卡死」的 completed 型僵尸存在牲但需第三信号——持锁期
+        无进展超时——不可用存在性信号硬判；列为已知限制，不治理）
   → 行 status == 'running' 且 SDK isRunning == false
       → 孤儿行（DB/SDK 脱节）→ steal
 ```
 
-僵尸形态（run 未 settle）的接管路径就此保留——#599 要治的正是它。实现注：
+僵尸形态（abort 后 run 未 settle）的接管路径保留——#599 要治的正是它；
+「completed+SDK 活」的 drain 窗口被明确排除在 steal 之外。实现注：
 session-helpers 通过构造注入 `probe` 回调（行态×SDK态查询，生产装配处实现），
 与 stealThresholdMs 同层依赖注入。时长阈值 300s 维持不变：双条件后它只是
-「触发检查的时机」而非「充分判死条件」。
+「触发检查的时机」而非「充分判死条件」。另注（时序事实）：steal 检查在
+waiter 首查时即触发（session-helpers.ts:179，非等满 300s 后才首查）——长任务
+超 300s 后任何新 waiter 的首次探测就是判定点。
 
 ### D5｜文档与注释修正（治 G1 残留 / 失真注释）
 
@@ -258,7 +280,7 @@ session-helpers 通过构造注入 `probe` 回调（行态×SDK态查询，生�
 |------|------|----------|------|
 | 锁去 vs 锁留 | 留（D1） | 完全去锁，纯靠入口收敛 | 9/20 零基论证：串行是消息一致性根基；去锁需重写 session 生命周期模型；收敛后锁仅剩兜底职责，持有期长不再是问题 |
 | 主防线位置：入口检查 vs 锁内排队 | 入口收敛（D2） | 拉长锁等待让所有调用方排队 | 锁 waiter 不应承担调度职责（30s 干等即本案事故）；followUp 是 SDK 原生排队，无新机制 |
-| busy 时注入方式：followUp vs steer | followUp | steer（打断当前任务） | 链式派工不构成「打断当前任务」的理由；steer 保留给用户显式标急（ctlv 语义不变） |
+| busy 时注入方式：followUp vs steer | followUp（链式派工主动取舍） | steer（打断当前任务） | 链式派工不构成「打断当前任务」的理由；用户消息的 steer 是默认行为（ctlv），不受本取舍影响；本取舍仅约束链式派工 |
 | 锁超时处理：裸抛 vs 降级注入 | 降级 followUp（D3） | 直接抛错但改文案 | followUp 无需持锁即可用，降级成本近零；裸抛丢轮的代价（本案实证）远大于降级复杂度 |
 | steal 判定：纯时长 vs 双条件 | 时长 + 行态×SDK态一致性（D4 修订） | 拉长阈值至 10 分钟；或「SDK+行任一活即活」判据 | 拉长阈值治标；「任一活即活」被 Mimo 证伪——#599 僵尸（run 未 settle）与活任务在存在性信号上同形，会让 steal 永久失效；一致性判据直接区分「双活=真活 / 单活=脱节」 |
 | followUp hop 的 invoke 记账 | 归属当前 invoke（粒度变粗） | 为 drain 续轮伪造独立 invoke 边界 | 伪造边界需改 SDK 事件流或注入合成事件，复杂度高收益低；审计粒度换功能正确性 |
@@ -279,9 +301,11 @@ schema、不碰 CHECK 枚举、依赖面单一——过门通过，纳入本方�
 
 - 单测：①executeOneHop 对 isRunning=true 目标走 followUp 且日志 delegated；
   followUp=false 降级 invokeFn；②锁超时转 followUp 成功路径不落错误事件 +
-  healing 留痕；followUp=false 路径落人话文案 + healing；③steal 双条件三分支：
-  双活一致（行 running+SDK 活）→ 不接管；#599 僵尸（行终态+SDK 仍 streaming）
-  → 接管；孤儿行（行 running+SDK 死）→ 接管（generation 语义不变）；④通用
+  healing 留痕；followUp=false 路径落人话文案 + healing；③steal 双条件四分支：
+  双活一致（行 running+SDK 活）→ 不接管；#599 僵尸（行 aborted/failed+SDK 仍
+  streaming）→ 接管；双死（行终态+SDK 死）→ 接管；**drain 窗口（行 completed+
+  SDK 活）→ 不接管**（delta D1 回归用例：持有超 300s + yield 后 drain 正在消化
+  委托 → 断言不误抢）（generation 语义不变）；④通用
   retry 端点 running → 409；⑤单飞行委托标志：第二个 in-flight 委托被快速
   失败拒绝；持有者 drain 完成后标志清理（无泄漏）；⑥handoffMode 置位时
   锁超时不注入、走快速失败
