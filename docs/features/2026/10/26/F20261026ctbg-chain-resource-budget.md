@@ -128,9 +128,13 @@ modules: [src/usecases/conversation/dispatch-chain-engine.ts, src/frameworks/db/
 
 ## 改动范围
 
-- `dispatch-chain-engine.ts`：删除资源预算与回路判定，聚合链观测，保留 guard 停止上下文。
-- `chain-resource-budget.ts` 与其测试：删除；由链观测行为测试替代。
+- `dispatch-chain-engine.ts`：删除资源预算与回路判定，聚合链观测，保留 guard 停止上下文；gap warn/metric 在检出点即时发（每链一次，context 锚定缺口 hop 位置）。附件/FTS 助手拆至 `entry-attachment-helpers.ts`（薄委托，主文件回到 450 行 lint 上限内）。
+- `chain-resource-budget.ts` 与其测试：删除；由链观测行为测试（`chain-observability.test.ts`）替代。
 - `token-usage.ts`、SDK/orchestrator/invoker 返回路径：保留真实增量资产。
 - `entry-repository.ts` / `sqlite-entry-repository.ts`：#530 专用决定性记录查询。
 - `config-service.ts`、bootstrap、配置样例：移除资源阈值装配。
 - metrics、MessageController、scheduler 注释与相关测试：同步删除旧停止语义，保留准确观测。
+
+### 实现过程中的测试形态收敛（F20261026ctbg 补录）
+
+旧 self-yield/深度测试里大量用例是「静态 mock + 无限自续」形态：invoke 行 tsp 恒指向自己且消息表 seed 固定，旧代码靠 `maxChainDepth` 硬停兑住。硬停退役后这类用例在生产语义下会永久挂起（真实世界消息表逐 hop 增长、计数会爬到 abort@5；静态 seed 冻结计数）。收敛方式：`selfTspOnceThenEnd` helper 让首跳返回 self-tsp（护栏计数在首 hop 即被验证）后自然收尾；计数爬升到 abort 的行为由梯度响应组（seed 逐次增长）覆盖。「深度触顶」HTTP 测试改写为合法互传自然收尾。这不是测试妥协——无限等待从来不是合法验收手段，旧测试靠硬停截断才没有挂起，本身就是在测已删除的行为。
