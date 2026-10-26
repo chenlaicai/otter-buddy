@@ -5,6 +5,8 @@ summary: '2026-10-23 巨批雪崩是 embedding 写路径第 6 次复发（前 6 
 change_type: fix
 capability_test: "n/a: 纯软件边界内的代码逻辑改动（A 类，闸门/队列/启动序/IPC 防护），无 LLM 参与行为"
 modules: [embedding, memory, bootstrap]
+created_at: 2026-10-23
+# F ID 日期 2026-10-26 顺延（搭档裁决），真实创建日为 2026-10-23（created_at 锚定，首版 frontmatter 无此字段系遗漏，本行补上）
 created_in_conversation: a23f0f4a-612c-46e9-8d83-be648ced720e
 causal_links:
   - F20261013ebps（#1465 背压——管 in-flight「请求数」不管单批「文本量」，巨批独占唯一槽位它拦不住；本特性在其上层补体量维度）
