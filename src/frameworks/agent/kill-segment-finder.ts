@@ -20,12 +20,73 @@ export const PKILL_COMMANDS = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:~\/
  * 前导字符（/ 引号 空格 中文 数字……）都误判命令位置，字符串字面量/路径恰好含词元即误拦
  * （9/3-9/4 四组事故实证）。修正为白名单语义：
  *   - pos 0（段首，调用方已 trim）
- *   - shell 操作符后（| ; & \n \r \f）
+ *   - shell 操作符后（| ; & \n \r \f）——#1635 引号感知：操作符在引号内是字面量（grep
+ *     模式 "write\|rm" 的 \|），不构成命令位置；$( 命令替换内的引号不屏蔽（bash 语义
+ *     双引号内 $() 真实展开执行）
  *   - $( 命令替换 / ` 反引号内 / ( 子 shell 内——这些位置是真实命令执行位
  * 其余一律 continue（视为数据：路径中段、引号内字面量、中文语境等）。
  * Why 不用全局 matchAll：\b 零宽断言在 g 模式下会产生重叠误匹配。
  */
 const VALID_CMD_PRECEDERS = new Set(["|", ";", "&", "\n", "\r", "\f", "(", "`"]);
+
+/** #1635：引号配对状态（词元前导位置判定用）——扫 [0, i) 区间的引号开合。
+ *  $() 命令替换内容不算引号配对上下文（bash 真实语义：进 $() 后引号世界重置，
+ *  `echo "$(rm x)"` 的 rm 是真实执行位非字符串数据）；$() 嵌套深度计数同步跟踪。
+ *  返回 { quote: 未闭合引号字符或 null, depth: 扫描终点 $() 深度 }。 */
+// eslint-disable-next-line complexity -- 引号状态机双态（开/闭）× 三类边界字符（$()嵌套/括号配对/引号开合），每分支对应一条已断言语义
+function quoteStateBefore(text: string, i: number): { quote: string | null; depth: number } {
+  let quote: string | null = null;
+  let depth = 0;
+  for (let j = 0; j < i; j++) {
+    const c = text[j];
+    if (quote === "'") {
+      // POSIX 单引号域：一切字面量（含 $() / \\ / 引号字符本身），只认 '
+      // 闭合——不追踪域内任何构造（#1641-r1 Q1s：单引号内 $() 不展开，
+      // 域内 | 是字面量，rm 是字符串数据非命令位）。
+      if (c === "'") quote = null;
+      continue;
+    }
+    if (c === "$" && text[j + 1] === "(") {
+      // #1641-r1 发现 1：进入 $() 后引号世界重置（bash 语义：$() 内是独立 shell 语境，
+      // 外层双引号不影响内层）——双引号内 `"$(x | rm f)"` 的 | 是真管道。
+      // 重置必须无条件（不能只在 quote===null 分支内），否则双引号内 $() 的 depth 恒 0。
+      quote = null;
+      depth++;
+      j++;
+      continue;
+    }
+    if (depth > 0 && c === "(") depth++;
+    else if (depth > 0 && c === ")") depth--;
+    else if (c === "'" || c === '"') {
+      if (quote === null) {
+        quote = c;
+      } else if (quote === '"') {
+        // #1641-r1 发现 2：双引号闭合看前置反斜杠奇偶性（"x\\\\" 是闭合的：偶数个 \\ 后 " 生效）；
+        // 连续 \\ 是转义反斜杠不是转义引号——仅查前一字符是否 \\ 会把已闭合误判为未闭合。
+        if (countTrailingBackslashes(text, j) % 2 === 0) quote = null;
+      } else {
+        // 单引号：POSIX 无转义（'x\\' 中 \\ 不转义 '，引号已闭合）
+        quote = null;
+      }
+    }
+  }
+  return { quote, depth };
+}
+
+/** j 位置的 " 或 ' 前置连续反斜杠数（奇偶性判定用） */
+function countTrailingBackslashes(text: string, j: number): number {
+  let k = j - 1;
+  let n = 0;
+  while (k >= 0 && text[k] === "\\") { n++; k--; }
+  return n;
+}
+
+/** #1635：位置 i 的操作符字符是否被包在引号内（= 字面量非 shell 操作符）。
+ *  depth>0（仍在 $() 内）时操作符是真实执行面，不算引号内字面量。 */
+function operatorCharIsQuoted(text: string, i: number): boolean {
+  const { quote, depth } = quoteStateBefore(text, i);
+  return quote !== null && depth === 0;
+}
 
 /** #777：命令位置前缀词剥除——这些词的语义是「执行后面的命令」，循环剥除直到词元抵段首。
  *  覆盖 #698 攻击链 wrapper 变体（sudo/env/nohup/timeout/xargs/nice/command + 赋值前缀）。 */
@@ -49,6 +110,7 @@ function stripCommandPrefixes(text: string): string {
   return rest;
 }
 
+// eslint-disable-next-line complexity -- 位置判定六路径（段首/空白跳过/$( 边界/引号内字面量/前缀词剥除/路径穿透），#1635 引号感知新增 2 分支，每分支对应一条已断言语义
 export function isKillAtCommandPosition(text: string, pattern: RegExp): boolean {
   const re = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g");
   let m: RegExpExecArray | null;
@@ -62,7 +124,17 @@ export function isKillAtCommandPosition(text: string, pattern: RegExp): boolean 
     let i = pos - 1;
     while (i >= 0 && /\s/.test(text[i])) i--;
     const prev = i >= 0 ? text[i] : "";
-    if (VALID_CMD_PRECEDERS.has(prev)) return true;
+    // $( 命令替换边界优先白名单：引号内的 $() 仍是真实执行位（bash 语义：双引号内
+    // $() 展开）——先于引号判定，防 `echo "$(rm x)"` 被下面的引号感知吞成数据位。
+    if (prev === "(" && i > 0 && text[i - 1] === "$") return true;
+    // #1635：白名单字符若在引号内（如 grep 模式 "write\|rm" 的 \|）是字面量非
+    // 操作符——词元处于字符串数据位，不构成命令位置。10-23/10-24 连续两日
+    // 只读 grep 检索被 main_write 误拦（healing af548d08/987a40c3）：\|rm 的 | 被
+    // 当 shell 管道 → 引号内 rm 误判命令位 → 误拦。引号内 |;&(` 一律字面量。
+    if (VALID_CMD_PRECEDERS.has(prev)) {
+      if (!operatorCharIsQuoted(text, i)) return true;
+      continue; // 引号内字面量操作符 → 数据位，继续找下一个词元
+    }
     // 前缀词剥除：词元前的文本整体是「前缀词+参数」序列（如 xargs -n1 / sudo FOO=1）→ 命令位置
     const before = text.slice(0, pos);
     if (stripCommandPrefixes(before) === "") return true;
