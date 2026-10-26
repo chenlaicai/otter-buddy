@@ -579,6 +579,11 @@ const WAIT_UNTIL_OUTPUT_MAX = 2048;
 const WAIT_UNTIL_SUBPROCESS_BUFFER_MAX = 1024 * 1024;
 /** F20261022wtpr：条件等待使用固定探测间隔；不新增獭可调配置。 */
 const WAIT_UNTIL_POLL_INTERVAL_MS = 10_000;
+/** F20261026wfpb（#1623）：exit 1 视为「确认失败」终止轮询——gh pr checks 约定
+ *  0=全绿、1=有失败、8=有 pending（gh 2.89 实测，--exit-status 已删除、裸命令即三态）。
+ *  仅 exit 1 触发终止；其他非零（8=pending、2/127=执行环境错）语义上是「未就绪/未知」，
+ *  保留预算内重试——失败不会随时间自愈（等它也是盲等满预算），pending 才会。 */
+const WAIT_UNTIL_FAIL_FAST_EXIT_CODE = 1;
 
 /** 可中断计时器：完成/中断两条路径都清理资源。 */
 function waitDelay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -622,12 +627,18 @@ function formatUntilFailure(err: unknown, command: string): string {
   return `${command} ${exitDesc}${detail ? `：${detail}` : ""}`;
 }
 
+/** 从探活子进程错误中提取数字退出码；非数字（如 ENOENT/EACCES 的字符串码）返回 undefined。 */
+function extractExitCode(err: unknown): number | undefined {
+  const code = (err as { code?: number | string }).code;
+  return typeof code === "number" ? code : undefined;
+}
+
 /** 单次探测只返回事实，不决定是否重试；输出统一截 2KB。 */
 async function probeUntil(
   untilArgv: string[],
   timeoutMs: number,
   signal?: AbortSignal,
-): Promise<{ ready: boolean; text: string }> {
+): Promise<{ ready: boolean; text: string; exitCode?: number }> {
   const [cmd, ...cmdArgs] = untilArgv;
   try {
     const execution = execFileAsync(cmd, cmdArgs, {
@@ -640,11 +651,12 @@ async function probeUntil(
       : execution);
     const out = (stdout ?? "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
     const err = (stderr ?? "").trim().slice(0, WAIT_UNTIL_OUTPUT_MAX);
-    return { ready: true, text: `输出：${out || "（无输出）"}${err ? `\nstderr：${err}` : ""}` };
+    return { ready: true, exitCode: 0, text: `输出：${out || "（无输出）"}${err ? `\nstderr：${err}` : ""}` };
   } catch (err) {
     if (signal?.aborted) signal.throwIfAborted();
     if (err instanceof Error && err.name === "AbortError") throw err;
-    return { ready: false, text: formatUntilFailure(err, cmd) };
+    // 透传退出码供上层区分「确认失败」（exit 1）与「未就绪」（pending/未知非零）
+    return { ready: false, exitCode: extractExitCode(err), text: formatUntilFailure(err, cmd) };
   }
 }
 
@@ -668,6 +680,11 @@ async function runUntilPolling(
     if (probe.ready && Date.now() <= deadline) {
       const elapsedSeconds = seconds - Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       return `\nuntil 条件通过（第 ${attempts} 次探测，已等待 ${elapsedSeconds} 秒）。\n苏醒检查（${cmd}）${probe.text}`;
+    }
+    // #1623：exit 1 = 探活命令自身判定的终态失败（gh pr checks 有 check 失败等）——
+    // 继续重试只是盲等满预算，立即终止把失败现场交给獭处置。
+    if (probe.exitCode === WAIT_UNTIL_FAIL_FAST_EXIT_CODE) {
+      return `\nuntil 条件未通过（第 ${attempts} 次探测确认失败，已停止轮询）：${probe.text}。\nexit 1 = 探活命令自身判定的终态失败（gh pr checks 约定：0=全绿、1=有失败、8=有 pending）——失败不会随时间自愈，请先处置失败原因再重试；若这是误判（如该命令退出码 1 另有含义），请改用能映射就绪/未就绪的探活命令。`;
     }
     lastFailure = probe.ready ? `${cmd} 检查返回时已超过等待预算` : probe.text;
 
@@ -721,7 +738,7 @@ function validateUntil(
   }
   const untilArgv = parseUntilArgv(until);
   if (!untilArgv) {
-    return { error: errorResponse("[错误] until 只支持单命令、无 shell 展开——管道/重定向/分号/反引号/变量替换/引号不可用。带过滤需求请让命令自身支持（如 gh pr checks --json）或接受全量输出自行判读。") };
+    return { error: errorResponse("[错误] until 只支持单命令、无 shell 展开——管道/重定向/分号/反引号/变量替换/引号不可用。gh pr checks 的判定裸命令已内建（0=全绿、1=有失败、8=pending），勿加 --json（JSON 模式恒 exit 0 会假绿）；其他命令请接受全量输出自行判读。") };
   }
   return { untilArgv };
 }
@@ -742,7 +759,7 @@ function buildWaitEcho(reason: string | undefined, seconds: number, untilResultT
 function createWaitTool(logger?: Logger): AgentTool {
   return {
     name: "wait",
-    description: "等待指定时长或条件就绪（替代裸 sleep）. When: 等 CI 变绿、服务启动、状态就绪或退避重试时——先调 speak(body) 告诉搭档在等什么、为什么，再调用本工具. Not for: 5 秒以下的短等待. 等待即黑盒——reason 参数是你对搭档的交代. Output: 等待完成确认；带 until 时在一次调用内立即探测，未就绪每 10 秒重试，直到条件为真或 seconds 总预算耗尽（直到才轮询，不要写 bash 轮询）.",
+    description: "等待指定时长或条件就绪（替代裸 sleep）. When: 等 CI 变绿、服务启动、状态就绪或退避重试时——先调 speak(body) 告诉搭档在等什么、为什么，再调用本工具. Not for: 5 秒以下的短等待. 等待即黑盒——reason 参数是你对搭档的交代. Output: 等待完成确认；带 until 时在一次调用内立即探测，未就绪每 10 秒重试，直到条件为真或 seconds 总预算耗尽；exit 1 视为确认失败立即终止（带 until 才轮询，不要写 bash 轮询）.",
     parameters: {
       type: "object",
       properties: {
@@ -756,7 +773,7 @@ function createWaitTool(logger?: Logger): AgentTool {
         },
         until: {
           type: "string",
-          description: "可选——条件检查命令（单命令，禁管道/重定向/分号/引号等 shell 元字符）。等 CI / 服务 / 状态就用它：exit 0=就绪，立即探测；非零每 10 秒重试，直到通过或 seconds 总预算耗尽。例：gh pr checks 123。带过滤需求请让命令自身支持（如 gh pr checks --json）或接受全量输出自行判读。超时返回最后一次退出码与 stderr，不在后台继续轮询。",
+          description: "可选——条件检查命令（单命令，禁管道/重定向/分号/引号等 shell 元字符）。等 CI / 服务 / 状态就用它：exit 0=就绪，立即探测；非零每 10 秒重试，直到通过或 seconds 总预算耗尽；exit 1 视为确认失败立即终止（不再盲等）。等 CI 就用裸命令 gh pr checks 123（三态已内建：0=全绿、1=有失败、8=有 pending；gh ≥2.89 无需 --exit-status，勿加 --json——JSON 模式恒 exit 0 会假绿；也不可加 --watch——单次探测上限 30 秒，watch 会超时被杀）。其他命令接受全量输出自行判读。超时返回最后一次退出码与 stderr，不在后台继续轮询。",
         },
       },
       required: ["seconds"],
