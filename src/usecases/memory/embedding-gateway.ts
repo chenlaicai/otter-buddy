@@ -65,10 +65,14 @@ export interface EmbedCallOptions {
   salvage?: (embedding: Float32Array) => void;
 }
 
-/** F20261020slvg：embedBatch 调用选项（语义同 EmbedCallOptions，salvage 收整批） */
+/** F20261020slvg：embedBatch 调用选项（语义同 EmbedCallOptions）。
+ *  F20261026emct delta 复审：salvage 收「整批对齐」语义修正为携带 startIndex——
+ *  分片闸门把巨批拆成子批后，子批晚到结果只携带该子批向量，startIndex 告知
+ *  这批向量对应整批的第几条起（非分批路径不传 = 0）。调用方必须按 startIndex
+ *  对位写入（见 store-memory fireAndForgetEmbedBatch），否则分片场景错位污染。 */
 export interface EmbedBatchCallOptions {
   waitSlot?: boolean;
-  salvage?: (embeddings: Float32Array[]) => void;
+  salvage?: (embeddings: Float32Array[], startIndex?: number) => void;
 }
 
 /** Embedding 网关接口（由 frameworks/embedding/ 实现） */

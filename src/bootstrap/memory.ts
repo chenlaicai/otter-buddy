@@ -179,12 +179,28 @@ export async function createAndStartRetryWorker(
   }
 
   // F20260812mrcq Part 1 审视 M8：存量暗化条目迁移
-  // 扫描已存在的暗化条目，批量 enqueueRetry 入队
-  const existing = await repos.memoryReader.scanDarkEntries(true);  // includeDead=true：之前若曾有 dead 也尝试重新 embed
+  // 扫描已存在的暗化条目，批量 enqueueRetry 入队。
+  //
+  // F20261026emct 两处收窄：
+  // 1) includeDead=true → false：dead 是独立判定的终态（真不可嵌入/entry 已删），
+  //    复活它只会把死信重新灌回队列越滚越大（2026-10-23 实锤 686 条 dead 不收敛
+  //    正是启动迁移的一部分）。真缺 vec 的 pending 语义条目才迁移。存量 dead
+  //    由一次性脚本 cleanup-embedding-ghosts.mjs 处置（搭档人工执行）。
+  // 2) 分批限流：每 ENQUEUE_BATCH_SIZE 条让出事件循环——better-sqlite3 同步
+  //    API 堆在主线程，2905 条积压场景下逐条 INSERT 会长时间堵塞事件循环，
+  //    health 端点无法响应（30s 超时雪上加霜）。
+  const existing = await repos.memoryReader.scanDarkEntries(false);
+  let migratedCount = 0;
   if (existing.total > 0) {
     logger.info(`Migrating ${existing.total} existing dark entries to retry queue`);
+    const ENQUEUE_BATCH_SIZE = 100;
     for (const entry of existing.entries) {
       await repos.memoryQueue.enqueueRetry(entry.entryId, new Error("migrated from existing dark entries"));
+      migratedCount++;
+      if (migratedCount % ENQUEUE_BATCH_SIZE === 0) {
+        // 让出事件循环：给 health 端点与其它 I/O 响应窗口（better-sqlite3 同步堵点分片）
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
   }
 
@@ -193,7 +209,7 @@ export async function createAndStartRetryWorker(
   // #949：周期 tick 由 PatrolWorker 每 1h 驱动（start() 不再自持定时器）——日志不再打印 intervalMs（原 30_000 为 #948 降频前的残留误导）
   logger.info("EmbeddingRetryWorker started", {
     driver: "patrol-worker",
-    migratedExisting: existing.total,
+    migratedExisting: migratedCount,
   });
   return worker;
 }

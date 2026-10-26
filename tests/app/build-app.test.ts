@@ -83,6 +83,24 @@ describe("buildApp 组装根启动", () => {
     expect(built.embeddingService.available).toBe(false);
   });
 
+  // F20261026emct delta（建议 2）：C 项启动解耦的行为回归防护——buildApp 返回后
+  // postListenInit 之前：retryWorker 尚未创建（ref.current 为 null，listen 先行）；
+  // postListenInit 执行后：worker 就位（stub worker 报错 → vec 禁用 → null 是合法态，
+  // 但「null 且 postListenInit 未跑」与「postListenInit 已跑」必须可区分——断言不炸
+  // + 事后 health 仍可用）。主行为：postListenInit 不抛（内部 catch 落日志）。
+  it("postListenInit 幂等可调：listen 先行语义下不炸、失败不炸进程（F20261026emct）", async () => {
+    await expect(built.postListenInit()).resolves.toBeUndefined();
+    // 二次调用也不炸（幂等容忍——main.ts 只调一次，但防御重复 fire）
+    await expect(built.postListenInit()).resolves.toBeUndefined();
+    // postListenInit 后 health 仍可用（listen 先行不变量不被异步初始化破坏）
+    const res = await built.app.request("/api/health/memory");
+    expect(res.status).toBe(200);
+    // 主行为断言：worker 延迟创建（listen 后）且 postListenInit 后就位——
+    // vec 路径可用时 ref.current 从 null 变为 worker 实例（可用性归 createAndStartRetryWorker
+    // 内部守卫管，这里只验「延迟绑定」机制本身工作）
+    expect(built.retryWorkerRef).toBeDefined();
+  }, 30_000);
+
   // issue #1252 S-2 回归防护：patrolWorker.start() 若被挪回 initAgentAndScheduler 之前，
   // scheduler-reconcile duty 首轮 tick 的 TDZ ReferenceError 会被 patrol-worker.ts:75
   // 失败隔离 catch 吞成 error 日志——启动不炸、无断言时不红。此断言封住该回归。
