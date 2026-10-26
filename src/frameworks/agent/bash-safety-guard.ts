@@ -650,6 +650,13 @@ function checkBashCommandSafetyOnText(
  *  只做诊断回显，不参与拦截判定——拦截逻辑本身不变。 */
 function locateTriggerContext(command: string, mainPid: number | null): string[] {
   const hits: string[] = [];
+  // F20261026gobs（M-2edf95d5）：「进程名模式」只在 kill 语境下回显——它是 kill 目标语义
+  // 的辅助标注（`pkill otter-buddy` / `killall node`），不是「命令行出现进程名字样」的泛匹配。
+  // 无 kill 族动词时，`node script.js`（解释器）、`git commit --author="… <otter-buddy>"`（author
+  // email）、`gh --repo owner/otter-buddy`（slug）里的字面量是数据/命令名不是 kill 目标，
+  // 回显「进程名模式」曾连续误导根因归因（#1585 台账：署名规范 author 格式被误标为进程名）。
+  // kill 族动词用与「kill 族命令」诊断行同口径的正则（同 kill-segment-finder KILL/PKILL 语义）。
+  const hasKillVerb = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/i.test(command);
   const patterns: Array<[string, RegExp]> = [
     ["kill 族命令", /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/gi],
     ["主服务脚本", new RegExp(SERVICE_SCRIPT_KILL.source, "gi")],
@@ -683,6 +690,7 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
       // 跳过不标。lookbehind 等价方案见上方模式注释（初写正则不达预期后改此路径，
       // 非 V8 缺陷）；仅影响诊断回显，不影响拦截。
       if (name === "进程名模式") {
+        if (!hasKillVerb) continue; // 非 kill 语境：进程名字样是数据/命令名，不标（F20261026gobs）
         const tokenStart = Math.max(command.lastIndexOf(" ", m.index - 1), command.lastIndexOf("\t", m.index - 1), command.lastIndexOf("\n", m.index - 1)) + 1;
         if (m[0].includes("/") || command.slice(tokenStart, m.index).includes("/")) continue;
       }
