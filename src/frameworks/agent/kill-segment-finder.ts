@@ -39,16 +39,46 @@ function quoteStateBefore(text: string, i: number): { quote: string | null; dept
   let depth = 0;
   for (let j = 0; j < i; j++) {
     const c = text[j];
-    if (quote === null) {
-      if (c === "$" && text[j + 1] === "(") { depth++; j++; continue; }
-      if (depth > 0 && c === "(") depth++;
-      else if (depth > 0 && c === ")") depth--;
-      else if (c === "'" || c === '"') quote = c;
-    } else if (c === quote && text[j - 1] !== "\\") {
+    if (quote === "'") {
+      // POSIX 单引号域：一切字面量（含 $() / \\ / 引号字符本身），只认 '
+      // 闭合——不追踪域内任何构造（#1641-r1 Q1s：单引号内 $() 不展开，
+      // 域内 | 是字面量，rm 是字符串数据非命令位）。
+      if (c === "'") quote = null;
+      continue;
+    }
+    if (c === "$" && text[j + 1] === "(") {
+      // #1641-r1 发现 1：进入 $() 后引号世界重置（bash 语义：$() 内是独立 shell 语境，
+      // 外层双引号不影响内层）——双引号内 `"$(x | rm f)"` 的 | 是真管道。
+      // 重置必须无条件（不能只在 quote===null 分支内），否则双引号内 $() 的 depth 恒 0。
       quote = null;
+      depth++;
+      j++;
+      continue;
+    }
+    if (depth > 0 && c === "(") depth++;
+    else if (depth > 0 && c === ")") depth--;
+    else if (c === "'" || c === '"') {
+      if (quote === null) {
+        quote = c;
+      } else if (quote === '"') {
+        // #1641-r1 发现 2：双引号闭合看前置反斜杠奇偶性（"x\\\\" 是闭合的：偶数个 \\ 后 " 生效）；
+        // 连续 \\ 是转义反斜杠不是转义引号——仅查前一字符是否 \\ 会把已闭合误判为未闭合。
+        if (countTrailingBackslashes(text, j) % 2 === 0) quote = null;
+      } else {
+        // 单引号：POSIX 无转义（'x\\' 中 \\ 不转义 '，引号已闭合）
+        quote = null;
+      }
     }
   }
   return { quote, depth };
+}
+
+/** j 位置的 " 或 ' 前置连续反斜杠数（奇偶性判定用） */
+function countTrailingBackslashes(text: string, j: number): number {
+  let k = j - 1;
+  let n = 0;
+  while (k >= 0 && text[k] === "\\") { n++; k--; }
+  return n;
 }
 
 /** #1635：位置 i 的操作符字符是否被包在引号内（= 字面量非 shell 操作符）。

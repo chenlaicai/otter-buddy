@@ -8,9 +8,9 @@ modules:
   - src/frameworks/agent/kill-segment-finder.ts
   - src/frameworks/agent/bash-safety-guard.ts
   - tests/frameworks/agent/guard-v2-real-replay.test.ts
-summary: "issue #1635（P2）：只读 grep 检索管道连续两日（10-23/10-24）被 main_write 误拦——引号内危险词（rm / find -delete 出现在 grep 模式参数）被 isKillAtCommandPosition 的前导字符白名单判为命令位：grep alternation 转义竖线 \\| 的 | 在 VALID_CMD_PRECEDERS 白名单里，引号内字面量被当 shell 管道。修复：①引号感知——白名单字符若在引号内（$() 内除外）视为字面量非操作符；$( 边界优先白名单（bash 语义：双引号内 $() 真实展开）。②checkDataDirDestructive 入口剥 heredoc 体（gh issue create 正文含 find -delete 字样的文档数据体误命中，与 checkGitAliasShellInjection X5 同构）。"
-tags: [bash-guard, false-positive, main-write, quote-aware, fix]
-capability_test: "n/a: 纯守卫词法修复，行为回归由 guard-v2-real-replay 回放块（9 用例）与全量 agent 测试钉住"
+summary: "issue #1635（P2）+ Review-1641 初轮 3 组安全回退修复：只读 grep 检索连续两日被 main_write 误拦——引号内危险词（rm / find -delete 出现在 grep 模式参数）被 isKillAtCommandPosition 前导字符白名单判为命令位。初修复引入三组回退（$() 内引号世界未重置/闭合判定不辨引号类型/cat-heredoc-管道-shell 体剥体后无体判接管且体判无 cd 感知），本版一并收口：①引号感知状态机（POSIX 单引号域字面量、双引号反斜杠奇偶闭合、$() 进入重置引号世界）；②checkDataDirDestructive 剥 heredoc 体；③heredocHeaderIsInterpreter 扩 shell family 管道右段识别 + stdinShellFeederVeto 体判 resolveCwdAt cd 链感知。"
+tags: [bash-guard, false-positive, main-write, quote-aware, fix, security-regression]
+capability_test: "n/a: 纯守卫词法修复，行为回归由 guard-v2-real-replay 回放块（9+13 用例）与全量 agent 测试钉住"
 from: [F20260922gpqa, F20261016gdfv, F20261014ectx]
 ---
 
@@ -98,8 +98,39 @@ if (VALID_CMD_PRECEDERS.has(prev)) {
 - 全量：`npx vitest run` → 429 files / 6851 passed / 6 skipped；`npm run lint` 0 error；`tsc --noEmit` 通过；`npm run test:capability:only`（build 后）16 files passed
 - 生产形态矩阵：见 §4
 
-## 7. 影响范围
+## 7. Review-1641 初轮返修（r1，同日）
+
+初版合入 Review-1641 审出 3 组安全回退（review PRR_kwDOTRRoSs8AAAABUKFihQ），逐项独立复现后修复：
+
+### 7.1 发现 1：$() 内引号世界未重置
+
+初版 depth 追踪在 quote===null 分支内——双引号内 `"$(x | rm f)"` 的 depth 恒 0，内层 | 被判「引号内字面量」→ 管道右段 rm 逃逸（Q1/Q5 实证）。另发现嵌套 `$($())` 同病（Q1n，检视未列，我侧补齐）。
+
+**修法**：`$()` 进入时无条件重置 quote 并 depth++（bash 语义：$() 内独立 shell 语境，外层双引号不影响内层）。**POSIX 单引号域特殊**：单引号内一切字面量、$() 不展开——状态机先进单引号域判断（域内只认 `'` 闭合，不追踪任何构造），保证 Q1s（单引号内 $() 字面量）正确放行。
+
+### 7.2 发现 2：闭合判定不辨引号类型
+
+初版只查闭合引号前一字符是否 `\\`——POSIX 单引号无转义（`'x\\'` 实际闭合）与双引号偶数反斜杠（`"x\\\\"` 实际闭合）均被误判不闭合 → 后续真实管道右段删除词元漏判。
+
+**修法**：单引号 `'` 即闭合；双引号按前置反斜杠奇偶性（countTrailingBackslashes）。
+
+### 7.3 发现 3：cat-heredoc-管道-shell 体双漏（剥体路由 + cd 感知）
+
+两层漏洞叠加：
+- **路由层**：`checkHeredocScriptBodies` 的 `isShellHeader` 只认首词（cat），管道右段 bash/sh/zsh/dash/ksh 不识别 → 体判通道不接管 → 剥体后体内容不可见。
+- **落底层**：`stdinShellFeederVeto` 虽有 catBody 提取（M-49a4909d C2），但体判把 `ctx.sessionCwd`（工作区）直接传——命令的 `cd 主仓` 前缀形同虚设，体内相对路径 `rm src/x.txt` 落到工作区 → 放行。此为存量缺陷（base 04a0c249 实证同 ALLOW），初修复的剥体把它暴露。
+
+**修法**：①`heredocHeaderIsInterpreter` 扩 shell family（bash/sh/zsh/dash/ksh，与 python/node #1308 同机制复用右段 lookaround 切分）；②`stdinShellFeederVeto` 体判前用 `resolveCwdAt`（写通道同源接口）解析 cd 链，体执行 cwd 取 stdin 段快照。
+
+### 7.4 r1 验证
+
+- #1641-r1 探针块 13 用例（Q1/Q1n/Q1s/Q5/Q6/Q3/Q4/H1/H1b/H1c/H1sh/R4/H5）全绿
+- 复现矩阵 16/16 PASS（工作区 glm-1635/probe-matrix.ts）
+- 全量 430 files / 6878 passed（比初版多 13 = 新探针）；lint 0 / tsc 0
+- 15 项生产形态矩阵与初版完全一致（原修复目标零回归）
+
+## 8. 影响范围（r1 更新）
 
 - 放行面扩大：仅「引号内字面量操作符 + 数据位词元」与「heredoc 文档体」两族——全部为已实证误拦面
-- 拦截面收窄：零（VALID_CMD_PRECEDERS 白名单字符在引号外语义不变；$() 优先白名单是新增放行修正，此前 `echo "$(rm x)"` 靠 quoteState 旧路径本就 BLOCK——新代码 depth 重置语义同样 BLOCK，B3 钉死）
-- 回放基线：guard-touchstone 三库（allow 791/block/cond）全绿不漂移；9/28 真实拦截回放（V9+）不漂移
+- 拦截面收窄：零（r1 后：$()/反引号内命令位、单双引号闭合后真管道、cat-heredoc-管道-shell 体全部收口；POSIX 单引号域 $() 字面量放行是正确语义非回退）
+- 回放基线：guard-touchstone 三库（allow 791/block/cond）全绿不漂移；9/28 真实拦截回放（V9+）不漂移；#1641-r1 探针 13 用例钉死

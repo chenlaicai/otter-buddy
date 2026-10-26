@@ -236,3 +236,77 @@ describe("#1635 主仓只读 grep 引号参数误拦回放（10-23/10-24 现场�
     expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
   });
 });
+
+describe("#1641-r1 检视回退探针（Review-1641 初轮：$() 引号世界/闭合判定/cat-heredoc-管道-shell 体）", () => {
+  const gopts = { projectRoot, sessionCwd: `${projectRoot}/data/workspaces/ws` };
+
+  // 发现 1：双引号内 $() 是真实执行位，$() 内的 | 是真管道 → rm/kill 是命令位 → 应拦
+  it("1641-Q1: echo \"$(printf x | rm -f src/x)\" → 仍拦", () => {
+    const cmd = `echo "$(printf x | rm -f ${projectRoot}/src/x.txt)"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-Q5: $()内管道 rm data/ → 仍拦", () => {
+    const cmd = `echo "$(printf x | rm -f ${projectRoot}/data/x.txt)"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-Q1n: 嵌套 $() 内管道 rm → 仍拦（depth 递归时引号世界重置）", () => {
+    const cmd = `echo "$(echo $(printf x | rm -f ${projectRoot}/src/x.txt))"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-Q6: $()内 kill 主 PID → 仍拦", () => {
+    const cmd = `echo "$(printf x | kill -9 ${mainPid})"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  // 对照：单引号内 $() POSIX 不展开（字面量）→ 放行
+  it("1641-Q1s: 单引号内 $() 字面量 → 放行", () => {
+    const cmd = `echo '$(printf x | rm -f ${projectRoot}/src/x)'`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  // 发现 2：闭合判定——单引号内 \\ 不转义（'x\\' 实际闭合）；双引号 \\\\ 偶数反斜杠后闭合
+  it("1641-Q3: printf 'x\\' | rm 真管道 → 仍拦（单引号已闭合，rm 命令位）", () => {
+    const cmd = `printf 'x\\' | rm -f ${projectRoot}/src/x.txt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-Q4: printf \"x\\\\\" | rm 真管道 → 仍拦（偶数反斜杠，双引号闭合）", () => {
+    const cmd = `printf "x\\\\" | rm -f ${projectRoot}/src/x.txt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  // 发现 3：cat <<'EOF' | bash——体经管道喂真 shell，是执行面非数据面 → 应拦
+  it("1641-H1: cat <<'EOF' | bash 体 rm src → 仍拦", () => {
+    const cmd = `cd ${projectRoot} && cat <<'EOF' | bash\nrm -f src/x.txt\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-H1b: cat <<'EOF' | bash 体 rm data → 仍拦", () => {
+    const cmd = `cd ${projectRoot} && cat <<'EOF' | bash\nrm -f data/x.txt\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-H1c: cat <<'EOF' | bash 体 kill 主 PID → 仍拦", () => {
+    const cmd = `cd ${projectRoot} && cat <<'EOF' | bash\nkill -9 ${mainPid}\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-H1sh: cat <<'EOF' | sh 体 rm → 仍拦（sh/zsh 同族）", () => {
+    const cmd = `cd ${projectRoot} && cat <<'EOF' | sh\nrm -f src/x.txt\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  // 对照：R4 现场不回归 + 数据体 heredoc 不误拦
+  it("1641-R4: 现场 grep BRE \\| 引号模式 → 放行（不回归）", () => {
+    const cmd = `cd ${projectRoot} && grep -i "write\\|rm\\|destruct" src/frameworks/agent/bash-safety-guard.ts | head -5`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1641-H5: cat 数据体（无管道）find -delete 字样 → 放行（不回归）", () => {
+    const cmd = `cd ${projectRoot} && cat <<EOF\nfind -delete 文档字样\nEOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+});
