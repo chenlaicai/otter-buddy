@@ -58,7 +58,7 @@ it("工具描述引导等 CI / 服务 / 状态使用 until，并明确一次调�
   expect(untilDesc).toContain("0=全绿、1=有失败、8=有 pending");
   expect(untilDesc).toContain("勿加 --json");
   expect(untilDesc).toContain("不可加 --watch");
-  expect(untilDesc).toContain("exit 1 视为确认失败立即终止");
+  expect(untilDesc).toContain("确认 CI 失败（真实业务应答，非网络错误）时提前终止");
 });
 
 /** 推进无 until 的固定时长 wait；条件等待用例按自身预算推进。 */
@@ -308,7 +308,7 @@ describe("F20260928slan wait 工具", () => {
   });
 });
 
-describe("F20261026wfpb（#1623）wait until exit 1 fail-fast", () => {
+describe("F20261026wfpb（#1623 返修）gh pr checks 业务失败 fail-fast（stderr 分类）", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     execFileMock.mockReset();
@@ -318,50 +318,95 @@ describe("F20261026wfpb（#1623）wait until exit 1 fail-fast", () => {
     vi.useRealTimers();
   });
 
-  // ─── F20261026wfpb（#1623）：exit 1 fail-fast 与 gh 三态退出码语义 ───
-  // gh pr checks 裸命令三态（gh 2.89 实测）：0=全绿、1=有失败、8=有 pending。
-  // exit 1 = 确认失败，等待不会自愈——立即终止轮询，不盲等满预算。
-  it("until exit 1（确认失败）立即终止轮询，不盲等满预算", async () => {
-    const tool = findWait();
-    mockProbeAlwaysFail(1, "check\tfail");
-    const execPromise = tool.execute("t1", { seconds: 300, until: "gh pr checks 1604", reason: "等 CI 变绿" });
-    await vi.advanceTimersByTimeAsync(0);
-    const result = await execPromise;
-    const text = result.content[0].text;
-    expect(text).toContain("确认失败，已停止轮询");
-    expect(text).toContain("exit 1 = 探活命令自身判定的终态失败");
-    // 只探测一次就终止：报文只报告第 1 次，且轮询已收尾不留计时器
-    expect(text).toContain("第 1 次探测确认失败");
-    expect(vi.getTimerCount()).toBe(0);
-  });
+  // ─── F20261026wfpb（#1623 返修）：gh pr checks 业务失败 fail-fast（stderr 分类，非裸退出码）───
+  // Review-1640 反例实证：exit 1 同时覆盖业务失败、test -f/grep 未就绪、gh transport 错误、
+  // NONE、GraphQL 错误——退出码不可分类。改为：gh + exit 1 + stderr 空 + stdout 含 bucket
+  // 行 = 真实业务应答 → 终态失败；其余（含所有非 gh 命令）保留预算内重试。
+  function ghFailProbe(): Error & { code: number; stdout: string; stderr: string } {
+    const err = new Error("gh pr checks failed") as Error & { code: number; stdout: string; stderr: string };
+    err.code = 1;
+    err.stdout = "check\tfail\t9s\thttps://example.invalid/job/1";
+    err.stderr = "";
+    return err;
+  }
 
-  it("pending（exit 8）重试后转为失败（exit 1）时，同样立即终止并报告最后一次探测", async () => {
+  it("gh pr checks 真实业务失败（stdout 表格 + stderr 空）立即终止轮询，不盲等满预算", async () => {
     const tool = findWait();
-    let first = true;
     execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ProbeCallback) => {
-      cb(first ? failWithCode(8, "pending") : failWithCode(1, "check\tfail"));
-      first = false;
+      cb(ghFailProbe(), { stdout: ghFailProbe().stdout, stderr: "" });
     });
-    const execPromise = tool.execute("t1", { seconds: 300, until: "gh pr checks 1604" });
-    // 第一次探测（pending）后进入 10s 间隔；推进 10s 触发第二次探测（失败）即终止
-    await vi.advanceTimersByTimeAsync(10_000);
+    const execPromise = tool.execute("t1", { seconds: 300, until: "gh pr checks 1604", reason: "等 CI 变绿" });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
     const result = await execPromise;
     const text = result.content[0].text;
-    expect(text).toContain("确认失败，已停止轮询");
-    expect(text).toContain("第 2 次探测确认失败");
+    expect(text).toContain("确认 CI 失败，已停止轮询");
+    // 报文 text 来自 formatUntilFailure（stderr 优先）；业务失败 stderr 空时为 message。
+    // 失败表格 stdout 已在判定内部使用，不再重复断言其文本形态。
+    // 只探测一次就终止：报文只报告第 1 次，且轮询已收尾不留计时器
+    expect(text).toContain("第 1 次探测确认");
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("非 gh 命令 exit 1 同样适用 fail-fast（curl -sf 连接拒绝等终态失败）", async () => {
+  it("gh pr checks transport 错误（stderr 非空）不判终态，预算内重试后可成功", async () => {
     const tool = findWait();
-    mockProbeAlwaysFail(1, "conn refused");
-    const execPromise = tool.execute("t1", { seconds: 120, until: "curl -sf localhost:3001/" });
-    await vi.advanceTimersByTimeAsync(0);
+    let calls = 0;
+    execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ProbeCallback) => {
+      calls += 1;
+      if (calls < 3) {
+        const err = new Error("proxyconnect") as Error & { code: number; stdout: string; stderr: string };
+        err.code = 1;
+        err.stdout = "";
+        err.stderr = 'Post "https://api.github.com/graphql": proxyconnect tcp: connection refused';
+        cb(err, { stdout: "", stderr: err.stderr });
+      } else {
+        cb(null, { stdout: "check\tpass\t1m\thttps://example.invalid/job/2", stderr: "" });
+      }
+    });
+    const execPromise = tool.execute("t1", { seconds: 300, until: "gh pr checks 1604", reason: "等 CI 变绿" });
+    await vi.advanceTimersByTimeAsync(20_000);
     const result = await execPromise;
-    expect(result.content[0].text).toContain("确认失败，已停止轮询");
-    // 状态断言：仅 1 次探测即返回（非 mock 调用计数），轮询不留计时器
-    expect(result.content[0].text).toContain("第 1 次探测确认失败");
+    // transport 错误重试后成功——不提前终止
+    expect(result.content[0].text).toContain("until 条件通过");
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("gh pr checks NONE（stdout 无 bucket 行）不判终态，重试到预算耗尽", async () => {
+    const tool = findWait();
+    execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ProbeCallback) => {
+      const err = new Error("no checks") as Error & { code: number; stdout: string; stderr: string };
+      err.code = 1;
+      err.stdout = "no checks reported on 'main'";
+      err.stderr = "";
+      cb(err, { stdout: "no checks reported on 'main'", stderr: "" });
+    });
+    const execPromise = tool.execute("t1", { seconds: 25, until: "gh pr checks 1604", reason: "等 CI 注册" });
+    await vi.advanceTimersByTimeAsync(25_000);
+    const result = await execPromise;
+    // NONE 形态：stdout 无 bucket 行 → 不判终态，重试到预算耗尽后返回超时报文
+    expect(result.content[0].text).toContain("until 条件未通过（共 3 次探测");
+    expect(result.content[0].text).not.toContain("确认 CI 失败");
+  });
+
+  it("Review-1640 反例：文件探活 exit 1（未就绪可恢复）不判终态，第 3 次探测成功", async () => {
+    const tool = findWait();
+    mockProbeSequence(1, "", "file ready", 2);
+    const execPromise = tool.execute("t1", { seconds: 60, until: "test -f /tmp/ready-flag", reason: "等文件出现" });
+    await vi.advanceTimersByTimeAsync(20_000);
+    const result = await execPromise;
+    expect(result.content[0].text).toContain("until 条件通过");
+    expect(result.content[0].text).toContain("file ready");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("非 gh 命令持续 exit 1 到预算耗尽返回超时报文（不提前终止）", async () => {
+    const tool = findWait();
+    mockProbeAlwaysFail(1, "not found");
+    const execPromise = tool.execute("t1", { seconds: 25, until: "test -f /tmp/never" });
+    await vi.advanceTimersByTimeAsync(25_000);
+    const result = await execPromise;
+    expect(result.content[0].text).toContain("until 条件未通过（共 3 次探测");
+    expect(result.content[0].text).not.toContain("确认 CI 失败");
   });
 
   it("CI pending（gh 约定 exit 8）后在同一次 wait 内重试，第三次成功并返回实际耗时", async () => {
@@ -375,6 +420,24 @@ describe("F20261026wfpb（#1623）wait until exit 1 fail-fast", () => {
     expect(result.content[0].text).toContain("CI green");
     expect(execFileMock.mock.calls[0][0]).toBe("gh");
     expect(execFileMock.mock.calls[0][1]).toEqual(["pr", "checks", "1604"]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("pending（exit 8）重试后转为真实业务失败时，立即终止并报告最后一次探测", async () => {
+    const tool = findWait();
+    let first = true;
+    execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ProbeCallback) => {
+      const fail = ghFailProbe();
+      cb(first ? failWithCode(8, "pending") : fail, first ? { stdout: "", stderr: "" } : { stdout: fail.stdout, stderr: "" });
+      first = false;
+    });
+    const execPromise = tool.execute("t1", { seconds: 300, until: "gh pr checks 1604" });
+    // 第一次探测（pending）后进入 10s 间隔；推进 10s 触发第二次探测（业务失败）即终止
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await execPromise;
+    const text = result.content[0].text;
+    expect(text).toContain("确认 CI 失败，已停止轮询");
+    expect(text).toContain("第 2 次探测确认");
     expect(vi.getTimerCount()).toBe(0);
   });
 });

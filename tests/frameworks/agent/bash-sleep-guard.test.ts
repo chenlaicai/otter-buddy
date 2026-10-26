@@ -97,7 +97,7 @@ describe("bash_sleep 发射点（circuit-breaker-helpers）", () => {
     expect(reason).toContain("未就绪每 10 秒重试");
     expect(reason).toContain("不要写 bash 轮询");
     expect(reason).toContain("0=全绿、1=有失败、8=pending");
-    expect(reason).toContain("失败（exit 1）会立即停止轮询");
+    expect(reason).toContain("确认 CI 失败（非网络错误）时提前终止不盲等");
     expect(reason).toContain("勿加 --json 或 --watch");
   });
 

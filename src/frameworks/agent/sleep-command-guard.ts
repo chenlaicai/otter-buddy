@@ -46,7 +46,7 @@ function parseSleepDurationSeconds(token: string): number | null {
 /** sleep 拦截文案（kill 域文案零共用——sleep 是感知问题非安全问题，措辞向引导而非禁止）。
  *  V2 模型版（guard-model-judge judgeSleepCommand）复用本构造——语义一致防漂移（S5 去重后唯一文案源）。 */
 export function buildSleepBlockMessage(durationDesc: string): string {
-  return `检测到你使用了 sleep 等待（约 ${durationDesc}）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么、为什么要等这么久，然后改用 wait 工具（wait 的 seconds/reason/until 参数支持等待+理由自证+条件轮询）。等 CI / 服务 / 状态就用 until 单命令：例如 seconds 填 120、reason 写「等 PR #1604 CI 变绿」、until 填 gh pr checks 1604——立即探测，未就绪每 10 秒重试，直到通过或 seconds 总预算耗尽；gh pr checks 裸命令已内建判定（0=全绿、1=有失败、8=pending，勿加 --json 或 --watch），失败（exit 1）会立即停止轮询不盲等。服务探活示范：until 填 curl -sf localhost:3001/（值不带引号/管道，禁元字符）。不要写 bash 轮询，全程对搭档可见可解释。`;
+  return `检测到你使用了 sleep 等待（约 ${durationDesc}）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么、为什么要等这么久，然后改用 wait 工具（wait 的 seconds/reason/until 参数支持等待+理由自证+条件轮询）。等 CI / 服务 / 状态就用 until 单命令：例如 seconds 填 120、reason 写「等 PR #1604 CI 变绿」、until 填 gh pr checks 1604——立即探测，未就绪每 10 秒重试，直到通过或 seconds 总预算耗尽；gh pr checks 裸命令已内建判定（0=全绿、1=有失败、8=pending，勿加 --json 或 --watch），确认 CI 失败（非网络错误）时提前终止不盲等，网络错误/未就绪会继续重试。服务探活示范：until 填 curl -sf localhost:3001/（值不带引号/管道，禁元字符）。不要写 bash 轮询，全程对搭档可见可解释。`;
 }
 
 /** 判定函数签名（位置感知由守卫主文件注入——与 kill 族同一份逻辑，口径一致防漂移） */
