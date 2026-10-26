@@ -29,7 +29,7 @@ import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS, WRAPPER_SPECS, tokenBasename, skipWrapperArgs, resolveExecHead, isStdinFeedRest, FIND_EXEC_LEADS, findExecVerbAt } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
-import { segmentStdoutContent, evalInterpreterStdinBody, gitCrawlInfo } from "./write-target-evaluator";
+import { segmentStdoutContent, evalInterpreterStdinBody, gitCrawlInfo, resolveCwdAt } from "./write-target-evaluator";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
 export type { AllowedService };
@@ -517,7 +517,14 @@ function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sess
  *  命令（如 `rm -rf data` 清工作区缓存）解析到主仓 data/ 被误拦（10/14 三连实证）。 */
 // eslint-disable-next-line complexity -- 破坏目标域分类分流（data/mainTree 两文案+豁免面）+ cd 跟踪，每分支对应一种已实证形态（F20261016gdfv 目标域扩面后 13）
 function checkDataDirDestructive(command: string, logger: Logger | undefined, ctx: GuardCwdCtx): string | null {
-  const segments = command.split(/&&|\|\||[;&\n]/).map(s => s.trim()).filter(Boolean);
+  // #1635：剥 heredoc 体后扫描（与 checkGitAliasShellInjection X5 同构）——heredoc
+  // 体是数据（写入 issue/PR 正文的文本），体内 find -delete 字样被本规则的词元
+  // 扫描误命中（10-23 gh issue create 现场：issue 正文描述守卫规则时自身撞规则）。
+  // heredoc 体的真实危险面由专职层覆盖（checkHeredocScriptBodies 递归 V1 全量链 /
+  // heredocWriteVeto 体感知负门），剥体不产生真洞；stripHeredocPayloads 对展开
+  // 特征/未闭合体保守不剥（fail-closed）。
+  const scanText = stripHeredocPayloads(command);
+  const segments = scanText.split(/&&|\|\||[;&\n]/).map(s => s.trim()).filter(Boolean);
   let cwd = ctx.sessionCwd ? path.normalize(ctx.sessionCwd) : (ctx.projectRoot ? path.normalize(ctx.projectRoot) : "");
   for (const seg of segments) {
     // 形态 0：cd 更新跟踪 cwd（后续段的相对路径基准）
@@ -1499,6 +1506,11 @@ function stdinShellFeederVeto(
   const model = parseOnce(command);
   if (!model.parseOk) return null; // 解析失败形态由 V1 兜底链既有 fail-closed 承担
   const segs = model.segments;
+  // #1641-r1 发现 3：体判 cwd 感知——整条命令的 cd 链决定体执行时的真实 cwd
+  //（`cd 主仓 && cat <<'EOF' | bash` 的体在主仓跑，相对路径落主仓）。旧实现把
+  //  ctx.sessionCwd 直接传体判，cd 前缀形同虚设（H1 现场实证：体 rm 相对路径落
+  //  工作区 → 放行）。resolveCwdAt 与写通道同源（一条语义一个接口）。
+  const cwdAt = resolveCwdAt(segs, ctx.sessionCwd ?? ctx.projectRoot ?? "/");
   for (let i = 0; i < segs.length; i++) {
     const seg = segs[i];
     // F20261026gpg1（M-a09944aa②）：xargs replace-str 注入等价类（同尺判定抽 xargsInjectionVeto）
@@ -1526,7 +1538,9 @@ function stdinShellFeederVeto(
     // kill 面（B3 口径——载荷是被执行的真实命令文本）：词样拦截与上游词样检测同口径，
     // 递归上下文（bash -c 嵌套管道——模型层不递归跑 judgePipeToShell）由本检査兜住
     if (/\b(?:kill|pkill|killall|skill|killall5)\b/i.test(content)) return INDIRECT_KILL_BLOCK_MSG;
-    const hit = checkMainCheckoutWrite({ command: content, logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, depth: depth - 1, writeChannelSkip: ctx.writeChannelSkip });
+    // 体执行 cwd：取 stdin 段在 cd 链上的快照（resolveCwdAt[i]；不可溯源时保守用 sessionCwd）
+    const bodyCwd = cwdAt?.[i] ?? ctx.sessionCwd;
+    const hit = checkMainCheckoutWrite({ command: content, logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: bodyCwd, depth: depth - 1, writeChannelSkip: ctx.writeChannelSkip });
     if (hit !== null) return hit; // 载荷写面命中——沿用命中通道文案（含正确落点定因）
   }
   return null;
@@ -2103,12 +2117,12 @@ function isInsideMainCheckout(target: string, projectRoot: string): boolean {
  *  `cat <<PY | grep x | python3 -` 循环判定每个右段。tee/grep 等数据通道右段
  *  不命中（体不执行，语义归 #1304 数据体剥除）。
  *  保守侧：切不出段/段内提取非目标解释器 → false（不触发阻断，回到既有判定链）。 */
-function heredocHeaderIsInterpreter(header: string, family: "python" | "node"): boolean {
+function heredocHeaderIsInterpreter(header: string, family: "python" | "node" | "shell"): boolean {
   const beforeOpen = header.split(/<<-?/)[0] ?? "";
   const segs = beforeOpen.split(/&&|\|\||[;|]/).map(s => s.trim()).filter(Boolean);
   const last = segs[segs.length - 1] ?? "";
   const it = heredocInterpreter(last);
-  if (family === "python" ? /^python(?:\d+(?:\.\d+)?)?$/.test(it) : /^node(?:\d+)?$/.test(it)) {
+  if (family === "python" ? /^python(?:\d+(?:\.\d+)?)?$/.test(it) : family === "node" ? /^node(?:\d+)?$/.test(it) : /^(?:bash|sh|zsh|dash|ksh)(?:\d+)?$/.test(it)) {
     return true;
   }
   // #1308：开行右段识别——`<<` 定界符之后的同头行剩余部分（`<<'PY' | python3 -` 的
@@ -2116,12 +2130,15 @@ function heredocHeaderIsInterpreter(header: string, family: "python" | "node"): 
   // lookaround 语义（单管道，`||` 短路或不是管道连接——右侧命令不执行，归段内文本），
   // 与通道 pattern[5]/[6] 及 hasRealCdSegment 的 lookaround 语义对齐（检视 r1 发现 2：
   // 初版把 `||` 当切分符，cd+短路或形态误拦且与无 cd 通道链判定相反）。
+  // #1641-r1 发现 3：shell family 接入同款右段识别——`cat <<'EOF' | bash` 体经管道
+  // 喂真 shell，是执行面非数据面，剥体后必须由体级判定接管（初轮检视 H1/H1b/H1c
+  // 实证：只看首词 cat 会漏，bash/sh/zsh/dash/ksh 全族收口）。
   const afterOpen = header.split(/<<-?/).slice(1).join("<<") ?? "";
   for (const seg of afterOpen.split(/(?<!\|)\|(?!\|)/).slice(1)) {
     const t = seg.trim();
     if (!t) continue;
     const segInterp = heredocInterpreter(t);
-    if (family === "python" ? /^python(?:\d+(?:\.\d+)?)?$/.test(segInterp) : /^node(?:\d+)?$/.test(segInterp)) {
+    if (family === "python" ? /^python(?:\d+(?:\.\d+)?)?$/.test(segInterp) : family === "node" ? /^node(?:\d+)?$/.test(segInterp) : /^(?:bash|sh|zsh|dash|ksh)(?:\d+)?$/.test(segInterp)) {
       return true;
     }
   }
@@ -2431,7 +2448,10 @@ function judgeShellHeredocBody(sp: { header: string; body: string }, ctx: Heredo
  *  （剥体输入自然 no-op；未闭合保留原文时体在场生效）。 */
 function checkHeredocScriptBodies(command: string, ctx: HeredocJudgeCtx, depth = 1): string | null {
   for (const sp of extractHeredocSpans(command)) {
-    if (isShellHeader(sp.header)) {
+    // #1641-r1 发现 3：cat 头 + 管道右段 shell（`cat <<'EOF' | bash`）——体经管道喂真
+    // shell，是执行面非数据面，与直连 bash heredoc 同构，走同款体级判定（右段
+    // 识别复用 heredocHeaderIsInterpreter shell family，与 python/node #1308 同机制）。
+    if (isShellHeader(sp.header) || heredocHeaderIsInterpreter(sp.header, "shell")) {
       const hit = judgeShellHeredocBody(sp, ctx, depth);
       if (hit) return hit;
       continue;
