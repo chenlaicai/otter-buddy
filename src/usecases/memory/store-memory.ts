@@ -257,15 +257,25 @@ export class StoreMemory {
       // 消灭唤醒后到准入之间的 TOCTOU 竞态）；salvage 同 fireAndForgetEmbed 双轨语义
       embedBatch(texts, {
         waitSlot: true,
-        salvage: (embeddings) => {
+        // F20261026emct delta 处置（严重 1）：startIndex 分片场景下指向整批第 startIndex 条起；
+        // 非分批路径 service 不传（undefined = 0）。按 startIndex 对位写入，杜绝跨子批错位污染
+        salvage: (embeddings, startIndex) => {
           void (async () => {
-            for (let i = 0; i < items.length; i++) {
+            const base = startIndex ?? 0;
+            for (let i = 0; i < embeddings.length; i++) {
+              const item = items[base + i];
+              if (!item) {
+                this.logger.warn(
+                  `Embedding batch salvage index out of range: base=${base} i=${i} items=${items.length} (skip)`,
+                );
+                continue;
+              }
               try {
-                await this.writer.storeEmbedding(items[i].id, embeddings[i]);
-                await this.queue.markTaskDone(items[i].id);
+                await this.writer.storeEmbedding(item.id, embeddings[i]);
+                await this.queue.markTaskDone(item.id);
               } catch (err) {
                 this.logger.warn(
-                  `Embedding batch salvage failed for ${items[i].id} (task stays in retry queue): ${err}`,
+                  `Embedding batch salvage failed for ${item.id} (task stays in retry queue): ${err}`,
                 );
               }
             }

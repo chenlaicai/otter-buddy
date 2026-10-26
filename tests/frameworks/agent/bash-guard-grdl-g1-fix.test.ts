@@ -133,12 +133,48 @@ describe("F20261016grdl：段级 cd 豁免（族 E）边界", () => {
   it("cd $VAR && git commit（变量不可求值）→ 拦（保守）", () => {
     expect(guard(`cd $W && git commit -m x`)).not.toBeNull();
   });
-  it("cd worktree & git commit（& 切断子 shell）→ 放（cwd=沙箱：git commit 落排除区无 repo 空写面；主仓 cwd 变体必拦）", () => {
-    // #1527 原断言拦（保守）；F20261019gses cd 外溢修复（resolveCwdAt/evaluateFromModel
-    // 双处）：& 右段 cwd=startCwd。沙箱内无 .git → git commit 空写面 ALLOW。
-    // cwd=主仓根变体：git commit 落主仓 .git → 必拦（真漏拦面修复验证锁）。
-    expect(guard(`cd ${WT} & git commit -m x`)).toBeNull();
-    expect(checkBashCommandSafety(`cd ${WT} & git commit -m x`, MAIN_PID, undefined, { projectRoot: ROOT, sessionCwd: ROOT })).not.toBeNull();
+  it("cd worktree & git commit：非官方路径卫星写主仓 gitdir → 拦；R1 正道 worktree → 放", async () => {
+    // #1527 原断言拦（保守）；F20261019gses 曾按「沙箱无 .git 空写面」翻 ALLOW；
+    // F20261026dwtg 修复后发现：真正该钉的是实际 gitdir，而非目录字面或 /tmp 真 repo。
+    // 本用例临时构造 repo 与 linked worktree，CI 不依赖宿主机已有 worktree/workspace。
+    // & 右段 cwd=startCwd：satellite 是 startCwd，树外且 gitdir=<repo>/.git/worktrees/wt
+    // → 实写主仓共享 refs/objects，双层 BLOCK；独立外仓的 linked worktree（gitdir 不属主仓）
+    // → 双层 ALLOW；主仓 .otter/worktrees 正道目录 → ALLOW（不封死规定工作流）。
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const os = await import("node:os");
+    const { execSync } = await import("node:child_process");
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "grdl-wt-")));
+    const env = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "probe", GIT_AUTHOR_EMAIL: "probe@example.com",
+      GIT_COMMITTER_NAME: "probe", GIT_COMMITTER_EMAIL: "probe@example.com",
+    };
+    try {
+      const repo = path.join(base, "repo");
+      fs.mkdirSync(repo);
+      execSync(`git init -q ${repo}`);
+      execSync(`git -C ${repo} commit -q --allow-empty -m x`, { env });
+      const satellite = path.join(base, "satellite");
+      execSync(`git -C ${repo} worktree add -q ${satellite} -b probe`);
+      const cmd = `cd ${satellite} & git commit -m x`;
+      expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, { projectRoot: repo, sessionCwd: satellite })).not.toBeNull();
+      expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, { projectRoot: repo, sessionCwd: repo })).not.toBeNull();
+
+      const independent = path.join(base, "independent");
+      fs.mkdirSync(independent);
+      execSync(`git init -q ${independent}`);
+      execSync(`git -C ${independent} commit -q --allow-empty -m x`, { env });
+      const independentWt = path.join(base, "independent-wt");
+      execSync(`git -C ${independent} worktree add -q ${independentWt} -b probe`);
+      expect(checkBashCommandSafety(`cd ${independentWt} & git commit -m x`, MAIN_PID, undefined, { projectRoot: repo, sessionCwd: independentWt })).toBeNull();
+
+      const approved = path.join(repo, ".otter/worktrees/probe");
+      execSync(`git -C ${repo} worktree add -q ${approved} -b approved`);
+      expect(checkBashCommandSafety(`cd ${approved} & git commit -m x`, MAIN_PID, undefined, { projectRoot: repo, sessionCwd: approved })).toBeNull();
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
   });
   it("cd 主仓 && git commit（cwd 跟踪不豁免主仓目标；#cwsp 已知边界行为）→ 拦（BC-1 落点判，2026-10-19 期望翻转）", () => {
     // S1 裁决（方向 A）：求值器先判后 cd 主仓的 git commit 即主仓写（语料 c020/BC-1

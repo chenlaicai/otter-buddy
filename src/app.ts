@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- F20261026emct 启动解耦新增 postListenInit 后 465 行（限 450），拆分另开 PR（Composition Root 集中装配是既有设计） */
 /**
  * buildApp：可测试的系统装配入口（F20260806tstr Part 1，基于 F20260805codx bootstrap 模块）。
  * main.ts 是生产薄入口；bootstrap/* 是零件，本模块按序组装 + 提供测试接缝。
@@ -128,8 +129,12 @@ export interface BuiltApp {
   /** 兼容存量测试访问 available/构造 StoreMemory——等价 writeEmbedding */
   embeddingService: EmbeddingGateway;
   modelPool: ModelPool;
-  /** F20260812mrcq Part 1：embedding 重试 worker（vec 禁用时为 null） */
-  retryWorker: { stopSync(): void; stop(): Promise<void> } | null;
+  /** F20260812mrcq Part 1：embedding 重试 worker（vec 禁用时为 null）。F20261026emct：getter 经 ref 读——worker 在 listen 后才创建 */
+  get retryWorker(): { stopSync(): void; stop(): Promise<void> } | null;
+  /** F20261026emct：worker 的 ref 容器（getter 数据源，dispose 停表用） */
+  retryWorkerRef: { current: { stopSync(): void; stop(): Promise<void> } | null };
+  /** F20261026emct：listen 成功后异步初始化（document sync + retry worker + 暗化迁移）。main.ts 在 listen 回调 fire-and-forget；失败不炸进程（内部已 catch 落日志） */
+  postListenInit: () => Promise<void>;
   /** 停止调度器、释放 embedding worker、关闭 DB、flush 日志 + metric。幂等。 */
   dispose(): Promise<void>;
 }
@@ -220,12 +225,38 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // ── 记忆索引 + 文档同步 ──
   // F20261016ebrt：写入 lane 服务 store/sync（吞吐），查询 lane 只服务 search（延迟）
   const memoryIndex = createMemoryIndex(repos, writeEmbedding, logger);
-  const syncResult = await syncDocuments(repos, memoryIndex, logger, options.rootDir ?? process.cwd());
-  postSyncMigrations(db, logger, syncResult);
+  // F20261026emct 启动解耦：document sync + postSyncMigrations + 暗化迁移 + retry worker
+  // 全部延后到 HTTP listen 成功后异步执行（postListenInit，见 BuiltApp 字段，
+  // main.ts 在 listen 回调里 fire）。此前 syncDocuments（全库逐文档 chunk + embed）
+  // 与 scanDarkEntries 迁移（全表扫描 + 逐条 INSERT）堵在 buildApp 内、listen 之前
+  // —— 10-23 雪崩启动期间 health 端点 30s 无响应触发外部重启，重启又重扫，死循环。
+  // listen 先行后：health 最先可用；迁移分批限流（bootstrap/memory.ts）不再堵事件循环。
 
-  // F20260812mrcq Part 1：embedding 重试 worker + 存量暗化条目迁移
+  // F20260812mrcq Part 1：embedding 重试 worker
+  // F20261026emct：worker 启动与存量迁移延后到 listen 后（postListenInit）。
+  // vec 版本校验/模型加载等重开销仍在 buildApp 内（listen 前完成，避免带着未就绪的
+  // embedding 服务接流量）。
   // #949：worker 本体不再自持定时器——由下方 PatrolWorker 统一驱动（tickNow 巡检）
-  const retryWorker = await createAndStartRetryWorker(repos, writeEmbedding, logger);
+  // F20261026emct：retryWorker 由 postListenInit 创建（listen 后），PatrolWorker/dispose
+  // 经 ref 闭包延迟绑定——启动时序解耦后 worker 可能晚于 patrolWorker 构造。
+  const retryWorkerRef: { current: Awaited<ReturnType<typeof createAndStartRetryWorker>> } = { current: null };
+  const appRootDir = options.rootDir ?? process.cwd();
+  /** F20261026emct：listen 成功后异步初始化（document sync + retry worker + 暗化迁移）。
+   *  失败不炸进程：sync/迁移失败只落 error 日志（与原 buildApp 内 await 失败即
+   *  启动失败相比，listen 后失败不该拖垮已就绪的 HTTP 服务） */
+  const postListenInit = async (): Promise<void> => {
+    try {
+      const syncResult = await syncDocuments(repos, memoryIndex, logger, appRootDir);
+      postSyncMigrations(db, logger, syncResult);
+    } catch (err) {
+      logger.error("Post-listen document sync failed", err instanceof Error ? err : new Error(String(err)));
+    }
+    try {
+      retryWorkerRef.current = await createAndStartRetryWorker(repos, writeEmbedding, logger);
+    } catch (err) {
+      logger.error("Post-listen retry worker init failed", err instanceof Error ? err : new Error(String(err)));
+    }
+  };
   // F20260825sgnw（#401）：RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
   // 审视发现 1：对齐 startScheduler 开关模式，测试/CI 可关（否则 buildApp 每次起 setInterval + git 采集副作用）
   const rhiScanWorker = createRhiScanWorker({
@@ -259,6 +290,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // initAgentAndScheduler（schedulerService 初始化）之后——PatrolWorker.start 立即同步跑首轮
   // tick，'scheduler-reconcile' duty 在 schedulerService TDZ 期内执行会抛
   // "Cannot access 'schedulerService' before initialization"（9/30 启动日志实证）。
+  // F20261026emct delta（建议 3）：retry worker 缺失告警限频擂脏（每 patrol 周期 1h 最多一条）
+  let lastRetryWorkerNullWarnAt = 0;
   const patrolWorker = new PatrolWorker([
     { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
     { name: 'signal-aging', run: async () => { await signalAgingWorker.scanOnce(); } },
@@ -266,7 +299,26 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     { name: 'rhi-signal-aging', run: async () => { await rhiSignalAgingWorker.scanOnce(); } },
     { name: 'rhi-scan', run: async () => { await rhiScanWorker.scanOnce(); } },
     createInvokeOrphanReconcileDuty(db, repos, logger),
-    ...(retryWorker ? [{ name: 'embedding-retry', run: () => retryWorker.tickNow() }] : []),
+    // F20261026emct：经 ref 读——worker 由 postListenInit 创建，可能晚于 PatrolWorker 构造；
+    // late-bind duty 每轮 tick 动态查 ref（worker 未就绪时空转，就绪后自动接管），
+    // 不再用展开时快照条件——那会在 worker 未创建时永久丢掉该 duty
+    { name: 'embedding-retry', run: async () => {
+      // F20261026emct：动态查 ref——worker 由 postListenInit 创建（listen 后），
+      // 可能晚于 PatrolWorker 构造；未就绪时空转，就绪后自动接管。
+      // 告警（delta 复审建议 3）：ref 持续为 null = retry 能力静默缺失，只有一条
+      // postListenInit 的 error 日志后无任何周期信号——每轮 duty 限频 warn 一次，
+      // 让「worker 起不来」可从日志周期性发现（非新增拦截层，可观测性补全）。
+      const w = retryWorkerRef.current;
+      if (!w) {
+        const now = Date.now();
+        if (now - lastRetryWorkerNullWarnAt > 3600_000) {
+          lastRetryWorkerNullWarnAt = now;
+          logger.warn("embedding-retry duty: retry worker not ready (postListenInit failed or pending); dark entries will not be retried", { action: "embedding_retry_worker_missing" });
+        }
+        return;
+      }
+      await w.tickNow();
+    } },
   ], logger);
   // #1241（F20261006opid）：启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（pid 归属判据，
   //  旧进程晚写入的孤儿不再被时间戳守卫跳过）；fire-and-forget 不阻塞启动，失败仅日志。
@@ -642,7 +694,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     usecases: uc, repos, agentGateway, agentInvoker, schedulerService,
     queryEmbedding, writeEmbedding,
     // 兼容存量测试：available 检查 + 构造 StoreMemory 用（写入 lane）
-    embeddingService: writeEmbedding, modelPool, retryWorker,
+    embeddingService: writeEmbedding, modelPool, retryWorkerRef, postListenInit,
+    get retryWorker() { return retryWorkerRef.current; },
     dispose: async () => {
       if (disposed) return;
       disposed = true;
@@ -660,8 +713,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // F20260901chun：防御性清空通道状态注册表（防未来加事件监听/定时器泄漏）
       registry?.clear();
       schedulerService.stop();
-      // F20260812mrcq Part 1：先停 retry worker 再关 DB
-      retryWorker?.stopSync();
+      // F20260812mrcq Part 1：先停 retry worker 再关 DB（F20261026emct：经 ref——listen 前后都可能）
+      retryWorkerRef.current?.stopSync();
       // #949：巡检 worker 统一停（原 RHI/Signal Aging/运行时对账/Embedding Retry 的定时器）。
       // issue #1252：start 已移至 initAgentAndScheduler 之后；stop 幂等（timer/inflight 均空安全），
       // 未 start 时调 stop 仅多一条 info 日志，无需防御标志。
