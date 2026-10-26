@@ -21,6 +21,7 @@ export type ErrorWithToolCallCount = Error & {
 /** invoke 结果形状 */
 export interface InvokeResultShape {
   text: string;
+  tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   ctxTokens?: number;
   ctxMax?: number;
@@ -87,6 +88,7 @@ export interface FirstDumbInfo {
 /** 发言轮结果（F20260913ctlv：invokeId 主体，messageId 退役） */
 export interface TurnResult {
   invokeId: string;
+  tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   duration: number;
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   /** F20260818cbkr：degenerate 二次退化时携带，agent-invoker 执行熔断重启 */
@@ -193,6 +195,8 @@ export interface RouteContext {
   startTime: number;
   /** LLM 输出了直出文本但未调 speak（旁白流失检测） */
   hasOrphanText?: boolean;
+  /** F20261026ctbg：同一 invoke 已执行 attempts 的累计增量，终态统一读取。 */
+  tokenUsageDelta?: TurnResult["tokenUsageDelta"];
 }
 
 /** 重试上下文 */

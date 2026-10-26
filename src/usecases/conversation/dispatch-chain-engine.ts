@@ -15,10 +15,15 @@ import { randomUUID } from "node:crypto";
 // F20260826mwrd C3（Part 6）：L2 安全词扫描
 import { scanStopWords } from "@usecases/signal/stop-word-scanner";
 import type { SenderType } from "@entities/conversation/entry";
+import type { TokenUsage } from "./token-usage";
+import { ChainResourceBudget, type ChainStop } from "./chain-resource-budget";
+export type { ChainStop } from "./chain-resource-budget";
 
 export interface ChainHopResult {
   otterReply?: string;
   nextTargets: string[];
+  usageDeltas?: TokenUsage[];
+  transitions?: Array<{ from: string; to: string }>;
   /** #530 护栏 steer 文案：进程级传递，下一 hop 前置注入（解决 session 已 dispose 无法 steer 的生命周期问题） */
   steerText?: string;
 }
@@ -44,8 +49,8 @@ export interface HopOutcome {
 export const MAX_IMAGES_PER_TURN = 2;
 
 export interface ChainCallbacks {
-  /** 深度耗尽时的额外处理（MC 发系统消息，ADS 仅日志） */
-  onDepthExceeded?: (pendingTargets: string[], depth: number) => void | Promise<void>;
+  /** 停止原因/已消耗 token/未派发目标同源；非 MC 调用方可只消费日志、指标与 healing。 */
+  onChainStopped?: (stop: ChainStop) => void | Promise<void>;
 }
 
 export interface InvokeFnParams {
@@ -63,6 +68,8 @@ export interface InvokeFnParams {
 
 export interface InvokeFnResult {
   messageId: string;
+  /** F20261026ctbg：本次 invoke 的四分量 token 增量，绝非 session 累计快照。 */
+  tokenUsageDelta?: TokenUsage;
   /** @deprecated F20260904schf：链引擎已改读行级 tsp（getMessageById 的 talkingStonePassedTo），
    *  此字段为 turn 级并集（streaming 共栖污染源，#792），保留仅供观测/过渡期，新代码禁止消费。 */
   aggregatedTargets?: string[];
@@ -94,7 +101,11 @@ export class DispatchChainEngine {
       conversationRepo: ConversationRepository;
       queryOtter: QueryOtter;
       logger: Logger;
+      /** 最终逃生边界，默认 2000；不是协作长度质量判定。 */
       maxChainDepth?: number;
+      maxChainTokens?: number;
+      chainDepthSoftLimit?: number;
+      stalledCycleHopLimit?: number;
       settingsRepo?: SettingsRepository;
       /** F20260814mtrc：链级指标（hop 分布/触顶计数），可选 */
       metrics?: AgentMetricsPort;
@@ -183,7 +194,6 @@ export class DispatchChainEngine {
     }
   }
 
-  // eslint-disable-next-line complexity -- F20260826mwrd C3：+安全词扫描分支（退化路径，不拆分）
   private async executeChainInner(
     params: {
       conversationId: string;
@@ -211,7 +221,7 @@ export class DispatchChainEngine {
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
-    const maxDepth = this.deps.maxChainDepth ?? 100;
+    const budget = this.createResourceBudget(conversationId);
     /** F20260902sgp2 hop 取源修复：target → 链上所有 yield 出处 messageId（链级生命周期）。
      *  多源：A、B 同 hop 都 yield C 时 C 各记一条。原 bug：hop 局部 Map 出方法即丢，hop2+ 记账全跳过。 */
     const chainSourceMessageIds = new Map<string, string[]>();
@@ -230,7 +240,10 @@ export class DispatchChainEngine {
 
     let pendingSteerText: string | undefined; // #530 护栏 steer 文案，从上一 hop 传递到下一 hop
 
-    while (targets.length > 0 && depth < maxDepth) {
+    let stop: ChainStop | undefined;
+    while (targets.length > 0) {
+      stop = budget.beforeHop(depth, targets);
+      if (stop) break;
       depth++;
       const result = await this.executeOneHop({
         conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder,
@@ -246,21 +259,24 @@ export class DispatchChainEngine {
       lastOtterReply = result.otterReply ?? lastOtterReply;
       pendingSteerText = result.steerText; // 收集本 hop 的 steer 文案，传递到下一 hop
       targets = result.nextTargets;
+      stop = budget.afterHop({ depth, pendingTargets: targets, usageDeltas: result.usageDeltas, transitions: result.transitions });
+      if (stop) break;
     }
 
-    try {
-      this.deps.metrics?.recordChainHops(depth);
-    } catch { /* F20260814mtrc：metrics 异常不影响链路主流程 */ }
-
-    if (targets.length > 0) {
-      this.deps.logger.warn('发言链达到深度上限', { depth, targets, conversationId });
-      try {
-        this.deps.metrics?.recordChainDepthExceeded();
-      } catch { /* F20260814mtrc */ }
-      await callbacks?.onDepthExceeded?.(targets, depth);
-    }
+    await budget.finish(depth);
+    if (stop) await callbacks?.onChainStopped?.(stop);
 
     return { otterReply: lastOtterReply };
+  }
+
+  private createResourceBudget(conversationId: string): ChainResourceBudget {
+    return new ChainResourceBudget({
+      logger: this.deps.logger, conversationId, metrics: this.deps.metrics, healingRepo: this.deps.healingRepo,
+      ...(this.deps.maxChainTokens !== undefined && { maxChainTokens: this.deps.maxChainTokens }),
+      ...(this.deps.chainDepthSoftLimit !== undefined && { chainDepthSoftLimit: this.deps.chainDepthSoftLimit }),
+      ...(this.deps.maxChainDepth !== undefined && { maxChainDepth: this.deps.maxChainDepth }),
+      ...(this.deps.stalledCycleHopLimit !== undefined && { stalledCycleHopLimit: this.deps.stalledCycleHopLimit }),
+    });
   }
 
   private async executeOneHop(params: {
@@ -500,7 +516,7 @@ export class DispatchChainEngine {
   private static readonly SELF_YIELD_ABORT_THRESHOLD = 5;
   /** 计数扫描的消息上限——正常链路 self-yield ≤5 即触发 abort，100 足够覆盖 + 缓冲。
    *  窗口截断方向：若 95+ 条连续透明消息把介入消息挤出窗口，计数虚低（更难触发），
-   *  方向上由 maxChainDepth=100 兜底，可接受。 */
+   *  方向上由 token 主预算与最终深度边界兜底，可接受。 */
   private static readonly SELF_YIELD_SCAN_LIMIT = 100;
 
   /** #530 梯度护栏：从消息表倒序数连续 self-yield。
@@ -509,7 +525,7 @@ export class DispatchChainEngine {
    *  不相关消息(非指向该獭的 system 消息等)透明——跳过不重置。
    *  真相源=消息表，重启不归零；同会话计数(跨会话留 P3b)。
    *  窗口截断方向：若 95+ 条连续透明消息把介入消息挤出窗口，计数虚低（更难触发），
-   *  方向上由 maxChainDepth=100 兜底，可接受。 */
+   *  方向上由 token 主预算与最终深度边界兜底，可接受。 */
    
   private async countConsecutiveSelfYields(conversationId: string, otterId: string, currentInvokeId: string): Promise<number> {
     // F20260913ctlv 彻底切换：数据源 = yield entries + invoke 行（messages 停写后旧扫描恒 0 → 护栏失明）。
@@ -638,6 +654,8 @@ export class DispatchChainEngine {
     const nextTargets = new Set<string>();
     let shouldAbort = false;
     let steerText: string | undefined; // #530 护栏 steer 文案，进程级传递到下一 hop
+    const usageDeltas: Array<TokenUsage | undefined> = [];
+    const transitions: Array<{ from: string; to: string }> = [];
 
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
@@ -649,6 +667,7 @@ export class DispatchChainEngine {
       const outcome = outcomes.get(i);
       if (!outcome) continue; // resolveHopOutcomes 跳过（无 target 等降级）——无产出可路由
       const { allowedNext, aborted, steerText: hopSteerText } = outcome;
+      usageDeltas[i] = r.value.tokenUsageDelta;
       // F20260913ctlv 彻底切换：otterReply/producedMsg 从 invoke 行不可得（内容在 speak entries）——
       // 回复预览已无消费方依赖 segments；otterReply 字段退役
 
@@ -663,9 +682,10 @@ export class DispatchChainEngine {
       if (hopSteerText) {
         steerText = hopSteerText; // 收集 steer 文案，传递到下一 hop 注入
       }
-      for (const id of allowedNext) {
+      allowedNext.forEach(id => {
+        transitions.push({ from: targets?.[i] ?? outcome.producedMsg?.otterId ?? "unknown", to: id });
         nextTargets.add(id);
-      }
+      });
     }
 
     /** #474: 只滤 'user'——人类不参与链调度（web 路径 senderId 恒为 'user'，等价回声，照旧滤除）。
@@ -679,6 +699,7 @@ export class DispatchChainEngine {
     return {
       nextTargets: shouldAbort ? [] : [...nextTargets],
       steerText, // #530 进程级传递，下一 hop 前置注入
+      usageDeltas: usageDeltas.filter((usage): usage is TokenUsage => usage !== undefined), transitions,
     };
   }
 

@@ -58,6 +58,9 @@ export interface AgentMetricsPort {
   recordSessionRebuild(): void;
   recordChainHops(count: number): void;
   recordChainDepthExceeded(): void;
+  recordChainStopped(reason: "token_budget" | "stalled_cycle" | "hard_depth"): void;
+  recordChainTokenUsage(tokens: number): void;
+  recordChainSoftDepth(): void;
   /** F20260821spcm: 旁白流失计数——LLM 输出了直出文本但未调 speak（按 otterId 分组） */
   recordNoYieldWithOrphanText(otterId: string): void;
   /** F20260903lngth：交接摘要合成结果计数（outcome=success|empty|truncated|error|timeout，封闭枚举） */

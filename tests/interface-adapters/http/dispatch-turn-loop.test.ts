@@ -147,11 +147,14 @@ describe("dispatchTurnLoop 深度上限", () => {
     expect(receivedBatchMaxSeq).not.toBeUndefined();
     // DispatchChainEngine 和 MessageController 都会记录 warn 日志
     expect(warns.length).toBeGreaterThanOrEqual(1);
-    const depthWarn = warns.find(w => w.msg === "发言链达到深度上限，交还用户");
+    const depthWarn = warns.find(w => w.msg === "发言链停止，交还用户");
     expect(depthWarn).toBeDefined();
     expect(depthWarn!.data).toMatchObject({ depth: 2, pendingTargets: ["otter-x"] });
     expect(systemBodies).toHaveLength(1);
     expect(systemBodies[0]).toContain("2 跳");
+    expect(systemBodies[0]).toContain("累计 0 token");
+    expect(systemBodies[0]).toContain("未派发目标：otter-x");
+    expect(systemBodies[0]).toContain("healing 台账");
     // F20260913ctlv 彻底切换：链深通知发 entry.system（messages system.message 已退役）
     expect(broadcastEventCalls.some(e => e.event === "entry.system")).toBe(true);
     expect(sseText).toContain("stream.end");

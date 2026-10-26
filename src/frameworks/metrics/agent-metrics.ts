@@ -70,6 +70,9 @@ export class AgentMetrics implements AgentMetricsPort {
   private readonly sessionRebuildTotal: Counter<string>;
   private readonly chainHops: Histogram<string>;
   private readonly chainDepthExceededTotal: Counter<string>;
+  private readonly chainStoppedTotal: Counter<string>;
+  private readonly chainTokenUsage: Histogram<string>;
+  private readonly chainSoftDepthTotal: Counter<string>;
   /** F20260821spcm: 旁白流失计数 */
   private readonly noYieldWithOrphanTextTotal: Counter<string>;
   private readonly synthesisTotal: Counter<string>;
@@ -100,6 +103,9 @@ export class AgentMetrics implements AgentMetricsPort {
     const chain = AgentMetrics.buildChainMetrics(registry);
     this.chainHops = chain.chainHops;
     this.chainDepthExceededTotal = chain.chainDepthExceededTotal;
+    this.chainStoppedTotal = chain.chainStoppedTotal;
+    this.chainTokenUsage = chain.chainTokenUsage;
+    this.chainSoftDepthTotal = chain.chainSoftDepthTotal;
     this.noYieldWithOrphanTextTotal = chain.noYieldWithOrphanTextTotal;
     this.synthesisTotal = AgentMetrics.buildSynthesisMetric(registry);
   }
@@ -205,8 +211,11 @@ export class AgentMetrics implements AgentMetricsPort {
       }),
       chainDepthExceededTotal: registry.counter({
         name: "agent_chain_depth_exceeded_total",
-        help: "Dispatch chains that hit max depth",
+        help: "Dispatch chains that hit the final depth escape boundary",
       }),
+      chainStoppedTotal: registry.counter({ name: "agent_chain_stopped_total", help: "Dispatch chain stops by reason", labelNames: ["reason"] }),
+      chainTokenUsage: registry.histogram({ name: "agent_chain_token_usage", help: "Actual per-invoke token increments summed per chain", buckets: [1e3, 1e4, 1e5, 5e5, 1e6, 5e6, 1e7, 5e7] }),
+      chainSoftDepthTotal: registry.counter({ name: "agent_chain_soft_depth_total", help: "Chains that crossed the soft depth warning without stopping" }),
       noYieldWithOrphanTextTotal: registry.counter({
         name: "agent_no_yield_orphan_text_total",
         help: "No-yield retries where LLM output direct text but never called speak (orphan text detection)",
@@ -277,6 +286,18 @@ export class AgentMetrics implements AgentMetricsPort {
 
   recordChainDepthExceeded(): void {
     this.chainDepthExceededTotal.inc();
+  }
+
+  recordChainStopped(reason: "token_budget" | "stalled_cycle" | "hard_depth"): void {
+    this.chainStoppedTotal.inc({ reason });
+  }
+
+  recordChainTokenUsage(tokens: number): void {
+    this.chainTokenUsage.observe(tokens);
+  }
+
+  recordChainSoftDepth(): void {
+    this.chainSoftDepthTotal.inc();
   }
 
   /** F20260821spcm: 旁白流失计数（按 otterId 分组） */

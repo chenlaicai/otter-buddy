@@ -29,6 +29,7 @@ import { createAgentSessionStore } from "./agent-session-store";
 import { classifyGuardInterceptReason } from "./guard-intercept-classify";
 // F20261019gses P0 影子下线：shadow-eval-recorder import 已删（观察期对照机制随转正移除）
 import { sanitizeQuotedText } from "./quoted-text-sanitizer";
+import type { TokenUsage } from "@usecases/conversation/token-usage";
 
 /**
  * F20260930gslog：拦截事件落账 context 组装（纯函数，供单测直接验证字段完整性）。
@@ -960,6 +961,7 @@ export class PiSessionFactory implements AgentGateway {
     toolContext: ToolContext,
     turnText: { text: string },
   ): Promise<AgentRunResult> {
+    const tokenUsageBefore: TokenUsage = { ...session.getSessionStats().tokens };
     const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId)!;
     const otterType = otterConfig.otterType; const otterPromptConfig = otterConfig.systemPrompt;
 
@@ -1021,7 +1023,7 @@ export class PiSessionFactory implements AgentGateway {
    *  空对象省略：undefined 与 {images:[]} 等价走纯文本路径 */
           await session.prompt(fullMessage, buildPromptOptions(options));
           checkSessionError(session, otterId, this.logger);
-          const result = buildPromptResult({ otterId, session, circuitBreaker, outputGuard, activeEntry, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, model: this.cfg.model, logger: this.logger, getModelAliasForLog: this.getModelAliasForLog.bind(this) });
+          const result = buildPromptResult({ otterId, session, circuitBreaker, outputGuard, activeEntry, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, model: this.cfg.model, logger: this.logger, getModelAliasForLog: this.getModelAliasForLog.bind(this), tokenUsageBefore });
 
           // F20260821spcm: 携带 LLM 直出文本（旁白流失检测用）
           if (turnText.text.trim()) {

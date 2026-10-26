@@ -42,6 +42,7 @@ import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-build
 // import frameworks 实现——同 buildHandoffPackage 注入先例，运行时由 bootstrap 装配）
 import { DomainError } from "@entities/errors";
 import { scanStopWords } from "@usecases/signal/stop-word-scanner";
+import { addTokenUsage } from "@usecases/conversation/token-usage";
 
 /** F20260923hlck：合成 prompt 长度→token 估算比率——9/23 生产日志实测校准。
  *  F20260924swin 起退役：预检与 trim 共享 synthesisFullBudgetChars（引擎端口注入），
@@ -482,6 +483,7 @@ export class AgentInvoker implements AgentTurnPort {
 
     // F20260814mtrc：invokeId 进 trace scope（onEvent 回调与收尾日志自动携带）
     return runWithTrace({ messageId: currentInvokeId }, async () => {
+      let previousRestartDelta: AgentTurnResult["tokenUsageDelta"];
       // F20260819rscn: 用闭包捕获自重启信号（orchestrator 不透传未知字段）
       // F20260908efmd: 扩展 modelAlias 字段——配额耗尽时应急切模型
       let pendingSelfRestart: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean } | undefined;
@@ -499,6 +501,8 @@ export class AgentInvoker implements AgentTurnPort {
       let turnResult: Awaited<ReturnType<typeof this.orchestrator.executeTurn>>;
       try {
         turnResult = await this.orchestrator.executeTurn(turnInput, driver, callbacks);
+        turnResult.tokenUsageDelta = addTokenUsage(previousRestartDelta, turnResult.tokenUsageDelta);
+        previousRestartDelta = turnResult.tokenUsageDelta;
       } finally {
         // #764：turn 结束清理 retry 观测窗（归因消费已发生在 executeTurn 内）
         this.retryContextByInvoke.delete(turnInput.invokeId);
@@ -508,8 +512,9 @@ export class AgentInvoker implements AgentTurnPort {
        * F20260818cbkr 一级熔断：orchestrator 上抛熔断信号（executeTurn 循环内不消费）→
        * restart + 写 circuit_break 事件 + 全新 invoke（新入口重新 buildDynamicContext，前情摘要随新 session.summary 注入）。
        */
+      // 同 invoke 的 attempts 由 orchestrator 累加真实增量；递归重启的各段在下方合并。
       const retried = await this.handleCircuitBreakSignal(turnResult, params, emitEvent);
-      if (retried) return retried;
+      if (retried) return this.withAdditionalDelta(retried, turnResult.tokenUsageDelta);
 
       /**
        * F20260916fst4：首哑信号消费（_circuitBreak 之后——circuit break 是系统级保护优先于场景级信号）。
@@ -527,7 +532,7 @@ export class AgentInvoker implements AgentTurnPort {
        */
       if (pendingSelfRestart) {
         const selfRestarted = await this.handleSelfRestartSignal(pendingSelfRestart, params, currentInvokeId);
-        if (selfRestarted) return selfRestarted;
+        if (selfRestarted) return this.withAdditionalDelta(selfRestarted, turnResult.tokenUsageDelta);
       }
 
       // F20260920uhuc 死链修复：水位状态写回（此前 setLastCtxTokens 零调用 →
@@ -543,8 +548,14 @@ export class AgentInvoker implements AgentTurnPort {
         messageId: turnResult.invokeId, // F20260913ctlv：兼容字段——链引擎过渡期仍读 messageId，值 = invokeId
         duration: turnResult.duration,
         tokenUsage: turnResult.tokenUsage,
+        tokenUsageDelta: turnResult.tokenUsageDelta,
       };
     });
+  }
+
+  private withAdditionalDelta(result: AgentTurnResult, delta: AgentTurnResult["tokenUsageDelta"]): AgentTurnResult {
+    result.tokenUsageDelta = addTokenUsage(delta, result.tokenUsageDelta);
+    return result;
   }
 
   /** 创建 AttemptDriver：包装 SdkInvokePort（F20260913ctlv：currentInvokeId 必传） */

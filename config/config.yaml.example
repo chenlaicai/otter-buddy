@@ -127,10 +127,15 @@ circuitBreaker:
   # 达到此阈值时发出高上下文/Token 使用量警告
   tokenWarningThreshold: 50000
   # 每条用户消息允许的发言链接力最大跳数（默认 20）
-  # 安全阀：防 agent 互相接力失控；合法多轮协作不应触达
-  # 注意：按"每条用户消息"计数，用户发新消息后重置；并行扇出不额外计跳
-  # 触顶时系统向对话注入提示消息，发言石交还用户
-  maxChainDepth: 20
+  # token 主预算（默认 1000 万）：累加本链每个真实 invoke 的四分量增量，非 session 旧账
+  maxChainTokens: 10000000
+  # 软深度只告警、healing 留痕，不因协作到 100 跳本身截断
+  chainDepthSoftLimit: 100
+  # 重复回路且无可计量 token 活动的停滞阈值（默认 20）
+  stalledCycleHopLimit: 20
+  # 最终逃生边界（默认 2000），防止计量缺失时无限占用；不是协作质量判据
+  # 触顶时系统向对话注入提示，行动权交还用户
+  maxChainDepth: 2000
   # 熔断创建的 session 年龄窗口阈值（默认 7200000，即 2 小时，单位毫秒）
   # 超过此时间视为「session 已证明健康」，后续退化重新给一次熔断机会
   # 参见 F20260831cbkw

@@ -93,7 +93,10 @@ describe("loadConfig", () => {
     expect(cfg.embedding.dimensions).toBe(1024);
     expect(cfg.embedding.modelPath).toBe("Xenova/bge-m3");
     expect(cfg.embedding.localModelPath).toBeUndefined();
-    expect(cfg.circuitBreaker.maxChainDepth).toBe(100);
+    expect(cfg.circuitBreaker.maxChainDepth).toBe(2000);
+    expect(cfg.circuitBreaker.maxChainTokens).toBe(10_000_000);
+    expect(cfg.circuitBreaker.chainDepthSoftLimit).toBe(100);
+    expect(cfg.circuitBreaker.stalledCycleHopLimit).toBe(20);
   });
 
   it("overrides maxChainDepth from yaml", () => {
@@ -102,6 +105,15 @@ describe("loadConfig", () => {
 
     const cfg = loadConfig();
     expect(cfg.circuitBreaker.maxChainDepth).toBe(3);
+  });
+
+  it("overrides chain resource budgets from yaml", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "circuitBreaker:\n  maxChainTokens: 5000000\n  chainDepthSoftLimit: 80\n  stalledCycleHopLimit: 12\n");
+    const cfg = loadConfig();
+    expect(cfg.circuitBreaker.maxChainTokens).toBe(5_000_000);
+    expect(cfg.circuitBreaker.chainDepthSoftLimit).toBe(80);
+    expect(cfg.circuitBreaker.stalledCycleHopLimit).toBe(12);
   });
 
   it("F20260829cach: cacheLongRetention 缺省 true，可显式关闭", () => {

@@ -117,6 +117,9 @@ export interface AppConfig {
     slidingWindowSize: number;
     slidingWindowRepeat: number;
     maxRepeatAfterWarning: number;
+    maxChainTokens: number;
+    chainDepthSoftLimit: number;
+    stalledCycleHopLimit: number;
     maxChainDepth: number;
     outputGuard: {
       enabled: boolean;
@@ -298,6 +301,9 @@ interface RawConfig {
     slidingWindowSize?: number;
     slidingWindowRepeat?: number;
     maxRepeatAfterWarning?: number;
+    maxChainTokens?: number;
+    chainDepthSoftLimit?: number;
+    stalledCycleHopLimit?: number;
     maxChainDepth?: number;
     outputGuard?: {
       enabled?: boolean;
@@ -499,6 +505,14 @@ function buildOutputGuardConfig(raw: RawConfig): AppConfig["circuitBreaker"]["ou
   };
 }
 
+function buildChainResourceConfig(raw: RawConfig): Pick<AppConfig["circuitBreaker"], "maxChainTokens" | "chainDepthSoftLimit" | "stalledCycleHopLimit"> {
+  return {
+    maxChainTokens: d(raw.circuitBreaker?.maxChainTokens, 10_000_000),
+    chainDepthSoftLimit: d(raw.circuitBreaker?.chainDepthSoftLimit, 100),
+    stalledCycleHopLimit: d(raw.circuitBreaker?.stalledCycleHopLimit, 20),
+  };
+}
+
 function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] {
   return {
     maxConsecutiveIdentical: d(raw.circuitBreaker?.maxConsecutiveIdentical, 5),
@@ -506,7 +520,8 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
     slidingWindowSize: d(raw.circuitBreaker?.slidingWindowSize, 6),
     slidingWindowRepeat: d(raw.circuitBreaker?.slidingWindowRepeat, 3),
     maxRepeatAfterWarning: d(raw.circuitBreaker?.maxRepeatAfterWarning, 5),
-    maxChainDepth: d(raw.circuitBreaker?.maxChainDepth, 100),
+    ...buildChainResourceConfig(raw),
+    maxChainDepth: d(raw.circuitBreaker?.maxChainDepth, 2_000),
     outputGuard: buildOutputGuardConfig(raw),
     streamingTimeoutMs: d(raw.circuitBreaker?.streamingTimeoutMs, 120000),
     firstByteTimeoutMs: d(raw.circuitBreaker?.firstByteTimeoutMs, 300000),
