@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * F20261023emct: embedding 幽灵死信一次性清理脚本。
+ * F20261026emct: embedding 幽灵死信一次性清理脚本。
  *
  * 清理对象（两类，均属「claim 永远空转的孤儿任务」）：
  *  1. last_error LIKE '%entry deleted%' 的 pending/dead 任务（2026-10-23 实测 ~1646 条）

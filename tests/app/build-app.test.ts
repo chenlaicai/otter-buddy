@@ -83,12 +83,12 @@ describe("buildApp 组装根启动", () => {
     expect(built.embeddingService.available).toBe(false);
   });
 
-  // F20261023emct delta（建议 2）：C 项启动解耦的行为回归防护——buildApp 返回后
+  // F20261026emct delta（建议 2）：C 项启动解耦的行为回归防护——buildApp 返回后
   // postListenInit 之前：retryWorker 尚未创建（ref.current 为 null，listen 先行）；
   // postListenInit 执行后：worker 就位（stub worker 报错 → vec 禁用 → null 是合法态，
   // 但「null 且 postListenInit 未跑」与「postListenInit 已跑」必须可区分——断言不炸
   // + 事后 health 仍可用）。主行为：postListenInit 不抛（内部 catch 落日志）。
-  it("postListenInit 幂等可调：listen 先行语义下不炸、失败不炸进程（F20261023emct）", async () => {
+  it("postListenInit 幂等可调：listen 先行语义下不炸、失败不炸进程（F20261026emct）", async () => {
     await expect(built.postListenInit()).resolves.toBeUndefined();
     // 二次调用也不炸（幂等容忍——main.ts 只调一次，但防御重复 fire）
     await expect(built.postListenInit()).resolves.toBeUndefined();

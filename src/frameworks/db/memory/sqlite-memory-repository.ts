@@ -664,7 +664,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     }
     try {
       // F20260812mrcq Part 1：默认排除 status='dead' 的 dead-letter，防报告噪音。
-      // F20261023emct：排除 entry 已被删除的任务（JOIN 不到 memory_entries）——
+      // F20261026emct：排除 entry 已被删除的任务（JOIN 不到 memory_entries）——
       // 这类任务的 entry 永远不会回来（cascadeDeleteSatellites 已删 entry 行），
       // 迁移入队只会产生 claim 空转的幽灵任务（2026-10-23 实锤 1646 条
       // last_error='entry deleted'）。真缺 vec 的（entry 存在）才值得迁移。
@@ -732,12 +732,12 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     enqueueRetry(this.db, entryId, error);
   }
 
-  /** F20261023emct：一次性出清幽灵死信（清理脚本专用，运行时不调） */
+  /** F20261026emct：一次性出清幽灵死信（清理脚本专用，运行时不调） */
   async purgeGhostTasks(): Promise<number> {
     return purgeGhostTasks(this.db);
   }
 
-  /** F20261023emct：统计幽灵死信规模（dry-run 报告用） */
+  /** F20261026emct：统计幽灵死信规模（dry-run 报告用） */
   async countGhostTasks(): Promise<number> {
     return countGhostTasks(this.db);
   }

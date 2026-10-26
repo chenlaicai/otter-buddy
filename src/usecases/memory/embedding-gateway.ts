@@ -66,7 +66,7 @@ export interface EmbedCallOptions {
 }
 
 /** F20261020slvg：embedBatch 调用选项（语义同 EmbedCallOptions）。
- *  F20261023emct delta 复审：salvage 收「整批对齐」语义修正为携带 startIndex——
+ *  F20261026emct delta 复审：salvage 收「整批对齐」语义修正为携带 startIndex——
  *  分片闸门把巨批拆成子批后，子批晚到结果只携带该子批向量，startIndex 告知
  *  这批向量对应整批的第几条起（非分批路径不传 = 0）。调用方必须按 startIndex
  *  对位写入（见 store-memory fireAndForgetEmbedBatch），否则分片场景错位污染。 */

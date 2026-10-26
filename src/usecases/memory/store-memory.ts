@@ -257,7 +257,7 @@ export class StoreMemory {
       // 消灭唤醒后到准入之间的 TOCTOU 竞态）；salvage 同 fireAndForgetEmbed 双轨语义
       embedBatch(texts, {
         waitSlot: true,
-        // F20261023emct delta 处置（严重 1）：startIndex 分片场景下指向整批第 startIndex 条起；
+        // F20261026emct delta 处置（严重 1）：startIndex 分片场景下指向整批第 startIndex 条起；
         // 非分批路径 service 不传（undefined = 0）。按 startIndex 对位写入，杜绝跨子批错位污染
         salvage: (embeddings, startIndex) => {
           void (async () => {

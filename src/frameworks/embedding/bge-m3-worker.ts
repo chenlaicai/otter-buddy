@@ -44,7 +44,7 @@ interface EmbedModelMeta {
   dim: number;
 }
 
-// F20261023emct：本地 EmbedResponse 类型已随 post() 迁至 embedding-worker-ipc.ts
+// F20261026emct：本地 EmbedResponse 类型已随 post() 迁至 embedding-worker-ipc.ts
 // （其内部经 embedding-protocol 导入同一形状）
 
 type Extractor = (text: string | string[], options?: unknown) => Promise<{ data: Float32Array; dims: number[] }>;

@@ -1,5 +1,5 @@
 ---
-id: F20261023emct
+id: F20261026emct
 title: embedding 写路径治本——分片闸门全局不变量 + 垃圾出清 + 启动解耦 + worker IPC 兜底
 summary: '2026-10-23 巨批雪崩是 embedding 写路径第 6 次复发（前 6 轮修复逐条堵具体路径，缺「write lane 在飞文本总量有硬上界」的全局不变量）。本特性四件套治本：A. embedBatch 入口分片闸门（单批 token 预算 8192 硬上界，超限拆子批串行，所有生产者经唯一收口点自动受控）；B. 垃圾出清（enqueueRetry 前置校验断绝 1646 条 entry-deleted 幽灵任务产生源 + scanDarkEntries 迁移收窄 + 一次性清理脚本出清存量）；C. 启动解耦（document sync / 暗化迁移 / retry worker 延后到 HTTP listen 后异步执行，health 30s 无响应触发重启死循环不再可能）；D. worker IPC EPIPE 兜底（process.send 抛错时受控 exit(1) 而非 uncaught 崩溃，补 F20261015kill 隔离没盖住的 send 路径）。'
 change_type: fix
@@ -88,13 +88,13 @@ related_issues: []
 | 分片纯函数与包装器 16 例 | tests/frameworks/embedding/embed-batch-sharding.test.ts | 保序不变量 / 预算边界（恰不拆、超 1 拆）/ 单条豁免 / 异构体量 / 10-23 雪崩形态（49 条中文 6k chars 巨批拆 1 条/批，CJK 1:1 口径）/ budget<1 防御 / env 解析（非法回落）/ **wrapOptsForShard 偏移注入 4 例（delta）** |
 | service 层分片行为 2 例 | 同上 | 真 fork mock worker：超预算拆多次 embed-batch 请求 + 结果保序拼接调用方无感；空数组短路 |
 | IPC 防护 3 例 | tests/frameworks/embedding/embedding-worker-ipc.test.ts | send 正常不退出 / 抛 EPIPE → exit(1) / 返回 false（背压）不退出 |
-| 队列垃圾出清 9 例 | tests/frameworks/db/memory/embedding-task-gate.test.ts | enqueueRetry 前置校验（不存在/空白/空串 no-op，正常入队，ON CONFLICT 复活保留）/ purge+count 真定义口径（delta：entry NOT EXISTS 全删含巨批残骸）/ resetPendingAttempts 只赦 pending |
+| 队列垃圾出清 8 例 | tests/frameworks/db/memory/embedding-task-gate.test.ts | enqueueRetry 前置校验（不存在/空白/空串 no-op，正常入队，ON CONFLICT 复活保留）/ purge+count 真定义口径（delta：entry NOT EXISTS 全删含巨批残骸）/ resetPendingAttempts 只赦 pending |
 | 清理脚本 2 例 | tests/scripts/cleanup-embedding-ghosts.test.ts | dry-run 只报告（含巨批残骸形态断言）/ --apply 删孤儿（entry 存活保留）+ 自动备份 |
 | 启动解耦 1 例（delta） | tests/app/build-app.test.ts | postListenInit 幂等可调不炸 / health 先行不变量 / ref 延迟绑定机制 |
 
 受影响面回归：tests/frameworks/embedding + tests/frameworks/db/memory + tests/usecases/memory + tests/app + 新增脚本测试 = **302/302 全绿**；tsc --noEmit 零错；eslint 零错。
 
-## 对抗审视与 delta 处置（F20261023emct 审视循环）
+## 对抗审视与 delta 处置（F20261026emct 审视循环）
 
 首审（检视獭-emct，异模型）：结论「需要修改」，2 严重 + 6 建议。处置结果：
 
@@ -113,7 +113,7 @@ related_issues: []
 
 ## 验证
 
-- [x] 单测全绿（302/302，含新增 35 例与 delta 复审修正）
+- [x] 单测全绿（302/302，含新增 32 例与 delta 复审修正）
 - [x] tsc / eslint 干净（三处 eslint-disable 均带理由：embedding-service.ts 文件级 max-lines + embed 方法级、app.ts 文件级）
 - [x] 保序不变量在纯函数与 service 层双重断言
 - [ ] 清理脚本由搭档在主仓 data/ 人工执行：`node scripts/cleanup-embedding-ghosts.mjs`（先 dry-run 看报告，确认后 `--apply`）

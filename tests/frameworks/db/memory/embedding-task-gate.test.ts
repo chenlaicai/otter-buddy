@@ -1,5 +1,5 @@
 /**
- * F20261023emct：embedding 队列垃圾出清单测。
+ * F20261026emct：embedding 队列垃圾出清单测。
  *
  * 覆盖：
  * - enqueueRetry 前置校验：entry 不存在 / content 空白 → no-op 不入队；
@@ -48,7 +48,7 @@ function taskRow(entryId: string) {
     | undefined;
 }
 
-describe("enqueueRetry 前置校验（F20261023emct 幽灵任务断源）", () => {
+describe("enqueueRetry 前置校验（F20261026emct 幽灵任务断源）", () => {
   it("entry 不存在 → no-op（此前会插幽灵任务行，claim 永远 'entry deleted' 空转）", () => {
     enqueueRetry(db, "ghost-id", new Error("any error"));
     expect(taskRow("ghost-id")).toBeUndefined();
@@ -84,7 +84,7 @@ describe("enqueueRetry 前置校验（F20261023emct 幽灵任务断源）", () =
   });
 });
 
-describe("purgeGhostTasks / countGhostTasks（F20261023emct 存量出清，delta 口径修正：真定义 entry NOT EXISTS）", () => {
+describe("purgeGhostTasks / countGhostTasks（F20261026emct 存量出清，delta 口径修正：真定义 entry NOT EXISTS）", () => {
   it("entry 已删的任务全清（无论 last_error 形态）；entry 存活的任务不动", () => {
     // 造 3 条孤儿（entry 不存在：2 幽灵 + 1 超时残骸，delta 实锤形态：batch timeout 巨批）
     // + 1 条正常 pending（entry 存活——normal-1 必须有 entry 行，否则它自己就是孤儿）

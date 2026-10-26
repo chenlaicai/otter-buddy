@@ -1,5 +1,5 @@
 /**
- * F20261023emct：embedding worker 的 IPC 发送防护。
+ * F20261026emct：embedding worker 的 IPC 发送防护。
  *
  * 背景：bge-m3-worker.ts 的 post() 直接 process.send?.(msg)，无 try/catch——
  * 父进程死亡/disconnect 与最后一次 send 竞态时 send 同步抛 EPIPE，

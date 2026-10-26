@@ -12,7 +12,7 @@ import type Database from "better-sqlite3";
  *   - status 强制 'pending'（dead 也可被 enqueueRetry 复活）
  *   - next_retry_at = now（立即可重试）
  *
- * F20261023emct：入队前置校验——entry 已不存在或 content 为空时直接 no-op。
+ * F20261026emct：入队前置校验——entry 已不存在或 content 为空时直接 no-op。
  * 2026-10-23 实锤：last_error='entry deleted' 的幽灵任务 1646 条——replaceEntriesBySource
  * 事务里新 chunk 已入库，但 fire-and-forget 的 embed 失败回除时新 chunk 已被下一轮 replace
  * 删除，enqueueRetry 给已删 entry 插入任务行；这类任务 claim 时 JOIN 不到 content，永远
@@ -109,7 +109,7 @@ export function markTaskAttemptFailed(db: Database.Database, entryId: string, er
  * 遇到一次硬错误（或旧版瞬态错误）就成批 dead-letter。只在启动迁移调一次。
  * 返回重置的行数。
  *
- * F20261023emct：语义锁定——reset 只赦免 pending（活锁受害者），dead 是独立
+ * F20261026emct：语义锁定——reset 只赦免 pending（活锁受害者），dead 是独立
  * 判定的终态（真不可嵌入/entry 已删），不赦免（SQL 本就如此，注释显式锁定，
  * 防未来重构误改 WHERE 加上 dead）。2026-10-23 实锤：dead 不收敛越滚越大
  * （686 条）正是启动迁移 includeDead=true 复活 dead + 不清理幽灵造成的。
@@ -124,7 +124,7 @@ export function resetPendingAttempts(db: Database.Database): number {
 }
 
 /**
- * F20261023emct：一次性出清孤儿任务（delta 复审口径修正）——entry 已被删除的
+ * F20261026emct：一次性出清孤儿任务（delta 复审口径修正）——entry 已被删除的
  * 任务（真定义：entry_id NOT EXISTS，无论 last_error 形态）。首版只按
  * last_error LIKE '%entry deleted%' 代理口径删，检视獭 DB 实测两类差额 129 条
  * （含 98 条 10-23 巨批超时残骸 'batch timeout (49 texts)'）——代理口径外的孤儿
@@ -141,7 +141,7 @@ export function purgeGhostTasks(db: Database.Database): number {
 }
 
 /**
- * F20261023emct：统计孤儿任务规模（真定义口径，dry-run 报告用，不删除）。
+ * F20261026emct：统计孤儿任务规模（真定义口径，dry-run 报告用，不删除）。
  */
 export function countGhostTasks(db: Database.Database): number {
   const row = db.prepare(`

@@ -1,5 +1,5 @@
 /**
- * F20261023emct：embedBatch 分片闸门单测。
+ * F20261026emct：embedBatch 分片闸门单测。
  *
  * 两层覆盖：
  * 1. 纯函数 splitBatchByTokenBudget：保序不变量、预算边界、单条超预算豁免、空输入

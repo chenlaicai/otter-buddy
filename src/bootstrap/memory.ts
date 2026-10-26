@@ -181,7 +181,7 @@ export async function createAndStartRetryWorker(
   // F20260812mrcq Part 1 审视 M8：存量暗化条目迁移
   // 扫描已存在的暗化条目，批量 enqueueRetry 入队。
   //
-  // F20261023emct 两处收窄：
+  // F20261026emct 两处收窄：
   // 1) includeDead=true → false：dead 是独立判定的终态（真不可嵌入/entry 已删），
   //    复活它只会把死信重新灌回队列越滚越大（2026-10-23 实锤 686 条 dead 不收敛
   //    正是启动迁移的一部分）。真缺 vec 的 pending 语义条目才迁移。存量 dead

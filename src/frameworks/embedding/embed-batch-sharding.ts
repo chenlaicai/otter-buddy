@@ -1,5 +1,5 @@
 /**
- * F20261023emct：embedBatch 分片闸门（纯函数，可单测）。
+ * F20261026emct：embedBatch 分片闸门（纯函数，可单测）。
  *
  * ── 治本纪律不变量（第 7 次修复与前 6 次的分水岭）────────────────────────
  * write lane 任意时刻在飞 embedding 文本总量 ≤ 硬上界（token 预算）。
@@ -26,7 +26,7 @@
  *  经验值）。与 worker 端无耦合——这是在飞文本量的上界，不是模型窗口。 */
 export const DEFAULT_BATCH_TOKEN_BUDGET = 8192;
 
-/** chars → tokens 粗估（CJK 敏感，F20261023emct delta 复审修正）：
+/** chars → tokens 粗估（CJK 敏感，F20261026emct delta 复审修正）：
  *  CJK（含全角/假名/注音/CJK 标点）~1 char/token，其余（拉丁/数字/ASCII）~4 chars/token。
  *  口径对齐 store-memory.ts EMBED_MAX_CHARS=6000 注释的 token 模型（6000 chars ≈ 8192 tokens 的 75%，
  *  即中文场景 ~1 char/token）——首版 chars/2 对中文低估约 2×（拆晚侧，危险方向），已修。
@@ -40,7 +40,7 @@ export function estimateTokens(text: string): number {
 }
 
 /**
- * F20261023emct delta 处置（严重发现 1）：为分片子批包装调用方 opts。
+ * F20261026emct delta 处置（严重发现 1）：为分片子批包装调用方 opts。
  *
  * 分片×salvage 契约错位：调用方 salvage 闭包假定 embeddings 与整批 items 对齐，
  * 但子批晚到结果只携带该子批的向量——offset>0 的子批超时晚到时，若原样透传，

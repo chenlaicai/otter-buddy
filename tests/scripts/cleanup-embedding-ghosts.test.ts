@@ -1,5 +1,5 @@
 /**
- * F20261023emct：embedding 幽灵死信清理脚本集成测试（对齐
+ * F20261026emct：embedding 幽灵死信清理脚本集成测试（对齐
  * tests/scripts/cleanup-memory-pollution.test.ts 模式——execFile 真实执行）。
  *
  * 在真实临时 DB 上注入模拟数据，验证：
