@@ -39,6 +39,8 @@ import {
   markTaskDone,
   markTaskAttemptFailed,
   resetPendingAttempts,
+  purgeGhostTasks,
+  countGhostTasks,
 } from "./embedding-task-queue";
 
 import { escapeFtsQuery } from "../fts-utils";
@@ -661,11 +663,21 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
       return { entries: [], total: 0, vecDisabled: true };
     }
     try {
-      // F20260812mrcq Part 1：默认排除 status='dead' 的 dead-letter，防报告噪音
+      // F20260812mrcq Part 1：默认排除 status='dead' 的 dead-letter，防报告噪音。
+      // F20261026emct：排除 entry 已被删除的任务（JOIN 不到 memory_entries）——
+      // 这类任务的 entry 永远不会回来（cascadeDeleteSatellites 已删 entry 行），
+      // 迁移入队只会产生 claim 空转的幽灵任务（2026-10-23 实锤 1646 条
+      // last_error='entry deleted'）。真缺 vec 的（entry 存在）才值得迁移。
       const deadFilter = includeDead ? "" : `
         AND NOT EXISTS (
           SELECT 1 FROM embedding_tasks et
           WHERE et.entry_id = me.id AND et.status = 'dead'
+        )
+      `;
+      const ghostFilter = `
+        AND NOT EXISTS (
+          SELECT 1 FROM embedding_tasks et
+          WHERE et.entry_id = me.id AND et.last_error LIKE '%entry deleted%'
         )
       `;
       const rows = this.db.prepare(`
@@ -675,6 +687,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
           SELECT 1 FROM memory_vec mv WHERE mv.memory_entry_id = me.id
         )
         ${deadFilter}
+        ${ghostFilter}
         ORDER BY me.created_at DESC
         LIMIT 1000
       `).all() as Array<{ id: string; content_type: string; source_id: string; created_at: string }>;
@@ -717,6 +730,16 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   /** F20260812mrcq Part 1：embedding 失败入队重试（F20260814qswp 拆至 embedding-task-queue） */
   async enqueueRetry(entryId: string, error: unknown): Promise<void> {
     enqueueRetry(this.db, entryId, error);
+  }
+
+  /** F20261026emct：一次性出清幽灵死信（清理脚本专用，运行时不调） */
+  async purgeGhostTasks(): Promise<number> {
+    return purgeGhostTasks(this.db);
+  }
+
+  /** F20261026emct：统计幽灵死信规模（dry-run 报告用） */
+  async countGhostTasks(): Promise<number> {
+    return countGhostTasks(this.db);
   }
 
   /** F20260812mrcq Part 1：原子认领 pending 任务（F20260814qswp 拆至 embedding-task-queue） */

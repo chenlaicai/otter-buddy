@@ -60,7 +60,11 @@ const allowDdlFiles = [];
 // #1390 存量库形态冒烟：需手写 DDL 回退 healing_events 到 #1365 前形态（删掉
 // bound_issue/bound_at 重建 14 列旧表），被测对象就是「旧 schema → 新 schema」
 // 的补列迁移本身，与 migration.test.ts 同类场景
-const MAX_ALLOW_DDL_FILES = 11;
+// 11→13（F20261026emct）：tests/frameworks/db/memory/embedding-task-gate.test.ts +
+// tests/scripts/cleanup-embedding-ghosts.test.ts——被测对象是 embedding_tasks
+// 表的队列 SQL 语义（enqueueRetry 前置校验 / 幽灵死信 purge/count / 清理脚本
+// dry-run/--apply），与 cleanup-memory-pollution.test.ts 同类场景（脚本对象就是表本身）
+const MAX_ALLOW_DDL_FILES = 13;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);
