@@ -2,7 +2,7 @@
 id: F20261026onlc
 title: embedding 幽灵清理脚本在线模式——SQLite 在线备份（含 WAL）+ 并发安全论证
 summary: 'cleanup-embedding-ghosts.mjs 新增 --online（配合 --apply）：不停机清理幽灵任务。备份从 copyFileSync 换为 better-sqlite3 db.backup()（SQLite 在线备份 API，含 WAL 已提交数据——cp 主 DB 在线会丢 WAL 内容），busy_timeout 15s 等待主服务写锁。并发安全经读码论证：markTaskDone=DELETE / markTaskAttemptFailed=UPDATE，被删任务的运行中回写命中 0 行不复活；enqueueRetry 前置校验与删除条件互斥不边删边插；NOT EXISTS 保证有效任务不受影响。2026-10-26 生产在线实跑：删 1880 条幽灵、1349 条有效任务原样、备份 integrity_check ok、服务零重启。'
-change_type: fix
+change_type: feature
 capability_test: "n/a: 运维脚本（A 类），无 LLM 参与行为"
 modules: [memory, scripts]
 created_at: 2026-10-26
@@ -38,6 +38,14 @@ copyFileSync 只复制主 DB，在线运行会丢 WAL 中已提交数据；并�
    ——**不会边删边插**新幽灵
 3. claim 后行被删 → content='' → entry-deleted 分支 UPDATE 0 行，安全
 4. NOT EXISTS 删除条件保证 entry 存活的有效任务绝不在范围内
+
+隐含前提（delta 审视建议 3 落档，未来重构不得静默破坏）：
+5. enqueueRetry 的 SELECT→INSERT 为 better-sqlite3 同步调用、无事件循环让步；
+   若改为异步 await 间隙须重审②
+6. 单写进程：主服务 + 清理脚本两个连接经 SQLite 写锁互斥；多主服务实例同库写
+   不在本论证范围
+7. replaceEntriesBySource 删 entry→重建在单事务内（runInTx），快照隔离保证其他
+   连接看不到「entry 暂不存在」中间态；若拆出事务须重审④
 
 ## 验证
 

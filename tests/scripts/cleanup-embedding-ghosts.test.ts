@@ -113,6 +113,11 @@ describe("cleanup-embedding-ghosts.mjs", () => {
       INSERT INTO embedding_tasks (entry_id, next_retry_at, status, attempts, created_at, last_error)
       VALUES ('ghost-1', datetime('now'), 'pending', 1, datetime('now'), 'entry deleted (content join failed)')
     `).run();
+    // 有效任务（entry 存在）：在线删除必须保留（delta 建议 2：保留语义要有被测对象）
+    online.prepare(`
+      INSERT INTO embedding_tasks (entry_id, next_retry_at, status, attempts, created_at, last_error)
+      VALUES ('e1', datetime('now'), 'pending', 0, datetime('now'), NULL)
+    `).run();
     online.pragma("wal_checkpoint(TRUNCATE)");
     // checkpoint 后的新写入只进 WAL
     online.prepare(`
@@ -121,6 +126,15 @@ describe("cleanup-embedding-ghosts.mjs", () => {
     `).run();
     const walSize = fs.statSync(`${onlineDbPath}-wal`).size;
     expect(walSize).toBeGreaterThan(0);
+
+    // 负对照（delta 建议 1）：此刻 cp 主 DB 必须丢 e2——否则「backup 含 e2」
+    // 不证明在线备份的必要性（auto-checkpoint 可能已把 WAL 冲回主库的反例口封死）
+    const cpPath = path.join(tmpDir, "online-cp-copy.db");
+    fs.copyFileSync(onlineDbPath, cpPath);
+    const cpDb = new Database(cpPath, { readonly: true });
+    const cpIds = (cpDb.prepare("SELECT id FROM memory_entries ORDER BY id").all() as Array<{ id: string }>).map((r) => r.id);
+    cpDb.close();
+    expect(cpIds).toEqual(["e1"]);
 
     try {
       // online 连接保持打开 = 模拟主服务在线
@@ -136,8 +150,9 @@ describe("cleanup-embedding-ghosts.mjs", () => {
       bak.close();
       expect(bakIds).toEqual(["e1", "e2-wal-only"]);
 
-      // 原库：幽灵删除、有效任务不受影响、WAL-only 条目仍在
-      expect((online.prepare("SELECT COUNT(*) AS n FROM embedding_tasks").get() as { n: number }).n).toBe(0);
+      // 原库：幽灵删除、有效任务保留（e1 的 pending 行）、WAL-only 条目仍在
+      const remaining = (online.prepare("SELECT entry_id FROM embedding_tasks").all() as Array<{ entry_id: string }>).map((r) => r.entry_id);
+      expect(remaining).toEqual(["e1"]);
       expect((online.prepare("SELECT COUNT(*) AS n FROM memory_entries").get() as { n: number }).n).toBe(2);
     } finally {
       online.close();

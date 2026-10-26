@@ -25,6 +25,14 @@
  *       命中 0 行，不复活；② enqueueRetry 前置校验 entry 不存在即 no-op，与删除
  *       条件互斥，不会边删边插；③ claim 后行被删则 content=''，entry-deleted 分支
  *       UPDATE 0 行，安全；④ NOT EXISTS 删除条件保证 entry 存活的有效任务不受影响。
+ *    隐含前提（delta 审视建议 3，未来重构不得静默破坏）：
+ *    ⑤ check→insert 之间无事件循环让步：enqueueRetry 的 SELECT→INSERT 是
+ *       better-sqlite3 同步调用（queue:23-35 无 await），与本脚本同进程外
+ *       互斥由 SQLite 写锁保证；若改为异步 await 间隙，须重审②。
+ *    ⑥ 单写进程：主服务 + 本脚本两个连接经 SQLite 写锁互斥；多主服务实例
+ *       同库写不在本论证范围。
+ *    ⑦ replaceEntriesBySource 删 entry→重建在单事务内（repository runInTx），
+ *       其他连接快照隔离，不会看到「entry 暂不存在」的中间态；若拆出事务须重审④。
  *    缺省（无 --online）保持停机模式语义：copyFileSync 备份足够且更简单。
  *  - 只删 embedding_tasks 行——不动 memory_entries / vec / fts 任何数据
  *  - 入库中任务（pending 且 last_error IS NULL）不在清理范围：正常在途任务
