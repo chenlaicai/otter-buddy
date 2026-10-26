@@ -42,7 +42,7 @@ issue #1623 描述 2026-10-25 PR #1611 等 CI 的三重困境。本次开工先�
 | PR#1634 全绿 | 0 | 0 | 就绪 |
 | PR#1639 含 fail check | **1** | **0（假绿）** | 确认失败，立即终止 |
 | PR#1639 含 pending | 8 | 0 | 未就绪，重试 |
-| PR#99999 不存在 | 1（stderr GraphQL 错误） | — | 确认失败，立即终止 |
+| PR#99999 不存在 | 1（stderr GraphQL 错误） | — | 探针错误，预算内重试；超时报错，不误报 CI 业务失败 |
 | PR#1613 已合入 | 0（最终态全绿） | — | 就绪 |
 
 修复前 until 行为（F20261022wtpr 实现）：非零一律重试到预算耗尽——PR#1639 场景 exit 1 也会盲等满 300s。
@@ -67,9 +67,9 @@ issue #1623 描述 2026-10-25 PR #1611 等 CI 的三重困境。本次开工先�
 终态失败判定四条件（全部满足才 fail-fast）：
 
 1. argv[0..2] = `gh pr checks`（**v3**：子命令限定——`gh pr view` 等其他子命令的 exit 1 不适用，Review-1640 delta 复现误入风险）
-2. exitCode === 1
+2. exitCode === 1（裸 gh 的 CI 失败码；仅与另外三项同时成立时分类，非通用 exit 1 fail-fast）
 3. stderr 为空（gh transport 错误/GraphQL 错误都在 stderr；业务输出只在 stdout）
-4. stdout 含 bucket 表格行——列分隔为 **TAB**（**v3**：v2 用任意空白拆列，check 名含空格时（如 `Build Web Frontend<TAB>fail`）名字中的词被误当 bucket，合法含空格 check 名的失败不再 fail-fast，Review-1640 独立复现漏判；gh 表格列间是制表符，实测 #1639/#1640）
+4. stdout 含 bucket 表格行——列分隔为 **TAB**（**v3**：v2 用任意空白拆列，check 名含空格时（如 `Build Web Frontend<TAB>fail`）名字中的词被误当 bucket，导致合法含空格 check 名的失败无法 fail-fast，Review-1640 独立复现漏判；gh 表格列间是制表符，实测 #1639/#1640）
 
 **v3 失败现场透传**：终态报文附带 stdout 表格（失败 check 名 + job 链接）。v2 只透传 formatUntilFailure（stderr 优先，业务失败 stderr 空时只剩 `Command failed`），拏不到处置线索——违背本特性「拿到失败现场」承诺，已修。
 
@@ -116,6 +116,12 @@ describe「F20261026wfpb（#1623 返修）」v2+v3 用例：
 
 证据存 workspace glm-1623/（含 gh-transport.txt、c1639.txt、none-check.txt）。
 
+### v3 delta 后交付面勘误（2026-10-26，大獭元数据收尾）
+
+- Review-1640 review `5648153046` 确认代码两项已闭合、无新代码发现，剩余为交付说明与 CI 声明。
+- 本文 PR#99999 行曾沿用 v1「确认失败、立即终止」，与现行 stderr 分类及真实 GraphQL 重试结果矛盾，已改为「预算内重试、超时报错」；四项判定说明补明裸退出码不构成通用失败分类。
+- PR 测试声明只接受「收紧/放宽」枚举；描述性「语义校正 + 反例保护，无放松」无法过机械闸，按实际保护意图登记为「收紧」。此项为文档与 PR 元数据修订，不改动运行时代码。
+
 ### 全量回归
 
 - vitest tests/interface-adapters/ + tests/frameworks/agent/：99 文件（v3 后单测 29 项，详见 PR CI）
@@ -130,7 +136,7 @@ describe「F20261026wfpb（#1623 返修）」v2+v3 用例：
 
 - v2 返修轮：fail-fast 用例重写为 stderr 分类语义（v1 的「非 gh exit 1 也 fail-fast」用例改为反例保护用例）；mock 补 stdout/stderr 字段（node promisify(execFile) 失败路径真实携带）
 - v3 delta 轮：新增带空格 check 名 TAB 分列用例、非 pr checks 子命令不误判用例；真实失败用例补「报文含失败表格与 job 链接」断言
-- 首轮：既有用例 mock 退出码 1→8（pending 重试至成功）、1→2（持续非零重试至超时）——按 gh 真实三态语义校正 mock 数值，用例意图与断言不变。方向：**语义校正，非收紧或放松**
+- 首轮：既有用例 mock 退出码 1→8（pending 重试至成功）、1→2（持续非零重试至超时）——按 gh 真实三态语义校正 mock 数值，用例意图与断言不变。方向：**收紧**（CI 测试声明的枚举口径；语义层面是反例校正与保护，未放松既有断言）
 - 描述/文案断言同步更新（删旧 --json 指引断言，补三态锚点）
 
 ## 产出
