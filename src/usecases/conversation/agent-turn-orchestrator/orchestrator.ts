@@ -83,7 +83,11 @@ export class AgentTurnOrchestrator {
         err = e;
         // #543：err 路径保留 _modelAlias——rate_limit 落账需要模型标识（与 toolCallCount 同模式提取）
         const errMeta = e as ErrorWithToolCallCount;
-        result = { text: '', ...(errMeta._modelAlias && { modelAlias: errMeta._modelAlias }) };
+        result = {
+          text: '',
+          ...(errMeta._modelAlias && { modelAlias: errMeta._modelAlias }),
+          ...(errMeta._tokenUsageDelta && { tokenUsageDelta: errMeta._tokenUsageDelta }),
+        };
         toolCallCount = errMeta._toolCallCount ?? driver.getToolCallCount(currentInput.otterId, currentInput.invokeId);
       } finally {
         // 清理当前 attempt 的去重键，防止内存泄漏

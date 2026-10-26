@@ -413,7 +413,8 @@ export class MessageController {
     const names = (await Promise.all(pendingTargets.map(async id => {
       try { return (await this.queryOtter.getById(id))?.name ?? id; } catch { return id; }
     }))).join('、');
-    const healing = stop.healingEventId ? `healing 事件 ${stop.healingEventId} 已记录。` : "healing 台账未启用。";
+    const healing = stop.healingEventId ? `healing 事件 ${stop.healingEventId} 已记录。`
+      : stop.healingStatus === "write_failed" ? "healing 写入失败，请查日志。" : "healing 台账未启用。";
     const reason = { token_budget: "token 资源预算已用尽", stalled_cycle: "重复回路持续无可计量活动", hard_depth: "达到最终深度逃生上限" }[stop.reason];
     // F20260913ctlv 彻底切换：链深通知只写 entries（system entry）
     const { entry: sysEntry } = await this.sendEntry!.createSystemEntry({

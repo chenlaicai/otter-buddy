@@ -76,7 +76,7 @@ modules: [src/usecases/conversation/dispatch-chain-engine.ts, src/frameworks/con
 - `token-usage.ts` 提供四分量纯函数：session 前后差分、同 invoke 各 attempt/递归重启增量合并、预算总量计算。快照下降表示新会话/重置，取当前值，绝不产生负消耗。
 - `ChainResourceBudget` 是单链临时对象，不引入 DB 生命周期。收到每个 fulfilled target 的 `tokenUsageDelta`；rejected target 不计入。
 - 回路记录真实行级 tsp 的有向交棒边；原始窗口最多 16 条，用于发现最多 8 边的重复后缀；另保留 activeCycle 与相位，避免截窗破坏正在运行的循环。拓扑重复只观测。
-- `ChainStop`：`{reason:'token_budget'|'stalled_cycle'|'hard_depth', depth, totalTokens, pendingTargets, detail?, healingEventId?}`；`callbacks.onChainStopped(stop)` 替代只知 depth 的回调。
+- `ChainStop`：`{reason:'token_budget'|'stalled_cycle'|'hard_depth', depth, totalTokens, pendingTargets, detail?, healingEventId?, healingStatus?:'unavailable'|'write_failed'}`；`callbacks.onChainStopped(stop)` 替代只知 depth 的回调。
 
 ### 循环顺序
 
@@ -109,7 +109,10 @@ modules: [src/usecases/conversation/dispatch-chain-engine.ts, src/frameworks/con
 
 - 基线在 Pi session 每次 SDK invoke 前捕获，不把本链开始前的 session 旧账算入新链；同 invoke 内自动重试和熔断自重启逐段累加，不取末次覆盖前段。
 - `AgentInvoker` 是 usage 聚合的统一返回边界，避免嵌套 SDK/turn 多层重复计账；既有 `tokenUsage` 快照仍按原口径写 invoke 行。
-- fan-out 聚合各 fulfilled target 的真实增量；同獭同 hop 的去重仍由现有 nextTargets Set 保持。
+- fan-out 先对所有 fulfilled target 记账，再处理路由 abort，已完成并发目标不因提前终链漏计；任一 fulfilled target 缺 telemetry 时，本 hop 不得推进停滞。rejected target 不计账，也不纳入 telemetry 完整性。同獭同 hop 的去重仍由现有 nextTargets Set 保持。
+- 已消耗后 SDK 抛错，由异常携带 `_tokenUsageDelta`；orchestrator 将 rejected attempt 与后续重试各合并一次。
+- 新增链资源阈值在配置加载时必须为有限正整数，非法值 fail-closed；不允许 0 被资源层静默放大成默认值。
+- healing 写入成功才提供 event ID；写入失败与未配置分别提示，不伪报台账状态。
 - 没有 usage 时无法用拓扑判断业务进展；不将其伪报为停滞，最终由 hard depth 兜底。显式零增量回路不代表零模型活动，只表示所取 usage 窗口没有可计量资源进展。
 
 ## 不兼容更新

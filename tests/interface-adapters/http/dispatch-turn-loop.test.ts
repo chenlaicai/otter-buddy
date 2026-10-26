@@ -75,6 +75,20 @@ function postMessage(app: Hono) {
 }
 
 describe("dispatchTurnLoop 深度上限", () => {
+  it("healing 写失败不伪称未启用", async () => {
+    const { systemBodies } = makeSendMessageUseCase();
+    const { logger } = makeLogger();
+    const ctrl = new MessageController(
+      queryMessageStub, { markRead: vi.fn() } as never, {} as never, logger as never, queryOtterStub,
+      { executeChain: async (_params: { callbacks: { onChainStopped: (stop: unknown) => Promise<void> } }) => {
+        await _params.callbacks.onChainStopped({ reason: "token_budget", depth: 2, totalTokens: 100, pendingTargets: ["otter-x"], healingStatus: "write_failed" });
+      } } as never, undefined, undefined, undefined, undefined,
+      { sendUserEntry: async () => ({ entry: { id: "user-1", sequenceNum: 1, body: "hi" }, talkingStonePassedTo: ["otter-x"] }), createSystemEntry: async (input: { body: string }) => { systemBodies.push(input.body); return { entry: { id: "sys-1", sequenceNum: 1, body: input.body } }; } } as never,
+    );
+    await postMessage(createApp(ctrl));
+    await vi.waitFor(() => { expect(systemBodies.length).toBeGreaterThan(0); });
+    expect(systemBodies.join("\n")).toContain("healing 写入失败，请查日志");
+  });
   it("触顶时停止派发、warn 日志、sendSystem 并推 system.message", async () => {
     const { conversationRepo, systemBodies } = makeSendMessageUseCase();
     const { logger, warns } = makeLogger();

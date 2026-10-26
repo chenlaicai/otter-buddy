@@ -16,6 +16,8 @@ export type ErrorWithToolCallCount = Error & {
   _toolCallCount?: number;
   _outputGuardMetadata?: { firstByteLatencyMs?: number };
   _modelAlias?: string;
+  /** F20261026ctbg：SDK 已消耗后抛错时，本次 attempt 的四分量增量。 */
+  _tokenUsageDelta?: InvokeResultShape["tokenUsageDelta"];
 };
 
 /** invoke 结果形状 */

@@ -29,7 +29,7 @@ import { createAgentSessionStore } from "./agent-session-store";
 import { classifyGuardInterceptReason } from "./guard-intercept-classify";
 // F20261019gses P0 影子下线：shadow-eval-recorder import 已删（观察期对照机制随转正移除）
 import { sanitizeQuotedText } from "./quoted-text-sanitizer";
-import type { TokenUsage } from "@usecases/conversation/token-usage";
+import { diffTokenUsage, type TokenUsage } from "@usecases/conversation/token-usage";
 
 /**
  * F20260930gslog：拦截事件落账 context 组装（纯函数，供单测直接验证字段完整性）。
@@ -1041,7 +1041,7 @@ export class PiSessionFactory implements AgentGateway {
           }
           return result;
         } catch (err) {
-          const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string; _outputGuardMetadata?: unknown; _modelAlias?: string };
+          const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string; _outputGuardMetadata?: unknown; _modelAlias?: string; _tokenUsageDelta?: TokenUsage };
           // #763：计数快照必须取自 activeEntry 闭包引用（attachGuards 时已捕获），
           // 不能经 activeSessions.get() 重查——真实竞态是**跨帧删除**先于 catch 读取：
           // (a) destroy() 在 invoke 挂起时外部 abort→delete 条目（pi-session-factory
@@ -1058,6 +1058,8 @@ export class PiSessionFactory implements AgentGateway {
           e._outputGuardMetadata = outputGuard.getMetadata();
           /** F20260814mtrc PR 审视修复：err 路径 result 不可达，model 随 error 透传（防 guard_abort 样本 model=unknown） */
           e._modelAlias = this.getModelAliasForLog(otterId);
+          // 已发生的消耗不因 prompt reject 消失；orchestrator 在 rejected attempt 只合并一次。
+          e._tokenUsageDelta = diffTokenUsage(tokenUsageBefore, session.getSessionStats().tokens);
           throw err;
         } finally {
           unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();

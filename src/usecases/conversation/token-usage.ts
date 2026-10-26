@@ -12,8 +12,15 @@ function finite(value: number | undefined): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-/** SessionStats is cumulative. A lower counter means a session reset, not negative consumption. */
-export function diffTokenUsage(before: TokenUsage, after: TokenUsage): TokenUsage {
+function isFiniteNumber(value: number | undefined): boolean {
+  return typeof value === "number" && Number.isFinite(value);
+}
+/** SessionStats is cumulative. A lower counter means a session reset, not negative consumption.
+ *  F20261026ctbg（审视发现 4）：after 四分量全非有限数 = telemetry 缺失，返回 undefined 而非
+ *  显式零对象——缺失不得冒充「显式零增量」的语义停滞证据（停滞判定只认有数字的 0，
+ *  缺失由 hard depth 兜底）。部分缺失（如 Pi 历史的空 cache 列）不算全缺失，照常差分。 */
+export function diffTokenUsage(before: TokenUsage, after: TokenUsage): TokenUsage | undefined {
+  if (!keys.some(key => isFiniteNumber(after[key]))) return undefined;
   const delta: TokenUsage = { input: 0, output: 0 };
   for (const key of keys) {
     const current = finite(after[key]);

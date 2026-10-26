@@ -14,11 +14,13 @@ export interface ChainStop {
   pendingTargets: string[];
   detail?: string;
   healingEventId?: string;
+  healingStatus?: "unavailable" | "write_failed";
 }
 export interface ChainHopActivity {
   depth: number;
   pendingTargets: string[];
   usageDeltas?: TokenUsage[];
+  usageTelemetryComplete?: boolean;
   transitions?: Array<{ from: string; to: string }>;
 }
 interface ChainResourceBudgetOptions {
@@ -84,7 +86,7 @@ export class ChainResourceBudget {
     const beforeTokens = this.totalTokens;
     this.totalTokens += (activity.usageDeltas ?? []).reduce((sum, usage) => sum + totalTokenUsage(usage), 0);
     const repeated = this.observeTransitions(activity.transitions ?? []);
-    const hasUsage = (activity.usageDeltas ?? []).length > 0;
+    const hasUsage = activity.usageTelemetryComplete === true && (activity.usageDeltas ?? []).length > 0;
     const hasActivity = this.totalTokens > beforeTokens;
     if (repeated && !this.cycleWarned) {
       this.cycleWarned = true;
@@ -143,7 +145,10 @@ export class ChainResourceBudget {
   }
 
   private async recordHealing(severity: "medium" | "high", description: string, context: Record<string, unknown>, stop?: ChainStop): Promise<void> {
-    if (!this.deps.healingRepo) return;
+    if (!this.deps.healingRepo) {
+      if (stop) stop.healingStatus = "unavailable";
+      return;
+    }
     try {
       const event: HealingEvent = {
         id: randomUUID(), messageId: randomUUID(), conversationId: this.deps.conversationId, otterId: "system",
@@ -158,6 +163,7 @@ export class ChainResourceBudget {
         healingAlertRegistry.enqueue(this.deps.conversationId, { eventId: event.id, conversationId: this.deps.conversationId, otterId: "system", errorType: "circuit_break", description, createdAt: event.createdAt });
       }
     } catch (error) {
+      if (stop) stop.healingStatus = "write_failed";
       this.deps.logger.warn("发言链 healing 记录失败（不阻断停止）", { conversationId: this.deps.conversationId, error: error instanceof Error ? error.message : String(error) });
     }
   }

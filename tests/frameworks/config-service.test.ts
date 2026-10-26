@@ -35,6 +35,15 @@ beforeEach(() => {
 });
 
 describe("validate", () => {
+  it.each([
+    ["maxChainTokens", 0], ["chainDepthSoftLimit", -1], ["maxChainDepth", 1.5],
+    ["stalledCycleHopLimit", Number.POSITIVE_INFINITY], ["maxChainTokens", Number.NaN],
+  ])("rejects invalid chain resource threshold %s=%s", (key, value) => {
+    expect(() => validate({
+      llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }] },
+      circuitBreaker: { [key]: value },
+    })).toThrow(`circuitBreaker.${key} 必须是有限正整数`);
+  });
   it("throws when llm.models is missing", () => {
     expect(() => validate({ llm: {} })).toThrow("llm.models[]");
   });

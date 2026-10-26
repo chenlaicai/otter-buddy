@@ -23,6 +23,8 @@ export interface ChainHopResult {
   otterReply?: string;
   nextTargets: string[];
   usageDeltas?: TokenUsage[];
+  /** 所有 fulfilled target 都有增量才为 true；rejected target 不纳入 telemetry 完整性。 */
+  usageTelemetryComplete?: boolean;
   transitions?: Array<{ from: string; to: string }>;
   /** #530 护栏 steer 文案：进程级传递，下一 hop 前置注入（解决 session 已 dispose 无法 steer 的生命周期问题） */
   steerText?: string;
@@ -259,7 +261,7 @@ export class DispatchChainEngine {
       lastOtterReply = result.otterReply ?? lastOtterReply;
       pendingSteerText = result.steerText; // 收集本 hop 的 steer 文案，传递到下一 hop
       targets = result.nextTargets;
-      stop = budget.afterHop({ depth, pendingTargets: targets, usageDeltas: result.usageDeltas, transitions: result.transitions });
+      stop = budget.afterHop({ depth, pendingTargets: targets, usageDeltas: result.usageDeltas, usageTelemetryComplete: result.usageTelemetryComplete, transitions: result.transitions });
       if (stop) break;
     }
 
@@ -656,6 +658,10 @@ export class DispatchChainEngine {
     let steerText: string | undefined; // #530 护栏 steer 文案，进程级传递到下一 hop
     const usageDeltas: Array<TokenUsage | undefined> = [];
     const transitions: Array<{ from: string; to: string }> = [];
+    // 资源计量先遍历全部 settled 结果，与下方路由 abort 解耦；并发目标即使终链也已真实消耗。
+    for (const result of results) {
+      if (result.status === "fulfilled") usageDeltas.push(result.value.tokenUsageDelta);
+    }
 
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
@@ -667,7 +673,6 @@ export class DispatchChainEngine {
       const outcome = outcomes.get(i);
       if (!outcome) continue; // resolveHopOutcomes 跳过（无 target 等降级）——无产出可路由
       const { allowedNext, aborted, steerText: hopSteerText } = outcome;
-      usageDeltas[i] = r.value.tokenUsageDelta;
       // F20260913ctlv 彻底切换：otterReply/producedMsg 从 invoke 行不可得（内容在 speak entries）——
       // 回复预览已无消费方依赖 segments；otterReply 字段退役
 
@@ -699,7 +704,9 @@ export class DispatchChainEngine {
     return {
       nextTargets: shouldAbort ? [] : [...nextTargets],
       steerText, // #530 进程级传递，下一 hop 前置注入
-      usageDeltas: usageDeltas.filter((usage): usage is TokenUsage => usage !== undefined), transitions,
+      usageDeltas: usageDeltas.filter((usage): usage is TokenUsage => usage !== undefined),
+      usageTelemetryComplete: usageDeltas.length > 0 && usageDeltas.every(usage => usage !== undefined),
+      transitions,
     };
   }
 

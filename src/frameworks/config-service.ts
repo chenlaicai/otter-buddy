@@ -440,6 +440,7 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
 
   // F20260901wxnt：contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
   if (raw.weixin) validateWeixinWarnConfig(raw.weixin);
+  validateChainResourceConfig(raw.circuitBreaker);
 }
 
 /** 传入值→有限数，非法回退默认值（F20260901wxnt 发现1：YAML "60min" → NaN → 全轰炸） */
@@ -503,6 +504,17 @@ function buildOutputGuardConfig(raw: RawConfig): AppConfig["circuitBreaker"]["ou
       distinctRatioThreshold: d(rawDetector?.distinctRatioThreshold, 0.3),
     },
   };
+}
+
+/** 链资源阈值必须有限且 >=1：不接受 0/负数/非有限数的双层静默重解释。 */
+function validateChainResourceConfig(config: RawConfig["circuitBreaker"]): void {
+  const keys = ["maxChainTokens", "chainDepthSoftLimit", "maxChainDepth", "stalledCycleHopLimit"] as const;
+  for (const key of keys) {
+    const value = config?.[key];
+    if (value !== undefined && (!Number.isFinite(value) || !Number.isInteger(value) || value < 1)) {
+      throw new Error(`配置校验失败: circuitBreaker.${key} 必须是有限正整数，当前值: ${String(value)}`);
+    }
+  }
 }
 
 function buildChainResourceConfig(raw: RawConfig): Pick<AppConfig["circuitBreaker"], "maxChainTokens" | "chainDepthSoftLimit" | "stalledCycleHopLimit"> {

@@ -543,13 +543,9 @@ export class AgentInvoker implements AgentTurnPort {
       if (lastCtxTokens !== undefined && Number.isFinite(lastCtxTokens)) {
         this.handoffState.setLastCtxTokens(otterId, lastCtxTokens);
       }
-      return {
-        invokeId: turnResult.invokeId,
-        messageId: turnResult.invokeId, // F20260913ctlv：兼容字段——链引擎过渡期仍读 messageId，值 = invokeId
-        duration: turnResult.duration,
-        tokenUsage: turnResult.tokenUsage,
-        tokenUsageDelta: turnResult.tokenUsageDelta,
-      };
+      // 递归熔断/自重启的增量由 withAdditionalDelta 在递归边界统一合并，
+      // 内层不得提前把 previousRestartDelta 加到返回值，否则每层都会重复计前段。
+      return { ...turnResult, messageId: turnResult.invokeId };
     });
   }
 
