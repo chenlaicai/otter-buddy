@@ -2203,7 +2203,7 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // 段的落点是该树自身（旧链 cwdInGitWorktree 同语义——求值器已按落点判过 ALLOW，
   // 结构通道不再重复拦 git 写族段；包装词/子壳等其余段结构照常跑）。
   const GIT_WORKTREE_PREFIX = ".otter/worktrees";
-  // F20261024dwtg delta2 复核严重 1（检视猭1636）案 B：扩面「真 git 树外」——sessionCwd
+  // F20261024dwtg delta2 复核严重 1（检视獭1636）案 B：扩面「真 git 树外」——sessionCwd
   //  爬升发现 .git 目录（树外本体 repo，git 写真落该树自身非主仓）同语义豁免；收窄面：
   //  爬升发现 .git 文件（linked worktree 卫星仓——gitdir 落主仓 .git/worktrees/<n>，
   //  stash/commit 实写主仓 gitdir，取舍 6 攻击面同族）不豁免（拦）。

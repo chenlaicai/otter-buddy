@@ -168,12 +168,13 @@ export interface GitCrawlInfo {
   gitdir: string | null;
 }
 
-/** delta2 复核严重 1（检视猭1636）配套：读取 .git 文件的 gitdir 指针（linked worktree/
+/** delta2 复核严重 1（检视獭1636）配套：读取 .git 文件的 gitdir 指针（linked worktree/
  *  submodule 形态）。返回绝对路径或 null（非文件/不可读/格式不对）。
- *  git-worktree(1)：.git 文件内容形如 "gitdir: <abs-path>"（或相对主 worktree 的路径）。 */
+ *  git-worktree(1)：.git 文件内容形如 "gitdir: <abs-path>"（或相对主 worktree 的路径）。
+ *  只取首行：gitdir 指针是单行元数据，后续行不参与解析。 */
 export function gitdirFromDotGitFile(dotGitFile: string): string | null {
   try {
-    const content = readFileSync(dotGitFile, "utf8").trim();
+    const content = (readFileSync(dotGitFile, "utf8").split(/\r?\n/, 1)[0] ?? "").trim();
     if (!content.startsWith("gitdir:")) return null;
     const p = content.slice("gitdir:".length).trim();
     if (p === "") return null;
@@ -864,7 +865,7 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
  *  commit 形态下相对路径会被误判主仓落点——GIT_WRITE_SUBCOMMAND 不含 add 正因 index 落点非 cwd）。
  *  落点 = 主仓索引（index 跟 HEAD 不跟 cwd）+ 各 add 路径参数按 -C 目标/cwd 求值的工作树文件。 */
 // eslint-disable-next-line max-statements, complexity -- 与 evalGitWrite 同构的旗标穷举 + index/路径双落点
-function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
+function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot?: string): UnevalReason | null {
   if (seg.argv0 !== "git") return null;
   const words = seg.words;
   // 求值段头：git + 全局旗标（-C <dir> / -c <kv> / --git-dir= / --work-tree=）
@@ -903,6 +904,19 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReaso
   if (base === null) return "dynamic-path";
   // 落点①：索引（主仓侧元数据——无 -C 时 cwd 是主仓才构成主仓写；有 -C 时 base 是目标仓）
   acc.targets.push({ path: base, via: "git", segmentIndex: acc.index, access: "write" });
+  // delta3 建议（检视獭1636）：git add 的真实 index 也遵循 gitdir 指针——非官方路径的主仓
+  // linked worktree/submodule 不能只按工作树 base 放行。与 evalGitWrite 同一三态：主仓卫星
+  // 补 gitdir 入账；独立外仓自然放行；R1 官方 .otter/worktrees 正道写区不封死。
+  if (projectRoot !== undefined && !pathWithinMain(base, projectRoot)) {
+    const info = gitCrawlInfo(base);
+    if (info?.kind === "file" && info.gitdir !== null) {
+      const approvedWorktree = `${normalizePath(safeRealpath(projectRoot))}/.otter/worktrees/`;
+      const normalizedBase = `${normalizePath(safeRealpath(base))}/`;
+      if (!normalizedBase.startsWith(approvedWorktree) && pathWithinMain(info.gitdir, projectRoot)) {
+        acc.targets.push({ path: info.gitdir, via: "git", segmentIndex: acc.index, access: "write" });
+      }
+    }
+  }
   // 落点②：add 路径参数（add 的语义是"从工作树读文件写入索引"——路径相对工作树根/cwd；
   //  主仓 cwd 下 `git add docs/x.md` 的相对路径落主仓工作树，判拦的实证依据）
   const pathBase = workTreeOverride !== null ? (evalPath(workTreeOverride, cwd) ?? base) : base;
@@ -2458,7 +2472,7 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
 
   const err = evalRedirects(seg, cwd, acc);
   if (err !== null) return err;
-  const gitAddErr = evalGitAdd(seg, cwd, acc);
+  const gitAddErr = evalGitAdd(seg, cwd, acc, projectRoot);
   if (gitAddErr !== null) return gitAddErr;
   const gitErr = evalGitWrite(seg, cwd, acc, projectRoot);
   if (gitErr !== null) return gitErr;

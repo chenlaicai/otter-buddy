@@ -147,7 +147,7 @@ describe("B2 真爬升面（临时目录构造 repo：ws 落 repo 树内、wt �
       fs.rmSync(base, { recursive: true, force: true });
     }
   });
-  it("delta3（检视猭1636 严重 1 案 B）：树外 linked worktree 卫星 gitdir 落主仓树 → git 写拦（取舍 6 攻击面收口）", async () => {
+  it("delta3（检视獭1636 严重 1 案 B）：树外 linked worktree 卫星 gitdir 落主仓树 → git 写拦（取舍 6 攻击面收口）", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const os = await import("node:os");
@@ -173,10 +173,13 @@ describe("B2 真爬升面（临时目录构造 repo：ws 落 repo 树内、wt �
       execSync(`git -C ${repo} worktree add -q ${wt} -b probe`);
       const v = evaluateWriteVerdict("git stash drop", repo, wt);
       expect(v.verdict).toBe("BLOCK");
+      // delta3 建议：git add 的 index 同属 gitdir——主仓卫星不得按工作树 base 洗白。
+      expect(evaluateWriteVerdict("git add file.txt", repo, wt).verdict).toBe("BLOCK");
       // R1 正道 worktree 对照：同 repo 的卫星落 .otter/worktrees 下，正常提交不被误拦。
       const approved = path.join(repo, ".otter/worktrees/probe");
       execSync(`git -C ${repo} worktree add -q ${approved} -b approved`);
       expect(evaluateWriteVerdict("git stash drop", repo, approved).verdict).toBe("ALLOW");
+      expect(evaluateWriteVerdict("git add file.txt", repo, approved).verdict).toBe("ALLOW");
     } finally {
       fs.rmSync(base, { recursive: true, force: true });
     }

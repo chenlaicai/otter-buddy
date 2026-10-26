@@ -196,6 +196,9 @@ gitdir 判归属，最终三态：
   用例临时构造主仓卫星、独立卫星、官方 worktree 三态，全部直调 guard；CI 无宿主路径依赖。
 - **文档**：本节补齐新判据、政策例外与测试改动。原 B2「临时 repo 的 linked worktree
   @树外 stash drop」由 ALLOW 翻 BLOCK，属严重 1 的攻击面收紧，不是 R1 正道豁免回退。
+- **delta3 后续建议**：`git add` 的 per-worktree index 同样遵循 gitdir 指针，evalGitAdd
+  与 evalGitWrite 同补归属判定；主仓卫星 `git add file` → BLOCK，R1 官方 worktree → ALLOW。
+  `.git` 指针文件只取首行解析；「检视獭」错字回潮已订正。
 
 ### 红绿证据
 
