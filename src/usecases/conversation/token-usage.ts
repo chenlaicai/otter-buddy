@@ -16,9 +16,8 @@ function isFiniteNumber(value: number | undefined): boolean {
   return typeof value === "number" && Number.isFinite(value);
 }
 /** SessionStats is cumulative. A lower counter means a session reset, not negative consumption.
- *  F20261026ctbg（审视发现 4）：after 四分量全非有限数 = telemetry 缺失，返回 undefined 而非
- *  显式零对象——缺失不得冒充「显式零增量」的语义停滞证据（停滞判定只认有数字的 0，
- *  缺失由 hard depth 兜底）。部分缺失（如 Pi 历史的空 cache 列）不算全缺失，照常差分。 */
+ *  缺失不等于显式零：after 四分量全非有限数返回 undefined，由链侧只记录 telemetry 缺口。
+ *  部分缺失（如 Pi 历史的空 cache 列）照常差分，不用于推导任务停滞。 */
 export function diffTokenUsage(before: TokenUsage, after: TokenUsage): TokenUsage | undefined {
   if (!keys.some(key => isFiniteNumber(after[key]))) return undefined;
   const delta: TokenUsage = { input: 0, output: 0 };
@@ -39,4 +38,13 @@ export function addTokenUsage(a?: TokenUsage, b?: TokenUsage): TokenUsage | unde
 
 export function totalTokenUsage(usage: TokenUsage): number {
   return keys.reduce((total, key) => total + finite(usage[key]), 0);
+}
+
+export function emptyTokenUsage(): Required<TokenUsage> {
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+}
+
+/** 只聚合已知分量；缺口另由 telemetryGap 标识，绝不把零值解释成无进展。 */
+export function accumulateTokenUsage(total: Required<TokenUsage>, delta: TokenUsage): void {
+  for (const key of keys) total[key] += finite(delta[key]);
 }

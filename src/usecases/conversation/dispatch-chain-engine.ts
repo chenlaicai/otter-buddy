@@ -15,9 +15,7 @@ import { randomUUID } from "node:crypto";
 // F20260826mwrd C3（Part 6）：L2 安全词扫描
 import { scanStopWords } from "@usecases/signal/stop-word-scanner";
 import type { SenderType } from "@entities/conversation/entry";
-import type { TokenUsage } from "./token-usage";
-import { ChainResourceBudget, type ChainStop } from "./chain-resource-budget";
-export type { ChainStop } from "./chain-resource-budget";
+import { accumulateTokenUsage, emptyTokenUsage, totalTokenUsage, type TokenUsage } from "./token-usage";
 
 export interface ChainHopResult {
   otterReply?: string;
@@ -25,7 +23,6 @@ export interface ChainHopResult {
   usageDeltas?: TokenUsage[];
   /** 所有 fulfilled target 都有增量才为 true；rejected target 不纳入 telemetry 完整性。 */
   usageTelemetryComplete?: boolean;
-  transitions?: Array<{ from: string; to: string }>;
   /** #530 护栏 steer 文案：进程级传递，下一 hop 前置注入（解决 session 已 dispose 无法 steer 的生命周期问题） */
   steerText?: string;
 }
@@ -50,10 +47,6 @@ export interface HopOutcome {
  *  （差 4.6 倍），图片多时 compaction 触发严重偏晚。 */
 export const MAX_IMAGES_PER_TURN = 2;
 
-export interface ChainCallbacks {
-  /** 停止原因/已消耗 token/未派发目标同源；非 MC 调用方可只消费日志、指标与 healing。 */
-  onChainStopped?: (stop: ChainStop) => void | Promise<void>;
-}
 
 export interface InvokeFnParams {
   otterId: string;
@@ -103,11 +96,6 @@ export class DispatchChainEngine {
       conversationRepo: ConversationRepository;
       queryOtter: QueryOtter;
       logger: Logger;
-      /** 最终逃生边界，默认 2000；不是协作长度质量判定。 */
-      maxChainDepth?: number;
-      maxChainTokens?: number;
-      chainDepthSoftLimit?: number;
-      stalledCycleHopLimit?: number;
       settingsRepo?: SettingsRepository;
       /** F20260814mtrc：链级指标（hop 分布/触顶计数），可选 */
       metrics?: AgentMetricsPort;
@@ -123,6 +111,10 @@ export class DispatchChainEngine {
        *  未注入时（旧装配/测试桩）降级读 messages——生产装配必注入。 */
       entryRepo?: { getUnreadEntries(conversationId: string, otterId: string): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null; createdAt?: string | null; attachments?: Array<{ kind: string; originalName: string }> }>>; getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null }>>; getEntryById?(id: string): Promise<{ id: string; createdAt?: string | null } | null> };
       invokeRepo?: { getInvokeById(invokeId: string): Promise<{ id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null> };
+      /** #530 专用决定性记录读取：透明条目不消耗有限证据窗口；旧适配器降级通用读取。 */
+      selfYieldEntryRepo?: {
+        getSelfYieldDecisionEntries(conversationId: string, otterId: string, currentInvokeId: string, limit: number): Promise<Array<{ id: string; entryType: string; senderId: string | null; invokeId: string | null; yieldTargets: string[] | null }>>;
+      };
       /** F20260920trrt：闲置预警新口径（seq 差 + 时间护栏）读时聚合接口。
        *  SQLite 实现已提供；测试桩可部分 mock（可选方法，未注入时预警降级为 null）。 */
       idleStatsRepo?: {
@@ -146,7 +138,6 @@ export class DispatchChainEngine {
       senderId: string;
       initialTargets: string[];
       invokeFn: InvokeFn;
-      callbacks?: ChainCallbacks;
       /** 多模态 Phase 1：当前任务消息携带的图片（≤2 张，超出在 controller 层已拒绝） */
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
       /** F20260902sgp2 S1：触发消息 ID（首 hop 记账）。缺省时跳过首 hop 记账（链路零变化）。
@@ -203,7 +194,6 @@ export class DispatchChainEngine {
       senderId: string;
       initialTargets: string[];
       invokeFn: InvokeFn;
-      callbacks?: ChainCallbacks;
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
       /** F20260902sgp2 S1：触发消息 ID（首 hop 记账） */
       triggerMessageId?: string;
@@ -219,11 +209,12 @@ export class DispatchChainEngine {
       excludeMessageIds?: Set<string>;
     },
   ): Promise<{ otterReply?: string }> {
-    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, callbacks, images, triggerMessageId, triggerSenderType, triggerSequenceNum, triggerSenderName, ledgerSource, excludeMessageIds } = params;
+    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, images, triggerMessageId, triggerSenderType, triggerSequenceNum, triggerSenderName, ledgerSource, excludeMessageIds } = params;
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
-    const budget = this.createResourceBudget(conversationId);
+    // Why: 资源总量不能证明任务异常。只保留标量观测，不因 token、深度或回路形状终止业务链。
+    const observation = { tokens: emptyTokenUsage(), telemetryGap: false, telemetryGapEmitted: false };
     /** F20260902sgp2 hop 取源修复：target → 链上所有 yield 出处 messageId（链级生命周期）。
      *  多源：A、B 同 hop 都 yield C 时 C 各记一条。原 bug：hop 局部 Map 出方法即丢，hop2+ 记账全跳过。 */
     const chainSourceMessageIds = new Map<string, string[]>();
@@ -242,10 +233,7 @@ export class DispatchChainEngine {
 
     let pendingSteerText: string | undefined; // #530 护栏 steer 文案，从上一 hop 传递到下一 hop
 
-    let stop: ChainStop | undefined;
     while (targets.length > 0) {
-      stop = budget.beforeHop(depth, targets);
-      if (stop) break;
       depth++;
       const result = await this.executeOneHop({
         conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder,
@@ -261,24 +249,39 @@ export class DispatchChainEngine {
       lastOtterReply = result.otterReply ?? lastOtterReply;
       pendingSteerText = result.steerText; // 收集本 hop 的 steer 文案，传递到下一 hop
       targets = result.nextTargets;
-      stop = budget.afterHop({ depth, pendingTargets: targets, usageDeltas: result.usageDeltas, usageTelemetryComplete: result.usageTelemetryComplete, transitions: result.transitions });
-      if (stop) break;
+      for (const delta of result.usageDeltas ?? []) accumulateTokenUsage(observation.tokens, delta);
+      // F20261026ctbg：usageTelemetryComplete=false 本身就完备刻画缺口（有 fulfilled 目标但缺 delta，
+      //  含单目标 hop 过滤后数组为空的情形）——旧写法加 ?.length 前置条件会漏掉单目标缺 delta 的 hop。
+      //  缺口告警/指标在检出点即时发（每链最多一次），诊断信息锚定缺口发生的位置而非链尾汇总。
+      if (result.usageTelemetryComplete === false) {
+        observation.telemetryGap = true;
+        if (!observation.telemetryGapEmitted) {
+          observation.telemetryGapEmitted = true;
+          this.emitTelemetryGapWarning(conversationId, depth, observation.tokens, targets);
+        }
+      }
     }
 
-    await budget.finish(depth);
-    if (stop) await callbacks?.onChainStopped?.(stop);
-
+    this.recordChainObservation(conversationId, depth, observation.tokens, observation.telemetryGap, targets);
     return { otterReply: lastOtterReply };
   }
 
-  private createResourceBudget(conversationId: string): ChainResourceBudget {
-    return new ChainResourceBudget({
-      logger: this.deps.logger, conversationId, metrics: this.deps.metrics, healingRepo: this.deps.healingRepo,
-      ...(this.deps.maxChainTokens !== undefined && { maxChainTokens: this.deps.maxChainTokens }),
-      ...(this.deps.chainDepthSoftLimit !== undefined && { chainDepthSoftLimit: this.deps.chainDepthSoftLimit }),
-      ...(this.deps.maxChainDepth !== undefined && { maxChainDepth: this.deps.maxChainDepth }),
-      ...(this.deps.stalledCycleHopLimit !== undefined && { stalledCycleHopLimit: this.deps.stalledCycleHopLimit }),
-    });
+  /** F20261026ctbg：链尾标量汇总（info）——深度/已知 token 总量/缺口标记/待派发目标，不判死 */
+  private recordChainObservation(conversationId: string, depth: number, tokens: TokenUsage, telemetryGap: boolean, pendingTargets: string[]): void {
+    const totalTokens = totalTokenUsage(tokens);
+    // Why: 观测设施失败不能反向影响业务路由；缺失计量只降低可解释性，不是停止证据。
+    try {
+      this.deps.metrics?.recordChainHops(depth);
+      this.deps.metrics?.recordChainTokenUsage(totalTokens);
+    } catch { /* metrics never break dispatch */ }
+    const context = { conversationId, depth, totalTokens, tokenUsage: tokens, telemetryGap, pendingTargets };
+    this.deps.logger.info("发言链观测汇总", context);
+  }
+
+  /** F20261026ctbg：计量缺口检出点即时告警——每链最多一次，context 锚定缺口 hop 的位置与当时的聚合量 */
+  private emitTelemetryGapWarning(conversationId: string, depth: number, tokens: TokenUsage, pendingTargets: string[]): void {
+    try { this.deps.metrics?.recordChainTelemetryGap(); } catch { /* metrics never break dispatch */ }
+    this.deps.logger.warn("发言链计量缺口：仅观测，不停止", { conversationId, depth, totalTokens: totalTokenUsage(tokens), tokenUsage: tokens, telemetryGap: true, pendingTargets });
   }
 
   private async executeOneHop(params: {
@@ -516,26 +519,23 @@ export class DispatchChainEngine {
   // #530 梯度护栏阈值
   private static readonly SELF_YIELD_STEER_THRESHOLD = 3;
   private static readonly SELF_YIELD_ABORT_THRESHOLD = 5;
-  /** 计数扫描的消息上限——正常链路 self-yield ≤5 即触发 abort，100 足够覆盖 + 缓冲。
-   *  窗口截断方向：若 95+ 条连续透明消息把介入消息挤出窗口，计数虚低（更难触发），
-   *  方向上由 token 主预算与最终深度边界兜底，可接受。 */
+  /** 旧适配器的通用读取降级；生产 SQLite 只取 4 条决定性 user/yield，不受透明噪声影响。 */
   private static readonly SELF_YIELD_SCAN_LIMIT = 100;
 
   /** #530 梯度护栏：从消息表倒序数连续 self-yield。
    *  给定 otterId + conversationId + currentMessageId，从当前消息之前倒序扫描，遇介入即停。
    *  介入三类：①该獭自己的 to≠self yield ②user 消息 ③外部(sender≠该獭) tsp 含该獭的信号消息。
    *  不相关消息(非指向该獭的 system 消息等)透明——跳过不重置。
-   *  真相源=消息表，重启不归零；同会话计数(跨会话留 P3b)。
-   *  窗口截断方向：若 95+ 条连续透明消息把介入消息挤出窗口，计数虚低（更难触发），
-   *  方向上由 token 主预算与最终深度边界兜底，可接受。 */
-   
+   *  真相源=entry/invoke 表，重启不归零；同会话计数(跨会话留 P3b)。
+   *  生产查询只读取决定性 user/yield，透明条目不会挤掉既有证据。 */
   private async countConsecutiveSelfYields(conversationId: string, otterId: string, currentInvokeId: string): Promise<number> {
-    // F20260913ctlv 彻底切换：数据源 = yield entries + invoke 行（messages 停写后旧扫描恒 0 → 护栏失明）。
     // 判定口径保持：从当前 invoke 之前倒序扫描，遇介入即停。
     // 介入三类：①该獭自己的 to≠self yield ②user entry ③外部 invoke（otter≠该獭）的 tsp 含该獭。
     try {
-      if (!this.deps.entryRepo) return 0;
-      const recent = await this.deps.entryRepo.getEntries(conversationId, { limit: DispatchChainEngine.SELF_YIELD_SCAN_LIMIT });
+      const recent = this.deps.selfYieldEntryRepo
+        ? await this.deps.selfYieldEntryRepo.getSelfYieldDecisionEntries(conversationId, otterId, currentInvokeId, DispatchChainEngine.SELF_YIELD_ABORT_THRESHOLD - 1)
+        : await this.deps.entryRepo?.getEntries(conversationId, { limit: DispatchChainEngine.SELF_YIELD_SCAN_LIMIT });
+      if (!recent) return 0;
       // getEntries 返回 DESC（最新在前）；跳过当前 invoke 自己的条目再倒序数
       let count = 0;
       let passedCurrent = false;
@@ -657,7 +657,6 @@ export class DispatchChainEngine {
     let shouldAbort = false;
     let steerText: string | undefined; // #530 护栏 steer 文案，进程级传递到下一 hop
     const usageDeltas: Array<TokenUsage | undefined> = [];
-    const transitions: Array<{ from: string; to: string }> = [];
     // 资源计量先遍历全部 settled 结果，与下方路由 abort 解耦；并发目标即使终链也已真实消耗。
     for (const result of results) {
       if (result.status === "fulfilled") usageDeltas.push(result.value.tokenUsageDelta);
@@ -688,7 +687,6 @@ export class DispatchChainEngine {
         steerText = hopSteerText; // 收集 steer 文案，传递到下一 hop 注入
       }
       allowedNext.forEach(id => {
-        transitions.push({ from: targets?.[i] ?? outcome.producedMsg?.otterId ?? "unknown", to: id });
         nextTargets.add(id);
       });
     }
@@ -706,7 +704,6 @@ export class DispatchChainEngine {
       steerText, // #530 进程级传递，下一 hop 前置注入
       usageDeltas: usageDeltas.filter((usage): usage is TokenUsage => usage !== undefined),
       usageTelemetryComplete: usageDeltas.length > 0 && usageDeltas.every(usage => usage !== undefined),
-      transitions,
     };
   }
 

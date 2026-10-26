@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { attachEntryAttachment, getEntryAttachments, getAttachmentRefsByIds, upsertEntryFts } from "./entry-attachment-helpers";
 import type {
   Entry,
   EntryStatus,
@@ -253,9 +254,40 @@ export class SqliteEntryRepository implements EntryRepository {
     params.push(limit);
 
     const rows = this.db.prepare(sql).all(...params) as EntryRow[];
+    return this.hydrateEntries(rows);
+  }
+
+  async getSelfYieldDecisionEntries(
+    conversationId: string,
+    otterId: string,
+    currentInvokeId: string,
+    limit: number,
+  ): Promise<Entry[]> {
+    // Why: #530 只需 user/yield 的决定性记录。透明条目不占窗口；当前 invoke 边界由它最早的 entry
+    // 决定，缺省 timeMax 避免漏掉尚未写 entry 的当前 invoke，且始终排除当前 invoke 自身。
+    const rows = this.db.prepare(`
+      SELECT * FROM entries
+      WHERE conversation_id = ?
+        AND sequence_num < COALESCE(
+          (SELECT MIN(sequence_num) FROM entries WHERE conversation_id = ? AND invoke_id = ?),
+          (SELECT COALESCE(MAX(sequence_num), 0) + 1 FROM entries WHERE conversation_id = ?)
+        )
+        AND (invoke_id IS NULL OR invoke_id != ?)
+        AND (
+          entry_type = 'user'
+          OR (entry_type = 'yield' AND (sender_id = ? OR yield_targets LIKE ?))
+        )
+      ORDER BY sequence_num DESC
+      LIMIT ?
+    `).all(conversationId, conversationId, currentInvokeId, conversationId, currentInvokeId, otterId, `%"${otterId}"%`, limit) as EntryRow[];
+    return this.hydrateEntries(rows);
+  }
+
+  /** 行→实体水合共享路径：附件挂载（默认含发送者身份挂载；轻量查询可关）——各查询方法共享，收敛重复样板 */
+  private async hydrateEntries(rows: EntryRow[], options?: { withIdentity?: boolean }): Promise<Entry[]> {
     const entries = rows.map(rowToEntry);
     await this.attachAttachments(entries);
-    await attachSenderIdentity(this.db, entries);
+    if (options?.withIdentity !== false) await attachSenderIdentity(this.db, entries);
     return entries;
   }
 
@@ -279,10 +311,7 @@ export class SqliteEntryRepository implements EntryRepository {
     const rows = this.db.prepare(
       "SELECT * FROM entries WHERE conversation_id = ? AND sequence_num < ? ORDER BY sequence_num DESC LIMIT ?",
     ).all(entry.conversation_id, entry.sequence_num, count) as EntryRow[];
-    const entries = rows.map(rowToEntry);
-    await this.attachAttachments(entries);
-    await attachSenderIdentity(this.db, entries);
-    return entries;
+    return this.hydrateEntries(rows);
   }
 
   async getEntriesAfter(entryId: string, count: number): Promise<Entry[]> {
@@ -293,10 +322,7 @@ export class SqliteEntryRepository implements EntryRepository {
     const rows = this.db.prepare(
       "SELECT * FROM entries WHERE conversation_id = ? AND sequence_num > ? ORDER BY sequence_num ASC LIMIT ?",
     ).all(entry.conversation_id, entry.sequence_num, count) as EntryRow[];
-    const entries = rows.map(rowToEntry);
-    await this.attachAttachments(entries);
-    await attachSenderIdentity(this.db, entries);
-    return entries;
+    return this.hydrateEntries(rows);
   }
 
   /**
@@ -319,9 +345,7 @@ export class SqliteEntryRepository implements EntryRepository {
         AND status = 'completed'
       ORDER BY sequence_num ASC
     `).all(conversationId, participant.last_read_seq, otterId) as EntryRow[];
-    const entries = rows.map(rowToEntry);
-    await this.attachAttachments(entries);
-    return entries;
+    return this.hydrateEntries(rows, { withIdentity: false });
   }
 
   async getMaxSequenceNum(conversationId: string): Promise<number> {
@@ -358,60 +382,26 @@ export class SqliteEntryRepository implements EntryRepository {
       ORDER BY rank
       LIMIT ?
     `).all(conversationId, ftsQuery, limit) as EntryRow[];
-    const entries = rows.map(rowToEntry);
-    await this.attachAttachments(entries);
-    return entries;
+    return this.hydrateEntries(rows, { withIdentity: false });
   }
 
-  async attachAttachment(
-    entryId: string,
-    attachmentId: string,
-    sequenceNum = 0,
-  ): Promise<void> {
-    this.db.prepare(
-      "INSERT OR IGNORE INTO entry_attachments (entry_id, attachment_id, sequence_num) VALUES (?, ?, ?)",
-    ).run(entryId, attachmentId, sequenceNum);
+  async attachAttachment(entryId: string, attachmentId: string, sequenceNum = 0): Promise<void> {
+    return attachEntryAttachment(this.db, entryId, attachmentId, sequenceNum);
   }
 
-  async getAttachments(
-    entryId: string,
-  ): Promise<Array<{ attachmentId: string; sequenceNum: number }>> {
-    const rows = this.db.prepare(
-      "SELECT attachment_id, sequence_num FROM entry_attachments WHERE entry_id = ? ORDER BY sequence_num",
-    ).all(entryId) as Array<{ attachment_id: string; sequence_num: number }>;
-    return rows.map(r => ({ attachmentId: r.attachment_id, sequenceNum: r.sequence_num }));
+  async getAttachments(entryId: string): Promise<Array<{ attachmentId: string; sequenceNum: number }>> {
+    return getEntryAttachments(this.db, entryId);
   }
 
-  /** #1191（F20260928rmix）：按附件 id 批量取投影 refs（记忆索引——发送意图描述，
-   *  attach 前可查；不存在的 id 静默跳过，索引面不固化硬错） */
   async getAttachmentRefsByIds(ids: string[]): Promise<AttachmentRef[]> {
-    if (ids.length === 0) return [];
-    const placeholders = ids.map(() => "?").join(",");
-    const rows = this.db.prepare(
-      `SELECT id, kind, original_name, mime_type, size_bytes, width, height, caption FROM attachments WHERE id IN (${placeholders})`,
-    ).all(...ids) as Array<{
-      id: string; kind: string; original_name: string; mime_type: string;
-      size_bytes: number; width: number | null; height: number | null; caption: string | null;
-    }>;
-    return rows.map(r => ({
-      id: r.id,
-      kind: r.kind as AttachmentRef["kind"],
-      originalName: r.original_name,
-      mimeType: r.mime_type,
-      sizeBytes: r.size_bytes,
-      width: r.width,
-      height: r.height,
-      caption: r.caption,
-    }));
+    return getAttachmentRefsByIds(this.db, ids);
   }
 
   async getInFlightEntries(conversationId: string): Promise<Entry[]> {
     const rows = this.db.prepare(
       "SELECT * FROM entries WHERE conversation_id = ? AND status IN ('streaming', 'speaking') ORDER BY sequence_num",
     ).all(conversationId) as EntryRow[];
-    const entries = rows.map(rowToEntry);
-    await this.attachAttachments(entries);
-    return entries;
+    return this.hydrateEntries(rows, { withIdentity: false });
   }
 
   async failInFlightEntries(
@@ -457,10 +447,9 @@ export class SqliteEntryRepository implements EntryRepository {
   }
 
   private upsertEntryFts(entryId: string, body: string): void {
-    this.db.prepare("DELETE FROM entries_fts WHERE entry_id = ?").run(entryId);
-    this.db.prepare("INSERT INTO entries_fts (entry_id, body) VALUES (?, ?)")
-      .run(entryId, stripHtmlCardFences(body));
+    upsertEntryFts(this.db, entryId, body);
   }
+
 
   private async attachAttachments(entries: Entry[]): Promise<void> {
     if (entries.length === 0) return;

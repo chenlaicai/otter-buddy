@@ -111,10 +111,8 @@ describe("AgentMetrics", () => {
     metrics.recordCompaction("token_limit", false);
     metrics.recordSessionRebuild();
     metrics.recordChainHops(3);
-    metrics.recordChainDepthExceeded();
-    metrics.recordChainStopped("token_budget");
     metrics.recordChainTokenUsage(2_000_000);
-    metrics.recordChainSoftDepth();
+    metrics.recordChainTelemetryGap();
     const text = await registry.metricsText();
     expect(text).toContain('agent_tool_calls_total{tool="speak"} 1');
     expect(text).toContain('agent_tool_duration_ms_bucket{le="500",tool="speak"}');
@@ -124,10 +122,11 @@ describe("AgentMetrics", () => {
     expect(text).toContain('agent_compaction_total{reason="token_limit",aborted="false"} 1');
     expect(text).toMatch(/agent_session_rebuild_total\s+1/);
     expect(text).toContain('agent_chain_hops_bucket{le="3"}');
-    expect(text).toMatch(/agent_chain_depth_exceeded_total\s+1/);
-    expect(text).toContain('agent_chain_stopped_total{reason="token_budget"} 1');
     expect(text).toContain('agent_chain_token_usage_sum 2000000');
-    expect(text).toMatch(/agent_chain_soft_depth_total\s+1/);
+    expect(text).toMatch(/agent_chain_telemetry_gap_total\s+1/);
+    expect(text).not.toContain('agent_chain_stopped_total');
+    expect(text).not.toContain('agent_chain_depth_exceeded_total');
+    expect(text).not.toContain('agent_chain_soft_depth_total');
   });
 
   it("toRetryLabel 封闭枚举映射", () => {

@@ -6,7 +6,7 @@ import type { AgentInvoker } from "../../agent-runtime/agent-invoker";
 import type { Logger } from "@usecases/ports/logger";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { SSEEvent } from "@contract/sse/events";
-import type { DispatchChainEngine, ChainStop } from "@usecases/conversation/dispatch-chain-engine";
+import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
 import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
@@ -398,33 +398,7 @@ export class MessageController {
           batchMaxSeq: params.batchMaxSeq,
         });
       },
-      callbacks: {
-        onChainStopped: async stop => {
-          await this.handleChainStopped(conversationId, stop);
-        },
-      },
     });
-  }
-
-  /** 发言链资源停止：原因、深度、token、未派发目标同源展示。 */
-  private async handleChainStopped(conversationId: string, stop: ChainStop): Promise<void> {
-    const { pendingTargets, depth, totalTokens } = stop;
-    this.logger.warn('发言链停止，交还用户', { ...stop, conversationId });
-    const names = (await Promise.all(pendingTargets.map(async id => {
-      try { return (await this.queryOtter.getById(id))?.name ?? id; } catch { return id; }
-    }))).join('、');
-    const healing = stop.healingEventId ? `healing 事件 ${stop.healingEventId} 已记录。`
-      : stop.healingStatus === "write_failed" ? "healing 写入失败，请查日志。" : "healing 台账未启用。";
-    const reason = { token_budget: "token 资源预算已用尽", stalled_cycle: "重复回路持续无可计量活动", hard_depth: "达到最终深度逃生上限" }[stop.reason];
-    // F20260913ctlv 彻底切换：链深通知只写 entries（system entry）
-    const { entry: sysEntry } = await this.sendEntry!.createSystemEntry({
-      conversationId,
-      body: `[系统] 发言链已停止：${reason}；深度 ${depth} 跳，累计 ${totalTokens} token。未派发目标：${names || "无"}。行动权交还给你，可直接回复发起新链继续。日志与指标已记录；${healing}`,
-    });
-    if (this.messageBroadcaster) {
-      // F20260921urdo 契约收口：字段名统一 sequenceNum
-      this.messageBroadcaster.broadcastEvent(conversationId, { event: "entry.system", data: { entryId: sysEntry.id, content: sysEntry.body, sequenceNum: sysEntry.sequenceNum, createdAt: sysEntry.createdAt } });
-    }
   }
 
   /** 未读状态（消息级，基于 last_read_message_seq） */

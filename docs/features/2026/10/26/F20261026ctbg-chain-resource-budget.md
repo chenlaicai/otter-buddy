@@ -1,179 +1,136 @@
 ---
 id: F20261026ctbg
-title: 发言链资源预算与可解释熔断
-summary: "以链内真实 token 增量替代固定 100 跳主约束，重复回路仅作风险观测；补齐熔断原因、深度、token、pendingTargets 的日志、指标、healing 与对话提示。"
+title: 发言链可观测与明确停止边界
+summary: "移除按 token、总深度或回路形状自动终止正常协作的机制；保留真实 token 增量与有界链观测，并修复 self-yield 护栏被透明条目挤盲的问题。"
 change_type: fix
-capability_test: "n/a: 确定性链调度、配置与可观测性变更，无 prompt/LLM 行为语义改动"
+capability_test: "n/a: 确定性链调度、数据库查询与可观测性变更，无 prompt/LLM 行为语义改动"
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 created_at: 2026-10-26T10:00:51+08:00
 causal_links:
   from: [F20260724regd, F20260907grdr, F20260923icus]
-tags: [dispatch-chain, token-budget, observability, circuit-breaker]
-modules: [src/usecases/conversation/dispatch-chain-engine.ts, src/frameworks/config-service.ts, src/frameworks/metrics/agent-metrics.ts]
+tags: [dispatch-chain, token-usage, observability, self-yield]
+modules: [src/usecases/conversation/dispatch-chain-engine.ts, src/frameworks/db/conversation/sqlite-entry-repository.ts, src/frameworks/metrics/agent-metrics.ts]
 ---
 
-# 发言链资源预算与可解释熔断
+# 发言链可观测与明确停止边界
 
 ## 排查预注册
 
 - 预期：固定 `maxDepth=100` 是 #1637 的截断点；若日志同时出现 `depth=100`、`pendingTargets` 与交还用户，则预期成立。
 - 反例：目标獭已收到 invoke 但没有发言、或其他 guard 终链，则放弃该预期。
-- 实际：日志 `otter-buddy.log:2276137` 记录 `depth=100`、目标 `7a524b68…`；同 trace `t_b8e6d7231d08` 的前一 invoke 已完成并 yield 该目标，符合预期。
+- 实际：日志 `otter-buddy.log:2276137` 记录 `depth=100`、目标 `7a524b68…`；同 trace `t_b8e6d7231d08` 的前一 invoke 已完成并 yield 该目标，预期成立。
 
-## 背景
+## 背景与方案纠偏
 
-搭档原话（意图锚）：
+搭档最初要求：监控必须能解释根因；不能用固定数字定义协作上限，约束必须针对可定义的坏状态。初版 PR #1639 曾采用“10M token 主约束 + 100 跳软告警 + 2,000 跳硬边界 + 回路零增量停滞停止”。该方向在初版实现前获得过方案授权，但其完整后果没有被充分展示。
 
-> 「1.监控一定要加，避免下次你找了半天才找到根源」
-> 「不应该用一个固定的 数字 来当作海獭间协作的上线……必须定义好什么叫做『最坏的情况』。这个情况肯定不是 海獭间协作100轮。」
-> 「按你推荐的来做」
+搭档随后指出：正常协作消耗 10M 也会停止，并要求从第一性原理讨论，而不是由搭档补方案。大獭与 GLM 经三轮反方讨论后，撤回初版的资源停止策略。搭档最后确认“ok。那这个来做”，授权按下列原则实现，不是合入授权。
 
-此前根因定位：固定 100 跳截断了仍有 `pendingTargets` 的流水线，而不是目标獭收到派工后沉默。已确认方向是方案 C：token 主约束、回路检测、跳数软上限及可解释熔断。
+核心结论：链调度器知道路由与计量事实，不知道任务是否值得继续。token、总深度、拓扑环是资源或结构形状，不是任务异常的充分证据。计量器异常时应降级该信号，而不是牺牲业务链。
 
 ## 目标
 
-- T1：长而持续推进的协作不因「第 100 跳」这个数字本身被截断。
-- T2：单链资源耗尽、失去进展证据的回路有有限边界；任何熔断都说明原因及未派发目标。
-- T3：复用 `AgentTurnResult.tokenUsage`，不在链内累加历史 session 总账。
-- T4：配置、日志、Prometheus、healing、对话 system entry 五处口径一致。
+- T1：正常协作不因 token 总量、总跳数或 A→B→A 拓扑被自动终止。
+- T2：每次逻辑 invoke 的真实 token 增量继续准确透传；链结束留下深度、已知消耗、计量完整性和 pendingTargets 证据。
+- T3：保留明确的用户停止、真实外部错误和既有 #530 self-yield 行为护栏；不把 #530 扩展成通用循环判定。
+- T4：#530 不再被大量透明 speak/invoke 或不相关 yield 挤出证据窗口。
 
 ## 非目标
 
-- 不修改 LLM 的 yield 决策、提示词或既有 self-yield 梯度护栏。
-- 不把「A→B→A」或固定拓扑重复本身视为病态；审视返修、章节流水线可合法重复。
-- 不做跨链/跨日成本配额，不引入 DB schema、后台任务或自动恢复派发。
-- 不声称 token 是各模型完全一致的美元成本；本特性约束的是 token 资源量。
+- 不声称能识别“有真实输出但语义原地重复”的任务死循环；它与正常返修在调度器信息集内不可可靠区分。
+- 不设置隐藏的默认账户/任务预算，不做跨链、跨日成本配额，不引入 DB schema 或后台任务。
+- 不把 telemetry 缺失/矛盾当作停止任务的理由，不用更大的固定窗口掩盖 #530 的查询问题。
+- 不改变配额、模型/API 故障、用户停止等既有边界的职责。
 
-## 未决问题
+## 机制识别与修改类别
 
-无。阈值采用下方实证初始值，后续根据新指标复核，不把初始值表述为永久真理。
+检查点：☐ 新配置；☐ 新状态生命周期；☐ 后台任务；☐ 新消息格式；☐ 新持久化 schema；☐ 被记住的新决策分支；☑ 新增 SQLite 专用读取路径。
 
-## 实证与阈值
+修改类别为 `deletion`：删除 `ChainResourceBudget` 及 token/depth/stalled 停止路径、对应配置和指标。新增读取路径只是 #530 既有计数语义的数据源修正，不新增停止条件、运行时生命周期或持久化状态，因此不是净新增机制。token 计量复用本 PR 已验证的 delta 资产，不再承担预算职责。
 
-生产 DB 以 `sqlite3 -readonly` 只读抽样（2026-10-26）：近 7 天 1,522 条有 usage 的 invoke，按 otter 排序后逐分量差分，snapshot 回退时取当前值；四分量为 input/output/cacheRead/cacheWrite，历史 cache 列均为空。
+## 最终契约
 
-- 每次调用 token 增量估算：P50=94,592；P90=430,165；P95=730,013；P99=1,790,951；均值 206,524。
-- `agent_chain_hops` 累计桶：96 条链中 94 条不超过 13 跳，2 条超过 50 跳；旧计数只证明发生过触顶，不提供本次完整链 token 分布。
-- 初始主预算 `maxChainTokens=10,000,000`：约 13.7 个 P95 调用，明显小于原方案中随手写的 500K，避免对当前真实使用形态过敏；置信度中（cache 历史缺失、并非逐链重放）。
-- `chainDepthSoftLimit=100`：达到即 warn + healing，不阻断；2,000 跳仅作为 usage 缺失/异常调度下的最终逃生边界。它不是「协作达到某轮就错」的语义判定，而是防进程无限占用。
-- 重复回路进入观测窗口后仍只消耗同一主预算，并记录 warning；只有无进展证据（重复回路且未获得可计量 token 增量）才计入停滞，停滞达到 20 hop 熔断。正常的 A→B→A 不触发。
+### 谁可以停止，谁只负责说明
 
-## 机制识别与预算四问
+| 事实/机制 | 职责与处置 |
+|---|---|
+| 用户明确停止 | 按既有停止通道处理 |
+| 配额耗尽、模型/API/进程错误 | 按既有错误、重试、降级与告警路径处理；不伪装成“链太长” |
+| #530 连续 self-yield | 保留既有具体行为策略：第 3 次 steer、第 5 次 abort + healing；它是行为约束，不宣称为客观任务故障证明 |
+| token 总量 | 只计量，不参与链停止 |
+| 总深度 | 只计量，不参与链停止 |
+| A→B→A、零 delta、telemetry 缺失 | 只可作诊断上下文，均不触发链停止 |
+| 语义任务价值/语义死循环 | 调度器不替任务判死；承认不可可靠判定 |
 
-检查点：☑ 新配置字段；☑ 配置化熔断原因；☐ 新生命周期；☐ 后台任务；☐ 新消息格式（复用 system entry）；☐ 持久化 schema；☐ 被记住的新决策分支（仅运行时）；☑ tokenUsage 新消费路径。按净新增机制走重对抗门。
+### 有界链观测
 
-1. **谁需要它**：搭档需要长任务不被固定数字截断、熔断时知道谁被跳过；大獭需要凭事件定位根因而非翻数小时日志。
-2. **失败后果**：现状会静默破坏任务交付；取消一切边界则失控链可耗尽 token/请求时间。本机制失败的具体风险是错误计量导致早停或晚停，故熔断与计量异常都显式可见。
-3. **后续机制**：快照回退、缺失 usage、并行 fan-out 可能失真；由逐分量差分、rejected 不计账、fallback 上限与监控处置，不再叠加隐式修复机制。
-4. **退役条件**：若底层提供逐 attempt 的权威 usage + 链级成本 ledger，本模块的链内差分器应被该权威增量替代；若软告警长期无诊断价值可删除，最终安全边界不能仅因「没触发」删除。本机制是长期安全承诺。
+`DispatchChainEngine` 只保留标量聚合：深度、已知四分量 token 总量、是否出现 fulfilled 调用的增量缺失，以及具体 guard 停止的 pendingTargets。不保留逐跳用量数组、回路窗口或无限增长的诊断历史。既有 `chainSourceMessageIds` 保持原语义，不属于本次新增观测账本。
 
-## 方案设计
+链结束时输出 `发言链观测汇总` 日志，并记录：
+- `agent_chain_hops`：每链 hop 分布；
+- `agent_chain_token_usage`：已知 token 增量之和，明确不承诺为完整美元成本；
+- `agent_chain_telemetry_gap_total`：出现过计量缺口的链数，每链最多一次；
+- 计量缺口另有一条 warn，明确“只观测、不停止”，携带深度、已知 token 和 pendingTargets。
 
-### 核心抽象
+旧 `agent_chain_stopped_total`、`agent_chain_depth_exceeded_total`、`agent_chain_soft_depth_total` 随其对应机制删除。指标写入失败不影响路由。非 MessageController 入口不伪称生成对话 system entry；本次也不新增资源停止 system entry。
 
-- `TokenUsage` 沿用 `{input, output, cacheRead?, cacheWrite?}`。
-- `AgentTurnResult.tokenUsage` 保留 session 累计快照语义，新增 `tokenUsageDelta` 表示本次逻辑 invoke 的真实增量；`InvokeFnResult` 透传后者，绝不逐跳相加累计快照。
-- `token-usage.ts` 提供四分量纯函数：session 前后差分、同 invoke 各 attempt/递归重启增量合并、预算总量计算。快照下降表示新会话/重置，取当前值，绝不产生负消耗。
-- `ChainResourceBudget` 是单链临时对象，不引入 DB 生命周期。收到每个 fulfilled target 的 `tokenUsageDelta`；rejected target 不计入。
-- 回路记录真实行级 tsp 的有向交棒边；原始窗口最多 16 条，用于发现最多 8 边的重复后缀；另保留 activeCycle 与相位，避免截窗破坏正在运行的循环。拓扑重复只观测。
-- `ChainStop`：`{reason:'token_budget'|'stalled_cycle'|'hard_depth', depth, totalTokens, pendingTargets, detail?, healingEventId?, healingStatus?:'unavailable'|'write_failed'}`；`callbacks.onChainStopped(stop)` 替代只知 depth 的回调。
+### token 增量仍然保留的资产
 
-### 循环顺序
+- `tokenUsage` 保持 session 累计快照；`tokenUsageDelta` 表示本次逻辑 invoke 的真实增量，二者不混用。
+- SDK 调用前后按 input/output/cacheRead/cacheWrite 差分；快照回落按新会话处理；异常 attempt、自动重试、递归自重启与 fan-out 继续合并。
+- 路由 abort 前仍先收集所有 fulfilled 结果；缺失不是显式零。链侧只求和，不以零值、缺失或回路推导停滞。
+- 顺带保留 `buildResult` 的 cacheRead/cacheWrite 四分量透传修复。
 
-1. 每 hop 前：若深度达到软上限，告警但继续；若 token 已超预算，停止；若达到 2,000 最终深度，停止。
-2. 执行 hop，聚合 fulfilled 调用的 usage 差分；rejected 不推进 token 账本。
-3. 根据真实行级 tsp 计算 nextTargets，记录 from→to 的拓扑窗口。
-4. 只有「重复回路 + usage 存在 + 本 hop 真实 token 增量为 0」才推进停滞计数；有增量由主预算约束。telemetry 缺失不冒充语义停滞证据，仅由 hard depth 逃生边界保护。
-5. 停止时统一记录结构化日志、指标、healing，并调用 controller 生成带原因/深度/token/pendingTargets 的 system entry；目标獭不伪造「已执行」记录。
+### #530 计数窗口修复
 
-### 接口与配置
+生产 SQLite 增加专用读取：以当前 invoke 最早 entry 为时间边界，只读取之前的 user 和与该獭相关的 yield 条目，最多取 `abort 阈值 - 1 = 4` 条决定性记录。speak/invoke_start/invoke_end 和不相关 yield 不再挤占窗口。找到 user/外部介入或四条 self-yield 即足够，既不需要放大 100 条窗口，也不需要无限分页。
 
-- `circuitBreaker.maxChainTokens` 默认 10,000,000。
-- `circuitBreaker.chainDepthSoftLimit` 默认 100。
-- `circuitBreaker.maxChainDepth` 默认改为 2,000，保留原字段名以避免配置迁移，但语义明确降为最终逃生边界。
-- `circuitBreaker.stalledCycleHopLimit` 默认 20；最大周期 8 条边，原始窗口最多 16 条，另存 activeCycle 相位，不新增配置面。
-- 新指标：`agent_chain_stopped_total{reason}`、`agent_chain_token_usage`（histogram）、`agent_chain_soft_depth_total`；保留旧 `agent_chain_depth_exceeded_total` 表示 hard_depth，避免旧告警断义。
-- healing：复用 `circuit_break`，context 以 `chainStop` 区分链停止；medium 记录软告警/停滞，high 记录 token/hard 终链并 enqueue 既有 healingAlertRegistry。
-
-### 顺带修复同链路缺陷
-
-`buildInvokeResult` 已构造四分量快照，但 `buildResult` 当前只返回 input/output（`circuit-breaker-helpers.ts:359-361`），导致 DB cache 列全空。此次预算需要完整 token 口径，修复该既有透传遗漏，并加四分量回归测试。
-
-## 影响范围
-
-- DispatchChainEngine、AgentTurnResult 消费、配置装配、MessageController 停止通知、AgentMetrics。
-- scheduler / invoke-controller 等复用链引擎路径自动受新约束；无独立 DB 状态。
-- 既有 `maxChainDepth` 显式小值（测试配置=4）仍作为最终上限，行为不变；生产默认由 100 提升为 2,000，主约束换为 token。
-
-## 风险与约束
-
-- 基线在 Pi session 每次 SDK invoke 前捕获，不把本链开始前的 session 旧账算入新链；同 invoke 内自动重试和熔断自重启逐段累加，不取末次覆盖前段。
-- `AgentInvoker` 是 usage 聚合的统一返回边界，避免嵌套 SDK/turn 多层重复计账；既有 `tokenUsage` 快照仍按原口径写 invoke 行。
-- fan-out 先对所有 fulfilled target 记账，再处理路由 abort，已完成并发目标不因提前终链漏计；任一 fulfilled target 缺 telemetry 时，本 hop 不得推进停滞。rejected target 不计账，也不纳入 telemetry 完整性。同獭同 hop 的去重仍由现有 nextTargets Set 保持。
-- 已消耗后 SDK 抛错，由异常携带 `_tokenUsageDelta`；orchestrator 将 rejected attempt 与后续重试各合并一次。
-- 新增链资源阈值在配置加载时必须为有限正整数，非法值 fail-closed；不允许 0 被资源层静默放大成默认值。
-- healing 写入成功才提供 event ID；写入失败与未配置分别提示，不伪报台账状态。
-- 没有 usage 时无法用拓扑判断业务进展；不将其伪报为停滞，最终由 hard depth 兜底。显式零增量回路不代表零模型活动，只表示所取 usage 窗口没有可计量资源进展。
+该查询只是读取投影，不修改表结构。通用 `EntryRepository` 增加这一用途明确的查询；引擎对未实现专用查询的旧测试/嵌入适配器保留原有降级读取，生产 SQLite 必须走专用路径。护栏计数异常仍按既有 fail-open 处理，不借通用链上限补偿。
 
 ## 不兼容更新
 
-- [Incompatible] 默认第 100 跳不再硬停；运维若依赖 100 作为唯一成本防线，须改看 token 预算/停止指标。显式配置 `maxChainDepth` 的行为不变。
-- 旧 `onDepthExceeded` 回调改为 `onChainStopped`，内部调用点同步更新；无外部 API 合约变化。
+- [Incompatible] `token_budget`、`hard_depth`、`stalled_cycle` 不再存在；本地 `maxChainTokens`、`chainDepthSoftLimit`、`stalledCycleHopLimit`、`maxChainDepth` 不再决定链的存活，可从配置删除。
+- `onChainStopped` / `ChainStop` 及其 MessageController 资源停止提示删除。#530 自身日志、healing 和终链行为保留。
+- 取消这些保护是有意接受其原问题边界：语义失控链可能持续到人工停止或真实外部错误；不再声称通用阈值能识别它。
 
 ## 设计取舍
 
 | 取舍 | 决策 | 替代方案 | 理由 |
 |---|---|---|---|
-| 固定 100 硬停 | token 主预算 + 软告警 + 逃生上限 | 只把 100 改 200 | 单纯放大数字仍会误杀，且未约束成本 |
-| token 口径 | SDK 调用前后基线差分，turn 层累 attempt | 首见快照 / 直接 sum 每个 result | 前者误纳链前旧账，后者重复记累计值 |
-| 拓扑重复 | 观测；仅与无计量进展联合停滞判定 | visited 即停 / 重复边即停 | 合法返修和章节流都天然有环 |
-| 缺失 usage | 保留最终 hard-depth + 可见停滞信息 | 把缺失当 0 无限跑 / 立即停 | 前者失控，后者误伤旧 adapter |
-| cache 四分量 | 修复既有透传遗漏后纳入 | 继续只算 input/output | 预算需要真实 token 资源口径 |
-| 历史 20→100 的治理 | 回应同一误杀问题，但不再用另一个相似数字作主语义 | 继续调固定跳数 | 新方案直接约束资源与无进展，而非流水线长度 |
-
-独立方案重对抗：已覆盖必要性、失败后果、后续机制、退役条件与阈值实证，结论为治本方向；代码阶段的独立对抗审视与 delta 复核另按 PR 流程执行。
+| 资源硬停 | 删除 token/depth/stalled 三类自动停止 | 调大数字、只改叫 assert | 数字和名称都不能证明任务异常；观测故障不应停业务 |
+| 观测 | 标量聚合 + 每链最多一次计量缺口 warn/metric | 每跳 healing、无限诊断历史 | 避免告警风暴与诊断账本自身失控 |
+| #530 窗口 | 查询决定性 user/yield，最多 4 条 | 100→1000、全表扫描 | 透明条目本就不参与计数，过滤后证据不被挤掉 |
+| 计量 | 保留 delta 并只观测 | 删除全部计量或继续用于预算 | 准确计量对定位有价值，但无需拥有停止权 |
+| 语义失控 | 坦诚不可判定，由明确外部边界处理 | 用拓扑/token 猜 | 正常返修与失控在该信息集内同构 |
 
 ## 验证（验收断言）
 
 | 场景 | 操作 | 预期结果 |
 |---|---|---|
-| 原 bug | 在修复前运行新增的 >100 持续推进链用例 | 第 100 跳后 pending target 被截断；修复后在 token 未超限时完成 |
-| 单次基线 | 同一 session 连续 invoke 前后快照 | 每次只计本次差分，旧历史不重复计 |
-| 快照重置 | 同獭快照下降 | 取新快照为增量，不产生负数/丢账 |
-| 主预算 | 增量累计达到 maxChainTokens 后仍有目标 | 不再 invoke，stop.reason=token_budget，pendingTargets 完整 |
-| 正常返修 | A→B→A→B 少量重复且有 usage | 不因拓扑本身停止 |
-| 无进展回路 | 重复拓扑、显式零增量达到阈值 | reason=stalled_cycle，带深度/目标/healing |
-| usage 缺失 | 重复回路不返回 tokenUsageDelta | 不伪报停滞；hard depth 保留 |
-| 自动重试 | 同 invoke 两次 attempt 增量 50+20 | 返回 70，不只保留末次 20 |
-| 熔断自重启 | 两段 invoke 增量 15+30 | 返回 45，不丢旧 session 消耗 |
-| 软深度 | 达到 100 仍有进展和预算 | 记录 warning/healing，继续执行 |
-| 逃生边界 | 达到配置 maxChainDepth | reason=hard_depth；旧指标仍计数 |
-| 通知 | MessageController 收到 stop | system entry 含原因、深度、token、pendingTargets |
-| 配置 | 读取默认值及 YAML 覆盖 | 新默认值与覆盖值符合上表 |
-| 四分量 | buildResult 输入 cacheRead/cacheWrite | 返回不丢字段，链预算可消费 |
+| 原 #1637 | 在旧基线运行持续推进 101 跳行为用例 | 旧实现停在 100；本实现完成 101 |
+| 深度不是停止条件 | 合法链在明确第 2,001 跳收尾，并传旧小深度配置 | 全部执行，无资源停止回调/提示 |
+| token 不是停止条件 | 合法链已知增量累计超过 10M，并传旧小 token 配置 | 全部执行，指标只记录真实总量 |
+| 回路/零 delta | A↔B 重复且 delta=0，在有限目标处收尾 | 不触发 stalled_cycle，完整执行 |
+| 计量缺口 | 部分或全部 fulfilled 调用缺 delta | 每链一个 gap metric + 一条 warn；链继续 |
+| fan-out/异常 | 重试、晚到 abort、fan-out、递归重启既有回归 | 增量不漏计、不双计，四分量不丢 |
+| #530 透明噪声 | 四个旧 self-yield 后插入 >100 条透明/不相关条目 | 当前第 5 次仍按 #530 abort，证据不被挤掉 |
+| #530 正常介入 | user 或外部介入后重新计数 | 既有梯度语义不变 |
+| 观测失败 | metrics/healing 不可用 | 不影响正常路由；不伪造 system entry |
+| 配置 | 旧资源阈值仍留在本地 YAML | 不再被链引擎读取为停止条件 |
 
 ## 负面向验收
 
-本次有意改变旧契约：100 跳硬停退役；不绕过 self-yield、安全词、tool guard、scheduler watchdog 等既有保护。不会伪造 pending 目标已运行，也不自动重试已停止链。
+本次有意破坏旧契约：通用资源停止退役，因此失去“烧到某数值自动停”的表面确定性；接受语义失控需要人工或外部错误边界的风险。不得绕过 #530、安全词、tool guard、scheduler watchdog，也不得伪造 pending 目标已执行。监控缺口只降低可观测性，不改变业务链控制流。
 
 ## 最简实现检查
 
-复用 `AgentTurnResult` 返回边界、`healingRepo`、`healingAlertRegistry` 和 metrics registry；不新增 DB、后台任务、框架或持久化账本。token 纯函数与资源守卫独立成小模块，避免继续扩大既有超长 controller/engine；单链状态由链创建并随 settle 回收。
+删除预算类、阈值配置、软告警和停止通知，不为它们再造替代抽象。保留一个小 token 纯函数模块和现有返回边界；#530 只新增一个 SQLite 查询投影。无新框架、DB 表、后台任务或通用任务状态机。
 
 ## 改动范围
 
-| 文件 | 操作 | 说明 |
-|---|---|---|
-| `src/usecases/conversation/dispatch-chain-engine.ts` | 修改 | 每跳增量/转移边接入、软/硬边界、停止上下文 |
-| `src/usecases/conversation/token-usage.ts` / `chain-resource-budget.ts` | 新增 | 纯计量函数与单链临时预算 |
-| `src/usecases/ports/sdk-invoke-port.ts` / `agent-turn-port.ts` | 修改 | 单次增量契约 |
-| `src/frameworks/agent/pi-session-factory.ts` | 修改 | SDK 执行前快照基线 |
-| `src/usecases/conversation/agent-turn-orchestrator/**` / `agent-invoker.ts` | 修改 | attempt、重试、自重启增量合并 |
-| `src/interface-adapters/http/controllers/message-controller.ts` | 修改 | 可解释 system entry |
-| `src/frameworks/config-service.ts` | 修改 | 配置与默认值 |
-| `src/bootstrap/platforms.ts` | 修改 | 配置装配 |
-| `src/frameworks/agent/circuit-breaker-helpers.ts` | 修改 | 四分量透传遗漏修复 |
-| `src/usecases/ports/agent-metrics-port.ts` / `src/frameworks/metrics/agent-metrics.ts` | 修改 | 停止原因、token、软深度指标 |
-| `config/config.yaml.example` | 修改 | 运维口径 |
-| `tests/**` | 修改/新增 | 上述行为验收 |
-| 本文档 | 新增 | 方案、实证、决策与验证档案 |
+- `dispatch-chain-engine.ts`：删除资源预算与回路判定，聚合链观测，保留 guard 停止上下文。
+- `chain-resource-budget.ts` 与其测试：删除；由链观测行为测试替代。
+- `token-usage.ts`、SDK/orchestrator/invoker 返回路径：保留真实增量资产。
+- `entry-repository.ts` / `sqlite-entry-repository.ts`：#530 专用决定性记录查询。
+- `config-service.ts`、bootstrap、配置样例：移除资源阈值装配。
+- metrics、MessageController、scheduler 注释与相关测试：同步删除旧停止语义，保留准确观测。
