@@ -699,11 +699,14 @@ export class DispatchChainEngine {
      *  单点执行（allowedNext 入队前），此处不再重复 filter（每目标已过一遍，再滤是冗余动作）；
      *  self 目标不滤——护栏放行即链续跑（合法消化路径），allowedNext 已含门控结果。 */
     // #530 梯度护栏：abort 后清空 nextTargets 终链（链停非惩罚，可被外部重新 invoke）
+    // F20261026ctbg 审视修复④：全 rejected hop（无任何 fulfilled 目标）不是计量缺口——
+    // usageDeltas.length=0 在该场景语义是「无 fulfilled 可计量」，非「fulfilled 但缺报」
+    const hasFulfilled = results.some(r => r.status === "fulfilled");
     return {
       nextTargets: shouldAbort ? [] : [...nextTargets],
       steerText, // #530 进程级传递，下一 hop 前置注入
       usageDeltas: usageDeltas.filter((usage): usage is TokenUsage => usage !== undefined),
-      usageTelemetryComplete: usageDeltas.length > 0 && usageDeltas.every(usage => usage !== undefined),
+      usageTelemetryComplete: !hasFulfilled || usageDeltas.every(usage => usage !== undefined),
     };
   }
 

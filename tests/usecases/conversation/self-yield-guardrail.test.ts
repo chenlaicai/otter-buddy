@@ -222,8 +222,20 @@ describe("#530 self-yield guardrail", () => {
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
       selfTspOnceThenEnd(m);
-      expect(m.abort).not.toHaveBeenCalled();
-      expect(m.abort).not.toHaveBeenCalled();
+      // F20261026ctbg 审视修复③：恢复被掏空的用例体——必须真实跑链（静态 seed 3 条 previous
+      // + 首跳 self-tsp = totalCount 4），断言第 4 次只日志不 steer 不 abort 的静默边界
+      let calls = 0;
+      let steerSeen = false;
+      await makeChainEngine(m).executeChain({
+        conversationId: "conv-1", userMessageContent: "hi", senderId: "user", initialTargets: ["otter-1"],
+        invokeFn: async ({ userMessageContent }: { userMessageContent: string }) => {
+          calls++;
+          if (userMessageContent.includes("连续 3 次 self-yield")) steerSeen = true;
+          return { messageId: "m-new" };
+        },
+      });
+      expect(calls).toBe(2); // 首跳 self-tsp 续一跳后自然收尾；abort 会清空 nextTargets → calls 停在 1
+      expect(steerSeen).toBe(false); // totalCount=4：介于 steer@3 与 abort@5 之间，不 steer 不 abort
     });
   });
 

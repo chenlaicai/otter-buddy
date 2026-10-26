@@ -4,6 +4,7 @@
  */
 import type Database from "better-sqlite3";
 import type { AttachmentRef } from "@entities/conversation/attachment";
+import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 
 export function attachEntryAttachment(db: Database.Database, entryId: string, attachmentId: string, sequenceNum: number): void {
   db.prepare(
@@ -14,8 +15,10 @@ export function attachEntryAttachment(db: Database.Database, entryId: string, at
 interface AttachmentJoinRow { attachment_id: string; sequence_num: number }
 
 export function getEntryAttachments(db: Database.Database, entryId: string): Array<{ attachmentId: string; sequenceNum: number }> {
+  // F20261026ctbg 审视修复：恢复原实现（无 JOIN）——entry_attachments 本身有 (entry_id, attachment_id)
+  // 唯一约束，孤儿关联行在写入路径已排除；JOIN attachments 只会把历史孤儿行静默吞掉，非严格等价
   const rows = db.prepare(
-    "SELECT ea.attachment_id, ea.sequence_num FROM entry_attachments ea JOIN attachments a ON ea.attachment_id = a.id WHERE ea.entry_id = ? ORDER BY ea.sequence_num",
+    "SELECT attachment_id, sequence_num FROM entry_attachments WHERE entry_id = ? ORDER BY sequence_num",
   ).all(entryId) as AttachmentJoinRow[];
   return rows.map(r => ({ attachmentId: r.attachment_id, sequenceNum: r.sequence_num }));
 }
@@ -42,6 +45,9 @@ export function getAttachmentRefsByIds(db: Database.Database, ids: string[]): At
 }
 
 export function upsertEntryFts(db: Database.Database, entryId: string, body: string): void {
-  db.prepare("DELETE FROM entries_fts WHERE rowid = ?").run(entryId);
-  db.prepare("INSERT INTO entries_fts(rowid, content) VALUES (?, ?)").run(entryId, body);
+  // F20261026ctbg 审视修复：恢复原实现写法——entries_fts 是 fts5(entry_id UNINDEXED, body)
+  // （schema.ts），无 rowid/content 列语义；另原实现有 stripHtmlCardFences 预处理，拆分时一并丢失
+  db.prepare("DELETE FROM entries_fts WHERE entry_id = ?").run(entryId);
+  db.prepare("INSERT INTO entries_fts (entry_id, body) VALUES (?, ?)")
+    .run(entryId, stripHtmlCardFences(body));
 }
