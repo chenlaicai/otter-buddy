@@ -322,7 +322,7 @@ function checkCommandLevelPatterns(): string | null {
 interface KillSegmentCtx {
   segment: string;
   isPkill: boolean;
-  mainPid: number;
+  mainPid: number | null;
   command: string;
   logger?: Logger;
   payload?: string;
@@ -369,10 +369,46 @@ function checkKillSegment(ctx: KillSegmentCtx): string | null {
     return "bash 命令中终止进程的命令引用了主进程 PID 文件。主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。";
   }
   const pids = [...new Set([...extractLiteralPids(pidTextA), ...extractLiteralPids(pidTextB)])];
-  if (pids.length > 0 && pids.includes(mainPid)) {
+  // F20261026gobs delta-r1：mainPid 缺失时「字面 PID = 主 PID」等值一条无法判定——跳过
+  //（与已知 PID 时「非主 PID 放行」同口径）；按名/间接目标/PID 文件引用三条不依赖 PID，照判。
+  if (mainPid !== null && pids.length > 0 && pids.includes(mainPid)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill targeting main process PID", { mainPid, commandPids: pids, segment: segment.substring(0, 200) });
     // F20260831aksp：PID 数字脱敏——堵「错误 PID 试探 → 拦截文案回显真实 PID → 精准二次打击」链（结构化日志字段 commandPids 保留数值）
     return "bash 命令包含针对主进程 PID 的终止命令。主进程是海獭运行环境，任何情况下不得终止——你不存在需要重启或停止主进程的合法场景。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。";
+  }
+  return null;
+}
+
+/**
+ * F20261026gobs delta-r1（检视獭1646 S1）：kill 族分段判定抽为单点——
+ *  kill 目标语义的主体（按名目标 pkill/killall、间接 PID、PID 文件引用）是纯文本语义，
+ *  不依赖 mainPid；仅「字面 PID = 主 PID」等值一条需要 mainPid（缺失时跳过，见 checkKillSegment）。
+ *  供 checkBashCommandSafetyOnText（主链）与 checkWhenMainPidMissing（PID 缺失链）共用：
+ *  #1038 旧口径「kill 族随 mainPid 缺失保守放行」使 PID 文件不可读时按名 kill 族整族
+ *  静默退役（CI 实证：readMainProcessPid null → pkill -f otter-buddy 漏放）——现同判不退役。 */
+function checkKillFamily(
+  text: string,
+  mainPid: number | null,
+  allowedServices: AllowedService[],
+  logger?: Logger,
+): string | null {
+  const killSegments = findKillSegments(text);
+  // #844 白名单放行：cmdLevel 检测之后、分段级检测之前（cmdLevel 是全命令级铁闸，
+  // 白名单只豁免「分段级 kill 目标检测」这一层）——白名单需比对字面 PID，mainPid 缺失时不豁免
+  if (killSegments.length > 0 && mainPid !== null && whitelistedPortAllow(killSegments, text, allowedServices, mainPid)) {
+    return null;
+  }
+  if (killSegments.length === 0) return null;
+
+  // 全命令级：有 kill 段 + 全命令含 .otter-buddy.pid 引用（跨段检测）
+  if (PID_FILE_REFERENCE.test(text)) {
+    logger?.warn("[bash-safety-guard] BLOCKED kill with cross-segment PID file reference", { mainPid, command: text.substring(0, 200) });
+    return "bash 命令中包含主进程 PID 文件引用和终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+  }
+
+  for (const { segment, isPkill, payload, source, outer } of killSegments) {
+    const result = checkKillSegment({ segment, isPkill, mainPid, command: text, logger, payload, source, outer });
+    if (result) return result;
   }
   return null;
 }
@@ -631,25 +667,21 @@ function checkBashCommandSafetyOnText(
   const cmdLevelResult = checkCommandLevelPatterns();
   if (cmdLevelResult) return cmdLevelResult;
 
-  const killSegments = findKillSegments(text);
-  // #844 白名单放行：cmdLevel 检测之后、分段级检测之前（cmdLevel 是全命令级铁闸，
-  // 白名单只豁免「分段级 kill 目标检测」这一层）
-  if (killSegments.length > 0 && whitelistedPortAllow(killSegments, text, allowedServices, mainPid)) {
-    return null;
-  }
-  if (killSegments.length === 0) return null;
+  // #844 白名单放行 + 分段级 kill 目标检测：抽为 checkKillFamily 单点（delta-r1，
+  // 与 checkWhenMainPidMissing 共用——kill 族不随 mainPid 缺失退役）
+  return checkKillFamily(text, mainPid, allowedServices, logger);
+}
 
-  // 全命令级：有 kill 段 + 全命令含 .otter-buddy.pid 引用（跨段检测）
-  if (PID_FILE_REFERENCE.test(text)) {
-    logger?.warn("[bash-safety-guard] BLOCKED kill with cross-segment PID file reference", { mainPid, command: text.substring(0, 200) });
-    return "bash 命令中包含主进程 PID 文件引用和终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
-  }
-
-  for (const { segment, isPkill, payload, source, outer } of killSegments) {
-    const result = checkKillSegment({ segment, isPkill, mainPid, command: text, logger, payload, source, outer });
-    if (result) return result;
-  }
-  return null;
+/**
+ * F20261026gobs delta-r1（检视獭1646 S3）：tool_call 门（bashGuardGate）接管的守卫判定面——
+ *  bash 工具 + 非空字符串 command 参数。abort 兑底链（abortOnUnsafeBash）只在此面之外
+ *  或门失活时执行：SDK prepareToolCall 的 signal.aborted 检查先于 beforeResult.block
+ *  （pi-agent-core agent-loop.js L500 vs L507），双拦会把门的显式理由覆盖成
+ *  "Operation aborted"——单点接管消除双拦（两层判定同源同参，门与 abort 不分歧）。 */
+export function guardGateCovers(toolName: string | undefined, args: unknown): boolean {
+  if (toolName !== "bash") return false;
+  const command = (args as Record<string, unknown> | undefined)?.command;
+  return typeof command === "string" && command.trim().length > 0;
 }
 
 /** 命中规则定位（F20260902gvrd，#730）：拦截文案从静态说明升级为带诊断上下文。
@@ -663,7 +695,10 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
   // email）、`gh --repo owner/otter-buddy`（slug）里的字面量是数据/命令名不是 kill 目标，
   // 回显「进程名模式」曾连续误导根因归因（#1585 台账：署名规范 author 格式被误标为进程名）。
   // kill 族动词用与「kill 族命令」诊断行同口径的正则（同 kill-segment-finder KILL/PKILL 语义）。
-  const hasKillVerb = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/i.test(command);
+  //  F20261026gobs delta-r1（检视獭1646 A1）：在引号剥离文本上算——引号数据位的 kill 字样
+  //  （`git commit -m "kill the bug"`）不是 kill 语境，不应回显「进程名模式」；shell 载荷
+  //  （bash -c 'pkill …'）内引号不剥离（是执行体），kill 语境照算。
+  const hasKillVerb = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/i.test(stripQuotedTextSpans(command));
   const patterns: Array<[string, RegExp]> = [
     ["kill 族命令", /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/gi],
     ["主服务脚本", new RegExp(SERVICE_SCRIPT_KILL.source, "gi")],
@@ -2606,6 +2641,12 @@ function checkWhenMainPidMissing(
 ): string | null {
   const scriptKill = checkServiceScriptKill(command, 0, logger, guardOptions?.projectRoot);
   if (scriptKill) return withDiagnostics(scriptKill, command, null);
+  // F20261026gobs delta-r1（检视獭1646 S1）：kill 族按名/间接目标/PID 文件引用是纯文本语义，
+  //  不随 PID 缺失退役——#1038 旧口径「kill 族保守放行」使 PID 文件不可读时按名 kill 整族
+  //  静默漏放（CI 实证：readMainProcessPid null → pkill -f otter-buddy 漏放）。mainPid=null
+  //  仅「字面 PID = 主 PID」等值一条无法判定（跳过，与已知 PID 时非主 PID 放行同口径）。
+  const killFamily = checkKillFamily(command, null, [], logger);
+  if (killFamily) return withDiagnostics(killFamily, command, null);
   // F20260922pmgd / #1038：PR 合入与 data 破坏判定不依赖 mainPid（与 kill 族保守放行的
   // 差异：只需命令文本/projectRoot，无退化理由）
   const pidFree = checkPidIndependentRules(command, logger, { projectRoot: guardOptions?.projectRoot, sessionCwd: guardOptions?.sessionCwd, writeChannelSkip: guardOptions?.sandboxGuarded ? "file-write" : undefined });

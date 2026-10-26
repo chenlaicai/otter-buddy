@@ -62,12 +62,17 @@ from:
 
 `locateTriggerContext` 的「进程名模式」增加 kill 语境门：`hasKillVerb = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/i.test(command)`——无 kill 族动词时跳过「进程名模式」回显（数据位字面量是数据/命令名不是 kill 目标）。保留既有 token-slash 检查（路径型 token 不标）。
 
-### 2. bash 守卫门显式落痕（M-2bf6e98c，model-runtime-registry.ts + pi-session-factory.ts）
+### 2. bash 守卫门显式落痕（M-2bf6e98c，model-runtime-registry.ts + pi-session-factory.ts + circuit-breaker-helpers.ts）
 
 新增 `bashGuardGate(store, toolName, input)`——tool_call 层对 bash 命令跑 `checkBashCommandSafety`，被拦时返回 `{block: true, reason: "此命令被安全守卫拦截（命令未执行）：<理由>"}`，SDK 生成 isError tool result 返回 LLM（显式落痕）。接进 tool_call 门链：`haltToolCallGuard ?? loopBlockGuard ?? bashGuardGate`。
 
 - **fail-open**：store / guardProjectRoot 缺省时放行（镜像 halt/loop-block），退化到 abortOnUnsafeBash 兜底链（降级不降安全）
-- **同源判定**：守卫参数（projectRoot/sessionCwd）由 `_executeWithSession` 提为单一真相源，store（tool_call 门）与 attachGuards（abort 兜底链）同点求值，防门与 abort 判定分歧（R-2b）
+- **同源判定**：守卫参数（projectRoot/sessionCwd/sandboxGuarded）由 `_executeWithSession` 提为单一真相源，store（tool_call 门）与 attachGuards（abort 兜底链）同点求值，防门与 abort 判定分歧（R-2b）
+- **delta-r1（检视獭1646 S2/S3 处置）**：①门透传 sandboxGuarded（沙箱会话写落点求值器族退役不再误拦）；②单点接管消双拦——abortOnUnsafeBash 在门激活（guardGateActive=store.guardProjectRoot 在场）时 deferred（不 abort、事件流继续计数，重复被拦命令由循环熔断兑住），门失活时兑底 abort；③门拦截落 guardOnIntercept healing（与兑底链同一钩子，观测面不丢）；④reason 经 stripSleepMarkerIfPresent 剥内部标记
+
+### 3. kill 族不随 mainPid 缺失退役（M-2bf6e98c S1 生产面，bash-safety-guard.ts）
+
+delta-r1：从 OnText 链抽 `checkKillFamily(text, mainPid, allowedServices, logger)` 单点，checkWhenMainPidMissing（PID 缺失链）亦调——按名目标（pkill/killall）、间接 PID、PID 文件引用是纯文本语义不随 PID 缺失退役（#1038 旧口径「kill 族保守放行」使 PID 文件不可读时整族静默漏放，CI 实证）；仅「字面 PID = 主 PID」等值一条需 mainPid（缺失时跳过，与已知 PID 时非主 PID 放行同口径）。
 
 ## 红绿证据
 
@@ -93,10 +98,16 @@ GUARD: BLOCK -> …（kill 族拦）
 
 ## 测试
 
-- `tests/frameworks/agent/bash-guard-processname-diagnostic.test.ts`：+5 用例（kill 语境门），全 25 用例过
-- `tests/frameworks/agent/bash-guard-gate.test.ts`：+6 用例（显式落痕），全过
-- 全量回归：431 files / 6867 passed / 6 skipped 零失败
+- `tests/frameworks/agent/bash-guard-processname-diagnostic.test.ts`：+7 用例（kill 语境门 + A1 引号数据位/对照）
+- `tests/frameworks/agent/bash-guard-gate.test.ts`：10 用例（显式落痕；delta-r1 起卷绕临时 projectRoot+.otter-buddy.pid，含 PID 缺失、sandboxGuarded 透传、healing 落账面）
+- `tests/frameworks/agent/bash-guard-gate-sdk-integration.test.ts`：4 用例（S3 SDK 集成层——runToolCall 真实 prepareToolCall 路径钉死双拦时显式落痕）
+- `tests/frameworks/agent/bash-guard-kill-family-pid-missing.test.ts`：6 用例（S1 生产面——kill 族不随 PID 缺失退役）
+- 全量回归：433 files / 6916 passed / 6 skipped 零失败
 - tsc --noEmit 零错误；eslint 零错误
+
+### 红绿口径同步（检视獭1646 A3 处置）
+
+初版 commit/PR 声明「本地全量 6867 零失败」是本地实测（本地有主仓 PID 文件），CI 上 bash-guard-gate 用例①因 CI 无主仓 PID 文件 readMainProcessPid null 而 1 failed（run 40297648982）——两口径当时不一致，初版声明已作废。delta-r1 后：本地 6916 全绿；CI 以 checks 实况为准（同套件、PID 卷绕后不应有环境差）。
 
 ## 影响范围与边界
 
@@ -104,7 +115,11 @@ GUARD: BLOCK -> …（kill 族拦）
 - **M-2bf6e98c**：被拦 bash 命令从「abort + 静默中和」改为「tool_call 门显式 isError」——拦截判定同源（checkBashCommandSafety），只是落痕方式变显式；abortOnUnsafeBash 保留为兜底链（门 fail-open 时降级）
 - **与在途 PR 边界**：#1641（isKillAtCommandPosition 词法误判）在 kill-segment-finder.ts，#1640（gh pr checks 透传）在 tool-factory.ts——本单在 bash-safety-guard.ts（诊断回显）+ model-runtime-registry.ts（tool_call 门）+ pi-session-factory.ts（守卫参数传递），三者不重叠，无撞车
 
-## 建议与遗留
+## 建议与遗留（delta-r1 后状态）
 
-- 门与 abort 的双层判定（gate 先拦、abort 兜底）对放行命令有两次 checkBashCommandSafety 的性能开销——若实测可感知，后续可优化为 gate 置已检标志、abort 跳过重复判定（本单不展开，避免行为面扩大）
-- M-2bf6e98c 的「静默 exit 0」精确合成点（abort 竞态 vs 沙箱中和 vs 自动重试替换）静态分析未完全钉死——本修复在 tool_call 门层显式落痕，**无论下游哪条路径静默中和，被拦命令都不会执行、必然带显式痕迹**（鲁棒覆盖），精确机制待下次现场复现时补钉
+- **S1（已处置）**：测试卷绕临时 projectRoot+.otter-buddy.pid（hermetic）+ 生产面 kill 族不随 PID 缺失退役（checkKillFamily 单点）；mainPid 双源收口：readMainProcessPid 是唯一 reader（门与 getMainPid 闭包同源同参同文件），delta-r1 后门与 abort 链共用同一 guard 参数单一真相源，残余差异仅兑底链的 process.cwd() 回退（门失活专用，已记档）
+- **S2（已处置）**：门透传 sandboxGuarded，与 abort 链同参同判；沙箱保留面（git 写族/段结构 fail-closed/data 破坏族）照拦已加测试钉（③b）
+- **S3（已处置）**：单点接管消双拦 + SDK 集成测试钉死（runToolCall 真实 prepareToolCall 路径：双拦判定面 toolResult 含显式理由、非 Operation aborted；对照案钉住 SDK L500 优先于 L507 的既定语义）
+- **精确机制待钉（降级声明，A2）**：M-2bf6e98c「静默 exit 0」的精确合成点（abort 竞态 vs 沙箱中和 vs 自动重试替换）静态分析未完全钉死；delta-r1 修复后**不再声称「必然带显式痕迹」**——准确口径：门激活时被拦命令不执行、toolResult 必含显式守卫理由（集成测试背书）；门失活（store 缺失）降级为 abort 兑底链，显式落痕由系统提醒消息承载（非 toolResult）。精确机制待下次现场复现补钉
+- **性能余项**：门接管后 bash 守卫判定单点执行（delta-r1 消除了门与 abort 链的双层重复判定开销）；per-event 计时器由 tool_execution_end 清理（immediate 结果亦发 end 事件，已核 agent-loop.js L396）
+- **职责外观察**：`kill 0`（杀自身进程组）在已知 mainPid 路径本就不在字面等值拦截面（pids=[0] 不含 mainPid）——pre-existing 语义，非本单回归，供大獭定夺是否另立台账

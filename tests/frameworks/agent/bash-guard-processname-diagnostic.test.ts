@@ -131,4 +131,18 @@ describe("进程名诊断回显 kill 语境门（F20261026gobs，M-2edf95d5）",
     expect(r).not.toBeNull();
     expect(r!).toContain("进程名模式");
   });
+
+  it("⑥ A1 引号数据位的 kill 字样不算 kill 语境（-m \"kill the bug\" 不挂「进程名模式」）", () => {
+    // 引号内 kill 是 commit message 文本（数据位）——不构成 kill 语境，otter-buddy 字样不标
+    const r = checkBashCommandSafety(`git commit -m "kill the bug" --author="修复獭-守卫可观测 <otter-buddy>"`, mainPid, undefined, ctx);
+    expect(r).not.toBeNull(); // 仍拦（写落点主仓）——保护零削弱
+    expect(r!).not.toContain("进程名模式");
+  });
+
+  it("⑦ A1 对照：shell 载荷内 kill 动词仍是 kill 语境（bash -c 'pkill …' 照标）", () => {
+    // stripQuotedTextSpans 不剥离 shell 载荷引号（是执行体不是数据）——kill 语境照算
+    const r = checkBashCommandSafety(`bash -c 'pkill -f otter-buddy'`, mainPid, undefined, ctx);
+    expect(r).not.toBeNull();
+    expect(r!).toContain("进程名模式");
+  });
 });

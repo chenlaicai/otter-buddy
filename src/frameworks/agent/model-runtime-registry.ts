@@ -24,7 +24,7 @@ import { externalizeHistoricalToolResults } from "./toolresult-externalizer";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { buildHaltBlockReason } from "@usecases/signal/halt-block-reason";
 import { buildToolSignature } from "./tool-call-circuit-breaker";
-import { checkBashCommandSafety, readMainProcessPid } from "./bash-safety-guard";
+import { checkBashCommandSafety, readMainProcessPid, stripSleepMarkerIfPresent, guardGateCovers } from "./bash-safety-guard";
 
 /** pi-coding-agent 模块类型（动态加载） */
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -315,6 +315,12 @@ export interface OtterInvokeContext {
    *  守卫退化到 abortOnUnsafeBash 兑底链（降级不降安全）。 */
   guardProjectRoot?: string;
   guardSessionCwd?: string;
+  /** F20261026gobs delta-r1（检视獭1646 S2）：沙箱接防标志——门与 abortOnUnsafeBash 同参
+   *  透传（sandboxGuarded=true 时 main_write 族按设计退役），防沙箱会话判定分歧。 */
+  guardSandboxed?: boolean;
+  /** F20261026gobs delta-r1：拦截落 healing 钩子（与 abort 兑底链同一钩子）——门接管
+   *  判定后观测面（guard_intercept healing 事件）不丢。 */
+  guardOnIntercept?: (input: { command: string; reason: string }) => void;
 }
 
 export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
@@ -402,18 +408,21 @@ export function bashGuardGate(
   toolName?: string,
   input?: unknown,
 ): { block: true; reason: string } | undefined {
-  if (toolName !== 'bash') return undefined;
   const projectRoot = store?.guardProjectRoot;
   if (!projectRoot) return undefined; // fail-open：守卫参数缺省时退化到 abort 兜底链
+  if (!guardGateCovers(toolName, input)) return undefined;
   const args = (input ?? {}) as Record<string, unknown>;
-  const command = typeof args.command === 'string' ? args.command : '';
-  if (!command.trim()) return undefined;
+  const command = args.command as string;
   const mainPid = readMainProcessPid(projectRoot);
-  const block = checkBashCommandSafety(command, mainPid, undefined, {
+  const rawBlock = checkBashCommandSafety(command, mainPid, undefined, {
     projectRoot,
     sessionCwd: store?.guardSessionCwd,
+    sandboxGuarded: store?.guardSandboxed,
   });
-  if (!block) return undefined;
+  if (!rawBlock) return undefined;
+  const block = stripSleepMarkerIfPresent(rawBlock);
+  // 拦截落 healing（与 abort 兜底链同一钩子同参）——门接管后观测面不丢（delta-r1）
+  store?.guardOnIntercept?.({ command, reason: block });
   return {
     block: true,
     reason: `此命令被安全守卫拦截（命令未执行）：${block}`,
