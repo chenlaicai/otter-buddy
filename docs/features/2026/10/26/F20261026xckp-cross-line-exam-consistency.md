@@ -1,5 +1,5 @@
 ---
-id: F20261020xckp
+id: F20261026xckp
 title: 跨产线考题一致性核对——#1467 replay 13 用例 vs #1466 touchstone 双库（M-3f8d8a0d 收口）
 summary: 2026-10-20 全量重核（10-14 对照后 main 经 #1554/#1565/#1570/#1578 十余 PR 演化）：13 用例 × 三库全量 982 条（921 系语料守恒数=982−TS-smrj 新增系 61，比对面为全量 982）全等/近似同命令比对，全等命中仅 1 对（1013-B2 vs TS-smrjreg18f0c467）且系 2026-10-14 已裁决层差对（双法院两案非反判）——零新反判；层差注记落位收口：touchstone 侧 5 条 2026-10-14 已落，#1467 侧 2 处（1013-B2 双法院注记、1013-B5 重裁兑现钩子更新）本次补位。
 capability_test: "n/a: 纯注释补记不改执行逻辑——guard-v2-real-replay + guard-touchstone-corpus 两套测试复跑 28 passed | 6 skipped（6 skip 系 1013-A1..A6 挂 #1468）双绿，行为断言零改动"
@@ -11,11 +11,16 @@ intent:
     type: behavior_check
 modules:
   - tests/frameworks/agent/guard-v2-real-replay.test.ts
+created_at: 2026-10-26
 from:
   - F20261015smrj
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 created_by: 守卫修复獭
 ---
+
+## 编号顺延与合入前重核（2026-10-26）
+
+原 F20261020xckp（2026-10-20 建档），按搭档「特性编号的日期要顺延」及 F20260914prdb 定稿口径改为 F20261026xckp；分支历史提交保留原编号，双向可搜。合入前以最新 main（含 #1636 gitdir 归属判据）重跑两套测试与合并后语义核验，避免沿用 10-20 结论跨代失效。
 
 ## 背景（M-3f8d8a0d，2026-10-14 立项）
 
