@@ -44,7 +44,10 @@ export interface EntryRepository {
     options?: GetEntriesOptions,
   ): Promise<Entry[]>;
   /** #530 决定性记录：仅 user 与指定獭相关 yield，当前 invoke 之前，DESC，最多 limit 条。
-   *  与通用时间线查询分离，避免透明条目挤掉护栏证据。 */
+   *  与通用时间线查询分离，避免透明条目挤掉护栏证据。
+   *  契约（F20261026ctbg 审视⑤钉扎）：currentInvokeId 实为 invoke 行 id，与
+   *  InvokeFnResult.messageId 同源（invokeFn 返回的 messageId 即 invoke 行 id）——
+   *  SQL 边界子查询（MIN(sequence_num) WHERE invoke_id = ?）以此为前提，改动任一侧需同步。 */
   getSelfYieldDecisionEntries(
     conversationId: string,
     otterId: string,

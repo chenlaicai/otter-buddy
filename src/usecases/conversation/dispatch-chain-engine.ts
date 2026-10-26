@@ -62,6 +62,9 @@ export interface InvokeFnParams {
 }
 
 export interface InvokeFnResult {
+  /** 契约（F20261026ctbg 审视⑤钉扎）：实为 invoke 行 id，非 speak 消息 id——产出判定
+   *  （fetchProducedMessage 读行级 tsp）与 #530 getSelfYieldDecisionEntries 的当前
+   *  invoke 边界子查询均以此为前提，改动任一侧需同步。 */
   messageId: string;
   /** F20261026ctbg：本次 invoke 的四分量 token 增量，绝非 session 累计快照。 */
   tokenUsageDelta?: TokenUsage;
