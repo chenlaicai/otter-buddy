@@ -345,7 +345,48 @@ describe("F20261026wfpb（#1623 返修）gh pr checks 业务失败 fail-fast（s
     // 失败表格 stdout 已在判定内部使用，不再重复断言其文本形态。
     // 只探测一次就终止：报文只报告第 1 次，且轮询已收尾不留计时器
     expect(text).toContain("第 1 次探测确认");
+    // v3：失败现场必须带回 stdout 表格（check 名 + job 链接），不能只剩 "Command failed"
+    expect(text).toContain("失败 check 现场（gh pr checks 输出）");
+    expect(text).toContain("check\tfail");
+    expect(text).toContain("https://example.invalid/job/1");
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("v3：check 名含空格（Build Web Frontend<TAB>fail）仍正确 fail-fast——TAB 分列不受名字空格干扰", async () => {
+    const tool = findWait();
+    execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ProbeCallback) => {
+      const err = new Error("gh pr checks failed") as Error & { code: number; stdout: string; stderr: string };
+      err.code = 1;
+      err.stdout = "Build Web Frontend\tfail\t5m\thttps://example.invalid/job/9";
+      err.stderr = "";
+      cb(err, { stdout: err.stdout, stderr: "" });
+    });
+    const execPromise = tool.execute("t1", { seconds: 300, until: "gh pr checks 1604", reason: "等 CI 变绿" });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await execPromise;
+    const text = result.content[0].text;
+    expect(text).toContain("确认 CI 失败，已停止轮询");
+    expect(text).toContain("Build Web Frontend");
+    expect(text).toContain("https://example.invalid/job/9");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("v3：非 pr checks 子命令（gh pr view 123）exit 1 + stderr 空不判终态，预算内重试", async () => {
+    const tool = findWait();
+    // stdout 构造出 TSV fail 行也会因 argv 不是 pr checks 而不触发 fail-fast
+    execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ProbeCallback) => {
+      const err = new Error("view failed") as Error & { code: number; stdout: string; stderr: string };
+      err.code = 1;
+      err.stdout = "check\tfail\t9s\thttps://example.invalid/job/1";
+      err.stderr = "";
+      cb(err, { stdout: err.stdout, stderr: "" });
+    });
+    const execPromise = tool.execute("t1", { seconds: 25, until: "gh pr view 123", reason: "等 view 就绪" });
+    await vi.advanceTimersByTimeAsync(25_000);
+    const result = await execPromise;
+    expect(result.content[0].text).toContain("until 条件未通过（共 3 次探测");
+    expect(result.content[0].text).not.toContain("确认 CI 失败");
   });
 
   it("gh pr checks transport 错误（stderr 非空）不判终态，预算内重试后可成功", async () => {

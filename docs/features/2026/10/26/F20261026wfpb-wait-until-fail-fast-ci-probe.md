@@ -10,7 +10,7 @@ intent:
   expected_effect: "等 CI 全绿的獭走 wait(seconds, reason, until=gh pr checks <PR>)：pending 自动重试、全绿即通过、有失败约 2 秒内终止并拿到失败现场，不再盲等满预算、不再被 --json 假绿骗过。非 gh 场景（服务探活 curl -sf 等）保持预算内重试语义不变。"
   verify_by:
     type: behavior_check
-    note: "A 类单测覆盖 exit 1 fail-fast / pending(8) 重试后转 fail / 非 gh exit 1 fail-fast / pending 重试至成功 / 超时预算；真实生产链路用无 mock 的真实子进程验证 4 用例（all-pass 即绪 2.3s、fail 约 2s 终止、不存在 PR 约 2s 终止、非 gh 场景 exit 7×2→0 重试 21.3s 第 3 次通过）。描述属 B 类软代码，只提供可跟随指引。"
+    note: "A 类单测覆盖 gh pr checks 真实业务失败 fail-fast（含带空格 check 名 TAB 分列）、argv 范围限定、失败现场 stdout 透传、transport 错/NONE/非 gh exit 1 反例不误判；真实生产链路无 mock 验证（v2 轮：文件就绪重试/坏代理超时/真实失败终止/all-pass/不存在 PR；v3 轮：真实失败现场透传）。描述属 B 类软代码，只提供可跟随指引。"
 capability_test: "n/a: 核心行为为确定性工具控制流，由 tests/interface-adapters/agent-runtime/tools/wait-tool.test.ts 验证；description/守卫文案为软引导，断言锚点存在性不冒充 LLM 采纳率证明"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
 created_at: 2026-10-26
@@ -23,7 +23,7 @@ causal_links:
   - issue #1623（案发现场与派工来源）
 ---
 
-# wait until exit 1 fail-fast + gh pr checks 三态正道文案
+# wait until gh pr checks 业务失败 fail-fast（stderr + TAB 列分类）+ 三态正道文案
 
 ## 案发现场与独立取证（2026-10-26，gh 2.89.0 本机实测）
 
@@ -62,22 +62,25 @@ issue #1623 描述 2026-10-25 PR #1611 等 CI 的三重困境。本次开工先�
 
 **结论：exit 1 是多义码，不可用裸退出码分类。**
 
-### v2 设计：gh pr checks 专属 stderr 分类
+### v2/v3 设计：gh pr checks 专属 stderr + TAB 列分类
 
 终态失败判定四条件（全部满足才 fail-fast）：
 
-1. 命令 = gh（探活 argv[0]）
+1. argv[0..2] = `gh pr checks`（**v3**：子命令限定——`gh pr view` 等其他子命令的 exit 1 不适用，Review-1640 delta 复现误入风险）
 2. exitCode === 1
 3. stderr 为空（gh transport 错误/GraphQL 错误都在 stderr；业务输出只在 stdout）
-4. stdout 含 bucket 表格行——列序 name<TAB>bucket<TAB>…，**bucket 在第 2 列**（v2 开发中踩坑：首版判行首词，实际行首是 check 名；单测挂起诊断定位）
+4. stdout 含 bucket 表格行——列分隔为 **TAB**（**v3**：v2 用任意空白拆列，check 名含空格时（如 `Build Web Frontend<TAB>fail`）名字中的词被误当 bucket，合法含空格 check 名的失败不再 fail-fast，Review-1640 独立复现漏判；gh 表格列间是制表符，实测 #1639/#1640）
 
-四条件外的所有形态（非 gh 命令、exit 8 pending、stderr 非空的 transport 错、NONE）一律保留预算内每 10s 重试——与 F20261022wtpr 契约兼容，非 CI 等待（文件/服务/文本）零影响。
+**v3 失败现场透传**：终态报文附带 stdout 表格（失败 check 名 + job 链接）。v2 只透传 formatUntilFailure（stderr 优先，业务失败 stderr 空时只剩 `Command failed`），拏不到处置线索——违背本特性「拿到失败现场」承诺，已修。
+
+四条件外的所有形态（非 gh 命令、非 pr checks 子命令、exit 8 pending、stderr 非空的 transport 错、NONE）一律保留预算内每 10s 重试——与 F20261022wtpr 契约兼容，非 CI 等待（文件/服务/文本）零影响。
 
 文案三处同步（until 描述/元字符拒绝文案/守卫文案）：删 --json 假绿指引，教裸命令三态 + 勿加 --json（恒 exit 0 假绿）/不可加 --watch（until 单次探测 30s 上限，watch 会超时被杀）+ 确认 CI 失败时提前终止。元字符禁令/F20260928slan 防注入边界零改动。
 
 ### 被否方案
 
 - **v1 通用 exit 1 fail-fast**（首版）：被 Review-1640 生产反例证伪（见上），返修取代。
+- **v2 任意空白拆列 + 仅验 argv[0]**：被 Review-1640 delta 复现证伪（含空格 check 名漏判、其他 gh 子命令误入、失败现场丢失），v3 取代。
 - **封装 `gh pr checks --json` + 内建解析成 CI probe 工具/参数**：新增机制（决策树④），且 gh 裸命令三态+stderr 分类已覆盖判定需求；仅当未来需要「只等 required checks」等细粒度时再议（--required flag 也可直接用）。
 - **放开管道让獭自己写判定**：违反注入边界，否。
 - **仅改提示词不动实现**：盲等满预算体验问题仍在，且简报明确不允许。
@@ -86,9 +89,11 @@ issue #1623 描述 2026-10-25 PR #1611 等 CI 的三重困境。本次开工先�
 
 ### A 类单测（tests/…/wait-tool.test.ts，vi.mock execFileAsync，fake timers）
 
-describe「F20261026wfpb（#1623 返修）」v2 用例：
+describe「F20261026wfpb（#1623 返修）」v2+v3 用例：
 
-- gh 真实业务失败（stdout 表格 + stderr 空）→ 「第 1 次探测确认 CI 失败，已停止轮询」、无残留计时器
+- gh 真实业务失败（stdout 表格 + stderr 空）→ 「第 1 次探测确认 CI 失败，已停止轮询」、无残留计时器、**报文含失败 check 表格与 job 链接（v3）**
+- **v3：check 名含空格**（`Build Web Frontend<TAB>fail`）→ TAB 分列正确 fail-fast 并带回现场
+- **v3：非 pr checks 子命令**（`gh pr view 123`，构造同形态 stdout）→ 不判终态，预算内重试
 - gh transport 错误（stderr 非空）→ 不判终态，预算内重试后可成功
 - gh NONE（stdout 无 bucket 行）→ 不判终态，重试到预算耗尽
 - **Review-1640 反例**：文件探活 exit 1×2 → 第 3 次成功（未就绪不再误终止）
@@ -103,7 +108,7 @@ describe「F20261026wfpb（#1623 返修）」v2 用例：
 |---|---|
 | R1 Review-1640 反例：文件探活 exit 1×2 后就绪 | 第 2 次探测通过 10.2s（v1 误报终止） |
 | R2 Review-1640 反例：坏代理 gh transport exit 1 | 35s 重试 4 次后超时报文（不误报终态） |
-| R5 真实业务失败（PR#1640 自身 check 红） | 1.5s 「第 1 次探测确认 CI 失败」终止（目标行为） |
+| R5 真实业务失败（PR#1640 自身 check 红） | 1.5s 「第 1 次探测确认 CI 失败」终止（目标行为）；v3 起报文含失败 check 表格与 job 链接 |
 | R4 all-pass PR#1634 | 第 1 次探测通过 1s |
 | R3 不存在 PR#99999（GraphQL 错 stderr） | 重试后超时报文（不误报终态） |
 | 附加：刚推 PR#1642 pending 窗口实测 exit 8 | 与 gh 约定一致，走重试 |
@@ -113,7 +118,7 @@ describe「F20261026wfpb（#1623 返修）」v2 用例：
 
 ### 全量回归
 
-- vitest tests/interface-adapters/ + tests/frameworks/agent/：99 文件 2339 passed | 6 skipped（返修后，含 main 新增）
+- vitest tests/interface-adapters/ + tests/frameworks/agent/：99 文件（v3 后单测 29 项，详见 PR CI）
 - tsc --noEmit 0；npm run build 0；npm run lint 0；rebase origin/main 57edd41c+ 后全过
 
 ### 已消除的未尽事项（v1 遗留 → v2 实测补齐）
@@ -123,7 +128,8 @@ describe「F20261026wfpb（#1623 返修）」v2 用例：
 
 ## 测试改动声明
 
-- 返修轮：fail-fast 用例重写为 stderr 分类语义（v1 的「非 gh exit 1 也 fail-fast」用例改为反例保护用例）；mock 补 stdout/stderr 字段（node promisify(execFile) 失败路径真实携带）
+- v2 返修轮：fail-fast 用例重写为 stderr 分类语义（v1 的「非 gh exit 1 也 fail-fast」用例改为反例保护用例）；mock 补 stdout/stderr 字段（node promisify(execFile) 失败路径真实携带）
+- v3 delta 轮：新增带空格 check 名 TAB 分列用例、非 pr checks 子命令不误判用例；真实失败用例补「报文含失败表格与 job 链接」断言
 - 首轮：既有用例 mock 退出码 1→8（pending 重试至成功）、1→2（持续非零重试至超时）——按 gh 真实三态语义校正 mock 数值，用例意图与断言不变。方向：**语义校正，非收紧或放松**
 - 描述/文案断言同步更新（删旧 --json 指引断言，补三态锚点）
 
