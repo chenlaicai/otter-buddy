@@ -48,7 +48,7 @@ created_at: 2026-10-26T13:00:00+08:00
 | `curl \| env python`（无 -c） | BLOCK | feed 通道已有矩阵钉（对照） |
 | 截断载荷 `python3 -c 'ast.parse(open("x").read()); open("/repo/pwn","w")` | BLOCK | M-2ad7c58d A 项**已不成立**：heredoc-script-payload 回落 → V1 fail-closed 拦（#1544 链已有） |
 | c091 `ast.parse(open().read())` 只读链 | evaluated（读披露） | M-2ad7c58d B 项**疑点消解**：guard-write-eval-corpus c091 note 明载「truncated-payload 源数据上限，非求值器缺口」，shadow 口径已剔除 |
-| GA-3 良性截断只读 `python3 -c 'ast.parse(open("x").read()` | sessionCwd 在场：BLOCK / 缺席：ALLOW | **delta r1 订正**：初版「origin/main 同拦」表述不精确致声明失实——真相是判定依赖 sessionCwd（worktree cwd 时良构门拒→回落拦；无 cwd 旧世界只读放行）。检视獭实测 ALLOW（无 cwd 形态）、本獭实测 BLOCK（有 cwd 形态）都对。定性：cwd 在场时的拦是保守向（截断载荷不可求值回落）非 FPOS 无需修；本批不改 |
+| GA-3 良性截断只读 `python3 -c 'ast.parse(open("x").read()` | 基线/旧 head/新 head 各侧（含 sessionCwd 在场/缺席）均同判 ALLOW | **delta r1 复核再订正**：初版「origin/main 同拦」与其后「sessionCwd 在场即 BLOCK」两种机理叙述均不成立，全部撤回；本项仅作实测记档，不宣称存在需修的 FPOS。基线声明今后须附命令参数形态 |
 
 ### 与记忆的对照修正
 
@@ -81,7 +81,7 @@ created_at: 2026-10-26T13:00:00+08:00
 
 - **matter ③ env -P 扩面**：明确不做——搭档单独点头边界（M-3fe59a8e 先例）保持
 - **xargs 默认追加形态**（`echo path | xargs touch` 词级注入）：F20261020c2sm R2 已记档归 wrapper 基座治理域（M-c36b9847），与 `touch $(cmd)` 命令替换面同级——不越界收（#1513 不军备化：xargs 常规用法海量，追加形态全收进上游词级递归 = 巨大误伤面）。独立测试钉现状 ALLOW
-- GA-3 良性截断只读：delta r1 订正——判定依赖 sessionCwd（在场 BLOCK/缺席 ALLOW）；cwd 在场时是保守向回落非 FPOS，待裁项撤回；初版「origin/main 同拦」表述不精确作废
+- GA-3 良性截断只读：delta r1 复核再订正——各侧同判 ALLOW；初版「origin/main 同拦」与其后「sessionCwd 在场即 BLOCK」两种机理叙述均撤回，本项不宣称存在需修的 FPOS
 
 ## 测试
 
@@ -122,6 +122,6 @@ LEAK | echo "/repo/pwntree" | xargs -i bash -c 'mkdir -p {}'
 ### 原残余面
 
 - xargs 默认追加形态（词级注入）现状 ALLOW——归 M-c36b9847 wrapper 基座治理域（F20261020c2sm R2 同判）
-- GA-3 良性截断只读：判定依赖 sessionCwd（delta r1 订正，初版声明失实）——保守向非 FPOS，待裁项撤回；探针参数形态差（cwd 在场与否）是差异源，两方实测都对
+- GA-3 良性截断只读：delta r1 复核再订正——各侧同判 ALLOW；初版「origin/main 同拦」与其后「sessionCwd 在场即 BLOCK」两种机理叙述均撤回，待裁项不成立；基线声明今后须附命令参数形态
 - xargs 注入形态未进 touchstone 三库（exam 棘轮考官域所限）——独立测试 bash-guard-gpg1-fixes 长期钉
 - env -P 扩面未做（搭档单独点头边界）
