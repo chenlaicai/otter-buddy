@@ -310,3 +310,62 @@ describe("#1641-r1 检视回退探针（Review-1641 初轮：$() 引号世界/�
     expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
   });
 });
+
+describe("#1641-r2 delta 边界钉死（kill 域语义对照：主 PID 保护面 vs 非主 PID 设计放行面）", () => {
+  const gopts = { projectRoot, sessionCwd: `${projectRoot}/data/workspaces/ws` };
+
+  // 主 PID 保护面：$() 内管道 kill 主 PID（Review-1641 Q7）base/r1 双侧 BLOCK——钉死防未来回退
+  it("1641-Q7a: echo \"$(printf x | kill -9 主PID)\" → 仍拦", () => {
+    const cmd = `echo "$(printf x | kill -9 ${mainPid})"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-Q7b: cd 前缀 + $() 内管道 kill 主PID → 仍拦", () => {
+    const cmd = `cd ${projectRoot} && echo "$(printf x | kill -9 ${mainPid})"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-Q6a: $() 内 kill 直达主PID → 仍拦", () => {
+    const cmd = `echo "$(kill -9 ${mainPid})"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  // 非主 PID 设计语义对照：kill 域拦「主进程/间接来源/PID 文件」，非全量禁令
+  //（裸 kill 非主 PID 与无引号管道形态 base(04a0c249) 同 ALLOW——git show 隔离目录双侧实测）
+  it("1641-Q7c: $() 内管道 kill 非主 PID → 放行（设计语义：非主进程字面 PID，与裸 kill 同面）", () => {
+    const cmd = `echo "$(printf x | kill -9 12345)"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  // Q2 反引号域（r1 已修，钉死）
+  it("1641-Q2r: 双引号内反引号管道 rm 主仓 → 仍拦", () => {
+    const cmd = `echo "\`printf x | rm -f ${projectRoot}/src/x.txt\`"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-Q2r2: 双引号内反引号管道 kill 主PID → 仍拦", () => {
+    const cmd = `echo "\`printf x | kill -9 ${mainPid}\`"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  // Q3/Q4 顶层闭合（r1 已修，钉死——闭合修正对顶层与 $() 内同效）
+  it("1641-Q3r: 顶层 printf 'x\\' | rm 主仓 → 仍拦（单引号已闭合，rm 真命令位）", () => {
+    const cmd = `printf 'x\\' | rm -f ${projectRoot}/src/x.txt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-Q3r2: cd 前缀 + 相对路径变体 → 仍拦", () => {
+    const cmd = `cd ${projectRoot} && printf 'x\\' | rm -f src/x.txt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-Q4r: 顶层 printf \"x\\\\\" | rm 主仓 → 仍拦（偶数反斜杠，双引号闭合）", () => {
+    const cmd = `printf "x\\\\" | rm -f ${projectRoot}/src/x.txt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1641-Q4r2: cd 前缀 + 相对路径变体 → 仍拦", () => {
+    const cmd = `cd ${projectRoot} && printf "x\\\\" | rm -f src/x.txt`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+});
