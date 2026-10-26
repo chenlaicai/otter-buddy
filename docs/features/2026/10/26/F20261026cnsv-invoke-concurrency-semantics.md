@@ -222,7 +222,7 @@ settle 才置 false）+ 行 running —— 与活的长任务在两个存在性�
         （send-entry.ts:378-379），而 prompt() 尚未返回、drain 续轮正在消化
         followUp 队列（正是 D2 委托消息的消化时段）。此组合是「收尾中」
         而非僵尸；若 steal 会打断正在消化委托的 drain，与 D2 直接冲突。
-        （「yield 后 run 卡死」的 completed 型僵尸存在牲但需第三信号——持锁期
+        （「yield 后 run 卡死」的 completed 型僵尸存在性但需第三信号——持锁期
         无进展超时——不可用存在性信号硬判；列为已知限制，不治理）
   → 行 status == 'running' 且 SDK isRunning == false
       → 孤儿行（DB/SDK 脱节）→ steal
