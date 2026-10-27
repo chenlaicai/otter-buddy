@@ -74,6 +74,9 @@ data/*.db
 # Agent sessions
 data/sessions/
 
+# WIP patch archive (F20261027pprd, 2026-10-23 存档目录)
+data/patches/
+
 # Inbound media attachments (user-uploaded images/voice/files — runtime user data,
 # introduced by multimodal attachments pipeline F20260827mmdu)
 data/attachments/
