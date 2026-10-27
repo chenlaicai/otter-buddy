@@ -170,9 +170,10 @@ export class SqliteMatterRepository implements MatterRepository {
       FROM matters
       WHERE state = 'OPEN'
          OR (state = 'WAITING_PARTNER' AND updated_at <= ?)
+         OR (state = 'WAITING_OTTER' AND updated_at <= ?)
       ORDER BY updated_at ASC
       LIMIT ?
-    `).all(stallThresholdIso, limit) as Array<Pick<MatterRow,
+    `).all(stallThresholdIso, stallThresholdIso, limit) as Array<Pick<MatterRow,
       'id' | 'conversation_id' | 'title' | 'owner_otter_id' | 'level' | 'state' | 'waiting_on' | 'waiting_for' | 'created_at' | 'updated_at'>>;
     return rows.map(r => ({
       id: r.id,
