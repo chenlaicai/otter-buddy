@@ -14,6 +14,14 @@ export class DomainError extends Error {
   }
 }
 
+/** F20261027cnsv：同獭已有链委托在消化；链调度不得回退 invoke 重投。 */
+export class DelegationInFlightError extends Error {
+  constructor() {
+    super('目标海獭已有排队任务在消化');
+    this.name = 'DelegationInFlightError';
+  }
+}
+
 /** #654: session 锁获取超时错误的消息前缀（SimpleLockManager 抛出，全链路唯一判据）。
  *  Why 常量放 entities：错误在 frameworks/agent 产生、usecases/scheduler 消费，
  *  分层规则禁止 usecases import frameworks，判据必须落在双方可达的最内层。 */
@@ -24,7 +32,7 @@ export const SESSION_LOCK_TIMEOUT_MESSAGE = 'Lock acquire timeout for key: ';
  *  能等到 30s acquire 超时的持有者必然是活跃方（人工调查、并行任务等）——
  *  scheduler 侧应记 skipped 而非 failed，不计入 consecutiveFailures。 */
 export class SessionLockConflictError extends Error {
-  constructor(message: string) {
+  constructor(message: string, /** D3：超时发生瞬间的交接状态，随后锁释放也不能改写。 */ public readonly handoffMode = false) {
     super(message);
     this.name = 'SessionLockConflictError';
   }

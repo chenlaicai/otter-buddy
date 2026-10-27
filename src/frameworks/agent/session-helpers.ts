@@ -105,9 +105,8 @@ export function getOtterToolNamesForType(
  * 两个操作并发执行（EEXIST 竞态条件的根因，见 #376）。
  *
  * #599：stale 持有强制接管（steal）——invoke 在整个 agent 运行期间持锁
- * （正常可达数分钟），但持有超过 stealThreshold（默认 5 分钟）只可能来自异常路径
- * （abort 后 session.run 未 settle 的僵尸持有等）。继续等待必然 30s 超时抛错，
- * 把恢复失败留给用户手动收拾（#599 现场：10 分钟内 3 次手动中断僵尸发言）。
+ * （正常可达数分钟）。超 stealThreshold 只触发 holder 行态×SDK 态探测，
+ * 不是单独的判死条件；completed+SDK 活的 drain 窗口绝不接管。
  * steal 后旧持有者的 release 对已易主的锁是 no-op（generation 世代号判定）。
  */
 /**
@@ -115,6 +114,22 @@ export function getOtterToolNamesForType(
  * 合成上界 60s + turn 尾缓冲 → 120s；交接期间后续 waiter 用此值，交接结束恢复正常 30s。
  */
 export const HANDOFF_LOCK_WAITER_TIMEOUT_MS = 120_000;
+
+/** steal 只读探针：锁层不直接依赖 invoke 仓库或 SDK session。
+ *  holderEpoch 用于生产侧识别「锁的持有者」而不是误读随后启动的新 invoke。 */
+export interface SessionLockProbeResult {
+  invokeStatus: "running" | "completed" | "failed" | "aborted" | null;
+  sdkRunning: boolean;
+}
+export type SessionLockProbe = (key: string, holderEpoch?: object) => SessionLockProbeResult | undefined;
+
+/** D4：超龄只触发检查；双活和 completed+SDK 活都必须继续等待。
+ *  尤其后者是 yield 后的 drain 窗口，不能把它误判成僵尸。 */
+export function shouldStealSessionLock(probe: SessionLockProbeResult): boolean {
+  if (probe.invokeStatus === null) return false;
+  if (probe.sdkRunning) return probe.invokeStatus === "aborted" || probe.invokeStatus === "failed";
+  return true;
+}
 
 export class SimpleLockManager {
   // F20261009epoc（#905）：锁条目记录当前持有者 epoch（对象引用）——steal 接管时
@@ -142,9 +157,14 @@ export class SimpleLockManager {
     /** 可选日志器：锁获取超时时输出结构化诊断日志（#423 方案 1） */
     private readonly logger?: Logger,
     stealThresholdMs: number = 300_000,
+    private readonly probe?: SessionLockProbe,
   ) {
     this.defaultTimeout = timeoutMs;
     this.stealThresholdMs = stealThresholdMs;
+  }
+
+  isHandoffMode(key: string): boolean {
+    return this.handoffModeKeys.has(key);
   }
 
   /** F20260923hspx 检视严重2b 修正：交接模式（handoffMode）下禁止 steal——
@@ -169,18 +189,9 @@ export class SimpleLockManager {
     // 旧版检查队列长度导致两个调用者都绕过等待。
     if (lock.held) {
       const holderAgeMs = lock.heldAt !== null ? Date.now() - lock.heldAt : null;
-      // F20260923hspx 检视严重2b + delta 建议1：持有者是交接（handoffMode 置位）时禁 steal——
-      //  合成超时上限 300s 与 stealThresholdMs=300s 相邻，慢合成交接持锁 ≥300s 时并发 invoke
-      //  会误 steal 冻结锁，换世 markStale/换世链可撕裂 stolen invoke 活 session。
-      //  已知边界（delta 复核指出，接受不收窄）：谓词用「key 有交接在场」代「持有者是交接」——
-      //  等待期（setHandoffMode 先于 acquire）也置位，stale 非交接持有者 + 手动交接并发时
-      //  #599 强制接管失效；hung 交接时该 key 死结。收窄需锁内追踪持有者身份，复杂度高，
-      //  冻结窗口的 steal 失效场景（交接正常数分钟内完成）概率低于误 steal 撕裂场景。
-      if (!this.handoffModeKeys.has(key) && holderAgeMs !== null && holderAgeMs >= this.stealThresholdMs) {
-        // Why(#599): stale 持有强制接管——holderAge 超阈值说明持有者已异常
-        // （正常 invoke 数分钟内结束；abort 后 session.run 未 settle 会永久持有）。
-        // generation+1 使旧持有者的 release 对易主后的锁 no-op；waiters 保留，
-        // 旧等待者继续排队等新持有者释放（FIFO 语义不破坏）。
+      const steal = this.shouldSteal(key, lock, holderAgeMs);
+      if (steal) {
+        // generation+1 使旧持有者的 release 对易主后的锁 no-op；waiters 保留。
         this.logger?.warn(
           `Lock stolen from stale holder: ${key}`,
           {
@@ -192,8 +203,6 @@ export class SimpleLockManager {
           },
         );
         lock.generation += 1;
-        // F20261009epoc：steal 接管 = 锁位易主——接管者在下方赋值区写入自己的 epoch，
-        //  旧持有者的 release 引用不等 → no-op（epoch 在场时；缺席时 generation +1 已兑底）
         // fall through：不走等待队列，直接接管（下方 held/heldAt 赋值）
       } else {
         await this.waitForLock(key, lock, timeout, waitStartedAt);
@@ -245,6 +254,22 @@ export class SimpleLockManager {
     };
   }
 
+  /** 超龄仅触发探测；交接禁 steal，探针失明保守等待。 */
+  private shouldSteal(key: string, lock: { holderEpoch?: object }, holderAgeMs: number | null): boolean {
+    // handoffMode 谓词沿用「key 有交接在场」：窗口内宁可等待，不能误杀旧世。
+    if (this.handoffModeKeys.has(key) || holderAgeMs === null || holderAgeMs < this.stealThresholdMs) return false;
+    if (!this.probe) return true; // 非生产调用方无 holder 可查，保留 #599 旧行为。
+    try {
+      const state = this.probe(key, lock.holderEpoch);
+      const steal = state ? shouldStealSessionLock(state) : false;
+      this.logger?.info('Session lock steal probe', { lockKey: key, holderHeldForMs: holderAgeMs, ...state, steal });
+      return steal;
+    } catch (err) {
+      this.logger?.warn('Session lock steal probe failed; keep waiting', { lockKey: key, error: err instanceof Error ? err.message : String(err) });
+      return false;
+    }
+  }
+
   /** 等待锁释放或超时（#599 自 acquire 拆出：保持 acquire 主流程可读性） */
   private async waitForLock(
     key: string,
@@ -291,7 +316,7 @@ export class SimpleLockManager {
               activeLocks: this.locks.size,
             },
           );
-          reject(new SessionLockConflictError(`Lock acquire timeout for key: ${key}`));
+          reject(new SessionLockConflictError(`Lock acquire timeout for key: ${key}`, this.handoffModeKeys.has(key)));
         }, timeout)
       ),
     ]);

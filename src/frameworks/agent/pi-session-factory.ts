@@ -76,6 +76,8 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
+import { DelegationInFlightError, isSessionLockConflictError, SessionLockConflictError } from "@entities/errors";
+import { randomUUID } from "node:crypto";
 // F20261008tecn（EazoTack 工具瘦身 v1）：manifest toolExposure 段读取
 import { loadToolManifest, type ToolManifest } from "../config/tool-manifest-loader";
 
@@ -163,6 +165,8 @@ const EMPTY_TOOL_CONTEXT_BASE: ToolContext = {
 /** Agent 执行结果 */
 export interface AgentRunResult {
   text: string;
+  /** 锁超时后已交给当前 session 的 SDK 队列：本次 invoke 不代表模型执行。 */
+  queued?: boolean;
   /** session 累计 token 消耗（成本口径，仅日志用；不代表上下文窗口占用） */
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   /** 上下文窗口占用：末次 LLM 调用的 input+output+cacheRead+cacheWrite（F20260808ctxw） */
@@ -285,7 +289,16 @@ export class PiSessionFactory implements AgentGateway {
   /** F20261009epoc（D5）：池条目记录归属 epoch——冷启动铸造它的 invoke 的 epoch；
    *  池命中时转移到命中它的 invoke（合法复用 = 所有权转移，#904 语义保持：
    *  现役合法持有者可逐，stale 旧 invoke 不可）。 */
-  private readonly poolMeta = new Map<string, { session: AgentSession; toolContext: ToolContext; register: InvokeRegister; otterType: string; epoch?: InvokeEpoch }>();
+  private readonly poolMeta = new Map<string, {
+    session: AgentSession;
+    toolContext: ToolContext;
+    register: InvokeRegister;
+    otterType: string;
+    epoch?: InvokeEpoch;
+    /** 同獭至多一个链委托；owner epoch 防止旧 holder 误清后启动委托。 */
+    delegatedFollowUpInFlight?: string;
+    delegatedOwnerEpoch?: InvokeEpoch;
+  }>();
 
   constructor(
     private readonly cfg: {
@@ -323,12 +336,19 @@ export class PiSessionFactory implements AgentGateway {
       ...getConfig().circuitBreaker,
     };
     // Why(#423 方案1): 注入 logger，锁获取超时时落结构化诊断日志（持有者、持有时长、队列深度）
-    this.lockManager = new SimpleLockManager(undefined, logger);
+    this.lockManager = new SimpleLockManager(undefined, logger, 300_000, (key, holderEpoch) => {
+      const otterId = key.startsWith('session:') ? key.slice('session:'.length) : key;
+      return {
+        invokeStatus: this.readHolderInvokeStatus(otterId, holderEpoch),
+        // D4 的事实源就是 factory.isRunning：池内 drain + activeSessions 缺一不可。
+        sdkRunning: this.isRunning(otterId),
+      };
+    });
     // F20260911pspl：session 池（running 豁免用 SDK isStreaming；TTL 默认 10min）。
     // F20260913ctlv 整合（PR #886 merge main）：rlcp 池退役，以 #894 PiSessionPool 为基座；
     // ctlv 的 invoke 级语义（currentInvokeId/emitEvent/lastSpeakEntryId）移植进寄存器。
     this.pool = new PiSessionPool(async () => { throw new Error("pool factory must not be called directly"); });
-    this.pool.onEvict = (key) => { this.poolMeta.delete(key); };
+    this.pool.onEvict = (key) => { this.clearDelegation(key); this.poolMeta.delete(key); };
     this.pool.start();
   }
 
@@ -438,7 +458,8 @@ export class PiSessionFactory implements AgentGateway {
    *  等的就是自己）。此前修法（heldAt 纪元/hopeless 预检）都是锁时序补丁——本通道从根上拆掉
    *  「交接换世复用 invoke 池复用锁路径」这个双目的锁模型：per-otter 锁退回单目的
    *  （invoke 池复用，毫秒级短临界区）。
-   *  安全性：调用方必须已持有交接冻结锁（冻结窗口保证此刻无并发 invoke 动池位），
+   *  安全性（D1 定稿）：主锁是同獭 invoke 的串行一致性防线，真实临界区覆盖整个模型轮；
+   *  并非「毫秒级短临界区」。交接锁的冻结窗口提供互斥前提，换世不走主锁排队注入旧世。
    *  且 reset 换世期间池内旧 session 由 _resetInternal 的 evict 出池（不 dispose，
    *  旧 invoke 若仍活着由 GC 兑底——与 markStale 同语义，F20260912nlb896 已验证）。
    *  Precondition: 调用方已持交接冻结锁（acquireSessionLock），否则与 reset() 等价但与并发 invoke 竞态。 */
@@ -716,6 +737,49 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
+  /** D3：30s 锁冲突不再直接泄漏技术错误；handoff 旧世绝不注入。 */
+  private async degradeLockTimeout(otterId: string, message: string, options: InvokeOptions | undefined, handoffAtTimeout: boolean): Promise<AgentRunResult> {
+    if (handoffAtTimeout) {
+      await this.recordLockDegradation(otterId, options, 'handoff', false, '交接冻结窗口超时，拒绝向即将换世的旧 session 注入。');
+      throw new Error('目标海獭正在交接，消息未能送达，请稍后重试');
+    }
+    const queued = await this.followUp(otterId, message, { delegated: true, reason: 'lock-timeout', delegatedOptions: options });
+    if (queued) {
+      this.logger.info('Lock timeout delegated (queued)', { otterId, queued: true });
+      return { text: '', queued: true };
+    }
+    await this.recordLockDegradation(otterId, options, 'pool-unavailable', false, '锁被占用但池内 session 不可注入，消息未送达。');
+    throw new Error('目标海獭状态异常，消息未能送达，请稍后重试');
+  }
+
+  private async recordLockDegradation(otterId: string, options: InvokeOptions | undefined, reason: string, queued: boolean, description: string): Promise<void> {
+    try {
+      await this.cfg.healingRepo?.create({
+        id: randomUUID(),
+        messageId: options?.currentInvokeId ?? options?.messageId ?? '',
+        conversationId: options?.conversationId ?? '',
+        otterId,
+        errorType: 'other',
+        severity: 'medium',
+        description,
+        suggestion: queued ? '观察持有者 drain；error/abort 早退时按已知生命周期边界处理。' : '重试前核实 session 池与 invoke 状态，避免并发重复派工。',
+        context: { layer: 'session-lock', reason, queued, handoffMode: reason === 'handoff' },
+        status: 'open', resolution: null, createdAt: new Date().toISOString(), resolvedAt: null,
+      });
+    } catch (err) {
+      this.logger.warn('锁降级 healing 写入失败（不覆盖业务结果）', { otterId, reason, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /** D4：锁持有者的 invoke 行；epoch 缺失的非 invoke 锁路径没有持有者行可读。 */
+  private readHolderInvokeStatus(otterId: string, holderEpoch?: object): 'running' | 'completed' | 'failed' | 'aborted' | null {
+    const epoch = holderEpoch as InvokeEpoch | undefined;
+    const invokeId = epoch?.invokeId;
+    if (!invokeId) return null;
+    const row = this.cfg.db.prepare('SELECT status FROM invokes WHERE id = ? AND otter_id = ?').get(invokeId, otterId) as { status?: string } | undefined;
+    return row?.status === 'running' || row?.status === 'completed' || row?.status === 'failed' || row?.status === 'aborted' ? row.status : null;
+  }
+
   /** invoke() 外部版本（带锁） */
   async invoke(
     otterId: string,
@@ -753,10 +817,18 @@ export class PiSessionFactory implements AgentGateway {
     // 清理钩子/_executeWithSession）都在 epoch 作用域内。otterInvokeStorage.run
     // （:918，含 identityPrefix 构建）原位不动，不与本通道耦合。
     return await invokeEpochStorage.run(epoch, async () => {
-      const release = await this.lockManager.acquire(`session:${otterId}`, undefined, epoch);
+      let release: (() => void) | undefined;
+      try {
+        release = await this.lockManager.acquire(`session:${otterId}`, undefined, epoch);
+      } catch (err) {
+        if (isSessionLockConflictError(err)) return this.degradeLockTimeout(otterId, message, options, err instanceof SessionLockConflictError && err.handoffMode);
+        throw err;
+      }
       try {
         return await this._invokeInternal(otterId, message, options);
       } finally {
+        // 原始 prompt promise 包含 SDK followUp drain；至此才可清理委托与放锁。
+        this.clearDelegation(otterId, epoch);
         release();
       }
     });
@@ -1468,7 +1540,62 @@ export class PiSessionFactory implements AgentGateway {
    *  双路径设计（终审 B4）：本方法从 poolMeta 取池级 session（idle 期队列追加，
    *  SDK 原生排队）；steerSession 走 activeSessions 前缀扫描（invoke 运行期实时
    *  打断）——两条注入路径的 session 取源不同是设计意图，非遗漏 */
-  followUp(otterId: string, text: string): boolean {
+  followUp(otterId: string, text: string): boolean;
+  followUp(otterId: string, text: string, options: { delegated: true; reason?: 'chain' | 'lock-timeout'; delegatedOptions?: InvokeOptions }): Promise<boolean>;
+  followUp(otterId: string, text: string, options?: { delegated?: boolean; reason?: 'chain' | 'lock-timeout'; delegatedOptions?: InvokeOptions }): boolean | Promise<boolean> {
+    if (!options?.delegated) return this.enqueueUserFollowUp(otterId, text);
+    // D2 也不向交接旧世排队；false 让链回退锁等待，由 D3 统一处理超时。
+    if (this.lockManager.isHandoffMode(`session:${otterId}`)) return Promise.resolve(false);
+    return this.enqueueDelegatedFollowUp(otterId, text, options);
+  }
+
+  /** D2/D3 的可靠投递变体：await SDK disposition，失败不冒充 queued。 */
+  private async enqueueDelegatedFollowUp(otterId: string, text: string, options: { reason?: 'chain' | 'lock-timeout'; delegatedOptions?: InvokeOptions }): Promise<boolean> {
+    const pooled = this.poolMeta.get(otterId);
+    if (!pooled || !pooled.session.isStreaming) return false;
+    if (pooled.delegatedFollowUpInFlight) {
+      await this.recordLockDegradation(otterId, options.delegatedOptions, 'delegation-in-flight', false, '目标海獭已有排队任务在消化，拒绝第二个链委托。');
+      throw new DelegationInFlightError();
+    }
+    const delegationId = randomUUID();
+    pooled.delegatedFollowUpInFlight = delegationId;
+    pooled.delegatedOwnerEpoch = pooled.epoch;
+    try {
+      const disposition = await pooled.session.followUp(text);
+      if (disposition !== 'queued') {
+        this.clearDelegation(otterId, pooled.delegatedOwnerEpoch);
+        return false;
+      }
+      await this.recordDelegatedFollowUp(otterId, pooled, options);
+      return true;
+    } catch (err) {
+      if (this.poolMeta.get(otterId) === pooled && pooled.delegatedFollowUpInFlight === delegationId) {
+        this.clearDelegation(otterId, pooled.delegatedOwnerEpoch);
+      }
+      this.logger.warn('delegated followUp failed', { otterId, error: err instanceof Error ? err.message : String(err) });
+      return false;
+    }
+  }
+
+  /** D2 归 holder、D3 归等待 invoke；healing 只在 SDK queued 后写入。 */
+  private async recordDelegatedFollowUp(
+    otterId: string,
+    pooled: { toolContext: ToolContext; register: InvokeRegister },
+    options: { reason?: 'chain' | 'lock-timeout'; delegatedOptions?: InvokeOptions },
+  ): Promise<void> {
+    const lockTimeout = options.reason === 'lock-timeout';
+    const conversationId = options.delegatedOptions?.conversationId ?? pooled.toolContext.conversationId;
+    this.logger.info('delegated followUp accepted', {
+      otterId, delegated: true, conversationId, holderInvokeId: pooled.register.currentInvokeId,
+    });
+    const recordOptions = lockTimeout
+      ? options.delegatedOptions
+      : { currentInvokeId: pooled.register.currentInvokeId, conversationId };
+    await this.recordLockDegradation(otterId, recordOptions, lockTimeout ? 'lock-timeout' : 'chain-delegated', true,
+      lockTimeout ? '等锁超时，消息已转交当前 session 的 followUp 队列。' : '链式派工已注入持有者队列；持有者异常早退时消息随 session 生命周期处理。');
+  }
+
+  private enqueueUserFollowUp(otterId: string, text: string): boolean {
     const pooled = this.poolMeta.get(otterId);
     if (!pooled || !pooled.session.isStreaming) return false;
     void pooled.session.followUp(text).catch((err: unknown) => {
@@ -1476,6 +1603,17 @@ export class PiSessionFactory implements AgentGateway {
     });
     return true;
   }
+
+  /** 原 prompt settle 代表队列 drain 完成；pool evict/失败注入也走此清理。 */
+  private clearDelegation(otterId: string, ownerEpoch?: InvokeEpoch): void {
+    const pooled = this.poolMeta.get(otterId);
+    if (!pooled?.delegatedFollowUpInFlight) return;
+    if (ownerEpoch && pooled.delegatedOwnerEpoch && ownerEpoch !== pooled.delegatedOwnerEpoch) return;
+    this.logger.info('delegated followUp holder settled', { otterId, delegated: true });
+    pooled.delegatedFollowUpInFlight = undefined;
+    pooled.delegatedOwnerEpoch = undefined;
+  }
+
 
   /** #530 梯度护栏：向活跃 session 注入 steer 文案（链引擎调用）。
    *  复用 circuit-breaker-helpers 的 session.steer 通道。
