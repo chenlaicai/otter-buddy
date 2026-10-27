@@ -18,6 +18,7 @@ export type ExitReason =
   | { kind: 'user_abort'; toolCallCount: number; /** #752：用户中断时的底层 SDK 错误，用于中断归因 */ underlyingError?: AbortUnderlyingError }
   | { kind: 'guard_abort'; guardReason: string; toolCallCount: number }
   | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
+  | { kind: 'queued'; toolCallCount: number }
   | { kind: 'no_yield'; toolCallCount: number };
 
 /** #752：判断 err 是否是 abort 操作自身的产物（而非 abort 前已存在的底层错误）
@@ -47,7 +48,7 @@ export function extractGuardReason(
 export function classifyExit(
   p: {
     messageId: string;
-    result?: { text: string; tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; ctxTokens?: number; ctxMax?: number };
+    result?: { text: string; queued?: boolean; tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; ctxTokens?: number; ctxMax?: number };
     err?: unknown;
     toolCallCount: number;
   },
@@ -73,6 +74,8 @@ export function classifyExit(
   if (guardReason) {
     return { kind: 'guard_abort', guardReason, toolCallCount: p.toolCallCount };
   }
+
+  if (p.result?.queued && !p.err) return { kind: 'queued', toolCallCount: p.toolCallCount };
 
   if (p.err) {
     const msg = p.err instanceof Error ? p.err.message : String(p.err);

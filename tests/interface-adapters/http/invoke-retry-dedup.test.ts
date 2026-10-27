@@ -39,7 +39,8 @@ function makeInvoke(overrides: Partial<Invoke>): Invoke {
 
 function makeRepo(latest: Invoke | null): InvokeRepository {
   return {
-    getInvokes: vi.fn().mockResolvedValue(latest ? [latest] : []),
+    getInvokes: vi.fn(async (_conversationId: string, options?: { status?: string }) =>
+      latest && (!options?.status || latest.status === options.status) ? [latest] : []),
     getInvokeById: vi.fn().mockResolvedValue(latest),
   } as unknown as InvokeRepository;
 }
@@ -160,6 +161,43 @@ describe("F20261020ided retryByOtter 判重去重", () => {
     const c = makeContext();
     await controller.retryByOtter(c as never);
 
+    expect(findDedupConflict(c)).toBeUndefined();
+  });
+});
+
+describe("F20261026cnsv 通用 invoke retry 同口径判重", () => {
+  function makeTargeted(latest: Invoke, sdkRunning: boolean) {
+    const agentInvoker = { isRunning: vi.fn().mockReturnValue(sdkRunning), invokeConversation: vi.fn() };
+    const dispatchChainEngine = { executeChain: vi.fn().mockResolvedValue(undefined) };
+    return { controller: new InvokeController(makeRepo(latest), logger, agentInvoker as never, dispatchChainEngine as never), agentInvoker, dispatchChainEngine };
+  }
+  it("目标 invoke running → 409，不触达链", async () => {
+    const h = makeTargeted(makeInvoke({ status: "running", endedAt: null }), false);
+    const c = makeContext();
+    await h.controller.retry(c as never);
+    expect(findDedupConflict(c)).toBeDefined();
+    expect(h.dispatchChainEngine.executeChain).not.toHaveBeenCalled();
+  });
+  it("目标已 aborted 但同獭另有 running 行 → 409", async () => {
+    const h = makeTargeted(makeInvoke({ status: "aborted" }), false);
+    vi.mocked(h.controller["invokeRepo"].getInvokes).mockImplementation(async (_cid, options) =>
+      options?.status === "running" ? [makeInvoke({ id: "other-running", status: "running" })] : []);
+    const c = makeContext();
+    await h.controller.retry(c as never);
+    expect(findDedupConflict(c)).toBeDefined();
+    expect(h.dispatchChainEngine.executeChain).not.toHaveBeenCalled();
+  });
+  it("DB 已终态但 SDK 仍 drain → 409", async () => {
+    const h = makeTargeted(makeInvoke({ status: "failed" }), true);
+    const c = makeContext();
+    await h.controller.retry(c as never);
+    expect(findDedupConflict(c)).toBeDefined();
+    expect(h.dispatchChainEngine.executeChain).not.toHaveBeenCalled();
+  });
+  it("目标 aborted、无 running 行、SDK 已死 → 不误拦", async () => {
+    const h = makeTargeted(makeInvoke({ status: "aborted" }), false);
+    const c = makeContext();
+    await h.controller.retry(c as never);
     expect(findDedupConflict(c)).toBeUndefined();
   });
 });

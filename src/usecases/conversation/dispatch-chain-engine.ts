@@ -12,6 +12,7 @@ import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { PartnerResolver } from "@usecases/im/partner-resolver";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { randomUUID } from "node:crypto";
+import { DelegationInFlightError } from "@entities/errors";
 // F20260826mwrd C3（Part 6）：L2 安全词扫描
 import { scanStopWords } from "@usecases/signal/stop-word-scanner";
 import type { SenderType } from "@entities/conversation/entry";
@@ -62,6 +63,8 @@ export interface InvokeFnParams {
 }
 
 export interface InvokeFnResult {
+  /** D2：委托 hop 的进程内结算标记；不落库、不路由，由持有者原链消费续轮。 */
+  delegated?: boolean;
   /** 契约（F20261026ctbg 审视⑤钉扎）：实为 invoke 行 id，非 speak 消息 id——产出判定
    *  （fetchProducedMessage 读行级 tsp）与 #530 getSelfYieldDecisionEntries 的当前
    *  invoke 边界子查询均以此为前提，改动任一侧需同步。 */
@@ -118,6 +121,10 @@ export class DispatchChainEngine {
       selfYieldEntryRepo?: {
         getSelfYieldDecisionEntries(conversationId: string, otterId: string, currentInvokeId: string, limit: number): Promise<Array<{ id: string; entryType: string; senderId: string | null; invokeId: string | null; yieldTargets: string[] | null }>>;
       };
+      /** D2：链式派工的目标忙碌判定与同 session followUp 注入。
+       *  factory 与 session 保持架构边界；旧测试/装配缺省时维持直接 invoke。 */
+      isRunning?: (otterId: string) => boolean;
+      followUp?: (otterId: string, text: string, options?: { delegated?: boolean; conversationId?: string }) => Promise<boolean>;
       /** F20260920trrt：闲置预警新口径（seq 差 + 时间护栏）读时聚合接口。
        *  SQLite 实现已提供；测试桩可部分 mock（可选方法，未注入时预警降级为 null）。 */
       idleStatsRepo?: {
@@ -334,6 +341,9 @@ export class DispatchChainEngine {
         fullMessage += `\n\n${stopWordReminder}`;
       }
 
+      const delegatedHop = await this.delegateBusyHop(conversationId, otterId, fullMessage);
+      if (delegatedHop) return delegatedHop;
+
       this.deps.logger.info('发言链调用', {
         otterId,
         messageLength: fullMessage.length,
@@ -351,6 +361,8 @@ export class DispatchChainEngine {
     });
 
     const results = await Promise.allSettled(promises);
+    const fastFailure = results.find((r) => r.status === 'rejected' && r.reason instanceof DelegationInFlightError);
+    if (fastFailure?.status === 'rejected') throw fastFailure.reason;
     // F20260907ylfs ②（P3a 批次 2）：护栏决策单点化——settle 记账与路由共享同一门控结果。
     // 旧序：recordAttemptSettle（:314 filter 滤 self）先执行、processHopResults（:417 filter 滤 self）
     // 后执行——两处各滤各的，自→自记账通道被 :314 无条件关死（顺序依赖，快审 delta 重点）。
@@ -367,6 +379,22 @@ export class DispatchChainEngine {
     } finally {
       // no-op
     }
+  }
+
+  /** D2：忙碌目标转 SDK 队列；仅真实 queued 才返回 delegated 进程内结果。 */
+  private async delegateBusyHop(conversationId: string, otterId: string, fullMessage: string): Promise<InvokeFnResult | null> {
+    if (!this.deps.isRunning?.(otterId) || !this.deps.followUp) return null;
+    let delegated = false;
+    try {
+      delegated = await this.deps.followUp(otterId, `## 链式派工\n${fullMessage}`, { delegated: true, conversationId });
+    } catch (err) {
+      // 单飞行拒绝要快速失败，不能降级 invoke 再次制造并发委托。
+      if (err instanceof DelegationInFlightError) throw err;
+      this.deps.logger.warn('发言链 followUp 异常，降级直接 invoke', { conversationId, otterId, error: err instanceof Error ? err.message : String(err) });
+    }
+    this.deps.logger.info(delegated ? '发言链 hop 已投递（delegated）' : '发言链 followUp 未命中，降级直接 invoke', { conversationId, otterId, delegated });
+    // 不建 invoke、不写持久化终态；factory 单点记录 holder healing。
+    return delegated ? { messageId: '', delegated: true } : null;
   }
 
   /** F20260907ylfs ②：降级槽位批量收集（自 executeOneHop 拆出，控 max-lines/complexity）。
@@ -405,7 +433,7 @@ export class DispatchChainEngine {
     for (let i = 0; i < results.length; i++) {
       const r = results[i]!;
       const target = targets[i];
-      if (r.status !== "fulfilled" || !target) continue; // rejected 目标无产出可判，不进 outcomes
+      if (r.status !== "fulfilled" || !target || r.value.delegated) continue; // rejected/delegated 无本 hop 产出可判，不进 outcomes
       const [producedMsg, degraded] = await this.fetchProducedMessage(r.value.messageId, conversationId);
       const tsp = producedMsg?.talkingStonePassedTo ?? [];
       // F20260907ylfs ②：护栏门控（取代旧「静默滤 self → 链终止」）——门控分支下沉
@@ -662,7 +690,7 @@ export class DispatchChainEngine {
     const usageDeltas: Array<TokenUsage | undefined> = [];
     // 资源计量先遍历全部 settled 结果，与下方路由 abort 解耦；并发目标即使终链也已真实消耗。
     for (const result of results) {
-      if (result.status === "fulfilled") usageDeltas.push(result.value.tokenUsageDelta);
+      if (result.status === "fulfilled" && !result.value.delegated) usageDeltas.push(result.value.tokenUsageDelta);
     }
 
     for (let i = 0; i < results.length; i++) {
@@ -704,7 +732,7 @@ export class DispatchChainEngine {
     // #530 梯度护栏：abort 后清空 nextTargets 终链（链停非惩罚，可被外部重新 invoke）
     // F20261026ctbg 审视修复④：全 rejected hop（无任何 fulfilled 目标）不是计量缺口——
     // usageDeltas.length=0 在该场景语义是「无 fulfilled 可计量」，非「fulfilled 但缺报」
-    const hasFulfilled = results.some(r => r.status === "fulfilled");
+    const hasFulfilled = results.some(r => r.status === "fulfilled" && !r.value.delegated);
     return {
       nextTargets: shouldAbort ? [] : [...nextTargets],
       steerText, // #530 进程级传递，下一 hop 前置注入

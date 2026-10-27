@@ -151,6 +151,12 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     logger,
     settingsRepo: repos.settings,
     metrics: options?.agentMetrics,
+    // D2：链调度主防线——同獭忙碌时委托 SDK 队列，不撞锁。
+    isRunning: options?.agentGateway ? (otterId) => options.agentGateway!.isRunning(otterId) : undefined,
+    followUp: options?.agentGateway ? async (otterId, text, followOptions) => {
+      if (followOptions?.delegated) return options.agentGateway!.followUp(otterId, text, { delegated: true, reason: 'chain', delegatedOptions: { conversationId: followOptions.conversationId ?? '' } });
+      return options.agentGateway!.followUp(otterId, text);
+    } : undefined,
     // F20260826fpbd：搭档身份静态判定。未配置时 PartnerResolver 降级（动态推断）
     // F20260928wxid：双渠道 ID——微信消息也经链引擎渲染历史，搭档需被认出（含微信 ilink_user_id）
     // F20260928fsqr：外置实例（扫码首号运行时写入）；缺省内部构造保持存量行为

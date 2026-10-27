@@ -254,11 +254,33 @@ export class AgentTurnOrchestrator {
         // #543：api_error 终态限流识别——配额黑盒修复点。
         // 识别失败/写入失败不阻断 failTerminal（主路径），告警尽力而为。
         return this.handleApiError(reason, ctx);
+      case 'queued':
+        return this.handleQueued(ctx);
       case 'no_yield':
         return this.handleYieldRetry(ctx);
       default:
         return { invokeId: ctx.input.invokeId, duration: Date.now() - ctx.startTime, tokenUsageDelta: ctx.tokenUsageDelta };
     }
+  }
+
+  /** queued 不等于 yield 成功，也不等于 no_yield：当前等待者退出，持有者续轮负责发言与交棒。
+   *  不伪造 turn.complete / invoke_end，防止链误读成一次已完成的 hop。 */
+  private async handleQueued(ctx: RouteContext): Promise<TurnResult> {
+    this.terminalInvokes.add(ctx.input.invokeId);
+    // 等待者必须离开 running，否则永远被 retry 判重扣留。completed 在此只表示
+    // 「本次等待有界收敛」，不代表 yield 或模型已发言；绝不发 turn.complete/invoke_end。
+    await ctx.callbacks.updateInvokeStatus(ctx.input.invokeId, 'completed');
+    await ctx.callbacks.sendSystem(
+      ctx.input.conversationId,
+      `目标海獭正忙，本次消息已排队，将随当前任务结束后继续处理（invoke=${ctx.input.invokeId}）。`,
+    );
+    this.logger.info('Agent invocation delegated to session queue', {
+      otterId: ctx.input.otterId,
+      conversationId: ctx.input.conversationId,
+      invokeId: ctx.input.invokeId,
+      queued: true,
+    });
+    return { invokeId: ctx.input.invokeId, duration: Date.now() - ctx.startTime, tokenUsageDelta: ctx.tokenUsageDelta };
   }
 
   /**

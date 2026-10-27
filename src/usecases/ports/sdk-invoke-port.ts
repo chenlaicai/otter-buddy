@@ -28,6 +28,8 @@ export type { AgentSessionEvent };
 /** Agent 执行结果（与 Pi 的 AgentRunResult 结构匹配） */
 export interface AgentRunResult {
   text: string;
+  /** D3：锁超时后已交给持有者 SDK 队列，本次未执行模型。 */
+  queued?: boolean;
   /** session 累计 token 消耗（成本口径，仅日志用；不代表上下文窗口占用） */
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   /** F20261026ctbg：单次 invoke 增量；与累计快照 tokenUsage 语义严格分离。 */
