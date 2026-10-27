@@ -560,17 +560,29 @@ function checkDataDirDestructive(command: string, logger: Logger | undefined, ct
   // heredocWriteVeto 体感知负门），剥体不产生真洞；stripHeredocPayloads 对展开
   // 特征/未闭合体保守不剥（fail-closed）。
   const scanText = stripHeredocPayloads(command);
-  const segments = scanText.split(/&&|\|\||[;&\n]/).map(s => s.trim()).filter(Boolean);
-  let cwd = ctx.sessionCwd ? path.normalize(ctx.sessionCwd) : (ctx.projectRoot ? path.normalize(ctx.projectRoot) : "");
-  for (const seg of segments) {
+  const legacySegments = scanText.split(/&&|\|\||[;&\n]/).map(s => s.trim()).filter(Boolean);
+  const startCwd = ctx.sessionCwd ? path.normalize(ctx.sessionCwd) : (ctx.projectRoot ? path.normalize(ctx.projectRoot) : "");
+  // 只有真实的 cd+pipe 链才需要重切管道边界；无 cd 的 xargs 等间接形态
+  // 完整保留旧分段与目标提取面，不被本 cwd 修复顺带翻判。
+  const model = parseOnce(scanText);
+  const hasPipeCd = model.parseOk && model.segments.some(s => tokenBasename(s.argv0 ?? "") === "cd") && model.segments.some(s => s.joiner === "|");
+  const structuredSegments = hasPipeCd ? splitShellSegments(scanText) : [];
+  const cwdAt = structuredSegments.length === model.segments.length && structuredSegments.length > 0
+    ? resolveCwdAt(model.segments, startCwd)
+    : null;
+  const segments = cwdAt === null ? legacySegments : structuredSegments;
+  let cwd = startCwd;
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
     // 形态 0：cd 更新跟踪 cwd（后续段的相对路径基准）
     if (isKillAtCommandPosition(seg, /\bcd\b/)) {
+      if (cwdAt !== null) continue; // 统一快照已含 cd 自身及子进程隔离语义
       const target = seg.split(/\s+/)[1]?.replace(/^["']|["']$/g, "");
       if (!target || target.startsWith("~")) { cwd = ""; continue; } // ~ / 无参无法静态解析 → 后续按保守路径处理
       cwd = path.isAbsolute(target) ? safeRealpath(target) : (cwd ? safeRealpath(joinNoFold(cwd, target)) : "");
       continue;
     }
-    const { kind, zone } = segmentDestructive(seg, cwd, ctx.projectRoot, ctx.sessionCwd);
+    const { kind, zone } = segmentDestructive(seg, cwdAt?.[i] ?? cwd, ctx.projectRoot, ctx.sessionCwd);
     if (zone !== null) {
       logger?.warn(`[bash-safety-guard] BLOCKED ${kind} targeting main-checkout ${zone}`, { command: command.substring(0, 200) });
       return zone === "data" ? DATA_DESTRUCTIVE_MSG : MAIN_DESTRUCTIVE_MSG;
