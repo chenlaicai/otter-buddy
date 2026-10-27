@@ -13,6 +13,10 @@ causal_links:
 tags: [tool-manifest, matters, config]
 modules: [tool-manifest]
 created_at: 2026-10-27
+intent:
+  problem: matter 域两工具（register_matter/matter_sweep）在任何 capabilityBlock 未登记（8 block 全查），big 型仅靠 tools="*" 通配成立——声明债：未来 big 从 "*" 改显式枚举时两工具静默丢失
+  solution: 登记入 orchestration block（描述「仅 big 型引用，small 不得持有」，与两工具权限语义匹配）；不放 system block（被 small groups 引用，放入即实际扩权）——声明现状语义，零权限变化
+  verify_by: static_only
 ---
 
 # register_matter / matter_sweep 登记 orchestration block（#1349）
@@ -44,9 +48,10 @@ config/tool-manifest.json orchestration block tools 追加 `register_matter`、`
 
 ## 验证
 
+- Golden Gate: n/a（verify_by=static_only——纯声明配置变更，无场景可跑）
 - JSON 合法性 ✓（json.load 通过）
-- manifest 加载与 block 校验：`npx jest tests/frameworks/config/tool-manifest-loader.test.ts` ✓
-- small 型展开断言：getToolNamesFromManifest(small) 不含两工具（loader 测试路径覆盖 groups 展开）✓
+- manifest 加载与 block 校验：`npx vitest run tests/frameworks/config/tool-manifest-loader.test.ts` **39/39 绿**（检视处置订正：原文误写 npx jest，项目测试框架为 vitest）
+- small 型不含两工具：生产路径断言（tests/frameworks/agent/coding-tools.test.ts，真实 manifest 同构面）补 `not.toContain(register_matter/matter_sweep)` 两行；「零权限变化」结论另经 manifest 数据独立核验（检视琭三方验证成立）
 
 ## 关联
 
