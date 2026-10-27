@@ -59,6 +59,8 @@ export interface Payload {
   /** 载荷种类 */
   kind: "cmdsub" | "backtick" | "bash-c" | "procsub" | "heredoc-bare" | "heredoc-quoted";
   depth: number;
+  /** 所属顶层 Segment；缺省表示括号展开等无法安全对应外层段的既有载荷。 */
+  segmentIndex?: number;
 }
 
 export interface CommandModel {
@@ -92,12 +94,18 @@ const MAX_DEPTH = 2;
 
 // ────────────────────────────── 解析 ──────────────────────────────
 
-/** token 流 → segments。括号组展开为 subshell 段。 */
-function buildSegments(tokens: Token[], text: string): { segments: Segment[]; subshellPayloads: Payload[] } {
+/** token 流 → segments。括号组展开为 subshell 段；token 归属仅供载荷 cwd 求值。 */
+function buildSegments(tokens: Token[], text: string): { segments: Segment[]; subshellPayloads: Payload[]; tokenSegments: Map<Token, number> } {
   const segments: Segment[] = [];
   const subshellPayloads: Payload[] = [];
+  const tokenSegments = new Map<Token, number>();
+  let curTokens: Token[] = [];
   let cur: Segment = emptySegment("");
   let i = 0;
+
+  function ownCurrentTokens(segmentIndex: number): void {
+    for (const token of curTokens) tokenSegments.set(token, segmentIndex);
+  }
 
   function emptySegment(joiner: string): Segment {
     return { argv0: null, args: [], words: [], redirects: [], assignments: [], assignWords: [], subshell: false, joiner, commentText: null, heredocs: [] };
@@ -108,14 +116,17 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
     finalizeAssignments(cur);
     if (cur.words.length > 0 || cur.redirects.length > 0 || cur.assignments.length > 0 || cur.subshell) {
       cur.argv0 = cur.words[0]?.evaluated ?? null;
+      ownCurrentTokens(segments.length);
       segments.push(cur);
     }
     cur = emptySegment(nextJoiner);
+    curTokens = [];
   }
 
   while (i < tokens.length) {
     const t = tokens[i];
     if (t.type === "word") {
+      curTokens.push(t);
       cur.words.push(t.word!);
       i++;
       continue;
@@ -132,7 +143,9 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
           finalizeAssignments(cur);
           cur.argv0 = cur.words[0]?.evaluated ?? null;
           cur.args = cur.words.slice(1).map(w => w.evaluated);
+          ownCurrentTokens(segments.length);
           segments.push(cur);
+          curTokens = [];
         }
         if (inner.model) {
           // 组内 segments 就地展开（首段继承括号前 joiner；后续段保留组内 joiner）
@@ -140,7 +153,8 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
             const s = { ...seg, subshell: true, joiner: idx === 0 ? pendingJoiner : seg.joiner };
             segments.push(s);
           });
-          subshellPayloads.push(...inner.model.payloads);
+          // 内层索引属于内层模型，不能拿它索引外层 cwdAt。
+          subshellPayloads.push(...inner.model.payloads.map(p => ({ ...p, segmentIndex: undefined })));
         } else {
           subshellPayloads.push({ raw: inner.raw, model: null, kind: "procsub", depth: 1 });
         }
@@ -154,11 +168,13 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
         continue;
       }
       if (isRedirOp(op)) {
+        curTokens.push(t);
         // 重定向目标=下一 word（若有）
         const nextT = tokens[i + 1];
         let target: string | null = null;
         let targetWord: Word | undefined;
         if (nextT && nextT.type === "word") {
+          curTokens.push(nextT);
           target = nextT.word!.evaluated;
           if (target === null) targetWord = nextT.word!; // F20261019f714：动态目标词保留（溯源用）
           i++; // 消费目标词
@@ -173,6 +189,7 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
       continue;
     }
     if (t.type === "heredoc") {
+      curTokens.push(t);
       // 模型层载荷收集（collectPayloads）口径不变；体另按接收段挂 Segment.heredocs——
       // heredoc token 在词流中的位置即接收段（scanHeredoc 在 `<<` 处就地发射），
       // 能力 1 求值层原料（脚本投递 vs 数据投递的判定事实源）
@@ -192,7 +209,7 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
     i++;
   }
   flushSegment("");
-  return { segments, subshellPayloads };
+  return { segments, subshellPayloads, tokenSegments };
 }
 
 /** 从 tokens[start]（= "("）收集到匹配 ")"，返回组内文本与递归模型 */
@@ -263,20 +280,24 @@ function matchAssignment(w: Word): { name: string; value: string | null } | null
  *  r1-S2 处置：裸定界 heredoc 体对齐 V1 stripHeredocPayloads 语义——体内容
  *  无展开特征（$/反引号）时是纯数据不递归（V1 剥离放行；#1171 白名单完整落实：
  *  裸定界 body 的数据行 kill 词样不拦）；体含展开才作为危险通道递归。 */
-function collectPayloads(tokens: Token[], text: string, depth: number): { payloads: Payload[]; parseOk: boolean } {
+function collectPayloads(tokens: Token[], text: string, depth: number, tokenSegments: Map<Token, number>): { payloads: Payload[]; parseOk: boolean } {
   const payloads: Payload[] = [];
   let parseOk = true;
+  const owned = (token: Token, payload: Payload): Payload => {
+    const segmentIndex = tokenSegments.get(token);
+    return segmentIndex === undefined ? payload : { ...payload, segmentIndex };
+  };
 
   for (const t of tokens) {
     if (t.type === "word") {
       for (const p of t.word!.parts) {
         if (p.type === "cmdsub") {
           if (depth >= MAX_DEPTH) {
-            payloads.push({ raw: p.text, model: null, kind: "cmdsub", depth });
+            payloads.push(owned(t, { raw: p.text, model: null, kind: "cmdsub", depth }));
             parseOk = false; // 深度超限=载荷不可知（D2：保守，判定层兜底）
           } else {
             const sub = parseOnce(p.text, depth + 1);
-            payloads.push({ raw: p.text, model: sub, kind: "cmdsub", depth: depth + 1 });
+            payloads.push(owned(t, { raw: p.text, model: sub, kind: "cmdsub", depth: depth + 1 }));
             if (!sub.parseOk) parseOk = false;
           }
         }
@@ -289,21 +310,21 @@ function collectPayloads(tokens: Token[], text: string, depth: number): { payloa
         const body = text.slice(hd.bodySpan.start, hd.bodySpan.end);
         if (hd.delimQuoted) {
           // 引号定界=绝对数据（不递归）
-          payloads.push({ raw: body, model: null, kind: "heredoc-quoted", depth });
+          payloads.push(owned(t, { raw: body, model: null, kind: "heredoc-quoted", depth }));
         } else if (/\$|`/.test(body)) {
           // 裸定界 + 体含展开特征（$/反引号）→ 危险通道递归（V1 同口径）
           if (depth >= MAX_DEPTH) {
-            payloads.push({ raw: body, model: null, kind: "heredoc-bare", depth });
+            payloads.push(owned(t, { raw: body, model: null, kind: "heredoc-bare", depth }));
             parseOk = false;
           } else {
             const sub = parseOnce(body, depth + 1);
-            payloads.push({ raw: body, model: sub, kind: "heredoc-bare", depth: depth + 1 });
+            payloads.push(owned(t, { raw: body, model: sub, kind: "heredoc-bare", depth: depth + 1 }));
             if (!sub.parseOk) parseOk = false;
           }
         } else {
           // 裸定界 + 体无展开特征 = 纯数据（V1 stripHeredocPayloads 剥离放行——
           // kill 独立成行等数据行不递归判定，#1171 白名单完整落实）
-          payloads.push({ raw: body, model: null, kind: "heredoc-quoted", depth });
+          payloads.push(owned(t, { raw: body, model: null, kind: "heredoc-quoted", depth }));
         }
       } else {
         parseOk = false; // 未闭合 heredoc（词法层已 fail，双重保险）
@@ -354,23 +375,23 @@ export function parseOnce(text: string, depth = 0): CommandModel {
   const issues = [...lexed.issues];
   let parseOk = lexed.parseOk;
 
-  const { segments, subshellPayloads } = buildSegments(lexed.tokens, text);
-  const collected = collectPayloads(lexed.tokens, text, depth);
+  const { segments, subshellPayloads, tokenSegments } = buildSegments(lexed.tokens, text);
+  const collected = collectPayloads(lexed.tokens, text, depth, tokenSegments);
   if (!collected.parseOk) parseOk = false;
   issues.push(...collected.payloads.filter(p => p.model === null && p.kind !== "heredoc-quoted").map(p => `payload-unparseable:${p.kind}`));
 
   // bash -c / 脚本解释器载荷：段级补充递归（全部载荷——#1154 S2 逐载荷语义）
   const payloads = [...collected.payloads, ...subshellPayloads];
-  for (const seg of segments) {
+  for (const [segmentIndex, seg] of segments.entries()) {
     const interps = matchInterpreterPayloads(seg);
     if (interps) {
       for (const interp of interps) {
         if (depth >= MAX_DEPTH) {
-          payloads.push({ raw: interp.raw, model: null, kind: interp.kind, depth });
+          payloads.push({ raw: interp.raw, model: null, kind: interp.kind, depth, segmentIndex });
           parseOk = false;
         } else {
           const sub = parseOnce(interp.raw, depth + 1);
-          payloads.push({ raw: interp.raw, model: sub, kind: interp.kind, depth: depth + 1 });
+          payloads.push({ raw: interp.raw, model: sub, kind: interp.kind, depth: depth + 1, segmentIndex });
           if (!sub.parseOk) parseOk = false;
         }
       }

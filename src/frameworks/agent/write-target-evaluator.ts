@@ -408,11 +408,6 @@ export function resolveCwdAt(segments: Segment[], startCwd: string): string[] | 
   }
   return cwdAt;
 }
-function trackCwd(segments: Segment[], startCwd: string): string | null {
-  const cwdAt = resolveCwdAt(segments, startCwd);
-  return cwdAt === null ? null : cwdAt[cwdAt.length - 1] ?? startCwd;
-}
-
 // ────────────────────────────── 段级求值 ──────────────────────────────
 
 interface SegmentEvalAcc {
@@ -2511,11 +2506,10 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
  *  startCwd = 命令启动时的 cwd（默认 projectRoot）——条件期望双态各跑的维度参数。 */
 type ScriptCtx = { payload?: ScriptPayloadInfo; depth?: number; absenceAllowed?: boolean; feedReadOnly?: boolean };
 
-// eslint-disable-next-line complexity -- F20261019gses rebase 回归修 +3 分支（cd 外溢双处守卫：&/| 下游 joiner 检查 ×2）——段链 cd 推进与 resolveCwdAt 同语义耦合，拆函数会分叉口径，基线 12+3
 function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: string, ctx: ScriptCtx = {}): WriteEvalResult {
   const { payload: scriptPayload, depth: scriptDepth = 0, absenceAllowed = true } = ctx;
-  const tracked = trackCwd(model.segments, startCwd);
-  if (tracked === null) return { kind: "unevaluated", reason: "cwd-unresolvable" };
+  const cwdAt = resolveCwdAt(model.segments, startCwd);
+  if (cwdAt === null) return { kind: "unevaluated", reason: "cwd-unresolvable" };
 
   const acc: SegmentEvalAcc = {
     targets: [],
@@ -2525,24 +2519,11 @@ function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: s
     scriptDepth,
     feedReadOnly: ctx.feedReadOnly,
   };
-  // delta3 修法（严重 2 附带发现）：段链从 startCwd 忠实重放（与 trackCwd/resolveCwdAt 同口径）——
-  // 旧版从链尾 tracked 起步会把「写在 cd 前」的段挪到链尾 cwd（写在 cd 前的主仓写被判 sandbox 实证）。
-  let cwd = startCwd;
+  // 每段直接消费统一 cwd 快照，避免这里另推进一份可漂移的可变 cwd。
   for (let i = 0; i < model.segments.length; i++) {
     const seg = model.segments[i];
-    const err = evalSegment(seg, cwd, acc, projectRoot, model.raw);
+    const err = evalSegment(seg, cwdAt[i] ?? startCwd, acc, projectRoot, model.raw);
     if (err !== null) return { kind: "unevaluated", reason: err };
-    // 段内 cd 推进（与 trackCwd 同口径）。
-    // F20261019gses rebase 回归修（#1527 G1 例 1 同族）：cd 段若通过 &/| 连接到下一段，
-    // cd 在子 shell/管道内执行，父 shell cwd 不变——不推进 cwd（否则 cd WT & git commit
-    // 的 git 段错拿 WT，主仓写被 worktree 豁免洗白——真漏拦面）。
-    if (seg.joiner !== "&" && seg.joiner !== "|" && bareName(seg.argv0) === "cd") {
-      const nextJoiner = model.segments[i + 1]?.joiner ?? "";
-      if (nextJoiner !== "&" && nextJoiner !== "|") {
-        const r = evalCdTarget(seg, model.segments, cwd, acc.index);
-        if (r !== null) cwd = r;
-      }
-    }
     acc.index++;
   }
   return { kind: "evaluated", targets: acc.targets };
@@ -2556,6 +2537,12 @@ function evaluateFromModel(model: CommandModel, projectRoot: string, startCwd: s
  * @param startCwd 命令启动 cwd（默认 projectRoot；条件期望双态各跑用：worktree 态传 worktree 路径）
  * @returns evaluated（targets 可为空集=求值成功且无写落点）或 unevaluated（回落）
  */
+/** 已知所属段的载荷继承该段 cwd；未知归属保留旧 fallback，不借元数据豁免。 */
+function resolvePayloadCwd(payload: CommandModel["payloads"][number], cwdAt: string[] | null, startCwd: string): string | null {
+  if (payload.segmentIndex === undefined) return startCwd;
+  return cwdAt?.[payload.segmentIndex] ?? null;
+}
+
 /** shell 递归载荷求值（能力 4 词面证集成）：子落点入账（子 shell cd 链独立）。
  *  返回 targets=全部子模型求值成功；uneval=存在不可证子模型（词面证放行仅限全证无写）。 */
 function collectShellPayloadTargets(
@@ -2565,13 +2552,16 @@ function collectShellPayloadTargets(
   // delta3 修法（严重 2）：载荷子模型从 startCwd 求值——链上有 cd 时锚不住真实执行 cwd，
   // 缺席证明不得出具（payloadsCwdAnchored=false → 子计划 fail-closed，防假缺席证明）。
   const anchored = payloadsCwdAnchored(model.segments);
+  const cwdAt = resolveCwdAt(model.segments, startCwd);
   for (const p of model.payloads) {
     if (p.kind === "heredoc-quoted") continue;
     if (p.model === null) {
       return { uneval: p.depth >= 2 ? "depth-exceeded" : "parse-failed" };
     }
     if (scriptSegNarrowed && p.kind === "cmdsub" && !p.model.parseOk && !detectScriptPayload(p.model)) continue; // 垃圾 cmdsub 跳过
-    const sub = evaluateFromModel(p.model, projectRoot, startCwd, { absenceAllowed: anchored });
+    const payloadCwd = resolvePayloadCwd(p, cwdAt, startCwd);
+    if (payloadCwd === null) return { uneval: "cwd-unresolvable" };
+    const sub = evaluateFromModel(p.model, projectRoot, payloadCwd, { absenceAllowed: anchored });
     if (sub.kind === "unevaluated") {
       if (subPayloadWashable(sub.reason, command, model)) return { targets };
       return { uneval: sub.reason };
