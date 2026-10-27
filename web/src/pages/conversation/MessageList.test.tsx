@@ -460,7 +460,8 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
       expect(btn, '应渲染跳底按钮').toBeTruthy()
       // 修复后：bottom = 96 + 16 = 112px，高于输入覆盖层实高（96px），不再被遮挡；
       // z-20 高于覆盖层 z-10，命中测试不再被透明覆盖层吞掉
-      expect((btn as HTMLElement).style.bottom, 'bottom 应=衬垫+16').toBe('112px')
+      expect((btn as HTMLElement).style.bottom, 'bottom 应读取原生 clamp 变量').toBe('var(--badge-bottom)')
+      expect((btn as HTMLElement).style.getPropertyValue('--badge-bottom'), '常规空间 bottom=衬垫+16，同时钳住上沿').toBe('clamp(8px, 112px, calc(100% - 44px))')
       expect((btn as HTMLElement).className, 'z 应高于覆盖层 z-10').toContain('z-20')
     } finally {
       act(() => { root.unmount() })
@@ -491,14 +492,16 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
-  it('F20261027nmbf 无计数不打：pinned 保持的重复 scroll 不触发清零回调（计数 0 时）', async () => {
-    const pinRef = { current: true }
+  it('F20261027nmbf 回锚清零幂等：计数 prop 仍为上一帧快照时也发清零回调', async () => {
+    const pinRef = { current: false }
     let cleared = 0
-    const { root, div } = renderList({ pinRef, onJumpToBottom: () => {}, onPinnedToBottom: () => { cleared++ } })
+    const { root, div } = renderList({ pinRef, newMessagesCount: 0, onJumpToBottom: () => {}, onPinnedToBottom: () => { cleared++ } })
     try {
       instrumentRW(scrollerOf(), 2000, 1980)
+      pinRef.current = false // mount 重置 effect 已置 true——模拟用户上翻后的真实 floating 起点
       fireScroll()
-      expect(cleared, '计数 0 时不触发回调').toBe(0)
+      expect(pinRef.current, '应完成 floating→pinned 回锚').toBe(true)
+      expect(cleared, '清零不依赖计数 props 快照；父层 set(0) 本就幂等').toBe(1)
     } finally {
       act(() => { root.unmount() })
       div.remove()

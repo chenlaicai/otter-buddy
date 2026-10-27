@@ -536,6 +536,8 @@ export default function ConversationPage() {
     }
     // F20261021lmfe：切会话清失败态——错误属于上一会话的那一次请求，不得阻断新会话自动通道
     setLoadMoreError(false)
+    // F20261027nmbf：SPA 同组件切路由不重挂——浮窗计数属于上一会话，进入新会话立即清零
+    setNewMessagesCount(0)
     // F20260921spcm：SPA 路由切换对话时组件不重挂载，旧守门条件 `!allMessages[activeId]`
     // 在缓存命中时跳过拉取——切走期间海獭的新发言永久不可见（SSE 只订当前对话且无回放）。
     // 修法：恢复 MPA 时代「进入对话即拉最新」语义，activeId 变化就拉。

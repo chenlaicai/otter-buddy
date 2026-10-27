@@ -77,6 +77,7 @@ function mockApi() {
     // 列表请求：带 query 的 /api/conversations?limit=…（子路径请求已在上面分流，这里只接列表本体）
     // F20260922cgrp：返回结构 { items, total }——列表本体与 LeftPanel 分组分页拉取共用此 mock；
     // listCalls 只计父组件首屏（limit=500，无 status），分组分页（status/kind）不计入「重拉」断言
+    if (/^\/api\/otters\/[^/]+\/sessions/.test(url)) return json([])
     if (url.startsWith('/api/conversations?') || url === '/api/conversations') {
       const isGroupFetch = url.includes('status=') || url.includes('kind=')
       if (!isGroupFetch) listCalls++
@@ -89,6 +90,21 @@ function mockApi() {
     console.warn('[spa-nav-test] unmocked API call:', url)
     return json({})
   })
+}
+
+/** F20261027nmbf：SSE 桩——在 A 会话上翻阅读时注入新发言，制造本地浮窗计数。 */
+class BadgeXHR {
+  static instances: BadgeXHR[] = []
+  responseText = ''
+  onprogress: (() => void) | null = null
+  onerror: (() => void) | null = null
+  onload: (() => void) | null = null
+  constructor() { BadgeXHR.instances.push(this) }
+  open() {}
+  setRequestHeader() {}
+  send() {}
+  abort() {}
+  tick(data: string) { this.responseText += data; this.onprogress?.() }
 }
 
 /** 数据路由：/conversation/:id 单一路由——参数变化不重挂载组件（SPA 行为，复刻 main.tsx） */
@@ -146,6 +162,40 @@ describe('SPA 路由切换对话：消息列表必须重新拉取（F20260921spc
     expect(listEntriesCalls).toEqual(['conv-a', 'conv-b', 'conv-a'])
     // 核心断言 2：切走期间的新发言渲染出来了
     expect(container.textContent).toContain('切走期间海獭的新发言')
+  })
+})
+
+describe('F20261027nmbf：SPA 切会话清理上一会话的新消息浮窗计数', () => {
+  it('A 会话上翻后收到新发言 → 切到 B 后 A 的徽标不泄漏', async () => {
+    mockApi()
+    const savedXHR = globalThis.XMLHttpRequest
+    BadgeXHR.instances = []
+    ;(globalThis as Record<string, unknown>).XMLHttpRequest = BadgeXHR as unknown
+    try {
+      const router = createTestRouter('/conversation/conv-a')
+      act(() => { root.render(<RouterProvider router={router} />) })
+      await flushAsync()
+      const scroller = Array.from(container.querySelectorAll('.overflow-y-auto'))
+        .find(el => el.querySelector('[data-message-id]')) as HTMLElement
+      expect(scroller, '消息滚动容器应就位').toBeTruthy()
+      // 用真实 wheel 意图事件进入 floating，避免 jsdom 的布局副作用让 pin 状态失真
+      await act(async () => { scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 })) })
+
+      const badgeEntry = {
+        entryId: 'badge-a1', otterId: 'otter-1', otterName: '小獭', otterType: 'small',
+        body: 'A 上翻期间的新发言', sequenceNum: 2, createdAt: '2026-10-27T08:00:00Z',
+      }
+      await act(async () => { BadgeXHR.instances[0]!.tick(`event: entry.speak\ndata: ${JSON.stringify(badgeEntry)}\n\n`) })
+      await flushAsync()
+      expect(container.textContent, 'A floating 时应出现新消息浮窗').toContain('新消息 1 条')
+
+      await act(async () => { await router.navigate('/conversation/conv-b') })
+      await flushAsync()
+      expect(container.textContent, '路由参数切换不重挂页面，但计数属于 A，不得泄漏给 B').toContain('B的第一条')
+      expect(container.textContent).not.toContain('新消息 1 条')
+    } finally {
+      ;(globalThis as Record<string, unknown>).XMLHttpRequest = savedXHR
+    }
   })
 })
 

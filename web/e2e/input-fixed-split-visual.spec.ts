@@ -28,7 +28,7 @@ async function mockApi(page: import('@playwright/test').Page, opts?: { cardBody?
   }, async route => {
     const url = route.request().url()
     let json: unknown = {}
-    if (/\/api\/conversations(\/|$|\?)/.test(url) && !url.includes('/entries') && !url.includes('/participants') && !url.includes('/key-resources') && !url.includes('/unread') && !url.includes('/read') && !url.includes('/invokes') && !url.includes('/scheduled-tasks') && !url.includes('/resources') && !url.includes('/messages')) {
+    if (/\/api\/conversations(\/|$|\?)/.test(url) && !url.includes('/entries') && !url.includes('/participants') && !url.includes('/key-resources') && !url.includes('/unread') && !url.includes('/read') && !url.includes('/invokes') && !url.includes('/scheduled-tasks') && !url.includes('/resources') && !url.includes('/messages') && !url.includes('/subscribe')) {
       // listConversations → { items: ConversationListItemDTO[], total }
       const conv = {
         id: 'conv-inbs-probe',
@@ -334,6 +334,83 @@ test.describe('F20261016pcov 卡片预览进覆盖层（vite 隔离实例）', (
     await expect(preview).toBeHidden()
     expect(posts.some(p => p.includes('html-card-reply')), '拒绝不应发回执').toBe(false)
     await page.screenshot({ path: 'test-results/pcov-2-reject-clickable.png' })
+  })
+})
+
+test.describe('F20261027nmbf 新消息浮窗几何与点击命中（真实浏览器）', () => {
+  /** 先上翻进入 floating，再释放真实 SSE 发言；验证完整计数、几何与点击链路 */
+  async function openFloatingBadge(page: import('@playwright/test').Page) {
+    await openConversation(page)
+    let releaseSSE!: () => void
+    const holdSSE = new Promise<void>(resolve => { releaseSSE = resolve })
+    // 后注册优先：仅本用例的 subscribe 请求等待测试释放，其余 API 沿用上方 mock
+    await page.route('**/api/conversations/*/subscribe', async route => {
+      await holdSSE
+      const badgeEntry = {
+        entryId: 'msg-badge-31', otterId: 'otter-1', otterName: '自查獭', otterType: 'small',
+        body: '滚动离开后收到的新消息', sequenceNum: 31, createdAt: '2026-10-27T08:00:00Z',
+      }
+      await route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+        body: `event: entry.speak\ndata: ${JSON.stringify(badgeEntry)}\n\n`,
+      })
+    })
+    const scroller = page.locator('main div.overflow-y-auto')
+    await scroller.evaluate(el => el.scrollTo({ top: 0, behavior: 'instant' }))
+    await scroller.evaluate(el => el.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 })))
+    await page.waitForTimeout(150)
+    expect(await scroller.evaluate(el => el.scrollTop), 'SSE 放行前必须已上翻').toBe(0)
+    releaseSSE()
+    await expect(page.getByText('滚动离开后收到的新消息')).toBeVisible()
+    const badge = page.getByRole('button', { name: /新消息 \d+ 条/ })
+    await expect(badge).toBeVisible()
+    await page.waitForTimeout(150)
+    return { scroller, badge }
+  }
+
+  async function badgeGeometry(page: import('@playwright/test').Page) {
+    return page.evaluate(() => {
+      const scroller = document.querySelector('main div.overflow-y-auto') as HTMLElement
+      const badge = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('新消息')) as HTMLElement
+      const overlay = document.querySelector('main .absolute.bottom-0') as HTMLElement
+      const r = badge.getBoundingClientRect()
+      const sr = scroller.getBoundingClientRect()
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+      return {
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        scroller: { top: sr.top, bottom: sr.bottom, height: sr.height },
+        badge: { top: r.top, bottom: r.bottom, height: r.height },
+        overlayTop: overlay.getBoundingClientRect().top,
+        hit: hit === badge || badge.contains(hit),
+      }
+    })
+  }
+
+  test('11a: 常规窗口浮窗在覆盖层上方且点击回底清零', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 700 })
+    const { badge } = await openFloatingBadge(page)
+    const m = await badgeGeometry(page)
+    expect(m.badge.bottom, `浮窗底 ${m.badge.bottom} 应高于覆盖层顶 ${m.overlayTop}`).toBeLessThanOrEqual(m.overlayTop - 15)
+    expect(m.badge.top).toBeGreaterThanOrEqual(m.scroller.top)
+    expect(m.hit, '中心命中浮窗自身而非覆盖层').toBe(true)
+    await page.screenshot({ path: 'test-results/nmbf-11a-normal.png', fullPage: false })
+    await badge.click()
+    await expect(page.getByRole('button', { name: /新消息 \d+ 条/ })).toHaveCount(0)
+  })
+
+  test('11b: 矮窗口大输入覆盖层下浮窗仍完整可见、可点、不回显负 bottom', async ({ page }) => {
+    await page.setViewportSize({ width: 640, height: 360 })
+    await page.addInitScript(() => localStorage.setItem('otter.chat.inputHeight', '2000'))
+    const { badge } = await openFloatingBadge(page)
+    const m = await badgeGeometry(page)
+    expect(m.badge.top, `钳位后顶 ${m.badge.top} 不得越过消息区顶 ${m.scroller.top}`).toBeGreaterThanOrEqual(m.scroller.top + 7)
+    expect(m.badge.bottom).toBeLessThanOrEqual(m.scroller.bottom)
+    expect(m.badge.bottom).toBeLessThanOrEqual(m.overlayTop - 7)
+    expect(m.hit, '矮窗口中心命中浮窗自身').toBe(true)
+    await page.screenshot({ path: 'test-results/nmbf-11b-short.png', fullPage: false })
+    await badge.click()
+    await expect(page.getByRole('button', { name: /新消息 \d+ 条/ })).toHaveCount(0)
   })
 })
 

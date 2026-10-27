@@ -538,9 +538,9 @@ export function MessageList({
       const wasFloating = !pinRef.current
       pinRef.current = true
       // F20261027nmbf：回锚即清零——floating→pinned 转换（用户滚回底部=新消息已在眼前）
-      // 时清浮窗计数。仅转换时触发（pinned 保持的重复 scroll 不打）；计数前提是 !pinned
-      // （pinned 时新消息到达不计数），故 count>0 且回到底部=全部已看到，清零语义自洽
-      if (wasFloating && newMessagesCount > 0) onPinnedToBottom?.()
+      // 时清浮窗计数。仅转换时触发（pinned 保持的重复 scroll 不打）。父层 set(0) 幂等，
+      // 不读计数 props 快照：新消息 setState 与 scroll 交错时，旧快照也不能吞掉本次回锚边缘
+      if (wasFloating) onPinnedToBottom?.()
     }
     // F20261020wcsr：向下位移 = 用户离开顶部 → 解除哨兵连拉冷却（恢复自动加载资格）
     if (el.scrollTop > lastScrollTopRef.current && autoChainCountRef.current > 0) {
@@ -548,7 +548,7 @@ export function MessageList({
     }
     lastScrollTopRef.current = el.scrollTop
     lastScrollHeightRef.current = el.scrollHeight
-  }, [pinRef, takeUserControl, newMessagesCount, onPinnedToBottom])
+  }, [pinRef, takeUserControl, onPinnedToBottom])
 
   /** 首次渲染滚到底部（R0：mount 即 pinned——容器带 key，切会话 remount 时同样经此贴底） */
   useEffect(() => {
@@ -735,9 +735,14 @@ export function MessageList({
           // 上方，与底部衬垫联动——覆盖层实高即 bottomSpacerPx）；z-10 → z-20（脱离
           // 覆盖层的 z-10 同层后来居上遮挡——#1535 同族问题：覆盖层透明区域照吃命中测试）。
           // 抬升后浮窗悬于输入框上方 16px（微信/Telegram 风格），覆盖层长高（卡片预览展开）
-          // 时随衬垫同步上移，恒在可点区
+          // 时随衬垫同步上移；CSS clamp 在矮视口优先保留 8px 顶边距，不让顶部被裁切。
+          // 常量 44px = 按钮高 36px（py-2×2 + text-sm 行高 20）+ 顶边距 8px，无需新增 observer/状态
           className="absolute left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-full shadow-glow text-sm text-white transition hover:scale-105"
-          style={{ background: 'linear-gradient(135deg,#A88260,#8B6F47)', bottom: bottomSpacerPx + 16 }}
+          style={{
+            background: 'linear-gradient(135deg,#A88260,#8B6F47)',
+            bottom: 'var(--badge-bottom)',
+            '--badge-bottom': `clamp(8px, ${bottomSpacerPx + 16}px, calc(100% - 44px))`,
+          } as CSSProperties}
         >
           新消息 {newMessagesCount} 条 ↓
         </button>
