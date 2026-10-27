@@ -9,7 +9,7 @@ intent:
   why_now: "五条流通实证驱动的派单闭环收口批次（与 F20261021gtbf 幽灵工单根因治理互补——那单管「任务过期被照做」，本单管「任务接了没人做」）；#1582 已合入层差注记（不重做），本单修机制面。"
   expected_effect: "新世獭的叙事摘要（七段 §① 下一步）能看到未闭环 matters 清单并逐件对齐，接续面不再漏件；每日 7:30 未闭环扫描盯到 WAITING_OTTER 跨日停滞（与搭档侧同 24h 基准），「接单≠落位」类悬置结构性有声；restoreHandoffContext 不再假装恢复一个接口不存在的字段。"
   verify_by:
-    type: unit_test
+    type: behavior_check
     note: "MatterSweep 停滞扫描 +2 用例（WAITING_OTTER >24h 命中 / <24h 不命中）；buildNarrativeSynthesisPrompt +2 用例（openMatters 进 §④ 机械供料区且位置在 §⑥ 前 / 缺省向后兼容）；restoreHandoffContext 新测试文件 3 用例（三键恢复消费即删 / open_matters 死键不再查询强写 / manageContext 缺省降级）"
 capability_test: "tests/capability/matter-loop/matter-loop.capability.test.ts（档案段供料已有场景②覆盖——本单未改档案段语义，叙事原料新增段为纯 prompt 层，能力测试不扩）"
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
@@ -51,8 +51,7 @@ causal_links:
 
 **修 2（M-12b165a7 接续面）**：openMatters 进合成原料——
 - `narrative-synthesis-engine.ts`：NarrativeSynthesisInput 增 `openMatters?: string` 字段（与档案段同名同源）；appendMechanicalSections 在 §④ 预取数据区追加「### 本对话未闭环事情（matters 机械供料——§① 下一步必须逐件对齐：续办/等谁，不漏件）」段（位置：§④ 后、§⑥ 前——机械供料区内聚）
-- `agent-invoker.ts:1267` 附近：buildNarrativeSynthesisPrompt 调用点传 `openMatters: openMattersText`（同一供料源，与档案段共用 collectOpenMatters 产出——单源双投递，无双写）
-- 连带对齐：formatPrefetch 补 recentUserMessages 空态显式分支（原实现 §④/§⑥ 双处渲染 recentUserMessages 且空态口径不一致——§④ 缺失时整个字段静默缺席违反自身「无数据明说"无"」注释约定，§⑥ 有空态文案；对齐为 §④ 渲染 + 显式空态，单源不双写）
+- `agent-invoker.ts:1267` 附近：buildNarrativeSynthesisPrompt 调用点传 `openMatters: openMattersText`（同一供料源，与档案段共用 collectOpenMatters 产出——单源双投递，无双写）；EngineSynthesisInput 端口镜像 openMatters 字段（层约束不 import frameworks 类型）
 
 **修 3（M-12b165a7 盯防面）**：未闭环扫描停滞口径升格 WAITING_OTTER——
 - `sqlite-matter-repository.ts` stalledOpen：WHERE 子句扩 `OR (state = 'WAITING_OTTER' AND updated_at <= ?)`（与 WAITING_PARTNER 同 24h 基准——接单后当日干活不算停滞，跨日未动才算，对称语义）

@@ -192,13 +192,14 @@ describe("buildNarrativeSynthesisPrompt（V2 golden：三源原料 + 叠加）",
     expect(prompt.indexOf("本对话未闭环事情（matters 机械供料")).toBeLessThan(prompt.indexOf("### §⑥"));
   });
 
-  it("F20261026hfup：openMatters 缺省时合成 prompt 无该段（向后兼容旧调用）", () => {
+  it("F20261026hfup：openMatters 缺省时合成 prompt 无供料段（向后兼容旧调用；规则 1 枚举提及不含实际清单段）", () => {
     const prompt = buildNarrativeSynthesisPrompt({
       otterName: "大獭",
       trigger: "手动",
       messagesToSummarize: [{ role: "user", content: "x" }],
     });
-    expect(prompt).not.toContain("本对话未闭环事情");
+    // 供料段标题（### 级）不出现；规则 1 的枚举提及是模板常量不是供料段
+    expect(prompt).not.toContain("### 本对话未闭环事情");
   });
 });
 

@@ -160,7 +160,8 @@ export class SqliteMatterRepository implements MatterRepository {
 
   /**
    * F20261008mlp3 P3：跨对话停滞扫描（未闭环扫描升格——确定性数据源）。
-   * 停滞定义（方案 §7 P3）：OPEN 无人认领 / WAITING_PARTNER 积压——跨日未收尾（24h 基准）。
+   * 停滞定义（方案 §7 P3 + F20261026hfup 升格）：OPEN 无人认领 / WAITING_PARTNER 积压 /
+   * WAITING_OTTER 接单未落位——跨日未收尾（24h 基准）。
    * 只读；调用方（三省吾身大獭）负责提醒，不做自动处置。
    */
   async stalledOpen(nowIso: string, stallThresholdIso: string, limit = 200): Promise<MatterSweepStall[]> {

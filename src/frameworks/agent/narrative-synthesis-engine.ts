@@ -258,7 +258,7 @@ function appendPromptHeader(lines: string[], ctx: PromptContext): void {
 
 function appendRuleLines(lines: string[], selfSummary: string | undefined, previousSummary: string | undefined): void {
   lines.push('## 规则');
-  lines.push('1. §④/⑤/⑥ 的机械供料数据已在下方提供——枚举型事实用这些，不要自行回忆或编造');
+  lines.push('1. 机械供料区（§④/⑤/⑥ 与「本对话未闭环事情」段）的枚举事实已在下方提供——用这些，不要自行回忆或编造');
   lines.push('2. 锚点优于复制——引用 ID（PR#/F文档/entry_id）而非复述内容');
   lines.push('3. 搭档指令用原话引用（引号内）——从下方预取的搭档消息里挑');
   lines.push('4. 谱系继承旧摘要的谱系行并追加一代，不得重置');
@@ -382,13 +382,8 @@ function formatPrefetch(prefetch?: NarrativeSynthesisInput['prefetch']): string 
       parts.push(`- active 产物（${prefetch.activeArtifacts.length} 个）: ${arts.join(' ｜ ')}`);
     }
   }
-  if (prefetch.recentUserMessages) {
-    if (prefetch.recentUserMessages.length === 0) {
-      parts.push('- 最近搭档消息: 无');
-    } else {
-      parts.push('- 最近搭档消息:\n' + prefetch.recentUserMessages.map((m, i) => `${i + 1}. ${m}`).join('\n'));
-    }
-  }
+  // F20261026hfup：recentUserMessages 不回填本函数——§⑥ formatRecentUserMessages 单点渲染
+  //  （检视 1647 严重 2：§④ 双渲染点=消息明细双份进 prompt 双倍挤占固定段预算，回退）。
   return parts.length > 0 ? parts.join('\n') : '- （无预取数据）';
 }
 
