@@ -176,6 +176,31 @@ describe("buildNarrativeSynthesisPrompt（V2 golden：三源原料 + 叠加）",
     expect(prompt).toContain("统一交接");
     expect(prompt).toContain("把压缩换成交接");
   });
+  it("F20261027hfup（M-12b165a7）：openMatters 进合成原料（§④ 后机械供料段——叙事路径不再漏件）", () => {
+    const prompt = buildNarrativeSynthesisPrompt({
+      otterName: "大獭",
+      oldSessionId: "sess-12345678",
+      trigger: "水位",
+      messagesToSummarize: [{ role: "user", content: "x" }],
+      openMatters: "本对话未闭环事情（1 件）：\n1. [M-abcd1234] 固化獭补注记 —— 獭处理中",
+    });
+    expect(prompt).toContain("本对话未闭环事情（matters 机械供料");
+    expect(prompt).toContain("M-abcd1234");
+    expect(prompt).toContain("固化獭补注记");
+    // 段位置：§④ 机械供料区内、§⑥ 搭档消息之前
+    expect(prompt.indexOf("本对话未闭环事情（matters 机械供料")).toBeGreaterThan(prompt.indexOf("### §④"));
+    expect(prompt.indexOf("本对话未闭环事情（matters 机械供料")).toBeLessThan(prompt.indexOf("### §⑥"));
+  });
+
+  it("F20261027hfup：openMatters 缺省时合成 prompt 无供料段（向后兼容旧调用；规则 1 枚举提及不含实际清单段）", () => {
+    const prompt = buildNarrativeSynthesisPrompt({
+      otterName: "大獭",
+      trigger: "手动",
+      messagesToSummarize: [{ role: "user", content: "x" }],
+    });
+    // 供料段标题（### 级）不出现；规则 1 的枚举提及是模板常量不是供料段
+    expect(prompt).not.toContain("### 本对话未闭环事情");
+  });
 });
 
 describe("assembleHandoffArchive + buildMechanicalArchive（V2 档案结构）", () => {

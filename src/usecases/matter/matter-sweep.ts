@@ -8,7 +8,8 @@ import type { MatterRepository } from './matter-repository';
  * （#1053 9/20 后未改——P1 承诺的日巡小改是漏项）。P3 升格为确定性查询：
  * 扫描跑在三省吾身对话，但 matters 表全局共享——本 usecase 提供跨对话只读扫描。
  *
- * 停滞定义（方案 §7 P3）：OPEN 无人认领 / WAITING_PARTNER 积压——跨日未收尾（24h 基准）。
+ * 停滞定义（方案 §7 P3 + F20261027hfup 升格）：OPEN 无人认领 / WAITING_PARTNER 积压 /
+ * WAITING_OTTER 接单未落位——跨日未收尾（24h 基准）。
  * 提醒语义：让等待有声（含短锚+等待时长+等谁的什么动作），不是催办不是自动处置。
  */
 

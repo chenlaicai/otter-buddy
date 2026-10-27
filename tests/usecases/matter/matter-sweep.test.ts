@@ -151,6 +151,39 @@ describe('MatterSweep（F20261008mlp3 P3——未闭环扫描升格）', () => {
     expect(result.stalled).toHaveLength(0);
   });
 
+  // F20261027hfup（M-12b165a7）：接单≠落位——WAITING_OTTER 跨日未动也入停滞扫描（与搭档侧同 24h 基准）
+  it('停滞扫描：WAITING_OTTER 接单未落位（>24h）命中', async () => {
+    seedMatter(repo, {
+      id: 'm-6',
+      title: '固化獭补注记（悬置实证类）',
+      state: 'WAITING_OTTER',
+      ownerOtterId: 'otter-1',
+      waitingOn: 'otter:otter-1',
+      waitingFor: '补注记落位',
+      updatedAt: isoDaysAgo(6),
+    });
+    const sweep = new MatterSweep(repo);
+    const result = await sweep.execute(NOW);
+    expect(result.stalled).toHaveLength(1);
+    expect(result.stalled[0].state).toBe('WAITING_OTTER');
+    expect(result.stalled[0].waitingOn).toBe('otter:otter-1');
+    expect(result.stalled[0].stalledHours).toBe(144);
+  });
+
+  it('停滞扫描：新 WAITING_OTTER（<24h）不命中——认领后当日干活不算停滞', async () => {
+    seedMatter(repo, {
+      id: 'm-7',
+      title: '刚认领的事',
+      state: 'WAITING_OTTER',
+      ownerOtterId: 'otter-1',
+      waitingOn: 'otter:otter-1',
+      updatedAt: new Date(NOW.getTime() - 3 * 3_600_000).toISOString(), // 3h 前
+    });
+    const sweep = new MatterSweep(repo);
+    const result = await sweep.execute(NOW);
+    expect(result.stalled).toHaveLength(0);
+  });
+
   it('漏登记 yield 兜底：近 7 天超阈 yield 条目命中', async () => {
     seedYieldEntry('e-1', '呈拍板：方案 A vs B', '["user"]', isoDaysAgo(2));
     const sweep = new MatterSweep(repo);
