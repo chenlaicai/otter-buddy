@@ -11,6 +11,7 @@ import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
 import './styles/globals.css'
 import { AppLayout } from './components/AppLayout'
+import { restoreBackgroundPreference } from './lib/background-preference'
 
 // 路由级懒加载：每个页面独立 chunk
 const ConversationListPage = lazy(() => import('./pages/conversation-list/index'))
@@ -54,6 +55,9 @@ const router = createBrowserRouter([
     ],
   },
 ])
+
+// Why: 先保留默认画布，图片解码成功再热替换，避免坏数据留下永久空白。
+void restoreBackgroundPreference()
 
 const root = createRoot(document.getElementById('root')!)
 root.render(<RouterProvider router={router} />)
