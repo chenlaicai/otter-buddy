@@ -22,6 +22,8 @@ interface ChatViewProps {
   pinRef: RefObject<boolean>
   newMessagesCount?: number
   onJumpToBottom?: () => void
+  /** F20261027nmbf：回锚清零——MessageList floating→pinned 转换时透传（清 newMessagesCount） */
+  onPinnedToBottom?: () => void
   onLoadMore?: () => void
   loadingMore?: boolean
   hasMoreBefore?: boolean
@@ -264,6 +266,7 @@ export function ChatView(props: ChatViewProps) {
         pinRef={props.pinRef}
         newMessagesCount={props.newMessagesCount}
         onJumpToBottom={props.onJumpToBottom}
+        onPinnedToBottom={props.onPinnedToBottom}
         onLoadMore={props.onLoadMore}
         loadingMore={props.loadingMore}
         hasMoreBefore={props.hasMoreBefore}
