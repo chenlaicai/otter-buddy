@@ -1,5 +1,5 @@
 /**
- * F20261026hfup（M-5f45049e）：restoreHandoffContext 死键清除测试。
+ * F20261027hfup（M-5f45049e）：restoreHandoffContext 死键清除测试。
  *
  * 背景：restoreHandoffContext 曾强写 4 键（含 handoff_open_matters → ctx.openMatters），
  * 但 DynamicContext 接口与渲染函数均无 openMatters 字段——强写后静默丢弃。
@@ -22,7 +22,7 @@ function makeManageContext(store: Record<string, string>): ManageContext {
   } as unknown as ManageContext;
 }
 
-describe("restoreHandoffContext（F20261026hfup 死键清除）", () => {
+describe("restoreHandoffContext（F20261027hfup 死键清除）", () => {
   it("三借用式键恢复进 DynamicContext 并消费即删", async () => {
     const store: Record<string, string> = {
       handoff_file_trail: "src/foo.ts 改了 3 次",

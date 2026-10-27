@@ -158,7 +158,7 @@ export interface NarrativeSynthesisInput {
     activeArtifacts?: Array<{ id: string; resourceType: string; title?: string }>;
     recentUserMessages?: string[];
   };
-  /** F20261006mtlp P1：本对话未闭环 matters 清单（§④ 机械供料——F20261026hfup 起接入合成原料） */
+  /** F20261006mtlp P1：本对话未闭环 matters 清单（§④ 机械供料——F20261027hfup 起接入合成原料） */
   openMatters?: string;
   /** 当前时间戳（缺省 now） */
   timestamp?: string;
@@ -328,7 +328,7 @@ function appendMechanicalSections(lines: string[], input: NarrativeSynthesisInpu
     lines.push('### §⑤ 活状态盘点（DB 权威源快照）');
     lines.push(stripInventoryTitle(input.stateInventoryText ?? ''));
   }
-  // F20261026hfup（M-12b165a7）：未闭环 matters 进合成原料——叙事路径下「接单≠落位」类
+  // F20261027hfup（M-12b165a7）：未闭环 matters 进合成原料——叙事路径下「接单≠落位」类
   //  悬置事项曾被丢出七段摘要（此前只挂档案机械段，合成路径零可见性）。确定性枚举供料，
   //  §① 下一步必须与其对齐（与 appendRuleLines 规则 1 呼应）。
   if (input.openMatters) {
@@ -382,7 +382,7 @@ function formatPrefetch(prefetch?: NarrativeSynthesisInput['prefetch']): string 
       parts.push(`- active 产物（${prefetch.activeArtifacts.length} 个）: ${arts.join(' ｜ ')}`);
     }
   }
-  // F20261026hfup：recentUserMessages 不回填本函数——§⑥ formatRecentUserMessages 单点渲染
+  // F20261027hfup：recentUserMessages 不回填本函数——§⑥ formatRecentUserMessages 单点渲染
   //  （检视 1647 严重 2：§④ 双渲染点=消息明细双份进 prompt 双倍挤占固定段预算，回退）。
   return parts.length > 0 ? parts.join('\n') : '- （无预取数据）';
 }

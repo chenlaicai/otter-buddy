@@ -151,7 +151,7 @@ describe('MatterSweep（F20261008mlp3 P3——未闭环扫描升格）', () => {
     expect(result.stalled).toHaveLength(0);
   });
 
-  // F20261026hfup（M-12b165a7）：接单≠落位——WAITING_OTTER 跨日未动也入停滞扫描（与搭档侧同 24h 基准）
+  // F20261027hfup（M-12b165a7）：接单≠落位——WAITING_OTTER 跨日未动也入停滞扫描（与搭档侧同 24h 基准）
   it('停滞扫描：WAITING_OTTER 接单未落位（>24h）命中', async () => {
     seedMatter(repo, {
       id: 'm-6',

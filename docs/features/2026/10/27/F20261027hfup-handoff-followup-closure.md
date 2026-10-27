@@ -1,5 +1,5 @@
 ---
-id: F20261026hfup
+id: F20261027hfup
 title: 交接落位与派单闭环修复批次：restoreHandoffContext 死键清除 + openMatters 进合成原料 + 未闭环扫描 WAITING_OTTER 停滞口径
 summary: M-5f45049e——restoreHandoffContext 强写 ctx.openMatters 静默丢弃（DynamicContext 接口与渲染函数均无该字段，且 D8 后 handoff_* 键在生产无写入方，纯死代码面）；M-12b165a7——跨獭派单「接单≠落位」缺口双因：①collectOpenMatters 产出的 matters 清单只挂档案机械段（buildMechanicalArchive/assembleHandoffArchive），合成路径（buildNarrativeSynthesisPrompt）无 openMatters 参数，新世獭在叙事摘要里看不见悬置事项；②未闭环扫描停滞口径缺 WAITING_OTTER（獭侧接单未落位无日巡盯防，实证=固化獭补 #1467 注记悬置 6 天无人盯）。
 doc_type: feature
@@ -21,6 +21,12 @@ causal_links:
   - F20261021gtbf
   - F20261008mlp3
 ---
+
+## 编号顺延（2026-10-27）
+
+原 F20261026hfup（2026-10-26 建档），按 F20260914prdb「定稿时改名为合入当天日期」及搭档指令「特性编号的日期要顺延」改为 F20261027hfup；分支历史 commit 保留旧编号，双向可搜。
+
+## 背景（M-5f45049e / M-12b165a7）
 
 # 交接落位与派单闭环修复批次（M-5f45049e + M-12b165a7）
 

@@ -176,7 +176,7 @@ describe("buildNarrativeSynthesisPrompt（V2 golden：三源原料 + 叠加）",
     expect(prompt).toContain("统一交接");
     expect(prompt).toContain("把压缩换成交接");
   });
-  it("F20261026hfup（M-12b165a7）：openMatters 进合成原料（§④ 后机械供料段——叙事路径不再漏件）", () => {
+  it("F20261027hfup（M-12b165a7）：openMatters 进合成原料（§④ 后机械供料段——叙事路径不再漏件）", () => {
     const prompt = buildNarrativeSynthesisPrompt({
       otterName: "大獭",
       oldSessionId: "sess-12345678",
@@ -192,7 +192,7 @@ describe("buildNarrativeSynthesisPrompt（V2 golden：三源原料 + 叠加）",
     expect(prompt.indexOf("本对话未闭环事情（matters 机械供料")).toBeLessThan(prompt.indexOf("### §⑥"));
   });
 
-  it("F20261026hfup：openMatters 缺省时合成 prompt 无供料段（向后兼容旧调用；规则 1 枚举提及不含实际清单段）", () => {
+  it("F20261027hfup：openMatters 缺省时合成 prompt 无供料段（向后兼容旧调用；规则 1 枚举提及不含实际清单段）", () => {
     const prompt = buildNarrativeSynthesisPrompt({
       otterName: "大獭",
       trigger: "手动",
