@@ -17,6 +17,7 @@ import { RESTART_SERVICE_SCRIPT } from "./kill-block-messages";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { checkBashCommandSafety, readMainProcessPid, SLEEP_REASON_PREFIX, stripSleepMarkerIfPresent } from "./bash-safety-guard";
 import { loadAllowedServicePorts } from "./allowed-service-ports";
+import { diffTokenUsage, type TokenUsage } from "@usecases/conversation/token-usage";
 
 /**
  * #844（F20260914dsrv）：拦截文案动态附加 dev server 受控路径引导。
@@ -127,11 +128,13 @@ export interface BuildInvokeResultParams {
   model: Model<Api>;
   logger: Logger;
   getModelAliasForLog: (otterId: string) => string;
+  tokenUsageBefore?: TokenUsage;
 }
 
 /** _buildInvokeResult 返回类型 */
 export interface BuildInvokeResultResult {
   text: string;
+  tokenUsageDelta?: TokenUsage;
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   ctxTokens?: number;
   ctxMax?: number;
@@ -149,7 +152,7 @@ export interface BuildInvokeResultResult {
 
 /** buildInvokeResult：构建 invoke 结果 */
 export function buildInvokeResult(params: BuildInvokeResultParams): BuildInvokeResultResult {
-  const { otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, getModelAliasForLog } = params;
+  const { otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, getModelAliasForLog, tokenUsageBefore } = params;
   const stats = session.getSessionStats();
   /** F20260923icus（#1149）：cache token 随快照透传——SDK SessionStats.tokens 本含四字段，
    *  此前只取 input/output 致 cache 数据在 invoke 落库链上丢失（健康面板 invoke 均值口径缺 cache）。 */
@@ -168,6 +171,7 @@ export function buildInvokeResult(params: BuildInvokeResultParams): BuildInvokeR
     ctxMax = model.contextWindow;
   }
   const result: BuildInvokeResultResult = buildResult("", tokenUsage, circuitBreaker, ctxMax, ctxTokens);
+  if (tokenUsageBefore) result.tokenUsageDelta = diffTokenUsage(tokenUsageBefore, tokenUsage);
   /** F20260814mtrc：模型别名随结果透传（metrics model label 数据源） */
   result.modelAlias = getModelAliasForLog(otterId);
   /** F20260903lngth：截断信号透传——length-stop 不抛错，不带上边界则下游无法感知 */
@@ -196,12 +200,13 @@ export interface BuildPromptResultParams {
   model: Model<Api>;
   logger: Logger;
   getModelAliasForLog: (otterId: string) => string;
+  tokenUsageBefore?: TokenUsage;
 }
 
 /** buildPromptResult：prompt 成功后的结果组装 + 首字节延迟埋点日志 */
 export function buildPromptResult(params: BuildPromptResultParams): BuildInvokeResultResult {
-  const { otterId, session, circuitBreaker, outputGuard, activeEntry, modelPool, otterConfigProvider, model, logger, getModelAliasForLog } = params;
-  const result = buildInvokeResult({ otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, logger, getModelAliasForLog });
+  const { otterId, session, circuitBreaker, outputGuard, activeEntry, modelPool, otterConfigProvider, model, logger, getModelAliasForLog, tokenUsageBefore } = params;
+  const result = buildInvokeResult({ otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, logger, getModelAliasForLog, tokenUsageBefore });
   const guardMeta = outputGuard.getMetadata();
   result.outputGuardMetadata = guardMeta;
   if (guardMeta.firstByteLatencyMs !== undefined) {
@@ -381,7 +386,7 @@ export function buildResult(
   return {
     text,
     tokenUsage: tokenUsage
-      ? { input: tokenUsage.input, output: tokenUsage.output }
+      ? { input: tokenUsage.input, output: tokenUsage.output, cacheRead: tokenUsage.cacheRead, cacheWrite: tokenUsage.cacheWrite }
       : undefined,
     ctxTokens,
     ctxMax,
