@@ -69,6 +69,61 @@ afterEach(() => {
 })
 
 describe('自定义背景偏好', () => {
+  it('连续选图时只有最后选择可生效，不依赖按钮禁用', async () => {
+    const first = 'data:image/png;base64,Zmlyc3Q='
+    const second = 'data:image/png;base64,c2Vjb25k'
+    const finishDecodes: Array<() => void> = []
+    mockFileReader(first)
+    vi.spyOn(window, 'Image').mockImplementation(function MockImage(this: HTMLImageElement) {
+      const image = document.createElement('img') as HTMLImageElement
+      Object.defineProperty(image, 'naturalWidth', { value: 800 })
+      Object.defineProperty(image, 'naturalHeight', { value: 600 })
+      Object.defineProperty(image, 'src', {
+        set(value: string) {
+          image.setAttribute('src', value)
+          finishDecodes.push(() => image.onload?.(new Event('load')))
+        },
+      })
+      return image
+    } as unknown as new () => HTMLImageElement)
+
+    const firstSelection = selectBackgroundImage(pngFile())
+    mockFileReader(second)
+    const secondSelection = selectBackgroundImage(pngFile())
+    await vi.waitFor(() => expect(finishDecodes).toHaveLength(2))
+    finishDecodes[1]()
+    await secondSelection
+    finishDecodes[0]()
+    await firstSelection
+
+    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBe(second)
+    expect(document.documentElement.style.getPropertyValue('--custom-bg-image')).toBe(`url("${second}")`)
+  })
+
+  it('选图解码中恢复默认，过期选择不得随后写回', async () => {
+    let finishDecode: (() => void) | undefined
+    vi.spyOn(window, 'Image').mockImplementation(function MockImage(this: HTMLImageElement) {
+      const image = document.createElement('img') as HTMLImageElement
+      Object.defineProperty(image, 'naturalWidth', { value: 800 })
+      Object.defineProperty(image, 'naturalHeight', { value: 600 })
+      Object.defineProperty(image, 'src', {
+        set(value: string) {
+          image.setAttribute('src', value)
+          finishDecode = () => image.onload?.(new Event('load'))
+        },
+      })
+      return image
+    } as unknown as new () => HTMLImageElement)
+
+    const selecting = selectBackgroundImage(pngFile())
+    await vi.waitFor(() => expect(finishDecode).toBeTypeOf('function'))
+    resetBackgroundPreference()
+    finishDecode?.()
+    await selecting
+
+    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBeNull()
+    expect(document.documentElement.hasAttribute('data-custom-bg')).toBe(false)
+  })
   it('合法图片解码成功后持久化并立即应用，同时通知设置页', async () => {
     const listener = vi.fn()
     const unsubscribe = subscribeBackgroundPreference(listener)

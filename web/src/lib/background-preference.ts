@@ -4,6 +4,7 @@ export const MAX_BACKGROUND_DATA_URL_LENGTH = 4_500_000
 
 const DATA_URL_PATTERN = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]*={0,2}$/
 const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+let selectionGeneration = 0
 
 export class BackgroundPreferenceError extends Error {}
 
@@ -73,6 +74,7 @@ export async function restoreBackgroundPreference(): Promise<void> {
 }
 
 export async function selectBackgroundImage(file: File): Promise<void> {
+  const generation = ++selectionGeneration
   if (!ACCEPTED_MIME_TYPES.has(file.type)) {
     throw new BackgroundPreferenceError('仅支持 JPG、PNG 或 WebP 图片')
   }
@@ -90,6 +92,8 @@ export async function selectBackgroundImage(file: File): Promise<void> {
 
   validateDataUrl(dataUrl)
   await decodeImage(dataUrl)
+  // Why: 防护属于模块而非按钮 disabled；过期选择/恢复默认后不得覆盖最后一次操作。
+  if (generation !== selectionGeneration) return
 
   // Why: 先持久化成功再切换画布，配额失败时旧背景与旧偏好保持一致。
   try {
@@ -102,6 +106,7 @@ export async function selectBackgroundImage(file: File): Promise<void> {
 }
 
 export function resetBackgroundPreference(): { persisted: boolean } {
+  selectionGeneration += 1
   clearAppliedBackground()
   let persisted = true
   try { localStorage.removeItem(BACKGROUND_STORAGE_KEY) } catch { persisted = false }
