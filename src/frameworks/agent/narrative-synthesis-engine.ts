@@ -158,6 +158,8 @@ export interface NarrativeSynthesisInput {
     activeArtifacts?: Array<{ id: string; resourceType: string; title?: string }>;
     recentUserMessages?: string[];
   };
+  /** F20261006mtlp P1：本对话未闭环 matters 清单（§④ 机械供料——F20261027hfup 起接入合成原料） */
+  openMatters?: string;
   /** 当前时间戳（缺省 now） */
   timestamp?: string;
   /**
@@ -256,7 +258,7 @@ function appendPromptHeader(lines: string[], ctx: PromptContext): void {
 
 function appendRuleLines(lines: string[], selfSummary: string | undefined, previousSummary: string | undefined): void {
   lines.push('## 规则');
-  lines.push('1. §④/⑤/⑥ 的机械供料数据已在下方提供——枚举型事实用这些，不要自行回忆或编造');
+  lines.push('1. 机械供料区（§④/⑤/⑥ 与「本对话未闭环事情」段）的枚举事实已在下方提供——用这些，不要自行回忆或编造');
   lines.push('2. 锚点优于复制——引用 ID（PR#/F文档/entry_id）而非复述内容');
   lines.push('3. 搭档指令用原话引用（引号内）——从下方预取的搭档消息里挑');
   lines.push('4. 谱系继承旧摘要的谱系行并追加一代，不得重置');
@@ -326,6 +328,14 @@ function appendMechanicalSections(lines: string[], input: NarrativeSynthesisInpu
     lines.push('### §⑤ 活状态盘点（DB 权威源快照）');
     lines.push(stripInventoryTitle(input.stateInventoryText ?? ''));
   }
+  // F20261027hfup（M-12b165a7）：未闭环 matters 进合成原料——叙事路径下「接单≠落位」类
+  //  悬置事项曾被丢出七段摘要（此前只挂档案机械段，合成路径零可见性）。确定性枚举供料，
+  //  §① 下一步必须与其对齐（与 appendRuleLines 规则 1 呼应）。
+  if (input.openMatters) {
+    lines.push('');
+    lines.push('### 本对话未闭环事情（matters 机械供料——§① 下一步必须逐件对齐：续办/等谁，不漏件）');
+    lines.push(input.openMatters);
+  }
   lines.push('');
   lines.push('### §⑥ 最近搭档消息原文（挑选指令性语句引用）');
   lines.push(formatRecentUserMessages(input.prefetch));
@@ -372,6 +382,8 @@ function formatPrefetch(prefetch?: NarrativeSynthesisInput['prefetch']): string 
       parts.push(`- active 产物（${prefetch.activeArtifacts.length} 个）: ${arts.join(' ｜ ')}`);
     }
   }
+  // F20261027hfup：recentUserMessages 不回填本函数——§⑥ formatRecentUserMessages 单点渲染
+  //  （检视 1647 严重 2：§④ 双渲染点=消息明细双份进 prompt 双倍挤占固定段预算，回退）。
   return parts.length > 0 ? parts.join('\n') : '- （无预取数据）';
 }
 

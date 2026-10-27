@@ -64,6 +64,8 @@ export interface EngineSynthesisInput {
   lineage?: string;
   selfSummary?: string;
   stateInventoryText?: string;
+  /** F20261027hfup（M-12b165a7）：本对话未闭环 matters 清单进合成原料（与引擎 NarrativeSynthesisInput.openMatters 结构兼容） */
+  openMatters?: string;
   prefetch?: {
     contextKeys?: string[];
     activeArtifacts?: Array<{ id: string; resourceType: string; title?: string }>;
@@ -1266,6 +1268,8 @@ export class AgentInvoker implements AgentTurnPort {
             selfSummary,
             stateInventoryText: inventoryText,
             prefetch,
+            // F20261027hfup（M-12b165a7）：matters 供料进合成原料（此前仅档案段——叙事路径漏件）
+            openMatters: openMattersText,
             // F20260923hsyn：预算裁剪（丢最老保最近）——目标窗口缺省时取合成模型覆盖值或该獭当前模型
             contextWindowTokens: this.resolveSynthesisContextWindow(otterId, modelAlias),
             // F20260924swin 观测锚：trim 日志（输入/固定段实测/预算/dropped/最终 prompt 长度）——

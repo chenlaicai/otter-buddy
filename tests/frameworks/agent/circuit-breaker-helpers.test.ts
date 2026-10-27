@@ -523,3 +523,46 @@ describe("attachCircuitBreaker - F20260806cbsx speak 豁免 steer 注入", () =>
     expect(abortOverride.mock.calls[0][0]).toBe("circuit_break:ignored_steer");
   });
 });
+
+describe("attachCircuitBreaker - F20261027cbfp 粘滞黑名单写入时机（#1653 P0-2）", () => {
+  it("steer 不写黑名单：警告后同签名调用仍可执行（不物理拦截）", () => {
+    const session = mockSession();
+    const loopBlockedTools = new Map<string, string>();
+    attachCircuitBreaker(
+      session,
+      "otter-1",
+      makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 5 }),
+      createTestLogger(),
+      { loopBlockedTools },
+    );
+
+    // 同命令连续 3 次：第 3 次超 maxConsecutiveIdentical=2 → consecutive steer
+    session.emit(sdkToolStart("bash", { command: "git commit -m x" }));
+    session.emit(sdkToolStart("bash", { command: "git commit -m x" }));
+    session.emit(sdkToolStart("bash", { command: "git commit -m x" }));
+    expect(session.steer).toHaveBeenCalledOnce(); // 确认触发了 steer
+
+    // P0-2：steer 不写黑名单——同签名调用不被物理拦截
+    expect(loopBlockedTools.size).toBe(0);
+  });
+
+  it("terminate 仍写黑名单：真死循环升级 terminate 时同签名写入门拦截名单", () => {
+    const session = mockSession();
+    const loopBlockedTools = new Map<string, string>();
+    const abortOverride = vi.fn();
+    attachCircuitBreaker(
+      session,
+      "otter-1",
+      makeConfig({ maxConsecutiveIdentical: 2, maxRepeatAfterWarning: 1 }),
+      createTestLogger(),
+      { loopBlockedTools, abortOverride },
+    );
+
+    // 同命令连续 4 次：第 3 次 steer（strike 1），第 4 次 steer（strike 2 > 1）→ terminate
+    for (let i = 0; i < 4; i++) session.emit(sdkToolStart("bash", { command: "git commit -m x" }));
+
+    expect(abortOverride).toHaveBeenCalledOnce(); // terminate 发生
+    expect(loopBlockedTools.size).toBe(1); // P0-2：terminate 时仍写入黑名单
+    expect([...loopBlockedTools.keys()][0]).toContain("git commit");
+  });
+});

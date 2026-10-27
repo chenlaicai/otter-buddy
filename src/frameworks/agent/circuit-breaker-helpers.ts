@@ -71,8 +71,9 @@ export interface AttachGuardsParams {
   sandboxGuarded?: boolean;
   /** F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本；fire-and-forget） */
   onGuardIntercept?: (input: { command: string; reason: string }) => void;
-  /** F20261020hlbk（#1556）：per-turn 循环硬熔断标记（签名→理由）。检测器报警时写入，
-   *  tool_call 门（loopBlockGuard）读到即物理阻断该工具后续调用。 */
+  /** F20261020hlbk（#1556）→ F20261027cbfp（#1653）：per-invoke 循环硬熔断标记（签名→理由）。
+   *  写入时机（两条件或）：terminate（strike 涨满）/ repeatOffender（同签名第 2 次 steer，复犯）。
+   *  首次 steer 不写（纯警告）；tool_call 门（loopBlockGuard）读到即物理阻断该签名后续调用。 */
   loopBlockedTools?: Map<string, string>;
   /** F20261026gobs delta-r1（检视獭1646 S3）：tool_call 门（bashGuardGate）激活探测——
    *  门激活时 bash 守卫判定由门单点拦下（显式 reason 落痕），abort 链不双拦
@@ -281,10 +282,19 @@ export function attachCircuitBreaker(
       }
 
       const result = circuitBreaker.check(toolName, e.args);
-      // F20261020hlbk（#1556）：循环报警（steer/terminate）→ 粘滞标记，tool_call 门据此
-      // 物理阻断后续同签名调用（硬熔断）。speak/yield 豁免（报告 + 交棒是唯一逃生口）。
-      // 粘滞 Map 独立于 steerStrikes，穿插 speak（allow）不清零——堵死「复又发作」逃逸。
-      if ((result.action === "steer" || result.action === "terminate") && toolName !== "speak" && toolName !== "yield") {
+      // F20261020hlbk（#1566）→ F20261027cbfp（#1653 P0-2 + S1 补防）：黑名单写入两条件（或）——
+      // ① terminate：strike 涨满，写入 + abort；
+      // ② repeatOffender：同签名第 2 次 steer（复犯，首次警告未生效）——仅写不 abort（本次仍
+      //   steer 提醒，后续同签名由门物理拦截）。
+      // 原 #1566 实现 steer 首次即写：滑窗误报一次 → 签名永久拉黑 → 一次误判放大为会话级
+      // 持续瘫痪（#1653 案发：239 次门拦截重灾）。S1 检视实证：仅 terminate 写入时，
+      // B-3 连发+变调穿插类复犯可借穿插 allow 洗掉 strike、滑窗多重集永不命中，terminate
+      // 数学上不可达（780 次 0 terminate）——复犯标记补回 #1556「复又发作」防线。
+      // 首次 steer 不写（纯警告，误伤优先）；speak/yield 豁免（报告+交棒是唯一逃生口）。
+      const shouldBlacklist =
+        toolName !== "speak" && toolName !== "yield" &&
+        (result.action === "terminate" || result.repeatOffender === true);
+      if (shouldBlacklist) {
         options?.loopBlockedTools?.set(buildToolSignature(toolName, e.args), result.reason ?? "循环重复调用");
       }
       if (result.action === "terminate") {
