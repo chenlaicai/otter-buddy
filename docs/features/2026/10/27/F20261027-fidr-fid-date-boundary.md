@@ -239,6 +239,16 @@ T5：规则仍由 `fid-format.ts` 单一真相源承载，hook/CI 镜像有元�
 
 ## 审视处置
 
+### 代码 r1（检视-1668，mimo-pro；0 严重 / 3 建议）
+
+1. **标题校验器缺行为级自动测试 → 本 PR 修复**：新增 `tests/scripts/check-pr-title.test.ts`，spawnSync 覆盖 dash/字母接受、数字直连拒绝、7 个模块黑名单拒绝与开放集非黑名单接受。
+2. **PR body 写 mjs/复用编译产物与实际 cjs/零依赖不符 → 本 PR 修复**：PR body 改为零构建依赖 CJS + 元测试锁真相源；实现记录原已正确。
+3. **模块黑名单文案「禁用」但 PR title 放行 → 本 PR 修复**：cjs 捕获模块段，按与 module-tags.ts 对账的黑名单真实拒绝；推荐词提示同步恢复，行为测试覆盖 7 个黑名单与开放集。
+
+r1 合规：4 个独立焦点、全库 frontmatter/commit/文件名白名单实证、182 个关键测试独立复跑、PR review `pullrequestreview-5667199371` COMMENTED；head `2fa2a0a4` CI 三项全绿。
+
+待代码 delta 复核。
+
 ### r1（检视-fid方案，mimo-pro；0 严重 / 6 建议）
 
 1. **FID_ANCHOR_REGEX 消费方遗漏 → 本方案修复**：modules/改动表补 sqlite-memory-repository insert/update 与 migration FTS 重建；§2 明确 FID_ANCHOR_REGEX 从 read 契约派生整串锚定正则，不能从 acceptance 派生。

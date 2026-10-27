@@ -26,18 +26,17 @@ function extractHookList(varName: string): string[] {
 
 function extractCiRecommended(): string[] {
   const ciSrc = fs.readFileSync(path.join(repoRoot, "scripts/check-pr-title.cjs"), "utf-8");
-  const line = ciSrc.split("\n").find((l) => l.includes("推荐 ") && l.includes("清单外开放"));
-  const m = line?.match(/推荐 ([a-z/]+)；清单外开放/);
+  const line = ciSrc.split("\n").find((l) => l.includes("改为有边界的子系统名"));
+  const m = line?.match(/如 ([a-z/]+)。/);
   if (!m) throw new Error("CI 标题检查脚本中未找到推荐词清单");
   return m[1].split("/");
 }
 
 function extractCiBanned(): string[] {
   const ciSrc = fs.readFileSync(path.join(repoRoot, "scripts/check-pr-title.cjs"), "utf-8");
-  const line = ciSrc.split("\n").find((l) => l.includes("禁用") && l.includes("清单外开放"));
-  const m = line?.match(/([a-z/]+) 禁用/);
-  if (!m) throw new Error("CI 标题检查脚本中未找到黑名单清单");
-  return m[1].split("/");
+  const match = ciSrc.match(/const MODULE_BANNED = new Set\(\[(.*?)\]\)/);
+  if (!match) throw new Error("CI 标题检查脚本中未找到行为黑名单");
+  return match[1].split(",").map(v => v.trim().replace(/^"|"$/g, "")).filter(Boolean);
 }
 
 describe("模块位词表契约（F20260924mseu 单一真相源）", () => {
@@ -49,11 +48,11 @@ describe("模块位词表契约（F20260924mseu 单一真相源）", () => {
     expect(extractHookList("moduleBanned")).toEqual([...MODULE_BANNED_TAG_NAMES]);
   });
 
-  it("推荐词表 ↔ CI 标题检查脚本报错文案一致", () => {
+  it("推荐词表 ↔ CI 标题检查脚本提示清单一致", () => {
     expect(extractCiRecommended()).toEqual([...MODULE_RECOMMENDED_TAG_NAMES]);
   });
 
-  it("黑名单 ↔ CI 标题检查脚本报错文案一致", () => {
+  it("黑名单 ↔ CI 标题检查脚本行为名单一致", () => {
     expect(extractCiBanned()).toEqual([...MODULE_BANNED_TAG_NAMES]);
   });
 
