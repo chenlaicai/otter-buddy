@@ -45,9 +45,15 @@ describe("F20261027lbos：buildLoopBlockInterceptHook（factory 层 payload 形�
     expect(buildLoopBlockInterceptHook(undefined, "o", {})).toBeUndefined();
 
     const badRepo = { create: () => Promise.reject(new Error("db down")) };
-    const hook = buildLoopBlockInterceptHook(badRepo, "o", {});
+    const warnings: { message: string; context?: Record<string, unknown> }[] = [];
+    const logger = { warn: (message: string, context?: Record<string, unknown>) => { warnings.push({ message, context }); } };
+    const hook = buildLoopBlockInterceptHook(badRepo, "o", {}, logger);
     expect(() => hook!({ toolName: "bash", signature: "bash: git", reason: "r" })).not.toThrow();
     await new Promise((r) => setTimeout(r, 0));
+    expect(warnings).toEqual([{
+      message: "loop_tool_block healing write failed (fire-and-forget)",
+      context: { otterId: "o", toolName: "bash", error: "db down" },
+    }]);
   });
 });
 import { attachCircuitBreaker } from "@frameworks/agent/circuit-breaker-helpers";

@@ -84,7 +84,7 @@ guard_intercept 样本 = 修复-回归循环原料：
 - **覆盖核实**：query 默认 50 条 + 单 status，errorType 逐类排查；处置完重跑验证，产出「昨日 N → resolved M / open K」
 
 ## signal 对账段（獭间信号协议消费方闭环）
-`query_signals(status=pending)` 逐项：悬置 objection/blocked 超 24h 未裁决 → 提 issue；同小獭单日 ≥3 条 dismissed → 列发起者统计，连续两日提 issue；抽 2-3 条已裁决信号核实 resolution 有理由且锚点成立，不成立提 issue；query_signals(type=halt) 核「谁停了谁」合理，无理由 halt 提 issue。无异常写「signal 对账：无异常」。。
+`query_signals(status=pending)` 逐项：悬置 objection/blocked 超 24h 未裁决 → 提 issue；同小獭单日 ≥3 条 dismissed → 列发起者统计，连续两日提 issue；抽 2-3 条已裁决信号核实 resolution 有理由且锚点成立，不成立提 issue；query_signals(type=halt) 核「谁停了谁」合理，无理由 halt 提 issue。无异常写「signal 对账：无异常」。
 
 ## issue 产出规范
 issue 必含案发现场（证据真实、含锚点）与影响。方案两态——「已排查结论」（附证据链）或「排查方向（假设）」（标置信度）；禁裸方案；写不出标「暂不修复」。**标签/标题/聚合硬规则**（真相源 `scripts/lint-issue-labels.mjs`）：type+priority+daily-review 各一；标题 `[模块] 一句话摘要`；同根因合一条。不完整率 >5% 日报标红

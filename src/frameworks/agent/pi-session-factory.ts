@@ -22,6 +22,7 @@ import type {
 } from "@usecases/otter/agent-gateway";
 // R20260817arnt PR-A：以下四项自 interface-adapters 上移 @usecases/ports——消除 frameworks→interface-adapters 倒穿
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
+import type { Logger } from "@usecases/ports/logger";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import type { Model, Api } from "@earendil-works/pi-ai";
@@ -51,6 +52,7 @@ export function buildLoopBlockInterceptHook(
   healingRepo: Pick<HealingEventRepository, "create"> | undefined,
   otterId: string,
   ids: { messageId?: string; conversationId?: string },
+  logger?: Pick<Logger, "warn">,
 ): ((input: { toolName: string; signature: string; reason: string }) => void) | undefined {
   if (!healingRepo) return undefined;
   return ({ toolName, signature, reason }) => {
@@ -71,8 +73,13 @@ export function buildLoopBlockInterceptHook(
         createdAt: new Date().toISOString(),
         resolvedAt: null,
       })
-      .catch(() => {
-        // fire-and-forget：落账失败不阻断拦截（上层无 logger 引用，静默降级）
+      .catch((err: unknown) => {
+        // fire-and-forget：保留既有日志证据，落账失败仍不阻断拦截
+        logger?.warn("loop_tool_block healing write failed (fire-and-forget)", {
+          otterId,
+          toolName,
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
   };
 }
@@ -102,7 +109,6 @@ import { getLastStopReason, getLastUsage } from "./context-tokens";
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import { getConfig } from "@frameworks/config";
-import type { Logger } from "@usecases/ports/logger";
 import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
@@ -1009,18 +1015,14 @@ export class PiSessionFactory implements AgentGateway {
 
   /**
    * F20261027lbos（#1656）：循环硬熔断门拦截落 healing_events（loop_tool_block，medium）。
-   * 与 buildGuardInterceptHook 同模式：fire-and-forget；仅记 toolName/reason 摘要，
-   * 签名可能含命令内容（脱敏取头 120 字符）。去重由 loopBlockGuard 内签名级集合负责，
-   * 此处不重复计数。healingRepo 缺失时返回 undefined（拦截照常，观测降级）。
-   */
-  /**
-   * F20261027lbos（#1656）：循环硬熔断门拦截落 healing——委托导出函数 buildLoopBlockInterceptHook（单测覆盖 payload 形态）。
+   * fire-and-forget；签名截头 120 字符，去重由 loopBlockGuard 内签名级集合负责。
+   * healingRepo 缺失时返回 undefined（拦截照常，观测降级）；委托导出函数供 payload 单测。
    */
   private buildLoopBlockInterceptHook(
     otterId: string,
     ids: { messageId?: string; conversationId?: string },
   ): ((input: { toolName: string; signature: string; reason: string }) => void) | undefined {
-    return buildLoopBlockInterceptHook(this.cfg.healingRepo, otterId, ids);
+    return buildLoopBlockInterceptHook(this.cfg.healingRepo, otterId, ids, this.logger);
   }
 
   /**
