@@ -75,7 +75,9 @@
         "halt_otter",
         "unhalt_otter",
         "resolve_signal",
-        "manage_scheduled_task_pending"
+        "manage_scheduled_task_pending",
+        "register_matter",
+        "matter_sweep"
       ]
     },
     "workspace": {
