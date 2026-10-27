@@ -22,6 +22,9 @@ export interface InvokeDTO {
   toolCallCount: number;
   tokenUsageInput: number | null;
   tokenUsageOutput: number | null;
+  /** F20261027hwl1：四分量补齐——cache 两列读回链修复后暴露到 DTO（右栏/账本同源） */
+  tokenUsageCacheRead: number | null;
+  tokenUsageCacheWrite: number | null;
   /** F20260914rtsp：末次 LLM 往返上下文窗口占用（含 cache），右栏「休息中 · xx/xx」数据源 */
   ctxWindowUsed: number | null;
 }

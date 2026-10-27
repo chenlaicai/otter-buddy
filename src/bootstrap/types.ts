@@ -20,6 +20,7 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { DispatchRecordRepository } from "@usecases/dispatch/dispatch-record-repository";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
+import type { WorkLedgerRepository } from "@usecases/health/work-ledger-repository";
 import type { SqliteUnfurlCacheRepository } from "@frameworks/db/conversation/sqlite-unfurl-cache-repository";
 import type { AttachmentRepository } from "@usecases/conversation/attachment-repository";
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
@@ -80,6 +81,8 @@ export interface Repositories {
   rhiSignal: SignalRepository;
   /** RHI 指标快照（health_snapshots 表，issue #447） */
   healthSnapshot: HealthSnapshotRepository;
+  /** F20261027hwl1：工作账本（work_items 族三表——归属绑定 + 只读报告） */
+  workLedger: WorkLedgerRepository;
   /** F20260908rlcp：旧派发台账退役（dispatchAttempt 随 main #886 批次退役）。
    * F20260912avlb：派工台账正式表（客观生命周期 created/dispatched/dissolved）——本 PR 核心，保留 */
   dispatchRecord: DispatchRecordRepository;

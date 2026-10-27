@@ -114,6 +114,7 @@ import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { MatterRepository } from "@usecases/matter/matter-repository";
+import type { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
@@ -277,6 +278,8 @@ export interface AgentSessionFactoryConfig {
   rhiSignalRepo?: SignalRepository;
   /** F20261006mtlp P1：matters 仓库（list_matters/transition_matter 注册条件） */
   matterRepo?: MatterRepository;
+  /** F20261027hwl1：工作账本 binder（track_work 工具注册条件） */
+  workLedgerBinder?: WorkLedgerBinder;
   /** F20260826mwrd C1：halt 首次注入回调（进程级 ModelRuntimeRegistry 单次注册） */
   onHaltFirstBlock?: (directive: HaltDirective) => void;
   /** Otter 配置持久化（由 Composition Root 注入） */
@@ -355,6 +358,8 @@ export class PiSessionFactory implements AgentGateway {
       rhiSignalRepo?: SignalRepository;
       /** F20261006mtlp P1：matters 仓库（list_matters/transition_matter 注册条件） */
       matterRepo?: MatterRepository;
+      /** F20261027hwl1：工作账本 binder（track_work 工具注册条件） */
+      workLedgerBinder?: WorkLedgerBinder;
       onHaltFirstBlock?: (directive: HaltDirective) => void;
       resourceLoader?: ResourceLoader;
       otterConfigProvider: OtterConfigProvider;
@@ -1400,7 +1405,7 @@ export class PiSessionFactory implements AgentGateway {
     // deferred 工具不声明给模型，由 tool_search 按需激活。readOnly（合成路径）
     // 不启用 tool_search——工具已白名单过滤，搜索能力只会扩大合成面。
     const toolExposure = readOnly ? undefined : loadToolExposureFromManifest(process.cwd(), this.logger);
-    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, rhiSignalRepo: this.cfg.rhiSignalRepo, matterRepo: this.cfg.matterRepo, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger, ...(toolExposure ? { toolExposure } : {}) });
+    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, rhiSignalRepo: this.cfg.rhiSignalRepo, matterRepo: this.cfg.matterRepo, workLedgerBinder: this.cfg.workLedgerBinder, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger, ...(toolExposure ? { toolExposure } : {}) });
     const codingTools = getCodingToolsForOtterType(otterType);
     // F20260825hndf Phase 2：readOnly 模式只保留 read 工具，排除 write/edit/bash
     const filteredCodingTools = readOnly ? codingTools.filter(t => t === 'read') : codingTools;
@@ -1693,6 +1698,7 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     signalRepo: config.signalRepo,
     rhiSignalRepo: config.rhiSignalRepo,
     matterRepo: config.matterRepo,
+    workLedgerBinder: config.workLedgerBinder,
     onHaltFirstBlock: config.onHaltFirstBlock,
     otterConfigProvider: config.otterConfigProvider,
     otterRepo: config.otterRepo,

@@ -14,6 +14,7 @@ import type { OtterToolClient } from "./otter-tool-client";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { MatterRepository } from "@usecases/matter/matter-repository";
+import type { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { ModelPoolLike } from "./model-pool-like";
 import type { OtterConfigProvider } from "./otter-config-provider";
 
@@ -161,6 +162,8 @@ export interface ToolContext {
   matterRepo?: MatterRepository;
   /** F20260917trig：RHI 健康信号仓库（signals 表——triage_signal/list_rhi_signals 注册条件） */
   rhiSignalRepo?: SignalRepository;
+  /** F20261027hwl1：工作账本 binder（track_work 工具注册条件；invoke 级注入） */
+  workLedgerBinder?: WorkLedgerBinder;
   /** F20260909smsp→F20260913ctlv：当前打开的 speak entry ID（speak/yield 检测本轮已发言用）。
    *  F20260911pspl 池化合流：getter 化穿透寄存器（invoke 入口重置） */
   lastSpeakMessageId?: string;

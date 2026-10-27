@@ -9,6 +9,7 @@ function fakeCostRecord(overrides?: Partial<OtterCostRecord>): OtterCostRecord {
     otterName: "大獭",
     otterType: "big",
     model: "mimo-v2.5-pro",
+    provider: "xiaomimimo",
     inputTokens: 10000,
     outputTokens: 500,
     cacheReadTokens: 3000,

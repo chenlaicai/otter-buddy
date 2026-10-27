@@ -14,6 +14,7 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { MatterRepository } from "@usecases/matter/matter-repository";
+import type { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 
@@ -89,6 +90,8 @@ export interface BuildCustomToolsParams {
   matterRepo?: MatterRepository;
   /** F20260917trig：RHI 信号工具（triage_signal/list_rhi_signals）的仓库 */
   rhiSignalRepo?: SignalRepository;
+  /** F20261027hwl1：工作账本 binder（track_work 工具） */
+  workLedgerBinder?: WorkLedgerBinder;
   /** #927：目标獭活跃性查询（halt_otter 打标前检查），透传到 ToolContext */
   isOtterRunning?: (otterId: string) => boolean;
   logger: Logger;
@@ -123,7 +126,7 @@ export interface BuildCustomToolsResult {
  * onUpdate/ctx SDK 特有，Otter 工具不需要，忽略。
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
-  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, isOtterRunning, logger, toolExposure } = params;
+  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, workLedgerBinder, isOtterRunning, logger, toolExposure } = params;
   // F20260826mwrd C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
   // F20261006mtlp P1：matterRepo 同模式挂 ToolContext
 
@@ -139,6 +142,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     signalRepo,
     rhiSignalRepo,
     matterRepo,
+    workLedgerBinder,
     get currentMessageId() { return register.currentMessageId; },
     getTurnAssistantText: () => register.turnText.text,
     get pendingDispatches() { return register.pendingDispatches; },

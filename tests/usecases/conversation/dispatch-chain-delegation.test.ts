@@ -9,7 +9,7 @@ import type { Invoke } from "@entities/conversation/invoke";
 import { createCapturingLogger } from "../../helpers/logger";
 
 function invokeRow(id: string, otterId = "otter-1", tsp: string[] = []): Invoke {
-  return { id, status: "completed", otterId, talkingStonePassedTo: tsp, endedAt: "2026-10-27", conversationId: "conv-1", triggerEntryId: null, startedAt: "2026-10-27", toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, ctxWindowUsed: null, metadata: null, pid: null };
+  return { id, status: "completed", otterId, talkingStonePassedTo: tsp, endedAt: "2026-10-27", conversationId: "conv-1", triggerEntryId: null, startedAt: "2026-10-27", toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, tokenUsageCacheRead: null, tokenUsageCacheWrite: null, ctxWindowUsed: null, metadata: null, pid: null };
 }
 
 function makeEngine(overrides?: {
