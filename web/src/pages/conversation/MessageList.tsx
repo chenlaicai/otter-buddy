@@ -236,6 +236,11 @@ interface MessageListProps {
    *  动态变化，pinned 用户由既有贴底补偿保持齐平（衬垫长高也是内容长高，contentObserver
    *  兑底），floating 用户不打扰 */
   bottomSpacerPx?: number
+  /** F20261027nmbf：回锚清零回调——floating→pinned 转换（滚回底部）时清 newMessagesCount。
+   *  背景：浮窗计数此前只有「点浮窗/发言」两个清零入口，均要求按钮可点；输入覆盖层
+   *  （F20261015inpd）遮挡按钮后清零路径全断，计数僵死（左栏红点已被聚焦 ack 消掉，
+   *  浮窗仍挂“新消息1条”）。回锚=用户已看到底部全部消息，语义上等同已读 */
+  onPinnedToBottom?: () => void
   /** 跳底按钮回调：滚动与置 pin 在本组件内完成，回调只承担计数清零等业务侧处理 */
   onJumpToBottom?: () => void
   onLoadMore?: () => void
@@ -260,7 +265,7 @@ function isNearBottom(el: HTMLElement, threshold = 100): boolean {
 
 export function MessageList({
   messages, state, onStopStream, onRetryMessage, onRetry, onGoToSettings, otters,
-  conversationId, pinRef, newMessagesCount = 0, bottomSpacerPx = 0, onJumpToBottom, onLoadMore,
+  conversationId, pinRef, newMessagesCount = 0, bottomSpacerPx = 0, onJumpToBottom, onPinnedToBottom, onLoadMore,
   loadingMore, hasMoreBefore = false, loadMoreError = false,
   unreadSeparatorSeq, highlightMessageId,
   userName, linkedResources,
@@ -530,7 +535,12 @@ export function MessageList({
       takeUserControl()
     } else if (nearBottom) {
       // 非向上位移滚到底部附近 → 回锚合法（向下滚回底部/收缩 clamp 落底/pinned 保持）
+      const wasFloating = !pinRef.current
       pinRef.current = true
+      // F20261027nmbf：回锚即清零——floating→pinned 转换（用户滚回底部=新消息已在眼前）
+      // 时清浮窗计数。仅转换时触发（pinned 保持的重复 scroll 不打）。父层 set(0) 幂等，
+      // 不读计数 props 快照：新消息 setState 与 scroll 交错时，旧快照也不能吞掉本次回锚边缘
+      if (wasFloating) onPinnedToBottom?.()
     }
     // F20261020wcsr：向下位移 = 用户离开顶部 → 解除哨兵连拉冷却（恢复自动加载资格）
     if (el.scrollTop > lastScrollTopRef.current && autoChainCountRef.current > 0) {
@@ -538,7 +548,7 @@ export function MessageList({
     }
     lastScrollTopRef.current = el.scrollTop
     lastScrollHeightRef.current = el.scrollHeight
-  }, [pinRef, takeUserControl])
+  }, [pinRef, takeUserControl, onPinnedToBottom])
 
   /** 首次渲染滚到底部（R0：mount 即 pinned——容器带 key，切会话 remount 时同样经此贴底） */
   useEffect(() => {
@@ -721,8 +731,18 @@ export function MessageList({
             }
             onJumpToBottom()
           }}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full shadow-glow text-sm text-white transition hover:scale-105"
-          style={{ background: 'linear-gradient(135deg,#A88260,#8B6F47)' }}
+          // F20261027nmbf 几何修复：bottom-4 → bottomSpacerPx+16 内联（浮窗抬到输入覆盖层
+          // 上方，与底部衬垫联动——覆盖层实高即 bottomSpacerPx）；z-10 → z-20（脱离
+          // 覆盖层的 z-10 同层后来居上遮挡——#1535 同族问题：覆盖层透明区域照吃命中测试）。
+          // 抬升后浮窗悬于输入框上方 16px（微信/Telegram 风格），覆盖层长高（卡片预览展开）
+          // 时随衬垫同步上移；CSS clamp 在矮视口优先保留 8px 顶边距，不让顶部被裁切。
+          // 常量 44px = 按钮高 36px（py-2×2 + text-sm 行高 20）+ 顶边距 8px，无需新增 observer/状态
+          className="absolute left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-full shadow-glow text-sm text-white transition hover:scale-105"
+          style={{
+            background: 'linear-gradient(135deg,#A88260,#8B6F47)',
+            bottom: 'var(--badge-bottom)',
+            '--badge-bottom': `clamp(8px, ${bottomSpacerPx + 16}px, calc(100% - 44px))`,
+          } as CSSProperties}
         >
           新消息 {newMessagesCount} 条 ↓
         </button>

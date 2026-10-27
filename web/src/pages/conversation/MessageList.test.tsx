@@ -368,6 +368,10 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     messages?: LocalMessage[]
     newMessagesCount?: number
     onJumpToBottom?: () => void
+    /** F20261027nmbf：回锚清零回调 */
+    onPinnedToBottom?: () => void
+    /** F20261027nmbf：底部衬垫高度（输入覆盖层实高） */
+    bottomSpacerPx?: number
     onLoadMore?: () => void
     hasMoreBefore?: boolean
     loadingMore?: boolean
@@ -392,6 +396,8 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
           pinRef={opts.pinRef}
           newMessagesCount={opts.newMessagesCount}
           onJumpToBottom={opts.onJumpToBottom}
+          onPinnedToBottom={opts.onPinnedToBottom}
+          bottomSpacerPx={opts.bottomSpacerPx}
           onLoadMore={opts.onLoadMore}
           hasMoreBefore={opts.hasMoreBefore}
           loadingMore={opts.loadingMore}
@@ -438,6 +444,64 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
       // smooth 经 scrollTo({behavior}) —— jsdom stub no-op，但写入意图已表达；
       // 断言 pinned + 回调 + 后续 observer 补偿路径可用
       void st
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  /** F20261027nmbf：浮窗几何修复——按钮 bottom 必须抬到输入覆盖层（bottomSpacerPx）之上，
+   *  否则被覆盖层（absolute bottom-0 z-10）遮挡点不到（#1535 同族）。修复前 bottom 固定 16px */
+  it('F20261027nmbf 几何：浮窗 bottom = 衬垫高+16，抬升到输入覆盖层上方（修复前 bottom 僵 16px 被覆盖）', async () => {
+    const pinRef = { current: false }
+    const { root, div } = renderList({ pinRef, newMessagesCount: 1, bottomSpacerPx: 96, onJumpToBottom: () => {} })
+    try {
+      const btn = Array.from(div.querySelectorAll('button')).find(b => b.textContent?.includes('新消息'))
+      expect(btn, '应渲染跳底按钮').toBeTruthy()
+      // 修复后：bottom = 96 + 16 = 112px，高于输入覆盖层实高（96px），不再被遮挡；
+      // z-20 高于覆盖层 z-10，命中测试不再被透明覆盖层吞掉
+      expect((btn as HTMLElement).style.bottom, 'bottom 应读取原生 clamp 变量').toBe('var(--badge-bottom)')
+      expect((btn as HTMLElement).style.getPropertyValue('--badge-bottom'), '常规空间 bottom=衬垫+16，同时钳住上沿').toBe('clamp(8px, 112px, calc(100% - 44px))')
+      expect((btn as HTMLElement).className, 'z 应高于覆盖层 z-10').toContain('z-20')
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  /** F20261027nmbf：计数僵死修复——floating→pinned 转换（滚回底部）即清零，不再依赖按钮可点。
+   *  修复前：清零仅有点浮窗/发言两路，按钮被覆盖层遮挡时计数僵死。
+   *  注：mount 时「切换会话重置」effect 置 pinRef=true，故用例内先手动置 floating 再触发回锚 */
+  it('F20261027nmbf 回锚清零：floating 滚回底部（nearBottom）→ 触发 onPinnedToBottom 清零回调', async () => {
+    const pinRef = { current: false }
+    let cleared = 0
+    const { root, div } = renderList({ pinRef, newMessagesCount: 3, onJumpToBottom: () => {}, onPinnedToBottom: () => { cleared++ } })
+    try {
+      const st = instrumentRW(scrollerOf(), 2000, 1950) // 距底 50px < 100 阈值 = nearBottom
+      pinRef.current = false // mount 重置 effect 已置 true——手动回到 floating（模拟用户上翻后滚回）
+      fireScroll()
+      expect(pinRef.current, '滚回底部应回锚').toBe(true)
+      expect(cleared, 'floating→pinned 转换应触发清零回调').toBe(1)
+      // pinned 保持态重复 scroll 不重复触发（转换边缘触发）
+      fireScroll()
+      expect(cleared, 'pinned 保持不应重复触发').toBe(1)
+      void st
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  it('F20261027nmbf 回锚清零幂等：计数 prop 仍为上一帧快照时也发清零回调', async () => {
+    const pinRef = { current: false }
+    let cleared = 0
+    const { root, div } = renderList({ pinRef, newMessagesCount: 0, onJumpToBottom: () => {}, onPinnedToBottom: () => { cleared++ } })
+    try {
+      instrumentRW(scrollerOf(), 2000, 1980)
+      pinRef.current = false // mount 重置 effect 已置 true——模拟用户上翻后的真实 floating 起点
+      fireScroll()
+      expect(pinRef.current, '应完成 floating→pinned 回锚').toBe(true)
+      expect(cleared, '清零不依赖计数 props 快照；父层 set(0) 本就幂等').toBe(1)
     } finally {
       act(() => { root.unmount() })
       div.remove()
