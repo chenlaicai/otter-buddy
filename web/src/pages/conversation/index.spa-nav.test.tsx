@@ -189,6 +189,12 @@ describe('F20261027nmbf：SPA 切会话清理上一会话的新消息浮窗计�
       await flushAsync()
       expect(container.textContent, 'A floating 时应出现新消息浮窗').toContain('新消息 1 条')
 
+      const processToggle = Array.from(container.querySelectorAll('button')).find(b => b.textContent === '过程明细') as HTMLButtonElement
+      expect(processToggle, '过程明细开关应就位').toBeTruthy()
+      await act(async () => { processToggle.click() })
+      await flushAsync()
+      expect(container.textContent, '同会话加载函数随过程明细重建，不得误清未读徽标').toContain('新消息 1 条')
+
       await act(async () => { await router.navigate('/conversation/conv-b') })
       await flushAsync()
       expect(container.textContent, '路由参数切换不重挂页面，但计数属于 A，不得泄漏给 B').toContain('B的第一条')

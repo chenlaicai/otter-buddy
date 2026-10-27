@@ -377,12 +377,18 @@ test.describe('F20261027nmbf 新消息浮窗几何与点击命中（真实浏览
       const r = badge.getBoundingClientRect()
       const sr = scroller.getBoundingClientRect()
       const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+      const hitAll = [r.y + 1, r.y + r.height / 2, r.y + r.height - 1].every(y => {
+        const pointHit = document.elementFromPoint(r.x + r.width / 2, y)
+        return pointHit === badge || badge.contains(pointHit)
+      })
       return {
         viewport: { width: window.innerWidth, height: window.innerHeight },
         scroller: { top: sr.top, bottom: sr.bottom, height: sr.height },
         badge: { top: r.top, bottom: r.bottom, height: r.height },
+        computedBottom: parseFloat(getComputedStyle(badge).bottom),
         overlayTop: overlay.getBoundingClientRect().top,
         hit: hit === badge || badge.contains(hit),
+        hitAll,
       }
     })
   }
@@ -400,14 +406,19 @@ test.describe('F20261027nmbf 新消息浮窗几何与点击命中（真实浏览
   })
 
   test('11b: 矮窗口大输入覆盖层下浮窗仍完整可见、可点、不回显负 bottom', async ({ page }) => {
-    await page.setViewportSize({ width: 640, height: 360 })
+    await page.setViewportSize({ width: 640, height: 260 })
     await page.addInitScript(() => localStorage.setItem('otter.chat.inputHeight', '2000'))
-    const { badge } = await openFloatingBadge(page)
+    const { badge, scroller } = await openFloatingBadge(page)
     const m = await badgeGeometry(page)
+    const spacer = await scroller.locator('[data-testid="bottom-spacer"]').evaluate(el => (el as HTMLElement).offsetHeight)
+    const preferredBottom = spacer + 16
+    const clampCeiling = m.scroller.height - 44
+    console.log('[nmbf-clamp-evidence]', { ...m, spacer, preferredBottom, clampCeiling })
+    expect(preferredBottom, `首选 bottom ${preferredBottom} 必须高于触顶线 ${clampCeiling}，用例才真正压到 clamp 绑定态`).toBeGreaterThan(clampCeiling)
+    expect(m.computedBottom, '计算 bottom 应钳在触顶线，而非保留首选值或变负').toBeCloseTo(clampCeiling, 1)
     expect(m.badge.top, `钳位后顶 ${m.badge.top} 不得越过消息区顶 ${m.scroller.top}`).toBeGreaterThanOrEqual(m.scroller.top + 7)
     expect(m.badge.bottom).toBeLessThanOrEqual(m.scroller.bottom)
-    expect(m.badge.bottom).toBeLessThanOrEqual(m.overlayTop - 7)
-    expect(m.hit, '矮窗口中心命中浮窗自身').toBe(true)
+    expect(m.hitAll, '触顶绑定态允许与覆盖层部分重叠，但按钮顶/中/底均须命中自身').toBe(true)
     await page.screenshot({ path: 'test-results/nmbf-11b-short.png', fullPage: false })
     await badge.click()
     await expect(page.getByRole('button', { name: /新消息 \d+ 条/ })).toHaveCount(0)
