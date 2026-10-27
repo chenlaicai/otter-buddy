@@ -60,7 +60,7 @@ function mockQueryOtter(): QueryOtter {
 
 function mockAgentInvoke(options: {
   events?: AgentStreamEvent[];
-  result?: { text: string; tokenUsage?: { input: number; output: number }; ctxTokens?: number; ctxMax?: number };
+  result?: { text: string; tokenUsage?: { input: number; output: number }; tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; ctxTokens?: number; ctxMax?: number };
   throwOnInvoke?: Error;
   toolCallCount?: number;
   internalAbortReason?: string;
@@ -291,6 +291,7 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
 
     expect(result.invokeId).toBeTruthy();
     expect(result.tokenUsage?.input).toBe(10);
+    expect(result.tokenUsageDelta).toBeUndefined();
     expect(events.map(e => e.event)).toContain("invoke.start");
     expect(events.map(e => e.event)).toContain("invoke.end");
     expect(events.map(e => e.event)).toContain("turn.complete");

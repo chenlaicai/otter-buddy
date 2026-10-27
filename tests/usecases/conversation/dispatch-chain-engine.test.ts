@@ -107,32 +107,38 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
     expect(invoked).toEqual(["otter-worker"]);
   });
 
-  it("F20260907ylfs ②：yield 回自己 = 任务锚点入箱，护栏放行链续跑（无消息表服务时降级 0 永放行，maxChainDepth 兜底）", async () => {
+  it("F20260907ylfs ②：yield 回自己 = 任务锚点入箱，护栏放行链续跑（无专用查询时降级通用读取，行为护栏兜底）", async () => {
     const { m } = makeChainMocks();
-    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, maxChainDepth: 10, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const invoked: string[] = [];
 
     // F20260913ctlv 彻底切换：self-yield 出处 = invoke 行 tsp（yield 回自己）
-    (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) =>
-      id === "m-work"
+    // F20261026ctbg：深度硬停已撤——mock 前 12 跳返回 self-tsp，第 12 跳后自然收尾（无资源截断）
+    let selfYieldHops = 0;
+    (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => {
+      const isSelf = id === "m-work" && selfYieldHops < 11 && ++selfYieldHops;
+      return isSelf
         ? { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: ["otter-worker"], endedAt: "2026-09-10T00:00:00Z" }
-        : { id, status: "completed", otterId: "owner-otter", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" });
+        : { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" };
+    });
 
     await engine.executeChain({
       conversationId: "conv-1", userMessageContent: "hi", senderId: "owner-otter",
       initialTargets: ["otter-worker"],
       /** 小獭持续 yield 回自己：② 合法化后 = 任务锚点入箱，每轮重跑自己（消化），
-       *  护栏（计数）才是终链手段——本测试无消息表服务（makeChainMocks 无 getMessages mock），
-       *  计数降级 0 永放行，由 maxChainDepth 兜底（真实 5 跳链停见 self-yield-guardrail 集成测试） */
+       *  护栏（计数）才是终链手段——本测试无专用查询（makeChainMocks 无 getSelfYieldDecisionEntries mock），
+       *  计数降级 0 永放行（真实 5 跳链停见 self-yield-guardrail 集成测试） */
       invokeFn: async ({ otterId }: { otterId: string }) => {
         invoked.push(otterId);
         return { messageId: "m-work" };
       },
     });
 
-    /** 新契约：self 不再被滤除——链持续续跑到 maxChainDepth（10 跳全为 otter-worker），
-     *  旧 F20260904schf「自指滤除 → 一轮终止」不变量随 ② 合法化退役 */
-    expect(invoked).toEqual(Array(10).fill("otter-worker"));
+    /** 新契约（F20261026ctbg）：资源形态（深度）不再终链——self 链无介入证据时永放行，
+     *  12 跳全为 otter-worker 且超过旧 maxChainDepth:10 未被截断，自然收尾；
+     *  终链由 self-yield 行为护栏（steer@3/abort@5）在真实消息表上兜底（见 self-yield-guardrail 集成测试）。
+     *  旧 F20260904schf「自指滤除 → 一轮终止」不变量与 F20260907ylfs「深度兜底」注释随硬停退役 */
+    expect(invoked).toEqual(Array(12).fill("otter-worker"));
   });
 });
 

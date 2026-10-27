@@ -30,6 +30,7 @@ import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, TerminalContext, FirstDumbInfo } from "./types";
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
+import { addTokenUsage } from "../token-usage";
 
 export class AgentTurnOrchestrator {
   /**
@@ -62,6 +63,7 @@ export class AgentTurnOrchestrator {
   ): Promise<TurnResult> {
     const startTime = Date.now();
     let currentInput = input;
+    let tokenUsageDelta: TurnResult["tokenUsageDelta"];
 
     // 主循环：重试时更新 currentInput 继续
     while (true) {
@@ -81,16 +83,21 @@ export class AgentTurnOrchestrator {
         err = e;
         // #543：err 路径保留 _modelAlias——rate_limit 落账需要模型标识（与 toolCallCount 同模式提取）
         const errMeta = e as ErrorWithToolCallCount;
-        result = { text: '', ...(errMeta._modelAlias && { modelAlias: errMeta._modelAlias }) };
+        result = {
+          text: '',
+          ...(errMeta._modelAlias && { modelAlias: errMeta._modelAlias }),
+          ...(errMeta._tokenUsageDelta && { tokenUsageDelta: errMeta._tokenUsageDelta }),
+        };
         toolCallCount = errMeta._toolCallCount ?? driver.getToolCallCount(currentInput.otterId, currentInput.invokeId);
       } finally {
         // 清理当前 attempt 的去重键，防止内存泄漏
         this.recordedAttempts.delete(attemptKey);
       }
 
+      tokenUsageDelta = addTokenUsage(tokenUsageDelta, result.tokenUsageDelta);
       // F20260913ctlv：invoke 成功检测——yield 工具置 invoke completed（离开 running 即成功）
       const completedResult = await this.tryCompleteInvoke(
-        currentInput, result, driver, { callbacks, startTime, attemptStartTime, toolCallCount },
+        currentInput, result, driver, { callbacks, startTime, attemptStartTime, toolCallCount }, tokenUsageDelta,
       );
       if (completedResult) return completedResult;
 
@@ -140,10 +147,13 @@ export class AgentTurnOrchestrator {
         callbacks,
         startTime,
         hasOrphanText,
+        tokenUsageDelta,
       };
       const routeResult = await this.routeByReason(reason, routeCtx);
 
       if (routeResult) {
+        // guard/circuit-break 终链也要把本 attempt 的增量带回 invoker；成功路径在 tryCompleteInvoke 已返回。
+        routeResult.tokenUsageDelta = routeCtx.tokenUsageDelta;
         return routeResult as TurnResult;
       }
 
@@ -170,6 +180,7 @@ export class AgentTurnOrchestrator {
     result: InvokeResultShape,
     driver: AttemptDriver,
     ctx: { callbacks: TurnCallbacks; startTime: number; attemptStartTime: number; toolCallCount: number },
+    tokenUsageDelta: TurnResult["tokenUsageDelta"],
   ): Promise<TurnResult | undefined> {
     const invoke = await ctx.callbacks.getInvokeById(input.invokeId);
     if (!invoke || invoke.status === "running") return undefined;
@@ -222,6 +233,7 @@ export class AgentTurnOrchestrator {
         invokeId: input.invokeId,
         duration,
         tokenUsage: result.tokenUsage,
+        tokenUsageDelta,
       };
     } catch {
       return undefined;
@@ -245,7 +257,7 @@ export class AgentTurnOrchestrator {
       case 'no_yield':
         return this.handleYieldRetry(ctx);
       default:
-        return { invokeId: ctx.input.invokeId, duration: Date.now() - ctx.startTime };
+        return { invokeId: ctx.input.invokeId, duration: Date.now() - ctx.startTime, tokenUsageDelta: ctx.tokenUsageDelta };
     }
   }
 
@@ -935,6 +947,7 @@ export class AgentTurnOrchestrator {
       invokeId: ctx.input.invokeId,
       duration: Date.now() - ctx.startTime,
       tokenUsage: ctx.result.tokenUsage,
+      tokenUsageDelta: ctx.tokenUsageDelta,
     };
   }
 
