@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { classifyExit, extractGuardReason, isAbortOwnError } from "@usecases/conversation/agent-turn-orchestrator/exit-classifier";
+import { classifyExit, extractGuardReason, isAbortOwnError, exitKindToOutcome } from "@usecases/conversation/agent-turn-orchestrator/exit-classifier";
+import { DelegationInFlightError } from "@entities/errors";
 
 describe("classifyExit", () => {
   const noAbort = new Set<string>();
@@ -193,5 +194,32 @@ describe("extractGuardReason", () => {
       () => undefined,
     );
     expect(reason).toBeUndefined();
+  });
+});
+
+describe("F20261026cnsv 审视修复（Feb 发现 2）：DelegationInFlightError 独立归类", () => {
+  const noAbort = new Set<string>();
+  const noInternalReason = () => undefined;
+
+  it("背压拒绝 → delegation_rejected（不落入 api_error 通用通道）", () => {
+    const reason = classifyExit(
+      { messageId: "msg-1", result: { text: "" }, err: new DelegationInFlightError(), toolCallCount: 0 },
+      noAbort,
+      noInternalReason,
+    );
+    expect(reason).toEqual({ kind: "delegation_rejected", errorMessage: "目标海獭已有排队任务在消化", toolCallCount: 0 });
+  });
+
+  it("exitKindToOutcome：delegation_rejected → 'delegation_rejected'（台账不污染 api_error 口径）", () => {
+    expect(exitKindToOutcome("delegation_rejected", 0)).toBe("delegation_rejected");
+  });
+
+  it("普通错误仍走 api_error（回归钉：分类扩展不误伤既有通道）", () => {
+    const reason = classifyExit(
+      { messageId: "msg-1", result: { text: "" }, err: new Error("LLM API error: 500"), toolCallCount: 0 },
+      noAbort,
+      noInternalReason,
+    );
+    expect(reason).toEqual({ kind: "api_error", errorMessage: "LLM API error: 500", toolCallCount: 0 });
   });
 });

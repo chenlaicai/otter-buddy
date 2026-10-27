@@ -14,6 +14,8 @@ export type InvokeOutcome =
   | "user_abort"
   | "guard_abort"
   | "api_error"
+  /** F20261026cnsv 审视修复（Feb 发现 2）：单飞行背压拒绝——背压非故障，独立计数不污染 api_error 口径 */
+  | "delegation_rejected"
   | "no_yield_retry"
   | "no_yield_failed";
 

@@ -371,3 +371,26 @@ schema、不碰 CHECK 枚举、依赖面单一——过门通过，纳入本方�
 | 静态检查 | `npx tsc --noEmit`、`npm run lint -- --quiet`、`git diff --check` | 聚焦/全仓检查按最终 PR 记录；Golden Gate n/a（A 类硬代码，无 prompt/skill/tool description 行为变更） |
 
 以上记录只代表实现者自检，不代表独立对抗审视通过。
+
+### 对抗审视返工记录（2026-10-27，检视獭Feb 初轮）
+
+初轮审视（1 严重 + 1 建议）后修复，逐条对齐建议处置：
+
+**发现 1（严重）单飞行拒绝整批 abort**：旧实现 `executeOneHop` 对任一目标
+`DelegationInFlightError` 即 `throw fastFailure.reason`，把 per-hop 拒绝放大为
+per-batch + per-chain abort——同批其他目标已真实执行的结果被丢弃（tsp 路由与
+token 记账静默丢失），且 message-controller 误报「发言链调度失败」。修复：删除
+整批 throw，被拒目标走既有 rejected 结果通道（`logRejectedTarget` 独立 warn 口径
+「拒绝≠调用失败」+ 不进 outcomes + 不 fallback 重投，单飞行语义保留）+
+`notifyDelegationRejections` 人话系统通知（新可选依赖 `systemEntryRepo`，生产
+装配注入 `uc.sendEntry`；写入失败降级纯日志不阻断链路）；兄弟目标照常走
+`resolveHopOutcomes` / `processHopResults`。多目标混合测试：`idle+单飞行被拒` →
+兄弟目标路由续跳（第 2 次 invoke 为 otter-next）、被拒目标无 invoke、通知落账；
+原把整链 abort 钉成预期的旧断言（executeChain rejects）改钉新语义。
+
+**发现 2（建议）背压拒绝污染 api_error 口径**：`DelegationInFlightError` 原走
+通用 api_error 归类。修复：ExitReason 新增 `delegation_rejected` 独立 kind（classifyExit
+先于 api_error 判定）+ `InvokeOutcome` 枚举新增 `delegation_rejected`（metrics
+标签自然分开）+ orchestrator `routeByReason` 补分支（处置与 api_error 同走
+failTerminal，行为零变化——文案不命中限流/超窗模式识别，仅分类差异）；
+`exitKindToOutcome` 映射 + 三条断言（归类、outcome 映射、普通错误回归钉）。
