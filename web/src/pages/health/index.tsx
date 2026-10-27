@@ -30,7 +30,9 @@ import { TriageQueue } from './TriageQueue'
 import { type ChainState } from './chain-state-meta'
 import { VerdictCard, DimensionRows, ActionList } from './VerdictPanel'
 import { ChainsPanel } from './ChainsPanel'
-type Tab = 'overview' | 'signals' | 'chains' | 'cost'
+import { WorkLedgerPanel } from './WorkLedgerPanel'
+import { ModelEfficiencyPanel } from './ModelEfficiencyPanel'
+type Tab = 'overview' | 'signals' | 'chains' | 'cost' | 'works'
 
 /** tab 显示名（issue #1029：信号→警报、特性链→进行中的事——内部术语翻译成搭档语言） */
 const TAB_LABELS: Record<Tab, string> = {
@@ -38,13 +40,14 @@ const TAB_LABELS: Record<Tab, string> = {
   signals: '警报',
   chains: '进行中的事',
   cost: '用量/效率',
+  works: '工作账本',
 }
 
 const COST_OUTPUT_COLORS = SERIES_COLORS
 
 export default function HealthPage() {
   // Issue #647：支持 ?tab= 深链（刷新/截图/分享指定视图）；非法值回退 overview
-  const initialTab = (['overview', 'signals', 'chains', 'cost'] as const).includes(new URLSearchParams(window.location.search).get('tab') as Tab) ? new URLSearchParams(window.location.search).get('tab') as Tab : 'overview'
+  const initialTab = (['overview', 'signals', 'chains', 'cost', 'works'] as const).includes(new URLSearchParams(window.location.search).get('tab') as Tab) ? new URLSearchParams(window.location.search).get('tab') as Tab : 'overview'
   const [tab, setTab] = useState<Tab>(initialTab)
   const [overview, setOverview] = useState<RhiOverviewDTO | null>(null)
   const [trends, setTrends] = useState<RhiTrendsDTO | null>(null)
@@ -151,6 +154,7 @@ export default function HealthPage() {
               { key: 'signals', label: `${TAB_LABELS.signals}${untriagedCount > 0 ? ` · ${untriagedCount} 待接单` : ''}` },
               { key: 'chains', label: `${TAB_LABELS.chains}${chains.length ? ` · ${chains.length}` : ''}` },
               { key: 'cost', label: TAB_LABELS.cost },
+              { key: 'works', label: TAB_LABELS.works },
             ] as { key: Tab; label: string }[]).map(t => (
               <button
                 key={t.key}
@@ -357,6 +361,14 @@ export default function HealthPage() {
                   <p className="text-xs text-stone-400 mt-1">扫描会解析 session JSONL 和 invokes 表，写入 cost_output 快照</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* 工作账本视图（F20261027hwl1：独立工作的成本归集 + 模型效率矩阵） */}
+          {tab === 'works' && (
+            <div className="space-y-6">
+              <WorkLedgerPanel />
+              <ModelEfficiencyPanel />
             </div>
           )}
         </div>

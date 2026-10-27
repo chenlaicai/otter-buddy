@@ -260,3 +260,52 @@ describe("SqliteInvokeRepository - Invoke 基础操作", () => {
     });
   });
 });
+
+describe("F20261027hwl1：cache 四分量读回链", () => {
+  it("createInvoke 携带 cacheRead/cacheWrite 后 getInvokeById 读回不丢", async () => {
+    const db = createTestDb();
+    insertOtter(db, "otter-cache");
+    insertConversation(db, "conv-cache");
+    const repo = new SqliteInvokeRepository(db);
+    await repo.createInvoke({
+      ...invokeFixture(),
+      id: "invoke-cache",
+      conversationId: "conv-cache",
+      otterId: "otter-cache",
+      tokenUsageInput: 1000,
+      tokenUsageOutput: 200,
+      tokenUsageCacheRead: 3000,
+      tokenUsageCacheWrite: 400,
+      status: "completed",
+      metadata: { traceId: "trace-abc-1", traceSource: "dispatch" },
+    });
+    const back = await repo.getInvokeById("invoke-cache");
+    expect(back).not.toBeNull();
+    // 四分量完整读回（此前 create 不写 cache 列 + rowToInvoke 丢弃 → 永远 null）
+    expect(back!.tokenUsageCacheRead).toBe(3000);
+    expect(back!.tokenUsageCacheWrite).toBe(400);
+    expect(back!.tokenUsageInput).toBe(1000);
+    expect(back!.tokenUsageOutput).toBe(200);
+    // metadata.traceId 原样读回（工作账本归属派生源）
+    expect((back!.metadata as { traceId?: string })?.traceId).toBe("trace-abc-1");
+    db.close();
+  });
+
+  it("updateInvokeTokenUsage 写入的 cache 列经实体读回链不丢（两头修齐）", async () => {
+    const db = createTestDb();
+    insertOtter(db, "otter-cache2");
+    insertConversation(db, "conv-cache2");
+    const repo = new SqliteInvokeRepository(db);
+    await repo.createInvoke({
+      ...invokeFixture(),
+      id: "invoke-cache2",
+      conversationId: "conv-cache2",
+      otterId: "otter-cache2",
+    });
+    await repo.updateInvokeTokenUsage("invoke-cache2", 111, 222, 333, 444);
+    const back = await repo.getInvokeById("invoke-cache2");
+    expect(back!.tokenUsageCacheRead).toBe(333);
+    expect(back!.tokenUsageCacheWrite).toBe(444);
+    db.close();
+  });
+});
