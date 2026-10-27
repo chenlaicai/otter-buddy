@@ -1406,6 +1406,141 @@ function interpreterFeedReadOnlyFlag(command: string): boolean {
  *  重建基座）→ 载荷递归走同一 checkMainCheckoutWrite（与 bash -c 载荷同基座：写主仓
  *  拦/树外放/工作区豁免）；上游不透明 → fail-closed 拦（U5 族「脚本内容未经逐条判定」
  *  正确定因）；无管道上游（裸 bash stdin=EOF）→ 无写面放行（与 bash - 既有口径一致）。 */
+/** F20261026gpg1（M-a09944aa②）：xargs replace-str 注入形态识别（stdinShellFeederVeto
+ *  内层）。段首 xargs 且旗标区含 replace 旗标（-i / -I<str> / -I <str> / --replace[=<str>]，
+ *  缺省 replace-str 为 {}）且旗标区后接 shell 解释器 + -c + 恰为 replace-str 词 → 返回
+ *  replace-str 的模板与 replace-str 本身；否则 null。只认静态词（动态词 → null 走既有
+ *  保守面，不猜展开）。语义：xargs 把上游内容作为独立 argv 传入 shell -c，载荷即上游
+ *  内容本身——与管道喂 shell 同判定基座（feeder 递归）。 */
+/** xargs 旗标区扫描内层：返回 { replaceStr, cmdStart }（replace 旗标位与命令区起点），
+ *  无 replace 旗标返回 null；动态词返回 "dynamic"（不猜展开）。 */
+function xargsScanFlags(words: Segment["words"]): { replaceStr: string; cmdStart: number } | null | "dynamic" {
+  let replaceStr: string | null = null;
+  let k = 1; // 跳过 xargs 本词
+  while (k < words.length) {
+    const ev = words[k].evaluated;
+    if (typeof ev !== "string") return "dynamic"; // 动态词不猜
+    const next = words[k + 1]?.evaluated;
+    const parsed = xargsParseFlag(ev, typeof next === "string" ? next : undefined);
+    if (parsed === "dynamic") return "dynamic";
+    if (parsed === null) break; // 首个非旗标词 = 命令区起点
+    if (parsed.replaceStr !== undefined) replaceStr = parsed.replaceStr;
+    k += parsed.consume;
+  }
+  return replaceStr === null ? null : { replaceStr, cmdStart: k };
+}
+
+/** 单旗标解析：返回 { consume, replaceStr? } / null（非旗标词，= 命令区起点）/ "dynamic"
+ *  （值位动态词不猜）。F20261026gpg1 delta r1（检视獭1643 严重 1）：值耗型旗标（-n/-P/
+ *  -s/-d/-L/-a 及长形态）复用 WRAPPER_SPECS.xargs.valueFlags 吞值（单一真相源，不自造
+ *  第二套旗标表——大獭处置口径）；GNU 可选值旗标 -i/--replace/-l 不吞值（表边界①数义：
+ *  分写后随 token 是命令非值）。 */
+function xargsParseFlag(ev: string, next: string | undefined): { consume: number; replaceStr?: string } | null | "dynamic" {
+  // replace 旗标（可选值，只认合写/内联形态）
+  if (ev === "-i") return { consume: 1, replaceStr: "{}" };
+  const im = /^-I(.+)$/.exec(ev);
+  if (im !== null) return { consume: 1, replaceStr: im[1] };
+  if (ev === "-I") return next === undefined ? "dynamic" : { consume: 2, replaceStr: next };
+  const rm = /^--replace(?:=(.*))?$/.exec(ev);
+  if (rm !== null) return { consume: 1, replaceStr: rm[1] === undefined || rm[1] === "" ? "{}" : rm[1] };
+  // 值耗型旗标：复用共享表吞值（合写内联值形态自身已含值，仅吞 1）
+  const xargsValueFlags = WRAPPER_SPECS.xargs?.valueFlags;
+  if (xargsValueFlags !== undefined && xargsValueFlags.has(ev)) {
+    if (next === undefined) return "dynamic"; // 值位缺失形态不猜
+    return { consume: 2 };
+  }
+  if (/^-[ILPsdna]$/.test(ev) && ev.length > 2) return { consume: 1 }; // 合写内联值形态（-I{}/-n1/-P4/-s100 等）
+  const inlineLong = /^--(?:max-args|max-procs|max-chars|delimiter|arg-file)=(.+)$/.exec(ev);
+  if (inlineLong !== null) return { consume: 1 };
+  if (ev.startsWith("-")) return { consume: 1 }; // 其他无值旗标（-r/-t/-0/-E eofstr 等）跳过
+  return null; // 非旗标词 = 命令区起点
+}
+
+function xargsReplaceInjection(seg: Segment): { replaceStr: string; template: string; interp: string; interpIsShell: boolean; templateFlag?: string } | null {
+  const scan = xargsScanFlags(seg.words);
+  if (scan === null || scan === "dynamic") return null; // 无 replace 旗标（默认追加形态非本类）/ 动态词不猜
+  const { replaceStr, cmdStart } = scan;
+  // 命令区：shell 或脚本解释器 + -c + 含 replace-str 的模板（两种注入位：整模板恰为
+  // replace-str / 模板内含 replace-str 占位——xargs 实参替换后作为 -c 载荷执行，
+  // 重建拼接后递归判）。cmdWords[3:] 额外 argv 是 $0 位不注入，不参与重建。
+  // delta r1（检视建议②）：解释器族（python/node/ruby/perl——ONELINER_INTERP_NAMES
+  // 归一名）与 shell 族同接——`xargs -i python3 -c {}` 上游内容注入解释器 -c 载荷
+  // 同为注入面；shell/解释器分形态重建（xargsInjectionVeto 内）。
+  const cmdWords = seg.words.slice(cmdStart);
+  if (cmdWords.length < 3) return null;
+  const shellEv = cmdWords[0].evaluated;
+  if (typeof shellEv !== "string") return null;
+  const baseName = tokenBasename(shellEv);
+  const isShell = SHELL_INTERP_NAMES.has(baseName);
+  const isInterp = ONELINER_INTERP_NAMES[baseName.replace(/[\d.]+$/, "")] !== undefined;
+  if (!isShell && !isInterp) return null;
+  const flagEv = cmdWords[1].evaluated;
+  if (flagEv !== "-c" && !(isInterp && flagEv === "-e")) return null; // node -e 同语义
+  const payloadEv = cmdWords[2].evaluated;
+  if (typeof payloadEv !== "string") return null;
+  if (!payloadEv.includes(replaceStr)) return null; // 无占位符 = 无注入位，非本类
+  return { replaceStr, template: payloadEv, interp: shellEv, interpIsShell: isShell, templateFlag: typeof flagEv === "string" ? flagEv : undefined };
+}
+
+/** F20261026gpg1（M-a09944aa②）：xargs replace-str 注入段的同尺判定（stdinShellFeederVeto
+ *  内层，抽函数控深度/语句数）。返回非 null = 拦截消息；null = 无判定（非注入形态或无上游）。
+ *  语义：`echo "<cmd>" | xargs -i bash -c {}` —— xargs 把上游内容作为实参替换占位符，
+ *  载荷即上游内容本身，与管道喂 shell 同一攻击面。静态上游 → 拼接重建递归判；
+ *  不透明上游 → fail-closed。 */
+function xargsInjectionVeto(seg: Segment, feeder: Segment | undefined, depth: number, ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; writeChannelSkip?: "file-write" }, command: string): string | null {
+  if (feeder === undefined) return null;
+  const injected = xargsReplaceInjection(seg);
+  if (injected === null || seg.joiner !== "|" || seg.heredocs.length > 0) return null;
+  const content = segmentStdoutContent(feeder);
+  if (content === null || depth <= 0) {
+    ctx.logger?.warn("[bash-safety-guard] BLOCKED xargs replace-str injection (opaque stdin source)", { command: command.substring(0, 200) });
+    return STDIN_SHELL_OPAQUE_MSG;
+  }
+  // 拼接重建（delta r1 复盘实证的两形态语义）：
+  // · shell -c 模板：上游内容是命令文本，且 `bash -c <cmd>` ≡ 执行 <cmd>——直接重建
+  //   为裸命令文本递归判（不带 bash -c 前缀：无引号形态的 -c 载荷提取不了会假报
+  //   uncovered-cmd；裸命令文本递归解析器直接解析命令语义，语义等价且词形正确）
+  // · 解释器 -c 模板（python/node 等）：上游内容是代码实参——重建为完整命令
+  //   `<interp> -c '<代码>'`（裹单引号引号塔，良构门正确过；裸拼代码文本会被
+  //   良构门拒成良性误拦）
+  if (injected.interpIsShell) {
+    const rebuiltCmd = injected.template.split(injected.replaceStr).join(content);
+    if (/\b(?:kill|pkill|killall|skill|killall5)\b/i.test(rebuiltCmd)) return INDIRECT_KILL_BLOCK_MSG;
+    return checkMainCheckoutWrite({ command: rebuiltCmd, logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, depth: depth - 1, writeChannelSkip: ctx.writeChannelSkip });
+  }
+  const quoted = "'" + content.split("'").join("'\\''") + "'";
+  const payloadRebuilt = injected.template.split(injected.replaceStr).join(quoted);
+  // 解释器 -e 形态（node -e）重建同形——interp 名 + 实际旗标位
+  const cmdFlag = injected.templateFlag ?? "-c";
+  const rebuilt = `${injected.interp} ${cmdFlag} ${payloadRebuilt}`;
+  if (/\b(?:kill|pkill|killall|skill|killall5)\b/i.test(rebuilt)) return INDIRECT_KILL_BLOCK_MSG;
+  return checkMainCheckoutWrite({ command: rebuilt, logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, depth: depth - 1, writeChannelSkip: ctx.writeChannelSkip });
+}
+
+/** F20261026gpg1 delta r1：xargs 注入形态良性证明（豁免基座，与 wrappedOneLinerPayloadsReadOnly
+ *  同哲学）。xargs 注入段存在且重建载荷递归判 ALLOW（无写面/树内写）时 true——供结构通道
+ *  oneLinerReadOnly 豁免（否则 xargs 段 head 非白名单，段内 python3 -c 命中 segHasOneLiner
+ *  被拦——检视建议②良性面 print(1) 误拦实证）。重判不依赖调用顺序：与 xargsInjectionVeto
+ *  同一识别函数 + 同一递归基座，两侧判不出分歧。 */
+function xargsInjectionBenign(command: string, projectRoot: string | undefined, sessionCwd: string | undefined, logger?: Logger, depth = 3): boolean {
+  if (!projectRoot) return false;
+  const model = parseOnce(command);
+  if (!model.parseOk) return false;
+  let saw = false;
+  for (let i = 0; i < model.segments.length; i++) {
+    const seg = model.segments[i];
+    if (tokenBasename(seg.argv0 ?? "") !== "xargs") continue;
+    const injected = xargsReplaceInjection(seg);
+    if (injected === null || seg.joiner !== "|" || seg.heredocs.length > 0) continue;
+    const feeder = model.segments[i - 1];
+    if (feeder === undefined) continue;
+    saw = true;
+    // 同尺重判（不依赖主链已返回 null 的事实——重走一遍递归，良性才豁免）
+    if (xargsInjectionVeto(seg, feeder, depth, { logger, projectRoot, sessionCwd }, command) !== null) return false;
+  }
+  return saw;
+}
+
 function stdinShellFeederVeto(
   command: string,
   depth: number,
@@ -1421,6 +1556,11 @@ function stdinShellFeederVeto(
   const cwdAt = resolveCwdAt(segs, ctx.sessionCwd ?? ctx.projectRoot ?? "/");
   for (let i = 0; i < segs.length; i++) {
     const seg = segs[i];
+    // F20261026gpg1（M-a09944aa②）：xargs replace-str 注入等价类（同尺判定抽 xargsInjectionVeto）
+    if (tokenBasename(seg.argv0 ?? "") === "xargs") {
+      const hit = xargsInjectionVeto(seg, segs[i - 1], depth, ctx, command);
+      if (hit !== null) return hit;
+    }
     if (stdinShellKind(seg) !== "stdin") continue;
     if (seg.heredocs.length > 0) continue; // heredoc stdin 体在场——体判通道已逐条判
     if (seg.joiner !== "|") continue; // 裸 bash/非管道上游：stdin 无内容（EOF）无写面
@@ -2256,9 +2396,15 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // 结构通道的拦截面是「包装形态下的 one-liner 写」，载荷只读仍是豁免面（求值器
   // 判 ALLOW 的只读载荷不应被结构通道重复拦——但写载荷求值器判 BLOCK 已在上方
   // 返回，此处只处理求值器 ALLOW 但结构通道命中写形态的残余——只读豁免同口径）。
-  const oneLinerReadOnly = ONELINER_PRE_GATE.test(command)
-    ? (oneLinerPayloadReadOnly(command) || wrappedOneLinerPayloadsReadOnly(command))
+  // r3：外部预计算的 one-liner 只读豁免（基座对齐——豁免判定与拦截判定同一提取基座）。
+  // 缺省时自算（旧调用方兼容）；显式传入时取或（任一证明只读即豁免——旧实现声明
+  // 了 override 但函数体从未消费，F20261026gpg1 delta r1 接线时若按「外部覆盖」会
+  // 回退内部自算的既有豁免面（#1285 洞2 对称放行实证），故取或：只读豁免是放行
+  // 方向，两个基座任一成立即豁免，不互相回退）。
+  const selfReadOnly = ONELINER_PRE_GATE.test(command)
+    ? (oneLinerPayloadReadOnly(command) || wrappedOneLinerPayloadsReadOnly(command) || xargsInjectionBenign(command, projectRoot, sessionCwd, logger, depth))
     : false;
+  const oneLinerReadOnly = selfReadOnly || (ctx.oneLinerReadOnlyOverride ?? false);
   // git 写族段豁免：cwd 在显式 git 工作树内（sessionCwd 绝对路径锚定）时，git 写族
   // 段的落点是该树自身（旧链 cwdInGitWorktree 同语义——求值器已按落点判过 ALLOW，
   // 结构通道不再重复拦 git 写族段；包装词/子壳等其余段结构照常跑）。
@@ -2626,7 +2772,7 @@ function checkPidIndependentRules(command: string, logger: Logger | undefined, c
   if (narrow) return narrow;
   const preGate = ONELINER_PRE_GATE.test(command);
   const oneLinerReadOnly = preGate
-    ? oneLinerPayloadSet(command) !== null
+    ? (oneLinerPayloadSet(command) !== null || xargsInjectionBenign(command, ctx.projectRoot, ctx.sessionCwd, logger))
     : false;
   const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnlyOverride: oneLinerReadOnly, writeChannelSkip: ctx.writeChannelSkip });
   if (mainWrite) return mainWrite;
