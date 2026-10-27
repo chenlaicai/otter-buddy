@@ -24,7 +24,7 @@ created_at: 2026-10-27
 
 ## 定值依据（实测时长，非照抄 issue 建议）
 
-数据源：`scheduled_task_executions`（completed 状态，julianday 差 × 1440 取分钟）。issue body 的建议值（如「月度剪枝 60」）经实测推翻——月度剪枝唯一一次实际执行跑了 4.75 天（5700min，failed，属 #1302 悬置判死链路问题），它是重度编排（全量 issue 盘点 + 剪枝决策），60min 必杀。这也验证了「开工前独立核实、issue 方案只当假设」的必要性。
+数据源：`scheduled_task_executions`（completed 状态，julianday 差 × 1440 取分钟）。issue body 的建议值（如「月度剪枝 60」）经实测推翻——月度剪枝唯一一次实际执行跑了约 4 天（5700min，failed，属 #1302 悬置判死链路问题），它是重度编排（全量 issue 盘点 + 剪枝决策），60min 必杀。这也验证了「开工前独立核实、issue 方案只当假设」的必要性。
 
 | 任务 | 实测（avg/max，min） | 定值 | 余量逻辑 |
 |---|---|---|---|
@@ -38,7 +38,7 @@ created_at: 2026-10-27
 
 ## 变更方式
 
-运行时配置直更（SQLite 事务 UPDATE，updated_at 同步刷新），无代码 diff——与 issue「配置走任务定义更新，无需代码改动」的判断一致。变更前 `.mode insert` 备份 7 行原值至对话工作区（backup-scheduled-tasks-null-timeout.sql）。
+运行时配置直更（SQLite 事务 UPDATE，updated_at 同步刷新），无代码 diff——与 issue「配置走任务定义更新，无需代码改动」的判断一致。变更前曾以 `.mode insert` 备份 7 行原值至对话工作区；因对话工作区在归档时整体删除（寿命有限，检视发现 2），回滚依据以本节记录为准：**原值均为 timeout_minutes IS NULL**（继承默认 15min 链超时），回滚 = 将 7 行置回 NULL。
 
 **配置结果（变更后实查）**：剩余 NULL 仅 3 个 disabled 任务；7 目标任务全部显式配置（240/240/180/150/120/60/60）。
 
