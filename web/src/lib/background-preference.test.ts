@@ -52,7 +52,8 @@ function mockFileReader(result: string | null, mode: 'load' | 'error' | 'abort' 
 
 function pngFile() { return new File(['image'], 'landscape.png', { type: 'image/png' }) }
 function backgroundResponse(etag = '"v1"') {
-  return new Response(new Blob(['image'], { type: 'image/png' }), { status: 200, headers: { ETag: etag } })
+  // Uint8Array 兼容 CI 的 undici Response；jsdom Blob 缺 stream() 会触发 duck-typing 失败。
+  return new Response(new Uint8Array([105, 109, 97, 103, 101]), { status: 200, headers: { ETag: etag } })
 }
 
 beforeEach(() => {

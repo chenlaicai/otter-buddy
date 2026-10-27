@@ -1,10 +1,6 @@
 ---
-<<<<<<< HEAD:docs/features/2026/10/27/F20261027cbgixx-custom-background-image.md
-id: F20261027cbgixx
-title: 自定义本地背景图片与玻璃效果预览
 id: F20261027cbgix
 title: 自定义启动目录背景图片与玻璃效果预览
->>>>>>> bad05365 ([F20261027cbgix][web][New Feature] 启动目录风景背景与玻璃效果预览):docs/features/2026/10/27/F20261027cbgix-custom-background-image.md
 doc_type: feature
 summary: |
   设置页外观区新增本地图片选择与恢复默认彩色背景，图片保存到应用启动
@@ -34,7 +30,7 @@ modules:
   - src/bootstrap/controllers.ts
 ---
 
-# F20261027cbgixx 自定义本地背景图片与玻璃效果预览
+# F20261027cbgix 自定义本地背景图片与玻璃效果预览
 
 ## 背景
 
@@ -167,6 +163,16 @@ T4：图片无效、损坏或本地持久化失败时给出可理解反馈，不
 
 搭档否决仅当前浏览器存储，原终审 matter M-09294408 已标 SUPERSEDED，PR 未合入。已移除 localStorage 真相源，新增启动目录文件 store + admin API；浏览器只负责选择/预览，应用重启与清站点数据不影响背景资产。原 S2/S6 关于 localStorage 配额和 removeItem 的处置随机制替换退役，不沿用到文件存储。
 
+### 2026-10-27 启动目录版本代码审视处置（目录背景检视獭 / glm，PR #1665）
+
+- 严重 1（CI web 测试 16/16 失败）：**接受并修复，更好**。`new Response(jsdom Blob)` 在 CI undici 下因 Blob 无 stream() 失败；测试响应体改为 `Uint8Array`，产品代码不变。启动目录语义、文件安全、鉴权、竞态、跨重启证据与玻璃层叠均经独立核实无发现。
+
+### 2026-10-28 main 冲突解决
+
+预注册：预期 main 工作账本装配与本 PR 背景装配相邻冲突；若背景语义或文件本体冲突则逐文件重审。实际命中前者：`src/bootstrap/controllers.ts` 唯一冲突，保留 `buildWorkLedgerController` 与背景 controller；路由/客户端自动合并。随后路由语句数 lint 通过拆出 `registerBackgroundRoutes` 解决，行为不变。机制清单无新增，属既有机制内 narrow-fix，无新资产/状态/端点。
+
+证据：`git rebase origin/main` 的 UU 仅 controllers.ts；解决后 build/lint、背景 API 15 测试、web 813 测试通过，等待新 CI 与 delta。
+
 ## 实现自检（2026-10-27）
 
 | 场景 | 操作 | 预期结果 / 证据 |
@@ -204,8 +210,5 @@ T4：图片无效、损坏或本地持久化失败时给出可理解反馈，不
 | `web/src/styles/globals.css` | 修改 | 自定义画布与默认画布分层 |
 | `web/src/styles/custom-background.test.ts` | 新增 | CSS 契约测试 |
 | `web/src/main.tsx` | 修改 | SPA 启动恢复；解码前保留默认画布，坏值自动回退 |
-<<<<<<< HEAD:docs/features/2026/10/27/F20261027cbgixx-custom-background-image.md
-| `docs/features/2026/10/27/F20261027cbgixx-custom-background-image.md` | 新增 | 方案、决策与验证档案 |
 | `.gitignore` | 修改 | 启动目录用户图片不入 git |
 | `docs/features/2026/10/27/F20261027cbgix-custom-background-image.md` | 新增 | 方案、决策与验证档案 |
->>>>>>> bad05365 ([F20261027cbgix][web][New Feature] 启动目录风景背景与玻璃效果预览):docs/features/2026/10/27/F20261027cbgix-custom-background-image.md
