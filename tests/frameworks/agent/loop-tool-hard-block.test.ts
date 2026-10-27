@@ -66,6 +66,51 @@ describe("loopBlockGuard（tool_call 门物理阻断）", () => {
   });
 });
 
+describe("F20261027cbfp S1 补防：glue 层接线（repeatOffender → 写 Map → 门拦截）", () => {
+  it("同签名第 2 次 steer 写入 Map → 门拉黑后续同签名；生产语义固化：拦工具不杀 invoke", () => {
+    const loopBlockedTools = new Map<string, string>();
+    const session = mockSession();
+    const abortOverride = vi.fn();
+    attachCircuitBreaker(
+      session as never,
+      "otter-loop-1",
+      { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, maxConsecutiveIdentical: 5, maxRepeatAfterWarning: 5 },
+      createTestLogger(),
+      { loopBlockedTools, abortOverride },
+    );
+
+    // 第 1 周期：6 连发（阈值 5）→ 第 6 次起每次调用均 consecutive steer，
+    // 但首次 steer 已记集合、同周期后续 steer 即为同签名复犯 → 第 7 次调用起 repeatOffender 写 Map。
+    // 这里只发 6 次（恰好 1 次 steer）便于验证「穿插变调后复犯」的完整链路。
+    for (let i = 0; i < 6; i++) session.emit(sdkToolStart("create_linked_resource", { content: `垃圾${i}` }));
+    expect(session.steer).toHaveBeenCalledOnce();
+    expect(loopBlockedTools.size).toBe(0); // 首次 steer 免拉黑（警告可自由纠正）
+
+    // 穿插变调工具（洗 strike 的逃逸形态）。注意工具选择：带路径参数的 read 签名含
+    // path 区分度；若用名称兑底工具（search_memory 等，#1399 残余口子）签名全同，
+    // 变调本身会触发 B-3 复犯拉黑——那正是检视 D1-1 实测的残余误伤面，不属本用例验证目标。
+    for (let i = 0; i < 7; i++) session.emit(sdkToolStart("read", { path: `/var/escape-probe-${i}.ts` }));
+    expect(loopBlockedTools.size).toBe(0); // 有区分度的变调不触发拉黑
+
+    // 第 2 周期：再连发同签名 → 首个 steer（第 6 次调用）即复犯 → repeatOffender 写 Map；
+    // 后续同周期第 7 次起每次 steer 均为复犯（Map 已写，幂等）
+    for (let i = 0; i < 6; i++) session.emit(sdkToolStart("create_linked_resource", { content: `复犯${i}` }));
+    const sig = buildToolSignature("create_linked_resource", {});
+    expect(loopBlockedTools.has(sig)).toBe(true); // glue：repeatOffender → 写 Map ✓
+
+    // 门拉黑后续同签名（生产顺序：门在 tool_call 层先于 breaker）
+    const store = makeStore(loopBlockedTools);
+    expect(loopBlockGuard(store, "create_linked_resource", {})?.block).toBe(true);
+    // 其他工具不受影响
+    expect(loopBlockGuard(store, "search_memory", { query: "x" })).toBeUndefined();
+
+    // 生产语义固化（D1-2）：门拦截后同签名调用到不了 breaker → strike 不再增长
+    // → terminate/abort 在此形态下不触发——「拦工具不杀 invoke」。
+    // （本测试直驱 tool_execution_start 绕门，但 strike 只到 2 << maxRepeatAfterWarning=5）
+    expect(abortOverride).not.toHaveBeenCalled();
+  });
+});
+
 describe("检测器报警 → 粘滞标记 → 门物理截断（集成，直攻主场景；F20261027cbfp 后：terminate 才写 Map）", () => {
   it("create_linked_resource 持续连发升级 terminate → 记入 Map → 后续同工具被门阻断；speak/yield 放行", () => {
     const loopBlockedTools = new Map<string, string>();

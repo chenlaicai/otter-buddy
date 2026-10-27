@@ -54,7 +54,7 @@ Modification-Class: `narrow-fix`（①既有语义内修）
 
 **行为推演**：
 - 误伤场景（read 同文件×18 + grep×18 节奏流）：steer#1 清窗 → 獭换新工具序列 → 重灌 18 条无命中 → 成熟后 allow → strike 清零 → 恢复自由 ✅
-- 真死循环（A-B 无限交替）：steer#1 清窗 → 重灌满 18 条（模式完成）→ 再命中 steer#2 → …… → strike 6 > 5 → terminate ✅（终止点从 ~24 次后移到 ~110 次，见取舍）
+- 真死循环（A-B 无限交替）：steer#1 清窗 → 重灌满 18 条（模式完成）→ 再命中 steer#2 → …… → strike 6 > 5 → terminate ✅（无穿插场景；终止点从 ~24 次后移到 ~110 次。有穿插变调时：同名复犯第 2 次 steer 即拉黑，早于 terminate——见 S1 补防）
 
 ### P0-2：粘滞黑名单仅 terminate 写入（circuit-breaker-helpers.ts）
 
@@ -80,7 +80,9 @@ Modification-Class: `narrow-fix`（①既有语义内修）
 1. **真循环终止点后移**（约 24 次 → 约 110 次调用）：清窗机制让真循环每重灌一轮（18 条）才命中一次 steer，strike 6 次需 ~108 条。接受理由：真循环每条调用都在产生可观测日志与 token 消耗（非静默挂死），而误伤是直接砍断正当任务（10-27 实现獭 168 次调用被断，工时实损）。且 per-event 超时（600s）与 maxConsecutiveIdentical（同签名 6 次即 steer）仍在兜底——多数真循环（同签名连发型）走 B-3 路径不受影响，只有「跨工具交替型」真循环终止点后移。
 2. **第一版方案（防抖计数）被否**：曾实现 callsSinceWindowReset 计数防重触发，但重灌期 allow 清零 strike 导致真循环永不 terminate（3 测试红）。改为「未成熟期 allow 不清 strike」配套后才闭合。教训：逃生口与防逃逸必须同时设计，单修一头即漏。
 3. **为什么不直接调大阈值/调高 maxRepeatAfterWarning**：治标——误伤根源是窗口残留（结构问题），调参数只改变死刑链长度不改变必死性。
-4. **#1566 门本身保留**：物理截断对「报警后复又发作」场景（#1556 发作 2）仍是唯一可靠防线，只是写入时机从 steer 收窄到 terminate。删门属过度矫正。
+4. **#1566 门本身保留**：物理截断对「报警后复又发作」场景（#1556 发作 2）仍是唯一可靠防线，只是写入时机从 steer 收窄到 terminate + repeatOffender。删门属过度矫正。
+5. **b2 复犯拉黑的残余误伤面（S1 处置引入，delta 检视 D1-1 要求显式取舍）**：#1653 同型正当节奏流若不换序列（如批查型任务本身就是 read/grep 交替），每签名经 2 次 steer 后仍会被拉黑——「误判→拉黑→换签名再拉黑」以慢速形态（每签名 2 次）重演，检视实测同型流 57% 调用被拦（call 36 起 grep、call 54 起 read）。**接受理由**：(i) 三态对比——修复前首次 steer 即拉黑 + 20 次内整杀；4054b589 状态 108 次整杀；b2 是中间态（更晚、更窄、且警告给两次机会）；(ii) 换序列场景（headline 场景，如 168 条不同签名 edit）完全免疫；(iii) 拉黑只拦工具不杀 invoke，獭仍可 speak/yield 求援；(iv) 残余面与 #1399 签名区分度同根（名称兑底族变调也会拉黑自己），治本在 #1399（read 加 offset、兑底族加实体参数）而非再叠防线。**缓解选项**（拉黑上限/TTL/复犯 N 次升级 terminate）留待 #1653 后续，配合 P2 观测补强先行——先看真实误拦率再决定是否加机制。
+6. **生产路径语义（delta 检视 D1-2 写实）**：门在 tool_call 层（model-runtime-registry.ts:119）先于 breaker（tool_execution_start）拦截同签名调用 → 拉黑生效后同签名到不了 breaker → strike 不再增长 → **terminate/abort 在拉黑生效后通常不触发——「拦工具不杀 invoke」**。这比杀 invoke 对误伤更友好（獭可继续用其他工具报告/交棒）；#1556 原版同样如此（steer 写 Map 时代也拦在 abort 前），非本次新增语义。hard-block 用例中 abort 断言成立的测试形态是直发 tool_execution_start 绕门直驱；真循环（无穿插）走 terminate 路径不受影响。
 
 ## 5. 验证
 
@@ -97,7 +99,8 @@ Modification-Class: `narrow-fix`（①既有语义内修）
 | 真循环仍断 | A-B 无限交替 ≤130 次 | 必出现 terminate（PASS：用例 2 + 更新版「滑窗 steer 被持续无视」用例） |
 | steer 不拉黑 | 同命令 3 连发触发 steer | loopBlockedTools.size === 0（PASS：helpers 新用例 + hard-block 新用例） |
 | terminate 仍拉黑 | 同命令连发至 strike 涨满 | Map 写入且门拦截同签名（PASS：hard-block 用例） |
-| #1556 场景不回退 | create_linked_resource 9 连发（6+3） | abort 发生 + Map 写入 + speak/yield 放行（PASS：hard-block 更新用例） |
+| #1556 场景不回退 | create_linked_resource 9 连发（6+3） | abort 发生 + Map 写入 + speak/yield 放行（PASS：hard-block 更新用例；测试形态为直发 tool_execution_start 绕门直驱，生产路径见取舍 6「拦工具不杀 invoke」） |
+| S1 glue 接线 | 连发→变调穿插→再连发同签名 | 首周期 steer 不写 Map → 变调不拉黑 → 第 2 周期复犯写 Map → 门拉黑同签名、他工具不受影响、abort 不触发（PASS：hard-block glue 用例，delta 检视 D2） |
 | 全量回归 | npx vitest run | 6988 passed（439 文件） |
 
 ### 既有测试调整记录（断言未减弱，时点断言随行为语义更新；计数口径已按 #1655 检视发现 2 订正）
