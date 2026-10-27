@@ -281,10 +281,13 @@ export function attachCircuitBreaker(
       }
 
       const result = circuitBreaker.check(toolName, e.args);
-      // F20261020hlbk（#1556）：循环报警（steer/terminate）→ 粘滞标记，tool_call 门据此
-      // 物理阻断后续同签名调用（硬熔断）。speak/yield 豁免（报告 + 交棒是唯一逃生口）。
-      // 粘滞 Map 独立于 steerStrikes，穿插 speak（allow）不清零——堵死「复又发作」逃逸。
-      if ((result.action === "steer" || result.action === "terminate") && toolName !== "speak" && toolName !== "yield") {
+      // F20261020hlbk（#1566）→ F20261027cbfp（#1653 P0-2）：仅 terminate 写粘滞黑名单。
+      // 原实现 steer 也写：滑窗误报一次 steer 即拉黑签名，后续同签名正当调用全部被
+      // tool_call 门物理拦截（isError）→ 獭换路径再触发滑窗 → 新签名再拉黑——一次误判
+      // 放大为会话级持续瘫痪（#1653 案发：239 次门拦截重灾）。steer 语义是警告非判决，
+      // #1566 防「复又发作」由 strike 累计 + terminate 兜底（terminate 时仍写入，
+      // abort 竞态窗口内同签名调用照拦）。speak/yield 豁免（报告+交棒是唯一逃生口）。
+      if (result.action === "terminate" && toolName !== "speak" && toolName !== "yield") {
         options?.loopBlockedTools?.set(buildToolSignature(toolName, e.args), result.reason ?? "循环重复调用");
       }
       if (result.action === "terminate") {

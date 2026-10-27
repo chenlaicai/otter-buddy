@@ -480,7 +480,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     expect(result.reason).toContain("edit: /a.ts#");
   });
 
-  it("滑窗 steer 被持续无视也会升级为 terminate（全局 strike 覆盖跨规则路径）", () => {
+  it("滑窗 steer 被持续无视也会升级为 terminate（全局 strike 覆盖跨规则路径；F20261027cbfp 更新：滑窗 steer 清窗后需重灌满 windowSize*repeat 才再次命中，终止点后移但仍在）", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({
         slidingWindowSize: 6,
@@ -491,16 +491,21 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
       createTestLogger(),
     );
 
-    // A-B-C 交替 18 次触发滑窗 steer（strike 1），继续无视 → strike 2、3
+    // A-B-C 交替：旧版每次 check 命中即 strike+1（旧 20 次内必 terminate）；
+    // F20261027cbfp 后：滑窗 steer 清窗 → 重灌满 18 条才再次命中（strike+1）→
+    // strike 3 > maxRepeatAfterWarning=2 → terminate。约需 18×3+18 次调用。
     const tools = ["A", "B", "C"];
     let lastAction = "";
-    for (let i = 0; i < 20; i++) {
+    let terminatedAt = -1;
+    for (let i = 0; i < 120; i++) {
       lastAction = cb.check(tools[i % 3]).action;
+      if (lastAction === "terminate") { terminatedAt = i; break; }
     }
     expect(lastAction).toBe("terminate");
+    expect(terminatedAt).toBeGreaterThan(20); // 终止点后移是修复的预期代价（误伤逃生 vs 真循环晚断）
   });
 
-  it("detects sliding window cross-tool alternating loop (AC-8: B-3b)", () => {
+  it("detects sliding window cross-tool alternating loop (AC-8: B-3b；F20261027cbfp 更新：首命中后清窗，检测能力不变、命中节奏变化)", () => {
     const cb = new ToolCallCircuitBreaker(
       makeConfig({
         slidingWindowSize: 6,
@@ -510,22 +515,18 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
       createTestLogger(),
     );
 
-    // Pattern A-B-C repeated 3 times (18 calls, window=6, repeat=3)
-    // Each window of 6 sorted = "A,B,C,A,B,C" → same pattern
+    // A-B-C ×6（18 次调用）触发首次滑窗 steer（能力断言保留：跨工具交替循环抓得住）
+    let steerSeen = false;
+    const tools = ["A", "B", "C"];
     for (let i = 0; i < 18; i++) {
-      const tools = ["A", "B", "C"];
       const result = cb.check(tools[i % 3]);
-      if (i < 17) {
-        expect(result.action).toBe("allow");
-      }
+      if (result.action === "steer") { steerSeen = true; break; }
     }
-
-    // 18th call should trigger sliding window detection
-    const result = cb.check("A");
-    // The sliding window should have detected the pattern by now
-    expect(result.action).toBe("steer");
-    expect(result.blocked).toBe(true);
-    expect(result.reason).toContain("Repeating tool call pattern");
+    expect(steerSeen).toBe(true);
+    // F20261027cbfp：steer 后清窗进入未成熟期——紧接着的同模式调用不再连发 steer
+    //（重灌满 18 条前不判定），这是修复「窗口残留致 strike 快速涨满」的预期行为。
+    const after = cb.check("A");
+    expect(after.action).toBe("allow");
   });
 
   it("does not trigger sliding window for non-repeating patterns", () => {
@@ -573,5 +574,62 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     history.push("injected");
 
     expect(cb.getCallHistory()).toEqual(["tool_a"]);
+  });
+});
+
+describe("F20261027cbfp：滑窗误伤修复（#1653）", () => {
+  it("steer 后獭改换全新调用序列应恢复自由——不再被残留窗口拖入 terminate", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({
+        slidingWindowSize: 6,
+        slidingWindowRepeat: 3,
+        maxRepeatAfterWarning: 5,
+      }),
+      "otter-1",
+      createTestLogger(),
+    );
+
+    // 正当但形态重复的节奏流：read 同文件（签名无 offset 维度）与 grep 交替 ×18 → 滑窗命中 steer
+    let steered = false;
+    for (let i = 0; i < 18; i++) {
+      const r = cb.check("read", { path: "/a.ts" });
+      if (r.action === "steer") steered = true;
+      const g = cb.check("grep", { pattern: "x", path: "/a" });
+      if (g.action === "steer") steered = true;
+    }
+    expect(steered).toBe(true); // 前置确认：确实命中了滑窗 steer
+
+    // 獭响应警告：改用全新调用序列（新工具新参数）
+    // 修复前：窗口残留旧记录，每次检查继续命中 → strike 涨满 → terminate（死刑链）
+    // 修复后：steer 时清空窗口，新序列 allow → strike 清零 → 恢复自由
+    let terminated = false;
+    let allowedCount = 0;
+    for (let i = 0; i < 12; i++) {
+      const r = cb.check(`unique_tool_${i}`, { arg: `v${i}` });
+      if (r.action === "terminate") terminated = true;
+      if (r.action === "allow") allowedCount++;
+    }
+    expect(terminated).toBe(false);
+    expect(allowedCount).toBe(12);
+  });
+
+  it("真死循环持续无视 steer 仍升级 terminate（防护不弱化）", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({
+        slidingWindowSize: 6,
+        slidingWindowRepeat: 3,
+        maxRepeatAfterWarning: 5,
+      }),
+      "otter-1",
+      createTestLogger(),
+    );
+
+    // A-B 无限交替：steer 清窗后窗口重新积累再次命中，strike 累计满 6 次 → terminate
+    let lastAction = "";
+    for (let i = 0; i < 130; i++) {
+      lastAction = cb.check(i % 2 === 0 ? "A" : "B").action;
+      if (lastAction === "terminate") break;
+    }
+    expect(lastAction).toBe("terminate");
   });
 });

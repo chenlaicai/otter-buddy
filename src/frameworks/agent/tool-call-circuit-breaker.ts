@@ -38,6 +38,8 @@ interface CheckResult {
   action: "allow" | "warn" | "steer" | "terminate";
   /** terminate 的触发规则标识，用于向上传递 abort 原因 */
   trigger?: string;
+  /** steer 的规则来源（F20261027cbfp）：仅滑窗 steer 触发清窗（B-3 连续同签名不涉及） */
+  origin?: "consecutive" | "sliding_window";
 }
 
 /**
@@ -343,6 +345,13 @@ export class ToolCallCircuitBreaker {
   private lastCheckResult: CheckResult | null = null;
   /** 自上次 allow 以来连续 steer 的次数；allow 即清零（行为纠正即解除警告） */
   private steerStrikes = 0;
+  /**
+   * F20261027cbfp（#1653）：滑窗 steer 清窗后的「未成熟期」。
+   * 置位期间：滑窗判定暂停（窗口从零重灌）；allow 不清零 steerStrikes——防止真循环
+   * 借重灌期的 allow 洗掉警告记录（重灌期恰好无滑窗命中、全产生 allow）。
+   * 窗口重新积累满 windowSize*repeat 条时自动成熟，恢复正常判定与 strike 重置。
+   */
+  private windowImmature = false;
 
   constructor(
     private readonly config: CircuitBreakerConfig,
@@ -382,12 +391,22 @@ export class ToolCallCircuitBreaker {
 
   /** 按优先级评估规则；steer 触发满 maxRepeatAfterWarning 次升级为 terminate */
   private evaluate(signature: string): CheckResult {
+    // F20261027cbfp：重灌满 windowSize*repeat 条即成熟——本次调用起恢复滑窗判定与 strike 重置。
+    // 真循环重灌满时恰好模式完成，本次判定即命中（strike 继续涨）；纠正后的新序列到 18 条时
+    // 无模式命中，后续 allow 正常清零 strike（警告解除）。
+    if (this.windowImmature && this.callHistory.length >= this.config.slidingWindowSize * this.config.slidingWindowRepeat) {
+      this.windowImmature = false;
+    }
+
     const result = this.checkConsecutive(signature)
       ?? this.checkSlidingWindow()
       ?? { blocked: false, action: "allow" as const };
 
     if (result.action === "allow") {
-      this.steerStrikes = 0;
+      // F20261027cbfp：未成熟期的 allow 不清零 strike——重灌期恰好无滑窗命中、全产生 allow，
+      // 若照旧清零则真循环每轮重灌都会洗掉 strike，永不 terminate（防护弱化）。
+      // 成熟后的 allow = 真正度过了完整窗口周期未复发，才解除警告。
+      if (!this.windowImmature) this.steerStrikes = 0;
       return result;
     }
     if (result.action === "steer") {
@@ -401,6 +420,16 @@ export class ToolCallCircuitBreaker {
           trigger: "ignored_steer",
         };
       }
+      // F20261027cbfp（#1653 P0-1）：滑窗 steer 时清空窗口历史并进入未成熟期。
+      // 旧行为：旧模式残留窗口 → 后续每次 check 继续命中 → strike 只能靠 allow 清零但窗口
+      // 持续命中期间永无 allow → 响应警告也注定 terminate（死刑链，近 7 天 54 次中断/239 次
+      // 门拦截根因一）。清窗后：改换新序列 → 重灌无命中 → 成熟后 allow → strike 清零恢复
+      // 自由；真死循环 → 每重灌满一轮命中一次 → strike 继续累计 → terminate 仍到达（防护
+      // 不弱化，代价是真循环终止点后移，见特性文档取舍）。连续同签名卡壳由 B-3 兑住，不清窗。
+      if (result.origin === "sliding_window") {
+        this.callHistory.length = 0;
+        this.windowImmature = true;
+      }
     }
     return result;
   }
@@ -408,13 +437,16 @@ export class ToolCallCircuitBreaker {
   /** B-3: 连续相同行为检查（按签名，同名工具不同行为不计） */
   private checkConsecutive(signature: string): CheckResult | null {
     if (this.consecutiveCount <= this.config.maxConsecutiveIdentical) return null;
-    return { blocked: true, reason: `Consecutive identical call "${signature}" ${this.consecutiveCount} times. Break the pattern.`, action: "steer" };
+    return { blocked: true, reason: `Consecutive identical call "${signature}" ${this.consecutiveCount} times. Break the pattern.`, action: "steer", origin: "consecutive" };
   }
 
   /** B-3b: 滑动窗口跨工具交替循环检查 */
   private checkSlidingWindow(): CheckResult | null {
+    // F20261027cbfp：未成熟期（滑窗 steer 清窗后的重灌阶段）不判定——窗口尚在积累。
+    // B-3 连续同签名检查不受未成熟期影响（真卡壳在重灌期也要抓得住）。
+    if (this.windowImmature) return null;
     if (!detectSlidingWindowRepeat(this.callHistory, this.config.slidingWindowSize, this.config.slidingWindowRepeat)) return null;
-    return { blocked: true, reason: `Repeating tool call pattern detected in sliding window (K=${this.config.slidingWindowSize}, M=${this.config.slidingWindowRepeat}). Break the cycle.`, action: "steer" };
+    return { blocked: true, reason: `Repeating tool call pattern detected in sliding window (K=${this.config.slidingWindowSize}, M=${this.config.slidingWindowRepeat}). Break the cycle.`, action: "steer", origin: "sliding_window" };
   }
 
   /** 获取调用历史（用于 B-6 完整日志） */
