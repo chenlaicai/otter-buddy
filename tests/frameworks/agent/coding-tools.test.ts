@@ -167,6 +167,10 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).not.toContain("resolve_signal");
     expect(tools).not.toContain("create_otter");
     expect(tools).not.toContain("dissolve_otter");
+    // F20261027mreg（#1349 检视处置）：matter 域登记入 orchestration 后，small 展开仍不得含两工具
+    // （声明现状零权限变化的测试锁定——与 halt_otter 断言同构）
+    expect(tools).not.toContain("register_matter");
+    expect(tools).not.toContain("matter_sweep");
   });
 
   it("生产路径（manifest）：big 型应含编排/裁决工具", () => {
