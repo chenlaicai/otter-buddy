@@ -89,7 +89,7 @@ Modification-Class: `narrow-fix`（①既有语义内修）
 ### 失败证据链（troubleshooting 5a 固化）
 
 - 修复前失败输出：`tests/frameworks/agent/tool-call-circuit-breaker.test.ts` 新增用例「steer 后獭改换全新调用序列应恢复自由」红——`expect(terminated).toBe(false)` 收到 true（死刑链复现：獭已换全新调用序列仍被 terminate）。运行记录：`npx vitest run -t "F20261027cbfp"` 1 failed。
-- 修复后通过：同用例绿（12 次新序列调用全部 allow、无 terminate），全仓 439 文件 6988 测试全绿，`tsc --noEmit` 零错误。
+- 修复后通过：同用例绿（12 次新序列调用全部 allow、无 terminate），全仓 439 文件 6990 测试全绿，`tsc --noEmit` 零错误。
 
 ### 行为断言（可机械验证）
 
@@ -101,7 +101,7 @@ Modification-Class: `narrow-fix`（①既有语义内修）
 | terminate 仍拉黑 | 同命令连发至 strike 涨满 | Map 写入且门拦截同签名（PASS：hard-block 用例） |
 | #1556 场景不回退 | create_linked_resource 9 连发（6+3） | abort 发生 + Map 写入 + speak/yield 放行（PASS：hard-block 更新用例；测试形态为直发 tool_execution_start 绕门直驱，生产路径见取舍 6「拦工具不杀 invoke」） |
 | S1 glue 接线 | 连发→变调穿插→再连发同签名 | 首周期 steer 不写 Map → 变调不拉黑 → 第 2 周期复犯写 Map → 门拉黑同签名、他工具不受影响、abort 不触发（PASS：hard-block glue 用例，delta 检视 D2） |
-| 全量回归 | npx vitest run | 6988 passed（439 文件） |
+| 全量回归 | npx vitest run | 6990 passed（439 文件） |
 
 ### 既有测试调整记录（断言未减弱，时点断言随行为语义更新；计数口径已按 #1655 检视发现 2 订正）
 
