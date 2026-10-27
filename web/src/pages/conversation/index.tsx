@@ -473,6 +473,14 @@ export default function ConversationPage() {
     setNewMessagesCount(0)
   }, [])
 
+  /** F20261027nmbf：回锚清零——floating→pinned 转换（滚回底部）时清浮窗计数。
+   *  修「计数僵死」：旧实现只有点浮窗/发言两个清零入口，均要求按钮可点；输入覆盖层
+   *  （F20261015inpd）遮挡按钮后清零路径全断——左栏红点已被聚焦 ack 消掉（F20260921urdo），
+   *  浮窗仍挂“新消息 N 条”僵死。回锚=用户已在底部看到全部新消息，清零语义等同已读 */
+  const handlePinnedToBottom = useCallback(() => {
+    setNewMessagesCount(0)
+  }, [])
+
   /** F20260913ctlv 彻底切换：向上加载更旧历史（entries before 游标） */
   const loadMoreBefore = useCallback(async () => {
     if (!activeId || loadingMoreRef.current || !hasMoreBefore) return
@@ -521,6 +529,11 @@ export default function ConversationPage() {
       setTimeout(() => setHighlightMessageId(null), 2000)
     }
   }, [activeId, allMessages])
+
+  /** F20261027nmbf D-1：计数只归 activeId 所有；不随过程明细触发的详情加载重跑而误清 */
+  useEffect(() => {
+    setNewMessagesCount(0)
+  }, [activeId])
 
   useEffect(() => {
     if (activeId) {
@@ -1642,7 +1655,7 @@ export default function ConversationPage() {
         >
           <LeftPanel conversations={conversations} activeId={activeId || ''} onSelect={handleSelectConv} onNewConversation={handleNewConv} onContextMenu={handleContextMenu} otters={Object.values(allOtters).flat()} />
         </div>
-        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => navigate('/settings')} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} pinRef={pinRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} hasMoreBefore={hasMoreBefore} loadMoreError={loadMoreError} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} linkedResources={activeLinkedRes} showProcessDetail={showProcessDetail} onToggleProcessDetail={() => setShowProcessDetail(v => !v)} />
+        <ChatView conversation={activeConv} messages={activeMessages} state={pageState} onSend={handleSend} onStopStream={stopStream} onRetryMessage={handleRetryMessage} onRetry={() => { setPageState('normal'); showToast('正在重试...', 'info') }} onGoToSettings={() => navigate('/settings')} onArchive={handleArchive} otters={activeOtters} conversationId={activeId || ''} pinRef={pinRef} newMessagesCount={newMessagesCount} onJumpToBottom={handleJumpToBottom} onPinnedToBottom={handlePinnedToBottom} onLoadMore={loadMoreBefore} loadingMore={loadingMore} hasMoreBefore={hasMoreBefore} loadMoreError={loadMoreError} unreadSeparatorSeq={unreadSeparatorSeq} highlightMessageId={highlightMessageId} cardPreview={cardPreview} onConfirmCard={confirmCardPreview} onRejectCard={rejectCardPreview} userName={userName} linkedResources={activeLinkedRes} showProcessDetail={showProcessDetail} onToggleProcessDetail={() => setShowProcessDetail(v => !v)} />
         {/* 右栏：≥lg 常驻；<lg 抽屉化。md~lg 区间聊天区 = 全宽 - 左栏(224px)，不再被右栏挤 <500px */}
         <div
           id="right-panel-drawer"
