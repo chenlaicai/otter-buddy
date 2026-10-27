@@ -348,12 +348,17 @@ schema、不碰 CHECK 枚举、依赖面单一——过门通过，纳入本方�
 - **未裁决边界**：D3 从 `AgentInvoker` 进入时，等待 invoke 已先于 SDK 调用创建。
   本实现 `handleQueued()` 将该等待行置 completed、发一次排队系统通知，不伪造
   speak/yield/turn.complete/invoke_end。这个行态选择对应 objection `713df696`，
-  尚未取得大獭裁决，不得视为定稿扩展或对抗审视通过。
+  **大獭裁决（2026-10-27 10:40，resolved）**：D2/D3 边界按「invoke 行是否已建」
+  划分——D2 delegated hop 发生在 invokeFn 之前（executeOneHop 预检），不建行；
+  D3 降级发生在 AgentInvoker 已建等待行之后（createInvoke 先于 factory 取锁，
+  agent-invoker.ts:473-477），该行必须闭环否则永久 running。行置 completed +
+  系统排队通知（不伪造 speak/yield/turn.complete/invoke_end）是最小诚实闭环，
+  **批准为定稿行为**。
 - 最简实现检查：复用 SDK `prompt()` 的完整 drain 生命周期、原锁 release
   generation/epoch 与现有 repository/probe；没有新增队列、DB schema、依赖或
   独立 drain 状态机。已撤销实现中额外的 agent_end/queue_update 状态机。
 - 负面向：D2 delegated hop 不建独立 invoke，审计粒度归 holder；这是定稿已接受的
-  粒度变粗，不绕过 invoke 锁。queued 等待行的 completed 语义仍待裁决。
+  粒度变粗，不绕过 invoke 锁。queued 等待行的 completed 语义已按 713df696 裁决定稿（见上）。
 
 ### 验证记录
 
