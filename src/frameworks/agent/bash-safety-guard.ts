@@ -2372,6 +2372,7 @@ function rewriteMainWriteBlockMsg(sessionCwd: string | undefined, verdict?: Retu
 }
 
  
+// eslint-disable-next-line max-statements -- 主仓写判定主流程：求值器路由 + 负门后置 + 拷贝族窄规则 + 段结构互补面，分支密度是路由本质（F20261027hpex 负门/窄规则插入后 27>25，拆分=两套路由）
 function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   const { command, logger, projectRoot, sessionCwd } = ctx;
   const depth = ctx.depth ?? 3;
@@ -2396,6 +2397,12 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
     //  只认正面证明放行——红线3）；fail-closed 归因映射在下方返回点（红线4 feed 口径）
     const feedReadOnly = interpreterFeedReadOnlyFlag(command);
     const verdict = evaluateWriteVerdict(command, projectRoot, sessionCwd ?? projectRoot, undefined, feedReadOnly);
+    // 负门后置兜底（只加拦不放行，cd/无 cd 同语义——裁决原则②）：求值器 ALLOW 后
+    // 兜 heredoc 体绝对路径/动态源写主仓（wrapper/管道段 heredoc 载荷不入求值的 Y 类
+    // 残余——求值器 payload 附件根治面立 B issue 继续）；体只读/无负门面 → null 继续。
+    // F20261027hpex（#1542）：负门移出 writeChannelSkip 门控，沙箱链（sg=true）同跑——
+    // 修前实证沙箱链 heredoc 载荷写主仓判定整体豁免（Y1/Y2/Y3/Y6 全 ALLOW，二分
+    // 65c252d2/10-22 即存在），V1 链同负门兜底、两链口径对齐；体只读/无负门面不受影响。
     if (verdict.verdict === "BLOCK") {
       logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (write-verdict)", {
         command: command.substring(0, 200),
@@ -2409,11 +2416,17 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
         ? STDIN_INTERP_BLOCK_MSG
         : rewriteMainWriteBlockMsg(sessionCwd, verdict);
     }
-    // 负门后置兜底（只加拦不放行，cd/无 cd 同语义——裁决原则②）：求值器 ALLOW 后
-    // 兜 heredoc 体绝对路径/动态源写主仓（wrapper/管道段 heredoc 载荷不入求值的 Y 类
-    // 残余——求值器 payload 附件根治面立 B issue 继续）；体只读/无负门面 → null 继续。
-    const veto = heredocWriteVeto(command, logger, { projectRoot, sessionCwd });
-    if (veto) return veto;
+  }
+  const veto = heredocWriteVeto(command, logger, { projectRoot, sessionCwd });
+  if (veto) return veto;
+  // F20261027hpex（#1542）E1e：沙箱链窄规则——拷贝族（cp/mv/install/ln）目标落主仓判定接防。
+  // sg=false 链由 evaluateWriteVerdict argv 写面覆盖（F20261019wvcp 造-执对收编）；
+  // sg=true 链求值器退役后该面无接防（修前实证：cp $F <主仓>/x 端到端 ALLOW）。
+  // 面窄口径（2c 先例）：字面可见才判——目标不可静态求值（变量/相对且无 sessionCwd）
+  // 不拦；isInsideMainCheckout 基元自带 workspaces/worktrees/workforms 豁免区。
+  if (ctx.writeChannelSkip === "file-write") {
+    const cpHit = copyFamilyMainDestHit(command, projectRoot, sessionCwd, logger);
+    if (cpHit) return cpHit;
   }
   // 互补面后置：段首结构判定（包装词/子壳/管道——求值器无此基座，旧通道保留）。
   // 只读豁免保留（oneLinerPayloadReadOnly + wrappedOneLinerPayloadsReadOnly 双基座）——
@@ -2463,6 +2476,63 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   const stdinVeto = stdinShellFeederVeto(command, depth, { logger, projectRoot, sessionCwd, writeChannelSkip: ctx.writeChannelSkip });
   if (stdinVeto !== null) return stdinVeto;
   return null;
+}
+
+// ── F20261027hpex（#1542）：沙箱链 heredoc 载荷写主仓接防（Y 类）+ 拷贝族目标落主仓窄规则（E1e）──
+
+const GUARD_CP_BLOCK_MSG = "沙箱链下拷贝族（cp/mv/install/ln）目标落点解析到主仓（沙箱 deny file-write 退役了求值器 argv 写面判定，不豁免拷贝入主仓意图）。写入请用 worktree（.otter/worktrees/）或对话工作区（data/workspaces/）绝对路径；确需写主仓请呈搭档确认。";
+
+/** #1542 E1e：拷贝族目标落主仓判定（沙箱链窄规则）。面窄口径：
+ *  - 命令按 ; && || | 切段，逐段 head 剥 wrapper（env/sudo/nohup/xargs）后判 cp/mv/install/ln；
+ *  - 词级 parseOnce 取 evaluated：目标词（含 -t/--target-directory 值位）为字面绝对路径
+ *    → isInsideMainCheckout 判；相对路径需 sessionCwd 在场才 resolve（与求值器同基准）；
+ *  - 变量/动态目标不判（sg=false 链该形态由求值器 dynamic fail-closed 兜，sg=true 沙箱物理
+ *    接防兑底——窄规则只接「字面可见落主仓」的廉价面，不重建动态判定链）；
+ *  - 源不可见不拦（cp $F <主仓>/x 中 $F 是源——E1a 正道：cp $F /tmp/bak 必须继续放行）。 */
+function copyFamilyMainDestHit(command: string, projectRoot: string, sessionCwd: string | undefined, logger: Logger | undefined): string | null {
+  const COPY_HEADS = new Set(["cp", "mv", "install", "ln"]);
+  for (const seg of splitShellSegments(command)) {
+    const hit = copySegmentDestHit(seg, COPY_HEADS, projectRoot, sessionCwd);
+    if (hit !== null) {
+      logger?.warn("[bash-safety-guard] BLOCKED copy-family dest inside main checkout (sandbox narrow rule, #1542 E1e)", { seg: seg.substring(0, 120), dest: hit });
+      return rewriteMainWriteBlockMsg(sessionCwd) + "；" + GUARD_CP_BLOCK_MSG;
+    }
+  }
+  return null;
+}
+
+/** 单段拷贝族目标解析（copyFamilyMainDestHit 内层）：head 剥 wrapper 后判 cp/mv/install/ln，
+ *  目标词落主仓 → 返回目标词（命中信号）；否则 null。目标语义与求值器 copyFamilyArgs
+ *  同源：-t/--target-directory 值为目标；否则末位位置词=dest（单位置词=无 dest 不判）。 */
+function copySegmentDestHit(seg: string, copyHeads: Set<string>, projectRoot: string, sessionCwd: string | undefined): string | null {
+  const head = parseSegmentHead(seg);
+  if (head === null || head.head === "") return null;
+  if (!copyHeads.has(head.head.toLowerCase())) return null;
+  const g = parseOnce(seg.slice(head.offset), 1);
+  const gseg = g.segments[0] ?? null;
+  if (gseg === null) return null;
+  const positionals: string[] = [];
+  let targetDir: string | null = null;
+  for (let i = 0; i < gseg.words.length; i++) {
+    const v = gseg.words[i].evaluated;
+    if (v === null) continue; // 变量/动态词不消耗位置位——目标不可静态判定则不判
+    if (v === "-t" || v === "--target-directory") {
+      const nxt = gseg.words[i + 1]?.evaluated ?? null;
+      if (nxt !== null) targetDir = nxt;
+      continue;
+    }
+    if (v.startsWith("--target-directory=")) { targetDir = v.slice("--target-directory=".length); continue; }
+    if (v.startsWith("-") && !/^-$/.test(v)) continue; // 旗标跳过（stdin 硬 '-' 除外——不是落点词）
+    positionals.push(v);
+  }
+  // 源词不判（E1a 正道：动态源取证 cp $F /tmp/bak、只读源取证 cp <主仓>/package.json
+  // /tmp/ 都必须继续放行）；目标变量形态（cp a $D）不判——窄面只接字面可见落主仓。
+  const dest = targetDir !== null ? targetDir : (positionals.length >= 2 ? positionals[positionals.length - 1] : null);
+  if (dest === null || dest === "-") return null;
+  const abs = dest.startsWith("/") ? dest
+    : sessionCwd !== undefined ? path.resolve(sessionCwd, dest) : null;
+  if (abs === null) return null;
+  return isInsideMainCheckout(abs, projectRoot) ? dest : null;
 }
 
 // ── #1207（F20260930l573）：shell/node heredoc 体级判定（delta r1：白名单反转）──
