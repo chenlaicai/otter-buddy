@@ -3,14 +3,19 @@ id: F20261027gscv
 title: bash 守卫有限范围收敛——物理承重、结构化路径与执行域授权
 summary: 落实搭档 2026-10-27 方案 C 拍板：停止把 bash 守卫做成无限 Shell 解释器；物理沙箱承担可证明边界，write/edit 走结构化 operations 接防，Git 默认不授 .git 写能力而只给有限工作流精确开口，无沙箱路径保持有限 Best Effort 而非伪装同等安全；先补接防与观测再退役旧规则。
 change_type: refactor
-capability_test: "n/a: 本文仅收敛架构与后续验收矩阵，不改变运行时代码或 prompt 行为"
+capability_test: "n/a: 文件与 Git 守卫均为确定性代码行为，由 tests/frameworks/agent 的 A 类单测和真实 SDK/sandbox 集成测试覆盖"
 created_in_conversation: 7b41e085-5c21-4bd1-adfe-dc3ef051753d
 created_at: 2026-10-27T14:48:00+08:00
 causal_links:
   from: [F20261015gsub, F20261015phys, F20261019gsbx, F20261019gses]
 tags: [bash-guard, sandbox, bounded-evaluation, structured-file-tools, git-execution-boundary]
 modules: [src/frameworks/agent, docs/designs/bash-guard-constitution.md]
-doc_type: Design
+doc_type: Implementation
+intent:
+  problem: "bash 词面规则持续扩张，但 write/edit 与 Git 元数据缺少结构化/物理边界，旧规则也缺少可消费退役数据"
+  expected_effect: "write/edit 在真实副作用前拒绝主仓、Git 元数据和链接穿透；未识别 bash 命令没有 .git 写 capability，登记 worktree 的直接 Git 工作流可用，拦截可按 ruleId/operation/assurance 聚合"
+  verify_by:
+    type: behavior_check
 ---
 
 # bash 守卫有限范围收敛
@@ -35,7 +40,7 @@ GLM 独立审视与 Kimi delta 复核（2026-10-27，本对话）一致确认：
 
 > 确认方案 C：沙箱承重、规则有限、结构化路径与授权补位；停止无限扩面，按此做收敛设计
 
-这是本文的产品与技术边界依据。本文只做设计，不授权直接修改现有守卫行为，也不把存量 PR/issue 自动转成实现工单。
+这是本文的产品与技术边界依据。搭档随后明确要求「要完整实现，不要纸上谈兵，或者分长期计划」并要求「功能要快速合入，然后实践出真知」；本 PR 因此把 Phase 1-4 的代码接防、有限规则迁移与月度消费一次落地，不把核心功能留给后续工单。
 
 ### 1.3 事实基线
 
@@ -81,7 +86,13 @@ GLM 独立审视与 Kimi delta 复核（2026-10-27，本对话）一致确认：
 | C. 有限范围收敛 | **采纳** | 物理承重、结构化路径与执行域授权补位，规则范围有限且可退役 |
 | D. 新建统一特权 broker | 暂缓 | 会把所有能力集中成新的高权限攻击面；只有执行域原型无法覆盖必要工作流时再论证 |
 
-**Modification-Class**：本文是纯 Design 文档（frontmatter `change_type: refactor` / `doc_type: Design`），提交声明 `docs-config`，不在本 PR 净新增运行机制。后续实现若引入新的 operation wrapper 或执行域能力，必须在各自特性文档重新走机制识别与重对抗门，不能借本文豁免。
+**Modification-Class**：`mechanism-addition`。机制识别命中「新增 operation wrapper」与「新增 Git 执行域能力」，已在同特性方案审视中完成重对抗门（1 严重 + 8 建议全部处置，delta 9/9）。
+
+机制预算四问（实现时核对，非事后补作业）：
+1. **为何不能用已有机制表达**：SDK write/edit 不经 bash 字符串求值，必须在 operations 接防；旧 bash profile 将主仓 `.git` 整树常开，文本规则无法替代真实执行域。
+2. **最小新增面**：一个小路径策略、一层 SDK operations 适配和一个封闭 Git envelope/profile 派生器；不引入 broker、完整 Shell parser 或通用高权限服务。
+3. **后续机制**：只有真实生产样本证明必要工作流不可表达时，才考虑封闭 schema 窄 Git 工具；不得自动回到词面扩张。
+4. **退役条件**：旧 subshell/backtick Git 词面规则已由默认 deny 与真实沙箱集成测试替代并在本 PR 退役；新规则族/解冻仍需搭档 L2。月度按 ruleId/operation/assurance 聚合，若连续一个完整周期零真实命中且替代证据仍成立，提出保留/迁移/删除候选交搭档裁决；无命中不自动删防线。
 
 ### 3.2 统一威胁模型
 
@@ -209,9 +220,9 @@ pi-coding-agent 1.1.0 的 `write.d.ts` 暴露 `WriteOperations.writeFile/mkdir`�
 - 替代边界已覆盖：保留少量跨形态代表用例，其余载荷枚举可收敛为通用物理/结构化测试。
 - 已知但未覆盖的对抗面：转 known-hole 或研究材料，不伪装成必须全绿的守卫契约。
 
-## 7. 分阶段实施与影响范围
+## 7. 实施顺序与本次落地范围
 
-### Phase 0：冻结与基线（本设计合入后开始）
+### Phase 0：冻结与基线（本次落地）
 
 - 冻结新形态规则族；P0 与常见工作流误拦仍可按本边界处理，但**冻结期内新增/解冻 bash 规则族属于改变已拍板边界，必须由搭档显式裁决（L2）**。
 - P0 优先用既有物理/结构化阻断或暂停危险通道止血；确需新增规则的走紧急 L2，实现者不得自批。搭档不在场时只做已有边界内的可逆止血并记录，不把紧急样本固化为常态扩面。
@@ -220,7 +231,7 @@ pi-coding-agent 1.1.0 的 `write.d.ts` 暴露 `WriteOperations.writeFile/mkdir`�
 - 盘点 write/edit 合法落点、Git 必需工作流、受控重启在真实沙箱下的表现。
 - 存量 issue/PR 标记「已覆盖/仍有效/超边界/重复」，不直接按本设计批量关闭。
 
-### Phase 1：结构化文件写接防
+### Phase 1：结构化文件写接防（本次落地）
 
 - 引入共享路径策略与 guarded operations；完成 SDK 真实执行测试。
 - 锁定已通过验收的 SDK 版本；升级 PR 必须审查 write/edit execute 与 operations 集合/调用顺序 diff，并跑副作用契约测试。构造期校验受支持 SDK 与必需 wrapper 注入，接防状态未知时不得静默使用默认 operations。
@@ -228,25 +239,59 @@ pi-coding-agent 1.1.0 的 `write.d.ts` 暴露 `WriteOperations.writeFile/mkdir`�
 - 不改变 bash 求值器，不以本阶段为由扩 bash 语法。
 - 预期影响：`bash-sandbox.ts`、新小路径策略模块、工具测试；不改 SDK 源码。
 
-### Phase 2：Git 执行域原型与迁移
+### Phase 2：Git 执行域原型与迁移（本次落地）
 
 - 独立原型验证 capability profile、必需 Git 工作流及拒绝指引。
 - 原型不过则保留现状并重新评审，不先删 Git 守卫。
 - 通过后逐步替换顶层/壳层词面规则；#1654 对应特殊壳规则可在等价物理证据后退役。
 
-### Phase 3：有限降级与规则退役
+### Phase 3：有限降级与规则退役（本次落地）
 
 - 固定 sg=false 的支持范围，删除重复洗白/负门和已被替代的规则。
 - 将规则按 physical/structured/best-effort 重新归层，修订守卫宪法。
 - 每次删除同时给替代证据、误拦影响与测试迁移，不做大删豪赌。
 
-### Phase 4：复盘与停止
+### Phase 4：复盘与停止（本次接线，月度任务按既有调度消费）
 
 - 在现有月度剪枝任务接入 ruleId/层/保证等级消费，不另建台账系统。
 - 每月输出保留、迁移、退化、删除及理由；无命中不是永不退役的理由。
 - 新规则 PR 必须说明威胁分类、所属层、良性正道和退役条件；新增/解冻规则族还须附对应 L2 裁决锚，不能只靠 PR 描述自证合规。
 
-## 8. 验证与完成定义
+## 8. 实现记录与验证
+
+### 8.0 本次实现要点（2026-10-27）
+
+- `file-write-policy.ts` 统一派生 workspaces/worktrees/workforms/alpha/tmp 根路径；bash profile 与 write/edit 共享同一事实源。真实 `.git` 文件或目录即使在 tmp/alpha 等允许区也不当普通文件写，`.gitignore/.github` 不受影响。
+- `file-tool-guard.ts` 覆写 SDK write 的 `mkdir/writeFile` 与 edit 的 `access/readFile/writeFile` 全链；允许区真实执行，主仓/链接穿透/解析失败在副作用前拒绝。edit 的只读 `readFile` 保持可读主仓。
+- `git-execution-policy.ts` 复用现有 `parseOnce`，只接受单段 Git 或字面 `cd && git`；授权注册表来自 `git worktree list --porcelain -z`。直接主仓 add/commit 不获写域；worktree add/commit/fetch/push/merge 等按精确路径授权，缓存 key 含 repo/data/授权域/新建 worktree 目标。
+- 默认 bash profile 不再允许整棵 `.git`；精确组件 deny 也覆盖 tmp/alpha 中独立仓库。`worktree add` 只对声明目标、目标 `.git` 指针、管理目录和实际锁文件精确放行，不重开整个 `.git`。
+- sg=true 的 Git 嵌套词面职责迁移到物理 deny；sg=false 保留原有有限 Best Effort，未宣称物理等价。
+- 文件工具拒绝复用 invoke 级 `guardOnIntercept`；`guard-intercept-classify.ts` / `pi-session-factory.ts` 落 ruleId、tool、operation、assurance。monthly-prune-review 已接入近 30 天聚合查询与保留/迁移/删除候选。
+- 有意边界：只支持声明的直接 Git envelope，复杂命令须拆分；不追任意 shell/对抗混淆，不引入 broker；不防恶意宿主进程 TOCTOU；远端 main 合入后仍需服务实例加载新版本才算运行实例生效。
+
+### 8.0.1 负面向与最简检查
+
+- **破坏/绕过的旧契约**：默认 bash 不再拥有主仓 `.git` 整树写权限；write/edit 不再能修改主仓、Git 元数据或经普通 symlink 穿透；sg=true 不再为嵌套 Git 词面提供文本判定。对应合法正道是 worktree、直接 Git envelope、PR 与受控 merge，未绕过 `merge_pr` 或搭档授权闸。
+- **最简检查**：复用了 SDK operations、现有 `parseOnce`、sandbox-exec 和 invoke 级 healing；没有新依赖、新 broker、新 parser 或第二套台账。共享写区只派生稳定部署路径，不随攻击样例增长。已过最简检查。
+
+### 8.0.2 验收断言与证据
+
+| 场景 | 操作 | 预期/实际结果 |
+|---|---|---|
+| write/edit 真实接防 | `npx vitest run tests/frameworks/agent/file-tool-guard.test.ts` | PASS：真实 SDK execute 下允许区成功；主仓、`.git`、链接穿透与解析失败无副作用；生产 invoke 审计复用；sg=true/false 均覆盖 |
+| Git 默认 deny 与窄授权 | `npx vitest run tests/frameworks/agent/git-sandbox-policy.test.ts tests/frameworks/agent/git-sandbox-integration.test.ts` | PASS：默认/嵌套写 `.git` 失败；主仓 commit 无 capability；worktree add/commit、带空格路径、fetch/merge/push/remove 真实通过 |
+| 目标守卫回归 | 六个相关测试文件合并执行 | PASS：6 files / 116 tests；后续共享路径与 worktree 授权返修后相关四文件 82 tests 复跑通过，最终全量结果见下方 |
+| 全量 agent 回归 | `npx vitest run tests/frameworks/agent` | 初轮 PASS：92 files / 2352 passed / 6 skipped；最终复验以提交前最新输出为准 |
+| 完整工程检查 | `npm run check` | 初轮 PASS：build + eslint + lint:schema + smoke:boot（8+4）+ script-arg-parse；最终复验以提交前最新输出为准 |
+| 生产审计聚合 | `guard-intercept-classify.test.ts` + monthly-prune-review SQL | PASS：ruleId/tool/operation/assurance 可聚合；无分母只报计数 |
+
+**修前红 / 修后绿**：文件线曾实证 worktree `.git` 指针可被 SDK write 改写；最终相关 file 测试 23/23 通过且指针/真实 gitdir 内容不变。共享路径返修时，真实 Git 集成曾红在 `/tmp` 下独立 `.git` 及 worktree add 指针/config.lock，最终按精确组件与目标窄授权修复并复跑通过；没有用整树 allow 消红。
+
+### 8.0.3 对既有文档口径的同步
+
+本 PR 同分支修订守卫宪法的退役通道现状：monthly-prune-review 已接通 ruleId/assurance 消费，不再标为「待接通、需独立 PR」。本特性原「仅设计」描述已在本 PR 内更新为完整实现记录；未回改已合入历史特性文档。
+
+## 8.1 验证与完成定义
 
 ### 8.1 各实现 PR 的最低验证
 
@@ -287,4 +332,4 @@ pi-coding-agent 1.1.0 的 `write.d.ts` 暴露 `WriteOperations.writeFile/mkdir`�
 - 2026-10-27：GLM/Kimi 对齐，纠正「write/edit 已接求值器」等事实误判；确认方向漂移在后续无限扩面而非沙箱本身。
 - 2026-10-27：搭档拍板方案 C，要求按有限范围做收敛设计。
 
-本文定稿后的下一步是**搭档确认设计方向与实施阶段**，不是自动开工。阶段内具体实现按独立 PR、独立对抗审视推进；任何新增/解冻 bash 规则族、引入特权 broker、扩大网络/进程权限或改变平台支持范围的决策均须重新上报（L2）。
+本 PR 已按搭档「完整实现、快速合入、实践出真知」完成核心接防与复盘接线，下一步是独立代码对抗审视与搭档终审。任何新增/解冻 bash 规则族、引入特权 broker、扩大网络/进程权限或改变平台支持范围的决策仍须重新上报（L2）。

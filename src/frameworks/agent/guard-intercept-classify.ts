@@ -36,6 +36,7 @@ export interface GuardRuleClass {
  */
 const FINGERPRINTS: ReadonlyArray<{ fragment: string; cls: GuardRuleClass }> = [
   // kill 0 是独立规则（V2 U1/#1169 进程组语义），优先于字面量主 PID（其文案含「kill」字样但特征不同）
+  { fragment: "[file-tool-guard]", cls: { ruleId: "file-tool-guard", layer: "r1_gate" } },
   { fragment: "kill 0——信号将发送到当前进程组", cls: { ruleId: "self_kill_process_group", layer: "self_kill" } },
   { fragment: "针对主进程 PID 的终止命令", cls: { ruleId: "self_kill_literal", layer: "self_kill" } },
   // pidfile 两形态无长共同子串（V1「引用了主进程 PID 文件」vs V2「主进程 PID 文件引用和终止」），双指纹同 ruleId
@@ -84,6 +85,8 @@ export const UNKNOWN_RULE: GuardRuleClass = { ruleId: "unknown", layer: "self_ki
  * @returns 分类结果（永不返回 null——unknown 兜底）
  */
 export function classifyGuardInterceptReason(rawReason: string): GuardRuleClass {
+  const structuredRule = rawReason.match(/ruleId=(file-tool-guard\/[a-z0-9-]+)/i)?.[1];
+  if (structuredRule) return { ruleId: structuredRule, layer: "r1_gate" };
   const head = (rawReason.trim().split("\n")[0] ?? rawReason).trim();
   for (const { fragment, cls } of FINGERPRINTS) {
     if (head.includes(fragment)) return cls;

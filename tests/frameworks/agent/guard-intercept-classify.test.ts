@@ -158,6 +158,19 @@ describe("buildGuardInterceptContext · 落账字段组装（B3 处置：hook �
   });
 });
 
+describe("F20261027gscv · 文件工具结构化审计", () => {
+  it("ruleId 不再落 bash/self_kill unknown，operation 可聚合", () => {
+    const reason = "[file-tool-guard] write.mkdir 拒绝（ruleId=file-tool-guard/main-repo-write）：目标不在允许写区";
+    expect(classifyGuardInterceptReason(reason)).toMatchObject({ ruleId: "file-tool-guard/main-repo-write", layer: "r1_gate" });
+  });
+
+  it("buildGuardInterceptContext 携带工具、operation、保证等级和脱敏路径", () => {
+    const command = 'ruleId=file-tool-guard/main-repo-write tool=write operation=mkdir path="/repo/src/new"';
+    const ctx = buildGuardInterceptContext(command, "[file-tool-guard] write.mkdir 拒绝（ruleId=file-tool-guard/main-repo-write）", false, 0);
+    expect(ctx).toMatchObject({ ruleId: "file-tool-guard/main-repo-write", assurance: "structured", toolName: "write", operation: "mkdir", targetPath: '"/repo/src/new"' });
+  });
+});
+
 describe("classifyGuardInterceptReason · F20261015gali alias_shell_payload（宪法 L4 bypass_guard）", () => {
   it("alias_shell_payload：载荷命中（子文案在第二行不抢首句指纹）", () => {
     expectClass("git -C /repo/.otter/worktrees/wt -c alias.pwn='!git -C /repo reset --hard' pwn", "alias_shell_payload");

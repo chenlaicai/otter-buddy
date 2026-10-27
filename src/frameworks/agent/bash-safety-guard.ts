@@ -30,9 +30,29 @@ import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS, WRAPPER_SPECS, tokenBasename, skipWrapperArgs, resolveExecHead, isStdinFeedRest, FIND_EXEC_LEADS, findExecVerbAt } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
 import { segmentStdoutContent, evalInterpreterStdinBody, gitCrawlInfo, resolveCwdAt } from "./write-target-evaluator";
+import { evaluateGitExecution, parseGitWorktreeList, type GitExecutionGrant } from "./git-execution-policy";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
 export type { AllowedService };
+
+function directGitExecutionGrant(command: string, cwd: string, projectRoot: string): GitExecutionGrant | null {
+  return evaluateGitExecution(command, cwd, { repoRoot: projectRoot, linkedWorktrees: parseGitWorktreeList(projectRoot) });
+}
+
+/** 沙箱会话的有限 Git 文本窄门：只判直接 envelope；物理层承担其他 Shell 的 .git 写边界。 */
+function sandboxedGitTextVeto(command: string, cwd: string, projectRoot: string): boolean {
+  const trimmed = command.trim();
+  const model = parseOnce(trimmed, 1);
+  const segment = model.segments[0];
+  const looksDirectGit = /^git\s/.test(trimmed);
+  if (!looksDirectGit) return false;
+  if (!model.parseOk || model.segments.length !== 1 || !segment) return false;
+  if (!gitWriteSubcommandHit(segment)) return false;
+  const grant = directGitExecutionGrant(trimmed, cwd, projectRoot);
+  if (!grant) return true; // 无法判定的直接 Git 不给 capability，并给拆命令/直接 -C 指引
+  if (grant.kind === "push" && /\bmain\b/.test(command)) return true;
+  return false;
+}
 
 /** F20261014cwsp S1 处置：session 工作目录跨特性判定参数打包（max-params 约束——
  *  sessionCwd 引入后 V1 链各函数参数面 +1，与 MainCheckoutWriteCtx/HeredocJudgeCtx
@@ -1697,6 +1717,12 @@ function judgeSegment(
     // 注入）——git 写族落点是 cwd 上移发现的 git 工作树，不是主仓写，放行。
     // 会话工作区（data/workspaces/，非 git 树）与相对 cwd 不注入本豁免。
     if (ctx.skipGitWrite) return false;
+    if (ctx.writeChannelSkip === "file-write") {
+      // 新执行域只接受直接 git envelope；包装/复杂 Git 不获 capability，
+      // 文本层不再逐词表判断其 Git 写语义。
+      if (ctx.projectRoot) return sandboxedGitTextVeto(seg, ctx.sessionCwd ?? ctx.projectRoot, ctx.projectRoot);
+    }
+    // 无沙箱 Best Effort 保留原有落点/词级判断。
     // F20261015glfp（M-bf4049a3）：git -C 落点豁免（段级）——-C 目标累积解析后落
     // worktree 区时本段 git 写非主仓写，与 cwd 形态等价豁免；其他段照常判定。
     // F20261016grdl rebase 合并：#1519 词级化后探针改 gseg（词法段），glfp 豁免同吃 gseg；
@@ -1784,7 +1810,7 @@ function checkSegmentStructuralWrite(
   // `(git commit)` 经剥壳重判已被上方段判定覆盖；本闸兜「壳内多命令」形态
   // （`{ git commit; git push; }`）与模型层不识命令组的缺口（parseOk=true 时
   //  V1 段判定链不跑——挂点见下方入口侧）。
-  if (subshellGitWriteHit(command)) return true;
+  if (ctx.writeChannelSkip !== "file-write" && subshellGitWriteHit(command)) return true;
   return false;
 }
 

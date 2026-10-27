@@ -22,40 +22,37 @@
  * - .otter/workforms/ —— 獭运行时自治区（F20261016gsbx G2 对表：与 worktrees 同性质、
  *                       口径应齐——此前在 OTTER_RUNTIME_REGIONS（write-target-evaluator）
  *                       但漏在本白名单，沙箱侧误拦反例）
- * - .git/             —— worktree 内 git 操作需要写 objects/worktrees/refs
- *                       （检视发现 4：worktree 的 .git 是文件指向主仓 .git/worktrees/<name>，
- *                        git hash-object -w / update-index 的落点在主仓 .git/ 下）
+ * - 真实 `.git/` 默认不写；write/edit 也不得把 Git 元数据当普通文件修改。
+ *   由 spawnHook 给直接、已注册 worktree 工作流按次授最小 Git 写域。
  * - ~/.otter/alpha/   —— alpha 隔离实例数据根
  * - $TMPDIR / /tmp    —— 临时文件
  * 其余主仓路径全部 deny file-write*（只读）。
+ *
+ * F20261027gscv Phase 2（Git 执行域最小授权）：默认 profile 不再 allow `.git/` 整树——
+ * Git 写能力由 spawnHook 按整命令 envelope 派生最小写域 profile（git-execution-policy.ts），
+ * 未识别的复杂 Shell 走默认 deny。正道 worktree add/commit/fetch/push 经白名单 envelope
+ * 授窄路径（worktrees/<wt>/ + objects/ + refs/...），比对整个 .git 常开更小且可验证。
  *
  * SBPL 规则优先级：顺序覆盖语义（后写胜出）——白名单 allow 写在 deny 之后才生效。
  * （检视发现 7 订正：「deny 优先级高于 allow」是错误心智模型，若真如此后写的 allow 不生效）
  */
 
-import { realpathSync } from "node:fs";
-import { tmpdir, platform, homedir } from "node:os";
-import { join } from "node:path";
+import { platform } from "node:os";
 import type { BashSpawnContext, BashSpawnHook } from "@earendil-works/pi-coding-agent";
-import { createBashTool, createEditTool, createFindTool, createGrepTool, createLsTool, createReadTool, createWriteTool } from "@earendil-works/pi-coding-agent";
+import { createBashTool, createFindTool, createGrepTool, createLsTool, createReadTool } from "@earendil-works/pi-coding-agent";
+import { assertGuardedFileToolsAssembled, createGuardedFileTools } from "./file-tool-guard";
+import { allowedFileWriteRoots, createFileWritePolicy } from "./file-write-policy";
+import { evaluateGitExecution, grantToProfileRules, grantFingerprint, parseGitWorktreeList } from "./git-execution-policy";
+import type { GitExecutionGrant } from "./git-execution-policy";
+import { otterInvokeStorage } from "./model-runtime-registry";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 
-/** sandbox-exec profile 缓存——同一进程内 profile 不变（路径在启动时确定） */
+/** sandbox-exec profile 缓存——同一进程内 profile 不变（路径在启动时确定）。
+ *  F20261027gscv Phase 2：缓存 key 扩展为授权指纹——默认 profile 与 Git envelope
+ *  profile 分开缓存，同一授权语义复用同一 profile 字符串，不同授权不串权。 */
 let cachedProfile: string | null = null;
 let cachedProfileKey: string | null = null;
-
-/**
- * 将路径解析为真实路径（符号链接展开）。
- * 解析失败（路径不存在）时原样返回——sandbox-exec 对不存在路径的 deny 仍然有效
- * （创建文件时 OS 会解析到真实路径再比对）。
- */
-function toRealPath(p: string): string {
-  try {
-    return realpathSync(p);
-  } catch {
-    return p;
-  }
-}
+const cachedGitProfiles = new Map<string, string>();
 
 /**
  * 转义命令字符串——防止外层无沙箱 bash 的命令替换逃逸。
@@ -82,44 +79,64 @@ function escapeCommand(command: string): string {
  * @returns sandbox-exec profile 字符串（单行）
  */
 export function buildSandboxProfile(repoRoot: string, dataDir: string): string {
-  const repo = toRealPath(repoRoot);
-  const workspaces = toRealPath(join(dataDir, "workspaces"));
-  const worktrees = toRealPath(join(repo, ".otter", "worktrees"));
-  // F20261016gsbx G2 对表（S3）：补 workforms 运行时自治区——与 worktrees 同性质的
-  //  .otter/ 运行时区域，write-target-evaluator OTTER_RUNTIME_REGIONS 已有、本白名单漏配。
-  //  目录可能不存在——toRealPath 失败回退原样（deny 对不存在路径仍有效）。
-  const workforms = toRealPath(join(repo, ".otter", "workforms"));
-  const gitDir = toRealPath(join(repo, ".git"));
-  const alphaRoot = toRealPath(join(homedir(), ".otter", "alpha"));
-  const tmp = toRealPath(tmpdir());
+  return buildDefaultProfile(repoRoot, dataDir);
+}
 
-  // profile 缓存 key：所有路径拼接——路径不变则 profile 不变
-  const key = [repo, workspaces, worktrees, workforms, gitDir, alphaRoot, tmp].join("|");
+/**
+ * 构建默认 sandbox-exec profile（单行空格分隔）。
+ *
+ * F20261027gscv Phase 2：默认 profile 不再包含 `.git/` 整树 allow——
+ * Git 写能力由 spawnHook 按 envelope 派生（buildGitProfile），未识别命令走本默认。
+ *
+ * @param repoRoot 主仓根目录（getRepoRoot()）
+ * @param dataDir  主仓 data/ 目录绝对路径
+ * @returns sandbox-exec profile 字符串（单行）
+ */
+function buildDefaultProfile(repoRoot: string, dataDir: string): string {
+  // repo/data 已包含派生路径；home/tmp 固定由进程环境决定。
+  const key = ["default", repoRoot, dataDir].join("|");
   if (cachedProfile && cachedProfileKey === key) return cachedProfile;
-
-  // SBPL 顺序覆盖语义（后写胜出）：先 deny 主仓全集，再 allow 白名单子路径。
-  // 单行空格分隔——多行 profile 经 JSON.stringify 后 SBPL 解析崩溃（检视发现 1）。
-  const profile = [
-    "(version 1)",
-    "(allow default)",
-    // 主仓只读——写拒读放
-    `(deny file-write* (subpath "${repo}"))`,
-    // 白名单：獭的合法写面
-    `(allow file-write* (subpath "${workspaces}"))`,
-    `(allow file-write* (subpath "${worktrees}"))`,
-    `(allow file-write* (subpath "${workforms}"))`,
-    // worktree 内 git 操作需要写主仓 .git/（objects/worktrees/refs）——检视发现 4
-    `(allow file-write* (subpath "${gitDir}"))`,
-    `(allow file-write* (subpath "${alphaRoot}"))`,
-    `(allow file-write* (subpath "${tmp}"))`,
-    // 进程信号隔离——獭不能 kill 主进程（或任何其他进程）。
-    // (deny signal) 而非 (deny process*)：后者连 sandbox-exec 自身 exec 内层 bash
-    // 都拦（exit 71，检视发现 3 实测）；deny signal 只拦信号发送不影响进程执行。
-    "(deny signal)",
-  ].join(" ");
-
+  const profile = buildBaseProfile(repoRoot, dataDir).join(" ");
   cachedProfile = profile;
   cachedProfileKey = key;
+  return profile;
+}
+
+/** 稳定写区由 file-write-policy 统一派生；Git 元数据在允许区覆盖之后再拒绝。 */
+function buildBaseProfile(repoRoot: string, dataDir: string): string[] {
+  const { repoRoot: repo, roots } = allowedFileWriteRoots({ repoRoot, dataDir });
+  return [
+    "(version 1)",
+    "(allow default)",
+    `(deny file-write* (subpath "${repo}"))`,
+    ...roots.map(({ path }) => `(allow file-write* (subpath "${path}"))`),
+    // 真实 .git 也可能落在 alpha/tmp 等通用写区，不能只 deny 主仓那一棵。
+    // 固定组件形态覆盖 gitdir 子路径与 worktree .git 指针，不匹配 .gitignore/.github。
+    '(deny file-write* (regex #"/\\.git/"))',
+    "(deny signal)",
+  ];
+}
+
+/**
+ * 构建 Git envelope 授权 profile——在默认白名单基础上叠加 Git 窄写域。
+ *
+ * @param repoRoot 主仓根目录
+ * @param dataDir  主仓 data/ 目录绝对路径
+ * @param grant    Git 授权（git-execution-policy evaluateGitExecution 返回）
+ * @returns sandbox-exec profile 字符串（单行）
+ */
+function buildGitProfile(repoRoot: string, dataDir: string, grant: GitExecutionGrant): string {
+  const fp = JSON.stringify([repoRoot, dataDir, grantFingerprint(grant)]);
+  const cached = cachedGitProfiles.get(fp);
+  if (cached) return cached;
+
+  const profile = [
+    ...buildBaseProfile(repoRoot, dataDir),
+    // Git 窄写域——deny 之后追加 allow，SBPL 顺序覆盖语义生效
+    ...grantToProfileRules(grant),
+  ].join(" ");
+
+  cachedGitProfiles.set(fp, profile);
   return profile;
 }
 
@@ -169,13 +186,38 @@ const FAILURE_GUIDANCE_SUFFIX = `; _sb=$?; if [ "$_sb" -ne 0 ]; then if [ "$_sb"
  * - sandbox-exec 是 OS 层拦截，进程内无法逃逸——獭无法在 bash 内脱掉沙箱
  * - spawnHook 由 SDK 在每次 execute 时调用，獭无法跳过
  */
-export function createSandboxSpawnHook(repoRoot: string, dataDir: string): BashSpawnHook {
-  const profile = buildSandboxProfile(repoRoot, dataDir);
-  return (ctx: BashSpawnContext): BashSpawnContext => ({
-    ...ctx,
-    // R-2 失败引导在包裹层（FAILURE_GUIDANCE_SUFFIX）——见其注释的实测依据
-    command: `sandbox-exec -p ${JSON.stringify(profile)} /bin/bash -c ${escapeCommand(ctx.command)}${FAILURE_GUIDANCE_SUFFIX}`,
-  });
+export function createSandboxSpawnHook(
+  repoRoot: string,
+  dataDir: string,
+  options?: { linkedWorktrees?: Map<string, string> },
+): BashSpawnHook {
+  const defaultProfile = buildDefaultProfile(repoRoot, dataDir);
+  // F20261027gscv Phase 2：linked worktree 清单支持显式注入（测试固定场景）
+  // 或从 git worktree list --porcelain 派生（生产默认，每次 spawnHook 现解析保证新鲜）。
+  const useFixedRegistry = options?.linkedWorktrees !== undefined;
+  const fixedRegistry = options?.linkedWorktrees ?? null;
+
+  return (ctx: BashSpawnContext): BashSpawnContext => {
+    // F20261027gscv Phase 2：Git envelope 识别——命中则派生最小写域 profile。
+    // registry 每次现解析（git worktree list 同步执行 ~10ms，Git 命令本身更慢），
+    // 保证 worktree add 后立即可见——spawnHook 在命令执行前运行，无法事后刷新。
+    const currentRegistry = useFixedRegistry ? fixedRegistry! : parseGitWorktreeList(repoRoot);
+    const grant = evaluateGitExecution(ctx.command, ctx.cwd ?? "", {
+      repoRoot,
+      linkedWorktrees: currentRegistry,
+    });
+    const profile = grant ? buildGitProfile(repoRoot, dataDir, grant) : defaultProfile;
+    // Git 只读命令注入 GIT_OPTIONAL_LOCKS=0，避免 status 因 index.lock 写失败
+    const env = grant?.injectOptionalLocks
+      ? { ...(ctx.env ?? {}), GIT_OPTIONAL_LOCKS: "0" }
+      : ctx.env;
+    return {
+      ...ctx,
+      env,
+      // R-2 失败引导在包裹层（FAILURE_GUIDANCE_SUFFIX）——见其注释的实测依据
+      command: `sandbox-exec -p ${JSON.stringify(profile)} /bin/bash -c ${escapeCommand(ctx.command)}${FAILURE_GUIDANCE_SUFFIX}`,
+    };
+  };
 }
 
 /** createSandboxedTools 返回值：工具集 + spawnHook 真实挂载决策（R-2b 同点求值——
@@ -188,8 +230,10 @@ export interface SandboxedToolsResult {
 /**
  * 创建沙箱包裹的完整工具集（read/write/edit/bash/grep/find/ls）。
  *
- * bash 工具用 spawnHook 裹 sandbox-exec；其他工具原样（它们不执行任意命令，
- * write/edit 的写面由守卫的 write-target-evaluator 覆盖，不在本沙箱范围）。
+ * bash 工具用 spawnHook 裹 sandbox-exec；write/edit 走结构化接防（F20261027gscv
+ * Phase 1）：guarded operations 在真实副作用前校验写区，与 bash 沙箱独立——
+ * sg=false 下 write/edit 同样接防（structured 层），`sandboxGuarded` 仍只代表
+ * bash 物理状态。
  *
  * 不用 SDK createAllTools（顶层未导出）——逐工具构建，语义等价。
  *
@@ -203,10 +247,21 @@ export interface SandboxedToolsResult {
  * @returns 完整工具集（可直接传入 createAgentSession 的 baseToolsOverride）
  */
 export function createSandboxedTools(cwd: string, repoRoot: string, dataDir: string): SandboxedToolsResult {
+  // F20261027gscv Phase 1：write/edit 接防（structured 层，独立于 bash 沙箱）。
+  // 复用 invoke 级 guardOnIntercept；无 invoke 上下文的独立测试不伪造生产落账。
+  const policy = createFileWritePolicy({ repoRoot, dataDir });
+  const guarded = createGuardedFileTools(cwd, {
+    repoRoot,
+    dataDir,
+    policy,
+    getInvokeContext: () => otterInvokeStorage.getStore(),
+  });
+  // 构造期断言（设计 §7 Phase 1）：guard 未生效时拒绝静默装配，fail-closed
+  assertGuardedFileToolsAssembled(guarded, policy);
   const base = {
     read: createReadTool(cwd),
-    write: createWriteTool(cwd),
-    edit: createEditTool(cwd),
+    write: guarded.write,
+    edit: guarded.edit,
     grep: createGrepTool(cwd),
     find: createFindTool(cwd),
     ls: createLsTool(cwd),
@@ -215,7 +270,7 @@ export function createSandboxedTools(cwd: string, repoRoot: string, dataDir: str
   // 不可能分歧（同一次 probeSandboxAvailability 结果决定两面）。
   const sandboxGuarded = probeSandboxAvailability(repoRoot, dataDir);
   if (!sandboxGuarded) {
-    // 非 macOS / 显式禁用 / profile 构建失败——bash 无沙箱，守卫写面回位（降级不降安全）
+    // 非 macOS / 显式禁用 / profile 构建失败——bash 无沙箱，有限守卫回位（Best Effort，非物理等价）
     return { tools: { ...base, bash: createBashTool(cwd) }, sandboxGuarded: false };
   }
   const spawnHook = createSandboxSpawnHook(repoRoot, dataDir);

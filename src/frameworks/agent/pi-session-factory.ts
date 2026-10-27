@@ -97,6 +97,12 @@ export function buildGuardInterceptContext(
     ruleLayer: rule.layer,
     commandHead: sanitizeQuotedText(command).substring(0, 120),
     hasWorktreePath: command.includes("/worktrees/"),
+    ...(command.startsWith("ruleId=file-tool-guard/") ? {
+      assurance: "structured",
+      toolName: /(?:^|\s)tool=(write|edit)(?:\s|$)/.exec(command)?.[1],
+      operation: /(?:^|\s)operation=([a-zA-Z]+)(?:\s|$)/.exec(command)?.[1],
+      targetPath: /(?:^|\s)path=("(?:[^"\\]|\\.)*")(?:\s|$)/.exec(command)?.[1],
+    } : {}),
     ...(repeated ? { repeatedIntercept: priorCount + 1 } : {}),
   };
 }
