@@ -72,3 +72,21 @@ describe("#1544 反引号修复翻判面（不误拦纯数据/只读形态）", 
     expect(go('echo "`cd ' + MAIN + ' && git commit -m x`"', false)).not.toBeNull();
   });
 });
+
+describe("#1544 处置补强（r1 审视建议 3 + 严重 1 现状口径固化）", () => {
+  it("WT-cwd 豁免面：sessionCwd=worktree 裸 git commit → ALLOW（skipGitWrite 短路现状，防无声翻判）", () => {
+    expect(go('git commit -m "x"', true, WT)).toBeNull();
+  });
+  it("WT-cwd 对照：sessionCwd=工作区裸 git commit → BLOCK（落点不在 worktree 豁免区）", () => {
+    expect(go('git commit -m "x"', true, SESS)).not.toBeNull();
+  });
+  it("反引号独有跨段误拦现状：echo `date` && git commit（WT-cwd）→ BLOCK（反引号独有，$() 对照 ALLOW）", () => {
+    // r1 严重 1：闭反引号可作正则匹配起点（$() 的闭壳 ) 从不作起点），
+    // 产生 $() 没有的命中形态——worktree 日常流 git add && echo `date` && git commit
+    // 会整链 BLOCK。断言固化现状口径，根治（lexer 级 cmdsub span 提取）另立跟踪（#1608 挂账）。
+    expect(go('echo "`date`" && git commit -m x', true, WT)).not.toBeNull();
+  });
+  it("$() 对照：echo $(date) && git commit（WT-cwd）→ ALLOW（验证两壳口径差异属反引号独有）", () => {
+    expect(go('echo "$(date)" && git commit -m x', true, WT)).toBeNull();
+  });
+});
