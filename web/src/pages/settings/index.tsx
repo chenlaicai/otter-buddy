@@ -6,7 +6,7 @@ import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
 import type { ModelInfoDTO } from '@contract/api'
 import {
-  resetBackgroundPreference,
+  removeBackgroundPreference,
   selectBackgroundImage,
 } from '../../lib/background-preference'
 import {
@@ -58,10 +58,16 @@ export default function SettingsPage() {
     }
   }
 
-  function restoreDefaultBackground() {
-    const { persisted } = resetBackgroundPreference()
-    if (persisted) showToast('已恢复默认彩色背景', 'success')
-    else showToast('当前已恢复默认；本地图片未能删除，刷新后可能恢复', 'error')
+  async function restoreDefaultBackground() {
+    setSelectingBackground(true)
+    try {
+      await removeBackgroundPreference()
+      showToast('已恢复默认彩色背景', 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? `恢复失败：${error.message}` : '恢复默认背景失败', 'error')
+    } finally {
+      setSelectingBackground(false)
+    }
   }
 
   useEffect(() => {
@@ -196,7 +202,7 @@ export default function SettingsPage() {
                     <button
                       type="button"
                       disabled={selectingBackground}
-                      onClick={restoreDefaultBackground}
+                      onClick={() => void restoreDefaultBackground()}
                       className="px-3 py-2 text-xs font-medium text-stone-500 rounded-xl border border-white/50 hover:bg-white/35 transition disabled:opacity-50"
                     >
                       恢复默认背景
@@ -204,7 +210,7 @@ export default function SettingsPage() {
                   )}
                 </div>
                 <p className="text-[11px] text-stone-400 mt-2">
-                  支持 JPG、PNG、WebP · 编码后不超过 4.5 MB（通常约 3.3 MB 原图）· 仅保存在本机浏览器
+                  支持 JPG、PNG、WebP · 不超过 8 MB · 保存在应用启动目录，重开浏览器或重启应用仍保留
                 </p>
               </div>
             </section>

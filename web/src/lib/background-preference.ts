@@ -1,10 +1,10 @@
-import { BACKGROUND_STORAGE_KEY, notifyBackgroundPreferenceChanged } from './background-preference-store'
+import { deleteBackground, saveBackground } from '../api/client'
+import { identityHeaders, withIdentity } from '../api/identity'
+import { setBackgroundSnapshot } from './background-preference-store'
 
-export const MAX_BACKGROUND_DATA_URL_LENGTH = 4_500_000
-
-const DATA_URL_PATTERN = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]*={0,2}$/
+export const MAX_BACKGROUND_BYTES = 8 * 1024 * 1024
 const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
-let selectionGeneration = 0
+let operationGeneration = 0
 
 export class BackgroundPreferenceError extends Error {}
 
@@ -14,72 +14,55 @@ function clearAppliedBackground() {
   root.removeAttribute('data-custom-bg')
 }
 
-function applyDecodedBackground(dataUrl: string) {
-  // Why: CSS 变量只接收经过完整字符白名单与浏览器解码的图片，不拼接 HTML。
-  document.documentElement.style.setProperty('--custom-bg-image', `url("${dataUrl}")`)
+function applyDecodedBackground(url: string) {
+  // Why: URL 只由本应用受控 API 产生，不用用户输入拼 HTML/CSS。
+  document.documentElement.style.setProperty('--custom-bg-image', `url("${url}")`)
   document.documentElement.setAttribute('data-custom-bg', 'true')
 }
 
-function validateDataUrl(dataUrl: string) {
-  if (!DATA_URL_PATTERN.test(dataUrl)) {
-    throw new BackgroundPreferenceError('图片数据无效，请重新选择 JPG、PNG 或 WebP 图片')
-  }
-  if (dataUrl.length > MAX_BACKGROUND_DATA_URL_LENGTH) {
-    throw new BackgroundPreferenceError('图片编码后不能超过 4.5 MB（通常约 3.3 MB 原图）')
-  }
-}
-
-function decodeImage(dataUrl: string): Promise<void> {
+function decodeImage(url: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => {
       if (image.naturalWidth > 0 && image.naturalHeight > 0) resolve()
       else reject(new BackgroundPreferenceError('图片内容为空，请换一张图片'))
     }
-    image.onerror = () => reject(new BackgroundPreferenceError('图片已损坏或无法解码，请换一张图片'))
-    image.src = dataUrl
+    image.onerror = () => reject(new BackgroundPreferenceError('图片已损坏或无法读取，请换一张图片'))
+    image.src = url
   })
 }
 
-function readStoredBackground() {
-  try {
-    return localStorage.getItem(BACKGROUND_STORAGE_KEY)
-  } catch {
-    return null
-  }
-}
-
-function discardInvalidStoredBackground() {
-  clearAppliedBackground()
-  try { localStorage.removeItem(BACKGROUND_STORAGE_KEY) } catch { /* 存储不可用时仍保留默认画布 */ }
-  notifyBackgroundPreferenceChanged()
-}
-
 export async function restoreBackgroundPreference(): Promise<void> {
-  const dataUrl = readStoredBackground()
-  if (!dataUrl) {
-    clearAppliedBackground()
-    return
-  }
-
+  const generation = ++operationGeneration
   try {
-    validateDataUrl(dataUrl)
-    await decodeImage(dataUrl)
-    // Why: 解码期间用户可能已换图或恢复默认，过期恢复不得覆盖更新后的选择。
-    if (readStoredBackground() !== dataUrl) return
-    applyDecodedBackground(dataUrl)
+    const response = await fetch(withIdentity('/api/settings/background'), {
+      headers: identityHeaders(),
+      cache: 'no-store',
+    })
+    if (response.status === 404) {
+      clearAppliedBackground()
+      setBackgroundSnapshot(null)
+      return
+    }
+    if (!response.ok) throw new Error('background fetch failed')
+    const version = response.headers.get('ETag')?.replaceAll('"', '') ?? Date.now().toString()
+    const url = withIdentity(`/api/settings/background?v=${encodeURIComponent(version)}`)
+    await decodeImage(url)
+    // Why: 慢请求不得覆盖较新的恢复或用户选择。
+    if (generation !== operationGeneration) return
+    applyDecodedBackground(url)
+    setBackgroundSnapshot(url)
   } catch {
-    if (readStoredBackground() === dataUrl) discardInvalidStoredBackground()
+    // 服务不可用/资产损坏时保留默认画布，不把偏好悄悄存回浏览器。
+    if (generation === operationGeneration) {
+      clearAppliedBackground()
+      setBackgroundSnapshot(null)
+    }
   }
 }
 
-export async function selectBackgroundImage(file: File): Promise<void> {
-  const generation = ++selectionGeneration
-  if (!ACCEPTED_MIME_TYPES.has(file.type)) {
-    throw new BackgroundPreferenceError('仅支持 JPG、PNG 或 WebP 图片')
-  }
-
-  const dataUrl = await new Promise<string>((resolve, reject) => {
+function readFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
       if (typeof reader.result === 'string') resolve(reader.result)
@@ -89,27 +72,40 @@ export async function selectBackgroundImage(file: File): Promise<void> {
     reader.onabort = () => reject(new BackgroundPreferenceError('图片读取已取消，请重新选择'))
     reader.readAsDataURL(file)
   })
+}
 
-  validateDataUrl(dataUrl)
-  await decodeImage(dataUrl)
-  // Why: 防护属于模块而非按钮 disabled；过期选择/恢复默认后不得覆盖最后一次操作。
-  if (generation !== selectionGeneration) return
-
-  // Why: 先持久化成功再切换画布，配额失败时旧背景与旧偏好保持一致。
-  try {
-    localStorage.setItem(BACKGROUND_STORAGE_KEY, dataUrl)
-  } catch {
-    throw new BackgroundPreferenceError('浏览器本地存储空间不足，请换更小的图片')
+export async function selectBackgroundImage(file: File): Promise<void> {
+  const generation = ++operationGeneration
+  if (!ACCEPTED_MIME_TYPES.has(file.type)) {
+    throw new BackgroundPreferenceError('仅支持 JPG、PNG 或 WebP 图片')
   }
-  applyDecodedBackground(dataUrl)
-  notifyBackgroundPreferenceChanged()
+  if (file.size > MAX_BACKGROUND_BYTES) {
+    throw new BackgroundPreferenceError('图片不能超过 8 MB')
+  }
+
+  const dataUrl = await readFile(file)
+  await decodeImage(dataUrl)
+  if (generation !== operationGeneration) return
+  const { url } = await saveBackground(dataUrl)
+  if (generation !== operationGeneration) return
+
+  // Why: 只有服务端原子落盘成功才切换；版本 URL 让刷新/重开浏览器读取同一资产。
+  const persistentUrl = withIdentity(url)
+  applyDecodedBackground(persistentUrl)
+  setBackgroundSnapshot(persistentUrl)
 }
 
 export function resetBackgroundPreference(): { persisted: boolean } {
-  selectionGeneration += 1
+  // 保留同步形态供设置页卸载与旧测试复位；产品路径使用下方异步 reset。
+  operationGeneration += 1
   clearAppliedBackground()
-  let persisted = true
-  try { localStorage.removeItem(BACKGROUND_STORAGE_KEY) } catch { persisted = false }
-  notifyBackgroundPreferenceChanged()
-  return { persisted }
+  setBackgroundSnapshot(null)
+  return { persisted: true }
+}
+
+export async function removeBackgroundPreference(): Promise<void> {
+  operationGeneration += 1
+  await deleteBackground()
+  clearAppliedBackground()
+  setBackgroundSnapshot(null)
 }

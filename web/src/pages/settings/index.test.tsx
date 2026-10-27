@@ -12,15 +12,20 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { createMemoryRouter, RouterProvider, Outlet } from 'react-router-dom'
 import { resetBackgroundPreference } from '../../lib/background-preference'
-import { BACKGROUND_STORAGE_KEY } from '../../lib/background-preference-store'
+import { setBackgroundSnapshot } from '../../lib/background-preference-store'
 
-const { selectBackgroundImageMock, showToastMock } = vi.hoisted(() => ({
+const { selectBackgroundImageMock, removeBackgroundPreferenceMock, showToastMock } = vi.hoisted(() => ({
   selectBackgroundImageMock: vi.fn(),
+  removeBackgroundPreferenceMock: vi.fn(),
   showToastMock: vi.fn(),
 }))
 vi.mock('../../lib/background-preference', async importOriginal => {
   const actual = await importOriginal<typeof import('../../lib/background-preference')>()
-  return { ...actual, selectBackgroundImage: selectBackgroundImageMock }
+  return {
+    ...actual,
+    selectBackgroundImage: selectBackgroundImageMock,
+    removeBackgroundPreference: removeBackgroundPreferenceMock,
+  }
 })
 vi.mock('../../components/Toast', () => ({ showToast: showToastMock }))
 
@@ -35,6 +40,7 @@ let root: Root
 beforeEach(() => {
   vi.clearAllMocks()
   selectBackgroundImageMock.mockResolvedValue(undefined)
+  removeBackgroundPreferenceMock.mockResolvedValue(undefined)
   localStorage.clear()
   resetBackgroundPreference()
   container = document.createElement('div')
@@ -110,7 +116,7 @@ describe('设置页渲染测试（D1 修复验证）', () => {
 
     expect(container.textContent).toContain('背景图片')
     expect(container.textContent).toContain('默认彩色背景')
-    expect(container.textContent).toContain('编码后不超过 4.5 MB')
+    expect(container.textContent).toContain('保存在应用启动目录，重开浏览器或重启应用仍保留')
     await changeBackgroundFile(new File(['image'], 'landscape.png', { type: 'image/png' }))
     expect(selectBackgroundImageMock).toHaveBeenCalled()
     expect(showToastMock).toHaveBeenCalledWith('背景图片已更换', 'success')
@@ -128,17 +134,18 @@ describe('设置页渲染测试（D1 修复验证）', () => {
     expect(showToastMock).not.toHaveBeenCalledWith('背景图片已更换', 'success')
   })
 
-  it('已有自定义图片时可恢复默认并清除本地偏好', async () => {
+  it('已有自定义图片时可恢复默认并删除应用目录资产', async () => {
     mockSettingsApi()
-    localStorage.setItem(BACKGROUND_STORAGE_KEY, 'data:image/png;base64,iVBORw0KGgo=')
+    setBackgroundSnapshot('/api/settings/background?v=1&otterUserId=web-ui&otterRole=admin')
     render()
     await act(async () => {})
 
     const button = Array.from(container.querySelectorAll('button')).find(b => b.textContent === '恢复默认背景') as HTMLButtonElement
-    await act(async () => { button.click() })
+    await act(async () => { button.click(); await Promise.resolve() })
 
-    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBeNull()
-    expect(document.documentElement.hasAttribute('data-custom-bg')).toBe(false)
+    expect(removeBackgroundPreferenceMock).toHaveBeenCalled()
+    resetBackgroundPreference()
+    await act(async () => {})
     expect(container.textContent).toContain('默认彩色背景')
     expect(showToastMock).toHaveBeenCalledWith('已恢复默认彩色背景', 'success')
   })

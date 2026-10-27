@@ -1,13 +1,17 @@
 ---
-id: F20261027cbgix
+<<<<<<< HEAD:docs/features/2026/10/27/F20261027cbgixx-custom-background-image.md
+id: F20261027cbgixx
 title: 自定义本地背景图片与玻璃效果预览
+id: F20261027cbgix
+title: 自定义启动目录背景图片与玻璃效果预览
+>>>>>>> bad05365 ([F20261027cbgix][web][New Feature] 启动目录风景背景与玻璃效果预览):docs/features/2026/10/27/F20261027cbgix-custom-background-image.md
 doc_type: feature
 summary: |
-  设置页外观区新增本地图片选择与恢复默认彩色背景，图片仅在当前浏览器
-  持久化并即时替换最底层极光画布；保留既有玻璃 token 与透明度滑杆，
-  不引入上传、在线图库或跨设备同步。
+  设置页外观区新增本地图片选择与恢复默认彩色背景，图片保存到应用启动
+  目录并即时替换最底层极光画布；重开浏览器、重启应用均保留。保留既有
+  玻璃 token 与透明度滑杆，不做在线图库、裁切或多端云同步。
 change_type: feature
-capability_test: "n/a: 纯 web 本地外观偏好，无 agent 行为或工具轨迹变化"
+capability_test: "n/a: web 外观与后端文件资产，无 agent 行为或工具轨迹变化"
 intent:
   problem: "固定彩色极光画布无法让搭档用自己的风景图检验现有玻璃材质"
   expected_effect: "设置页选择合法本地图片后立即全屏生效并刷新保持，可恢复默认；坏图与存储失败回退原背景"
@@ -17,16 +21,20 @@ created_in_conversation: bc4ca9ba-9348-4283-afbf-e2d6f2dd12de
 created_at: 2026-10-27
 causal_links:
   from: [F20260724glas]
-tags: [ui, settings, background, glass, local-storage]
+tags: [ui, settings, background, glass, filesystem, persistence]
 modules:
   - web/src/pages/settings/index.tsx
   - web/src/styles/globals.css
   - web/src/main.tsx
   - web/src/lib/background-preference.ts
   - web/src/lib/background-preference-store.ts
+  - src/usecases/settings/background-store.ts
+  - src/interface-adapters/http/controllers/background-controller.ts
+  - src/interface-adapters/http/router.ts
+  - src/bootstrap/controllers.ts
 ---
 
-# F20261027cbgix 自定义本地背景图片与玻璃效果预览
+# F20261027cbgixx 自定义本地背景图片与玻璃效果预览
 
 ## 背景
 
@@ -36,7 +44,7 @@ modules:
 
 ## 目标
 
-T1：在「设置 → 外观」选择本机 JPG/PNG/WebP 图片后，立即全屏替换背景，且刷新后仍生效。
+T1：在「设置 → 外观」选择本机 JPG/PNG/WebP 图片后，立即全屏替换背景；图片保存到应用启动目录，刷新、重开浏览器和应用重启后仍生效。
 
 T2：保留原有彩色背景作为默认项，并提供明确的「恢复默认背景」入口。
 
@@ -46,29 +54,30 @@ T4：图片无效、损坏或本地持久化失败时给出可理解反馈，不
 
 ## 非目标
 
-- 不做图片上传到服务端、在线图库、远程 URL、跨浏览器/跨设备同步。
+- 不做在线图库、远程 URL、跨设备云同步；本地上传到同一应用的启动目录是本需求明确目标。
 - 不做裁切、缩放编辑、 focal point、背景动画、深色模式或多套主题管理。
 - 不改动既有 `--glass-t` 的取值范围与各层玻璃 token。
 - 不为极冷门的大图做首版图片压缩/缩略图流水线；以明确的体积上限控制本地存储风险。
 
 ## 未决问题
 
-无。首版按「本地选图、当前浏览器保存」最小链路执行。
+无。2026-10-27 19:50 搭档明确否决仅当前浏览器存储：「哎等等，不能只存当前浏览器，我期望能存到启动目录下？」；首版改为启动目录持久化，原 localStorage 方案不再交付。
 
 ## 方案设计
 
-### 1. 本地偏好模型
+### 1. 启动目录资产模型
 
-新增单一前端工具模块 `web/src/lib/background-preference.ts`，集中管理：
+`src/usecases/settings/background-store.ts` 是唯一文件真相源，固定目录为 `path.join(process.cwd(), 'data', 'backgrounds')`；这里按搭档要求使用**应用启动 cwd**，不改为基于代码位置的 repoRoot：
 
-- localStorage key：`otter-background-image-v1`；值为图片 data URL，不另建数据库字段或后端接口。
-- 文件准入：MIME 仅 `image/jpeg`、`image/png`、`image/webp`；FileReader 读取后，按 **data URL 实际长度 ≤ 4,500,000 字符**验收，而不是按原始文件字节数推断配额。UI 用「图片编码后不超过 4.5 MB（通常约 3.3 MB 原图）」说明。
-- 完整值还须匹配受控 data URL 字符白名单（固定 MIME 前缀 + base64 字符），再用 `Image` 异步解码；只有解码成功才允许持久化与应用。这样同时挡住坏 base64、伪造 MIME 和损坏图片。
-- 应用方式：在根元素设置/移除 `--custom-bg-image` 与自定义状态属性；独立画布负责 `cover`、`center`、`no-repeat`。
-- 启动恢复：`web/src/main.tsx` 在 SPA 启动时调用同一恢复入口。解码期间保留默认极光画布，成功后热替换；坏值/解码失败会清变量并尽力移除坏 key，存储访问异常静默回退到默认背景。异步解码可能让默认画布短暂出现，但不会留下永久空白。
-- 设置页订阅背景偏好变化，直接打开设置页时也能在恢复完成后同步预览。
+- `current` 保存当前图片；文件名与路径不接受用户输入，目录加入 `.gitignore`。
+- `PUT /api/settings/background` 接收浏览器读取的 data URL，原始图片上限 **8 MiB**；服务端按 canonical base64、magic bytes 与声明 MIME 三重校验，仅 JPEG/PNG/WebP，不信任扩展名。
+- 写入 `.current.tmp` 后 rename 原子替换，避免进程中断留下半张图；成功才返回带版本的 `/api/settings/background?v=...` URL。
+- `GET` 读取磁盘并返回白名单 MIME、nosniff、no-cache、ETag；资产不存在/损坏返回 404，前端回默认画布。
+- `DELETE` 幂等删除；只有删除成功才清除页面背景，失败保留现状并报错。
+- 三端点归入既有 `/api/settings` admin 鉴权族；背景直链沿用 `withIdentity`，不开放匿名静态目录。
+- 前端 `background-preference.ts` 负责 FileReader、浏览器解码、API 调用和最后一次操作获胜的竞态防护；不写 localStorage。启动时从 GET 恢复，设置页用同步快照/订阅预览。
 
-选择 data URL 而非 IndexedDB：复用现有外观偏好的 localStorage 模式，不增加异步数据库生命周期。代价是占用浏览器本地配额，因此必须有编码后 4.5M 字符上限、写入失败回滚与错误提示；不能把 data URL 注入对话、日志或后端。
+同一台机器上的其他浏览器可直接访问同一后端，因此自然共享这份启动目录资产；跨机器云同步仍不在范围。
 
 ### 2. 画布切换
 
@@ -85,31 +94,32 @@ T4：图片无效、损坏或本地持久化失败时给出可理解反馈，不
 
 - 当前状态缩略预览 + 「自定义图片」/「默认彩色背景」；不另存文件名，避免第二个持久化状态。
 - 「选择图片」文件选择器；选中后先校验并解码，成功才应用并持久化，完成后 toast。
-- 仅自定义状态显示「恢复默认背景」。点击后**先清 CSS 变量与根状态属性，立即回到极光画布，再尽力 removeItem**；若删除失败，当前页面仍保持默认，但明确提示「刷新后可能恢复自定义图」，不中断恢复动作。
-- 校验/解码/读取/存储失败：保持更换前背景，显示具体错误（格式、大小编码、损坏图片、读取或本地存储失败），不假装保存成功。
+- 仅自定义状态显示「恢复默认背景」。点击后等待服务端删除成功再回极光画布；删除失败保留原背景并提示，避免刷新后旧图意外回来。
+- 校验/解码/读取/存储失败：保持更换前背景，显示具体错误（格式、大小、损坏图片、读取或服务端保存失败），不假装保存成功。
 - 每次操作结束清空 file input 的 value，允许失败后重选同一文件。
 
 ## 影响范围
 
 - 所有 SPA 页面共用的最底层背景。
 - 设置页外观区、`web/src/main.tsx` 启动恢复、全局背景 CSS。
-- 不影响后端设置 DTO、数据库、模型配置、浮动獭快捷键与弹窗冻结机制。
+- 新增启动目录资产 store、背景 controller 与三个 settings 子路由；组合根负责注入。
+- 不改数据库 schema、后端 SettingsDTO、模型配置、浮动獭快捷键与弹窗冻结机制。
 
 ## 风险与约束
 
-- **本地配额**：localStorage 容量有限且 data URL 有编码膨胀；编码后 4.5M 字符上限仍不能保证所有浏览器都写得入，必须捕获 `setItem` 异常并回滚。
-- **可移植性**：清除站点数据、换浏览器或换设备后需重新选图；在 UI 明示「仅保存在本机浏览器」。
+- **磁盘写入**：磁盘满/权限不足时保存失败，服务端保留旧图，前端不切换并 toast；8 MiB 上限约束单资产大小。
+- **生命周期**：图片由应用目录而非浏览器持有，重开浏览器/重启应用保留；清除启动目录资产会回默认。跨机器同步仍不提供。
 - **文字可读性**：极亮/高细节风景图可能降低直接坐在画布上的辅助文字可读性；首版通过既有玻璃滑杆与 reduced-transparency 兜底，不擅自加全屏暗化层。
-- **启动安全**：恢复入口只接受完整 data URL 字符白名单，且只写 CSS 变量，不插入 HTML；CSS 值来自受控的 `url("...")` 序列化函数。前缀合法但内容损坏的值必须经解码失败回退。
-- **性能**：保持背景静止，不加动画和 `will-change`；图片只有一张。设置页缩略预览直接复用同一 data URL 并限制显示尺寸，接受浏览器解码全尺寸图片的成本；首版不引入 canvas 缩略图或压缩流水线。
+- **资产安全**：服务端复用附件 magic bytes 校验，排除 SVG；固定 current 路径阻断路径穿越；响应 nosniff；接口需要 admin 身份。日志不记录图片内容。
+- **性能**：保持背景静止，不加动画和 `will-change`；图片只有一张。设置页缩略预览复用受控版本 URL 并限制显示尺寸，接受全尺寸解码成本；首版不引入 canvas 缩略图或压缩流水线。
 
 ## 不兼容更新
 
-无。无既有偏好迁移；未设置新 key 时行为完全不变。
+无。未设置启动目录资产时行为完全不变；旧 localStorage 方案未合入/未发布，无用户数据迁移。
 
 ## 设计取舍
 
-机制识别检查点：命中「新增配置字段/开关」与「新增持久化存储（浏览器 localStorage）」，判定涉及净新增机制，四问必答；不新增数据库、后台任务或跨模块后端调用。
+机制识别检查点：命中「新增配置字段/开关」「新增持久化存储（启动目录文件）」「新增 HTTP 资产端点」，判定涉及净新增机制，四问必答；不新增数据库或后台任务。
 
 ### 机制预算四问
 
@@ -117,13 +127,13 @@ T4：图片无效、损坏或本地持久化失败时给出可理解反馈，不
 
 ② **失败后果**：选图无效或存储失败时用户看不到预期背景；若未捕获异常可能丢提示或首屏报错。方案通过默认背景回退、toast 和原状态保留，把损害限制为「这次没有换成」，不影响对话数据与服务端设置。
 
-③ **后续机制**：可能出错的新状态是本地 data URL 缺失、损坏、超配额或被清除；分别由默认回退、前缀校验、异常捕获和重新选择修复。未来若支持跨设备/大图，应另起服务端资产或 IndexedDB 方案，不在本 key 上隐式改变语义。
+③ **后续机制**：可能出错的新状态是 current 缺失、损坏、磁盘写失败或被清除；分别由默认回退、magic bytes 校验、保留旧图/toast 和重新选择修复。未来若支持跨设备云同步或多背景库，应另起资产集合与同步方案，不把 current 隐式扩成数据库。
 
-④ **退役条件**：若本地图片背景长期无人使用，或产品转向统一云端主题资产并且完成偏好迁移，可删除该 key、启动恢复脚本与设置区；默认极光画布始终是可回退基线，不构成永久承诺。
+④ **退役条件**：若背景功能长期无人使用，或产品转向统一云主题并完成资产迁移，可删除 current、背景端点与设置区；默认极光画布始终是可回退基线，不构成永久承诺。
 
 | 取舍 | 决策 | 替代方案 | 理由 |
 |---|---|---|---|
-| 图片存放 | localStorage data URL + 编码后 4.5M 字符上限 | 后端上传、IndexedDB | 最小链路即可验证玻璃效果；不上传私人图片，不新增服务端资产生命周期。按编码后长度而非原图大小验收，避免 5 MiB 原图编码后必超常见配额；仍有配额风险，由失败回滚认领 |
+| 图片存放 | `process.cwd()/data/backgrounds/current` + 8 MiB 上限 | localStorage、DB blob、附件表 | 搭档明确要求启动目录持久化；单文件是最小真相源，浏览器重启/清站点数据不丢，避免 DB 迁移与附件生命周期。代价是单背景、无云同步，磁盘错误由保留旧图和 toast 认领 |
 | 默认背景 | 保留极光画布并可一键恢复 | 选图后覆盖默认 | 保留现有视觉基线，方便对比与退出 |
 | 图片适配 | cover + center | contain、拉伸、首版裁切器 | 全屏无空白且不改变宽高比；裁切编辑超出当前验证目标 |
 | 图片上蒙版 | 首版不新增 | 固定暗化/虚化 | 搭档要直接看玻璃与真实图片的组合；额外滤层会改变观察对象。可读性风险显式保留 |
@@ -131,11 +141,11 @@ T4：图片无效、损坏或本地持久化失败时给出可理解反馈，不
 
 ## 验证
 
-1. 单元测试：合法 JPEG/PNG/WebP 解码成功后写入 localStorage、根变量即时更新、状态显示自定义图片；恢复默认移除 key 与变量。
-2. 单元测试：错误 MIME、编码后超过 4.5M 字符、FileReader 失败、图片解码失败、setItem 抛错均不破坏原背景，并出现对应提示。
-3. 启动恢复测试：合法值解码后恢复；空值/坏前缀/坏 base64/解码失败/localStorage 异常回退默认且不抛错。
+1. 后端真实临时目录测试：PUT 写入 current，新 store 实例 GET 读回相同字节；验证启动目录持久化而非浏览器存储。
+2. 后端测试：伪造 MIME、声明与内容不符、SVG、坏 base64、非 data URL、超过 8 MiB、坏磁盘资产均拒绝/回退；DELETE 幂等，重复保存无临时文件。
+3. 前端测试：合法图片服务端保存成功后应用版本 URL；格式/大小/FileReader/解码/API 失败保持旧背景；404/服务失败/坏图回默认；连续选图、启动恢复与恢复默认的竞态最后操作获胜。
 4. **静态 CSS 契约抽检**（读取样式表源码断言关键声明，不冒充 jsdom 渲染级验证）：独立 `body::before` 使用 cover/center/no-repeat；默认极光变量不变；reduced-transparency 的默认背景清空与玻璃实色兜底不回归。真实图片解码、层叠与视觉由第 5 条人工验收承担。
-5. 构建与既有设置页测试通过；手工在 alpha 实例选择一张真实风景图，验证对话页、设置页和弹窗下的玻璃观感及刷新持久化。
+5. 构建与全量测试通过；真实服务选择风景图后清空浏览器站点数据并重启后端，仍读回同一图片，验证对话页、设置页的玻璃观感与恢复默认。
 
 ## 决策史
 
@@ -153,20 +163,25 @@ T4：图片无效、损坏或本地持久化失败时给出可理解反馈，不
 - B1（严重，分支落后 main）：**接受并修复，更好**。rebase 到 origin/main 后重推，等 CI 实绿；非业务代码缺陷。
 - 建议 1（模块连续选图竞态）：**接受并修复，更好**。虽然当前按钮 disabled 已拦住真实 UI 路径，但在模块内增加选择代数只需数行，且与启动恢复防护对称；连续选图后完成、解码中恢复默认两条回归测试确保最后操作获胜。
 
+### 2026-10-27 搭档需求变更：浏览器存储 → 启动目录
+
+搭档否决仅当前浏览器存储，原终审 matter M-09294408 已标 SUPERSEDED，PR 未合入。已移除 localStorage 真相源，新增启动目录文件 store + admin API；浏览器只负责选择/预览，应用重启与清站点数据不影响背景资产。原 S2/S6 关于 localStorage 配额和 removeItem 的处置随机制替换退役，不沿用到文件存储。
+
 ## 实现自检（2026-10-27）
 
 | 场景 | 操作 | 预期结果 / 证据 |
 |---|---|---|
-| 全量回归 | `cd web && npm test` | 79 文件 / 807 测试通过（含连续选图与解码中恢复默认） |
+| 全量后端回归 | `npx vitest run` | 447 文件 / 7107 通过、6 skipped；含真实临时目录背景持久化测试 |
+| 全量 web 回归 | `cd web && npm test` | 79 文件 / 804 测试通过（存储换轨后的新契约） |
 | 构建 | `cd web && npm run build` | TypeScript 与 Vite 构建通过 |
 | 文档门 | `npm run lint:intent` | 本特性 intent / verify_by 声明率 100%，无本特性 error |
 | 真浏览器选图 | Chrome 1440×1000，设置页选择 1600×2400 JPEG | `body::before` 为 1440×1000，cover / 50% 50% / no-repeat，preview 96×64；截图 `data/workspaces/bc4ca9ba-9348-4283-afbf-e2d6f2dd12de/background-custom-settings.png` |
-| 刷新与恢复 | reload → 恢复默认 → 写入坏 data URL → reload | 自定义图刷新保持；恢复后 key/变量清除；坏值自动清除，无 page error；机器证据 `background-browser-verification.json` |
+| 启动目录持久化 | 临时 cwd 启动真实服务 → 选图 → 关闭浏览器/新上下文（localStorage 空）→ 后端进程重启 | 图片写入 cwd/data/backgrounds/current（694860 字节），重启后仍从磁盘恢复；恢复默认后文件删除；page error=0。证据 `background-server-save-evidence.json`、`background-server-restart-evidence.json` |
 | 对话页玻璃 | 自定义图状态进入会话列表 | 顶栏/面板显示图片取样后的玻璃效果；截图 `background-custom-conversation.png` |
 
 - 视觉证据：默认 `background-default.png`、自定义设置 `background-custom-settings.png`、刷新 `background-custom-reloaded.png`。默认面板较浅，自定义风景图会显著透进玻璃；浅色辅助文字在深色图上变弱，是方案显式认领的可读性取舍，不新增暗化蒙版。
 - reduced-transparency：静态契约已覆盖独立图片层不被 `.bg-spring` 清空；当前 Playwright/Chrome 的 `emulateMedia(reducedTransparency)` 未触发该媒体查询，故不宣称真浏览器该项已验。
-- 最简检查：使用已有 localStorage + FileReader + Image + CSS 伪元素，无新运行时依赖。设置页快照/订阅拆成 15 行小模块，是为避免主包经懒加载设置页回环引用，不是为未来主题系统预留框架；已过最简检查。
+- 最简检查：复用现有 Hono、身份中间件、附件 sniffType、FileReader、Image 与 CSS 伪元素，无新运行时依赖、无 DB 迁移。一个 current 文件满足单背景语义；设置页快照/订阅小模块避免主包循环依赖，不是为未来主题系统预留框架；已过最简检查。
 - 负面向：未删除/绕过默认极光画布、玻璃 token、reduced-transparency 或弹窗自模糊；无旧资源需退役。首屏由同步脚本改为异步解码，明确接受解码前短暂默认画布，换取坏图不空屏。
 - 影响面：不改历史 F20260724glas；本特性从它派生，只替换画布，不使原玻璃语义失效。
 - 废弃资源/DB/软代码/Golden Gate/锚点重放：均 n/a；纯 A 类 web 本地外观能力。
@@ -175,7 +190,13 @@ T4：图片无效、损坏或本地持久化失败时给出可理解反馈，不
 
 | 文件 | 操作 | 说明 |
 |---|---|---|
-| `web/src/lib/background-preference.ts` | 新增 | 文件校验、读取、应用、持久化与恢复单入口 |
+| `src/usecases/settings/background-store.ts` | 新增 | 启动目录文件真相源、校验、原子保存、读取与删除 |
+| `src/interface-adapters/http/controllers/background-controller.ts` | 新增 | 背景 GET/PUT/DELETE HTTP 适配 |
+| `src/interface-adapters/http/router.ts` | 修改 | 注册 settings 背景三端点，继承 admin 鉴权 |
+| `src/bootstrap/controllers.ts` | 修改 | 注入 process.cwd()/data/backgrounds store |
+| `tests/api/background.test.ts` | 新增 | 真实临时目录持久化、安全与异常测试 |
+| `web/src/api/client.ts` | 修改 | 背景保存/删除 API |
+| `web/src/lib/background-preference.ts` | 新增 | 浏览器校验、API 调用、应用与竞态防护 |
 | `web/src/lib/background-preference-store.ts` | 新增 | 设置页同步快照与变更订阅；独立小模块避免主包循环依赖 |
 | `web/src/lib/background-preference.test.ts` | 新增 | 偏好与异常路径测试 |
 | `web/src/pages/settings/index.tsx` | 修改 | 外观区选图、预览、恢复与反馈 |
@@ -183,4 +204,8 @@ T4：图片无效、损坏或本地持久化失败时给出可理解反馈，不
 | `web/src/styles/globals.css` | 修改 | 自定义画布与默认画布分层 |
 | `web/src/styles/custom-background.test.ts` | 新增 | CSS 契约测试 |
 | `web/src/main.tsx` | 修改 | SPA 启动恢复；解码前保留默认画布，坏值自动回退 |
+<<<<<<< HEAD:docs/features/2026/10/27/F20261027cbgixx-custom-background-image.md
+| `docs/features/2026/10/27/F20261027cbgixx-custom-background-image.md` | 新增 | 方案、决策与验证档案 |
+| `.gitignore` | 修改 | 启动目录用户图片不入 git |
 | `docs/features/2026/10/27/F20261027cbgix-custom-background-image.md` | 新增 | 方案、决策与验证档案 |
+>>>>>>> bad05365 ([F20261027cbgix][web][New Feature] 启动目录风景背景与玻璃效果预览):docs/features/2026/10/27/F20261027cbgix-custom-background-image.md

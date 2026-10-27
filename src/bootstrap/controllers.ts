@@ -20,7 +20,10 @@ import type { SettingsRepository } from "@usecases/settings/settings-repository"
 import { updateDefaultModelInYaml } from "@frameworks/config-service";
 import type { FeatureRepository } from "@usecases/document/feature-repository";
 import type { ResearchRepository } from "@usecases/document/research-repository";
+import * as path from "node:path";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
+import { BackgroundStore } from "@usecases/settings/background-store";
+import { BackgroundController } from "@interface-adapters/http/controllers/background-controller";
 /** 多模态 Phase 1（审视修复 R4/R7）：注入服务（usecases 层策略） */
 import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
@@ -272,6 +275,7 @@ function buildWorkLedgerController(repos: Repositories, healthSnapshotRepo: Heal
   );
 }
 
+// eslint-disable-next-line max-lines-per-function -- 组合根集中装配控制器；每个依赖一行，拆分只会隐藏注入关系
 export function initControllers(deps: ControllerDeps, logger: Logger) {
   const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo, signalRouter } = deps;
 
@@ -314,6 +318,9 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, { repo: repos.memory, logger }),
     keyInfo: buildKeyInfoController(uc.manageKeyInfo, logger, repos, unfurlController),
     settings: new SettingsController(settings, settingsRepo, modelPool, logger, updateDefaultModelInYaml),
+    background: new BackgroundController(
+      new BackgroundStore(path.join(rootDir, "data", "backgrounds")), logger,
+    ),
     scheduledTask: new ScheduledTaskController(uc.manageScheduledTask, schedulerService, cronParser, logger),
     // F20261006mtlp P1：待办板只读（matters 表 open 清单——右侧栏第五 tab 数据源）
     matter: new MatterController(repos.matter, logger),

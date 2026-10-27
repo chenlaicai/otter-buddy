@@ -1,11 +1,12 @@
-export const BACKGROUND_STORAGE_KEY = 'otter-background-image-v1'
 const CHANGE_EVENT = 'otter-background-change'
+let snapshot: string | null = null
 
 export function readBackgroundSnapshot() {
-  try { return localStorage.getItem(BACKGROUND_STORAGE_KEY) } catch { return null }
+  return snapshot
 }
 
-export function notifyBackgroundPreferenceChanged() {
+export function setBackgroundSnapshot(url: string | null) {
+  snapshot = url
   window.dispatchEvent(new Event(CHANGE_EVENT))
 }
 

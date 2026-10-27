@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  MAX_BACKGROUND_DATA_URL_LENGTH,
-  resetBackgroundPreference,
-  restoreBackgroundPreference,
-  selectBackgroundImage,
-} from './background-preference'
-import { BACKGROUND_STORAGE_KEY, subscribeBackgroundPreference } from './background-preference-store'
+import { removeBackgroundPreference, resetBackgroundPreference, restoreBackgroundPreference, selectBackgroundImage } from './background-preference'
+
+const saveBackgroundMock = vi.hoisted(() => vi.fn())
+const deleteBackgroundMock = vi.hoisted(() => vi.fn())
+vi.mock('../api/client', () => ({ saveBackground: saveBackgroundMock, deleteBackground: deleteBackgroundMock }))
+vi.mock('../api/identity', () => ({
+  identityHeaders: () => ({ 'X-Otter-User-Id': 'web-ui', 'X-Otter-User-Role': 'admin' }),
+  withIdentity: (path: string) => `${path}${path.includes('?') ? '&' : '?'}otterUserId=web-ui&otterRole=admin`,
+}))
 
 const VALID_PNG = 'data:image/png;base64,iVBORw0KGgo='
 
@@ -18,10 +20,7 @@ function mockImageDecode(succeed = true) {
     Object.defineProperty(image, 'src', {
       set(value: string) {
         image.setAttribute('src', value)
-        queueMicrotask(() => {
-          if (succeed) image.onload?.(new Event('load'))
-          else image.onerror?.(new Event('error'))
-        })
+        queueMicrotask(() => succeed ? image.onload?.(new Event('load')) : image.onerror?.(new Event('error')))
       },
     })
     return image
@@ -51,215 +50,137 @@ function mockFileReader(result: string | null, mode: 'load' | 'error' | 'abort' 
   } as unknown as new () => FileReader)
 }
 
-function pngFile() {
-  return new File(['image'], 'landscape.png', { type: 'image/png' })
+function pngFile() { return new File(['image'], 'landscape.png', { type: 'image/png' }) }
+function backgroundResponse(etag = '"v1"') {
+  return new Response(new Blob(['image'], { type: 'image/png' }), { status: 200, headers: { ETag: etag } })
 }
 
 beforeEach(() => {
-  localStorage.clear()
+  vi.clearAllMocks()
   resetBackgroundPreference()
   mockImageDecode()
   mockFileReader(VALID_PNG)
+  saveBackgroundMock.mockResolvedValue({ url: '/api/settings/background?v=2' })
+  deleteBackgroundMock.mockResolvedValue(undefined)
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(backgroundResponse()))
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
-  localStorage.clear()
+  vi.unstubAllGlobals()
   resetBackgroundPreference()
 })
 
-describe('自定义背景偏好', () => {
-  it('连续选图时只有最后选择可生效，不依赖按钮禁用', async () => {
-    const first = 'data:image/png;base64,Zmlyc3Q='
-    const second = 'data:image/png;base64,c2Vjb25k'
-    const finishDecodes: Array<() => void> = []
-    mockFileReader(first)
-    vi.spyOn(window, 'Image').mockImplementation(function MockImage(this: HTMLImageElement) {
-      const image = document.createElement('img') as HTMLImageElement
-      Object.defineProperty(image, 'naturalWidth', { value: 800 })
-      Object.defineProperty(image, 'naturalHeight', { value: 600 })
-      Object.defineProperty(image, 'src', {
-        set(value: string) {
-          image.setAttribute('src', value)
-          finishDecodes.push(() => image.onload?.(new Event('load')))
-        },
-      })
-      return image
-    } as unknown as new () => HTMLImageElement)
-
-    const firstSelection = selectBackgroundImage(pngFile())
-    mockFileReader(second)
-    const secondSelection = selectBackgroundImage(pngFile())
-    await vi.waitFor(() => expect(finishDecodes).toHaveLength(2))
-    finishDecodes[1]()
-    await secondSelection
-    finishDecodes[0]()
-    await firstSelection
-
-    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBe(second)
-    expect(document.documentElement.style.getPropertyValue('--custom-bg-image')).toBe(`url("${second}")`)
-  })
-
-  it('选图解码中恢复默认，过期选择不得随后写回', async () => {
-    let finishDecode: (() => void) | undefined
-    vi.spyOn(window, 'Image').mockImplementation(function MockImage(this: HTMLImageElement) {
-      const image = document.createElement('img') as HTMLImageElement
-      Object.defineProperty(image, 'naturalWidth', { value: 800 })
-      Object.defineProperty(image, 'naturalHeight', { value: 600 })
-      Object.defineProperty(image, 'src', {
-        set(value: string) {
-          image.setAttribute('src', value)
-          finishDecode = () => image.onload?.(new Event('load'))
-        },
-      })
-      return image
-    } as unknown as new () => HTMLImageElement)
-
-    const selecting = selectBackgroundImage(pngFile())
-    await vi.waitFor(() => expect(finishDecode).toBeTypeOf('function'))
-    resetBackgroundPreference()
-    finishDecode?.()
-    await selecting
-
-    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBeNull()
-    expect(document.documentElement.hasAttribute('data-custom-bg')).toBe(false)
-  })
-  it('合法图片解码成功后持久化并立即应用，同时通知设置页', async () => {
-    const listener = vi.fn()
-    const unsubscribe = subscribeBackgroundPreference(listener)
-
+describe('启动目录背景偏好', () => {
+  it('合法图片经服务端保存成功后应用版本 URL，不写 localStorage', async () => {
     await selectBackgroundImage(pngFile())
 
-    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBe(VALID_PNG)
-    expect(document.documentElement.style.getPropertyValue('--custom-bg-image')).toBe(`url("${VALID_PNG}")`)
+    expect(saveBackgroundMock).toHaveBeenCalledWith(VALID_PNG)
+    expect(document.documentElement.style.getPropertyValue('--custom-bg-image')).toContain('/api/settings/background?v=2')
     expect(document.documentElement.getAttribute('data-custom-bg')).toBe('true')
-    expect(listener).toHaveBeenCalled()
-    unsubscribe()
+    expect(localStorage.getItem('otter-background-image-v1')).toBeNull()
   })
 
-  it.each(['image/gif', 'image/svg+xml', 'text/plain'])('拒绝非目标格式 %s，不改变旧背景', async type => {
-    localStorage.setItem(BACKGROUND_STORAGE_KEY, VALID_PNG)
-    await restoreBackgroundPreference()
-
+  it.each(['image/gif', 'image/svg+xml', 'text/plain'])('拒绝 %s，不上传', async type => {
     await expect(selectBackgroundImage(new File(['x'], 'x', { type }))).rejects.toThrow('仅支持')
-
-    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBe(VALID_PNG)
-    expect(document.documentElement.getAttribute('data-custom-bg')).toBe('true')
+    expect(saveBackgroundMock).not.toHaveBeenCalled()
   })
 
-  it('按编码后实际长度验收，而不是误用原始文件大小', async () => {
-    const tooLarge = `data:image/png;base64,${'A'.repeat(MAX_BACKGROUND_DATA_URL_LENGTH)}`
-    mockFileReader(tooLarge)
-
-    await expect(selectBackgroundImage(pngFile())).rejects.toThrow('编码后不能超过 4.5 MB')
-    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBeNull()
-    expect(document.documentElement.hasAttribute('data-custom-bg')).toBe(false)
+  it('超过 8 MiB 原图直接拒绝', async () => {
+    const file = pngFile()
+    Object.defineProperty(file, 'size', { value: 8 * 1024 * 1024 + 1 })
+    await expect(selectBackgroundImage(file)).rejects.toThrow('不能超过 8 MB')
+    expect(saveBackgroundMock).not.toHaveBeenCalled()
   })
 
-  it.each([
-    ['读取失败', 'error' as const, '图片读取失败'],
-    ['读取取消', 'abort' as const, '图片读取已取消'],
-  ])('%s 时保留旧背景', async (_name, mode, message) => {
-    localStorage.setItem(BACKGROUND_STORAGE_KEY, VALID_PNG)
-    await restoreBackgroundPreference()
+  it.each([['error', '图片读取失败'], ['abort', '图片读取已取消']] as const)('FileReader %s 不上传', async (mode, message) => {
     mockFileReader(null, mode)
-
     await expect(selectBackgroundImage(pngFile())).rejects.toThrow(message)
-    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBe(VALID_PNG)
-    expect(document.documentElement.getAttribute('data-custom-bg')).toBe('true')
+    expect(saveBackgroundMock).not.toHaveBeenCalled()
   })
 
-  it('损坏图片解码失败时不写入，也不覆盖旧背景', async () => {
-    localStorage.setItem(BACKGROUND_STORAGE_KEY, VALID_PNG)
-    await restoreBackgroundPreference()
+  it('浏览器解码失败不上传', async () => {
     mockImageDecode(false)
-
-    await expect(selectBackgroundImage(pngFile())).rejects.toThrow('损坏或无法解码')
-    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBe(VALID_PNG)
-    expect(document.documentElement.getAttribute('data-custom-bg')).toBe('true')
+    await expect(selectBackgroundImage(pngFile())).rejects.toThrow('损坏或无法读取')
+    expect(saveBackgroundMock).not.toHaveBeenCalled()
   })
 
-  it('本地配额失败时不切换到未保存的新背景', async () => {
-    localStorage.setItem(BACKGROUND_STORAGE_KEY, VALID_PNG)
-    await restoreBackgroundPreference()
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError') })
-
-    await expect(selectBackgroundImage(pngFile())).rejects.toThrow('本地存储空间不足')
-    expect(document.documentElement.style.getPropertyValue('--custom-bg-image')).toBe(`url("${VALID_PNG}")`)
-  })
-
-  it('恢复默认先清画布；删除存储失败也返回可感知结果', async () => {
-    localStorage.setItem(BACKGROUND_STORAGE_KEY, VALID_PNG)
-    await restoreBackgroundPreference()
-    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new DOMException('denied', 'SecurityError') })
-
-    expect(resetBackgroundPreference()).toEqual({ persisted: false })
-    expect(document.documentElement.style.getPropertyValue('--custom-bg-image')).toBe('')
+  it('服务端保存失败保留原背景并透传真实错误', async () => {
+    saveBackgroundMock.mockRejectedValue(new Error('磁盘空间不足'))
+    await expect(selectBackgroundImage(pngFile())).rejects.toThrow('磁盘空间不足')
     expect(document.documentElement.hasAttribute('data-custom-bg')).toBe(false)
   })
 
-  it('启动时恢复合法图片', async () => {
-    localStorage.setItem(BACKGROUND_STORAGE_KEY, VALID_PNG)
-
+  it('启动从应用目录读取背景，重开浏览器不依赖 localStorage', async () => {
     await restoreBackgroundPreference()
 
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/settings/background'), expect.objectContaining({ cache: 'no-store' }))
+    expect(document.documentElement.style.getPropertyValue('--custom-bg-image')).toContain('v=v1')
     expect(document.documentElement.getAttribute('data-custom-bg')).toBe('true')
-    expect(document.documentElement.style.getPropertyValue('--custom-bg-image')).toContain(VALID_PNG)
   })
 
-  it.each([
-    ['空值', null],
-    ['坏前缀', 'https://example.com/a.png'],
-    ['非法 base64 字符', 'data:image/png;base64,");body{display:none}'],
-  ])('启动遇到%s回退默认且不抛出', async (_name, stored) => {
-    if (stored) localStorage.setItem(BACKGROUND_STORAGE_KEY, stored)
+  it('启动无配置 404 使用默认画布', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 404 }))
+    await restoreBackgroundPreference()
+    expect(document.documentElement.hasAttribute('data-custom-bg')).toBe(false)
+  })
 
+  it('启动服务失败或坏图回退默认且不抛出', async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error('offline'))
     await expect(restoreBackgroundPreference()).resolves.toBeUndefined()
     expect(document.documentElement.hasAttribute('data-custom-bg')).toBe(false)
-    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBeNull()
-  })
 
-  it('启动遇到合法前缀但损坏图片时清坏值并回退默认', async () => {
-    localStorage.setItem(BACKGROUND_STORAGE_KEY, VALID_PNG)
+    vi.mocked(fetch).mockResolvedValue(backgroundResponse())
     mockImageDecode(false)
-
-    await restoreBackgroundPreference()
-
+    await expect(restoreBackgroundPreference()).resolves.toBeUndefined()
     expect(document.documentElement.hasAttribute('data-custom-bg')).toBe(false)
-    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBeNull()
   })
 
-  it('启动解码尚未完成时恢复默认，过期图片不得随后盖回来', async () => {
-    localStorage.setItem(BACKGROUND_STORAGE_KEY, VALID_PNG)
-    let finishDecode: (() => void) | undefined
-    vi.spyOn(window, 'Image').mockImplementation(function MockImage(this: HTMLImageElement) {
-      const image = document.createElement('img') as HTMLImageElement
-      Object.defineProperty(image, 'naturalWidth', { value: 800 })
-      Object.defineProperty(image, 'naturalHeight', { value: 600 })
-      Object.defineProperty(image, 'src', {
-        set(value: string) {
-          image.setAttribute('src', value)
-          finishDecode = () => image.onload?.(new Event('load'))
-        },
-      })
-      return image
-    } as unknown as new () => HTMLImageElement)
-
+  it('启动读取中保存新图，过期恢复不得覆盖新图', async () => {
+    let resolveFetch: ((response: Response) => void) | undefined
+    vi.mocked(fetch).mockImplementation(() => new Promise<Response>(resolve => { resolveFetch = resolve }))
     const restoring = restoreBackgroundPreference()
-    resetBackgroundPreference()
-    finishDecode?.()
+    await vi.waitFor(() => expect(resolveFetch).toBeTypeOf('function'))
+    saveBackgroundMock.mockResolvedValue({ url: '/api/settings/background?v=new' })
+    await selectBackgroundImage(pngFile())
+    resolveFetch?.(backgroundResponse('"old"'))
     await restoring
 
-    expect(document.documentElement.hasAttribute('data-custom-bg')).toBe(false)
-    expect(localStorage.getItem(BACKGROUND_STORAGE_KEY)).toBeNull()
+    expect(document.documentElement.style.getPropertyValue('--custom-bg-image')).toContain('v=new')
   })
 
-  it('localStorage 不可用时启动与恢复都回退默认', async () => {
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('denied', 'SecurityError') })
-    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new DOMException('denied', 'SecurityError') })
+  it('连续选图只有最后一次服务端结果生效', async () => {
+    let resolveFirst: ((value: { url: string }) => void) | undefined
+    saveBackgroundMock.mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
+    const first = selectBackgroundImage(pngFile())
+    await vi.waitFor(() => expect(resolveFirst).toBeTypeOf('function'))
+    const second = selectBackgroundImage(pngFile())
+    await second
+    resolveFirst?.({ url: '/api/settings/background?v=old' })
+    await first
+    expect(document.documentElement.style.getPropertyValue('--custom-bg-image')).toContain('v=2')
+  })
 
-    await expect(restoreBackgroundPreference()).resolves.toBeUndefined()
-    expect(resetBackgroundPreference()).toEqual({ persisted: false })
+  it('选图保存中恢复默认，过期保存不得随后应用', async () => {
+    let resolveSave: ((value: { url: string }) => void) | undefined
+    saveBackgroundMock.mockImplementation(() => new Promise(resolve => { resolveSave = resolve }))
+    const selecting = selectBackgroundImage(pngFile())
+    await vi.waitFor(() => expect(resolveSave).toBeTypeOf('function'))
+    await removeBackgroundPreference()
+    resolveSave?.({ url: '/api/settings/background?v=old' })
+    await selecting
     expect(document.documentElement.hasAttribute('data-custom-bg')).toBe(false)
+  })
+
+  it('恢复默认删除应用目录资产；失败时保留当前背景并报错', async () => {
+    await selectBackgroundImage(pngFile())
+    await removeBackgroundPreference()
+    expect(deleteBackgroundMock).toHaveBeenCalled()
+    expect(document.documentElement.hasAttribute('data-custom-bg')).toBe(false)
+
+    await selectBackgroundImage(pngFile())
+    deleteBackgroundMock.mockRejectedValue(new Error('permission denied'))
+    await expect(removeBackgroundPreference()).rejects.toThrow('permission denied')
+    expect(document.documentElement.getAttribute('data-custom-bg')).toBe('true')
   })
 })
