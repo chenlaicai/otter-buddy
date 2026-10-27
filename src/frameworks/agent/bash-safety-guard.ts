@@ -2372,6 +2372,7 @@ function rewriteMainWriteBlockMsg(sessionCwd: string | undefined, verdict?: Retu
 }
 
  
+// eslint-disable-next-line max-statements -- 主仓写判定主流程：求值器路由 + 负门后置 + 拷贝族窄规则 + 段结构互补面，分支密度是路由本质（F20261027hpex 负门/窄规则插入后 27>25，拆分=两套路由）
 function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   const { command, logger, projectRoot, sessionCwd } = ctx;
   const depth = ctx.depth ?? 3;
@@ -2396,6 +2397,12 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
     //  只认正面证明放行——红线3）；fail-closed 归因映射在下方返回点（红线4 feed 口径）
     const feedReadOnly = interpreterFeedReadOnlyFlag(command);
     const verdict = evaluateWriteVerdict(command, projectRoot, sessionCwd ?? projectRoot, undefined, feedReadOnly);
+    // 负门后置兜底（只加拦不放行，cd/无 cd 同语义——裁决原则②）：求值器 ALLOW 后
+    // 兜 heredoc 体绝对路径/动态源写主仓（wrapper/管道段 heredoc 载荷不入求值的 Y 类
+    // 残余——求值器 payload 附件根治面立 B issue 继续）；体只读/无负门面 → null 继续。
+    // F20261027hpex（#1542）：负门移出 writeChannelSkip 门控，沙箱链（sg=true）同跑——
+    // 修前实证沙箱链 heredoc 载荷写主仓判定整体豁免（Y1/Y2/Y3/Y6 全 ALLOW，二分
+    // 65c252d2/10-22 即存在），V1 链同负门兜底、两链口径对齐；体只读/无负门面不受影响。
     if (verdict.verdict === "BLOCK") {
       logger?.warn("[bash-safety-guard] BLOCKED main-checkout write (write-verdict)", {
         command: command.substring(0, 200),
@@ -2409,11 +2416,17 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
         ? STDIN_INTERP_BLOCK_MSG
         : rewriteMainWriteBlockMsg(sessionCwd, verdict);
     }
-    // 负门后置兜底（只加拦不放行，cd/无 cd 同语义——裁决原则②）：求值器 ALLOW 后
-    // 兜 heredoc 体绝对路径/动态源写主仓（wrapper/管道段 heredoc 载荷不入求值的 Y 类
-    // 残余——求值器 payload 附件根治面立 B issue 继续）；体只读/无负门面 → null 继续。
-    const veto = heredocWriteVeto(command, logger, { projectRoot, sessionCwd });
-    if (veto) return veto;
+  }
+  const veto = heredocWriteVeto(command, logger, { projectRoot, sessionCwd });
+  if (veto) return veto;
+  // F20261027hpex（#1542）E1e：沙箱链窄规则——拷贝族（cp/mv/install/ln）目标落主仓判定接防。
+  // sg=false 链由 evaluateWriteVerdict argv 写面覆盖（F20261019wvcp 造-执对收编）；
+  // sg=true 链求值器退役后该面无接防（修前实证：cp $F <主仓>/x 端到端 ALLOW）。
+  // 面窄口径（2c 先例）：字面可见才判——目标不可静态求值（变量/相对且无 sessionCwd）
+  // 不拦；isInsideMainCheckout 基元自带 workspaces/worktrees/workforms 豁免区。
+  if (ctx.writeChannelSkip === "file-write") {
+    const cpHit = copyFamilyMainDestHit(command, projectRoot, sessionCwd, logger);
+    if (cpHit) return cpHit;
   }
   // 互补面后置：段首结构判定（包装词/子壳/管道——求值器无此基座，旧通道保留）。
   // 只读豁免保留（oneLinerPayloadReadOnly + wrappedOneLinerPayloadsReadOnly 双基座）——
@@ -2463,6 +2476,113 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   const stdinVeto = stdinShellFeederVeto(command, depth, { logger, projectRoot, sessionCwd, writeChannelSkip: ctx.writeChannelSkip });
   if (stdinVeto !== null) return stdinVeto;
   return null;
+}
+
+// ── F20261027hpex（#1542）：沙箱链 heredoc 载荷写主仓接防（Y 类）+ 拷贝族目标落主仓窄规则（E1e）──
+
+const GUARD_CP_BLOCK_MSG = "沙箱链下拷贝族（cp/mv/install/ln）目标落点解析到主仓（沙箱 deny file-write 退役了求值器 argv 写面判定，不豁免拷贝入主仓意图）。写入请用 worktree（.otter/worktrees/）或对话工作区（data/workspaces/）绝对路径；确需写主仓请呈搭档确认。";
+
+/** #1542 E1e：拷贝族目标落主仓判定（沙箱链窄规则）。面窄口径：
+ *  - 输入先 stripHeredocPayloads 剥体（r1 发现 2：数据体 heredoc 内的 cp 文本
+ *    不是命令，不得进切段面——#1304 数据体语义；python/node/shell 解释器体保持
+ *    可见，由体级判定承担，与剥体基座先例 checkPidIndependentRules 同款）；
+ *  - 命令按 ; && || | 切段，逐段 head 剥 wrapper（env/sudo/nohup/xargs）后判 cp/mv/install/ln；
+ *  - 词级 parseOnce 取 evaluated（基准对齐求值器 copyFamilyArgs：words 含头词，
+ *    位置词从索引 1 起算——r1 发现 1：头词占位会把主仓字面源误当 dest）；
+ *  - 目标词（-t/--target-directory 值或末位位置词）为字面绝对路径
+ *    → isInsideMainCheckout 判；相对路径需 sessionCwd 在场才 resolve（与求值器同基准）；
+ *  - 位置位消耗语义：非末位词不可求值也占位（视为已消耗的源位——`cp $F <主仓>/x`
+ *    的 $F 是源）；末位词不可求值则不判 dest（`cp <主仓>/pkg $D` 的 $D 是动态目标，
+ *    E1a 正道 cp $F /tmp/bak 与主仓源取证都继续放行）；
+ *  - 变量字面目标不判但可溯源：赋值链同段溯源到字面且落主仓（含 .git 子树——r1
+ *    发现 3：沙箱白名单放行 .git，物理接防兑底声明对该落点失实，必须接住）→ 拦。 */
+export function copyFamilyMainDestHit(command: string, projectRoot: string, sessionCwd: string | undefined, logger: Logger | undefined): string | null {
+  const COPY_HEADS = new Set(["cp", "mv", "install", "ln"]);
+  // r1 发现 3 补防：.git 落点专项——沙箱 profile 白名单 allow .git（worktree git 操作
+  // 需要），「变量目标沙箱物理接防兑底」对该落点失实；变量目标溯源到字面且落
+  // .git 子树 → 拦（面窄：仅溯源得到字面时判，不展开动态计算）。
+  // 赋值链取全命令模型（切段后段内无前段赋值——r1 处置调试发现），惰性解析：仅命中拷贝段才 parseOnce。
+  let tracedAssigns: Array<{ name: string; value: string | null }> | null = null;
+  const stripped = stripHeredocPayloads(command);
+  for (const seg of splitShellSegments(stripped)) {
+    const hit = copySegmentDestHit(seg, COPY_HEADS, projectRoot, sessionCwd);
+    if (hit !== null) {
+      logger?.warn("[bash-safety-guard] BLOCKED copy-family dest inside main checkout (sandbox narrow rule, #1542 E1e)", { seg: seg.substring(0, 120), dest: hit.dest, gitHook: hit.gitHook });
+      return rewriteMainWriteBlockMsg(sessionCwd) + ";" + GUARD_CP_BLOCK_MSG;
+    }
+    if (hit === null && tracedAssigns === null && /^\s*(?:[A-Za-z_]\w*=\S*\s+)*(?:cp|mv|install|ln)\b/.test(seg)) {
+      // 命中拷贝段但未拦截（末位动态目标）——解析全命令赋值链供溯源
+      tracedAssigns = parseOnce(stripped, 1).segments.flatMap(s => s.assignments);
+      if (copySegmentTracedGitHit(seg, COPY_HEADS, tracedAssigns, projectRoot)) {
+        logger?.warn("[bash-safety-guard] BLOCKED copy-family traced .git dest inside main checkout (sandbox narrow rule, #1542 r1-3)", { seg: seg.substring(0, 120) });
+        return rewriteMainWriteBlockMsg(sessionCwd) + ";" + GUARD_CP_BLOCK_MSG;
+      }
+    }
+  }
+  return null;
+}
+
+/** 单段拷贝族目标解析（copyFamilyMainDestHit 内层）：head 剥 wrapper 后判 cp/mv/install/ln，
+ *  目标词落主仓 → 返回命中信号；否则 null。目标语义与求值器 copyFamilyArgs
+ *  同源：-t/--target-directory 值为目标；否则末位位置词=dest（单位置词=无 dest 不判）。 */
+// eslint-disable-next-line max-statements -- 拷贝族目标词位穷举（-t 双形态/旗标/位置位消耗/末位动态），每分支对应一种已声明形态
+function copySegmentDestHit(seg: string, copyHeads: Set<string>, projectRoot: string, sessionCwd: string | undefined): { dest: string; gitHook: boolean } | null {
+  const head = parseSegmentHead(seg);
+  if (head === null || head.head === "") return null;
+  if (!copyHeads.has(head.head.toLowerCase())) return null;
+  const g = parseOnce(seg.slice(head.offset), 1);
+  const gseg = g.segments[0] ?? null;
+  if (gseg === null) return null;
+  // 位置词从索引 1 起算（words 含头词，对齐 copyFamilyArgs words.slice(1) 基准）。
+  // 非末位词不可求值也占位（源位消耗）；末位词不可求值则不判 dest（动态目标不判）。
+  const positionals: Array<string | null> = [];
+  let targetDir: string | null = null;
+  for (let i = 1; i < gseg.words.length; i++) {
+    const v = gseg.words[i].evaluated;
+    if (v === "-t" || v === "--target-directory") {
+      const nxt = gseg.words[i + 1]?.evaluated ?? null;
+      if (nxt !== null) targetDir = nxt;
+      i++; // -t 值词已消费，不进位置位
+      continue;
+    }
+    if (v !== null && v.startsWith("--target-directory=")) { targetDir = v.slice("--target-directory=".length); continue; }
+    if (v !== null && v.startsWith("-") && !/^-$/.test(v)) continue; // 旗标跳过（stdin 硬 '-' 除外——不是落点词）
+    positionals.push(v); // null=动态词，占位不判
+  }
+  // dest 语义：-t 值优先；否则末位位置词且可求值（末位动态=无 dest 不判）。
+  const lastWord = positionals.length > 0 ? positionals[positionals.length - 1] : null;
+  const dest = targetDir !== null ? targetDir
+    : lastWord !== null && lastWord !== undefined ? lastWord : null;
+  if (dest === null) return null;
+  if (dest === "-") return null;
+  const abs = dest.startsWith("/") ? dest
+    : sessionCwd !== undefined ? path.resolve(sessionCwd, dest) : null;
+  if (abs === null) return null;
+  return isInsideMainCheckout(abs, projectRoot) ? { dest, gitHook: false } : null;
+}
+
+/** r1 发现 3：末位动态目标的 .git 溯源接防（copySegmentDestHit 未拦截时的第二道）。
+ *  末位词为单变量引用（含尾部静态拼接）→ 全命令赋值链溯源到字面且落主仓 .git 子树
+ *  → 拦。面窄：仅单变量词形，溯源失败/多变量拼接不判（不展开动态计算）。 */
+function copySegmentTracedGitHit(seg: string, copyHeads: Set<string>, assigns: Array<{ name: string; value: string | null }>, projectRoot: string): boolean {
+  const head = parseSegmentHead(seg);
+  if (head === null || head.head === "") return false;
+  if (!copyHeads.has(head.head.toLowerCase())) return false;
+  const g = parseOnce(seg.slice(head.offset), 1);
+  const gseg = g.segments[0] ?? null;
+  if (gseg === null) return false;
+  const last = gseg.words[gseg.words.length - 1];
+  if (last === undefined || last.parts[0]?.type !== "var") return false;
+  if (!last.parts.slice(1).every(p => p.type === "lit" || p.type === "escape")) return false;
+  const varName = /^\$\{?([A-Za-z_]\w*)/.exec(last.parts[0].text)?.[1];
+  if (varName === undefined) return false;
+  const vals = assigns.filter(a => a.name === varName && a.value !== null && a.value !== "");
+  if (vals.length === 0) return false;
+  const tail = last.parts.slice(1).map(p => p.type === "escape" ? (p.text.length === 2 ? p.text[1]! : "") : p.text).join("");
+  const traced = vals[vals.length - 1].value! + tail;
+  if (!traced.startsWith("/")) return false; // 相对溯源值不在窄面
+  if (!traced.includes("/.git/") && !traced.endsWith("/.git")) return false;
+  return isInsideMainCheckout(traced, projectRoot); // 仅主仓 .git 子树（其他仓不在本 projectRoot 域）
 }
 
 // ── #1207（F20260930l573）：shell/node heredoc 体级判定（delta r1：白名单反转）──

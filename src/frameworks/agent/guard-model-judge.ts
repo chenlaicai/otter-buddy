@@ -17,7 +17,7 @@
  *   词样字面量、$VAR 传参（r1-S3 口径由模型层继承）
  * - 白名单外零变化（V1 234 用例锁定——精确表述，避免全量宣称）
  */
-/* eslint-disable max-statements, complexity, max-params, max-lines -- 判定层承载 V1 全量规则 + V2 白名单新拦 + r1 五项处置，450 行与规则密度本质冲突（max-depth 已随 F20261019syml cdSegmentStaticTarget 抽取退役） */
+/* eslint-disable max-statements, complexity, max-params -- 判定层承载 V1 全量规则 + V2 白名单新拦 + r1 五项处置，450 行与规则密度本质冲突（max-depth 已随 F20261019syml cdSegmentStaticTarget 抽取退役） */
 
 import type { Logger } from "@usecases/ports/logger";
 import type { CommandModel, Segment, Payload } from "./command-model";
@@ -657,89 +657,7 @@ export function modelParseOk(command: string): boolean {
 // 保留 loadAllowedServicePorts 引用（入口层热加载；本模块签名对齐 V1 调用链）
 export { loadAllowedServicePorts };
 
-// ────────────────────────────── cd 豁免（主仓写检测 #1170 根治） ──────────────────────────────
-
-/** 主仓写检测 v2（F20260928grv2）：模型版 cd 链。
- *  #1170 根因：hasRealCdSegment 对全命令检测管道/分号（`| tail` 纯输出截取杀豁免）。
- *  模型版：段级 cd 链——首段链（&& 链）上的 cd 生效；管道右段/分号新段不影响
- *  cd 豁免（管道右段在子进程、分号段继承 cwd——shell 语义）。
- *  cd 目标可静态求值且非主仓 → 豁免；目标含展开不可求值 → 不豁免（保守，与 V1
- *  「引号假 cd 不豁免」同向）。 */
-export function modelCdExemption(command: string, v1Fallback: (c: string) => boolean): boolean {
-  const model = parseOnce(command);
-  if (!model.parseOk) return v1Fallback(command); // 解析失败回 V1 判定（保守侧一致）
-  // 找首段链上的 cd：从段 0 开始沿 && 链前进，遇 cd 则解析目标；遇非 cd 命令段则停。
-  // 关键 shell 语义（V1 行为保持）：cd 段自己被 & 后台化或 | 管道化时，cd 只影响
-  // 子 shell——父 shell cwd 不变，后续段落主仓 → 不豁免。判定：cd 段的「下游
-  // joiner」（它到下一段的连接符）是 & 或 | 时不豁免。
-  let i = 0;
-  while (i < model.segments.length) {
-    const seg = model.segments[i];
-    // 跳过纯赋值段（W=/path; cd $W 的赋值段）——赋值段不改变 shell 状态
-    if (seg.words.length === 0 && seg.assignments.length > 0) {
-      // 赋值段与 cd 段的连接符：; 或 && 都不影响（赋值不建子 shell）——继续沿链
-      i++;
-      continue;
-    }
-    // 首段前的 joiner 必须是 ""/&&/;/\n（语句序）——管道右段/后台段不是首段链位置
-    if (seg.joiner === "|" || seg.joiner === "&" || seg.joiner === "|&") break;
-    const eff = effectiveCommandOfSegment(seg);
-    if (eff === "cd") {
-      // cd 段自身被后台化/管道化（它的下游连接符是 & 或 |）→ cd 只在子 shell 生效，不豁免
-      const nextJoiner = i + 1 < model.segments.length ? model.segments[i + 1].joiner : "";
-      if (nextJoiner === "&" || nextJoiner === "|") return false;
-      // cd 目标求值：静态词直接用；单变量引用 → 同命令赋值段溯源（F20260924gfpn #5：
-      // W=/repo; cd $W && git commit 的 $W 溯源到赋值）；多次赋值只认最后一次（#918）
-      const target = cdSegmentStaticTarget(seg, model);
-      if (target !== null) return true;
-      return false;
-    }
-    break; // 非 cd 命令段 → 无豁免
-  }
-  return false;
-}
-
-/** cd 段静态目标求值（F20261019syml 抽出共用）：静态词直接用；单变量引用 →
- *  同命令赋值段溯源（F20260924gfpn #5：W=/repo; cd $W 的 $W 溯源到赋值）；多次
- *  赋值只认最后一次（#918）；首 part 变量 + 尾部静态拼接溯源后拼接尾部。
- *  溯源后仍含展开（$/…）或非平凡目标（空/.）→ null（不可静态求值，保守不豁免）。 */
-function cdSegmentStaticTarget(seg: Segment, model: { segments: Segment[] }): string | null {
-  const targetWord = seg.words[1];
-  let target = targetWord?.evaluated ?? null;
-  if (target === null && targetWord && targetWord.parts[0]?.type === "var"
-      && targetWord.parts.slice(1).every(p => p.type === "lit" || p.type === "escape")) {
-    const varName = /^\$\{?([A-Za-z_]\w*)/.exec(targetWord.parts[0].text)?.[1];
-    if (varName) {
-      const assigns = model.segments.flatMap(s => s.assignments).filter(a => a.name === varName && a.value !== null && a.value !== "");
-      if (assigns.length > 0) {
-        const tail = targetWord.parts.slice(1).map(p => p.type === "escape" ? (p.text.length === 2 ? p.text[1] : "") : p.text).join("");
-        target = assigns[assigns.length - 1].value! + tail;
-      }
-    }
-  }
-  return target !== null && target !== "" && target !== "." && !/[$`]/.test(target) ? target : null;
-}
-
-/** 段的裸命令名（剥 wrapper），供 cd 链判定 */
-function effectiveCommandOfSegment(seg: Segment): string | null {
-  let words = seg.words;
-  let guard = 0;
-  while (words.length > 0 && guard++ < 8) {
-    const w0 = words[0].evaluated;
-    if (w0 !== null && WRAPPER_WORDS_FOR_WRITE.has(w0)) {
-      words = words.slice(1);
-      // #1207（F20260930l573）：参数连剥与 effectiveCommand 同步对齐 V1 语义
-      while (words.length > 0) {
-        const w1 = words[0].evaluated;
-        if (w1 === null || !(/^-/.test(w1) || /^\d+$/.test(w1) || /^[A-Za-z_]\w*=/.test(w1))) break;
-        words = words.slice(1);
-      }
-      continue;
-    }
-    break;
-  }
-  return words[0]?.evaluated ?? null;
-}
-
-/** 写检测的 wrapper 词表（与 guard-model-judge 同族，这里只列写检测关心的） */
-const WRAPPER_WORDS_FOR_WRITE = new Set(["sudo", "env", "nohup", "command", "nice", "watch", "exec", "time", "timeout"]);
+// F20261027hpex（#1542）：modelCdExemption 死导出清除——全仓零调用点（#1523 路由
+//  切换后 cd 链豁免由 write-target-evaluator evaluateCdTargets 承担，本函数及其
+//  私有辅助 cdSegmentStaticTarget/effectiveCommandOfSegment/WRAPPER_WORDS_FOR_WRITE
+//  仅存注释引用，整链删除；grep 锚点："modelCdExemption" 仅剩历史注释/特性文档）。
