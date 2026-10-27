@@ -55,7 +55,7 @@ const queryMessageStub = {
   getMessageById: async (id: string) => {
     // F20260904schf：行级出处语义下，链引擎从消息行读 yield 目标（生产事实：completeMessage 先落库 tsp）。
     // 测试意图升级：旧版用「自指 yield」制造死循环（恰是 #792 要杀的病态，自指守卫下已一轮终止），
-    // 改为真互传乒乓 otter-x ↔ otter-y——合法信号流仍需 maxChainDepth 截断保护。
+    // F20261026ctbg：改为一跳互传后自然收尾（合法信号流，无资源形态截断）。
     if (id === "m-otter-x") {
       return { id, conversationId: "conv-1", turnId: "turn-1", senderId: "otter-x", senderType: "otter", status: "completed", segments: [], sequenceNum: 2, talkingStonePassedTo: ["otter-y"], contextTokens: null, contextTokensMax: null, source: "web", senderName: "Otter X", createdAt: "", completedAt: "" };
     }
@@ -74,11 +74,11 @@ function postMessage(app: Hono) {
   });
 }
 
-describe("dispatchTurnLoop 深度上限", () => {
-  it("触顶时停止派发、warn 日志、sendSystem 并推 system.message", async () => {
+describe("dispatchTurnLoop 链调度（F20261026ctbg：资源形态不判死，链由行为护栏或自然结束收束）", () => {
+  it("合法互传链自然收尾：全部 hop 派发、无资源停止告警、不发系统消息", async () => {
     const { conversationRepo, systemBodies } = makeSendMessageUseCase();
     const { logger, warns } = makeLogger();
-    /** 发言石永远互传 → 死循环，必须由 maxChainDepth 截断 */
+    /** otter-x ↔ otter-y 互传一跳后收尾——合法协作信号流，第 2 跳显式结束 */
     let dispatchCount = 0;
     let receivedBatchMaxSeq: number | undefined;
     const agentInvoker = {
@@ -86,8 +86,9 @@ describe("dispatchTurnLoop 深度上限", () => {
         dispatchCount++;
         receivedBatchMaxSeq = batchMaxSeq;
         const invokeId = `inv-${otterId}-${dispatchCount}`;
-        (agentInvoker as unknown as { _invokeRows: Map<string, unknown> })._invokeRows.set(invokeId, { id: invokeId, status: "completed", otterId, talkingStonePassedTo: ["otter-x"], endedAt: new Date().toISOString() });
-        return { invokeId, messageId: invokeId, aggregatedTargets: ["otter-x"] };
+        const next = dispatchCount === 1 ? (otterId === "otter-x" ? ["otter-y"] : ["otter-x"]) : [];
+        (agentInvoker as unknown as { _invokeRows: Map<string, unknown> })._invokeRows.set(invokeId, { id: invokeId, status: "completed", otterId, talkingStonePassedTo: next, endedAt: new Date().toISOString() });
+        return { invokeId, messageId: invokeId, aggregatedTargets: next, tokenUsageDelta: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0 } };
       },
     } as unknown as AgentInvoker;
 
@@ -97,9 +98,11 @@ describe("dispatchTurnLoop 深度上限", () => {
       conversationRepo,
       queryOtter: queryOtterStub,
       logger: logger as never,
-      maxChainDepth: 2,
       invokeRepo: { getInvokeById: async (id: string) => invokeRows.get(id) ?? null },
       entryRepo: { getEntries: async () => [], getUnreadEntries: async () => [] },
+      // F20261014czgd：空批兜底依赖 idleStatsRepo.getMaxEntrySeq——stub 缺失会触发降级 warn，
+      // 污染本用例「不发 warn」断言；补 stub 走正常路径（空对话 max(seq)=0）。
+      idleStatsRepo: { getMaxEntrySeq: async () => 0, getLastSpeakBySender: async () => new Map(), getLastInvokeStartedAtByOtter: async () => new Map() },
     });
     (agentInvoker as { _invokeRows?: unknown })._invokeRows = invokeRows;
 
@@ -139,21 +142,14 @@ describe("dispatchTurnLoop 深度上限", () => {
     const res = await postMessage(createApp(ctrl));
     const sseText = await res.text();
 
-    /** depth=2：只派发 2 跳（x→y→x），第 3 跳被截断。深度截断验证改为合法互传乒乓后，
-     *  行动权触顶时还持有 yield 方（x）的目标 */
+    /** 两跳全部派发（x→y）后自然收尾：无资源形态停止、无停止系统消息 */
     expect(dispatchCount).toBe(2);
     // F20260922ctxi：dispatchTurnLoop 闭包必须透传 batchMaxSeq（修复前漏传 → pushCursorOnStartup
     // 拿不到批次游标永不推进 → 已注入的未读下轮重复注入；实测 retry 路径重复 ⏳✅ 两条系统条目）
     expect(receivedBatchMaxSeq).not.toBeUndefined();
-    // DispatchChainEngine 和 MessageController 都会记录 warn 日志
-    expect(warns.length).toBeGreaterThanOrEqual(1);
-    const depthWarn = warns.find(w => w.msg === "发言链达到深度上限，交还用户");
-    expect(depthWarn).toBeDefined();
-    expect(depthWarn!.data).toMatchObject({ depth: 2, pendingTargets: ["otter-x"] });
-    expect(systemBodies).toHaveLength(1);
-    expect(systemBodies[0]).toContain("2 跳");
-    // F20260913ctlv 彻底切换：链深通知发 entry.system（messages system.message 已退役）
-    expect(broadcastEventCalls.some(e => e.event === "entry.system")).toBe(true);
+    expect(warns).toHaveLength(0);
+    expect(systemBodies).toHaveLength(0);
+    expect(broadcastEventCalls.some(e => e.event === "entry.system")).toBe(false);
     expect(sseText).toContain("stream.end");
   });
 
@@ -164,7 +160,9 @@ describe("dispatchTurnLoop 深度上限", () => {
     const agentInvoker = {
       invokeConversation: async ({ otterId }: { otterId: string }) => {
         dispatchCount++;
-        return { messageId: `m-${otterId}`, aggregatedTargets: [] };
+        // F20261026ctbg：补真实形态的 token 计量 delta——无 delta 会被判 telemetry 缺口（仅观测告警，
+        //  但污染本用例「零 warn」断言；真实 invokeFn 总是返回 usage）
+        return { messageId: `m-${otterId}`, aggregatedTargets: [], tokenUsageDelta: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0 } };
       },
     } as unknown as AgentInvoker;
 
@@ -176,7 +174,7 @@ describe("dispatchTurnLoop 深度上限", () => {
       conversationRepo,
       queryOtter: queryOtterStub,
       logger: logger as never,
-      maxChainDepth: 2,
+
       invokeRepo: { getInvokeById: async () => ({ id: "inv-1", status: "completed", otterId: "otter-x", talkingStonePassedTo: [], endedAt: new Date().toISOString() }) },
       entryRepo: { getEntries: async () => [], getUnreadEntries: async () => [] },
       // F20261014czgd：空批兜底依赖 idleStatsRepo.getMaxEntrySeq——stub 缺失会触发降级 warn，
@@ -235,7 +233,7 @@ describe("dispatchTurnLoop 深度上限", () => {
       conversationRepo,
       queryOtter,
       logger: logger as never,
-      maxChainDepth: 2,
+
       invokeRepo: { getInvokeById: async () => ({ id: "inv-1", status: "completed", otterId: "otter-x", talkingStonePassedTo: [], endedAt: new Date().toISOString() }) },
       entryRepo: {
         getEntries: async () => [],

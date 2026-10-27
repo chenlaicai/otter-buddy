@@ -117,7 +117,6 @@ export interface AppConfig {
     slidingWindowSize: number;
     slidingWindowRepeat: number;
     maxRepeatAfterWarning: number;
-    maxChainDepth: number;
     outputGuard: {
       enabled: boolean;
       /** 退化检测器参数（F20260804dglp 双机制） */
@@ -298,7 +297,6 @@ interface RawConfig {
     slidingWindowSize?: number;
     slidingWindowRepeat?: number;
     maxRepeatAfterWarning?: number;
-    maxChainDepth?: number;
     outputGuard?: {
       enabled?: boolean;
       detector?: {
@@ -506,7 +504,6 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
     slidingWindowSize: d(raw.circuitBreaker?.slidingWindowSize, 6),
     slidingWindowRepeat: d(raw.circuitBreaker?.slidingWindowRepeat, 3),
     maxRepeatAfterWarning: d(raw.circuitBreaker?.maxRepeatAfterWarning, 5),
-    maxChainDepth: d(raw.circuitBreaker?.maxChainDepth, 100),
     outputGuard: buildOutputGuardConfig(raw),
     streamingTimeoutMs: d(raw.circuitBreaker?.streamingTimeoutMs, 120000),
     firstByteTimeoutMs: d(raw.circuitBreaker?.firstByteTimeoutMs, 300000),

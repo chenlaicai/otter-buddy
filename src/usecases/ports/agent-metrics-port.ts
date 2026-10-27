@@ -57,7 +57,9 @@ export interface AgentMetricsPort {
   recordCompaction(reason: string, aborted: boolean): void;
   recordSessionRebuild(): void;
   recordChainHops(count: number): void;
-  recordChainDepthExceeded(): void;
+  recordChainTokenUsage(tokens: number): void;
+  /** 每链最多一次：计量缺口只影响可观测性，不参与链停止。 */
+  recordChainTelemetryGap(): void;
   /** F20260821spcm: 旁白流失计数——LLM 输出了直出文本但未调 speak（按 otterId 分组） */
   recordNoYieldWithOrphanText(otterId: string): void;
   /** F20260903lngth：交接摘要合成结果计数（outcome=success|empty|truncated|error|timeout，封闭枚举） */

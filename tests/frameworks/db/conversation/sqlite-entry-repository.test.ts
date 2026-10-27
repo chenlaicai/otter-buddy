@@ -304,3 +304,88 @@ describe("SqliteEntryRepository - 附件投影（F20260913ctlv delta 回修：�
   });
 });
 
+
+describe("getSelfYieldDecisionEntries（#530 专用决定性记录查询，F20261026ctbg）", () => {
+  let db: Database.Database;
+  let repo: SqliteEntryRepository;
+  let invokeRepo: SqliteInvokeRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteEntryRepository(db);
+    invokeRepo = new SqliteInvokeRepository(db);
+    insertOtter(db, "otter-1");
+    insertOtter(db, "otter-2");
+    insertConversation(db, "conv-1");
+  });
+  afterEach(() => { db.close(); });
+
+  /** 生产形态 seed：yield 条目 senderId 恒 null（send-entry.ts 写入形态），归属走 invoke 行 */
+  async function seedYield(id: string, seq: number, invokeId: string, yieldTargets: string[], invokeOwner: string): Promise<void> {
+    await invokeRepo.createInvoke({
+      id: invokeId, conversationId: "conv-1", otterId: invokeOwner, status: "completed",
+      triggerEntryId: null, talkingStonePassedTo: null,
+      startedAt: "2026-09-10T00:01:00Z", endedAt: "2026-09-10T00:02:00Z",
+      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, ctxWindowUsed: null,
+      pid: null, metadata: null,
+    });
+    await repo.createEntry(entryFixture({
+      id, sequenceNum: seq, entryType: "yield", senderType: null, senderId: null,
+      body: "", invokeId, yieldTargets,
+    }));
+  }
+
+  it("生产形态（senderId=null，归属在 invoke 行）：自己 to≠self 的 yield 必须被返回（介入类①证据不能丢）", async () => {
+    // otter-1 自己 yield 给 otter-2（to≠self）——修复前 sender_id = ? 恒不命中会丢掉这行 → 计数虚高误 abort
+    await seedYield("ey-3", 3, "inv-3", ["otter-2"], "otter-1");
+    const result = await repo.getSelfYieldDecisionEntries("conv-1", "otter-1", "inv-current", 4);
+    expect(result.map(e => e.id)).toContain("ey-3");
+  });
+
+  it("自己 self-yield 的 yield 返回（计数证据）", async () => {
+    await seedYield("ey-1", 1, "inv-1", ["otter-1"], "otter-1");
+    await seedYield("ey-2", 2, "inv-2", ["otter-1"], "otter-1");
+    const result = await repo.getSelfYieldDecisionEntries("conv-1", "otter-1", "inv-current", 4);
+    expect(result.map(e => e.id)).toEqual(["ey-2", "ey-1"]);
+  });
+
+  it("外部 yield 指向该獭返回；不相关外部 yield 与透明条目（speak/invoke_end）不占窗口", async () => {
+    await seedYield("ey-ext-in", 1, "inv-a", ["otter-1"], "otter-2");   // 外部指向我 → 决定性
+    await seedYield("ey-ext-out", 2, "inv-b", ["otter-2"], "otter-2");  // 外部与我无关 → 透明
+    await repo.createEntry(entryFixture({ id: "sp-1", sequenceNum: 3, entryType: "speak", senderType: "otter", senderId: "otter-2", body: "hi", invokeId: null }));
+    const result = await repo.getSelfYieldDecisionEntries("conv-1", "otter-1", "inv-current", 4);
+    expect(result.map(e => e.id)).toEqual(["ey-ext-in"]);
+  });
+
+  it("当前 invoke 自己的条目被排除（边界：当前 invoke 已有 entry 时）", async () => {
+    await invokeRepo.createInvoke({
+      id: "inv-current", conversationId: "conv-1", otterId: "otter-1", status: "running",
+      triggerEntryId: null, talkingStonePassedTo: null,
+      startedAt: "2026-09-10T00:01:00Z", endedAt: null,
+      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, ctxWindowUsed: null,
+      pid: null, metadata: null,
+    });
+    await repo.createEntry(entryFixture({
+      id: "ey-cur", sequenceNum: 5, entryType: "yield", senderType: null, senderId: null,
+      body: "", invokeId: "inv-current", yieldTargets: ["otter-1"],
+    }));
+    await seedYield("ey-old", 4, "inv-old", ["otter-1"], "otter-1");
+    const result = await repo.getSelfYieldDecisionEntries("conv-1", "otter-1", "inv-current", 4);
+    expect(result.map(e => e.id)).toEqual(["ey-old"]);
+  });
+
+  it("超过 100 条透明条目后，4 条旧 self-yield 仍全部命中（窗口盲区修复的核心断言）", async () => {
+    for (let i = 0; i < 120; i++) {
+      await repo.createEntry(entryFixture({
+        id: `noise-${i}`, sequenceNum: 100 + i, entryType: i % 2 ? "speak" : "invoke_end",
+        senderType: "otter", senderId: "otter-2", body: "noise", invokeId: null,
+      }));
+    }
+    for (let i = 0; i < 4; i++) {
+      await seedYield(`ey-self-${i}`, 10 + i, `inv-s${i}`, ["otter-1"], "otter-1");
+    }
+    const result = await repo.getSelfYieldDecisionEntries("conv-1", "otter-1", "inv-current", 4);
+    expect(result).toHaveLength(4);
+    expect(result.every(e => e.id.startsWith("ey-self-"))).toBe(true);
+  });
+});

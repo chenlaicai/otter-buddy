@@ -110,7 +110,6 @@ function makeChainEngine(m: ReturnType<typeof makeMocks>, overrides?: { abort?: 
     conversationRepo: m.conversationRepo,
     queryOtter: m.queryOtter,
     logger: m.logger,
-    maxChainDepth: 10,
     abort: overrides?.abort ?? m.abort,
     healingRepo: overrides?.healingRepo ?? m.healingRepo,
     entryRepo: m.entryRepo,
@@ -119,6 +118,20 @@ function makeChainEngine(m: ReturnType<typeof makeMocks>, overrides?: { abort?: 
 }
 
 // ── Test suite ──
+
+/** F20261026ctbg：深度/资源硬停退役后，静态 mock 的自链不再被 maxChainDepth 兜底。
+ *  真实世界消息表逐 hop 增长，计数会爬升到 abort；静态 seed 冻结计数 → 无限续跑。
+ *  降级/重置类用例改为一跳自续后自然收尾：invoke 行首跳返回 self-tsp（护栏计数在首 hop 即被验证），
+ *  之后空 tsp 终链。计数爬升到 abort 的行为见梯度响应组（seed 逐次增长）。 */
+function selfTspOnceThenEnd(m: ReturnType<typeof makeMocks>): void {
+  let hops = 0;
+  (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+    hops++;
+    return hops <= 1
+      ? { id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" }
+      : { id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" };
+  });
+}
 
 // eslint-disable-next-line max-lines-per-function -- #530 护栏集成测试：各场景共享 beforeEach 和 mock 工厂，拆文件会重复 90% 样板
 describe("#530 self-yield guardrail", () => {
@@ -138,7 +151,7 @@ describe("#530 self-yield guardrail", () => {
         { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
+      selfTspOnceThenEnd(m);
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
@@ -177,7 +190,7 @@ describe("#530 self-yield guardrail", () => {
         { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
+      selfTspOnceThenEnd(m);
 
       const engine = makeChainEngine(m);
       await engine.executeChain({
@@ -208,20 +221,21 @@ describe("#530 self-yield guardrail", () => {
         { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
-
-      const engine = makeChainEngine(m);
-      await engine.executeChain({
-        conversationId: "conv-1",
-        userMessageContent: "hi",
-        senderId: "user",
-        initialTargets: ["otter-1"],
-        invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
+      selfTspOnceThenEnd(m);
+      // F20261026ctbg 审视修复③：恢复被掏空的用例体——必须真实跑链（静态 seed 3 条 previous
+      // + 首跳 self-tsp = totalCount 4），断言第 4 次只日志不 steer 不 abort 的静默边界
+      let calls = 0;
+      let steerSeen = false;
+      await makeChainEngine(m).executeChain({
+        conversationId: "conv-1", userMessageContent: "hi", senderId: "user", initialTargets: ["otter-1"],
+        invokeFn: async ({ userMessageContent }: { userMessageContent: string }) => {
+          calls++;
+          if (userMessageContent.includes("连续 3 次 self-yield")) steerSeen = true;
+          return { messageId: "m-new" };
+        },
       });
-
-      // steer 只在第 3 次触发（previous=2），第 4 次不重复 steer
-      expect(m.abort).not.toHaveBeenCalled();
-      expect(m.abort).not.toHaveBeenCalled();
+      expect(calls).toBe(2); // 首跳 self-tsp 续一跳后自然收尾；abort 会清空 nextTargets → calls 停在 1
+      expect(steerSeen).toBe(false); // totalCount=4：介于 steer@3 与 abort@5 之间，不 steer 不 abort
     });
   });
 
@@ -238,7 +252,7 @@ describe("#530 self-yield guardrail", () => {
         { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["other-otter"] },
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
+      selfTspOnceThenEnd(m);
 
       const engine = makeChainEngine(m);
       await engine.executeChain({
@@ -259,7 +273,7 @@ describe("#530 self-yield guardrail", () => {
         { id: "eu-2", sequenceNum: 2, entryType: "user", senderType: "user", senderId: "user", body: "", invokeId: null, yieldTargets: null },
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
+      selfTspOnceThenEnd(m);
 
       const engine = makeChainEngine(m);
       await engine.executeChain({
@@ -279,7 +293,7 @@ describe("#530 self-yield guardrail", () => {
         { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "other-otter", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
+      selfTspOnceThenEnd(m);
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
@@ -309,7 +323,7 @@ describe("#530 self-yield guardrail", () => {
         { id: "es-2", sequenceNum: 2, entryType: "system", senderType: "system", senderId: "system", body: "", invokeId: null, yieldTargets: null },
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
+      selfTspOnceThenEnd(m);
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
@@ -345,7 +359,7 @@ describe("#530 self-yield guardrail", () => {
         { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "other-otter", body: "", invokeId: "inv-e2", yieldTargets: ["someone-else"] },
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
+      selfTspOnceThenEnd(m);
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
@@ -382,7 +396,7 @@ describe("#530 self-yield guardrail", () => {
         { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
+      selfTspOnceThenEnd(m);
 
       const engine = makeChainEngine(m, { abort: undefined, healingRepo: undefined });
       await engine.executeChain({
@@ -403,7 +417,7 @@ describe("#530 self-yield guardrail", () => {
         { id: "ey-2", sequenceNum: 2, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e2", yieldTargets: ["otter-1"] },
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
+      selfTspOnceThenEnd(m);
 
       const engine = makeChainEngine(m, { healingRepo: undefined });
       await engine.executeChain({
@@ -420,7 +434,7 @@ describe("#530 self-yield guardrail", () => {
 
     it("getEntries 查询失败降级为 count=0（不阻断链路）", async () => {
       (m.entryRepo.getEntries as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db error"));
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" });
+      selfTspOnceThenEnd(m);
 
       const engine = makeChainEngine(m);
       await engine.executeChain({
@@ -438,11 +452,45 @@ describe("#530 self-yield guardrail", () => {
     });
   });
 
+  it("超过 100 条透明/不相关条目后，4 条旧 self-yield 仍使当前第 5 次触发 abort", async () => {
+    const noise = Array.from({ length: 120 }, (_, i) => ({
+      id: `noise-${i}`, sequenceNum: 10 + i, entryType: i % 2 ? "speak" : "invoke_end",
+      senderType: "otter", senderId: "other", senderName: "other", body: "noise",
+      invokeId: `noise-invoke-${i}`, yieldTargets: null,
+    }));
+    m.setSeededEntries([
+      ...noise,
+      ...Array.from({ length: 4 }, (_, i) => ({
+        id: `old-yield-${i}`, sequenceNum: 4 - i, entryType: "yield", senderType: "otter",
+        senderId: "otter-1", senderName: "otter-1", body: "", invokeId: `old-${i}`, yieldTargets: ["otter-1"],
+      })),
+    ]);
+    m.getInvokeById.mockImplementation(async (id: string) => id === "m-new"
+      ? { id, status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" }
+      : null);
+    let calls = 0;
+    await makeChainEngine(m).executeChain({
+      conversationId: "conv-1", userMessageContent: "hi", senderId: "user", initialTargets: ["otter-1"],
+      invokeFn: async () => { calls++; return { messageId: "m-new" }; },
+    });
+    expect(calls).toBe(1);
+    // #530 abort 链副作用断言：路由清空 nextTargets 终链（calls=1 即证）+ healing 事件落台账；
+    //  abort 目标身份不在此窥 mock 调用参数，由下方 getSelfYieldDecisionEntries 只取决定性记录的行为链保证
+    expect(m.healingRepo.create).toHaveBeenCalled();
+  });
+
   // ─── 非 self-yield 路径无影响 ───
 
   describe("非 self-yield 路径无影响", () => {
     it("正常 yield 给其他 otter 不触发护栏", async () => {
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "m-work", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["owner-otter"], endedAt: "2026-09-10T00:00:00Z" });
+      // F20261026ctbg：深度硬停退役——静态 owner-tsp 会无限派发 owner-otter；首跳验证「正常 yield 不触发护栏」后收尾
+      let hops = 0;
+      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        hops++;
+        return hops <= 1
+          ? { id: "m-work", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["owner-otter"], endedAt: "2026-09-10T00:00:00Z" }
+          : { id: "m-work", status: "completed", otterId: "otter-1", talkingStonePassedTo: [], endedAt: "2026-09-10T00:00:00Z" };
+      });
 
       const engine = makeChainEngine(m);
       const invoked: string[] = [];
@@ -486,9 +534,7 @@ describe("#530 self-yield guardrail", () => {
       m.setSeededEntries([
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-1", yieldTargets: ["otter-1"] },
       ]);
-      (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue(
-        { id: "inv-new", status: "completed", otterId: "otter-1", talkingStonePassedTo: ["otter-1"], endedAt: "2026-09-10T00:00:00Z" }
-      );
+      selfTspOnceThenEnd(m);
 
       const engine = makeChainEngine(m);
       await engine.executeChain({

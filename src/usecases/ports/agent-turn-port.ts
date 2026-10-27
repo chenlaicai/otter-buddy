@@ -12,6 +12,7 @@ import type { SSEEvent } from "@contract/sse/events";
 /** Agent 发言轮结果（F20260913ctlv 彻底切换：invokeId 主体；messageId 为兼容别名=invokeId） */
 export interface AgentTurnResult {
   invokeId: string;
+  tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   messageId: string;
   duration: number;
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
