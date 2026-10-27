@@ -7,10 +7,10 @@ budget_bytes: 10750
 
 > `<主仓>`=獭主仓绝对路径。
 ## 必须检查的数据源（先跑完再分析）
-**sqlite3 前置**：直查前 `curl -s http://localhost:3000/api/settings` 确认 dbPath（data/ 可能残留废弃库）；关键数字双源验证，单源标「未交叉验证」。
+**sqlite3 直查前置纪律**：直查前 `curl -s http://localhost:3000/api/settings` 确认 dbPath（data/ 可能残留废弃库）；关键数字双源验证，单源标「未交叉验证」。
 
 1. **对话历史**：跨对话 search_memory + get_related（按范围约束过滤归属）
-2. **GitHub**：`gh issue list` / `gh pr list --state all --limit 50`，筛昨日创建/更新/合入
+2. **GitHub issues / PRs**：`gh issue list` / `gh pr list --state all --limit 50`，筛昨日创建/更新/合入
 3. **self-healing events**：`manage_healing_events(action: query)`。**二维分账**：errorType 按「环境/系统失败」vs「獭能力失败」分列（口径 `src/entities/healing/healing-event.ts`）
 4. **memory**：`search_memory`（created_after 昨日）——跨会话脉络、未闭环任务
 5. **RHI 健康信号**：`curl http://localhost:<port>/api/health/overview` 与 `/api/health/signals`——critical 优先
