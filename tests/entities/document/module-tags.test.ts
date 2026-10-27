@@ -25,7 +25,7 @@ function extractHookList(varName: string): string[] {
 }
 
 function extractCiRecommended(): string[] {
-  const ciSrc = fs.readFileSync(path.join(repoRoot, "scripts/check-pr-title.mjs"), "utf-8");
+  const ciSrc = fs.readFileSync(path.join(repoRoot, "scripts/check-pr-title.cjs"), "utf-8");
   const line = ciSrc.split("\n").find((l) => l.includes("推荐 ") && l.includes("清单外开放"));
   const m = line?.match(/推荐 ([a-z/]+)；清单外开放/);
   if (!m) throw new Error("CI 标题检查脚本中未找到推荐词清单");
@@ -33,7 +33,7 @@ function extractCiRecommended(): string[] {
 }
 
 function extractCiBanned(): string[] {
-  const ciSrc = fs.readFileSync(path.join(repoRoot, "scripts/check-pr-title.mjs"), "utf-8");
+  const ciSrc = fs.readFileSync(path.join(repoRoot, "scripts/check-pr-title.cjs"), "utf-8");
   const line = ciSrc.split("\n").find((l) => l.includes("禁用") && l.includes("清单外开放"));
   const m = line?.match(/([a-z/]+) 禁用/);
   if (!m) throw new Error("CI 标题检查脚本中未找到黑名单清单");

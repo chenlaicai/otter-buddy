@@ -43,7 +43,7 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     // Node CLI scripts: need node globals (process, console, __dirname)
-    files: ["scripts/**/*.mjs"],
+    files: ["scripts/**/*.mjs", "scripts/**/*.cjs"],
     languageOptions: {
       globals: {
         process: "readonly",

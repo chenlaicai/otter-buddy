@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
  * PR 标题 FID 形态检查（F20261027-fidr）。
- * 与 fid-format.ts 严格 acceptance 同口径；由 tests/entities/document/fid-format.test.ts
- * 字符级锁镜像，CI 只调用本脚本，不再在 YAML 内嵌第四套正则。
+ * 此步骤在 CI build 前运行，故必须零依赖/零编译产物；CommonJS 兼容仓库默认 CJS。
+ * FID_STRICT_SEGMENT 由元测试与 fid-format.ts 的 FID_SUFFIX_SEGMENT 字符级锁镜像。
  */
-import { FID_SUFFIX_SEGMENT } from "../dist/src/entities/document/fid-format.js";
+const FID_STRICT_SEGMENT = String.raw`(?:[a-z][a-z0-9]{3,9}|-[a-z0-9]{4,10})`;
 
 const title = process.argv.slice(2).join(" ");
-const pattern = new RegExp(`^\\[[FR]\\d{8}${FID_SUFFIX_SEGMENT}\\]\\[[a-z]+\\]`);
+const pattern = new RegExp(`^\\[[FR]\\d{8}${FID_STRICT_SEGMENT}\\]\\[[a-z]+\\]`);
 
 if (!pattern.test(title)) {
   console.error("❌ PR 标题格式错误");

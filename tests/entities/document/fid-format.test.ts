@@ -62,12 +62,13 @@ describe("真相源锁死元测试（hook/CI 人工镜像漂移）", () => {
     expect(m![1]).toBe(expected);
   });
 
-  it("CI 调用可单测的标题脚本，不再留 YAML 内联正则镜像", () => {
+  it("CI 调用可单测的零构建依赖标题脚本，严格段与真相源锁镜像", () => {
     const ci = fs.readFileSync(path.join(repoRoot, ".github/workflows/ci.yml"), "utf-8");
-    expect(ci).toContain('node scripts/check-pr-title.mjs "$PR_TITLE"');
-    const checker = fs.readFileSync(path.join(repoRoot, "scripts/check-pr-title.mjs"), "utf-8");
-    expect(checker).toContain('\\d{8}${FID_SUFFIX_SEGMENT}');
-    expect(checker).toContain('from "../dist/src/entities/document/fid-format.js"');
+    expect(ci).toContain('node scripts/check-pr-title.cjs "$PR_TITLE"');
+    const checker = fs.readFileSync(path.join(repoRoot, "scripts/check-pr-title.cjs"), "utf-8");
+    expect(checker).toContain('String.raw`(?:[a-z][a-z0-9]{3,9}|-[a-z0-9]{4,10})`');
+    expect(checker).toContain('\\d{8}${FID_STRICT_SEGMENT}');
+    expect(checker).not.toContain("../dist/");
   });
 
   it("hook 源码不再出现旧 10 位数字或下限正则", () => {

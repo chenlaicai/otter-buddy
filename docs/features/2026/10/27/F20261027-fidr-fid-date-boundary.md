@@ -225,7 +225,7 @@ T5：规则仍由 `fid-format.ts` 单一真相源承载，hook/CI 镜像有元�
 
 - `fid-format.ts` 拆为 acceptance/read 双契约；`isValidFid` 严格新写，memory FTS 使用 `FID_READ_ANCHOR_REGEX`，历史 5 个数字直连 ID 仅入 validator 白名单。
 - commit-parser/pr-collector/disk-scanner 使用 read 契约；disk frontmatter 损坏的 dash 候选 ID 增加人工核对 warning，不静默当成已验证链。
-- `check-pr-title.mjs` 从编译后真相源取严格段，CI 不再维护 YAML 内联 FID 正则；commit-msg 实跑正反例，模块词表元测试同步指向该脚本。
+- `check-pr-title.cjs` 在 CI build 前以零依赖 CommonJS 运行；元测试将其严格段与真相源字符级锁镜像，CI 不再维护 YAML 内联 FID 正则；commit-msg 实跑正反例，模块词表元测试同步指向该脚本。
 - search-memory 查询锚点支持可选 dash 和 4–10 位后缀；sqlite insert/update 与 migration FTS 重建保留新旧 ID。
 - 文档扫描 913 篇 OK（含 5 个数字直连历史 ID + mmr）；无历史文档改名或 DB 迁移。
 
@@ -235,7 +235,7 @@ T5：规则仍由 `fid-format.ts` 单一真相源承载，hook/CI 镜像有元�
 - 全量 `npm test`：448 files / 7139 passed / 6 skipped。
 - `npm run test:capability`：16 files / 16 passed / 41 skipped（未配置 LLM 端点的既有跳过，不记为真实 LLM 验证）。
 - `npm run check`、ESLint、schema、启动冒烟、docs/intent/tests/evidence-anchors/skills/date-bombs lint 通过；既有 warning 未扩张为通过断言。
-- `check-pr-title.mjs` 实跑：`F20261027-fidr` / `F20261027fidr` 接受，`F2026102759c4` 拒绝；commit-msg 正反例由 `tests/githooks/commit-msg-fid.test.ts` 覆盖。
+- `check-pr-title.cjs` 实跑：`F20261027-fidr` / `F20261027fidr` 接受，`F2026102759c4` 拒绝；commit-msg 正反例由 `tests/githooks/commit-msg-fid.test.ts` 覆盖。首轮远端 CI 暴露标题步骤先于 build、不能依赖 dist 后改为零依赖 CJS 并重验。
 
 ## 审视处置
 

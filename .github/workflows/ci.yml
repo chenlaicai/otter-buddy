@@ -25,7 +25,7 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          node scripts/check-pr-title.mjs "$PR_TITLE"
+          node scripts/check-pr-title.cjs "$PR_TITLE"
 
       # F20260825dva2: 特性 ID 日期校验——复用 scripts/validate-commit-date.mjs 单一实现
       # F20260914prdb: 基准时间双基准任一通过——PR 创建时间（创建日 ID 合法）与
