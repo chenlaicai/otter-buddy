@@ -74,7 +74,7 @@ PR #1523 / commit `4d9e7643`（F20261019gses）的 S1 处置删除「cd 命中�
 
 ### B4：当前能防危险形态，但不夸大永久根因
 
-当前 B4 文档形态通过 `fail-closed / script-path-dynamic` 被拦：动态脚本路径不能进入词面证豁免（`src/frameworks/agent/write-target-evaluator.ts:674-676`、`src/frameworks/agent/write-verdict.ts:25-28`）。本 PR 真实断言这一当前契约，不硬编 `positive` 主仓 target，也不宣称历史缺口已由某一次 B4 专用修复永久解决。
+当前 B4 文档形态通过 `fail-closed / script-path-dynamic` 被拦：动态脚本路径不能进入词面证豁免（类型语义见 `src/frameworks/agent/write-target-evaluator.ts:76`，动态路径返回该 reason 见同文件 `:2461`；unevaluated 到 fail-closed 三键结果的映射见 `src/frameworks/agent/write-verdict.ts:23`）。本 PR 真实断言这一当前契约，不硬编 `positive` 主仓 target，也不宣称历史缺口已由某一次 B4 专用修复永久解决。
 
 反引号探针是同族补充，只证明当前同一危险展开面；它不是原脚本事实。
 
@@ -128,3 +128,14 @@ PR #1523 / commit `4d9e7643`（F20261019gses）的 S1 处置删除「cd 命中�
 - 本 PR 无生产代码缺口，故不存在修复前红、修复后绿；新增测试在改动生产代码为零的基线上 10/10 通过，是防未来回归的锁，不是已修漏洞的证明。
 - 不含 prompt/skill/tool manifest 改动，无新系统能力，无需 capability test。
 - 实现者不自审、不组织最终异体审视；PR 与证据交回大獭编排异模型对抗审视。
+
+## 审视处置
+
+### r1（2026-10-27，检视-1664；0 严重、2 建议）
+
+| 发现 | 更好/更差判断 | 处置与证据 |
+|---|---|---|
+| 文档 B4 段两处源码指针不符语义 | **接受并修复，改了更好**：证据链指针必须直达对应语义；检视指出的 `write-target-evaluator.ts:674-676` 实为 git 双入账注释，`write-verdict.ts:25-28` 实为 positive 返回 | 重读当前 head 后改为 evaluator `:76`（类型语义）与 `:2461`（动态路径返回 reason）、verdict `:23`（fail-closed 映射）；不机械照抄单一替代位置 |
+| 相邻 heredoc 测试仍只写「另开 issue 跟踪」的历史指向 | **接受并修复，改了更好**：历史原文可保留，但补当前证据可避免把已锁形态误读成未处理放行洞 | `tests/frameworks/agent/bash-guard-heredoc-body-strip.test.ts` 保留 10/8 历史原文，追加 2026-10-27 / `F2026102759c4` 对 B2 与 B4 文档形态的 BLOCK 回归证据及 #1350 指向 |
+
+两条均为文档/注释精度修正，不改变守卫行为与既有测试断言；无新增 issue、无裁决分歧。修复提交后交原检视獭做 delta 复核，本段不在 delta 确认前预写「通过」。
