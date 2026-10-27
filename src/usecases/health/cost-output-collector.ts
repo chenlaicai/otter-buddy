@@ -447,7 +447,9 @@ async function countToolCallsInFile(
     const msg = obj as unknown as SessionMessageLine;
     if (msg.message.role !== "assistant") continue;
 
-    const date = msg.timestamp.slice(0, 10);
+    // F20261027hwl1 复审 A4：工具调用计数日界同步 Asia/Shanghai（与 consumeLine 的 token 记录同轨，
+    // 消灭同采集器内 UTC/Shanghai 口径分裂——北京时间 0-8 点窗口同一调用曾落到不同日期）
+    const date = shanghaiDateKey(msg.timestamp);
     if (sinceDate && date < sinceDate) continue;
 
     const tcCount = countToolCalls(msg.message.content);

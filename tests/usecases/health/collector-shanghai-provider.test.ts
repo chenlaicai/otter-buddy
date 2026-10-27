@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { createTestDb } from "../../helpers/db";
-import { collectLlmCalls } from "@usecases/health/cost-output-collector";
+import { collectLlmCalls, collectToolCallCounts } from "@usecases/health/cost-output-collector";
 
 let db: Database.Database;
 let sessionsDir: string;
@@ -45,5 +45,21 @@ describe("collectLlmCalls 日界与 provider", () => {
     expect(day27).toBeDefined();
     expect(day28!.provider).toBe("zhipu");
     expect(day27!.inputTokens).toBe(200);
+  });
+});
+
+describe("A4 回归：工具调用计数 Shanghai 日界（与 token 记录同轨）", () => {
+  it("UTC 16:00 后的 toolCall 归 Shanghai 次日（不再 UTC 裸 slice）", async () => {
+    writeFileSync(join(sessionsDir, "2026-10-01T00-00-00-000Z_sess2.jsonl"), [
+      JSON.stringify({ type: "session", version: 3, id: "s2", timestamp: "2026-10-01T00:00:00.000Z", cwd: "/tmp" }),
+      // UTC 10-27T17:30Z → Shanghai 10-28（旧 UTC slice 归 10-27——口径分裂现场）
+      JSON.stringify({ type: "message", id: "tc1", timestamp: "2026-10-27T17:30:00.000Z", message: { role: "assistant", model: "glm-5.3", stopReason: "stop", content: [{ type: "toolCall", id: "tc", name: "speak", arguments: "{}" }] } }),
+      // UTC 10-27T07:00Z → Shanghai 10-27
+      JSON.stringify({ type: "message", id: "tc2", timestamp: "2026-10-27T07:00:00.000Z", message: { role: "assistant", model: "glm-5.3", stopReason: "stop", content: [{ type: "toolCall", id: "tc", name: "speak", arguments: "{}" }] } }),
+    ].join("\n"), "utf-8");
+
+    const counts = await collectToolCallCounts(sessionsDir, () => Promise.resolve([]), { since: "2026-10-01" });
+    expect(counts.get("2026-10-28")).toBeDefined();
+    expect(counts.get("2026-10-27")).toBeDefined();
   });
 });

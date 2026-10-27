@@ -805,6 +805,12 @@ export interface WorkDetailDTO {
     tokens: WorkTokenSummaryDTO
     hasUsage: boolean
   }>
+  /** 复审 A5：证据截断数（超 evidenceLimit 未显示的条数；0 = 无截断） */
+  truncatedCount: number
+  /** 复审 S1：全部 invoke 数（与列表口径同源） */
+  totalInvokeCount: number
+  /** 复审 A5：per-work usage 缺口数（四分量全 null——与真实零区分） */
+  usageGapCount: number
   pricingAvailable: boolean
 }
 

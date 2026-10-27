@@ -55,9 +55,9 @@ intent:
 新增独立工作投影，不复用/放宽 matters 的准入白名单：
 
 - `work_items`：id、title、origin_kind（feature / matter / manual / inferred-historical）、origin_id、status（active / delivered / merged / closed / cancelled）、created_at、closed_at、evidence_quality（tracked / historical-partial）。不把 inferred-historical 当精确账。
-- `work_item_invokes`：work_id、invoke_id、trace_id、attribution（explicit / trace-inherited / historical-partial）、created_at；invoke 至多一个当前明确归属，纠错需要留来源，禁止同一调用双计。
-- `work_item_review_rounds`：work_id、reviewer_otter_id、round_no、started_invoke_id、delta_invoke_id、state（reviewing / awaiting-fix / delta-review / passed / open-unknown）、timestamps。只有结构化生命周期才记轮次，未知显示「未记录」而非 0。
-- `conversation_active_work`（可选但推荐）：conversation_id、work_id、来源与更新时间。仅作显式 resume 的锚点，不能让任意新 user 消息自动继承旧工作。
+- `work_item_invokes`：~~work_id、invoke_id、trace_id、attribution（explicit / trace-inherited / historical-partial）、created_at~~ **复审 S2 取舍（已拍板改实现）**：invoke 级归属不落独立表，改为 **trace 派生 JOIN**（`work_item_traces.trace_id ↔ invokes.metadata.traceId`，SQL JSON_EXTRACT）——归属是派生关系不是写时冗余，避免双写漂移且 invokes 原始行永不被账本改写。代价：原设计的 attribution 三态列（纠错留来源）**未实现**——纠错语义由 bound_via（track_work / artifact_group / matter_origin / historical_trace）承载到「trace 如何被绑定」粒度，不支持「单次调用改归另一工作且留来源」；需要时可解绑 trace 重绑（新建绑定行留新来源），不留双归属历史。「invoke 至多一个当前明确归属」不变（一个 trace 同时只绑定一个 work，派生即唯一）。
+- `work_item_review_rounds`：~~独立表~~ **复审 S2 取舍（已拍板改实现）**：轮次作为 `work_items.review_rounds` JSON 列存储（round_no 为键 upsert）——轮次是工作的附属生命周期，查询永远随工作取出，无跨表 join 需求；结构化语义不变（只有 track_work review_round 动作写入，含 invoke 证据，未知显示「未记录」而非 0）。**复审 A1 补强**：reviewerOtterId 与调用者身份（ctx.otterId 系统注入）强制一致，不一致拒写——作者獭不能替检视獭记轮次。
+- `conversation_active_work`（可选但推荐）：conversation_id、work_id、来源与更新时间。仅作显式 resume 的锚点，不能让任意新 user 消息自动继承旧工作。**复审 A3 边界声明**：锚点无自动消费方（不用于系统侧新话题判定）——「新话题误 resume」无系统语义防线，靠工具 description 的 LLM 行为约束 + B 类负例采样（见验证），残余风险已登记 Known Limitations。
 
 `invokes` 保留真实调用与四分量 usage；metadata 增 traceId、model/provider（能可靠取得时），工作归属不塞进自由 JSON 代替关系表。新表 initSchema 与 migration 必须同步；迁移测试覆盖数据、DDL 结构、功能探针。
 
@@ -65,7 +65,7 @@ intent:
 
 - 在 DispatchChainEngine 已有 trace scope 内，把 triggerMessageId 沿 InvokeFn 传入 invoke；invokes.metadata 记录 traceId 与 trigger entry。子獭/检视獭沿同一链继承 traceId，不靠 conversation 聚合。
 - 新工作用明确的 `track_work` 端口/工具开始与续接：`start` 需要独立目标 title，创建 work；`resume` 需要已有 workId，用于新 user turn 续接；`complete/cancel` 只记工作投影状态，不越权闭合 matter。工具上下文注入 current trace/invoke；绑定当前整条 trace，失败不阻断业务 invoke，但暴露 telemetry gap。
-- 每次新的用户点火链默认不继承旧工作，避免持续对话新主题被误记；明确 resume 或 feature/matter 证据才绑定。链内 hop 自动继承。创建 feature 资源（groupId）、登记/迁移 matter 时建立/续接对应工作，并保留当前 trace。
+- 每次新的用户点火链默认不继承旧工作，避免持续对话新主题被误记；明确 resume 或 feature/matter 证据才绑定。链内 hop 自动继承。~~创建 feature 资源（groupId）、登记/迁移 matter 时建立/续接对应工作，并保留当前 trace。~~ **复审 A6 取舍**：feature/matter 证据自动续接（bindByOrigin）**本期未接线**——方法已删（避免机制幻影），自动续接待后续独立需求验证后另行实现；本期归属只有 track_work start/resume 两条显式路径。
 - `code-implementation` / `requirement-analysis` / `troubleshooting` 等多轮任务如增加工具使用纪律，必须先写 B 类 capability 场景验证「新目标 start、追问/继续 resume、子任务不另起工作」，再改 prompt；若本 PR 不做此软代码变更，UI/文档必须声明自动精确覆盖仅限已绑定链，不得宣称所有工作均已覆盖。
 - 历史只读归集：feature groupId 资源 / matter origin entry / 已有 trace 可关联；其余进未归属。历史部分标 historical-partial，不能按时间相近或标题相似自动并账。
 - 总量守恒：所有真实调用 = 已归属工作 + 共享/系统 + 未归属；缺失 usage 的调用数另列，不当作零。
@@ -149,3 +149,16 @@ intent:
 - **真实环境验证（alpha :3110，生产 DB 副本 2.7GB + 生产 sessions 2895 文件）**：① 存量库迁移幂等补建三表验证通过（既有 7855 invokes 完好）；② 真实消息流 track_work 端到端：大獭调 start → work 落库 + trace t_e494c83bd18f 绑定 + 同 trace invoke 自动归属（57417 tok 四分量）；③ cost_output 换轨：旧 unknown-provider 行全清、新行真实 provider 11 桶（glm/glm-5.3 日 383M cache 97% 等，日窗口合计 1.12B token）；④ Chromium 1440：works 深链直达、无横溢出、dialog 居中（x=360 w=720 vw=1440）、Esc/遮罩/× 三路关闭、焦点返回触发行；⑤ 375：dialog fits viewport（345≤375），body 横溢出为整站既有（globals.css body min-width:1024px，overview/cost tab 实测同样溢出，对照后留档未夹带修改）；⑥ 空态文案（未记录轮次/未配置单价）真实 DOM 验证。证据：对话工作区 `alpha-evidence/`（8 截图 + 脚本 + ALPHA-VERIFICATION.md）。
 - **已知边界（诚实声明）**：① 旧 invokes 无 traceId（链改造前）→ 未归属 4999 次如实呈现，覆盖率仅计已绑定链，不伪装完整；② /api/health/scan 在 alpha 数据根（非 git repo）500 为 alpha 环境限制（生产 rootDir=真仓不受影响，本次以 git init 种子仓验证通过）；③ 金额本期零价格配置，pricingAvailable=false，UI 显示「未配置参考价」；④ 375 横溢出为整站既有设计，需整站级布局决策（L2），不在本 PR 范围。
 - **自动精确覆盖声明（按设计面拍板要求）**：本 PR 未改 SYSTEM.md/skills 的调用纪律，自动精确归属仅限已绑定链（track_work start/resume + feature/matter origin 续接）；其余调用进未归属桶并显示覆盖率。track_work 工具 description 的 B 类能力测试已按规则补齐（97f6646e）。
+
+## 复审处置记录（2026-10-27 22:30，账本检视獭初轮报告 → 全部处置）
+
+| 发现 | 处置 | 锚点 |
+|---|---|---|
+| S1 截断偏置 | 已修：报告聚合改 SQL 内全量 GROUP BY（aggregateAttributionCounts），详情按 work SQL 过滤（listInvokesByWork/countInvokesByWork），token 汇总无 LIMIT；证据列表截断显式 truncatedCount。回归：5300 条归属 + 6000 条填充下老工作 token 不丢、列表=详情、守恒式成立 | sqlite-work-ledger-repository.ts aggregateAttributionCounts；tests/usecases/health/work-ledger-review-fixes.test.ts |
+| S2 文档/实现分叉 | 已修：大獭拍板接受 trace 派生 + JSON 轮次简化；文档「核心数据结构」节改写为实际结构 + 放弃 attribution 三态列的理由与限制（纠错语义由 bound_via 承载到绑定粒度） | 本文档「核心数据结构」节（划线取舍标注） |
+| A1 reviewer 自报 | 已修：reviewerOtterId 与 ctx.otterId 强制一致，不一致拒写（工具 description 同步更新 BOUNDARY 声明）；测试覆盖冒充拒写 + 本人通过 | work-ledger-tools.ts validateReviewRoundInput；review-fixes.test.ts A1 节 |
+| A2 cache 率分母无说明 | 已修：ModelEfficiencyPanel 窗口说明行注明分母 = input+cacheRead（输入侧两分量）且与右栏水位（四分量全和）口径不同 | web/src/pages/health/ModelEfficiencyPanel.tsx |
+| A3 误 resume 无防线 | 已修：B 类负例采样加入 capability 测试（新话题明确指令下 resume 旧工作 → 采样要求不误续接）；文档 Known Limitations 声明无系统语义判定残余风险 | tests/capability/work-ledger/track-work.capability.test.ts ③ |
+| A4 toolCall 日界分裂 | 已修：countToolCallsInFile 改 shanghaiDateKey（与 consumeLine 同轨）；跨日界测试（UTC 17:30 → Shanghai 次日） | cost-output-collector.ts；collector-shanghai-provider.test.ts A4 节 |
+| A5 详情截断/缺口不显式 | 已修：DTO 补 truncatedCount/totalInvokeCount/usageGapCount，UI 显示「还有 N 条未显示 + token 汇总已含全部」与「N 次 usage 缺失」 | work-detail-report.ts；WorkDetailDialog.tsx；review-fixes.test.ts A5 节 |
+| A6 bindByOrigin 死代码 | 已修：删除方法；文档归属规则节标注 feature/matter 自动续接本期未接线 | work-ledger-binder.ts（方法已删）；本文档「归属规则」节 |

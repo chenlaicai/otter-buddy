@@ -104,4 +104,62 @@ describe("track_work：新目标登记 + 不滥用边界（真系统 + 真 LLM�
     },
     1_200_000,
   );
+
+  it(
+    "③ 新话题明确指令 → 不误 resume 旧工作（复审 A3 负例：旧工作不吸新主题消耗）",
+    async (t) => {
+      if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
+
+      await expectSampledBehavior("track-work-no-misresume", 3, 2, async (i) => {
+        const convId = await createConversation(ctx, `误resume采样${i + 1}`);
+
+        // 第一轮：登记一件工作（真实 start 链路）
+        await sendUserMessage(
+          ctx,
+          convId,
+          "我要开始一件独立工作：给 README 加安装说明（独立目标）。请用 track_work 登记后一句话告诉我工作 ID，不要做其他事。",
+        );
+        let first;
+        try {
+          first = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+          await waitForInvokeSettled(ctx, convId, first.si, { timeoutMs: 60_000 });
+        } catch {
+          return { ok: false, detail: "大獭未在超时内应答（第一轮）" };
+        }
+        const worksAfterRound1 = ctx.built.db.prepare(
+          "SELECT id FROM work_items WHERE conversation_id = ?",
+        ).all(convId) as Array<{ id: string }>;
+        if (worksAfterRound1.length === 0) {
+          return { ok: false, detail: "第一轮未登记——前置失败（另见用例①）" };
+        }
+        const workId = worksAfterRound1[0].id;
+        const tracesBefore = ctx.built.db.prepare(
+          "SELECT COUNT(*) AS c FROM work_item_traces WHERE work_id = ?",
+        ).get(workId) as { c: number };
+
+        // 第二轮：明确新话题（与前工作无关），看獭是否误 resume
+        await sendUserMessage(
+          ctx,
+          convId,
+          "现在换一件完全无关的新事情：帮我数一下从 1 到 10 有几个偶数，直接回答。这不是刚才那件工作的继续，不要登记新工作也不要续接旧工作。",
+        );
+        try {
+          const second = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+          await waitForInvokeSettled(ctx, convId, second.si, { timeoutMs: 60_000 });
+        } catch {
+          return { ok: false, detail: "大獭未在超时内应答（第二轮）" };
+        }
+
+        /** 确定性断言：旧工作 trace 绑定数不增长（误 resume 会给新链 trace 绑到旧工作） */
+        const tracesAfter = ctx.built.db.prepare(
+          "SELECT COUNT(*) AS c FROM work_item_traces WHERE work_id = ?",
+        ).get(workId) as { c: number };
+        if (tracesAfter.c > tracesBefore.c) {
+          return { ok: false, detail: `误 resume：新话题链被绑到旧工作（trace ${tracesBefore.c}→${tracesAfter.c}）` };
+        }
+        return { ok: true, detail: `旧工作未吸新话题链（trace 恒 ${tracesAfter.c}）` };
+      });
+    },
+    1_200_000,
+  );
 });

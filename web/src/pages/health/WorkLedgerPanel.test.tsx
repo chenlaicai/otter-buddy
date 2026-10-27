@@ -93,6 +93,9 @@ const detail: WorkDetailDTO = {
     invokeId: 'i-1', otterId: 'otter-a', conversationId: 'c-1', startedAt: '2026-10-27T10:05:00Z',
     tokens: { input: 100, output: 50, cacheRead: 20, cacheWrite: 0, totalTokens: 170 }, hasUsage: true,
   }],
+  truncatedCount: 0,
+  totalInvokeCount: 1,
+  usageGapCount: 0,
   pricingAvailable: false,
 }
 

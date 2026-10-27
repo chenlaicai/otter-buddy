@@ -75,17 +75,14 @@ async function handleCancel(binder: WorkLedgerBinder, params: Record<string, unk
   return `工作已取消（沉没成本保留在账本）：workId=${workId}`;
 }
 
-/** review_round 分支：结构化轮次留痕（invoke 证据自动携带） */
+/** review_round 分支：结构化轮次留痕（invoke 证据自动携带）。
+ *  F20261027hwl1 复审 A1 修复：reviewerOtterId 从 ctx.otterId 系统注入——参数仅供
+ *  显式声明，与调用者不一致时拒写（作者獭不能替检视獭记轮次；轮次真实性从「自报」
+ *  升到「系统锚定调用者」）。检视獭必须由本人调工具——这正是独立检视的语义本意。 */
 async function handleReviewRound(binder: WorkLedgerBinder, ctx: ToolContext, params: Record<string, unknown>) {
-  const workId = str(params, "workId");
-  const reviewerOtterId = str(params, "reviewerOtterId");
-  const roundNo = Number(params.roundNo);
-  const roundState = str(params, "roundState");
-  if (!workId || !reviewerOtterId) return "[track_work] review_round 需要 workId + reviewerOtterId";
-  if (!Number.isInteger(roundNo) || roundNo < 1) return "[track_work] roundNo 必须是 ≥1 的整数";
-  if (!VALID_ROUND_STATES.includes(roundState as RoundState)) {
-    return `[track_work] roundState 必须是 ${VALID_ROUND_STATES.join(" / ")} 之一`;
-  }
+  const validation = validateReviewRoundInput(ctx, params);
+  if (typeof validation === "string") return validation;
+  const { workId, reviewerOtterId, roundNo, roundState } = validation;
   const nowIso = new Date().toISOString();
   const state = roundState as RoundState;
   // invoke 证据自动携带：当前 invoke 即该轮次的链活动证据（结构化，非文本猜测）
@@ -100,10 +97,31 @@ async function handleReviewRound(binder: WorkLedgerBinder, ctx: ToolContext, par
   return `检视轮次已留痕：workId=${workId} 第 ${roundNo} 轮 → ${state}${ctx.currentInvokeId ? `（invoke 证据：${ctx.currentInvokeId}）` : ""}`;
 }
 
+/** F20261027hwl1 复审 A1：review_round 输入校验（身份锚定 + 结构校验；complexity 守卫拆出）。
+ *  身份规则：reviewerOtterId 必须与 ctx.otterId（系统注入的调用者）一致——检视者本人调工具，
+ *  作者獭不能替检视獭记轮次。不一致/缺失返回拒写错误文本。 */
+function validateReviewRoundInput(ctx: ToolContext, params: Record<string, unknown>):
+  { workId: string; reviewerOtterId: string; roundNo: number; roundState: string } | string {
+  const workId = str(params, "workId");
+  const declaredReviewer = str(params, "reviewerOtterId");
+  const roundNo = Number(params.roundNo);
+  const roundState = str(params, "roundState");
+  if (!workId) return "[track_work] review_round 需要 workId";
+  if (!declaredReviewer) return `[track_work] review_round 需要 reviewerOtterId（显式声明检视者身份；系统按调用者 ${ctx.otterId.slice(0, 8)} 校验一致性）`;
+  if (declaredReviewer !== ctx.otterId) {
+    return `[track_work] 拒写：reviewerOtterId(${declaredReviewer.slice(0, 8)}) 与调用者(${ctx.otterId.slice(0, 8)})不一致——轮次必须由检视者本人调用本工具留痕，作者不能代记`;
+  }
+  if (!Number.isInteger(roundNo) || roundNo < 1) return "[track_work] roundNo 必须是 ≥1 的整数";
+  if (!VALID_ROUND_STATES.includes(roundState as RoundState)) {
+    return `[track_work] roundState 必须是 ${VALID_ROUND_STATES.join(" / ")} 之一`;
+  }
+  return { workId, reviewerOtterId: ctx.otterId, roundNo, roundState };
+}
+
 export function createTrackWorkTool(ctx: ToolContext, binder: WorkLedgerBinder): AgentTool {
   return {
     name: "track_work",
-    description: "工作账本登记工具——把当前链的消耗归到一件独立工作上. When: 开始一件有独立目标/边界/结束状态的新工作（start）；搭档追问/继续属于当前工作但已开新链时显式续接（resume）；工作交付/合入/取消时记终态（complete/cancel）；独立检视轮次开启/推进/通过时留痕（review_round）. Not for: 闲聊/临时问答不建工作；matters 裁决（→ transition_matter）；工作状态不联动 matter/PR 生命周期. Output: 工作 ID + 归属绑定确认. GOTCHA: start 的 title 是一句话工作名（如「修复每日派工漏提醒」），不是对话标题；同一对话多件工作分别 start；新 user turn 默认不继承旧工作——继续做同一件事必须 resume. BOUNDARY: workId/traceId 由系统注入，不可伪造归属.",
+    description: "工作账本登记工具——把当前链的消耗归到一件独立工作上. When: 开始一件有独立目标/边界/结束状态的新工作（start）；搭档追问/继续属于当前工作但已开新链时显式续接（resume）；工作交付/合入/取消时记终态（complete/cancel）；独立检视轮次开启/推进/通过时留痕（review_round，须由检视者本人调用）. Not for: 闲聊/临时问答不建工作；matters 裁决（→ transition_matter）；工作状态不联动 matter/PR 生命周期. Output: 工作 ID + 归属绑定确认. GOTCHA: start 的 title 是一句话工作名（如「修复每日派工漏提醒」），不是对话标题；同一对话多件工作分别 start；新 user turn 默认不继承旧工作——继续做同一件事必须 resume. BOUNDARY: workId/traceId 由系统注入，不可伪造归属；review_round 的 reviewerOtterId 必须与调用者一致（系统按调用者身份校验，不一致拒写——作者不能替检视者记轮次）.",
     parameters: {
       type: "object",
       properties: {

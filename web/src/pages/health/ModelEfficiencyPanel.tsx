@@ -64,7 +64,7 @@ export function ModelEfficiencyPanel() {
     <div className="space-y-3" data-testid="model-efficiency-panel">
       <div className="text-xs text-stone-400">
         窗口（{report.timezone}）：今日 {report.windows.day.start} · 本周 {report.windows.week.start} 起 · 本月 {report.windows.month.start} 起。
-        周/月为日级原始量重汇总；cache 率 = cacheRead / (input + cacheRead)，零分母显「—」。
+        周/月为日级原始量重汇总；cache 率 = cacheRead ÷ (input + cacheRead)——分母只计输入侧两分量（Anthropic prompt-cache 惯例口径），与右栏上下文水位（四分量全和）口径不同。
       </div>
       <div className="rounded-xl bg-white border border-stone-100 overflow-x-auto">
         <table className="w-full text-sm" data-testid="model-efficiency-table">

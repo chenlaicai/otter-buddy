@@ -164,9 +164,21 @@ export function WorkDetailDialog({ workId, onClose }: Props) {
                   </div>
                 </div>
 
-                {/* 调用证据（最新在前） */}
+                {/* 调用证据（最新在前；截断显式计数——复审 A5） */}
                 <div>
-                  <div className="text-xs font-semibold text-stone-500 mb-1.5">调用证据（最新 {detail.invokeEvidence.length} 条）</div>
+                  <div className="text-xs font-semibold text-stone-500 mb-1.5">
+                    调用证据（最新 {detail.invokeEvidence.length} 条）
+                    {detail.truncatedCount > 0 && (
+                      <span className="ml-2 text-caramel-600 font-normal" data-testid="work-detail-truncated">
+                        还有 {detail.truncatedCount} 条较早调用未显示（token 汇总已含全部 {detail.totalInvokeCount} 条）
+                      </span>
+                    )}
+                  </div>
+                  {detail.usageGapCount > 0 && (
+                    <div className="mb-1.5 text-xs text-caramel-600" data-testid="work-detail-usage-gap">
+                      其中 {detail.usageGapCount} 次调用 usage 缺失（四分量全 null，以 0 计入合计——与真实 0 不可区分的部分已单列）
+                    </div>
+                  )}
                   <div className="max-h-52 overflow-y-auto divide-y divide-stone-100 rounded-xl border border-stone-100" data-testid="work-detail-invokes">
                     {detail.invokeEvidence.map(ev => (
                       <div key={ev.invokeId} className="px-3 py-1.5 flex items-center gap-2 text-xs flex-wrap">

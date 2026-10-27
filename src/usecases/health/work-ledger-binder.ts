@@ -93,39 +93,4 @@ export class WorkLedgerBinder {
   async recordReviewRound(workId: string, round: WorkReviewRound): Promise<void> {
     await this.repo.upsertReviewRound(workId, round);
   }
-
-  /**
-   * 证据绑定（非 track_work 来源）：feature groupId 资源 / matter origin 触发时
-   * 建立或续接对应工作并保留当前 trace。已有同 origin 的 active 工作则续接（不另起）。
-   */
-  async bindByOrigin(input: {
-    originKind: "feature" | "matter";
-    originId: string;
-    title: string;
-    conversationId: string;
-    otterId: string;
-    traceId?: string | null;
-  }): Promise<WorkItem> {
-    const existing = await this.repo.findWorksByOrigin(input.originKind, input.originId);
-    const active = existing.find(w => w.status === "active");
-    if (active) {
-      if (input.traceId) await this.repo.bindTrace(active.id, input.traceId, input.originKind === "feature" ? "artifact_group" : "matter_origin", this.now());
-      await this.repo.setActiveWork(input.conversationId, active.id, null, this.now());
-      return active;
-    }
-    const work = await this.repo.createWork({
-      id: randomUUID(),
-      title: input.title,
-      originKind: input.originKind,
-      originId: input.originId,
-      conversationId: input.conversationId,
-      createdByOtterId: input.otterId,
-      evidenceQuality: "tracked",
-      createdAt: this.now(),
-    });
-    if (input.traceId) await this.repo.bindTrace(work.id, input.traceId, input.originKind === "feature" ? "artifact_group" : "matter_origin", this.now());
-    await this.repo.setActiveWork(input.conversationId, work.id, null, this.now());
-    this.logger.info("[work-ledger] work bound by origin", { workId: work.id, originKind: input.originKind, originId: input.originId });
-    return work;
-  }
 }
