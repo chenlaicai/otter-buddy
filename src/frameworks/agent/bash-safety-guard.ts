@@ -40,21 +40,47 @@ function directGitExecutionGrant(command: string, cwd: string, projectRoot: stri
 }
 
 /** 沙箱会话的有限 Git 文本窄门：与物理层共用直接 envelope（含 cd && git）。 */
-function sandboxedGitTextVeto(command: string, cwd: string, projectRoot: string): boolean {
-  const trimmed = command.trim();
-  const model = parseOnce(trimmed, 1);
-  const looksDirectGit = model.segments.some(segment => segment.argv0 === "git");
-  if (!looksDirectGit || !model.parseOk) return false;
-  if (model.segments.some(segment => segment.argv0 === "git" && gitWriteSubcommandHit(segment))) {
-    const grant = directGitExecutionGrant(trimmed, cwd, projectRoot);
-    if (!grant) return true; // 无法判定的直接 Git 不给 capability，并给拆命令/直接 -C 指引
-    // 物理授权只管本地写域；远端受保护分支复用既有 refspec 判定，不按整行词面猜。
-    if (grant.kind === "push") {
-        const gitStart = trimmed.lastIndexOf("git push");
-      if (gitStart >= 0 && protectedPushHit(trimmed.slice(gitStart))) return true;
-    }
+function gitSegmentText(segment: Segment): string {
+  return segment.words.map(word => JSON.stringify(word.evaluated ?? "")).join(" ");
+}
+
+function nextDirectCwd(segment: Segment, cwd: string): string | null {
+  if (segment.argv0 !== "cd" || segment.words.length !== 2) return cwd;
+  const destination = segment.words[1]?.evaluated;
+  return destination ? (path.isAbsolute(destination) ? destination : path.resolve(cwd, destination)) : null;
+}
+
+function eachDirectGitGrant(command: string, cwd: string, projectRoot: string, visit: (grant: GitExecutionGrant, segment: Segment) => boolean): boolean {
+  const model = parseOnce(command, 1);
+  if (!model.parseOk) return true;
+  let effectiveCwd = cwd;
+  for (let index = 0; index < model.segments.length; index++) {
+    const segment = model.segments[index];
+    const nextCwd = nextDirectCwd(segment, effectiveCwd);
+    if (nextCwd === null) return false;
+    effectiveCwd = nextCwd;
+    if (segment.argv0 !== "git" || !gitWriteSubcommandHit(segment)) continue;
+    const previous = model.segments[index - 1];
+    const current = previous?.argv0 === "cd" && segment.joiner === "&&"
+      ? `${gitSegmentText(previous)} && ${gitSegmentText(segment)}` : gitSegmentText(segment);
+    const grant = directGitExecutionGrant(current, effectiveCwd, projectRoot);
+    if (!grant || !visit(grant, segment)) return false;
   }
-  return false;
+  return true;
+}
+
+function sandboxedGitTextVeto(command: string, cwd: string, projectRoot: string): boolean {
+  return !eachDirectGitGrant(command, cwd, projectRoot, (grant, segment) =>
+    grant.kind !== "push" || !protectedPushHit(gitSegmentText(segment)));
+}
+
+function directGitCommandGrant(command: string, cwd: string, projectRoot: string): GitExecutionGrant | null {
+  const model = parseOnce(command, 1);
+  if (!model.parseOk || model.segments.length === 0 ||
+      model.segments.some(segment => segment.argv0 !== "cd" && segment.argv0 !== "git")) return null;
+  let lastGrant: GitExecutionGrant | null = null;
+  const valid = eachDirectGitGrant(command, cwd, projectRoot, grant => { lastGrant = grant; return true; });
+  return valid ? lastGrant : null;
 }
 
 /** F20261014cwsp S1 处置：session 工作目录跨特性判定参数打包（max-params 约束——
@@ -3010,10 +3036,7 @@ export function checkBashCommandSafety(
   if (guardOptions?.sandboxGuarded && guardOptions.projectRoot) {
     const vetoed = sandboxedGitTextVeto(command, guardOptions.sessionCwd ?? guardOptions.projectRoot, guardOptions.projectRoot);
     if (vetoed) return withDiagnostics("直接 Git 命令未获当前执行域授权：请使用登记的 worktree，拆成单段 git 或字面 cd <worktree> && git；主仓提交/受保护分支推送请走 PR。", command, mainPid);
-    const model = parseOnce(command, 1);
-    const direct = model.parseOk && (model.segments.length === 1 ||
-      (model.segments.length === 2 && model.segments[0]?.argv0 === "cd" && model.segments[1]?.joiner === "&&"));
-    const grant = direct ? directGitExecutionGrant(command, guardOptions.sessionCwd ?? guardOptions.projectRoot, guardOptions.projectRoot) : null;
+    const grant = directGitCommandGrant(command, guardOptions.sessionCwd ?? guardOptions.projectRoot, guardOptions.projectRoot);
     if (grant) return null;
   }
 

@@ -29,6 +29,7 @@ describe("F20261027gscv：嵌套 Git 职责迁移", () => {
   it("sg=true 的生产 cwd=工作区形态：cd worktree && git add/commit 正道放行", () => {
     expect(go(`cd ${WT} && git add -A`)).toBeNull();
     expect(go(`cd ${WT} && git commit -m x`)).toBeNull();
+    expect(go(`cd ${WT} && git commit -m x && git push`)).toBeNull();
     expect(go(`cd ${MAIN} && git commit -m x`)).not.toBeNull();
   });
 
