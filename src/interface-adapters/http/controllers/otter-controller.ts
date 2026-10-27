@@ -127,10 +127,10 @@ export class OtterController {
       // 忙碌（running invoke）拒绝 409（DomainError conflict 映射）；合成失败降级机械档案
       // F20261009s6ej6（检视 A1）：三元兜底删除——agentInvoker 未注入时不再静默降级
       //  manageSession.restartSession（裸路径不发系统消息，重启入口分裂为两条路的根因）。
-      //  用 HttpError 500 而非 DomainError「validation」（→400）：服务端装配缺失是服务端错误，
-      //  与同控制器 getProfile 缺配置返 501 同口径（非客户端语义）。
+      //  用 HttpError 501（F20261027obsc，#1417 观察项①）：服务端装配缺失＝能力未实现，
+      //  与同控制器 getProfile 缺配置返 501 同码同口径（原 500，检视判 501 对装配缺失更精确）。
       if (!this.agentInvoker) {
-        throw new HttpError("Restart service unavailable: agentInvoker not configured", 500);
+        throw new HttpError("Restart service unavailable: agentInvoker not configured", 501);
       }
       const session = await this.agentInvoker.restartWithUnifiedHandoff(id, {
         selfSummary: body.summary,

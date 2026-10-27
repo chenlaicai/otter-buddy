@@ -225,7 +225,7 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(501); // F20261027obsc（#1417 ①）：500→501 与 getProfile 装配缺失同码
     const body = await res.json() as { error: string };
     expect(body.error).toContain("agentInvoker not configured");
   });
