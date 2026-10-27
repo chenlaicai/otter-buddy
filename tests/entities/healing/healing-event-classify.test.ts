@@ -38,10 +38,10 @@ describe("classifyHealingErrorType（#998 二维分账）", () => {
     expect(classifyHealingErrorType("other")).toBe("capability");
   });
 
-  it("全枚举覆盖：15 个 errorType 全部被分类（环境清单/反馈清单/默认能力三通道）", () => {
+  it("全枚举覆盖：16 个 errorType 全部被分类（环境清单/反馈清单/默认能力三通道）", () => {
     const all: HealingErrorType[] = [
       "tool_failure", "missing_context", "wrong_tool", "format_violation", "knowledge_gap",
-      "performance", "degenerate", "circuit_break", "self_restart", "guard_intercept",
+      "performance", "degenerate", "circuit_break", "loop_tool_block", "self_restart", "guard_intercept",
       "rate_limit", "tool_use_feedback", "timeout_retry_exhausted", "context_overflow", "other",
     ];
     const results = all.map(classifyHealingErrorType);
