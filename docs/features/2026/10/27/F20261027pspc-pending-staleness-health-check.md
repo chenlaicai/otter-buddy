@@ -50,7 +50,7 @@ Modification-Class: `narrow-fix`。机制识别检查点：无新配置、状态
 | 修后真实库 | 在主仓根对生产库以 `mode=ro` 执行修正 SQL | 语法通过；本次实测 24h/48h 命中均 0，无生产数据被修改 |
 | prompt 静态门 | `node scripts/lint-prompt-size.mjs` | 9 个模板，0 超预算 / 0 警告 |
 | 锚点门 | `node scripts/lint-prompt-anchors.mjs --full` | 通过 |
-| 变更完整性 | 对照 `origin/main` 的最终净 diff | 保留 hook fallback / shadow 失衡活规则；`<10/14 数据不足` 的出清在 PR body 显式申报 |
+| 变更完整性 | 对照最新 `origin/main` 的最终净 diff | 保留 #1658 新增的 loop_tool_block 检查、产出清单第 13 项、hook fallback / shadow 失衡活规则；所有体积出清在 PR body 显式申报 |
 
 Golden Gate: n/a（`verify_by=static_only`，本变更无对应场景可跑）。
 
@@ -58,4 +58,4 @@ Golden Gate: n/a（`verify_by=static_only`，本变更无对应场景可跑）�
 
 ## 审视处置摘要
 
-独立审视发现原 SQL 在真实 cwd 必败、ISO 时间裸比较会漏检，以及文档/CI 缺项；均在本 PR 修复。体积出清曾误删 hook fallback / shadow 失衡规则，已按 F20261009arlz 的活规则教训恢复，最终净 diff 不再删除该段。
+独立审视发现原 SQL 在真实 cwd 必败、ISO 时间裸比较会漏检，以及文档/CI 缺项；均在本 PR 修复。体积出清曾误删 hook fallback / shadow 失衡规则，已按 F20261009arlz 的活规则教训恢复。delta 复核指出命令应字面带 `cd <主仓>`、零结果应有健康态报告；二次 rebase 保留 #1658 新增检查段时一并采纳，并只做同语义措辞出清，未删除检查项。

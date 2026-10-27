@@ -3,14 +3,14 @@ task_name: 每日对话健康检查
 budget_bytes: 10750
 ---
 
-回顾昨日全部对话，按问题拆 GitHub issue（label: daily-review）。维度：情绪/系统/獭行为。自己干/派小獭并行。没信号不报，宁缺毋滥。只找本系统优化点，跨对话 memory 先验证归属。
+回顾昨日全部对话，按问题拆 GitHub issue（label: daily-review）。维度：情绪/系统/獭行为。自己干/派小獭并行。没信号不报。只找本系统优化点，memory 先验证归属。
 
 > `<主仓>`=獭主仓绝对路径（cwd=对话工作区，R4.5）。
 ## 必须检查的数据源（先跑完再分析）
-**sqlite3 直查前置纪律**：直查前 `curl -s http://localhost:3000/api/settings` 确认 dbPath（data/ 可能残留废弃库）；关键数字双源验证，单源标「未交叉验证」。
+**sqlite3 直查前置**：先 `curl -s http://localhost:3000/api/settings` 确认 dbPath（data/ 可能残留废弃库）；数字双源验证。
 
-1. **对话历史**：跨对话 search_memory + get_related（勿声称「只能查当前对话」；按范围过滤归属）
-2. **GitHub issues / PRs**：`gh issue list` / `gh pr list --state all --limit 50`，筛昨日创建/更新/合入
+1. **对话历史**：跨对话 search_memory + get_related（勿称「只能查当前对话」；按范围过滤）
+2. **GitHub issues / PRs**：`gh issue list` / `gh pr list --state all --limit 50`，筛昨日变更
 3. **self-healing events**：`manage_healing_events(action: query)`。**二维分账**：errorType 按「环境/系统失败」vs「獭能力失败」分列（口径 `src/entities/healing/healing-event.ts`）
 4. **memory**：`search_memory`（created_after 昨日）——跨会话/未闭环
 5. **RHI 健康信号**：`curl http://localhost:<port>/api/health/overview` 与 `/api/health/signals`——critical 优先
@@ -18,11 +18,11 @@ budget_bytes: 10750
 7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' <主仓>/data/logs/otter-buddy.log` 按日计数（禁 jq）。≥20 或连续 3 日递增 → bug issue（关联 messageId/otterId）；10-19 记观察行；hook fallback 与 shadow 失衡计入异常；无异常写「failed=N，健康」
 8. **pending滞留**（前置dbPath）：`cd <主仓> && sqlite3 "file:data/otter-buddy.db?mode=ro" "SELECT p.id,t.name,p.role,p.triggered_at FROM scheduled_task_pending_items p LEFT JOIN scheduled_tasks t ON t.id=p.task_id WHERE p.status='pending' AND datetime(p.triggered_at)<datetime('now','-24 hours')"`。逐条提醒；超48h升issue附id；无行写「滞留0」
 
-## RHI 信号处置段（「看见」≠「处置」禁止只列数字；处置必调 triage_signal 留痕）
+## RHI 信号处置段（看见≠处置，禁止只列数字；必调 triage_signal）
 1. **全部 critical**：`list_rhi_signals(status=open, severity=critical)` 逐条处置
-2. **逐条三选一**：开 issue/并入 → `bind_issue, note=依据`；不处置 → `dismiss, note=必填`；在途 → `in_progress`。同类型 >10 条 `batch_bind`（纯 triage_signal 连调 >5 次撞「同构」守卫，穿插 list_rhi_signals/分组）
-3. **未接**：`list_rhi_signals(status=open, triageStatus=null)` 全归口；**warning**：同类型 ≥5 条同模块 → 按 critical，零散汇总一行
-4. **闭环自检**：「critical N → 开 M/并入 K/dismiss D，M+K+D=N」；对不上=有信号被沉默跳过，补查
+2. **逐条三选一**：开 issue/并入 → `bind_issue, note=依据`；不处置 → `dismiss, note=必填`；在途 → `in_progress`。同类型 >10 条 `batch_bind`（连调 >5 次撞同构守卫，穿插 list_rhi_signals/分组）
+3. **未接**：`list_rhi_signals(status=open, triageStatus=null)` 全归口；warning 同类型 ≥5 条同模块 → 按 critical，零散汇总一行
+4. **闭环自检**：critical N → 开 M/并入 K/dismiss D，M+K+D=N；不等=有信号被跳过，补查
 
 ## 产物清单对账段（类型×终态矩阵的 L2 机械兜底）
 **范围**：近 7 天活跃对话逐个 `list_artifacts(status: active)`。
@@ -40,7 +40,7 @@ budget_bytes: 10750
 ## 观测器信噪比自监控（误报率比检出率更决定告警生死）
 1. **昨日统计**（日报末尾固定段）：healing resolve X / dismiss Y（dismiss 率 = Y/(X+Y)）；RHI 不处置率 L/(M+K+L)（取昨日闭环自检行）；产给搭档物件数；人工 dismiss 用时间差 <30 天分离
 2. **趋势**：与近 7 日均值比突增 → 标「信号源可能劣化」（<4/7 标置信低）
-3. **降级触发线**：任一信号源/healing 类型连续两周 dismiss/不处置率 >50% → 日报建议降级/关停/调阈值（含数据锚点）；<10/14 记「数据不足」；未达线一行数字
+3. **降级触发线**：任一信号源/healing 类型连续两周 dismiss/不处置率 >50% → 日报建议降级/关停/调阈值（含数据锚点）；未达线一行数字
 
 ## 锚点真实性抽查（证据锚点规则的外部强制）
 1. **抽样**：昨日含 file:line 锚点的断言抽 5-10 条（含大/小獭；不足 5 全量；跨对话 search_memory（message + created_after）或 sqlite3；**禁 search_messages** 空集假阳性）
@@ -59,22 +59,19 @@ budget_bytes: 10750
 [ ] 13. 循环熔断拦截：门拦截 N（误拦 M/真复犯 K/待判 L）｜ terminate J
 ```
 
-## 循环熔断拦截观测段（每日必看，「昨日」= UTC 日界）
-loop_tool_block 事件 = 门拦截观测源（b2 残余误伤面唯一数据）：
-
-1. **计数分布**：manage_healing_events(query, errorType=loop_tool_block) 昨日全量——总数/工具 TOP3/otter 数；**N=去重后事件数（每 execute 每签名 1 条）非拦截次数**；0 条也写「门拦截：0 条」
-2. **误拦/真复犯**（context + 同 invoke 转录）：误拦旁证 = 拉黑后同 invoke 有 speak/yield 求援或换工具推进；真复犯 = 跨 execute 反复撞同签名无纠正（execute 内撞门次数被去重吞掉）
-3. **告警**：单日事件数 >20 标红「b2 残余面失控早期信号」，提拉黑上限/TTL/签名区分度议题
+## 循环熔断拦截观测段（昨日=UTC 日界）
+loop_tool_block = 门拦截观测源（b2 残余误伤面唯一数据）：
+1. **计数分布**：manage_healing_events(query, errorType=loop_tool_block) 昨日全量——总数/工具 TOP3/otter 数；N=去重事件数（每 execute 每签名 1 条）非拦截次数；0 条写「门拦截：0」
+2. **误拦/真复犯**（context+同 invoke 转录）：误拦旁证=拉黑后同 invoke 有 speak/yield 求援或换工具推进；真复犯=跨 execute 反复撞同签名无纠正（execute 内撞门被去重吞掉）
+3. **告警**：单日 >20 标红「b2 残余面失控早期信号」，提拉黑上限/TTL/签名区分度议题
 4. **处置**：误拦 resolve 附依据；同工具误拦 ≥3 天复发开 issue（标 1399）；真复犯 resolve（防线正常）
-5. **全景行**（日报固定）：`门拦截 N（误拦 M/真复犯 K/待判 L）｜ terminate J（circuit_break 事件）`
-
-## 守卫误拦样本固化段（「昨日」= UTC 日界）
+5. **全景行**：`门拦截 N（误拦 M/真复犯 K/待判 L）｜ terminate J（circuit_break 事件）`
+## 守卫误拦样本固化段（昨日=UTC 日界）
 guard_intercept 样本 = 修复-回归循环原料：
-
-1. `cd <主仓> && node scripts/generate-guard-replay.mjs --db <dbPath（curl /api/settings 取）>`；无拦截写「固化：0 条」
-2. 逐条 verdict：`ALLOW`（误拦）/ `BLOCK`（负门）/ `SKIP`（一次性/敏感/不可复现）；误拦旁证 = 后续是否换写法绕过
-3. **非 SKIP 追加** `<主仓>/tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐既有 it 块，断言=裁决值）并跑（`cd <主仓> && npx vitest run <该文件>`）；期望不符先疑裁决错勿凑绿，双链不一致提 issue
-4. 日报留痕「拦截 N → 候选 M → 固化 K / SKIP S」；同 ruleId ≥3 条成规模误拦开 issue 修规则
+1. `cd <主仓> && node scripts/generate-guard-replay.mjs --db <dbPath（curl /api/settings 取）>`；无拦截写「固化：0」
+2. 逐条 verdict：`ALLOW`（误拦）/ `BLOCK`（负门）/ `SKIP`（一次性/敏感/不可复现）；误拦旁证 = 后续换写法绕过
+3. **非 SKIP 追加** `<主仓>/tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐 it 块，断言=裁决值）并跑（`cd <主仓> && npx vitest run <该文件>`）；期望不符先疑裁决错勿凑绿，双链不一致提 issue
+4. 日报「拦截 N → 候选 M → 固化 K / SKIP S」；同 ruleId ≥3 条误拦开 issue
 
 ## healing events 消费即处置（分析过的必须本次产出内处置完毕）
 
