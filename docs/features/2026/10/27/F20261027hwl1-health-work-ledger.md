@@ -3,13 +3,25 @@ id: F20261027hwl1
 title: 健康面板工作账本与模型时间效率
 summary: 以独立工作而非 conversation 为成本归集单位，展示全生命周期 token、参与獭、结构化检视/复核轮次，以及真实 provider/model × 日/周/月的 token 总量与 KV cache 率；金额仅为可解释的参考投影。
 change_type: feature
-capability_test: "n/a: 若只实现确定性数据归属、只读聚合与 UI 投影，无 prompt/LLM 行为语义改动；若新增工作追踪工具调用纪律则必须补 B 类场景，不得以聚合测试代替。"
+capability_test: "tests/capability/work-ledger/track-work.capability.test.ts"
 created_in_conversation: cf698fdc-2cfd-46d1-9afa-d6631e8cef31
 created_at: 2026-10-27T19:05:00+08:00
 causal_links:
   from: [F20260829cstd, F20260914usgm, F20260923icus, F20261026ctbg]
 tags: [health, token-usage, work-ledger, cache, ui]
 modules: [health, conversation, web]
+intent:
+  problem: 成本观测以 conversation 为单位且 invoke 四分量中 cache 两列读回链断裂；模型日界 UTC 裸 slice 归错日、provider 缺失全归 unknown；检视轮次靠搜索发言文本猜测——工作≠conversation 的真实成本归集不可得
+  solution: 三表确定性归属底座（trace 绑定 + JSON_EXTRACT 派生，不改写 invokes）+ track_work 工具（start/resume/complete/cancel/review_round 结构化留痕）+ cache 读回链补齐 + provider/上海日界采集修正 + 旧口径快照一次性失效重扫 + 只读报告与居中浮窗 UI
+  expected_effect: 已绑定链的调用四分量归入工作账本（未归属/usageGap 如实呈现不伪装）；模型效率矩阵显示真实 provider+model × 日/周/月原始量与 cache 率；检视轮次只有结构化留痕才计数；track_work 新工具被獭在独立工作开始时正确调用（闲聊不调）
+  verify_by:
+    type: capability_test
+    files:
+      - tests/capability/work-ledger/track-work.capability.test.ts
+      - tests/usecases/health/work-ledger.test.ts
+      - tests/usecases/health/model-efficiency-report.test.ts
+      - tests/api/work-ledger.test.ts
+      - tests/frameworks/db/work-ledger-migration.test.ts
 ---
 
 ## 目标
@@ -128,3 +140,12 @@ modules: [health, conversation, web]
 - UI：在 worktree `bash scripts/alpha.sh start` 起隔离实例，Playwright 复现桌面 1440 与手机 375，截图 + dialog getBoundingClientRect + 真实 API 空态/有数据两态，截图存对话工作区；完成 stop。
 - DB：复制到隔离数据根，完整启动路径验证；主库只读，不运行手工写数据脚本。
 - 推送后 CI 全绿，异体 adversarial-review + delta 后才呈搭档终审。
+
+## 实测证据（实现者自检，2026-10-27 21:50，待独立审视确认）
+
+- **commit**：`5c696cfb`（后端归属底座 + cache 读回 + 模型效率数据面）→ `e4399e16`（Web UI + A 类全套）→ `97f6646e`（track_work 白名单占位 ctx 修复 + B 类能力测试）。全部 `Modification-Class` 已标注。
+- **测试**：全量回归 452 files / 7121 tests 绿（vitest，含 lint 零错）；A 类覆盖验收表全部场景（cache 四分量读回 / 同对话多工作隔离 / 跨獭链 trace 继承 / 未归属细分 / 轮次 upsert / 日周月原始量重汇总 / Asia/Shanghai 日界 / provider 解析 / 零分母 / 价格缺失 / 404 / 迁移三不变量 / 失效钩子幂等）；B 类 capability（真 LLM 采样：新独立工作 start 落库 3/3 + 闲聊不建工作 3/3）。
+- **实现中发现并修复的真 bug**：buildOtterToolWhitelist 占位 ctx 未携带 workLedgerBinder → track_work 不进白名单 universe → 獭侧「没有这个工具」（capability 采样 0/3 实证，修复后 3/3）。与 F20260831tumv 检视发现 1 同型（占位 ctx 必须携带全部条件注册字段）。
+- **真实环境验证（alpha :3110，生产 DB 副本 2.7GB + 生产 sessions 2895 文件）**：① 存量库迁移幂等补建三表验证通过（既有 7855 invokes 完好）；② 真实消息流 track_work 端到端：大獭调 start → work 落库 + trace t_e494c83bd18f 绑定 + 同 trace invoke 自动归属（57417 tok 四分量）；③ cost_output 换轨：旧 unknown-provider 行全清、新行真实 provider 11 桶（glm/glm-5.3 日 383M cache 97% 等，日窗口合计 1.12B token）；④ Chromium 1440：works 深链直达、无横溢出、dialog 居中（x=360 w=720 vw=1440）、Esc/遮罩/× 三路关闭、焦点返回触发行；⑤ 375：dialog fits viewport（345≤375），body 横溢出为整站既有（globals.css body min-width:1024px，overview/cost tab 实测同样溢出，对照后留档未夹带修改）；⑥ 空态文案（未记录轮次/未配置单价）真实 DOM 验证。证据：对话工作区 `alpha-evidence/`（8 截图 + 脚本 + ALPHA-VERIFICATION.md）。
+- **已知边界（诚实声明）**：① 旧 invokes 无 traceId（链改造前）→ 未归属 4999 次如实呈现，覆盖率仅计已绑定链，不伪装完整；② /api/health/scan 在 alpha 数据根（非 git repo）500 为 alpha 环境限制（生产 rootDir=真仓不受影响，本次以 git init 种子仓验证通过）；③ 金额本期零价格配置，pricingAvailable=false，UI 显示「未配置参考价」；④ 375 横溢出为整站既有设计，需整站级布局决策（L2），不在本 PR 范围。
+- **自动精确覆盖声明（按设计面拍板要求）**：本 PR 未改 SYSTEM.md/skills 的调用纪律，自动精确归属仅限已绑定链（track_work start/resume + feature/matter origin 续接）；其余调用进未归属桶并显示覆盖率。track_work 工具 description 的 B 类能力测试已按规则补齐（97f6646e）。
