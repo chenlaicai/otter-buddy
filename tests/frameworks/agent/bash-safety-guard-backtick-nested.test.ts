@@ -80,13 +80,30 @@ describe("#1544 处置补强（r1 审视建议 3 + 严重 1 现状口径固化�
   it("WT-cwd 对照：sessionCwd=工作区裸 git commit → BLOCK（落点不在 worktree 豁免区）", () => {
     expect(go('git commit -m "x"', true, SESS)).not.toBeNull();
   });
-  it("反引号独有跨段误拦现状：echo `date` && git commit（WT-cwd）→ BLOCK（反引号独有，$() 对照 ALLOW）", () => {
-    // r1 严重 1：闭反引号可作正则匹配起点（$() 的闭壳 ) 从不作起点），
-    // 产生 $() 没有的命中形态——worktree 日常流 git add && echo `date` && git commit
-    // 会整链 BLOCK。断言固化现状口径，根治（lexer 级 cmdsub span 提取）另立跟踪（#1608 挂账）。
-    expect(go('echo "`date`" && git commit -m x', true, WT)).not.toBeNull();
+  it("r2 严重 1 修复：反引号数据体 + 顶层合法 worktree 写 → ALLOW（闭反引号不再作新起点）", () => {
+    // r1 曾断 BLOCK（现状固化）→ r2 审视裁定为合法面误拦，改为正则拆分支修复：
+    // 反引号成对壳区间内找写动词且写动词后有闭壳，闭壳后不重开吞顶层。
+    expect(go('echo "`date`" && git commit -m x', true, WT)).toBeNull();
   });
-  it("$() 对照：echo $(date) && git commit（WT-cwd）→ ALLOW（验证两壳口径差异属反引号独有）", () => {
+  it("r2 严重 1 修复：worktree 日常流 git add -A && echo `date` && git commit → ALLOW（P5 族）", () => {
+    expect(go('git add -A && echo "`date`" && git commit -m x', true, WT)).toBeNull();
+  });
+  it("r2 严重 1 修复：只读反引号数据体 + 顶层合法写 → ALLOW（P9 族：echo `git status` && commit）", () => {
+    expect(go('echo "`git status`" && git commit -m x', true, WT)).toBeNull();
+  });
+  it("r2 严重 1 修复：未加引号的 echo `pwd` && git commit（WT-cwd）→ ALLOW（P1 族）", () => {
+    expect(go('echo `pwd` && git commit -m x', true, WT)).toBeNull();
+  });
+  it("反引号壳内主仓写仍拦：echo `cd 主仓 && git commit` → BLOCK（B3 修复目标保持，写动词后有闭壳）", () => {
+    expect(go('echo "`cd ' + MAIN + ' && git commit -m x`"', true)).not.toBeNull();
+  });
+  it("反引号壳内 worktree 写仍拦（口径对齐 $() 保持）：echo `cd worktree && git commit` → BLOCK（M4/M5）", () => {
+    expect(go('echo "`cd ' + WT + ' && git commit -m x`"', true)).not.toBeNull();
+  });
+  it("未闭合反引号 + commit → ALLOW（bash unexpected EOF 语法错不执行，r2 口径：不覆盖到语法层）", () => {
+    expect(go('echo "`git commit -m x && echo still', true)).toBeNull();
+  });
+  it("$() 对照：echo $(date) && git commit（WT-cwd）→ ALLOW（两壳口径在该族一致）", () => {
     expect(go('echo "$(date)" && git commit -m x', true, WT)).toBeNull();
   });
 });

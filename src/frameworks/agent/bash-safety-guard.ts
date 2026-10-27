@@ -1259,7 +1259,16 @@ function stripSubshellWrap(seg: string): string {
  *  F20261027bgkw（#1544）：壳字符类扩反引号——`echo "\`cd 主仓 && git commit\`"` 反引号
  *  嵌套壳曾绕本闸（$() 的 ( 原被兜住，反引号不在 [({] 内）。对齐语义：反引号壳内
  *  git 写族字面 fail-closed 拦（与 $() 壳同口径，cwd 感知豁免不在此层——M4/M5 先例）。 */
-const SUBSHELL_GIT_WRITE_GATE = /[`({][^)`}]*\bgit\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\b(?!\s+(?:list|show|create)\b)|push\b|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+const SUBSHELL_GIT_WRITE_GATE_BACKTICK = /`[^`]*?\bgit\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\b(?!\s+(?:list|show|create)\b)|push\b|reset\s+--hard|clean\s+-[a-zA-Z]*f)[^`]*`/;
+const SUBSHELL_GIT_WRITE_GATE_PARENS = /[({][^)`}]*\bgit\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\b(?!\s+(?:list|show|create)\b)|push\b|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+/** 消费统一入口（尾闸单消费点）：两分支任一命中即拦。反引号分支为成对壳区间
+ *  （\`…\` 内找写动词且其后有闭壳），闭反引号不作新起点——r2 审视严重 1 修复：
+ *  反引号开闭同字符，单字符类起点会把反引号数据体（echo "\`date\`"）之后的顶层
+ *  合法 worktree 写整族误拦（P1/P5/P6/P9）；$() 对照无此效应（) 从不作起点）。
+ *  未闭合反引号不拦（bash unexpected EOF 语法错不执行）。两分支写动词 alternation
+ *  同源，修改需同步（无抽象是为保正则可读性/可测性）。 */
+const subshellGitWriteHit = (cmd: string): boolean =>
+  SUBSHELL_GIT_WRITE_GATE_BACKTICK.test(cmd) || SUBSHELL_GIT_WRITE_GATE_PARENS.test(cmd);
 
 /** ③b shell 落点处理（judgeSegment 内层，抽函数控圈复杂度/语句数）：
  *  三态拆分（r1 严重 2）+ 载荷递归 + 剩余 token 重判（r1 严重 3）。 */
@@ -1775,13 +1784,13 @@ function checkSegmentStructuralWrite(
   // `(git commit)` 经剥壳重判已被上方段判定覆盖；本闸兜「壳内多命令」形态
   // （`{ git commit; git push; }`）与模型层不识命令组的缺口（parseOk=true 时
   //  V1 段判定链不跑——挂点见下方入口侧）。
-  if (SUBSHELL_GIT_WRITE_GATE.test(command)) return true;
+  if (subshellGitWriteHit(command)) return true;
   return false;
 }
 
 
 /** F20261019gses P0 删除：MAIN_WRITE_PATTERNS / REDIRECT_PATTERN / GIT_WRITE_LITERAL_PATTERN /
- *  ONELINER_CHANNEL_PATTERNS / SUBSHELL_GIT_WRITE_GATE 的独立消费点（V1 写通道正则族——
+ *  ONELINER_CHANNEL_PATTERNS / subshellGitWriteHit（原 SUBSHELL_GIT_WRITE_GATE 单正则，F20261027bgkw r2 拆双分支）的独立消费点（V1 写通道正则族——
  *  语义重叠面，evaluateWriteVerdict 落点语义覆盖；结构通道内的 git 写族段判定由
  *  checkSegmentStructuralWrite 内部正则承担）。*/
 
