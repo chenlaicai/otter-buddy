@@ -1255,8 +1255,11 @@ function stripSubshellWrap(seg: string): string {
  *  段首是壳字符，parseSegmentHead 落点为 "(" / "{" ——未知落点。模型层（parseOk=true）
  *  也不识命令组内 git 写族（预存洞，旧基线 git 正则锚同样不含壳字符）。
  *  fail-closed 收窄：壳落点 + 段内含 git 写族字面即拦（与 ③d 未知落点同策略）。
- *  剥壳重判（stripSubshellWrap）只覆盖「全段单壳」形态；壳内多命令/嵌套壳由本闸兜底。 */
-const SUBSHELL_GIT_WRITE_GATE = /[({][^)}]*\bgit\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\b(?!\s+(?:list|show|create)\b)|push\b|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
+ *  剥壳重判（stripSubshellWrap）只覆盖「全段单壳」形态；壳内多命令/嵌套壳由本闸兜底。
+ *  F20261027bgkw（#1544）：壳字符类扩反引号——`echo "\`cd 主仓 && git commit\`"` 反引号
+ *  嵌套壳曾绕本闸（$() 的 ( 原被兜住，反引号不在 [({] 内）。对齐语义：反引号壳内
+ *  git 写族字面 fail-closed 拦（与 $() 壳同口径，cwd 感知豁免不在此层——M4/M5 先例）。 */
+const SUBSHELL_GIT_WRITE_GATE = /[`({][^)`}]*\bgit\s+(?:commit(?!-tree)|rebase|merge(?!-)|cherry-pick|apply|stash\b(?!\s+(?:list|show|create)\b)|push\b|reset\s+--hard|clean\s+-[a-zA-Z]*f)/;
 
 /** ③b shell 落点处理（judgeSegment 内层，抽函数控圈复杂度/语句数）：
  *  三态拆分（r1 严重 2）+ 载荷递归 + 剩余 token 重判（r1 严重 3）。 */
