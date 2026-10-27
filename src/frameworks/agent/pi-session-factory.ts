@@ -1391,6 +1391,7 @@ export class PiSessionFactory implements AgentGateway {
       signalRepo: this.cfg.signalRepo,
       rhiSignalRepo: this.cfg.rhiSignalRepo,
       matterRepo: this.cfg.matterRepo,
+      workLedgerBinder: this.cfg.workLedgerBinder, // F20261027hwl1：track_work 注册条件（缺此占位 → 白名单漏工具，同检视发现 1）
     };
     const registeredTools = this.cfg.createTools(ctx, this.cfg.healingRepo, this.logger);
     return getOtterToolNamesForType(otterType, registeredTools.map(t => t.name), process.cwd(), this.logger);
