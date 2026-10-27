@@ -16,7 +16,8 @@ created_at: 2026-10-27
 intent:
   problem: matter 域两工具（register_matter/matter_sweep）在任何 capabilityBlock 未登记（8 block 全查），big 型仅靠 tools="*" 通配成立——声明债：未来 big 从 "*" 改显式枚举时两工具静默丢失
   solution: 登记入 orchestration block（描述「仅 big 型引用，small 不得持有」，与两工具权限语义匹配）；不放 system block（被 small groups 引用，放入即实际扩权）——声明现状语义，零权限变化
-  verify_by: static_only
+  verify_by:
+    type: static_only
 ---
 
 # register_matter / matter_sweep 登记 orchestration block（#1349）
