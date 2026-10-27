@@ -57,7 +57,7 @@ function makeFactory() {
   return { db, factory, session, meta, healing, hold, internals };
 }
 
-describe("F20261026cnsv D2/D3 reliable delegated followUp", () => {
+describe("F20261027cnsv D2/D3 reliable delegated followUp", () => {
   let h: Harness;
   beforeEach(() => { h = makeFactory(); });
   afterEach(() => {

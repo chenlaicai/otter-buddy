@@ -14,7 +14,7 @@ export class DomainError extends Error {
   }
 }
 
-/** F20261026cnsv：同獭已有链委托在消化；链调度不得回退 invoke 重投。 */
+/** F20261027cnsv：同獭已有链委托在消化；链调度不得回退 invoke 重投。 */
 export class DelegationInFlightError extends Error {
   constructor() {
     super('目标海獭已有排队任务在消化');

@@ -125,7 +125,7 @@ export class DispatchChainEngine {
        *  factory 与 session 保持架构边界；旧测试/装配缺省时维持直接 invoke。 */
       isRunning?: (otterId: string) => boolean;
       followUp?: (otterId: string, text: string, options?: { delegated?: boolean; conversationId?: string }) => Promise<boolean>;
-      /** F20261026cnsv 审视修复（Feb 发现 1）：系统条目写入（单飞行拒绝的人话通知）。
+      /** F20261027cnsv 审视修复（Feb 发现 1）：系统条目写入（单飞行拒绝的人话通知）。
        *  可选——未注入时通知降级为纯日志，拒绝仍由 rejected 结果通道承载。 */
       systemEntryRepo?: { createSystemEntry(input: { conversationId: string; body: string; yieldTargets?: string[]; senderName?: string }): Promise<unknown> };
       /** F20260920trrt：闲置预警新口径（seq 差 + 时间护栏）读时聚合接口。
@@ -364,7 +364,7 @@ export class DispatchChainEngine {
     });
 
     const results = await Promise.allSettled(promises);
-    // F20261026cnsv 审视修复（Feb 发现 1）：单飞行拒绝按目标粒度处理——不再整批 throw。
+    // F20261027cnsv 审视修复（Feb 发现 1）：单飞行拒绝按目标粒度处理——不再整批 throw。
     // 旧序（fastFailure find→throw）会把 per-hop 拒绝放大为 per-batch + per-chain abort：
     // Promise.allSettled 已收齐的同批其他目标 fulfilled 结果（invoke 已真实执行、发言已落
     // entries）被整体丢弃，resolveHopOutcomes/processHopResults 不执行，tsp 路由与 token
@@ -399,7 +399,7 @@ export class DispatchChainEngine {
       delegated = await this.deps.followUp(otterId, `## 链式派工\n${fullMessage}`, { delegated: true, conversationId });
     } catch (err) {
       // 单飞行拒绝要快速失败，不能降级 invoke 再次制造并发委托。
-      // F20261026cnsv 审视修复（Feb 发现 1）：「快速失败」指被拒目标不重投（下方 throw
+      // F20261027cnsv 审视修复（Feb 发现 1）：「快速失败」指被拒目标不重投（下方 throw
       // 保留，该目标的 promise 以 rejected 结算）；「显式拒绝而非静默丢」由
       // notifyDelegationRejections 的 rejected 通道 + 人话系统通知承担，不再整批炸链。
       if (err instanceof DelegationInFlightError) throw err;
@@ -410,7 +410,7 @@ export class DispatchChainEngine {
     return delegated ? { messageId: '', delegated: true } : null;
   }
 
-  /** F20261026cnsv 审视修复（Feb 发现 1）：单飞行拒绝的人话系统通知——被拒目标
+  /** F20261027cnsv 审视修复（Feb 发现 1）：单飞行拒绝的人话系统通知——被拒目标
    *  显式告知（对齐 D2「人话错误 + 不伪造事件流」口径），兄弟目标不受影响。
    *  healing 落账已在 factory 单飞行拒绝点完成（recordLockDegradation），此处不重复。
    *  通知失败不阻断链路（结果通道已承载拒绝，系统条目是增强可见性）。 */
@@ -519,7 +519,7 @@ export class DispatchChainEngine {
     conversationId?: string,
   ): void {
     const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
-    // F20261026cnsv 审视修复（Feb 发现 1）：单飞行拒绝是背压显式拒绝而非调用失败——
+    // F20261027cnsv 审视修复（Feb 发现 1）：单飞行拒绝是背压显式拒绝而非调用失败——
     // 日志口径分开（warn 不计入 error 流），与 metrics 独立归类（delegation_rejected）一致。
     if (r.reason instanceof DelegationInFlightError) {
       this.deps.logger.warn('发言链目标被单飞行拒绝（显式拒绝，不重投）', { conversationId, otterId, reason });

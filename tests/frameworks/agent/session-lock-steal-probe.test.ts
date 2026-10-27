@@ -4,7 +4,7 @@ import { createTestLogger } from "../../helpers/logger";
 
 const logger = createTestLogger();
 
-describe("F20261026cnsv D4 session lock steal probe", () => {
+describe("F20261027cnsv D4 session lock steal probe", () => {
   it.each([
     ["running", true, false],
     ["running", false, true], // 孤儿行：定稿 D4 明确可接管

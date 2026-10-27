@@ -32,7 +32,7 @@ const chain = (invokeFn: InvokeFn, targets = ["otter-1"]) => ({
   conversationId: "conv-1", userMessageContent: "任务", senderId: "user-1", initialTargets: targets, invokeFn,
 });
 
-describe("F20261026cnsv D2 链式 hop 委托", () => {
+describe("F20261027cnsv D2 链式 hop 委托", () => {
   it("running → followUp：不 invoke、不查空 invoke、不路由下一 hop", async () => {
     const invokeFn: InvokeFn = async () => { throw new Error("delegated hop 不得创建 invoke"); };
     const { engine, invokeRepo, logger } = makeEngine({ isRunning: () => true, followUp: async () => true });
@@ -65,7 +65,7 @@ describe("F20261026cnsv D2 链式 hop 委托", () => {
   });
 
   it("单目标单飞行拒绝：链不 abort（rejects 不再外抛），不 fallback 重投，人话系统通知落账", async () => {
-    // F20261026cnsv 审视修复（Feb 发现 1）：旧断言 executeChain rejects 把「整链 abort」钉成
+    // F20261027cnsv 审视修复（Feb 发现 1）：旧断言 executeChain rejects 把「整链 abort」钉成
     // 预期行为，与 D2「新 hop 快速失败（人话）+ 显式拒绝而非静默丢」口径冲突——
     // 修复后被拒目标走 rejected 结果通道（不重投），链正常收敛，人话通知显式告知。
     const invokeFn: InvokeFn = async () => { throw new Error("拒绝后不得重投"); };
@@ -107,7 +107,7 @@ describe("F20261026cnsv D2 链式 hop 委托", () => {
     expect(logger.captured.infos).toContain("发言链 hop 已投递（delegated）");
   });
 
-  it("F20261026cnsv 审视修复（Feb 发现 1）：idle+单飞行被拒混合——兄弟目标结果不丢，正常路由下一 hop", async () => {
+  it("F20261027cnsv 审视修复（Feb 发现 1）：idle+单飞行被拒混合——兄弟目标结果不丢，正常路由下一 hop", async () => {
     // 旧实现：任一目标 DelegationInFlightError 即整批 throw，同批 idle 目标已执行的
     // invoke 结果（发言已落 entries）被整体丢弃——tsp 路由与 token 记账静默丢失，
     // 且 message-controller 误报「发言链调度失败」。

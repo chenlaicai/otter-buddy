@@ -17,7 +17,7 @@ import type { AgentRunResult } from "@usecases/ports/sdk-invoke-port";
 vi.mock("@frameworks/config", () => ({ getConfig: () => ({ circuitBreaker: {} }) }));
 
 /** 仅 SDK 模型执行替换为可控实现；锁、队列、链路由、AgentInvoker 与 DB 均走生产代码。 */
-describe("F20261026cnsv 原案 e2e：委托 drain 借道持有者原链 S", () => {
+describe("F20261027cnsv 原案 e2e：委托 drain 借道持有者原链 S", () => {
   let close: (() => void) | undefined;
   afterEach(() => { close?.(); close = undefined; });
 

@@ -1,5 +1,5 @@
 ---
-id: F20261026cnsv
+id: F20261027cnsv
 title: 海獭执行体并发语义定稿与 lock gap 治理（方案）
 doc_type: design
 
@@ -31,7 +31,7 @@ modules:
   - src/frameworks/agent/session-helpers.ts
   - src/interface-adapters/http/controllers/invoke-controller.ts
 
-created_at: 2026-10-26
+created_at: 2026-10-27
 created_in_conversation: a23f0f4a-612c-46e9-8d83-be648ced720e
 capability_test: "n/a: A 类并发控制与 HTTP 状态码由确定性单测/e2e 验证，无 LLM 行为判定"
 intent:

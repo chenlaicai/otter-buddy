@@ -165,7 +165,7 @@ describe("F20261020ided retryByOtter 判重去重", () => {
   });
 });
 
-describe("F20261026cnsv 通用 invoke retry 同口径判重", () => {
+describe("F20261027cnsv 通用 invoke retry 同口径判重", () => {
   function makeTargeted(latest: Invoke, sdkRunning: boolean) {
     const agentInvoker = { isRunning: vi.fn().mockReturnValue(sdkRunning), invokeConversation: vi.fn() };
     const dispatchChainEngine = { executeChain: vi.fn().mockResolvedValue(undefined) };

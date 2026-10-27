@@ -40,7 +40,7 @@ function setup() {
   return { callbacks, driver, input, statuses, systems, ends, invoke };
 }
 
-describe("F20261026cnsv queued terminal routing", () => {
+describe("F20261027cnsv queued terminal routing", () => {
   it("queued 收敛等待行，不重试、不伪造 yield 完成事件", async () => {
     const h = setup();
     const orchestrator = new AgentTurnOrchestrator(createTestLogger());

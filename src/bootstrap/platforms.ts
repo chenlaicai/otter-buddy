@@ -157,7 +157,7 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
       if (followOptions?.delegated) return options.agentGateway!.followUp(otterId, text, { delegated: true, reason: 'chain', delegatedOptions: { conversationId: followOptions.conversationId ?? '' } });
       return options.agentGateway!.followUp(otterId, text);
     } : undefined,
-    // F20261026cnsv 审视修复（Feb 发现 1）：单飞行拒绝的人话系统通知（send-entry 用例闭包）
+    // F20261027cnsv 审视修复（Feb 发现 1）：单飞行拒绝的人话系统通知（send-entry 用例闭包）
     systemEntryRepo: uc.sendEntry,
     // F20260826fpbd：搭档身份静态判定。未配置时 PartnerResolver 降级（动态推断）
     // F20260928wxid：双渠道 ID——微信消息也经链引擎渲染历史，搭档需被认出（含微信 ilink_user_id）

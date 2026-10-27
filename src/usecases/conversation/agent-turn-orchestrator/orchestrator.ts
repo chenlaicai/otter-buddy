@@ -255,7 +255,7 @@ export class AgentTurnOrchestrator {
         // 识别失败/写入失败不阻断 failTerminal（主路径），告警尽力而为。
         return this.handleApiError(reason, ctx);
       case 'delegation_rejected':
-        // F20261026cnsv 审视修复（Feb 发现 2）：背压拒绝——处置与 api_error 同路
+        // F20261027cnsv 审视修复（Feb 发现 2）：背压拒绝——处置与 api_error 同路
         // （failTerminal + invoke_end 人话文案；文案不含限流/超窗关键词，模式识别
         // 自然不命中，无需额外分支），分类差异仅体现在 metrics outcome 标签。
         return this.handleApiError(reason, ctx);

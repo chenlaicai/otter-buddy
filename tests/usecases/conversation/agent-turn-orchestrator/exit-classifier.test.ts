@@ -197,7 +197,7 @@ describe("extractGuardReason", () => {
   });
 });
 
-describe("F20261026cnsv 审视修复（Feb 发现 2）：DelegationInFlightError 独立归类", () => {
+describe("F20261027cnsv 审视修复（Feb 发现 2）：DelegationInFlightError 独立归类", () => {
   const noAbort = new Set<string>();
   const noInternalReason = () => undefined;
 

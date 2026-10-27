@@ -19,7 +19,7 @@ export type ExitReason =
   | { kind: 'user_abort'; toolCallCount: number; /** #752：用户中断时的底层 SDK 错误，用于中断归因 */ underlyingError?: AbortUnderlyingError }
   | { kind: 'guard_abort'; guardReason: string; toolCallCount: number }
   | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
-  /** F20261026cnsv 审视修复（Feb 发现 2）：D3 锁超时降级路径的 DelegationInFlightError
+  /** F20261027cnsv 审视修复（Feb 发现 2）：D3 锁超时降级路径的 DelegationInFlightError
    *  是背压显式拒绝而非 API 故障——单独归类，台账可区分「拒绝」与「故障」，
    *  避免背压污染 api_error 错误口径。处置行为与 api_error 同路（failTerminal +
    *  人话文案，实测无害），分类只为可观测性准确性。 */
@@ -50,7 +50,7 @@ export function extractGuardReason(
   return getInternalAbortReason(messageId);
 }
 
-/** F20261026cnsv 审视修复（Feb 发现 2）：错误退出分类——背压拒绝先于通用 api_error
+/** F20261027cnsv 审视修复（Feb 发现 2）：错误退出分类——背压拒绝先于通用 api_error
  *  判定（DelegationInFlightError 是 factory 单飞行防线的显式拒绝，非模型/API故障）。
  *  拆为独立函数：classifyExit 复杂度守恒（新增分类不突破 complexity 预算）。 */
 function classifyErrorExit(
