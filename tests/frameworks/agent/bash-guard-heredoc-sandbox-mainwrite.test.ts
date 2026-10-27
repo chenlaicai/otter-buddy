@@ -78,7 +78,7 @@ describe("#1542 E1 面：cp 动态源误拦保持放行 + E1e 目标落主仓收
   it("E1 源取证变体：cp <主仓>/package.json /tmp sg=true → 放行（源不判）", () => {
     expect(checkBashCommandSafety(`cp ${ROOT}/package.json /tmp/pkg.bak.json`, null, undefined, sg)).toBeNull();
   });
-  it("E1e cp $F <主仓>/x sg=true → BLOCK（修前 ALLOW，目标落主仓收紧）", () => {
+  it("E1e cp $F <主仓>/x sg=true → BLOCK（修前 ALLOW，目标落主仓收紧；$F 占源位，r1-1 语义修正后仍拦）", () => {
     expect(checkBashCommandSafety(`F=/tmp/a.txt; cp $F ${ROOT}/x.txt`, null, undefined, sg)).not.toBeNull();
   });
   it("E1e 字面目标 cp /tmp/a <主仓>/y sg=true → BLOCK", () => {
@@ -93,10 +93,61 @@ describe("#1542 E1 面：cp 动态源误拦保持放行 + E1e 目标落主仓收
   it("mv 工作区→/tmp sg=true → 放行（树外目标）", () => {
     expect(checkBashCommandSafety(`mv ${WS}/draft.txt /tmp/draft.txt`, null, undefined, sg)).toBeNull();
   });
-  it("cp 动态目标 cp a $D sg=true → 不拦（窄面：字面可见才判，沙箱物理接防兑底）", () => {
+  it("cp 动态目标 cp a $D sg=true → 不拦（窄面：字面可见才判，非 .git 落点沙箱物理接防兑底）", () => {
     expect(checkBashCommandSafety("D=/tmp/d.txt; cp /tmp/a.txt $D", null, undefined, sg)).toBeNull();
   });
   it("E1e sg=false 对照链 → BLOCK（求值器 argv 写面既有覆盖，防翻）", () => {
     expect(checkBashCommandSafety(`F=/tmp/a.txt; cp $F ${ROOT}/x.txt`, null, undefined, plain)).not.toBeNull();
+  });
+});
+
+describe("#1542 r1 处置：严重 1（头词占位修正——主仓源备份正道放行）", () => {
+  it("r1-1 P1a 主仓字面源+树外动态目标 → 放行（修后；修中版本曾误拦）", () => {
+    expect(checkBashCommandSafety(`D=/tmp/bak; cp ${ROOT}/package.json $D`, null, undefined, sg)).toBeNull();
+  });
+  it("r1-1 P1a 引号源形态 → 放行", () => {
+    expect(checkBashCommandSafety(`D=/tmp/bak; cp "${ROOT}/package.json" $D`, null, undefined, sg)).toBeNull();
+  });
+  it("r1-1 P1b cp -r 主仓目录 → $D → 放行", () => {
+    expect(checkBashCommandSafety(`D=/tmp/bak; cp -r ${ROOT}/docs $D`, null, undefined, sg)).toBeNull();
+  });
+  it("r1-1 单位置词 cp $F → 不判 dest", () => {
+    expect(checkBashCommandSafety("F=/tmp/a.txt; cp $F", null, undefined, sg)).toBeNull();
+  });
+  it("r1-1 全树外拷贝 → 放行（位置词基准回归零误拦）", () => {
+    expect(checkBashCommandSafety("cp /tmp/a.txt /tmp/x", null, undefined, sg)).toBeNull();
+  });
+});
+
+describe("#1542 r1 处置：严重 2（数据体剥除——#1304 语义对齐）", () => {
+  it("r1-2 P2a 数据体 heredoc 含 cp 主仓文本 → 放行", () => {
+    expect(checkBashCommandSafety(`cat > /tmp/notes.txt <<'EOF'\ncp /tmp/a.txt ${ROOT}/y.txt\nEOF`, null, undefined, sg)).toBeNull();
+  });
+  it("r1-2 P2c 数据体 mv 变体 → 放行", () => {
+    expect(checkBashCommandSafety(`cat > /tmp/notes.txt <<'EOF'\nmv /tmp/a.txt ${ROOT}/y.txt\nEOF`, null, undefined, sg)).toBeNull();
+  });
+  it("r1-2 剥体不误伤：真命令 heredoc 前后仍拦", () => {
+    expect(checkBashCommandSafety(`cp /tmp/a.txt ${ROOT}/y.txt; cat > /tmp/n.txt <<'EOF'\ndata\nEOF`, null, undefined, sg)).not.toBeNull();
+  });
+});
+
+describe("#1542 r1 处置：严重 3（.git 变量目标溯源接防——沙箱白名单兑底失实面）", () => {
+  it("r1-3 G=<主仓>/.git/hooks/pre-commit; cp /tmp/a.txt $G → BLOCK（检视探针修前 ALLOW）", () => {
+    expect(checkBashCommandSafety(`G=${ROOT}/.git/hooks/pre-commit; cp /tmp/a.txt $G`, null, undefined, sg)).not.toBeNull();
+  });
+  it("r1-3 G=<主仓>/.git; cp -r /tmp/x $G → BLOCK（目录形态）", () => {
+    expect(checkBashCommandSafety(`G=${ROOT}/.git; cp -r /tmp/x $G`, null, undefined, sg)).not.toBeNull();
+  });
+  it("r1-3 P3d 字面 .git 落点 → BLOCK 保持", () => {
+    expect(checkBashCommandSafety(`cp /tmp/a.txt ${ROOT}/.git/hooks/pre-commit`, null, undefined, sg)).not.toBeNull();
+  });
+  it("r1-3 树外变量目标溯源（D=/tmp/…）→ 放行保持", () => {
+    expect(checkBashCommandSafety("D=/tmp/dst; cp /tmp/a.txt $D", null, undefined, sg)).toBeNull();
+  });
+  it("r1-3 未溯源变量（无赋值）cp /tmp/a.txt $G → 放行（窄面不展开动态）", () => {
+    expect(checkBashCommandSafety("cp /tmp/a.txt $G", null, undefined, sg)).toBeNull();
+  });
+  it("r1-3 工作区变量目标 → 放行", () => {
+    expect(checkBashCommandSafety(`D=${WS}/out.txt; cp /tmp/a.txt $D`, null, undefined, sg)).toBeNull();
   });
 });

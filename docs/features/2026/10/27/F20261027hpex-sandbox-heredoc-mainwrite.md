@@ -74,13 +74,16 @@ F20261016gsbx 二期 2b「沙箱接防写面条件退役」把 `writeChannelSkip
 | E1a cp $F /tmp/bak | ALLOW | ALLOW | 防翻判断言（后续 PR 已修） |
 | cp <主仓>/package.json /tmp | ALLOW | ALLOW | 源不判（取证正道） |
 | cp 目标落工作区 / mv 工作区→/tmp | ALLOW | ALLOW | 豁免区/树外目标 |
-| cp a $D（动态目标） | ALLOW | ALLOW | 窄面只接字面，沙箱兑底 |
+| cp a $D（动态目标） | ALLOW | ALLOW | 窄面只接字面，非 .git 落点沙箱兑底 |
+| cp a $G（G 溯源到主仓 .git） | ALLOW | **BLOCK** | r1-3：沙箱白名单放行 .git，物理兑底失实的落点溯源接防 |
+| cp <主仓>/pkg $D（主仓源+树外动态目标） | ALLOW | ALLOW | r1-1：头词占位修正后放行（修中版本曾误拦） |
+| 数据体 heredoc 含 cp 主仓文本 | ALLOW | ALLOW | r1-2：输入剥体（#1304 语义），体文本非命令 |
 | sg=false 对照链（Y1/Y3/Y6/E1e） | BLOCK | BLOCK | 回归防翻 |
 
 ## 取舍
 
 1. **负门整体移出 vs 沙箱链重建体判定**：选前者——负门是既有基座（#1240/#1308/#1309 三轮演进），双链同跑口径天然对齐；重建专用体判定会产生第二套语义。代价：沙箱链上求值器 ALLOW 的写主仓形态（非 heredoc）仍由沙箱物理接防兜底——这是 2b 退役的既定设计，本次不动。
-2. **拷贝族窄规则只接字面目标**：变量目标（`cp a $D`）不拦。理论上 $D 可能源于赋值链可溯源，但 sg=false 链该形态由求值器 dynamic fail-closed 兜、sg=true 链沙箱物理拒写兜底——窄规则追求零误拦而非判定完备，与 2c 窄规则「面窄、自带消息」先例一致。
+2. **拷贝族窄规则只接字面目标**：变量目标（`cp a $D`）不拦——但 r1-3 修正：.git 落点是例外（沙箱白名单放行 .git，物理兑底失实），末位动态目标溯源到赋值链字面且落主仓 .git 子树时接防。其余落点变量目标由 sg=false 链求值器 dynamic fail-closed 兜、sg=true 链沙箱物理拒写兜底——窄规则追求零误拦而非判定完备，与 2c 窄规则「面窄、自带消息」先例一致。
 3. **拦截消息双段拼接**（`rewriteMainWriteBlockMsg` + `GUARD_CP_BLOCK_MSG`）：前半段保持 main_write 指纹分类归因兼容（healing 台账指纹不改），后半段说真话（沙箱链窄规则口径）。
 4. **Y4/Y5 形态实测修正**：案卷矩阵称 Y4/Y5「BLOCK 是因为工作区在写面内——不是机制正确」；本次实测（@e8e353a2）Y4 在 sg=true 下确为 BLOCK，但归因是**负门从未进过沙箱门控之外的路径**……实测修正：Y4 形态走 V1 文本链（parseOk=false）时 `checkPidIndependentRules` → `checkMainCheckoutWrite` 同样受门控影响，其 BLOCK 来自保留面段结构判定（`checkSegmentStructuralWrite` 未退役）+ 求值器回位路径。修后该形态保持 BLOCK（防翻断言固化），机制归因以测试断言为准。
 
@@ -88,11 +91,22 @@ F20261016gsbx 二期 2b「沙箱接防写面条件退役」把 `writeChannelSkip
 
 | 验证项 | 结果 |
 |---|---|
-| 新增测试（bash-guard-heredoc-sandbox-mainwrite.test.ts） | 24/24（Y 类 8 + 放行对照 6 + E1 面 10） |
-| 守卫族重点回归（gsbx-phase2 / bash-safety-guard / heredoc-body-strip / stdin-shell-feed / cd-forms-s1 / pipe-direct-exec） | 732/732 |
-| 全量 vitest | 441 文件 7040 通过 + 6 skipped，零回归 |
+| 新增测试（bash-guard-heredoc-sandbox-mainwrite.test.ts） | 38/38（Y 类 8 + 放行对照 6 + E1 面 10 + r1 处置 14） |
+| 守卫族重点回归（gsbx-phase2 / bash-safety-guard / heredoc-body-strip / stdin-shell-feed / cd-forms-s1 / pipe-direct-exec） | 756/756（含新增 38） |
+| 全量 vitest | 446 文件 7093 通过 + 6 skipped，零回归（r1 处置后） |
 | tsc --noEmit / eslint（改动文件） | 零错误 |
 | modelCdExemption 残留引用 | 全仓 grep 仅剩历史注释（bash-safety-guard/write-target-evaluator/测试文件的叙述性注释，指向历史行为非调用） |
+
+## 对抗审视 r1 处置（检视-1659，2026-10-27）
+
+r1 报告 3 严重 + 1 建议，全部落在拷贝族窄规则上（负门接防/死码清理/性能/文档主体验证通过）：
+
+- **严重 1（头词占位）**：位置词循环从索引 0 起算，头词 cp 计入 positionals，导致 `cp <主仓>/pkg $D`（主仓字面源+树外动态目标的备份正道）误拦，而 E1e 的 BLOCK 依赖 bug 凑数。处置：循环改从索引 1 起算（对齐求值器 copyFamilyArgs words.slice(1) 基准）+ 位置位消耗语义改为「非末位动态词占位（源位消耗）、末位动态词不判 dest」——`cp $F <主仓>/x` 的 $F 占源位使 <主仓>/x 成为末位 dest 照拦，`cp <主仓>/pkg $D` 的 $D 末位动态不判放行。
+- **严重 2（数据体泄漏）**：窄规则在原始命令上切段，数据体 heredoc 内的 `cp …主仓…` 文本被当真命令拦（#1304 同类回归）。处置：输入先 `stripHeredocPayloads` 剥体（与 checkPidIndependentRules 同款基座——python/node/shell 解释器体保持可见由体级判定承担）。
+- **严重 3（.git 兑底失实）**：「变量目标沙箱物理接防兑底」声明对 .git 落点失实——沙箱 profile 白名单 allow .git（bash-sandbox.ts，worktree git 操作需要），`G=<主仓>/.git/hooks/pre-commit; cp /tmp/a.txt $G` 端到端 ALLOW（可写 git 钩子执行面）。处置选「补判定」路径：末位动态目标若溯源到全命令赋值链字面且落主仓 .git 子树 → 拦（面窄：单变量词形，溯源失败不判）；非 .git 落点变量目标维持沙箱兑底（声明限制到真实面）。
+- **建议 4（子壳 pre-existing）**：`(cp … <主仓>/…)` 修前已 ALLOW 非 PR 回归，进日报候选池，不在本 PR 处置。
+
+r1 处置调试期还发现并修复一处处置引入的类型 bug（copySegmentTracedGitHit 返回 boolean，调用点误用 `!== null` 判断恒真，导致全树外拷贝误拦）——已被全树外回归断言拦截在合入前。修复后全量 446 文件 7093 通过零回归；r1 探针面（P1a/P1b/P2a/P2c/P3d/. git 溯源族）全部以 r1-* 标签并入正式测试。
 
 ## 后续
 
