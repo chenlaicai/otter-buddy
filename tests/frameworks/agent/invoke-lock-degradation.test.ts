@@ -89,6 +89,27 @@ describe("F20261026cnsv D2/D3 reliable delegated followUp", () => {
     }
   }, 10_000);
 
+  it("handoff 超时后锁标志先释放：仍不得向旧世注入", async () => {
+    const originalSet = h.internals.lockManager.setHandoffMode;
+    h.internals.lockManager.setHandoffMode = (key, value) => {
+      originalSet.call(h.internals.lockManager, key, value);
+      if (!value) h.internals.pool.adopt("otter-1", h.session);
+    };
+    vi.useFakeTimers();
+    try {
+      await h.hold();
+      h.internals.lockManager.setHandoffMode("session:otter-1", true);
+      h.internals.poolMeta.clear();
+      const pending = h.factory.invoke("otter-1", "不能注入旧世", { conversationId: "conv-1" });
+      const assertion = expect(pending).rejects.toThrow("目标海獭正在交接，消息未能送达，请稍后重试");
+      await vi.advanceTimersByTimeAsync(120_001);
+      await assertion;
+      await vi.waitFor(() => expect(h.healing.some((event) => (event.context as Record<string, unknown> | undefined)?.["reason"] === "handoff")).toBe(true));
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 10_000);
+
   it("池不可用：人话快速失败，不抛 Lock acquire timeout", async () => {
     await h.hold();
     h.internals.poolMeta.clear();

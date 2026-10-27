@@ -343,7 +343,8 @@ schema、不碰 CHECK 枚举、依赖面单一——过门通过，纳入本方�
   等待 invoke。D2 也检查 handoffMode，不向即将销毁的旧世注入。
 - D4 生产 probe 以 holder epoch 查 invoke 行，SDK 状态复用 `factory.isRunning`
   （池内 drain + activeSessions）；不可读行、探针异常、running+SDK 活及
-  completed+SDK 活均不 steal。D5 同时检查目标/同獭 running 行与 SDK 活跃。
+  completed+SDK 活均不 steal。D3 使用锁超时错误携带的 handoff 快照，避免
+  超时后锁释放造成二次判读并误注旧世。D5 同时检查目标/同獭 running 行与 SDK 活跃。
 - **未裁决边界**：D3 从 `AgentInvoker` 进入时，等待 invoke 已先于 SDK 调用创建。
   本实现 `handleQueued()` 将该等待行置 completed、发一次排队系统通知，不伪造
   speak/yield/turn.complete/invoke_end。这个行态选择对应 objection `713df696`，
@@ -359,7 +360,7 @@ schema、不碰 CHECK 枚举、依赖面单一——过门通过，纳入本方�
 | 场景 | 操作 | 预期/结果 |
 |---|---|---|
 | 修复前失败证据 | 独立 `origin/main@c65fc515` worktree 复跑 `session-lock-steal-probe` 与 `dispatch-chain-delegation` | 16 failed / 2 passed；日志 `baseline-fail.log`（对话工作区）。含旧链不走 delegated、completed drain 无 probe、异常探针被旧锁忽略 |
-| D2/D3/D4/D5 核心 | 六个新增/修改测试文件 | 2026-10-27 实现分支：37/37 passed；最终同步 main 后以 PR Verification 的完整命令为准 |
+| D2/D3/D4/D5 核心 | 六个新增/修改测试文件 | 38/38 passed（含 handoff 超时后锁释放竞态）；全量以 PR Verification 为准 |
 | drain 不误抢与链借道 | `dispatch-chain-drain-e2e.test.ts` + `invoke-lock-degradation.test.ts` | completed+SDK 活不 steal；B 续轮 speak/yield C 由原链 S 路由；不新建 B delegated invoke；healing 归 holder |
 | handoff / 已知限制 | `invoke-lock-degradation.test.ts` | 旧世不注入；第二委托拒绝；holder settle 清理；pool evict 清标志并留 healing；普通用户 followUp 不受单飞行限制 |
 | 静态检查 | `npx tsc --noEmit`、`npm run lint -- --quiet`、`git diff --check` | 聚焦/全仓检查按最终 PR 记录；Golden Gate n/a（A 类硬代码，无 prompt/skill/tool description 行为变更） |

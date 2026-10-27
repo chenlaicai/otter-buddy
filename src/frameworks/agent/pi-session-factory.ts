@@ -76,7 +76,7 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
-import { DelegationInFlightError, isSessionLockConflictError } from "@entities/errors";
+import { DelegationInFlightError, isSessionLockConflictError, SessionLockConflictError } from "@entities/errors";
 import { randomUUID } from "node:crypto";
 // F20261008tecn（EazoTack 工具瘦身 v1）：manifest toolExposure 段读取
 import { loadToolManifest, type ToolManifest } from "../config/tool-manifest-loader";
@@ -738,9 +738,8 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** D3：30s 锁冲突不再直接泄漏技术错误；handoff 旧世绝不注入。 */
-  private async degradeLockTimeout(otterId: string, message: string, options?: InvokeOptions): Promise<AgentRunResult> {
-    const key = `session:${otterId}`;
-    if (this.lockManager.isHandoffMode(key)) {
+  private async degradeLockTimeout(otterId: string, message: string, options: InvokeOptions | undefined, handoffAtTimeout: boolean): Promise<AgentRunResult> {
+    if (handoffAtTimeout) {
       await this.recordLockDegradation(otterId, options, 'handoff', false, '交接冻结窗口超时，拒绝向即将换世的旧 session 注入。');
       throw new Error('目标海獭正在交接，消息未能送达，请稍后重试');
     }
@@ -822,7 +821,7 @@ export class PiSessionFactory implements AgentGateway {
       try {
         release = await this.lockManager.acquire(`session:${otterId}`, undefined, epoch);
       } catch (err) {
-        if (isSessionLockConflictError(err)) return this.degradeLockTimeout(otterId, message, options);
+        if (isSessionLockConflictError(err)) return this.degradeLockTimeout(otterId, message, options, err instanceof SessionLockConflictError && err.handoffMode);
         throw err;
       }
       try {

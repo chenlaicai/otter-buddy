@@ -316,7 +316,7 @@ export class SimpleLockManager {
               activeLocks: this.locks.size,
             },
           );
-          reject(new SessionLockConflictError(`Lock acquire timeout for key: ${key}`));
+          reject(new SessionLockConflictError(`Lock acquire timeout for key: ${key}`, this.handoffModeKeys.has(key)));
         }, timeout)
       ),
     ]);

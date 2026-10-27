@@ -32,7 +32,7 @@ export const SESSION_LOCK_TIMEOUT_MESSAGE = 'Lock acquire timeout for key: ';
  *  能等到 30s acquire 超时的持有者必然是活跃方（人工调查、并行任务等）——
  *  scheduler 侧应记 skipped 而非 failed，不计入 consecutiveFailures。 */
 export class SessionLockConflictError extends Error {
-  constructor(message: string) {
+  constructor(message: string, /** D3：超时发生瞬间的交接状态，随后锁释放也不能改写。 */ public readonly handoffMode = false) {
     super(message);
     this.name = 'SessionLockConflictError';
   }
