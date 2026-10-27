@@ -3,6 +3,20 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { parseCommit, parseCommits, CHANGE_TYPE_WHITELIST } from "@usecases/health/commit-parser";
 
+describe("CommitParser FID 宽读兼容", () => {
+  it("宽读保留数字直连历史 commit，acceptance 收紧不造成 no_f_prefix", () => {
+    const result = parseCommit("legacy1", "[F202609048840][docs][BugFix] 历史编号回归");
+    expect(result.featureId).toBe("F202609048840");
+    expect(result.isCompliant).toBe(true);
+  });
+
+  it("显式 dash 新 commit 能完整提取 FID", () => {
+    const result = parseCommit("newdash", "[F20261027-59c4][docs][Feature Update] 日期边界可读化");
+    expect(result.featureId).toBe("F20261027-59c4");
+    expect(result.isCompliant).toBe(true);
+  });
+});
+
 describe("CommitParser", () => {
   describe("parseCommit", () => {
     it("should parse standard format commit", () => {
@@ -145,7 +159,6 @@ describe("CommitParser", () => {
       expect(result.skipReason).toBe("non_standard_format");
     });
 
-    // #671 回归：白名单 3→5 种，Refactor/Design 曾被误判 non_standard_format
     it.each([
       ["Refactor", "F20260903sdcp", "[F20260903sdcp][skills][Refactor] _shared 目录拆解 (#772)"],
       ["Design", "F20260826mwrd", "[F20260826mwrd][agent][Design] Magic Words 本地化重审与獭间信号协议设计文档 (#492)"],

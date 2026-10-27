@@ -66,6 +66,15 @@ describe('E1：日期校验函数 + FID + 无 now 注入（v1 主防线原样保
     );
     expect(results.filter((r) => r.severity === 'error')).toHaveLength(0);
   });
+  it("FID_DATE_RE 同时识别旧无分隔与新 dash 日期炸弹", () => {
+    for (const fid of ["F20260825abcd", "F20260825-abcd", "F202609048840"]) {
+      const results = scanFixture(
+        `tests/bad-${fid}.test.ts`,
+        `const result = validateCommitDate('[${fid}][agent][Feature Update] test');\n`,
+      );
+      expect(results.filter(r => r.pattern === "feature-id-date")).toHaveLength(1);
+    }
+  });
 });
 
 describe('E2：窗口写入 API 收到 ISO 字面量 / 字面量绑定变量（v2 新增）', () => {

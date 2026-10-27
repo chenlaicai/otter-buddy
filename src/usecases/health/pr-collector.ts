@@ -22,12 +22,12 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { FID_DATE_SEGMENT, FID_SUFFIX_SEGMENT } from "@entities/document/fid-format";
+import { FID_DATE_SEGMENT, FID_READ_SUFFIX_SEGMENT } from "@entities/document/fid-format";
 
 const execFileAsync = promisify(execFile);
 
 /** F/R ID 全局匹配正则（fid-format.ts 契约单一真相源；g 全局匹配，用时需先 reset） */
-const FID_GLOBAL_REGEX = new RegExp(`[FR]${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT}`, "g");
+const FID_GLOBAL_REGEX = new RegExp(`[FR]${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT}`, "g");
 
 /** 从任意文本提取全部 FID（去重，保持出现序） */
 export function extractFeatureIds(text: string | null | undefined): string[] {

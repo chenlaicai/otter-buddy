@@ -21,6 +21,34 @@ const BASE_FM = {
   change_type: "prompt",
 };
 
+describe("validateFeatureFrontmatter: F20261027-fidr 严格新写与存量豁免", () => {
+  it.each(["F2026090326c5", "F202609048840", "F2026090211v4", "F202609025itn", "F202608119glo"])(
+    "数字直连真实历史 ID %s 入库豁免", (id) => {
+      const r = validateFeatureFrontmatter(
+        { ...BASE_FM, id },
+        `docs/features/2026/09/04/${id}-legacy.md`,
+      );
+      expect(r.errors.some(e => e.includes("Invalid feature ID"))).toBe(false);
+    },
+  );
+
+  it("数字直连新 ID 不在白名单，严格拒绝", () => {
+    const r = validateFeatureFrontmatter(
+      { ...BASE_FM, id: "F2026102759c4" },
+      "docs/features/2026/10/27/F2026102759c4-new.md",
+    );
+    expect(r.errors.some(e => e.includes("Invalid feature ID"))).toBe(true);
+  });
+
+  it("显式 dash 新 ID 接受", () => {
+    const r = validateFeatureFrontmatter(
+      { ...BASE_FM, id: "F20261027-59c4" },
+      "docs/features/2026/10/27/F20261027-59c4-readable.md",
+    );
+    expect(r.errors.some(e => e.includes("Invalid feature ID"))).toBe(false);
+  });
+});
+
 describe("validateFeatureFrontmatter: 存量豁免清单（#667 LEGACY_FID_IDS）", () => {
   it("F20260731mmr（3 位后缀真存量，DB 同 id）放行不报 Invalid", () => {
     const r = validateFeatureFrontmatter(
@@ -72,12 +100,16 @@ describe("validateFeatureFrontmatter: 文件名 slug 后缀（#470 评论必查�
     expect(r.warnings.some((w) => w.includes("missing slug suffix"))).toBe(true);
   });
 
-  it("带 slug 后缀的文件名不报警告", () => {
-    const r = validateFeatureFrontmatter(
-      BASE_FM,
-      "docs/features/2026/08/27/F20260827test-lint-docs-enhance.md"
-    );
-    expect(r.warnings.some((w) => w.includes("missing slug suffix"))).toBe(false);
+  it("dash 裸 ID 文件名同样报 warning", () => {
+    const warnings: string[] = [];
+    validateFilenameSlug("docs/features/2026/10/27/F20261027-59c4.md", warnings);
+    expect(warnings.some(w => w.includes("missing slug suffix"))).toBe(true);
+  });
+
+  it("dash ID + slug 不误报", () => {
+    const warnings: string[] = [];
+    validateFilenameSlug("docs/features/2026/10/27/F20261027-59c4-readable.md", warnings);
+    expect(warnings.some(w => w.includes("missing slug suffix"))).toBe(false);
   });
 });
 

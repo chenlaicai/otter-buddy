@@ -10,8 +10,8 @@ import {
 } from "@entities/document/module-tags";
 
 /**
- * F20260924mseu 元测试：锁死 module-tags.ts 单一真相源 ↔ commit-msg hook ↔ ci.yml
- * 三处人工内联镜像的字符级一致。任何一侧单独改动立即变红（#667/#670 同款先例）。
+ * F20260924mseu 元测试：锁死 module-tags.ts 单一真相源 ↔ commit-msg hook ↔
+ * CI 标题检查脚本（F20261027-fidr 从 ci.yml 抽出）人工镜像的字符级一致。
  */
 
 const repoRoot = path.resolve(__dirname, "../../..");
@@ -24,21 +24,19 @@ function extractHookList(varName: string): string[] {
   return m[1].split(",").map((s) => s.trim().replace(/^'|'$/g, ""));
 }
 
-/** 从 ci.yml 报错文案中提取推荐词清单（推荐 X/Y/Z；格式） */
 function extractCiRecommended(): string[] {
-  const ciSrc = fs.readFileSync(path.join(repoRoot, ".github/workflows/ci.yml"), "utf-8");
+  const ciSrc = fs.readFileSync(path.join(repoRoot, "scripts/check-pr-title.mjs"), "utf-8");
   const line = ciSrc.split("\n").find((l) => l.includes("推荐 ") && l.includes("清单外开放"));
   const m = line?.match(/推荐 ([a-z/]+)；清单外开放/);
-  if (!m) throw new Error("ci.yml 中未找到推荐词清单");
+  if (!m) throw new Error("CI 标题检查脚本中未找到推荐词清单");
   return m[1].split("/");
 }
 
-/** 从 ci.yml 报错文案中提取黑名单（X/Y/Z 禁用，行内锚定模块规则行防误配） */
 function extractCiBanned(): string[] {
-  const ciSrc = fs.readFileSync(path.join(repoRoot, ".github/workflows/ci.yml"), "utf-8");
+  const ciSrc = fs.readFileSync(path.join(repoRoot, "scripts/check-pr-title.mjs"), "utf-8");
   const line = ciSrc.split("\n").find((l) => l.includes("禁用") && l.includes("清单外开放"));
   const m = line?.match(/([a-z/]+) 禁用/);
-  if (!m) throw new Error("ci.yml 中未找到黑名单清单");
+  if (!m) throw new Error("CI 标题检查脚本中未找到黑名单清单");
   return m[1].split("/");
 }
 
@@ -51,11 +49,11 @@ describe("模块位词表契约（F20260924mseu 单一真相源）", () => {
     expect(extractHookList("moduleBanned")).toEqual([...MODULE_BANNED_TAG_NAMES]);
   });
 
-  it("推荐词表 ↔ ci.yml 报错文案一致", () => {
+  it("推荐词表 ↔ CI 标题检查脚本报错文案一致", () => {
     expect(extractCiRecommended()).toEqual([...MODULE_RECOMMENDED_TAG_NAMES]);
   });
 
-  it("黑名单 ↔ ci.yml 报错文案一致", () => {
+  it("黑名单 ↔ CI 标题检查脚本报错文案一致", () => {
     expect(extractCiBanned()).toEqual([...MODULE_BANNED_TAG_NAMES]);
   });
 

@@ -40,7 +40,7 @@ export interface ParsedCommit {
   skipReason?: string;
 }
 
-import { FID_DATE_SEGMENT, FID_SUFFIX_SEGMENT } from "@entities/document/fid-format";
+import { FID_DATE_SEGMENT, FID_READ_SUFFIX_SEGMENT } from "@entities/document/fid-format";
 
 /**
  * 类型白名单：真相源为 commit-convention.md Type Tags 表与 .githooks/commit-msg（#671）。
@@ -60,12 +60,12 @@ function normalizeChangeType(raw: string): string {
 
 /** 标准三段格式正则：[FID][module][type]（#667：FID 段源自 fid-format.ts 单一真相源；#671：类型段由白名单生成） */
 const STANDARD_FORMAT_REGEX = new RegExp(
-  `^\\[F(${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[(${TYPE_PATTERN})\\]`
+  `^\\[F(${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[(${TYPE_PATTERN})\\]`
 );
 
 /** 三段结构探测正则（#425 发现 7）：类型段存在但值任意——用于区分「类型未识别」与「格式不合规」；捕获组结构与 STANDARD_FORMAT_REGEX 对齐（1=FID，2=module，3=类型） */
 const STRUCTURED_TYPE_SEGMENT_REGEX = new RegExp(
-  `^\\[F(${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[([^\\]]+)\\]`
+  `^\\[F(${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[([^\\]]+)\\]`
 );
 
 /** PR 号正则：取行尾最后一个 (#123)（检视发现 2：首匹配会把标题内 issue 引用错认为
@@ -100,7 +100,7 @@ export function parseCommit(sha: string, message: string): ParsedCommit {
   }
 
   // 非标准格式但有 F 前缀（缺类型段等格式问题）
-  const fPrefixMatch = firstLine.match(new RegExp(`^\\[F(${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT})\\]`));
+  const fPrefixMatch = firstLine.match(new RegExp(`^\\[F(${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT})\\]`));
   if (fPrefixMatch) {
     return createFPrefixResult(sha, message, fPrefixMatch, firstLine);
   }
@@ -115,7 +115,7 @@ function detectSkipReason(firstLine: string): string | null {
   if (firstLine.startsWith('fixup!')) return 'fixup_commit';
   if (firstLine.startsWith('init:') || firstLine.startsWith('Initial commit')) return 'init_commit';
   if (firstLine.startsWith('Revert ')) return 'revert_commit';
-  if (firstLine.match(new RegExp(`^\\[R${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT}\\]`))) return 'research_document';
+  if (firstLine.match(new RegExp(`^\\[R${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT}\\]`))) return 'research_document';
   return null;
 }
 

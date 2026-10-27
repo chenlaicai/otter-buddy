@@ -40,8 +40,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** 特性 ID 日期模式：F + 8 位数字日期 + 4-10 位后缀（v1 原样） */
-export const FID_DATE_RE = /F\d{8}[a-z0-9]{4,10}/g;
+/** 特性 ID 日期模式：F + 8 位日期 + 可选短横线 + 4–10 位后缀（F20261027-fidr）。 */
+export const FID_DATE_RE = /F\d{8}-?[a-z0-9]{4,10}/g;
 
 /** ISO 日期模式：YYYY-MM-DD（202x-209x 年）。不加 \b——后跟 T 时不匹配的坑（v1 教训） */
 export const ISO_DATE_RE = /\b20[2-9]\d-[01]\d-[0-3]\d(?=[^\d-]|$)/g;

@@ -9,7 +9,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
-import { FID_ANCHOR_REGEX } from "@entities/document/fid-format";
+import { FID_READ_ANCHOR_REGEX } from "@entities/document/fid-format";
 import { SqliteDispatchRecordRepository } from "@frameworks/db/dispatch/sqlite-dispatch-record-repository";
 import { pickOtterColor } from "@entities/otter/palette-picking";
 import { OTTER_PALETTE_KEYS } from "@contract/api/otter-palette";
@@ -1021,7 +1021,7 @@ function rebuildMemoryFtsJiebaDoubleWrite(db: Database.Database, logger: Logger)
       // 文档正文不含自身编号，ID 直查时确定性最强的目标反而 miss
       // 审视修复：正则改用 fid-format 真相源（{4,10}）
       const ftsText = (row.source_table === "features" || row.source_table === "research")
-        && FID_ANCHOR_REGEX.test(row.source_id)
+        && FID_READ_ANCHOR_REGEX.test(row.source_id)
         ? `${row.source_id} ${row.content}`
         : row.content;
       insert.run(row.id, tokenizeWithJieba(ftsText, { doubleWrite: true }));

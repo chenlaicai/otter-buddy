@@ -55,6 +55,22 @@ describe("F20260902rcq3 doc ID 锚点注入", () => {
     expect(r.c).toBeGreaterThanOrEqual(1);
   });
 
+  it.each([
+    ["F20261027-59c4", "feature", "features"],
+    ["R20261027-abcd", "research", "research"],
+    ["F202609048840", "feature", "features"],
+  ])("read 锚点注入新旧 ID %s", async (sourceId, contentType, sourceTable) => {
+    await repo.storeEntry(makeEntry({
+      sourceId,
+      contentType: contentType as MemoryEntry["contentType"],
+      sourceTable,
+    }));
+    const hit = db.prepare(
+      `SELECT COUNT(*) c FROM memory_fts_jieba WHERE memory_fts_jieba MATCH ?`,
+    ).get(`"${sourceId}"`) as { c: number };
+    expect(hit.c).toBeGreaterThanOrEqual(1);
+  });
+
   it("content 本体不被修改（只注入 FTS，原文保持）", async () => {
     const e = makeEntry();
     await repo.storeEntry(e);

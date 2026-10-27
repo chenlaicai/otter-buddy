@@ -3,10 +3,10 @@
 ## Message Format
 
 ```
-[FYYYYMMDDxxxx][module][type] 描述
+[FYYYYMMDD-xxxx][module][type] 描述
 ```
 
-- `FYYYYMMDDxxxx`: Feature number (immutable once assigned)。生成新 ID 前必须查重：`grep -rl '<title 或主题关键词>' <主仓>/docs/features/ <主仓>/docs/research/`（绝对路径——獭 bash cwd=对话工作区），存在同 title/语义相同文档则复用其 ID——跨 worktree 自编新 ID 会致旧 ID chunk 残留 memory 库；标题搜不到时改用主题关键词重试，仍无命中才可自编
+- `FYYYYMMDD-xxxx`: Feature number (immutable once assigned)。新 ID 统一推荐日期后显式短横线，如 `FYYYYMMDD-x59c4`；后缀为 4–10 位小写字母数字。字母开头无分隔（如 `FYYYYMMDDx59c4`）仅为历史/在途兼容，数字直连（如 `FYYYYMMDD59c4`）新写一律拒绝。生成新 ID 前必须查重：`grep -rl '<title 或主题关键词>' <主仓>/docs/features/ <主仓>/docs/research/`（绝对路径——獭 bash cwd=对话工作区），存在同 title/语义相同文档则复用其 ID——跨 worktree 自编新 ID 会致旧 ID chunk 残留 memory 库；标题搜不到时改用主题关键词重试，仍无命中才可自编
 - `module`: Affected subsystem name. 单一真相源 `src/entities/document/module-tags.ts`：推荐词表 loop/session/guard/context/web/im/conversation/memory/scheduler/skill/prompt/health/ci/docs/otterbar（各词用法见该文件）；开放集——清单外合法词允许使用；自指/兜底词 agent/runtime/core/system/general/misc/other 被 hook 与 CI 硬拒
 - `type`: One of `New Feature`, `Feature Update`, `BugFix`, `Refactor`, `Design`（与 Type Tags 表及 .githooks/commit-msg 白名单一致；`Feature` 为 `New Feature` 的历史别名，2026-08-25 起不再收录，存量提交见 git 历史）
 - `描述`: Chinese description of the change
@@ -42,7 +42,7 @@ Modification-Class: narrow-fix | scope-reduction | deletion | mechanism-addition
 If the change breaks existing behavior, add `[Incompatible]` before the description:
 
 ```
-[F<日期><id>][module][Feature Update][Incompatible] 描述
+[FYYYYMMDD-xxxx][module][Feature Update][Incompatible] 描述
 ```
 
 ## PR Title

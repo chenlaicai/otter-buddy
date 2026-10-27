@@ -13,7 +13,7 @@ import type { MemoryRepository } from "@usecases/memory/memory-repository";
 import type { MemoryReader } from "@usecases/memory/memory-reader";
 import type { MemoryWriter } from "@usecases/memory/memory-writer";
 import type { MemoryQueue } from "@usecases/memory/memory-queue";
-import { FID_ANCHOR_REGEX } from "@entities/document/fid-format";
+import { FID_READ_ANCHOR_REGEX } from "@entities/document/fid-format";
 import type { EmbedModelMeta } from "@usecases/memory/embedding-gateway";
 import {
   bufferToFloat32Array,
@@ -111,7 +111,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     // （Phase 0 复测归因：12/79 残留零召回属此类）。只注入 FTS，不改 content 本体。
     // 审视修复：正则改用 fid-format 真相源（{4,10}）——自编 {4} 漏掉 27 个长后缀文档
     const ftsText = (entry.sourceTable === "features" || entry.sourceTable === "research")
-      && FID_ANCHOR_REGEX.test(entry.sourceId)
+      && FID_READ_ANCHOR_REGEX.test(entry.sourceId)
       ? `${entry.sourceId} ${entry.content}`
       : entry.content;
     this.db.prepare(`
@@ -276,7 +276,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
         // FTS 换内容（与 insertEntryRow 相同的 ftsText 构造逻辑）
         this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(entry.id);
         const ftsText = (entry.sourceTable === "features" || entry.sourceTable === "research")
-          && FID_ANCHOR_REGEX.test(entry.sourceId)
+          && FID_READ_ANCHOR_REGEX.test(entry.sourceId)
           ? `${entry.sourceId} ${entry.content}`
           : entry.content;
         this.db.prepare(

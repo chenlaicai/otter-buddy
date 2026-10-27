@@ -15,12 +15,12 @@ import * as path from "node:path";
 import type { FileSystemGateway, DirEntry } from "@usecases/ports/file-system-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { parseFrontmatterFromContent } from "@usecases/document/frontmatter-parse";
-import { FID_DATE_SEGMENT, FID_SUFFIX_SEGMENT } from "@entities/document/fid-format";
+import { FID_DATE_SEGMENT, FID_READ_SUFFIX_SEGMENT } from "@entities/document/fid-format";
 
 /** 文件名提 ID：F20260803vmsg-xxx.md / R20260716x2k9-xxx.md / F20260803vmsg.md
  *  ID 段口径同 fid-format.ts 单一真相源（#667；旧副本 {3,8} 比契约窄，已对齐；
  *  下限 4 系实查最短后缀，见真相源头注释）*/
-const ID_FROM_FILENAME = new RegExp(`^([FR]${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT})(?:[-.]|$)`);
+const ID_FROM_FILENAME = new RegExp(`^([FR]${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT})(?:[-.]|$)`);
 
 /**
  * 递归扫描 dir，返回 id -> 绝对文件路径 的映射。
@@ -58,7 +58,7 @@ async function scanRec(
       continue;
     }
     if (!entry.name.endsWith(".md")) continue;
-    const id = await extractId(fs, full, entry.name);
+    const id = await extractId(fs, full, entry.name, logger);
     if (id) {
       // F20260804dcnv: 同 ID 冲突（两份文件 frontmatter 都损坏、文件名 ID 相同）
       // 静默覆盖会让被覆盖的文件双重消失--和本 PR 要修的 bug 同类。走 Logger
@@ -78,6 +78,7 @@ async function extractId(
   fs: FileSystemGateway,
   fullPath: string,
   filename: string,
+  logger?: Logger,
 ): Promise<string | null> {
   // 优先用 frontmatter（单一真相源；文件名只是兜底）
   try {
@@ -89,7 +90,12 @@ async function extractId(
   } catch {
     // fall through to filename
   }
-  // 兜底：从文件名提 ID（缺 frontmatter / frontmatter 损坏）
+  // 兜底：从文件名提 ID（缺 frontmatter / frontmatter 损坏）。dash 形态可能
+  // 与「F日期-自然语言词」撞形；候选仅供 reconcile，必须留下可观测告警，
+  // 不能静默把它当成 frontmatter 已验证的文档链。
   const m = filename.match(ID_FROM_FILENAME);
+  if (m) {
+    logger?.warn(`[disk-id-scanner] ${fullPath} frontmatter 缺失/损坏；${m[1]} 仅为文件名候选 ID，请人工核对。`);
+  }
   return m ? m[1] : null;
 }
