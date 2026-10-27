@@ -32,7 +32,7 @@ modules:
 | `data/patches/` | **有意存档**（本次补 ignore 消除视野噪声） |
 | `.pi/skills/adversarial-review/SKILL.md` 修改残留 | 真污染（修复獭先改主目录后建 worktree，顺序违规；内容已由 PR #1660 承载，主目录已 `git restore` 还原） |
 | `单批`（0 字节） | 真污染（`gh issue create --body "…"` 双引号内 markdown 反引号被 shell 命令替换执行，`> 单批` 重定向创建；同事故吞掉 issue #1657 body 两段文本，已用 `--body-file` 修复） |
-| `data/otter-buddy.db.bak-sweep-*`（3.7GB×2 组） | 任务收尾残留（#1051 清扫备份，任务闭环 7 天未删） |
+| `data/otter-buddy.db.bak-sweep-*`（两组合计约 3.7GB） | 任务收尾残留（#1051 清扫备份，任务闭环 7 天未删） |
 | `data/memory.sqlite`（0 字节） | 误创建（sqlite3 打开不存在路径自动建空库） |
 | `check-one.mjs`（symlink） | 残留（指向对话工作区的临时符号链接） |
 
