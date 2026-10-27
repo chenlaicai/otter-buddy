@@ -56,7 +56,17 @@ budget_bytes: 10750
 [ ] 8. 锚点抽查：N/M/K + 模型对照  [ ] 9. 信噪比：dismiss 率/不处置率/物件数  [ ] 10. 压缩观测：failed 计数
 [ ] 11. 产物对账：归档 N ｜ 存量 active M ｜ 待人工 K
 [ ] 12. worktree 收敛：自动清 N ｜ 跳过 OPEN M ｜ 待裁决 K
+[ ] 13. 循环熔断拦截：门拦截 N（误拦 M/真复犯 K/待判 L）｜ terminate J
 ```
+
+## 循环熔断拦截观测段（每日必看，「昨日」= UTC 日界）
+循环硬熔断门拦截（loop_tool_block healing 事件）是 b2 残余误伤面（滑窗熔断复犯拉黑的残余误伤，详见熔断器特性文档）的唯一观测源：
+
+1. **昨日计数与分布**：manage_healing_events(query, errorType=loop_tool_block) 昨日全量——总数 N、按工具 TOP3、涉及 otter 数；无拦截写「门拦截：0 条」（b2 残余面静默 = 好消息，也是数据）
+2. **误拦/真复犯判别**（逐条 context 核对）：拉黑后同 invoke 是否有后续 speak/yield 求援或换工具正常推进（误拦旁证，与 guard_intercept 同思路）；真复犯 = 拉黑后 invoke 仍反复撞同签名且无纠正
+3. **阈值告警**：单日 N > 20 → 日报标红「b2 残余面失控早期信号」，提议题：拉黑上限/TTL 缓解（熔断修复遗留选项）或签名区分度提级（见 issue 1653/1399 关联）
+4. **处置**：误拦样本 resolve 附判定依据；误拦同工具 ≥3 天复发 → 开 issue（标 1399 关联）；真复犯样本 resolve（防线正常工作）
+5. **熔断全景行**（日报固定一行）：`门拦截 N（误拦 M/真复犯 K/待判 L）｜ terminate J（circuit_break 事件）` —— 两层防线各自的量与质量一眼可见
 
 ## 守卫误拦样本固化段（「昨日」= UTC 日界）
 昨日 guard_intercept 样本是「修复-回归循环」原料：

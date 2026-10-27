@@ -901,6 +901,43 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /**
+   * F20261027lbos（#1656）：循环硬熔断门拦截落 healing_events（loop_tool_block，medium）。
+   * 与 buildGuardInterceptHook 同模式：fire-and-forget；仅记 toolName/reason 摘要，
+   * 签名可能含命令内容（脱敏取头 120 字符）。去重由 loopBlockGuard 内签名级集合负责，
+   * 此处不重复计数。healingRepo 缺失时返回 undefined（拦截照常，观测降级）。
+   */
+  private buildLoopBlockInterceptHook(
+    otterId: string,
+    ids: { messageId?: string; conversationId?: string },
+  ): ((input: { toolName: string; signature: string; reason: string }) => void) | undefined {
+    const healingRepo = this.cfg.healingRepo;
+    if (!healingRepo) return undefined;
+    return ({ toolName, signature, reason }) => {
+      healingRepo.create({
+        id: crypto.randomUUID(),
+        messageId: ids.messageId ?? "",
+        conversationId: ids.conversationId ?? "",
+        otterId,
+        errorType: "loop_tool_block",
+        severity: "medium",
+        description: `循环硬熔断门拦截：${toolName}（${signature.slice(0, 120)}）——${reason}`,
+        suggestion: "结合上下文判断误拦（正当节奏流撞 b2 残余面，#1653 D1-1）还是真复犯；误拦频发时升级 #1399（签名区分度）",
+        context: { toolName, signature: signature.slice(0, 120), reason },
+        status: "open",
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      }).catch((err: unknown) => {
+        this.logger.warn("loop_tool_block healing write failed (fire-and-forget)", {
+          otterId,
+          toolName,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    };
+  }
+
+  /**
    * F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本）。
    * fire-and-forget：失败仅记日志，不阻断拦截本身；healingRepo 缺失时返回 undefined。
    */
@@ -990,9 +1027,13 @@ export class PiSessionFactory implements AgentGateway {
     const guardSessionCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
     const guardSandboxed = this.sandboxGuardedBySession.get(session) ?? false;
     const guardOnIntercept = this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
+    // F20261027lbos（#1656）：循环硬熔断门拦截落 healing（loop_tool_block）——b2 残余
+    // 误伤面（#1653 D1-1）的唯一观测源。与 guardOnIntercept 同模式：fire-and-forget，
+    // healingRepo 缺失时 undefined（拦截照常，观测降级）。
+    const loopBlockOnIntercept = this.buildLoopBlockInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     return await otterInvokeStorage.run(
       // F20260826mwrd C1：otterId 进 store——tool_call handler 查 halt 标用
-      { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools, guardProjectRoot, guardSessionCwd, guardSandboxed, guardOnIntercept },
+      { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardSandboxed, guardOnIntercept },
       // eslint-disable-next-line max-statements, complexity -- F20260908rlcp: pool hit/miss 两条路径 + startup cursor push；F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
       async () => {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）

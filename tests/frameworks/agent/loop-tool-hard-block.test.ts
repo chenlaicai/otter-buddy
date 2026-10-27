@@ -212,3 +212,55 @@ describe("检测器报警 → 粘滞标记 → 门物理截断（集成，直攻
     expect(loopBlockGuard(store, "speak", { body: "停手声明" })).toBeUndefined();
   });
 });
+
+describe("F20261027lbos（#1656）：门拦截观测落账", () => {
+  it("拦截时调 loopBlockOnIntercept 钩子（签名+工具名+理由），放行/speak豁免不调", () => {
+    const map = new Map<string, string>([["create_linked_resource", "循环熔断警告"]]);
+    const calls: Array<{ toolName: string; signature: string; reason: string }> = [];
+    const store: OtterInvokeContext = {
+      otterPromptConfig: undefined,
+      identityPrefix: "",
+      otterId: "otter-obs-1",
+      loopBlockedTools: map,
+      loopBlockOnIntercept: (input) => calls.push(input),
+    } as OtterInvokeContext;
+
+    // 拦截 → 落账钩子带签名/工具名/理由
+    const blocked = loopBlockGuard(store, "create_linked_resource", { content: "x" });
+    expect(blocked?.block).toBe(true);
+    expect(calls.length).toBe(1);
+    expect(calls[0].toolName).toBe("create_linked_resource");
+    expect(calls[0].reason).toContain("循环熔断警告");
+    expect(calls[0].signature).toBeTruthy();
+
+    // speak 豁免 → 不落账
+    expect(loopBlockGuard(store, "speak", {})).toBeUndefined();
+    expect(calls.length).toBe(1);
+
+    // 未命中工具放行 → 不落账
+    expect(loopBlockGuard(store, "search_memory", {})).toBeUndefined();
+    expect(calls.length).toBe(1);
+
+    // 钩子缺失（降级配置）→ 拦截仍生效，不抛错（fail-open 落账，不阻断拦截本身）
+    const noHook: OtterInvokeContext = { otterPromptConfig: undefined, identityPrefix: "", otterId: "o", loopBlockedTools: map };
+    expect(loopBlockGuard(noHook, "create_linked_resource", {})?.block).toBe(true);
+  });
+
+  it("重复拦截去重：同签名多次拦截只落账首次（防高频拦截淹漫 healing 池）", () => {
+    const map = new Map<string, string>([["create_linked_resource", "循环熔断警告"]]);
+    const calls: Array<{ toolName: string; signature: string; reason: string }> = [];
+    const store: OtterInvokeContext = {
+      otterPromptConfig: undefined,
+      identityPrefix: "",
+      otterId: "otter-obs-1",
+      loopBlockedTools: map,
+      loopBlockOnIntercept: (input) => calls.push(input),
+    } as OtterInvokeContext;
+
+    // 同签名拦截 5 次 → 仅落账 1 次（去重集合同 Map 生命周期）
+    for (let i = 0; i < 5; i++) {
+      loopBlockGuard(store, "create_linked_resource", { content: `x${i}` });
+    }
+    expect(calls.length).toBe(1);
+  });
+});

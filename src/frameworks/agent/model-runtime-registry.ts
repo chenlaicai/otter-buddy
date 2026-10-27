@@ -321,6 +321,12 @@ export interface OtterInvokeContext {
   /** F20261026gobs delta-r1：拦截落 healing 钩子（与 abort 兑底链同一钩子）——门接管
    *  判定后观测面（guard_intercept healing 事件）不丢。 */
   guardOnIntercept?: (input: { command: string; reason: string }) => void;
+  /** F20261027lbos（#1656）：循环硬熔断门拦截落 healing 钩子——门拦截时上报
+   *  （签名+工具名+拉黑理由），写 healing loop_tool_block 事件；同签名去重防淹漫。
+   *  缺省时拦截照常（fail-open 落账，不阻断拦截本身）。 */
+  loopBlockOnIntercept?: (input: { toolName: string; signature: string; reason: string }) => void;
+  /** F20261027lbos：已落账签名去重集（与 loopBlockedTools 同生命周期）*/
+  loopBlockLoggedSignatures?: Set<string>;
 }
 
 export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
@@ -378,6 +384,18 @@ export function loopBlockGuard(
   const sig = buildToolSignature(toolName, input);
   const reason = map.get(sig);
   if (reason === undefined) return undefined;
+  // F20261027lbos（#1656）：拦截落账（同签名去重，只记首次）——loop_tool_block 事件
+  // 是 b2 残余误伤面（#1653 delta 审视 D1-1）的唯一观测源，缺失则体检失明。
+  // 懒初始化去重集（与 loopBlockedTools 同生命周期）；fail-open：钩子缺失/抛错不阻断拦截。
+  if (!store.loopBlockLoggedSignatures) store.loopBlockLoggedSignatures = new Set();
+  if (!store.loopBlockLoggedSignatures.has(sig)) {
+    store.loopBlockLoggedSignatures.add(sig);
+    try {
+      store.loopBlockOnIntercept?.({ toolName, signature: sig, reason });
+    } catch {
+      // 落账失败不阻断拦截
+    }
+  }
   return {
     block: true,
     reason: `「循环硬熔断」${toolName} 因重复调用触发循环熔断，本回合内已禁用（物理截断，${reason}）。请勿再调用 ${toolName}；如需继续请换用其他工具，或用 speak 汇报当前状态后调用 yield 交棒。`,
