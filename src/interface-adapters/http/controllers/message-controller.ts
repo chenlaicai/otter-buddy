@@ -398,30 +398,7 @@ export class MessageController {
           batchMaxSeq: params.batchMaxSeq,
         });
       },
-      callbacks: {
-        onDepthExceeded: async (pendingTargets, depth) => {
-          await this.handleChainDepthExceeded(conversationId, pendingTargets, depth);
-        },
-      },
     });
-  }
-
-  /** 发言链触顶：warn 日志 + 系统消息提示用户接管 */
-  private async handleChainDepthExceeded(
-    conversationId: string,
-    pendingTargets: string[],
-    depth: number,
-  ): Promise<void> {
-    this.logger.warn('发言链达到深度上限，交还用户', { depth, pendingTargets, conversationId });
-    // F20260913ctlv 彻底切换：链深通知只写 entries（system entry）
-    const { entry: sysEntry } = await this.sendEntry!.createSystemEntry({
-      conversationId,
-      body: `行动权接力已达系统安全上限（${depth} 跳），行动权交还给你。直接回复即可继续——所有参与者会看到未读消息。`,
-    });
-    if (this.messageBroadcaster) {
-      // F20260921urdo 契约收口：字段名统一 sequenceNum
-      this.messageBroadcaster.broadcastEvent(conversationId, { event: "entry.system", data: { entryId: sysEntry.id, content: sysEntry.body, sequenceNum: sysEntry.sequenceNum, createdAt: sysEntry.createdAt } });
-    }
   }
 
   /** 未读状态（消息级，基于 last_read_message_seq） */

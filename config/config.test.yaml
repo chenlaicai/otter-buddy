@@ -31,5 +31,4 @@ llm:
 circuitBreaker:
   # 能力测试应短平快：收紧工具调用上限与链深，防失控烧钱
   maxToolCalls: 25
-  maxChainDepth: 4
   maxPerEventTimeMs: 120000

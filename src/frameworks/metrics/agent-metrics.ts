@@ -18,7 +18,7 @@
  * - agent_compaction_total{reason, aborted}                         counter  SDK compaction 次数
  * - agent_session_rebuild_total                                     counter  session 重建次数（丢失/损坏/重启）
  * - agent_chain_hops                                                histogram 发言链 hop 数
- * - agent_chain_depth_exceeded_total                                counter  发言链触达深度上限次数
+ * - agent_chain_telemetry_gap_total                                 counter  计量缺口链数（仅观测）
  *
  * 口径（指标语义契约，重构不许漂移——见 F 文档"指标语义契约"节）：
  * - guard reason 归一化封闭枚举：degenerate_output | streaming_timeout | first_byte_timeout
@@ -69,7 +69,8 @@ export class AgentMetrics implements AgentMetricsPort {
   private readonly compactionTotal: Counter<string>;
   private readonly sessionRebuildTotal: Counter<string>;
   private readonly chainHops: Histogram<string>;
-  private readonly chainDepthExceededTotal: Counter<string>;
+  private readonly chainTokenUsage: Histogram<string>;
+  private readonly chainTelemetryGapTotal: Counter<string>;
   /** F20260821spcm: 旁白流失计数 */
   private readonly noYieldWithOrphanTextTotal: Counter<string>;
   private readonly synthesisTotal: Counter<string>;
@@ -99,7 +100,8 @@ export class AgentMetrics implements AgentMetricsPort {
 
     const chain = AgentMetrics.buildChainMetrics(registry);
     this.chainHops = chain.chainHops;
-    this.chainDepthExceededTotal = chain.chainDepthExceededTotal;
+    this.chainTokenUsage = chain.chainTokenUsage;
+    this.chainTelemetryGapTotal = chain.chainTelemetryGapTotal;
     this.noYieldWithOrphanTextTotal = chain.noYieldWithOrphanTextTotal;
     this.synthesisTotal = AgentMetrics.buildSynthesisMetric(registry);
   }
@@ -203,10 +205,8 @@ export class AgentMetrics implements AgentMetricsPort {
         help: "Dispatch chain hop count per chain",
         buckets: [1, 2, 3, 5, 8, 13, 20, 50, 100],
       }),
-      chainDepthExceededTotal: registry.counter({
-        name: "agent_chain_depth_exceeded_total",
-        help: "Dispatch chains that hit max depth",
-      }),
+      chainTokenUsage: registry.histogram({ name: "agent_chain_token_usage", help: "Known per-invoke token increments summed per chain; observation only", buckets: [1e3, 1e4, 1e5, 5e5, 1e6, 5e6, 1e7, 5e7] }),
+      chainTelemetryGapTotal: registry.counter({ name: "agent_chain_telemetry_gap_total", help: "Chains with missing per-invoke token telemetry; observation only" }),
       noYieldWithOrphanTextTotal: registry.counter({
         name: "agent_no_yield_orphan_text_total",
         help: "No-yield retries where LLM output direct text but never called speak (orphan text detection)",
@@ -275,8 +275,12 @@ export class AgentMetrics implements AgentMetricsPort {
     this.chainHops.observe(count);
   }
 
-  recordChainDepthExceeded(): void {
-    this.chainDepthExceededTotal.inc();
+  recordChainTokenUsage(tokens: number): void {
+    this.chainTokenUsage.observe(tokens);
+  }
+
+  recordChainTelemetryGap(): void {
+    this.chainTelemetryGapTotal.inc();
   }
 
   /** F20260821spcm: 旁白流失计数（按 otterId 分组） */

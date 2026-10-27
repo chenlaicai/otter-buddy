@@ -107,8 +107,9 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
       invoke: async () => {
         calls++;
         // 第二段（熔断重启后全新 invoke）正常 yield
-        if (calls >= 2) return { text: "" };
-        return Object.assign({ text: "" }, { _guardAbortReason: "degenerate_output" });
+        const tokenUsageDelta = calls >= 2 ? { input: 20, output: 10 } : { input: 10, output: 5 };
+        if (calls >= 2) return { text: "", tokenUsageDelta };
+        return Object.assign({ text: "", tokenUsageDelta }, { _guardAbortReason: "degenerate_output" });
       },
       abort: () => {}, getToolCallCount: () => 0, getInternalAbortReason: () => undefined,
     } as unknown as SdkInvokePort;
@@ -125,11 +126,12 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
     };
     const invoker = makeInvoker(sdk, wrappedEntry as never, { manageSession, healingRepo: healing.repo });
 
-    await invoker.invokeConversation({
+    const result = await invoker.invokeConversation({
       otterId: "otter-1", conversationId: "conv-1", userMessageContent: "Hi", senderId: "user-1",
     });
 
     expect(restarts).toBe(1);
+    expect(result.tokenUsageDelta).toMatchObject({ input: 30, output: 15 });
     expect(calls).toBeGreaterThanOrEqual(2);
     // circuit_break healing 事件已落账
     expect(healing.events.some(e => e.errorType === "circuit_break")).toBe(true);

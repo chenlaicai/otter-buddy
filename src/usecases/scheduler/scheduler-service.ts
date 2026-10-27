@@ -1510,7 +1510,7 @@ export class SchedulerService {
     //   max(2h, 2×静默窗)。判死/超上限 = 放弃等待（skipped 落账），非任务失败。
     //   链 settle 即返回，不与链竞速——短任务不被拖到静默窗满。
     // - 非链路径：单次 invoke 5 分钟一刀切（旧语义保留，无链可观测）。
-    // 链引擎自身有 maxChainDepth 安全限制，超时只是 scheduler 层的兜底防线。
+    // 链引擎不按资源形状停止正常协作；这里只负责 scheduler 自身的等待超时，不代表链已终止。
     if (this.dispatchChainEngine) {
       const chainPromise = this.dispatchChainEngine.executeChain({
         conversationId: task.conversationId,

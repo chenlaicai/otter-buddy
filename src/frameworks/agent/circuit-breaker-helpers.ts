@@ -17,6 +17,7 @@ import { RESTART_SERVICE_SCRIPT } from "./kill-block-messages";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { checkBashCommandSafety, readMainProcessPid, SLEEP_REASON_PREFIX, stripSleepMarkerIfPresent } from "./bash-safety-guard";
 import { loadAllowedServicePorts } from "./allowed-service-ports";
+import { diffTokenUsage, type TokenUsage } from "@usecases/conversation/token-usage";
 
 /**
  * #844（F20260914dsrv）：拦截文案动态附加 dev server 受控路径引导。
@@ -73,6 +74,10 @@ export interface AttachGuardsParams {
   /** F20261020hlbk（#1556）：per-turn 循环硬熔断标记（签名→理由）。检测器报警时写入，
    *  tool_call 门（loopBlockGuard）读到即物理阻断该工具后续调用。 */
   loopBlockedTools?: Map<string, string>;
+  /** F20261026gobs delta-r1（检视獭1646 S3）：tool_call 门（bashGuardGate）激活探测——
+   *  门激活时 bash 守卫判定由门单点拦下（显式 reason 落痕），abort 链不双拦
+   *  （SDK signal.aborted 会覆盖门的 reason）；门失活时 abort 链兑底。 */
+  guardGateActive?: () => boolean;
   /** F20261019gses P0 影子下线：onShadowEval（观察期对照回调）已删——主判定切
    *  evaluateWriteVerdict 后无「旧链 vs 新链」对照面。 */
 }
@@ -93,7 +98,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, sandboxGuarded: params.sandboxGuarded, loopBlockedTools: params.loopBlockedTools });
+  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, sandboxGuarded: params.sandboxGuarded, loopBlockedTools: params.loopBlockedTools, guardGateActive: params.guardGateActive });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
   const cb = getConfig().circuitBreaker;
@@ -123,11 +128,13 @@ export interface BuildInvokeResultParams {
   model: Model<Api>;
   logger: Logger;
   getModelAliasForLog: (otterId: string) => string;
+  tokenUsageBefore?: TokenUsage;
 }
 
 /** _buildInvokeResult 返回类型 */
 export interface BuildInvokeResultResult {
   text: string;
+  tokenUsageDelta?: TokenUsage;
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   ctxTokens?: number;
   ctxMax?: number;
@@ -145,7 +152,7 @@ export interface BuildInvokeResultResult {
 
 /** buildInvokeResult：构建 invoke 结果 */
 export function buildInvokeResult(params: BuildInvokeResultParams): BuildInvokeResultResult {
-  const { otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, getModelAliasForLog } = params;
+  const { otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, getModelAliasForLog, tokenUsageBefore } = params;
   const stats = session.getSessionStats();
   /** F20260923icus（#1149）：cache token 随快照透传——SDK SessionStats.tokens 本含四字段，
    *  此前只取 input/output 致 cache 数据在 invoke 落库链上丢失（健康面板 invoke 均值口径缺 cache）。 */
@@ -164,6 +171,7 @@ export function buildInvokeResult(params: BuildInvokeResultParams): BuildInvokeR
     ctxMax = model.contextWindow;
   }
   const result: BuildInvokeResultResult = buildResult("", tokenUsage, circuitBreaker, ctxMax, ctxTokens);
+  if (tokenUsageBefore) result.tokenUsageDelta = diffTokenUsage(tokenUsageBefore, tokenUsage);
   /** F20260814mtrc：模型别名随结果透传（metrics model label 数据源） */
   result.modelAlias = getModelAliasForLog(otterId);
   /** F20260903lngth：截断信号透传——length-stop 不抛错，不带上边界则下游无法感知 */
@@ -192,12 +200,13 @@ export interface BuildPromptResultParams {
   model: Model<Api>;
   logger: Logger;
   getModelAliasForLog: (otterId: string) => string;
+  tokenUsageBefore?: TokenUsage;
 }
 
 /** buildPromptResult：prompt 成功后的结果组装 + 首字节延迟埋点日志 */
 export function buildPromptResult(params: BuildPromptResultParams): BuildInvokeResultResult {
-  const { otterId, session, circuitBreaker, outputGuard, activeEntry, modelPool, otterConfigProvider, model, logger, getModelAliasForLog } = params;
-  const result = buildInvokeResult({ otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, logger, getModelAliasForLog });
+  const { otterId, session, circuitBreaker, outputGuard, activeEntry, modelPool, otterConfigProvider, model, logger, getModelAliasForLog, tokenUsageBefore } = params;
+  const result = buildInvokeResult({ otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, logger, getModelAliasForLog, tokenUsageBefore });
   const guardMeta = outputGuard.getMetadata();
   result.outputGuardMetadata = guardMeta;
   if (guardMeta.firstByteLatencyMs !== undefined) {
@@ -214,7 +223,7 @@ export function attachCircuitBreaker(
   otterId: string,
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
-  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void; sandboxGuarded?: boolean; loopBlockedTools?: Map<string, string> },
+  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void; sandboxGuarded?: boolean; loopBlockedTools?: Map<string, string>; guardGateActive?: () => boolean },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
   // F20260830bsgr：bash 安全守卫——读取主进程 PID
   // F20260830fabt-r2: 每次检查都实时读 PID 文件（不缓存），支持热重启换 PID
@@ -266,7 +275,9 @@ export function attachCircuitBreaker(
       if (toolName === "bash") {
         const args = (e.args ?? {}) as Record<string, unknown>;
         const command = typeof args.command === "string" ? args.command : "";
-        if (abortOnUnsafeBash(command, e.toolCallId)) return;
+        const guardHit = abortOnUnsafeBash(command, e.toolCallId);
+        if (guardHit === "aborted") return;
+        // deferred（门接管显式拦下）不 return：继续熔断计数——重复被拦命令由循环熔断兑住
       }
 
       const result = circuitBreaker.check(toolName, e.args);
@@ -314,23 +325,41 @@ export function attachCircuitBreaker(
    *  SLEEP_REASON_PREFIX 标记的 reason 时发射 `bash_sleep:`，否则 `bash_safety:`。判定用
    *  startsWith（delta-3 备注：精确匹配，禁用 includes），此发射点是 `bash_sleep:` 的唯一产源（D5a）。
    *  F20261019gses P0 影子下线：onShadowEval 影子记账（观察期对照机制）已删。 */
-  function abortOnUnsafeBash(command: string, toolCallId?: string): boolean {
-    const mainPid = getMainPid();
-    const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd, sandboxGuarded: options?.sandboxGuarded });
-    if (!rawSafetyBlock) return false;
-    const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
-    const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd(), command);
+  /** F20261026gobs delta-r1：拦截观测面（结构化日志 + healing）自 abortOnUnsafeBash 拆出——
+   *  门接管后本函数仍被兑底链与门共用语义参照，拆出控圈复杂度不改行为。 */
+  function recordGuardIntercept(command: string, reason: string, mainPid: number | null, kind: "sleep" | "safety"): void {
     logger.warn("[bash-safety-guard] BLOCKED dangerous bash command", {
       otterId,
       mainPid,
-      kind: isSleepBlock ? "sleep" : "safety",
+      kind,
       command: command.substring(0, 200),
     });
     // F20260831aksp T3：拦截落 healing（框架层 medium 样本；失败不阻断拦截本身）
-    options?.onGuardIntercept?.({ command, reason: safetyBlock });
+    options?.onGuardIntercept?.({ command, reason });
+  }
+
+  // eslint-disable-next-line complexity -- 守卫判定/引导文案/单点落账/门接管与 abort 降级五段同序，拆开会分散「同一次拦截只落一次账」不变量（F20261026gobs N1）
+  function abortOnUnsafeBash(command: string, toolCallId?: string): "aborted" | "deferred" | null {
+    const mainPid = getMainPid();
+    const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd, sandboxGuarded: options?.sandboxGuarded });
+    if (!rawSafetyBlock) return null;
+    const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
+    const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd(), command);
+    // delta-r2（检视獭1646 N1）：门激活时由门单点落 healing，abort 链不得双落（6h ≥3 次升级
+    // 计数与事件噪声会翻倍）；门失活时 abort 链仍负责落账，降级路径守恒。
+    if (!options?.guardGateActive?.()) {
+      recordGuardIntercept(command, safetyBlock, mainPid, isSleepBlock ? "sleep" : "safety");
+    }
     clearEventTimer(toolCallId);
+    // F20261026gobs delta-r1（检视獭1646 S3）：tool_call 门（bashGuardGate）已接管 bash 守卫判定
+    //（同源同参）——门在 beforeToolCall 以显式 reason 落痕返回 LLM；SDK prepareToolCall 的
+    // signal.aborted 检查先于 beforeResult.block（pi-agent-core agent-loop.js L500 vs L507），
+    // 此处若同时 abort 会把门的显式理由覆盖成 "Operation aborted"（双拦=显式落痕失效）。
+    // 故门激活时交由门单点拦下（不 abort、事件流继续——重复被拦命令由循环熔断计数兑住）；
+    // 门失活（store 缺失等 fail-open）时此处兑底 abort——降级不降安全。
+    if (options?.guardGateActive?.()) return "deferred";
     doAbort(isSleepBlock ? `bash_sleep:${safetyBlock}` : `bash_safety:${safetyBlock}`);
-    return true;
+    return "aborted";
   }
 
   const originalUnregister = unregisterToolCall;
@@ -357,7 +386,7 @@ export function buildResult(
   return {
     text,
     tokenUsage: tokenUsage
-      ? { input: tokenUsage.input, output: tokenUsage.output }
+      ? { input: tokenUsage.input, output: tokenUsage.output, cacheRead: tokenUsage.cacheRead, cacheWrite: tokenUsage.cacheWrite }
       : undefined,
     ctxTokens,
     ctxMax,

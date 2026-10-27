@@ -93,15 +93,20 @@ describe("loadConfig", () => {
     expect(cfg.embedding.dimensions).toBe(1024);
     expect(cfg.embedding.modelPath).toBe("Xenova/bge-m3");
     expect(cfg.embedding.localModelPath).toBeUndefined();
-    expect(cfg.circuitBreaker.maxChainDepth).toBe(100);
+    expect(cfg.circuitBreaker).not.toHaveProperty("maxChainDepth");
+    expect(cfg.circuitBreaker).not.toHaveProperty("maxChainTokens");
+    expect(cfg.circuitBreaker).not.toHaveProperty("chainDepthSoftLimit");
+    expect(cfg.circuitBreaker).not.toHaveProperty("stalledCycleHopLimit");
   });
 
-  it("overrides maxChainDepth from yaml", () => {
+  it("旧链资源阈值即使残留也不会重新变成停止配置", () => {
     mockExistsSync.mockReturnValue(true);
-    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "circuitBreaker:\n  maxChainDepth: 3\n");
-
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "circuitBreaker:\n  maxChainDepth: 3\n  maxChainTokens: 150\n  chainDepthSoftLimit: 80\n  stalledCycleHopLimit: 12\n");
     const cfg = loadConfig();
-    expect(cfg.circuitBreaker.maxChainDepth).toBe(3);
+    expect(cfg.circuitBreaker).not.toHaveProperty("maxChainDepth");
+    expect(cfg.circuitBreaker).not.toHaveProperty("maxChainTokens");
+    expect(cfg.circuitBreaker).not.toHaveProperty("chainDepthSoftLimit");
+    expect(cfg.circuitBreaker).not.toHaveProperty("stalledCycleHopLimit");
   });
 
   it("F20260829cach: cacheLongRetention 缺省 true，可显式关闭", () => {

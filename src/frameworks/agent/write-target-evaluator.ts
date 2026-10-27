@@ -1055,10 +1055,27 @@ function evalScriptWriteTargets(script: string, argvMap: Map<number, string>, va
   // 修 F20261015smrj 通道 a（词面失明）：pathlib.Path(lit).write_text/write_bytes——路径在接收者
   //  Path 构造里。变量接收者 f.write_text 不入本通道（未识别目标 → 不可证，但无路径字面量写证据），
   //  试金石 TS-19e22576 良性保留。
+  // F20261026gpg1 连带（M-a09944aa①）：同一接收器位置的写方法族补齐——mkdir/rmdir/unlink/
+  //  touch/rename/replace/symlink_to/hardlink_to。词面层（PAYLOAD_WRITE_FACE 同步扩族）负责
+  //  洗白门，本通道负责树内合法写的落点提取（提取到 worktree 落点 → 放行侧保持，不因词面
+  //  加严而误伤——两闸分工与 write_text 先例一致）。变量接收者 p.mkdir() 同 TS-19e22576 不入。
   for (const m of script.matchAll(/Path\s*\(\s*["']([^"']*)["']\s*\)\s*\.\s*write_(?:text|bytes)\s*\(/g)) {
     const arg = resolveScriptArg(`"${m[1]}"`, argvMap, varEnv);
     if (arg === null) return null;
     paths.push(arg);
+  }
+  // F20261026gpg1：Path(lit).mkdir/rmdir/unlink/touch/symlink_to/hardlink_to（单落点 = 接收器构造）
+  for (const m of script.matchAll(/Path\s*\(\s*["']([^"']*)["']\s*\)\s*\.\s*(?:mkdir|rmdir|unlink|touch|symlink_to|hardlink_to)\s*\(/g)) {
+    const arg = resolveScriptArg(`"${m[1]}"`, argvMap, varEnv);
+    if (arg === null) return null;
+    paths.push(arg);
+  }
+  // F20261026gpg1：Path(lit).rename/replace（双参：接收器 = src，首参字面量 = dst）
+  for (const m of script.matchAll(/Path\s*\(\s*["']([^"']*)["']\s*\)\s*\.\s*(?:rename|replace)\s*\(\s*["']([^"']*)["']/g)) {
+    const src = resolveScriptArg(`"${m[1]}"`, argvMap, varEnv);
+    const dst = resolveScriptArg(`"${m[2]}"`, argvMap, varEnv);
+    if (src === null || dst === null) return null;
+    paths.push(src, dst); // 双落点：src 侧删除、dst 侧创建，任一命中主仓均拦（保守正确）
   }
   //  通道 a：os.chmod/chown/utime/truncate、np.save/savez/extractall —— 首参即落点
   for (const m of script.matchAll(/\b(?:os\.(?:chmod|chown|utime|truncate)|np\.(?:save|savez|savez_compressed)|\w+\.extractall)\s*\(\s*([^,)]+)/g)) {

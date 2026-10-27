@@ -451,7 +451,6 @@ export function createTestApp(deps: TestDeps): Hono {
     conversationRepo: deps.conversationRepo,
     queryOtter: deps.queryOtter,
     logger,
-    maxChainDepth: 20,
   });
 
   // F20260817bcst 对抗审视 T2：改用**真实** MessageBroadcaster（裸总线 = web-only 形态），
