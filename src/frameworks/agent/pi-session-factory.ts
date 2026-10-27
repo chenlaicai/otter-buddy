@@ -42,6 +42,41 @@ import { diffTokenUsage, type TokenUsage } from "@usecases/conversation/token-us
  */
 export { classifyGuardInterceptReason };
 
+/**
+ * F20261027lbos（#1656）：循环硬熔断门拦截落 healing 的钩子构造（从 PiSessionFactory
+ * 提出为独立函数供单测——payload 形态是体检段消费契约，seed 与生产脱节先例见
+ * agent-invoker-guard-bounce.test.ts:78-81 注记）。
+ */
+export function buildLoopBlockInterceptHook(
+  healingRepo: Pick<HealingEventRepository, "create"> | undefined,
+  otterId: string,
+  ids: { messageId?: string; conversationId?: string },
+): ((input: { toolName: string; signature: string; reason: string }) => void) | undefined {
+  if (!healingRepo) return undefined;
+  return ({ toolName, signature, reason }) => {
+    void healingRepo
+      .create({
+        id: crypto.randomUUID(),
+        messageId: ids.messageId ?? "",
+        conversationId: ids.conversationId ?? "",
+        otterId,
+        errorType: "loop_tool_block",
+        severity: "medium",
+        description: `循环硬熔断门拦截：${toolName}（${signature.slice(0, 120)}）——${reason}`,
+        suggestion:
+          "结合上下文判断误拦（正当节奏流撞 b2 残余面）还是真复犯；误拦频发时升级签名区分度修复（issue 1399）",
+        context: { toolName, signature: signature.slice(0, 120), reason },
+        status: "open",
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      })
+      .catch(() => {
+        // fire-and-forget：落账失败不阻断拦截（上层无 logger 引用，静默降级）
+      });
+  };
+}
+
 export function buildGuardInterceptContext(
   command: string,
   reason: string,
@@ -978,35 +1013,14 @@ export class PiSessionFactory implements AgentGateway {
    * 签名可能含命令内容（脱敏取头 120 字符）。去重由 loopBlockGuard 内签名级集合负责，
    * 此处不重复计数。healingRepo 缺失时返回 undefined（拦截照常，观测降级）。
    */
+  /**
+   * F20261027lbos（#1656）：循环硬熔断门拦截落 healing——委托导出函数 buildLoopBlockInterceptHook（单测覆盖 payload 形态）。
+   */
   private buildLoopBlockInterceptHook(
     otterId: string,
     ids: { messageId?: string; conversationId?: string },
   ): ((input: { toolName: string; signature: string; reason: string }) => void) | undefined {
-    const healingRepo = this.cfg.healingRepo;
-    if (!healingRepo) return undefined;
-    return ({ toolName, signature, reason }) => {
-      healingRepo.create({
-        id: crypto.randomUUID(),
-        messageId: ids.messageId ?? "",
-        conversationId: ids.conversationId ?? "",
-        otterId,
-        errorType: "loop_tool_block",
-        severity: "medium",
-        description: `循环硬熔断门拦截：${toolName}（${signature.slice(0, 120)}）——${reason}`,
-        suggestion: "结合上下文判断误拦（正当节奏流撞 b2 残余面，#1653 D1-1）还是真复犯；误拦频发时升级 #1399（签名区分度）",
-        context: { toolName, signature: signature.slice(0, 120), reason },
-        status: "open",
-        resolution: null,
-        createdAt: new Date().toISOString(),
-        resolvedAt: null,
-      }).catch((err: unknown) => {
-        this.logger.warn("loop_tool_block healing write failed (fire-and-forget)", {
-          otterId,
-          toolName,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    };
+    return buildLoopBlockInterceptHook(this.cfg.healingRepo, otterId, ids);
   }
 
   /**

@@ -11,6 +11,11 @@ causal_links:
   - "#1399（签名区分度治本，上游）"
 tags: [circuit-breaker, observability, healing, health-check]
 modules: [src/frameworks/agent/model-runtime-registry.ts, src/frameworks/agent/pi-session-factory.ts, src/entities/healing/healing-event.ts, prompts/scheduled/daily-health-check.md]
+intent:
+  problem: 熔断门拦截（loopBlockGuard）与 S1 复犯拉黑零观测——历史 8 天 239 次拦截只活在 session 转录，b2 残余误伤面（D1-1）真实发生率不可知，搭档明确反馈系统必须自证拦截面不依赖人类观察
+  solution: 复刻 bashGuardGate→guardOnIntercept→healingRepo 既有模式接入第二数据源：门拦截签名级去重落 healing（loop_tool_block）+ 体检每日消费（计数分布/误拦判别/阈值告警/全景行）
+  verify_by:
+    type: static_only
 created_at: 2026-10-27
 ---
 
@@ -65,6 +70,9 @@ Modification-Class: `narrow-fix`
 ## 6. 影响面与遗留
 
 - **数据面**：上线即开始积累 loop_tool_block 样本；首个 24h 体检将给出 b2 残余面的第一份真实数据（此前只能靠检视獭离线复现）
-- **不影响**：拦截行为本身（钩子 fail-open）、terminate 落账、guard_intercept 生态、体检既有段
-- **遗留**：误拦判别目前靠体检獭逐条人工核对 context——样本量大后可考虑自动化（拉黑后同 invoke 事件序列分析），先人工验证判别准则可靠性
-- **关联**：#1399（签名区分度治本）仍是误拦率的根本解，本 PR 只保证「知道有多少误拦」
+- **体检既有段**：受 budget_bytes=10750 硬预算约束，新增观测段（~740B）需等量出清。出清两轮（检视 S1 证伪第一轮声明）：
+  - 第一轮（commit 461087f9）：压缩 9 段后被检视逐段 diff 证伪「无损」——4 处判定/处置语义被删（:18 hook fallback 失衡计入异常、:87 不成立提 issue/无理由 halt 提 issue、:82 逐条仅限异质、:96 缺声明照判缺记录）+ 7 处轻量删改（检视 A3 清单）。教训：lint:criteria 12/12 只整 12 条登记子串，佐证不了未登记子句的存留。
+  - 第二轮（本 commit）：恢复 S1 四处 + A3 ①②⑤ + 不变式子句（失败附断言原文+实际内容/regression-verify 到期回查/搭档拍板），出清源改为真解释性内容与清单去重（全景行与清单 13 同源合并）——lint:criteria 12/12 + budget 0 超预算双闸验证后收笔。
+- **不影响**：拦截行为本身（钩子 fail-open）、terminate 落账、guard_intercept 生态、体检段判定语义（已恢复+双闸验证）
+- **遗留**：误拦判别目前靠体检獭逐条人工核对 context + 同 invoke 转录对照——样本量大后可自动化，先人工验证判别准则；仓库级灰窗（change_type=fix 无 intent 可静默过 lint）→ 检视建议另行评估，非本 PR 处置项
+- **关联**：#1399（签名区分度治本）仍是误拦率根本解，本 PR 只保证「知道有多少误拦」

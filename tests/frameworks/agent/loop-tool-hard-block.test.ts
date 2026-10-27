@@ -9,6 +9,47 @@
  * 修复回退（mark 不写）→ 集成断言失败——见 PR Verification 节。
  */
 import { describe, it, expect, vi } from "vitest";
+import { buildLoopBlockInterceptHook } from "@frameworks/agent/pi-session-factory";
+
+describe("F20261027lbos：buildLoopBlockInterceptHook（factory 层 payload 形态，检视 A4）", () => {
+  it("拦截上报 → healingRepo.create 收到完整 payload（errorType/severity/context 形态）", async () => {
+    const events: unknown[] = [];
+    const repo = {
+      create: (e: unknown): Promise<void> => {
+        events.push(e);
+        return Promise.resolve();
+      },
+    };
+    const hook = buildLoopBlockInterceptHook(repo, "otter-obs-9", { messageId: "m1", conversationId: "c1" });
+    expect(hook).toBeDefined();
+
+    hook!({ toolName: "create_linked_resource", signature: "x".repeat(200), reason: "循环熔断警告" });
+    await new Promise((r) => setTimeout(r, 0)); // fire-and-forget 微任务冲洗
+
+    expect(events.length).toBe(1);
+    const e = events[0] as Record<string, unknown>;
+    expect(e.errorType).toBe("loop_tool_block");
+    expect(e.severity).toBe("medium");
+    expect(e.otterId).toBe("otter-obs-9");
+    expect(e.messageId).toBe("m1");
+    expect(e.conversationId).toBe("c1");
+    expect(e.status).toBe("open");
+    const ctx = e.context as { toolName: string; signature: string; reason: string };
+    expect(ctx.toolName).toBe("create_linked_resource");
+    expect(ctx.signature.length).toBe(120); // 签名脱敏截断 120
+    expect(ctx.reason).toBe("循环熔断警告");
+    expect(String(e.description)).toContain("create_linked_resource");
+  });
+
+  it("repo 缺失 → undefined（拦截照常，观测降级）；repo 拒绝 → 不抛错（fail-open）", async () => {
+    expect(buildLoopBlockInterceptHook(undefined, "o", {})).toBeUndefined();
+
+    const badRepo = { create: () => Promise.reject(new Error("db down")) };
+    const hook = buildLoopBlockInterceptHook(badRepo, "o", {});
+    expect(() => hook!({ toolName: "bash", signature: "bash: git", reason: "r" })).not.toThrow();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+});
 import { attachCircuitBreaker } from "@frameworks/agent/circuit-breaker-helpers";
 import { loopBlockGuard, type OtterInvokeContext } from "@frameworks/agent/model-runtime-registry";
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "@frameworks/agent/tool-call-circuit-breaker";

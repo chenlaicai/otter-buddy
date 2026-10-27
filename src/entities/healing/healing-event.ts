@@ -24,9 +24,11 @@ export type HealingErrorType =
   | 'timeout_retry_exhausted'
   /** F20260904tflp：工具使用感受反馈（海獭主动报难用/多余/过度设计；description 以 [tool:工具名] 前缀标识） */
   | 'tool_use_feedback'
-  /** F20261027lbos（#1656）：循环硬熔断门拦截（tool_call 层物理截断，b2 残余误伤面的观测源）。
-   *  与 circuit_break 分界：那是 strike 涨满的 terminate（杀 invoke），这是门拦截
-   *  （拦工具不杀 invoke，#1655 生产语义）——两者处置方向不同（误拦排查 vs 行为纠正） */
+  /** F20261027lbos（#1656）：循环硬熔断门拦截（tool_call 层物理截断）。
+   *  分账口径（判定内容原则，非主语）：guard_intercept 判「命令危险」=对獭动作的评价→
+   *  capability；本类型判「签名命中拉黑表」=机械状态触发，不含当次调用意图判断（b2
+   *  残余面恰证明当次调用可完全正当）→environment，与 circuit_break（strike 涨满执行）
+   *  同构。残余风险：真复犯事件同落环境账不进獭能力账，由体检段真复犯 K 分列补偿。 */
   | 'loop_tool_block'
   | 'other';
 
@@ -47,8 +49,8 @@ export const HEALING_ENVIRONMENT_TYPES: readonly HealingErrorType[] = [
   'tool_failure',   // 工具故障/超时/429（环境侧）
   'rate_limit',     // 模型配额耗尽（供应商侧）
   'context_overflow', // #1247：注入超窗（模型窗口容量侧——环境给定，非獭能力失败）
-  'circuit_break',  // 熔断执行（系统保护动作）
-  'loop_tool_block', // F20261027lbos：门拦截（系统保护动作，同 circuit_break 口径——拦的是工具不是獭）
+  'circuit_break',  // 熔断执行（系统保护动作，判「strike 涨满」机械状态）
+  'loop_tool_block', // 门拦截（系统保护动作，判「签名命中拉黑表」机械状态——分账口径见枚举处注释）
   'self_restart',   // 自重启执行（系统保护动作）
   // F20260922txes：超时自动重试耗尽（环境侧——超时是模型/网络环境信号，非獭能力失败；
   // 漏入本清单会被 classifyHealingErrorType 兜底归 capability，daily-review 误读为獭能力失败）
