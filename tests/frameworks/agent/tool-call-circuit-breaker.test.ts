@@ -517,12 +517,15 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
 
     // A-B-C ×6（18 次调用）触发首次滑窗 steer（能力断言保留：跨工具交替循环抓得住）
     let steerSeen = false;
+    let steerResult: { blocked?: boolean; reason?: string } | null = null;
     const tools = ["A", "B", "C"];
     for (let i = 0; i < 18; i++) {
       const result = cb.check(tools[i % 3]);
-      if (result.action === "steer") { steerSeen = true; break; }
+      if (result.action === "steer") { steerSeen = true; steerResult = result; break; }
     }
     expect(steerSeen).toBe(true);
+    expect(steerResult?.blocked).toBe(true); // 旧 AC-8 能力断言回补（#1653 检视发现 3）
+    expect(steerResult?.reason).toContain("Repeating tool call pattern");
     // F20261027cbfp：steer 后清窗进入未成熟期——紧接着的同模式调用不再连发 steer
     //（重灌满 18 条前不判定），这是修复「窗口残留致 strike 快速涨满」的预期行为。
     const after = cb.check("A");
@@ -631,5 +634,41 @@ describe("F20261027cbfp：滑窗误伤修复（#1653）", () => {
       if (lastAction === "terminate") break;
     }
     expect(lastAction).toBe("terminate");
+  });
+
+  it("S1 回归：B-3 连发+变调穿插的间歇复犯——同签名第 2 次 steer 标记 repeatOffender（交由门物理拦截）", () => {
+    const cb = new ToolCallCircuitBreaker(
+      makeConfig({
+        slidingWindowSize: 6,
+        slidingWindowRepeat: 3,
+        maxRepeatAfterWarning: 5,
+      }),
+      "otter-1",
+      createTestLogger(),
+    );
+
+    // 检视实证逃逸构造：[clr×6 + 7 个变化工具]×周期。
+    // 无 repeatOffender 时：strike 每周期被穿插 allow 洗掉、滑窗多重集永不命中 → 780 次 0 terminate
+    let clrSteerCount = 0;
+    let repeatOffenderSeenAt = -1;
+    let terminated = false;
+    for (let cycle = 0; cycle < 60 && !terminated; cycle++) {
+      for (let i = 0; i < 6; i++) {
+        const r = cb.check("create_linked_resource");
+        if (r.action === "steer") {
+          clrSteerCount++;
+          if (r.repeatOffender && repeatOffenderSeenAt < 0) repeatOffenderSeenAt = cycle;
+        }
+        if (r.action === "terminate") { terminated = true; break; }
+      }
+      // 7 个变化工具（每周期全新签名）——LLM 复犯时的天然穿插形态
+      for (let i = 0; i < 7; i++) {
+        const r = cb.check(`vary_${cycle}_${i}`);
+        if (r.action === "terminate") { terminated = true; break; }
+      }
+    }
+    // 不再依赖 terminate 兑住：第 2 次复犯即打 repeatOffender 标记（门拉黑物理拦截）
+    expect(clrSteerCount).toBeGreaterThanOrEqual(2);
+    expect(repeatOffenderSeenAt).toBe(1); // 第 2 个周期即标记（逃逸窗口从无界降到 ~2 周期）
   });
 });

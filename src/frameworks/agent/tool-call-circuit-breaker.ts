@@ -40,6 +40,11 @@ interface CheckResult {
   trigger?: string;
   /** steer 的规则来源（F20261027cbfp）：仅滑窗 steer 触发清窗（B-3 连续同签名不涉及） */
   origin?: "consecutive" | "sliding_window";
+  /**
+   * 同签名第 2 次触发 steer（S1 补防，#1653）：该签名已复犯——上次警告未生效，
+   * 交由调用方写入粘滞黑名单物理拦截。首次 steer 不标记（纯警告，误伤优先）。
+   */
+  repeatOffender?: boolean;
 }
 
 /**
@@ -352,6 +357,13 @@ export class ToolCallCircuitBreaker {
    * 窗口重新积累满 windowSize*repeat 条时自动成熟，恢复正常判定与 strike 重置。
    */
   private windowImmature = false;
+  /**
+   * S1 补防（#1653）：已触发过 steer 的签名集合。同签名第 2 次 steer = 复犯
+   * （上次警告未生效）→ repeatOffender 标记，调用方写入粘滞黑名单物理拦截。
+   * 修复 B-3+变调穿插类逃逸：穿插 allow 洗掉全局 strike、滑窗多重集永不命中，
+   * terminate 数学上不可达（检视实证 780 次调用 0 terminate）。
+   */
+  private steeredSignatures = new Set<string>();
 
   constructor(
     private readonly config: CircuitBreakerConfig,
@@ -410,6 +422,14 @@ export class ToolCallCircuitBreaker {
       return result;
     }
     if (result.action === "steer") {
+      // S1 补防：同签名第 2 次 steer = 复犯（首次警告未生效）。首次 steer 只记集合
+      // 不标记（误伤优先——单次误报仍可自由纠正）；复犯标记 repeatOffender 交由
+      // 调用方写粘滞黑名单物理拦截，补回 #1556「复又发作」防线被穿插 allow 洗掉的口子。
+      if (this.steeredSignatures.has(signature)) {
+        result.repeatOffender = true;
+      } else {
+        this.steeredSignatures.add(signature);
+      }
       this.steerStrikes++;
       if (this.steerStrikes > this.config.maxRepeatAfterWarning) {
         this.logCircuitBreak("ignored_steer");

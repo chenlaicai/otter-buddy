@@ -34,6 +34,12 @@ created_at: 2026-10-27
 
 Modification-Class: `narrow-fix`（①既有语义内修）
 
+口径先例引用：windowImmature / steeredSignatures 均为会话内瞬态 ref（置位→成熟清零 /
+同 invoke 生命周期，不持久化、不跨 invoke），按 F20261020wcsr「连拉计数是会话内临时 ref
+→ 不命中」口径不计机制新增；若按 F20261020hlbk:77-84 偏严口径则踩中「决策分支被记住
+并影响后续行为」——取舍已具备四问要素（§3 为何加 / §4 失败后果与替代方案 / §6 遗留），
+保守读者可按 ④ 机制新增口径审阅，本文档两口径下均可核验。
+
 ## 3. 修复设计
 
 ### P0-1：滑窗 steer 清窗 + 未成熟期（tool-call-circuit-breaker.ts）
@@ -55,6 +61,19 @@ Modification-Class: `narrow-fix`（①既有语义内修）
 - 删除 `result.action === "steer" ||` 分支，仅 terminate 写 loopBlockedTools
 - #1556 的事故场景（30 连发垃圾 fact、报警后复又发作）仍被兑住：该场景必然走到 strike 涨满 → terminate → 写黑名单 + abort，后续同签名调用照拦
 - 语义对齐：steer = 警告（可纠正），terminate = 判决（物理截断）——警告不再有物理后果
+
+### S1 补防：同签名第 2 次 steer 标记 repeatOffender（对抗审视发现，与 P0-2 同文件域）
+
+检视獭实证逃逸（PR #1655 review）：仅 terminate 写入时，「B-3 连发 + ≥3 个变化工具穿插」类
+复犯可借穿插 allow 洗掉全局 strike、滑窗多重集永不命中（变化工具每次新签名）→ terminate
+数学上不可达——实测 780 次调用 0 terminate，垃圾写入无界。而这正是 LLM 复犯的天然形态
+（垃圾写入与其他工作交替，#1556 发作 2 同型）。
+
+修复：熔断器维护 steeredSignatures 集合，同签名第 2 次 steer = 复犯（首次警告未生效）
+→ CheckResult.repeatOffender = true → helpers 写入粘滞黑名单（仅写不 abort，本次仍 steer
+提醒，后续同签名由门物理拦截）。防线梯度：首次 steer 纯警告（误伤优先）→ 同签名复犯
+拉黑（#1556「复又发作」兑住，逃逸窗口从无界降到 ~2 周期）→ strike 涨满 terminate 兑住
+（连发型无穿插洗 strike 的场景）。
 
 ## 4. 设计取舍
 
@@ -81,11 +100,16 @@ Modification-Class: `narrow-fix`（①既有语义内修）
 | #1556 场景不回退 | create_linked_resource 9 连发（6+3） | abort 发生 + Map 写入 + speak/yield 放行（PASS：hard-block 更新用例） |
 | 全量回归 | npx vitest run | 6988 passed（439 文件） |
 
-### 既有测试调整记录（断言未减弱，时点断言随行为语义更新）
+### 既有测试调整记录（断言未减弱，时点断言随行为语义更新；计数口径已按 #1655 检视发现 2 订正）
 
-- 「滑窗 steer 被持续无视也会升级为 terminate」：能力断言保留（仍必 terminate），新增终止点后移断言（>20 次）——旧行为（20 次内断）正是死刑链本身。
-- 「detects sliding window cross-tool alternating loop (AC-8)」：首命中检测能力保留（18 次内必 steer），后续连发 steer 断言改为 allow（清窗后的预期行为）。
-- loop-tool-hard-block 两个用例：从「steer 即写 Map」更新为「terminate 才写 Map」——P0-2 的语义变更本体，负向用例（steer 阶段 Map 空）与 #1556 场景（terminate 后粘滞）双向覆盖。
+- 既有用例更新 4 个：tool-call-circuit-breaker 2（「滑窗 steer 被持续无视」能力断言保留 +
+  终止点后移断言；AC-8 首命中检测能力保留含 blocked/reason 断言回补）+ loop-tool-hard-block 2
+  （steer 写 Map → terminate 写 Map，P0-2 语义变更本体，负向用例双向覆盖）。
+- 净新增用例 5 个：helpers 2（steer 不拉黑 / terminate 仍拉黑）+ hard-block 1（steer 阶段
+  Map 空）+ cb 2（误伤逃生 / 真循环仍断）。
+- S1 处置新增 1：间歇复犯 repeatOffender 标记回归（第 2 周期即标记）。
+- 旧用例「滑窗 steer 被持续无视」：旧行为（20 次内断）正是死刑链本身，能力断言保留（仍必
+  terminate），新增终止点后移断言（>20 次）。
 
 ## 6. 影响面与遗留
 
