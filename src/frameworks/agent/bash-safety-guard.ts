@@ -39,18 +39,21 @@ function directGitExecutionGrant(command: string, cwd: string, projectRoot: stri
   return evaluateGitExecution(command, cwd, { repoRoot: projectRoot, linkedWorktrees: parseGitWorktreeList(projectRoot) });
 }
 
-/** 沙箱会话的有限 Git 文本窄门：只判直接 envelope；物理层承担其他 Shell 的 .git 写边界。 */
+/** 沙箱会话的有限 Git 文本窄门：与物理层共用直接 envelope（含 cd && git）。 */
 function sandboxedGitTextVeto(command: string, cwd: string, projectRoot: string): boolean {
   const trimmed = command.trim();
   const model = parseOnce(trimmed, 1);
-  const segment = model.segments[0];
-  const looksDirectGit = /^git\s/.test(trimmed);
-  if (!looksDirectGit) return false;
-  if (!model.parseOk || model.segments.length !== 1 || !segment) return false;
-  if (!gitWriteSubcommandHit(segment)) return false;
-  const grant = directGitExecutionGrant(trimmed, cwd, projectRoot);
-  if (!grant) return true; // 无法判定的直接 Git 不给 capability，并给拆命令/直接 -C 指引
-  if (grant.kind === "push" && /\bmain\b/.test(command)) return true;
+  const looksDirectGit = model.segments.some(segment => segment.argv0 === "git");
+  if (!looksDirectGit || !model.parseOk) return false;
+  if (model.segments.some(segment => segment.argv0 === "git" && gitWriteSubcommandHit(segment))) {
+    const grant = directGitExecutionGrant(trimmed, cwd, projectRoot);
+    if (!grant) return true; // 无法判定的直接 Git 不给 capability，并给拆命令/直接 -C 指引
+    // 物理授权只管本地写域；远端受保护分支复用既有 refspec 判定，不按整行词面猜。
+    if (grant.kind === "push") {
+        const gitStart = trimmed.lastIndexOf("git push");
+      if (gitStart >= 0 && protectedPushHit(trimmed.slice(gitStart))) return true;
+    }
+  }
   return false;
 }
 
@@ -3001,6 +3004,18 @@ export function checkBashCommandSafety(
   const narrowHit = checkNarrowRules(command, logger);
   if (narrowHit) return withDiagnostics(narrowHit, command, mainPid);
   if (mainPid === null) return checkWhenMainPidMissing(command, logger, guardOptions);
+
+  // F20261027gscv：直接 Git envelope 的有限窄门先于旧主仓写求值器。
+  // 求值器不知道新执行域的 cd && git 真实 cwd；未识别/主仓/受保护 push 仍拦。
+  if (guardOptions?.sandboxGuarded && guardOptions.projectRoot) {
+    const vetoed = sandboxedGitTextVeto(command, guardOptions.sessionCwd ?? guardOptions.projectRoot, guardOptions.projectRoot);
+    if (vetoed) return withDiagnostics("直接 Git 命令未获当前执行域授权：请使用登记的 worktree，拆成单段 git 或字面 cd <worktree> && git；主仓提交/受保护分支推送请走 PR。", command, mainPid);
+    const model = parseOnce(command, 1);
+    const direct = model.parseOk && (model.segments.length === 1 ||
+      (model.segments.length === 2 && model.segments[0]?.argv0 === "cd" && model.segments[1]?.joiner === "&&"));
+    const grant = direct ? directGitExecutionGrant(command, guardOptions.sessionCwd ?? guardOptions.projectRoot, guardOptions.projectRoot) : null;
+    if (grant) return null;
+  }
 
   // #844：白名单热加载（与 PID 文件同策略：每次判定重读，mtime 缓存去抖）
   const allowedServices = guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [];

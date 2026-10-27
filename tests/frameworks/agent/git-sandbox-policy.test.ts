@@ -99,19 +99,34 @@ describe("git-execution-policy", () => {
       expect(g!.domains).toEqual([]);
     });
 
-    it("git worktree add → 授权管理目录与精确 packed-refs 锁文件", () => {
-      const g = evaluateGitExecution("git worktree add /tmp/wt2 HEAD", REPO, {
+    it("git worktree add 只授权受控 worktree 根的直接子目录", () => {
+      const target = `${REPO}/.otter/worktrees/new-wt`;
+      const g = evaluateGitExecution(`git worktree add -B feat "${target}" HEAD`, REPO, {
         repoRoot: REPO,
         linkedWorktrees: LINKED,
       });
       expect(g).not.toBeNull();
       expect(g!.kind).toBe("worktree-add");
       expect(g!.domains).toEqual(["worktrees-parent", "objects", "refs-heads", "packed-refs-lock", "logs-refs", "config-lock"]);
-      expect(g!.worktreeTarget).toBe("/tmp/wt2");
+      expect(g!.worktreeTarget).toBe(target);
     });
 
-    it("git worktree remove → 授权 worktrees-parent + objects + refs-heads + packed-refs", () => {
-      const g = evaluateGitExecution("git worktree remove /tmp/wt2", REPO, {
+    it.each([
+      `git worktree add /tmp/escape HEAD`,
+      `git worktree add ${REPO}/src-evil HEAD`,
+      `git worktree add ${REPO}/.otter/worktrees/a/b HEAD`,
+      `git worktree add --lock ${REPO}/.otter/worktrees/new-wt HEAD`,
+    ])("未受控/未支持的 worktree add %s 不授权", command => {
+      expect(evaluateGitExecution(command, REPO, { repoRoot: REPO, linkedWorktrees: LINKED })).toBeNull();
+    });
+
+    it("branch -d 不附带对象或 worktree gitdir 写域", () => {
+      const g = evaluateGitExecution("git branch -d scratch", WT, { repoRoot: REPO, linkedWorktrees: LINKED });
+      expect(g!.domains).toEqual(["refs-heads", "logs-refs", "packed-refs-lock"]);
+    });
+
+    it("git worktree remove → 仅授权受控 worktree 目标", () => {
+      const g = evaluateGitExecution(`git worktree remove ${REPO}/.otter/worktrees/wt2`, REPO, {
         repoRoot: REPO,
         linkedWorktrees: LINKED,
       });

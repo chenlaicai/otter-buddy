@@ -112,7 +112,7 @@ function buildBaseProfile(repoRoot: string, dataDir: string): string[] {
     ...roots.map(({ path }) => `(allow file-write* (subpath "${path}"))`),
     // 真实 .git 也可能落在 alpha/tmp 等通用写区，不能只 deny 主仓那一棵。
     // 固定组件形态覆盖 gitdir 子路径与 worktree .git 指针，不匹配 .gitignore/.github。
-    '(deny file-write* (regex #"/\\.git/"))',
+    '(deny file-write* (regex #"/\\.git(/|$)"))',
     "(deny signal)",
   ];
 }

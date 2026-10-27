@@ -7,7 +7,8 @@
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { allowedFileWriteRoots } from "./file-write-policy";
 import { parseOnce, type Segment } from "./command-model";
 
 export type GitWriteDomain =
@@ -227,16 +228,42 @@ function evaluateTreeWrite(subcmd: string, repoRoot: string, target: RepoTarget)
   return grant(subcmd, repoRoot, target, domains);
 }
 
-function parseWorktreeTarget(args: string[], cwd: string): string | null {
-  // worktree add 的可选参数只支持常见的 -b <name> / --detach / --no-checkout /
-  // -f；位置参数固定为 <path> [<commit-ish>]，不接受 shell 动态路径。
+function worktreeTargetPosition(args: string[]): number {
+  const noValue = new Set(["--detach", "--no-checkout", "-f", "--force", "--quiet", "-q"]);
   let position = 1;
   while (position < args.length && args[position].startsWith("-")) {
-    position += args[position] === "-b" ? 2 : 1;
+    const flag = args[position];
+    if (flag === "-b" || flag === "-B") position += 2;
+    else if (noValue.has(flag)) position += 1;
+    else return -1;
   }
+  return position;
+}
+
+function parseWorktreeTarget(args: string[], cwd: string, repoRoot: string): string | null {
+  const position = worktreeTargetPosition(args);
+  if (position < 0) return null;
   const target = args[position];
   if (!validWord(target) || target.startsWith("-") || args.length - position > 2) return null;
-  return realpath(isAbsolute(target) ? target : resolve(cwd, target));
+  const canonical = realpath(isAbsolute(target) ? target : resolve(cwd, target));
+  const parent = realpath(dirname(canonical));
+  const worktreeRoot = allowedFileWriteRoots({ repoRoot, dataDir: resolve(repoRoot, "data") }).roots.find(root => root.region === "worktrees")?.path;
+  const allowed = worktreeRoot && (parent === worktreeRoot || (dirname(canonical) === worktreeRoot && parent === dirname(canonical)));
+  return allowed ? canonical : null;
+}
+
+function evaluateWorktreeWrite(args: string[], repoRoot: string, target: RepoTarget, cwd: string): GitExecutionGrant | null {
+  if (args[0] === "add") {
+    const worktreeTarget = parseWorktreeTarget(args, cwd, repoRoot);
+    return worktreeTarget ? { ...grant("worktree-add", repoRoot, target, WORKTREE_DOMAINS), worktreeTarget } : null;
+  }
+  if (args[0] === "prune") return grant("worktree-remove", repoRoot, target, WORKTREE_DOMAINS);
+  if (args[0] !== "remove") return null;
+  const targetPath = args[1];
+  if (!validWord(targetPath) || args.length > 3) return null;
+  const worktreeTarget = realpath(isAbsolute(targetPath) ? targetPath : resolve(cwd, targetPath));
+  if (dirname(worktreeTarget) !== realpath(resolve(repoRoot, ".otter/worktrees"))) return null;
+  return { ...grant("worktree-remove", repoRoot, target, WORKTREE_DOMAINS), worktreeTarget };
 }
 
 function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target: RepoTarget, cwd: string): GitExecutionGrant | null {
@@ -246,17 +273,9 @@ function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target
     return grant("fetch", repoRoot, target, domains);
   }
   if (subcmd === "push") return grant("push", repoRoot, target, PUSH_DOMAINS);
-  if (subcmd === "worktree" && args[0] === "add") {
-    const worktreeTarget = parseWorktreeTarget(args, cwd);
-    return worktreeTarget
-      ? { ...grant("worktree-add", repoRoot, target, WORKTREE_DOMAINS), worktreeTarget }
-      : null;
-  }
-  if (subcmd === "worktree" && ["remove", "prune"].includes(args[0])) {
-    return grant("worktree-remove", repoRoot, target, WORKTREE_DOMAINS);
-  }
+  if (subcmd === "worktree") return evaluateWorktreeWrite(args, repoRoot, target, cwd);
   if (subcmd === "branch" && args.includes("-d") && !args.includes("-D")) {
-    return grant("branch-delete", repoRoot, target, COMMIT_DOMAINS);
+    return grant("branch-delete", repoRoot, target, ["refs-heads", "logs-refs", "packed-refs-lock"]);
   }
   return null;
 }
@@ -286,6 +305,23 @@ function escapePath(path: string): string {
   return path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function worktreeTargetRules(grant: GitExecutionGrant): string[] {
+  if (!grant.worktreeTarget) return [];
+  const rules: string[] = [];
+  const repoRoot = realpath(grant.repoRoot);
+  let parent = dirname(grant.worktreeTarget);
+  while (within(parent, repoRoot) && parent !== "/") {
+    rules.push(`(allow file-write* (literal "${escapePath(parent)}"))`);
+    if (parent === repoRoot) break;
+    parent = dirname(parent);
+  }
+  rules.push(
+    `(allow file-write* (literal "${escapePath(grant.worktreeTarget)}") (subpath "${escapePath(grant.worktreeTarget)}"))`,
+    `(allow file-write* (literal "${escapePath(resolve(grant.worktreeTarget, ".git"))}"))`,
+  );
+  return rules;
+}
+
 export function grantToProfileRules(grant: GitExecutionGrant): string[] {
   const gitDir = `${escapePath(grant.repoRoot)}/.git`;
   const subpath = (path: string) => `(allow file-write* (subpath "${escapePath(path)}"))`;
@@ -296,12 +332,7 @@ export function grantToProfileRules(grant: GitExecutionGrant): string[] {
     if (domain === "refs-remotes") return subpath(`${gitDir}/refs/remotes`);
     if (domain === "logs-refs") return subpath(`${gitDir}/logs`);
     if (domain === "worktrees-parent") {
-      return [
-        subpath(`${gitDir}/worktrees`),
-        ...(grant.worktreeTarget
-          ? [subpath(grant.worktreeTarget), `(allow file-write* (literal "${escapePath(resolve(grant.worktreeTarget, ".git"))}"))`]
-          : []),
-      ].join(" ");
+      return [subpath(`${gitDir}/worktrees`), ...worktreeTargetRules(grant)].join(" ");
     }
     if (domain === "config-lock") {
       return `(allow file-write* (literal "${escapePath(`${gitDir}/config.lock`)}"))`;
@@ -315,5 +346,5 @@ export function grantToProfileRules(grant: GitExecutionGrant): string[] {
 }
 
 export function grantFingerprint(grant: GitExecutionGrant): string {
-  return JSON.stringify([grant.repoRoot, grant.worktreeName ?? null, [...grant.domains].sort()]);
+  return JSON.stringify([grant.repoRoot, grant.worktreeName ?? null, grant.worktreeTarget ?? null, [...grant.domains].sort()]);
 }

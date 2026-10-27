@@ -8,7 +8,7 @@ import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
  * sg=false 保留有限 Best Effort 词面，不借物理能力宣称同等安全。
  */
 const MAIN = "/Users/orca/ai/otter-buddy";
-const WT = "/Users/orca/ai/otter-buddy/.otter/worktrees/probe";
+const WT = "/Users/orca/ai/otter-buddy/.otter/worktrees/design-guard-convergence";
 const PID = 42877;
 const SESS = "/Users/orca/ai/otter-buddy/data/workspaces/probe-session";
 const go = (cmd: string, sg = true, cwd = SESS) =>
@@ -24,6 +24,18 @@ describe("F20261027gscv：嵌套 Git 职责迁移", () => {
   it("sg=false 仍保留反引号与 $() 嵌套 Git 写词面", () => {
     expect(go(`echo "\`cd ${MAIN} && git commit -m x\`"`, false)).not.toBeNull();
     expect(go(`echo "$(cd ${MAIN} && git commit -m x)"`, false)).not.toBeNull();
+  });
+
+  it("sg=true 的生产 cwd=工作区形态：cd worktree && git add/commit 正道放行", () => {
+    expect(go(`cd ${WT} && git add -A`)).toBeNull();
+    expect(go(`cd ${WT} && git commit -m x`)).toBeNull();
+    expect(go(`cd ${MAIN} && git commit -m x`)).not.toBeNull();
+  });
+
+  it("sg=true 的 push 按 refspec 目标判定，不按分支名包含 main 误拦", () => {
+    expect(go(`git -C ${WT} push origin HEAD:refs/heads/main`)).not.toBeNull();
+    expect(go(`git -C ${WT} push origin feature/main-fix`)).toBeNull();
+    expect(go(`cd ${WT} && git push origin HEAD:refs/heads/develop`)).not.toBeNull();
   });
 
   it("sg=true 的纯数据/未闭合反引号不误伤", () => {

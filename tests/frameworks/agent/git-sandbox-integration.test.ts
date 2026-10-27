@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import { platform, homedir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createSandboxSpawnHook } from "../../../src/frameworks/agent/bash-sandbox";
 
@@ -49,6 +49,21 @@ describe.skipIf(!isMac)("F20261027gscv Git 执行域真实 sandbox", () => {
     expect(echo.stdout).toContain("git commit");
   });
 
+  it("bash 物理层拒绝改写裸 .git 指针，动态路径也不能穿透", () => {
+    const evil = join(fixtureRoot, "evil-pointer");
+    writeFileSync(evil, `gitdir: ${join(fixtureRoot, "pwned")}\n`);
+    expect(run(`cp "${evil}" "${join(wt, ".git")}"`, wt).code).not.toBe(0);
+    expect(run(`node -e 'require("fs").writeFileSync(process.argv[1], "pwned")' "${join(wt, "." + "git")}"`, wt).code).not.toBe(0);
+    expect(readFileSync(join(wt, ".git"), "utf8")).toContain("gitdir:");
+  });
+
+  it("worktree add 不向主仓、HOME 或任意临时目录注入内容", () => {
+    for (const target of [join(fixtureRoot, "escape"), join(repo, "src-evil"), join(fixtureRoot, "home")]) {
+      expect(run(`git worktree add "${target}" HEAD`, repo).code).not.toBe(0);
+      expect(existsSync(join(target, "a.txt"))).toBe(false);
+    }
+  });
+
   it("嵌套替换真正写 .git 时由 OS 拒绝", () => {
     const dollar = run(`echo "$(touch ${repo}/.git/HEAD)"`, wt);
     const tick = run(`echo "\`touch ${repo}/.git/HEAD\`"`, wt);
@@ -75,8 +90,8 @@ describe.skipIf(!isMac)("F20261027gscv Git 执行域真实 sandbox", () => {
   });
 
   it("带空格/子目录/attached -C 与新建 worktree 立即可用", () => {
-    const spaced = join(fixtureRoot, "work tree spaced");
-    expect(run(`git worktree add "${spaced}" HEAD`, repo).code).toBe(0);
+    const spaced = join(repo, ".otter", "worktrees", "work tree spaced");
+    expect(run(`git worktree add -b spaced-branch "${spaced}" HEAD`, repo).code).toBe(0);
     mkdirSync(join(spaced, "nested"), { recursive: true });
     writeFileSync(join(spaced, "nested", "space.txt"), "space");
     expect(run(`git -C "${spaced}/nested" add space.txt`, "/tmp").code).toBe(0);
@@ -86,9 +101,13 @@ describe.skipIf(!isMac)("F20261027gscv Git 执行域真实 sandbox", () => {
   });
 
   it("worktree remove、fetch、merge 与普通分支删除可用", () => {
-    const removable = join(fixtureRoot, "remove-me");
-    expect(run(`git worktree add "${removable}" HEAD`, repo).code).toBe(0);
-    expect(run(`git worktree remove "${removable}"`, repo).code).toBe(0);
+    const removable = join(repo, ".otter", "worktrees", "remove-me");
+    const removableAdd = run(`git worktree add -b removable-branch "${removable}" HEAD`, repo);
+    expect(removableAdd.stderr).not.toContain("Operation not permitted");
+    expect(removableAdd.code).toBe(0);
+    const removed = run(`git worktree remove "${removable}"`, repo);
+    expect(removed.stderr).not.toContain("Operation not permitted");
+    expect(removed.code).toBe(0);
     const bare = join(fixtureRoot, "remote.git");
     mkdirSync(bare, { recursive: true });
     git(bare, ["init", "-q", "--bare"]);
