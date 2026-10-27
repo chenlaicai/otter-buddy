@@ -66,8 +66,85 @@ describe("loopBlockGuard（tool_call 门物理阻断）", () => {
   });
 });
 
-describe("检测器报警 → 粘滞标记 → 门物理截断（集成，直攻主场景）", () => {
-  it("create_linked_resource 连发命中循环 → 记入 Map → 后续同工具被门阻断；speak/yield 放行", () => {
+describe("F20261027cbfp S1 补防：glue 层接线（repeatOffender → 写 Map → 门拦截）", () => {
+  it("同签名第 2 次 steer 写入 Map → 门拉黑后续同签名；生产语义固化：拦工具不杀 invoke", () => {
+    const loopBlockedTools = new Map<string, string>();
+    const session = mockSession();
+    const abortOverride = vi.fn();
+    attachCircuitBreaker(
+      session as never,
+      "otter-loop-1",
+      { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, maxConsecutiveIdentical: 5, maxRepeatAfterWarning: 5 },
+      createTestLogger(),
+      { loopBlockedTools, abortOverride },
+    );
+
+    // 第 1 周期：6 连发（阈值 5）→ 第 6 次起每次调用均 consecutive steer，
+    // 但首次 steer 已记集合、同周期后续 steer 即为同签名复犯 → 第 7 次调用起 repeatOffender 写 Map。
+    // 这里只发 6 次（恰好 1 次 steer）便于验证「穿插变调后复犯」的完整链路。
+    for (let i = 0; i < 6; i++) session.emit(sdkToolStart("create_linked_resource", { content: `垃圾${i}` }));
+    expect(session.steer).toHaveBeenCalledOnce();
+    expect(loopBlockedTools.size).toBe(0); // 首次 steer 免拉黑（警告可自由纠正）
+
+    // 穿插变调工具（洗 strike 的逃逸形态）。注意工具选择：带路径参数的 read 签名含
+    // path 区分度；若用名称兑底工具（search_memory 等，#1399 残余口子）签名全同，
+    // 变调本身会触发 B-3 复犯拉黑——那正是检视 D1-1 实测的残余误伤面，不属本用例验证目标。
+    for (let i = 0; i < 7; i++) session.emit(sdkToolStart("read", { path: `/var/escape-probe-${i}.ts` }));
+    expect(loopBlockedTools.size).toBe(0); // 有区分度的变调不触发拉黑
+
+    // 第 2 周期：再连发同签名 → 首个 steer（第 6 次调用）即复犯 → repeatOffender 写 Map；
+    // 后续同周期第 7 次起每次 steer 均为复犯（Map 已写，幂等）
+    for (let i = 0; i < 6; i++) session.emit(sdkToolStart("create_linked_resource", { content: `复犯${i}` }));
+    const sig = buildToolSignature("create_linked_resource", {});
+    expect(loopBlockedTools.has(sig)).toBe(true); // glue：repeatOffender → 写 Map ✓
+
+    // 门拉黑后续同签名（生产顺序：门在 tool_call 层先于 breaker）
+    const store = makeStore(loopBlockedTools);
+    expect(loopBlockGuard(store, "create_linked_resource", {})?.block).toBe(true);
+    // 其他工具不受影响
+    expect(loopBlockGuard(store, "search_memory", { query: "x" })).toBeUndefined();
+
+    // 生产语义固化（D1-2）：门拦截后同签名调用到不了 breaker → strike 不再增长
+    // → terminate/abort 在此形态下不触发——「拦工具不杀 invoke」。
+    // （本测试直驱 tool_execution_start 绕门，但 strike 只到 2 << maxRepeatAfterWarning=5）
+    expect(abortOverride).not.toHaveBeenCalled();
+  });
+});
+
+describe("检测器报警 → 粘滞标记 → 门物理截断（集成，直攻主场景；F20261027cbfp 后：terminate 才写 Map）", () => {
+  it("create_linked_resource 持续连发升级 terminate → 记入 Map → 后续同工具被门阻断；speak/yield 放行", () => {
+    const loopBlockedTools = new Map<string, string>();
+    const session = mockSession();
+    const abortOverride = vi.fn();
+    attachCircuitBreaker(
+      session as never,
+      "otter-loop-1",
+      { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, maxConsecutiveIdentical: 5, maxRepeatAfterWarning: 3 },
+      createTestLogger(),
+      { loopBlockedTools, abortOverride },
+    );
+
+    // 连发 6 次触发 consecutive steer（警告，不写 Map——#1653 P0-2）；
+    // 继续无视 → strike 涨满 3 → terminate → 写入粘滞 Map（#1556 事故场景仍被兑住）
+    for (let i = 0; i < 6 + 3; i++) {
+      session.emit(sdkToolStart("create_linked_resource", { content: `垃圾${i}` }));
+    }
+
+    expect(abortOverride).toHaveBeenCalledOnce(); // terminate 已发生
+    const sig = buildToolSignature("create_linked_resource", {});
+    expect(loopBlockedTools.has(sig)).toBe(true); // terminate 写入
+
+    // 门对后续同工具物理阻断（工具不执行）
+    const store = makeStore(loopBlockedTools);
+    const blocked = loopBlockGuard(store, "create_linked_resource", {});
+    expect(blocked?.block).toBe(true);
+
+    // 逃生口：speak / yield 不被阻断
+    expect(loopBlockGuard(store, "speak", {})).toBeUndefined();
+    expect(loopBlockGuard(store, "yield", {})).toBeUndefined();
+  });
+
+  it("steer 阶段不写 Map（#1653 P0-2）：警告后穿插纠正调用不产生物理拦截", () => {
     const loopBlockedTools = new Map<string, string>();
     const session = mockSession();
     attachCircuitBreaker(
@@ -78,23 +155,14 @@ describe("检测器报警 → 粘滞标记 → 门物理截断（集成，直攻
       { loopBlockedTools },
     );
 
-    // 6 连发 create_linked_resource（签名 == 工具名，常量）→ 第 6 次触发连续相同报警
+    // 6 连发触发 steer（旧版这里就写 Map → 误判放大为持续拦截，#1653 案发面 239 次）
     for (let i = 0; i < 6; i++) {
       session.emit(sdkToolStart("create_linked_resource", { content: `垃圾${i}` }));
     }
-
-    // 报警已把签名记入粘滞 Map（独立于 steerStrikes，穿插 speak 不清零）
-    const sig = buildToolSignature("create_linked_resource", {});
-    expect(loopBlockedTools.has(sig)).toBe(true);
-
-    // 门对后续同工具物理阻断（工具不执行）
-    const store = makeStore(loopBlockedTools);
-    const blocked = loopBlockGuard(store, "create_linked_resource", {});
-    expect(blocked?.block).toBe(true);
-
-    // 逃生口：speak / yield 不被阻断
-    expect(loopBlockGuard(store, "speak", {})).toBeUndefined();
-    expect(loopBlockGuard(store, "yield", {})).toBeUndefined();
+    expect(session.steer).toHaveBeenCalledOnce();
+    // 新语义：steer 只是警告，不物理拦截后续调用
+    expect(loopBlockedTools.size).toBe(0);
+    expect(loopBlockGuard(makeStore(loopBlockedTools), "create_linked_resource", {})).toBeUndefined();
   });
 
   it("负向：无报警（连发次数低于阈值）→ Map 空 → 门放行（证明断言非恒真）", () => {
@@ -116,20 +184,22 @@ describe("检测器报警 → 粘滞标记 → 门物理截断（集成，直攻
     expect(loopBlockGuard(makeStore(loopBlockedTools), "create_linked_resource", {})).toBeUndefined();
   });
 
-  it("粘滞：报警后穿插 speak（allow）不清零，relapse 同工具仍被阻断（修发作 2 逃逸）", () => {
+  it("粘滞：terminate 后穿插 speak 不清零，relapse 同工具仍被阻断（修发作 2 逃逸）", () => {
     const loopBlockedTools = new Map<string, string>();
     const session = mockSession();
     attachCircuitBreaker(
       session as never,
       "otter-loop-1",
-      { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, maxConsecutiveIdentical: 5 },
+      { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, maxConsecutiveIdentical: 5, maxRepeatAfterWarning: 3 },
       createTestLogger(),
       { loopBlockedTools },
     );
 
-    for (let i = 0; i < 6; i++) {
+    // 连发到 terminate → Map 写入
+    for (let i = 0; i < 6 + 3; i++) {
       session.emit(sdkToolStart("create_linked_resource", { content: `g${i}` }));
     }
+    expect(loopBlockedTools.size).toBe(1);
     // 穿插 speak（allow，会清零 steerStrikes）——但粘滞 Map 不受影响
     session.emit(sdkToolStart("speak", { body: "停手声明" }));
 
