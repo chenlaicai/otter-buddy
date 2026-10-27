@@ -109,6 +109,13 @@ export class InvokeController {
       if (invoke.status === "completed") {
         return c.json({ error: `invoke is not in a retryable status: ${invoke.status}` }, 409);
       }
+      // 通用 retry 与 retryByOtter 判重一致：DB 行 running 或 SDK 仍活均 409。
+      // DB 已 aborted/failed + SDK 已死时不误拦 abort→retry 的合法收敛窗口。
+      const runningInvokes = await this.invokeRepo.getInvokes(invoke.conversationId, { otterId: invoke.otterId, status: "running", limit: 1 });
+      if (runningInvokes.length > 0 || this.agentInvoker?.isRunning(invoke.otterId)) {
+        this.logger.warn("通用 retry 请求被忙碌判重拦截", { invokeId, otterId: invoke.otterId, status: invoke.status });
+        return c.json({ error: "Otter is busy, retry later", code: "otter_invoke_running" }, 409);
+      }
       return this.retryOtter(c, invoke.conversationId, invoke.otterId, invokeId);
     } catch (err) {
       return handleError(c, err, this.logger);

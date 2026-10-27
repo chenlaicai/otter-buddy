@@ -23,6 +23,8 @@ export type ErrorWithToolCallCount = Error & {
 /** invoke 结果形状 */
 export interface InvokeResultShape {
   text: string;
+  /** D3：锁超时转 SDK 队列，当前 invoke 不执行模型、不重试。 */
+  queued?: boolean;
   tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   ctxTokens?: number;
