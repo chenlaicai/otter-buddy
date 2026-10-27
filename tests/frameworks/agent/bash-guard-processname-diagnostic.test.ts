@@ -91,3 +91,58 @@ console.log(full.slice(0, 400));
     expect(r).toBeNull();
   });
 });
+
+describe("进程名诊断回显 kill 语境门（F20261026gobs，M-2edf95d5）", () => {
+  // M-2edf95d5 案发现场：命令行含 otter-buddy 字样（--author="… <otter-buddy>"、含仓库路径
+  // 脚本）在非 kill 语境下被「进程名模式」误标，回显误导根因归因（author 格式被误判进程名）。
+  // 修法：「进程名模式」只在 kill 语境（有 kill 族动词）下回显——无 kill 动词时字面量是
+  // 数据/命令名，不标。保护零削弱：真实 pkill/killall 目标语义的回显不变。
+
+  it("① git commit --author=<otter-buddy>（author email）：拦（main-write）但不挂「进程名模式」", () => {
+    const r = checkBashCommandSafety(`git commit --author="修复獭-守卫可观测 <otter-buddy>" -m "feat: x"`, mainPid, undefined, ctx);
+    expect(r).not.toBeNull(); // 仍拦（写落点主仓）——保护零削弱
+    expect(r!).toContain("写命令落点解析到主仓");
+    expect(r!).not.toContain("进程名模式"); // author email 不是 kill 目标，不标
+  });
+
+  it("② node 解释器 + 主仓落点脚本（含 otter-buddy 路径）：若拦则不挂「进程名模式」", () => {
+    // node 是解释器命令名不是 kill 目标；无 kill 族动词时「进程名模式」不回显。
+    const r = checkBashCommandSafety(`node /Users/orca/ai/otter-buddy/scripts/check-pr-tests.mjs --base nosuchref`, mainPid, undefined, ctx);
+    if (r !== null) {
+      expect(r!).not.toContain("进程名模式");
+    }
+    // 该形态实测为 ALLOW（只读 node 探针），锁定不误拦：
+    expect(r).toBeNull();
+  });
+
+  it("③ 无 kill 动词的 otter-buddy 字面量（echo）：不挂「进程名模式」", () => {
+    const r = checkBashCommandSafety(`echo otter-buddy`, mainPid, undefined, ctx);
+    expect(r).toBeNull(); // ALLOW（只读 echo）
+  });
+
+  it("④ 保护零削弱：真实 pkill -f otter-buddy 仍挂「进程名模式」（kill 语境）", () => {
+    const r = checkBashCommandSafety(`pkill -f otter-buddy`, mainPid, undefined, ctx);
+    expect(r).not.toBeNull();
+    expect(r!).toContain("进程名模式"); // kill 语境下目标语义回显不变
+  });
+
+  it("⑤ 保护零削弱：killall node 仍挂「进程名模式」（kill 目标是 node）", () => {
+    const r = checkBashCommandSafety(`killall node`, mainPid, undefined, ctx);
+    expect(r).not.toBeNull();
+    expect(r!).toContain("进程名模式");
+  });
+
+  it("⑥ A1 引号数据位的 kill 字样不算 kill 语境（-m \"kill the bug\" 不挂「进程名模式」）", () => {
+    // 引号内 kill 是 commit message 文本（数据位）——不构成 kill 语境，otter-buddy 字样不标
+    const r = checkBashCommandSafety(`git commit -m "kill the bug" --author="修复獭-守卫可观测 <otter-buddy>"`, mainPid, undefined, ctx);
+    expect(r).not.toBeNull(); // 仍拦（写落点主仓）——保护零削弱
+    expect(r!).not.toContain("进程名模式");
+  });
+
+  it("⑦ A1 对照：shell 载荷内 kill 动词仍是 kill 语境（bash -c 'pkill …' 照标）", () => {
+    // stripQuotedTextSpans 不剥离 shell 载荷引号（是执行体不是数据）——kill 语境照算
+    const r = checkBashCommandSafety(`bash -c 'pkill -f otter-buddy'`, mainPid, undefined, ctx);
+    expect(r).not.toBeNull();
+    expect(r!).toContain("进程名模式");
+  });
+});

@@ -118,10 +118,10 @@ describe('guard-touchstone 三库冻结完整性', () => {
     //  2026-10-09 族 5 条 allow→block 翻红（3 条 git commit 形态 + 2 条 node -e 载荷写，后者系 #1561
     //  fixture 迁移带入、gdfv 实验基线未见）：allow 796→791 / block 82→87（守恒不变，同族同判）。
     expect(allow.meta.count).toBe(791); // +1 = TS-80b0e7bc cond→allow 迁移（F20261019f714 期望翻面呈报件，原则②同款）−5 = A′ 同族重裁翻红
-    expect(block.meta.count).toBe(87); // 50 真实语料 + 14 合成对抗负门（严重1）+ 4 三牙负门（工单②）+ 4 exec 负门（delta2）+ 8 delta3 负门（execv 族+cd $VAR）+ 2 delta4 负门（段首直执）+ 5 A′ 同族重裁翻红
-    expect(cond.meta.count).toBe(104); // -1 = TS-80b0e7bc 迁出（同上）
-    // 真实语料守恒 921（不含 TS-smrj 前缀新增：32 负门 + 29 回归/正门）
-    const addedGate = [...allow.entries, ...block.entries, ...cond.entries].filter((e) => e.id.startsWith('TS-smrj')).length;
+    expect(block.meta.count).toBe(91); // 87 + 4 = F20261026gpg1（pathlib 写族词面洗白洞 ×3 + rename 双参提取 ×1——M-a09944aa①星报件；xargs 注入形态不进库、独立测试钉，求值器单链判不到 guard 侧结构判定）
+    expect(cond.meta.count).toBe(104); // -1 = TS-80b0e7bc 迁出（同上）+0 = F20261026gpg1 相对路径面改独立测试钉（同因）
+    // 真实语料守恒 921（不含 TS-smrj 前缀新增：32 负门 + 29 回归/正门；亦不含 TS-gpg1 前缀 F20261026gpg1 新增 4 条）
+    const addedGate = [...allow.entries, ...block.entries, ...cond.entries].filter((e) => e.id.startsWith('TS-smrj') || e.id.startsWith('TS-gpg1')).length;
     expect(allow.meta.count + block.meta.count + cond.meta.count - addedGate).toBe(921);
     // 变更计数锚（重刷期望前后差异，详见 touchstone-recheck-diff.md）
     expect(allow.meta.restate_changes).toMatchObject({

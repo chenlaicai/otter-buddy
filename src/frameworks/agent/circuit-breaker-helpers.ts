@@ -74,6 +74,10 @@ export interface AttachGuardsParams {
   /** F20261020hlbk（#1556）：per-turn 循环硬熔断标记（签名→理由）。检测器报警时写入，
    *  tool_call 门（loopBlockGuard）读到即物理阻断该工具后续调用。 */
   loopBlockedTools?: Map<string, string>;
+  /** F20261026gobs delta-r1（检视獭1646 S3）：tool_call 门（bashGuardGate）激活探测——
+   *  门激活时 bash 守卫判定由门单点拦下（显式 reason 落痕），abort 链不双拦
+   *  （SDK signal.aborted 会覆盖门的 reason）；门失活时 abort 链兑底。 */
+  guardGateActive?: () => boolean;
   /** F20261019gses P0 影子下线：onShadowEval（观察期对照回调）已删——主判定切
    *  evaluateWriteVerdict 后无「旧链 vs 新链」对照面。 */
 }
@@ -94,7 +98,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, sandboxGuarded: params.sandboxGuarded, loopBlockedTools: params.loopBlockedTools });
+  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, sandboxGuarded: params.sandboxGuarded, loopBlockedTools: params.loopBlockedTools, guardGateActive: params.guardGateActive });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
   const cb = getConfig().circuitBreaker;
@@ -219,7 +223,7 @@ export function attachCircuitBreaker(
   otterId: string,
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
-  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void; sandboxGuarded?: boolean; loopBlockedTools?: Map<string, string> },
+  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void; sandboxGuarded?: boolean; loopBlockedTools?: Map<string, string>; guardGateActive?: () => boolean },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
   // F20260830bsgr：bash 安全守卫——读取主进程 PID
   // F20260830fabt-r2: 每次检查都实时读 PID 文件（不缓存），支持热重启换 PID
@@ -271,7 +275,9 @@ export function attachCircuitBreaker(
       if (toolName === "bash") {
         const args = (e.args ?? {}) as Record<string, unknown>;
         const command = typeof args.command === "string" ? args.command : "";
-        if (abortOnUnsafeBash(command, e.toolCallId)) return;
+        const guardHit = abortOnUnsafeBash(command, e.toolCallId);
+        if (guardHit === "aborted") return;
+        // deferred（门接管显式拦下）不 return：继续熔断计数——重复被拦命令由循环熔断兑住
       }
 
       const result = circuitBreaker.check(toolName, e.args);
@@ -319,23 +325,41 @@ export function attachCircuitBreaker(
    *  SLEEP_REASON_PREFIX 标记的 reason 时发射 `bash_sleep:`，否则 `bash_safety:`。判定用
    *  startsWith（delta-3 备注：精确匹配，禁用 includes），此发射点是 `bash_sleep:` 的唯一产源（D5a）。
    *  F20261019gses P0 影子下线：onShadowEval 影子记账（观察期对照机制）已删。 */
-  function abortOnUnsafeBash(command: string, toolCallId?: string): boolean {
-    const mainPid = getMainPid();
-    const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd, sandboxGuarded: options?.sandboxGuarded });
-    if (!rawSafetyBlock) return false;
-    const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
-    const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd(), command);
+  /** F20261026gobs delta-r1：拦截观测面（结构化日志 + healing）自 abortOnUnsafeBash 拆出——
+   *  门接管后本函数仍被兑底链与门共用语义参照，拆出控圈复杂度不改行为。 */
+  function recordGuardIntercept(command: string, reason: string, mainPid: number | null, kind: "sleep" | "safety"): void {
     logger.warn("[bash-safety-guard] BLOCKED dangerous bash command", {
       otterId,
       mainPid,
-      kind: isSleepBlock ? "sleep" : "safety",
+      kind,
       command: command.substring(0, 200),
     });
     // F20260831aksp T3：拦截落 healing（框架层 medium 样本；失败不阻断拦截本身）
-    options?.onGuardIntercept?.({ command, reason: safetyBlock });
+    options?.onGuardIntercept?.({ command, reason });
+  }
+
+  // eslint-disable-next-line complexity -- 守卫判定/引导文案/单点落账/门接管与 abort 降级五段同序，拆开会分散「同一次拦截只落一次账」不变量（F20261026gobs N1）
+  function abortOnUnsafeBash(command: string, toolCallId?: string): "aborted" | "deferred" | null {
+    const mainPid = getMainPid();
+    const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd, sandboxGuarded: options?.sandboxGuarded });
+    if (!rawSafetyBlock) return null;
+    const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
+    const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd(), command);
+    // delta-r2（检视獭1646 N1）：门激活时由门单点落 healing，abort 链不得双落（6h ≥3 次升级
+    // 计数与事件噪声会翻倍）；门失活时 abort 链仍负责落账，降级路径守恒。
+    if (!options?.guardGateActive?.()) {
+      recordGuardIntercept(command, safetyBlock, mainPid, isSleepBlock ? "sleep" : "safety");
+    }
     clearEventTimer(toolCallId);
+    // F20261026gobs delta-r1（检视獭1646 S3）：tool_call 门（bashGuardGate）已接管 bash 守卫判定
+    //（同源同参）——门在 beforeToolCall 以显式 reason 落痕返回 LLM；SDK prepareToolCall 的
+    // signal.aborted 检查先于 beforeResult.block（pi-agent-core agent-loop.js L500 vs L507），
+    // 此处若同时 abort 会把门的显式理由覆盖成 "Operation aborted"（双拦=显式落痕失效）。
+    // 故门激活时交由门单点拦下（不 abort、事件流继续——重复被拦命令由循环熔断计数兑住）；
+    // 门失活（store 缺失等 fail-open）时此处兑底 abort——降级不降安全。
+    if (options?.guardGateActive?.()) return "deferred";
     doAbort(isSleepBlock ? `bash_sleep:${safetyBlock}` : `bash_safety:${safetyBlock}`);
-    return true;
+    return "aborted";
   }
 
   const originalUnregister = unregisterToolCall;

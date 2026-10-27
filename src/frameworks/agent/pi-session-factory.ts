@@ -1057,9 +1057,15 @@ export class PiSessionFactory implements AgentGateway {
     // extension 的 before_agent_start handler 从 store 读 otterPromptConfig + identityPrefix。
     // F20261020hlbk（#1556）：loopBlockedTools 入 store（tool_call 门读）+ 传 attachGuards（检测器写）。
     const loopBlockedTools = new Map<string, string>();
+    // F20261026gobs（M-2bf6e98c）：守卫参数提为单一真相源——store（tool_call 门）与
+    // attachGuards（abort 兜底链）同点求值，防门与 abort 判定分歧（R-2b）。
+    const guardProjectRoot = getRepoRoot();
+    const guardSessionCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
+    const guardSandboxed = this.sandboxGuardedBySession.get(session) ?? false;
+    const guardOnIntercept = this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     return await otterInvokeStorage.run(
       // F20260826mwrd C1：otterId 进 store——tool_call handler 查 halt 标用
-      { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools },
+      { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools, guardProjectRoot, guardSessionCwd, guardSandboxed, guardOnIntercept },
       // eslint-disable-next-line max-statements, complexity -- F20260908rlcp: pool hit/miss 两条路径 + startup cursor push；F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
       async () => {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）
@@ -1070,7 +1076,7 @@ export class PiSessionFactory implements AgentGateway {
         //   （WeakMap，与 spawnHook 挂载同一次 probeSandboxAvailability 结果）——R-2b 约束：
         //    探测与挂载不可能分歧（分歧=裸跑零告警的最危险模式）；沙箱接防时守卫
         //    main_write 族退役（G3 枚举表）；不可用时写面回位（降级不降安全）。
-        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: getRepoRoot(), sessionCwd: resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data"), onGuardIntercept: this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId }), sandboxGuarded: this.sandboxGuardedBySession.get(session) ?? false, loopBlockedTools });
+        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: guardProjectRoot, sessionCwd: guardSessionCwd, onGuardIntercept: guardOnIntercept, sandboxGuarded: guardSandboxed, loopBlockedTools, guardGateActive: () => otterInvokeStorage.getStore()?.guardProjectRoot != null });
 
         // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);

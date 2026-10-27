@@ -322,7 +322,7 @@ function checkCommandLevelPatterns(): string | null {
 interface KillSegmentCtx {
   segment: string;
   isPkill: boolean;
-  mainPid: number;
+  mainPid: number | null;
   command: string;
   logger?: Logger;
   payload?: string;
@@ -369,10 +369,46 @@ function checkKillSegment(ctx: KillSegmentCtx): string | null {
     return "bash 命令中终止进程的命令引用了主进程 PID 文件。主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。";
   }
   const pids = [...new Set([...extractLiteralPids(pidTextA), ...extractLiteralPids(pidTextB)])];
-  if (pids.length > 0 && pids.includes(mainPid)) {
+  // F20261026gobs delta-r1：mainPid 缺失时「字面 PID = 主 PID」等值一条无法判定——跳过
+  //（与已知 PID 时「非主 PID 放行」同口径）；按名/间接目标/PID 文件引用三条不依赖 PID，照判。
+  if (mainPid !== null && pids.length > 0 && pids.includes(mainPid)) {
     logger?.warn("[bash-safety-guard] BLOCKED kill targeting main process PID", { mainPid, commandPids: pids, segment: segment.substring(0, 200) });
     // F20260831aksp：PID 数字脱敏——堵「错误 PID 试探 → 拦截文案回显真实 PID → 精准二次打击」链（结构化日志字段 commandPids 保留数值）
     return "bash 命令包含针对主进程 PID 的终止命令。主进程是海獭运行环境，任何情况下不得终止——你不存在需要重启或停止主进程的合法场景。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。";
+  }
+  return null;
+}
+
+/**
+ * F20261026gobs delta-r1（检视獭1646 S1）：kill 族分段判定抽为单点——
+ *  kill 目标语义的主体（按名目标 pkill/killall、间接 PID、PID 文件引用）是纯文本语义，
+ *  不依赖 mainPid；仅「字面 PID = 主 PID」等值一条需要 mainPid（缺失时跳过，见 checkKillSegment）。
+ *  供 checkBashCommandSafetyOnText（主链）与 checkWhenMainPidMissing（PID 缺失链）共用：
+ *  #1038 旧口径「kill 族随 mainPid 缺失保守放行」使 PID 文件不可读时按名 kill 族整族
+ *  静默退役（CI 实证：readMainProcessPid null → pkill -f otter-buddy 漏放）——现同判不退役。 */
+function checkKillFamily(
+  text: string,
+  mainPid: number | null,
+  allowedServices: AllowedService[],
+  logger?: Logger,
+): string | null {
+  const killSegments = findKillSegments(text);
+  // #844 白名单放行：cmdLevel 检测之后、分段级检测之前（cmdLevel 是全命令级铁闸，
+  // 白名单只豁免「分段级 kill 目标检测」这一层）——白名单需比对字面 PID，mainPid 缺失时不豁免
+  if (killSegments.length > 0 && mainPid !== null && whitelistedPortAllow(killSegments, text, allowedServices, mainPid)) {
+    return null;
+  }
+  if (killSegments.length === 0) return null;
+
+  // 全命令级：有 kill 段 + 全命令含 .otter-buddy.pid 引用（跨段检测）
+  if (PID_FILE_REFERENCE.test(text)) {
+    logger?.warn("[bash-safety-guard] BLOCKED kill with cross-segment PID file reference", { mainPid, command: text.substring(0, 200) });
+    return "bash 命令中包含主进程 PID 文件引用和终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
+  }
+
+  for (const { segment, isPkill, payload, source, outer } of killSegments) {
+    const result = checkKillSegment({ segment, isPkill, mainPid, command: text, logger, payload, source, outer });
+    if (result) return result;
   }
   return null;
 }
@@ -631,25 +667,21 @@ function checkBashCommandSafetyOnText(
   const cmdLevelResult = checkCommandLevelPatterns();
   if (cmdLevelResult) return cmdLevelResult;
 
-  const killSegments = findKillSegments(text);
-  // #844 白名单放行：cmdLevel 检测之后、分段级检测之前（cmdLevel 是全命令级铁闸，
-  // 白名单只豁免「分段级 kill 目标检测」这一层）
-  if (killSegments.length > 0 && whitelistedPortAllow(killSegments, text, allowedServices, mainPid)) {
-    return null;
-  }
-  if (killSegments.length === 0) return null;
+  // #844 白名单放行 + 分段级 kill 目标检测：抽为 checkKillFamily 单点（delta-r1，
+  // 与 checkWhenMainPidMissing 共用——kill 族不随 mainPid 缺失退役）
+  return checkKillFamily(text, mainPid, allowedServices, logger);
+}
 
-  // 全命令级：有 kill 段 + 全命令含 .otter-buddy.pid 引用（跨段检测）
-  if (PID_FILE_REFERENCE.test(text)) {
-    logger?.warn("[bash-safety-guard] BLOCKED kill with cross-segment PID file reference", { mainPid, command: text.substring(0, 200) });
-    return "bash 命令中包含主进程 PID 文件引用和终止进程操作，可能针对主进程。该命令不允许：主进程是海獭运行环境，任何情况下不得终止。若需验证代码变更，在 worktree 内跑 scripts/alpha.sh start 起隔离实例（3100+ 端口、独立数据根）；服务异常请报告搭档。若确认此命令本意安全（如查询语句恰好含敏感字样），请改用保持原语义的不含敏感字样的方式达成目的（如换检索关键词，不得用模糊匹配/字符替换变相达成原检索）；无法规避时告知搭档人工执行。";
-  }
-
-  for (const { segment, isPkill, payload, source, outer } of killSegments) {
-    const result = checkKillSegment({ segment, isPkill, mainPid, command: text, logger, payload, source, outer });
-    if (result) return result;
-  }
-  return null;
+/**
+ * F20261026gobs delta-r1（检视獭1646 S3）：tool_call 门（bashGuardGate）接管的守卫判定面——
+ *  bash 工具 + 非空字符串 command 参数。abort 兑底链（abortOnUnsafeBash）只在此面之外
+ *  或门失活时执行：SDK prepareToolCall 的 signal.aborted 检查先于 beforeResult.block
+ *  （pi-agent-core agent-loop.js L500 vs L507），双拦会把门的显式理由覆盖成
+ *  "Operation aborted"——单点接管消除双拦（两层判定同源同参，门与 abort 不分歧）。 */
+export function guardGateCovers(toolName: string | undefined, args: unknown): boolean {
+  if (toolName !== "bash") return false;
+  const command = (args as Record<string, unknown> | undefined)?.command;
+  return typeof command === "string" && command.trim().length > 0;
 }
 
 /** 命中规则定位（F20260902gvrd，#730）：拦截文案从静态说明升级为带诊断上下文。
@@ -657,6 +689,16 @@ function checkBashCommandSafetyOnText(
  *  只做诊断回显，不参与拦截判定——拦截逻辑本身不变。 */
 function locateTriggerContext(command: string, mainPid: number | null): string[] {
   const hits: string[] = [];
+  // F20261026gobs（M-2edf95d5）：「进程名模式」只在 kill 语境下回显——它是 kill 目标语义
+  // 的辅助标注（`pkill otter-buddy` / `killall node`），不是「命令行出现进程名字样」的泛匹配。
+  // 无 kill 族动词时，`node script.js`（解释器）、`git commit --author="… <otter-buddy>"`（author
+  // email）、`gh --repo owner/otter-buddy`（slug）里的字面量是数据/命令名不是 kill 目标，
+  // 回显「进程名模式」曾连续误导根因归因（#1585 台账：署名规范 author 格式被误标为进程名）。
+  // kill 族动词用与「kill 族命令」诊断行同口径的正则（同 kill-segment-finder KILL/PKILL 语义）。
+  //  F20261026gobs delta-r1（检视獭1646 A1）：在引号剥离文本上算——引号数据位的 kill 字样
+  //  （`git commit -m "kill the bug"`）不是 kill 语境，不应回显「进程名模式」；shell 载荷
+  //  （bash -c 'pkill …'）内引号不剥离（是执行体），kill 语境照算。
+  const hasKillVerb = /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/i.test(stripQuotedTextSpans(command));
   const patterns: Array<[string, RegExp]> = [
     ["kill 族命令", /\b(?:sudo\s+)?(?:\/usr\/(?:local\/)?bin\/)?(?:p?kill|skill|killall5?|pgrep)\b/gi],
     ["主服务脚本", new RegExp(SERVICE_SCRIPT_KILL.source, "gi")],
@@ -690,6 +732,7 @@ function locateTriggerContext(command: string, mainPid: number | null): string[]
       // 跳过不标。lookbehind 等价方案见上方模式注释（初写正则不达预期后改此路径，
       // 非 V8 缺陷）；仅影响诊断回显，不影响拦截。
       if (name === "进程名模式") {
+        if (!hasKillVerb) continue; // 非 kill 语境：进程名字样是数据/命令名，不标（F20261026gobs）
         const tokenStart = Math.max(command.lastIndexOf(" ", m.index - 1), command.lastIndexOf("\t", m.index - 1), command.lastIndexOf("\n", m.index - 1)) + 1;
         if (m[0].includes("/") || command.slice(tokenStart, m.index).includes("/")) continue;
       }
@@ -1363,6 +1406,141 @@ function interpreterFeedReadOnlyFlag(command: string): boolean {
  *  重建基座）→ 载荷递归走同一 checkMainCheckoutWrite（与 bash -c 载荷同基座：写主仓
  *  拦/树外放/工作区豁免）；上游不透明 → fail-closed 拦（U5 族「脚本内容未经逐条判定」
  *  正确定因）；无管道上游（裸 bash stdin=EOF）→ 无写面放行（与 bash - 既有口径一致）。 */
+/** F20261026gpg1（M-a09944aa②）：xargs replace-str 注入形态识别（stdinShellFeederVeto
+ *  内层）。段首 xargs 且旗标区含 replace 旗标（-i / -I<str> / -I <str> / --replace[=<str>]，
+ *  缺省 replace-str 为 {}）且旗标区后接 shell 解释器 + -c + 恰为 replace-str 词 → 返回
+ *  replace-str 的模板与 replace-str 本身；否则 null。只认静态词（动态词 → null 走既有
+ *  保守面，不猜展开）。语义：xargs 把上游内容作为独立 argv 传入 shell -c，载荷即上游
+ *  内容本身——与管道喂 shell 同判定基座（feeder 递归）。 */
+/** xargs 旗标区扫描内层：返回 { replaceStr, cmdStart }（replace 旗标位与命令区起点），
+ *  无 replace 旗标返回 null；动态词返回 "dynamic"（不猜展开）。 */
+function xargsScanFlags(words: Segment["words"]): { replaceStr: string; cmdStart: number } | null | "dynamic" {
+  let replaceStr: string | null = null;
+  let k = 1; // 跳过 xargs 本词
+  while (k < words.length) {
+    const ev = words[k].evaluated;
+    if (typeof ev !== "string") return "dynamic"; // 动态词不猜
+    const next = words[k + 1]?.evaluated;
+    const parsed = xargsParseFlag(ev, typeof next === "string" ? next : undefined);
+    if (parsed === "dynamic") return "dynamic";
+    if (parsed === null) break; // 首个非旗标词 = 命令区起点
+    if (parsed.replaceStr !== undefined) replaceStr = parsed.replaceStr;
+    k += parsed.consume;
+  }
+  return replaceStr === null ? null : { replaceStr, cmdStart: k };
+}
+
+/** 单旗标解析：返回 { consume, replaceStr? } / null（非旗标词，= 命令区起点）/ "dynamic"
+ *  （值位动态词不猜）。F20261026gpg1 delta r1（检视獭1643 严重 1）：值耗型旗标（-n/-P/
+ *  -s/-d/-L/-a 及长形态）复用 WRAPPER_SPECS.xargs.valueFlags 吞值（单一真相源，不自造
+ *  第二套旗标表——大獭处置口径）；GNU 可选值旗标 -i/--replace/-l 不吞值（表边界①数义：
+ *  分写后随 token 是命令非值）。 */
+function xargsParseFlag(ev: string, next: string | undefined): { consume: number; replaceStr?: string } | null | "dynamic" {
+  // replace 旗标（可选值，只认合写/内联形态）
+  if (ev === "-i") return { consume: 1, replaceStr: "{}" };
+  const im = /^-I(.+)$/.exec(ev);
+  if (im !== null) return { consume: 1, replaceStr: im[1] };
+  if (ev === "-I") return next === undefined ? "dynamic" : { consume: 2, replaceStr: next };
+  const rm = /^--replace(?:=(.*))?$/.exec(ev);
+  if (rm !== null) return { consume: 1, replaceStr: rm[1] === undefined || rm[1] === "" ? "{}" : rm[1] };
+  // 值耗型旗标：复用共享表吞值（合写内联值形态自身已含值，仅吞 1）
+  const xargsValueFlags = WRAPPER_SPECS.xargs?.valueFlags;
+  if (xargsValueFlags !== undefined && xargsValueFlags.has(ev)) {
+    if (next === undefined) return "dynamic"; // 值位缺失形态不猜
+    return { consume: 2 };
+  }
+  if (/^-[ILPsdna]$/.test(ev) && ev.length > 2) return { consume: 1 }; // 合写内联值形态（-I{}/-n1/-P4/-s100 等）
+  const inlineLong = /^--(?:max-args|max-procs|max-chars|delimiter|arg-file)=(.+)$/.exec(ev);
+  if (inlineLong !== null) return { consume: 1 };
+  if (ev.startsWith("-")) return { consume: 1 }; // 其他无值旗标（-r/-t/-0/-E eofstr 等）跳过
+  return null; // 非旗标词 = 命令区起点
+}
+
+function xargsReplaceInjection(seg: Segment): { replaceStr: string; template: string; interp: string; interpIsShell: boolean; templateFlag?: string } | null {
+  const scan = xargsScanFlags(seg.words);
+  if (scan === null || scan === "dynamic") return null; // 无 replace 旗标（默认追加形态非本类）/ 动态词不猜
+  const { replaceStr, cmdStart } = scan;
+  // 命令区：shell 或脚本解释器 + -c + 含 replace-str 的模板（两种注入位：整模板恰为
+  // replace-str / 模板内含 replace-str 占位——xargs 实参替换后作为 -c 载荷执行，
+  // 重建拼接后递归判）。cmdWords[3:] 额外 argv 是 $0 位不注入，不参与重建。
+  // delta r1（检视建议②）：解释器族（python/node/ruby/perl——ONELINER_INTERP_NAMES
+  // 归一名）与 shell 族同接——`xargs -i python3 -c {}` 上游内容注入解释器 -c 载荷
+  // 同为注入面；shell/解释器分形态重建（xargsInjectionVeto 内）。
+  const cmdWords = seg.words.slice(cmdStart);
+  if (cmdWords.length < 3) return null;
+  const shellEv = cmdWords[0].evaluated;
+  if (typeof shellEv !== "string") return null;
+  const baseName = tokenBasename(shellEv);
+  const isShell = SHELL_INTERP_NAMES.has(baseName);
+  const isInterp = ONELINER_INTERP_NAMES[baseName.replace(/[\d.]+$/, "")] !== undefined;
+  if (!isShell && !isInterp) return null;
+  const flagEv = cmdWords[1].evaluated;
+  if (flagEv !== "-c" && !(isInterp && flagEv === "-e")) return null; // node -e 同语义
+  const payloadEv = cmdWords[2].evaluated;
+  if (typeof payloadEv !== "string") return null;
+  if (!payloadEv.includes(replaceStr)) return null; // 无占位符 = 无注入位，非本类
+  return { replaceStr, template: payloadEv, interp: shellEv, interpIsShell: isShell, templateFlag: typeof flagEv === "string" ? flagEv : undefined };
+}
+
+/** F20261026gpg1（M-a09944aa②）：xargs replace-str 注入段的同尺判定（stdinShellFeederVeto
+ *  内层，抽函数控深度/语句数）。返回非 null = 拦截消息；null = 无判定（非注入形态或无上游）。
+ *  语义：`echo "<cmd>" | xargs -i bash -c {}` —— xargs 把上游内容作为实参替换占位符，
+ *  载荷即上游内容本身，与管道喂 shell 同一攻击面。静态上游 → 拼接重建递归判；
+ *  不透明上游 → fail-closed。 */
+function xargsInjectionVeto(seg: Segment, feeder: Segment | undefined, depth: number, ctx: { logger?: Logger; projectRoot?: string; sessionCwd?: string; writeChannelSkip?: "file-write" }, command: string): string | null {
+  if (feeder === undefined) return null;
+  const injected = xargsReplaceInjection(seg);
+  if (injected === null || seg.joiner !== "|" || seg.heredocs.length > 0) return null;
+  const content = segmentStdoutContent(feeder);
+  if (content === null || depth <= 0) {
+    ctx.logger?.warn("[bash-safety-guard] BLOCKED xargs replace-str injection (opaque stdin source)", { command: command.substring(0, 200) });
+    return STDIN_SHELL_OPAQUE_MSG;
+  }
+  // 拼接重建（delta r1 复盘实证的两形态语义）：
+  // · shell -c 模板：上游内容是命令文本，且 `bash -c <cmd>` ≡ 执行 <cmd>——直接重建
+  //   为裸命令文本递归判（不带 bash -c 前缀：无引号形态的 -c 载荷提取不了会假报
+  //   uncovered-cmd；裸命令文本递归解析器直接解析命令语义，语义等价且词形正确）
+  // · 解释器 -c 模板（python/node 等）：上游内容是代码实参——重建为完整命令
+  //   `<interp> -c '<代码>'`（裹单引号引号塔，良构门正确过；裸拼代码文本会被
+  //   良构门拒成良性误拦）
+  if (injected.interpIsShell) {
+    const rebuiltCmd = injected.template.split(injected.replaceStr).join(content);
+    if (/\b(?:kill|pkill|killall|skill|killall5)\b/i.test(rebuiltCmd)) return INDIRECT_KILL_BLOCK_MSG;
+    return checkMainCheckoutWrite({ command: rebuiltCmd, logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, depth: depth - 1, writeChannelSkip: ctx.writeChannelSkip });
+  }
+  const quoted = "'" + content.split("'").join("'\\''") + "'";
+  const payloadRebuilt = injected.template.split(injected.replaceStr).join(quoted);
+  // 解释器 -e 形态（node -e）重建同形——interp 名 + 实际旗标位
+  const cmdFlag = injected.templateFlag ?? "-c";
+  const rebuilt = `${injected.interp} ${cmdFlag} ${payloadRebuilt}`;
+  if (/\b(?:kill|pkill|killall|skill|killall5)\b/i.test(rebuilt)) return INDIRECT_KILL_BLOCK_MSG;
+  return checkMainCheckoutWrite({ command: rebuilt, logger: ctx.logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, depth: depth - 1, writeChannelSkip: ctx.writeChannelSkip });
+}
+
+/** F20261026gpg1 delta r1：xargs 注入形态良性证明（豁免基座，与 wrappedOneLinerPayloadsReadOnly
+ *  同哲学）。xargs 注入段存在且重建载荷递归判 ALLOW（无写面/树内写）时 true——供结构通道
+ *  oneLinerReadOnly 豁免（否则 xargs 段 head 非白名单，段内 python3 -c 命中 segHasOneLiner
+ *  被拦——检视建议②良性面 print(1) 误拦实证）。重判不依赖调用顺序：与 xargsInjectionVeto
+ *  同一识别函数 + 同一递归基座，两侧判不出分歧。 */
+function xargsInjectionBenign(command: string, projectRoot: string | undefined, sessionCwd: string | undefined, logger?: Logger, depth = 3): boolean {
+  if (!projectRoot) return false;
+  const model = parseOnce(command);
+  if (!model.parseOk) return false;
+  let saw = false;
+  for (let i = 0; i < model.segments.length; i++) {
+    const seg = model.segments[i];
+    if (tokenBasename(seg.argv0 ?? "") !== "xargs") continue;
+    const injected = xargsReplaceInjection(seg);
+    if (injected === null || seg.joiner !== "|" || seg.heredocs.length > 0) continue;
+    const feeder = model.segments[i - 1];
+    if (feeder === undefined) continue;
+    saw = true;
+    // 同尺重判（不依赖主链已返回 null 的事实——重走一遍递归，良性才豁免）
+    if (xargsInjectionVeto(seg, feeder, depth, { logger, projectRoot, sessionCwd }, command) !== null) return false;
+  }
+  return saw;
+}
+
 function stdinShellFeederVeto(
   command: string,
   depth: number,
@@ -1378,6 +1556,11 @@ function stdinShellFeederVeto(
   const cwdAt = resolveCwdAt(segs, ctx.sessionCwd ?? ctx.projectRoot ?? "/");
   for (let i = 0; i < segs.length; i++) {
     const seg = segs[i];
+    // F20261026gpg1（M-a09944aa②）：xargs replace-str 注入等价类（同尺判定抽 xargsInjectionVeto）
+    if (tokenBasename(seg.argv0 ?? "") === "xargs") {
+      const hit = xargsInjectionVeto(seg, segs[i - 1], depth, ctx, command);
+      if (hit !== null) return hit;
+    }
     if (stdinShellKind(seg) !== "stdin") continue;
     if (seg.heredocs.length > 0) continue; // heredoc stdin 体在场——体判通道已逐条判
     if (seg.joiner !== "|") continue; // 裸 bash/非管道上游：stdin 无内容（EOF）无写面
@@ -2213,9 +2396,15 @@ function checkMainCheckoutWrite(ctx: MainCheckoutWriteCtx): string | null {
   // 结构通道的拦截面是「包装形态下的 one-liner 写」，载荷只读仍是豁免面（求值器
   // 判 ALLOW 的只读载荷不应被结构通道重复拦——但写载荷求值器判 BLOCK 已在上方
   // 返回，此处只处理求值器 ALLOW 但结构通道命中写形态的残余——只读豁免同口径）。
-  const oneLinerReadOnly = ONELINER_PRE_GATE.test(command)
-    ? (oneLinerPayloadReadOnly(command) || wrappedOneLinerPayloadsReadOnly(command))
+  // r3：外部预计算的 one-liner 只读豁免（基座对齐——豁免判定与拦截判定同一提取基座）。
+  // 缺省时自算（旧调用方兼容）；显式传入时取或（任一证明只读即豁免——旧实现声明
+  // 了 override 但函数体从未消费，F20261026gpg1 delta r1 接线时若按「外部覆盖」会
+  // 回退内部自算的既有豁免面（#1285 洞2 对称放行实证），故取或：只读豁免是放行
+  // 方向，两个基座任一成立即豁免，不互相回退）。
+  const selfReadOnly = ONELINER_PRE_GATE.test(command)
+    ? (oneLinerPayloadReadOnly(command) || wrappedOneLinerPayloadsReadOnly(command) || xargsInjectionBenign(command, projectRoot, sessionCwd, logger, depth))
     : false;
+  const oneLinerReadOnly = selfReadOnly || (ctx.oneLinerReadOnlyOverride ?? false);
   // git 写族段豁免：cwd 在显式 git 工作树内（sessionCwd 绝对路径锚定）时，git 写族
   // 段的落点是该树自身（旧链 cwdInGitWorktree 同语义——求值器已按落点判过 ALLOW，
   // 结构通道不再重复拦 git 写族段；包装词/子壳等其余段结构照常跑）。
@@ -2583,7 +2772,7 @@ function checkPidIndependentRules(command: string, logger: Logger | undefined, c
   if (narrow) return narrow;
   const preGate = ONELINER_PRE_GATE.test(command);
   const oneLinerReadOnly = preGate
-    ? oneLinerPayloadSet(command) !== null
+    ? (oneLinerPayloadSet(command) !== null || xargsInjectionBenign(command, ctx.projectRoot, ctx.sessionCwd, logger))
     : false;
   const mainWrite = checkMainCheckoutWrite({ command, logger, projectRoot: ctx.projectRoot, sessionCwd: ctx.sessionCwd, oneLinerReadOnlyOverride: oneLinerReadOnly, writeChannelSkip: ctx.writeChannelSkip });
   if (mainWrite) return mainWrite;
@@ -2598,6 +2787,12 @@ function checkWhenMainPidMissing(
 ): string | null {
   const scriptKill = checkServiceScriptKill(command, 0, logger, guardOptions?.projectRoot);
   if (scriptKill) return withDiagnostics(scriptKill, command, null);
+  // F20261026gobs delta-r1（检视獭1646 S1）：kill 族按名/间接目标/PID 文件引用是纯文本语义，
+  //  不随 PID 缺失退役——#1038 旧口径「kill 族保守放行」使 PID 文件不可读时按名 kill 整族
+  //  静默漏放（CI 实证：readMainProcessPid null → pkill -f otter-buddy 漏放）。mainPid=null
+  //  仅「字面 PID = 主 PID」等值一条无法判定（跳过，与已知 PID 时非主 PID 放行同口径）。
+  const killFamily = checkKillFamily(command, null, [], logger);
+  if (killFamily) return withDiagnostics(killFamily, command, null);
   // F20260922pmgd / #1038：PR 合入与 data 破坏判定不依赖 mainPid（与 kill 族保守放行的
   // 差异：只需命令文本/projectRoot，无退化理由）
   const pidFree = checkPidIndependentRules(command, logger, { projectRoot: guardOptions?.projectRoot, sessionCwd: guardOptions?.sessionCwd, writeChannelSkip: guardOptions?.sandboxGuarded ? "file-write" : undefined });

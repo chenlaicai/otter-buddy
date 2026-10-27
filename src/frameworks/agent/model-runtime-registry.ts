@@ -24,6 +24,7 @@ import { externalizeHistoricalToolResults } from "./toolresult-externalizer";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { buildHaltBlockReason } from "@usecases/signal/halt-block-reason";
 import { buildToolSignature } from "./tool-call-circuit-breaker";
+import { checkBashCommandSafety, readMainProcessPid, stripSleepMarkerIfPresent, guardGateCovers } from "./bash-safety-guard";
 
 /** pi-coding-agent 模块类型（动态加载） */
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -115,7 +116,8 @@ export class ModelRuntimeRegistry {
               // 读不到 store 时放行，见 haltToolCallGuard 注释）。
               pi.on("tool_call", (event: { toolName?: string; input?: unknown }) => {
                 return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, event.toolName)
-                  ?? loopBlockGuard(otterInvokeStorage.getStore(), event.toolName, event.input);
+                  ?? loopBlockGuard(otterInvokeStorage.getStore(), event.toolName, event.input)
+                  ?? bashGuardGate(otterInvokeStorage.getStore(), event.toolName, event.input);
               });
               // S1（R20260810piab）：otter system prompt 注入 system role。
               // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
@@ -307,6 +309,18 @@ export interface OtterInvokeContext {
    *  tool_call 门读到即物理阻断该工具后续调用（speak/yield 豁免）。粘滞不被穿插调用清零，
    *  堵死「speak 重置 steerStrikes」逃逸；随本 store（每 execute 新建）生灭，作用域=至回合结束。 */
   loopBlockedTools?: Map<string, string>;
+  /** F20261026gobs（M-2bf6e98c）：bash 守卫门（tool_call 层显式落痕）所需守卫参数。
+   *  与 abortOnUnsafeBash 同源（projectRoot/sessionCwd 由 _executeWithSession 注入），
+   *  保证门与 abort 判定不分歧（R-2b 同点求值）。缺省时门 fail-open（不拦），
+   *  守卫退化到 abortOnUnsafeBash 兑底链（降级不降安全）。 */
+  guardProjectRoot?: string;
+  guardSessionCwd?: string;
+  /** F20261026gobs delta-r1（检视獭1646 S2）：沙箱接防标志——门与 abortOnUnsafeBash 同参
+   *  透传（sandboxGuarded=true 时 main_write 族按设计退役），防沙箱会话判定分歧。 */
+  guardSandboxed?: boolean;
+  /** F20261026gobs delta-r1：拦截落 healing 钩子（与 abort 兑底链同一钩子）——门接管
+   *  判定后观测面（guard_intercept healing 事件）不丢。 */
+  guardOnIntercept?: (input: { command: string; reason: string }) => void;
 }
 
 export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
@@ -367,5 +381,50 @@ export function loopBlockGuard(
   return {
     block: true,
     reason: `「循环硬熔断」${toolName} 因重复调用触发循环熔断，本回合内已禁用（物理截断，${reason}）。请勿再调用 ${toolName}；如需继续请换用其他工具，或用 speak 汇报当前状态后调用 yield 交棒。`,
+  };
+}
+
+/**
+ * F20261026gobs（M-2bf6e98c）：bash 守卫门（tool_call 层显式落痕）。
+ *
+ * 背景：守卫拦截发生在 tool_execution_start（abortOnUnsafeBash → doAbort → session.abort()），
+ *  abort 信号异步生效、与工具执行竞态——被拦命令可能已 spawn 并返回「exit 0、零输出」
+ *  的静默成功（#1616 主仓落点 node 探针实证：`--base nosuchref` 必报错路径也静默，
+ *  对照实验证明命令未执行到脚本），探针据此误判为闸洞（假绿）。abort 后的自动重试
+ *  又会把被拦命令的痕迹冲淡（静默替换）。
+ *
+ * 方案：拦截前置到 tool_call 门（与 halt/loop-block 同机制）——被拦命令不执行，
+ *  SDK 对 block 生成 isError tool result（reason 正文）返回 LLM，即「显式落痕」：
+ *  探针/模型看到的是「此命令被安全守卫拦截（未执行）：<理由>」而非静默 exit 0。
+ *  复用现有守卫判定（checkBashCommandSafety）与 SDK tool_result 通道，不建第二套日志。
+ *
+ * - fail-open：store / guardProjectRoot 缺省时放行（镜像 halt/loop-block，不误伤正常工具流）；
+ *   退化时守卫仍有 abortOnUnsafeBash 兜底链（降级不降安全）。
+ * - 判定与 abortOnUnsafeBash 同源（同 checkBashCommandSafety + 同 projectRoot/sessionCwd），
+ *   门与 abort 不分歧（R-2b 同点求值约束）。
+ */
+export function bashGuardGate(
+  store: OtterInvokeContext | undefined,
+  toolName?: string,
+  input?: unknown,
+): { block: true; reason: string } | undefined {
+  const projectRoot = store?.guardProjectRoot;
+  if (!projectRoot) return undefined; // fail-open：守卫参数缺省时退化到 abort 兜底链
+  if (!guardGateCovers(toolName, input)) return undefined;
+  const args = (input ?? {}) as Record<string, unknown>;
+  const command = args.command as string;
+  const mainPid = readMainProcessPid(projectRoot);
+  const rawBlock = checkBashCommandSafety(command, mainPid, undefined, {
+    projectRoot,
+    sessionCwd: store?.guardSessionCwd,
+    sandboxGuarded: store?.guardSandboxed,
+  });
+  if (!rawBlock) return undefined;
+  const block = stripSleepMarkerIfPresent(rawBlock);
+  // 拦截落 healing（与 abort 兜底链同一钩子同参）——门接管后观测面不丢（delta-r1）
+  store?.guardOnIntercept?.({ command, reason: block });
+  return {
+    block: true,
+    reason: `此命令被安全守卫拦截（命令未执行）：${block}`,
   };
 }
