@@ -7,7 +7,7 @@
     "generated_at": "2026-10-12T10:52:25.895869Z",
     "generated_by": "守卫修复獭（重刷期望+冻结，派工单 2026-10-12 18:36）",
     "pool": "放行试金石",
-    "count": 791,
+    "count": 787,
     "restate_changes": {
       "git_policy_flip": 68,
       "to_conditional": 108,
@@ -22,7 +22,8 @@
     "rejudge_20261013": "补裁簇拍板（大獭）：TS-67845f56/TS-ad11a060/TS-324eaad4（能力 7 工作区沙箱）+ TS-070eb289（纯读非写）重裁 ALLOW 移入；原裁决以 [重裁前裁决（已废）] 前缀留痕",
     "rejudge_20261013_smrj": "4 条会话态 cwd=worktree 相对路径原地编辑（ffde7c4f/d055ab39/f5c3141d/3fd4a55b）改条件期望（改批错的答案，请双签）：allow 770→766，守恒 921 不变",
     "fixture_2026_10_14_smrj": "工单②回归闸 28 条进放行池（影子裁决批 25+3，大獭 2026-10-14 复核确认误拦）+ 黑盒载荷记档（content 按真内容判读 6 条 / absent 载荷缺席记档 31 条）——追加依据大獭工单+裁决 signal d5f2ae9a，检视獭1360 delta 复核在途",
-    "rejudge_20261020_cf899ad2": "M-cf899ad2 A′ 边界匹配重裁（chen 2026-10-20「按推荐」拍板 + 大獭 17:01 定案，双签第二签=本 PR 对抗审视）：TS-c8c1cafc/TS-4bd50e86/TS-5e30a8d5 allow→block 翻红（workforms-retire sibling 由豁免转保护），2026-10-09 vs 2026-10-13 台账矛盾消解（裁决乙「仅 worktrees/ 子区排除」概括修正，local-stash-backup 内核保留）｜M-cf899ad2 A′ 边界匹配重裁扩展（同日）：TS-59b48d03/TS-aa9786fe 同族补裁——2026-10-09 族实为 5 条（3 条 git commit 形态 + 2 条 node -e 载荷写形态，后者系 #1561 fixture 迁移带入，gdfv 实验基线未见），一并翻红；守恒 total_conserved 不变"
+    "rejudge_20261020_cf899ad2": "M-cf899ad2 A′ 边界匹配重裁（chen 2026-10-20「按推荐」拍板 + 大獭 17:01 定案，双签第二签=本 PR 对抗审视）：TS-c8c1cafc/TS-4bd50e86/TS-5e30a8d5 allow→block 翻红（workforms-retire sibling 由豁免转保护），2026-10-09 vs 2026-10-13 台账矛盾消解（裁决乙「仅 worktrees/ 子区排除」概括修正，local-stash-backup 内核保留）｜M-cf899ad2 A′ 边界匹配重裁扩展（同日）：TS-59b48d03/TS-aa9786fe 同族补裁——2026-10-09 族实为 5 条（3 条 git commit 形态 + 2 条 node -e 载荷写形态，后者系 #1561 fixture 迁移带入，gdfv 实验基线未见），一并翻红；守恒 total_conserved 不变",
+    "sqldb_20261028_rejudge": "F20261028sqldb #1490：4 条主仓 sqlite3 普通 SELECT 重裁 allow→block（TS-5b26222c/TS-74154c70/TS-92082748/TS-ad65c993）；依据真实 sqlite 行为，命令原文不改，原裁决留痕；双签第二签=本 PR 对抗审视。；另 2 条 /tmp INSERT（TS-852a7c51/TS-878c787f）保留 ALLOW 终局，裁决理由修正为真实主仓外写。"
   },
   "entries": [
     {
@@ -2661,31 +2662,6 @@
             "event_id": "a1824ace-c34d-4846-a589-aba655657794",
             "ts": "2026-09-23T00:28:58.831Z",
             "conversation_id": "187e979c-fe80-49fb-af2d-c0345f3d2b87",
-            "rule_id": "main_write",
-            "resolution": "{\"action\":\"tool_fixed\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026",
-            "status": "resolved"
-          }
-        ]
-      },
-      "fp_marked": []
-    },
-    {
-      "id": "TS-74154c70",
-      "command": "sqlite3 data/otter-buddy.db \"SELECT otter_id, conversation_id, ctx_window_used, status, started_at FROM invokes WHERE started_at > '2026-09-23' ORDER BY started_at DESC LIMIT 25;\"",
-      "verdict": "ALLOW",
-      "adjudication": [
-        "獭审 override：sqlite3 SELECT 只读查询（载荷为 SELECT 语句）"
-      ],
-      "source": {
-        "types": [
-          "guard_intercept"
-        ],
-        "anchors": [
-          {
-            "source": "guard_intercept",
-            "event_id": "74154c70-1571-4b30-916b-87b3417ed9b7",
-            "ts": "2026-09-23T00:30:43.778Z",
-            "conversation_id": "fcb57dbe-22c5-4286-9239-7261fbc369fe",
             "rule_id": "main_write",
             "resolution": "{\"action\":\"tool_fixed\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026",
             "status": "resolved"
@@ -10100,58 +10076,6 @@
       "fp_marked": []
     },
     {
-      "id": "TS-878c787f",
-      "command": "CONV=3241317b-99d6-4d78-9248-ff208a7461bc && sqlite3 /tmp/matter-loop-p1-bootstrap-test.db \"INSERT OR REPLACE INTO matters (id, conversation_id, title, origin_message_id, owner_otter_id, level, state, waiting_on, waiting_for, payload, resolution, resolved_by, created_at, updated_at, closed_at) VALUES\n('aaaa1111-0000-0000-0000-000000000001', '$CONV', 'healing 信号 X 类处置方式拍板', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L2', 'WAITING_PARTNER', 'partner', '选 A 还是 B', '{\\\"brief\\\":\\\"三层简报\\\"}', NULL, NULL, datetime('now','-4 days'), datetime('now','-4 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000002', '$CONV', '整洁架构补丁 #7 续办', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L1', 'WAITING_OTTER', (SELECT 'otter:' || id FROM otters WHERE type='big' LIMIT 1), '补丁评审修订', NULL, NULL, NULL, datetime('now','-2 days'), datetime('now','-2 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000003', '$CONV', '每日开工审批闭环确认', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L2', 'DONE_PENDING_CONFIRM', NULL, NULL, NULL, NULL, NULL, datetime('now','-1 days'), datetime('now','-1 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000004', '$CONV', '待认领：归档策略调研', NULL, NULL, NULL, 'OPEN', NULL, NULL, NULL, NULL, NULL, datetime('now','-12 hours'), datetime('now','-12 hours'), NULL)\" && curl -s \"http://127.0.0.1:3297/api/conversations/$CONV/matters\" | python3 -c \"import json,sys; ms=json.load(sys.stdin); print(len(ms), 'matters'); [print(f\\\"  {m['id'][:12]} {m['state']:22} {m['title']}\\\") for m in ms]\"",
-      "verdict": "ALLOW",
-      "adjudication": [
-        "能力4+§3.2.1-3 无写词面+无隐式写→证明无写",
-        "只读/纯计算:[('curl -s', '', ''), ('json.load', '', '')]"
-      ],
-      "source": {
-        "types": [
-          "guard_intercept"
-        ],
-        "anchors": [
-          {
-            "source": "guard_intercept",
-            "event_id": "878c787f-75b7-444b-bffc-6e8a2ad98f63",
-            "ts": "2026-10-05T14:40:20.795Z",
-            "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
-            "rule_id": "main_write",
-            "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
-            "status": "resolved"
-          }
-        ]
-      },
-      "fp_marked": []
-    },
-    {
-      "id": "TS-852a7c51",
-      "command": "cd /repo/.otter/worktrees/wt && CONV=3241317b-99d6-4d78-9248-ff208a7461bc && sqlite3 /tmp/matter-loop-p1-bootstrap-test.db \"INSERT OR REPLACE INTO matters (id, conversation_id, title, origin_message_id, owner_otter_id, level, state, waiting_on, waiting_for, payload, resolution, resolved_by, created_at, updated_at, closed_at) VALUES\n('aaaa1111-0000-0000-0000-000000000001', '$CONV', 'healing 信号 X 类处置方式拍板', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L2', 'WAITING_PARTNER', 'partner', '选 A 还是 B', '{\\\"brief\\\":\\\"三层简报\\\"}', NULL, NULL, datetime('now','-4 days'), datetime('now','-4 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000002', '$CONV', '整洁架构补丁 #7 续办', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L1', 'WAITING_OTTER', (SELECT 'otter:' || id FROM otters WHERE type='big' LIMIT 1), '补丁评审修订', NULL, NULL, NULL, datetime('now','-2 days'), datetime('now','-2 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000003', '$CONV', '每日开工审批闭环确认', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L2', 'DONE_PENDING_CONFIRM', NULL, NULL, NULL, NULL, NULL, datetime('now','-1 days'), datetime('now','-1 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000004', '$CONV', '待认领：归档策略调研', NULL, NULL, NULL, 'OPEN', NULL, NULL, NULL, NULL, NULL, datetime('now','-12 hours'), datetime('now','-12 hours'), NULL)\" && curl -s \"http://127.0.0.1:3297/api/conversations/$CONV/matters\" | python3 -c \"import json,sys; ms=json.load(sys.stdin); print(len(ms), 'matters'); [print(f\\\"  {m['id'][:12]} {m['state']:22} {m['title']}\\\") for m in ms]\"",
-      "verdict": "ALLOW",
-      "adjudication": [
-        "能力4+§3.2.1-3 无写词面+无隐式写→证明无写",
-        "只读/纯计算:[('curl -s', '', ''), ('json.load', '', '')]"
-      ],
-      "source": {
-        "types": [
-          "guard_intercept"
-        ],
-        "anchors": [
-          {
-            "source": "guard_intercept",
-            "event_id": "852a7c51-d547-4f9f-acf2-7cd0ac874da4",
-            "ts": "2026-10-05T14:40:31.440Z",
-            "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
-            "rule_id": "main_write",
-            "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
-            "status": "resolved"
-          }
-        ]
-      },
-      "fp_marked": []
-    },
-    {
       "id": "TS-a42a0104",
       "command": "curl -s \"http://127.0.0.1:3297/api/conversations/3241317b-99d6-4d78-9248-ff208a7461bc/matters\" | python3 -c \"import json,sys; ms=json.load(sys.stdin); print(len(ms), 'matters'); [print(f\\\"  {m['id'][:12]} {m['state']:22} {m['title']}\\\") for m in ms]\"",
       "verdict": "ALLOW",
@@ -11214,31 +11138,6 @@
             "conversation_id": "325ef7b7-8e42-4edc-9abf-eae8f332a2c4",
             "rule_id": "main_write",
             "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
-            "status": "resolved"
-          }
-        ]
-      },
-      "fp_marked": []
-    },
-    {
-      "id": "TS-5b26222c",
-      "command": "# 锚点抽查：昨日(10/7 CST)各对话 speak 全文中的 file:line 断言\nsqlite3 data/otter-buddy.db \"SELECT conversation_id, sequence_num, body FROM entries WHERE entry_type='speak' AND conversation_id IN ('3241317b-99d6-4d78-9248-ff208a7461bc','dd453bf3-4035-4a1e-91e3-c3602dcdd473','d7377cfd-8497-4338-9fb5-366967ffe87e') AND created_at >= '2026-10-06T16:00:00' AND created_at < '2026-10-07T16:00:00';\" > /tmp/yesterday_speaks.txt; wc -c /tmp/yesterday_speaks.txt; grep -oE '[a-zA-Z0-9/._-]+\\.(ts|tsx|md|mjs|json|sh):\\d+' /tmp/yesterday_speaks.txt | sort -u | head -20",
-      "verdict": "ALLOW",
-      "adjudication": [
-        "獭审 override：sqlite3 SELECT 只读查询（载荷为 SELECT 语句）"
-      ],
-      "source": {
-        "types": [
-          "guard_intercept"
-        ],
-        "anchors": [
-          {
-            "source": "guard_intercept",
-            "event_id": "5b26222c-23e8-4ef8-a6af-1dac70b5d664",
-            "ts": "2026-10-08T00:44:00.513Z",
-            "conversation_id": "3241317b-99d6-4d78-9248-ff208a7461bc",
-            "rule_id": "main_write",
-            "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
             "status": "resolved"
           }
         ]
@@ -14523,31 +14422,6 @@
       "fp_marked": []
     },
     {
-      "id": "TS-92082748",
-      "command": "sqlite3 data/otter-buddy.db \"SELECT payload FROM invoke_events WHERE event_type='invoke_start' AND payload LIKE '%workforms-retire%' ORDER BY created_at DESC LIMIT 1;\" 2>/dev/null | python3 -c \"\nimport sys, json\nfor line in sys.stdin:\n    line = line.strip()\n    if not line: continue\n    try:\n        p = json.loads(line)\n        # 找命令字段\n        def walk(o, depth=0):\n            if depth > 4: return\n            if isinstance(o, dict):\n                for k, v in o.items():\n                    if isinstance(v, str) and 'workforms-retire' in v and len(v) > 50:\n                        print(f'[{k}] {v[:800]}')\n                        print('---')\n                    else:\n                        walk(v, depth+1)\n            elif isinstance(o, list):\n                for item in o: walk(item, depth+1)\n        walk(p)\n    except Exception as e:\n        print('parse err:', e)\n\" 2>&1 | head -40",
-      "verdict": "ALLOW",
-      "adjudication": [
-        "獭审 override：sqlite3 SELECT 只读查询（载荷为 SELECT 语句）"
-      ],
-      "source": {
-        "types": [
-          "guard_intercept"
-        ],
-        "anchors": [
-          {
-            "source": "guard_intercept",
-            "event_id": "92082748-cd51-4844-b41b-ac287b5b38a4",
-            "ts": "2026-10-09T06:47:09.319Z",
-            "conversation_id": "7b41e085-5c21-4bd1-adfe-dc3ef051753d",
-            "rule_id": "main_write",
-            "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
-            "status": "resolved"
-          }
-        ]
-      },
-      "fp_marked": []
-    },
-    {
       "id": "TS-6da1b94d",
       "command": "cd /repo/.otter/worktrees/wt && node -e '\nconst gameHtml = require(\"fs\").readFileSync(\"/repo/data/workspaces/wsid/quest-rpg/game.html\",\"utf8\");\nconst oldRegex = (s) => s.replace(/<[^>]+>/g, \" \").replace(/\\s+/g, \" \").trim().slice(0, 180);\nconsole.log(\"=== 修复前（旧正则，tool-factory.ts:127 原样）===\");\nconsole.log(JSON.stringify(oldRegex(gameHtml)));\nconst { extractPlayableCardSummary } = require(\"./src/interface-adapters/agent-runtime/tools/tool-helpers.ts\");\n' 2>&1 | head -8; echo \"=== 新函数对 v1 真实卡的效果（经 vitest 已验证，此处用等价 js 复算）===\"; node -e '\nconst fs = require(\"fs\");\nconst html = fs.readFileSync(\"/repo/data/workspaces/wsid/quest-rpg/game.html\",\"utf8\");\nconst fixed = html.replace(/<(script|style)\\b[^>]*>[\\s\\S]*?<\\/\\1>/gi, \" \").replace(/<[^>]+>/g, \" \").replace(/\\s+/g, \" \").trim().slice(0, 180);\nconsole.log(JSON.stringify(fixed));\n'",
       "verdict": "ALLOW",
@@ -15228,31 +15102,6 @@
             "event_id": "ec1dc23b-395f-4a8b-9c49-0ba0013eb15d",
             "ts": "2026-10-09T08:45:24.401Z",
             "conversation_id": "7b41e085-5c21-4bd1-adfe-dc3ef051753d",
-            "rule_id": "main_write",
-            "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
-            "status": "resolved"
-          }
-        ]
-      },
-      "fp_marked": []
-    },
-    {
-      "id": "TS-ad65c993",
-      "command": "# 时间戳是 epoch ms。1791534277749 → 2026-10-09 16:24 UTC? 不对，epoch 1791534277 = 2026-10-09。换算：\nnode -e \"console.log(new Date(1791534277749).toISOString())\"\n# 找今天下午小獭的重启 trim 记录——小獭 otterId\nsqlite3 data/otter-buddy.db \"SELECT id, name FROM otters WHERE name LIKE '%实现獭%' OR name LIKE '%检视獭%' OR name LIKE '%守卫%';\"",
-      "verdict": "ALLOW",
-      "adjudication": [
-        "獭审 override：sqlite3 SELECT 只读查询（载荷为 SELECT 语句）"
-      ],
-      "source": {
-        "types": [
-          "guard_intercept"
-        ],
-        "anchors": [
-          {
-            "source": "guard_intercept",
-            "event_id": "ad65c993-f230-4f60-83c8-f7ccdc167bcf",
-            "ts": "2026-10-09T08:46:09.619Z",
-            "conversation_id": "74abdc91-d743-4cf9-816c-aacfee433c8f",
             "rule_id": "main_write",
             "resolution": "{\"action\":\"no_action\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-",
             "status": "resolved"
@@ -21204,6 +21053,58 @@
       "fp_marked": [],
       "kind": "real_command",
       "verdict": "ALLOW"
+    },
+    {
+      "id": "TS-878c787f",
+      "command": "CONV=3241317b-99d6-4d78-9248-ff208a7461bc && sqlite3 /tmp/matter-loop-p1-bootstrap-test.db \"INSERT OR REPLACE INTO matters (id, conversation_id, title, origin_message_id, owner_otter_id, level, state, waiting_on, waiting_for, payload, resolution, resolved_by, created_at, updated_at, closed_at) VALUES\n('aaaa1111-0000-0000-0000-000000000001', '$CONV', 'healing 信号 X 类处置方式拍板', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L2', 'WAITING_PARTNER', 'partner', '选 A 还是 B', '{\\\"brief\\\":\\\"三层简报\\\"}', NULL, NULL, datetime('now','-4 days'), datetime('now','-4 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000002', '$CONV', '整洁架构补丁 #7 续办', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L1', 'WAITING_OTTER', (SELECT 'otter:' || id FROM otters WHERE type='big' LIMIT 1), '补丁评审修订', NULL, NULL, NULL, datetime('now','-2 days'), datetime('now','-2 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000003', '$CONV', '每日开工审批闭环确认', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L2', 'DONE_PENDING_CONFIRM', NULL, NULL, NULL, NULL, NULL, datetime('now','-1 days'), datetime('now','-1 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000004', '$CONV', '待认领：归档策略调研', NULL, NULL, NULL, 'OPEN', NULL, NULL, NULL, NULL, NULL, datetime('now','-12 hours'), datetime('now','-12 hours'), NULL)\" && curl -s \"http://127.0.0.1:3297/api/conversations/$CONV/matters\" | python3 -c \"import json,sys; ms=json.load(sys.stdin); print(len(ms), 'matters'); [print(f\\\"  {m['id'][:12]} {m['state']:22} {m['title']}\\\") for m in ms]\"",
+      "verdict": "ALLOW",
+      "adjudication": [
+        "[重裁前裁决理由（已废）] 能力4+§3.2.1-3 无写词面+无隐式写→证明无写",
+        "#1490 F20261028sqldb 重裁：sqlite3 INSERT 写入 /tmp 数据库，非主仓写；终局仍正面 ALLOW，但依据从原误标「无写/纯计算」改为真实树外写落点。不得因历史裁决文本错误改写终局。"
+      ],
+      "source": {
+        "types": [
+          "guard_intercept"
+        ],
+        "anchors": [
+          {
+            "source": "guard_intercept",
+            "event_id": "878c787f-75b7-444b-bffc-6e8a2ad98f63",
+            "ts": "2026-10-05T14:40:20.795Z",
+            "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+            "rule_id": "main_write",
+            "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+            "status": "resolved"
+          }
+        ]
+      },
+      "fp_marked": []
+    },
+    {
+      "id": "TS-852a7c51",
+      "command": "cd /repo/.otter/worktrees/wt && CONV=3241317b-99d6-4d78-9248-ff208a7461bc && sqlite3 /tmp/matter-loop-p1-bootstrap-test.db \"INSERT OR REPLACE INTO matters (id, conversation_id, title, origin_message_id, owner_otter_id, level, state, waiting_on, waiting_for, payload, resolution, resolved_by, created_at, updated_at, closed_at) VALUES\n('aaaa1111-0000-0000-0000-000000000001', '$CONV', 'healing 信号 X 类处置方式拍板', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L2', 'WAITING_PARTNER', 'partner', '选 A 还是 B', '{\\\"brief\\\":\\\"三层简报\\\"}', NULL, NULL, datetime('now','-4 days'), datetime('now','-4 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000002', '$CONV', '整洁架构补丁 #7 续办', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L1', 'WAITING_OTTER', (SELECT 'otter:' || id FROM otters WHERE type='big' LIMIT 1), '补丁评审修订', NULL, NULL, NULL, datetime('now','-2 days'), datetime('now','-2 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000003', '$CONV', '每日开工审批闭环确认', NULL, (SELECT id FROM otters WHERE type='big' LIMIT 1), 'L2', 'DONE_PENDING_CONFIRM', NULL, NULL, NULL, NULL, NULL, datetime('now','-1 days'), datetime('now','-1 days'), NULL),\n('aaaa1111-0000-0000-0000-000000000004', '$CONV', '待认领：归档策略调研', NULL, NULL, NULL, 'OPEN', NULL, NULL, NULL, NULL, NULL, datetime('now','-12 hours'), datetime('now','-12 hours'), NULL)\" && curl -s \"http://127.0.0.1:3297/api/conversations/$CONV/matters\" | python3 -c \"import json,sys; ms=json.load(sys.stdin); print(len(ms), 'matters'); [print(f\\\"  {m['id'][:12]} {m['state']:22} {m['title']}\\\") for m in ms]\"",
+      "verdict": "ALLOW",
+      "adjudication": [
+        "[重裁前裁决理由（已废）] 能力4+§3.2.1-3 无写词面+无隐式写→证明无写",
+        "#1490 F20261028sqldb 重裁：sqlite3 INSERT 写入 /tmp 数据库，非主仓写；终局仍正面 ALLOW，但依据从原误标「无写/纯计算」改为真实树外写落点。不得因历史裁决文本错误改写终局。"
+      ],
+      "source": {
+        "types": [
+          "guard_intercept"
+        ],
+        "anchors": [
+          {
+            "source": "guard_intercept",
+            "event_id": "852a7c51-d547-4f9f-acf2-7cd0ac874da4",
+            "ts": "2026-10-05T14:40:31.440Z",
+            "conversation_id": "e871769f-a731-4278-ae21-de3ab4c8eaf8",
+            "rule_id": "main_write",
+            "resolution": "{\"action\":\"deferred\",\"decidedBy\":\"agent\",\"decidedAt\":\"2026-1",
+            "status": "resolved"
+          }
+        ]
+      },
+      "fp_marked": []
     }
   ]
 }
