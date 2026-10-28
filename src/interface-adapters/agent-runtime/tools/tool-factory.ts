@@ -15,6 +15,7 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import { interceptHealingReport, createManageHealingEventsTool } from "./healing-tools";
 import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, createUnhaltOtterTool, interceptSignalReport } from "./signal-tools";
 import { createListMattersTool, createTransitionMatterTool, createRegisterMatterTool, createMatterSweepTool } from "./matter-tools";
+import { createTrackWorkTool } from "./work-ledger-tools";
 import { RegisterMatter, matterShortAnchor } from "@usecases/matter/register-matter";
 import { HANDOFF_SYNTHESIZE_PAST_DEFAULT } from "../agent-invoker";
 import { createTriageSignalTool, createListRhiSignalsTool } from "./rhi-signal-tools";
@@ -1734,6 +1735,11 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     // 仅 big 型注册（session-helpers getOtterToolNamesForType 白名单控制），small 型不持有——
     // 跨对话查询权与编排权对齐（扫描跑在三省吾身对话，matter 工具按对话隔离）。
     tools.push(createMatterSweepTool(ctx, matterRepo));
+  }
+  // F20261027hwl1：工作账本登记工具（start/resume/complete/cancel/review_round）。
+  // 注册条件 = workLedgerBinder 注入；small/big 均可用（实现者与检视者都要留痕）。
+  if (ctx.workLedgerBinder) {
+    tools.push(createTrackWorkTool(ctx, ctx.workLedgerBinder));
   }
   return tools;
 }

@@ -79,7 +79,9 @@ async function createTestInvoke(repo: SqliteInvokeRepository, id: string): Promi
     endedAt: null,
     toolCallCount: 0,
     tokenUsageInput: null,
-    tokenUsageOutput: null, ctxWindowUsed: null,
+    tokenUsageOutput: null,
+    tokenUsageCacheRead: null,
+    tokenUsageCacheWrite: null, ctxWindowUsed: null,
     pid: null,
     metadata: null,
   });
@@ -326,7 +328,7 @@ describe("getSelfYieldDecisionEntries（#530 专用决定性记录查询，F2026
       id: invokeId, conversationId: "conv-1", otterId: invokeOwner, status: "completed",
       triggerEntryId: null, talkingStonePassedTo: null,
       startedAt: "2026-09-10T00:01:00Z", endedAt: "2026-09-10T00:02:00Z",
-      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, ctxWindowUsed: null,
+      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, tokenUsageCacheRead: null, tokenUsageCacheWrite: null, ctxWindowUsed: null,
       pid: null, metadata: null,
     });
     await repo.createEntry(entryFixture({
@@ -362,7 +364,7 @@ describe("getSelfYieldDecisionEntries（#530 专用决定性记录查询，F2026
       id: "inv-current", conversationId: "conv-1", otterId: "otter-1", status: "running",
       triggerEntryId: null, talkingStonePassedTo: null,
       startedAt: "2026-09-10T00:01:00Z", endedAt: null,
-      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, ctxWindowUsed: null,
+      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, tokenUsageCacheRead: null, tokenUsageCacheWrite: null, ctxWindowUsed: null,
       pid: null, metadata: null,
     });
     await repo.createEntry(entryFixture({

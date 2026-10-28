@@ -730,6 +730,131 @@ export function getRhiCostOutput(days = 30, includeAllOtters = false, signal?: A
   return request(`/health/cost-output?days=${days}&includeAllOtters=${includeAllOtters}`, { signal })
 }
 
+// ─── F20261027hwl1：工作账本 + 模型效率 ───
+
+/** 工作账本：token 四分量汇总 */
+export interface WorkTokenSummaryDTO {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  totalTokens: number
+}
+
+/** 结构化检视轮次（track_work review_round 留痕） */
+export interface WorkReviewRoundDTO {
+  roundNo: number
+  reviewerOtterId: string
+  state: 'reviewing' | 'awaiting-fix' | 'delta-review' | 'passed' | 'open-unknown'
+  startedInvokeId?: string | null
+  deltaInvokeId?: string | null
+  startedAt?: string | null
+  deltaAt?: string | null
+  passedAt?: string | null
+}
+
+export interface WorkReportItemDTO {
+  workId: string
+  title: string
+  status: 'active' | 'delivered' | 'merged' | 'closed' | 'cancelled'
+  originKind: 'feature' | 'matter' | 'manual' | 'inferred-historical'
+  originId: string | null
+  evidenceQuality: 'tracked' | 'historical-partial'
+  createdAt: string
+  closedAt: string | null
+  tokens: WorkTokenSummaryDTO
+  participants: Array<{ otterId: string }>
+  reviewRounds: WorkReviewRoundDTO[]
+  roundsRecorded: boolean
+  invokeCount: number
+}
+
+export interface WorkLedgerDTO {
+  works: WorkReportItemDTO[]
+  attributionCoverage: number | null
+  unassigned: {
+    invokeCount: number
+    tokens: WorkTokenSummaryDTO
+    unboundTraceCount: number
+    noTraceCount: number
+  }
+  usageGapInvokeCount: number
+  pricingAvailable: boolean
+}
+
+export interface WorkDetailDTO {
+  work: {
+    id: string
+    title: string
+    originKind: WorkReportItemDTO['originKind']
+    originId: string | null
+    status: WorkReportItemDTO['status']
+    evidenceQuality: WorkReportItemDTO['evidenceQuality']
+    createdAt: string
+    closedAt: string | null
+    reviewRounds: WorkReviewRoundDTO[]
+  }
+  tokens: WorkTokenSummaryDTO
+  participants: Array<{ otterId: string; invokeCount: number }>
+  traces: Array<{ traceId: string; boundAt: string; boundVia: string }>
+  invokeEvidence: Array<{
+    invokeId: string
+    otterId: string
+    conversationId: string
+    startedAt: string
+    tokens: WorkTokenSummaryDTO
+    hasUsage: boolean
+  }>
+  /** 复审 A5：证据截断数（超 evidenceLimit 未显示的条数；0 = 无截断） */
+  truncatedCount: number
+  /** 复审 S1：全部 invoke 数（与列表口径同源） */
+  totalInvokeCount: number
+  /** 复审 A5：per-work usage 缺口数（四分量全 null——与真实零区分） */
+  usageGapCount: number
+  pricingAvailable: boolean
+}
+
+export interface ModelEfficiencyCellDTO {
+  totalTokens: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  cacheHitRate: number | null
+  callCount: number
+  errorCalls: number
+}
+
+export interface ModelEfficiencyDTO {
+  timezone: 'Asia/Shanghai'
+  windows: {
+    day: { start: string; end: string }
+    week: { start: string; end: string }
+    month: { start: string; end: string }
+  }
+  rows: Array<{
+    provider: string
+    model: string
+    day: ModelEfficiencyCellDTO | null
+    week: ModelEfficiencyCellDTO | null
+    month: ModelEfficiencyCellDTO | null
+  }>
+  totals: { day: ModelEfficiencyCellDTO | null; week: ModelEfficiencyCellDTO | null; month: ModelEfficiencyCellDTO | null }
+  snapshotDays: number
+}
+
+export function getWorkLedger(signal?: AbortSignal): Promise<WorkLedgerDTO> {
+  return request('/health/work-ledger', { signal })
+}
+
+export function getWorkDetail(workId: string, signal?: AbortSignal): Promise<WorkDetailDTO> {
+  return request(`/health/work-ledger/${encodeURIComponent(workId)}`, { signal })
+}
+
+export function getModelEfficiency(signal?: AbortSignal): Promise<ModelEfficiencyDTO> {
+  return request('/health/model-efficiency', { signal })
+}
+
 /** F20260830xxxx：健康评分 DTO（GET /api/health/score，issue #595 PR2）*/
 export interface RhiScoreDimensionDTO {
   dimension: 'D1' | 'D2' | 'D3' | 'D4' | 'D5'

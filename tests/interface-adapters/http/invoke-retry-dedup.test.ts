@@ -31,6 +31,8 @@ function makeInvoke(overrides: Partial<Invoke>): Invoke {
     toolCallCount: 0,
     tokenUsageInput: null,
     tokenUsageOutput: null,
+    tokenUsageCacheRead: null,
+    tokenUsageCacheWrite: null,
     metadata: null,
     pid: null,
     ...overrides,

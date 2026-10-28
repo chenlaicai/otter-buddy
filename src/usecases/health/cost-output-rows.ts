@@ -37,6 +37,8 @@ interface OtterMeta {
   otterName: string;
   otterType?: string;
   model?: string;
+  /** F20261027hwl1：真实 provider（null/unknown 省略——报告层归 unknown 桶） */
+  provider?: string;
 }
 
 /** 标准指标键清单（metric_key 值） */
@@ -117,11 +119,14 @@ export function buildCostOutputSnapshotRows(
 
   // 1. Per-otter per-model cost 行（日期取记录真实日期）
   for (const rec of costRecords) {
+    // F20261027hwl1：provider 恒写入（unknown 显式标记）——新旧口径的幂等判据
+    //（旧行无 provider 字段；新行有 provider 或显式 unknown）
     const meta: OtterMeta = {
       otterId: rec.otterId,
       otterName: rec.otterName,
       otterType: rec.otterType,
       model: rec.model,
+      provider: rec.provider ?? "unknown",
     };
     const metaStr = JSON.stringify(meta);
 

@@ -60,6 +60,9 @@ export interface InvokeFnParams {
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
   /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
   batchMaxSeq?: number;
+  /** F20261027hwl1：触发本链的 entry id（工作账本归属证据——写 invokes.trigger_entry_id）。
+   *  链引擎逐 hop 透传；与 trace scope 内 traceId 一起构成「链→invoke」的可归因锚点。 */
+  triggerMessageId?: string;
 }
 
 export interface InvokeFnResult {
@@ -360,6 +363,7 @@ export class DispatchChainEngine {
         senderId,
         ...(images && { images }),
         batchMaxSeq: messageWithContext.batchMaxSeq,
+        triggerMessageId,
       });
     });
 

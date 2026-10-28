@@ -70,6 +70,10 @@ export interface RhiScanWorkerOptions {
    *  与 overview snapshotSink 分离，避免类型冲突。未注入时跳过。
    *  @param metricType 可选，指定后只删除该 metric_type 的行（#583 修复：全局行按历史日期分批写入需类型限定）。 */
   costOutputSink?: (snapshotDate: string, rows: CreateCostOutputRow[], metricType?: string) => void;
+  /** F20261027hwl1：cost_output 存量失效钩子——日界换轨（UTC→Asia/Shanghai）与 provider 元数据
+   *  入库后，旧口径行必须一次性清除（60 天窗口下轮重扫重建），否则双日界双计。
+   *  注入后首次扫描执行 DELETE，幂等（标志位由调用方持久化或自身探测旧行 provider 缺失）。 */
+  costOutputInvalidateAll?: () => void;
   /** 指标计算滚动窗口天数（默认 60：趋势图 30 天 + 前后各 15 天缓冲） */
   metricsWindowDays?: number;
   /** 信号仓库（可选，issue #595 PR1）：注入后健康评分 D5 用真实 open 计数；未注入时降级零值 */
@@ -263,12 +267,28 @@ export class RhiScanWorker {
 
   /** 成本/产出快照写入（#583）：解析 session JSONL + 查 messages 表，同日覆盖。
    *  独立于 overview 快照（metric_type=cost_output），失败不阻断信号管道。 */
+  /** F20261027hwl1：日界换轨失效——旧 UTC 口径行清除后由本轮 60 天重扫全量重建。
+   *  失败不阻断重扫（stale rows kept，下轮重试）。 */
+  private invalidateStaleCostOutput(): void {
+    if (!this.options.costOutputInvalidateAll) return;
+    try {
+      this.options.costOutputInvalidateAll();
+    } catch (err) {
+      this.logger.warn("cost_output invalidate failed (stale rows kept, next scan retries)", {
+        action: "rhi_worker_cost_output_invalidate_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   private async persistCostOutputSnapshot(): Promise<number> {
     const sink = this.options.costOutputSink;
     const sessionsDir = this.options.sessionsDir;
     const agentSource = this.options.agentSessionSource;
     const db = this.options.costOutputDb;
     if (!sink || !sessionsDir || !agentSource || !db) return 0;
+
+    this.invalidateStaleCostOutput();
 
     try {
       const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
