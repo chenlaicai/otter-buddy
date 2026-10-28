@@ -52,6 +52,15 @@ function buildConversationListWhere(options?: ListConversationsFilter): {
   };
 }
 
+/** 对话列表最后活动：异常终态需要介入；正常生命周期边界不顶起对话。 */
+const LAST_ACTIVITY_ENTRY_PREDICATE = `(
+  entry_type IN ('user', 'speak', 'system')
+  OR (
+    entry_type = 'invoke_end'
+    AND json_extract(metadata, '$.invokeStatus') IN ('aborted', 'failed')
+  )
+)`;
+
 export class SqliteConversationRepository implements ConversationRepository {
   /** 多模态 Phase 1：附件 repo（消息组装点①——repository 加载回填 attachments） */
   /** 审视修复 R8：附件 JOIN 降级时留痕（不再吞错——真实 DB 故障须可观测） */
@@ -256,7 +265,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       LEFT JOIN conversation_user_read_state u ON u.conversation_id = c.id AND u.user_id = ?
       LEFT JOIN entries le ON le.id = (
         SELECT id FROM entries WHERE conversation_id = c.id
-          AND entry_type IN ('user', 'speak', 'system')
+          AND ${LAST_ACTIVITY_ENTRY_PREDICATE}
         ORDER BY sequence_num DESC LIMIT 1
       )
       ${whereClause}
