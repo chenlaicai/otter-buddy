@@ -377,7 +377,7 @@ describe("2026-10-27 真实拦截回放（负门固化：守卫自测/探针流�
   // script_file_exec = 误拦。裁决时点（10-28 00:32Z 生成样本、00:55Z 定稿）#1661 尚未合入、
   // 当时底座钉 ALLOW 会红；#1661 于 01:19Z 合入 main 后本 PR 分支实测典型形态已全部 ALLOW
   // （worktree remove / force-with-lease / 只读 git log / node -e，检视复核一致）——正门 5 条
-  // 如下钉死。其余 85 条 SKIP 分类归置见 F20261028grpl 统计表，重裁跟进挂 #1608。
+  // 如下钉死。其余 85 条 SKIP 分类归置见 F20261028grplx 统计表，重裁跟进挂 #1608。
   const gopts = { projectRoot, sessionCwd: projectRoot };
 
   it("1027-D1: rm 主仓探针文件 + ~/ + /tmp/.git/HEAD 混合落点 → 拦（data_destructive，现场 11:22）", () => {
