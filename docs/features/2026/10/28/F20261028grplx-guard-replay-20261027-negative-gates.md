@@ -34,16 +34,20 @@ causal_links:
 
 **回放保真度注记**：命令头取自样本（DB context 截断 ~120 字符）；D2 删「单批」词元系守卫自测当场临时文件名（非命令语法成分）；各条尾部超出截断区间按现场语义重构，与 1013 批次「多样本→典型化」先例同口径。
 
-## SKIP 83 条分类归置表（检视发现 3/5 补）
+## SKIP 83 条分类归置表（delta D2 精确化：按样本 id 逐条扣减，94 − 11 锚定）
 
-| ruleId | 条数 | 归置 | 依据 |
-|---|---|---|---|
-| main_write_resolve | 27 | 归 #1608 重裁 | 善后/误拦主体（A1-A5 已钉典型形，其余同形或待重裁） |
-| script_file_exec | 20 | 归 #1608 重裁 | colink 外部仓 + 各类文件执行形态，主体误拦 |
-| unknown | 17 | 归 #1608 逐条定性 | 多数形似误拦；含 `rm -rf repo wt remote.git` 形似自测需逐条辨 |
-| sleep_block | 15 | 不重钉 | 1013 批次 1013-B4 已钉同形负门（sleep N && cmd），本批系同形重复 |
-| self_kill_nonliteral | 1 | 不重钉 | K1 已钉同形负门 |
-| main_write | 3 | 归 #1608 重裁 | M1/M2 已钉典型形，余同形 |
+锚定样本 id 清单：D1/D2=data_destructive 全量 2 条、M1/M2/A3/A4=main_write 中 4 条、A1/A5=main_write_resolve 中 2 条（27d164de、d6c4c82d）、A2=sleep_block 中 1 条（d77f8ad3，截断头外尾部带 sleep）、K1/K2=self_kill_nonliteral 中 2 条（2ce1be62、d45d292d）。
+
+| ruleId | 样本数 | 锚定 | SKIP | 归置 | 依据 |
+|---|---|---|---|---|---|
+| main_write_resolve | 32 | 2 | 30 | 归 #1608 重裁 | 善后/误拦主体（A1/A5 已钉典型形） |
+| script_file_exec | 20 | 0 | 20 | 归 #1608 重裁 | colink 外部仓 + 各类文件执行形态，主体误拦 |
+| unknown | 17 | 0 | 17 | 归 #1608 逐条定性 | 多数形似误拦；含 `rm -rf repo wt remote.git` 形似自测需逐条辨 |
+| sleep_block | 15 | 1 | 14 | 不重钉 | 1013 批次 1013-B4 已钉同形负门；A2 另钉正门 |
+| main_write | 5 | 4 | 1 | 归 #1608 重裁 | M1/M2/A3/A4 已锚典型形 |
+| self_kill_nonliteral | 3 | 2 | 1 | 归 #1608 逐条辨 | 剩余 99d0d43c 命令头（截断）无进程终止词元可见，同形断言无依据（delta D3 修正：原「K1 已钉同形」不成立） |
+
+计数对账：30+20+17+14+1+1=83 ✓（94 总样本 − 11 锚定 = 83）。注：初版表 mwr=27/mw=3 系按「命令形态」粗分而非样本 ruleId 精确归属，本版按样本 id 修正；检视复核值 84 系 A2 样本（d77f8ad3）被计入 main_write_resolve 的归类差。
 
 # 验证
 

@@ -377,7 +377,7 @@ describe("2026-10-27 真实拦截回放（负门固化：守卫自测/探针流�
   // script_file_exec = 误拦。裁决时点（10-28 00:32Z 生成样本、00:55Z 定稿）#1661 尚未合入、
   // 当时底座钉 ALLOW 会红；#1661 于 01:19Z 合入 main 后本 PR 分支实测典型形态已全部 ALLOW
   // （worktree remove / force-with-lease / 只读 git log / node -e，检视复核一致）——正门 5 条
-  // 如下钉死。其余 85 条 SKIP 分类归置见 F20261028grplx 统计表，重裁跟进挂 #1608。
+  // 如下钉死。其余 83 条 SKIP 分类归置见 F20261028grplx 统计表，重裁跟进挂 #1608。
   const gopts = { projectRoot, sessionCwd: projectRoot };
 
   it("1027-D1: rm 主仓探针文件 + ~/ + /tmp/.git/HEAD 混合落点 → 拦（data_destructive，现场 11:22）", () => {
@@ -406,7 +406,7 @@ describe("2026-10-27 真实拦截回放（负门固化：守卫自测/探针流�
     expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
   });
 
-  it("1027-A2: feature 分支 push --force-with-lease → 放行（现场 06:23，#1661 前误拦）", () => {
+  it("1027-A2: feature 分支 push --force-with-lease → 放行（现场 06:23 d77f8ad3，样本 ruleId=sleep_block——截断头外尾部带 sleep，实测 ALLOW 归 #1661 收敛，#1661 前误拦）", () => {
     const cmd = `cd ${projectRoot}/.otter/worktrees/fix-1349-matter-manifest && git push -q --force-with-lease origin fix/1349-matter-manifest`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
   });
@@ -424,7 +424,7 @@ EOF`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
   });
 
-  it("1027-A5: node -e 只读 require 探查 → 放行（现场 01:50，#1661 前误拦）", () => {
+  it("1027-A5: node -e 只读 require 探查 → 放行（现场 04:18 d6c4c82d，#1661 前误拦）", () => {
     const cmd = `node -e "const x = require('./src/foo.ts'); console.log(Object.keys(x))"`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
   });
