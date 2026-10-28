@@ -31,7 +31,7 @@ causal_links:
 ## 根因与修法
 
 1. **SCRIPT_RUNNERS 扩员**（payload-extract-aux.ts）：+jshell/rscript/lua/octave。⚠️ 大小写坑：resolveExecHead 归一执行名为小写（`Rscript`→`rscript`），集合成员必须小写——首版写 `Rscript` 导致 isScriptRunnerSeg 判 false 静默不收，探针当场抓出。
-2. **文件形态后缀门**（SCRIPT_FILE_SUFFIXES）：+`r|jl`（Rscript/julia 惯用后缀）。jsh/m 后缀过于宽泛不收——无后缀文件形态走保守放行侧不变（issue 主战场是内联/heredoc 载荷，非文件形态）。
+2. **文件形态后缀门**（SCRIPT_FILE_SUFFIXES）：+`r|lua` + i 旗标（R 惯用后缀含大写 .R；lua 无雷同词；r1 检视后定稿）。jsh/m/jl 后缀不收（宽泛风险或死条目；julia 不在集内）——无后缀文件形态走保守放行侧不变（issue 主战场是内联/heredoc 载荷，非文件形态）。
 3. **R/Java 写调用词面收编**（三处同源同步，词表漂移=双链反判）：
    - SCRIPT_WRITE_TOKENS（write-target-evaluator.ts:1016）：+`file.(create|append|copy|rename|remove|unlink|link)(`、`dir.(create|unlink)(`、`writeLines(`、`write.table(`、`fwrite(`、`saveRDS(`、`Runtime.getRuntime().exec`
    - PAYLOAD_WRITE_FACE（write-word-face.ts）同款同步
@@ -54,7 +54,7 @@ causal_links:
 - **R 落点提取不完整**（记档）：file.create 首参落点静态求值未实现（evalScriptWriteTargets 无 R 调用形态）——词面负门 fail-closed 兜底，安全面达成；树内合法 R 写（写 worktree/tmp）会被误拦回落——保守方向，可接受，P2 载荷 AST 再收
 - **octave --eval 全形态 fail-closed**（r1 检视记档）：octave 无内联旗标位通道（--eval 走 heredoc 负门），只读 --eval 也 fail-closed——保守方向，可接受；只读面走文件形态正道（后缀门 .m 未收，无后缀默认）
 
-### r1 检视处置（检视猚1491，2026-10-28）
+### r1 检视处置（检视獭-1491，2026-10-28）
 
 严重 2（三坑叠加，全部修复）：① isRunnerArgv0 裸比无小写（Rscript 大写官方拼写落错分支）→ 裸名一律小写化再比；② dispatch 硬编码后缀正则第 4 份同源表未同步 → 补 r|lua + i 旗标；③ 后缀门区分大小写（.R 不入门）→ i 旗标。回归钉：大写 Rscript+.R fail-closed。
 建议处置：① .lua 漏收 → 已收（探针：真写脚本落点披露）；② .jl 死条目（julia 不在集内）→ 已删；③ 代码注释 FID 与 doc 不一致 → 已统一 runfa；④ octave --eval 全形态 fail-closed 未记档 → 已记档（上节）。

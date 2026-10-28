@@ -1456,14 +1456,17 @@ describe("双引号反斜杠语义（检视獭1597 严重 2：治标闸 + M-f89f
       if (r.kind === "evaluated") expect(r.targets).toEqual([]);
     });
     it("Rscript 文件形态后缀门：大写官方拼写 + .R 真写脚本 → fail-closed（r1 检视回归钉）", () => {
-      // /tmp/p1491/w.R 内容：file.create("主仓")——探针脚本 fixture，r1 三坑叠加回归钉
-      const r = evaluateWriteTargets(`Rscript /tmp/p1491/w.R`, ROOT);
-      expect(r.kind).toBe("unevaluated");
+      const dir = path.join(os.tmpdir(), "guard-1491-rscript-block");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "w.R"), `file.create("${ROOT}/pwn.txt")\n`);
+      expect(evaluateWriteTargets(`Rscript ${path.join(dir, "w.R")}`, ROOT).kind).toBe("unevaluated");
     });
     it("lua 文件形态后缀门：.lua 真写脚本 → 落点披露（r1 建议①：.lua 无雷同词漏收）", () => {
-      const r = evaluateWriteTargets(`cd /tmp/p1491 && lua s.lua`, ROOT);
+      const dir = path.join(os.tmpdir(), "guard-1491-lua-write");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "s.lua"), `io.open("/repo/project/pwn.txt","w")\n`);
+      const r = evaluateWriteTargets(`cd ${dir} && lua s.lua`, ROOT);
       expect(r.kind).toBe("evaluated");
       if (r.kind === "evaluated") expect(r.targets).toContainEqual({ path: "/repo/project/pwn.txt", via: "cmd-arg", segmentIndex: 1, access: "write" });
     });
-    // fixture /tmp/p1491/s.lua 内容：io.open("/repo/project/pwn.txt","w")——字面量主仓路径
   });

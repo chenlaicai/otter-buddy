@@ -1557,7 +1557,7 @@ function middleSlashPathShaped(word: Word): boolean {
  *  在其参数/载荷，argv0 自身不当脚本文件——/usr/bin/python3 与 python3 同族同判
  *  （同族不许自己打自己；python 文件形态面不超通道 TS-74fd58ae/TS-10eb58ff 冻结口径）。 */
 function isRunnerArgv0(argv0: string | null): boolean {
-  // F20261028runfa r1（检视猚1491 严重 2）：resolveExecHead 已归一小写，此裸比点漏同步——
+  // F20261028runfa r1（检视獭-1491 严重 2）：resolveExecHead 已归一小写，此裸比点漏同步——
   //  Rscript（官方拼写首字母大写）曾判 false 落错分支。同源口径：裸名一律小写化再比。
   const bare = bareName(argv0)?.toLowerCase() ?? null;
   return bare !== null && (SCRIPT_FILE_RUNNERS.has(bare) || SCRIPT_RUNNERS.has(bare));
@@ -2547,7 +2547,7 @@ function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot
         const isShellLang = isRunnerArgv0(seg.argv0)
           // F20261028runfa r1：同源小写口径（isRunnerArgv0 已归一，此处裸比同步）
           ? SCRIPT_FILE_RUNNERS.has(bareName(seg.argv0)?.toLowerCase() ?? "")
-          // F20261028runfa r1（检视猚1491 严重 2）：第 4 份同源后缀表同步（r|jl + i 旗标——
+          // F20261028runfa r1（检视獭-1491 严重 2）：第 4 份同源后缀表同步（r|lua + i 旗标——
           //  R 惯用大写 .R 与 SCRIPT_FILE_SUFFIXES 同口径入门）
           : !/(?:\.mjs|\.cjs|\.js|\.mts|\.cts|\.ts|\.py|\.pyw|\.rb|\.pl|\.pm|\.scpt|\.applescript|\.r|\.lua)$/i.test(scriptArg.word.evaluated ?? "");
         const payloadErr = isShellLang
