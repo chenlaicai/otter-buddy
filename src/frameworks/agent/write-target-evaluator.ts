@@ -753,28 +753,46 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
 }
 
 /** sqlite3 [OPTIONS] [FILENAME [SQL...]]：数据库参数可能是文件或 SQLite URI。
- *  实测：普通 SELECT 也会创建不存在的库文件，不能靠 SQL 动词出具无写证明；
- *  只认 -readonly / URI mode=ro / 内存库。URI 查最后一个 mode，防止 ro→rw 洗白。 */
+ *  实测：普通 SELECT 也会创建不存在的库文件，不能靠 SQL 动词出具无写证明。
+ *  只读/内存主库也不能豁免 ATTACH 与写 dot-command；未知选项值、URI 解码失败一律不可证。 */
 // eslint-disable-next-line complexity, max-statements -- sqlite3 选项/URI/只读语义穷举；每条分支对应 sqlite3 参数形态
-function sqliteDatabaseTarget(words: Word[]): { target: string | null; readOnly: boolean } {
+function sqliteDatabaseTarget(words: Word[], acc: SegmentEvalAcc): { target: string | null; readOnly: boolean } {
   let db: string | null | undefined;
   let readOnly = false;
   let positional = false;
-  const valueFlags = new Set(["-cmd", "-init", "-key", "-textkey", "-vfs", "-escape", "-newline", "-nullvalue", "-separator", "-nonce", "-maxsize", "-pagecache"]);
+  const payloads: string[] = [];
+  const valueFlags = new Set(["-cmd", "-init", "-key", "-hexkey", "-textkey", "-vfs", "-escape", "-newline", "-nullvalue", "-separator", "-nonce", "-maxsize"]);
+  const noValueFlags = new Set(["-append", "-ascii", "-bail", "-batch", "-box", "-column", "-csv", "-deserialize", "-echo", "-header", "-noheader", "-help", "-html", "-interactive", "-json", "-line", "-list", "-markdown", "-nofollow", "-quote", "-safe", "-serialize", "-stats", "-table", "-tabs", "-version", "-vfstrace"]);
   for (let i = 1; i < words.length; i++) {
-    const value = words[i].evaluated;
+    // 复用既有同命令赋值溯源，不用动态=null 把 H=~/... && sqlite3 $H 错当未知。
+    const value = acc.segments === undefined ? words[i].evaluated : resolveTargetArgWord(words[i], acc.segments, acc.index);
     if (!positional && value === "--") { positional = true; continue; }
     if (!positional && value === "-readonly") { readOnly = true; continue; }
     if (!positional && value !== null && value.startsWith("-")) {
-      if (value === "-lookaside") { i += 2; continue; }
-      if (valueFlags.has(value)) { i++; continue; }
-      if (value === "-A") break; // 未知形态保守回落
+      if (value === "-lookaside" || value === "-pagecache") {
+        if (words[i + 1]?.evaluated == null || words[i + 2]?.evaluated == null) break;
+        i += 2; continue;
+      }
+      if (valueFlags.has(value)) {
+        const arg = words[++i]?.evaluated;
+        if (arg == null) break; // 动态/缺失选项值不装作已知
+        if (value === "-cmd") payloads.push(arg);
+        continue;
+      }
+      if (!noValueFlags.has(value)) break; // 未收录旗标不可猜值槽，fail-closed
       continue;
     }
+    if (value === null) break;
     db = value;
-    break; // FILENAME 之后均为 SQL，不参与数据库参数解析
+    // SQL 参数不是路径：$CID/$i 等运行时插值不影响数据库落点，不能误报 unknown。
+    for (const word of words.slice(i + 1)) if (word.evaluated !== null) payloads.push(word.evaluated);
+    break;
   }
-  if (typeof db !== "string") return { target: null, readOnly };
+  if (typeof db !== "string") return { target: null, readOnly: false };
+  // 真实行为：内存库的 ATTACH 会创建任意路径；.backup/.restore/.import 等也可写文件。
+  if (payloads.some(p => /(?:^|[;\s])attach\s+database\b|^\s*\.(?:backup|restore|import|save|output|once|expert|load|read|write|dump|archive)\b/im.test(p))) {
+    return { target: null, readOnly: false };
+  }
   if (db === ":memory:" || db === "") return { target: null, readOnly: true };
   if (db.startsWith("file:")) {
     const uri = db.slice(5), queryAt = uri.indexOf("?");
@@ -783,7 +801,7 @@ function sqliteDatabaseTarget(words: Word[]): { target: string | null; readOnly:
     const modes = params.getAll("mode"), finalMode = modes[modes.length - 1];
     if (filename === ":memory:" || filename === "" || finalMode === "memory") return { target: null, readOnly: true };
     if (readOnly || finalMode === "ro") return { target: null, readOnly: true };
-    return { target: filename, readOnly: false };
+    try { return { target: decodeURIComponent(filename), readOnly: false }; } catch { return { target: null, readOnly: false }; }
   }
   return { target: readOnly ? null : db, readOnly };
 }
@@ -810,7 +828,7 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
     return null;
   };
   if (bare === "sqlite3") {
-    const r = sqliteDatabaseTarget(words);
+    const r = sqliteDatabaseTarget(words, acc);
     if (r.readOnly) return null;
     if (r.target === null) return "argv-write-uncovered"; // 文件槽未知/动态，不可出具无写证明
     return push(r.target);

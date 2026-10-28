@@ -267,7 +267,8 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
   describe("#1490：sqlite3 CLI 数据库参数写落点", () => {
     it.each([
       `sqlite3 ${ROOT}/data/x "INSERT INTO t VALUES(1)"`,
-      `sqlite3 ${ROOT}/data/x "INSERT INTO t VALUES(1)"`,
+      `sqlite3 -hexkey ABC123 ${ROOT}/data/x "INSERT INTO t VALUES(1)"`,
+      `sqlite3 -pagecache 1024 8 ${ROOT}/data/x "INSERT INTO t VALUES(1)"`,
       `sqlite3 ${ROOT}/data/x`,
     ])("主仓数据库可能被创建/写入 → 披露写落点：%s", (cmd) => {
       const r = evaluateWriteTargets(cmd, ROOT);
@@ -300,6 +301,23 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       const r = evaluateWriteTargets('sqlite3 /tmp/x.db "INSERT INTO t VALUES(1)"', ROOT);
       expect(r.kind).toBe("evaluated");
       if (r.kind === "evaluated") expect(r.targets.some(t => t.path === "/tmp/x.db" && t.access === "write")).toBe(true);
+    });
+
+    it.each([
+      `sqlite3 :memory: "ATTACH DATABASE '${ROOT}/data/x' AS a; INSERT INTO a.t VALUES(1)"`,
+      `sqlite3 -readonly ${ROOT}/data/x ".backup ${ROOT}/backup.db"`,
+    ])("只读/内存主库的外挂写载荷不可证：%s", (cmd) => {
+      expect(evaluateWriteTargets(cmd, ROOT)).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
+    });
+
+    it("URI 百分号解码后才判真实落点", () => {
+      const r = evaluateWriteTargets(`sqlite3 'file:${ROOT}/data/%2e%64b' "SELECT 1"`, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.some(t => t.path === `${ROOT}/data/.db` && t.access === "write")).toBe(true);
+    });
+
+    it("URI 非法百分号不作无写证明", () => {
+      expect(evaluateWriteTargets(`sqlite3 'file:${ROOT}/data/%GG' "SELECT 1"`, ROOT)).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
     });
 
     it("URI 最后一个 mode=rw 不被前一个 mode=ro 洗白", () => {
