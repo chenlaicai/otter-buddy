@@ -115,6 +115,13 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: npm run lint:pr-tests -- --base origin/main
 
+      # F20261028evpkg: 证据化交付机械闸——非纯文档 PR 必须含 Rollback 段与证据分层声明
+      - name: Run evidence-package gate (check-pr-evidence)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/check-pr-evidence.mjs --base origin/main
+
       # F20261013crit: 断言证据锚点轻量规则（warn 起步，ratchet）
       - name: Run evidence-anchor lint (warn-level)
         if: github.event_name == 'pull_request'
