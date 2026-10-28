@@ -14,9 +14,10 @@ const MAIN_PID = 42877;
 const ROOT = "/Users/orca/ai/otter-buddy";
 const WS = `${ROOT}/data/workspaces/98bd9fdd-8e28-4de8-b782-b59f46e733dd`;
 const WT = `${ROOT}/.otter/worktrees/design-guard-convergence`;
+const REGISTERED_WORKTREES = new Map([[WT, "design-guard-convergence"]]);
 
 const guard = (cmd: string, sandboxGuarded: boolean, sessionCwd = WS) =>
-  checkBashCommandSafety(cmd, MAIN_PID, undefined, { projectRoot: ROOT, sessionCwd, sandboxGuarded });
+  checkBashCommandSafety(cmd, MAIN_PID, undefined, { projectRoot: ROOT, sessionCwd, sandboxGuarded, linkedWorktrees: REGISTERED_WORKTREES });
 
 describe("F20261016gsbx 2b：写面条件退役——沙箱可用（退役放行）", () => {
   it("T1 重定向写主仓 → 退役放行（沙箱物理接防）", () => {

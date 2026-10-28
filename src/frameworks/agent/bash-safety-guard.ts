@@ -35,8 +35,8 @@ import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
 export type { AllowedService };
 
-function directGitExecutionGrant(command: string, cwd: string, projectRoot: string): GitExecutionGrant | null {
-  return evaluateGitExecution(command, cwd, { repoRoot: projectRoot, linkedWorktrees: parseGitWorktreeList(projectRoot) });
+function directGitExecutionGrant(command: string, cwd: string, projectRoot: string, linkedWorktrees?: Map<string, string>): GitExecutionGrant | null {
+  return evaluateGitExecution(command, cwd, { repoRoot: projectRoot, linkedWorktrees: linkedWorktrees ?? parseGitWorktreeList(projectRoot) });
 }
 
 /** 沙箱会话的有限 Git 文本窄门：与物理层共用直接 envelope（含 cd && git）。 */
@@ -50,7 +50,7 @@ function nextDirectCwd(segment: Segment, cwd: string): string | null {
   return destination ? (path.isAbsolute(destination) ? destination : path.resolve(cwd, destination)) : null;
 }
 
-function eachDirectGitGrant(command: string, cwd: string, projectRoot: string, visit: (grant: GitExecutionGrant, segment: Segment) => boolean): boolean {
+function eachDirectGitGrant(command: string, cwd: string, projectRoot: string, linkedWorktrees: Map<string, string> | undefined, visit: (grant: GitExecutionGrant, segment: Segment) => boolean): boolean {
   const model = parseOnce(command, 1);
   if (!model.parseOk) return true;
   let effectiveCwd = cwd;
@@ -63,23 +63,23 @@ function eachDirectGitGrant(command: string, cwd: string, projectRoot: string, v
     const previous = model.segments[index - 1];
     const current = previous?.argv0 === "cd" && segment.joiner === "&&"
       ? `${gitSegmentText(previous)} && ${gitSegmentText(segment)}` : gitSegmentText(segment);
-    const grant = directGitExecutionGrant(current, effectiveCwd, projectRoot);
+    const grant = directGitExecutionGrant(current, effectiveCwd, projectRoot, linkedWorktrees);
     if (!grant || !visit(grant, segment)) return false;
   }
   return true;
 }
 
-function sandboxedGitTextVeto(command: string, cwd: string, projectRoot: string): boolean {
-  return !eachDirectGitGrant(command, cwd, projectRoot, (grant, segment) =>
+function sandboxedGitTextVeto(command: string, cwd: string, projectRoot: string, linkedWorktrees?: Map<string, string>): boolean {
+  return !eachDirectGitGrant(command, cwd, projectRoot, linkedWorktrees, (grant, segment) =>
     grant.kind !== "push" || !protectedPushHit(gitSegmentText(segment)));
 }
 
-function directGitCommandGrant(command: string, cwd: string, projectRoot: string): GitExecutionGrant | null {
+function directGitCommandGrant(command: string, cwd: string, projectRoot: string, linkedWorktrees?: Map<string, string>): GitExecutionGrant | null {
   const model = parseOnce(command, 1);
   if (!model.parseOk || model.segments.length === 0 ||
       model.segments.some(segment => segment.argv0 !== "cd" && segment.argv0 !== "git")) return null;
   let lastGrant: GitExecutionGrant | null = null;
-  const valid = eachDirectGitGrant(command, cwd, projectRoot, grant => { lastGrant = grant; return true; });
+  const valid = eachDirectGitGrant(command, cwd, projectRoot, linkedWorktrees, grant => { lastGrant = grant; return true; });
   return valid ? lastGrant : null;
 }
 
@@ -107,6 +107,8 @@ export interface GuardOptions {
    *  true 时守卫 main_write 文件写族退役（沙箱 deny file-write* 物理接防）；
    *  不可用/未绑定（readOnly 合成会话）→ 写面回位（降级不降安全）。 */
   sandboxGuarded?: boolean;
+  /** 测试/嵌入调用可注入真实 worktree 注册表；生产缺省从 Git 读取。 */
+  linkedWorktrees?: Map<string, string>;
 }
 
 /** 读取主进程 PID 文件，返回 PID 或 null。每次调用都读文件（不缓存）。 */
@@ -3034,9 +3036,9 @@ export function checkBashCommandSafety(
   // F20261027gscv：直接 Git envelope 的有限窄门先于旧主仓写求值器。
   // 求值器不知道新执行域的 cd && git 真实 cwd；未识别/主仓/受保护 push 仍拦。
   if (guardOptions?.sandboxGuarded && guardOptions.projectRoot) {
-    const vetoed = sandboxedGitTextVeto(command, guardOptions.sessionCwd ?? guardOptions.projectRoot, guardOptions.projectRoot);
+    const vetoed = sandboxedGitTextVeto(command, guardOptions.sessionCwd ?? guardOptions.projectRoot, guardOptions.projectRoot, guardOptions.linkedWorktrees);
     if (vetoed) return withDiagnostics("直接 Git 命令未获当前执行域授权：请使用登记的 worktree，拆成单段 git 或字面 cd <worktree> && git；主仓提交/受保护分支推送请走 PR。", command, mainPid);
-    const grant = directGitCommandGrant(command, guardOptions.sessionCwd ?? guardOptions.projectRoot, guardOptions.projectRoot);
+    const grant = directGitCommandGrant(command, guardOptions.sessionCwd ?? guardOptions.projectRoot, guardOptions.projectRoot, guardOptions.linkedWorktrees);
     if (grant) return null;
   }
 

@@ -12,7 +12,7 @@ const WT = "/Users/orca/ai/otter-buddy/.otter/worktrees/design-guard-convergence
 const PID = 42877;
 const SESS = "/Users/orca/ai/otter-buddy/data/workspaces/probe-session";
 const go = (cmd: string, sg = true, cwd = SESS) =>
-  checkBashCommandSafety(cmd, PID, undefined, { projectRoot: MAIN, sessionCwd: cwd, sandboxGuarded: sg });
+  checkBashCommandSafety(cmd, PID, undefined, { projectRoot: MAIN, sessionCwd: cwd, sandboxGuarded: sg, linkedWorktrees: new Map([[WT, "design-guard-convergence"]]) });
 
 describe("F20261027gscv：嵌套 Git 职责迁移", () => {
   it("sg=true 不再用壳内写动词误拦合法 worktree 嵌套文本", () => {
