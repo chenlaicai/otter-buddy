@@ -287,7 +287,15 @@ pi-coding-agent 1.1.0 的 `write.d.ts` 暴露 `WriteOperations.writeFile/mkdir`�
 
 **修前红 / 修后绿**：文件线曾实证 worktree `.git` 指针可被 SDK write 改写；最终相关 file 测试 23/23 通过且指针/真实 gitdir 内容不变。共享路径返修时，真实 Git 集成曾红在 `/tmp` 下独立 `.git` 及 worktree add 指针/config.lock，最终按精确组件与目标窄授权修复并复跑通过；没有用整树 allow 消红。
 
-### 8.0.3 对既有文档口径的同步
+### 8.0.3 CI 时间炸弹排查与解阻（2026-10-28）
+
+**预注册**：预期三条 `rhi-scan-worker` 失败都由固定 2026-08-28 fixture 被 60 天窗口过滤引起；以冻结时钟前一天生成数据且不改业务断言，若仍出现 sink/聚合失败则放弃日期解释。
+
+**证据与根因**：CI run 40607227221 与本地均在 `rhi-scan-worker.test.ts:345/385/477` 复现三条失败；fixture 在 `:89-91,103` 及装配回归段写死日期。`CLOCK_SNAPSHOT` 已冻结运行期时钟，固定成本数据却最终滚出扫描窗口。实际与预期一致。
+
+**修复与影响**：只把 session 文件名/JSONL 时间、entries 时间和查询日期改为 `CLOCK_SNAPSHOT - 1d` 派生；保留成本、tool_call、metricType 转发、历史日期幂等与 overview 不互删断言。生产扫描逻辑不变，不新增配置/状态/分支/存储，走既有机制语义内的 `narrow-fix`，无需重对抗门。原 3 failed 变为 11/11 passed。
+
+### 8.0.4 对既有文档口径的同步
 
 本 PR 同分支修订守卫宪法的退役通道现状：monthly-prune-review 已接通 ruleId/assurance 消费，不再标为「待接通、需独立 PR」。本特性原「仅设计」描述已在本 PR 内更新为完整实现记录；未回改已合入历史特性文档。
 
