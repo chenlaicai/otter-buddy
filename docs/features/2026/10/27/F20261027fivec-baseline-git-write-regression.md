@@ -1,5 +1,5 @@
 ---
-id: F2026102759c4
+id: F20261027fivec
 title: bash 守卫历史基线洞复核与精确回归锁（#1350）
 summary: 在 main@7f575a81 重测 issue #1350 的 B2/B5 及 F20261008h304 记载的 B4 文档形态，当前均已 BLOCK；不伪造修复前后对照、不改生产机制，新增生产入口与求值器双层精确回归测试，锁危险写、fail-closed 契约及 worktree/只读/纯数据/路径边界保留面。原 baseline-b4.mjs / baseline2.mjs 未找回，历史边界如实披露。
 change_type: fix
@@ -19,6 +19,8 @@ modules: [guard]
 ---
 
 # bash 守卫历史基线洞复核与精确回归锁（#1350）
+
+编号溯源：原 `F2026102759c4`；按 `F20261027fidrx` 固定 5 字母新写契约改为 `F20261027fivec`。
 
 ## 结论先行
 
@@ -136,6 +138,6 @@ PR #1523 / commit `4d9e7643`（F20261019gses）的 S1 处置删除「cd 命中�
 | 发现 | 更好/更差判断 | 处置与证据 |
 |---|---|---|
 | 文档 B4 段两处源码指针不符语义 | **接受并修复，改了更好**：证据链指针必须直达对应语义；检视指出的 `write-target-evaluator.ts:674-676` 实为 git 双入账注释，`write-verdict.ts:25-28` 实为 positive 返回 | 重读当前 head 后改为 evaluator `:76`（类型语义）与 `:2461`（动态路径返回 reason）、verdict `:23`（fail-closed 映射）；不机械照抄单一替代位置 |
-| 相邻 heredoc 测试仍只写「另开 issue 跟踪」的历史指向 | **接受并修复，改了更好**：历史原文可保留，但补当前证据可避免把已锁形态误读成未处理放行洞 | `tests/frameworks/agent/bash-guard-heredoc-body-strip.test.ts` 保留 10/8 历史原文，追加 2026-10-27 / `F2026102759c4` 对 B2 与 B4 文档形态的 BLOCK 回归证据及 #1350 指向 |
+| 相邻 heredoc 测试仍只写「另开 issue 跟踪」的历史指向 | **接受并修复，改了更好**：历史原文可保留，但补当前证据可避免把已锁形态误读成未处理放行洞 | `tests/frameworks/agent/bash-guard-heredoc-body-strip.test.ts` 保留 10/8 历史原文，追加 2026-10-27 / `F20261027fivec` 对 B2 与 B4 文档形态的 BLOCK 回归证据及 #1350 指向 |
 
 两条均为文档/注释精度修正，不改变守卫行为与既有测试断言；无新增 issue、无裁决分歧。修复提交后交原检视獭做 delta 复核，本段不在 delta 确认前预写「通过」。
