@@ -36,7 +36,7 @@
 2. **正则总量是否净增？**净增时给出理由（新增拦截面无法用现有模式覆盖）。
 3. **指纹表同步了吗？**（`guard-intercept-classify.ts` 的 FINGERPRINTS——改文案/加规则必须同步，分类回归测试会红）
 
-**退役通道**（现状如实标注）：规则退役的提议权在**月度剪枝审视**（monthly-prune-review 任务，F20260929rdsp D3 机制层）——但其当前审视范围（skill 静默/RHI 特性链/任务零产出）**不含 ruleId 消费，本通道为待接通状态**：接通需 monthly-prune-review 扩面（消费 healing_events 按 ruleId 聚合的误报/真报数据），扩面走独立 PR。在此之前，ruleId 数据已可在日常排查中手动聚合使用（SQL 见 F20260930gslog 验证节）。
+**退役通道**：规则退役的提议权在**月度剪枝审视**（monthly-prune-review 任务，F20260929rdsp D3 机制层）。F20261027gscv 已接通 `healing_events` 近 30 天按 ruleId/ruleLayer/assurance 聚合，file-tool-guard 另按 toolName/operation 分组；月度输出保留/迁移/退化/删除候选与替代证据，无分母只报计数。新增或解冻 bash 规则族仍须搭档显式 L2，实现者不得自批。
 
 ## 四、已知洞（诚实清单）
 

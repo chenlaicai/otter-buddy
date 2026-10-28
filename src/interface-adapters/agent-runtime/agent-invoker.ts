@@ -24,6 +24,15 @@ import type { SettingsRepository } from "@usecases/settings/settings-repository"
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { SSEEvent } from "@contract/sse/events";
 import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace-context";
+
+/** F20261027hwl1：invoke 创建时的确定性 metadata（traceId + source）。
+ *  只取 trace scope 内的稳定字段（不携业务对象）——与 PinoLogger 的 traceLogFields 同源。
+ *  工作账本归属链：work_item_traces.trace_id ← invokes.metadata.traceId（JSON_EXTRACT 派生）。 */
+function buildInvokeCreationMetadata(): Record<string, unknown> | null {
+  const trace = getTraceContext();
+  if (trace.traceId === undefined && trace.source === undefined) return null;
+  return { ...(trace.traceId !== undefined && { traceId: trace.traceId }), ...(trace.source !== undefined && { traceSource: trace.source }) };
+}
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
@@ -292,6 +301,8 @@ export class AgentInvoker implements AgentTurnPort {
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
     batchMaxSeq?: number;
+    /** F20261027hwl1：链触发 entry id（写 invokes.trigger_entry_id + metadata.traceId 同源） */
+    triggerMessageId?: string;
   }): Promise<AgentTurnResult> {
     // F20261015mjsg D2 牌局中对话侧防护：入座獺不进 LLM 推理（局中水位换世会打穿牌局上下文）——
     // 自动应答「打牌中」。判据 = RoomService.isSeated 精确谓词（非通用 isRunning——定时任务里的
@@ -365,8 +376,9 @@ export class AgentInvoker implements AgentTurnPort {
     manualRetry?: boolean;
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     batchMaxSeq?: number;
+    triggerMessageId?: string;
   }): Promise<AgentTurnResult> {
-    const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq } = params;
+    const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId } = params;
     const startTime = Date.now();
 
     // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent
@@ -472,9 +484,13 @@ export class AgentInvoker implements AgentTurnPort {
 
     // F20260913ctlv 彻底切换：不再创建 streaming 主 message（messages 表停写 UI 消息）。
     // invoke 开始 = createInvoke + invoke_start entry + invoke.start SSE（唯一路径，失败硬抛）
+    // F20261027hwl1：traceId/trigger 证据随创建落 metadata——工作账本归属的确定性数据底座
+    // （trace scope 由链引擎/入口注入，此处在 scope 内读取；重试链自然继承同一 traceId）。
     const { invoke, invokeStartEntry } = await this.sendEntry!.createInvoke({
       conversationId,
       otterId,
+      triggerEntryId: triggerMessageId ?? undefined,
+      metadata: buildInvokeCreationMetadata(),
     });
     const currentInvokeId = invoke.id;
     const resolvedOtterName = resolveSpeakerName("otter", otterId, otter?.name) ?? otterId;

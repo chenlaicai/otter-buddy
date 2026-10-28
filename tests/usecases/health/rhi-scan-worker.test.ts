@@ -27,6 +27,12 @@ function makePipeline(db: Database.Database): SignalPipeline {
  *     fixture 的 --date 只设 author date；冻结点偏离真实时钟超过 60 天窗口会把 fixture 整体滤空
  *     （实测冻结在 2026-12-31 时 commitCount=0、7 用例翻红）。快照信真实时钟、又消除运行期间流逝。 */
 const CLOCK_SNAPSHOT = new Date();
+// 成本 fixture 必须随冻结时钟滚动：固定 2026-08-28 会在 60 天窗口外被过滤。
+const COST_FIXTURE_AT = new Date(CLOCK_SNAPSHOT.getTime() - 24 * 60 * 60 * 1000);
+const COST_FIXTURE_ISO = COST_FIXTURE_AT.toISOString();
+const COST_FIXTURE_DAY = COST_FIXTURE_ISO.slice(0, 10);
+const COST_FIXTURE_STEM = COST_FIXTURE_ISO.replace(/[:.]/g, "-");
+const COST_FIXTURE_SQL_DATE = COST_FIXTURE_ISO.slice(0, 19).replace("T", " ");
 
 
 /** 测试仓库句柄：目录 + git 快捷方法（模块级工厂，避免 describe 体膨胀过 eslint 行限） */
@@ -86,9 +92,9 @@ async function setupCostOutputFixture(
   await writeFile(
     path.join(sessionsDir, ids.sessionFile),
     [
-      `{"type":"session","version":3,"id":"${ids.sessionId}","timestamp":"2026-08-28T10:00:00.000Z"}`,
-      `{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-28T10:00:01.000Z","provider":"mimo","modelId":"mimo-v2.5-pro"}`,
-      `{"type":"message","id":"msg1","parentId":"mc1","timestamp":"2026-08-28T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"toolCall","id":"tc1","name":"speak","arguments":"{}"}],"model":"mimo-v2.5-pro","usage":{"input":1000,"output":100,"cacheRead":500,"cacheWrite":0,"totalTokens":1600,"cost":{"input":0.01,"output":0.005,"cacheRead":0.0005,"cacheWrite":0,"total":0.0155},"cacheWrite1h":0},"stopReason":"stop","timestamp":1724839260000,"responseId":"r1"}}`,
+      `{"type":"session","version":3,"id":"${ids.sessionId}","timestamp":"${COST_FIXTURE_ISO}"}`,
+      `{"type":"model_change","id":"mc1","parentId":null,"timestamp":"${new Date(COST_FIXTURE_AT.getTime() + 1000).toISOString()}","provider":"mimo","modelId":"mimo-v2.5-pro"}`,
+      `{"type":"message","id":"msg1","parentId":"mc1","timestamp":"${new Date(COST_FIXTURE_AT.getTime() + 60000).toISOString()}","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"toolCall","id":"tc1","name":"speak","arguments":"{}"}],"model":"mimo-v2.5-pro","usage":{"input":1000,"output":100,"cacheRead":500,"cacheWrite":0,"totalTokens":1600,"cost":{"input":0.01,"output":0.005,"cacheRead":0.0005,"cacheWrite":0,"total":0.0155},"cacheWrite1h":0},"stopReason":"stop","timestamp":1724839260000,"responseId":"r1"}}`,
     ].join("\n"),
     "utf-8",
   );
@@ -100,7 +106,7 @@ async function setupCostOutputFixture(
   db.prepare(`
     INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, sender_name, created_at, completed_at)
     VALUES (?, ?, 1, 'speak', 'otter', ?, '气泡', NULL, NULL, 'completed', ?, ?, ?)
-  `).run(ids.msgId, ids.convId, ids.otterId, ids.otterName, "2026-08-28 10:05:00", "2026-08-28 10:05:00");
+  `).run(ids.msgId, ids.convId, ids.otterId, ids.otterName, COST_FIXTURE_SQL_DATE, COST_FIXTURE_SQL_DATE);
 
   const { HealthSnapshotRepository } = await import("@usecases/health/health-snapshot-repository");
   const snapshotRepo = new HealthSnapshotRepository(db);
@@ -327,7 +333,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
   it("costOutputSink 注入后 scanOnce 写入成本/产出快照（#583）", async () => {
     const { worker, queryDay } = await setupCostOutputFixture(repoDir, db, {
-      sessionFile: "2026-08-28T10-00-00-000Z_test-sess-001.jsonl",
+      sessionFile: `${COST_FIXTURE_STEM}_test-sess-001.jsonl`,
       sessionId: "test-sess-001",
       otterId: "test-otter-id",
       otterName: "测试獭",
@@ -339,9 +345,9 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const result = await worker.scanOnce();
     expect(result.costOutputStored).toBeGreaterThan(0);
 
-    // 验证数据写入 health_snapshots——按记录真实日期落库（2026-08-28 fixture），
+    // 验证数据写入 health_snapshots——按记录真实日期落库（冻结时钟前一天），
     // 不再全部覆盖到扫描日（趋势数据修复：快照日期 = 数据日期）
-    const costRows = queryDay("2026-08-28");
+    const costRows = queryDay(COST_FIXTURE_DAY);
     expect(costRows.length).toBeGreaterThan(0);
 
     // 验证含 expected 指标键
@@ -366,7 +372,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     // 覆盖 per-otter 行 + 全局行混合场景（PR #866 检视发现 1）：fixture 仓库的 seed
     // 含 F 文档（F20260801wwww，2026-08-01），fdoc_count 全局行随每轮扫描落库。
     const { worker, queryDay } = await setupCostOutputFixture(repoDir, db, {
-      sessionFile: "2026-08-28T10-00-00-000Z_test-sess-002.jsonl",
+      sessionFile: `${COST_FIXTURE_STEM}_test-sess-002.jsonl`,
       sessionId: "test-sess-002",
       otterId: "test-otter-id-2",
       otterName: "测试獭乙",
@@ -381,7 +387,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
     // 第一轮扫描：历史日期落库（per-otter 行 + 全局行）
     await worker.scanOnce();
-    const firstPass = queryDay("2026-08-28");
+    const firstPass = queryDay(COST_FIXTURE_DAY);
     expect(firstPass.length).toBeGreaterThan(0);
     // 全局行：seed 的 F 文档创建于 2026-08-01，fdoc_count 落在该日
     const firstGlobal = queryGlobalDay("2026-08-01");
@@ -389,7 +395,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
     // 第二轮扫描：同 fixture 重扫——历史日期行存活 + 数值与首轮完全一致（幂等，不重复累计）
     await worker.scanOnce();
-    expect(queryDay("2026-08-28")).toEqual(firstPass);
+    expect(queryDay(COST_FIXTURE_DAY)).toEqual(firstPass);
     // 全局行同样幂等：不随扫描轮次重复累计
     expect(queryGlobalDay("2026-08-01")).toEqual(firstGlobal);
   });
@@ -438,11 +444,11 @@ describe("costOutputSink 装配断裂回归测试（P0，#583）", () => {
     const sessionsDir = path.join(repoDir, "data", "sessions");
     await mkdir(sessionsDir, { recursive: true });
     await writeFile(
-      path.join(sessionsDir, "2026-08-28T10-00-00-000Z_regression-test.jsonl"),
+      path.join(sessionsDir, `${COST_FIXTURE_STEM}_regression-test.jsonl`),
       [
-        `{"type":"session","version":3,"id":"regression-test","timestamp":"2026-08-28T10:00:00.000Z"}`,
-        `{"type":"model_change","id":"mc1","parentId":null,"timestamp":"2026-08-28T10:00:01.000Z","provider":"mimo","modelId":"mimo-v2.5-pro"}`,
-        `{"type":"message","id":"msg1","parentId":"mc1","timestamp":"2026-08-28T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"regression test"}],"model":"mimo-v2.5-pro","usage":{"input":100,"output":10,"cacheRead":50,"cacheWrite":0,"totalTokens":160,"cost":{"input":0.001,"output":0.0005,"cacheRead":0.0001,"cacheWrite":0,"total":0.0016},"cacheWrite1h":0},"stopReason":"stop","timestamp":1724839260000,"responseId":"r1"}}`,
+        `{"type":"session","version":3,"id":"regression-test","timestamp":"${COST_FIXTURE_ISO}"}`,
+        `{"type":"model_change","id":"mc1","parentId":null,"timestamp":"${new Date(COST_FIXTURE_AT.getTime() + 1000).toISOString()}","provider":"mimo","modelId":"mimo-v2.5-pro"}`,
+        `{"type":"message","id":"msg1","parentId":"mc1","timestamp":"${new Date(COST_FIXTURE_AT.getTime() + 60000).toISOString()}","message":{"role":"assistant","content":[{"type":"text","text":"regression test"}],"model":"mimo-v2.5-pro","usage":{"input":100,"output":10,"cacheRead":50,"cacheWrite":0,"totalTokens":160,"cost":{"input":0.001,"output":0.0005,"cacheRead":0.0001,"cacheWrite":0,"total":0.0016},"cacheWrite1h":0},"stopReason":"stop","timestamp":1724839260000,"responseId":"r1"}}`,
       ].join("\n"),
       "utf-8",
     );
@@ -451,7 +457,7 @@ describe("costOutputSink 装配断裂回归测试（P0，#583）", () => {
     const { HealthSnapshotRepository } = await import("@usecases/health/health-snapshot-repository");
     const snapshotRepo = new HealthSnapshotRepository(db);
     snapshotRepo.createBatch([
-      { snapshotDate: "2026-08-28", metricType: "overview", metricKey: "commit_count", metricValue: 5 },
+      { snapshotDate: COST_FIXTURE_DAY, metricType: "overview", metricKey: "commit_count", metricValue: 5 },
     ]);
 
     // 用 spy 捕获 sink 调用参数
@@ -477,7 +483,7 @@ describe("costOutputSink 装配断裂回归测试（P0，#583）", () => {
     expect(capturedMetricType).toBe("cost_output");
 
     // 验证 overview 数据未被删除
-    const overviewRows = snapshotRepo.findByDate("2026-08-28").filter(r => r.metric_type === "overview");
+    const overviewRows = snapshotRepo.findByDate(COST_FIXTURE_DAY).filter(r => r.metric_type === "overview");
     expect(overviewRows.length).toBe(1);
     expect(overviewRows[0]!.metric_key).toBe("commit_count");
   });

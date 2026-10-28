@@ -21,6 +21,7 @@ import { collectStateInventory, renderStateInventory } from "@frameworks/agent/s
 import { scanWorkspaceFiles, renderFileTrail } from "@frameworks/agent/file-trail-extractor";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Repositories, UseCases } from "./types";
+import { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
@@ -116,6 +117,8 @@ export async function createAgentGateway(options: {
     signalRepo: repos.signalEvent,
     // F20261006mtlp P1：matters 仓库注入——list_matters/transition_matter 注册条件
     matterRepo: repos.matter,
+    // F20261027hwl1：工作账本 binder 注入——track_work 工具注册条件
+    workLedgerBinder: new WorkLedgerBinder(repos.workLedger, logger),
     // F20260917trig：RHI 健康信号仓库注入——triage_signal/list_rhi_signals 注册条件
     // （signals 表，与獭间 signal_events 语义池分离）
     rhiSignalRepo: repos.rhiSignal,

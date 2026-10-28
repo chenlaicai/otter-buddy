@@ -55,7 +55,9 @@ export function mockSendEntry(options?: {
     endedAt: null,
     toolCallCount: 0,
     tokenUsageInput: null,
-    tokenUsageOutput: null, ctxWindowUsed: null,
+    tokenUsageOutput: null,
+    tokenUsageCacheRead: null,
+    tokenUsageCacheWrite: null, ctxWindowUsed: null,
     pid: null,
     metadata: null,
   });

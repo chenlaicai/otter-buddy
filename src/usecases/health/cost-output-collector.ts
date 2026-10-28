@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type Database from "better-sqlite3";
+import { shanghaiDateKey, resolveProvider } from "./session-date-provider";
 
 const execFileAsync = promisify(execFile);
 
@@ -54,6 +55,8 @@ interface SessionMessageLine {
     usage?: SessionUsage;
     stopReason?: string;
     content?: Array<{ type: string; [k: string]: unknown }>;
+    /** F20261027hwl1：Pi 1.x message 行原生 provider 字段（部分版本存在） */
+    provider?: string;
   };
 }
 
@@ -61,6 +64,8 @@ interface SessionMessageLine {
 interface SessionModelChangeLine {
   type: "model_change";
   modelId: string;
+  /** F20261027hwl1：原生 provider 字段（Pi session 写入形态）——真实 provider 主源 */
+  provider?: string;
 }
 
 /** 聚合结果：per-otter per-day per-model 的 token/cost 统计 */
@@ -70,6 +75,9 @@ export interface OtterCostRecord {
   otterName: string;
   otterType: string;
   model: string;
+  /** F20261027hwl1：真实 provider（session JSONL model_change.provider / message.model 前缀解析）。
+ *  无法可靠解析时为 null——报告层归 unknown 桶，不把 alias 当真模型。 */
+  provider: string | null;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -191,6 +199,50 @@ function extractFileDate(fileName: string): string {
   return fileName.slice(0, 10);
 }
 
+/** 单行状态机：跨行携带 currentModel/currentProvider（model_change 行更新），逐行产出记录 */
+interface LineState {
+  currentModel: string;
+  currentProvider: string | null;
+  toolCallCount: number;
+}
+
+/** 处理一条已解析的 session JSONL 行（复杂度拆出自 parseSessionFile——守卫 max-statements/complexity） */
+function applyModelChange(state: LineState, line: SessionModelChangeLine): void {
+  state.currentModel = line.modelId ?? "unknown";
+  if (typeof line.provider === "string" && line.provider) state.currentProvider = line.provider;
+}
+
+function consumeLine(
+  state: LineState,
+  obj: Record<string, unknown>,
+  otterIdentity: OtterIdentity,
+  sinceDate: string | undefined,
+  costRecords: Array<OtterCostRecord & { _key: string }>,
+): void {
+  if (obj.type === "model_change") return applyModelChange(state, obj as unknown as SessionModelChangeLine);
+  if (obj.type !== "message") return;
+
+  const msg = obj as unknown as SessionMessageLine;
+  if (msg.message.role !== "assistant") return;
+
+  // F20261027hwl1：日界从 UTC 裸 slice 改 Asia/Shanghai（搭档时区）——UTC 16:00 后的
+  // 调用归错日（北京时间次日凌晨）。裸 slice(0,10) 是 UTC 日界，非本地日。
+  const date = shanghaiDateKey(msg.timestamp);
+  if (sinceDate && date < sinceDate) return;
+
+  state.toolCallCount += countToolCalls(msg.message.content);
+  if (!msg.message.usage) return;
+
+  // F20261027hwl1：per-message provider（原生字段优先，回退当前 model_change 状态）
+  const provider = resolveProvider(msg.message.provider ?? state.currentProvider, msg.message.model ?? state.currentModel);
+
+  costRecords.push(buildCostRecord(
+    date, otterIdentity,
+    msg.message.model ?? state.currentModel, msg.message.usage,
+    { isError: msg.message.stopReason === "error", provider },
+  ));
+}
+
 /** 读取 JSONL 文件，按消息 timestamp 过滤，提取 assistant 消息数据 */
 async function parseSessionFile(
   filePath: string,
@@ -201,8 +253,8 @@ async function parseSessionFile(
   if (!content) return { costRecords: [], toolCallCount: 0 };
 
   const costRecords: Array<OtterCostRecord & { _key: string }> = [];
-  let toolCallCount = 0;
-  let currentModel = "unknown";
+  // F20261027hwl1：provider 追踪状态并入跨行 state（model_change.provider 原生字段主源）
+  const state: LineState = { currentModel: "unknown", currentProvider: null, toolCallCount: 0 };
 
   for (const line of content.split("\n").filter(Boolean)) {
     let obj: Record<string, unknown>;
@@ -211,29 +263,9 @@ async function parseSessionFile(
     } catch {
       continue;
     }
-
-    if (obj.type === "model_change") {
-      currentModel = (obj as unknown as SessionModelChangeLine).modelId ?? "unknown";
-      continue;
-    }
-    if (obj.type !== "message") continue;
-
-    const msg = obj as unknown as SessionMessageLine;
-    if (msg.message.role !== "assistant") continue;
-
-    const date = msg.timestamp.slice(0, 10);
-    if (sinceDate && date < sinceDate) continue;
-
-    toolCallCount += countToolCalls(msg.message.content);
-    if (!msg.message.usage) continue;
-
-    costRecords.push(buildCostRecord(
-      date, otterIdentity,
-      msg.message.model ?? currentModel, msg.message.usage,
-      msg.message.stopReason === "error",
-    ));
+    consumeLine(state, obj, otterIdentity, sinceDate, costRecords);
   }
-  return { costRecords, toolCallCount };
+  return { costRecords, toolCallCount: state.toolCallCount };
 }
 
 /** 统计 content 中 toolCall block 数 */
@@ -242,14 +274,16 @@ function countToolCalls(content?: Array<{ type: string; [k: string]: unknown }>)
   return content.filter(b => b.type === "toolCall").length;
 }
 
-/** 构建单条 cost 记录 */
+
+/** 构建单条 cost 记录（date+provider 合成 opts——max-params 守卫） */
 function buildCostRecord(
   date: string,
   identity: OtterIdentity,
   model: string,
   usage: SessionUsage,
-  isError: boolean,
+  context: { isError: boolean; provider?: string | null },
 ): OtterCostRecord & { _key: string } {
+  const { isError, provider = null } = context;
   return {
     _key: `${date}|${identity.otterId}|${model}`,
     date,
@@ -257,6 +291,7 @@ function buildCostRecord(
     otterName: identity.otterName,
     otterType: identity.otterType,
     model,
+    provider,
     inputTokens: usage.input,
     outputTokens: usage.output,
     cacheReadTokens: usage.cacheRead,
@@ -412,7 +447,9 @@ async function countToolCallsInFile(
     const msg = obj as unknown as SessionMessageLine;
     if (msg.message.role !== "assistant") continue;
 
-    const date = msg.timestamp.slice(0, 10);
+    // F20261027hwl1 复审 A4：工具调用计数日界同步 Asia/Shanghai（与 consumeLine 的 token 记录同轨，
+    // 消灭同采集器内 UTC/Shanghai 口径分裂——北京时间 0-8 点窗口同一调用曾落到不同日期）
+    const date = shanghaiDateKey(msg.timestamp);
     if (sinceDate && date < sinceDate) continue;
 
     const tcCount = countToolCalls(msg.message.content);

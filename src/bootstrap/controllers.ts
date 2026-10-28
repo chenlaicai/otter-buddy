@@ -41,6 +41,10 @@ import { MatterController } from "@interface-adapters/http/controllers/matter-co
 import { UnfurlController } from "@interface-adapters/http/controllers/unfurl-controller";
 import { ConnectionController } from "@interface-adapters/http/controllers/connection-controller";
 import { RhiController } from "@interface-adapters/http/controllers/rhi-controller";
+import { WorkLedgerController } from "@interface-adapters/http/controllers/work-ledger-controller";
+import { WorkLedgerReportBuilder } from "@usecases/health/work-ledger-report";
+import { WorkDetailReportBuilder } from "@usecases/health/work-detail-report";
+import { ModelEfficiencyReportBuilder } from "@usecases/health/model-efficiency-report";
 import { AttachmentController } from "@interface-adapters/http/controllers/attachment-controller";
 import { WorkspaceController } from "@interface-adapters/http/controllers/workspace-controller";
 import { WeixinConnectionController } from "@interface-adapters/http/controllers/weixin-connection-controller";
@@ -257,6 +261,17 @@ function buildFeishuScanControllerInstance(deps: ControllerDeps, repos: Reposito
   });
 }
 
+/** F20261027hwl1：工作账本 + 模型效率控制器（只读报告）——构建器直接组装，从 initControllers
+ *  拆出（max-lines-per-function 守卫） */
+function buildWorkLedgerController(repos: Repositories, healthSnapshotRepo: HealthSnapshotRepository, logger: Logger): WorkLedgerController {
+  return new WorkLedgerController(
+    new WorkLedgerReportBuilder(repos.workLedger, logger),
+    new WorkDetailReportBuilder(repos.workLedger),
+    new ModelEfficiencyReportBuilder(healthSnapshotRepo),
+    logger,
+  );
+}
+
 export function initControllers(deps: ControllerDeps, logger: Logger) {
   const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo, signalRouter } = deps;
 
@@ -305,8 +320,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     // F20261013csv3 T1：链类 unfurl 预览卡——缓存读库 + gh 结构化取数 + pending 三态
     unfurl: unfurlController,    connection: new ConnectionController(uc.manageConnection, logger),
     health: new HealthController(featureRepo, researchRepo, embeddingGateway, nodeFs, rootDir, logger),
-    rhi: new RhiController(healthSnapshotRepo, signalRepo, rhiScanWorker, logger),
-
+    rhi: new RhiController(healthSnapshotRepo, signalRepo, rhiScanWorker, logger), workLedger: buildWorkLedgerController(repos, healthSnapshotRepo, logger),
     inbound: processInboundRecruit && inboundApiKey
       ? new InboundController(
           inboundApiKey,

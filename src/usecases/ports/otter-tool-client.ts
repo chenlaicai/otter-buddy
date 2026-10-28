@@ -77,7 +77,7 @@ export interface OtterToolClient {
       }): Promise<{
         yieldEntry: { id: string; entryType: string; yieldTargets: string[] };
         invokeEndEntry: { id: string; entryType: string };
-        invoke: { id: string; status: string; endedAt: string | null; toolCallCount: number; tokenUsageInput: number | null; tokenUsageOutput: number | null };
+        invoke: { id: string; status: string; endedAt: string | null; toolCallCount: number; tokenUsageInput: number | null; tokenUsageOutput: number | null; tokenUsageCacheRead: number | null; tokenUsageCacheWrite: number | null };
       }>;
       /** 查询条目列表（F20260913ctlv 批3：返回 createdAt/senderId——自重启用户介入检测等只读消费；F20260929mpav 补 sequenceNum：实现层 Entry 全量含此字段，merge_pr 原话校验需它做命中锚点） */
       getEntries(conversationId: string, opts?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; body: string | null; senderId: string | null; senderType: string | null; sequenceNum: number; createdAt: string }>>;
