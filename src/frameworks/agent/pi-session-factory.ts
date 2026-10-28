@@ -1467,9 +1467,8 @@ export class PiSessionFactory implements AgentGateway {
     // 三连实证；机制详见 tool-search-tool.ts 头注）。holder 延迟绑定：customTools 入参
     // 在 session 创建前就要传，session 引用创建后回填。
     const toolSearchHolder: ToolSearchSessionHolder = {};
-    // F20261015phys：bash 物理沙箱——sandbox-exec 包裹獭 bash 执行面。
-    // 注入点：SDK baseToolsOverride 覆写内置工具集，bash 用 spawnHook 裹 sandbox-exec。
-    // readOnly 合成会话（readOnly=true）不需要沙箱——只有 read 工具，无 bash。
+    // F20261015phys：锁定 SDK 的最小补丁只补 baseToolsOverride 转发；其余装配保持 SDK 原语义。
+    // readOnly 合成会话只有 read 工具，不需要沙箱。
     const repoRoot = getRepoRoot();
     const dataDir = this.cfg.dataDir ?? "./data";
     const baseToolsOverrideRaw = readOnly ? undefined : createSandboxedTools(workspaceCwd, repoRoot, dataDir);

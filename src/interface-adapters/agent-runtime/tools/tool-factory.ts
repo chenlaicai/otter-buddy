@@ -27,6 +27,8 @@ import { ManageScheduledTaskPending } from "@usecases/scheduler/manage-scheduled
 import type { ScheduledTaskPendingItemRepository } from "@usecases/scheduler/pending-item-repository";
 import { checkBashCommandSafety, readMainProcessPid } from "@frameworks/agent/bash-safety-guard";
 import { getRepoRoot } from "@frameworks/repo-root";
+import { isAbsolute, join } from "node:path";
+import { runRestartService } from "@frameworks/agent/restart-service-executor";
 import { findKillSegments } from "@frameworks/agent/kill-segment-finder";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
@@ -1652,6 +1654,10 @@ type ScheduledTaskToolDeps = ManageScheduledTask | {
   pending: ScheduledTaskPendingItemRepository;
 };
 
+function appendWorkspaceTools(tools: AgentTool[], ctx: ToolContext, gateway?: WorkspaceGateway): void {
+  if (gateway) tools.push(...createWorkspaceTools(ctx, gateway));
+}
+
 function appendScheduledTaskTools(tools: AgentTool[], ctx: ToolContext, deps?: ScheduledTaskToolDeps): void {
   if (!deps) return;
   const manage = 'manage' in deps ? deps.manage : deps;
@@ -1700,9 +1706,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   if (healingRepo) {
     tools.push(createManageHealingEventsTool(ctx, healingRepo));
   }
-  if (workspaceGateway) {
-    tools.push(...createWorkspaceTools(ctx, workspaceGateway));
-  }
+  appendWorkspaceTools(tools, ctx, workspaceGateway);
   appendScheduledTaskTools(tools, ctx, scheduledTaskDeps);
   // F20260920stkx：stock_data / paper_trade 工具随能力整体移除（实验结论文档 R20260920stkx）
   // F20260826mwrd C1：halt 工具（仅 signalRepo 注入时注册；编排大獭用——
@@ -1741,5 +1745,31 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   if (ctx.workLedgerBinder) {
     tools.push(createTrackWorkTool(ctx, ctx.workLedgerBinder));
   }
+  tools.push(createRestartServiceTool(ctx, logger));
   return tools;
+}
+
+/** F20261028egitx：deny signal 下唯一受控重启口；只传固定脚本参数，不经 bash。 */
+export function createRestartServiceTool(ctx: ToolContext, logger?: Logger): AgentTool {
+  return {
+    name: "restart_service",
+    label: "受控重启服务",
+    description: "受控重启白名单内自有项目服务。固定执行 scripts/restart-service.mjs <port> [--project <绝对路径>]；不经 bash、不开放任意 signal/PID。端口与项目归属仍由脚本原有白名单与 cwd 校验决定。",
+    parameters: {
+      type: "object",
+      properties: {
+        port: { type: "integer", minimum: 1, maximum: 65535 },
+        projectDir: { type: "string", minLength: 1 },
+      },
+      required: ["port"],
+    },
+    async execute(_toolCallId, params: Record<string, unknown>) {
+      const port = Number(params.port);
+      const projectDir = typeof params.projectDir === "string" ? params.projectDir : undefined;
+      if (projectDir !== undefined && !isAbsolute(projectDir)) return errorResponse("projectDir 必须是绝对路径。");
+      const script = join(getRepoRoot(), "scripts", "restart-service.mjs");
+      const result = await runRestartService(script, { port, projectDir, caller: ctx.otterId }, logger);
+      return result.isError ? errorResponse(result.text) : textResponse(result.text);
+    },
+  };
 }

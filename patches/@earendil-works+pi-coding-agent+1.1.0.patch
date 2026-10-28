@@ -1,0 +1,31 @@
+diff --git a/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.d.ts b/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.d.ts
+index 14be55d..31f4ed0 100644
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.d.ts
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.d.ts
+@@ -1,4 +1,4 @@
+-import { type ThinkingLevel } from "@earendil-works/pi-agent-core";
++import { type AgentTool, type ThinkingLevel } from "@earendil-works/pi-agent-core";
+ import { type Model } from "@earendil-works/pi-ai/compat";
+ import { AgentSession } from "./agent-session.ts";
+ import type { LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
+@@ -52,6 +52,8 @@ export interface CreateAgentSessionOptions {
+      * provided, MCP tools included.
+      */
+     excludeTools?: string[];
++    /** Forward sandboxed base tools to the public AgentSession constructor. */
++    baseToolsOverride?: Record<string, AgentTool>;
+     /** Custom tools to register (in addition to built-in tools). */
+     customTools?: ToolDefinition[];
+     /** Resource loader. When omitted, DefaultResourceLoader is used. */
+diff --git a/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.js b/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.js
+index b1d632f..4e14323 100644
+--- a/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.js
++++ b/node_modules/@earendil-works/pi-coding-agent/dist/core/sdk.js
+@@ -316,6 +316,7 @@ export async function createAgentSession(options = {}) {
+         allowedToolNames,
+         excludedToolNames,
+         extensionRunnerRef,
++        baseToolsOverride: options.baseToolsOverride,
+         sessionStartEvent: options.sessionStartEvent,
+     });
+     const extensionsResult = resourceLoader.getExtensions();
