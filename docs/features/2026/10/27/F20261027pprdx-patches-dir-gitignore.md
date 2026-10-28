@@ -1,5 +1,5 @@
 ---
-id: F20261027pprd
+id: F20261027pprdx
 title: "gitignore 补位：data/patches/ WIP patch 存档目录"
 summary: "2026-10-23 清理 WIP worktree 前将未合入改动打包存档到主仓 data/patches/（当时已向搭档报备保留），但该目录无 .gitignore 规则，长期以 untracked 形态出现在主仓 git status。2026-10-27 搭档发起「主目录又脏了」排查（同日检出多项：SKILL.md 主目录残留、反引号事故文件「单批」、3.7GB 数据库备份残留等），本目录被定性为有意存档而非污染。本次补 ignore 规则，消除视觉噪声。"
 change_type: fix
@@ -19,6 +19,7 @@ modules:
   - .gitignore
 ---
 
+编号溯源：原 `F20261027pprd`，按固定 5 字母新写契约改为 `F20261027pprdx`。
 # gitignore 补位：data/patches/ WIP patch 存档目录
 
 ## 背景
@@ -43,7 +44,7 @@ modules:
 `.gitignore` 的 `data/sessions/` 规则后追加：
 
 ```
-# WIP patch archive (F20261027pprd, 2026-10-23 存档目录)
+# WIP patch archive (F20261027pprdx, 2026-10-23 存档目录)
 data/patches/
 ```
 
