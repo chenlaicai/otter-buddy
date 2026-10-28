@@ -303,6 +303,10 @@ export interface OtterInvokeContext {
   identityPrefix: string;
   /** F20260826mwrd C1：当前 invoke 的 otterId——tool_call handler 查 halt 标用 */
   otterId: string;
+  /** per-invoke 幂等标记，避免重复 abort 与重复覆盖退出原因。 */
+  haltAbortRequested?: boolean;
+  /** 装配完成后由 attachGuards 注入；处理器内只发同步 abort，不等待其 Promise。 */
+  requestHaltAbort?: () => void;
   /** F20260903cmpk：otter 显示名（otters.name）——压缩钩子合成 prompt 的 meta 行用（#770 检视发现 2） */
   displayName?: string;
   /** F20261020hlbk（#1556）：per-turn 循环硬熔断标记（签名→阻断理由）。检测器报警时写入，
@@ -336,10 +340,11 @@ export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
 //  钩子随时机权回收而退役，见上方 factory 注册处注释）。
 
 /**
- * F20260826mwrd C1：halt tool_call handler 的 block 判定（纯函数，测试可独立覆盖）。
+ * F20260826mwrd C1：halt tool_call handler 的 block 判定（显式传入 per-invoke store，测试可独立覆盖）。
  *
  * SDK 语义链：tool_call 扩展事件 → ToolCallEventResult{ block, reason } →
  * agent-loop 对 block 生成 isError tool result（reason 正文）返回 LLM。
+ * #1674：首次送达同时经既有 abort 链结束本轮——工具 block 只是反馈，不能替代执行退出。
  *
  * 为什么不是拦截器内闭包直接取 store：ALS store 读不到（如 handler 在异步边界后执行）时
  * 无法区分「无 halt」与「读不到」——独立成纯函数后，读不到返回 undefined（放行），
@@ -349,7 +354,7 @@ export function haltToolCallGuard(
   store: OtterInvokeContext | undefined,
   haltRegistryLike: { takeForBlock(otterId: string): HaltDirective[]; isHalted(otterId: string): boolean },
   toolName?: string,
-): { block: true; reason: string } | undefined {
+): { block: true; reason: string } | undefined | Promise<{ block: true; reason: string }> {
   const otterId = store?.otterId;
   if (!otterId) return undefined;
   // speak 豁免（检视发现 1 处置）：被 halt 的獭需要 speak 报告进度快照（注入文本义务 2）。
@@ -359,7 +364,14 @@ export function haltToolCallGuard(
   const directives = haltRegistryLike.takeForBlock(otterId);
   if (directives.length === 0) return undefined;
   const reason = buildHaltBlockReason(directives);
-  return reason ? { block: true, reason } : undefined;
+  if (!reason) return undefined;
+  if (!store.haltAbortRequested) {
+    store.haltAbortRequested = true;
+    // attachGuards 已注入既有 abort 入口；只发请求，不在此等待 idle。
+    try { store.requestHaltAbort?.(); } catch { /* abort 请求失败时保留原 block 语义 */ }
+  }
+  // 返回 Promise 让 SDK 在微任务边界观察到同步设置的 AbortSignal，不再进入下一轮 LLM。
+  return Promise.resolve({ block: true as const, reason });
 }
 
 /**

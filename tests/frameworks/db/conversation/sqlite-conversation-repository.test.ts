@@ -292,6 +292,58 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     expect(item.unreadCount).toBe(2);
   });
 
+  it("异常中断/失败作为最后活动刷新预览和排序，正常边界条目不参与", async () => {
+    await repo.create(conversationFixture({ id: "conv-a", createdAt: "2026-07-22T00:00:00Z" }));
+    await entryRepo.createEntryAtomic(entryFixture({
+      id: "a-old", conversationId: "conv-a", createdAt: "2026-07-22T01:00:00Z", body: "中断前最后发言",
+    }));
+    await entryRepo.createEntryAtomic(entryFixture({
+      id: "a-start", conversationId: "conv-a", entryType: "invoke_start", senderType: null, senderId: null,
+      createdAt: "2026-07-22T02:00:00Z", body: "开始行动",
+    }));
+    await entryRepo.createEntryAtomic(entryFixture({
+      id: "a-abort", conversationId: "conv-a", entryType: "invoke_end", senderType: null, senderId: null,
+      createdAt: "2026-07-22T03:00:00Z", body: "[系统保护] 生成过程超时，已自动中断。",
+      metadata: { invokeStatus: "aborted" },
+    }));
+
+    await repo.create(conversationFixture({ id: "conv-b", createdAt: "2026-07-22T00:00:00Z" }));
+    await entryRepo.createEntryAtomic(entryFixture({
+      id: "b-message", conversationId: "conv-b", createdAt: "2026-07-22T02:30:00Z", body: "另一对话发言",
+    }));
+    await entryRepo.createEntryAtomic(entryFixture({
+      id: "b-yield", conversationId: "conv-b", entryType: "yield", senderType: null, senderId: null,
+      createdAt: "2026-07-22T02:40:00Z", body: "交给 user",
+    }));
+    await entryRepo.createEntryAtomic(entryFixture({
+      id: "b-end", conversationId: "conv-b", entryType: "invoke_end", senderType: null, senderId: null,
+      createdAt: "2026-07-22T02:50:00Z", body: "正常结束",
+    }));
+
+    const { items } = await repo.listConversationsWithMeta("user-1");
+    expect(items.map(item => item.id)).toEqual(["conv-a", "conv-b"]);
+    expect(items[0].lastMessageTs).toBe("2026-07-22T03:00:00Z");
+    expect(items[0].lastMessagePreview).toBe("[系统保护] 生成过程超时，已自动中断。");
+    expect(items[1].lastMessageTs).toBe("2026-07-22T02:30:00Z");
+    expect(items[1].lastMessagePreview).toBe("另一对话发言");
+  });
+
+  it("异常失败也参与最后活动", async () => {
+    await repo.create(conversationFixture());
+    await entryRepo.createEntryAtomic(entryFixture({
+      id: "old-visible", createdAt: "2026-07-22T01:00:00Z", body: "旧可见发言",
+    }));
+    await entryRepo.createEntryAtomic(entryFixture({
+      id: "failed-newer-seq", entryType: "invoke_end", senderType: null, senderId: null,
+      createdAt: "2026-07-22T02:00:00Z", body: "[错误] 模型调用失败",
+      metadata: { invokeStatus: "failed" },
+    }));
+
+    const { items: [item] } = await repo.listConversationsWithMeta("user-1");
+    expect(item.lastMessageTs).toBe("2026-07-22T02:00:00Z");
+    expect(item.lastMessagePreview).toBe("[错误] 模型调用失败");
+  });
+
   it("多对话并发时各自独立派生状态", async () => {
     await repo.create(conversationFixture({ id: "conv-a", createdAt: "2026-07-22T00:00:00Z" }));
     await invokeRepo.createInvoke({

@@ -55,6 +55,11 @@ describe("isRetryableGuardAbort", () => {
 });
 
 describe("buildGuardAbortBody", () => {
+  it("#1674：halt 是不可自动重试的明确停止终态", () => {
+    expect(isRetryableGuardAbort('halt')).toBe(false);
+    expect(buildGuardAbortBody('halt')).toContain('已按编排者指令停止本轮执行');
+    expect(buildGuardAbortBody('halt')).toContain('可改派或重启');
+  });
   it("bash_safety:* 返回不允许命令中断文案（无 restart 出口）", () => {
     const msg = buildGuardAbortBody('bash_safety:kill main process');
     expect(msg).toContain('不允许命令');
