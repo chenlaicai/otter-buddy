@@ -3,7 +3,8 @@
  *
  * 覆盖检视獭-mech 审视 S3（模板原文/TBD/Summary 关键词假绿）与 S4
  * （豁免双向错分：运行时 prompt 漏放、README.ts 误放、中文路径 quoting 误伤）的实测用例，
- * 及 good/bad/no-body 主路径。被 vitest run（npm test）拾取，CI test step 即机器锚点。
+ * 及 good/bad/no-body 主路径与 D1 回归（非文档「纯文档豁免」话术绕过、合法回滚句误杀）。
+ * 24 个测试用例（24 tests）由 vitest run（npm test）执行，CI test step 即机器锚点。
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -107,9 +108,26 @@ describe("证据分层两层判定（S3：Summary 关键词假绿回归）", () 
     expect(checkEvidenceLayering(body)).toEqual([]);
   });
 
-  it("显式「无」声明通过", () => {
-    const body = "## 证据分层声明\n无（纯文档豁免场景）\n## Rollback\n纯文档，revert 即回滚\n";
+  it("两层标识齐全、层内容为「无」通过", () => {
+    const body =
+      "## 证据分层声明\n- **机器锚点**：无\n- **agent 陈述**：无\n## Rollback\n纯文档，revert 即回滚\n";
     expect(checkEvidenceLayering(body)).toEqual([]);
+    expect(checkRollback(body)).toEqual([]);
+  });
+
+  it("D1a 回归：非文档 PR 的「无（纯文档豁免）」全无层标识 → 判红", () => {
+    const body =
+      "## 证据分层声明\n无（纯文档豁免）\n## Rollback\nrevert 即回滚\n";
+    const errors = checkEvidenceLayering(body);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((e) => e.includes("机器锚点"))).toBe(true);
+    expect(errors.some((e) => e.includes("agent 陈述"))).toBe(true);
+  });
+
+  it("D1b 回归：合法回滚句不被占位前缀误杀", () => {
+    expect(hasSubstance("Remove the feature flag and restart the service.\n")).toBe(true);
+    expect(hasSubstance("Remove the old migration table, then redeploy.\n")).toBe(true);
+    expect(checkRollback("## Rollback\nRemove the feature flag and restart the service.\n")).toEqual([]);
   });
 });
 

@@ -100,10 +100,18 @@ modules:
 | `scripts/check-pr-evidence.mjs` | 新增：diff 触发判定 + PR body 证据段机械检查（先例 check-pr-tests.mjs 模式，PR_BODY 环境变量/文件注入） |
 | `.github/workflows/ci.yml` | pull_request 事件新增 check-pr-evidence step（注入 PR_BODY） |
 
+## 机制提案准入三问（自吃狗粮，按本 PR 新增 R8.5 规则逐答）
+
+① **决策者变了么**：空——三件套（证据包/半径调制/准入三问）只降低决策的信息成本与路由错误，无任何决策从人移给獭；风险接受权归人、机械校验不做预审均已明文写入规则文本
+② **靠自觉还是靠守卫**：机械层=check-pr-evidence 闸（CI step）+ 24 个测试用例（24 tests）可持续测试（CI test step）；语义层（证据真实性/三问答案质量）=异体审 B9 核验——「半机械+异体审」明文标注，无假称托底
+③ **深潜成本降了吗**：机器锚点（PR 编号/commit/file:line/CI run）即下钻入口，结论→证据链可点开复验——是（本段即样例）
+
+**爆炸半径归档**（按 R8 四锚点，锚点值如实列）：①变更规模：4 commit / 10 文件；②路径杠杆：SYSTEM.md+2 skill+CI=**高杠杆**；③可逆性：git 可回滚（revert 即回滚）；④影响面：全系统注入面+所有 PR 流程=**全量不可隔离** → 归档升档=「更高审视门槛」（PR+对抗审视+重对抗门）——已走完：重对抗门**确认治本** + 对抗审视三轮（首轮 7 严重 → delta 3 严重 → delta 2 通过）
+
 ## 验证
 
 - `npm run check` 全绿（build/lint/lint:schema/smoke:boot/script-arg-parse 测试链）；lint:docs / lint:intent / lint:prompt-anchors 独立跑过 exit=0
-- check-pr-evidence 判定固化为可持续测试 `tests/scripts/check-pr-evidence.test.ts`（21 断言：豁免集合/NUL 分裂/占位判定/分层两层/假绿回归组），由 `npm run test`（vitest）执行——CI test step 即机器锚点（S3 整改：一次性自述 fixture 升级为可复验测试）
+- check-pr-evidence 判定固化为可持续测试 `tests/scripts/check-pr-evidence.test.ts`（**24 个测试用例（24 tests）**：豁免集合/NUL 分裂/占位判定/分层两层/假绿回归组/D1 双回归），由 `npm run test`（vitest）执行——CI test step 即机器锚点（S3 整改：一次性自述 fixture 升级为可复验测试）
 - 重对抗门：**确认治本**（2026-10-28 检视獭-mech 门控，前置核查四问齐全后经记忆脉络（机制托底/巡检拍板/测试弱化声明闸/决策边界）判定），门控结论留痕本段
-- 对抗审视：检视獭-mech 首轮 7 严重+1 建议（review 5678885943），逐条处置；delta 复核结论回写本段
-- Golden Gate：verify_by=behavior_check（人工行为检查）——seriousness-mode-switch golden 场景采样记录（manualReview）见 PR Verification 节，判定留检视獭 delta 复核
+- 对抗审视：检视獭-mech 首轮 7 严重+1 建议（review 5678885943）→ delta 复核 3 严重+1 建议（review 5679378746）→ delta 2 **通过**（review 5679606093）——审视循环闭环
+- Golden Gate：verify_by=behavior_check（人工行为检查）——seriousness-mode-switch 场景 manualReview 采样记录落账（pr:1683），判定材料=信号+transcript（runner 已补 transcript 输出，D2）；检视獭-mech 终判 **pass**（judged_by 已落 data/metrics/golden-results.jsonl）

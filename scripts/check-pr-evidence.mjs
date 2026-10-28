@@ -46,27 +46,33 @@ export function extractSection(body, titlePattern) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
-/** 占位词：模板说明/待填标记不算实质内容 */
-const PLACEHOLDER_RE = /^(tbd|todo|n\/a|none|待定|待补[充写]?|占位|无)[.!。]?$/i;
-/** PR 模板原始说明句（模板未填写时的残留） */
-const TEMPLATE_PROSE_RE =
-  /^(describe|explain|how to|write|list|add|remove|-\s*$|—\s*$)/i;
+/** 占位词：模板说明/待填标记不算实质内容（精确行级匹配，防误杀合法句——D1b：「Remove the feature flag…」是合法回滚说明） */
+const PLACEHOLDER_RE = /^(tbd|todo|n\/a|none|待定|待补[充写]?|占位)[.!。]?$/i;
+/** PR 模板原句残留（长特征串精确匹配，不做动词前缀匹配——前缀匹配曾误杀合法内容开头） */
+const TEMPLATE_PROSE_MARKERS = [
+  "how to roll this back",
+  "describe the intent",
+  "explain the motivation",
+  "user-visible or system-level impact",
+];
 
-/** 段内是否有实质内容（排除空白、占位词、模板说明句、单字符占位行） */
+/** 段内是否有实质内容（排除空白、占位词、模板原句残留、单字符占位行） */
 export function hasSubstance(sectionText) {
   return sectionText.split("\n").some((l) => {
-    const t = l.trim();
+    const t = l.trim().toLowerCase();
     if (!t) return false;
     if (/^[-—–]{1,3}$/.test(t)) return false;
     if (PLACEHOLDER_RE.test(t)) return false;
-    if (TEMPLATE_PROSE_RE.test(t)) return false;
+    if (TEMPLATE_PROSE_MARKERS.some((m) => t.includes(m))) return false;
     return true;
   });
 }
 
 /**
- * 证据分层声明段判定（S3 修复）：限定在「## 证据分层声明」段内，
- * 要求两层字段齐全——机器锚点层与 agent 陈述层均出现，或显式「无」声明。
+ * 证据分层声明段判定（S3 修复 + D1a 收紧）：限定在「## 证据分层声明」段内，
+ * 非文档交付必须两层字段齐全——「机器锚点」层与「agent 陈述」层标识均出现
+ * （层内容各自可为「无」）。D1a：trigger=true 场景不接受「无（纯文档豁免）」类
+ * 全无声明——纯文档豁免在路径判定层已完成，不走 body 检查。
  * 返回错误列表（空 = 通过）。
  */
 export function checkEvidenceLayering(prBody) {
@@ -75,17 +81,16 @@ export function checkEvidenceLayering(prBody) {
     return ["PR body 缺「## 证据分层声明」段（在 Summary 里提关键词不算，必须是独立段）"];
   }
   if (!hasSubstance(section)) {
-    return ["「## 证据分层声明」段为空或仅占位——写明两层证据或显式「无」"];
+    return ["「## 证据分层声明」段为空或仅占位——写明两层证据或层内显式「无」"];
   }
   const errors = [];
   const hasAnchorLayer = section.includes("机器锚点");
   const hasStatementLayer = section.includes("agent 陈述") || section.includes("未复验");
-  const explicitNone = /^[-*\s]*(无|没有|n\/a)/im.test(section) && !hasAnchorLayer;
-  if (!hasAnchorLayer && !explicitNone) {
-    errors.push("证据分层声明段缺「机器锚点」层（或显式声明「无」）");
+  if (!hasAnchorLayer) {
+    errors.push("证据分层声明段缺「机器锚点」层（层内容可为「无」但层标识必须在；纯文档豁免在路径层已判定，不走 body）");
   }
-  if (hasAnchorLayer && !hasStatementLayer) {
-    errors.push("证据分层声明段有机器锚点层但缺「agent 陈述」层（含「未复验」标注或显式「无」）");
+  if (!hasStatementLayer) {
+    errors.push("证据分层声明段缺「agent 陈述」层（层内容可为「无」但层标识必须在）");
   }
   return errors;
 }
