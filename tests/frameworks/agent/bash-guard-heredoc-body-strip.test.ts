@@ -10,6 +10,8 @@
  * 本文件：误拦修复面（PASS）+ 反向洞防护（BLOCKED）组合。已知基线洞（修复前即放行，
  * 非 #1304 范围，另开 issue 跟踪）：`cd <主仓> && git stash push`（cd 豁免吃主仓 cd）、
  * 裸定界体含 $()。
+ * 现状（2026-10-27 / F20261027fivec）：上述 B2 与 B4 文档形态已由 #1350 锁 BLOCK 回归，
+ * 见 bash-guard-issue-1350-baseline.test.ts；历史指向 #1350，不再表示仍待处理的放行洞。
  */
 import { describe, it, expect } from "vitest";
 import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";

@@ -11,6 +11,7 @@ import type { EntryController } from "./controllers/entry-controller";
 import type { MemoryController } from "./controllers/memory-controller";
 import type { KeyInfoController } from "./controllers/key-info-controller";
 import type { SettingsController } from "./controllers/settings-controller";
+import type { BackgroundController } from "./controllers/background-controller";
 import type { ScheduledTaskController } from "./controllers/scheduled-task-controller";
 import type { ConnectionController } from "./controllers/connection-controller";
 import type { HealthController } from "./controllers/health-controller";
@@ -41,6 +42,7 @@ export interface Controllers {
   memory: MemoryController;
   keyInfo: KeyInfoController;
   settings: SettingsController;
+  background: BackgroundController;
   scheduledTask: ScheduledTaskController;
   connection: ConnectionController;
   health: HealthController;
@@ -122,6 +124,13 @@ function registerRhiWriteRoutes(app: Hono, c: Controllers): void {
   app.post("/api/health/signals/:id/triage", (ctx) => c.rhi.triageSignal(ctx));
 }
 
+/** F20261027cbgix：背景资产端点，与工作账本等新路由并存时保持装配函数精简。 */
+function registerBackgroundRoutes(app: Hono, c: Controllers): void {
+  app.get("/api/settings/background", (ctx) => c.background.get(ctx));
+  app.put("/api/settings/background", (ctx) => c.background.put(ctx));
+  app.delete("/api/settings/background", (ctx) => c.background.delete(ctx));
+}
+
 function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/health/memory", (ctx) => c.health.memory(ctx));
 
@@ -154,6 +163,7 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.delete("/api/conversations/:id/resources/:resourceId", (ctx) => c.keyInfo.deleteLinkedResource(ctx));
   app.get("/api/settings", (ctx) => c.settings.getSettings(ctx));
   app.put("/api/settings", (ctx) => c.settings.updateSettings(ctx));
+  registerBackgroundRoutes(app, c);
 }
 
 

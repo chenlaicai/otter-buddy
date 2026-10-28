@@ -24,6 +24,7 @@ import type { MemoryRepository } from "../../src/usecases/memory/memory-reposito
 import { KeyInfoController } from "../../src/interface-adapters/http/controllers/key-info-controller";
 import { UnfurlController } from "../../src/interface-adapters/http/controllers/unfurl-controller";
 import { SettingsController, type SettingsConfig } from "../../src/interface-adapters/http/controllers/settings-controller";
+import { BackgroundController } from "../../src/interface-adapters/http/controllers/background-controller";
 import { ScheduledTaskController } from "../../src/interface-adapters/http/controllers/scheduled-task-controller";
 import { buildModelPool } from "../../src/frameworks/llm/model-pool";
 import { DispatchChainEngine } from "../../src/usecases/conversation/dispatch-chain-engine";
@@ -527,6 +528,8 @@ export function createTestApp(deps: TestDeps): Hono {
     memory: memoryCtrl,
     keyInfo: keyInfoCtrl,
     settings: settingsCtrl,
+    // 测试装配默认不碰磁盘；背景专项测试用临时目录真 store。
+    background: {} as BackgroundController,
     scheduledTask: new ScheduledTaskController(
       deps.manageScheduledTask,
       deps.schedulerService,

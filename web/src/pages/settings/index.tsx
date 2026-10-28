@@ -1,10 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react'
 import { useBlocker } from 'react-router-dom'
 import { OTTER_GRADIENT } from '../../lib/otter-colors'
 
 import { showToast } from '../../components/Toast'
 import * as api from '../../api/client'
 import type { ModelInfoDTO } from '@contract/api'
+import {
+  removeBackgroundPreference,
+  selectBackgroundImage,
+} from '../../lib/background-preference'
+import {
+  readBackgroundSnapshot,
+  subscribeBackgroundPreference,
+} from '../../lib/background-preference-store'
 
 export default function SettingsPage() {
   const [models, setModels] = useState<ModelInfoDTO[]>([])
@@ -13,6 +21,9 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [hasUnsaved, setHasUnsaved] = useState(false)
   const [userName, setUserName] = useState('')
+  const backgroundImage = useSyncExternalStore(subscribeBackgroundPreference, readBackgroundSnapshot, () => null)
+  const backgroundInputRef = useRef<HTMLInputElement>(null)
+  const [selectingBackground, setSelectingBackground] = useState(false)
   const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingLocalModelPath?: string; embeddingDim: number; assistantWebEnabled?: boolean } | null>(null)
   // F20260924wast：浮动獭快捷键（可配置，localStorage 本地；⌘J/Ctrl+J 默认）
   const [hotkey, setHotkey] = useState(() => localStorage.getItem('floating-otter:hotkey') || 'j')
@@ -31,6 +42,32 @@ export default function SettingsPage() {
     const k = v.trim().toLowerCase().slice(0, 1)
     setHotkey(k)
     localStorage.setItem('floating-otter:hotkey', k || 'j')
+  }
+
+  async function chooseBackground(file: File | undefined) {
+    if (!file) return
+    setSelectingBackground(true)
+    try {
+      await selectBackgroundImage(file)
+      showToast('背景图片已更换', 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '背景图片更换失败', 'error')
+    } finally {
+      setSelectingBackground(false)
+      if (backgroundInputRef.current) backgroundInputRef.current.value = ''
+    }
+  }
+
+  async function restoreDefaultBackground() {
+    setSelectingBackground(true)
+    try {
+      await removeBackgroundPreference()
+      showToast('已恢复默认彩色背景', 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? `恢复失败：${error.message}` : '恢复默认背景失败', 'error')
+    } finally {
+      setSelectingBackground(false)
+    }
   }
 
   useEffect(() => {
@@ -123,6 +160,58 @@ export default function SettingsPage() {
                   className="glass-range w-full"
                 />
                 <p className="text-[11px] text-stone-400 mt-1">越低越透 · 即时生效 · 仅保存在本机浏览器</p>
+              </div>
+
+              <div className="mt-5 pt-5 border-t border-white/30">
+                <span className="block text-xs font-medium text-stone-500 mb-2">背景图片</span>
+                <div className="flex items-center gap-3">
+                  <div
+                    data-testid="background-preview"
+                    role="img"
+                    aria-label={backgroundImage ? '自定义背景预览' : '默认彩色背景'}
+                    className={`w-24 h-16 shrink-0 rounded-xl border border-white/60 shadow-sm ${backgroundImage ? '' : 'bg-spring'}`}
+                    style={backgroundImage ? {
+                      backgroundImage: `url("${backgroundImage}")`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    } : undefined}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm text-stone-600">{backgroundImage ? '自定义图片' : '默认彩色背景'}</p>
+                    <p className="text-[11px] text-stone-400 mt-1">居中铺满屏幕，搭配上方滑杆查看玻璃效果</p>
+                  </div>
+                </div>
+                <input
+                  ref={backgroundInputRef}
+                  data-testid="background-file-input"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={e => void chooseBackground(e.target.files?.[0])}
+                />
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <button
+                    type="button"
+                    disabled={selectingBackground}
+                    onClick={() => backgroundInputRef.current?.click()}
+                    className="px-3 py-2 text-xs font-medium text-stone-600 rounded-xl border border-white/60 bg-white/35 hover:bg-white/55 transition disabled:opacity-50"
+                  >
+                    {selectingBackground ? '正在读取图片…' : backgroundImage ? '更换图片' : '选择图片'}
+                  </button>
+                  {backgroundImage && (
+                    <button
+                      type="button"
+                      disabled={selectingBackground}
+                      onClick={() => void restoreDefaultBackground()}
+                      className="px-3 py-2 text-xs font-medium text-stone-500 rounded-xl border border-white/50 hover:bg-white/35 transition disabled:opacity-50"
+                    >
+                      恢复默认背景
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-stone-400 mt-2">
+                  支持 JPG、PNG、WebP · 不超过 8 MB · 保存在应用启动目录，重开浏览器或重启应用仍保留
+                </p>
               </div>
             </section>
 
