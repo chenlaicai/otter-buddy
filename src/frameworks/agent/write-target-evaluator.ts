@@ -752,6 +752,42 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
   return null;
 }
 
+/** sqlite3 [OPTIONS] [FILENAME [SQL...]]：数据库参数可能是文件或 SQLite URI。
+ *  实测：普通 SELECT 也会创建不存在的库文件，不能靠 SQL 动词出具无写证明；
+ *  只认 -readonly / URI mode=ro / 内存库。URI 查最后一个 mode，防止 ro→rw 洗白。 */
+// eslint-disable-next-line complexity, max-statements -- sqlite3 选项/URI/只读语义穷举；每条分支对应 sqlite3 参数形态
+function sqliteDatabaseTarget(words: Word[]): { target: string | null; readOnly: boolean } {
+  let db: string | null | undefined;
+  let readOnly = false;
+  let positional = false;
+  const valueFlags = new Set(["-cmd", "-init", "-key", "-textkey", "-vfs", "-escape", "-newline", "-nullvalue", "-separator", "-nonce", "-maxsize", "-pagecache"]);
+  for (let i = 1; i < words.length; i++) {
+    const value = words[i].evaluated;
+    if (!positional && value === "--") { positional = true; continue; }
+    if (!positional && value === "-readonly") { readOnly = true; continue; }
+    if (!positional && value !== null && value.startsWith("-")) {
+      if (value === "-lookaside") { i += 2; continue; }
+      if (valueFlags.has(value)) { i++; continue; }
+      if (value === "-A") break; // 未知形态保守回落
+      continue;
+    }
+    db = value;
+    break; // FILENAME 之后均为 SQL，不参与数据库参数解析
+  }
+  if (typeof db !== "string") return { target: null, readOnly };
+  if (db === ":memory:" || db === "") return { target: null, readOnly: true };
+  if (db.startsWith("file:")) {
+    const uri = db.slice(5), queryAt = uri.indexOf("?");
+    const filename = queryAt >= 0 ? uri.slice(0, queryAt) : uri;
+    const params = new URLSearchParams(queryAt >= 0 ? uri.slice(queryAt + 1) : "");
+    const modes = params.getAll("mode"), finalMode = modes[modes.length - 1];
+    if (filename === ":memory:" || filename === "" || finalMode === "memory") return { target: null, readOnly: true };
+    if (readOnly || finalMode === "ro") return { target: null, readOnly: true };
+    return { target: filename, readOnly: false };
+  }
+  return { target: readOnly ? null : db, readOnly };
+}
+
 /** 修 F20261015smrj 通道 b/c：扩展写命令落点提取（install/ln/chmod/chown/chgrp/truncate/dd/curl/wget
  *  /sed -i/perl -pi/ruby -pi）。旧 TARGET_ARG_COMMANDS 只有 tee/cp/mv/touch/mkdir，其余写命令
  *  写面命中但落点提取空 → 误当无写放行（通道 b）；curl -o/dd of= 目标在选项值（通道 c）。 */
@@ -759,7 +795,7 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
 function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
   const words = seg.words;
   // 先判是否本函数管辖的命令——不管的命令直接返回 null（不得因词含 var/cmdsub 就报 dynamic-path）
-  const handled = bare === "curl" || bare === "wget" || bare === "dd" || bare === "sed" || bare === "perl" || bare === "ruby"
+  const handled = bare === "sqlite3" || bare === "curl" || bare === "wget" || bare === "dd" || bare === "sed" || bare === "perl" || bare === "ruby"
     || bare === "tar" || bare === "unzip" || bare === "rsync"
     || EXTENDED_TARGET_COMMANDS.has(bare);
   if (!handled) return null;
@@ -773,6 +809,12 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
     acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
     return null;
   };
+  if (bare === "sqlite3") {
+    const r = sqliteDatabaseTarget(words);
+    if (r.readOnly) return null;
+    if (r.target === null) return "argv-write-uncovered"; // 文件槽未知/动态，不可出具无写证明
+    return push(r.target);
+  }
   // 参数即落点：curl -o / wget -O / dd of=——只在**落点词**本身不可求值时才 dynamic-path，
   //  无关词含 var/cmdsub 不触发（curl 无 -o 是只读，不得误伤）。delta1（发现 2）：旗标
   //  解析与造-执配对共用 downloadWriteTargets（一条语义一个接口——两套解析=发现 3 病灶），

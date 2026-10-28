@@ -264,6 +264,62 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
     });
   });
 
+  describe("#1490：sqlite3 CLI 数据库参数写落点", () => {
+    it.each([
+      `sqlite3 ${ROOT}/data/x "INSERT INTO t VALUES(1)"`,
+      `sqlite3 ${ROOT}/data/x "INSERT INTO t VALUES(1)"`,
+      `sqlite3 ${ROOT}/data/x`,
+    ])("主仓数据库可能被创建/写入 → 披露写落点：%s", (cmd) => {
+      const r = evaluateWriteTargets(cmd, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets).toContainEqual({ path: `${ROOT}/data/x`, via: "cmd-arg", segmentIndex: 0, access: "write" });
+    });
+
+    it.each([
+      `sqlite3 -readonly ${ROOT}/data/x "INSERT INTO t VALUES(1)"`,
+      `sqlite3 -readonly ${ROOT}/data/x`,
+      `sqlite3 'file:${ROOT}/data/x?mode=ro' "SELECT * FROM t"`,
+      `sqlite3 'file:${ROOT}/data/x?mode=ro&mode=ro' "SELECT * FROM t"`,
+      `sqlite3 -json -readonly ${ROOT}/data/x "SELECT * FROM t"`,
+      `sqlite3 -cmd ".headers on" -readonly ${ROOT}/data/x "SELECT * FROM t"`,
+      `sqlite3 :memory: "INSERT INTO t VALUES(1)"`,
+      `sqlite3 "file::memory:?cache=shared" "INSERT INTO t VALUES(1)"`,
+    ])("显式只读或内存数据库不误伤 → 无写落点：%s", (cmd) => {
+      const r = evaluateWriteTargets(cmd, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.filter(t => t.access === "write")).toEqual([]);
+    });
+
+    it("普通 SELECT 也会创建库文件 → 不按 SQL 动词误判只读", () => {
+      const r = evaluateWriteTargets(`sqlite3 ${ROOT}/data/x "SELECT * FROM t"`, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.some(t => t.path === `${ROOT}/data/x` && t.access === "write")).toBe(true);
+    });
+
+    it("树外数据库写正常披露，不隐去事实", () => {
+      const r = evaluateWriteTargets('sqlite3 /tmp/x.db "INSERT INTO t VALUES(1)"', ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.some(t => t.path === "/tmp/x.db" && t.access === "write")).toBe(true);
+    });
+
+    it("URI 最后一个 mode=rw 不被前一个 mode=ro 洗白", () => {
+      const r = evaluateWriteTargets(`sqlite3 'file:${ROOT}/data/x?mode=ro&mode=rw' "SELECT * FROM t"`, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.some(t => t.path === `${ROOT}/data/x` && t.access === "write")).toBe(true);
+    });
+
+    it("数据库参数动态不可求值 → argv-write-uncovered，不被词面证洗白", () => {
+      const r = evaluateWriteTargets('sqlite3 "$DB" "INSERT INTO t VALUES(1)"', ROOT);
+      expect(r).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
+    });
+
+    it("-- 后主仓数据库路径仍按数据库参数识别", () => {
+      const r = evaluateWriteTargets(`sqlite3 -- ${ROOT}/data/x "INSERT INTO t VALUES(1)"`, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.some(t => t.path === `${ROOT}/data/x` && t.access === "write")).toBe(true);
+    });
+  });
+
   describe("Phase 2 git add index / remote ref / fd 复制（F20261009phs2）", () => {
     it("拦截侧：git add docs/x.md（主仓 cwd 相对路径）→ evaluated 命中主仓", () => {
       const r = evaluateWriteTargets("git add docs/features/x.md", ROOT);
