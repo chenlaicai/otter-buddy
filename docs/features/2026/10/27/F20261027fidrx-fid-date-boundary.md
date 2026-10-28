@@ -161,23 +161,15 @@ r1 合规：3 个独立焦点、207 测试独立复跑、check-pr-title 10 例�
 
 ### 中划线旧版代码 r1（检视-1668，mimo-pro；0 严重 / 3 建议，决策史）
 
-1. **B1 main 基线 3 个 rhi-scan-worker 失败 → 另案修复后 rebase，不带红合入**：main push run 40606244222 与 PR run 40608344569 同 3 失败，非本 PR 引入。#1661 已补 `成本快照测试日期随冻结时钟滚动`（commit 278530dd，新 head CI 全绿）；待其合入 main 后本 PR rebase，不能在本 PR 跨域修。
-2. **B7 当前 head 无 Golden Gate 记录 → 本 PR 修复**：2026-10-28 当前 5 字母版 capability 已跑，17 files / 16 passed / 44 skipped，记录已写入 data/metrics/golden-results.jsonl；PR/文档自检补记。
-3. **增量门无测试 + pre-commit 暂存盲区 → 本 PR 修复**：`collectAddedDocPaths` 合并 committed/staged 新增，临时 git 仓测试两入口；validator 历史 read 与新 strict 行为测试通过。
-4. **modules 漏 check-pr-title.cjs/lint-docs.mjs → 本 PR 修复**：frontmatter modules 已补两行。
-
-r1 合规：3 个独立焦点、207 测试独立复跑、check-pr-title 10 例、main/PR/本地三重基线归因、PR review `pullrequestreview-5676425117` COMMENTED（需要修改语义）。
-
-待固定 5 字母版 delta；B1 在 main 修复合入前保持未闭环。
-
-
 1. **标题校验器缺行为级自动测试 → 本 PR 修复**：新增 `tests/scripts/check-pr-title.test.ts`，spawnSync 覆盖 dash/字母接受、数字直连拒绝、7 个模块黑名单拒绝与开放集非黑名单接受。
 2. **PR body 写 mjs/复用编译产物与实际 cjs/零依赖不符 → 本 PR 修复**：PR body 改为零构建依赖 CJS + 元测试锁真相源；实现记录原已正确。
 3. **模块黑名单文案「禁用」但 PR title 放行 → 本 PR 修复**：cjs 捕获模块段，按与 module-tags.ts 对账的黑名单真实拒绝；推荐词提示同步恢复，行为测试覆盖 7 个黑名单与开放集。
 
 r1 合规：4 个独立焦点、全库 frontmatter/commit/文件名白名单实证、182 个关键测试独立复跑、PR review `pullrequestreview-5667199371` COMMENTED；head `2fa2a0a4` CI 三项全绿。
 
-待代码 delta 复核。
+### 固定 5 字母版 delta（检视-1668-five）
+
+r1 四项处置通过，B1 依约定保持 open；review `pullrequestreview-5676535051`。delta 建议「中划线旧版段误贴 5 字母四条」已归位；staged two-dot 理论窗口观察保留，因历史文档不可变 + CI up-to-date 门槛近乎不可达，不新增机制。
 
 ### r1（检视-fid方案，mimo-pro；0 严重 / 6 建议）
 
