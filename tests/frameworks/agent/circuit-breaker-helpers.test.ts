@@ -1,8 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
-import { attachCircuitBreaker } from "@frameworks/agent/circuit-breaker-helpers";
+
+// attachGuards 的 outputGuard 读取进程级配置；本文件不验证配置加载，按既有 agent 测试隔离。
+vi.mock("@frameworks/config", () => ({ getConfig: () => ({ circuitBreaker: {} }) }));
+import { attachCircuitBreaker, attachGuards } from "@frameworks/agent/circuit-breaker-helpers";
+import { haltToolCallGuard, otterInvokeStorage, type OtterInvokeContext } from "@frameworks/agent/model-runtime-registry";
+import { haltRegistry } from "@usecases/signal/halt-registry";
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "@frameworks/agent/tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "@frameworks/agent/tool-call-circuit-breaker";
-import { createTestLogger } from "../../helpers/logger";
+import { createCapturingLogger, createTestLogger } from "../../helpers/logger";
 
 /** 构造最小可用的 session mock：记录 subscribe 回调以便手动派发事件 */
 function mockSession() {
@@ -36,6 +41,94 @@ function sdkToolEnd(toolName: string) {
 function makeConfig(overrides?: Partial<CircuitBreakerConfig>): CircuitBreakerConfig {
   return { ...DEFAULT_CIRCUIT_BREAKER_CONFIG, ...overrides };
 }
+
+/** 最小 halt 指令：真实 registry + 真实 guard + 真实 attachGuards 装配。 */
+function haltDirective(otterId: string) {
+  return {
+    id: `sig-${otterId}`,
+    targetOtterId: otterId,
+    fromOtterId: 'otter-big',
+    fromOtterName: '大獭',
+    conversationId: 'conv-test',
+    reason: '停止后重启',
+    issuedAt: new Date().toISOString(),
+  };
+}
+
+describe("attachGuards - #1674 halt 真实装配", () => {
+  function makeStore(otterId: string): OtterInvokeContext {
+    return { otterPromptConfig: undefined, identityPrefix: '', otterId };
+  }
+
+  function makeAttachParams(session: ReturnType<typeof mockSession>, otterId: string) {
+    const activeEntry: { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string } = { abort: session.abort, toolCallCount: 0 };
+    const activeSessions = new Map([[otterId, activeEntry]]);
+    return {
+      session,
+      sessionKey: otterId,
+      otterId,
+      activeEntry,
+      activeSessions,
+      circuitBreakerConfig: makeConfig(),
+      logger: createTestLogger(),
+    };
+  }
+
+  it("真实 ALS store 经 attachGuards 注入后，首次 halt block 调 session.abort 并标记 guardAbortReason", async () => {
+    const otterId = 'otter-halt-attach-1';
+    const session = mockSession();
+    const params = makeAttachParams(session, otterId);
+    try {
+      await otterInvokeStorage.run(makeStore(otterId), async () => {
+        attachGuards(params);
+        expect(session.abort).not.toHaveBeenCalled();
+        haltRegistry.mark(haltDirective(otterId));
+        const result = await haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, 'bash');
+        expect(result?.block).toBe(true);
+        expect(session.abort).toHaveBeenCalledOnce();
+        expect(params.activeEntry.guardAbortReason).toBe('halt');
+        expect(otterInvokeStorage.getStore()?.haltAbortRequested).toBe(true);
+      });
+    } finally {
+      haltRegistry.endInvoke(otterId);
+    }
+  });
+
+  it("attachGuards 不在 prompt 前预触发 abort，保留首个真实 block 的终止请求", async () => {
+    const otterId = 'otter-halt-attach-2';
+    const session = mockSession();
+    try {
+      await otterInvokeStorage.run(makeStore(otterId), async () => {
+        attachGuards(makeAttachParams(session, otterId));
+        expect(session.abort).not.toHaveBeenCalled();
+        expect(otterInvokeStorage.getStore()?.haltAbortRequested).toBeUndefined();
+        haltRegistry.mark(haltDirective(otterId));
+        await haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, 'edit');
+        expect(session.abort).toHaveBeenCalledOnce();
+      });
+    } finally {
+      haltRegistry.endInvoke(otterId);
+    }
+  });
+
+  it("无 halt 的 attachGuards 不触发 abort；fire-and-forget rejection 被捕获并告警", async () => {
+    const otterId = 'otter-halt-attach-3';
+    const session = mockSession();
+    const logger = createCapturingLogger();
+    session.abort.mockRejectedValueOnce(new Error('abort failed'));
+    const params = { ...makeAttachParams(session, otterId), logger };
+    await otterInvokeStorage.run(makeStore(otterId), async () => {
+      attachGuards(params);
+      expect(session.abort).not.toHaveBeenCalled();
+      expect(otterInvokeStorage.getStore()?.requestHaltAbort).toBeTypeOf('function');
+      haltRegistry.mark(haltDirective(otterId));
+      await haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, 'bash');
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      expect(logger.captured.warns.some((message) => message.includes('abort failed'))).toBe(true);
+    });
+    haltRegistry.endInvoke(otterId);
+  });
+});
 
 describe("attachCircuitBreaker - 工具名识别与兼容", () => {
   it("从 SDK 事件的 toolName 字段取工具名（回归：不同工具交替调用不触发连续相同误判）", () => {

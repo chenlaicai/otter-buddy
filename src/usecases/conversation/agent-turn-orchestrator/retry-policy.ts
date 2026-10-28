@@ -206,6 +206,7 @@ export function buildTimeoutRetryExhaustedMsg(guardReason: string): string {
 
 /** Build abort body: user abort vs guard abort */
 export function buildGuardAbortBody(guardReason: string | undefined): string {
+  if (guardReason === 'halt') return '[已停止] 已按编排者指令停止本轮执行，上下文保留，可改派或重启。';
   if (guardReason === 'degenerate_output') return '[系统保护] 检测到输出内容异常重复，已自动中断。';
   if (guardReason === 'streaming_timeout') return '[系统保护] 生成过程超时，已自动中断。';
   if (guardReason === 'first_byte_timeout') return '[系统保护] 生成超时（长时间无输出），已自动中断。';
