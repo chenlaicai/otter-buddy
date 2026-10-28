@@ -30,7 +30,7 @@ const SNIPPET_FALLBACK_LENGTH = 200;
  * 4-6 位后缀兼容历史（推荐 4 位）。
  * 修法：m3（#245 follow-up），用显式否定回顾/前瞻替代 \b 防未来 JS 引擎 Unicode \b 变更。
  */
-const ANCHOR_PATTERN = /(?<![\w])([FR])\d{8}[a-z0-9]{4,6}(?![\w])/i;
+const ANCHOR_PATTERN = /(?<![\w])([FR])\d{8}-?[a-z0-9]{4,10}(?![\w])/i;
 
 /**
  * #542 修复：summary 模式首句提取正则（数字感知）。
