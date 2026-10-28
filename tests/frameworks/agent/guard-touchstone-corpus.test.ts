@@ -118,7 +118,7 @@ describe('guard-touchstone 三库冻结完整性', () => {
     //  2026-10-09 族 5 条 allow→block 翻红（3 条 git commit 形态 + 2 条 node -e 载荷写，后者系 #1561
     //  fixture 迁移带入、gdfv 实验基线未见）：allow 796→791 / block 82→87（守恒不变，同族同判）。
     expect(allow.meta.count).toBe(787); // F20261028sqldb：4 条主仓普通 SELECT 重裁翻红 + 2 条 /tmp INSERT 修正原无写误标（仍主仓外） // +1 = TS-80b0e7bc cond→allow 迁移（F20261019f714 期望翻面呈报件，原则②同款）−5 = A′ 同族重裁翻红
-    expect(block.meta.count).toBe(95); // +6 = F20261028sqldb sqlite3 真实数据库写落点重裁（真实语料 921 守恒） // 87 + 4 = F20261026gpg1（pathlib 写族词面洗白洞 ×3 + rename 双参提取 ×1——M-a09944aa①星报件；xargs 注入形态不进库、独立测试钉，求值器单链判不到 guard 侧结构判定）
+    expect(block.meta.count).toBe(95); // F20261028sqldb：主仓普通 SELECT 重裁 +4（真实语料 921 守恒） // 87 + 4 = F20261026gpg1（pathlib 写族词面洗白洞 ×3 + rename 双参提取 ×1——M-a09944aa①星报件；xargs 注入形态不进库、独立测试钉，求值器单链判不到 guard 侧结构判定）
     expect(cond.meta.count).toBe(104); // -1 = TS-80b0e7bc 迁出（同上）+0 = F20261026gpg1 相对路径面改独立测试钉（同因）
     // 真实语料守恒 921（不含 TS-smrj 前缀新增：32 负门 + 29 回归/正门；亦不含 TS-gpg1 前缀 F20261026gpg1 新增 4 条）
     const addedGate = [...allow.entries, ...block.entries, ...cond.entries].filter((e) => e.id.startsWith('TS-smrj') || e.id.startsWith('TS-gpg1')).length;

@@ -789,8 +789,8 @@ function sqliteDatabaseTarget(words: Word[], acc: SegmentEvalAcc): { target: str
     break;
   }
   if (typeof db !== "string") return { target: null, readOnly: false };
-  // 真实行为：内存库的 ATTACH 会创建任意路径；.backup/.restore/.import 等也可写文件。
-  if (payloads.some(p => /(?:^|[;\s])attach\s+database\b|^\s*\.(?:backup|restore|import|save|output|once|expert|load|read|write|dump|archive)\b/im.test(p))) {
+  // 真实行为：ATTACH 的 DATABASE 可选；.open 切库、.system/.shell 任意执行均可旁路主库写。
+  if (payloads.some(p => /(?:^|[;\s])attach(?:\s+database)?\s+|^\s*\.(?:backup|restore|import|save|output|once|expert|load|read|write|dump|archive|open|system|shell)\b/im.test(p))) {
     return { target: null, readOnly: false };
   }
   if (db === ":memory:" || db === "") return { target: null, readOnly: true };

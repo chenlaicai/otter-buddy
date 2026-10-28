@@ -305,9 +305,18 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
 
     it.each([
       `sqlite3 :memory: "ATTACH DATABASE '${ROOT}/data/x' AS a; INSERT INTO a.t VALUES(1)"`,
+      `sqlite3 :memory: "ATTACH '${ROOT}/data/x' AS a; INSERT INTO a.t VALUES(1)"`,
       `sqlite3 -readonly ${ROOT}/data/x ".backup ${ROOT}/backup.db"`,
+      `sqlite3 -readonly ${ROOT}/data/x ".system touch ${ROOT}/pwned"`,
+      `sqlite3 -readonly ${ROOT}/data/x ".shell touch ${ROOT}/pwned"`,
+      `sqlite3 -readonly ${ROOT}/data/x ".open ${ROOT}/other.db"`,
     ])("只读/内存主库的外挂写载荷不可证：%s", (cmd) => {
       expect(evaluateWriteTargets(cmd, ROOT)).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
+    });
+
+    it("ATTACH 后无路径不是完整语句，不误触负门；真正 ATTACH 仍拦截", () => {
+      expect(evaluateWriteTargets('sqlite3 :memory: "SELECT 1; ATTACH"', ROOT)).toEqual({ kind: "evaluated", targets: [] });
+      expect(evaluateWriteTargets(`sqlite3 :memory: "ATTACH '${ROOT}/x' AS a"`, ROOT)).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
     });
 
     it("URI 百分号解码后才判真实落点", () => {

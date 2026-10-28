@@ -31,7 +31,7 @@ causal_links:
 - 数据库参数动态/未知、未知选项值、非法 URI 编码 → `argv-write-uncovered`，不进入词面证豁免。
 - SQL 参数不是路径：$CID/$i 等运行时插值不误报数据库未知；数据库参数复用既有 resolveTargetArgWord 同命令赋值溯源。
 - `-hexkey`、双值 `-pagecache` / `-lookaside` 按 sqlite3 help 对齐；未收录旗标不猜值槽。
-- `:memory:` / 只读主库载荷含 ATTACH 或写 dot-command → fail-closed；实测内存库 ATTACH/.backup 可创建其他文件。
+- `:memory:` / 只读主库载荷含 ATTACH（DATABASE 可选）或写/执行 dot-command（含 .open/.system/.shell）→ fail-closed；实测内存库 ATTACH/.backup 可创建其他文件。
 - SQLite URI path 先百分号解码再判落点，防字面树外、真实树内错位。
 - 树外数据库仍披露写事实，但不命中主仓。
 - 历史只读回归两条收紧为显式 `-readonly` / `mode=ro`：这是有真实行为依据的测试修正，不删除原查询覆盖；新增普通 SELECT 可能建库的负向钉。
@@ -62,7 +62,7 @@ causal_links:
 
 # 独立审视处置
 
-首轮 3 严重、2 建议全部采纳：试金石重裁与 CI 缺口配套；选项槽完整化与未知旗标回落；主库豁免不遮 ATTACH/写 dot-command；URI 百分号解码；移除重复用例。新增树外写真值与 SQL 插值不误报用例，delta 复核后终审。
+首轮 3 严重、2 建议全部采纳：试金石重裁与 CI 缺口配套；选项槽完整化与未知旗标回落；主库豁免不遮 ATTACH/写 dot-command；URI 百分号解码；移除重复用例。新增树外写真值与 SQL 插值不误报用例。Delta 残留补 ATTACH 无 DATABASE、.open/.system/.shell，回归后再次交回 delta。最新全量 7298 passed/6 skipped。
 
 # 影响与负向验收
 
