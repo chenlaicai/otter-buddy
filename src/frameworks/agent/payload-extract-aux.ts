@@ -10,7 +10,7 @@ import type { CommandModel, Segment } from "./command-model";
 import type { Word } from "./command-lexer";
 
 /** shell 递归/脚本载荷解释器族（与 bash-safety-guard 脚本族同源口径）
- *  F20261028runf（#1491 案面补记收口）：jshell/Rscript/lua/octave 收编——此前非集内解释器
+ *  F20261028runfa（#1491 案面补记收口）：jshell/Rscript/lua/octave 收编——此前非集内解释器
  *  载荷零判读（Runtime.exec/exec/file.create 真写双层漏，探针实证）。文件形态后缀门见
  *  write-target-evaluator SCRIPT_FILE_SUFFIXES（非 shell runner 只认可读后缀）。 */
 export const SCRIPT_RUNNERS = new Set(["python", "python3", "node", "perl", "ruby", "osascript", "jshell", "rscript", "lua", "octave"]);
