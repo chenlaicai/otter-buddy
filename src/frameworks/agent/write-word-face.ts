@@ -103,9 +103,11 @@ function readStringLiteralArg(script: string, start: number): { text: string; dy
  *  os.chmod/chown/utime/truncate、np.save/savez、extractall（#1423 dbm 族同源）。connect 由
  *  connectCallWriteHits 单独按 mode=ro 判（TS-74bbed93 只读连接非写）。 */
 const PAYLOAD_WRITE_FACE =
-  /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|renameSync|unlinkSync|rmSync|mkdirSync|rmdirSync|truncateSync)\s*\(|\bfs\.(?:write|writev)\s*\(|\bos\.(?:remove|rename|mkdir|makedirs|rmdir|mknod|replace|chmod|chown|utime|truncate)\s*\(|\bshutil\.(?:copy|copy2|copytree|move|rmtree)\s*\(|\bnp\.(?:save|savez|savez_compressed)\s*\(|\.\s*(?:writelines|truncate|unlink|mkdir|rmdir|touch|rename|chmod|lchmod|chown|write_text|write_bytes|symlink_to|hardlink_to)\s*\(|(?<!stdout)(?<!stderr)\.\s*write\s*\(|Path\s*\(\s*["'][^"']*["']\s*\)\s*\.\s*(?:write_(?:text|bytes)|mkdir|rmdir|unlink|touch|rename|replace|chmod|lchmod|chown|symlink_to|hardlink_to)\s*\(|\.\s*extractall\s*\(/;
+  /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|renameSync|unlinkSync|rmSync|mkdirSync|rmdirSync|truncateSync)\s*\(|\bfs\.(?:write|writev)\s*\(|\bos\.(?:remove|rename|mkdir|makedirs|rmdir|mknod|replace|chmod|chown|utime|truncate)\s*\(|\bshutil\.(?:copy|copy2|copytree|move|rmtree)\s*\(|\bnp\.(?:save|savez|savez_compressed)\s*\(|\bfile\.(?:create|append|copy|rename|remove|unlink|link)\s*\(|\bdir\.(?:create|unlink)\s*\(|\b(?:writeLines|write\.table|fwrite|saveRDS)\s*\(|\bRuntime\.getRuntime\(\)\.exec\b|\.\s*(?:writelines|truncate|unlink|mkdir|rmdir|touch|rename|chmod|lchmod|chown|write_text|write_bytes|symlink_to|hardlink_to)\s*\(|(?<!stdout)(?<!stderr)\.\s*write\s*\(|Path\s*\(\s*["'][^"']*["']\s*\)\s*\.\s*(?:write_(?:text|bytes)|mkdir|rmdir|unlink|touch|rename|replace|chmod|lchmod|chown|symlink_to|hardlink_to)\s*\(|\.\s*extractall\s*\(/;
 /** 重定向落点词面（排除 fd 复制 2>&1/>&2、比较/箭头 =>/->/<=/>=）；&>/<>/>> 单列 */
 const REDIRECT_FACE = /(?:&>{1,2}|<>|(?<![=\-<>&])>{1,2}(?!&|\(|=|\s*\/dev\/(?:null|std(?:out|err))))/;
+// F20261028runf（#1491）：R/Java 写面词面同源收编（与 SCRIPT_WRITE_TOKENS 同步——两闸同词同义不分叉）
+//  注：Runtime.exec 在 SCRIPT_EXEC_FACE（执行面）另判，此处只收纯写面。
 
 /** 能力 5 病型 C 负门（拍板 2026-10-13）：重组 span 写词面探测——写词面族全量。
  *  不含 exec/重定向面：$()/重定向由递归载荷求值与段级判定各自入账，且引号塔载荷内

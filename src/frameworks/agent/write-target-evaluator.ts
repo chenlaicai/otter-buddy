@@ -1009,7 +1009,11 @@ function evalGitAdd(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot?
  *  注意：open/write 单独命中不算写调用——python open('p') 默认读模式、`.write()` 是
  *  读文件后的方法调用链（c032 `print(open('a').read())` 实证）；真正写语义由
  *  evalScriptWriteTargets 的调用形态匹配判定（open 带写模式 / writeFileSync 等明确写函数）。 */
-const SCRIPT_WRITE_TOKENS = /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync|mkdirSync|mkdir|rmSync|rmdirSync|unlinkSync|unlink|renameSync|rename|copyFileSync|copyFile|chmodSync|chownSync|symlinkSync|dump|dumps|shelve|os\.(?:remove|rmdir|rename|replace|link|symlink|truncate|chmod|chown|utime|mknod|mkdir))\b|\bopen\s*\([^)]*,\s*["'`][wa]|\.write(?:Sync)?\s*\(/;
+// F20261028runf（#1491）：R/Java 写面词面收编——file.(create|append|copy|rename|remove/unlink)、
+//  dir.create/unlink、writeLines/write.table/fwrite、Runtime.exec 族词面即写证据
+//  （探针实证：Rscript -e 'file.create(主仓)' 曾零判读放行）。Runtime/exec 词面与 SCRIPT_EXEC_FACE
+//  分工：exec 是执行面不可证（走窄提取负门），这里是写证据词面——同词双身份不冲突，先命中先判。
+const SCRIPT_WRITE_TOKENS = /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|openSync|mkdirSync|mkdir|rmSync|rmdirSync|unlinkSync|unlink|renameSync|rename|copyFileSync|copyFile|chmodSync|chownSync|symlinkSync|dump|dumps|shelve|os\.(?:remove|rmdir|rename|replace|link|symlink|truncate|chmod|chown|utime|mknod|mkdir))\b|\bfile\.(?:create|append|copy|rename|remove|unlink|link)\s*\(|\bdir\.(?:create|unlink)\s*\(|\b(?:writeLines|write\.table|fwrite|saveRDS)\s*\(|\bRuntime\.getRuntime\(\)\.exec\b|\bopen\s*\([^)]*,\s*["'`][wa]|\.write(?:Sync)?\s*\(/;
 // F20261019gses F1 连带：补 os.* 写族词面（os.remove("config.yaml") 相对路径落主仓曾放——
 //  pythonBodyReadOnly 的 os 面全禁随 ③a 收窄退位，写面词面归位此表）
 
@@ -1567,7 +1571,10 @@ export function isDirectExecScriptSeg(seg: Segment): boolean {
  *  段首路径不进本函数：替换型载荷垃圾解析会把参数/字面量当段首路径（delta3 能力 8 口径）。
  *  F20261019gses P0：SCRIPT_RUNNERS 文件形态（node x.mjs / python x.py）接入同通道——
  *  K 类 34 条缺口主通道；只认「静态路径 + 可读后缀」保守面，动态路径交牙1。 */
-const SCRIPT_FILE_SUFFIXES = /\.(?:sh|bash|zsh|mjs|cjs|js|mts|cts|ts|py|pyw|rb|pl|pm|scpt|applescript)$/;
+// F20261028runf（#1491）：r（R 脚本，Rscript 默认后缀）/jl 无雷同词风险，收进后缀门；
+//  jshell（jsh）/m（octave）后缀过于宽泛不收——无后缀/其他后缀文件形态走保守放行侧不变
+//  （issue 主战场是内联/heredoc 载荷，非文件形态）。
+const SCRIPT_FILE_SUFFIXES = /\.(?:sh|bash|zsh|mjs|cjs|js|mts|cts|ts|py|pyw|rb|pl|pm|scpt|applescript|r|jl)$/;
  
 function interpreterScriptFileArg(seg: Segment): { word: Word; dynamic: boolean } | null {
   // delta r1（检视獭1604 严重 1 连带）：段首解析收敛 resolveExecHead 共享内层——wrapper/
