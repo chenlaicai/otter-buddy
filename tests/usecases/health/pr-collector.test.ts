@@ -34,6 +34,13 @@ describe("extractFeatureIds", () => {
     expect(extractFeatureIds("")).toEqual([]);
   });
 
+  it("宽读新旧 dash/数字直连 ID，保留幻影候选语义供上层关联核对", () => {
+    expect(extractFeatureIds("[F20261027-59c4] 新形态；旧 F202609048840；R20261027-abcd"))
+      .toEqual(["F20261027-59c4", "F202609048840", "R20261027-abcd"]);
+    // 自然语言词可能成为 FID 形态候选；collector 不把它当已验证文档，后续 gap 需人工核对。
+    expect(extractFeatureIds("F20261027-notes")).toEqual(["F20261027-notes"]);
+  });
+
   it("分支名里的日期串不误配（8 位日期 + 短后缀才成形如 FID 的串）", () => {
     // feature/rhi-pr2-ui：无 8 位日期段，提取不出
     expect(extractFeatureIds("feature/rhi-pr2-ui")).toEqual([]);
