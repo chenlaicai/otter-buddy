@@ -166,11 +166,13 @@ export function parseGitWorktreeList(repoRoot: string): Map<string, string> {
     const out = execFileSync("git", ["worktree", "list", "--porcelain", "-z"], {
       cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
     });
-    // -z 的 NUL 分隔记录字段，不保证每个 worktree 行都是 chunk 首行：
-    // 前一记录的 detached/branch 字段可与下一 worktree 行同处一个 chunk。
-    for (const line of out.split(/[\0\n]/)) {
-      if (!line.startsWith("worktree ")) continue;
-      const root = line.slice("worktree ".length);
+    // Why: -z 每个字段以 NUL 结尾。绝不能把路径内换行当记录分隔符，
+    // 否则外部仓注册表中的换行路径可注入伪造 worktree 行。
+    for (const field of out.split("\0")) {
+      if (!field.startsWith("worktree ")) continue;
+      const root = field.slice("worktree ".length);
+      // eslint-disable-next-line no-control-regex -- 外部注册表控制字符必须 fail-closed
+      if (/[\x00-\x1f\x7f]/.test(root)) continue;
       const normalized = realpath(root);
       if (normalized !== realpath(repoRoot)) map.set(normalized, metadataName(root));
     }
@@ -299,6 +301,8 @@ function evaluateWorktreeWrite(args: string[], repoRoot: string, target: RepoTar
 }
 
 function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target: RepoTarget, cwd: string): GitExecutionGrant | null {
+  // #1682 只授权外部已登记 worktree 的 add/commit；管理写面保持原拒绝边界。
+  if (target.kind === "external-linked") return null;
   const { subcmd, args } = envelope;
   if (subcmd === "fetch") {
     const domains = [...(target.kind === "linked" ? ["worktree-gitdir" as const] : []), ...FETCH_DOMAINS];

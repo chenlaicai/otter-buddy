@@ -1,7 +1,6 @@
 /** F20261028egitx：穿过真实 SDK 装配的沙箱执行契约，不能只断言 mock 入参。 */
 import { describe, expect, it } from "vitest";
-import * as sdk from "@earendil-works/pi-coding-agent";
-import { createSandboxedAgentSession } from "@frameworks/agent/sandboxed-agent-session";
+import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -10,7 +9,41 @@ import { createSandboxedTools } from "@frameworks/agent/bash-sandbox";
 const macos = process.platform === "darwin";
 
 describe("AgentSession 沙箱接线", () => {
-  it.skipIf(!macos)("baseToolsOverride 穿过公开构造：bash 裹沙箱，write/edit 守卫生效", async () => {
+  it("标准 createAgentSession 保留 thinking/context 主链", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "sdk-semantics-")));
+    const workspace = join(root, "workspace");
+    mkdirSync(workspace, { recursive: true });
+    const settingsManager = SettingsManager.inMemory({ extensions: [] });
+    const sessionManager = SessionManager.inMemory();
+    const resourceLoader = new DefaultResourceLoader({ cwd: workspace, agentDir: root, settingsManager, extensionFactories: [pi => {
+      pi.on("context", event => ({
+        messages: event.messages.map(message => message.role === "user" && typeof message.content === "string"
+          ? { ...message, content: message.content.replace("before-context", "after-context") }
+          : message),
+      }));
+    }] });
+    const modelRuntime = await ModelRuntime.create({ modelsPath: null, authPath: join(root, "auth.json"), refreshOnCreate: false });
+    const model = modelRuntime.getModel("anthropic", "claude-sonnet-4-5");
+    expect(model).toBeDefined();
+    await resourceLoader.reload();
+    const { session } = await createAgentSession({ cwd: workspace, sessionManager, settingsManager, resourceLoader, modelRuntime, model, tools: [] });
+    try {
+      expect(session.thinkingLevel).toBe("medium");
+      sessionManager.appendMessage({ role: "user", content: "persist history before restoring", timestamp: 1 });
+      sessionManager.appendThinkingLevelChange("high");
+      const { session: restored } = await createAgentSession({ cwd: workspace, sessionManager, settingsManager, resourceLoader, modelRuntime, model, tools: [] });
+      expect(restored.thinkingLevel).toBe("high");
+      const transformed = await session.agent.transformContext?.([{ role: "user", content: "before-context", timestamp: 1 }]);
+      expect(transformed?.[0]).toMatchObject({ content: "after-context" });
+      expect(sessionManager.getBranch().some(entry => entry.type === "thinking_level_change")).toBe(true);
+      restored.dispose();
+    } finally {
+      session.dispose();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it.skipIf(!macos)("baseToolsOverride 穿过标准 createAgentSession：bash 裹沙箱，write/edit 守卫生效", async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "sdk-sandbox-wiring-")));
     // Why: 宿主目录必须独立且在通用 /tmp 写区之外，否则 default allow 会让拒绝断言失真。
     const repo = "/private/etc/otter-sdk-sandbox-readonly";
@@ -22,12 +55,12 @@ describe("AgentSession 沙箱接线", () => {
     const guarded = createSandboxedTools(workspace, repo, dataDir);
     expect(guarded.sandboxGuarded).toBe(true);
     const selected = ["read", "write", "edit", "bash"].map(name => guarded.tools[name]!);
-    const settingsManager = sdk.SettingsManager.inMemory({ extensions: [] });
-    const { session } = await createSandboxedAgentSession(sdk, {
+    const settingsManager = SettingsManager.inMemory({ extensions: [] });
+    const { session } = await createAgentSession({
       cwd: workspace,
-      sessionManager: sdk.SessionManager.inMemory(),
+      sessionManager: SessionManager.inMemory(),
       settingsManager,
-      resourceLoader: new sdk.DefaultResourceLoader({ cwd: workspace, agentDir, settingsManager }),
+      resourceLoader: new DefaultResourceLoader({ cwd: workspace, agentDir, settingsManager }),
       tools: selected.map(tool => tool.name),
       baseToolsOverride: guarded.tools,
     });

@@ -184,7 +184,6 @@ import { resolveSessionCwd } from "./session-cwd-resolver";
 import { getRepoRoot } from "@frameworks/repo-root";
 // F20261015phys：bash 物理沙箱——sandbox-exec 包裹獭 bash 执行面
 import { createSandboxedTools } from "./bash-sandbox";
-import { createSandboxedAgentSession } from "./sandboxed-agent-session";
 // F20260901mbfx（审计 F5）：readOnly 合成的自定义工具白名单（只读查询类）
 import { SYNTHESIS_READ_ONLY_TOOL_WHITELIST } from "./synthesis-prompt-builder";
 import { ModelRuntimeRegistry, otterInvokeStorage } from "./model-runtime-registry";
@@ -1468,14 +1467,13 @@ export class PiSessionFactory implements AgentGateway {
     // 三连实证；机制详见 tool-search-tool.ts 头注）。holder 延迟绑定：customTools 入参
     // 在 session 创建前就要传，session 引用创建后回填。
     const toolSearchHolder: ToolSearchSessionHolder = {};
-    // Why: SDK 1.1.0–1.4.0 的 createAgentSession 不消费 baseToolsOverride。
-    // 沙箱覆盖必须到达公开 AgentSession 构造器；生产已有 services 原样复用。
+    // F20261015phys：锁定 SDK 的最小补丁只补 baseToolsOverride 转发；其余装配保持 SDK 原语义。
     // readOnly 合成会话只有 read 工具，不需要沙箱。
     const repoRoot = getRepoRoot();
     const dataDir = this.cfg.dataDir ?? "./data";
     const baseToolsOverrideRaw = readOnly ? undefined : createSandboxedTools(workspaceCwd, repoRoot, dataDir);
     const baseToolsOverride = baseToolsOverrideRaw?.tools;
-    const sessionOptions = {
+    const { session } = await piCodingAgent.createAgentSession({
       model: resolvedModel,
       sessionManager,
       cwd: workspaceCwd,
@@ -1484,10 +1482,8 @@ export class PiSessionFactory implements AgentGateway {
       resourceLoader: resourceLoader ?? undefined,
       modelRuntime: modelRuntime ?? undefined,
       settingsManager: settingsManager ?? undefined,
-    };
-    const { session } = baseToolsOverride
-      ? await createSandboxedAgentSession(piCodingAgent, { ...sessionOptions, baseToolsOverride })
-      : await piCodingAgent.createAgentSession(sessionOptions);
+      ...(baseToolsOverride ? { baseToolsOverride } : {}),
+    });
     // F20261016gsbx 二期 2a（R-2b）：挂载决策绑定到 session——attachGuards 消费本位。
     if (baseToolsOverrideRaw) this.sandboxGuardedBySession.set(session, baseToolsOverrideRaw.sandboxGuarded);
     if (hasDeferred) {

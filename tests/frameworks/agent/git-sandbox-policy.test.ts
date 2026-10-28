@@ -80,6 +80,15 @@ describe("git-execution-policy", () => {
       }
     });
 
+    it.each(["git fetch origin", "git push origin HEAD:feature", "git worktree prune", "git branch -d scratch"])("外部管理写 %s 不授权", command => {
+      const externalRoot = "/Users/orca/ai/others/colink";
+      const externalWt = `${externalRoot}/.otter/worktrees/shared-recall-reedit`;
+      expect(evaluateGitExecution(command, externalWt, {
+        repoRoot: REPO, linkedWorktrees: LINKED,
+        resolveExternalWorktree: () => ({ repoRoot: externalRoot, worktreeRoot: externalWt, worktreeName: "shared-recall-reedit" }),
+      })).toBeNull();
+    });
+
     it("git -C 主仓 add → 拒绝（主仓直接写不授权）", () => {
       const g = evaluateGitExecution(`git -C ${REPO} add .`, "/tmp", {
         repoRoot: REPO,

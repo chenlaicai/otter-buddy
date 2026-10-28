@@ -1,10 +1,14 @@
-import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { describe, expect, it, vi, beforeAll, afterAll } from "vitest";
 import { platform, homedir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createSandboxSpawnHook } from "../../../src/frameworks/agent/bash-sandbox";
 import { resolveExternalGitWorktree, parseGitWorktreeList } from "../../../src/frameworks/agent/git-execution-policy";
+
+// 每次断言都是真实 sandbox-exec（spawn 沙箱进程 + git 子进程），单用例十余次串联
+// 在高负载下可超 vitest 默认 5s——对齐 halt-injection-wiring 惯例显式放宽（仅本文件）。
+vi.setConfig({ testTimeout: 20_000 });
 
 const isMac = platform() === "darwin";
 const fixtureRoot = join(homedir(), `.git-sandbox-it-${process.pid}`);
