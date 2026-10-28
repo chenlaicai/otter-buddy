@@ -94,6 +94,35 @@ describe('haltToolCallGuard（ALS 集成）', () => {
     expect(result?.reason).toContain('大獭');
   });
 
+  it('#1674：halt 首次送达即请求结束本轮执行，不能只靠模型自觉停止', async () => {
+    haltRegistry.mark(makeDirective());
+    let running = true;
+    const store = {
+      otterPromptConfig: undefined,
+      identityPrefix: '',
+      otterId: 'otter-small-1',
+      requestHaltAbort: () => { running = false; },
+    };
+    const result = await haltToolCallGuard(store, haltRegistry, 'bash');
+    expect(result?.block).toBe(true);
+    expect(running).toBe(false);
+  });
+
+  it('#1674：halt 重复送达不重复中断已结束的执行', async () => {
+    haltRegistry.mark(makeDirective());
+    let abortRequests = 0;
+    const store = {
+      otterPromptConfig: undefined,
+      identityPrefix: '',
+      otterId: 'otter-small-1',
+      requestHaltAbort: () => { abortRequests += 1; },
+    };
+    expect((await haltToolCallGuard(store, haltRegistry, 'bash'))?.block).toBe(true);
+    expect(abortRequests).toBe(1);
+    expect((await haltToolCallGuard(store, haltRegistry, 'edit'))?.block).toBe(true);
+    expect(abortRequests).toBe(1);
+  });
+
   it('speak 豁免：被 halt 的獭可用 speak 报告进度快照（检视发现 1）', async () => {
     haltRegistry.mark(makeDirective());
     const result = await otterInvokeStorage.run({ otterPromptConfig: undefined, identityPrefix: '', otterId: 'otter-small-1' }, async () => {
@@ -108,7 +137,7 @@ describe('haltToolCallGuard（ALS 集成）', () => {
     haltRegistry.mark(makeDirective());
     await otterInvokeStorage.run({ otterPromptConfig: undefined, identityPrefix: '', otterId: 'otter-small-1' }, async () => {
       expect(haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, 'speak')).toBeUndefined();
-      expect(haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, 'edit')?.block).toBe(true);
+      expect((await haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, 'edit'))?.block).toBe(true);
     });
   });
 

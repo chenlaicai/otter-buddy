@@ -12,6 +12,7 @@ import type { Model, Api } from "@earendil-works/pi-ai";
 import { getConfig } from "@frameworks/config";
 import type { OutputGuardConfig } from "./output-guard";
 import { attachOutputGuard } from "./output-guard";
+import { otterInvokeStorage } from "./model-runtime-registry";
 // F20261023ktru（#1069）：自有项目提醒里的正道脚本路径同走仓根绝对路径（外部项目 cwd 不可解析相对路径）
 import { RESTART_SERVICE_SCRIPT } from "./kill-block-messages";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
@@ -99,6 +100,14 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
+  // #1674：halt 在 ALS 入口（早于 attachGuards）标记；此处接上既有 abort 收尾。
+  // 处理器内只同步发出 abort 信号，不等待 session.abort() 的 waitForIdle Promise（防自等待）。
+  const invokeStore = otterInvokeStorage.getStore();
+  if (invokeStore) invokeStore.requestHaltAbort = () => { void wrappedAbort('halt'); };
+  if (invokeStore?.haltPending && !invokeStore.haltAbortRequested) {
+    invokeStore.haltAbortRequested = true;
+    invokeStore.requestHaltAbort?.();
+  }
   const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, sandboxGuarded: params.sandboxGuarded, loopBlockedTools: params.loopBlockedTools, guardGateActive: params.guardGateActive });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
