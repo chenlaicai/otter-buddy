@@ -102,6 +102,8 @@ modules:
 
 ## 验证
 
-- `npm run check` 全绿（build/lint/lint:docs/smoke/单测）
-- `check-pr-evidence.mjs` fixture 自测：纯文档 diff 不触发；非纯文档 diff + 无 Rollback/无证据分层 → 退出码 1；齐全 → 0
-- 对抗审视 + 重对抗门（合并轮）通过：门控结论留痕本段
+- `npm run check` 全绿（build/lint/lint:schema/smoke:boot/script-arg-parse 测试链）；lint:docs / lint:intent / lint:prompt-anchors 独立跑过 exit=0
+- check-pr-evidence 判定固化为可持续测试 `tests/scripts/check-pr-evidence.test.ts`（21 断言：豁免集合/NUL 分裂/占位判定/分层两层/假绿回归组），由 `npm run test`（vitest）执行——CI test step 即机器锚点（S3 整改：一次性自述 fixture 升级为可复验测试）
+- 重对抗门：**确认治本**（2026-10-28 检视獭-mech 门控，前置核查四问齐全后经记忆脉络（机制托底/巡检拍板/测试弱化声明闸/决策边界）判定），门控结论留痕本段
+- 对抗审视：检视獭-mech 首轮 7 严重+1 建议（review 5678885943），逐条处置；delta 复核结论回写本段
+- Golden Gate：verify_by=behavior_check（人工行为检查）——seriousness-mode-switch golden 场景采样记录（manualReview）见 PR Verification 节，判定留检视獭 delta 复核
