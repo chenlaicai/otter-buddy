@@ -31,6 +31,8 @@ export interface GitExecutionGrant {
   worktreeName?: string;
   /** 仅 worktree add：允许 Git 在声明的目标位置创建新的 .git 指针。 */
   worktreeTarget?: string;
+  /** 外部仓隔离 worktree：该命令所需普通工作树写域（stage 文件读取等）。 */
+  externalWorktreeRoot?: string;
   domains: GitWriteDomain[];
   injectOptionalLocks: boolean;
 }
@@ -38,6 +40,8 @@ export interface GitExecutionGrant {
 export interface GitExecutionPolicyOptions {
   repoRoot: string;
   linkedWorktrees?: Map<string, string>;
+  /** 外部仓真实 worktree 注册表解析；测试可注入，生产只读 Git 查询。 */
+  resolveExternalWorktree?: (targetPath: string) => { repoRoot: string; worktreeRoot: string; worktreeName: string } | null;
 }
 
 export type GitExecutionVerdict = GitExecutionGrant | null;
@@ -50,6 +54,7 @@ interface GitEnvelope {
 
 type RepoTarget =
   | { kind: "linked"; worktreeName: string }
+  | { kind: "external-linked"; repoRoot: string; worktreeRoot: string; worktreeName: string }
   | { kind: "main-tree" | "management" };
 
 function realpath(p: string): string {
@@ -161,10 +166,11 @@ export function parseGitWorktreeList(repoRoot: string): Map<string, string> {
     const out = execFileSync("git", ["worktree", "list", "--porcelain", "-z"], {
       cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
     });
-    for (const record of out.split("\0")) {
-      const first = record.split("\n", 1)[0];
-      if (!first.startsWith("worktree ")) continue;
-      const root = first.slice("worktree ".length);
+    // -z 的 NUL 分隔记录字段，不保证每个 worktree 行都是 chunk 首行：
+    // 前一记录的 detached/branch 字段可与下一 worktree 行同处一个 chunk。
+    for (const line of out.split(/[\0\n]/)) {
+      if (!line.startsWith("worktree ")) continue;
+      const root = line.slice("worktree ".length);
       const normalized = realpath(root);
       if (normalized !== realpath(repoRoot)) map.set(normalized, metadataName(root));
     }
@@ -182,8 +188,31 @@ function linkedAt(path: string, registry: Map<string, string>): string | undefin
   return undefined;
 }
 
+/**
+ * #1682：只承认真实 Git 注册表中的外部隔离 worktree。
+ * 探测目标向上至仓库根，再读取该仓 `git worktree list`；同时要求目标是其
+ * `.otter/worktrees/` 的直接子目录，排除主目录、普通目录与伪造 .git 文件夹。
+ */
+export function resolveExternalGitWorktree(targetPath: string): { repoRoot: string; worktreeRoot: string; worktreeName: string } | null {
+  const target = realpath(targetPath);
+  try {
+    const commonDir = realpath(execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+      cwd: target, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+    }).trim());
+    const repoRoot = dirname(commonDir);
+    if (dirname(target) !== realpath(resolve(repoRoot, ".otter/worktrees"))) return null;
+    for (const [root, worktreeName] of parseGitWorktreeList(repoRoot)) {
+      if (root === target) return { repoRoot, worktreeRoot: root, worktreeName };
+    }
+  } catch {
+    // 目标不存在、不是 Git worktree 或注册表不可读：均无授权。
+  }
+  return null;
+}
+
 function resolveTarget(
   targetPath: string | undefined, cwd: string, repoRoot: string, registry: Map<string, string>,
+  resolveExternal: GitExecutionPolicyOptions["resolveExternalWorktree"],
 ): RepoTarget | null {
   const target = realpath(targetPath ?? cwd);
   const linked = linkedAt(target, registry);
@@ -192,7 +221,8 @@ function resolveTarget(
   const gitDir = resolve(repo, ".git");
   if (within(target, gitDir)) return { kind: "management" };
   if (within(target, repo)) return { kind: "main-tree" };
-  return null; // 外部独立仓不由本项目的 Git 写域授权
+  const external = (resolveExternal ?? resolveExternalGitWorktree)(target);
+  return external ? { kind: "external-linked", ...external } : null;
 }
 
 function grant(
@@ -200,8 +230,10 @@ function grant(
   domains: GitWriteDomain[], injectOptionalLocks = false,
 ): GitExecutionGrant {
   return {
-    kind, repoRoot, domains, injectOptionalLocks,
-    ...(target.kind === "linked" ? { worktreeName: target.worktreeName } : {}),
+    kind, repoRoot: target.kind === "external-linked" ? target.repoRoot : repoRoot,
+    domains, injectOptionalLocks,
+    ...(target.kind === "linked" || target.kind === "external-linked" ? { worktreeName: target.worktreeName } : {}),
+    ...(target.kind === "external-linked" ? { externalWorktreeRoot: target.worktreeRoot } : {}),
   };
 }
 
@@ -222,7 +254,7 @@ function evaluateReadOnly(subcmd: string, args: string[], repoRoot: string, targ
 
 function evaluateTreeWrite(subcmd: string, repoRoot: string, target: RepoTarget): GitExecutionGrant | null {
   if (subcmd !== "add" && subcmd !== "commit" && subcmd !== "merge") return null;
-  if (target.kind !== "linked") return null;
+  if (target.kind !== "linked" && target.kind !== "external-linked") return null;
   const domains = subcmd === "add" ? INDEX_DOMAINS
     : subcmd === "commit" ? COMMIT_DOMAINS : [...COMMIT_DOMAINS, "orig-head" as const];
   return grant(subcmd, repoRoot, target, domains);
@@ -294,7 +326,9 @@ export function evaluateGitExecution(
   const envelope = parseEnvelope(command, cwd);
   if (!envelope) return null;
   const repoRoot = realpath(opts.repoRoot);
-  const target = resolveTarget(envelope.targetPath, cwd, repoRoot, opts.linkedWorktrees ?? new Map());
+  const target = resolveTarget(
+    envelope.targetPath, cwd, repoRoot, opts.linkedWorktrees ?? new Map(), opts.resolveExternalWorktree,
+  );
   return target ? evaluateSubcommand(envelope, repoRoot, target, cwd) : null;
 }
 
@@ -346,5 +380,5 @@ export function grantToProfileRules(grant: GitExecutionGrant): string[] {
 }
 
 export function grantFingerprint(grant: GitExecutionGrant): string {
-  return JSON.stringify([grant.repoRoot, grant.worktreeName ?? null, grant.worktreeTarget ?? null, [...grant.domains].sort()]);
+  return JSON.stringify([grant.repoRoot, grant.worktreeName ?? null, grant.worktreeTarget ?? null, grant.externalWorktreeRoot ?? null, [...grant.domains].sort()]);
 }

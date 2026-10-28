@@ -12,7 +12,8 @@
     "list_rhi_signals": "deferred",
     "triage_signal": "deferred",
     "workspace_info": "deferred",
-    "get_html_card_contract": "deferred"
+    "get_html_card_contract": "deferred",
+    "restart_service": "deferred"
   },
   "capabilityBlocks": {
     "memory": {
@@ -67,7 +68,8 @@
         "query_signals",
         "list_matters",
         "transition_matter",
-        "track_work"
+        "track_work",
+        "restart_service"
       ]
     },
     "orchestration": {

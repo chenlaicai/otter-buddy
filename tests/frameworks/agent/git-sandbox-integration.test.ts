@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createSandboxSpawnHook } from "../../../src/frameworks/agent/bash-sandbox";
+import { resolveExternalGitWorktree, parseGitWorktreeList } from "../../../src/frameworks/agent/git-execution-policy";
 
 const isMac = platform() === "darwin";
 const fixtureRoot = join(homedir(), `.git-sandbox-it-${process.pid}`);
@@ -80,6 +81,59 @@ describe.skipIf(!isMac)("F20261027gscv Git 执行域真实 sandbox", () => {
     expect(run("git log --oneline -1", wt).code).toBe(0);
     expect(run("git diff --stat", wt).code).toBe(0);
     expect(run(`cd ${wt} && git status --porcelain`, repo).code).toBe(0);
+  });
+
+  it("#1682 外部仓隔离 worktree 可提交，主目录仍无写 capability", () => {
+    const externalRepo = join(fixtureRoot, "external-repo");
+    const externalWt = join(externalRepo, ".otter", "worktrees", "feature");
+    mkdirSync(externalRepo, { recursive: true });
+    git(externalRepo, ["init", "-q"]);
+    git(externalRepo, ["config", "user.email", "probe@test"]);
+    git(externalRepo, ["config", "user.name", "probe"]);
+    writeFileSync(join(externalRepo, "a.txt"), "external");
+    git(externalRepo, ["add", "a.txt"]);
+    git(externalRepo, ["commit", "-qm", "init"]);
+    git(externalRepo, ["worktree", "add", "-qb", "feature", externalWt]);
+
+    writeFileSync(join(externalWt, "feature.txt"), "change");
+    const firstAdd = run("git add feature.txt", externalWt);
+    expect(execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: externalWt, encoding: "utf8" }).trim()).toBe(externalWt);
+    expect(execFileSync("git", ["worktree", "list", "--porcelain", "-z"], { cwd: externalRepo, encoding: "utf8" })).toContain(externalWt);
+    expect([...parseGitWorktreeList(externalRepo)]).toContainEqual([externalWt, "feature"]);
+    expect(resolveExternalGitWorktree(externalWt)).toMatchObject({ repoRoot: externalRepo, worktreeRoot: externalWt });
+    expect(hook({ command: "git add feature.txt", cwd: externalWt, env: {} }).command).toContain("external-repo/.git/worktrees/feature");
+    expect(firstAdd.stderr).toBe("");
+    expect(firstAdd.code).toBe(0);
+    expect(run("git commit -qm external", externalWt).code).toBe(0);
+    writeFileSync(join(externalWt, "feature-2.txt"), "change-2");
+    expect(run("git add feature-2.txt", externalWt).code).toBe(0);
+    expect(run(`git -C ${externalWt} commit -qm external-c-flag`, "/tmp").code).toBe(0);
+    writeFileSync(join(externalWt, "feature-3.txt"), "change-3");
+    expect(run("git add feature-3.txt", externalWt).code).toBe(0);
+    expect(run(`cd ${externalWt} && git commit -qm external-cd`, repo).code).toBe(0);
+
+    writeFileSync(join(externalRepo, "main.txt"), "forbidden");
+    expect(run(`git -C ${externalRepo} add main.txt`, "/tmp").code).not.toBe(0);
+    expect(run(`git -C ${externalRepo} commit -qm forbidden`, "/tmp").code).not.toBe(0);
+
+    // 外部 grant 不能把宿主仓只读域或 worktree .git 指针保护换掉。
+    // 通过 Git 自身 pre-commit 钩子发真实副作用，覆盖“授权 profile 已切到外部仓”的路径。
+    const hostProbe = join(repo, "external-hook-escape");
+    const pointerPath = join(externalWt, ".git");
+    const originalPointer = readFileSync(pointerPath, "utf8");
+    const preCommit = join(externalRepo, ".git", "hooks", "pre-commit");
+    writeFileSync(preCommit, `#!/bin/sh\nprintf escape > "${hostProbe}"\nprintf escape > "${pointerPath}"\n`, { mode: 0o755 });
+    expect(run("git commit --allow-empty -qm hook-must-not-escape", externalWt).code).not.toBe(0);
+    expect(existsSync(hostProbe)).toBe(false);
+    expect(readFileSync(pointerPath, "utf8")).toBe(originalPointer);
+    rmSync(preCommit);
+
+    const unregistered = join(externalRepo, ".otter", "worktrees", "unregistered");
+    mkdirSync(unregistered, { recursive: true });
+    writeFileSync(join(unregistered, ".git"), readFileSync(pointerPath, "utf8"));
+    writeFileSync(join(unregistered, "feature.txt"), "not-registered");
+    expect(resolveExternalGitWorktree(unregistered)).toBeNull();
+    expect(run("git add feature.txt", unregistered).code).not.toBe(0);
   });
 
   it("主仓工作树直接 add/commit 无写 capability", () => {

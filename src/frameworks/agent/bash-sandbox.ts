@@ -3,8 +3,8 @@
  *
  * 设计要点：
  * - 守卫收敛（F20261015gsub）后绕过面由 OS 层硬边界兜底：主仓只读 + 进程信号隔离
- * - 注入点：pi-coding-agent SDK 的 baseToolsOverride + createBashTool({ spawnHook })，
- *   spawnHook 在每条 bash 命令执行前改写 command，裹上 sandbox-exec profile
+ * - 注入点：pi-session-factory 通过 SDK 公开 customTools 注册包裹工具；
+ *   createBashTool({ spawnHook }) 在每条 bash 命令执行前裹 sandbox-exec profile
  * - profile 路径必须 realpath 解析（实证坑：macOS /tmp 是 /private/tmp 符号链接，
  *   profile 写 /tmp 不拦，写 /private/tmp 才拦）
  * - profile 必须单行空格分隔（实证坑：多行 profile 经 JSON.stringify 后 \n 变字面两字符，
@@ -130,8 +130,16 @@ function buildGitProfile(repoRoot: string, dataDir: string, grant: GitExecutionG
   const cached = cachedGitProfiles.get(fp);
   if (cached) return cached;
 
+  const base = buildBaseProfile(repoRoot, dataDir);
+  const genericGitDeny = '(deny file-write* (regex #"/\\.git(/|$)"))';
   const profile = [
-    ...buildBaseProfile(repoRoot, dataDir),
+    // Why: 外部仓只扩大 Git 窄域，不能把宿主仓只读边界或宿主自治区换掉。
+    // 外部 worktree 的普通写域先于通用 .git deny，防止最后一条 allow 重开指针。
+    ...base.filter(rule => rule !== genericGitDeny),
+    ...(grant.externalWorktreeRoot
+      ? [`(allow file-write* (subpath "${grant.externalWorktreeRoot.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"))`]
+      : []),
+    genericGitDeny,
     // Git 窄写域——deny 之后追加 allow，SBPL 顺序覆盖语义生效
     ...grantToProfileRules(grant),
   ].join(" ");
@@ -206,6 +214,7 @@ export function createSandboxSpawnHook(
       repoRoot,
       linkedWorktrees: currentRegistry,
     });
+    // 外部仓 grant 的 .git 窄域属于目标仓，不属于 otter-buddy 安装根。
     const profile = grant ? buildGitProfile(repoRoot, dataDir, grant) : defaultProfile;
     // Git 只读命令注入 GIT_OPTIONAL_LOCKS=0，避免 status 因 index.lock 写失败
     const env = grant?.injectOptionalLocks
@@ -237,14 +246,14 @@ export interface SandboxedToolsResult {
  *
  * 不用 SDK createAllTools（顶层未导出）——逐工具构建，语义等价。
  *
- * 已知取舍：baseToolsOverride 丢弃 SDK settings 透传（read 的 autoResizeImages、
+ * 已知取舍：customTools 覆盖丢弃 SDK settings 透传（read 的 autoResizeImages、
  * bash 的 shellPath/commandPrefix）——当前项目未使用这些 settings（grep 无果），
  * 实际影响为零；若未来需要，从 settingsManager 透传（检视发现 6）。
  *
  * @param cwd 会话工作目录（对话工作区）
  * @param repoRoot 主仓根目录
  * @param dataDir 主仓 data/ 目录绝对路径
- * @returns 完整工具集（可直接传入 createAgentSession 的 baseToolsOverride）
+ * @returns 完整工具集（由 pi-session-factory 按白名单注入 createAgentSession customTools）
  */
 export function createSandboxedTools(cwd: string, repoRoot: string, dataDir: string): SandboxedToolsResult {
   // F20261027gscv Phase 1：write/edit 接防（structured 层，独立于 bash 沙箱）。

@@ -53,6 +53,7 @@ export function getOtterToolNamesForType(
     "list_artifacts", "update_artifact_status",
     "get_active_participants", "get_html_card_contract",
     "track_work", // F20261027hwl1：工作账本登记（manifest 缺失时的 fallback 名单）
+    "restart_service", // F20261028egitx：不经 bash 的受控服务重启
     "manage_healing_events",
     "create_scheduled_task", "manage_scheduled_task_pending",
     "workspace_info", "workspace_list", "workspace_read", "workspace_write", "workspace_delete",
@@ -96,6 +97,7 @@ export function getOtterToolNamesForType(
     "query_signals", // F20260826mwrd C1：小獭可查信号台账（halt_otter 仅 big 型）
     "list_matters", "transition_matter", // F20261006mtlp P1：待办板查/迁（transition 守卫在 usecase）
     "track_work", // F20261027hwl1：工作账本登记（实现者与检视者都要留痕）
+    "restart_service", // F20261028egitx：deny signal 下保留既有受控重启正道
   ];
 }
 

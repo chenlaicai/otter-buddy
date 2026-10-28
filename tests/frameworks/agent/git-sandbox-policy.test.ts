@@ -53,6 +53,33 @@ describe("git-execution-policy", () => {
       expect(g!.domains).toEqual(["worktree-gitdir", "objects", "refs-heads", "logs-refs", "packed-refs-lock"]);
     });
 
+    it.each([
+      `git -C /Users/orca/ai/others/colink/.otter/worktrees/shared-recall-reedit commit -m feat`,
+      `cd /Users/orca/ai/others/colink/.otter/worktrees/shared-recall-reedit && git commit -m feat`,
+    ])("#1682 外部仓已登记隔离 worktree commit 获最小授权", command => {
+      const externalRoot = "/Users/orca/ai/others/colink";
+      const externalWt = `${externalRoot}/.otter/worktrees/shared-recall-reedit`;
+      const g = evaluateGitExecution(command, "/tmp", {
+        repoRoot: REPO,
+        linkedWorktrees: LINKED,
+        resolveExternalWorktree: () => ({ repoRoot: externalRoot, worktreeRoot: externalWt, worktreeName: "shared-recall-reedit" }),
+      });
+      expect(g).toMatchObject({ kind: "commit", repoRoot: externalRoot, worktreeName: "shared-recall-reedit" });
+      expect(grantToProfileRules(g!)).toContain(`(allow file-write* (subpath "${externalRoot}/.git/objects"))`);
+      expect(grantToProfileRules(g!).some(rule => rule.includes(`${REPO}/.git`))).toBe(false);
+    });
+
+    it("外部主目录或注册表不能确认的隔离 worktree 不授权", () => {
+      const externalRoot = "/Users/orca/ai/others/colink";
+      for (const target of [externalRoot, `${externalRoot}/.otter/worktrees/shared-recall-reedit`]) {
+        expect(evaluateGitExecution(`git -C ${target} commit -m feat`, "/tmp", {
+          repoRoot: REPO,
+          linkedWorktrees: LINKED,
+          resolveExternalWorktree: () => null,
+        })).toBeNull();
+      }
+    });
+
     it("git -C 主仓 add → 拒绝（主仓直接写不授权）", () => {
       const g = evaluateGitExecution(`git -C ${REPO} add .`, "/tmp", {
         repoRoot: REPO,
