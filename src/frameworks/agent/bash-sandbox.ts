@@ -42,7 +42,7 @@ import type { BashSpawnContext, BashSpawnHook } from "@earendil-works/pi-coding-
 import { createBashTool, createFindTool, createGrepTool, createLsTool, createReadTool } from "@earendil-works/pi-coding-agent";
 import { assertGuardedFileToolsAssembled, createGuardedFileTools } from "./file-tool-guard";
 import { allowedFileWriteRoots, createFileWritePolicy } from "./file-write-policy";
-import { evaluateGitExecution, grantToProfileRules, grantFingerprint, parseGitWorktreeList } from "./git-execution-policy";
+import { evaluateGitExecution, grantToProfileRules, grantFingerprint, parseGitWorktreeList, escapePath } from "./git-execution-policy";
 import type { GitExecutionGrant } from "./git-execution-policy";
 import { otterInvokeStorage } from "./model-runtime-registry";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -66,8 +66,17 @@ const cachedGitProfiles = new Map<string, string>();
  * 原命令的 $ 变量展开/命令替换在内层沙箱 bash 中失效——这是可接受的：
  * 沙箱内 $ 语义由 profile 控制，不需要外层展开。
  */
+/**
+ * 外层 bash 词转义（S1 传输层收口）：JSON.stringify + \$ + \`。
+ * escapeCommand 与 profile 嵌入共用——profile 含反引号/$ 时外层 bash
+ * 会在 sandbox-exec 启动前执行命令替换（检视 S1 实证），必须同款转义。
+ */
+function escapeForOuterBash(text: string): string {
+  return JSON.stringify(text).replace(/\$/g, "\\$").replace(/`/g, "\\`");
+}
+
 function escapeCommand(command: string): string {
-  return JSON.stringify(command).replace(/\$/g, "\\$").replace(/`/g, "\\`");
+  return escapeForOuterBash(command);
 }
 
 /**
@@ -137,7 +146,7 @@ function buildGitProfile(repoRoot: string, dataDir: string, grant: GitExecutionG
     // 外部 worktree 的普通写域先于通用 .git deny，防止最后一条 allow 重开指针。
     ...base.filter(rule => rule !== genericGitDeny),
     ...(grant.externalWorktreeRoot
-      ? [`(allow file-write* (subpath "${grant.externalWorktreeRoot.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"))`]
+      ? [`(allow file-write* (subpath "${escapePath(grant.externalWorktreeRoot)}"))`]
       : []),
     genericGitDeny,
     // Git 窄写域——deny 之后追加 allow，SBPL 顺序覆盖语义生效
@@ -224,7 +233,7 @@ export function createSandboxSpawnHook(
       ...ctx,
       env,
       // R-2 失败引导在包裹层（FAILURE_GUIDANCE_SUFFIX）——见其注释的实测依据
-      command: `sandbox-exec -p ${JSON.stringify(profile)} /bin/bash -c ${escapeCommand(ctx.command)}${FAILURE_GUIDANCE_SUFFIX}`,
+      command: `sandbox-exec -p ${escapeForOuterBash(profile)} /bin/bash -c ${escapeCommand(ctx.command)}${FAILURE_GUIDANCE_SUFFIX}`,
     };
   };
 }
