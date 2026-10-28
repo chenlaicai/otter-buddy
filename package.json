@@ -88,7 +88,7 @@
     "pixelmatch": "^8.0.0",
     "pngjs": "^7.0.0",
     "rolldown": "1.2.14",
-    "tsc-alias": "^1.9.8",
+    "tsc-alias": "^1.9.9",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.71.2",
     "vitest": "^5.0.5"
