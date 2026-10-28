@@ -3500,7 +3500,8 @@
       "command": "# S2 修复的行为验证：造 >200 条 gap 在复刻实例实跑（库侧注入 250 条，模拟断连数小时首刷）\nH=~/.otter/alpha/51259f75/otter-buddy.db\nCID=325ef7b7-8e42-4edc-9abf-eae8f332a2c4\nfor i in $(seq 1 250); do\n  sqlite3 $H \"INSERT INTO entries (id, conversation_id, entry_type, body, sender_id, created_at, sequence_num) SELECT lower(hex(randomblob(16))), '$CID', 'speak', 'S2 验证注入 '$i, 'otter-probe', datetime('now'), COALESCE(MAX(sequence_num),0)+1 FROM entries WHERE conversation_id='$CID';\"\ndone\nsqlite3 $H \"SELECT COUNT(*) FROM entries WHERE conversation_id='$CID';\"",
       "adjudication": [
         "§3.2.1-1 写证据→按落点判，主仓树内×1/1",
-        "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）"
+        "条件期望（双签口径）：无 cd 形态 cwd 不可反查（双签口径：两目录各测一遍）",
+        "#1490 F20261028sqldb 重裁：$H 来自同命令字面量 ~/.otter/...，两态均解析为家目录而非主仓；sqlite3 动态文件槽 fail-closed 的预期写证据补强，主仓态 BLOCK 不变，worktree 态 ALLOW 由求值器正面落点证明。"
       ],
       "source": {
         "types": [

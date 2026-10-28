@@ -1776,14 +1776,24 @@ describe("F20260923qbsw 补充：排查期高频只读命令误拦回归（9/23 
   const DB = "data/" + ["otter", "buddy"].join("-") + ".db";
   const ABS = "/Users/orca/ai/" + ["otter", "buddy"].join("-");
 
-  it("sqlite3 只读查询（SQL 含 > 比较符 + 项目 db 路径）→ 放行", () => {
-    const cmd = `sqlite3 ${DB} "SELECT otter_id, ctx_window_used FROM invokes WHERE started_at > '2026-09-23'"`;
+  it("sqlite3 显式只读连接查询（SQL 含 > 比较符 + 项目 db 路径）→ 放行", () => {
+    const cmd = `sqlite3 -readonly ${DB} "SELECT otter_id, ctx_window_used FROM invokes WHERE started_at > '2026-09-23'"`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
   });
 
-  it("sqlite3 多段 SQL（ORDER BY + LIMIT）→ 放行", () => {
-    const cmd = `sqlite3 ${DB} "SELECT * FROM invokes WHERE started_at > 'x' ORDER BY started_at DESC LIMIT 25;"`;
+  it("sqlite3 URI mode=ro 多段 SQL（ORDER BY + LIMIT）→ 放行", () => {
+    const cmd = `sqlite3 'file:${DB}?mode=ro' "SELECT * FROM invokes WHERE started_at > 'x' ORDER BY started_at DESC LIMIT 25;"`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
+  it("#1490：sqlite3 INSERT 的数据库参数在主仓 → 拦截（不能只看 SQL 文本）", () => {
+    const cmd = `sqlite3 ${DB} "INSERT INTO t VALUES(1)"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1490：sqlite3 普通 SELECT 也可能创建库文件，主仓数据库参数不豁免", () => {
+    const cmd = `sqlite3 ${DB} "SELECT * FROM invokes LIMIT 1"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
   it("node 执行工作区脚本（路径含项目 data/workspaces）→ 放行", () => {

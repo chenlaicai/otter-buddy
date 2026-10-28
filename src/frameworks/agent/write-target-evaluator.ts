@@ -752,6 +752,63 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
   return null;
 }
 
+/** sqlite3 [OPTIONS] [FILENAME [SQL...]]：数据库参数可能是文件或 SQLite URI。
+ *  实测：普通 SELECT 也会创建不存在的库文件，不能靠 SQL 动词出具无写证明。
+ *  只读/内存主库也不能豁免 ATTACH 与写 dot-command；未知选项值、URI 解码失败一律不可证。 */
+// eslint-disable-next-line complexity, max-statements -- sqlite3 选项/URI/只读语义穷举；每条分支对应 sqlite3 参数形态
+function sqliteDatabaseTarget(words: Word[], acc: SegmentEvalAcc): { target: string | null; readOnly: boolean } {
+  let db: string | null | undefined;
+  let readOnly = false;
+  let positional = false;
+  const payloads: string[] = [];
+  const valueFlags = new Set(["-cmd", "-init", "-key", "-hexkey", "-textkey", "-vfs", "-escape", "-newline", "-nullvalue", "-separator", "-nonce", "-maxsize"]);
+  const noValueFlags = new Set(["-append", "-ascii", "-bail", "-batch", "-box", "-column", "-csv", "-deserialize", "-echo", "-header", "-noheader", "-help", "-html", "-interactive", "-json", "-line", "-list", "-markdown", "-nofollow", "-quote", "-safe", "-serialize", "-stats", "-table", "-tabs", "-version", "-vfstrace"]);
+  for (let i = 1; i < words.length; i++) {
+    // 复用既有同命令赋值溯源，不用动态=null 把 H=~/... && sqlite3 $H 错当未知。
+    const value = acc.segments === undefined ? words[i].evaluated : resolveTargetArgWord(words[i], acc.segments, acc.index);
+    if (!positional && value === "--") { positional = true; continue; }
+    if (!positional && value === "-readonly") { readOnly = true; continue; }
+    if (!positional && value !== null && value.startsWith("-")) {
+      if (value === "-lookaside" || value === "-pagecache") {
+        if (words[i + 1]?.evaluated == null || words[i + 2]?.evaluated == null) break;
+        i += 2; continue;
+      }
+      if (valueFlags.has(value)) {
+        const arg = words[++i]?.evaluated;
+        if (arg == null) break; // 动态/缺失选项值不装作已知
+        if (value === "-cmd") payloads.push(arg);
+        continue;
+      }
+      if (!noValueFlags.has(value)) break; // 未收录旗标不可猜值槽，fail-closed
+      continue;
+    }
+    if (value === null) break;
+    db = value;
+    // SQL 参数不是路径：$CID/$i 等运行时插值不影响数据库落点，不能误报 unknown。
+    for (const word of words.slice(i + 1)) if (word.evaluated !== null) payloads.push(word.evaluated);
+    break;
+  }
+  if (typeof db !== "string") return { target: null, readOnly: false };
+  // ATTACH 的 DATABASE 可选。dot 命令不枚举黑名单：SQL 载荷行首点即 CLI 控制面，
+  // .open/.system/.log/.clone 等及未来新命令均可绕过主库只读/内存语义，整族不可证。
+  // SQL 双引号按标识符规则可能被词法层去掉；ATTACH 以 AS <schema> 边界识别，
+  // 不依赖完整引号，也不误触普通词 attached。ATTACH 无 AS 的句法不完整，不伪称真写。
+  if (payloads.some(p => /(?:^|[;\s])attach(?:\s+database)?\b[^;]*\bas\s+[\w$]/i.test(p) || /^\s*\./m.test(p))) {
+    return { target: null, readOnly: false };
+  }
+  if (db === ":memory:" || db === "") return { target: null, readOnly: true };
+  if (db.startsWith("file:")) {
+    const uri = db.slice(5), queryAt = uri.indexOf("?");
+    const filename = queryAt >= 0 ? uri.slice(0, queryAt) : uri;
+    const params = new URLSearchParams(queryAt >= 0 ? uri.slice(queryAt + 1) : "");
+    const modes = params.getAll("mode"), finalMode = modes[modes.length - 1];
+    if (filename === ":memory:" || filename === "" || finalMode === "memory") return { target: null, readOnly: true };
+    if (readOnly || finalMode === "ro") return { target: null, readOnly: true };
+    try { return { target: decodeURIComponent(filename), readOnly: false }; } catch { return { target: null, readOnly: false }; }
+  }
+  return { target: readOnly ? null : db, readOnly };
+}
+
 /** 修 F20261015smrj 通道 b/c：扩展写命令落点提取（install/ln/chmod/chown/chgrp/truncate/dd/curl/wget
  *  /sed -i/perl -pi/ruby -pi）。旧 TARGET_ARG_COMMANDS 只有 tee/cp/mv/touch/mkdir，其余写命令
  *  写面命中但落点提取空 → 误当无写放行（通道 b）；curl -o/dd of= 目标在选项值（通道 c）。 */
@@ -759,7 +816,7 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
 function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
   const words = seg.words;
   // 先判是否本函数管辖的命令——不管的命令直接返回 null（不得因词含 var/cmdsub 就报 dynamic-path）
-  const handled = bare === "curl" || bare === "wget" || bare === "dd" || bare === "sed" || bare === "perl" || bare === "ruby"
+  const handled = bare === "sqlite3" || bare === "curl" || bare === "wget" || bare === "dd" || bare === "sed" || bare === "perl" || bare === "ruby"
     || bare === "tar" || bare === "unzip" || bare === "rsync"
     || EXTENDED_TARGET_COMMANDS.has(bare);
   if (!handled) return null;
@@ -773,6 +830,12 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
     acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
     return null;
   };
+  if (bare === "sqlite3") {
+    const r = sqliteDatabaseTarget(words, acc);
+    if (r.readOnly) return null;
+    if (r.target === null) return "argv-write-uncovered"; // 文件槽未知/动态，不可出具无写证明
+    return push(r.target);
+  }
   // 参数即落点：curl -o / wget -O / dd of=——只在**落点词**本身不可求值时才 dynamic-path，
   //  无关词含 var/cmdsub 不触发（curl 无 -o 是只读，不得误伤）。delta1（发现 2）：旗标
   //  解析与造-执配对共用 downloadWriteTargets（一条语义一个接口——两套解析=发现 3 病灶），
