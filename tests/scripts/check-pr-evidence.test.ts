@@ -13,6 +13,7 @@ import {
   hasSubstance,
   checkEvidenceBody,
   checkEvidenceLayering,
+  checkRollback,
 } from "../../scripts/check-pr-evidence.mjs";
 
 describe("isDocOnlyPath 豁免集合（S4）", () => {
@@ -171,6 +172,13 @@ describe("extractSection 边界", () => {
     const body = "## Rollback\nrevert\n## Verification\nok";
     expect(extractSection(body, "Rollback")).toContain("revert");
     expect(extractSection(body, "Rollback")).not.toContain("ok");
+  });
+
+  it("标题带括号后缀可提取（PR 模板实际格式回归）", () => {
+    const body =
+      "## 证据分层声明（改系统状态的交付必须填写）\n- **机器锚点**：CI run #123\n- **agent 陈述**[未复验]：x\n## Rollback（写回滚方式）\nrevert 即回滚\n";
+    expect(checkEvidenceLayering(body)).toEqual([]);
+    expect(checkRollback(body)).toEqual([]);
   });
 
   it("缺失段返回 null", () => {

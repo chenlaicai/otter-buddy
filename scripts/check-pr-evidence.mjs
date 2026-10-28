@@ -36,9 +36,9 @@ export function parseChangedPaths(text) {
   return text.split("\0").map((s) => s.trim()).filter(Boolean);
 }
 
-/** 提取指定二级标题段的正文（## 标题 到下一个 ## 或文末） */
+/** 提取指定二级标题段的正文（## 标题 到下一个 ## 或文末）；标题行允许带括号等后缀（兼容 PR 模板实际格式） */
 export function extractSection(body, titlePattern) {
-  const re = new RegExp(`^##\\s*${titlePattern}\\s*$`, "mi");
+  const re = new RegExp(`^##\\s*${titlePattern}[^\\n]*$`, "mi");
   const m = body.match(re);
   if (!m) return null;
   const rest = body.slice(m.index + m[0].length);
