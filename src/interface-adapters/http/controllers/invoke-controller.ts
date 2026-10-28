@@ -247,6 +247,8 @@ function toInvokeDTO(inv: Invoke): InvokeDTO {
     toolCallCount: inv.toolCallCount,
     tokenUsageInput: inv.tokenUsageInput,
     tokenUsageOutput: inv.tokenUsageOutput,
+    tokenUsageCacheRead: inv.tokenUsageCacheRead,
+    tokenUsageCacheWrite: inv.tokenUsageCacheWrite,
     ctxWindowUsed: inv.ctxWindowUsed,
   };
 }

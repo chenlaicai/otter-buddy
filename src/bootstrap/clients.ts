@@ -191,6 +191,8 @@ export function buildOtterToolClient(
               toolCallCount: result.invoke.toolCallCount,
               tokenUsageInput: result.invoke.tokenUsageInput,
               tokenUsageOutput: result.invoke.tokenUsageOutput,
+              tokenUsageCacheRead: result.invoke.tokenUsageCacheRead,
+              tokenUsageCacheWrite: result.invoke.tokenUsageCacheWrite,
             },
           };
         },

@@ -24,6 +24,8 @@ interface InvokeRow {
   tool_call_count: number;
   token_usage_input: number | null;
   token_usage_output: number | null;
+  token_usage_cache_read: number | null;
+  token_usage_cache_write: number | null;
   ctx_window_used: number | null;
   pid: number | null;
   metadata: string | null;
@@ -44,6 +46,8 @@ function rowToInvoke(row: InvokeRow): Invoke {
     toolCallCount: row.tool_call_count,
     tokenUsageInput: row.token_usage_input,
     tokenUsageOutput: row.token_usage_output,
+    tokenUsageCacheRead: row.token_usage_cache_read,
+    tokenUsageCacheWrite: row.token_usage_cache_write,
     ctxWindowUsed: row.ctx_window_used,
     pid: row.pid ?? null,
     metadata: row.metadata ? (JSON.parse(row.metadata) as Record<string, unknown>) : null,
@@ -78,14 +82,17 @@ export class SqliteInvokeRepository implements InvokeRepository {
       INSERT INTO invokes (
         id, conversation_id, otter_id, status, trigger_entry_id,
         talking_stone_passed_to, started_at, ended_at, tool_call_count,
-        token_usage_input, token_usage_output, ctx_window_used, pid, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        token_usage_input, token_usage_output, token_usage_cache_read, token_usage_cache_write,
+        ctx_window_used, pid, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       invoke.id, invoke.conversationId, invoke.otterId, invoke.status,
       invoke.triggerEntryId,
       invoke.talkingStonePassedTo ? JSON.stringify(invoke.talkingStonePassedTo) : null,
       invoke.startedAt, invoke.endedAt, invoke.toolCallCount,
       invoke.tokenUsageInput, invoke.tokenUsageOutput,
+      invoke.tokenUsageCacheRead,
+      invoke.tokenUsageCacheWrite,
       invoke.ctxWindowUsed ?? null,
       invoke.pid ?? null,
       invoke.metadata ? JSON.stringify(invoke.metadata) : null,

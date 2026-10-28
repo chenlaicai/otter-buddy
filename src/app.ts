@@ -182,8 +182,23 @@ function createRhiScanWorker(deps: {
 
   const sessionsDir = path.join(deps.rootDir, "data", "sessions");
 
+  // F20261027hwl1：日界换轨（UTC→Asia/Shanghai）+ provider 元数据入库——旧口径行一次性
+  // 失效。幂等判据：仍存在 metadata 无 provider 字段的 cost_output per-model 行即旧口径；
+  // 新口径行全带 provider（含 unknown 显式标记），清完后条件永假（零开销直查索引命中）。
+  const costOutputInvalidateAll = () => {
+    const stale = deps.db.prepare(`
+      SELECT COUNT(*) AS c FROM health_snapshots
+      WHERE metric_type = 'cost_output' AND metric_key = 'total_tokens'
+        AND (metadata IS NULL OR JSON_EXTRACT(metadata, '$.provider') IS NULL)
+    `).get() as { c: number };
+    if (stale.c === 0) return;
+    deps.db.exec("DELETE FROM health_snapshots WHERE metric_type = 'cost_output'");
+    deps.logger.info("cost_output snapshots invalidated for Shanghai-date rekey + provider metadata", { staleRows: stale.c });
+  };
+
   return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, {
     snapshotSink, signalRepo, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db,
+    costOutputInvalidateAll,
   });
 }
 // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- Composition Root 集中装配逻辑

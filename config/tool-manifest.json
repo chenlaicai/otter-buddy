@@ -58,7 +58,7 @@
       ]
     },
     "system": {
-      "description": "系统工具（参与者/卡片/定时/自愈/信号台账查询/待办板）",
+      "description": "系统工具（参与者/卡片/定时/自愈/信号台账查询/待办板/工作账本登记）",
       "tools": [
         "get_active_participants",
         "get_html_card_contract",
@@ -66,7 +66,8 @@
         "manage_healing_events",
         "query_signals",
         "list_matters",
-        "transition_matter"
+        "transition_matter",
+        "track_work"
       ]
     },
     "orchestration": {

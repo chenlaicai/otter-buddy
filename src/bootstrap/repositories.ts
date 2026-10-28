@@ -23,6 +23,7 @@ import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-
 import { SqliteInvokeRepository } from "@frameworks/db/conversation/sqlite-invoke-repository";
 import { SqliteResumePendingRepository } from "@frameworks/db/conversation/sqlite-resume-pending-repository";
 import { SqliteUnfurlCacheRepository } from "@frameworks/db/conversation/sqlite-unfurl-cache-repository";
+import { SqliteWorkLedgerRepository } from "@frameworks/db/health/sqlite-work-ledger-repository";
 
 import type { Logger } from "@usecases/ports/logger";
 
@@ -62,6 +63,8 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     /** RHI 健康池两 repo（issue #447）：此前 app.ts 4 处直实例化，绕过注册惯例 */
     rhiSignal: new SignalRepository(db),
     healthSnapshot: new HealthSnapshotRepository(db),
+    /** F20261027hwl1：工作账本（work_items 族三表） */
+    workLedger: new SqliteWorkLedgerRepository(db),
     /** F20260908rlcp：派发台账退役（dispatchAttempt 随 main #886 批次退役）；
      * F20260912avlb：派工台账正式表（取代 otter_context 伪存储）——本 PR 核心，保留 */
     dispatchRecord: new SqliteDispatchRecordRepository(db),

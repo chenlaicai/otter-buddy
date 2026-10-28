@@ -67,6 +67,10 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createRestartPendingResumesTable(db);
     /** F20261015mjsg 三麻：牌局元数据 + 逐帧快照（断线恢复/复盘/哈希链）。新表走 #506 幂等补建 */
     createMahjongTables(db);
+    /** F20261027hwl1：工作账本投影（work_items / work_item_traces / conversation_active_work）。
+     *  独立工作 ≠ conversation 的成本归集单位——详见特性文档「核心数据结构」；
+     *  新表走 #506 幂等补建模式（bootstrap 无条件 initSchema，老库自动补建）。 */
+    createWorkLedgerTables(db);
 
     db.exec("COMMIT");
 
@@ -75,9 +79,10 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
       const duration = Date.now() - startTime;
       // 42 regular tables + 5 virtual tables (FTS/vec) = 47 total → +2 mahjong = 49 total
       // (含多模态 attachments 2表 + PR4 paper trading 9表 + F20260912avlb dispatch_records + F20261006mtlp matters + F20261015mjsg mahjong 2表)
+      // F20261027hwl1：+3 work ledger 表 = 52 total
       logger.info('Schema initialized', {
         duration,
-        tables: 49,
+        tables: 52,
       });
       /** #506: 补建差集——新库差集=全部表（与现状等价）；老库无缺表时差集为空不打扰 */
       const created = listTableNames(db).filter(t => !tablesBefore.includes(t));
@@ -1124,6 +1129,66 @@ function createEntryFtsTable(db: Database.Database): void {
       entry_id UNINDEXED,
       body,
       tokenize = 'trigram'
+    );
+  `);
+}
+
+/** F20261027hwl1：工作账本投影三表。
+ *  工作定义（特性文档「目标」节）：有独立目标、边界和结束状态的一次工作承诺——
+ *  一段对话可有多件工作，一件工作可跨对话。三表是只读观测投影的存储底座：
+ *  - work_items：工作主档（含 origin 证据与 evidence_quality——历史部分归属不冒充精确账）
+ *  - work_item_traces：trace→work 绑定（归属主键关系；invoke 经 metadata.traceId 派生）
+ *  - conversation_active_work：per-conversation 显式 resume 锚点（新用户点火链默认不继承）
+ *  检视轮次不建独立表：轮次是工作的附属生命周期（work_items.review_rounds JSON），
+ *  结构化留痕由 track_work 工具的 review_round 动作写入（含 invoke 证据），非文本猜测。 */
+function createWorkLedgerTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS work_items (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      origin_kind TEXT NOT NULL CHECK(origin_kind IN ('feature', 'matter', 'manual', 'inferred-historical')),
+      origin_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'delivered', 'merged', 'closed', 'cancelled')),
+      conversation_id TEXT,
+      created_by_otter_id TEXT,
+      -- 结构化检视/复核轮次（JSON array：round_no/reviewer_otter_id/started_invoke_id/delta_invoke_id/state/timestamps）。
+      -- 只有结构化生命周期才记轮次（track_work review_round 动作）；未知在报告层显示「未记录」而非 0。
+      review_rounds TEXT,
+      evidence_quality TEXT NOT NULL DEFAULT 'tracked' CHECK(evidence_quality IN ('tracked', 'historical-partial')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      closed_at TEXT,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+      FOREIGN KEY (created_by_otter_id) REFERENCES otters(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status);
+    CREATE INDEX IF NOT EXISTS idx_work_items_conversation ON work_items(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_work_items_origin ON work_items(origin_kind, origin_id);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS work_item_traces (
+      work_id TEXT NOT NULL,
+      trace_id TEXT NOT NULL,
+      bound_at TEXT NOT NULL,
+      bound_via TEXT NOT NULL CHECK(bound_via IN ('track_work', 'artifact_group', 'matter_origin', 'historical_trace')),
+      PRIMARY KEY (work_id, trace_id),
+      FOREIGN KEY (work_id) REFERENCES work_items(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_work_item_traces_trace ON work_item_traces(trace_id);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_active_work (
+      conversation_id TEXT PRIMARY KEY,
+      work_id TEXT NOT NULL,
+      -- 来源：track_work resume 时锚定的触发消息（审计链），非自动继承判据
+      anchored_entry_id TEXT,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (work_id) REFERENCES work_items(id) ON DELETE CASCADE,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
   `);
 }

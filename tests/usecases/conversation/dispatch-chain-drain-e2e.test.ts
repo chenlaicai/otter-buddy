@@ -36,7 +36,7 @@ describe("F20261027cnsv 原案 e2e：委托 drain 借道持有者原链 S", () =
     await repos.invoke.createInvoke({
       id: "b-holder", conversationId: "conv", otterId: "b", status: "running",
       triggerEntryId: null, talkingStonePassedTo: null, startedAt: now, endedAt: null,
-      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, ctxWindowUsed: null,
+      toolCallCount: 0, tokenUsageInput: null, tokenUsageOutput: null, tokenUsageCacheRead: null, tokenUsageCacheWrite: null, ctxWindowUsed: null,
       pid: process.pid, metadata: null,
     });
     const sendEntry = new SendEntry(repos.entry, repos.invoke, repos.otter, repos.conversation, { logger });

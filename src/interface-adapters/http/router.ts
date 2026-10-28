@@ -15,6 +15,7 @@ import type { ScheduledTaskController } from "./controllers/scheduled-task-contr
 import type { ConnectionController } from "./controllers/connection-controller";
 import type { HealthController } from "./controllers/health-controller";
 import type { RhiController } from "./controllers/rhi-controller";
+import type { WorkLedgerController } from "./controllers/work-ledger-controller";
 import type { AttachmentController } from "./controllers/attachment-controller";
 import type { WorkspaceController } from "./controllers/workspace-controller";
 import type { WeixinConnectionController } from "./controllers/weixin-connection-controller";
@@ -44,6 +45,8 @@ export interface Controllers {
   connection: ConnectionController;
   health: HealthController;
   rhi: RhiController;
+  /** F20261027hwl1：工作账本 + 模型效率（只读报告） */
+  workLedger?: WorkLedgerController;
   /** 多模态 Phase 1：附件端点（上传 + 文件流） */
   attachment?: AttachmentController;
   /** 工作区文件浏览端点（只读） */
@@ -136,6 +139,13 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
   app.get("/api/health/trends", (ctx) => c.rhi.trends(ctx));
   app.get("/api/health/score", (ctx) => c.rhi.score(ctx));
   app.get("/api/health/cost-output", (ctx) => c.rhi.costOutput(ctx));
+  // F20261027hwl1：工作账本（列表/详情）+ 模型效率（provider+model × 日/周/月）
+  const workLedger = c.workLedger;
+  if (workLedger) {
+    app.get("/api/health/work-ledger", (ctx) => workLedger.workLedger(ctx));
+    app.get("/api/health/work-ledger/:id", (ctx) => workLedger.workDetail(ctx));
+    app.get("/api/health/model-efficiency", (ctx) => workLedger.modelEfficiency(ctx));
+  }
   registerRhiWriteRoutes(app, c);
   registerMemoryRoutes(app, c);
   app.get("/api/conversations/:id/key-resources", (ctx) => c.keyInfo.getKeyResources(ctx));

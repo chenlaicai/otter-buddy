@@ -55,6 +55,9 @@ export interface CreateInvokeInput {
   conversationId: string;
   otterId: string;
   triggerEntryId?: string;
+  /** F20261027hwl1：创建即携带的 metadata（traceId/trigger 证据——工作账本归属的数据底座）。
+   *  可选：旧调用点不传时行为不变（metadata=null，与现状等价）。 */
+  metadata?: Record<string, unknown> | null;
 }
 
 /** 创建 speak 条目输入 */
@@ -275,12 +278,11 @@ export class SendEntry {
       startedAt: now,
       endedAt: null,
       toolCallCount: 0,
-      tokenUsageInput: null,
-      tokenUsageOutput: null,
+      tokenUsageInput: null, tokenUsageOutput: null, tokenUsageCacheRead: null, tokenUsageCacheWrite: null,
       ctxWindowUsed: null,
       /** #1241：进程归属标记——重启后非本 pid 的 running 被判孤儿清理 */
       pid: process.pid,
-      metadata: null,
+      metadata: input.metadata ?? null,
     };
 
     await this.invokeRepo.createInvoke(invoke);
