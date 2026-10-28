@@ -1426,3 +1426,47 @@ describe("双引号反斜杠语义（检视獭1597 严重 2：治标闸 + M-f89f
     expect(evaluateWriteVerdict(cmd, ROOT).verdict).toBe("ALLOW");
   });
 });
+
+  describe("#1491：非 SCRIPT_RUNNERS 解释器载荷判读（jshell/Rscript/lua/octave 收编）", () => {
+    it("jshell heredoc Runtime.exec 真写主仓 → fail-closed（案面补记双层漏收口）", () => {
+      const cmd = `jshell <<'EOF'\nRuntime.getRuntime().exec("touch ${ROOT}/pwn.txt");\nEOF`;
+      const r = evaluateWriteTargets(cmd, ROOT);
+      expect(r.kind).toBe("unevaluated");
+    });
+    it("Rscript -e file.create 真写主仓 → fail-closed（词面负门兜底）", () => {
+      const r = evaluateWriteTargets(`Rscript -e 'file.create("${ROOT}/pwn.txt")'`, ROOT);
+      expect(r.kind).toBe("unevaluated");
+    });
+    it("lua -e io.open w 真写主仓 → 落点披露（形态A open(...,'w')）", () => {
+      const r = evaluateWriteTargets(`lua -e 'io.open("${ROOT}/pwn.txt","w")'`, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets).toContainEqual({ path: `${ROOT}/pwn.txt`, via: "cmd-arg", segmentIndex: 0, access: "write" });
+    });
+    it("octave --eval fopen 真写主仓 → fail-closed", () => {
+      const r = evaluateWriteTargets(`octave --eval 'fid=fopen("${ROOT}/pwn.txt","w")'`, ROOT);
+      expect(r.kind).toBe("unevaluated");
+    });
+    it.each([
+      `jshell <<'EOF'\nSystem.out.println("hi");\nEOF`,
+      `Rscript -e 'print(1+1)'`,
+      `lua -e 'print(1)'`,
+    ])("只读载荷零误伤 → evaluated 空集：%s", (cmd) => {
+      const r = evaluateWriteTargets(cmd, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets).toEqual([]);
+    });
+    it("Rscript 文件形态后缀门：大写官方拼写 + .R 真写脚本 → fail-closed（r1 检视回归钉）", () => {
+      const dir = path.join(os.tmpdir(), "guard-1491-rscript-block");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "w.R"), `file.create("${ROOT}/pwn.txt")\n`);
+      expect(evaluateWriteTargets(`Rscript ${path.join(dir, "w.R")}`, ROOT).kind).toBe("unevaluated");
+    });
+    it("lua 文件形态后缀门：.lua 真写脚本 → 落点披露（r1 建议①：.lua 无雷同词漏收）", () => {
+      const dir = path.join(os.tmpdir(), "guard-1491-lua-write");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "s.lua"), `io.open("/repo/project/pwn.txt","w")\n`);
+      const r = evaluateWriteTargets(`cd ${dir} && lua s.lua`, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets).toContainEqual({ path: "/repo/project/pwn.txt", via: "cmd-arg", segmentIndex: 1, access: "write" });
+    });
+  });
