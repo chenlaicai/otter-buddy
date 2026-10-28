@@ -1,12 +1,14 @@
 ---
-id: F20261028abac
+id: F20261028abacc
 title: 异常中断纳入对话列表最后活动
 summary: 超时中断和调用失败已作为 invoke_end 异常终态落库并在时间线显示，但对话列表只取 user/speak/system，导致预览、时间与排序不刷新。将 aborted/failed 终态纳入同一最后活动查询，正常结束及其他边界条目保持原口径。
 change_type: fix
 created_in_conversation: 3995c48d-499a-4c2d-b04f-e3581a3d3e28
 causal_links:
-  - F20260807srts
-  - F20260913ctlv
+  from:
+    - F20260807srts
+    - F20260913ctlv
+    - F20261027fidrx
 tags: [conversation, sorting, abnormal-terminal, ux]
 modules:
   - src/frameworks/db/conversation/sqlite-conversation-repository.ts
@@ -14,7 +16,7 @@ modules:
 created_at: 2026-10-28
 ---
 
-# F20261028abac：异常中断纳入对话列表最后活动
+# F20261028abacc：异常中断纳入对话列表最后活动
 
 ## 预注册
 
@@ -51,6 +53,10 @@ created_at: 2026-10-28
 - 超时/保护中断、invoke 失败会在下一次左侧栏轮询时成为最新预览并刷新排序。
 - 用户手动中断也属于 aborted 终态，同样纳入；这是已经发生、需要知晓的对话活动。
 - 未读计数不在本修复范围，继续沿用 speak/system 口径；本次只修最后活动、时间与排序。
+
+### 在途编号门禁适配（2026-10-28）
+
+PR 原使用 `F20261028abac`。同步最新 main 后，新合入的 `F20261027fidrx` 将新写编号收紧为日期后固定 5 个小写字母，CI 的 PR title 步骤因旧 4 位后缀失败；业务代码、测试均未失败。仅将本特性 ID、文档文件名与 PR 标题统一改为 `F20261028abacc`，不改业务逻辑、不重写既有提交历史。旧本地 commit 保留原 ID 作为在途历史，新的适配提交和最终 PR 使用新 ID。
 
 ## 验证
 
