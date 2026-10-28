@@ -100,14 +100,16 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-  // #1674：halt 在 ALS 入口（早于 attachGuards）标记；此处接上既有 abort 收尾。
+  // #1674：tool_call 首次送达 halt 时接上既有 abort 收尾。
   // 处理器内只同步发出 abort 信号，不等待 session.abort() 的 waitForIdle Promise（防自等待）。
+  // 不在 prompt 前预触发：attachGuards 早于 session.prompt()，此刻 abort 是 no-op，
+  // 且会提前置幂等标记吞掉后续真实 block 的终止请求。
   const invokeStore = otterInvokeStorage.getStore();
-  if (invokeStore) invokeStore.requestHaltAbort = () => { void wrappedAbort('halt'); };
-  if (invokeStore?.haltPending && !invokeStore.haltAbortRequested) {
-    invokeStore.haltAbortRequested = true;
-    invokeStore.requestHaltAbort?.();
-  }
+  if (invokeStore) invokeStore.requestHaltAbort = () => {
+    void wrappedAbort('halt').catch((err: unknown) => {
+      logger.warn(`[halt] abort 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  };
   const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, sandboxGuarded: params.sandboxGuarded, loopBlockedTools: params.loopBlockedTools, guardGateActive: params.guardGateActive });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */

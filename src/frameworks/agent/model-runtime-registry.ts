@@ -303,9 +303,6 @@ export interface OtterInvokeContext {
   identityPrefix: string;
   /** F20260826mwrd C1：当前 invoke 的 otterId——tool_call handler 查 halt 标用 */
   otterId: string;
-  /** #1674：首次 halt 标记，由 attachGuards 装配后提供既有 abort 入口。
-   *  Why: 只返回工具级 block 仍允许模型用豁免的 speak 无限续轮，busy 永不释放。 */
-  haltPending?: boolean;
   /** per-invoke 幂等标记，避免重复 abort 与重复覆盖退出原因。 */
   haltAbortRequested?: boolean;
   /** 装配完成后由 attachGuards 注入；处理器内只发同步 abort，不等待其 Promise。 */
@@ -343,7 +340,7 @@ export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
 //  钩子随时机权回收而退役，见上方 factory 注册处注释）。
 
 /**
- * F20260826mwrd C1：halt tool_call handler 的 block 判定（纯函数，测试可独立覆盖）。
+ * F20260826mwrd C1：halt tool_call handler 的 block 判定（显式传入 per-invoke store，测试可独立覆盖）。
  *
  * SDK 语义链：tool_call 扩展事件 → ToolCallEventResult{ block, reason } →
  * agent-loop 对 block 生成 isError tool result（reason 正文）返回 LLM。
@@ -368,10 +365,9 @@ export function haltToolCallGuard(
   if (directives.length === 0) return undefined;
   const reason = buildHaltBlockReason(directives);
   if (!reason) return undefined;
-  store.haltPending = true;
   if (!store.haltAbortRequested) {
     store.haltAbortRequested = true;
-    // 装配窗口由 attachGuards 读取同一标记并调用既有 abort；不在此自等 idle。
+    // attachGuards 已注入既有 abort 入口；只发请求，不在此等待 idle。
     try { store.requestHaltAbort?.(); } catch { /* abort 请求失败时保留原 block 语义 */ }
   }
   // 返回 Promise 让 SDK 在微任务边界观察到同步设置的 AbortSignal，不再进入下一轮 LLM。

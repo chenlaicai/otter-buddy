@@ -24,12 +24,12 @@ issue #1674 现场：目标獭收到 halt 后持续输出独白，restart 因 ru
 
 # 方案与设计取舍
 
-首次 halt 送达在 per-invoke context 标记，并由 `attachGuards` 接回现有 `wrappedAbort('halt')`。这样沿用既有 invoke finally、active session 清理和 guard-abort 终态，不新增 force、TTL、后台任务或存储。
+`attachGuards` 在 per-invoke context 注入现有 `wrappedAbort('halt')` 请求入口；首次 halt 送达触发该入口，沿用既有 invoke finally、active session 清理和 guard-abort 终态，不新增 force、TTL、后台任务或存储。
 
 - 重复 block 幂等；普通未 halt 的忙碌 restart 仍拒绝。
 - `halt` 不属于可自动重试的 guard 原因，终态明确「可改派或重启」。
-- 不从 tool_call 扩展处理器 fire-and-forget `session.abort()`：SDK 会 waitForIdle，存在 Promise 自等待风险；处理器仅发同步 abort 请求。
-- 覆盖 invoke 开始前已打标的入口窗口。
+- 不在 tool_call 扩展处理器内等待 `session.abort()`：只同步发起请求，并 catch rejection，避免 fire-and-forget 泄漏 unhandledRejection。
+- 不在 prompt 前预触发 abort：attachGuards 早于活跃 run，此时 abort 是 no-op；真实工具 block 才发起终止。invoke 开始前的 halt 由既有活跃性检查与 endInvoke 生命周期管理，本修复不宣称覆盖该窗口。
 - 已发 speak 保留；abort 当刻尚未产生的「进度快照」不补造，重启/改派可从保留上下文继续。
 
 机制检查：仅复用现有状态、函数与模块调用；无新增配置、生命周期、定时器、信号类型、持久化或新跨模块路径。修法决策树① narrow-fix。
@@ -38,16 +38,23 @@ issue #1674 现场：目标獭收到 halt 后持续输出独白，restart 因 ru
 
 修前失败证据：`npx vitest run tests/usecases/signal/halt-core.test.ts` → 17 tests，**1 failed / 16 passed**；新增「halt 首次送达即请求结束本轮执行」用例中 running 仍 true。
 
-修后：`npx tsc --noEmit` 通过；定向 5 文件 **102 passed**：halt-core、halt-injection-wiring、halt-lifecycle-927、retry-policy、circuit-breaker-helpers。
+首轮实现修后：`npx tsc --noEmit` 通过；定向 5 文件 **102 passed**。独立审视后补真实 attachGuards 装配用例，修前新增 3 用例先暴露配置隔离/fixture 错误，修正测试环境后 **105 passed**；全量回归结果见 PR 最新 head CI。
 
 | 场景 | 操作 | 预期 |
 |---|---|---|
 | 首次 halt | 非 speak 工具边界送达 | block + 请求既有 abort，本轮退出 |
 | 重复 halt | 同 invoke 再 block | 不重复 abort，不覆盖退出原因 |
+| 真实装配 | ALS store 注入 attachGuards 后首次 halt | 实际 session.abort 被调用，guardAbortReason=halt |
+| prompt 前 | attachGuards 完成但未开始 run | 不预触发 abort，不提前消费幂等标记 |
+| abort 失败 | fire-and-forget Promise reject | 捕获并 warn，不泄漏 unhandledRejection |
 | 未 halt | 正常工具调用 | 原行为不变 |
 | halt 终态 | guardReason=halt | 不自动重试，明确可改派/重启 |
 
 最简检查：复用现有 abort 与 invoke context，无新依赖；已过最简检查。
+
+# 独立审视处置
+
+首轮 0 严重、4 建议，全部采纳为本 PR 修复：删除装配前 no-op 分支及 `haltPending` 状态；补真实 ALS→attachGuards→haltToolCallGuard→wrappedAbort 测试；补 rejection catch/warn；更新「纯函数」过期注释。处置后交回检视獭 delta 复核。
 
 # 影响与负向验收
 
