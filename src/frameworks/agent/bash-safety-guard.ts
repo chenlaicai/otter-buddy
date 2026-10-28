@@ -30,9 +30,58 @@ import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS, WRAPPER_SPECS, tokenBasename, skipWrapperArgs, resolveExecHead, isStdinFeedRest, FIND_EXEC_LEADS, findExecVerbAt } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
 import { segmentStdoutContent, evalInterpreterStdinBody, gitCrawlInfo, resolveCwdAt } from "./write-target-evaluator";
+import { evaluateGitExecution, parseGitWorktreeList, type GitExecutionGrant } from "./git-execution-policy";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
 export type { AllowedService };
+
+function directGitExecutionGrant(command: string, cwd: string, projectRoot: string, linkedWorktrees?: Map<string, string>): GitExecutionGrant | null {
+  return evaluateGitExecution(command, cwd, { repoRoot: projectRoot, linkedWorktrees: linkedWorktrees ?? parseGitWorktreeList(projectRoot) });
+}
+
+/** 沙箱会话的有限 Git 文本窄门：与物理层共用直接 envelope（含 cd && git）。 */
+function gitSegmentText(segment: Segment): string {
+  return segment.words.map(word => JSON.stringify(word.evaluated ?? "")).join(" ");
+}
+
+function nextDirectCwd(segment: Segment, cwd: string): string | null {
+  if (segment.argv0 !== "cd" || segment.words.length !== 2) return cwd;
+  const destination = segment.words[1]?.evaluated;
+  return destination ? (path.isAbsolute(destination) ? destination : path.resolve(cwd, destination)) : null;
+}
+
+function eachDirectGitGrant(command: string, cwd: string, projectRoot: string, linkedWorktrees: Map<string, string> | undefined, visit: (grant: GitExecutionGrant, segment: Segment) => boolean): boolean {
+  const model = parseOnce(command, 1);
+  if (!model.parseOk) return true;
+  let effectiveCwd = cwd;
+  for (let index = 0; index < model.segments.length; index++) {
+    const segment = model.segments[index];
+    const nextCwd = nextDirectCwd(segment, effectiveCwd);
+    if (nextCwd === null) return false;
+    effectiveCwd = nextCwd;
+    if (segment.argv0 !== "git" || !gitWriteSubcommandHit(segment)) continue;
+    const previous = model.segments[index - 1];
+    const current = previous?.argv0 === "cd" && segment.joiner === "&&"
+      ? `${gitSegmentText(previous)} && ${gitSegmentText(segment)}` : gitSegmentText(segment);
+    const grant = directGitExecutionGrant(current, effectiveCwd, projectRoot, linkedWorktrees);
+    if (!grant || !visit(grant, segment)) return false;
+  }
+  return true;
+}
+
+function sandboxedGitTextVeto(command: string, cwd: string, projectRoot: string, linkedWorktrees?: Map<string, string>): boolean {
+  return !eachDirectGitGrant(command, cwd, projectRoot, linkedWorktrees, (grant, segment) =>
+    grant.kind !== "push" || !protectedPushHit(gitSegmentText(segment)));
+}
+
+function directGitCommandGrant(command: string, cwd: string, projectRoot: string, linkedWorktrees?: Map<string, string>): GitExecutionGrant | null {
+  const model = parseOnce(command, 1);
+  if (!model.parseOk || model.segments.length === 0 ||
+      model.segments.some(segment => segment.argv0 !== "cd" && segment.argv0 !== "git")) return null;
+  let lastGrant: GitExecutionGrant | null = null;
+  const valid = eachDirectGitGrant(command, cwd, projectRoot, linkedWorktrees, grant => { lastGrant = grant; return true; });
+  return valid ? lastGrant : null;
+}
 
 /** F20261014cwsp S1 处置：session 工作目录跨特性判定参数打包（max-params 约束——
  *  sessionCwd 引入后 V1 链各函数参数面 +1，与 MainCheckoutWriteCtx/HeredocJudgeCtx
@@ -58,6 +107,8 @@ export interface GuardOptions {
    *  true 时守卫 main_write 文件写族退役（沙箱 deny file-write* 物理接防）；
    *  不可用/未绑定（readOnly 合成会话）→ 写面回位（降级不降安全）。 */
   sandboxGuarded?: boolean;
+  /** 测试/嵌入调用可注入真实 worktree 注册表；生产缺省从 Git 读取。 */
+  linkedWorktrees?: Map<string, string>;
 }
 
 /** 读取主进程 PID 文件，返回 PID 或 null。每次调用都读文件（不缓存）。 */
@@ -1697,6 +1748,12 @@ function judgeSegment(
     // 注入）——git 写族落点是 cwd 上移发现的 git 工作树，不是主仓写，放行。
     // 会话工作区（data/workspaces/，非 git 树）与相对 cwd 不注入本豁免。
     if (ctx.skipGitWrite) return false;
+    if (ctx.writeChannelSkip === "file-write") {
+      // 新执行域只接受直接 git envelope；包装/复杂 Git 不获 capability，
+      // 文本层不再逐词表判断其 Git 写语义。
+      if (ctx.projectRoot) return sandboxedGitTextVeto(seg, ctx.sessionCwd ?? ctx.projectRoot, ctx.projectRoot);
+    }
+    // 无沙箱 Best Effort 保留原有落点/词级判断。
     // F20261015glfp（M-bf4049a3）：git -C 落点豁免（段级）——-C 目标累积解析后落
     // worktree 区时本段 git 写非主仓写，与 cwd 形态等价豁免；其他段照常判定。
     // F20261016grdl rebase 合并：#1519 词级化后探针改 gseg（词法段），glfp 豁免同吃 gseg；
@@ -1784,7 +1841,7 @@ function checkSegmentStructuralWrite(
   // `(git commit)` 经剥壳重判已被上方段判定覆盖；本闸兜「壳内多命令」形态
   // （`{ git commit; git push; }`）与模型层不识命令组的缺口（parseOk=true 时
   //  V1 段判定链不跑——挂点见下方入口侧）。
-  if (subshellGitWriteHit(command)) return true;
+  if (ctx.writeChannelSkip !== "file-write" && subshellGitWriteHit(command)) return true;
   return false;
 }
 
@@ -2975,6 +3032,15 @@ export function checkBashCommandSafety(
   const narrowHit = checkNarrowRules(command, logger);
   if (narrowHit) return withDiagnostics(narrowHit, command, mainPid);
   if (mainPid === null) return checkWhenMainPidMissing(command, logger, guardOptions);
+
+  // F20261027gscv：直接 Git envelope 的有限窄门先于旧主仓写求值器。
+  // 求值器不知道新执行域的 cd && git 真实 cwd；未识别/主仓/受保护 push 仍拦。
+  if (guardOptions?.sandboxGuarded && guardOptions.projectRoot) {
+    const vetoed = sandboxedGitTextVeto(command, guardOptions.sessionCwd ?? guardOptions.projectRoot, guardOptions.projectRoot, guardOptions.linkedWorktrees);
+    if (vetoed) return withDiagnostics("直接 Git 命令未获当前执行域授权：请使用登记的 worktree，拆成单段 git 或字面 cd <worktree> && git；主仓提交/受保护分支推送请走 PR。", command, mainPid);
+    const grant = directGitCommandGrant(command, guardOptions.sessionCwd ?? guardOptions.projectRoot, guardOptions.projectRoot, guardOptions.linkedWorktrees);
+    if (grant) return null;
+  }
 
   // #844：白名单热加载（与 PID 文件同策略：每次判定重读，mtime 缓存去抖）
   const allowedServices = guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [];

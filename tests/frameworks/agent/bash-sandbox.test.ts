@@ -48,12 +48,12 @@ describe("bash-sandbox", () => {
       expect(profile).not.toContain("(deny process");
     });
 
-    it("应包含白名单可写路径（workspaces/worktrees/.git/alpha/tmp）", async () => {
+    it("应包含白名单可写路径（workspaces/worktrees/alpha/tmp），不再包含 .git 整树 allow", async () => {
       const profile = buildSandboxProfile("/Users/orca/ai/otter-buddy", "/Users/orca/ai/otter-buddy/data");
       expect(profile).toContain('(allow file-write* (subpath "/Users/orca/ai/otter-buddy/data/workspaces"))');
       expect(profile).toContain('(allow file-write* (subpath "/Users/orca/ai/otter-buddy/.otter/worktrees"))');
-      // 检视发现 4：worktree 内 git 操作需要写主仓 .git/
-      expect(profile).toContain('(allow file-write* (subpath "/Users/orca/ai/otter-buddy/.git"))');
+      // F20261027gscv Phase 2：默认 profile 不再 allow .git 整树——Git 写能力由 spawnHook 按 envelope 派生
+      expect(profile).not.toContain('(allow file-write* (subpath "/Users/orca/ai/otter-buddy/.git"))');
       expect(profile).toContain('(allow file-write* (subpath "/Users/test/.otter/alpha"))');
       // tmpdir() 的 realpath 结果依赖平台：macOS /tmp → /private/tmp，Linux /tmp 不变
       const { realpathSync } = await import("node:fs");

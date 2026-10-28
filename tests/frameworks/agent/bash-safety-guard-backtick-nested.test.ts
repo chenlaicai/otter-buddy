@@ -2,108 +2,46 @@ import { describe, expect, it } from "vitest";
 import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
 
 /**
- * #1544 回归测试（F20261027bgkw）——反引号嵌套载荷漏拦。
- *
- * 修前实证（大獭，main 9c1705b5，含 #1636+#1648）：10 例探针中仅 B3（反引号嵌套
- * cd 主仓 && git commit）ALLOW，其余 9 例判定正确。
- *
- * 真根因（修正简报的 collectPayloads 假设）：lexer 把反引号词法化为 cmdsub part
- * （command-lexer.ts :309），collectPayloads 天然递归覆盖，模型层与求值器对
- * backtick/$() 等价处理（trace 实证 parseOnce 产出一致、evaluateWriteVerdict 对
- * backtick 形态判 BLOCK positive）。缺口在沙箱链：sandboxGuarded=true 时求值器
- * 退役（F20261016gsbx G3 枚举表），保留面 SUBSHELL_GIT_WRITE_GATE 壳字符类 [({]
- * 只认 $()/命令组，不认反引号壳 → 兜底落空 ALLOW。
- *
- * 修法：壳字符类扩反引号（[`({]，字符类排除同步补 `），反引号壳内 git 写族字面
- * fail-closed 拦——与 $() 壳同口径（壳内不看 cwd 是既有保守面，$() 修前即如此）。
+ * F20261027bgkw 历史词面回归在 F20261027gscv 的迁移：
+ * sg=true 的嵌套 Git 壳不再由 SUBSHELL_GIT_WRITE_GATE 逐字符判定，真实
+ * `.git` 写入由 git-sandbox-integration.test.ts 的默认 deny 证明；
+ * sg=false 保留有限 Best Effort 词面，不借物理能力宣称同等安全。
  */
 const MAIN = "/Users/orca/ai/otter-buddy";
-const WT = "/Users/orca/ai/otter-buddy/.otter/worktrees/probe";
+const WT = "/Users/orca/ai/otter-buddy/.otter/worktrees/design-guard-convergence";
 const PID = 42877;
 const SESS = "/Users/orca/ai/otter-buddy/data/workspaces/probe-session";
-
 const go = (cmd: string, sg = true, cwd = SESS) =>
-  checkBashCommandSafety(cmd, PID, undefined, { projectRoot: MAIN, sessionCwd: cwd, sandboxGuarded: sg });
+  checkBashCommandSafety(cmd, PID, undefined, { projectRoot: MAIN, sessionCwd: cwd, sandboxGuarded: sg, linkedWorktrees: new Map([[WT, "design-guard-convergence"]]) });
 
-describe("#1544 反引号嵌套载荷（修后回归，sg=真实沙箱形态）", () => {
-  const cases: Array<[string, string, "ALLOW" | "BLOCK"]> = [
-    ["B1 cd MAIN && git commit", `cd ${MAIN} && git commit -m "x"`, "BLOCK"],
-    ["B2 cd MAIN; git commit", `cd ${MAIN}; git commit -m "x"`, "BLOCK"],
-    ["B3 反引号嵌套 commit（本 PR 修复目标）", 'echo "`cd ' + MAIN + ' && git commit -m x`"', "BLOCK"],
-    ["B4 $() 嵌套 commit", 'echo "$(cd ' + MAIN + ' && git commit -m x)"', "BLOCK"],
-    ["B5 git -C MAIN commit", `git -C ${MAIN} commit -m "x"`, "BLOCK"],
-    ["B6 --git-dir=MAIN/.git commit", `git --git-dir=${MAIN}/.git commit -m "x"`, "BLOCK"],
-    ["B7 subshell (cd MAIN && commit)", `(cd ${MAIN} && git commit -m "x")`, "BLOCK"],
-    ["B8 if 控制流 cd+commit", `if true; then cd ${MAIN}; git commit -m "x"; fi`, "BLOCK"],
-    ["B9 worktree commit（合法对照）", `cd ${WT} && git commit -m "x"`, "ALLOW"],
-    ["B10 cd MAIN && git status（只读对照）", `cd ${MAIN} && git status`, "ALLOW"],
-  ];
-  for (const [name, cmd, expected] of cases) {
-    it(`${name} → ${expected}`, () => {
-      const r = go(cmd);
-      if (expected === "BLOCK") {
-        expect(r).not.toBeNull();
-        // 主仓写拦截语义（rewriteMainWriteBlockMsg 口径）
-        expect(String(r)).toContain("写命令落点解析到主仓");
-      } else {
-        expect(r).toBeNull();
-      }
-    });
-  }
-});
+describe("F20261027gscv：嵌套 Git 职责迁移", () => {
+  it("sg=true 不再用壳内写动词误拦合法 worktree 嵌套文本", () => {
+    expect(go(`echo "\`cd ${WT} && git commit -m x\`"`)).toBeNull();
+    expect(go(`echo "\`cd ${MAIN} && git commit -m x\`"`)).toBeNull();
+    expect(go('echo "$(touch /tmp/x)"')).toBeNull();
+  });
 
-describe("#1544 反引号修复翻判面（不误拦纯数据/只读形态）", () => {
-  it("反引号纯数据形态（echo `date`）→ ALLOW", () => {
+  it("sg=false 仍保留反引号与 $() 嵌套 Git 写词面", () => {
+    expect(go(`echo "\`cd ${MAIN} && git commit -m x\`"`, false)).not.toBeNull();
+    expect(go(`echo "$(cd ${MAIN} && git commit -m x)"`, false)).not.toBeNull();
+  });
+
+  it("sg=true 的生产 cwd=工作区形态：cd worktree && git add/commit 正道放行", () => {
+    expect(go(`cd ${WT} && git add -A`)).toBeNull();
+    expect(go(`cd ${WT} && git commit -m x`)).toBeNull();
+    expect(go(`cd ${WT} && git commit -m x && git push`)).toBeNull();
+    expect(go(`cd ${MAIN} && git commit -m x`)).not.toBeNull();
+  });
+
+  it("sg=true 的 push 按 refspec 目标判定，不按分支名包含 main 误拦", () => {
+    expect(go(`git -C ${WT} push origin HEAD:refs/heads/main`)).not.toBeNull();
+    expect(go(`git -C ${WT} push origin feature/main-fix`)).toBeNull();
+    expect(go(`cd ${WT} && git push origin HEAD:refs/heads/develop`)).not.toBeNull();
+  });
+
+  it("sg=true 的纯数据/未闭合反引号不误伤", () => {
     expect(go('echo "`date`"')).toBeNull();
-  });
-  it("反引号只读子命令（echo `git status`）→ ALLOW", () => {
-    expect(go('echo "`git status`"')).toBeNull();
-  });
-  it("$() 只读子命令（echo $(git status)）→ ALLOW", () => {
-    expect(go('echo "$(git status)"')).toBeNull();
-  });
-  it("裸反引壳 git commit（无 cd）→ BLOCK（对齐 $() 既有口径）", () => {
-    expect(go('echo "`git commit -m x`"')).not.toBeNull();
-  });
-  it("裸 $() 壳 git commit（无 cd）→ BLOCK（既有口径不回退）", () => {
-    expect(go('echo "$(git commit -m x)"')).not.toBeNull();
-  });
-  it("非沙箱链（sg=false）反引号嵌套主仓 commit → BLOCK（求值器链既有行为）", () => {
-    expect(go('echo "`cd ' + MAIN + ' && git commit -m x`"', false)).not.toBeNull();
-  });
-});
-
-describe("#1544 处置补强（r1 审视建议 3 + 严重 1 现状口径固化）", () => {
-  it("WT-cwd 豁免面：sessionCwd=worktree 裸 git commit → ALLOW（skipGitWrite 短路现状，防无声翻判）", () => {
-    expect(go('git commit -m "x"', true, WT)).toBeNull();
-  });
-  it("WT-cwd 对照：sessionCwd=工作区裸 git commit → BLOCK（落点不在 worktree 豁免区）", () => {
-    expect(go('git commit -m "x"', true, SESS)).not.toBeNull();
-  });
-  it("r2 严重 1 修复：反引号数据体 + 顶层合法 worktree 写 → ALLOW（闭反引号不再作新起点）", () => {
-    // r1 曾断 BLOCK（现状固化）→ r2 审视裁定为合法面误拦，改为正则拆分支修复：
-    // 反引号成对壳区间内找写动词且写动词后有闭壳，闭壳后不重开吞顶层。
-    expect(go('echo "`date`" && git commit -m x', true, WT)).toBeNull();
-  });
-  it("r2 严重 1 修复：worktree 日常流 git add -A && echo `date` && git commit → ALLOW（P5 族）", () => {
-    expect(go('git add -A && echo "`date`" && git commit -m x', true, WT)).toBeNull();
-  });
-  it("r2 严重 1 修复：只读反引号数据体 + 顶层合法写 → ALLOW（P9 族：echo `git status` && commit）", () => {
-    expect(go('echo "`git status`" && git commit -m x', true, WT)).toBeNull();
-  });
-  it("r2 严重 1 修复：未加引号的 echo `pwd` && git commit（WT-cwd）→ ALLOW（P1 族）", () => {
-    expect(go('echo `pwd` && git commit -m x', true, WT)).toBeNull();
-  });
-  it("反引号壳内主仓写仍拦：echo `cd 主仓 && git commit` → BLOCK（B3 修复目标保持，写动词后有闭壳）", () => {
-    expect(go('echo "`cd ' + MAIN + ' && git commit -m x`"', true)).not.toBeNull();
-  });
-  it("反引号壳内 worktree 写仍拦（口径对齐 $() 保持）：echo `cd worktree && git commit` → BLOCK（M4/M5）", () => {
-    expect(go('echo "`cd ' + WT + ' && git commit -m x`"', true)).not.toBeNull();
-  });
-  it("未闭合反引号 + commit → ALLOW（bash unexpected EOF 语法错不执行，r2 口径：不覆盖到语法层）", () => {
-    expect(go('echo "`git commit -m x && echo still', true)).toBeNull();
-  });
-  it("$() 对照：echo $(date) && git commit（WT-cwd）→ ALLOW（两壳口径在该族一致）", () => {
-    expect(go('echo "$(date)" && git commit -m x', true, WT)).toBeNull();
+    expect(go('echo "`unclosed')).toBeNull();
+    expect(go("echo 'git commit -m x'")).toBeNull();
   });
 });
