@@ -277,6 +277,13 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
         if (golden.manualReview) {
           const mr = await runOneSample(ctx, golden, assert);
           console.log(`MANUAL_REVIEW: ${golden.id} 采样信号：${mr.detail}`);
+          // D2（F20261028evpkg）：manualReview 判定材料——回复全文供检视獭判语调，不只靠信号布尔
+          const otterReplies = (mr.messages ?? [])
+            .filter((m) => m.st === "otter")
+            .map((m) => m.content);
+          console.log(
+            `MANUAL_REVIEW reply（transcript）：${JSON.stringify(otterReplies).slice(0, 4000)}`,
+          );
           if (mod.manualReviewHint) console.log(`  判定提示：${mod.manualReviewHint}`);
           appendResult({
             ts: new Date().toISOString(),
@@ -342,7 +349,7 @@ async function runOneSample(
   ctx: CapabilityContext,
   golden: GoldenScenario,
   assert: GoldenAssert,
-): Promise<SampleResult> {
+): Promise<SampleResult & { messages?: MessageDto[] }> {
   const convId = await createConversation(ctx, `golden:${golden.id}`);
   await sendUserMessage(ctx, convId, golden.input);
   const firstMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
@@ -379,5 +386,7 @@ async function runOneSample(
   }
 
   const messages = await listMessages(ctx, convId);
-  return assert({ ctx, convId, messages });
+  const result = await assert({ ctx, convId, messages });
+  // D2（F20261028evpkg）：附带 messages 供 manualReview 输出 transcript（判定材料）
+  return { ...result, messages };
 }
