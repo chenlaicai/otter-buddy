@@ -75,6 +75,20 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json()
 }
 
+export interface BackgroundResponseDTO { url: string }
+
+export function saveBackground(dataUrl: string): Promise<BackgroundResponseDTO> {
+  return request('/settings/background', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+    body: dataUrl,
+  })
+}
+
+export function deleteBackground(): Promise<void> {
+  return request('/settings/background', { method: 'DELETE' })
+}
+
 // ── Conversations ──
 
 export function listConversations(options?: {
