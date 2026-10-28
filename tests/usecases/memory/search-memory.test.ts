@@ -643,6 +643,28 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
     expect(anchorEntry.drillDown!.params).not.toHaveProperty("id");
   });
 
+  it.each(["F20261027-59c4", "F202609048840", "F20261015selfheal"])(
+    "P3-AT-5: 新旧/长后缀 ID %s 都能精确 anchor 短路", async (fid) => {
+      const db = createTestDb();
+      const repo = new SqliteMemoryRepository(db);
+      await repo.storeEntry({
+        id: `anchor-${fid}`, layer: "document", contentType: "feature",
+        sourceId: fid, sourceTable: "features", conversationId: null,
+        granularity: "coarse", content: "编号锚点端到端回归", metadata: null,
+        createdAt: "2026-10-27T00:00:00Z",
+      });
+      const embedding: EmbeddingGateway = {
+        available: false,
+        embed: async () => { throw new Error("anchor 短路不应调用 embedding"); },
+      };
+      const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, currentConversationBoost: 1.5, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
+      const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());
+      const result = await search.search({ query: `说明 ${fid} 的方案`, limit: 5, detailLevel: "summary" });
+      expect(result.entries[0]?.source).toBe("anchor");
+      expect(result.entries[0]?.sourceId).toBe(fid);
+    },
+  );
+
   it("P3-AT-3: ID + 其他词，anchor 短路 + 剩余走 RRF", async () => {
     const db = createTestDb();
     const repo = new SqliteMemoryRepository(db);

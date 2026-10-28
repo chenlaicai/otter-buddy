@@ -87,6 +87,26 @@ describe("disk-id-scanner - F20260804dcnv", () => {
     expect(map.size).toBe(0);
   });
 
+  it("frontmatter 缺失时 dash 新 ID 完整提取，不被 slug 分隔截短", async () => {
+    const fs = makeFs({
+      "docs/features/F20261027-59c4-readable-slug.md": "# 无 frontmatter\n",
+      "docs/features/F20261027-x59c4-readable.md": "# 无 frontmatter\n",
+    });
+    const map = await scanDiskIds(fs, "docs/features");
+    expect(map.get("F20261027-59c4")).toBe("docs/features/F20261027-59c4-readable-slug.md");
+    expect(map.get("F20261027-x59c4")).toBe("docs/features/F20261027-x59c4-readable.md");
+    expect(map.size).toBe(2);
+  });
+
+  it("frontmatter 损坏时 dash 日期自然语言词仅作候选并显式告警", async () => {
+    const logger = createCapturingLogger();
+    const fs = makeFs({ "docs/features/F20261027-notes-blurbs.md": "not frontmatter" });
+    const map = await scanDiskIds(fs, "docs/features", logger);
+    // read 宽读保留候选供 reconcile，但不能静默当成已验证文档链。
+    expect(map.has("F20261027-notes")).toBe(true);
+    expect(logger.captured.warns.some(w => w.includes("仅为文件名候选 ID"))).toBe(true);
+  });
+
   it("R 前缀文件名同样兜底", async () => {
     const fs = makeFs({
       "docs/research/R20260716x2k9-foo.md": "# R20260716x2k9\nbody",
