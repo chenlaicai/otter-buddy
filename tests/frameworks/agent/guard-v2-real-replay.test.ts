@@ -369,3 +369,78 @@ describe("#1641-r2 delta 边界钉死（kill 域语义对照：主 PID 保护面
     expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
   });
 });
+
+describe("2026-10-27 真实拦截回放（负门固化：守卫自测/探针流量的破坏形态；误拦面归 #1608 重裁跟进）", () => {
+  // 数据源：healing events 10-27 UTC（guard-replay-candidates-2026-10-27.json，98 拦截/94 去重）。
+  // 裁决口径：① 守卫自测故意触发的破坏性形态（rm 主仓/.git、pgrep 管道 kill）= 负门 BLOCK；
+  // ② 善后命令（git worktree remove / branch -D / push --force-with-lease）与 colink 外部仓
+  // script_file_exec = 误拦。裁决时点（10-28 00:32Z 生成样本、00:55Z 定稿）#1661 尚未合入、
+  // 当时底座钉 ALLOW 会红；#1661 于 01:19Z 合入 main 后本 PR 分支实测典型形态已全部 ALLOW
+  // （worktree remove / force-with-lease / 只读 git log / node -e，检视复核一致）——正门 5 条
+  // 如下钉死。其余 83 条 SKIP 分类归置见 F20261028grplx 统计表，重裁跟进挂 #1608。
+  const gopts = { projectRoot, sessionCwd: projectRoot };
+
+  it("1027-D1: rm 主仓探针文件 + ~/ + /tmp/.git/HEAD 混合落点 → 拦（data_destructive，现场 11:22）", () => {
+    const cmd = `rm -f ${projectRoot}/src-sbx-probe.txt ~/sbx-probe.txt /tmp/sbx5/repo/dotgit-dir/.git/HEAD /tmp/sbx5/repo/.otter/config.yaml`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1027-D2: cd 主仓 && rm data/ 下数据库备份文件（相对路径）→ 拦（data_destructive，现场 11:36）", () => {
+    const cmd = `cd ${projectRoot} && rm -f data/memory.sqlite check-one.mjs data/otter-buddy.db.bak-sweep-1792456524413 data/guard-replay-candidates-old.json`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1027-K1: pgrep -f 非字面 PID 管道 xargs kill -TERM → 拦（self_kill_nonliteral，现场 12:03）", () => {
+    const cmd = `pgrep -f 'background-server-harness.mjs' | xargs -n1 kill -TERM 2>/dev/null || true; cd ${WT}/guard-convergence && echo cleaned`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1027-K2: pgrep -P | xargs kill + 字面 kill 非主 PID 组合 → 拦（self_kill_nonliteral，现场 14:35）", () => {
+    const cmd = `pgrep -P 20259 | xargs kill -TERM; kill -TERM 20259; sleep 2; ps -p 20259 -o pid,command`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  // ---- 正门（检视发现 1/2 补钉：#1661 合入后善后/误拦面已可验证 ALLOW，钉死防回归）----
+  it("1027-A1: 善后 git worktree remove + branch -D 已合入分支 → 放行（现场 06:45，#1661 前误拦）", () => {
+    const cmd = `cd ${projectRoot} && git worktree remove .otter/worktrees/fix-1306-timeout-config 2>&1 && git branch -D fix/1306-timeout-config`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1027-A2: feature 分支 push --force-with-lease → 放行（现场 06:23 d77f8ad3，样本 ruleId=sleep_block——截断头外尾部带 sleep，实测 ALLOW 归 #1661 收敛，#1661 前误拦）", () => {
+    const cmd = `cd ${projectRoot}/.otter/worktrees/fix-1349-matter-manifest && git push -q --force-with-lease origin fix/1349-matter-manifest`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1027-A3: 主仓只读 printf+git log 探查 → 放行（现场 01:23，#1661 前误拦）", () => {
+    const cmd = `cd ${projectRoot} && printf '%s\n' '--- MAIN ---' && git log -1 --oneline && printf '%s\n' '--- PR 1641 ---'`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1027-A4: /tmp heredoc 写实验配置文件 → 放行（现场 03:16，#1661 前误拦）", () => {
+    const cmd = `cat > /tmp/vitest.probe.mts <<'EOF'
+import { defineConfig } from "vitest/config";
+export default defineConfig({ test: { } });
+EOF`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  it("1027-A5: node -e 只读 require 探查 → 放行（现场 04:18 d6c4c82d，#1661 前误拦）", () => {
+    const cmd = `node -e "const x = require('./src/foo.ts'); console.log(Object.keys(x))"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeNull();
+  });
+
+  // ---- main_write 侧同口径负门（检视发现 2：与 D1/D2 同族仅 ruleId 不同，补钉）----
+  it("1027-M1: rm 主仓探针文件 + echo 确认 → 拦（main_write，现场 11:22）", () => {
+    const cmd = `rm -f ${projectRoot}/src-sbx-probe.txt; echo "main-repo-probe cleaned"`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1027-M2: cd 主仓 && rm 相对路径自测文件 → 拦（main_write，现场 11:36）", () => {
+    const cmd = `cd ${projectRoot} && rm -f check-one.mjs && ls`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  // D2 注记（检视发现 4）：命令头取自样本 26c377dc（DB context 截断 ~120 字符），
+  // 「单批」系守卫自测当场临时文件名词元，非命令语法成分，回放省略；
+  // 尾部（ls 确认段）超出截断区间按现场语义重构，与 1013 批次「多样本→典型化」先例同口径。
+});
