@@ -49,7 +49,7 @@ category: technique
    | 文档完整性 | 特性文档是否存在？是否与实现一致？（通过 `list_artifacts` 查找特性文档）**特性文档缺失 = 严重发现，不可降级** |
    | 全链路验证 | 功能是否端到端可用？不只是单元测试通过 |
    | 变更标识一致性 | 特性编号在 commit/PR/文档间一致？（详见 `references/review-dimensions.md` B4）。**Modification-Class 一致性（每次必查）**：commit body 声明值 vs 实际 diff——声明非 `mechanism-addition` 但 diff 实增机制（新配置/新状态/新定时任务/新存储/新信号）= 严重发现；`mechanism-addition` 声明但特性文档「设计取舍」段无四问答案 = 严重发现 |
-   | 撞车检查（B5） | 是否有其他 open PR 引用同一 issue 或重叠文件域？`gh pr list --state open` 后比对 Closes/Fixes 引用与 files 列表；命中 = 严重发现，立即通知大獭仲裁（时间序优先，见 worktree-isolation 步骤 2） |
+   | 撞车检查（B5） | 是否有其他 open PR 引用同一 issue 或重叠文件域？`gh pr list --state open` 后比对 Closes/Fixes 引用与 files 列表；命中 = **提醒级发现**（写入报告即可，不进严重项、不升级仲裁、不影响处置决策）——搭档 2026-10-27 定调：在途 PR 冲突只做提醒，不影响 PR 实现；特性开发只看当前最新 main，不思考别的 PR 在干吗；后合入方 rebase 重验是唯一规则 |
    | Intent 块存在性（B6，软代码改动） | 本次变更涉及 prompt/skill/协议层时，特性文档 frontmatter 是否有 intent 块？**intent 块缺失 = 严重发现** |
    | Golden Gate 记录（B7，软代码改动） | 本次变更涉及 prompt/skill/协议层时，results.jsonl 是否有该 PR 的执行记录？**记录缺失 = 严重发现**；记录存在但有 fail 行未处置 = 严重发现（fail 行悬置会让止损线条件永久失明）。**豁免核验**：verify_by.type 为 static_only/human_judge 时生产方可豁免跑 gate，但 PR Verification 节必须有豁免声明（「Golden Gate: n/a（verify_by=…，无场景可跑）」）——无记录且无豁免声明 = 严重发现 |
    | Prompt 体积预算（B8，2026-09-17） | diff 触及 `prompts/scheduled/*.md` 且净增 >500B？若是，作者须在 PR 描述申报等量出清或净增理由（写入闸：`npm run lint:prompt-size`，超预算 CI 直接红）。**未申报的净增 = 严重发现**（体积失控事故实证：6 PR 连续合入无人拦截，根因是检查维度缺失） |
