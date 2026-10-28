@@ -23,6 +23,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
+import { execFileSync } from "node:child_process";
 
 /** #1274 / F20261009fdid: id 唯一性检查（纯函数，供测试 import）。
  *  entries: Array<{ rel: string, id?: string }>（rel = 仓库根相对路径）。
@@ -68,6 +69,15 @@ export function evaluateDistFreshness(srcEntries, distEntries) {
     return { fresh: false, newestSrc: newestSrc.rel };
   }
   return { fresh: true };
+}
+
+/** 新增文档候选 = 已提交新增（CI）∪ 暂存新增（pre-commit）。
+ *  exported for behavior tests；git 失败由调用方决定既有降级策略。 */
+export function collectAddedDocPaths(repoRoot, baseRef = "origin/main") {
+  const args = ["diff", "--name-only", "--diff-filter=A", `${baseRef}...HEAD`, "--", "docs/features", "docs/research"];
+  const committed = execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" });
+  const staged = execFileSync("git", ["diff", "--cached", "--name-only", "--diff-filter=A", baseRef, "--", "docs/features", "docs/research"], { cwd: repoRoot, encoding: "utf8" });
+  return new Set(`${committed}\n${staged}`.split("\n").filter(Boolean));
 }
 
 function walk(dir, ext = ".md") {
@@ -138,10 +148,10 @@ async function main() {
   // commit/CI 标题门仍硬拦，不因 lint 基线获取失败放宽新 ID 总契约。
   let addedDocPaths = null;
   try {
-    const { execFileSync } = await import("node:child_process");
     execFileSync("git", ["fetch", "origin", "main", "--quiet"], { cwd: root, stdio: "ignore" });
-    const added = execFileSync("git", ["diff", "--name-only", "--diff-filter=A", "origin/main...HEAD", "--", "docs/features", "docs/research"], { cwd: root, encoding: "utf8" });
-    addedDocPaths = new Set(added.split("\n").filter(Boolean));
+  // 候选 = 已提交新增（CI）∪ 暂存新增（pre-commit，此时 HEAD 尚未含当前 commit）。
+  // 只扫 docs/features/research，避免其它暂存文件误入。
+  addedDocPaths = collectAddedDocPaths(root);
   } catch {
     console.warn("[lint:docs] 无法获取 origin/main，新增文档 5 字母增量门未启用；commit/CI 标题门仍有效。");
   }

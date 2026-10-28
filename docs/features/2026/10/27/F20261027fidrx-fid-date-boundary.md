@@ -20,7 +20,7 @@ causal_links:
     - F20260901fidc
   supersedes: []
 tags: [document, fid, readability, compatibility, lint]
-modules: [src/entities/document/fid-format.ts, src/entities/document/frontmatter-validator.ts, src/usecases/health/commit-parser.ts, src/usecases/health/pr-collector.ts, src/usecases/document/disk-id-scanner.ts, src/usecases/memory/search-memory.ts, src/frameworks/db/memory/sqlite-memory-repository.ts, src/frameworks/db/migration.ts, scripts/lint-date-bombs.mjs, .githooks/commit-msg, .github/workflows/ci.yml]
+modules: [src/entities/document/fid-format.ts, src/entities/document/frontmatter-validator.ts, src/usecases/health/commit-parser.ts, src/usecases/health/pr-collector.ts, src/usecases/document/disk-id-scanner.ts, src/usecases/memory/search-memory.ts, src/frameworks/db/memory/sqlite-memory-repository.ts, src/frameworks/db/migration.ts, scripts/lint-date-bombs.mjs, scripts/check-pr-title.cjs, scripts/lint-docs.mjs, .githooks/commit-msg, .github/workflows/ci.yml]
 ---
 
 ## 背景与最终决策
@@ -120,6 +120,8 @@ read:       [FR]\d{8}-?[a-z0-9]{4,10}
 
 - FID/frontmatter/hook/PR title/parser/disk/memory 相关回归：12 files / 207 passed。
 - `npm run check` 通过；`lint:docs`：915 篇文档 OK；intent lint 通过。
+- `lint:docs` 全量 915 docs OK；新增 strictNewId 候选 = 已提交新增 ∪ 暂存新增，pre-commit 不再漏当前 commit。`collectAddedDocPaths` 临时 git 仓测试覆盖 staged/committed 两入口，历史 4 字母 read 与新 5 字母 strict 行为测试通过。
+- Golden Gate：2026-10-28 当前 5 字母版 `npm run test:capability` 已跑，17 files / 16 passed / 44 skipped（未配 LLM 的既有跳过），记录写入 `data/metrics/golden-results.jsonl`（selftest 记录 00:51Z），不是沿用中划线旧版。
 - 全量 `npm test`：7180 passed / 3 failed / 6 skipped。3 个失败均在 `tests/usecases/health/rhi-scan-worker.test.ts`；独立干净 worktree `review-fidr-baseline` 基于最新 `origin/main@387a30a7` 单跑同文件复现同样 3 失败（8 passed），确认非本 PR 引入，不记为全量绿。
 
 以下为 2026-10-27 中划线旧版工程与审视史，仅作追溯，不是本版验收结果。
@@ -146,7 +148,28 @@ read:       [FR]\d{8}-?[a-z0-9]{4,10}
 
 代码面 PASS：r1 三建议逐条充分，cjs 捕获组 6 例边界探查无新问题；新 head 全量 449 files / 7151 passed / 6 skipped 独立复跑。check 因 Playwright 安装等待后于 16m00s  SUCCESS，e2e 2m54s SUCCESS，golden-selftest 1m52s SUCCESS；run 40506518004 新 head CI 三项全绿。PR 留痕待检视补发。
 
-### 代码 r1（检视-1668，mimo-pro；0 严重 / 3 建议）
+### 固定 5 字母版 r1（检视-1668-five，mimo-pro；2 严重 / 2 建议）
+
+1. **B1 main 基线 3 个 rhi-scan-worker 失败 → 另案修复后 rebase，不带红合入**：main push run 40606244222 与 PR run 40608344569 同 3 失败，非本 PR 引入。#1661 已补 `成本快照测试日期随冻结时钟滚动`（commit 278530dd，新 head CI 全绿）；待其合入 main 后本 PR rebase，不能在本 PR 跨域修。
+2. **B7 当前 head 无 Golden Gate 记录 → 本 PR 修复**：2026-10-28 当前 5 字母版 capability 已跑，17 files / 16 passed / 44 skipped，记录已写入 data/metrics/golden-results.jsonl；PR/文档自检补记。
+3. **增量门无测试 + pre-commit 暂存盲区 → 本 PR 修复**：`collectAddedDocPaths` 合并 committed/staged 新增，临时 git 仓测试两入口；validator 历史 read 与新 strict 行为测试通过。
+4. **modules 漏 check-pr-title.cjs/lint-docs.mjs → 本 PR 修复**：frontmatter modules 已补两行。
+
+r1 合规：3 个独立焦点、207 测试独立复跑、check-pr-title 10 例、main/PR/本地三重基线归因、PR review `pullrequestreview-5676425117` COMMENTED（需要修改语义）。
+
+待固定 5 字母版 delta；B1 在 main 修复合入前保持未闭环。
+
+### 中划线旧版代码 r1（检视-1668，mimo-pro；0 严重 / 3 建议，决策史）
+
+1. **B1 main 基线 3 个 rhi-scan-worker 失败 → 另案修复后 rebase，不带红合入**：main push run 40606244222 与 PR run 40608344569 同 3 失败，非本 PR 引入。#1661 已补 `成本快照测试日期随冻结时钟滚动`（commit 278530dd，新 head CI 全绿）；待其合入 main 后本 PR rebase，不能在本 PR 跨域修。
+2. **B7 当前 head 无 Golden Gate 记录 → 本 PR 修复**：2026-10-28 当前 5 字母版 capability 已跑，17 files / 16 passed / 44 skipped，记录已写入 data/metrics/golden-results.jsonl；PR/文档自检补记。
+3. **增量门无测试 + pre-commit 暂存盲区 → 本 PR 修复**：`collectAddedDocPaths` 合并 committed/staged 新增，临时 git 仓测试两入口；validator 历史 read 与新 strict 行为测试通过。
+4. **modules 漏 check-pr-title.cjs/lint-docs.mjs → 本 PR 修复**：frontmatter modules 已补两行。
+
+r1 合规：3 个独立焦点、207 测试独立复跑、check-pr-title 10 例、main/PR/本地三重基线归因、PR review `pullrequestreview-5676425117` COMMENTED（需要修改语义）。
+
+待固定 5 字母版 delta；B1 在 main 修复合入前保持未闭环。
+
 
 1. **标题校验器缺行为级自动测试 → 本 PR 修复**：新增 `tests/scripts/check-pr-title.test.ts`，spawnSync 覆盖 dash/字母接受、数字直连拒绝、7 个模块黑名单拒绝与开放集非黑名单接受。
 2. **PR body 写 mjs/复用编译产物与实际 cjs/零依赖不符 → 本 PR 修复**：PR body 改为零构建依赖 CJS + 元测试锁真相源；实现记录原已正确。
