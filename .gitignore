@@ -81,6 +81,9 @@ data/patches/
 # introduced by multimodal attachments pipeline F20260827mmdu)
 data/attachments/
 
+# User-selected application background (runtime asset, survives browser/app restart)
+data/backgrounds/
+
 # Weixin channel runtime state (bot_token credentials, context tokens, sync
 # cursor — credentials must never enter git; introduced by weixin channel #569)
 data/weixin/
