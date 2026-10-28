@@ -282,7 +282,6 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       `sqlite3 'file:${ROOT}/data/x?mode=ro' "SELECT * FROM t"`,
       `sqlite3 'file:${ROOT}/data/x?mode=ro&mode=ro' "SELECT * FROM t"`,
       `sqlite3 -json -readonly ${ROOT}/data/x "SELECT * FROM t"`,
-      `sqlite3 -cmd ".headers on" -readonly ${ROOT}/data/x "SELECT * FROM t"`,
       `sqlite3 :memory: "INSERT INTO t VALUES(1)"`,
       `sqlite3 "file::memory:?cache=shared" "INSERT INTO t VALUES(1)"`,
     ])("显式只读或内存数据库不误伤 → 无写落点：%s", (cmd) => {
@@ -310,6 +309,10 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       `sqlite3 -readonly ${ROOT}/data/x ".system touch ${ROOT}/pwned"`,
       `sqlite3 -readonly ${ROOT}/data/x ".shell touch ${ROOT}/pwned"`,
       `sqlite3 -readonly ${ROOT}/data/x ".open ${ROOT}/other.db"`,
+      `sqlite3 -readonly ${ROOT}/data/x ".log ${ROOT}/audit.log"`,
+      `sqlite3 :memory: ".clone ${ROOT}/other.db"`,
+      `sqlite3 :memory: ".trace ${ROOT}/trace.log"`,
+      `sqlite3 :memory: ".dbtotxt"`,
     ])("只读/内存主库的外挂写载荷不可证：%s", (cmd) => {
       expect(evaluateWriteTargets(cmd, ROOT)).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
     });

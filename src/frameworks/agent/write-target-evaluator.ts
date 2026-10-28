@@ -789,8 +789,11 @@ function sqliteDatabaseTarget(words: Word[], acc: SegmentEvalAcc): { target: str
     break;
   }
   if (typeof db !== "string") return { target: null, readOnly: false };
-  // 真实行为：ATTACH 的 DATABASE 可选；.open 切库、.system/.shell 任意执行均可旁路主库写。
-  if (payloads.some(p => /(?:^|[;\s])attach(?:\s+database)?\s+|^\s*\.(?:backup|restore|import|save|output|once|expert|load|read|write|dump|archive|open|system|shell)\b/im.test(p))) {
+  // ATTACH 的 DATABASE 可选。dot 命令不枚举黑名单：SQL 载荷行首点即 CLI 控制面，
+  // .open/.system/.log/.clone 等及未来新命令均可绕过主库只读/内存语义，整族不可证。
+  // SQL 双引号按标识符规则可能被词法层去掉；ATTACH 以 AS <schema> 边界识别，
+  // 不依赖完整引号，也不误触普通词 attached。ATTACH 无 AS 的句法不完整，不伪称真写。
+  if (payloads.some(p => /(?:^|[;\s])attach(?:\s+database)?\b[^;]*\bas\s+[\w$]/i.test(p) || /^\s*\./m.test(p))) {
     return { target: null, readOnly: false };
   }
   if (db === ":memory:" || db === "") return { target: null, readOnly: true };
@@ -2463,6 +2466,8 @@ function evalGitAliasShell(seg: Segment, projectRoot: string, cwd: string, acc: 
 function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot: string, commandText: string): UnevalReason | null {
   const bare = bareName(seg.argv0);
   const accWithCwd: SegmentEvalAcc & { cwd: string } = Object.assign(acc, { cwd });
+  // #1490：sqlite3 的 SQL/dot 载荷由结构化参数通道求值；不得被通用 SQL 负门抢先吞掉。
+  if (bare === "sqlite3") return evalExtendedWriteTargets(bare, seg, cwd, acc);
 
   // F20261015gali（M-edd889c2）：git alias shell 展开（! 前缀）=真执行体载荷——
   //  载荷写面递归求值（judgeScriptPayload 同口径，via:"alias-shell"）；载荷可证安全→
