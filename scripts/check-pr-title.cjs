@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * PR 标题 FID/模块形态检查（F20261027-fidr）。
+ * PR 标题 FID/模块形态检查（F20261027fidrx）。
  * 此步骤在 CI build 前运行，故必须零依赖/零编译产物；CommonJS 兼容仓库默认 CJS。
  * FID_STRICT_SEGMENT / MODULE_BANNED 均由元测试与 entities 单一真相源字符级锁镜像。
  */
-const FID_STRICT_SEGMENT = String.raw`(?:[a-z][a-z0-9]{3,9}|-[a-z0-9]{4,10})`;
+const FID_STRICT_SEGMENT = String.raw`[a-z]{5}`;
 const MODULE_BANNED = new Set(["agent", "runtime", "core", "system", "general", "misc", "other"]);
 
 const title = process.argv.slice(2).join(" ");
@@ -13,8 +13,8 @@ const match = title.match(new RegExp(`^\\[([FR]\\d{8}${FID_STRICT_SEGMENT})\\]\\
 if (!match) {
   console.error("❌ PR 标题格式错误");
   console.error(`当前标题: ${title}`);
-  console.error("格式：[FYYYYMMDD-xxxx][module][type] 描述");
-  console.error("后缀推荐 '-' + 4–10 位小写字母数字；字母开头无分隔仅作兼容，数字直连拒绝。");
+  console.error("格式：[FYYYYMMDDxxxxx][module][type] 描述");
+  console.error("日期后固定 5 位小写字母；不接受中划线、数字或其它长度。历史兼容只作用于读取。");
   process.exit(1);
 }
 

@@ -21,29 +21,34 @@ const BASE_FM = {
   change_type: "prompt",
 };
 
-describe("validateFeatureFrontmatter: F20261027-fidr 严格新写与存量豁免", () => {
-  it.each(["F2026090326c5", "F202609048840", "F2026090211v4", "F202609025itn", "F202608119glo"])(
-    "数字直连真实历史 ID %s 入库豁免", (id) => {
-      const r = validateFeatureFrontmatter(
-        { ...BASE_FM, id },
-        `docs/features/2026/09/04/${id}-legacy.md`,
-      );
-      expect(r.errors.some(e => e.includes("Invalid feature ID"))).toBe(false);
-    },
-  );
-
-  it("数字直连新 ID 不在白名单，严格拒绝", () => {
+describe("validateFeatureFrontmatter: F20261027fidrx 固定 5 字母与历史宽读", () => {
+  it.each([
+    "F2026090326c5", "F202609048840", "F2026090211v4", "F202609025itn", "F202608119glo",
+    "F20260825evgl", "F20260827npmhvs", "F20261015selfheal",
+  ])("历史 ID %s 默认入库可读，无需逐 ID 白名单", (id) => {
     const r = validateFeatureFrontmatter(
-      { ...BASE_FM, id: "F2026102759c4" },
-      "docs/features/2026/10/27/F2026102759c4-new.md",
+      { ...BASE_FM, id },
+      `docs/features/2026/09/04/${id}-legacy.md`,
+    );
+    expect(r.errors.some(e => e.includes("Invalid feature ID"))).toBe(false);
+  });
+
+  it.each([
+    "F2026102759c4", "F20261027abcd", "F20261027abcdef", "F20261027-abcde",
+  ])("新写非 5 字母 ID %s 严格拒绝", (id) => {
+    const r = validateFeatureFrontmatter(
+      { ...BASE_FM, id },
+      `docs/features/2026/10/27/${id}-new.md`,
+      { strictNewId: true },
     );
     expect(r.errors.some(e => e.includes("Invalid feature ID"))).toBe(true);
   });
 
-  it("显式 dash 新 ID 接受", () => {
+  it("固定 5 字母新 ID 严格接受", () => {
     const r = validateFeatureFrontmatter(
-      { ...BASE_FM, id: "F20261027-59c4" },
-      "docs/features/2026/10/27/F20261027-59c4-readable.md",
+      { ...BASE_FM, id: "F20261027abcde" },
+      "docs/features/2026/10/27/F20261027abcde-readable.md",
+      { strictNewId: true },
     );
     expect(r.errors.some(e => e.includes("Invalid feature ID"))).toBe(false);
   });

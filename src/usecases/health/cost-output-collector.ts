@@ -605,7 +605,7 @@ export async function collectFdocCounts(repoPath: string): Promise<FdocCountReco
   return [...counts.entries()].map(([date, fdocCount]) => ({ date, fdocCount }));
 }
 
-/** 从 F 文档 ID 提取日期（FYYYYMMDD-xxxx；字母开头无分隔仅兼容） */
+/** 从 F 文档 ID 提取日期（新写 FYYYYMMDDxxxxx；历史读取保持兼容） */
 function extractDateFromId(id: string): string | null {
   const match = id?.match(/^F(\d{8})/);
   if (!match) return null;

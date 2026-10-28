@@ -4,7 +4,7 @@ import { initSchema } from "@frameworks/db/schema";
 import { migrateDatabase } from "@frameworks/db/migration";
 import { createTestLogger } from "../../helpers/logger";
 
-describe("FID read 锚点的存量 FTS 重建（F20261027-fidr）", () => {
+describe("FID read 锚点的存量 FTS 重建（F20261027fidrx）", () => {
   it.each(["F20261027-59c4", "F202609048840"])("新旧 ID %s 均注入", (fid) => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");

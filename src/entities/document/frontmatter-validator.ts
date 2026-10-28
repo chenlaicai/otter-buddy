@@ -4,7 +4,7 @@ import {
   isKnownResearchStatus,
   isKnownExplorationType,
 } from "./known-values";
-import { FID_DATE_SEGMENT, FID_SUFFIX_SEGMENT, LEGACY_FID_IDS } from "./fid-format";
+import { FID_DATE_SEGMENT, FID_SUFFIX_SEGMENT, FID_READ_SUFFIX_SEGMENT, LEGACY_FID_IDS } from "./fid-format";
 
 export interface ValidationResult {
   valid: boolean;
@@ -15,7 +15,8 @@ export interface ValidationResult {
 
 export function validateFeatureFrontmatter(
   fm: Record<string, unknown>,
-  filePath?: string
+  filePath?: string,
+  options: { strictNewId?: boolean } = {},
 ): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -26,7 +27,7 @@ export function validateFeatureFrontmatter(
     return { valid: false, errors, warnings };
   }
 
-  validateFeatureId(fm.id, errors);
+  validateFeatureId(fm.id, errors, options.strictNewId === true);
   validateSummary(fm.summary, errors);
   validateFeatureStatus(fm.status, warnings);
   validateChangeType(fm.change_type, warnings);
@@ -42,7 +43,8 @@ export function validateFeatureFrontmatter(
 
 export function validateResearchFrontmatter(
   fm: Record<string, unknown>,
-  filePath?: string
+  filePath?: string,
+  options: { strictNewId?: boolean } = {},
 ): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -52,7 +54,7 @@ export function validateResearchFrontmatter(
     return { valid: false, errors, warnings };
   }
 
-  validateResearchId(fm.id, errors);
+  validateResearchId(fm.id, errors, options.strictNewId === true);
   validateSummary(fm.summary, errors);
   validateResearchStatus(fm.status, warnings);
   validateExplorationType(fm.exploration_type, warnings);
@@ -73,24 +75,25 @@ function validateCommonFields(fm: Record<string, unknown>, errors: string[]): vo
   if (!fm.summary || typeof fm.summary !== "string") errors.push("Missing summary");
 }
 
-function validateFeatureId(id: unknown, errors: string[]): void {
-  // 后缀 4-10 位小写字母数字（实查最短 4 位，见 fid-format.ts 头注释）——#667 起与 commit-parser
-  // 共享 fid-format.ts 单一真相源，两处不再各自持正则。LEGACY_FID_IDS 为契约收紧
-  // 前的合法存量豁免（3 位后缀，DB 同 id，改 id 需先迁移，详见 fid-format.ts）
+function validateFeatureId(id: unknown, errors: string[], strictNewId = false): void {
+  // 默认 read：历史文档/启动 sync 识别旧 4–10 位形态。仅 lint-docs 对本分支新增
+  // 文档传 strictNewId=true，验收固定 5 字母；不把近九百篇历史写成运行时白名单。
+  const suffix = strictNewId ? FID_SUFFIX_SEGMENT : FID_READ_SUFFIX_SEGMENT;
   if (
     id &&
     !LEGACY_FID_IDS.has(id as string) &&
-    !new RegExp(`^F${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT}$`).test(id as string)
+    !new RegExp(`^F${FID_DATE_SEGMENT}${suffix}$`).test(id as string)
   ) {
     errors.push(`Invalid feature ID format: ${id}`);
   }
 }
 
-function validateResearchId(id: unknown, errors: string[]): void {
+function validateResearchId(id: unknown, errors: string[], strictNewId = false): void {
+  const suffix = strictNewId ? FID_SUFFIX_SEGMENT : FID_READ_SUFFIX_SEGMENT;
   if (
     id &&
     !LEGACY_FID_IDS.has(id as string) &&
-    !new RegExp(`^R${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT}$`).test(id as string)
+    !new RegExp(`^R${FID_DATE_SEGMENT}${suffix}$`).test(id as string)
   ) {
     errors.push(`Invalid research ID format: ${id}`);
   }
@@ -142,7 +145,7 @@ export function validateTitleReadability(title: unknown, warnings: string[]): vo
  *  与存量兼容，逐步收紧。仅对 feature 文档生效。ID 段口径同 fid-format.ts（#667）。 */
 export function validateFilenameSlug(filePath: string, warnings: string[]): void {
   const base = filePath.split("/").pop() ?? "";
-  if (new RegExp(`^F${FID_DATE_SEGMENT}${FID_SUFFIX_SEGMENT}\\.md$`).test(base)) {
+  if (new RegExp(`^F${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT}\\.md$`).test(base)) {
     warnings.push(`Filename "${base}" missing slug suffix: prefer F<date><id>-<slug>.md`);
   }
 }

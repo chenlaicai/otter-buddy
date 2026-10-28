@@ -11,7 +11,7 @@ import {
 
 /**
  * F20260924mseu 元测试：锁死 module-tags.ts 单一真相源 ↔ commit-msg hook ↔
- * CI 标题检查脚本（F20261027-fidr 从 ci.yml 抽出）人工镜像的字符级一致。
+ * CI 标题检查脚本（F20261027fidrx 从 ci.yml 抽出）人工镜像的字符级一致。
  */
 
 const repoRoot = path.resolve(__dirname, "../../..");

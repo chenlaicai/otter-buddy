@@ -54,7 +54,7 @@ End-to-end verification failure must be reported as a 严重发现 in the review
 
 特性编号在 commit message、PR title、PR 描述、特性文档间一致？
 
-- 从 commit message 或 PR title 提取特性编号（新 ID 推荐 `F<YYYYMMDD>-<id>`；字母开头无分隔为兼容形态）
+- 从 commit message 或 PR title 提取特性编号（新 ID 固定 `F<YYYYMMDD><5 位小写字母>`；历史旧形态仅读取兼容）
 - 确认同一个编号出现在：特性文档 frontmatter / PR 描述 / `list_artifacts` 的 groupId
 - 缺失或不一致必须报为严重发现（标明 B4 来源）
 

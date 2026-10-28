@@ -133,6 +133,19 @@ async function main() {
     ...walk(path.join(root, "docs/research")),
   ];
 
+  // F20261027fidr：只对 origin/main 不存在的文档启用固定 5 字母新写门；
+  // 历史文档走 read 契约。基线不可达时 fail-open 仅沿用既有 validator，
+  // commit/CI 标题门仍硬拦，不因 lint 基线获取失败放宽新 ID 总契约。
+  let addedDocPaths = null;
+  try {
+    const { execFileSync } = await import("node:child_process");
+    execFileSync("git", ["fetch", "origin", "main", "--quiet"], { cwd: root, stdio: "ignore" });
+    const added = execFileSync("git", ["diff", "--name-only", "--diff-filter=A", "origin/main...HEAD", "--", "docs/features", "docs/research"], { cwd: root, encoding: "utf8" });
+    addedDocPaths = new Set(added.split("\n").filter(Boolean));
+  } catch {
+    console.warn("[lint:docs] 无法获取 origin/main，新增文档 5 字母增量门未启用；commit/CI 标题门仍有效。");
+  }
+
   const idEntries = []; // #1274: 收集 { rel, id } 供唯一性检查
   for (const file of files) {
     const rel = path.relative(root, file);
@@ -148,8 +161,8 @@ async function main() {
     idEntries.push({ rel, id: frontmatter.id }); // frontmatter.id 可能 undefined，findDuplicateIds 内跳过
     const type = rel.includes("/features/") ? "feature" : "research";
     const v = type === "feature"
-      ? validateFeatureFrontmatter(frontmatter, rel)
-      : validateResearchFrontmatter(frontmatter, rel);
+      ? validateFeatureFrontmatter(frontmatter, rel, { strictNewId: addedDocPaths?.has(rel) === true })
+      : validateResearchFrontmatter(frontmatter, rel, { strictNewId: addedDocPaths?.has(rel) === true });
     if (!v.valid) {
       errors++;
       console.error(`✗ ${rel}\n    ${v.errors.join("\n    ")}`);
