@@ -2466,8 +2466,6 @@ function evalGitAliasShell(seg: Segment, projectRoot: string, cwd: string, acc: 
 function evalSegment(seg: Segment, cwd: string, acc: SegmentEvalAcc, projectRoot: string, commandText: string): UnevalReason | null {
   const bare = bareName(seg.argv0);
   const accWithCwd: SegmentEvalAcc & { cwd: string } = Object.assign(acc, { cwd });
-  // #1490：sqlite3 的 SQL/dot 载荷由结构化参数通道求值；不得被通用 SQL 负门抢先吞掉。
-  if (bare === "sqlite3") return evalExtendedWriteTargets(bare, seg, cwd, acc);
 
   // F20261015gali（M-edd889c2）：git alias shell 展开（! 前缀）=真执行体载荷——
   //  载荷写面递归求值（judgeScriptPayload 同口径，via:"alias-shell"）；载荷可证安全→

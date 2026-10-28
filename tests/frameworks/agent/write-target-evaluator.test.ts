@@ -290,6 +290,15 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
       if (r.kind === "evaluated") expect(r.targets.filter(t => t.access === "write")).toEqual([]);
     });
 
+    it.each([
+      `sqlite3 -readonly ${ROOT}/data/x "SELECT 1" > ${ROOT}/data/out.txt`,
+      `sqlite3 :memory: "SELECT 1" > ${ROOT}/data/out.txt`,
+    ])("只读/内存库不豁免重定向写落点（第三轮回归钉）： %#", (cmd) => {
+      const r = evaluateWriteTargets(cmd, ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets).toContainEqual({ path: `${ROOT}/data/out.txt`, via: "redirect", segmentIndex: 0, access: "write" });
+    });
+
     it("普通 SELECT 也会创建库文件 → 不按 SQL 动词误判只读", () => {
       const r = evaluateWriteTargets(`sqlite3 ${ROOT}/data/x "SELECT * FROM t"`, ROOT);
       expect(r.kind).toBe("evaluated");
