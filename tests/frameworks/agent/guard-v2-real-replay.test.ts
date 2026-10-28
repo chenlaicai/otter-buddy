@@ -369,3 +369,32 @@ describe("#1641-r2 delta 边界钉死（kill 域语义对照：主 PID 保护面
     expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
   });
 });
+
+describe("2026-10-27 真实拦截回放（负门固化：守卫自测/探针流量的破坏形态；误拦形态归 #1608/#1661 重构在途不钉）", () => {
+  // 数据源：healing events 10-27 UTC（guard-replay-candidates-2026-10-27.json，98 拦截/94 去重）。
+  // 裁决口径：① 守卫自测故意触发的破坏性形态（rm 主仓/.git、pgrep 管道 kill）= 负门 BLOCK；
+  // ② 善后命令（git worktree remove / branch -D / push --force-with-lease）与 colink 外部仓
+  // script_file_exec = 误拦 ALLOW，但守卫重构（#1608/#1661）在途——当前实现下固化 ALLOW 会红，
+  // 钉 BLOCK 会把误拦锁死成期望，故 SKIP，修复 PR 自带回归钉。
+  const gopts = { projectRoot, sessionCwd: projectRoot };
+
+  it("1027-D1: rm 主仓探针文件 + ~/ + /tmp/.git/HEAD 混合落点 → 拦（data_destructive，现场 11:22）", () => {
+    const cmd = `rm -f ${projectRoot}/src-sbx-probe.txt ~/sbx-probe.txt /tmp/sbx5/repo/dotgit-dir/.git/HEAD /tmp/sbx5/repo/.otter/config.yaml`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1027-D2: cd 主仓 && rm data/ 下数据库备份文件（相对路径）→ 拦（data_destructive，现场 11:36）", () => {
+    const cmd = `cd ${projectRoot} && rm -f data/memory.sqlite check-one.mjs data/otter-buddy.db.bak-sweep-1792456524413 data/guard-replay-candidates-old.json`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1027-K1: pgrep -f 非字面 PID 管道 xargs kill -TERM → 拦（self_kill_nonliteral，现场 12:03）", () => {
+    const cmd = `pgrep -f 'background-server-harness.mjs' | xargs -n1 kill -TERM 2>/dev/null || true; cd ${WT}/guard-convergence && echo cleaned`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+
+  it("1027-K2: pgrep -P | xargs kill + 字面 kill 非主 PID 组合 → 拦（self_kill_nonliteral，现场 14:35）", () => {
+    const cmd = `pgrep -P 20259 | xargs kill -TERM; kill -TERM 20259; sleep 2; ps -p 20259 -o pid,command`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, gopts)).toBeTruthy();
+  });
+});
