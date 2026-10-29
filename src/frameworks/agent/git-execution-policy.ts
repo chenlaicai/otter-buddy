@@ -42,6 +42,8 @@ export interface GitExecutionPolicyOptions {
   linkedWorktrees?: Map<string, string>;
   /** 外部仓真实 worktree 注册表解析；测试可注入，生产只读 Git 查询。 */
   resolveExternalWorktree?: (targetPath: string) => { repoRoot: string; worktreeRoot: string; worktreeName: string } | null;
+  /** F20261029clnup：分支内容合并前置的可注入实现（测试用）；缺省走真实 git 判定。 */
+  branchContentMerged?: (repoRoot: string, name: string) => boolean;
 }
 
 export type GitExecutionVerdict = GitExecutionGrant | null;
@@ -245,6 +247,7 @@ const COMMIT_DOMAINS: GitWriteDomain[] = [...INDEX_DOMAINS, "refs-heads", "logs-
 const FETCH_DOMAINS: GitWriteDomain[] = ["objects", "refs-remotes", "logs-refs", "fetch-head", "packed-refs-lock"];
 const PUSH_DOMAINS: GitWriteDomain[] = ["objects", "refs-remotes", "logs-refs", "packed-refs-lock"];
 const WORKTREE_DOMAINS: GitWriteDomain[] = ["worktrees-parent", "objects", "refs-heads", "packed-refs-lock", "logs-refs", "config-lock"];
+const BRANCH_DELETE_DOMAINS: GitWriteDomain[] = ["refs-heads", "logs-refs", "packed-refs-lock"];
 
 function evaluateReadOnly(subcmd: string, args: string[], repoRoot: string, target: RepoTarget): GitExecutionGrant | null {
   const readOnly = subcmd === "status" || subcmd === "log" || subcmd === "diff" ||
@@ -337,7 +340,7 @@ function evaluateWorktreeWrite(args: string[], repoRoot: string, target: RepoTar
   return { ...grant("worktree-remove", repoRoot, target, WORKTREE_DOMAINS), worktreeTarget };
 }
 
-function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target: RepoTarget, evalCwd: string): GitExecutionGrant | null {
+function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target: RepoTarget, evalCwd: string, opts: GitExecutionPolicyOptions): GitExecutionGrant | null {
   // #1682 只授权外部已登记 worktree 的 add/commit；管理写面保持原拒绝边界。
   if (target.kind === "external-linked") return null;
   const { subcmd, args } = envelope;
@@ -347,18 +350,69 @@ function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target
   }
   if (subcmd === "push") return grant("push", repoRoot, target, PUSH_DOMAINS);
   if (subcmd === "worktree") return evaluateWorktreeWrite(args, repoRoot, target, evalCwd);
-  if (subcmd === "branch" && args.includes("-d") && !args.includes("-D")) {
-    return grant("branch-delete", repoRoot, target, ["refs-heads", "logs-refs", "packed-refs-lock"]);
+  if (subcmd === "branch") {
+    if (args.includes("-d") && !args.includes("-D")) {
+      return grant("branch-delete", repoRoot, target, BRANCH_DELETE_DOMAINS);
+    }
+    // F20261029clnup：-D 窄受控强删面（F20261028gidfx「窄受控工具另案」落地）——严格形态
+    //  （恰好 [-D, <name>]，顺序可换）+ 机器前置「分支内容已进 main」（squash 等价亦认）；
+    //  任一不满足 → null（默认 deny，-D 面不放开）。main/HEAD 永不授权。
+    const name = branchDeleteForceTarget(args);
+    const merged = opts.branchContentMerged ?? branchContentMergedInMain;
+    return name !== null && name.toLowerCase() !== "main" && name.toLowerCase() !== "head"
+      && isSafeProfilePath(name) && !name.startsWith("-") && merged(repoRoot, name)
+      ? grant("branch-delete", repoRoot, target, BRANCH_DELETE_DOMAINS)
+      : null;
   }
   return null;
 }
 
+/** branch -D 严格形态解析（F20261029clnup）：恰好两个词 [-D, <name>]（顺序可换），其余 null。 */
+function branchDeleteForceTarget(args: string[]): string | null {
+  if (args.length !== 2) return null;
+  const i = args.indexOf("-D");
+  return i === -1 ? null : args[1 - i];
+}
+
+/**
+ * F20261029clnup：分支内容已进 main 的机器前置（squash 合入亦认）——
+ * ① `main..<name>` 无提交（祖先/真合并）；② 分支净 patch-id 命中 main 某提交 patch-id
+ *（squash 合入的 squash 提交 patch-id = 分支净 diff 的 patch-id；git cherry 的逐提交
+ * patch-id 对照会把 squash 后的多提交分支误判未合并——2026-10-29 实证 fix/gid-grants
+ * 全 `+`）。git 查询失败/名称非法（check-ref-format）一律 false（fail-closed）。
+ * name 须已过调用方白名单与旗标前置校验。
+ */
+function branchContentMergedInMain(repoRoot: string, name: string): boolean {
+  const git = (...args: string[]): string =>
+    execFileSync("git", args, { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  const diffBuf = (rev: string): Buffer =>
+    execFileSync("git", ["diff", rev], { cwd: repoRoot, maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] });
+  try {
+    git("check-ref-format", "--branch", name); // 非法 ref 名（含 ../@{/ 等）→ throw → false
+    const mb = git("merge-base", "main", name);
+    if (!mb) return false;
+    if (git("rev-list", `main..${name}`) === "") return true;
+    const netPid = patchIdOf(diffBuf(`${mb}..${name}`));
+    if (!netPid) return false;
+    for (const c of git("rev-list", "--first-parent", `${mb}..main`).split("\n").filter(Boolean)) {
+      try {
+        if (patchIdOf(diffBuf(`${c}^..${c}`)) === netPid) return true;
+      } catch { /* 根提交无父提交，跳过 */ }
+    }
+  } catch { /* 查询失败 fail-closed */ }
+  return false;
+}
+
+function patchIdOf(diff: Buffer): string {
+  return execFileSync("git", ["patch-id"], { input: diff, encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] }).trim().split(/\s+/)[0] ?? "";
+}
+
 function evaluateSubcommand(
-  envelope: GitEnvelope, repoRoot: string, target: RepoTarget, evalCwd: string,
+  envelope: GitEnvelope, repoRoot: string, target: RepoTarget, evalCwd: string, opts: GitExecutionPolicyOptions,
 ): GitExecutionGrant | null {
   return evaluateReadOnly(envelope.subcmd, envelope.args, repoRoot, target)
     ?? evaluateTreeWrite(envelope.subcmd, repoRoot, target)
-    ?? evaluateManagementWrite(envelope, repoRoot, target, evalCwd);
+    ?? evaluateManagementWrite(envelope, repoRoot, target, evalCwd, opts);
 }
 
 export function evaluateGitExecution(
@@ -372,7 +426,7 @@ export function evaluateGitExecution(
   );
   // git 语义：-C/cd 之后的相对参数按该目录解析，而非宿主进程 cwd（2026-10-28 实证两者不一致曾致授权丢失）。
   if (!target) return null;
-  const verdict = evaluateSubcommand(envelope, repoRoot, target, envelope.targetPath ?? cwd);
+  const verdict = evaluateSubcommand(envelope, repoRoot, target, envelope.targetPath ?? cwd, opts);
   // S1 收口：grant 路径含白名单外字符时不授权（fail-closed → 默认 deny profile）。
   if (verdict && !grantPathsSafe(verdict)) return null;
   return verdict;
