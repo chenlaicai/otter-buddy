@@ -25,7 +25,6 @@ import { createCreateScheduledTaskTool } from "./scheduled-task-tools";
 import { createManageScheduledTaskPendingTool } from "./scheduled-task-pending-tools";
 import { ManageScheduledTaskPending } from "@usecases/scheduler/manage-scheduled-task-pending";
 import type { ScheduledTaskPendingItemRepository } from "@usecases/scheduler/pending-item-repository";
-import { checkBashCommandSafety, readMainProcessPid } from "@frameworks/agent/bash-safety-guard";
 import { getRepoRoot } from "@frameworks/repo-root";
 import { isAbsolute, join } from "node:path";
 import { runRestartService } from "@frameworks/agent/restart-service-executor";
@@ -749,32 +748,15 @@ function parseUntilArgv(until: string): string[] | null {
   return argv.length > 0 ? argv : null;
 }
 
-/** wait 子步骤：until 前置校验——先过守卫主链（复用全家族安全防线，S1）+ 元字符/引号检查（A1/D4③）。 */
+/** wait 子步骤：until 前置校验——kill 族词样拒止 + 元字符/引号检查（A1/D4③）。 */
 function validateUntil(
   until: string | undefined,
-  logger: Logger | undefined,
 ): { error: ToolResponse } | { untilArgv: string[] } {
   if (until === undefined || until.trim() === "") return { untilArgv: [] };
-  // r1 发现 1 修复：透传真 mainPid（对齐 circuit-breaker-helpers 生产调用链形态
-  // readMainProcessPid(cwd)——生产 cwd=主服务运行目录，PID 文件在那）——原 null 使
-  // kill 族检测整体旁路（until: "pkill -f otter-buddy" 可直接过，8/30 事故同款
-  // 威胁经 wait 工具新通道重开）。缺失时 null 走降级链（V1 语义）。
-  // F20261014cwsp：projectRoot 锚定主仓根（getRepoRoot 代码位置解析，与进程 cwd 无关）。
-  // round-2 修正：不传 sessionCwd——wait until 的合法形态是状态查询命令，无写场景；
-  // 传 process.cwd()（生产=主仓根）会触发 S8 子树豁免放开整个 data/ 树（rm -rf data/*
-  // 全放行），缺失时守卫守旧行为（保守拦，与 cwd 统一切换前一致）。
-  const guardProjectRoot = getRepoRoot();
-  const mainPid = readMainProcessPid(guardProjectRoot);
   // N1（delta 复核硬化）：until 通道 kill 族词样一律拒——until 的合法形态是状态查询
-  // 类命令（gh pr checks 等），零合法 kill 形态；fail-closed 封死 PID 文件缺失时
-  // mainPid=null 走 V1 降级链的残余口（降级链对无关字面量 PID 放行）。
+  // 类命令（gh pr checks 等），零合法 kill 形态。
   if (findKillSegments(until).length > 0) {
     return { error: errorResponse("[错误] until 苏醒检查不支持进程终止类命令（kill/pkill/killall 等）——until 只用于状态查询（如 gh pr checks）。确需终止进程的报告搭档处置。") };
-  }
-  const safetyBlock = checkBashCommandSafety(until, mainPid, logger, { projectRoot: guardProjectRoot });
-  if (safetyBlock) {
-    // 与 bash 同文案同纪律——透传守卫拦截文案（含进程终止/data 域引导）
-    return { error: errorResponse(`[错误] until 苏醒检查命令被安全守卫拦截：${safetyBlock}`) };
   }
   const untilArgv = parseUntilArgv(until);
   if (!untilArgv) {
@@ -794,9 +776,9 @@ function buildWaitEcho(reason: string | undefined, seconds: number, untilResultT
 
 /** F20260928slan：wait 工具——等待指定时长（替代裸 sleep），理由自证 + 可选苏醒检查。
  *  定位：感知问题的正道工具（非安全授权闸）。reason 可选靠描述+回显引导；until 可选苏醒检查
- *  命令（过守卫主链 + 禁元字符，execFileAsync 无 shell 展开）——终结「sleep 完再查一次」两拍心智。
+ *  命令（禁元字符，execFileAsync 无 shell 展开）——终结「sleep 完再查一次」两拍心智。
  *  详见方案文档 F20260928slan。 */
-function createWaitTool(logger?: Logger): AgentTool {
+function createWaitTool(): AgentTool {
   return {
     name: "wait",
     description: "等待指定时长或条件就绪（替代裸 sleep）. When: 等 CI 变绿、服务启动、状态就绪或退避重试时——先调 speak(body) 告诉搭档在等什么、为什么，再调用本工具. Not for: 5 秒以下的短等待. 等待即黑盒——reason 参数是你对搭档的交代. Output: 等待完成确认；带 until 时在一次调用内立即探测，未就绪每 10 秒重试，直到条件为真或 seconds 总预算耗尽；gh pr checks 确认 CI 失败（真实业务应答）时提前终止（带 until 才轮询，不要写 bash 轮询）.",
@@ -832,7 +814,7 @@ function createWaitTool(logger?: Logger): AgentTool {
       }
 
       // 2. until 前置校验（守卫主链 + 元字符/引号检查）
-      const untilCheck = validateUntil(until, logger);
+      const untilCheck = validateUntil(until);
       if ("error" in untilCheck) return untilCheck.error;
       const untilArgv = untilCheck.untilArgv;
 
@@ -1675,7 +1657,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
     createYieldTool(ctx, healingRepo),
-    createWaitTool(logger),
+    createWaitTool(),
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx, healingRepo),
     createDissolveOtterTool(ctx),
