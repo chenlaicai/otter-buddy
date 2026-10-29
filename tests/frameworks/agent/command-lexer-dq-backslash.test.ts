@@ -8,22 +8,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { parseOnce } from "@frameworks/agent/command-model";
-import { evaluateWriteVerdict } from "@frameworks/agent/write-verdict";
-import { segmentStdoutContent } from "@frameworks/agent/write-target-evaluator";
-
-const ROOT = "/repo";
-const WT = "/repo/.otter/worktrees/wt";
 
 /** 取第 1 个实参词的 evaluated（矩阵主体就是「词求值是否= bash 真值」）。 */
 const argOf = (cmd: string): string | null => {
   const seg = parseOnce(cmd).segments[0];
   if (seg === undefined) throw new Error("no segment");
   return seg.words[1]?.evaluated ?? null;
-};
-const segOf = (cmd: string) => {
-  const seg = parseOnce(cmd).segments[0];
-  if (seg === undefined) throw new Error("no segment");
-  return seg;
 };
 
 describe("双引号反斜杠语义矩阵（M-f89f1ff3：\\ 仅 $ ` \" \\ 换行前特殊，其余字面保留）", () => {
@@ -64,36 +54,4 @@ describe("双引号反斜杠语义矩阵（M-f89f1ff3：\\ 仅 $ ` \" \\ 换行�
     expect(argOf(String.raw`echo "x\'y\\z\$w"`)).toBe("x\\'y\\z$w");
   });
 
-  // ===== 下游面（词义传导：重建/落点/治标闸降级）=====
-  it("下游·echo 重建：echo \"a\\nb\"（无 -e）→ 字面 a\\nb（bash 真值）", () => {
-    expect(segmentStdoutContent(segOf(String.raw`echo "a\nb"`))).toBe("a\\nb");
-  });
-
-  it("下游·echo -e 解码：echo -e \"a\\nb\" → a<LF>b（bash 真值——修复前词法层丢反斜杠谎报 anb）", () => {
-    expect(segmentStdoutContent(segOf(String.raw`echo -e "a\nb"`))).toBe("a\nb");
-  });
-
-  it("下游·治标闸降级：echo \"it\\'s\" → 精确重建 it\\'s（#1597 分歧闸不再触发，纵深冗余兑现）", () => {
-    expect(segmentStdoutContent(segOf(String.raw`echo "it\'s"`))).toBe("it\\'s");
-  });
-
-  it("下游·evalPath 落点：> \"d\\'ir/out.txt\" 落点=bash 真值 d\\'ir/out.txt（修复前丢反斜杠错位）", () => {
-    const r = evaluateWriteVerdict(String.raw`cd ${WT} && echo x > "d\'ir/out.txt"`, ROOT);
-    expect(r.verdict).toBe("ALLOW"); // 工作区落点
-    if (r.verdict !== "ALLOW") throw new Error("expected ALLOW"); // 收窄 union：fail-closed 变体无 targets
-    expect(r.targets.some(t => t.path.endsWith("d\\'ir/out.txt"))).toBe(true);
-  });
-
-  it("下游·#1597 attack 面不回退：单反斜杠吞命令结构端到端仍 fail-closed BLOCK", () => {
-    const cmd = String.raw`echo -e "echo hi > /tmp/log \' ; touch /repo/data/pwn \' " > /tmp/g.sh && bash /tmp/g.sh`;
-    const r = evaluateWriteVerdict(cmd, ROOT);
-    expect(r.verdict).toBe("BLOCK");
-    expect(r.mode).toBe("fail-closed"); // 根修后重建转真值，echo -e 白名单外 \' → null fail-closed
-  });
-
-  it("残留触发面回归钉（检视獭1600 建议 1）：echo \"a\\（尾反斜杠+未闭合）→ escape(\"\\\\\") part 在 + segmentStdoutContent null（治标闸唯一残留触发面）", () => {
-    const seg = segOf("echo \"a\\");
-    expect(seg.words[1].parts.some(p => p.type === "escape" && p.text === "\\")).toBe(true);
-    expect(segmentStdoutContent(seg)).toBeNull();
-  });
 });

@@ -13,45 +13,9 @@ import { getConfig } from "@frameworks/config";
 import type { OutputGuardConfig } from "./output-guard";
 import { attachOutputGuard } from "./output-guard";
 import { otterInvokeStorage } from "./model-runtime-registry";
-// F20261023ktru（#1069）：自有项目提醒里的正道脚本路径同走仓根绝对路径（外部项目 cwd 不可解析相对路径）
-import { RESTART_SERVICE_SCRIPT } from "./kill-block-messages";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { checkBashCommandSafety, readMainProcessPid, SLEEP_REASON_PREFIX, stripSleepMarkerIfPresent } from "./bash-safety-guard";
-import { loadAllowedServicePorts } from "./allowed-service-ports";
 import { diffTokenUsage, type TokenUsage } from "@usecases/conversation/token-usage";
 
-/**
- * #844（F20260914dsrv）：拦截文案动态附加 dev server 受控路径引导。
- * 守卫的静态文案只提供「worktree 隔离/告知搭档」两条路，对外部项目 dev server 重启类
- * 正当诉求失效（6 次变体重试实证）——本函数在拦截发生时检查端口白名单文件是否存在：
- *   - 已配置：提示用 restart-service 受控脚本 + 已声明的端口列表；
- *   - 未配置：提示 restart-service --add 现场声明路径（#1069），或搭档创建白名单文件。
- * 静态文案零改动（测试断言友好），追加段动态生成。IO 异常静默退化为原文案。
- *
- * #1207（F20260930l573）：引导改为命令感知——只在命令真实命中进程操作形态
- *（kill 族/lsof -ti/pkill/killall/restart-service 自身）时附加。此前无差别附加导致
- * 只读 python heredoc 探查被拦时文案里出现 dev-server 重启引导（issue #1207
- * 9/29 09:06 案例：判定层拦的是 heredoc patch 通道，引导层又叠了不相关建议，
- * 两条线索都没指向真实原因）。
- */
-const PROCESS_OPS_SHAPE = /\b(?:p?kill|killall\d?|pgrep|skill|lsof)\b|restart-service/;
-
-// F20261023ktru（#1069）：导出供单测覆盖指引分支（此前零测试覆盖，双分支相对路径漏网的根因）
-export function appendDevServerGuidance(reason: string, projectRoot: string, command?: string): string {
-  // 命令感知：非进程操作形态的拦截（heredoc 探查/重定向/主仓写等）不附加 dev-server
-  // 引导——内容与拦截原因无关，只会误导排查方向。command 未传（历史调用方）保持旧行为。
-  if (command !== undefined && !PROCESS_OPS_SHAPE.test(command)) return reason;
-  try {
-    const allowed = loadAllowedServicePorts(projectRoot);
-    if (allowed.length > 0) {
-      const ports = allowed.map(s => s.port).join("、");
-      return `${reason}\n【自有项目 dev server】检测到端口白名单（已声明端口：${ports}）。重启自有项目 dev server 请用受控脚本：node ${RESTART_SERVICE_SCRIPT} <port>（脚本内部做 PID/cwd 校验后终止）；按 PID 终止自己起的进程（含非白名单端口）：node ${RESTART_SERVICE_SCRIPT} kill-by-pid <pid> --project /abs/path（#1540，--project 声明归属目录）；端口未声明且项目在 otter 工作根内的，可加 --project /abs/path --add 现场声明（#1069）。`;
-    }
-    return `${reason}\n【自有项目 dev server】如需重启自有项目的 dev server：node ${RESTART_SERVICE_SCRIPT} <port> --project /abs/path --add 可现场声明并重启（#1069，限 otter 工作根内项目，脚本内部做 PID/cwd 校验）；按 PID 终止自己起的进程：node ${RESTART_SERVICE_SCRIPT} kill-by-pid <pid> --project /abs/path（#1540，--project 声明归属目录）；范围外项目请搭档创建 ${projectRoot}/.otter/allowed-service-ports.json（格式见 docs/features/2026/09/14/ 下 F20260914dsrv 文档）。`;
-  } catch {
-    return reason;
-  }
-}
 
 /** _attachGuards 所需的参数类型 */
 export interface AttachGuardsParams {
@@ -237,11 +201,6 @@ export function attachCircuitBreaker(
   logger: Logger,
   options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void; sandboxGuarded?: boolean; loopBlockedTools?: Map<string, string>; guardGateActive?: () => boolean },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
-  // F20260830bsgr：bash 安全守卫——读取主进程 PID
-  // F20260830fabt-r2: 每次检查都实时读 PID 文件（不缓存），支持热重启换 PID
-  const getMainPid = (): number | null => {
-    return readMainProcessPid(options?.projectRoot ?? process.cwd());
-  };
   const circuitBreaker = new ToolCallCircuitBreaker(circuitBreakerConfig, otterId, logger);
   const doAbort = options?.abortOverride ?? (() => { session.abort(); });
 
@@ -280,17 +239,6 @@ export function attachCircuitBreaker(
 
       const toolName = e.toolName ?? e.name ?? "unknown";
 
-      // F20260830bsgr：bash 安全守卫——拦截针对主进程的 kill 命令（早于工具执行）
-      // #844：guardOptions 传入 projectRoot 供白名单热加载；拦截文案动态附加受控脚本引导
-      // r1 发现 2 修复：去掉 `&& e.toolCallId` 收窄——缺 toolCallId 的 bash 事件
-      // （SDK 边缘形态）不能整体跳过守卫；toolCallId 可选传递给 abortOnUnsafeBash
-      if (toolName === "bash") {
-        const args = (e.args ?? {}) as Record<string, unknown>;
-        const command = typeof args.command === "string" ? args.command : "";
-        const guardHit = abortOnUnsafeBash(command, e.toolCallId);
-        if (guardHit === "aborted") return;
-        // deferred（门接管显式拦下）不 return：继续熔断计数——重复被拦命令由循环熔断兑住
-      }
 
       const result = circuitBreaker.check(toolName, e.args);
       // F20261020hlbk（#1566）→ F20261027cbfp（#1653 P0-2 + S1 补防）：黑名单写入两条件（或）——
@@ -338,50 +286,6 @@ export function attachCircuitBreaker(
     }
   });
 
-  /** F20261019gses P0 影子下线：观察期对照机制（notifyShadowEval 影子记账）随转正删除——
-   *  主判定已切 evaluateWriteVerdict，无「旧链 vs 新链」对照面。 */
-
-  /** bash 守卫判定 + abort 发射（自 subscribe 回调拆出控复杂度）。
-   *  F20260928slan：sleep 拦截（感知问题）与 kill 域（安全问题）前缀分流——守卫返回带
-   *  SLEEP_REASON_PREFIX 标记的 reason 时发射 `bash_sleep:`，否则 `bash_safety:`。判定用
-   *  startsWith（delta-3 备注：精确匹配，禁用 includes），此发射点是 `bash_sleep:` 的唯一产源（D5a）。
-   *  F20261019gses P0 影子下线：onShadowEval 影子记账（观察期对照机制）已删。 */
-  /** F20261026gobs delta-r1：拦截观测面（结构化日志 + healing）自 abortOnUnsafeBash 拆出——
-   *  门接管后本函数仍被兑底链与门共用语义参照，拆出控圈复杂度不改行为。 */
-  function recordGuardIntercept(command: string, reason: string, mainPid: number | null, kind: "sleep" | "safety"): void {
-    logger.warn("[bash-safety-guard] BLOCKED dangerous bash command", {
-      otterId,
-      mainPid,
-      kind,
-      command: command.substring(0, 200),
-    });
-    // F20260831aksp T3：拦截落 healing（框架层 medium 样本；失败不阻断拦截本身）
-    options?.onGuardIntercept?.({ command, reason });
-  }
-
-  // eslint-disable-next-line complexity -- 守卫判定/引导文案/单点落账/门接管与 abort 降级五段同序，拆开会分散「同一次拦截只落一次账」不变量（F20261026gobs N1）
-  function abortOnUnsafeBash(command: string, toolCallId?: string): "aborted" | "deferred" | null {
-    const mainPid = getMainPid();
-    const rawSafetyBlock = checkBashCommandSafety(command, mainPid, logger, { projectRoot: options?.projectRoot, sessionCwd: options?.sessionCwd, sandboxGuarded: options?.sandboxGuarded });
-    if (!rawSafetyBlock) return null;
-    const isSleepBlock = rawSafetyBlock.startsWith(SLEEP_REASON_PREFIX);
-    const safetyBlock = appendDevServerGuidance(stripSleepMarkerIfPresent(rawSafetyBlock), options?.projectRoot ?? process.cwd(), command);
-    // delta-r2（检视獭1646 N1）：门激活时由门单点落 healing，abort 链不得双落（6h ≥3 次升级
-    // 计数与事件噪声会翻倍）；门失活时 abort 链仍负责落账，降级路径守恒。
-    if (!options?.guardGateActive?.()) {
-      recordGuardIntercept(command, safetyBlock, mainPid, isSleepBlock ? "sleep" : "safety");
-    }
-    clearEventTimer(toolCallId);
-    // F20261026gobs delta-r1（检视獭1646 S3）：tool_call 门（bashGuardGate）已接管 bash 守卫判定
-    //（同源同参）——门在 beforeToolCall 以显式 reason 落痕返回 LLM；SDK prepareToolCall 的
-    // signal.aborted 检查先于 beforeResult.block（pi-agent-core agent-loop.js L500 vs L507），
-    // 此处若同时 abort 会把门的显式理由覆盖成 "Operation aborted"（双拦=显式落痕失效）。
-    // 故门激活时交由门单点拦下（不 abort、事件流继续——重复被拦命令由循环熔断计数兑住）；
-    // 门失活（store 缺失等 fail-open）时此处兑底 abort——降级不降安全。
-    if (options?.guardGateActive?.()) return "deferred";
-    doAbort(isSleepBlock ? `bash_sleep:${safetyBlock}` : `bash_safety:${safetyBlock}`);
-    return "aborted";
-  }
 
   const originalUnregister = unregisterToolCall;
   return {
