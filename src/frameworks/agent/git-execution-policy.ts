@@ -392,7 +392,7 @@ function grantPathsSafe(grant: GitExecutionGrant): boolean {
  * 字符串语法（检视 A1），`\` 双层转义语义脆弱——一律在授权入口拒绝
  * （fail-closed，不生成规则）。白名单外字符（空格/中文等）拿不到窄域授权。
  */
-const SAFE_PROFILE_PATH = /^[A-Za-z0-9._\/-]+$/;
+const SAFE_PROFILE_PATH = /^[A-Za-z0-9._/-]+$/;
 
 function isSafeProfilePath(path: string): boolean {
   return SAFE_PROFILE_PATH.test(path);

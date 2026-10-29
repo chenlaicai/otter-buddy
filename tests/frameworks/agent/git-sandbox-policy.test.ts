@@ -263,38 +263,40 @@ describe("git-execution-policy", () => {
       });
       expect(g).toBeNull();
     });
+  });
+});
 
-    it("S1：worktree 名含反引号 → 不授权（白名单拒绝）", () => {
-      const g = evaluateGitExecution("git worktree add .otter/worktrees/x`id`", WT, {
-        repoRoot: REPO,
-        linkedWorktrees: LINKED,
-      });
-      expect(g).toBeNull();
+describe("S1/A1 白名单回归（r1 返修）", () => {
+  it("S1：worktree 名含反引号 → 不授权（白名单拒绝）", () => {
+    const g = evaluateGitExecution("git worktree add .otter/worktrees/x`id`", WT, {
+      repoRoot: REPO,
+      linkedWorktrees: LINKED,
     });
+    expect(g).toBeNull();
+  });
 
-    it("S1：worktree 名含 $() → 不授权", () => {
-      const g = evaluateGitExecution("git worktree add .otter/worktrees/x$(id)", WT, {
-        repoRoot: REPO,
-        linkedWorktrees: LINKED,
-      });
-      expect(g).toBeNull();
+  it("S1：worktree 名含 $() → 不授权", () => {
+    const g = evaluateGitExecution("git worktree add .otter/worktrees/x$(id)", WT, {
+      repoRoot: REPO,
+      linkedWorktrees: LINKED,
     });
+    expect(g).toBeNull();
+  });
 
-    it("A1：worktree 名含双引号 → 不授权", () => {
-      const g = evaluateGitExecution('git worktree add .otter/worktrees/x"y', WT, {
-        repoRoot: REPO,
-        linkedWorktrees: LINKED,
-      });
-      expect(g).toBeNull();
+  it("A1：worktree 名含双引号 → 不授权", () => {
+    const g = evaluateGitExecution('git worktree add .otter/worktrees/x"y', WT, {
+      repoRoot: REPO,
+      linkedWorktrees: LINKED,
     });
+    expect(g).toBeNull();
+  });
 
-    it("S1：worktree 名含空格 → 不授权（白名单拒绝）", () => {
-      const g = evaluateGitExecution("git worktree add .otter/worktrees/my dir", WT, {
-        repoRoot: REPO,
-        linkedWorktrees: LINKED,
-      });
-      expect(g).toBeNull();
+  it("S1：worktree 名含空格 → 不授权（白名单拒绝）", () => {
+    const g = evaluateGitExecution("git worktree add .otter/worktrees/my dir", WT, {
+      repoRoot: REPO,
+      linkedWorktrees: LINKED,
     });
+    expect(g).toBeNull();
   });
 });
 
