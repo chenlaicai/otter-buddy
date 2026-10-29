@@ -321,6 +321,7 @@ describe("git-execution-policy profile 规则与指纹", () => {
         linkedWorktrees: LINKED,
       })!;
       const rules = grantToProfileRules(g);
+      // #1697：断言用值层真形态（单反斜杠转义点）；语义守门见「SBPL regex 值语义」describe
       expect(rules.some(r => r.includes(`(allow file-write* (regex #"^${REPO}/\\.otter/worktrees/wt2/\\.git$"))`))).toBe(true);
     });
 
@@ -331,6 +332,73 @@ describe("git-execution-policy profile 规则与指纹", () => {
       })!;
       const rules = grantToProfileRules(g);
       expect(rules).toContain(`(allow file-write* (regex #"^${REPO}/\\.git/worktrees/${WT_NAME}(/|$)"))`);
+    });
+  });
+
+  describe("SBPL regex 值语义（#1697 防转义回归守门）", () => {
+    /** 从规则串提取 ICU regex 值并验证匹配——SBPL 字符串值层的 \.（单反斜杠+点）
+     *  在 ICU 里匹配点号；若源码层多写一层转义（值变 \\.，匹配字面反斜杠），
+     *  规则将永不匹配而 deny 独存——#1688 引入、10-29 全局爆发的根因。
+     *  本组断言不关心规则串字面，只关心「值语义」：提取后作为 JS RegExp 必须命中真实路径。 */
+    function extractPatterns(rules: string[]): string[] {
+      const out: string[] = [];
+      for (const r of rules) {
+        const re = /regex #"([^"]+)"/g;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(r)) !== null) out.push(m[1]);
+      }
+      return out;
+    }
+
+    it("commit 授权的全部 regex 值必须命中 add/commit 真实写路径", () => {
+      const g = evaluateGitExecution("git commit -m test", WT, {
+        repoRoot: REPO,
+        linkedWorktrees: LINKED,
+      })!;
+      const pats = extractPatterns(grantToProfileRules(g));
+      expect(pats.length).toBeGreaterThan(0);
+      const paths = [
+        `${REPO}/.git/worktrees/${WT_NAME}/index.lock`,
+        `${REPO}/.git/objects/ab/cdef`,
+        `${REPO}/.git/refs/heads/feature`,
+      ];
+      for (const p of paths) {
+        expect(pats.some(pat => new RegExp(pat).test(p))).toBe(true);
+      }
+    });
+
+    it("规则值层不得出现双反斜杠（转义形态回归闸）", () => {
+      const g = evaluateGitExecution("git commit -m test", WT, {
+        repoRoot: REPO,
+        linkedWorktrees: LINKED,
+      })!;
+      for (const r of grantToProfileRules(g)) {
+        for (const pat of extractPatterns([r])) {
+          expect(pat.includes("\\\\")).toBe(false);
+        }
+      }
+    });
+
+    it("外部仓 commit 授权同样命中（#1697 主现场路径）", () => {
+      const externalRoot = "/Users/orca/ai/others/colink";
+      const externalWt = `${externalRoot}/.otter/worktrees/shared-recall-reedit`;
+      const g = evaluateGitExecution(`git -C ${externalWt} commit -m feat`, "/tmp", {
+        repoRoot: REPO,
+        linkedWorktrees: LINKED,
+        resolveExternalWorktree: () => ({ repoRoot: externalRoot, worktreeRoot: externalWt, worktreeName: "shared-recall-reedit" }),
+      })!;
+      const pats = extractPatterns(grantToProfileRules(g));
+      expect(pats.some(pat => new RegExp(pat).test(`${externalRoot}/.git/worktrees/shared-recall-reedit/index.lock`))).toBe(true);
+      expect(pats.some(pat => new RegExp(pat).test(`${externalRoot}/.git/objects/pack/foo.pack`))).toBe(true);
+    });
+
+    it("worktree add 的 .git 指针规则值命中指针路径（删除面）", () => {
+      const g = evaluateGitExecution(`git worktree remove ${REPO}/.otter/worktrees/wt2`, REPO, {
+        repoRoot: REPO,
+        linkedWorktrees: LINKED,
+      })!;
+      const pats = extractPatterns(grantToProfileRules(g));
+      expect(pats.some(pat => new RegExp(pat).test(`${REPO}/.otter/worktrees/wt2/.git`))).toBe(true);
     });
   });
 

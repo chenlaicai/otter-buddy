@@ -121,7 +121,7 @@ function buildBaseProfile(repoRoot: string, dataDir: string): string[] {
     ...roots.map(({ path }) => `(allow file-write* (subpath "${path}"))`),
     // 真实 .git 也可能落在 alpha/tmp 等通用写区，不能只 deny 主仓那一棵。
     // 固定组件形态覆盖 gitdir 子路径与 worktree .git 指针，不匹配 .gitignore/.github。
-    '(deny file-write* (regex #"/\\.git(/|$)"))',
+    '(deny file-write* (regex #"/\\.git(/|$)"))', // TS 单引号串 \\. 值=\\.（单反斜杠+点）——deny 侧形态本就正确，#1697 修的是 grantToProfileRules 侧
     "(deny signal)",
   ];
 }
@@ -140,6 +140,9 @@ function buildGitProfile(repoRoot: string, dataDir: string, grant: GitExecutionG
   if (cached) return cached;
 
   const base = buildBaseProfile(repoRoot, dataDir);
+  // 注：单引号串里 \\. 的值是 \.（单反斜杠+点）——ICU regex 匹配 ".git"，形态正确。
+  // #1697 的 bug 在 grantToProfileRules（模板串多了一层转义）——两处形态现已对齐，
+  // 语义守门测试见 git-sandbox-policy.test.ts「SBPL regex 值语义」describe。
   const genericGitDeny = '(deny file-write* (regex #"/\\.git(/|$)"))';
   const profile = [
     // Why: 外部仓只扩大 Git 窄域，不能把宿主仓只读边界或宿主自治区换掉。
