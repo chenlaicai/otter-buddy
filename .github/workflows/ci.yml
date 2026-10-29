@@ -238,3 +238,37 @@ jobs:
           # OTTER_TEST_* 环境变量覆盖；CI 环境两皆无 → 采样段 skip，selftest 全跑）
           OTTER_TEST_LLM_API_KEY: ""
           OTTER_TEST_LLM_MODEL: ""
+
+  # F20261029clnup 检视一轮严重 3 收口：真沙箱 e2e 的 macOS CI 门。git-sandbox-integration
+  # （describe.skipIf(!isMac)）在 ubuntu check job 全数跳过（run 40820720599：13/13 skipped），
+  # 「真实执行面以 CI 为准」此前无机器承载（真 sandbox-exec 只存在于 macOS）。macos-latest
+  # 真执行该集成面 + guard-narrow-cleanup（公共仓 macOS runner 免费分钟），每 PR/push 真跑；
+  # 另加机械防假绿：全数跳过/无真执行直接红，杜绝「skip 当通过」。
+  sandbox-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Upgrade npm to match local version
+        run: npm install -g npm@11.17.0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run real sandbox-exec integration tests (macOS only)
+        run: |
+          set -o pipefail
+          npx vitest run tests/frameworks/agent/git-sandbox-integration.test.ts tests/frameworks/agent/guard-narrow-cleanup.test.ts | tee /tmp/vitest-macos.log
+          # 机械防假绿：必须有 ≥1 用例真执行通过；全数跳过/静默不执行 → 本行 grep 失败 → 红
+          grep -qE "Tests.*[1-9][0-9]* passed" /tmp/vitest-macos.log
