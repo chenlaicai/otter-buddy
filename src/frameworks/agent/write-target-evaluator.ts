@@ -758,21 +758,46 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
  *  内容源收窄与 interpreterStdinFeedContent 同基座（segmentStdoutContent），一条语义一个接口。 */
 interface SqliteStdinFeed { contents: string[]; opaque: boolean }
 
-function heredocBodyHasInterpolation(body: string): boolean {
+/** #1686 r1 严重 3（检视獭-1686）：裸 heredoc（未引号定界）体的 bash 实义重建。
+ *  POSIX 语义（bash 对照实证，见 F20261029stdin 附录 bash/sqlite3 对照表）：反斜杠
+ *  只在 $ ` \ 换行 四符前是引用符——\$→$、\`→`、\\→\、反斜杠+换行=续行（一并删除、
+ *  两物理行接成一逻辑行）；其余 \x 反斜杠字面保留（bash 同款）。
+ *  单趟扫描同时判「含未转义展开」：裸 $ 或反引号 = 运行时展开（值可伪造行首点/换行，
+ *  载荷不可静态重建——bash 对照 y=INJECTED 实证 \\$y 是真展开注入面）→ interpolated 时
+ *  text=null（调用方 fail-closed），否则 text=有效输入文本（sqlite3 实际收到的字节
+ *  ——dot/ATTACH 判读的正确对象；旧版按原始体判读，把 bash 已接续掉的物理行当真实行首
+ *  =静态良性误拦）。 */
+function bashHeredocEffective(body: string): { text: string | null; interpolated: boolean } {
+  let out = "";
+  let interpolated = false;
   for (let i = 0; i < body.length; i++) {
     const c = body[i];
-    if (c === "\\") { i++; continue; }
-    if (c === "$" || c === "`") return true;
+    if (c === "\\") {
+      const nx = body[i + 1];
+      if (nx === "$" || nx === "`" || nx === "\\") { out += nx; i++; continue; }
+      if (nx === "\n") { i++; continue; } // 续行：反斜杠+换行一并删除（bash 同款）
+      out += c; continue; // 其余 \x：反斜杠字面保留
+    }
+    if (c === "$" || c === "`") interpolated = true; // 未转义展开：运行时值不可证
+    out += c;
   }
-  return false;
+  return { text: interpolated ? null : out, interpolated };
 }
 
+/** #1686 r1 严重 1（检视獭-1686）：fd 前缀输入重定向与裸形态同一判读（bash 同构——
+ *  `0<`/`0<>`/`0<<<` 就是 stdin 语义，lexer 已把 fd 形态归一为 op token）。数字前缀
+ *  归一后按 fd 分流：fd 0/缺省=stdin 语义（here-string 馈体/文件输入）；fd≠0 不馈
+ *  sqlite3 的 SQL 输入（stdin=fd 0），不误伤 `2</dev/null` 等非 stdin 输入形态。 */
 function sqliteRedirectFeed(seg: Segment, feed: SqliteStdinFeed): void {
   for (const rd of seg.redirects) {
-    if (rd.op === "<<<") {
-      if (rd.target === null) feed.opaque = true;
+    const m = /^([0-9]*)(.*)$/.exec(rd.op);
+    const fd = m![1] === "" ? 0 : Number(m![1]);
+    const op = m![2];
+    if (fd !== 0) continue;
+    if (op === "<<<") {
+      if (rd.target === null) feed.opaque = true; // 动态 here-string 内容不可证
       else feed.contents.push(rd.target);
-    } else if ((rd.op === "<" || rd.op === "<>") && rd.target !== "/dev/null") {
+    } else if ((op === "<" || op === "<>") && rd.target !== "/dev/null") {
       feed.opaque = true; // 文件输入内容静态不可知（<> 兼读写更不可证）
     }
   }
@@ -781,9 +806,12 @@ function sqliteRedirectFeed(seg: Segment, feed: SqliteStdinFeed): void {
 function sqliteStdinFeed(seg: Segment, prev: Segment | undefined): SqliteStdinFeed {
   const feed: SqliteStdinFeed = { contents: [], opaque: false };
   for (const hd of seg.heredocs) {
-    // 引号定界=绝对数据；裸定界符含插值（$/反引号）可运行时伪造行首点/换行 → 不可证
-    if (hd.delimQuoted || !heredocBodyHasInterpolation(hd.body)) feed.contents.push(hd.body);
-    else feed.opaque = true;
+    // 引号定界=绝对数据；裸定界符按 bash 实义重建（r1 严重 3）：未转义 $/反引号=运行时
+    // 展开（可伪造行首点/换行）→ 不可证 fail-closed；纯转义/续行形态重建有效输入文本再判。
+    if (hd.delimQuoted) { feed.contents.push(hd.body); continue; }
+    const eff = bashHeredocEffective(hd.body);
+    if (eff.text === null) feed.opaque = true;
+    else feed.contents.push(eff.text);
   }
   if (seg.joiner === "|" || seg.joiner === "|&") {
     const out = prev === undefined ? null : segmentStdoutContent(prev);
@@ -798,14 +826,14 @@ function sqliteStdinFeed(seg: Segment, prev: Segment | undefined): SqliteStdinFe
  *  实测：普通 SELECT 也会创建不存在的库文件，不能靠 SQL 动词出具无写证明。
  *  只读/内存主库也不能豁免 ATTACH 与写 dot-command；未知选项值、URI 解码失败一律不可证。 */
 // eslint-disable-next-line complexity, max-statements -- sqlite3 选项/URI/只读语义穷举；每条分支对应 sqlite3 参数形态
-function sqliteDatabaseTarget(words: Word[], acc: SegmentEvalAcc, feed: SqliteStdinFeed): { target: string | null; readOnly: boolean } {
+function sqliteDatabaseTarget(words: Word[], acc: SegmentEvalAcc, feed: SqliteStdinFeed, headIndex = 0): { target: string | null; readOnly: boolean } {
   let db: string | null | undefined;
   let readOnly = false;
   let positional = false;
   const payloads: string[] = [...feed.contents];
   const valueFlags = new Set(["-cmd", "-init", "-key", "-hexkey", "-textkey", "-vfs", "-escape", "-newline", "-nullvalue", "-separator", "-nonce", "-maxsize"]);
   const noValueFlags = new Set(["-append", "-ascii", "-bail", "-batch", "-box", "-column", "-csv", "-deserialize", "-echo", "-header", "-noheader", "-help", "-html", "-interactive", "-json", "-line", "-list", "-markdown", "-nofollow", "-quote", "-safe", "-serialize", "-stats", "-table", "-tabs", "-version", "-vfstrace"]);
-  for (let i = 1; i < words.length; i++) {
+  for (let i = headIndex + 1; i < words.length; i++) {
     // 复用既有同命令赋值溯源，不用动态=null 把 H=~/... && sqlite3 $H 错当未知。
     const value = acc.segments === undefined ? words[i].evaluated : resolveTargetArgWord(words[i], acc.segments, acc.index);
     if (!positional && value === "--") { positional = true; continue; }
@@ -861,7 +889,18 @@ function sqliteDatabaseTarget(words: Word[], acc: SegmentEvalAcc, feed: SqliteSt
 function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: SegmentEvalAcc): UnevalReason | null {
   const words = seg.words;
   // 先判是否本函数管辖的命令——不管的命令直接返回 null（不得因词含 var/cmdsub 就报 dynamic-path）
-  const handled = bare === "sqlite3" || bare === "curl" || bare === "wget" || bare === "dd" || bare === "sed" || bare === "perl" || bare === "ruby"
+  // #1686 r1 严重 2（检视獭-1686）：sqlite3 段首识别与 feed/写面共享归一基座（resolveExecHead
+  //  ——跳赋值前缀/wrapper/分发器 + 版本名归一），argv 解析与 stdin 馈体提取共用同一
+  //  headIndex；不用「只改入口仍旧 words.slice(1)」半修（wrapper 参数会被误当 sqlite3 选项）。
+  //  名字比对注意：canonicalExecName 的版本后缀剥离（python3→python 同款规则）会把
+  //  「sqlite3」名字内嵌的尾 3 当版本吃掉归一成「sqlite」——故按归一名反向认族
+  // （覆盖 sqlite3/SQLITE3/sqlite3.40/路径形/busybox sqlite3 全形态；对同名前身
+  //  sqlite(1) 的误收是保守方向——同判不漏放）。注：其余词表命令（curl 等）仍裸
+  //  argv0 识别——同族 wrapper 缺口是本 PR 前既有边界，本 issue（#1686）不扩面
+  // （残余风险已记 F20261029stdin）。
+  const head = resolveExecHead(seg);
+  const sqliteHead = head?.name === "sqlite" ? head : null;
+  const handled = sqliteHead !== null || bare === "curl" || bare === "wget" || bare === "dd" || bare === "sed" || bare === "perl" || bare === "ruby"
     || bare === "tar" || bare === "unzip" || bare === "rsync"
     || EXTENDED_TARGET_COMMANDS.has(bare);
   if (!handled) return null;
@@ -875,9 +914,9 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
     acc.targets.push({ path: resolved, via: "cmd-arg", segmentIndex: acc.index, access: "write" });
     return null;
   };
-  if (bare === "sqlite3") {
+  if (sqliteHead !== null) {
     const prevSeg = acc.index > 0 ? acc.segments?.[acc.index - 1] : undefined;
-    const r = sqliteDatabaseTarget(words, acc, sqliteStdinFeed(seg, prevSeg));
+    const r = sqliteDatabaseTarget(words, acc, sqliteStdinFeed(seg, prevSeg), sqliteHead.headIndex);
     if (r.readOnly) return null;
     if (r.target === null) return "argv-write-uncovered"; // 文件槽未知/动态，不可出具无写证明
     return push(r.target);

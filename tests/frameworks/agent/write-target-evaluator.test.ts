@@ -407,6 +407,61 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
     it("不透明管道馈体 fail-closed 不因主库只读/内存豁免", () => {
       expect(evaluateWriteTargets(`cat ${ROOT}/payload.sql | sqlite3 -readonly ${ROOT}/data/x`, ROOT)).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
     });
+
+    // ── r1 处置（检视獭-1686 严重 1/2/3）：fd 前缀形态 / wrapper 形态 / 裸 heredoc 转义语义。
+    // 攻击侧一律「求值器 reason + 生产 guard 非空」双钉（处置要求），良性侧钉不误伤。──
+    it.each([
+      `sqlite3 :memory: 0<<<"ATTACH DATABASE '${ROOT}/data/x' AS a"`,   // 严重 1：fd here-string ATTACH
+      `sqlite3 :memory: 0<<<"$SQL"`,                                    // 严重 1：fd here-string 动态内容
+      `sqlite3 ${ROOT}/data/x 0<${ROOT}/payload.sql`,                   // 严重 1：fd 输入重定向（文件内容不可知）
+      `sqlite3 ${ROOT}/data/x 0<>${ROOT}/payload.sql`,                  // 严重 1：fd 读写重定向
+      "sqlite3 :memory: 0<<'EOF'\n.system touch /tmp/pwn\nEOF",        // 严重 1：fd heredoc dot
+      `env sqlite3 :memory: <<'EOF'\n.system touch /tmp/pwn\nEOF`,     // 严重 2：wrapper+heredoc
+      `printf '.system touch /tmp/pwn' | env sqlite3 :memory:`,         // 严重 2：wrapper+管道
+      `env sqlite3 :memory: 0<<<"ATTACH DATABASE '${ROOT}/data/x' AS a"`, // 严重 2+1：wrapper+fd here-string
+      "sqlite3 :memory: <<EOF\n\\\n.system touch /tmp/pwn\nEOF",     // 严重 3：续行接出真行首点（bash 实义=dot 命令）
+    ])("r1 fd/wrapper/续行攻击形态 fail-closed（求值器+生产 guard 双钉）：%s", (cmd) => {
+      expect(evaluateWriteTargets(cmd, ROOT)).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
+      expect(checkBashCommandSafety(cmd, 42877, undefined, { projectRoot: ROOT })).not.toBeNull();
+    });
+
+    // 严重 3：裸 heredoc 转义奇偶（bash 对照实证，bash -c + cat heredoc 实测）：
+    //  \\ $y（偶数反斜杠）= $y 真展开（y=INJECTED 实证可注入）→ 不可证 fail-closed；
+    //  \\\$y（奇数）= 字面 \$（bash 实测输出 SELECT 'x\$y';）→ 静态良性不误伤。
+    it("裸 heredoc 偶数反斜杠后 $ 是真展开（bash 对照 y=INJECTED 注入实证）→ fail-closed", () => {
+      const cmd = "sqlite3 :memory: <<EOF\nSELECT 'x\\\\$y'\nSELECT 2;\nEOF"; // 体含两反斜杠+$y
+      expect(evaluateWriteTargets(cmd, ROOT)).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
+      expect(checkBashCommandSafety(cmd, 42877, undefined, { projectRoot: ROOT })).not.toBeNull();
+    });
+
+    it("裸 heredoc 奇数反斜杠转义 \\$ 是字面（bash 对照实测 SELECT 'x\\$y';）→ 不误伤", () => {
+      expect(evaluateWriteTargets("sqlite3 :memory: <<EOF\nSELECT 'x\\\\\\$y'\nSELECT 2;\nEOF", ROOT)) // 体含三反斜杠+$y
+        .toEqual({ kind: "evaluated", targets: [] });
+    });
+
+    it("裸 heredoc 续行（反斜杠+换行）按 bash 实义接行判读，静态良性不误拦", () => {
+      // bash 实测：SELECT 'a\ + 换行 + .system touch x' → sqlite3 收到 SELECT 'a.system touch x'（无行首点）
+      expect(evaluateWriteTargets("sqlite3 :memory: <<EOF\nSELECT 'a\\\n.system touch x'\nEOF", ROOT))
+        .toEqual({ kind: "evaluated", targets: [] });
+    });
+
+    it.each([
+      `sqlite3 :memory: 0<<<'SELECT 1'`,                                 // fd here-string 字面
+      `sqlite3 :memory: 0<<'EOF'\nSELECT 1;\nEOF`,                       // fd heredoc 引号定界
+      `sqlite3 :memory: 0</dev/null`,                                    // /dev/null 空馈体特例（既有语义）
+      `sqlite3 :memory: 'SELECT 1' 2</dev/null`,                         // fd≠0 不馈 stdin（形态完整识别不误伤）
+      `env sqlite3 :memory: <<'EOF'\nSELECT 1;\nEOF`,                    // wrapper 良性
+      `env sqlite3 :memory: <<EOF\nSELECT 1;\nEOF`,                      // wrapper+裸定界符静态体
+    ])("r1 fd/wrapper 良性形态不误伤（内存库无写）：%s", (cmd) => {
+      expect(evaluateWriteTargets(cmd, ROOT)).toEqual({ kind: "evaluated", targets: [] });
+      expect(checkBashCommandSafety(cmd, 42877, undefined, { projectRoot: ROOT })).toBeNull();
+    });
+
+    it("wrapper 后的 sqlite3 argv 数据库落点照常披露（不隐去事实）", () => {
+      const r = evaluateWriteTargets("env sqlite3 /tmp/t.db 'SELECT 1'", ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.some(t => t.path === "/tmp/t.db" && t.access === "write")).toBe(true);
+    });
   });
 
   describe("Phase 2 git add index / remote ref / fd 复制（F20261009phs2）", () => {
