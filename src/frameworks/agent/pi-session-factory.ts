@@ -183,7 +183,6 @@ import { buildSessionToolSearchTool, type ToolSearchSessionHolder } from "./tool
 import { resolveSessionCwd } from "./session-cwd-resolver";
 import { getRepoRoot } from "@frameworks/repo-root";
 // F20261015phys：bash 物理沙箱——sandbox-exec 包裹獭 bash 执行面
-import { createSandboxedTools } from "./bash-sandbox";
 // F20260901mbfx（审计 F5）：readOnly 合成的自定义工具白名单（只读查询类）
 import { SYNTHESIS_READ_ONLY_TOOL_WHITELIST } from "./synthesis-prompt-builder";
 import { ModelRuntimeRegistry, otterInvokeStorage } from "./model-runtime-registry";
@@ -319,11 +318,6 @@ export class PiSessionFactory implements AgentGateway {
   // 匹配时执行（stale steal 后旧 invoke 苏醒不得删新 invoke 的条目）。epoch 缺失 = 铸造点
   // 未执行（真 bug），set 侧拒绝注册 + warn（D3 fail-loud）。
   private readonly activeSessions = new Map<string, { abort: () => Promise<void>; steer?: (text: string) => Promise<unknown>; toolCallCount: number; guardAbortReason?: string; epoch?: InvokeEpoch }>();
-  /** F20261016gsbx 二期 2a（R-2b）：session → spawnHook 真实挂载决策。
-   *  在 session 创建点与挂载同瞬求值后绑定；attachGuards 消费本位而非现场再探测
-   *（探测报可用但挂钩未挂载=裸跑零告警的最危险模式，绑定后结构上不可能）。
-   *  缺席（readOnly 合成会话）→ 消费侧回退 false（写面回位，安全方向）。 */
-  private readonly sandboxGuardedBySession = new WeakMap<AgentSession, boolean>();
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private readonly lockManager: SimpleLockManager;
   private readonly sessionRestore: SessionRestore;
@@ -1124,7 +1118,6 @@ export class PiSessionFactory implements AgentGateway {
     // attachGuards（abort 兜底链）同点求值，防门与 abort 判定分歧（R-2b）。
     const guardProjectRoot = getRepoRoot();
     const guardSessionCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
-    const guardSandboxed = this.sandboxGuardedBySession.get(session) ?? false;
     const guardOnIntercept = this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     // F20261027lbos（#1656）：循环硬熔断门拦截落 healing（loop_tool_block）——b2 残余
     // 误伤面（#1653 D1-1）的唯一观测源。与 guardOnIntercept 同模式：fire-and-forget，
@@ -1132,7 +1125,7 @@ export class PiSessionFactory implements AgentGateway {
     const loopBlockOnIntercept = this.buildLoopBlockInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     return await otterInvokeStorage.run(
       // F20260826mwrd C1：otterId 进 store——tool_call handler 查 halt 标用
-      { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardSandboxed, guardOnIntercept },
+      { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardOnIntercept },
       // eslint-disable-next-line max-statements, complexity -- F20260908rlcp: pool hit/miss 两条路径 + startup cursor push；F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
       async () => {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）
@@ -1143,7 +1136,7 @@ export class PiSessionFactory implements AgentGateway {
         //   （WeakMap，与 spawnHook 挂载同一次 probeSandboxAvailability 结果）——R-2b 约束：
         //    探测与挂载不可能分歧（分歧=裸跑零告警的最危险模式）；沙箱接防时守卫
         //    main_write 族退役（G3 枚举表）；不可用时写面回位（降级不降安全）。
-        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: guardProjectRoot, sessionCwd: guardSessionCwd, onGuardIntercept: guardOnIntercept, sandboxGuarded: guardSandboxed, loopBlockedTools, guardGateActive: () => otterInvokeStorage.getStore()?.guardProjectRoot != null });
+        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: guardProjectRoot, sessionCwd: guardSessionCwd, onGuardIntercept: guardOnIntercept, loopBlockedTools, guardGateActive: () => otterInvokeStorage.getStore()?.guardProjectRoot != null });
 
         // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);
@@ -1467,12 +1460,6 @@ export class PiSessionFactory implements AgentGateway {
     // 三连实证；机制详见 tool-search-tool.ts 头注）。holder 延迟绑定：customTools 入参
     // 在 session 创建前就要传，session 引用创建后回填。
     const toolSearchHolder: ToolSearchSessionHolder = {};
-    // F20261015phys：锁定 SDK 的最小补丁只补 baseToolsOverride 转发；其余装配保持 SDK 原语义。
-    // readOnly 合成会话只有 read 工具，不需要沙箱。
-    const repoRoot = getRepoRoot();
-    const dataDir = this.cfg.dataDir ?? "./data";
-    const baseToolsOverrideRaw = readOnly ? undefined : createSandboxedTools(workspaceCwd, repoRoot, dataDir);
-    const baseToolsOverride = baseToolsOverrideRaw?.tools;
     const { session } = await piCodingAgent.createAgentSession({
       model: resolvedModel,
       sessionManager,
@@ -1482,10 +1469,7 @@ export class PiSessionFactory implements AgentGateway {
       resourceLoader: resourceLoader ?? undefined,
       modelRuntime: modelRuntime ?? undefined,
       settingsManager: settingsManager ?? undefined,
-      ...(baseToolsOverride ? { baseToolsOverride } : {}),
     });
-    // F20261016gsbx 二期 2a（R-2b）：挂载决策绑定到 session——attachGuards 消费本位。
-    if (baseToolsOverrideRaw) this.sandboxGuardedBySession.set(session, baseToolsOverrideRaw.sandboxGuarded);
     if (hasDeferred) {
       // F20261008tecn（检视发现 2）：激活集计算抽纯函数 computeActiveToolNames，单测锁语义
       session.setActiveToolsByName(computeActiveToolNames(filteredCodingTools, filteredCustomTools));

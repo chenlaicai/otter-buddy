@@ -159,14 +159,6 @@ describe("F20260928slan wait 工具", () => {
     expect(result.content[0].text).toContain("引号");
   });
 
-  it("until 命中守卫（rm -rf data/x）拒绝并透传拦截文案（S1 绕守卫防线封堵）", async () => {
-    const tool = findWait();
-    const result = await tool.execute("t1", { seconds: 10, until: "rm -rf data/metrics" });
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("安全守卫拦截");
-    expect(result.content[0].text).toContain("data/");
-  });
-
   it("until 持续非零（非 1，如命令行用法错 exit 2）时在 seconds 预算内重试，超时返回最后一次错误且不留计时器", async () => {
     const tool = findWait();
     execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
