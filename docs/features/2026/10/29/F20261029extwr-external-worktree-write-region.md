@@ -2,7 +2,7 @@
 id: F20261029extwr
 title: 结构化 write/edit 写区补外部仓 worktree 动态区与 tmp 多根
 summary: 修复 file-write-policy 静态写区两大误拒——外部仓（colink 等）.otter/worktrees 恒拒与 /tmp、/var/tmp 别名不在写区；动态判定区复用 git 执行域同语义注册表判定（注入式，无循环依赖），tmp 区多根 realpath 归一去重。
-change_type: bugfix
+change_type: fix
 capability_test: "n/a: 守卫误拦修复，验证走 file-tool-guard.test.ts 回归 + healing 现场复放（本机 smoke 8/8）"
 created_in_conversation: 2deb62bf-1e41-464d-a794-0da4c75a5c03
 created_at: 2026-10-29

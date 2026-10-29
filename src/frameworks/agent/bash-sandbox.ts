@@ -222,7 +222,8 @@ export function createSandboxSpawnHook(
     const grant = evaluateGitExecution(ctx.command, ctx.cwd ?? "", {
       repoRoot,
       linkedWorktrees: currentRegistry,
-      // #1695：外部仓 worktree 判定与 write/edit 结构化面同源注入（生产同函数）
+      // #1695：显式对齐 write/edit 结构化面的外部仓判定——该参数缺省即同源
+      // （git-execution-policy resolveExternal ?? resolveExternalGitWorktree），注入为可读性锚点，无语义变化
       resolveExternalWorktree: resolveExternalGitWorktree,
     });
     // 外部仓 grant 的 .git 窄域属于目标仓，不属于 otter-buddy 安装根。

@@ -277,21 +277,21 @@ describe("file-tool-guard #1695：外部仓 worktree 动态写区与 tmp 多根"
   // 外部仓仿制判定器：只认 fixture 下伪造的"外部仓" .otter/worktrees/<name> 直接子目录，
   // 与生产 resolveExternalGitWorktree 同构（父目录必须是 .otter/worktrees）——不建真 Git 仓，
   // 保证测试不依赖外部仓现场。
+  const registeredWorktrees = new Set(["pr-xyz", "meta"]);
   const fakeExternalResolver: ExternalWorktreeResolver = (resolvedPath) => {
-    const marker = `${sep(".otter")}${sep("worktrees")}`;
+    const marker = "/.otter/worktrees";
     const idx = resolvedPath.indexOf(marker);
     if (idx === -1) return null;
     const rest = resolvedPath.slice(idx + marker.length);
     // 只认直接子目录的首段（外部仓 worktree 根或其内层文件），主仓自身路径不含该标记
     if (!/^\/[^/]+(\/|$)/.test(rest)) return null;
-    const worktreeRoot = resolvedPath.slice(0, idx + marker.length) + rest.split("/")[1];
+    const name = rest.split("/")[1];
+    // 伪造 .otter/worktrees/<name> 目录无注册表成员资格，拒（归约命中→注册表拒）
+    if (!registeredWorktrees.has(name)) return null;
+    const worktreeRoot = resolvedPath.slice(0, idx + marker.length) + "/" + name;
     const repoRoot = resolvedPath.slice(0, idx + "/.otter".length);
-    return { repoRoot, worktreeRoot, worktreeName: rest.split("/")[1] };
+    return { repoRoot, worktreeRoot, worktreeName: name };
   };
-
-  function sep(dir: string): string {
-    return join("/", dir, "x").replace(/x$/, "");
-  }
 
   it("外部仓真实注册 worktree 内 write/edit 放行（healing b9772a88 复放）", async () => {
     const externalRepo = join(fixture.root, "external-repo");
@@ -308,22 +308,24 @@ describe("file-tool-guard #1695：外部仓 worktree 动态写区与 tmp 多根"
     expect(await readFile(target, "utf8")).toBe("external-edited");
   });
 
-  it("resolver 拒认时外部目录仍拒（伪造 .git 文件夹不放行）", async () => {
-    const notAWorktree = join(fixture.root, "fake-worktree");
-    await mkdir(join(notAWorktree, ".git"), { recursive: true });
+  it("归约命中但 resolver 拒认（伪造 .otter/worktrees 形态不放行）", async () => {
+    const fakeRepo = join(fixture.root, "fake-external-repo");
+    const fakeWorktree = join(fakeRepo, ".otter", "worktrees", "not-registered");
+    await mkdir(fakeWorktree, { recursive: true });
     const options: FileWritePolicyOptions = { ...fixture.options, resolveExternalWorktree: fakeExternalResolver };
     const tools = createGuardedFileTools(fixture.repoRoot, options);
 
     await expect(
-      execute(tools.write, { path: join(notAWorktree, "evil.ts"), content: "must-not-write" }),
+      execute(tools.write, { path: join(fakeWorktree, "evil.ts"), content: "must-not-write" }),
     ).rejects.toThrow(/ruleId=file-tool-guard\/main-repo-write/);
   });
 
   it("外部 worktree 的 .git 元数据仍拒（动态区不重开元数据写面）", async () => {
     const externalRepo = join(fixture.root, "external-repo2");
     const externalWorktree = join(externalRepo, ".otter", "worktrees", "meta");
-    await mkdir(externalWorktree, { recursive: true });
-    const gitPointer = join(externalWorktree, ".git");
+    const subDir = join(externalWorktree, "sub");
+    await mkdir(subDir, { recursive: true });
+    const gitPointer = join(subDir, ".git");
     await writeFile(gitPointer, "gitdir: /somewhere/else\n", "utf8");
     const options: FileWritePolicyOptions = { ...fixture.options, resolveExternalWorktree: fakeExternalResolver };
     const tools = createGuardedFileTools(fixture.repoRoot, options);
