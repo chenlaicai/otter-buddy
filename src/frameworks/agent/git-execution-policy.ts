@@ -350,21 +350,24 @@ function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target
   }
   if (subcmd === "push") return grant("push", repoRoot, target, PUSH_DOMAINS);
   if (subcmd === "worktree") return evaluateWorktreeWrite(args, repoRoot, target, evalCwd);
-  if (subcmd === "branch") {
-    if (args.includes("-d") && !args.includes("-D")) {
-      return grant("branch-delete", repoRoot, target, BRANCH_DELETE_DOMAINS);
-    }
-    // F20261029clnup：-D 窄受控强删面（F20261028gidfx「窄受控工具另案」落地）——严格形态
-    //  （恰好 [-D, <name>]，顺序可换）+ 机器前置「分支内容已进 main」（squash 等价亦认）；
-    //  任一不满足 → null（默认 deny，-D 面不放开）。main/HEAD 永不授权。
-    const name = branchDeleteForceTarget(args);
-    const merged = opts.branchContentMerged ?? branchContentMergedInMain;
-    return name !== null && name.toLowerCase() !== "main" && name.toLowerCase() !== "head"
-      && isSafeProfilePath(name) && !name.startsWith("-") && merged(repoRoot, name)
-      ? grant("branch-delete", repoRoot, target, BRANCH_DELETE_DOMAINS)
-      : null;
-  }
+  if (subcmd === "branch") return evaluateBranchWrite(args, repoRoot, target, opts);
   return null;
+}
+
+/** F20261029clnup branch 删除授权（-d 原语义 + -D 窄受控强删面）。 */
+function evaluateBranchWrite(args: string[], repoRoot: string, target: RepoTarget, opts: GitExecutionPolicyOptions): GitExecutionGrant | null {
+  if (args.includes("-d") && !args.includes("-D")) {
+    return grant("branch-delete", repoRoot, target, BRANCH_DELETE_DOMAINS);
+  }
+  // F20261029clnup：-D 窄受控强删面（F20261028gidfx「窄受控工具另案」落地）——严格形态
+  //  （恰好 [-D, <name>]，顺序可换）+ 机器前置「分支内容已进 main」（squash 等价亦认）；
+  //  任一不满足 → null（默认 deny，-D 面不放开）。main/HEAD 永不授权。
+  const name = branchDeleteForceTarget(args);
+  const merged = opts.branchContentMerged ?? branchContentMergedInMain;
+  return name !== null && name.toLowerCase() !== "main" && name.toLowerCase() !== "head"
+    && isSafeProfilePath(name) && !name.startsWith("-") && merged(repoRoot, name)
+    ? grant("branch-delete", repoRoot, target, BRANCH_DELETE_DOMAINS)
+    : null;
 }
 
 /** branch -D 严格形态解析（F20261029clnup）：恰好两个词 [-D, <name>]（顺序可换），其余 null。 */

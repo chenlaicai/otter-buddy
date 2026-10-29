@@ -554,6 +554,7 @@ function pathArgsOf(seg: string): string[] {
 /** 形态检测：段是否对主仓保护面（data/ 或内容树）执行删除/移动（cwd 为相对路径解析基准）。
  *  F20261016gdfv：目标域从 data/ 扩主仓内容树（M-c78df9d4 X1/X2 反判面）；mv 双端判定
  *  （源=主仓内容被移走，目标=移入主仓——旧版只查源，mv 入主仓曾双层反判）。 */
+// eslint-disable-next-line complexity -- F20261029clnup 探针残渣自清面 +1 分支（rm 单目标豁免），每分支对应一种已实证形态
 function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sessionCwd?: string): { kind: string; zone: DestructiveZone } {
   const zoneOf = (args: string[]): DestructiveZone => {
     let z: DestructiveZone = null;

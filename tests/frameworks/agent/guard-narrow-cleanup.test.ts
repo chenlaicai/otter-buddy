@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { mkdirSync, rmSync, writeFileSync, symlinkSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { evaluateGitExecution } from "../../../src/frameworks/agent/git-execution-policy";
 import { evaluateWriteVerdict } from "../../../src/frameworks/agent/write-verdict";
@@ -119,7 +119,7 @@ describe("F20261029clnup B：主仓根探针残渣 rm 自清面（fixture=当前
   it("形态收口（debrisRmAllowPath）：仅单目标 rm 命中；链式/多目标/其他动词 → null", () => {
     expect(debrisRmAllowPath(`rm ${debris}`, root, root)).toBe(debris);
     expect(debrisRmAllowPath(`rm -f ${debris}`, root, root)).toBe(debris);
-    expect(debrisRmAllowPath(`rm \"${debris}\"`, root, root)).toBe(debris);
+    expect(debrisRmAllowPath(`rm "${debris}"`, root, root)).toBe(debris);
     expect(debrisRmAllowPath(`rm ${debris} ${trackedLike}`, root, root)).toBeNull(); // 多目标
     expect(debrisRmAllowPath(`rm ${debris} && echo x`, root, root)).toBeNull(); // 链式
     expect(debrisRmAllowPath(`echo rm ${debris}`, root, root)).toBeNull(); // 非 rm 动词
