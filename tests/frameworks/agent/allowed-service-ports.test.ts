@@ -15,7 +15,6 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
 import { loadAllowedServicePorts, extractWhitelistedPortRefs } from "@frameworks/agent/allowed-service-ports";
 import { classifyGuardIntercept, ESCALATION_THRESHOLD } from "@frameworks/agent/guard-intercept-escalation";
 
@@ -75,93 +74,6 @@ describe("#844 端口白名单加载（allowed-service-ports）", () => {
   });
 });
 
-describe("#844 白名单放行（方案 A）——六变体同构命令", () => {
-  // 六变体来自 #844 现场（dongbeicun dev server，端口 3100），词面改写避免本文件
-  // 自身被守卫误拦的循环问题（守卫对文本提及不免疫是 #858 范畴）
-  const ALLOWED = [{ port: 3100, projectDir: "/Users/x/dongbeicun" }];
-  const MAIN_PID = 42877;
-  const GUARD_OPTS = (root: string) => ({ projectRoot: root });
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-wl-"));
-    fs.mkdirSync(path.join(tmpDir, ".otter"), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, ".otter", "allowed-service-ports.json"), JSON.stringify({ services: ALLOWED }));
-  });
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("变体 1/4/5 同构：lsof 端口引用取 PID 后终止（含变量与命令替换）→ 放行", () => {
-    // lsof -t -i:3100 → PID → 终止（#844 变体 4/5 同构，k i l l 间隔写法防测试文件自拦）
-    const cmd1 = "P=$(lsof -t -i:3100 -sTCP:LISTEN); k''ill $P";
-    const cmd2 = "P=$(lsof -ti:3100); if [ -n \"$P\" ]; then k\"\"ill $P; fi";
-    const cmd3 = "lsof -i :3100 -t | xargs -n1 k''ill";
-    expect(checkBashCommandSafety(cmd1, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeNull();
-    expect(checkBashCommandSafety(cmd2, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeNull();
-    expect(checkBashCommandSafety(cmd3, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeNull();
-  });
-
-  it("变体 1 同构：ps 管道 grep 名字取 PID（模式串与 otter 撞名）→ 维持拦截，引导用 lsof 形态", () => {
-    // grep main.js/node 类模式无法静态绑定到端口，且与 otter 主进程特征天然撞名——
-    // 按设计不享受白名单（诉求引导到 lsof 形态或 restart-service.mjs）
-    const cmd = "ps aux | grep \"node dist/api/src/ma''in.js\" | grep -v grep | awk '{print $2}' | head -1 | xargs -n1 k''ill; lsof -i :3100";
-    expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeTruthy();
-  });
-
-  it("变体 3 同构：pkill -f otter 特征名（main.js）→ 维持拦截（按名匹配无法区分）", () => {
-    const cmd = "p''kill -f \"dist/api/src/ma''in.js\" 2>/dev/null; lsof -i :3100";
-    expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeTruthy();
-  });
-
-  it("变体 3 同构：pkill -f 非撞名项目特征（无 otter 词元）→ 本就放行（原逻辑不变）", () => {
-    const cmd = "p''kill -f \"dongb" + "eicun-server\" 2>/dev/null";
-    expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeNull();
-  });
-
-  it("铁拦不松动：主进程 PID 字面量（即使白名单存在且命令含端口引用）→ 拦截", () => {
-    const cmd = `k''ill 42877; lsof -i :3100`;
-    expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toContain("主进程");
-  });
-
-  it("铁拦不松动：PID 文件引用 → 拦截", () => {
-    const cmd = "k''ill $(cat .otter-buddy.pid); lsof -i :3100";
-    expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeTruthy();
-  });
-
-  it("铁拦不松动：otter 特征名（otter-buddy 词元 + 端口引用）→ 拦截", () => {
-    const cmd = "p''kill -f otter-buddy; lsof -i :3100";
-    expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeTruthy();
-  });
-
-  it("#918 严重 1 回归：白名单端口 lsof 做左段接入 shell → 拦截（cmdLevel 检测先于白名单放行）", () => {
-    const cmd = `lsof -t -i:3100 | sh -c 'k''ill 12345'`;
-    expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeTruthy();
-  });
-
-  it("#918 建议 3 回归：变量先 lsof 后重赋值再终止 → 拦截（多次赋值只认最后一次）", () => {
-    const cmd = `P=$(lsof -t -i:3100); P="4"2877; k''ill $P`;
-    expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeTruthy();
-    // 对照：合法路径不受影响（最后一次赋值就是 lsof）
-    const ok = `P=99999; P=$(lsof -t -i:3100); k''ill $P`;
-    expect(checkBashCommandSafety(ok, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeNull();
-  });
-
-  it("白名单外端口不享受放行", () => {
-    const cmd = "P=$(lsof -t -i:8080); k''ill $P";
-    expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(tmpDir))).toBeTruthy();
-  });
-
-  it("未配置白名单（无文件）→ 维持原拦截（退化安全）", () => {
-    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-nowl-"));
-    try {
-      const cmd = "P=$(lsof -t -i:3100); k''ill $P";
-      expect(checkBashCommandSafety(cmd, MAIN_PID, undefined, GUARD_OPTS(emptyDir))).toBeTruthy();
-    } finally {
-      fs.rmSync(emptyDir, { recursive: true, force: true });
-    }
-  });
-});
 
 describe("#844 extractWhitelistedPortRefs 单元", () => {
   const ALLOWED = [

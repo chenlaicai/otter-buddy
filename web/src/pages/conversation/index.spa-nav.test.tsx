@@ -180,6 +180,14 @@ describe('F20261027nmbf：SPA 切会话清理上一会话的新消息浮窗计�
       expect(scroller, '消息滚动容器应就位').toBeTruthy()
       // 用真实 wheel 意图事件进入 floating，避免 jsdom 的布局副作用让 pin 状态失真
       await act(async () => { scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 })) })
+      // F20261029repin：上翻=视觉离底，补几何模拟——jsdom 无布局（scroll 几何全 0），
+      // 距底判定会把零几何当成「视觉贴底」误恢复跟随清计数（新语义按视觉位置判，几何必须
+      // 忠实）。scroll 事件采样后距底 500px > 8px 阈值：新消息到达时保持 floating，计数 +1；
+      // 新语义下 scroll 永不置 pin，几何桩不会污染 floating 状态（旧语义不敢桩的顾虑已消失）
+      Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => 2000 })
+      Object.defineProperty(scroller, 'clientHeight', { configurable: true, get: () => 660 })
+      Object.defineProperty(scroller, 'scrollTop', { configurable: true, get: () => 840, set: () => {} })
+      await act(async () => { scroller.dispatchEvent(new Event('scroll')) })
 
       const badgeEntry = {
         entryId: 'badge-a1', otterId: 'otter-1', otterName: '小獭', otterType: 'small',
