@@ -342,7 +342,7 @@ export class RhiScanWorker {
     try {
       const windowDays = this.options.metricsWindowDays ?? 60;
       const windowStart = this.isoDaysAgo(windowDays);
-      const windowInputs = signalInputs.filter(c => c.date >= windowStart);
+      const windowInputs = signalInputs.filter(c => commitInWindow(c.date, windowStart));
       const metrics = calculateMetrics(
         windowInputs.map(c => c.parsed),
         windowInputs.map(c => ({ sha: c.sha, date: c.date, message: c.message, filesChanged: c.filesChanged })),
@@ -523,4 +523,14 @@ export class RhiScanWorker {
   private isoDaysAgo(days: number): string {
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   }
+}
+
+/** commit author date 是否落在统计窗口内（#1704）。
+ *  必须用时间戳比较——author date 是 %aI（带原时区偏移），windowStart 是 UTC 'Z' 全串，
+ *  字符串字典序混比两种时区格式会在窗口边界日随当日时刻翻转（2026-10-29 实爆，见 #1704）。
+ *  入参契约：两参数必须是带时区/时刻的 ISO 8601（%aI 带偏移或 toISOString 的 'Z'）。
+ *  date-only 字符串会被 Date.parse 按 UTC 解析、无时刻无时区串按本地时区解析——
+ *  混用会引入解析歧义（当前调用面恒为带时区格式，不可触发）。 */
+export function commitInWindow(date: string, windowStart: string): boolean {
+  return Date.parse(date) >= Date.parse(windowStart);
 }
