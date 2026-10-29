@@ -156,14 +156,23 @@ const PROBE_DEBRIS_NAME = /^(?:f\d+-)?probe[-._]/i;
  *  lstat 到同一 inode（删除会落到已跟踪文件 → 已跟踪）；大小写敏感文件系统上不同 inode
  *  是独立目录项（真未跟踪残渣，不命中）。身份比对必须用 inode 而非路径字符串：
  *  fs.realpathSync 不折叠大小写（实测 macOS 变体名入参返回变体名），字符串比对会漏判。
- *  git 异常由调用方 catch → fail-closed（保守）。 */
+ *  git 异常由调用方 catch → fail-closed（保守）。
+ *
+ *  检视 delta2 严重 1 收口：名目比对还需过两道 Unicode/引号坑——① `git ls-files` 默认
+ *  输出对非 ASCII 名做 core.quotePath C 转义（`"f8-probe-\303\251.txt"` 带引号八进制），
+ *  字符串比对对**任何**非 ASCII 已跟踪名漏判，故改 `-z`（原始字节，无引号歧义）；
+ *  ② macOS APFS 归一化不敏感（NFC 名与 NFD 名同一 inode）而 git 索引按录入字节存储——
+ *  归一化变体会绕过精确名比对，故两侧 NFC 归一后再比（检视外部临时索引实测：已跟踪
+ *  NFC 名 + 工作树 NFD 名同 inode，修复前两者皆判未跟踪残渣、可豁免删除已跟踪目录项）。 */
 function trackedAtRootDepth1(base: string, root: string, st: { dev: bigint; ino: bigint }): boolean {
-  const out = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-  const lower = base.toLowerCase();
-  for (const entry of out.split("\n")) {
+  const out = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const baseNfc = base.normalize("NFC");
+  const lower = baseNfc.toLowerCase();
+  for (const entry of out.split("\0")) {
     if (entry === "" || entry.includes("/")) continue; // 只看根目录 depth-1 索引项
-    if (entry === base) return true; // 精确命中 = 已跟踪
-    if (entry.toLowerCase() !== lower) continue;
+    const entryNfc = entry.normalize("NFC");
+    if (entryNfc === baseNfc) return true; // 精确命中（含 NFC/NFD 归一化变体）= 已跟踪
+    if (entryNfc.toLowerCase() !== lower) continue;
     try {
       const est = lstatSync(path.join(root, entry), { bigint: true });
       if (est.dev === st.dev && est.ino === st.ino) return true; // 已跟踪项的大小写变体 = 同一目录项
