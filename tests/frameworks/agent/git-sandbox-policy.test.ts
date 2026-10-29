@@ -338,8 +338,10 @@ describe("git-execution-policy profile 规则与指纹", () => {
   describe("SBPL regex 值语义（#1697 防转义回归守门）", () => {
     /** 从规则串提取 ICU regex 值并验证匹配——SBPL 字符串值层的 \.（单反斜杠+点）
      *  在 ICU 里匹配点号；若源码层多写一层转义（值变 \\.，匹配字面反斜杠），
-     *  规则将永不匹配而 deny 独存——#1688 引入、10-29 全局爆发的根因。
-     *  本组断言不关心规则串字面，只关心「值语义」：提取后作为 JS RegExp 必须命中真实路径。 */
+     *  规则将永不匹配而 deny 独存。#1697 初判曾误诊为此方向，勘误实证：值层
+     *  自 #1688 合入（3454e952:444）起即正确、从未存在 buggy 形态（git 考古）。
+     *  本组断言不关心规则串字面，只关心「值语义」：提取后作为 JS RegExp 必须命中
+     *  真实路径——守门对象是未来回归，不是历史修复。 */
     function extractPatterns(rules: string[]): string[] {
       const out: string[] = [];
       for (const r of rules) {
@@ -392,13 +394,20 @@ describe("git-execution-policy profile 规则与指纹", () => {
       expect(pats.some(pat => new RegExp(pat).test(`${externalRoot}/.git/objects/pack/foo.pack`))).toBe(true);
     });
 
-    it("worktree add 的 .git 指针规则值命中指针路径（删除面）", () => {
+    it("worktree add 的 .git 指针规则值命中指针路径且 $ 锚定不放宽（删除面）", () => {
       const g = evaluateGitExecution(`git worktree remove ${REPO}/.otter/worktrees/wt2`, REPO, {
         repoRoot: REPO,
         linkedWorktrees: LINKED,
       })!;
       const pats = extractPatterns(grantToProfileRules(g));
+      // 正断言：指针路径命中（删除面）
       expect(pats.some(pat => new RegExp(pat).test(`${REPO}/.otter/worktrees/wt2/.git`))).toBe(true);
+      // 负断言：锁 $ 锚定——若规则退化为 (\.git(/|$)) 允许 .git 子树写，此处立即变红
+      const ptrPat = pats.find(p => p.endsWith("\\.git$"));
+      expect(ptrPat).toBeDefined();
+      if (ptrPat) {
+        expect(new RegExp(ptrPat).test(`${REPO}/.otter/worktrees/wt2/.git/config`)).toBe(false);
+      }
     });
   });
 
