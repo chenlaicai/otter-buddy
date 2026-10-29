@@ -70,7 +70,8 @@ AssertionError: expected 129 to be 130 // Object.is equality
 1. **同一恶意 stub 保持激活** + 修复 → `Test Files 1 passed (1) | Tests 7 passed (7)`
    （证明修复与随机性彻底解耦：filePath 不再经过 Math.random）
 2. **最终态（stub 移除）连跑 100 次**：`DONE: 100 runs, 0 failures`
-   （issue 验证断言原文：「修复后连跑 100 次零失败」）
+   （issue 验证断言原文：「修复后连跑 100 次零失败」。证据分层：本条为 agent 执行记录，
+   装置未入库、不可回放——检视獭-1657 已在 worktree 独立复跑 100 次 0 失败交叉覆盖（异体复核）。）
 
 ### 运行环境备忘
 
