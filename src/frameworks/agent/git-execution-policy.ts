@@ -243,7 +243,50 @@ const READ_DOMAINS: GitWriteDomain[] = [];
 const INDEX_DOMAINS: GitWriteDomain[] = ["worktree-gitdir", "objects"];
 const COMMIT_DOMAINS: GitWriteDomain[] = [...INDEX_DOMAINS, "refs-heads", "logs-refs", "packed-refs-lock"];
 const FETCH_DOMAINS: GitWriteDomain[] = ["objects", "refs-remotes", "logs-refs", "fetch-head", "packed-refs-lock"];
-const PUSH_DOMAINS: GitWriteDomain[] = ["objects", "refs-remotes", "logs-refs", "packed-refs-lock"];
+export const PUSH_DOMAINS: GitWriteDomain[] = ["objects", "refs-remotes", "logs-refs", "packed-refs-lock"];
+// #1694：external push 比主仓 linked 严一档——新开的门从最窄开始：
+// ①补 config-lock（git push -u / --set-upstream 落 config.lock+config，无此域 push -u 恒拒）；
+// ②要求显式 refspec（裸 push / HEAD 省略目标在命令文本不可见，实际目标由 upstream/push.default
+//   决定可指向任何分支——隐式目标绕过受保护分支词级判定，见 issue #1694 审视发现 3）。
+const EXTERNAL_PUSH_DOMAINS: GitWriteDomain[] = [...PUSH_DOMAINS, "config-lock"];
+
+/** #1694：解析 external push 的词级 refspec，返回目标分支是否在命令文本可见。
+ *  与 bash-safety-guard protectedPushHit 同口径：首词=remote 位（可 URL），其后首个
+ *  非旗标词=refspec。三类不可见形态 fail-closed 返 false：①无 refspec（裸 push）；
+ *  ②refspec=HEAD（源端 HEAD 省略目标，实际目标=HEAD 当前指向，可指向受保护分支）；
+ *  ③动态词（$var/$(…)）——envelope 解析层已在更早处拒动态，此处防御性再拒。 */
+function externalPushRefspecVisible(args: string[]): boolean {
+  let i = 0;
+  let sawRemote = false;
+  let refspec: string | null = null;
+  while (i < args.length) {
+    const word = args[i]!;
+    if (word.startsWith("-")) {
+      if (PUSH_VALUE_FLAGS.has(word)) i += 1; // 跳过旗标值（如 --repo <url>）
+    } else if (!sawRemote) {
+      // 首个非旗标词=remote 位（origin/别名/URL 均可），只消费一次；
+      // -u/--set-upstream 等布尔旗标可前置，remote 不必在首位。
+      sawRemote = true;
+    } else if (refspec === null) {
+      refspec = word;
+    } else {
+      return false; // refspec 已取到，多余位置词=非常规形态，fail-closed
+    }
+    i += 1;
+  }
+  // src:dst 形态目标=dst（词级可见）；裸名形态 src=dst 同名（可见）；
+  // HEAD/HEAD:dst 中 HEAD 作 src 省略目标名=不可见（dst 取 HEAD 指向，可指向 main）。
+  if (refspec === null) return false;
+  // dst 受保护名拒绝——与守卫 refspecHitsProtectedBranch 同口径（镜像而非引用）：
+  // 剥 force 前缀 +、首冒号取 dst、剥 refs/heads/ 前缀、lowercase、精确集合匹配
+  //（不拆路径段——fix/main 是合法 feature 分支名，拆段会误拒）。
+  const rs = refspec.startsWith("+") ? refspec.slice(1) : refspec;
+  const colon = rs.indexOf(":");
+  const dst = colon >= 0 ? rs.slice(colon + 1) : rs;
+  if (dst === "" || dst === "HEAD") return false;
+  const name = dst.replace(/^refs\/heads\//, "");
+  return !PROTECTED_PUSH_BRANCH_NAMES.has(name.toLowerCase());
+}
 const WORKTREE_DOMAINS: GitWriteDomain[] = ["worktrees-parent", "objects", "refs-heads", "packed-refs-lock", "logs-refs", "config-lock"];
 
 function evaluateReadOnly(subcmd: string, args: string[], repoRoot: string, target: RepoTarget): GitExecutionGrant | null {
@@ -265,6 +308,14 @@ function evaluateTreeWrite(subcmd: string, repoRoot: string, target: RepoTarget)
 /** worktree add 受控旗标：值旗标 -b/-B；开关旗标 detach/no-checkout/force/quiet。其余旗标（--lock 等）不授权。 */
 const WORKTREE_ADD_VALUE_FLAGS = new Set(["-b", "-B"]);
 const WORKTREE_ADD_BOOL_FLAGS = new Set(["--detach", "--no-checkout", "-f", "--force", "--quiet", "-q"]);
+// #1694：external push 词级 refspec 解析用的旗标分类（与 protectedPushHit 同口径裁剪）。
+// #1694 r2：与 bash-safety-guard protectedPushHit 同口径（镜像非引用，两侧测试互钉）：
+// 唯一吞值旗标=-o/--push-option；其余 - 前缀词一律布尔（--repo/--force-with-lease/
+// --receive-pack 均不吞后续词——吞了会致 refspec 位移误判，见 delta D-3）。
+const PUSH_VALUE_FLAGS = new Set(["-o", "--push-option"]);
+// #1694：与 bash-safety-guard PROTECTED_PUSH_BRANCHES 同口径（移植而非 import——两模块
+// 零依赖单向，词表漂移由两侧测试互相钉住：guard-gsbx-phase2 与本文件受保护拒绝用例）。
+const PROTECTED_PUSH_BRANCH_NAMES = new Set(["main", "master", "develop", "production", "prod"]);
 /** worktree remove 受控旗标（任意位置）：-f/--force/-q/--quiet。 */
 const WORKTREE_REMOVE_FLAGS = new Set(["-f", "--force", "-q", "--quiet"]);
 
@@ -339,7 +390,23 @@ function evaluateWorktreeWrite(args: string[], repoRoot: string, target: RepoTar
 
 function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target: RepoTarget, evalCwd: string): GitExecutionGrant | null {
   // #1682 只授权外部已登记 worktree 的 add/commit；管理写面保持原拒绝边界。
-  if (target.kind === "external-linked") return null;
+  // #1694 external-linked 放行面收窄：push/fetch 走既有授权分支（push 的受保护分支
+  // 拦截由 bash-safety-guard checkNarrowRules 窄规则独立保障，先于 grant 判定、不分
+  // target）；branch/worktree 管理面维持拒绝——外部仓生命周期归该仓自身的工具链管。
+  if (target.kind === "external-linked") {
+    const { subcmd, args } = envelope;
+    if (subcmd === "fetch") {
+      // FETCH_HEAD 落在 worktree 私有 gitdir——外部仓 fetch 同 linked 需 worktree-gitdir 域。
+      return grant("fetch", repoRoot, target, ["worktree-gitdir", ...FETCH_DOMAINS]);
+    }
+    if (subcmd === "push") {
+      // #1694 r1：隐式目标 fail-closed——裸 push/HEAD 省略时实际目标由 upstream/push.default/
+      // HEAD 指向决定，可指向受保护分支；要求目标在命令文本词级可见。
+      if (!externalPushRefspecVisible(args)) return null;
+      return grant("push", repoRoot, target, EXTERNAL_PUSH_DOMAINS);
+    }
+    return null;
+  }
   const { subcmd, args } = envelope;
   if (subcmd === "fetch") {
     const domains = [...(target.kind === "linked" ? ["worktree-gitdir" as const] : []), ...FETCH_DOMAINS];
@@ -452,7 +519,7 @@ export function grantToProfileRules(grant: GitExecutionGrant): string[] {
     if (domain === "worktrees-parent") {
       return [re(`${gitDir}/worktrees(/|$)`), ...worktreeTargetRules(grant)].join(" ");
     }
-    if (domain === "config-lock") return re(`${gitDir}/config\\.lock$`);
+    if (domain === "config-lock") return re(`${gitDir}/config(\\.lock)?$`);
     if (domain === "packed-refs-lock") return re(`${gitDir}/packed-refs(\\.lock)?$`);
     const file = domain === "fetch-head" ? "FETCH_HEAD" : domain === "orig-head" ? "ORIG_HEAD" : "packed-refs";
     return re(`${gitDir}/${file}$`);

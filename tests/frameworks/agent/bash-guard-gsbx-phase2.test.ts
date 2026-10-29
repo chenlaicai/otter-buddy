@@ -134,6 +134,17 @@ describe("F20261016gsbx 2c R1：git push 直推受保护分支（窄规则）", 
   it("echo 引号提及 → 放行（argv 落点判定不误拦）", () => {
     expect(guard(`echo 'git push origin main'`, true, WT)).toBeNull();
   });
+
+  // #1694：external-linked worktree 放行 push 后，受保护分支窄规则对外部仓 cwd 同判恒拦
+  //（窄规则纯文本判定不分 cwd/target kind，先于 grant 判定执行——放行面不得波及断言②）。
+  // 注：external cwd 放行面的正门断言在 git-sandbox-policy.test.ts（resolver 可注入）与
+  // git-sandbox-integration.test.ts（真 fixture）——守卫层此处只钉负门，不依赖
+  // resolveExternalWorktree 的真实文件系统探测（CI 无 /Users/orca/ai/others/colink）。
+  const EXT_WT = "/Users/orca/ai/others/colink/.otter/worktrees/dm-action-overflow";
+  it("#1694 external worktree cwd push main → 仍拦（窄规则不分 target）", () => {
+    expect(guard(`git push origin main`, true, EXT_WT)).toContain("受保护分支");
+    expect(guard(`git push https://github.com/colink-group/CoLink.git main`, true, EXT_WT)).toContain("受保护分支");
+  });
 });
 
 describe("F20261016gsbx 审视严重1：.git 落点写恒拦（双路径，退役面×沙箱白名单交叠区封堵）", () => {

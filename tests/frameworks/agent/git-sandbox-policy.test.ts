@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { evaluateGitExecution, grantToProfileRules, grantFingerprint } from "../../../src/frameworks/agent/git-execution-policy";
+import { evaluateGitExecution, grantToProfileRules, grantFingerprint, PUSH_DOMAINS } from "../../../src/frameworks/agent/git-execution-policy";
 
 const REPO = "/Users/orca/ai/otter-buddy";
 const WT = "/Users/orca/ai/otter-buddy/.otter/worktrees/design-guard-convergence";
@@ -82,15 +82,6 @@ describe("git-execution-policy", () => {
           resolveExternalWorktree: () => null,
         })).toBeNull();
       }
-    });
-
-    it.each(["git fetch origin", "git push origin HEAD:feature", "git worktree prune", "git branch -d scratch"])("外部管理写 %s 不授权", command => {
-      const externalRoot = "/Users/orca/ai/others/colink";
-      const externalWt = `${externalRoot}/.otter/worktrees/shared-recall-reedit`;
-      expect(evaluateGitExecution(command, externalWt, {
-        repoRoot: REPO, linkedWorktrees: LINKED,
-        resolveExternalWorktree: () => ({ repoRoot: externalRoot, worktreeRoot: externalWt, worktreeName: "shared-recall-reedit" }),
-      })).toBeNull();
     });
 
     it("git -C 主仓 add → 拒绝（主仓直接写不授权）", () => {
@@ -345,6 +336,74 @@ describe("git-execution-policy profile 规则与指纹", () => {
       const g1 = evaluateGitExecution("git add a.ts", WT, { repoRoot: REPO, linkedWorktrees: LINKED })!;
       const g2 = evaluateGitExecution("git commit -m x", WT, { repoRoot: REPO, linkedWorktrees: LINKED })!;
       expect(grantFingerprint(g1)).not.toBe(grantFingerprint(g2));
+    });
+  });
+
+  describe("#1694 external-linked 管理写面收窄放行（push/fetch）", () => {
+    const externalRoot = "/Users/orca/ai/others/colink";
+    const externalWt = `${externalRoot}/.otter/worktrees/shared-recall-reedit`;
+    const opts = () => ({
+      repoRoot: REPO,
+      linkedWorktrees: LINKED,
+      resolveExternalWorktree: () => ({ repoRoot: externalRoot, worktreeRoot: externalWt, worktreeName: "shared-recall-reedit" }),
+    });
+
+    it.each(["git worktree prune", "git branch -d scratch"])("外部管理写（branch/worktree 生命周期面）%s 不授权", command => {
+      expect(evaluateGitExecution(command, externalWt, opts())).toBeNull();
+    });
+
+    it.each([
+      "git fetch origin",
+      "git push origin HEAD:feature",
+      "git push https://github.com/colink-group/CoLink.git fix/dm-action-overflow",
+      "git push -u origin fix/dm-action-overflow",
+    ])("#1694 外部已登记 worktree 管理写 push/fetch %s 获授权", command => {
+      const g = evaluateGitExecution(command, externalWt, opts());
+      expect(g).not.toBeNull();
+      expect(g!.repoRoot).toBe(externalRoot);
+      expect(g!.worktreeName).toBe("shared-recall-reedit");
+      if (command.startsWith("git fetch")) {
+        expect(g!.kind).toBe("fetch");
+        // #1694：FETCH_HEAD 落在 worktree 私有 gitdir，外部仓 fetch 同 linked 需 worktree-gitdir 域
+        expect(g!.domains).toEqual(["worktree-gitdir", "objects", "refs-remotes", "logs-refs", "fetch-head", "packed-refs-lock"]);
+      } else {
+        expect(g!.kind).toBe("push");
+        // #1694 r1：比 linked 严一档——补 config-lock（push -u 落 config.lock+config）
+        expect(g!.domains).toEqual([...PUSH_DOMAINS, "config-lock"]);
+        // delta D-1：config-lock 映射双端点（config 本体 + config.lock）——push -u 落 config 走
+        // lock+rename，rename 目标=本体，单端点会让 upstream 登记 EPERM（packed-refs 同款先例）
+        expect(grantToProfileRules(g!)).toContain(`(allow file-write* (regex #"^${externalRoot}/\\.git/config(\\.lock)?$"))`);
+      }
+      // 外部 grant 只开目标仓窄域，不得包含宿主仓 .git 路径
+      expect(grantToProfileRules(g!).some(rule => rule.includes(`${REPO}/.git`))).toBe(false);
+    });
+
+    it.each([
+      "git push",
+      "git push origin",
+      "git push origin HEAD",
+      "git push origin HEAD:refs/heads/main",
+      "git push origin develop",
+      "git push origin HEAD:master",
+      "git push origin +main",
+      "git push origin :main",
+      "git push origin Main",
+      "git push --force-with-lease origin main",
+      "git push --repo https://github.com/colink-group/CoLink.git",
+    ])("#1694 隐式 push 目标（目标词级不可见/指向受保护分支，含 force 前缀/大小写/删除形态）%s 拒授权（审视发现 3 / delta D-3）", command => {
+      expect(evaluateGitExecution(command, externalWt, opts())).toBeNull();
+    });
+
+    it.each([
+      "git push origin fix/main",
+      "git push origin HEAD:refs/heads/feature/main",
+      "git push --force-with-lease origin fix/dm-action-overflow",
+      "git push -u origin fix/dm-action-overflow",
+    ])("#1694 r2 合法 feature 形态（含 main 字样的路径段分支/force-with-lease 旗标后置）%s 放行——与守卫 refspecHitsProtectedBranch 同口径不误拒", command => {
+      const g = evaluateGitExecution(command, externalWt, opts());
+      expect(g).not.toBeNull();
+      expect(g!.kind).toBe("push");
+      expect(g!.domains).toEqual([...PUSH_DOMAINS, "config-lock"]);
     });
   });
 });

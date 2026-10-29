@@ -140,6 +140,21 @@ describe.skipIf(!isMac)("F20261027gscv Git 执行域真实 sandbox", () => {
     expect(run("git add feature.txt", unregistered).code).not.toBe(0);
   });
 
+  it("#1694 外部仓隔离 worktree 可 fetch/push feature 分支（跨仓 PR 交付主流程）", () => {
+    const externalRepo = join(fixtureRoot, "external-repo");
+    const externalWt = join(externalRepo, ".otter", "worktrees", "feature");
+    const bare = join(fixtureRoot, "external-remote.git");
+    mkdirSync(bare, { recursive: true });
+    git(bare, ["init", "-q", "--bare"]);
+    git(externalRepo, ["remote", "add", "origin", bare]);
+    // fetch：FETCH_HEAD 写 worktree 私有 gitdir——#1694 需补 worktree-gitdir 域
+    expect(run("git fetch origin", externalWt).code).toBe(0);
+    // push：feature 分支推送是跨仓 PR 交付的正道（受保护分支窄规则在守卫层独立拦截）。
+    // #1694 r1：用显式 refspec 形态（外部 push 要求 refspec 词级可见——隐式目标 fail-closed）
+    expect(run("git push -u origin HEAD:refs/heads/feature-dm", externalWt).code).toBe(0);
+    expect(execFileSync("git", ["rev-parse", "--verify", "refs/heads/feature-dm"], { cwd: bare, encoding: "utf8" })).toBeTruthy();
+  });
+
   it("主仓工作树直接 add/commit 无写 capability", () => {
     writeFileSync(join(repo, "c.txt"), "main");
     expect(run("git add c.txt", repo).code).not.toBe(0);
