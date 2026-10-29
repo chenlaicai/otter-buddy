@@ -262,45 +262,82 @@ function evaluateTreeWrite(subcmd: string, repoRoot: string, target: RepoTarget)
   return grant(subcmd, repoRoot, target, domains);
 }
 
-function worktreeTargetPosition(args: string[]): number {
-  const noValue = new Set(["--detach", "--no-checkout", "-f", "--force", "--quiet", "-q"]);
-  let position = 1;
-  while (position < args.length && args[position].startsWith("-")) {
-    const flag = args[position];
-    if (flag === "-b" || flag === "-B") position += 2;
-    else if (noValue.has(flag)) position += 1;
-    else return -1;
+/** worktree add 受控旗标：值旗标 -b/-B；开关旗标 detach/no-checkout/force/quiet。其余旗标（--lock 等）不授权。 */
+const WORKTREE_ADD_VALUE_FLAGS = new Set(["-b", "-B"]);
+const WORKTREE_ADD_BOOL_FLAGS = new Set(["--detach", "--no-checkout", "-f", "--force", "--quiet", "-q"]);
+/** worktree remove 受控旗标（任意位置）：-f/--force/-q/--quiet。 */
+const WORKTREE_REMOVE_FLAGS = new Set(["-f", "--force", "-q", "--quiet"]);
+
+/**
+ * worktree add 位置参数解析：旗标与位置参数可混排（对齐 git parse-options 语义），
+ * 位置参数 = <target> [<commit-ish>]，目标必须是第一个位置参数；未知旗标/多余位置参数不授权。
+ */
+function parseWorktreeAddTarget(args: string[]): string | null {
+  let target: string | null = null;
+  let positionals = 0;
+  for (let i = 1; i < args.length; i++) {
+    const word = args[i];
+    if (!validWord(word)) return null;
+    if (word.startsWith("-")) {
+      if (WORKTREE_ADD_VALUE_FLAGS.has(word)) {
+        i += 1;
+        if (i >= args.length || !validWord(args[i])) return null;
+      } else if (!WORKTREE_ADD_BOOL_FLAGS.has(word)) return null;
+      continue;
+    }
+    positionals += 1;
+    if (positionals === 1) target = word;
   }
-  return position;
+  return positionals >= 1 && positionals <= 2 ? target : null;
 }
 
-function parseWorktreeTarget(args: string[], cwd: string, repoRoot: string): string | null {
-  const position = worktreeTargetPosition(args);
-  if (position < 0) return null;
-  const target = args[position];
-  if (!validWord(target) || target.startsWith("-") || args.length - position > 2) return null;
-  const canonical = realpath(isAbsolute(target) ? target : resolve(cwd, target));
+/** worktree remove 参数解析：旗标任意位置，恰好一个目标。 */
+function parseWorktreeRemoveTarget(args: string[]): string | null {
+  let target: string | null = null;
+  for (let i = 1; i < args.length; i++) {
+    const word = args[i];
+    if (!validWord(word)) return null;
+    if (word.startsWith("-")) {
+      if (!WORKTREE_REMOVE_FLAGS.has(word)) return null;
+      continue;
+    }
+    if (target !== null) return null;
+    target = word;
+  }
+  return target;
+}
+
+/**
+ * 目标路径解析：相对路径按 git 语义解析——即 git 进程的有效 cwd（-C/cd 目标目录），
+ * 而非宿主 bash 工具的进程 cwd（两者不一致曾致常用形态拿不到授权，2026-10-28 实证）。
+ */
+function resolveWorktreePath(target: string, evalCwd: string): string {
+  return realpath(isAbsolute(target) ? target : resolve(evalCwd, target));
+}
+
+function parseWorktreeTarget(target: string, evalCwd: string, repoRoot: string): string | null {
+  const canonical = resolveWorktreePath(target, evalCwd);
   const parent = realpath(dirname(canonical));
   const worktreeRoot = allowedFileWriteRoots({ repoRoot, dataDir: resolve(repoRoot, "data") }).roots.find(root => root.region === "worktrees")?.path;
-  const allowed = worktreeRoot && (parent === worktreeRoot || (dirname(canonical) === worktreeRoot && parent === dirname(canonical)));
-  return allowed ? canonical : null;
+  return worktreeRoot && parent === worktreeRoot ? canonical : null;
 }
 
-function evaluateWorktreeWrite(args: string[], repoRoot: string, target: RepoTarget, cwd: string): GitExecutionGrant | null {
+function evaluateWorktreeWrite(args: string[], repoRoot: string, target: RepoTarget, evalCwd: string): GitExecutionGrant | null {
   if (args[0] === "add") {
-    const worktreeTarget = parseWorktreeTarget(args, cwd, repoRoot);
+    const parsed = parseWorktreeAddTarget(args);
+    const worktreeTarget = parsed ? parseWorktreeTarget(parsed, evalCwd, repoRoot) : null;
     return worktreeTarget ? { ...grant("worktree-add", repoRoot, target, WORKTREE_DOMAINS), worktreeTarget } : null;
   }
   if (args[0] === "prune") return grant("worktree-remove", repoRoot, target, WORKTREE_DOMAINS);
   if (args[0] !== "remove") return null;
-  const targetPath = args[1];
-  if (!validWord(targetPath) || args.length > 3) return null;
-  const worktreeTarget = realpath(isAbsolute(targetPath) ? targetPath : resolve(cwd, targetPath));
+  const targetPath = parseWorktreeRemoveTarget(args);
+  if (!targetPath) return null;
+  const worktreeTarget = resolveWorktreePath(targetPath, evalCwd);
   if (dirname(worktreeTarget) !== realpath(resolve(repoRoot, ".otter/worktrees"))) return null;
   return { ...grant("worktree-remove", repoRoot, target, WORKTREE_DOMAINS), worktreeTarget };
 }
 
-function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target: RepoTarget, cwd: string): GitExecutionGrant | null {
+function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target: RepoTarget, evalCwd: string): GitExecutionGrant | null {
   // #1682 只授权外部已登记 worktree 的 add/commit；管理写面保持原拒绝边界。
   if (target.kind === "external-linked") return null;
   const { subcmd, args } = envelope;
@@ -309,7 +346,7 @@ function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target
     return grant("fetch", repoRoot, target, domains);
   }
   if (subcmd === "push") return grant("push", repoRoot, target, PUSH_DOMAINS);
-  if (subcmd === "worktree") return evaluateWorktreeWrite(args, repoRoot, target, cwd);
+  if (subcmd === "worktree") return evaluateWorktreeWrite(args, repoRoot, target, evalCwd);
   if (subcmd === "branch" && args.includes("-d") && !args.includes("-D")) {
     return grant("branch-delete", repoRoot, target, ["refs-heads", "logs-refs", "packed-refs-lock"]);
   }
@@ -317,11 +354,11 @@ function evaluateManagementWrite(envelope: GitEnvelope, repoRoot: string, target
 }
 
 function evaluateSubcommand(
-  envelope: GitEnvelope, repoRoot: string, target: RepoTarget, cwd: string,
+  envelope: GitEnvelope, repoRoot: string, target: RepoTarget, evalCwd: string,
 ): GitExecutionGrant | null {
   return evaluateReadOnly(envelope.subcmd, envelope.args, repoRoot, target)
     ?? evaluateTreeWrite(envelope.subcmd, repoRoot, target)
-    ?? evaluateManagementWrite(envelope, repoRoot, target, cwd);
+    ?? evaluateManagementWrite(envelope, repoRoot, target, evalCwd);
 }
 
 export function evaluateGitExecution(
@@ -333,14 +370,54 @@ export function evaluateGitExecution(
   const target = resolveTarget(
     envelope.targetPath, cwd, repoRoot, opts.linkedWorktrees ?? new Map(), opts.resolveExternalWorktree,
   );
-  return target ? evaluateSubcommand(envelope, repoRoot, target, cwd) : null;
+  // git 语义：-C/cd 之后的相对参数按该目录解析，而非宿主进程 cwd（2026-10-28 实证两者不一致曾致授权丢失）。
+  if (!target) return null;
+  const verdict = evaluateSubcommand(envelope, repoRoot, target, envelope.targetPath ?? cwd);
+  // S1 收口：grant 路径含白名单外字符时不授权（fail-closed → 默认 deny profile）。
+  if (verdict && !grantPathsSafe(verdict)) return null;
+  return verdict;
 }
 
-function escapePath(path: string): string {
+/** 校验 grant 中所有路径字段是否通过 SBPL 白名单（S1 防注入）。 */
+function grantPathsSafe(grant: GitExecutionGrant): boolean {
+  return isSafeProfilePath(grant.repoRoot)
+    && (grant.worktreeName === undefined || isSafeProfilePath(grant.worktreeName))
+    && (grant.worktreeTarget === undefined || isSafeProfilePath(grant.worktreeTarget))
+    && (grant.externalWorktreeRoot === undefined || isSafeProfilePath(grant.externalWorktreeRoot));
+}
+
+/**
+ * SBPL profile 路径白名单（S1 收口）：路径内容只允许 [A-Za-z0-9._/-]。
+ * 反引号/`$` 可经外层 bash 命令替换逃出沙箱（检视 S1 实证），`"` 破坏 SBPL
+ * 字符串语法（检视 A1），`\` 双层转义语义脆弱——一律在授权入口拒绝
+ * （fail-closed，不生成规则）。白名单外字符（空格/中文等）拿不到窄域授权。
+ */
+const SAFE_PROFILE_PATH = /^[A-Za-z0-9._/-]+$/;
+
+function isSafeProfilePath(path: string): boolean {
+  return SAFE_PROFILE_PATH.test(path);
+}
+
+export function escapePath(path: string): string {
   // SBPL 单行 profile 不允许控制字符；拒绝而不是生成多行 profile。
   // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f\x7f]/.test(path)) throw new Error("Git profile path contains control characters");
+  if (!isSafeProfilePath(path)) throw new Error("Git profile path contains unsafe characters (whitelist: A-Za-z0-9._/-)");
   return path.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/**
+ * SBPL regex 字面量（ICU 语法）中的路径转义：转义正则元字符防扩大匹配面。
+ * `.git` 窄写域一律用 regex 形态而非 literal/subpath——2026-10-28 语义实证：
+ * regex-deny 之后的路径形态 allow 对**删除类操作（unlink/rmdir）无效**（创建类有效），
+ * 同一形态的 regex allow 创建/删除双通（sbx-lab3 判别实验）。故 .git 窄域用 regex 形态
+ * 锚定全路径（^…），既压过通用 `.git` regex deny，又不扩大到其他仓的 .git。
+ */
+function escapeRegexPath(path: string): string {
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f]/.test(path)) throw new Error("Git profile path contains control characters");
+  if (!isSafeProfilePath(path)) throw new Error("Git profile path contains unsafe characters (whitelist: A-Za-z0-9._/-)");
+  return path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function worktreeTargetRules(grant: GitExecutionGrant): string[] {
@@ -353,33 +430,32 @@ function worktreeTargetRules(grant: GitExecutionGrant): string[] {
     if (parent === repoRoot) break;
     parent = dirname(parent);
   }
+  // 目标树与父链：面向主仓 subpath deny（路径 vs 路径，后写胜出，创建/删除双通）。
   rules.push(
     `(allow file-write* (literal "${escapePath(grant.worktreeTarget)}") (subpath "${escapePath(grant.worktreeTarget)}"))`,
-    `(allow file-write* (literal "${escapePath(resolve(grant.worktreeTarget, ".git"))}"))`,
   );
+  // .git 指针：regex 形态（压过通用 .git regex deny 的删除面），锚定全路径防误开。
+  rules.push(`(allow file-write* (regex #"^${escapeRegexPath(grant.worktreeTarget)}/\\.git$"))`);
   return rules;
 }
 
 export function grantToProfileRules(grant: GitExecutionGrant): string[] {
-  const gitDir = `${escapePath(grant.repoRoot)}/.git`;
-  const subpath = (path: string) => `(allow file-write* (subpath "${escapePath(path)}"))`;
+  // 窄写域用 regex 形态（见 escapeRegexPath 注释的语义实证）；^ 锚定 + 全路径字面防扩大。
+  const gitDir = `${escapeRegexPath(grant.repoRoot)}/\\.git`;
+  const re = (pattern: string) => `(allow file-write* (regex #"^${pattern}"))`;
   return grant.domains.map(domain => {
-    if (domain === "worktree-gitdir") return subpath(`${gitDir}/worktrees/${grant.worktreeName}`);
-    if (domain === "objects") return subpath(`${gitDir}/objects`);
-    if (domain === "refs-heads") return subpath(`${gitDir}/refs/heads`);
-    if (domain === "refs-remotes") return subpath(`${gitDir}/refs/remotes`);
-    if (domain === "logs-refs") return subpath(`${gitDir}/logs`);
+    if (domain === "worktree-gitdir") return re(`${gitDir}/worktrees/${escapeRegexPath(grant.worktreeName ?? "")}(/|$)`);
+    if (domain === "objects") return re(`${gitDir}/objects(/|$)`);
+    if (domain === "refs-heads") return re(`${gitDir}/refs/heads(/|$)`);
+    if (domain === "refs-remotes") return re(`${gitDir}/refs/remotes(/|$)`);
+    if (domain === "logs-refs") return re(`${gitDir}/logs(/|$)`);
     if (domain === "worktrees-parent") {
-      return [subpath(`${gitDir}/worktrees`), ...worktreeTargetRules(grant)].join(" ");
+      return [re(`${gitDir}/worktrees(/|$)`), ...worktreeTargetRules(grant)].join(" ");
     }
-    if (domain === "config-lock") {
-      return `(allow file-write* (literal "${escapePath(`${gitDir}/config.lock`)}"))`;
-    }
-    if (domain === "packed-refs-lock") {
-      return `(allow file-write* (literal "${escapePath(`${gitDir}/packed-refs`)}") (literal "${escapePath(`${gitDir}/packed-refs.lock`)}"))`;
-    }
+    if (domain === "config-lock") return re(`${gitDir}/config\\.lock$`);
+    if (domain === "packed-refs-lock") return re(`${gitDir}/packed-refs(\\.lock)?$`);
     const file = domain === "fetch-head" ? "FETCH_HEAD" : domain === "orig-head" ? "ORIG_HEAD" : "packed-refs";
-    return `(allow file-write* (literal "${escapePath(`${gitDir}/${file}`)}"))`;
+    return re(`${gitDir}/${file}$`);
   });
 }
 

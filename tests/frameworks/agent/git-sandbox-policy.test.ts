@@ -9,6 +9,10 @@
  * - 未知路径不授权
  * - profile 规则生成（窄写域路径正确）
  * - 授权指纹缓存（同授权同 profile，不同授权不串权）
+ *
+ * A3 注：在 otter-buddy 沙箱内跑本文件需 `--pool=threads`——默认 forks 池
+ * worker teardown 会向子进程发信号，deny-signal 沙箱下 kill EPERM 导致超时。
+ * CI（无沙箱）默认 forks 池正常，无需此参数。
  */
 
 import { describe, expect, it } from "vitest";
@@ -65,7 +69,7 @@ describe("git-execution-policy", () => {
         resolveExternalWorktree: () => ({ repoRoot: externalRoot, worktreeRoot: externalWt, worktreeName: "shared-recall-reedit" }),
       });
       expect(g).toMatchObject({ kind: "commit", repoRoot: externalRoot, worktreeName: "shared-recall-reedit" });
-      expect(grantToProfileRules(g!)).toContain(`(allow file-write* (subpath "${externalRoot}/.git/objects"))`);
+      expect(grantToProfileRules(g!)).toContain(`(allow file-write* (regex #"^${externalRoot}/\\.git/objects(/|$)"))`);
       expect(grantToProfileRules(g!).some(rule => rule.includes(`${REPO}/.git`))).toBe(false);
     });
 
@@ -171,6 +175,42 @@ describe("git-execution-policy", () => {
     });
   });
 
+  describe("worktree 参数解析（2026-10-28 修复回归）", () => {
+    it("worktree remove 相对目标按 -C 目录解析（2026-10-28 生产回归）", () => {
+      const g = evaluateGitExecution(`git -C ${REPO} worktree remove .otter/worktrees/wt2`, "/tmp", {
+        repoRoot: REPO,
+        linkedWorktrees: LINKED,
+      });
+      expect(g).toMatchObject({ kind: "worktree-remove", worktreeTarget: `${REPO}/.otter/worktrees/wt2` });
+    });
+
+    it.each([
+      `git worktree remove ${REPO}/.otter/worktrees/wt2 --force`,
+      `git worktree remove --force ${REPO}/.otter/worktrees/wt2`,
+      `git worktree remove -f ${REPO}/.otter/worktrees/wt2`,
+    ])("worktree remove 旗标任意位置 %s → 授权", command => {
+      const g = evaluateGitExecution(command, REPO, { repoRoot: REPO, linkedWorktrees: LINKED });
+      expect(g).not.toBeNull();
+      expect(g!.kind).toBe("worktree-remove");
+    });
+
+    it.each([
+      `git worktree remove ${REPO}/.otter/worktrees/wt2 --lock`,
+      `git worktree remove ${REPO}/.otter/worktrees/wt2 ${REPO}/.otter/worktrees/wt3`,
+    ])("worktree remove 未知旗标/多目标 %s 不授权", command => {
+      expect(evaluateGitExecution(command, REPO, { repoRoot: REPO, linkedWorktrees: LINKED })).toBeNull();
+    });
+
+    it.each([
+      `git worktree add ${REPO}/.otter/worktrees/new-wt -b feat HEAD`,
+      `git worktree add ${REPO}/.otter/worktrees/new-wt --detach HEAD`,
+    ])("worktree add 旗标混排（目标后）%s → 授权", command => {
+      const g = evaluateGitExecution(command, REPO, { repoRoot: REPO, linkedWorktrees: LINKED });
+      expect(g).not.toBeNull();
+      expect(g!.kind).toBe("worktree-add");
+    });
+  });
+
   describe("复合语法拦截", () => {
     it.each([
       "git status && rm -rf /",
@@ -224,19 +264,64 @@ describe("git-execution-policy", () => {
       expect(g).toBeNull();
     });
   });
+});
 
+describe("S1/A1 白名单回归（r1 返修）", () => {
+  it("S1：worktree 名含反引号 → 不授权（白名单拒绝）", () => {
+    const g = evaluateGitExecution("git worktree add .otter/worktrees/x`id`", WT, {
+      repoRoot: REPO,
+      linkedWorktrees: LINKED,
+    });
+    expect(g).toBeNull();
+  });
+
+  it("S1：worktree 名含 $() → 不授权", () => {
+    const g = evaluateGitExecution("git worktree add .otter/worktrees/x$(id)", WT, {
+      repoRoot: REPO,
+      linkedWorktrees: LINKED,
+    });
+    expect(g).toBeNull();
+  });
+
+  it("A1：worktree 名含双引号 → 不授权", () => {
+    const g = evaluateGitExecution('git worktree add .otter/worktrees/x"y', WT, {
+      repoRoot: REPO,
+      linkedWorktrees: LINKED,
+    });
+    expect(g).toBeNull();
+  });
+
+  it("S1：worktree 名含空格 → 不授权（白名单拒绝）", () => {
+    const g = evaluateGitExecution("git worktree add .otter/worktrees/my dir", WT, {
+      repoRoot: REPO,
+      linkedWorktrees: LINKED,
+    });
+    expect(g).toBeNull();
+  });
+});
+
+describe("git-execution-policy profile 规则与指纹", () => {
   describe("profile 规则生成", () => {
-    it("worktree commit 授权生成窄路径规则", () => {
+    it("worktree commit 授权生成窄路径规则（regex 形态，压过 .git deny 的删除面）", () => {
       const g = evaluateGitExecution("git commit -m test", WT, {
         repoRoot: REPO,
         linkedWorktrees: LINKED,
       })!;
       const rules = grantToProfileRules(g);
-      expect(rules).toContain(`(allow file-write* (subpath "${REPO}/.git/worktrees/${WT_NAME}"))`);
-      expect(rules).toContain(`(allow file-write* (subpath "${REPO}/.git/objects"))`);
-      expect(rules).toContain(`(allow file-write* (subpath "${REPO}/.git/refs/heads"))`);
+      expect(rules).toContain(`(allow file-write* (regex #"^${REPO}/\\.git/worktrees/${WT_NAME}(/|$)"))`);
+      expect(rules).toContain(`(allow file-write* (regex #"^${REPO}/\\.git/objects(/|$)"))`);
+      expect(rules).toContain(`(allow file-write* (regex #"^${REPO}/\\.git/refs/heads(/|$)"))`);
       // 不应包含整树 .git allow
       expect(rules.some((r) => r.includes(`"${REPO}/.git"`))).toBe(false);
+    });
+
+    it("worktree remove 授权含 .git 指针 regex 规则（unlink 面修复）", () => {
+      const g = evaluateGitExecution(`git worktree remove ${REPO}/.otter/worktrees/wt2`, REPO, {
+        repoRoot: REPO,
+        linkedWorktrees: LINKED,
+      })!;
+      const rules = grantToProfileRules(g);
+      expect(rules.some(r => r.includes(`(allow file-write* (regex #"^${REPO}/\\.otter/worktrees/wt2/\\.git$"))`))).toBe(true);
     });
 
     it("fetch 授权包含 worktree-gitdir（FETCH_HEAD 在 worktree 内）", () => {
@@ -245,7 +330,7 @@ describe("git-execution-policy", () => {
         linkedWorktrees: LINKED,
       })!;
       const rules = grantToProfileRules(g);
-      expect(rules).toContain(`(allow file-write* (subpath "${REPO}/.git/worktrees/${WT_NAME}"))`);
+      expect(rules).toContain(`(allow file-write* (regex #"^${REPO}/\\.git/worktrees/${WT_NAME}(/|$)"))`);
     });
   });
 
