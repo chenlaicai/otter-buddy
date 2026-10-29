@@ -617,16 +617,23 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
-  it('滚到底回锚（V5 下半）：floating 后 isNearBottom 的 scroll → pinned', async () => {
+  /** F20261029repin 会话归属守卫回归锁（检视 S4）：切会话换消息集（tailId 突变）不是
+   *  「新消息出现」——即使 floating 且几何贴底也不得触发恢复跟随。构造无守卫必误触发的
+   *  最坏几何（采样后距底 0），判别锚=清零回调不发（容器随 key 重建，旧容器写入计数
+   *  测不到新容器，不作过度声明）；同时兑现特性文档负向验收③ */
+  it('F20261029repin 切会话不触发回锚：floating + 换会话（tail 突变）→ 零清零', async () => {
     const pinRef = { current: false }
-    const { root, div } = renderList({ pinRef })
+    let cleared = 0
+    const opts = { pinRef, messages: [msg()], newMessagesCount: 2, conversationId: 'conv-a', onJumpToBottom: () => {}, onPinnedToBottom: () => { cleared++ } }
+    const { root, div, rerender } = renderList(opts)
     try {
-      fireRO(contentRO(), 1036)
       await sleep(40)
-      const st = instrumentRW(scrollerOf(), 2000, 500)
-      st.top = 1950 // 距底 50px
-      fireScroll()
-      expect(pinRef.current, '滚到底部附近应回锚').toBe(true)
+      const st = instrumentRW(scrollerOf(), 2000, 1340) // 贴底几何（守卫若失效必误触发）
+      pinRef.current = false
+      fireScroll() // 采样 distToBottomRef = 0（最坏几何）
+      rerender({ ...opts, conversationId: 'conv-b', messages: [msg({ id: 'b1' })] }) // 切会话 + tail 突变
+      expect(cleared, '水合/切会话不得清计数（守卫拦截，无守卫时 tail 突变+贴底几何必触发）').toBe(0)
+      void st
     } finally {
       act(() => { root.unmount() })
       div.remove()
