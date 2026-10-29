@@ -11,7 +11,7 @@ import { createSandboxSpawnHook } from "../../../src/frameworks/agent/bash-sandb
  * F20261029clnup 窄受控清理面：
  * A. branch -D 仅内容已进 main（含 squash 等价）时授权（窄受控强删面）——前置校验可注入，
  *    授权接线/形态收口本地可测；真实 git 判定（净 patch-id 算法）另有会话实证与 CI 集成用例。
- * B. 主仓根未跟踪探针残渣文件的 rm 自清面（文本层 + v2 判据层同口径）——fixture 就地取
+ * B. 主仓根未跟踪探针残渣文件的 rm 自清面（文本层 + v2 判据层 + profile 层同口径）——fixture 就地取
  *    当前 repo 工作树（git ls-files 只读判定，沙箱内可跑；git init 类 fixture 落 CI）。
  */
 const FIXTURE_ROOT = join(process.cwd(), "node_modules", `.tmp-narrow-cleanup-${process.pid}`);
@@ -70,6 +70,7 @@ describe("F20261029clnup A：branch -D 窄受控强删面", () => {
 describe("F20261029clnup B：主仓根探针残渣 rm 自清面（fixture=当前工作树）", () => {
   const root = process.cwd();
   const debris = join(root, "f3-probe-clnup-test.txt");
+  const debris2 = join(root, "f3-probe-clnup-test2.txt");
   const trackedLike = join(root, "notes-clnup-test.txt");
   const subDebris = join(root, "sub-clnup-test", "probe-x.txt");
   const dirDebris = join(root, "probe-dir-clnup-test");
@@ -77,6 +78,7 @@ describe("F20261029clnup B：主仓根探针残渣 rm 自清面（fixture=当前
 
   beforeAll(() => {
     writeFileSync(debris, "debris\n"); // 未跟踪探针残渣（豁免对象）
+    writeFileSync(debris2, "debris2\n"); // 第二件残渣（多目标/链式用例）
     writeFileSync(trackedLike, "notes\n"); // 未跟踪但模式不匹配
     mkdirSync(join(root, "sub-clnup-test"), { recursive: true });
     writeFileSync(subDebris, "sub debris\n"); // 子目录残渣
@@ -85,7 +87,7 @@ describe("F20261029clnup B：主仓根探针残渣 rm 自清面（fixture=当前
   });
 
   afterAll(() => {
-    for (const p of [debris, trackedLike, linkDebris, join(root, "sub-clnup-test", "probe-x.txt")]) rmSync(p, { force: true });
+    for (const p of [debris, debris2, trackedLike, linkDebris, join(root, "sub-clnup-test", "probe-x.txt")]) rmSync(p, { force: true });
     rmSync(join(root, "sub-clnup-test"), { recursive: true, force: true });
     rmSync(dirDebris, { recursive: true, force: true });
   });
@@ -114,6 +116,23 @@ describe("F20261029clnup B：主仓根探针残渣 rm 自清面（fixture=当前
 
   it("文本层：mv 残渣文件不享豁免（动词窄化只收 rm）", () => {
     expect(checkBashCommandSafety(`mv ${debris} /tmp/x`, null, undefined, { projectRoot: root })).not.toBeNull();
+  });
+
+  it("三层同源（检视一轮严重 4）：多目标 rm 两残渣——文本层/v2 判据/沙箱 profile 全拒绝", () => {
+    expect(isUntrackedProbeDebris(debris, root)).toBe(true); // 前置：两件都是真残渣
+    expect(isUntrackedProbeDebris(debris2, root)).toBe(true);
+    expect(evaluateWriteVerdict(`rm ${debris} ${debris2}`, root, root).verdict).toBe("BLOCK");
+    expect(checkBashCommandSafety(`rm ${debris} ${debris2}`, null, undefined, { projectRoot: root })).not.toBeNull();
+    const hook = createSandboxSpawnHook(root, join(root, "data"));
+    expect(hook({ command: `rm ${debris} ${debris2}`, cwd: root, env: {} }).command).not.toContain("(allow file-write* (literal");
+  });
+
+  it("三层同源：链式 rm 残渣（rm A && rm B）——形态锚定整命令，全拒绝", () => {
+    // 检视一轮附带发现：此前文本层逐段判形态，链式各段独立豁免（与 profile 层分叉）
+    expect(evaluateWriteVerdict(`rm ${debris} && rm ${debris2}`, root, root).verdict).toBe("BLOCK");
+    expect(checkBashCommandSafety(`rm ${debris} && rm ${debris2}`, null, undefined, { projectRoot: root })).not.toBeNull();
+    const hook = createSandboxSpawnHook(root, join(root, "data"));
+    expect(hook({ command: `rm ${debris} && rm ${debris2}`, cwd: root, env: {} }).command).not.toContain("(allow file-write* (literal");
   });
 
   it("形态收口（debrisRmAllowPath）：仅单目标 rm 命中；链式/多目标/其他动词 → null", () => {

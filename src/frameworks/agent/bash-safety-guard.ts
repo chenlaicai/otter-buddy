@@ -555,7 +555,7 @@ function pathArgsOf(seg: string): string[] {
  *  F20261016gdfv：目标域从 data/ 扩主仓内容树（M-c78df9d4 X1/X2 反判面）；mv 双端判定
  *  （源=主仓内容被移走，目标=移入主仓——旧版只查源，mv 入主仓曾双层反判）。 */
 // eslint-disable-next-line complexity -- F20261029clnup 探针残渣自清面 +1 分支（rm 单目标豁免），每分支对应一种已实证形态
-function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sessionCwd?: string): { kind: string; zone: DestructiveZone } {
+function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sessionCwd?: string, fullCommand?: string): { kind: string; zone: DestructiveZone } {
   const zoneOf = (args: string[]): DestructiveZone => {
     let z: DestructiveZone = null;
     for (const a of args) {
@@ -569,8 +569,11 @@ function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sess
     const rmArgs = pathArgsOf(seg);
     // F20261029clnup：探针残渣自清面（形态+谓词单一真相源 debrisRmAllowPath）——单目标
     //  rm 命中「主仓根未跟踪探针残渣文件」时不属主仓保护内容（海獭自清）；rmdir/多目标/
-    //  链式形态不享豁免（动词窄化收口在单一真相源里）。
-    if (projectRoot && debrisRmAllowPath(seg, cwd, projectRoot) !== null) {
+    //  链式形态不享豁免。检视一轮严重 4 对齐：形态判定用**完整命令**（debrisRmAllowPath
+    //  锚定整命令 `rm [旗标…] <唯一目标>`，链式/管道/重定向/多目标天然不命中）——此前
+    //  逐段判定使 `rm <残渣A> && rm <残渣B>` 各段独立豁免，与 v2 判据层/沙箱 profile 层
+    //  （均整命令判定、不豁免）分叉。fullCommand 缺省回退 seg（单段命令两值等价）。
+    if (projectRoot && debrisRmAllowPath(fullCommand ?? seg, cwd, projectRoot) !== null) {
       return { kind: "rm", zone: null };
     }
     return { kind: "rm", zone: zoneOf(rmArgs) };
@@ -641,7 +644,7 @@ function checkDataDirDestructive(command: string, logger: Logger | undefined, ct
       cwd = path.isAbsolute(target) ? safeRealpath(target) : (cwd ? safeRealpath(joinNoFold(cwd, target)) : "");
       continue;
     }
-    const { kind, zone } = segmentDestructive(seg, cwdAt?.[i] ?? cwd, ctx.projectRoot, ctx.sessionCwd);
+    const { kind, zone } = segmentDestructive(seg, cwdAt?.[i] ?? cwd, ctx.projectRoot, ctx.sessionCwd, command);
     if (zone !== null) {
       logger?.warn(`[bash-safety-guard] BLOCKED ${kind} targeting main-checkout ${zone}`, { command: command.substring(0, 200) });
       return zone === "data" ? DATA_DESTRUCTIVE_MSG : MAIN_DESTRUCTIVE_MSG;

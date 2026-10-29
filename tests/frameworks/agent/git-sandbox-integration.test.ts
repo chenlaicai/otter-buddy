@@ -219,4 +219,48 @@ describe.skipIf(!isMac)("F20261027gscv Git 执行域真实 sandbox", () => {
     expect(run(`rm ${join(repo, "f3-probe-e2e.txt")}`, repo).code).toBe(0);
     expect(existsSync(join(repo, "f3-probe-e2e.txt"))).toBe(false);
   });
+
+  // 已跟踪同模式文件 fixture（两负向用例共用，幂等自备——单跑任一用例也成立）
+  function ensureTrackedProbeFile(): void {
+    const tracked = join(repo, "f9-probe-tracked-e2e.txt");
+    if (existsSync(tracked)) return;
+    writeFileSync(tracked, "tracked\n");
+    git(repo, ["add", "f9-probe-tracked-e2e.txt"]);
+    git(repo, ["commit", "-qm", "track probe-pattern file"]);
+  }
+
+  it("F20261029clnup 残渣负向（沙箱真执行）：已跟踪同模式文件 rm 被拒，文件存活", () => {
+    ensureTrackedProbeFile();
+    const r = run("rm f9-probe-tracked-e2e.txt", repo);
+    expect(r.code).not.toBe(0);
+    expect(existsSync(join(repo, "f9-probe-tracked-e2e.txt"))).toBe(true);
+  });
+
+  it("F20261029clnup 残渣大小写变体不豁免（检视一轮严重 1）：全大写变体 rm 被拒，已跟踪文件存活", () => {
+    // macOS 大小写不敏感文件系统上 F9-PROBE-TRACKED-E2E.TXT 命中同一目录项——修复前
+    // 精确路径查询被大小写变体绕开（core.ignorecase 下 ls-files 变体名返回空），
+    // 误判未跟踪残渣后豁免删除落到已跟踪文件（回归钉：修复前本用例红）。
+    ensureTrackedProbeFile();
+    const r = run("rm F9-PROBE-TRACKED-E2E.TXT", repo);
+    expect(r.code).not.toBe(0);
+    expect(existsSync(join(repo, "f9-probe-tracked-e2e.txt"))).toBe(true);
+  });
+
+  it("F20261029clnup 残渣多目标 rm 被拒（检视一轮严重 4）：两残渣文件均存活", () => {
+    writeFileSync(join(repo, "f3-probe-e2e-a.txt"), "a");
+    writeFileSync(join(repo, "f3-probe-e2e-b.txt"), "b");
+    const r = run(`rm ${join(repo, "f3-probe-e2e-a.txt")} ${join(repo, "f3-probe-e2e-b.txt")}`, repo);
+    expect(r.code).not.toBe(0);
+    expect(existsSync(join(repo, "f3-probe-e2e-a.txt"))).toBe(true);
+    expect(existsSync(join(repo, "f3-probe-e2e-b.txt"))).toBe(true);
+  });
+
+  it("F20261029clnup 残渣链式 rm 被拒（形态锚定整命令）：两残渣文件均存活", () => {
+    writeFileSync(join(repo, "f3-probe-e2e-c.txt"), "c");
+    writeFileSync(join(repo, "f3-probe-e2e-d.txt"), "d");
+    const r = run(`rm ${join(repo, "f3-probe-e2e-c.txt")} && rm ${join(repo, "f3-probe-e2e-d.txt")}`, repo);
+    expect(r.code).not.toBe(0);
+    expect(existsSync(join(repo, "f3-probe-e2e-c.txt"))).toBe(true);
+    expect(existsSync(join(repo, "f3-probe-e2e-d.txt"))).toBe(true);
+  });
 });

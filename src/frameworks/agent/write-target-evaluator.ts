@@ -146,9 +146,35 @@ export function pathEntryWithinMain(absPath: string, projectRoot: string): boole
 /** F20261029clnup 探针残渣名目：可选 f<数字>- 前缀 + probe + 分隔符（f3-probe-dst.txt / probe-x.tmp）。 */
 const PROBE_DEBRIS_NAME = /^(?:f\d+-)?probe[-._]/i;
 
+/** 已跟踪判定（检视一轮严重 1）：<base> 是否对应根目录 depth-1 的已跟踪索引项（含大小写
+ *  变体同一目录项）。st 为候选目录项的 lstat（bigint dev/ino）。不能只按传入大小写做精确
+ *  路径查询——大小写不敏感文件系统（macOS 默认 core.ignorecase=true）上 `git ls-files --
+ *  PACKAGE.JSON` 对已跟踪 package.json 返回空，大小写变体会被误判未跟踪残渣、豁免删除
+ *  落到已跟踪目录项（实测本仓：core.ignorecase=true，PACKAGE.JSON 精确查询 0 行 /
+ *  package.json 1 行）。改为枚举根目录 depth-1 索引项：① 精确名命中 = 已跟踪；② 大小写
+ *  不敏感同名命中时以 dev+inode 确认「同一目录项」——大小写不敏感文件系统上变体名
+ *  lstat 到同一 inode（删除会落到已跟踪文件 → 已跟踪）；大小写敏感文件系统上不同 inode
+ *  是独立目录项（真未跟踪残渣，不命中）。身份比对必须用 inode 而非路径字符串：
+ *  fs.realpathSync 不折叠大小写（实测 macOS 变体名入参返回变体名），字符串比对会漏判。
+ *  git 异常由调用方 catch → fail-closed（保守）。 */
+function trackedAtRootDepth1(base: string, root: string, st: { dev: bigint; ino: bigint }): boolean {
+  const out = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const lower = base.toLowerCase();
+  for (const entry of out.split("\n")) {
+    if (entry === "" || entry.includes("/")) continue; // 只看根目录 depth-1 索引项
+    if (entry === base) return true; // 精确命中 = 已跟踪
+    if (entry.toLowerCase() !== lower) continue;
+    try {
+      const est = lstatSync(path.join(root, entry), { bigint: true });
+      if (est.dev === st.dev && est.ino === st.ino) return true; // 已跟踪项的大小写变体 = 同一目录项
+    } catch { /* 索引项不在工作树（稀疏检出等）→ 无同名目录项，继续 */ }
+  }
+  return false;
+}
+
 /**
- * F20261029clnup 探针残渣自清面（单一真相源，guard 文本层与 v2 判据层同口径）：
- * 主仓根（depth-1）的未跟踪普通文件且名目命中探针残渣模式时，不属主仓保护内容
+ * F20261029clnup 探针残渣自清面（单一真相源，guard 文本层 / v2 判据层 / 沙箱 profile 层
+ * 同口径）：主仓根（depth-1）的未跟踪普通文件且名目命中探针残渣模式时，不属主仓保护内容
  *（海獭自清面，搭档 2026-10-29 定调「这东西都应该你们海獭自己来弄」）。仅作用删除/
  * 目录项语义（entryOp）；内容写照旧保护。fail-closed：git 查询失败/目录/符号链接/
  * 已跟踪/子目录/模式不匹配 → false（照旧保护）。TOCTOU：判定与执行间的毫秒窗口
@@ -161,21 +187,24 @@ export function isUntrackedProbeDebris(absPath: string, projectRoot: string): bo
     if (path.posix.dirname(p) !== root) return false; // 仅主仓根 depth-1
     const base = path.posix.basename(p);
     if (!PROBE_DEBRIS_NAME.test(base)) return false;
-    if (!lstatSync(absPath).isFile()) return false; // 仅普通文件（目录/链接不豁免）
-    const out = execFileSync("git", ["ls-files", "--", base], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    return out.trim() === ""; // 空输出 = 未跟踪；git 异常走 catch → false（保守）
+    const st = lstatSync(absPath, { bigint: true });
+    if (!st.isFile()) return false; // 仅普通文件（目录/链接不豁免）
+    return !trackedAtRootDepth1(base, root, st);
   } catch {
     return false;
   }
 }
 
-/** F20261029clnup 单目标 rm 形态：仅 `rm [旗标…] <唯一目标>`（可带简单引号），无链式/管道/重定向/多目标。 */
+/** F20261029clnup 单目标 rm 形态：仅 `rm [旗标…] <唯一目标>`（可带简单引号），无链式/管道/重定向/多目标。
+ * 锚定**整命令**（^…$）——链式/管道/多目标天然不命中，各层据此收口。 */
 const RM_SINGLE_TARGET = /^rm\s+(?:(?:-{1,2}[\w-]+)\s+)*(?:"([^"]+)"|'([^']+)'|(\S+))\s*$/;
 
 /**
- * F20261029clnup 探针残渣 rm 自清面的形态+谓词单一真相源（文本层与沙箱 profile 层共用，
- * 口径不分叉）：单目标 rm 且目标命中 isUntrackedProbeDebris 时返回应放行的绝对路径，
- * 否则 null（不适用/不豁免，照旧保护）。动词窄化只收 rm（防 mv 入主仓换名绕过）。
+ * F20261029clnup 探针残渣 rm 自清面的形态+谓词单一真相源（文本层 / v2 判据层 / 沙箱
+ * profile 层共用，口径不分叉）：单目标 rm 且目标命中 isUntrackedProbeDebris 时返回
+ * 应放行的绝对路径，否则 null（不适用/不豁免，照旧保护）。动词窄化只收 rm（防 mv 入
+ * 主仓换名绕过）。调用方一律传**完整命令**（不传逐段切片——逐段传会把 `rm A && rm B`
+ * 切成两个单目标段各自豁免，与整命令形态锚定分叉，检视一轮严重 4 收口）。
  */
 export function debrisRmAllowPath(command: string, cwd: string, projectRoot: string): string | null {
   const m = RM_SINGLE_TARGET.exec(command.trim());
