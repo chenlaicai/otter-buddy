@@ -209,6 +209,10 @@ const SENTINEL_ROOT_MARGIN_PX = 200
  *  解除通道：handleScroll 检测向下位移（用户离开顶部）即重置。故障模式=哨兵静默（同 lmld
  *  死锁形态），逃生口=可见按钮（手动通道不受限） */
 const AUTO_CHAIN_MAX_BATCHES = 3
+/** F20261029repin 新消息恢复跟随的视觉贴底阈值（px）：亚像素余量，任何可感知的上拉距离
+ *  都远大于此。不用旧 100px 近底宽带——「宽松回锚=善意」假设已作废（搭档 10/29 裁决
+ *  移除「到底即回锚」机制，归因见 F20261029repin §3） */
+const NEWMSG_REPIN_PX = 8
 
 /** F20261008csf1 P1：混排时间线条目——消息气泡 or 文类产物摘要卡 */
 type TimelineItem =
@@ -236,10 +240,12 @@ interface MessageListProps {
    *  动态变化，pinned 用户由既有贴底补偿保持齐平（衬垫长高也是内容长高，contentObserver
    *  兑底），floating 用户不打扰 */
   bottomSpacerPx?: number
-  /** F20261027nmbf：回锚清零回调——floating→pinned 转换（滚回底部）时清 newMessagesCount。
+  /** F20261027nmbf：回锚清零回调——floating→pinned 转换时清 newMessagesCount。
    *  背景：浮窗计数此前只有「点浮窗/发言」两个清零入口，均要求按钮可点；输入覆盖层
    *  （F20261015inpd）遮挡按钮后清零路径全断，计数僵死（左栏红点已被聚焦 ack 消掉，
-   *  浮窗仍挂“新消息1条”）。回锚=用户已看到底部全部消息，语义上等同已读 */
+   *  浮窗仍挂“新消息1条”）。回锚=用户已看到底部全部消息，语义上等同已读。
+   *  F20261029repin：转换时机只剩「新消息+视觉贴底恢复跟随」与显式动作（跳底/发言）——
+   *  旧「滚回底部即回锚」路径已随「到底即回锚」机制整体移除 */
   onPinnedToBottom?: () => void
   /** 跳底按钮回调：滚动与置 pin 在本组件内完成，回调只承担计数清零等业务侧处理 */
   onJumpToBottom?: () => void
@@ -256,11 +262,6 @@ interface MessageListProps {
   /** F20261008csf1 P1：混排产物数据源（linked_resources，pr/file/fact/game 类型混排进时间轴；F20261021gmbe 接入 game） */
   linkedResources?: LocalLinkedResource[]
   /** 信号轨迹（F20260902u5tr）：服务端推导的投石信号投递状态（可选，未加载时不渲染轨迹） */
-}
-
-/** 判断是否在底部（阈值 100px） */
-function isNearBottom(el: HTMLElement, threshold = 100): boolean {
-  return el.scrollHeight - el.scrollTop - el.clientHeight < threshold
 }
 
 export function MessageList({
@@ -334,7 +335,10 @@ export function MessageList({
    * 语义：意图驱动——
    * - 脱锚（pinned→floating）：仅用户意图——wheel 上滚 / touch 上翻 / 键盘上翻 /
    *   向上位移（滚动条上拖无专门事件，位移方向是其唯一可观测签名）
-   * - 回锚（floating→pinned）：滚至底部附近（isNearBottom，含 clamp 落底）/ 点跳底按钮
+   * - 回锚（floating→pinned）：F20261029repin 起仅两条路径——①新消息 append 且用户视觉
+   *   贴底（≤8px，见下方 re-pin effect）②显式动作（跳底按钮点按/用户发言）。
+   *   「scroll 事件到底即回锚」机制已整体移除（搭档 10/29 裁决：不认可位置推断意图，
+   *   自动回底只能由新消息触发——归因见 F20261029repin 演化链）
    * - 高度变化：不改状态；pinned → 统一贴底补偿，floating → 不打扰
    * F20261020wcsr：write ledger 账本退役——向上位移脱锚规则（F20261016inbs）使程序写入
    * （pin/兜底均构造性向下）几何上不可能命中脱锚分支，误判通道被方向封闭（论证见特性文档） */
@@ -344,6 +348,16 @@ export function MessageList({
    *  采样点与 lastScrollTopRef 同一处（handleScroll 末尾），中间无观测缺口 */
   const lastScrollHeightRef = useRef(0)
   const touchStartYRef = useRef<number | null>(null)
+
+  /** F20261029repin 新消息恢复跟随探测：尾部消息 id 采样 + 归属会话（append 判定，见 re-pin effect） */
+  const lastTailIdRef = useRef<string | null>(null)
+  const lastTailConvRef = useRef<string | null>(null)
+  /** F20261029repin：距底距离采样（px）——「用户视觉贴底」的追加前几何快照。刷新点三处：
+   *  handleScroll（任何滚动）、contentObserver（异步内容撑高）、re-pin effect 末尾（React
+   *  commit）。判定必须读本 ref 而非实时 DOM：新消息入 DOM 后 scrollHeight 已含追加量，
+   *  实时距底=追加前距离+新消息高，会把贴底用户误判成离底（漏恢复跟随，主场景：上拉阅读
+   *  后滑回底部停住，新消息到达时应回底跟随） */
+  const distToBottomRef = useRef(0)
 
   /** 程序性滚动统一入口（F20261020wcsr：账本删除后语义收窄为「写入点收敛」——
    *  所有代码发起的 scrollTop 写入走这里，便于审计写入方向不变量：全部写入构造性向下） */
@@ -441,8 +455,7 @@ export function MessageList({
    * 事故，滚动治理第 9 轮）。删除后行为变化与取舍详见特性文档 F20261010vwst。
    *
    * 边界处理：
-   * - 内容高度减小（流式面板折叠等）：scrollHeight 缩短自然把视口推近底部，
-   *   isNearBottom 重判，无需补偿
+   * - 内容高度减小（流式面板折叠等）：scrollHeight 缩短自然把视口推近底部，无需补偿
    * - requestAnimationFrame 合帧：高频 resize（流式渲染）下每帧至多补偿一次
    * - floating 用户（F20261008scpg 意图状态机）：任何高度变化都不打扰——floating 态的
    *   视觉稳定由浏览器 scroll anchoring 承担（F20261020wcsr），不再枚举补偿
@@ -464,6 +477,8 @@ export function MessageList({
       const entry = entries[entries.length - 1]
       const h = entry?.contentRect?.height ?? 0
       if (h === prevContentHeightRef.current) return // 高度没变（width-only 等）
+      const sc = scrollRef.current
+      if (sc) distToBottomRef.current = Math.max(0, sc.scrollHeight - sc.scrollTop - sc.clientHeight) // F20261029repin 距底采样（异步撑高）
       const grew = h > prevContentHeightRef.current
       prevContentHeightRef.current = h
       if (!grew) return // 内容缩短：scrollHeight 缩短自然贴底，不补
@@ -513,7 +528,9 @@ export function MessageList({
   }, [conversationId, state, hasMoreBefore, loadingMore, loadMoreError, fireLoadMore])
 
   /** F20261008scpg 滚动事件处理（F20261020wcsr 账本退役简化版）：位移方向分类 + 连拉冷却解除。
-   * 分类序：回锚优先于脱锚——clamp 落底/用户滚到底都是安全方向（默认意图=跟随）；
+   * F20261029repin：scroll 事件不再承担回锚——「到底即回锚」机制整体移除后本 handler 只剩两
+   * 件事：向上位移脱锚归因、向下位移解除连拉冷却。clamp 落底/用户滚到底一律不改 pin 状态
+   * （floating 用户拖到底部保持 floating——到底停留不代表放弃阅读上文）。
    * 向上位移脱锚 F20261016inbs 起不受 100px nearBottom 阈值限制（见下方内联注释）。
    * 账本退役论证（特性文档 F20261020wcsr）：本特性落地后全部程序写入（pin 贴底/scrollTop=0
    * 兜底增量写入）方向构造性向下或钳零，几何上不可能命中 movedUp 分支——「程序写入污染
@@ -530,17 +547,13 @@ export function MessageList({
      *  把 scrollTop 压低），不是用户意图——收缩期间不脱锚，pinned 用户保持 pinned */
     const movedUp = el.scrollTop < lastScrollTopRef.current - 1
     const shrank = el.scrollHeight < lastScrollHeightRef.current - 1
-    const nearBottom = isNearBottom(el)
+    // F20261029repin：「到底即回锚」分支整体移除——scroll 事件不再改变 pin 状态（脱锚
+    // 除外）。旧机制下轻拉两三行的用户会被回弹/锚定微调等非用户位移源误判「滚回底部」
+    // → 重渲染贴底 → 跳底（三轮同族问题根源）；回底跟随改为仅新消息触发（re-pin effect）
+    // 与显式动作（跳底按钮/发言）。pinned 用户自然滑到底部全程 pinned（无转换发生），
+    // 贴底补偿照常；floating 用户拖到底部则保持 floating——底部停留不代表放弃阅读上文。
     if (movedUp && !shrank) {
       takeUserControl()
-    } else if (nearBottom) {
-      // 非向上位移滚到底部附近 → 回锚合法（向下滚回底部/收缩 clamp 落底/pinned 保持）
-      const wasFloating = !pinRef.current
-      pinRef.current = true
-      // F20261027nmbf：回锚即清零——floating→pinned 转换（用户滚回底部=新消息已在眼前）
-      // 时清浮窗计数。仅转换时触发（pinned 保持的重复 scroll 不打）。父层 set(0) 幂等，
-      // 不读计数 props 快照：新消息 setState 与 scroll 交错时，旧快照也不能吞掉本次回锚边缘
-      if (wasFloating) onPinnedToBottom?.()
     }
     // F20261020wcsr：向下位移 = 用户离开顶部 → 解除哨兵连拉冷却（恢复自动加载资格）
     if (el.scrollTop > lastScrollTopRef.current && autoChainCountRef.current > 0) {
@@ -548,7 +561,8 @@ export function MessageList({
     }
     lastScrollTopRef.current = el.scrollTop
     lastScrollHeightRef.current = el.scrollHeight
-  }, [pinRef, takeUserControl, onPinnedToBottom])
+    distToBottomRef.current = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight) // F20261029repin 距底采样
+  }, [takeUserControl])
 
   /** 首次渲染滚到底部（R0：mount 即 pinned——容器带 key，切会话 remount 时同样经此贴底） */
   useEffect(() => {
@@ -569,9 +583,44 @@ export function MessageList({
     pinRef.current = true
     lastScrollTopRef.current = 0
     lastScrollHeightRef.current = 0
+    distToBottomRef.current = 0 // F20261029repin 新会话贴底起步（R0 mount 贴底）
     autoChainCountRef.current = 0
     cancelAnimationFrame(rafPinIdRef.current)
   }, [conversationId, pinRef])
+
+  /** F20261029repin 新消息恢复跟随（回底跟随的唯一自动触发）：尾部 append 且用户视觉贴底
+   *  （≤8px）→ 回锚 pinned + 贴底 + 清浮窗计数。
+   *  语义裁决（搭档 10/29）：「到底即回锚」移除后，自动回底仅由新消息触发——
+   *  用户停在哪都不被滚动事件打扰；只有新消息到来且人恰在底部，跟随才恢复。
+   *  阈值 8px：视觉贴底（亚像素余量），任何可感知的上拉距离都远大于此；不用 100px
+   *  近底宽带（旧设计「宽松回锚=善意」假设已作废，归因见 F20261029repin §3）。
+   *  距底判定读 distToBottomRef（追加前几何快照）而非实时 DOM：useLayoutEffect 运行时
+   *  新消息已入 DOM（React 先变异后跑 layout effect，与 paint 无关），实时距底已含追加
+   *  量，会把贴底用户误判离底漏恢复跟随。
+   *  回锚后本 effect 内同步 programScroll 贴底：commit effect 在同一 commit 内先于本
+   *  effect 跑过（当时 pin 还是 false 早退），不能等它补；RO 链随后 rAF 双写幂等无害。
+   *  会话归属守卫：挂载水合（历史消息初始加载）与切会话换消息集都表现为 tailId 突变，
+   *  但都不是「新消息出现」——只采样不触发。同时消灭 effect 时序竞态：本 layout effect
+   *  先于 passive 的「切换会话重置」effect 跑，挂载/切会话时 pinRef 还是旧值，无守卫会
+   *  误触发回锚（测试实锤：挂载即触发清零）。 */
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const distBeforeAppend = distToBottomRef.current
+    distToBottomRef.current = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)
+    const tailId = messages.length > 0 ? (messages[messages.length - 1] as (typeof messages)[number]).id : null
+    const prevTail = lastTailIdRef.current
+    const prevConv = lastTailConvRef.current
+    lastTailIdRef.current = tailId
+    lastTailConvRef.current = conversationId
+    if (prevConv !== conversationId) return // 挂载水合/切会话：只采样不触发（初始加载≠新消息出现）
+    if (tailId == null || tailId === prevTail) return // 非尾部 append（prepend/无变化/清空）不动
+    if (pinRef.current) return // pinned 由 commit effect/contentObserver 贴底，无需此处处理
+    if (distBeforeAppend > NEWMSG_REPIN_PX) return // 追加前不在底部 → 不抢（浮窗计数由父层 +1）
+    pinRef.current = true
+    programScroll(el, el.scrollHeight) // 回锚即贴底（同一 commit 内同步对齐）
+    onPinnedToBottom?.() // F20261027nmbf 语义保留：回底即新消息已在眼前，清计数
+  })
 
   /** F20261008scpg 意图事件监听：wheel/touch/键盘上滚 = 用户意图脱锚（capture+passive，不拦截不感知几何）。
    * 这三条是「有专门事件」的输入通道；滚动条拖动等无事件手势由 handleScroll 的位移归因兑底覆盖。

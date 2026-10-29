@@ -378,34 +378,37 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     loadMoreError?: boolean
     conversationId?: string
   }
-  function renderList(opts: RenderOpts): { root: Root; div: HTMLDivElement } {
+  function listElement(opts: RenderOpts) {
+    return (
+      <MessageList
+        messages={opts.messages ?? [msg()]}
+        state="normal"
+        onStopStream={() => {}}
+        onRetryMessage={() => {}}
+        onRetry={() => {}}
+        onGoToSettings={() => {}}
+        otters={[]}
+        conversationId={opts.conversationId ?? "conv-1"}
+        pinRef={opts.pinRef}
+        newMessagesCount={opts.newMessagesCount}
+        onJumpToBottom={opts.onJumpToBottom}
+        onPinnedToBottom={opts.onPinnedToBottom}
+        bottomSpacerPx={opts.bottomSpacerPx}
+        onLoadMore={opts.onLoadMore}
+        hasMoreBefore={opts.hasMoreBefore}
+        loadingMore={opts.loadingMore}
+        loadMoreError={opts.loadMoreError}
+      />
+    )
+  }
+  function renderList(opts: RenderOpts): { root: Root; div: HTMLDivElement; rerender: (next: RenderOpts) => void } {
     const div = document.createElement('div')
     document.body.appendChild(div)
     const root = createRoot(div)
     act(() => {
-      root.render(
-        <MessageList
-          messages={opts.messages ?? [msg()]}
-          state="normal"
-          onStopStream={() => {}}
-          onRetryMessage={() => {}}
-          onRetry={() => {}}
-          onGoToSettings={() => {}}
-          otters={[]}
-          conversationId={opts.conversationId ?? "conv-1"}
-          pinRef={opts.pinRef}
-          newMessagesCount={opts.newMessagesCount}
-          onJumpToBottom={opts.onJumpToBottom}
-          onPinnedToBottom={opts.onPinnedToBottom}
-          bottomSpacerPx={opts.bottomSpacerPx}
-          onLoadMore={opts.onLoadMore}
-          hasMoreBefore={opts.hasMoreBefore}
-          loadingMore={opts.loadingMore}
-          loadMoreError={opts.loadMoreError}
-        />,
-      )
+      root.render(listElement(opts))
     })
-    return { root, div }
+    return { root, div, rerender: (next: RenderOpts) => { act(() => { root.render(listElement(next)) }) } }
   }
   function scrollerOf(): Element {
     const el = document.querySelector('.overflow-y-auto')
@@ -469,39 +472,101 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
-  /** F20261027nmbf：计数僵死修复——floating→pinned 转换（滚回底部）即清零，不再依赖按钮可点。
-   *  修复前：清零仅有点浮窗/发言两路，按钮被覆盖层遮挡时计数僵死。
-   *  注：mount 时「切换会话重置」effect 置 pinRef=true，故用例内先手动置 floating 再触发回锚 */
-  it('F20261027nmbf 回锚清零：floating 滚回底部（nearBottom）→ 触发 onPinnedToBottom 清零回调', async () => {
+  /** F20261029repin：「到底即回锚」机制整体移除（搭档 10/29 裁决「不要有这个机制」）——
+   *  scroll 事件永不置 pin。旧语义（本用例改造前的断言）：floating 滚回 nearBottom 带即
+   *  回锚置 pin + 清零回调（缺陷行为被固化成规格）。红绿锚：旧实现（含 #1700 8px 收紧）
+   *  在本用例必红——到底滚回断言 pin 保持 false */
+  it('F20261029repin 到底不回锚：floating 拖到底部（距底 0）→ 保持 floating，scroll 不置 pin', async () => {
     const pinRef = { current: false }
     let cleared = 0
     const { root, div } = renderList({ pinRef, newMessagesCount: 3, onJumpToBottom: () => {}, onPinnedToBottom: () => { cleared++ } })
     try {
-      const st = instrumentRW(scrollerOf(), 2000, 1950) // 距底 50px < 100 阈值 = nearBottom
-      pinRef.current = false // mount 重置 effect 已置 true——手动回到 floating（模拟用户上翻后滚回）
+      await sleep(40) // 等 mount R0 rAF 落完（其写入在未打桩 DOM 上，不污染用例计数）
+      const st = instrumentRW(scrollerOf(), 2000, 1340) // 距底 0：正好贴底（2000-1340-660）
+      pinRef.current = false // mount 重置 effect 已置 true——模拟用户上翻后拖回底部
       fireScroll()
-      expect(pinRef.current, '滚回底部应回锚').toBe(true)
-      expect(cleared, 'floating→pinned 转换应触发清零回调').toBe(1)
-      // pinned 保持态重复 scroll 不重复触发（转换边缘触发）
+      expect(pinRef.current, '到底即回锚已移除：scroll 事件不得置 pin').toBe(false)
+      expect(cleared, '无 floating→pinned 转换，不得触发清零').toBe(0)
+      // 到底停留期的回弹/微调位移同样不改状态（旧机制在此被非用户位移误触发）
+      st.top = 1345
       fireScroll()
-      expect(cleared, 'pinned 保持不应重复触发').toBe(1)
-      void st
+      st.top = 1338
+      fireScroll()
+      expect(pinRef.current, '底部停留期任何 scroll 都不改 pin 状态').toBe(false)
     } finally {
       act(() => { root.unmount() })
       div.remove()
     }
   })
 
-  it('F20261027nmbf 回锚清零幂等：计数 prop 仍为上一帧快照时也发清零回调', async () => {
+  /** F20261029repin 新消息恢复跟随（回底跟随唯一自动触发）：floating 视觉贴底（追加前距底
+   *  ≤8px）+ 尾部 append → 回锚 + 贴底写入 + 清零。红绿锚：旧实现（无 re-pin 通路）在本
+   *  用例必红——append 后不置 pin、不清零。距底判定用追加前几何（distToBottomRef 快照）：
+   *  8px 为阈值边界（≤8 判贴底）；若误用追加后实时几何（8+消息高）则必漏回锚 */
+  it('F20261029repin 新消息回锚：floating 视觉贴底（距底 8px 边界）+ 尾部 append → 回锚+贴底+清零', async () => {
     const pinRef = { current: false }
     let cleared = 0
-    const { root, div } = renderList({ pinRef, newMessagesCount: 0, onJumpToBottom: () => {}, onPinnedToBottom: () => { cleared++ } })
+    const opts = { pinRef, messages: [msg()], newMessagesCount: 3, onJumpToBottom: () => {}, onPinnedToBottom: () => { cleared++ } }
+    const { root, div, rerender } = renderList(opts)
     try {
-      instrumentRW(scrollerOf(), 2000, 1980)
-      pinRef.current = false // mount 重置 effect 已置 true——模拟用户上翻后的真实 floating 起点
+      await sleep(40)
+      const st = instrumentRW(scrollerOf(), 2000, 1332) // 追加前距底 8px（边界：≤8 判贴底）
+      pinRef.current = false // mount 重置已置 true——模拟上翻后滑回底部停住
+      fireScroll() // 采样 distToBottomRef = 8
+      // 红锚（触发归属）：回锚只能由新消息触发——scroll 时刻必须仍是 floating、零清零。
+      // 旧实现在此就地完成「到底即回锚+清零」，这两个断言必红（终态相同但触发源不同）
+      expect(pinRef.current, 'scroll 不置 pin（到底即回锚已移除）').toBe(false)
+      expect(cleared, 'scroll 时刻不得清零（回锚只能由新消息触发）').toBe(0)
+      const writesBefore = st.writes
+      rerender({ ...opts, messages: [msg(), msg({ id: 'm2', content: '新消息' })] }) // 尾部 append
+      expect(pinRef.current, '追加前视觉贴底 → 恢复跟随').toBe(true)
+      expect(cleared, 'floating→pinned 转换应触发清零回调').toBe(1)
+      expect(st.writes, '回锚应同步贴底写入（同一 commit 内对齐）').toBe(writesBefore + 1)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  /** F20261027nmbf 清零幂等（F20261029repin 语义迁移保留）：清零回调不依赖计数 props 快照，
+   *  父层 set(0) 本就幂等——上一版同名用例断言的是「滚回底部回锚清零」，语义已随机制移除改写 */
+  it('F20261029repin 新消息回锚清零幂等：计数 prop 为陈旧快照（0）时也发清零回调', async () => {
+    const pinRef = { current: false }
+    let cleared = 0
+    const opts = { pinRef, messages: [msg()], newMessagesCount: 0, onJumpToBottom: () => {}, onPinnedToBottom: () => { cleared++ } }
+    const { root, div, rerender } = renderList(opts)
+    try {
+      await sleep(40)
+      instrumentRW(scrollerOf(), 2000, 1340) // 距底 0
+      pinRef.current = false // 模拟用户上翻后滑回底部的真实 floating 起点
       fireScroll()
-      expect(pinRef.current, '应完成 floating→pinned 回锚').toBe(true)
-      expect(cleared, '清零不依赖计数 props 快照；父层 set(0) 本就幂等').toBe(1)
+      expect(cleared, 'scroll 时刻不得清零（回锚只能由新消息触发）').toBe(0) // 红锚：旧实现此刻已清零
+      rerender({ ...opts, messages: [msg(), msg({ id: 'm2', content: '新消息' })] })
+      expect(pinRef.current, '应完成 floating→pinned 恢复跟随').toBe(true)
+      expect(cleared, '清零不依赖计数 props 快照').toBe(1)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  /** F20261029repin 不抢滚动条：floating 离底（追加前距底 >8px）+ append → 保持 floating、
+   *  零 scrollTop 写入（浮窗计数由父层 +1 保留，见 index.tsx 消息处理）。边界用 9px（>8 最小值） */
+  it('F20261029repin 新消息不抢滚动条：floating 离底 9px + append → 保持 floating、零写入、无清零', async () => {
+    const pinRef = { current: false }
+    let cleared = 0
+    const opts = { pinRef, messages: [msg()], newMessagesCount: 2, onJumpToBottom: () => {}, onPinnedToBottom: () => { cleared++ } }
+    const { root, div, rerender } = renderList(opts)
+    try {
+      await sleep(40)
+      const st = instrumentRW(scrollerOf(), 2000, 1331) // 追加前距底 9px（阈值外最小值）
+      pinRef.current = false
+      fireScroll() // 采样 distToBottomRef = 9
+      const writesBefore = st.writes
+      rerender({ ...opts, messages: [msg(), msg({ id: 'm2', content: '新消息' })] })
+      expect(pinRef.current, '追加前不在底部 → 不得抢滚动条回锚').toBe(false)
+      expect(cleared, '无转换不得清零（浮窗计数由父层 +1）').toBe(0)
+      expect(st.writes, '不得写 scrollTop（floating 不打扰）').toBe(writesBefore)
     } finally {
       act(() => { root.unmount() })
       div.remove()
@@ -822,11 +887,13 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp' }))
       })
       expect(pinRef.current, '页面级 PageUp 应脱锚').toBe(false)
-      // 回锚后测输入框保护
+      // 显式回锚后测输入框保护（F20261029repin：「到底即回锚」已移除，scroll 永不置 pin——
+      // 回锚只能走显式动作（跳底/发言），此处直接置 pin 模拟；下方顺带回归 scroll 不改 pin）
+      pinRef.current = true
       const st = instrumentRW(scrollerOf(), 2000, 1950)
       st.top = 1950
       fireScroll()
-      expect(pinRef.current).toBe(true)
+      expect(pinRef.current, 'scroll 不改 pin（到底即回锚已移除）').toBe(true)
       const input = document.createElement('input')
       document.body.appendChild(input)
       act(() => {
