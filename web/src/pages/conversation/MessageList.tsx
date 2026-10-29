@@ -258,10 +258,21 @@ interface MessageListProps {
   /** 信号轨迹（F20260902u5tr）：服务端推导的投石信号投递状态（可选，未加载时不渲染轨迹） */
 }
 
-/** 判断是否在底部（阈值 100px） */
+/** 判断是否在底部（阈值 100px；threshold 传 0 时=精确贴底，用 <= 保证 clamp 落底
+ *  恰好等值也算命中——亚像素/边框余量场景由调用方给少量容差） */
 function isNearBottom(el: HTMLElement, threshold = 100): boolean {
-  return el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
 }
+
+/** F20261029reanc：回锚阈值——视觉上已贴底（<=8px）才允许 scroll 事件把 floating 回锚为
+ *  pinned。收紧自 100px 近底宽带（原回锚复用 isNearBottom 默认值）：用户上拉两三行
+ *  （<100px）后已脱锚 floating，但距离仍在宽带内，后续任何非向上位移的 scroll（触摸板
+ *  松手回弹、浏览器滚动锚定微调、内容收缩 clamp 落底）都命中旧回锚分支——误判「用户
+ *  滚回底部」→ 下一次重渲染（5s 对话列表轮询/周期刷新/SSE）触发贴底写入 → 无新消息
+ *  也跳底（搭档 10/29 主诉：轻拉两三行、无执行无发言、两三秒后自动跳底）。
+ *  8px 语义 = 肉眼贴底（滚动条拖到底/clamp 落底），宽于 0 保证亚像素余量，窄于一行
+ *  高度（约 20px+）保证任何「可感知的上拉」都不会误回锚。 */
+const REANCHOR_AT_BOTTOM_PX = 8
 
 export function MessageList({
   messages, state, onStopStream, onRetryMessage, onRetry, onGoToSettings, otters,
@@ -334,7 +345,9 @@ export function MessageList({
    * 语义：意图驱动——
    * - 脱锚（pinned→floating）：仅用户意图——wheel 上滚 / touch 上翻 / 键盘上翻 /
    *   向上位移（滚动条上拖无专门事件，位移方向是其唯一可观测签名）
-   * - 回锚（floating→pinned）：滚至底部附近（isNearBottom，含 clamp 落底）/ 点跳底按钮
+   * - 回锚（floating→pinned）：视觉贴底（F20261029reanc：距底 <=8px，原 100px 近底
+   *   宽带误吞轻拉用户——回弹/锚定/收缩 clamp 等非用户位移源在宽带内触发误回锚→跳底） /
+   *   点跳底按钮
    * - 高度变化：不改状态；pinned → 统一贴底补偿，floating → 不打扰
    * F20261020wcsr：write ledger 账本退役——向上位移脱锚规则（F20261016inbs）使程序写入
    * （pin/兜底均构造性向下）几何上不可能命中脱锚分支，误判通道被方向封闭（论证见特性文档） */
@@ -530,11 +543,14 @@ export function MessageList({
      *  把 scrollTop 压低），不是用户意图——收缩期间不脱锚，pinned 用户保持 pinned */
     const movedUp = el.scrollTop < lastScrollTopRef.current - 1
     const shrank = el.scrollHeight < lastScrollHeightRef.current - 1
-    const nearBottom = isNearBottom(el)
+    // F20261029reanc：回锚判定用贴底阈值（<=8px），不用 100px 近底宽带——宽带内轻拉
+    // 用户的回弹/锚定/收缩 clamp 等非用户位移会被误判「滚回底部」→ 重渲染贴底 → 跳底。
+    // 近底宽带语义（是否「接近」底部，如浮窗显隐评估）若未来需要，另行调用默认阈值。
+    const atBottom = isNearBottom(el, REANCHOR_AT_BOTTOM_PX)
     if (movedUp && !shrank) {
       takeUserControl()
-    } else if (nearBottom) {
-      // 非向上位移滚到底部附近 → 回锚合法（向下滚回底部/收缩 clamp 落底/pinned 保持）
+    } else if (atBottom) {
+      // 视觉贴底的非向上位移 → 回锚合法（滚动条拖到底/收缩 clamp 落底/pinned 保持）
       const wasFloating = !pinRef.current
       pinRef.current = true
       // F20261027nmbf：回锚即清零——floating→pinned 转换（用户滚回底部=新消息已在眼前）

@@ -533,6 +533,60 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
+  /** F20261029reanc 回锚阈值收紧：核心回归锁——用户上拉两三行（<100px 近底宽带内）脱锚后，
+   *  后续非向上位移的 scroll（回弹/锚定微调/收缩 clamp，无用户输入）不得回锚，
+   *  否则下次重渲染贴底写入 → 无新消息也跳底（搭档 10/29 主诉）。 */
+  it('F20261029reanc：上拉两三行脱锚后，非用户位移源（回弹/锚定微调）不回锚——无新消息不跳底', async () => {
+    const pinRef = { current: true }
+    const { root, div } = renderList({ pinRef })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      const st = instrumentRW(scrollerOf(), 2000, 1340) // 贴底（距底 0）
+      fireScroll() // 建立基线 lastScrollTop=1340（pinned 保持）
+      st.top = 1290 // 用户上拉两三行（距底 50px，<100 旧宽带）
+      fireScroll() // 向上位移 → 脱锚 floating
+      expect(pinRef.current, '上拉应脱锚').toBe(false)
+      // 此后页面静置：5s 轮询重渲染/浏览器滚动锚定微调等产生的 scroll 事件——
+      // 位移方向非向上（本帧位移 0，与 lastScrollTop 同值），但距底 50px 在旧 100px 宽带内
+      fireScroll()
+      expect(pinRef.current, '近底宽带内非用户位移不得回锚（否则下次重渲染贴底→跳底）').toBe(false)
+      // 对照：真正拖到底（距底 2px，视觉贴底）→ 回锚合法
+      st.top = 1338
+      fireScroll()
+      expect(pinRef.current, '视觉贴底应回锚').toBe(true)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
+  /** F20261029reanc：收缩 clamp 落底（被动几何调整）仍可回锚——收紧不得杀死合法回锚路径。
+   *  S3 修正（检视獭-1700 发现 3）：原版 pinRef 全程 true 为空转断言（任何阈值下都过，
+   *  未锁住「防误杀」声称）——改为真 floating 起点，断言 clamp 落底触发 floating→pinned
+   *  转换：若未来回锚被收紧过头/删除，本用例必红。 */
+  it('F20261029reanc：内容收缩 clamp 落底（距底 0）→ 回锚保持跟随', async () => {
+    const pinRef = { current: true }
+    const { root, div } = renderList({ pinRef })
+    try {
+      fireRO(contentRO(), 1036)
+      await sleep(40)
+      const st = instrumentRW(scrollerOf(), 2000, 1290) // 距底 2000-660-1290=50px
+      pinRef.current = false // mount 重置 effect 已置 true——手动置 floating（模拟用户已上翻离开底部）
+      st.top = 1290
+      fireScroll() // 建立基线（floating 保持：非向上位移但距底 50px 不回锚）
+      expect(pinRef.current, 'floating 基线（距底 50px 不回锚）').toBe(false)
+      // 内容收缩（流式面板折叠）：scrollHeight 2000 → 1350，scrollTop 被 clamp 到新底 690（=1350-660）
+      Object.defineProperty(scrollerOf(), 'scrollHeight', { configurable: true, get: () => 1350 })
+      st.top = 690 // clamp 落底（1350-660-690=0 ≤ 8px 视觉贴底）
+      fireScroll() // movedUp=true（1290→690）但 shrank=true（2000→1350）→ 不脱锚；距底 0 → 回锚
+      expect(pinRef.current, 'clamp 落底应触发 floating→pinned 回锚（防误杀合法回锚路径）').toBe(true)
+    } finally {
+      act(() => { root.unmount() })
+      div.remove()
+    }
+  })
+
   it('滚动条上拖签名（V5 上半）：未登记的向上位移 → floating', async () => {
     const pinRef = { current: true }
     const { root, div } = renderList({ pinRef })
@@ -552,16 +606,23 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
-  it('滚到底回锚（V5 下半）：floating 后 isNearBottom 的 scroll → pinned', async () => {
+  /** F20261029reanc：原用例距底 50px 命中旧 100px 宽带——已证实为缺陷通道（非用户位移源
+   *  同样命中→误回锚→跳底），收紧后 50px 不再回锚。本用例改为真实回锚语义：滚动条拖到
+   *  底（视觉贴底）才回锚；近底不贴底不回锚的负例见下方 F20261029reanc 用例。 */
+  it('滚到底回锚（V5 下半）：floating 后滚动条拖到底（距底<=8px）→ pinned', async () => {
     const pinRef = { current: false }
     const { root, div } = renderList({ pinRef })
     try {
       fireRO(contentRO(), 1036)
       await sleep(40)
       const st = instrumentRW(scrollerOf(), 2000, 500)
-      st.top = 1950 // 距底 50px
+      pinRef.current = false // mount 重置 effect 已置 true——手动回到 floating（模拟用户已上翻离开底部）
+      st.top = 1290 // 距底 50px——旧宽带内，收紧后不回锚
       fireScroll()
-      expect(pinRef.current, '滚到底部附近应回锚').toBe(true)
+      expect(pinRef.current, '距底 50px 不再回锚（F20261029reanc 收紧）').toBe(false)
+      st.top = 1338 // 距底 2px——视觉贴底
+      fireScroll()
+      expect(pinRef.current, '拖到底部应回锚').toBe(true)
     } finally {
       act(() => { root.unmount() })
       div.remove()
