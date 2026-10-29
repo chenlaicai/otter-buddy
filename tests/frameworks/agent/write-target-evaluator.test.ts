@@ -359,6 +359,56 @@ describe("write-target-evaluator Phase 1：求值三态", () => {
     });
   });
 
+  describe("#1686：sqlite3 stdin/heredoc 载荷判读收口（argv 通道外残留）", () => {
+    it.each([
+      `echo '.system touch pwned' | sqlite3 :memory:`,
+      `printf '%s' '.output out.txt' | sqlite3 :memory:`,
+      `echo "ATTACH DATABASE '${ROOT}/data/x' AS a" | sqlite3 :memory:`,
+      `cat ${ROOT}/payload.sql | sqlite3 :memory:`,
+      `echo "$PAYLOAD" | sqlite3 :memory:`,
+      "sqlite3 :memory: <<'EOF'\n.output " + ROOT + "/x\nEOF",
+      `sqlite3 :memory: <<<"ATTACH DATABASE '${ROOT}/data/x' AS a"`,
+      `sqlite3 :memory: <<<"$SQL"`,
+      `sqlite3 ${ROOT}/data/x < ${ROOT}/payload.sql`,
+      `sqlite3 ${ROOT}/data/x <> ${ROOT}/payload.sql`,
+    ])("stdin 载荷命中 dot/ATTACH 或不可证 → fail-closed：%s", (cmd) => {
+      expect(evaluateWriteTargets(cmd, ROOT)).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
+    });
+
+    it("裸定界符含插值 heredoc：模型层危险通道递归 fail-closed（UNPROVABLE_TEETH 不可洗白）", () => {
+      // 与 sqliteStdinFeed 的 opaque 判定同为 fail-closed 面，此处由模型层先拾走故 reason 不同。
+      expect(evaluateWriteTargets("sqlite3 :memory: <<EOF\n$PAYLOAD\nEOF", ROOT)).toEqual({ kind: "unevaluated", reason: "script-path-dynamic" });
+    });
+
+    it.each([
+      `echo 'SELECT 1' | sqlite3 :memory:`,
+      `printf 'SELECT 1' | sqlite3 :memory:`,
+      "sqlite3 :memory: <<'EOF'\nSELECT 1;\nEOF",
+      "sqlite3 :memory: <<EOF\nSELECT 1;\nEOF",
+      `sqlite3 :memory: <<<'SELECT 1'`,
+    ])("静态良性 stdin 载荷不误伤（内存库无写）：%s", (cmd) => {
+      expect(evaluateWriteTargets(cmd, ROOT)).toEqual({ kind: "evaluated", targets: [] });
+    });
+
+    it("良性 stdin 载荷 + 树外数据库写照常披露，不隐去事实", () => {
+      const r = evaluateWriteTargets("echo 'SELECT 1' | sqlite3 /tmp/t.db", ROOT);
+      expect(r.kind).toBe("evaluated");
+      if (r.kind === "evaluated") expect(r.targets.some(t => t.path === "/tmp/t.db" && t.access === "write")).toBe(true);
+    });
+
+    it("heredoc 裸定界符 \\$ 转义不是插值，静态良性不误伤", () => {
+      expect(evaluateWriteTargets("sqlite3 :memory: <<EOF\nSELECT 'a\\$b';\nEOF", ROOT)).toEqual({ kind: "evaluated", targets: [] });
+    });
+
+    it("stdin 载荷在场时 argv 载荷 dot 仍拦截（既有行为回归钉）", () => {
+      expect(evaluateWriteTargets(`echo 'SELECT 1' | sqlite3 :memory: ".system touch ${ROOT}/pwned"`, ROOT)).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
+    });
+
+    it("不透明管道馈体 fail-closed 不因主库只读/内存豁免", () => {
+      expect(evaluateWriteTargets(`cat ${ROOT}/payload.sql | sqlite3 -readonly ${ROOT}/data/x`, ROOT)).toEqual({ kind: "unevaluated", reason: "argv-write-uncovered" });
+    });
+  });
+
   describe("Phase 2 git add index / remote ref / fd 复制（F20261009phs2）", () => {
     it("拦截侧：git add docs/x.md（主仓 cwd 相对路径）→ evaluated 命中主仓", () => {
       const r = evaluateWriteTargets("git add docs/features/x.md", ROOT);

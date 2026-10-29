@@ -752,15 +752,57 @@ function evalTargetArgCommand(bare: string, seg: Segment, cwd: string, acc: Segm
   return null;
 }
 
+/** #1686：sqlite3 stdin 载荷收编（argv 通道闭合后的通道外残留）。静态内容（echo/printf 静态
+ *  重建、引号定界 heredoc 体、here-string 字面）与 argv SQL 同一 dot/ATTACH 判读；不可证馈体
+ *  （cat/curl/变量等不透明管道源、裸定界符含插值、输入重定向）→ opaque，fail-closed 不放行。
+ *  内容源收窄与 interpreterStdinFeedContent 同基座（segmentStdoutContent），一条语义一个接口。 */
+interface SqliteStdinFeed { contents: string[]; opaque: boolean }
+
+function heredocBodyHasInterpolation(body: string): boolean {
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (c === "\\") { i++; continue; }
+    if (c === "$" || c === "`") return true;
+  }
+  return false;
+}
+
+function sqliteRedirectFeed(seg: Segment, feed: SqliteStdinFeed): void {
+  for (const rd of seg.redirects) {
+    if (rd.op === "<<<") {
+      if (rd.target === null) feed.opaque = true;
+      else feed.contents.push(rd.target);
+    } else if ((rd.op === "<" || rd.op === "<>") && rd.target !== "/dev/null") {
+      feed.opaque = true; // 文件输入内容静态不可知（<> 兼读写更不可证）
+    }
+  }
+}
+
+function sqliteStdinFeed(seg: Segment, prev: Segment | undefined): SqliteStdinFeed {
+  const feed: SqliteStdinFeed = { contents: [], opaque: false };
+  for (const hd of seg.heredocs) {
+    // 引号定界=绝对数据；裸定界符含插值（$/反引号）可运行时伪造行首点/换行 → 不可证
+    if (hd.delimQuoted || !heredocBodyHasInterpolation(hd.body)) feed.contents.push(hd.body);
+    else feed.opaque = true;
+  }
+  if (seg.joiner === "|" || seg.joiner === "|&") {
+    const out = prev === undefined ? null : segmentStdoutContent(prev);
+    if (out === null) feed.opaque = true; // 不透明管道馈体（#1308 契约同族保守面）
+    else feed.contents.push(out);
+  }
+  sqliteRedirectFeed(seg, feed);
+  return feed;
+}
+
 /** sqlite3 [OPTIONS] [FILENAME [SQL...]]：数据库参数可能是文件或 SQLite URI。
  *  实测：普通 SELECT 也会创建不存在的库文件，不能靠 SQL 动词出具无写证明。
  *  只读/内存主库也不能豁免 ATTACH 与写 dot-command；未知选项值、URI 解码失败一律不可证。 */
 // eslint-disable-next-line complexity, max-statements -- sqlite3 选项/URI/只读语义穷举；每条分支对应 sqlite3 参数形态
-function sqliteDatabaseTarget(words: Word[], acc: SegmentEvalAcc): { target: string | null; readOnly: boolean } {
+function sqliteDatabaseTarget(words: Word[], acc: SegmentEvalAcc, feed: SqliteStdinFeed): { target: string | null; readOnly: boolean } {
   let db: string | null | undefined;
   let readOnly = false;
   let positional = false;
-  const payloads: string[] = [];
+  const payloads: string[] = [...feed.contents];
   const valueFlags = new Set(["-cmd", "-init", "-key", "-hexkey", "-textkey", "-vfs", "-escape", "-newline", "-nullvalue", "-separator", "-nonce", "-maxsize"]);
   const noValueFlags = new Set(["-append", "-ascii", "-bail", "-batch", "-box", "-column", "-csv", "-deserialize", "-echo", "-header", "-noheader", "-help", "-html", "-interactive", "-json", "-line", "-list", "-markdown", "-nofollow", "-quote", "-safe", "-serialize", "-stats", "-table", "-tabs", "-version", "-vfstrace"]);
   for (let i = 1; i < words.length; i++) {
@@ -789,6 +831,9 @@ function sqliteDatabaseTarget(words: Word[], acc: SegmentEvalAcc): { target: str
     break;
   }
   if (typeof db !== "string") return { target: null, readOnly: false };
+  // #1686：stdin 馈体不可证（不透明管道源/裸定界符插值/输入重定向）→ fail-closed，
+  //  不因主库只读/内存豁免——dot 控制面（.system/.output…）与主库落点正交。
+  if (feed.opaque) return { target: null, readOnly: false };
   // ATTACH 的 DATABASE 可选。dot 命令不枚举黑名单：SQL 载荷行首点即 CLI 控制面，
   // .open/.system/.log/.clone 等及未来新命令均可绕过主库只读/内存语义，整族不可证。
   // SQL 双引号按标识符规则可能被词法层去掉；ATTACH 以 AS <schema> 边界识别，
@@ -831,7 +876,8 @@ function evalExtendedWriteTargets(bare: string, seg: Segment, cwd: string, acc: 
     return null;
   };
   if (bare === "sqlite3") {
-    const r = sqliteDatabaseTarget(words, acc);
+    const prevSeg = acc.index > 0 ? acc.segments?.[acc.index - 1] : undefined;
+    const r = sqliteDatabaseTarget(words, acc, sqliteStdinFeed(seg, prevSeg));
     if (r.readOnly) return null;
     if (r.target === null) return "argv-write-uncovered"; // 文件槽未知/动态，不可出具无写证明
     return push(r.target);

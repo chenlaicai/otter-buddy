@@ -1796,6 +1796,31 @@ describe("F20260923qbsw 补充：排查期高频只读命令误拦回归（9/23 
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
   });
 
+  it("#1686：echo dot 命令管道投递 sqlite3（argv 通道外）→ 拦截", () => {
+    const cmd = `echo '.system touch /tmp/x' | sqlite3 :memory:`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1686：echo ATTACH 管道投递 sqlite3 → 拦截", () => {
+    const cmd = `echo "ATTACH DATABASE '${DB}' AS a" | sqlite3 :memory:`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1686：cat 不透明馈体管道投递 sqlite3 → 拦截（fail-closed）", () => {
+    const cmd = `cat /tmp/payload.sql | sqlite3 :memory:`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1686：heredoc dot 命令投递 sqlite3 → 拦截", () => {
+    const cmd = "sqlite3 :memory: <<'EOF'\n.system touch /tmp/x\nEOF";
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).not.toBeNull();
+  });
+
+  it("#1686：echo 良性 SELECT 管道投递 sqlite3 内存库 → 放行（不误伤）", () => {
+    const cmd = `echo 'SELECT 1' | sqlite3 :memory:`;
+    expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
+  });
+
   it("node 执行工作区脚本（路径含项目 data/workspaces）→ 放行", () => {
     const cmd = `node ${ABS}/data/workspaces/abc/scripts/inspect-db.cjs`;
     expect(checkBashCommandSafety(cmd, mainPid, undefined, { projectRoot })).toBeNull();
