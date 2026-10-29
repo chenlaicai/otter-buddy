@@ -29,7 +29,7 @@ import { parseOnce } from "./command-model";
 import type { Segment } from "./command-model";
 import { extractGitAliasShell, gitWriteSubcommandHit, SCRIPT_RUNNERS, GIT_VALUE_FLAGS, WRAPPER_SPECS, tokenBasename, skipWrapperArgs, resolveExecHead, isStdinFeedRest, FIND_EXEC_LEADS, findExecVerbAt } from "./payload-extract-aux";
 import { evaluateWriteVerdict } from "./write-verdict";
-import { segmentStdoutContent, evalInterpreterStdinBody, gitCrawlInfo, resolveCwdAt } from "./write-target-evaluator";
+import { segmentStdoutContent, evalInterpreterStdinBody, gitCrawlInfo, resolveCwdAt, debrisRmAllowPath } from "./write-target-evaluator";
 import { evaluateGitExecution, parseGitWorktreeList, type GitExecutionGrant } from "./git-execution-policy";
 import { joinNoFold, safeRealpath, safeRealpathParent } from "./fs-realpath";
 
@@ -565,7 +565,14 @@ function segmentDestructive(seg: string, cwd: string, projectRoot?: string, sess
     return z;
   };
   if (isKillAtCommandPosition(seg, /\br(?:m|mdir)\b/)) {
-    return { kind: "rm", zone: zoneOf(pathArgsOf(seg)) };
+    const rmArgs = pathArgsOf(seg);
+    // F20261029clnup：探针残渣自清面（形态+谓词单一真相源 debrisRmAllowPath）——单目标
+    //  rm 命中「主仓根未跟踪探针残渣文件」时不属主仓保护内容（海獭自清）；rmdir/多目标/
+    //  链式形态不享豁免（动词窄化收口在单一真相源里）。
+    if (projectRoot && debrisRmAllowPath(seg, cwd, projectRoot) !== null) {
+      return { kind: "rm", zone: null };
+    }
+    return { kind: "rm", zone: zoneOf(rmArgs) };
   }
   if (isKillAtCommandPosition(seg, /\bmv\b/)) {
     return { kind: "mv", zone: zoneOf(pathArgsOf(seg)) };

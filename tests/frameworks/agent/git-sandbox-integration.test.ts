@@ -194,4 +194,29 @@ describe.skipIf(!isMac)("F20261027gscv Git 执行域真实 sandbox", () => {
     expect(missing.stderr).toContain("No such file or directory");
     expect(run("touch /unknown/path", "/tmp").code).not.toBe(0);
   });
+
+  it("F20261029clnup branch -D 窄受控（沙箱真执行）：squash 合入分支可强删，未合并分支拒绝", () => {
+    try { git(repo, ["show-ref", "--verify", "--quiet", "refs/heads/main"]); } catch { git(repo, ["branch", "main", "HEAD"]); }
+    git(repo, ["checkout", "-q", "main"]);
+    // squash 合入分支：两提交 → main 单提交落地（净 patch-id 等价）
+    git(repo, ["checkout", "-q", "-b", "feat-squash"]);
+    writeFileSync(join(repo, "b-case.txt"), "b\n"); git(repo, ["add", "-A"]); git(repo, ["commit", "-qm", "B"]);
+    writeFileSync(join(repo, "c-case.txt"), "c\n"); git(repo, ["add", "-A"]); git(repo, ["commit", "-qm", "C"]);
+    git(repo, ["checkout", "-q", "main"]);
+    writeFileSync(join(repo, "b-case.txt"), "b\n"); writeFileSync(join(repo, "c-case.txt"), "c\n");
+    git(repo, ["add", "-A"]); git(repo, ["commit", "-qm", "squash feat-squash"]);
+    // 未合并分支（真实工作，必须拒绝）
+    git(repo, ["checkout", "-q", "-b", "feat-unmerged-case"]);
+    writeFileSync(join(repo, "d-case.txt"), "d\n"); git(repo, ["add", "-A"]); git(repo, ["commit", "-qm", "D"]);
+    git(repo, ["checkout", "-q", "main"]);
+    expect(run("git branch -D feat-unmerged-case", wt).code).not.toBe(0);
+    expect(run("git branch -D feat-squash", wt).code).toBe(0);
+    expect(run("git show-ref --verify --quiet refs/heads/feat-squash", wt).code).not.toBe(0);
+  });
+
+  it("F20261029clnup 探针残渣 rm（沙箱真执行）：主仓根残渣删除成功", () => {
+    writeFileSync(join(repo, "f3-probe-e2e.txt"), "debris");
+    expect(run(`rm ${join(repo, "f3-probe-e2e.txt")}`, repo).code).toBe(0);
+    expect(existsSync(join(repo, "f3-probe-e2e.txt"))).toBe(false);
+  });
 });

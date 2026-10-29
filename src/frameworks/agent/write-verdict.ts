@@ -6,7 +6,7 @@
  * 「judge 考试」（guard-touchstone-exam）与影子投影同用本判据，口径不得分叉。
  */
 import type { WriteTarget, UnevalReason, WriteEvalResult, ScriptPayloadInfo } from "./write-target-evaluator";
-import { evaluateWriteTargets, pathWithinMain, pathEntryWithinMain } from "./write-target-evaluator";
+import { evaluateWriteTargets, pathWithinMain, pathEntryWithinMain, isUntrackedProbeDebris } from "./write-target-evaluator";
 
 export type WriteVerdictResult =
   | { verdict: "ALLOW"; mode: "positive"; targets: WriteTarget[] }
@@ -17,11 +17,18 @@ export type WriteVerdictResult =
  *  · evaluated 且写落点 ∩ 主仓树内 → BLOCK（positive，落点证据）
  *  · evaluated 且写落点 ∩ 主仓树内 = ∅ → ALLOW（positive，含证明无写/只读披露）
  *  · unevaluated → BLOCK（fail-closed，§3.3）
- *  只读披露（access=read）不构成写证据（能力 8/证明演算规则 3）。 */
+ *  只读披露（access=read）不构成写证据（能力 8/证明演算规则 3）。
+ *  F20261029clnup：entryOp（rm 等目录项删除语义）落点为「主仓根未跟踪探针残渣文件」时
+ *  不计入 mainHits（自清面，与文本层同口径单一真相源 isUntrackedProbeDebris；动词窄化
+ *  在文本层收口）。判定含只读 IO（git ls-files），与 safeRealpath 同类。 */
 export function evaluateWriteVerdict(command: string, projectRoot: string, startCwd: string = projectRoot, scriptPayload?: ScriptPayloadInfo, feedReadOnly?: boolean): WriteVerdictResult {
   const r = evaluateWriteTargets(command, projectRoot, startCwd, scriptPayload, feedReadOnly);
   if (r.kind === "unevaluated") return { verdict: "BLOCK", mode: "fail-closed", reason: r.reason };
-  const mainHits = r.targets.filter(t => t.access === "write" && (t.entryOp ? pathEntryWithinMain(t.path, projectRoot) : pathWithinMain(t.path, projectRoot)));
+  const mainHits = r.targets.filter(t => {
+    if (t.access !== "write") return false;
+    if (t.entryOp) return pathEntryWithinMain(t.path, projectRoot) && !isUntrackedProbeDebris(t.path, projectRoot);
+    return pathWithinMain(t.path, projectRoot);
+  });
   if (mainHits.length > 0) return { verdict: "BLOCK", mode: "positive", targets: r.targets, mainHits };
   return { verdict: "ALLOW", mode: "positive", targets: r.targets };
 }

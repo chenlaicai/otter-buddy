@@ -43,6 +43,7 @@ import { createBashTool, createFindTool, createGrepTool, createLsTool, createRea
 import { assertGuardedFileToolsAssembled, createGuardedFileTools } from "./file-tool-guard";
 import { allowedFileWriteRoots, createFileWritePolicy } from "./file-write-policy";
 import { evaluateGitExecution, grantToProfileRules, grantFingerprint, parseGitWorktreeList, escapePath } from "./git-execution-policy";
+import { debrisRmAllowPath } from "./write-target-evaluator";
 import type { GitExecutionGrant } from "./git-execution-policy";
 import { otterInvokeStorage } from "./model-runtime-registry";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -215,6 +216,22 @@ export function createSandboxSpawnHook(
   const fixedRegistry = options?.linkedWorktrees ?? null;
 
   return (ctx: BashSpawnContext): BashSpawnContext => {
+    // F20261029clnup 探针残渣 rm 自清面（形态+谓词单一真相源 debrisRmAllowPath）：单目标
+    // rm 命中残渣时 profile 追加精确字面量写域（deny 之后顺序覆盖），否则默认区域 profile
+    // 会把主仓根 unlink 挡死。白名单外路径（escapePath throw）→ 落 defaultProfile（fail-closed）。
+    const debrisPath = debrisRmAllowPath(ctx.command, ctx.cwd ?? "", repoRoot);
+    if (debrisPath) {
+      try {
+        const debrisProfile = [
+          ...buildBaseProfile(repoRoot, dataDir),
+          `(allow file-write* (literal "${escapePath(debrisPath)}"))`,
+        ].join(" ");
+        return {
+          ...ctx,
+          command: `sandbox-exec -p ${escapeForOuterBash(debrisProfile)} /bin/bash -c ${escapeCommand(ctx.command)}${FAILURE_GUIDANCE_SUFFIX}`,
+        };
+      } catch { /* 白名单外路径：不豁免，落 defaultProfile 照旧保护 */ }
+    }
     // F20261027gscv Phase 2：Git envelope 识别——命中则派生最小写域 profile。
     // registry 每次现解析（git worktree list 同步执行 ~10ms，Git 命令本身更慢），
     // 保证 worktree add 后立即可见——spawnHook 在命令执行前运行，无法事后刷新。

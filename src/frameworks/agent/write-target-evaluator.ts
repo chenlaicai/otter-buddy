@@ -39,7 +39,8 @@
  *
  * 求值纯判定：除牙3 缺席证明的 fs stat 只读查询（fsAbsentPlan，delta2 修法）外无 IO、无状态、不写任何存储（机制识别检查点：只读 fs 查询已记档特性文档）。
  */
-import { readFileSync, statSync, existsSync } from "node:fs";
+import { readFileSync, statSync, existsSync, lstatSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { safeRealpath } from "./fs-realpath";
 import path from "node:path";
 import { parseOnce, SHELL_INTERPRETERS, type CommandModel, type Segment } from "./command-model";
@@ -140,6 +141,50 @@ export function pathWithinMain(absPath: string, projectRoot: string): boolean {
  *  find 起点/内容写不适用（find <link> 穿链遍历目标内容——走 pathWithinMain）。 */
 export function pathEntryWithinMain(absPath: string, projectRoot: string): boolean {
   return pathWithinMainCore(normalizePath(path.join(safeRealpath(path.dirname(absPath)), path.basename(absPath))), projectRoot);
+}
+
+/** F20261029clnup 探针残渣名目：可选 f<数字>- 前缀 + probe + 分隔符（f3-probe-dst.txt / probe-x.tmp）。 */
+const PROBE_DEBRIS_NAME = /^(?:f\d+-)?probe[-._]/i;
+
+/**
+ * F20261029clnup 探针残渣自清面（单一真相源，guard 文本层与 v2 判据层同口径）：
+ * 主仓根（depth-1）的未跟踪普通文件且名目命中探针残渣模式时，不属主仓保护内容
+ *（海獭自清面，搭档 2026-10-29 定调「这东西都应该你们海獭自己来弄」）。仅作用删除/
+ * 目录项语义（entryOp）；内容写照旧保护。fail-closed：git 查询失败/目录/符号链接/
+ * 已跟踪/子目录/模式不匹配 → false（照旧保护）。TOCTOU：判定与执行间的毫秒窗口
+ * 接受（本机单用户，残余风险记特性文档）。
+ */
+export function isUntrackedProbeDebris(absPath: string, projectRoot: string): boolean {
+  try {
+    const root = normalizePath(safeRealpath(projectRoot));
+    const p = normalizePath(path.join(safeRealpath(path.dirname(absPath)), path.basename(absPath)));
+    if (path.posix.dirname(p) !== root) return false; // 仅主仓根 depth-1
+    const base = path.posix.basename(p);
+    if (!PROBE_DEBRIS_NAME.test(base)) return false;
+    if (!lstatSync(absPath).isFile()) return false; // 仅普通文件（目录/链接不豁免）
+    const out = execFileSync("git", ["ls-files", "--", base], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return out.trim() === ""; // 空输出 = 未跟踪；git 异常走 catch → false（保守）
+  } catch {
+    return false;
+  }
+}
+
+/** F20261029clnup 单目标 rm 形态：仅 `rm [旗标…] <唯一目标>`（可带简单引号），无链式/管道/重定向/多目标。 */
+const RM_SINGLE_TARGET = /^rm\s+(?:(?:-{1,2}[\w-]+)\s+)*(?:"([^"]+)"|'([^']+)'|(\S+))\s*$/;
+
+/**
+ * F20261029clnup 探针残渣 rm 自清面的形态+谓词单一真相源（文本层与沙箱 profile 层共用，
+ * 口径不分叉）：单目标 rm 且目标命中 isUntrackedProbeDebris 时返回应放行的绝对路径，
+ * 否则 null（不适用/不豁免，照旧保护）。动词窄化只收 rm（防 mv 入主仓换名绕过）。
+ */
+export function debrisRmAllowPath(command: string, cwd: string, projectRoot: string): string | null {
+  const m = RM_SINGLE_TARGET.exec(command.trim());
+  if (!m) return null;
+  const target = m[1] ?? m[2] ?? m[3];
+  if (!target || target.startsWith("-")) return null;
+  const abs = path.isAbsolute(target) ? target : (cwd ? path.join(cwd, target) : null);
+  if (!abs) return null;
+  return isUntrackedProbeDebris(abs, projectRoot) ? abs : null;
 }
 
 /** 判定核（p 须已解析归一）：运行时区豁免前缀 + 主仓树内判定。
