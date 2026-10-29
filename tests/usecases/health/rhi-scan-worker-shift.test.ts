@@ -38,17 +38,16 @@ describe("RhiScanWorker 环比骤变（Issue #645）", () => {
     git(["config", "user.email", "test@example.com"]);
     git(["config", "user.name", "RHI Shift Test"]);
 
+    // F20261029dupfx 追加：fixture 日期改相对日期（写死 2026-08-30 会在其 +60 天前后卡进
+    // metricsWindowDays=60 的窗口边界——2026-10-29 实爆，见 #1704）。相对日期恒在窗口深处。
+    const commitDate1 = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    const commitDate2 = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000).toISOString();
     // 最小 fixture：1 feature commit + 文档（有 commit 才有 health_index 行 = 骤变「今日」侧）
-    // fixture --date 日期滚动取近 5 天（ISO Z 形态）：固定日期 2026-08-30 曾在 2026-10-29
-    // 老化出 60 天指标窗口（rhi-scan-worker.ts:345 窗口过滤），D1/D4 无数据断言翻红；
-    // 同 rhi-scan-worker.test.ts CLOCK_SNAPSHOT 注释警示的机制，lint:date-bombs「纯 fixture 不报」扫不到此形态
-    const commitAt1 = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
-    const commitAt2 = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000).toISOString();
     const file = path.join(repoDir, "src/a.ts");
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, "v1", "utf-8");
     git(["add", "src/a.ts"]);
-    git(["commit", "-m", "[F20260801shft][agent][New Feature] 建", "--date", commitAt1]);
+    git(["commit", "-m", "[F20260801shft][agent][New Feature] 建", "--date", commitDate1]);
 
     const docDir = path.join(repoDir, "docs/features/2026/08/01");
     await mkdir(docDir, { recursive: true });
@@ -58,7 +57,7 @@ describe("RhiScanWorker 环比骤变（Issue #645）", () => {
       "utf-8",
     );
     git(["add", "docs/"]);
-    git(["commit", "-m", "[F20260801shft][agent][Feature Update] 加文档", "--date", commitAt2]);
+    git(["commit", "-m", "[F20260801shft][agent][Feature Update] 加文档", "--date", commitDate2]);
   });
 
   afterAll(async () => {
