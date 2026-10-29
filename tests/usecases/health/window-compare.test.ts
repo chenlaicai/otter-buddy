@@ -27,6 +27,11 @@ describe("commitInWindow 窗口归属（#1704 跨时区字典序错位回归）"
     expect(commitInWindow("2026-08-30T02:00:00+08:00", "2026-08-30T01:00:00.000Z")).toBe(false);
   });
 
+  it("等号边界：commit 与窗口起点同刻 → 在窗口（锁定 >= 不被改成 >）", () => {
+    expect(commitInWindow("2026-08-30T02:00:00Z", "2026-08-30T02:00:00.000Z")).toBe(true);
+    expect(commitInWindow("2026-08-30T02:00:00+08:00", "2026-08-30T02:00:00.000Z")).toBe(false);
+  });
+
   it("窗口内深处稳定包含", () => {
     expect(commitInWindow("2026-10-26T10:00:00+08:00", "2026-08-30T11:12:00.000Z")).toBe(true);
     expect(commitInWindow("2026-08-30T23:00:00+08:00", "2026-08-30T11:12:00.000Z")).toBe(true);

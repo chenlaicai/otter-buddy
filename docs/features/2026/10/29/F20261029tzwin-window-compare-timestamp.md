@@ -1,7 +1,7 @@
 ---
 id: F20261029tzwin
 title: "persistSnapshot 窗口归属改时间戳比较：跨时区 author date 字典序错位修复（#1704）"
-summary: "rhi-scan-worker.ts:345 的窗口过滤用字符串比较混比两种时区格式（%aI 带偏移 vs toISOString UTC Z），边界日随当日 UTC 10:00 前后翻转（CI run 40862931480 实爆，run 40826709374 同日 14:05 绿的谜底）。改 Date.parse 时间戳比较（commitInWindow 纯函数导出），新增跨时区边界回归测试（含修复前字典序误判的复现断言）。"
+summary: "rhi-scan-worker.ts:345 的窗口过滤用字符串比较混比两种时区格式（%aI 带偏移 vs toISOString UTC Z），边界日随当日 UTC 10:00 前后翻转（CI run 40862931480 实爆；与 run 40826709374 同日 14:05 绿的差异之谜——两 run 分别为 d9aacf88 与 62c32af0，src 与 shift 测试代码 diff 为空，行为等价同代码）。改 Date.parse 时间戳比较（commitInWindow 纯函数导出），新增跨时区边界回归测试（含修复前字典序误判的复现断言）。"
 change_type: fix
 capability_test: "n/a: 修复统计窗口归属语义（既有行为的 bug 修正），以本节 Verification 证据链为验证载体"
 intent:
@@ -25,8 +25,9 @@ modules:
 
 ## 背景
 
-CI 破案记录（PR #1701 合入前）：同 commit 在 2026-10-29 14:05 CST 绿（run 40826709374，main）、
-19:12/19:18 CST 稳定红（run 40862931480 ×2 + rerun）。定位为 `rhi-scan-worker.ts:345`
+CI 破案记录（PR #1701 合入前）：同一份源码在 2026-10-29 14:05 CST 绿（run 40826709374，head d9aacf88）、
+19:12/19:18 CST 稳定红（run 40862931480 @ 62c32af0 ×2 + rerun；62c32af0 与 d9aacf88 的 src 与
+shift 测试代码 diff 为空，行为等价同代码）。定位为 `rhi-scan-worker.ts:345`
 `signalInputs.filter(c => c.date >= windowStart)` 的字符串比较跨时区错位：
 
 - `c.date` = `%aI`（author date，带原时区偏移，如 `2026-08-30T10:00:00+08:00`）
@@ -51,8 +52,9 @@ export function commitInWindow(date: string, windowStart: string): boolean {
 
 1. **新增回归测试**（`tests/usecases/health/window-compare.test.ts`，3 断言）：
    边界日 +08:00 author date（=UTC 02:00）在 windowStart UTC 01:00（true）/03:00（false）
-   两侧按时间戳语义归属；跨日边界 +08:00 凌晨 author date 不落入次日窗口；窗口深处稳定包含。
-   → `Test Files 1 passed | Tests 3 passed`
+   两侧按时间戳语义归属；等号边界（commit 与窗口起点同刻 → true，锁定 >= 不被改成 >）；
+   跨日边界 +08:00 凌晨 author date 不落入次日窗口；窗口深处稳定包含。
+   → `Test Files 1 passed | Tests 4 passed`
 2. **回归有效性证明（修复前失败输出）**：临时把 `commitInWindow` 恢复为字符串比较
    （`return date >= windowStart`）→ 同测试 **2 断言红**：`AssertionError: expected true to be
    false`（字典序误判 true，正确应 false）——与误判预测逐字一致，证明测试锁定的是真实缺陷。
