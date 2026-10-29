@@ -31,9 +31,13 @@ describe('triage_signal batch_bind 工具层（真 sqlite）', () => {
   });
   afterEach(() => { db.close(); });
 
+  // #1657：单调计数器替代随机段——原 `Math.random().toString(36).slice(2, 6)` 只有 4 字符
+  // 空间（36⁴≈1.68M），「单批 100 截断」用例播种 130 行时生日碰撞概率 ~0.5%/次，
+  // 碰撞两行被 upsert 去重合并 → totalMatched 129≠130 偶发红。计数器彻底消除随机性。
+  let seedSeq = 0;
   const seed = (signalType: string, severity: string) =>
     repo.upsert({
-      signalType, severity, featureId: null, filePath: `src/${signalType}-${Math.random().toString(36).slice(2, 6)}.ts`,
+      signalType, severity, featureId: null, filePath: `src/${signalType}-${seedSeq++}.ts`,
       evidence: 'x', suggestedAction: null,
     });
 
