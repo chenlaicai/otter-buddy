@@ -22,6 +22,7 @@ import {
   createFileWritePolicy,
   createFileWritePolicyWithRealpath,
   type FileWritePolicyOptions,
+  type ExternalWorktreeResolver,
 } from "@frameworks/agent/file-write-policy";
 import { otterInvokeStorage, type OtterInvokeContext } from "@frameworks/agent/model-runtime-registry";
 
@@ -270,6 +271,99 @@ describe("file-tool-guard（真实 SDK execute）", () => {
     expect(existsSync(target)).toBe(false);
   });
 
+});
+
+describe("file-tool-guard #1695：外部仓 worktree 动态写区与 tmp 多根", () => {
+  // 外部仓仿制判定器：只认 fixture 下伪造的"外部仓" .otter/worktrees/<name> 直接子目录，
+  // 与生产 resolveExternalGitWorktree 同构（父目录必须是 .otter/worktrees）——不建真 Git 仓，
+  // 保证测试不依赖外部仓现场。
+  const fakeExternalResolver: ExternalWorktreeResolver = (resolvedPath) => {
+    const marker = `${sep(".otter")}${sep("worktrees")}`;
+    const idx = resolvedPath.indexOf(marker);
+    if (idx === -1) return null;
+    const rest = resolvedPath.slice(idx + marker.length);
+    // 只认直接子目录的首段（外部仓 worktree 根或其内层文件），主仓自身路径不含该标记
+    if (!/^\/[^/]+(\/|$)/.test(rest)) return null;
+    const worktreeRoot = resolvedPath.slice(0, idx + marker.length) + rest.split("/")[1];
+    const repoRoot = resolvedPath.slice(0, idx + "/.otter".length);
+    return { repoRoot, worktreeRoot, worktreeName: rest.split("/")[1] };
+  };
+
+  function sep(dir: string): string {
+    return join("/", dir, "x").replace(/x$/, "");
+  }
+
+  it("外部仓真实注册 worktree 内 write/edit 放行（healing b9772a88 复放）", async () => {
+    const externalRepo = join(fixture.root, "external-repo");
+    const externalWorktree = join(externalRepo, ".otter", "worktrees", "pr-xyz");
+    await mkdir(externalWorktree, { recursive: true });
+    const options: FileWritePolicyOptions = { ...fixture.options, resolveExternalWorktree: fakeExternalResolver };
+    const tools = createGuardedFileTools(fixture.repoRoot, options);
+    const target = join(externalWorktree, "dev", "ChannelDigest.tsx");
+
+    await execute(tools.write, { path: target, content: "external-ok" });
+    expect(await readFile(target, "utf8")).toBe("external-ok");
+
+    await execute(tools.edit, { path: target, edits: [{ oldText: "external-ok", newText: "external-edited" }] });
+    expect(await readFile(target, "utf8")).toBe("external-edited");
+  });
+
+  it("resolver 拒认时外部目录仍拒（伪造 .git 文件夹不放行）", async () => {
+    const notAWorktree = join(fixture.root, "fake-worktree");
+    await mkdir(join(notAWorktree, ".git"), { recursive: true });
+    const options: FileWritePolicyOptions = { ...fixture.options, resolveExternalWorktree: fakeExternalResolver };
+    const tools = createGuardedFileTools(fixture.repoRoot, options);
+
+    await expect(
+      execute(tools.write, { path: join(notAWorktree, "evil.ts"), content: "must-not-write" }),
+    ).rejects.toThrow(/ruleId=file-tool-guard\/main-repo-write/);
+  });
+
+  it("外部 worktree 的 .git 元数据仍拒（动态区不重开元数据写面）", async () => {
+    const externalRepo = join(fixture.root, "external-repo2");
+    const externalWorktree = join(externalRepo, ".otter", "worktrees", "meta");
+    await mkdir(externalWorktree, { recursive: true });
+    const gitPointer = join(externalWorktree, ".git");
+    await writeFile(gitPointer, "gitdir: /somewhere/else\n", "utf8");
+    const options: FileWritePolicyOptions = { ...fixture.options, resolveExternalWorktree: fakeExternalResolver };
+    const tools = createGuardedFileTools(fixture.repoRoot, options);
+
+    await expect(
+      execute(tools.write, { path: gitPointer, content: "gitdir: /redirected\n" }),
+    ).rejects.toThrow(/ruleId=file-tool-guard\/git-metadata-write/);
+    expect(await readFile(gitPointer, "utf8")).toBe("gitdir: /somewhere/else\n");
+  });
+
+  it("未注入 resolver 时外部目录保持既拒（缺省关闭，无新增敞口）", async () => {
+    const externalDir = join(fixture.root, "plain-external");
+    await mkdir(externalDir, { recursive: true });
+    const tools = createGuardedFileTools(fixture.repoRoot, fixture.options);
+
+    await expect(
+      execute(tools.write, { path: join(externalDir, "x.ts"), content: "must-not-write" }),
+    ).rejects.toThrow(/ruleId=file-tool-guard\/main-repo-write/);
+  });
+
+  it("tmp 多根：/tmp 与 /var/tmp 别名形态落点放行（healing caa5ab31 复放，macOS）", async () => {
+    // rootsOverride 不传 tmp：用真实多根展开（/tmp realpath → /private/tmp；fixture 在
+    // os.tmpdir() 下已被覆盖测试）。真实 /tmp 在 macOS 上必然存在。
+    const options: FileWritePolicyOptions = {
+      repoRoot: fixture.repoRoot,
+      dataDir: fixture.dataDir,
+      rootsOverride: { alpha: join(fixture.root, "alpha") },
+    };
+    const policy = createFileWritePolicy(options);
+    const verdictTmp = policy.checkWriteTarget(join("/tmp", "otter-1695-probe.md"));
+    const verdictVarTmp = policy.checkWriteTarget(join("/var/tmp", "otter-1695-probe.md"));
+    const verdictOsTmp = policy.checkWriteTarget(join(tmpdir(), "otter-1695-probe.md"));
+    expect(verdictTmp.allowed).toBe(true);
+    expect(verdictVarTmp.allowed).toBe(true);
+    expect(verdictOsTmp.allowed).toBe(true);
+    // 负门：白名单外仍拒
+    const verdictEtc = policy.checkWriteTarget("/etc/otter-1695-probe.conf");
+    expect(verdictEtc.allowed).toBe(false);
+    expect(verdictEtc.ruleId).toBe("file-tool-guard/main-repo-write");
+  });
 });
 
 describe("file-write-policy（realpath 失败语义）", () => {

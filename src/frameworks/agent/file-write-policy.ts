@@ -22,7 +22,12 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 /** 允许写区标签——稳定部署写区；bash 默认白名单另由 Git 执行域按需收窄 .git */
-export type FileWriteRegion = "workspaces" | "worktrees" | "workforms" | "alpha" | "tmp";
+export type FileWriteRegion = "workspaces" | "worktrees" | "workforms" | "alpha" | "tmp" | "external-worktrees";
+
+/** 外部仓 worktree 动态判定器：复用 Git 执行域同语义（真实注册表成员 + 父目录必须为该仓 .otter/worktrees/）。
+ *  以注入方式接入（file-write-policy 不 import git-execution-policy——依赖方向为后者依赖前者），
+ *  装配点（bash-sandbox.ts / 测试）负责绑定 resolveExternalGitWorktree 或仿制实现。 */
+export type ExternalWorktreeResolver = (resolvedPath: string) => { repoRoot: string; worktreeRoot: string; worktreeName: string } | null;
 
 /** 允许写区根路径（realpath 展开后） */
 export interface FileWriteRegionRoot {
@@ -40,8 +45,13 @@ export interface FileWritePolicyOptions {
   /**
    * 测试用写区根覆盖：按区替换根路径。生产装配不传（用真实 tmpdir/homedir）。
    * 设计 §5.1「根路径统一注入」的落点——测试 fixture 无需伪造绝对主仓路径。
+   * tmp 区覆盖为单值替换（整体替换三根为 fixture 根）。
    */
-  rootsOverride?: Partial<Record<FileWriteRegion, string | null>>;
+  rootsOverride?: Partial<Record<Exclude<FileWriteRegion, "external-worktrees">, string | null>>;
+  /** #1695：外部仓 worktree 动态判定器。静态白名单 miss 后对落点做真实 Git 注册表
+   *  判定（与 git 执行域 resolveExternalGitWorktree 同语义）；生产由装配点注入，
+   *  缺省 null = 该区关闭（保持既有行为，不新增敞口）。 */
+  resolveExternalWorktree?: ExternalWorktreeResolver | null;
 }
 
 /** 单次写目标判定结果 */
@@ -71,7 +81,7 @@ function deriveAllowedRoots(
   realpathSync: RealpathSync,
 ): FileWriteRegionRoot[] {
   const repo = toRealPath(options.repoRoot, realpathSync);
-  const defaults: Record<FileWriteRegion, string> = {
+  const defaults: Record<Exclude<FileWriteRegion, "external-worktrees">, string> = {
     // 獭会话工作区——write/edit 最常见合法落点（獭 cwd 即 data/workspaces/<对话ID>/）
     workspaces: join(options.dataDir, "workspaces"),
     // 獭开发 worktree
@@ -82,18 +92,42 @@ function deriveAllowedRoots(
     // checkWriteTarget 的精确路径组件闸拒绝，只能由 Git 自身修改。
     // alpha 隔离实例数据根
     alpha: join(homedir(), ".otter", "alpha"),
-    // 系统临时目录
-    tmp: tmpdir(),
+    // 系统临时目录（#1695：多根覆盖 macOS 别名形态——os.tmpdir() 本机为
+    // /var/folders/.../T，与常识 /tmp（realpath → /private/tmp）、/var/tmp 互为不同目录，
+    // 单根会把 write /tmp/x.md 误拒。实际根在 deriveAllowedRoots 内多根展开，
+    // 此处不用 defaults["tmp"]，占位串仅保类型完整）。
+    tmp: "",
   };
   const override = options.rootsOverride ?? {};
   const roots: FileWriteRegionRoot[] = [];
   for (const region of Object.keys(defaults) as FileWriteRegion[]) {
+    if (region === "external-worktrees") continue; // 动态判定区，无静态根
+    if (region === "tmp") {
+      // #1695：tmp 区多根展开（os.tmpdir() + /tmp + /var/tmp），realpath 归一去重
+      const tmpOverride = override.tmp;
+      const tmpRoots = tmpOverride === null
+        ? []
+        : tmpOverride !== undefined
+          ? [tmpOverride]
+          : [tmpdir(), "/tmp", "/var/tmp"];
+      for (const rawRoot of tmpRoots) {
+        pushRoot(roots, "tmp", toRealPath(rawRoot, realpathSync));
+      }
+      continue;
+    }
     const overridden = override[region];
     // 显式 null = 测试排除该区（如排除真实 tmpdir 防 fixture 落入）
     if (overridden === null) continue;
-    roots.push({ region, path: toRealPath(overridden ?? defaults[region], realpathSync) });
+    pushRoot(roots, region, toRealPath(overridden ?? defaults[region], realpathSync));
   }
   return roots;
+}
+
+/** 同区多根去重压入（realpath 归一后可能重合，如 /tmp 与 /private/tmp） */
+function pushRoot(roots: FileWriteRegionRoot[], region: FileWriteRegion, path: string): void {
+  if (!roots.some(root => root.region === region && root.path === path)) {
+    roots.push({ region, path });
+  }
 }
 
 type RealpathSync = (path: string) => string;
@@ -151,9 +185,24 @@ function isWithin(target: string, root: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-/** 精确组件匹配，不误伤 .gitignore/.github；不存在段也参与判定 */
+/** 精确组件匹配，不误伤 .gitignore/.github；不存在段也参与判定。
+ *  #1695：动态区（external-worktrees）内部同样拒绝 .git 元数据写——动态判定
+ *  不重开元数据写面，与静态区同闸。 */
 function containsGitMetadataComponent(target: string): boolean {
   return resolve(target).split(/[\\/]+/).includes(".git");
+}
+
+/** 从文件落点向上找最近的 `.otter/worktrees/<name>` 边界（#1695 动态区辅助）。
+ *  只做形态归约（返回候选 worktree 根），真实性由注入的 resolver 判定（真实 Git
+ *  注册表成员才认）——伪造的 .otter/worktrees/x 目录没有注册表成员资格，仍拒。 */
+function nearestExternalWorktreeRoot(target: string): string | null {
+  const segments = resolve(target).split(/[\\/]+/).filter(Boolean);
+  for (let i = segments.length - 2; i >= 1; i--) {
+    if (segments[i - 1] === "worktrees" && segments[i - 2] === ".otter") {
+      return "/" + segments.slice(0, i + 1).join("/");
+    }
+  }
+  return null;
 }
 
 /** 允许测试包装 policy 的 realpath；生产直接传绑定后的 fs.realpathSync */
@@ -162,6 +211,7 @@ export function createFileWritePolicyWithRealpath(
   realpathSync: RealpathSync,
 ): FileWritePolicy {
   const roots = deriveAllowedRoots(options, realpathSync);
+  const resolveExternal = options.resolveExternalWorktree ?? null;
 
   const policy: FileWritePolicy = {
     checkWriteTarget(absolutePath: string): FileWritePolicyVerdict {
@@ -196,6 +246,17 @@ export function createFileWritePolicyWithRealpath(
       for (const root of roots) {
         if (isWithin(target, root.path)) {
           return { allowed: true, region: root.region, resolvedPath: target };
+        }
+      }
+      // #1695 缺口 A：外部仓真实注册 worktree 的动态判定区（注入式，见类型注释）。
+      // 静态白名单全部 miss 后才尝试；不认非 Git 注册表目录（伪造 .git/普通目录均拒）。
+      // 注意：传入的是文件落点——生产 resolver（resolveExternalGitWorktree）只认
+      // worktree 根直接命中，这里先归到最近的 worktree 根再问（父目录逐级向上找
+      // .otter/worktrees/<name> 形态），与 git 执行域 resolveTarget 的语义对齐。
+      if (resolveExternal) {
+        const externalRoot = nearestExternalWorktreeRoot(target);
+        if (externalRoot && resolveExternal(externalRoot)) {
+          return { allowed: true, region: "external-worktrees", resolvedPath: target };
         }
       }
       return {

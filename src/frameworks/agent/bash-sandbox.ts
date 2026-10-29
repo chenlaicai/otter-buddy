@@ -42,7 +42,7 @@ import type { BashSpawnContext, BashSpawnHook } from "@earendil-works/pi-coding-
 import { createBashTool, createFindTool, createGrepTool, createLsTool, createReadTool } from "@earendil-works/pi-coding-agent";
 import { assertGuardedFileToolsAssembled, createGuardedFileTools } from "./file-tool-guard";
 import { allowedFileWriteRoots, createFileWritePolicy } from "./file-write-policy";
-import { evaluateGitExecution, grantToProfileRules, grantFingerprint, parseGitWorktreeList, escapePath } from "./git-execution-policy";
+import { evaluateGitExecution, grantToProfileRules, grantFingerprint, parseGitWorktreeList, escapePath, resolveExternalGitWorktree } from "./git-execution-policy";
 import type { GitExecutionGrant } from "./git-execution-policy";
 import { otterInvokeStorage } from "./model-runtime-registry";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -222,6 +222,8 @@ export function createSandboxSpawnHook(
     const grant = evaluateGitExecution(ctx.command, ctx.cwd ?? "", {
       repoRoot,
       linkedWorktrees: currentRegistry,
+      // #1695：外部仓 worktree 判定与 write/edit 结构化面同源注入（生产同函数）
+      resolveExternalWorktree: resolveExternalGitWorktree,
     });
     // 外部仓 grant 的 .git 窄域属于目标仓，不属于 otter-buddy 安装根。
     const profile = grant ? buildGitProfile(repoRoot, dataDir, grant) : defaultProfile;
@@ -267,7 +269,10 @@ export interface SandboxedToolsResult {
 export function createSandboxedTools(cwd: string, repoRoot: string, dataDir: string): SandboxedToolsResult {
   // F20261027gscv Phase 1：write/edit 接防（structured 层，独立于 bash 沙箱）。
   // 复用 invoke 级 guardOnIntercept；无 invoke 上下文的独立测试不伪造生产落账。
-  const policy = createFileWritePolicy({ repoRoot, dataDir });
+  // #1695：注入外部仓 worktree 动态判定器——write/edit 静态写区 miss 后按真实
+  // Git 注册表判定（与 git 执行域同语义）；write/edit 的 .git 元数据组件闸仍在
+  // 动态区之前拒绝，本注入不重开 Git 元数据写面。
+  const policy = createFileWritePolicy({ repoRoot, dataDir, resolveExternalWorktree: resolveExternalGitWorktree });
   const guarded = createGuardedFileTools(cwd, {
     repoRoot,
     dataDir,
