@@ -13,6 +13,7 @@
  * 大量共享游标状态，得不偿失；见方案 D1 取舍）。呑例与 kill-segment-finder 同类。
  */
 /* eslint-disable max-lines-per-function, max-statements, complexity, max-depth */
+/* eslint-disable max-lines -- #1686 r1 fd 前缀形态完整识别（scanOperator/scanWord 双 fd 分支镜像补 <<< /<< 形态）后超 450；双分支零语义合并不进窄修 PR（先例：write-target-evaluator.ts 同款记债，结构性合并随收尾 PR） */
 
 export type PartType = "lit" | "var" | "cmdsub" | "arith" | "escape" | "hex" | "unknown";
 export type QuoteCtx = false | "single" | "double";
@@ -393,6 +394,17 @@ export function lex(text: string): LexResult {
           // 回退：把这个数字+重定向符作为 op 处理（含 >&N 形态）
           const opStart = i;
           i = j;
+          // #1686 r1 严重 1（检视獭-1686）：fd 前缀形态完整识别（bash 同构）——`0<<<` 是
+          // here-string、`0<<`/`0<<-` 是 heredoc。旧逻辑只认单字符 `<`，会把 here-string
+          // 拆成 `0<`+`<<` 假 heredoc（馈体蒸发成不可见）。
+          const three2 = text.slice(i, i + 3);
+          if (three2 === "<<<") {
+            i += 3;
+            tokens.push({ type: "op", span: { start: opStart, end: i }, op: text.slice(opStart, i) });
+            return;
+          }
+          if (three2 === "<<-") { scanHeredoc("<<-", opStart); return; }
+          if (text.slice(i, i + 2) === "<<") { scanHeredoc("<<", opStart); return; }
           const two2 = text.slice(i, i + 2);
           if (two2 === ">&" && /[0-9]/.test(text[i + 2] ?? "")) {
             i += 2;
@@ -462,6 +474,18 @@ export function lex(text: string): LexResult {
       const after = text[j] ?? "";
       if ((after === ">" || after === "<") && j > i) {
         i = j;
+        // #1686 r1 严重 1（检视獭-1686）：fd 前缀形态完整识别（bash 同构）——`0<<<` 是
+        // here-string、`0<<`/`0<<-` 是 heredoc。旧分支只认单字符 `<`，把 `0<<<x` 拆成
+        // `0<`+`<<` 假 heredoc（here-string 馈体蒸发）、`0<<EOF` 拆段喂不进载荷判读
+        // ——「换形态即绕过」同族。与无 fd 形态走同一扫描语义。
+        const three2 = text.slice(i, i + 3);
+        if (three2 === "<<<") {
+          i += 3;
+          tokens.push({ type: "op", span: { start, end: i }, op: text.slice(start, i) });
+          return;
+        }
+        if (three2 === "<<-") { scanHeredoc("<<-", start); return; }
+        if (text.slice(i, i + 2) === "<<") { scanHeredoc("<<", start); return; }
         const t2 = text.slice(i, i + 2);
         if ((t2 === ">&" || t2 === "<&") && /[0-9]/.test(text[i + 2] ?? "")) {
           i += 2;
