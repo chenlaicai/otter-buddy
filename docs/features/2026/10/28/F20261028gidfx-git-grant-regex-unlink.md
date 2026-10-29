@@ -42,10 +42,11 @@ SBPL 语义判别实验（工作区假仓 `.g1t` 同构命名，经 until 通道
 - **目标解析按 git 语义**：`envelope.targetPath ?? cwd` 作为相对参数解析基准（`-C`/`cd` 目标目录），实测与 git 自身解析一致。
 - **remove/add 旗标混排解析**：add 位置参数 `<target> [<commit-ish>]` 与受控旗标（-b/-B 带值、detach/no-checkout/force/quiet）任意混排；remove 恰好一个目标 + `-f/--force/-q/--quiet` 任意位置；未知旗标（--lock 等）与多目标仍不授权（fail-closed 不变）。
 - 取舍：regex 形态比路径形态匹配面略宽（子串语义 + `^` 锚定后可控）；换来删除面可用。generic `.git` deny 对非授权 `.git`（alpha/tmp/外部指针）的覆盖不变。
+- **S1 白名单化取舍（r1 返修）**：`escapePath`/`escapeRegexPath` 白名单收窄至 `[A-Za-z0-9._/-]`（其余 throw fail-closed），grant 入口四路径字段全部过白名单（白名单外 → null 不授权），profile 嵌入外层 bash 前经 `escapeForOuterBash` 转义——三面收口反引号/`$()` 规则文本注入逃逸。**已知边界**：白名单拒绝空格与非 ASCII 路径（安全优先，fail-closed）——含此类字符的外部仓路径将拿不到 git 写授权。CoLink 真实检出路径 `/Users/orca/ai/others/colink` 已于 2026-10-29 `realpath` 对照白名单验证通过（纯 `[A-Za-z0-9._/-]` 字符）；若外部仓部署到含空格/中文路径需先放宽白名单（安全集最小化：仅拒反引号/`$`/`"`/`\\`/控制字符）。
 
 ## 测试
 
-- `tests/frameworks/agent/git-sandbox-policy.test.ts` 48 项全绿：新增相对目标按 -C 解析（生产回归复刻）、remove 旗标混排、add 旗标混排、指针 regex 规则、未知旗标/多目标拒绝。
+- `tests/frameworks/agent/git-sandbox-policy.test.ts` 52 项全绿：新增相对目标按 -C 解析（生产回归复刻）、remove 旗标混排、add 旗标混排、指针 regex 规则、未知旗标/多目标拒绝；S1/A1 白名单回归 4 条（反引号/`$()`/双引号/空格路径均不授权，r1 返修）。
 - 全量本地跑（`--pool=threads`）7153 过 / 103 挂——挂的全部是运行环境故障类别（嵌套沙箱禁 `.git` 创建/禁信号 kill、threads 池 chdir 限制、embedding 模型缺失），无一与本改动相关；真实沙箱集成测试在 CI 无沙箱环境执行。
 
 ## 回滚
