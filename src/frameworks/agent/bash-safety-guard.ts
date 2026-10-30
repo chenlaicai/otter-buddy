@@ -315,8 +315,10 @@ function curlUploadVerbHit(seg: string): boolean {
   if (/(?:^|\s)--(?:request|method)=(?:POST|PUT)\b/i.test(seg)) return true;
   if (/(?:^|\s)--(?:data|post-data|post-file|form|form-string|upload-file|json)\b/i.test(seg)) return true;
   if (/(?:^|\s)-X\s*(?:POST|PUT)\b/.test(seg)) return true; // -X 值大小写敏感（curl 接受任意大小写动词，但保守按标准形态）
-  if (/(?:^|\s)-[TFt](?:\s|$)/.test(seg)) return true; // 表单/上传/wget -t 发送体
-  if (/(?:^|\s)-[dD](?:\b|$)/.test(seg) && /(?:^|\s)-d\b/.test(seg)) return true; // -d（数据）
+  // D1+D2（检视 delta-r1）：-d/-F/-T 词元出现即命中（分离 -T /path 与附着 -Tfile/-Fname=@x/-d@file
+  // 一致——还原旧 /^-[dFT]\S/ 的附着值语义）；删 t 词元（wget -t=--tries、curl -t=telnet-option
+  // 都不是上传旗标，误拦纯 GET）。大小写敏感：-D（转储头）/-f（失败静默）不命中。
+  if (/(?:^|\s)-[dFT]/.test(seg)) return true;
   if (/(?:^|\s)--request\s+(?:POST|PUT)\b/i.test(seg)) return true;
   if (/(?:^|\s)--method\s+(?:POST|PUT)\b/i.test(seg)) return true;
   return false;
@@ -338,19 +340,25 @@ function uploadExfilHit(command: string, allowedEgressDomains?: string[]): boole
   return false;
 }
 
-/** 建议③（检视初轮）：进程替换形态 bash <(curl …)——fetcher 输出直接进解释器 argv，
- *  同属「下载即执行」（不入盘不可审阅）。仅拦「解释器首参即进程替换 + 替换内是 fetcher」。 */
+/** 建议③（检视初轮→delta-r2 段提取修正）：进程替换形态 bash <(curl …)——
+ *  fetcher 输出直接进解释器 argv，同属「下载即执行」（不入盘不可审阅）。
+ *  delta-r2：按链段提取（含 <( 的段判段首解释器——不再取全命令末段），
+ *  解释器家族补 source；零误拦面保持（bash <(echo)/diff <(curl) 不命中）。 */
 function processSubstitutionHit(command: string): boolean {
-  const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
+  const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript|source)\b/;
   const fetcherInsideRe = /<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
-  const interpreterHead = /(?:^|[;&|]\s*|&&\s*|\|\|\s*)(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
-  return interpreterHead.test(command) && fetcherInsideRe.test(command) && interpreterRe.test(command.split(/<(?![(])/)[0].trim().split(/[;&|]/).pop()?.trim() ?? "");
+  for (const chain of command.split(/&&|\|\||[;&\n]/)) {
+    const seg = chain.trim();
+    if (seg && interpreterRe.test(seg) && fetcherInsideRe.test(seg)) return true;
+  }
+  return false;
 }
 function pipeToInterpreterHit(command: string): boolean {
   const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
   const fetcherRe = /^(?:sudo\s+)?(?:curl|wget)\b/;
-  // 按管道链拆段（| 单管）；&& / ; / || 之间的段互不配对
-  for (const chain of command.split(/&&|\|\||[;\n]/)) {
+  // 按管道链拆段（| 单管）；&& / || / ; / & / 换行之间的段互不配对（delta-r2 补 &：
+  // 后台复合 curl|head & cat|python3 不跨链配对）
+  for (const chain of command.split(/&&|\|\||[;&\n]/)) {
     const parts = chain.split("|").map(p => p.trim()).filter(Boolean);
     if (parts.length < 2) continue;
     // 链内任一前置段是 fetcher 且任一后续段是解释器 → 命中

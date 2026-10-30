@@ -83,8 +83,8 @@ modules:
 | 类 | 内容 | 判据 |
 |---|---|---|
 | A 凭证路径 | ~/.ssh、~/.gnupg、~/.aws | 命令中出现这些路径（读写都算），第一站同款位置/引号语义 |
-| B 数据外发 | curl/wget POST/PUT/带载荷 | 目标域名不在协作域名表（动词词元表对齐判据：-X POST/PUT、--request/--method 及 = 形态、-d/--data/--post-data/--post-file、-F/--form、-T/--upload-file、--json；短旗标大小写敏感——-f≠-F、-D≠-d，防 GET 旗标误拦） |
-| C 下载即执行 | 网络命令→管道→sh/bash/python | 管道段配对判定（fetcher 段与解释器段须在同一条管道两端；bash <(curl …) 进程替换同拦） |
+| B 数据外发 | curl/wget POST/PUT/带载荷 | 目标域名不在协作域名表（动词词元表对齐判据：-X POST/PUT、--request/--method 及 = 形态、-d/--data/--post-data/--post-file、-F/--form、-T/--upload-file、--json、短旗标 -d/-F/-T（含附着值形态 -T<file>）；大小写敏感——-f≠-F、-D≠-d、-t≠-T（wget -t=--tries 是 GET 侧旗标不拦） |
+| C 下载即执行 | 网络命令→管道→sh/bash/python | 管道段配对判定（fetcher 段与解释器段须在同一条管道两端，& 后台复合不跨链；bash/source <(curl …) 进程替换按链段提取同拦） |
 
 - 域名表 config.yaml `bashGuard.allowedEgressDomains`（默认 github.com/api.github.com/registry.npmjs.org/objects.githubusercontent.com + 现有 huawei-colink.com/localhost/127.0.0.1/::1），**搭档专改**（主仓文件走 PR，獭无权扩表防注入自放行）；未配置时用内置缺省表（非 fail-closed），**显式空数组 = fail-closed**（搭档清空表即关闭全部合法外发，而非回退缺省表）
 - `curl … | head`（只看不执行）放行——C 类只拦「进解释器」
@@ -110,7 +110,7 @@ write/edit 工具：随白名单退役恢复 SDK 原生行为（无写区闸）�
 
 ## 验证体系（先于重写建设，本 PR 内置）
 
-**回放回归库**（tests/guard/replay/）：healing 台账 guard_intercept 事件固化为用例——10/29 台账 12 条误拦实录「必须放行」（含 stash 组合、ps/kill 组合查询、外部仓 push、heredoc python、/tmp 写、mktemp 组合、sandbox-exec 探针）；9/16 杀主进程原案「必须拦」；凭证路径/外发三类「必须拦」负门；检视初轮修复回归钉（S1 GET 旗标/S2 广播 kill/S5 PUT 族/S7 管道段配对/③ 进程替换/⑦ 白名单端口溯源）。must-block 用例同时断言拦截理由关键词（防「拦对了理由错」的语义漂移）。守卫行为以真实使用为准。
+**回放回归库**（tests/guard/replay/）：healing 台账 guard_intercept 事件固化为用例——10/29 台账 12 条误拦实录「必须放行」（含 stash 组合、ps/kill 组合查询、外部仓 push、heredoc python、/tmp 写、mktemp 组合、sandbox-exec 探针）；9/16 杀主进程原案「必须拦」；凭证路径/外发三类「必须拦」负门；检视回归钉（初轮：S1 GET 旗标/S2 广播 kill/S5 PUT 族/S7 管道段配对/③ 进程替换/⑦ 白名单端口溯源；delta-r2：D1 附着值上传/D2 wget -t GET 旗标/S7& 后台复合/③ 段提取与 source）。must-block 用例逐条断言拦截理由锚词（reasonContains，防「拦对了理由错」的语义漂移）。守卫行为以真实使用为准。
 
 **CI macos job**：ci.yml 增 `guard-macos` job（macos-latest，公共仓免费），跑回放库 + kill 族依赖单测（allowed-service-ports）。10-29 全部事故的共同根源=守卫改动从未在真机验证（CI 全 Linux、本机沙箱不可嵌套）——本 job 根治。范围窄化：只跑守卫相关测试（不重复主 check job 的全量面），反馈快且不挤公共资源。
 
@@ -118,7 +118,7 @@ write/edit 工具：随白名单退役恢复 SDK 原生行为（无写区闸）�
 
 - 守卫文件：`src/frameworks/agent/bash-safety-guard.ts`（单文件，~290 行——原计划拆 egress-blacklist.ts，实现时判定逻辑内聚于单文件更简，不拆）；kill-segment-finder.ts / allowed-service-ports.ts 原样保留复用
 - 接线：单点注入 `model-runtime-registry.ts` 的 tool_call 门（bashGuardGate，与 halt/loop-block 同机制链式判定）——被拦命令不执行，SDK 生成 isError tool result（显式落痕，#1616 静默假绿教训）；域名表经 store（guardAllowedEgressDomains）从 config 流入，铸造点 pi-session-factory._executeWithSession
-- 回放库：`tests/guard/replay/`（replay.test.ts + cases-2026-10-29.ts）——初版 52 用例，检视初轮处置后 69 用例：误拦实录 22（healing 台账四族：git 授权链/脚本禁令/sleep/heredoc + #1710 信封形态 5 种）/ 必拦 12（9/16 原案 6 + 黑名单三类 6，含理由锚定断言）/ 日常抽样 15 + 域名表语义 3 + 检视回归钉 16 + 门覆盖面 2；测试基建用 tmp projectRoot + processProbe 桩（全平台确定性，不真查 ps）
+- 回放库：`tests/guard/replay/`（replay.test.ts + cases-2026-10-29.ts）——初版 52 用例，delta-r2 后 76 用例：误拦实录 22（healing 台账四族：git 授权链/脚本禁令/sleep/heredoc + #1710 信封形态 5 种）/ 必拦 12（9/16 原案 6 + 黑名单三类 6，理由锚词断言逐条做实）/ 日常抽样 15 + 域名表语义 3 + 检视回归钉（初轮 15 + delta-r2 7：D1 附着值/D2 wget -t/S7& 后台复合/③ 段提取与 source）+ 门覆盖面 2；测试基建用 tmp projectRoot + processProbe 桩（全平台确定性，不真查 ps）
 - 修复对线 WIP 两个缺陷：extractLiteralPids 幻影 import（从旧版恢复本地实现）；B 类 isPost 正则 \b 拴死分支组（-X POST/-d 全漏判，改为行首/空白前导判定）
 
 ### 机制增补准入三问（R8.5，检视 S3 处置：refactor 主体 + 机制增补声明）

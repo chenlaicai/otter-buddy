@@ -34,11 +34,6 @@ export interface AttachGuardsParams {
    *  写入时机（两条件或）：terminate（strike 涨满）/ repeatOffender（同签名第 2 次 steer，复犯）。
    *  首次 steer 不写（纯警告）；tool_call 门（loopBlockGuard）读到即物理阻断该签名后续调用。 */
   loopBlockedTools?: Map<string, string>;
-  /** F20261026gobs delta-r1（检视獭1646 S3）：tool_call 门（bashGuardGate）激活探测——
-   *  门激活时 bash 守卫判定由门单点拦下（显式 reason 落痕），abort 链不双拦
-   *  （SDK signal.aborted 会覆盖门的 reason）；门失活时 abort 链兑底。 */
-  /** F20261019gses P0 影子下线：onShadowEval（观察期对照回调）已删——主判定切
-   *  evaluateWriteVerdict 后无「旧链 vs 新链」对照面。 */
 }
 
 /** _attachGuards 返回类型 */
