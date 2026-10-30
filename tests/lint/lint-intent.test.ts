@@ -520,3 +520,80 @@ describe('lint:intent truthy non-string change_type (F20261005imfg delta round)'
     expect(result.errors.some((e: string) => e.includes('change_type 缺失/空值按 feature 判定'))).toBe(true);
   });
 });
+
+// F20261030iprio（#1238）：软代码收口「声明缺失」全形态——惩罚梯度倒置修复。
+// 倒置形态（修复前实证）：软代码新文档缺整个 intent 块只 warning（recommended），
+// 有 intent 块但缺 verify_by 却 error——缺得越彻底罚得越轻。
+// F20261005imfg 已收 feature/prompt 路径（缺块即 error），本组锁 bugfix/refactor
+// 与其他 change_type 的软代码新文档同口径：整块缺失不轻于缺 verify_by。
+describe('intent-missing penalty inversion for soft-code docs (#1238, F20261030iprio)', () => {
+  it('红测 A：软代码新 bugfix 文档缺整块 intent → error（不再降级 warning）', () => {
+    const fm = {
+      ...createBaseFm('bugfix'),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-10-01',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030x1238-probe.md');
+    expect(result.errors.some((e: string) => e.includes('Missing intent block for soft-code change'))).toBe(true);
+    // 惩罚梯度对齐断言：不得再以 recommended warning 形态放行
+    expect(result.warnings.some((w: string) => w.startsWith('Recommended intent field for bugfix'))).toBe(false);
+  });
+
+  it('对照 B：软代码新文档缺 verify_by 保持 error（反向对称不回退）', () => {
+    const fm = {
+      ...createBaseFm('bugfix', {
+        problem: '软代码行为改动',
+        expected_effect: '行为可判定',
+      }),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-10-01',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030x1239-probe.md');
+    expect(result.errors.some((e: string) => e.includes('Missing intent.verify_by for soft-code change'))).toBe(true);
+  });
+
+  it('现状锁 C：软代码新 feature 文档缺整块 → error（锁 F20261005imfg 不回退）', () => {
+    const fm = {
+      ...createBaseFm('feature'),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-09-20',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030x1240-probe.md');
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent field for feature'))).toBe(true);
+  });
+
+  it('存量宽容 D：软代码旧文档（created_at < 2026-09-17）缺整块 → warning 不追诉', () => {
+    const fm = {
+      ...createBaseFm('bugfix'),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-09-01',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030x1241-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings.some((w: string) => w.startsWith('Recommended intent field for bugfix'))).toBe(true);
+  });
+
+  it('非软代码 E：bugfix 缺整块 → warning（recommended 语义不变）', () => {
+    const fm = {
+      ...createBaseFm('bugfix'),
+      modules: ['src/services/foo.ts'],
+      created_at: '2026-10-01',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030x1242-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings).toContain('Recommended intent field for bugfix');
+  });
+
+  it('豁免优先 F：豁免清单文档即使软代码新缺整块 → 零 error（存量豁免语义不破）', () => {
+    const realExemptPath = [...EXEMPT_IDS][0];
+    expect(realExemptPath, '豁免清单应非空').toBeDefined();
+    const fm = {
+      ...createBaseFm('bugfix'),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-10-01',
+    };
+    const result = validateIntent(fm, realExemptPath);
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings.length).toBeGreaterThan(0);
+  });
+});

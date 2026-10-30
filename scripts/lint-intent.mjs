@@ -227,6 +227,13 @@ function validateIntent(fm, exemptKey) {
             : `Missing intent field for ${effectiveChangeType}（#839：新文档必须声明 intent 块，存量豁免清单见 scripts/intent-exempt-list.txt）`,
         );
       }
+    } else if (isSoftCodeChange(fm) && isNewEnough(fm) && !isExempt) {
+      // F20261030iprio（#1238）：软代码收口语义覆盖「声明缺失」全形态——软代码新文档
+      // 缺整个 intent 块不轻于缺 verify_by 的 error（惩罚梯度倒置修复：bugfix/refactor
+      // 此前缺块只 warning，比缺 verify_by 的 error 更轻，缺得越彻底罚得越轻）。
+      errors.push(
+        `Missing intent block for soft-code change (modules 含 prompts/ 或 .pi/, created_at ≥ ${SOFT_CODE_ENFORCE_DATE})——请在 frontmatter 补 intent 块（problem/expected_effect/verify_by）（#1238）`,
+      );
     } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(effectiveChangeType)) {
       warnings.push(`Recommended intent field for ${effectiveChangeType}`);
     }
