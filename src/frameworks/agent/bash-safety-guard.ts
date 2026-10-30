@@ -309,19 +309,23 @@ function makeEgressDomainAllowed(domains: string[] | undefined): (host: string) 
  *  S1+S5（检视初轮）：短旗标大小写敏感精确匹配（curl 的 -f=失败静默 / -F=表单上传、
  *  -D=转储头 / -d=携带数据，大小写即语义——/i 折叠会把纯 GET 误拦）；
  *  动词词元表含 PUT 族（-T/--upload-file/--json/--request=POST/wget --method=PUT 等），
- *  对齐 F doc 判据「POST/PUT/带载荷」。 */
-function curlUploadVerbHit(seg: string): boolean {
-  // 长旗标先测（含 = 形态），再测短旗标（大小写敏感——-f≠-F、-D≠-d、-t≠-T）
+ *  对齐 F doc 判据「POST/PUT/带载荷」。
+ *  D3（检视 delta-r2）：词元表按工具分——curl 的 -d/-F/-T 是上传语义，但 wget 的
+ *  同字母短旗标全是 GET 侧（-T=--timeout/-F=--force-html/-d=--debug/-t=--tries）。 */
+function uploadVerbHitFor(tool: "curl" | "wget", seg: string): boolean {
+  // 动词/method 长形态两工具通用（--request/--method 及 = 与空格双形态）
   if (/(?:^|\s)--(?:request|method)=(?:POST|PUT)\b/i.test(seg)) return true;
+  if (/(?:^|\s)--(?:request|method)\s+(?:POST|PUT)\b/i.test(seg)) return true;
+  if (tool === "wget") {
+    // D3（检视 delta-r2）：wget 无上传短旗标——-T=timeout/-F=force-html/-d=debug/-t=tries
+    // 全是 GET 侧，只认长形态（--post-data/--post-file/--body-data/--body-file）
+    return /(?:^|\s)--(?:post-data|post-file|body-data|body-file)\b/i.test(seg);
+  }
+  // curl：长形态 + 短旗标 -d/-F/-T（含附着值 -Tfile/-Fname=@x/-d@file，还原旧语义；
+  // 大小写敏感——-D 转储头/-f 失败静默不命中；无 t 词元：curl -t=telnet-option 非上传）
   if (/(?:^|\s)--(?:data|post-data|post-file|form|form-string|upload-file|json)\b/i.test(seg)) return true;
-  if (/(?:^|\s)-X\s*(?:POST|PUT)\b/.test(seg)) return true; // -X 值大小写敏感（curl 接受任意大小写动词，但保守按标准形态）
-  // D1+D2（检视 delta-r1）：-d/-F/-T 词元出现即命中（分离 -T /path 与附着 -Tfile/-Fname=@x/-d@file
-  // 一致——还原旧 /^-[dFT]\S/ 的附着值语义）；删 t 词元（wget -t=--tries、curl -t=telnet-option
-  // 都不是上传旗标，误拦纯 GET）。大小写敏感：-D（转储头）/-f（失败静默）不命中。
-  if (/(?:^|\s)-[dFT]/.test(seg)) return true;
-  if (/(?:^|\s)--request\s+(?:POST|PUT)\b/i.test(seg)) return true;
-  if (/(?:^|\s)--method\s+(?:POST|PUT)\b/i.test(seg)) return true;
-  return false;
+  if (/(?:^|\s)-X\s*(?:POST|PUT)\b/.test(seg)) return true;
+  return /(?:^|\s)-[dFT]/.test(seg);
 }
 
 function uploadExfilHit(command: string, allowedEgressDomains?: string[]): boolean {
@@ -331,7 +335,7 @@ function uploadExfilHit(command: string, allowedEgressDomains?: string[]): boole
   for (const seg of segments) {
     const m = /^(?:sudo\s+)?(curl|wget)\b/.exec(seg);
     if (!m) continue;
-    if (!curlUploadVerbHit(seg)) continue;
+    if (!uploadVerbHitFor(m[1] as "curl" | "wget", seg)) continue;
     // 提取域名
     const urls = [...seg.matchAll(/https?:\/\/(?:[^@\s/]*@)?(\[[^\]]+\]|[^/:\s]+)(?::\d+)?/g)].map(x => x[1]);
     if (urls.length === 0) return true; // 上传但目的不可静态校验——fail-closed
@@ -340,22 +344,29 @@ function uploadExfilHit(command: string, allowedEgressDomains?: string[]): boole
   return false;
 }
 
-/** 建议③（检视初轮→delta-r2 段提取修正）：进程替换形态 bash <(curl …)——
+/** 建议③（检视初轮→delta-r3 数据流判定）：进程替换形态 bash <(curl …)——
  *  fetcher 输出直接进解释器 argv，同属「下载即执行」（不入盘不可审阅）。
- *  delta-r2：按链段提取（含 <( 的段判段首解释器——不再取全命令末段），
- *  解释器家族补 source；零误拦面保持（bash <(echo)/diff <(curl) 不命中）。 */
+ *  delta-r3：数据流判定——只拦「解释器段自带的 <( ) 内是 fetcher」
+ *  （bash <(curl) 拦；bash <(echo)|diff <(curl) 放——解释器吃 echo，curl 只是 diff 参数）；
+ *  cat <(curl)|bash 漏判面由 pipeToInterpreterHit 的 D4 段内扩形态覆盖。 */
 function processSubstitutionHit(command: string): boolean {
   const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript|source)\b/;
   const fetcherInsideRe = /<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
+  // delta-r3：链内再按 | 拆管道段——解释器段与 <(fetcher) 必须在同一段
+  // （bash <(echo)|diff <(curl)：解释器段的替换里是 echo，curl 在 diff 段——放行）
   for (const chain of command.split(/&&|\|\||[;&\n]/)) {
-    const seg = chain.trim();
-    if (seg && interpreterRe.test(seg) && fetcherInsideRe.test(seg)) return true;
+    for (const segRaw of chain.split("|")) {
+      const seg = segRaw.trim();
+      if (seg && interpreterRe.test(seg) && fetcherInsideRe.test(seg)) return true;
+    }
   }
   return false;
 }
 function pipeToInterpreterHit(command: string): boolean {
   const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
-  const fetcherRe = /^(?:sudo\s+)?(?:curl|wget)\b/;
+  // D4（检视 delta-r3）：段首 fetcher 或段内进程替换 fetcher（cat <(curl …) 形态——
+  // 替换输出即该段的数据源，管道对端解释器吃到下载内容，与 curl|sh 同构）
+  const fetcherRe = /^(?:sudo\s+)?(?:curl|wget)\b|<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
   // 按管道链拆段（| 单管）；&& / || / ; / & / 换行之间的段互不配对（delta-r2 补 &：
   // 后台复合 curl|head & cat|python3 不跨链配对）
   for (const chain of command.split(/&&|\|\||[;&\n]/)) {
