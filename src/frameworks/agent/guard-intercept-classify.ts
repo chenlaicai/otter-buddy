@@ -30,50 +30,45 @@ export interface GuardRuleClass {
 
 /**
  * 指纹表：特征片段 → 分类。顺序即优先级。
- * 特征片段选取原则：足够长以唯一定位规则，足够短以容忍 V1/V2 文案分词差异。
+ * F20261030gcfbx（v4 对齐）：#1702 守卫重建清场 + #1711 guard-v4 重写后，v3 全部守卫文案
+ * 发射点消亡——死指纹整体退役（26→7 条），只保留活通道（文件工具结构化前缀 +
+ * guard-v4 七条文案）。活文案清单（bash-safety-guard.ts，改动需同步）：
+ * - MAIN_KILL_BLOCK_MSG / INDIRECT_KILL_BLOCK_MSG / PKILL_OTTER_BLOCK_MSG /
+ *   BROADCAST_KILL_BLOCK_MSG（第一站杀进程判定，三查/PID 文件/stop 脚本共用 MAIN_KILL）
+ * - 凭证目录 / 向非协作域名上传数据 / 「下载即执行」（第二站黑名单三类，内联文案）
+ * ruleId 连续性：self_kill_nonliteral / self_kill_byname / self_kill_process_group /
+ * network_exfil 复用旧 id（语义未变，healing 历史聚合连续）；self_kill_main /
+ * cred_dir_access / download_exec 为 v4 新机制新 id。sleep_block 指纹保留：发射点
+ * stripSleepMarkerIfPresent 仍在（bash-safety-guard.ts:401），历史台账文案仍可分类；
+ * 拦截本体已退役（habit 层软约束化）。
+ * 特征片段选取原则：足够长以唯一定位规则，足够短以容忍文案小改。
  * 【维护契约】守卫改拦截文案时，若特征片段仍完整保留则无需动表；若特征片段被改，
  * 分类回归测试红——同步更新指纹与测试同走 PR。
  */
 const FINGERPRINTS: ReadonlyArray<{ fragment: string; cls: GuardRuleClass }> = [
-  // kill 0 是独立规则（V2 U1/#1169 进程组语义），优先于字面量主 PID（其文案含「kill」字样但特征不同）
+  // 结构化前缀优先（file-tool-guard，非文案指纹通道，v4 未变）
   { fragment: "[file-tool-guard]", cls: { ruleId: "file-tool-guard", layer: "r1_gate" } },
-  { fragment: "kill 0——信号将发送到当前进程组", cls: { ruleId: "self_kill_process_group", layer: "self_kill" } },
-  { fragment: "针对主进程 PID 的终止命令", cls: { ruleId: "self_kill_literal", layer: "self_kill" } },
-  // pidfile 两形态无长共同子串（V1「引用了主进程 PID 文件」vs V2「主进程 PID 文件引用和终止」），双指纹同 ruleId
-  { fragment: "终止进程的命令引用了主进程 PID 文件", cls: { ruleId: "self_kill_pidfile", layer: "self_kill" } },
-  { fragment: "主进程 PID 文件引用", cls: { ruleId: "self_kill_pidfile", layer: "self_kill" } },
-  { fragment: "按名匹配的批量终止命令", cls: { ruleId: "self_kill_byname", layer: "self_kill" } },
-  { fragment: "终止进程的目标为变量或命令替换", cls: { ruleId: "self_kill_nonliteral", layer: "self_kill" } },
-  { fragment: "通过管道传入 shell 执行且包含终止进程操作", cls: { ruleId: "self_kill_pipe_shell", layer: "self_kill" } },
-  { fragment: "通过脚本语言执行了终止进程操作", cls: { ruleId: "self_kill_script", layer: "self_kill" } },
-  { fragment: "使用 eval 包装了含数字参数的操作", cls: { ruleId: "self_kill_eval", layer: "self_kill" } },
-  { fragment: "otter-buddy.sh 解析到主仓", cls: { ruleId: "self_kill_script_stop", layer: "self_kill" } },
-  { fragment: "otter-buddy.sh 引用与间接调用特征", cls: { ruleId: "self_kill_indirect", layer: "self_kill" } },
-  // V2 U5（guard-model-judge.ts:362）：防绕过层——脚本文件执行未经守卫逐条判定
-  { fragment: "从文件读取脚本执行", cls: { ruleId: "script_file_exec", layer: "bypass_guard" } },
-  // F20261015gali（M-edd889c2）：git alias shell 展开注入（载荷拆解/不可证 fail-closed）
-  //  双指纹同 ruleId（pidfile 先例）；载荷命中文案子文案在第二行不参与首句指纹匹配
-  { fragment: "git alias shell 展开（! 前缀）执行任意载荷", cls: { ruleId: "alias_shell_payload", layer: "bypass_guard" } },
-  { fragment: "git alias shell 展开（! 前缀）注入载荷", cls: { ruleId: "alias_shell_payload", layer: "bypass_guard" } },
-  { fragment: "当前 bash 工作目录在主仓", cls: { ruleId: "main_write", layer: "r1_gate" } },
-  // F20261016grdl 1b（G1 归因）：main_write 落点文案指纹——:1935 rewriteMainWriteBlockMsg
-  // 主文案（sessionCwd 版）是 10/16 全部 70 条 unknown 的直接来源（文案不在表→凑进
-  // UNKNOWN_RULE 兑底，且 self_kill 兑底值使 #1353 疑似误拦降级失效）。
-  // 注：redirect 相对路径分支与主文案共用 :1935（通用文案），指纹层只到文案级
-  // 分辨率（ruleId=main_write_resolve），出口级归因（redirect/literal/oneliner）
-  // 不在本层（需守卫出口埋 ruleId——属 #844 后续）；无 cwd 版文案（MAIN_WRITE_BLOCK_MSG）
-  // 已由上一条「当前 bash 工作目录在主仓」覆盖。
-  { fragment: "写命令落点解析到主仓（session 工作目录=", cls: { ruleId: "main_write_resolve", layer: "r1_gate" } },
-  // F20261016gdfv（M-c78df9d4）：破坏命令落主仓内容树（非 data/）新文案（main_write 族）。
-  // 原「写命令落点解析到主仓」宽 fragment 按合入顺序提案删除（#1527 先合，其含
-  // 「（session 工作目录=」的具体形态先命中且归因更细，宽窄两形态 first-hit 互吞）。
-  { fragment: "对主仓内容区执行了删除/移动操作", cls: { ruleId: "main_write", layer: "r1_gate" } },
-  { fragment: "主仓 data/", cls: { ruleId: "data_destructive", layer: "r1_gate" } },
-  { fragment: "PR 合入是搭档专属动作", cls: { ruleId: "pr_merge", layer: "permission" } },
-  // sleep 干净文案特征（发射点已剥 SLEEP_REASON_PREFIX，落账无前缀）
+  // ── 第一站：杀进程判定（4 条文案，bash-safety-guard.ts:185-210） ──
+  // 三查命中（PID 相等/args 指纹/父进程）与 PID 文件引用、stop/restart 脚本直执共用 MAIN_KILL 文案
+  { fragment: "目标命中主进程", cls: { ruleId: "self_kill_main", layer: "self_kill" } },
+  // 非字面量 PID（变量/命令替换）：与旧 self_kill_nonliteral 同语义，复用 id 保持 healing 聚合连续
+  { fragment: "无法静态确认是否主进程", cls: { ruleId: "self_kill_nonliteral", layer: "self_kill" } },
+  // pkill/killall 按名匹配：与旧 self_kill_byname 同语义
+  { fragment: "按名匹配会命中主进程", cls: { ruleId: "self_kill_byname", layer: "self_kill" } },
+  // kill -1 / -- -PGID 广播/进程组：与旧 self_kill_process_group 同语义
+  { fragment: "广播/进程组", cls: { ruleId: "self_kill_process_group", layer: "self_kill" } },
+  // ── 第二站：黑名单三类（checkBlacklistStation 内联文案，bash-safety-guard.ts:386-392） ──
+  // A 类凭证路径（ssh/gnupg/aws 三目录，读写都算）：新机制新 id，permission 层（凭证不进獭上下文）
+  { fragment: "凭证目录", cls: { ruleId: "cred_dir_access", layer: "permission" } },
+  // B 类外发：上传动词（POST/PUT 族）+ 域名非协作白名单；「目的不可静态校验」fail-closed 分支同文案；
+  // 复用旧 network_exfil id（S5 密钥外发面语义未变）
+  { fragment: "向非协作域名上传数据", cls: { ruleId: "network_exfil", layer: "permission" } },
+  // C 类下载即执行：管道进解释器 + 进程替换（bash <(curl …)）共一条文案，新 id，bypass_guard 层
+  { fragment: "「下载即执行」", cls: { ruleId: "download_exec", layer: "bypass_guard" } },
+  // sleep 干净文案特征（发射点已剥 SLEEP_REASON_PREFIX，落账无前缀）——拦截本体已随 v4 退役，
+  // 指纹保留供历史台账文案分类
   { fragment: "裸 sleep 会让搭档看到长时间静默黑盒", cls: { ruleId: "sleep_block", layer: "habit" } },
 ];
-
 /** 未映射兜底（守卫新增文案未同步指纹表时落此——聚合报表可见 unknown 占比，倒逼补表） */
 export const UNKNOWN_RULE: GuardRuleClass = { ruleId: "unknown", layer: "self_kill" };
 

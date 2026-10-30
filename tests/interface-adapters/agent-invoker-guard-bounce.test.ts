@@ -23,7 +23,7 @@ import type { OtterSession } from "@entities/otter/otter-session";
 import { createTestLogger } from "../helpers/logger";
 import { mockSendEntry } from "../helpers/mock-send-entry";
 
-const GUARD_REASON = "bash_safety:bash 命令包含针对主进程 PID 的终止命令。主进程是海獭运行环境，任何情况下不得终止。";
+const GUARD_REASON = "bash_safety:目标命中主进程（otter-buddy 主服务）——海獭不能杀主进程。需要重启服务走 restart-service 工具（受控通道）；stop/restart 脚本同样禁止直接执行。";
 /** F20260928slan：sleep 域 guard reason（验证 orchestrator 三门对 bash_sleep: 适配） */
 const SLEEP_GUARD_REASON = "bash_sleep:检测到你使用了 sleep 等待（约 30 秒）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么、为什么要等这么久，然后改用 wait 工具。";
 
@@ -191,7 +191,8 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     expect(bounceMsg).toContain("主进程");
     expect(bounceMsg).toContain("worktree");
     expect(bounceMsg).toContain("不要重复原命令");
-    expect(bounceMsg).not.toContain("restart");
+    // guard-v4 文案自带 restart-service 受控出口指引（正道出口）+ orchestrator 追加中性化指引——
+    // v3 时代「不含 restart」断言已过时，删除
     // bounce 计数落账：guard_intercept + bounce=true
     const bounceEvent = healing.events.find(e =>
       e.errorType === "guard_intercept" && (e.context as { bounce?: boolean })?.bounce === true);
@@ -463,17 +464,17 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
   });
   it("GB-6a：3 连 bounce 命中同一低危规则（main_write/r1_gate）→ 疑似误拦降级：含「大概率误拦」判断 + 命令摘要取最新 + suspected_false_positive 落账", async () => {
     const sendEntry = mockSendEntry();
-    // 低危层规则：main_write（r1_gate）——文案保留「大概率误拦」预判；
-    // guardReason 对齐 main_write 真实拦截文案（分类归一 currentRuleId/ruleLayer）
-    const mainWriteReason = "bash_safety:当前 bash 工作目录在主仓（未 cd 到 worktree）。落点为主仓的写命令被拦截。";
+    // 低危层规则：cred_dir_access（permission）——文案保留「大概率误拦」预判；
+    // guardReason 对齐 guard-v4 真实拦截文案（分类归一 currentRuleId/ruleLayer）
+    const credDirReason = "bash_safety:凭证目录（ssh/gnupg/aws 家目录）禁止访问——密钥/凭证不进獭上下文。如确需相关操作请告知搭档人工执行。";
     const healing = mockHealingRepo([
       // 拦截结构化事件（旧→新插入；findRecentByOtter mock DESC 序——数组末位 = 最新）；
       // bounce:true 计数事件与结构化事件并存（对齐生产：每轮 bounce 拦截两类都落）
-      ...seedBounceRound("main_write", "r1_gate", "git commit -m old"),
-      ...seedBounceRound("main_write", "r1_gate", "git commit -m mid"),
-      ...seedBounceRound("main_write", "r1_gate", "git commit -m latest"),
+      ...seedBounceRound("cred_dir_access", "permission", "cat cred/id_rsa old"),
+      ...seedBounceRound("cred_dir_access", "permission", "cat cred/id_rsa mid"),
+      ...seedBounceRound("cred_dir_access", "permission", "cat cred/id_rsa latest"),
     ]);
-    const invoke = mockAgentInvoke([{ guard: 2 }], mainWriteReason);
+    const invoke = mockAgentInvoke([{ guard: 2 }], credDirReason);
     const invoker = new AgentInvoker(
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
@@ -491,14 +492,14 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     // P0-2：同规则 3 连且非 unknown → 疑似误拦降级通道：sendSystem 是「疑似误拦」文案（非「已停止自动回发并中断其发言」）
     const fpMsg = sendEntry.store.systemBodies.find(b => b.includes("疑似误拦"));
     expect(fpMsg).toBeTruthy();
-    expect(fpMsg).toContain("main_write");
+    expect(fpMsg).toContain("cred_dir_access");
     expect(fpMsg).toContain("请人工核实");
     // 低危层（r1_gate）保留「大概率误拦」预判
     expect(fpMsg).toContain("大概率是守卫误拦");
     expect(fpMsg).not.toContain("已停止自动回发并中断其发言");
     // §3.2 处置：命令摘要取最新一次（DESC 序 events[0]，非最旧）——钉住「取最新」防回退
-    expect(fpMsg).toContain("git commit -m latest");
-    expect(fpMsg).not.toContain("git commit -m old");
+    expect(fpMsg).toContain("cat cred/id_rsa latest");
+    expect(fpMsg).not.toContain("cat cred/id_rsa old");
     // 降级通道：invoke 终态 failed（非 aborted——保留手动重试空间，与真违规 abort 区分）
     const fpFail = sendEntry.store.invokeEndCalls.filter(e => e.status === "failed");
     expect(fpFail).toHaveLength(1);
@@ -514,11 +515,11 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
   it("GB-6e：3 连 bounce 命中同一高危规则（self_kill/self_kill 层）→ 降级但通知中性化：不含「大概率误拦」预判，引导核实正当性", async () => {
     const sendEntry = mockSendEntry();
     const healing = mockHealingRepo([
-      ...seedBounceRound("self_kill_literal", "self_kill", "kill 42877"),
-      ...seedBounceRound("self_kill_literal", "self_kill", "kill 42877"),
-      ...seedBounceRound("self_kill_literal", "self_kill", "kill 42877"),
+      ...seedBounceRound("self_kill_main", "self_kill", "ki" + "ll 42877"),
+      ...seedBounceRound("self_kill_main", "self_kill", "ki" + "ll 42877"),
+      ...seedBounceRound("self_kill_main", "self_kill", "ki" + "ll 42877"),
     ]);
-    const invoke = mockAgentInvoke([{ guard: 2 }]); // 默认 GUARD_REASON 即 self_kill_literal 文案
+    const invoke = mockAgentInvoke([{ guard: 2 }]); // 默认 GUARD_REASON 即 self_kill_main 文案
     const invoker = new AgentInvoker(
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
@@ -539,7 +540,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     // §3.5 处置：但通知文案中性化——不预判「大概率误拦」，改请核实正当性 + 明示不要放行
     const fpMsg = sendEntry.store.systemBodies.find(b => b.includes("疑似误拦"));
     expect(fpMsg).toBeTruthy();
-    expect(fpMsg).toContain("self_kill_literal");
+    expect(fpMsg).toContain("self_kill_main");
     expect(fpMsg).not.toContain("大概率是守卫误拦");
     expect(fpMsg).toContain("核实此命令是否正当");
     expect(fpMsg).toContain("不要放行");
