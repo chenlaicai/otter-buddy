@@ -237,7 +237,7 @@ circuitBreaker:
 #   # 关闭时整个子系统下线（含 webhook 收消息，扩展端推送将收不到响应）
 #   recruiting: false
 
-# === bash 守卫（可选，F20261029gblkv guard-v4）===
+# === bash 守卫（可选，F20261030gblkv guard-v4）===
 # 协作域名表：B 类「数据外发」判定用——curl/wget 的 POST/PUT 目标域名在表内放行。
 # 后缀匹配（含子域）；缺省用内置表（github.com / api.github.com / registry.npmjs.org /
 # objects.githubusercontent.com / huawei-colink.com / localhost / 127.0.0.1 / ::1）；

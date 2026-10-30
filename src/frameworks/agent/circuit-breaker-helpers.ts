@@ -27,7 +27,7 @@ export interface AttachGuardsParams {
   logger: Logger;
   /** F20260821i336：编排守卫检查函数（可选） */
   orchestrationCheck?: (toolName: string, args?: unknown) => string | null;
-  /** F20261029gblkv（guard-v4）：原守卫传参族（projectRoot/sessionCwd/sandboxGuarded/
+  /** F20261030gblkv（guard-v4）：原守卫传参族（projectRoot/sessionCwd/sandboxGuarded/
    *  onGuardIntercept/guardGateActive）已退役——bash 守卫唯一执行点迁 tool_call 门
    *  （model-runtime-registry bashGuardGate 直读 store），本链不再涉守卫。 */
   /** F20261020hlbk（#1556）→ F20261027cbfp（#1653）：per-invoke 循环硬熔断标记（签名→理由）。

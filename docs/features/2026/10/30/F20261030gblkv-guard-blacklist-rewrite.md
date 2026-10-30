@@ -1,11 +1,11 @@
 ---
-id: F20261029gblkv
+id: F20261030gblkv
 title: bash 守卫终态重写：黑名单两层架构（guard-v4）
 summary: 按搭档 10/29 定调（"禁止白名单！只允许有黑名单！""按照这个来！"）整体重写 bash 守卫：第一站杀进程判定（运行时身份三查）+ 第二站黑名单三类（凭证路径/数据外发/下载即执行）；sandbox-exec 层、白名单写区、git 动态授权全部退役；healing 实测误拦固化为回放回归库；CI 增 macos job 补真机验证盲区。
 change_type: refactor
 capability_test: "n/a：守卫重写，验证=回放回归库全绿+CI macos job+对抗审视"
 created_in_conversation: 2deb62bf-1e41-464d-a794-0da4c75a5c03
-created_at: 2026-10-29
+created_at: 2026-10-30
 causal_links:
   - "#1694"
   - "#1695"
@@ -29,6 +29,10 @@ modules:
 ---
 
 # bash 守卫终态重写：黑名单两层架构（guard-v4）
+
+## 编号顺延（2026-10-30）
+
+原 F20261029gblkv（2026-10-29 建档），按 F20260914prdb「定稿时改名为合入当天日期」及搭档指令「特性编号的日期顺延到今日的」改为 F20261030gblkv；分支历史 commit 保留旧编号，双向可搜。
 
 ## 背景与决策链（搭档 2026-10-29 拍板）
 

@@ -1,10 +1,10 @@
 /**
- * Bash 命令安全守卫·终态（F20261029gblkv，guard-v4）。
+ * Bash 命令安全守卫·终态（F20261030gblkv，guard-v4）。
  *
  * 架构：黑名单两层流水线——第一站杀进程判定（9/16 原点，唯一硬目标），
  * 第二站黑名单三类（凭证路径/数据外发/下载即执行）。看不懂的放行（宁漏勿误）。
  *
- * 决策链（搭档 2026-10-29 拍板，原话锚定见 F20261029gblkv 特性文档）：
+ * 决策链（搭档 2026-10-29 拍板，原话锚定见 F20261030gblkv 特性文档）：
  * - 「禁止白名单！只允许有黑名单！」——白名单写区/git 动态授权/沙箱层全部退役
  * - 守卫原点=防獭杀主进程（9/16 事故 F20260916gtlr）；「守卫 git」是漂移出的伪目标
  * - sandbox-exec（Apple deprecated）整层退役；验证=回放回归库（真实使用为准）
@@ -42,7 +42,7 @@ export interface GuardOptions {
   sandboxGuarded?: boolean;
   /** 测试注入：进程查询桩（生产缺省真查 lsof/ps） */
   processProbe?: ProcessProbe;
-  /** F20261029gblkv：协作域名表（B 类外发判定）——config.yaml bashGuard.allowedEgressDomains
+  /** F20261030gblkv：协作域名表（B 类外发判定）——config.yaml bashGuard.allowedEgressDomains
    *  搭档专改（主仓文件走 PR，獭无权扩表防注入自放行）。缺省用内置缺省表（含 github/npm
    *  等协作域名）；显式空数组 = fail-closed（一切外发域名都拦）。 */
   allowedEgressDomains?: string[];
@@ -293,7 +293,7 @@ function credentialPathHit(command: string): boolean {
 }
 
 /** B 类：协作域名表（配置化）。
- *  语义（F20261029gblkv）：缺省用内置缺省表；显式空数组 = fail-closed（一切外发域名都拦）
+ *  语义（F20261030gblkv）：缺省用内置缺省表；显式空数组 = fail-closed（一切外发域名都拦）
  *  ——搭档将表清空即关闭全部合法外发通道，而非回退缺省。 */
 const DEFAULT_EGRESS_DOMAINS = ["github.com", "api.github.com", "registry.npmjs.org", "objects.githubusercontent.com", "huawei-colink.com", "localhost", "127.0.0.1", "::1"];
 

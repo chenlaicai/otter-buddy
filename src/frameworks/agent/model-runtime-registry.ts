@@ -313,13 +313,13 @@ export interface OtterInvokeContext {
    *  tool_call 门读到即物理阻断该工具后续调用（speak/yield 豁免）。粘滞不被穿插调用清零，
    *  堵死「speak 重置 steerStrikes」逃逸；随本 store（每 execute 新建）生灭，作用域=至回合结束。 */
   loopBlockedTools?: Map<string, string>;
-  /** F20261026gobs（M-2bf6e98c）→ F20261029gblkv（guard-v4）：bash 守卫门（tool_call 层显式落痕）
+  /** F20261026gobs（M-2bf6e98c）→ F20261030gblkv（guard-v4）：bash 守卫门（tool_call 层显式落痕）
    *  所需守卫参数。projectRoot/sessionCwd 由 _executeWithSession 注入（铸造点单一）。
    *  v4：无沙箱层无 abort 兜底链——本门是 bash 守卫唯一执行点；缺省时 fail-open
    *  （不拦，与守卫空窗过渡态同语义），因此 store 缺失 = 守卫不生效，而非误拦。 */
   guardProjectRoot?: string;
   guardSessionCwd?: string;
-  /** F20261029gblkv（guard-v4）：协作域名表（B 类外发判定）——config.yaml
+  /** F20261030gblkv（guard-v4）：协作域名表（B 类外发判定）——config.yaml
    *  bashGuard.allowedEgressDomains。搭档专改（主仓文件走 PR，獭无权扩表防注入自放行）；
    *  缺省时用守卫内置缺省表（见 bash-safety-guard）。 */
   guardAllowedEgressDomains?: string[];
@@ -416,14 +416,14 @@ export function loopBlockGuard(
 }
 
 /**
- * F20261029gblkv（guard-v4）：bash 守卫门（tool_call 层显式落痕，v4 重建）。
+ * F20261030gblkv（guard-v4）：bash 守卫门（tool_call 层显式落痕，v4 重建）。
  *
  * 前身 F20261026gobs（M-2bf6e98c）：守卫拦截原在 tool_execution_start（abort 链）——
  * abort 信号异步生效、与工具执行竞态，被拦命令可能已 spawn 并「静默 exit 0」（#1616
  * 实证）。v4 沿用 tool_call 门形态：被拦命令不执行，SDK 对 block 生成 isError tool
  * result（reason 正文）返回 LLM——显式落痕，模型看到「命令被拦截（未执行）+ 理由」。
  *
- * v4 变化（F20261029gblkv 终态）：
+ * v4 变化（F20261030gblkv 终态）：
  * - 判定=纯文本两层（第一站杀进程三查 + 第二站黑名单三类），无沙箱层、无 abort
  *   兜底链——本门是守卫唯一执行点；
  * - fail-open：store / guardProjectRoot 缺省时放行（镜像 halt/loop-block，不误伤

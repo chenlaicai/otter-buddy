@@ -1118,7 +1118,7 @@ export class PiSessionFactory implements AgentGateway {
     // attachGuards（abort 兜底链）同点求值，防门与 abort 判定分歧（R-2b）。
     const guardProjectRoot = getRepoRoot();
     const guardSessionCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
-    // F20261029gblkv（guard-v4）：B 类外发判定域名表（config.yaml bashGuard.allowedEgressDomains，
+    // F20261030gblkv（guard-v4）：B 类外发判定域名表（config.yaml bashGuard.allowedEgressDomains，
     // 搭档专改）。缺省 undefined → 守卫内置缺省表；显式空数组 = fail-closed。
     const guardAllowedEgressDomains = getConfig().bashGuard?.allowedEgressDomains;
     const guardOnIntercept = this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
@@ -1135,7 +1135,7 @@ export class PiSessionFactory implements AgentGateway {
         this.logger.debug('[execute] Using pooled session', { otterId, sessionKey });
 
         // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）+ 循环熔断拦截 healing（F20261020hlbk）。
-        //    F20261029gblkv（guard-v4）：bash 守卫已迁 tool_call 门（model-runtime-registry
+        //    F20261030gblkv（guard-v4）：bash 守卫已迁 tool_call 门（model-runtime-registry
         //    bashGuardGate 直读 store 的 guard* 参数），不再经本链传参。
         const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), loopBlockedTools });
 
