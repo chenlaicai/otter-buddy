@@ -119,13 +119,13 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
         {resource.type === 'pr' && unfurl?.source === 'github-api' && unfurl.state && (
           <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
             unfurl.state === 'MERGED' ? 'bg-lavender-400/20 text-lavender-500'
-            : unfurl.isDraft === true ? 'bg-amber-400/20 text-amber-600'
+            : unfurl.state === 'OPEN' && unfurl.isDraft === true ? 'bg-amber-400/20 text-amber-600'
             : unfurl.state === 'OPEN' ? 'bg-teal-400/20 text-teal-600'
             : unfurl.state === 'CLOSED' ? 'bg-stone-300/40 text-stone-500'
             : 'bg-amber-400/20 text-amber-600'
           }`}>
             {unfurl.state === 'MERGED' ? '已合并'
-              : unfurl.isDraft === true ? '草稿'
+              : unfurl.state === 'OPEN' && unfurl.isDraft === true ? '草稿'
               : unfurl.state === 'OPEN' ? '开放中'
               : unfurl.state === 'CLOSED' ? '已关闭'
               : '草稿'}

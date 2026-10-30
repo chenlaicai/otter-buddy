@@ -162,6 +162,46 @@ describe('产物卡混排（F20261008csf1）', () => {
     expect(container.textContent).toContain('修复空指针')
   })
 
+  it('#1463 PR 状态徽章：OPEN×isDraft=true 显「草稿」（琥珀）；isDraft=false 显「开放中」（检视 r1 建议 5-2）', () => {
+    renderTimeline(
+      [msg('m1', '2026-10-08T09:00:00Z')],
+      [
+        res('pd', 'pr', '2026-10-08T09:30:00Z', {
+          url: 'https://github.com/a/b/pull/9', title: 'draft PR',
+          unfurl: { source: 'github-api', title: null, description: null, error: null, state: 'OPEN', isDraft: true, additions: 1, deletions: 1 },
+        }),
+        res('pr', 'pr', '2026-10-08T09:40:00Z', {
+          url: 'https://github.com/a/b/pull/10', title: 'ready PR',
+          unfurl: { source: 'github-api', title: null, description: null, error: null, state: 'OPEN', isDraft: false, additions: 1, deletions: 1 },
+        }),
+      ],
+    )
+    const draftCard = container.querySelector('[data-artifact-id="pd"]')
+    const readyCard = container.querySelector('[data-artifact-id="pr"]')
+    expect(draftCard?.textContent).toContain('草稿')
+    expect(draftCard?.querySelector('.bg-amber-400\\/20')).not.toBeNull()
+    expect(readyCard?.textContent).toContain('开放中')
+    expect(readyCard?.textContent).not.toContain('草稿')
+    expect(readyCard?.querySelector('.bg-teal-400\\/20')).not.toBeNull()
+  })
+
+  it('#1463 交叉态：CLOSED×isDraft=true 显「已关闭」而非「草稿」（检视 r1 建议 4 契约）', () => {
+    renderTimeline(
+      [msg('m1', '2026-10-08T09:00:00Z')],
+      [
+        res('pc', 'pr', '2026-10-08T09:30:00Z', {
+          url: 'https://github.com/a/b/pull/11', title: 'closed draft PR',
+          unfurl: { source: 'github-api', title: null, description: null, error: null, state: 'CLOSED', isDraft: true, additions: 1, deletions: 1 },
+        }),
+      ],
+    )
+    const card = container.querySelector('[data-artifact-id="pc"]')
+    expect(card?.textContent).toContain('已关闭')
+    expect(card?.textContent).not.toContain('草稿')
+    expect(card?.querySelector('.bg-amber-400\\/20')).toBeNull()
+    expect(card?.querySelector('.bg-stone-300\\/40')).not.toBeNull()
+  })
+
   it('game 卡进入时间轴并可展开玩（F20261021gmbe 实景回归）', () => {
     renderTimeline(
       [msg('m1', '2026-10-08T09:00:00Z')],

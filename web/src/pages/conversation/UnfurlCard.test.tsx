@@ -126,8 +126,62 @@ describe('UnfurlCard 降级行为（F20261013csv3 三态）', () => {
     }
     expect(container.textContent).toContain('草稿')
     expect(container.textContent).not.toContain('开放中')
-    // 非 draft 的 open 仍显示「开放中」（同口径回归）
+    // 琥珀类名命中（草稿徽章专属色）
     expect(container.querySelector('.bg-amber-400\\/20')).not.toBeNull()
+  })
+
+  it('#1463 反向锁定：非 draft 的 open（isDraft=false）仍显示「开放中」，不误显草稿（检视 r1 建议 5-1）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      status: 'ok',
+      data: {
+        url: 'https://github.com/a/b/pull/10',
+        title: 'ready PR',
+        description: null,
+        image: null,
+        siteName: 'GitHub',
+        host: 'github.com',
+        source: 'github-api',
+        state: 'OPEN',
+        isDraft: false,
+        additions: 1, deletions: 1,
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    renderOne('https://github.com/a/b/pull/10')
+    for (let i = 0; i < 6; i++) {
+      await act(async () => { await Promise.resolve() })
+    }
+    expect(container.textContent).toContain('开放中')
+    expect(container.textContent).not.toContain('草稿')
+    // 绿徽章命中，琥珀不出
+    expect(container.querySelector('.bg-teal-400\\/20')).not.toBeNull()
+    expect(container.querySelector('.bg-amber-400\\/20')).toBeNull()
+  })
+
+  it('#1463 交叉态：CLOSED×isDraft=true 显示「已关闭」而非「草稿」（检视 r1 建议 4 契约）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      status: 'ok',
+      data: {
+        url: 'https://github.com/a/b/pull/11',
+        title: 'closed draft PR',
+        description: null,
+        image: null,
+        siteName: 'GitHub',
+        host: 'github.com',
+        source: 'github-api',
+        state: 'CLOSED',
+        isDraft: true,
+        additions: 1, deletions: 1,
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    renderOne('https://github.com/a/b/pull/11')
+    for (let i = 0; i < 6; i++) {
+      await act(async () => { await Promise.resolve() })
+    }
+    expect(container.textContent).toContain('已关闭')
+    expect(container.textContent).not.toContain('草稿')
+    // 灰徽章命中，琥珀不出（isDraft 不得越过 state 判定）
+    expect(container.querySelector('.bg-stone-300\\/40')).not.toBeNull()
+    expect(container.querySelector('.bg-amber-400\\/20')).toBeNull()
   })
 
   it('pending 态渲染骨架卡（aria-busy）', async () => {

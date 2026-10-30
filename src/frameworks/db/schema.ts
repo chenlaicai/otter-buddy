@@ -367,6 +367,15 @@ function createUnfurlCacheTable(db: Database.Database): void {
       fetched_at TEXT NOT NULL
     );
   `);
+
+  // #1463（F20261030draft）：unfurl_cache 存量库迁移——is_draft 列（DRAFT 徽章数据源）。
+  // 幂等同 introduced_by_pr 模式；每列独立 try/catch（r1-A2 教训）。
+  // 放本建表函数尾部（各表迁移归自己建表函数——healing 三列迁移同款惯例，检视 r1 建议 3）
+  try {
+    db.exec(`ALTER TABLE unfurl_cache ADD COLUMN is_draft INTEGER`);
+  } catch {
+    // 列已存在，忽略
+  }
 }
 
 /** 对话关键资源：linked_resources（统一产物模型，fact 为文本类事实子类型） */
@@ -723,14 +732,6 @@ function createHealingEventTables(db: Database.Database): void {
   // 与修复合入后按 issue 收尾（bound_issue = N）都是高频路径，无索引全表扫。
   // 必须放在补列之后：索引在建表块内时存量库（IF NOT EXISTS no-op、列尚不存在）启动即炸
   db.exec(`CREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue)`);
-
-  // #1463（F20261030draft）：unfurl_cache 存量库迁移——is_draft 列（DRAFT 徽章数据源）。
-  // 幂等同 introduced_by_pr 模式；每列独立 try/catch（r1-A2 教训）
-  try {
-    db.exec(`ALTER TABLE unfurl_cache ADD COLUMN is_draft INTEGER`);
-  } catch {
-    // 列已存在，忽略
-  }
 }
 
 /** Web 用户已读状态（消息级，与 otter 的 last_read_seq 独立）。

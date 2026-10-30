@@ -64,7 +64,12 @@ const allowDdlFiles = [];
 // tests/scripts/cleanup-embedding-ghosts.test.ts——被测对象是 embedding_tasks
 // 表的队列 SQL 语义（enqueueRetry 前置校验 / 幽灵死信 purge/count / 清理脚本
 // dry-run/--apply），与 cleanup-memory-pollution.test.ts 同类场景（脚本对象就是表本身）
-const MAX_ALLOW_DDL_FILES = 13;
+// 13→14（F20261030draft）：tests/frameworks/db/unfurl-draft-migration.test.ts——
+// #1463 存量库补列迁移专项测试（检视 r1 建议 5-4）：需 DROP COLUMN 还原 #1463 前
+// unfurl_cache 旧形态（无 is_draft）验证 initSchema ALTER 补列幂等 + 老数据读 null，
+// 被测对象就是「旧 schema → 新 schema」补列迁移本身（migration-equivalence.guard
+// 只做表级等价不覆盖补列路径），与 otter-color-migration.test.ts 同类场景（ALTER 还原旧形态）
+const MAX_ALLOW_DDL_FILES = 14;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);

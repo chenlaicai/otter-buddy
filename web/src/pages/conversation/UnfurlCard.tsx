@@ -236,14 +236,15 @@ export function UnfurlCard({ url }: { url: string }) {
             {d.state && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
                 d.state === 'merged' || d.state === 'MERGED' ? 'bg-lavender-400/20 text-lavender-500'
-                : d.isDraft === true ? 'bg-amber-400/20 text-amber-600'
+                : (d.state === 'open' || d.state === 'OPEN') && d.isDraft === true ? 'bg-amber-400/20 text-amber-600'
                 : d.state === 'open' || d.state === 'OPEN' ? 'bg-teal-400/20 text-teal-600'
                 : 'bg-stone-300/40 text-stone-500'
               }`}>
                 {d.state === 'merged' || d.state === 'MERGED' ? '已合并'
-                  : d.isDraft === true ? '草稿'
+                  : (d.state === 'open' || d.state === 'OPEN') && d.isDraft === true ? '草稿'
                   : d.state === 'open' || d.state === 'OPEN' ? '开放中'
                   : d.state === 'draft' ? '草稿'
+                  : d.state === 'closed' || d.state === 'CLOSED' ? '已关闭'
                   : d.state}
               </span>
             )}
