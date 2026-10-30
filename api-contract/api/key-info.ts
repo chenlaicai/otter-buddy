@@ -42,6 +42,8 @@ export interface LinkedResourceDTO {
     description: string | null;
     error: string | null;
     state: string | null;
+    /** #1463：draft 子态（state='OPEN' 且 isDraft → 前端徽章「草稿」） */
+    isDraft?: boolean | null;
     additions: number | null;
     deletions: number | null;
   } | null;

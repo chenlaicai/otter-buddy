@@ -104,6 +104,32 @@ describe('UnfurlCard 降级行为（F20261013csv3 三态）', () => {
     expect(container.textContent).toContain('示例站 · example.com')
   })
 
+  it('#1463 draft 徽章：state=OPEN 且 isDraft=true 时显示「草稿」（琥珀）而非「开放中」', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      status: 'ok',
+      data: {
+        url: 'https://github.com/a/b/pull/9',
+        title: 'draft PR',
+        description: null,
+        image: null,
+        siteName: 'GitHub',
+        host: 'github.com',
+        source: 'github-api',
+        state: 'OPEN',
+        isDraft: true,
+        additions: 1, deletions: 1,
+      },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    renderOne('https://github.com/a/b/pull/9')
+    for (let i = 0; i < 6; i++) {
+      await act(async () => { await Promise.resolve() })
+    }
+    expect(container.textContent).toContain('草稿')
+    expect(container.textContent).not.toContain('开放中')
+    // 非 draft 的 open 仍显示「开放中」（同口径回归）
+    expect(container.querySelector('.bg-amber-400\\/20')).not.toBeNull()
+  })
+
   it('pending 态渲染骨架卡（aria-busy）', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       status: 'pending', url: 'https://example.com/pending-only',

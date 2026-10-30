@@ -28,6 +28,8 @@ export interface UnfurlData {
   host: string
   /** F20261013csv3：github-api 记录的 PR/issue 状态（open/merged/closed）——状态徽章 */
   state?: string | null
+  /** #1463：draft 子态（state='OPEN' 且 isDraft → 徽章「草稿」琥珀色） */
+  isDraft?: boolean | null
   /** F20261013csv3：github-api PR 记录的 diff stat（+additions/−deletions） */
   additions?: number | null
   deletions?: number | null
@@ -230,14 +232,16 @@ export function UnfurlCard({ url }: { url: string }) {
         <span className="min-w-0">
           <span className="flex items-center gap-1.5 flex-wrap">
             <span className="block text-sm font-medium text-stone-700 leading-snug break-words">{displayTitle}</span>
-            {/* github-api 状态徽章：merged=紫 / open=绿 / closed=灰 / draft=琥珀 */}
+            {/* github-api 状态徽章：merged=紫 / open=绿 / closed=灰 / draft=琥珀（#1463：isDraft 子态判定） */}
             {d.state && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
                 d.state === 'merged' || d.state === 'MERGED' ? 'bg-lavender-400/20 text-lavender-500'
+                : d.isDraft === true ? 'bg-amber-400/20 text-amber-600'
                 : d.state === 'open' || d.state === 'OPEN' ? 'bg-teal-400/20 text-teal-600'
                 : 'bg-stone-300/40 text-stone-500'
               }`}>
                 {d.state === 'merged' || d.state === 'MERGED' ? '已合并'
+                  : d.isDraft === true ? '草稿'
                   : d.state === 'open' || d.state === 'OPEN' ? '开放中'
                   : d.state === 'draft' ? '草稿'
                   : d.state}

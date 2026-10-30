@@ -360,6 +360,7 @@ function createUnfurlCacheTable(db: Database.Database): void {
       host TEXT NOT NULL,
       source TEXT NOT NULL DEFAULT 'og',
       state TEXT,
+      is_draft INTEGER,
       additions INTEGER,
       deletions INTEGER,
       error TEXT,
@@ -722,6 +723,14 @@ function createHealingEventTables(db: Database.Database): void {
   // 与修复合入后按 issue 收尾（bound_issue = N）都是高频路径，无索引全表扫。
   // 必须放在补列之后：索引在建表块内时存量库（IF NOT EXISTS no-op、列尚不存在）启动即炸
   db.exec(`CREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue)`);
+
+  // #1463（F20261030draft）：unfurl_cache 存量库迁移——is_draft 列（DRAFT 徽章数据源）。
+  // 幂等同 introduced_by_pr 模式；每列独立 try/catch（r1-A2 教训）
+  try {
+    db.exec(`ALTER TABLE unfurl_cache ADD COLUMN is_draft INTEGER`);
+  } catch {
+    // 列已存在，忽略
+  }
 }
 
 /** Web 用户已读状态（消息级，与 otter 的 last_read_seq 独立）。
