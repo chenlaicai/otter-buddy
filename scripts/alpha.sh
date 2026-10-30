@@ -364,6 +364,19 @@ cmd_start() {
     (cd "$wt_root" && npm run build) >&2
   fi
 
+  # 前端构建（#1601）：alpha 实例 serve 的是 worktree/web/dist（app.ts 以
+  # import.meta.dirname 相对解析），而后端 build 不产前端——不补则 alpha 静默
+  # serve 旧/缺失的 web/dist，表现为「改了前端不生效、无报错」的隐蔽失效。
+  # 与后端同语义：非 --quick 全量构建；--quick 时 web/dist 缺失才兜底。
+  if [ "$quick" = true ]; then
+    if [ ! -d "$wt_root/web/dist" ]; then
+      echo "--quick specified but web/dist not found; running web build anyway ..." >&2
+      (cd "$wt_root/web" && npm run build) >&2 || die "web build failed (deps installed? cd web && npm install). Refusing to start alpha with missing frontend."
+    fi
+  else
+    (cd "$wt_root/web" && npm run build) >&2 || die "web build failed (deps installed? cd web && npm install). Refusing to start alpha with stale frontend."
+  fi
+
   # config 副本（三字段改写 + 通道段剥离）
   local main_root
   main_root="$(main_repo_root)"
