@@ -194,17 +194,9 @@ export interface LocalLinkedResource {
   /** F20261008csf1 P1：登记时间——中间栏产物卡按时间轴混排的定位依据 */
   createdAt?: string
   /** F20261013csv3 T2：unfurl join 投影（PR 卡 diff stat + 状态徽章数据源；
-   *  null = 未抓取/落空） */
-  unfurl?: {
-    source: 'og' | 'github-api' | 'failed'
-    title: string | null
-    description: string | null
-    error: string | null
-    /** PR/issue 状态（open/merged/closed/draft）——与 UnfurlCard 徽章同口径 */
-    state: string | null
-    additions: number | null
-    deletions: number | null
-  } | null
+   *  null = 未抓取/落空）。F20261030draft（检视 r1 严重 1）：形状从 api-contract
+   *  派生而非内联——本次内联拷贝漏改 isDraft 致 tsc 断链，单一真相源根治再发。 */
+  unfurl?: LinkedResourceDTO['unfurl']
 }
 
 /** 前端本地 OtterSession 类型 */

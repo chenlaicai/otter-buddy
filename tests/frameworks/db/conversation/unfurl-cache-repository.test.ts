@@ -47,6 +47,24 @@ describe("unfurl_cache 读写", () => {
     expect(got.row).toMatchObject({ state: "merged", additions: 42, deletions: 7 });
   });
 
+  it("#1463 isDraft 存取：true/false/null 三态 round-trip + upsert 覆盖", () => {
+    const put = (url: string, isDraft: boolean | null | undefined) =>
+      repo.put({
+        url, title: "PR", description: null, image: null,
+        siteName: "GitHub", host: "github.com", source: "github-api",
+        state: "OPEN", isDraft, additions: null, deletions: null, error: null, fetchedAt: unfurlNowIso(),
+      });
+    put("https://github.com/a/b/pull/2", true);
+    put("https://github.com/a/b/pull/3", false);
+    put("https://github.com/a/b/pull/4", null);
+    expect(repo.get("https://github.com/a/b/pull/2").row?.isDraft).toBe(true);
+    expect(repo.get("https://github.com/a/b/pull/3").row?.isDraft).toBe(false);
+    expect(repo.get("https://github.com/a/b/pull/4").row?.isDraft).toBe(null);
+    // upsert 覆盖：draft → 非 draft（PR ready for review）
+    put("https://github.com/a/b/pull/2", false);
+    expect(repo.get("https://github.com/a/b/pull/2").row?.isDraft).toBe(false);
+  });
+
   it("upsert：同 URL 重复 put 覆盖旧值", () => {
     const url = "https://example.com/x";
     repo.put({ url, title: "旧", description: null, image: null, siteName: null, host: "example.com", source: "og", state: null, additions: null, deletions: null, error: null, fetchedAt: unfurlNowIso() });
