@@ -28,6 +28,9 @@ export interface UnfurlCacheRow {
   source: "og" | "github-api" | "failed";
   /** github-api 记录：PR/issue 状态（open/merged/closed/draft）——T2 状态徽章数据源 */
   state: string | null;
+  /** #1463：draft 子态标记（gh isDraft）——state='OPEN' 且 isDraft 时徽章显示「草稿」；
+   *  其余来源为 null */
+  isDraft?: boolean | null;
   /** github-api PR 记录：diff stat（T2 产物卡数据源）；其余来源为 null */
   additions: number | null;
   deletions: number | null;
@@ -102,8 +105,8 @@ export class SqliteUnfurlCacheRepository {
   put(row: UnfurlCacheRow): void {
     this.db
       .prepare(`
-        INSERT INTO unfurl_cache (url, title, description, image, site_name, host, source, state, additions, deletions, error, fetched_at)
-        VALUES (@url, @title, @description, @image, @siteName, @host, @source, @state, @additions, @deletions, @error, @fetchedAt)
+        INSERT INTO unfurl_cache (url, title, description, image, site_name, host, source, state, is_draft, additions, deletions, error, fetched_at)
+        VALUES (@url, @title, @description, @image, @siteName, @host, @source, @state, @isDraft, @additions, @deletions, @error, @fetchedAt)
         ON CONFLICT(url) DO UPDATE SET
           title = excluded.title,
           description = excluded.description,
@@ -112,6 +115,7 @@ export class SqliteUnfurlCacheRepository {
           host = excluded.host,
           source = excluded.source,
           state = excluded.state,
+          is_draft = excluded.is_draft,
           additions = excluded.additions,
           deletions = excluded.deletions,
           error = excluded.error,
@@ -126,6 +130,7 @@ export class SqliteUnfurlCacheRepository {
         host: row.host,
         source: row.source,
         state: row.state,
+        isDraft: fromBool3(row.isDraft),
         additions: row.additions,
         deletions: row.deletions,
         error: row.error,
@@ -155,11 +160,22 @@ function rowToCacheRow(row: Record<string, unknown>): UnfurlCacheRow {
     host: String(row.host),
     source: source === "github-api" || source === "failed" ? source : "og",
     state: (row.state as string | null) ?? null,
+    isDraft: toBool3(row.is_draft),
     additions: (row.additions as number | null) ?? null,
     deletions: (row.deletions as number | null) ?? null,
     error: (row.error as string | null) ?? null,
     fetchedAt: String(row.fetched_at),
   };
+}
+
+/** #1463：is_draft 三态转换（1/0/NULL ↔ true/false/null）——独立小函数避免
+ *  rowToCacheRow/put 的圈复杂度超限（复杂度预算：12） */
+function toBool3(v: unknown): boolean | null {
+  return v === 1 ? true : v === 0 ? false : null;
+}
+
+function fromBool3(v: boolean | null | undefined): number | null {
+  return v === true ? 1 : v === false ? 0 : null;
 }
 
 /** 供测试/调用方构造标准时间戳（应用层 ISO 8601，单点口径） */

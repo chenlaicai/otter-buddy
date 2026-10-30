@@ -104,6 +104,8 @@ export interface UnfurlResult {
   source: "og" | "github-api";
   /** github-api 记录的 PR/issue 状态（open/merged/closed）——前端状态徽章数据源 */
   state?: string | null;
+  /** #1463：draft 子态（gh isDraft）——state='OPEN' 且 isDraft 时徽章显示「草稿」 */
+  isDraft?: boolean | null;
   /** github-api 记录的 PR diff stat（T2 产物卡 join 投影数据源） */
   additions?: number | null;
   deletions?: number | null;
@@ -219,6 +221,7 @@ export class UnfurlController {
           host: "github.com",
           source: "github-api",
           state: meta.state,
+          isDraft: meta.isDraft === true,
           additions: meta.additions,
           deletions: meta.deletions,
           error: null,
@@ -228,7 +231,8 @@ export class UnfurlController {
         const data: UnfurlResult = {
           url, title: meta.title, description: meta.description, image: null,
           siteName: "GitHub", host: "github.com", source: "github-api",
-          state: meta.state, additions: meta.additions, deletions: meta.deletions,
+          state: meta.state, isDraft: meta.isDraft === true,
+          additions: meta.additions, deletions: meta.deletions,
         };
         return { status: "ok", data };
       }
@@ -252,6 +256,7 @@ export class UnfurlController {
         host: payload.host,
         source: "og",
         state: null,
+        isDraft: null,
         additions: null,
         deletions: null,
         error: null,
@@ -275,6 +280,7 @@ export class UnfurlController {
       host,
       source: "failed",
       state: null,
+      isDraft: null,
       additions: null,
       deletions: null,
       error: error.slice(0, 200),
@@ -297,6 +303,7 @@ export class UnfurlController {
       host: row.host,
       source: row.source,
       state: row.state,
+      isDraft: row.isDraft ?? null,
       additions: row.additions,
       deletions: row.deletions,
     };
