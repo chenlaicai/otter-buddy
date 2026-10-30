@@ -43,7 +43,15 @@ function walk(dir) {
 // F20261005imfg: prompt 纳入必填（issue #839 拍板方案 1：change_type=feature/prompt 但无
 // intent 块 → error）。prompt 是软代码主力 change_type，缺 intent 时的静默通过是最宽绕过面。
 const INTENT_REQUIRED_CHANGE_TYPES = new Set(["feature", "prompt"]);
-const INTENT_RECOMMENDED_CHANGE_TYPES = new Set(["bugfix", "refactor"]);
+// F20261030ctalg（#1295）：RECOMMENDED 与 known-values.ts 真相源对齐（fix/feature-update
+// 此前不在任何集合，缺块完全静默）；bugfix/feature_update 历史拼写经 LEGACY_CHANGE_TYPE_ALIAS
+// 归一到规范值分类（文案保留原拼写）；tests（test-only 文档）不需要 intent 声明，不分类。
+const INTENT_RECOMMENDED_CHANGE_TYPES = new Set(["fix", "refactor", "feature-update"]);
+/** 历史拼写 → 规范值（分类用规范值，消息用原拼写，作者对照不迷路） */
+const LEGACY_CHANGE_TYPE_ALIAS = new Map([
+  ["bugfix", "fix"],
+  ["feature_update", "feature-update"],
+]);
 // F20261005imfg: change_type 缺失时视同最严类 feature（L0 定夺，理由见特性文档 F20261005imfg）：
 // lint:docs 对 change_type 缺失零检查正是 #839 暴露的缺口本身，若缺失仍静默则灰色窗口不闭环。
 const FALLBACK_CHANGE_TYPE = "feature";
@@ -91,10 +99,16 @@ function isSoftCodeChange(fm) {
 // 可伪造性：lint 不防（回填旧日期可降回 warning），由检视獭按 git 首提交时间对照打回（PR 核对点④）。
 const SOFT_CODE_ENFORCE_DATE = "2026-09-17";
 
-/** 时间界判定：文档 created_at ≥ 收口日期（created_at 缺失按存量处理，不追诉） */
+/** 时间界判定：文档 created_at ≥ 收口日期（created_at 缺失/不可解析按存量处理，不追诉）。
+ *  F20261030ctalg（#1295）：无前导零日期（如 2026-9-1）字符串比较会误判为新（'9'>'0'），
+ *  先归一化零填充再比；非 `\d{4}-\d{1,2}-\d{1,2}` 前缀的不可解析格式按存量宽容（
+ *  收口语义只追诉可证实的新文档，格式错误归 lint:docs 诊断）。 */
 function isNewEnough(fm) {
   if (typeof fm.created_at !== "string") return false;
-  return fm.created_at >= SOFT_CODE_ENFORCE_DATE;
+  const m = fm.created_at.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!m) return false;
+  const normalized = `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  return normalized >= SOFT_CODE_ENFORCE_DATE;
 }
 
 /**
@@ -198,6 +212,9 @@ function validateIntent(fm, exemptKey) {
   const effectiveChangeType = isStringChangeType
     ? fm.change_type
     : FALLBACK_CHANGE_TYPE;
+  // F20261030ctalg（#1295）：分类判定用归一化值（历史拼写 → 规范值），文案用 effectiveChangeType 原拼写
+  const canonicalChangeType =
+    LEGACY_CHANGE_TYPE_ALIAS.get(effectiveChangeType) ?? effectiveChangeType;
   // 非字符串（undefined/null/''/数组/数字/布尔）统一按「缺失」出文案
   const changeTypeMissing = !isStringChangeType;
 
@@ -214,7 +231,7 @@ function validateIntent(fm, exemptKey) {
     // 根据 change_type 决定是错误还是警告（F20261005imfg: 缺 intent 块收口）
     // 审视处置（严重 2）：effectiveChangeType 已把 undefined/null/'' 全部归入 feature（必填），
     // 此处不再需要 `|| changeType === undefined` 旁支——空值形态与键缺失同口径拦截
-    if (INTENT_REQUIRED_CHANGE_TYPES.has(effectiveChangeType)) {
+    if (INTENT_REQUIRED_CHANGE_TYPES.has(canonicalChangeType)) {
       if (isExempt) {
         // 存量豁免：冻结清单内的文档不阻断，但保留可观测提示（ratchet 地板，只减不增）
         warnings.push(
@@ -234,7 +251,7 @@ function validateIntent(fm, exemptKey) {
       errors.push(
         `Missing intent block for soft-code change (modules 含 prompts/ 或 .pi/, created_at ≥ ${SOFT_CODE_ENFORCE_DATE})——请在 frontmatter 补 intent 块（problem/expected_effect/verify_by）（#1238）`,
       );
-    } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(effectiveChangeType)) {
+    } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(canonicalChangeType)) {
       warnings.push(`Recommended intent field for ${effectiveChangeType}`);
     }
     return { errors, warnings };
@@ -245,13 +262,13 @@ function validateIntent(fm, exemptKey) {
   // 检查 problem 字段（F20261005imfg: effectiveChangeType 统一口径，change_type 缺失按 feature 判必填；
   // 存量豁免同口径降级：2026-09-15 goal/why 自创 schema 的 5 篇在此分支触发，冻结豁免）
   if (!intent.problem || typeof intent.problem !== "string") {
-    if (INTENT_REQUIRED_CHANGE_TYPES.has(effectiveChangeType)) {
+    if (INTENT_REQUIRED_CHANGE_TYPES.has(canonicalChangeType)) {
       if (isExempt) {
         warnings.push("Missing intent.problem field（存量豁免 #839，补齐后请从 scripts/intent-exempt-list.txt 移除）");
       } else {
         errors.push("Missing intent.problem field");
       }
-    } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(effectiveChangeType)) {
+    } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(canonicalChangeType)) {
       warnings.push(`Recommended intent.problem field for ${effectiveChangeType}`);
     }
   } else {
@@ -263,7 +280,7 @@ function validateIntent(fm, exemptKey) {
 
   // 检查 expected_effect 字段（feature 必填，bugfix/refactor 推荐；存量豁免同口径降级）
   if (!intent.expected_effect || typeof intent.expected_effect !== "string") {
-    if (INTENT_REQUIRED_CHANGE_TYPES.has(effectiveChangeType)) {
+    if (INTENT_REQUIRED_CHANGE_TYPES.has(canonicalChangeType)) {
       if (isExempt) {
         warnings.push("Missing intent.expected_effect field（存量豁免 #839，补齐后请从 scripts/intent-exempt-list.txt 移除）");
       } else {
@@ -303,7 +320,7 @@ function validateIntent(fm, exemptKey) {
     // F20260824ax376 存量宽容：2026-09-17 之前的文档统一 warning 不阻断。
     // F20260917sdpl 收口：created_at ≥ ENFORCE_DATE 的新软代码文档缺 verify_by → error
     // （时间界增量收口：新规则管新文档，不追诉存量）。
-    const changeType = effectiveChangeType;
+    const changeType = canonicalChangeType;
     if (isSoftCodeChange(fm)) {
       if (isNewEnough(fm)) {
         errors.push(
