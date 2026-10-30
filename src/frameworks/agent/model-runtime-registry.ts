@@ -24,6 +24,7 @@ import { externalizeHistoricalToolResults } from "./toolresult-externalizer";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { buildHaltBlockReason } from "@usecases/signal/halt-block-reason";
 import { buildToolSignature } from "./tool-call-circuit-breaker";
+import { checkBashCommandSafety, readMainProcessPid, stripSleepMarkerIfPresent, guardGateCovers } from "./bash-safety-guard";
 
 /** pi-coding-agent 模块类型（动态加载） */
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -115,7 +116,8 @@ export class ModelRuntimeRegistry {
               // 读不到 store 时放行，见 haltToolCallGuard 注释）。
               pi.on("tool_call", (event: { toolName?: string; input?: unknown }) => {
                 return haltToolCallGuard(otterInvokeStorage.getStore(), haltRegistry, event.toolName)
-                  ?? loopBlockGuard(otterInvokeStorage.getStore(), event.toolName, event.input);
+                  ?? loopBlockGuard(otterInvokeStorage.getStore(), event.toolName, event.input)
+                  ?? bashGuardGate(otterInvokeStorage.getStore(), event.toolName, event.input);
               });
               // S1（R20260810piab）：otter system prompt 注入 system role。
               // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
@@ -311,17 +313,18 @@ export interface OtterInvokeContext {
    *  tool_call 门读到即物理阻断该工具后续调用（speak/yield 豁免）。粘滞不被穿插调用清零，
    *  堵死「speak 重置 steerStrikes」逃逸；随本 store（每 execute 新建）生灭，作用域=至回合结束。 */
   loopBlockedTools?: Map<string, string>;
-  /** F20261026gobs（M-2bf6e98c）：bash 守卫门（tool_call 层显式落痕）所需守卫参数。
-   *  与 abortOnUnsafeBash 同源（projectRoot/sessionCwd 由 _executeWithSession 注入），
-   *  保证门与 abort 判定不分歧（R-2b 同点求值）。缺省时门 fail-open（不拦），
-   *  守卫退化到 abortOnUnsafeBash 兑底链（降级不降安全）。 */
+  /** F20261026gobs（M-2bf6e98c）→ F20261029gblkv（guard-v4）：bash 守卫门（tool_call 层显式落痕）
+   *  所需守卫参数。projectRoot/sessionCwd 由 _executeWithSession 注入（铸造点单一）。
+   *  v4：无沙箱层无 abort 兜底链——本门是 bash 守卫唯一执行点；缺省时 fail-open
+   *  （不拦，与守卫空窗过渡态同语义），因此 store 缺失 = 守卫不生效，而非误拦。 */
   guardProjectRoot?: string;
   guardSessionCwd?: string;
-  /** F20261026gobs delta-r1（检视獭1646 S2）：沙箱接防标志——门与 abortOnUnsafeBash 同参
-   *  透传（sandboxGuarded=true 时 main_write 族按设计退役），防沙箱会话判定分歧。 */
-  guardSandboxed?: boolean;
-  /** F20261026gobs delta-r1：拦截落 healing 钩子（与 abort 兑底链同一钩子）——门接管
-   *  判定后观测面（guard_intercept healing 事件）不丢。 */
+  /** F20261029gblkv（guard-v4）：协作域名表（B 类外发判定）——config.yaml
+   *  bashGuard.allowedEgressDomains。搭档专改（主仓文件走 PR，獭无权扩表防注入自放行）；
+   *  缺省时用守卫内置缺省表（见 bash-safety-guard）。 */
+  guardAllowedEgressDomains?: string[];
+  /** F20261026gobs delta-r1：拦截落 healing 钩子——门拦截时上报（写 guard_intercept
+   *  healing 事件），守卫行为以真实使用为准（回放库语料来源）。缺省时拦截照常。 */
   guardOnIntercept?: (input: { command: string; reason: string }) => void;
   /** F20261027lbos（#1656）：循环硬熔断门拦截落 healing 钩子——门拦截时上报
    *  （签名+工具名+拉黑理由），写 healing loop_tool_block 事件；同签名去重防淹漫。
@@ -409,5 +412,47 @@ export function loopBlockGuard(
   return {
     block: true,
     reason: `「循环硬熔断」${toolName} 因重复调用触发循环熔断，本回合内已禁用（物理截断，${reason}）。请勿再调用 ${toolName}；如需继续请换用其他工具，或用 speak 汇报当前状态后调用 yield 交棒。`,
+  };
+}
+
+/**
+ * F20261029gblkv（guard-v4）：bash 守卫门（tool_call 层显式落痕，v4 重建）。
+ *
+ * 前身 F20261026gobs（M-2bf6e98c）：守卫拦截原在 tool_execution_start（abort 链）——
+ * abort 信号异步生效、与工具执行竞态，被拦命令可能已 spawn 并「静默 exit 0」（#1616
+ * 实证）。v4 沿用 tool_call 门形态：被拦命令不执行，SDK 对 block 生成 isError tool
+ * result（reason 正文）返回 LLM——显式落痕，模型看到「命令被拦截（未执行）+ 理由」。
+ *
+ * v4 变化（F20261029gblkv 终态）：
+ * - 判定=纯文本两层（第一站杀进程三查 + 第二站黑名单三类），无沙箱层、无 abort
+ *   兜底链——本门是守卫唯一执行点；
+ * - fail-open：store / guardProjectRoot 缺省时放行（镜像 halt/loop-block，不误伤
+ *   正常工具流；缺省=守卫不生效，同 #1702 过渡态语义）；
+ * - 拦截落 healing（guard_intercept 事件）——守卫行为以真实使用为准，误拦语料
+ *   经回放库（tests/guard/replay/）固化为「必须放行」回归用例。
+ */
+export function bashGuardGate(
+  store: OtterInvokeContext | undefined,
+  toolName?: string,
+  input?: unknown,
+): { block: true; reason: string } | undefined {
+  const projectRoot = store?.guardProjectRoot;
+  if (!projectRoot) return undefined; // fail-open：守卫参数缺省时不拦（v4 无兜底链，缺省=空窗）
+  if (!guardGateCovers(toolName, input)) return undefined;
+  const args = (input ?? {}) as Record<string, unknown>;
+  const command = args.command as string;
+  const mainPid = readMainProcessPid(projectRoot);
+  const rawBlock = checkBashCommandSafety(command, mainPid, undefined, {
+    projectRoot,
+    sessionCwd: store?.guardSessionCwd,
+    allowedEgressDomains: store?.guardAllowedEgressDomains,
+  });
+  if (!rawBlock) return undefined;
+  const block = stripSleepMarkerIfPresent(rawBlock);
+  // 拦截落 healing——守卫行为以真实使用为准（回放库语料来源）
+  store?.guardOnIntercept?.({ command, reason: block });
+  return {
+    block: true,
+    reason: `此命令被安全守卫拦截（命令未执行）：${block}`,
   };
 }

@@ -1118,6 +1118,9 @@ export class PiSessionFactory implements AgentGateway {
     // attachGuards（abort 兜底链）同点求值，防门与 abort 判定分歧（R-2b）。
     const guardProjectRoot = getRepoRoot();
     const guardSessionCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
+    // F20261029gblkv（guard-v4）：B 类外发判定域名表（config.yaml bashGuard.allowedEgressDomains，
+    // 搭档专改）。缺省 undefined → 守卫内置缺省表；显式空数组 = fail-closed。
+    const guardAllowedEgressDomains = getConfig().bashGuard?.allowedEgressDomains;
     const guardOnIntercept = this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     // F20261027lbos（#1656）：循环硬熔断门拦截落 healing（loop_tool_block）——b2 残余
     // 误伤面（#1653 D1-1）的唯一观测源。与 guardOnIntercept 同模式：fire-and-forget，
@@ -1125,7 +1128,7 @@ export class PiSessionFactory implements AgentGateway {
     const loopBlockOnIntercept = this.buildLoopBlockInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     return await otterInvokeStorage.run(
       // F20260826mwrd C1：otterId 进 store——tool_call handler 查 halt 标用
-      { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardOnIntercept },
+      { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardAllowedEgressDomains, guardOnIntercept },
       // eslint-disable-next-line max-statements, complexity -- F20260908rlcp: pool hit/miss 两条路径 + startup cursor push；F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
       async () => {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）
