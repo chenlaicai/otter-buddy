@@ -204,6 +204,24 @@ function literalPidTargetsMain(pid: number, mainPid: number | null, probe: Proce
   return id.ppid === mainPid; // 三查：直接父进程是主进程（直系 worker，杀它连带主进程）
 }
 
+/** S2（检视初轮）：广播/进程组 kill 目标——kill -1 / kill -9 -1 / kill -- -<PGID>。
+ *  kill(2) 语义：pid<-1=进程组、pid=-1=广播（全部用户进程，必含主进程）——无法静态
+ *  排除主进程，保守拦（P0 面优先于宁漏勿误；主进程 PID 可经 ps 获知故同拦）。 */
+const BROADCAST_KILL_BLOCK_MSG = "kill 目标为广播/进程组（-1 或 -- -PGID）——无法静态排除主进程，保守拦截。请用字面量 PID kill（非主进程放行）。";
+
+function broadcastKillTargetHit(segment: string): boolean {
+  // 剥掉命令名与信号参数后，看目标位置是否 -1 或 -- -N 形态
+  const afterCmd = segment.replace(/^.*?\b(?:kill|skill)\b\s*/, "");
+  const args = afterCmd.split(/\s+/).filter(Boolean);
+  // 显式 -- 分隔后的首个参数是目标（kill -- -123）
+  const ddIdx = args.indexOf("--");
+  if (ddIdx >= 0 && args.slice(ddIdx + 1).some(a => /^-\d+$/.test(a))) return true;
+  // 无信号声明时首参 -1（kill -1 / kill -9 -1 均命中：信号参数已被前面 continue 跳过语境，
+  // 这里直接看是否存在裸 -1 目标：跳过首参若它是信号（-9 等），其余 -1 或负数即广播/组）
+  const rest = args.filter((a, i) => !(i === 0 && /^-[A-Za-z0-9]+$/.test(a)));
+  return rest.some(a => a === "-1" || /^-\d+$/.test(a));
+}
+
 /** 非字面量 kill 目标：先试 #844 白名单端口溯源放行，否则保守拦（变量无法运行时求值） */
 function checkIndirectKillTarget(
   killSegments: { segment: string; isPkill: boolean }[],
@@ -232,6 +250,8 @@ function checkKillSegments(command: string, mainPid: number | null, probe: Proce
       if (pkillTargetsOtter(k.segment)) return PKILL_OTTER_BLOCK_MSG;
       continue; // 非特征名（如 pkill vitest）放行
     }
+    // S2：广播/进程组目标保守拦（-1 广播必含主进程；ps 可获知 PGID 同拦）
+    if (broadcastKillTargetHit(k.segment)) return BROADCAST_KILL_BLOCK_MSG;
     // kill 字面量：三查身份；无字面量则走非字面量分支
     const literalBlock = checkLiteralKillTarget(k.segment, mainPid, probe);
     if (literalBlock) return literalBlock;
@@ -285,7 +305,23 @@ function makeEgressDomainAllowed(domains: string[] | undefined): (host: string) 
   };
 }
 
-/** B 类判定：curl/wget 上传动词 + 域名核对 */
+/** B 类判定：curl/wget 上传动词 + 域名核对。
+ *  S1+S5（检视初轮）：短旗标大小写敏感精确匹配（curl 的 -f=失败静默 / -F=表单上传、
+ *  -D=转储头 / -d=携带数据，大小写即语义——/i 折叠会把纯 GET 误拦）；
+ *  动词词元表含 PUT 族（-T/--upload-file/--json/--request=POST/wget --method=PUT 等），
+ *  对齐 F doc 判据「POST/PUT/带载荷」。 */
+function curlUploadVerbHit(seg: string): boolean {
+  // 长旗标先测（含 = 形态），再测短旗标（大小写敏感——-f≠-F、-D≠-d、-t≠-T）
+  if (/(?:^|\s)--(?:request|method)=(?:POST|PUT)\b/i.test(seg)) return true;
+  if (/(?:^|\s)--(?:data|post-data|post-file|form|form-string|upload-file|json)\b/i.test(seg)) return true;
+  if (/(?:^|\s)-X\s*(?:POST|PUT)\b/.test(seg)) return true; // -X 值大小写敏感（curl 接受任意大小写动词，但保守按标准形态）
+  if (/(?:^|\s)-[TFt](?:\s|$)/.test(seg)) return true; // 表单/上传/wget -t 发送体
+  if (/(?:^|\s)-[dD](?:\b|$)/.test(seg) && /(?:^|\s)-d\b/.test(seg)) return true; // -d（数据）
+  if (/(?:^|\s)--request\s+(?:POST|PUT)\b/i.test(seg)) return true;
+  if (/(?:^|\s)--method\s+(?:POST|PUT)\b/i.test(seg)) return true;
+  return false;
+}
+
 function uploadExfilHit(command: string, allowedEgressDomains?: string[]): boolean {
   const egressDomainAllowed = makeEgressDomainAllowed(allowedEgressDomains);
   // 段级粗筛：段首（或 | / ; / && 后）是 curl/wget
@@ -293,8 +329,7 @@ function uploadExfilHit(command: string, allowedEgressDomains?: string[]): boole
   for (const seg of segments) {
     const m = /^(?:sudo\s+)?(curl|wget)\b/.exec(seg);
     if (!m) continue;
-    const isPost = /(?:^|\s)(?:-X\s*(?:POST|PUT)|--request\s*(?:POST|PUT)|-d\b|--data\b|--post-data\b|--post-file\b|-F\b|--form\b)/i.test(seg);
-    if (!isPost) continue;
+    if (!curlUploadVerbHit(seg)) continue;
     // 提取域名
     const urls = [...seg.matchAll(/https?:\/\/(?:[^@\s/]*@)?(\[[^\]]+\]|[^/:\s]+)(?::\d+)?/g)].map(x => x[1]);
     if (urls.length === 0) return true; // 上传但目的不可静态校验——fail-closed
@@ -303,12 +338,27 @@ function uploadExfilHit(command: string, allowedEgressDomains?: string[]): boole
   return false;
 }
 
-/** C 类：下载即执行（网络命令 → 管道 → 解释器结构） */
+/** 建议③（检视初轮）：进程替换形态 bash <(curl …)——fetcher 输出直接进解释器 argv，
+ *  同属「下载即执行」（不入盘不可审阅）。仅拦「解释器首参即进程替换 + 替换内是 fetcher」。 */
+function processSubstitutionHit(command: string): boolean {
+  const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
+  const fetcherInsideRe = /<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
+  const interpreterHead = /(?:^|[;&|]\s*|&&\s*|\|\|\s*)(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
+  return interpreterHead.test(command) && fetcherInsideRe.test(command) && interpreterRe.test(command.split(/<(?![(])/)[0].trim().split(/[;&|]/).pop()?.trim() ?? "");
+}
 function pipeToInterpreterHit(command: string): boolean {
-  // 结构判定：curl/wget 段的管道对端是 sh/bash/python 等解释器
-  const fetchers = /(?:^|[;&|])\s*(?:sudo\s+)?(?:curl|wget)\b/;
-  const interpreters = /\|\s*(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node)\b/;
-  return fetchers.test(command) && interpreters.test(command);
+  const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
+  const fetcherRe = /^(?:sudo\s+)?(?:curl|wget)\b/;
+  // 按管道链拆段（| 单管）；&& / ; / || 之间的段互不配对
+  for (const chain of command.split(/&&|\|\||[;\n]/)) {
+    const parts = chain.split("|").map(p => p.trim()).filter(Boolean);
+    if (parts.length < 2) continue;
+    // 链内任一前置段是 fetcher 且任一后续段是解释器 → 命中
+    const hasFetcher = parts.slice(0, -1).some(p => fetcherRe.test(p));
+    const hasInterpreter = parts.slice(1).some(p => interpreterRe.test(p));
+    if (hasFetcher && hasInterpreter) return true;
+  }
+  return false;
 }
 
 /** 第二站主判定 */
@@ -319,7 +369,7 @@ function checkBlacklistStation(command: string, allowedEgressDomains?: string[])
   if (uploadExfilHit(command, allowedEgressDomains)) {
     return "检测到向非协作域名上传数据（POST/PUT）。合法外发目标请由搭档在 config bashGuard.allowedEgressDomains 登记；确需临时外发请呈搭档确认。";
   }
-  if (pipeToInterpreterHit(command)) {
+  if (pipeToInterpreterHit(command) || processSubstitutionHit(command)) {
     return "检测到「下载即执行」结构（网络命令管道进解释器）——远程脚本直接执行不允许。请先下载落盘、审阅内容后再执行。";
   }
   return null;

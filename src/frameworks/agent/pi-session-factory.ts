@@ -1134,12 +1134,10 @@ export class PiSessionFactory implements AgentGateway {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）
         this.logger.debug('[execute] Using pooled session', { otterId, sessionKey });
 
-        // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）+ 守卫拦截 healing（F20260831aksp T3）
-        //    F20261016gsbx 二期 2a/2b：sandboxGuarded 消费 session 创建点绑定的挂载决策位
-        //   （WeakMap，与 spawnHook 挂载同一次 probeSandboxAvailability 结果）——R-2b 约束：
-        //    探测与挂载不可能分歧（分歧=裸跑零告警的最危险模式）；沙箱接防时守卫
-        //    main_write 族退役（G3 枚举表）；不可用时写面回位（降级不降安全）。
-        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: guardProjectRoot, sessionCwd: guardSessionCwd, onGuardIntercept: guardOnIntercept, loopBlockedTools, guardGateActive: () => otterInvokeStorage.getStore()?.guardProjectRoot != null });
+        // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）+ 循环熔断拦截 healing（F20261020hlbk）。
+        //    F20261029gblkv（guard-v4）：bash 守卫已迁 tool_call 门（model-runtime-registry
+        //    bashGuardGate 直读 store 的 guard* 参数），不再经本链传参。
+        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), loopBlockedTools });
 
         // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);

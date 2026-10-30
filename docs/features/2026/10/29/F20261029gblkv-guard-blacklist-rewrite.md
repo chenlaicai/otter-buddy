@@ -83,8 +83,8 @@ modules:
 | 类 | 内容 | 判据 |
 |---|---|---|
 | A 凭证路径 | ~/.ssh、~/.gnupg、~/.aws | 命令中出现这些路径（读写都算），第一站同款位置/引号语义 |
-| B 数据外发 | curl/wget POST/PUT/带载荷 | 目标域名不在协作域名表（现有 networkExfilHit 引擎，白名单改为配置化） |
-| C 下载即执行 | 网络命令→管道→sh/bash/python | 段结构判定（现有管道判定收窄保留） |
+| B 数据外发 | curl/wget POST/PUT/带载荷 | 目标域名不在协作域名表（动词词元表对齐判据：-X POST/PUT、--request/--method 及 = 形态、-d/--data/--post-data/--post-file、-F/--form、-T/--upload-file、--json；短旗标大小写敏感——-f≠-F、-D≠-d，防 GET 旗标误拦） |
+| C 下载即执行 | 网络命令→管道→sh/bash/python | 管道段配对判定（fetcher 段与解释器段须在同一条管道两端；bash <(curl …) 进程替换同拦） |
 
 - 域名表 config.yaml `bashGuard.allowedEgressDomains`（默认 github.com/api.github.com/registry.npmjs.org/objects.githubusercontent.com + 现有 huawei-colink.com/localhost/127.0.0.1/::1），**搭档专改**（主仓文件走 PR，獭无权扩表防注入自放行）；未配置时用内置缺省表（非 fail-closed），**显式空数组 = fail-closed**（搭档清空表即关闭全部合法外发，而非回退缺省表）
 - `curl … | head`（只看不执行）放行——C 类只拦「进解释器」
@@ -106,10 +106,11 @@ write/edit 工具：随白名单退役恢复 SDK 原生行为（无写区闸）�
 1. 凭证可读（A 类只拦「命令中出现路径」的可见形态，node -e 内嵌构造路径等变形可绕过）——兜底：B 类拦外发，读到手送不出（curl POST 不在表=拦）；残余通道=git push 合法外发，搭档在「改了就改了」框架接受
 2. 主仓文件可裸写（无沙箱 deny）——git 可回滚，PR 纪律由流程保证
 3. sleep 拦截（habit 层）与脚本文件执行禁令（bypass_guard 层）退役——工作流摩擦消失，其防护意图由一二站覆盖
+4. config 注入延迟激活（检视建议④）：bashGuard.allowedEgressDomains 是 config 单例读入，进程启动时生效——运行中改 config 不热载，需主进程重启才进判定；被拦外发命令会引导「呈搭档确认」，无静默失效面
 
 ## 验证体系（先于重写建设，本 PR 内置）
 
-**回放回归库**（tests/guard/replay/）：healing 台账 guard_intercept 事件固化为用例——今日 12 条误拦全部「必须放行」（含 stash 组合、ps/kill 组合查询、外部仓 push、heredoc python、/tmp 写、mktemp 组合、sandbox-exec 探针）；9/16 杀主进程原案「必须拦」；凭证路径/外发三类「必须拦」负门。守卫行为以真实使用为准。
+**回放回归库**（tests/guard/replay/）：healing 台账 guard_intercept 事件固化为用例——10/29 台账 12 条误拦实录「必须放行」（含 stash 组合、ps/kill 组合查询、外部仓 push、heredoc python、/tmp 写、mktemp 组合、sandbox-exec 探针）；9/16 杀主进程原案「必须拦」；凭证路径/外发三类「必须拦」负门；检视初轮修复回归钉（S1 GET 旗标/S2 广播 kill/S5 PUT 族/S7 管道段配对/③ 进程替换/⑦ 白名单端口溯源）。must-block 用例同时断言拦截理由关键词（防「拦对了理由错」的语义漂移）。守卫行为以真实使用为准。
 
 **CI macos job**：ci.yml 增 `guard-macos` job（macos-latest，公共仓免费），跑回放库 + kill 族依赖单测（allowed-service-ports）。10-29 全部事故的共同根源=守卫改动从未在真机验证（CI 全 Linux、本机沙箱不可嵌套）——本 job 根治。范围窄化：只跑守卫相关测试（不重复主 check job 的全量面），反馈快且不挤公共资源。
 
@@ -117,14 +118,24 @@ write/edit 工具：随白名单退役恢复 SDK 原生行为（无写区闸）�
 
 - 守卫文件：`src/frameworks/agent/bash-safety-guard.ts`（单文件，~290 行——原计划拆 egress-blacklist.ts，实现时判定逻辑内聚于单文件更简，不拆）；kill-segment-finder.ts / allowed-service-ports.ts 原样保留复用
 - 接线：单点注入 `model-runtime-registry.ts` 的 tool_call 门（bashGuardGate，与 halt/loop-block 同机制链式判定）——被拦命令不执行，SDK 生成 isError tool result（显式落痕，#1616 静默假绿教训）；域名表经 store（guardAllowedEgressDomains）从 config 流入，铸造点 pi-session-factory._executeWithSession
-- 回放库：`tests/guard/replay/`（replay.test.ts + cases-2026-10-29.ts）——52 用例：误拦实录 21（healing 台账四族：git 授权链/脚本禁令/sleep/heredoc + #1710 信封形态5种）/ 必拦 12（9/16 原案 6 + 黑名单三类 6）/ 日常抽样 15 + 域名表语义 3；测试基建用 tmp projectRoot + processProbe 桩（全平台确定性，不真查 ps）
+- 回放库：`tests/guard/replay/`（replay.test.ts + cases-2026-10-29.ts）——初版 52 用例，检视初轮处置后 69 用例：误拦实录 22（healing 台账四族：git 授权链/脚本禁令/sleep/heredoc + #1710 信封形态 5 种）/ 必拦 12（9/16 原案 6 + 黑名单三类 6，含理由锚定断言）/ 日常抽样 15 + 域名表语义 3 + 检视回归钉 16 + 门覆盖面 2；测试基建用 tmp projectRoot + processProbe 桩（全平台确定性，不真查 ps）
 - 修复对线 WIP 两个缺陷：extractLiteralPids 幻影 import（从旧版恢复本地实现）；B 类 isPost 正则 \b 拴死分支组（-X POST/-d 全漏判，改为行首/空白前导判定）
+
+### 机制增补准入三问（R8.5，检视 S3 处置：refactor 主体 + 机制增补声明）
+
+本 PR 主体是守卫重写（refactor），但 `bashGuard.allowedEgressDomains` 域名表是**新增配置机制**（config-service 新配置节 + fail-closed 语义 + 全链注入），按准入纪律过三问：
+
+1. **决策者变了么**：没有——域名表的决策者仍是搭档（主仓 config.yaml 走 PR，獭无权扩表防注入自放行）；机制只把「哪些域名可外发」的决策信息成本降低（一处配置 vs 改代码重编译），不改变决策归属。
+2. **靠自觉还是靠守卫**：机械托底——fail-closed 语义（显式空数组=全拦）与后缀匹配规则是代码内机械判定；「搭档专改」由 git 追踪 + PR 流程机械保证（非自觉）。
+3. **深潜成本降了吗**：升——外发拦截事件可直接下钻到 config 表核对（域名是否登记、谁登记的走 PR 历史），比硬编码常量的「当时为什么放这个域名」可追溯性更强。
+
+结论：准入通过，声明为「refactor 主体 + 机制增补（allowedEgressDomains）」。
 
 ## 关联与取代
 
 - 取代 #1694/#1695/#1697/#1698/#1699 的全部在途修复方案（两条旧 worktree 分支废弃）
-- #1710（新守卫验收需求）：误拦语义清单已全部录入回放库（信封形态家族 5 种钉为「必须放行」回归钉子）；其「安全面清单」（写区闸语义）随写区闸退役不适用——v4 下 write/edit 恢复 SDK 原生，非守卫输入面
-- 保留：kill-segment-finder.ts（整文件）、SERVICE_SCRIPT_KILL、INDIRECT_PID_PATTERNS、#844 白名单端口溯源（allowed-service-ports.ts）、guard-model-judge 结构模型语义（第一站粗筛底座，其判定已内化进 kill-segment-finder 调用链）
+- #1710（新守卫验收需求）：误拦语义清单的形态面已录入回放库（信封形态家族 5 种钉为「必须放行」回归钉子）；其「安全面清单」（写区闸语义）随写区闸退役不适用——v4 下 write/edit 恢复 SDK 原生，非守卫输入面（门覆盖面钉 guardGateCovers 回归钉防未来误加闸复发）
+- 保留：kill-segment-finder.ts（整文件）、SERVICE_SCRIPT_KILL、INDIRECT_PID_PATTERNS、#844 白名单端口溯源（allowed-service-ports.ts）、guard-model-judge 结构模型语义（第一站粗筛底座，其判定已内化进 kill-segment-finder 调用链与广播/进程组保守拦——S2 处置后此句成立）
 - F20260916gtlr（9/16 原点）→ 本文档继承其使命，收敛为唯一硬目标
 
 ## 验证记录（交付时点，2026-10-30）
