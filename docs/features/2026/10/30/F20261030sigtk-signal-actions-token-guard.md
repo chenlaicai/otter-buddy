@@ -5,14 +5,14 @@ summary: "daily-health-check.md 的 signal 对账段是纯文本 prompt，处置
 change_type: feature
 capability_test: "tests/criteria/check-criteria.test.ts"
 intent:
+  problem: "signal 对账段（daily-health-check.md）的处置动作 token 是纯文本 prompt，无回归防线——rebase/出清/合并冲突时可被静默删减而无人拦截（PR #1289 检视 r3 实证：两处「提 issue」处置动作静默丢失）。"
   goal: "signal 对账段的关键处置 token 丢失即红——把「处置动作是否还在 prompt 里」从人眼抽查升级为机械断言。"
   non_goal: ["不检查 prompt 执行质量（只管 token 在位）", "不新建独立 lint 脚本（registry 机制已覆盖，机制统一优先）", "不改 signal 对账段的业务语义"]
   solution: "criteria/invariants.json 增 6 条 invariant（dhc-signal-unruled-24h / dismiss-recurrence / resolution-audit / halt-audit / query-pending / query-halt），pattern 为段内唯一子串（query_signals(status=pending) 在文件出现 2 处，用「…]` 逐项」后缀锚定对账段那处）；tests/criteria/check-criteria.test.ts 增 7 用例（6 逐条 + 1 整段）；lock --update-lock 重生成（diff 显形走评审）。"
   expected_effect: "删掉任一「提 issue」/query_signals token 后 check-criteria FAIL（exit 1）且点名条目 id；rebase/出清误删对账段整段时 6 条全红。"
   verify_by:
-    - "断言：signal 对账段删掉任一「提 issue」token 后 lint 红（验收断言原文）——红测 6 用例逐条覆盖"
-    - "断言：完整文件 PASS（exit 0）基线不破——既有绿用例 + check-criteria 实跑 18/18 条在位"
-    - "到期：2026-11-07（issue #1342 验证断言原定）"
+    type: capability_test
+    description: "tests/criteria/check-criteria.test.ts 7 红测（删任一「提 issue」token → FAIL 点名条目，6 逐条 + 1 整段）+ node scripts/check-criteria.mjs 实跑 18/18 在位；与 capability_test 字段呼应"
 ---
 
 # signal 对账段处置 token 存在性断言（#1342）
@@ -60,4 +60,4 @@ tests/criteria/check-criteria.test.ts（+7 用例）——无生产代码变更�
 1. **红测**（本次执行）：`npx vitest run tests/criteria/check-criteria.test.ts` → 23 passed
    （16 存量 + 7 新增）——覆盖验收断言「删任一『提 issue』token 后 lint 红」逐条形态 + 整段形态。
 2. **闸实跑**：`node scripts/check-criteria.mjs` → PASS（18/18 条在位，lock OK）。
-3. **断言到期**：2026-11-07（issue #1342 验证断言原定到期日）。
+3. **工单 SLA**：issue #1342 修复工单原定到期 2026-11-07（工单时限，非断言有效期）——断言本身无 sunset，防线长期在位。

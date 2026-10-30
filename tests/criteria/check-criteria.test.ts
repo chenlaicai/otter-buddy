@@ -329,10 +329,13 @@ describe("F20261030sigtk #1342 signal 对账段处置 token 存在性断言", ()
     const abs = path.join(root, REL);
     const txt = fs.readFileSync(abs, "utf8");
     const begin = txt.indexOf("## signal 对账段");
-    const end = txt.indexOf("无异常写「signal 对账：无异常」。");
+    // 整段删除含末句「无异常写「signal 对账：无异常」。」——end 锚取该句之后，
+    // 否则末句残留与测试名「整段被删」不符（PR #1713 检视 r1 建议 2）。
+    const endMarker = "无异常写「signal 对账：无异常」。";
+    const end = txt.indexOf(endMarker);
     expect(begin).toBeGreaterThan(0);
     expect(end).toBeGreaterThan(begin);
-    fs.writeFileSync(abs, txt.slice(0, begin) + txt.slice(end));
+    fs.writeFileSync(abs, txt.slice(0, begin) + txt.slice(end + endMarker.length));
     const r = runChecker(root);
     expect(r.status).toBe(1);
     const ids = r.json.failures.map((f: any) => f.id);
