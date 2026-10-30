@@ -58,6 +58,8 @@ INTENT_RECOMMENDED → 既有 warning（不变）
 - **豁免清单优先**：isExempt 判定先于软代码收口——存量豁免语义（ratchet 地板）不破，豁免文档维持 warning。
 - **存量不追诉**：created_at < 2026-09-17 的软代码文档缺块维持 recommended warning（与 F20260917sdpl 时间界同口径）。
 - **change_type 取 `fix` 不取 `bugfix`（枚举漂移避让）**：docs 域合法枚举是 `fix`（known-values.ts:10-16），lint-intent 域用 `bugfix`（lint-intent.mjs:45-46）——issue #1295「change_type 枚举漂移」的现场。本文档取 docs 域合法值 `fix` 避免推高 lint:docs ratchet（现存 3 个 warning 顶格）；漂移本身不在本 PR 修复范围（另案 #1295）。顺带实证：软代码新文档 change_type=`fix` 缺块同样被本修复的新分支拦（不受枚举漂移影响）。
+- **漂移静默面归口 #1295（检视 r1 观察 1）**：非软代码 change_type=`fix` 缺块完全静默（0 error 0 warning）——`fix` 不在 lint-intent 的 REQUIRED/RECOMMENDED 集合，属 #1295「RECOMMENDED 集合与真相源对齐」修法方向覆盖范围，已在 #1295 评论补实测证据，不在本 PR 扩面。
+- **isNewEnough 边缘形态已知限界（检视 r1 观察 2）**：字符串日期比较对无前导零日期（如 `2026-9-1`）会误判为新（'9'>'0'）；既有函数（F20260917sdpl），本修复复用使其爆炸半径从 verify_by 分支扩大到缺块分支。考虑到 created_at 均按 ISO 惯例零填充，实际风险低，不在本 PR 改动（避免牵动既有规则行为），留待 #1295 域收口时一并评估。
 
 ## 验收标准
 

@@ -232,7 +232,7 @@ function validateIntent(fm, exemptKey) {
       // 缺整个 intent 块不轻于缺 verify_by 的 error（惩罚梯度倒置修复：bugfix/refactor
       // 此前缺块只 warning，比缺 verify_by 的 error 更轻，缺得越彻底罚得越轻）。
       errors.push(
-        `Missing intent block for soft-code change (modules 含 prompts/ 或 .pi/, created_at ≥ ${SOFT_CODE_ENFORCE_DATE})——声明缺失全形态收口：整块缺失不轻于缺 verify_by（#1238）`,
+        `Missing intent block for soft-code change (modules 含 prompts/ 或 .pi/, created_at ≥ ${SOFT_CODE_ENFORCE_DATE})——请在 frontmatter 补 intent 块（problem/expected_effect/verify_by）（#1238）`,
       );
     } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(effectiveChangeType)) {
       warnings.push(`Recommended intent field for ${effectiveChangeType}`);
