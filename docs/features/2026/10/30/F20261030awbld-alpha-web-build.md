@@ -31,6 +31,15 @@ issue #1601 原判「根 build 不清 web/dist → 多代构建残留，index.ht
 
 仓内亦无其他 web/dist 写入路径（scripts/.github 均无引用，alpha.sh 不碰 web）。
 
+现场第三点「含 game 的新 chunk index-R1kic9pC.js 成孤儿」同样不成立（检视獭-1601 独立复验）：
+自洽单次构建中含 'game' 字样的 lazy chunk 同样不被 index.html 直接引用、而被主 chunk 懒加载映射——
+「含 game 字样 + 不被 index.html 引用」是代码分割正常形态（'game' 字样可来自 api-contract 类型、
+路由注册等非功能上下文）；且在「dist 是不含 game 功能的旧构建」前提下，旧构建产不出含 game 的新 chunk，
+「孤儿=新产物残留于旧 dist 旁」的推断链自相矛盾。issue 现场最合理的拼合解释：当时 worktree 的
+web/dist 是一次中途/旧构建产物（index.html 与 chunk 集不自洽，如构建中断），而开发者看到的
+『新 chunk』来自主仓或另一次构建的网络请求/对照——无论哪种，真因归一：**alpha 启动链不重建 web，
+一切陈旧/残缺产物永存续用**。
+
 ## 真因
 
 `src/app.ts:669`：静态 serve 根 = `path.resolve(import.meta.dirname, "../..", "web/dist")`——相对编译产物 dist/src 解析，即 **worktree/web/dist**。而 alpha.sh 构建段只跑 `npm run build`（后端 tsc→dist）。改前端 → `alpha.sh start` → serve 旧/缺失 web/dist → 隐蔽失效。issue 的现象（改前端不生效、无报错）与此机理 100% 吻合，且「重新 build 后验证前端行为被坑」的体感正来自「build 的是后端」。
