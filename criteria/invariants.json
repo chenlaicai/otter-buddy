@@ -84,6 +84,48 @@
       "pattern": "走新文档追加说明或补新记忆条目",
       "rationale": "影响面当场自检分流签名句（含搭档 2026-10-20 否决事后「可能过期」提醒的现场语境）——删掉即文档腐烂无人当场补、或回改历史文档铁律失去分流指引",
       "waiver_eligible": true
+    },
+    {
+      "id": "dhc-signal-unruled-24h",
+      "file": "prompts/scheduled/daily-health-check.md",
+      "pattern": "objection/blocked 超 24h 未裁决 → 提 issue",
+      "rationale": "signal 对账段处置子句（pending 超 24h 未裁决必须提 issue）——#1342：处置动作 token 在 rebase/出清/冲突中可静默丢失（PR #1289 检视 r3 实证），删掉即獭间信号协议消费方退回无兜底的悬置堆形态",
+      "waiver_eligible": true
+    },
+    {
+      "id": "dhc-signal-dismiss-recurrence",
+      "file": "prompts/scheduled/daily-health-check.md",
+      "pattern": "连续两日提 issue",
+      "rationale": "signal 对账段处置子句（dismissed 异常聚集连续两日提 issue）——#1342 同族防线，删掉即滥裁决无暴露通道",
+      "waiver_eligible": true
+    },
+    {
+      "id": "dhc-signal-resolution-audit",
+      "file": "prompts/scheduled/daily-health-check.md",
+      "pattern": "不成立提 issue",
+      "rationale": "signal 对账段处置子句（已裁决信号抽核 resolution 不成立提 issue）——#1342 同族防线，删掉即裁决质量抽查失守",
+      "waiver_eligible": true
+    },
+    {
+      "id": "dhc-signal-halt-audit",
+      "file": "prompts/scheduled/daily-health-check.md",
+      "pattern": "无理由 halt 提 issue",
+      "rationale": "signal 对账段处置子句（无理由 halt 提 issue）——#1342 同族防线，删掉即滥用停手指令无人拦截",
+      "waiver_eligible": true
+    },
+    {
+      "id": "dhc-signal-query-pending",
+      "file": "prompts/scheduled/daily-health-check.md",
+      "pattern": "query_signals(status=pending)` 逐项",
+      "rationale": "signal 对账段消费入口（query_signals 悬置查询）——#1342 同族防线：入口词被删则对账段退化为纯文字无实际消费，处置子句再全也空转",
+      "waiver_eligible": true
+    },
+    {
+      "id": "dhc-signal-query-halt",
+      "file": "prompts/scheduled/daily-health-check.md",
+      "pattern": "query_signals(type=halt) 核",
+      "rationale": "signal 对账段 halt 巡查入口（谁停了谁）——#1342 同族防线，删掉即停手审计链断",
+      "waiver_eligible": true
     }
   ]
 }
