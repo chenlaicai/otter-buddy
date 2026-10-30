@@ -699,3 +699,47 @@ describe('change_type enum alignment with known-values truth source (#1295, F202
     expect(result.warnings.some((w: string) => w.includes('Recommended intent.verify_by field for soft-code change'))).toBe(true);
   });
 });
+
+// F20261030ctalg 检视 r1 建议 3：语义非法日期（词法合法/日历非法）与不可解析格式同口径。
+describe('isNewEnough semantic-invalid dates (#1295, F20261030ctalg delta)', () => {
+  it('建议 3 I：2026-13-01（13 月）按存量宽容，不判新（warning 不 error）', () => {
+    const fm = {
+      ...createBaseFm('fix', {
+        problem: '软代码行为改动',
+        expected_effect: '行为可判定',
+      }),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-13-01',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1303-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings.some((w: string) => w.includes('Recommended intent.verify_by field for soft-code change'))).toBe(true);
+  });
+
+  it('建议 3 J：2026-11-32（32 日）按存量宽容，不被前缀误读为 11-03', () => {
+    const fm = {
+      ...createBaseFm('fix', {
+        problem: '软代码行为改动',
+        expected_effect: '行为可判定',
+      }),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-11-32',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1304-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings.some((w: string) => w.includes('Recommended intent.verify_by field for soft-code change'))).toBe(true);
+  });
+
+  it('建议 3 K：2026-02-31（日历非法）按存量宽容', () => {
+    const fm = {
+      ...createBaseFm('fix', {
+        problem: '软代码行为改动',
+        expected_effect: '行为可判定',
+      }),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-02-31',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1305-probe.md');
+    expect(result.errors).toHaveLength(0);
+  });
+});

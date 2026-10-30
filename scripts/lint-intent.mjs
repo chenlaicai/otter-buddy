@@ -108,6 +108,9 @@ function isNewEnough(fm) {
   const m = fm.created_at.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (!m) return false;
   const normalized = `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  // F20261030ctalg 检视 r1 建议 3：语义非法日期（13 月/32 日/2-31）Date.parse 为 NaN，
+  // 与不可解析格式同口径按存量宽容（不追诉）。
+  if (Number.isNaN(Date.parse(normalized))) return false;
   return normalized >= SOFT_CODE_ENFORCE_DATE;
 }
 

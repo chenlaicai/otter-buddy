@@ -1,13 +1,13 @@
 ---
 id: F20261030ctalg
 title: "change_type 枚举漂移收口：lint-intent 分类与真相源对齐（#1295）"
-summary: "复测现状：feature_update 蛇形已消，但 lint-intent 分类集合（bugfix/refactor）与 known-values.ts 真相源（fix/feature-update）分裂——fix 392 篇、feature-update 37 篇不在任何集合，缺 intent 块完全静默。修复：RECOMMENDED 对齐真相源 + 历史拼写别名归一（文案保留原拼写）+ isNewEnough 无前导零日期边缘修复（F20261030iprio 预留项）；存量残值（bugfix×1/tests×2）取 issue 修法方向的 ratchet 冻结路线。"
+summary: "复测现状：feature_update 蛇形已消，但 lint-intent 分类集合（bugfix/refactor）与 known-values.ts 真相源（fix/feature-update）分裂——fix 392 篇、feature-update 37 篇不在任何集合，非软代码子集缺 intent 块完全静默（软代码子集已被 F20261030iprio 分支拦）。修复：RECOMMENDED 对齐真相源 + 历史拼写别名归一（文案保留原拼写）+ isNewEnough 日期边缘修复（F20261030iprio 预留项）；存量残值（bugfix×1/tests×2）取 issue 修法方向的 ratchet 冻结路线。"
 change_type: fix
 capability_test: "tests/lint/lint-intent.test.ts"
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 created_at: "2026-10-30"
 intent:
-  problem: "change_type 枚举漂移致校验口径与实际存量分裂：lint-intent 的分类集合只认 feature/prompt/bugfix/refactor，真相源值 fix（392 篇）与 feature-update（37 篇）缺 intent 块时 0 error 0 warning 完全静默；bugfix/feature_update 历史拼写双轨并存；isNewEnough 字符串日期比较对无前导零日期（如 2026-9-1）误判为新（F20261030iprio 检视 r1 观察 2 预留）。"
+  problem: "change_type 枚举漂移致校验口径与实际存量分裂：lint-intent 的分类集合只认 feature/prompt/bugfix/refactor，真相源值 fix（392 篇）与 feature-update（37 篇）非软代码子集缺 intent 块时 0 error 0 warning 完全静默（软代码子集已被 F20261030iprio 缺块 error 分支拦，检视 r1 探针实证）；bugfix/feature_update 历史拼写双轨并存；isNewEnough 字符串日期比较对无前导零/语义非法日期误判（F20261030iprio 检视 r1 观察 2 预留）。"
   expected_effect: "非软代码 fix/feature-update 缺整块 intent 时出 Recommended warning（静默面关闭）；bugfix/feature_update 历史拼写按别名归一分类（文案保留原拼写）；tests（test-only）维持静默；无前导零日期按真实日期序判定；全库 error 集合零漂移、exit 0。"
   verify_by:
     type: capability_test
@@ -34,20 +34,20 @@ issue #1295（10-05 前开单）标注「旧拼法可能已被统一，开单前
 | bugfix（旧拼写） | 残留 1 篇 | F20261020lmld（lint:docs warning） |
 | tests（真相源外值） | 残留 2 篇 | F20261023imts、F20261022fgbt（lint:docs warning） |
 | lint:docs Unknown warning | 3 个顶格（ratchet 上限） | 由上述 3 篇产生 |
-| **lint-intent 分类分裂（核心问题）** | **仍在** | RECOMMENDED={bugfix,refactor} vs 真相源 {fix,refactor,feature-update}——fix 392 篇 + feature-update 37 篇缺块完全静默 |
+| **lint-intent 分类分裂（核心问题）** | **仍在** | RECOMMENDED={bugfix,refactor} vs 真相源 {fix,refactor,feature-update}——fix 392 篇 + feature-update 37 篇非软代码子集缺块完全静默（软代码子集已被 iprio 分支拦，实际静默面 283+34 篇，检视 r1 实测） |
 
 issue 三条修法方向的处置：①复测现状（本节）✓；②lint-intent 集合与真相源对齐（本篇主体）✓；③存量残值批量订正或 ratchet 冻结 → **取 ratchet 冻结**（见设计取舍）。
 
 ## 根因
 
-1. `scripts/lint-intent.mjs` 分类集合是孤立的本地定义，与 `src/entities/document/known-values.ts` 真相源（KNOWN_CHANGE_TYPES）无对齐机制——真相源演进（fix/feature-update 收编）后 lint-intent 集合没跟上，主力修复值 `fix` 反而掉出全部分类，惩罚梯度问题的「静默面」（F20261030iprio 检视 r1 观察 1）由此而来。
-2. `isNewEnough`（F20260917sdpl）用裸字符串比较日期，无前导零日期（`2026-9-1`）因 `'9'>'0'` 误判为新。
+1. `scripts/lint-intent.mjs` 分类集合是孤立的本地定义，与 `src/entities/document/known-values.ts` 真相源（KNOWN_CHANGE_TYPES）无对齐机制——真相源演进（fix/feature-update 收编）后 lint-intent 集合没跟上，主力修复值 `fix` 反而掉出全部分类，惩罚梯度问题的「静默面」（F20261030iprio 检视 r1 观察 1，限非软代码子集）由此而来。
+2. `isNewEnough`（F20260917sdpl）用裸字符串比较日期，无前导零日期（`2026-9-1`）因 `'9'>'0'` 误判为新；语义非法日期（13 月/32 日）同样误判（检视 r1 建议 3）。
 
 ## 修复
 
 1. **RECOMMENDED 集合对齐真相源**：`{bugfix, refactor}` → `{fix, refactor, feature-update}`。
 2. **历史拼写别名归一**（`LEGACY_CHANGE_TYPE_ALIAS`）：`bugfix→fix`、`feature_update→feature-update`——**分类用归一值，文案用原拼写**（作者看到自己写的值，对照不迷路）。
-3. **isNewEnough 零填充归一**：日期前缀 `\d{4}-\d{1,2}-\d{1,2}` 归一化零填充后比较；不可解析格式按存量宽容（不追诉）。
+3. **isNewEnough 零填充归一 + 语义日期校验**：日期前缀 `\d{4}-\d{1,2}-\d{1,2}` 归一化零填充后 Date.parse 校验（语义非法日期与不可解析格式同口径按存量宽容）；不可解析格式按存量宽容（不追诉）。
 4. `tests`（test-only 文档）不进任何分类——测试类变更不需要 intent 声明，缺块维持静默（决策锁定）。
 
 ## 设计取舍
@@ -70,15 +70,16 @@ issue 三条修法方向的处置：①复测现状（本节）✓；②lint-int
 | 无前导零旧日期 | created_at=2026-9-1，软代码缺 verify_by | warning 不 error（修复前误判新 → error） |
 | 无前导零新日期 | created_at=2026-9-20，软代码缺 verify_by | error（归一化后仍判新，不误放） |
 | 不可解析日期 | created_at=garbage-date，软代码缺 verify_by | warning 不 error（存量宽容） |
+| 语义非法日期 | created_at=2026-13-01/2026-11-32/2026-02-31 | warning 不 error（r1 建议 3：与不可解析同口径） |
 | 全库行为 | node scripts/lint-intent.mjs 前后对比 | error 集合零漂移、exit 0；warning +319（静默面关闭的设计效果） |
 
-前八行为 tests/lint/lint-intent.test.ts 机械断言（`npx vitest run tests/lint/lint-intent.test.ts`）；末行为全库行为断言。
+前十一行为 tests/lint/lint-intent.test.ts 机械断言（`npx vitest run tests/lint/lint-intent.test.ts`）；末行为全库行为断言。
 
 ## Verification
 
 1. **失败用例证据（bugfix 硬规则）**：
    - 修复前（stash 实现、base 代码跑新测试）：**5 failed | 54 passed**——红测 A/B/D/F/H 红（静默面 ×2、蛇形别名、无前导零误判、不可解析误判），C/E/G 三现状锁在 base 即绿（锁既有行为不回退）
-   - 修复后：**59 passed (59)** 全绿
+   - 修复后：**59 passed (59)** 全绿（r1 处置后追加语义非法日期 3 用例 I/J/K，62 全绿）
 2. **全量零回归**：`npx vitest run` → 420 files / 5554 tests 全过
 3. **全库行为断言**：`node scripts/lint-intent.mjs` base vs after——error 数 0→0（零漂移）、exit 0→0；warning 311→630（+319，静默面关闭的设计效果：fix/feature-update/别名缺块从无声变 warning）
 4. **最简实现检查**：已过——集合 2 行 + 别名表 + 分类引用替换（5 处 has()）+ 日期归一 5 行；无新依赖/新文件；lint:docs/数据层零改动（ratchet 冻结路线）
