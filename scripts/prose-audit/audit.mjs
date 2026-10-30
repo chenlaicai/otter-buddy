@@ -24,6 +24,18 @@ import { join, resolve, extname, basename } from 'node:path';
 
 const TEXT_EXTS = new Set(['.md', '.txt', '.markdown']);
 
+/* ---------- 文本清洗：去 markdown 标题/标记噪声 ---------- */
+// 主用途是审计 .md 章节——章节首行常是 `# 第N章 标题`，不当噪声会被误当"第一句"导致开头签名聚类假阳性。
+export function stripMarkdownNoise(text) {
+  return text
+    .split('\n')
+    .filter((line) => !/^\s*#{1,6}\s/.test(line)) // 去标题行
+    .join('\n')
+    .replace(/\*\*?([^*]+)\*\*?/g, '$1') // 去粗体/斜体标记
+    .replace(/`([^`]+)`/g, '$1') // 去行内代码标记
+    .replace(/^\s*>\s?/gm, ''); // 去引用标记
+}
+
 /* ---------- 读取：目录或单文件 → [{ name, text }] ---------- */
 export function loadChapters(inputPath) {
   const abs = resolve(inputPath);
@@ -50,9 +62,11 @@ export function splitSentences(text) {
     .filter((s) => s.length > 0);
 }
 
-/* ---------- 句式签名：结构骨架，剥去具体内容 ---------- */
-// 签名 = 前 6 字的字符类别序列 + 时间词旗 + 引语旗 + 长度桶
-// 字符类别：C=汉字 D=数字 P=标点 L=拉丁 其他=O
+/* ---------- 句式签名：分句结构骨架，剥去具体内容 ---------- */
+// 签名 = 结构游程（连续同类字符压成一个标记，捕分句/模板结构）+ 时间词旗 + 引语旗 + 长度桶
+// 结构游程对子句长短不敏感：公文式「X，X，X」→ CPCPC（含2标点隔断3子句），
+// 不同模板（如「X，X」→ CPC）签名不同，避免同为6字+时间词的假同型。
+// 字符类别：C=汉字 D=数字 P=标点 L=拉丁 其他=O（O 不入游程）
 const TIME_WORD =
   /腊月|正月|冬月|仲春|孟春|季春|清晨|黄昏|入夜|夜色|晨光|拂晓|晌午|年|月|日|时|刻|季|春|夏|秋|冬/;
 const QUOTE_START = /^[「“"'『]/;
@@ -66,18 +80,18 @@ function charClass(ch) {
 }
 
 export function sentenceSignature(sentence) {
-  const head = sentence.slice(0, 24);
-  const classes = head
-    .split('')
-    .map(charClass)
-    .filter((c) => c !== 'P' && c !== 'O')
-    .slice(0, 6)
-    .join('');
+  const head = sentence.slice(0, 48);
+  const classes = head.split('').map(charClass).filter((c) => c !== 'O');
+  const runs = [];
+  for (const c of classes) {
+    if (runs.length === 0 || runs[runs.length - 1] !== c) runs.push(c);
+  }
+  const shape = runs.join('');
   const hasTimeWord = TIME_WORD.test(head.slice(0, 12));
   const hasQuote = QUOTE_START.test(sentence.trim());
   const len = sentence.length;
   const lenBucket = len < 12 ? 'short' : len <= 30 ? 'mid' : 'long';
-  return { key: `${classes}|t:${hasTimeWord}|q:${hasQuote}|${lenBucket}`, hasTimeWord, hasQuote, classes };
+  return { key: `${shape}|t:${hasTimeWord}|q:${hasQuote}|${lenBucket}`, hasTimeWord, hasQuote, classes: shape };
 }
 
 /* ---------- 聚类：按签名归并章节 ---------- */
@@ -86,7 +100,11 @@ export function clusterBySignature(items, getSentences) {
   for (const it of items) {
     const sents = getSentences(it);
     if (sents.length === 0) continue;
-    const sig = sentenceSignature(sents[0]);
+    const first = sents[0];
+    const sig = sentenceSignature(first);
+    // 短且无标记的句子（如 4 字收尾）签名太粗、聚类多为巧合，不构成有意义的开头/收尾"模板"——跳过降噪（局限见 README）
+    const meaningful = first.length >= 8 || sig.hasTimeWord || sig.hasQuote;
+    if (!meaningful) continue;
     const bucket = map.get(sig.key) || { signature: sig, chapters: [] };
     bucket.chapters.push(it.name);
     map.set(sig.key, bucket);
@@ -98,7 +116,7 @@ export function clusterBySignature(items, getSentences) {
 
 /* ---------- 跨章 n-gram 重复 ---------- */
 // 全虚词 n-gram 噪声大（每章都碰巧有「一个一个」），过滤掉只由虚/填充字组成的 n-gram，
-// 让报告聚焦实词短语（如「桌子太窄」）。
+// 让报告聚焦实词短语（如「桌子太窄」）。markdown 标记（# * ` >）一并排除防「#第N」漏网。
 const FUNCTION_CHARS = new Set(
   '一个们我的了在是你就也都还有这那什么没很之其而并与或但如果就着过给对向从到把被让能使会要想说看上来下去出来起又才只已再很更最比跟同向每该些把被'.split(''),
 );
@@ -107,12 +125,12 @@ const isFunctionGram = (gram) => [...gram].every((c) => FUNCTION_CHARS.has(c));
 export function crossChapterNGrams(chapters, n = 4, minChapters = 2) {
   const map = new Map(); // ngram -> Set(chapter name)
   for (const ch of chapters) {
-    const flat = ch.text.replace(/\s+/g, '');
+    const flat = stripMarkdownNoise(ch.text).replace(/\s+/g, '');
     const seen = new Set();
     for (let i = 0; i + n <= flat.length; i++) {
       const gram = flat.slice(i, i + n);
       if (isFunctionGram(gram)) continue;
-      if (/[，。！？、；：「」“”（）《》]/.test(gram)) continue;
+      if (/[，。！？、；：「」“”（）《》#*`_>~[\]()]/.test(gram)) continue;
       if (!seen.has(gram)) {
         seen.add(gram);
         const set = map.get(gram) || new Set();
@@ -135,7 +153,7 @@ const CLICHE_CONNECTIVES = [
 ];
 
 export function measureConnectiveTics(text) {
-  const flat = text.replace(/\s+/g, '');
+  const flat = stripMarkdownNoise(text).replace(/\s+/g, '');
   const per1k = (count) => (flat.length ? +((count / flat.length) * 1000).toFixed(2) : 0);
   const notBut = (flat.match(NOT_X_BUT_Y) || []).length;
   const tics = [];
@@ -154,7 +172,7 @@ export function measureConnectiveTics(text) {
 
 /* ---------- 句长节奏均匀度 ---------- */
 export function measureSentenceRhythm(text) {
-  const sents = splitSentences(text);
+  const sents = splitSentences(stripMarkdownNoise(text));
   if (sents.length < 3) return { mean: 0, variance: 0, cv: 0, uniformity: false, sentenceCount: sents.length };
   const lens = sents.map((s) => s.length);
   const mean = lens.reduce((a, b) => a + b, 0) / lens.length;
@@ -165,10 +183,13 @@ export function measureSentenceRhythm(text) {
 }
 
 /* ---------- 比喻/意象密度 ---------- */
-const METAPHOR = /像|仿佛|宛如|犹如|如同|好似|似的|一般|般|恍如|犹如/g;
+// 只保留明确的明喻/隐喻标记；裸「般/一般」噪声大（这般/万般/一般来说），剔除；
+// 「像」加负向后顾排除复合词（影像/画像/雕像/塑像/偶像/石像/铜像/蜡像/摄像/录像）误计。
+const METAPHOR =
+  /仿佛|宛如|犹如|如同|好似|恍如|似的|好比|(?<![影雕塑画偶石铜蜡摄录])像/g;
 
 export function measureMetaphorDensity(text) {
-  const flat = text.replace(/\s+/g, '');
+  const flat = stripMarkdownNoise(text).replace(/\s+/g, '');
   const count = (flat.match(METAPHOR) || []).length;
   const ratePer1k = flat.length ? +((count / flat.length) * 1000).toFixed(2) : 0;
   return { count, ratePer1k, high: ratePer1k > 6 };
@@ -177,19 +198,20 @@ export function measureMetaphorDensity(text) {
 /* ---------- 主审计 ---------- */
 export function auditChapters(chapters, opts = {}) {
   const top = opts.top ?? 10;
+  const cleaned = chapters.map((c) => ({ name: c.name, text: stripMarkdownNoise(c.text) }));
   const bodyText = (ch) => ch.text.replace(/\s+/g, '');
 
-  const openingPatterns = clusterBySignature(chapters, (ch) => splitSentences(ch.text).slice(0, 1)).slice(0, top);
-  const closingPatterns = clusterBySignature(chapters, (ch) => {
+  const openingPatterns = clusterBySignature(cleaned, (ch) => splitSentences(ch.text).slice(0, 1)).slice(0, top);
+  const closingPatterns = clusterBySignature(cleaned, (ch) => {
     const s = splitSentences(ch.text);
     return s.slice(-1);
   }).slice(0, top);
 
-  const allText = chapters.map((c) => c.text).join('\n');
+  const allText = cleaned.map((c) => c.text).join('\n');
   const rhythm = measureSentenceRhythm(allText);
   const metaphor = measureMetaphorDensity(allText);
   const tics = measureConnectiveTics(allText).slice(0, top);
-  const ngrams = crossChapterNGrams(chapters, 4, 2).slice(0, top);
+  const ngrams = crossChapterNGrams(cleaned, 4, 2).slice(0, top);
 
   // 汇总 flags（供人眼快速定位）
   const flags = [];

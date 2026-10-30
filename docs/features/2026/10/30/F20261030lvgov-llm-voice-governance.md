@@ -3,7 +3,7 @@ id: F20261030lvgov
 title: LLM-Voice 治理——同型审计脚本 + 文本反泔水清单 + 说话纪律
 summary: 把 AI 写作「诡异谷」的诊断落成三产出：机械同型审计脚本（prose-audit）、文本反泔水清单（R 文档）、BIG_OTTER 说话纪律。用于优化海獭日常说话与小说正文两处文本产出的「一眼 AI」感。
 change_type: prompt
-capability_test: "n/a: 新增独立脚本与文档，无 capability 评测场景覆盖；脚本正确性由 tests/scripts/prose-audit.test.ts 单测保障（14 用例）"
+capability_test: "n/a: 新增独立脚本与文档，无 capability 评测场景覆盖；脚本正确性由 tests/scripts/prose-audit.test.ts 单测保障（21 用例）"
 created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
 tags: [llm-voice, prose-audit, 文风, 反泔水, 说话技巧, prompt]
 modules: [scripts/prose-audit, prompts/identity, docs/research]
@@ -25,7 +25,7 @@ intent:
 |---|---|---|
 | `scripts/prose-audit/audit.mjs` | 新增（feature） | 同型审计脚本，5 维机械检测，导出可测函数 |
 | `scripts/prose-audit/README.md` | 新增 | 用法 + 签名算法 + 阈值 + 清单映射（真相源） |
-| `tests/scripts/prose-audit.test.ts` | 新增（feature） | 14 vitest 用例，覆盖 5 维判定命中/不误报 |
+| `tests/scripts/prose-audit.test.ts` | 新增（feature） | 21 vitest 用例，覆盖 5 维判定命中/不误报 + 主场景标题噪声回归 |
 | `docs/research/2026/10/30/R20261030lvtap-*.md` | 新增 | 文本反泔水清单 + LLM-Voice 诊断（研究交付） |
 | `prompts/identity/BIG_OTTER.md` | 修改（prompt） | 「你怎么说话」加一条反 LLM 腔纪律（外科手术级最小增量） |
 | `docs/features/2026/10/30/F20261030lvgov-*.md` | 新增 | 本实现记录 |
@@ -51,15 +51,17 @@ intent:
   flags[] }                               // 人眼速览
 ```
 
-**签名算法**：`前6非标点字字符类别序列|时间词旗|引语旗|长度桶`——把「像不像」转成可比对的 key，同签名 ≥2 章 = 同型（T1/T2）。这是把主观判断机械化的关键设计。
+**签名算法**：`分句结构游程|时间词旗|引语旗|长度桶`——结构游程把连续同类字符压成一个标记（如公文式「X，X，X」→ CPCPC），对子句长短不敏感，把「像不像」转成可比对的 key，同签名 ≥2 章 = 同型（T1/T2）；短句（<8 字）且无标记者不入聚类（签名太粗、巧合多）。这是把主观判断机械化的关键设计。
 
 **阈值启发式而非定罪**：所有判定给「需人眼复核的候选」，fail-safe 方向是宁多报不漏报（比喻密度、句长变异系数、n-gram 分布阈值，均可按语料校准——R 文档第七节）。
 
-**Mechanism 判定**：本特性未经 RA（雷达深挖直产），命中机制识别检查点——**新增检测机制（prose-audit）**。四问：①要解决什么——同型靠人工零星发现（152/177 实证），规模化不足；②为何是机制不是一次性——200+ 章持续产出需持续审计；③后续机制——阈值随语料校准，清单随 tell 演化更新；④退役条件——当模型不再产出可辨识 LLM 腔（Fowler 前瞻），机械维度仍有效、语义维度退役。结论记于此。
+**Mechanism 判定**：本特性未经 RA（雷达深挖直产），命中机制识别检查点——**新增检测机制（prose-audit）**。四问：①要解决什么——同型靠人工零星发现（152/177 实证），规模化不足；②为何是机制不是一次性——200+ 章持续产出需持续审计；③后续机制——阈值随语料校准，清单随 tell 演化更新；④退役条件——当模型不再产出可辨识 LLM 腔（Fowler 前瞻），机械维度仍有效、语义维度退役。
+
+**R8.5 准入三问（如实）**：①决策者变了么——未变，prose-audit 只出候选标记供人复核，不替人定罪/决策；②靠自觉还是靠守卫——**分层如实：脚本提供机械检测层（mechanical detection），但未接 CI/守卫自动强制，质检门的「跑脚本 + 处置 flags」仍靠自觉 + 异体审，属「半机械 + 异体审」，不假称机械托底**（对比 F20261029repin 如实口径）；③深潜成本——降，把「感觉很固定」变成可下钻的数据清单。
 
 ## 四、验证
 
-**测试**：`npx vitest run tests/scripts/prose-audit.test.ts` → **14 passed**。覆盖：签名聚类（公文式开头命中/多变不误报）、跨章 n-gram（「桌子太窄」命中 + 虚词停用）、连接词 tics、节奏均匀度、比喻密度、端到端 auditChapters/loadChapters。
+**测试**：`npx vitest run tests/scripts/prose-audit.test.ts` → **21 passed**。覆盖：签名聚类（公文式开头命中/多变不误报）、markdown 标题剥离（带 `# 第N章` 主场景不误报 + 同公文式仍命中）、短句签名降噪（短收尾不因巧合聚类）、跨章 n-gram（「桌子太窄」命中 + 虚词停用 + `#第N` 不漏）、连接词 tics、节奏均匀度、比喻密度（「影像」不误计 + 真比喻仍计）、端到端 auditChapters/loadChapters。
 
 **CLI 冒烟**（合成同型语料）：2 章公文式开头 + 重复短语 + 高比喻 → 报告命中「公文式时间开头同构 / 收尾句式同构 / 跨章 n-gram 重复 / 比喻密度偏高」4 项 flag，符合预期。
 
@@ -82,11 +84,11 @@ intent:
 ## 六、影响面当场自检
 
 - 新增文档 2（R + F）、脚本 2（audit + README）、测试 1、prompt 增量 1 行级——无既有文档失效。
-- R 文档第五节引用 scripts/prose-audit/ 与 SYSTEM.md「你怎么说话」——实际落点是 prompts/identity/BIG_OTTER.md（「你怎么说话」段所在），索引一致。
+- R 文档第五节引用 scripts/prose-audit/ 与 `prompts/identity/BIG_OTTER.md`「你怎么说话」——落点确在 prompts/identity/BIG_OTTER.md（「你怎么说话」段，本 PR 修改处），索引已对齐（初稿误写 SYSTEM.md，已修正）。
 
 ## 七、产物索引
 
 - 脚本：`scripts/prose-audit/audit.mjs` + `README.md`
-- 测试：`tests/scripts/prose-audit.test.ts`（14 用例绿）
+- 测试：`tests/scripts/prose-audit.test.ts`（21 用例绿）
 - 清单真相源：`docs/research/2026/10/30/R20261030lvtap-llm-voice-text-antipatterns.md`
 - 说话纪律落点：`prompts/identity/BIG_OTTER.md`「你怎么说话」

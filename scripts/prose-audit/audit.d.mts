@@ -59,6 +59,7 @@ export interface AuditReport {
 }
 
 export declare function loadChapters(inputPath: string): Chapter[];
+export declare function stripMarkdownNoise(text: string): string;
 export declare function splitSentences(text: string): string[];
 export declare function sentenceSignature(sentence: string): Signature;
 export declare function clusterBySignature(

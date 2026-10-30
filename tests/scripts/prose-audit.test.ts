@@ -17,6 +17,7 @@ import {
   measureConnectiveTics,
   measureSentenceRhythm,
   measureMetaphorDensity,
+  stripMarkdownNoise,
   auditChapters,
   loadChapters,
 } from '../../scripts/prose-audit/audit.mjs';
@@ -155,5 +156,69 @@ describe('auditChapters + loadChapters（端到端）', () => {
     const chapters = loadChapters(dir);
     const report = auditChapters(chapters);
     expect(report.openingPatterns.length).toBe(0);
+  });
+});
+
+describe('stripMarkdownNoise（标题噪声剥离，S2 主场景回归）', () => {
+  it('去 # 标题行，不把标题当第一句', () => {
+    const t = stripMarkdownNoise('# 第一章 青石埠\n腊月十三，青石埠，七号仓。他走进去。');
+    expect(t).not.toContain('#');
+    expect(t).toContain('腊月十三');
+    expect(splitSentences(t)[0]).toContain('腊月十三');
+  });
+
+  it('带 # 标题的各异章节 → 不误报开头同构（主场景）', () => {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, '01.md'), '# 第一章 青石埠\n腊月十三，青石埠，七号仓。他走进去看了又看，方才转身。');
+    fs.writeFileSync(path.join(dir, '02.md'), '# 第二章 渡口\n那年冬天雪很大，压断了老槐。天亮才停，天地皆白。');
+    fs.writeFileSync(path.join(dir, '03.md'), '# 第三章 刀光\n「谁？」门后有人喝问。他没答，手按上了刀柄。');
+
+    const report = auditChapters(loadChapters(dir));
+    // 标题不入签名后，三章开头各异，不应聚为同型
+    expect(report.openingPatterns.length).toBe(0);
+    expect(report.flags.some((f) => f.includes('开头句式同构'))).toBe(false);
+  });
+
+  it('带标题但同公文式开头 → 仍命中（不因去标题丢真信号）', () => {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, '01.md'), '# 第一章\n腊月十三，青石埠，七号仓。他走进去看了又看。');
+    fs.writeFileSync(path.join(dir, '02.md'), '# 第二章\n腊月十四，青石埠，九号仓。他走出来看了看。');
+    fs.writeFileSync(path.join(dir, '03.md'), '# 第三章\n腊月十五，青石埠，一号仓。他站住了没动。');
+
+    const report = auditChapters(loadChapters(dir));
+    expect(report.flags.some((f) => f.includes('公文式时间开头同构'))).toBe(true);
+  });
+});
+
+describe('短句签名降噪 + 噪声词防误报（S2 子项回归）', () => {
+  it('短收尾（4 字）不因巧合聚类', () => {
+    const chapters = [
+      { name: 'c1', text: '腊月十三，青石埠，七号仓。他走进去。' },
+      { name: 'c2', text: '那年冬天雪很大，压断了老槐。天亮才停。' },
+      { name: 'c3', text: '「谁？」门后有人喝问。他没答。' },
+    ];
+    // 三个短收尾（他走进去/天亮才停/他没答）签名粗，不应报收尾同型
+    const closings = clusterBySignature(chapters, (ch) => splitSentences(ch.text).slice(-1));
+    expect(closings.length).toBe(0);
+  });
+
+  it('「#第N」不漏进 n-gram（markdown 标记被滤）', () => {
+    const chapters = [
+      { name: 'a', text: '# 第15章 旧事\n风从窗缝里灌进来，冷得人发抖。' },
+      { name: 'b', text: '# 第16章 新局\n风从窗缝里灌进来，冷得人发抖。' },
+    ];
+    const grams = crossChapterNGrams(chapters, 4, 2);
+    expect(grams.every((g) => !g.phrase.includes('#'))).toBe(true);
+  });
+
+  it('「影像」的「像」不误计为比喻', () => {
+    const r = measureMetaphorDensity('那幅影像挂在墙上，画像斑驳，雕像蒙尘。');
+    expect(r.count).toBe(0);
+    expect(r.high).toBe(false);
+  });
+
+  it('真比喻仍计（像/仿佛）', () => {
+    const r = measureMetaphorDensity('他像一匹狼般盯着。她仿佛听见了叹息。');
+    expect(r.count).toBeGreaterThan(0);
   });
 });
