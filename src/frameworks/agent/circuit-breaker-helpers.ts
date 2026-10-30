@@ -27,25 +27,13 @@ export interface AttachGuardsParams {
   logger: Logger;
   /** F20260821i336：编排守卫检查函数（可选） */
   orchestrationCheck?: (toolName: string, args?: unknown) => string | null;
-  /** F20260830bsgr：项目根目录（bash 安全守卫读 .otter-buddy.pid 用） */
-  projectRoot?: string;
-  /** F20261014cwsp：session 工作目录（invoke 时的对话工作区）——守卫落点判定基准 */
-  sessionCwd?: string;
-  /** F20261016gsbx 二期 2a/2b：沙箱 spawnHook 真实挂载决策（session 创建点绑定，R-2b）——
-   *  true 时守卫 main_write 文件写族退役；不可用回位（降级不降安全）。 */
-  sandboxGuarded?: boolean;
-  /** F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本；fire-and-forget） */
-  onGuardIntercept?: (input: { command: string; reason: string }) => void;
+  /** F20261030gblkv（guard-v4）：原守卫传参族（projectRoot/sessionCwd/sandboxGuarded/
+   *  onGuardIntercept/guardGateActive）已退役——bash 守卫唯一执行点迁 tool_call 门
+   *  （model-runtime-registry bashGuardGate 直读 store），本链不再涉守卫。 */
   /** F20261020hlbk（#1556）→ F20261027cbfp（#1653）：per-invoke 循环硬熔断标记（签名→理由）。
    *  写入时机（两条件或）：terminate（strike 涨满）/ repeatOffender（同签名第 2 次 steer，复犯）。
    *  首次 steer 不写（纯警告）；tool_call 门（loopBlockGuard）读到即物理阻断该签名后续调用。 */
   loopBlockedTools?: Map<string, string>;
-  /** F20261026gobs delta-r1（检视獭1646 S3）：tool_call 门（bashGuardGate）激活探测——
-   *  门激活时 bash 守卫判定由门单点拦下（显式 reason 落痕），abort 链不双拦
-   *  （SDK signal.aborted 会覆盖门的 reason）；门失活时 abort 链兑底。 */
-  guardGateActive?: () => boolean;
-  /** F20261019gses P0 影子下线：onShadowEval（观察期对照回调）已删——主判定切
-   *  evaluateWriteVerdict 后无「旧链 vs 新链」对照面。 */
 }
 
 /** _attachGuards 返回类型 */
@@ -74,7 +62,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
       logger.warn(`[halt] abort 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
     });
   };
-  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, projectRoot: params.projectRoot, sessionCwd: params.sessionCwd, onGuardIntercept: params.onGuardIntercept, sandboxGuarded: params.sandboxGuarded, loopBlockedTools: params.loopBlockedTools, guardGateActive: params.guardGateActive });
+  const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, loopBlockedTools: params.loopBlockedTools });
   timerRef.clear = clearEventTimer;
   /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
   const cb = getConfig().circuitBreaker;
@@ -199,7 +187,7 @@ export function attachCircuitBreaker(
   otterId: string,
   circuitBreakerConfig: CircuitBreakerConfig,
   logger: Logger,
-  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; projectRoot?: string; sessionCwd?: string; onGuardIntercept?: (input: { command: string; reason: string }) => void; sandboxGuarded?: boolean; loopBlockedTools?: Map<string, string>; guardGateActive?: () => boolean },
+  options?: { abortOverride?: (reason?: string) => void; orchestrationCheck?: (toolName: string, args?: unknown) => string | null; loopBlockedTools?: Map<string, string> },
 ): { circuitBreaker: ToolCallCircuitBreaker; unregisterToolCall: (() => void) | undefined; clearEventTimer: (toolCallId?: string) => void } {
   const circuitBreaker = new ToolCallCircuitBreaker(circuitBreakerConfig, otterId, logger);
   const doAbort = options?.abortOverride ?? (() => { session.abort(); });

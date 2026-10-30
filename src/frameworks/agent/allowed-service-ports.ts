@@ -83,7 +83,7 @@ export function extractWhitelistedPortRefs(command: string, allowed: AllowedServ
     // lsof 参数中的端口引用：`-i:PORT` / `-i :PORT` / `-ti:PORT`（-t 与 -i 组合短参）。
     // 数字前必须有 `:`（lsof -i 语法），冒号前必须挂着字母（参数名）——
     // 避免把无关数字（日期/PID）当端口。
-    const re = new RegExp(`(?:^|\\s)-t?[a-z]*\\s*:${s.port}\\b`);
+    const re = new RegExp(`(?:^|\\s)-t?[a-zA-Z]*\\s*:${s.port}\\b`); // [a-zA-Z]*：覆盖 -tiTCP:PORT 协议限定形态（#844 现场）
     if (re.test(command)) hits.push(s.port);
   }
   return hits;

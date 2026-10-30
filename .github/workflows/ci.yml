@@ -140,6 +140,36 @@ jobs:
       - name: Run tests
         run: npm test
 
+  # F20261030gblkv（guard-v4）：守卫真机验证 job——10-29 全部事故（#1694/1695/1697/1698/1699）
+  # 的共同根源=守卫改动从未在真机验证（CI 全 Linux、本机沙箱不可嵌套）。守卫的进程
+  # 身份三查（ps/lsof/PID 文件）与 OS 行为强相关，macOS 是生产运行环境——本 job 在
+  # macOS 真机上跑守卫回放库与 kill 族单测，堵「守卫改动从未真机验证」盲区。
+  # 范围窄化：只跑守卫相关测试（不重复主 check job 的全量面），反馈快且不挤公共资源。
+  guard-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Upgrade npm to match local version
+        run: npm install -g npm@11.17.0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run guard replay + kill-finder 依赖单测
+        run: npx vitest run tests/guard/ tests/frameworks/agent/allowed-service-ports.test.ts
+
   # F20260920ecig（#1058）：SPA e2e 冒烟闸门——四轮对抗循环三次实证「静态检查绿 ≠ 运行时没崩」
   # （TS 编译过但设置页白屏 D1、断言改了但恒假 D3），真机验证必须进 CI 拦合入。
   # 流水线与本地完全同构：scripts/e2e-server.sh run（起服务→playwright→停服务，trap 始终清理）。

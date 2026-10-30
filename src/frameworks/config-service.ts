@@ -133,6 +133,13 @@ export interface AppConfig {
     /** F20260831cbkw：熔断创建的 session 年龄窗口阈值（ms）——超过此时间视为「已证明健康」，允许再次熔断 */
     healthySessionThresholdMs: number;
   };
+  /** F20261030gblkv（guard-v4）：bash 守卫协作域名表——B 类外发判定用。
+   *  搭档专改（主仓文件走 PR，獭无权扩表防注入自放行）；缺省用守卫内置缺省表，
+   *  显式空数组 = fail-closed（一切外发域名都拦）。 */
+  bashGuard?: {
+    /** 允许 POST/PUT 外发的域名白名单（后缀匹配，含子域） */
+    allowedEgressDomains?: string[];
+  };
   /** 微信通道（issue #565）——协议直连 ilink，无需 appId/Secret（扫码授权） */
   weixin?: {
     /** ilink 网关 base URL（默认 https://ilinkai.weixin.qq.com） */
@@ -288,6 +295,10 @@ interface RawConfig {
     /** F20260920uhuc 需求变更（2026-09-20）：compactionReserveTokens 退役（按模型
      *  handoffThresholdTokens 直给制取代，见 ModelConfig）；此键残留时 validate 报错引导迁移 */
     sdkOverflowReserveTokens?: number;
+  };
+  /** F20261030gblkv（guard-v4）：bash 守卫协作域名表（B 类外发判定） */
+  bashGuard?: {
+    allowedEgressDomains?: string[];
   };
   circuitBreaker?: {
     maxToolCalls?: number;
@@ -566,6 +577,12 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   return { baseUrl: raw.web.baseUrl };
 }
 
+/** F20261030gblkv（guard-v4）：bash 守卫域名表归一——缺省 undefined（守卫内置缺省表），
+ *  透传配置值（显式空数组= fail-closed 语义在守卫内，此处不夏改） */
+function buildBashGuardConfig(raw: RawConfig): AppConfig["bashGuard"] {
+  return raw.bashGuard ? { allowedEgressDomains: raw.bashGuard.allowedEgressDomains } : undefined;
+}
+
 /** 将 RawConfig 补全默认值，构建 AppConfig。F20260915cfgt：features/attachments 归一化拆至 features-config.ts */
 function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelConfig[] } }, logger?: Logger): AppConfig {
   return {
@@ -609,6 +626,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
       sessionPoolIdleTtlMinutes: raw.llm.sessionPoolIdleTtlMinutes ?? 30,
     },
     circuitBreaker: buildCircuitBreakerConfig(raw),
+    bashGuard: buildBashGuardConfig(raw),
     weixin: buildWeixinConfig(raw),
     im: buildImConfig(raw),
     inbound: buildInboundConfig(raw),

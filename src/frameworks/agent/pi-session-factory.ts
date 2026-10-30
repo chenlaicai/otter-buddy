@@ -1118,6 +1118,9 @@ export class PiSessionFactory implements AgentGateway {
     // attachGuards（abort 兜底链）同点求值，防门与 abort 判定分歧（R-2b）。
     const guardProjectRoot = getRepoRoot();
     const guardSessionCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
+    // F20261030gblkv（guard-v4）：B 类外发判定域名表（config.yaml bashGuard.allowedEgressDomains，
+    // 搭档专改）。缺省 undefined → 守卫内置缺省表；显式空数组 = fail-closed。
+    const guardAllowedEgressDomains = getConfig().bashGuard?.allowedEgressDomains;
     const guardOnIntercept = this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     // F20261027lbos（#1656）：循环硬熔断门拦截落 healing（loop_tool_block）——b2 残余
     // 误伤面（#1653 D1-1）的唯一观测源。与 guardOnIntercept 同模式：fire-and-forget，
@@ -1125,18 +1128,16 @@ export class PiSessionFactory implements AgentGateway {
     const loopBlockOnIntercept = this.buildLoopBlockInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     return await otterInvokeStorage.run(
       // F20260826mwrd C1：otterId 进 store——tool_call handler 查 halt 标用
-      { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardOnIntercept },
+      { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardAllowedEgressDomains, guardOnIntercept },
       // eslint-disable-next-line max-statements, complexity -- F20260908rlcp: pool hit/miss 两条路径 + startup cursor push；F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
       async () => {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）
         this.logger.debug('[execute] Using pooled session', { otterId, sessionKey });
 
-        // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）+ 守卫拦截 healing（F20260831aksp T3）
-        //    F20261016gsbx 二期 2a/2b：sandboxGuarded 消费 session 创建点绑定的挂载决策位
-        //   （WeakMap，与 spawnHook 挂载同一次 probeSandboxAvailability 结果）——R-2b 约束：
-        //    探测与挂载不可能分歧（分歧=裸跑零告警的最危险模式）；沙箱接防时守卫
-        //    main_write 族退役（G3 枚举表）；不可用时写面回位（降级不降安全）。
-        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), projectRoot: guardProjectRoot, sessionCwd: guardSessionCwd, onGuardIntercept: guardOnIntercept, loopBlockedTools, guardGateActive: () => otterInvokeStorage.getStore()?.guardProjectRoot != null });
+        // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）+ 循环熔断拦截 healing（F20261020hlbk）。
+        //    F20261030gblkv（guard-v4）：bash 守卫已迁 tool_call 门（model-runtime-registry
+        //    bashGuardGate 直读 store 的 guard* 参数），不再经本链传参。
+        const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), loopBlockedTools });
 
         // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);
