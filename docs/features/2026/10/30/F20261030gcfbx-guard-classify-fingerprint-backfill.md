@@ -1,15 +1,16 @@
 ---
 id: F20261030gcfbx
-title: 守卫拦截分类器指纹表对 guard-v4 全量重对齐（26→7 条），恢复 1c 机械分账
+title: 守卫拦截分类器指纹表对 guard-v4 全量重对齐（main 实存 22→9 条），恢复 1c 机械分账
 summary: |
   本 PR 原为「补 8 条 v3 指纹缺口」（T4 复盘门 10/26 触发）；rebase 上 main 时
   遭遇 #1702 守卫重建清场 + #1711 guard-v4 重写——v3 全部守卫文案发射点消亡，
   分类器指纹表与现实整体脱节（40 条测试 29 红），按「PR 语义随 main 演化」重定位
-  为 v4 全量重对齐：死指纹整体退役（26→7 条），guard-v4 七条活文案（第一站杀进程
+  为 v4 全量重对齐：死指纹整体退役（main 实存 22 条→9 条，含本分支前版补的 7 条
+  v3 指纹一并退役），guard-v4 七条活文案（第一站杀进程
   判定 4 条 + 第二站黑名单三类 3 条）全量入表，真实探针回归重写（21 条，processProbe
   桩对齐 replay 基建）。连带修复 agent-invoker-guard-bounce 2 条 v3 mock 文案依赖。
 change_type: fix
-capability_test: "n/a: fix 类（观测层分类映射重对齐，不涉能力面）——回归由 tests/frameworks/agent/guard-intercept-classify.test.ts 21 条探针承担"
+capability_test: "n/a: fix 类（观测层分类映射重对齐，不涉能力面）——回归由 tests/frameworks/agent/guard-intercept-classify.test.ts 22 条探针承担"
 created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
 created_at: 2026-10-30
 causal_links:
@@ -42,7 +43,11 @@ causal_links:
 
 ## 变更内容
 
-### 指纹表重对齐（26→7 条 + 结构化前缀 + sleep 历史指纹）
+### 指纹表重对齐（main 实存 22 条 → 9 条 + 结构化前缀）
+
+> 计数口径（检视 S4 处置）：22 = origin/main 上 FINGERPRINTS 实存条目数（含 v3 版本
+> 落 main 的 15 条）；9 = 本 PR 后实存（前缀 1 + kill 族 4 + 黑名单 3 + 表内 sleep 删除）。
+> 此前文案「26→7」把从未落 main 的本分支前版 7 条补条计入分母，不可复现，弃用。
 
 | v4 活文案（bash-safety-guard.ts） | ruleId | layer | id 取舍 |
 |---|---|---|---|
@@ -50,20 +55,23 @@ causal_links:
 | INDIRECT_KILL_BLOCK_MSG（变量/命令替换目标） | self_kill_nonliteral | self_kill | 复用旧 id（语义未变，healing 聚合连续） |
 | PKILL_OTTER_BLOCK_MSG（pkill/killall 特征名） | self_kill_byname | self_kill | 复用旧 id（同语义） |
 | BROADCAST_KILL_BLOCK_MSG（kill -1 / -- -PGID） | self_kill_process_group | self_kill | 复用旧 id（同语义） |
-| 凭证目录禁止访问（A 类黑名单） | cred_dir_access | permission | 新 id（v4 新机制） |
-| 向非协作域名上传数据（B 类，含 fail-closed 分支同文案） | network_exfil | permission | 复用旧 id（S5 外发面语义延续） |
+| 凭证目录禁止访问（A 类黑名单） | cred_dir_access | bypass_guard | 新 id（v4 新机制；检视 S2：守卫边界层非 permission） |
+| 向非协作域名上传数据（B 类，含 fail-closed 分支同文案） | network_exfil | bypass_guard | 复用旧 id（S5 外发面语义延续）；层挂靠改 bypass_guard（检视 S2） |
 | 「下载即执行」（C 类，管道+进程替换同文案） | download_exec | bypass_guard | 新 id（v4 新机制） |
 
-保留的活通道：`[file-tool-guard]` 结构化前缀（#1661 引入，v4 未变）、sleep_block
-历史指纹（发射点 stripSleepMarkerIfPresent 兼容层仍在，历史台账文案仍可分类；拦截
-本体已随 v4 退役为软约束）。
+保留的活通道：`[file-tool-guard]` 结构化前缀（#1661 引入，v4 未变）。sleep_block
+指纹删除（检视 S3 处置）：拦截本体随 v4 退役，src/ 文案零发射点（兼容层只剩前缀
+剥离，非发射点）；分类是拦截时点行为、无台账重分类路径，历史事件已按当时 ruleId
+落库——指纹保留无消费者，删。
 
-退役的死指纹（26 条）：v3 kill 族 7 细分（literal/pidfile/pipe_shell/script/eval/
-script_stop/indirect）、脚本执行 2（script_file_exec/alias_shell_payload 双指纹）、
-C2 载荷族 4（stdin_shell_opaque/stdin_interp_payload/heredoc_payload/heredoc_shell_payload）、
+退役的死指纹（main 实存 22 条中的 13 条 + 本分支前版补的 7 条 + sleep_block，共 21）：
+v3 kill 族 7 细分（literal/pidfile/pipe_shell/script/eval/script_stop/indirect）、
+脚本执行 2（script_file_exec/alias_shell_payload 双指纹）、C2 载荷族 4
+（stdin_shell_opaque/stdin_interp_payload/heredoc_payload/heredoc_shell_payload）、
 wrapper_saturated、main_write 族 4（main_write/main_write_resolve/data_destructive
-双形态）、git 域 2（protected_push/git_dir_write）、pr_merge。以上发射点全部随
-#1702 清场消亡（main 上零 grep 命中，kill-block-messages.ts 已成孤儿模块）。
+双形态）、git 域 2（protected_push/git_dir_write）、pr_merge、sleep_block。
+以上发射点全部随 #1702 清场消亡（main 上零 grep 命中，kill-block-messages.ts
+已成孤儿模块）。
 
 ### 测试重写（40 条 → 21 条，真实探针 = guard-v4 真实判定）
 
@@ -97,13 +105,31 @@ GB-6a/GB-6e 的 mock 拦截文案是 v3 死文案（main_write/kill literal）�
   Class: narrow-fix。
 - **最简实现检查**：已过——指纹表数据重写 + 测试重写，无新代码路径、无新依赖。
 
+## 对抗审视留痕（v4 重对齐轮，2026-10-31）
+
+检视獭-1638（mimo-pro，异体异模型）：**1 严重 + 3 建议**，全部落作者焦点清单之外
+（防锚定披露）。逐条核实后全部采纳处置：
+
+- **S1（严重）宪法挂靠总表未同步** ✅ 采纳：docs/designs/bash-guard-constitution.md
+  分层表右列重写（v3 15 id → v4 9 id），L3 permission 标注「无守卫拦截规则」（PR 合入
+  闸在 merge_pr 工具层）、L5 habit 标注空（sleep 拦截退役）、黑名单三类挂 L4。
+- **S2（建议）黑名单三类层挂靠 permission 语义错位** ✅ 采纳：cred_dir_access /
+  network_exfil 改挂 bypass_guard（凭证/数据不进獭上下文是守卫边界完整性；permission
+  层语义是对外制度动作）；retry-policy 高危集合（self_kill/bypass_guard）自此覆盖
+  黑名单——3 连拦走中性化文案，不预判「大概率误拦」诱导放行凭证访问（#1360 §3.5）。
+  GB-6a 低危层示例同步换 file-tool-guard/main-repo-write（r1_gate 通道）。
+- **S3（建议）sleep_block 保留理由失实** ✅ 采纳：指纹删除。机械核实：sleep 文案
+  src/ 零发射点（仅剩前缀剥离兼容层），分类无台账重分类路径，指纹无消费者。
+- **S4（建议）「26→7」计数不可复现** ✅ 采纳：全文档口径改「main 实存 22 条→9 条」，
+  声明此前口径误差来源（把从未落 main 的分支补条计入分母）。
+
 ## 验证
 
 ### 失败证据（bugfix 硬规则）
 
 - 重对齐前（新 main + 旧分支内容恢复后）：guard-intercept-classify.test.ts
   **29 failed / 11 passed（40 条）**——全部 v3 探针/文案依赖；
-- 重对齐后：同文件 **21/21 passed**；全量 `npx vitest run` **421 文件 / 5567 passed**；
+- 处置后：同文件 **22/22 passed**（S2 层断言 + sleep 死指纹反转用例）；全量 `npx vitest run` **421 文件 / 5567 passed**；
   `npx eslint src/ tests/` 零告警；`npx tsc --noEmit` 零错。
 
 ### 验收标准（可机械断言）

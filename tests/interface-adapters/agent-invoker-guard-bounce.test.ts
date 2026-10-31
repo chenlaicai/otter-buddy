@@ -464,17 +464,19 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
   });
   it("GB-6a：3 连 bounce 命中同一低危规则（main_write/r1_gate）→ 疑似误拦降级：含「大概率误拦」判断 + 命令摘要取最新 + suspected_false_positive 落账", async () => {
     const sendEntry = mockSendEntry();
-    // 低危层规则：cred_dir_access（permission）——文案保留「大概率误拦」预判；
-    // guardReason 对齐 guard-v4 真实拦截文案（分类归一 currentRuleId/ruleLayer）
-    const credDirReason = "bash_safety:凭证目录（ssh/gnupg/aws 家目录）禁止访问——密钥/凭证不进獭上下文。如确需相关操作请告知搭档人工执行。";
+    // 低危层规则：file-tool-guard/main-repo-write（r1_gate）——文案保留「大概率误拦」预判；
+    // guardReason 需带 bash_safety: 前缀（orchestrator.ts:575 bounce 识别链路要求）+
+    // file-tool-guard 结构化文案（v4 下活着的低危通道；检视 S2 处置：原示例 cred_dir_access
+    // 已改挂 bypass_guard 高危层，不再适合做低危层示例）
+    const mainWriteReason = "bash_safety:[file-tool-guard] write.mkdir 拒绝（ruleId=file-tool-guard/main-repo-write）：目标不在允许写区";
     const healing = mockHealingRepo([
       // 拦截结构化事件（旧→新插入；findRecentByOtter mock DESC 序——数组末位 = 最新）；
       // bounce:true 计数事件与结构化事件并存（对齐生产：每轮 bounce 拦截两类都落）
-      ...seedBounceRound("cred_dir_access", "permission", "cat cred/id_rsa old"),
-      ...seedBounceRound("cred_dir_access", "permission", "cat cred/id_rsa mid"),
-      ...seedBounceRound("cred_dir_access", "permission", "cat cred/id_rsa latest"),
+      ...seedBounceRound("file-tool-guard/main-repo-write", "r1_gate", "mkdir new-dir old"),
+      ...seedBounceRound("file-tool-guard/main-repo-write", "r1_gate", "mkdir new-dir mid"),
+      ...seedBounceRound("file-tool-guard/main-repo-write", "r1_gate", "mkdir new-dir latest"),
     ]);
-    const invoke = mockAgentInvoke([{ guard: 2 }], credDirReason);
+    const invoke = mockAgentInvoke([{ guard: 2 }], mainWriteReason);
     const invoker = new AgentInvoker(
       invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
       mockManageSession, queryOtter, createTestLogger(),
@@ -492,14 +494,14 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     // P0-2：同规则 3 连且非 unknown → 疑似误拦降级通道：sendSystem 是「疑似误拦」文案（非「已停止自动回发并中断其发言」）
     const fpMsg = sendEntry.store.systemBodies.find(b => b.includes("疑似误拦"));
     expect(fpMsg).toBeTruthy();
-    expect(fpMsg).toContain("cred_dir_access");
+    expect(fpMsg).toContain("file-tool-guard/main-repo-write");
     expect(fpMsg).toContain("请人工核实");
     // 低危层（r1_gate）保留「大概率误拦」预判
     expect(fpMsg).toContain("大概率是守卫误拦");
     expect(fpMsg).not.toContain("已停止自动回发并中断其发言");
     // §3.2 处置：命令摘要取最新一次（DESC 序 events[0]，非最旧）——钉住「取最新」防回退
-    expect(fpMsg).toContain("cat cred/id_rsa latest");
-    expect(fpMsg).not.toContain("cat cred/id_rsa old");
+    expect(fpMsg).toContain("mkdir new-dir latest");
+    expect(fpMsg).not.toContain("mkdir new-dir old");
     // 降级通道：invoke 终态 failed（非 aborted——保留手动重试空间，与真违规 abort 区分）
     const fpFail = sendEntry.store.invokeEndCalls.filter(e => e.status === "failed");
     expect(fpFail).toHaveLength(1);
