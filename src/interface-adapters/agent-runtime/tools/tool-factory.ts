@@ -955,7 +955,41 @@ async function verifyPartnerApproval(
 }
 
 /** merge_pr 子步骤：审计双通道落痕（linked_resources 主 + warn 日志跨对话兜底）。
- *  审计附原话命中锚点（entryId/seq/createdAt）——事后可回查授权语境。 */
+ *  审计附原话命中锚点（entryId/seq/createdAt）——事后可回查授权语境。
+ *  F20261031mrajd（#1440）：泛化为 merge 授权事件双通道——拒绝路径（原话未命中/时间闸/
+ *  短话术闸）同落 linked_resources（content 首 token AUTHORIZATION_REJECTED + 拒绝码，
+ *  与成功授权同 category=merge-authorization，单 PR 授权全景一次查全）；判定语义零改动
+ *  （fail-closed 不变），审计写入失败不阻断主行为（拒绝仍是拒绝，合入仍继续——non-fatal
+ *  同既有模式）。 */
+/** merge_pr 子步骤：审计记录构造（纯函数，成功/拒绝两形态）。
+ *  命中 entry 原文（剥围栏后截断）进审计——断章核对一眼化：只看审计即可见「授权出自什么语境」。 */
+function buildMergeAuditRecord(
+  info: {
+    prNumber: number;
+    strategy: string;
+    partnerApproval: string;
+    approvalAnchor?: { id: string; sequenceNum: number; createdAt: string; body?: string };
+    rejected?: { reasonCode: string; reasonBrief: string };
+  },
+  otterId: string,
+): { title: string; content: string } {
+  const { prNumber, strategy, partnerApproval, approvalAnchor, rejected } = info;
+  const hitExcerpt = approvalAnchor?.body ? `原文「${approvalAnchor.body.slice(0, 80)}」` : "";
+  const anchorDesc = approvalAnchor
+    ? `，命中锚点 entryId=${approvalAnchor.id} seq=${approvalAnchor.sequenceNum} createdAt=${approvalAnchor.createdAt} ${hitExcerpt}`.trimEnd()
+    : "（原话校验锚点缺失——拒绝时说明引用文本未命中任何搭档消息）";
+  if (rejected) {
+    return {
+      title: `PR #${prNumber} 合入授权拒绝记录`,
+      content: `PR #${prNumber} 合入授权拒绝（AUTHORIZATION_REJECTED ${rejected.reasonCode}）：搭档原话「${partnerApproval}」${anchorDesc}（拒绝理由：${rejected.reasonBrief}，调用獭 ${otterId}）`,
+    };
+  }
+  return {
+    title: `PR #${prNumber} 合入授权记录`,
+    content: `PR #${prNumber} 合入授权：搭档原话「${partnerApproval}」${anchorDesc}（策略 ${strategy}，调用獭 ${otterId}）`,
+  };
+}
+
 async function writeMergeAudit(
   ctx: ToolContext,
   logger: Logger | undefined,
@@ -964,54 +998,64 @@ async function writeMergeAudit(
     strategy: string;
     partnerApproval: string;
     approvalAnchor?: { id: string; sequenceNum: number; createdAt: string; body?: string };
+    rejected?: { reasonCode: string; reasonBrief: string };
   },
 ): Promise<void> {
-  const { prNumber, strategy, partnerApproval, approvalAnchor } = info;
-  // 命中 entry 原文（剥围栏后截断）进审计——断章核对一眼化：只看审计即可见「授权出自什么语境」
-  const hitExcerpt = approvalAnchor?.body ? `原文「${approvalAnchor.body.slice(0, 80)}」` : '';
-  const anchorDesc = approvalAnchor
-    ? `，命中锚点 entryId=${approvalAnchor.id} seq=${approvalAnchor.sequenceNum} createdAt=${approvalAnchor.createdAt} ${hitExcerpt}`.trimEnd()
-    : '（原话校验锚点缺失）';
-  const auditContent = `PR #${prNumber} 合入授权：搭档原话「${partnerApproval}」${anchorDesc}（策略 ${strategy}，调用獭 ${ctx.otterId}）`;
+  const { prNumber, strategy, partnerApproval, rejected } = info;
+  const { title, content } = buildMergeAuditRecord(info, ctx.otterId);
   try {
     await ctx.client.resource.link({
       conversationId: ctx.conversationId,
       resourceType: "fact",
       category: "merge-authorization",
-      title: `PR #${prNumber} 合入授权记录`,
-      content: auditContent,
+      title,
+      content,
       linkedBy: ctx.otterId,
     });
   } catch (err) {
-    // 审计主通道失败不阻断合入，但必须有日志兜底
-    logger?.warn("[merge_pr] audit linked_resource failed (non-fatal)", { prNumber, error: err instanceof Error ? err.message : String(err) });
+    // 审计主通道失败不阻断主行为（拒绝/合入均继续），但必须有日志兜底
+    logger?.warn("[merge_pr] audit linked_resource failed (non-fatal)", { prNumber, reasonCode: rejected?.reasonCode, error: err instanceof Error ? err.message : String(err) });
   }
-  logger?.warn(`[merge_pr] AUTHORIZATION prNumber=${prNumber} strategy=${strategy} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
+  if (rejected) {
+    logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED ${rejected.reasonCode} prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)} audit=linked_resource_fallthrough`);
+  } else {
+    logger?.warn(`[merge_pr] AUTHORIZATION prNumber=${prNumber} strategy=${strategy} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
+  }
 }
-
 /** #1431 授权时效/精确性闸（方案 A + C）。
  *  时间维度：命中消息必须严格晚于 PR 创建——过期授权（针对更早 PR 的原话，含重放/注入区历史消息）一律拒绝。
  *  事故锚：2026-10-10 PR #1427 被 36 分钟前针对 #1422 的原话「合入了，你继续」误授权合入（原话真实存在但指向别的 PR）。
  *  通用短话术：「合入了」「继续」等短话术天然易跨 PR 误配——含目标 PR 号才算精确授权。
- *  @returns 拒绝理由文本；null = 闸门放行 */
+ *  F20261031mrajd（#1440）：返回结构化拒绝（reasonCode 供审计落痕 + 用户文案原样）；null = 放行。
+ *  判定语义零改动——只是把「只落 warn 日志」的拒绝事件补上 linked_resources 审计通道。 */
+interface ApprovalGateRejection {
+  reasonCode: string;
+  userMessage: string;
+}
 function checkApprovalGates(
   ctx: ToolContext,
   logger: Logger | undefined,
   info: { prNumber: number; partnerApproval: string; approvalAt: string; prCreatedAt: string },
-): string | null {
+): ApprovalGateRejection | null {
   const { prNumber, partnerApproval, approvalAt, prCreatedAt } = info;
   const hitMs = Date.parse(approvalAt);
   const prMs = Date.parse(prCreatedAt);
   // 解析异常（NaN）同样拒：fail-open 会静默跳过时间闸，与 fail-closed 承诺矛盾
   if (Number.isNaN(hitMs) || Number.isNaN(prMs) || hitMs <= prMs) {
     logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED stale_or_unparseable_approval prNumber=${prNumber} otter=${ctx.otterId} approvalAt=${approvalAt} prCreatedAt=${prCreatedAt}`);
-    return `[错误] 无法确认授权原话时间（${approvalAt}）严格晚于 PR 创建时间（${prCreatedAt}）——疑似针对其他 PR 的过期授权或时间数据异常，拒绝合入（未执行）。请搭档针对本 PR 显式确认（带 PR 号，如「${prNumber}合入」）后重试。`;
+    return {
+      reasonCode: "stale_or_unparseable_approval",
+      userMessage: `[错误] 无法确认授权原话时间（${approvalAt}）严格晚于 PR 创建时间（${prCreatedAt}）——疑似针对其他 PR 的过期授权或时间数据异常，拒绝合入（未执行）。请搭档针对本 PR 显式确认（带 PR 号，如「${prNumber}合入」）后重试。`,
+    };
   }
   // 含号判定用数字边界匹配：「1437合」不算命中目标 #437（数字子串方向 fail-close）
   const hasPrecisePrRef = new RegExp(`(?<!\\d)${prNumber}(?!\\d)`).test(partnerApproval);
   if (countSubstantive(partnerApproval) < 6 && !hasPrecisePrRef) {
     logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED vague_short_approval prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
-    return `[错误] 「${partnerApproval}」是通用短话术且未提及本 PR（#${prNumber}）——短话术跨 PR 误配风险高，请搭档显式确认（带 PR 号，如「${prNumber}合入」）后重试。`;
+    return {
+      reasonCode: "vague_short_approval",
+      userMessage: `[错误] 「${partnerApproval}」是通用短话术且未提及本 PR（#${prNumber}）——短话术跨 PR 误配风险高，请搭档显式确认（带 PR 号，如「${prNumber}合入」）后重试。`,
+    };
   }
   return null;
 }
@@ -1032,7 +1076,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
     execute: async (_id: string, params: Record<string, unknown>) => {
       const prNumber = params.prNumber as number;
       const partnerApproval = (params.partnerApproval as string)?.trim();
-      const strategy = (params.strategy as string) || "squash";
+      const strategy = ((params.strategy as string) || "squash");
       if (!prNumber || prNumber <= 0) {
         return errorResponse("[错误] prNumber 必须是正整数");
       }
@@ -1045,17 +1089,28 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
       // 位于 PR 状态门之后、审计/执行之前——未命中不落审计不执行 merge（拒绝事件落 warn 日志可观测）。
       const approvalCheck = await verifyPartnerApproval(ctx, partnerApproval);
       if ("error" in approvalCheck) {
-        logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
+        logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED approval_not_found prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
+        // F20261031mrajd（#1440）：拒绝补审计（判定不变）；子形态由 userMessage 区分，审计码统一
+        const notFoundBrief = "引用文本未逐字命中搭档历史消息（含查询 fail-closed / 无实义内容形态）";
+        await writeMergeAudit(ctx, logger, { prNumber, strategy, partnerApproval, rejected: { reasonCode: "approval_not_found", reasonBrief: notFoundBrief } });
         return approvalCheck.error;
       }
       // #1431 时间维度闸 + 通用短话术闸（方案 A + C）：过期授权/短话术误配一律拒绝（细节见 checkApprovalGates）。
-      const gateError = checkApprovalGates(ctx, logger, {
+      const gateRejection = checkApprovalGates(ctx, logger, {
         prNumber,
         partnerApproval,
         approvalAt: approvalCheck.hit.createdAt,
         prCreatedAt: gate.createdAt,
       });
-      if (gateError) return errorResponse(gateError);
+      if (gateRejection) {
+        // F20261031mrajd（#1440）：闸拒绝落审计（含命中锚点——过期授权重放最需证据面）
+        await writeMergeAudit(ctx, logger, {
+          prNumber, strategy, partnerApproval,
+          approvalAnchor: approvalCheck.hit,
+          rejected: { reasonCode: gateRejection.reasonCode, reasonBrief: gateRejection.userMessage.slice(0, 120) },
+        });
+        return errorResponse(gateRejection.userMessage);
+      }
       // 审计先落（执行失败也留有授权依据记录），再执行合入。
       // 工具内部 exec 通道——不过 bash 守卫，与 halt_otter 等管理工具同型。
       await writeMergeAudit(ctx, logger, { prNumber, strategy, partnerApproval, approvalAnchor: approvalCheck.hit });

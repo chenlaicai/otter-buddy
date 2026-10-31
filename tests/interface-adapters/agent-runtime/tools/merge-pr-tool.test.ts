@@ -155,7 +155,7 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
   /** 事故重放：2026-09-29 PR #1201 合入，partnerApproval 塞的是自我推理文本 */
   const INCIDENT_TEXT = '已合入——不对，搭档在 #1201 的授权不是这句，此处授权不明确，应先确认';
 
-  it('事故重放：推理/拼接文本非搭档消息子串 → 拒绝执行，不落审计不执行 merge', async () => {
+  it('事故重放：推理/拼接文本非搭档消息子串 → 拒绝执行不 merge；#1440 起拒绝也落审计（REJECTED 码 + 原话全文）', async () => {
     stubGh('OPEN');
     const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
     const logger = makeLogger();
@@ -163,7 +163,14 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
     const result = await tool.execute('v1', { prNumber: 1201, partnerApproval: INCIDENT_TEXT });
     expect(JSON.stringify(result)).toContain('未在搭档历史消息中命中');
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
-    expect(linkMock).not.toHaveBeenCalled();
+    // F20261031mrajd（#1440）：拒绝路径审计双通道——linked_resources 落 REJECTED 事实
+    expect(linkMock).toHaveBeenCalledOnce();
+    const linkArg = linkMock.mock.calls[0]![0];
+    expect(linkArg.category).toBe('merge-authorization');
+    expect(linkArg.content).toContain('AUTHORIZATION_REJECTED approval_not_found');
+    expect(linkArg.content).toContain(INCIDENT_TEXT.slice(0, 10)); // 被拒原话全文进审计（可回查）
+    const warnCalls = logger.warn.mock.calls.map(c => String(c[0]));
+    expect(warnCalls.some(m => m.includes('AUTHORIZATION_REJECTED approval_not_found'))).toBe(true);
   });
 
   it('拼接绕过固化：「1095」与「合入」分属两条消息，拼接串 → 拒绝', async () => {
@@ -180,7 +187,7 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
   });
 
-  it('getEntries 查询失败 → fail-closed 拒绝（不执行 merge 不落审计）', async () => {
+  it('getEntries 查询失败 → fail-closed 拒绝不 merge；#1440 起拒绝也落审计（fail-closed 尝试可回查）', async () => {
     stubGh('OPEN');
     const getEntriesMock = vi.fn().mockRejectedValue(new Error('db locked'));
     const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
@@ -188,7 +195,8 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
     const result = await tool.execute('v3', { prNumber: 1095, partnerApproval: '1095合入，你更新下' });
     expect(JSON.stringify(result)).toContain('fail-closed');
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
-    expect(linkMock).not.toHaveBeenCalled();
+    expect(linkMock).toHaveBeenCalledOnce();
+    expect(linkMock.mock.calls[0]![0].content).toContain('AUTHORIZATION_REJECTED approval_not_found');
   });
 
   it('user entries 为空 → 拒绝（无原话不允许使用）', async () => {
@@ -364,7 +372,7 @@ describe('#1431 时间维度闸（过期原话不得授权）+ 通用短话术�
     execFileMock.mockReset();
   });
 
-  it('T1a 事故重放：原话时间早于 PR 创建 → 拒绝（疑似针对其他 PR 的过期授权），不 merge 不落审计', async () => {
+  it('T1a 事故重放：原话时间早于 PR 创建 → 拒绝不 merge；#1440 起拒绝落审计（含命中锚点——过期授权重放最需证据面）', async () => {
     // 事故锚（#1431）：原话 seq 443 @ 07:29:02Z 针对 #1422；PR #1427 创建于 08:05:02Z——原话早于 PR 存在 36 分钟
     stubGh('OPEN', '2026-10-10T08:05:02.000Z');
     const entries = [
@@ -376,7 +384,10 @@ describe('#1431 时间维度闸（过期原话不得授权）+ 通用短话术�
     const result = await tool.execute('t1a', { prNumber: 1427, partnerApproval: '合入了，你继续' });
     expect(JSON.stringify(result)).toContain('过期授权');
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
-    expect(linkMock).not.toHaveBeenCalled();
+    expect(linkMock).toHaveBeenCalledOnce();
+    const linkArg = linkMock.mock.calls[0]![0];
+    expect(linkArg.content).toContain('AUTHORIZATION_REJECTED stale_or_unparseable_approval');
+    expect(linkArg.content).toContain('ue-443'); // 命中锚点进审计——事后可回查「过期原话出自哪条」
   });
 
   it('T1b 时间合法回归锁：原话晚于 PR 创建 → 照常放行合入', async () => {
@@ -394,7 +405,7 @@ describe('#1431 时间维度闸（过期原话不得授权）+ 通用短话术�
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
   });
 
-  it('T1d 时间解析异常（createdAt 非法）→ fail-closed 拒绝，不得静默跳过时间闸', async () => {
+  it('T1d 时间解析异常（createdAt 非法）→ fail-closed 拒绝不 merge；#1440 起拒绝落审计', async () => {
     stubGh('OPEN', '2026-09-22T02:00:00.000Z');
     const entries = [
       { id: 'ue-badtime', entryType: 'user', senderType: 'user', senderId: 'user', body: '1095合入，你更新下', sequenceNum: 451, createdAt: 'not-a-date' },
@@ -405,7 +416,8 @@ describe('#1431 时间维度闸（过期原话不得授权）+ 通用短话术�
     const result = await tool.execute('t1d', { prNumber: 1095, partnerApproval: '1095合入，你更新下' });
     expect(JSON.stringify(result)).toContain('过期授权');
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
-    expect(linkMock).not.toHaveBeenCalled();
+    expect(linkMock).toHaveBeenCalledOnce();
+    expect(linkMock.mock.calls[0]![0].content).toContain('AUTHORIZATION_REJECTED stale_or_unparseable_approval');
   });
 
   it('T2a 通用短话术不含 PR 号（「合吧」）→ 拒绝并引导带 PR 号显式确认（防跨 PR 误配）', async () => {
@@ -449,6 +461,59 @@ describe('#1431 时间维度闸（过期原话不得授权）+ 通用短话术�
     const result = await tool.execute('t2d', { prNumber: 437, partnerApproval: '1437合' });
     expect(JSON.stringify(result)).toContain('显式确认');
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+  });
+});
+
+describe('F20261031mrajd（#1440）拒绝路径审计双通道', () => {
+  beforeEach(() => {
+    execFileMock.mockReset();
+  });
+
+  it('R1 短话术闸拒绝也落审计：AUTHORIZATION_REJECTED vague_short_approval + 引导文案进 fact', async () => {
+    stubGh('OPEN');
+    const wholeEntries = [
+      { id: 'ue-short2', entryType: 'user', senderType: 'user', senderId: 'user', body: '合吧', sequenceNum: 361, createdAt: '2026-09-22T03:10:00.000Z' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(wholeEntries);
+    const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
+    const logger = makeLogger();
+    const tool = findMergePr(makeCtx(linkMock, getEntriesMock), logger);
+    const result = await tool.execute('r1', { prNumber: 1095, partnerApproval: '合吧' });
+    expect(JSON.stringify(result)).toContain('显式确认');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+    expect(linkMock).toHaveBeenCalledOnce();
+    const linkArg = linkMock.mock.calls[0]![0];
+    expect(linkArg.content).toContain('AUTHORIZATION_REJECTED vague_short_approval');
+    expect(linkArg.content).toContain('ue-short2'); // 命中锚点：短话术原话虽命中但被闸拦，锚点留痕
+    const warnCalls = logger.warn.mock.calls.map(c => String(c[0]));
+    expect(warnCalls.some(m => m.includes('AUTHORIZATION_REJECTED vague_short_approval') && m.includes('audit=linked_resource_fallthrough'))).toBe(true);
+  });
+
+  it('R2 拒绝路径审计写失败不改变拒绝结果（non-fatal：拒绝仍是拒绝，日志兜底仍在）', async () => {
+    stubGh('OPEN', '2026-10-10T08:05:02.000Z'); // 时间闸拒绝路径
+    const entries = [
+      { id: 'ue-443b', entryType: 'user', senderType: 'user', senderId: 'user', body: '合入了，你继续', sequenceNum: 443, createdAt: '2026-10-10T07:29:02.182Z' },
+    ];
+    const getEntriesMock = vi.fn().mockResolvedValue(entries);
+    const linkMock = vi.fn().mockRejectedValue(new Error('db exploded')); // 审计主通道炸
+    const logger = makeLogger();
+    const tool = findMergePr(makeCtx(linkMock, getEntriesMock), logger);
+    const result = await tool.execute('r2', { prNumber: 1427, partnerApproval: '合入了，你继续' });
+    expect(JSON.stringify(result)).toContain('过期授权'); // 拒绝结果不受审计失败影响
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+    const warnCalls = logger.warn.mock.calls.map(c => String(c[0]));
+    expect(warnCalls.some(m => m.includes('audit linked_resource failed (non-fatal)'))).toBe(true); // 日志兜底
+    expect(warnCalls.some(m => m.includes('AUTHORIZATION_REJECTED'))).toBe(true);
+  });
+
+  it('R3 成功授权的审计内容不变（拒绝通道引入不污染成功路径——真锁：REJECTED token 不出现）', async () => {
+    stubGh('OPEN');
+    const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
+    const tool = findMergePr(makeCtx(linkMock));
+    await tool.execute('r3', { prNumber: 1095, partnerApproval: '1095合入，你更新下' });
+    const linkArg = linkMock.mock.calls[0]![0];
+    expect(linkArg.title).toBe('PR #1095 合入授权记录'); // 成功路径标题不带「拒绝」
+    expect(linkArg.content).not.toContain('AUTHORIZATION_REJECTED');
   });
 });
 
