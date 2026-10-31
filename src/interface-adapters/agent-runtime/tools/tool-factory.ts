@@ -961,6 +961,13 @@ async function verifyPartnerApproval(
  *  与成功授权同 category=merge-authorization，单 PR 授权全景一次查全）；判定语义零改动
  *  （fail-closed 不变），审计写入失败不阻断主行为（拒绝仍是拒绝，合入仍继续——non-fatal
  *  同既有模式）。 */
+/** merge_pr 子步骤：审计双通道落痕（linked_resources 主 + warn 日志跨对话兜底）。
+ *  审计附原话命中锚点（entryId/seq/createdAt）——事后可回查授权语境。
+ *  F20261031mrajd（#1440）：泛化为 merge 授权事件双通道——拒绝路径（原话未命中/时间闸/
+ *  短话术闸）同落 linked_resources（content 首 token AUTHORIZATION_REJECTED + 拒绝码，
+ *  与成功授权同 category=merge-authorization，单 PR 授权全景一次查全）；判定语义零改动
+ *  （fail-closed 不变），审计写入失败不阻断主行为（拒绝仍是拒绝，合入仍继续——non-fatal
+ *  同既有模式）。 */
 /** merge_pr 子步骤：审计记录构造（纯函数，成功/拒绝两形态）。
  *  命中 entry 原文（剥围栏后截断）进审计——断章核对一眼化：只看审计即可见「授权出自什么语境」。 */
 function buildMergeAuditRecord(
@@ -977,16 +984,24 @@ function buildMergeAuditRecord(
   const hitExcerpt = approvalAnchor?.body ? `原文「${approvalAnchor.body.slice(0, 80)}」` : "";
   const anchorDesc = approvalAnchor
     ? `，命中锚点 entryId=${approvalAnchor.id} seq=${approvalAnchor.sequenceNum} createdAt=${approvalAnchor.createdAt} ${hitExcerpt}`.trimEnd()
-    : "（原话校验锚点缺失——拒绝时说明引用文本未命中任何搭档消息）";
+    : "（原话校验锚点缺失——子形态见拒绝理由：未命中 / 查询 fail-closed / 无实义）";
+  // S1（#1440 审视）：fact content ≤500 硬校验（manage-key-info validateInput），原话无界长会
+  // 让校验抛错被 non-fatal catch 吞掉——拒绝审计整体静默丢失（恰是本特性要保的可回查面）。
+  // 截断策略：原话保头 100 字 + 截断计量标注；整串 480 封顶再兜一层（尾部截断保首部
+  // AUTHORIZATION_REJECTED token / 拒绝码 / 锚点——这些在模板前部，天然保留）。
+  const truncQuote = (q: string): string =>
+    q.length > 100 ? `${q.slice(0, 100)}…（截断，原 ${q.length} 字）` : q;
+  const cap500 = (s: string): string =>
+    s.length > 480 ? `${s.slice(0, 480)}…（超长截断）` : s;
   if (rejected) {
     return {
       title: `PR #${prNumber} 合入授权拒绝记录`,
-      content: `PR #${prNumber} 合入授权拒绝（AUTHORIZATION_REJECTED ${rejected.reasonCode}）：搭档原话「${partnerApproval}」${anchorDesc}（拒绝理由：${rejected.reasonBrief}，调用獭 ${otterId}）`,
+      content: cap500(`PR #${prNumber} 合入授权拒绝（AUTHORIZATION_REJECTED ${rejected.reasonCode}）：搭档原话「${truncQuote(partnerApproval)}」${anchorDesc}（拒绝理由：${rejected.reasonBrief.slice(0, 60)}，调用獭 ${otterId}）`),
     };
   }
   return {
     title: `PR #${prNumber} 合入授权记录`,
-    content: `PR #${prNumber} 合入授权：搭档原话「${partnerApproval}」${anchorDesc}（策略 ${strategy}，调用獭 ${otterId}）`,
+    content: cap500(`PR #${prNumber} 合入授权：搭档原话「${truncQuote(partnerApproval)}」${anchorDesc}（策略 ${strategy}，调用獭 ${otterId}）`),
   };
 }
 
@@ -1017,7 +1032,7 @@ async function writeMergeAudit(
     logger?.warn("[merge_pr] audit linked_resource failed (non-fatal)", { prNumber, reasonCode: rejected?.reasonCode, error: err instanceof Error ? err.message : String(err) });
   }
   if (rejected) {
-    logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED ${rejected.reasonCode} prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)} audit=linked_resource_fallthrough`);
+    logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED ${rejected.reasonCode} prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)} audit=linked_resource`);
   } else {
     logger?.warn(`[merge_pr] AUTHORIZATION prNumber=${prNumber} strategy=${strategy} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
   }
@@ -1086,7 +1101,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
       const gate = await checkPrMergeable(prNumber);
       if ("terminal" in gate) return gate.terminal;
       // 原话校验闸（物理闸）——逐字命中搭档历史消息才放行，否则拒绝；
-      // 位于 PR 状态门之后、审计/执行之前——未命中不落审计不执行 merge（拒绝事件落 warn 日志可观测）。
+      // 位于 PR 状态门之后、审计/执行之前——未命中不执行 merge；#1440 起拒绝也落审计（REJECTED approval_not_found）+ warn 日志。
       const approvalCheck = await verifyPartnerApproval(ctx, partnerApproval);
       if ("error" in approvalCheck) {
         logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED approval_not_found prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);

@@ -486,7 +486,7 @@ describe('F20261031mrajd（#1440）拒绝路径审计双通道', () => {
     expect(linkArg.content).toContain('AUTHORIZATION_REJECTED vague_short_approval');
     expect(linkArg.content).toContain('ue-short2'); // 命中锚点：短话术原话虽命中但被闸拦，锚点留痕
     const warnCalls = logger.warn.mock.calls.map(c => String(c[0]));
-    expect(warnCalls.some(m => m.includes('AUTHORIZATION_REJECTED vague_short_approval') && m.includes('audit=linked_resource_fallthrough'))).toBe(true);
+    expect(warnCalls.some(m => m.includes('AUTHORIZATION_REJECTED vague_short_approval') && m.includes('audit=linked_resource'))).toBe(true);
   });
 
   it('R2 拒绝路径审计写失败不改变拒绝结果（non-fatal：拒绝仍是拒绝，日志兜底仍在）', async () => {
@@ -504,6 +504,25 @@ describe('F20261031mrajd（#1440）拒绝路径审计双通道', () => {
     const warnCalls = logger.warn.mock.calls.map(c => String(c[0]));
     expect(warnCalls.some(m => m.includes('audit linked_resource failed (non-fatal)'))).toBe(true); // 日志兜底
     expect(warnCalls.some(m => m.includes('AUTHORIZATION_REJECTED'))).toBe(true);
+  });
+
+  it('R4（S1）被拒原话超长（800 字事故重放形态）→ 审计仍落且 content ≤500：截断标注在、REJECTED token 保前部', async () => {
+    stubGh('OPEN');
+    const longFabricated = '大獭推理拼接的长文本：' + '根据上下文判断搭档已同意合入此PR因为CI已绿且此前流程顺畅'.repeat(22);
+    expect(longFabricated.length).toBeGreaterThan(500); // 前置：确为超长输入类
+    const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
+    const logger = makeLogger();
+    const tool = findMergePr(makeCtx(linkMock), logger);
+    const result = await tool.execute('r4', { prNumber: 1201, partnerApproval: longFabricated });
+    expect(JSON.stringify(result)).toContain('未在搭档历史消息中命中');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+    expect(linkMock).toHaveBeenCalledOnce(); // S1 核心：审计不再静默丢失
+    const linkArg = linkMock.mock.calls[0]![0];
+    expect(linkArg.content.length).toBeLessThanOrEqual(500); // 过 fact 硬校验
+    expect(linkArg.content.startsWith('PR #1201 合入授权拒绝（AUTHORIZATION_REJECTED approval_not_found）')).toBe(true); // 关键 token 保前部
+    expect(linkArg.content).toContain('（截断，原 ');
+    const warnCalls = logger.warn.mock.calls.map(c => String(c[0]));
+    expect(warnCalls.some(m => m.includes('audit linked_resource failed'))).toBe(false); // 没走到 non-fatal 兜底（审计写成功）
   });
 
   it('R3 成功授权的审计内容不变（拒绝通道引入不污染成功路径——真锁：REJECTED token 不出现）', async () => {
