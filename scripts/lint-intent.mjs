@@ -48,7 +48,9 @@ const INTENT_REQUIRED_CHANGE_TYPES = new Set(["feature", "prompt"]);
 // 归一到规范值分类（文案保留原拼写）；tests（test-only 文档）不需要 intent 声明，不分类。
 const INTENT_RECOMMENDED_CHANGE_TYPES = new Set(["fix", "refactor", "feature-update"]);
 /** 历史拼写 → 规范值（分类用规范值，消息用原拼写，作者对照不迷路） */
-const LEGACY_CHANGE_TYPE_ALIAS = new Map([
+// F20261031ctuny（#1718 检视建议1）：导出供跨表一致性断言（tests 断言与 known-values
+// 的 normalizeChangeType 别名面一致——单源守卫，漂移即红）；表本体仍在本模块使用
+export const LEGACY_CHANGE_TYPE_ALIAS = new Map([
   ["bugfix", "fix"],
   ["feature_update", "feature-update"],
 ]);
