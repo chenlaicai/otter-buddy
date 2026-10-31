@@ -743,3 +743,54 @@ describe('isNewEnough semantic-invalid dates (#1295, F20261030ctalg delta)', () 
     expect(result.errors).toHaveLength(0);
   });
 });
+
+// F20261031cttrm（#1293）：change_type 空白串 trim 口径对齐——trim 后为空按缺失处理
+// （与 intent.problem 的 .trim().length===0 判空同口径），不再依赖 lint:docs Unknown
+// warning + baseline 满载（3=cap）的巧合拦截；带空格值 trim 归位参与分类。
+describe('change_type whitespace-string trim semantics (#1293, F20261031cttrm)', () => {
+  it('红测 A：change_type 纯空白串按缺失处理（fallback feature 必填口径，不再静默）', () => {
+    const fm = {
+      ...createBaseFm('fix'),
+      change_type: '   ',
+      modules: ['src/services/foo.ts'],
+      created_at: '2026-10-30',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/31/F20261031x1293-probe.md');
+    expect(result.errors.some((e: string) => e.includes('change_type 缺失/空值按 feature 判定'))).toBe(true);
+  });
+
+  it('红测 B：change_type 带空格「 fix 」trim 归位参与分类（缺块 → recommended warning）', () => {
+    const fm = {
+      ...createBaseFm('fix'),
+      change_type: '  fix  ',
+      modules: ['src/services/foo.ts'],
+      created_at: '2026-10-30',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/31/F20261031x1294-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings).toContain('Recommended intent field for fix');
+  });
+
+  it('别名+trim C：「 bugfix 」trim 后归一 fix 分类，文案保留 trim 后原拼写', () => {
+    const fm = {
+      ...createBaseFm('bugfix'),
+      change_type: ' bugfix ',
+      modules: ['src/services/foo.ts'],
+      created_at: '2026-10-30',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/31/F20261031x1295-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings).toContain('Recommended intent field for bugfix');
+  });
+
+  it('现状锁 D：空串 change_type 按缺失处理的既有契约不动（severity-2 契约）', () => {
+    const fm = {
+      ...createBaseFm('feature'),
+      change_type: '',
+      modules: ['src/services/foo.ts'],
+      created_at: '2026-10-30',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/31/F20261031x1296-probe.md');
+    expect(result.errors.some((e: string) => e.includes('change_type 缺失/空值按 feature 判定'))).toBe(true);
+  });
+});
