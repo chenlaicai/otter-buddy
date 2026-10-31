@@ -42,7 +42,7 @@ causal_links:
 
 ## 变更内容
 
-### 指纹表重对齐（main 实存 22 条 → 9 条 + 结构化前缀）
+### 指纹表重对齐（main 实存 21 条 → 8 条 + 结构化前缀）
 
 > 计数口径（delta 轮 2 修正，grep -c 'cls: {' 可复现）：21 = origin/main 上
 > FINGERPRINTS 实存条目数；8 = 本 PR 后实存（前缀 1 + kill 族 4 + 黑名单 3）。
@@ -64,7 +64,7 @@ causal_links:
 剥离，非发射点）；分类是拦截时点行为、无台账重分类路径，历史事件已按当时 ruleId
 落库——指纹保留无消费者，删。
 
-退役口径（delta 轮 2 修正）：净减 13（main 21 − 保留 8）；分支 diff 视角退役 20 条目
+退役口径（delta 轮 2 修正）：净减 13（main 21 − 保留 8）；总退役 20 条目
 （main 侧 13 含 sleep_block + 分支前版从未落 main 的 7 条）。清单：
 v3 kill 族 7 细分（literal/pidfile/pipe_shell/script/eval/script_stop/indirect）、
 脚本执行 2（script_file_exec/alias_shell_payload 双指纹）、C2 载荷族 4

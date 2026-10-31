@@ -33,7 +33,7 @@ export interface GuardRuleClass {
 /**
  * 指纹表：特征片段 → 分类。顺序即优先级。
  * F20261030gcfbx（v4 对齐）：#1702 守卫重建清场 + #1711 guard-v4 重写后，v3 全部守卫文案
- * 发射点消亡——死指纹整体退役（main 表 22 条 → 9 条），只保留活通道（文件工具结构化
+ * 发射点消亡——死指纹整体退役（main 表 21 条 → 8 条），只保留活通道（文件工具结构化
  * 前缀 + guard-v4 七条文案）。活文案清单（bash-safety-guard.ts，改动需同步）：
  * - MAIN_KILL_BLOCK_MSG / INDIRECT_KILL_BLOCK_MSG / PKILL_OTTER_BLOCK_MSG /
  *   BROADCAST_KILL_BLOCK_MSG（第一站杀进程判定，三查/PID 文件/stop 脚本共用 MAIN_KILL）
