@@ -210,10 +210,14 @@ function validateIntent(fm, exemptKey) {
   // `??` 只兜 undefined 会漏掉（实测静默旁路）；truthy 非字符串（`[feature]`/`123`/
   // `true`）同样是绕过形态。typeof 门前置：非字符串一律按缺失口径（feature 必填）。
   // 全线统一引用 effectiveChangeType，不再单独读 fm.change_type。
-  const isStringChangeType =
-    typeof fm.change_type === "string" && fm.change_type.length > 0;
+  // F20261031cttrm（#1293）：空白串 trim 后为空按缺失处理（与 intent.problem 的
+  // .trim().length===0 判空同口径，不再依赖 lint:docs Unknown warning + baseline
+  // 满载的巧合拦截）；带空格值 trim 归位参与分类，消息用 trim 后值。
+  const trimmedChangeType =
+    typeof fm.change_type === "string" ? fm.change_type.trim() : "";
+  const isStringChangeType = trimmedChangeType.length > 0;
   const effectiveChangeType = isStringChangeType
-    ? fm.change_type
+    ? trimmedChangeType
     : FALLBACK_CHANGE_TYPE;
   // F20261030ctalg（#1295）：分类判定用归一化值（历史拼写 → 规范值），文案用 effectiveChangeType 原拼写
   const canonicalChangeType =
