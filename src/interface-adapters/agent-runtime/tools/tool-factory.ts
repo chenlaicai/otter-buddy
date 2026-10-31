@@ -961,13 +961,38 @@ async function verifyPartnerApproval(
  *  与成功授权同 category=merge-authorization，单 PR 授权全景一次查全）；判定语义零改动
  *  （fail-closed 不变），审计写入失败不阻断主行为（拒绝仍是拒绝，合入仍继续——non-fatal
  *  同既有模式）。 */
-/** merge_pr 子步骤：审计双通道落痕（linked_resources 主 + warn 日志跨对话兜底）。
- *  审计附原话命中锚点（entryId/seq/createdAt）——事后可回查授权语境。
- *  F20261031mrajd（#1440）：泛化为 merge 授权事件双通道——拒绝路径（原话未命中/时间闸/
- *  短话术闸）同落 linked_resources（content 首 token AUTHORIZATION_REJECTED + 拒绝码，
- *  与成功授权同 category=merge-authorization，单 PR 授权全景一次查全）；判定语义零改动
- *  （fail-closed 不变），审计写入失败不阻断主行为（拒绝仍是拒绝，合入仍继续——non-fatal
- *  同既有模式）。 */
+async function writeMergeAudit(
+  ctx: ToolContext,
+  logger: Logger | undefined,
+  info: {
+    prNumber: number;
+    strategy: string;
+    partnerApproval: string;
+    approvalAnchor?: { id: string; sequenceNum: number; createdAt: string; body?: string };
+    rejected?: { reasonCode: string; reasonBrief: string };
+  },
+): Promise<void> {
+  const { prNumber, strategy, partnerApproval, rejected } = info;
+  const { title, content } = buildMergeAuditRecord(info, ctx.otterId);
+  try {
+    await ctx.client.resource.link({
+      conversationId: ctx.conversationId,
+      resourceType: "fact",
+      category: "merge-authorization",
+      title,
+      content,
+      linkedBy: ctx.otterId,
+    });
+  } catch (err) {
+    // 审计主通道失败不阻断主行为（拒绝/合入均继续），但必须有日志兜底
+    logger?.warn("[merge_pr] audit linked_resource failed (non-fatal)", { prNumber, reasonCode: rejected?.reasonCode, error: err instanceof Error ? err.message : String(err) });
+  }
+  if (rejected) {
+    logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED ${rejected.reasonCode} prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)} audit=linked_resource`);
+  } else {
+    logger?.warn(`[merge_pr] AUTHORIZATION prNumber=${prNumber} strategy=${strategy} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
+  }
+}
 /** merge_pr 子步骤：审计记录构造（纯函数，成功/拒绝两形态）。
  *  命中 entry 原文（剥围栏后截断）进审计——断章核对一眼化：只看审计即可见「授权出自什么语境」。 */
 function buildMergeAuditRecord(
@@ -1005,38 +1030,6 @@ function buildMergeAuditRecord(
   };
 }
 
-async function writeMergeAudit(
-  ctx: ToolContext,
-  logger: Logger | undefined,
-  info: {
-    prNumber: number;
-    strategy: string;
-    partnerApproval: string;
-    approvalAnchor?: { id: string; sequenceNum: number; createdAt: string; body?: string };
-    rejected?: { reasonCode: string; reasonBrief: string };
-  },
-): Promise<void> {
-  const { prNumber, strategy, partnerApproval, rejected } = info;
-  const { title, content } = buildMergeAuditRecord(info, ctx.otterId);
-  try {
-    await ctx.client.resource.link({
-      conversationId: ctx.conversationId,
-      resourceType: "fact",
-      category: "merge-authorization",
-      title,
-      content,
-      linkedBy: ctx.otterId,
-    });
-  } catch (err) {
-    // 审计主通道失败不阻断主行为（拒绝/合入均继续），但必须有日志兜底
-    logger?.warn("[merge_pr] audit linked_resource failed (non-fatal)", { prNumber, reasonCode: rejected?.reasonCode, error: err instanceof Error ? err.message : String(err) });
-  }
-  if (rejected) {
-    logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED ${rejected.reasonCode} prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)} audit=linked_resource`);
-  } else {
-    logger?.warn(`[merge_pr] AUTHORIZATION prNumber=${prNumber} strategy=${strategy} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
-  }
-}
 /** #1431 授权时效/精确性闸（方案 A + C）。
  *  时间维度：命中消息必须严格晚于 PR 创建——过期授权（针对更早 PR 的原话，含重放/注入区历史消息）一律拒绝。
  *  事故锚：2026-10-10 PR #1427 被 36 分钟前针对 #1422 的原话「合入了，你继续」误授权合入（原话真实存在但指向别的 PR）。

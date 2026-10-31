@@ -51,7 +51,9 @@ warn 日志一条通道。PR #1437 首轮审视观察项 O1 指出：**拦截发
   REJECTED token 保前部、未走 non-fatal 兜底。边界实测（检视獭计算）：修复前
   approval_not_found 形态原话 >315 字 / 闸拒绝形态 >112 字即触发丢失。
 - **A1 注释漂移**：「未命中不落审计」契约注释更新为拒绝也落审计；buildMergeAuditRecord
-  挪到 writeMergeAudit 函数体之后（docblock 归位，writeMergeAudit 恢复直属 JSDoc）。
+  挪到 writeMergeAudit 函数体之后（docblock 归位）——**delta 轮 1 首次处置未生效**（docblock
+  复制成双份、函数未动，被 D1 抓出），轮 2 真挪（删重复 docblock + 函数实际移位，
+  grep 顺序 writeMergeAudit→buildMergeAuditRecord 可验证）。
 - **A2 token 语义倒挂**：`audit=linked_resource_fallthrough` 改 `audit=linked_resource`
   （写成功路径；写失败已有专门 `audit linked_resource failed (non-fatal)` 兜底标记，
   两态可区分）。
@@ -95,7 +97,7 @@ fail-closed / T1a 过期授权 / T1d 解析异常）——即「拒绝不落审�
 | 原话未命中拒绝落审计 | vitest merge-pr-tool v1 | linkMock 调用 1 次，content 含 `AUTHORIZATION_REJECTED approval_not_found` + 被拒原话（截断口径） |
 | 长原话不丢审计（S1 修复） | vitest R4 | 800 字输入：审计仍落、content ≤500、截断标注在、REJECTED token 保前部 |
 | 过期授权拒绝落审计（含锚点） | vitest T1a | content 含 `stale_or_unparseable_approval` + `ue-443` 锚点 |
-| 短话术拒绝落审计 | vitest R1 | content 含 `vague_short_approval` + 锚点 + warn 带 `audit=linked_resource_fallthrough` |
+| 短话术拒绝落审计 | vitest R1 | content 含 `vague_short_approval` + 锚点 + warn 带 `audit=linked_resource`（delta 轮 2 更名后） |
 | 审计写失败不阻断拒绝 | vitest R2 | 拒绝结果不变（「过期授权」），non-fatal 日志在 |
 | 成功路径不受污染 | vitest R3 | 成功审计无 REJECTED token，title 不带「拒绝」 |
 | 判定语义零改动 | vitest 全量 30 条既有 + 全量套件 | 30/30 + 421 文件 5582 passed |
@@ -109,6 +111,10 @@ fail-closed / T1a 过期授权 / T1d 解析异常）——即「拒绝不落审�
   仓内无此消费方（grep 验证）。
 
 ## 影响面当场自检
+
+- **package-lock.json churn**（delta 建议 B2/D3）：worktree 全新 npm install 曾把一行
+  hasInstallScript 元数据带进 delta 轮 1 commit——已用 rebase 重放从提交级剥离（分支
+  diff vs main 零 lockfile 变更，grep 可验），非功能依赖变更。
 
 - F20260922pmgd/F20260929mpav 的审计契约描述「只有成功合入走双通道」已被本 PR 扩展
   ——两文档为已合入历史文档不回改，本声明即追加说明；
