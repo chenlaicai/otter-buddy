@@ -597,3 +597,149 @@ describe('intent-missing penalty inversion for soft-code docs (#1238, F20261030i
     expect(result.warnings.length).toBeGreaterThan(0);
   });
 });
+
+// F20261030ctalg（#1295）：change_type 枚举漂移收口——分类集合与 known-values.ts 真相源对齐。
+// 复测现状（2026-10-30）：fix 392 篇 / feature-update 37 篇此前不在任何集合，缺块完全静默；
+// bugfix/feature_update 是历史拼写（走别名归一，文案保留原拼写）；tests 为 test-only 文档
+// 不需要 intent 声明（决策锁定维持静默）。
+describe('change_type enum alignment with known-values truth source (#1295, F20261030ctalg)', () => {
+  it('静默面关闭 A：非软代码 fix 缺整块 → recommended warning（此前 0 error 0 warning 完全静默）', () => {
+    const fm = {
+      ...createBaseFm('fix'),
+      modules: ['src/services/foo.ts'],
+      created_at: '2026-10-01',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1295-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings).toContain('Recommended intent field for fix');
+  });
+
+  it('静默面关闭 B：非软代码 feature-update 缺整块 → recommended warning（此前静默）', () => {
+    const fm = {
+      ...createBaseFm('feature-update'),
+      modules: ['src/services/foo.ts'],
+      created_at: '2026-10-01',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1296-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings).toContain('Recommended intent field for feature-update');
+  });
+
+  it('别名归一 C：bugfix 历史拼写分类归 fix，文案保留原拼写', () => {
+    const fm = {
+      ...createBaseFm('bugfix'),
+      modules: ['src/services/foo.ts'],
+      created_at: '2026-10-01',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1297-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings).toContain('Recommended intent field for bugfix');
+  });
+
+  it('别名归一 D：feature_update 蛇形历史拼写分类归 feature-update，文案保留原拼写', () => {
+    const fm = {
+      ...createBaseFm('feature_update'),
+      modules: ['src/services/foo.ts'],
+      created_at: '2026-10-01',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1298-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings).toContain('Recommended intent field for feature_update');
+  });
+
+  it('决策锁 E：tests（test-only 文档）缺整块维持静默（0 error 0 warning）', () => {
+    const fm = {
+      ...createBaseFm('tests'),
+      modules: ['tests/foo.test.ts'],
+      created_at: '2026-10-01',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1299-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+  });
+
+  it('isNewEnough 修复 F：无前导零日期 2026-9-1 不再误判为新（软代码缺 verify_by → warning）', () => {
+    const fm = {
+      ...createBaseFm('fix', {
+        problem: '软代码行为改动',
+        expected_effect: '行为可判定',
+      }),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-9-1',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1300-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings.some((w: string) => w.includes('Recommended intent.verify_by field for soft-code change'))).toBe(true);
+  });
+
+  it('isNewEnough 修复 G：无前导零但确实新的 2026-9-20 仍判新（缺 verify_by → error）', () => {
+    const fm = {
+      ...createBaseFm('fix', {
+        problem: '软代码行为改动',
+        expected_effect: '行为可判定',
+      }),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-9-20',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1301-probe.md');
+    expect(result.errors.some((e: string) => e.includes('Missing intent.verify_by for soft-code change'))).toBe(true);
+  });
+
+  it('isNewEnough 修复 H：不可解析日期按存量宽容（warning 不 error，不追诉）', () => {
+    const fm = {
+      ...createBaseFm('fix', {
+        problem: '软代码行为改动',
+        expected_effect: '行为可判定',
+      }),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: 'garbage-date',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1302-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings.some((w: string) => w.includes('Recommended intent.verify_by field for soft-code change'))).toBe(true);
+  });
+});
+
+// F20261030ctalg 检视 r1 建议 3：语义非法日期（词法合法/日历非法）与不可解析格式同口径。
+describe('isNewEnough semantic-invalid dates (#1295, F20261030ctalg delta)', () => {
+  it('建议 3 I：2026-13-01（13 月）按存量宽容，不判新（warning 不 error）', () => {
+    const fm = {
+      ...createBaseFm('fix', {
+        problem: '软代码行为改动',
+        expected_effect: '行为可判定',
+      }),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-13-01',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1303-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings.some((w: string) => w.includes('Recommended intent.verify_by field for soft-code change'))).toBe(true);
+  });
+
+  it('建议 3 J：2026-11-32（32 日）按存量宽容，不被前缀误读为 11-03', () => {
+    const fm = {
+      ...createBaseFm('fix', {
+        problem: '软代码行为改动',
+        expected_effect: '行为可判定',
+      }),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-11-32',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1304-probe.md');
+    expect(result.errors).toHaveLength(0);
+    expect(result.warnings.some((w: string) => w.includes('Recommended intent.verify_by field for soft-code change'))).toBe(true);
+  });
+
+  it('建议 3 K：2026-02-31（日历非法）按存量宽容', () => {
+    const fm = {
+      ...createBaseFm('fix', {
+        problem: '软代码行为改动',
+        expected_effect: '行为可判定',
+      }),
+      modules: ['prompts/scheduled/daily-health-check.md'],
+      created_at: '2026-02-31',
+    };
+    const result = validateIntent(fm, 'docs/features/2026/10/30/F20261030y1305-probe.md');
+    expect(result.errors).toHaveLength(0);
+  });
+});
