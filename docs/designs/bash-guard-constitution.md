@@ -58,7 +58,7 @@
 
 > 与 `guard-intercept-classify.ts` 的 FINGERPRINTS 同步维护。完整指纹定义见该文件（真相源：代码）。
 
-见「一、分层原则」表右列——9 ruleId 全量挂靠（表内用短名，全称带 self_kill_ 前缀，与 FINGERPRINTS 的 ruleId 逐条对应；guard-v4 对齐重写见 F20261030gcfbx）。`unknown` 兜底不计入规则（聚合报表监控 unknown 占比，>5% 时说明指纹表滞后，倒逼同步；unknown 事件在代码中暂归 self_kill 层，按层聚合时剔出单列）。
+见「一、分层原则」表右列——8 ruleId 全量挂靠（表内用短名，全称带 self_kill_ 前缀，与 FINGERPRINTS 的 ruleId 逐条对应；guard-v4 对齐重写见 F20261030gcfbx）。`unknown` 兜底不计入规则（聚合报表监控 unknown 占比，>5% 时说明指纹表滞后，倒逼同步；unknown 事件在代码中暂归 self_kill 层，按层聚合时剔出单列）。
 
 ## 修改契约
 

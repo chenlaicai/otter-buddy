@@ -1,12 +1,11 @@
 ---
 id: F20261030gcfbx
-title: 守卫拦截分类器指纹表对 guard-v4 全量重对齐（main 实存 22→9 条），恢复 1c 机械分账
+title: 守卫拦截分类器指纹表对 guard-v4 全量重对齐（main 实存 21→8 条），恢复 1c 机械分账
 summary: |
   本 PR 原为「补 8 条 v3 指纹缺口」（T4 复盘门 10/26 触发）；rebase 上 main 时
   遭遇 #1702 守卫重建清场 + #1711 guard-v4 重写——v3 全部守卫文案发射点消亡，
   分类器指纹表与现实整体脱节（40 条测试 29 红），按「PR 语义随 main 演化」重定位
-  为 v4 全量重对齐：死指纹整体退役（main 实存 22 条→9 条，含本分支前版补的 7 条
-  v3 指纹一并退役），guard-v4 七条活文案（第一站杀进程
+  为 v4 全量重对齐：死指纹整体退役（main 实存 21 条→8 条，guard-v4 七条活文案（第一站杀进程
   判定 4 条 + 第二站黑名单三类 3 条）全量入表，真实探针回归重写（21 条，processProbe
   桩对齐 replay 基建）。连带修复 agent-invoker-guard-bounce 2 条 v3 mock 文案依赖。
 change_type: fix
@@ -45,9 +44,10 @@ causal_links:
 
 ### 指纹表重对齐（main 实存 22 条 → 9 条 + 结构化前缀）
 
-> 计数口径（检视 S4 处置）：22 = origin/main 上 FINGERPRINTS 实存条目数（含 v3 版本
-> 落 main 的 15 条）；9 = 本 PR 后实存（前缀 1 + kill 族 4 + 黑名单 3 + 表内 sleep 删除）。
-> 此前文案「26→7」把从未落 main 的本分支前版 7 条补条计入分母，不可复现，弃用。
+> 计数口径（delta 轮 2 修正，grep -c 'cls: {' 可复现）：21 = origin/main 上
+> FINGERPRINTS 实存条目数；8 = 本 PR 后实存（前缀 1 + kill 族 4 + 黑名单 3）。
+> 此前两版口径均弃用：「26→7」把从未落 main 的分支前版补条计入分母；「22→9」
+> 误把 FINGERPRINTS 类型声明行计入（grep "fragment:" 多计一行，真值 21→8）。
 
 | v4 活文案（bash-safety-guard.ts） | ruleId | layer | id 取舍 |
 |---|---|---|---|
@@ -64,7 +64,8 @@ causal_links:
 剥离，非发射点）；分类是拦截时点行为、无台账重分类路径，历史事件已按当时 ruleId
 落库——指纹保留无消费者，删。
 
-退役的死指纹（main 实存 22 条中的 13 条 + 本分支前版补的 7 条 + sleep_block，共 21）：
+退役口径（delta 轮 2 修正）：净减 13（main 21 − 保留 8）；分支 diff 视角退役 20 条目
+（main 侧 13 含 sleep_block + 分支前版从未落 main 的 7 条）。清单：
 v3 kill 族 7 细分（literal/pidfile/pipe_shell/script/eval/script_stop/indirect）、
 脚本执行 2（script_file_exec/alias_shell_payload 双指纹）、C2 载荷族 4
 （stdin_shell_opaque/stdin_interp_payload/heredoc_payload/heredoc_shell_payload）、
@@ -120,8 +121,8 @@ GB-6a/GB-6e 的 mock 拦截文案是 v3 死文案（main_write/kill literal）�
   GB-6a 低危层示例同步换 file-tool-guard/main-repo-write（r1_gate 通道）。
 - **S3（建议）sleep_block 保留理由失实** ✅ 采纳：指纹删除。机械核实：sleep 文案
   src/ 零发射点（仅剩前缀剥离兼容层），分类无台账重分类路径，指纹无消费者。
-- **S4（建议）「26→7」计数不可复现** ✅ 采纳：全文档口径改「main 实存 22 条→9 条」，
-  声明此前口径误差来源（把从未落 main 的分支补条计入分母）。
+- **S4（建议）计数不可复现** ✅ 采纳（delta 轮 2 修正到位）：口径改「main 实存 21 条→8 条」
+  （grep -c 'cls: {' 复现）；轮 1 的「22→9」误把类型声明行计入，已改。
 
 ## 验证
 
@@ -129,7 +130,7 @@ GB-6a/GB-6e 的 mock 拦截文案是 v3 死文案（main_write/kill literal）�
 
 - 重对齐前（新 main + 旧分支内容恢复后）：guard-intercept-classify.test.ts
   **29 failed / 11 passed（40 条）**——全部 v3 探针/文案依赖；
-- 处置后：同文件 **22/22 passed**（S2 层断言 + sleep 死指纹反转用例）；全量 `npx vitest run` **421 文件 / 5567 passed**；
+- 处置后：同文件 **22/22 passed**（S2 层断言 + sleep 死指纹反转用例）；全量 `npx vitest run` **421 文件 / 5568 passed**；
   `npx eslint src/ tests/` 零告警；`npx tsc --noEmit` 零错。
 
 ### 验收标准（可机械断言）
