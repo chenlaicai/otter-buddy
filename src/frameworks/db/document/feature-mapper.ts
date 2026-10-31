@@ -1,5 +1,5 @@
 import type { FeatureDocument, FeatureStatus, ChangeType } from "../../../entities/document/feature";
-import { isKnownChangeType, isKnownFeatureStatus } from "../../../entities/document/known-values";
+import { isKnownChangeType, isKnownFeatureStatus, normalizeChangeType } from "../../../entities/document/known-values";
 
 /** Feature 表的 Row 类型 */
 export interface FeatureRow {
@@ -28,7 +28,8 @@ export function rowToEntity(row: FeatureRow): FeatureDocument {
     title: row.title,
     summary: row.summary,
     bodyHash: row.body_hash,
-    changeType: (isKnownChangeType(ct) ? ct : "feature") as ChangeType,
+    // F20261031ctuny（#1718）：归一值落库（' fix '/'bugfix' 判合法后存规范值，DB 不进脏值）
+    changeType: (isKnownChangeType(ct) ? normalizeChangeType(ct) : "feature") as ChangeType,
     status: (isKnownFeatureStatus(st) ? st : "draft") as FeatureStatus,
     tags: JSON.parse(row.tags),
     modules: JSON.parse(row.modules),
