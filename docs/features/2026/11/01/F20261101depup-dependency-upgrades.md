@@ -52,11 +52,12 @@ Dependabot 开了 6 条依赖升级 PR（#1675–#1680）。按既定流程（PR
 `MCP_TYPESCRIPT_PREAMBLE` 导出，pi-coding-agent 1.1.0 引用之，8 个测试文件报
 `SyntaxError: does not provide an export named 'MCP_TYPESCRIPT_PREAMBLE'`（实测 70 文件失败、9 测试失败）。
 
-处置：package.json `overrides` 采用 scoped 嵌套写法（`"@earendil-works/pi-coding-agent": { "dependencies": {...} }`）
-将 5 个同伴包锁回 `1.1.0`，锁的作用域限定在 pi-coding-agent 子树内，不影响其他依赖路径
-（npm 以嵌套 node_modules 布局安置）。当前平铺与 scoped 解析等价（pi-ai@1.4.0 仅依赖 pi-telemetry@1.4.0，
-不依赖这 5 包），选 scoped 是防止未来旁系依赖被静默锁 1.1.0。此锁与 pi-coding-agent 1.1.0
-的 pin 配套，待 #1677 专项升级时一并退役。
+处置：package.json `overrides` 采用 scoped 直接嵌套写法（`"@earendil-works/pi-coding-agent": { "@earendil-works/pi-codemode": "1.1.0", ... }`，
+键为包名）将 5 个同伴包锁回 `1.1.0`，作用域限定 pi-coding-agent 子树，npm 以嵌套 node_modules 布局安置。
+注意 npm overrides 嵌套键一律为包名——首版曾误写 `"dependencies"` 包装层（惰性写法，pin 永不命中），
+经检视獭 delta 复核 A/B fresh-resolve 判别实验纠正（A 惰性 → pi-codemode 1.4.0；B 直接嵌套 → 1.1.0）。
+失效期间 lockfile 零字节变化属非判别性证据（存量条目撑腰），fresh-resolve 才判别。此锁与 pi-coding-agent
+1.1.0 的 pin 配套，待 #1677 专项升级时一并退役。
 
 ## 验证（全绿）
 - `node scripts/check-sdk-patch.mjs`：✅ baseToolsOverride forwarding verified @1.1.0
@@ -64,6 +65,8 @@ Dependabot 开了 6 条依赖升级 PR（#1675–#1680）。按既定流程（PR
 - `npm run lint`：✅ exit 0
 - `npm test`：✅ **422 文件 / 5590 测试全部通过**（overrides 锁定前实测：70 文件加载失败 / 9 测试失败，
   其中 8 个测试文件报 pi-codemode 1.4.0 缺 `MCP_TYPESCRIPT_PREAMBLE` 导出；锁定后归零——本地实测数字，CI 以本 PR 全量跑为准）
+- scoped overrides 曾误写 `dependencies` 包装层（惰性写法），检视獭 delta 发现 4 纠正；修复后 A/B fresh-resolve 判别实验：A 惰性写法 → pi-codemode 1.4.0（失效），B 直接嵌套包名键 → 1.1.0（生效）
+- 真实 package.json fresh-resolve 终态：5 同伴包全部锁 1.1.0（顶层 pi-coding-agent 因 `^1.1.0` caret 解析 1.4.0 时同样锁住；fresh 场景下 sdk-patch 守卫会 fail-closed 拦住 1.4.0，不会静默装配）
 
 ## #1606 rolldown pin 退役提请
 - 上游 `@rolldown/binding-freebsd-x64@1.2.15` 已发布（npm registry 实测，10-22 残缺问题已修复），

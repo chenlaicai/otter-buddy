@@ -73,13 +73,11 @@
   },
   "overrides": {
     "@earendil-works/pi-coding-agent": {
-      "dependencies": {
-        "@earendil-works/chord": "1.1.0",
-        "@earendil-works/pi-agent-core": "1.1.0",
-        "@earendil-works/pi-codemode": "1.1.0",
-        "@earendil-works/pi-mcp": "1.1.0",
-        "@earendil-works/pi-tui": "1.1.0"
-      }
+      "@earendil-works/chord": "1.1.0",
+      "@earendil-works/pi-agent-core": "1.1.0",
+      "@earendil-works/pi-codemode": "1.1.0",
+      "@earendil-works/pi-mcp": "1.1.0",
+      "@earendil-works/pi-tui": "1.1.0"
     },
     "@huggingface/transformers": {
       "onnxruntime-node": "1.23.2"
