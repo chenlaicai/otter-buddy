@@ -126,8 +126,6 @@ export interface SdkInvokePort {
   isRunning?(otterId: string): boolean;
   /** 中断指定 Otter 的 Agent 生成（messageId 用于定位并发 session） */
   abort(otterId: string, messageId?: string): void;
-  /** 获取指定 Otter 当前 session 的工具调用次数 */
-  getToolCallCount(otterId: string, messageId?: string): number;
   /** 查询内部 abort 原因（OutputGuard 触发等），返回 undefined 表示非内部 abort */
   getInternalAbortReason(messageId: string): string | undefined;
 }

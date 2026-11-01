@@ -79,7 +79,7 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
     const sendEntry = mockSendEntry();
     const sdk = {
       invoke: async () => Object.assign({ text: "" }, { _guardAbortReason: "degenerate_output" }),
-      abort: () => {}, getToolCallCount: () => 0, getInternalAbortReason: () => undefined,
+      abort: () => {}, getInternalAbortReason: () => undefined,
     } as unknown as SdkInvokePort;
     const invoker = makeInvoker(sdk, sendEntry);
 
@@ -111,7 +111,7 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
         if (calls >= 2) return { text: "", tokenUsageDelta };
         return Object.assign({ text: "", tokenUsageDelta }, { _guardAbortReason: "degenerate_output" });
       },
-      abort: () => {}, getToolCallCount: () => 0, getInternalAbortReason: () => undefined,
+      abort: () => {}, getInternalAbortReason: () => undefined,
     } as unknown as SdkInvokePort;
     // 全新 invoke 的 yield 模拟：第二段 invoke 查询时置 completed
     const wrappedEntry = mockSendEntry();
@@ -151,7 +151,7 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
     }]);
     const sdk = {
       invoke: async () => Object.assign({ text: "" }, { _guardAbortReason: "degenerate_output" }),
-      abort: () => {}, getToolCallCount: () => 0, getInternalAbortReason: () => undefined,
+      abort: () => {}, getInternalAbortReason: () => undefined,
     } as unknown as SdkInvokePort;
     const invoker = makeInvoker(sdk, sendEntry, { manageSession, healingRepo: healing.repo });
 
@@ -170,7 +170,7 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
     const healing = mockHealingRepo();
     const sdk = {
       invoke: async () => { throw Object.assign(new Error("429 Too Many Requests. quota exhausted, resets at 2026-09-11T00:00:00Z"), {}); },
-      abort: () => {}, getToolCallCount: () => 0, getInternalAbortReason: () => undefined,
+      abort: () => {}, getInternalAbortReason: () => undefined,
     } as unknown as SdkInvokePort;
     const invoker = makeInvoker(sdk, sendEntry, { healingRepo: healing.repo });
 
@@ -191,7 +191,7 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
       invoke: async () => {
         return Object.assign({ text: "" }, { _guardAbortReason: "bash_safety:danger_command" });
       },
-      abort: () => {}, getToolCallCount: () => 0, getInternalAbortReason: () => undefined,
+      abort: () => {}, getInternalAbortReason: () => undefined,
     } as unknown as SdkInvokePort;
     const invoker = makeInvoker(sdk, sendEntry, { healingRepo: healing.repo });
 

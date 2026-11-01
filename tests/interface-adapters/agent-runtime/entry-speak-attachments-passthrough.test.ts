@@ -56,7 +56,6 @@ function mockAgentInvoke(options: { events?: AgentStreamEvent[] }): SdkInvokePor
       return { text: "Response text" };
     },
     abort: () => {},
-    getToolCallCount: () => 0,
     getInternalAbortReason: () => undefined,
   } as unknown as SdkInvokePort;
 }

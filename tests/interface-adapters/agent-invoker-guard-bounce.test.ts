@@ -129,7 +129,6 @@ function mockAgentInvoke(script: Array<{ guard: number } | { done: true }>, guar
       return { text: "正常输出" };
     },
     abort: () => { aborts.push(`abort-${aborts.length + 1}`); },
-    getToolCallCount: () => 0,
     getInternalAbortReason: () => steps[invokeCount - 1],
     _contexts: contexts,
     _aborts: aborts,

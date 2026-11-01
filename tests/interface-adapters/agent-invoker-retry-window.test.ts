@@ -53,7 +53,6 @@ function makeBackoffAbortSdk(events: Array<Record<string, unknown>>): SdkInvokeP
       throw ABORT_OWN;
     },
     abort: () => {},
-    getToolCallCount: () => 0,
     getInternalAbortReason: () => undefined,
   } as unknown as SdkInvokePort;
 }

@@ -27,7 +27,6 @@ function setup() {
   };
   const driver: AttemptDriver = {
     invoke: async () => ({ result: { text: "", queued: true }, toolCallCount: 0, hasOrphanText: false }),
-    getToolCallCount: () => 0,
     getInternalAbortReason: () => undefined,
     isUserAborted: () => false,
     abort: () => {},

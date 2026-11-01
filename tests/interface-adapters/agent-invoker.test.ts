@@ -62,7 +62,6 @@ function mockAgentInvoke(options: {
   events?: AgentStreamEvent[];
   result?: { text: string; tokenUsage?: { input: number; output: number }; tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; ctxTokens?: number; ctxMax?: number };
   throwOnInvoke?: Error;
-  toolCallCount?: number;
   internalAbortReason?: string;
   invokeImpl?: (otterId: string, message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void }) => Promise<unknown>;
 }): SdkInvokePort {
@@ -77,7 +76,6 @@ function mockAgentInvoke(options: {
   return {
     invoke: invokeImpl,
     abort: () => {},
-    getToolCallCount: () => options.toolCallCount ?? 0,
     getInternalAbortReason: () => options.internalAbortReason,
   } as unknown as SdkInvokePort;
 }
@@ -417,7 +415,6 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
         throw err;
       },
       abort: () => {},
-      getToolCallCount: () => 3,
       getInternalAbortReason: () => undefined,
     } as unknown as SdkInvokePort;
     const invoker = makeInvoker(sdk, sendEntry);

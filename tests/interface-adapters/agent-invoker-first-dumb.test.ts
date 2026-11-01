@@ -67,7 +67,6 @@ function sdkThrowingExhausted429(): SdkInvokePort {
   return {
     invoke: async () => { throw err; },
     abort: () => {},
-    getToolCallCount: () => 0,
     getInternalAbortReason: () => undefined,
   } as unknown as SdkInvokePort;
 }

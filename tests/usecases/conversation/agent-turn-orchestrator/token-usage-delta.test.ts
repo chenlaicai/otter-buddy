@@ -34,7 +34,7 @@ function driver(results: Array<{ input: number; output: number }>): AttemptDrive
       const tokenUsageDelta = results[index++] ?? results.at(-1);
       return { result: { text: "done", tokenUsageDelta: tokenUsageDelta && { ...tokenUsageDelta } }, toolCallCount: 0 };
     },
-    abort: () => {}, getInternalAbortReason: () => undefined, getToolCallCount: () => 0, isUserAborted: () => false,
+    abort: () => {}, getInternalAbortReason: () => undefined, isUserAborted: () => false,
   } as AttemptDriver;
 }
 
@@ -46,7 +46,7 @@ describe("F20261026ctbg orchestrator token 增量", () => {
         if (call++ === 0) throw Object.assign(new Error("SDK failure after usage"), { _guardAbortReason: "first_byte_timeout", _tokenUsageDelta: { input: 40, output: 4, cacheRead: 8, cacheWrite: 2 } });
         return { result: { text: "done", tokenUsageDelta: { input: 5, output: 1 } }, toolCallCount: 0 };
       },
-      abort: () => {}, getInternalAbortReason: () => undefined, getToolCallCount: () => 0, isUserAborted: () => false,
+      abort: () => {}, getInternalAbortReason: () => undefined, isUserAborted: () => false,
     };
     const result = await new AgentTurnOrchestrator(createTestLogger()).executeTurn(input(), attemptDriver, callbacks("failed"));
     expect(call).toBe(2);

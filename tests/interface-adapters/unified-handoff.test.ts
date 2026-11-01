@@ -167,7 +167,6 @@ function makeSdkPort(opts?: {
       : opts?.hasEntries === false ? undefined : [{ type: "message", id: "e1" }]),
     isRunning: () => opts?.isRunning ?? false,
     abort: vi.fn(),
-    getToolCallCount: () => 0,
     getInternalAbortReason: () => undefined,
   } as unknown as SdkInvokePort & { invokeCalls: string[]; synthPrompts: string[]; synthOverrides: Array<string | undefined>; lockLog: string[] };
 }
@@ -597,7 +596,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
       acquireSessionLock: async () => () => {},
       readCurrentSessionEntries: async () => [{ type: "message", id: "e1" }],
       isRunning: () => false,
-      abort: vi.fn(), getToolCallCount: () => 0, getInternalAbortReason: () => undefined,
+      abort: vi.fn(), getInternalAbortReason: () => undefined,
     } as unknown as SdkInvokePort;
     const manageSession = {
       getActiveSession: async () => makeSession({ id: "sess-old" }),

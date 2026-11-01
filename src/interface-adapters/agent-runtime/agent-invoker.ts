@@ -617,10 +617,6 @@ export class AgentInvoker implements AgentTurnPort {
         return this.agentInvoke.getInternalAbortReason(invokeId);
       },
 
-      getToolCallCount: (otterId: string, invokeId: string) => {
-        return this.agentInvoke.getToolCallCount(otterId, invokeId);
-      },
-
       isUserAborted: (invokeId: string) => {
         return this.userAbortedMessages.has(invokeId);
       },

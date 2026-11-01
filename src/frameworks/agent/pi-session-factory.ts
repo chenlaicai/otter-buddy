@@ -1528,12 +1528,6 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
-  /** 获取指定 Otter 当前 session 的工具调用次数（abort body 构造用） */
-  getToolCallCount(otterId: string, messageId?: string): number {
-    const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
-    return (this.activeSessions.get(sessionKey) ?? this.activeSessions.get(otterId))?.toolCallCount ?? 0;
-  }
-
   getInternalAbortReason(messageId: string): string | undefined { const s = `:${messageId}`; for (const [k, e] of this.activeSessions) { if (e.guardAbortReason && k.endsWith(s) && k.length > s.length) { const r = e.guardAbortReason; e.guardAbortReason = undefined; return r; } } return undefined; }
 
   /** F20260908rlcp→F20260911pspl 合流：检查 otter 是否有 session 正在运行（isStreaming）。
