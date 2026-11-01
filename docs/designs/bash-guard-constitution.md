@@ -8,13 +8,13 @@
 
 守卫每条规则必须挂靠且仅挂靠一层。层级由**不可逆性**决定——这是降级判据（实时拦 vs 放行+记录）的唯一依据：
 
-| 层 | ruleLayer | 不可逆性 | 判定要求 | 现有规则（ruleId） |
+| 层 | ruleLayer | 不可逆性 | 判定要求 | 现有规则（ruleId，guard-v4 对齐 F20261030gcfbx） |
 |---|---|---|---|---|
-| L1 防自杀 | `self_kill` | **不可逆**：主进程死亡 = 全场急停，所有会话上下文丢失 | 实时拦，宁可误拦；变体翻转策略（非字面量保守拦） | self_kill_literal / pidfile / byname / nonliteral / pipe_shell / script / eval / process_group / script_stop / indirect |
-| L2 R1 闸门 | `r1_gate` | **高但可逆**：主仓写受 git 保护（可 reset），data/ 破坏部分可逆 | 实时拦，误报治理走 #1207 路径（cwd 感知持续精化） | main_write / data_destructive |
-| L3 权限边界 | `permission` | **制度不可逆**：PR 合入是对外动作，合了就是合了 | 实时拦（机械闸，partnerApproval 原话校验） | pr_merge |
-| L4 防绕过 | `bypass_guard` | **守卫完整性**：绕过面 = 上述所有层失效 | 实时拦，脚本文件执行必须拆解 | script_file_exec / alias_shell_payload |
-| L5 习惯 | `habit` | **无损害**：感知问题非安全问题 | 实时拦 + 指引（wait 工具） | sleep_block |
+| L1 防自杀 | `self_kill` | **不可逆**：主进程死亡 = 全场急停，所有会话上下文丢失 | 实时拦，宁可误拦；变体翻转策略（非字面量保守拦） | self_kill_main（三查/PID 文件段内引用/stop 脚本）/ nonliteral / byname / process_group |
+| L2 R1 闸门 | `r1_gate` | **高但可逆**：主仓写受 git 保护（可 reset），data/ 破坏部分可逆 | 实时拦，误报治理走 #1207 路径（cwd 感知持续精化） | file-tool-guard（结构化前缀通道，按 operation 细分） |
+| L3 权限边界 | `permission` | **制度不可逆**：PR 合入是对外动作，合了就是合了 | 实时拦（机械闸，partnerApproval 原话校验） | （无守卫拦截规则；PR 合入闸在 merge_pr 工具层，非 bash 守卫） |
+| L4 防绕过 | `bypass_guard` | **守卫完整性**：绕过面 = 上述所有层失效；凭证/数据不进獭上下文同属边界完整性 | 实时拦，脚本文件执行必须拆解 | download_exec / cred_dir_access / network_exfil（v4 黑名单三类） |
+| L5 习惯 | `habit` | **无损害**：感知问题非安全问题 | （拦截已随 v4 退役，软约束化） | （空——sleep_block 随拦截退役） |
 
 **降级判据**：只有 L5 有资格未来降级为「放行+结构化记录」（等 ruleId 数据 2-4 周再议）。L1/L3/L4 永不降级。L2 的误报治理靠精化判定（#1207 路径）而非降级。
 
@@ -58,7 +58,7 @@
 
 > 与 `guard-intercept-classify.ts` 的 FINGERPRINTS 同步维护。完整指纹定义见该文件（真相源：代码）。
 
-见「一、分层原则」表右列——15 ruleId 全量挂靠（表内用短名，全称带 self_kill_ 前缀，与 FINGERPRINTS 的 ruleId 逐条对应）。`unknown` 兜底不计入规则（聚合报表监控 unknown 占比，>5% 时说明指纹表滞后，倒逼同步；unknown 事件在代码中暂归 self_kill 层，按层聚合时剔出单列）。
+见「一、分层原则」表右列——8 ruleId 全量挂靠（表内用短名，全称带 self_kill_ 前缀，与 FINGERPRINTS 的 ruleId 逐条对应；guard-v4 对齐重写见 F20261030gcfbx）。`unknown` 兜底不计入规则（聚合报表监控 unknown 占比，>5% 时说明指纹表滞后，倒逼同步；unknown 事件在代码中暂归 self_kill 层，按层聚合时剔出单列）。
 
 ## 修改契约
 

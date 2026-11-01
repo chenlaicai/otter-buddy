@@ -14,6 +14,7 @@ import {
   isKnownFeatureStatus,
   isKnownResearchStatus,
   isKnownExplorationType,
+  normalizeChangeType,
 } from "@entities/document/known-values";
 import { cleanMarkdownForFts } from "./markdown-noise-cleaner";
 import { chunkMarkdown } from "./markdown-chunker";
@@ -371,7 +372,8 @@ export class SyncDocuments {
       title: fm.title as string,
       summary: (fm.summary as string).trim(),
       bodyHash: computeBodyHash(body),
-      changeType: (isKnownChangeType(ct) ? ct : "feature") as ChangeType,
+      // F20261031ctuny（#1718）：归一值落库（' fix '/'bugfix' 判合法后存规范值，DB 不进脏值）
+      changeType: (isKnownChangeType(ct) ? normalizeChangeType(ct) : "feature") as ChangeType,
       status: (isKnownFeatureStatus(st) ? st : "draft") as FeatureStatus,
       tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],
       modules: Array.isArray(fm.modules) ? (fm.modules as string[]) : [],

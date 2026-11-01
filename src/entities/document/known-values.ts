@@ -46,9 +46,23 @@ export type FeatureStatus = (typeof KNOWN_FEATURE_STATUSES)[number];
 export type ResearchStatus = (typeof KNOWN_RESEARCH_STATUSES)[number];
 export type ExplorationType = (typeof KNOWN_EXPLORATION_TYPES)[number];
 
-/** 判定 change_type 是否为已知值（未知值进 SyncResult.warnings 上报，不阻断入库）。 */
+/** 判定 change_type 是否为已知值（未知值进 SyncResult.warnings 上报，不阻断入库）。
+ *  F20261031ctuny（#1718）：归一化入口下沉本源——trim（#1293）+ 历史拼写别名
+ *  （bugfix→fix / feature_update→feature-update，与 lint-intent #1295 对齐）
+ *  在此单点处理，validator/sync/mapper 调用方共用；lint-intent 侧（.mjs 无法 import
+ *  TS）别名表独立维护，跨表一致性由测试断言守卫（known-values-change-type.test.ts）。 */
+export function normalizeChangeType(value: string): string {
+  const trimmed = value.trim();
+  const LEGACY_ALIAS: Record<string, ChangeType> = {
+    bugfix: "fix",
+    feature_update: "feature-update",
+  };
+  return LEGACY_ALIAS[trimmed] ?? trimmed;
+}
+
+/** 判定 change_type 是否为已知值（归一后判定：`' fix '`/`'bugfix'` 均判合法） */
 export function isKnownChangeType(value: string): boolean {
-  return (KNOWN_CHANGE_TYPES as readonly string[]).includes(value);
+  return (KNOWN_CHANGE_TYPES as readonly string[]).includes(normalizeChangeType(value));
 }
 
 /** 判定 feature status 是否为已知值。 */
