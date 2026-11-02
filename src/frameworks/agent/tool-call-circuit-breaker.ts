@@ -245,6 +245,10 @@ function registerMatterSignature(a: Record<string, unknown>): string {
  * 批量操作不同实体（合入不同 PR、halt 不同 otter、迁移不同 matter、查不同消息/记忆）
  * 不算重复；同一实体连续操作才累计。标识缺失时退回工具名。
  * 设计哲学（F20260728cbwt）：签名只取「行为」（实体标识），忽略无关参数值。
+ * #1399：残余口子收口——link_memory、workspace 读写、create_linked_resource、
+ * set_context、search 三件套五组同类接入（各自判据见各签名函数）。关键取舍：
+ * 实体相同即同签名（type/关系等附加参数不区分）——同一实体的连发
+ * 是值得提醒的模式（幂等声明/同 key 反写），「不同实体」才是正当批量流。
  */
 function managementToolSignature(toolName: string, a: Record<string, unknown>): string | null {
   switch (toolName) {
@@ -265,9 +269,52 @@ function managementToolSignature(toolName: string, a: Record<string, unknown>): 
       return healingEventsSignature(a);
     case "register_matter":
       return registerMatterSignature(a);
+    // #1399：残余口子收口（续接下方 residualToolSignature，控制单函数复杂度）
+    default:
+      return residualToolSignature(toolName, a);
+  }
+}
+
+/** #1399 残余口子：link_memory/workspace 读写/create_linked_resource/set_context/search 三件套 */
+function residualToolSignature(toolName: string, a: Record<string, unknown>): string | null {
+  switch (toolName) {
+    case "link_memory":
+    case "unlink_memory":
+      return memoryEdgeSignature(toolName, a);
+    case "create_linked_resource":
+      return linkedResourceSignature(a);
+    case "set_context":
+    case "delete_context":
+      return entityToolSignature(toolName, "key", a.key);
+    case "search_memory":
+    case "search_messages":
+    case "search_terminology":
+      // 检索词是内容非实体（issue 建议与 speak 同构）——同词重搜算重复，换词不算
+      return typeof a.query === "string" && a.query ? `${toolName}#${contentDigest(a.query)}` : toolName;
     default:
       return null;
   }
+}
+
+/** link_memory/unlink_memory 签名：from→to 组合（方向是语义的一部分，produced 边两端不可交换） */
+function memoryEdgeSignature(toolName: string, a: Record<string, unknown>): string {
+  const from = typeof a.from_id === "string" && a.from_id ? a.from_id : "";
+  const to = typeof a.to_id === "string" && a.to_id ? a.to_id : "";
+  return from || to ? `${toolName}: ${from || "?"}→${to || "?"}` : toolName;
+}
+
+/**
+ * create_linked_resource 签名：类型 + 内容指纹（title/url/content 取首参）。
+ * 同类型不同内容不算重复（登记不同 PR/fact/文件是正当批量）；同类型同内容算重复
+ * （幂等登记值得提醒）。title/url/content 取首参而非全拼：任一已是区分度主体。
+ */
+function linkedResourceSignature(a: Record<string, unknown>): string {
+  const type = typeof a.resourceType === "string" && a.resourceType ? a.resourceType : "";
+  const content = typeof a.title === "string" && a.title ? a.title
+    : typeof a.url === "string" && a.url ? a.url
+    : typeof a.content === "string" && a.content ? a.content
+    : "";
+  return type && content ? `create_linked_resource: ${type}#${contentDigest(content)}` : "create_linked_resource";
 }
 
 /**
@@ -294,25 +341,52 @@ function capSignature(sig: string): string {
 
 function rawToolSignature(toolName: string, args?: unknown): string {
   const a = (args ?? {}) as Record<string, unknown>;
-  if (toolName === "bash" && typeof a.command === "string") {
-    const sig = bashCommandSignature(a.command);
-    return sig ? `bash: ${sig}` : "bash";
-  }
-  if (toolName === "read" || toolName === "write" || toolName === "edit") {
-    return fileToolSignature(toolName, a);
+  return dispatchToolSignature(toolName, a) ?? toolName;
+}
+
+/** 分发链：命中专用签名则返回，否则 null 退回工具名 */
+function dispatchToolSignature(toolName: string, a: Record<string, unknown>): string | null {
+  if (toolName === "bash") return bashSignature(a);
+  // read/write/edit + workspace 读写（#1399 同构接入）：path 主体 + 写入内容指纹
+  if (toolName === "read" || toolName === "write" || toolName === "edit" || toolName === "workspace_read" || toolName === "workspace_write") {
+    return fileOrWorkspaceSignature(toolName, a);
   }
   // F20260820d338：speak 签名含 body 内容指纹，区分不同输出与同一输出重试
   if (toolName === "speak" && typeof a.body === "string") {
-    const digest = contentDigest(a.body);
-    return `speak#${digest}`;
+    return `speak#${contentDigest(a.body)}`;
   }
   // F20260826d464：otter 管理工具签名含实体标识——批量解散/重启不同 otter 不算重复
   const otterSig = otterToolSignature(toolName, a);
   if (otterSig !== null) return otterSig;
-  // #475：带实体参数的管理工具签名——批量管理操作不同实体不算重复（merge_pr/halt/transition 等）
-  const mgmtSig = managementToolSignature(toolName, a);
-  if (mgmtSig !== null) return mgmtSig;
-  return toolName;
+  // #475 + #1399：带实体参数的管理工具签名——批量管理操作不同实体不算重复
+  return managementToolSignature(toolName, a);
+}
+
+/** bash 签名：命令行为；无命令内容时退回工具名 */
+function bashSignature(a: Record<string, unknown>): string | null {
+  if (typeof a.command !== "string") return null;
+  const sig = bashCommandSignature(a.command);
+  return sig ? `bash: ${sig}` : "bash";
+}
+
+/**
+ * 文件类签名分发：read/write/edit 走 fileToolSignature；workspace 读写同构接入（#1399，
+ * 独立实现——workspace path 是相对沙箱根的短路径，语义独立）。
+ */
+function fileOrWorkspaceSignature(toolName: string, a: Record<string, unknown>): string {
+  if (toolName === "workspace_read" || toolName === "workspace_write") {
+    return workspaceToolSignature(toolName, a);
+  }
+  return fileToolSignature(toolName, a);
+}
+
+/** workspace 读写签名：read 取 path；write 取 path+内容指纹 */
+function workspaceToolSignature(toolName: string, a: Record<string, unknown>): string {
+  const path = a.path;
+  if (typeof path !== "string" || !path) return toolName;
+  if (toolName === "workspace_read") return `workspace_read: ${path}`;
+  const digest = typeof a.content === "string" ? contentDigest(a.content) : "";
+  return digest ? `workspace_write: ${path}#${digest}` : `workspace_write: ${path}`;
 }
 
 /**
