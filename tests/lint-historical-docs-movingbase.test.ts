@@ -11,7 +11,7 @@
  * （位移守恒）、linkfix 套件（链接订正）、cibase 套件（--base 逐 commit 配对语义）各锁各面，
  * 本套件聚焦 moving-base 与自造 Add 场景，不重复覆盖。
  *
- * 已声明的残余缺口（不在本套件锁定，见特性文档 F20261102mvbs）：本地 origin/main 引用完全
+ * 已声明的残余缺口（不在本套件锁定，见特性文档 F20261102mvbsk）：本地 origin/main 引用完全
  * 过期（如仅 `git fetch origin main` 更新 FETCH_HEAD）时，main 侧 squash 与分支 commit 在本地
  * 视图信息论上不可区分，pre-commit 不伪造判据——兜底为 CI --base 模式（t5 锁定）+ fetch 纪律。
  */
