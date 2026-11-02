@@ -77,6 +77,7 @@ intent:
 | src/entities/healing/healing-event.ts | HealingErrorType 联合扩展 + 口径注释 |
 | src/interface-adapters/agent-runtime/circuit-break-support.ts | countRecentGuardBounces 双时代兼容计数 |
 | prompts/scheduled/monthly-prune-review.md | 守卫层「活跃/历史分层」口径 |
+| src/frameworks/agent/kill-block-messages.ts | 删除（deletion）：v4 重写后生产代码零引用的死文案源，两处同名常量不同文案是拷贝漂移温床。⚠️ 提交粒度留痕：该删除因 git rm 的 staged 状态随 commit 1 一并提交，其 Modification-Class 为 deletion（与主声明 narrow-fix 异类）——PR 描述同步声明，不重拆历史的依据：拆分收益 < 重跑 3 轮 pre-commit 门禁（全栈 check）的时间成本 |
 | tests/（4 个测试文件） | GuardBlock 断言适配 + 直标/反查双轨一致性断言 + bounce 新口径断言 |
 
 ## 验收标准（断言化）
