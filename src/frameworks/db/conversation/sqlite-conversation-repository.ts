@@ -63,7 +63,7 @@ const LAST_ACTIVITY_ENTRY_PREDICATE = `(
 
 export class SqliteConversationRepository implements ConversationRepository {
   /** 多模态 Phase 1：附件 repo（消息组装点①——repository 加载回填 attachments） */
-  /** 审视修复 R8：附件 JOIN 降级时留痕（不再吞错——真实 DB 故障须可观测） */
+  /** 附件 JOIN 降级时留痕（不再吞错——真实 DB 故障须可观测） */
   private readonly logger?: Logger;
 
   constructor(

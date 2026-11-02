@@ -79,7 +79,7 @@ export const TRIM_NOTE_RESERVE_CHARS = 200;
  * 从最老消息开始整条丢，直到序列化文本进预算。谱系摘要（previousSummary）与 §④⑤⑥
  * 机械供料不裁——它们已是压缩过的全局信息，交接场景「最近正在干什么」远比「开头聊了啥」重要。
  *
- * F20260924swin 口径修正（三轮对抗审视定稿）：
+ * F20260924swin 口径修正：
  * - 预算基准从「(窗口−预留−固定段)×密度」理论式改为「synthesisFullBudgetChars」夹逼定标——
  *   理论式的容量/密度都是边界反推（循环论证），夹逼常数只依赖实测成败样本
  * - 预算对象从「历史段」改为「全文」——调用方传 measuredFixedChars（固定段实测），
@@ -383,7 +383,7 @@ function formatPrefetch(prefetch?: NarrativeSynthesisInput['prefetch']): string 
     }
   }
   // F20261027hfup：recentUserMessages 不回填本函数——§⑥ formatRecentUserMessages 单点渲染
-  //  （检视 1647 严重 2：§④ 双渲染点=消息明细双份进 prompt 双倍挤占固定段预算，回退）。
+  //  （§④ 双渲染点=消息明细双份进 prompt 双倍挤占固定段预算，回退）。
   return parts.length > 0 ? parts.join('\n') : '- （无预取数据）';
 }
 

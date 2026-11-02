@@ -109,7 +109,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     // F20260902rcq3: 文档类条目（feature/research）把 sourceId（文档编号）注入 FTS 索引前缀——
     // 文档正文通常不含自己的编号，查「F20260829raft」时确定性最强的目标反而搜不到
     // （Phase 0 复测归因：12/79 残留零召回属此类）。只注入 FTS，不改 content 本体。
-    // 审视修复：正则改用 fid-format 真相源（{4,10}）——自编 {4} 漏掉 27 个长后缀文档
+    // 正则改用 fid-format 真相源（{4,10}）——自编 {4} 漏掉 27 个长后缀文档
     const ftsText = (entry.sourceTable === "features" || entry.sourceTable === "research")
       && FID_READ_ANCHOR_REGEX.test(entry.sourceId)
       ? `${entry.sourceId} ${entry.content}`
@@ -244,7 +244,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
 
   /** F20260803mval: 按 source 原子替换（单事务删旧+插新），B2 修复 */
   /** F20260803fbit: DELETE/SELECT WHERE 加 content_type 过滤，防 summary entry 和 body entry 互相删除 */
-  /** F20260813mren 审视二轮 P1-12：1:1 summary entry 的边做重定向（旧 id→新 id），不再静默删边。
+  /** F20260813mren：1:1 summary entry 的边做重定向（旧 id→新 id），不再静默删边。
    *  顺序：插新行 → 重定向边 → 按旧 id 删旧行（不能用 source 删，会误删新行）。
    *  chunk 的 N:M replaceEntriesBySource 无法重定向，维持禁边（D3）。 */
   async replaceEntryBySource(entry: MemoryEntry): Promise<void> {
@@ -253,7 +253,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
         .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
         .all(entry.sourceTable, entry.sourceId, entry.contentType) as Array<{ id: string }>;
 
-      // F20260915midu（#942 检视严重发现 1）：ID 统一后旧行 id = source_id = 新行 id，
+      // F20260915midu（#942）：ID 统一后旧行 id = source_id = 新行 id，
       // 先插新行会撞 UNIQUE 主键（迁移前“新 id 是全新 UUID 不可能冲突”的假设失效）。
       // 同 id 重入走快路径：UPDATE 本行（不删行——边 FK immediate 约束下删被引用行会炸，
       // 且边 remap 本就是 no-op 应保留）+ 刷新 fts/vec 卫星 + weights 不动。
@@ -292,7 +292,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
       this.insertEntryRow(entry);
 
       // 2. 边重定向：旧 id → 新 id（新 id 是全新 UUID，UNIQUE 不可能冲突）
-      // 审视三轮 #2：多旧行（历史脏数据）只重定向第一行的边，其余旧行的边删除——
+      // 多旧行（历史脏数据）只重定向第一行的边，其余旧行的边删除——
       // 否则两行同型边指向同一对端时 UPDATE 撞 UNIQUE 约束，整个 sync 永久失败（行为退化）。
       oldRows.forEach((row, index) => {
         if (index === 0) {
@@ -348,7 +348,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * PR审视 S3-14: 按 source + contentType 删除（body 清空时清理旧 chunk entries）。
+   * 按 source + contentType 删除（body 清空时清理旧 chunk entries）。
    * 复用 replaceEntriesBySource 的 DELETE WHERE 模式（单事务删 entries+fts+vec+weights）。
    */
   async deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: string): Promise<void> {

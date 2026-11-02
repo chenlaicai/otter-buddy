@@ -154,7 +154,7 @@ export interface SchedulerServiceOptions {
    *  注入后 invokeAgentWithTimeout 走 DispatchChainEngine.executeChain 续跑发言链。 */
   dispatchChainEngine?: DispatchChainEngine;
   /** 时钟注入（F20260814qswp）：替代对 @frameworks/metrics nowMs 的直接依赖，测试可替换。
-   *  默认保持原 nowMs 的单调钟语义（duration 计时不受 NTP 步进影响，对抗审视二轮修复——
+   *  默认保持原 nowMs 的单调钟语义（duration 计时不受 NTP 步进影响——
    *  首版误用 Date.now 墙钟）；与调度延迟计算的 Date.now 是两条时间线，注入方须保持一致语义 */
   now?: () => number;
   /** PR4: 函数注册表，用于 function executor */
@@ -863,7 +863,7 @@ export class SchedulerService {
       } catch (error) {
         this.logger.error(`Failed to trigger once task ${task.id}, starting retry`, error as Error);
         // 触发失败，走 once 专用重试
-        // #1394 审视修复：本处位于 catch 块内 await——若重试链内部抛错（如 #1391
+        // #1394：本处位于 catch 块内 await——若重试链内部抛错（如 #1391
         // fail-closed「scheduled task 不存在」、getById DB 错误），会从本 async
         // setTimeout 回调逃逸成 unhandledRejection → main.ts 全局处理器 process.exit(1)
         // 杀掉整个进程。重试链自身故障仅落日志告警，不杀进程。
@@ -925,7 +925,7 @@ export class SchedulerService {
    *  「有静默」的全部信息，更早窗口在日报对账时由 cron 表人工/LLM 核对）。 */
   private async reconcileMissedWindows(tasks: ScheduledTask[]): Promise<void> {
     const now = new Date();
-    // #853 检视严重 1：去重——同一错过窗口重复重启不得重复落账。一次性取 open 的 other
+    // #853：去重——同一错过窗口重复重启不得重复落账。一次性取 open 的 other
     // 事件，按 (taskId, missedWindowAt) 建集合；落账前查重。错过窗口的 lastTriggeredAt
     // 不会因对账而更新（对账不触发任务），不去重则每次重启都重落同一窗口事件。
     let existingKeys: Set<string>;

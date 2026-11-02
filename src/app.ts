@@ -320,7 +320,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     { name: 'embedding-retry', run: async () => {
       // F20261026emct：动态查 ref——worker 由 postListenInit 创建（listen 后），
       // 可能晚于 PatrolWorker 构造；未就绪时空转，就绪后自动接管。
-      // 告警（delta 复审建议 3）：ref 持续为 null = retry 能力静默缺失，只有一条
+      // 告警：ref 持续为 null = retry 能力静默缺失，只有一条
       // postListenInit 的 error 日志后无任何周期信号——每轮 duty 限频 warn 一次，
       // 让「worker 起不来」可从日志周期性发现（非新增拦截层，可观测性补全）。
       const w = retryWorkerRef.current;
@@ -354,8 +354,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     dataDir,
   });
   const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService: queryEmbedding, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
-  // F20260813mren 审视二轮：sync_docs 工具注入——海獭写完文档可立即触发同步入库
-  // 审视三轮 A-10：rootDir 透传——worktree 流程下文槛在 worktree，海獭可传 worktree 绝对路径
+  // F20260813mren：sync_docs 工具注入——海獭写完文档可立即触发同步入库
+  // rootDir 透传——worktree 流程下文槛在 worktree，海獭可传 worktree 绝对路径
   // F20260920uhuc：agentInvoker 延迟绑定容器——buildOtterToolClient 先于 agentInvoker 构造
   // （同 setOtterToolClient 时序先例），闭包经 ref 读最新值
   const agentInvokerRef: { current?: Pick<AgentInvoker, "restartWithUnifiedHandoff"> } = {};

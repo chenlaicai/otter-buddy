@@ -178,7 +178,7 @@ export async function createAndStartRetryWorker(
     }
   }
 
-  // F20260812mrcq Part 1 审视 M8：存量暗化条目迁移
+  // F20260812mrcq Part 1：存量暗化条目迁移
   // 扫描已存在的暗化条目，批量 enqueueRetry 入队。
   //
   // F20261026emct 两处收窄：

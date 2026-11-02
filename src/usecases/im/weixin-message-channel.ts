@@ -234,7 +234,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
   }
 
   private async maybeSendThinkingMessage(conversationId: string, event: SSEEvent): Promise<void> {
-    // 时间戳 gate（同飞书审视 R5 语义）：invoke.start 延迟超 3s 说明 IO 慢，
+    // 时间戳 gate（同飞书语义）：invoke.start 延迟超 3s 说明 IO 慢，
     // 最终发言可能已在路上——此时发"正在思考..."会乱序，跳过
     const d = event.data as { startedAt?: string; createdAt?: string } | undefined;
     const startedAt = d?.startedAt ?? d?.createdAt;
@@ -245,7 +245,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
 
-    // F20260831xtrt 检视R1：onEvent（thinking）路径与 onMessage 对称路由，飞书会话不进本通道
+    // F20260831xtrt：onEvent（thinking）路径与 onMessage 对称路由，飞书会话不进本通道
     if (connection.externalType !== "weixin") {
       this.logger.debug("Skipping thinking message to non-weixin connection", {
         conversationId,

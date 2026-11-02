@@ -3,7 +3,7 @@
  *
  * 背景：守卫对「文本提及」与「执行意图」不区分——--body 参数值、引号内任何含
  * 进程终止族词元的合法文本（issue 正文、review 报告、源码引用、测试字符串）与
- * 真实终止命令被同一正则命中。#858 现场 13 起：检视獭 gh pr review --body 引
+ * 真实终止命令被同一正则命中。#858 现场 13 起：gh pr review --body 引
  * skill 文本被拦（对抗审视流程在守卫层断裂）、heredoc 写 issue 正文被拦、
  * 本特性开发中实现者 2 次被拦（调试命令内联测试字符串）。
  *
@@ -82,7 +82,7 @@ export function stripHeredocPayloads(command: string): string {
 
 /** #1207（F20260930l573）：提取全部 heredoc 载荷 span——供体感知判定。
  *  closer 语义与 bash 对齐：定界符必须独占一行（行首无空白、行尾无任何字符——
- *  实测 `EOF   ` 不闭合；此前容忍 [ \t]* 的宽版被检视獭凑出利用链：
+ *  实测 `EOF   ` 不闭合；此前容忍 [ \t]* 的宽版被构造出利用链：
  *  体首定义 `EOF = 0` 让 python 合法经过「假闭合行」+ 宽版 closer 误判闭合，
  *  尾段真实写入逃过体判定，端到端 ALLOW 实证）。
  *  后续演进：匹配 <<-（dash 定界——此前整链不可见，bash/node
@@ -148,7 +148,7 @@ function blankHeredocBody(command: string): string {
     const openLineEnd = command.indexOf("\n", m.index);
     if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无需剥
     // #1207：closer 与 bash 对齐——定界符独占一行（行首无空白、行尾无任何
-    // 字符，`EOF   ` 不闭合）。宽版 `[ \\t]*` 被检视獭利用（体首 `EOF = 0` + 尾段
+    // 字符，`EOF   ` 不闭合）。宽版 `[ \\t]*` 被利用（体首 `EOF = 0` + 尾段
     // 真实写入端到端 ALLOW）；剥体到不了的位置体文本留在扫描面 → 保守侧。
     // <<- 变体允许行首 TAB（bash 只剥 tab 不剥空格）
     const closerRe = new RegExp(/<<\s*-/.test(m[0]) ? `^\\t*${m[1]}$` : `^${m[1]}$`, "gm");
@@ -174,7 +174,7 @@ const SHELL_PAYLOAD_CHANNEL = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|\
  * F20260923glay：脚本 one-liner 通道（python/perl/ruby -c|-e、node -e|--eval）——
  * 文档性常量：脚本载荷与 shell 载荷的分层语义说明（shell 载荷引号内是 shell 代码须保留原文，
  * 脚本载荷字符串字面量是数据可剥离）。当前实现已内联进 stripQuotedTextSpans 的载荷段定位
- * 逻辑（审视严重 1 修正后不再用通道整体分类），保留此常量供 kill 检测等调用方对齐口径。
+ * 逻辑（不再用通道整体分类），保留此常量供 kill 检测等调用方对齐口径。
  */
 const _SCRIPT_ONELINER_CHANNEL_DOC = /\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*(?:-e|--eval)\s/;
 
@@ -285,7 +285,7 @@ export function stripQuotedTextSpans(command: string): string {
   SYNTAX_DOUBLE_QUOTED.lastIndex = 0;
   const blank = (m: string): string => " ".repeat(m.length);
 
-  // F20260923glay 分层 + 审视严重 1 修正：shell 载荷段（bash -c / 管道进 shell / heredoc）
+  // F20260923glay 分层：shell 载荷段（bash -c / 管道进 shell / heredoc）
   // 整段保留原文（引号内是 shell 代码）；其余（常规命令 + 脚本 one-liner 载荷）照常剥离。
   // 整条命令全局分类会让混合命令（bash -c '...' && python3 -c "..."）中的 shell 载荷遁形，
   // 而按 &&/; 等分隔符切段又会切散跨分隔符的引号对（--body "a | b"）。

@@ -166,7 +166,7 @@ import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 
 // F20260920uhuc：buildAutoHandoffOptions / buildManualHandoffOptions 退役——
-// 红线重审（对抗审视确认推翻）：影子通道改变了 P1 当年的技术形态（合成者是干净的
+// 红线重审后推翻原判：影子通道改变了 P1 当年的技术形态（合成者是干净的
 // inMemory 引擎而非退化獭的 invoke 通道），手动/熔断路径统一走 LLM 合成 + 降级链。
 // 四件套 options 组装由统一 handoff 入口（unifiedHandoff）内的机械供料收集取代。
 
@@ -249,7 +249,7 @@ export class AgentInvoker implements AgentTurnPort {
         invokeRepo,
         logger,
         healthySessionThresholdMs,
-        // F20260922handoff 审视严重1：熔断换世也清水位状态（与 unifiedHandoff 入口同语义）。
+        // F20260922handoff：熔断换世也清水位状态（与 unifiedHandoff 入口同语义）。
         onSessionRestarted: (id: string) => { this.handoffState.clearLastCtxTokens(id); },
       })
       : null;
@@ -423,7 +423,7 @@ export class AgentInvoker implements AgentTurnPort {
         if (!isSessionLockConflictError(err)) {
           this.handoffState.noteHandoffOutcome(otterId, 'synthesis-failed');
         }
-        // F20260922handoff 审视严重3修正：交接失败（含 inProgress 撞车 conflict——
+        // F20260922handoff：交接失败（含 inProgress 撞车 conflict——
         //  交接窗口内本獭 invoke 正是「重启后 30 秒内发言」主场景）不杀本消息——
         //  D9 同源：交接失败永不阻塞 invoke，照常走当前世。conflict 除外？不，
         //  水位入口的 conflict 只可能来自另一路交接已在进行（手动/熔断），本消息
@@ -513,7 +513,7 @@ export class AgentInvoker implements AgentTurnPort {
 
       const turnInput = this.buildTurnInput(params, currentInvokeId, startTime);
 
-      // 委托给 orchestrator 执行（#764 审视 A1：观测窗清理进 finally——classifyExit/
+      // 委托给 orchestrator 执行（#764：观测窗清理进 finally——classifyExit/
       // routeByReason 在 executeTurn 的 try 外，DB 抖动上抛时普通清理会被跳过，
       // 长生命周期单例逐 turn 泄漏）
       let turnResult: Awaited<ReturnType<typeof this.orchestrator.executeTurn>>;
@@ -763,7 +763,7 @@ export class AgentInvoker implements AgentTurnPort {
     try {
       this.recordStreamEventMetricsInner(e, toolStarts);
     } catch (err) {
-      /** PR 审视修复：onEvent 在 SDK 事件分发通道内同步执行，metrics 异常绝不能打断事件流 */
+      /** onEvent 在 SDK 事件分发通道内同步执行，metrics 异常绝不能打断事件流 */
       this.logger.warn('stream event metrics failed (non-fatal)', {
         eventType: e.type,
         error: err instanceof Error ? err.message : String(err),
@@ -814,7 +814,7 @@ export class AgentInvoker implements AgentTurnPort {
    * 拿不到 errorMessage，exit 分类从这里取归因上下文。
    * auto_retry_end(success=true)：retry 成功 = backoff 等待已结束、LLM 恢复干活——观测窗
    * 必须清空，否则陈旧 429 原文在「retry 成功后干活 N 分钟用户才 abort」（常态时机）时被
-   * 误回填为「底层错误：429」（审视 S1）——陈旧误归因比无归因更误导。
+   * 误回填为「底层错误：429」——陈旧误归因比无归因更误导。
    * 只在 success===true 时清：abort 打断 backoff 时 SDK 也发 auto_retry_end(success:false)，
    * 无条件清会把正确归因一起清掉。
    */
@@ -1113,14 +1113,14 @@ export class AgentInvoker implements AgentTurnPort {
       throw new DomainError(`[handoff] already in progress for ${otterId}`, "conflict");
     }
     this.handoffState.setInProgress(otterId, true);
-    // F20260922handoff 审视严重1修正：换世统一在入口清水位状态（任何 await 前）——
+    // F20260922handoff：换世统一在入口清水位状态（任何 await 前）——
     //  无论后续走合成/机械/降级/裸重启哪条路径，换世后都不残留旧世 ctxTokens，
     //  防误触发水位二次换世。此前 clearLastCtxTokens 在 restartSession 成功后，
     //  降级/异常路径绕过 → 残留。
     this.handoffState.clearLastCtxTokens(otterId);
 
     /** 交接进度系统消息（需求变更 2026-09-20：等待要有反馈）。失败静默——UX 反馈不阻塞交接主线。 */
-    /** F20260922handoff 审视严重2残余修正：otterDisplay 求值加容错——queryOtter.getById
+    /** F20260922handoff：otterDisplay 求值加容错——queryOtter.getById
      *  抛错时模板实参求值（在 try 外）会泄漏 inProgress → 永久 409。fallback 到 otterId
      *  兜底（进度消息降级为「獭 <id>」），异常不穿透 sendProgress 调用点。 */
     const otterDisplay = async (): Promise<string> => {
@@ -1158,7 +1158,7 @@ export class AgentInvoker implements AgentTurnPort {
 
     // 冻结窗口：持锁直到交接完成——所有触发路径统一 'acquire'（lockMode 死分支已删，
     //  F20260930hsfx 层积岩清理）。
-    // F20260922handoff 审视严重2修正：acquireSessionLock 挪进 try——此前在 try 外，
+    // F20260922handoff：acquireSessionLock 挪进 try——此前在 try 外，
     //  超时抛错时 finally 的 setInProgress(false) 不执行（try/finally 尚未进入），该獭
     //  永久 409 conflict（acquireSessionLock 超时路径正是本 PR 激活的）。
     let releaseLock: (() => void) | undefined;
@@ -1248,7 +1248,7 @@ export class AgentInvoker implements AgentTurnPort {
       }
       let narrativeSummary: string | undefined;
       let degradeReason: HandoffDegradeReason | undefined;
-      // F20260930hsfx 审视严重3修正：circuit-open 判定先于 !synthesizePast——熔断重启传
+      // F20260930hsfx：circuit-open 判定先于 !synthesizePast——熔断重启传
       //  synthesizePast=false（M4 快速止损），若 !synthesizePast 优先级最高会把熔断场景归因成
       //  「触发方选择跳过」（虚假归因：没人选，是熔断强制），M5「熔断可见」在熔断重启主路径
       //  不成立。现让 circuit-open 优先命中：熔断场景完成文案显「熔断强制机械」而非「触发方选择」。
@@ -1370,7 +1370,7 @@ export class AgentInvoker implements AgentTurnPort {
       //  holderHeldForMs 恂 ≈120s、queueLength=0——等的是自己）。
       const session = await this.manageSession.restartSession(otterId, archive, modelAlias, reason, 'handoff');
       // 水位状态已在 unifiedHandoff 入口统一清理（严重1修正），此处不再重复。
-      // F20260923hsyn 审视严重1修正：熔断清零挂「合成成功」（narrativeSummary 非空）而非
+      // F20260923hsyn：熔断清零挂「合成成功」（narrativeSummary 非空）而非
       // 「交接成功」——死亡链场景每次交接都是「合成失败→机械档案→restart 成功」，清零挂交接成功
       // 会让计数永远到不了 2，熔断形同虚设。合成成功才清零（机械档案交接不清零，计数继续累积，
       // 下次交接直接跳过合成熔断分支生效）。F20260930hsfx M2：计数口径收敛到 noteHandoffOutcome 单点。
@@ -1414,7 +1414,7 @@ export class AgentInvoker implements AgentTurnPort {
 
   /** 水位判定：上轮 ctxTokens 超过该獭模型的交接阈值（按模型直给，2026-09-20 需求变更）。
    *  阈值无法解析（模型缺失/旧装配）时不触发——水位交接静默失活优于拿错阈值误触发。
-   *  F20260922handoff 审视严重3修正：交接进行中（inProgress）短路不触发——交接窗口内
+   *  F20260922handoff：交接进行中（inProgress）短路不触发——交接窗口内
    *  本獭 invoke（「重启后 30 秒内发言」主场景）不该因旧世残留水位被判超阈值，且
    *  unifiedHandoff 自身的防重入会抛 conflict。
    *  F20260922wbfx：每次判定留痕（debug）——9/22 事故实证：大獭 ctx 261k 超 40k 阈值
@@ -1481,7 +1481,7 @@ export class AgentInvoker implements AgentTurnPort {
   /** jsonl 切片收集（F20260929kws1：倒序找最近 4 条 speak——token 预算切片退役）。
    * F20260930hsfx S2：返回值扩为 {slice, degradeReason}——切片失败的具体形态（真空 session /
    *  jsonl 读失败）随原料上抛，供合成跳过判定与档案文案贯穿统一 reason 枚举。
-   * F20260930hsfx 审视严重2修正：reason 三元方向纠正——`!entries || length===0` 合并分支里，
+   * F20260930hsfx：reason 三元方向纠正——`!entries || length===0` 合并分支里，
    *  `entries` 为 undefined 是「读失败/门面缺失」、为 [] 是「真空 session」，两者 reason 相反；
    *  原实现 `entries ? undefined : 'empty-session'` 把读失败标成 empty-session、真空标成 undefined，
    *  排查被引向完全相反方向。现拆成显式分支对齐。
@@ -1602,7 +1602,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /**
-   * 审视 P2/P1：stateInventoryDeps 的统一构造（三条路径共用，消除重复）。
+   * stateInventoryDeps 的统一构造（三条路径共用，消除重复）。
    *  F20260913ctlv 收尾批1：历史读取切 entries（entryReader = sendEntry.getEntries 窄面）。
    */
   private buildStateInventoryDeps(conversationId: string, workspacePath?: string): StateInventoryDeps {
@@ -1784,7 +1784,7 @@ export class AgentInvoker implements AgentTurnPort {
       throw new DomainError(`Otter ${otterId} 正在执行任务（忙碌中），不允许手动重启，请稍后再试`, "conflict");
     }
 
-    /** F20260922handoff 审视严重1修正：裸重启统一收口——换世必须清水位状态，
+    /** F20260922handoff：裸重启统一收口——换世必须清水位状态，
      *  否则旧世 ctxTokens 残留 → 下轮 invoke 误判超阈值 → 二次换世（幽灵世代）。
      *  所有 unifiedHandoff 之外的 restartSession 调用点（手动降级/自重启保底）必须走本 helper。 */
     const bareRestart = async (): Promise<OtterSession> => {
@@ -1831,7 +1831,7 @@ export class AgentInvoker implements AgentTurnPort {
   /** F20260917rsta：取 otter 关联的第一个对话 ID（无对话时返回 undefined，不阻塞重启）
    *  经 manageSession.conversationQuery 窄接口（ConversationQueryGateway.getIdsByOtterId），
    *  不经 queryOtter（它只管 otter 元数据）
-   *  F20261009s6ej6（检视 A5 标注）：ids[0] 取查询结果第一条，多对话小獭的 ⏳/✅ 可能发到
+   *  F20261009s6ej6：ids[0] 取查询结果第一条，多对话小獭的 ⏳/✅ 可能发到
    *  非搭档当前所在对话。getIdsByOtterId 无 ORDER BY，返回序未定义。此为既有语义，本次
    *  未改（选对话策略是独立议题）；fallback 路径同样受此法影响。若未来要精准定位当前对话，
    *  需在调用侧传 conversationId 参数（controller 已持有）。*/
@@ -1848,7 +1848,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /** F20260903cmpk：压缩钩子合成函数。
-   *  F20260912nlb896（#896 + PR #897 检视严重 1）：合成**不走 invoke**——invoke 路径双重不可行：
+   *  F20260912nlb896（#896 + PR #897）：合成**不走 invoke**——invoke 路径双重不可行：
    *  ①锁：钩子在 prompt 中途触发，外层持有 per-otter 锁，嵌套 invoke 再取同锁死锁（原 #896）；
    *  ②池：锁旁路后嵌套 invoke 在 `_acquirePooled` 必判外层 streaming session 为 stale 出池、
    *  冷启动 SessionManager.open 同一 jsonl 顶替池条目——压缩摘要 entry 与外层后续消息全部丢失，
@@ -1953,7 +1953,7 @@ export class AgentInvoker implements AgentTurnPort {
         //  走水位/手动交接补叙事（若仍需要）。此前硬编码 true 会在熔断现场叠加「最长 300s
         //  合成 + 交接锁」，熔断的「快速止损」语义名存实亡。
         synthesizePast: false,
-        // F20260922handoff 审视严重5修正：lockMode 改 'acquire'——熔断发生在 orchestrator
+        // F20260922handoff：lockMode 改 'acquire'——熔断发生在 orchestrator
         //  收尾，此时本 invoke 的 PiSessionFactory.invoke 锁已释放（finally 归还），传 'none'
         //  跳过取锁会让交接窗口失去冻结保护（另一 invoke 可闯入）。取 invoke 同源锁是正确的
         //  交接互斥保障。
@@ -2014,7 +2014,7 @@ export class AgentInvoker implements AgentTurnPort {
    * 新 session 的 LLM 会再次执行 → 无限循环。continuation message 告知"你已重启，请继续"，
    * 消除循环根因。tool-factory 层 + healing_events 上限判定提供纵深防御。
    */
-  /** F20260922handoff 审视严重1：自重启裸重启保底——清水位状态再换世（同手动降级收口语义），
+  /** F20260922handoff：自重启裸重启保底——清水位状态再换世（同手动降级收口语义），
    *  防旧世 ctxTokens 残留 → 下轮 invoke 误判超阈值 → 二次换世。抽出以守 handleSelfRestartSignal
    *  max-statements 上限。 */
   private async selfRestartBareFallback(
@@ -2072,7 +2072,7 @@ export class AgentInvoker implements AgentTurnPort {
         // summary 非空时合成照跑——叠加档案语义：引擎档案【总有】+ 自总结【可能有】
         synthesizePast: signal.synthesizePast ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT,
         modelAlias: signal.modelAlias,
-        // F20260922handoff 审视严重5修正：lockMode 改 'acquire'——自重启信号虽在 invoke 收尾
+        // F20260922handoff：lockMode 改 'acquire'——自重启信号虽在 invoke 收尾
         //  消费，但 PiSessionFactory.invoke 的锁在 finally 已归还（invoke 先于 signal 处理返回），
         //  传 'none' 跳过取锁会让交接窗口失去冻结保护。取 invoke 同源锁是正确的交接互斥保障。
       });
@@ -2090,7 +2090,7 @@ export class AgentInvoker implements AgentTurnPort {
         lockConflict: isSessionLockConflictError(handoffErr),
       });
       try {
-        // F20260922handoff 审视严重1修正：裸重启保底也清水位状态（收口语义同手动降级）。
+        // F20260922handoff：裸重启保底也清水位状态（收口语义同手动降级）。
         const newSession = await this.selfRestartBareFallback(otterId, summary, signal.modelAlias);
         newSessionId = newSession.id;
       } catch (restartErr) {

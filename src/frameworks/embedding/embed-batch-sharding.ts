@@ -63,7 +63,7 @@ export function wrapOptsForShard<T extends { salvage?: (embeddings: Float32Array
  *  - 未设 / 非法 / <1：返回默认值（非法时 warn 一条，不静默——对齐
  *    resolveIntraOpThreads 的防钳制失效不可见纪律）。
  *  - 环境变量逃生口而非配置 schema：与 OTTER_EMBED_INTRA_OP_THREADS 同模式
- *    （紧急调参用，不进 config；检视 #1107 先例）。 */
+ *    （紧急调参用，不进 config；#1107 先例）。 */
 export function resolveBatchTokenBudget(
   env: string | undefined = process.env.OTTER_EMBED_BATCH_TOKEN_BUDGET,
   fallback: number = DEFAULT_BATCH_TOKEN_BUDGET,

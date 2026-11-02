@@ -515,7 +515,7 @@ export class PiSessionFactory implements AgentGateway {
    *  旧 invoke 若仍活着由 GC 兑底——与 markStale 同语义，F20260912nlb896 已验证）。
    *  Precondition: 调用方已持交接冻结锁（acquireSessionLock），否则与 reset() 等价但与并发 invoke 竞态。 */
   async resetForHandoff(otterId: string, context?: AgentContext): Promise<void> {
-    // F20260923hspx 检视严重2a 修正：换世期间池内旧 session 用 markStale 出池（不 dispose）
+    // F20260923hspx：换世期间池内旧 session 用 markStale 出池（不 dispose）
     //  而非 evict（removeEntry 无条件 dispose）——旧 invoke 若仍活着（isStreaming），
     //  dispose 会撕裂它的流（与 F20260912nlb896 stale steal 策略同语义）。
     this.pool.markStale(otterId);
@@ -525,7 +525,7 @@ export class PiSessionFactory implements AgentGateway {
 
   private async _resetInternal(otterId: string, context?: AgentContext): Promise<void> {
     // F20260911pspl：reset = 重启獭生——先驱逐池内旧 session（若在池），再建新链。
-    // F20260923hspx 检视严重2a：resetForHandoff 已先行 markStale（不 dispose），
+    // F20260923hspx：resetForHandoff 已先行 markStale（不 dispose），
     //  此处 evict 对池内无条目是 no-op（幂等）；对 normal 渠道仍承担驱逐职责。
     this.pool.evict(otterId);
     this.poolMeta.delete(otterId);
@@ -591,7 +591,7 @@ export class PiSessionFactory implements AgentGateway {
     // 7. 标记下次 invoke 重新注入身份（新 session 上下文中没有身份内容）
     this.pendingIdentity.add(otterId);
     // F20260911pspl：reset 后旧 session 无效，驱逐出池。
-    // F20260923hspx 检视严重2a：resetForHandoff 已 markStale（不 dispose），此处 evict
+    // F20260923hspx：resetForHandoff 已 markStale（不 dispose），此处 evict
     //  对池内无条目是 no-op（幂等）；对 normal 渠道仍承担驱逐职责。
     this.pool.evict(otterId);
     this.poolMeta.delete(otterId);
@@ -636,9 +636,9 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /**
-   * F20260912nlb896（#896 + PR #897 检视严重 1）：压缩合成影子通道——临时 inMemory session 直调 LLM。
+   * F20260912nlb896（#896 + PR #897）：压缩合成影子通道——临时 inMemory session 直调 LLM。
    *
-   * Why 不走 invoke（原 #896 修复的 ALS 锁旁路方案被检视推翻）：
+   * Why 不走 invoke（原 #896 的 ALS 锁旁路方案后被推翻）：
    * ①锁：session_before_compact 钩子在 prompt 中途触发，外层持有 per-otter 锁，嵌套 invoke 再取同锁死锁；
    * ②池：锁旁路后嵌套 invoke 在 _acquirePooled 必判外层 streaming session 为 stale 出池、
    *   冷启动 SessionManager.open 同一 jsonl 顶替池条目——压缩摘要 entry 与外层后续消息全部丢失，
@@ -720,7 +720,7 @@ export class PiSessionFactory implements AgentGateway {
 
   /** F20260920uhuc 死链修复：jsonl entries 读取门面实现（此前端口声明可选但唯一实现体
    *  缺该方法 → 合成分支永远不进 → 100% 机械档案）。
-   *  F20260922handoff 审视严重4修正：池外路径改直读 sessionStore.getWithFile +
+   *  F20260922handoff：池外路径改直读 sessionStore.getWithFile +
    *  SessionManagerClass.open() 只读打开——永不 create。此前走 restoreOrCreate 的降级
    *  分支会在账本缺失时重建 session 覆盖旧记录（「读门面重写账本」），只读声称不实。
    *  池内已有 live sessionManager 时不另 open（避免重复句柄）。 */
@@ -774,10 +774,10 @@ export class PiSessionFactory implements AgentGateway {
     try {
       const release = await this.lockManager.acquire(key);
       acquired = true;
-      // F20260922handoff 审视打回修复：交接模式（waiter 超时 120s）必须覆盖整个持锁期。
+      // F20260922handoff：交接模式（waiter 超时 120s）必须覆盖整个持锁期。
       //  复位放在 release 闭包内（release 时先复位再放锁）——此前放外层 finally 会在
       //  acquire 返回瞬间复位，交接窗口内 waiter 仍是默认 30s 超时（「交接窗口假超时」
-      //  语义反转，F20260920uhuc 审视严重发现要消灭的形态）。
+      //  语义反转，F20260920uhuc 要消灭的形态）。
       return () => {
         this.lockManager.setHandoffMode(key, false);
         release();
@@ -947,7 +947,7 @@ export class PiSessionFactory implements AgentGateway {
     const existing = this.poolMeta.get(otterId);
     if (existing) {
       if (existing.session.isStreaming) {
-        // F20260912nlb896（PR #897 检视严重 1）：嵌套 invoke（ALS store 同 otterId）遇到 streaming
+        // F20260912nlb896（PR #897）：嵌套 invoke（ALS store 同 otterId）遇到 streaming
         // = 合成/handoff 类嵌套调用撞上外层 prompt 中途——**绝不能走下方 stale 出池**：
         // 出池会让外层活 session 被顶替（压缩摘要 entry 与外层后续消息全部丢失，压缩永不生效）。
         // 嵌套场景没有「外层异常」的可能（外层正活着在跑），直接抛错由调用方降级（压缩钩子 catch → Pi 默认）。
@@ -1102,7 +1102,7 @@ export class PiSessionFactory implements AgentGateway {
     const otterType = otterConfig.otterType; const otterPromptConfig = otterConfig.systemPrompt;
 
     // S1（R20260810piab）：身份前缀在 ALS scope 外构建（含 DB 查询）。
-    // 对抗检视修正：system prompt 不被 session history 持久化，每次 invoke 重建 session 时
+    // system prompt 不被 session history 持久化，每次 invoke 重建 session 时
     // system role 是空的。身份信息必须每次都注入，否则 invoke 2+ 起的 LLM 不知道自己的身份。
     // （旧代码拼在 user message 里被持久化，但 system role 方案不持久化——改为每次都构建）
     const conversationId = options?.conversationId ?? "";
@@ -1202,7 +1202,7 @@ export class PiSessionFactory implements AgentGateway {
           e._guardAbortReason = activeEntry?.guardAbortReason;
           /** F20260814mtrc：guard abort 路径的首字节样本不随 abort 丢弃（超时样本恰是最关心的） */
           e._outputGuardMetadata = outputGuard.getMetadata();
-          /** F20260814mtrc PR 审视修复：err 路径 result 不可达，model 随 error 透传（防 guard_abort 样本 model=unknown） */
+          /** F20260814mtrc：err 路径 result 不可达，model 随 error 透传（防 guard_abort 样本 model=unknown） */
           e._modelAlias = this.getModelAliasForLog(otterId);
           // 已发生的消耗不因 prompt reject 消失；orchestrator 在 rejected attempt 只合并一次。
           e._tokenUsageDelta = diffTokenUsage(tokenUsageBefore, session.getSessionStats().tokens);
@@ -1262,7 +1262,7 @@ export class PiSessionFactory implements AgentGateway {
     this.poolMeta.delete(otterId);
   }
 
-  /** F20261009epoc（检视 A-3）：池命中时所有权转移到命中它的 invoke（#904 语义保持：
+  /** F20261009epoc：池命中时所有权转移到命中它的 invoke（#904 语义保持：
    *  现役合法持有者可逐自己条目，stale 旧 invoke 不可）。hitEpoch 缺失时所有权冻结
    *  + warn（D3 fail-loud 对齐，不静默）。行为面安全方向：条目 epoch 保持原值
    *  （铸造它的更早 invoke），后续 _evictPooledIfOwned 会因 epoch 不匹配而跳过，

@@ -126,7 +126,7 @@ export function resetPendingAttempts(db: Database.Database): number {
 /**
  * F20261026emct：一次性出清孤儿任务——entry 已被删除的
  * 任务（真定义：entry_id NOT EXISTS，无论 last_error 形态）。首版只按
- * last_error LIKE '%entry deleted%' 代理口径删，检视獭 DB 实测两类差额 129 条
+ * last_error LIKE '%entry deleted%' 代理口径删，DB 实测两类差额 129 条
  * （含 98 条 10-23 巨批超时残骸 'batch timeout (49 texts)'）——代理口径外的孤儿
  * 会被 claim 打上 entry-deleted 后 3 次 dead 永久滞留。运行时路径不调（修复后
  * enqueueRetry 前置校验已断绝新幽灵产生源），仅清理脚本

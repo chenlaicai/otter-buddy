@@ -234,7 +234,7 @@ export function attachCircuitBreaker(
       // ② repeatOffender：同签名第 2 次 steer（复犯，首次警告未生效）——仅写不 abort（本次仍
       //   steer 提醒，后续同签名由门物理拦截）。
       // 原 #1566 实现 steer 首次即写：滑窗误报一次 → 签名永久拉黑 → 一次误判放大为会话级
-      // 持续瘫痪（#1653 案发：239 次门拦截重灾）。S1 检视实证：仅 terminate 写入时，
+      // 持续瘫痪（#1653 案发：239 次门拦截重灾）。实证：仅 terminate 写入时，
       // B-3 连发+变调穿插类复犯可借穿插 allow 洗掉 strike、滑窗多重集永不命中，terminate
       // 数学上不可达（780 次 0 terminate）——复犯标记补回 #1556「复又发作」防线。
       // 首次 steer 不写（纯警告，误伤优先）；speak/yield 豁免（报告+交棒是唯一逃生口）。

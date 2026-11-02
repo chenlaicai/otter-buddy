@@ -240,7 +240,7 @@ export class StoreMemory {
    * 优先走 embedBatch（一次 postMessage），失败时回落逐条 fireAndForgetEmbed。
    * 每条失败独立入 retry 队列——batch 内部分失败不拖累健康 chunk。
    *
-   * 流速控制（对抗审视 #1465 严重发现 1）：sync 启动期 600+ 文档串行 await
+   * 流速控制（#1465）：sync 启动期 600+ 文档串行 await
    * replaceChunksBySource，但 embed 是 fire-and-forget——前一批未完成后一批已发起，
    * 前 50 篇即可耗尽背压 slot，第 51 篇起全部 reject 走 retry 慢路径。
    * F20261020slvg：waitSlot 直接内嵌 embedBatch（槽满挂起，唤醒→准入在同一同步段），
@@ -330,7 +330,7 @@ export class StoreMemory {
       : { ...input, content, metadata };
   }
 
-  /** PR审视 S3-14: 按 source + contentType 删除 chunk entries（body 清空时清理旧 chunk） */
+  /** 按 source + contentType 删除 chunk entries（body 清空时清理旧 chunk） */
   async deleteChunksBySource(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void> {
     await this.writer.deleteBySourceAndType(sourceTable, sourceId, contentType);
   }

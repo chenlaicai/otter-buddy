@@ -90,7 +90,7 @@ export class AgentTurnOrchestrator {
         };
         // #1116：无 _toolCallCount ⟺ 抛错发生在首个工具调用之前（_acquirePooled 阶段：
         // 嵌套撞 streaming / config 缺失 / lock 超时；以及 attachGuards 后、内层 try
-        // 前的准备段——检视 S1：该窗口已过 attachGuards 但同样零调用）⟺ 本 invoke
+        // 前的准备段——该窗口已过 attachGuards 但同样零调用）⟺ 本 invoke
         // 零次工具调用 → ?? 0 即真实值。原 Map 重查兜底（getToolCallCount）
         // 已退役：它对经 factory catch 的错误恒不触发（#763 后 _toolCallCount 恒为
         // number，死链），对首工具前抛错则重查裸 otterId 键——读到同 otter 其他
@@ -837,7 +837,7 @@ export class AgentTurnOrchestrator {
     if (!currentRule || currentRule === "unknown") return null; // 本轮规则不可归类 → 无法判同，保守走 abort
     const sameRuleId = events.every(e => e.ruleId === currentRule);
     if (!sameRuleId) return null;
-    // 审视处置（PR #1360 §3.2）：events 是 DESC 序（最新在前，sqlite-healing-event-repository
+    // PR #1360 §3.2：events 是 DESC 序（最新在前，sqlite-healing-event-repository
     // ORDER BY created_at DESC）——commandHead 取 events[0]（最新一次被拦命令），非 events 末尾（最旧）。
     const latest = events[0];
     return {

@@ -126,7 +126,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    */
   private workerBornAt = Date.now();
   private workerEmbedSucceeded = 0; // 本代 worker 成功 embed 次数（单条+batch 按请求计）
-  private workerEmbedTimeouts = 0; // 本代 worker embed 超时次数（检视 #1493 delta 观察 1：原名 attempted 只计超时，名实不符）
+  private workerEmbedTimeouts = 0; // 本代 worker embed 超时次数（#1493：原名 attempted 只计超时，名实不符）
   /** F20261020slvg：本代 worker 晚到结果被 salvage 的次数（原先是静默丢弃，不可观测） */
   private workerSalvagedResults = 0;
   /** 最近一次触发超时的请求画像（定位「是否特定文本模式触发嵌套算子」） */

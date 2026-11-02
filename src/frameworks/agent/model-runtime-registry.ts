@@ -398,7 +398,7 @@ export function loopBlockGuard(
   const reason = map.get(sig);
   if (reason === undefined) return undefined;
   // F20261027lbos（#1656）：拦截落账（同签名去重，只记首次）——loop_tool_block 事件
-  // 是 b2 残余误伤面（#1653 delta 审视 D1-1）的唯一观测源，缺失则体检失明。
+  // 是 b2 残余误伤面（#1653）的唯一观测源，缺失则体检失明。
   // 懒初始化去重集（与 loopBlockedTools 同生命周期）；fail-open：钩子缺失/抛错不阻断拦截。
   if (!store.loopBlockLoggedSignatures) store.loopBlockLoggedSignatures = new Set();
   if (!store.loopBlockLoggedSignatures.has(sig)) {
