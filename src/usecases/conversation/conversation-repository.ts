@@ -2,6 +2,7 @@ import type {
   ArtifactStatus,
   Conversation,
   ConversationStatus,
+  ConversationKind,
   LinkedResource,
   ConversationParticipant,
 } from "@entities/conversation/conversation";
@@ -12,8 +13,9 @@ export type ListConversationsFilter = {
   search?: string;
   /** F20260922cgrp：按状态过滤（弱状态两态：active | archived）；缺省 = 仅 active（归档对话移入独立空间） */
   status?: ConversationStatus;
-  /** F20260922cgrp：按类别过滤（assistant = IM 助理；normal = 普通对话）；缺省不过滤 */
-  kind?: "normal" | "assistant" | "web-assistant";
+  /** F20260922cgrp：按类别过滤（assistant = IM 助理；normal = 普通对话）；缺省不过滤。
+   *  #1224：联合从 entities 单源派生（原三值硬编码收敛） */
+  kind?: ConversationKind;
   /** F20260922cgrp delta：按置顶过滤（false = 仅非置顶——普通区分页不含置顶，计数口径对齐）；缺省不过滤 */
   pinned?: boolean;
 };
