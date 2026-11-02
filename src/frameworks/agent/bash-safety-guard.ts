@@ -23,6 +23,7 @@ import path from "path";
 import { execFileSync } from "node:child_process";
 import type { Logger } from "@usecases/ports/logger";
 import { findKillSegments } from "./kill-segment-finder";
+import type { GuardRuleLayer } from "./guard-intercept-classify";
 import {
   loadAllowedServicePorts,
   extractWhitelistedPortRefs,
@@ -182,12 +183,41 @@ function whitelistedPortAllow(
   });
 }
 
-const MAIN_KILL_BLOCK_MSG = "目标命中主进程（otter-buddy 主服务）——海獭不能杀主进程。需要重启服务走 restart-service 工具（受控通道）；stop/restart 脚本同样禁止直接执行。";
-const INDIRECT_KILL_BLOCK_MSG = "kill 目标为变量/命令替换（非字面量 PID），无法静态确认是否主进程——该命令不允许。若需清理自己起的 dev server/测试进程：用字面量 PID kill（非主进程放行），或受控出口 node scripts/restart-service.mjs kill-by-pid <pid> --project <abs>。";
-const PKILL_OTTER_BLOCK_MSG = "pkill/killall 按名匹配会命中主进程（node/otter-buddy 特征名）——不允许。精确终止请用字面量 PID kill。";
+/**
+ * F20261102grfix（B 治本·拦截点直标）：拦截返回值从纯文案升级为文案+归因键绑定对。
+ *
+ * 背景：ruleId 此前靠 guard-intercept-classify 事后按文案特征片段反查——文案面向人
+ * （改写/动态前缀/多出口分裂）而归因键需要机器稳定，文案一改指纹表即脱节（10-19 抽取
+ * 须人肉保锚片段、10-30 v4 重写后整表重对齐两次实证）。现拦截判定处直接给出 ruleId，
+ * classify 降级为存量回溯兜底。文案（text）可随意润色，ruleId 是稳定身份永不改。
+ */
+export interface GuardBlock {
+  /** 拦截文案（面向 LLM/人，允许改写） */
+  text: string;
+  /** 稳定归因键（面向机器，历史聚合连续性锚点） */
+  ruleId: string;
+  /** 宪法分层（与 guard-intercept-classify 的 GuardRuleLayer 同域） */
+  layer: GuardRuleLayer;
+}
 
-/** 字面量 kill 目标的三查身份（一查 PID 相等 / 二查 args 指纹 / 三查直接父进程）——返回拦截文案或 null（放行） */
-function checkLiteralKillTarget(segment: string, mainPid: number | null, probe: ProcessProbe): string | null {
+const MAIN_KILL_BLOCK_MSG: GuardBlock = {
+  text: "目标命中主进程（otter-buddy 主服务）——海獭不能杀主进程。需要重启服务走 restart-service 工具（受控通道）；stop/restart 脚本同样禁止直接执行。",
+  ruleId: "self_kill_main",
+  layer: "self_kill",
+};
+const INDIRECT_KILL_BLOCK_MSG: GuardBlock = {
+  text: "kill 目标为变量/命令替换（非字面量 PID），无法静态确认是否主进程——该命令不允许。若需清理自己起的 dev server/测试进程：用字面量 PID kill（非主进程放行），或受控出口 node scripts/restart-service.mjs kill-by-pid <pid> --project <abs>。",
+  ruleId: "self_kill_nonliteral",
+  layer: "self_kill",
+};
+const PKILL_OTTER_BLOCK_MSG: GuardBlock = {
+  text: "pkill/killall 按名匹配会命中主进程（node/otter-buddy 特征名）——不允许。精确终止请用字面量 PID kill。",
+  ruleId: "self_kill_byname",
+  layer: "self_kill",
+};
+
+/** 字面量 kill 目标的三查身份（一查 PID 相等 / 二查 args 指纹 / 三查直接父进程）——返回拦截块或 null（放行） */
+function checkLiteralKillTarget(segment: string, mainPid: number | null, probe: ProcessProbe): GuardBlock | null {
   const literalPids = extractLiteralPids(segment);
   if (literalPids.length === 0) return null; // 调用方继续走非字面量分支
   if (mainPid !== null && literalPids.includes(mainPid)) return MAIN_KILL_BLOCK_MSG; // 一查
@@ -207,7 +237,11 @@ function literalPidTargetsMain(pid: number, mainPid: number | null, probe: Proce
 /** S2（检视初轮）：广播/进程组 kill 目标——kill -1 / kill -9 -1 / kill -- -<PGID>。
  *  kill(2) 语义：pid<-1=进程组、pid=-1=广播（全部用户进程，必含主进程）——无法静态
  *  排除主进程，保守拦（P0 面优先于宁漏勿误；主进程 PID 可经 ps 获知故同拦）。 */
-const BROADCAST_KILL_BLOCK_MSG = "kill 目标为广播/进程组（-1 或 -- -PGID）——无法静态排除主进程，保守拦截。请用字面量 PID kill（非主进程放行）。";
+const BROADCAST_KILL_BLOCK_MSG: GuardBlock = {
+  text: "kill 目标为广播/进程组（-1 或 -- -PGID）——无法静态排除主进程，保守拦截。请用字面量 PID kill（非主进程放行）。",
+  ruleId: "self_kill_process_group",
+  layer: "self_kill",
+};
 
 function broadcastKillTargetHit(segment: string): boolean {
   // 剥掉命令名与信号参数后，看目标位置是否 -1 或 -- -N 形态
@@ -229,7 +263,7 @@ function checkIndirectKillTarget(
   segment: string,
   allowedServices: AllowedService[],
   mainPid: number | null,
-): string | null {
+): GuardBlock | null {
   if (whitelistedPortAllow(killSegments, command, allowedServices, mainPid ?? -1)) return null;
   if (PID_FILE_REFERENCE.test(segment)) return MAIN_KILL_BLOCK_MSG;
   if (INDIRECT_PID_PATTERNS.some(p => p.test(segment))) return INDIRECT_KILL_BLOCK_MSG;
@@ -237,7 +271,7 @@ function checkIndirectKillTarget(
 }
 
 /** kill 段循环判定（从 checkKillStation 拆出，complexity 分解） */
-function checkKillSegments(command: string, mainPid: number | null, probe: ProcessProbe, guardOptions: GuardOptions | undefined): string | null {
+function checkKillSegments(command: string, mainPid: number | null, probe: ProcessProbe, guardOptions: GuardOptions | undefined): GuardBlock | null {
   // kill 族粗筛（kill-segment-finder：命令位置/引号/$()嵌套/前缀包装）
   const killSegments = findKillSegments(command);
   if (killSegments.length === 0) return null;
@@ -269,7 +303,7 @@ function checkKillStation(
   mainPid: number | null,
   logger: Logger | undefined,
   guardOptions: GuardOptions | undefined,
-): string | null {
+): GuardBlock | null {
   // 服务脚本自杀（9/16 原案）
   if (SERVICE_SCRIPT_KILL.test(command)) return MAIN_KILL_BLOCK_MSG;
   return checkKillSegments(command, mainPid, guardOptions?.processProbe ?? realProbe, guardOptions);
@@ -381,15 +415,32 @@ function pipeToInterpreterHit(command: string): boolean {
 }
 
 /** 第二站主判定 */
-function checkBlacklistStation(command: string, allowedEgressDomains?: string[]): string | null {
+/** 第二站黑名单三类的拦截块（F20261102grfix：内联文案常量化+ruleId 直标） */
+const CRED_DIR_BLOCK_MSG: GuardBlock = {
+  text: "凭证目录（~/.ssh / ~/.gnupg / ~/.aws）禁止访问——密钥/凭证不进獭上下文。如确需相关操作请告知搭档人工执行。",
+  ruleId: "cred_dir_access",
+  layer: "bypass_guard",
+};
+const NETWORK_EXFIL_BLOCK_MSG: GuardBlock = {
+  text: "检测到向非协作域名上传数据（POST/PUT）。合法外发目标请由搭档在 config bashGuard.allowedEgressDomains 登记；确需临时外发请呈搭档确认。",
+  ruleId: "network_exfil",
+  layer: "bypass_guard",
+};
+const DOWNLOAD_EXEC_BLOCK_MSG: GuardBlock = {
+  text: "检测到「下载即执行」结构（网络命令管道进解释器）——远程脚本直接执行不允许。请先下载落盘、审阅内容后再执行。",
+  ruleId: "download_exec",
+  layer: "bypass_guard",
+};
+
+function checkBlacklistStation(command: string, allowedEgressDomains?: string[]): GuardBlock | null {
   if (credentialPathHit(command)) {
-    return "凭证目录（~/.ssh / ~/.gnupg / ~/.aws）禁止访问——密钥/凭证不进獭上下文。如确需相关操作请告知搭档人工执行。";
+    return CRED_DIR_BLOCK_MSG;
   }
   if (uploadExfilHit(command, allowedEgressDomains)) {
-    return "检测到向非协作域名上传数据（POST/PUT）。合法外发目标请由搭档在 config bashGuard.allowedEgressDomains 登记；确需临时外发请呈搭档确认。";
+    return NETWORK_EXFIL_BLOCK_MSG;
   }
   if (pipeToInterpreterHit(command) || processSubstitutionHit(command)) {
-    return "检测到「下载即执行」结构（网络命令管道进解释器）——远程脚本直接执行不允许。请先下载落盘、审阅内容后再执行。";
+    return DOWNLOAD_EXEC_BLOCK_MSG;
   }
   return null;
 }
@@ -416,7 +467,7 @@ export function checkBashCommandSafety(
   mainPid: number | null,
   logger?: Logger,
   guardOptions?: GuardOptions,
-): string | null {
+): GuardBlock | null {
   if (!command.trim()) return null;
 
   // 第一站：杀进程判定
