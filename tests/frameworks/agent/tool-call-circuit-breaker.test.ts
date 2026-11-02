@@ -253,7 +253,8 @@ describe("buildToolSignature —— #1399 残余口子收口", () => {
     const aRetry = buildToolSignature("link_memory", { from_id: "m-1", to_id: "m-2", type: "relates-to" });
     expect(a).toBe("link_memory: m-1→m-2");
     expect(a).not.toBe(b);
-    // 同记忆对不同关系类型：实体相同，保留累计语义（关系声明是幂等的，连发同对同/异 type 都值得提醒）
+    // 同对 relates-to 与有向边分桶（≈ 标记）：同对混 type 连发不互累计（B-3b 滑窗兜底），
+    // 同桶内连发（如反复 produced）仍累计
     expect(aRetry).toBe("link_memory: m-1→m-2≈");
     // relates-to 对称边：反向建边是同义重试变体，归一累计（r1 A1）
     expect(buildToolSignature("link_memory", { from_id: "m-2", to_id: "m-1", type: "relates-to" }))

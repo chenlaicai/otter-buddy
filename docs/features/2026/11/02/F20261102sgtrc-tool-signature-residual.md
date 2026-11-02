@@ -34,9 +34,9 @@ buildToolSignature 自 #475/F20261009tspg 覆盖 9 个管理工具后仍有五�
 
 | 工具组 | 签名 | 判据说明 |
 |---|---|---|
-| link_memory / unlink_memory | `link_memory: <from>→<to>` | 记忆对组合；方向不可交换（produced 边 from/to 语义不同）。同对连发（无论 type）算重复——关系声明幂等，同对反复建边值得提醒 |
+| link_memory / unlink_memory | 有向：`link_memory: <from>→<to>`；relates-to 对称：字典序归一 + `≈` 后缀（分桶） | 有向边（produced/references/supersedes）两方向独立；relates-to 反向建边归一累计。分桶语义：同对混 type 连发不互累计（≈ 标记区分桶，B-3b 滑窗兜底），同桶内连发仍累计 |
 | workspace_read / workspace_write | read 取 path；write 取 path+内容指纹 | 与 read/write/edit 完全同构（实锤误拦 0b984c73 直接对因）；同一编辑重试仍累计（a16ace8e 是 write 的同因，已在既有覆盖内） |
-| create_linked_resource | `create_linked_resource: <type>#<digest>` | 类型+内容指纹（title/url/content 取首参）；同类型同内容幂等登记算重复，不同内容正当批量不算 |
+| create_linked_resource | `create_linked_resource: <type>#<digest>` | url→content→title 取首参指纹（r1 S2 修正：url 是资源定位主键且多与 title 并存——title 优先会把「同 title 不同 url」正当批量误归同签名、「同 url 改 title」幂等重登记签名漂移）；同类型同内容幂等登记算重复，不同内容正当批量不算 |
 | set_context / delete_context | `set_context: <key>` | key 实体签名；get_context 兜底保持（查询无实体），写不同 key 连发不误报（issue 原判据），同 key 反写算重复 |
 | search_memory / search_messages / search_terminology | `search_memory#<digest>` | query 内容指纹与 speak 同构（issue 建议口径：检索词是内容非实体）——换关键词重搜不算重复，同词反复重搜算（换着法子搜不到才该换策略） |
 

@@ -296,7 +296,7 @@ function residualToolSignature(toolName: string, a: Record<string, unknown>): st
   }
 }
 
-/** link_memory/unlink_memory 签名：from→to 组合。方向语义：produced/references/supersedes 有向边两方向独立；relates-to 对称边反向建边是同义重试变体，字典序归一累计（r1 A1）；unlink_memory 无 type 时按有向处理（删哪条边有方向性） */
+/** link_memory/unlink_memory 签名：from→to 组合。分桶语义（r1 A1 + delta-D1）：produced/references/supersedes 有向边两方向独立；relates-to 对称边反向建边字典序归一（签名带≈标记，与有向边分桶——同对混 type 连发不互累计，B-3b 滑窗兜底）；unlink_memory 恒有向（删哪条边有方向性，无论 type） */
 function memoryEdgeSignature(toolName: string, a: Record<string, unknown>): string {
   const from = strOrEmpty(a.from_id);
   const to = strOrEmpty(a.to_id);
