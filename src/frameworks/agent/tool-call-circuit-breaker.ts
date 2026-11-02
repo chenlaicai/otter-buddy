@@ -296,23 +296,37 @@ function residualToolSignature(toolName: string, a: Record<string, unknown>): st
   }
 }
 
-/** link_memory/unlink_memory 签名：from→to 组合（方向是语义的一部分，produced 边两端不可交换） */
+/** link_memory/unlink_memory 签名：from→to 组合。方向语义：produced/references/supersedes 有向边两方向独立；relates-to 对称边反向建边是同义重试变体，字典序归一累计（r1 A1）；unlink_memory 无 type 时按有向处理（删哪条边有方向性） */
 function memoryEdgeSignature(toolName: string, a: Record<string, unknown>): string {
-  const from = typeof a.from_id === "string" && a.from_id ? a.from_id : "";
-  const to = typeof a.to_id === "string" && a.to_id ? a.to_id : "";
-  return from || to ? `${toolName}: ${from || "?"}→${to || "?"}` : toolName;
+  const from = strOrEmpty(a.from_id);
+  const to = strOrEmpty(a.to_id);
+  if (!from && !to) return toolName;
+  const symmetric = isSymmetricEdge(toolName, a.type, from, to);
+  const [head, tail] = symmetric ? [min(from || to, to || from), max(from, to)] : [from, to];
+  return `${toolName}: ${head || "?"}→${tail || "?"}${symmetric ? "≈" : ""}`;
+}
+
+const strOrEmpty = (v: unknown): string => (typeof v === "string" && v ? v : "");
+const min = (x: string, y: string): string => (x < y ? x : y);
+const max = (x: string, y: string): string => (x < y ? y : x);
+
+/** 对称边判定：仅 link_memory + relates-to 且两端俱全才归一 */
+function isSymmetricEdge(toolName: string, type: unknown, from: string, to: string): boolean {
+  return toolName === "link_memory" && type === "relates-to" && !!from && !!to;
 }
 
 /**
- * create_linked_resource 签名：类型 + 内容指纹（title/url/content 取首参）。
+ * create_linked_resource 签名：类型 + 内容指纹。
  * 同类型不同内容不算重复（登记不同 PR/fact/文件是正当批量）；同类型同内容算重复
- * （幂等登记值得提醒）。title/url/content 取首参而非全拼：任一已是区分度主体。
+ * （幂等登记值得提醒）。取首序 url → content → title（#1399 r1 S2 修正：url 是
+ * 资源定位主键且多与 title 并存——title 优先会把「同 title 不同 url」的正当批量
+ * 误归同签名，也会让「同 url 改 title」的幂等重登记签名漂移）。
  */
 function linkedResourceSignature(a: Record<string, unknown>): string {
   const type = typeof a.resourceType === "string" && a.resourceType ? a.resourceType : "";
-  const content = typeof a.title === "string" && a.title ? a.title
-    : typeof a.url === "string" && a.url ? a.url
+  const content = typeof a.url === "string" && a.url ? a.url
     : typeof a.content === "string" && a.content ? a.content
+    : typeof a.title === "string" && a.title ? a.title
     : "";
   return type && content ? `create_linked_resource: ${type}#${contentDigest(content)}` : "create_linked_resource";
 }

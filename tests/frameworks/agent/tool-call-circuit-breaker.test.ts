@@ -254,7 +254,13 @@ describe("buildToolSignature —— #1399 残余口子收口", () => {
     expect(a).toBe("link_memory: m-1→m-2");
     expect(a).not.toBe(b);
     // 同记忆对不同关系类型：实体相同，保留累计语义（关系声明是幂等的，连发同对同/异 type 都值得提醒）
-    expect(aRetry).toBe(a);
+    expect(aRetry).toBe("link_memory: m-1→m-2≈");
+    // relates-to 对称边：反向建边是同义重试变体，归一累计（r1 A1）
+    expect(buildToolSignature("link_memory", { from_id: "m-2", to_id: "m-1", type: "relates-to" }))
+      .toBe("link_memory: m-1→m-2≈");
+    // produced 有向边：两方向独立签名（A produced B ≠ B produced A）
+    expect(buildToolSignature("link_memory", { from_id: "m-2", to_id: "m-1", type: "produced" }))
+      .toBe("link_memory: m-2→m-1");
     expect(buildToolSignature("link_memory", {})).toBe("link_memory");
     expect(buildToolSignature("unlink_memory", { from_id: "m-1", to_id: "m-2" })).toBe("unlink_memory: m-1→m-2");
   });
@@ -279,6 +285,13 @@ describe("buildToolSignature —— #1399 残余口子收口", () => {
     expect(fact).not.toBe(pr);
     expect(fact).toBe(buildToolSignature("create_linked_resource", { resourceType: "fact", content: "某事实文本" }));
     expect(buildToolSignature("create_linked_resource", {})).toBe("create_linked_resource");
+    // r1 S2：url 优先于 title——同 title 不同 url 的正当批量不算重复
+    const prA = buildToolSignature("create_linked_resource", { resourceType: "pr", url: "https://x/pull/100", title: "同名登记 A" });
+    const prB = buildToolSignature("create_linked_resource", { resourceType: "pr", url: "https://x/pull/101", title: "同名登记 A" });
+    expect(prA).not.toBe(prB);
+    // 同 url 改 title 的幂等重登记仍算重复（url 是资源主键）
+    const prRetitled = buildToolSignature("create_linked_resource", { resourceType: "pr", url: "https://x/pull/100", title: "改名后" });
+    expect(prRetitled).toBe(prA);
   });
 
   it("set_context/delete_context 签名含 key——写不同 key 连发不误报（#1399）", () => {
