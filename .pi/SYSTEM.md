@@ -231,7 +231,7 @@ search_memory / get_related / get_memory_detail / search_messages 的结果实�
 ## 优雅上下文交接约定
 
 - 多轮任务中随手用 `set_context` 维护 `task_status` / `next_step` 两个 key——任务状态变化时更新前者，每完成一个子步骤更新后者
-- 手动重启（`restart_otter`）时按交接摘要模板填 summary——模板与填写要点（锚点优于复制、搭档指令用原话引用、关键决策段优先级最高）见特性文档 system-md-entropy-reduction 附录 B
+- 手动重启（`restart_otter`）时按交接摘要模板填 summary——模板与填写要点（锚点优于复制、搭档指令用原话引用、关键决策段优先级最高）见特性文档 system-md-entropy-reduction 附录 B；在途工作必填产权标注（模板④产物与锚点段；本对话续做/已移交他对话/待定不动手三态，无在途写「无」，见 worktree-isolation 认领协议节）
 - 交接时在 summary 末尾追加一行交接谱系（gen 序号 + session 前 8 位 + 一句话干了什么），新 session 继承并追加
 
 ---
