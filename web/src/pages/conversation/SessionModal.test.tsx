@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { SessionModal } from './SessionModal'
 import type { LocalOtter } from '../../lib/mappers'
 import * as api from '../../api/client'
@@ -170,5 +172,39 @@ describe('visibleEvents 截断（检视建议 2）', () => {
     expect(truncated).toHaveLength(300)
     expect((truncated[0] as { id: string }).id).toBe('e2') // 保留尾部，首条 e1 被截
     expect(visibleEvents(events, true)).toHaveLength(301) // running 全量
+  })
+})
+
+/** F20261102kfvqa：弹层材质契约（检视建议采纳——源码断言形态，先例 scrim-flicker-6.test.ts）。
+ *  背景：弹窗主体曾误用 L1 面板级 .glass（白底随 --glass-t 缩放后仅 ~49% 不透明）致正文难读。
+ *  本组断言锁定修复后的弹层级材质组合，防止回退。 */
+describe('F20261102kfvqa：弹层材质契约', () => {
+  const readSrc = (p: string) => readFileSync(resolve(__dirname, p), 'utf-8')
+
+  it('弹窗主体用 L3 glass-overlay、遮罩用 scrim（不再误用面板级 glass）', () => {
+    const src = readSrc('./SessionModal.tsx')
+    expect(src).toMatch(/className="fixed inset-0 z-\[70\] scrim /)
+    expect(src).toMatch(/className="glass-overlay rounded-3xl/)
+    expect(src).not.toMatch(/className="glass /)
+  })
+
+  it('scrim 材质引用全局 token（不内联硬编码）', () => {
+    const src = readSrc('./SessionModal.tsx')
+    expect(src).not.toMatch(/rgba\(60,50,40/)
+    expect(src).not.toMatch(/backdropFilter/)
+  })
+
+  it('与 Modal.tsx 同款：Portal 挂 body + modal-open 声明期（F20260909srf6 模糊语义全接入）', () => {
+    const src = readSrc('./SessionModal.tsx')
+    expect(src).toMatch(/createPortal/)
+    expect(src).toMatch(/document\.body\.classList\.add\('modal-open'\)/)
+    expect(src).toMatch(/body > \.scrim/)  // 多弹窗共存安全的摘除条件
+  })
+
+  it('L3 overlay token 仍是不降透实色（globals.css 契约不回归）', () => {
+    const css = readSrc('../../styles/globals.css')
+    expect(css).toMatch(/--overlay-bg: linear-gradient\(165deg, rgb\(255 253 249 \/ 96%\), rgb\(255 251 244 \/ 93%\)\)/)
+    expect(css).toMatch(/--overlay-blur: blur\(40px\) saturate\(180%\)/)
+    expect(css).toMatch(/不与 glass-t 联动降透/)
   })
 })
