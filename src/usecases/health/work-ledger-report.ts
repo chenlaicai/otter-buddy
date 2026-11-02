@@ -36,13 +36,13 @@ export interface WorkReportItem {
   reviewRounds: WorkReviewRound[];
   roundsRecorded: boolean;
   invokeCount: number;
-  /** per-work usage 缺口（四分量全 null 的调用数——复审 A5：显式返回，不与真实零混淆） */
+  /** per-work usage 缺口（四分量全 null 的调用数——显式返回，不与真实零混淆） */
   usageGapCount: number;
 }
 
 export interface WorkLedgerReport {
   works: WorkReportItem[];
-  /** 归属覆盖率（0-1）：已归属 invoke / 全部 invoke（全量口径——复审 S1） */
+  /** 归属覆盖率（0-1）：已归属 invoke / 全部 invoke（全量口径） */
   attributionCoverage: number | null;
   /** 未归属调用的 token 合计（有 trace 但无绑定工作的 + 无 trace 的分开计） */
   unassigned: {
@@ -77,7 +77,7 @@ export class WorkLedgerReportBuilder {
 
   async build(): Promise<WorkLedgerReport> {
     const works = await this.repo.listWorks();
-    // 复审 S1：SQL 内全量聚合（无 LIMIT）——守恒口径不再随数据量漂移
+    // SQL 内全量聚合（无 LIMIT）——守恒口径不再随数据量漂移
     const agg = await this.repo.aggregateAttributionCounts();
 
     let usageGapTotal = agg.unassigned.usageGapCount;

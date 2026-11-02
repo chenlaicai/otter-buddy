@@ -861,8 +861,8 @@ export class PiSessionFactory implements AgentGateway {
     // 外层 epoch（如非对称失效场景）也被新对象遮蔽，不构成「继承」。
     // 【关键对是首跳】外层 eA（残留可读）vs 遮蔽铸的 eB——只要遮蔽成立，eB 及
     // 后续铸币永不与任何存活旧对象重合；eB/eC 第二跳（steal 后旧 release 持
-    // eB vs 新持有者 eC）只是同一不变式的自然延伸。防后人只锁第二跳（检视獭
-    // r3 终核建议）：锁的第一跳遮蔽才是等价性根基。
+    // eB vs 新持有者 eC）只是同一不变式的自然延伸——防后人只锁第二跳：
+    // 锁的第一跳遮蔽才是等价性根基。
     const epoch = mintEpoch(otterId, options?.currentInvokeId ?? options?.messageId ?? `invoke:${otterId}`);
     // 遮蔽式 run：锁 acquire（原 :710）在内读 epoch；整个 invoke 链（池/寄存器/
     // 清理钩子/_executeWithSession）都在 epoch 作用域内。otterInvokeStorage.run
@@ -1276,7 +1276,7 @@ export class PiSessionFactory implements AgentGateway {
   /** F20261014cwsp：池命中时重置 session cwd 到当前对话工作区。
    *  先赋 _cwd 后 build——SDK `_buildRuntime`（agent-session.js:2910）按调用时的
    * `this._cwd` 重建全部工具定义（bash execute 用创建时闭包值），顺序反了则重建的
-   *  工具仍绑上一个对话的工作区（round-1 修复方向错误，round-2 S7 纠正）。
+   *  工具仍绑上一个对话的工作区（初版修复方向反了、后纠正——完整过程见 F 文档处置记录）。
    *  build 失败回滚 _cwd——保早退条件成立，下次池命中重试（S6 语义保持）。 */
   private async _resetSessionCwd(session: AgentSession, conversationId: string): Promise<void> {
     const cwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");

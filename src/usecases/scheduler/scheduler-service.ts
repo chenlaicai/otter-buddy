@@ -375,7 +375,7 @@ export class SchedulerService {
     // #460：轮询 timer unref，不阻止进程自然退出（僵尸进程根因之二）。
     // unref 只影响"进程能否自然退出"，不影响 tick 触发——主进程生命周期由 HTTP 监听持有。
     this.pollTimer?.unref?.();
-    // 立即执行一次 tick，捕获进程重启后的迟到任务（审视建议2: catch 防 unhandled rejection）
+    // 立即执行一次 tick，捕获进程重启后的迟到任务（catch 防 unhandled rejection）
     void this.tick().catch(error => {
       this.logger.error('Initial polling tick failed', error as Error);
     });
@@ -843,7 +843,7 @@ export class SchedulerService {
       // Why: 已过期的一次性任务直接删除，不保留历史
       // 使用 .catch() 避免 unhandled rejection（由 onChange 回调链调用）
       this.metrics?.recordExpired();
-      this.nextExpectedTrigger.delete(task.id); // 审视建议2: 清理缓存条目，防长期泄漏
+      this.nextExpectedTrigger.delete(task.id); // 清理缓存条目，防长期泄漏
       this.taskRepo.delete(task.id)
         .then(() => {
           this.logger.info(`Once task ${task.id} expired, deleted`);
@@ -858,7 +858,7 @@ export class SchedulerService {
       try {
         await this.triggerTask(task);
         // Why: 一次性任务触发成功后直接删除，不保留历史
-        this.nextExpectedTrigger.delete(task.id); // 审视建议2: 清理缓存条目，防长期泄漏
+        this.nextExpectedTrigger.delete(task.id); // 清理缓存条目，防长期泄漏
         await this.taskRepo.delete(task.id);
       } catch (error) {
         this.logger.error(`Failed to trigger once task ${task.id}, starting retry`, error as Error);
@@ -1534,7 +1534,7 @@ export class SchedulerService {
       // F20261014czgd：直连兜底补游标推进——此前不传 batchMaxSeq → pushCursorOnStartup 永不触发，
       // 定时任务消息反复当未读重注入。点火前算一次本批未读最大 seq（含锚点消息自身）。
       // 降级：entryRepo 无 getUnreadEntries（旧装配/测试 mock 最小面）时不推进，行为与修复前持平。
-      // 语义变化声明（检视建议 2 处置）：invoke 启动成功（首事件到达）即推游标——若 invoke 中途失败，
+      // 语义变化声明：invoke 启动成功（首事件到达）即推游标——若 invoke 中途失败，
       // 已消费的消息不再重注入（原口径：失败保持未读重注入）。取舍理由：启动成功=消息已进 LLM 上下文，
       // 中途失败重注入会重复消费；失败场景由 invoke 级重试/告警承接，不靠游标回退。
       const unread = this.entryRepo.getUnreadEntries

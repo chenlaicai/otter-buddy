@@ -264,7 +264,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.cachedMeta = null;
     this.readyState.ready = false;
     this.readyState.loadError = null; // 重建是恢复动作，清掉旧 loadError 让 waitForReady 重新挂起
-    // F20261020slvg 对抗审视洞 2：瞬态错误专用类型——retry worker 不计 attempts，防成批 dead-letter
+    // F20261020slvg：瞬态错误专用类型——retry worker 不计 attempts，防成批 dead-letter
     this.rejectAllPending(new EmbedTransientError(`Embedding worker restarting (${reason})`));
     // 放行槽位 waiter——挂起的 sync 循环恢复后由新 worker 的 embed 正常处理
     this.drainSlotWaiters();
@@ -278,7 +278,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.readyState.ready = false;
     this.logger.error(`Embedding worker circuit breaker open after ${restartsInWindow} restarts, falling back to FTS5-only permanently until process restart`);
     this.rejectAllPending(err);
-    // F20261020slvg 对抗审视洞 1：熔断后无任何唤醒来源（看门狗被 circuitBroken 守卫挡掉）——
+    // F20261020slvg：熔断后无任何唤醒来源（看门狗被 circuitBroken 守卫挡掉）——
     // 必须在此放行全部 waiter，否则 parked 调用方永久悬挂并沿 tickNow 堵死 PatrolWorker
     this.drainSlotWaiters();
   }
@@ -399,7 +399,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * F20261020slvg：晚到结果 salvage——包裹成独立 microtask 并吞错，
    * 防 salvage 回调同步 throw 沿 EventEmitter 冒泡成 uncaughtException
    * 打死主进程（本代码库已因原生层异常死过一次，JS 层不能再引入同类）。
-   * 对抗审视洞 5：命中时打点——salvage 此前是不可观测的静默路径，上线验证需要抓手。
+   * 可观测性：命中时打点——salvage 此前是不可观测的静默路径，上线验证需要抓手。
    */
   private salvageLateResult<T>(requestId: number, salvage: ((value: T) => void) | undefined, value: T): void {
     if (!salvage) return; // 无回调（如 query lane 晚到结果无意义）才真正丢弃
@@ -444,7 +444,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.readyState.waiters.forEach(w => w.reject(this.readyState.loadError!));
     this.readyState.waiters.length = 0;
     this.rejectAllPending(this.readyState.loadError!);
-    // F20261020slvg 对抗审视洞 1：worker 死亡路径必须放行 slot waiter——
+    // F20261020slvg：worker 死亡路径必须放行 slot waiter——
     // 否则 parked 的 waitSlot 调用方永久悬挂（且看门狗被 !ready 守卫挡掉，无自愈）
     this.drainSlotWaiters();
   }
@@ -461,7 +461,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.readyState.waiters.forEach(w => w.reject(err));
     this.readyState.waiters.length = 0;
     this.rejectAllPending(err);
-    // F20261020slvg 对抗审视洞 1：同 handleWorkerError——放行全部 waiter
+    // F20261020slvg：同 handleWorkerError——放行全部 waiter
     this.drainSlotWaiters();
   }
 
@@ -506,7 +506,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
           this.slotWaiters.push(resolve);
         });
         if (this.disposed) throw new Error("EmbeddingService has been disposed");
-        // F20261020slvg 对抗审视洞 1：worker 崩溃/熔断被唤醒后 fail-fast——
+        // F20261020slvg：worker 崩溃/熔断被唤醒后 fail-fast——
         // 不把请求 send 给死 worker（重建路径 loadError 为 null，走新 worker）
         if (this.readyState.loadError) throw this.readyState.loadError;
       }
@@ -527,7 +527,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const embedPromise = new Promise<Float32Array>((resolve, reject) => {
       this.pendingRequests.set(id, { resolve, reject, salvage: opts?.salvage });
       const request: EmbedRequest = { type: "embed", text, id };
-      // F20261020slvg 对抗审视洞 5：channel 已关时 send 可能同步 throw 而非返回 false——
+      // F20261020slvg：channel 已关时 send 可能同步 throw 而非返回 false——
       // 不捕获会把条目泄漏在 map 里（in-flight 永久 =1，lane 堵死且看门狗不介入）
       try {
         if (!this.worker.send(request)) {
@@ -587,7 +587,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       // F20261026emct：子批 opts 按偏移量包装 salvage——
       // 晚到结果携带 (embeddings, startIndex)，调用方按下标写入正确 entry。
       // 首版原样透传 opts，offset>0 的子批晚到时会把别批向量存到 items[0..] 错误
-      // entry（静默 vec 污染，检视獭独立发现）。包装器见 embed-batch-sharding.ts。
+      // entry（静默 vec 污染）。包装器见 embed-batch-sharding.ts。
       const part = await this.embedBatch(batch, wrapOptsForShard(opts, offset));
       results.push(...part);
       offset += batch.length;
@@ -643,7 +643,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const batchPromise = new Promise<Float32Array[]>((resolve, reject) => {
       this.pendingBatchRequests.set(id, { resolve, reject, salvage: opts?.salvage });
       const request: EmbedBatchRequest = { type: "embed-batch", texts, id };
-      // F20261020slvg 对抗审视洞 5：同 embed() 的 send 同步 throw 防护
+      // F20261020slvg：同 embed() 的 send 同步 throw 防护
       try {
         if (!this.worker.send(request)) {
           this.pendingBatchRequests.delete(id);

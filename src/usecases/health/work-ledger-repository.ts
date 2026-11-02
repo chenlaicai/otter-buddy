@@ -26,7 +26,7 @@ export interface WorkReportInvokeRow {
   tokenUsageCacheWrite: number | null;
 }
 
-/** F20261027hwl1 复审 S1：单行归属视图（SQL 内按 work 过滤后的详情页数据源） */
+/** F20261027hwl1：单行归属视图（SQL 内按 work 过滤后的详情页数据源） */
 export interface WorkInvokeAttribution extends WorkReportInvokeRow {
   workId: string | null;
 }
@@ -39,7 +39,7 @@ export interface WorkTokenAggregate {
   cacheWrite: number;
   totalTokens: number;
   invokeCount: number;
-  /** 四分量全 null 的调用数（per-work usage 缺口——复审 A5） */
+  /** 四分量全 null 的调用数（per-work usage 缺口——显式返回，不与真实零混淆） */
   usageGapCount: number;
 }
 
@@ -94,18 +94,18 @@ export interface WorkLedgerRepository {
   listInvokeAttributions(options?: { invokedAfterIso?: string; limit?: number }): Promise<Array<WorkReportInvokeRow & { workId: string | null }>>;
 
   /**
-   * F20261027hwl1 复审 S1：全量归属聚合（无 LIMIT，SQL 内聚合）。
+   * F20261027hwl1：全量归属聚合（无 LIMIT，SQL 内聚合）。
    * 返回 per-work token 四分量/invoke 数/参与獭 + 未归属桶 + 总量。
    * 守恒语义：sum(workTokens) + unassigned = total，不受数据量增长影响。
    */
   aggregateAttributionCounts(): Promise<WorkAttributionAggregate>;
 
   /**
-   * F20261027hwl1 复审 S1：按 work 的 trace 集合在 SQL 内拉全量归属行（详情页数据源）。
+   * F20261027hwl1：按 work 的 trace 集合在 SQL 内拉全量归属行（详情页数据源）。
    * 不经过全表 LIMIT——工作再老/再久，早期 invoke 不丢。
    */
   listInvokesByWork(workId: string, options?: { evidenceLimit?: number }): Promise<WorkInvokeAttribution[]>;
 
-  /** F20261027hwl1 复审 S1/A5：按 work 全量 invoke 计数（truncatedCount 计算用） */
+  /** F20261027hwl1：按 work 全量 invoke 计数（truncatedCount 计算用） */
   countInvokesByWork(workId: string): Promise<number>;
 }
