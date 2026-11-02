@@ -34,26 +34,83 @@ const CONTROL_FLOW_KEYWORDS = new Set([
 const IDENT_CHAR = /[a-zA-Z0-9_$]/;
 
 /** 回溯 src[..i) 找最后一个非空白字符位置，无则 -1。
- *  刻意穿注释边界：注释不属于语法 token，其对 `/` 的除法/正则判定无贡献
- *  （除号与前一 token 间夹注释时，除号位置性质由前一 token 决定）。此处不做注释剥离
- *  （那是本模块主函数的职责），取到的末字符可能落在注释内——对常见形态（注释后接
- *  表达式）判定仍正确；极端形态（注释末字符是标识符字符且紧邻除号）罕见，由主函数
- *  的跨行/EOF 自愈回填兜底。改动此处前先跑 tests/scripts/strip-ts-comments.test.ts。 */
+ *  块注释感知（#1291）：遇块注释结束符跳过对应起始区间（块注释=token 间空白，
+ *  对除法/正则判定无贡献）。跳过失败（未闭合/伪闭合）不整体投降，退化为
+ *  修复前行为（不穿注释）——块注释误判是误报方向，自愈回填兜底。
+ *  取到的末字符仍可能落在行注释内（行注释必在行尾，前一个 token 必在同行，
+ *  对判定无影响）。改动此处前先跑 tests/scripts/strip-ts-comments*.test.ts。 */
 function lastNonWhitespace(src, i) {
   for (let j = i - 1; j >= 0; j--) {
-    if (!/\s/.test(src[j])) return j;
+    const c = src[j];
+    // 块注释结束符（回溯视角先遇第二字符 /）：回溯找其起始区间。伪结束符
+    // （字符串/正则内无配对起始）时 k<1 走退化——落回 / 上（修复前行为，自愈
+    // 兜底）。注：无需引号感知——非空白字符（含引号）短路返回，字符串紧邻
+    // 除法即操作数，本身就是除法证据（检视 1723-r1 严重 1：勿宣称不存在的机制）
+    if (c === "/" && src[j - 1] === "*") {
+      let k = j - 2;
+      while (k >= 1 && !(src[k] === "*" && src[k - 1] === "/")) k--;
+      if (k < 1) return j; // 跳过失败退化：落在 / 上（修复前行为，自愈兜底）
+      j = k - 1; // for 循环 j-- 后落在起始符之前（k>=1 恒成立，无越界）
+      continue;
+    }
+    if (!/\s/.test(c)) return j;
   }
   return -1;
 }
 
-/** src[i] 的 `/` 是否本行第一个非空白字符（语句位：行首正则如 `/re/.test(x)`） */
+/** src[i] 的 `/` 是否本行第一个非空白字符（语句位：行首正则如 `/re/.test(x)`）。
+ *  块注释感知（#1291）：遇换行时检查——若 `/` 与上一代码 token 之间存在块注释，
+ *  则该 `/` 实为续行除法（块注释=token 间空白，subtotal 后接跨行块注释再接
+ *  行首除法的 / 接在 subtotal 表达式后）→ 非语句位。纯换行无块注释时维持既有
+ *  赌注（检视发现③：行首 `/` 默认正则——启发式取舍，本函数不改变）。
+ *  块注释回溯跳过逻辑遇块注释结束符跳对应起始符。 */
 function isLineStart(src, i) {
-  for (let j = i - 1; j >= 0; j--) {
+  // 跨行回溯：遇块注释结束符跳到其起始符之前（区间内 \n 不构成语句边界）；
+  // 遇块注释外的 \n 时看上一行：若上一行只有空白/注释（无代码 token），继续回溯
+  // （注释行与空行不产生 token，/ 的性质由更前面的代码决定）；若上一行有代码，
+  // 则：跨过块注释 → 续行除法（#1291 修复目标）；纯换行 → 维持行首赌注（检视发现③）
+  let sawBlockComment = false;
+  let j = i - 1;
+  while (j >= 0) {
     const c = src[j];
-    if (c === "\n") return true;
-    if (!/\s/.test(c)) return false;
+    if (c === "/" && src[j - 1] === "*") {
+      // 块注释结束：跳到起始 /* 之前（区间内 \n 不算语句边界）
+      let k = j - 2;
+      while (k >= 1 && !(src[k] === "*" && src[k - 1] === "/")) k--;
+      if (k < 1) return true; // 跳过失败退化：维持行首赌注（修复前行为）
+      sawBlockComment = true;
+      j = k - 1;
+      continue;
+    }
+    if (c === "\n") {
+      // 检查上一行（j-1 往前到上一个 \n）是否只有空白/块注释
+      let k = j - 1;
+      let sawC = false;
+      while (k >= 0 && src[k] !== "\n") {
+        const cc = src[k];
+        if (cc === "/" && src[k - 1] === "*") {
+          let m = k - 2;
+          while (m >= 1 && !(src[m] === "*" && src[m - 1] === "/")) m--;
+          if (m < 1) { sawC = true; break; } // 跳不过去当代码处理（保守）
+          sawBlockComment = true; // 行内遇到块注释也置位外层标记（#1291 现场形态）
+          k = m - 1;
+          continue;
+        }
+        if (!/\s/.test(cc)) { sawC = true; break; }
+        k--;
+      }
+      if (sawC) {
+        // 上一行有代码：块注释介入 → 除法；纯换行 → 行首赌注（③）
+        return !sawBlockComment;
+      }
+      // 上一行纯空白/注释：不产生 token，继续回溯（这个 \n 不是边界）
+      j = k;
+      continue;
+    }
+    if (!/\s/.test(c)) return false; // 同行有前置代码 token → 非行首
+    j--;
   }
-  return true; // 文件头
+  return true; // 到文件头无代码 token → 语句位（与修复前一致）
 }
 
 /** 从闭括号位 p 反向回溯平衡 `(`，返回其位置；不平衡/越界返回 -1。
