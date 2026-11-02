@@ -94,7 +94,7 @@ amend 抹除路径的**真正拦截面在 CI per-commit 重放**：无论本地�
 
 - 新用例 + 既有用例：`npx vitest run tests/lint-historical-docs-cibase.test.ts tests/lint-historical-docs.test.ts` → **30/30 通过**（28 既有零回归 + 2 新增）
 - lint 测试族全套：`npx vitest run tests/lint/` → **78/78 通过**
-- `npm run lint:docs` → 949 docs OK，警告数不变（存量 2，未新增——change_type 用合法枚举 fix）
+- `npm run lint:docs` → 950 docs OK，警告数不变（存量 2，未新增——change_type 用合法枚举 fix）
 - `npm run lint:intent` → 0 error
 - **最简实现检查**：已过——零生产代码 + 2 用例为达成「amend 路径有回归报警」的最简形态；阶梯验证：仓库已有实现（#1384 per-commit 门）→ 复用其行为仅补锁定；无需新依赖/新脚本/新 fixture 体系（两用例复用既有套件的 freshRepo/commitFiles/git helper）。
 - **Golden Gate: n/a**（非软代码改动——纯测试文件，不触 prompt/skill/协议层；无场景可跑）
