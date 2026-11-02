@@ -258,7 +258,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     const target = this.resolveTarget(connection.id, connection);
     if (!target) return;
     try {
-      // F20260829wxch（#213 检视发现3）：thinking 可丢弃，无 context_token 时跳过不裸发
+      // F20260829wxch（#213）：thinking 可丢弃，无 context_token 时跳过不裸发
       await this.weixinGateway.replyText(target, `${otterName} 正在思考...`, { requireContextToken: true });
     } catch (err) {
       this.logger.error("Failed to send Weixin thinking message", err instanceof Error ? err : undefined, {

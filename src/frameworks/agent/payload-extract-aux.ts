@@ -57,7 +57,7 @@ function looksLikeExecWord(text: string): boolean {
  *           ③ 表内每一项必须有矩阵钉（穷举断言防选择性覆盖）；
  *    assigns: env 专有——吞 FOO=v 形态；
  *    duration: timeout 专有——旗标吞完后吞一个时长 token（\d 开头或数字+单位）。
- *  delta r1：本表随段首解析收敛迁入共享内层（guard/wte 同一识别域）；
+ *  本表随段首解析收敛迁入共享内层（guard/wte 同一识别域）；
  *  值旗标分写形态不吞的盲区（M-c36b9847）由本层 valueFlags 收编（F20261022vwfg）。
  *  表内清单（穷举，改动须同步矩阵登记与 F20261022vwfg 枚举节）：
  *    env: -u/--unset/-C/--chdir/-S/--split-string；nice: -n/--adjustment；
@@ -91,7 +91,7 @@ export const WRAPPER_SPECS: Record<string, WrapperSpec> = {
 };
 
 /** 多调分发器二进制（M-38fb45c0 A 面）：<dispatcher> <子命令> = 子命令语义别名
- *  （busybox sh ≡ sh）——delta r1：裸分发器（无子命令）按默认 applet ash 归位
+ *  （busybox sh ≡ sh）——裸分发器（无子命令）按默认 applet ash 归位
  *  （busybox 默认 shell；toybox 同保守归位——最短攻击形态收编）。 */
 export const MULTI_CALL_DISPATCHERS = new Set(["busybox", "toybox"]);
 
@@ -164,7 +164,7 @@ export interface ExecHead {
  *  nice/nohup 无命令仅 usage 报错（非 shell）不入表；setsid 本机无从实证按残余记档。 */
 export const SHELL_EXEC_ON_EMPTY = new Set(["sudo"]);
 
-// eslint-disable-next-line complexity -- 解析序四段穷举（赋值前缀/wrapper 吞食/分发器归位/版本归一）是识别域一致性的判定面，拆函数会把单段首解析真相源切碎（delta r1 收敛核心——先例 interpreterScriptFileArg 双域判定豁免同款）
+// eslint-disable-next-line complexity -- 解析序四段穷举（赋值前缀/wrapper 吞食/分发器归位/版本归一）是识别域一致性的判定面，拆函数会把单段首解析真相源切碎（先例 interpreterScriptFileArg 双域判定豁免同款）
 export function resolveExecHead(seg: Segment): ExecHead | null {
   const words = seg.words;
   const tokens = words.map(w => ({ text: w.evaluated ?? "" }));
@@ -310,7 +310,7 @@ export function hasPayloadFlag(seg: Segment): boolean {
 
 /** 段是否脚本解释器段（段首执行名归一后命中 SCRIPT_RUNNERS——resolveExecHead 共用
  *  内层：跳赋值前缀/wrapper/分发器 + 版本名归一，与 guard interpreterStdinKind、wte
- *  interpreterStdinFeedContent 同一识别域）。delta r1：
+ *  interpreterStdinFeedContent 同一识别域）。
  *  旧裸 argv0 词判定是窄提取入口闸——env python（argv0="env"）、python2 在此被拒，
  *  feed 分支不可达 → evaluated 空集放行；归一后 wrapper/版本别名形态同尺进窄提取。 */
 export function isScriptRunnerSeg(seg: Segment): boolean {

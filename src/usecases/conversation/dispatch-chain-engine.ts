@@ -94,7 +94,7 @@ export class DispatchChainEngine {
   private consumeRosterSegment(conversationId: string, otterId: string, roster: string): string {
     const key = `${conversationId}:${otterId}`;
     const prev = this.rosterCache.get(key);
-    // 检视建议2：上限防御——key 只增不减，超限整体清空后重建当前 key（量级小，无需 LRU）
+    // 上限防御——key 只增不减，超限整体清空后重建当前 key（量级小，无需 LRU）
     if (this.rosterCache.size > 500) this.rosterCache.clear();
     this.rosterCache.set(key, roster);
     return prev === roster ? "" : `${roster}\n\n`;
@@ -552,7 +552,7 @@ export class DispatchChainEngine {
     }
   }
 
-  /** F20260904schf 检视发现 1（mimo-reviewer）：链级出处追加 + 截尾观测。
+  /** F20260904schf：链级出处追加 + 截尾观测。
    *  多源追加不去重（A、B 都 yield C 时 C 名下两条触发消息各记一次）；
    *  同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。截尾丢弃更早记账源时
    *  warn（极端多源下被丢源将永远缺失消费义务销账，假 pending 风险）。
@@ -868,7 +868,7 @@ export class DispatchChainEngine {
       if (otterTypes.get(p.otterId) === 'big') continue; // 大獭互相不告警（解散对象只有小獭）
       const name = otterNames.get(p.otterId);
       if (!name) continue; // otter 记录缺失（异常边界）
-      // 检视发现 9：护栏数据源扩为 max(最后被唤醒, 入场时间)——新入场未被唤醒的小獭
+      // 护栏数据源扩为 max(最后被唤醒, 入场时间)——新入场未被唤醒的小獭
       // 在入场 2h 内不告警（刚进场还没派上活不是闲置）；超 2h 仍未被唤醒也未发言则
       // 报闲置是正确语义（真闲置）。
       // 复检发现 5（格式契约）：下方 max 取自字典序比较，依赖两源同为 JS ISO UTC
@@ -982,7 +982,7 @@ export class DispatchChainEngine {
     const unreadAll = this.deps.entryRepo
       ? await this.deps.entryRepo.getUnreadEntries(conversationId, otterId)
       : [];
-    // F20260928wxid（检视建议 2）：触发消息 senderName 快照——从未读全集反查（入排除集前必在集内；
+    // F20260928wxid：触发消息 senderName 快照——从未读全集反查（入排除集前必在集内；
     // retry/resume 路径 id 非 entry id 时自然 miss，降级无快照标签）
     const triggerSenderName = (triggerMessageId ? unreadAll.find(m => m.id === triggerMessageId)?.senderName : undefined) ?? null;
     // F20260908rlcp：恢复侧 steer 去重——已消化的 entry id 剔除
@@ -1010,7 +1010,7 @@ export class DispatchChainEngine {
     // F20260922ctxi：名册 delta 注入——内容未变（同对话同獭）时不重复拼接，仅首轮/变更时注入
     const rosterSegment = this.consumeRosterSegment(conversationId, otterId, roster);
 
-    // F20260928wxid（检视建议 2）：partnerLabel/staticResolver 计算上移（原在非空分支）——
+    // F20260928wxid：partnerLabel/staticResolver 计算上移（原在非空分支）——
     // 触发消息标签两条 return 路径都要用；纯读无副作用，时机前移逻辑等价
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     const resolver = this.deps.partnerResolver;
@@ -1045,7 +1045,7 @@ export class DispatchChainEngine {
     };
     const formatted = filtered.map(formatEntry).join('\n');
 
-    // F20260928wxid（检视建议 2）：触发消息带发送者标签（triggerLabel 已在前置段计算）——
+    // F20260928wxid：触发消息带发送者标签（triggerLabel 已在前置段计算）——
     // 原本读批剔除后裸文追加，一问一答流（窗口唯一消息即触发消息）称呼不进海獭视野
     const result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${historyNote}\n${formatted}\n\n[${triggerLabel}]（${triggerTimeStr}）${userMessageContent}${idleWarning ? `\n\n${idleWarning}` : ''}`;
     return { message: result, batchMaxSeq };
@@ -1094,7 +1094,7 @@ export class DispatchChainEngine {
   }
 
   /** user 条目标签：静态绑定（搭档/访客快照名/裸 ID）或未配置降级（#488 行为）。
-   *  F20260928wxid（检视发现 2a）：搭档标签带自报快照名——partnerLabel（默认「搭档」/全局设置）
+   *  F20260928wxid：搭档标签带自报快照名——partnerLabel（默认「搭档」/全局设置）
    *  是配置层的泛称，快照名是用户自报的真名；有快照优先真名，无则回退 partnerLabel 不变 */
   private resolveUserEntryLabel(
     m: { senderName?: string | null },

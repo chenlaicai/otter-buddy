@@ -34,7 +34,7 @@ import { diffTokenUsage, type TokenUsage } from "@usecases/conversation/token-us
 
 /**
  * F20260930gslog：拦截事件落账 context 组装（纯函数，供单测直接验证字段完整性）。
- * commandHead 对齐 description 命令前缀 120 字符口径（检视建议 2 处置：60 字符可能在长
+ * commandHead 对齐 description 命令前缀 120 字符口径（60 字符可能在长
  * cd 前缀场景截掉 worktree 路径特征），sanitizeQuotedText 脱敏后再截短（#858 口径）。
  */
 /**
@@ -137,7 +137,7 @@ import { loadToolManifest, type ToolManifest } from "../config/tool-manifest-loa
 /**
  * F20261008tecn：读取 manifest 的 toolExposure 段（进程内缓存，仅首次读盘）。
  * manifest 缺失/不合规时返回 undefined——全部工具保持 direct（现状行为，fail-open），
- * 但打 info 日志让失效可被日志检索发现（检视发现 4：静默失效不可观测）。
+ * 但打 info 日志让失效可被日志检索发现（静默失效不可观测）。
  */
 let cachedToolExposure: Record<string, "direct" | "deferred"> | undefined | null = null;
 function loadToolExposureFromManifest(projectRoot: string, logger: { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void }): Record<string, "direct" | "deferred"> | undefined {
@@ -152,16 +152,16 @@ function loadToolExposureFromManifest(projectRoot: string, logger: { info: (msg:
 }
 
 /**
- * F20261008tecn（检视发现 2 修复）：计算 session 激活集的纯函数。
+ * F20261008tecn：计算 session 激活集的纯函数。
  *
  * 语义：激活集 = coding 工具 ∪ direct 自定义工具 ∪（有 deferred 时）tool_search。
  * deferred 工具**不进激活集**（已注册、未激活、可搜索——pi tool_search 只搜非激活工具）。
  *
  * 为什么抽纯函数：pi SDK 的 tools 数组同时充当注册白名单与初始激活清单（耦合，详见
  * _createSessionWithTools 注释），激活集重建是本机制的核心语义——抽离后单测直接锁死，
- * 防 pi SDK 升级改变 _isActivatable/_isDeclarable 语义时无护栏（检视发现 2：冒烟一次性不可回归）。
+ * 防 pi SDK 升级改变 _isActivatable/_isDeclarable 语义时无护栏（冒烟一次性不可回归，单测恒验）。
  *
- * 不变量（lint-tool-manifest.mjs 静态校验兕底，检视发现 1）：deferred 工具名不得出现在
+ * 不变量（lint-tool-manifest.mjs 静态校验兜底）：deferred 工具名不得出现在
  * coding 工具集内——否则 session 构造瞬间被 allowedTools×_isDeclarable 路径推入激活集，
  * setActiveToolsByName 修正不了已发生的第一次请求窗口。
  */
@@ -202,7 +202,7 @@ import type { AgentEvent } from "./agent-event-utils";
  * Why：createTools 声明上依赖 ToolContext，但实际工厂实现（bootstrap/platforms.ts 注入的
  * tool-factory 路径）只消费 signalRepo / otterId / conversationId 等少数字段，不读实体工具
  * （Ledger 等）。传占位上下文可零副作用获取全部注册工具名，供 manifest "*" 展开使用。
- * signalRepo 等影响条件注册的字段由 buildOtterToolWhitelist 运行时补充（检视发现 1）。
+ * signalRepo 等影响条件注册的字段由 buildOtterToolWhitelist 运行时补充。
  * 注：若未来工具工厂改为惰性注册（按 ctx 字段过滤注册集），需改回从 buildCustomTools
  * 内部拿真实全集，见特性文档 F20260831tumv 的遗留观察。
  */
@@ -955,7 +955,7 @@ export class PiSessionFactory implements AgentGateway {
         if (nestedStore && nestedStore.otterId === otterId) {
           throw new Error(`nested invoke while outer invoke is streaming (otter=${otterId})——外层 session 活跃，嵌套调用不得顶替，由调用方降级`);
         }
-        // 并发防御（检视发现 3）：stale steal（#599，300s 超时）后旧 invoke 仍挂 streaming，
+        // 并发防御：stale steal（#599，300s 超时）后旧 invoke 仍挂 streaming，
         // 直接复用会让新 invoke 被 SDK 拒绝且寄存器已 reset 致旧 invoke speak 落错消息。
         // ⚠️ 不能立即 dispose：旧 invoke 正在执行中，dispose → agent.abort() 会撕裂旧 invoke。
         // 策略：标记 stale 出池（不再被命中），不 dispose——旧 invoke 终有终点（完成/abort/超时），
@@ -1112,7 +1112,7 @@ export class PiSessionFactory implements AgentGateway {
     const rawConfig = this.cfg.otterConfigProvider?.getConfig(otterId);
     const rawModelAlias = rawConfig?.modelAlias;
     const identityPrefix = await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId, rawModelAlias);
-    // F20260903cmpk（#770 检视发现 2）：压缩钩子合成 prompt 的 meta 行要显示名而非 UUID。
+    // F20260903cmpk（#770）：压缩钩子合成 prompt 的 meta 行要显示名而非 UUID。
     // 查询失败不影响链路（catch 降级 undefined，钩子用"海獭"兜底）。
     const displayName = await this.identityBuilder.getOtterName(otterId).catch(() => undefined);
 
@@ -1389,7 +1389,7 @@ export class PiSessionFactory implements AgentGateway {
     // 旧序（先白名单后注册）在 "*" 展开时退化为 getOtterToolNamesForType 的 stale 硬编码 fallback，
     // 曾致新工具对 big 型不可见（0831 现场实证）。
     //
-    // 占位 ctx 必须携带影响 tool-factory 条件注册的字段（检视发现 1）：
+    // 占位 ctx 必须携带影响 tool-factory 条件注册的字段：
     // signalRepo 缺失时 halt_otter/query_signals/resolve_signal 不注册 → 不进白名单 →
     // 真实注册时反被 allowedNames 滤除。client/otterId 等运行时字段工厂不读，可占位。
     const ctx: ToolContext = {
@@ -1397,7 +1397,7 @@ export class PiSessionFactory implements AgentGateway {
       signalRepo: this.cfg.signalRepo,
       rhiSignalRepo: this.cfg.rhiSignalRepo,
       matterRepo: this.cfg.matterRepo,
-      workLedgerBinder: this.cfg.workLedgerBinder, // F20261027hwl1：track_work 注册条件（缺此占位 → 白名单漏工具，同检视发现 1）
+      workLedgerBinder: this.cfg.workLedgerBinder, // F20261027hwl1：track_work 注册条件（缺此占位 → 白名单漏工具，同前述）
     };
     const registeredTools = this.cfg.createTools(ctx, this.cfg.healingRepo, this.logger);
     return getOtterToolNamesForType(otterType, registeredTools.map(t => t.name), process.cwd(), this.logger);
@@ -1478,7 +1478,7 @@ export class PiSessionFactory implements AgentGateway {
       settingsManager: settingsManager ?? undefined,
     });
     if (hasDeferred) {
-      // F20261008tecn（检视发现 2）：激活集计算抽纯函数 computeActiveToolNames，单测锁语义
+      // F20261008tecn：激活集计算抽纯函数 computeActiveToolNames，单测锁语义
       session.setActiveToolsByName(computeActiveToolNames(filteredCodingTools, filteredCustomTools));
       // F20261009tsts：回填 session 引用（tool_search execute 经 holder 拿到新鲜的每会话对象）
       toolSearchHolder.session = session;

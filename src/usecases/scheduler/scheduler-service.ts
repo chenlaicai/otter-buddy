@@ -1304,7 +1304,7 @@ export class SchedulerService {
    *  判定为与设计意图相悖（high 不被时间静默/bind≠resolve/#1361 层3 硬规则），收窄为：
    *  findAgedUnboundHigh 只读识别 → 推 alert-registry 引导 bind_issue 归口 → 事件保持
    *  open。resolver 解析前置保留（提醒通道仍是前置条件）；enqueueBatchAggregated 保留
-   *  （审视建议 A/B 的语义仍成立，只是「先 dismiss 后提醒」改为「只提醒不 dismiss」）。 */
+   *  （A/B 判据语义仍成立，只是「先 dismiss 后提醒」改为「只提醒不 dismiss」）。 */
   private async notifyAgedHighEvents(): Promise<void> {
     if (!this.healingRepo) return;
     // 先解析提醒目的地：不可达（healing 主对话未就绪等）则本轮跳过（只读识别无副作用，
@@ -1341,7 +1341,7 @@ export class SchedulerService {
     if (task.body.includes('[regression-verify]')) {
       const body = await buildRegressionVerifyBody();
       if (body === REGRESSION_GH_FAILED) {
-        // gh 故障——记 warn（区别于「无到期断言」的正常跳过），本轮跳过但不静默（检视发现 2）
+        // gh 故障——记 warn（区别于「无到期断言」的正常跳过），本轮跳过但不静默
         this.logger.warn('Regression verify skipped: gh CLI failure (auth/network)——回归验证管道失效，需人工检查 gh 状态');
         this.lastRegressionSkipReason = 'gh-cli-failure'; // #1208：供 skip 落账 + 心跳分类
         return null;
@@ -1831,7 +1831,7 @@ export class SchedulerService {
   }
 
   /** #517: 分页拉取锚点后全部 entries（F20260913ctlv 批2：messages → entries）。
-   *  对抗审视发现 2（审砚）：单页 100 条上限会漏检深层失败（entry 量 >100 且 failed
+   *  单页 100 条上限会漏检深层失败（entry 量 >100 且 failed
    *  在 100 条之后时误记 completed）。getEntriesAfter 按 sequence_num 升序返回，
    *  以最后一条 entry id 为游标推进直到取空。 */
   private async fetchEntriesAfterPaged(anchorMessageId: string): Promise<Entry[]> {
@@ -1975,9 +1975,9 @@ export class SchedulerService {
     }
   }
 
-  /** #754：单次执行失败落 healing 台账（medium）。#847 检视建议 1 扩展：once 重试路径
+  /** #754：单次执行失败落 healing 台账（medium）。#847 扩展：once 重试路径
    *  （skipConsecutiveFailureTracking 分支）同样调用——重试中间失败也值得台账可见。
-   *  errorMessage 截断 2000 字符防御（#847 检视建议 2：context JSON 无大小限制）。 */
+   *  errorMessage 截断 2000 字符防御（#847：context JSON 无大小限制）。 */
   /** #913：claim 成功后、execution 建立前的前置炸点落 healing（与 recordSingleFailureHealing
    *  同语义但不依赖 executionId——前置失败时 execution 行不存在）。best-effort：落账失败不阻断 rethrow。 */
   private async recordPreExecutionFailureHealing(task: ScheduledTask, error: unknown): Promise<void> {
@@ -2059,7 +2059,7 @@ export class SchedulerService {
           error: updateErr instanceof Error ? updateErr.message : String(updateErr),
         });
       }
-      // #847 检视建议 1：once 重试中间失败同样落 healing 台账（与单次失败同语义）
+      // #847：once 重试中间失败同样落 healing 台账（与单次失败同语义）
       await this.recordSingleFailureHealing(taskId, executionId, errorMessage, new Date().toISOString());
     } else {
       await this.handleExecutionFailure(executionId, taskId, error);
@@ -2229,7 +2229,7 @@ export function extractAssertionDueDate(body: string): string | null {
 /** #1004：构建 regression-verify 任务的动态 prompt。返回 null 表示无到期断言。
  *  扫描近 62 天 closed 的 daily-review issue（30 天到期 + 32 天余量），提取「验证断言」段到期日期，
  *  只留今天及以前到期的。
- *  失败路径区分（检视发现 2）：gh 执行失败 → 返回 'GH_FAILED' 哨兵（调用方记 warn 告警，
+ *  失败路径区分：gh 执行失败 → 返回 'GH_FAILED' 哨兵（调用方记 warn 告警，
  *  与「真无到期断言」的静默 skip 区分开）；JSON 解析失败同样哨兵。 */
 export const REGRESSION_GH_FAILED = 'GH_FAILED' as const;
 
@@ -2453,7 +2453,7 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
   } else {
     // 回退：模板缺失或无占位符时用内置文案（与模板内容保持一致，守卫测试锁定同步）。
     //  Why 留痕：静默回退会让「模板丢了」无人知晓，git 化目标落空——warn 日志是最低成本的可观测性。
-    // #416 审视发现 2：cwd 非项目根时模板会读不到，这条日志是定位线索。
+    // #416：cwd 非项目根时模板会读不到，这条日志是定位线索。
     const path = resolve(getRepoRoot(), HEALING_ANALYSIS_TEMPLATE_PATH);
     // eslint-disable-next-line no-console -- logger 在类实例上，此处是模块级函数；console.warn 与脚本输出风格一致
     console.warn(`[healing-template] 模板缺失或无占位符（${path}），回退内置文案——若非预期请检查 cwd/部署路径`);

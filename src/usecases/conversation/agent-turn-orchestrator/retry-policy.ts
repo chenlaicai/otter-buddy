@@ -20,7 +20,7 @@ export function isRetryableGuardAbort(reason: string): boolean {
   return false;
 }
 
-/** F20260922txes：确证超时类 guard 原因闭集（L3 升级判定口径，检视发现 2 收窄）。
+/** F20260922txes：确证超时类 guard 原因闭集（L3 升级判定口径收窄）。
  *  circuit_break 仅 event_timeout（单次工具调用超时，circuit-breaker-helpers.ts:229）属超时；
  *  ignored_steer 等非超时 trigger（tool-call-circuit-breaker.ts:259）不进 timeout_retry_exhausted 枚举。 */
 export function isTimeoutGuardReason(reason: string): boolean {

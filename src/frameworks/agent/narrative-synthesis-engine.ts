@@ -35,8 +35,8 @@ export const NARRATIVE_SYNTHESIS_TIMEOUT_MS = 300_000;
  *  跨窗口泛化：不再用统一比率缩放（F20260924swin 假设不成立——两档密度不对称：
  *    262K 档实测 ≥ 1.511；1M 档 956,403 chars 成功样本对应密度 ≤ 1.096）。
  *    改为按窗口档位分别定标：262K → 138,788；1M → 726,752（现行值保留）。
- *  1M 档口径更正（2026-10-09 检视獭 S2）：F20260924swin 文档 :86 实录 09-23 成功样本
- *    956,403 chars（kimi 1M 档）> 726,752——(726,752, 956,403] 区间输入会被 trim 裁掉
+ *  1M 档口径更正（依据 F20260924swin 文档 :86 实录 09-23 成功样本 956,403 chars）：
+ *    kimi 1M 档 > 726,752——(726,752, 956,403] 区间输入会被 trim 裁掉
  *    最老 ~24%（确定的保真代价，F20260924swin 已 L1 拍板接受）。此前注释误用 trim 日志
  *    观测上限 726,586 当「最大成功」，是循环论证（trim 已裁到预算内），特此更正。
  *    保留 726,752 是延续 F20260924swin 保守外推决策，非「无代价」。
@@ -64,7 +64,7 @@ export const SYNTHESIS_EXPLICIT_MAX_TOKENS = 4_096;
  *  </trim-note> + 换行，droppedCount ≤ 7 位数），取 200 为渲染上界（×2 余量）。
  *  恒定预留（裁不裁都留）→ 历史正文进预算 + trim-note 必 ≤ 全文预算 → 预检严格 > 不自拦。
  *  反例锚（修复前）：裁满边界 final = 全文预算 + ≈75（trim-note 不进预算）→ 预检自拦
- *  + 熔断计一次（检视獭-岚 构造性证明）。 */
+ *  + 熔断计一次（构造性证明）。 */
 export const TRIM_NOTE_RESERVE_CHARS = 200;
 
 /** F20260923hsyn：预算裁剪结果（供调用方留痕裁剪幅度） */
@@ -84,7 +84,7 @@ export const TRIM_NOTE_RESERVE_CHARS = 200;
  *   理论式的容量/密度都是边界反推（循环论证），夹逼常数只依赖实测成败样本
  * - 预算对象从「历史段」改为「全文」——调用方传 measuredFixedChars（固定段实测），
  *   本函数内部用「全文预算 − 固定段实测」得历史段预算（单点扣减，不再双重扣）
- * - 签名变更：第三参 measuredFixedChars 必填（delta 复核建议2：src 调用方恒传，无参回退
+ * - 签名变更：第三参 measuredFixedChars 必填（src 调用方恒传，无参回退
  *   无生产消费者，legacy 双口径公式删除——防口径漂移复发）
  */
 export interface BudgetTrimResult {
@@ -124,7 +124,7 @@ export function trimMessagesToBudget(
     remaining -= perMsgChars[dropped];
     dropped++;
   }
-  // 实测校验回退（delta 复核严重4 闭合）：serializeConversation 是 SDK 拼接语义，长度可加性
+  // 实测校验回退：serializeConversation 是 SDK 拼接语义，长度可加性
   //  不作假设——增量估算收敛后实测 kept 长度，仍超预算则逐条实测丢弃直到进预算。
   //  预算已含 trim-note 预留（TRIM_NOTE_RESERVE_CHARS）→ 终稿严格 ≤ 全文预算，预检不自拦。
   while (dropped < messages.length
@@ -220,7 +220,7 @@ export function buildNarrativeSynthesisPrompt(input: NarrativeSynthesisInput): s
   // F20260924swin 观测锚：trim 日志（输入/预算/固定段实测/dropped/最终 prompt 长度）——
   //  生产 vs 探针数字偏差的定谳锚（「裁没裁」从此可查，不再是观测缺口）。
   input.onTrim?.({
-    // delta 复核建议5：不裁剪路径（window 缺省）也报真实输入长度，不再报 0 造成观测歧义
+    // 不裁剪路径（window 缺省）也报真实输入长度，不再报 0 造成观测歧义
     inputChars: trimResult?.inputChars ?? serializeConversation(input.messagesToSummarize as never).length,
     measuredFixedChars: measuredFixedChars ?? 0,
     historyBudgetChars: trimResult?.historyBudgetChars ?? 0,

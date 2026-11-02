@@ -116,7 +116,7 @@ export class FeishuUserInfoClient implements FeishuUserInfoGateway {
         pageToken = next;
       }
 
-      // 检视发现 1 处置：翻页达上限时映射不完整，必须可观测（仍缓存——截断部分
+      // 翻页达上限时映射不完整，必须可观测（仍缓存——截断部分
       // 也足以服务常见会话，且缓存防配额风暴；下次 TTL 过期自愈重拉）
       if (!exhausted) {
         this.logger.warn("Feishu chat members truncated at page cap", {

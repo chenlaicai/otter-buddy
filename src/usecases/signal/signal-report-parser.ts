@@ -8,7 +8,7 @@
  * （异议/卡住升级）。语义池独立、传输管道模式共享（方案 Part 2「为什么不复用
  * healing_events 表」）。
  *
- * 鲁棒性（对齐 healing parser 踩坑防御 + 审视发现 6 增补）：
+ * 鲁棒性（对齐 healing parser 踩坑防御）：
  * - normalize：转义写法（\< \>）、反引号包裹、属性引号全角/单引号
  * - 白名单校验 type（objection/blocked——halt 只能经 halt_otter 工具，不走 speak）
  * - 截断防滥用：正文 ≤1000 字符；每条消息信号数上限 5

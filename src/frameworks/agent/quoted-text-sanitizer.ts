@@ -85,7 +85,7 @@ export function stripHeredocPayloads(command: string): string {
  *  实测 `EOF   ` 不闭合；此前容忍 [ \t]* 的宽版被检视獭凑出利用链：
  *  体首定义 `EOF = 0` 让 python 合法经过「假闭合行」+ 宽版 closer 误判闭合，
  *  尾段真实写入逃过体判定，端到端 ALLOW 实证）。
- *  delta r2：匹配 <<-（dash 定界，delta 2 严重——此前整链不可见，bash/node
+ *  后续演进：匹配 <<-（dash 定界——此前整链不可见，bash/node
  *  体级真杀放行实证）；<<- 的 closer 允许行首 TAB（bash 只剥 tab 不剥空格，
  *  `^\t*D$` 严格于宽版——空格前缀仍不闭合，不重开宽版利用链）。
  *  quoted 标记定界符是否带引号（无展开体）；closed=false 表示未闭合（bash 会
@@ -147,10 +147,10 @@ function blankHeredocBody(command: string): string {
   while ((m = HEREDOC_OPEN.exec(command)) !== null) {
     const openLineEnd = command.indexOf("\n", m.index);
     if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无需剥
-    // #1207 delta r1：closer 与 bash 对齐——定界符独占一行（行首无空白、行尾无任何
+    // #1207：closer 与 bash 对齐——定界符独占一行（行首无空白、行尾无任何
     // 字符，`EOF   ` 不闭合）。宽版 `[ \\t]*` 被检视獭利用（体首 `EOF = 0` + 尾段
     // 真实写入端到端 ALLOW）；剥体到不了的位置体文本留在扫描面 → 保守侧。
-    // delta r2：<<- 变体允许行首 TAB（bash 只剥 tab 不剥空格）
+    // <<- 变体允许行首 TAB（bash 只剥 tab 不剥空格）
     const closerRe = new RegExp(/<<\s*-/.test(m[0]) ? `^\\t*${m[1]}$` : `^${m[1]}$`, "gm");
     closerRe.lastIndex = openLineEnd + 1;
     const close = closerRe.exec(command);
@@ -196,7 +196,7 @@ function sanitizeSegment(segment: string): string {
 }
 
 /** 危险通道检测：引号内是执行内容（非纯数据）的形态，禁止脱敏。
- * #923 检视建议 1 修复：双引号内的 $() / 反引号 / ${...} 是 shell 真实展开
+ * #923：双引号内的 $() / 反引号 / ${...} 是 shell 真实展开
  * （执行）——存在即整体跳过脱敏。单引号内的这些形态是字面文本（永不展开），
  * 不在此判定范围（单引号段无条件可脱敏，shell 语义背书）。 */
 function hasExecutionChannel(command: string): boolean {

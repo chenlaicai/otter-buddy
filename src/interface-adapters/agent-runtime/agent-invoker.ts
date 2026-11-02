@@ -145,7 +145,7 @@ export interface HandoffEngineDeps {
   synthesisTimeoutMs: number;
   /** F20260924swin：合成全文预算函数（trim 与预检共享的唯一预算对象）——
    *  引擎端口注入（层约束：interface-adapters 不 import frameworks 常量）。
-   *  delta 复核建议4：可选 → 必填——可选时漏注入 = 预检静默失效 fail-open。 */
+   *  可选 → 必填——可选时漏注入 = 预检静默失效 fail-open。 */
   synthesisFullBudgetChars: (contextWindowTokens: number) => number;
 }
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
@@ -308,7 +308,7 @@ export class AgentInvoker implements AgentTurnPort {
     // 自动应答「打牌中」。判据 = RoomService.isSeated 精确谓词（非通用 isRunning——定时任务里的
     // 獺不误伤，大獭 10/16 裁决）。安全词例外：消息命中「停下」→ 放行走 LLM（L2 急停不能被牌局
     // 吞掉；reminder 已由链引擎附在消息尾随，扫到即放行）——过度放行是安全方向（顶多一轮 LLM）。
-    // 扫描面口径（检视发现7 核实钉死）：链引擎在 invoke 前已把 roster+未读批+触发消息拼进
+    // 扫描面口径：链引擎在 invoke 前已把 roster+未读批+触发消息拼进
     // userMessageContent（dispatch-chain-engine.ts:844 buildMessageWithContext → executeOneHop 全量透传）
     // ——批次/历史行里含「停下」同样命中放行，多消息批不是盲区；非链直调（scheduler/重试）无批次语义。
     if (this.mahjongSeatQuery?.isSeated(params.otterId) && scanStopWords(params.userMessageContent).matched.length === 0) {
@@ -417,7 +417,7 @@ export class AgentInvoker implements AgentTurnPort {
       try {
         await this.unifiedHandoff(otterId, conversationId, { trigger: '水位', synthesizePast: HANDOFF_SYNTHESIZE_PAST_DEFAULT });
       } catch (err) {
-        // F20260930hsfx M2：水位路径交接失败也计入熔断。审视建议5修正：锁冲突
+        // F20260930hsfx M2：水位路径交接失败也计入熔断（锁冲突
         // （SessionLockConflictError——交接窗口内本獭 invoke 撞车，属正常互斥非合成失败）不计入，
         //  否则一次普通并发就会累积熔断计数。#654 语义：锁冲突不该算「交接失败」。
         if (!isSessionLockConflictError(err)) {
@@ -1445,7 +1445,7 @@ export class AgentInvoker implements AgentTurnPort {
     if (!this.agentInvoke.runCompactionSynthesis) {
       throw new Error('runCompactionSynthesis not available on SdkInvokePort');
     }
-    // F20260930hsfx mimo 独家 + 审视建议3修正：超时 setTimeout 的 timer 原先从不 clearTimeout——
+    // F20260930hsfx mimo 独家修正：超时 setTimeout 的 timer 原先从不 clearTimeout——
     //  合成正常返回后计时器仍挂到 300s（Node 句柄保活）。补 clear：成功路径先 clear；
     //  超时/异常路径（Promise.race reject 或 runCompactionSynthesis throw）也要 clear，否则
     //  异常时 timer 泄漏同样保活 300s。
@@ -1793,7 +1793,7 @@ export class AgentInvoker implements AgentTurnPort {
       // F20260923hlck：裸重启成功 = 换世完成，失败链已断——熔断计数清零。
       //  此前只 +1 永不清（clearHandoffFailures 只在合成成功时调），进程重启也不恢复
       //  （内存态），该獭会被永久熔断（9/23 实证：重启后仍反复交接失败）。
-      // F20260923hspx 检视建议5 说明：清零仅发生在「降级裸重启成功」——即「交接管线已炸但
+      // F20260923hspx 说明：清零仅发生在「降级裸重启成功」——即「交接管线已炸但
       //  换世本身成功」的场景；若裸重启也失败（异常上抛），本行不执行，计数保留。
       //  「失败+1→bare 成功清零」不会掩盖「换世本身连续失败」的信号（那是上抛路径）。
       this.handoffState.clearHandoffFailures(otterId);
@@ -1960,7 +1960,7 @@ export class AgentInvoker implements AgentTurnPort {
       });
     } catch (handoffErr) {
       // 统一交接失败不阻塞熔断：executeCircuitBreakRestart 内部降级裸重启
-      // F20260930hsfx M2：熔断路径交接失败计入熔断计数。审视建议5修正：锁冲突不计入。
+      // F20260930hsfx M2：熔断路径交接失败计入熔断计数（锁冲突不计入）。
       if (!isSessionLockConflictError(handoffErr)) {
         this.handoffState.noteHandoffOutcome(params.otterId, 'synthesis-failed');
       }
@@ -2080,7 +2080,7 @@ export class AgentInvoker implements AgentTurnPort {
       this.logger.info('Self-restart completed (unified handoff), re-invoking with new session', { otterId, newSessionId });
     } catch (handoffErr) {
       // 统一交接失败（含 jsonl 缺失等降级路径耗尽）→ 裸重启保底（D9：自重启永不阻塞）
-      // F20260930hsfx M2：自重启路径交接失败计入熔断计数。审视建议5修正：锁冲突不计入。
+      // F20260930hsfx M2：自重启路径交接失败计入熔断计数（锁冲突不计入）。
       if (!isSessionLockConflictError(handoffErr)) {
         this.handoffState.noteHandoffOutcome(otterId, 'synthesis-failed');
       }

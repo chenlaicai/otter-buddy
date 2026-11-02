@@ -36,7 +36,7 @@ export class EmbedBackpressureError extends Error {
 
 /**
  * F20261020slvg：瞬态错误——worker 重建/崩溃/熔断期间 rejectAllPending 用的类型。
- * 对抗审视洞 2（埋单链）：claim 即 attempts+1，超时循环会把 attempts 撑到 ≥3；
+ * 埋单链防护：claim 即 attempts+1，超时循环会把 attempts 撑到 ≥3；
  * 若 worker 重启的 reject 走普通 Error → markTaskAttemptFailed → 成批 dead-letter。
  * 瞬态错误与超时/背压同待遇：不计 attempts，任务保持 pending 重来。
  */

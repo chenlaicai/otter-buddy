@@ -337,7 +337,7 @@ export class AgentTurnOrchestrator {
     // F20260916fst4：首哑判定（exhausted 分支内、healing 落账后）。
     // Why 在 failTerminal 之前判定：failTerminal 会把 failed invoke 入库，count 查询须在其后——
     // 此处 await failTerminal 再查计数语义相同（同 invoke 幂等），先判定可避免 failTerminal
-    // 内部异常导致信号丢失；delta 复核建议 2：先构造 _firstDumb，再 {...result, _firstDumb} 合并返回。
+    // 内部异常导致信号丢失——先构造 _firstDumb，再 {...result, _firstDumb} 合并返回。
     const result = await this.failTerminal(ctx.input, reason.errorMessage, ctx.callbacks, ctx.startTime);
     if (match?.exhausted) {
       const firstDumb = await this.detectFirstDumb(ctx, match, reason).catch((err: unknown) => {
@@ -1073,9 +1073,9 @@ export class AgentTurnOrchestrator {
    *  即 L1 自动重试确已发生仍失败、走到 L2 硬中断。排除项：
    *  - bash_safety：走 #731 bounce 升级，不在此列；
    *  - degenerate：isRetryableGuardAbort=false，不在超时枚举内；
-   *  - circuit_break:ignored_steer 等非超时 trigger（tool-call-circuit-breaker.ts:259）：非超时不进新枚举（检视发现 2）；
+   *  - circuit_break:ignored_steer 等非超时 trigger（tool-call-circuit-breaker.ts:259）：非超时不进新枚举；
    *  - manualRetry（invoke-controller.ts:166 retryCount:1+manualRetry:true）：该 invoke 内从未发生 L1 自动重试，
-   *    升级文案「自动重试后仍未恢复」将是不实陈述（检视发现 1）。 */
+   *    升级文案「自动重试后仍未恢复」将是不实陈述。 */
   private isTimeoutRetryExhaustedTerminal(ctx: TerminalContext): boolean {
     return ctx.kind === 'guard'
       && !!ctx.guardReason
@@ -1097,7 +1097,7 @@ export class AgentTurnOrchestrator {
       suggestion: "可手动重试该消息；若持续出现请检查模型服务连通性",
       context: { layer: "orchestrator", guardReason, retryCount: ctx.input.retryCount, toolCallCount: ctx.toolCallCount },
     }).catch((err) => {
-      // L3 机制自身失败留痕（对照 recordGuardBounceTerminal 静默先例，采纳检视发现 8：升级机制失败不该无痕）
+      // L3 机制自身失败留痕（对照 recordGuardBounceTerminal 静默先例：升级机制失败不该无痕）
       this.logger.error('timeout_retry_exhausted healing_event write FAILED — L3 escalation data source degraded',
         err instanceof Error ? err : new Error(String(err)),
         { component: 'AgentTurnOrchestrator', otterId: ctx.input.otterId, invokeId: ctx.input.invokeId, guardReason },
