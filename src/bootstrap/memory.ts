@@ -167,7 +167,7 @@ export async function createAndStartRetryWorker(
     return null;
   }
 
-  // F20261020slvg 对抗审视洞 2 处置：pending 任务 attempts 一次性赦免归零。
+  // F20261020slvg：pending 任务 attempts 一次性赦免归零——历史积压任务不该永久占用熔断计数。
   // claim 即 attempts+1 的语义被超时循环（不计失败）反复 claim 撑大——2026-10-16
   // 活锁 4h40m 后存量积压大量 attempts≥3，不重置的话新代码上线后遇到一次硬错误
   // 就会成批 dead-letter（markTaskAttemptFailed 判死看的是被撑大的 attempts）。
@@ -178,7 +178,7 @@ export async function createAndStartRetryWorker(
     }
   }
 
-  // F20260812mrcq Part 1 审视 M8：存量暗化条目迁移
+  // F20260812mrcq Part 1：存量暗化条目迁移
   // 扫描已存在的暗化条目，批量 enqueueRetry 入队。
   //
   // F20261026emct 两处收窄：

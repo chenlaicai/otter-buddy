@@ -33,7 +33,7 @@ export interface ChainHopResult {
 export interface HopOutcome {
   /** F20260913ctlv 彻底切换：行级取数 = invoke 行（含 talkingStonePassedTo 终值）；查库失败/degraded 时 null */
   producedMsg: { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null;
-  /** 取数降级标记（#798 发现 2）：账面补「出处降级」备注用 */
+  /** 取数降级标记（#798）：账面补「出处降级」备注用 */
   degraded: boolean;
   /** 护栏门控后的下一跳目标（已滤 'user'；self 仅护栏放行时含）——记账与路由的唯一口径 */
   allowedNext: string[];
@@ -68,7 +68,7 @@ export interface InvokeFnParams {
 export interface InvokeFnResult {
   /** D2：委托 hop 的进程内结算标记；不落库、不路由，由持有者原链消费续轮。 */
   delegated?: boolean;
-  /** 契约（F20261026ctbg 审视⑤钉扎）：实为 invoke 行 id，非 speak 消息 id——产出判定
+  /** 契约（F20261026ctbg 钉扎）：实为 invoke 行 id，非 speak 消息 id——产出判定
    *  （fetchProducedMessage 读行级 tsp）与 #530 getSelfYieldDecisionEntries 的当前
    *  invoke 边界子查询均以此为前提，改动任一侧需同步。 */
   messageId: string;
@@ -94,7 +94,7 @@ export class DispatchChainEngine {
   private consumeRosterSegment(conversationId: string, otterId: string, roster: string): string {
     const key = `${conversationId}:${otterId}`;
     const prev = this.rosterCache.get(key);
-    // 检视建议2：上限防御——key 只增不减，超限整体清空后重建当前 key（量级小，无需 LRU）
+    // 上限防御——key 只增不减，超限整体清空后重建当前 key（量级小，无需 LRU）
     if (this.rosterCache.size > 500) this.rosterCache.clear();
     this.rosterCache.set(key, roster);
     return prev === roster ? "" : `${roster}\n\n`;
@@ -128,7 +128,7 @@ export class DispatchChainEngine {
        *  factory 与 session 保持架构边界；旧测试/装配缺省时维持直接 invoke。 */
       isRunning?: (otterId: string) => boolean;
       followUp?: (otterId: string, text: string, options?: { delegated?: boolean; conversationId?: string }) => Promise<boolean>;
-      /** F20261027cnsv 审视修复（Feb 发现 1）：系统条目写入（单飞行拒绝的人话通知）。
+      /** F20261027cnsv：系统条目写入（单飞行拒绝的人话通知）。
        *  可选——未注入时通知降级为纯日志，拒绝仍由 rejected 结果通道承载。 */
       systemEntryRepo?: { createSystemEntry(input: { conversationId: string; body: string; yieldTargets?: string[]; senderName?: string }): Promise<unknown> };
       /** F20260920trrt：闲置预警新口径（seq 差 + 时间护栏）读时聚合接口。
@@ -368,7 +368,7 @@ export class DispatchChainEngine {
     });
 
     const results = await Promise.allSettled(promises);
-    // F20261027cnsv 审视修复（Feb 发现 1）：单飞行拒绝按目标粒度处理——不再整批 throw。
+    // F20261027cnsv：单飞行拒绝按目标粒度处理——不再整批 throw。
     // 旧序（fastFailure find→throw）会把 per-hop 拒绝放大为 per-batch + per-chain abort：
     // Promise.allSettled 已收齐的同批其他目标 fulfilled 结果（invoke 已真实执行、发言已落
     // entries）被整体丢弃，resolveHopOutcomes/processHopResults 不执行，tsp 路由与 token
@@ -379,12 +379,12 @@ export class DispatchChainEngine {
     await this.notifyDelegationRejections(results, targets, conversationId);
     // F20260907ylfs ②（P3a 批次 2）：护栏决策单点化——settle 记账与路由共享同一门控结果。
     // 旧序：recordAttemptSettle（:314 filter 滤 self）先执行、processHopResults（:417 filter 滤 self）
-    // 后执行——两处各滤各的，自→自记账通道被 :314 无条件关死（顺序依赖，快审 delta 重点）。
+    // 后执行——两处各滤各的，自→自记账通道被 :314 无条件关死（顺序依赖）。
     // 新序：resolveHopOutcomes 先一次完成「行级取数 + 护栏门控」，产 allowedNext per target；
     // settle（chainSource 回填）与路由（nextTargets）消费同一结果，两处 filter 分叉在结构上不可能。
     // 副产品：旧实现两处各查一次 getMessageById，合一后每 hop 少一次查库。
     const outcomes = await this.resolveHopOutcomes(conversationId, targets, results);
-    // F20260904ldgr（#798 发现 2）保留：降级槽位（fetchProducedMessage 查库失败）补账面备注——
+    // F20260904ldgr（#798）保留：降级槽位（fetchProducedMessage 查库失败）补账面备注——
     // 追加「出处降级」标记，只改 note 不改 status（反连接不变量完好）。槽位键 = 记账键。
     // F20260907ylfs ②：degraded 随 resolveHopOutcomes 预判产出，此处批量收集（拆出控行数）。
     // F20260908rlcp：台账退役——settle 记账和降级备注删除
@@ -403,7 +403,7 @@ export class DispatchChainEngine {
       delegated = await this.deps.followUp(otterId, `## 链式派工\n${fullMessage}`, { delegated: true, conversationId });
     } catch (err) {
       // 单飞行拒绝要快速失败，不能降级 invoke 再次制造并发委托。
-      // F20261027cnsv 审视修复（Feb 发现 1）：「快速失败」指被拒目标不重投（下方 throw
+      // F20261027cnsv：「快速失败」指被拒目标不重投（下方 throw
       // 保留，该目标的 promise 以 rejected 结算）；「显式拒绝而非静默丢」由
       // notifyDelegationRejections 的 rejected 通道 + 人话系统通知承担，不再整批炸链。
       if (err instanceof DelegationInFlightError) throw err;
@@ -414,7 +414,7 @@ export class DispatchChainEngine {
     return delegated ? { messageId: '', delegated: true } : null;
   }
 
-  /** F20261027cnsv 审视修复（Feb 发现 1）：单飞行拒绝的人话系统通知——被拒目标
+  /** F20261027cnsv：单飞行拒绝的人话系统通知——被拒目标
    *  显式告知（对齐 D2「人话错误 + 不伪造事件流」口径），兄弟目标不受影响。
    *  healing 落账已在 factory 单飞行拒绝点完成（recordLockDegradation），此处不重复。
    *  通知失败不阻断链路（结果通道已承载拒绝，系统条目是增强可见性）。 */
@@ -500,7 +500,7 @@ export class DispatchChainEngine {
     return out;
   }
 
-  /** F20260907ylfs ②（检视-840 发现 2）：self-yield 判据单点——产出消息的行级 tsp 含
+  /** F20260907ylfs ②：self-yield 判据单点——产出消息的行级 tsp 含
    *  hop 目标自身 = 自指 yield（任务锚点入箱）。护栏门控唯一入口判据（① URGENT 注入
    *  的类似判据后续复用此处出处），conversationId 缺失（理论降级路径）时不判 self。 */
   private isSelfYield(target: string | undefined, conversationId: string | undefined, tsp: string[]): boolean {
@@ -523,7 +523,7 @@ export class DispatchChainEngine {
     conversationId?: string,
   ): void {
     const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
-    // F20261027cnsv 审视修复（Feb 发现 1）：单飞行拒绝是背压显式拒绝而非调用失败——
+    // F20261027cnsv：单飞行拒绝是背压显式拒绝而非调用失败——
     // 日志口径分开（warn 不计入 error 流），与 metrics 独立归类（delegation_rejected）一致。
     if (r.reason instanceof DelegationInFlightError) {
       this.deps.logger.warn('发言链目标被单飞行拒绝（显式拒绝，不重投）', { conversationId, otterId, reason });
@@ -552,11 +552,11 @@ export class DispatchChainEngine {
     }
   }
 
-  /** F20260904schf 检视发现 1（mimo-reviewer）：链级出处追加 + 截尾观测。
+  /** F20260904schf：链级出处追加 + 截尾观测。
    *  多源追加不去重（A、B 都 yield C 时 C 名下两条触发消息各记一次）；
    *  同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。截尾丢弃更早记账源时
    *  warn（极端多源下被丢源将永远缺失消费义务销账，假 pending 风险）。
-   *  F20260904ldgr（#798 发现 1 结构性修复）：截尾上限 8→16——用例支撑：单目标在途
+   *  F20260904ldgr（#798）：截尾上限 8→16——用例支撑：单目标在途
    *  消费义务 = 并行 fan-in 上限（@提及多选，实际规模 <16）∨ 并行 invoke 池深度
    *  ∨ scheduler 群发点名数，三者取最大；16 倍于当前观测到的最大 fan-in，且仍能
    *  防无界膨胀（恶意超长 yield 链按最新 16 源保留，更早的已有 hop 记账自然消亡）。 */
@@ -578,7 +578,7 @@ export class DispatchChainEngine {
   /** F20260904schf：读产出消息行级数据（otterReply 提取 + 行级出处共用的查库点）。
    *  查库失败降级为 null（无出处不路由、无回复），不阻断链路（硬约束 1 同款纪律）；
    *  Promise.resolve 包装使 mock 返回 undefined 等非 Promise 值时仍安全。
-   *  F20260904ldgr（#798 发现 2）：返回 [data, degraded]——degraded 时账面补降级备注。 */
+   *  F20260904ldgr（#798）：返回 [data, degraded]——degraded 时账面补降级备注。 */
   private async fetchProducedMessage(
     invokeId: string,
     conversationId?: string,
@@ -671,7 +671,7 @@ export class DispatchChainEngine {
     currentMessageId: string,
   ): Promise<{ aborted: boolean; steerText?: string }> {
     const count = await this.countConsecutiveSelfYields(conversationId, otterId, currentMessageId);
-    // #530 修复（检视-838 发现 2）：before=currentMessageId 排除当前消息，count = 前序 self-yield 数，
+    // #530 修复：before=currentMessageId 排除当前消息，count = 前序 self-yield 数，
     // +1 计入当前 hop（当前消息已在 invoke 返回前落库，但 before 参数将其排除在扫描之外）
     const totalCount = count + 1;
     this.deps.logger.info('[self-yield-guard] 计数结果', { conversationId, otterId, messageId: currentMessageId, previousCount: count, totalCount });
@@ -773,11 +773,11 @@ export class DispatchChainEngine {
      *  禁止再滤 senderId：scheduler 路径（AgentDispatchService / SchedulerService / resume）的 sender
      *  是任务属主 otter，小獭 yield 回属主是设计内交棒，被滤掉即行动权悬空（石砧 8-26 实证：链在
      *  yield 大獭后正常结束，大獭永不唤醒，需用户手动接棒）。
-     *  F20260907ylfs ②（检视-840 发现 1）：'user' 过滤已在 resolveHopOutcomes → filterChainTargets
+     *  F20260907ylfs ②：'user' 过滤已在 resolveHopOutcomes → filterChainTargets
      *  单点执行（allowedNext 入队前），此处不再重复 filter（每目标已过一遍，再滤是冗余动作）；
      *  self 目标不滤——护栏放行即链续跑（合法消化路径），allowedNext 已含门控结果。 */
     // #530 梯度护栏：abort 后清空 nextTargets 终链（链停非惩罚，可被外部重新 invoke）
-    // F20261026ctbg 审视修复④：全 rejected hop（无任何 fulfilled 目标）不是计量缺口——
+    // F20261026ctbg：全 rejected hop（无任何 fulfilled 目标）不是计量缺口——
     // usageDeltas.length=0 在该场景语义是「无 fulfilled 可计量」，非「fulfilled 但缺报」
     const hasFulfilled = results.some(r => r.status === "fulfilled" && !r.value.delegated);
     return {
@@ -868,10 +868,10 @@ export class DispatchChainEngine {
       if (otterTypes.get(p.otterId) === 'big') continue; // 大獭互相不告警（解散对象只有小獭）
       const name = otterNames.get(p.otterId);
       if (!name) continue; // otter 记录缺失（异常边界）
-      // 检视发现 9：护栏数据源扩为 max(最后被唤醒, 入场时间)——新入场未被唤醒的小獭
+      // 护栏数据源扩为 max(最后被唤醒, 入场时间)——新入场未被唤醒的小獭
       // 在入场 2h 内不告警（刚进场还没派上活不是闲置）；超 2h 仍未被唤醒也未发言则
       // 报闲置是正确语义（真闲置）。
-      // 复检发现 5（格式契约）：下方 max 取自字典序比较，依赖两源同为 JS ISO UTC
+      // 格式契约：下方 max 取自字典序比较，依赖两源同为 JS ISO UTC
       // （含 Z、同长度）——invokes.startedAt（send-entry toISOString）与
       // participant.createdAt（manage-participant join toISOString）当前均满足。
       // 若未来任一写入方改格式（如 SQLite datetime('now') 无时区），须改为
@@ -982,7 +982,7 @@ export class DispatchChainEngine {
     const unreadAll = this.deps.entryRepo
       ? await this.deps.entryRepo.getUnreadEntries(conversationId, otterId)
       : [];
-    // F20260928wxid（检视建议 2）：触发消息 senderName 快照——从未读全集反查（入排除集前必在集内；
+    // F20260928wxid：触发消息 senderName 快照——从未读全集反查（入排除集前必在集内；
     // retry/resume 路径 id 非 entry id 时自然 miss，降级无快照标签）
     const triggerSenderName = (triggerMessageId ? unreadAll.find(m => m.id === triggerMessageId)?.senderName : undefined) ?? null;
     // F20260908rlcp：恢复侧 steer 去重——已消化的 entry id 剔除
@@ -996,7 +996,7 @@ export class DispatchChainEngine {
     // 触发消息此刻已被消费（以 userMessageContent 形态在发言流末尾），游标本就该越过它；
     // 触发消息非 entry（retry/resume 路径）时 getMaxEntrySeq 等价「读到最新」，同样正确。
     // 取 max(filtered, unreadAll) 双保险：excludeMessageIds 剔除的可能不止触发消息。
-    // F20261014czgd（检视建议 3 处置）：idleStatsRepo 缺失时降级为 0 且打 warn——
+    // F20261014czgd：idleStatsRepo 缺失时降级为 0 且打 warn——
     // 根治层失效的静默降级是观测盲区（本次事故全靠推断定位），显式日志让降级可见。
     const idleMaxSeq = this.deps.idleStatsRepo?.getMaxEntrySeq
       ? await this.deps.idleStatsRepo.getMaxEntrySeq(conversationId)
@@ -1010,7 +1010,7 @@ export class DispatchChainEngine {
     // F20260922ctxi：名册 delta 注入——内容未变（同对话同獭）时不重复拼接，仅首轮/变更时注入
     const rosterSegment = this.consumeRosterSegment(conversationId, otterId, roster);
 
-    // F20260928wxid（检视建议 2）：partnerLabel/staticResolver 计算上移（原在非空分支）——
+    // F20260928wxid：partnerLabel/staticResolver 计算上移（原在非空分支）——
     // 触发消息标签两条 return 路径都要用；纯读无副作用，时机前移逻辑等价
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     const resolver = this.deps.partnerResolver;
@@ -1045,7 +1045,7 @@ export class DispatchChainEngine {
     };
     const formatted = filtered.map(formatEntry).join('\n');
 
-    // F20260928wxid（检视建议 2）：触发消息带发送者标签（triggerLabel 已在前置段计算）——
+    // F20260928wxid：触发消息带发送者标签（triggerLabel 已在前置段计算）——
     // 原本读批剔除后裸文追加，一问一答流（窗口唯一消息即触发消息）称呼不进海獭视野
     const result = `${rosterSegment}## 当前时间\n- ${timeAnchor}（Asia/Shanghai）\n\n## 对话历史（你上次发言后的消息）\n${historyNote}\n${formatted}\n\n[${triggerLabel}]（${triggerTimeStr}）${userMessageContent}${idleWarning ? `\n\n${idleWarning}` : ''}`;
     return { message: result, batchMaxSeq };
@@ -1094,7 +1094,7 @@ export class DispatchChainEngine {
   }
 
   /** user 条目标签：静态绑定（搭档/访客快照名/裸 ID）或未配置降级（#488 行为）。
-   *  F20260928wxid（检视发现 2a）：搭档标签带自报快照名——partnerLabel（默认「搭档」/全局设置）
+   *  F20260928wxid：搭档标签带自报快照名——partnerLabel（默认「搭档」/全局设置）
    *  是配置层的泛称，快照名是用户自报的真名；有快照优先真名，无则回退 partnerLabel 不变 */
   private resolveUserEntryLabel(
     m: { senderName?: string | null },

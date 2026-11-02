@@ -27,7 +27,7 @@ export function toLinkedResourceDTO(
     status: res.status,
     groupId: res.groupId,
     supersededBy: res.supersededBy,
-    // F20261030draft（检视 r1 处置中发现的同族断链）：unfurl join 投影透传——
+    // F20261030draft：unfurl join 投影透传——
     // getKeyResources 经 toKeyInfoDTO 重映射时此处曾整体丢弃 unfurl（GET 列表永不携带，
     // ArtifactCard 徽章数据源断链）。undefined 不带键（未抓取语义），null 保留（落空语义）。
     ...(res.unfurl !== undefined ? { unfurl: res.unfurl } : {}),

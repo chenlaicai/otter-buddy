@@ -10,7 +10,7 @@ export class DissolveOtter {
     private readonly agentGateway: AgentGateway,
     private readonly manageSession: ManageSession,
     private readonly deps?: {
-      /** F20260903dmpe 阻尼#4（S4 补丁批）：dissolve 事务内 settle 其 pending——
+      /** F20260903dmpe：dissolve 事务内 settle 其 pending——
        *  行动人不存在后，名下 in_progress 派发无主，落 failed 终态（清账侧，
        *  与 pendingClause 的 dissolved 过滤互为哑火/清账两面）。可选注入，失败仅日志。 */
       settlePendingForOtter?: (otterId: string) => Promise<number>;

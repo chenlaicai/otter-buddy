@@ -72,7 +72,7 @@ import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recrui
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
 import { resolveFeatureGates } from "./feature-gates";
 
-// F20260929fsqr（delta 检视严重 1）：FeishuBundle 随静态线退役删除（见 createFeishuBundle 注释）
+// F20260929fsqr：FeishuBundle 随静态线退役删除（见 createFeishuBundle 注释）
 
 /** 创建 AgentGateway（PiSessionFactory），解决 OtterToolClient 循环依赖 */
 export async function createAgentGateway(options: {
@@ -160,7 +160,7 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
       if (followOptions?.delegated) return options.agentGateway!.followUp(otterId, text, { delegated: true, reason: 'chain', delegatedOptions: { conversationId: followOptions.conversationId ?? '' } });
       return options.agentGateway!.followUp(otterId, text);
     } : undefined,
-    // F20261027cnsv 审视修复（Feb 发现 1）：单飞行拒绝的人话系统通知（send-entry 用例闭包）
+    // F20261027cnsv：单飞行拒绝的人话系统通知（send-entry 用例闭包）
     systemEntryRepo: uc.sendEntry,
     // F20260826fpbd：搭档身份静态判定。未配置时 PartnerResolver 降级（动态推断）
     // F20260928wxid：双渠道 ID——微信消息也经链引擎渲染历史，搭档需被认出（含微信 ilink_user_id）
@@ -170,8 +170,8 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
     // #530 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
-    // F20260907ylfs ②：steer 回调已删（③ 检视修复后 steer 注入改走 ChainHopResult.steerText
-    // 进程级传递，回调零调用点成死装配——检视-838 移交件 A）；steerSession 保留在
+    // F20260907ylfs ②：steer 回调已删（③ steer 注入改走 ChainHopResult.steerText
+    // 进程级传递，回调零调用点成死装配）；steerSession 保留在
     // pi-session-factory（① URGENT steer 注入的依赖，signal-router 直调不经链引擎 deps）。
     abort: options?.agentGateway ? (otterId) => options.agentGateway!.abort(otterId) : undefined,
     healingRepo: repos.healingEvent,
@@ -340,7 +340,7 @@ function buildSchedulerServiceOptions(o: SchedulerServiceOptions): SchedulerServ
 }
 
 /** issue #281：broadcaster 由 app.ts 无条件创建（平台无关总线），飞书出站作为 channel 注册 */
-// F20260929fsqr（delta 检视严重 1）：createFeishuBundle/setupFeishu/FeishuBundle 随静态线退役删除
+// F20260929fsqr：createFeishuBundle/setupFeishu/FeishuBundle 随静态线退役删除
 // （唯一调用方 app.ts 已移除；误复活风险与死代码一并清除）
 
 /** F20260920imax：助理态注入片段（微信/飞书共用语义：总开关 + 助理线模型；setupFeishu/startWeixinChannels 双消费方） */
@@ -356,8 +356,8 @@ function buildAssistantInjections(appConfig: AppConfig, uc: UseCases): {
   };
 }
 
-// F20260929fsqr（delta 检视严重 1）：setupFeishu 已随静态线退役删除
-// F20260929fsqr（delta 检视严重 1）：setupFeishu 随静态线退役删除——唯一调用方 app.ts 已移除；
+// F20260929fsqr：setupFeishu 已随静态线退役删除
+// F20260929fsqr：setupFeishu 随静态线退役删除——唯一调用方 app.ts 已移除；
 // 装配语义由 buildFeishuRuntime 工厂统一承担（扫码线 feishu-scan.ts 全权持有）
 
 export interface PlatformBootstrapResult {
@@ -563,7 +563,7 @@ export function startWeixinChannels(options: {
     const pollers = orphanAccounts
       .map((account) => startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig: {}, account, registry, signalRouter }))
       .filter((p): p is WeixinPollingChannel => p !== undefined);
-    // F20260901chun 发现8：orphan 降级拉起后标记 degraded，UI 显示「🟡 降级运行中」而非假绿
+    // F20260901chun：orphan 降级拉起后标记 degraded，UI 显示「🟡 降级运行中」而非假绿
     if (registry) {
       for (const account of orphanAccounts) {
         registry.update(`weixin-${account.id}`, { kind: "weixin", state: { kind: "running", since: Date.now(), degraded: true } });
@@ -635,7 +635,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         manageConnection: uc.manageConnection,
         // F20260921wxba：入站路由锚 = bot 账号（与扫码建线同键，bot=对话统一模型）
         botAccountId: account.id,
-        // F20260928wxid：建线人鉴定（检视发现 1）——仅 owner 消息盖自报称呼
+        // F20260928wxid：建线人鉴定——仅 owner 消息盖自报称呼
         ownerIlinkUserId: account.ilinkUserId,
         // F20260918imas / F20260920imax：助理态（私聊自动开户；对话永续 + 8h 静默换 session）；语义同 setupFeishu
         ...buildAssistantInjections(appConfig, uc),

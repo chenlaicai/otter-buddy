@@ -13,14 +13,14 @@ export function isRetryableGuardAbort(reason: string): boolean {
   if (reason === 'streaming_timeout') return true;
   if (reason === 'first_byte_timeout') return true;
   if (reason.startsWith('circuit_break:')) return true;
-  // F20260830bsgr: bash 安全守卫命中后给 LLM 一次自纠机会（R2-1 delta 复核裁决）
+  // F20260830bsgr: bash 安全守卫命中后给 LLM 一次自纠机会
   if (reason.startsWith('bash_safety:')) return true;
   // F20260928slan：sleep 拦截（感知问题）同纪律——一次自纠机会：先 speak 说明理由 → 改 wait 工具
   if (reason.startsWith('bash_sleep:')) return true;
   return false;
 }
 
-/** F20260922txes：确证超时类 guard 原因闭集（L3 升级判定口径，检视发现 2 收窄）。
+/** F20260922txes：确证超时类 guard 原因闭集（L3 升级判定口径收窄）。
  *  circuit_break 仅 event_timeout（单次工具调用超时，circuit-breaker-helpers.ts:229）属超时；
  *  ignored_steer 等非超时 trigger（tool-call-circuit-breaker.ts:259）不进 timeout_retry_exhausted 枚举。 */
 export function isTimeoutGuardReason(reason: string): boolean {
@@ -146,14 +146,14 @@ export function buildGuardBounceEscalationMsg(otterName: string, guardReason?: s
 }
 
 // ─── F20261008gduc P0-2：同规则 3 连判「疑似误拦」降级通道（#1353 獭失联半小时）───
-// 同规则阈值复用 GUARD_BOUNCE_MAX（=3）——审视处置：曾有独立常量 GUARD_BOUNCE_SAME_RULE_MAX
+// 同规则阈值复用 GUARD_BOUNCE_MAX（=3）——曾有独立常量 GUARD_BOUNCE_SAME_RULE_MAX
 // 但未被消费形成误导，已删除；降级触发条件 = priorBounces >= GUARD_BOUNCE_MAX 且滑窗 bounce
 // 全部命中同一 ruleId（orchestrator detectSameRuleBounce）。
 
 /** 宪法高危分层（bash-guard-constitution「一、分层原则」）——命中这些层的规则时通知文案中性化。 */
 const HIGH_RISK_RULE_LAYERS = new Set(["self_kill", "bypass_guard"]);
 
-/** P0-2 审视处置（PR #1360 §3.5）：高危规则（kill 族/防绕过）的「大概率误拦」预判可能诱导搭档放行真违规——文案中性化判定。 */
+/** P0-2（PR #1360 §3.5）：高危规则（kill 族/防绕过）的「大概率误拦」预判可能诱导搭档放行真违规——文案中性化判定。 */
 export function isHighRiskRuleLayer(ruleLayer?: string): boolean {
   return ruleLayer !== undefined && HIGH_RISK_RULE_LAYERS.has(ruleLayer);
 }
@@ -162,7 +162,7 @@ export function isHighRiskRuleLayer(ruleLayer?: string): boolean {
  * P0-2：疑似误拦的搭档侧通知。同规则 3 连说明命令形态稳定（獭在正确命令上反复撞墙），
  * 大概率守卫误拦面而非獭顽固违规——此时 abort 是错杀（#1353：獭失联半小时），
  * 改为请搭档人工核实/临时放行。含命令摘要 + 命中规则 + 重试次数三要素。
- * 审视处置（PR #1360 §3.5）：高危规则层（self_kill/bypass_guard）不预判「大概率误拦」——
+ * PR #1360 §3.5：高危规则层（self_kill/bypass_guard）不预判「大概率误拦」——
  * 改中性文案请搭档核实命令正当性，防预判诱导放行真违规；低危层（r1_gate/permission/habit）
  * 保留误拦倾向判断。
  */
@@ -183,7 +183,7 @@ export function buildGuardBounceSuspectedFpMsg(
 /**
  * P0-2：降级通道给獭的会话内提示（retry message 注入下一轮 invoke context）。
  * 不再让它继续撞同一规则（abort 前它已重试 3 次同一形态），引导换写法/报告搭档。
- * 审视处置（PR #1360 §3.5）：高危规则层不预判「大概率误拦」——与搭档侧通知同口径中性化。
+ * PR #1360 §3.5：高危规则层不预判「大概率误拦」——与搭档侧通知同口径中性化。
  */
 export function buildGuardBounceSuspectedFpRetryMsg(ruleId: string, ruleLayer?: string): string {
   const head = `[系统提醒] 你已连续多次被 bash 守卫拦截且命中同一规则（${ruleId}）。`;

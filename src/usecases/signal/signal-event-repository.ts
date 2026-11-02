@@ -19,7 +19,7 @@ export interface SignalEventRepository {
    *  与 findByConversation 互斥使用：后者限单对话，本方法跨对话全量。 */
   findAll(filter?: SignalQueryFilter, limit?: number): Promise<SignalEvent[]>;
   /**
-   * 裁决写路径（F20260826mwrd 审视发现 2 的代码落点）：
+   * 裁决写路径（F20260826mwrd）：
    * resolve_signal 工具调用此方法落库，状态迁移以本方法为唯一数据源。
    * @returns 更新后的实体；id 不存在或已非 pending 返回 null（幂等防重）
    */

@@ -46,7 +46,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
 
   /** F20260913ctlv 批4a：SSE 事件出站——invoke.start 触发"正在思考..."
    *  （与飞书同语义；message.start 已无生产者）；entry.speak = speak 气泡出站投递。
-   *  F20260913ctlv 处置轮：entry.user = Web→微信用户消息同步（F20260828fsyc 同步链恢复）——
+   *  F20260913ctlv：entry.user = Web→微信用户消息同步（F20260828fsyc 同步链恢复）——
    *  防回环闸 source=web（微信入站链的 entry.user 事件 source=weixin，不回投） */
   onEvent(conversationId: string, event: SSEEvent): void {
     if (event.event === "invoke.start") {
@@ -144,13 +144,13 @@ export class WeixinMessageChannel implements OutboundEventChannel {
       ...(attachments.length > 0 && { attachments }),
     });
     try {
-      // 文本在前（含附件占位投影），媒体在后（r1-S1 拆分：媒体独立于文本 try）
+      // 文本在前（含附件占位投影），媒体在后（媒体独立于文本 try）
       await this.weixinGateway.replyMarkdown(target, senderLabel, projected);
       this.logger.info("User entry synced to Weixin (web→weixin)", { conversationId });
     } catch (err) {
       this.logger.error("Failed to sync user entry to Weixin", err instanceof Error ? err : undefined, { conversationId });
     }
-    // r1-S1：文本失败时媒体仍发——per-item 失败在 sendAttachments 内部处理，不向上抛
+    // 文本失败时媒体仍发——per-item 失败在 sendAttachments 内部处理，不向上抛
     await this.sendAttachments(target, attachments);
   }
 
@@ -180,7 +180,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     } catch (err) {
       this.logger.error("Failed to broadcast speak to Weixin", err instanceof Error ? err : undefined, { conversationId });
     }
-    // r1-S1：媒体投递独立于文本 try——文本失败时媒体仍发（同 user 路径）
+    // 媒体投递独立于文本 try——文本失败时媒体仍发（同 user 路径）
     await this.sendAttachments(target, attachments);
   }
 
@@ -234,7 +234,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
   }
 
   private async maybeSendThinkingMessage(conversationId: string, event: SSEEvent): Promise<void> {
-    // 时间戳 gate（同飞书审视 R5 语义）：invoke.start 延迟超 3s 说明 IO 慢，
+    // 时间戳 gate（同飞书语义）：invoke.start 延迟超 3s 说明 IO 慢，
     // 最终发言可能已在路上——此时发"正在思考..."会乱序，跳过
     const d = event.data as { startedAt?: string; createdAt?: string } | undefined;
     const startedAt = d?.startedAt ?? d?.createdAt;
@@ -245,7 +245,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
 
-    // F20260831xtrt 检视R1：onEvent（thinking）路径与 onMessage 对称路由，飞书会话不进本通道
+    // F20260831xtrt：onEvent（thinking）路径与 onMessage 对称路由，飞书会话不进本通道
     if (connection.externalType !== "weixin") {
       this.logger.debug("Skipping thinking message to non-weixin connection", {
         conversationId,
@@ -258,7 +258,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     const target = this.resolveTarget(connection.id, connection);
     if (!target) return;
     try {
-      // F20260829wxch（#213 检视发现3）：thinking 可丢弃，无 context_token 时跳过不裸发
+      // F20260829wxch（#213）：thinking 可丢弃，无 context_token 时跳过不裸发
       await this.weixinGateway.replyText(target, `${otterName} 正在思考...`, { requireContextToken: true });
     } catch (err) {
       this.logger.error("Failed to send Weixin thinking message", err instanceof Error ? err : undefined, {

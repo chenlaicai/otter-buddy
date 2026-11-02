@@ -8,7 +8,7 @@
  * （异议/卡住升级）。语义池独立、传输管道模式共享（方案 Part 2「为什么不复用
  * healing_events 表」）。
  *
- * 鲁棒性（对齐 healing parser 踩坑防御 + 审视发现 6 增补）：
+ * 鲁棒性（对齐 healing parser 踩坑防御）：
  * - normalize：转义写法（\< \>）、反引号包裹、属性引号全角/单引号
  * - 白名单校验 type（objection/blocked——halt 只能经 halt_otter 工具，不走 speak）
  * - 截断防滥用：正文 ≤1000 字符；每条消息信号数上限 5
@@ -16,7 +16,7 @@
  *   超长 / 属性引号异常 / 正文未闭合——非法块静默剥离不落账（fail-open，
  *   不阻断正常发言）
  *
- * F20260827c2sg 审视处置（发现 4 重写）：正则三件套无法表达「标签平衡配对」语义
+ * F20260827c2sg：正则三件套无法表达「标签平衡配对」语义
  * （初版非贪婪跨块吞噬；二版负向前瞻把 payload 含 `<signal` 字样的合法块整块丢掉、
  * 反引号示例经 normalize 后内层冒名落账且 parse/strip 不同步）。改为 tokenizer +
  * 栈式配对：开/闭标签按位置切 token，栈式配对成块，顶层块（不被其他成对块包含）
@@ -75,7 +75,7 @@ interface SignalToken {
 const SIGNAL_TOKEN_RE = /<signal\b[^<>]*>|<\/signal>/gi;
 
 /**
- * 疑似开标签残文（F20260827c2sg 审视发现 5 兜底，仅 strip 侧用）：
+ * 疑似开标签残文（F20260827c2sg 兜底，仅 strip 侧用）：
  * 属性段容忍裸 <（[^>]*）——tokenizer 认不出的畸形开标签（如 <signal a<b type=...>）
  * 由这里兑底剥离，「<signal 开头的标签形态不应出现在 UI 正文」。
  * 与 SIGNAL_TOKEN_RE 的分工：token 化保严格（[^<>]* 防裸字样吞闭合标签），
@@ -132,12 +132,12 @@ function topLevelBlocks(paired: PairedBlock[]): PairedBlock[] {
 }
 
 /**
- * 收集落账候选（发现 6 递归下钻）：合法块直接转为 ParsedSignal；畸形块（属性非法/
+ * 收集落账候选（递归下钻）：合法块直接转为 ParsedSignal；畸形块（属性非法/
  * 空 payload）递归下钻其 payload 内的子块——畸形外层不埋葬合法内层。
  * 坐标系：每层递归用自己的局部 text 切片（子串坐标系内重新 tokenize/配对），
  * 不跨层引用全局 offset。
  * 语义自洽性：内层真实信号能否上达不取决于外层写没写闭合标签（R2/R3 对偶）；
- * 合法外层的内层块是 payload 的一部分不单独落账（发现 4 场景 B 防冒名不变）。
+ * 合法外层的内层块是 payload 的一部分不单独落账（场景 B 防冒名不变）。
  */
 function collectCandidates(text: string, blocks: PairedBlock[], out: ParsedSignal[]): void {
   for (const block of blocks) {
@@ -222,7 +222,7 @@ export function stripSignalReport(body: string): string {
 
   return parts
     .join('')
-    // 发现 5 兑底：tokenizer 认不出的疑似开标签残文（属性段含裸 <）——控制语法不泄漏进 UI 正文
+    // 兑底：tokenizer 认不出的疑似开标签残文（属性段含裸 <）——控制语法不泄漏进 UI 正文
     .replace(SUSPECT_OPEN_TAG_RE, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

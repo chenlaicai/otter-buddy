@@ -14,15 +14,15 @@ import type { Word } from "./command-lexer";
  *  载荷零判读（Runtime.exec/exec/file.create 真写双层漏，探针实证）。文件形态后缀门见
  *  write-target-evaluator SCRIPT_FILE_SUFFIXES（非 shell runner 只认可读后缀）。 */
 export const SCRIPT_RUNNERS = new Set(["python", "python3", "node", "perl", "ruby", "osascript", "jshell", "rscript", "lua", "octave"]);
-/** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10）——F20261022vwfg delta 1：自 command-model
+/** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10）——F20261022vwfg：自 command-model
  *  迁入（值吞食守卫要引用；command-model re-export 保持既有引用面） */
 export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh", "ash"]);
-/** 写命令词（argv 落点写面）——F20261022vwfg delta 1：自 write-target-evaluator 迁入
+/** 写命令词（argv 落点写面）——F20261022vwfg：自 write-target-evaluator 迁入
  *  （同理由：值吞食守卫引用，wte 从此处 import） */
 export const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir", "rm", "find"]);
 export const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "chgrp", "truncate"]);
 
-/** 值吞食守卫（delta 严重 1 修复）：带值旗标的值 token 若形似「本守卫有专门判定面的
+/** 值吞食守卫：带值旗标的值 token 若形似「本守卫有专门判定面的
  *  命令词」（解释器/壳/分发器/wrapper/写命令/git/取数族），不吞——按基线口径保守归位
  *  为段首（吞掉会让 head 走丢，基线判罚 block→allow 翻转，同命令不得反判）。
  *  其余未知命令词两侧判罚同为放行，吞值不产生翻转，不入表（不军备化 #1513）。
@@ -47,7 +47,7 @@ function looksLikeExecWord(text: string): boolean {
  *    flags: 吞连续的 - 开头 token（含合写/内联值形态：-o0 / --user=root 属之）；
  *    valueFlags: 必带值旗标分写形态（M-c36b9847 值参盲区收编）——恰为集合成员的
  *           旗标 token（无内联值，token 本身即旗标名，如 -u / --user）后随的一个
- *           token 是它的值（FOO/root/KILL），一并吞食。三条硬边界（delta 严重 1
+ *           token 是它的值（FOO/root/KILL），一并吞食。三条硬边界（同源防护
  *           教训入注释——注释/表/矩阵登记三处同轴，穷举不留暗格）：
  *           ① 只收「必带值」旗标，GNU 可选值旗标（值只能合写：xargs -i[replace-str]
  *             / --replace[=str] / -l[max-lines] / --max-lines[=n]）一律不入表——
@@ -57,7 +57,7 @@ function looksLikeExecWord(text: string): boolean {
  *           ③ 表内每一项必须有矩阵钉（穷举断言防选择性覆盖）；
  *    assigns: env 专有——吞 FOO=v 形态；
  *    duration: timeout 专有——旗标吞完后吞一个时长 token（\d 开头或数字+单位）。
- *  delta r1（检视獭1604）：本表随段首解析收敛迁入共享内层（guard/wte 同一识别域）；
+ *  本表随段首解析收敛迁入共享内层（guard/wte 同一识别域）；
  *  值旗标分写形态不吞的盲区（M-c36b9847）由本层 valueFlags 收编（F20261022vwfg）。
  *  表内清单（穷举，改动须同步矩阵登记与 F20261022vwfg 枚举节）：
  *    env: -u/--unset/-C/--chdir/-S/--split-string；nice: -n/--adjustment；
@@ -91,8 +91,8 @@ export const WRAPPER_SPECS: Record<string, WrapperSpec> = {
 };
 
 /** 多调分发器二进制（M-38fb45c0 A 面）：<dispatcher> <子命令> = 子命令语义别名
- *  （busybox sh ≡ sh）——delta r1：裸分发器（无子命令）按默认 applet ash 归位
- *  （busybox 默认 shell；toybox 同保守归位——最短攻击形态收编，检视獭1604 严重 3）。 */
+ *  （busybox sh ≡ sh）——裸分发器（无子命令）按默认 applet ash 归位
+ *  （busybox 默认 shell；toybox 同保守归位——最短攻击形态收编）。 */
 export const MULTI_CALL_DISPATCHERS = new Set(["busybox", "toybox"]);
 
 export const tokenBasename = (t: string): string => {
@@ -105,7 +105,7 @@ export const tokenBasename = (t: string): string => {
  *  内层——wrapper 吞食规则单一真相源，抽函数控圈复杂度）。
  *  确定性吞食（防贪婪误吞解释器名）：flags 连续 - 开头（valueFlags 成员吞一个后随值 token）
  *  / assigns FOO=v / duration 单个数值。 */
-// eslint-disable-next-line complexity -- 吞食语法四类穷举（flags/valueFlags 值/assigns/duration）是 wrapper 段首归位的判定面，拆函数会把单点吞食规则切碎（delta 严重 1 修复的核心守卫面——先例 resolveExecHead 同款豁免）
+// eslint-disable-next-line complexity -- 吞食语法四类穷举（flags/valueFlags 值/assigns/duration）是 wrapper 段首归位的判定面，拆函数会把单点吞食规则切碎（核心守卫面——先例 resolveExecHead 同款豁免）
 export function skipWrapperArgs(tokens: ReadonlyArray<{ text: string }>, k: number, spec: WrapperSpec): number {
   let durationTaken = false;
   while (k < tokens.length) {
@@ -130,7 +130,7 @@ export function skipWrapperArgs(tokens: ReadonlyArray<{ text: string }>, k: numb
 /** 执行名归一（识别域一致性共享内层）：剥路径 → 版本后缀剥离（python2/python3.11/
  *  perl5.36 → python/perl）→ 别名归一（pypy* → python 族——pypy 执行 Python 语义，
  *  pythonBodyReadOnly 同判据适用）。识别域比对一律用归一名——单侧各写各的归一
- *  正是检视獭1604 严重 2 的漂移源（guard 归一认 python2、wte 入口闸裸词拒收）。 */
+ *  正是识别域漂移源（guard 归一认 python2、wte 入口闸裸词拒收）。 */
 const EXEC_NAME_ALIASES: Record<string, string> = { pypy: "python" };
 export function canonicalExecName(raw: string): string {
   const base = tokenBasename(raw);
@@ -151,7 +151,7 @@ export interface ExecHead {
   wrapped: boolean;
 }
 
-/** 段首执行名解析（guard/wte 识别域一致性共享内层——检视獭1604 严重 1/2/3 同根因
+/** 段首执行名解析（guard/wte 识别域一致性共享内层——双侧同根因
  *  收敛）：两侧各自解析段首时 guard 认定 feed 形态域 ⊃ wte 识别域（wte 裸 argv0 词
  *  不跳 wrapper/不归一版本名），guard 以为在管、求值器看不见 → evaluated 空集放行。
  *  解析序：跳赋值前缀（不算包装）→ 跳 wrapper 词及其旗标/赋值/时长参（WRAPPER_SPECS
@@ -164,7 +164,7 @@ export interface ExecHead {
  *  nice/nohup 无命令仅 usage 报错（非 shell）不入表；setsid 本机无从实证按残余记档。 */
 export const SHELL_EXEC_ON_EMPTY = new Set(["sudo"]);
 
-// eslint-disable-next-line complexity -- 解析序四段穷举（赋值前缀/wrapper 吞食/分发器归位/版本归一）是识别域一致性的判定面，拆函数会把单段首解析真相源切碎（delta r1 收敛核心——先例 interpreterScriptFileArg 双域判定豁免同款）
+// eslint-disable-next-line complexity -- 解析序四段穷举（赋值前缀/wrapper 吞食/分发器归位/版本归一）是识别域一致性的判定面，拆函数会把单段首解析真相源切碎（先例 interpreterScriptFileArg 双域判定豁免同款）
 export function resolveExecHead(seg: Segment): ExecHead | null {
   const words = seg.words;
   const tokens = words.map(w => ({ text: w.evaluated ?? "" }));
@@ -202,7 +202,7 @@ export function isStdinFeedRest(rest: Array<string | null>): boolean {
   return rest.every(t => t !== null && (/^-[a-zA-Z]$/.test(t) || t === "-"));
 }
 
-/** M-48ac4e39 delta（检视獭1630 严重1/建议2/建议3 双层同源收敛）：find 执行体引导词
+/** M-48ac4e39：find 执行体引导词
  *  ——-exec/-execdir/-ok/-okdir。-ok/-okdir 与 -exec 唯一差异是逐项交互确认（echo y 可
  *  喂答绕过、破坏力等价），同族同收。词位精确比对（tokenBasename 归一）——-name 参数值
  *  等数据位（引号整词 '-exec rm' 是单 token）不触发，段文本子串正则的历史误命中由此消除。 */
@@ -212,9 +212,9 @@ export const FIND_EXEC_VERBS = new Set(["rm", "rmdir", "mv"]);
 
 /** 执行体程序名落点判定（guard/wte 双层同源）：从引导词后一词起，跳 WRAPPER_SPECS
  *  包装词（对称入口原则——直挂 `env rm` 有 wrapper 剥除、执行体位 `-exec env rm` 不剥
- *  是不对称缺口，检视獭1630 建议2 顺收）；落点引号整词（'mv -f'）取首 token 判
- *  （fail-closed：无效程序名也是破坏意图，与 prod 段文本正则历史口径一致——检视獭1630
- *  建议3 两层分叉收敛）。执行体泛化（sh -c 任意载荷）按 #1513 口径记档不追。 */
+ *  是不对称缺口顺收）；落点引号整词（'mv -f'）取首 token 判
+ *  （fail-closed：无效程序名也是破坏意图，与 prod 段文本正则历史口径一致，两层
+ *  分叉收敛）。执行体泛化（sh -c 任意载荷）按 #1513 口径记档不追。 */
 export function findExecVerbAt(tokens: ReadonlyArray<{ text: string }>, startIndex: number): boolean {
   let k = startIndex;
   for (;;) {
@@ -310,7 +310,7 @@ export function hasPayloadFlag(seg: Segment): boolean {
 
 /** 段是否脚本解释器段（段首执行名归一后命中 SCRIPT_RUNNERS——resolveExecHead 共用
  *  内层：跳赋值前缀/wrapper/分发器 + 版本名归一，与 guard interpreterStdinKind、wte
- *  interpreterStdinFeedContent 同一识别域）。delta r1（检视獭1604 严重 1/2 根因）：
+ *  interpreterStdinFeedContent 同一识别域）。
  *  旧裸 argv0 词判定是窄提取入口闸——env python（argv0="env"）、python2 在此被拒，
  *  feed 分支不可达 → evaluated 空集放行；归一后 wrapper/版本别名形态同尺进窄提取。 */
 export function isScriptRunnerSeg(seg: Segment): boolean {
@@ -378,7 +378,7 @@ export function gitWriteSubcommandHit(seg: Segment): boolean {
   while (i < words.length) {
     const w = words[i].evaluated;
     if (w === null) {
-      // F20261016gwr1 修复轮（M-46f0e74d 严重 1，检视獭1519）：动态词位不弃权——后续静态写族
+      // F20261016gwr1：动态词位不弃权——后续静态写族
       // 子命令照判 write（`git -c"$P" commit`/`git -C$P commit` 附着+动态混合形态曾双层
       // fail-open，同语义空格/附着拼接反判）。红线：后续无写族子命令（`git -C"$P" status`
       //）照常 false，只读面不误拦。间接构造（整词动态子命令 `git "$X"`）仍不追（#1513）。
@@ -397,7 +397,7 @@ export function gitWriteSubcommandHit(seg: Segment): boolean {
 
 /** 写族子命令判定（严格语义，位置定在 words[i]）：push 排除 --dry-run/-n、stash 限写族全集
  *  （F20261016gdfv/#1522：pop/apply/drop/clear/store/branch 真写面收编——旧「限 push」漏拦；
- *  bare ≡ push（F20261016gwr1 修复轮 建议 2）；读面 list/show/create 不入）
+ *  bare ≡ push（F20261016gwr1）；读面 list/show/create 不入）
  *  、reset 限 --hard、clean 限 f 旗标；词等值天然排除 commit-tree/merge-base 词族。 */
 // eslint-disable-next-line complexity -- 写族子命令严格语义逐分支（push 排除/stash 写族全集/reset --hard 限定/clean f 旗标，r2-C 基线形态穷举）
 function isWriteVerbAt(words: Word[], i: number): boolean {
@@ -412,7 +412,7 @@ function isWriteVerbAt(words: Word[], i: number): boolean {
   return false;
 }
 
-/** F20261016gwr1 修复轮二（delta 残留 1，检视獭1519）：动态词位后的写族前瞻——与主走查
+/** F20261016gwr1：动态词位后的写族前瞻——与主走查
  *  同构（旗标/取值旗标消费后停在首个静态非旗标词=子命令位）就地判 write 即停，**不越位
  *  扫参数**——旧版从 from 全量扫描把参数词当子命令位（`git -C"$P" log -G push` 的 push 被
  *  isWriteVerbAt 命中 → 与静态 `git -C /repo log -G push` 反判=本 PR 病核复发，误拦方向）。
@@ -525,7 +525,7 @@ function scanConfigAliasWords(words: Word[], start: number): { texts: string[] }
  *  （#1513）拍板：常见直白形态兜底，物理隔离才是真守卫。
  *  返回 {kind:"payload",texts}（可静态提取载荷→调用方递归判读）| {kind:"opaque"}
  *  （检出 ! 定义但载荷不可静态提取→调用方 fail-closed）| null（无定义位）。 */
-/** 引号平衡校验（X4，检视獭1518）：单引号/双引号各自成对（双引号内反斜杠可转义）——
+/** 引号平衡校验（X4）：单引号/双引号各自成对（双引号内反斜杠可转义）——
  *  `'\'''` 转义截断伪影会留下不平残痕，判 opaque 防伪影载荷带病过递归。 */
 function quotesBalanced(s: string): boolean {
   let sq = false;
@@ -548,14 +548,14 @@ export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
   const texts: string[] = [];
   let i = 1;
   // 子命令前全局旗标位走查（与 write-target-evaluator evalGitWrite 旗标循环同构）：
-  // 首个非旗标词=子命令位才停。X1（检视獭1518）：静态旗标一律 continue 不 break——
+  // 首个非旗标词=子命令位才停。X1：静态旗标一律 continue 不 break——
   // `git --no-pager -c alias.pwn='!x' pwn` 类 wrapper 旗标曾使走查提前折断→提取
   // 静默失效；取值旗标（git 全局集 -C/-c/--git-dir/--work-tree/--exec-path/--namespace
   //，=附着形或独立值形）消费其值，其余静态旗标无值跳过。
   while (i < words.length) {
     const w = words[i].evaluated;
     if (w === null) {
-      // F20261016gwr1 修复轮（严重 1 对称面）：附着+动态 alias 定义（`-c"alias.x=!$P"`）——
+      // F20261016gwr1：附着+动态 alias 定义（`-c"alias.x=!$P"`）——
       // 键+! 字面前缀可见证、载荷动态 → opaque（与 evaluate 词位同病同治）；其余动态词位
       // 间接构造不追（#1513），后续定义位扫描失去锚，按无定义位处置
       const p = literalPrefixOf(words[i]);

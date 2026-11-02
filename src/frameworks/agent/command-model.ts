@@ -85,7 +85,7 @@ function isRedirOp(op: string): boolean {
 }
 
 /** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10）——SHELL_INTERPRETERS 归 payload-extract-aux
- *  单一真相源（F20261022vwfg delta 1 迁入，本行 re-export 保持既有引用面） */
+ *  单一真相源（F20261022vwfg 迁入，本行 re-export 保持既有引用面） */
 // SCRIPT_RUNNERS 归 payload-extract-aux 单一真相源（本模块曾有同名单本地副本，
 // 双份清单正是识别域漂移源——F20261022vwfg 收敛）
 
@@ -277,7 +277,7 @@ function matchAssignment(w: Word): { name: string; value: string | null } | null
 // ────────────────────────────── 载荷收集与递归 ──────────────────────────────
 
 /** 全词扫描：cmdsub/backtick part + bash -c 载荷 + heredoc 体 → 递归 payload。
- *  r1-S2 处置：裸定界 heredoc 体对齐 V1 stripHeredocPayloads 语义——体内容
+ *  裸定界 heredoc 体对齐 V1 stripHeredocPayloads 语义——体内容
  *  无展开特征（$/反引号）时是纯数据不递归（V1 剥离放行；#1171 白名单完整落实：
  *  裸定界 body 的数据行 kill 词样不拦）；体含展开才作为危险通道递归。 */
 function collectPayloads(tokens: Token[], text: string, depth: number, tokenSegments: Map<Token, number>): { payloads: Payload[]; parseOk: boolean } {

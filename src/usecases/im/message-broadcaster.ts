@@ -2,7 +2,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { SSEEvent } from "@contract/sse/events";
 
 /**
- * 进程内事件广播总线（issue #281；F20260913ctlv 处置轮收缩）。
+ * 进程内事件广播总线（issue #281；F20260913ctlv 收缩）。
  *
  * 职责：Web SSE 订阅者的事件分发（entry.* / invoke.*）+ 出站事件通道（IM）的注册与转发。
  * **平台无关**：bootstrap 无条件创建；飞书/微信出站（markdown 投递 / "正在思考..." /
@@ -79,7 +79,7 @@ export class MessageBroadcaster {
 
     const subscribers = this.eventSubscribers.get(conversationId);
     if (!subscribers || subscribers.size === 0) {
-      // F20260817bcst 三轮审视：web-only 修复后此路径新激活（此前 broadcaster undefined 短路），
+      // F20260817bcst：web-only 修复后此路径新激活（此前 broadcaster undefined 短路），
       // F20260928icmm 阶段2：零订阅丢事件日志 debug→info——阶段1 后右栏正确性已由拉取对账
       // 兑底，本日志从「噪音」变为「丢事件窗口」的可观测信号（右栏延迟更新的定位入口）。
       // scheduler/cron 触发的 invoke 无订阅者属常态，噪音顾虑由「仅 invoke.* 终态事件升级」

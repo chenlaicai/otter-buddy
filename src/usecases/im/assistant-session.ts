@@ -62,7 +62,7 @@ export class AssistantSessionManager {
    * - 无绑定 → 自动开户（建对话 + 绑定，kind=assistant）
    * - 有绑定 → 永续复用（不翻篇）；8h 静默检查换 session（对话不动）
    *
-   * 并发边界（F20260918imas 检视发现 3 留痕）：getCurrentConversation→provision 非原子——
+   * 并发边界（F20260918imas）：getCurrentConversation→provision 非原子——
    * 同窗口毫秒级并发两条消息时，enterConversation 事务互斥使第二个 provision 抛
    * already occupied → 回退拒聊提示；副作用是多建一个孤儿 active 对话（/list 噪音，
    * 无数据损坏）。依赖「入站主链单窗口串行」假设，低概率低危害不加盖。
@@ -155,8 +155,8 @@ export class AssistantSessionManager {
         sessionIdleHours: this.deps.sessionIdleHours,
       });
 
-      // 交接摘要：机械拼接（不经 LLM），构建一次全链共用（检视发现 1 处置——原双重
-      // buildDigest 曾把空标题摘要发给 restartSession）；先落库再重启（发现 4——
+      // 交接摘要：机械拼接（不经 LLM），构建一次全链共用（原双重
+      // buildDigest 曾把空标题摘要发给 restartSession）；先落库再重启（防丢落账——
       // 先 writeDigest 后 restartSession，消除新 session 立即产生 entry 混入摘要的竞态窗口）
       const title = await this.resolveTitle(conversationId);
       const digest = await this.buildDigest({ id: conversationId, title });
@@ -182,7 +182,7 @@ export class AssistantSessionManager {
     return conv?.title ?? conversationId;
   }
 
-  /** 摘要落库：conversation.summary + 记忆条目（F20260920imax 检视发现 1/4 处置后仅
+  /** 摘要落库：conversation.summary + 记忆条目（F20260920imax）——仅
    *  非重启路径使用；重启路径在 maybeRestartIdleSession 内联同语义逻辑——构建一次全链共用） */
   private async writeDigest(current: { id: string; title: string }): Promise<void> {
     const digest = await this.buildDigest(current);

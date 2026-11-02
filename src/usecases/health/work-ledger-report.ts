@@ -4,7 +4,7 @@
  * 总量守恒（特性文档）：所有真实调用 = 已归属工作 + 未归属；缺失 usage 的调用数
  * 另列，不当作零。token 主数字，金额本期无价格配置（pricingAvailable=false）。
  *
- * F20261027hwl1 复审 S1 修复：聚合入口从「listInvokeAttributions（LIMIT 截断后内存分桶）」
+ * F20261027hwl1：聚合入口从「listInvokeAttributions（LIMIT 截断后内存分桶）」
  * 改为 aggregateAttributionCounts（SQL 内全量 GROUP BY）——coverage/未归属口径从
  * 「最近 5000 条」回到全量，不受数据增长影响，列表与详情同守恒。
  */
@@ -36,13 +36,13 @@ export interface WorkReportItem {
   reviewRounds: WorkReviewRound[];
   roundsRecorded: boolean;
   invokeCount: number;
-  /** per-work usage 缺口（四分量全 null 的调用数——复审 A5：显式返回，不与真实零混淆） */
+  /** per-work usage 缺口（四分量全 null 的调用数——显式返回，不与真实零混淆） */
   usageGapCount: number;
 }
 
 export interface WorkLedgerReport {
   works: WorkReportItem[];
-  /** 归属覆盖率（0-1）：已归属 invoke / 全部 invoke（全量口径——复审 S1） */
+  /** 归属覆盖率（0-1）：已归属 invoke / 全部 invoke（全量口径） */
   attributionCoverage: number | null;
   /** 未归属调用的 token 合计（有 trace 但无绑定工作的 + 无 trace 的分开计） */
   unassigned: {
@@ -77,7 +77,7 @@ export class WorkLedgerReportBuilder {
 
   async build(): Promise<WorkLedgerReport> {
     const works = await this.repo.listWorks();
-    // 复审 S1：SQL 内全量聚合（无 LIMIT）——守恒口径不再随数据量漂移
+    // SQL 内全量聚合（无 LIMIT）——守恒口径不再随数据量漂移
     const agg = await this.repo.aggregateAttributionCounts();
 
     let usageGapTotal = agg.unassigned.usageGapCount;

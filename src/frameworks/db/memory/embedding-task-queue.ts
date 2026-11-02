@@ -103,7 +103,7 @@ export function markTaskAttemptFailed(db: Database.Database, entryId: string, er
 }
 
 /**
- * F20261020slvg 对抗审视洞 2 处置：启动时重置 pending 任务的 attempts 归零。
+ * F20261020slvg：启动时重置 pending 任务的 attempts 归零。
  * claim 即 attempts+1，而超时循环（不计失败）会反复 claim 把 attempts 撑到 ≥3——
  * 2026-10-16 活锁 4h40m 后存量 2905 条积压大量 attempts 虚高，不重置的话上线后
  * 遇到一次硬错误（或旧版瞬态错误）就成批 dead-letter。只在启动迁移调一次。
@@ -124,9 +124,9 @@ export function resetPendingAttempts(db: Database.Database): number {
 }
 
 /**
- * F20261026emct：一次性出清孤儿任务（delta 复审口径修正）——entry 已被删除的
+ * F20261026emct：一次性出清孤儿任务——entry 已被删除的
  * 任务（真定义：entry_id NOT EXISTS，无论 last_error 形态）。首版只按
- * last_error LIKE '%entry deleted%' 代理口径删，检视獭 DB 实测两类差额 129 条
+ * last_error LIKE '%entry deleted%' 代理口径删，DB 实测两类差额 129 条
  * （含 98 条 10-23 巨批超时残骸 'batch timeout (49 texts)'）——代理口径外的孤儿
  * 会被 claim 打上 entry-deleted 后 3 次 dead 永久滞留。运行时路径不调（修复后
  * enqueueRetry 前置校验已断绝新幽灵产生源），仅清理脚本

@@ -6,7 +6,7 @@
  * - 不硬拦：只产出 reminder 文本，LLM 语境确认后执行——保留判断力防误伤
  *   （讨论/引用「停下」一词是真实场景，硬拦必炸；失效方向安全：漏报=退化纯 L1 prompt 检测）
  *
- * 匹配定义（实现层明确化，母方案审视发现 3 修订 + 母方案例句校准）：
+ * 匹配定义（实现层明确化，母方案修订与例句校准）：
  * 1. 消息去除首尾标点/空白后与「停下」完全相等（「停下」「停下。」「 停下！」命中）
  * 2. 「停下」作为片段出现，且后侧为硬边界（标点/空白/emoji/消息尾）：
  *    「快停下」「都停下。」命中——副词修饰的命令形态；
@@ -21,14 +21,14 @@ const STOP_WORDS = ['停下'] as const;
 /**
  * 硬边界字符类（后侧判定用）：标点（中西文）、空白、emoji、组合记号、格式控制字符。
  * emoji 判定用 Unicode 扩展区段（\p{Extended_Pictographic}），需 u flag。
- * 组合记号（\p{Mn}\p{Mc}）与格式控制（\p{Cf}）归入边界类（F20260827c3hr 审视建议 2）：
+ * 组合记号（\p{Mn}\p{Mc}）与格式控制（\p{Cf}）归入边界类（F20260827c3hr）：
  * 零宽/变体字符（VS16、ZWSP、ZWNJ、组合重音符）是 emoji 键盘与复制粘贴的
  * 常见夹带，用户不可见、不构成词义——按边界处理收窄漏报面（漏报方向安全：
  * 退化纯 L1，但 L2 的存在价值是保底，失效面该收窄）。
  */
 const HARD_BOUNDARY_CHAR_RE = /[\p{P}\p{Zs}\s\p{Extended_Pictographic}\p{Mn}\p{Mc}\p{Cf}]/u;
 
-/** trim 字符类 = 硬边界类减去 emoji（emoji 是内容的一部分，不剥——F20260827c3hr 审视发现 1） */
+/** trim 字符类 = 硬边界类减去 emoji（emoji 是内容的一部分，不剥——F20260827c3hr） */
 const TRIM_CHAR_RE = /[\p{P}\p{Zs}\s\p{Mn}\p{Mc}\p{Cf}]/u;
 
 function trimPunctuationAndSpace(text: string): string {

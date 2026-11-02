@@ -29,7 +29,7 @@ const USER_ENDPOINT = "https://open.feishu.cn/open-apis/contact/v3/users/";
 const CHAT_MEMBERS_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/chats/";
 /** 翻页防御上限：飞书单页 100 人，20 页 = 2000 成员，远超真实会话规模 */
 const CHAT_MEMBERS_MAX_PAGES = 20;
-/** 网关永不阻塞消息主链路：单次出网超时即降级（F20261012cmmn 检视发现 2 处置——防热路径挂起） */
+/** 网关永不阻塞消息主链路：单次出网超时即降级（F20261012cmmn——防热路径挂起） */
 const FETCH_TIMEOUT_MS = 15 * 1000;
 
 /** 缓存 TTL：飞书姓名变更低频，10 分钟足够 */
@@ -116,7 +116,7 @@ export class FeishuUserInfoClient implements FeishuUserInfoGateway {
         pageToken = next;
       }
 
-      // 检视发现 1 处置：翻页达上限时映射不完整，必须可观测（仍缓存——截断部分
+      // 翻页达上限时映射不完整，必须可观测（仍缓存——截断部分
       // 也足以服务常见会话，且缓存防配额风暴；下次 TTL 过期自愈重拉）
       if (!exhausted) {
         this.logger.warn("Feishu chat members truncated at page cap", {

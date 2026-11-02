@@ -265,7 +265,7 @@ export class SqliteEntryRepository implements EntryRepository {
   ): Promise<Entry[]> {
     // Why: #530 只需 user/yield 的决定性记录。透明条目不占窗口；当前 invoke 边界由它最早的 entry
     // 决定，缺省 timeMax 避免漏掉尚未写 entry 的当前 invoke，且始终排除当前 invoke 自身。
-    // F20261026ctbg 审视修复：生产 yield 条目 sender_id 恒 NULL（send-entry.ts 写入形态），归属
+    // F20261026ctbg：生产 yield 条目 sender_id 恒 NULL（send-entry.ts 写入形态），归属
     // 判定必须走 invoke 行 otter_id——JOIN invokes 替代 sender_id = ?（否则「自己 to≠self yield」
     // 介入类①被前置滤掉 → 计数虚高 → 误 steer/误 abort）。决定性三类：user / 该獭自己的全部
     // yield（self 与 to≠self 都返回，self/intervene 分类交给引擎 classifyEntryForSelfYield）/ 外部指向该獭的 yield。
@@ -460,7 +460,7 @@ export class SqliteEntryRepository implements EntryRepository {
     if (entries.length === 0) return;
     for (const entry of entries) {
       if (entry.entryType === "speak" || entry.entryType === "user") {
-        // F20260913ctlv delta 回修：全列查询——此前只查 4 列，id/mimeType/width/height
+        // F20260913ctlv：全列查询——此前只查 4 列，id/mimeType/width/height
         // 为硬编码占位（id:"" 拼出 /api/attachments/ 破图 404；透出层修复后成毒数据）
         const attRows = this.db.prepare(`
           SELECT a.id, a.kind, a.original_name, a.mime_type, a.size_bytes, a.width, a.height, a.caption

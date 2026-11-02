@@ -55,14 +55,14 @@ export class FeishuMessageChannel implements OutboundEventChannel {
   /**
    * message.start 触发的飞书"正在思考..."临时消息(消除 IM 静默期)
    *
-   * 时间戳 gate(审视 R5): 发送前检查距 message.start.createdAt 的延迟,
+   * 时间戳 gate: 发送前检查距 message.start.createdAt 的延迟,
    * 超过阈值(3s)说明 IO 慢且 agent 可能已完成、最终消息可能已到达 —— 此时发
    * "正在思考..." 会晚于最终消息造成乱序,跳过。
    */
   /** F20260913ctlv 批4a：SSE 事件出站——invoke.start 触发"正在思考..."
    *  （message.start 已无生产者）；entry.speak = speak 气泡出站投递
    *  （替代已死的 onMessage/broadcaster.broadcast 链路）。
-   *  F20260913ctlv 处置轮：entry.user = Web→飞书用户消息同步（F20260828fsyc 恢复）——
+   *  F20260913ctlv：entry.user = Web→飞书用户消息同步（F20260828fsyc 恢复）——
    *  防回环闸 source=web（IM 入站链的 entry.user 事件 source=feishu/weixin，不回投） */
   onEvent(conversationId: string, event: SSEEvent): void {
     if (event.event === "invoke.start") {
@@ -139,7 +139,7 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     } catch (err) {
       this.o.logger.error("Failed to broadcast speak to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
     }
-    // r1-S1：媒体投递独立于文本 try——文本失败（含降级链尽）时媒体仍发，
+    // 媒体投递独立于文本 try——文本失败（含降级链尽）时媒体仍发，
     // per-item 失败在 sendImageAttachments 内部处理，不向上抛
     await this.sendImageAttachments(replyTarget, attachments);
   }
@@ -174,7 +174,7 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     } catch (err) {
       this.o.logger.error("Failed to sync user entry to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
     }
-    // r1-S1：媒体投递独立于文本 try——文本失败时媒体仍发（同 speak 路径）
+    // 媒体投递独立于文本 try——文本失败时媒体仍发（同 speak 路径）
     await this.sendImageAttachments(this.resolveReplyTargetSafe(connection), attachments);
   }
 
@@ -286,7 +286,7 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     const connection = await this.o.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
 
-    // F20260831xtrt 检视R1：onEvent（thinking）路径与 onMessage 对称路由——
+    // F20260831xtrt：onEvent（thinking）路径与 onMessage 对称路由——
     // 遗留微信连接曾因缺省建连被误投飞书（invalid receive_id 噪音），类型不对直接退出
     // F20260928fsqr：加 botKey 归属（多 app 时 thinking 也只进本通道的线）
     if (!this.ownsConnection(connection)) {

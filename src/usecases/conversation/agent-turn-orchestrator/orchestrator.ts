@@ -23,7 +23,7 @@ import { isRetryableGuardAbort, isTimeoutGuardReason, buildRetryFailBody, buildG
 import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription } from "./rate-limit-error";
 // #1247：api_error 终态窗口超限识别 + 告警文案（注入超窗黑盒修复——与 #543 同骨架）
 import { matchContextOverflowError, buildContextOverflowSystemMsg, buildContextOverflowDescription } from "./context-overflow-error";
-// #543 严重发现 1 修复：high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
+// #543：high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
 // 下一次 invoke 的 DynamicContext 补送达（复用 F20260826mwrd Part 4 管道，process 级单例直引，
 // 与 interceptHealingReport 同模式；usecase 内部互引无跨层问题）
 import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
@@ -90,7 +90,7 @@ export class AgentTurnOrchestrator {
         };
         // #1116：无 _toolCallCount ⟺ 抛错发生在首个工具调用之前（_acquirePooled 阶段：
         // 嵌套撞 streaming / config 缺失 / lock 超时；以及 attachGuards 后、内层 try
-        // 前的准备段——检视 S1：该窗口已过 attachGuards 但同样零调用）⟺ 本 invoke
+        // 前的准备段——该窗口已过 attachGuards 但同样零调用）⟺ 本 invoke
         // 零次工具调用 → ?? 0 即真实值。原 Map 重查兜底（getToolCallCount）
         // 已退役：它对经 factory catch 的错误恒不触发（#763 后 _toolCallCount 恒为
         // number，死链），对首工具前抛错则重查裸 otterId 键——读到同 otter 其他
@@ -262,7 +262,7 @@ export class AgentTurnOrchestrator {
         // 识别失败/写入失败不阻断 failTerminal（主路径），告警尽力而为。
         return this.handleApiError(reason, ctx);
       case 'delegation_rejected':
-        // F20261027cnsv 审视修复（Feb 发现 2）：背压拒绝——处置与 api_error 同路
+        // F20261027cnsv：背压拒绝——处置与 api_error 同路
         // （failTerminal + invoke_end 人话文案；文案不含限流/超窗关键词，模式识别
         // 自然不命中，无需额外分支），分类差异仅体现在 metrics outcome 标签。
         return this.handleApiError(reason, ctx);
@@ -337,7 +337,7 @@ export class AgentTurnOrchestrator {
     // F20260916fst4：首哑判定（exhausted 分支内、healing 落账后）。
     // Why 在 failTerminal 之前判定：failTerminal 会把 failed invoke 入库，count 查询须在其后——
     // 此处 await failTerminal 再查计数语义相同（同 invoke 幂等），先判定可避免 failTerminal
-    // 内部异常导致信号丢失；delta 复核建议 2：先构造 _firstDumb，再 {...result, _firstDumb} 合并返回。
+    // 内部异常导致信号丢失——先构造 _firstDumb，再 {...result, _firstDumb} 合并返回。
     const result = await this.failTerminal(ctx.input, reason.errorMessage, ctx.callbacks, ctx.startTime);
     if (match?.exhausted) {
       const firstDumb = await this.detectFirstDumb(ctx, match, reason).catch((err: unknown) => {
@@ -379,7 +379,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** #543：rate_limit healing 落账（severity 按配额耗尽/瞬时分级）。
-   *  严重发现 1 修复：high 级（配额耗尽）落账成功后同步入 C3 高警队列——
+   *  high 级（配额耗尽）落账成功后同步入 C3 高警队列——
    *  sendSystem 只达当前在场者，大獭不在场即错过；C3 队列保证下次 invoke 补送达。 */
   private async recordRateLimitHealingEvent(
     ctx: RouteContext,
@@ -443,7 +443,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** #1247：context_overflow healing 落账（注入超窗是体积问题，重试无意义 → severity:high）。
-   *  同 #543 严重发现 1 修复：high 级落账成功后入 C3 高警队列，大獭不在场时补送达 */
+   *  同 #543：high 级落账成功后入 C3 高警队列，大獭不在场时补送达 */
   private async recordContextOverflowHealingEvent(
     ctx: RouteContext,
     match: NonNullable<ReturnType<typeof matchContextOverflowError>>,
@@ -837,7 +837,7 @@ export class AgentTurnOrchestrator {
     if (!currentRule || currentRule === "unknown") return null; // 本轮规则不可归类 → 无法判同，保守走 abort
     const sameRuleId = events.every(e => e.ruleId === currentRule);
     if (!sameRuleId) return null;
-    // 审视处置（PR #1360 §3.2）：events 是 DESC 序（最新在前，sqlite-healing-event-repository
+    // PR #1360 §3.2：events 是 DESC 序（最新在前，sqlite-healing-event-repository
     // ORDER BY created_at DESC）——commandHead 取 events[0]（最新一次被拦命令），非 events 末尾（最旧）。
     const latest = events[0];
     return {
@@ -1073,9 +1073,9 @@ export class AgentTurnOrchestrator {
    *  即 L1 自动重试确已发生仍失败、走到 L2 硬中断。排除项：
    *  - bash_safety：走 #731 bounce 升级，不在此列；
    *  - degenerate：isRetryableGuardAbort=false，不在超时枚举内；
-   *  - circuit_break:ignored_steer 等非超时 trigger（tool-call-circuit-breaker.ts:259）：非超时不进新枚举（检视发现 2）；
+   *  - circuit_break:ignored_steer 等非超时 trigger（tool-call-circuit-breaker.ts:259）：非超时不进新枚举；
    *  - manualRetry（invoke-controller.ts:166 retryCount:1+manualRetry:true）：该 invoke 内从未发生 L1 自动重试，
-   *    升级文案「自动重试后仍未恢复」将是不实陈述（检视发现 1）。 */
+   *    升级文案「自动重试后仍未恢复」将是不实陈述。 */
   private isTimeoutRetryExhaustedTerminal(ctx: TerminalContext): boolean {
     return ctx.kind === 'guard'
       && !!ctx.guardReason
@@ -1097,7 +1097,7 @@ export class AgentTurnOrchestrator {
       suggestion: "可手动重试该消息；若持续出现请检查模型服务连通性",
       context: { layer: "orchestrator", guardReason, retryCount: ctx.input.retryCount, toolCallCount: ctx.toolCallCount },
     }).catch((err) => {
-      // L3 机制自身失败留痕（对照 recordGuardBounceTerminal 静默先例，采纳检视发现 8：升级机制失败不该无痕）
+      // L3 机制自身失败留痕（对照 recordGuardBounceTerminal 静默先例：升级机制失败不该无痕）
       this.logger.error('timeout_retry_exhausted healing_event write FAILED — L3 escalation data source degraded',
         err instanceof Error ? err : new Error(String(err)),
         { component: 'AgentTurnOrchestrator', otterId: ctx.input.otterId, invokeId: ctx.input.invokeId, guardReason },

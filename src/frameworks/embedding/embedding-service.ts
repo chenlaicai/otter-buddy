@@ -126,7 +126,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    */
   private workerBornAt = Date.now();
   private workerEmbedSucceeded = 0; // 本代 worker 成功 embed 次数（单条+batch 按请求计）
-  private workerEmbedTimeouts = 0; // 本代 worker embed 超时次数（检视 #1493 delta 观察 1：原名 attempted 只计超时，名实不符）
+  private workerEmbedTimeouts = 0; // 本代 worker embed 超时次数（#1493：原名 attempted 只计超时，名实不符）
   /** F20261020slvg：本代 worker 晚到结果被 salvage 的次数（原先是静默丢弃，不可观测） */
   private workerSalvagedResults = 0;
   /** 最近一次触发超时的请求画像（定位「是否特定文本模式触发嵌套算子」） */
@@ -264,7 +264,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.cachedMeta = null;
     this.readyState.ready = false;
     this.readyState.loadError = null; // 重建是恢复动作，清掉旧 loadError 让 waitForReady 重新挂起
-    // F20261020slvg 对抗审视洞 2：瞬态错误专用类型——retry worker 不计 attempts，防成批 dead-letter
+    // F20261020slvg：瞬态错误专用类型——retry worker 不计 attempts，防成批 dead-letter
     this.rejectAllPending(new EmbedTransientError(`Embedding worker restarting (${reason})`));
     // 放行槽位 waiter——挂起的 sync 循环恢复后由新 worker 的 embed 正常处理
     this.drainSlotWaiters();
@@ -278,7 +278,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.readyState.ready = false;
     this.logger.error(`Embedding worker circuit breaker open after ${restartsInWindow} restarts, falling back to FTS5-only permanently until process restart`);
     this.rejectAllPending(err);
-    // F20261020slvg 对抗审视洞 1：熔断后无任何唤醒来源（看门狗被 circuitBroken 守卫挡掉）——
+    // F20261020slvg：熔断后无任何唤醒来源（看门狗被 circuitBroken 守卫挡掉）——
     // 必须在此放行全部 waiter，否则 parked 调用方永久悬挂并沿 tickNow 堵死 PatrolWorker
     this.drainSlotWaiters();
   }
@@ -399,7 +399,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * F20261020slvg：晚到结果 salvage——包裹成独立 microtask 并吞错，
    * 防 salvage 回调同步 throw 沿 EventEmitter 冒泡成 uncaughtException
    * 打死主进程（本代码库已因原生层异常死过一次，JS 层不能再引入同类）。
-   * 对抗审视洞 5：命中时打点——salvage 此前是不可观测的静默路径，上线验证需要抓手。
+   * 可观测性：命中时打点——salvage 此前是不可观测的静默路径，上线验证需要抓手。
    */
   private salvageLateResult<T>(requestId: number, salvage: ((value: T) => void) | undefined, value: T): void {
     if (!salvage) return; // 无回调（如 query lane 晚到结果无意义）才真正丢弃
@@ -444,7 +444,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.readyState.waiters.forEach(w => w.reject(this.readyState.loadError!));
     this.readyState.waiters.length = 0;
     this.rejectAllPending(this.readyState.loadError!);
-    // F20261020slvg 对抗审视洞 1：worker 死亡路径必须放行 slot waiter——
+    // F20261020slvg：worker 死亡路径必须放行 slot waiter——
     // 否则 parked 的 waitSlot 调用方永久悬挂（且看门狗被 !ready 守卫挡掉，无自愈）
     this.drainSlotWaiters();
   }
@@ -461,7 +461,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.readyState.waiters.forEach(w => w.reject(err));
     this.readyState.waiters.length = 0;
     this.rejectAllPending(err);
-    // F20261020slvg 对抗审视洞 1：同 handleWorkerError——放行全部 waiter
+    // F20261020slvg：同 handleWorkerError——放行全部 waiter
     this.drainSlotWaiters();
   }
 
@@ -481,10 +481,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     });
   }
 
-  // eslint-disable-next-line max-lines-per-function -- F20261026emct delta 加单条守卫后 61 行（限 60），剩余为 F20261020slvg 的 waitSlot 内联循环（拆分需同步处理 TOCTOU 注释链，另开 PR）
+  // eslint-disable-next-line max-lines-per-function -- F20261026emct 加单条守卫后 61 行（限 60），剩余为 F20261020slvg 的 waitSlot 内联循环（拆分需同步处理 TOCTOU 注释链，另开 PR）
   async embed(text: string, opts?: EmbedCallOptions): Promise<Float32Array> {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
-    // F20261026emct delta 处置（建议 5/焦点 1）：单条入口同受闸门收口——超预算文本直接
+    // F20261026emct：单条入口同受闸门收口——超预算文本直接
     // reject 而非透传（调用方截断链是兜底不是闸门，「靠调用方纪律」正是前 6 轮的失败
     // 模式）。单条不可拆（拆文本破坏语义），无豁免路径——真巨文本应先截断（store-memory
     // EMBED_MAX_CHARS=6000 已做）。主不变量由此完整：embedBatch 入口拆批、embed 入口拒收。
@@ -506,7 +506,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
           this.slotWaiters.push(resolve);
         });
         if (this.disposed) throw new Error("EmbeddingService has been disposed");
-        // F20261020slvg 对抗审视洞 1：worker 崩溃/熔断被唤醒后 fail-fast——
+        // F20261020slvg：worker 崩溃/熔断被唤醒后 fail-fast——
         // 不把请求 send 给死 worker（重建路径 loadError 为 null，走新 worker）
         if (this.readyState.loadError) throw this.readyState.loadError;
       }
@@ -527,7 +527,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const embedPromise = new Promise<Float32Array>((resolve, reject) => {
       this.pendingRequests.set(id, { resolve, reject, salvage: opts?.salvage });
       const request: EmbedRequest = { type: "embed", text, id };
-      // F20261020slvg 对抗审视洞 5：channel 已关时 send 可能同步 throw 而非返回 false——
+      // F20261020slvg：channel 已关时 send 可能同步 throw 而非返回 false——
       // 不捕获会把条目泄漏在 map 里（in-flight 永久 =1，lane 堵死且看门狗不介入）
       try {
         if (!this.worker.send(request)) {
@@ -584,10 +584,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const results: Float32Array[] = [];
     let offset = 0;
     for (const batch of batches) {
-      // F20261026emct delta 处置（严重发现 1）：子批 opts 按偏移量包装 salvage——
+      // F20261026emct：子批 opts 按偏移量包装 salvage——
       // 晚到结果携带 (embeddings, startIndex)，调用方按下标写入正确 entry。
       // 首版原样透传 opts，offset>0 的子批晚到时会把别批向量存到 items[0..] 错误
-      // entry（静默 vec 污染，检视獭独立发现）。包装器见 embed-batch-sharding.ts。
+      // entry（静默 vec 污染）。包装器见 embed-batch-sharding.ts。
       const part = await this.embedBatch(batch, wrapOptsForShard(opts, offset));
       results.push(...part);
       offset += batch.length;
@@ -643,7 +643,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const batchPromise = new Promise<Float32Array[]>((resolve, reject) => {
       this.pendingBatchRequests.set(id, { resolve, reject, salvage: opts?.salvage });
       const request: EmbedBatchRequest = { type: "embed-batch", texts, id };
-      // F20261020slvg 对抗审视洞 5：同 embed() 的 send 同步 throw 防护
+      // F20261020slvg：同 embed() 的 send 同步 throw 防护
       try {
         if (!this.worker.send(request)) {
           this.pendingBatchRequests.delete(id);

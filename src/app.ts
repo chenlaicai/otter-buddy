@@ -101,7 +101,7 @@ export interface BuildAppOptions {
   syncAuth?: boolean;
   /** 启动调度器，默认 true */
   startScheduler?: boolean;
-  /** F20260825sgnw 审视发现 1：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
+  /** F20260825sgnw：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startRhiWorker?: boolean;
   /** F20260916b1ea：重启自动恢复服务启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startResume?: boolean;
@@ -217,7 +217,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   if (config.llm.cacheLongRetention !== false && !process.env.PI_CACHE_RETENTION) {
     process.env.PI_CACHE_RETENTION = 'long';
   }
-  // 检视建议（PR #573 R1）：记录 1h TTL 实际生效状态，后续排查缓存命中率时有直接证据
+  // 记录 1h TTL 实际生效状态（PR #573），后续排查缓存命中率时有直接证据
   logger.info('Prompt cache long retention', {
     piCacheRetention: process.env.PI_CACHE_RETENTION ?? '(sdk-default 5m)',
   });
@@ -273,7 +273,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     }
   };
   // F20260825sgnw（#401）：RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
-  // 审视发现 1：对齐 startScheduler 开关模式，测试/CI 可关（否则 buildApp 每次起 setInterval + git 采集副作用）
+  // 对齐 startScheduler 开关模式，测试/CI 可关（否则 buildApp 每次起 setInterval + git 采集副作用）
   const rhiScanWorker = createRhiScanWorker({
     db, repos, embeddingService: writeEmbedding, logger,
     rootDir: options.rootDir ?? process.cwd(),
@@ -305,7 +305,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // initAgentAndScheduler（schedulerService 初始化）之后——PatrolWorker.start 立即同步跑首轮
   // tick，'scheduler-reconcile' duty 在 schedulerService TDZ 期内执行会抛
   // "Cannot access 'schedulerService' before initialization"（9/30 启动日志实证）。
-  // F20261026emct delta（建议 3）：retry worker 缺失告警限频擂脏（每 patrol 周期 1h 最多一条）
+  // F20261026emct：retry worker 缺失告警限频擂脏（每 patrol 周期 1h 最多一条）
   let lastRetryWorkerNullWarnAt = 0;
   const patrolWorker = new PatrolWorker([
     { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
@@ -320,7 +320,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     { name: 'embedding-retry', run: async () => {
       // F20261026emct：动态查 ref——worker 由 postListenInit 创建（listen 后），
       // 可能晚于 PatrolWorker 构造；未就绪时空转，就绪后自动接管。
-      // 告警（delta 复审建议 3）：ref 持续为 null = retry 能力静默缺失，只有一条
+      // 告警：ref 持续为 null = retry 能力静默缺失，只有一条
       // postListenInit 的 error 日志后无任何周期信号——每轮 duty 限频 warn 一次，
       // 让「worker 起不来」可从日志周期性发现（非新增拦截层，可观测性补全）。
       const w = retryWorkerRef.current;
@@ -354,8 +354,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     dataDir,
   });
   const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService: queryEmbedding, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
-  // F20260813mren 审视二轮：sync_docs 工具注入——海獭写完文档可立即触发同步入库
-  // 审视三轮 A-10：rootDir 透传——worktree 流程下文槛在 worktree，海獭可传 worktree 绝对路径
+  // F20260813mren：sync_docs 工具注入——海獭写完文档可立即触发同步入库
+  // rootDir 透传——worktree 流程下文槛在 worktree，海獭可传 worktree 绝对路径
   // F20260920uhuc：agentInvoker 延迟绑定容器——buildOtterToolClient 先于 agentInvoker 构造
   // （同 setOtterToolClient 时序先例），闭包经 ref 读最新值
   const agentInvokerRef: { current?: Pick<AgentInvoker, "restartWithUnifiedHandoff"> } = {};
@@ -604,7 +604,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // 「用户先发一条消息」才恢复出站（无消息期也从 Web 侧发起对话的场景）
       const account = weixinAccountStore.getAccount(accountId);
       if (account?.ilinkUserId) {
-        // 失败仅降级为「等用户首发消息重建锚」——记 warn 供诊断（检视建议①：静默吞错零日志）
+        // 失败仅降级为「等用户首发消息重建锚」——记 warn 供诊断（不静默吞错）
         await uc.manageConnection.noteChatId(connection.id, account.ilinkUserId).catch((err) => {
           logger.warn("Weixin provision: noteChatId failed（出站锚待用户首发消息重建）", { accountId, error: err instanceof Error ? err.message : String(err) });
         });
@@ -614,7 +614,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // 已有 active 绑定 = 已建过线（幂等：不重复建，返回当前）
       const existing = await uc.manageConnection.getCurrentConversation(connection.id);
       if (existing) {
-        // F20260922wxeg delta N1：幂等分支补写归属 metadata（存量 connection 断键续接）
+        // F20260922wxeg：幂等分支补写归属 metadata（存量 connection 断键续接）
         if (typeof connection.metadata?.assistantConversationId !== "string") {
           await repos.connection.mergeMetadata(connection.id, { assistantConversationId: existing.id }).catch((err) => {
             logger.warn("Weixin provision: assistantConversationId backfill failed（删号归档将走绑定兑底）", { accountId, error: err instanceof Error ? err.message : String(err) });
@@ -630,7 +630,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       });
       if (!conv) throw new Error("助理线创建失败");
       // F20260922wxeg：记录「这条线建出来的对话」归属——删号时按此归档
-      // 失败后果 = 删号时该对话残留（可手动归档），记 warn 供诊断（检视建议①）
+      // 失败后果 = 删号时该对话残留（可手动归档），记 warn 供诊断
       await repos.connection.mergeMetadata(connection.id, { assistantConversationId: conv.id }).catch((err) => {
         logger.warn("Weixin provision: assistantConversationId metadata write failed（删号时对话将残留）", { accountId, conversationId: conv.id, error: err instanceof Error ? err.message : String(err) });
       });
@@ -718,7 +718,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       if (delayedReconcileTimer) clearTimeout(delayedReconcileTimer);
       // #460：停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
       feishuScan.disposeAll(); // F20260929fsqr：扫码线持有全部飞书 WS 句柄，dispose 时统一停（原 feishuStop 随静态线退役）
-      // F20260829wxch（#213 检视发现2）：停微信长轮询通道——否则 SIGINT/SIGTERM 时
+      // F20260829wxch（#213）：停微信长轮询通道——否则 SIGINT/SIGTERM 时
       // fetch 挂到超时、notifyStop 不调用、服务端不知客户端已断
       weixinPollers?.forEach((p) => p.stop());
       // issue #566：web 登录热启动的轮询同样要停（dispose 单独数组）

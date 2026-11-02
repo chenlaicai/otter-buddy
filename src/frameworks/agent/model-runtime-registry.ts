@@ -307,7 +307,7 @@ export interface OtterInvokeContext {
   haltAbortRequested?: boolean;
   /** 装配完成后由 attachGuards 注入；处理器内只发同步 abort，不等待其 Promise。 */
   requestHaltAbort?: () => void;
-  /** F20260903cmpk：otter 显示名（otters.name）——压缩钩子合成 prompt 的 meta 行用（#770 检视发现 2） */
+  /** F20260903cmpk：otter 显示名（otters.name）——压缩钩子合成 prompt 的 meta 行用（#770） */
   displayName?: string;
   /** F20261020hlbk（#1556）：per-turn 循环硬熔断标记（签名→阻断理由）。检测器报警时写入，
    *  tool_call 门读到即物理阻断该工具后续调用（speak/yield 豁免）。粘滞不被穿插调用清零，
@@ -323,7 +323,7 @@ export interface OtterInvokeContext {
    *  bashGuard.allowedEgressDomains。搭档专改（主仓文件走 PR，獭无权扩表防注入自放行）；
    *  缺省时用守卫内置缺省表（见 bash-safety-guard）。 */
   guardAllowedEgressDomains?: string[];
-  /** F20261026gobs delta-r1：拦截落 healing 钩子——门拦截时上报（写 guard_intercept
+  /** F20261026gobs：拦截落 healing 钩子——门拦截时上报（写 guard_intercept
    *  healing 事件），守卫行为以真实使用为准（回放库语料来源）。缺省时拦截照常。 */
   guardOnIntercept?: (input: { command: string; reason: string; ruleId?: string; ruleLayer?: string }) => void;
   /** F20261027lbos（#1656）：循环硬熔断门拦截落 healing 钩子——门拦截时上报
@@ -358,7 +358,7 @@ export function haltToolCallGuard(
 ): { block: true; reason: string } | undefined | Promise<{ block: true; reason: string }> {
   const otterId = store?.otterId;
   if (!otterId) return undefined;
-  // speak 豁免（检视发现 1 处置）：被 halt 的獭需要 speak 报告进度快照（注入文本义务 2）。
+  // speak 豁免：被 halt 的獭需要 speak 报告进度快照（注入文本义务 2）。
   // 豁免期间不消费 pending（takeForBlock 不触发）——注入到下一个非 speak 调用边界才发生，
   // 落账闭环不受影响（首次 block 时 resolve）。speak 无副作用，halt 的目的是停副作用。
   if (toolName === 'speak') return undefined;
@@ -398,7 +398,7 @@ export function loopBlockGuard(
   const reason = map.get(sig);
   if (reason === undefined) return undefined;
   // F20261027lbos（#1656）：拦截落账（同签名去重，只记首次）——loop_tool_block 事件
-  // 是 b2 残余误伤面（#1653 delta 审视 D1-1）的唯一观测源，缺失则体检失明。
+  // 是 b2 残余误伤面（#1653）的唯一观测源，缺失则体检失明。
   // 懒初始化去重集（与 loopBlockedTools 同生命周期）；fail-open：钩子缺失/抛错不阻断拦截。
   if (!store.loopBlockLoggedSignatures) store.loopBlockLoggedSignatures = new Set();
   if (!store.loopBlockLoggedSignatures.has(sig)) {

@@ -21,7 +21,7 @@ export interface MemoryEntryInput {
 }
 
 /** #509: 污染判定的 trim 阈值（<10 字符的 chunk 无检索价值，写入即污染）
- *  双阈值设计（PR #519 审视发现 1 的回应）：
+ *  双阈值设计（PR #519 回应）：
  *  - execute/replaceBySource 只拦「空」（trim 后 0 字符）——初版曾用 <10 阈值，
  *    误伤了存量测试里的 9 字符合法短消息（"用户询问了天气情况"），故收窄；
  *    消息/fact 类内容的短文本（如「继续」）是合法记忆，不可误伤。
@@ -240,7 +240,7 @@ export class StoreMemory {
    * 优先走 embedBatch（一次 postMessage），失败时回落逐条 fireAndForgetEmbed。
    * 每条失败独立入 retry 队列——batch 内部分失败不拖累健康 chunk。
    *
-   * 流速控制（对抗审视 #1465 严重发现 1）：sync 启动期 600+ 文档串行 await
+   * 流速控制（#1465）：sync 启动期 600+ 文档串行 await
    * replaceChunksBySource，但 embed 是 fire-and-forget——前一批未完成后一批已发起，
    * 前 50 篇即可耗尽背压 slot，第 51 篇起全部 reject 走 retry 慢路径。
    * F20261020slvg：waitSlot 直接内嵌 embedBatch（槽满挂起，唤醒→准入在同一同步段），
@@ -257,7 +257,7 @@ export class StoreMemory {
       // 消灭唤醒后到准入之间的 TOCTOU 竞态）；salvage 同 fireAndForgetEmbed 双轨语义
       embedBatch(texts, {
         waitSlot: true,
-        // F20261026emct delta 处置（严重 1）：startIndex 分片场景下指向整批第 startIndex 条起；
+        // F20261026emct：startIndex 分片场景下指向整批第 startIndex 条起；
         // 非分批路径 service 不传（undefined = 0）。按 startIndex 对位写入，杜绝跨子批错位污染
         salvage: (embeddings, startIndex) => {
           void (async () => {
@@ -330,7 +330,7 @@ export class StoreMemory {
       : { ...input, content, metadata };
   }
 
-  /** PR审视 S3-14: 按 source + contentType 删除 chunk entries（body 清空时清理旧 chunk） */
+  /** 按 source + contentType 删除 chunk entries（body 清空时清理旧 chunk） */
   async deleteChunksBySource(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void> {
     await this.writer.deleteBySourceAndType(sourceTable, sourceId, contentType);
   }

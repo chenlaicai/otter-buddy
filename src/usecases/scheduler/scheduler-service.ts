@@ -154,7 +154,7 @@ export interface SchedulerServiceOptions {
    *  注入后 invokeAgentWithTimeout 走 DispatchChainEngine.executeChain 续跑发言链。 */
   dispatchChainEngine?: DispatchChainEngine;
   /** 时钟注入（F20260814qswp）：替代对 @frameworks/metrics nowMs 的直接依赖，测试可替换。
-   *  默认保持原 nowMs 的单调钟语义（duration 计时不受 NTP 步进影响，对抗审视二轮修复——
+   *  默认保持原 nowMs 的单调钟语义（duration 计时不受 NTP 步进影响——
    *  首版误用 Date.now 墙钟）；与调度延迟计算的 Date.now 是两条时间线，注入方须保持一致语义 */
   now?: () => number;
   /** PR4: 函数注册表，用于 function executor */
@@ -375,7 +375,7 @@ export class SchedulerService {
     // #460：轮询 timer unref，不阻止进程自然退出（僵尸进程根因之二）。
     // unref 只影响"进程能否自然退出"，不影响 tick 触发——主进程生命周期由 HTTP 监听持有。
     this.pollTimer?.unref?.();
-    // 立即执行一次 tick，捕获进程重启后的迟到任务（审视建议2: catch 防 unhandled rejection）
+    // 立即执行一次 tick，捕获进程重启后的迟到任务（catch 防 unhandled rejection）
     void this.tick().catch(error => {
       this.logger.error('Initial polling tick failed', error as Error);
     });
@@ -843,7 +843,7 @@ export class SchedulerService {
       // Why: 已过期的一次性任务直接删除，不保留历史
       // 使用 .catch() 避免 unhandled rejection（由 onChange 回调链调用）
       this.metrics?.recordExpired();
-      this.nextExpectedTrigger.delete(task.id); // 审视建议2: 清理缓存条目，防长期泄漏
+      this.nextExpectedTrigger.delete(task.id); // 清理缓存条目，防长期泄漏
       this.taskRepo.delete(task.id)
         .then(() => {
           this.logger.info(`Once task ${task.id} expired, deleted`);
@@ -858,12 +858,12 @@ export class SchedulerService {
       try {
         await this.triggerTask(task);
         // Why: 一次性任务触发成功后直接删除，不保留历史
-        this.nextExpectedTrigger.delete(task.id); // 审视建议2: 清理缓存条目，防长期泄漏
+        this.nextExpectedTrigger.delete(task.id); // 清理缓存条目，防长期泄漏
         await this.taskRepo.delete(task.id);
       } catch (error) {
         this.logger.error(`Failed to trigger once task ${task.id}, starting retry`, error as Error);
         // 触发失败，走 once 专用重试
-        // #1394 审视修复：本处位于 catch 块内 await——若重试链内部抛错（如 #1391
+        // #1394：本处位于 catch 块内 await——若重试链内部抛错（如 #1391
         // fail-closed「scheduled task 不存在」、getById DB 错误），会从本 async
         // setTimeout 回调逃逸成 unhandledRejection → main.ts 全局处理器 process.exit(1)
         // 杀掉整个进程。重试链自身故障仅落日志告警，不杀进程。
@@ -925,7 +925,7 @@ export class SchedulerService {
    *  「有静默」的全部信息，更早窗口在日报对账时由 cron 表人工/LLM 核对）。 */
   private async reconcileMissedWindows(tasks: ScheduledTask[]): Promise<void> {
     const now = new Date();
-    // #853 检视严重 1：去重——同一错过窗口重复重启不得重复落账。一次性取 open 的 other
+    // #853：去重——同一错过窗口重复重启不得重复落账。一次性取 open 的 other
     // 事件，按 (taskId, missedWindowAt) 建集合；落账前查重。错过窗口的 lastTriggeredAt
     // 不会因对账而更新（对账不触发任务），不去重则每次重启都重落同一窗口事件。
     let existingKeys: Set<string>;
@@ -1049,7 +1049,7 @@ export class SchedulerService {
         const conversationDisabled = this.conversationDisabledInClaim;
         this.conversationDisabledInClaim = false;
         if (!conversationDisabled) {
-          // #1208 建议 8：claim 被拒（如 running execution 前置拦截）时 last_triggered_at
+          // #1208：claim 被拒（如 running execution 前置拦截）时 last_triggered_at
           //   未刷新——显式幂等补刷，让 reconcile 知道本轮已跑过（与外层 catch 同型兜底）。
           await this.taskRepo.claimTask(task.id, now, now).catch(() => { /* 幂等兜底 */ });
           status = 'skipped';
@@ -1304,7 +1304,7 @@ export class SchedulerService {
    *  判定为与设计意图相悖（high 不被时间静默/bind≠resolve/#1361 层3 硬规则），收窄为：
    *  findAgedUnboundHigh 只读识别 → 推 alert-registry 引导 bind_issue 归口 → 事件保持
    *  open。resolver 解析前置保留（提醒通道仍是前置条件）；enqueueBatchAggregated 保留
-   *  （审视建议 A/B 的语义仍成立，只是「先 dismiss 后提醒」改为「只提醒不 dismiss」）。 */
+   *  （A/B 判据语义仍成立，只是「先 dismiss 后提醒」改为「只提醒不 dismiss」）。 */
   private async notifyAgedHighEvents(): Promise<void> {
     if (!this.healingRepo) return;
     // 先解析提醒目的地：不可达（healing 主对话未就绪等）则本轮跳过（只读识别无副作用，
@@ -1341,7 +1341,7 @@ export class SchedulerService {
     if (task.body.includes('[regression-verify]')) {
       const body = await buildRegressionVerifyBody();
       if (body === REGRESSION_GH_FAILED) {
-        // gh 故障——记 warn（区别于「无到期断言」的正常跳过），本轮跳过但不静默（检视发现 2）
+        // gh 故障——记 warn（区别于「无到期断言」的正常跳过），本轮跳过但不静默
         this.logger.warn('Regression verify skipped: gh CLI failure (auth/network)——回归验证管道失效，需人工检查 gh 状态');
         this.lastRegressionSkipReason = 'gh-cli-failure'; // #1208：供 skip 落账 + 心跳分类
         return null;
@@ -1534,7 +1534,7 @@ export class SchedulerService {
       // F20261014czgd：直连兜底补游标推进——此前不传 batchMaxSeq → pushCursorOnStartup 永不触发，
       // 定时任务消息反复当未读重注入。点火前算一次本批未读最大 seq（含锚点消息自身）。
       // 降级：entryRepo 无 getUnreadEntries（旧装配/测试 mock 最小面）时不推进，行为与修复前持平。
-      // 语义变化声明（检视建议 2 处置）：invoke 启动成功（首事件到达）即推游标——若 invoke 中途失败，
+      // 语义变化声明：invoke 启动成功（首事件到达）即推游标——若 invoke 中途失败，
       // 已消费的消息不再重注入（原口径：失败保持未读重注入）。取舍理由：启动成功=消息已进 LLM 上下文，
       // 中途失败重注入会重复消费；失败场景由 invoke 级重试/告警承接，不靠游标回退。
       const unread = this.entryRepo.getUnreadEntries
@@ -1831,7 +1831,7 @@ export class SchedulerService {
   }
 
   /** #517: 分页拉取锚点后全部 entries（F20260913ctlv 批2：messages → entries）。
-   *  对抗审视发现 2（审砚）：单页 100 条上限会漏检深层失败（entry 量 >100 且 failed
+   *  单页 100 条上限会漏检深层失败（entry 量 >100 且 failed
    *  在 100 条之后时误记 completed）。getEntriesAfter 按 sequence_num 升序返回，
    *  以最后一条 entry id 为游标推进直到取空。 */
   private async fetchEntriesAfterPaged(anchorMessageId: string): Promise<Entry[]> {
@@ -1851,7 +1851,7 @@ export class SchedulerService {
   }
 
   /** messageId 为 null：function executor 无消息（PR4）；LLM executor 传 anchor 消息 id。
-   * F20260901ppfk 检视处置：防御空串——未来新增 executor 类型若传 ''，归 null 不炸 FK */
+   * F20260901ppfk：防御空串——未来新增 executor 类型若传 ''，归 null 不炸 FK */
   private async completeExecution(executionId: string, conversationId: string, messageId: string | null): Promise<void> {
     await this.taskRepo.updateExecutionStatus(executionId, {
       status: 'completed',
@@ -1975,9 +1975,9 @@ export class SchedulerService {
     }
   }
 
-  /** #754：单次执行失败落 healing 台账（medium）。#847 检视建议 1 扩展：once 重试路径
+  /** #754：单次执行失败落 healing 台账（medium）。#847 扩展：once 重试路径
    *  （skipConsecutiveFailureTracking 分支）同样调用——重试中间失败也值得台账可见。
-   *  errorMessage 截断 2000 字符防御（#847 检视建议 2：context JSON 无大小限制）。 */
+   *  errorMessage 截断 2000 字符防御（#847：context JSON 无大小限制）。 */
   /** #913：claim 成功后、execution 建立前的前置炸点落 healing（与 recordSingleFailureHealing
    *  同语义但不依赖 executionId——前置失败时 execution 行不存在）。best-effort：落账失败不阻断 rethrow。 */
   private async recordPreExecutionFailureHealing(task: ScheduledTask, error: unknown): Promise<void> {
@@ -2059,7 +2059,7 @@ export class SchedulerService {
           error: updateErr instanceof Error ? updateErr.message : String(updateErr),
         });
       }
-      // #847 检视建议 1：once 重试中间失败同样落 healing 台账（与单次失败同语义）
+      // #847：once 重试中间失败同样落 healing 台账（与单次失败同语义）
       await this.recordSingleFailureHealing(taskId, executionId, errorMessage, new Date().toISOString());
     } else {
       await this.handleExecutionFailure(executionId, taskId, error);
@@ -2229,7 +2229,7 @@ export function extractAssertionDueDate(body: string): string | null {
 /** #1004：构建 regression-verify 任务的动态 prompt。返回 null 表示无到期断言。
  *  扫描近 62 天 closed 的 daily-review issue（30 天到期 + 32 天余量），提取「验证断言」段到期日期，
  *  只留今天及以前到期的。
- *  失败路径区分（检视发现 2）：gh 执行失败 → 返回 'GH_FAILED' 哨兵（调用方记 warn 告警，
+ *  失败路径区分：gh 执行失败 → 返回 'GH_FAILED' 哨兵（调用方记 warn 告警，
  *  与「真无到期断言」的静默 skip 区分开）；JSON 解析失败同样哨兵。 */
 export const REGRESSION_GH_FAILED = 'GH_FAILED' as const;
 
@@ -2363,7 +2363,7 @@ function buildHealingDataSection(
   openEvents: Array<{ id: string; messageId: string; errorType: string; severity: string; description: string; suggestion: string | null }>,
   byClass: HealingClassCounts & { envList: string; fbList: string },
 ): string {
-  // header 序列化 top-N 截断（1731-r1 建议 4）：byType/bySeverity 是 JSON 全量序列化，
+  // header 序列化 top-N 截断（#1731）：byType/bySeverity 是 JSON 全量序列化，
   // 错误类型理论上无上限——300 类时 header 就 6K+，预算硬顶整体失效且 MAX_PROMPT_LENGTH
   // 截断会吃掉后续静态段（含下钻指引）。top-8 + +N 溢出标记，保 header 可预测地有界。
   const topEntries = (obj: Record<string, number>, max = 8): Record<string, number> => {
@@ -2412,7 +2412,7 @@ function buildHealingDataSection(
     const kept: string[] = [];
     let used = header.length;
     for (const line of lines) {
-      if (used + line.length + 1 > HEALING_DATA_SECTION_BUDGET - 64) break; // 预留 64 字符给尾注（dropped 3 位数时尾注 61 字符，1731-r1 建议 3）
+      if (used + line.length + 1 > HEALING_DATA_SECTION_BUDGET - 64) break; // 预留 64 字符给尾注（dropped 3 位数时尾注 61 字符）
       kept.push(line);
       used += line.length + 1;
     }
@@ -2453,7 +2453,7 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
   } else {
     // 回退：模板缺失或无占位符时用内置文案（与模板内容保持一致，守卫测试锁定同步）。
     //  Why 留痕：静默回退会让「模板丢了」无人知晓，git 化目标落空——warn 日志是最低成本的可观测性。
-    // #416 审视发现 2：cwd 非项目根时模板会读不到，这条日志是定位线索。
+    // #416：cwd 非项目根时模板会读不到，这条日志是定位线索。
     const path = resolve(getRepoRoot(), HEALING_ANALYSIS_TEMPLATE_PATH);
     // eslint-disable-next-line no-console -- logger 在类实例上，此处是模块级函数；console.warn 与脚本输出风格一致
     console.warn(`[healing-template] 模板缺失或无占位符（${path}），回退内置文案——若非预期请检查 cwd/部署路径`);

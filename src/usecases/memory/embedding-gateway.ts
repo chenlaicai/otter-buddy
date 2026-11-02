@@ -2,7 +2,7 @@
 export interface EmbedModelMeta {
   /** 模型标识，如 "Xenova/bge-m3" */
   modelId: string;
-  /** 模型 revision。当前实现恒为 "unknown"（worker 未上报真实 revision，F20260821evaf 审视记录）。
+  /** 模型 revision。当前实现恒为 "unknown"（worker 未上报真实 revision，F20260821evaf）。
    *  后果：本地 models/ 目录整目录替换时 modelId/dim 可能都不变，锚检测不到；将来实现真实 rev
    *  （本地 mtime 或 HF revision）时需一次性重写存量基线，否则必然 mismatch。 */
   modelRev: string;
@@ -36,7 +36,7 @@ export class EmbedBackpressureError extends Error {
 
 /**
  * F20261020slvg：瞬态错误——worker 重建/崩溃/熔断期间 rejectAllPending 用的类型。
- * 对抗审视洞 2（埋单链）：claim 即 attempts+1，超时循环会把 attempts 撑到 ≥3；
+ * 埋单链防护：claim 即 attempts+1，超时循环会把 attempts 撑到 ≥3；
  * 若 worker 重启的 reject 走普通 Error → markTaskAttemptFailed → 成批 dead-letter。
  * 瞬态错误与超时/背压同待遇：不计 attempts，任务保持 pending 重来。
  */
@@ -66,7 +66,7 @@ export interface EmbedCallOptions {
 }
 
 /** F20261020slvg：embedBatch 调用选项（语义同 EmbedCallOptions）。
- *  F20261026emct delta 复审：salvage 收「整批对齐」语义修正为携带 startIndex——
+ *  F20261026emct：salvage 收「整批对齐」语义修正为携带 startIndex——
  *  分片闸门把巨批拆成子批后，子批晚到结果只携带该子批向量，startIndex 告知
  *  这批向量对应整批的第几条起（非分批路径不传 = 0）。调用方必须按 startIndex
  *  对位写入（见 store-memory fireAndForgetEmbedBatch），否则分片场景错位污染。 */
