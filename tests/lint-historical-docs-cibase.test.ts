@@ -12,6 +12,9 @@
  *    对消 .doc-fix 的误报面不可接受；非 merge commit 逐个全量重放，取舍见特性文档）
  * 5. 分支新建文档修改放行（isAddedOnBranch 的 range 内自洽：log 上界 = 父 commit）
  * 6. --base 缺参数 → exit 2（调用错误，立即红）
+ * 7. #1164 amend 抹除重放：配对声明 commit 被 `git rm .doc-fix && git commit --amend`
+ *    整体抹除声明后，amend 产物（含历史文档变更、无声明）在逐 commit 重放下必拦——
+ *    #1162 案发路径的回归锁定（issue 关闭标准指定的验证断言）。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 // F20261021ttos：临时 git 仓库结构性重活（7/10 用例常态 >2s），文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
@@ -203,6 +206,30 @@ describe("lint-historical-docs --base CI 模式（F20261009hcig，#1281）", () 
     commitFiles(r2, [[NEW_DOC, "# v3\n"]], "edit again");
     const r = runLint(r2, ["--base", "origin/main"]);
     expect(r.status).toBe(0);
+    fs.rmSync(r2, { recursive: true, force: true });
+  });
+
+  it("#1164 amend 抹除重放（#1162 案发路径）：配对声明 commit 经 git rm .doc-fix + --amend 抹除声明 → CI 必拦", () => {
+    // amend 抹除的产物 commit：diff 含历史文档 M、无 .doc-fix——对逐 commit 重放而言与
+    // 「未配对声明的篡改 commit」同形，per-commit 配对语义天然拦截。本用例锁定该行为
+    //（issue #1164 关闭标准指定验证断言：构造 amend 抹除场景 CI 拦截测试）。
+    // 注意 reflog 可回溯（18182a68 → a8642089）不构成拦截——CI 只见终态 commit 列表。
+    const r2 = freshRepo("lint-hist-cibase-amend-");
+    commitFiles(
+      r2,
+      [
+        [OLD_DOC, OLD_DOC_CONTENT.replace("title: 旧特性", "title: 旧特性（订正）")],
+        [".doc-fix", "订正 frontmatter title（#1164 amend 抹除重放）\n"],
+      ],
+      "metadata fix with paired declaration"
+    );
+    // #1162 实际路径：git rm .doc-fix（连同临时文件）后 amend，声明被从 commit 中抹除
+    git(r2, ["rm", "-q", ".doc-fix"]);
+    git(r2, ["commit", "-q", "--amend", "--no-edit"]);
+    const r = runLint(r2, ["--base", "origin/main"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain(OLD_DOC);
+    expect(r.stderr).toMatch(/同一个 commit/); // 配对语义报错（声明未随历史文档变更同 commit）
     fs.rmSync(r2, { recursive: true, force: true });
   });
 });
