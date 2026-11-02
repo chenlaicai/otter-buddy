@@ -190,12 +190,13 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4 md:p-8"
-      style={{ background: 'rgba(60,50,40,0.25)', backdropFilter: 'blur(2px)' }}
+      className="fixed inset-0 z-[70] scrim flex items-center justify-center p-4 md:p-8"
       onClick={onClose}
     >
+      {/* 弹层级用 glass-overlay（L3，~96% 实色，不随 --glass-t 降透）——曾误用面板级 glass（L1，
+         白底随 glass-t 缩放后不透明度仅 ~49%），搭档反馈正文看不清（F20261102kfvqa） */}
       <div
-        className="glass rounded-3xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden shadow-glow"
+        className="glass-overlay rounded-3xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden shadow-glow"
         onClick={e => e.stopPropagation()}
       >
         {/* 头部：獭头像 + 名字 */}
