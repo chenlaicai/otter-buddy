@@ -136,6 +136,18 @@ function commitCtx(sha, parent, baseSha) {
  *  的父；--base 逐 commit 模式传 <commit>^，精确重放同一时点语义）。
  */
 function isAddedOnBranch(file, ref, oldPath, head = "HEAD") {
+  // #1300（moving-base）：「分支内新建」豁免前置一票否决——路径在 base ref 树上已存在 → 历史文档，
+  // 无论窗口 ref..head 内有什么 Add 记录（攻击者删了重加的自造 Add、moving-base 场景混入窗口的
+  // main 侧 squash Add）都不豁免，改走 .doc-fix 显式通道。
+  // 根因（#1290 实证）：原判据只查窗口内 --diff-filter=A 记录，从未回答「该文档是否已在 main 存在」
+  //——豁免语义是「本分支新建文档的迭代载体」，分支新建文档的 Add 必然只存在于分支侧 commit、
+  // 路径不在 base 树上；cat-file 存在性正是对「已在 main」的直接判定（issue probe：
+  // git cat-file -e origin/main:<path> 存在 → 直接判历史文档）。
+  // 边界声明：本地 origin/main 引用过期（如仅 fetch origin main 更新 FETCH_HEAD）时 cat-file miss、
+  // 窗口混入 main 侧 Add——本地视图信息论上无法区分「main 侧 squash」与「分支侧 commit」，
+  // pre-commit 不在此扩边界（伪造判据比声明缺口更糟）；兜底 = CI --base 模式（CI ref 新鲜）
+  // + worktree-isolation fetch 纪律，详见 F20261102mvbsk。
+  if (pathExistsOnRef(file, ref)) return false;
   const hasAdd = (p) => {
     try {
       const plain = git(["log", `${ref}..${head}`, "--diff-filter=A", "--format=%H", "--", p]);
@@ -205,6 +217,19 @@ function hasHistoricalAncestry(p, ref) {
     }
   } catch {
     return true; // 查询失败宁拦
+  }
+}
+
+/** #1300：路径在 ref 树上是否存在（git cat-file -e）。
+ *  exit 128 = 路径不在 ref（正常 miss，调用方继续既有判定）；其他异常码宁可判存在（宁拦勿放——
+ *  判存在走历史文档拦截，误拦由 .doc-fix 显式通道兜底，误放无通道可救）。
+ *  ref 有效性由调用方保证（baseRef() 已验证 / commitCtx 的 baseSha 已解析），catch 里 128 无 ref 侧歧义。 */
+function pathExistsOnRef(p, ref) {
+  try {
+    git(["cat-file", "-e", `${ref}:${p}`]);
+    return true;
+  } catch (e) {
+    return e.status === 128 ? false : true;
   }
 }
 
