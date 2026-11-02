@@ -81,7 +81,7 @@ modules:
 
 关键洞察：v2.3 的类消费 token（`backdrop-filter: var(--panel-blur)`），**token 层吸收全部改造**，组件类名不动：
 
-- **置 none（常驻层 5 token）**：`--chrome-blur` / `--panel-blur` / `--card-blur` / `--bubble-blur` / **`--form-input-blur`**（globals.css:107，消费于 .form-input globals.css:396、settings/memory 表单等 17 处常驻面——首轮方案漏网，检视獭-glmtr S3 补入）
+- **置 none（常驻层 5 token）**：`--chrome-blur` / `--panel-blur` / `--card-blur` / `--bubble-blur` / **`--form-input-blur`**（globals.css:107，消费于 .form-input globals.css:396、settings/memory/conversation-list/Modals 等 31 处常驻面——首轮方案漏网，检视獭-glmtr S3 补入）
 - **保留（瞬态/遮罩层 2 token）**：`--overlay-blur`（.glass-overlay 瞬态消费点真玻璃）、`--scrim-blur`（六轮终局语义不动）——契约测试锁「常驻 token=none + 常驻类无采样」而非全量 token=none，防误伤瞬态层
 - `--chrome-bg` / `--panel-bg` / `--card-bg`：从「α × --glass-t 的白渐变」语义不变，但去掉对 blur 的依赖——渐变本身保留（165deg 对角渐变是观感语言）
 - reduced-transparency 块已存在（全实色兜底），其值与新常态一致，仅微调注释
@@ -103,7 +103,7 @@ modules:
 - FloatingAssistant（AssistantPanel/FloatingOtter）与 Portal 菜单的 backdrop-blur utility 保留——它们是小面+瞬态，开在流式内容上的低幅闪动是学说明示接受的残差（R20261102glass §5 已知残差）
 - backdrop-blur utility 全集 6 处：白名单 2（AssistantPanel:181、FloatingOtter:50）+ 其余 4（WorkDetailDialog:77、ChainDetailDrawer:50、im:572,604）均属弹层/抽屉瞬态，逐处确认归类保留
 - 非测试代码内联 backdropFilter 全仓仅 1 处：SessionModal.tsx:194——按遮罩层处理（摘 blur，见层表）
-- CSS 类消费点扫清：.glass-overlay 9 处消费（窄屏常驻按钮 2 处摘除改实色，其余 7 处瞬态白名单）；.form-input 随 --form-input-blur=none 自动脱采样
+- CSS 类消费点扫清：.glass-overlay 9 处消费（窄屏常驻按钮 2 处摘除改实色，其余 6 处瞬态白名单 + Modal:122 弹窗面板——弹窗期六轮终局覆盖保留）；.form-input 随 --form-input-blur=none 自动脱采样
 
 ### 核心改动 4：契约测试（web/src/styles/material-v3.test.ts）
 
