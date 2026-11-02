@@ -183,11 +183,16 @@ export class CircuitBreakSupport {
    */
   async countRecentGuardBounces(otterId: string, windowMs: number): Promise<number> {
     const since = new Date(Date.now() - windowMs).toISOString();
-    const events = await this.deps.healingRepo.findRecentByOtter(otterId, 'guard_intercept', 50);
-    return events.filter(e => {
+    // F20261102grfix（A 口径拆分）：bounce 流程观测自 guard_bounce_flow 独立计数；
+    // 兼容双时代——历史 bounce 记在 guard_intercept+context.bounce:true（不重分类，
+    // 历史按当时口径留存），两源合并后按时间窗计数
+    const flowEvents = await this.deps.healingRepo.findRecentByOtter(otterId, 'guard_bounce_flow', 50);
+    const legacyEvents = await this.deps.healingRepo.findRecentByOtter(otterId, 'guard_intercept', 50);
+    const legacyBounces = legacyEvents.filter(e => {
       const ctx = e.context as { bounce?: boolean } | null;
-      return ctx?.bounce === true && e.createdAt >= since;
-    }).length;
+      return ctx?.bounce === true;
+    });
+    return [...flowEvents, ...legacyBounces].filter(e => e.createdAt >= since).length;
   }
 
   /**

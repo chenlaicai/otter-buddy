@@ -192,9 +192,8 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     expect(bounceMsg).toContain("不要重复原命令");
     // guard-v4 文案自带 restart-service 受控出口指引（正道出口）+ orchestrator 追加中性化指引——
     // v3 时代「不含 restart」断言已过时，删除
-    // bounce 计数落账：guard_intercept + bounce=true
-    const bounceEvent = healing.events.find(e =>
-      e.errorType === "guard_intercept" && (e.context as { bounce?: boolean })?.bounce === true);
+    // bounce 计数落账：guard_bounce_flow（F20261102grfix 口径拆分——流程观测独立类型）
+    const bounceEvent = healing.events.find(e => e.errorType === "guard_bounce_flow");
     expect(bounceEvent).toBeTruthy();
     // 回发后自纠成功：SDK invoke 3 轮（2 撞 + 1 成功闭环）；
     // 闭环验证 = invoke 终态 completed + yield 目标 user-1（F20260913ctlv：aggregatedTargets 已退役）
@@ -237,10 +236,12 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     // 升级 healing high：abortTerminal 终态分支落账
     const highEvents = healing.events.filter(e => e.severity === "high");
     expect(highEvents.length).toBeGreaterThanOrEqual(1);
-    // 无新 bounce 计数落账（超限路径不写）
+    // 无新 bounce 计数落账（超限路径不写）——context.bounce:true 区分计数落账与终态观测
+    // （recordGuardBounceTerminal 终态观测同归 guard_bounce_flow 但不带 bounce 标）；
+    // seed 历史形态（guard_intercept+bounce:true）与新口径双时代合并计数验证见 countRecentGuardBounces
     const bounceEvents = healing.events.filter(e =>
-      e.errorType === "guard_intercept" && (e.context as { bounce?: boolean })?.bounce === true);
-    expect(bounceEvents).toHaveLength(2); // 仅 seed 的 2 条
+      e.errorType === "guard_bounce_flow" && (e.context as { bounce?: boolean })?.bounce === true);
+    expect(bounceEvents).toHaveLength(0);
     // 无回发消息（不含回发进度文案）
     expect(sendEntry.store.systemBodies.find(b => b.includes("第 3/2 次"))).toBeUndefined();
   });
@@ -505,9 +506,9 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     const fpFail = sendEntry.store.invokeEndCalls.filter(e => e.status === "failed");
     expect(fpFail).toHaveLength(1);
     expect(sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted")).toHaveLength(0);
-    // 落账 suspected_false_positive high（守卫可信度问题需人工跟进）
+    // 落账 suspected_false_positive high（守卫可信度问题需人工跟进）——guard_bounce_flow 流程族
     const fpEvent = healing.events.find(e =>
-      e.errorType === "guard_intercept" &&
+      e.errorType === "guard_bounce_flow" &&
       (e.context as { suspectedFalsePositive?: boolean })?.suspectedFalsePositive === true);
     expect(fpEvent).toBeTruthy();
     expect(fpEvent?.severity).toBe("high");
