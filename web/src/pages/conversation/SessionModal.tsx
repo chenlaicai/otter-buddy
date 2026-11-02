@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type MutableRefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { X, ChevronRight, Loader2, MessageSquare, Wrench, CircleAlert, Braces, Copy, Check, UserRound } from 'lucide-react'
 import type { LocalOtter } from '../../lib/mappers'
 import type { InvokeDTO, InvokeEventDTO } from '@contract/api'
@@ -188,14 +189,27 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
   const selected = invokes?.find(i => i.id === selectedInvokeId) ?? null
   const selectedIsRunning = selected != null && (liveStatus[selected.id] ?? selected.status) === 'running'
 
-  return (
+  /** F20261102kfvqa：对齐 Modal.tsx 的 modal-open 声明期（检视建议：scrim 半接入收尾）——
+   *  挂「内容自模糊」+ scrim 摘 backdrop-filter（F20260909srf6 语义），消除旧采样语义下
+   *  模糊 2px→6px 的跳变暴露面。多重弹窗共存安全：仅当 body 里无其它 scrim 时才移除
+   *  （DOM 移除先于 passive cleanup，自己不干扰自身判定，Modal.tsx 同款生产验证） */
+  useEffect(() => {
+    document.body.classList.add('modal-open')
+    return () => {
+      if (!document.querySelector('body > .scrim')) document.body.classList.remove('modal-open')
+    }
+  }, [])
+
+  // F20261102kfvqa：Portal 挂 body——scrim 脱离页面组件树，与 Modal.tsx 结构对齐
+  return createPortal(
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4 md:p-8"
-      style={{ background: 'rgba(60,50,40,0.25)', backdropFilter: 'blur(2px)' }}
+      className="fixed inset-0 z-[70] scrim flex items-center justify-center p-4 md:p-8"
       onClick={onClose}
     >
+      {/* 弹层级用 glass-overlay（L3，~96% 实色，不随 --glass-t 降透）——曾误用面板级 glass（L1，
+         白底随 glass-t 缩放后不透明度仅 ~49%），搭档反馈正文看不清（F20261102kfvqa） */}
       <div
-        className="glass rounded-3xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden shadow-glow"
+        className="glass-overlay rounded-3xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden shadow-glow"
         onClick={e => e.stopPropagation()}
       >
         {/* 头部：獭头像 + 名字 */}
@@ -319,7 +333,8 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
