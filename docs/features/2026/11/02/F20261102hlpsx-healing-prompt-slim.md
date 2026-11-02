@@ -11,6 +11,12 @@ modules:
 summary: "#1512：self-healing-analysis 任务数据区由「20 条事件样本全家桶」构成——description 平均 207 字（含固定引导全文逐条重复）+ suggestion 随行（+100 字/条）+ 样本行无 event ID（处置锚点缺失），数据区约 7K 字占 prompt 2/3。线索化改造：样本行带锚点（id 前 8 位短锚 + msg 前 8 位前缀）、同形聚类（description 前 30 字相同合并带 ×N 计数）、描述截断 80 字保留差异首段、suggestion 不随行（下钻获取）、数据区 2K 字符预算硬顶（超限逐行丢弃保最新+尾部标注）。模板静态区补「样本下钻」段（行格式说明 + 查询路径），fallback 双源同步。6 红测锁定（锚点/不随行/截断/聚类/预算/下钻指引）。"
 tags: [scheduler, healing, prompt-slim, observability]
 capability_test: "n/a: 调度器数据区构造重构，无 LLM 行为变更"
+intent:
+  problem: "self-healing-analysis 每日任务的 prompt 数据区是 20 条事件全家桶（description 平均 207 字含 guard 引导全文逐条重复 + suggestion 随行 + 无事件 ID 锚点），约 7K 字占 prompt 2/3；处置獭拿不到锚点需回查数据库对时间戳，固定话术重复 20 遍零信息增益"
+  expected_effect: "数据区 ≤2K 字符且每条样本行含 id 短锚与 messageId 前缀（验证断言：连续 7 天，到 2026-11-14）；同形事件归并后处置獭可直接复制锚点查详情；引导话术只出现在模板静态区一处"
+  verify_by:
+    type: scheduled_task_output
+    detail: "合入后由每日 self-healing-analysis 任务产出实证：数据区长度与样本行形态由 regression-verify 在 2026-11-14 到期核验（issue #1512 既定口径）；单测侧 6 用例锁定构造逻辑（锚点/聚类/截断/预算/下钻指引）"
 ---
 
 # healing 分析任务 prompt 瘦身（#1512）
@@ -30,7 +36,7 @@ self-healing-analysis 任务 prompt 数据区（`{{HEALING_DATA}}`）三大缺�
 `buildHealingDataSection`（新函数，替换原数据区拼接循环）：
 
 - **样本行格式**：`- [severity] 类型×计数｜id前8位｜msg=messageId前8位｜描述首段(≤80字)`——处置锚点直接可复制（manage_healing_events 接受前 8 位短锚）
-- **同形聚类**：`errorType·description前30字` 相同 → 同族合并，保留最新样本 + `×N` 计数（实测 main_write 族同前缀 110 条，聚类价值真实）
+- **同形聚类**：`errorType·description前30字` 相同 → 同族合并，保留最新样本 + `×N` 计数（N 为族内总条数，含所示样本；实测 main_write 族同前缀 110 条，聚类价值真实）
 - **suggestion 不随行**：详情下钻获取（模板写明路径）
 - **预算硬顶**：数据区 2000 字符（验证断言口径），超限逐行丢弃保最新 + 尾部标注未展示条数
 - **模板静态区**：补「样本下钻」段（行格式说明 + 同形归并语义 + 查询路径）；`HEALING_FALLBACK_PROMPT` 双源逐字节同步（守卫测试锁定）

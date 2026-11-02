@@ -9,7 +9,7 @@ dynamic: true
 
 ## 样本下钻
 
-样本行格式：`- [severity] 类型×计数｜事件id前8位｜msg=messageId前8位｜描述首段`。同形事件（描述前 30 字相同）已归并，计数代表族内最新样本之外的条数。处置锚点用事件 id 前 8 位（manage_healing_events 接受短锚），按 messageId 查对应对话消息。建议（suggestion）不随行——详情经 manage_healing_events(action=query) 获取。
+样本行格式：`- [severity] 类型×计数｜事件id前8位｜msg=messageId前8位｜描述首段`。同形事件（描述前 30 字相同）已归并，计数为族内总条数（含所示最新样本）。处置锚点用事件 id 前 8 位（manage_healing_events 接受短锚），按 messageId 查对应对话消息。建议（suggestion）不随行——详情经 manage_healing_events(action=query) 获取。
 
 ## 处置权检查（前置，口径协议）
 

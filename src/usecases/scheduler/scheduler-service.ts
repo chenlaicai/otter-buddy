@@ -2164,7 +2164,7 @@ export const HEALING_FALLBACK_PROMPT = `## Self-Healing 定期分析任务
 
 ## 样本下钻
 
-样本行格式：\`- [severity] 类型×计数｜事件id前8位｜msg=messageId前8位｜描述首段\`。同形事件（描述前 30 字相同）已归并，计数代表族内最新样本之外的条数。处置锚点用事件 id 前 8 位（manage_healing_events 接受短锚），按 messageId 查对应对话消息。建议（suggestion）不随行——详情经 manage_healing_events(action=query) 获取。
+样本行格式：\`- [severity] 类型×计数｜事件id前8位｜msg=messageId前8位｜描述首段\`。同形事件（描述前 30 字相同）已归并，计数为族内总条数（含所示最新样本）。处置锚点用事件 id 前 8 位（manage_healing_events 接受短锚），按 messageId 查对应对话消息。建议（suggestion）不随行——详情经 manage_healing_events(action=query) 获取。
 
 ## 处置权检查（前置，口径协议）
 
@@ -2363,12 +2363,24 @@ function buildHealingDataSection(
   openEvents: Array<{ id: string; messageId: string; errorType: string; severity: string; description: string; suggestion: string | null }>,
   byClass: HealingClassCounts & { envList: string; fbList: string },
 ): string {
+  // header 序列化 top-N 截断（1731-r1 建议 4）：byType/bySeverity 是 JSON 全量序列化，
+  // 错误类型理论上无上限——300 类时 header 就 6K+，预算硬顶整体失效且 MAX_PROMPT_LENGTH
+  // 截断会吃掉后续静态段（含下钻指引）。top-8 + +N 溢出标记，保 header 可预测地有界。
+  const topEntries = (obj: Record<string, number>, max = 8): Record<string, number> => {
+    const keys = Object.keys(obj);
+    if (keys.length <= max) return obj;
+    const sortedKeys = keys.sort((a, b) => obj[b] - obj[a]).slice(0, max);
+    const sorted: Record<string, number> = {};
+    for (const k of sortedKeys) sorted[k] = obj[k];
+    sorted[`+${keys.length - max} more`] = 0;
+    return sorted;
+  };
   const header = `当前系统健康概况：
 - 待处理: ${stats.open} 个
 - 已解决: ${stats.resolved} 个
 - 已忽略: ${stats.dismissed} 个
-- 按类型分布: ${JSON.stringify(stats.byType)}
-- 按严重程度分布: ${JSON.stringify(stats.bySeverity)}
+- 按类型分布: ${JSON.stringify(topEntries(stats.byType))}
+- 按严重程度分布: ${JSON.stringify(topEntries(stats.bySeverity))}
 - 二维分账: 环境/系统失败 ${byClass.environment} 条 / 獭能力失败 ${byClass.capability} 条 / 主动反馈 ${byClass.feedback} 条（口径：${byClass.envList}=环境，${byClass.fbList}=反馈独立列，其余=能力）
 
 待处理样本（最新 ${openEvents.length} 条，同形已归并；详情按 id 查 manage_healing_events）：
@@ -2400,7 +2412,7 @@ function buildHealingDataSection(
     const kept: string[] = [];
     let used = header.length;
     for (const line of lines) {
-      if (used + line.length + 1 > HEALING_DATA_SECTION_BUDGET - 60) break; // 留 60 字符给尾部标注
+      if (used + line.length + 1 > HEALING_DATA_SECTION_BUDGET - 64) break; // 预留 64 字符给尾注（dropped 3 位数时尾注 61 字符，1731-r1 建议 3）
       kept.push(line);
       used += line.length + 1;
     }

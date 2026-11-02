@@ -419,4 +419,18 @@ describe('SchedulerService - self-healing-analysis 数据区线索化（#1512）
     const body = await triggerWith(createVerboseHealingRepo(2));
     expect(body).toMatch(/manage_healing_events|查.{0,6}详情/);
   });
+
+  it("header 序列化 top-N 截断（1731-r1 建议 4）：类型数超限时按量取前 8 + 溢出标记，header 有界", async () => {
+    // 构造 300 类 byType——不截断时 header 序列化就 6K+，预算硬顶整体失效
+    const repo = createVerboseHealingRepo(3);
+    const bigStats = { open: 300, resolved: 0, dismissed: 0, byType: {} as Record<string, number>, bySeverity: { medium: 300 } };
+    for (let i = 0; i < 300; i++) bigStats.byType[`type_${String(i).padStart(3, "0")}`] = 1;
+    (repo.getStats as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(bigStats);
+    const body = await triggerWith(repo);
+    const start = body.indexOf("当前系统健康概况");
+    const end = body.indexOf("## 样本下钻");
+    expect(end - start).toBeLessThanOrEqual(2000); // header 也算数据区，必须有界
+    expect(body).toContain("+292 more"); // 溢出标记
+    expect(body).not.toContain("type_299"); // 尾部类型被截
+  });
 });
