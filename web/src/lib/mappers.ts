@@ -24,8 +24,10 @@ export interface LocalConversation {
   status: 'active' | 'archived'
   pinned: boolean
   /** F20260918imas：助理对话标识（IM 自动开户；缺省 = 普通对话。左侧栏分组依据）。
-   *  F20260924wast：扩 web-assistant（web 浮动獭全局唯一对话，独立分组） */
-  kind?: 'assistant' | 'web-assistant'
+   *  F20260924wast：扩 web-assistant（web 浮动獭全局唯一对话，独立分组）。
+   *  #1224：本地视图类型从 DTO 契约派生（非 normal 值，DTO 缺省 = normal）——
+   *  后端新增枚举值时前端零改动，消除本地平行声明（#1201 同型成因） */
+  kind?: NonNullable<ConversationListItemDTO['kind']>
   otterIds: string[]
   /** 未读消息计数（消息级） */
   unreadCount?: number

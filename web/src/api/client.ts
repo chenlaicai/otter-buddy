@@ -97,8 +97,9 @@ export function listConversations(options?: {
   search?: string
   /** F20260922cgrp：按状态过滤（active | archived）；缺省 = 仅 active */
   status?: 'active' | 'archived'
-  /** F20260922cgrp：按类别过滤（assistant = IM 助理；normal = 普通对话） */
-  kind?: 'normal' | 'assistant'
+  /** F20260922cgrp：按类别过滤（assistant = IM 助理；normal = 普通对话）。
+   *  #1224：联合从契约单源派生（原双值硬编码已落后缺 web-assistant，收敛后自动补齐） */
+  kind?: ConversationListItemDTO['kind'] | 'normal'
   /** F20260922cgrp delta：置顶过滤（false = 仅非置顶——普通区分页用，计数口径对齐） */
   pinned?: boolean
 }): Promise<ConversationListResponseDTO> {
