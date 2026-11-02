@@ -87,12 +87,16 @@ export const UNKNOWN_RULE: GuardRuleClass = { ruleId: "unknown", layer: "self_ki
  * file-tool-guard 结构化前缀族。消费侧（月度剪枝/自愈聚合）以此区分「活跃规则」与
  * 「历史归因封存账」（表外 ruleId，如 v3 退役的 self_kill_indirect/script_stop）——
  * 历史数据原样保留但不进候选、不再反复呈报。增删规则时与 monthly-prune-review.md
- * 口径同步（同 PR，维护契约）。
+ * 口径同步（同 PR，维护契约；机械同步由 guard-intercept-classify.test 一致性用例钉住）。
  */
 export const ACTIVE_RULE_IDS: ReadonlySet<string> = new Set(FINGERPRINTS.map(f => f.cls.ruleId));
 
-/** 是否历史归因封存账（不在现行活跃规则清单——含 file-tool-guard 结构化前缀族与 unknown） */
+/** 是否历史归因封存账（不在现行活跃规则清单）。
+ *  注意三分：file-tool-guard 前缀族与 unknown 都不是封存账——前者是活跃规则，
+ *  后者是「未归因待补表」信号（封存它会吞掉指纹表缺条目的倒逼信号）；
+ *  仅「表外且非 unknown 的历史 ruleId」（v3 退役等）才封存。 */
 export function isHistoricalAttribution(ruleId: string): boolean {
+  if (ruleId === "unknown") return false;
   if (ruleId.startsWith("file-tool-guard")) return false;
   return !ACTIVE_RULE_IDS.has(ruleId);
 }

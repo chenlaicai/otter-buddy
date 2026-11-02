@@ -183,16 +183,17 @@ export class CircuitBreakSupport {
    */
   async countRecentGuardBounces(otterId: string, windowMs: number): Promise<number> {
     const since = new Date(Date.now() - windowMs).toISOString();
-    // F20261102grfix（A 口径拆分）：bounce 流程观测自 guard_bounce_flow 独立计数；
-    // 兼容双时代——历史 bounce 记在 guard_intercept+context.bounce:true（不重分类，
-    // 历史按当时口径留存），两源合并后按时间窗计数
-    const flowEvents = await this.deps.healingRepo.findRecentByOtter(otterId, 'guard_bounce_flow', 50);
-    const legacyEvents = await this.deps.healingRepo.findRecentByOtter(otterId, 'guard_intercept', 50);
-    const legacyBounces = legacyEvents.filter(e => {
+    // F20261102grfix（A 口径拆分）：bounce 计数=回发次数——双时代均只数 context.bounce:true
+    // 的计数落账（与旧口径语义等价）；同族的疑似误拦降级/终态观测（guard_bounce_flow 但无
+    // bounce 标）是流程观测非回发，不计入。历史 bounce 记 guard_intercept+context.bounce:true
+    // （不重分类，历史按当时口径留存），两源合并后按时间窗计数
+    const isBounceCount = (e: { context: unknown }): boolean => {
       const ctx = e.context as { bounce?: boolean } | null;
       return ctx?.bounce === true;
-    });
-    return [...flowEvents, ...legacyBounces].filter(e => e.createdAt >= since).length;
+    };
+    const flowBounces = (await this.deps.healingRepo.findRecentByOtter(otterId, 'guard_bounce_flow', 50)).filter(isBounceCount);
+    const legacyBounces = (await this.deps.healingRepo.findRecentByOtter(otterId, 'guard_intercept', 50)).filter(isBounceCount);
+    return [...flowBounces, ...legacyBounces].filter(e => e.createdAt >= since).length;
   }
 
   /**

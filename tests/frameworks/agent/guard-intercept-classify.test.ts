@@ -12,7 +12,9 @@
  * v3 探针族（main_write/git 域/alias/heredoc/wrapper/脚本执行）随机制消亡整体退役。
  */
 import { describe, expect, it } from "vitest";
-import { classifyGuardInterceptReason, UNKNOWN_RULE } from "@frameworks/agent/guard-intercept-classify";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { classifyGuardInterceptReason, UNKNOWN_RULE, ACTIVE_RULE_IDS, isHistoricalAttribution } from "@frameworks/agent/guard-intercept-classify";
 import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
 // F20261019fito：静态 import（原 4 个用例内动态 await import）——pi-session-factory 模块图
 // 首载（数十依赖 + vitest transform）约 5s，恰好顶满 vitest 默认 testTimeout=5000ms，
@@ -160,5 +162,25 @@ describe("F20261030gcfbx · v4 对齐收尾", () => {
     // 分类是拦截时点行为，无台账重分类路径，历史事件已按当时 ruleId 落库不受影响
     const cleanSleepReason = "检测到你使用了 sleep 等待（约 30 秒）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么。";
     expect(classifyGuardInterceptReason(cleanSleepReason)).toEqual(UNKNOWN_RULE);
+  });
+});
+
+describe("F20261102grfix · 双清单机械同步与封存边界", () => {
+  it("ACTIVE_RULE_IDS 与 monthly-prune-review.md 手写清单机械一致（双清单同步，检视发现 7）", () => {
+    // G1 病灶（两处拷贝靠人肉同步）的同构复发面——用测试钉死：改任一侧清单不同步即红
+    const prompt = readFileSync(join(process.cwd(), "prompts/scheduled/monthly-prune-review.md"), "utf8");
+    const m = prompt.match(/（结构化前缀族）\+ ([^（]+)（guard-v4 八条）/);
+    expect(m, "monthly-prune-review.md 口径段清单格式变了——同步更新本测试与 ACTIVE_RULE_IDS").toBeTruthy();
+    const ids = new Set(m![1].split("/").map(s => s.trim()).filter(Boolean));
+    ids.add("file-tool-guard"); // 结构化前缀族代表 id（FINGERPRINTS 表内首条）
+    expect(ids).toEqual(ACTIVE_RULE_IDS);
+  });
+
+  it("isHistoricalAttribution 封存边界三分（检视发现 6）：unknown 与 file-tool-guard 不封存，v3 退役封存", () => {
+    expect(isHistoricalAttribution("unknown")).toBe(false); // 未归因待补表信号，封存会吞掉倒逼信号
+    expect(isHistoricalAttribution("file-tool-guard")).toBe(false); // 结构化前缀族=活跃规则
+    expect(isHistoricalAttribution("self_kill_main")).toBe(false); // 现行活跃
+    expect(isHistoricalAttribution("self_kill_indirect")).toBe(true); // v3 退役历史归因→封存
+    expect(isHistoricalAttribution("main_write")).toBe(true);
   });
 });

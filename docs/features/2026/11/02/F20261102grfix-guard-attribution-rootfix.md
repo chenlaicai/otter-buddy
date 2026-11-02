@@ -104,8 +104,23 @@ intent:
 ## 影响面当场自检
 
 - **同步了的**：monthly-prune-review.md 口径（本次内）；guard-intercept-classify.ts 维护契约注释（增删规则须同步剪枝口径清单）
+- **隐含变化已声明的**：daily-health-check.md 的 guard_intercept 样本池隐含变纯（bounce 拆出后样本不再混流程记录——改善而非恶化，bounce 无 ruleId 本就无法固化），无需改 prompt，留痕于此防后续困惑（检视发现 9）
 - **失效但不回改的（历史文档铁律）**：F20260930gslog「classify 从文案分类 ruleId」的机制描述、F20261030gcfbx「活文案清单」指向——已由本档追加说明取代；宪法（bash-guard-constitution.md）未动（活跃/历史分层是聚合口径非规则治理规则，留给未来宪法修订统一收编——取舍留痕于此）
 - **决定不做的**：self-healing-analysis.md 口径（无候选面）；宪法文档补封存账概念（见上）
+
+## 检视处置记录（首轮对抗审视，检视獭：较真）
+
+| 发现 | 级别 | 处置 |
+|---|---|---|
+| 1. CI 红（分支 behind main） | 严重 | 已修：merge origin/main（1e9024c7） |
+| 2. B8 体积预算（monthly-prune 净增 1033B>500B 无申报） | 严重 | 已修：PR 描述补体积申报段（口径文字为规则清单+分层原则必要最小面） |
+| 3. B7 Golden Gate 记录缺失（60 SKIP=零记录） | 严重 | **呈搭档裁决项**：环境无 LLM 端点非本 PR 可解，已留显式豁免声明与裁决请求（非默认放过） |
+| 4. flow 侧计数无判别性测试 | 严重 | 已修：补 GB-3c（新口径 seed×2 → 超限升级判别用例） |
+| 5. flow 侧不按 bounce:true 过滤语义未声明 | 建议 | 已修（选更精解）：双侧对称过滤 bounce:true（仅回发计数计入），语义回归「回发次数」本义 |
+| 6. isHistoricalAttribution("unknown") 封存吞补表信号 | 建议 | 已修：unknown 显式不封存 + 三分注释 + 边界断言 |
+| 7. 双清单无机械同步 | 建议 | 已修：补一致性测试（prompt 清单 ↔ ACTIVE_RULE_IDS 机械比对） |
+| 8. monthly-prune 参考 SQL 未过滤历史 bounce | 建议 | 已修：SQL 加 `bounce IS NOT true` 过滤 |
+| 9. daily-health-check 隐含口径变化未声明 | 建议 | 已修：本档「影响面」段声明 |
 
 ## 回滚
 

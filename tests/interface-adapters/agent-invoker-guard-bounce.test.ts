@@ -246,6 +246,37 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     expect(sendEntry.store.systemBodies.find(b => b.includes("第 3/2 次"))).toBeUndefined();
   });
 
+  it("GB-3c：新口径 seed（guard_bounce_flow+bounce:true ×2）→ 超限升级——flow 侧计数判别用例", async () => {
+    // 判别性用例（检视发现 4）：钉死 flow 侧类型串与计数链——若 guard_bounce_flow 串写错/
+    // 漏过滤 bounce 标，flow 计数恒 0 → priorBounces=0 → 永不升级 → 无限回发（#731/#1353
+    // 防的 bounce 循环回归），而 legacy-seed 的 GB-3 全绿拦不住
+    const sendEntry = mockSendEntry();
+    const healing = mockHealingRepo([
+      seedBounceEvent({ errorType: "guard_bounce_flow" }),
+      seedBounceEvent({ errorType: "guard_bounce_flow" }),
+    ]);
+    const invoke = mockAgentInvoke([{ guard: 2 }]);
+    const invoker = new AgentInvoker(
+      invoke, { getMessageById: async () => null, getMessages: async () => [] } as unknown as QueryMessage,
+      mockManageSession, queryOtter, createTestLogger(),
+      undefined, undefined, undefined, undefined, healing.repo,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      sendEntry,
+      { getInvokeEvents: async () => [] } as never,
+    );
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1",
+      userMessageContent: "修复任务 X", senderId: "user-1",
+    });
+
+    // 超限升级（flow 侧计数生效的判别断言）：abort 终态 + 升级消息，无回发进度
+    const abortEnds = sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted");
+    expect(abortEnds).toHaveLength(1);
+    expect(sendEntry.store.systemBodies.some(b => b.includes("已连续 2 次被 bash 守卫拦截"))).toBe(true);
+    expect(sendEntry.store.systemBodies.find(b => b.includes("第 1/2 次"))).toBeUndefined();
+  });
+
   it("GB-3b：窗口外 bounce 不计数（10 分钟前的教训不堵死现在的自纠）", async () => {
     const sendEntry = mockSendEntry();
     const elevenMinutesAgo = new Date(Date.now() - 11 * 60 * 1000).toISOString();
