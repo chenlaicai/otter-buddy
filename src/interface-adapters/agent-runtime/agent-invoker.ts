@@ -580,7 +580,7 @@ export class AgentInvoker implements AgentTurnPort {
     emitEvent: (event: SSEEvent) => void,
     opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string },
   ): AttemptDriver {
-    /** F20260922handoff 建议1：ctxTokens 旁路盒——TurnResult 不带 ctxTokens，闭包直改
+    /** F20260922handoff：ctxTokens 旁路盒——TurnResult 不带 ctxTokens，闭包直改
      *  外部 let 不可行，driver 对象生命周期覆盖整个 turn，invokeConversationInner 收尾处
      *  读 driver._lastCtxTokens（类型上显式可选字段）写回 handoffState 水位状态。 */
     const ctxTokensBox = { value: undefined as number | undefined };
@@ -625,7 +625,7 @@ export class AgentInvoker implements AgentTurnPort {
         return this.retryContextByInvoke.get(invokeId);
       },
     };
-    // F20260922handoff 建议1：ctxTokens 旁路盒经 defineProperty 挂 driver——AttemptDriver
+    // F20260922handoff：ctxTokens 旁路盒经 defineProperty 挂 driver——AttemptDriver
     //  类型已显式声明 _lastCtxTokens 可选字段，消除消费侧 cast。
     Object.defineProperty(driver, '_lastCtxTokens', {
       get: () => ctxTokensBox.value,
@@ -1240,7 +1240,7 @@ export class AgentInvoker implements AgentTurnPort {
       const hasMaterial = !!slice && slice.messagesToSummarize.length > 0;
       if (skipSynthesisByCircuitBreaker) {
         // F20260930hsfx S2/M5：熔断开启——reason 贯穿日志 + 完成文案可见
-        // （delta 严重3真修：不再叠 synthesizePast &&——熔断重启传 false 时也要打这条 warning，
+        // （不再叠 synthesizePast &&——熔断重启传 false 时也要打这条 warning，
         //  否则真实熔断路径静默跳过，M5「熔断可见」在日志层同样失效）
         this.logger.warn('[handoff] synthesis circuit breaker open: consecutive failures >= 2, forcing mechanical archive', {
           otterId, trigger, priorFailures, synthesizePast, degradeReason: 'circuit-open',
@@ -1369,7 +1369,7 @@ export class AgentInvoker implements AgentTurnPort {
       //  否则二次取同一把 per-otter 锁 = 自死锁（9/23 实证 4 獭连续「Lock acquire timeout」，
       //  holderHeldForMs 恂 ≈120s、queueLength=0——等的是自己）。
       const session = await this.manageSession.restartSession(otterId, archive, modelAlias, reason, 'handoff');
-      // 水位状态已在 unifiedHandoff 入口统一清理（严重1修正），此处不再重复。
+      // 水位状态已在 unifiedHandoff 入口统一清理），此处不再重复。
       // F20260923hsyn：熔断清零挂「合成成功」（narrativeSummary 非空）而非
       // 「交接成功」——死亡链场景每次交接都是「合成失败→机械档案→restart 成功」，清零挂交接成功
       // 会让计数永远到不了 2，熔断形同虚设。合成成功才清零（机械档案交接不清零，计数继续累积，
@@ -1460,7 +1460,7 @@ export class AgentInvoker implements AgentTurnPort {
         timeoutPromise,
       ]);
     } finally {
-      // delta 建议2：成功/超时/异常三条路径都经 finally clear——不再只有成功路径清理，
+      // 成功/超时/异常三条路径都经 finally clear——不再只有成功路径清理，
       //  异常时 timer 泄漏同样保活 300s。
       if (timeoutId) clearTimeout(timeoutId);
     }

@@ -144,13 +144,13 @@ export class WeixinMessageChannel implements OutboundEventChannel {
       ...(attachments.length > 0 && { attachments }),
     });
     try {
-      // 文本在前（含附件占位投影），媒体在后（r1-S1 拆分：媒体独立于文本 try）
+      // 文本在前（含附件占位投影），媒体在后（媒体独立于文本 try）
       await this.weixinGateway.replyMarkdown(target, senderLabel, projected);
       this.logger.info("User entry synced to Weixin (web→weixin)", { conversationId });
     } catch (err) {
       this.logger.error("Failed to sync user entry to Weixin", err instanceof Error ? err : undefined, { conversationId });
     }
-    // r1-S1：文本失败时媒体仍发——per-item 失败在 sendAttachments 内部处理，不向上抛
+    // 文本失败时媒体仍发——per-item 失败在 sendAttachments 内部处理，不向上抛
     await this.sendAttachments(target, attachments);
   }
 
@@ -180,7 +180,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     } catch (err) {
       this.logger.error("Failed to broadcast speak to Weixin", err instanceof Error ? err : undefined, { conversationId });
     }
-    // r1-S1：媒体投递独立于文本 try——文本失败时媒体仍发（同 user 路径）
+    // 媒体投递独立于文本 try——文本失败时媒体仍发（同 user 路径）
     await this.sendAttachments(target, attachments);
   }
 

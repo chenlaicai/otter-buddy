@@ -156,7 +156,7 @@ export class AssistantSessionManager {
       });
 
       // 交接摘要：机械拼接（不经 LLM），构建一次全链共用（原双重
-      // buildDigest 曾把空标题摘要发给 restartSession）；先落库再重启（发现 4——
+      // buildDigest 曾把空标题摘要发给 restartSession）；先落库再重启（防丢落账——
       // 先 writeDigest 后 restartSession，消除新 session 立即产生 entry 混入摘要的竞态窗口）
       const title = await this.resolveTitle(conversationId);
       const digest = await this.buildDigest({ id: conversationId, title });

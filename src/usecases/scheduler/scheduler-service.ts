@@ -1049,7 +1049,7 @@ export class SchedulerService {
         const conversationDisabled = this.conversationDisabledInClaim;
         this.conversationDisabledInClaim = false;
         if (!conversationDisabled) {
-          // #1208 建议 8：claim 被拒（如 running execution 前置拦截）时 last_triggered_at
+          // #1208：claim 被拒（如 running execution 前置拦截）时 last_triggered_at
           //   未刷新——显式幂等补刷，让 reconcile 知道本轮已跑过（与外层 catch 同型兜底）。
           await this.taskRepo.claimTask(task.id, now, now).catch(() => { /* 幂等兜底 */ });
           status = 'skipped';
@@ -2363,7 +2363,7 @@ function buildHealingDataSection(
   openEvents: Array<{ id: string; messageId: string; errorType: string; severity: string; description: string; suggestion: string | null }>,
   byClass: HealingClassCounts & { envList: string; fbList: string },
 ): string {
-  // header 序列化 top-N 截断（1731-r1 建议 4）：byType/bySeverity 是 JSON 全量序列化，
+  // header 序列化 top-N 截断（#1731）：byType/bySeverity 是 JSON 全量序列化，
   // 错误类型理论上无上限——300 类时 header 就 6K+，预算硬顶整体失效且 MAX_PROMPT_LENGTH
   // 截断会吃掉后续静态段（含下钻指引）。top-8 + +N 溢出标记，保 header 可预测地有界。
   const topEntries = (obj: Record<string, number>, max = 8): Record<string, number> => {
@@ -2412,7 +2412,7 @@ function buildHealingDataSection(
     const kept: string[] = [];
     let used = header.length;
     for (const line of lines) {
-      if (used + line.length + 1 > HEALING_DATA_SECTION_BUDGET - 64) break; // 预留 64 字符给尾注（dropped 3 位数时尾注 61 字符，1731-r1 建议 3）
+      if (used + line.length + 1 > HEALING_DATA_SECTION_BUDGET - 64) break; // 预留 64 字符给尾注（dropped 3 位数时尾注 61 字符）
       kept.push(line);
       used += line.length + 1;
     }

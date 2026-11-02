@@ -33,7 +33,7 @@ export interface ChainHopResult {
 export interface HopOutcome {
   /** F20260913ctlv 彻底切换：行级取数 = invoke 行（含 talkingStonePassedTo 终值）；查库失败/degraded 时 null */
   producedMsg: { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null;
-  /** 取数降级标记（#798 发现 2）：账面补「出处降级」备注用 */
+  /** 取数降级标记（#798）：账面补「出处降级」备注用 */
   degraded: boolean;
   /** 护栏门控后的下一跳目标（已滤 'user'；self 仅护栏放行时含）——记账与路由的唯一口径 */
   allowedNext: string[];
@@ -384,7 +384,7 @@ export class DispatchChainEngine {
     // settle（chainSource 回填）与路由（nextTargets）消费同一结果，两处 filter 分叉在结构上不可能。
     // 副产品：旧实现两处各查一次 getMessageById，合一后每 hop 少一次查库。
     const outcomes = await this.resolveHopOutcomes(conversationId, targets, results);
-    // F20260904ldgr（#798 发现 2）保留：降级槽位（fetchProducedMessage 查库失败）补账面备注——
+    // F20260904ldgr（#798）保留：降级槽位（fetchProducedMessage 查库失败）补账面备注——
     // 追加「出处降级」标记，只改 note 不改 status（反连接不变量完好）。槽位键 = 记账键。
     // F20260907ylfs ②：degraded 随 resolveHopOutcomes 预判产出，此处批量收集（拆出控行数）。
     // F20260908rlcp：台账退役——settle 记账和降级备注删除
@@ -556,7 +556,7 @@ export class DispatchChainEngine {
    *  多源追加不去重（A、B 都 yield C 时 C 名下两条触发消息各记一次）；
    *  同目标重复 yield 只留最新产出（去重 + 截尾防膨胀）。截尾丢弃更早记账源时
    *  warn（极端多源下被丢源将永远缺失消费义务销账，假 pending 风险）。
-   *  F20260904ldgr（#798 发现 1 结构性修复）：截尾上限 8→16——用例支撑：单目标在途
+   *  F20260904ldgr（#798）：截尾上限 8→16——用例支撑：单目标在途
    *  消费义务 = 并行 fan-in 上限（@提及多选，实际规模 <16）∨ 并行 invoke 池深度
    *  ∨ scheduler 群发点名数，三者取最大；16 倍于当前观测到的最大 fan-in，且仍能
    *  防无界膨胀（恶意超长 yield 链按最新 16 源保留，更早的已有 hop 记账自然消亡）。 */
@@ -578,7 +578,7 @@ export class DispatchChainEngine {
   /** F20260904schf：读产出消息行级数据（otterReply 提取 + 行级出处共用的查库点）。
    *  查库失败降级为 null（无出处不路由、无回复），不阻断链路（硬约束 1 同款纪律）；
    *  Promise.resolve 包装使 mock 返回 undefined 等非 Promise 值时仍安全。
-   *  F20260904ldgr（#798 发现 2）：返回 [data, degraded]——degraded 时账面补降级备注。 */
+   *  F20260904ldgr（#798）：返回 [data, degraded]——degraded 时账面补降级备注。 */
   private async fetchProducedMessage(
     invokeId: string,
     conversationId?: string,
@@ -871,7 +871,7 @@ export class DispatchChainEngine {
       // 护栏数据源扩为 max(最后被唤醒, 入场时间)——新入场未被唤醒的小獭
       // 在入场 2h 内不告警（刚进场还没派上活不是闲置）；超 2h 仍未被唤醒也未发言则
       // 报闲置是正确语义（真闲置）。
-      // 复检发现 5（格式契约）：下方 max 取自字典序比较，依赖两源同为 JS ISO UTC
+      // 格式契约：下方 max 取自字典序比较，依赖两源同为 JS ISO UTC
       // （含 Z、同长度）——invokes.startedAt（send-entry toISOString）与
       // participant.createdAt（manage-participant join toISOString）当前均满足。
       // 若未来任一写入方改格式（如 SQLite datetime('now') 无时区），须改为

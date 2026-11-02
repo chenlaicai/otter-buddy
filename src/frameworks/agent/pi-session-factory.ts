@@ -486,7 +486,7 @@ export class PiSessionFactory implements AgentGateway {
   async reset(otterId: string, context?: AgentContext, channel?: 'normal' | 'handoff'): Promise<void> {
     // F20260923hspx：handoff 渠道 = 交接冻结锁已由调用方持有，走锁旁路（隔离换世通道），
     //  避免与交接锁自死锁（9/23 实证 4 獭连续「Lock acquire timeout」——等的是自己）。
-    //  resetForHandoff 未实现时降级走正常路径（旧行为，兼容 mock）——F20260923hspx 建议7：
+    //  resetForHandoff 未实现时降级走正常路径（旧行为，兼容 mock）——F20260923hspx：
     //  静默降级加观测，生产装配若意外走到降级路径立即现形。
     if (channel === 'handoff') {
       if (this.resetForHandoff) {
@@ -599,11 +599,11 @@ export class PiSessionFactory implements AgentGateway {
 
   /** F20260924thnk：合成模型解析（自 runCompactionSynthesis 抽出，complexity 限）。
    *  链路：modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置——
-   *  F20260924swin 严重5 修复链路；显式 maxTokens=F20260924swin 改动点1
+   *  F20260924swin 链路；显式 maxTokens=F20260924swin 改动点1
    *  （SDK falsy 跳过分支 openai-responses.js:235，否则输出预留 = 服务端默认吃掉 ~25% 输入容量）；
    *  resolvedModelAlias = 观测三件套之 1（真实执行模型，非 getModelAliasForLog 的 config 值）。 */
   private resolveSynthesisModel(otterId: string, modelOverride?: string): { resolvedModel: Model<Api>; resolvedModelAlias: string } {
-    // F20260924swin 严重5：modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置（既有行为）。
+    // F20260924swin：modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置（既有行为）。
     //  此前端口声明第三参但实现丢弃，换模型重启时预算按新模型算、请求发给旧模型 → 必 400。
     let resolvedModel = this.cfg.model;
     if (this.cfg.modelPool) {
@@ -1631,7 +1631,7 @@ export class PiSessionFactory implements AgentGateway {
    *  复用 circuit-breaker-helpers 的 session.steer 通道。
    *  键格式：生产链路 sessionKey 恒为 ${otterId}:${messageId}，需前缀扫描匹配。
    *  返回 true=找到活跃 session 并发出注入请求，false=session 不活跃或无 steer 能力。
-   *  ⚠️ 竞态窗口（F20260907usti 严重 1）：fire-and-forget 语义下 true ≠ 送达确认——
+   *  ⚠️ 竞态窗口（F20260907usti）：fire-and-forget 语义下 true ≠ 送达确认——
    *  session 收尾 finally 块 delete 前的窗口内，steer 可能抛错（session dispose 中）。
    *  此时返回 true + 路由器写 completed/steered 销账行 → URGENT 零投递且台账说已消费。
    *  最小修复：catch 内落 healing event（可观测），重启补扫不补（设计显式声明此窗口）。
@@ -1643,7 +1643,7 @@ export class PiSessionFactory implements AgentGateway {
         void entry.steer(text).catch((err: unknown) => {
           const errMsg = err instanceof Error ? err.message : String(err);
           this.logger.warn(`[steer] steer 调用失败 otter=${otterId}: ${errMsg}`);
-          // F20260907usti 严重 1 修复：steer 失败时落 healing event（可观测）
+          // F20260907usti：steer 失败时落 healing event（可观测）
           if (this.cfg.healingRepo) {
             this.cfg.healingRepo.create({
               id: crypto.randomUUID(),

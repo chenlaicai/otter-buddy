@@ -563,7 +563,7 @@ export function startWeixinChannels(options: {
     const pollers = orphanAccounts
       .map((account) => startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig: {}, account, registry, signalRouter }))
       .filter((p): p is WeixinPollingChannel => p !== undefined);
-    // F20260901chun 发现8：orphan 降级拉起后标记 degraded，UI 显示「🟡 降级运行中」而非假绿
+    // F20260901chun：orphan 降级拉起后标记 degraded，UI 显示「🟡 降级运行中」而非假绿
     if (registry) {
       for (const account of orphanAccounts) {
         registry.update(`weixin-${account.id}`, { kind: "weixin", state: { kind: "running", since: Date.now(), degraded: true } });

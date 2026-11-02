@@ -22,7 +22,7 @@ export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh", "
 export const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir", "rm", "find"]);
 export const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "chgrp", "truncate"]);
 
-/** 值吞食守卫（delta 严重 1 修复）：带值旗标的值 token 若形似「本守卫有专门判定面的
+/** 值吞食守卫：带值旗标的值 token 若形似「本守卫有专门判定面的
  *  命令词」（解释器/壳/分发器/wrapper/写命令/git/取数族），不吞——按基线口径保守归位
  *  为段首（吞掉会让 head 走丢，基线判罚 block→allow 翻转，同命令不得反判）。
  *  其余未知命令词两侧判罚同为放行，吞值不产生翻转，不入表（不军备化 #1513）。
@@ -47,7 +47,7 @@ function looksLikeExecWord(text: string): boolean {
  *    flags: 吞连续的 - 开头 token（含合写/内联值形态：-o0 / --user=root 属之）；
  *    valueFlags: 必带值旗标分写形态（M-c36b9847 值参盲区收编）——恰为集合成员的
  *           旗标 token（无内联值，token 本身即旗标名，如 -u / --user）后随的一个
- *           token 是它的值（FOO/root/KILL），一并吞食。三条硬边界（delta 严重 1
+ *           token 是它的值（FOO/root/KILL），一并吞食。三条硬边界（同源防护
  *           教训入注释——注释/表/矩阵登记三处同轴，穷举不留暗格）：
  *           ① 只收「必带值」旗标，GNU 可选值旗标（值只能合写：xargs -i[replace-str]
  *             / --replace[=str] / -l[max-lines] / --max-lines[=n]）一律不入表——
@@ -105,7 +105,7 @@ export const tokenBasename = (t: string): string => {
  *  内层——wrapper 吞食规则单一真相源，抽函数控圈复杂度）。
  *  确定性吞食（防贪婪误吞解释器名）：flags 连续 - 开头（valueFlags 成员吞一个后随值 token）
  *  / assigns FOO=v / duration 单个数值。 */
-// eslint-disable-next-line complexity -- 吞食语法四类穷举（flags/valueFlags 值/assigns/duration）是 wrapper 段首归位的判定面，拆函数会把单点吞食规则切碎（delta 严重 1 修复的核心守卫面——先例 resolveExecHead 同款豁免）
+// eslint-disable-next-line complexity -- 吞食语法四类穷举（flags/valueFlags 值/assigns/duration）是 wrapper 段首归位的判定面，拆函数会把单点吞食规则切碎（核心守卫面——先例 resolveExecHead 同款豁免）
 export function skipWrapperArgs(tokens: ReadonlyArray<{ text: string }>, k: number, spec: WrapperSpec): number {
   let durationTaken = false;
   while (k < tokens.length) {
@@ -202,7 +202,7 @@ export function isStdinFeedRest(rest: Array<string | null>): boolean {
   return rest.every(t => t !== null && (/^-[a-zA-Z]$/.test(t) || t === "-"));
 }
 
-/** M-48ac4e39 delta：find 执行体引导词
+/** M-48ac4e39：find 执行体引导词
  *  ——-exec/-execdir/-ok/-okdir。-ok/-okdir 与 -exec 唯一差异是逐项交互确认（echo y 可
  *  喂答绕过、破坏力等价），同族同收。词位精确比对（tokenBasename 归一）——-name 参数值
  *  等数据位（引号整词 '-exec rm' 是单 token）不触发，段文本子串正则的历史误命中由此消除。 */

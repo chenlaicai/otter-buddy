@@ -23,7 +23,7 @@ import { isRetryableGuardAbort, isTimeoutGuardReason, buildRetryFailBody, buildG
 import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription } from "./rate-limit-error";
 // #1247：api_error 终态窗口超限识别 + 告警文案（注入超窗黑盒修复——与 #543 同骨架）
 import { matchContextOverflowError, buildContextOverflowSystemMsg, buildContextOverflowDescription } from "./context-overflow-error";
-// #543 严重发现 1 修复：high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
+// #543：high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
 // 下一次 invoke 的 DynamicContext 补送达（复用 F20260826mwrd Part 4 管道，process 级单例直引，
 // 与 interceptHealingReport 同模式；usecase 内部互引无跨层问题）
 import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
@@ -379,7 +379,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** #543：rate_limit healing 落账（severity 按配额耗尽/瞬时分级）。
-   *  严重发现 1 修复：high 级（配额耗尽）落账成功后同步入 C3 高警队列——
+   *  high 级（配额耗尽）落账成功后同步入 C3 高警队列——
    *  sendSystem 只达当前在场者，大獭不在场即错过；C3 队列保证下次 invoke 补送达。 */
   private async recordRateLimitHealingEvent(
     ctx: RouteContext,
@@ -443,7 +443,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** #1247：context_overflow healing 落账（注入超窗是体积问题，重试无意义 → severity:high）。
-   *  同 #543 严重发现 1 修复：high 级落账成功后入 C3 高警队列，大獭不在场时补送达 */
+   *  同 #543：high 级落账成功后入 C3 高警队列，大獭不在场时补送达 */
   private async recordContextOverflowHealingEvent(
     ctx: RouteContext,
     match: NonNullable<ReturnType<typeof matchContextOverflowError>>,

@@ -132,12 +132,12 @@ function topLevelBlocks(paired: PairedBlock[]): PairedBlock[] {
 }
 
 /**
- * 收集落账候选（发现 6 递归下钻）：合法块直接转为 ParsedSignal；畸形块（属性非法/
+ * 收集落账候选（递归下钻）：合法块直接转为 ParsedSignal；畸形块（属性非法/
  * 空 payload）递归下钻其 payload 内的子块——畸形外层不埋葬合法内层。
  * 坐标系：每层递归用自己的局部 text 切片（子串坐标系内重新 tokenize/配对），
  * 不跨层引用全局 offset。
  * 语义自洽性：内层真实信号能否上达不取决于外层写没写闭合标签（R2/R3 对偶）；
- * 合法外层的内层块是 payload 的一部分不单独落账（发现 4 场景 B 防冒名不变）。
+ * 合法外层的内层块是 payload 的一部分不单独落账（场景 B 防冒名不变）。
  */
 function collectCandidates(text: string, blocks: PairedBlock[], out: ParsedSignal[]): void {
   for (const block of blocks) {
@@ -222,7 +222,7 @@ export function stripSignalReport(body: string): string {
 
   return parts
     .join('')
-    // 发现 5 兑底：tokenizer 认不出的疑似开标签残文（属性段含裸 <）——控制语法不泄漏进 UI 正文
+    // 兑底：tokenizer 认不出的疑似开标签残文（属性段含裸 <）——控制语法不泄漏进 UI 正文
     .replace(SUSPECT_OPEN_TAG_RE, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

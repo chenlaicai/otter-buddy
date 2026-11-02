@@ -139,7 +139,7 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     } catch (err) {
       this.o.logger.error("Failed to broadcast speak to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
     }
-    // r1-S1：媒体投递独立于文本 try——文本失败（含降级链尽）时媒体仍发，
+    // 媒体投递独立于文本 try——文本失败（含降级链尽）时媒体仍发，
     // per-item 失败在 sendImageAttachments 内部处理，不向上抛
     await this.sendImageAttachments(replyTarget, attachments);
   }
@@ -174,7 +174,7 @@ export class FeishuMessageChannel implements OutboundEventChannel {
     } catch (err) {
       this.o.logger.error("Failed to sync user entry to Feishu (degradation also failed)", err instanceof Error ? err : undefined, { conversationId });
     }
-    // r1-S1：媒体投递独立于文本 try——文本失败时媒体仍发（同 speak 路径）
+    // 媒体投递独立于文本 try——文本失败时媒体仍发（同 speak 路径）
     await this.sendImageAttachments(this.resolveReplyTargetSafe(connection), attachments);
   }
 
