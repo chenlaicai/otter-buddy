@@ -495,10 +495,10 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
       </div>
 
       {/* 右键菜单：fixed 蒙层 + 玻璃卡片（仿 index.tsx ctxMenu 模式） */}
-      {/* Why Portal：菜单必须挂 document.body——右栏 aside.glass 带 backdrop-filter，
-          按 CSS 规范会成为 containing block，后代 fixed 元素退化为相对 aside 定位，
-          菜单会按「右键坐标 + aside 偏移」飞出视口（F20260916scfx 探针4 实测：
-          右键 x=1605 时菜单 left=3130，Safari/Chromium 均如此，只是此前未实测右栏场景） */}
+      {/* Why Portal：菜单必须挂 document.body——防御性隔离（F20261102glmtr 后 aside.glass
+          已无 backdrop-filter/containing-block 副作用，但未来若引入 transform/filter 等
+          CB 属性，后代 fixed 仍会退化相对 aside 定位而飞出视口；F20260916scfx 探针4
+          曾实测：右键 x=1605 时菜单 left=3130，Safari/Chromium 均如此） */}
       {ctxMenu && createPortal(
         <>
           <div

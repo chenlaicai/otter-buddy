@@ -322,7 +322,7 @@ export function ChatView(props: ChatViewProps) {
             不下地板，宁可让 overlay 溢出 main 底也不裁按钮——issue #1538 保消息区优先，
             #1535 保按钮可点优先，两个保障不因封顶互相牺牲） */}
         {props.cardPreview && (
-          <div data-testid="card-preview" className="mx-1 mb-2 rounded-2xl border border-amber-200/60 bg-amber-50/90 backdrop-blur-sm px-4 py-3 flex-shrink flex flex-col min-h-0 overflow-hidden" style={{ minHeight: cardFloorPx }}>
+          <div data-testid="card-preview" className="mx-1 mb-2 rounded-2xl border border-amber-200/60 bg-amber-50/90 px-4 py-3 flex-shrink flex flex-col min-h-0 overflow-hidden" style={{ minHeight: cardFloorPx }}>
             <div className="flex items-start gap-1.5 text-[11px] text-amber-700 mb-2 shrink-0">
               <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
               <span>以下内容由水獭卡片生成，请核对后发送；已提交的卡片不可重复提交，修改答案请让水獭重发新卡</span>

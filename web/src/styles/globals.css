@@ -47,17 +47,20 @@
 }
 
 /* ============================================================
-   材质体系 v2.3：底部 = 极光画布（.bg-spring），之上全是玻璃。
-   层级：L0 .glass-strong(顶栏 chrome) → L1 .glass/.glass-input(面板)
-        → L2 .glass-card/.bubble-otter/.bubble-user(气泡卡片)
-        → L3 .glass-overlay + .scrim(弹层)
+   材质体系 v3.0（F20261102glmtr）：分层材质学说——按「采样源是否
+   静止 × 表面是否常驻大面」分配材质（学说出处 R20261102glass）。
+   层级：画布(极光/自定义图+Mica薄纱) → 面板(.glass-strong/.glass/
+   .glass-input) → 内容(.glass-card 与 .bubble-* 系、.form-input)
+   全部实色半透、无 backdrop-filter（R=0，运行中像素变化不再引发
+   重采样闪动）；真玻璃仅存瞬态层(.glass-overlay 弹层菜单/浮动助手)
+   与弹窗遮罩(.scrim 六轮终局 F20260909scrf6)。
    层级靠【透明度梯度 + 投影高度】区分；嵌套激活态(.conv-active/
    .nav-pill-active)退化为半透纯色，不叠玻璃。
-   性能预算：L2 blur 16px 且无 saturate（第二个 filter 函数开销近
-   翻倍、肉眼无感）；弹层才用 48px；背景静止（动画色团=全屏repaint）；
-   气泡配 content-visibility 视口外剔除；禁 will-change。
+   性能预算：常驻层零 backdrop-filter（微软明示 GPU 密集）；瞬态
+   层 blur 40px+160% 保留；背景静止（动画色团=全屏repaint）；气泡
+   配 content-visibility 视口外剔除；禁 will-change。
    无障碍红线：prefers-reduced-transparency 全退化实色，层级靠
-   深色接触线+加强投影维持。
+   深色接触线+加强投影维持（不变）。
    深色模式：组件内散布 light-only Tailwind 类（bg-white/text-stone-*），
    需组件级改造才能启用，本轮不加 prefers-color-scheme 块，避免半成品。
    ============================================================ */
@@ -78,33 +81,35 @@
      正文阅读，不透明度须保底对比度，见下方 L3 注释） */
   --glass-t: 0.85;
 
-  /* L0 chrome（顶栏）：最透 */
+  /* L0 chrome（顶栏）：最透。
+     v3.0：常驻层零 backdrop-filter（--chrome-blur 置 none）——层级改由
+     透明度梯度+投影维持；blur 值保留在注释里供回滚参考（blur(28px) saturate(200%)） */
   --chrome-bg: linear-gradient(180deg, rgb(255 255 255 / calc(50% * var(--glass-t))), rgb(255 255 255 / calc(32% * var(--glass-t))));
-  --chrome-blur: blur(28px) saturate(200%);
+  --chrome-blur: none;
 
-  /* L1 浮起面板（侧栏、输入框）：稍实 + 高投影
-     blur 24px + saturate 200%：让更多底色结构透过玻璃 */
+  /* L1 浮起面板（侧栏、输入框）：稍实 + 高投影（v3.0 --panel-blur 置 none，原 blur(24px) saturate(200%)） */
   --panel-bg: linear-gradient(165deg, rgb(255 255 255 / calc(58% * var(--glass-t))), rgb(255 255 255 / calc(38% * var(--glass-t))));
-  --panel-blur: blur(24px) saturate(200%);
+  --panel-blur: none;
   --panel-shadow: 0 16px 48px rgba(42,32,20,0.12), 0 2px 8px rgba(42,32,20,0.05);
 
-  /* L2 气泡/卡片：blur 16px 无 saturate（气泡自己的 --bubble-blur 才带 saturate） */
+  /* L2 气泡/卡片（v3.0 --card-blur/--bubble-blur 置 none，原 blur(16px)±saturate(140%)） */
   --card-bg: linear-gradient(165deg, rgb(255 253 249 / calc(74% * var(--glass-t))), rgb(255 250 242 / calc(58% * var(--glass-t))));
-  --card-blur: blur(16px);
-  --bubble-blur: blur(16px) saturate(140%);
+  --card-blur: none;
+  --bubble-blur: none;
   --card-shadow: 0 1px 3px rgba(42,32,20,0.07), 0 4px 14px rgba(42,32,20,0.05);
 
-  /* L3 弹层：近实底 + 最强 blur */
+  /* L3 弹层：近实底 + 最强 blur（v3.0 归瞬态/遮罩层专用） */
   --scrim: rgba(28,22,16,0.30);
   --scrim-blur: blur(6px);
   /* 弹层是最高层级且承载正文阅读，不透明度需保证文字对比度（不与 glass-t 联动降透） */
+  /* 瞬态层专用（v3.0 保留真玻璃：小面+瞬态是采样材质最佳位，R20261102glass §4） */
   --overlay-bg: linear-gradient(165deg, rgb(255 253 249 / 96%), rgb(255 251 244 / 93%));
   --overlay-blur: blur(40px) saturate(180%);
   --overlay-shadow: 0 24px 64px rgba(42,32,20,0.22), 0 4px 16px rgba(42,32,20,0.10);
 
-  /* 表单输入 */
+  /* 表单输入（v3.0 --form-input-blur 置 none，原 blur(20px)——settings/memory 等 31 处常驻面脱采样） */
   --form-input-bg: rgb(255 255 255 / calc(50% * var(--glass-t)));
-  --form-input-blur: blur(20px);
+  --form-input-blur: none;
 
   /* 边缘：顶部高光 + 底部接触线成对，任何背景上边缘读感一致 */
   --hairline: rgba(255,255,255,0.55);
@@ -177,14 +182,20 @@ body {
   isolation: isolate;
 }
 
-/* F20261027cbgix：图片画布独立于 .bg-spring，减少透明效果时只退化玻璃，不删用户图片。 */
+/* F20261027cbgix：图片画布独立于 .bg-spring，减少透明效果时只退化玻璃，不删用户图片。
+   F20261102glmtr v3.0：叠加 Mica 式主色薄纱（静态纯色合成，R=0 永不重采样）——
+   主色由 background-preference.ts 离屏 canvas 提取（--canvas-tint-rgb），
+   提取前/失败用中性纱 fallback；var 必带 fallback（否则未定义期整条多层
+   background 声明 invalid，用户图片整体消失，破 F20261027cbgix 红线）。 */
 :root[data-custom-bg='true'] body::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-image: var(--custom-bg-image);
+  background-image:
+    linear-gradient(rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32), rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32)),
+    var(--custom-bg-image);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
@@ -201,8 +212,6 @@ body {
 /* L0 chrome：顶栏（浮起圆角玻璃条，与全局面板统一） */
 .glass-strong {
   background: var(--chrome-bg);
-  backdrop-filter: var(--chrome-blur);
-  -webkit-backdrop-filter: var(--chrome-blur);
   border: 1px solid var(--hairline);
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
 }
@@ -210,8 +219,6 @@ body {
 /* L1 浮起面板：侧栏 */
 .glass {
   background: var(--panel-bg);
-  backdrop-filter: var(--panel-blur);
-  -webkit-backdrop-filter: var(--panel-blur);
   border: 1px solid var(--hairline);
   box-shadow: var(--panel-shadow), var(--edge-hi);
 }
@@ -219,8 +226,6 @@ body {
 /* L2 气泡/卡片 */
 .glass-card {
   background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
   border: 1px solid var(--hairline);
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
 }
@@ -228,8 +233,6 @@ body {
 /* L1 输入框 + focus 实色主环 */
 .glass-input {
   background: var(--panel-bg);
-  backdrop-filter: var(--panel-blur);
-  -webkit-backdrop-filter: var(--panel-blur);
   border: 1px solid var(--hairline);
   box-shadow: var(--panel-shadow), var(--edge-hi);
 }
@@ -245,6 +248,15 @@ body {
   background: var(--overlay-bg);
   backdrop-filter: var(--overlay-blur);
   -webkit-backdrop-filter: var(--overlay-blur);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--overlay-shadow), var(--edge-hi);
+}
+
+/* F20261102glmtr：窄屏常驻抽屉开关钮（<lg fixed 常驻面）——实色无采样。
+   v2.3 曾用 .glass-overlay（blur(40px) 持续采样流式中栏，违反 T1 常驻层无采样）；
+   观感用 --overlay-bg 同款渐变（96%/93% 实色感），仅去 blur */
+.drawer-fab {
+  background: var(--overlay-bg);
   border: 1px solid var(--hairline);
   box-shadow: var(--overlay-shadow), var(--edge-hi);
 }
@@ -354,8 +366,6 @@ body.modal-open .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; }
       color-mix(in srgb, var(--otter-tint, #8B6F47) 14%, transparent),
       color-mix(in srgb, var(--otter-tint, #8B6F47) 18%, transparent)),
     var(--card-bg);
-  backdrop-filter: var(--bubble-blur);
-  -webkit-backdrop-filter: var(--bubble-blur);
   border: 1px solid var(--hairline);
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
 }
@@ -382,8 +392,6 @@ body.modal-open .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; }
       color-mix(in srgb, var(--otter-tint, #8B6F47) 14%, transparent),
       color-mix(in srgb, var(--otter-tint, #8B6F47) 18%, transparent)),
     var(--card-bg);
-  backdrop-filter: var(--bubble-blur);
-  -webkit-backdrop-filter: var(--bubble-blur);
   border: 1px solid var(--hairline);
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
 }
@@ -393,7 +401,7 @@ body.modal-open .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; }
 .msg-meta { color: var(--ink-3); text-shadow: 0 0 4px rgba(231,221,207,0.9), 0 1px 2px rgba(231,221,207,0.7); }
 
 /* Form inputs */
-.form-input { background: var(--form-input-bg); backdrop-filter: var(--form-input-blur); -webkit-backdrop-filter: var(--form-input-blur); border: 1px solid var(--contact-line); border-radius: 10px; padding: 9px 12px; font-size: 14px; outline: none; transition: all 0.18s; color: #2C2520; }
+.form-input { background: var(--form-input-bg); border: 1px solid var(--contact-line); border-radius: 10px; padding: 9px 12px; font-size: 14px; outline: none; transition: all 0.18s; color: #2C2520; }
 .form-input:focus { outline: 2px solid var(--focus-ring); outline-offset: 1px; background: rgb(255 255 255 / calc(70% * var(--glass-t))); }
 .form-input::placeholder { color: #A89F94; }
 

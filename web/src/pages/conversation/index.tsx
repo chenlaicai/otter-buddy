@@ -1630,7 +1630,7 @@ export default function ConversationPage() {
                 aria-expanded={leftDrawerOpen}
                 aria-controls="left-panel-drawer"
                 aria-label={leftDrawerOpen ? '收起对话列表面板' : '展开对话列表面板'}
-                className="fixed left-3 bottom-3 z-40 w-9 h-9 rounded-full glass-overlay flex items-center justify-center text-stone-500 hover:text-otter-500 transition shadow-bubble"
+                className="fixed left-3 bottom-3 z-40 w-9 h-9 rounded-full drawer-fab flex items-center justify-center text-stone-500 hover:text-otter-500 transition shadow-bubble"
               >
                 <PanelLeft className="w-4 h-4" />
               </button>
@@ -1642,7 +1642,7 @@ export default function ConversationPage() {
                 aria-expanded={rightDrawerOpen}
                 aria-controls="right-panel-drawer"
                 aria-label={rightDrawerOpen ? '收起参与者面板' : '展开参与者面板'}
-                className="fixed right-3 bottom-3 z-40 w-9 h-9 rounded-full glass-overlay flex items-center justify-center text-stone-500 hover:text-otter-500 transition shadow-bubble"
+                className="fixed right-3 bottom-3 z-40 w-9 h-9 rounded-full drawer-fab flex items-center justify-center text-stone-500 hover:text-otter-500 transition shadow-bubble"
               >
                 <PanelRight className="w-4 h-4" />
               </button>
