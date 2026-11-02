@@ -6,6 +6,7 @@ import type {
   LinkedResource,
   ParticipantStatus,
 } from "@entities/conversation/conversation";
+import { isConversationKind } from "@entities/conversation/conversation";
 import type {
   Message,
   MessageEvent,
@@ -98,8 +99,10 @@ export function rowToConversation(row: ConversationRow): Conversation {
     /** F20260929wak1：合法枚举透传（修复线上 bug——双值折叠把 web-assistant 折成
      *  normal，侧栏分组认不出 web 助理对话）。非枚举值回退 normal：列 NOT NULL DEFAULT
      *  'normal'（migration.ts ensureConversationsKindColumn），但手工改库/未来枚举退役
-     *  仍可能遇到怪值，回退兑底防静默放行 */
-    kind: row.kind === "assistant" || row.kind === "web-assistant" ? row.kind : "normal",
+     *  仍可能遇到怪值，回退兑底防静默放行。
+     *  #1224：白名单改经 isConversationKind 守卫（entities 单源派生）——新增枚举值
+     *  不再需要改本文件（#1201 同型 bug 成因消除） */
+    kind: isConversationKind(row.kind) ? row.kind : "normal",
     workspaceDir: row.workspace_dir ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

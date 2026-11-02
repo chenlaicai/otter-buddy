@@ -6,6 +6,7 @@ import type { SettingsRepository } from "@usecases/settings/settings-repository"
 import type { Logger } from "@usecases/ports/logger";
 import { HEALING_CONVERSATION_KEY } from "@usecases/healing/constants";
 import { handleError, param } from "../http-error";
+import { isConversationKind, type ConversationKind } from "@entities/conversation/conversation";
 import { safeJsonBody } from "../parse-json-body";
 import {
   toConversationDTO,
@@ -30,9 +31,10 @@ function parseBoolQuery(raw: string | undefined): boolean | undefined {
   return undefined;
 }
 
-/** F20260924wast：kind 合法值解析（normal | assistant | web-assistant，其余 undefined） */
-function parseKindQuery(raw: string | undefined): "normal" | "assistant" | "web-assistant" | undefined {
-  return raw === "normal" || raw === "assistant" || raw === "web-assistant" ? raw : undefined;
+/** F20260924wast：kind 合法值解析（其余 undefined）。#1224：白名单改经
+ *  isConversationKind 守卫（entities 单源派生）——新增枚举值不再需要改本文件 */
+function parseKindQuery(raw: string | undefined): ConversationKind | undefined {
+  return raw !== undefined && isConversationKind(raw) ? raw : undefined;
 }
 
 function parseListFilter(c: Context): ListConversationsFilter | string {

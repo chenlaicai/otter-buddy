@@ -1,4 +1,6 @@
 /** 对话响应 DTO */
+import type { ConversationKind } from "../../src/entities/conversation/conversation";
+
 export interface ConversationDTO {
   id: string;
   title: string;
@@ -6,8 +8,10 @@ export interface ConversationDTO {
   status: "active" | "archived";
   pinned: boolean;
   /** F20260918imas：助理对话标识（微信/飞书 IM 自动开户；缺省 = 普通对话。前端左侧栏分组依据）
-   *  F20260924wast：kind 联合类型扩 web-assistant（web 浮动獭全局唯一对话） */
-  kind?: "assistant" | "web-assistant";
+   *  F20260924wast：kind 联合类型扩 web-assistant（web 浮动獭全局唯一对话）
+   *  #1224：DTO 联合从 entities 单源派生（Exclude normal——DTO 缺省 = normal 不传输），
+   *  新增枚举值不再需要改本文件 */
+  kind?: Exclude<ConversationKind, "normal">;
   createdAt: string;
   updatedAt: string;
   /** F20260922cgrp：completed 状态退役，字段保留（DB 列不动，历史数据可读，恒为 null 或旧值） */

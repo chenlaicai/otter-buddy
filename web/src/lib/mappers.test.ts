@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { mapSessionDTO, mapOtterDTO, mapParticipantDTO, mapEntryDTO } from './mappers'
-import type { LocalMessage } from './mappers'
-import type { OtterSessionDTO, OtterDTO, ParticipantDTO, EntryDTO } from '@contract/api'
+import { mapSessionDTO, mapOtterDTO, mapParticipantDTO, mapEntryDTO, mapConversationDTO } from './mappers'
+import type { LocalMessage, LocalConversation } from './mappers'
+import type { OtterSessionDTO, OtterDTO, ParticipantDTO, EntryDTO, ConversationListItemDTO } from '@contract/api'
 
 function makeDTO(overrides: Partial<OtterSessionDTO> = {}): OtterSessionDTO {
   return {
@@ -17,6 +17,32 @@ function makeDTO(overrides: Partial<OtterSessionDTO> = {}): OtterSessionDTO {
     ...overrides,
   } as OtterSessionDTO
 }
+
+describe('mapConversationDTO kind 投影（#1224：本地类型从 DTO 契约派生）', () => {
+  it('DTO kind=web-assistant 透传到本地视图（侧栏分组依据）', () => {
+    const dto = {
+      id: 'c1', title: 'web 助理', status: 'active', pinned: false,
+      kind: 'web-assistant',
+      createdAt: '2026-11-02T00:00:00Z', updatedAt: '2026-11-02T00:00:00Z', completedAt: null, archivedAt: null,
+    } as ConversationListItemDTO
+    expect(mapConversationDTO(dto).kind).toBe('web-assistant')
+  })
+
+  it('DTO 无 kind（normal 缺省）时本地视图也不带 kind', () => {
+    const dto = {
+      id: 'c2', title: '普通对话', status: 'active', pinned: false,
+      createdAt: '2026-11-02T00:00:00Z', updatedAt: '2026-11-02T00:00:00Z', completedAt: null, archivedAt: null,
+    } as ConversationListItemDTO
+    expect(mapConversationDTO(dto).kind).toBeUndefined()
+  })
+
+  it('类型派生鏈验证：LocalConversation["kind"] 可赋值自 DTO kind（编译期单源，新增枚举零前端改动）', () => {
+    // 纯类型存在性验证——运行时仅确认两个可选字段语义一致（都缺省 = normal）
+    const dto = { kind: 'assistant' } as ConversationListItemDTO
+    const local: NonNullable<LocalConversation['kind']> = dto.kind!
+    expect(local).toBe('assistant')
+  })
+})
 
 describe('mapEntryDTO senderOtterType（名册外历史发言身份）', () => {
   it('DTO 自带 big 类型优先进入本地消息，不依赖名册', () => {
