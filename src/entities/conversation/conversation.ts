@@ -8,6 +8,19 @@ export type ConversationStatus = "active" | "archived";
 
 export type ConversationKind = "normal" | "assistant" | "web-assistant";
 
+/** #1224：ConversationKind 运行时单源（穷尽数组）+ 类型守卫。
+ *  新增枚举值只改 CONVERSATION_KINDS 一处（上方类型 + 本数组），其余消费点
+ *  （db mapper 白名单 / controller query 解析 / api-contract / 前端 mapper）
+ *  均从本源派生或经守卫过滤——#1201 同型 bug（新增枚举漏改任一平行硬编码）
+ *  的成因模式消除。穷尽性由测试锁（tests/entities/conversation-kind.test.ts：
+ *  satisfies 记录不穷尽即编译红 + 守卫真值表）。 */
+export const CONVERSATION_KINDS = ["normal", "assistant", "web-assistant"] as const satisfies readonly ConversationKind[];
+
+/** 类型守卫：v 是否 ConversationKind 合法值（db mapper 白名单 / query 解析用） */
+export function isConversationKind(v: unknown): v is ConversationKind {
+  return typeof v === "string" && (CONVERSATION_KINDS as readonly string[]).includes(v);
+}
+
 /** 对话实体（无对话树，独立实体） */
 export interface Conversation {
   id: string;
