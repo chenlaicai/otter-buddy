@@ -8,8 +8,9 @@ status: shipped
 modules:
   - tests/guard/replay/cases-2026-10-29.ts
 summary: "守卫回放库覆盖面补齐：11-01 healing 实录 3 条全 BLOCK 真负门，其中 2 条形态缺位固化——①curl 管道进 python 解释器（库内原只有 curl|sh/bash；定性政策性拦截·已知摩擦·精细化候选，非结构负门）；②长命令后段凭证字面量（commandHead 120 截断窗外，fixture 垫长 189 字符钉位）；另补 1 条非泛拦 companion 用例（同形态去字面量=ALLOW）。88 用例全绿。"
-intent: 守卫回放库「守卫行为以真实使用为准」铁律要求新实录形态固化，不固化则未来守卫改动可能静默放宽这两类拦截而回放库不报警
-verify_by: "npx vitest run tests/guard/replay/replay.test.ts 全绿（87→88 用例）；mustBlock 新用例逐条 BLOCK、falsePositiveCases companion 用例 ALLOW"
+intent:
+  summary: 守卫回放库「守卫行为以真实使用为准」铁律要求新实录形态固化，不固化则未来守卫改动可能静默放宽这两类拦截而回放库不报警
+  verify_by: "npx vitest run tests/guard/replay/replay.test.ts 全绿（87→88 用例）；mustBlock 新用例逐条 BLOCK、falsePositiveCases companion 用例 ALLOW"
 source_issue: null
 related_prs: ["1724"]
 causal_links: []
