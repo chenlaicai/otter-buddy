@@ -76,6 +76,7 @@ PR 合入后的资源回收：worktree、本地分支、远程分支、源头 is
    - 不存在 → 跳过
 
 5. **删除远程分支**：
+   - **删前预检（防 open PR 误伤）**：`gh pr list --head <branch> --state open` 确认无 open PR 以该分支为 head——有 → 停手报告（此时删除会触发 GitHub 自动 close 该 PR，若那不是本流程要清理的合入 PR 而是活跃工作 PR，删除即事故）；无 → 继续。预检命令自身失败（非零退出/报错）→ 同样停手报告，不得把报错当作「无 open PR」继续删（fail-closed——预检的意义就在拦截，命令都没跑成不能默认安全）。本流程清理的合入 PR 自身已 MERGED 不受影响，预检拦的是「顺手删了别人活跃 PR 的 head」。
    - `git ls-remote --heads origin <branch>` 检查远程是否存在
    - 存在 → `git push origin --delete <branch>`（失败记录，不阻塞）
    - 不存在 → 跳过

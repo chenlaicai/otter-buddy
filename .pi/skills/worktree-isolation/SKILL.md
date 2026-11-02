@@ -69,6 +69,8 @@ category: technique
    - **bugfix 类 Verification 硬规则**：bugfix PR 的 Verification 节必须附失败用例证据——修复前失败输出 + 修复后通过输出（失败测试/最小复现脚本，来自 troubleshooting 步骤 5a 固化）；两者均不可行时附豁免记录（理由一句话，为何测试与脚本都不适用）。无失败证据链的 bugfix 不算修完。
 5. **推送并创建 PR**：`git push -u origin <branch>` + `gh pr create`，PR 链接交给搭档。自己创建的 feature 分支 rebase 后需重写推送时，用 `git push --force-with-lease`——R1 第 4 条对此放行且无需确认；受保护分支的 force push 仍禁止，见 SYSTEM.md 红线。
 
+   **分支改名（防 open PR 锁死，事故实证 2026-10-13）**：特性编号顺延、slug 修正等需要给已推送的分支改名时，**禁止「删旧分支 + 新建同内容分支」**——删旧分支的瞬间 GitHub 自动 close 以它为 head 的 open PR，且分支重建后 reopen 被平台拒绝（`state cannot be changed. The branch was force-pushed or recreated`，不可恢复，审查链载体当场损失）。正确顺序三步：①先 push 新名分支（同内容）；②在新分支上开新 PR，body 承接旧 PR 的审查链与讨论摘要，并在旧 PR 留评论指路（平台层 PR head 不可变——`gh pr edit` 无改 head 参数，REST API 同样不支持，「切头」路径不存在，改名一律走上述三步路径）；③新 PR CI 通过后再删旧分支——删旧分支是全流程唯一不可逆动作：删之前随时可零损失回退（旧分支/旧 PR 均在，关新 PR 删新分支即回原状），删之后只能向前修新 PR，故 gate 定在 CI 通过（旧分支留着零成本，烧桥时点推迟是纯收益）。此时旧 PR 因 head 消失自动 close 是预期行为，链已迁移无损失。改名前旧 PR 上的评论不会消失（close 不删评论），迁移的是「活跃审查状态」不是历史记录。
+
 > 红线在 SYSTEM.md "仓库安全红线" 中全局定义，本流程严格遵守。
 
 ## 产出
