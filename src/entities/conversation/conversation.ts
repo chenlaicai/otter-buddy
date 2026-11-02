@@ -6,15 +6,14 @@
  */
 export type ConversationStatus = "active" | "archived";
 
-export type ConversationKind = "normal" | "assistant" | "web-assistant";
-
 /** #1224：ConversationKind 运行时单源（穷尽数组）+ 类型守卫。
- *  新增枚举值只改 CONVERSATION_KINDS 一处（上方类型 + 本数组），其余消费点
- *  （db mapper 白名单 / controller query 解析 / api-contract / 前端 mapper）
- *  均从本源派生或经守卫过滤——#1201 同型 bug（新增枚举漏改任一平行硬编码）
- *  的成因模式消除。穷尽性由测试锁（tests/entities/conversation-kind.test.ts：
- *  satisfies 记录不穷尽即编译红 + 守卫真值表）。 */
-export const CONVERSATION_KINDS = ["normal", "assistant", "web-assistant"] as const satisfies readonly ConversationKind[];
+ *  类型从数组派生（typeof[number]）——新增枚举值只改 CONVERSATION_KINDS 一处，
+ *  漏进类型或漏进数组在编译期不可能（同一实体，1725-r1 严重 1 证伪了
+ *  satisfies 子集锁的两个方向中防 #1201 有害方向的那个）。其余消费点
+ *  （db mapper 白名单 / controller query 解析 / repo filter / api-contract /
+ *  前端 mapper）均从本源派生或经守卫过滤——#1201 同型 bug 成因模式消除。 */
+export const CONVERSATION_KINDS = ["normal", "assistant", "web-assistant"] as const;
+export type ConversationKind = (typeof CONVERSATION_KINDS)[number];
 
 /** 类型守卫：v 是否 ConversationKind 合法值（db mapper 白名单 / query 解析用） */
 export function isConversationKind(v: unknown): v is ConversationKind {
