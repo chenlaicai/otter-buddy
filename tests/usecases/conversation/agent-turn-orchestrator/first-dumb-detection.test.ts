@@ -45,7 +45,6 @@ function makeErrorDriver(error: Error): AttemptDriver {
     invoke: async () => { throw error; },
     abort: () => {},
     getInternalAbortReason: () => undefined,
-    getToolCallCount: () => 0,
     isUserAborted: () => false,
   };
 }

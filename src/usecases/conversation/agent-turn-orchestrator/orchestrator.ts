@@ -88,7 +88,14 @@ export class AgentTurnOrchestrator {
           ...(errMeta._modelAlias && { modelAlias: errMeta._modelAlias }),
           ...(errMeta._tokenUsageDelta && { tokenUsageDelta: errMeta._tokenUsageDelta }),
         };
-        toolCallCount = errMeta._toolCallCount ?? driver.getToolCallCount(currentInput.otterId, currentInput.invokeId);
+        // #1116：无 _toolCallCount ⟺ 抛错发生在首个工具调用之前（_acquirePooled 阶段：
+        // 嵌套撞 streaming / config 缺失 / lock 超时；以及 attachGuards 后、内层 try
+        // 前的准备段——检视 S1：该窗口已过 attachGuards 但同样零调用）⟺ 本 invoke
+        // 零次工具调用 → ?? 0 即真实值。原 Map 重查兜底（getToolCallCount）
+        // 已退役：它对经 factory catch 的错误恒不触发（#763 后 _toolCallCount 恒为
+        // number，死链），对首工具前抛错则重查裸 otterId 键——读到同 otter 其他
+        // 活跃 invoke 的计数（跨 invoke 污染，比 0 更糟）。
+        toolCallCount = errMeta._toolCallCount ?? 0;
       } finally {
         // 清理当前 attempt 的去重键，防止内存泄漏
         this.recordedAttempts.delete(attemptKey);

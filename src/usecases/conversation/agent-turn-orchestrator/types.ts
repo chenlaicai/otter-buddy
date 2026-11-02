@@ -109,8 +109,6 @@ export interface AttemptDriver {
   abort(otterId: string, invokeId?: string): void;
   /** 获取内部 abort 原因（outputGuard 等） */
   getInternalAbortReason(invokeId: string): string | undefined;
-  /** 获取工具调用计数 */
-  getToolCallCount(otterId: string, invokeId: string): number;
   /** 检查 invoke 是否被用户中止 */
   isUserAborted(invokeId: string): boolean;
   /** #764：invoke 最近一次 SDK auto_retry 的底层 errorMessage（429 backoff 归因通道）。

@@ -44,7 +44,6 @@ function makeBackoffAbortDriver(retryError: string | undefined): AttemptDriver {
     invoke: async () => { throw ABORT_OWN; },
     abort: () => {},
     getInternalAbortReason: () => undefined,
-    getToolCallCount: () => 0,
     isUserAborted: () => true,
     getRetryErrorMessage: () => retryError,
   };

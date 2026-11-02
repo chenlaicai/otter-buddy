@@ -56,7 +56,6 @@ function countingSdk(): { sdk: SdkInvokePort; calls: () => number } {
       return { text: "LLM 正常应答" };
     },
     abort: () => {},
-    getToolCallCount: () => 0,
     getInternalAbortReason: () => undefined,
   } as unknown as SdkInvokePort;
   return { sdk, calls: () => n };

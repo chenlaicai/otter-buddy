@@ -79,7 +79,6 @@ function mockAgentInvokeNoYield(opts: {
   return {
     invoke: invokeImpl,
     abort: () => {},
-    getToolCallCount: () => 0,
     getInternalAbortReason: () => undefined,
   } as unknown as SdkInvokePort;
 }
