@@ -15,7 +15,7 @@ intent:
   problem: "self-healing-analysis 每日任务的 prompt 数据区是 20 条事件全家桶（description 平均 207 字含 guard 引导全文逐条重复 + suggestion 随行 + 无事件 ID 锚点），约 7K 字占 prompt 2/3；处置獭拿不到锚点需回查数据库对时间戳，固定话术重复 20 遍零信息增益"
   expected_effect: "数据区 ≤2K 字符且每条样本行含 id 短锚与 messageId 前缀（验证断言：连续 7 天，到 2026-11-14）；同形事件归并后处置獭可直接复制锚点查详情；引导话术只出现在模板静态区一处"
   verify_by:
-    type: scheduled_task_output
+    type: metric_probe
     detail: "合入后由每日 self-healing-analysis 任务产出实证：数据区长度与样本行形态由 regression-verify 在 2026-11-14 到期核验（issue #1512 既定口径）；单测侧 6 用例锁定构造逻辑（锚点/聚类/截断/预算/下钻指引）"
 ---
 
