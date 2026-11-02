@@ -15,7 +15,7 @@ budget_bytes: 10750
 4. **memory**：`search_memory`（created_after 昨日）——跨会话/未闭环
 5. **RHI 健康信号**：`curl http://localhost:<port>/api/health/overview` 与 `/api/health/signals`——critical 优先
 6. **signal_events**：`query_signals(status=pending)` 查悬置信号（跨对话统计用 sqlite3）
-7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' <主仓>/data/logs/otter-buddy.log` 按日计数（禁 jq）。≥20 或连续 3 日递增 → bug issue（关联 messageId/otterId）；10-19 记观察行；hook fallback 与 shadow 失衡计入异常；无异常写「failed=N，健康」
+7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' <主仓>/data/logs/otter-buddy.log` 按日计数（禁 jq）。≥20 或连续 3 日递增 → bug issue（关联 messageId/otterId）；≥3 记观察行，连续 2 日 ≥3 升 issue；shadow 日配对差 ≥3 计异常；无异常写「failed=N，健康」
 8. **pending滞留**（前置dbPath）：`cd <主仓> && sqlite3 "file:data/otter-buddy.db?mode=ro" "SELECT p.id,t.name,p.role,p.triggered_at FROM scheduled_task_pending_items p LEFT JOIN scheduled_tasks t ON t.id=p.task_id WHERE p.status='pending' AND datetime(p.triggered_at)<datetime('now','-24 hours')"`。逐条提醒；超48h升issue附id；无行写「滞留0」
 
 ## RHI 信号处置段（看见≠处置，禁止只列数字；必调 triage_signal）
