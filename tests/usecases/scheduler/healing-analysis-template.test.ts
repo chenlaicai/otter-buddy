@@ -174,9 +174,9 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
     expect(capturing.sentBodies).toHaveLength(1);
     const effectiveBody = capturing.sentBodies[0];
 
-    // 动态数据部分
+    // 动态数据部分（#1512 线索化后：样本行含 id 短锚 + msg 前缀，无 ### 分组头）
     expect(effectiveBody).toContain('mock healing event 0');
-    expect(effectiveBody).toContain('### 工具故障 (2 条)');
+    expect(effectiveBody).toContain('工具故障');
     expect(effectiveBody).toContain('当前系统健康概况');
     // 静态文案来自模板文件（而非硬编码重复）
     const templateBody = readTemplateBody();
@@ -308,5 +308,115 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
     await service.trigger('task-healing');
 
     expect(capturing.sentBodies).toEqual(['早上好！']);
+  });
+});
+
+// ─── #1512：数据区线索化（样本行含事件锚点 + 建议不随行 + 预算控制）────
+describe('SchedulerService - self-healing-analysis 数据区线索化（#1512）', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  /** #1512 mock：带 suggestion + 长 description（模拟 guard 引导全文嵌入形态） */
+  function createVerboseHealingRepo(count: number, opts: { duplicatePrefix?: boolean } = {}) {
+    const events = Array.from({ length: count }, (_, i) => ({
+      id: `hevt${String(i).padStart(2, "0")}x9k`,
+      conversationId: "conv-1",
+      otterId: "otter-1",
+      messageId: `m9k${String(i).padStart(5, "0")}`,
+      turnId: `turn-${i}`,
+      errorType: opts.duplicatePrefix ? "guard_intercept" : (i % 2 === 0 ? "guard_intercept" : "other"),
+      severity: "medium",
+      description:
+        (opts.duplicatePrefix && i < 2
+          ? "bash 守卫拦截（近 6h 第 1 次）：写落点误判主仓，正道引导文案全文重复嵌入样本。落点为"
+          : "") +
+        `事件 ${i}：` +
+        "描述正文".repeat(30) +
+        "（固定正道引导话术全文：写代码/文档请用 worktree，主进程是海獭运行环境不得终止）",
+      suggestion: "建议全文：请走 worktree 流程，主进程不得 kill，详见 SYSTEM.md R1 守卫文档",
+      status: "open",
+      resolutionAction: null,
+      resolutionNotes: null,
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+    }));
+    return {
+      autoStaleDismiss: vi.fn(async () => 0),
+      findAgedUnboundHigh: vi.fn(async () => []),
+      getStats: vi.fn(async () => ({
+        open: count,
+        resolved: 0,
+        dismissed: 0,
+        byType: { guard_intercept: Math.ceil(count / 2), other: Math.floor(count / 2) },
+        bySeverity: { medium: count },
+      })),
+      findOpen: vi.fn(async () => events),
+      findById: vi.fn(),
+      findByMessageId: vi.fn(),
+      resolve: vi.fn(),
+      dismiss: vi.fn(),
+      create: vi.fn(),
+      getByConversationId: vi.fn(),
+    } as unknown as HealingEventRepository;
+  }
+
+  async function triggerWith(repo: HealingEventRepository): Promise<string> {
+    const capturing = createCapturingSendEntry();
+    const service = new SchedulerService({
+      ...baseDeps,
+      sendEntry: capturing as unknown as SendEntry,
+      taskRepo: createMockTaskRepo(makeHealingTask()),
+      healingRepo: repo,
+    });
+    await service.trigger("task-healing");
+    expect(capturing.sentBodies).toHaveLength(1);
+    return capturing.sentBodies[0];
+  }
+
+  it("样本行含处置锚点：event id 短锚 + messageId 前缀（原实现只拼 severity+description，锚点缺失）", async () => {
+    const body = await triggerWith(createVerboseHealingRepo(3));
+    // 事件 id 短锚（manage_healing_events 接受前 8 位）
+    expect(body).toMatch(/hevt\d{2}/);
+    // messageId 前缀（验证断言口径：每条样本行含 messageId）
+    expect(body).toMatch(/msg=m9k\d{5}/);
+  });
+
+  it("建议不逐条随行：suggestion 内容不进数据区（下钻查询获取）", async () => {
+    const body = await triggerWith(createVerboseHealingRepo(2));
+    expect(body).not.toContain("建议全文");
+    expect(body).not.toMatch(/^\s*建议:/m);
+  });
+
+  it("描述线索化：长描述截断，固定引导全文不占版面（保留首段差异信息）", async () => {
+    const body = await triggerWith(createVerboseHealingRepo(2));
+    expect(body).not.toContain("固定正道引导话术全文");
+    expect(body).toContain("事件 0"); // 差异信息保留
+  });
+
+  it("同形聚类：description 前 30 字相同的样本合并一行带计数", async () => {
+    const body = await triggerWith(createVerboseHealingRepo(4, { duplicatePrefix: true }));
+    // 两条同前缀（bash 守卫拦截…）应合并：行内 ×2 计数标记
+    expect(body).toMatch(/×2/);
+  });
+
+  it("数据区预算控制：20 条长事件全样本时数据区 ≤ 2K 字符（验证断言口径）", async () => {
+    const body = await triggerWith(createVerboseHealingRepo(20));
+    // 数据区 = HEALING_DATA 展开部分：概况头到「## 样本下钻」（模板中紧随占位符的新段）
+    const start = body.indexOf("当前系统健康概况");
+    const end = body.indexOf("## 样本下钻");
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const dataSectionLen = end - start;
+    expect(dataSectionLen).toBeLessThanOrEqual(2000);
+  });
+
+  it("下钻路径声明：数据区或模板含按 ID 查详情的指引", async () => {
+    const body = await triggerWith(createVerboseHealingRepo(2));
+    expect(body).toMatch(/manage_healing_events|查.{0,6}详情/);
   });
 });

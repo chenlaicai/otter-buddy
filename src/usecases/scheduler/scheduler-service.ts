@@ -2162,6 +2162,10 @@ export const HEALING_FALLBACK_PROMPT = `## Self-Healing 定期分析任务
 
 {{HEALING_DATA}}
 
+## 样本下钻
+
+样本行格式：\`- [severity] 类型×计数｜事件id前8位｜msg=messageId前8位｜描述首段\`。同形事件（描述前 30 字相同）已归并，计数代表族内最新样本之外的条数。处置锚点用事件 id 前 8 位（manage_healing_events 接受短锚），按 messageId 查对应对话消息。建议（suggestion）不随行——详情经 manage_healing_events(action=query) 获取。
+
 ## 处置权检查（前置，口径协议）
 
 **high severity 硬规则**：severity 为 high 的 open 事件**必须** bind_issue 归口到 GitHub issue（逐条处置、按 R2 规范写明案发现场与影响；方案仅在排查后给出，未经排查须标假设），不得直接 dismiss/resolve——high 是升级信号（守卫变体重试计数升级产出），静默处置会让「正当诉求无出路」的信号消失。确属误报时须先建 issue 说明误判理由、bind 后才能在 issue 内讨论关闭。
@@ -2340,6 +2344,72 @@ export async function buildRegressionVerifyHeartbeat(
 /** 构建 healing 分析任务的动态 prompt。返回 null 表示无待处理事件。
  *  静态文案来自 prompts/scheduled/self-healing-analysis.md（issue #416 git 化），
  *  文件缺失时回退到内置文案保证可用性。 */
+/** #1512：数据区线索化——样本行带锚点（id 短锚 + msg 前缀）、同形聚类带计数、
+ *  描述截断保留差异信息、建议不随行（下钻获取）、总预算控制（2K 字符硬顶）。
+ *  样本选取：findOpen 上限内的最新事件；同形归并仅作用于样本内（description
+ *  前 30 字相同 = 同形族），非全库聚类——全库分布由 stats 行提供。 */
+const HEALING_DATA_SECTION_BUDGET = 2000;
+const HEALING_SAMPLE_DESC_LIMIT = 80;
+const HEALING_CLUSTER_PREFIX_LEN = 30;
+
+interface HealingClassCounts {
+  environment: number;
+  capability: number;
+  feedback: number;
+}
+
+function buildHealingDataSection(
+  stats: { open: number; resolved: number; dismissed: number; byType: Record<string, number>; bySeverity: Record<string, number> },
+  openEvents: Array<{ id: string; messageId: string; errorType: string; severity: string; description: string; suggestion: string | null }>,
+  byClass: HealingClassCounts & { envList: string; fbList: string },
+): string {
+  const header = `当前系统健康概况：
+- 待处理: ${stats.open} 个
+- 已解决: ${stats.resolved} 个
+- 已忽略: ${stats.dismissed} 个
+- 按类型分布: ${JSON.stringify(stats.byType)}
+- 按严重程度分布: ${JSON.stringify(stats.bySeverity)}
+- 二维分账: 环境/系统失败 ${byClass.environment} 条 / 獭能力失败 ${byClass.capability} 条 / 主动反馈 ${byClass.feedback} 条（口径：${byClass.envList}=环境，${byClass.fbList}=反馈独立列，其余=能力）
+
+待处理样本（最新 ${openEvents.length} 条，同形已归并；详情按 id 查 manage_healing_events）：
+
+`;
+
+  // 同形聚类：description 前 30 字相同 → 同族，保留最新一条 + 计数
+  const clusters = new Map<string, { count: number; latest: (typeof openEvents)[number] }>();
+  for (const e of openEvents) {
+    const key = `${e.errorType}·${e.description.slice(0, HEALING_CLUSTER_PREFIX_LEN)}`;
+    const c = clusters.get(key);
+    if (c) c.count++;
+    else clusters.set(key, { count: 1, latest: e });
+  }
+
+  const lines: string[] = [];
+  for (const { count, latest } of clusters.values()) {
+    const desc = latest.description.length > HEALING_SAMPLE_DESC_LIMIT
+      ? latest.description.slice(0, HEALING_SAMPLE_DESC_LIMIT) + '…'
+      : latest.description;
+    const id = latest.id.slice(0, 8);
+    const msg = latest.messageId.slice(0, 8);
+    lines.push(`- [${latest.severity}] ${latest.errorType}${count > 1 ? `×${count}` : ''}｜${id}｜msg=${msg}｜${desc}`);
+  }
+
+  let section = header + lines.join('\n') + '\n';
+  // 预算硬顶：超出时逐行丢弃（保最新——lines 按事件序已最新在前）并标注
+  if (section.length > HEALING_DATA_SECTION_BUDGET) {
+    const kept: string[] = [];
+    let used = header.length;
+    for (const line of lines) {
+      if (used + line.length + 1 > HEALING_DATA_SECTION_BUDGET - 60) break; // 留 60 字符给尾部标注
+      kept.push(line);
+      used += line.length + 1;
+    }
+    const dropped = lines.length - kept.length;
+    section = header + kept.join('\n') + `\n…（样本预算 ${HEALING_DATA_SECTION_BUDGET} 字符已满，${dropped} 条未展示——按类型分布行用 manage_healing_events 查全量）\n`;
+  }
+  return section;
+}
+
 async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Promise<string | null> {
   const stats = await healingRepo.getStats();
   const openEvents = await healingRepo.findOpen(20);
@@ -2347,11 +2417,6 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
   if (openEvents.length === 0) {
     return null;
   }
-
-  const eventsByType = openEvents.reduce((acc, e) => {
-    (acc[e.errorType] ??= []).push(e);
-    return acc;
-  }, {} as Record<string, typeof openEvents>);
 
   // #998：二维分账（环境/系统 vs 獭能力）——混排会让分析任务把工具故障误读成獭不行。
   // tool_use_feedback 返回 null 不入分账（主动反馈信号，独立计数）；口径文案从实体清单拼接防漂移
@@ -2367,26 +2432,7 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
   const envList = HEALING_ENVIRONMENT_TYPES.join('/');
   const fbList = HEALING_FEEDBACK_TYPES.join('/');
 
-  let dataSection = `当前系统健康概况：
-- 待处理: ${stats.open} 个
-- 已解决: ${stats.resolved} 个
-- 已忽略: ${stats.dismissed} 个
-- 按类型分布: ${JSON.stringify(stats.byType)}
-- 按严重程度分布: ${JSON.stringify(stats.bySeverity)}
-- 二维分账: 环境/系统失败 ${byClass.environment} 条 / 獭能力失败 ${byClass.capability} 条 / 主动反馈 ${byClass.feedback} 条（口径：${envList}=环境，${fbList}=反馈独立列，其余=能力）
-
-以下是待处理的 healing events（共 ${openEvents.length} 条，按类型分组）：
-
-`;
-
-  for (const [type, events] of Object.entries(eventsByType)) {
-    dataSection += `### ${type} (${events.length} 条)\n\n`;
-    for (const e of events) {
-      dataSection += `- [${e.severity}] ${e.description}\n`;
-      if (e.suggestion) dataSection += `  建议: ${e.suggestion}\n`;
-    }
-    dataSection += '\n';
-  }
+  const dataSection = buildHealingDataSection(stats, openEvents, { environment: byClass.environment, capability: byClass.capability, feedback: byClass.feedback, envList, fbList });
 
   const template = loadHealingTemplate();
   let prompt: string;
