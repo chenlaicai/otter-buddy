@@ -7,6 +7,10 @@ dynamic: true
 
 {{HEALING_DATA}}
 
+## 样本下钻
+
+样本行格式：`- [severity] 类型×计数｜事件id前8位｜msg=messageId前8位｜描述首段`。同形事件（描述前 30 字相同）已归并，计数为族内总条数（含所示最新样本）。处置锚点用事件 id 前 8 位（manage_healing_events 接受短锚），按 messageId 查对应对话消息。建议（suggestion）不随行——详情经 manage_healing_events(action=query) 获取。
+
 ## 处置权检查（前置，口径协议）
 
 **high severity 硬规则**：severity 为 high 的 open 事件**必须** bind_issue 归口到 GitHub issue（逐条处置、按 R2 规范写明案发现场与影响；方案仅在排查后给出，未经排查须标假设），不得直接 dismiss/resolve——high 是升级信号（守卫变体重试计数升级产出），静默处置会让「正当诉求无出路」的信号消失。确属误报时须先建 issue 说明误判理由、bind 后才能在 issue 内讨论关闭。
