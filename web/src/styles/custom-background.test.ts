@@ -9,12 +9,15 @@ import { resolve } from 'node:path'
 const css = readFileSync(resolve(__dirname, '../styles/globals.css'), 'utf-8')
 
 describe('自定义背景静态 CSS 契约', () => {
-  it('使用独立固定画布，居中铺满且不重复', () => {
+  it('使用独立固定画布，居中铺满且不重复（F20261102glmtr：薄纱多层形式，var 必带 fallback）', () => {
     expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*position:\s*fixed/)
-    expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*background-image:\s*var\(--custom-bg-image\)/)
+    // 多层 background-image：薄纱在最上层，用户图片在下层（F20261102glmtr）
+    expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*background-image:[^;]*rgba\(var\(--canvas-tint-rgb,\s*250,\s*247,\s*238\),\s*0\.32\)[^;]*var\(--custom-bg-image\)/)
     expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*background-size:\s*cover/)
     expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*background-position:\s*center/)
     expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*background-repeat:\s*no-repeat/)
+    // 薄纱是静态合成：画布层禁止 backdrop-filter（R=0 红线）
+    expect(css).not.toMatch(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*backdrop-filter/)
   })
 
   it('body 隔离层叠使负 z-index 图片画布留在默认背景之上、内容之下', () => {

@@ -8,16 +8,72 @@ let operationGeneration = 0
 
 export class BackgroundPreferenceError extends Error {}
 
+/** F20261102glmtr v3.0：中性纱 fallback——主色提取前/失败时薄纱用（与 globals.css var fallback 同值） */
+const NEUTRAL_TINT_RGB = '250, 247, 238'
+
 function clearAppliedBackground() {
   const root = document.documentElement
   root.style.removeProperty('--custom-bg-image')
   root.removeAttribute('data-custom-bg')
+  root.style.removeProperty('--canvas-tint-rgb')
 }
 
 function applyDecodedBackground(url: string) {
   // Why: URL 只由本应用受控 API 产生，不用用户输入拼 HTML/CSS。
-  document.documentElement.style.setProperty('--custom-bg-image', `url("${url}")`)
-  document.documentElement.setAttribute('data-custom-bg', 'true')
+  const root = document.documentElement
+  root.style.setProperty('--custom-bg-image', `url("${url}")`)
+  root.setAttribute('data-custom-bg', 'true')
+  // F20261102glmtr：同步落中性纱兜底（CSS var fallback 双保险），再异步换成真主色——
+  // 薄纱任何窗口期都不会让背景图失效（var 未定义→整条多层声明 invalid 的红线）。
+  root.style.setProperty('--canvas-tint-rgb', NEUTRAL_TINT_RGB)
+  extractDominantTint(url, root)
+}
+
+/**
+ * F20261102glmtr：Mica 式主色提取——离屏 canvas 降采样取平均色，向 stone 系中和
+ * （降饱和+亮度锥制）后写 --canvas-tint-rgb，供 globals.css 静态薄纱合成。
+ * 一次性计算、纯运行时 CSS var（不落库）；失败静默保留当前值（中性纱）。
+ */
+function extractDominantTint(url: string, root: HTMLElement): void {
+  try {
+    const image = new Image()
+    image.onload = () => {
+      try {
+        if (image.naturalWidth === 0 || image.naturalHeight === 0) return
+        const canvas = document.createElement('canvas')
+        canvas.width = 8
+        canvas.height = 8
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(image, 0, 0, 8, 8)
+        const { data } = ctx.getImageData(0, 0, 8, 8)
+        let r = 0
+        let g = 0
+        let b = 0
+        const px = data.length / 4
+        for (let i = 0; i < data.length; i += 4) {
+          r += data[i]
+          g += data[i + 1]
+          b += data[i + 2]
+        }
+        r = Math.round(r / px)
+        g = Math.round(g / px)
+        b = Math.round(b / px)
+        // 向 stone 系中和：降饱和（对白锚点插值）+亮度锥制在浅色区间，保证面板文字对比度
+        const desat = (v: number) => Math.round(v * 0.45 + 250 * 0.55)
+        const clampLight = (v: number) => Math.min(250, Math.max(210, desat(v)))
+        root.style.setProperty('--canvas-tint-rgb', `${clampLight(r)}, ${clampLight(g)}, ${clampLight(b)}`)
+      } catch {
+        // canvas 被污染/CORS 等异常：保留中性纱，薄纱不中断
+      }
+    }
+    image.onerror = () => {
+      // 提取失败保留中性纱
+    }
+    image.src = url
+  } catch {
+    // 任何同步异常保留中性纱
+  }
 }
 
 function decodeImage(url: string): Promise<void> {

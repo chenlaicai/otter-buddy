@@ -157,6 +157,18 @@ modules:
 
 ## 验证
 
+### 实现结果（2026-11-02，实现者自报）
+
+- **契约测试**：material-v3.test.ts 10 断言 + custom-background.test.ts 适配 + scrim-flicker-6 保持——24/24 全绿；web 全量 82 文件 837 测试全绿；tsc --noEmit 零错误；vite build 成功（12.07s）
+- **真机自查**（Playwright/Chromium，dev server 实渲染）：①常驻面板计算样式 backdrop-filter=none（.glass-strong/.glass）✓；②薄纱多层 background 正确合成（linear-gradient 薄纱在上、用户图在下）✓；③端到端主色提取：restore 路径真实背景图 → `--canvas-tint-rgb: 231, 218, 210`（真提取值非 fallback）✓；④用户图保持清晰（截图 glmtr-conversation.png：角色轮廓锐利）✓；⑤窄屏 drawer-fab bf=none ✓。截图存对话工作区（glmtr-veil-desktop.png / glmtr-conversation.png / glmtr-fab-narrow.png）
+- **SessionModal S1 处置更新**：rebase 后 main 已由 F20261102kfvqa 摘除内联 blur（换 .scrim + modal-open 接入）——本 PR 无需再动 SessionModal.tsx，全仓非测试代码内联 backdropFilter 已清零（grep 终验）
+- **Golden Gate**：n/a（verify_by=behavior_check 的 UI 视觉层改造，无 agent 行为场景可跑；capability 场景不触材质层）
+- **最简实现检查**：已过——token 手术方案本身即「组件类名不动」的最小 diff 路径；薄纱复用现有 ::before 画布层未新增合成层；无新依赖
+- **影响面自检**：本次改动使 globals.css 材质头注释（v2.3 表述）失效——已当场重写为 v3.0；F20260724glas 的「画布之上全层玻璃」哲学描述由本文档 + R20261102glass 取代（历史文档不回改）
+- **负面向声明**：本次变更破坏的旧契约 = 「常驻类必有 backdrop-filter」的 v2.3 惯例（契约测试反向锁定新契约）；未绕过任何既有保护（scrim-flicker-6 六轮终局规则原样保留并测试锁定）
+
+### 真机验收（搭档，待做）
+
 - **契约测试**（新增 material-v3.test.ts + 既有两份 CSS 契约测试经断言适配后全绿）
 - **全量 web 测试 + 构建**（pre-commit/pre-push 闸门）
 - **滚动回归**：F20261029repin 的滚动测试 + **窄屏 <lg 断点布局回归**（窄屏按钮仅该断点渲染，宽屏验收覆盖不到）
