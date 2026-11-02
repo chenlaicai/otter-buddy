@@ -235,6 +235,31 @@ describe("lint-historical-docs: 历史文档不可变", () => {
     git(repo, ["checkout", "--", OLD_DOC]);
   });
 
+  it("#1164 同 staged 混合形态：历史文档 M + .doc-fix D → 拦截（fail-closed，不经声明通道）", () => {
+    // #1162/#1164 关联场景：上一轮配对订正后（HEAD 含 .doc-fix），新 staged 区同时含
+    // 历史文档修改与 .doc-fix 删除——「声明与订正同 commit 进、独立 commit 出」语义下
+    // 这是抹除路径的本地形态。声明已被 stage 为 D → 变更集中声明文件名在场但
+    // readDocFixDeclaration 读 index :.doc-fix 失败（已删除无树对象）→ 通道不开，
+    // 历史文档修改按无声明拦截（fail-closed）。锁定：拒绝且不落入声明通道。
+    // 前置：HEAD 需已含 .doc-fix（否则 .doc-fix 不存在、无 D 可 stage）
+    fs.writeFileSync(path.join(repo, ".doc-fix"), "上一轮订正声明（#1164 混合形态锁定）\n");
+    git(repo, ["add", "--", ".doc-fix"]);
+    git(repo, ["commit", "-q", "-m", "prior paired declaration (fixture)"]);
+    fs.writeFileSync(path.join(repo, OLD_DOC), OLD_DOC_CONTENT.replace("title: 旧特性", "title: 又改"));
+    git(repo, ["reset", "-q", "--", "."]);
+    git(repo, ["add", "--", OLD_DOC]);
+    git(repo, ["rm", "-q", ".doc-fix"]);
+    const r = runLint(repo);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain(OLD_DOC);
+    expect(r.stderr).toMatch(/读取失败|无 \.doc-fix 声明文件/); // 拒绝且不在声明放行通道
+    // 收尾：恢复 staged 与 HEAD 状态，避免污染后续用例
+    git(repo, ["reset", "-q", "--", "."]);
+    git(repo, ["checkout", "--", OLD_DOC]);
+    git(repo, ["rm", "-q", ".doc-fix"]); // 撤 fixture commit 里的声明（保持仓库回到无声明基线）
+    git(repo, ["commit", "-q", "-m", "remove fixture declaration"]);
+  });
+
   it("rename 历史文档（git mv + 编辑新路径）→ 旧路径 D 被拦（rename 等价语义，走 .doc-fix 声明通道）", () => {
     // 实测：git mv + add 后 staged 显示 A 新路径 + D 旧路径。新路径按 A 放行（rename 等价），
     // 旧路径 D 落入拦截——结构性重排走 .doc-fix 声明通道，本用例锁定该行为
