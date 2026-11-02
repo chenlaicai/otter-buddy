@@ -323,7 +323,7 @@ export interface OtterInvokeContext {
    *  bashGuard.allowedEgressDomains。搭档专改（主仓文件走 PR，獭无权扩表防注入自放行）；
    *  缺省时用守卫内置缺省表（见 bash-safety-guard）。 */
   guardAllowedEgressDomains?: string[];
-  /** F20261026gobs delta-r1：拦截落 healing 钩子——门拦截时上报（写 guard_intercept
+  /** F20261026gobs：拦截落 healing 钩子——门拦截时上报（写 guard_intercept
    *  healing 事件），守卫行为以真实使用为准（回放库语料来源）。缺省时拦截照常。 */
   guardOnIntercept?: (input: { command: string; reason: string; ruleId?: string; ruleLayer?: string }) => void;
   /** F20261027lbos（#1656）：循环硬熔断门拦截落 healing 钩子——门拦截时上报

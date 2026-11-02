@@ -185,7 +185,7 @@ export class AgentInvoker implements AgentTurnPort {
   private readonly handoffState = new HandoffState();
   /** F20260901cxmw：按 otter 缓存解析出的 ctxMax（池条目启动后不可变，见 ModelPool 注释） */
   private readonly resolvedCtxMax = new Map<string, number>();
-  /** F20260901cxmw：按 otter 缓存解析出的 ctxMax。缓存边界（cxrev 审视发现 #3 措辞精确化）：
+  /** F20260901cxmw：按 otter 缓存解析出的 ctxMax。缓存边界：
    * ModelPool 的 entries 启动后不可变；defaultAlias 可通过 settings 页运行时切换，
    * 仅影响无显式 modelAlias otter 的新解析（新 session 口径）——已缓存的 otter 保持首解析值。 */
 
@@ -442,7 +442,7 @@ export class AgentInvoker implements AgentTurnPort {
     /** F20260818cbkr 二级触发：invoke 前按 healing_events 推导，命中先重启（消息尚未创建，重启后摘要随新 invoke 注入） */
     await this.circuitBreak?.maybeSecondaryCircuitBreak(otterId, conversationId);
     const dynamicContext = await this.buildDynamicContext(otterId, conversationId);
-    // F20260826mwrd C3（Part 4）：高危 healing 事件提醒——仅 big 獭消费（编排者处置义务），
+    // F20260826mwrd：高危 healing 事件提醒——仅 big 獭消费（编排者处置义务），
     // small 獭 invoke 不取队列（队列滞留，大獭下轮补提醒）。失败不阻断主流程（台账在，提醒可再等）。
     // otterType 查询与下方 otter 复用：此处仅取 type，会话中 otter 主体仍在 streaming 消息创建后取。
     const invokedOtter = await this.queryOtter.getById(otterId);
@@ -1220,14 +1220,14 @@ export class AgentInvoker implements AgentTurnPort {
         : '';
 
       // ---- 叙事合成（synthesizePast=true 时；影子通道，不触锁）----
-      // F20260930hsfx S1 核心：合成触发条件改为「synthesizePast && 原料非空」——保留段空
+      // F20260930hsfx：合成触发条件改为「synthesizePast && 原料非空」——保留段空
       //  （keptEntries=[]）不再连坐废掉整个合成（此前 slice undefined 就跳过合成，把「无 speak
       //  但有工具轮原料」误判为「无可压缩内容」，事故实证：6 秒空 speak session 拿到机械档案）。
       // F20260923hsyn：死循环熔断——连续 ≥2 次合成失败则跳过合成直接机械档案
       // （9/23 压缩死亡链：失败后 continuing with current session → ctx 继续涨 → 再触发再失败）。
       //  注释口径修正（F20260930hsfx）：清零挂「合成成功」而非「交接成功」——交接成功但
       //  合成降级（机械档案）不清零，计数继续累积，下次交接熔断分支生效。
-      // F20260930hsfx delta 严重3真修：判定去掉 synthesizePast && 前缀——熔断重启真实路径传
+      // F20260930hsfx：判定去掉 synthesizePast && 前缀——熔断重启真实路径传
       //  synthesizePast=false（M4 快速止损），若保留前缀则该条件恒 false、circuit-open 分支永不
       //  命中，虚假归因原样存在。计数≥2 无论触发方传什么都该归因 circuit-open（熔断是系统
       //  强制，非用户选择）；M4 的 synthesizePast=false 只控制「跑不跑合成」，不影响 reason 归因。
@@ -1404,7 +1404,7 @@ export class AgentInvoker implements AgentTurnPort {
     }
   }
 
-  /** F20260930hsfx S1 helper：保留段空（无 speak 有原料）时在叙事摘要末尾补说明——
+  /** F20260930hsfx：保留段空（无 speak 有原料）时在叙事摘要末尾补说明——
    *  告知新世「保留段空不是丢失，是前世本就没发言；工具轮原料已完整压缩进叙事」。
    *  保留段非空原样返回（有 speak 时无需标注）。 */
   private annotateNoSpeakIfKeptEmpty(summary: string, slice: EngineJsonlSlice): string {
@@ -1972,7 +1972,7 @@ export class AgentInvoker implements AgentTurnPort {
       });
     }
     if (circuitHandoffSession) {
-      // F20260920uhuc 审视发现1修复：unifiedHandoff 已完成唯一换世（新 session 携带四段叠加档案），
+      // F20260920uhuc：unifiedHandoff 已完成唯一换世（新 session 携带四段叠加档案），
       // 不再执行 executeCircuitBreakRestart 的第二次 restartSession（会导致幽灵世代+档案被熔断摘要覆盖）。
       // 只补熔断终态事件（newSessionId 指向 unifiedHandoff 建立的新世），让熔断台账/查询完整。
       await this.circuitBreak.writeCircuitBreakEvent(turnResult._circuitBreak, {

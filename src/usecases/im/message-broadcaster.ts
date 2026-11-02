@@ -2,7 +2,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { SSEEvent } from "@contract/sse/events";
 
 /**
- * 进程内事件广播总线（issue #281；F20260913ctlv 处置轮收缩）。
+ * 进程内事件广播总线（issue #281；F20260913ctlv 收缩）。
  *
  * 职责：Web SSE 订阅者的事件分发（entry.* / invoke.*）+ 出站事件通道（IM）的注册与转发。
  * **平台无关**：bootstrap 无条件创建；飞书/微信出站（markdown 投递 / "正在思考..." /

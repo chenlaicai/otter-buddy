@@ -29,7 +29,7 @@ const USER_ENDPOINT = "https://open.feishu.cn/open-apis/contact/v3/users/";
 const CHAT_MEMBERS_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/chats/";
 /** 翻页防御上限：飞书单页 100 人，20 页 = 2000 成员，远超真实会话规模 */
 const CHAT_MEMBERS_MAX_PAGES = 20;
-/** 网关永不阻塞消息主链路：单次出网超时即降级（F20261012cmmn 检视发现 2 处置——防热路径挂起） */
+/** 网关永不阻塞消息主链路：单次出网超时即降级（F20261012cmmn——防热路径挂起） */
 const FETCH_TIMEOUT_MS = 15 * 1000;
 
 /** 缓存 TTL：飞书姓名变更低频，10 分钟足够 */

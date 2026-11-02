@@ -87,7 +87,7 @@ export interface WorkLedgerRepository {
    * 拉取全部 invokes 的归属关联视图（批量）——报告聚合的单一数据源。
    * 每行含 metadata.traceId（JSON 解析后）与已绑定 workId（JOIN work_item_traces）。
    * invokedAfterIso 可选：增量拉取（报告窗口控制）。
-   * F20261027hwl1 复审 S1 修复：本方法不再作为报告聚合入口（先截断后聚合产生窗口偏置）；
+   * F20261027hwl1：本方法不再作为报告聚合入口（先截断后聚合产生窗口偏置）；
    * 列表报告改用 aggregateAttributionCounts（SQL 内全量聚合），详情报告用
    * listInvokesByWork（SQL 内按 work 过滤）。本方法保留给需要逐行证据的小窗口场景。
    */

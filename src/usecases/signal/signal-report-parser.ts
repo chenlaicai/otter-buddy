@@ -16,7 +16,7 @@
  *   超长 / 属性引号异常 / 正文未闭合——非法块静默剥离不落账（fail-open，
  *   不阻断正常发言）
  *
- * F20260827c2sg 审视处置（发现 4 重写）：正则三件套无法表达「标签平衡配对」语义
+ * F20260827c2sg：正则三件套无法表达「标签平衡配对」语义
  * （初版非贪婪跨块吞噬；二版负向前瞻把 payload 含 `<signal` 字样的合法块整块丢掉、
  * 反引号示例经 normalize 后内层冒名落账且 parse/strip 不同步）。改为 tokenizer +
  * 栈式配对：开/闭标签按位置切 token，栈式配对成块，顶层块（不被其他成对块包含）
@@ -75,7 +75,7 @@ interface SignalToken {
 const SIGNAL_TOKEN_RE = /<signal\b[^<>]*>|<\/signal>/gi;
 
 /**
- * 疑似开标签残文（F20260827c2sg 审视发现 5 兜底，仅 strip 侧用）：
+ * 疑似开标签残文（F20260827c2sg 兜底，仅 strip 侧用）：
  * 属性段容忍裸 <（[^>]*）——tokenizer 认不出的畸形开标签（如 <signal a<b type=...>）
  * 由这里兑底剥离，「<signal 开头的标签形态不应出现在 UI 正文」。
  * 与 SIGNAL_TOKEN_RE 的分工：token 化保严格（[^<>]* 防裸字样吞闭合标签），

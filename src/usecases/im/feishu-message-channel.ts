@@ -62,7 +62,7 @@ export class FeishuMessageChannel implements OutboundEventChannel {
   /** F20260913ctlv 批4a：SSE 事件出站——invoke.start 触发"正在思考..."
    *  （message.start 已无生产者）；entry.speak = speak 气泡出站投递
    *  （替代已死的 onMessage/broadcaster.broadcast 链路）。
-   *  F20260913ctlv 处置轮：entry.user = Web→飞书用户消息同步（F20260828fsyc 恢复）——
+   *  F20260913ctlv：entry.user = Web→飞书用户消息同步（F20260828fsyc 恢复）——
    *  防回环闸 source=web（IM 入站链的 entry.user 事件 source=feishu/weixin，不回投） */
   onEvent(conversationId: string, event: SSEEvent): void {
     if (event.event === "invoke.start") {

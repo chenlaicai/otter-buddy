@@ -72,7 +72,7 @@ import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recrui
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
 import { resolveFeatureGates } from "./feature-gates";
 
-// F20260929fsqr（delta 检视严重 1）：FeishuBundle 随静态线退役删除（见 createFeishuBundle 注释）
+// F20260929fsqr：FeishuBundle 随静态线退役删除（见 createFeishuBundle 注释）
 
 /** 创建 AgentGateway（PiSessionFactory），解决 OtterToolClient 循环依赖 */
 export async function createAgentGateway(options: {
@@ -340,7 +340,7 @@ function buildSchedulerServiceOptions(o: SchedulerServiceOptions): SchedulerServ
 }
 
 /** issue #281：broadcaster 由 app.ts 无条件创建（平台无关总线），飞书出站作为 channel 注册 */
-// F20260929fsqr（delta 检视严重 1）：createFeishuBundle/setupFeishu/FeishuBundle 随静态线退役删除
+// F20260929fsqr：createFeishuBundle/setupFeishu/FeishuBundle 随静态线退役删除
 // （唯一调用方 app.ts 已移除；误复活风险与死代码一并清除）
 
 /** F20260920imax：助理态注入片段（微信/飞书共用语义：总开关 + 助理线模型；setupFeishu/startWeixinChannels 双消费方） */
@@ -356,8 +356,8 @@ function buildAssistantInjections(appConfig: AppConfig, uc: UseCases): {
   };
 }
 
-// F20260929fsqr（delta 检视严重 1）：setupFeishu 已随静态线退役删除
-// F20260929fsqr（delta 检视严重 1）：setupFeishu 随静态线退役删除——唯一调用方 app.ts 已移除；
+// F20260929fsqr：setupFeishu 已随静态线退役删除
+// F20260929fsqr：setupFeishu 随静态线退役删除——唯一调用方 app.ts 已移除；
 // 装配语义由 buildFeishuRuntime 工厂统一承担（扫码线 feishu-scan.ts 全权持有）
 
 export interface PlatformBootstrapResult {

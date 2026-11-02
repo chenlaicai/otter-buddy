@@ -48,7 +48,7 @@ function parseListFilter(c: Context): ListConversationsFilter | string {
   const statusRaw = c.req.query("status");
   const status = statusRaw === "active" || statusRaw === "archived" ? statusRaw : undefined;
   const kind = parseKindQuery(c.req.query("kind"));
-  /** F20260922cgrp delta：pinned=true|false（普通区分页传 false 排除置顶，计数口径对齐） */
+  /** F20260922cgrp：pinned=true|false（普通区分页传 false 排除置顶，计数口径对齐） */
   const pinned = parseBoolQuery(c.req.query("pinned"));
   return { limit, offset, search, status, kind, pinned };
 }

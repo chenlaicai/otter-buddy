@@ -16,7 +16,7 @@ export type ListConversationsFilter = {
   /** F20260922cgrp：按类别过滤（assistant = IM 助理；normal = 普通对话）；缺省不过滤。
    *  #1224：联合从 entities 单源派生（原三值硬编码收敛） */
   kind?: ConversationKind;
-  /** F20260922cgrp delta：按置顶过滤（false = 仅非置顶——普通区分页不含置顶，计数口径对齐）；缺省不过滤 */
+  /** F20260922cgrp：按置顶过滤（false = 仅非置顶——普通区分页不含置顶，计数口径对齐）；缺省不过滤 */
   pinned?: boolean;
 };
 

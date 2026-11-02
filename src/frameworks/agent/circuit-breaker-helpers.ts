@@ -229,7 +229,7 @@ export function attachCircuitBreaker(
 
 
       const result = circuitBreaker.check(toolName, e.args);
-      // F20261020hlbk（#1566）→ F20261027cbfp（#1653 P0-2 + S1 补防）：黑名单写入两条件（或）——
+      // F20261020hlbk → F20261027cbfp：黑名单写入两条件（或）——
       // ① terminate：strike 涨满，写入 + abort；
       // ② repeatOffender：同签名第 2 次 steer（复犯，首次警告未生效）——仅写不 abort（本次仍
       //   steer 提醒，后续同签名由门物理拦截）。

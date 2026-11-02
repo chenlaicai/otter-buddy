@@ -13,7 +13,7 @@ export function isRetryableGuardAbort(reason: string): boolean {
   if (reason === 'streaming_timeout') return true;
   if (reason === 'first_byte_timeout') return true;
   if (reason.startsWith('circuit_break:')) return true;
-  // F20260830bsgr: bash 安全守卫命中后给 LLM 一次自纠机会（R2-1 delta 复核裁决）
+  // F20260830bsgr: bash 安全守卫命中后给 LLM 一次自纠机会
   if (reason.startsWith('bash_safety:')) return true;
   // F20260928slan：sleep 拦截（感知问题）同纪律——一次自纠机会：先 speak 说明理由 → 改 wait 工具
   if (reason.startsWith('bash_sleep:')) return true;

@@ -460,7 +460,7 @@ export class SqliteEntryRepository implements EntryRepository {
     if (entries.length === 0) return;
     for (const entry of entries) {
       if (entry.entryType === "speak" || entry.entryType === "user") {
-        // F20260913ctlv delta 回修：全列查询——此前只查 4 列，id/mimeType/width/height
+        // F20260913ctlv：全列查询——此前只查 4 列，id/mimeType/width/height
         // 为硬编码占位（id:"" 拼出 /api/attachments/ 破图 404；透出层修复后成毒数据）
         const attRows = this.db.prepare(`
           SELECT a.id, a.kind, a.original_name, a.mime_type, a.size_bytes, a.width, a.height, a.caption

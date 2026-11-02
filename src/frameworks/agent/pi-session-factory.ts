@@ -1209,7 +1209,7 @@ export class PiSessionFactory implements AgentGateway {
           throw err;
         } finally {
           unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
-          // F20261009epoc（S4 裸露面收口）：finally delete 只在「条目 epoch === 本 invoke
+          // F20261009epoc（裸露面收口）：finally delete 只在「条目 epoch === 本 invoke
           // epoch」（对象引用相等）时执行——stale steal 后旧 invoke 苏醒不再删掉新 invoke
           // 的条目（原无条件 delete 是方案识别的第 5 处裸露面，比防御点 1-3 更危险）。
           // 同键嵌套共享 epoch（D5）→ 仍会删（known-boundary，与旧行为持平，见特性文档）。
@@ -1322,7 +1322,7 @@ export class PiSessionFactory implements AgentGateway {
     });
   }
 
-  /** F20261009epoc（S4 裸露面收口）：finally delete 仅在「条目 epoch === 本 invoke epoch」
+  /** F20261009epoc（裸露面收口）：finally delete 仅在「条目 epoch === 本 invoke epoch」
    *  （对象引用相等）时执行。stale steal 后旧 invoke 苏醒不删新 invoke 条目（原
    *  :991 无条件 delete 是方案识别的第 5 处裸露面）。同键嵌套共享外层 epoch（D5）
    *  → 仍会删（known-boundary：与旧行为持平，裸 otterId 共键场景，见特性文档 D5）。 */

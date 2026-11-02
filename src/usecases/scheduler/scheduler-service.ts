@@ -1851,7 +1851,7 @@ export class SchedulerService {
   }
 
   /** messageId 为 null：function executor 无消息（PR4）；LLM executor 传 anchor 消息 id。
-   * F20260901ppfk 检视处置：防御空串——未来新增 executor 类型若传 ''，归 null 不炸 FK */
+   * F20260901ppfk：防御空串——未来新增 executor 类型若传 ''，归 null 不炸 FK */
   private async completeExecution(executionId: string, conversationId: string, messageId: string | null): Promise<void> {
     await this.taskRepo.updateExecutionStatus(executionId, {
       status: 'completed',

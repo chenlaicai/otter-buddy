@@ -996,7 +996,7 @@ export class DispatchChainEngine {
     // 触发消息此刻已被消费（以 userMessageContent 形态在发言流末尾），游标本就该越过它；
     // 触发消息非 entry（retry/resume 路径）时 getMaxEntrySeq 等价「读到最新」，同样正确。
     // 取 max(filtered, unreadAll) 双保险：excludeMessageIds 剔除的可能不止触发消息。
-    // F20261014czgd（检视建议 3 处置）：idleStatsRepo 缺失时降级为 0 且打 warn——
+    // F20261014czgd：idleStatsRepo 缺失时降级为 0 且打 warn——
     // 根治层失效的静默降级是观测盲区（本次事故全靠推断定位），显式日志让降级可见。
     const idleMaxSeq = this.deps.idleStatsRepo?.getMaxEntrySeq
       ? await this.deps.idleStatsRepo.getMaxEntrySeq(conversationId)

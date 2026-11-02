@@ -101,7 +101,7 @@ export interface BuildAppOptions {
   syncAuth?: boolean;
   /** 启动调度器，默认 true */
   startScheduler?: boolean;
-  /** F20260825sgnw 审视发现 1：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
+  /** F20260825sgnw：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startRhiWorker?: boolean;
   /** F20260916b1ea：重启自动恢复服务启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startResume?: boolean;
@@ -305,7 +305,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // initAgentAndScheduler（schedulerService 初始化）之后——PatrolWorker.start 立即同步跑首轮
   // tick，'scheduler-reconcile' duty 在 schedulerService TDZ 期内执行会抛
   // "Cannot access 'schedulerService' before initialization"（9/30 启动日志实证）。
-  // F20261026emct delta（建议 3）：retry worker 缺失告警限频擂脏（每 patrol 周期 1h 最多一条）
+  // F20261026emct：retry worker 缺失告警限频擂脏（每 patrol 周期 1h 最多一条）
   let lastRetryWorkerNullWarnAt = 0;
   const patrolWorker = new PatrolWorker([
     { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
@@ -614,7 +614,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // 已有 active 绑定 = 已建过线（幂等：不重复建，返回当前）
       const existing = await uc.manageConnection.getCurrentConversation(connection.id);
       if (existing) {
-        // F20260922wxeg delta N1：幂等分支补写归属 metadata（存量 connection 断键续接）
+        // F20260922wxeg：幂等分支补写归属 metadata（存量 connection 断键续接）
         if (typeof connection.metadata?.assistantConversationId !== "string") {
           await repos.connection.mergeMetadata(connection.id, { assistantConversationId: existing.id }).catch((err) => {
             logger.warn("Weixin provision: assistantConversationId backfill failed（删号归档将走绑定兑底）", { accountId, error: err instanceof Error ? err.message : String(err) });

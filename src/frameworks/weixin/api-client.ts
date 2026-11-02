@@ -240,7 +240,7 @@ export class WeixinApiClient {
         { msg, base_info: this.baseInfo() },
         15000,
       ) as WeixinSendMessageResp;
-      // F20260904wxeg 审视处置（检视獭-789 建议发现 2）：errcode 通道校验与 sendTextMessage
+      // F20260904wxeg：errcode 通道校验与 sendTextMessage
       // 同构（F137 实证媒体路径同样可能只走 errcode）——两处独立实现，保持一致拦截语义
       if (resp.errcode !== undefined && resp.errcode !== 0) {
         throw new Error(`weixin sendmessage errcode=${resp.errcode} errmsg=${resp.errmsg ?? "(none)"}`);

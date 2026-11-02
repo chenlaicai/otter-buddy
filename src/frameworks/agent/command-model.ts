@@ -85,7 +85,7 @@ function isRedirOp(op: string): boolean {
 }
 
 /** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10）——SHELL_INTERPRETERS 归 payload-extract-aux
- *  单一真相源（F20261022vwfg delta 1 迁入，本行 re-export 保持既有引用面） */
+ *  单一真相源（F20261022vwfg 迁入，本行 re-export 保持既有引用面） */
 // SCRIPT_RUNNERS 归 payload-extract-aux 单一真相源（本模块曾有同名单本地副本，
 // 双份清单正是识别域漂移源——F20261022vwfg 收敛）
 

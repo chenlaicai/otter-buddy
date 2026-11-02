@@ -59,7 +59,7 @@ export function synthesisFullBudgetChars(contextWindowTokens: number): number {
  *  显式发送后输入容量 = 窗口 − 4,096（不再被服务端默认预留 ~64K 吃掉 25%）。 */
 export const SYNTHESIS_EXPLICIT_MAX_TOKENS = 4_096;
 
-/** F20260924swin delta 复核严重4 闭合：trim-note 渲染长度预留（chars）。
+/** F20260924swin：trim-note 渲染长度预留（chars）。
  *  trim-note 三行渲染 ≈85 chars（<trim-note> 标签 + 「预算裁剪：已丢弃最老 N 条…」文案 +
  *  </trim-note> + 换行，droppedCount ≤ 7 位数），取 200 为渲染上界（×2 余量）。
  *  恒定预留（裁不裁都留）→ 历史正文进预算 + trim-note 必 ≤ 全文预算 → 预检严格 > 不自拦。
@@ -103,7 +103,7 @@ export function trimMessagesToBudget(
   contextWindowTokens: number,
   measuredFixedChars: number,
 ): BudgetTrimResult {
-  // F20260924swin（delta 复核严重4 闭合）：历史段预算 = 全文预算 − 固定段实测 − trim-note 预留。
+  // F20260924swin：历史段预算 = 全文预算 − 固定段实测 − trim-note 预留。
   //  legacy 双口径回退分支删除（第三参必填——src 唯一调用方恒传，无参「兼容」无生产消费者）。
   const historyBudgetChars = synthesisFullBudgetChars(contextWindowTokens) - measuredFixedChars - TRIM_NOTE_RESERVE_CHARS;
   if (historyBudgetChars <= 0) {

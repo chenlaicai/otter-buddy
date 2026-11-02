@@ -358,7 +358,7 @@ export class MessageController {
       push({ event: 'mention.feedback', data: { feedback: mentionFeedback } });
     }
     if (!this.messageBroadcaster) return undefined;
-    // F20260913ctlv 处置轮：消息回调链路死面删除——POST SSE 流只订阅事件流
+    // F20260913ctlv：消息回调链路死面删除——POST SSE 流只订阅事件流
     // （当前请求触发的 agent 事件；其他消息通过 GET SSE 订阅接收，避免重复推送）
     return this.messageBroadcaster.subscribeEvents(
       conversationId,

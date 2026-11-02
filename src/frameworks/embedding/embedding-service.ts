@@ -481,10 +481,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     });
   }
 
-  // eslint-disable-next-line max-lines-per-function -- F20261026emct delta 加单条守卫后 61 行（限 60），剩余为 F20261020slvg 的 waitSlot 内联循环（拆分需同步处理 TOCTOU 注释链，另开 PR）
+  // eslint-disable-next-line max-lines-per-function -- F20261026emct 加单条守卫后 61 行（限 60），剩余为 F20261020slvg 的 waitSlot 内联循环（拆分需同步处理 TOCTOU 注释链，另开 PR）
   async embed(text: string, opts?: EmbedCallOptions): Promise<Float32Array> {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
-    // F20261026emct delta 处置（建议 5/焦点 1）：单条入口同受闸门收口——超预算文本直接
+    // F20261026emct：单条入口同受闸门收口——超预算文本直接
     // reject 而非透传（调用方截断链是兜底不是闸门，「靠调用方纪律」正是前 6 轮的失败
     // 模式）。单条不可拆（拆文本破坏语义），无豁免路径——真巨文本应先截断（store-memory
     // EMBED_MAX_CHARS=6000 已做）。主不变量由此完整：embedBatch 入口拆批、embed 入口拒收。
@@ -584,7 +584,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const results: Float32Array[] = [];
     let offset = 0;
     for (const batch of batches) {
-      // F20261026emct delta 处置（严重发现 1）：子批 opts 按偏移量包装 salvage——
+      // F20261026emct：子批 opts 按偏移量包装 salvage——
       // 晚到结果携带 (embeddings, startIndex)，调用方按下标写入正确 entry。
       // 首版原样透传 opts，offset>0 的子批晚到时会把别批向量存到 items[0..] 错误
       // entry（静默 vec 污染，检视獭独立发现）。包装器见 embed-batch-sharding.ts。

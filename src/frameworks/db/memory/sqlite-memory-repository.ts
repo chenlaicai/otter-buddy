@@ -759,7 +759,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     markTaskAttemptFailed(this.db, entryId, error, maxAttempts);
   }
 
-  /** F20261020slvg：启动迁移——pending 任务 attempts 归零（对抗审视洞 2 处置） */
+  /** F20261020slvg：启动迁移——pending 任务 attempts 归零（历史积压防永久占用熔断计数） */
   async resetPendingAttempts(): Promise<number> {
     return resetPendingAttempts(this.db);
   }
