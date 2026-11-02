@@ -52,7 +52,10 @@ export interface GuardRuleClass {
  * 特征片段选取原则：足够长以唯一定位规则，足够短以容忍文案小改。
  * 【维护契约】守卫改拦截文案时，若特征片段仍完整保留则无需动表；若特征片段被改，
  * 分类回归测试红——同步更新指纹与测试同走 PR（宪法挂靠总表同步：
- * docs/designs/bash-guard-constitution.md 分层表右列）。
+ * docs/designs/bash-guard-constitution.md 分层表右列；月度剪枝口径的活跃规则清单同步：
+ * prompts/scheduled/monthly-prune-review.md 守卫层段——增删规则时两处同 PR 更新）。
+ * F20261102grfix：拦截点已直标 ruleId（GuardBlock），本表降级为存量回溯/旧路径兜底；
+ * 表内即现行活跃规则，表外 ruleId（v3 退役等）为历史归因封存账（月度剪枝单列不入候选）。
  */
 const FINGERPRINTS: ReadonlyArray<{ fragment: string; cls: GuardRuleClass }> = [
   // 结构化前缀优先（file-tool-guard，非文案指纹通道，v4 未变）
@@ -78,6 +81,25 @@ const FINGERPRINTS: ReadonlyArray<{ fragment: string; cls: GuardRuleClass }> = [
 ];
 /** 未映射兜底（守卫新增文案未同步指纹表时落此——聚合报表可见 unknown 占比，倒逼补表） */
 export const UNKNOWN_RULE: GuardRuleClass = { ruleId: "unknown", layer: "self_kill" };
+
+/**
+ * 现行活跃规则清单（F20261102grfix C 历史归因封存）：FINGERPRINTS 表内 ruleId +
+ * file-tool-guard 结构化前缀族。消费侧（月度剪枝/自愈聚合）以此区分「活跃规则」与
+ * 「历史归因封存账」（表外 ruleId，如 v3 退役的 self_kill_indirect/script_stop）——
+ * 历史数据原样保留但不进候选、不再反复呈报。增删规则时与 monthly-prune-review.md
+ * 口径同步（同 PR，维护契约；机械同步由 guard-intercept-classify.test 一致性用例钉住）。
+ */
+export const ACTIVE_RULE_IDS: ReadonlySet<string> = new Set(FINGERPRINTS.map(f => f.cls.ruleId));
+
+/** 是否历史归因封存账（不在现行活跃规则清单）。
+ *  注意三分：file-tool-guard 前缀族与 unknown 都不是封存账——前者是活跃规则，
+ *  后者是「未归因待补表」信号（封存它会吞掉指纹表缺条目的倒逼信号）；
+ *  仅「表外且非 unknown 的历史 ruleId」（v3 退役等）才封存。 */
+export function isHistoricalAttribution(ruleId: string): boolean {
+  if (ruleId === "unknown") return false;
+  if (ruleId.startsWith("file-tool-guard")) return false;
+  return !ACTIVE_RULE_IDS.has(ruleId);
+}
 
 /**
  * 从拦截 reason 分类出 ruleId。

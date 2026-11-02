@@ -44,10 +44,11 @@ function judge(command: string): "allow" | "block" {
 
 /** 拦截理由（must-block 断言用；allow 时返回 null） */
 function judgeReason(command: string): string | null {
-  return checkBashCommandSafety(command, FAKE_MAIN_PID, undefined, {
+  const block = checkBashCommandSafety(command, FAKE_MAIN_PID, undefined, {
     projectRoot,
     processProbe: { whoListens: () => null, identity: () => null },
   });
+  return block ? block.text : null;
 }
 
 describe("guard 回放·误拦实录（2026-10-29 healing 台账 + #1710 信封面）——终态必须全部放行", () => {
@@ -91,7 +92,7 @@ describe("guard 回放·B 类域名表语义（config.yaml bashGuard.allowedEgre
       FAKE_MAIN_PID, undefined,
       { projectRoot, processProbe: { whoListens: () => null, identity: () => null }, allowedEgressDomains: ["github.com"] },
     );
-    expect(block).toContain("上传");
+    expect(block?.text).toContain("上传");
   });
   it("显式空数组 = fail-closed（内置缺省表不回退）", () => {
     const block = checkBashCommandSafety(
@@ -99,7 +100,7 @@ describe("guard 回放·B 类域名表语义（config.yaml bashGuard.allowedEgre
       FAKE_MAIN_PID, undefined,
       { projectRoot, processProbe: { whoListens: () => null, identity: () => null }, allowedEgressDomains: [] },
     );
-    expect(block).toContain("上传");
+    expect(block?.text).toContain("上传");
   });
 });
 
