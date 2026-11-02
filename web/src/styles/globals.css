@@ -64,9 +64,6 @@
    深色模式：组件内散布 light-only Tailwind 类（bg-white/text-stone-*），
    需组件级改造才能启用，本轮不加 prefers-color-scheme 块，避免半成品。
    ============================================================ */
-   深色模式：组件内散布 light-only Tailwind 类（bg-white/text-stone-*），
-   需组件级改造才能启用，本轮不加 prefers-color-scheme 块，避免半成品。
-   ============================================================ */
 :root {
   --bg-base: #E7DDCF;
 

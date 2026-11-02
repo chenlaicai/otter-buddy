@@ -101,16 +101,16 @@ modules:
 ### 核心改动 3：瞬态层白名单维护
 
 - FloatingAssistant（AssistantPanel/FloatingOtter）与 Portal 菜单的 backdrop-blur utility 保留——它们是小面+瞬态，开在流式内容上的低幅闪动是学说明示接受的残差（R20261102glass §5 已知残差）
-- backdrop-blur utility 全集 6 处：白名单 2（AssistantPanel:181、FloatingOtter:50）+ 其余 4（WorkDetailDialog:77、ChainDetailDrawer:50、im:572,604）均属弹层/抽屉瞬态，逐处确认归类保留
+- backdrop-blur utility 全集 7 处：白名单 6（AssistantPanel:181、FloatingOtter:50、WorkDetailDialog:77、ChainDetailDrawer:50、im:572,604——均属弹层/抽屉/覆盖确认瞬态）+ ChatView:325 card-preview（检视獭-impl S4 补数——开在流式内容上属常驻面，不归白名单，**已摘除**：amber-50/90 实底 blur 贡献趋零，摘除符合 T1 且零观感损益）
 - 非测试代码内联 backdropFilter 全仓仅 1 处：SessionModal.tsx:194——按遮罩层处理（摘 blur，见层表）
 - CSS 类消费点扫清：.glass-overlay 9 处消费（窄屏常驻按钮 2 处摘除改实色，其余 6 处瞬态白名单 + Modal:122 弹窗面板——弹窗期六轮终局覆盖保留）；.form-input 随 --form-input-blur=none 自动脱采样
 
 ### 核心改动 4：契约测试（web/src/styles/material-v3.test.ts）
 
 - 断言 5 个常驻 token（--chrome-blur/--panel-blur/--card-blur/--bubble-blur/--form-input-blur）var 定义为 `none`；.glass/.glass-strong/.glass-card/.bubble-*/.form-input 规则块无实时采样
-- 断言薄纱规则存在（选择器 :root[data-custom-bg='true'] body::before、var 带 fallback、不含 backdrop-filter）
+- 断言薄纱三断言（S7 补齐）：①选择器形态 `:root[data-custom-bg='true'] body::before` 规则块在位 ②var 带 fallback ③规则块不含 backdrop-filter
 - 断言 scrim/modal 六轮终局规则未破坏（与 scrim-flicker-6 互补）
-- 断言瞬态白名单闭合：--overlay-blur 在位、AssistantPanel/FloatingOtter 的 backdrop-blur 在位、**窄屏按钮消费点（index.tsx:1633,1645）不再引用 .glass-overlay**——防误伤也防回潮
+- 断言瞬态白名单**正向在位 + 全仓反向闭合**（A2）：白名单+弹层豁免清单之外全仓 .tsx 禁 backdrop-blur utility——新文件随手加采样类即报警；**窄屏按钮消费点（index.tsx:1633,1645）不再引用 .glass-overlay**——防误伤也防回潮
 - **适配既有断言**：custom-background.test.ts:14 的单层 background-image 断言更新为多层形式（薄纱叠加后原断言必破）——T5 措辞相应为「经断言适配后全绿」
 
 ### 机制预算自审（识别检查点判定：不涉及净新增机制）
@@ -180,10 +180,10 @@ modules:
 | 文件 | 操作 | 说明 |
 |---|---|---|
 | web/src/styles/globals.css | 修改 | token 手术（常驻 5 token blur→none、头注释 v3.0）、薄纱规则、窄屏按钮改实色、弹层注释补依据 |
-| web/src/lib/background-preference.ts | 修改 | 主色提取挂 applyDecodedBackground 单点 + --canvas-tint-rgb 注入（带 fallback 语义）+ 清除同步 |
-| web/src/styles/material-v3.test.ts | 新增 | v3 材质契约测试（含白名单闭合与窄屏按钮断言） |
+| web/src/lib/background-preference.ts | 修改 | 主色提取挂 applyDecodedBackground 单点 + --canvas-tint-rgb 注入（带 fallback 语义）+ 清除同步 + A1 取色代际守卫 |
+| web/src/styles/material-v3.test.ts | 新增 | v3 材质契约测试（含白名单正向+全仓反向闭合、窄屏按钮断言、薄纱选择器/无采样/fallback 三断言） |
 | web/src/styles/custom-background.test.ts | 修改 | :14 单层断言适配多层薄纱形式 |
-| web/src/pages/conversation/SessionModal.tsx | 修改 | 摘内联 backdropFilter blur(2px)（保留静态暗化背景） |
 | web/src/pages/conversation/index.tsx | 修改 | 窄屏 <lg 抽屉开关按钮 .glass-overlay→实色小圆钮（仅类名） |
-| web/src/pages/conversation/WorkspacePanel.tsx | 修改 | 仅注释更新（Portal 依据） |
+| web/src/pages/conversation/ChatView.tsx | 修改 | card-preview 摘 backdrop-blur-sm（S4：常驻面零采样，实底不变） |
+| web/src/pages/conversation/WorkspacePanel.tsx | 修改 | Portal 注释更新为防御性依据（aside 已无采样，防未来 CB 属性回归） |
 | 设置页预览块 | 视实现核 | 若渲染旧玻璃观感则同步 |

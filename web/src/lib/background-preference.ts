@@ -5,6 +5,9 @@ import { setBackgroundSnapshot } from './background-preference-store'
 export const MAX_BACKGROUND_BYTES = 8 * 1024 * 1024
 const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 let operationGeneration = 0
+/** F20261102glmtr A1：取色代际守卫——快速换图/清除时，陈旧 onload 回调不得回写 var（检视獭-impl 建议采纳） */
+let tintGeneration = 0
+
 
 export class BackgroundPreferenceError extends Error {}
 
@@ -12,6 +15,7 @@ export class BackgroundPreferenceError extends Error {}
 const NEUTRAL_TINT_RGB = '250, 247, 238'
 
 function clearAppliedBackground() {
+  tintGeneration++ // A1：作废所有在途取色回调
   const root = document.documentElement
   root.style.removeProperty('--custom-bg-image')
   root.removeAttribute('data-custom-bg')
@@ -26,7 +30,8 @@ function applyDecodedBackground(url: string) {
   // F20261102glmtr：同步落中性纱兜底（CSS var fallback 双保险），再异步换成真主色——
   // 薄纱任何窗口期都不会让背景图失效（var 未定义→整条多层声明 invalid 的红线）。
   root.style.setProperty('--canvas-tint-rgb', NEUTRAL_TINT_RGB)
-  extractDominantTint(url, root)
+  const gen = ++tintGeneration
+  extractDominantTint(url, root, gen)
 }
 
 /**
@@ -34,11 +39,12 @@ function applyDecodedBackground(url: string) {
  * （降饱和+亮度锥制）后写 --canvas-tint-rgb，供 globals.css 静态薄纱合成。
  * 一次性计算、纯运行时 CSS var（不落库）；失败静默保留当前值（中性纱）。
  */
-function extractDominantTint(url: string, root: HTMLElement): void {
+function extractDominantTint(url: string, root: HTMLElement, gen: number): void {
   try {
     const image = new Image()
     image.onload = () => {
       try {
+        if (gen !== tintGeneration) return // A1：已被后续换图/清除作废，陈旧取色不得回写
         if (image.naturalWidth === 0 || image.naturalHeight === 0) return
         const canvas = document.createElement('canvas')
         canvas.width = 8

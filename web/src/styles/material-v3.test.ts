@@ -12,7 +12,7 @@
  * jsdom 不渲染层叠；真实观感由真浏览器验收（方案「验证」节 7 项）。
  */
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const css = readFileSync(resolve(__dirname, '../styles/globals.css'), 'utf-8')
@@ -54,9 +54,34 @@ describe('材质 v3.0 契约：瞬态/遮罩层真玻璃保留（白名单闭合
     expect(css).toMatch(/\.scrim\s*\{[^}]*backdrop-filter:\s*var\(--scrim-blur\)/)
   })
 
-  it('浮动助手瞬态白名单在位（utility 全集 6 处中的 2 处）', () => {
+  it('浮动助手瞬态白名单在位（正向在位 + 全仓反向闭合）', () => {
+    // 正向：白名单 2 处浮动助手保留 utility
     expect(readSrc('web/src/components/FloatingAssistant/AssistantPanel.tsx')).toMatch(/backdrop-blur/)
     expect(readSrc('web/src/components/FloatingAssistant/FloatingOtter.tsx')).toMatch(/backdrop-blur/)
+    // 反向闭合（检视獭-impl A2）：白名单+弹层豁免清单之外，全仓 .tsx 禁 backdrop-blur utility。
+    // 豁免均属弹层/抽屉瞬态（WorkDetailDialog/ChainDetailDrawer/im 覆盖确认）；
+    // F20261102glmtr S4 处置：ChatView card-preview 开在流式内容上属常驻面，已摘除。
+    const exempt = new Set([
+      'components/FloatingAssistant/AssistantPanel.tsx',
+      'components/FloatingAssistant/FloatingOtter.tsx',
+      'pages/health/WorkDetailDialog.tsx',
+      'pages/health/ChainDetailDrawer.tsx',
+      'pages/im/index.tsx',
+    ])
+    const srcRoot = resolve(__dirname, '..') // web/src
+    const violations: string[] = []
+    const scan = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = resolve(dir, e.name)
+        if (e.isDirectory()) { scan(full); continue }
+        if (!e.name.endsWith('.tsx')) continue
+        const rel = resolve(srcRoot, full).replace(srcRoot + '/', '')
+        if (exempt.has(rel)) continue
+        if (/\bbackdrop-blur[-a-z0-9]*\b/.test(readFileSync(full, 'utf-8'))) violations.push(rel)
+      }
+    }
+    scan(srcRoot)
+    expect(violations, `白名单外不得使用 backdrop-blur utility：${violations.join(', ')}`).toEqual([])
   })
 
   it('窄屏抽屉开关钮不再引用 .glass-overlay（常驻面禁采样，改 .drawer-fab）', () => {
@@ -82,6 +107,13 @@ describe('材质 v3.0 契约：瞬态/遮罩层真玻璃保留（白名单闭合
 })
 
 describe('材质 v3.0 契约：Mica 薄纱（画布层静态合成）', () => {
+  it('薄纱规则块在位：选择器形态锁定 + 无实时采样（检视獭-impl S7 补①③）', () => {
+    const veil = css.match(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*\}/)
+    expect(veil, '薄纱规则块应存在于 globals.css').toBeTruthy()
+    expect(veil![0], '薄纱是静态合成，不得含 backdrop-filter').not.toMatch(/backdrop-filter/)
+    expect(veil![0]).toMatch(/background-image:/)
+  })
+
   it('薄纱 var 必带 fallback（防 var 未定义期整条声明 invalid 致背景图消失）', () => {
     expect(css).toMatch(/rgba\(var\(--canvas-tint-rgb,\s*250,\s*247,\s*238\),\s*0\.32\)/)
   })
