@@ -12,8 +12,14 @@ export type HealingErrorType =
   | 'circuit_break'
   /** F20260824srst：自重启执行（context.newSessionId 关联新 session，防循环上限判定） */
   | 'self_restart'
-  /** F20260831aksp：bash 安全守卫拦截（框架层每次拦截记 medium 样本；编排层同消息二拦终态补 high） */
+  /** F20260831aksp：bash 安全守卫拦截（框架层每次拦截记 medium 样本）。
+   *  F20261102grfix（A 口径拆分）：编排层 bounce 流程观测已拆至 guard_bounce_flow，
+   *  本类型回归纯规则拦截口径（context.ruleId 归因键） */
   | 'guard_intercept'
+  /** F20261102grfix（A 口径拆分）：guard bounce 流程观测（二拦终态自动回发控制信号/同消息
+   *  二拦终态）——流程动作非规则拦截，天然无 ruleId；独立口径防虚增拦截计数与
+   *  「无指纹盲区」假象。历史数据仍按当时口径留 guard_intercept+context.bounce:true */
+  | 'guard_bounce_flow'
   /** #543：模型限流/配额耗尽（api_error 终态识别；context 含 modelAlias/exhausted/resetHint） */
   | 'rate_limit'
   /** #1247：模型上下文窗口超限（400 注入超窗终态；context 含 modelAlias/requestedTokens/windowTokens）。

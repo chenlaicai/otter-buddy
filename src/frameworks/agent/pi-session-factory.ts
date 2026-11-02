@@ -89,12 +89,17 @@ export function buildGuardInterceptContext(
   reason: string,
   repeated: boolean,
   priorCount: number,
+  directRule?: { ruleId: string; layer: string },
 ): Record<string, unknown> {
-  const rule = classifyGuardInterceptReason(reason);
+  // F20261102grfix（B 治本·拦截点直标）：直标优先（拦截块自带归因键），
+  // classify 文案反查降级为存量回溯/旧路径兜底——文案可随意润色，ruleId 不再受其牵连。
+  // assurance:"direct" 标记归因来源，直标 vs 反查的归因质量可聚合对比。
+  const rule = directRule ?? classifyGuardInterceptReason(reason);
   return {
     layer: "framework",
     ruleId: rule.ruleId,
     ruleLayer: rule.layer,
+    ...(directRule ? { assurance: "direct" } : {}),
     commandHead: sanitizeQuotedText(command).substring(0, 120),
     hasWorktreePath: command.includes("/worktrees/"),
     ...(command.startsWith("ruleId=file-tool-guard/") ? {
@@ -1037,10 +1042,10 @@ export class PiSessionFactory implements AgentGateway {
   private buildGuardInterceptHook(
     otterId: string,
     ids: { messageId?: string; conversationId?: string },
-  ): ((input: { command: string; reason: string }) => void) | undefined {
+  ): ((input: { command: string; reason: string; ruleId?: string; ruleLayer?: string }) => void) | undefined {
     const healingRepo = this.cfg.healingRepo;
     if (!healingRepo) return undefined;
-    return ({ command, reason }) => {
+    return ({ command, reason, ruleId, ruleLayer }) => {
       // #844（F20260914dsrv）方案 C：同一 otter 近 6h 内 guard_intercept ≥3 次 → 升级 high
       // + 建议文本换为「优先排查误拦/升级搭档」——不让高频拦截静默淹没在 medium 池里。
       // fire-and-forget：查询/落账失败不影响拦截本身。
@@ -1049,7 +1054,8 @@ export class PiSessionFactory implements AgentGateway {
         // F20260930gslog：拦截事件结构化——ruleId（指纹分类）+ commandHead（脱敏截短）+
         // hasWorktreePath（#1207 类误报的可聚合特征：命令含 worktree 路径却被判主仓写）。
         // 误报治理从「翻台账数数」升级为 SQL 聚合（#1207 关闭验证自动化）。
-        const context = buildGuardInterceptContext(command, reason, repeated, priorCount);
+        const context = buildGuardInterceptContext(command, reason, repeated, priorCount,
+          ruleId && ruleLayer ? { ruleId, layer: ruleLayer } : undefined);
         return healingRepo.create({
           id: crypto.randomUUID(),
           messageId: ids.messageId ?? "",

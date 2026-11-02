@@ -325,7 +325,7 @@ export interface OtterInvokeContext {
   guardAllowedEgressDomains?: string[];
   /** F20261026gobs delta-r1：拦截落 healing 钩子——门拦截时上报（写 guard_intercept
    *  healing 事件），守卫行为以真实使用为准（回放库语料来源）。缺省时拦截照常。 */
-  guardOnIntercept?: (input: { command: string; reason: string }) => void;
+  guardOnIntercept?: (input: { command: string; reason: string; ruleId?: string; ruleLayer?: string }) => void;
   /** F20261027lbos（#1656）：循环硬熔断门拦截落 healing 钩子——门拦截时上报
    *  （签名+工具名+拉黑理由），写 healing loop_tool_block 事件；同签名去重防淹漫。
    *  缺省时拦截照常（fail-open 落账，不阻断拦截本身）。 */
@@ -448,11 +448,12 @@ export function bashGuardGate(
     allowedEgressDomains: store?.guardAllowedEgressDomains,
   });
   if (!rawBlock) return undefined;
-  const block = stripSleepMarkerIfPresent(rawBlock);
-  // 拦截落 healing——守卫行为以真实使用为准（回放库语料来源）
-  store?.guardOnIntercept?.({ command, reason: block });
+  const reasonText = stripSleepMarkerIfPresent(rawBlock.text);
+  // 拦截落 healing——守卫行为以真实使用为准（回放库语料来源）。
+  // F20261102grfix：ruleId/layer 随拦截块直标传入，落账归因不再事后文案反查
+  store?.guardOnIntercept?.({ command, reason: reasonText, ruleId: rawBlock.ruleId, ruleLayer: rawBlock.layer });
   return {
     block: true,
-    reason: `此命令被安全守卫拦截（命令未执行）：${block}`,
+    reason: `此命令被安全守卫拦截（命令未执行）：${reasonText}`,
   };
 }

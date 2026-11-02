@@ -791,12 +791,14 @@ export class AgentTurnOrchestrator {
     }
 
     // bounce 计数落账（下一轮上限判定的数据源；失败仅日志——本轮回发照常，下轮查询兜底）
+    // F20261102grfix（A 口径拆分）：guard_bounce_flow 独立类型——bounce 是流程动作非规则拦截，
+    // 混入 guard_intercept 口径会虚增拦截计数（escalation 误升 high）并制造「无指纹盲区」假象
     try {
       await ctx.callbacks.recordHealingEvent({
         invokeId: ctx.input.invokeId,
         conversationId: ctx.input.conversationId,
         otterId: ctx.input.otterId,
-        errorType: "guard_intercept",
+        errorType: "guard_bounce_flow",
         severity: "medium",
         description: `bash 守卫二拦终态自动回发控制信号（第 ${priorBounces + 1}/${GUARD_BOUNCE_MAX} 次）`,
         suggestion: "LLM 已收到拦截原因与正道引导；若后续仍持续被拦将升级上报",
@@ -874,12 +876,14 @@ export class AgentTurnOrchestrator {
     // ② invoke 终态化 failed（非 aborted——保留手动重试空间，且与真违规 abort 语义区分）
     await this.finalizeInvokeFailed(ctx.input, buildGuardBounceSuspectedFpRetryMsg(sameRule.ruleId, sameRule.ruleLayer), ctx.callbacks, ctx.startTime);
     // ③ 落账 suspected_false_positive 事件（severity high——疑似误拦是守卫可信度问题，需人工跟进）
+    // F20261102grfix（A 口径拆分）：降级处置记录归 guard_bounce_flow 流程族（非规则拦截本体），
+    // 防被 recentGuardBounceEvents 当拦截结构化事件收编（处置记录≠拦截记录）
     try {
       await ctx.callbacks.recordHealingEvent({
         invokeId: ctx.input.invokeId,
         conversationId: ctx.input.conversationId,
         otterId: ctx.input.otterId,
-        errorType: "guard_intercept",
+        errorType: "guard_bounce_flow",
         severity: "high",
         description: `疑似误拦降级：${otterName} 连续 ${priorBounces + 1} 次 bounce 命中同一规则 ${sameRule.ruleId}，命令摘要：${sameRule.commandHead}`,
         suggestion: "请人工核实守卫是否误拦该命令形态；确认误拦可临时放行或修规则。疑似误拦会错杀獭发言（#1353）。",
@@ -1116,13 +1120,14 @@ export class AgentTurnOrchestrator {
     return buildUserAbortBody(actualToolCallCount, await ctx.callbacks.getPartnerLabel(), ctx.underlyingError);
   }
 
-  /** F20260831aksp T3：bash 守卫二拦终态观测写入（自 abortTerminal 拆出控复杂度；非致命） */
+  /** F20260831aksp T3：bash 守卫二拦终态观测写入（自 abortTerminal 拆出控复杂度；非致命）。
+   *  F20261102grfix（A 口径拆分）：guard_bounce_flow 独立类型（流程动作非规则拦截） */
   private recordGuardBounceTerminal(invokeId: string, otterId: string, ctx: TerminalContext): void {
     ctx.callbacks.recordHealingEvent({
       invokeId,
       conversationId: ctx.input.conversationId,
       otterId,
-      errorType: "guard_intercept",
+      errorType: "guard_bounce_flow",
       severity: "high",
       description: `bash 守卫同消息二拦终态（retry=${ctx.input.retryCount}）：LLM 无视首次引导再次尝试，自纠失败`,
       suggestion: "查看对话定位该 otter 的任务是否涉及进程管理；必要时人工介入",
