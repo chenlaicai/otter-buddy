@@ -68,7 +68,8 @@ intent:
 - `npm run lint:skills`：15 skills OK，14 个存量 warning；`npm run lint:docs`：975 docs OK，3 个存量 warning；`npm run lint:intent`：本特性 intent / verify_by 均 1/1。
 - `npm run build`：通过；`git diff --check`：通过；影响面自检条款未出现在 diff。
 - 初次自检曾误写不存在的 `npm run check:criteria`，未执行后续链；改为真实脚本 `lint:criteria` 后完整重跑通过。
-- CI 与异体检视/锚点重放待填。
+- CI run 41607758281（HEAD `a9b364b7`）全绿：check / e2e / guard-macos / golden-selftest；声明闸与证据闸均通过。
+- 异体检视/锚点重放待格物完成，不自报通过。
 - Golden Gate：n/a——`verify_by=behavior_check` 的既有纪律调整，无新增独立 LLM 场景；golden selftest 只作基建自检，不冒充本特性执行记录。
 
 # 风险
