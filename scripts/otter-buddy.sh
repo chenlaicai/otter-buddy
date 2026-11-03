@@ -73,8 +73,54 @@ get_pid() {
   [ -f "$PID_FILE" ] && cat "$PID_FILE" || echo ""
 }
 
+# 端口占用者 = 监听者，不是「与端口有任意 TCP 关系的进程」（F20261103portx）。
+# -sTCP:LISTEN 只留监听套接字：客户端连接进程（浏览器 ESTABLISHED 连接等）天然
+# 排除——本案事故：Safari 网络进程的连接条目排在监听者前面，head -1 选中了它，
+# stop 报「another worktree's Otter Buddy」并建议 kill 浏览器进程。
+# 口径与下方杀伐校验（F20260831aksp T1）对齐——同文件同一端口问题不再两种写法。
 port_owner_pid() {
-  lsof -ti:"$1" 2>/dev/null | head -1 || true
+  lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -1 || true
+}
+
+# F20261103portx 监听者身份三分类：main-service / otter-or-node / foreign。
+# PID 文件丢失时 stop/start/status 也要认得出自己的主进程（本案现场：主服务健康
+# 在跑，仅因 PID 文件缺失被当「外人」）。特征：command 带 node 特征（^node 或
+# dist/src/main.js）→ 查 cwd；cwd=本仓 → main-service，否则 otter-or-node（他处
+# 实例或别的 node 进程，cwd 一并展示供人判断）；无 node 特征 → foreign。
+# 占用者身份必须验证后才能断言——「likely another worktree's Otter Buddy」
+# 这类未验证断言正是本案误报的第三层。
+listener_class() {
+  local pid="$1" cmd cwd
+  cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  case "$cmd" in
+    node*|*dist/src/main.js*)
+      cwd="$(lsof -p "$pid" 2>/dev/null | awk '$4=="cwd" {print $NF; exit}')"
+      if [ "$cwd" = "$PROJECT_DIR" ]; then echo "main-service"; else echo "otter-or-node"; fi
+      ;;
+    *) echo "foreign" ;;
+  esac
+}
+
+# F20261103portx 占用者报告（stop/start/status 复用）：报告「外人占端口」的两类
+# （otter-or-node / foreign），main-service 分支由调用方自行处理（三处文案语义不同）。
+# kill 建议只给经过身份验证的分支；foreign 分支明确提示「不是海獭，杀前先核实」。
+report_port_occupant() {
+  local port="$1" occupant="$2" cls cmd cwd
+  cls="$(listener_class "$occupant")"
+  cmd="$(ps -p "$occupant" -o command= 2>/dev/null || true)"
+  case "$cls" in
+    otter-or-node)
+      cwd="$(lsof -p "$occupant" 2>/dev/null | awk '$4=="cwd" {print $NF; exit}')"
+      echo "[warn] Port $port is in use by another process (PID $occupant, cwd: ${cwd:-unknown})"
+      echo "       $cmd"
+      echo "       If it is an Otter Buddy instance, stop it from that checkout."
+      ;;
+    foreign)
+      echo "[warn] Port $port is in use by a non-Otter process (PID $occupant):"
+      echo "       $cmd"
+      echo "       It is NOT an Otter Buddy instance — verify before killing."
+      ;;
+  esac
 }
 
 cmd_start() {
@@ -83,13 +129,16 @@ cmd_start() {
     return 0
   fi
 
-  # 端口冲突检测
+  # 端口冲突检测（F20261103portx：占用者身份先验证再报告）
   local occupant
   occupant=$(port_owner_pid "$PORT")
   if [ -n "$occupant" ]; then
-    echo "[error] Port $PORT is already in use (PID $occupant)"
-    echo "  Stop it first:  kill $occupant"
-    echo "  Or use another: $0 start -p <port>"
+    if [ "$(listener_class "$occupant")" = "main-service" ]; then
+      echo "[error] Otter Buddy is already running (PID $occupant, $PID_FILE missing)"
+      echo "        To restart it:  kill $occupant && $0 start"
+      exit 1
+    fi
+    report_port_occupant "$PORT" "$occupant"
     exit 1
   fi
 
@@ -194,13 +243,17 @@ cmd_stop() {
   # 清理过期 PID 文件
   [ -f "$PID_FILE" ] && rm -f "$PID_FILE" || true
 
-  # 检查端口是否被其他 worktree 占用
+  # 端口占用报告（F20261103portx：无 PID 文件时先认人再说话——本案现场：主服务
+  # 健康在跑，仅因 PID 文件缺失被当「另一实例」并误导 kill 命令）
   local occupant
   occupant=$(port_owner_pid "$PORT")
   if [ -n "$occupant" ]; then
-    echo "[warn] Port $PORT is in use by another process (PID $occupant)"
-    echo "       This is likely another worktree's Otter Buddy."
-    echo "       Stop it from that worktree, or run:  kill $occupant"
+    if [ "$(listener_class "$occupant")" = "main-service" ]; then
+      echo "[warn] Otter Buddy appears to be running (PID $occupant) but $PID_FILE is missing."
+      echo "       To restart it:  kill $occupant && $0 start"
+      return 1
+    fi
+    report_port_occupant "$PORT" "$occupant"
     return 1
   fi
 
@@ -222,11 +275,15 @@ cmd_status() {
     return 0
   fi
 
-  # 检查端口是否有其他进程
+  # 检查端口占用（F20261103portx：身份验证后分类报告）
   local occupant
   occupant=$(port_owner_pid "$PORT")
   if [ -n "$occupant" ]; then
-    echo "[info] NOT running in this worktree, but port $PORT is in use (PID $occupant)"
+    if [ "$(listener_class "$occupant")" = "main-service" ]; then
+      echo "[ok] Running (PID $occupant, $PID_FILE missing) -> http://localhost:$PORT"
+      return 0
+    fi
+    report_port_occupant "$PORT" "$occupant"
     return 0
   fi
 
