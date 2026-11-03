@@ -21,8 +21,9 @@
 # 事故形态：服务在线却恒判离线 → renderer offline_long 退位 → launchd 60s 拉起循环 = Dock 闪动 4 天。
 # 适配：①探活改带 user 档身份头（GET /api/conversations 需 authenticated 即可，最小权限；
 # 运行时同机脚本，非浏览器，无 CSRF/preflight 面）；
-# ②401 特判——带对头仍 401 = 鉴权口径变更信号，不应静默计入离线（fail-loud：记 stderr 供人查，
-# 本轮不探活成功也不翻转 offline_long，避免“鉴权变更被当成离线”再现）。
+# ②口径漂移三分类（401/403/404）：服务可达但探活口径过时——fail-loud 记 stderr、
+# MODEL_FILE 不动、离线计时冻结（不静默计离线）；未分类码（3xx/其余 4xx）归真离线但留
+# stderr 可见性；拒连/超时/5xx 为真离线累积计时。
 set -euo pipefail
 
 API_BASE="${OTTERBAR_API_BASE:-http://localhost:3000}"
@@ -65,7 +66,12 @@ fetch_model() {
     echo "[status-core] WARN: /api/conversations $http_code with identity headers — probe contract drift (auth/route), not offline" >&2
     return 2
   else
-    # 连接层失败（000=拒连/超时）或 5xx：可达性意义上的真离线
+    # 连接层失败（000=拒连/超时）或 5xx：可达性意义上的真离线。
+    # 未分类 HTTP 码（3xx/其余 4xx）罕见但非离线——留 stderr 可见性（检视 R2），
+    # 连接层失败（空/000）不记，防真离线时每 5s 刷屏。
+    if [ -n "$http_code" ] && [ "$http_code" != "000" ]; then
+      echo "[status-core] WARN: /api/conversations unexpected HTTP $http_code — classified offline, verify if persistent" >&2
+    fi
     printf '%s\n' "$OFFLINE_MODEL" > "$MODEL_FILE"
     return 1
   fi

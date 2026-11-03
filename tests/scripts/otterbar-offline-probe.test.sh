@@ -53,7 +53,7 @@ pass "场景B: 401/403/404 漂移特判 fail-loud，主循环冻结计时不累�
 echo "--- 场景C: renderer 无 offline_long 退位路径 ---"
 # 退位特征：非注释行里 teardown 与 offline_long 同现（grep -n 行号前缀使 ^\s*// 不可用，
 # 检视发现：改用「剩除注释列外是否还有命中」的过滤）
-if grep -n 'offline_long' "$MAIN_SWIFT" | grep 'teardown' | grep -vE '//.*offline_long|//.*teardown'; then
+if grep -n 'offline_long' "$MAIN_SWIFT" | grep 'teardown' | grep -vE '^[0-9]+: *//'; then
   fail "场景C: offline_long 退位路径疑似回潮（见上行）"
 fi
 grep -q '驻留' "$MAIN_SWIFT" \
