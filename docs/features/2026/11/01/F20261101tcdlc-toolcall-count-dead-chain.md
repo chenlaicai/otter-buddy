@@ -16,6 +16,13 @@ tags: [agent, orchestrator, dead-code, tool-call-count]
 capability_test: "n/a: 纯 A 类代码逻辑（错误路径计数语义），无 LLM 行为变更"
 from:
   - F20260922tcrc
+created_at: 2026-11-01
+
+intent:
+  problem: "toolCallCount Map 兜底链存在重查竞态与 orchestrator 死链（#1116），修复残留未清"
+  expected_effect: "getToolCallCount 全链退役后相关竞态面归零：死链代码删除、调用点清空、相关测试基线不再触达"
+  verify_by:
+    type: behavior_check
 ---
 
 # toolCallCount 兜底死链收口 + getToolCallCount 全链退役（#1116）

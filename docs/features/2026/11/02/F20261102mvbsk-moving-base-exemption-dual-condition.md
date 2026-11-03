@@ -18,6 +18,12 @@ causal_links:
   - F20260922dfch
   - F20261005imfg
   - F20261009hcig
+
+intent:
+  problem: "moving-base 豁免只查分支内新建，漏查 base 树存在性，历史文档正文修改被放行（#1300）"
+  expected_effect: "补 base 树存在性一票否决后：基准前移场景的正文修改恢复拦截，豁免仅对 base 树确无该文件的真新建生效"
+  verify_by:
+    type: behavior_check
 ---
 
 ## 背景

@@ -8,6 +8,12 @@ created_in_conversation: a23f0f4a-612c-46e9-8d83-be648ced720e
 tags: [scripts, port, stop, lsof]
 modules: [scripts]
 created_at: 2026-11-03
+
+intent:
+  problem: "stop 脚本误把无关的浏览器进程当服务进程杀：端口表只查 LISTEN 未核监听者身份，跨进程误报"
+  expected_effect: "含 LISTEN 过滤+监听者身份识别后，stop 只终止确认属于本服务的进程；浏览器等无关进程不受影响，回归测试接入 pre-commit 与 CI"
+  verify_by:
+    type: behavior_check
 ---
 
 # F20261103portx：stop 误报浏览器进程三连修

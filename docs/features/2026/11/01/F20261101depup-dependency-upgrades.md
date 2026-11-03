@@ -17,6 +17,13 @@ modules:
   - package-lock.json
 capability_test: "n/a: 纯依赖升级，无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
+created_at: 2026-11-01
+
+intent:
+  problem: "Dependabot 6 个依赖 PR 零散堆积无人收敛，人工逐个审阅成本高且易漏安全补丁"
+  expected_effect: "单批统一升级 PR 替代 6 个零散 PR：一次 CI 验证、一次回滚单元，Dependabot 待办清零"
+  verify_by:
+    type: behavior_check
 ---
 
 # F20261101depup: 统一升级依赖版本（2026-11-01 批次）

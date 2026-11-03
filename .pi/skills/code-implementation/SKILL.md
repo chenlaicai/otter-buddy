@@ -76,10 +76,10 @@ category: technique
 
    **机制判定核对**：机制识别检查点判定已在步骤 3（动手前）完成——本步骤只核对「设计取舍」段已含判定结论（命中则含四问答案），缺失 = 流程跳步，补判定并反思为何步骤 3 漏判。
 
-   **Intent 块生成（软代码改动必须）**：
-   - **触发条件**：本次变更涉及 prompt/skill/协议层（软代码）时，特性文档 frontmatter 必须生成 intent 块
-   - **格式**（⚠️ verify_by 必须是对象不是字符串——三次同型 CI 红的根因就是照旧示例写成字符串；且 golden_gate 不是合法枚举）：在 frontmatter 中添加 `intent` 字段，包含 `problem`（要解决什么问题）、`expected_effect`（可判定的预期效果，字符串）和 `verify_by`（对象，`type` 用合法枚举）
-   - **verify_by.type 合法枚举**（真相源 scripts/lint-intent.mjs，读它为准）：`metric_probe` / `behavior_check` / `human_judge` / `capability_test` / `golden_replay` / `static_only`
+   **Intent 块生成（所有特性文档必填——2026-11-03 搭档拍板：声明域=全部 change_type）**：
+   - **触发条件**：本次产出的特性文档（不论硬代码/软代码改动）frontmatter 必须生成 intent 块——声明域=全部 change_type。lint 机械门：created_at ≥ 2026-11-03 的新文档缺块 → error 阻断 commit
+   - **格式**（⚠️ verify_by 必须是对象不是字符串——三次同型 CI 红的根因就是照旧示例写成字符串；且 golden_gate 不是合法枚举）：在 frontmatter 添加 `intent` 字段，包含 `problem`（要解决什么问题）、`expected_effect`（可判定的预期效果，字符串）和 `verify_by`（对象，`type` 用合法枚举）
+   - **verify_by.type 合法枚举**（真相源 scripts/lint-intent.mjs，读它为准）：`metric_probe` / `behavior_check` / `human_judge` / `capability_test` / `golden_replay` / `static_only`。硬代码改动常用 `behavior_check`（修复前后行为对照）/ `static_only`（纯静态守护）；软代码改动见下方 Golden Gate 自检
    - **commit 前本地跑** `npm run lint:intent`，0 error 才算过（CI 的 intent gate 会拦，本地提前拦住不用返工）
    - **n/a 须附理由**：如果 verify_by 填 n/a，必须附理由说明为什么不需要验证
    - **示例**（可直接抄的合规格式）：

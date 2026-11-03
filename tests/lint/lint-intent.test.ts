@@ -287,6 +287,43 @@ describe('lint:intent', () => {
 });
 
 // F20260917sdpl 改动 1：软代码 verify_by 声明时间界收口
+describe('lint:intent all-domain intent block gate (F20261103itdl, #1740)', () => {
+  // 搭档 2026-11-03 拍板：intent 声明域扩至全部 change_type（硬/软代码均必填）。
+  // 时间界增量收口：created_at ≥ 2026-11-03 的新文档缺 intent 块 → error（存量不追诉，
+  // 与 #1238 软代码缺块收口同构）。绕过面（不写 created_at 降 warning）与软代码域
+  // 同构共存，不新增治理——见 F20261103itdl 设计取舍。
+  it('should error on new fix doc (created_at ≥ 2026-11-03) missing intent block', () => {
+    const fm = { ...createBaseFm('fix'), created_at: '2026-11-03' };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent block for all-domain change'))).toBe(true);
+  });
+
+  it('should error on new refactor doc missing intent block (bugfix/refactor 域收口)', () => {
+    const fm = { ...createBaseFm('refactor'), created_at: '2026-11-05' };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent block for all-domain change'))).toBe(true);
+  });
+
+  it('should keep warning for pre-2026-11-03 fix doc (存量不追诉)', () => {
+    const fm = { ...createBaseFm('fix'), created_at: '2026-10-31' };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent block for all-domain change'))).toBe(false);
+    expect(result.warnings).toContain('Recommended intent field for fix');
+  });
+
+  it('should keep warning for fix doc without created_at (missing created_at 按存量宽容，与软代码域同口径)', () => {
+    const fm = createBaseFm('fix');
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent block for all-domain change'))).toBe(false);
+  });
+
+  it('should keep legacy alias (bugfix) in message while canonical classification applies', () => {
+    const fm = { ...createBaseFm('bugfix'), created_at: '2026-11-03' };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent block for all-domain change'))).toBe(true);
+  });
+});
+
 describe('lint:intent soft-code verify_by enforcement (F20260917sdpl)', () => {
   it('should error on new soft-code doc (created_at ≥ 2026-09-17) missing verify_by', () => {
     const fm = {
