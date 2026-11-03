@@ -154,6 +154,7 @@ Momentic（AI QA agent，HN 2026-11-02）的启示按「验证物证化 / 验收
 - A：PR 模板 Verification 新增「失败用例证据（bugfix）」子块；worktree-isolation 硬规则指认该子块并保留豁免出口；adversarial-review B9 与 review-dimensions.md 新增小节对齐判别力三查、抽样复跑及 B3 分工。
 - C：`scan-lib.mjs` 承接零副作用纯函数，`scan.mjs` 保留网络/文件 IO 与 main；新增三源录制 fixture、9 条用例（含子进程离线 main 接线与 stdout 逐字节断言），期望从输入和 README 规则独立推导。
 - 验证记录见下方「实现自检（2026-11-03）」，命令输出与 PR 机器锚点随交付更新。
+- 交付锚点：PR #1748；实现 commit A=`798e6216`、C=`80deb490`（rebase 后）；CI run 41578449178 全绿。
 
 ## 实现自检（2026-11-03）
 
@@ -167,6 +168,8 @@ Momentic（AI QA agent，HN 2026-11-02）的启示按「验证物证化 / 验收
 | 锚点重放评审 | 本次为半机械结构文档 + 检视核对条款，无 LLM 场景新语义可重放 | 走异体对抗审视核对触发语义，不声称已跑异体锚点评审 |
 
 Golden Gate：按 `verify_by=behavior_check` 执行并记录结果，不豁免。
+- capability：17 files exit 0（16 passed / 44 skipped）；skip 原因是本机未配置 LLM 端点，不据此声称 LLM 场景已覆盖。Golden selftest 记录已写入主仓 `data/metrics/golden-results.jsonl`。
+- CI：https://github.com/chenlaicai/otter-buddy/actions/runs/41578449178 —— check、e2e、guard-macos、golden-selftest 全通过。
 
 ### 验证结果（实现者自报）
 
