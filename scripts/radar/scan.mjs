@@ -12,6 +12,14 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  selectHackerNewsItem,
+  sortHackerNewsItems,
+  sortGitHubItems,
+  selectAnthropicItems,
+  assembleRawResult,
+  formatRadarSummary,
+} from './scan-lib.mjs';
 
 /* global setTimeout */ // eslint no-undef：Node 全局在 .mjs 下需显式声明（同 scripts/backup-runtime-data.mjs 惯例）
 
@@ -24,10 +32,6 @@ const OUT = join(RAW_DIR, `${TODAY}.json`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ---------- 源 1：Hacker News top60 → 正则粗筛 AI 相关 ---------- */
-// 关键字表：scripts/radar/README.md「HN 粗筛正则」节（改动需同步）
-const HN_KEYWORDS =
-  /\b(AI|AGI|LLM|LLMs|GPT|Claude|Gemini|OpenAI|Anthropic|agent|agents|agentic|MCP|RAG|inference|prompt|reasoning|fine-?tun\w*|diffusion|transformer|tokenizer|embedding|vector database|copilot|cursor)\b/i;
-
 async function fetchHN() {
   const out = [];
   try {
@@ -35,16 +39,15 @@ async function fetchHN() {
     for (const id of ids) {
       try {
         const i = await (await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`)).json();
-        if (i && i.title && HN_KEYWORDS.test(i.title)) {
-          out.push({ title: i.title, url: i.url || `https://news.ycombinator.com/item?id=${id}`, score: i.score, comments: i.descendants || 0 });
-        }
+        const selected = selectHackerNewsItem(i, id);
+        if (selected) out.push(selected);
       } catch { /* 单条失败跳过 */ }
       await sleep(150); // 实测并发抓取会被 reset，必须串行+间隔
     }
   } catch (e) {
     return { items: out, error: String(e) };
   }
-  return { items: out.sort((a, b) => b.score - a.score) };
+  return { items: sortHackerNewsItems(out) };
 }
 
 /* ---------- 源 2：GitHub search API，3 个 topic 查询 ---------- */
@@ -65,33 +68,31 @@ async function fetchGitHub() {
       await sleep(400);
     } catch (e) { errors.push(`${topic}: ${e}`); }
   }
-  return { items: out.sort((a, b) => b.stars - a.stars), error: errors.length ? errors.join('; ') : undefined };
+  return { items: sortGitHubItems(out), error: errors.length ? errors.join('; ') : undefined };
 }
 
 /* ---------- 源 3：Anthropic news（尽力而为源，失败不阻塞） ---------- */
 async function fetchAnthropic() {
   try {
     const html = await (await fetch('https://www.anthropic.com/news', { headers: { 'User-Agent': 'Mozilla/5.0' } })).text();
-    const slugs = [...new Set((html.match(/href="\/news\/[a-z0-9-]+"/g) || []).map((s) => s.slice(12, -1)))];
-    return { items: slugs.slice(0, 10).map((s) => ({ slug: s, url: `https://www.anthropic.com/news/${s}` })) };
+    return { items: selectAnthropicItems(html) };
   } catch (e) {
     return { items: [], error: String(e) };
   }
 }
 
 /* ---------- 主流程 ---------- */
-mkdirSync(RAW_DIR, { recursive: true });
-const [hn, gh, an] = await Promise.all([fetchHN(), fetchGitHub(), fetchAnthropic()]);
+export async function main() {
+  mkdirSync(RAW_DIR, { recursive: true });
+  const [hn, gh, an] = await Promise.all([fetchHN(), fetchGitHub(), fetchAnthropic()]);
 
-const result = { date: TODAY, generatedAt: new Date().toISOString(), sources: { hackernews: hn, github: gh, anthropic: an } };
-writeFileSync(OUT, JSON.stringify(result, null, 2));
+  const result = assembleRawResult({ date: TODAY, generatedAt: new Date().toISOString(), hackernews: hn, github: gh, anthropic: an });
+  writeFileSync(OUT, JSON.stringify(result, null, 2));
 
-// stdout 摘要：给 LLM 分拣层直接消费
-console.log(`=== AI 雷达原始数据 ${TODAY} ===`);
-console.log(`[HN] ${hn.items.length} 条 AI 相关（错误: ${hn.error || '无'}）`);
-hn.items.slice(0, 15).forEach((i) => console.log(`  [${i.score}分/${i.comments}评论] ${i.title} | ${i.url}`));
-console.log(`[GitHub] ${gh.items.length} 个近7天新项目（错误: ${gh.error || '无'}）`);
-gh.items.slice(0, 15).forEach((i) => console.log(`  [${i.stars}★ ${i.topic}] ${i.repo} — ${(i.desc || '').slice(0, 80)}`));
-console.log(`[Anthropic] ${an.items.length} 篇（错误: ${an.error || '无'}）`);
-an.items.forEach((i) => console.log(`  ${i.slug}`));
-console.log(`\n原始数据已落盘: ${OUT}`);
+  // stdout 摘要：给 LLM 分拣层直接消费
+  process.stdout.write(formatRadarSummary({ result, outputPath: OUT }));
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
+}
