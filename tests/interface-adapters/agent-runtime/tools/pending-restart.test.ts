@@ -402,4 +402,35 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
     expect(createCalls[0].errorType).toBe('tool_failure');
     expect(String(createCalls[0].description)).toContain('判据失效');
   });
+
+  it('#1288 审视严重1回归：介入判据查询降级且落账 deferred → 工具返回前最终落账已 settle', async () => {
+    const ctx = createMockToolContext();
+    // 窗口内自重启 session，介入判据查询两次都抛错 → 走最终降级落账
+    mockActiveSession(ctx, 30);
+    (ctx.client.conversation.entry.getEntries as ReturnType<typeof vi.fn>) = vi.fn(async () => {
+      throw new Error('query degraded');
+    });
+    // 落账 deferred：resolve 前挂起 20ms（模拟真实 DB 写延迟）——
+    // fire-and-forget 漂移时（工具不 await 落账）工具会在 settle 前返回，本用例即失败
+    let settled = false;
+    const createCalls: Array<Record<string, unknown>> = [];
+    const healingRepo = createSelfRestartHealingRepo({
+      create: async (e: Record<string, unknown>) => {
+        await new Promise(r => setTimeout(r, 20));
+        createCalls.push(e);
+        settled = true;
+      },
+    });
+    const tools = createTools(ctx, healingRepo, createRecordingLogger());
+    const restartTool = tools.find(t => t.name === 'restart_otter');
+    if (!restartTool) throw new Error('restart_otter tool not found');
+
+    const result = await restartTool.execute('call-1', { summary: '测试' });
+
+    // execute 返回时落账必须已 settle（共享 hasUserMessageSince await onDegrade 契约）
+    expect(settled).toBe(true);
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0].errorType).toBe('tool_failure');
+    expect(result.isError).toBe(true);
+  });
 });

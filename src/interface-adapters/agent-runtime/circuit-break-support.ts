@@ -40,8 +40,10 @@ const HEALTHY_SESSION_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
  * 2h 后仍在工作的 session 显然不是循环。同构 F20260831cbkw 熔断健康窗口。
  * Why: 9/28 现场——session 07:27 由自重启创建，12:38 搭档显式指令重启仍被拦
  * （用户介入判据失效，原因无日志可查）。该窗口兑住判据失效类故障：5h 前的自重启产物不可能是循环。
+ * F20261103srstd（#1288）：导出单点真相源——tool 层（tool-factory isSelfRestartLoop）与
+ * invoker 层（本文件 isSessionSelfRestartCreated）两道防线共用同一窗口常量，禁止再双定义。
  */
-const SELF_RESTART_LOOP_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+export const SELF_RESTART_LOOP_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 /** 二级触发的窗口推导结果（F20260913ctlv：messages 停写后按 session 时间窗口计，无 turn 推导） */
 interface TurnWindowCount {
@@ -61,7 +63,7 @@ interface TurnWindowCount {
 export async function hasUserMessageSince(
   queryLastUserMessage: () => Promise<{ createdAt: string } | null>,
   since: string,
-  opts?: { onDegrade?: (err: unknown, isFinal: boolean) => void },
+  opts?: { onDegrade?: (err: unknown, isFinal: boolean) => void | Promise<void> },
 ): Promise<boolean> {
   const MAX_ATTEMPTS = 2;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -71,7 +73,10 @@ export async function hasUserMessageSince(
       return Date.parse(last.createdAt) >= Date.parse(since);
     } catch (err) {
       const isFinal = attempt >= MAX_ATTEMPTS;
-      opts?.onDegrade?.(err, isFinal);
+      // F20261103srstd 审视严重1修正：await 回调——async 落账（如 tool 层 healingRepo.create）
+      // 必须在返回前 settle，否则 fire-and-forget 漂移（工具在落账完成前已返回）。
+      // 同步回调（invoker 层 logger.warn）await undefined 无害，行为等价。
+      if (opts?.onDegrade) await opts.onDegrade(err, isFinal);
       if (isFinal) return false;
       await new Promise(r => setTimeout(r, 50)); // 瞬时故障退避后重试
     }
