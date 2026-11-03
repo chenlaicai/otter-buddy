@@ -2,7 +2,8 @@
 export interface BacklinkEntry {
   rel: string;
   id?: string;
-  from?: string[];
+  /** from 元素运行时可为非字符串（YAML map 形态的历史数据），函数内按元素级形态处理 */
+  from?: unknown[];
   fromMalformed?: boolean;
 }
 export interface BrokenBacklink {

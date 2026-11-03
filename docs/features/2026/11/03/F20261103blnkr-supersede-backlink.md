@@ -8,7 +8,7 @@ created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:
   - scripts/lint-docs.mjs
   - tests/lint/lint-docs-backlinks.test.ts
-summary: "#1294：特性文档反向关系（谁指向我）的查询能力。方向定案（搭档 2026-11-03 终审拦截后拍板）：文档体系 append-only/快照可信——反向关系不物化（不写 amended_by、不回头改旧文档），由扫描期 computeReverseIndex 动态计算（文档 id → 指向者列表），零补登零文档改动。初版物化方案（amended_by 字段+DB 列+617 处补登债）在终审前被搭档拦截撤回——复盘立案 #1749（方向性错误穿透全链质量闸）。本 PR 最终交付：①computeReverseIndex 纯函数（lint 输出与 sync 记忆层可用的反向索引）；②findBrokenBacklinks from 链存在性校验（断链 ratchet 基线 31——7-8 月历史 from 指向从未存在 id，首次照亮；自指环/标量形态 error 拦新链）；③红测 8 用例。物化方案的有价值遗产：31 断链与「文件名≠frontmatter id」陷阱的发现（与方向无关的数据质量事实）。"
+summary: "#1294（部分闭环，issue 保持开放）：反向关系计算能力+from 链存在性校验，消费面接入为显式遗留项。方向定案（搭档终审拦截）：append-only——反向关系不物化，扫描期 computeReverseIndex 计算（id→指向者列表），零补登零文档改动；初版物化方案（amended_by+DB 列+617 补登债）被拦截撤回，复盘立案 #1749。交付：①computeReverseIndex 纯函数（已实现待接，消费面载体待论证）②findBrokenBacklinks 存在性校验（断链 ratchet 基线 31=28 真断链+3 元素形态违规；自指环/标量形态 error）③红测 11 用例。遗产：31 断链与文件名≠frontmatter id 陷阱发现。"
 tags: [docs, data-integrity, lint, ratchet, append-only]
 intent:
   problem: "读旧特性文档的人不知道内容已被新文档订正（#1294 原始痛点）+ from 链存在大量断链无人看见（扫描时发现的真实数据质量问题）"
@@ -37,7 +37,7 @@ capability_test: "tests/lint/lint-docs-backlinks.test.ts"
 computeReverseIndex(entries) // 零文档改动、零补登、随扫描即时新鲜
 ```
 
-读旧文档知被谁订正的查询路径：lint 输出 / sync 记忆层按需调用。**反向关系是算出来的不是存的**——append-only 下无一致性维护负担。
+读旧文档知被谁订正的查询路径：**待接**（消费面载体——记忆边 vs lint 呈现 vs sync 时机——需单独论证定案，不在本 PR 顺手决定；#1294 保持开放直到消费面交付）。**反向关系是算出来的不是存的**——append-only 下无一致性维护负担。
 
 ### ② findBrokenBacklinks——from 链存在性校验
 
@@ -48,6 +48,10 @@ computeReverseIndex(entries) // 零文档改动、零补登、随扫描即时新
 | from 标量形态（非数组非空） | error（防静默归零） |
 
 存量断链 31 处首次照亮（7-8 月历史 from 指向从未存在的 id——检视獭抽样考据证实；其中 F20260802hybrid 案例揭示「文件名 id 段≠frontmatter id」陷阱，轻件候选）。
+
+## 机制识别检查点论证（Modification-Class: narrow-fix）
+
+新增 lint 信号类别（⚠/✗ [backlink]）与 ratchet 基线常量命中「新增信号类型/消息格式」检查点，判①收窄——论证：lint-docs 既有机制内追加规则（与 #470 MAX_WARNINGS、#1274 duplicate-id 同族），ratchet 沿用既有配额模式（只减不增常量），无新状态生命周期、无新存储、无新守护进程；lint 是 commit-time 既有 gate 的规则扩展，非净新增机制。
 
 ## 设计取舍（方向一 → 方二的决策记录）
 
@@ -65,7 +69,7 @@ computeReverseIndex(entries) // 零文档改动、零补登、随扫描即时新
 ## 后续观察
 
 - 31 断链 ratchet 收敛（修复后调低基线）；文件名≠frontmatter id 陷阱轻件
-- computeReverseIndex 的消费面：当前 lint 内建 + 测试覆盖；sync 记忆层接入按需（读侧能力，无紧迫性）
+- computeReverseIndex 的消费面（#1294 的遗留交付项，issue 保持开放）：载体方案（sync 时写记忆边 / lint 呈现）待论证——本 PR 只交付计算能力与存在性校验，两者独立成立（断链照亮已即时生效）
 
 ## 影响
 

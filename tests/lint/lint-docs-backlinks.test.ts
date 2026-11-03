@@ -43,6 +43,23 @@ describe("findBrokenBacklinks（#1294 from 链存在性）", () => {
     ];
     expect(findBrokenBacklinks(entries)).toEqual([]);
   });
+
+  it("from 含非字符串元素（YAML map 形态）→ 报断链且文本可诊断（r1 建议 4）", () => {
+    const entries = [
+      { rel: "docs/features/2026/08/21/a.md", id: "F20260821aaa1", from: [{ issue: 335 }] },
+    ];
+    const broken = findBrokenBacklinks(entries);
+    expect(broken.length).toBe(1);
+    expect(broken[0].danglingForward).toContain("非字符串元素");
+    expect(broken[0].danglingForward).toContain("issue");
+  });
+
+  it("空形态统一：null 与空串都归省略不报（r1 建议 5）", () => {
+    const entries = [
+      { rel: "docs/features/2026/11/02/null-form.md", id: "F20261102aaa1", from: [], fromMalformed: false },
+    ];
+    expect(findBrokenBacklinks(entries)).toEqual([]);
+  });
 });
 
 describe("computeReverseIndex（#1294 反向索引——不物化，扫描期计算）", () => {
@@ -68,5 +85,15 @@ describe("computeReverseIndex（#1294 反向索引——不物化，扫描期计
   it("无 from 文档 → 索引为空（零成本）", () => {
     const entries = [{ rel: "docs/a.md", id: "F20261102aaaa", from: [] }];
     expect(computeReverseIndex(entries).size).toBe(0);
+  });
+
+  it("契约：无 id 条目不产出指向者、重复目标去重（r1 建议 6）", () => {
+    const entries = [
+      { rel: "docs/a.md", id: undefined, from: ["F20261102old1"] }, // 无 id 指向者
+      { rel: "docs/b.md", id: "F20261102bbb2", from: ["F20261102old1", "F20261102old1"] }, // 重复目标
+      { rel: "docs/old.md", id: "F20261102old1", from: [] },
+    ];
+    const reverse = computeReverseIndex(entries);
+    expect(reverse.get("F20261102old1")).toEqual(["F20261102bbb2"]); // 无 undefined 混入、不重复
   });
 });

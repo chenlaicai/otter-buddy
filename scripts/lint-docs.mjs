@@ -87,12 +87,15 @@ export function findBrokenBacklinks(entries) {
     }
     const from = Array.isArray(e.from) ? e.from : [];
     for (const target of from) {
-      if (target === e.id) {
-        broken.push({ rel: e.rel, self: target });
+      // 元素级形态：非字符串（YAML map 形态的 issue/外链引用等）按断链报但文本可诊断
+      // （r1 建议 4：3 条存量 [object Object] 误诊不可修复；新链元素违规落同桶受基线拦）
+      const label = typeof target === "string" ? target : `非字符串元素（${JSON.stringify(target).slice(0, 60)}）`;
+      if (label === e.id) {
+        broken.push({ rel: e.rel, self: label });
         continue;
       }
-      if (!byId.has(target)) {
-        broken.push({ rel: e.rel, danglingForward: target });
+      if (typeof target !== "string" || !byId.has(target)) {
+        broken.push({ rel: e.rel, danglingForward: label });
       }
     }
   }
@@ -104,14 +107,15 @@ export function computeReverseIndex(entries) {
   const byId = new Set(entries.filter((e) => e.id).map((e) => e.id));
   const reverse = new Map();
   for (const e of entries) {
+    if (!e.id) continue; // 无 id 条目不产出指向者（契约：Map<string, string[]>，r1 建议 6）
     const from = Array.isArray(e.from) ? e.from : [];
     for (const target of from) {
-      if (!byId.has(target)) continue; // 断链由 findBrokenBacklinks 报
-      if (!reverse.has(target)) reverse.set(target, []);
-      reverse.get(target).push(e.id);
+      if (typeof target !== "string" || !byId.has(target)) continue; // 断链/元素违规由 findBrokenBacklinks 报
+      if (!reverse.has(target)) reverse.set(target, new Set());
+      reverse.get(target).add(e.id); // 去重：重复指向同一目标只计一次
     }
   }
-  return reverse;
+  return new Map([...reverse].map(([k, v]) => [k, [...v]]));
 }
 
 /** 新增文档候选 = 已提交新增（CI）∪ 暂存新增（pre-commit）。
@@ -124,7 +128,9 @@ export function collectAddedDocPaths(repoRoot, baseRef = "origin/main") {
 }
 
 // #1294 / F20261103blnkr: from 链断链 ratchet 基线（2026-11-03 实测存量 31 处，只减不增；
-// 修复后手动调低——报错信息含当前计数）。7-8 月历史文档 from 指向从未存在/已改名 id。
+// 修复后手动调低——报错信息含当前计数）。构成：28 真断链（7-8 月 from 指向从未存在/
+// 已改名 id）+ 3 元素形态违规（YAML map 形态的 issue/外链引用，非文档 id）。
+// 注意：计数式 ratchet 的交换空档（修一条+加一条净数不变）是已知取舍——修复时调低基线即封窗。
 const BACKLINK_DANGLING_BASELINE = 31;
 
 function walk(dir, ext = ".md") {
@@ -222,7 +228,7 @@ async function main() {
       rel,
       id: frontmatter.id,
       from: Array.isArray(fmFrom) ? fmFrom : [],
-      fromMalformed: fmFrom !== undefined && !Array.isArray(fmFrom) && fmFrom !== "",
+      fromMalformed: fmFrom !== undefined && fmFrom !== null && fmFrom !== "" && !Array.isArray(fmFrom), // r1 建议 5：null（YAML 空值）与 ""（显式空串）统一归省略——静默归零防的是「有内容但形态错」，空值无内容无损失
     });
     const type = rel.includes("/features/") ? "feature" : "research";
     const v = type === "feature"
