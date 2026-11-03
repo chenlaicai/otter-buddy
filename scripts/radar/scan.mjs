@@ -9,7 +9,7 @@
  *       抓取逻辑零改动，仅输出目录参数化（运行时数据不进仓库）。
  */
 
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -93,6 +93,6 @@ export async function main() {
   process.stdout.write(formatRadarSummary({ result, outputPath: OUT }));
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await main();
 }

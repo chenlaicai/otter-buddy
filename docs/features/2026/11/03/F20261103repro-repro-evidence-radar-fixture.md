@@ -145,6 +145,7 @@ Momentic（AI QA agent，HN 2026-11-02）的启示按「验证物证化 / 验收
 | .pi/skills/adversarial-review/SKILL.md | 修改 | B9 行补判别力三查 + 抽样复跑（分级降级） |
 | .pi/skills/adversarial-review/references/review-dimensions.md | 修改 | **新增 B9 小节**（非行同步） |
 | scripts/radar/scan-lib.mjs | 新增 | 零副作用纯函数（过滤/排序/slug/组装/stdout 格式） |
+| scripts/radar/scan-lib.d.mts | 新增 | scan-lib 的 TypeScript 测试导入声明 |
 | scripts/radar/scan.mjs | 重构 | 只剩网络+文件 IO+main，行为零变更 |
 | tests/scripts/radar-scan.test.ts | 新增 | fixture 回归（期望独立编写）+ 一条接线/异常用例 |
 | tests/fixtures/radar/* | 新增 | 录制响应样例 |
@@ -153,6 +154,7 @@ Momentic（AI QA agent，HN 2026-11-02）的启示按「验证物证化 / 验收
 
 - A：PR 模板 Verification 新增「失败用例证据（bugfix）」子块；worktree-isolation 硬规则指认该子块并保留豁免出口；adversarial-review B9 与 review-dimensions.md 新增小节对齐判别力三查、抽样复跑及 B3 分工。
 - C：`scan-lib.mjs` 承接零副作用纯函数，`scan.mjs` 保留网络/文件 IO 与 main；新增三源录制 fixture、9 条用例（含子进程离线 main 接线与 stdout 逐字节断言），期望从输入和 README 规则独立推导。
+- 第一轮检视处置（格物）：Golden Gate 基建自检与本特性验证记录混述已改为 n/a 诚实口径；测试名改为纯函数逐行断言；direct-run 改用 `realpathSync(argv[1])`，main 接线用例改经 symlink 调用以锁边界。
 - 验证记录见下方「实现自检（2026-11-03）」，命令输出与 PR 机器锚点随交付更新。
 - 交付锚点：PR #1748；实现 commit A=`798e6216`、C=`80deb490`（rebase 后）；CI run 41578449178 全绿。
 
@@ -167,9 +169,9 @@ Momentic（AI QA agent，HN 2026-11-02）的启示按「验证物证化 / 验收
 | 负面向验收 | 检查本次是否破坏旧契约/绕过既有保护 | 不改过滤规则、抓取顺序、raw 字段或 stdout 格式；不新增机械闸，不绕过 check-pr-evidence；唯一代码结构变化为纯函数抽离 |
 | 锚点重放评审 | 本次为半机械结构文档 + 检视核对条款，无 LLM 场景新语义可重放 | 走异体对抗审视核对触发语义，不声称已跑异体锚点评审 |
 
-Golden Gate：按 `verify_by=behavior_check` 执行并记录结果，不豁免。
-- capability：17 files exit 0（16 passed / 44 skipped）；skip 原因是本机未配置 LLM 端点，不据此声称 LLM 场景已覆盖。Golden selftest 记录已写入主仓 `data/metrics/golden-results.jsonl`。
-- CI：https://github.com/chenlaicai/otter-buddy/actions/runs/41578449178 —— check、e2e、guard-macos、golden-selftest 全通过。
+Golden Gate：n/a——`verify_by=behavior_check` 的模板/skill 文案改动，效果由本次异体对抗审视与未来检视行为验证。golden selftest 已跑通（17 files exit 0；16 passed / 44 skipped）属基建自检，不是本特性的 Golden Gate 执行记录；`golden-results.jsonl` 仅有 selftest 行，不能据此勾选「本 PR 已跑 Golden Gate」。
+- 44 skipped 原因是本机未配置 LLM 端点，不据此声称 LLM 场景已覆盖。
+- CI 历史记录（rebase 前 commit `80deb490`）：https://github.com/chenlaicai/otter-buddy/actions/runs/41578449178 —— check、e2e、guard-macos、golden-selftest 全通过；处置后的最终 HEAD 以 PR 最新 check 为准。
 
 ### 验证结果（实现者自报）
 

@@ -3,7 +3,7 @@
  * 所有期望均由 fixture 输入和 README 的过滤/排序/截取规则独立推导，
  * 不从 scan 实现导出期望值。
  */
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -174,7 +174,7 @@ describe("main 离线接线", () => {
     anthropic: { items: [{ slug: "announcements", url: "https://www.anthropic.com/news/announcements" }] },
   };
 
-  it("main 写盘对象与 stdout 复用同一 formatRadarSummary 契约（逐字节）", () => {
+  it("formatRadarSummary 全量逐行断言含尾部换行", () => {
     const outputDirectory = mkdtempSync(join(tmpdir(), "radar-scan-byte-test-"));
     temporaryDirectories.push(outputDirectory);
     const rawResult = assembleRawResult(rawInput);
@@ -195,10 +195,12 @@ describe("main 离线接线", () => {
     ]);
   });
 
-  it("scan.mjs 经 mocked fetch 调用纯函数，写盘 raw 与 stdout 均来自 fixture", () => {
+  it("scan.mjs 经 mocked fetch 调用纯函数，symlink 调用同样执行 main", () => {
     const outputDirectory = mkdtempSync(join(tmpdir(), "radar-scan-test-"));
     temporaryDirectories.push(outputDirectory);
     const scanPath = fileURLToPath(new URL("../../scripts/radar/scan.mjs", import.meta.url));
+    const linkedScanPath = join(outputDirectory, "scan-link.mjs");
+    symlinkSync(scanPath, linkedScanPath);
     const fixtures = {
       hn: hnFixture,
       gh: ghFixture,
@@ -226,7 +228,7 @@ describe("main 离线接线", () => {
       process.argv = [process.argv[0], scanPath, outputDirectory];
       await import(scanPath);
     `;
-    const execution = spawnSync(process.execPath, ["--input-type=module", "--eval", bootstrap, scanPath, outputDirectory], {
+    const execution = spawnSync(process.execPath, ["--input-type=module", "--eval", bootstrap, linkedScanPath, outputDirectory], {
       encoding: "utf8",
       timeout: 20_000,
     });
