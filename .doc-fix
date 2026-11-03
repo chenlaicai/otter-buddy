@@ -1,1 +1,1 @@
-F20261019f714（M-f7148deb 第 2 条）：三个历史特性文档补 slug 后缀改名（F20260716i5n2→interface-adapters-layer、F20260826mwrd→magic-words-l10n-signal-protocol、F20260826sgpa→halt-signal-pipeline），引用链同步订正——变更均为纯 rename（R100）与纯链接路径替换，正文内容零修改。
+# F20261103obarx intent 块补录：#1742 当日合入文档漏填 intent 块，被本 PR 新全域门（#1740）CI 实跑捕获——按门提示补 frontmatter intent（problem/expected_effect/verify_by:behavior_check），纯元数据订正不涉正文

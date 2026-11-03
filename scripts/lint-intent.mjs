@@ -100,12 +100,21 @@ function isSoftCodeChange(fm) {
 // F20260917sdpl：软代码 verify_by 声明收口时间界——created_at ≥ 此日期的新文档缺声明是 error。
 // 可伪造性：lint 不防（回填旧日期可降回 warning），由检视獭按 git 首提交时间对照打回（PR 核对点④）。
 const SOFT_CODE_ENFORCE_DATE = "2026-09-17";
+// F20261103itald（#1740，搭档 2026-11-03 拍板）：intent 声明域扩至全部 change_type。
+// 此前仅软代码域（modules 含 prompts//.pi/，#1238）与 feature/prompt（#839）缺块 error，
+// 硬代码 fix/refactor 缺块仅 warning——与 P0-c 统计口径（全量分母，#1740 触发链）分裂，
+// 11-01/11-02 批次连续漏 5 篇均为此放行面。时间界增量收口：created_at ≥ 此日期的
+// 新文档（任何 change_type）缺 intent 块 → error；存量（< 此日期或 created_at 缺失）
+// 不追诉，warning 照旧——与 SOFT_CODE_ENFORCE_DATE 同构，不另起机制。
+const ALL_DOMAIN_ENFORCE_DATE = "2026-11-03";
 
 /** 时间界判定：文档 created_at ≥ 收口日期（created_at 缺失/不可解析按存量处理，不追诉）。
  *  F20261030ctalg（#1295）：无前导零日期（如 2026-9-1）字符串比较会误判为新（'9'>'0'），
  *  先归一化零填充再比；非 `\d{4}-\d{1,2}-\d{1,2}` 前缀的不可解析格式按存量宽容（
- *  收口语义只追诉可证实的新文档，格式错误归 lint:docs 诊断）。 */
-function isNewEnough(fm) {
+ *  收口语义只追诉可证实的新文档，格式错误归 lint:docs 诊断）。
+ *  F20261103itald（#1740）：归一化逻辑参数化为 isNewEnoughFor(fm, enforceDate)——
+ *  软代码域与全域两个时间界共用同一归一化实现，防双实现口径漂移。 */
+function isNewEnoughFor(fm, enforceDate) {
   if (typeof fm.created_at !== "string") return false;
   const m = fm.created_at.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (!m) return false;
@@ -113,7 +122,10 @@ function isNewEnough(fm) {
   // F20261030ctalg 检视 r1 建议 3：语义非法日期（13 月/32 日/2-31）Date.parse 为 NaN，
   // 与不可解析格式同口径按存量宽容（不追诉）。
   if (Number.isNaN(Date.parse(normalized))) return false;
-  return normalized >= SOFT_CODE_ENFORCE_DATE;
+  return normalized >= enforceDate;
+}
+function isNewEnough(fm) {
+  return isNewEnoughFor(fm, SOFT_CODE_ENFORCE_DATE);
 }
 
 /**
@@ -260,6 +272,14 @@ function validateIntent(fm, exemptKey) {
       errors.push(
         `Missing intent block for soft-code change (modules 含 prompts/ 或 .pi/, created_at ≥ ${SOFT_CODE_ENFORCE_DATE})——请在 frontmatter 补 intent 块（problem/expected_effect/verify_by）（#1238）`,
       );
+    } else if (isNewEnoughFor(fm, ALL_DOMAIN_ENFORCE_DATE) && !isExempt) {
+      // F20261103itald（#1740，搭档拍板）：全域缺块收口——created_at ≥ 2026-11-03 的新文档
+      // 不论 change_type（硬代码 fix/refactor 等）缺 intent 块均 error，消除 lint 判定域
+      // 与 P0-c 统计口径（全量分母）的分裂。存量与 created_at 缺失文档不在此列（宽容口径
+      // 与软代码域一致）。注意与 REQUIRED 分支的分工：feature/prompt/缺失在首个 if 已 error。
+      errors.push(
+        `Missing intent block for all-domain change (created_at ≥ ${ALL_DOMAIN_ENFORCE_DATE}, 搭档拍板声明域=全部 change_type，#1740)——请在 frontmatter 补 intent 块（problem/expected_effect/verify_by）`,
+      );
     } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(canonicalChangeType)) {
       warnings.push(`Recommended intent field for ${effectiveChangeType}`);
     }
@@ -267,6 +287,10 @@ function validateIntent(fm, exemptKey) {
   }
 
   const intent = fm.intent;
+  // F20261103itald（审视 r1 A1）：字段级校验随全域门同步收口——残块/空块（intent: {}
+  // 或仅缺字段）不再比整块缺失罚得更轻（梯度倒置：缺得越彻底罚得越轻）。仅对
+  // created_at ≥ 2026-11-03 的新文档生效，存量口径不变。
+  const isAllDomainNew = isNewEnoughFor(fm, ALL_DOMAIN_ENFORCE_DATE) && !isExempt;
 
   // 检查 problem 字段（F20261005imfg: effectiveChangeType 统一口径，change_type 缺失按 feature 判必填；
   // 存量豁免同口径降级：2026-09-15 goal/why 自创 schema 的 5 篇在此分支触发，冻结豁免）
@@ -277,6 +301,9 @@ function validateIntent(fm, exemptKey) {
       } else {
         errors.push("Missing intent.problem field");
       }
+    } else if (isAllDomainNew) {
+      // F20261103itald A1：全域门字段级同步收口——新文档 problem 必填（残块绕过修复）
+      errors.push("Missing intent.problem field");
     } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(canonicalChangeType)) {
       warnings.push(`Recommended intent.problem field for ${effectiveChangeType}`);
     }
@@ -296,7 +323,10 @@ function validateIntent(fm, exemptKey) {
         errors.push("Missing intent.expected_effect field");
       }
     }
-    // bugfix/refactor 可以不填 expected_effect
+    // bugfix/refactor 存量可不填；全域新文档必填（F20261103itald A1 残块收口）
+    if (isAllDomainNew) {
+      errors.push("Missing intent.expected_effect field");
+    }
   } else {
     // 检查 expected_effect 是否可判定（不含模糊词）
     const fuzzyWords = ["提升", "优化", "改善", "更好", "更优", "增强"];
@@ -402,7 +432,7 @@ function isIntentComplete(fm) {
   return nonExempt.errors.every((e) => !e.startsWith("Missing intent"));
 }
 
-export { validateIntent, isSoftCodeChange, isNewEnough, VALID_VERIFY_BY_TYPES, SOFT_CODE_ENFORCE_DATE, EXEMPT_MAX, EXEMPT_IDS, EXEMPT_LIST_PATH, isIntentComplete };
+export { validateIntent, isSoftCodeChange, isNewEnough, isNewEnoughFor, VALID_VERIFY_BY_TYPES, SOFT_CODE_ENFORCE_DATE, ALL_DOMAIN_ENFORCE_DATE, EXEMPT_MAX, EXEMPT_IDS, EXEMPT_LIST_PATH, isIntentComplete };
 
 /** 仅作为脚本直接运行时执行 lint 主流程；被测试 import 时只取纯函数，不触发 dist 依赖与文件遍历 */
 const isMain = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;

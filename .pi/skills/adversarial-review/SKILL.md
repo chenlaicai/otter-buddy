@@ -50,7 +50,7 @@ category: technique
    | 全链路验证 | 功能是否端到端可用？不只是单元测试通过 |
    | 变更标识一致性 | 特性编号在 commit/PR/文档间一致？（详见 `references/review-dimensions.md` B4）。**Modification-Class 一致性（每次必查）**：commit body 声明值 vs 实际 diff——声明非 `mechanism-addition` 但 diff 实增机制（新配置/新状态/新定时任务/新存储/新信号）= 严重发现；`mechanism-addition` 声明但特性文档「设计取舍」段无四问答案 = 严重发现 |
    | 撞车检查（B5） | 是否有其他 open PR 引用同一 issue 或重叠文件域？`gh pr list --state open` 后比对 Closes/Fixes 引用与 files 列表；命中 = **提醒级发现**（写入报告即可，不进严重项、不升级仲裁、不影响处置决策）——搭档 2026-10-27 定调：在途 PR 冲突只做提醒，不影响 PR 实现；特性开发只看当前最新 main，不思考别的 PR 在干吗；后合入方 rebase 重验是唯一规则 |
-   | Intent 块存在性（B6，软代码改动） | 本次变更涉及 prompt/skill/协议层时，特性文档 frontmatter 是否有 intent 块？**intent 块缺失 = 严重发现** |
+   | Intent 块存在性（B6，全部特性文档） | 特性文档 frontmatter 是否有 intent 块？**intent 块缺失 = 严重发现**（2026-11-03 起声明域为全部 change_type，硬/软代码均必填） |)
    | Golden Gate 记录（B7，软代码改动） | 本次变更涉及 prompt/skill/协议层时，results.jsonl 是否有该 PR 的执行记录？**记录缺失 = 严重发现**；记录存在但有 fail 行未处置 = 严重发现（fail 行悬置会让止损线条件永久失明）。**豁免核验**：verify_by.type 为 static_only/human_judge 时生产方可豁免跑 gate，但 PR Verification 节必须有豁免声明（「Golden Gate: n/a（verify_by=…，无场景可跑）」）——无记录且无豁免声明 = 严重发现 |
    | Prompt 体积预算（B8，2026-09-17） | diff 触及 `prompts/scheduled/*.md` 且净增 >500B？若是，作者须在 PR 描述申报等量出清或净增理由（写入闸：`npm run lint:prompt-size`，超预算 CI 直接红）。**未申报的净增 = 严重发现**（体积失控事故实证：6 PR 连续合入无人拦截，根因是检查维度缺失） |
    | 证据包核验（B9，改系统状态的交付） | PR body 含 Rollback 段与证据分层声明？（机械闸：check-pr-evidence）**证据分层缺失 = 严重发现**；更深一层：机器锚点与 agent 陈述（标未复验）分开列、无混排冒充已验证？agent 陈述冒充机器锚点 = 严重发现；抽样点开 1-2 个机器锚点复验真实性，锚点失效/伪造 = 严重发现。纯 docs/ 交付豁免 |
@@ -61,7 +61,7 @@ category: technique
 
    > **B2 特性文档缺失 = 严重发现**：无论变更类型（代码/prompt/skill/doc），特性文档都是必须的。缺失即为严重发现，不可降级为「可接受」或「完整」。正确做法：在审视报告"严重发现"节建 B2 条目，描述"特性文档缺失"，处置为"本 PR 修复（补充特性文档）"。
 
-   > **B6/B7 软代码改动必须检查**：本次变更涉及 prompt/skill/协议层时，B6（intent 块存在性）和 B7（Golden Gate 记录）是必须检查的基础维度。检视獭不重复跑 gate（生产方职责），只核验记录存在性 + fail 已处置。
+   > **B6/B7 检查范围**：B6（intent 块存在性）适用全部特性文档（声明域=全部 change_type，硬/软代码均必填）；B7（Golden Gate 记录）仍仅软代码改动必须。检视獭不重复跑 gate（生产方职责），只核验记录存在性 + fail 已处置。
 
    > **B8 体积预算（2026-09-17）**：diff 触及 prompts/scheduled/*.md 时必查：跑 `npm run lint:prompt-size`，超预算（或触警告线但 PR 未申报增量纪律处置）→ 严重发现。防线前移到 PR 合入前，取代「DB 写入时静默降级」的末端哑防线。
 

@@ -14,6 +14,13 @@ modules:
 summary: "#1224（#1201 同型 bug 成因模式）：ConversationKind 合法值多处平行硬编码——新增枚举值漏改任何一处即产生 #1201 形态 bug（web-assistant 上线时 db mapper 白名单漏扩，侧栏分组失灵且 session 检查静默失效）。单源化：entities 落穷尽数组 CONVERSATION_KINDS，类型从数组派生（typeof[number]——数组与类型同一实体，漏进任一侧编译期不可能）；db mapper 白名单、controller query 解析、repo filter、web client options 改经守卫/派生；api-contract DTO kind 联合从 entities 派生（Exclude normal）；前端 LocalConversation.kind 从 DTO 契约派生。新增枚举值只改 entities 一处，全链生效。"
 tags: [conversation, entities, type-safety, single-source]
 capability_test: "n/a: 纯类型收敛与守卫重构，无 LLM 行为变更"
+created_at: 2026-11-02
+
+intent:
+  problem: "ConversationKind 枚举四处平行硬编码，新增 kind 需改四处且易漏（#1224 同型 bug 成因）"
+  expected_effect: "枚举单源化后新增/检索 kind 只改一处；四处调用点均引用单一导出，跨闸一致性由编译期保证"
+  verify_by:
+    type: behavior_check
 ---
 
 # ConversationKind 枚举单源化（#1224）
