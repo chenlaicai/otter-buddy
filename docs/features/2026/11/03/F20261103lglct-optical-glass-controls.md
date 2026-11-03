@@ -37,7 +37,7 @@ intent:
 - 折射纹理由 `feImage + feDisplacementMap` 生成，输入是按钮自身的 CSS 静态画布；消息流 DOM 不进入滤镜。
 - 按钮画布沿用 `--custom-bg-image`、主色 `--canvas-tint-rgb` 和极光 token；自定义背景保持与视口对齐。
 - 两个形状使用固定 PNG 位移图；无需 canvas、MutationObserver、ResizeObserver、requestAnimationFrame 或第三方运行库。
-- 文字与图标在独立内容层；禁用、键盘焦点、reduced-motion 保留。玻璃滑杆本轮不接管小控件，避免引入额外的光学语义。
+- 文字与图标在独立内容层；禁用、键盘焦点、reduced-motion / reduced-transparency 保留。玻璃滑杆本轮不接管小控件，避免引入额外的光学语义。
 - 仅主发送按钮和浮动獭采用玻璃；排队按钮与输入框不跟随。
 
 ## 取舍与风险
@@ -45,7 +45,7 @@ intent:
 - **静态画布 ≠ 活内容透镜**：背后的消息文字不会经按钮折射。这是换取不闪与稳定性能的明确取舍。
 - **轻量原生实现 ≠ 苹果原生引擎**：用 Web 标准表达折射/色散边缘/高光，不宣称系统级材质等价。
 - 固定纹理只在本原型两个尺寸使用；后续扩尺寸须重新检查折射尺度和视觉性能。
-- 背景用 `fixed` 附着保证位置一致，但含 transform 的拖动按钮需真机检查；不得用 JS 实时采样替代。
+- 折射层恒挂 `translateZ(0)`，避免外层动画/拖动使 fixed 背景锚定跳变；不得用 JS 实时采样替代。
 - 机制检查：复用既有组件和 CSS 渲染，不新增决策机制 / 守卫 / 流程；无决策者变化。机器契约测试锁静态源边界，视觉判断由浏览器证据和搭档验收。
 
 ## 验收标准
@@ -55,7 +55,7 @@ intent:
 | 主发送 | 输入文字、点击主发送按钮 | 发送行为与 disabled 语义不变，按钮呈折射玻璃 |
 | 浮动獭 | 点击、拖动、触发现有动画 | 开关面板、拖动、未读显示不变，玻璃不遮挡头像 |
 | 运行中界面 | 流式消息更新 | 无 DOM 克隆 / MutationObserver / rAF；不发生旧式色块闪动 |
-| 背景偏好 | 默认画布、自定义背景 | 玻璃与画布对齐；自定义图片与主色薄纱有效 |
+| 背景偏好 | 默认画布、自定义背景、reduced transparency | 玻璃与画布对齐；减少透明度时折射和高光退化实色 |
 | 跨浏览器 | Chromium / WebKit 真浏览器 | 均有静态源折射；文字与图标保持清晰 |
 
 ## 验证
@@ -63,7 +63,7 @@ intent:
 - `web/src/components/OpticalGlassButton.test.tsx`：原生交互与内容隔离。
 - `web/src/styles/material-v3.test.ts`：浮动獭离开 backdrop-blur 白名单，面板豁免不扩散。
 - 浏览器：Chromium 与 WebKit，默认画布与自定义条纹背景；发送/悬浮助手局部截图与整页截图、真实点击/开关面板。脚本位于对话工作区 `visual-check.cjs` / `send-check.cjs` / `background-check.cjs`，提交后留存 `/tmp/otter-evidence-F20261103lglct`。
-- 实测修正：多层背景变量组合与相对 rgb 语法曾导致纹理 `none`，改为与画布一致的 rgba 语法；reduced-transparency 在两个引擎均不触发，本轮未新增无效分支。
+- 实测修正：多层背景变量组合与相对 rgb 语法曾导致纹理 `none`，改为与画布一致的 rgba 语法。独立检视发现 Playwright 的 reduced-transparency 模拟不透传；以 CDP 实测并补齐高光层实色退化。
 - 浏览器环境用隔离 alpha：3154；仅提交测试 HTML/CSS/代码，不把测试对话与条纹背景带入主环境。
 - 最简实现检查：一个组件、一个局部 CSS、两个静态纹理，不引入通用 glass 框架；无新依赖。
 

@@ -283,7 +283,6 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             shape="squircle"
             onClick={() => handleSend('steer')}
             disabled={!canSend}
-            className="optical-glass--send"
             title="发送（steer 插话）：目标獭正在行动时立即打断当前生成，注入你的消息"
           >
             <ArrowUp className="w-4 h-4" strokeWidth={2.2} />

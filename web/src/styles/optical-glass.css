@@ -38,6 +38,8 @@
   filter: var(--glass-filter);
   background-color: var(--bg-base);
   background-attachment: fixed;
+  /* 恒为元素锚定：避免外层动画/拖动 transform 切换 fixed 背景的坐标系。 */
+  transform: translateZ(0);
   background-position: center;
   background-repeat: no-repeat;
 }
@@ -103,4 +105,20 @@
 @media (prefers-reduced-motion: reduce) {
   .optical-glass { transition: none; }
   .optical-glass:active:not(:disabled) { transform: none; }
+}
+
+/* 减少透明度：连同高光层退化实色，不只关掉底层折射；在画布分支后覆盖。 */
+@media (prefers-reduced-transparency: reduce) {
+  :root .optical-glass__lens {
+    --glass-filter: none !important;
+    background-image: none !important;
+  }
+  .optical-glass__light {
+    background: none;
+    border-color: rgb(42 32 20 / 28%);
+    box-shadow: none;
+  }
+  .optical-glass__content {
+    filter: none;
+  }
 }
