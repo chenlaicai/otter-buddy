@@ -54,16 +54,13 @@ describe('材质 v3.0 契约：瞬态/遮罩层真玻璃保留（白名单闭合
     expect(css).toMatch(/\.scrim\s*\{[^}]*backdrop-filter:\s*var\(--scrim-blur\)/)
   })
 
-  it('浮动助手瞬态白名单在位（正向在位 + 全仓反向闭合）', () => {
-    // 正向：白名单 2 处浮动助手保留 utility
+  it('浮动助手面板保留瞬态模糊（全仓反向闭合）', () => {
+    // F20261103lglct：浮动獭小面升级为静态画布折射，不再采样真实 DOM；面板仍保留模糊。
     expect(readSrc('web/src/components/FloatingAssistant/AssistantPanel.tsx')).toMatch(/backdrop-blur/)
-    expect(readSrc('web/src/components/FloatingAssistant/FloatingOtter.tsx')).toMatch(/backdrop-blur/)
-    // 反向闭合（检视獭-impl A2）：白名单+弹层豁免清单之外，全仓 .tsx 禁 backdrop-blur utility。
-    // 豁免均属弹层/抽屉瞬态（WorkDetailDialog/ChainDetailDrawer/im 覆盖确认）；
-    // F20261102glmtr S4 处置：ChatView card-preview 开在流式内容上属常驻面，已摘除。
+    expect(readSrc('web/src/components/FloatingAssistant/FloatingOtter.tsx')).not.toMatch(/backdrop-blur/)
+    // 豁免均属弹层/抽屉瞬态（WorkDetailDialog/ChainDetailDrawer/im 覆盖确认）。
     const exempt = new Set([
       'components/FloatingAssistant/AssistantPanel.tsx',
-      'components/FloatingAssistant/FloatingOtter.tsx',
       'pages/health/WorkDetailDialog.tsx',
       'pages/health/ChainDetailDrawer.tsx',
       'pages/im/index.tsx',

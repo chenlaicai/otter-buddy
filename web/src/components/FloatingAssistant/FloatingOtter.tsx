@@ -1,4 +1,5 @@
 import type { OtterMood } from './global-conversation-store'
+import { OpticalGlassButton } from '../OpticalGlassButton'
 
 /**
  * F20260924wast：浮动獭本体（纯展示 + 交互回调）。
@@ -43,13 +44,14 @@ export function FloatingOtter(props: FloatingOtterProps) {
       onPointerDown={onPointerDown}
     >
       {/* 獭本体（点击=展开/收起；拖动位移<6px 判点击由宿主 dragging 状态抑制） */}
-      <button
-        type="button"
+      <OpticalGlassButton
+        width={56}
+        height={56}
+        radius={18}
+        shape="squircle"
         data-testid="floating-otter-avatar"
         onClick={() => { if (!dragging) onToggle() }}
-        className={`relative w-14 h-14 rounded-2xl bg-white/80 backdrop-blur border border-white/60 shadow-lg
-          transition-transform duration-200 hover:scale-105 active:scale-95 cursor-pointer
-          ${mood === 'sleep' ? 'animate-otter-breathe' : ''}
+        className={`${mood === 'sleep' ? 'animate-otter-breathe' : ''}
           ${mood === 'look' ? 'animate-otter-peek' : ''}
           ${mood === 'bubble' ? 'animate-otter-hop' : ''}
           ${dragging ? 'cursor-grabbing scale-105' : ''}`}
@@ -69,7 +71,7 @@ export function FloatingOtter(props: FloatingOtterProps) {
         {mood === 'sleep' && !open && (
           <span className="absolute -top-2 right-0 text-stone-400 text-xs font-bold animate-otter-zz" aria-hidden>zZ</span>
         )}
-      </button>
+      </OpticalGlassButton>
     </div>
   )
 }

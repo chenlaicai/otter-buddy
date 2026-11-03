@@ -10,6 +10,7 @@ import { lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
 import './styles/globals.css'
+import './styles/optical-glass.css'
 import { AppLayout } from './components/AppLayout'
 import { restoreBackgroundPreference } from './lib/background-preference'
 

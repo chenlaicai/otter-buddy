@@ -1,0 +1,106 @@
+/* 少量关键交互面的光学玻璃（F20261103lglct）：画布为唯一折射源，R_DOM=0。 */
+.optical-glass {
+  position: relative;
+  isolation: isolate;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--glass-radius);
+  background: transparent;
+  color: #44392e;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow:
+    0 5px 12px rgb(62 42 20 / 16%),
+    0 1px 3px rgb(62 42 20 / 12%);
+  transition: box-shadow 160ms ease, transform 160ms ease;
+}
+
+.optical-glass__filter {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.optical-glass__lens,
+.optical-glass__light,
+.optical-glass__content {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.optical-glass__lens {
+  z-index: 0;
+  overflow: hidden;
+  filter: var(--glass-filter);
+  background-color: var(--bg-base);
+  background-attachment: fixed;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* 为什么拆成完整选择器：多层背景搭配 CSS 变量 fallback 时，Chromium 会把整条
+   shorthand 判为无效；独立声明保留色染与极光，不让折射层静默退回纯色。
+   tint 沿用画布的 rgba(var(--rgb), alpha) 语法：现有变量是逗号分隔，
+   不能误套要求空格分隔的 rgb(from ...) 相对颜色语法。 */
+:root[data-custom-bg='true'] .optical-glass__lens {
+  background-image:
+    linear-gradient(rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32), rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32)),
+    var(--custom-bg-image);
+  background-size: auto, cover;
+}
+
+:root:not([data-custom-bg='true']) .optical-glass__lens {
+  background-image: var(--blob-1), var(--blob-2), var(--blob-3), var(--blob-4), var(--band);
+  background-size: 100vw 100vh;
+}
+
+.optical-glass__light {
+  z-index: 1;
+  pointer-events: none;
+  border: 1px solid rgb(255 255 255 / 68%);
+  background:
+    radial-gradient(ellipse 72% 44% at 27% 2%, rgb(255 255 255 / 70%), transparent 70%),
+    linear-gradient(128deg, rgb(255 255 255 / 22%) 8%, transparent 38%, transparent 66%, rgb(255 248 235 / 20%) 94%);
+  box-shadow:
+    inset 0 1px 1px rgb(255 255 255 / 78%),
+    inset 1px 0 1px rgb(255 255 255 / 38%),
+    inset 0 -1px 2px rgb(80 53 26 / 18%);
+}
+
+.optical-glass__content {
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgb(255 255 255 / 65%));
+}
+
+.optical-glass:hover:not(:disabled) {
+  box-shadow: 0 7px 16px rgb(62 42 20 / 20%), 0 1px 3px rgb(62 42 20 / 12%);
+}
+
+.optical-glass:active:not(:disabled) {
+  transform: scale(0.96);
+  box-shadow: 0 2px 5px rgb(62 42 20 / 16%);
+}
+
+.optical-glass:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.optical-glass:disabled {
+  cursor: default;
+  opacity: 0.42;
+  box-shadow: 0 1px 3px rgb(62 42 20 / 10%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .optical-glass { transition: none; }
+  .optical-glass:active:not(:disabled) { transform: none; }
+}

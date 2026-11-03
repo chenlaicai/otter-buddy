@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { ArrowUp, Paperclip, X, FileText } from 'lucide-react'
 import type { LocalOtter as Otter } from '../../lib/mappers'
-import { OTTER_GRADIENT } from '../../lib/otter-colors'
+import { OpticalGlassButton } from '../../components/OpticalGlassButton'
 import { resolveOtterVisual } from '../../lib/otter-visual'
 import { useDraftCache } from '../../hooks/use-draft-cache'
 import { ATTACHMENT_ACCEPT, MAX_IMAGES_PER_SEND, MAX_FILES_PER_UPLOAD, fmtBytes } from '../../lib/attachments'
@@ -276,15 +276,18 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
           >
             排队
           </button>
-          <button
+          <OpticalGlassButton
+            width={36}
+            height={36}
+            radius={12}
+            shape="squircle"
             onClick={() => handleSend('steer')}
             disabled={!canSend}
-            className="w-9 h-9 rounded-2xl text-white flex items-center justify-center shadow-glow transition flex-shrink-0 disabled:opacity-50"
-            style={{ background: OTTER_GRADIENT }}
+            className="optical-glass--send"
             title="发送（steer 插话）：目标獭正在行动时立即打断当前生成，注入你的消息"
           >
-            <ArrowUp className="w-4 h-4" />
-          </button>
+            <ArrowUp className="w-4 h-4" strokeWidth={2.2} />
+          </OpticalGlassButton>
         </div>
         <p className="text-[10px] text-stone-400 text-center mt-1.5">
           Enter 发送（steer 插话） · 排队按钮 = followUp · Shift+Enter 换行 · @ 提及小獭{stagedImageCount > 0 ? ` · 已选图片 ${stagedImageCount}/${MAX_IMAGES_PER_SEND}` : ''}
