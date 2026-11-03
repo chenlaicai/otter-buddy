@@ -1,0 +1,59 @@
+{
+  "topStories": [
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107
+  ],
+  "items": {
+    "101": {
+      "id": 101,
+      "title": "Launch HN: Momentic (YC W24) – Agents that catch bugs by using your app",
+      "url": "https://momentic.ai/",
+      "score": 116,
+      "descendants": 75
+    },
+    "102": {
+      "id": 102,
+      "title": "A new release of PostgreSQL is available",
+      "url": "https://www.postgresql.org/about/news/",
+      "score": 400,
+      "descendants": 120
+    },
+    "103": {
+      "id": 103,
+      "title": "Agentic backdoors via pretraining poisoning",
+      "url": "https://arxiv.org/abs/2610.37741",
+      "score": 86,
+      "descendants": 28
+    },
+    "104": {
+      "id": 104,
+      "title": "Claude Opus 5.5 Can Draw Permit-Level Architectural Drawings",
+      "url": "https://stephenjgallagher.substack.com/p/ai-can-draw-blueprints-now",
+      "score": 78,
+      "descendants": 27
+    },
+    "105": {
+      "id": 105,
+      "title": "LLMs are not superhuman at reading and writing neural network weights",
+      "url": "https://www.seangoedecke.com/llms-are-not-superhuman-at-reading-and-writing-neural-network-weights/",
+      "score": 16
+    },
+    "106": {
+      "id": 106,
+      "title": "A community cookbook for weeknight dinners",
+      "score": 200,
+      "descendants": 40
+    },
+    "107": {
+      "id": 107,
+      "title": "Why I built an AI weather balloon",
+      "score": 48,
+      "descendants": 9
+    }
+  }
+}

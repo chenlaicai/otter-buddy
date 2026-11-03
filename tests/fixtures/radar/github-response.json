@@ -1,0 +1,40 @@
+{
+  "topics": {
+    "ai-agent": {
+      "items": [
+        {
+          "full_name": "example/small-agent",
+          "description": "A small agent harness with deterministic traces.",
+          "stargazers_count": 17,
+          "created_at": "2026-10-30T10:00:00Z"
+        },
+        {
+          "full_name": "example/large-agent",
+          "description": "An agent runtime with a much longer description that is preserved in raw JSON but shortened in the stdout summary for the LLM selection layer.",
+          "stargazers_count": 900,
+          "created_at": "2026-11-01T10:00:00Z"
+        }
+      ]
+    },
+    "llm": {
+      "items": [
+        {
+          "full_name": "example/llm-kit",
+          "description": null,
+          "stargazers_count": 80,
+          "created_at": "2026-10-29T10:00:00Z"
+        }
+      ]
+    },
+    "mcp": {
+      "items": [
+        {
+          "full_name": "example/mcp-tools",
+          "description": "Small protocol tools.",
+          "stargazers_count": 120,
+          "created_at": "2026-11-02T10:00:00Z"
+        }
+      ]
+    }
+  }
+}

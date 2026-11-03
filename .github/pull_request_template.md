@@ -47,6 +47,15 @@ How to roll this back (revert commit / feature flag / manual steps). For changes
 - [ ] **Intent 块存在**（软代码改动必须）：特性文档 frontmatter 有 intent 块（problem + verify_by）
 - [ ] **Golden Gate 已跑且 fail 已处置**（软代码改动必须）：results.jsonl 有该 PR 的执行记录，fail 行已复跑通过/修复再跑/申诉留痕
 
+### 失败用例证据（bugfix）
+
+> 仅修复类 PR 填写；非修复类直接省略本子块，不写「不适用」占位。
+
+- **修复前现象**：命令 + 输出摘录（事故/错误形态原样贴）：
+- **复现步骤**：编号列出最小复现路径（含所需命令）：
+- **修复后对照**：同一命令的修复后输出：
+- **豁免出口**：仅当测试与最小复现脚本均不可行时，用一句理由替代上述证据（说明为何两者都不适用）：
+
 ## Discovered Issues
 
 Issues found but not fixed in this PR. Each must have a GitHub issue link (`#NNN`) — created via `gh issue create`. Verbal "已记录" without a link is not acceptable.
