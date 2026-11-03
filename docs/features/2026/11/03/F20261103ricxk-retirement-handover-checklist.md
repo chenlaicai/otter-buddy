@@ -69,7 +69,9 @@ intent:
 - `npm run lint:skills`：15 skills OK，14 个存量 warning；`npm run lint:docs`：972 docs OK，3 个存量 warning；`npm run lint:intent`：954 docs OK，本特性 intent / verify_by 均 1/1。
 - `git diff --check`：通过；改动限定为 2 个既有 skill 文件、1 个新 reference 与本 F 文档。
 - 首次 docs lint 因新 worktree 尚无 `dist/` 失败，构建后复跑通过，不掩盖初始失败。
-- CI 与异体检视结果待填。
+- CI run 41591112998（最终 HEAD `6a9cf91d`）全绿：check / e2e / guard-macos / golden-selftest。
+- 首次 CI 的 check-pr-tests 因 PR 创建时 body 缺「方向：收紧」失败；补声明后 rerun 仍读创建事件旧快照，空提交 `6a9cf91d` 刷新事件后同闸通过。空提交无文件变更，已在 PR comment 留痕。
+- 异体检视与锚点重放待格物完成，不在此自报通过。
 - Golden Gate：`verify_by=behavior_check`，本次无新增独立 LLM 场景；如仅 selftest 基建运行，记录为基建自检而非本特性执行记录。
 
 # 风险
