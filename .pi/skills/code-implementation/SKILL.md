@@ -47,7 +47,7 @@ category: technique
 
    **db 迁移类变更的真启动验证（事故教训硬规则）**：本次变更涉及 migration.ts 新增/修改迁移函数、或 schema.ts 表结构变更时，自检必须包含「生产副本真启动」：①备份生产 DB 副本；②在副本上执行完整启动路径（`cd <worktree> && bash scripts/otter-buddy.sh start` 或等价 bootstrap 调用，cd 前缀必带），确认服务监听成功、日志无 SqliteError；③真启动结果（命令 + 关键日志行）写入自检报告与 PR Verification 节。**「跑迁移函数 + SQL 校验行数」不等于真启动**——现场：演练全绿，但崩溃点在 bootstrap enqueueRetry 的 ON CONFLICT，只有真启动能触达，SQL 校验永远摸不到。依据：同类事故已踩两次（漏迁移致启动 crash / CTAS 丢结构致启动 crash），第三次不可接受——出处见 git 历史与特性文档。
 
-   **负面向验收条目（事故教训，刹车二）**：迁移/破坏性/替换类变更的验收与自检清单必须包含一条负面向条目——「**本次变更破坏了什么旧契约 / 绕过了什么既有保护**」。省事方案的标志就是绕过某个既有保护（现场：绕过 retry worker 兜底，绕过了 sqlite_master 结构保持），逼着作者把「绕过」写出来，很多雷在写的时候就会自己暴露。
+   **负面向验收条目（事故教训，刹车二）**：迁移/破坏性/替换类变更的验收与自检清单必须包含一条负面向条目——「**本次变更破坏了什么旧契约 / 绕过了什么既有保护**」。省事方案的标志就是绕过某个既有保护（现场：绕过 retry worker 兜底，绕过了 sqlite_master 结构保持），逼着作者把「绕过」写出来，很多雷在写的时候就会自己暴露。删除或替换既有机制/保护/默认路径时，还须填写 `references/retirement-handover-checklist.md` 的四栏接管表（不变量全集 + 原消费者 + 新机制接管），不能只证单向安全。
 
    **影响面当场自检（搭档 2026-10-20 定调：当场纪律，禁事后补刀）**：改完自问「本次改动让哪些既有文档/决策描述失效了？」——失效的当场在本 PR 内补掉——本分支/本 PR 内的文档直接改；已合入的历史文档不回改（步骤 7 铁律），走新文档追加说明或补新记忆条目；不做事后扫描提醒（现场：曾设计「PR 合入后提示记录可能过期」被搭档否决——改动是自己做的，当场就知道碰了什么，事后提醒是马后炮，且 append only 的记忆不接受「可能过期」类不确定性措辞）。
 
@@ -183,6 +183,7 @@ REASON: 一句话理由
 ## 参考（索引）
 
 - `references/testing-rules.md` — 步骤 5 使用
+- `references/retirement-handover-checklist.md` — 步骤 6 删除/替换旧机制的负面向验收使用
 - `references/coding-principles.md` — 步骤 4 使用
 - `references/commit-convention.md` — 步骤 8 使用
 - 署名按 signature-convention skill — 步骤 8 使用
