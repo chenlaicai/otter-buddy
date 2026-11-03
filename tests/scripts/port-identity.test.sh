@@ -86,8 +86,11 @@ set -e
 [ "$code" -eq 1 ] || fail "场景B: stop 应拒绝(exit 1)，实得 $code: $out"
 echo "$out" | grep -q "appears to be running" \
   || fail "场景B: 应认出主服务（appears to be running），实得: $out"
-echo "$out" | grep -q "PID file is missing" || echo "$out" | grep -qi "missing" \
-  || fail "场景B: 应说明 PID 文件缺失，实得: $out"
+# 输出实测形态："... but $PID_FILE is missing."（$PID_FILE 展开为完整路径，
+# 故断言匹配 ".otter-buddy.pid is missing"——曾用字面量 "PID file is missing"
+# 匹配不到任何输出，靠下一行弱兑底 grep -qi missing 才通过（死代码断言，检视发现#1）
+echo "$out" | grep -q "\.otter-buddy\.pid is missing" \
+  || fail "场景B: 应说明 PID 文件缺失（实际输出含完整 pid 路径），实得: $out"
 echo "$out" | grep -q "another worktree" \
   && fail "场景B: 不应再把主服务当另一实例: $out" || true
 pass "场景B: 无 PID 文件时认出主服务（PID ${NODE_PID}），不再误报另一实例"

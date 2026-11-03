@@ -84,21 +84,25 @@ port_owner_pid() {
 
 # F20261103portx 监听者身份三分类：main-service / otter-or-node / foreign。
 # PID 文件丢失时 stop/start/status 也要认得出自己的主进程（本案现场：主服务健康
-# 在跑，仅因 PID 文件缺失被当「外人」）。特征：command 带 node 特征（^node 或
-# dist/src/main.js）→ 查 cwd；cwd=本仓 → main-service，否则 otter-or-node（他处
-# 实例或别的 node 进程，cwd 一并展示供人判断）；无 node 特征 → foreign。
+# 在跑，仅因 PID 文件缺失被当「外人」）。特征：command 带 node 特征（绝对/相对
+# 路径的 node 或 dist/src/main.js）→ 查 cwd；cwd=本仓 → main-service，否则
+# otter-or-node（他处实例或别的 node 进程，cwd 一并展示供人判断）；无 node 特征
+# → foreign。*/node 与 */node.exe 覆盖绝对路径启动形态（检视发现#2）。
 # 占用者身份必须验证后才能断言——「likely another worktree's Otter Buddy」
 # 这类未验证断言正是本案误报的第三层。
 listener_class() {
   local pid="$1" cmd cwd
   cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-  case "$cmd" in
-    node*|*dist/src/main.js*)
-      cwd="$(lsof -p "$pid" 2>/dev/null | awk '$4=="cwd" {print $NF; exit}')"
-      if [ "$cwd" = "$PROJECT_DIR" ]; then echo "main-service"; else echo "otter-or-node"; fi
-      ;;
-    *) echo "foreign" ;;
-  esac
+  # node 特征判定用 ERE（case glob 无法表达「路径定界 + 可带参数」的形态，
+  # 带空格的 glob 模式在 case 里语法非法）：
+  #   (^|/)node(\.exe)?( |$) —— 路径定界的 node，可带参数；避免 mynode 误匹配
+  #   dist/src/main\.js     —— 海獭主服务入口特征（相对/绝对路径均命中）
+  if echo "$cmd" | grep -qE '(^|/)node(\.exe)?( |$)|dist/src/main\.js'; then
+    cwd="$(lsof -p "$pid" 2>/dev/null | awk '$4=="cwd" {print $NF; exit}')"
+    if [ "$cwd" = "$PROJECT_DIR" ]; then echo "main-service"; else echo "otter-or-node"; fi
+  else
+    echo "foreign"
+  fi
 }
 
 # F20261103portx 占用者报告（stop/start/status 复用）：报告「外人占端口」的两类
