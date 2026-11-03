@@ -8,6 +8,11 @@ created_in_conversation: a23f0f4a-612c-46e9-8d83-be648ced720e
 tags: [otterbar, scripts, auth, touchbar]
 modules: [scripts]
 created_at: 2026-11-03
+intent:
+  problem: '#1541 鉴权层合入后 /api/conversations 裸探活 401，status-core 恒判离线，renderer offline_long 退出让位 × launchd KeepAlive 组成「拉起-秒退」循环，Dock 图标闪动 4 天（日志 3646 条）'
+  expected_effect: '探活带 X-Otter 身份头且 401/403/404 归为口径漂移（不计离线、冻结离线计时）；renderer 长期离线驻留空转不退出——Dock 闪动消失，真离线（拒连/超时/5xx）才累积计时翻转'
+  verify_by:
+    type: behavior_check
 ---
 
 # F20261103obarx：otterbar Dock 闪动双修
