@@ -1166,8 +1166,10 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
  *  重启是正常运维 → 不拦；纯 LLM 自发（无用户消息介入）才是循环，拦。
  *  F20261005srst（#1203）三件套：①时间衰减豁免（存活超 2h 不拦，同构 F20260831cbkw 熔断健康窗口）
  *  ②判据查询重试一次（瞬时故障自愈）③降级落 healing event（判据失效可观测，不再静默）。
- *  Why 走 OtterToolClient 端口：tool 层无 queryMessage 依赖，复用 message 客户端的只读查询。 */
-const SELF_RESTART_LOOP_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+ *  Why 走 OtterToolClient 端口：tool 层无 queryMessage 依赖，复用 message 客户端的只读查询。
+ *  F20261103srstd（#1288）：窗口常量与介入判据收敛到 circuit-break-support 单点——tool 层包一层
+ *  async wrapper 复用 hasUserMessageSince（重试/降级语义同源），窗口常量 import 导出值，不再双定义。 */
+import { SELF_RESTART_LOOP_WINDOW_MS, hasUserMessageSince } from '../circuit-break-support';
 async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRepository): Promise<boolean> {
   if (!healingRepo) return false;
   const activeSession = await ctx.client.otter.getActiveSession(ctx.otterId).catch(() => null);
@@ -1182,18 +1184,19 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
   // 2h 后仍在工作的 session 不是循环。兕住判据失效类故障（9/28 现场：5h 前的自重启产物被拦）。
   const sessionAgeMs = Date.now() - Date.parse(activeSession.startedAt);
   if (sessionAgeMs > SELF_RESTART_LOOP_WINDOW_MS) return false;
-  // 用户消息介入检测：查询失败重试一次（#1203），重试仍失败降级为无介入（维持拦截，保守）
-  // ——但不再静默：降级事件落 healing 台账。F20260913ctlv 收尾批3：数据源切 entries（最新 user entry）
-  const MAX_ATTEMPTS = 2;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
+  // F20260906srst（#811）：用户介入检测——复用 invoker 层共享判据（#1288 收敛，重试一次 +
+  // 重试后仍失败降级为无介入（维持拦截，保守）+ 降级事件落 healing 台账，不再静默）。
+  const intervened = await hasUserMessageSince(
+    async () => {
       const lastUsers = await ctx.client.conversation.entry.getEntries(ctx.conversationId, { entryType: 'user', limit: 1 });
-      const last = lastUsers[0];
-      if (last && Date.parse(last.createdAt) >= Date.parse(activeSession.startedAt)) return false;
-      break; // 查询成功且无介入 → 维持拦截
-    } catch (err) {
-      if (attempt >= MAX_ATTEMPTS) {
-        // #1203：降级可观测——重试后仍失败，落 healing event（判据失效不再静默）
+      return lastUsers[0] ?? null;
+    },
+    activeSession.startedAt,
+    {
+      // #1203：降级可观测——重试后仍失败，落 healing event（判据失效不再静默）。
+      // 与 invoker 层降级语义同源，仅 context.layer 标记防织层归属。
+      onDegrade: async (err, isFinal) => {
+        if (!isFinal) return;
         await healingRepo.create({
           id: crypto.randomUUID(),
           messageId: ctx.currentInvokeId ?? ctx.currentMessageId,
@@ -1209,11 +1212,10 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
           createdAt: new Date().toISOString(),
           resolvedAt: null,
         }).catch(() => { /* 落账失败不阻断拦截判定 */ });
-      } else {
-        await new Promise(r => setTimeout(r, 50)); // 瞬时故障退避后重试
-      }
-    }
-  }
+      },
+    },
+  );
+  if (intervened) return false;
   return true;
 }
 
