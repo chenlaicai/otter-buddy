@@ -8,7 +8,7 @@ created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:
   - package.json
   - package-lock.json
-summary: "#1606 退役：#1605（2026-10-22 依赖批次）临时锁定的 rolldown 精确 pin 移除。退役条件 1 已验证：rolldown@1.2.16 optionalDependencies 指向 binding-freebsd-x64@1.2.16 且该包 registry 实际可解析（1.2.15/1.2.16 均已补发——10-22 时缺的正是这批）。处置：npm uninstall rolldown 彻底移除 devDependencies 条目（git 实查确认 #1605 加 pin 前无此条目，rolldown 是 vitest→vite 的传递依赖，条目移除即恢复原态）+ lockfile 重生成（rolldown 1.2.16 传递解析，freebsd binding 3 条目入锁）。核验中纠正：pin 实为 1.2.15 非 issue 记载的 1.2.14（中途批次升级过但保持精确锁）。验证：npm ci 干净安装 + build + 426 文件 5633 测试 + lint 全绿（退役条件 2/3 满足）。"
+summary: "#1606 退役：#1605（2026-10-22 依赖批次）临时锁定的 rolldown 精确 pin 移除。退役条件 1 已验证：rolldown@1.2.16 optionalDependencies 指向 binding-freebsd-x64@1.2.16 且该包 registry 实际可解析（1.2.15/1.2.16 均已补发——10-22 时缺的正是这批）。处置：npm uninstall rolldown 彻底移除 devDependencies 条目（git 实查确认 #1605 加 pin 前无此条目，rolldown 是 vitest→vite 的传递依赖，条目移除即恢复原态）+ lockfile 重生成（rolldown 1.2.16 传递解析；freebsd binding 自 1.2.15 更新至 1.2.16——基线已在锁，非新入锁）。核验纠正：pin 实为 1.2.15 非 issue 记载 1.2.14（中途升级保持精确锁）。验证：npm ci 干净安装 + build + 426 文件 5633 测试 + lint 全绿（退役条件 2/3 满足）。"
 tags: [deps, tech-debt, unpinned]
 intent:
   problem: "devDependencies 唯一精确钉版是临时绕过上游缺陷的配置债——上游修复后 pin 不退役会滞后后续修复且有堆积成永久配置的风险"
@@ -28,7 +28,7 @@ PR #1605（2026-10-22）依赖批次发现 rolldown 1.2.15 声明的 `@rolldown/
 
 **条件 1（2026-11-03 实查）**：`npm view rolldown@1.2.16 optionalDependencies` 指向 `binding-freebsd-x64@1.2.16`，该包 registry versions 含 1.2.15/1.2.16——上游已补发，完整可解析。比 regression-verify 11-21 兜底提前 18 天撞见。
 
-**条件 2（移除）**：git 实查 `git log -S'"rolldown"' -- package.json` 确认 #1605 加 pin 前无此条目（rolldown 是 vitest→vite 传递依赖）——退役 = 彻底移除条目而非改范围锁。`npm uninstall rolldown` + lockfile 重生成：rolldown 1.2.16 传递解析，freebsd binding 3 条目入锁。
+**条件 2（移除）**：git 实查 `git log -S'"rolldown"' -- package.json` 确认 #1605 加 pin 前无此条目（rolldown 是 vitest→vite 传递依赖）——退役 = 彻底移除条目而非改范围锁。`npm uninstall rolldown` + lockfile 重生成：rolldown 1.2.16 传递解析，freebsd binding 自 1.2.15 更新至 1.2.16（基线已在锁，非新入锁）。
 
 **条件 3（Linux 等价验证）**：`npm ci` 干净安装（当年炸掉的锁完整性路径）+ build + 426 文件 5633 测试 + lint 全绿。CI 的 Linux runner 会再跑一遍同路径（当年案发现场）。
 
@@ -50,4 +50,4 @@ PR #1605（2026-10-22）依赖批次发现 rolldown 1.2.15 声明的 `@rolldown/
 
 - devDependencies 回到零精确钉版惯例（临时配置债清偿）
 - rolldown 后续修复自动跟进（不再滞后）
-- freebsd binding 入锁——Linux CI 锁完整性校验有物可校
+- freebsd binding 保持入锁态（1.2.16）——Linux CI 锁完整性校验有物可校
