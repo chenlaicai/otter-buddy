@@ -71,6 +71,49 @@ export function evaluateDistFreshness(srcEntries, distEntries) {
   return { fresh: true };
 }
 
+/** #1294 / F20261103blnkr: from 链存在性检查（纯函数，供测试 import）。
+ *  方向定案（搭档 2026-11-03 拍板）：文档体系 append-only/快照可信——反向关系
+ *  （谁指向我）不物化（不写 amended_by、不回头改旧文档），由扫描期动态计算反向
+ *  索引呈现（computeReverseIndex）。lint 层只拦正向断链与形态违规。
+ *  物化方案代价实证：617 处回头改旧文档补登债（#1749 复盘，方案已撤）。
+ *  entries: Array<{ rel, id?, from?, fromMalformed? }> */
+export function findBrokenBacklinks(entries) {
+  const byId = new Set(entries.filter((e) => e.id).map((e) => e.id));
+  const broken = [];
+  for (const e of entries) {
+    if (e.fromMalformed) {
+      broken.push({ rel: e.rel, id: e.id, malformed: "causal_links.from" });
+      continue;
+    }
+    const from = Array.isArray(e.from) ? e.from : [];
+    for (const target of from) {
+      if (target === e.id) {
+        broken.push({ rel: e.rel, self: target });
+        continue;
+      }
+      if (!byId.has(target)) {
+        broken.push({ rel: e.rel, danglingForward: target });
+      }
+    }
+  }
+  return broken;
+}
+
+/** 计算反向索引（不物化）：文档 id → 指向它的文档 id 列表。lint 输出与 sync 记忆层可用。 */
+export function computeReverseIndex(entries) {
+  const byId = new Set(entries.filter((e) => e.id).map((e) => e.id));
+  const reverse = new Map();
+  for (const e of entries) {
+    const from = Array.isArray(e.from) ? e.from : [];
+    for (const target of from) {
+      if (!byId.has(target)) continue; // 断链由 findBrokenBacklinks 报
+      if (!reverse.has(target)) reverse.set(target, []);
+      reverse.get(target).push(e.id);
+    }
+  }
+  return reverse;
+}
+
 /** 新增文档候选 = 已提交新增（CI）∪ 暂存新增（pre-commit）。
  *  exported for behavior tests；git 失败由调用方决定既有降级策略。 */
 export function collectAddedDocPaths(repoRoot, baseRef = "origin/main") {
@@ -79,6 +122,10 @@ export function collectAddedDocPaths(repoRoot, baseRef = "origin/main") {
   const staged = execFileSync("git", ["diff", "--cached", "--name-only", "--diff-filter=A", baseRef, "--", "docs/features", "docs/research"], { cwd: repoRoot, encoding: "utf8" });
   return new Set(`${committed}\n${staged}`.split("\n").filter(Boolean));
 }
+
+// #1294 / F20261103blnkr: from 链断链 ratchet 基线（2026-11-03 实测存量 31 处，只减不增；
+// 修复后手动调低——报错信息含当前计数）。7-8 月历史文档 from 指向从未存在/已改名 id。
+const BACKLINK_DANGLING_BASELINE = 31;
 
 function walk(dir, ext = ".md") {
   const out = [];
@@ -157,6 +204,7 @@ async function main() {
   }
 
   const idEntries = []; // #1274: 收集 { rel, id } 供唯一性检查
+  const backlinkEntries = []; // #1294: 收集 { rel, id, from, fromMalformed } 供 from 链存在性检查
   for (const file of files) {
     const rel = path.relative(root, file);
     const txt = fs.readFileSync(file, "utf8");
@@ -169,6 +217,13 @@ async function main() {
       continue;
     }
     idEntries.push({ rel, id: frontmatter.id }); // frontmatter.id 可能 undefined，findDuplicateIds 内跳过
+    const fmFrom = frontmatter?.causal_links?.from;
+    backlinkEntries.push({
+      rel,
+      id: frontmatter.id,
+      from: Array.isArray(fmFrom) ? fmFrom : [],
+      fromMalformed: fmFrom !== undefined && !Array.isArray(fmFrom) && fmFrom !== "",
+    });
     const type = rel.includes("/features/") ? "feature" : "research";
     const v = type === "feature"
       ? validateFeatureFrontmatter(frontmatter, rel, { strictNewId: addedDocPaths?.has(rel) === true })
@@ -188,6 +243,27 @@ async function main() {
     errors++;
     console.error(`✗ [duplicate id] ${id} 被 ${dupeFiles.length} 个文件共用:\n    ${dupeFiles.join("\n    ")}`);
     console.error(`    id 是 sync_docs 入库的主键性质标识（重复 = 后同步覆盖前同步，#1274）——重复方应换新 id（F + 当日日期 + 4 随机后缀，先查重）+ git mv 同步文件名`);
+  }
+
+  // #1294 / F20261103blnkr: from 链存在性检查——断链/自指/形态违规。
+  // 存量断链 ratchet（31 处，7-8 月历史 from 指向从未存在/已改名的 id）只减不增；
+  // 反向关系不校验不物化（append-only 定案），读旧文档知被订正走 computeReverseIndex。
+  const brokenBacklinks = findBrokenBacklinks(backlinkEntries);
+  const danglingForwardCount = brokenBacklinks.filter((b) => b.danglingForward).length;
+  for (const b of brokenBacklinks) {
+    if (b.danglingForward) {
+      console.warn(`⚠ [backlink] ${b.rel} 的 from 指向不存在的文档 ${b.danglingForward}（正向断链，ratchet 存量）`);
+    } else if (b.self) {
+      errors++;
+      console.error(`✗ [backlink] ${b.rel} 的 from 含自身 id ${b.self}（环）`);
+    } else if (b.malformed) {
+      errors++;
+      console.error(`✗ [backlink] ${b.rel}（${b.id}）的 ${b.malformed} 形态非法（须数组或省略）`);
+    }
+  }
+  if (danglingForwardCount > BACKLINK_DANGLING_BASELINE) {
+    errors++;
+    console.error(`✗ [backlink] 正向断链数 ${danglingForwardCount} 超存量基线 ${BACKLINK_DANGLING_BASELINE}（ratchet：新文档 from 必须指向存在的 id，#1294）`);
   }
 
   /** Ratchet（#470，#455）: 警告数只许减不许增——与 lint:capability 的 MAX_WARNINGS 同模式。

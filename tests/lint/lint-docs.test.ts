@@ -7,7 +7,7 @@
  * 实跑覆盖（PR Verification 节展示输出）。
  */
 import { describe, it, expect } from 'vitest';
-// @ts-expect-error 真实现是 .mjs 脚本（无类型声明），运行时 import 纯函数
+// 类型声明见 scripts/lint-docs.d.mts（#1294 起补）
 import { findDuplicateIds, evaluateDistFreshness } from '../../scripts/lint-docs.mjs';
 
 describe('lint:docs id 唯一性（findDuplicateIds）', () => {
