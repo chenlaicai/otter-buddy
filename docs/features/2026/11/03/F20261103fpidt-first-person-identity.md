@@ -61,7 +61,7 @@ intent:
 - `npx tsc --noEmit` ✅ 通过
 - `npm test` ✅ 428 文件 5663 测试全绿（初版验证）
 - `node scripts/lint-intent.mjs` ✅ 本期文档 intent 存在率 1/1，verify_by 率 1/1
-- 人称统一验证：grep 确认三份文件中「你是/你要/你不能/你的」仅剩 2 处合法引用（BIG_OTTER.md:17 系统注入段名「你的身份」+ BIG_OTTER.md:61 对搭档说的话「你有异议吗」）
+- 人称统一验证：grep 确认三份文件中「你」仅剩 4 处合法引用——BIG_OTTER.md:17（宿主注入段名「你的身份」）、BIG_OTTER.md:27（搭档原话「你来就行」）、BIG_OTTER.md:49（引号内示例「你手上多了 X」）、BIG_OTTER.md:61（对搭档说的话「你有异议吗」）；SYSTEM.md 与 SMALL_OTTER.md 零残留
 - 改动为纯 markdown prompt 文件，无逻辑变更
 
 ## 风险
