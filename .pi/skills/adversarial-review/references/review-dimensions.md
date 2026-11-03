@@ -57,6 +57,7 @@ End-to-end verification failure must be reported as a 严重发现 in the review
 - 从 commit message 或 PR title 提取特性编号（新 ID 固定 `F<YYYYMMDD><5 位小写字母>`；历史旧形态仅读取兼容）
 - 确认同一个编号出现在：特性文档 frontmatter / PR 描述 / `list_artifacts` 的 groupId
 - 缺失或不一致必须报为严重发现（标明 B4 来源）
+- **定稿日期顺延（定稿改名模型，规则定型见 docs/README.md 路径格式节）**：PR 呈终审/合入在望时，编号日期应为合入当天日期——「三处一致」只证编号锚点齐，「日期=合入日」才是定稿语义；跨日 PR（创建日 ≠ 当前日）未顺延 = 建议发现，打回改名后合入（PR title + 文档路径 + frontmatter 三处同改，文档随 ID 迁至合入日目录）；当日开当日合的 PR 天然满足，无需改名。现场：跨日 PR 编号停在创建日，初轮+两轮 delta 均「三处一致即过」漏检、搭档人眼抓出（若已合入则 squash 标题永久停在创建日，main 时间线乱）
 
 > 特性编号是变更追溯的锚点——编号不一致会导致特性文档无法被 `search_memory` 按 ID 召回，也会让 `get_related` 的关系链断裂。
 

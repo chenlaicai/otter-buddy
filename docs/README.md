@@ -16,6 +16,8 @@
 
 ### 路径格式（ID 中的日期与目录必须对应）
 
+> **定稿改名（F20260914prdb 定稿模型）**：创建 PR 用创建日 ID；审视闭环后定稿，统一改名（PR 标题 + 文档路径 + frontmatter id/created_at）为**合入当天日期**，文档随新 ID 迁至合入日目录（如 `docs/features/2026/11/03/F20261103xxxxx-*.md`），再 squash 合入。当日开当日合无需改名。CI edited 触发自动重验新标题（双基准：创建日/当前日任一在窗口内即过）。（规则定型于 F20260914prdb，#789 首个实践，#1660 曾漏检被搭档抓出后补入本节）
+
 ```
 docs/features/YYYY/MM/DD/F<date><suffix>-<slug>.md
 docs/research/YYYY/MM/DD/R<date><suffix>-<slug>.md
