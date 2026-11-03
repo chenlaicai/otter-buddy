@@ -28,6 +28,7 @@ Does relevant feature documentation exist and match the implementation?
 - 特性文档缺失 → **严重发现（B2）**，无论变更类型（代码/prompt/skill/doc），不可降级为「可接受」或「完整」
 - **历史文档被修改 → 严重发现（B2）**：`cd <主仓> && git diff origin/main...HEAD --name-status -- docs/features/ docs/research/`（cd 前缀必带——獭 bash cwd=对话工作区，在工作区跑此命令路径限定静默失效恒过）出现非 A 状态的历史文件（已在 main 出现过），除非 PR 明确声明结构性迁移（BYPASS 留痕）——正确姿势是新文档记录变更
 - 检查步骤：`list_artifacts` 查找特性文档 → 不存在则直接标记严重发现 → 存在则 read 核对一致性
+- **设计面确认窄口径核对（2026-11-03 观察期调整）**：仅方案未覆盖、或实现中改变模块边界 / 关键接口 / 核心数据结构的复杂改动，核特性文档是否留「三样 + 被否替代及理由 + 谁确认」记录；缺失 = 严重发现。方案已覆盖的小修复一句复述即可，不要求三行八股；删除/替换旧机制另按正确性捷径审查核对四栏接管表，不以设计确认替代不变量枚举。
 
 ### B3. End-to-End Verification
 
