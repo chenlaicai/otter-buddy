@@ -5,6 +5,7 @@ import { mapConversationDTO } from '../../lib/mappers'
 import { resolveOtterVisual } from '../../lib/otter-visual'
 import { fmtRelativeTime } from '../../lib/utils'
 import * as api from '../../api/client'
+import { OpticalGlassItem } from '../../components/OpticalGlassItem'
 
 /** F20260918imas：助理分组标题（与后端 DTO kind 标识同步出现） */
 const ASSISTANT_GROUP_LABEL = 'IM 助理'
@@ -494,10 +495,10 @@ function ConversationItem({
     .filter((o): o is Otter => o !== undefined)
 
   return (
-    <div
+    <OpticalGlassItem
       onClick={() => onSelect(c.id)}
       onContextMenu={e => onContextMenu(e, c.id)}
-      className={`px-2.5 py-2 rounded-xl cursor-pointer transition ${
+      className={`conversation-glass rounded-xl mb-1.5 px-2.5 py-2 cursor-pointer transition ${
         isActive
           ? 'conv-active'
           : pinnedHighlight
@@ -561,6 +562,6 @@ function ConversationItem({
           })}
         </div>
       </div>
-    </div>
+    </OpticalGlassItem>
   )
 }
