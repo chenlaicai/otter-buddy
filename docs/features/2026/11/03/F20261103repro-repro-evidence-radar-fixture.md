@@ -6,6 +6,11 @@ change_type: prompt
 capability_test: "n/a：模板/skill 文档与确定性脚本测试，无 LLM 行为面改动"
 created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
 created_at: 2026-11-03
+intent:
+  problem: "修复证据只存在 skill 文本，复核缺少可复跑且有判别力的路径；radar 分拣规则零回归"
+  expected_effect: "修复类 PR 在 Verification 子块给出前后对照或豁免理由，B9 核对三查并抽样；radar 测试独立断言过滤、排序、slug、raw schema、stdout 与 main 接线"
+  verify_by:
+    type: behavior_check
 tags: [requirement, evidence-package, test-infrastructure, radar]
 modules: [.github, .pi/skills, scripts/radar, tests]
 causal_links:
@@ -143,6 +148,32 @@ Momentic（AI QA agent，HN 2026-11-02）的启示按「验证物证化 / 验收
 | scripts/radar/scan.mjs | 重构 | 只剩网络+文件 IO+main，行为零变更 |
 | tests/scripts/radar-scan.test.ts | 新增 | fixture 回归（期望独立编写）+ 一条接线/异常用例 |
 | tests/fixtures/radar/* | 新增 | 录制响应样例 |
+
+## 实现记录
+
+- A：PR 模板 Verification 新增「失败用例证据（bugfix）」子块；worktree-isolation 硬规则指认该子块并保留豁免出口；adversarial-review B9 与 review-dimensions.md 新增小节对齐判别力三查、抽样复跑及 B3 分工。
+- C：`scan-lib.mjs` 承接零副作用纯函数，`scan.mjs` 保留网络/文件 IO 与 main；新增三源录制 fixture、9 条用例（含子进程离线 main 接线与 stdout 逐字节断言），期望从输入和 README 规则独立推导。
+- 验证记录见下方「实现自检（2026-11-03）」，命令输出与 PR 机器锚点随交付更新。
+
+## 实现自检（2026-11-03）
+
+| 场景 | 操作 | 预期结果 |
+|---|---|---|
+| 确定性单测 | `npx vitest run tests/scripts/radar-scan.test.ts` | 全部通过，覆盖过滤命中/漏杀、排序、slug 去重、raw schema、stdout 与 main 接线 |
+| 离线重构对照 | 同一三源 fixture、固定时钟分别驱动重构前后 `scan.mjs` | sources JSON 逐字节一致；stdout 仅输出目录不同，归一化后逐字节一致 |
+| 真实抓取 | `node scripts/radar/scan.mjs /tmp/radar-verify` | 成功写 `/tmp/radar-verify/raw/2026-11-03.json`；与对话工作区 2026-11-03 raw 样本顶层/源/条目字段结构一致（条数随实时源变化） |
+| 最简实现检查 | 复用 Node 内置 fetch/fs 与 vitest，不新增依赖 | 已过最简检查 |
+| 负面向验收 | 检查本次是否破坏旧契约/绕过既有保护 | 不改过滤规则、抓取顺序、raw 字段或 stdout 格式；不新增机械闸，不绕过 check-pr-evidence；唯一代码结构变化为纯函数抽离 |
+| 锚点重放评审 | 本次为半机械结构文档 + 检视核对条款，无 LLM 场景新语义可重放 | 走异体对抗审视核对触发语义，不声称已跑异体锚点评审 |
+
+Golden Gate：按 `verify_by=behavior_check` 执行并记录结果，不豁免。
+
+### 验证结果（实现者自报）
+
+- `npx vitest run tests/scripts/radar-scan.test.ts`：1 file / 9 tests 全通过。
+- `npm run lint`、`npm run lint:skills`、`npm run lint:tests`、`npm run lint:docs`、`npm run lint:intent`：exit 0；intent 本特性存在率与 verify_by 率均 100%。skills/docs/intent 输出含存量警告，本特性无 error。
+- 离线同 fixture 双跑：`sources JSON: byte-identical`；stdout 在输出目录归一化后 `diff` 无输出（exit 0）。
+- 真实抓取：写 `/tmp/radar-verify/raw/2026-11-03.json`；HN 12 / GitHub 30 / Anthropic 10。根与三源 key、HN/Anthropic 条目结构与 2026-11-03 样本一致；GitHub 当次有 30 条，字段为 `created/desc/repo/stars/topic`（早间样本 items 为空，不能据空数组比较条目字段）。
 
 ## 并行工作项：方向/全局层案例回看（不在本 PR 内）
 
