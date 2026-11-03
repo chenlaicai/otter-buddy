@@ -66,6 +66,24 @@ intent:
 
 **工具化提案（搭档 10:00 提出，未包含在本次）**：lint-intent 加 init/生成模式，参数引导产出合规 frontmatter 块（schema 硬约束优于 skill 文本软提醒）。按消费强度先进候选池，不与本修复绑同一 PR——本 PR 是口径修复，工具化是增量增强，爆炸半径分开。
 
+## 审视轮记录（r1 处置，2026-11-03）
+
+检视獭-1744 对抗审视 r1：5 严重 + 4 建议，处置如下：
+
+| 发现 | 处置 |
+|---|---|
+| S1 PR body 缺 Rollback/证据分层两段（check-pr-evidence exit=1） | PR body 重组补齐两段，机械闸复跑留锚 |
+| S2 撞车 #1660/#1745 | 大獭仲裁：#1660 合入后本 PR rebase 再合（见 PR 评论），无文本冲突实证前不提前改 |
+| S3 tests 类静默锁被全域门静默推翻 | 大獭按搭档 10:19 拍板口径定：tests 含在内。决策锁 E 更新为「仅存量静默」，新增 S3 锁定用例（新 tests 文档缺块 → error）|
+| S4 blkcm/knssx created_at 失真 | 修正为 2026-11-02（与 git 首提交 10:26/11:35 一致），2 行 |
+| S5 ID 拼写 itdl≠itald | 3 处统一为 itald |
+| A1 残块/空块绕过 | 采纳：字段级 problem/expected_effect 对全域新文档同步收口（isAllDomainNew 分支），+2 锁定用例（新 fix 残块 error / 存量保持宽容）|
+| A2 豁免×全域无锁定 | 采纳：新增用例（豁免清单文档 × created_at ≥ 2026-11-03 缺块 → 0 error）|
+| A3 .doc-fix 漏记 portx | 采纳：声明补「另含 F20261103portx（新门捕获的第 6 篇）」|
+| A4「新门捕获 portx」未标 agent 陈述 | 采纳：PR body 证据分层段归位为 agent 陈述（未复验） |
+
+验证复跑：vitest 75/75（71+4 新用例）、lint-intent exit=0（947 docs OK，0 error）。
+
 ## 验证
 
 - 失败证据（修复前，troubleshooting 5a 固化）：新增 5 用例中 3 failed（fix/refactor/bugfix 缺块无 error，实际仅 warning）——`npx vitest run tests/lint/lint-intent.test.ts -t "all-domain intent block gate"` 3 failed | 2 passed

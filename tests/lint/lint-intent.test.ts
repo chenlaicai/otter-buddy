@@ -287,11 +287,11 @@ describe('lint:intent', () => {
 });
 
 // F20260917sdpl 改动 1：软代码 verify_by 声明时间界收口
-describe('lint:intent all-domain intent block gate (F20261103itdl, #1740)', () => {
+describe('lint:intent all-domain intent block gate (F20261103itald, #1740)', () => {
   // 搭档 2026-11-03 拍板：intent 声明域扩至全部 change_type（硬/软代码均必填）。
   // 时间界增量收口：created_at ≥ 2026-11-03 的新文档缺 intent 块 → error（存量不追诉，
   // 与 #1238 软代码缺块收口同构）。绕过面（不写 created_at 降 warning）与软代码域
-  // 同构共存，不新增治理——见 F20261103itdl 设计取舍。
+  // 同构共存，不新增治理——见 F20261103itald 设计取舍。
   it('should error on new fix doc (created_at ≥ 2026-11-03) missing intent block', () => {
     const fm = { ...createBaseFm('fix'), created_at: '2026-11-03' };
     const result = validateIntent(fm);
@@ -321,6 +321,37 @@ describe('lint:intent all-domain intent block gate (F20261103itdl, #1740)', () =
     const fm = { ...createBaseFm('bugfix'), created_at: '2026-11-03' };
     const result = validateIntent(fm);
     expect(result.errors.some((e: string) => e.startsWith('Missing intent block for all-domain change'))).toBe(true);
+  });
+
+  // 审视 r1 S3 口径锁定：「所有 change_type」含 tests 类——#1295 决策锁 E 的静默面
+  // 仅覆盖存量（created_at < 2026-11-03），新 tests 文档随全域门收口。
+  it('S3 口径：新 tests 文档（created_at ≥ 2026-11-03）缺块 → error（全域门含 tests 类，#1295 锁 E 静默面随时间界失效）', () => {
+    const fm = { ...createBaseFm('tests'), created_at: '2026-11-03' };
+    const result = validateIntent(fm);
+    expect(result.errors.some((e: string) => e.startsWith('Missing intent block for all-domain change'))).toBe(true);
+  });
+
+  // 审视 r1 A1 锁定：残块/空块不再绕过——字段级 problem/expected_effect 对新文档（全域时间界）同步收口。
+  it('A1：新 fix 文档 intent 空块 {} → 字段级 error（problem + expected_effect 双缺，残块绕过修复）', () => {
+    const fm = { ...createBaseFm('fix', { problem: '', expected_effect: '' }), intent: {}, created_at: '2026-11-03' };
+    const result = validateIntent(fm);
+    expect(result.errors).toContain('Missing intent.problem field');
+    expect(result.errors).toContain('Missing intent.expected_effect field');
+  });
+
+  it('A1：存量 fix 文档 intent 空块 {} → 维持宽容（仅 warning，字段级收口仅对新文档生效）', () => {
+    const fm = { ...createBaseFm('fix', { problem: '', expected_effect: '' }), intent: {}, created_at: '2026-10-31' };
+    const result = validateIntent(fm);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  // 审视 r1 A2 锁定：豁免 × 全域门——豁免清单文档即使新日期缺块也 0 error（ratchet 语义不破）。
+  it('A2：豁免清单文档 × created_at ≥ 2026-11-03 缺块 → 0 error（豁免优先于全域门，与软代码域同构）', () => {
+    const realExemptPath = [...EXEMPT_IDS][0];
+    expect(realExemptPath, '豁免清单应非空').toBeDefined();
+    const fm = { ...createBaseFm('fix'), created_at: '2026-11-03' };
+    const result = validateIntent(fm, realExemptPath);
+    expect(result.errors).toHaveLength(0);
   });
 });
 
@@ -638,7 +669,9 @@ describe('intent-missing penalty inversion for soft-code docs (#1238, F20261030i
 // F20261030ctalg（#1295）：change_type 枚举漂移收口——分类集合与 known-values.ts 真相源对齐。
 // 复测现状（2026-10-30）：fix 392 篇 / feature-update 37 篇此前不在任何集合，缺块完全静默；
 // bugfix/feature_update 是历史拼写（走别名归一，文案保留原拼写）；tests 为 test-only 文档
-// 不需要 intent 声明（决策锁定维持静默）。
+// 历史口径「不需要 intent 声明（决策锁定维持静默）」——F20261103itald（#1740，2026-11-03
+// 搭档拍板「所有 change_type 都要填」）后收窄为仅存量静默：created_at ≥ 2026-11-03 的
+// tests 文档纳入全域门（见 all-domain describe S3 用例），下方锁 E 用例锁定存量侧语义。
 describe('change_type enum alignment with known-values truth source (#1295, F20261030ctalg)', () => {
   it('静默面关闭 A：非软代码 fix 缺整块 → recommended warning（此前 0 error 0 warning 完全静默）', () => {
     const fm = {
@@ -684,7 +717,7 @@ describe('change_type enum alignment with known-values truth source (#1295, F202
     expect(result.warnings).toContain('Recommended intent field for feature_update');
   });
 
-  it('决策锁 E：tests（test-only 文档）缺整块维持静默（0 error 0 warning）', () => {
+  it('决策锁 E（存量）：tests 缺整块维持静默（created_at < 2026-11-03 不受全域门影响；新 tests 文档已随 F20261103itald 纳入全域门）', () => {
     const fm = {
       ...createBaseFm('tests'),
       modules: ['tests/foo.test.ts'],

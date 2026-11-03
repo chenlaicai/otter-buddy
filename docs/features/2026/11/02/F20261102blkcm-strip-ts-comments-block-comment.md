@@ -10,7 +10,7 @@ modules:
 summary: "#1291：isLineStart 遇 \\n 即判语句位正则，但块注释是 token 间空白——跨行块注释后的行首除法（subtotal 后接块注释再接行首除法形态）被误判正则 → 正则态吞注释首个 / 闭合、剩余文本进自愈回填 → 尾部真注释不剥离（误报方向）+ stderr 告警。同行形态同病（lastNonWhitespace 落在块注释结束符的 / 上，被「其余→正则」误判）。修复：两函数均块注释感知——遇块注释结束符回溯跳过对应起始区间；跳过失败退化修复前行为。口径：仅块注释介入时穿透判定（除法语义强），纯换行维持「行首赌正则」既有取舍（检视发现③行为不回归）。"
 tags: [lint, scripts, heuristic, comment-stripping]
 capability_test: "n/a: 纯函数启发式修复，无 LLM 行为变更"
-created_at: 2026-11-01
+created_at: 2026-11-02
 
 intent:
   problem: "stripTsComments 启发式遇跨行块注释穿透，行首除法被误判为正则（#1291）"

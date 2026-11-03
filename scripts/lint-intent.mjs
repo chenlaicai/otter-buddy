@@ -287,6 +287,10 @@ function validateIntent(fm, exemptKey) {
   }
 
   const intent = fm.intent;
+  // F20261103itald（审视 r1 A1）：字段级校验随全域门同步收口——残块/空块（intent: {}
+  // 或仅缺字段）不再比整块缺失罚得更轻（梯度倒置：缺得越彻底罚得越轻）。仅对
+  // created_at ≥ 2026-11-03 的新文档生效，存量口径不变。
+  const isAllDomainNew = isNewEnoughFor(fm, ALL_DOMAIN_ENFORCE_DATE) && !isExempt;
 
   // 检查 problem 字段（F20261005imfg: effectiveChangeType 统一口径，change_type 缺失按 feature 判必填；
   // 存量豁免同口径降级：2026-09-15 goal/why 自创 schema 的 5 篇在此分支触发，冻结豁免）
@@ -297,6 +301,9 @@ function validateIntent(fm, exemptKey) {
       } else {
         errors.push("Missing intent.problem field");
       }
+    } else if (isAllDomainNew) {
+      // F20261103itald A1：全域门字段级同步收口——新文档 problem 必填（残块绕过修复）
+      errors.push("Missing intent.problem field");
     } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(canonicalChangeType)) {
       warnings.push(`Recommended intent.problem field for ${effectiveChangeType}`);
     }
@@ -316,7 +323,10 @@ function validateIntent(fm, exemptKey) {
         errors.push("Missing intent.expected_effect field");
       }
     }
-    // bugfix/refactor 可以不填 expected_effect
+    // bugfix/refactor 存量可不填；全域新文档必填（F20261103itald A1 残块收口）
+    if (isAllDomainNew) {
+      errors.push("Missing intent.expected_effect field");
+    }
   } else {
     // 检查 expected_effect 是否可判定（不含模糊词）
     const fuzzyWords = ["提升", "优化", "改善", "更好", "更优", "增强"];
