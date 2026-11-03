@@ -41,7 +41,8 @@ describe("buildToolSignature", () => {
 
   it("无参数或其他工具退化为工具名", () => {
     expect(buildToolSignature("bash")).toBe("bash");
-    expect(buildToolSignature("search_memory", { query: "x" })).toBe("search_memory");
+    // #1399 起搜案接 query 指纹（同词重搜算重复）；无参仍退化工具名
+    expect(buildToolSignature("search_memory")).toBe("search_memory");
   });
 
   it("bash 穿透包装层与带值 flag（git -C / sudo / time 不塌缩）", () => {
@@ -241,6 +242,79 @@ describe("buildToolSignature", () => {
     expect(buildToolSignature("get_context")).toBe("get_context");
     expect(buildToolSignature("list_matters", {})).toBe("list_matters");
     expect(buildToolSignature("list_artifacts")).toBe("list_artifacts");
+  });
+});
+
+describe("buildToolSignature —— #1399 残余口子收口", () => {
+
+  it("link_memory/unlink_memory 签名含 from→to 组合——不同记忆对不算重复（#1399）", () => {
+    const a = buildToolSignature("link_memory", { from_id: "m-1", to_id: "m-2", type: "produced" });
+    const b = buildToolSignature("link_memory", { from_id: "m-3", to_id: "m-4", type: "produced" });
+    const aRetry = buildToolSignature("link_memory", { from_id: "m-1", to_id: "m-2", type: "relates-to" });
+    expect(a).toBe("link_memory: m-1→m-2");
+    expect(a).not.toBe(b);
+    // 同对 relates-to 与有向边分桶（≈ 标记）：同对混 type 连发不互累计（B-3b 滑窗兜底），
+    // 同桶内连发（如反复 produced）仍累计
+    expect(aRetry).toBe("link_memory: m-1→m-2≈");
+    // relates-to 对称边：反向建边是同义重试变体，归一累计（r1 A1）
+    expect(buildToolSignature("link_memory", { from_id: "m-2", to_id: "m-1", type: "relates-to" }))
+      .toBe("link_memory: m-1→m-2≈");
+    // produced 有向边：两方向独立签名（A produced B ≠ B produced A）
+    expect(buildToolSignature("link_memory", { from_id: "m-2", to_id: "m-1", type: "produced" }))
+      .toBe("link_memory: m-2→m-1");
+    expect(buildToolSignature("link_memory", {})).toBe("link_memory");
+    expect(buildToolSignature("unlink_memory", { from_id: "m-1", to_id: "m-2" })).toBe("unlink_memory: m-1→m-2");
+  });
+
+  it("workspace_read/workspace_write 签名含 path——正当批量写不同文件不误拦（#1399，healing 0b984c73 实锤）", () => {
+    expect(buildToolSignature("workspace_read", { path: "draft-a.md" })).toBe("workspace_read: draft-a.md");
+    expect(buildToolSignature("workspace_write", { path: "a.md", content: "内容甲" })).toMatch(/^workspace_write: a\.md#/);
+    // 同一文件不同内容迭代：不同编辑不算重复（与 write 同构）
+    const it1 = buildToolSignature("workspace_write", { path: "c1203.md", content: "v1 草稿" });
+    const it2 = buildToolSignature("workspace_write", { path: "c1203.md", content: "v2 修订" });
+    expect(it1).not.toBe(it2);
+    expect(it1).toContain("workspace_write: c1203.md#");
+    // 同一编辑反复重试：仍算重复（卡壳目标）
+    expect(it1).toBe(buildToolSignature("workspace_write", { path: "c1203.md", content: "v1 草稿" }));
+    expect(buildToolSignature("workspace_write", {})).toBe("workspace_write");
+  });
+
+  it("create_linked_resource 签名含类型+标题/url 指纹——不同产物登记不算重复（#1399）", () => {
+    const fact = buildToolSignature("create_linked_resource", { resourceType: "fact", content: "某事实文本" });
+    const pr = buildToolSignature("create_linked_resource", { resourceType: "pr", url: "https://x/pull/1" });
+    expect(fact).toContain("create_linked_resource: fact#");
+    expect(fact).not.toBe(pr);
+    expect(fact).toBe(buildToolSignature("create_linked_resource", { resourceType: "fact", content: "某事实文本" }));
+    expect(buildToolSignature("create_linked_resource", {})).toBe("create_linked_resource");
+    // r1 S2：url 优先于 title——同 title 不同 url 的正当批量不算重复
+    const prA = buildToolSignature("create_linked_resource", { resourceType: "pr", url: "https://x/pull/100", title: "同名登记 A" });
+    const prB = buildToolSignature("create_linked_resource", { resourceType: "pr", url: "https://x/pull/101", title: "同名登记 A" });
+    expect(prA).not.toBe(prB);
+    // 同 url 改 title 的幂等重登记仍算重复（url 是资源主键）
+    const prRetitled = buildToolSignature("create_linked_resource", { resourceType: "pr", url: "https://x/pull/100", title: "改名后" });
+    expect(prRetitled).toBe(prA);
+  });
+
+  it("set_context/delete_context 签名含 key——写不同 key 连发不误报（#1399）", () => {
+    expect(buildToolSignature("set_context", { key: "task_status", value: "a" })).toBe("set_context: task_status");
+    expect(buildToolSignature("set_context", { key: "next_step", value: "b" })).toBe("set_context: next_step");
+    // 同 key 更新：仍算重复（同 key 反复写正是值得提醒的模式）
+    expect(buildToolSignature("set_context", { key: "task_status", value: "c" }))
+      .toBe(buildToolSignature("set_context", { key: "task_status", value: "d" }));
+    expect(buildToolSignature("delete_context", { key: "task_status" })).toBe("delete_context: task_status");
+    expect(buildToolSignature("set_context", {})).toBe("set_context");
+  });
+
+  it("search_* 签名含 query 内容指纹——换关键词重搜不算重复（#1399，与 speak 同构）", () => {
+    const q1 = buildToolSignature("search_memory", { query: "分支改名" });
+    const q2 = buildToolSignature("search_memory", { query: "配额观察" });
+    expect(q1).toContain("search_memory#");
+    expect(q1).not.toBe(q2);
+    expect(q1).toBe(buildToolSignature("search_memory", { query: "分支改名" }));
+    // 同关键词反复重搜：算重复（换着法子搜不到才该换策略）
+    expect(buildToolSignature("search_messages", { query: "x" })).toContain("search_messages#");
+    expect(buildToolSignature("search_terminology", { query: "y" })).toContain("search_terminology#");
+    expect(buildToolSignature("search_memory", {})).toBe("search_memory");
   });
 });
 
