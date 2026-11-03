@@ -28,25 +28,32 @@ pass() { echo "PASS: $*"; }
 [[ -f "$STATUS_CORE" ]] || fail "status-core 不存在: $STATUS_CORE"
 [[ -f "$MAIN_SWIFT" ]] || fail "main.swift 不存在: $MAIN_SWIFT"
 
-echo "--- 场景A: 探活请求带 X-Otter 身份头 ---"
+echo "--- 场景A: 探活请求带 X-Otter 身份头（user 档最小权限） ---"
 grep -q 'X-Otter-User-Id: otterbar-status-core' "$STATUS_CORE" \
   || fail "场景A: 探活未带 X-Otter-User-Id 身份头（鉴权适配回退？）"
-grep -q 'X-Otter-User-Role: admin' "$STATUS_CORE" \
-  || fail "场景A: 探活未带 X-Otter-User-Role 头"
-grep -q 'http_code' "$STATUS_CORE" \
-  || fail "场景A: 探活未取 http_code（401 特判依赖它）"
-pass "场景A: 探活带身份头 + http_code 显式判定"
+grep -q 'X-Otter-User-Role: user' "$STATUS_CORE" \
+  || fail "场景A: 探活角色档不是 user（最小权限回退？改动了角色需同步评估身份中间件策略表）"
+grep -q -- '-w .\\n%{http_code}.' "$STATUS_CORE" \
+  || fail "场景A: 探活未用单请求 code+body 形态（-w 状态码）"
+pass "场景A: 探活带身份头（user 档）+ 单请求 code+body"
 
-echo "--- 场景B: 401 特判 fail-loud ---"
-grep -q '"401"' "$STATUS_CORE" \
-  || fail "场景B: 无 401 特判（鉴权漂移会被静默当离线）"
-grep -q 'auth drift, not offline' "$STATUS_CORE" \
-  || fail "场景B: 401 特判无 stderr 警告输出"
-pass "场景B: 401 特判存在且 fail-loud"
+echo "--- 场景B: 口径漂移特判（401/403/404）fail-loud + 不计离线 ---"
+for code in 401 403 404; do
+  grep -q "\"$code\"" "$STATUS_CORE" \
+    || fail "场景B: 无 $code 特判（鉴权/路由漂移会被静默当离线）"
+done
+grep -q 'probe contract drift (auth/route), not offline' "$STATUS_CORE" \
+  || fail "场景B: 漂移特判无 stderr 警告输出"
+grep -q 'return 2' "$STATUS_CORE" \
+  || fail "场景B: 漂移分支无 return 2（主循环无法区分漂移与真离线）"
+grep -q '\$rc" -eq 2' "$STATUS_CORE" \
+  || fail "场景B: 主循环无漂移冻结分支（离线计时会被累积——事故再现面）"
+pass "场景B: 401/403/404 漂移特判 fail-loud，主循环冻结计时不累积"
 
 echo "--- 场景C: renderer 无 offline_long 退位路径 ---"
-# 退位特征：teardown 与 offline_long 在同一动作路径（修复后 teardown 只剩 MTMR 让位）
-if grep -n 'teardown.*offline_long\|offline_long.*teardown' "$MAIN_SWIFT" | grep -v '^\s*//\|不再退出\|已废弃\|原「退出让位」'; then
+# 退位特征：非注释行里 teardown 与 offline_long 同现（grep -n 行号前缀使 ^\s*// 不可用，
+# 检视发现：改用「剩除注释列外是否还有命中」的过滤）
+if grep -n 'offline_long' "$MAIN_SWIFT" | grep 'teardown' | grep -vE '//.*offline_long|//.*teardown'; then
   fail "场景C: offline_long 退位路径疑似回潮（见上行）"
 fi
 grep -q '驻留' "$MAIN_SWIFT" \

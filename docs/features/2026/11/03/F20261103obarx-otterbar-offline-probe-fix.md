@@ -28,11 +28,12 @@ created_at: 2026-11-03
 
 ## 修复（双修 + 部署面）
 
-### 修 1：status-core.sh 探活适配鉴权
+### 修 1：status-core.sh 探活适配鉴权（检视轮#1 后重写）
 
-- 探活请求带 `X-Otter-User-Id: otterbar-status-core` + `X-Otter-User-Role: admin` 身份头（身份中间件 #1322 声明式接缝，脚本声明 admin 档——单用户自部署现状，web 前端同档）
-- 401 特判 fail-loud：带对头仍 401 = 鉴权口径漂移（非离线）→ stderr 记警告，不静默计离线——防「未来鉴权再变更又静默判离线 4 天」的复现面
-- 探活分两段：先 HEAD-ish 取 http_code 判状态，200 再取 body（多一次请求换状态可观测，5s 轮询开销可忽略）
+- 单请求取 code+body（curl -w 追加状态码尾行，免双请求竞态与双倍开销）
+- 身份头降 user 档（GET /api/conversations 需 authenticated 即可，最小权限；检视建议#4）
+- 三分类返回：0=在线写 model；2=口径漂移（401/403/404——服务可达但探活口径过时）stderr 警告 + **MODEL_FILE 不动 + 主循环冻结离线计时**；1=真离线（拒连/超时/5xx）累积计时超窗翻转
+- 语义要点：漂移不计离线（初版只做了 stderr 可见性、语义上仍计离线——检视严重#1 抓实，本轮重写兑现）；403/404 一并纳入（鉴权/路由漂移同类，检视建议#2）
 
 ### 修 2：renderer offline_long 不再退出（驻留空转）
 
@@ -58,18 +59,22 @@ created_at: 2026-11-03
 
 - **探活口径**（本机实测，主服务在线）：
   - 修复前（裸 curl）：`401` → status-core 恒判离线 → offline_long →（旧 renderer）60s 循环
-  - 修复后（带身份头）：`200` + 真 JSON 数据
+  - 修复后（带身份头）：`200` + 真 JSON 数据（user 档实测 200）
 - **renderer 行为**（二进制对照实测）：
   - 修复前（9/3 旧二进制）：offline_long=true → 8 秒内退出，日志「exit: offline_long, sleep for launchd low-freq probe」
   - 修复后（本 PR 编译）：offline_long=true → 存活 8s+（驻留空转）
+- **三态运行时验证**（检视轮后补，复刻检视獭 mock 方法，加速参数 POLL=1s/WINDOW=2s）：
+  - 持续 401 跑 6s（超窗 3 倍）：MODEL_FILE 不生成（保持不动）、stderr 漂移警告在位、offline_long 不翻——初版实现此处会翻 true（检视严重#1 的复现器）
+  - 拒连跑 8s：offline_long=true（真离线路径不回归）
+  - 在线 200：sys_online=true, offline_long=false
 - swift build 通过 + `--selftest` PASS（本机 macOS，CI ubuntu 无法编译 AppKit——与 #713 本机实测矩阵策略一致）
 
 ### 回归测试
 
 `tests/scripts/otterbar-offline-probe.test.sh`：
-- 场景 A：status-core 探活 curl 含身份头（grep 断言源码形态）
-- 场景 B：401 特判存在且写 stderr（鉴权漂移不静默）
-- 场景 C：renderer 源码不含「offline_long 退位 teardown」路径（防回潮）
+- 场景 A：status-core 探活含身份头（user 档）+ 单请求 code+body 形态（grep 断言源码形态）
+- 场景 B：401/403/404 漂移特判 fail-loud（stderr）+ return 2 语义 + 主循环冻结分支存在
+- 场景 C：renderer 源码不含「offline_long 退位 teardown」路径（行内注释过滤，防回潮；反例形态自验过能抓回潮）
 
 ## 验收标准（断言化）
 
@@ -77,7 +82,7 @@ created_at: 2026-11-03
 |---|---|
 | 主服务在线 + 新 status-core | display-model.json sys_online=true（探活 200） |
 | 服务真离线 >10min + 新 renderer | 驻留空转，Dock 零闪动，离线徽章渲染 |
-| 鉴权口径未来再变更（带对头仍 401） | stderr 警告可见，offline_long 状态不变（不静默翻转） |
+| 鉴权口径未来再变更（带对头仍 401/403/404） | stderr 警告可见；MODEL_FILE 保持最后已知状态；离线计时冻结，offline_long 不翻转 |
 | MTMR 手动启动 | renderer 让位退出（保留行为） |
 
 ## 遗留问题（不本次修）
