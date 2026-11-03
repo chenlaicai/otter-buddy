@@ -16,7 +16,8 @@
 //
 // 行为兼容（与 renderer-mtmr.sh 逐态对齐）：
 // - 五态：🔴等你(count/top) / ⌨️干活(convs/otters) / 💤睡觉 / 🖤离线 / ⚠️非主进程前缀
-// - offline_long=true → 退出让位（launchd KeepAlive 低频拉起再探测），bar 回归系统默认
+// - offline_long=true → 驻留空转渲染离线徽章（F20261103obarx：原「退出让位+KeepAlive 低频拉起」
+//   设计在真实离线时构成 Dock 闪动循环，已废弃；见 pollOnce 注释）
 // - primary="false" → ⚠️非主· 前缀叠加在在线态上；primary="unknown" 不误报
 // - MTMR 在跑 → 让位退出（用户手动启动 MTMR 视为强意图）
 // - 进程退出（含 crash）时 Touch Bar server 自动回收 surface，不劫持 bar
@@ -111,7 +112,7 @@ struct StatusRender: Equatable {
 }
 
 /// 归并规则（对照 renderer-mtmr.sh）：
-/// - offline_long=true：调用方应直接退出让位，不进入渲染（返回 nil 语义由 handleModel 处理）
+/// - offline_long=true：驻留空转渲染离线态（F20261103obarx 起不再退出让位，防 Dock 闪动循环）
 /// - sys_online != true → 🖤离线（非主前缀仍叠加）
 /// - waiting/working 同时非零 → mixed；仅 waiting → waiting；仅 working → working
 /// - 全零 → 💤睡觉
@@ -612,7 +613,12 @@ final class BarController: NSObject, NSTouchBarDelegate {
             return
         }
         if model.offline_long == true {
-            teardown(exitCode: 0, reason: "offline_long, sleep for launchd low-freq probe")
+            // F20261103obarx：长期离线不再退出让位（原设计：teardown 让 launchd 低频拉起）。
+            // 事故：退出+KeepAlive+ThrottleInterval 60 = 「拉起-注册-秒退-注销」循环，
+            // LaunchServices 每轮应用注册/注销 = Dock 图标每分钟闪动（10/30-11/3 实录 3646 次）。
+            // 改驻留：继续 2s 轮询契约文件，离线徽章照常渲染；服务恢复即刻亮灯，无需等拉起。
+            // 代价：离线期间 ~2s 一次契约文件读（NSFileManager 缓存友好，实测可忽略）。
+            otterView.update(deriveState(model))
             return
         }
         otterView.update(deriveState(model))

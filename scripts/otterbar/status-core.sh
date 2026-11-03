@@ -16,6 +16,12 @@
 # 主进程自证：取 3000 端口 LISTEN 进程的 cwd，与 OTTERBAR_PRIMARY_CWD 比对。
 # cwd 非 ASCII（中文路径等）会退出码 5，取不到时 primary=unknown（渲染为降级徽章，
 # 不误报）。检测只在数据可达时进行——离线时 primary 无意义，置 unknown。
+#
+# F20261103obarx 探活鉴权适配：#1541 鉴权层合入后 /api/conversations 须身份头，裸 curl 401
+# 事故形态：服务在线却恒判离线 → renderer offline_long 退位 → launchd 60s 拉起循环 = Dock 闪动 4 天。
+# 适配：①探活改带 admin 身份头（运行时同机脚本，非浏览器，无 CSRF/preflight 面）；
+# ②401 特判——带对头仍 401 = 鉴权口径变更信号，不应静默计入离线（fail-loud：记 stderr 供人查，
+# 本轮不探活成功也不翻转 offline_long，避免“鉴权变更被当成离线”再现）。
 set -euo pipefail
 
 API_BASE="${OTTERBAR_API_BASE:-http://localhost:3000}"
@@ -42,9 +48,23 @@ check_primary() {
 }
 
 fetch_model() {
-  local data primary offline_long
-  if ! data=$(curl -sf --max-time 4 "$API_BASE/api/conversations" 2>/dev/null); then
+  local data primary offline_long http_code
+  # F20261103obarx：-s 吞状态码，改显式取 http_code 做鉴权漂移特判
+  http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 \
+    -H "X-Otter-User-Id: otterbar-status-core" -H "X-Otter-User-Role: admin" \
+    "$API_BASE/api/conversations" 2>/dev/null) || http_code=""
+  if [ "$http_code" != "200" ]; then
+    if [ "$http_code" = "401" ]; then
+      # 带对身份头仍 401 = 鉴权口径漂移（非离线）——不翻转离线状态，fail-loud 记 stderr
+      echo "[status-core] WARN: /api/conversations 401 with identity headers — auth drift, not offline" >&2
+    fi
     # 离线累计：model 里已有 offline_long 就保持，否则从现在开始计时由调用方管理
+    printf '%s\n' "$OFFLINE_MODEL" > "$MODEL_FILE"
+    return 1
+  fi
+  if ! data=$(curl -sf --max-time 4 \
+    -H "X-Otter-User-Id: otterbar-status-core" -H "X-Otter-User-Role: admin" \
+    "$API_BASE/api/conversations" 2>/dev/null); then
     printf '%s\n' "$OFFLINE_MODEL" > "$MODEL_FILE"
     return 1
   fi
