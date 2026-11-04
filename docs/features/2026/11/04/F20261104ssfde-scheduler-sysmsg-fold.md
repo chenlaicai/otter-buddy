@@ -65,7 +65,7 @@ created_at: 2026-11-04
 
 ## 验证
 
-- 单测：`MessageList.test.tsx` 36/36 通过（含新增 4 例）；`scheduler-service.test.ts` 111/111 通过（含新增 1 例）
+- 单测：`MessageList.test.tsx` 38/38（含新增 6 例：折叠/展开/短/无前缀/800 边界×2）；`index.sysmsg-fold-sse.test.tsx` 2/2（SSE 帧→handler→sn→折叠容器端到端）；`scheduler-service.test.ts` 111/111（含新增 1 例）。全量：conversation 目录 34 文件 337/337（检视獭独立复跑一致），净新增 9 用例
 - tsc：主仓 tsconfig + web tsconfig 均 0 error
 - **真机自查**（UI 硬规则）：alpha 实例（port 3172，独立数据根）+ Playwright：构造 1919 字符 scheduler system entry → 折叠容器渲染 1 个，折叠态高 36.65px（一行标题「⏰ 定时任务「每日对话健康检查」已触发 · 2026-11-04 08:30:00 展开全文 2k 字 ▼」），点击展开 892.65px 全文渲染。截图：对话工作区 `fold-collapsed.png` / `fold-expanded.png`
 - 已过最简实现检查（折叠态用既有 glass-card 样式 + 原生 button，无新依赖；识别用既有 senderName 字段，无新字段）
