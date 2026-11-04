@@ -28,8 +28,10 @@ export type SSEEventMap = {
   "entry.retry": { entryId: string; invokeId: string; otterId: string; otterName?: string; reason: string; attempt: number };
   /** invoke 被中止（invoke_end entry 对应投影） */
   "entry.aborted": { entryId: string; invokeId: string; otterId?: string; otterName?: string; body?: string; otterType?: string; otterColor?: string | null };
-  /** 系统条目（居中 system entry） */
-  "entry.system": { entryId: string; content: string; seq: number };
+  /** 系统条目（居中 system entry）。F20261104ssfde：字段对齐实际广播——全部生产点
+   *  均发 sequenceNum/createdAt（scheduler 锚点另发 senderName 供前端折叠分流）；
+   *  旧声明的 seq 无生产点，移除（sse.ts 泛型消费方按 key 取值，无运行时依赖） */
+  "entry.system": { entryId: string; content: string; sequenceNum?: number; createdAt?: string; senderName?: string };
   /** yield 条目（行动权传递，居中显示） */
   "entry.yield": { entryId: string; invokeId: string; otterId: string; otterName: string; yieldTargets: string[]; invokeEndEntryId?: string };
 

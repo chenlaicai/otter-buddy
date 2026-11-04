@@ -1188,3 +1188,31 @@ describe('F20261104ssfde：scheduler 来源系统消息折叠（中间栏长任�
     expect(container.textContent).toContain('运行时输出')
   })
 })
+
+describe('F20261104ssfde 补充：折叠阈值 800 精确边界', () => {
+  /** 检视发现 4：验收声称 >800 折叠，但原用例只测了 4 字符/1919 字符两端，
+   *  没有落在阈值上。补 800（不折叠）与 801（折叠）两断言，验收口径可执行。 */
+  it('恰好 800 字符 → 不折叠（阈值语义：> 800 才折）', () => {
+    const body = 'a'.repeat(800)
+    act(() => {
+      root.render(
+        <MessageList messages={[msg({ id: 'b800', st: 'system', si: 'system', sn: 'scheduler:边界任务', content: body, entryType: 'system' })]} state="normal" onStopStream={() => {}}
+          onRetryMessage={() => {}} onRetry={() => {}} onGoToSettings={() => {}}
+          otters={[]} conversationId="conv-1" pinRef={{ current: true }} />,
+      )
+    })
+    expect(container.querySelector('[data-testid="scheduler-sysmsg-fold"]')).toBeNull()
+  })
+
+  it('恰好 801 字符 → 折叠', () => {
+    const body = 'a'.repeat(801)
+    act(() => {
+      root.render(
+        <MessageList messages={[msg({ id: 'b801', st: 'system', si: 'system', sn: 'scheduler:边界任务', content: body, entryType: 'system' })]} state="normal" onStopStream={() => {}}
+          onRetryMessage={() => {}} onRetry={() => {}} onGoToSettings={() => {}}
+          otters={[]} conversationId="conv-1" pinRef={{ current: true }} />,
+      )
+    })
+    expect(container.querySelector('[data-testid="scheduler-sysmsg-fold"]')).toBeTruthy()
+  })
+})

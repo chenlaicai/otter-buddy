@@ -57,8 +57,10 @@ created_at: 2026-11-04
 |---|---|
 | `src/usecases/scheduler/scheduler-service.ts` | `createSystemSignalEntry` 广播 data 补 `senderName: entry.senderName`（+注释） |
 | `web/src/pages/conversation/index.tsx` | 两处 SSE `entry.system` handler 接收 `senderName` 写入 LocalMessage.sn |
+| `web/src/pages/conversation/index.sysmsg-fold-sse.test.tsx` | SSE 帧→handler→sn→折叠容器端到端用例×2（审视发现 4 补） |
+| `api-contract/sse/events.ts` | `entry.system` 契约同步实际广播字段：senderName 可选 + sequenceNum/createdAt 补齐，移除无生产点的 seq（审视发现 3 补） |
 | `web/src/pages/conversation/MessageList.tsx` | system 消息渲染分流：scheduler 来源且 >800 字符 → 折叠态（标题行 + 展开按钮 + 展开态全文）；`SCHEDULER_SYSMSG_FOLD_THRESHOLD` 常量 + `expandedSchedulerMsgs` 本地状态（经 props 传 MessageItem，不持久化——刷新回默认折叠） |
-| `web/src/pages/conversation/MessageList.test.tsx` | 4 用例：折叠态渲染/展开收起交互/短消息不折叠/无前缀不折叠 |
+| `web/src/pages/conversation/MessageList.test.tsx` | 6 用例：折叠态渲染/展开收起交互/短消息不折叠/无前缀不折叠/800 边界×2（后两例为审视发现 4 补） |
 | `tests/usecases/scheduler/scheduler-service.test.ts` | 1 用例：trigger 广播 entry.system data 含 senderName |
 
 ## 验证
