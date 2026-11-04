@@ -110,6 +110,9 @@ describe("collectOtterOutput", () => {
     seedEntry("m2", 2, "otter-aaa", "大獭", "2026-08-28 11:00:00");
     seedEntry("m3", 3, "otter-bbb", "小獭甲", "2026-08-28 12:00:00");
     seedEntry("m4", 4, "otter-aaa", "大獭", "2026-08-29 09:00:00");
+    // F20261105tzwfx：上海日界回归钉子——UTC 20:00（上海 08-29 04:00）应归 08-29，
+    // 防止 DATE() UTC 日界口径回退（与 toolCallCounts 上海日键错配曾致静默归零）
+    seedEntry("m6", 6, "otter-aaa", "大獭", "2026-08-28 20:00:00");
     // user 消息不应被计入
     db.prepare(`
       INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, sender_name, created_at, completed_at)
@@ -124,7 +127,7 @@ describe("collectOtterOutput", () => {
   it("按 otter + date 聚合发言计数（含 tool call 计数）", () => {
     const toolCallCounts = new Map([
       ["2026-08-28", new Map([["otter-aaa", 2], ["otter-bbb", 1]])],
-      ["2026-08-29", new Map([["otter-aaa", 1]])],
+      ["2026-08-29", new Map([["otter-aaa", 2]])],
     ]);
     const results = collectOtterOutput(db, toolCallCounts, { since: "2026-08-01" });
     expect(results.length).toBe(3); // (8/28, otter-aaa), (8/28, otter-bbb), (8/29, otter-aaa)
@@ -139,8 +142,8 @@ describe("collectOtterOutput", () => {
     expect(small828.toolCallCount).toBe(1);
 
     const big829 = results.find(r => r.date === "2026-08-29" && r.otterId === "otter-aaa")!;
-    expect(big829.messageCount).toBe(1);
-    expect(big829.toolCallCount).toBe(1);
+    expect(big829.messageCount).toBe(2); // m4(09:00 UTC) + m6(20:00 UTC=上海08-29凌晨) 同归 08-29
+    expect(big829.toolCallCount).toBe(2); // 上海日键与 SQL 归日一致，不再静默归零
   });
 
   it("不计入 user 消息", () => {

@@ -28,11 +28,10 @@ function makePipeline(db: Database.Database): SignalPipeline {
  *     （实测冻结在 2026-12-31 时 commitCount=0、7 用例翻红）。快照信真实时钟、又消除运行期间流逝。 */
 const CLOCK_SNAPSHOT = new Date();
 // 成本 fixture 必须随冻结时钟滚动：固定 2026-08-28 会在 60 天窗口外被过滤。
-// 时刻钉在上海昨日正午（= 昨日 04:00 UTC）：生产侧两族行日界口径不同
-// （cost 行 shanghaiDateKey vs output 行 DATE() UTC），UTC 16-24 点（上海凌晨）
-// 两口径分属两天、断言必假红（#605 冻结时钟只消除种子漂移，未覆盖
-// F20261027hwl1 引入的口径分叉）。钉正午使两种口径下 fixture 恒属同一天，
-// 无论 CI 何时跑。
+// 时刻钉在上海昨日正午（= 昨日 04:00 UTC）：生产侧日界已统一上海口径
+// （F20261105tzwfx 修 collectOtterOutput），钉正午保留为防御层——若任一侧
+// 日界回退（cost 行 shanghaiDateKey 或 output 行 +8h SQL 被改回 UTC），fixture
+// 时刻仍在双口径重合带内，测试不因历史分叉窗（UTC 16-24 点）误报。
 import { shanghaiDateKey } from "@usecases/health/session-date-provider";
 const _SH_YESTERDAY = shanghaiDateKey(new Date(CLOCK_SNAPSHOT.getTime() - 24 * 60 * 60 * 1000).toISOString());
 const [_y, _m, _d] = _SH_YESTERDAY.split("-").map(Number);
