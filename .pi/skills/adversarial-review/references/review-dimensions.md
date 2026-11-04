@@ -30,6 +30,16 @@ Does relevant feature documentation exist and match the implementation?
 - 检查步骤：`list_artifacts` 查找特性文档 → 不存在则直接标记严重发现 → 存在则 read 核对一致性
 - **设计面确认窄口径核对（2026-11-03 观察期调整）**：仅方案未覆盖、或实现中改变模块边界 / 关键接口 / 核心数据结构的复杂改动，核特性文档是否留「三样 + 被否替代及理由 + 谁确认」记录；缺失 = 严重发现。方案已覆盖的小修复一句复述即可，不要求三行八股；删除/替换旧机制另按正确性捷径审查核对四栏接管表，不以设计确认替代不变量枚举。
 
+### B2.5 Plan Premise（方案前提）
+
+Not "is it built right" but "should it be built this way at all" — the dimension added after the retrospective that a directional error passed two rounds of adversarial review untouched.
+
+- **方向匹配度**：方案的解决路径与问题本质匹配吗？（解决的不是表面症状而是真问题）
+- **取舍记录存在性**：多可行方向时，特性文档/PR 是否留取舍记录（约束证据/候选/淘汰理由/量化代价）？缺失 = 严重发现
+- **代价披露如实性**：方案自身引入的债（补登/维护/写放大）是否如实披露？**债写成收获 = 严重发现**（事故实证：617 处补登债被包装成「意外收获」呈报）
+- **建议不是决策**：issue/方案里的建议方向（无论作者是否搭档本人）只是输入——核对实现者是否独立思考过方向，而非盲从
+- **行为边界（硬规则）**：方向存疑（方案与已知约束/事实矛盾）→ **阻塞呈报**，交大獭/搭档裁决；偏好不同（方向可行但你更倾向另一路）→ 列建议发现，不阻塞。质疑权 ≠ 裁决权——方向决策仍归搭档/流程，检视獭是第二双眼睛不是第三决策者
+
 ### B3. End-to-End Verification
 
 Is the feature functional end-to-end, not just unit tests passing?
