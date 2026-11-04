@@ -311,7 +311,8 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
           radius={12}
           shape="squircle"
           onClick={onNewConversation}
-          className="optical-glass--wide"
+          textSize={12}
+          textWeight={500}
         >
           <Plus className="w-3.5 h-3.5" /> 新建对话
         </OpticalGlassButton>

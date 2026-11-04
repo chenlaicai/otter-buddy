@@ -52,7 +52,8 @@
   background-image:
     linear-gradient(rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32), rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32)),
     var(--custom-bg-image);
-  background-size: auto, 100% 100%;
+  /* fixed 背景在 transform 锚定下退化到元素盒，只有视口单位仍保持页面尺度。 */
+  background-size: auto, 100vw 100vh;
 }
 
 :root:not([data-custom-bg='true']) .optical-glass__lens {

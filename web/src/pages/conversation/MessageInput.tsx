@@ -278,7 +278,8 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             shape="squircle"
             onClick={() => handleSend('followUp')}
             disabled={!canSend}
-            className="optical-glass--queue"
+            textSize={11}
+            textWeight={500}
             title="followUp 发送：目标獭正在行动时不打断——消息排队，等它这轮说完再接（主按钮=steer 插话，立即打断当前生成注入）"
           >
             排队

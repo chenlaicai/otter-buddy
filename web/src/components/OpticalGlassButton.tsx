@@ -5,6 +5,9 @@ interface OpticalGlassButtonProps extends ButtonHTMLAttributes<HTMLButtonElement
   height: number
   radius: number
   shape?: 'circle' | 'squircle'
+  /** 受控排版入口，避免调用方手写不存在的一次性类名。 */
+  textSize?: number
+  textWeight?: number
 }
 
 /**
@@ -23,6 +26,8 @@ export function OpticalGlassButton({
   style,
   children,
   type = 'button',
+  textSize,
+  textWeight,
   ...buttonProps
 }: OpticalGlassButtonProps) {
   const filterId = `optical-glass-${useId().replaceAll(':', '')}`
@@ -31,6 +36,8 @@ export function OpticalGlassButton({
     width,
     height,
     '--glass-radius': `${radius}px`,
+    fontSize: textSize,
+    fontWeight: textWeight,
   } as CSSProperties
   const lensStyle = {
     '--glass-filter': `url(#${filterId})`,
