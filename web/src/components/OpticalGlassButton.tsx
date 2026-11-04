@@ -61,7 +61,7 @@ export function OpticalGlassButton({
         <defs>
           <filter id={filterId} filterUnits="userSpaceOnUse" x="0" y="0" width={width} height={height} colorInterpolationFilters="sRGB">
             <feImage href={`/glass/lens-${shape}.png`} x="0" y="0" width={width} height={height} preserveAspectRatio="none" result="lens-map" />
-            <feDisplacementMap in="SourceGraphic" in2="lens-map" scale={Math.min(width, height) * 0.4} xChannelSelector="R" yChannelSelector="G" result="refracted" />
+            <feDisplacementMap in="SourceGraphic" in2="lens-map" scale={Math.min(width, height) * 0.85} xChannelSelector="R" yChannelSelector="G" result="refracted" />
             <feOffset in="refracted" dx="-0.3" dy="0" result="spectral-left" />
             <feColorMatrix in="spectral-left" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.22 0" result="red-edge" />
             <feOffset in="refracted" dx="0.3" dy="0" result="spectral-right" />
@@ -71,7 +71,7 @@ export function OpticalGlassButton({
           </filter>
         </defs>
       </svg>
-      <span aria-hidden className="optical-glass__lens" style={lensStyle} />
+      <span aria-hidden className="optical-glass__lens optical-glass__lens--backdrop" style={lensStyle} />
       <span aria-hidden className="optical-glass__light" />
       <span className="optical-glass__content">{children}</span>
     </button>
