@@ -1470,7 +1470,10 @@ export class SchedulerService {
       this.messageBroadcaster?.broadcastEvent(task.conversationId, {
         event: "entry.system",
         // F20260921urdo 契约收口：字段名统一 sequenceNum（与 entry.user/entry.speak 一致）
-        data: { entryId: entry.id, content: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt },
+        // F20261104ssfde：senderName 随广播透出（scheduler:<任务名>）——前端据此把定时任务触发消息
+        // 识别为可折叠长消息（默认收起一行，点开看全文）。历史接口（entry-controller DTO）本就透传，
+        // 此处只补 SSE 实时链路，避免实时/刷新后渲染形态漂移。
+        data: { entryId: entry.id, content: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt, senderName: entry.senderName },
       });
     } catch { /* 广播失败不影响触发 */ }
     return { id: entry.id, body: entry.body };

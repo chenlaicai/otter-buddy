@@ -783,9 +783,11 @@ export default function ConversationPage() {
       },
       'entry.system': (data) => {
         // F20260921urdo 契约收口：字段统一 sequenceNum（与 entry.user/entry.speak 一致）+ createdAt
-        const d = data as { entryId: string; content: string; sequenceNum?: number; createdAt?: string }
+        // F20261104ssfde：senderName 透传（scheduler:<任务名>）——定时任务触发消息折叠识别依据
+        const d = data as { entryId: string; content: string; sequenceNum?: number; createdAt?: string; senderName?: string }
         const sysMsg: LocalMessage = {
           id: d.entryId, st: 'system', si: 'system', content: d.content,
+          sn: d.senderName || undefined,
           status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null, entryType: 'system',
         }
         batchUpdateMessages(activeId!, (list) => upsertMessage(list, sysMsg))
@@ -1151,9 +1153,11 @@ export default function ConversationPage() {
         },
         'entry.system': (data) => {
           // F20260921urdo 契约收口：字段统一 sequenceNum + createdAt
-          const d = data as { entryId: string; content: string; sequenceNum?: number; createdAt?: string }
+          // F20261104ssfde：senderName 透传（scheduler:<任务名>）——定时任务触发消息折叠识别依据
+          const d = data as { entryId: string; content: string; sequenceNum?: number; createdAt?: string; senderName?: string }
           const sysMsg: LocalMessage = {
             id: d.entryId, st: 'system', si: 'system', content: d.content,
+            sn: d.senderName || undefined,
             status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null, entryType: 'system',
           }
           batchUpdateMessages(activeId!, (list) => insertBySeq(list, sysMsg))

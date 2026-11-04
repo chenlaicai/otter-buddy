@@ -214,6 +214,11 @@ const AUTO_CHAIN_MAX_BATCHES = 3
  *  移除「到底即回锚」机制，归因见 F20261029repin §3） */
 const NEWMSG_REPIN_PX = 8
 
+/** F20261104ssfde：scheduler 来源系统消息折叠阈值（字符）。低于此长度的短系统消息仍全文展示，
+ *  避免琐碎消息也套一层点击成本。实测：未闭环扫撞 1.3k、健康检查 6.3k、issue 处理 3.9k——
+ *  800 可全覆盖且不影响小任务（如补丁清单 814 也会折叠，它同样是完整任务指令）。 */
+const SCHEDULER_SYSMSG_FOLD_THRESHOLD = 800
+
 /** F20261008csf1 P1：混排时间线条目——消息气泡 or 文类产物摘要卡 */
 type TimelineItem =
   | { kind: 'message'; ts: string; seq: number; message: Message }
@@ -278,6 +283,16 @@ export function MessageList({
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set())
   const togglePin = useCallback((id: string) => {
     setPinnedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+  /** F20261104ssfde：scheduler 来源长系统消息的展开态（entry id 集，默认折叠）。
+  *  会话内本地状态（不持久化）——刷新回默认折叠，与「人不常看全文」的预期一致。 */
+  const [expandedSchedulerMsgs, setExpandedSchedulerMsgs] = useState<Set<string>>(new Set())
+  const toggleSchedulerMsg = useCallback((id: string) => {
+    setExpandedSchedulerMsgs(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id); else next.add(id)
       return next
@@ -757,7 +772,7 @@ export function MessageList({
                 <div className="flex-1 h-px bg-teal-400/40" />
               </div>
             )}
-            <MessageItem message={item.message} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === item.message.id} userName={userName} />
+            <MessageItem message={item.message} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === item.message.id} userName={userName} schedulerFold={{ expanded: expandedSchedulerMsgs, toggle: toggleSchedulerMsg }} />
           </div>
         ))}
         {/* F20261016inbs：底部衬垫——高度 = 输入覆盖层实高（bottomSpacerPx，ChatView
@@ -912,7 +927,7 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
   )
 }
 
-function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string }) {
+function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName, schedulerFold }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string; schedulerFold?: { expanded: Set<string>; toggle: (id: string) => void } }) {
   // F20260913ctlv：invoke 边界/yield 居中条目（无气泡，图标+文字；与 system 同层但更轻量）
   const entryKind = deriveEntryType(m)
   if (entryKind === 'invoke_start' || entryKind === 'invoke_end' || entryKind === 'yield') {
@@ -948,7 +963,39 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   }
 
   // System 消息：居中显示，特殊样式，支持 markdown 渲染
+  // F20261104ssfde：scheduler 来源的长任务触发消息默认折叠——body 是给 LLM 的完整任务指令
+  // （重启补扫依赖全文，后端不能截断），人只需要一行「⏰ 任务名 · 时间」；点开可看全文。
+  // 识别依据：senderName 以 scheduler: 开头（写入点 scheduler-service createSystemSignalEntry，
+  // 历史 DTO 与 F20261104ssfde 后的 SSE 实时链路均透传）。短消息（≤ 阈值）仍全文展示，避免
+  // 琐碎系统消息也套一层点击成本。旧数据无 senderName → 不折叠（历史兼容零迁移）。
   if (m.st === 'system') {
+    const schedulerTaskName = m.sn?.startsWith('scheduler:') ? m.sn.slice('scheduler:'.length) : null
+    const foldable = schedulerTaskName != null && (m.content?.length ?? 0) > SCHEDULER_SYSMSG_FOLD_THRESHOLD
+    if (foldable) {
+      const expanded = schedulerFold ? schedulerFold.expanded.has(m.id) : false
+      const toggle = schedulerFold ? schedulerFold.toggle : () => {}
+      return (
+        <div className="flex justify-center my-3 animate-slideIn" data-testid="scheduler-sysmsg-fold">
+          <div className="glass-card px-4 py-2 text-xs text-stone-500 max-w-[600px] w-full">
+            <button
+              type="button"
+              onClick={() => toggle(m.id)}
+              className="flex items-center gap-2 w-full text-left hover:bg-stone-50/60 rounded-md px-1 py-0.5 transition-colors"
+              aria-expanded={expanded}
+            >
+              <Clock size={14} className="text-stone-400 flex-shrink-0" />
+              <span className="msg-meta text-[11px] flex-1 truncate">⏰ 定时任务「{schedulerTaskName}」已触发 · {fmtTime(m.ts)}</span>
+              <span className="text-stone-400 flex-shrink-0 text-[10px]">{expanded ? '收起 ▲' : `展开全文 ${Math.ceil((m.content?.length ?? 0) / 1000)}k 字 ▼`}</span>
+            </button>
+            {expanded && (
+              <div className="leading-relaxed system-msg-body mt-2 pt-2 border-t border-stone-200/60 [&_strong]:font-semibold [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5">
+                <MarkdownContent variant="otter-body">{m.content}</MarkdownContent>
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="flex justify-center my-3 animate-slideIn">
         <div className="glass-card px-4 py-2 text-xs text-stone-500 max-w-[600px]">

@@ -1140,3 +1140,79 @@ describe('F20261020wabt Web 消息链接全角尾巴修剪（渲染链集成）'
     expect(container.textContent).toContain('http://127.0.0.1:5000）。')
   })
 })
+
+describe('F20261104ssfde：scheduler 来源系统消息折叠（中间栏长任务指令默认收起）', () => {
+  /** 背景：定时任务触发时 scheduler 把完整任务指令（最大 10KB+）作为 system entry 插入
+   *  对话（LLM 重启补扫依赖全文，后端不能截断），前端此前全文渲染——中间栏被任务
+   *  指令铺满（搭档 11-04 报告）。修复：senderName=scheduler:<任务名> 且超阈值 →
+   *  默认折叠成一行「⏰ 定时任务「名」已触发」，点开看全文；旧数据无 senderName 不折叠。 */
+  function renderSysMsg(m: Partial<LocalMessage>) {
+    act(() => {
+      root.render(
+        <MessageList messages={[msg({ st: 'system', si: 'system', ...m })]} state="normal" onStopStream={() => {}}
+          onRetryMessage={() => {}} onRetry={() => {}} onGoToSettings={() => {}}
+          otters={[]} conversationId="conv-1" pinRef={{ current: true }} />,
+      )
+    })
+  }
+  const longBody = '回顾昨日全部对话，按问题拆 GitHub issue。' + '维度检查。'.repeat(300)
+
+  it('scheduler 长消息 → 折叠态：标题行含任务名，全文不渲染', () => {
+    renderSysMsg({ id: 's1', sn: 'scheduler:每日对话健康检查', content: longBody, entryType: 'system' })
+    const fold = container.querySelector('[data-testid="scheduler-sysmsg-fold"]')
+    expect(fold, '应渲染折叠容器').toBeTruthy()
+    expect(fold!.textContent).toContain('每日对话健康检查')
+    expect(fold!.textContent).not.toContain('维度检查')
+  })
+
+  it('点击展开 → 全文渲染；再点收起', () => {
+    renderSysMsg({ id: 's1', sn: 'scheduler:每日对话健康检查', content: longBody, entryType: 'system' })
+    const btn = container.querySelector('[data-testid="scheduler-sysmsg-fold"] button')
+    expect(btn).toBeTruthy()
+    act(() => { btn!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(container.querySelector('[data-testid="scheduler-sysmsg-fold"]')!.textContent).toContain('维度检查')
+    act(() => { btn!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(container.querySelector('[data-testid="scheduler-sysmsg-fold"]')!.textContent).not.toContain('维度检查')
+  })
+
+  it('短 scheduler 消息（≤800 字符）→ 不折叠，全文直出', () => {
+    renderSysMsg({ id: 's2', sn: 'scheduler:短任务', content: '简短提示', entryType: 'system' })
+    expect(container.querySelector('[data-testid="scheduler-sysmsg-fold"]')).toBeNull()
+    expect(container.textContent).toContain('简短提示')
+  })
+
+  it('无 scheduler 前缀的 system 消息（旧数据/运行时提示）→ 不折叠', () => {
+    const long = '运行时输出。'.repeat(200)
+    renderSysMsg({ id: 's3', sn: undefined, content: long, entryType: 'system' })
+    expect(container.querySelector('[data-testid="scheduler-sysmsg-fold"]')).toBeNull()
+    expect(container.textContent).toContain('运行时输出')
+  })
+})
+
+describe('F20261104ssfde 补充：折叠阈值 800 精确边界', () => {
+  /** 检视发现 4：验收声称 >800 折叠，但原用例只测了 4 字符/1919 字符两端，
+   *  没有落在阈值上。补 800（不折叠）与 801（折叠）两断言，验收口径可执行。 */
+  it('恰好 800 字符 → 不折叠（阈值语义：> 800 才折）', () => {
+    const body = 'a'.repeat(800)
+    act(() => {
+      root.render(
+        <MessageList messages={[msg({ id: 'b800', st: 'system', si: 'system', sn: 'scheduler:边界任务', content: body, entryType: 'system' })]} state="normal" onStopStream={() => {}}
+          onRetryMessage={() => {}} onRetry={() => {}} onGoToSettings={() => {}}
+          otters={[]} conversationId="conv-1" pinRef={{ current: true }} />,
+      )
+    })
+    expect(container.querySelector('[data-testid="scheduler-sysmsg-fold"]')).toBeNull()
+  })
+
+  it('恰好 801 字符 → 折叠', () => {
+    const body = 'a'.repeat(801)
+    act(() => {
+      root.render(
+        <MessageList messages={[msg({ id: 'b801', st: 'system', si: 'system', sn: 'scheduler:边界任务', content: body, entryType: 'system' })]} state="normal" onStopStream={() => {}}
+          onRetryMessage={() => {}} onRetry={() => {}} onGoToSettings={() => {}}
+          otters={[]} conversationId="conv-1" pinRef={{ current: true }} />,
+      )
+    })
+    expect(container.querySelector('[data-testid="scheduler-sysmsg-fold"]')).toBeTruthy()
+  })
+})
