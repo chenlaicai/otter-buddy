@@ -28,9 +28,17 @@ function makePipeline(db: Database.Database): SignalPipeline {
  *     （实测冻结在 2026-12-31 时 commitCount=0、7 用例翻红）。快照信真实时钟、又消除运行期间流逝。 */
 const CLOCK_SNAPSHOT = new Date();
 // 成本 fixture 必须随冻结时钟滚动：固定 2026-08-28 会在 60 天窗口外被过滤。
-const COST_FIXTURE_AT = new Date(CLOCK_SNAPSHOT.getTime() - 24 * 60 * 60 * 1000);
+// 时刻钉在上海昨日正午（= 昨日 04:00 UTC）：生产侧两族行日界口径不同
+// （cost 行 shanghaiDateKey vs output 行 DATE() UTC），UTC 16-24 点（上海凌晨）
+// 两口径分属两天、断言必假红（#605 冻结时钟只消除种子漂移，未覆盖
+// F20261027hwl1 引入的口径分叉）。钉正午使两种口径下 fixture 恒属同一天，
+// 无论 CI 何时跑。
+import { shanghaiDateKey } from "@usecases/health/session-date-provider";
+const _SH_YESTERDAY = shanghaiDateKey(new Date(CLOCK_SNAPSHOT.getTime() - 24 * 60 * 60 * 1000).toISOString());
+const [_y, _m, _d] = _SH_YESTERDAY.split("-").map(Number);
+const COST_FIXTURE_AT = new Date(Date.UTC(_y, _m - 1, _d, 4, 0, 0)); // 上海正午 = 04:00 UTC
 const COST_FIXTURE_ISO = COST_FIXTURE_AT.toISOString();
-const COST_FIXTURE_DAY = COST_FIXTURE_ISO.slice(0, 10);
+const COST_FIXTURE_DAY = shanghaiDateKey(COST_FIXTURE_ISO); // 与 cost 行同源口径
 const COST_FIXTURE_STEM = COST_FIXTURE_ISO.replace(/[:.]/g, "-");
 const COST_FIXTURE_SQL_DATE = COST_FIXTURE_ISO.slice(0, 19).replace("T", " ");
 
