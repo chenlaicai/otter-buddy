@@ -5,7 +5,7 @@ import { mapConversationDTO } from '../../lib/mappers'
 import { resolveOtterVisual } from '../../lib/otter-visual'
 import { fmtRelativeTime } from '../../lib/utils'
 import * as api from '../../api/client'
-import { OpticalGlassItem } from '../../components/OpticalGlassItem'
+import { OpticalGlassButton } from '../../components/OpticalGlassButton'
 
 /** F20260918imas：助理分组标题（与后端 DTO kind 标识同步出现） */
 const ASSISTANT_GROUP_LABEL = 'IM 助理'
@@ -294,20 +294,27 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   return (
     <aside className="w-56 h-full glass rounded-3xl flex flex-col flex-shrink-0 overflow-hidden">
       <div className="p-3 flex gap-2 border-b border-white/40">
-        <button
+        <OpticalGlassButton
+          width={32}
+          height={32}
+          radius={12}
+          shape="squircle"
           data-testid="leftpanel-search-toggle"
           onClick={() => setSearchOpen(true)}
-          className="w-8 h-8 rounded-xl flex items-center justify-center text-stone-500 hover:bg-white/40 transition"
           title="搜索对话标题"
         >
           <Search className="w-4 h-4" />
-        </button>
-        <button
+        </OpticalGlassButton>
+        <OpticalGlassButton
+          width={140}
+          height={36}
+          radius={12}
+          shape="squircle"
           onClick={onNewConversation}
-          className="flex-1 py-1.5 text-xs font-medium text-otter-500 border border-otter-300/30 rounded-xl hover:bg-white/40 transition flex items-center justify-center gap-1"
+          className="optical-glass--wide"
         >
           <Plus className="w-3.5 h-3.5" /> 新建对话
-        </button>
+        </OpticalGlassButton>
       </div>
       {searchOpen && (
         <div className="px-3 py-2 flex items-center gap-1.5 border-b border-white/40" data-testid="leftpanel-search-bar">
@@ -495,10 +502,10 @@ function ConversationItem({
     .filter((o): o is Otter => o !== undefined)
 
   return (
-    <OpticalGlassItem
+    <div
       onClick={() => onSelect(c.id)}
       onContextMenu={e => onContextMenu(e, c.id)}
-      className={`conversation-glass rounded-xl mb-1.5 px-2.5 py-2 cursor-pointer transition ${
+      className={`px-2.5 py-2 rounded-xl cursor-pointer transition ${
         isActive
           ? 'conv-active'
           : pinnedHighlight
@@ -562,6 +569,6 @@ function ConversationItem({
           })}
         </div>
       </div>
-    </OpticalGlassItem>
+    </div>
   )
 }

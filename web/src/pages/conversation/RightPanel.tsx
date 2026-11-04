@@ -10,6 +10,7 @@ import { ScheduledTaskSection } from './ScheduledTaskSection'
 import { WorkspacePanel } from './WorkspacePanel'
 import { MattersPanel } from './MattersPanel'
 import { fmtInvokeElapsed, fmtCtx, type OtterInvokeState } from '../../lib/invoke-tracker'
+import { OpticalGlassButton } from '../../components/OpticalGlassButton'
 
 interface RightPanelProps {
   conversation: Conversation
@@ -112,12 +113,16 @@ export function RightPanel(props: RightPanelProps) {
                   onRestart={props.onRestartOtter}
                 />
               ))}
-              <button
+              <OpticalGlassButton
+                width={208}
+                height={32}
+                radius={12}
+                shape="squircle"
                 onClick={props.onCreateSmallOtter}
-                className="w-full mt-1.5 py-1.5 text-xs glass-card text-stone-500 rounded-xl hover:bg-white/40 hover:text-otter-500 transition flex items-center justify-center gap-1"
+                className="mt-1.5"
               >
                 <Plus className="w-3 h-3" /> 创建小獭
-              </button>
+              </OpticalGlassButton>
             </div>
           </div>
         )}
@@ -129,12 +134,16 @@ export function RightPanel(props: RightPanelProps) {
                 <Timer size={12} />
                 定时任务
               </span>
-              <button
+              <OpticalGlassButton
+                width={24}
+                height={24}
+                radius={8}
+                shape="squircle"
                 onClick={props.onCreateScheduledTask}
-                className="text-stone-400 hover:text-otter-500 w-5 h-5 flex items-center justify-center rounded"
+                aria-label="新建定时任务"
               >
                 <Plus className="w-3.5 h-3.5" />
-              </button>
+              </OpticalGlassButton>
             </h3>
             {props.scheduledTasksLoading ? (
               <div className="space-y-2">

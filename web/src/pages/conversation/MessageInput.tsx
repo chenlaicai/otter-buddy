@@ -227,15 +227,18 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
         <div className="flex flex-col" style={{ height: inputHeight }}>
         <div className="flex-1 min-h-0 flex items-end gap-2 glass-input rounded-3xl px-4 py-2.5 transition">
           {/* 多模态 Phase 1：附件选择入口。图片数已达上限仍允许选（可选中文档），后端注入前还会硬校验 */}
-          <button
+          <OpticalGlassButton
+            width={32}
+            height={32}
+            radius={12}
+            shape="squircle"
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled || staged.length >= MAX_FILES_PER_UPLOAD}
-            className="w-8 h-8 rounded-2xl flex items-center justify-center text-stone-400 hover:text-stone-600 hover:bg-white/40 transition flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed mb-0.5"
             aria-label="添加附件"
             title={`附件（图片≤${MAX_IMAGES_PER_SEND}张/轮，单次≤${MAX_FILES_PER_UPLOAD}个）`}
           >
             <Paperclip className="w-4 h-4" />
-          </button>
+          </OpticalGlassButton>
           <input
             ref={fileInputRef}
             type="file"
@@ -268,14 +271,18 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
           {/* F20260913ctlv：双发送模式——主=steer（打断插话，默认）/ 副=followUp（排队等这轮
               说完再接，不打断）。mode 经 onSend 透传 sendMessage 请求体，signal-router
               running 分支按 injectionMode 选择注入方式 */}
-          <button
+          <OpticalGlassButton
+            width={48}
+            height={36}
+            radius={12}
+            shape="squircle"
             onClick={() => handleSend('followUp')}
             disabled={!canSend}
-            className="h-9 px-2.5 rounded-2xl glass-card text-stone-500 text-[11px] font-medium flex items-center justify-center gap-1 transition flex-shrink-0 disabled:opacity-50 hover:bg-white/50 hover:text-otter-500"
+            className="optical-glass--queue"
             title="followUp 发送：目标獭正在行动时不打断——消息排队，等它这轮说完再接（主按钮=steer 插话，立即打断当前生成注入）"
           >
             排队
-          </button>
+          </OpticalGlassButton>
           <OpticalGlassButton
             width={36}
             height={36}

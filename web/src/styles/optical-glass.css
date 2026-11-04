@@ -52,7 +52,7 @@
   background-image:
     linear-gradient(rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32), rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32)),
     var(--custom-bg-image);
-  background-size: auto, cover;
+  background-size: auto, 100% 100%;
 }
 
 :root:not([data-custom-bg='true']) .optical-glass__lens {
@@ -80,27 +80,6 @@
   justify-content: center;
   pointer-events: none;
   filter: drop-shadow(0 1px 1px rgb(255 255 255 / 65%));
-}
-
-/* 长条对话块降低折射与投影强度；条目内容独立，不参与纹理。 */
-.optical-glass--item {
-  color: inherit;
-  box-shadow: 0 2px 6px rgb(62 42 20 / 9%);
-}
-.optical-glass--item .optical-glass__light {
-  border-color: rgb(255 255 255 / 48%);
-  box-shadow: inset 0 1px 1px rgb(255 255 255 / 48%), inset 0 -1px 1px rgb(80 53 26 / 8%);
-}
-.optical-glass__item-content {
-  position: relative;
-  z-index: 2;
-}
-.optical-glass--item.conv-active {
-  background: transparent;
-}
-.optical-glass--item.conv-active .optical-glass__light {
-  border-color: rgb(181 122 63 / 60%);
-  background: linear-gradient(90deg, rgb(181 122 63 / 10%), transparent 65%);
 }
 
 .optical-glass:hover:not(:disabled) {
