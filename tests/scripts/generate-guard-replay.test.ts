@@ -22,10 +22,12 @@ let tmpDir: string;
 let dbPath: string;
 let outDir: string;
 
-/** 昨日/前日 ISO 日期串（本地时区，与脚本同口径） */
-function localDate(offsetDays: number): string {
+/** 昨日/前日 ISO 日期串（UTC 日界，与脚本同源口径——脚本 targetDate 用
+ *  getUTC* 算 UTC 昨日（PR #1368 §3.3），旧本地时区实现在 Asia/Shanghai 凌晨
+ *  0-8 点（UTC 前日 16-24 点）播种日与窗口日错位一天，种子全部窗外、断言必红 */
+function utcDate(offsetDays: number): string {
   const d = new Date(Date.now() + offsetDays * 24 * 3600 * 1000);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
 const SCHEMA = "(由 createTestDb 生产 schema 工厂建表——禁手写 DDL，lint-tests 硬规则)"; void SCHEMA;
@@ -62,8 +64,8 @@ beforeAll(() => {
   // 文件库（非内存）：被测脚本独立进程打开同一文件，内存库跨进程不可见。
   // 生产 schema 工厂（lint-tests 硬规则）——含 healing_events 表与迁移补丁列
   const db = createTestDb(dbPath);
-  const y = localDate(-1); // 昨日（脚本默认窗）
-  const y2 = localDate(-2); // 前日（窗外对照）
+  const y = utcDate(-1); // 昨日（脚本默认窗，UTC 日界）
+  const y2 = utcDate(-2); // 前日（窗外对照）
   const seeds: SeedEvent[] = [
     structuredEvent("s1", `${y}T03:00:00.000Z`, "cd /repo/wt && git commit -m x", "main_write", "r1_gate"),
     // 同 ruleId 同命令头 → 应被去重
@@ -98,7 +100,7 @@ afterAll(() => {
 });
 
 function runScript(extraArgs: string[] = []): { stdout: string; outJsonPath: string } {
-  const date = localDate(-1);
+  const date = utcDate(-1);
   const outJsonPath = join(outDir, `candidates-${date}.json`);
   if (existsSync(outJsonPath)) rmSync(outJsonPath);
   const stdout = execFileSync("node", [scriptPath, "--db", dbPath, "--out", join(outDir, "candidates"), ...extraArgs], { encoding: "utf8" });
@@ -164,7 +166,7 @@ describe("generate-guard-replay.mjs（F20261008gdcc 项 4）", () => {
   });
 
   it("--date 指定窗：只取该日事件", () => {
-    const y2 = localDate(-2);
+    const y2 = utcDate(-2);
     const outJsonPath = join(outDir, `candidates-${y2}.json`);
     execFileSync("node", [scriptPath, "--db", dbPath, "--date", y2, "--out", join(outDir, "candidates")], { encoding: "utf8" });
     const payload = JSON.parse(readFileSync(outJsonPath, "utf8"));
