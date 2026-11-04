@@ -42,7 +42,7 @@ capability_test: "n/a: 单行 shell 接线（gate 调用序变更），行为验
 
 - [x] 红测二（主拦截路径）：临时把本文档 verify_by.type 改为非法值 behavior_chek → commit 被 lint:intent 拦截（exit 1 + `Invalid intent.verify_by.type`，HEAD 未动）；修复后通过。**这正是 #1752 capability_tes typo 事故形态——接线后此类错误 commit 时即拦，不再等到 CI**
 - [x] 红测一（边界探明，r1 订正归因）：缺 intent 块对 change_type: fix 且**无 created_at 字段**的文档只出 Recommended warning——真边界是 #1740 全域门（lint-intent.mjs:275-283）：created_at ≥ 2026-11-03 的新文档**不论 change_type 缺块均 error**；红测一被测文档用 `created:`（无 created_at）落入 #1740 已知残余口子（F20261103itald 明示「created_at 缺失文档不在此列」宽容口径），并非「fix 类设计性不拦」。本 PR 不改此口子（收口归 #1295/#1740 后续，含 repo 级 created/created_at 字段漂移稀释覆盖面问题——检视獭1765 r1 职责外观察，留档待评估）
-- [x] commit 噪音代价（r1 建议③如实披露）：存量 633 warnings 每 commit 全量打印约 1.3k 行——反馈前移的代价，可接受（不阻断）；噪音治理归存量豁免清单收敛（#839 ratchet）
+- [x] commit 噪音代价（r1 建议③如实披露）：存量 633 warnings 每 commit 全量打印约 1.3k 行——反馈前移的代价，可接受（不阻断）；噪音治理分两半：Missing 豁免清单部分（约 251 条）归 #839 ratchet 收敛；主体 Recommended 类（约 364 条）不受清单追踪，归 #1295 intent 收口后续
 - [x] 全量 commit 钩子链过（本 commit 本身即验证：lint:docs/capability/tests/skills/tool-manifest/historical-docs/prompt-anchors/intent/date-bombs/criteria 九 gate 顺序执行）
 - [x] CI：见 checks
 
