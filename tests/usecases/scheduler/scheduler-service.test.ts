@@ -6,6 +6,7 @@ import type { SendEntry } from '@usecases/conversation/send-entry';
 import type { EntryRepository } from '@usecases/conversation/entry-repository';
 import type { AgentTurnPort } from '@usecases/ports/agent-turn-port';
 import type { ManageScheduledTask, TaskChangeCallback } from '@usecases/scheduled-task/manage-scheduled-task';
+import type { MessageBroadcaster } from '@usecases/im/message-broadcaster';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { ManageSession } from '@usecases/otter/manage-session';
 import { DomainError } from '@entities/errors';
@@ -248,10 +249,11 @@ function createMockSendEntry() {
   return {
     /** 获取已创建 entry 数 */
     _getEntryCount: () => entryCount,
-    createSystemEntry: vi.fn(async () => {
+    createSystemEntry: vi.fn(async (input: { body?: string; senderName?: string; yieldTargets?: string[] }) => {
       entryCount += 1;
-      return { entry: { id: `entry-${entryCount}`, body: '早上好！',
-    description: null, sequenceNum: entryCount } };
+      // F20261104ssfde：回显 senderName——广播捕获测试断言它随 SSE 透出（真实 sendEntry 会落 entry.senderName）
+      return { entry: { id: `entry-${entryCount}`, body: input?.body ?? '早上好！',
+    description: null, sequenceNum: entryCount, senderName: input?.senderName ?? 'system' } };
     }),
   };
 }
@@ -4698,5 +4700,44 @@ describe('#1048: 看门狗克制（放弃 ≠ 失败）', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('F20261104ssfde：定时任务触发 SSE 广播透出 senderName（前端折叠识别依据）', () => {
+  it('trigger 成功 → entry.system 广播 data 含 senderName=scheduler:<任务名>，与历史 DTO 渲染形态一致', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const sendEntry = createMockSendEntry();
+    const entryRepo = createMockEntryRepo();
+    const agentInvoke = createMockAgentInvoke();
+    const cronParser = createMockCronParser(new Date('2025-06-15T09:00:00.000Z'));
+    taskRepo._store.set('task-1', makeTask());
+    convRepo._addConversation('conv-1', { status: 'active' });
+
+    // 捕获广播事件（entry.system）
+    const broadcasts: Array<{ event: string; data: Record<string, unknown> }> = [];
+    const messageBroadcaster = {
+      broadcastEvent: (_convId: string, ev: { event: string; data: Record<string, unknown> }) => {
+        broadcasts.push({ event: ev.event, data: ev.data });
+      },
+    };
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: cronParser as unknown as CronParser,
+      logger: mockLogger,
+      messageBroadcaster: messageBroadcaster as unknown as MessageBroadcaster,
+    });
+
+    await service.trigger('task-1');
+
+    const sysEvt = broadcasts.find(b => b.event === 'entry.system');
+    expect(sysEvt, '应广播 entry.system 事件').toBeTruthy();
+    // senderName 随广播透出：前端据此把 scheduler 来源长消息折叠成一行
+    expect(sysEvt!.data.senderName).toBe('scheduler:每日问候');
   });
 });
