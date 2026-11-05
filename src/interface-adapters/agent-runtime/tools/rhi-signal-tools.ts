@@ -19,6 +19,7 @@
 import type { ToolContext, AgentTool } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 import type { SignalRepository, SignalBatchBindFilter } from "@usecases/health/signal-repository";
+import { checkOpenIssue, type CheckIssueBinding } from "../../github/issue-binding";
 
 /** 参数校验：signalId/action 合法性检查（拆出控 complexity）。batch_bind 是批量路径，
  *  不需要 signalId，由 handleBatchBind 单独校验（#1052） */
@@ -34,10 +35,24 @@ function validateTriageParams(params: Record<string, unknown>): { signalId: numb
   return { signalId, action };
 }
 
+async function rejectInvalidBinding(issueNumber: number, checkIssueBinding: CheckIssueBinding): Promise<ReturnType<typeof errorResponse> | null> {
+  const check = await checkIssueBinding(issueNumber);
+  if (check.ok) return null;
+  return errorResponse(`[错误] ${check.reason}`);
+}
+
+async function rejectUnlessOpen(
+  issueNumber: number,
+  dryRun: boolean,
+  checkIssueBinding: CheckIssueBinding,
+): Promise<ReturnType<typeof errorResponse> | null> {
+  return dryRun ? null : rejectInvalidBinding(issueNumber, checkIssueBinding);
+}
+
 /** #1052：batch_bind——未接单信号按 filter 批量归口（照 manage_healing_events.batch_resolve 模式）。
  *  根治「daily-review 150 条逐条 triage_signal 被『连续同构调用』循环守卫阻断」的流程冲突——
  *  >10 条同类型同归口时走批量，逐条仅用于异质处置。 */
-function handleBatchBind(params: Record<string, unknown>, signalRepo: SignalRepository): ReturnType<typeof textResponse> {
+async function handleBatchBind(params: Record<string, unknown>, signalRepo: SignalRepository, checkIssueBinding: CheckIssueBinding): Promise<ReturnType<typeof textResponse>> {
   const issueNumber = params.issueNumber as number | undefined;
   if (!Number.isInteger(issueNumber) || (issueNumber as number) <= 0) {
     return errorResponse("[错误] batch_bind 的 issueNumber 必填（正整数）——批量归口的目标 issue。");
@@ -50,10 +65,21 @@ function handleBatchBind(params: Record<string, unknown>, signalRepo: SignalRepo
   if (!filter.signalType && !filter.severity) {
     return errorResponse("[错误] batch_bind 至少需要一个过滤条件（filterSignalType / filterSeverity）——全部未接单绑同一 issue 属异质归口，应逐条或分组归口。");
   }
+  return executeBatchBind(params, filter, issueNumber as number, signalRepo, checkIssueBinding);
+}
+
+async function executeBatchBind(
+  params: Record<string, unknown>,
+  filter: SignalBatchBindFilter,
+  issueNumber: number,
+  signalRepo: SignalRepository,
+  checkIssueBinding: CheckIssueBinding,
+): Promise<ReturnType<typeof textResponse>> {
   const note = (params.note as string | undefined)?.trim() || '';
   const dryRun = (params.dryRun as boolean) ?? false;
-
-  const result = signalRepo.batchBindIssue(filter, issueNumber as number, {
+  const rejected = await rejectUnlessOpen(issueNumber, dryRun, checkIssueBinding);
+  if (rejected) return rejected;
+  const result = signalRepo.batchBindIssue(filter, issueNumber, {
     note: note || undefined,
     dryRun,
   });
@@ -91,31 +117,43 @@ function handleBatchDismiss(
   return textResponse(JSON.stringify(result, null, 2));
 }
 
+async function handleSingleTriage(
+  valid: { signalId: number; action: "bind_issue" | "in_progress" | "dismiss" },
+  params: Record<string, unknown>,
+  signalRepo: SignalRepository,
+  checkIssueBinding: CheckIssueBinding,
+): Promise<ReturnType<typeof textResponse>> {
+  const issueNumber = params.issueNumber as number | undefined;
+  const note = (params.note as string | undefined)?.trim() || '';
+  const rejected = await rejectUnlessOpen(
+    issueNumber as number,
+    valid.action !== 'bind_issue',
+    checkIssueBinding,
+  );
+  if (rejected) return rejected;
+  const result = signalRepo.triage(valid.signalId, valid.action, { issueNumber, note: note || undefined });
+  if (!result.ok) return errorResponse(`[错误] ${result.reason}`);
+  const r = result.record!;
+  const triageState = r.triage_status ?? '未接单';
+  return textResponse(
+    `[triage 完成] 信号 #${r.id}（${r.signal_type} · ${r.severity}）\n` +
+    `  处置状态：${triageState}` +
+    (r.issue_number ? ` · 绑定 issue #${r.issue_number}` : '') + '\n' +
+    (r.triage_note ? `  处置说明：${r.triage_note}` : '') + '\n' +
+    `  终态：${r.status}` +
+    (result.reason ? `\n  备注：${result.reason}` : ''),
+  );
+}
+
 /** triage_signal：RHI 信号处置留痕（单条三动作 + batch_bind / batch_dismiss） */
-export function createTriageSignalTool(ctx: ToolContext, signalRepo: SignalRepository): AgentTool {
+export function createTriageSignalTool(ctx: ToolContext, signalRepo: SignalRepository, checkIssueBinding: CheckIssueBinding = checkOpenIssue): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
     // 批量路径先分流（无 signalId），单条路径走原校验
-    if (params.action === 'batch_bind') return handleBatchBind(params, signalRepo);
+    if (params.action === 'batch_bind') return handleBatchBind(params, signalRepo, checkIssueBinding);
     if (params.action === 'batch_dismiss') return handleBatchDismiss(params, signalRepo);
     const valid = validateTriageParams(params);
     if ('error' in valid) return errorResponse(valid.error);
-    const issueNumber = params.issueNumber as number | undefined;
-    const note = (params.note as string | undefined)?.trim() || '';
-
-    const result = signalRepo.triage(valid.signalId, valid.action, { issueNumber, note: note || undefined });
-    if (!result.ok) {
-      return errorResponse(`[错误] ${result.reason}`);
-    }
-    const r = result.record!;
-    const triageState = r.triage_status ?? '未接单';
-    return textResponse(
-      `[triage 完成] 信号 #${r.id}（${r.signal_type} · ${r.severity}）\n` +
-      `  处置状态：${triageState}` +
-      (r.issue_number ? ` · 绑定 issue #${r.issue_number}` : '') + '\n' +
-      (r.triage_note ? `  处置说明：${r.triage_note}` : '') + '\n' +
-      `  终态：${r.status}` +
-      (result.reason ? `\n  备注：${result.reason}` : ''),
-    );
+    return handleSingleTriage(valid, params, signalRepo, checkIssueBinding);
   };
   return {
     name: "triage_signal",
