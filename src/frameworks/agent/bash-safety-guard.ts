@@ -12,7 +12,7 @@
  * 保留的既有资产（语义不变，从旧版继承）：
  * - kill-segment-finder.ts：kill 族命令位置粗筛（四层：位置/引号状态机/$()嵌套/前缀包装）
  * - SERVICE_SCRIPT_KILL：服务脚本自杀模式（9/16 原案，字面无 kill）
- * - INDIRECT_PID_PATTERNS：非字面量 kill 目标保守拦（变量/$() 无法运行时求值）
+ * - 非字面量 kill：F20261105killa 政策 A 退役保守拦——能确认才拦（字面量三查/PID 文件引用/pkill 特征名），确认不了放行（宁漏勿误贯彻第一站）
  * - #844 白名单端口溯源：kill $(lsof :3100) 类受控放行（allowed-service-ports）
  * - networkExfilHit：外发判定引擎（域名表配置化）
  * - PID 文件（.otter-buddy.pid）：主进程号码主源
@@ -101,18 +101,6 @@ export function readMainProcessPid(projectRoot: string): number | null {
 
 /** 服务脚本自杀模式（9/16 原案：otter-buddy.sh stop/restart，字面无 kill） */
 const SERVICE_SCRIPT_KILL = /(?:^|[;&|`$(])\s*(?:sudo\s+)?(?:(?:bash|sh)\s+)?(?:[\w.~/-]*\/)?(?:scripts\/)?otter-buddy\.sh\s+(?:stop|restart)\b/;
-
-/** 非字面量 kill 目标模式：变量/命令替换/管道/eval——运行时无法求值，保守拦 */
-const INDIRECT_PID_PATTERNS = [
-  /\$[{(a-zA-Z_]/,
-  /`[^`]*[\s|;&><][^`]*`/,
-  /\|.*\bkill\b/,
-  /xargs\b[^|;&]*\bkill\b/,
-  /\beval\b/,
-  /\\x[0-9a-f]{2}/i,
-  /\$\(cat\b.*pid/i,
-  /cat\b.*\.otter-buddy\.pid.*kill/i,
-];
 
 /** PID 文件引用——直接指向主进程号码来源 */
 const PID_FILE_REFERENCE = /\.otter-buddy\.pid/;
@@ -205,11 +193,8 @@ const MAIN_KILL_BLOCK_MSG: GuardBlock = {
   ruleId: "self_kill_main",
   layer: "self_kill",
 };
-const INDIRECT_KILL_BLOCK_MSG: GuardBlock = {
-  text: "kill 目标为变量/命令替换（非字面量 PID），无法静态确认是否主进程——该命令不允许。若需清理自己起的 dev server/测试进程：用字面量 PID kill（非主进程放行），或受控出口 node scripts/restart-service.mjs kill-by-pid <pid> --project <abs>。",
-  ruleId: "self_kill_nonliteral",
-  layer: "self_kill",
-};
+// F20261105killa 政策 A：INDIRECT_KILL_BLOCK_MSG（self_kill_nonliteral）随保守拦退役删除——
+// 历史文案归因由 guard-intercept-classify 指纹表承担（RETIRED_RULE_IDS 封存、可分类不活跃）。
 const PKILL_OTTER_BLOCK_MSG: GuardBlock = {
   text: "pkill/killall 按名匹配会命中主进程（node/otter-buddy 特征名）——不允许。精确终止请用字面量 PID kill。",
   ruleId: "self_kill_byname",
@@ -256,9 +241,21 @@ function broadcastKillTargetHit(segment: string): boolean {
   return rest.some(a => a === "-1" || /^-\d+$/.test(a));
 }
 
-/** 非字面量 kill 目标：先试 #844 白名单端口溯源放行，否则保守拦（变量无法运行时求值） */
+/** 非字面量 kill 目标（F20261105killa 政策 A：能确认才拦，确认不了放行）。
+ *
+ *  演进史：8/30 初版「能确认才拦」→ 8/30 审视轮为堵非字面量绕过临时翻转为保守拦 →
+ *  10/30 guard-v4 重建将其作「既有资产」原样保留（与 v4 总则「宁漏勿误」内在矛盾，
+ *  落在第一站未扫净的旧角落）→ 11/05 搭档拍板政策 A，原则统一：宁漏勿误贯彻第一站。
+ *
+ *  保留的确认通道（拦得有依据）：
+ *  - PID 文件引用（kill $(cat .otter-buddy.pid)）——目标就是主进程号码来源
+ *  - 管道直接来源是主 PID 文件（cat .otter-buddy.pid | xargs kill——检视 S1：
+ *    kill 段自身无 pid 文件引用但 stdin 直接来自主 pid 文件，数据流等价于命令
+ *    替换，属「能确认」）；其他 pid 文件（pids/backend.pid 等自有资产）不在此列，放行
+ *  - 白名单端口溯源放行先行（#844，allowed-service-ports）
+ *  其余非字面量形态（变量/$()/管道/xargs——无法静态求值，也即无法确认为主进程）放行。 */
 function checkIndirectKillTarget(
-  killSegments: { segment: string; isPkill: boolean }[],
+  killSegments: { segment: string; isPkill: boolean; source?: "pipe" }[],
   command: string,
   segment: string,
   allowedServices: AllowedService[],
@@ -266,8 +263,35 @@ function checkIndirectKillTarget(
 ): GuardBlock | null {
   if (whitelistedPortAllow(killSegments, command, allowedServices, mainPid ?? -1)) return null;
   if (PID_FILE_REFERENCE.test(segment)) return MAIN_KILL_BLOCK_MSG;
-  if (INDIRECT_PID_PATTERNS.some(p => p.test(segment))) return INDIRECT_KILL_BLOCK_MSG;
-  return null; // 无 PID 参数形态（如 kill -l 列信号）放行
+  // 检视 S1：管道右段的直接来源若是主 PID 文件——kill $(cat pid) 与 cat pid | xargs kill
+  // 数据流等价（stdin 即目标清单），同属「能确认是主进程」——拦；自有 pid 文件不匹配
+  // PID_FILE_REFERENCE（仅主进程 pid），自然落入放行分支。
+  const seg = killSegments.find(k => k.segment === segment);
+  if (seg?.source === "pipe" && upstreamIsMainPidFile(command, segment)) return MAIN_KILL_BLOCK_MSG;
+  return null; // 政策 A：确认不了 ≠ 拦——非字面量目标放行（宁漏勿误）
+}
+
+/** 检视 S1：kill 段（管道右段）的直接 stdin 来源是否主 PID 文件。
+ *  定位 kill 段在原文的偏移，向左找最近的段分隔符，取左段（trim 后）判是否
+ *  「cat/读到主 pid 文件」的命令形态（cat <pidfile> / < <pidfile>）。
+ *  只认直接相邻段——两步以上构造（先存变量再管道）属「确认不了」放行面。 */
+function upstreamIsMainPidFile(command: string, segment: string): boolean {
+  const segStart = command.indexOf(segment);
+  if (segStart <= 0) return false;
+  const left = command.slice(0, segStart);
+  // 截到最后一个段分隔符（| / && / ; 等）——即 kill 段的直接上游段。
+  // 注意：上游段本身可含管道（cat a.pid | head）——取「最后一个分隔符之后的全部」时
+  // 要允许上游内的 | 不被截断：改用 [^;&|] 排除其他分隔符但单独保留 | 的多级形态。
+  // 实现简化：先按分号/&&/\n 截最后一个段，再在该段内找最后一个管道链的最后一级。
+  const clause = left.split(/[;&]|&&|\n/).pop() ?? "";
+  const pipeParts = clause.split("|");
+  const upstream = (pipeParts.length > 1 ? pipeParts[pipeParts.length - 2] : clause).trim();
+  if (!upstream) return false;
+  // 直接来源形态：cat/读取主 pid 文件（cat <pidfile> 或 < <pidfile> 重定向）。
+  // 上游链中间可有 head/awk 等过溗环节——只要链内有 cat 主 pid 文件即认（数据流仍直接）。
+  // 自有 pid 文件（pids/backend.pid）不匹配 PID 文件名，自然落入放行分支。
+  return /\bcat\b[^|]*\.otter-buddy\.pid/.test(upstream)
+    || /<\s*\S*\.otter-buddy\.pid/.test(upstream);
 }
 
 /** kill 段循环判定（从 checkKillStation 拆出，complexity 分解） */
