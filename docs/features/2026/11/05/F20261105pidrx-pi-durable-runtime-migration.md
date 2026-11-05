@@ -82,6 +82,8 @@ summary: 以 pi-durable SQLite session、单 writer、unsafe custom tool 和模�
 | retry/abort/steer/followUp | 网络/超时与 provider 重试、取消、打断、排队、失败清理 | orchestrator、gateway、dispatcher | pi-ai retry policy + durable prompt/steer/followUp；失败仍由现有 orchestrator 分类 |
 | 重启恢复 | 单 invoke 单 owner；崩溃不重复副作用；checkpoint metadata 不丢 | resume service、otter locks、matters | 显式 recovery + 持久 checkpoint；禁旧自动 replay；跨进程 admission lock 验收待测 |
 | bash/loop-block/guard | 工具调用前拦截；外部调用与循环块取消即时 | guards、healing 台账 | durable beforeTool hook，直接复用现有 hook 检查；映射 block/tool_error |
+| 熔断器/看门狗/编排守卫（检视处置补登） | per-event 工具执行看门狗（maxPerEventTimeMs）、滑窗/连续重复熔断（steer→terminate）、编排越权 steer、黑名单（loopBlockedTools） | circuit-breaker-helpers、activeEntry abort 链 | **接管**：DurableSession.subscribe 多播事件总线 + prompt 内 watch→sink 单一事件源，attachCircuitBreaker/attachOutputGuard 原样消费同一事件流（回归测试见 durable-runtime.test.ts 看门狗用例）；beforeTool 不再直查 breaker（防滑窗双计数） |
+| 输出退化/滑动/首字节超时（检视处置补登） | text/thinking delta 重复检测、流式滑动超时、首字节超时、tool/compaction 暂停 | output-guard、streaming 超时 abort | **接管**：同上事件链恢复 delta 喂入与 pause/resume；首字节计时器（armFirstByte）随事件链 arm/解除。残余差异：durable 无 isCompacting 公开 API 与 compaction/auto_retry 事件源，该两路 pause 以 tool pause + 回归测试兑住主路径，详见下文「残余差异」 |
 | skills/extensions/MCP | profile 可见；system prompt/skills 注入；工具发现；MCP 与故障策略 | query-otter-profile、prompt provider、tool_search | loader 只读；durable section+tool_search；MCP server bridge 不得静默省略 |
 
 ## 验收 / 负向接管
@@ -101,3 +103,18 @@ summary: 以 pi-durable SQLite session、单 writer、unsafe custom tool 和模�
 - 未验证：真实外部 LLM provider、生产 alpha 实例、真实用户会话切换；MCP OAuth 自动登录与动态 extension 注册未验证，不能宣称全量兼容。
 - 恢复 owner：otter invoke/admission 仍负责领域恢复；durable reopen 对未完成任务显式 abort，不允许旧 invoke 与 durable 自动 replay 双跑。
 - 旧 JSONL：仅 `.jsonl` 档案可读作交接切片；新执行不写旧 JSONL，不导入新 durable store。
+
+## 对抗审视处置（PR #1783，Runtime检视獭 2026-11-05）
+
+上游审视报告：`fact dc120c3d`（2 严重 + 2 建议，全部处置于本 PR）：
+
+1. **严重 1（看门狗/编排守卫静默失活）→ 接受并修复**：根因是 `DurableSession.subscribe` 单监听器被 factory 的 durableForwarder 覆盖且 `emit` 无调用方，事件通道整体死路——波及面比检视点名更广（熔断器、maxPerEventTimeMs 看门狗、orchestrationCheck、outputGuard 退化检测/滑动超时、首字节计时器的解除全部失活）。修复：① subscribe 改多播 Set（listeners），emit 有真实馈送；② prompt 内 watch→sink 单一事件源，派生事件先 `this.emit(event)`（guards 消费）再分发调用方 stream——不依赖 factory 包装，直调 prompt 的路径守卫同样在场；③ 删除 beforeTool 的自制 breaker 段与 configureGuards 接线（防与事件链双计数滑窗，避免假熔断/假 terminate）。回归：看门狗用例（maxPerEventTimeMs=300ms 触发 abort、signal 取消、guardAbortReason 断言）。
+2. **严重 2（SIGKILL 断言零判别力）→ 接受并修复**：`split("\\n")` 改按非空行计数（`split("\n").filter(trim)`）；负对照已验：新断言 1 次=1、2 次=2，旧断言恒 1（重放不会被拦）。
+3. **建议 1（PR 证据锚点过期）→ 接受并修复**：本处置 commit 后 PR body 锚点更新为本 head + 绿跑（回读输出见 PR）。
+4. **建议 2（恒假死代码）→ 接受并修复**：`_restoreOrCreateSession` 的 `stored.sessionFile !== sessionFile` 恒假分支删除，注释澄清 create() 已写注册。
+
+### 残余差异（诚实披露，不伪称完全接管）
+
+- **compaction/auto_retry pause 无事件源**：durable 1.5.0 无 isCompacting 公开 API，也无 compaction_start/end、auto_retry_start/end 事件（旧 SDK 事件通道有）。outputGuard 在 compaction 期间不再暂停——后果是 compaction 总结阶段若超 streamingTimeoutMs（120s）无 delta，可能误判超时 abort。缓解：compaction 总结由模型流式产出（有 delta 即刷新滑动计时器）；真实 provider compaction 未验证（见未验证清单）。
+- **abort 是协作式**：工具 execute 永不 resolve 且不监听 signal 时，上游 abort handler 等待 owned work（scheduler `#waitingOn` 含自身），invoke 挂起不可强杀——与旧 SDK 同等限制（旧 600s 看门狗同样不能强杀死循环 promise），非本次迁移引入的回归。
+- 守卫事件面经 DurableEventStream 派生（entry/ops → tool_execution_start/end、message_update），与旧 SDK 事件时序近似但非逐事件同构；极端时序差异（如部分提交窗口）未经真实 provider 验证。

@@ -14,12 +14,11 @@ import type { Logger } from "@usecases/ports/logger";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { bashGuardGate, haltToolCallGuard, loopBlockGuard, otterInvokeStorage } from "./model-runtime-registry";
 import { toDurableTool } from "./durable-tool-registry";
-import type { DurableEventStream } from "./durable-event-stream";
+import { DurableEventStream } from "./durable-event-stream";
 import { contextTokensFromUsage } from "./durable-event-stream";
 import { DurableToolSearch } from "./durable-tool-search";
 import type { InvokeRegister } from "./tool-builder";
 import type { TokenUsage } from "@usecases/conversation/token-usage";
-import type { ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
 
 export interface DurablePromptOptions { images?: Array<{ type: "image"; data: string; mimeType: string }> }
 export type DurableSessionState = "running" | "idle" | "failed" | "closed";
@@ -51,8 +50,6 @@ export interface DurableSessionOptions {
   haltRegistry?: { takeForBlock(otterId: string): any[]; isHalted(otterId: string): boolean };
   haltSignal?: { addHook(otterId: string, hook: () => void): void };
   onHaltFirstBlock?: (directive: unknown) => void;
-  breaker?: ToolCallCircuitBreaker;
-  onToolAbort?: (reason: string) => void;
 }
 
 /** One per-otter store/writer. Never share a conversation across otters. */
@@ -158,36 +155,33 @@ export class DurableSession {
     return tools;
   }
 
-  // Durable tool admission must retain all otter guards and ownership checks.
-  // eslint-disable-next-line complexity
+  // Durable tool admission keeps the physical gates that must run BEFORE execution:
+  // invoke ownership, halt, loop blacklist, bash guard. The behavioral guards
+  // (circuit breaker / orchestration / per-event watchdog / output guard) consume
+  // tool_execution_* events through the multicast subscribe channel instead —
+  // wiring both feeds would double-count the breaker sliding window.
   private async beforeTool(call: { name: string; arguments: Record<string, unknown>; id: string }): Promise<{ block: string } | undefined> {
     const ctx = otterInvokeStorage.getStore();
     if (!this.currentInvokeId) return { block: "Durable tool execution requires currentInvokeId; refusing side effect." };
     const halt = haltToolCallGuard(ctx, this.options.haltRegistry as never, call.name);
     const guard = await halt ?? loopBlockGuard(ctx, call.name, call.arguments) ?? bashGuardGate(ctx, call.name, call.arguments);
     if (guard) return { block: guard.reason };
-    if (call.name !== "speak" && call.name !== "yield") {
-      const result = this.options.breaker?.check(call.name, call.arguments);
-      if (result?.action === "terminate") {
-        this.options.onToolAbort?.(result.reason ?? "tool-loop-breaker");
-        return { block: result.reason ?? "tool-loop-breaker" };
-      }
-      if (result?.action === "steer") {
-        this.options.onToolAbort?.(result.reason ?? "tool-loop-breaker");
-        await this.conversation.abort(BACKGROUND_CONTEXT).catch(() => undefined);
-        await this.steer(result.reason ?? "Repeated tool call; change strategy.", BACKGROUND_CONTEXT);
-      }
-    }
     return undefined;
   }
 
-  emit(event: unknown): void { this.onSessionEvent?.(event); }
+  // Multicast event bus: guards (circuit breaker, output guard, orchestration check)
+  // and future consumers each own their subscription; emitting to the current
+  // DurableEventStream outlet replaces the single-listener override the SDK had.
+  private readonly listeners = new Set<(event: unknown) => void>();
+  emit(event: unknown): void {
+    for (const listener of this.listeners) {
+      try { listener(event); } catch (error) { this.options.logger.warn("durable event listener failed", { error: String(error) }); }
+    }
+  }
   getSessionStats(): { tokens: TokenUsage } { return { tokens: this.totalTokens }; }
-  subscribe(listener: (event: unknown) => void): () => void { this.onSessionEvent = listener; return () => { this.onSessionEvent = undefined; }; }
-  private onSessionEvent?: (event: unknown) => void;
-  configureGuards(guards: { breaker?: ToolCallCircuitBreaker; onToolAbort?: (reason: string) => void }): void {
-    this.options.breaker = guards.breaker;
-    this.options.onToolAbort = guards.onToolAbort;
+  subscribe(listener: (event: unknown) => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
   }
 
   updateOptions(next: { currentInvokeId?: string; prompt?: string; identity?: string }): void {
@@ -207,7 +201,12 @@ export class DurableSession {
     if (this.options.promptProvider) this.promptText = await this.options.promptProvider();
     await this.conversation.configure(this.agentChange(), BACKGROUND_CONTEXT);
     const before = await this.usage(BACKGROUND_CONTEXT);
-    this.promptWatch = stream;
+    // 检视处置（PR #1783 严亟 1）：事件单一源在 watch→sink 路径——派生事件先上 session 事件总线
+    // （熔断器/看门狗/编排守卫/outputGuard 经 subscribe 消费），再分发到调用方 stream；
+    // sink 同时是派生状态（lastMessage/lastUsage）真相源，promptWatch 指向 sink。
+    // 不依赖 factory 层包装：任何直接调 prompt 的路径（含测试）守卫均在场。
+    const sink = new DurableEventStream(event => { this.emit(event); stream.dispatch(event); });
+    this.promptWatch = sink;
     this.watcher ??= await this.conversation.watch(BACKGROUND_CONTEXT, { min: 100, max: 200 });
     this.watcher.start(async (call: { kind: string; value?: ConversationView; ops?: readonly unknown[] }) => {
       if (call.kind === "value" && call.value) {
@@ -216,17 +215,17 @@ export class DurableSession {
         const newest = Math.max(0, ...ids);
         if (before !== undefined && (call.value.before === undefined || Number(call.value.before) < before)) {
           const missed = await this.conversation.entries({ minEntryId: (before + 1) as EntryId, order: "ascending" }, 1000, undefined, BACKGROUND_CONTEXT);
-          await stream.apply({ ...call.value, entries: missed.items }, []);
+          await sink.apply({ ...call.value, entries: missed.items }, []);
         }
         this.lastWatchedEntry = Math.max(before ?? 0, newest);
-        await stream.apply(call.value, call.ops);
+        await sink.apply(call.value, call.ops);
       }
     });
     this._state = "running";
     const submission = await this.conversation.submit({ type: "input", content: this.promptInput(text, options) as never, whenBusy: "reject" }, context);
     const settled = await submission.wait(context);
     this._state = "idle";
-    await stream.apply(this.watcher.value, []);
+    await sink.apply(this.watcher.value, []);
     const after = await this.usage(BACKGROUND_CONTEXT);
     this.invocationTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     for (const bucket of ["models", "tools"] as const) for (const [key, usage] of Object.entries(after?.[bucket] ?? {})) {
@@ -248,7 +247,7 @@ export class DurableSession {
     return { content: [{ type: "text", text }, ...options.images] };
   }
 
-  async steer(text: string, context: Context): Promise<void> {
+  async steer(text: string, context: Context = BACKGROUND_CONTEXT): Promise<void> {
     await this.conversation.submit({ type: "input", content: text, whenBusy: "steer" }, context);
   }
 

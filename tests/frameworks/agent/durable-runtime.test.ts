@@ -173,7 +173,9 @@ describe("durable-native runtime", () => {
       throw new Error(`durable store did not recover after process death: lock=${lock ? lock.mtime.toISOString() : "none"}`);
     }
     const calls = await (await import("node:fs/promises")).readFile(`${file}.calls`, "utf8");
-    expect(calls.trim().split("\\n")).toHaveLength(1);
+    // 检视处置（PR #1783 严亟 2）：原 split("\\n")（字面反斜杠+n）对 1/2 次执行均返回长度 1，
+    // 断言零判别力——改为按非空行计数，若 unsafe 工具真被重放则必红。
+    expect(calls.split("\n").filter(line => line.trim().length > 0)).toHaveLength(1);
     expect((await reopened.session.rawContext(BACKGROUND_CONTEXT)).entries.length).toBeGreaterThan(0);
     await reopened.session.close(BACKGROUND_CONTEXT);
   });
@@ -183,6 +185,36 @@ describe("durable-native runtime", () => {
     const { session } = await open(path.join(dir, "session.sqlite"), [fauxAssistantMessage("x")]);
     session.updateOptions({ currentInvokeId: undefined });
     await expect(session.prompt("no owner", undefined, new DurableEventStream(), BACKGROUND_CONTEXT)).rejects.toThrow(/currentInvokeId/);
+    await session.close(BACKGROUND_CONTEXT);
+  });
+
+  it("restores the tool-execution watchdog: maxPerEventTimeMs aborts a hung tool (PR #1783 严亟 1 回归)", { timeout: 20_000 }, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-watchdog-"));
+    let cancelled = false;
+    const { session } = await open(path.join(dir, "session.sqlite"), [
+      fauxAssistantMessage(fauxToolCall("side_effect", {}, { id: "hang-call" }), { stopReason: "toolUse" }),
+    ], async (_id, _args, signal) => {
+      // 挂起但可被取消（真实工具形态：await IO，abort 即退）；永不 resolve 且不听 signal 的
+      // promise 在任何 JS runtime 都不可强杀（旧 SDK 同理），不足看门狗契约面。
+      await new Promise<void>(resolve => { signal?.addEventListener("abort", () => { cancelled = true; resolve(); }, { once: true }); });
+      return { content: [{ type: "text" as const, text: "cancelled" }], details: {} };
+    });
+    const events: Array<{ type?: string }> = [];
+    const stream = new DurableEventStream(event => events.push(event));
+    const { attachCircuitBreaker } = await import("../../../src/frameworks/agent/circuit-breaker-helpers");
+    const activeEntry = { abort: async () => { await session.abort(BACKGROUND_CONTEXT); }, toolCallCount: 0, guardAbortReason: undefined as string | undefined };
+    attachCircuitBreaker(
+      { subscribe: (fn: (e: unknown) => void) => session.subscribe(fn), abort: () => session.abort(BACKGROUND_CONTEXT) },
+      "otter",
+      { maxConsecutiveIdentical: 99, maxRepeatAfterWarning: 99, maxPerEventTimeMs: 300, slidingWindowSize: 99, slidingWindowRepeat: 99 },
+      logger,
+      { abortOverride: reason => { activeEntry.guardAbortReason = reason; void activeEntry.abort(); } },
+    );
+    // 若看门狗断裂（事件链死/计时器未起），prompt 将永久挂起 → 本测试超时红。
+    await expect(session.prompt("hang it", undefined, stream, BACKGROUND_CONTEXT)).rejects.toThrow();
+    expect(cancelled).toBe(true);
+    expect(events.map(e => e.type)).toContain("tool_execution_start");
+    expect(activeEntry.guardAbortReason).toBe("circuit_break:event_timeout");
     await session.close(BACKGROUND_CONTEXT);
   });
 });

@@ -940,9 +940,9 @@ export class PiSessionFactory implements AgentGateway {
     const stored = this.sessionStore.getWithFile(otterId);
     if (!stored || !this.cfg.otterConfigProvider.getConfig(otterId)) throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
     const sessionFile = stored.sessionFile;
-    const createdNew = !fs.existsSync(sessionFile);
-    if (stored.sessionFile !== sessionFile) this.registerDurableSession(otterId, sessionFile);
-    return { createdNew };
+    // 检视处置（PR #1783 建议 2）：原恒假分支（sessionFile 取自 stored.sessionFile 后再比对自身）
+    // 已删——registerDurableSession 在 create() 时已写，恢复路径无需重注册。
+    return { createdNew: !fs.existsSync(sessionFile) };
   }
 
   /** 获取 otter 的模型别名（用于日志） */
@@ -1073,7 +1073,6 @@ export class PiSessionFactory implements AgentGateway {
         //    F20261030gblkv（guard-v4）：bash 守卫已迁 tool_call 门（model-runtime-registry
         //    bashGuardGate 直读 store 的 guard* 参数），不再经本链传参。
         const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), loopBlockedTools });
-        session.configureGuards({ breaker: circuitBreaker, onToolAbort: reason => { if (activeEntry) activeEntry.guardAbortReason = reason; void activeEntry?.abort(); } });
 
         // 3. 构建用户消息（dynamicContext 仍拼在 user message；system prompt 由 extension handler 注入 system role）
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);
@@ -1092,7 +1091,6 @@ export class PiSessionFactory implements AgentGateway {
           baseHandler(event as never);
         };
         const durableStream = new DurableEventStream(wrappedHandler);
-        const unsubscribeGuards = session.subscribe((event: unknown) => { void durableStream.event(event as never); });
         try {
           /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
           armFirstByte();
@@ -1141,7 +1139,7 @@ export class PiSessionFactory implements AgentGateway {
           e._tokenUsageDelta = session.tokenUsage;
           throw err;
         } finally {
-          unsubscribeGuards(); unregisterToolCall?.(); cleanupOutputGuard();
+          unregisterToolCall?.(); cleanupOutputGuard();
           // F20261009epoc（裸露面收口）：finally delete 只在「条目 epoch === 本 invoke
           // epoch」（对象引用相等）时执行——stale steal 后旧 invoke 苏醒不再删掉新 invoke
           // 的条目（原无条件 delete 是方案识别的第 5 处裸露面，比防御点 1-3 更危险）。
@@ -1325,7 +1323,7 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** 创建带工具配置的 AgentSession（F20260911pspl：invoke 级字段走寄存器，不再按 invoke 新建） */
-  // eslint-disable-next-line max-params, complexity, max-statements, max-lines-per-function -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线（覆写本体在 tool-description-overrides.ts，此处仅组装）；F20261008tecn exposure 接线（manifest 读取 + 激活集重建，机制注释见 _activateDeferredToolSearch）
+  // eslint-disable-next-line complexity -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线（覆写本体在 tool-description-overrides.ts，此处仅组装）；F20261008tecn exposure 接线（manifest 读取 + 激活集重建，机制注释见 _activateDeferredToolSearch）
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, register: InvokeRegister, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
     const otterToolNames = this.buildOtterToolWhitelist(otterType);

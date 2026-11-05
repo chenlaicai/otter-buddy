@@ -29,6 +29,10 @@ export class DurableEventStream {
     await Promise.resolve();
   }
 
+  /** 检视处置（PR #1783 严亟 1）：对外分发钩子——DurableSession 经此把派生事件同时喂给
+   *  session 事件总线（guards）与下游消费者，保持单一事件源（watch→stream 路径）。 */
+  dispatch(event: AgentEvent): void { this.emit(event); }
+
   private applyPartialOps(ops: readonly unknown[]): void {
     for (const raw of ops) {
       if (!Array.isArray(raw) || raw.length < 2) continue;
