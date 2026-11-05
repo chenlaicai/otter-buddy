@@ -55,7 +55,7 @@ capability_test: "n/a: A 类工具签名与真 sqlite 状态机逻辑，由 buil
 - [x] r1 处置后相关 6 文件 108 用例通过：不同产物归档放行，同产物同状态重试第 6 次仍 steer；单条 dismiss/batch_bind 回归通过。
 - [x] 真 sqlite 覆盖：issue 族精确边界、dryRun 零写入、note/范围校验、100 上限与续批、不同 note 分批、终态字段、他族/已终态不受影响。
 - [x] `npx tsc --noEmit`、`npm run lint:prompt-size`、`git diff --check` 通过。
-- [x] `npm run lint`、431 文件 5679 用例全量测试、`npm run build`、docs/capability/tests/intent/tool-manifest/prompt-size 专项闸通过；新增 2 边界用例后最终全量通过，CI 见 PR。
+- [x] `npm run lint`、431 文件 5679 用例全量测试、`npm run build`、docs/capability/tests/intent/tool-manifest/prompt-size 专项闸通过；r1 净增 1 条 re-open 用例（5678→5679），最终全量通过，CI 见 PR。
 - [ ] 异体 PR 对抗审视：待 PR 后执行。
 
 ## 影响与回滚
