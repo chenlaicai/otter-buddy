@@ -84,12 +84,20 @@ export const UNKNOWN_RULE: GuardRuleClass = { ruleId: "unknown", layer: "self_ki
 
 /**
  * 现行活跃规则清单（F20261102grfix C 历史归因封存）：FINGERPRINTS 表内 ruleId +
- * file-tool-guard 结构化前缀族。消费侧（月度剪枝/自愈聚合）以此区分「活跃规则」与
- * 「历史归因封存账」（表外 ruleId，如 v3 退役的 self_kill_indirect/script_stop）——
- * 历史数据原样保留但不进候选、不再反复呈报。增删规则时与 monthly-prune-review.md
+ * file-tool-guard 结构化前缀族，减去 RETIRED_RULE_IDS。消费侧（月度剪枝/自愈聚合）
+ * 以此区分「活跃规则」与「历史归因封存账」（表外或已退役 ruleId，如 v3 退役的
+ * self_kill_indirect/script_stop、政策 A 退役的 self_kill_nonliteral）——历史数据
+ * 原样保留但不进候选、不再反复呈报。增删规则时与 monthly-prune-review.md
  * 口径同步（同 PR，维护契约；机械同步由 guard-intercept-classify.test 一致性用例钉住）。
  */
-export const ACTIVE_RULE_IDS: ReadonlySet<string> = new Set(FINGERPRINTS.map(f => f.cls.ruleId));
+/** F20261105killa 政策 A 退役清单：拦截本体已删（文案无现存发射点），但指纹保留供
+ *  历史事件回溯分类（存量 healing 37+ 条）。按 sleep_block 先例：指纹在表、ID 退役、
+ *  isHistoricalAttribution=true（月度剪枝不再当活跃规则呈报）。 */
+const RETIRED_RULE_IDS: ReadonlySet<string> = new Set(["self_kill_nonliteral"]);
+
+export const ACTIVE_RULE_IDS: ReadonlySet<string> = new Set(
+  FINGERPRINTS.map(f => f.cls.ruleId).filter(id => !RETIRED_RULE_IDS.has(id)),
+);
 
 /** 是否历史归因封存账（不在现行活跃规则清单）。
  *  注意三分：file-tool-guard 前缀族与 unknown 都不是封存账——前者是活跃规则，

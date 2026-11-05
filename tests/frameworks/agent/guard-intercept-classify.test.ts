@@ -53,8 +53,14 @@ describe("classifyGuardInterceptReason · 真实文案回归（探针 = guard-v4
     expectClass("ki" + "ll -9 $(cat .otter-buddy.pid)", "self_kill_main");
   });
 
-  it("self_kill_nonliteral：kill 变量目标", () => {
-    expectClass("ki" + "ll $PID", "self_kill_nonliteral");
+  it("self_kill_nonliteral：已退役（F20261105killa 政策 A）——非字面量不再拦，ruleId 归因链仅存回溯兑底用途", () => {
+    // 政策 A：非字面量目标确认不了≠拦，self_kill_nonliteral 拦截已退役（无现存产生该文案的命令形态）。
+    // 归因链不刪：存量 healing 台账（10 月及其前 37+ 条 self_kill_nonliteral）回溯兑底仍需 classify 可分类。
+    // 用历史原文案直接断言 classify 兑底路径（不再需要真实探针——探针形态已放行）：
+    const cls = classifyGuardInterceptReason(
+      "bash 守卫拦截（近 6h 第 1 次）：kill 目标为变量/命令替换（非字面量 PID），无法静态确认是否主进程——该命令不允许。",
+    );
+    expect(cls).toMatchObject({ ruleId: "self_kill_nonliteral" });
   });
 
   it("self_kill_byname：pkill 特征名匹配", () => {
@@ -169,7 +175,7 @@ describe("F20261102grfix · 双清单机械同步与封存边界", () => {
   it("ACTIVE_RULE_IDS 与 monthly-prune-review.md 手写清单机械一致（双清单同步，检视发现 7）", () => {
     // G1 病灶（两处拷贝靠人肉同步）的同构复发面——用测试钉死：改任一侧清单不同步即红
     const prompt = readFileSync(join(process.cwd(), "prompts/scheduled/monthly-prune-review.md"), "utf8");
-    const m = prompt.match(/（结构化前缀族）\+ ([^（]+)（guard-v4 八条）/);
+    const m = prompt.match(/（结构化前缀族）\+ ([^（]+)（guard-v4 [^）]*）/);
     expect(m, "monthly-prune-review.md 口径段清单格式变了——同步更新本测试与 ACTIVE_RULE_IDS").toBeTruthy();
     const ids = new Set(m![1].split("/").map(s => s.trim()).filter(Boolean));
     ids.add("file-tool-guard"); // 结构化前缀族代表 id（FINGERPRINTS 表内首条）
@@ -182,5 +188,8 @@ describe("F20261102grfix · 双清单机械同步与封存边界", () => {
     expect(isHistoricalAttribution("self_kill_main")).toBe(false); // 现行活跃
     expect(isHistoricalAttribution("self_kill_indirect")).toBe(true); // v3 退役历史归因→封存
     expect(isHistoricalAttribution("main_write")).toBe(true);
+    // F20261105killa 检视 S2：政策 A 退役的 self_kill_nonliteral——指纹在表（可分类）但 ID 退役（封存账）
+    expect(isHistoricalAttribution("self_kill_nonliteral")).toBe(true);
+    expect(ACTIVE_RULE_IDS.has("self_kill_nonliteral")).toBe(false);
   });
 });
