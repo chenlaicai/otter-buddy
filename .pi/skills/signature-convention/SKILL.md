@@ -35,9 +35,10 @@ category: reference
 
 2. **按位置署名**（`[海獭名号]` 为占位符，整体替换为实际名号——禁止保留原样或写成 `[海獭名号: xxx]` 填空格式）：
 
-   1. **Commit author**：用 `--author` 参数指定，格式 `名号 <otter-buddy>`
-      - 大獭：`git commit --author="大獭 <otter-buddy>"`
-      - 开发獭：按召唤时的 name 署名，例如 `开发獭-需求名 <otter-buddy>`（连字符是名号的一部分，非邮箱格式）
+   1. **Commit author**：用 `--author` 参数指定，格式 `名号 <41982931+chenlaicai@users.noreply.github.com>`
+      - 大獭：`git commit --author="大獭 <41982931+chenlaicai@users.noreply.github.com>"`
+      - 开发獭：按召唤时的 name 署名，例如 `开发獭-需求名 <41982931+chenlaicai@users.noreply.github.com>`（连字符是名号的一部分，非邮箱格式）
+      - 设计说明（2026-11-05 搭档裁决）：GitHub 的头像点亮/账号归属/贡献图只认邮箱；獭的身份标识靠名号字段（大獭/开发獭-xx）已足够。邮箱统一挂搭档账号的 noreply 地址：全仓一种邮箱、头像全点亮、贡献归属一致，人/獭区分靠名字维度。旧格式 `名号 <otter-buddy>`（不关联账号的裸标签）已废弃。
 
    2. **PR description 末尾署名行**：
 

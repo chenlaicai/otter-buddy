@@ -228,6 +228,33 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
     expect(userMsgCount, "session 中应有至少两轮用户消息").toBeGreaterThanOrEqual(2);
   }, 600_000);
 
+  it("身份段携带 commit author 新格式（F20261105sgemu）：模型只能从 system 身份段获得 noreply 邮箱（2 次采样 ≥1）", async (t) => {
+    if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
+
+    /** 行为断言面（同断言面 A 的鉴别逻辑）：提问刻意不含任何邮箱 token——
+     *  动态上下文（名册/对话历史/工作区）不泄漏 commit author 格式串，
+     *  模型答出 noreply 地址只能来自 system role 身份段的注入行
+     *  （identity-builder.ts:102 是唯一供给源，本 PR 把它从裸标签 otter-buddy
+     *  换成 chenlaicai 的 noreply 地址）。断言向量从强到弱：完整地址 > 去前缀
+     *  地址 > 域名子串（域名子串已具鉴别力：对话面不出现 noreply.github.com）。 */
+    const AUTHOR_TOKENS = [
+      "41982931+chenlaicai@users.noreply.github.com",
+      "chenlaicai@users.noreply.github.com",
+      "noreply.github.com",
+    ];
+
+    await expectSampledBehavior("identity-commit-author-format", 2, 1, async (i) => {
+      const convId = await createConversation(ctx, `author 格式采样${i + 1}`);
+      await sendUserMessage(ctx, convId, "你提交代码时 commit 的 author 参数会写成什么？原样给我那一行。");
+      const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
+      const hit = AUTHOR_TOKENS.find((tok) => answer.content.includes(tok));
+      return {
+        ok: Boolean(hit),
+        detail: `hit=${hit ?? "none"} content="${answer.content.slice(0, 150)}"`,
+      };
+    }, { budgetMs: 520_000, sampleWorstMs: 240_000 });
+  }, 600_000);
+
   it("speak 协议合规：3 次采样 ≥1 次合规（统计断言，F20260805mspk）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
