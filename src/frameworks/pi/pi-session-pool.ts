@@ -17,7 +17,11 @@
  * 并发说明：Node 单进程内使用；acquire 的 async factory 期间同一 key 的并发 acquire
  * 由 inflight Map 去重（同 key 共享同一个拉起 Promise），防双对象挂同一 jsonl。
  */
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+export interface PoolSession {
+  readonly isStreaming: boolean;
+  dispose(): void;
+}
+type AgentSession = PoolSession;
 
 export interface PiSessionPoolOptions {
   /** idle 超过该时长即驱逐（默认 10min） */

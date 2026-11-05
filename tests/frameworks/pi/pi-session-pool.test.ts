@@ -9,7 +9,7 @@
  * lint 禁止的是 mock API 断言（toHaveBeenCalledWith 等绑定实现细节的写法）。
  */
 import { describe, it, expect } from "vitest";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { PoolSession as AgentSession } from "@frameworks/pi/pi-session-pool";
 import { PiSessionPool } from "@frameworks/pi/pi-session-pool";
 
 /** 最小 AgentSession mock：池只触碰 isStreaming 与 dispose。

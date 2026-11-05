@@ -8,6 +8,7 @@
  */
 
 import type { AppConfig, ModelConfig } from "@frameworks/config";
+import { registerModelSource } from "@frameworks/agent/durable-model-runtime";
 import type { Model, Api, Provider } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
 import type { ModelPool } from "./model-pool";
@@ -266,6 +267,7 @@ export async function initModels(
   const models = piAi.createModels();
 
   const result = await initModelPool(piAi, models, modelConfig, logger);
+  registerModelSource(result.modelPool, models);
 
   return { models, ...result };
 }

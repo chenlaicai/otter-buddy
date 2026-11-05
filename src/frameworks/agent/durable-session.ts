@@ -1,0 +1,309 @@
+import path from "node:path";
+import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
+import type { WatchHandle } from "@earendil-works/chord";
+import type { EntryId } from "@earendil-works/pi-durable";
+import {
+  Harness, LiveDoc, ToolTask, UsageDoc, createRegistry,
+  defineExtension, hook, section, type AgentChange, type Conversation, type ConversationView,
+  type Registry, type ToolRegistration,
+} from "@earendil-works/pi-durable";
+import { createCodingTools } from "@earendil-works/pi-durable/tools";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+import type { Api, Model, Models } from "@earendil-works/pi-ai";
+import type { Logger } from "@usecases/ports/logger";
+import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { bashGuardGate, haltToolCallGuard, loopBlockGuard, otterInvokeStorage } from "./model-runtime-registry";
+import { toDurableTool } from "./durable-tool-registry";
+import type { DurableEventStream } from "./durable-event-stream";
+import { contextTokensFromUsage } from "./durable-event-stream";
+import { DurableToolSearch } from "./durable-tool-search";
+import type { InvokeRegister } from "./tool-builder";
+import type { TokenUsage } from "@usecases/conversation/token-usage";
+import type { ToolCallCircuitBreaker } from "./tool-call-circuit-breaker";
+
+export interface DurablePromptOptions { images?: Array<{ type: "image"; data: string; mimeType: string }> }
+export type DurableSessionState = "running" | "idle" | "failed" | "closed";
+
+export interface DurableToolBundle {
+  customTools: Parameters<typeof toDurableTool>[0][];
+  codingTools: string[];
+  readOnly?: boolean;
+  toolExposure?: Record<string, "direct" | "deferred">;
+}
+
+export interface DurableSessionOptions {
+  otterId: string;
+  file: string;
+  models: Models;
+  model: Model<Api>;
+  thinkingLevel?: string;
+  prompt?: string;
+  identity?: string;
+  cwd: string;
+  tools: DurableToolBundle;
+  logger: Logger;
+  register: InvokeRegister;
+  invokeId?: string;
+  context: Context;
+  ownerStaleMs?: number;
+  promptProvider?: () => string | Promise<string>;
+  mcp?: { registrations(signal?: AbortSignal): Promise<ToolRegistration[]>; instructions(): string; close(): Promise<void> };
+  haltRegistry?: { takeForBlock(otterId: string): any[]; isHalted(otterId: string): boolean };
+  haltSignal?: { addHook(otterId: string, hook: () => void): void };
+  onHaltFirstBlock?: (directive: unknown) => void;
+  breaker?: ToolCallCircuitBreaker;
+  onToolAbort?: (reason: string) => void;
+}
+
+/** One per-otter store/writer. Never share a conversation across otters. */
+export class DurableSession {
+  private harness!: Harness;
+  private conversation!: Conversation;
+  private watcher?: WatchHandle<ConversationView>;
+  private _state: DurableSessionState = "idle";
+  private closeRequested = false;
+  private promptWatch?: DurableEventStream;
+  private lastWatchedEntry?: number;
+  private invocationTokens: TokenUsage = { input: 0, output: 0 };
+  private totalTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  readonly model: Model<Api>;
+  readonly contextWindow?: number;
+  private readonly registry: Registry;
+  private readonly codingTools = createCodingTools();
+  private readonly deferredTools: string[];
+  private readonly otterExtension: ReturnType<typeof defineExtension>;
+  private currentInvokeId?: string;
+  private hasBoundInvoke = false;
+  private ownerRelease?: () => void;
+  private ownerHeartbeat?: ReturnType<typeof setInterval>;
+  private promptText: string;
+  private extraTools: ToolRegistration[] = [];
+
+  private constructor(private readonly options: DurableSessionOptions) {
+    this.model = options.model;
+    this.currentInvokeId = options.invokeId;
+    this.hasBoundInvoke = options.invokeId !== undefined;
+    this.promptText = options.prompt ?? "";
+    this.contextWindow = options.model.contextWindow;
+    this.deferredTools = options.tools.customTools.filter(t => options.tools.toolExposure?.[t.name] === "deferred").map(t => t.name);
+    this.otterExtension = defineExtension({
+      name: "otter",
+      sections: [section("otter", () => [this.promptText, this.options.identity, this.options.mcp?.instructions()].filter(Boolean).join("\n\n"), { tag: false })],
+      tools: this.toolRegistrations().map(tool => options.tools.toolExposure?.[tool.name] === "deferred" ? { ...tool, deferred: true as const } : tool),
+      hooks: [hook(ToolTask, { beforeTool: (call) => this.beforeTool(call) })],
+    });
+    this.registry = createRegistry();
+    this.registry.install(createCodingTools());
+    this.registry.install(this.otterExtension);
+  }
+
+  static async open(options: DurableSessionOptions): Promise<DurableSession> {
+    const session = new DurableSession(options);
+    await session.acquireOwner();
+    const storage = await openNodeSqliteStorage(options.file);
+    session.harness = await Harness.open(storage, {
+      models: options.models,
+      registry: session.registry,
+      env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? options.cwd }),
+      settings: {
+        retry: { enabled: true, maxRetries: 4, baseDelayMs: 1000, maxAgentDelayMs: 30000 },
+        stream: { timeoutMs: 600000, maxRetries: 0 },
+        compaction: options.model.contextWindow ? {
+          enabled: true,
+          reserveTokens: Math.min(16384, Math.floor(options.model.contextWindow * 0.1)),
+          keepRecentTokens: Math.min(20000, Math.floor(options.model.contextWindow * 0.2)),
+          backgroundTokens: 0,
+        } : { enabled: false },
+      },
+    }, options.context);
+    if (options.mcp) {
+      const tools = await options.mcp.registrations();
+      session.extraTools = tools;
+      session.registry.install(defineExtension({ name: "mcp-native", tools }));
+    }
+    session.conversation = await session.harness.root(options.context, { agent: session.agentChange() });
+    await session.conversation.configure(session.agentChange(), options.context);
+    await session.recoverAfterReopen();
+    return session;
+  }
+
+  private async acquireOwner(): Promise<void> {
+    const { default: lockfile } = await import("proper-lockfile");
+    const fs = await import("node:fs");
+    await fs.promises.mkdir(path.dirname(this.options.file), { recursive: true });
+    this.ownerRelease = await lockfile.lock(this.options.file, { realpath: false, retries: 0, stale: this.options.ownerStaleMs ?? 60_000, update: 5_000 });
+    this.ownerHeartbeat = setInterval(() => undefined, 30_000);
+  }
+
+  private agentChange(): AgentChange {
+    return {
+      model: { provider: this.options.model.provider, modelId: this.options.model.id },
+      ...(this.options.thinkingLevel ? { thinkingLevel: this.options.thinkingLevel as never } : {}),
+      extensions: { add: [this.codingTools, this.otterExtension, ...(this.options.mcp ? [defineExtension({ name: "mcp-native", tools: this.extraTools })] : [])] },
+      tools: [
+        ...(this.codingTools.tools ?? []).filter(tool => this.options.tools.codingTools.includes(tool.name)),
+        ...this.toolRegistrations().filter(tool => this.options.tools.toolExposure?.[tool.name] !== "deferred"),
+        ...this.extraTools.filter(tool => !tool.deferred),
+      ],
+      modelTools: { add: [...this.toolRegistrations(), ...this.extraTools] },
+      cwd: this.options.cwd,
+    };
+  }
+
+  private toolRegistrations(): ToolRegistration[] {
+    const tools = this.options.tools.customTools.map(toDurableTool);
+    if (this.deferredTools.length > 0 && !this.options.tools.readOnly) {
+      tools.push(new DurableToolSearch(this.options.tools.customTools, this.options.logger).registration());
+    }
+    return tools;
+  }
+
+  // Durable tool admission must retain all otter guards and ownership checks.
+  // eslint-disable-next-line complexity
+  private async beforeTool(call: { name: string; arguments: Record<string, unknown>; id: string }): Promise<{ block: string } | undefined> {
+    const ctx = otterInvokeStorage.getStore();
+    if (!this.currentInvokeId) return { block: "Durable tool execution requires currentInvokeId; refusing side effect." };
+    const halt = haltToolCallGuard(ctx, this.options.haltRegistry as never, call.name);
+    const guard = await halt ?? loopBlockGuard(ctx, call.name, call.arguments) ?? bashGuardGate(ctx, call.name, call.arguments);
+    if (guard) return { block: guard.reason };
+    if (call.name !== "speak" && call.name !== "yield") {
+      const result = this.options.breaker?.check(call.name, call.arguments);
+      if (result?.action === "terminate") {
+        this.options.onToolAbort?.(result.reason ?? "tool-loop-breaker");
+        return { block: result.reason ?? "tool-loop-breaker" };
+      }
+      if (result?.action === "steer") {
+        this.options.onToolAbort?.(result.reason ?? "tool-loop-breaker");
+        await this.conversation.abort(BACKGROUND_CONTEXT).catch(() => undefined);
+        await this.steer(result.reason ?? "Repeated tool call; change strategy.", BACKGROUND_CONTEXT);
+      }
+    }
+    return undefined;
+  }
+
+  emit(event: unknown): void { this.onSessionEvent?.(event); }
+  getSessionStats(): { tokens: TokenUsage } { return { tokens: this.totalTokens }; }
+  subscribe(listener: (event: unknown) => void): () => void { this.onSessionEvent = listener; return () => { this.onSessionEvent = undefined; }; }
+  private onSessionEvent?: (event: unknown) => void;
+  configureGuards(guards: { breaker?: ToolCallCircuitBreaker; onToolAbort?: (reason: string) => void }): void {
+    this.options.breaker = guards.breaker;
+    this.options.onToolAbort = guards.onToolAbort;
+  }
+
+  updateOptions(next: { currentInvokeId?: string; prompt?: string; identity?: string }): void {
+    this.currentInvokeId = next.currentInvokeId;
+    this.hasBoundInvoke = true;
+    if (next.prompt !== undefined) this.promptText = next.prompt;
+    this.options.identity = next.identity;
+  }
+
+  // A turn owns watch, admission, settlement and usage accounting as one boundary.
+  // eslint-disable-next-line complexity, max-statements
+  async prompt(text: string, options: DurablePromptOptions | undefined, stream: DurableEventStream, context: Context): Promise<void> {
+    const scope = otterInvokeStorage.getStore();
+    const invokeId = this.hasBoundInvoke ? this.currentInvokeId : ((scope as { currentInvokeId?: string } | undefined)?.currentInvokeId ?? this.options.invokeId ?? this.options.register.currentInvokeId);
+    if (!invokeId) throw new Error("Durable prompt requires currentInvokeId");
+    this.currentInvokeId = invokeId;
+    if (this.options.promptProvider) this.promptText = await this.options.promptProvider();
+    await this.conversation.configure(this.agentChange(), BACKGROUND_CONTEXT);
+    const before = await this.usage(BACKGROUND_CONTEXT);
+    this.promptWatch = stream;
+    this.watcher ??= await this.conversation.watch(BACKGROUND_CONTEXT, { min: 100, max: 200 });
+    this.watcher.start(async (call: { kind: string; value?: ConversationView; ops?: readonly unknown[] }) => {
+      if (call.kind === "value" && call.value) {
+        const before = this.lastWatchedEntry;
+        const ids = call.value.entries.map(entry => Number(entry.id));
+        const newest = Math.max(0, ...ids);
+        if (before !== undefined && (call.value.before === undefined || Number(call.value.before) < before)) {
+          const missed = await this.conversation.entries({ minEntryId: (before + 1) as EntryId, order: "ascending" }, 1000, undefined, BACKGROUND_CONTEXT);
+          await stream.apply({ ...call.value, entries: missed.items }, []);
+        }
+        this.lastWatchedEntry = Math.max(before ?? 0, newest);
+        await stream.apply(call.value, call.ops);
+      }
+    });
+    this._state = "running";
+    const submission = await this.conversation.submit({ type: "input", content: this.promptInput(text, options) as never, whenBusy: "reject" }, context);
+    const settled = await submission.wait(context);
+    this._state = "idle";
+    await stream.apply(this.watcher.value, []);
+    const after = await this.usage(BACKGROUND_CONTEXT);
+    this.invocationTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    for (const bucket of ["models", "tools"] as const) for (const [key, usage] of Object.entries(after?.[bucket] ?? {})) {
+      const previous = before?.[bucket]?.[key];
+      this.invocationTokens.input += usage.input - (previous?.input ?? 0);
+      this.invocationTokens.output += usage.output - (previous?.output ?? 0);
+      this.invocationTokens.cacheRead! += (usage.cacheRead ?? 0) - (previous?.cacheRead ?? 0);
+      this.invocationTokens.cacheWrite! += (usage.cacheWrite ?? 0) - (previous?.cacheWrite ?? 0);
+      this.totalTokens.input += usage.input - (previous?.input ?? 0);
+      this.totalTokens.output += usage.output - (previous?.output ?? 0);
+      this.totalTokens.cacheRead += (usage.cacheRead ?? 0) - (previous?.cacheRead ?? 0);
+      this.totalTokens.cacheWrite += (usage.cacheWrite ?? 0) - (previous?.cacheWrite ?? 0);
+    }
+    if (settled.status === "unanswered") throw new Error(`Durable turn unanswered: ${settled.reason}${settled.detail ? ` (${JSON.stringify(settled.detail)})` : ""}`);
+  }
+
+  private promptInput(text: string, options?: DurablePromptOptions): string | { content: Array<Record<string, unknown>> } {
+    if (!options?.images?.length) return text;
+    return { content: [{ type: "text", text }, ...options.images] };
+  }
+
+  async steer(text: string, context: Context): Promise<void> {
+    await this.conversation.submit({ type: "input", content: text, whenBusy: "steer" }, context);
+  }
+
+  async followUp(text: string, context: Context): Promise<"queued"> {
+    await this.conversation.submit({ type: "input", content: text, whenBusy: "followUp" }, context);
+    return "queued";
+  }
+
+  async abort(context: Context = BACKGROUND_CONTEXT): Promise<void> {
+    this.closeRequested = false;
+    await this.conversation.abort(context);
+    this._state = "idle";
+  }
+
+  async compact(instructions?: string): Promise<void> {
+    const task = await this.conversation.compact(instructions, BACKGROUND_CONTEXT);
+    await this.harness.waitForTask(task, BACKGROUND_CONTEXT);
+  }
+
+  async recoverAfterReopen(): Promise<void> {
+    const pending = await this.harness.inspect(BACKGROUND_CONTEXT);
+    const active = pending.tasks.filter(item => item.record.state.status !== "terminal" && item.record.state.status !== "completing");
+    if (!active.length) return;
+    this.options.logger.warn("durable checkpoint has unfinished tasks; aborting before a new otter invoke", { otterId: this.options.otterId, tasks: active.map(item => item.record.id) });
+    await this.conversation.abort(BACKGROUND_CONTEXT, { background: true });
+    await this.conversation.waitForIdle(BACKGROUND_CONTEXT);
+  }
+
+  setCwd(cwd: string, context: Context): Promise<void> { return this.conversation.configure({ cwd }, context); }
+  dispose(): void { void this.close(BACKGROUND_CONTEXT).catch(error => this.options.logger.warn("durable dispose failed", { error: String(error) })); }
+  get isStreaming(): boolean { return this._state === "running"; }
+  get state(): DurableSessionState { return this._state; }
+  get lastMessage() { return this.promptWatch?.lastMessage; }
+  get turnText(): string { return this.promptWatch?.lastMessage?.content?.filter(b => b.type === "text").map(b => b.text as string).join("") ?? ""; }
+  get tokenUsage() { return this.invocationTokens; }
+  get lastStopReason(): string | undefined { return this.promptWatch?.lastMessage?.stopReason; }
+  get ctxTokens(): number | undefined {
+    const message = this.promptWatch?.lastMessage as { usage?: Parameters<typeof contextTokensFromUsage>[0] } | undefined;
+    return contextTokensFromUsage(message?.usage);
+  }
+  async usage(context: Context) { return await this.harness.snapshot(UsageDoc, this.conversation.id, context); }
+  async inspect(context: Context) { return this.harness.inspect(context); }
+  async live(context: Context) { return this.harness.commit(tx => tx.doc(LiveDoc, this.conversation.id), context); }
+  async rawContext(context: Context) { return this.conversation.context(context); }
+
+  async close(context: Context): Promise<void> {
+    if (this.closeRequested) return;
+    this.closeRequested = true;
+    if (this.isStreaming) await this.abort(context).catch(() => undefined);
+    await this.watcher?.stop();
+    await this.harness.close(context);
+    await this.options.mcp?.close();
+    this._state = "closed";
+    if (this.ownerHeartbeat) clearInterval(this.ownerHeartbeat);
+    await this.ownerRelease?.();
+    this.ownerRelease = undefined;
+  }
+}

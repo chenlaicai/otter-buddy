@@ -1,0 +1,103 @@
+---
+id: F20261105pidrx
+title: pi-coding-agent → pi-durable 1.5.0 原生 runtime 迁移
+change_type: refactor
+capability_test: "n/a: runtime 适配以真实 Harness/临时 SQLite 行为测试验证，非 prompt 能力变更"
+intent:
+  problem: "将 otter 推理与 session 持久化从 coding-agent 切换到 durable，同时保持单 owner 与工具安全边界"
+  expected_effect: "真实 Harness 能执行自定义工具并保存 checkpoint，进程中断后不重复执行 unsafe 工具"
+  verify_by:
+    type: behavior_check
+created_at: 2026-11-05
+created_in_conversation: b4e05359-7a17-4478-8774-162360569279
+causal_links:
+  - F20260716sq6e
+  - R20260810piab
+  - F20260912recr
+  - F20261009rsmo
+  - F20261014cwsp
+  - F20261029pcha
+summary: 以 pi-durable SQLite session、单 writer、unsafe custom tool 和模型策略替换 coding-agent 推理 runtime；保留 otter 对话/调度/审批领域，关闭旧 JSONL 重启恢复与双 owner。
+---
+
+# pi-durable 原生 runtime 迁移
+
+## 目标与决策
+
+2026-11-05 12:43 搭档 chen 原话：「我还是认为durable是趋势，所以咱们还是必须切换过去。但如你所言，这个动作很大，所以，你现在来，专门创建一个环境来做好这件事，但不要影响主目录、影响main分支」。
+
+本特性替换 `AgentGateway` 内部的 coding-agent 推理与 session 持久化，不是增加一个可回退到 coding-agent 的旁路。验证在独立 worktree、临时数据库与独立 alpha 实例中完成；不启动/停止生产服务，不修改生产数据库，不由实现者合入 PR。
+
+- 使用上游 **pi-durable/pi-ai 1.5.0** 的公开 Harness、Node SQLite storage、models、tools、watch 和 prompt/steer/abort API。
+- 对话事实、invoke/attempt、matters/signals/yield、track_work、审批门及 SSE 仍归 otter；durable 不获得这些领域的写入权。
+- otter 仍是同一獭同一 invoke 的 admission owner；durable 是该 invoke 内的 session owner。重启不启用 durable 自动恢复未完成模型轮，也不重放旧 invoke；新显式调度打开 durable checkpoint 后继续新轮。
+- 旧 JSONL 只用于已有重启换世的只读交接切片，不导入新 store、不继续写入。
+- ResourceLoader 只保留为现有 profile/skills/MCP 的读取来源；运行时 prompt 和工具由 durable registry/extension 接管。skills 注入与 tool_search 使用公开 schema/section，不加载旧 coding-agent extension。
+
+## 非目标
+
+- 不迁移独立平台/IM 的 coding-agent session，不更改对话/调度领域表。
+- 不引入 coding-agent 执行 fallback、并行写双份 session 或自动 durable crash replay。
+- 不承诺解决上游 memory tools、provider transport 或默认 extension 的独立缺陷。
+- 不把 mock 行为测试称作真实 provider 端到端验证。
+
+## 模块与公开接口
+
+| 模块 | 职责 |
+|---|---|
+| `frameworks/agent/durable-model-runtime.ts` | pi-ai `createModels`、模型唯一解析、retry/timeout/thinking；复用现有自定义 provider 注册事实源 |
+| `frameworks/agent/durable-tool-registry.ts` | OtterTool/invokeContext → durable `ToolRegistration`，统一 `replay:"unsafe"`、参数/输出错误映射 |
+| `frameworks/agent/durable-session.ts` | pool entry、registry、conversation/watch、消息与 token/compaction 适配、生命周期关闭 |
+| `frameworks/agent/durable-event-stream.ts` | 公开 watch parts → 现有 `AgentStreamEvent`，工具开始/结束先于副作用的可观测事件 |
+| `pi-session-factory.ts` | 保留 invokeContext、会话锁、epoch/breaker/bash/loop-block hooks；删除 coding-agent 建 session/绑定/内存镜像 |
+| `resume-interrupted-service.ts` | 显式只读 checkpoint 继承与防双跑；不依赖持久化 scheduler 重放旧模型轮 |
+
+核心持久化数据归属 durable：`data/durable-sessions/<otterId>.sqlite`（含 harness metadata、conversation、entries、tool tasks）。每个獭一个独立 storage/单 writer，不跨獭写 conversation；每条 invoke 的 `currentInvokeId` 通过 extension runner 的 request-scoped AsyncLocalStorage 与工具 entrypoint 绑定，拒绝缺失 ID 的写工具。
+
+## 机制识别与预算
+
+**机制识别**：涉及新持久化存储、新跨模块调用路径，且替换既有执行/恢复机制。分类为 `deletion`（`mechanism-addition` 的识别四问仍答，重对抗审视必需）。
+
+1. **禁止**：旧 JSONL invoke resume + durable 自动重放并存；缺 `currentInvokeId` 调用写工具；durable 写 otter 领域 DB；主目录/main/生产服务操作。
+2. **持久事实**：旧 otter invoke/conversation/recovery 事实不变；durable checkpoint 仅记录模型对话与工具 attempt。新事实能回答会话在哪个 checkpoint、tool 是否可重放、压缩阈值与模型 retry 配置。
+3. **解释方式**：watch/part 是流式输出，tool hook/工具错误/abort/entry usage 是接管信号；watch 只读，不能代替 dispatcher 的 yield/entry 持久化。
+4. **删除条件与验收**：无 coding-agent fallback、无双恢复、旧 JSONL 不被追加；公开 API 行为测试覆盖 custom tools、流式/tool event、abort/steer/followUp、retry/compaction、crash reopen 与 unsafe replay；build/test/lint 通过，真实 provider/实 crash 未跑则明确未验证。
+
+## 设计取舍与淘汰路线
+
+- **不保留 coding-agent 执行 fallback**：会形成双 owner、双 token/压缩与双恢复事实源；研究建议的保留线上路径已被本次搭档明确迁移决策覆盖，但 Experimental 风险仍由 PR 明示。
+- **不让 durable 恢复 scheduler 自动重放**：工具 replay 默认 unsafe，重启由 otter 显式交接；避免旧 invoke 新 invoke 同时调用 speak/外部副作用。真实 LLM request 的断点恢复因此保留为残余风险，不伪称已完全接管。
+- **不把旧 JSONL 导入新模型上下文**：公开 schema 不支持无损迁移完整 reasoning/tool/usage；已有换世切片保持只读。
+- **不直接移植 coding-agent extension**：改为 otter prompt 聚合与 durable section/tool search；MCP 读取器与既有重连策略保留，若尚无 durable MCP server bridge 则作为验收阻断而非静默删功能。
+- **不改生产 DB**：验证仅临时 SQLite、独立 dataDir、独立端口。
+
+## 保护接管检查表
+
+| 被替换物 | 原保护不变量（含反向/异常路径） | 消费者 | 新机制接管 |
+|---|---|---|---|
+| AgentSession prompt/subscribe | 完整 system prompt；流式文本和工具开始/结束；abort 与 settled 不混淆 | invoker、SSE、breaker、capability tests | durable sections + watch mapper；abort 等 conversation 状态；hook 在工具执行前检查 |
+| SessionManager JSONL | session 链、重启换世切片、in-memory prompt 镜像；不可跨獭打开写 | pool、slicer、profile token | durable SQLite 每獭 store；slicer 仅旧档案；新 prompt 由 checkpoint 持有 |
+| customTools + tool wrappers | 类型化 args、toolContext、安全器与审批工具；缺 invokeId 禁副作用 | dispatcher、tools、工作账本 | durable custom tool adapter，统一 unsafe，entrypoint scope 校验 |
+| compaction/usage | 阈值策略、剩余量、token delta、client identity | context/progress UI、退避 | durable AgentTurn usage/threshold + pi-ai `calculateContextTokens`；negative/compaction 单测 |
+| retry/abort/steer/followUp | 网络/超时与 provider 重试、取消、打断、排队、失败清理 | orchestrator、gateway、dispatcher | pi-ai retry policy + durable prompt/steer/followUp；失败仍由现有 orchestrator 分类 |
+| 重启恢复 | 单 invoke 单 owner；崩溃不重复副作用；checkpoint metadata 不丢 | resume service、otter locks、matters | 显式 recovery + 持久 checkpoint；禁旧自动 replay；跨进程 admission lock 验收待测 |
+| bash/loop-block/guard | 工具调用前拦截；外部调用与循环块取消即时 | guards、healing 台账 | durable beforeTool hook，直接复用现有 hook 检查；映射 block/tool_error |
+| skills/extensions/MCP | profile 可见；system prompt/skills 注入；工具发现；MCP 与故障策略 | query-otter-profile、prompt provider、tool_search | loader 只读；durable section+tool_search；MCP server bridge 不得静默省略 |
+
+## 验收 / 负向接管
+
+- 行为测试验证同 input 的流式顺序与 tool call id、工具执行结果、abort/steer/followUp、steering 中断及 compaction。
+- 重启测试：崩溃后 checkpoint 可读、工具副作用不重放；旧 JSONL mtime/内容不变；同獭 invoke 不双跑；新 turn 可打开 checkpoint。
+- 负向：缺 invokeId、guard block、tool throw、abort、provider retry、压缩失败/边界、storage 关闭与 reopen。
+- 外部能力：MCP bridge 若公开 API 不能承载，停止该点并报告 file:line 和已试清单，不宣称完成。
+- PR 附机器锚点与「未复验」分项；CI 修复后由独立检视獭对抗审视，实现者不自审通过。
+
+## 当前验证记录
+
+- 基线：`5300d8e0`；分支：`feat/pi-durable-runtime`；所有修改仅在专用 worktree。
+- 真实 Harness + 临时 SQLite：custom tool/watch、错误与 terminate、unsafe reopen 不重放、owner 竞争、abort、steer/followUp、MCP stdio、retry/compaction、缺 invokeId 拒绝副作用，共 10 条专项行为测试通过（含真实进程中断）。
+- 真实进程中断：子进程在工具内被 SIGKILL，锁过期后重开 checkpoint；工具副作用计数仍为 1，未重复执行。
+- 全量：`npm run lint`、`npm run build`、`npm test -- --reporter=dot`（432 files / 5681 tests）通过。
+- 未验证：真实外部 LLM provider、生产 alpha 实例、真实用户会话切换；MCP OAuth 自动登录与动态 extension 注册未验证，不能宣称全量兼容。
+- 恢复 owner：otter invoke/admission 仍负责领域恢复；durable reopen 对未完成任务显式 abort，不允许旧 invoke 与 durable 自动 replay 双跑。
+- 旧 JSONL：仅 `.jsonl` 档案可读作交接切片；新执行不写旧 JSONL，不导入新 durable store。
