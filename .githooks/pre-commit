@@ -27,6 +27,9 @@ npm run lint:tool-manifest
 node scripts/lint-historical-docs.mjs
 # prompt-anchor gate：注入面（prompt/skill/tool description）禁止 F 编号/issue 锚点
 node scripts/lint-prompt-anchors.mjs
+# #1755 / F20261104iprec: intent 块校验（lint-intent.mjs 头注释自证设计意图为 pre-commit 调用）
+# 依赖 dist（同 lint:docs 模式，上方 check 先行构建，恒新鲜）；存量 warnings 不阻断，只拦 error
+npm run lint:intent
 # #1173 / F20260929dbmb: 时间炸弹静态扫描（收窄版 v2 重生）——E1 校验函数 / E2 窗口 API
 # 是 error 阻断；W1 it 块共现 warning 按 W1_BASELINE 守恒（只减不增）
 npm run lint:date-bombs
