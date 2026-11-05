@@ -50,6 +50,8 @@ export interface MemoryQueue {
     entryId: string;
     content: string;
     attempts: number;
+    /** F20261105embqg（对抗审视发现 2）：优先级随任务返回，retry 执行端透传到槽位排队 */
+    priority: number;
   }>>;
   /** F20260812mrcq Part 1：task 成功，删除 task 行 */
   markTaskDone(entryId: string): Promise<void>;

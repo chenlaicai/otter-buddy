@@ -45,6 +45,19 @@ export class StoreMemory {
   /** F20260803fbit: bge-m3 8192 tokens 上限的 ~75%，中英文混合留余量 */
   private static readonly EMBED_MAX_CHARS = 6000;
 
+  /**
+   * F20261105embqg S3（对抗审视发现 1）：全量 chunk 提交的分批粒度——每批提交前
+   * 复查联合水位，保证任一时刻「在飞 bulk + 排队 waiter」不超 HIGH_WATER。
+   * 20 与单批 token 闸门（budget 8192）量级协调：一篇文章的 chunk 数典型 10-40。
+   */
+  private static readonly DOC_CHUNK_GATE_BATCH = 20;
+
+  /**
+   * F20261105embqg S3：在飞 bulk 计数（fireAndForgetEmbedBatch 提交 +1 / settle -1）。
+   * 含挂起在槽位队列的 waiter（未 settle 的都是未完成的在飞工作）。
+   */
+  private bulkInFlight = 0;
+
   constructor(
     private readonly writer: MemoryWriter,
     private readonly queue: MemoryQueue,
@@ -236,21 +249,34 @@ export class StoreMemory {
 
     await this.writer.replaceEntriesBySource(entries);
 
-    // F20261105embqg S3：生产端水位闸门——全量重算生产者在队列已积压时不再灌入。
-    // 当日事故实锤：全量重嵌入一秒入队 7173 条，单 worker 满转 8h 消化不动，
-    // 活消息入库延迟被推到 retry tick 周期。闸门语义：跳过即安全——chunk 保持
-    // 暗条目（FTS5 关键词检索不受影响），下次 sync/启动暗扫重试；显式取舍：
-    // 宁可向量暂时缺失，不灌死消费端。pendingTaskCount 是 port 可选方法
-    // （旧 mock 未实现时视为无闸门，保持田路径行为）。
+    // F20261105embqg S3：生产端水位闸门（对抗审视发现 1 修正版：联合水位 + 持续复查）。
+    // 判据不是单次预查 pendingTaskCount，而是「retry pending + 在飞 bulk」联合水位：
+    //   - pendingTasks：embedding_tasks 里等待消费的任务（首次从 0 灌入时为 0，
+    //     但在飞 bulk 会持续增长——所以不能只看它）
+    //   - bulkInFlight：已提交未完成的 bulk 请求计数（含挂起在槽位队列的 waiter）
+    // 每 DOC_CHUNK_GATE_BATCH（20）个 chunk 提交一批前复查水位，任一时刻在飞+排队的
+    // bulk 工作量有硬上界 HIGH_WATER，首次洪峰（对抗审视复现：空队列 2001 条全提交）
+    // 与已有积压两种形态都被限住。消费持续受闸而非预查一次。
+    // 跳过即安全：chunk 保持暗条目（FTS5 关键词检索不受影响）；恢复路径由
+    // retry worker 空闲回填（见 embedding-retry-worker.ts S3 回填，对抗审视发现 3）
+    // 与下次 sync 兑现，不依赖重启。
     if (typeof this.queue.pendingTaskCount === "function") {
-      const pending = await this.queue.pendingTaskCount();
-      if (pending >= EMBED_QUEUE_HIGH_WATER) {
-        this.logger.warn(
-          `Embedding queue at high water (${pending} >= ${EMBED_QUEUE_HIGH_WATER}), skipping bulk chunk embed for ${entries.length} chunks of ${inputs[0]?.sourceId} (dark entries, retried on next sync)`,
-          { action: "embed_queue_high_water_skip", pending, threshold: EMBED_QUEUE_HIGH_WATER, chunks: entries.length },
-        );
-        return entries.map((e) => e.id);
+      const batch = Math.min(entries.length, StoreMemory.DOC_CHUNK_GATE_BATCH);
+      for (let offset = 0; offset < entries.length; offset += batch) {
+        const pendingTasks = await this.queue.pendingTaskCount();
+        const inFlightBulk = this.bulkInFlight;
+        if (pendingTasks + inFlightBulk >= EMBED_QUEUE_HIGH_WATER) {
+          const skipped = entries.length - offset;
+          this.logger.warn(
+            `Embedding queue at high water (pending=${pendingTasks} + bulkInFlight=${inFlightBulk} >= ${EMBED_QUEUE_HIGH_WATER}), skipping bulk chunk embed for ${skipped} chunks of ${inputs[0]?.sourceId} (dark entries, refilled by idle backfill)`,
+            { action: "embed_queue_high_water_skip", pending: pendingTasks, inFlightBulk, threshold: EMBED_QUEUE_HIGH_WATER, skipped, source: "doc_sync" },
+          );
+          return entries.map((e) => e.id);
+        }
+        const slice = entries.slice(offset, offset + batch).map(e => ({ id: e.id, content: e.content }));
+        this.fireAndForgetEmbedBatch(slice);
       }
+      return entries.map((e) => e.id);
     }
 
     // F20261013ebps：批量 embed——embedBatch 一次 postMessage 传全部文本，
@@ -277,6 +303,11 @@ export class StoreMemory {
 
     const gateway = this.embeddingGateway;
     if (typeof gateway.embedBatch === "function") {
+      // F20261105embqg S3（对抗审视发现 1）：在飞 bulk 计数——提交时 +1，
+      // 无论成败（then/catch 均 settle）-1。与 pendingTaskCount 联合构成
+      // 水位判据，让首次从 0 灌入的洪峰也被持续受限。
+      this.bulkInFlight += items.length;
+      const settle = () => { this.bulkInFlight -= items.length; };
       const embedBatch = gateway.embedBatch.bind(gateway);
       const texts = items.map(item => this.truncateForEmbed(item.content));
       // F20261020slvg：waitSlot 内嵌进 embedBatch（替代 acquireSlot→embedBatch 两步配对，
@@ -311,16 +342,19 @@ export class StoreMemory {
         },
       })
         .then((embeddings) => {
+          settle();
           for (let i = 0; i < items.length; i++) {
             this.writer.storeEmbedding(items[i].id, embeddings[i]).catch((err) => {
               this.logger.warn(`Failed to store embedding for ${items[i].id}: ${err}`);
-              this.queue.enqueueRetry(items[i].id, err).catch(e =>
+              // F20261105embqg（对抗审视发现 2 尾）：批量路径的写库失败回队保持 bulk 优先级
+              this.queue.enqueueRetry(items[i].id, err, EMBED_TASK_PRIORITY.bulk).catch(e =>
                 this.logger.error(`enqueueRetry failed for ${items[i].id}: ${e}`),
               );
             });
           }
         })
         .catch((err) => {
+          settle();
           // batch 整体失败（背压/超时/worker 不可用）——逐条入 retry 队列
           this.logger.debug(`Batch embedding failed (${items.length} items), enqueueing individually: ${err}`);
           for (const item of items) {

@@ -72,7 +72,9 @@ const allowDdlFiles = [];
 // F20261105embqg：14→15——新增 embedding-task-priority.test.ts 测 embedding_tasks
 // 的 priority 列 SQL 语义（claim 排序/ON CONFLICT 保留），必须建真实表，与
 // embedding-task-gate.test.ts 同模式同理由。
-const MAX_ALLOW_DDL_FILES = 15;
+// F20261105embqg 对抗审视修复：15→16——embed-queue-review-fixes.test.ts 同模式
+// （发现 2/3 需真实 SqliteMemoryRepository 的 embedding_tasks/scanDarkEntries 语义）。
+const MAX_ALLOW_DDL_FILES = 16;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);

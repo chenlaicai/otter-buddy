@@ -63,6 +63,8 @@ describe("F20261105embqg S1：worker 意外 exit 自动 respawn", () => {
   });
 
   afterEach(() => {
+    // mock worker 临时文件清理（与 embedding-service.test.ts 同惯例）——否则 eslint no-undef 扫到残留 .mjs
+    try { fs.unlinkSync(workerPath); } catch { /* 已清理 */ }
     EmbeddingServiceImpl.setTestTimeoutOverride(null);
     EmbeddingServiceImpl.setTestWatchdogOverride(null);
     EmbeddingServiceImpl.setTestMaxInFlightOverride(null);
@@ -136,6 +138,7 @@ describe("F20261105embqg S2a：槽位优先级唤醒", () => {
   });
 
   afterEach(() => {
+    try { fs.unlinkSync(workerPath); } catch { /* 已清理 */ }
     EmbeddingServiceImpl.setTestMaxInFlightOverride(null);
   });
 
@@ -192,17 +195,21 @@ describe("F20261105embqg S2a：背压语义不回归（优先级不改变 reject
       "mock-embq-backpressure.mjs",
       RESPONSIVE_WORKER.replace("RESPOND_DELAY_MS", "150"),
     );
-    const factory = () => forkMock(workerPath);
-    const service = new EmbeddingServiceImpl(factory(), noopLogger, factory);
     try {
-      await waitFor(() => service.available, "ready");
-      const first = service.embed("occupy", { waitSlot: true });
-      await new Promise((r) => setTimeout(r, 30));
-      // 无 waitSlot + 槽满 → reject（查询路径 fail-fast 语义保留）
-      await expect(service.embed("no-wait")).rejects.toThrow(EmbedBackpressureError);
-      await first;
+      const factory = () => forkMock(workerPath);
+      const service = new EmbeddingServiceImpl(factory(), noopLogger, factory);
+      try {
+        await waitFor(() => service.available, "ready");
+        const first = service.embed("occupy", { waitSlot: true });
+        await new Promise((r) => setTimeout(r, 30));
+        // 无 waitSlot + 槽满 → reject（查询路径 fail-fast 语义保留）
+        await expect(service.embed("no-wait")).rejects.toThrow(EmbedBackpressureError);
+        await first;
+      } finally {
+        service.dispose();
+      }
     } finally {
-      service.dispose();
+      try { fs.unlinkSync(workerPath); } catch { /* 已清理 */ }
     }
   });
 });

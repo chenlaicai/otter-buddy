@@ -178,6 +178,13 @@ ALTER TABLE embedding_tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 1
 
 # 验证
 
+## 对抗审视记录（检视獭-1790，3 严重发现全部修复）
+
+- **发现 1（S3 首次洪峰未受限）**：原实现仅预查一次 pendingTaskCount，空队列首次全量灌入（独立复现：2001 条全提交）不受闸。修复：联合水位（pending + 在飞 bulk 计数 bulkInFlight）+ 每 DOC_CHUNK_GATE_BATCH=20 条分批提交前复查，任一时刻在飞 bulk 有硬上界（HIGH_WATER+19）。新测试 embed-queue-review-fixes.test.ts「发现 1」固化独立复现反例。
+- **发现 2（retry 优先级执行端丢失）**：claim 返回的 priority 被 EmbeddingTask 类型丢弃，embedWithSalvage 未传；bulk 写库失败回队漏传。修复：EmbeddingTask 加 priority 字段、embedWithSalvage 透传 task.priority、批量回队显式 bulk。新测试「发现 2」验证 live retry 任务 embed 调用携带 priority=0。
+- **发现 3（跳过暗条目无运行时恢复路径）**：高水位跳过的暗条目无 pending task、无向量、无后续调度，可能长期无向量。修复：retry tick 空闲时（claimed=0 且 pending=0）有界回填暗条目为 bulk 任务（IDLE_BACKFILL_LIMIT=200/tick，不挤兑 live）。新测试「发现 3」验证空队列 tick 后暗条目以 bulk 优先级入队。
+- 检视确认无缺口：S1 respawn 代际/共享熔断、S2a 槽位唤醒、S2b SQL 消费序验证方法。
+
 **单测（新增/扩展）**：
 
 1. `tests/frameworks/embedding/embedding-service.test.ts`
