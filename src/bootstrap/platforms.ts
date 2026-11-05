@@ -25,7 +25,6 @@ import { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
-import { createManageHealingEventsTool } from "@interface-adapters/agent-runtime/tools/healing-tools";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
 import type { AssistantSessionManager } from "@usecases/im/assistant-session";
@@ -110,7 +109,9 @@ export async function createAgentGateway(options: {
         ? { manage: manageScheduledTaskRef, pending: repos.scheduledTaskPending }
         : undefined;
       const tools = createTools(ctx, repo, log, options.workspaceGateway, scheduledTaskDeps);
-      if (repo) tools.push(createManageHealingEventsTool(ctx, repo));
+      // PR #1783 alpha 实测修复：此处追加与 tool-factory.ts 的 `if (healingRepo)` 注册（F20260811sktp）
+      // 同源重复——旧 SDK 不查重名无症状，durable registry validateExtension 遇重名抛错、
+      // otter extension 拒载、invoke 必炸。注册权归 tool-factory 单点，此处只透传 repo。
       return tools;
     },
     healingRepo: repos.healingEvent,

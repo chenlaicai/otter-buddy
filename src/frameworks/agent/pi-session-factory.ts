@@ -22,6 +22,7 @@ import type {
   AgentContext,
   AgentGateway,
 } from "@usecases/otter/agent-gateway";
+import type { OtterType } from "@entities/otter/otter";
 // R20260817arnt PR-A：以下四项自 interface-adapters 上移 @usecases/ports——消除 frameworks→interface-adapters 倒穿
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { Logger } from "@usecases/ports/logger";
@@ -437,7 +438,7 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   private durableFile(otterId: string): string {
-    return `${this.cfg.sessionDir.replace(/[\\/]sessions[\\/]?$/, "$1durable-sessions")}/${otterId}.sqlite`;
+    return `${this.cfg.sessionDir.replace(/([\\/])sessions[\\/]?$/, "$1durable-sessions")}/${otterId}.sqlite`;
   }
 
   private registerDurableSession(otterId: string, sessionFile: string): void {
@@ -463,7 +464,19 @@ export class PiSessionFactory implements AgentGateway {
    */
   private _createSessionAndPersist(otterId: string, config: AgentConfig, allowOverwrite: boolean): void {
     if (this.sessionStore.get(otterId) && !allowOverwrite) throw new Error(`Agent already exists for otter: ${otterId}`);
-    this.registerDurableSession(otterId, this.durableFile(otterId));
+    // alpha 实测回归（PR #1783 验证发现）：main 的 session-restore.createSessionAndPersist 在建
+    // session 时同事务写 otter_configs（session-restore.ts:165-173）；迁移版只注册 durable store
+    // 映射、丢 setConfig → 新獭首次 invoke 必炸「Otter config not found」。此处还原同构事务：
+    // config 写入与 store 映射要么都在、要么都不在（半写状态会让 acquire 的 getConfig 判空路径分裂）。
+    const sessionFile = this.durableFile(otterId);
+    this.cfg.db.transaction(() => {
+      this.cfg.otterConfigProvider.setConfig(otterId, {
+        systemPrompt: config.systemPrompt,
+        otterType: (config.context?.otterType as OtterType) ?? "big",
+        modelAlias: config.modelAlias,
+      });
+      this.registerDurableSession(otterId, sessionFile);
+    })();
   }
 
   async destroy(otterId: string): Promise<void> {
@@ -536,7 +549,7 @@ export class PiSessionFactory implements AgentGateway {
   private async _resetInternal(otterId: string, context?: AgentContext): Promise<void> {
     this.pool.evict(otterId);
     this.poolMeta.delete(otterId);
-    const sessionFile = `${this.cfg.sessionDir.replace(/[\\/]sessions[\\/]?$/, "$1durable-sessions")}/${otterId}-${randomUUID()}.sqlite`;
+    const sessionFile = `${this.cfg.sessionDir.replace(/([\\/])sessions[\\/]?$/, "$1durable-sessions")}/${otterId}-${randomUUID()}.sqlite`;
     const previous = this.sessionStore.getWithFile(otterId);
     this.cfg.db.transaction(() => {
       this.registerDurableSession(otterId, sessionFile);
