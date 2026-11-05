@@ -18,9 +18,9 @@ budget_bytes: 10750
 7. **上下文压缩观测**：`grep '"msg":"SDK compaction failed"' <主仓>/data/logs/otter-buddy.log` 按日计数（禁 jq）。≥20 或连续 3 日递增 → bug issue（关联 messageId/otterId）；≥3 记观察行，连续 2 日 ≥3 升 issue；shadow 日配对差 ≥3 计异常；无异常写「failed=N，健康」
 8. **pending滞留**（前置dbPath）：`cd <主仓> && sqlite3 "file:data/otter-buddy.db?mode=ro" "SELECT p.id,t.name,p.role,p.triggered_at FROM scheduled_task_pending_items p LEFT JOIN scheduled_tasks t ON t.id=p.task_id WHERE p.status='pending' AND datetime(p.triggered_at)<datetime('now','-24 hours')"`。逐条提醒；超48h升issue附id；无行写「滞留0」
 
-## RHI 信号处置段（看见≠处置，禁止只列数字；必调 triage_signal）
-1. **全部 critical**：`list_rhi_signals(status=open, severity=critical)` 逐条处置
-2. **逐条三选一**：开 issue/并入 → `bind_issue, note=依据`；不处置 → `dismiss, note=必填`；在途 → `in_progress`。同类型 >10 条 `batch_bind`（连调 >5 次撞同构守卫，穿插 list_rhi_signals/分组）
+## RHI 信号处置段（必调 triage_signal，禁止只列数字）
+1. **critical**：`list_rhi_signals(status=open, severity=critical)` 全处置
+2. **三选一**：归口 → `bind_issue, note=依据`；不处置 → `dismiss, note=必填`；在途 → `in_progress`。同类型 >10 条 `batch_bind`；同 issue 族同忽略结论用 `batch_dismiss + filterIssueNumber`（note 含 issue 与理由），异质才逐条
 3. **未接**：`list_rhi_signals(status=open, triageStatus=null)` 全归口；warning 同类型 ≥5 条同模块 → 按 critical，零散汇总一行
 4. **闭环自检**：critical N → 开 M/并入 K/dismiss D，M+K+D=N；不等=有信号被跳过，补查
 

@@ -345,6 +345,48 @@ export class SignalRepository {
     return { ok: true, record: this.findById(id) };
   }
 
+  /** #1761：同族信号的同一收尾判断只执行一次，不被迫逐条撞循环守卫。
+   *  issueNumber 可精确收尾已归口/修复中的信号；signalType 支持同类型未接单批量忽略。
+   *  severity 只能叠加细化，不能单独成为全库忽略范围。
+   */
+  batchDismiss(
+    filter: { filterSignalType?: string; filterSeverity?: string; filterIssueNumber?: number },
+    note: string,
+    opts: { dryRun?: boolean; now?: Date } = {},
+  ): { ok: boolean; reason?: string; matched: number; dismissed: number; truncated: boolean; totalMatched: number } {
+    const trimmedNote = note.trim();
+    if (!trimmedNote) return { ok: false, reason: "批量忽略必须附判断说明（note）", matched: 0, dismissed: 0, truncated: false, totalMatched: 0 };
+    if (!filter.filterSignalType && filter.filterIssueNumber === undefined) {
+      return { ok: false, reason: "至少指定 filterSignalType 或 filterIssueNumber", matched: 0, dismissed: 0, truncated: false, totalMatched: 0 };
+    }
+    if (filter.filterIssueNumber !== undefined
+      && (!Number.isInteger(filter.filterIssueNumber) || filter.filterIssueNumber <= 0)) {
+      return { ok: false, reason: "filterIssueNumber 必须是正整数", matched: 0, dismissed: 0, truncated: false, totalMatched: 0 };
+    }
+
+    return this.db.transaction(() => {
+      const conditions = ["status = 'open'"];
+      const params: unknown[] = [];
+      if (filter.filterSignalType) { conditions.push("signal_type = ?"); params.push(filter.filterSignalType); }
+      if (filter.filterSeverity) { conditions.push("severity = ?"); params.push(filter.filterSeverity); }
+      if (filter.filterIssueNumber !== undefined) { conditions.push("issue_number = ?"); params.push(filter.filterIssueNumber); }
+      const where = conditions.join(" AND ");
+      const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM signals WHERE ${where}`).get(...params) as { n: number }).n;
+      const matched = Math.min(total, 100);
+      if (opts.dryRun || total === 0) return { ok: true, matched, dismissed: 0, truncated: total > 100, totalMatched: total };
+
+      const now = (opts.now ?? new Date()).toISOString();
+      const rows = this.db.prepare(`SELECT id FROM signals WHERE ${where} ORDER BY id LIMIT 100`).all(...params) as Array<{ id: number }>;
+      const placeholders = rows.map(() => "?").join(",");
+      const result = this.db.prepare(`UPDATE signals SET
+          status = 'dismissed', resolved_at = ?, triage_status = NULL,
+          issue_number = NULL, triage_note = ?
+        WHERE id IN (${placeholders}) AND status = 'open'`)
+        .run(now, trimmedNote, ...rows.map(row => row.id));
+      return { ok: true, matched: rows.length, dismissed: result.changes, truncated: total > 100, totalMatched: total };
+    })();
+  }
+
   /** #1052：未接单信号批量归口——150 条逐条 triage_signal 被「连续同构调用」守卫阻断的根治。
    *  照 healing batchResolveByFilter 成熟模式：单事务 count+match+update 原子执行、
    *  LIMIT 100 单批、truncated 标志、dryRun 预览。

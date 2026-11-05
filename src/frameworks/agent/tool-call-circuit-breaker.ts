@@ -240,6 +240,13 @@ function registerMatterSignature(a: Record<string, unknown>): string {
   return title ? `register_matter#${contentDigest(title)}` : "register_matter";
 }
 
+function updateArtifactStatusSignature(a: Record<string, unknown>): string {
+  // #1761：不同产物/目标状态是不同操作；残参异常调用仍退化工具名。
+  const artifactId = strOrEmpty(a.artifactId);
+  const status = strOrEmpty(a.status);
+  return artifactId && status ? `update_artifact_status: ${artifactId}:${status}` : "update_artifact_status";
+}
+
 /**
  * 带实体参数的管理工具签名（#475，F20260826d464 先例泛化）：
  * 批量操作不同实体（合入不同 PR、halt 不同 otter、迁移不同 matter、查不同消息/记忆）
@@ -252,6 +259,8 @@ function registerMatterSignature(a: Record<string, unknown>): string {
  */
 function managementToolSignature(toolName: string, a: Record<string, unknown>): string | null {
   switch (toolName) {
+    case "update_artifact_status":
+      return updateArtifactStatusSignature(a);
     case "merge_pr":
       return mergePrSignature(a);
     case "halt_otter":

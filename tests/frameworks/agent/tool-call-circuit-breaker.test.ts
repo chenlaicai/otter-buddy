@@ -318,6 +318,33 @@ describe("buildToolSignature —— #1399 残余口子收口", () => {
   });
 });
 
+describe("buildToolSignature —— #1761 批量处置收口", () => {
+  it("update_artifact_status 按产物与目标状态分签名，同操作重试仍重复", () => {
+    const first = buildToolSignature("update_artifact_status", { artifactId: "artifact-1", status: "archived" });
+    const other = buildToolSignature("update_artifact_status", { artifactId: "artifact-2", status: "archived" });
+    const nextState = buildToolSignature("update_artifact_status", { artifactId: "artifact-1", status: "superseded" });
+    expect(first).not.toBe(other);
+    expect(first).not.toBe(nextState);
+    expect(first).toBe(buildToolSignature("update_artifact_status", { artifactId: "artifact-1", status: "archived" }));
+    expect(buildToolSignature("update_artifact_status", {})).toBe("update_artifact_status");
+  });
+
+  it("连续归档不同产物不触发连续同构拦截", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 7; i++) {
+      expect(cb.check("update_artifact_status", { artifactId: `artifact-${i}`, status: "archived" }).action).toBe("allow");
+    }
+  });
+
+  it("同一产物同一状态反复更新仍触发连续同构拦截", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 5; i++) {
+      expect(cb.check("update_artifact_status", { artifactId: "artifact-1", status: "archived" }).action).toBe("allow");
+    }
+    expect(cb.check("update_artifact_status", { artifactId: "artifact-1", status: "archived" }).action).toBe("steer");
+  });
+});
+
 describe("ToolCallCircuitBreaker", () => {
   beforeEach(() => {
     vi.useFakeTimers();

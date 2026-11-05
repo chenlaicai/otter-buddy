@@ -70,11 +70,33 @@ function handleBatchBind(params: Record<string, unknown>, signalRepo: SignalRepo
   }, null, 2));
 }
 
-/** triage_signal：RHI 信号处置留痕（bind_issue / in_progress / dismiss 三动作 + batch_bind 批量归口） */
+/** #1761：同一收尾判断适用于整个筛选族时，一次写入而非逐条表演。 */
+function handleBatchDismiss(
+  params: Record<string, unknown>,
+  signalRepo: SignalRepository,
+): ReturnType<typeof textResponse> {
+  const note = (params.note as string | undefined)?.trim() ?? '';
+  if (!note) return errorResponse('[错误] batch_dismiss 必须提供 note（同族忽略判断；按 issue 收尾时写明 issue 号与理由）');
+  const filterIssueNumber = params.filterIssueNumber as number | undefined;
+  const filterSignalType = params.filterSignalType as string | undefined;
+  if (filterIssueNumber === undefined && !filterSignalType) {
+    return errorResponse('[错误] batch_dismiss 至少指定 filterIssueNumber 或 filterSignalType；filterSeverity 只能叠加细化');
+  }
+  const result = signalRepo.batchDismiss({
+    filterSignalType,
+    filterSeverity: params.filterSeverity as string | undefined,
+    filterIssueNumber,
+  }, note, { dryRun: params.dryRun === true });
+  if (!result.ok) return errorResponse(`[错误] ${result.reason}`);
+  return textResponse(JSON.stringify(result, null, 2));
+}
+
+/** triage_signal：RHI 信号处置留痕（单条三动作 + batch_bind / batch_dismiss） */
 export function createTriageSignalTool(ctx: ToolContext, signalRepo: SignalRepository): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
-    // #1052：批量路径先分流（无 signalId），单条路径走原校验
+    // 批量路径先分流（无 signalId），单条路径走原校验
     if (params.action === 'batch_bind') return handleBatchBind(params, signalRepo);
+    if (params.action === 'batch_dismiss') return handleBatchDismiss(params, signalRepo);
     const valid = validateTriageParams(params);
     if ('error' in valid) return errorResponse(valid.error);
     const issueNumber = params.issueNumber as number | undefined;
@@ -97,17 +119,18 @@ export function createTriageSignalTool(ctx: ToolContext, signalRepo: SignalRepos
   };
   return {
     name: "triage_signal",
-    description: "处置一条 RHI 健康信号（留痕写库）. When: 日报处置段处置完 critical 信号后必须调用留痕（对账公式 M+K+D=N 的数据源）/ 面板一键操作的后端写路径. Not for: 獭间信号 signal_events（那是 query_signals/resolve_signal 的范围）/ 改检测口径（走特性流程）. Output: 处置确认（状态 + issue 绑定 + note）. 语义: bind_issue=归口到 issue（issueNumber 必填，覆盖式允许换绑）；in_progress=标修复中（前置须已 bind_issue，幂等跳过）；dismiss=终态化（note 必填必写库——「不处置必须是判断结论不能是沉默」）；batch_bind=按 filter 批量归口未接单信号（issueNumber 必填 + filterSignalType/filterSeverity 至少一个，单批上限 100，truncated=true 需再次执行，建议先 dryRun 预览——同类型 >10 条同归口时用它防循环守卫拦截）. GOTCHA: ①dismiss 的 note 为空会被拒绝；②in_progress 未先 bind_issue 会被拒绝；③对已终态信号重复调用返回幂等结果无副作用；④batch_bind 只作用于未接单（open 且 triage_status 为空），已归口/修复中的不参与（换绑走单条 bind_issue）.",
+    description: "RHI 健康信号处置留痕. When: 日报处置信号后调用；异质判断逐条，同族同一判断走批量. Not for: 獭间信号（query_signals）. Output: 单条处置状态或批量数量. 语义: bind_issue=归口（issueNumber 必填）；in_progress=修复中（须先归口）；dismiss=不处置（note 必填）；batch_bind=未接单同族批量归口；batch_dismiss=同族同一忽略判断批量收尾，note 必填，filterIssueNumber 精确收尾该 issue 的 open 信号，或 filterSignalType 收尾该类型 open 信号，filterSeverity 只能叠加细化，不可只按 severity 全库忽略. 批量均支持 dryRun、单批 100、truncated 续批；按 issue 收尾时 note 写明 issue 号与理由. GOTCHA: 已终态信号不被批量覆盖；dismiss 后同键再触发会 re-open.",
     parameters: {
       type: "object",
       properties: {
-        signalId: { type: "number", description: "信号 ID（list_rhi_signals 返回的整数 id；batch_bind 不需要）" },
-        action: { type: "string", enum: ["bind_issue", "in_progress", "dismiss", "batch_bind"], description: "处置动作" },
+        signalId: { type: "number", description: "信号 ID（批量动作不需要）" },
+        action: { type: "string", enum: ["bind_issue", "in_progress", "dismiss", "batch_bind", "batch_dismiss"], description: "处置动作" },
         issueNumber: { type: "number", description: "GitHub issue 编号（bind_issue / batch_bind 必填）" },
-        note: { type: "string", description: "处置说明（dismiss 必填；bind_issue / batch_bind 可选）" },
-        filterSignalType: { type: "string", description: "[batch_bind] 按信号类型过滤（signal_type 精确匹配）" },
-        filterSeverity: { type: "string", enum: ["critical", "warning"], description: "[batch_bind] 按严重度过滤" },
-        dryRun: { type: "boolean", description: "[batch_bind] true 时只返回匹配数，不执行绑定" },
+        note: { type: "string", description: "处置说明（dismiss/batch_dismiss 必填；归口可选）" },
+        filterSignalType: { type: "string", description: "[批量] 按信号类型过滤；batch_dismiss 时与 issue 二选一或叠加" },
+        filterSeverity: { type: "string", enum: ["critical", "warning"], description: "[批量] 按严重度叠加细化，不可单独用于 batch_dismiss" },
+        filterIssueNumber: { type: "number", description: "[batch_dismiss] 只收尾归口到此 issue 的 open 信号" },
+        dryRun: { type: "boolean", description: "[批量] true 时只返回匹配数，不执行写入" },
       },
       // Why: signalId 不进 required——batch_bind 批量路径无 signalId（#1052）；
       // 单条动作的 signalId 缺失由 validateTriageParams 报错引导（healing 工具同模式）
