@@ -9,6 +9,7 @@ describe("durable session generation ledger", () => {
   it("keeps the durable store path and model configuration independent of legacy JSONL", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-ledger-"));
     const db = createTestDb();
+    db.prepare("INSERT INTO otters (id, name, type) VALUES ('otter', 'test', 'small')").run();
     const store = createAgentSessionStore(db);
     store.setWithFile("otter", "generation-1", path.join(dir, "otter.sqlite"));
     expect(store.getWithFile("otter")?.sessionFile).toBe(path.join(dir, "otter.sqlite"));
