@@ -19,7 +19,7 @@ describe("triage_signal batch_dismiss（#1761）", () => {
   beforeEach(() => {
     db = createTestDb();
     repo = new SignalRepository(db);
-    tool = createTriageSignalTool(ctx, repo);
+    tool = createTriageSignalTool(ctx, repo, async () => ({ ok: true }));
   });
   afterEach(() => { db.close(); });
 
