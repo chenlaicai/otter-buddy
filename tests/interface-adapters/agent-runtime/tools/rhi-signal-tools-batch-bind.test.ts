@@ -27,7 +27,8 @@ describe('triage_signal batch_bind 工具层（真 sqlite）', () => {
     initSchema(db);
     migrateDatabase(db, console as never);
     repo = new SignalRepository(db);
-    tool = createTriageSignalTool(mockCtx, repo);
+    // GitHub 状态是外部边界；本文件测既有归口行为，固定为 OPEN。
+    tool = createTriageSignalTool(mockCtx, repo, async () => ({ ok: true }));
   });
   afterEach(() => { db.close(); });
 

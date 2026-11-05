@@ -29,6 +29,7 @@ import { computeFanInExclusions } from "@usecases/health/post-merge-fix-density"
 // Issue #636 B5：信号中文名的单一真相源是 signal-registry（SIGNAL_REGISTRY[type].name）
 import { SIGNAL_REGISTRY } from "@usecases/health/signal-registry";
 import type { SignalType } from "@usecases/health/signal-registry";
+import { checkOpenIssue, type CheckIssueBinding } from "../../github/issue-binding";
 
 /** Issue #644：JSON 字符串安全解析（evidence_detail 列）——解析失败降级 null 不阻断列表 */
 function safeParseJson(raw: string): unknown {
@@ -319,6 +320,7 @@ export class RhiController {
     private readonly signalRepo: SignalRepository,
     private readonly scanWorker: RhiScanWorker,
     private readonly logger: Logger,
+    private readonly checkIssueBinding: CheckIssueBinding = checkOpenIssue,
   ) {}
 
   /** GET /api/health/overview — 总览：最新快照指标 + 信号计数 */
@@ -573,6 +575,10 @@ export class RhiController {
       const action = body.action;
       if (action !== "bind_issue" && action !== "in_progress" && action !== "dismiss") {
         return c.json({ error: "action must be bind_issue / in_progress / dismiss" }, 400);
+      }
+      if (action === "bind_issue") {
+        const check = await this.checkIssueBinding(body.issueNumber as number);
+        if (!check.ok) return c.json({ error: check.reason }, 422);
       }
       const result = this.signalRepo.triage(id, action, {
         issueNumber: body.issueNumber,

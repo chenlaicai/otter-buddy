@@ -61,6 +61,13 @@ describe("guard 回放·误拦实录（2026-10-29 healing 台账 + #1710 信封�
 
 describe("guard 回放·事故锚定+黑名单负门——必须拦截（理由锚词断言，建议① delta-r2 做实）", () => {
   for (const c of mustBlockCases) {
+    if (c.expect === "allow") {
+      // F20261105killa 政策 A 改向用例：expect 已反转为 allow，归误拦面断言
+      it(`[allow] ${c.source}: ${c.command.slice(0, 60)}…`, () => {
+        expect(judge(c.command)).toBe("allow");
+      });
+      continue;
+    }
     it(`[block] ${c.source}: ${c.command.slice(0, 60)}…`, () => {
       const reason = judgeReason(c.command);
       expect(reason).not.toBeNull();
