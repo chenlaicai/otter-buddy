@@ -195,6 +195,22 @@ export const mustBlockCases: ReplayCase[] = [
     note: "lsof 溯源到主端口（非白名单端口）——保守拦",
   },
   {
+    command:
+      "cd /Users/orca/ai/others/colink/.otter/worktrees/dm-thread-flicker && p=$(cat data/dm-thread-debug/app/pids/backend.pid) && kill $p",
+    expect: "block",
+    source: "healing 47419e82（2026-11-04）",
+    reasonContains: "无法静态确认",
+    note: "非主进程（colink dev backend）但目标为 pid 文件读取变量——非字面量恒保守拦，不区分主/非主进程；引导出口=字面量 PID 或 restart-service kill-by-pid",
+  },
+  {
+    command:
+      "ps aux | grep \"vitest\" | grep -v grep | awk '{print $2}' | while read p; do kill $p 2>/dev/null; done",
+    expect: "block",
+    source: "healing 9b7eb7c7（2026-11-04）",
+    reasonContains: "无法静态确认",
+    note: "ps 管道批量 kill 测试进程——非字面量批量击杀保守拦（vitest 非主进程但静态不可证）；引导出口=逐个字面量 PID",
+  },
+  {
     command: "./scripts/otter-buddy.sh restart",
     expect: "block",
     source: "9/16 原案（F20260916gtlr）",
