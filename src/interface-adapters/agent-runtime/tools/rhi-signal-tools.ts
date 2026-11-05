@@ -119,7 +119,7 @@ export function createTriageSignalTool(ctx: ToolContext, signalRepo: SignalRepos
   };
   return {
     name: "triage_signal",
-    description: "RHI 健康信号处置留痕. When: 日报处置信号后调用；异质判断逐条，同族同一判断走批量. Not for: 獭间信号（query_signals）. Output: 单条处置状态或批量数量. 语义: bind_issue=归口（issueNumber 必填）；in_progress=修复中（须先归口）；dismiss=不处置（note 必填）；batch_bind=未接单同族批量归口；batch_dismiss=同族同一忽略判断批量收尾，note 必填，filterIssueNumber 精确收尾该 issue 的 open 信号，或 filterSignalType 收尾该类型 open 信号，filterSeverity 只能叠加细化，不可只按 severity 全库忽略. 批量均支持 dryRun、单批 100、truncated 续批；按 issue 收尾时 note 写明 issue 号与理由. GOTCHA: 已终态信号不被批量覆盖；dismiss 后同键再触发会 re-open.",
+    description: "RHI 健康信号处置留痕. When: 日报处置信号后调用；异质判断逐条，同族同一判断走批量. Not for: 獭间信号（query_signals）. Output: 单条处置状态或批量数量. 语义: bind_issue=归口（issueNumber 必填）；in_progress=修复中（须先归口）；dismiss=不处置（note 必填）；batch_bind=未接单同族批量归口；batch_dismiss=同族同一忽略判断批量收尾，note 必填，filterIssueNumber 精确收尾该 issue 的 open 信号，或 filterSignalType 收尾该类型全部 open（含未接单与他 issue 归口，须先确认同一判断适用全族），filterSeverity 只能叠加细化，不可只按 severity 全库忽略. 批量均支持 dryRun、单批 100、truncated 续批；按 issue 收尾时 note 写明 issue 号与理由. GOTCHA: 已终态信号不被批量覆盖；dismiss 后同键再触发会 re-open.",
     parameters: {
       type: "object",
       properties: {

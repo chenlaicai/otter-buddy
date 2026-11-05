@@ -80,6 +80,25 @@ describe("SignalRepository.batchDismiss（#1761）", () => {
     expect(first.matched).toBe(100);
   });
 
+  it("批量忽略后同键再触发仍走既有 re-open，不静默吞复发", () => {
+    const id = seed();
+    repo.triage(id, "bind_issue", { issueNumber: 1761 });
+    expect(repo.batchDismiss({ filterIssueNumber: 1761 }, "issue #1761 修复收尾").ok).toBe(true);
+    const original = repo.findById(id)!;
+    expect(original.status).toBe("dismissed");
+    const reopened = repo.upsert({
+      signalType: original.signal_type, severity: "critical", featureId: original.feature_id,
+      filePath: original.file_path, evidence: "再次触发", suggestedAction: null,
+    });
+    expect(reopened.id).toBe(id);
+    expect(reopened.status).toBe("open");
+    expect(reopened.resolved_at).toBeNull();
+    expect(reopened.triage_status).toBeNull();
+    expect(reopened.issue_number).toBeNull();
+    expect(reopened.triaged_at).toBeNull();
+    expect(reopened.triage_note).toBe("issue #1761 修复收尾");
+  });
+
   it("同族不同判断说明可分批留痕，预览返回本批数量而非总量", () => {
     for (let i = 0; i < 101; i++) seed();
     const preview = repo.batchDismiss({ filterSignalType: "guard_intercept" }, "第一批独立判断", { dryRun: true });

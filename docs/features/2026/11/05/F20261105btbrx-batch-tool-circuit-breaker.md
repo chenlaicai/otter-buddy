@@ -39,8 +39,9 @@ capability_test: "n/a: A 类工具签名与真 sqlite 状态机逻辑，由 buil
 - **机制识别**：新增工具 action 与仓库批量决策分支，但复用既有 signals 状态机、triage 工具和循环守卫，无新表/配置/任务/信号类型。仍按新增批量机制声明。
 - **谁需要**：日报/健康检查处置者；同族同一判断不再拆成会被熔断的 N 次调用。
 - **失败后果**：误批量终态最多 100 条 open 信号。以范围必选、severity 不可单独使用、note 必填、dryRun、100 上限、事务控制爆炸半径；已终态不覆盖。
-- **后续机制**：异质逐条 triage_signal 的 signalId+action 签名暂不扩，待新实证再议；#1760 的 issue 终态校验不在本条范围。
+- **后续机制**：异质逐条 triage_signal 的 signalId+action 签名暂不扩，待新实证再议；#1760 的 issue 终态校验不在本条范围。同族 >500 条需连续第 6 次同签名续批时仍撞 consecutive 保护，与 healing batch_resolve 同款已知限制，接受并不改阈值。
 - **退役条件**：若同族处置由可靠自动生命周期完全接管，且日报不再需要判断性 dismiss，可随 triage 工具一起退役。
+- **r1 审视处置**：采纳两项建议——工具契约明确 type 单独筛选含未接单与他 issue 归口；补上述 >500 条续批边界。批量写入不绕过 re-open 状态机，补同键再触发回归用例。
 
 ## 被否决路径与翻案依据
 
@@ -51,10 +52,10 @@ capability_test: "n/a: A 类工具签名与真 sqlite 状态机逻辑，由 buil
 ## 验证
 
 - [x] 修复前红测：7 个不同产物在第 6 次被 steer；batchDismiss 缺失；batch_dismiss 工具返回未知 action。命令与输出保存于 `/tmp/1761-red-tests.log`（临时证据）。
-- [x] 修复后相关 6 文件 107 用例通过：不同产物归档放行，同产物同状态重试第 6 次仍 steer；单条 dismiss/batch_bind 回归通过。
+- [x] r1 处置后相关 6 文件 108 用例通过：不同产物归档放行，同产物同状态重试第 6 次仍 steer；单条 dismiss/batch_bind 回归通过。
 - [x] 真 sqlite 覆盖：issue 族精确边界、dryRun 零写入、note/范围校验、100 上限与续批、不同 note 分批、终态字段、他族/已终态不受影响。
 - [x] `npx tsc --noEmit`、`npm run lint:prompt-size`、`git diff --check` 通过。
-- [x] `npm run lint`、431 文件 5677 用例全量测试、`npm run build`、docs/capability/tests/intent/tool-manifest/prompt-size 专项闸通过；新增 1 边界用例后最终全量与 CI 见 PR。
+- [x] `npm run lint`、431 文件 5679 用例全量测试、`npm run build`、docs/capability/tests/intent/tool-manifest/prompt-size 专项闸通过；新增 2 边界用例后最终全量通过，CI 见 PR。
 - [ ] 异体 PR 对抗审视：待 PR 后执行。
 
 ## 影响与回滚
