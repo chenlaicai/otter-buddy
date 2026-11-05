@@ -68,7 +68,7 @@ describe("发现 1：首次洪峰受限（空队列也闸得住）", () => {
     // 永不完成的 embedBatch——模拟 worker 满转，暴露「提交不受限」
     const embedding: EmbeddingGateway = {
       available: true,
-      embed: async () => new Float32Array([0.1]),
+      embed: async () => new Float32Array(1024).fill(0.1),
       embedBatch: (texts: string[], opts?: { waitSlot?: boolean; priority?: number }) => {
         submitted += texts.length;
         // 每次提交后观测在飞峰值（bulkInFlight 含 waiter——由闸门分批保证）
@@ -114,7 +114,7 @@ describe("发现 2：retry 优先级跨层闭合（claim → embed 透传）", (
       available: true,
       embed: async (text: string, opts?: { priority?: number }) => {
         embedCalls.push({ text, priority: opts?.priority });
-        return new Float32Array([0.1]);
+        return new Float32Array(1024).fill(0.1);
       },
     };
 
@@ -130,34 +130,42 @@ describe("发现 2：retry 优先级跨层闭合（claim → embed 透传）", (
 });
 
 describe("发现 3：S3 跳过的暗条目有运行时恢复路径", () => {
-  it("队列空时 tick 有界回填暗条目为 bulk 任务；队列非空时不回填", async () => {
+  it("空队列 tick 回填暗条目为 bulk 任务；下个 tick 消费后向量落库、队列归零、不再回填", async () => {
     // 1) 造一个暗条目（无 vec、无 task）
     db.prepare(`
       INSERT INTO memory_entries (id, layer, content_type, source_id, source_table,
         conversation_id, granularity, content, metadata, created_at)
       VALUES ('dark-1', 'document', 'feature_chunk', 'doc-x', 'documents',
-        NULL, 'chunk', 'dark chunk content here', NULL, datetime('now'))
+        NULL, 'coarse', 'dark chunk content here', NULL, datetime('now'))
     `).run();
     db.prepare(`INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES ('dark-1', 'dark chunk content here')`).run();
 
+    // mock 必须返回 1024 维（vec0 表 FLOAT[1024]）——维度不符则 storeEmbedding 失败，
+    // 任务退回队列，测试会假绿（对抗审视 delta 发现：首轮 1 维 mock 实际
+    // Dimension mismatch，pending=1 却被断言成恢复成功）
     const embedding: EmbeddingGateway = {
       available: true,
-      embed: async () => new Float32Array([0.1]),
+      embed: async () => new Float32Array(1024).fill(0.1),
     };
 
-    // 2) 队列空 → tick 应回填 dark-1 为 bulk 任务并消费它
+    // 2) 队列空 → 第一 tick：drain 无任务可消费（claimed=0）→ 回填 dark-1 为 bulk 任务。
+    // 回填发生在 drain 之后、同 tick 不再消费——任务留存到下个 tick
     const worker = new EmbeddingRetryWorker(repo, repo, repo, embedding, createTestLogger(), 3_600_000, 3);
     await worker.tickNow();
-    const refilled = db.prepare("SELECT priority FROM embedding_tasks WHERE entry_id = 'dark-1'").get() as { priority: number } | undefined;
-    // tick 消费完队列为空后回填又立即被下轮 claim？——回填发生在 drain 之后、同 tick 内不再消费，
-    // 任务应留存到下个 tick（有界：本 tick 只入队不消费）
+    const refilled = db.prepare("SELECT priority, attempts FROM embedding_tasks WHERE entry_id = 'dark-1'").get() as { priority: number; attempts: number } | undefined;
     expect(refilled?.priority).toBe(EMBED_TASK_PRIORITY.bulk);
+    expect(refilled?.attempts).toBe(0); // 只入队未 claim
 
-    // 3) 再跑一个 tick：回填任务被消费（embed 成功 → markTaskDone → 队列又空 → 再回填循环）
+    // 3) 第二 tick：claim → embed（1024 维）→ storeEmbedding 落库 → markTaskDone。
+    // 关键闭合验证：向量真的落库（而非 Dimension mismatch 后退队假绿）
     await worker.tickNow();
-    const afterSecond = await repo.pendingTaskCount();
-    // 暗条目已消费出队；vec 落库后 scanDarkEntries 不再视它为暗（无第三轮回填源）
-    expect(afterSecond).toBe(1); // 第二轮 tick 消费 dark-1 后队列空，回填源已枯竭 → 0？见断言修正
-    expect(embedding).toBeDefined();
+    const vecRow = db.prepare("SELECT COUNT(*) AS n FROM memory_vec WHERE memory_entry_id = 'dark-1'").get() as { n: number };
+    expect(vecRow.n).toBe(1); // 向量落库实锤
+    const pendingAfter = await repo.pendingTaskCount();
+    expect(pendingAfter).toBe(0); // 队列归零（消费成功，非失败退队）
+
+    // 4) 第三 tick：暗条目已有向量，不再被 scanDarkEntries 识别 → 无回填循环
+    await worker.tickNow();
+    expect(await repo.pendingTaskCount()).toBe(0);
   });
 });
