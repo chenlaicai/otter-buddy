@@ -10,6 +10,7 @@ import type { SyncResult } from "@usecases/document/sync-documents";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
 import { EmbeddingRetryWorker } from "@usecases/memory/embedding-retry-worker";
 import type { EmbeddingRetryWorker as EmbeddingRetryWorkerType } from "@usecases/memory/embedding-retry-worker";
+import { EMBED_TASK_PRIORITY, EMBED_QUEUE_HIGH_WATER } from "@usecases/memory/memory-queue";
 import type { Repositories } from "./types";
 
 export class MemoryIndexAdapter implements MemoryIndexGateway {
@@ -189,17 +190,33 @@ export async function createAndStartRetryWorker(
   // 2) 分批限流：每 ENQUEUE_BATCH_SIZE 条让出事件循环——better-sqlite3 同步
   //    API 堆在主线程，2905 条积压场景下逐条 INSERT 会长时间堵塞事件循环，
   //    health 端点无法响应（30s 超时雪上加霜）。
+  //
+  // F20261105embqg S3：入队前水位闸门——启动暗扫是全量生产者，队列已积压时
+  // （如前次崩溃遗留）再灌入只会把活消息的出队延迟推到 tick 周期之后。
+  // 跳过是幂等安全操作：暗条目保持现状，下次启动重扫（retry 队列可延后语义的边界）。
   const existing = await repos.memoryReader.scanDarkEntries(false);
   let migratedCount = 0;
   if (existing.total > 0) {
-    logger.info(`Migrating ${existing.total} existing dark entries to retry queue`);
-    const ENQUEUE_BATCH_SIZE = 100;
-    for (const entry of existing.entries) {
-      await repos.memoryQueue.enqueueRetry(entry.entryId, new Error("migrated from existing dark entries"));
-      migratedCount++;
-      if (migratedCount % ENQUEUE_BATCH_SIZE === 0) {
-        // 让出事件循环：给 health 端点与其它 I/O 响应窗口（better-sqlite3 同步堵点分片）
-        await new Promise<void>((resolve) => setImmediate(resolve));
+    if (
+      typeof repos.memoryQueue.pendingTaskCount === "function" &&
+      await repos.memoryQueue.pendingTaskCount() >= EMBED_QUEUE_HIGH_WATER
+    ) {
+      logger.warn(
+        `Skip dark-entry migration: embedding queue at high water (${await repos.memoryQueue.pendingTaskCount()} pending >= ${EMBED_QUEUE_HIGH_WATER}), ${existing.total} dark entries stay dark for next boot`,
+        { action: "embed_queue_high_water_skip", source: "startup_dark_scan", darkEntries: existing.total },
+      );
+    } else {
+      logger.info(`Migrating ${existing.total} existing dark entries to retry queue`);
+      const ENQUEUE_BATCH_SIZE = 100;
+      for (const entry of existing.entries) {
+        // F20261105embqg S2b：启动暗扫是全量重算生产者，bulk 优先级（2）——
+        // 已在队/live 后续入队的任务优先消费，防暗扫淹没活路径
+        await repos.memoryQueue.enqueueRetry(entry.entryId, new Error("migrated from existing dark entries"), EMBED_TASK_PRIORITY.bulk);
+        migratedCount++;
+        if (migratedCount % ENQUEUE_BATCH_SIZE === 0) {
+          // 让出事件循环：给 health 端点与其它 I/O 响应窗口（better-sqlite3 同步堵点分片）
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
       }
     }
   }

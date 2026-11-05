@@ -42,8 +42,13 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private disposed = false;
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private readonly pendingBatchRequests = new Map<number, PendingBatchRequest>();
-  /** F20261013ebps：等待空槽的 waiter 队列（acquireSlot 挂起在此，出队释放时唤醒） */
-  private readonly slotWaiters: Array<() => void> = [];
+  /**
+   * F20261013ebps：等待空槽的 waiter 队列（acquireSlot 挂起在此，出队释放时唤醒）。
+   * F20261105embqg S2a： waiter 携带优先级——releaseSlot 唤醒最高优先级（数值最小）
+   * 而非 FIFO。积压泄洪期间 bulk chunk 批在排队时，live 消息 embed 可插队，
+   * 活消息入库延迟从 retry tick 周期（最差 1h）降到单批时长（~14s 量级）。
+   */
+  private readonly slotWaiters: Array<{ priority: number; resolve: () => void }> = [];
   private readonly readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
   /** F20260811mrpy Part 3：worker ready 时缓存的模型元信息 */
   private cachedMeta: EmbedModelMeta | null = null;
@@ -223,6 +228,36 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     if (!this.workerFactory) return; // 无工厂（旧构造路径）不自愈，保持现状
     if (this.circuitBroken) return;
 
+    const restartsInWindow = this.recordRestartAndCheckCircuit(reason);
+    if (restartsInWindow === null) return; // 熔断已打开，降级 FTS5-only
+
+    this.killAndResetOldWorker(reason);
+    this.spawnReplacementWorker();
+  }
+
+  /**
+   * F20261105embqg S1：worker 意外退出后的自愈重建入口（exit 路径专用，无需 kill——
+   * 进程已死）。与 restartWorker 共享限流/熔断/快照/spawn 尾部：外部杀与卡死杀
+   * 是同一类「消费端死亡事件」，共享 restartTimestamps 防风暴（失控脚本反复杀
+   * worker 时 3 次后熔断，不再无限重建）。
+   * 当日事故实锤：外部 SIGTERM 后 handleWorkerExit 只拒绝挂起请求不重建，
+   * 写 lane 永久瘫痪直到主进程重启（watchdog 因 !ready 守卫永不触发）。
+   */
+  private attemptRespawn(reason: string): void {
+    if (!this.workerFactory) return;
+    if (this.circuitBroken) return;
+
+    const restartsInWindow = this.recordRestartAndCheckCircuit(reason);
+    if (restartsInWindow === null) return;
+
+    this.spawnReplacementWorker();
+  }
+
+  /**
+   * F20261105embqg：重启记账 + 熔断检查（从 restartWorker 拆出，watchdog/exit 两路共用）。
+   * 返回 null = 熔断已打开；否则返回窗口内重启次数。
+   */
+  private recordRestartAndCheckCircuit(reason: string): number | null {
     const now = Date.now();
     this.restartTimestamps = this.restartTimestamps.filter(t => now - t < EmbeddingServiceImpl.RESTART_WINDOW_MS);
     this.restartTimestamps.push(now);
@@ -233,12 +268,18 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
 
     if (restartsInWindow > EmbeddingServiceImpl.RESTART_MAX_IN_WINDOW) {
       this.openCircuit(restartsInWindow);
-      return;
+      return null;
     }
+    return restartsInWindow;
+  }
 
-    this.killAndResetOldWorker(reason);
-
-    this.worker = this.workerFactory();
+  /**
+   * F20261105embqg：spawn 新代 worker + 画像归零 + readyState 复位（两路共用尾部）。
+   * loadError 置 null——重建是恢复动作，waitForReady 重新挂起等新 worker ready。
+   */
+  private spawnReplacementWorker(): void {
+    this.workerGeneration++; // 旧 worker 滞后事件（exit/error 晚到）按代际丢弃
+    this.worker = this.workerFactory!();
     this.setupHandlers();
     // F20261015selfheal 观测增强：新代 worker 画像归零
     this.workerBornAt = Date.now();
@@ -248,6 +289,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.lastTimeoutContext = null;
     // F20261020slvg：新 worker 加载期锚定活动时间，防止加载 + 首条慢请求叠加误判
     this.lastWorkerActivityAt = Date.now();
+    this.readyState.loadError = null;
   }
 
   /**
@@ -283,10 +325,13 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.drainSlotWaiters();
   }
 
-  /** F20261020slvg：放行全部槽位 waiter（waiter 醒来后经 loadError 检查 fail-fast） */
+  /**
+   * F20261020slvg：放行全部槽位 waiter（waiter 醒来后重查条件自行 fail-fast/重排队——
+   * worker 死亡路径放行是为了不永久悬挂，非授予槽位）
+   */
   private drainSlotWaiters(): void {
     while (this.slotWaiters.length > 0) {
-      this.slotWaiters.shift()!();
+      this.slotWaiters.shift()!.resolve();
     }
   }
 
@@ -415,21 +460,29 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * sync 批量路径用此做流速控制——前一批完成才发下一批，替代背压 reject 硬溢出入 retry 队列。
    * dispose 时全部 waiter 立即放行，由调用方后续 embed 的 disposed 检查拦截。
    */
-  acquireSlot(): Promise<void> {
+  acquireSlot(priority: number = 1): Promise<void> {
     if (this.disposed) return Promise.resolve();
     const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
     if (this.pendingRequests.size + this.pendingBatchRequests.size < maxInFlight) {
       return Promise.resolve();
     }
     return new Promise<void>((resolve) => {
-      this.slotWaiters.push(resolve);
+      this.slotWaiters.push({ priority, resolve });
     });
   }
 
-  /** in-flight 出队后唤醒一个槽位 waiter（FIFO，每出队一次只放一个，防惊群） */
+  /**
+   * F20261013ebps：in-flight 出队后唤醒一个槽位 waiter（每出队一次只放一个，防惊群）。
+   * F20261105embqg S2a：唤醒最高优先级（数值最小）的 waiter 而非 FIFO 头——
+   * O(n) 扫描在 waiter 数量级（≤ 数十）下代价可忽，不引入堆结构。
+   */
   private releaseSlot(): void {
-    const waiter = this.slotWaiters.shift();
-    if (waiter) waiter();
+    let best = -1;
+    for (let i = 0; i < this.slotWaiters.length; i++) {
+      if (best === -1 || this.slotWaiters[i].priority < this.slotWaiters[best].priority) best = i;
+    }
+    const waiter = best >= 0 ? this.slotWaiters.splice(best, 1)[0] : undefined;
+    if (waiter) waiter.resolve();
   }
 
   /** F20261013ebps：worker error 处理（从 setupHandlers 拆出） */
@@ -463,6 +516,9 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.rejectAllPending(err);
     // F20261020slvg：同 handleWorkerError——放行全部 waiter
     this.drainSlotWaiters();
+    // F20261105embqg S1：意外退出自动重建（共享熔断防风暴）。
+    // 注：restartWorker 路径 kill 前已 removeAllListeners，其 exit 不会进这里，无双重 spawn。
+    this.attemptRespawn(`worker exited unexpectedly, code=${code} signal=${signal}`);
   }
 
   /** F20261013ebps：拒绝所有 pending 请求（单条 + 批量） */
@@ -503,7 +559,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     if (opts?.waitSlot) {
       while (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
         await new Promise<void>((resolve) => {
-          this.slotWaiters.push(resolve);
+          this.slotWaiters.push({ priority: opts.priority ?? 1, resolve });
         });
         if (this.disposed) throw new Error("EmbeddingService has been disposed");
         // F20261020slvg：worker 崩溃/熔断被唤醒后 fail-fast——
@@ -624,7 +680,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     if (opts?.waitSlot) {
       while (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
         await new Promise<void>((resolve) => {
-          this.slotWaiters.push(resolve);
+          this.slotWaiters.push({ priority: opts.priority ?? 1, resolve });
         });
         if (this.disposed) throw new Error("EmbeddingService has been disposed");
         if (this.readyState.loadError) throw this.readyState.loadError;

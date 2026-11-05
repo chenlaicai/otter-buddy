@@ -5,6 +5,7 @@ import type {
 } from "@entities/memory/memory-entry";
 import type { MemoryWriter } from "./memory-writer";
 import type { MemoryQueue } from "./memory-queue";
+import { EMBED_TASK_PRIORITY, EMBED_QUEUE_HIGH_WATER } from "./memory-queue";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { redactSecrets, redactMetadataSecrets } from "@usecases/security/redact-secrets";
@@ -82,8 +83,10 @@ export class StoreMemory {
     /** 异步 fire-and-forget embedding（D27: 不阻塞返回）
      *  D22 降级：嵌入失败时该条目仅可通过 FTS5 检索，不阻塞
      *  F20260803fbit: 截断防超长 body OOM worker
-     *  F20260812mrcq Part 1：失败入 embedding_tasks 队列，retry worker 兜底 */
-    this.fireAndForgetEmbed(id, input.content);
+     *  F20260812mrcq Part 1：失败入 embedding_tasks 队列，retry worker 兜底
+     *  F20261105embqg S2：live 优先级（0）——消息投影是用户在场等检索的路径，
+     *  积压泄洪期间插队（槽位与队列两层） */
+    this.fireAndForgetEmbed(id, input.content, EMBED_TASK_PRIORITY.live);
 
     return id;
   }
@@ -117,11 +120,16 @@ export class StoreMemory {
    *   storeEmbedding 是 DELETE+INSERT 幂等覆盖，收敛不发散。
    *   注：晚到 salvage 可能给已删 entry 写孤儿 vec 行——searchVec 有
    *   JOIN memory_entries 守卫，孤儿永不浮现，惰性垃圾接受（窗口现状即存在）。
+   *
+   * F20261105embqg S2：priority 参数化——execute/replaceBySource（消息/fact）传 live(0)，
+   * embedBatch 不可用时的逐条回落传 bulk(2)。槽位排队与 retry 入队同优先级，
+   * 两层（S2a/S2b）语义对齐。
    */
-  private fireAndForgetEmbed(entryId: string, content: string): void {
+  private fireAndForgetEmbed(entryId: string, content: string, priority: number = EMBED_TASK_PRIORITY.normal): void {
     this.embeddingGateway
       .embed(this.truncateForEmbed(content), {
         waitSlot: true,
+        priority,
         salvage: (emb) => {
           void this.writer.storeEmbedding(entryId, emb)
             .then(() => this.queue.markTaskDone(entryId))
@@ -133,14 +141,14 @@ export class StoreMemory {
       .then((emb) => {
         this.writer.storeEmbedding(entryId, emb).catch((err) => {
           this.logger.warn(`Failed to store embedding for ${entryId}: ${err}`);
-          this.queue.enqueueRetry(entryId, err).catch(e =>
+          this.queue.enqueueRetry(entryId, err, priority).catch(e =>
             this.logger.error(`enqueueRetry failed for ${entryId}: ${e}`),
           );
         });
       })
       .catch((err) => {
         this.logger.debug(`Embedding generation failed for ${entryId}: ${err}`);
-        this.queue.enqueueRetry(entryId, err).catch(e =>
+        this.queue.enqueueRetry(entryId, err, priority).catch(e =>
           this.logger.error(`enqueueRetry failed for ${entryId}: ${e}`),
         );
       });
@@ -169,8 +177,9 @@ export class StoreMemory {
 
     await this.writer.replaceEntryBySource(entry);
 
-    // F20260803fbit + F20260812mrcq Part 1：截断防超长 body OOM worker；失败入队
-    this.fireAndForgetEmbed(id, input.content);
+    // F20260803fbit + F20260812mrcq Part 1：截断防超长 body OOM worker；失败入队。
+    // F20261105embqg S2：fact 类走 normal（1）——量小价值密度高，不与 bulk 重算同档
+    this.fireAndForgetEmbed(id, input.content, EMBED_TASK_PRIORITY.normal);
 
     return id;
   }
@@ -227,6 +236,23 @@ export class StoreMemory {
 
     await this.writer.replaceEntriesBySource(entries);
 
+    // F20261105embqg S3：生产端水位闸门——全量重算生产者在队列已积压时不再灌入。
+    // 当日事故实锤：全量重嵌入一秒入队 7173 条，单 worker 满转 8h 消化不动，
+    // 活消息入库延迟被推到 retry tick 周期。闸门语义：跳过即安全——chunk 保持
+    // 暗条目（FTS5 关键词检索不受影响），下次 sync/启动暗扫重试；显式取舍：
+    // 宁可向量暂时缺失，不灌死消费端。pendingTaskCount 是 port 可选方法
+    // （旧 mock 未实现时视为无闸门，保持田路径行为）。
+    if (typeof this.queue.pendingTaskCount === "function") {
+      const pending = await this.queue.pendingTaskCount();
+      if (pending >= EMBED_QUEUE_HIGH_WATER) {
+        this.logger.warn(
+          `Embedding queue at high water (${pending} >= ${EMBED_QUEUE_HIGH_WATER}), skipping bulk chunk embed for ${entries.length} chunks of ${inputs[0]?.sourceId} (dark entries, retried on next sync)`,
+          { action: "embed_queue_high_water_skip", pending, threshold: EMBED_QUEUE_HIGH_WATER, chunks: entries.length },
+        );
+        return entries.map((e) => e.id);
+      }
+    }
+
     // F20261013ebps：批量 embed——embedBatch 一次 postMessage 传全部文本，
     // worker 端 batch 推理（吞吐远高于逐条 embed）。embedBatch 不可用时回落逐条。
     // 背压溢出时 batch 直接 reject，catch 后逐条入 retry 队列（不丢失）。
@@ -257,6 +283,8 @@ export class StoreMemory {
       // 消灭唤醒后到准入之间的 TOCTOU 竞态）；salvage 同 fireAndForgetEmbed 双轨语义
       embedBatch(texts, {
         waitSlot: true,
+        // F20261105embqg S2a：bulk 优先级（2）——槽位排队让位于 live 消息（0）
+        priority: EMBED_TASK_PRIORITY.bulk,
         // F20261026emct：startIndex 分片场景下指向整批第 startIndex 条起；
         // 非分批路径 service 不传（undefined = 0）。按 startIndex 对位写入，杜绝跨子批错位污染
         salvage: (embeddings, startIndex) => {
@@ -296,15 +324,15 @@ export class StoreMemory {
           // batch 整体失败（背压/超时/worker 不可用）——逐条入 retry 队列
           this.logger.debug(`Batch embedding failed (${items.length} items), enqueueing individually: ${err}`);
           for (const item of items) {
-            this.queue.enqueueRetry(item.id, err).catch(e =>
+            this.queue.enqueueRetry(item.id, err, EMBED_TASK_PRIORITY.bulk).catch(e =>
               this.logger.error(`enqueueRetry failed for ${item.id}: ${e}`),
             );
           }
         });
     } else {
-      // embedBatch 不可用（mock / 旧实现）——回落逐条
+      // embedBatch 不可用（mock / 旧实现）——回落逐条（bulk 优先级：S2 两层语义对齐）
       for (const item of items) {
-        this.fireAndForgetEmbed(item.id, item.content);
+        this.fireAndForgetEmbed(item.id, item.content, EMBED_TASK_PRIORITY.bulk);
       }
     }
   }
