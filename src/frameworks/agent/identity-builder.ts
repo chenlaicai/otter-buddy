@@ -99,7 +99,7 @@ export class IdentityBuilder {
     // 格式实体是 signature-convention skill 的管道快照（同 .github/pull_request_template.md
     // 性质，机制上无法指针化），同步义务见该 skill。
     return [
-      `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- 你的署名行（PR description / review 评论末尾，原样复制下面这行，不要凭记忆改写格式）：\n  🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by ${otter.name}\n- commit author（git commit --author 参数值，整体照抄）：${otter.name} <otter-buddy>\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
+      `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- 你的署名行（PR description / review 评论末尾，原样复制下面这行，不要凭记忆改写格式）：\n  🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by ${otter.name}\n- commit author（git commit --author 参数值，整体照抄）：${otter.name} <41982931+chenlaicai@users.noreply.github.com>\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
       conversationIdentity,
       userIdentity,
       summonerIdentity,
