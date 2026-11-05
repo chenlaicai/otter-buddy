@@ -3,13 +3,13 @@ id: F20261105sgemu
 title: 署名邮箱统一到搭档 noreply 地址（人/獭区分收敛到名号维度）
 summary: 2026-11-05 搭档裁决「名字是名字，邮箱是邮箱」——GitHub 头像点亮/账号归属/贡献图只认邮箱，獭的身份标识靠名号字段（大獭/开发獭-xx）已足够；commit author 邮箱从裸标签 otter-buddy 统一为搭档账号 noreply 地址 41982931+chenlaicai@users.noreply.github.com，同步快照三处（identity-builder.ts 管道注入、signature-convention skill 格式定义、identity-prefix 测试断言）
 change_type: prompt
-capability_test: "tests/frameworks/agent/identity-prefix.test.ts"
+capability_test: tests/capability/otter-lifecycle.capability.test.ts
 intent:
   problem: "仓库历史 author 邮箱 4 种形态并存（noreply 756 / otter-buddy 裸标签 95 / QQ 邮箱 10 / 杂项 9），搭档核查 colink 提交身份时发现并要求统一；獭的 commit 因邮箱不关联账号而头像灰、贡献图不计"
   expected_effect: "增量 commit 全部统一挂 chenlaicai 账号 noreply 邮箱（头像点亮/贡献归属一致），人/獭区分收敛到名号维度；存量历史不动。新会话身份注入携带新格式"
   verify_by:
     type: behavior_check
-    detail: "tests/frameworks/agent/identity-prefix.test.ts 断言身份段含新邮箱格式（vitest 16/16）；合入后新会话首个 commit 的 author 邮箱为新格式"
+    detail: "otter-lifecycle 能力测试新增身份段携带 commit author 新格式的行为断言（真系统+真 LLM，提问不含邮箱 token）；identity-prefix 单测同步覆盖构造分支（vitest 16/16）"
 created_in_conversation: e2819402-5088-4e64-9420-fca091d3e040
 created_at: 2026-11-05
 tags: [signature, identity, git]
