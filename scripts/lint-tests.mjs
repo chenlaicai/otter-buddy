@@ -69,7 +69,12 @@ const allowDdlFiles = [];
 // unfurl_cache 旧形态（无 is_draft）验证 initSchema ALTER 补列幂等 + 老数据读 null，
 // 被测对象就是「旧 schema → 新 schema」补列迁移本身（migration-equivalence.guard
 // 只做表级等价不覆盖补列路径），与 otter-color-migration.test.ts 同类场景（ALTER 还原旧形态）
-const MAX_ALLOW_DDL_FILES = 14;
+// F20261105embqg：14→15——新增 embedding-task-priority.test.ts 测 embedding_tasks
+// 的 priority 列 SQL 语义（claim 排序/ON CONFLICT 保留），必须建真实表，与
+// embedding-task-gate.test.ts 同模式同理由。
+// F20261105embqg 对抗审视修复：15→16——embed-queue-review-fixes.test.ts 同模式
+// （发现 2/3 需真实 SqliteMemoryRepository 的 embedding_tasks/scanDarkEntries 语义）。
+const MAX_ALLOW_DDL_FILES = 16;
 
 for (const file of walk(path.join(root, "tests"))) {
   const rel = path.relative(root, file);

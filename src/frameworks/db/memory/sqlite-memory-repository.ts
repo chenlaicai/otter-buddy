@@ -36,6 +36,7 @@ import {
 import {
   enqueueRetry,
   claimPendingTasks,
+  pendingTaskCount,
   markTaskDone,
   markTaskAttemptFailed,
   resetPendingAttempts,
@@ -728,8 +729,8 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /** F20260812mrcq Part 1：embedding 失败入队重试（F20260814qswp 拆至 embedding-task-queue） */
-  async enqueueRetry(entryId: string, error: unknown): Promise<void> {
-    enqueueRetry(this.db, entryId, error);
+  async enqueueRetry(entryId: string, error: unknown, priority?: number): Promise<void> {
+    enqueueRetry(this.db, entryId, error, priority);
   }
 
   /** F20261026emct：一次性出清幽灵死信（清理脚本专用，运行时不调） */
@@ -745,8 +746,13 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   /** F20260812mrcq Part 1：原子认领 pending 任务（F20260814qswp 拆至 embedding-task-queue） */
   async claimPendingTasks(
     limit: number,
-  ): Promise<Array<{ entryId: string; content: string; attempts: number; lastAttemptAt: string | null; createdAt: string }>> {
+  ): Promise<Array<{ entryId: string; content: string; attempts: number; lastAttemptAt: string | null; createdAt: string; priority: number }>> {
     return claimPendingTasks(this.db, limit);
+  }
+
+  /** F20261105embqg S3：当前 pending 任务总数（生产端水位闸门判据） */
+  async pendingTaskCount(): Promise<number> {
+    return pendingTaskCount(this.db);
   }
 
   /** F20260812mrcq Part 1：task 成功，删除 task 行 */
