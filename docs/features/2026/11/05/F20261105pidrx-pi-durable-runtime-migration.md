@@ -49,7 +49,7 @@ summary: 以 pi-durable SQLite session、单 writer、unsafe custom tool 和模�
 | `frameworks/agent/durable-tool-registry.ts` | OtterTool/invokeContext → durable `ToolRegistration`，统一 `replay:"unsafe"`、参数/输出错误映射 |
 | `frameworks/agent/durable-session.ts` | pool entry、registry、conversation/watch、消息与 token/compaction 适配、生命周期关闭 |
 | `frameworks/agent/durable-event-stream.ts` | 公开 watch parts → 现有 `AgentStreamEvent`，工具开始/结束先于副作用的可观测事件 |
-| `pi-session-factory.ts` | 保留 invokeContext、会话锁、epoch/breaker/bash/loop-block hooks；删除 coding-agent 建 session/绑定/内存镜像 |
+| `pi-session-factory.ts` | 保留 invokeContext、epoch/breaker/bash/loop-block hooks；删除 coding-agent 建 session/绑定/内存镜像与会话锁（单主人归部署层，见下方「单主人与部署前置」） |
 | `resume-interrupted-service.ts` | 显式只读 checkpoint 继承与防双跑；不依赖持久化 scheduler 重放旧模型轮 |
 
 核心持久化数据归属 durable：`data/durable-sessions/<otterId>.sqlite`（含 harness metadata、conversation、entries、tool tasks）。每个獭一个独立 storage/单 writer，不跨獭写 conversation；每条 invoke 的 `currentInvokeId` 通过 extension runner 的 request-scoped AsyncLocalStorage 与工具 entrypoint 绑定，拒绝缺失 ID 的写工具。
@@ -98,10 +98,17 @@ summary: 以 pi-durable SQLite session、单 writer、unsafe custom tool 和模�
 
 - 基线：`5300d8e0`；分支：`feat/pi-durable-runtime`；所有修改仅在专用 worktree。
 - 真实 Harness + 临时 SQLite：custom tool/watch、错误与 terminate、unsafe reopen 不重放、owner 竞争、abort、steer/followUp、MCP stdio、retry/compaction、缺 invokeId 拒绝副作用，共 10 条专项行为测试通过（含真实进程中断）。
-- 真实进程中断：子进程在工具内被 SIGKILL，锁过期后重开 checkpoint；工具副作用计数仍为 1，未重复执行。
+- 真实进程中断：子进程在工具内被 SIGKILL，重启后重开 checkpoint（锁已删，无 stale 窗口）；工具副作用计数仍为 1，未重复执行。
 - 全量：`npm run lint`、`npm run build`、`npm test -- --reporter=dot`（432 files / 5681 tests）通过。
 - 未验证：真实外部 LLM provider、生产 alpha 实例、真实用户会话切换；MCP OAuth 自动登录与动态 extension 注册未验证，不能宣称全量兼容。
 - 恢复 owner：otter invoke/admission 仍负责领域恢复；durable reopen 对未完成任务显式 abort，不允许旧 invoke 与 durable 自动 replay 双跑。
+
+### 单主人与部署前置（2026-11-06 搭档定调：锁移除）
+
+- **会话单主人是运行环境责任，海獭不做锁**：原 proper-lockfile 文件锁（含 60s stale 判死窗口，SIGKILL 快速重启会误拦一次 resume）已全链路移除（commit eb43a189），alpha 实测：SIGKILL 后 8 秒极速重启，中断 resume 直接成功（25s settle done）。
+- **删锁后的双开防护矩阵**：单实例由部署层保证（launchd/systemd Label 单实例 + 崩溃重启退避），数据完整性由 sqlite busy_timeout + pi-durable commit 一致性校验兑底。语义层双驱防护依赖部署层配置。
+- ⚠️ **部署前置项（未配置前勿对同一数据域双开）**：主服务当前 nohup 裸跑，launchd/systemd 单实例配置**尚未落地**，属合并后运行环境配置项；配置就绪前，同域双进程驱动同一会话目录无锁拦阻，仅剩存储层拒绝冲突写入。
+- #1791 契约条目：「会话单主人 = 运行环境责任，海獭只声明依赖」——云化（Durable Objects 等）时由平台原生满足。
 - 旧 JSONL：仅 `.jsonl` 档案可读作交接切片；新执行不写旧 JSONL，不导入新 durable store。
 
 ## 对抗审视处置（PR #1783，Runtime检视獭 2026-11-05）

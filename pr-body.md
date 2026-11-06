@@ -11,10 +11,16 @@ Driver: conversation=b4e05359
 ## What Changed
 
 - durable SQLite session store、registry、watch→现有流式事件、prompt/steer/followUp/abort、usage/compaction 适配。
-- 所有 otter/MCP 工具 `replay:"unsafe"`；invokeId 缺失拒绝副作用；每 store 进程 owner 锁。
+- 所有 otter/MCP 工具 `replay:"unsafe"`；invokeId 缺失拒绝副作用。会话单主人归部署层（锁已删，见「单主人与部署前置」）。
 - MCP 使用公开 pi-mcp client；旧 JSONL 仅作历史交接只读切片；reset 创建新 durable 世代。
 - 删除旧 coding-agent JSONL 恢复实现与 1.1.0 私有 patch；统一 pi 1.5.0 依赖。
 - 特性文档：`F20261105pidrx`。
+
+### 单主人与部署前置（2026-11-06 搭档定调：锁移除）
+
+- proper-lockfile 会话文件锁全链路移除（commit eb43a189，含 60s stale 误拦边角）；单实例由部署层保证（launchd/systemd Label 单实例 + 崩溃重启退避），数据完整性由 sqlite busy_timeout + pi-durable commit 一致性校验兜底。
+- ⚠️ **部署前置项**：主服务 launchd/systemd 单实例配置尚未落地（当前 nohup 裸跑），配置就绪前勿对同一数据域双开；此项属合并后运行环境配置（#1791 契约条目：会话单主人=运行环境责任）。
+- alpha 实测（删锁后）：SIGKILL 后 8 秒极速重启，中断 resume 直接成功（25s settle done）——原 stale 窗口误拦边角消失。
 
 ## Affected Areas
 
@@ -37,8 +43,8 @@ Driver: conversation=b4e05359
 - `npm run build`：通过；durable 1.5.0 安装校验通过。
 - `npm test -- --reporter=dot`：432 files / 5681 tests 通过。
 - 主链专项：59 files / 732 tests 通过。
-- durable 专项：10 tests 通过，含真实 stdio MCP server、retry/compaction、owner 锁、abort/steer/followUp、unsafe replay。
-- 真实进程 SIGKILL：工具执行一次后被杀，锁过期后 reopen，副作用仍为 1 次；checkpoint 可读。
+- durable 专项：13 tests 通过，含真实 stdio MCP server、retry/compaction、abort/steer/followUp、unsafe replay、同 session 多轮 invoke。
+- 真实进程 SIGKILL：工具执行一次后被杀，重启后 reopen，副作用仍为 1 次；checkpoint 可读（alpha 实测：删锁后 8s 快速重启 resume 直接成功）。
 - `git diff --check`：通过。
 
 ### agent 陈述（未复验）
