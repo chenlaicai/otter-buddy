@@ -183,7 +183,7 @@ export class DurableSession {
     const compactingNow = Array.isArray(compactions) && compactions.length > 0;
     if (compactingNow !== this.wasCompacting) {
       this.wasCompacting = compactingNow;
-      this.emit({ type: compactingNow ? "compaction_start" : "compaction_end" });
+      this.forwardCompactionEvent({ type: compactingNow ? "compaction_start" : "compaction_end" });
     }
     // 压缩失败上报（delta #3 残余补全）：pi.live.compactionFailure 随 watch 分发，
     // 9/22 事故同款呼救信号——agent-invoker 的 compaction_end(errorMessage) warn 恢复喂数。
@@ -193,8 +193,17 @@ export class DurableSession {
     if (failure && typeof taskId === "number" && taskId !== this.lastCompactionFailureTaskId) {
       this.lastCompactionFailureTaskId = taskId;
       const error = failure.error;
-      this.emit({ type: "compaction_end", errorMessage: typeof error === "string" ? error : JSON.stringify(error) });
+      this.forwardCompactionEvent({ type: "compaction_end", errorMessage: typeof error === "string" ? error : JSON.stringify(error) });
     }
+  }
+
+  /** delta #4 修复：compaction 事件双通道送达。sink.dispatch 经构造回调一次双投——
+   *  emit 进 subscribe 总线（outputGuard 等订阅者）+ stream.dispatch 进当前 invoke 的
+   *  消费链（handleStreamEvent：agent-invoker:853 的失败 warn / metrics / 域事件映射）。
+   *  仅 emit 总线时 invoke 侧收不到（delta #4 严重发现）；无活跃 sink（非 invoke 期）回落总线。 */
+  private forwardCompactionEvent(evt: { type: string; errorMessage?: string }): void {
+    if (this.promptWatch) this.promptWatch.dispatch(evt);
+    else this.emit(evt);
   }
 
   emit(event: unknown): void {

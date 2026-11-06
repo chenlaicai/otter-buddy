@@ -248,17 +248,25 @@ describe("durable-native runtime 压缩感知（迁移不兼容修复回归守�
     ]);
     await session.prompt("warm up", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
 
+    // delta #4 修复后：compaction 事件双通道（总线喂 outputGuard + invoke stream 喂 handleStreamEvent）
     const events: string[] = [];
     const unsub = session.subscribe((e: unknown) => { const t = (e as { type?: string })?.type; if (t?.startsWith("compaction")) events.push(t); });
+    const streamEvents: string[] = [];
+    const invokeStream = new DurableEventStream((e: unknown) => { const t = (e as { type?: string })?.type; if (t?.startsWith("compaction")) streamEvents.push(t); });
+    // 重放一次 prompt 让 promptWatch 指向我们的 invoke stream（compact 事件经 sink.dispatch 双投）
+    faux.setResponses([fauxAssistantMessage("rewarm")]);
+    await session.prompt("rewarm", undefined, invokeStream, BACKGROUND_CONTEXT);
 
-    // 手动触发 compact：faux 应答总结文本——compactions 任务出现→消失，
-    // watch 回调应发 compaction_start → compaction_end（守卫避让链的信号源）
+    // 手动触发 compact：faux 应答总结文本——compactions 任务出现→消失
     faux.setResponses([fauxAssistantMessage("summary: 压缩总结测试")]);
     await session.compact("test");
     await new Promise(r => setTimeout(r, 300));
 
     expect(events).toContain("compaction_start");
     expect(events).toContain("compaction_end");
+    // invoke stream 侧（handleStreamEvent 同链）也必须收到——delta #4 严重发现的回归点
+    expect(streamEvents).toContain("compaction_start");
+    expect(streamEvents).toContain("compaction_end");
     unsub();
     await session.close(BACKGROUND_CONTEXT);
   });
@@ -274,6 +282,14 @@ describe("durable-native runtime 压缩感知（迁移不兼容修复回归守�
       await session.prompt("turn " + i + " " + "w".repeat(10000), undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
     }
     const failures: string[] = [];
+    const streamFailures: string[] = [];
+    // delta #4：断言真正的消费者——invoke stream（handleStreamEvent 链）收到 errorMessage
+    const invokeStream = new DurableEventStream((e: unknown) => {
+      const ev = e as { type?: string; errorMessage?: string };
+      if (ev?.type === "compaction_end" && ev.errorMessage) streamFailures.push(ev.errorMessage);
+    });
+    faux.setResponses([fauxAssistantMessage("rewarm")]);
+    await session.prompt("rewarm2", undefined, invokeStream, BACKGROUND_CONTEXT);
     const unsub = session.subscribe((e: unknown) => {
       const ev = e as { type?: string; errorMessage?: string };
       if (ev?.type === "compaction_end" && ev.errorMessage) failures.push(ev.errorMessage);
@@ -289,6 +305,9 @@ describe("durable-native runtime 压缩感知（迁移不兼容修复回归守�
     await new Promise(r => setTimeout(r, 500));
     expect(failures.length).toBeGreaterThanOrEqual(1);
     expect(failures[0]).toContain("GoUsageLimitError");
+    // invoke stream 侧必须收到（agent-invoker:853 warn 的真实喂数链）
+    expect(streamFailures.length).toBeGreaterThanOrEqual(1);
+    expect(streamFailures[0]).toContain("GoUsageLimitError");
     unsub();
     await session.close(BACKGROUND_CONTEXT);
   }, 60000);
