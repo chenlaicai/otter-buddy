@@ -336,6 +336,8 @@ describe("durable-native runtime auto_retry 感知（第二次误判修正的回
     // 退避（base 1s）+ 恢复后 start/end 都应出现（fast path：事件在 prompt 返回前已发）
     expect(busEvents).toContain("auto_retry_start");
     expect(streamEvents).toContain("auto_retry_start");
+    // 对称路径（delta #6 小建议采纳）：恢复后 retry 消失 → auto_retry_end（退避后 prompt 返回，边沿已翻转）
+    expect(busEvents).toContain("auto_retry_end");
     unsub();
     await session.close(BACKGROUND_CONTEXT);
   });
