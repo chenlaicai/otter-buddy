@@ -44,7 +44,6 @@ export interface DurableSessionOptions {
   register: InvokeRegister;
   invokeId?: string;
   context: Context;
-  ownerStaleMs?: number;
   promptProvider?: () => string | Promise<string>;
   mcp?: { registrations(signal?: AbortSignal): Promise<ToolRegistration[]>; instructions(): string; close(): Promise<void> };
   haltRegistry?: { takeForBlock(otterId: string): any[]; isHalted(otterId: string): boolean };
@@ -72,8 +71,6 @@ export class DurableSession {
   private readonly otterExtension: ReturnType<typeof defineExtension>;
   private currentInvokeId?: string;
   private hasBoundInvoke = false;
-  private ownerRelease?: () => void;
-  private ownerHeartbeat?: ReturnType<typeof setInterval>;
   private promptText: string;
   private extraTools: ToolRegistration[] = [];
 
@@ -97,7 +94,7 @@ export class DurableSession {
 
   static async open(options: DurableSessionOptions): Promise<DurableSession> {
     const session = new DurableSession(options);
-    await session.acquireOwner();
+    await session.ensureDir();
     const storage = await openNodeSqliteStorage(options.file);
     session.harness = await Harness.open(storage, {
       models: options.models,
@@ -125,12 +122,13 @@ export class DurableSession {
     return session;
   }
 
-  private async acquireOwner(): Promise<void> {
-    const { default: lockfile } = await import("proper-lockfile");
+  private async ensureDir(): Promise<void> {
+    // 搭档定调（2026-11-06）：会话单主人是运行环境责任，海獭不做锁——
+    // 单实例由部署层保证（launchd/systemd + 崩溃重启退避），数据一致性由
+    // sqlite busy_timeout + pi-durable commit 校验兑底。原 proper-lockfile 实现
+    // 移除（含其 60s stale 判死窗口在 SIGKILL 快速重启下的误拦）。
     const fs = await import("node:fs");
     await fs.promises.mkdir(path.dirname(this.options.file), { recursive: true });
-    this.ownerRelease = await lockfile.lock(this.options.file, { realpath: false, retries: 0, stale: this.options.ownerStaleMs ?? 60_000, update: 5_000 });
-    this.ownerHeartbeat = setInterval(() => undefined, 30_000);
   }
 
   private agentChange(): AgentChange {
@@ -308,8 +306,5 @@ export class DurableSession {
     await this.harness.close(context);
     await this.options.mcp?.close();
     this._state = "closed";
-    if (this.ownerHeartbeat) clearInterval(this.ownerHeartbeat);
-    await this.ownerRelease?.();
-    this.ownerRelease = undefined;
   }
 }

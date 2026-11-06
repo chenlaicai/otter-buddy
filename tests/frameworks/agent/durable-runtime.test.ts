@@ -21,7 +21,7 @@ async function open(file: string, responses: Parameters<ReturnType<typeof fauxPr
   faux.setResponses(responses);
   const session = await DurableSession.open({
     otterId: "otter", file, models, model: faux.getModel(), cwd: tmpdir(), logger,
-    register: createInvokeRegister(), invokeId: "invoke-test", context: BACKGROUND_CONTEXT, ownerStaleMs: 2000,
+    register: createInvokeRegister(), invokeId: "invoke-test", context: BACKGROUND_CONTEXT,
     tools: { codingTools: [], customTools: [{ name: "side_effect", label: "test", description: "test", parameters: { type: "object", properties: {} }, execute }] },
   });
   return { session, faux };
@@ -75,15 +75,9 @@ describe("durable-native runtime", () => {
     await second.session.close(BACKGROUND_CONTEXT);
   });
 
-  it("rejects a second owner for the same durable store", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-"));
-    const file = path.join(dir, "session.sqlite");
-    const first = await open(file, [fauxAssistantMessage("one")]);
-    await expect(open(file, [fauxAssistantMessage("two")])).rejects.toThrow();
-    await first.session.close(BACKGROUND_CONTEXT);
-    const second = await open(file, [fauxAssistantMessage("two")]);
-    await second.session.close(BACKGROUND_CONTEXT);
-  });
+  // 搭档定调（2026-11-06）：单主人保证归运行环境（部署层单实例），海獭不做锁。
+  // 原「rejects a second owner for the same durable store」用例随 proper-lockfile
+  // 机制一并移除——它测的是被删除的拒绝行为。
 
   it("aborts a running tool and keeps the checkpoint readable", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-"));
