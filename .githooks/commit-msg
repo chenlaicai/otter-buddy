@@ -97,3 +97,27 @@ if [ $date_exit -ne 0 ]; then
   echo "$date_check"
   exit 1
 fi
+
+# F20261106gtagl: Modification-Class 词表闸（方案 A）——声明值必须在五值词表内。
+# 只管「值合法」，不管「存在/分类正确」——存在性与声明-diff 一致性归 B4 异体审（adversarial-review SKILL B4 段）。
+# 行内匹配容忍历史惯用形态：值后带括号说明（narrow-fix（既有语义内））、值后缀组合（narrow-fix + deletion）。
+# 声明值取首个 token；无声明行放行（占位文件脚本形态、chore 类合法无声明提交不受阻）。
+# 词表镜像 worktree-isolation SKILL 步骤 4 声明表——hook 无法 import skill 文档，人工同步；
+# 元测试（tests/githooks/commit-msg-modclass.test.ts）锁死两者一致性。
+modclass_line=$(grep -i -m1 '^Modification-Class:' "$msg_file")
+if [ -n "$modclass_line" ]; then
+  modclass_value=$(printf '%s' "$modclass_line" | tr '[:upper:]' '[:lower:]' | sed -e 's/^modification-class:[[:space:]]*//' -e 's/[（(].*$//' -e 's/[[:space:]].*$//')
+  case "$modclass_value" in
+    narrow-fix|scope-reduction|deletion|mechanism-addition|docs-config)
+      ;;
+    *)
+      echo "错误：Modification-Class 声明值「$modclass_value」不在词表内。"
+      echo "合法值（与 worktree-isolation skill 步骤 4 声明表对应，F20260908pgrd）："
+      echo "  narrow-fix / scope-reduction / deletion / mechanism-addition / docs-config"
+      echo "值后可带括号说明（如 narrow-fix（既有语义内）），不影响的取首个词。"
+      echo "词表外自造值（bugfix/refactor/test-only 等）= 声明纪律失守现场（#1782「bugfix」实证），请对表重选。"
+      echo "当前声明行: $modclass_line"
+      exit 1
+      ;;
+  esac
+fi
