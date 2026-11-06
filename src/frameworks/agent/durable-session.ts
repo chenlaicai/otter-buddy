@@ -62,6 +62,8 @@ export class DurableSession {
   private watcherStarted = false;
   /** pi.live compactions 状态的边沿检测（false→true 发 compaction_start，true→false 发 end） */
   private wasCompacting = false;
+  /** pi.live.compactionFailure 去重锚（同 taskId 只发一次失败事件） */
+  private lastCompactionFailureTaskId?: number;
   private lastWatchedEntry?: number;
   private invocationTokens: TokenUsage = { input: 0, output: 0 };
   private totalTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -176,11 +178,22 @@ export class DurableSession {
   private readonly listeners = new Set<(event: unknown) => void>();
   /** 迁移不兼容修复：pi.live.compactions 边沿检测——重建 compaction_start/end 事件 */
   private detectCompactionEdge(view: ConversationView): void {
-    const compactions = (view.docs as Record<string, { compactions?: unknown[] } | undefined> | undefined)?.["pi.live"]?.compactions;
+    const live = (view.docs as Record<string, { compactions?: unknown[]; compactionFailure?: { error?: unknown } } | undefined> | undefined)?.["pi.live"];
+    const compactions = live?.compactions;
     const compactingNow = Array.isArray(compactions) && compactions.length > 0;
     if (compactingNow !== this.wasCompacting) {
       this.wasCompacting = compactingNow;
       this.emit({ type: compactingNow ? "compaction_start" : "compaction_end" });
+    }
+    // 压缩失败上报（delta #3 残余补全）：pi.live.compactionFailure 随 watch 分发，
+    // 9/22 事故同款呼救信号——agent-invoker 的 compaction_end(errorMessage) warn 恢复喂数。
+    // 每 taskId 只报一次（failure 对象在后续视图会保持存在，靠 lastFailureTaskId 去重）。
+    const failure = live?.compactionFailure;
+    const taskId = (failure as { taskId?: number } | undefined)?.taskId;
+    if (failure && typeof taskId === "number" && taskId !== this.lastCompactionFailureTaskId) {
+      this.lastCompactionFailureTaskId = taskId;
+      const error = failure.error;
+      this.emit({ type: "compaction_end", errorMessage: typeof error === "string" ? error : JSON.stringify(error) });
     }
   }
 

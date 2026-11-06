@@ -262,4 +262,34 @@ describe("durable-native runtime 压缩感知（迁移不兼容修复回归守�
     unsub();
     await session.close(BACKGROUND_CONTEXT);
   });
+
+  it("压缩失败上报：compactionFailure 到达 pi.live 时发 compaction_end(errorMessage)（9/22 同款呼救信号）", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-compact-fail-"));
+    // 前置：灌长会话越过 keepRecentTokens（faux contextWindow 128k → keep 20000），
+    // selectCut 才有切点、summarize 才会真调模型——短会话 compact 走 complete() 空切点
+    // 正常结束（不调模型），failure 分支不可达（probe 实证，勿改回短会话写法）。
+    const { session, faux } = await open(path.join(dir, "session.sqlite"),
+      Array.from({ length: 12 }, () => fauxAssistantMessage([fauxText("z".repeat(12000))])));
+    for (let i = 0; i < 8; i++) {
+      await session.prompt("turn " + i + " " + "w".repeat(10000), undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
+    }
+    const failures: string[] = [];
+    const unsub = session.subscribe((e: unknown) => {
+      const ev = e as { type?: string; errorMessage?: string };
+      if (ev?.type === "compaction_end" && ev.errorMessage) failures.push(ev.errorMessage);
+    });
+    // 非重试类错误（GoUsageLimitError 不匹配 retryable 模式）→ 直接 failCompactionStatus → pi.live.compactionFailure
+    faux.setResponses([() => {
+      const m = fauxAssistantMessage("fallback");
+      (m as unknown as { stopReason: string }).stopReason = "error";
+      (m as unknown as { errorMessage: string }).errorMessage = "GoUsageLimitError: subscription limit";
+      return m;
+    }]);
+    await session.compact("force-fail").catch(() => undefined);
+    await new Promise(r => setTimeout(r, 500));
+    expect(failures.length).toBeGreaterThanOrEqual(1);
+    expect(failures[0]).toContain("GoUsageLimitError");
+    unsub();
+    await session.close(BACKGROUND_CONTEXT);
+  }, 60000);
 });
