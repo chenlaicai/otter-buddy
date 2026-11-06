@@ -271,7 +271,10 @@ function createMemoryTables(db: Database.Database): void {
       last_attempt_at TEXT,
       next_retry_at TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'dead')),
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      -- F20261105embqg：优先级（0=活消息 1=默认 2=全量重算）——claim 按此序消费，
+      -- 积压泄洪期间活消息不被存量重算堵死（当日实锤：7300+ 条积压期间活消息入库延迟达 tick 周期）
+      priority INTEGER NOT NULL DEFAULT 1
     );
     CREATE INDEX IF NOT EXISTS idx_embedding_tasks_status_retry
       ON embedding_tasks (status, next_retry_at);
@@ -732,6 +735,16 @@ function createHealingEventTables(db: Database.Database): void {
   // 与修复合入后按 issue 收尾（bound_issue = N）都是高频路径，无索引全表扫。
   // 必须放在补列之后：索引在建表块内时存量库（IF NOT EXISTS no-op、列尚不存在）启动即炸
   db.exec(`CREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue)`);
+
+  // F20261105embqg：embedding_tasks 存量库迁移——priority 列（0=活消息 1=默认 2=全量重算）。
+  // 同 introduced_by_pr 幂等模式；存量行默认 1（默认级）。索引同样放在补列之后。
+  try {
+    db.exec(`ALTER TABLE embedding_tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 1`);
+  } catch {
+    // 列已存在，忽略
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_embedding_tasks_priority
+    ON embedding_tasks(status, priority, next_retry_at)`);
 }
 
 /** Web 用户已读状态（消息级，与 otter 的 last_read_seq 独立）。

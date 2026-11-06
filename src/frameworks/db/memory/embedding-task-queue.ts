@@ -1,4 +1,10 @@
 /**
+ * F20261105embqg：任务优先级常量与 S3 水位阈值定义在 port 层（usecases/memory/memory-queue.ts）
+ * ——本文件（frameworks）从 port 导入，依赖方向 frameworks→usecases。
+ */
+import { EMBED_TASK_PRIORITY } from "../../../usecases/memory/memory-queue";
+
+/**
  * F20260812mrcq Part 1：embedding 失败重试任务队列（embedding_tasks 表）SQL。
  * F20260814qswp 从 sqlite-memory-repository.ts 拆出——job-queue 职责与 entry 存储正交；
  * Repository 的 port 方法委托到这里的纯函数。
@@ -19,20 +25,30 @@ import type Database from "better-sqlite3";
  * 'entry deleted' 空转。闸门在此而非调用方：所有入队路径（store-memory / retry worker /
  * 启动迁移）共用此入口，一处拦截全部覆盖。置 0 行事务外发生，不影响主写入路径。
  */
-export function enqueueRetry(db: Database.Database, entryId: string, error: unknown): void {
+/**
+ * F20261105embqg：任务优先级语义见 port 层 EMBED_TASK_PRIORITY（usecases/memory/memory-queue.ts）。
+ */
+export function enqueueRetry(
+  db: Database.Database,
+  entryId: string,
+  error: unknown,
+  priority: number = EMBED_TASK_PRIORITY.normal,
+): void {
   const row = db.prepare(
     "SELECT length(trim(content)) AS len FROM memory_entries WHERE id = ?",
   ).get(entryId) as { len: number | null } | undefined;
   if (!row || row.len === 0) return; // entry 不存在或 content 空：不入队，杜幽灵任务源头
   const errMsg = error instanceof Error ? error.message : String(error);
   db.prepare(`
-    INSERT INTO embedding_tasks (entry_id, next_retry_at, status, created_at, last_error)
-    VALUES (?, datetime('now'), 'pending', datetime('now'), ?)
+    INSERT INTO embedding_tasks (entry_id, next_retry_at, status, created_at, last_error, priority)
+    VALUES (?, datetime('now'), 'pending', datetime('now'), ?, ?)
     ON CONFLICT(entry_id) DO UPDATE SET
       next_retry_at = excluded.next_retry_at,
       last_error = excluded.last_error,
       status = 'pending'
-  `).run(entryId, errMsg);
+      -- F20261105embqg：不更新 priority——保留首次入队优先级，
+      -- 防低优先级生产者（bulk 重算）后到覆盖已在队的高优先级任务（live 消息）
+  `).run(entryId, errMsg, priority);
 }
 
 /**
@@ -45,7 +61,7 @@ export function enqueueRetry(db: Database.Database, entryId: string, error: unkn
 export function claimPendingTasks(
   db: Database.Database,
   limit: number,
-): Array<{ entryId: string; content: string; attempts: number; lastAttemptAt: string | null; createdAt: string }> {
+): Array<{ entryId: string; content: string; attempts: number; lastAttemptAt: string | null; createdAt: string; priority: number }> {
   const rows = db.prepare(`
     UPDATE embedding_tasks
     SET last_attempt_at = datetime('now'),
@@ -62,10 +78,14 @@ export function claimPendingTasks(
       SELECT entry_id FROM embedding_tasks
       WHERE status = 'pending'
         AND next_retry_at <= datetime('now')
+      -- F20261105embqg：优先级序消费——live 消息（0）先于 bulk 重算（2）出队，
+      -- 同级内保持 next_retry_at 时间序（退避语义不变）。无 priority 列的旧库
+      -- 由 initSchema 幂等补列后此 SQL 才可达，不存在 NULL priority 行。
+      ORDER BY priority ASC, next_retry_at ASC
       LIMIT ?
     )
-    RETURNING entry_id, attempts, last_attempt_at, created_at
-  `).all(limit) as Array<{ entry_id: string; attempts: number; last_attempt_at: string | null; created_at: string }>;
+    RETURNING entry_id, attempts, last_attempt_at, created_at, priority
+  `).all(limit) as Array<{ entry_id: string; attempts: number; last_attempt_at: string | null; created_at: string; priority: number }>;
 
   if (rows.length === 0) return [];
   // 二次查询 JOIN memory_entries 拿 content
@@ -80,7 +100,21 @@ export function claimPendingTasks(
     attempts: r.attempts,
     lastAttemptAt: r.last_attempt_at,
     createdAt: r.created_at,
+    priority: r.priority,
   }));
+}
+
+/**
+ * F20261105embqg：当前 pending 任务总数——生产端水位闸门（S3）的判据。
+ * 判据单一（队列深度），无时间/增速维度：机械可测、行为可预期，
+ * 阈值调优只动常量不动逻辑（当日事故复盘：多因子自适应闸门自身会变成
+ * 新的不可预期机制，见 F20261105embqg 设计取舍）。
+ */
+export function pendingTaskCount(db: Database.Database): number {
+  const row = db.prepare(
+    "SELECT COUNT(*) AS n FROM embedding_tasks WHERE status = 'pending'",
+  ).get() as { n: number };
+  return row.n;
 }
 
 /** task 成功，删除 task 行 */

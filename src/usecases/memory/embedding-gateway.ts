@@ -61,6 +61,12 @@ export interface EmbedCallOptions {
    * 默认 false：查询路径必须 fail-fast 走 FTS5 降级，不该排队。
    */
   waitSlot?: boolean;
+  /**
+   * F20261105embqg S2a：槽位排队优先级（0=live 消息 1=默认 2=bulk 重算，数值小先属）。
+   * 仅 waitSlot 挂起时生效：积压泄洪期间 live 消息可插队，入库延迟从
+   * retry tick 周期降到单批时长。默认 1。
+   */
+  priority?: number;
   /** 调用方超时放弃后，worker 晚到结果的持久化回调。service 包裹吞错（异步 fire-and-forget） */
   salvage?: (embedding: Float32Array) => void;
 }
@@ -72,6 +78,8 @@ export interface EmbedCallOptions {
  *  对位写入（见 store-memory fireAndForgetEmbedBatch），否则分片场景错位污染。 */
 export interface EmbedBatchCallOptions {
   waitSlot?: boolean;
+  /** F20261105embqg S2a：同 EmbedCallOptions.priority（槽位排队优先级） */
+  priority?: number;
   salvage?: (embeddings: Float32Array[], startIndex?: number) => void;
 }
 
@@ -83,8 +91,9 @@ export interface EmbeddingGateway {
   /**
    * F20261013ebps：等待一个空闲 in-flight 槽位（满时挂起至空出），
    * 供 sync 批量路径做流速控制——替代背压 reject 硬溢出入 retry 队列。
+   * F20261105embqg：priority 参数——挂起排队时的唤醒优先级（数值小先属），默认 1。
    */
-  acquireSlot?(): Promise<void>;
+  acquireSlot?(priority?: number): Promise<void>;
   /**
    * F20261013ebps：批量 embed——一次调用处理多条文本，
    * 实现方内部走 batch 推理（吞吐远高于逐条 embed）。

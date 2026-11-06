@@ -15,12 +15,15 @@
 import type { MemoryReader } from "./memory-reader";
 import type { MemoryWriter } from "./memory-writer";
 import type { MemoryQueue } from "./memory-queue";
+import { EMBED_TASK_PRIORITY } from "./memory-queue";
 import type { EmbeddingGateway } from "./embedding-gateway";
 import { EmbedTimeoutError, EmbedBackpressureError, EmbedTransientError } from "./embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 
-/** claimPendingTasks 返回的单条任务（MemoryQueue 接口为匿名类型，此处落名便于拆分函数签名） */
-type EmbeddingTask = { entryId: string; content: string; attempts: number };
+/** claimPendingTasks 返回的单条任务（MemoryQueue 接口为匿名类型，此处落名便于拆分函数签名）。
+ *  F20261105embqg（对抗审视发现 2）：priority 从 claim 透传到执行端——
+ *  retry 的 embed 也要按任务自身的优先级排槽位，否则 claim 层排序在执行层丢失 */
+type EmbeddingTask = { entryId: string; content: string; attempts: number; priority: number };
 
 export class EmbeddingRetryWorker {
   /** bge-m3 8192 tokens 上限的 ~75%（与 StoreMemory.EMBED_MAX_CHARS 一致） */
@@ -34,6 +37,12 @@ export class EmbeddingRetryWorker {
   private static readonly BATCH_LIMIT = 50;
   /** F20261016ebrt：单次 tick 最多连吃几批（积压泄洪）。50×20=1000 条/tick 上限 */
   private static readonly MAX_DRAIN_ROUNDS = 20;
+
+  /**
+   * F20261105embqg S3（对抗审视发现 3）：空闲回填单 tick 上限——S3 闸门跳过的
+   * 暗条目在队列清空后的恢复路径。有界增量，与启动暗扫的一次性全量区分。
+   */
+  private static readonly IDLE_BACKFILL_LIMIT = 200;
   /**
    * F20261020slvg 对抗审视洞 4：单次 tick 时间预算。waitSlot 节流后 tick 时长由
    * worker 真实吞吐决定（2905 条 × 慢推理可达几十小时），而 PatrolWorker 串行
@@ -148,6 +157,45 @@ export class EmbeddingRetryWorker {
         hardFailed: totals.hardFailed,
       });
     }
+
+    // F20261105embqg S3（对抗审视发现 3）：空闲回填——高水位被跳过的暗条目
+    // 不再只能等下次 sync/重启：队列空了才回填（有界）。详见 idleBackfillDarkEntries。
+    if (totals.claimed === 0) {
+      await this.idleBackfillDarkEntries();
+    }
+  }
+
+  /**
+   * F20261105embqg S3（对抗审视发现 3）：空闲回填——S3 闸门跳过的暗条目的
+   * 运行时恢复路径。仅在队列完全清空时触发（不挤兑任何待消费任务），
+   * 每 tick 上限 IDLE_BACKFILL_LIMIT 条、bulk 优先级（2）。与启动暗扫的
+   * 区别：那里是一次性全量，这里是有界增量，队列再次升高时自然停手
+   * （下个 tick 队列非空即不回填）。vec 禁用时 scanDarkEntries 语义不适
+   * 用，跳过（与 tick 入口守卫一致）。
+   */
+  private async idleBackfillDarkEntries(): Promise<void> {
+    if (typeof this.queue.pendingTaskCount !== "function") return;
+    if (!(await this.reader.isVecEnabled())) return;
+    if ((await this.queue.pendingTaskCount()) !== 0) return;
+
+    const dark = await this.reader.scanDarkEntries(false);
+    if (dark.total === 0) return;
+
+    const limit = Math.min(dark.entries.length, EmbeddingRetryWorker.IDLE_BACKFILL_LIMIT);
+    let refilled = 0;
+    for (let i = 0; i < limit; i++) {
+      const entry = dark.entries[i];
+      await this.queue.enqueueRetry(
+        entry.entryId,
+        new Error("idle backfill from dark entries (S3 gate recovery)"),
+        EMBED_TASK_PRIORITY.bulk,
+      );
+      refilled++;
+    }
+    this.logger.info(
+      `Embedding idle backfill: re-enqueued ${refilled} dark entries (queue was empty)`,
+      { action: "embedding_idle_backfill", refilled, darkTotal: dark.total },
+    );
   }
 
   /**
@@ -263,6 +311,9 @@ export class EmbeddingRetryWorker {
       : task.content;
     return this.embeddingGateway.embed(truncated, {
       waitSlot: true,
+      // F20261105embqg（对抗审视发现 2）：透传任务优先级——live 任务在槽位
+      // 排队时也要先于已在等的 bulk waiter，与 claim 层排序闭合
+      priority: task.priority,
       salvage: (lateEmb) => {
         void (async () => {
           try {
