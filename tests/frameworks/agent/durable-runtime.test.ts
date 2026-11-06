@@ -218,3 +218,30 @@ describe("durable-native runtime", () => {
     await session.close(BACKGROUND_CONTEXT);
   });
 });
+
+describe("durable-native runtime 同进程多轮 invoke（alpha bug4 回归守卫）", () => {
+  it("同一 session 连续两次 prompt：第二次不得炸「Watch is already started」，事件到达新 sink", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-twice-"));
+    const { session, faux } = await open(path.join(dir, "session.sqlite"), [
+      fauxAssistantMessage("first turn done"),
+    ]);
+    const firstEvents: string[] = [];
+    await session.prompt("turn one", undefined, new DurableEventStream(e => firstEvents.push(e.type ?? "?")), BACKGROUND_CONTEXT);
+    expect(session.turnText).toBe("first turn done");
+
+    // 第二轮：换新 responses + 新 sink——修复前此调用必炸「Watch is already started」
+    faux.setResponses([fauxAssistantMessage("second turn ok")]);
+    const secondEvents: string[] = [];
+    await session.prompt("turn two", undefined, new DurableEventStream(e => secondEvents.push(e.type ?? "?")), BACKGROUND_CONTEXT);
+
+    expect(session.turnText).toBe("second turn ok");
+    // 事件链完整：第二轮的 message_start/message_end 必须到达第二轮 sink（动态分发验证）
+    expect(secondEvents).toContain("message_start");
+    expect(secondEvents).toContain("message_end");
+    // 事件不串轮：第二轮 sink 收到的 message_start 不得多于本轮会话的 1 条
+    //（watch 回调 apply 全量视图时 sink.apply 自身会因 promptInput 产生 message_start，
+    //  与 LLM 应答的 message_start 是两条——放开为 2 条以内，防假红）
+    expect(secondEvents.filter(e => e === "message_start").length).toBeLessThanOrEqual(2);
+    await session.close(BACKGROUND_CONTEXT);
+  });
+});

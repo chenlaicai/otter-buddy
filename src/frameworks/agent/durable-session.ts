@@ -60,6 +60,7 @@ export class DurableSession {
   private _state: DurableSessionState = "idle";
   private closeRequested = false;
   private promptWatch?: DurableEventStream;
+  private watcherStarted = false;
   private lastWatchedEntry?: number;
   private invocationTokens: TokenUsage = { input: 0, output: 0 };
   private totalTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -208,19 +209,25 @@ export class DurableSession {
     const sink = new DurableEventStream(event => { this.emit(event); stream.dispatch(event); });
     this.promptWatch = sink;
     this.watcher ??= await this.conversation.watch(BACKGROUND_CONTEXT, { min: 100, max: 200 });
-    this.watcher.start(async (call: { kind: string; value?: ConversationView; ops?: readonly unknown[] }) => {
-      if (call.kind === "value" && call.value) {
-        const before = this.lastWatchedEntry;
-        const ids = call.value.entries.map(entry => Number(entry.id));
-        const newest = Math.max(0, ...ids);
-        if (before !== undefined && (call.value.before === undefined || Number(call.value.before) < before)) {
-          const missed = await this.conversation.entries({ minEntryId: (before + 1) as EntryId, order: "ascending" }, 1000, undefined, BACKGROUND_CONTEXT);
-          await sink.apply({ ...call.value, entries: missed.items }, []);
+    // PR #1783 alpha 实测修复（bug4）：chord Watch.start() 不允许二次调用，watcher 只能 start 一次；
+    // 回调经 this.promptWatch 动态分发到当前 sink（闭包捕获首次 sink 会把后续轮事件送进旧流）。
+    // 修复前同进程同獭第二次 invoke 必炸「Watch is already started」。
+    if (!this.watcherStarted) {
+      this.watcherStarted = true;
+      this.watcher.start(async (call: { kind: string; value?: ConversationView; ops?: readonly unknown[] }) => {
+        if (call.kind === "value" && call.value) {
+          const before = this.lastWatchedEntry;
+          const ids = call.value.entries.map(entry => Number(entry.id));
+          const newest = Math.max(0, ...ids);
+          if (before !== undefined && (call.value.before === undefined || Number(call.value.before) < before)) {
+            const missed = await this.conversation.entries({ minEntryId: (before + 1) as EntryId, order: "ascending" }, 1000, undefined, BACKGROUND_CONTEXT);
+            await this.promptWatch?.apply({ ...call.value, entries: missed.items }, []);
+          }
+          this.lastWatchedEntry = Math.max(before ?? 0, newest);
+          await this.promptWatch?.apply(call.value, call.ops);
         }
-        this.lastWatchedEntry = Math.max(before ?? 0, newest);
-        await sink.apply(call.value, call.ops);
-      }
-    });
+      });
+    }
     this._state = "running";
     const submission = await this.conversation.submit({ type: "input", content: this.promptInput(text, options) as never, whenBusy: "reject" }, context);
     const settled = await submission.wait(context);
