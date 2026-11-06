@@ -21,11 +21,12 @@ import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 
 type StubSession = {
-  prompt: (text: string) => Promise<void>;
+  prompt: (text: string, options?: unknown, stream?: { event: (event: unknown) => Promise<void> }) => Promise<void>;
   subscribe: (fn: (event: unknown) => void) => () => void;
   abort: () => Promise<void>;
   getSessionStats: () => { tokens: { input: number; output: number } };
   sessionManager: { getBranch: () => unknown[] };
+  configureGuards: () => void;
 };
 
 function makeFactory() {
@@ -78,12 +79,13 @@ describe("#763 toolCallCount 快照竞态（真实 catch 分支驱动）", () =>
       },
       // stub prompt：模拟 LLM 两轮工具调用后，跨帧删除（destroy/共键互踩现场）发生，
       // 然后 SDK 错误到达——catch 读取时条目已删
-      prompt: async () => {
-        for (const h of handlers) h({ type: "tool_execution_start", toolCallId: "t1", toolName: "read" });
-        for (const h of handlers) h({ type: "tool_execution_start", toolCallId: "t2", toolName: "bash" });
+      prompt: async (_text, _options, stream) => {
+        await stream!.event({ type: "tool_execution_start", toolCallId: "t1", toolName: "read" });
+        await stream!.event({ type: "tool_execution_start", toolCallId: "t2", toolName: "bash" });
         internals.activeSessions.delete(sessionKey); // 跨帧删除先于 catch 读取（竞态核心）
         throw new Error("SDK abort: prompt rejected after external delete");
       },
+      configureGuards: () => {},
       abort: async () => {},
       getSessionStats: () => ({ tokens: { input: 0, output: 0 } }),
       sessionManager: { getBranch: () => [] },
@@ -110,10 +112,11 @@ describe("#763 toolCallCount 快照竞态（真实 catch 分支驱动）", () =>
         handlers.push(fn);
         return () => {};
       },
-      prompt: async () => {
-        for (const h of handlers) h({ type: "tool_execution_start", toolCallId: "t1", toolName: "read" });
+      prompt: async (_text, _options, stream) => {
+        await stream!.event({ type: "tool_execution_start", toolCallId: "t1", toolName: "read" });
         throw new Error("plain SDK error, no delete race");
       },
+      configureGuards: () => {},
       abort: async () => {},
       getSessionStats: () => ({ tokens: { input: 0, output: 0 } }),
       sessionManager: { getBranch: () => [] },

@@ -1,5 +1,5 @@
 /**
- * PiSessionFactory：基于 pi-coding-agent SDK（createAgentSession）的 AgentGateway 实现。
+ * PiSessionFactory：基于 pi-durable 1.5.0 Harness 的 AgentGateway 实现。
  *
  * 设计要点：
  * - Session 复用机制：首次 invoke 创建 session 并持久化，后续 invoke 恢复已有 session
@@ -14,12 +14,15 @@
 /* eslint-disable max-lines -- #530 护栏 +11 行（steerSession 方法 + activeSessions steer 字段）；拆工厂会切断 session 生命周期与 steer/abort 的闭包内聚 */
 
 import fs from 'fs';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 import type Database from "better-sqlite3";
 import type {
   AgentConfig,
   AgentContext,
   AgentGateway,
 } from "@usecases/otter/agent-gateway";
+import type { OtterType } from "@entities/otter/otter";
 // R20260817arnt PR-A：以下四项自 interface-adapters 上移 @usecases/ports——消除 frameworks→interface-adapters 倒穿
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { Logger } from "@usecases/ports/logger";
@@ -30,7 +33,7 @@ import { createAgentSessionStore } from "./agent-session-store";
 import { classifyGuardInterceptReason } from "./guard-intercept-classify";
 // F20261019gses P0 影子下线：shadow-eval-recorder import 已删（观察期对照机制随转正移除）
 import { sanitizeQuotedText } from "./quoted-text-sanitizer";
-import { diffTokenUsage, type TokenUsage } from "@usecases/conversation/token-usage";
+import type { TokenUsage } from "@usecases/conversation/token-usage";
 
 /**
  * F20260930gslog：拦截事件落账 context 组装（纯函数，供单测直接验证字段完整性）。
@@ -116,11 +119,11 @@ import type { AgentSessionStore } from "./agent-session-store";
 import { classifyGuardIntercept } from "./guard-intercept-escalation";
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
 import type { SynthesisRunResult } from "@usecases/ports/sdk-invoke-port";
-import { getLastStopReason, getLastUsage } from "./context-tokens";
+import { getLastUsage } from "./context-tokens";
 import { DEFAULT_CIRCUIT_BREAKER_CONFIG } from "./tool-call-circuit-breaker";
 import type { CircuitBreakerConfig } from "./tool-call-circuit-breaker";
 import { getConfig } from "@frameworks/config";
-import type { OtterConfigProvider, OtterType } from "@usecases/ports/otter-config-provider";
+import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
@@ -128,7 +131,7 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
-import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext } from "./session-helpers";
+import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext, buildOtterPrompt } from "./session-helpers";
 import { DelegationInFlightError, isSessionLockConflictError, SessionLockConflictError } from "@entities/errors";
 import { randomUUID } from "node:crypto";
 // F20261008tecn（EazoTack 工具瘦身 v1）：manifest toolExposure 段读取
@@ -176,15 +179,15 @@ export function computeActiveToolNames(
 import { updateLastReadSeq } from "@frameworks/db/conversation/conversation-repository-mixins";
 import { readSessionEntries } from "./session-slicer";
 import type { SessionEntryLike } from "@usecases/ports/sdk-invoke-port";
-import { attachGuards, checkSessionError, buildPromptResult } from "./circuit-breaker-helpers";
+import { attachGuards, buildResult } from "./circuit-breaker-helpers";
 import { checkOrchestrationGuard } from "@usecases/conversation/dispatch-guard";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
-import { SessionRestore } from "./session-restore";
+
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { IdentityBuilder } from "./identity-builder";
 import { buildCustomTools, createInvokeRegister, resetInvokeRegister, type InvokeRegister } from "./tool-builder";
 // F20261009tsts（#1371）：会话级 tool_search（替代 SDK createToolSearchExtension，免疫 ctx stale）
-import { buildSessionToolSearchTool, type ToolSearchSessionHolder } from "./tool-search-tool";
+
 import { resolveSessionCwd } from "./session-cwd-resolver";
 import { getRepoRoot } from "@frameworks/repo-root";
 // F20261015phys：bash 物理沙箱——sandbox-exec 包裹獭 bash 执行面
@@ -228,6 +231,8 @@ export interface AgentRunResult {
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
   /** 本次 invoke 实际使用的模型别名（F20260814mtrc：metrics model label 数据源） */
   modelAlias?: string;
+  /** 直出旁白文本（durable watch 映射） */
+  directText?: string;
   /** 本次 invoke 重建了全新 session（文件丢失/损坏/重启；F20260814mtrc） */
   sessionRebuilt?: boolean;
   /** F20260819rscn: LLM 调用 restart_otter(self) 时标记，由 agent-invoker 执行 restart + 全新 invoke。
@@ -304,8 +309,13 @@ export interface AgentSessionFactoryConfig {
   conversationRepo?: ConversationRepository;
 }
 
-/** SessionManager 类型（从 pi-coding-agent 导入） */
-import type { SessionManager, AgentSession } from "@earendil-works/pi-coding-agent";
+/** Durable 1.5.0 是唯一执行 runtime；ResourceLoader 仅用于只读 profile/MCP。 */
+
+import type { DurableSession } from "./durable-session";
+import { DurableSession as DurableAgentSession } from "./durable-session";
+import { DurableEventStream } from "./durable-event-stream";
+import { getModelSource } from "./durable-model-runtime";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { PiSessionPool } from "@frameworks/pi/pi-session-pool";
 
 /** F20261014czgd：启动游标推进守卫——batchMaxSeq<=0（「无新读」哨兵）时不推进，
@@ -325,7 +335,7 @@ export class PiSessionFactory implements AgentGateway {
   private readonly activeSessions = new Map<string, { abort: () => Promise<void>; steer?: (text: string) => Promise<unknown>; toolCallCount: number; guardAbortReason?: string; epoch?: InvokeEpoch }>();
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private readonly lockManager: SimpleLockManager;
-  private readonly sessionRestore: SessionRestore;
+
   private readonly identityBuilder: IdentityBuilder;
   private readonly modelRuntimeRegistry: ModelRuntimeRegistry;
   /** 待注入身份的 otter（create/reset 后标记，注入成功才消费；进程重启丢失由 createdNew 兜底。已知边界：首次注入被 abort 时重试会重复注入一次，罕见无害，有意不处理） */
@@ -339,7 +349,7 @@ export class PiSessionFactory implements AgentGateway {
    *  池命中时转移到命中它的 invoke（合法复用 = 所有权转移，#904 语义保持：
    *  现役合法持有者可逐，stale 旧 invoke 不可）。 */
   private readonly poolMeta = new Map<string, {
-    session: AgentSession;
+    session: DurableSession;
     toolContext: ToolContext;
     register: InvokeRegister;
     otterType: string;
@@ -379,7 +389,7 @@ export class PiSessionFactory implements AgentGateway {
   ) {
     this.otterToolClient = cfg.otterToolClient;
     this.sessionStore = createAgentSessionStore(cfg.db);
-    this.sessionRestore = new SessionRestore(this.sessionStore, cfg.otterConfigProvider, logger, cfg.db);
+
     this.identityBuilder = new IdentityBuilder(cfg.otterRepo, cfg.settingsRepo, cfg.conversationRepo, cfg.modelPool, logger, cfg.identityPromptDir);
     this.modelRuntimeRegistry = new ModelRuntimeRegistry(cfg.modelPool, logger, cfg.resourceLoader, cfg.onHaltFirstBlock);
     this.circuitBreakerConfig = {
@@ -427,6 +437,15 @@ export class PiSessionFactory implements AgentGateway {
     return await this.modelRuntimeRegistry.ensurePiCodingAgent();
   }
 
+  private durableFile(otterId: string): string {
+    return `${this.cfg.sessionDir.replace(/([\\/])sessions[\\/]?$/, "$1durable-sessions")}/${otterId}.sqlite`;
+  }
+
+  private registerDurableSession(otterId: string, sessionFile: string): void {
+    const old = this.sessionStore.getWithFile(otterId);
+    this.sessionStore.setWithFile(otterId, old?.piSessionId ?? randomUUID(), sessionFile);
+  }
+
   /** create() 外部版本（带锁） */
   async create(otterId: string, config: AgentConfig): Promise<void> {
     const release = await this.lockManager.acquire(`session:${otterId}`);
@@ -444,16 +463,20 @@ export class PiSessionFactory implements AgentGateway {
    * @param allowOverwrite 是否允许覆盖已有记录（用于迁移场景）
    */
   private _createSessionAndPersist(otterId: string, config: AgentConfig, allowOverwrite: boolean): void {
-    const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent();
-    if (!piCodingAgent) {
-      throw new Error("piCodingAgent not loaded. Call ensurePiCodingAgent() first.");
-    }
-    /** 首次 invoke 时注入身份到 user message，后续 invoke 从 session 历史恢复 */
-    this.sessionRestore.createSessionAndPersist(otterId, {
-      systemPrompt: config.systemPrompt,
-      otterType: (config.context?.otterType as OtterType) ?? 'big',
-      modelAlias: config.modelAlias,
-    }, piCodingAgent, this.cfg.sessionDir, { allowOverwrite });
+    if (this.sessionStore.get(otterId) && !allowOverwrite) throw new Error(`Agent already exists for otter: ${otterId}`);
+    // alpha 实测回归（PR #1783 验证发现）：main 的 session-restore.createSessionAndPersist 在建
+    // session 时同事务写 otter_configs（session-restore.ts:165-173）；迁移版只注册 durable store
+    // 映射、丢 setConfig → 新獭首次 invoke 必炸「Otter config not found」。此处还原同构事务：
+    // config 写入与 store 映射要么都在、要么都不在（半写状态会让 acquire 的 getConfig 判空路径分裂）。
+    const sessionFile = this.durableFile(otterId);
+    this.cfg.db.transaction(() => {
+      this.cfg.otterConfigProvider.setConfig(otterId, {
+        systemPrompt: config.systemPrompt,
+        otterType: (config.context?.otterType as OtterType) ?? "big",
+        modelAlias: config.modelAlias,
+      });
+      this.registerDurableSession(otterId, sessionFile);
+    })();
   }
 
   async destroy(otterId: string): Promise<void> {
@@ -524,77 +547,19 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   private async _resetInternal(otterId: string, context?: AgentContext): Promise<void> {
-    // F20260911pspl：reset = 重启獭生——先驱逐池内旧 session（若在池），再建新链。
-    // F20260923hspx：resetForHandoff 已先行 markStale（不 dispose），
-    //  此处 evict 对池内无条目是 no-op（幂等）；对 normal 渠道仍承担驱逐职责。
     this.pool.evict(otterId);
     this.poolMeta.delete(otterId);
-
-    const stored = this.sessionStore.getWithFile(otterId);
-    const oldSessionFile = stored?.sessionFile;
-
-    // 1. 确保 piCodingAgent 已加载
-    await this.ensurePiCodingAgent();
-
-    // 2. 创建新 SessionManager（chain，引用旧 session 作为 parent）
-    // parentSession 仅是血缘元数据（SDK 只写 header，不拷贝父消息进上下文），故新 session 上下文为空，需步骤 7 标记重注入
-    const SessionManagerClass = getSessionManagerClass(this.modelRuntimeRegistry.getPiCodingAgent()!);
-    // F20261014cwsp：reset/handoff 路径无 conversationId——用 _system 兜底工作区
-    const workspaceCwd = resolveSessionCwd("", this.cfg.dataDir ?? "./data");
-    const sessionManager = SessionManagerClass.create(workspaceCwd, this.cfg.sessionDir, {
-      ...(stored?.piSessionId && { parentSession: stored.piSessionId }),
-    });
-
-    // 3. 获取 sessionId 和 sessionFile
-    const sessionId = sessionManager.getSessionId();
-    const sessionFile = sessionManager.getSessionFile();
-
-    // 4. 验证
-    if (!sessionId || !sessionFile) {
-      throw new Error('Failed to create session: missing sessionId or sessionFile');
-    }
-
-    // 5. 使用事务更新持久化数据
-    // 注意：SessionManager.create() 使用延迟写入，文件在第一条 assistant 消息后才落盘
-    try {
-      this.cfg.db.transaction(() => {
-        // 使用 setWithFile，SQLite 的 ON CONFLICT 会自动处理 upsert
-        this.sessionStore.setWithFile(otterId, sessionId, sessionFile);
-
-        // 可选更新配置
-        if (context?.systemPrompt) {
-          const existingConfig = this.cfg.otterConfigProvider.getConfig(otterId);
-          this.cfg.otterConfigProvider.setConfig(otterId, {
-            systemPrompt: context.systemPrompt,
-            otterType: existingConfig?.otterType ?? 'big',
-            modelAlias: existingConfig?.modelAlias, // 保留 modelAlias
-          });
-        }
-      })();
-    } catch (err) {
-      // 事务失败时清理已创建的 session 文件
-      try {
-        fs.unlinkSync(sessionFile);
-      } catch {
-        // 清理失败不阻塞错误抛出
+    const sessionFile = `${this.cfg.sessionDir.replace(/([\\/])sessions[\\/]?$/, "$1durable-sessions")}/${otterId}-${randomUUID()}.sqlite`;
+    const previous = this.sessionStore.getWithFile(otterId);
+    this.cfg.db.transaction(() => {
+      this.registerDurableSession(otterId, sessionFile);
+      if (context?.systemPrompt) {
+        const existing = this.cfg.otterConfigProvider.getConfig(otterId);
+        this.cfg.otterConfigProvider.setConfig(otterId, { systemPrompt: context.systemPrompt, otterType: existing?.otterType ?? 'big', modelAlias: existing?.modelAlias });
       }
-      throw err;
-    }
-
-    // 6. 保留旧 session 文件（F20260805rsto：与 destroy() 的审计策略统一）。
-    // domain 账本行说「封存」，证据文件就不能删——且新 session header 的 parentSession
-    // 血缘指针指向旧文件，删了就是悬空指针。旧文件不再被引用，仅作审计留档。
-    if (oldSessionFile && oldSessionFile !== sessionFile) {
-      this.logger.debug(`Previous session file retained for audit: ${oldSessionFile}`);
-    }
-
-    // 7. 标记下次 invoke 重新注入身份（新 session 上下文中没有身份内容）
+    })();
+    this.logger.info('durable session generation replaced; old transcript retained for audit', { otterId, previous: previous?.sessionFile, sessionFile });
     this.pendingIdentity.add(otterId);
-    // F20260911pspl：reset 后旧 session 无效，驱逐出池。
-    // F20260923hspx：resetForHandoff 已 markStale（不 dispose），此处 evict
-    //  对池内无条目是 no-op（幂等）；对 normal 渠道仍承担驱逐职责。
-    this.pool.evict(otterId);
-    this.poolMeta.delete(otterId);
   }
 
   /** F20260924thnk：合成模型解析（自 runCompactionSynthesis 抽出，complexity 限）。
@@ -653,45 +618,25 @@ export class PiSessionFactory implements AgentGateway {
    * 已知妥协：无熔断/outputGuard 守卫（60s 超时防线在 compaction-hook 层，COMPACTION_SYNTHESIS_TIMEOUT_MS）。
    */
   async runCompactionSynthesis(otterId: string, prompt: string, modelOverride?: string): Promise<SynthesisRunResult> {
-    await this.ensurePiCodingAgent();
-    const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent()!;
-
     const { resolvedModel, resolvedModelAlias } = this.resolveSynthesisModel(otterId, modelOverride);
-
-    const SessionManagerClass = getSessionManagerClass(piCodingAgent);
-    const sessionManager = SessionManagerClass.inMemory();
-    const { session } = await piCodingAgent.createAgentSession({
-      model: resolvedModel,
-      sessionManager,
-      tools: [],
-      customTools: [],
-      resourceLoader: this.modelRuntimeRegistry.getResourceLoader() ?? undefined,
-      modelRuntime: this.modelRuntimeRegistry.getModelRuntime() ?? undefined,
-      settingsManager: this.modelRuntimeRegistry.getSettingsManager() ?? undefined,
+    const synthesisFile = path.join(this.cfg.dataDir && path.isAbsolute(this.cfg.dataDir) ? this.cfg.dataDir : tmpdir(), `durable-synthesis-${randomUUID()}.sqlite`);
+    const session = await DurableAgentSession.open({
+      otterId, file: synthesisFile,
+      models: getModelSource(this.cfg.modelPool), model: resolvedModel, thinkingLevel: 'off',
+      cwd: resolveSessionCwd('', this.cfg.dataDir ?? './data'), tools: { customTools: [], codingTools: [], readOnly: true },
+      logger: this.logger, register: createInvokeRegister(), context: BACKGROUND_CONTEXT,
     });
-
-    // F20260924thnk 改动点1：合成任务禁思考（详见 disableSynthesisThinking 注释）。
-    //  14:16 生产实证：thinking 烧光 maxTokens=4,096 → 正文 0 字 stopReason=length → 机械档案。
-    const appliedThinkingLevel = this.disableSynthesisThinking(session, otterId);
-
-    // 收集 LLM 直出文本（合成不挂 customTools，turnText 经 subscribe 捕获旁白）
-    const turnText = { text: "" };
-    const unsubscribe = session.subscribe(createEventHandler(undefined, undefined, turnText));
+    const turnText = { text: '' };
+    const stream = new DurableEventStream(createEventHandler(undefined, undefined, turnText));
     try {
-      // F20260924thnk 观测三件套之 1/2：starting 打真实 resolved 模型 + applied
-      //  thinkingLevel——此前打 getModelAliasForLog（config 值），14:16 现场显示 mimo-pro
-      //  但实际执行模型是 override 的 glm，观测误导排查。三件套之 3（usage）在 logSynthesisCompleted。
-      this.logSynthesisStarting(otterId, resolvedModelAlias, appliedThinkingLevel, prompt.length);
-      await session.prompt(prompt, { expandPromptTemplates: false });
-      checkSessionError(session, otterId, this.logger);
-      const lastStopReason = getLastStopReason(session.sessionManager.getBranch());
-      // F20260924thnk 观测三件套之 3：completed 补 usage（详见 logSynthesisCompleted 注释）
-      this.logSynthesisCompleted(otterId, turnText.text.length, lastStopReason, session.sessionManager.getBranch());
+      this.logSynthesisStarting(otterId, resolvedModelAlias, 'off', prompt.length);
+      await session.prompt(prompt, undefined, stream, BACKGROUND_CONTEXT);
+      const lastStopReason = session.lastStopReason;
+      this.logger.info('[compaction-synthesis] shadow channel completed', { otterId, length: turnText.text.length, lastStopReason, usage: session.tokenUsage });
       return { directText: turnText.text, lastStopReason };
     } finally {
-      unsubscribe();
-      // inMemory session 无文件资源；dispose 释放内部状态（abort 进行中的流——影子 session 在 prompt 返回后已无活动流）
-      try { session.dispose?.(); } catch { /* 清理失败不阻塞 */ }
+      await session.close(BACKGROUND_CONTEXT);
+      await fs.promises.unlink(synthesisFile).catch(() => undefined);
     }
   }
 
@@ -726,12 +671,8 @@ export class PiSessionFactory implements AgentGateway {
    *  池内已有 live sessionManager 时不另 open（避免重复句柄）。 */
   async readCurrentSessionEntries(otterId: string): Promise<SessionEntryLike[] | undefined> {
     try {
-      const pooled = this.poolMeta.get(otterId);
-      if (pooled) {
-        return readSessionEntries(pooled.session.sessionManager) as SessionEntryLike[] | undefined;
-      }
       const stored = this.sessionStore.getWithFile(otterId);
-      if (!stored?.sessionFile) return undefined;
+      if (!stored?.sessionFile || !stored.sessionFile.endsWith(".jsonl")) return undefined;
       const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent();
       if (!piCodingAgent) return undefined;
       const SessionManagerClass = getSessionManagerClass(piCodingAgent);
@@ -753,7 +694,7 @@ export class PiSessionFactory implements AgentGateway {
     try {
       const pooled = this.poolMeta.get(otterId);
       if (pooled) {
-        return pooled.session.sessionManager.getSessionFile() ?? undefined;
+        return this.sessionStore.getWithFile(otterId)?.sessionFile ?? undefined;
       }
       return this.sessionStore.getWithFile(otterId)?.sessionFile ?? undefined;
     } catch (err) {
@@ -924,13 +865,13 @@ export class PiSessionFactory implements AgentGateway {
   private async _acquirePooled(
     otterId: string,
     options: InvokeOptions | undefined,
-  ): Promise<{ session: AgentSession; sessionKey: string; toolContext: ToolContext; turnText: { text: string }; isPooled: boolean; createdNew: boolean }> {
+  ): Promise<{ session: DurableSession; sessionKey: string; toolContext: ToolContext; turnText: { text: string }; isPooled: boolean; createdNew: boolean }> {
     // F20260913ctlv 整合移植（PR #886 merge main）：readOnly 池绕过——readOnly 需要过滤
     // 工具集（只保留 read），池中 session 是全量工具，命中复用会让合成/handoff 类只读
     // 调用拿到越权工具面（越权风险 + 工具行为不一致）。绕过池 = 不复用/不入池，
     // session 用完由调用方处置。此语义同时修掉 main #894 的潜在回归（池命中不看 readOnly）。
     if (options?.readOnly) {
-      const { sessionManager, createdNew } = await this._restoreOrCreateSession(otterId);
+      const { createdNew } = await this._restoreOrCreateSession(otterId);
       const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
       if (!otterConfig) {
         throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
@@ -939,7 +880,7 @@ export class PiSessionFactory implements AgentGateway {
       const register = createInvokeRegister();
       resetInvokeRegister(register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
       const { session, sessionKey, toolContext } = await this._createSessionWithTools(
-        otterId, otterConfig.otterType, options, sessionManager, register, true,
+        otterId, otterConfig.otterType, options, register, true,
       );
       // readOnly 不入池（poolMeta/pool.adopt 均跳过）——用完即弃
       return { session, sessionKey, toolContext, turnText: register.turnText, isPooled: false, createdNew };
@@ -972,6 +913,7 @@ export class PiSessionFactory implements AgentGateway {
         const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
         // F20261014cwsp：池命中时重置 cwd 到当前对话工作区（U1：invoke 入口重置，不动池结构）
         await this._resetSessionCwd(existing.session, options?.conversationId ?? "");
+        existing.session.updateOptions({ currentInvokeId: options?.currentInvokeId, prompt: buildOtterPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt) });
         this._transferPoolOwnership(existing, otterId);
         this._registerActiveSession(sessionKey, existing.session);
         return { session: existing.session, sessionKey, toolContext: existing.toolContext, turnText, isPooled: true, createdNew: false };
@@ -979,7 +921,7 @@ export class PiSessionFactory implements AgentGateway {
     }
 
     // 冷启动：恢复 SessionManager → 全量创建 → 入池
-    const { sessionManager, createdNew } = await this._restoreOrCreateSession(otterId);
+    const { createdNew } = await this._restoreOrCreateSession(otterId);
     const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
     if (!otterConfig) {
       throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
@@ -988,7 +930,7 @@ export class PiSessionFactory implements AgentGateway {
     const register = createInvokeRegister();
     resetInvokeRegister(register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
     const { session, sessionKey, toolContext } = await this._createSessionWithTools(
-      otterId, otterConfig.otterType, options, sessionManager, register, options?.readOnly,
+      otterId, otterConfig.otterType, options, register, options?.readOnly,
     );
     // F20261009epoc（D3 fail-loud）：池条目必须携带 epoch——epoch 缺失 = 铸造点未执行
     // （真 bug），拒绝入池 + warn（不入池的后果：session 用完即弃不复用，bug 现形
@@ -1007,13 +949,13 @@ export class PiSessionFactory implements AgentGateway {
   /** 恢复或创建 session；createdNew 表示本次重建了全新 session（需要重新注入身份） */
   private async _restoreOrCreateSession(
     otterId: string,
-  ): Promise<{ sessionManager: SessionManager; createdNew: boolean }> {
-    await this.ensurePiCodingAgent();
-    const result = await this.sessionRestore.restoreOrCreate(otterId, this.modelRuntimeRegistry.getPiCodingAgent()!, this.cfg.sessionDir);
-    if (!result.sessionManager) {
-      throw new Error(`Failed to restore or create session for otter: ${otterId}`);
-    }
-    return { sessionManager: result.sessionManager, createdNew: result.createdNew };
+  ): Promise<{ createdNew: boolean }> {
+    const stored = this.sessionStore.getWithFile(otterId);
+    if (!stored || !this.cfg.otterConfigProvider.getConfig(otterId)) throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
+    const sessionFile = stored.sessionFile;
+    // 检视处置（PR #1783 建议 2）：原恒假分支（sessionFile 取自 stored.sessionFile 后再比对自身）
+    // 已删——registerDurableSession 在 create() 时已写，恢复路径无需重注册。
+    return { createdNew: !fs.existsSync(sessionFile) };
   }
 
   /** 获取 otter 的模型别名（用于日志） */
@@ -1092,12 +1034,12 @@ export class PiSessionFactory implements AgentGateway {
     otterId: string,
     message: string,
     options: InvokeOptions | undefined,
-    session: AgentSession,
+    session: DurableSession,
     sessionKey: string,
     toolContext: ToolContext,
     turnText: { text: string },
   ): Promise<AgentRunResult> {
-    const tokenUsageBefore: TokenUsage = { ...session.getSessionStats().tokens };
+
     const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId)!;
     const otterType = otterConfig.otterType; const otterPromptConfig = otterConfig.systemPrompt;
 
@@ -1161,15 +1103,17 @@ export class PiSessionFactory implements AgentGateway {
           }
           baseHandler(event as never);
         };
-        const unsubscribe = session.subscribe(wrappedHandler as never);
+        const durableStream = new DurableEventStream(wrappedHandler);
         try {
           /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
           armFirstByte();
           /** 多模态 Phase 1：images 透传（机制层不做策略；SDK 按模型 input 自动降级）。
    *  空对象省略：undefined 与 {images:[]} 等价走纯文本路径 */
-          await session.prompt(fullMessage, buildPromptOptions(options));
-          checkSessionError(session, otterId, this.logger);
-          const result = buildPromptResult({ otterId, session, circuitBreaker, outputGuard, activeEntry, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, model: this.cfg.model, logger: this.logger, getModelAliasForLog: this.getModelAliasForLog.bind(this), tokenUsageBefore });
+          await session.prompt(fullMessage, buildPromptOptions(options), durableStream, BACKGROUND_CONTEXT);
+          const result: AgentRunResult = buildResult(session.turnText, session.tokenUsage, circuitBreaker, session.contextWindow, session.ctxTokens);
+          result.lastStopReason = session.lastStopReason;
+          result.outputGuardMetadata = outputGuard.getMetadata();
+          result.modelAlias = this.getModelAliasForLog(otterId);
 
           // F20260821spcm: 携带 LLM 直出文本（旁白流失检测用）
           if (turnText.text.trim()) {
@@ -1205,10 +1149,10 @@ export class PiSessionFactory implements AgentGateway {
           /** F20260814mtrc：err 路径 result 不可达，model 随 error 透传（防 guard_abort 样本 model=unknown） */
           e._modelAlias = this.getModelAliasForLog(otterId);
           // 已发生的消耗不因 prompt reject 消失；orchestrator 在 rejected attempt 只合并一次。
-          e._tokenUsageDelta = diffTokenUsage(tokenUsageBefore, session.getSessionStats().tokens);
+          e._tokenUsageDelta = session.tokenUsage;
           throw err;
         } finally {
-          unregisterToolCall?.(); cleanupOutputGuard(); unsubscribe();
+          unregisterToolCall?.(); cleanupOutputGuard();
           // F20261009epoc（裸露面收口）：finally delete 只在「条目 epoch === 本 invoke
           // epoch」（对象引用相等）时执行——stale steal 后旧 invoke 苏醒不再删掉新 invoke
           // 的条目（原无条件 delete 是方案识别的第 5 处裸露面，比防御点 1-3 更危险）。
@@ -1278,20 +1222,8 @@ export class PiSessionFactory implements AgentGateway {
    * `this._cwd` 重建全部工具定义（bash execute 用创建时闭包值），顺序反了则重建的
    *  工具仍绑上一个对话的工作区（初版修复方向反了、后纠正——完整过程见 F 文档处置记录）。
    *  build 失败回滚 _cwd——保早退条件成立，下次池命中重试（S6 语义保持）。 */
-  private async _resetSessionCwd(session: AgentSession, conversationId: string): Promise<void> {
-    const cwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
-    const s = session as unknown as Record<string, unknown>;
-    if (s._cwd === cwd) return;
-    const build = s._buildRuntime;
-    if (typeof build !== "function") { s._cwd = cwd; return; } // mock 守卫：无 build 直赋
-    const prev = s._cwd;
-    s._cwd = cwd;
-    try {
-      await (build as (opts: Record<string, unknown>) => Promise<void>).call(session, {});
-    } catch (err) {
-      s._cwd = prev;
-      throw err;
-    }
+  private async _resetSessionCwd(session: DurableSession, conversationId: string): Promise<void> {
+    await session.setCwd(resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data"), BACKGROUND_CONTEXT);
   }
 
   private _transferPoolOwnership(existing: { epoch?: InvokeEpoch }, otterId: string): void {
@@ -1308,7 +1240,7 @@ export class PiSessionFactory implements AgentGateway {
    *  有意取舍：拒绝注册意味着该 invoke 运行期 abort/steer 入口缺失（行为不同于
    *  旧代码的无条件 set）——「双轨并存 = 根因复制」的优先级高于降级面完全等价
    *  （方案 D3），降级发生 = epoch 关键路径失效信号，不允许静默。 */
-  private _registerActiveSession(sessionKey: string, session: AgentSession): void {
+  private _registerActiveSession(sessionKey: string, session: DurableSession): void {
     const epoch = invokeEpochStorage.getStore();
     if (!epoch) {
       this._warnEpochMissing('active-sessions-register', sessionKey);
@@ -1316,7 +1248,7 @@ export class PiSessionFactory implements AgentGateway {
     }
     this.activeSessions.set(sessionKey, {
       abort: () => session.abort(),
-      steer: (text: string) => session.steer?.(text) ?? Promise.resolve(),
+      steer: (text: string) => session.steer(text, BACKGROUND_CONTEXT),
       toolCallCount: 0,
       epoch,
     });
@@ -1404,8 +1336,8 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /** 创建带工具配置的 AgentSession（F20260911pspl：invoke 级字段走寄存器，不再按 invoke 新建） */
-  // eslint-disable-next-line max-params, complexity, max-statements, max-lines-per-function -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线（覆写本体在 tool-description-overrides.ts，此处仅组装）；F20261008tecn exposure 接线（manifest 读取 + 激活集重建，机制注释见 _activateDeferredToolSearch）
-  private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, sessionManager: SessionManager, register: InvokeRegister, readOnly?: boolean) {
+  // eslint-disable-next-line complexity -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线（覆写本体在 tool-description-overrides.ts，此处仅组装）；F20261008tecn exposure 接线（manifest 读取 + 激活集重建，机制注释见 _activateDeferredToolSearch）
+  private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, register: InvokeRegister, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
     const otterToolNames = this.buildOtterToolWhitelist(otterType);
     // F20261008tecn（EazoTack 工具瘦身 v1）：从 manifest 读取 toolExposure 段，
@@ -1442,66 +1374,30 @@ export class PiSessionFactory implements AgentGateway {
       whitelist: [...filteredCodingTools, ...filteredCustomTools.map(t => t.name)],
     });
 
-    const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent()!;
-    const resourceLoader = this.modelRuntimeRegistry.getResourceLoader();
-    const modelRuntime = this.modelRuntimeRegistry.getModelRuntime();
-    const settingsManager = this.modelRuntimeRegistry.getSettingsManager();
-
-    // F20261014cwsp：cwd 统一切换对话工作区——createAgentSession({cwd}) 唯一事实源
     const workspaceCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
-
-    this.logger.debug('[createSession] Calling createAgentSession', { otterId, modelAlias: resolvedAlias });
-    // F20261008tecn：有 deferred 工具时激活 tool_search（BM25 检索
-    // getAllTools() 中 exposure 为 deferred/codemode 的工具，命中后加入激活集）。
-    //
-    // 激活集重建（关键）：pi SDK 的 tools 数组同时充当注册白名单与初始激活清单——
-    // deferred 工具必须留在白名单内（否则被 _isAllowedTool 剔除出注册表，tool_search
-    // 搜不到），但留在 tools 数组里又会被立即激活声明（initialActiveToolNames 语义，
-    // agent-session.js _isActivatable 对具名非 MCP 工具恒真）。两者耦合无法在 SDK
-    // 入参层分离，故创建后立即重建激活集（纯函数 computeActiveToolNames，单测锁语义）：
-    // 只含 coding 工具 + direct 自定义工具 + tool_search。deferred 工具保持「已注册、未激活、可搜索」
-    // 状态——这是 pi 的 tool_search 发现机制（非激活工具中 BM25 检索）的前提。
-    const hasDeferred = filteredCustomTools.some(t => t.exposure === "deferred");
-    // F20261009tsts（#1371）：tool_search 改会话级 customTools 路径（免疫 extension
-    // runtime 失效——共享 loader 的 runtime 被任一 session dispose 后永久 stale，三会话
-    // 三连实证；机制详见 tool-search-tool.ts 头注）。holder 延迟绑定：customTools 入参
-    // 在 session 创建前就要传，session 引用创建后回填。
-    const toolSearchHolder: ToolSearchSessionHolder = {};
-    const { session } = await piCodingAgent.createAgentSession({
+    const { DurableMcpBridge, readMcpConfigFiles } = await import("./durable-mcp");
+    const mcpPath = (await import("node:path")).default;
+    const mcpEntries = await readMcpConfigFiles(workspaceCwd, mcpPath.resolve(this.cfg.sessionDir, "mcp.json"));
+    const mcp = mcpEntries.length ? new DurableMcpBridge(mcpEntries, workspaceCwd, this.logger) : undefined;
+    const session = await DurableAgentSession.open({
+      otterId,
+      file: this.durableFile(otterId),
+      models: getModelSource(this.cfg.modelPool),
       model: resolvedModel,
-      sessionManager,
+      thinkingLevel: this.cfg.modelPool?.getThinkingLevel(resolvedAlias),
+      prompt: buildOtterPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt),
       cwd: workspaceCwd,
-      tools: [...filteredCodingTools, ...filteredCustomTools.map(t => t.name), ...(hasDeferred ? ["tool_search"] : [])],
-      customTools: [...filteredCustomTools, ...(hasDeferred ? [buildSessionToolSearchTool(toolSearchHolder)] : [])],
-      resourceLoader: resourceLoader ?? undefined,
-      modelRuntime: modelRuntime ?? undefined,
-      settingsManager: settingsManager ?? undefined,
+      tools: { customTools: filteredCustomTools, codingTools: filteredCodingTools, readOnly, toolExposure },
+      logger: this.logger,
+      register,
+      invokeId: options?.currentInvokeId,
+      context: BACKGROUND_CONTEXT,
+      mcp,
+      promptProvider: () => buildOtterPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt),
+      haltRegistry,
+      onHaltFirstBlock: this.cfg.onHaltFirstBlock as never,
     });
-    if (hasDeferred) {
-      // F20261008tecn：激活集计算抽纯函数 computeActiveToolNames，单测锁语义
-      session.setActiveToolsByName(computeActiveToolNames(filteredCodingTools, filteredCustomTools));
-      // F20261009tsts：回填 session 引用（tool_search execute 经 holder 拿到新鲜的每会话对象）
-      toolSearchHolder.session = session;
-    }
-    this.logger.debug('[createSession] createAgentSession returned', { otterId });
-
-    // F20260909mthl：按模型配置设置思考深度（session 每次 invoke 重建，故每次创建后都设）。
-    // SDK 默认链：createAgentSession 未显式传 thinkingLevel 时落到 DEFAULT_THINKING_LEVEL="medium"（sdk.js:115-138），
-    // 再经 clampThinkingLevel 按模型 thinkingLevelMap 映射（如 k3 medium=null → clamp 向上到 high）。
-    // 本处覆写 SDK 默认链：配置了就用配置值；未配置跳过（保持 SDK 解析链结果）。
-    // 非 reasoning 模型 available=["off"]，任何档位被安全钳为 off。clamp 发生时打 info 日志（配置与模型能力不一致的信号）。
-    if (this.cfg.modelPool) {
-      const configuredLevel = this.cfg.modelPool.getThinkingLevel(resolvedAlias);
-      if (configuredLevel) {
-        session.setThinkingLevel(configuredLevel);
-        const applied = session.thinkingLevel;
-        if (applied !== configuredLevel) {
-          this.logger.info('Thinking level clamped to model-supported level', { otterId, modelAlias: resolvedAlias, configured: configuredLevel, applied });
-        } else {
-          this.logger.debug('Thinking level applied', { otterId, modelAlias: resolvedAlias, thinkingLevel: applied });
-        }
-      }
-    }
+    this.logger.info('Durable session opened', { otterId, modelAlias: resolvedAlias, sessionFile: this.durableFile(otterId) });
 
     const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
     this._registerActiveSession(sessionKey, session);
@@ -1573,8 +1469,8 @@ export class PiSessionFactory implements AgentGateway {
     pooled.delegatedFollowUpInFlight = delegationId;
     pooled.delegatedOwnerEpoch = pooled.epoch;
     try {
-      const disposition = await pooled.session.followUp(text);
-      if (disposition !== 'queued') {
+      const disposition = await pooled.session.followUp(text, BACKGROUND_CONTEXT);
+      if (disposition !== "queued") {
         this.clearDelegation(otterId, pooled.delegatedOwnerEpoch);
         return false;
       }
@@ -1610,7 +1506,7 @@ export class PiSessionFactory implements AgentGateway {
   private enqueueUserFollowUp(otterId: string, text: string): boolean {
     const pooled = this.poolMeta.get(otterId);
     if (!pooled || !pooled.session.isStreaming) return false;
-    void pooled.session.followUp(text).catch((err: unknown) => {
+    void pooled.session.followUp(text, BACKGROUND_CONTEXT).catch((err: unknown) => {
       this.logger.warn(`[followUp] followUp 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
     });
     return true;

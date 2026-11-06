@@ -73,6 +73,7 @@ data/*.db
 
 # Agent sessions
 data/sessions/
+data/durable-sessions/
 
 # WIP patch archive (F20261027pprd, 2026-10-23 存档目录)
 data/patches/
