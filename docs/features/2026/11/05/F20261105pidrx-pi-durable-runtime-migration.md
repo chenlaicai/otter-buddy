@@ -83,7 +83,7 @@ summary: 以 pi-durable SQLite session、单 writer、unsafe custom tool 和模�
 | 重启恢复 | 单 invoke 单 owner；崩溃不重复副作用；checkpoint metadata 不丢 | resume service、otter locks、matters | 显式 recovery + 持久 checkpoint；禁旧自动 replay；跨进程 admission lock 验收待测 |
 | bash/loop-block/guard | 工具调用前拦截；外部调用与循环块取消即时 | guards、healing 台账 | durable beforeTool hook，直接复用现有 hook 检查；映射 block/tool_error |
 | 熔断器/看门狗/编排守卫（检视处置补登） | per-event 工具执行看门狗（maxPerEventTimeMs）、滑窗/连续重复熔断（steer→terminate）、编排越权 steer、黑名单（loopBlockedTools） | circuit-breaker-helpers、activeEntry abort 链 | **接管**：DurableSession.subscribe 多播事件总线 + prompt 内 watch→sink 单一事件源，attachCircuitBreaker/attachOutputGuard 原样消费同一事件流（回归测试见 durable-runtime.test.ts 看门狗用例）；beforeTool 不再直查 breaker（防滑窗双计数） |
-| 输出退化/滑动/首字节超时（检视处置补登） | text/thinking delta 重复检测、流式滑动超时、首字节超时、tool/compaction 暂停 | output-guard、streaming 超时 abort | **接管**：同上事件链恢复 delta 喂入与 pause/resume；首字节计时器（armFirstByte）随事件链 arm/解除。残余差异：durable 无 isCompacting 公开 API 与 compaction/auto_retry 事件源，该两路 pause 以 tool pause + 回归测试兑住主路径，详见下文「残余差异」 |
+| 输出退化/滑动/首字节超时（检视处置补登） | text/thinking delta 重复检测、流式滑动超时、首字节超时、tool/compaction 暂停 | output-guard、streaming 超时 abort | **接管**：同上事件链恢复 delta 喂入与 pause/resume；首字节计时器（armFirstByte）随事件链 arm/解除。compaction 感知已修复（见下文）：pi.live 文档边沿检测重建 compaction_start/end 事件，outputGuard 压缩期避让恢复。auto_retry pause 仍无事件源（durable 无该事件），以 tool pause 兑住主路径 |
 | skills/extensions/MCP | profile 可见；system prompt/skills 注入；工具发现；MCP 与故障策略 | query-otter-profile、prompt provider、tool_search | loader 只读；durable section+tool_search；MCP server bridge 不得静默省略 |
 
 ## 验收 / 负向接管
@@ -122,6 +122,7 @@ summary: 以 pi-durable SQLite session、单 writer、unsafe custom tool 和模�
 
 ### 残余差异（诚实披露，不伪称完全接管）
 
-- **compaction/auto_retry pause 无事件源**：durable 1.5.0 无 isCompacting 公开 API，也无 compaction_start/end、auto_retry_start/end 事件（旧 SDK 事件通道有）。outputGuard 在 compaction 期间不再暂停——后果是 compaction 总结阶段若超 streamingTimeoutMs（120s）无 delta，可能误判超时 abort。缓解：compaction 总结由模型流式产出（有 delta 即刷新滑动计时器）；真实 provider compaction 未验证（见未验证清单）。
+- **compaction pause（已修复，2026-11-06）**：此前记录「durable 1.5.0 无 isCompacting 公开 API，也无 compaction 事件」为迁移时误判——实际上 durable 把压缩状态写入 pi.live 文档（compactions 列表），随已订阅的 watch 视图分发，是迁移时只取 entries 丢弃 docs 导致信号断链。修复：watch 回调边沿检测 pi.live.compactions，重建 compaction_start/end 事件流经 subscribe 总线，outputGuard 压缩期避让恢复（回归守卫：durable-runtime.test.ts「压缩感知」用例）。
+- **auto_retry pause 无事件源（仍存）**：durable 无 auto_retry 事件，outputGuard 在 provider retry 期间不暂停。缓解：retry 有模型 delta 恢复即刷新滑动计时器；真实 provider retry 行为未验证（见未验证清单）。
 - **abort 是协作式**：工具 execute 永不 resolve 且不监听 signal 时，上游 abort handler 等待 owned work（scheduler `#waitingOn` 含自身），invoke 挂起不可强杀——与旧 SDK 同等限制（旧 600s 看门狗同样不能强杀死循环 promise），非本次迁移引入的回归。
 - 守卫事件面经 DurableEventStream 派生（entry/ops → tool_execution_start/end、message_update），与旧 SDK 事件时序近似但非逐事件同构；极端时序差异（如部分提交窗口）未经真实 provider 验证。

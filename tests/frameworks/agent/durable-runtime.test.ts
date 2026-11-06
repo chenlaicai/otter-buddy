@@ -239,3 +239,27 @@ describe("durable-native runtime 同进程多轮 invoke（alpha bug4 回归守�
     await session.close(BACKGROUND_CONTEXT);
   });
 });
+
+describe("durable-native runtime 压缩感知（迁移不兼容修复回归守卫）", () => {
+  it("compact 期间 pi.live.compactions 边沿触发 compaction_start/end 事件流经 subscribe 总线", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-compaction-"));
+    const { session, faux } = await open(path.join(dir, "session.sqlite"), [
+      fauxAssistantMessage("ok"),
+    ]);
+    await session.prompt("warm up", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
+
+    const events: string[] = [];
+    const unsub = session.subscribe((e: unknown) => { const t = (e as { type?: string })?.type; if (t?.startsWith("compaction")) events.push(t); });
+
+    // 手动触发 compact：faux 应答总结文本——compactions 任务出现→消失，
+    // watch 回调应发 compaction_start → compaction_end（守卫避让链的信号源）
+    faux.setResponses([fauxAssistantMessage("summary: 压缩总结测试")]);
+    await session.compact("test");
+    await new Promise(r => setTimeout(r, 300));
+
+    expect(events).toContain("compaction_start");
+    expect(events).toContain("compaction_end");
+    unsub();
+    await session.close(BACKGROUND_CONTEXT);
+  });
+});

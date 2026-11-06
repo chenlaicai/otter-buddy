@@ -60,6 +60,8 @@ export class DurableSession {
   private closeRequested = false;
   private promptWatch?: DurableEventStream;
   private watcherStarted = false;
+  /** pi.live compactions 状态的边沿检测（false→true 发 compaction_start，true→false 发 end） */
+  private wasCompacting = false;
   private lastWatchedEntry?: number;
   private invocationTokens: TokenUsage = { input: 0, output: 0 };
   private totalTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -172,6 +174,16 @@ export class DurableSession {
   // and future consumers each own their subscription; emitting to the current
   // DurableEventStream outlet replaces the single-listener override the SDK had.
   private readonly listeners = new Set<(event: unknown) => void>();
+  /** 迁移不兼容修复：pi.live.compactions 边沿检测——重建 compaction_start/end 事件 */
+  private detectCompactionEdge(view: ConversationView): void {
+    const compactions = (view.docs as Record<string, { compactions?: unknown[] } | undefined> | undefined)?.["pi.live"]?.compactions;
+    const compactingNow = Array.isArray(compactions) && compactions.length > 0;
+    if (compactingNow !== this.wasCompacting) {
+      this.wasCompacting = compactingNow;
+      this.emit({ type: compactingNow ? "compaction_start" : "compaction_end" });
+    }
+  }
+
   emit(event: unknown): void {
     for (const listener of this.listeners) {
       try { listener(event); } catch (error) { this.options.logger.warn("durable event listener failed", { error: String(error) }); }
@@ -214,6 +226,11 @@ export class DurableSession {
       this.watcherStarted = true;
       this.watcher.start(async (call: { kind: string; value?: ConversationView; ops?: readonly unknown[] }) => {
         if (call.kind === "value" && call.value) {
+          // 迁移不兼容修复（2026-11-06 搭档定调）：pi-durable 把压缩状态写入 pi.live 文档
+          // （compactions 列表非空 = 压缩进行中），随 watch 视图分发——旧 runtime 的
+          // compaction_start/end 事件链在此重建，outputGuard 的压缩期避让（pause/resume）
+          // 恢复喂数。此前回调只取 entries，丢弃了 docs，守卫在压缩期间盲超时。
+          this.detectCompactionEdge(call.value);
           const before = this.lastWatchedEntry;
           const ids = call.value.entries.map(entry => Number(entry.id));
           const newest = Math.max(0, ...ids);
