@@ -64,6 +64,8 @@ export class DurableSession {
   private wasCompacting = false;
   /** pi.live.compactionFailure 去重锚（同 taskId 只发一次失败事件） */
   private lastCompactionFailureTaskId?: number;
+  /** pi.live.generation.retry 边沿检测锚（auto_retry 生命周期） */
+  private wasRetrying = false;
   private lastWatchedEntry?: number;
   private invocationTokens: TokenUsage = { input: 0, output: 0 };
   private totalTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -176,9 +178,26 @@ export class DurableSession {
   // and future consumers each own their subscription; emitting to the current
   // DurableEventStream outlet replaces the single-listener override the SDK had.
   private readonly listeners = new Set<(event: unknown) => void>();
-  /** 迁移不兼容修复：pi.live.compactions 边沿检测——重建 compaction_start/end 事件 */
-  private detectCompactionEdge(view: ConversationView): void {
-    const live = (view.docs as Record<string, { compactions?: unknown[]; compactionFailure?: { error?: unknown } } | undefined> | undefined)?.["pi.live"];
+  /** 迁移不兼容修复：pi.live 状态边沿检测——重建 compaction/auto_retry 生命周期事件。
+   * 第二次误判教训（2026-11-06 搭档批评）：durable 把一切瞬时通知改为 pi.live 状态文档，
+   * 逐项核查须「先问 durable 机制、再对照旧字段」，而非拿旧事件名找不到即断言「无信号源」。 */
+  private readLiveDoc(view: ConversationView): { compactions?: unknown[]; compactionFailure?: { error?: unknown }; generation?: { retry?: { at: number; error: string } } } | undefined {
+    return (view.docs as Record<string, { compactions?: unknown[]; compactionFailure?: { error?: unknown }; generation?: { retry?: { at: number; error: string } } } | undefined> | undefined)?.["pi.live"];
+  }
+
+  /** auto_retry 边沿：generation.retry 出现 = 退避中（auto_retry_start + errorMessage 透传，
+   * 恢复 #764 abort 归因观测窗的信号源）；消失 = 退避结束（auto_retry_end）。 */
+  private detectRetryEdge(live: { generation?: { retry?: { at: number; error: string } } } | undefined): void {
+    const retryingNow = live?.generation?.retry !== undefined;
+    if (retryingNow === this.wasRetrying) return;
+    this.wasRetrying = retryingNow;
+    const error = retryingNow ? live?.generation?.retry?.error : undefined;
+    this.forwardCompactionEvent({ type: retryingNow ? "auto_retry_start" : "auto_retry_end", errorMessage: error });
+  }
+
+  private detectLiveEdges(view: ConversationView): void {
+    const live = this.readLiveDoc(view);
+    this.detectRetryEdge(live);
     const compactions = live?.compactions;
     const compactingNow = Array.isArray(compactions) && compactions.length > 0;
     if (compactingNow !== this.wasCompacting) {
@@ -252,7 +271,7 @@ export class DurableSession {
           // （compactions 列表非空 = 压缩进行中），随 watch 视图分发——旧 runtime 的
           // compaction_start/end 事件链在此重建，outputGuard 的压缩期避让（pause/resume）
           // 恢复喂数。此前回调只取 entries，丢弃了 docs，守卫在压缩期间盲超时。
-          this.detectCompactionEdge(call.value);
+          this.detectLiveEdges(call.value);
           const before = this.lastWatchedEntry;
           const ids = call.value.entries.map(entry => Number(entry.id));
           const newest = Math.max(0, ...ids);

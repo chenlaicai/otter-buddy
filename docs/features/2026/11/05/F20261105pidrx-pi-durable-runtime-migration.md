@@ -123,6 +123,7 @@ summary: 以 pi-durable SQLite session、单 writer、unsafe custom tool 和模�
 ### 残余差异（诚实披露，不伪称完全接管）
 
 - **compaction pause（已修复，2026-11-06）**：此前记录「durable 1.5.0 无 isCompacting 公开 API，也无 compaction 事件」为迁移时误判——实际上 durable 把压缩状态写入 pi.live 文档（compactions 列表），随已订阅的 watch 视图分发，是迁移时只取 entries 丢弃 docs 导致信号断链。修复：watch 回调边沿检测 pi.live.compactions，重建 compaction_start/end 事件流经 subscribe 总线，outputGuard 压缩期避让恢复（回归守卫：durable-runtime.test.ts「压缩感知」用例）。
-- **auto_retry pause 无事件源（仍存）**：durable 无 auto_retry 事件，outputGuard 在 provider retry 期间不暂停。缓解：retry 有模型 delta 恢复即刷新滑动计时器；真实 provider retry 行为未验证（见未验证清单）。
+- **auto_retry pause（已修复，2026-11-06，第二次误判修正）**：此前记录「durable 无 auto_retry 事件」为第二次误判——实际 pi.live.generation.retry（{at, error}）随 watch 分发，退避中出现、恢复时消失（generation.js:364/177 覆写机制）。修复：边沿检测重建 auto_retry_start/end（含 errorMessage 透传，恢复 #764 abort 归因观测窗信号源），走 forwardCompactionEvent 双通道。回归守卫：durable-runtime.test.ts「auto_retry 感知」用例（overloaded 可重试错误注入，双侧断言）。
+- **误判模式教训（两条并入，2026-11-06 搭档批评）**：compaction 与 auto_retry 两次误判同模式——拿旧系统答案形状（旧事件名/旧属性名）在新系统里找不到即断言「无信号源」。正确方法（#1791 契约清单核查口径）：先问「durable 用什么机制解决此类问题」（答：一切瞬时通知统一入 pi.live 状态文档，随 watch 分发），再对照我们接没接。检视链结构性盲区：「妥协清单」被当诚实输入接受，无人质疑事实断言本身——后续对任何「无/不可/不支持」断言须源码级核实。
 - **abort 是协作式**：工具 execute 永不 resolve 且不监听 signal 时，上游 abort handler 等待 owned work（scheduler `#waitingOn` 含自身），invoke 挂起不可强杀——与旧 SDK 同等限制（旧 600s 看门狗同样不能强杀死循环 promise），非本次迁移引入的回归。
 - 守卫事件面经 DurableEventStream 派生（entry/ops → tool_execution_start/end、message_update），与旧 SDK 事件时序近似但非逐事件同构；极端时序差异（如部分提交窗口）未经真实 provider 验证。

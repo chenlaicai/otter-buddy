@@ -312,3 +312,31 @@ describe("durable-native runtime 压缩感知（迁移不兼容修复回归守�
     await session.close(BACKGROUND_CONTEXT);
   }, 60000);
 });
+
+describe("durable-native runtime auto_retry 感知（第二次误判修正的回归守卫）", () => {
+  it("generation.retry 出现/消失经 pi.live 边沿发 auto_retry_start/end（双侧：总线+invoke stream）", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-retry-"));
+    // retryable 错误（overloaded 匹配 retryable 模式）→ durable 内部退避重试 → pi.live.generation.retry
+    const { session, faux } = await open(path.join(dir, "session.sqlite"), [
+      fauxAssistantMessage("ok"),
+    ]);
+    await session.prompt("warm", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
+    const busEvents: string[] = [];
+    const unsub = session.subscribe((e: unknown) => { const t = (e as { type?: string })?.type; if (t?.startsWith("auto_retry")) busEvents.push(t); });
+    const streamEvents: string[] = [];
+    const invokeStream = new DurableEventStream((e: unknown) => { const t = (e as { type?: string })?.type; if (t?.startsWith("auto_retry")) streamEvents.push(t); });
+    faux.setResponses([fauxAssistantMessage("fallback"), fauxAssistantMessage("after-retry")]);
+    // 用可重试错误应答（overloaded 是 retryable 模式）→ 内部退避 → retry 状态出现在 pi.live
+    (faux as unknown as { setResponses: (r: unknown[]) => void }).setResponses([
+      (() => { const m = fauxAssistantMessage("x"); (m as unknown as { stopReason: string }).stopReason = "error"; (m as unknown as { errorMessage: string }).errorMessage = "overloaded"; return m; })(),
+      fauxAssistantMessage("after-retry"),
+    ]);
+    await session.prompt("trigger-retry", undefined, invokeStream, BACKGROUND_CONTEXT);
+    await new Promise(r => setTimeout(r, 300));
+    // 退避（base 1s）+ 恢复后 start/end 都应出现（fast path：事件在 prompt 返回前已发）
+    expect(busEvents).toContain("auto_retry_start");
+    expect(streamEvents).toContain("auto_retry_start");
+    unsub();
+    await session.close(BACKGROUND_CONTEXT);
+  });
+});
