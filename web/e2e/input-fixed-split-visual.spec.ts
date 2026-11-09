@@ -570,3 +570,117 @@ test.describe('F20261019ovmh 覆盖层总高封顶（vite 隔离实例）', () =
     await page.screenshot({ path: 'test-results/ovmh-9-maxed.png' })
   })
 })
+
+/** F20261109csvfx 卡片按钮无效 payload 反馈（搭档 11-09 报告「我点击按钮无反应」）。
+ *  复现现场：大獭简报卡（importance=high 默认展开）按钮
+ *  `otterCard.submit({choice:'…',label:'…'})` 缺 summary → 父页 validateCardSubmitPayload
+ *  拒绝 → 旧版 useCardBridge 静默 return（点击零反馈）。
+ *  验证链：真点击（非 evaluate 调桥）→ 父窗 message 探针捕到 card:submit（点击链活着）→
+ *  预览不出现（契约闸门不放开）→ 反馈 toast 可见（修复点）。
+ *  合法 payload 路径回归见同文件 F20261016pcov 用例 7/8（预览→确认→回执 POST）。 */
+const BROKEN_CARD_BODY = [
+  '```html-card title="根治 embedding：后台统一落库、按批出队" importance="high"',
+  '<div><p>一句话结论</p>',
+  '<button onclick="otterCard.submit({choice:\'persistent-queue\',label:\'按根治方案实施\'})">按根治方案实施</button>',
+  '<button class="alt" onclick="otterCard.submit({choice:\'discuss\',label:\'先讨论方案\'})">先讨论方案</button>',
+  '</div>',
+  '```',
+].join('\n')
+
+test.describe('F20261109csvfx 卡片按钮无效 payload 反馈（真实浏览器）', () => {
+  test('9: 无效 payload 按钮真点击 → 反馈可见 + 闸门不放开 + 证据截图', async ({ page }) => {
+    const consoleErrors: string[] = []
+    page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()) })
+    await openConversation(page, { cardBody: BROKEN_CARD_BODY })
+
+    // importance=high 默认展开 → iframe 挂载并注册 registry
+    const card = page.locator('[data-card-id]')
+    await expect(card).toBeVisible()
+    const frame = page.frameLocator('[data-card-id] iframe')
+    await frame.locator('body').waitFor({ timeout: 15_000 })
+
+    // 父窗 message 探针：捕 iframe→parent 全部 postMessage（证明点击链路到达父页）
+    await page.evaluate(() => {
+      const w = window as unknown as { __cardMsgs?: unknown[] }
+      w.__cardMsgs = []
+      window.addEventListener('message', e => { w.__cardMsgs!.push(e.data) })
+    })
+
+    // 关键元素 rect 证据（截图伴随）
+    const rects = await page.evaluate(() => {
+      const r = (el: Element | null) => {
+        const b = el?.getBoundingClientRect()
+        return b ? { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) } : null
+      }
+      const cardEl = document.querySelector('[data-card-id]')
+      return {
+        card: r(cardEl),
+        iframe: r(cardEl?.querySelector('iframe') ?? null),
+        glass: r(document.querySelector('.glass-input')),
+        viewport: { w: window.innerWidth, h: window.innerHeight },
+      }
+    })
+    expect(rects.iframe!.h, 'importance=high 卡 iframe 应展开且有实高（registry/resize 链活着）').toBeGreaterThan(100)
+
+    // 真点击按钮（iframe 内真实 click，走完整 onclick→桥→postMessage 链，非 evaluate 直调）
+    const btn = frame.locator('button', { hasText: '按根治方案实施' })
+    await expect(btn).toBeVisible()
+    await btn.click()
+    await page.waitForTimeout(400)
+
+    // 证据 1：父页收到 card:submit（点击→脚本→postMessage 链路活着，排除沙盒/脚本故障）
+    const msgs = await page.evaluate(() => (window as unknown as { __cardMsgs?: unknown[] }).__cardMsgs ?? [])
+    const submits = msgs.filter(m => (m as { type?: string }).type === 'card:submit')
+    expect(submits.length, '父页应收到 card:submit').toBeGreaterThan(0)
+
+    // 证据 2：闸门不放开——无效 payload 不出预览
+    await expect(page.getByText('以下内容由水獭卡片生成')).toBeHidden()
+
+    // 证据 3：点后状态截图（修复前 = 无任何反馈的 bug 现场；修复后 = toast 在屏）
+    await page.screenshot({ path: 'test-results/csvf-1-invalid-click-state.png' })
+
+    // 证据落盘（在修复点断言之前写——修复前失败时也要留下 postMessage/rect 证据）
+    const { writeFileSync, mkdirSync } = await import('node:fs')
+    mkdirSync('test-results', { recursive: true })
+    const feedbackVisible = await page.getByText('卡片提交被拒绝').isVisible().catch(() => false)
+    writeFileSync('test-results/csvf-evidence.json', JSON.stringify({
+      phase: feedbackVisible ? 'after-fix' : 'before-fix',
+      feedbackVisible, rects, submits, consoleErrors,
+      previewVisible: false, // 预览断言（证据 2）在本行之前已过（toBeHidden）
+    }, null, 2))
+
+    // 修复点断言：拒绝可见（旧版静默 → 此处失败即 bug 现场）
+    await expect(page.getByText('卡片提交被拒绝')).toBeVisible({ timeout: 5_000 })
+    await page.screenshot({ path: 'test-results/csvf-2-feedback-visible.png' })
+
+    // console 错误仅采集不硬断言（环境噪声防 flaky）——有 postMessage 到达已排除脚本故障
+    if (consoleErrors.length > 0) console.log('console errors:', consoleErrors)
+    console.log('rects:', JSON.stringify(rects))
+    console.log('card:submit payloads:', JSON.stringify(submits))
+  })
+
+  test('10: 合法 payload 回归——预览出现且确认后回执 POST（闸门两侧对照）', async ({ page }) => {
+    const posts: string[] = []
+    page.on('request', req => {
+      if (req.method() === 'POST' && /\/api\/conversations\/[^/]+\/messages$/.test(new URL(req.url()).pathname)) {
+        posts.push(req.postData() ?? '')
+      }
+    })
+    await openConversation(page, { cardBody: BROKEN_CARD_BODY })
+    const frame = page.frameLocator('[data-card-id] iframe')
+    await frame.locator('body').waitFor({ timeout: 15_000 })
+
+    // 合法 payload（契约形状 summary+data）→ 预览出现
+    await frame.locator('body').evaluate(() =>
+      (window as unknown as { otterCard: { submit: (p: unknown) => void } }).otterCard.submit({ summary: '选 A：统一持久化队列', data: { choice: 'A' } }),
+    )
+    await expect(page.getByText('以下内容由水獭卡片生成')).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByText('选 A：统一持久化队列')).toBeVisible()
+
+    // 确认发送 → 回执 POST 到达（不是点击即发，是预览确认后发）
+    await page.locator('button', { hasText: '发送' }).click({ timeout: 5_000 })
+    await expect(page.getByText('以下内容由水獭卡片生成')).toBeHidden()
+    expect(posts.some(p => p.includes('html-card-reply')), '确认后回执 body 应含 html-card-reply 围栏').toBe(true)
+    await page.screenshot({ path: 'test-results/csvf-3-legal-payload-preview.png' })
+  })
+})

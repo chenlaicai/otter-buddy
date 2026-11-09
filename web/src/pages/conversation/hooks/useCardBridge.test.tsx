@@ -218,6 +218,53 @@ describe('已回复集合（历史派生）', () => {
   })
 })
 
+/** F20261109csvfx：无效 payload 的作者反馈——搭档 11-09 报告「点击按钮无反应」。
+ *  现场：简报卡按钮 otterCard.submit({choice,label}) 缺 summary → 校验拒绝 → 旧版静默
+ *  return（点击零反馈）。契约闸门不放开（预览仍不出现），但拒绝必须可见。 */
+describe('无效 payload 的作者反馈（不再静默）', () => {
+  it('缺 summary 的现场 payload → 反馈 toast + 仍无预览', () => {
+    submit(WIN_A, 'msg-1:0', { choice: 'persistent-queue', label: '按根治方案实施' })
+    expect(hookResult.cardPreview).toBeNull()
+    expect(mockShowToast).toHaveBeenCalledWith(expect.stringContaining('卡片提交被拒绝'), 'error')
+    expect(mockShowToast).toHaveBeenCalledWith(expect.stringContaining('summary 不能为空'), 'error')
+  })
+
+  it('反馈节流（per-card 3s）：窗口内重复无效提交只反馈一次，越窗恢复；闸门始终不放开', () => {
+    submit(WIN_A, 'msg-1:0', { choice: 'x' })
+    expect(mockShowToast).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(300)
+    submit(WIN_A, 'msg-1:0', { choice: 'x' })
+    expect(mockShowToast).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(3000)
+    submit(WIN_A, 'msg-1:0', { choice: 'x' })
+    expect(mockShowToast).toHaveBeenCalledTimes(2)
+    expect(hookResult.cardPreview).toBeNull()
+  })
+
+  it('超限 summary 同样反馈（不静默）', () => {
+    submit(WIN_A, 'msg-1:0', { summary: 'x'.repeat(501) })
+    expect(hookResult.cardPreview).toBeNull()
+    expect(mockShowToast).toHaveBeenCalledWith(expect.stringContaining('卡片提交被拒绝'), 'error')
+  })
+
+  it('伪造 source / cardId 不匹配仍静默（安全类拒绝 fail-closed，不开放反馈通道）', () => {
+    submit(WIN_STRANGER, 'msg-1:0', { choice: 'hack' })
+    submit(WIN_A, 'msg-1:1', { choice: 'spoof' })
+    expect(mockShowToast).not.toHaveBeenCalled()
+    expect(hookResult.cardPreview).toBeNull()
+  })
+
+  it('已关闭卡 / 已回复卡仍静默（闸门语义不变）', () => {
+    render(makeMessages([{
+      id: 'r1', st: 'user', si: 'user-1', ts: '2026-11-09', dur: null,
+      content: '选好了\n\n```html-card-reply card="msg-1:0"\n{"choice":"B"}\n```',
+    }]))
+    submit(WIN_A, 'msg-1:0', { choice: 'again' })
+    expect(mockShowToast).not.toHaveBeenCalled()
+    expect(hookResult.cardPreview).toBeNull()
+  })
+})
+
 describe('resize 闸门', () => {
   it('高度 clamp 到 [1, 4000] 并回写登记的 setHeight（F20260929ahgt：下限解开为 1，棘轮解开可缩回）', () => {
     dispatchCardMessage(WIN_A, { type: 'card:resize', cardId: 'msg-1:0', height: 99999 })
