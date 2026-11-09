@@ -6,6 +6,7 @@ import type { MemoryQueue } from "@usecases/memory/memory-queue";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
 import { createCapturingLogger, createTestLogger } from "../../helpers/logger";
+import { EMBED_TASK_PRIORITY } from "@usecases/memory/memory-queue";
 
 /** 创建带状态捕获的 MemoryWriter + MemoryQueue mock */
 function statefulRepo(): MemoryWriter & MemoryQueue & {
@@ -561,73 +562,54 @@ describe("StoreMemory - F20260915midu 投影 ID 统一", () => {
   });
 });
 
-describe("StoreMemory - F20261013ebps 批量 embed + 槽位流速控制", () => {
+describe("StoreMemory - F20261109epqst 后台任务统一落库（RAM 长队退役）", () => {
   const chunkInputs = (n: number): MemoryEntryInput[] =>
     Array.from({ length: n }, (_, i) => ({
       ...SAMPLE_INPUT,
       contentType: "feature_chunk" as const,
       sourceTable: "features",
-      sourceId: "F20261013ebps",
+      sourceId: "F20261109epqst",
       content: `chunk 内容 ${i}，长度足够通过校验`,
     }));
 
-  it("replaceChunksBySource：gateway 支持 embedBatch 时走批量路径，逐条 embed 不被调用", async () => {
+  it("replaceChunksBySource：chunk 全部落库为 bulk 任务（不调 gateway——同步路径不依赖 worker）", async () => {
     const repo = statefulRepo();
-    let singleCalls = 0;
-    let batchCalls = 0;
+    const enqueued: Array<{ id: string; priority?: number }> = [];
+    repo.enqueueRetry = async (id: string, _err: unknown, priority?: number) => {
+      enqueued.push({ id, priority });
+    };
     const embedding: EmbeddingGateway = {
-      available: true,
+      available: false, // worker 不可用也不影响落库
       embed: async () => {
-        singleCalls++;
-        return new Float32Array([0.1]);
+        throw new Error("should not be called");
       },
-      embedBatch: async (texts: string[]) => {
-        batchCalls++;
-        return texts.map(() => new Float32Array([0.1]));
+      embedBatch: async () => {
+        throw new Error("should not be called");
       },
     };
     const store = new StoreMemory(repo, repo, embedding, createTestLogger());
 
     const ids = await store.replaceChunksBySource(chunkInputs(3));
-    // fire-and-forget——等 microtask 队列排空后断言
     await new Promise((r) => setTimeout(r, 0));
 
     expect(ids).toHaveLength(3);
-    expect(batchCalls).toBe(1);
-    expect(singleCalls).toBe(0);
-    expect(repo.storedEmbeddings).toHaveLength(3);
+    // 全部落库、bulk 优先级
+    expect(enqueued).toHaveLength(3);
+    expect(enqueued.every(e => e.priority === EMBED_TASK_PRIORITY.bulk)).toBe(true);
+    // 旧机制退役：不再写 embedding（那是 retry worker 消费者的事）
+    expect(repo.storedEmbeddings).toHaveLength(0);
   });
 
-  it("replaceChunksBySource：gateway 无 embedBatch 时回落逐条 fireAndForgetEmbed", async () => {
+  it("replaceChunksBySource：gateway 完全无 embedBatch/embed 能力时任务照样落库（可用性解耦）", async () => {
     const repo = statefulRepo();
-    let singleCalls = 0;
-    const embedding: EmbeddingGateway = {
-      available: true,
-      embed: async () => {
-        singleCalls++;
-        return new Float32Array([0.1]);
-      },
-    };
-    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
-
-    await store.replaceChunksBySource(chunkInputs(3));
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(singleCalls).toBe(3);
-    expect(repo.storedEmbeddings).toHaveLength(3);
-  });
-
-  it("replaceChunksBySource：embedBatch 失败时逐条入 retry 队列，不丢失", async () => {
-    const repo = statefulRepo();
-    const retried: string[] = [];
+    const enqueued: string[] = [];
     repo.enqueueRetry = async (id: string) => {
-      retried.push(id);
+      enqueued.push(id);
     };
     const embedding: EmbeddingGateway = {
-      available: true,
-      embed: async () => new Float32Array([0.1]),
-      embedBatch: async () => {
-        throw new Error("Embedding backpressure: in-flight limit reached");
+      available: false,
+      embed: async () => {
+        throw new Error("unavailable");
       },
     };
     const store = new StoreMemory(repo, repo, embedding, createTestLogger());
@@ -635,30 +617,7 @@ describe("StoreMemory - F20261013ebps 批量 embed + 槽位流速控制", () => 
     await store.replaceChunksBySource(chunkInputs(4));
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(retried).toHaveLength(4);
-    expect(repo.storedEmbeddings).toHaveLength(0);
-  });
-
-  it("replaceChunksBySource：embedBatch 带 waitSlot 软限流 + salvage（F20261020slvg：槽位等待内嵌，取代 acquireSlot 配对）", async () => {
-    const repo = statefulRepo();
-    const optsSeen: Array<{ waitSlot?: boolean; salvage?: unknown }> = [];
-    const embedding: EmbeddingGateway = {
-      available: true,
-      embed: async () => new Float32Array([0.1]),
-      embedBatch: async (texts: string[], opts?: { waitSlot?: boolean; salvage?: unknown }) => {
-        optsSeen.push(opts ?? {});
-        return texts.map(() => new Float32Array([0.1]));
-      },
-    };
-    const store = new StoreMemory(repo, repo, embedding, createTestLogger());
-
-    await store.replaceChunksBySource(chunkInputs(2));
-    await new Promise((r) => setTimeout(r, 0));
-
-    // waitSlot 软限流 + salvage 回调都传给了 embedBatch
-    expect(optsSeen).toHaveLength(1);
-    expect(optsSeen[0].waitSlot).toBe(true);
-    expect(typeof optsSeen[0].salvage).toBe("function");
-    expect(repo.storedEmbeddings).toHaveLength(2);
+    expect(enqueued).toHaveLength(4);
   });
 });
+

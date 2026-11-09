@@ -48,6 +48,21 @@ export class EmbedTransientError extends Error {
 }
 
 /**
+ * F20261109epqst：槽位等待超时错误——waitSlot 排队超过 waitTimeoutMs 上界。
+ * 继承 EmbedTransientError（retry worker 对其不计 attempts，任务留 pending 重来）——
+ * 「前面排满了」是系统忙不是任务坏，与 worker 重建/背压同待遇。
+ * 修复背景：2026-11-09 生产实锤——doc 洪峰把 ~2000 条 bulk waiter 堆进
+ * slotWaiters，retry worker 首条 embed 挂在队尾无限等待，tick 永久挂起、
+ * 旧任务 0 出队。所有后台等待必须有界（根治验收不变量 ①活性）。
+ */
+export class EmbedSlotTimeoutError extends EmbedTransientError {
+  constructor(message: string) {
+    super(message);
+    this.name = "EmbedSlotTimeoutError";
+  }
+}
+
+/**
  * F20261020slvg：embed 调用选项。
  *
  * 核心不变量（根治 #1521 后写 lane 活锁）：**超时 ≠ 取消**。
@@ -67,6 +82,13 @@ export interface EmbedCallOptions {
    * retry tick 周期降到单批时长。默认 1。
    */
   priority?: number;
+  /**
+   * F20261109epqst：waitSlot 排队等待上界（ms）。超时 reject EmbedSlotTimeoutError
+   * 并从等待队列摘除。不传则用 service 层默认（60s）——所有等待必须有界，
+   * 不允许无限挂起（生产实锤：无限等待的 waiter 把 retry tick 永久挂死）。
+   * 仅 waitSlot=true 时生效；不排队（槽空闲直接入）时无作用。
+   */
+  waitTimeoutMs?: number;
   /** 调用方超时放弃后，worker 晚到结果的持久化回调。service 包裹吞错（异步 fire-and-forget） */
   salvage?: (embedding: Float32Array) => void;
 }
@@ -80,7 +102,19 @@ export interface EmbedBatchCallOptions {
   waitSlot?: boolean;
   /** F20261105embqg S2a：同 EmbedCallOptions.priority（槽位排队优先级） */
   priority?: number;
+  /** F20261109epqst：同 EmbedCallOptions.waitTimeoutMs（waitSlot 等待上界） */
+  waitTimeoutMs?: number;
   salvage?: (embeddings: Float32Array[], startIndex?: number) => void;
+}
+
+/** F20261109epqst：service 层可观测快照——RAM 侧在飞/等待深度。
+ * 后台任务统一落库后，RAM 只剩实时短通道；本快照让「RAM 是否真的只剩有限在飞」
+ * 可被周期观测（验收不变量 ③有界性），不再只靠日志撞见。 */
+export interface EmbeddingServiceStats {
+  /** 在飞请求数（单条 + 批量 map 总和） */
+  readonly inFlight: number;
+  /** 挂起在槽位等待队列的 waiter 数 */
+  readonly pendingWaiters: number;
 }
 
 /** Embedding 网关接口（由 frameworks/embedding/ 实现） */
@@ -89,11 +123,12 @@ export interface EmbeddingGateway {
   readonly available: boolean;
   embed(text: string, opts?: EmbedCallOptions): Promise<Float32Array>;
   /**
-   * F20261013ebps：等待一个空闲 in-flight 槽位（满时挂起至空出），
-   * 供 sync 批量路径做流速控制——替代背压 reject 硬溢出入 retry 队列。
-   * F20261105embqg：priority 参数——挂起排队时的唤醒优先级（数值小先属），默认 1。
+   * F20261109epqst：RAM 侧在飞/等待深度快照（可观测性）。
+   * 可选——mock 实现可不提供，消费方 typeof 守卫。
+   * F20261109epqst 同时退役 acquireSlot：waitSlot 已内嵌 embed/embedBatch，
+   * 独立槽位获取接口无调用方（遗留死接口，双账本时代的残留）。
    */
-  acquireSlot?(priority?: number): Promise<void>;
+  readonly stats?: EmbeddingServiceStats;
   /**
    * F20261013ebps：批量 embed——一次调用处理多条文本，
    * 实现方内部走 batch 推理（吞吐远高于逐条 embed）。

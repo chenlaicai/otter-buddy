@@ -239,7 +239,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   }
   // ── 记忆索引 + 文档同步 ──
   // F20261016ebrt：写入 lane 服务 store/sync（吞吐），查询 lane 只服务 search（延迟）
-  const memoryIndex = createMemoryIndex(repos, writeEmbedding, logger);
+  // F20261109epqst 检视处置（严重发现 1 配套）：onBulkEnqueued 弱触发——doc sync
+  // 运行中入库的 chunk 任务不再等 patrol 1h，落库即触发 retry worker 消费（worker
+  // 未就绪时静默，启动 tickNow/patrol 周期兜底）。ref 桥接 worker 的延迟创建。
+  const retryWorkerRef: { current: Awaited<ReturnType<typeof createAndStartRetryWorker>> } = { current: null };
+  const memoryIndex = createMemoryIndex(repos, writeEmbedding, logger, () => {
+    const w = retryWorkerRef.current;
+    if (!w) return; // worker 未就绪：启动 tickNow 会吃掉已落库任务
+    void w.tickNow().catch(() => { /* 触发失败不炸生产者；patrol 周期兜底 */ });
+  });
   // F20261026emct 启动解耦：document sync + postSyncMigrations + 暗化迁移 + retry worker
   // 全部延后到 HTTP listen 成功后异步执行（postListenInit，见 BuiltApp 字段，
   // main.ts 在 listen 回调里 fire）。此前 syncDocuments（全库逐文档 chunk + embed）
@@ -254,7 +262,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // #949：worker 本体不再自持定时器——由下方 PatrolWorker 统一驱动（tickNow 巡检）
   // F20261026emct：retryWorker 由 postListenInit 创建（listen 后），PatrolWorker/dispose
   // 经 ref 闭包延迟绑定——启动时序解耦后 worker 可能晚于 patrolWorker 构造。
-  const retryWorkerRef: { current: Awaited<ReturnType<typeof createAndStartRetryWorker>> } = { current: null };
   const appRootDir = options.rootDir ?? process.cwd();
   /** F20261026emct：listen 成功后异步初始化（document sync + retry worker + 暗化迁移）。
    *  失败不炸进程：sync/迁移失败只落 error 日志（与原 buildApp 内 await 失败即

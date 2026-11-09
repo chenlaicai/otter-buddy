@@ -20,7 +20,7 @@ import type {
   EmbedCallOptions,
   EmbedBatchCallOptions,
 } from "@usecases/memory/embedding-gateway";
-import { EmbedTimeoutError, EmbedBackpressureError, EmbedTransientError } from "@usecases/memory/embedding-gateway";
+import { EmbedTimeoutError, EmbedBackpressureError, EmbedTransientError, EmbedSlotTimeoutError } from "@usecases/memory/embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 
 
@@ -43,12 +43,14 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private readonly pendingBatchRequests = new Map<number, PendingBatchRequest>();
   /**
-   * F20261013ebps：等待空槽的 waiter 队列（acquireSlot 挂起在此，出队释放时唤醒）。
+   * F20261013ebps→F20261109epqst：等待空槽的 waiter 队列（waitSlot 挂起在此，出队释放时
+   * 优先级唤醒）。F20261109epqst 后唯一合法挂入方是实时短通道（live 消息 fireAndForget）
+   * 与 retry worker 批次——每次挂入都带超时上界，后台长队已改为 DB 落库（不进 RAM）。
    * F20261105embqg S2a： waiter 携带优先级——releaseSlot 唤醒最高优先级（数值最小）
    * 而非 FIFO。积压泄洪期间 bulk chunk 批在排队时，live 消息 embed 可插队，
    * 活消息入库延迟从 retry tick 周期（最差 1h）降到单批时长（~14s 量级）。
    */
-  private readonly slotWaiters: Array<{ priority: number; resolve: () => void }> = [];
+  private readonly slotWaiters: Array<{ priority: number; resolve: () => void; timer?: ReturnType<typeof setTimeout>; expired?: boolean }> = [];
   private readonly readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
   /** F20260811mrpy Part 3：worker ready 时缓存的模型元信息 */
   private cachedMeta: EmbedModelMeta | null = null;
@@ -97,6 +99,17 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private static readonly WATCHDOG_NO_PROGRESS_MS = 300_000;
   /** 测试用看门狗阈值覆盖 */
   private static testWatchdogOverride: number | null = null;
+  /**
+   * F20261109epqst：waitSlot 默认等待上界（ms）——所有后台等待必须有界。
+   * 生产实锤（2026-11-09）：doc 洪峰 ~2000 条 bulk waiter 堆进队列后，
+   * retry worker 首条 embed 挂在队尾无限等待，tick 永久挂起、旧任务 0 出队。
+   * 调用方可通过 waitTimeoutMs 覆盖；不传用此默认。等待超时 reject
+   * EmbedSlotTimeoutError（继承 EmbedTransientError，retry 不计 attempts）。
+   * 60s 量级依据：单批 embedding 最长 120s（BATCH_TIMEOUT 上限），等待者
+   * 拿到槽位后至少还需一个批的时间——上限取同量级，既容忍慢批又不至于
+   * 把挂起积累成不可观测的黑洞。
+   */
+  private static readonly WAIT_SLOT_DEFAULT_TIMEOUT_MS = 60_000;
   /** 最近一次 worker 活动（send / 任何响应 / ready / 重建）时间戳 */
   private lastWorkerActivityAt = Date.now();
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
@@ -159,6 +172,18 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
 
   get available(): boolean {
     return this.readyState.ready;
+  }
+
+  /**
+   * F20261109epqst：RAM 侧在飞/等待深度快照（可观测性——验收不变量 ③有界性）。
+   * 后台任务统一落库后，这里应只剩实时短通道的有限在飞；
+   * 若 pendingWaiters 持续增长即说明有调用方在堆 RAM 长队（回归信号）。
+   */
+  get stats(): { inFlight: number; pendingWaiters: number } {
+    return {
+      inFlight: this.pendingRequests.size + this.pendingBatchRequests.size,
+      pendingWaiters: this.slotWaiters.length,
+    };
   }
 
   constructor(
@@ -331,7 +356,53 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    */
   private drainSlotWaiters(): void {
     while (this.slotWaiters.length > 0) {
-      this.slotWaiters.shift()!.resolve();
+      const waiter = this.slotWaiters.shift()!;
+      if (waiter.timer) clearTimeout(waiter.timer);
+      waiter.resolve();
+    }
+  }
+
+  /**
+   * F20261109epqst：waitSlot 等待单轮——挂入优先级队列，waitTimeoutMs 内未被唤醒则
+   * reject EmbedSlotTimeoutError 并从队列摘除（死 waiter 不占位——不摘除的话
+   * releaseSlot 可能把唤醒名额发给已放弃的 waiter，白白丢掉一次槽位流转）。
+   */
+  private waitForSlotOnce(priority: number, waitTimeoutMs: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const waiter: { priority: number; resolve: () => void; timer?: ReturnType<typeof setTimeout>; expired?: boolean } = {
+        priority,
+        resolve: () => resolve(),
+      };
+      waiter.timer = setTimeout(() => {
+        const idx = this.slotWaiters.indexOf(waiter);
+        if (idx >= 0) this.slotWaiters.splice(idx, 1);
+        waiter.expired = true;
+        reject(new EmbedSlotTimeoutError(
+          `Embedding slot wait timeout after ${waitTimeoutMs}ms (priority=${priority}, waiting=${this.slotWaiters.length}); worker lane saturated`,
+        ));
+      }, waitTimeoutMs);
+      this.slotWaiters.push(waiter);
+    });
+  }
+
+  /**
+   * F20261109epqst：waitSlot 有界等待循环（embed/embedBatch 共用）。
+   * 原循环内联在两入口（复杂度超限）；提取后语义不变：每轮 waitForSlotOnce
+   * 带 waitTimeoutMs 上界，超时 reject EmbedSlotTimeoutError；被唤醒后重查条件
+   * 与 fail-fast 检查（disposed / loadError）在同一循环体内完成。
+   */
+  private async waitSlotWithBounds(
+    priority: number,
+    waitTimeoutMs: number | undefined,
+  ): Promise<void> {
+    const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
+    const waitTimeout = waitTimeoutMs ?? EmbeddingServiceImpl.WAIT_SLOT_DEFAULT_TIMEOUT_MS;
+    while (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
+      await this.waitForSlotOnce(priority, waitTimeout);
+      if (this.disposed) throw new Error("EmbeddingService has been disposed");
+      // worker 崩溃/熔断被唤醒后 fail-fast——不把请求 send 给死 worker
+      // （重建路径 loadError 为 null，走新 worker）
+      if (this.readyState.loadError) throw this.readyState.loadError;
     }
   }
 
@@ -456,25 +527,14 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 
   /**
-   * F20261013ebps：等待一个空闲 in-flight 槽位（满时挂起至空出）。
-   * sync 批量路径用此做流速控制——前一批完成才发下一批，替代背压 reject 硬溢出入 retry 队列。
-   * dispose 时全部 waiter 立即放行，由调用方后续 embed 的 disposed 检查拦截。
-   */
-  acquireSlot(priority: number = 1): Promise<void> {
-    if (this.disposed) return Promise.resolve();
-    const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
-    if (this.pendingRequests.size + this.pendingBatchRequests.size < maxInFlight) {
-      return Promise.resolve();
-    }
-    return new Promise<void>((resolve) => {
-      this.slotWaiters.push({ priority, resolve });
-    });
-  }
-
-  /**
    * F20261013ebps：in-flight 出队后唤醒一个槽位 waiter（每出队一次只放一个，防惊群）。
    * F20261105embqg S2a：唤醒最高优先级（数值最小）的 waiter 而非 FIFO 头——
    * O(n) 扫描在 waiter 数量级（≤ 数十）下代价可忽，不引入堆结构。
+   */
+  /**
+   * F20261105embqg S2a：in-flight 出队后唤醒最高优先级（数值最小）的 waiter（每出队
+   * 一次只放一个，防惊群）。F20261109epqst：同步清理 waiter 的超时 timer。O(n) 扫描
+   * 在 waiter 数量级（实时短通道，有限）下代价可忽，不引入堆结构。
    */
   private releaseSlot(): void {
     let best = -1;
@@ -482,7 +542,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       if (best === -1 || this.slotWaiters[i].priority < this.slotWaiters[best].priority) best = i;
     }
     const waiter = best >= 0 ? this.slotWaiters.splice(best, 1)[0] : undefined;
-    if (waiter) waiter.resolve();
+    if (waiter) {
+      if (waiter.timer) clearTimeout(waiter.timer);
+      waiter.resolve();
+    }
   }
 
   /** F20261013ebps：worker error 处理（从 setupHandlers 拆出） */
@@ -537,7 +600,6 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     });
   }
 
-  // eslint-disable-next-line max-lines-per-function -- F20261026emct 加单条守卫后 61 行（限 60），剩余为 F20261020slvg 的 waitSlot 内联循环（拆分需同步处理 TOCTOU 注释链，另开 PR）
   async embed(text: string, opts?: EmbedCallOptions): Promise<Float32Array> {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
     // F20261026emct：单条入口同受闸门收口——超预算文本直接
@@ -552,26 +614,16 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     }
     await this.waitForReady();
 
-    // F20261020slvg：waitSlot——写路径软限流：槽满挂起排队。
-    // 循环直接内联（不经 helper）——唤醒后的重查→准入→set+send 必须在同一同步段，
-    // 消灭 acquireSlot→embed 配对的 TOCTOU 竞态（await helper 会多一个 microtask 边界）
-    const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
+    // F20261020slvg→F20261109epqst：waitSlot 有界等待（见 waitSlotWithBounds）
     if (opts?.waitSlot) {
-      while (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
-        await new Promise<void>((resolve) => {
-          this.slotWaiters.push({ priority: opts.priority ?? 1, resolve });
-        });
-        if (this.disposed) throw new Error("EmbeddingService has been disposed");
-        // F20261020slvg：worker 崩溃/熔断被唤醒后 fail-fast——
-        // 不把请求 send 给死 worker（重建路径 loadError 为 null，走新 worker）
-        if (this.readyState.loadError) throw this.readyState.loadError;
-      }
+      await this.waitSlotWithBounds(opts.priority ?? 1, opts.waitTimeoutMs);
     }
 
     // F20261013ebps：背压——in-flight 满时直接 reject，不 send 进 worker 队列。
     // F20261020slvg：口径统一为两 map 总和（原 embed 只查单条 map，batch 占槽期间
     // 单条可从缝里钻入，破坏 MAX_IN_FLIGHT=1 的串行前提）；reject 用专门错误类型
     // （retry worker 对背压不计 attempts，防 3 次埋掉可恢复任务）
+    const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
     if (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
       throw new EmbedBackpressureError(
         `Embedding backpressure: ${this.pendingRequests.size + this.pendingBatchRequests.size} in-flight requests exceed limit ${maxInFlight}, request rejected to prevent worker queue overflow`,
@@ -663,7 +715,6 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * 超时/错误也以整批为单位 reject——调用方（fireAndForgetEmbedBatch）的
    * fallback 逻辑不需要感知分片存在。
    */
-  // eslint-disable-next-line max-lines-per-function -- F20261026emct 闸门接入后仍超 3 行，剩余为原 F20261020slvg/F20261016ebrt 逻辑，拆分需另开 PR
   async embedBatch(texts: string[], opts?: EmbedBatchCallOptions): Promise<Float32Array[]> {
     if (this.disposed) throw new Error("EmbeddingService has been disposed");
     if (texts.length === 0) return [];
@@ -675,19 +726,13 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
 
     await this.waitForReady();
 
-    // F20261020slvg：waitSlot 软限流（循环内联，同 embed() 的原子性论证 + fail-fast 检查）
-    const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
+    // F20261020slvg→F20261109epqst：waitSlot 有界等待（同 embed()，见 waitSlotWithBounds）
     if (opts?.waitSlot) {
-      while (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
-        await new Promise<void>((resolve) => {
-          this.slotWaiters.push({ priority: opts.priority ?? 1, resolve });
-        });
-        if (this.disposed) throw new Error("EmbeddingService has been disposed");
-        if (this.readyState.loadError) throw this.readyState.loadError;
-      }
+      await this.waitSlotWithBounds(opts.priority ?? 1, opts.waitTimeoutMs);
     }
 
     // 背压——batch 也占一个 in-flight 槽位
+    const maxInFlight = EmbeddingServiceImpl.testMaxInFlightOverride ?? EmbeddingServiceImpl.MAX_IN_FLIGHT;
     if (this.pendingRequests.size + this.pendingBatchRequests.size >= maxInFlight) {
       throw new EmbedBackpressureError(
         `Embedding backpressure: in-flight limit ${maxInFlight} reached, batch request rejected`,

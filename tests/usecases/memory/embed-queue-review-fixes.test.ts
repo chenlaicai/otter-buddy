@@ -11,7 +11,7 @@
  * lint-tests:allow-ddl——豁免理由：发现 2/3 用例需真实 SqliteMemoryRepository
  * （embedding_tasks 表语义 + scanDarkEntries），与 embedding-task-gate.test.ts 同模式。
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { load as loadSqliteVec } from "sqlite-vec";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
@@ -35,6 +35,24 @@ beforeAll(async () => {
 
 afterAll(() => {
   db.close();
+});
+
+/**
+ * F20261109epqst delta r3（D4）：worker 构造即登记，afterEach 统一 stop 兜底
+ * （retrigger 下未 stop 的 worker 跨用例存活偷吃任务——测试卫生，生产单实例 +
+ * dispose stopSync 不受影响）。
+ */
+const activeWorkers: Array<{ stop(): Promise<void> }> = [];
+function trackedWorker(gateway: EmbeddingGateway): EmbeddingRetryWorker {
+  const w = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+  activeWorkers.push(w);
+  return w;
+}
+
+afterEach(async () => {
+  for (const w of activeWorkers.splice(0)) {
+    await w.stop().catch(() => { /* 幂等兜底 */ });
+  }
 });
 
 beforeEach(() => {
@@ -119,7 +137,7 @@ describe("发现 2：retry 优先级跨层闭合（claim → embed 透传）", (
     };
 
     // 3) 跑一个 tick——claim live 任务并 embed
-    const worker = new EmbeddingRetryWorker(repo, repo, repo, embedding, createTestLogger(), 3_600_000, 3);
+    const worker = trackedWorker(embedding);
     await worker.tickNow();
 
     // live 任务的 embed 调用携带 priority=0（而非默认 1/丢失）
@@ -150,7 +168,7 @@ describe("发现 3：S3 跳过的暗条目有运行时恢复路径", () => {
 
     // 2) 队列空 → 第一 tick：drain 无任务可消费（claimed=0）→ 回填 dark-1 为 bulk 任务。
     // 回填发生在 drain 之后、同 tick 不再消费——任务留存到下个 tick
-    const worker = new EmbeddingRetryWorker(repo, repo, repo, embedding, createTestLogger(), 3_600_000, 3);
+    const worker = trackedWorker(embedding);
     await worker.tickNow();
     const refilled = db.prepare("SELECT priority, attempts FROM embedding_tasks WHERE entry_id = 'dark-1'").get() as { priority: number; attempts: number } | undefined;
     expect(refilled?.priority).toBe(EMBED_TASK_PRIORITY.bulk);
@@ -158,7 +176,11 @@ describe("发现 3：S3 跳过的暗条目有运行时恢复路径", () => {
 
     // 3) 第二 tick：claim → embed（1024 维）→ storeEmbedding 落库 → markTaskDone。
     // 关键闭合验证：向量真的落库（而非 Dimension mismatch 后退队假绿）
+    // F20261109epqst：tickNow 触发式（后台 drain）——轮询等消费完成再断言
     await worker.tickNow();
+    for (let i = 0; i < 200 && ((db.prepare("SELECT COUNT(*) AS n FROM memory_vec WHERE memory_entry_id = 'dark-1'").get() as { n: number }).n === 0); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
     const vecRow = db.prepare("SELECT COUNT(*) AS n FROM memory_vec WHERE memory_entry_id = 'dark-1'").get() as { n: number };
     expect(vecRow.n).toBe(1); // 向量落库实锤
     const pendingAfter = await repo.pendingTaskCount();

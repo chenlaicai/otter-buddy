@@ -234,92 +234,9 @@ process.on("message", (msg) => {
 
 });
 
-describe("F20261013ebps acquireSlot 槽位流速控制（检视 #1465 严重发现 1）", () => {
-  beforeEach(() => {
-    EmbeddingServiceImpl.setTestMaxInFlightOverride(2);
-  });
-
-  afterEach(() => {
-    EmbeddingServiceImpl.setTestMaxInFlightOverride(null);
-  });
-
-  it("should suspend acquireSlot when slots full and wake FIFO after completion", async () => {
-    const mockWorkerPath = writeMockWorker(
-      "mock-slow-worker-slot.mjs",
-      `
-process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
-process.on("message", (msg) => {
-  if (msg.type === "embed") {
-    setTimeout(() => {
-      process.send({ type: "result", embedding: new Float32Array(4), id: msg.id });
-    }, 100);
-  }
-});
-`
-    );
-
-    const { writeService: service, dispose } = await initEmbeddingService({
-      workerPath: mockWorkerPath,
-      workerExecArgv: [],
-    });
-
-    try {
-      // 先等 worker ready——否则 embed 内的 await waitForReady() 会让槽位占用延后一个 microtask，
-      // 后面的 acquireSlot 会插队看到空槽（测试时序缺陷，非实现 bug；F20261020slvg 已在实现层
-      // 消灭该 TOCTOU——新代码应走 waitSlot，此处 acquireSlot 仅作兼容遗留入口）
-      await service.acquireSlot!();
-      // 打满 2 个槽位
-      const p1 = service.embed("a");
-      const p2 = service.embed("b");
-      // embed 体内部 await waitForReady() 是异步断点——哪怕 ready 已置位，占槽也发生在后续 microtask；
-      // 必须等两个 embed 真正入 pendingRequests——ready 消息经 worker IPC，到达时机不确定，
-      // 轮询 in-flight 计数到 2 为止（否则后续 acquireSlot 看到空槽插队，测试时序缺陷，非实现 bug；
-      // F20261020slvg 后 acquireSlot 仅兼容遗留，新代码应走 waitSlot 原子路径）
-      const svcInternal = service as unknown as { pendingRequests: Map<number, unknown> };
-      for (let i = 0; i < 200 && svcInternal.pendingRequests.size < 2; i++) {
-        await new Promise((r) => setTimeout(r, 5));
-      }
-      expect(svcInternal.pendingRequests.size).toBe(2);
-      // 槽满——两个 acquire 都应挂起
-      const order: string[] = [];
-      const a1 = service.acquireSlot!().then(() => order.push("first"));
-      const a2 = service.acquireSlot!().then(() => order.push("second"));
-      // 槽满时立即再 acquire 也挂起（不 resolve）
-      let resolvedEarly = false;
-      service.acquireSlot!().then(() => { resolvedEarly = true; });
-      await new Promise((r) => setTimeout(r, 20));
-      expect(resolvedEarly).toBe(false);
-
-      await Promise.all([p1, p2, a1, a2]);
-      // FIFO：先注册的先唤醒
-      expect(order).toEqual(["first", "second"]);
-    } finally {
-      dispose();
-      fs.unlinkSync(mockWorkerPath);
-    }
-  });
-
-  it("should resolve immediately when slots available", async () => {
-    const mockWorkerPath = writeMockWorker(
-      "mock-ready-worker.mjs",
-      `
-process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
-`
-    );
-
-    const { writeService: service, dispose } = await initEmbeddingService({
-      workerPath: mockWorkerPath,
-      workerExecArgv: [],
-    });
-
-    try {
-      await expect(service.acquireSlot!()).resolves.toBeUndefined();
-    } finally {
-      dispose();
-      fs.unlinkSync(mockWorkerPath);
-    }
-  });
-});
+// F20261109epqst：acquireSlot describe 块已删除——接口随 RAM 长队一并退役
+// （store-memory 不再预占槽位，waitSlot 已内嵌 embed/embedBatch 且带等待上界）。
+// 槽位挂起/唤醒/优先级行为由 F20261105embqg S2a 与 F20261109epqst 的 waitSlot 用例覆盖。
 
 // F20261015selfheal → F20261020slvg：自愈入口从「超时触发」改为「无进展看门狗触发」。
 // 测试直接调 watchdogTick() 模拟心跳（确定性，不依赖 60s interval），
