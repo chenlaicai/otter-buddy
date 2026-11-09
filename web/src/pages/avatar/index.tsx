@@ -10,6 +10,7 @@ export default function AvatarPage() {
   const [gestureKey, setGestureKey] = useState(0)
   const [mood, setMood] = useState<'idle' | 'curious'>('idle')
   const [reducedMotion, setReducedMotion] = useState(false)
+  const [resetKey, setResetKey] = useState(0)
   const onReady = useCallback(() => setReady(true), [])
 
   useEffect(() => {
@@ -46,8 +47,7 @@ export default function AvatarPage() {
 
         <section className="avatar-stage" aria-label="3D 头像预览">
           <div className="avatar-halo" aria-hidden="true" />
-          <OtterScene gesture={gesture} gestureKey={gestureKey} mood={mood} reducedMotion={reducedMotion} onReady={onReady} />
-          {!ready && <p className="avatar-loading" role="status">正在把大獭带进三维…</p>}
+          <OtterScene key={resetKey} gesture={gesture} gestureKey={gestureKey} mood={mood} reducedMotion={reducedMotion} onReady={onReady} />
           <p className="avatar-drag-hint"><MoveHorizontal size={16} />拖动，让我转个身</p>
         </section>
 
@@ -68,7 +68,7 @@ export default function AvatarPage() {
               <button aria-pressed={mood === 'curious'} onClick={() => setMood('curious')}>好奇</button>
             </div>
           </div>
-          <button className="avatar-reset" onClick={() => { setMood('idle'); setGesture(null); setGestureKey(0) }}>
+          <button className="avatar-reset" onClick={() => { setMood('idle'); setGesture(null); setGestureKey(0); setResetKey(key => key + 1) }}>
             <RotateCcw size={13} />回到自在
           </button>
         </section>

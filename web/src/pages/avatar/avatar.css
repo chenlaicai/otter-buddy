@@ -3,7 +3,7 @@
   --avatar-muted: #737c7d;
   --avatar-paper: #f3f1eb;
   --avatar-blue: #5b7484;
-  min-height: calc(100dvh - 68px);
+  min-height: 100dvh;
   padding: 0 6vw;
   display: flex;
   flex-direction: column;
@@ -118,7 +118,7 @@
   .avatar-description { margin-top: 10px; font-size: 12px; }
   .avatar-description br { display: none; }
   .avatar-signature { display: none; }
-  .avatar-stage { min-height: 390px; width: 100%; margin-top: -8px; }
+  .avatar-stage { min-height: 350px; width: 100%; margin-top: -8px; }
   .avatar-halo { width: 310px; }
   .avatar-drag-hint { bottom: 22px; }
   .avatar-controls { width: 100%; display: block; padding: 18px 0; }

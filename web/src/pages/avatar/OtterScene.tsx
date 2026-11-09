@@ -18,6 +18,7 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
   const hostRef = useRef<HTMLDivElement>(null)
   const liveRef = useRef({ gesture, mood, reducedMotion, onReady })
   const [error, setError] = useState(false)
+  const [loading, setLoading] = useState(true)
   const startedRef = useRef<{ key: number; at: number } | null>(null)
   const gestureKeyRef = useRef(gestureKey)
 
@@ -105,8 +106,12 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
     let waveArm: THREE.Object3D | undefined
     let waveArmRest: THREE.Vector3 | undefined
     let avatar: THREE.Group | undefined
+    let avatarRestY = 0
     const ready = () => {
-      if (!disposed) liveRef.current.onReady()
+      if (!disposed) {
+        setLoading(false)
+        liveRef.current.onReady()
+      }
     }
     const loader = new GLTFLoader()
     loader.load('/avatars/otter-3d.glb', (gltf) => {
@@ -119,6 +124,7 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
       const center = bounds.getCenter(new THREE.Vector3())
       avatar.scale.multiplyScalar(3.35 / size.y)
       avatar.position.sub(center.multiplyScalar(avatar.scale.x))
+      avatarRestY = avatar.position.y
       avatar.traverse((node) => {
         if (node instanceof THREE.Mesh) {
           node.castShadow = true
@@ -128,7 +134,7 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
           const materials = Array.isArray(node.material) ? node.material : [node.material]
           for (const material of materials) {
             if (material instanceof THREE.MeshStandardMaterial) {
-              material.roughness = Math.max(material.roughness, 0.82)
+              // 保留生成端高光/织物的粗糙度差异；只降低陶偶环境反射。
               material.envMapIntensity = 0.3
             }
           }
@@ -137,20 +143,27 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
       // s3d exports the joint itself as a named empty node above its geometry.
       head = avatar.getObjectByName('nod')
       eyes = ['eye_l', 'eye_r'].map(name => avatar!.getObjectByName(name)).filter((x): x is THREE.Object3D => !!x)
-      waveArm = avatar.getObjectByName('paw_r')
-      if (waveArm) {
+      const paw = avatar.getObjectByName('paw_r')
+      if (paw) {
+        // GLB 爪是叶子网格：另建肩部父节点，而非操作不存在的 children。
+        // pivot 用源毫米尺度；GLB 已由 Blender 转为 Y-up。
+        const pivot = new THREE.Vector3(0.70, -0.42, 0.28)
+        waveArm = new THREE.Object3D()
+        waveArm.name = 'wave_shoulder'
+        waveArm.position.copy(pivot)
+        paw.parent!.add(waveArm)
+        waveArm.attach(paw)
         waveArmRest = waveArm.position.clone()
-        const pivot = new THREE.Vector3(0, -0.40, 0)
-        for (const child of [...waveArm.children]) child.position.sub(pivot)
-        waveArm.position.add(pivot)
       }
       // Why: source Z-up maps to GLB Y-up; the face is on +Z after conversion.
-      avatar.rotation.y = -0.12
       avatar.rotation.y = -0.12
       scene.add(avatar)
       ready()
     }, undefined, () => {
-      if (!disposed) setError(true)
+      if (!disposed) {
+        setError(true)
+        setLoading(false)
+      }
     })
 
     const resize = () => {
@@ -176,7 +189,7 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
       const pulse = active ? gestureProgress(gestureElapsed, gestureDuration(active)) : 0
       if (avatar) {
         const breath = live.reducedMotion ? 0 : Math.sin(elapsed * 1.5) * 0.008
-        avatar.position.y += breath
+        avatar.position.y = avatarRestY + breath
         if (head) {
           const nod = active === 'nod' ? Math.sin(gestureElapsed / 1100 * Math.PI * 4) * pulse * 0.24 : 0
           const helloTilt = active === 'hello' ? pulse * 0.16 : 0
@@ -223,7 +236,8 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
 
   return (
     <div className="avatar-canvas" ref={hostRef}>
-      {error && <div className="avatar-fallback"><img src="/avatars/datu.svg" alt="大獭的 2D 头像" /><p>当前浏览器未能开启 3D，先看平面版大獭。</p></div>}
+      {error && <div className="avatar-fallback"><img src="/avatars/datu.svg" alt="大獭的 2D 头像" /><p>3D 模型未能加载，先看平面版大獭。</p></div>}
+      {loading && !error && <p className="avatar-loading" role="status">正在把大獭带进三维…</p>}
     </div>
   )
 }

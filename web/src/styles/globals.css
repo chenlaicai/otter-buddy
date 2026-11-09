@@ -181,7 +181,7 @@ body {
   min-width: 1024px;
   isolation: isolate;
 }
-body.avatar-page-active { min-width: 0; }
+body.avatar-page-active { min-width: 0; overflow-y: auto; }
 body.avatar-page-active #root { min-height: 100dvh; }
 
 /* F20261027cbgix：图片画布独立于 .bg-spring，减少透明效果时只退化玻璃，不删用户图片。
