@@ -23,6 +23,8 @@ export interface ModelConfig {
   model: string;
   apiKey?: string;
   apiBaseUrl?: string;
+  /** OpenAI 自定义端点协议：缺省 responses；chat 用于仅兼容 /chat/completions 的网关。 */
+  apiFormat?: "responses" | "chat";
   description?: string;
   strengths?: string[];
   weaknesses?: string[];
@@ -256,6 +258,7 @@ interface RawConfig {
       model?: string;
       apiKey?: string;
       apiBaseUrl?: string;
+      apiFormat?: "responses" | "chat";
       description?: string;
       strengths?: string[];
       weaknesses?: string[];
@@ -377,6 +380,15 @@ function validateModels(raw: RawConfig): void {
     if (!m.model) throw new Error(`配置校验失败: llm.models["${m.alias}"].model 为必填字段`);
     if (!VALID_PROVIDERS.includes(m.provider)) {
       throw new Error(`配置校验失败: llm.models["${m.alias}"].provider 必须是 ${VALID_PROVIDERS.join(" / ")}，当前值: ${m.provider}`);
+    }
+    if (m.apiFormat !== undefined && m.apiFormat !== "responses" && m.apiFormat !== "chat") {
+      throw new Error(`配置校验失败: llm.models["${m.alias}"].apiFormat 必须是 responses / chat，当前值: ${m.apiFormat}`);
+    }
+    if (m.apiFormat !== undefined && m.provider !== "openai") {
+      throw new Error(`配置校验失败: llm.models["${m.alias}"].apiFormat 仅支持 provider=openai，当前 provider: ${m.provider}`);
+    }
+    if (m.apiFormat !== undefined && !m.apiBaseUrl && !m.apiKey) {
+      throw new Error(`配置校验失败: llm.models["${m.alias}"].apiFormat 仅在配置 apiBaseUrl 或 apiKey 的自定义 OpenAI provider 中生效`);
     }
     // F20260909mthl：thinkingLevel 枚举校验（档位→模型的实际映射交给 SDK thinkingLevelMap clamp，配置层只挡非法词）
     if (m.thinkingLevel !== undefined && !VALID_THINKING_LEVELS.includes(m.thinkingLevel)) {
@@ -601,6 +613,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
         model: m.model!,
         apiKey: m.apiKey ?? undefined,
         apiBaseUrl: m.apiBaseUrl ?? undefined,
+        apiFormat: m.apiFormat ?? undefined,
         description: m.description ?? undefined,
         strengths: m.strengths ?? undefined,
         weaknesses: m.weaknesses ?? undefined,

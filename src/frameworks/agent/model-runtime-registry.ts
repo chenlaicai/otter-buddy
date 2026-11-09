@@ -219,7 +219,9 @@ export class ModelRuntimeRegistry {
       // 否则 SDK 对"注册了 models 但无 baseUrl"的 provider 同步抛错
       baseUrl: config.apiBaseUrl ?? model.baseUrl,
       apiKey: config.apiKey,
-      api: config.provider === "openai" ? "openai-responses" : "anthropic-messages",
+      // OpenAI 协议由 models-factory 解析进 Model.api（Responses / Chat Completions），运行时沿用。
+      // 非 OpenAI 保留原有 Anthropic 注册行为，避免扩大本次协议修复的影响面。
+      api: config.provider === "openai" ? model.api : "anthropic-messages",
       models: [{
         id: model.id,
         name: model.name ?? model.id,

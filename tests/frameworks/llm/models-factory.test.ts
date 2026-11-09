@@ -25,6 +25,9 @@ vi.mock("@earendil-works/pi-ai/providers/openai.models", () => ({
 vi.mock("@earendil-works/pi-ai/api/openai-responses.lazy", () => ({
   openAIResponsesApi: () => ({ id: "openai-responses" }),
 }));
+vi.mock("@earendil-works/pi-ai/api/openai-completions.lazy", () => ({
+  openAICompletionsApi: () => ({ id: "openai-completions" }),
+}));
 vi.mock("@earendil-works/pi-ai/providers/anthropic.models", () => ({
   ANTHROPIC_MODELS: [{ id: "claude-sonnet-4-20250514", api: "anthropic-messages" }],
 }));
@@ -42,7 +45,7 @@ vi.mock("@earendil-works/pi-ai/providers/anthropic", () => ({
 let initModels: typeof import("../../../src/frameworks/llm/models-factory").initModels;
 
 /** 构造单条目 llm 配置（单模型 = 一条 models[] 条目） */
-function makeLlm(entry: Partial<{ alias: string; provider: string; model: string; apiKey: string; apiBaseUrl: string; contextWindow: number; maxTokens: number }> = {}): AppConfig["llm"] {
+function makeLlm(entry: Partial<{ alias: string; provider: string; model: string; apiKey: string; apiBaseUrl: string; apiFormat: "responses" | "chat"; contextWindow: number; maxTokens: number }> = {}): AppConfig["llm"] {
   const alias = entry.alias ?? "main";
   return {
     default: alias,
@@ -52,6 +55,7 @@ function makeLlm(entry: Partial<{ alias: string; provider: string; model: string
       model: entry.model ?? "gpt-4o",
       apiKey: entry.apiKey,
       apiBaseUrl: entry.apiBaseUrl,
+      apiFormat: entry.apiFormat,
       contextWindow: entry.contextWindow,
       maxTokens: entry.maxTokens,
       handoffThresholdTokens: 100_000,
@@ -94,6 +98,30 @@ describe("initModels — custom provider routing", () => {
     await initModels(makeLlm({ apiKey: "sk-test", apiBaseUrl: "https://proxy.example.com" }));
 
     expect(mockSetProvider.mock.calls[0][0]).toBe(CUSTOM_PROVIDER);
+  });
+
+  it("defaults custom OpenAI providers to Responses", async () => {
+    await initModels(makeLlm({ apiKey: "sk-test" }));
+
+    expect(mockCreateProvider.mock.calls[0][0].api).toEqual({ id: "openai-responses" });
+  });
+
+  it("uses Chat Completions for both provider and injected model when apiFormat=chat", async () => {
+    await initModels(makeLlm({ alias: "apig", model: "kimi-k3", apiKey: "sk-test", apiFormat: "chat" }));
+
+    const providerInput = mockCreateProvider.mock.calls[0][0];
+    expect(providerInput.api).toEqual({ id: "openai-completions" });
+    const injected = providerInput.models.find((m: Record<string, unknown>) => m.id === "kimi-k3");
+    expect(injected?.api).toBe("openai-completions");
+    expect(injected?.compat).toEqual({ supportsDeveloperRole: false });
+  });
+
+  it("switches dictionary models to Chat Completions instead of retaining their Responses template api", async () => {
+    await initModels(makeLlm({ model: "gpt-4o", apiKey: "sk-test", apiFormat: "chat" }));
+
+    const providerInput = mockCreateProvider.mock.calls[0][0];
+    const dictionaryModel = providerInput.models.find((m: Record<string, unknown>) => m.id === "gpt-4o");
+    expect(dictionaryModel?.api).toBe("openai-completions");
   });
 
   it("loads anthropic custom provider for anthropic config", async () => {
