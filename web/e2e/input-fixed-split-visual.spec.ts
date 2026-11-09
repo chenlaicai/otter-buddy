@@ -642,11 +642,18 @@ test.describe('F20261109csvfx 卡片按钮无效 payload 反馈（真实浏览�
     // 证据落盘（在修复点断言之前写——修复前失败时也要留下 postMessage/rect 证据）
     const { writeFileSync, mkdirSync } = await import('node:fs')
     mkdirSync('test-results', { recursive: true })
-    const feedbackVisible = await page.getByText('卡片提交被拒绝').isVisible().catch(() => false)
+    // feedbackVisible 实测：expect.poll 轮询（容忍慢机器 toast 渲染滞后，与下方修复点断言同窗 5s）；
+    // try/catch 包裹——修复前不可见（bug 现场）也是有效证据，不能让此处断言炸掉丢证据
+    let feedbackVisible = false
+    try {
+      await expect.poll(async () => page.getByText('卡片提交被拒绝').isVisible().catch(() => false), { timeout: 5_000 }).toBe(true)
+      feedbackVisible = true
+    } catch { /* before-fix 现场：反馈不可见即证据 */ }
+    // previewVisible 实测（非硬编码常量）：证据 2 的 toBeHidden 已过，此处为同帧复核测量
+    const previewVisible = await page.getByText('以下内容由水獭卡片生成').isVisible().catch(() => false)
     writeFileSync('test-results/csvf-evidence.json', JSON.stringify({
       phase: feedbackVisible ? 'after-fix' : 'before-fix',
-      feedbackVisible, rects, submits, consoleErrors,
-      previewVisible: false, // 预览断言（证据 2）在本行之前已过（toBeHidden）
+      feedbackVisible, rects, submits, consoleErrors, previewVisible,
     }, null, 2))
 
     // 修复点断言：拒绝可见（旧版静默 → 此处失败即 bug 现场）

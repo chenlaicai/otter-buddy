@@ -255,11 +255,23 @@ describe('无效 payload 的作者反馈（不再静默）', () => {
   })
 
   it('已关闭卡 / 已回复卡仍静默（闸门语义不变）', () => {
+    // 已关闭路径（closedCardsRef）：合法提交连续拒绨3次 → 关闭 → 无效提交也静默
+    for (let n = 0; n < 3; n++) {
+      submit(WIN_A, 'msg-1:0', { summary: '待拒' })
+      act(() => { hookResult.rejectCardPreview() })
+      vi.advanceTimersByTime(300)
+    }
+    expect(mockShowToast).toHaveBeenCalledWith('该卡片提交已关闭（连续拒绝 3 次）', 'info')
+    mockShowToast.mockClear()
+    submit(WIN_A, 'msg-1:0', { choice: 'after-close' })
+    expect(mockShowToast).not.toHaveBeenCalled()
+    expect(hookResult.cardPreview).toBeNull()
+    // 已回复路径（历史派生 repliedCardIds）：msg-1:1（已注册于 WIN_B）有回执 → 无效提交也静默
     render(makeMessages([{
       id: 'r1', st: 'user', si: 'user-1', ts: '2026-11-09', dur: null,
-      content: '选好了\n\n```html-card-reply card="msg-1:0"\n{"choice":"B"}\n```',
+      content: '选好了\n\n```html-card-reply card="msg-1:1"\n{"choice":"B"}\n```',
     }]))
-    submit(WIN_A, 'msg-1:0', { choice: 'again' })
+    submit(WIN_B, 'msg-1:1', { choice: 'again' })
     expect(mockShowToast).not.toHaveBeenCalled()
     expect(hookResult.cardPreview).toBeNull()
   })
