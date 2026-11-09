@@ -16,7 +16,7 @@
  * - P7: replaceChunksBySource 不再调用 gateway.embedBatch（RAM 长队删除）
  * - P8: pendingTaskStats 可观测（最老任务年龄/优先级分布）
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import { createTestDb } from "../../helpers/db";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { StoreMemory } from "@usecases/memory/store-memory";
@@ -92,12 +92,33 @@ function makeRecordingGateway() {
   return { gateway, batchCalls, embedCalls };
 }
 
+/**
+ * F20261109epqst delta r3（D4）：trackedWorker——构造即登记，afterEach 统一
+ * stop 兜底（用例内显式 stop 的重复调用幂等——stop 是生命周期幂等契约）。
+ * retrigger 机制下未 stop 的 worker 是 self-perpetuating（退避续跑定时器
+ * 2s~1h 跨用例存活），会在后续用例里偷吃任务（检视獭实证：S3 的任务被
+ * P 系用例泄漏的 w6/w2 领走，间歇 flake 3/8）。生产不受影响（单实例 +
+ * dispose 走 stopSync 清定时器），此处是测试卫生。
+ */
+const activeWorkers: Array<{ stop(): Promise<void> }> = [];
+function trackedWorker(gateway: EmbeddingGateway): EmbeddingRetryWorker {
+  const w = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+  activeWorkers.push(w);
+  return w;
+}
+
 beforeAll(() => {
   db = createTestDb();
 });
 
 afterAll(() => {
   db.close();
+});
+
+afterEach(async () => {
+  for (const w of activeWorkers.splice(0)) {
+    await w.stop().catch(() => { /* 幂等兜底 */ });
+  }
 });
 
 beforeEach(() => {
@@ -161,7 +182,7 @@ describe("F20261109epqst P2/P3：retry worker 批量消费与持续出队", () =
     seedOldTask("old-2", "旧任务内容二");
     seedOldTask("old-3", "旧任务内容三");
 
-    const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    const worker = trackedWorker(gateway);
     await worker.tickNow();
     // tickNow 触发后台 drain（不阻塞 patrol duty）——轮询等队列见底（行为断言）
     await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 5000 });
@@ -186,7 +207,7 @@ describe("F20261109epqst P2/P3：retry worker 批量消费与持续出队", () =
     await store.replaceChunksBySource(Array.from({ length: 45 }, (_, i) => chunkInput(i)));
     expect(pendingTasks()).toBe(46); // 45 新 + 1 旧
 
-    const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    const worker = trackedWorker(gateway);
     await worker.tickNow();
     await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 5000 });
 
@@ -207,7 +228,7 @@ describe("F20261109epqst P2/P3：retry worker 批量消费与持续出队", () =
     for (let i = 0; i < 120; i++) {
       seedOldTask(`bulk-old-${i}`, `旧任务积压 ${i} 号，内容长度足够`);
     }
-    const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    const worker = trackedWorker(gateway);
     await worker.tickNow();
     await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 10_000 });
   });
@@ -240,7 +261,7 @@ describe("F20261109epqst P4：live 实时优先", () => {
       INSERT INTO embedding_tasks (entry_id, next_retry_at, status, created_at, priority, attempts)
       VALUES ('live-retry-1', datetime('now', '-10 minutes'), 'pending', datetime('now'), 0, 0)
     `).run();
-    const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    const worker = trackedWorker(gateway);
     await worker.tickNow();
     await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 10_000 });
 
@@ -266,7 +287,7 @@ describe("F20261109epqst P5/P6：失败回队与重启恢复", () => {
       }
       return origStore(id, emb);
     };
-    const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    const worker = trackedWorker(gateway);
     await worker.tickNow();
     // fail-3 完成；fail-1/fail-2 任务仍在（attempts 计数但未 dead）
     await vi.waitFor(() => expect(vecCount("store-fail-3")).toBe(1), { timeout: 5000 });
@@ -288,13 +309,13 @@ describe("F20261109epqst P5/P6：失败回队与重启恢复", () => {
     seedOldTask("restart-2", "重启前入队的任务二");
 
     // 第一个实例消费一部分后「死亡」（这里直接不消费——模拟重启后任务原样保留）
-    const worker1 = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    const worker1 = trackedWorker(gateway);
     await worker1.tickNow();
     await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 5000 }); // 全部完成
 
     // 再灌一批任务后「重启」——新实例能看到并完成全部任务
     seedOldTask("restart-3", "重启后入队的任务三");
-    const worker2 = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    const worker2 = trackedWorker(gateway);
     await worker2.tickNow();
     await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 5000 });
     expect(vecCount("restart-3")).toBe(1);
@@ -354,7 +375,7 @@ describe("F20261109epqst 检视处置：drain 无界续跑（原 MAX_DRAIN_ROUND
     for (let i = 0; i < 1100; i++) {
       seedOldTask(`bulk-s1-${i}`, `无界续跑验证任务 ${i} 号，内容长度足够通过校验`);
     }
-    const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    const worker = trackedWorker(gateway);
     await worker.tickNow(); // 唯一一次 tickNow——drain 自续跑吃完全部
     await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 20_000 });
     const vecs = (db.prepare(`SELECT COUNT(*) AS n FROM memory_vec`).get() as { n: number }).n;
@@ -377,7 +398,7 @@ describe("F20261109epqst 检视处置：drain 无界续跑（原 MAX_DRAIN_ROUND
     };
     // retrigger 周期压缩到 1.5s（测试钩子——本用例同时覆盖钩子的真实使用）
     EmbeddingRetryWorker.setTestRetriggerCapMs?.(1_500);
-    const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    const worker = trackedWorker(gateway);
     try {
     await worker.tickNow();
     // 首轮 drain：29 条成功；s2-0 的 store 失败 → 留 pending（claim 退避在未来，不 enqueueRetry）
@@ -417,7 +438,7 @@ describe("F20261109epqst 检视处置：drain 无界续跑（原 MAX_DRAIN_ROUND
     for (let i = 0; i < 120; i++) {
       seedOldTask(`bulk-s3-${i}`, `停止收敛验证任务 ${i} 号，内容长度足够`);
     }
-    const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    const worker = trackedWorker(gateway);
     await worker.tickNow();
     // drain 进行中 stop——等待收尾不炸
     await worker.stop();

@@ -157,6 +157,13 @@ P1 45 chunk 全落库 bulk pending；P2 embedBatch 批消费（多文本单调�
 - **D2（特性文档方案 3 残留 enqueueRetry 描述与追修矛盾）→ 已修复**：改为「留 pending 吃 claim 退避（不 enqueueRetry——活锁机理注明）」。
 - **D3（makeSlowGateway 注释参数不符）→ 已修复**：注释改为「可控批延迟 gateway（判别测试用它控制节奏，非真实模型）」。
 
+## 检视处置 delta r3（D4 中等：S3 间歇 flake——worker 跨用例泄漏，2026-11-09 16:04）
+
+- **根因（检视獭诊断实例打点实证）**：retrigger 机制下未 stop 的 worker 是 self-perpetuating——退避续跑定时器（2s~1h）跨用例存活，到点 ensureDrain（不检查生命周期标志，按 worker.ts:90 既有设计语义）领走后续用例任务。S3 的 120 条被 P 系用例泄漏的 w6/w2 偷吃，3/8 复现率，单文件稳定绿/合跑间歇红。
+- **处置（改测试不改生产语义，按检视建议）**：三个测试文件（embedding-persistent-queue / embedding-retry-worker / embed-queue-review-fixes）统一 `trackedWorker` 工厂——构造即登记，afterEach 统一 `stop()` 兜底（stop 幂等契约保证用例内显式 stop 不冲突）。**未**在 ensureDrain 加 stopped 检查（检视明确不建议——破坏「未 start 的 worker 可 tickNow」既有语义）。
+- **验证**：单文件 8 连跑 + 三文件合跑 4 连跑 + 全目录合跑 3 连跑 + 全量 5754/5754 全绿；lint 0 错。
+- **生产影响评估（与检视一致）**：生产单实例 + dispose 走 stopSync 清 retrigger 定时器，不受影响；多实例共享 DB 是未来形态，当前不设防（如出现需加 claim 所有者标识）。
+
 # 机制判定（R8.5 准入）
 
 本 PR 是**删除/收窄旧机制**（scope-reduction），未新增机制：
