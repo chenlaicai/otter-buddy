@@ -36,6 +36,8 @@ type FakeSession = {
   _cwd: string;
   builtWithCwd: string[];
   _buildRuntime(): Promise<void>;
+  updateOptions?: (options: { currentInvokeId?: string; prompt?: string }) => void;
+  setCwd: (cwd: string) => Promise<void>;
   dispose(): void;
   abort(): Promise<void>;
   steer(text: string): Promise<void>;
@@ -48,6 +50,8 @@ function fakeSession(): FakeSession {
     _cwd: "",
     builtWithCwd: [],
     async _buildRuntime() { s.builtWithCwd.push(s._cwd); },
+    async setCwd(cwd) { s._cwd = cwd; await s._buildRuntime(); },
+    updateOptions() {},
     dispose() { s.disposed = true; },
     abort: async () => {},
     steer: async () => {},
@@ -203,14 +207,14 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
 
     // 失败回滚（S6 语义保持）：build 抛错 → _cwd 恢复旧值 → 下次命中重试
     const cwdB = session._cwd;
-    session._buildRuntime = async () => { throw new Error("boom"); };
+    session.setCwd = async () => { throw new Error("boom"); };
     await expect(
       withEpoch(() => internals._acquirePooled("o1", { messageId: "m3", conversationId: "conv-C" })),
     ).rejects.toThrow("boom");
     expect(session._cwd).toBe(cwdB); // 回滚
 
     // 重试成功：_cwd 更新 + build 捕获新值
-    session._buildRuntime = async function (this: FakeSession) { s0_built(this); };
+    session.setCwd = async function (this: FakeSession, cwd: string) { this._cwd = cwd; s0_built(this); };
     function s0_built(fs2: FakeSession) { fs2.builtWithCwd.push(fs2._cwd); }
     const retry = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m4", conversationId: "conv-C" }));
     expect(retry.isPooled).toBe(true);

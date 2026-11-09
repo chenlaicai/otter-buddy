@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  otter-buddy 主服务 launchd 配置（单实例门闩，非生命周期管理）
+
+  语义（搭档 2026-11-06 定调）：
+  - launchd 只做一件事：Label 单实例保证——同一服务全局只允许一个实例，
+    手滑双开时第二次被拦（这是删除会话文件锁后唯一的运行环境防护，见 PR #1783 / #1791）。
+  - 不做开机自启（无 RunAtLoad）、不做崩溃自动拉起（无 KeepAlive）。
+    服务生命周期完全由用户手动控制：想启动 kickstart，想停直接 kill。
+
+  安装（三步）：
+    cp deploy/launchd/ai.otter-buddy.main.plist ~/Library/LaunchAgents/
+    kill <现有 nohup 进程 PID>            # 先停手动进程，防双开
+    launchctl load ~/Library/LaunchAgents/ai.otter-buddy.main.plist
+
+  启动：launchctl kickstart gui/$(id -u)/ai.otter-buddy.main
+  停止：launchctl kill TERM gui/$(id -u)/ai.otter-buddy.main   （不会被拉起）
+  状态：launchctl list | grep otter-buddy
+  卸载：launchctl unload ~/Library/LaunchAgents/ai.otter-buddy.main.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.otter-buddy.main</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/node</string>
+        <string>dist/src/main.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/orca/ai/otter-buddy</string>
+
+    <!-- 显式声明：不自启、不自动拉起（搭档定调：服务启停归用户手动） -->
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- 退出后允许再次手动启动（无节流需求：无自动拉起） -->
+    <key>ThrottleInterval</key>
+    <integer>0</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/orca/ai/otter-buddy/data/logs/main.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/orca/ai/otter-buddy/data/logs/main.stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NODE_ENV</key>
+        <string>production</string>
+    </dict>
+</dict>
+</plist>

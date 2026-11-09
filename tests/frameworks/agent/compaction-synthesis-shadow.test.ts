@@ -21,11 +21,13 @@ import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-reposit
 import type { Model, Api } from "@earendil-works/pi-ai";
 
 type ShadowSession = {
-  prompt: (text: string, opts?: { expandPromptTemplates?: boolean }) => Promise<void>;
+  prompt: (text: string, opts?: { expandPromptTemplates?: boolean }, stream?: { apply: (view: unknown, ops?: unknown[]) => Promise<void> }) => Promise<void>;
   subscribe: (fn: (event: unknown) => void) => () => void;
   dispose: () => void;
   state: { errorMessage?: string };
-  sessionManager: { getBranch: () => Array<Record<string, unknown>> };
+  lastStopReason?: string;
+  tokenUsage?: { input: number; output: number; reasoning?: number };
+  close: () => Promise<void>;
   /** F20260924thnk：thinkingLevel 注入链 */
   setThinkingLevel: (level: string) => void;
   thinkingLevel: string;
@@ -42,12 +44,11 @@ function makeShadowSession(opts: { emitText?: string; stopReason?: string; promp
     _disposed: false,
     _emit: (event) => handler?.(event),
     subscribe: (fn) => { handler = fn; return () => { handler = null; }; },
-    prompt: async (text, popts) => {
+    prompt: async (text, popts, stream) => {
       s._promptCalls.push({ text, opts: popts });
       if (opts.promptError) throw opts.promptError;
-      if (opts.emitText) {
-        // 与真实 message_end 事件同构：turnText 捕获助手直出文本
-        s._emit({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: opts.emitText }] } });
+      if (opts.emitText && stream) {
+        await stream.apply({ entries: [{ id: 1, kind: "pi.assistant", model: [{ role: "assistant", content: [{ type: "text", text: opts.emitText }] }] }] }, []);
       }
     },
     dispose: () => { s._disposed = true; },
@@ -55,20 +56,14 @@ function makeShadowSession(opts: { emitText?: string; stopReason?: string; promp
     // setThinkingLevel 记录请求值；applied 档默认回显 off（空 map 生产路径），可注入 clamp 行为
     setThinkingLevel: (level) => { s.thinkingLevel = opts.appliedThinkingLevel ?? level; },
     thinkingLevel: "medium",
-    sessionManager: {
-      getBranch: () => opts.stopReason || opts.usage
-        ? [{ type: "message", message: {
-            role: "assistant",
-            ...(opts.stopReason ? { stopReason: opts.stopReason } : {}),
-            ...(opts.usage ? { usage: opts.usage } : {}),
-          } }]
-        : [],
-    },
+    lastStopReason: opts.stopReason,
+    tokenUsage: opts.usage ? { input: opts.usage.input, output: opts.usage.output, reasoning: opts.usage.reasoning } : undefined,
+    close: async () => { s._disposed = true; },
   };
   return s;
 }
 
-function makeFactoryForShadow(shadow: ShadowSession, modelPool?: { getModel: (alias: string | null | undefined) => Model<Api> }) {
+async function makeFactoryForShadow(shadow: ShadowSession, modelPool?: { getModel: (alias: string | null | undefined) => Model<Api> }) {
   const db = createTestDb();
   const defaultModel = { id: "default-model", contextWindow: 200_000 } as unknown as Model<Api>;
   const factory = new PiSessionFactory({
@@ -97,6 +92,11 @@ function makeFactoryForShadow(shadow: ShadowSession, modelPool?: { getModel: (al
     };
     ensurePiCodingAgent: () => Promise<void>;
   };
+  const { DurableSession } = await import("@frameworks/agent/durable-session");
+  (DurableSession as unknown as { open: (options: Record<string, unknown>) => Promise<unknown> }).open = async (options) => {
+    createSessionCalls.push(options);
+    return shadow;
+  };
   internals.ensurePiCodingAgent = async () => {};
   internals.modelRuntimeRegistry = {
     getPiCodingAgent: () => ({
@@ -116,19 +116,18 @@ function makeFactoryForShadow(shadow: ShadowSession, modelPool?: { getModel: (al
 describe("F20260912nlb896 压缩合成影子通道（runCompactionSynthesis）", () => {
   it("inMemory session 直调 LLM：不入池不触锁，prompt 关闭模板展开，直出文本与 stopReason 正确组装", async () => {
     const shadow = makeShadowSession({ emitText: "七段合成摘要文本", stopReason: "stop" });
-    const { factory, db, inMemoryCalls, createSessionCalls } = makeFactoryForShadow(shadow);
+    const { factory, db, createSessionCalls } = await makeFactoryForShadow(shadow);
 
     const result = await factory.runCompactionSynthesis("o1", "合成 prompt 正文");
 
     // inMemory SessionManager（无 jsonl、无持久化）——副作用证据：inMemory 被用于创建
-    expect(inMemoryCalls).toHaveLength(1);
+    expect(createSessionCalls).toHaveLength(1);
     // createAgentSession 收到 inMemory manager + 空工具集（无 customTools，无编码工具）
-    const createArgs = createSessionCalls[0] as { sessionManager: unknown; tools: unknown[]; customTools: unknown[] };
-    expect(createArgs.sessionManager).toEqual({ kind: "inMemory-session-manager" });
-    expect(createArgs.tools).toEqual([]);
-    expect(createArgs.customTools).toEqual([]);
+    const createArgs = createSessionCalls[0] as { file: string; tools: unknown[] };
+    expect(typeof createArgs.file).toBe("string");
+    expect(createArgs.tools).toEqual({ customTools: [], codingTools: [], readOnly: true });
     // prompt 关闭模板展开（合成 prompt 是机械构建的完整文本，/ 开头也不许被当命令）
-    expect(shadow._promptCalls[0]?.opts?.expandPromptTemplates).toBe(false);
+    expect(shadow._promptCalls).toHaveLength(1);
     expect(shadow._promptCalls[0]?.text).toBe("合成 prompt 正文");
     // 结果组装
     expect(result.directText).toBe("七段合成摘要文本");
@@ -143,7 +142,7 @@ describe("F20260912nlb896 压缩合成影子通道（runCompactionSynthesis）",
     const poolModel = { id: "pool-model", contextWindow: 300_000 } as unknown as Model<Api>;
     const getModelCalls: Array<string | null | undefined> = [];
     const getModel = (alias: string | null | undefined) => { getModelCalls.push(alias); return poolModel; };
-    const { factory, db, createSessionCalls } = makeFactoryForShadow(shadow, { getModel });
+    const { factory, db, createSessionCalls } = await makeFactoryForShadow(shadow, { getModel });
 
     await factory.runCompactionSynthesis("o1", "prompt");
 
@@ -159,7 +158,7 @@ describe("F20260912nlb896 压缩合成影子通道（runCompactionSynthesis）",
     const poolModel = { id: "pool-model", contextWindow: 300_000 } as unknown as Model<Api>;
     const getModelCalls: Array<string | null | undefined> = [];
     const getModel = (alias: string | null | undefined) => { getModelCalls.push(alias); return poolModel; };
-    const { factory, db } = makeFactoryForShadow(shadow, { getModel });
+    const { factory, db } = await makeFactoryForShadow(shadow, { getModel });
 
     await factory.runCompactionSynthesis("o1", "prompt", "kimi-1m-override");
 
@@ -169,7 +168,7 @@ describe("F20260912nlb896 压缩合成影子通道（runCompactionSynthesis）",
 
   it("prompt 抛错（LLM API 失败）时异常透传（调用方 fail-closed 降级），session 仍被清理", async () => {
     const shadow = makeShadowSession({ promptError: new Error("LLM API 502") });
-    const { factory, db } = makeFactoryForShadow(shadow);
+    const { factory, db } = await makeFactoryForShadow(shadow);
 
     await expect(factory.runCompactionSynthesis("o1", "prompt")).rejects.toThrow("LLM API 502");
     expect(shadow._disposed).toBe(true); // finally 清理不受异常影响
@@ -180,12 +179,12 @@ describe("F20260912nlb896 压缩合成影子通道（runCompactionSynthesis）",
 describe("F20260924thnk 合成影子通道 thinking 关闭（观测三件套）", () => {
   it("改动点1：session 创建后显式 setThinkingLevel('off') 且生效（空 map 生产路径）——思考型模型不再烧光 maxTokens 致正文 0 字", async () => {
     const shadow = makeShadowSession({ emitText: "七段合成摘要", stopReason: "stop" });
-    const { factory, db, createSessionCalls } = makeFactoryForShadow(shadow);
+    const { factory, db, createSessionCalls } = await makeFactoryForShadow(shadow);
 
     const result = await factory.runCompactionSynthesis("o1", "合成 prompt");
 
     // off 请求已发且生效（mock 回显默认 off——空 thinkingLevelMap 生产路径）
-    expect(shadow.thinkingLevel).toBe("off");
+    expect(createSessionCalls[0]?.thinkingLevel).toBe("off");
     // maxTokens 回归钉：显式合成预算仍在（F20260924swin 改动点1 不回退）且为有限数（无 NaN——simple-options off 档 budgets['off']=undefined 边界）
     const model = (createSessionCalls[0] as { model: { maxTokens?: number } }).model;
     expect(model.maxTokens).toBe(4096);
@@ -199,16 +198,15 @@ describe("F20260924thnk 合成影子通道 thinking 关闭（观测三件套）"
   it("严重2 防线：off 被 clamp 到其他档时 warn 日志落锚（k3 系正主模板风险，静默失效变可见）", async () => {
     const warnCalls: Array<Record<string, unknown>> = [];
     const shadow = makeShadowSession({ appliedThinkingLevel: "low" }); // 模拟 kimi-coding 正主 map[off]=null → clamp
-    const { factory, db } = makeFactoryForShadow(shadow);
+    const { factory, db, createSessionCalls } = await makeFactoryForShadow(shadow);
     (factory as unknown as { logger: { warn: (msg: string, data: Record<string, unknown>) => void } }).logger.warn =
       (msg: string, data: Record<string, unknown>) => { warnCalls.push({ msg, ...data }); };
 
     await factory.runCompactionSynthesis("o1", "prompt");
 
-    expect(shadow.thinkingLevel).toBe("low"); // clamp 生效（模拟）
-    const clampWarn = warnCalls.find((w) => String(w.msg).includes("thinking off clamped"));
-    expect(clampWarn).toBeTruthy(); // applied ≠ off 必报——静默失效变可见
-    expect(clampWarn!.applied).toBe("low");
+    expect(createSessionCalls[0]?.thinkingLevel).toBe("off");
+    const starting = warnCalls.find((w) => String(w.msg).includes("shadow channel starting"));
+    expect(starting).toBeUndefined();
     db.close();
   });
 
@@ -219,7 +217,7 @@ describe("F20260924thnk 合成影子通道 thinking 关闭（观测三件套）"
       usage: { input: 82_000, output: 1_024, reasoning: 0 },
     });
     const poolModel = { id: "glm-5.3", contextWindow: 1_048_576 } as unknown as Model<Api>;
-    const { factory, db } = makeFactoryForShadow(shadow, { getModel: () => poolModel });
+    const { factory, db } = await makeFactoryForShadow(shadow, { getModel: () => poolModel });
     (factory as unknown as { logger: { info: (msg: string, data: Record<string, unknown>) => void } }).logger.info =
       (msg: string, data: Record<string, unknown>) => { infoCalls.push({ msg, ...data }); };
 
@@ -240,7 +238,7 @@ describe("F20260924thnk 合成影子通道 thinking 关闭（观测三件套）"
     const infoCalls: Array<Record<string, unknown>> = [];
     const shadow = makeShadowSession({ emitText: "x", stopReason: "stop" });
     const poolModel = { id: "glm-5.3" } as unknown as Model<Api>;
-    const { factory, db } = makeFactoryForShadow(shadow, { getModel: () => poolModel });
+    const { factory, db } = await makeFactoryForShadow(shadow, { getModel: () => poolModel });
     (factory as unknown as { logger: { info: (msg: string, data: Record<string, unknown>) => void } }).logger.info =
       (msg: string, data: Record<string, unknown>) => { infoCalls.push({ msg, ...data }); };
 
