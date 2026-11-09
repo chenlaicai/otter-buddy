@@ -3,7 +3,8 @@
  * 改名上移，消除与 usecases/ports/agent-invoke-port.ts 的同名双定义——那边是 invokeConversation
  * 粒度、PR-D1 时删除；本接口是 SDK invoke 粒度，PiSessionFactory 结构匹配）。
  *
- * ⚠️ 本 port 依赖 pi-coding-agent 的 AgentSessionEvent 类型（re-export）——换 SDK 时需修订。
+ * F20261109rtcnt：SDK 已换 pi-durable——事件经 durable-event-stream 转换层转回本形态，
+ * 该 re-export 仅为兼容保留；类型自有化缓到 pi-coding-agent 退役时收编（见 docs/designs/runtime-contract.md）。
  */
 
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
