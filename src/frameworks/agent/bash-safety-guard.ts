@@ -2,19 +2,24 @@
  * Bash 命令安全守卫·终态（F20261030gblkv，guard-v4）。
  *
  * 架构：黑名单两层流水线——第一站杀进程判定（9/16 原点，唯一硬目标），
- * 第二站黑名单三类（凭证路径/数据外发/下载即执行）。看不懂的放行（宁漏勿误）。
+ * 第二站黑名单两类（凭证路径/下载即执行）。看不懂的放行（宁漏勿误）。
  *
  * 决策链（搭档 2026-10-29 拍板，原话锚定见 F20261030gblkv 特性文档）：
  * - 「禁止白名单！只允许有黑名单！」——白名单写区/git 动态授权/沙箱层全部退役
  * - 守卫原点=防獭杀主进程（9/16 事故 F20260916gtlr）；「守卫 git」是漂移出的伪目标
  * - sandbox-exec（Apple deprecated）整层退役；验证=回放回归库（真实使用为准）
  *
+ * F20261109bexfz（搭档 2026-11-09 拍板）：B 类外发域名表判定整类退役——「防外发」
+ * 需求无真实来源（搭档原话「这个防止外发的需求我甚至都不知道是从哪里提出的，肯定
+ * 不是我遇到过的……那说明这只是个虚构的伪需求」）；白名单语义与「只允许黑名单」总则
+ * 相反。curl/wget 的 POST/PUT 外发不再看目的地；存量 healing 归因由 classify 指纹表
+ * 回溯兑底（指纹在表、ID 退役、isHistoricalAttribution）。
+ *
  * 保留的既有资产（语义不变，从旧版继承）：
  * - kill-segment-finder.ts：kill 族命令位置粗筛（四层：位置/引号状态机/$()嵌套/前缀包装）
  * - SERVICE_SCRIPT_KILL：服务脚本自杀模式（9/16 原案，字面无 kill）
  * - 非字面量 kill：F20261105killa 政策 A 退役保守拦——能确认才拦（字面量三查/PID 文件引用/pkill 特征名），确认不了放行（宁漏勿误贯彻第一站）
  * - #844 白名单端口溯源：kill $(lsof :3100) 类受控放行（allowed-service-ports）
- * - networkExfilHit：外发判定引擎（域名表配置化）
  * - PID 文件（.otter-buddy.pid）：主进程号码主源
  */
 
@@ -43,9 +48,8 @@ export interface GuardOptions {
   sandboxGuarded?: boolean;
   /** 测试注入：进程查询桩（生产缺省真查 lsof/ps） */
   processProbe?: ProcessProbe;
-  /** F20261030gblkv：协作域名表（B 类外发判定）——config.yaml bashGuard.allowedEgressDomains
-   *  搭档专改（主仓文件走 PR，獭无权扩表防注入自放行）。缺省用内置缺省表（含 github/npm
-   *  等协作域名）；显式空数组 = fail-closed（一切外发域名都拦）。 */
+  /** F20261109bexfz 退役兼容参数：B 类外发域名表已删除，此字段不再影响判定
+   *  （保留签名兼容存量调用方/测试桩，传值静默忽略）。 */
   allowedEgressDomains?: string[];
 }
 
@@ -350,57 +354,10 @@ function credentialPathHit(command: string): boolean {
   return CREDENTIAL_PATH_PATTERNS.some(p => p.test(normalized));
 }
 
-/** B 类：协作域名表（配置化）。
- *  语义（F20261030gblkv）：缺省用内置缺省表；显式空数组 = fail-closed（一切外发域名都拦）
- *  ——搭档将表清空即关闭全部合法外发通道，而非回退缺省。 */
-const DEFAULT_EGRESS_DOMAINS = ["github.com", "api.github.com", "registry.npmjs.org", "objects.githubusercontent.com", "huawei-colink.com", "localhost", "127.0.0.1", "::1"];
-
-function makeEgressDomainAllowed(domains: string[] | undefined): (host: string) => boolean {
-  const list = domains ?? DEFAULT_EGRESS_DOMAINS;
-  return (host) => {
-    const h = host.replace(/^\[|\]$/g, "").toLowerCase();
-    return list.some(w => h === w.toLowerCase() || h.endsWith("." + w.toLowerCase()));
-  };
-}
-
-/** B 类判定：curl/wget 上传动词 + 域名核对。
- *  S1+S5（检视初轮）：短旗标大小写敏感精确匹配（curl 的 -f=失败静默 / -F=表单上传、
- *  -D=转储头 / -d=携带数据，大小写即语义——/i 折叠会把纯 GET 误拦）；
- *  动词词元表含 PUT 族（-T/--upload-file/--json/--request=POST/wget --method=PUT 等），
- *  对齐 F doc 判据「POST/PUT/带载荷」。
- *  D3（检视 delta-r2）：词元表按工具分——curl 的 -d/-F/-T 是上传语义，但 wget 的
- *  同字母短旗标全是 GET 侧（-T=--timeout/-F=--force-html/-d=--debug/-t=--tries）。 */
-function uploadVerbHitFor(tool: "curl" | "wget", seg: string): boolean {
-  // 动词/method 长形态两工具通用（--request/--method 及 = 与空格双形态）
-  if (/(?:^|\s)--(?:request|method)=(?:POST|PUT)\b/i.test(seg)) return true;
-  if (/(?:^|\s)--(?:request|method)\s+(?:POST|PUT)\b/i.test(seg)) return true;
-  if (tool === "wget") {
-    // D3（检视 delta-r2）：wget 无上传短旗标——-T=timeout/-F=force-html/-d=debug/-t=tries
-    // 全是 GET 侧，只认长形态（--post-data/--post-file/--body-data/--body-file）
-    return /(?:^|\s)--(?:post-data|post-file|body-data|body-file)\b/i.test(seg);
-  }
-  // curl：长形态 + 短旗标 -d/-F/-T（含附着值 -Tfile/-Fname=@x/-d@file，还原旧语义；
-  // 大小写敏感——-D 转储头/-f 失败静默不命中；无 t 词元：curl -t=telnet-option 非上传）
-  if (/(?:^|\s)--(?:data|post-data|post-file|form|form-string|upload-file|json)\b/i.test(seg)) return true;
-  if (/(?:^|\s)-X\s*(?:POST|PUT)\b/.test(seg)) return true;
-  return /(?:^|\s)-[dFT]/.test(seg);
-}
-
-function uploadExfilHit(command: string, allowedEgressDomains?: string[]): boolean {
-  const egressDomainAllowed = makeEgressDomainAllowed(allowedEgressDomains);
-  // 段级粗筛：段首（或 | / ; / && 后）是 curl/wget
-  const segments = command.split(/&&|\|\||[;&|\n]/).map(s => s.trim()).filter(Boolean);
-  for (const seg of segments) {
-    const m = /^(?:sudo\s+)?(curl|wget)\b/.exec(seg);
-    if (!m) continue;
-    if (!uploadVerbHitFor(m[1] as "curl" | "wget", seg)) continue;
-    // 提取域名
-    const urls = [...seg.matchAll(/https?:\/\/(?:[^@\s/]*@)?(\[[^\]]+\]|[^/:\s]+)(?::\d+)?/g)].map(x => x[1]);
-    if (urls.length === 0) return true; // 上传但目的不可静态校验——fail-closed
-    if (!urls.every(egressDomainAllowed)) return true;
-  }
-  return false;
-}
+/** F20261109bexfz（搭档 2026-11-09 拍板）：B 类外发域名表判定整类退役——
+ *  原 uploadExfilHit/makeEgressDomainAllowed/DEFAULT_EGRESS_DOMAINS/uploadVerbHitFor/
+ *  NETWORK_EXFIL_BLOCK_MSG 已删除（「防外发」需求无真实来源，白名单语义与
+ *  「只允许黑名单」总则相反）。存量 healing 归因由 classify 指纹表回溯兑底。 */
 
 /** 建议③（检视初轮→delta-r3 数据流判定）：进程替换形态 bash <(curl …)——
  *  fetcher 输出直接进解释器 argv，同属「下载即执行」（不入盘不可审阅）。
@@ -439,15 +396,11 @@ function pipeToInterpreterHit(command: string): boolean {
 }
 
 /** 第二站主判定 */
-/** 第二站黑名单三类的拦截块（F20261102grfix：内联文案常量化+ruleId 直标） */
+/** 第二站黑名单拦截块（F20261102grfix：内联文案常量化+ruleId 直标）。
+ *  注：B 类 NETWORK_EXFIL_BLOCK_MSG 已随 F20261109bexfz 退役删除（黑名单剩两类）。 */
 const CRED_DIR_BLOCK_MSG: GuardBlock = {
   text: "凭证目录（~/.ssh / ~/.gnupg / ~/.aws）禁止访问——密钥/凭证不进獭上下文。如确需相关操作请告知搭档人工执行。",
   ruleId: "cred_dir_access",
-  layer: "bypass_guard",
-};
-const NETWORK_EXFIL_BLOCK_MSG: GuardBlock = {
-  text: "检测到向非协作域名上传数据（POST/PUT）。合法外发目标请由搭档在 config bashGuard.allowedEgressDomains 登记；确需临时外发请呈搭档确认。",
-  ruleId: "network_exfil",
   layer: "bypass_guard",
 };
 const DOWNLOAD_EXEC_BLOCK_MSG: GuardBlock = {
@@ -456,12 +409,11 @@ const DOWNLOAD_EXEC_BLOCK_MSG: GuardBlock = {
   layer: "bypass_guard",
 };
 
-function checkBlacklistStation(command: string, allowedEgressDomains?: string[]): GuardBlock | null {
+/** 第二站主判定（F20261109bexfz：B 类外发域名判定退役，剩 A 类凭证路径 + C 类下载即执行）
+ *  allowedEgressDomains 参数为退役兼容签名（不再参与判定，静默忽略）。 */
+function checkBlacklistStation(command: string, _allowedEgressDomains?: string[]): GuardBlock | null {
   if (credentialPathHit(command)) {
     return CRED_DIR_BLOCK_MSG;
-  }
-  if (uploadExfilHit(command, allowedEgressDomains)) {
-    return NETWORK_EXFIL_BLOCK_MSG;
   }
   if (pipeToInterpreterHit(command) || processSubstitutionHit(command)) {
     return DOWNLOAD_EXEC_BLOCK_MSG;
