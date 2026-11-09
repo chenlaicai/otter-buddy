@@ -328,7 +328,7 @@ describe("F20261109epqst P8：可观测性", () => {
 });
 
 describe("F20261109epqst 检视处置：drain 无界续跑（原 MAX_DRAIN_ROUNDS/MS 已删）", () => {
-  /** 控制时钟的 gateway——模拟慢 worker（每批 1.5s），让 200 条消费耗时 >10min 等价负载 */
+  /** 可控批延迟 gateway（batchDelayMs=批内等待；判别测试用它控制节奏，非真实模型） */
   function makeSlowGateway(batchDelayMs: number) {
     const batchCalls: number[] = [];
     const gateway: EmbeddingGateway = {
@@ -343,19 +343,24 @@ describe("F20261109epqst 检视处置：drain 无界续跑（原 MAX_DRAIN_ROUND
     return { gateway, batchCalls };
   }
 
-  it("S1: 200 条积压（>原 20 轮×50=1000 内但跨多轮）单次 tickNow 后全部出队，无第二次 tickNow", async () => {
-    const { gateway } = makeSlowGateway(30);
-    for (let i = 0; i < 200; i++) {
+  /**
+   * D1 判别性（delta r2）：1100 条 > 旧 MAX_DRAIN_ROUNDS(20) × BATCH_LIMIT(50) = 1000 条上界。
+   * 基线 b50e6bfb（含旧预算）本用例必红：20 轮后 drain 停、留 100 条 pending 等下个
+   * patrol 1h——正是检视初轮发现的「1000 条积压脉冲化」。新代码无界续跑单次 tickNow
+   * 全消化。批延迟 0（判别的是轮次边界不是时间预算，22 轮 × 100ms 冷却 ≈ 2.5s）。
+   */
+  it("S1: 1100 条（超旧 20 轮×50=1000 预算上界）单次 tickNow 后全部出队，无第二次 tickNow", async () => {
+    const { gateway } = makeSlowGateway(0);
+    for (let i = 0; i < 1100; i++) {
       seedOldTask(`bulk-s1-${i}`, `无界续跑验证任务 ${i} 号，内容长度足够通过校验`);
     }
     const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
-    // 200 条 ÷ 50/批 = 4 轮 × (30ms 批 + 100ms 冷却) ≈ 1s 内完成
     await worker.tickNow(); // 唯一一次 tickNow——drain 自续跑吃完全部
-    await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 15_000 });
+    await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 20_000 });
     const vecs = (db.prepare(`SELECT COUNT(*) AS n FROM memory_vec`).get() as { n: number }).n;
-    expect(vecs).toBe(200);
+    expect(vecs).toBe(1100);
     await worker.stop();
-  });
+  }, 25_000);
 
   it("S2: store 失败后任务留队吃退避 + retrigger 排期续跑（不丢、不活锁、无需新 tickNow）", async () => {
     const { gateway } = makeSlowGateway(5);
@@ -370,25 +375,41 @@ describe("F20261109epqst 检视处置：drain 无界续跑（原 MAX_DRAIN_ROUND
       }
       return origStore(id, emb);
     };
+    // retrigger 周期压缩到 1.5s（测试钩子——本用例同时覆盖钩子的真实使用）
+    EmbeddingRetryWorker.setTestRetriggerCapMs?.(1_500);
     const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    try {
     await worker.tickNow();
     // 首轮 drain：29 条成功；s2-0 的 store 失败 → 留 pending（claim 退避在未来，不 enqueueRetry）
     await vi.waitFor(() => expect(pendingTasks()).toBe(1), { timeout: 15_000 });
     const row = db.prepare(`SELECT attempts, (next_retry_at > datetime('now')) AS in_future FROM embedding_tasks WHERE entry_id LIKE 'bulk-s2-%'`).get() as { attempts: number; in_future: number };
     expect(row.attempts).toBeGreaterThanOrEqual(1);
     expect(row.in_future).toBe(1); // 退避生效（enqueueRetry 会把它重置为 now——已删）
-    // drain 退出（全部在退避）→ retrigger 已按退避窗口排期
-    await vi.waitFor(() => {
-      expect((worker as unknown as { retriggerTimer: unknown }).retriggerTimer).toBeTruthy();
-    }, { timeout: 5_000 });
+    // drain 退出（全部在退避）→ retrigger 已按退避窗口排期（软断言：本用例的
+    // 判别力在首段 in_future（活锁修复）与消化段（无 retrigger 则超时）；排期
+    // 存在性检查用软等让失败聚合到判别点）
+    await new Promise<void>((resolve) => {
+      const started = Date.now();
+      const check = () => {
+        if ((worker as unknown as { retriggerTimer?: unknown }).retriggerTimer != null) resolve();
+        else if (Date.now() - started > 5_000) resolve(); // 基线：无 retrigger，继续（消化段判别红）
+        else setTimeout(check, 50);
+      };
+      check();
+    });
 
-    // retrigger 定时器按排期时刻的退避快照睡眠（30s 量级）——SQL 提前到期不会
-    // 提前唤醒已装定时器（生产无此路径：提前到期只在重启 resetPendingAttempts
-    // 后发生，startup tickNow 兜底）。「醒来后消化」由 S1（多轮无界续跑）与
-    // alpha 端到端（真实退避窗口）覆盖；本用例验证到「排期就位」为止。
+    // D1（delta r2）：消化段——cap 压缩 retrigger 周期到 1.5s，强制到期后由
+    // retrigger 链自动消化，全程无第二次 tickNow。基线（无 retrigger 机制）本段
+    // 必红：任务退避 30s，drain 已退出，无人再触发——等 patrol 1h，测试超时。
     failStore = false;
-    await worker.stop();
-    expect(pendingTasks()).toBe(1); // stop 后保持 pending（退避中，无新 tickNow 不丢不活锁）
+    db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
+    await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 10_000 });
+    const vecs = (db.prepare(`SELECT COUNT(*) AS n FROM memory_vec`).get() as { n: number }).n;
+    expect(vecs).toBe(30);
+    } finally {
+      EmbeddingRetryWorker.setTestRetriggerCapMs?.(null);
+      await worker.stop();
+    }
   }, 30_000);
 
   it("S3: stop() 在 drain 运行中能收敛——续跑定时器清理、drainLoop 收尾、无泄漏句柄", async () => {

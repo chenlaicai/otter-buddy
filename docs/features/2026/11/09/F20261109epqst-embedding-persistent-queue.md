@@ -81,7 +81,7 @@ RAM 侧唯一合法批量等待入口收敛为 `fireAndForgetEmbed`（实时消�
 - `tickNow` 改**触发式**：守卫检查 + 有积压时 fire-and-forget 启动 `ensureDrain`（单实例守卫）。**patrol duty 不再被 drain 阻塞**（生产实锤：tick 挂死 1h+ 饿死其余 duty）。
 - **drain 无界续跑（检视处置严重发现 1）**：`runBackgroundDrain` 循环直到队列见底/全部在退避/lane 忙/熔断/停机——无轮次与时间预算（原 MAX_DRAIN_ROUNDS=20/MAX_DRAIN_MS=10min 是 tick 内联阻塞时代约束的照抄，按实测 1.13 条/s 600s 只够 ~678 条，生产 1000 条积压首轮即截断成小时脉冲——已删除）。退避空窗由 `scheduleRetrigger` 补上：drain 因「全部在退避」退出且队列非空时，按 `earliestNextRetryAt`（pendingTaskStats 新字段）+ 护栏计算续跑延迟（[2s, 1h] 夹逼），定时器触发 ensureDrain 续吃。运行期新落库任务由 `onBulkEnqueued` 弱触发（MemoryIndexAdapter → retry worker tickNow，见方案 6）。
 - 错误分类保留原语义并扩展：busy（背压/槽位超时）终止本轮任务留 pending；timeout/transient 不计 attempts；hard 逐条 markTaskAttemptFailed（3 次 dead）。
-- 批内单条 `storeEmbedding` 失败 → `enqueueRetry` 回队（ON CONFLICT 保留 attempts，不丢）。
+- 批内单条 `storeEmbedding` 失败 → 任务留 pending 吃 claim 退避（**不 enqueueRetry**——追修 253084ef：ON CONFLICT 会把 next_retry_at 重置为 now，无界 drain 下同轮立即重领、attempts 快速到 3，真实故障被活锁成 dead-letter；claim 不删行 + 退避已推，「回队」由退避自然实现，日志留痕 + 3 次硬错误 dead-letter 兑底）。
 - 熔断（连续全硬失败 3 轮）、退避（30→60→120s 封顶 1h）、ghost 任务分离（entry 已删转 dead）全部保留。
 
 ## 4. 启动即消费存量（bootstrap/memory.ts）
@@ -150,6 +150,12 @@ P1 45 chunk 全落库 bulk pending；P2 embedBatch 批消费（多文本单调�
 1. **严重 1（MAX_DRAIN_MS/ROUNDS 照抄未重估 → 1000 条积压脉冲化）→ 本 PR 修复**：drain 无界续跑（预算常量删除）+ 退避感知 retrigger（earliestNextRetryAt 精确续跑延迟，[2s,1h] 夹逼）+ 运行期 onBulkEnqueued 弱触发 + 判别性测试 S1-S4（200 条单 tickNow 全出队/退避续跑/stop 收敛/弱触发接线）。实现中修掉一个 retrigger 装载竞态（then 回调检查 drainLoop 的收尾窗口误判会断续跑链——改为唯一性由 armRetrigger 槽位保证）。
 2. **建议 1（pendingTaskStats 无生产消费方）→ 本 PR 修复**：drain_summary 日志接 queue stats（pending/oldestAge/byPriority）+ service stats（ramInFlight/ramPendingWaiters），每轮 drain 输出。
 3. **建议 2（PR body 风险 3 并发描述失真）→ 本 PR 修复**：特性文档与 PR body 均改为「postListenInit 串行 + sync_docs 工具运行期并发」的事实描述。
+
+## 检视处置 delta r2（D1 严重 + D2 建议 + D3 nit，2026-11-09 15:24）
+
+- **D1（判别性测试未落实）→ 已修复**：S1 从 200 条（旧 20 轮×50=1000 预算内，旧代码同样绿——不判别）改为 **1100 条**（超预算上界 100）：在 git archive 基线 b50e6bfb（源码 diff=0 核验）上独立复跑，S1 红（20.4s 超时=20 轮后留 100 条 pending 等下个 patrol）——判别「无界续跑」成立。S2 恢复消化段并接 `setTestRetriggerCapMs(1.5s)` 钩子（补上「钩子零用例」）：基线两处判别红（:388 退避断言——基线 store 失败走 enqueueRetry 把 next_retry_at 重置为 now；消化段无 retrigger 超时），新代码 14/14 绿。
+- **D2（特性文档方案 3 残留 enqueueRetry 描述与追修矛盾）→ 已修复**：改为「留 pending 吃 claim 退避（不 enqueueRetry——活锁机理注明）」。
+- **D3（makeSlowGateway 注释参数不符）→ 已修复**：注释改为「可控批延迟 gateway（判别测试用它控制节奏，非真实模型）」。
 
 # 机制判定（R8.5 准入）
 
