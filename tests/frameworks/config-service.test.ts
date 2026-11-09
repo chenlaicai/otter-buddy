@@ -358,6 +358,22 @@ describe("validate — models[] 条目校验", () => {
       contextQuality: { compactionReserveTokens: 700_000 } as never,
     })).toThrow("compactionReserveTokens 已退役");
   });
+
+  it("F20261109bexfz：bashGuard 节残留 → 报错并引导删除（防白名单仍在生效的假象）", () => {
+    expect(() => validate({
+      llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }] },
+      ...{ bashGuard: { allowedEgressDomains: ["github.com"] } },
+    } as never)).toThrow("bashGuard 已退役");
+  });
+
+  it("F20261109bexfz：bashGuard 空节/null 残留 → 同样报错（键存在即拦，不只在有值时）", () => {
+    for (const bad of ["empty" as const, "null" as const]) {
+      expect(() => validate({
+        llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }] },
+        ...(bad === "empty" ? { bashGuard: {} } : { bashGuard: null }),
+      } as never)).toThrow("bashGuard 已退役");
+    }
+  });
 });
 
 describe("updateDefaultModelInYaml", () => {

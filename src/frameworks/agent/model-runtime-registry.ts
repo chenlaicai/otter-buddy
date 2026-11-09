@@ -319,11 +319,8 @@ export interface OtterInvokeContext {
    *  （不拦，与守卫空窗过渡态同语义），因此 store 缺失 = 守卫不生效，而非误拦。 */
   guardProjectRoot?: string;
   guardSessionCwd?: string;
-  /** F20261030gblkv（guard-v4）：协作域名表（B 类外发判定）——config.yaml
-   *  bashGuard.allowedEgressDomains。搭档专改（主仓文件走 PR，獭无权扩表防注入自放行）；
-   *  缺省时用守卫内置缺省表（见 bash-safety-guard）。 */
-  /** F20261109bexfz 退役兼容字段：B 类外发域名表已删，恒 undefined（保留接口形状兼容
-   *  存量 store 消费方/测试桩，判定不再读取）。 */
+  /** F20261109bexfz 退役兼容字段：B 类外发域名表已删（原 bashGuard.allowedEgressDomains
+   *  配置链同废），恒 undefined（保留接口形状兼容存量 store 消费方/测试桩，判定不再读取）。 */
   guardAllowedEgressDomains?: string[];
   /** F20261026gobs：拦截落 healing 钩子——门拦截时上报（写 guard_intercept
    *  healing 事件），守卫行为以真实使用为准（回放库语料来源）。缺省时拦截照常。 */

@@ -39,7 +39,8 @@ export interface GuardRuleClass {
  *   BROADCAST_KILL_BLOCK_MSG（第一站杀进程判定，三查/PID 文件/stop 脚本共用 MAIN_KILL）
  * - 凭证目录 / 「下载即执行」（第二站黑名单两类，内联文案；B 类外发域名判定已随 F20261109bexfz 退役）
  * ruleId 连续性：self_kill_nonliteral / self_kill_byname / self_kill_process_group /
- * network_exfil 复用旧 id（语义未变，healing 历史聚合连续）；self_kill_main /
+ * network_exfil 复用旧 id（healing 历史聚合连续；其中 network_exfil 已随 F20261109bexfz
+ * 退役——见 RETIRED_RULE_IDS，仅存量回溯归因）；self_kill_main /
  * cred_dir_access / download_exec 为 v4 新机制新 id。
  * 层挂靠（检视 S2 处置）：cred_dir_access / network_exfil 挂 bypass_guard——凭证与
  * 数据不进獭上下文本身是守卫边界完整性（绕过面）；不挂 permission（该层语义是对外
@@ -55,7 +56,8 @@ export interface GuardRuleClass {
  * docs/designs/bash-guard-constitution.md 分层表右列；月度剪枝口径的活跃规则清单同步：
  * prompts/scheduled/monthly-prune-review.md 守卫层段——增删规则时两处同 PR 更新）。
  * F20261102grfix：拦截点已直标 ruleId（GuardBlock），本表降级为存量回溯/旧路径兜底；
- * 表内即现行活跃规则，表外 ruleId（v3 退役等）为历史归因封存账（月度剪枝单列不入候选）。
+ * 表内减去 RETIRED_RULE_IDS 即现行活跃规则，退役 ID（v3 的 self_kill_indirect 等、
+ * v4 后的 self_kill_nonliteral/network_exfil）为历史归因封存账（月度剪枝单列不入候选）。
  */
 const FINGERPRINTS: ReadonlyArray<{ fragment: string; cls: GuardRuleClass }> = [
   // 结构化前缀优先（file-tool-guard，非文案指纹通道，v4 未变）
@@ -69,7 +71,7 @@ const FINGERPRINTS: ReadonlyArray<{ fragment: string; cls: GuardRuleClass }> = [
   { fragment: "按名匹配会命中主进程", cls: { ruleId: "self_kill_byname", layer: "self_kill" } },
   // kill -1 / -- -PGID 广播/进程组：与旧 self_kill_process_group 同语义
   { fragment: "广播/进程组", cls: { ruleId: "self_kill_process_group", layer: "self_kill" } },
-  // ── 第二站：黑名单三类（checkBlacklistStation 内联文案，bash-safety-guard.ts:386-392） ──
+  // ── 第二站：黑名单两类（checkBlacklistStation 内联文案；B 类已随 F20261109bexfz 退役） ──
   // A 类凭证路径（ssh/gnupg/aws 三目录，读写都算）：新机制新 id，bypass_guard 层（检视 S2：
   // 凭证不进獭上下文是守卫边界完整性；不挂 permission——该层语义是对外制度动作，v4 后空）
   { fragment: "凭证目录", cls: { ruleId: "cred_dir_access", layer: "bypass_guard" } },

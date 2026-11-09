@@ -76,11 +76,26 @@ modules: [src/frameworks/agent/bash-safety-guard.ts]
 - tsc --noEmit：零错误
 - 兼容性：config.yaml 残留 bashGuard 节会在启动时 validate 报错并给出迁移指引（已有部署不会静默失效）
 
+## 删除保护接管表（retirement-handover-checklist）
+
+| 被删/替换物 | 原保护的不变量全集（含异常路径） | 原消费者（运行时/观测/测试/文档） | 新机制如何接管；不接管则显式风险接受 |
+|---|---|---|---|
+| B 类 uploadExfilHit 主判定（非协作域名 POST/PUT 拦） | 拦「上传动词 + 域名不在白名单」；子域后缀匹配；无 URL 可静态校验时 fail-closed；短旗标大小写敏感（curl -d/-F/-T vs wget 全 GET 侧） | 运行时：checkBashCommandSafety 唯一入口；观测：healing 落账 network_exfil；测试：回放库 13 钉 + classify 探针；文档：F20261030gblkv | **不接管（搭档拍板风险接受）**：需求无真实来源；回放钉翻转为退役放行钉（未来回加必红） + classify 指纹保留供存量回溯归因 |
+| bashGuard.allowedEgressDomains 配置节（含缺省表/fail-closed 语义） | 缺省内置 8 域名；显式空数组 = 全拦；搭档专改防注入自放行 | 运行时：config-service validate + pi-session-factory 注入 + model-runtime-registry 传参；运维：config.yaml.example；测试：回放域名表语义段 | validate 残留键报错引导删除（键存在即拦，空节/null 同拦——本次新增钉）；config 链全拆；example 节替换为退役说明 |
+| NETWORK_EXFIL_BLOCK_MSG 拦截块（文案+ruleId 绑定） | 文案引导「搭档登记白名单」；ruleId=network_exfil 直标 | 观测：guardOnIntercept 落 healing 事件；classify 指纹「向非协作域名上传数据」 | 指纹保留在 FINGERPRINTS + ID 进 RETIRED_RULE_IDS：存量 healing 事件回溯分类不断，月度剪枝单列「历史归因」不入活跃候选 |
+| GuardOptions.allowedEgressDomains 运行时参数 | 从 config 注入到判定函数全链生效 | 运行时：model-runtime-registry 守卫调用；测试：各测试桩 options 传参 | 保留签名兼容（防类型破损），恒 no-op，注释标退役；回放钉「传表/空表同放行」钉住不参与判定 |
+| 凭证外传组合形态（cat ~/.ssh \| curl POST）的 B 类半边 | A 类拦词面凭证路径 + B 类拦外发，双层叠加 | 运行时：同主判定入口；测试：cases-2026-10-29 组合负门 | **A 类全接管**：词面 ~/.ssh 命中即拦（组合负门保留 block，归因改 A 类）；B 类半边不接管（变量构造路径本就绕过，与退役前等价） |
+
 ## 取舍与残余风险（搭档已知情接受）
 
 - **「读凭证→POST 出去」通道全开**：A 类凭证拦截只认命令词面路径（~/.ssh 等），变量构造路径本就绕得过（F20261030gblkv 残余风险已记录）；B 类退役后「读到手送不出」的兜底消失。搭档裁决：该兜底保护的需求本身是虚构的，不构成保留理由。
 - **兼容参数静默忽略**：GuardOptions.allowedEgressDomains / store.guardAllowedEgressDomains 保留形状——防止测试桩/存量调用方类型破损；语义上恒 no-op，注释已标明退役。
 - **不删 C 类「下载即执行」**：curl|sh 结构拦截与外发白名单语义无关（拦的是「执行结构」不是「目的地」），不在本次清算范围。
+
+## Golden Gate 记录（B7 豁免声明）
+
+- selftest 层（零 LLM，判别力校验）：10/10 通过（vitest.capability.config.ts，2026-11-09 本机复跑；selftest 在 LLM 未配置时也执行，10 skip 仅为采样段，skip 前置 selftest 断言全过）
+- 采样层（真 LLM）：**n/a 豁免**——本 PR 的 monthly-prune-review.md 改动为口径清单同步（六条/七条 + 退役段补录），无新增独立 LLM 行为场景；与 F20261103dotrg 先例同型（口径调整不冒充特性执行记录）。环境无 OTTER_TEST_LLM_API_KEY，豁免声明留档，如检视认为需采样补跑请指出具体场景。
 
 ## 爆炸半径归档（锚点值）
 

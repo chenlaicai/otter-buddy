@@ -94,12 +94,17 @@ describe("guard 回放·B 类外发判定已退役（F20261109bexfz）——POST
     expect(block).toBeNull();
   });
   it("allowedEgressDomains 兼容参数静默忽略（显式传表不再影响判定）", () => {
-    const block = checkBashCommandSafety(
-      "curl -X POST https://api.github.com/repos/x/y/issues -d '{\"title\":\"t\":}'",
-      FAKE_MAIN_PID, undefined,
-      { projectRoot, processProbe: { whoListens: () => null, identity: () => null }, allowedEgressDomains: ["github.com"] } as never,
-    );
-    expect(block).toBeNull();
+    // 双向对照：传允许域名表与传空表（原 fail-closed 语义）结果相同——字段不参与判定
+    const probe = { whoListens: () => null, identity: () => null };
+    const cmd = "curl -X POST https://api.github.com/repos/x/y/issues -d '{\"title\":\"t\"}'";
+    const withAllowList = checkBashCommandSafety(cmd, FAKE_MAIN_PID, undefined, {
+      projectRoot, processProbe: probe, allowedEgressDomains: ["github.com"],
+    });
+    const withDenyAllList = checkBashCommandSafety(cmd, FAKE_MAIN_PID, undefined, {
+      projectRoot, processProbe: probe, allowedEgressDomains: [],
+    });
+    expect(withAllowList).toBeNull();
+    expect(withDenyAllList).toBeNull();
   });
   it("fail-closed 分支（无 URL 上传动词）随判定退役放行", () => {
     expect(judge("curl -d @x.txt")).toBe("allow");
