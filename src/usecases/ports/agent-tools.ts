@@ -8,7 +8,8 @@
  * 及其返回类型 ToolResponse 从 tools/tool-helpers.ts 随迁至此。
  *
  * ToolContext 的 pendingRestart / getTurnAssistantText 字段携带 SDK 会话生命周期协议
- * 语义（由 session 工厂消费/维护）——换 SDK 时需修订本 port，字段注释有警示。
+ * 语义（由 session 工厂消费/维护）。2026-11-09 已切 pi-durable：工厂侧适配已落
+ * （durable-session），本 port 形态不再随 SDK 直接变化；完整边界见 docs/designs/runtime-contract.md。
  */
 import type { OtterToolClient } from "./otter-tool-client";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
