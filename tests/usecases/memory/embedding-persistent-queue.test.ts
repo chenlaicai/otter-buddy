@@ -357,34 +357,39 @@ describe("F20261109epqst 检视处置：drain 无界续跑（原 MAX_DRAIN_ROUND
     await worker.stop();
   });
 
-  it("S2: 退避空窗由 retrigger 补上——store 失败轮后任务在退避，无需新 tickNow 也能续跑消化", async () => {
-    // 第一轮：embed 全成功但 storeEmbedding 失败 → 任务回队（enqueueRetry，next_retry_at=now 立即可领）
-    // 用交替失败制造「部分成功轮」：odd 轮成功、even 轮 store 失败
+  it("S2: store 失败后任务留队吃退避 + retrigger 排期续跑（不丢、不活锁、无需新 tickNow）", async () => {
     const { gateway } = makeSlowGateway(5);
     for (let i = 0; i < 30; i++) {
       seedOldTask(`bulk-s2-${i}`, `退避续跑验证任务 ${i} 号，内容长度足够`);
     }
     const origStore = repo.storeEmbedding.bind(repo);
-    let storeFailCount = 0;
-    let round = 0;
+    let failStore = true;
     repo.storeEmbedding = async (id: string, emb: Float32Array) => {
-      // 前两次调用失败（第一批 store 挂），之后恢复
-      if (storeFailCount < 2 && round === 0) {
-        storeFailCount++;
-        throw new Error("simulated store failure round 0");
+      if (failStore && id.endsWith("-0")) {
+        throw new Error("simulated store failure");
       }
       return origStore(id, emb);
     };
     const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
     await worker.tickNow();
-    // drain 内批失败任务回队（enqueueRetry → 立即可领）→ drain 循环继续吃（同轮内重领）
-    // 直到全部成功。允许 retrigger 链（2s 下限）参与。
-    await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 20_000 });
-    round = 1;
-    const vecs = (db.prepare(`SELECT COUNT(*) AS n FROM memory_vec`).get() as { n: number }).n;
-    expect(vecs).toBe(30);
+    // 首轮 drain：29 条成功；s2-0 的 store 失败 → 留 pending（claim 退避在未来，不 enqueueRetry）
+    await vi.waitFor(() => expect(pendingTasks()).toBe(1), { timeout: 15_000 });
+    const row = db.prepare(`SELECT attempts, (next_retry_at > datetime('now')) AS in_future FROM embedding_tasks WHERE entry_id LIKE 'bulk-s2-%'`).get() as { attempts: number; in_future: number };
+    expect(row.attempts).toBeGreaterThanOrEqual(1);
+    expect(row.in_future).toBe(1); // 退避生效（enqueueRetry 会把它重置为 now——已删）
+    // drain 退出（全部在退避）→ retrigger 已按退避窗口排期
+    await vi.waitFor(() => {
+      expect((worker as unknown as { retriggerTimer: unknown }).retriggerTimer).toBeTruthy();
+    }, { timeout: 5_000 });
+
+    // retrigger 定时器按排期时刻的退避快照睡眠（30s 量级）——SQL 提前到期不会
+    // 提前唤醒已装定时器（生产无此路径：提前到期只在重启 resetPendingAttempts
+    // 后发生，startup tickNow 兜底）。「醒来后消化」由 S1（多轮无界续跑）与
+    // alpha 端到端（真实退避窗口）覆盖；本用例验证到「排期就位」为止。
+    failStore = false;
     await worker.stop();
-  }, 25_000);
+    expect(pendingTasks()).toBe(1); // stop 后保持 pending（退避中，无新 tickNow 不丢不活锁）
+  }, 30_000);
 
   it("S3: stop() 在 drain 运行中能收敛——续跑定时器清理、drainLoop 收尾、无泄漏句柄", async () => {
     const { gateway } = makeSlowGateway(50);

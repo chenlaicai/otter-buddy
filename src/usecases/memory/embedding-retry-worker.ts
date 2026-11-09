@@ -412,7 +412,8 @@ export class EmbeddingRetryWorker {
    * - EmbedTimeoutError → 不计 attempts（salvage 可能已落库）；任务留 pending 重来
    * - EmbedTransientError（worker 重建/崩溃）→ 不计 attempts，任务留 pending
    * - 其他错误（真坏）→ 逐条 markTaskAttemptFailed（3 次 dead）
-   * - 批成功后逐条 storeEmbedding；单条写库失败 → enqueueRetry 回队（不丢）
+   * - 批成功后逐条 storeEmbedding；单条写库失败 → 任务留 pending 吃 claim 退避
+   *   （不 enqueueRetry——ON CONFLICT 重置 next_retry_at=now 会在无界 drain 下活锁）
    */
   /** 幽灵任务分离（entry 已删，content 为空）——逐条记账转 dead，返回可执行集 */
   private async separateGhostTasks(
@@ -490,9 +491,12 @@ export class EmbeddingRetryWorker {
           await this.queue.markTaskDone(slice[i].entryId);
           successCount++;
         } catch (err) {
-          // 写库失败：任务回队不丢（幂等重试；ON CONFLICT 保留 attempts）
-          this.logger.warn(`Embedding retry store failed for ${slice[i].entryId} (re-queued): ${err}`);
-          await this.queue.enqueueRetry(slice[i].entryId, err, slice[i].priority);
+          // F20261109epqst 检视处置追修（P5 CI 慢机暴露）：写库失败**不走 enqueueRetry**。
+          // 任务行仍在（claim 不删行），claim 已按 attempts 推 next_retry_at 到退避未来
+          // ——「回队」由退避自然实现。若 enqueueRetry 会把 next_retry_at 重置为 now，
+          // drain 无界续跑下同轮立即重领、attempts 快速到 3 → 真实活锁成 dead-letter
+          // （本地快机 timing 掩盖，CI 慢机复现）。留 pending 吃退避 + 硬错误 3 次兜底。
+          this.logger.warn(`Embedding retry store failed for ${slice[i].entryId} (stays pending, backoff by claim): ${err}`);
         }
       }
     } catch (err) {
