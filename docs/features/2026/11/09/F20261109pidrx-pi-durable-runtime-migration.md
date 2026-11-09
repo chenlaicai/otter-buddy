@@ -1,5 +1,5 @@
 ---
-id: F20261105pidrx
+id: F20261109pidrx
 title: pi-coding-agent → pi-durable 1.5.0 原生 runtime 迁移
 change_type: refactor
 capability_test: "n/a: runtime 适配以真实 Harness/临时 SQLite 行为测试验证，非 prompt 能力变更"
@@ -9,6 +9,7 @@ intent:
   verify_by:
     type: behavior_check
 created_at: 2026-11-05
+merged_at: 2026-11-09
 created_in_conversation: b4e05359-7a17-4478-8774-162360569279
 causal_links:
   - F20260716sq6e

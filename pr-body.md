@@ -14,7 +14,7 @@ Driver: conversation=b4e05359
 - 所有 otter/MCP 工具 `replay:"unsafe"`；invokeId 缺失拒绝副作用。会话单主人归部署层（锁已删，见「单主人与部署前置」）。
 - MCP 使用公开 pi-mcp client；旧 JSONL 仅作历史交接只读切片；reset 创建新 durable 世代。
 - 删除旧 coding-agent JSONL 恢复实现与 1.1.0 私有 patch；统一 pi 1.5.0 依赖。
-- 特性文档：`F20261105pidrx`。
+- 特性文档：`F20261109pidrx`。
 
 ### 单主人与部署前置（2026-11-06 搭档定调：锁移除）
 
