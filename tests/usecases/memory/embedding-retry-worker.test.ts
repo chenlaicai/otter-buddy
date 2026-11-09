@@ -21,7 +21,28 @@ function makeEmbeddingGateway(impl: (text: string) => Promise<Float32Array> | ne
   return {
     available: true,
     embed: impl,
+    // F20261109epqst：retry worker 批量消费路径需要 embedBatch——逐条 impl 映射成批
+    embedBatch: async (texts: string[]) => {
+      const out: Float32Array[] = [];
+      for (const t of texts) out.push(await impl(t));
+      return out;
+    },
   };
+}
+
+/**
+ * F20261109epqst：等后台 drain 收尾（tickNow 触发后 drain 异步跑）——轮询任务终态。
+ * 条件满足后额外 settle 150ms：drain 循环从「终态可见」到「finally 清 drainLoop」
+ * 之间有异步间隙，不等 settle 的话下一次 tickNow 会因 drainLoop 未清而早退
+ * （fire-and-forget 触发式语义的正确对齐，非实现缺陷）。
+ */
+async function waitForDrain(cond: () => boolean, maxMs = 5000): Promise<void> {
+  for (let i = 0; i < maxMs / 5; i++) {
+    if (cond()) break;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  if (!cond()) throw new Error(`waitForDrain timeout`);
+  await new Promise((r) => setTimeout(r, 150));
 }
 
 const SAMPLE_VEC = new Float32Array(1024).fill(0.1);
@@ -105,6 +126,7 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     const gw = makeEmbeddingGateway(async () => SAMPLE_VEC);
     const worker = new EmbeddingRetryWorker(repo, repo, repo, gw, createTestLogger(), 30_000, 3);
     await worker.tickNow();
+    await waitForDrain(() => getTaskStatus("e3") === null);
 
     expect(getTaskStatus("e3")).toBeNull();  // task 删除
     expect(getVecCount()).toBe(1);
@@ -118,6 +140,7 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
 
     // 第 1 次 tick：claim（attempts 0→1），embed 抛错，markFailed 不转 dead（1<3）
     await worker.tickNow();
+    await waitForDrain(() => (getTaskStatus("e4")?.attempts ?? 0) >= 1);
     const task = getTaskStatus("e4");
     expect(task!.attempts).toBe(1);
     expect(task!.status).toBe("pending");
@@ -132,12 +155,14 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     // 强制到期，第 2 次 tick：attempts=2
     db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second') WHERE entry_id='e4'`).run();
     await worker.tickNow();
+    await waitForDrain(() => (getTaskStatus("e4")?.attempts ?? 0) >= 2);
     expect(getTaskStatus("e4")!.attempts).toBe(2);
     expect(getTaskStatus("e4")!.status).toBe("pending");
 
     // 第 3 次 tick：attempts=3 → 转 dead
     db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second') WHERE entry_id='e4'`).run();
     await worker.tickNow();
+    await waitForDrain(() => (getTaskStatus("e4")?.attempts ?? 0) >= 3);
     const final = getTaskStatus("e4");
     expect(final!.attempts).toBe(3);
     expect(final!.status).toBe("dead");
@@ -156,7 +181,9 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     for (let i = 0; i < 3; i++) {
       db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second') WHERE entry_id='e5'`).run();
       await worker.tickNow();
+      await waitForDrain(() => (getTaskStatus("e5")?.attempts ?? 0) >= i + 1, 3000);
     }
+    await waitForDrain(() => getTaskStatus("e5")?.status === "dead", 3000);
     expect(getTaskStatus("e5")!.status).toBe("dead");
 
     // 默认报告：排除 dead-letter
@@ -223,6 +250,7 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
     for (let i = 0; i < 3; i++) {
       db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second') WHERE entry_id='orphan'`).run();
       await worker.tickNow();
+      await waitForDrain(() => (getTaskStatus("orphan")?.attempts ?? 0) >= i + 1);
     }
     const finalStatus = getTaskStatus("orphan");
     expect(finalStatus!.status).toBe("dead");
@@ -264,6 +292,10 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
       for (let round = 0; round < 4; round++) {
         db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
         await worker.tickNow();
+        await waitForDrain(() => {
+          const r = db.prepare(`SELECT attempts, status FROM embedding_tasks WHERE entry_id = 'err-entry'`).get() as { attempts: number; status: string } | undefined;
+          return (r?.attempts ?? 0) >= round + 1 || r?.status === "dead";
+        });
       }
 
       const row = db.prepare(
@@ -320,6 +352,11 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
       for (let round = 0; round < 2; round++) {
         db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
         await failWorker.tickNow();
+        // 等本轮 drain 把全部任务 attempts 推到 round+1（每轮都是全失败轮）
+        await waitForDrain(() => {
+          const total = db.prepare(`SELECT SUM(attempts) as t FROM embedding_tasks WHERE status='pending'`).get() as { t: number };
+          return (total?.t ?? 0) >= 10 * (round + 1);
+        });
       }
 
       // 换成成功 gateway——1 次成功 tick 重置计数
@@ -328,7 +365,8 @@ describe("EmbeddingRetryWorker - F20260812mrcq Part 1", () => {
       db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
       await okWorker.tickNow();
 
-      // 全部成功——task 清空，vec 写入
+      // 全部成功——task 清空，vec 写入（drain 异步收尾后断言）
+      await waitForDrain(() => getVecCount() === 10);
       expect(getVecCount()).toBe(10);
     });
   });
@@ -456,11 +494,15 @@ describe("F20261020slvg 背压不计 attempts + salvage 落库去重", () => {
     const worker = new EmbeddingRetryWorker(repo, repo, repo, slowGw, createTestLogger(), 30_000, 3);
 
     const first = worker.tickNow();
-    const second = worker.tickNow(); // in-flight——应立即返回（不消费）
+    // tick 返回后 drain 仍在跑（release 未调，embed 挂起）——此时并发 tickNow
+    await first;
+    await new Promise((r) => setTimeout(r, 50)); // 等 drain 真正挂进 embed
+    const second = worker.tickNow(); // drainLoop 仍在——不启动第二个 drain
     await second;
     // TS 收窄 workaround：release 在闭包内赋值，外层读需断言回联合类型
     (release as (() => void) | null)?.();
-    await first;
+    // 等向量落库（首个 drain 收尾）
+    await waitForDrain(() => getVecCount() === 1);
 
     expect(getVecCount()).toBe(1);
   });
@@ -509,6 +551,7 @@ describe("F20261020slvg 对抗审视修复", () => {
     const okWorker = new EmbeddingRetryWorker(repo, repo, repo, okGw, createTestLogger(), 30_000, 3);
     db.prepare(`UPDATE embedding_tasks SET next_retry_at = datetime('now','-1 second')`).run();
     await okWorker.tickNow();
+    await waitForDrain(() => getVecCount() === 3);
     expect(getVecCount()).toBe(3);
     expect(getTaskStatus("absorb-0")).toBeNull();
   });

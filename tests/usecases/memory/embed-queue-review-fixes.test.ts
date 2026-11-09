@@ -158,7 +158,11 @@ describe("发现 3：S3 跳过的暗条目有运行时恢复路径", () => {
 
     // 3) 第二 tick：claim → embed（1024 维）→ storeEmbedding 落库 → markTaskDone。
     // 关键闭合验证：向量真的落库（而非 Dimension mismatch 后退队假绿）
+    // F20261109epqst：tickNow 触发式（后台 drain）——轮询等消费完成再断言
     await worker.tickNow();
+    for (let i = 0; i < 200 && ((db.prepare("SELECT COUNT(*) AS n FROM memory_vec WHERE memory_entry_id = 'dark-1'").get() as { n: number }).n === 0); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
     const vecRow = db.prepare("SELECT COUNT(*) AS n FROM memory_vec WHERE memory_entry_id = 'dark-1'").get() as { n: number };
     expect(vecRow.n).toBe(1); // 向量落库实锤
     const pendingAfter = await repo.pendingTaskCount();

@@ -37,6 +37,7 @@ import {
   enqueueRetry,
   claimPendingTasks,
   pendingTaskCount,
+  pendingTaskStats,
   markTaskDone,
   markTaskAttemptFailed,
   resetPendingAttempts,
@@ -753,6 +754,15 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   /** F20261105embqg S3：当前 pending 任务总数（生产端水位闸门判据） */
   async pendingTaskCount(): Promise<number> {
     return pendingTaskCount(this.db);
+  }
+
+  /** F20261109epqst：队列健康快照（最老任务年龄/优先级分布——持续出队验收抓手） */
+  async pendingTaskStats(): Promise<{
+    pending: number;
+    oldestAgeSeconds: number | null;
+    byPriority: Record<number, number>;
+  }> {
+    return pendingTaskStats(this.db);
   }
 
   /** F20260812mrcq Part 1：task 成功，删除 task 行 */

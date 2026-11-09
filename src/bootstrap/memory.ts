@@ -223,6 +223,14 @@ export async function createAndStartRetryWorker(
 
   const worker = new EmbeddingRetryWorker(repos.memoryReader, repos.memoryWriter, repos.memoryQueue, embeddingService, logger);
   worker.start();
+  // F20261109epqst：启动即消费存量——自跑首轮 tickNow（fire-and-forget，不阻塞启动）。
+  // 根因：PatrolWorker.start() 在 buildApp 内同步跑首轮 tick，此时 postListenInit
+  // 尚未创建本 worker（duty 跳过），存量任务要等下一个 1h tick——“重启接着处理已有
+  // 任务”的验收要求不允许（生产 09:14 启动能 09:16 消费纯属启动慢的巧合）。
+  // tickNow 内部有 drainLoop 守卫与 patrol duty 触发的 drain 天然互斥，不会双跑。
+  void worker.tickNow().catch((err) =>
+    logger.error("EmbeddingRetryWorker startup tick failed", err instanceof Error ? err : new Error(String(err))),
+  );
   // #949：周期 tick 由 PatrolWorker 每 1h 驱动（start() 不再自持定时器）——日志不再打印 intervalMs（原 30_000 为 #948 降频前的残留误导）
   logger.info("EmbeddingRetryWorker started", {
     driver: "patrol-worker",

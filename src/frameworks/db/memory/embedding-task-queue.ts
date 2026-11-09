@@ -117,6 +117,37 @@ export function pendingTaskCount(db: Database.Database): number {
   return row.n;
 }
 
+/**
+ * F20261109epqst：队列健康快照——pending 总数 / 最老 pending 任务年龄（秒）/
+ * 按优先级分布。验收抓手：最老任务年龄单调下降 = 旧任务持续出队；
+ * 年龄停滞 = 消费停摆（生产实锤：09:14 迁入的 1000 条到 10:22 仍 attempts=0）。
+ */
+export function pendingTaskStats(db: Database.Database): {
+  pending: number;
+  oldestAgeSeconds: number | null;
+  byPriority: Record<number, number>;
+} {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS n,
+           MIN(CASE WHEN status = 'pending' THEN created_at END) AS oldest
+    FROM embedding_tasks
+  `).get() as { n: number; oldest: string | null };
+  const prioRows = db.prepare(`
+    SELECT priority, COUNT(*) AS n FROM embedding_tasks
+    WHERE status = 'pending' GROUP BY priority
+  `).all() as Array<{ priority: number; n: number }>;
+  const byPriority: Record<number, number> = {};
+  for (const r of prioRows) byPriority[r.priority] = r.n;
+  let oldestAgeSeconds: number | null = null;
+  if (row.oldest) {
+    const oldestMs = Date.parse(row.oldest.replace(" ", "T") + "Z");
+    if (Number.isFinite(oldestMs)) {
+      oldestAgeSeconds = Math.max(0, Math.floor((Date.now() - oldestMs) / 1000));
+    }
+  }
+  return { pending: row.n, oldestAgeSeconds, byPriority };
+}
+
 /** task 成功，删除 task 行 */
 export function markTaskDone(db: Database.Database, entryId: string): void {
   db.prepare(`DELETE FROM embedding_tasks WHERE entry_id = ?`).run(entryId);
