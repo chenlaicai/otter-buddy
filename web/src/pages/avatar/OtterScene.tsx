@@ -57,9 +57,9 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
 
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(33, 1, 0.01, 100)
-    camera.position.set(1.0, 1.0, 7.5)
+    camera.position.set(0.35, 0.6, 7.5)
     const controls = new OrbitControls(camera, renderer.domElement)
-    controls.target.set(0, 0.28, 0)
+    controls.target.set(0, 0.35, 0)
     controls.enableZoom = false
     controls.enablePan = false
     controls.minPolarAngle = Math.PI * 0.28
@@ -73,11 +73,11 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
     const pmrem = new THREE.PMREMGenerator(renderer)
     const environmentMap = pmrem.fromScene(environment, 0.04)
     scene.environment = environmentMap.texture
-    scene.environmentIntensity = 0.50
+    scene.environmentIntensity = 0.65
     environment.dispose()
     pmrem.dispose()
 
-    const key = new THREE.DirectionalLight('#fff2df', 2.1)
+    const key = new THREE.DirectionalLight('#fff2df', 2.6)
     key.position.set(-3, 5, 5)
     key.castShadow = true
     key.shadow.mapSize.set(1024, 1024)
@@ -87,10 +87,10 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
     key.shadow.camera.top = 3
     key.shadow.camera.bottom = -3
     scene.add(key)
-    const rim = new THREE.DirectionalLight('#c4e2ec', 1.4)
+    const rim = new THREE.DirectionalLight('#c4e2ec', 0.9)
     rim.position.set(3, 2, -3)
     scene.add(rim)
-    scene.add(new THREE.HemisphereLight('#fffaf2', '#7f7162', 0.8))
+    scene.add(new THREE.HemisphereLight('#fffaf2', '#7f7162', 1.1))
 
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(200, 200),
@@ -122,7 +122,7 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
       const bounds = new THREE.Box3().setFromObject(avatar)
       const size = bounds.getSize(new THREE.Vector3())
       const center = bounds.getCenter(new THREE.Vector3())
-      avatar.scale.multiplyScalar(3.35 / size.y)
+      avatar.scale.multiplyScalar(3.15 / size.y)
       avatar.position.sub(center.multiplyScalar(avatar.scale.x))
       avatarRestY = avatar.position.y
       avatar.traverse((node) => {
@@ -147,7 +147,7 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
       if (paw) {
         // GLB 爪是叶子网格：另建肩部父节点，而非操作不存在的 children。
         // pivot 用源毫米尺度；GLB 已由 Blender 转为 Y-up。
-        const pivot = new THREE.Vector3(0.70, -0.42, 0.28)
+        const pivot = new THREE.Vector3(0.70, -0.65, 0.20)
         waveArm = new THREE.Object3D()
         waveArm.name = 'wave_shoulder'
         waveArm.position.copy(pivot)
@@ -172,7 +172,7 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
       renderer.setSize(width, height)
       camera.aspect = width / height
       // Why: the same sculpture must not crop its ears on a narrow phone.
-      camera.position.z = width < 480 ? 8.6 : 7.5
+      camera.position.z = width < 480 ? 8.9 : 8.2
       camera.updateProjectionMatrix()
     }
     const observer = new ResizeObserver(resize)
@@ -203,8 +203,14 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
         for (const eye of eyes) eye.scale.set(1, 1, 1 - blink * 0.94)
         if (waveArm && waveArmRest) {
           const waving = active === 'hello' && !live.reducedMotion
-          waveArm.rotation.z = waving ? -pulse * 1.8 : 0
-          waveArm.position.y = waveArmRest.y + (waving ? pulse * 0.5 : 0)
+          waveArm.rotation.z = waving ? pulse * 1.65 : 0
+          // Raise the paw clear of the head and towards the camera. Absolute
+          // offsets from the rest transform avoid cumulative animation drift.
+          waveArm.position.set(
+            waveArmRest.x + (waving ? pulse * 0.28 : 0),
+            waveArmRest.y,
+            waveArmRest.z + (waving ? pulse * 0.55 : 0),
+          )
         }
       }
       controls.update()

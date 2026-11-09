@@ -41,7 +41,7 @@ export default function AvatarPage() {
           <p className="avatar-description">还是那只系着红围巾的大獭。<br />现在，可以转过头来看看你。</p>
           <div className="avatar-signature">
             <span className="avatar-signature-mark" aria-hidden="true" />
-            <span>陶偶质感 · 第一版</span>
+            <span>雾蓝软陶 · 新造型</span>
           </div>
         </section>
 
