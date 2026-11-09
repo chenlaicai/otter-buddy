@@ -756,11 +756,13 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return pendingTaskCount(this.db);
   }
 
-  /** F20261109epqst：队列健康快照（最老任务年龄/优先级分布——持续出队验收抓手） */
+  /** F20261109epqst：队列健康快照（最老任务年龄/优先级分布/最早可领取时间——
+   *  持续出队验收抓手 + drain 续跑延迟计算依据（检视处置建议 2/严重 1 配套）） */
   async pendingTaskStats(): Promise<{
     pending: number;
     oldestAgeSeconds: number | null;
     byPriority: Record<number, number>;
+    earliestNextRetryAt: string | null;
   }> {
     return pendingTaskStats(this.db);
   }

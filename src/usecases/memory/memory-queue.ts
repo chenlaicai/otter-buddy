@@ -69,6 +69,8 @@ export interface MemoryQueue {
     pending: number;
     oldestAgeSeconds: number | null;
     byPriority: Record<number, number>;
+    /** F20261109epqst 检视处置：最早可领取时间（drain 退避续跑延迟计算依据） */
+    earliestNextRetryAt: string | null;
   }>;
   /**
    * F20261020slvg：启动迁移用——把 pending 任务的 attempts 归零、next_retry_at 置为立即可重试。

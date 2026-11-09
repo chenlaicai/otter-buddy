@@ -14,7 +14,20 @@ import { EMBED_TASK_PRIORITY, EMBED_QUEUE_HIGH_WATER } from "@usecases/memory/me
 import type { Repositories } from "./types";
 
 export class MemoryIndexAdapter implements MemoryIndexGateway {
-  constructor(private readonly storeMemory: StoreMemory) {}
+  /**
+   * F20261109epqst 检视处置（严重发现 1 配套）：后台批量任务落库后的弱触发回调。
+   * doc sync 运行中入库的 chunk 任务如果没有触发通道，要等 patrol 下一轮 1h——
+   * 「持续出队」对运行期入库也必须成立。bootstrap 装配时接到 retry worker 的
+   * tickNow（fire-and-forget，drainLoop 守卫防重入；worker 未就绪时静默丢弃，
+   * 启动 tickNow 与 patrol 周期兜底）。不引入 store→worker 反向依赖。
+   */
+  private readonly storeMemory: StoreMemory;
+  private onBulkEnqueued: (() => void) | null;
+
+  constructor(storeMemory: StoreMemory, onBulkEnqueued?: (() => void) | null) {
+    this.storeMemory = storeMemory;
+    this.onBulkEnqueued = onBulkEnqueued ?? null;
+  }
 
   async indexMessage(messageId: string, conversationId: string, content: string): Promise<void> {
     // #1191（F20260928rmix）：sourceTable 统一 'entries'——#886 后消息已住在 entries 表，
@@ -102,6 +115,7 @@ export class MemoryIndexAdapter implements MemoryIndexGateway {
       },
     }));
     await this.storeMemory.replaceChunksBySource(inputs);
+    this.onBulkEnqueued?.();
   }
 
   async indexResearchChunks(id: string, chunks: ChunkData[], metadata: Record<string, unknown>): Promise<void> {
@@ -129,11 +143,18 @@ export class MemoryIndexAdapter implements MemoryIndexGateway {
       },
     }));
     await this.storeMemory.replaceChunksBySource(inputs);
+    this.onBulkEnqueued?.();
   }
 }
 
-export function createMemoryIndex(repos: Repositories, embeddingService: EmbeddingGateway, logger: Logger): MemoryIndexGateway {
-  return new MemoryIndexAdapter(new StoreMemory(repos.memoryWriter, repos.memoryQueue, embeddingService, logger));
+export function createMemoryIndex(
+  repos: Repositories,
+  embeddingService: EmbeddingGateway,
+  logger: Logger,
+  /** F20261109epqst 检视处置：批量落库弱触发（接 retry worker tickNow） */
+  onBulkEnqueued?: (() => void) | null,
+): MemoryIndexGateway {
+  return new MemoryIndexAdapter(new StoreMemory(repos.memoryWriter, repos.memoryQueue, embeddingService, logger), onBulkEnqueued);
 }
 
 export async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGateway, logger: Logger, cwd: string): Promise<SyncResult> {

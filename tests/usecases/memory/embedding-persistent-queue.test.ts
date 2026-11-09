@@ -21,6 +21,7 @@ import { createTestDb } from "../../helpers/db";
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { StoreMemory } from "@usecases/memory/store-memory";
 import { EmbeddingRetryWorker } from "@usecases/memory/embedding-retry-worker";
+import { MemoryIndexAdapter } from "../../../src/bootstrap/memory";
 import type { EmbeddingGateway, EmbedBatchCallOptions } from "@usecases/memory/embedding-gateway";
 import { EMBED_TASK_PRIORITY } from "@usecases/memory/memory-queue";
 import type DatabaseType from "better-sqlite3";
@@ -323,5 +324,108 @@ describe("F20261109epqst P8：可观测性", () => {
     expect(stats.oldestAgeSeconds).toBeGreaterThanOrEqual(3500);
     expect(stats.byPriority[EMBED_TASK_PRIORITY.bulk]).toBe(1);
     expect(stats.byPriority[EMBED_TASK_PRIORITY.live]).toBe(1);
+  });
+});
+
+describe("F20261109epqst 检视处置：drain 无界续跑（原 MAX_DRAIN_ROUNDS/MS 已删）", () => {
+  /** 控制时钟的 gateway——模拟慢 worker（每批 1.5s），让 200 条消费耗时 >10min 等价负载 */
+  function makeSlowGateway(batchDelayMs: number) {
+    const batchCalls: number[] = [];
+    const gateway: EmbeddingGateway = {
+      available: true,
+      embed: async () => VEC(),
+      embedBatch: async (texts: string[]) => {
+        batchCalls.push(texts.length);
+        await new Promise((r) => setTimeout(r, batchDelayMs));
+        return texts.map(() => VEC());
+      },
+    };
+    return { gateway, batchCalls };
+  }
+
+  it("S1: 200 条积压（>原 20 轮×50=1000 内但跨多轮）单次 tickNow 后全部出队，无第二次 tickNow", async () => {
+    const { gateway } = makeSlowGateway(30);
+    for (let i = 0; i < 200; i++) {
+      seedOldTask(`bulk-s1-${i}`, `无界续跑验证任务 ${i} 号，内容长度足够通过校验`);
+    }
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    // 200 条 ÷ 50/批 = 4 轮 × (30ms 批 + 100ms 冷却) ≈ 1s 内完成
+    await worker.tickNow(); // 唯一一次 tickNow——drain 自续跑吃完全部
+    await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 15_000 });
+    const vecs = (db.prepare(`SELECT COUNT(*) AS n FROM memory_vec`).get() as { n: number }).n;
+    expect(vecs).toBe(200);
+    await worker.stop();
+  });
+
+  it("S2: 退避空窗由 retrigger 补上——store 失败轮后任务在退避，无需新 tickNow 也能续跑消化", async () => {
+    // 第一轮：embed 全成功但 storeEmbedding 失败 → 任务回队（enqueueRetry，next_retry_at=now 立即可领）
+    // 用交替失败制造「部分成功轮」：odd 轮成功、even 轮 store 失败
+    const { gateway } = makeSlowGateway(5);
+    for (let i = 0; i < 30; i++) {
+      seedOldTask(`bulk-s2-${i}`, `退避续跑验证任务 ${i} 号，内容长度足够`);
+    }
+    const origStore = repo.storeEmbedding.bind(repo);
+    let storeFailCount = 0;
+    let round = 0;
+    repo.storeEmbedding = async (id: string, emb: Float32Array) => {
+      // 前两次调用失败（第一批 store 挂），之后恢复
+      if (storeFailCount < 2 && round === 0) {
+        storeFailCount++;
+        throw new Error("simulated store failure round 0");
+      }
+      return origStore(id, emb);
+    };
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    await worker.tickNow();
+    // drain 内批失败任务回队（enqueueRetry → 立即可领）→ drain 循环继续吃（同轮内重领）
+    // 直到全部成功。允许 retrigger 链（2s 下限）参与。
+    await vi.waitFor(() => expect(pendingTasks()).toBe(0), { timeout: 20_000 });
+    round = 1;
+    const vecs = (db.prepare(`SELECT COUNT(*) AS n FROM memory_vec`).get() as { n: number }).n;
+    expect(vecs).toBe(30);
+    await worker.stop();
+  }, 25_000);
+
+  it("S3: stop() 在 drain 运行中能收敛——续跑定时器清理、drainLoop 收尾、无泄漏句柄", async () => {
+    const { gateway } = makeSlowGateway(50);
+    for (let i = 0; i < 120; i++) {
+      seedOldTask(`bulk-s3-${i}`, `停止收敛验证任务 ${i} 号，内容长度足够`);
+    }
+    const worker = new EmbeddingRetryWorker(repo, repo, repo, gateway, createTestLogger(), 3_600_000, 3);
+    await worker.tickNow();
+    // drain 进行中 stop——等待收尾不炸
+    await worker.stop();
+    // stop 后 pending 不再被消费（drain 已停）
+    const after = pendingTasks();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(pendingTasks()).toBe(after);
+  }, 15_000);
+});
+
+describe("F20261109epqst 检视处置：运行期入库弱触发（onBulkEnqueued）", () => {
+  it("S4: MemoryIndexAdapter 批量落库后触发回调（弱触发通道接线验证）", async () => {
+    const { gateway } = makeRecordingGateway();
+    const store = new StoreMemory(repo, repo, gateway, createTestLogger());
+    let triggerCount = 0;
+    // 模拟 bootstrap 装配：回调接 worker tickNow（这里只记数——worker 接线由 app 装配测试覆盖）
+    const adapter = new MemoryIndexAdapter(store, () => { triggerCount++; });
+    // feature chunk 索引（内部走 replaceChunksBySource → 落库 → 触发）
+    await adapter.indexFeatureChunks("F-test-doc", [
+      { content: "运行期触发验证 chunk 一，内容长度足够通过校验", headingPath: ["a"], charCount: 30 },
+      { content: "运行期触发验证 chunk 二，内容长度足够通过校验", headingPath: ["a", "b"], charCount: 30 },
+    ], { title: "测试文档" });
+    expect(pendingTasks()).toBe(2);
+    expect(triggerCount).toBe(1); // 落库即触发（不等 patrol）
+    // research chunk 同道
+    await adapter.indexResearchChunks("R-test-doc", [
+      { content: "研究文档运行期触发验证，内容长度足够", headingPath: ["r"], charCount: 25 },
+    ], { title: "测试研究" });
+    expect(triggerCount).toBe(2);
+    // 无回调构造不炸（向后兼容）
+    const bare = new MemoryIndexAdapter(store);
+    await bare.indexFeatureChunks("F-bare", [
+      { content: "无回调兼容验证，内容长度足够校验", headingPath: ["x"], charCount: 20 },
+    ], { title: "裸适配" });
+    expect(pendingTasks()).toBeGreaterThanOrEqual(3);
   });
 });

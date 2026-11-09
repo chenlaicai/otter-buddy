@@ -6,16 +6,10 @@
  * - 实时路径失败/超时/槽位等待超时的任务也回流到本队列
  * - 本 worker 批量 claim → embedBatch 批量推理 → 逐条 storeEmbedding → markTaskDone
  *
- * 关键设计：
- * - tick 双重守卫：embeddingGateway.available && repo.isVecEnabled()。
- *   disableVec 后即使 worker 还在，也不消费 task（防 task 消失但 vec 没补）。
- * - 指数退避：claimPendingTasks 用 backoffSeconds 参数（30 → 60 → 120s 封顶 1h）。
- * - maxAttempts=3：3 次失败转 dead-letter，scanDarkEntries 默认不报告。
- * - 批处理：claim 的整批任务按 token 预算分组成 sub-batch 串行 embedBatch
- *   （service 层分片闸门兜底，这里先按批组装减少调用开销）。
- * - 生命周期：PatrolWorker 每 1h 调 tickNow()；有积压时 fire-and-forget 启动
- *   后台 drain 循环（不阻塞 patrol duty 串行链）；stop() 等待 inflight 收尾。
- *   app.ts dispose 调 stop() 避免 in-flight 写入已关闭 DB。
+ * 生命周期：PatrolWorker 每 1h 调 tickNow()；有积压时 fire-and-forget 后台 drain
+ * 自续跑（无轮次/时间预算，直到清空；退避空窗由 retrigger 补上，检视处置 1）；
+ * stop()/stopSync() 清理续跑定时器并等待收尾；dispose 不属在飞写入已关 DB。
+ * 设计细节（守卫/退避/dead-letter/批处理）见各成员函数注释。
  */
 import type { MemoryReader } from "./memory-reader";
 import type { MemoryWriter } from "./memory-writer";
@@ -46,29 +40,32 @@ export class EmbeddingRetryWorker {
    */
   private static readonly EMBED_BATCH_SIZE = 50;
   /**
-   * F20261016ebrt：单次 tick 最多连吃几批（积压泄洪）。50×20=1000 条/tick 上限。
-   * F20261109epqst：drain 在后台 fire-and-forget 循环跑（不阻塞 patrol duty），
-   * 该上限仍是单轮 drain 的安全边界。
+   * F20261109epqst 检视处置（严重发现 1）：MAX_DRAIN_ROUNDS/MAX_DRAIN_MS 已删除。
+   * 原 20 轮/10min 预算是 tick 内联阻塞时代的约束（防 tick 挂死饿死 patrol），
+   * drain 后台化后照抄成了「正常积压推回小时巡检」的脉冲边界——按实测
+   * 1.13 条/s，600s 只够 ~678 条，生产 1000 条积压首轮即被截断，剩余空等
+   * ~50min 到下个 patrol tick（验证盲区恰好覆盖：alpha 60/40 条、P3b 120 条
+   * 均低于 678 边界）。根治：drain 自续跑直到队列清空（见 runBackgroundDrain
+   * 终止条件），退避感知 retrigger 补上「全部在退避」的空窗。
    */
-  private static readonly MAX_DRAIN_ROUNDS = 20;
   /**
    * F20261109epqst：后台 drain 轮间冷却——让出事件循环给实时请求（live 消息
    * 的 fireAndForgetEmbed 在槽位层优先级更高，但冷却让 IO/HTTP 也有呼吸窗口）。
    */
   private static readonly DRAIN_COOLDOWN_MS = 100;
-
+  /** retrigger 下界：防 DB 时钟秒级精度下轮询式自触发 */
+  private static readonly RETRIGGER_MIN_MS = 2_000;
   /**
    * F20261105embqg S3（对抗审视发现 3）：空闲回填单 tick 上限——S3 闸门跳过的
    * 暗条目在队列清空后的恢复路径。有界增量，与启动暗扫的一次性全量区分。
    */
   private static readonly IDLE_BACKFILL_LIMIT = 200;
-  /**
-   * F20261020slvg 对抗审视洞 4：单次 drain 时间预算。到点即收，下个 patrol 周期
-   * tickNow 续吃（任务 claim 后未完成会按退避自动回队）。
-   * F20261109epqst：drain 不再阻塞 patrol duty（后台运行），预算改为防单轮
-   * 无限循环的硬边界；正常情况队列吃空即自然结束。
-   */
-  private static readonly MAX_DRAIN_MS = 10 * 60 * 1000;
+  /** retrigger 上界：退避封顶 1h，续跑延迟同量级封顶（更长的等待交给 patrol 周期） */
+  private static readonly RETRIGGER_MAX_MS = 60 * 60 * 1000;
+  /** queue 未实现 pendingTaskStats（旧 mock）时的 retrigger 兜底延迟 */
+  private static readonly RETRIGGER_FALLBACK_MS = 60_000;
+  /** 测试用 retrigger 延迟封顶（压缩等待窗口；null=不封顶） */
+  private static testRetriggerCapMs: number | null = null;
   /**
    * F20261013ebps：连续全失败熔断——连续 N 轮 drain 全部失败（10/10 超时）
    * 说明 worker 已淹没（#1453），继续打只会加压。熔断后暂停消费，
@@ -79,8 +76,15 @@ export class EmbeddingRetryWorker {
 
   private timer: NodeJS.Timeout | null = null;
   private inflightTick: Promise<void> | null = null;
-  /** F20261109epqst：后台 drain 循环（tickNow 触发，fire-and-forget 运行） */
+  /** F20261109epqst：后台 drain 循环（tickNow/retrigger 触发，fire-and-forget 运行） */
   private drainLoop: Promise<void> | null = null;
+  /**
+   * F20261109epqst 检视处置：退避感知续跑定时器（唯一槽位）。drain 因「全部
+   * 任务在退避/lane 忙」退出且队列非空时，按最早可领取时间短延迟重启 drain——
+   * 消灭「积压退避空窗等 patrol 1h」的脉冲。与 drainLoop 守卫配合保证单实例：
+   * retrigger 回调经 ensureDrain 统一入口，已在跑则跳过。
+   */
+  private retriggerTimer: NodeJS.Timeout | null = null;
   private stopped = true;
   /**
    * F20261109epqst：停机请求标志（stop/stopSync 置位）。与 stopped 生命周期标志
@@ -120,6 +124,10 @@ export class EmbeddingRetryWorker {
       clearInterval(this.timer);
       this.timer = null;
     }
+    if (this.retriggerTimer) {
+      clearTimeout(this.retriggerTimer);
+      this.retriggerTimer = null;
+    }
     if (this.inflightTick) {
       await this.inflightTick;
     }
@@ -139,6 +147,15 @@ export class EmbeddingRetryWorker {
       clearInterval(this.timer);
       this.timer = null;
     }
+    if (this.retriggerTimer) {
+      clearTimeout(this.retriggerTimer);
+      this.retriggerTimer = null;
+    }
+  }
+
+  /** F20261109epqst 检视处置：测试钩子——压缩 retrigger 等待窗口（判别性测试用） */
+  static setTestRetriggerCapMs(cap: number | null): void {
+    EmbeddingRetryWorker.testRetriggerCapMs = cap;
   }
 
   /**
@@ -185,18 +202,12 @@ export class EmbeddingRetryWorker {
     if (typeof this.queue.pendingTaskCount === "function") {
       const pending = await this.queue.pendingTaskCount();
       if (pending > 0) {
-        if (this.drainLoop) return; // 已在跑，无需重启
-        this.drainLoop = this.runBackgroundDrain().catch(e =>
-          this.logger.error(`EmbeddingRetryWorker background drain failed: ${e}`),
-        ).finally(() => { this.drainLoop = null; });
+        this.ensureDrain();
         return;
       }
     } else {
       // 旧 mock 无 pendingTaskCount——直接 drain（兼容路径）
-      if (this.drainLoop) return;
-      this.drainLoop = this.runBackgroundDrain().catch(e =>
-        this.logger.error(`EmbeddingRetryWorker background drain failed: ${e}`),
-      ).finally(() => { this.drainLoop = null; });
+      this.ensureDrain();
       return;
     }
 
@@ -206,19 +217,54 @@ export class EmbeddingRetryWorker {
   }
 
   /**
-   * F20261109epqst：后台 drain 循环——持续 claim → 批量消费，直到队列见底/
-   * 达轮次/时间预算/停止。fire-and-forget 运行（tickNow 立即返回，patrol
-   * duty 不被饿死）；stop() 会 await 本循环收尾。
+   * F20261109epqst：drain 唯一启动入口（单实例守卫——tickNow/retrigger 并发触发
+   * 时只跑一个循环）。retrigger 定时器先清（新循环自带退出时的重排期）。
+   */
+  private ensureDrain(): void {
+    if (this.drainLoop) return; // 已在跑
+    if (this.retriggerTimer) {
+      clearTimeout(this.retriggerTimer);
+      this.retriggerTimer = null;
+    }
+    this.drainLoop = this.runBackgroundDrain().catch(e =>
+      this.logger.error(`EmbeddingRetryWorker background drain failed: ${e}`),
+    ).finally(() => { this.drainLoop = null; });
+  }
+
+  /**
+   * F20261109epqst 检视处置（严重发现 1）：后台 drain 自续跑——直到队列见底/
+   * 全部在退避/lane 忙/熔断/停机才退出；无轮次与时间预算（原 MAX_DRAIN_ROUNDS/
+   * MAX_DRAIN_MS 已删——那是 tick 内联阻塞时代的约束，照抄会把正常积压推回
+   * 小时巡检脉冲化）。退出且队列非空时 scheduleRetrigger 按最早可领取时间续跑。
+   * fire-and-forget 运行（tickNow 立即返回，patrol duty 不被饿死）；stop() await 收尾。
    */
   private async runBackgroundDrain(): Promise<void> {
-    const drainDeadline = Date.now() + EmbeddingRetryWorker.MAX_DRAIN_MS;
     const totals = { claimed: 0, succeeded: 0, timedOut: 0, hardFailed: 0 };
-    for (let round = 0; round < EmbeddingRetryWorker.MAX_DRAIN_ROUNDS; round++) {
-      if (this.haltRequested) break;
+    let stopReason: string;
+    try {
+      stopReason = await this.drainLoopBody(totals);
+    } catch (err) {
+      stopReason = "error";
+      this.logger.error(`Embedding retry drain loop error: ${err}`);
+    }
+    await this.logDrainSummary(totals, stopReason);
+    if (stopReason === "backoff" || stopReason === "lane-busy") {
+      // 积压未清但本轮无可领——按退避窗口续跑（不等 patrol 1h）
+      this.scheduleRetrigger(stopReason);
+    }
+  }
+
+  /** drain 主循环体（从 runBackgroundDrain 拆出压复杂度）：返回停机原因 */
+  private async drainLoopBody(
+    totals: { claimed: number; succeeded: number; timedOut: number; hardFailed: number },
+  ): Promise<string> {
+    for (;;) {
+      if (this.haltRequested) return "halted";
       const claimed = await this.queue.claimPendingTasks(EmbeddingRetryWorker.BATCH_LIMIT);
       if (claimed.length === 0) {
         this.consecutiveFullFailures = 0;
-        break;
+        // 队列见底 or 全部在退避——由 scheduleRetrigger 区分并按需续跑
+        return "backoff";
       }
       totals.claimed += claimed.length;
 
@@ -227,32 +273,22 @@ export class EmbeddingRetryWorker {
       totals.timedOut += stats.timeoutCount;
       totals.hardFailed += stats.hardFailureCount;
 
-      if (this.shouldStopDraining(claimed, stats, drainDeadline)) break;
+      const stop = this.evaluateDrainStop(stats);
+      if (stop) return stop;
       // 轮间冷却：让出事件循环给实时请求/IO
       await new Promise<void>((resolve) => setTimeout(resolve, EmbeddingRetryWorker.DRAIN_COOLDOWN_MS));
-    }
-    if (totals.claimed > 0) {
-      this.logger.info("Embedding retry drain done", {
-        action: "embedding_retry_drain_summary",
-        claimed: totals.claimed,
-        succeeded: totals.succeeded,
-        timedOut: totals.timedOut,
-        hardFailed: totals.hardFailed,
-      });
     }
   }
 
   /**
-   * drain 轮间停机判定（从 drainRounds 拆出压复杂度）。
-   * F20261020slvg 对抗审视洞 3：熔断吸收态修正——「全失败」只数硬失败
-   * （markTaskAttemptFailed 路径）。纯超时轮是「lane 慢」的正常路径（salvage
-   * 还在后台落库），计入熔断会让 retry worker 在慢机器上 3 轮后自我砖化。
+   * 单轮停机判定（从 drainLoopBody 拆出）。
+   * F20261020slvg 对抗审视洞 3：熔断只数硬失败轮（成功=0 且 hard>0）——纯超时轮
+   * 是「lane 慢」的正常路径，计入熔断会让慢机器 3 轮后自我砖化。返回停机原因
+   * 或 null（继续）。
    */
-  private shouldStopDraining(
-    claimed: EmbeddingTask[],
-    stats: { successCount: number; hardFailureCount: number; laneBusy: boolean },
-    drainDeadline: number,
-  ): boolean {
+  private evaluateDrainStop(stats: { successCount: number; hardFailureCount: number; laneBusy: boolean }): string | null {
+    if (this.haltRequested) return "halted";
+    if (stats.laneBusy) return "lane-busy";
     if (stats.successCount === 0 && stats.hardFailureCount > 0) {
       this.consecutiveFullFailures++;
       if (this.consecutiveFullFailures >= EmbeddingRetryWorker.MAX_CONSECUTIVE_FULL_FAILURES) {
@@ -260,16 +296,107 @@ export class EmbeddingRetryWorker {
           `EmbeddingRetryWorker: ${this.consecutiveFullFailures} consecutive full-failure ticks, circuit breaker will open`,
           { action: "embedding_retry_circuit_break_warning" },
         );
-        return true;
+        return "circuit-break";
       }
     } else {
       this.consecutiveFullFailures = 0;
     }
-    if (stats.laneBusy) return true; // lane 占用（同步批/慢请求在途），下个 tick 再战
-    if (Date.now() > drainDeadline) return true; // 时间预算耗尽，下个 tick 续
-    // 没吃满一批：队列已见底，结束本轮
-    return claimed.length < EmbeddingRetryWorker.BATCH_LIMIT;
+    return null;
   }
+
+  /**
+   * 检视处置（建议 2）：drain 汇总日志接生产可观测出口——pending 深度/最老任务
+   * 年龄/优先级分布 + RAM 侧在飞/等待深度（service stats 可用时）。
+   * 「最老年龄单调下降 = 旧任务持续出队」的验收抓手落到日志，无需手工 SQL。
+   */
+  private async logDrainSummary(
+    totals: { claimed: number; succeeded: number; timedOut: number; hardFailed: number },
+    stopReason: string,
+  ): Promise<void> {
+    if (totals.claimed === 0 && stopReason === "empty") return;
+    const queueStats = (await this.safeQueueStats()) ?? { pending: -1, oldestAgeSeconds: null, byPriority: {} };
+    // service stats：sync getter，可选实现（mock 无 stats 不炸日志）
+    const svcStats = (this.embeddingGateway as { stats?: { inFlight: number; pendingWaiters: number } }).stats;
+    this.logger.info("Embedding retry drain done", {
+      action: "embedding_retry_drain_summary",
+      claimed: totals.claimed,
+      succeeded: totals.succeeded,
+      timedOut: totals.timedOut,
+      hardFailed: totals.hardFailed,
+      stopReason,
+      pending: queueStats.pending,
+      oldestPendingAgeSeconds: queueStats.oldestAgeSeconds,
+      pendingByPriority: queueStats.byPriority,
+      ramInFlight: svcStats?.inFlight ?? null,
+      ramPendingWaiters: svcStats?.pendingWaiters ?? null,
+    });
+  }
+
+  /**
+   * F20261109epqst 检视处置：退避感知续跑——队列非空但全部在退避（或 lane 忙）
+   * 时，按最早可领取时间 +2s 护栏短延迟重启 drain。延迟封顶 1h（更长等待交
+   * patrol 周期兜底）；测试可用 setTestRetriggerCapMs 压缩。
+   */
+  private scheduleRetrigger(reason: "backoff" | "lane-busy"): void {
+    if (this.haltRequested) return;
+    if (this.retriggerTimer) return; // 已有续跑排期
+    if (typeof this.queue.pendingTaskStats === "function") {
+      // pendingTaskStats 在 repo 实现是同步 SQL 包装的 async；统一按 promise 处理。
+      // 回调内不检查 drainLoop（竞态根因：回调解到时若恰有另一 drain 在短暂收尾窗口，
+      // 会误判「在跑」而放弃装定时器——而那个 drain 退出时又可能因 retriggerTimer
+      // 曾被 ensureDrain 清过而不再补装，续跑链断裂）。唯一性由 armRetrigger 的
+      // retriggerTimer 槽位保证；ensureDrain 启动新 drain 时主动清旧排期。
+      this.queue.pendingTaskStats().then(s => {
+        if (this.haltRequested) return;
+        if (this.retriggerTimer) return;
+        if (s.pending === 0) return; // 队列已清空，无需续跑
+        this.armRetrigger(this.computeRetriggerDelayMs(s.earliestNextRetryAt ?? null, reason), reason);
+      }).catch(() => {
+        this.armRetrigger(EmbeddingRetryWorker.RETRIGGER_FALLBACK_MS, reason);
+      });
+      return;
+    }
+    this.armRetrigger(EmbeddingRetryWorker.RETRIGGER_FALLBACK_MS, reason);
+  }
+
+  /** 计算续跑延迟：最早可领取时间 + 护栏，夹在 [2s, 1h]（lane-busy 用固定 1s 冷却扩展） */
+  private computeRetriggerDelayMs(earliestNextRetryAt: string | null, reason: "backoff" | "lane-busy"): number {
+    let delay: number;
+    if (reason === "lane-busy") {
+      delay = 1_000; // lane 忙：短冷却即可（实时通道正在泄洪）
+    } else if (earliestNextRetryAt) {
+      const earliestMs = Date.parse(earliestNextRetryAt.replace(" ", "T") + "Z");
+      delay = Number.isFinite(earliestMs) ? earliestMs - Date.now() + 1_000 : EmbeddingRetryWorker.RETRIGGER_FALLBACK_MS;
+    } else {
+      delay = EmbeddingRetryWorker.RETRIGGER_FALLBACK_MS;
+    }
+    const cap = EmbeddingRetryWorker.testRetriggerCapMs ?? EmbeddingRetryWorker.RETRIGGER_MAX_MS;
+    return Math.min(Math.max(Math.ceil(delay), EmbeddingRetryWorker.RETRIGGER_MIN_MS), cap);
+  }
+
+  /** 装载续跑定时器（唯一槽位；不检查 drainLoop——收尾竞态窗口下漏装会断续跑链，
+   * 定时器触发时 ensureDrain 自带单实例守卫） */
+  private armRetrigger(delayMs: number, reason: "backoff" | "lane-busy"): void {
+    if (this.haltRequested || this.retriggerTimer) return;
+    this.retriggerTimer = setTimeout(() => {
+      this.retriggerTimer = null;
+      if (this.haltRequested) return;
+      this.logger.debug(`Embedding retry drain retrigger (${reason})`, { action: "embedding_retry_retrigger", reason });
+      this.ensureDrain();
+    }, delayMs);
+    this.retriggerTimer.unref?.();
+  }
+
+  /** 队列快照安全读取（pendingTaskStats 抛错时不拖垮 drain 收尾日志） */
+  private async safeQueueStats(): Promise<{ pending: number; oldestAgeSeconds: number | null; byPriority: Record<number, number>; oldestNextRetryIn?: string | null } | null> {
+    if (typeof this.queue.pendingTaskStats !== "function") return null;
+    try {
+      return await this.queue.pendingTaskStats();
+    } catch {
+      return null;
+    }
+  }
+
 
   /**
    * F20261109epqst：处理已 claim 的任务批次——批量 embedBatch 消费。

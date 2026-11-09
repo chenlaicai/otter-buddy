@@ -126,12 +126,14 @@ export function pendingTaskStats(db: Database.Database): {
   pending: number;
   oldestAgeSeconds: number | null;
   byPriority: Record<number, number>;
+  earliestNextRetryAt: string | null;
 } {
   const row = db.prepare(`
     SELECT COUNT(*) AS n,
-           MIN(CASE WHEN status = 'pending' THEN created_at END) AS oldest
+           MIN(CASE WHEN status = 'pending' THEN created_at END) AS oldest,
+           MIN(CASE WHEN status = 'pending' THEN next_retry_at END) AS earliest_next
     FROM embedding_tasks
-  `).get() as { n: number; oldest: string | null };
+  `).get() as { n: number; oldest: string | null; earliest_next: string | null };
   const prioRows = db.prepare(`
     SELECT priority, COUNT(*) AS n FROM embedding_tasks
     WHERE status = 'pending' GROUP BY priority
@@ -145,7 +147,7 @@ export function pendingTaskStats(db: Database.Database): {
       oldestAgeSeconds = Math.max(0, Math.floor((Date.now() - oldestMs) / 1000));
     }
   }
-  return { pending: row.n, oldestAgeSeconds, byPriority };
+  return { pending: row.n, oldestAgeSeconds, byPriority, earliestNextRetryAt: row.earliest_next };
 }
 
 /** task 成功，删除 task 行 */

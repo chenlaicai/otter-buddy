@@ -78,7 +78,8 @@ RAM 侧唯一合法批量等待入口收敛为 `fireAndForgetEmbed`（实时消�
 ## 3. 批量消费 + 后台 drain（embedding-retry-worker.ts）
 
 - `processClaimedTasks` → `processBatchSlice`（embedBatch 路径）+ `processTasksSingly`（单条回落，保留 salvage 双轨）：claim 的整批按 `EMBED_BATCH_SIZE=50` 组批串行 `embedBatch(waitSlot:true, priority=batchPriority)`，service 层 token 闸门（8192）再拆过大的批。worker 原生 embed-batch 一次前向（检视报告核实 transformers pipeline 支持批量）。
-- `tickNow` 改**触发式**：守卫检查 + 有积压时 fire-and-forget 启动 `runBackgroundDrain`（轮间冷却 100ms 让出事件循环；MAX_DRAIN_ROUNDS=20 × BATCH_LIMIT=50=单轮 1000 条上限；10min 时间预算）。**patrol duty 不再被 drain 阻塞**（生产实锤：tick 挂死 1h+ 饿死其余 duty）。
+- `tickNow` 改**触发式**：守卫检查 + 有积压时 fire-and-forget 启动 `ensureDrain`（单实例守卫）。**patrol duty 不再被 drain 阻塞**（生产实锤：tick 挂死 1h+ 饿死其余 duty）。
+- **drain 无界续跑（检视处置严重发现 1）**：`runBackgroundDrain` 循环直到队列见底/全部在退避/lane 忙/熔断/停机——无轮次与时间预算（原 MAX_DRAIN_ROUNDS=20/MAX_DRAIN_MS=10min 是 tick 内联阻塞时代约束的照抄，按实测 1.13 条/s 600s 只够 ~678 条，生产 1000 条积压首轮即截断成小时脉冲——已删除）。退避空窗由 `scheduleRetrigger` 补上：drain 因「全部在退避」退出且队列非空时，按 `earliestNextRetryAt`（pendingTaskStats 新字段）+ 护栏计算续跑延迟（[2s, 1h] 夹逼），定时器触发 ensureDrain 续吃。运行期新落库任务由 `onBulkEnqueued` 弱触发（MemoryIndexAdapter → retry worker tickNow，见方案 6）。
 - 错误分类保留原语义并扩展：busy（背压/槽位超时）终止本轮任务留 pending；timeout/transient 不计 attempts；hard 逐条 markTaskAttemptFailed（3 次 dead）。
 - 批内单条 `storeEmbedding` 失败 → `enqueueRetry` 回队（ON CONFLICT 保留 attempts，不丢）。
 - 熔断（连续全硬失败 3 轮）、退避（30→60→120s 封顶 1h）、ghost 任务分离（entry 已删转 dead）全部保留。
@@ -89,7 +90,13 @@ RAM 侧唯一合法批量等待入口收敛为 `fireAndForgetEmbed`（实时消�
 
 ## 5. 可观测（embedding-task-queue.ts + memory-queue.ts）
 
-`pendingTaskStats()`：pending 总数 / 最老 pending 任务年龄（秒）/ 按优先级分布。验收抓手：**最老任务年龄单调下降 = 旧任务持续出队**；年龄停滞 = 消费停摆（生产事故里 09:14 迁入的任务到 10:22 attempts=0 本可用此指标秒级发现）。
+`pendingTaskStats()`：pending 总数 / 最老 pending 任务年龄（秒）/ 按优先级分布 / 最早可领取时间（`earliestNextRetryAt`，retrigger 延迟计算依据）。
+
+**生产可观测出口（检视处置建议 2）**：drain 汇总日志 `embedding_retry_drain_summary` 每轮携带 claimed/succeeded/timedOut/hardFailed/stopReason/**pending/oldestPendingAgeSeconds/pendingByPriority/ramInFlight/ramPendingWaiters**——「最老年龄单调下降 = 旧任务持续出队」的验收抓手落到日志，无需手工 SQL。
+
+## 6. 运行期弱触发（检视处置严重发现 1 配套）
+
+`MemoryIndexAdapter` 新增可选 `onBulkEnqueued` 回调（app.ts 装配时接到 retry worker 的 tickNow，fire-and-forget）：doc sync 运行中入库的 chunk 任务落库即触发消费，不再等 patrol 下一轮 1h。worker 未就绪时静默丢弃（启动 tickNow 兜底）；直接 SQL 注入的运维后门不在回调通道内（等 patrol 周期，既定语义）。不引入 store→worker 反向依赖——依赖方向 bootstrap→usecases 不变。
 
 # Retirement handover checklist（旧机制退役）
 
@@ -98,7 +105,7 @@ RAM 侧唯一合法批量等待入口收敛为 `fireAndForgetEmbed`（实时消�
 | `fireAndForgetEmbedBatch` + `bulkInFlight` + `DOC_CHUNK_GATE_BATCH` | 首次洪峰受限（S3 联合水位，对抗审视发现 1） | **结构性消除**：洪峰不再进 RAM（落库 67ms/120 条），水位判据的 bulkInFlight 分量恒 0；`EMBED_QUEUE_HIGH_WATER`（memory-queue.ts）保留——启动暗扫（bootstrap/memory.ts）仍用它跳过存量迁移，防启动时 DB 被灌爆 |
 | `acquireSlot` 接口 | sync 批量路径流速控制（#1465） | waitSlot 内嵌 embed/embedBatch（F20261020slvg 已完成内嵌，本 PR 删残留接口）+ 本 PR 有界等待 |
 | retry 逐条 embedWithSalvage 消费 | 失败重试不丢任务 | `processBatchSlice` 批量 + 错误分类同语义迁移；单条路径（批内 1 条/无 embedBatch mock）保留 embedWithSalvage |
-| tick 内联 drainRounds（阻塞式） | tick 有界（10min 预算） | `runBackgroundDrain` 后台循环：同 10min 预算 + 20 轮上限 + 不阻塞 patrol duty |
+| tick 内联 drainRounds（阻塞式） | tick 有界（10min/20 轮预算） | `runBackgroundDrain` 后台循环：**无界续跑**（预算已删——检视处置 1：照抄预算会把正常积压推回小时巡检脉冲化）+ 退避感知 retrigger + 不阻塞 patrol duty |
 | S2a 槽位优先级唤醒 | live 消息插队（P0 先于 P2） | **保留不变**（releaseSlot 优先级扫描 + claim ORDER BY priority ASC） |
 
 保留不变量：live 优先、worker crash respawn/watchdog/熔断、query/write lane 隔离、批量分片 token budget（8192）、超时晚到结果 salvage 幂等、ON CONFLICT 入队去重、disableVec 双重守卫、dead-letter 3 次。
@@ -133,7 +140,16 @@ P1 45 chunk 全落库 bulk pending；P2 embedBatch 批消费（多文本单调�
 
 - 轮 1：注入 60 条存量任务（模拟生产 09:14 迁入）→ 重启 → **启动即消费** 60/60（drain_summary claimed=60 succeeded=60），60/60 向量写入（memory_vec_rowids JOIN 验证），SqliteError=0；
 - 轮 2：注入 40 条**立即重启**（不等消费）→ 40/40 恢复消费，向量 40/40 写入——重启不丢不重；
+- 轮 3（检视处置后复验）：无界续跑版 drain——r3 25 条重启即消费 25/25（汇总日志含 stopReason/pending/oldestPendingAgeSeconds 新字段）；rt 15 条重启即消费 15/15、向量 15/15 写入；真实模型脚本复跑 120/120（evidence/real-model-throughput-r2.txt）；
 - 真实 bge-m3 双 lane 加载；doc sync 启动正常完成。
+
+## 检视处置（初轮：1 严重 + 2 建议，2026-11-09 13:41 检视獭-embedding根治）
+
+按大獭技术拍板逐条处置：
+
+1. **严重 1（MAX_DRAIN_MS/ROUNDS 照抄未重估 → 1000 条积压脉冲化）→ 本 PR 修复**：drain 无界续跑（预算常量删除）+ 退避感知 retrigger（earliestNextRetryAt 精确续跑延迟，[2s,1h] 夹逼）+ 运行期 onBulkEnqueued 弱触发 + 判别性测试 S1-S4（200 条单 tickNow 全出队/退避续跑/stop 收敛/弱触发接线）。实现中修掉一个 retrigger 装载竞态（then 回调检查 drainLoop 的收尾窗口误判会断续跑链——改为唯一性由 armRetrigger 槽位保证）。
+2. **建议 1（pendingTaskStats 无生产消费方）→ 本 PR 修复**：drain_summary 日志接 queue stats（pending/oldestAge/byPriority）+ service stats（ramInFlight/ramPendingWaiters），每轮 drain 输出。
+3. **建议 2（PR body 风险 3 并发描述失真）→ 本 PR 修复**：特性文档与 PR body 均改为「postListenInit 串行 + sync_docs 工具运行期并发」的事实描述。
 
 # 机制判定（R8.5 准入）
 
