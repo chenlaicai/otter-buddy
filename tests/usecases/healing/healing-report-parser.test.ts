@@ -209,6 +209,16 @@ describe("stripHealingReport", () => {
     expect(stripHealingReport(body)).toBe("HelloWorld");
   });
 
+  it("strips JSON no_issue variant without leaking protocol metadata", () => {
+    const body = "已完成。\n\n<healing>\n{\"type\":\"no_issue\"}\n</healing>";
+    expect(stripHealingReport(body)).toBe("已完成。");
+  });
+
+  it("preserves non-protocol JSON inside healing tags", () => {
+    const body = "代码示例：<healing>{\"type\":\"example\"}</healing>";
+    expect(stripHealingReport(body)).toBe(body);
+  });
+
   // ── 误剥防护（F20260904hstr）──
 
   it("正文裸写/反引号引用标签字样不剥离（消息不丢内容）", () => {
