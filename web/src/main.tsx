@@ -22,6 +22,7 @@ const ImPage = lazy(() => import('./pages/im/index'))
 const HealthPage = lazy(() => import('./pages/health/index'))
 const ActivityPage = lazy(() => import('./pages/activity/index'))
 const SettingsPage = lazy(() => import('./pages/settings/index'))
+const AvatarPage = lazy(() => import('./pages/avatar/index'))
 
 function LoadingFallback() {
   return (
@@ -38,6 +39,7 @@ function LoadingFallback() {
 // D1 修复：使用数据路由（createBrowserRouter）替代组件式 BrowserRouter
 // Why: useBlocker 是数据路由专属 API，组件式 BrowserRouter 不支持
 const router = createBrowserRouter([
+  { path: '/avatar/3d', element: <Suspense fallback={<LoadingFallback />}><AvatarPage /></Suspense> },
   {
     element: <AppLayout />,
     children: [
