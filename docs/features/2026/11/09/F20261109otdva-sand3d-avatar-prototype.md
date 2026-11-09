@@ -76,8 +76,9 @@ modules: [web/src/pages/avatar, web/public/avatars, scripts/avatar]
 - 生成环境：CPython 3.11 + bpy 4.5.15 + sand3d 1.6.3（commit `84c980a523adcb0474420ed4e3990681d403dce3`）；生成命令及版本随脚本记录。
 - `npm run build`、`npm run build --prefix web`、`npm run lint:intent`、`npm run lint:capability` 均通过（存量文档 warning 未新增）。
 - `npm test --prefix web -- src/pages/avatar/avatar-motion.test.ts`：1 文件、3 用例通过。
-- 真 Chromium 1440×1000 与 390×844 渲染通过，动作/拖动/回退按钮已操作，无 page/console error；手机页面宽 390px、无横向溢出，回退页 datu.svg 实际显示，离开后 `/conversation` 恢复 1024px 和 TopBar。截图存对话工作区 `designs/avatar-3d/`。
-- 造型返修后再次跑同一浏览器检查：正面/侧面不再散架，桌面与手机提示不遮脚，375×667 可滚动且按钮可达；`wave.png` 取动作前段记录抬爪。第二轮材质/结构返修后再次跑桌面、侧面、手机和短屏，WebGL shader 编译及 console/page errors 均为空。此处只主张几何、渲染和交互验证，不代替搭档审美验收。
-- `sync_docs` 连续两次 errors=1，尚未取得文档入库成功证据；不把已登记 file 产物冒充已入库。
+- 真 Chromium 1440×1000 与 390×844 正常 GLB 路径渲染通过，动作/拖动/回退按钮已操作，无 page/console error；手机页面宽 390px、无横向溢出，离开后 `/conversation` 恢复 1024px 和 TopBar。主动阻断 GLB/WebGL 时 datu.svg 实际显示，预期资源错误与正常路径分开记录。截图存对话工作区 `designs/avatar-3d/`。
+- 造型返修后再次跑同一浏览器检查：正面/侧面不再散架，桌面与手机提示不遮脚，375×667 可滚动且按钮可达。第二轮材质/结构返修后再次跑桌面、侧面、手机和短屏，WebGL shader 编译及正常路径 console/page errors 均为空。此处只主张几何、渲染和交互验证，不代替搭档审美验收。
+- 第二轮独立复核提出手机 SVG 回退覆盖控件、分支落后 main、reduced-motion 侧倾及动作取证帧问题。回退已改为 stage 内绝对定位，390×844 实测 fallbackBottom=controlsTop=480.890625、不覆盖动作区；reduce+nod/wave 与静止帧哈希一致。动作证据改用受控时钟峰值帧 `controlled-hello-750.png`、`controlled-nod-275.png`、`controlled-blink-150.png`，不再依赖截图耗时碰运气。
+- 最新 `sync_docs` errors=0，文档已入库。
 - 最简检查：复用现有 React/Vite 路由，GLB 不做 OBJ 纹理绕路；只增加 Three.js 渲染依赖。未把 Blender/bpy 或外部 CDN 变成运行时依赖。
 - 本轮未删除或替换现有头像机制，负向检查聚焦旧页面不变与 WebGL 失败回退。

@@ -187,7 +187,7 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
         avatar.position.y = avatarRestY + breath
         if (head) {
           const nod = active === 'nod' ? Math.sin(gestureElapsed / 1100 * Math.PI * 4) * pulse * 0.24 : 0
-          const helloTilt = active === 'hello' ? pulse * 0.16 : 0
+          const helloTilt = active === 'hello' && !live.reducedMotion ? pulse * 0.16 : 0
           head.rotation.set(
             (live.reducedMotion ? 0 : nod) + (live.mood === 'curious' ? -0.08 : 0),
             helloTilt + (live.mood === 'curious' ? 0.10 : 0),
