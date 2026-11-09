@@ -70,6 +70,25 @@ describe("validate", () => {
   it("passes with anthropic provider", () => {
     expect(() => validate({ llm: { models: [{ alias: "ant", provider: "anthropic", model: "claude-sonnet-4-20250514", handoffThresholdTokens: 40_000 }] } })).not.toThrow();
   });
+
+  it("accepts apiFormat=chat for OpenAI-compatible endpoints", () => {
+    expect(() => validate({ llm: { models: [{ alias: "apig", provider: "openai", model: "kimi-k3", apiKey: "sk", apiFormat: "chat", handoffThresholdTokens: 40_000 }] } })).not.toThrow();
+  });
+
+  it("rejects unknown apiFormat values", () => {
+    expect(() => validate({ llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", apiFormat: "messages" as never, handoffThresholdTokens: 40_000 }] } }))
+      .toThrow("apiFormat 必须是 responses / chat");
+  });
+
+  it("rejects apiFormat on the default provider path where it would be ignored", () => {
+    expect(() => validate({ llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", apiFormat: "chat", handoffThresholdTokens: 40_000 }] } }))
+      .toThrow("apiFormat 仅在配置 apiBaseUrl 或 apiKey");
+  });
+
+  it("rejects apiFormat on non-OpenAI providers instead of silently ignoring it", () => {
+    expect(() => validate({ llm: { models: [{ alias: "ant", provider: "anthropic", model: "claude-sonnet-4-20250514", apiFormat: "chat", handoffThresholdTokens: 40_000 }] } }))
+      .toThrow("apiFormat 仅支持 provider=openai");
+  });
 });
 
 describe("loadConfig", () => {
@@ -135,6 +154,15 @@ describe("loadConfig", () => {
     expect(cfg.llm.models[0].apiKey).toBe("sk-test");
     expect(cfg.llm.models[0].apiBaseUrl).toBe("https://proxy.example.com");
     expect(cfg.server.port).toBe(8080);
+  });
+
+  it("preserves apiFormat from YAML", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      "llm:\n  models:\n    - alias: apig\n      provider: openai\n      model: kimi-k3\n      apiKey: sk-test\n      apiFormat: chat\n      handoffThresholdTokens: 40000\n",
+    );
+
+    expect(loadConfig().llm.models[0].apiFormat).toBe("chat");
   });
 
   it("converts YAML null values for optional model fields to undefined", () => {

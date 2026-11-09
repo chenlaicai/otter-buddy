@@ -31,6 +31,9 @@ llm:
       # apiKey: "sk-your-actual-key"
       # 自定义 API 基础地址（可选）
       # apiBaseUrl: "https://your-proxy.com/v1"
+      # OpenAI 自定义端点协议（可选）：responses（默认）或 chat
+      # 仅兼容 POST /chat/completions 的聚合网关使用 chat；仅 provider=openai 可配置
+      # apiFormat: "chat"
       description: "平衡型模型，适合日常对话和编码"
       strengths: ["强推理", "代码能力优秀", "长上下文"]
       weaknesses: ["价格较高"]

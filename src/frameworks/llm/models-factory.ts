@@ -19,6 +19,8 @@ export type { ModelPool } from "./model-pool";
 interface CustomProviderOptions {
   apiBaseUrl?: string;
   apiKey?: string;
+  /** OpenAI 协议：缺省 Responses；chat 使用 /chat/completions。 */
+  apiFormat?: "responses" | "chat";
   /** 模型上下文窗口（自定义模型注入时带入，SDK compaction/溢出检测依赖它，F20260808ctxw） */
   contextWindow?: number;
   /** 最大输出 tokens（缺省回退 provider 模板值；SDK Model 接口必填，缺了请求负载 max_tokens 为 null） */
@@ -85,12 +87,35 @@ function createCustomApiKeyAuth(configApiKey?: string, provider?: string) {
   };
 }
 
-/**
- * 构造自定义 provider（使用 createProvider）。
- * 动态导入 provider 对应的模型列表和 API handler。
- * @param providerType provider 类型（openai/anthropic），用于模块加载
- * @param alias provider ID，用于注册（避免同 provider 多实例冲突）
- */
+/** 加载 provider 模型目录和协议 handler；modelApi 用于同步覆盖 OpenAI 模板。 */
+async function loadProviderApi(providerType: string, apiFormat?: "responses" | "chat"): Promise<{
+  modelsDict: Record<string, unknown>;
+  api: unknown;
+  modelApi?: "openai-completions" | "openai-responses";
+}> {
+  if (providerType === "openai") {
+    const modelsMod = await import("@earendil-works/pi-ai/providers/openai.models");
+    if (apiFormat === "chat") {
+      const apiMod = await import("@earendil-works/pi-ai/api/openai-completions.lazy");
+      return { modelsDict: modelsMod.OPENAI_MODELS, api: apiMod.openAICompletionsApi(), modelApi: "openai-completions" };
+    }
+    const apiMod = await import("@earendil-works/pi-ai/api/openai-responses.lazy");
+    return { modelsDict: modelsMod.OPENAI_MODELS, api: apiMod.openAIResponsesApi(), modelApi: "openai-responses" };
+  }
+  if (providerType === "anthropic") {
+    const modelsMod = await import("@earendil-works/pi-ai/providers/anthropic.models");
+    const apiMod = await import("@earendil-works/pi-ai/api/anthropic-messages.lazy");
+    return { modelsDict: modelsMod.ANTHROPIC_MODELS, api: apiMod.anthropicMessagesApi() };
+  }
+  if (providerType === "kimi-coding") {
+    const modelsMod = await import("@earendil-works/pi-ai/providers/kimi-coding.models");
+    const apiMod = await import("@earendil-works/pi-ai/api/anthropic-messages.lazy");
+    return { modelsDict: modelsMod.KIMI_CODING_MODELS, api: apiMod.anthropicMessagesApi() };
+  }
+  throw new Error(`Unsupported LLM provider type: ${providerType}`);
+}
+
+/** 构造自定义 provider（使用 createProvider）。 */
 async function loadCustomProvider(
   piAi: PiAiModule,
   providerType: string,
@@ -98,31 +123,20 @@ async function loadCustomProvider(
   alias: string,
   options: CustomProviderOptions,
 ): Promise<Provider> {
-  let modelsDict: Record<string, unknown>;
-  let api: unknown;
-
-  if (providerType === "openai") {
-    const modelsMod = await import("@earendil-works/pi-ai/providers/openai.models");
-    modelsDict = modelsMod.OPENAI_MODELS;
-    const apiMod = await import("@earendil-works/pi-ai/api/openai-responses.lazy");
-    api = apiMod.openAIResponsesApi();
-  } else if (providerType === "anthropic") {
-    const modelsMod = await import("@earendil-works/pi-ai/providers/anthropic.models");
-    modelsDict = modelsMod.ANTHROPIC_MODELS;
-    const apiMod = await import("@earendil-works/pi-ai/api/anthropic-messages.lazy");
-    api = apiMod.anthropicMessagesApi();
-  } else if (providerType === "kimi-coding") {
-    const modelsMod = await import("@earendil-works/pi-ai/providers/kimi-coding.models");
-    modelsDict = modelsMod.KIMI_CODING_MODELS;
-    const apiMod = await import("@earendil-works/pi-ai/api/anthropic-messages.lazy");
-    api = apiMod.anthropicMessagesApi();
-  } else {
-    throw new Error(`Unsupported LLM provider type: ${providerType}`);
-  }
+  const { modelsDict, api, modelApi } = await loadProviderApi(providerType, options.apiFormat);
 
   // 转为数组并注入自定义模型（连接属性继承模板；contextWindow 从 config 带入，缺省不带）
-  const modelsArray = Object.values(modelsDict) as Record<string, unknown>[];
-  const hasModel = modelsArray.some(m => (m as Record<string, unknown>).id === modelId);
+  // OpenAI 每个 alias 是独立 provider：模型 api 必须与所选协议一致，否则 SDK 会按模板继续走 Responses。
+  const modelsArray: Record<string, unknown>[] = Object.values(modelsDict).map(m => {
+    const model = m as Record<string, unknown>;
+    if (!modelApi) return { ...model };
+    // Chat 第三方网关普遍只接受 system；GLM-5.3-flash 已实测拒绝 developer（1214）。
+    const compat = modelApi === "openai-completions"
+      ? { ...(model.compat as Record<string, unknown> | undefined), supportsDeveloperRole: false }
+      : model.compat;
+    return { ...model, api: modelApi, compat };
+  });
+  const hasModel = modelsArray.some(m => m.id === modelId);
   if (!hasModel) {
     const template = modelsArray[0] as Record<string, unknown> | undefined;
     if (template) {
@@ -131,12 +145,12 @@ async function loadCustomProvider(
       modelsArray.push({
         id: modelId,
         name: modelId,
-        api: template.api,
+        api: modelApi ?? template.api,
         provider: alias, // 用 alias 作为 provider 字段，确保 SDK auth 解析正确
         baseUrl: options.apiBaseUrl ?? template.baseUrl,
         reasoning: template.reasoning,
-        // 不继承 compat 和 thinkingLevelMap，避免意外行为
-        compat: {},
+        // 不继承 thinkingLevelMap，避免意外行为；Chat 使用 system，兼容拒绝 developer 角色的网关。
+        compat: modelApi === "openai-completions" ? { supportsDeveloperRole: false } : {},
         thinkingLevelMap: {},
         // 多模态 Phase 1：config 显式 input 优先，缺省回退 provider 模板值
         input: options.input ?? template.input,
@@ -210,6 +224,7 @@ async function initModelPool(
     const providerModule = await loadProvider(mc.provider, mc.model, mc.alias, {
       apiKey: mc.apiKey,
       apiBaseUrl: mc.apiBaseUrl,
+      apiFormat: mc.apiFormat,
       contextWindow: mc.contextWindow,
       maxTokens: mc.maxTokens,
       input: mc.input,
