@@ -51,6 +51,7 @@ def build_otter():
     fur_dark = "#607a87"
     cream = "#ede8dc"
     ink = "#26343b"
+    eye_ink = "#1d2b31"
     scarf = "#9f3f3c"
 
     # A small connected body grounds the large head; no floating bust or paws.
@@ -70,8 +71,8 @@ def build_otter():
         )
         eye = s3d.group(
             f"eye_{label}",
-            pebble(f"eye_dark_{label}", (0.115, 0.055, 0.145), (side * 0.56, -0.985, 0.67), ink, roughness=0.82),
-            pebble(f"eye_glint_{label}", (0.022, 0.012, 0.025), (side * 0.56 - 0.022, -1.035, 0.715), "#fff8e9", roughness=0.8),
+            pebble(f"eye_dark_{label}", (0.12, 0.075, 0.15), (side * 0.56, -0.985, 0.67), eye_ink, roughness=0.30),
+            pebble(f"eye_glint_{label}", (0.028, 0.012, 0.032), (side * 0.56 - 0.025, -1.06, 0.72), "#fff8e9", roughness=0.65),
         )
         # Centre the blink pivot on the actual child geometry. The children
         # become local offsets; assigning only a nominal pivot tears them away.
@@ -95,16 +96,15 @@ def build_otter():
     s3d.attach(
         body,
         "scarf",
-        pebble("scarf_collar", (1.20, 0.83, 0.22), (0, -0.01, -0.78), scarf, roughness=0.9),
-        pebble("scarf_knot", (0.20, 0.12, 0.20), (0.55, -0.76, -0.88), "#873432", roughness=0.9),
-        s3d.at(pebble("scarf_tail_long", (0.18, 0.08, 0.40), (0.65, -0.75, -1.27), scarf, roughness=0.9), ry=14),
-        s3d.at(pebble("scarf_tail_short", (0.15, 0.075, 0.26), (0.34, -0.80, -1.14), "#873432", roughness=0.9), ry=-18),
+        pebble("scarf_collar", (1.16, 0.80, 0.16), (0, -0.01, -0.78), scarf, roughness=0.9),
+        pebble("scarf_knot", (0.14, 0.09, 0.14), (0.43, -0.80, -0.91), "#873432", roughness=0.9),
+        s3d.at(pebble("scarf_tail", (0.14, 0.055, 0.34), (0.47, -0.82, -1.20), scarf, roughness=0.9), ry=10),
     )
     s3d.attach(
         body,
         "paws",
-        pebble("paw_l", (0.30, 0.29, 0.43), (-0.94, -0.43, -1.10), fur_dark),
-        pebble("paw_r", (0.30, 0.29, 0.43), (0.94, -0.43, -1.10), fur_dark),
+        pebble("paw_l", (0.28, 0.27, 0.36), (-1.00, -0.43, -1.37), fur_dark),
+        pebble("paw_r", (0.28, 0.27, 0.36), (1.00, -0.43, -1.37), fur_dark),
     )
     return body
 

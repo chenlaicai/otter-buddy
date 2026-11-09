@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { automaticBlink, gestureDuration, gestureProgress, type AvatarGesture } from './avatar-motion'
+import { tuneAvatarMaterial } from './fur-material'
 
 type Props = {
   gesture: AvatarGesture
@@ -129,15 +130,9 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
         if (node instanceof THREE.Mesh) {
           node.castShadow = true
           node.receiveShadow = true
-          // glTF correctly preserves s3d's ceramic/fabric materials; keep
-          // roughness above the plastic-toy range for a handmade clay look.
-          const materials = Array.isArray(node.material) ? node.material : [node.material]
-          for (const material of materials) {
-            if (material instanceof THREE.MeshStandardMaterial) {
-              // 保留生成端高光/织物的粗糙度差异；只降低陶偶环境反射。
-              material.envMapIntensity = 0.3
-            }
-          }
+          // Local-space short fibres and a restrained eye catchlight add
+          // texture without external images or a return to glassy eyes.
+          tuneAvatarMaterial(node)
         }
       })
       // s3d exports the joint itself as a named empty node above its geometry.
@@ -147,7 +142,7 @@ export function OtterScene({ gesture, gestureKey, mood, reducedMotion, onReady }
       if (paw) {
         // GLB 爪是叶子网格：另建肩部父节点，而非操作不存在的 children。
         // pivot 用源毫米尺度；GLB 已由 Blender 转为 Y-up。
-        const pivot = new THREE.Vector3(0.70, -0.65, 0.20)
+        const pivot = new THREE.Vector3(0.78, -1.03, 0.20)
         waveArm = new THREE.Object3D()
         waveArm.name = 'wave_shoulder'
         waveArm.position.copy(pivot)

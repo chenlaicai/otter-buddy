@@ -44,6 +44,7 @@ modules: [web/src/pages/avatar, web/public/avatars, scripts/avatar]
 
 - `scripts/avatar/generate_otter.py`：sand3d 1.6.3 参数化生成真实闭合网格、材质与关节，导出 `web/public/avatars/otter-3d.glb`。
 - `web/src/pages/avatar/OtterScene.tsx`：懒加载 Three.js 渲染；基于 GLB 的头部节点和独立眼球节点执行动作；组件卸载时取消动画帧、释放 GPU 资源和 DOM。
+- `web/src/pages/avatar/fur-material.ts`：局部坐标程序化短绒、细微法线和粗糙度变化，不依赖 UV 或外部贴图；眼部仅保留柔和环境高光。
 - `web/src/pages/avatar/avatar-motion.ts`：以经过时间计算动作，避免按帧数造成不同刷新率下速度不同；支持 reduced-motion。
 - 原型页动作可重复触发，「回到自在」恢复表情和动作，不刷新页面；挥爪通过独立 paw 节点的抬起与转动实现。
 
@@ -53,7 +54,9 @@ modules: [web/src/pages/avatar, web/public/avatars, scripts/avatar]
 
 搭档否定初版后，实际截图逐轮暴露了真正的几何根因：sand3d `sphere(name, d)` 接收直径且原点位于球底，旧辅助函数却按球心/半径放置，导致耳、脚和面部部件系统性分离；眼部 pivot 又重复扣除了固定偏移。返修版统一以半径参数和真实球心放置，头部只保留一个关节坐标系，并去掉 ceramic 默认 clearcoat 带来的玻璃/塑料高光。生成时施加一次细分以柔化轮廓。
 
-当前桌面正面/侧面与手机截图均显示完整相连的小身体、小眼睛、单片浅嘴套和红围巾；挥爪使用肩部 pivot 加相对静止位的绝对偏移，验证截图取动作前段而非结束后的静止帧。仍属于程序化软陶角色，不宣称手工精修或已达到 Muse 级数字人；新版审美仍需搭档判读。
+当前桌面正面/侧面与手机截图均显示完整相连的小身体、小眼睛、单片浅嘴套和红围巾；挥爪使用肩部 pivot 加相对静止位的绝对偏移，验证截图取动作前段而非结束后的静止帧。
+
+搭档继续指出「手连到了头上、手上拿了个红色的不知道是个啥、毛皮和眼睛最素」后，第二轮返修将手臂下移并缩细、肩点随之下移；围巾结缩小并删除第二条尾巴，仅留一条压扁尾巴贴在胸前。毛皮采用短绒色差、微法线和粗糙度变化，眼球略增厚度并保留柔和高光，不回退到凸出的玻璃珠。仍属于程序化软陶/短绒角色，不宣称手工精修、真实毛发或已达到 Muse 级数字人；新版审美仍需搭档判读。
 
 ## 验收标准
 
@@ -74,7 +77,7 @@ modules: [web/src/pages/avatar, web/public/avatars, scripts/avatar]
 - `npm run build`、`npm run build --prefix web`、`npm run lint:intent`、`npm run lint:capability` 均通过（存量文档 warning 未新增）。
 - `npm test --prefix web -- src/pages/avatar/avatar-motion.test.ts`：1 文件、3 用例通过。
 - 真 Chromium 1440×1000 与 390×844 渲染通过，动作/拖动/回退按钮已操作，无 page/console error；手机页面宽 390px、无横向溢出，回退页 datu.svg 实际显示，离开后 `/conversation` 恢复 1024px 和 TopBar。截图存对话工作区 `designs/avatar-3d/`。
-- 造型返修后再次跑同一浏览器检查：正面/侧面不再散架，桌面与手机提示不遮脚，375×667 可滚动且按钮可达；`wave-250.png` 独立记录挥爪前段抬爪。此处只主张几何、渲染和交互验证，不代替搭档审美验收。
+- 造型返修后再次跑同一浏览器检查：正面/侧面不再散架，桌面与手机提示不遮脚，375×667 可滚动且按钮可达；`wave.png` 取动作前段记录抬爪。第二轮材质/结构返修后再次跑桌面、侧面、手机和短屏，WebGL shader 编译及 console/page errors 均为空。此处只主张几何、渲染和交互验证，不代替搭档审美验收。
 - `sync_docs` 连续两次 errors=1，尚未取得文档入库成功证据；不把已登记 file 产物冒充已入库。
 - 最简检查：复用现有 React/Vite 路由，GLB 不做 OBJ 纹理绕路；只增加 Three.js 渲染依赖。未把 Blender/bpy 或外部 CDN 变成运行时依赖。
 - 本轮未删除或替换现有头像机制，负向检查聚焦旧页面不变与 WebGL 失败回退。
