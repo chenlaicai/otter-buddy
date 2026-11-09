@@ -73,7 +73,7 @@ describe("F20261109epqst：waitSlot 等待有界性（修复前：无界挂起�
   });
 
   it("F1: waitSlot 挂起超过 waitTimeoutMs 后 reject EmbedSlotTimeoutError（不再无限等待）", async () => {
-    workerPath = writeMockWorker("eppq-slow.mjs", SLOW_WORKER);
+    workerPath = writeMockWorker("epqst-slow.mjs", SLOW_WORKER);
     const factory = () => forkMock(workerPath);
     const service = new EmbeddingServiceImpl(factory(), noopLogger, factory);
     try {
@@ -96,7 +96,8 @@ describe("F20261109epqst：waitSlot 等待有界性（修复前：无界挂起�
       const t0 = Date.now();
       await expect(waiter).rejects.toBeInstanceOf(EmbedSlotTimeoutError);
       expect(Date.now() - t0).toBeLessThan(450); // 早于 occupier 完成（500ms）
-      void occupier;
+      // occupier 吸收完结果再 dispose（rejectAllPending 会把它变成未处理 rejection）
+      await occupier;
     } finally {
       service.dispose();
     }
