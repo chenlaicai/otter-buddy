@@ -10,6 +10,7 @@ import { isHealingProbeEvent } from "@usecases/healing/constants";
 import type { Logger } from "@usecases/ports/logger";
 import type { ToolContext, AgentTool, ToolResponse } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
+import { checkOpenIssue, type CheckIssueBinding } from "../../github/issue-binding";
 
 /** 解析并剥离 healing report，返回清理后的 body */
 export function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): string {
@@ -137,6 +138,7 @@ async function handleBatchResolve(
 async function handleBatchBind(
   params: Record<string, unknown>,
   healingRepo: HealingEventRepository,
+  checkIssueBinding: CheckIssueBinding,
 ): Promise<ToolResponse> {
   const issueNumber = params.issueNumber as number | undefined;
   if (typeof issueNumber !== 'number' || !Number.isInteger(issueNumber) || issueNumber <= 0) {
@@ -167,10 +169,24 @@ async function handleBatchBind(
   };
   const dryRun = (params.dryRun as boolean) ?? false;
 
+  return executeHealingBatchBind(filter, issueNumber, dryRun, healingRepo, checkIssueBinding);
+}
+
+async function executeHealingBatchBind(
+  filter: HealingEventBatchFilter,
+  issueNumber: number,
+  dryRun: boolean,
+  healingRepo: HealingEventRepository,
+  checkIssueBinding: CheckIssueBinding,
+): Promise<ToolResponse> {
   if (dryRun) {
     const result = await healingRepo.batchBindIssue(filter, issueNumber, { dryRun: true });
     return textResponse(JSON.stringify({ dryRun: true, matched: result.matched, issueNumber }, null, 2));
   }
+
+  // 外部状态查不清就 fail-closed；dryRun 上方已返回，只读本地预览不调用 gh。
+  const issueCheck = await checkIssueBinding(issueNumber);
+  if (!issueCheck.ok) return errorResponse(`[错误] ${issueCheck.reason}`);
 
   const result = await healingRepo.batchBindIssue(filter, issueNumber, { limit: 100 });
   return textResponse(JSON.stringify({
@@ -196,12 +212,16 @@ async function handleQuery(params: Record<string, unknown>, healingRepo: Healing
 }
 
 /** 创建 healing event 管理工具 */
-export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: HealingEventRepository): AgentTool {
+export function createManageHealingEventsTool(
+  ctx: ToolContext,
+  healingRepo: HealingEventRepository,
+  checkIssueBinding: CheckIssueBinding = checkOpenIssue,
+): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ToolResponse> => {
     const action = params.action as string;
     if (action === 'query') return handleQuery(params, healingRepo);
     if (action === 'batch_resolve') return handleBatchResolve(params, healingRepo);
-    if (action === 'batch_bind') return handleBatchBind(params, healingRepo);
+    if (action === 'batch_bind') return handleBatchBind(params, healingRepo, checkIssueBinding);
     const ids = params.eventIds as string[];
     if (!ids?.length) return errorResponse("[错误] eventIds 不能为空");
     if (action === 'resolve' || action === 'dismiss') {
@@ -225,7 +245,7 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
   };
   return {
     name: "manage_healing_events",
-    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略 / 同族事件批量归口到 issue. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve/batch_bind）. query 默认过滤健康探针心跳事件（includeProbe: true 可含，仅诊断用）. batch_resolve: 按 filter 批量处置（filterStatus/filterErrorType/filterRuleId/filterBoundIssue/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. ⚠️批量闸：未归口 high 事件禁批量静默——先 batch_bind 归口（high 的推荐路径）或逐条处置；已归口（bound）high 可随 issue 收尾批量 resolve（filterBoundIssue=N）. batch_bind：按 filter 批量归口到 GitHub issue（bind≠resolve，事件保持 open 直到修复合入后收尾）——issueNumber 必填且须为真实存在的 issue 编号（幻觉编号会使后续 filterBoundIssue 收尾静默终结 high，bind 前用 gh issue view 确认）+ 至少一个过滤条件（防异质归口），guard_intercept 事件族按 filterErrorType=guard_intercept + filterRuleId=<指纹> 分组归口；high 不设闸（归口是结构化认领非静默，恰是 high 的推荐去向）；只作用未归口 open 事件；单批 100，truncated=true 需再次执行. GOTCHA: resolve/dismiss 对不存在或已终态（非 open）的 eventId 返回 isError 并列明失败 ID（fail-closed——假成功曾致回执与库状态不一致；dismiss 仅作用 open 态——已终态的再 dismiss 同样报错，防重复处置静默吞）；部分失败时同样返回 isError——需检查响应中失败计数.",
+    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略 / 同族事件批量归口到 issue. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve/batch_bind）. query 默认过滤健康探针心跳事件（includeProbe: true 可含，仅诊断用）. batch_resolve: 按 filter 批量处置（filterStatus/filterErrorType/filterRuleId/filterBoundIssue/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. ⚠️批量闸：未归口 high 事件禁批量静默——先 batch_bind 归口（high 的推荐路径）或逐条处置；已归口（bound）high 可随 issue 收尾批量 resolve（filterBoundIssue=N）. batch_bind：按 filter 批量归口到 GitHub issue（bind≠resolve，事件保持 open 直到修复合入后收尾）——issueNumber 必填且必须为 OPEN（CLOSED/不存在/状态查询失败均拒绝且不写库；幻觉编号会使后续 filterBoundIssue 收尾静默终结 high）+ 至少一个过滤条件（防异质归口），guard_intercept 事件族按 filterErrorType=guard_intercept + filterRuleId=<指纹> 分组归口；high 不设闸（归口是结构化认领非静默，恰是 high 的推荐去向）；只作用未归口 open 事件；单批 100，truncated=true 需再次执行. GOTCHA: resolve/dismiss 对不存在或已终态（非 open）的 eventId 返回 isError 并列明失败 ID（fail-closed——假成功曾致回执与库状态不一致；dismiss 仅作用 open 态——已终态的再 dismiss 同样报错，防重复处置静默吞）；部分失败时同样返回 isError——需检查响应中失败计数.",
     parameters: {
       type: "object",
       properties: {
@@ -243,7 +263,7 @@ export function createManageHealingEventsTool(ctx: ToolContext, healingRepo: Hea
         filterBoundIssue: { type: "number", description: "[batch_resolve] 按归口 issue 编号筛选——修复合入后 batch_resolve + filterBoundIssue=<N> 收尾该 issue 归口的事件族" },
         filterCreatedBefore: { type: "string", description: "[batch_resolve/batch_bind] ISO 时间戳，筛选 created_at < 此值的事件" },
         filterCreatedAfter: { type: "string", description: "[batch_resolve/batch_bind] ISO 时间戳，筛选 created_at > 此值的事件" },
-        issueNumber: { type: "number", description: "[batch_bind] 必填。归口目标 GitHub issue 编号（正整数）" },
+        issueNumber: { type: "number", description: "[batch_bind] 必填。归口目标 GitHub OPEN issue 编号（其他状态或查询失败拒绝）" },
         dryRun: { type: "boolean", description: "[batch_resolve/batch_bind] true 时只返回匹配事件数，不执行" },
       },
       required: ["action"],

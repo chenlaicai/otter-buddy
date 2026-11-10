@@ -50,7 +50,8 @@ describe('manage_healing_events batch_bind 工具层', () => {
   beforeEach(() => {
     db = createTestDb();
     repo = new SqliteHealingEventRepository(db);
-    tool = createManageHealingEventsTool(mockCtx, repo);
+    // 既有仓储/批处理测试不触真实 gh 外部边界；显式注入 OPEN 对照。
+    tool = createManageHealingEventsTool(mockCtx, repo, async () => ({ ok: true }));
   });
   afterEach(() => { db.close(); });
 
