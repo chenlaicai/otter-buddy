@@ -548,19 +548,71 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   private async _resetInternal(otterId: string, context?: AgentContext): Promise<void> {
-    this.pool.evict(otterId);
+    // M-9af49d4a 根因修复：世代物化为同库 reset 边界，账本恒指 plain 库。
+    // #1783 失配回顾：此前换世登记 ${otterId}-${uuid}.sqlite 世代文件，而打开路径
+    // （_createSessionWithTools 恒用 durableFile(otterId)=plain）从不看账本——换世只翻
+    // 账本不换 transcript：水位循环（上下文不降反复触发交接）、幽灵账本（世代文件从未创建）、
+    // 前世档案恒机械转储（读取前世文件失败）三连伤。修复后世代边界 = 库内 pi.reset entry
+    //（head 指针），前世 = reset 点之前的 entries，同库可审计（durable 原生多世代语义）。
+    // 流中守护（R5）：换世前提是交接冻结锁/会话锁已持——到达即接线错误，响亮失败而非静默带病。
+    const pooled = this.poolMeta.get(otterId);
+    if (pooled?.session.isStreaming) {
+      throw new Error(`generation reset refused while session streaming (otter=${otterId})`);
+    }
+    // F20260923hspx：换世期间池内旧 session 用 markStale 出池（不 dispose）
+    //  旧 invoke 若仍活着由 GC 兑底——与 markStale 同语义，F20260912nlb896 已验证）。
+    this.pool.markStale(otterId);
     this.poolMeta.delete(otterId);
-    const sessionFile = `${this.cfg.sessionDir.replace(/([\\/])sessions[\\/]?$/, "$1durable-sessions")}/${otterId}-${randomUUID()}.sqlite`;
     const previous = this.sessionStore.getWithFile(otterId);
     this.cfg.db.transaction(() => {
-      this.registerDurableSession(otterId, sessionFile);
+      this.registerDurableSession(otterId, this.durableFile(otterId));
       if (context?.systemPrompt) {
         const existing = this.cfg.otterConfigProvider.getConfig(otterId);
         this.cfg.otterConfigProvider.setConfig(otterId, { systemPrompt: context.systemPrompt, otterType: existing?.otterType ?? 'big', modelAlias: existing?.modelAlias });
       }
     })();
-    this.logger.info('durable session generation replaced; old transcript retained for audit', { otterId, previous: previous?.sessionFile, sessionFile });
+    // 同库 reset：有活句柄用活句柄（免二次开库）；冷启动轻量开一次即关。
+    // resetForGeneration 内置守护：落盘后校验 pi.reset+head 边界真实存在，否则抛错——
+    // unifiedHandoff 捕获后向搭档显式报「交接未能完成」，静默空转从此不可能。
+    if (pooled) {
+      await pooled.session.resetForGeneration();
+    } else {
+      const resetSession = await this.openResetOnlySession(otterId);
+      try {
+        await resetSession.resetForGeneration();
+      } finally {
+        await resetSession.close(BACKGROUND_CONTEXT).catch(error =>
+          this.logger.warn('reset-only durable session close failed', { otterId, error: String(error) }));
+      }
+    }
+    this.logger.info('durable session generation replaced (in-file reset); old transcript retained for audit', { otterId, previous: previous?.sessionFile, sessionFile: this.durableFile(otterId) });
     this.pendingIdentity.add(otterId);
+  }
+
+  /** M-9af49d4a：同库世代 reset 的冷启动执行体——轻量开 durable 会话（无工具面、不入池、
+   *  不注册活跃集），执行 reset 后即关。模型解析口径与 _createSessionWithTools 一致。 */
+  private async openResetOnlySession(otterId: string): Promise<DurableAgentSession> {
+    const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
+    if (!otterConfig) throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
+    let resolvedModel = this.cfg.model;
+    let resolvedThinkingLevel: string | undefined;
+    if (this.cfg.modelPool) {
+      const modelAlias = otterConfig.modelAlias;
+      resolvedModel = this.cfg.modelPool.getModel(modelAlias);
+      resolvedThinkingLevel = this.cfg.modelPool.getThinkingLevel(modelAlias ?? this.cfg.modelPool.getDefaultAlias());
+    }
+    return await DurableAgentSession.open({
+      otterId,
+      file: this.durableFile(otterId),
+      models: getModelSource(this.cfg.modelPool),
+      model: resolvedModel,
+      ...(resolvedThinkingLevel ? { thinkingLevel: resolvedThinkingLevel } : {}),
+      cwd: this.cfg.dataDir ?? "./data",
+      tools: { customTools: [], codingTools: [] },
+      logger: this.logger,
+      register: createInvokeRegister(),
+      context: BACKGROUND_CONTEXT,
+    });
   }
 
   /** F20260924thnk：合成模型解析（自 runCompactionSynthesis 抽出，complexity 限）。
