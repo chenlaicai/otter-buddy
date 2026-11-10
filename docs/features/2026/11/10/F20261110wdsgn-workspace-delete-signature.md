@@ -49,4 +49,6 @@ summary: 按搭档选定方案1，将 workspace_delete 纳入现有 workspace pa
 
 ## 独立审查
 
-待独立检视。
+检视獭-1802 独立审查**通过**，未发现 blocker/major/minor。确认改动仅接入既有签名分发；同 path 第 6 次仍 steer；recursive 不分桶，缺失/空/非字符串 path 名称兜底；不同 300+ 字符 path 经统一 cap 后仍可区分；其他 workspace 与文件工具不受影响。
+
+独立复验目标 60/60、agent+guard 55 文件 730/730，tsc、ESLint、docs/intent/tests/pr-tests/evidence-anchor lint 与 diff check 全绿；GitHub CI 的 check、guard-macos、e2e、golden-selftest 四项 SUCCESS。
