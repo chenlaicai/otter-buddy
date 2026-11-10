@@ -19,6 +19,9 @@ import type {
   EmbedModelMeta,
   EmbedCallOptions,
   EmbedBatchCallOptions,
+  EmbeddingLaneFailure,
+  EmbeddingLaneName,
+  EmbeddingServiceStats,
 } from "@usecases/memory/embedding-gateway";
 import { EmbedTimeoutError, EmbedBackpressureError, EmbedTransientError, EmbedSlotTimeoutError } from "@usecases/memory/embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
@@ -37,6 +40,11 @@ import type {
   ReadyState,
 } from "./embedding-protocol";
 import { resolveBatchTokenBudget, splitBatchByTokenBudget, wrapOptsForShard, estimateTokens } from "./embed-batch-sharding";
+import { LaneMetrics, laneState } from "./embedding-lane-stats";
+
+export interface EmbeddingServiceOptions {
+  lane?: EmbeddingLaneName;
+}
 
 export class EmbeddingServiceImpl implements EmbeddingGateway {
   private disposed = false;
@@ -95,10 +103,12 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * 阈值必须 > batch 超时预算上限（120s）× 安全余量。若未来放宽 BATCH_TIMEOUT 上限
    * 或 BATCH_LIMIT，此处必须同步调整。
    */
-  private static readonly WATCHDOG_INTERVAL_MS = 60_000;
-  private static readonly WATCHDOG_NO_PROGRESS_MS = 300_000;
+  private static readonly WATCHDOG_INTERVAL_MS = 1_000;
+  private static readonly PROGRESS_STALL_MS = 120_000;
+  private static readonly READY_TIMEOUT_MS = 60_000;
   /** 测试用看门狗阈值覆盖 */
   private static testWatchdogOverride: number | null = null;
+  private static testReadyTimeoutOverride: number | null = null;
   /**
    * F20261109epqst：waitSlot 默认等待上界（ms）——所有后台等待必须有界。
    * 生产实锤（2026-11-09）：doc 洪峰 ~2000 条 bulk waiter 堆进队列后，
@@ -113,6 +123,11 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   /** 最近一次 worker 活动（send / 任何响应 / ready / 重建）时间戳 */
   private lastWorkerActivityAt = Date.now();
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly lane: EmbeddingLaneName;
+  private readonly metrics = new LaneMetrics();
+  private lastProgressAt: number | null = null;
+  private unreadySince: number | null = Date.now();
+  private healingReporter: ((failure: EmbeddingLaneFailure) => void) | null = null;
 
   /**
    * F20261015selfheal：embed 超时自愈——onnxruntime 1.23.2 在 Intel x86 mac 上存在偶发
@@ -165,6 +180,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     EmbeddingServiceImpl.testBatchTokenBudgetOverride = n;
   }
 
+  static setTestReadyTimeoutOverride(ms: number | null): void {
+    EmbeddingServiceImpl.testReadyTimeoutOverride = ms;
+  }
+
   /** 设置测试用 in-flight 上限覆盖（仅测试环境） */
   static setTestMaxInFlightOverride(n: number | null): void {
     EmbeddingServiceImpl.testMaxInFlightOverride = n;
@@ -179,10 +198,20 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * 后台任务统一落库后，这里应只剩实时短通道的有限在飞；
    * 若 pendingWaiters 持续增长即说明有调用方在堆 RAM 长队（回归信号）。
    */
-  get stats(): { inFlight: number; pendingWaiters: number } {
+  get stats(): EmbeddingServiceStats {
+    const inFlight = this.pendingRequests.size + this.pendingBatchRequests.size;
     return {
-      inFlight: this.pendingRequests.size + this.pendingBatchRequests.size,
+      lane: this.lane,
+      state: laneState({ ready: this.readyState.ready, circuitBroken: this.circuitBroken, inFlight }),
+      inFlight,
       pendingWaiters: this.slotWaiters.length,
+      attempts: this.restartTimestamps.length,
+      lastProgressAt: this.lastProgressAt,
+      unreadySince: this.readyState.ready ? null : this.unreadySince,
+      circuitBroken: this.circuitBroken,
+      tokensPerSec: this.metrics.tokensPerSec(),
+      meanTokensPerText: Math.round(this.metrics.meanTokens() * 100) / 100,
+      perTextLatencyMs: this.metrics.latency(),
     };
   }
 
@@ -190,9 +219,15 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     private worker: ChildProcess,
     private readonly logger: Logger,
     private readonly workerFactory?: WorkerFactory,
+    options: EmbeddingServiceOptions = {},
   ) {
+    this.lane = options.lane ?? "live";
     this.setupHandlers();
     this.startWatchdog();
+  }
+
+  setHealingReporter(reporter: (failure: EmbeddingLaneFailure) => void): void {
+    this.healingReporter = reporter;
   }
 
   private setupHandlers(): void {
@@ -229,15 +264,26 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
 
   private watchdogTick(): void {
     if (this.disposed || this.circuitBroken || !this.workerFactory) return;
-    if (!this.readyState.ready) return; // 加载期/重建期不算无进展
+    const now = Date.now();
+    if (!this.readyState.ready) {
+      this.unreadySince ??= this.workerBornAt;
+      const readyTimeout = EmbeddingServiceImpl.testReadyTimeoutOverride
+        ?? EmbeddingServiceImpl.READY_TIMEOUT_MS;
+      const unreadyMs = now - this.unreadySince;
+      if (unreadyMs > readyTimeout) {
+        this.restartWorker(`watchdog: worker not ready for ${unreadyMs}ms`);
+      }
+      return;
+    }
+    this.unreadySince = null;
     const outstanding = this.pendingRequests.size + this.pendingBatchRequests.size;
     if (outstanding === 0) return;
     const threshold = EmbeddingServiceImpl.testWatchdogOverride
-      ?? EmbeddingServiceImpl.WATCHDOG_NO_PROGRESS_MS;
-    const silentMs = Date.now() - this.lastWorkerActivityAt;
+      ?? EmbeddingServiceImpl.PROGRESS_STALL_MS;
+    const silentMs = now - this.lastWorkerActivityAt;
     if (silentMs > threshold) {
       this.restartWorker(
-        `watchdog: no worker response for ${silentMs}ms with ${outstanding} outstanding request(s)`,
+        `watchdog: no worker progress for ${silentMs}ms with ${outstanding} outstanding request(s)`,
       );
     }
   }
@@ -315,6 +361,8 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     // F20261020slvg：新 worker 加载期锚定活动时间，防止加载 + 首条慢请求叠加误判
     this.lastWorkerActivityAt = Date.now();
     this.readyState.loadError = null;
+    this.readyState.ready = false;
+    this.unreadySince = this.workerBornAt;
   }
 
   /**
@@ -331,6 +379,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.cachedMeta = null;
     this.readyState.ready = false;
     this.readyState.loadError = null; // 重建是恢复动作，清掉旧 loadError 让 waitForReady 重新挂起
+    this.unreadySince = Date.now();
     // F20261020slvg：瞬态错误专用类型——retry worker 不计 attempts，防成批 dead-letter
     this.rejectAllPending(new EmbedTransientError(`Embedding worker restarting (${reason})`));
     // 放行槽位 waiter——挂起的 sync 循环恢复后由新 worker 的 embed 正常处理
@@ -344,6 +393,11 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.readyState.loadError = err;
     this.readyState.ready = false;
     this.logger.error(`Embedding worker circuit breaker open after ${restartsInWindow} restarts, falling back to FTS5-only permanently until process restart`);
+    this.healingReporter?.({
+      lane: this.lane,
+      reason: `${restartsInWindow} restarts within ${EmbeddingServiceImpl.RESTART_WINDOW_MS}ms`,
+      attempts: restartsInWindow,
+    });
     this.rejectAllPending(err);
     // F20261020slvg：熔断后无任何唤醒来源（看门狗被 circuitBroken 守卫挡掉）——
     // 必须在此放行全部 waiter，否则 parked 调用方永久悬挂并沿 tickNow 堵死 PatrolWorker
@@ -448,10 +502,12 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
 
   /** F20261015selfheal：worker message 统一分发（从 setupHandlers 拆出，降函数行数） */
   private handleWorkerMessage(msg: EmbedResponse): void {
-    // F20261020slvg：任何 worker 消息都是「活着」的证据——喂看门狗
-    this.lastWorkerActivityAt = Date.now();
+    // 只有 ready/结果/progress 是进度证据；load error 不能喂活看门狗。
+    if (msg.type !== "error" || msg.id !== -1) this.lastWorkerActivityAt = Date.now();
     if (msg.type === "ready") {
       this.readyState.ready = true;
+      this.unreadySince = null;
+      this.lastProgressAt = Date.now();
       this.cachedMeta = msg.meta;  // F20260811mrpy Part 3：缓存 meta
       this.readyState.waiters.forEach(w => w.resolve());
       this.readyState.waiters.length = 0;
@@ -475,39 +531,70 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * 成功结果交 salvage 持久化（worker 花真 CPU 算出的向量不能白扔），
    * 错误响应对应任务留 pending（retry 队列兜底）。槽位在此处才释放。
    */
-  private handleResponseMessage(msg: EmbedResponse): void {
-    if (msg.type === "result" || msg.type === "error") {
-      const pending = this.pendingRequests.get(msg.id);
-      if (!pending) return;
-      this.pendingRequests.delete(msg.id);
-      this.releaseSlot();
-      if (msg.type === "result") {
-        this.workerEmbedSucceeded++;
-        if (pending.abandoned) {
-          this.salvageLateResult(msg.id, pending.salvage, msg.embedding);
-        } else {
-          pending.resolve(msg.embedding);
-        }
-      } else if (pending.abandoned) {
-        this.logger.warn(
-          `Embedding late error for abandoned request ${msg.id} (task stays pending for retry): ${msg.error}`,
-        );
-      } else {
-        pending.reject(new Error(msg.error));
-      }
+  private handleResponseMessage(msg: Exclude<EmbedResponse, { type: "ready" }>): void {
+    if (msg.type === "batch-progress") this.handleBatchProgress(msg);
+    else if (msg.type === "batch-result") this.handleBatchResult(msg);
+    else if (msg.type === "result" || this.pendingRequests.has(msg.id)) this.handleSingleResponse(msg);
+    else this.handleBatchError(msg);
+  }
+
+  private handleSingleResponse(msg: Extract<EmbedResponse, { type: "result" | "error" }>): void {
+    const pending = this.pendingRequests.get(msg.id);
+    if (!pending) return;
+    this.pendingRequests.delete(msg.id);
+    this.releaseSlot();
+    if (msg.type === "error") {
+      if (!pending.abandoned) pending.reject(new Error(msg.error));
       return;
     }
-    if (msg.type === "batch-result") {
-      const pending = this.pendingBatchRequests.get(msg.id);
-      if (!pending) return;
-      this.pendingBatchRequests.delete(msg.id);
-      this.releaseSlot();
-      this.workerEmbedSucceeded++;
-      if (pending.abandoned) {
-        this.salvageLateResult(msg.id, pending.salvage, msg.embeddings);
-      } else {
-        pending.resolve(msg.embeddings);
-      }
+    this.workerEmbedSucceeded++;
+    this.recordProgress(pending.startedAt, pending.estimatedTokens, msg.durationMs);
+    if (pending.abandoned) this.salvageLateResult(msg.id, pending.salvage, msg.embedding);
+    else pending.resolve(msg.embedding);
+  }
+
+  private handleBatchResult(msg: Extract<EmbedResponse, { type: "batch-result" }>): void {
+    const pending = this.pendingBatchRequests.get(msg.id);
+    if (!pending) return;
+    this.pendingBatchRequests.delete(msg.id);
+    this.releaseSlot();
+    this.workerEmbedSucceeded++;
+    this.lastProgressAt = Date.now();
+    this.recordLegacyBatchMetrics(msg, pending);
+    if (pending.abandoned) this.salvageLateResult(msg.id, pending.salvage, msg.embeddings);
+    else pending.resolve(msg.embeddings);
+  }
+
+  private recordLegacyBatchMetrics(
+    msg: Extract<EmbedResponse, { type: "batch-result" }>,
+    pending: PendingBatchRequest,
+  ): void {
+    if (pending.partialEmbeddings.size > 0) return;
+    const eachMs = (msg.durationMs ?? Date.now() - pending.startedAt) / Math.max(1, msg.embeddings.length);
+    pending.estimatedTokens.forEach(tokens => this.metrics.record(eachMs, tokens));
+  }
+
+  private handleBatchError(msg: Extract<EmbedResponse, { type: "error" }>): void {
+    const pending = this.pendingBatchRequests.get(msg.id);
+    if (!pending) return;
+    this.pendingBatchRequests.delete(msg.id);
+    this.releaseSlot();
+    this.salvagePartialBatch(msg.id, pending);
+    if (!pending.abandoned) pending.reject(new Error(msg.error));
+  }
+
+  private handleBatchProgress(msg: Extract<EmbedResponse, { type: "batch-progress" }>): void {
+    const pending = this.pendingBatchRequests.get(msg.id);
+    if (!pending || pending.partialEmbeddings.has(msg.index)) return;
+    pending.partialEmbeddings.set(msg.index, msg.embedding);
+    this.lastProgressAt = Date.now();
+    this.metrics.record(msg.durationMs, pending.estimatedTokens[msg.index] ?? 0);
+  }
+
+  /** Why: 进程死亡只丢弃尚未算出的部分；已 progress 的向量先持久化，重拉后不会重算这些条目。 */
+  private salvagePartialBatch(requestId: number, pending: PendingBatchRequest): void {
+    for (const [index, embedding] of pending.partialEmbeddings) {
+      this.salvageLateResult(requestId, pending.salvage, [embedding], index);
     }
   }
 
@@ -517,13 +604,23 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * 打死主进程（本代码库已因原生层异常死过一次，JS 层不能再引入同类）。
    * 可观测性：命中时打点——salvage 此前是不可观测的静默路径，上线验证需要抓手。
    */
-  private salvageLateResult<T>(requestId: number, salvage: ((value: T) => void) | undefined, value: T): void {
-    if (!salvage) return; // 无回调（如 query lane 晚到结果无意义）才真正丢弃
+  private salvageLateResult<T>(
+    requestId: number,
+    salvage: ((value: T, startIndex?: number) => void) | undefined,
+    value: T,
+    startIndex?: number,
+  ): void {
+    if (!salvage) return;
     this.workerSalvagedResults++;
-    this.logger.info(`Embedding salvage landed for request ${requestId} (caller timed out, late result persisted)`);
+    this.logger.info(`Embedding salvage landed for request ${requestId} (partial/late result persisted)`);
     Promise.resolve()
-      .then(() => salvage(value))
+      .then(() => salvage(value, startIndex))
       .catch(err => this.logger.warn(`Embedding salvage callback failed: ${err}`));
+  }
+
+  private recordProgress(startedAt: number, tokens: number, durationMs?: number): void {
+    this.lastProgressAt = Date.now();
+    this.metrics.record(durationMs ?? this.lastProgressAt - startedAt, tokens);
   }
 
   /**
@@ -556,6 +653,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     // F20260811mrpy Part 3: 清除 cachedMeta 防止 worker 重启后读到旧 meta
     this.cachedMeta = null;
     this.readyState.ready = false;
+    this.unreadySince = Date.now();
     this.readyState.loadError = new EmbedTransientError(`Worker error: ${err.message}`);
     this.readyState.waiters.forEach(w => w.reject(this.readyState.loadError!));
     this.readyState.waiters.length = 0;
@@ -572,6 +670,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     this.logger.error(`Embedding worker process exited unexpectedly, code=${code} signal=${signal}`);
     this.cachedMeta = null;  // F20260811mrpy Part 3
     this.readyState.ready = false;
+    this.unreadySince = Date.now();
     const err = new EmbedTransientError(`Worker exited with code=${code} signal=${signal}`);
     this.readyState.loadError = err;
     this.readyState.waiters.forEach(w => w.reject(err));
@@ -588,7 +687,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private rejectAllPending(err: Error): void {
     this.pendingRequests.forEach(({ reject }) => reject(err));
     this.pendingRequests.clear();
-    this.pendingBatchRequests.forEach(({ reject }) => reject(err));
+    this.pendingBatchRequests.forEach((pending, id) => {
+      this.salvagePartialBatch(id, pending);
+      pending.reject(err);
+    });
     this.pendingBatchRequests.clear();
   }
 
@@ -633,7 +735,9 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const id = ++this.requestId;
 
     const embedPromise = new Promise<Float32Array>((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject, salvage: opts?.salvage });
+      this.pendingRequests.set(id, {
+        resolve, reject, salvage: opts?.salvage, startedAt: Date.now(), estimatedTokens: estimateTokens(text),
+      });
       const request: EmbedRequest = { type: "embed", text, id };
       // F20261020slvg：channel 已关时 send 可能同步 throw 而非返回 false——
       // 不捕获会把条目泄漏在 map 里（in-flight 永久 =1，lane 堵死且看门狗不介入）
@@ -643,6 +747,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
           reject(new EmbedTransientError("Embedding worker IPC channel closed"));
         } else {
           this.lastWorkerActivityAt = Date.now();
+          this.lastProgressAt = Date.now();
         }
       } catch (sendErr) {
         this.pendingRequests.delete(id);
@@ -742,7 +847,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     const id = ++this.requestId;
 
     const batchPromise = new Promise<Float32Array[]>((resolve, reject) => {
-      this.pendingBatchRequests.set(id, { resolve, reject, salvage: opts?.salvage });
+      this.pendingBatchRequests.set(id, {
+        resolve, reject, salvage: opts?.salvage, startedAt: Date.now(),
+        estimatedTokens: texts.map(estimateTokens), partialEmbeddings: new Map(),
+      });
       const request: EmbedBatchRequest = { type: "embed-batch", texts, id };
       // F20261020slvg：同 embed() 的 send 同步 throw 防护
       try {
@@ -751,6 +859,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
           reject(new EmbedTransientError("Embedding worker IPC channel closed"));
         } else {
           this.lastWorkerActivityAt = Date.now();
+          this.lastProgressAt = Date.now();
         }
       } catch (sendErr) {
         this.pendingBatchRequests.delete(id);
@@ -758,8 +867,10 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       }
     });
 
-    // F20261016ebrt：batch 超时预算——5s/条，不低于 30s（对齐单条），上限 120s
-    // 测试环境 testTimeoutOverride 覆盖（与 embed() 同口径，否则测试等不到生产预算）
+    // Why: backfill 的完成时限由逐条 progress 看门狗判定；健康慢批没有墙钟死线，
+    // 因此结果无论多晚都只计算、采纳一次。live/query 保留 fail-fast 降级路径。
+    if (this.lane === "backfill") return batchPromise;
+
     const timeoutMs = this.batchTimeoutBudgetMs(texts);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<Float32Array[]>((_, reject) => {

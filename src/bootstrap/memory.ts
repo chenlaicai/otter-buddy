@@ -11,6 +11,7 @@ import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
 import { EmbeddingRetryWorker } from "@usecases/memory/embedding-retry-worker";
 import type { EmbeddingRetryWorker as EmbeddingRetryWorkerType } from "@usecases/memory/embedding-retry-worker";
 import { EMBED_TASK_PRIORITY, EMBED_QUEUE_HIGH_WATER } from "@usecases/memory/memory-queue";
+import { resolveBatchTokenBudget } from "@frameworks/embedding/embed-batch-sharding";
 import type { Repositories } from "./types";
 
 export class MemoryIndexAdapter implements MemoryIndexGateway {
@@ -242,7 +243,16 @@ export async function createAndStartRetryWorker(
     }
   }
 
-  const worker = new EmbeddingRetryWorker(repos.memoryReader, repos.memoryWriter, repos.memoryQueue, embeddingService, logger);
+  const worker = new EmbeddingRetryWorker(
+    repos.memoryReader,
+    repos.memoryWriter,
+    repos.memoryQueue,
+    embeddingService,
+    logger,
+    60 * 60 * 1000,
+    3,
+    resolveBatchTokenBudget(),
+  );
   worker.start();
   // F20261109epqst：启动即消费存量——自跑首轮 tickNow（fire-and-forget，不阻塞启动）。
   // 根因：PatrolWorker.start() 在 buildApp 内同步跑首轮 tick，此时 postListenInit

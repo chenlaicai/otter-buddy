@@ -107,14 +107,50 @@ export interface EmbedBatchCallOptions {
   salvage?: (embeddings: Float32Array[], startIndex?: number) => void;
 }
 
-/** F20261109epqst：service 层可观测快照——RAM 侧在飞/等待深度。
- * 后台任务统一落库后，RAM 只剩实时短通道；本快照让「RAM 是否真的只剩有限在飞」
- * 可被周期观测（验收不变量 ③有界性），不再只靠日志撞见。 */
+export type EmbeddingLaneName = "query" | "live" | "backfill";
+export type EmbeddingLaneState = "spawning" | "ready" | "busy" | "unready" | "dead";
+
+export interface EmbeddingLatencyStats {
+  readonly p50: number | null;
+  readonly p95: number | null;
+  readonly p99: number | null;
+  readonly samples: number;
+}
+
+/** 单 lane 可观测快照；时间戳均为 epoch ms，吞吐为最近样本的 EWMA。 */
 export interface EmbeddingServiceStats {
-  /** 在飞请求数（单条 + 批量 map 总和） */
+  readonly lane: EmbeddingLaneName;
+  readonly state: EmbeddingLaneState;
   readonly inFlight: number;
-  /** 挂起在槽位等待队列的 waiter 数 */
   readonly pendingWaiters: number;
+  readonly attempts: number;
+  readonly lastProgressAt: number | null;
+  readonly unreadySince: number | null;
+  readonly circuitBroken: boolean;
+  readonly tokensPerSec: number;
+  readonly meanTokensPerText: number;
+  readonly perTextLatencyMs: EmbeddingLatencyStats;
+}
+
+export interface EmbeddingQueueStats {
+  readonly pending: number;
+  readonly oldestAgeSeconds: number | null;
+  readonly ageP50Seconds: number | null;
+  readonly ageP95Seconds: number | null;
+  readonly etaSeconds: number | null;
+  readonly byPriority: Record<number, number>;
+}
+
+export interface EmbeddingHealthSnapshot {
+  readonly lanes: Partial<Record<EmbeddingLaneName, EmbeddingServiceStats>>;
+  readonly queue: EmbeddingQueueStats | null;
+  readonly alerts: string[];
+}
+
+export interface EmbeddingLaneFailure {
+  readonly lane: EmbeddingLaneName;
+  readonly reason: string;
+  readonly attempts: number;
 }
 
 /** Embedding 网关接口（由 frameworks/embedding/ 实现） */
@@ -129,6 +165,8 @@ export interface EmbeddingGateway {
    * 独立槽位获取接口无调用方（遗留死接口，双账本时代的残留）。
    */
   readonly stats?: EmbeddingServiceStats;
+  /** 熔断是进程内事件，装配层注入 RHI 仓库后落 severity:high；未注入时 health 仍可见。 */
+  setHealingReporter?(reporter: (failure: EmbeddingLaneFailure) => void): void;
   /**
    * F20261013ebps：批量 embed——一次调用处理多条文本，
    * 实现方内部走 batch 推理（吞吐远高于逐条 embed）。

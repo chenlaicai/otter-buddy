@@ -9,9 +9,10 @@ import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { EmbeddingServiceImpl, type WorkerFactory } from "./embedding-service";
+import { deriveIntraOpThreads, detectPhysicalCores } from "./embedding-thread-plan";
+import type { EmbeddingLaneName } from "@usecases/memory/embedding-gateway";
 
 export interface EmbeddingConfig {
   /** 模型标识：local 模式下为 localModelPath 下的目录名；remote 模式下为 HF repo id */
@@ -52,31 +53,44 @@ const noopLogger: Logger = {
 export async function initEmbeddingService(
   embedConfig?: EmbeddingConfig,
   logger?: Logger,
-): Promise<{ queryService: EmbeddingGateway; writeService: EmbeddingGateway; dispose: () => void }> {
+): Promise<{
+  queryService: EmbeddingServiceImpl;
+  liveService: EmbeddingServiceImpl;
+  backfillService: EmbeddingServiceImpl;
+  dispose: () => void;
+}> {
   const workerPath = embedConfig?.workerPath ?? path.join(__dirname, "bge-m3-worker.js");
-  // F20261015kill：worker 工厂——超时自愈重建时复用同一配置 fork
-  // serialization:'advanced' 走 structured clone，Float32Array 保真（默认 JSON 会退化成对象）
-  const workerFactory: WorkerFactory = () => fork(workerPath, [], {
+  const physicalCores = detectPhysicalCores();
+  const makeFactory = (lane: EmbeddingLaneName): WorkerFactory => () => fork(workerPath, [], {
     ...(embedConfig?.workerExecArgv ? { execArgv: embedConfig.workerExecArgv } : {}),
     env: {
       ...process.env,
-      // fork 无 workerData，配置走 env（bge-m3-worker 侧 readWorkerConfig 解析）
       OTTER_EMBED_WORKER_CONFIG: JSON.stringify({
         modelPath: embedConfig?.modelPath ?? "Xenova/bge-m3",
         localModelPath: embedConfig?.localModelPath,
+        lane,
+        intraOpThreads: deriveIntraOpThreads(lane, physicalCores, process.env.OTTER_EMBED_INTRA_OP_THREADS),
+        dtype: process.env.OTTER_EMBED_DTYPE === "q8" ? "q8" : "fp32",
       }),
     },
     serialization: "advanced",
   });
-  const queryService = new EmbeddingServiceImpl(workerFactory(), logger || noopLogger, workerFactory);
-  const writeService = new EmbeddingServiceImpl(workerFactory(), logger || noopLogger, workerFactory);
+  const makeService = (lane: EmbeddingLaneName): EmbeddingServiceImpl => {
+    const factory = makeFactory(lane);
+    return new EmbeddingServiceImpl(factory(), logger || noopLogger, factory, { lane });
+  };
+  const queryService = makeService("query");
+  const liveService = makeService("live");
+  const backfillService = makeService("backfill");
 
   return {
     queryService,
-    writeService,
+    liveService,
+    backfillService,
     dispose: () => {
       queryService.dispose();
-      writeService.dispose();
+      liveService.dispose();
+      backfillService.dispose();
     },
   };
 }

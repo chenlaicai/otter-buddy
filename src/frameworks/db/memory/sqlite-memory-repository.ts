@@ -747,8 +747,9 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   /** F20260812mrcq Part 1：原子认领 pending 任务（F20260814qswp 拆至 embedding-task-queue） */
   async claimPendingTasks(
     limit: number,
+    tokenBudget?: number,
   ): Promise<Array<{ entryId: string; content: string; attempts: number; lastAttemptAt: string | null; createdAt: string; priority: number }>> {
-    return claimPendingTasks(this.db, limit);
+    return claimPendingTasks(this.db, limit, tokenBudget);
   }
 
   /** F20261105embqg S3：当前 pending 任务总数（生产端水位闸门判据） */
@@ -761,6 +762,8 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   async pendingTaskStats(): Promise<{
     pending: number;
     oldestAgeSeconds: number | null;
+    ageP50Seconds: number | null;
+    ageP95Seconds: number | null;
     byPriority: Record<number, number>;
     earliestNextRetryAt: string | null;
   }> {

@@ -8,6 +8,9 @@ import path from "node:path";
 
 /** worker 接收的配置（主线程通过 workerData 透传） */
 export interface WorkerConfig {
+  lane?: "query" | "live" | "backfill";
+  intraOpThreads?: number;
+  dtype?: "fp32" | "q8";
   /** 模型标识：local 模式下为 localModelPath 下的目录名；remote 模式下为 HF repo id（如 Xenova/bge-m3） */
   modelPath?: string;
   /** 本地模型根目录（相对 process.cwd() 或绝对）。设置后启用本地加载、禁用远程下载 */

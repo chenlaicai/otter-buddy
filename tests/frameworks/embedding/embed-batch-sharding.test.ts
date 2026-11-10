@@ -61,6 +61,8 @@ describe("wrapOptsForShard（delta 处置严重 1：salvage 子批偏移包装�
     wrapped?.salvage?.([new Float32Array(1), new Float32Array(1)]);
     // 子批晚到时 startIndex 指向整批第 3 条起——调用方按 3,4 写入正确 entry
     expect(seen).toEqual([{ len: 2, start: 3 }]);
+    wrapped?.salvage?.([new Float32Array(1)], 2);
+    expect(seen[1]).toEqual({ len: 1, start: 5 });
   });
   it("offset=0 时 startIndex=0（与非分批路径 0 语义一致）", () => {
     let got: number | undefined = -1;
@@ -170,7 +172,7 @@ process.on("message", (msg) => {
 });
 `
     );
-    const { writeService: service, dispose } = await initEmbeddingService({
+    const { liveService: service, dispose } = await initEmbeddingService({
       workerPath: mockWorkerPath,
       workerExecArgv: [],
     });
@@ -204,7 +206,7 @@ process.on("message", (msg) => {
 });
 `
     );
-    const { writeService: service, dispose } = await initEmbeddingService({
+    const { liveService: service, dispose } = await initEmbeddingService({
       workerPath: mockWorkerPath,
       workerExecArgv: [],
     });

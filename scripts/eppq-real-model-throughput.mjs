@@ -40,16 +40,16 @@ async function main() {
   // 1) 装配真实双 lane embedding 服务（读写 lane 各 fork 一个真 worker）
   // localModelPath 指向主仓 models 目录（生产 config 同款本地加载，禁止远程下载）
   const mainRepoRoot = "/Users/orca/ai/otter-buddy";
-  const { writeService, dispose } = await initEmbeddingService({
+  const { liveService, dispose } = await initEmbeddingService({
     modelPath: "bge-m3",
     localModelPath: mainRepoRoot + "/models",
   }, logger);
   console.log(`[setup] embedding 服务初始化 ${Date.now() - t0}ms，等待 ready...`);
   // 等待 worker ready（模型加载 ~10-60s）
-  for (let i = 0; i < 120 && !writeService.available; i++) {
+  for (let i = 0; i < 120 && !liveService.available; i++) {
     await sleep2(1000);
   }
-  if (!writeService.available) throw new Error("embedding worker 未就绪（120s 超时）");
+  if (!liveService.available) throw new Error("embedding worker 未就绪（120s 超时）");
   console.log(`[setup] worker ready @ ${Date.now() - t0}ms`);
 
   // 2) 内存库装配（真实 schema + sqlite-vec）
@@ -57,7 +57,7 @@ async function main() {
   loadSqliteVec(db);
   initSchema(db);
   const repo = new SqliteMemoryRepository(db);
-  const store = new StoreMemory(repo, repo, writeService, logger);
+  const store = new StoreMemory(repo, repo, liveService, logger);
 
   // 3) 文档洪峰：120 条 chunk 落库（应该只产生 DB 任务，不占 RAM）
   const tFlood = Date.now();
@@ -74,14 +74,14 @@ async function main() {
   const pending = await repo.pendingTaskCount();
   console.log(`[flood] 120 chunks 落库 ${Date.now() - tFlood}ms，pending=${pending}`);
   if (pending !== 120) throw new Error(`落库数不符：${pending} != 120`);
-  const stats0 = writeService.stats;
+  const stats0 = liveService.stats;
   console.log(`[flood] RAM 状态：inFlight=${stats0.inFlight} pendingWaiters=${stats0.pendingWaiters}`);
   if (stats0.inFlight !== 0 || stats0.pendingWaiters !== 0) {
     throw new Error(`洪峰后 RAM 不应为 0：${JSON.stringify(stats0)}`);
   }
 
   // 4) 单 tick 触发批量消费（真实 ONNX 推理）——观察每批耗时
-  const worker = new EmbeddingRetryWorker(repo, repo, repo, writeService, logger, 3_600_000, 3);
+  const worker = new EmbeddingRetryWorker(repo, repo, repo, liveService, logger, 3_600_000, 3);
   const tDrain = Date.now();
   let lastPending = pending;
   let batchSamples = 0;
@@ -90,7 +90,7 @@ async function main() {
   while (true) {
     await sleep2(2000);
     const p = await repo.pendingTaskCount();
-    const s = writeService.stats;
+    const s = liveService.stats;
     if (p !== lastPending) {
       const done = lastPending - p;
       batchSamples++;

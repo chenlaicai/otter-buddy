@@ -3,6 +3,8 @@
  * ——本文件（frameworks）从 port 导入，依赖方向 frameworks→usecases。
  */
 import { EMBED_TASK_PRIORITY } from "../../../usecases/memory/memory-queue";
+import { estimateTokens } from "../../embedding/embed-batch-sharding";
+import { percentile } from "../../embedding/embedding-lane-stats";
 
 /**
  * F20260812mrcq Part 1：embedding 失败重试任务队列（embedding_tasks 表）SQL。
@@ -61,7 +63,12 @@ export function enqueueRetry(
 export function claimPendingTasks(
   db: Database.Database,
   limit: number,
+  tokenBudget?: number,
 ): Array<{ entryId: string; content: string; attempts: number; lastAttemptAt: string | null; createdAt: string; priority: number }> {
+  const effectiveLimit = tokenBudget === undefined
+    ? limit
+    : countTasksWithinTokenBudget(db, limit, tokenBudget);
+  if (effectiveLimit === 0) return [];
   const rows = db.prepare(`
     UPDATE embedding_tasks
     SET last_attempt_at = datetime('now'),
@@ -85,7 +92,7 @@ export function claimPendingTasks(
       LIMIT ?
     )
     RETURNING entry_id, attempts, last_attempt_at, created_at, priority
-  `).all(limit) as Array<{ entry_id: string; attempts: number; last_attempt_at: string | null; created_at: string; priority: number }>;
+  `).all(effectiveLimit) as Array<{ entry_id: string; attempts: number; last_attempt_at: string | null; created_at: string; priority: number }>;
 
   if (rows.length === 0) return [];
   // 二次查询 JOIN memory_entries 拿 content
@@ -102,6 +109,28 @@ export function claimPendingTasks(
     createdAt: r.created_at,
     priority: r.priority,
   }));
+}
+
+/** 只选择有序候选的前缀；与后续原子 UPDATE 共用同一 ORDER BY，避免预算筛选改变公平性。 */
+function countTasksWithinTokenBudget(db: Database.Database, limit: number, budget: number): number {
+  const candidates = db.prepare(`
+    SELECT et.entry_id, me.content
+    FROM embedding_tasks et
+    LEFT JOIN memory_entries me ON me.id = et.entry_id
+    WHERE et.status = 'pending' AND et.next_retry_at <= datetime('now')
+    ORDER BY et.priority ASC, et.next_retry_at ASC
+    LIMIT ?
+  `).all(limit) as Array<{ entry_id: string; content: string | null }>;
+  let count = 0;
+  let tokens = 0;
+  for (const candidate of candidates) {
+    const next = estimateTokens(candidate.content ?? "");
+    // 单条超预算仍独占一批；文本不可拆，service 的单条豁免与此保持一致。
+    if (count > 0 && tokens + next > budget) break;
+    tokens += next;
+    count++;
+  }
+  return count;
 }
 
 /**
@@ -125,6 +154,8 @@ export function pendingTaskCount(db: Database.Database): number {
 export function pendingTaskStats(db: Database.Database): {
   pending: number;
   oldestAgeSeconds: number | null;
+  ageP50Seconds: number | null;
+  ageP95Seconds: number | null;
   byPriority: Record<number, number>;
   earliestNextRetryAt: string | null;
 } {
@@ -140,14 +171,22 @@ export function pendingTaskStats(db: Database.Database): {
   `).all() as Array<{ priority: number; n: number }>;
   const byPriority: Record<number, number> = {};
   for (const r of prioRows) byPriority[r.priority] = r.n;
-  let oldestAgeSeconds: number | null = null;
-  if (row.oldest) {
-    const oldestMs = Date.parse(row.oldest.replace(" ", "T") + "Z");
-    if (Number.isFinite(oldestMs)) {
-      oldestAgeSeconds = Math.max(0, Math.floor((Date.now() - oldestMs) / 1000));
-    }
-  }
-  return { pending: row.n, oldestAgeSeconds, byPriority, earliestNextRetryAt: row.earliest_next };
+  const createdRows = db.prepare(`
+    SELECT created_at FROM embedding_tasks WHERE status = 'pending'
+  `).all() as Array<{ created_at: string }>;
+  const ages = createdRows.map(r => {
+    const createdMs = Date.parse(r.created_at.replace(" ", "T") + "Z");
+    return Number.isFinite(createdMs) ? Math.max(0, Math.floor((Date.now() - createdMs) / 1000)) : 0;
+  });
+  const oldestAgeSeconds = ages.length > 0 ? Math.max(...ages) : null;
+  return {
+    pending: row.n,
+    oldestAgeSeconds,
+    ageP50Seconds: percentile(ages, 0.5),
+    ageP95Seconds: percentile(ages, 0.95),
+    byPriority,
+    earliestNextRetryAt: row.earliest_next,
+  };
 }
 
 /** task 成功，删除 task 行 */
