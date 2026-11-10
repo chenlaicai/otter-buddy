@@ -3,7 +3,7 @@ task_name: 每日对话健康检查
 budget_bytes: 10750
 ---
 
-回顾昨日全部对话，按问题拆 GitHub issue（label: daily-review）。维度：情绪/系统/獭行为。自己干/派小獭并行。没信号不报。只找本系统优化点，memory 先验证归属。
+回顾昨日对话，按情绪/系统/獭行为拆 GitHub issue（label: daily-review）；自己干或派小獭。没信号不报；只查本系统，memory 先核实归属。
 
 > `<主仓>`=獭主仓绝对路径（cwd=对话工作区，R4.5）。
 ## 必须检查的数据源（先跑完再分析）
@@ -19,10 +19,11 @@ budget_bytes: 10750
 8. **pending滞留**（前置dbPath）：`cd <主仓> && sqlite3 "file:data/otter-buddy.db?mode=ro" "SELECT p.id,t.name,p.role,p.triggered_at FROM scheduled_task_pending_items p LEFT JOIN scheduled_tasks t ON t.id=p.task_id WHERE p.status='pending' AND datetime(p.triggered_at)<datetime('now','-24 hours')"`。逐条提醒；超48h升issue附id；无行写「滞留0」
 
 ## RHI 信号处置段（必调 triage_signal，禁止只列数字）
-1. **critical**：`list_rhi_signals(status=open, severity=critical)` 全处置
-2. **三选一**：归口 → `bind_issue, note=依据`；不处置 → `dismiss, note=必填`；在途 → `in_progress`。同类型 >10 条 `batch_bind`；同 issue 族同忽略结论用 `batch_dismiss + filterIssueNumber`（note 含 issue 与理由），异质才逐条
-3. **未接**：`list_rhi_signals(status=open, triageStatus=null)` 全归口；warning 同类型 ≥5 条同模块 → 按 critical，零散汇总一行
-4. **闭环自检**：critical N → 开 M/并入 K/dismiss D，M+K+D=N；不等=有信号被跳过，补查
+1. **critical**：`list_rhi_signals(severity=critical)` 全处置
+2. **处置**：`bind_issue`（note=依据）/ `dismiss`（note必填）/ `in_progress`；同类 >10 用 `batch_bind`；同issue同忽略用 `batch_dismiss+filterIssueNumber`（note含issue/理由），异质逐条
+3. **未接**：`list_rhi_signals(triageStatus=null)` 全归口；同模块同类 warning ≥5 按 critical，零散汇总
+4. **自检**：critical N=开M+并入K+dismiss D，不等则补查遗漏
+5. **关单遗留**：`list_rhi_signals(triageStatus=triaged, closedIssueOnly=true)`；日报列数量/issue/ID，人工转绑或dismiss，不自动改状态；0写「关单遗留：0」，失败单列
 
 ## 产物清单对账段（类型×终态矩阵的 L2 机械兜底）
 **范围**：近 7 天活跃对话逐个 `list_artifacts(status: active)`。
@@ -52,7 +53,7 @@ budget_bytes: 10750
 ## 产出前检查清单（硬门禁）
 产出前列清单逐项自查，漏一项不许产出（每项注来源；无异常写「无异常」）：```
 [ ] 1. 对话历史  [ ] 2. GitHub issues/PRs  [ ] 3. self-healing events  [ ] 4. memory
-[ ] 5. RHI 健康信号  [ ] 6. signal_events  [ ] 7. RHI 处置：critical N → M+K+D=N 已调 triage_signal
+[ ] 5. RHI 健康信号  [ ] 6. signal_events  [ ] 7. RHI 处置：critical N=M+K+D 已处置
 [ ] 8. 锚点抽查：N/M/K + 模型对照  [ ] 9. 信噪比：dismiss 率/不处置率/物件数  [ ] 10. 压缩观测：failed 计数
 [ ] 11. 产物对账：归档 N ｜ 存量 active M ｜ 待人工 K
 [ ] 12. worktree 收敛：自动清 N ｜ 跳过 OPEN M ｜ 待裁决 K
