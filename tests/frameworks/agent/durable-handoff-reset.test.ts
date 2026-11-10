@@ -267,16 +267,17 @@ describe("工厂层：换世账本与世代文件（M-9af49d4a 回归锁）", ()
     }, capturing);
     await factory.create(otterId, { systemPrompt: "w1" } as never);
 
-    const durableFile = path.join(sessionDir, `${otterId}.sqlite`);
     const internals = factory as unknown as {
       activeSessions: Map<string, unknown>;
     };
     internals.activeSessions.set(`${otterId}:msg-1`, { isStreaming: true });
 
     await expect(factory.reset(otterId, undefined as never, "handoff")).rejects.toThrow(/refused while session running/);
-    // 守护先于一切：无 reset-only 冷开、无世代替换日志
+    // 守护先于一切：无 reset-only 冷开（库文件未创建）、无世代替换日志、账本未翻
     expect(capturing.captured.infos.filter(m => m === "durable reset-only session opened").length).toBe(0);
     expect(capturing.captured.infos.some(m => m.includes("generation replaced"))).toBe(false);
-    void durableFile;
+    expect(existsSync(path.join(sessionDir, `${otterId}.sqlite`))).toBe(false);
+    const ledgerRow = db.prepare("SELECT session_file FROM agent_sessions WHERE otter_id = ?").get(otterId) as { session_file: string };
+    expect(ledgerRow.session_file).toBe(path.join(sessionDir, `${otterId}.sqlite`));
   });
 });

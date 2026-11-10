@@ -85,6 +85,10 @@ JSONL 时代会话身份有**单一事实源**：账本（agent_sessions.session
 - 重开库世代边界持久、前世不回流；连续多世代只含最新世代
 - 旧 JSONL 账本行换世归一
 
+### Delta 复核 residual（comment 级，已澄清不阻断）
+
+- abort 不撤回 queued write（上游 withdrawQueuedInputs 跳过 write 模式，reset 即 queued write）——代码注释已纠正为诚实口径：abort 仅活流收尾，残余 queued reset 落盘=一次合法世代边界（无害）；busy 前置拒绝（pi.live.run 检查后再 submit）归入 R5 防御层后续。
+
 ## 范围外（后续独立 PR）
 
 - R2 前世切片读取适配 durable sqlite（修「档案恒机械转储」；A 方案下前世=同库
