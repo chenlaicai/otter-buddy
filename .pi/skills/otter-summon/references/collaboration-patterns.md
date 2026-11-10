@@ -35,7 +35,7 @@
 
 ### 注意事项
 
-- 检视獭的 systemPrompt 应明确检视范围和标准（参考 adversarial-review skill：第 1 轮全量 fresh-eyes + 焦点声明；第 2 轮起 delta 审视，需附上一轮发现清单、修复 diff 和 delta 核对材料——代码 PR 路径附 PR 描述全文核对 issue 落实，方案文档路径附更新后的方案文档核对待办落实）
+- 检视獭的 systemPrompt 应明确检视范围和标准（参考 adversarial-review skill：第 1 轮全量 fresh-eyes + 焦点声明；第 2 轮起 delta 审视，需附上一轮发现清单、修复 diff 和 delta 核对材料——代码 PR 路径附 PR 描述全文核对 issue 落实，方案文档路径附更新后的方案文档核对待办落实）；**不要求检视獭给修复建议/方案**——检视权与设计权分离（adversarial-review anti-patterns 的 Solution-Leading Review），派工模板里写「发现含修复建议」会把检视獭推看越界
 - 开发獭回应检视发现时遵循作者处置协议（adversarial-review/references/author-response-protocol.md）：决策树判断（改了让系统变好/变更差）+ 四分类响应（接受/带证据反驳/部分接受/呈搭档），不照单全收，不作为不允许
 - 开发獭的 systemPrompt 应包含方案编号，检视獭可据此查阅方案
 
