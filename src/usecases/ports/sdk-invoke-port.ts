@@ -83,7 +83,8 @@ export interface DynamicContext {
 /** invoke() 选项 */
 export interface InvokeOptions {
   dynamicContext?: DynamicContext;
-  conversationId: string;
+  /** 对话调度携带；纯 session 直调（如麻将）可省略。 */
+  conversationId?: string;
   /** 当前 streaming 消息 ID（speak 工具需要） */
   messageId?: string;
   onEvent?: (event: AgentStreamEvent) => void;
