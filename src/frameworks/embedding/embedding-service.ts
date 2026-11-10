@@ -755,6 +755,9 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
       }
     });
 
+    // Why: 回填只剩一条时也不允许墙钟超时触发重算；活性由 progress/exit 看门狗判定。
+    if (this.lane === "backfill") return embedPromise;
+
     const timeoutMs = EmbeddingServiceImpl.testTimeoutOverride ?? EmbeddingServiceImpl.EMBED_TIMEOUT_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<Float32Array>((_, reject) => {

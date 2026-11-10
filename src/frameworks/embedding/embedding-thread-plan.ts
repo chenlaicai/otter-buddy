@@ -45,7 +45,7 @@ export function deriveIntraOpThreads(
   }
   if (lane === "live" || lane === "query") return 2;
   const derived = Math.min(8, Math.max(2, Math.round(physicalCores * 0.5)));
-  // query/live 各占 2；所有三 lane 的总预算不超过 physicalCores - 2。
-  const available = Math.max(1, physicalCores - 6);
+  // live 占 2；双 lane 总预算不超过 physicalCores - 2。
+  const available = Math.max(1, physicalCores - 4);
   return Math.max(1, Math.min(derived, available));
 }

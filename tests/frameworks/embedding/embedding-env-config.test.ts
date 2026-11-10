@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { resolveEnvSettings } from "../../../src/frameworks/embedding/embedding-env-config";
+import { resolveEmbeddingDtype, resolveEnvSettings } from "../../../src/frameworks/embedding/embedding-env-config";
+
+describe("resolveEmbeddingDtype", () => {
+  it("真实语料基准通过后默认 q8，fp32 为显式回滚", () => {
+    expect(resolveEmbeddingDtype(undefined)).toBe("q8");
+    expect(resolveEmbeddingDtype("q8")).toBe("q8");
+    expect(resolveEmbeddingDtype("fp32")).toBe("fp32");
+  });
+});
 
 describe("resolveEnvSettings", () => {
   describe("local 模式（localModelPath 设了）", () => {

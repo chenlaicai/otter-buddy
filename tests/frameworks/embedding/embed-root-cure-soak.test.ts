@@ -157,6 +157,9 @@ describe("F20261110embrc soak：生产长度分布与物理 lane 隔离", () => 
       const result = service.embedBatch!(["长文本一", "长文本二"]);
       await vi.advanceTimersByTimeAsync(200);
       await expect(result).resolves.toHaveLength(2);
+      const single = service.embed("backfill 单条长文本");
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(single).resolves.toBeInstanceOf(Float32Array);
     } finally {
       service.dispose();
     }

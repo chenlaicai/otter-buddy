@@ -70,7 +70,6 @@ export async function initDatabaseAndModels(
     ? { model: modelsOverride.model, modelPool: modelsOverride.modelPool ?? synthesizePool(modelsOverride.model, appConfig.llm) }
     : await initModels(appConfig.llm, logger);
   const {
-    queryService: queryEmbedding,
     liveService: liveEmbedding,
     backfillService: backfillEmbedding,
     dispose: disposeEmbedding,
@@ -82,7 +81,7 @@ export async function initDatabaseAndModels(
 
   return {
     db, otterConfigProvider, model, modelPool,
-    queryEmbedding, liveEmbedding, backfillEmbedding,
+    queryEmbedding: liveEmbedding, liveEmbedding, backfillEmbedding,
     dispose: disposeEmbedding,
   };
 }

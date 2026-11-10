@@ -700,9 +700,8 @@ process.on("message", () => {});
   });
 });
 
-// F20261016ebrt：读写双 lane——查询不排在回填后面
-describe("读写双 lane 隔离", () => {
-  it("queryService 与 liveService 是独立实例，互不排队", async () => {
+describe("live/backfill 双 lane 隔离", () => {
+  it("liveService 与 backfillService 是独立实例，回填占住时实时请求仍完成", async () => {
     const mockWorkerPath = writeMockWorker(
       "mock-lane-worker.mjs",
       `
@@ -718,25 +717,21 @@ process.on("message", (msg) => {
 `
     );
 
-    const { queryService, liveService, dispose } = await initEmbeddingService({
+    const { liveService, backfillService, dispose } = await initEmbeddingService({
       workerPath: mockWorkerPath,
       workerExecArgv: [],
     });
 
     try {
-      await waitFor(() => queryService.available && liveService.available, "both lanes ready");
+      await waitFor(() => liveService.available && backfillService.available, "both lanes ready");
+      expect(liveService).not.toBe(backfillService);
 
-      // 两 lane 是独立实例（各自 fork 的 worker 进程）
-      expect(queryService).not.toBe(liveService);
-
-      // write lane 被一个永不返回的请求占住
-      void liveService.embed("write one").catch(() => "hung" as const);
-      const svcWrite = liveService as unknown as { pendingRequests: Map<number, unknown> };
+      void backfillService.embed("write one").catch(() => "hung" as const);
+      const svcWrite = backfillService as unknown as { pendingRequests: Map<number, unknown> };
       await waitFor(() => svcWrite.pendingRequests.size >= 1, "write lane busy");
 
-      // query lane 不受影响——write 卡死时 query 仍能立刻拿到结果
       const queryResult = await Promise.race([
-        queryService.embed("query one"),
+        liveService.embed("query one"),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("query blocked by write")), 1000)),
       ]);
       expect(queryResult).toBeInstanceOf(Float32Array);

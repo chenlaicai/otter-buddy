@@ -1,7 +1,7 @@
 ---
 id: F20261110embrc
 title: embedding 子系统根治——通道分离、token 预算调度与进度看门狗
-summary: 三 lane 物理隔离、token 预算领取、逐条进度看门狗与生产分布混沌验收，消除回填洪峰下实时阻塞和死容量。
+summary: live/backfill 双 lane 物理隔离、token 预算领取、逐条进度看门狗与生产分布混沌验收，消除回填洪峰下实时阻塞和死容量。
 change_type: refactor
 status: development
 created_at: 2026-11-10
@@ -18,7 +18,7 @@ causal_links:
 tags: [embedding, memory, queue, lane, watchdog, root-cure]
 modules:
   - src/frameworks/embedding/embedding-service.ts
-  - src/frameworks/embedding/bge-m3-worker.js
+  - src/frameworks/embedding/bge-m3-worker.ts
   - src/usecases/memory/embedding-retry-worker.ts
   - src/usecases/memory/embedding-gateway.ts
   - src/usecases/memory/store-memory.ts
@@ -122,8 +122,8 @@ intent:
 ### 6.2 规格与代码现实的差异（2026-11-10 实施实证）
 
 1. **worker 文件扩展名漂移**：真相源是 `src/frameworks/embedding/bge-m3-worker.ts`；规格中的 `.js` 是 `dist` 构建产物。按语义定位修改 `.ts`，没有新建第二份 worker。
-2. **现有 lane 拓扑不同**：代码已有 query/write 两个进程，query 已独立；本次在 write 内进一步拆成 live/backfill，生产拓扑变为 query/live/backfill 三进程。StoreMemory 只持有 live，retry worker 只持有 backfill，无跨借路径。
-3. **线程预算漏算 query**：规格「双 lane 总线程 ≤ 核数-2」未计既有 query。实现按三 lane 总预算执行：query=2、live=2、backfill=`min(clamp(round(physicalCores×0.5),2,8), physicalCores-6)`；`OTTER_EMBED_INTRA_OP_THREADS` 仍优先。物理核 <6 时 backfill 降为 1，无法同时满足「最少 2」与总预算，选择避免超订并在此显式记录。
+2. **现有 lane 拓扑不同**：代码已有 query/write 两个进程，query 已独立；本次把 write 拆成 live/backfill，query 与实时写复用 live。初版曾短暂装配 query/live/backfill 三进程，复核规格「两个专属 worker」后纠正：最终仍是两个模型进程，不新增第三份常驻模型内存。StoreMemory/search 只持有 live，retry worker 只持有 backfill，无跨借路径。
+3. **线程预算**：live=2、backfill=`min(clamp(round(physicalCores×0.5),2,8), physicalCores-4)`，双 lane 总和 ≤ physicalCores-2；`OTTER_EMBED_INTRA_OP_THREADS` 仍优先。物理核 <6 时 backfill 降为 1，无法同时满足「最少 2」与总预算，选择避免超订并在此显式记录。宿主机实证 8 物理核/16 逻辑核，最终 backfill=4。
 4. **整批单响应无法支撑进度与死亡续算**：旧 worker 对整个数组一次前向、只发一个 batch-result，健康长批在 120s 内没有任何逐条进度；进程死亡也无法知道哪些向量已算出。实现改为批内逐条推理、逐条 `batch-progress`，父进程保存已完成下标；死亡/错误时先 salvage 这些下标，DB 重领只覆盖仍 pending 的条目。代价是放弃原生数组 batch 的共享前向开销，真实 fp32 基准必须报告该代价，不能只报收益。
 5. **“每条恰好计算一次”的证据边界**：soak 断言每条已完成向量只计算/采纳一次，杀死点在两条 progress 之后、下一条完成之前。任意时刻 SIGKILL 下，若原生推理已完成但 IPC 尚未交付，物理世界无法证明零重算；本实现保证的是**已交付结果不重复计算、最终持久化不重复、未交付任务不丢**。不把这个边界隐去冒充分布式 exactly-once。
 
@@ -132,10 +132,10 @@ intent:
 | 被删/替换物 | 原保护的不变量全集（含异常路径） | 原消费者 | 新机制接管 |
 |---|---|---|---|
 | write lane 内 live/backfill 共享 worker 与优先级 waiter | MAX_IN_FLIGHT=1；live 30s/waitSlot 60s fail-fast；回填批量消费；worker 死亡拒绝 pending | StoreMemory、EmbeddingRetryWorker、#1795 12 用例 | live 独立进程保留全部死线/背压；backfill 独立进程只服务 DB drain；query 不变；既有 12 用例全量回归 |
-| backfill 5s/条、30s floor、120s cap 的墙钟批死线 | 慢批超时后调用方放弃；abandoned 槽位不释放；晚到结果 salvage；真卡死看门狗重建 | retry 错误分类、salvage、超时测试 | backfill 不建墙钟 timer；逐条 progress 刷新 120s 看门狗；晚到/部分结果照常 salvage；live/query 旧死线不变 |
+| backfill 单条 30s 与批量 5s/条、30s floor、120s cap 的墙钟死线 | 慢批超时后调用方放弃；abandoned 槽位不释放；晚到结果 salvage；真卡死看门狗重建 | retry 错误分类、salvage、超时测试 | backfill 单条/批量都不建墙钟 timer；逐条 progress 刷新 120s 看门狗；晚到/部分结果照常 salvage；live 旧死线不变 |
 | 整批一次性 batch-result | 多文本一次调用、保序返回、空批短路、错误整批 reject、#1795 批量消费 | service `embedBatch`、retry `processBatchSlice` | 对外仍保序返回整批；内部逐条 progress；batch-result 仍作为完成边界；中途 error/死亡只 salvage 已交付下标 |
 | 50 条纯计数 claim | priority/next_retry_at 排序、attempts+1、指数退避、ghost 任务转 dead、空队列返回 | MemoryQueue、retry drain、SQL 测试 | 同序候选中取 token 预算前缀；单条超预算独占；原 UPDATE/RETURNING、退避与 ghost 语义不变 |
-| `!ready` 看门狗直接返回 | ready 后无响应重建；意外 exit respawn；5min 3 次熔断；waiter 唤醒 | 三 lane 调用方、health、RHI | unready 60s 也重拉；progress 120s 重拉；第 4 次窗口内失败熔断；health `dead/unready` + RHI severity:high |
+| `!ready` 看门狗直接返回 | ready 后无响应重建；意外 exit respawn；5min 3 次熔断；waiter 唤醒 | 双 lane 调用方、health、RHI | unready 60s 也重拉；progress 120s 重拉；第 4 次窗口内失败熔断；health `dead/unready` + RHI severity:high |
 
 ### 6.4 负面向验收
 
@@ -152,3 +152,26 @@ intent:
 | 静态检查 | `npx tsc --noEmit` + 相关源码/测试 ESLint | PASS：0 error |
 
 最简实现检查：复用现有 `embedding_tasks`、token 估算、worker 工厂、health controller 与 healing repo；未新增 DB schema、通用调度框架或第三方依赖。批内逐条 progress 是满足死亡续算与看门狗所需的最小协议增量，其性能代价由真实模型基准单独裁决。
+
+## 8. 量化模型基准与切换决策
+
+### 8.1 数据获取纪律
+
+- 命令：`OTTER_EMBED_BENCH_OUTPUT=/tmp/embrc-quantization-benchmark.json node scripts/eppq-real-model-throughput.mjs --benchmark`。
+- 语料：worktree `docs/features + docs/research` 的真实 Markdown，经生产 `chunkMarkdown` + `cleanMarkdownForFts`，等距抽 200 个长 chunk；字符 p50/p95/p99=709/2172/2684，估算 token 总计 93,783。
+- golden：50 条 query，由真实文档 title + headingPath + 首个有效正文句确定性地构造，每条标注 1 个相关 chunk；这是可复验的机器标注，**不是人工多标注检索质量集**。指标为向量 cosine 排序的 recall@5/@10。
+- Q8 资产：`Xenova/bge-m3/onnx/model_quantized.onnx`，569,694,530 bytes，存 os.tmpdir()；fp32 使用主仓只读模型。两模型均真实加载，输出 1024 维，无 mock。
+
+### 8.2 2 线程对照（初版装配；最终结果见后续记录）
+
+| dtype | texts/s | tokens/s | 单条 p50/p95/p99 ms | recall@5 | recall@10 |
+|---|---:|---:|---|---:|---:|
+| fp32 | 0.408 | 191.34 | 1836 / 6374 / 7886 | 1.0 | 1.0 |
+| Q8 | 0.525 | 246.22 | 1364 / 4843 / 6194 | 1.0 | 1.0 |
+| 差值/倍率 | +28.7% | +28.7% | -25.7% / -24.0% / -21.5% | 0 | 0 |
+
+决策：recall@5/@10 差均 0 ≤ 2%，质量门通过，默认切 Q8；`OTTER_EMBED_DTYPE=fp32` 显式回滚。`bge-m3-files.json` 同时登记 fp32 与 Q8，旧 fp32 文件不删除，回滚不需要重新下载 2.27GB 外部数据。最终 4 线程复测使用同一语料/query，另列数据，不能用本轮代替。
+
+### 8.3 全量回归中间证据
+
+`npm test`：PASS，448 个测试文件 / 5798 条用例（与 Q8 真实基准并行运行）；全仓 ESLint 随 pretest 通过。最终 PR 前还会在新的提交态再跑 build/lint/test 与 CI。

@@ -1,6 +1,5 @@
 /**
- * F20261020slvg：embedding 服务初始化（从 embedding-service.ts 拆出，压文件行数上限）。
- * 读写双 lane 的 fork 装配 + dispose 聚合。
+ * embedding 服务初始化：live/backfill 双 lane 的 fork 装配 + dispose 聚合。
  */
 
 import { fork } from "child_process";
@@ -13,6 +12,7 @@ import type { Logger } from "@usecases/ports/logger";
 import { EmbeddingServiceImpl, type WorkerFactory } from "./embedding-service";
 import { deriveIntraOpThreads, detectPhysicalCores } from "./embedding-thread-plan";
 import type { EmbeddingLaneName } from "@usecases/memory/embedding-gateway";
+import { resolveEmbeddingDtype } from "./embedding-env-config";
 
 export interface EmbeddingConfig {
   /** 模型标识：local 模式下为 localModelPath 下的目录名；remote 模式下为 HF repo id */
@@ -39,11 +39,9 @@ const noopLogger: Logger = {
 };
 
 /**
- * 初始化 Embedding 服务（F20261016ebrt：读写双 lane）。
- *
  * fork 两个独立子进程，各自加载一份 bge-m3：
- * - queryService：只服务 search_memory 查询 embed（延迟优先，不排在回填后面）
- * - writeService：服务 store/sync/retry 回填 embed（吞吐优先，可放开了批量）
+ * - liveService：search_memory 查询 + StoreMemory 实时写（短请求、fail-fast）
+ * - backfillService：持久化队列回填（逐条 progress、无墙钟批死线）
  *
  * 为什么必须分进程：onnxruntime 1.23.2 要求 worker 内串行（MAX_IN_FLIGHT=1，
  * 长文×并发>1 必死锁）——串行是原生约束，但「串行」≠「共用一条队列」。
@@ -54,7 +52,6 @@ export async function initEmbeddingService(
   embedConfig?: EmbeddingConfig,
   logger?: Logger,
 ): Promise<{
-  queryService: EmbeddingServiceImpl;
   liveService: EmbeddingServiceImpl;
   backfillService: EmbeddingServiceImpl;
   dispose: () => void;
@@ -70,7 +67,7 @@ export async function initEmbeddingService(
         localModelPath: embedConfig?.localModelPath,
         lane,
         intraOpThreads: deriveIntraOpThreads(lane, physicalCores, process.env.OTTER_EMBED_INTRA_OP_THREADS),
-        dtype: process.env.OTTER_EMBED_DTYPE === "q8" ? "q8" : "fp32",
+        dtype: resolveEmbeddingDtype(process.env.OTTER_EMBED_DTYPE),
       }),
     },
     serialization: "advanced",
@@ -79,16 +76,13 @@ export async function initEmbeddingService(
     const factory = makeFactory(lane);
     return new EmbeddingServiceImpl(factory(), logger || noopLogger, factory, { lane });
   };
-  const queryService = makeService("query");
   const liveService = makeService("live");
   const backfillService = makeService("backfill");
 
   return {
-    queryService,
     liveService,
     backfillService,
     dispose: () => {
-      queryService.dispose();
       liveService.dispose();
       backfillService.dispose();
     },

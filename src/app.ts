@@ -235,7 +235,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     dispose: disposeEmbedding,
   } = await initDatabaseAndModels(config, logger, options.models);
   const repos = initRepositoriesWithDb(db, logger);
-  for (const service of [queryEmbedding, liveEmbedding, backfillEmbedding]) {
+  for (const service of new Set([queryEmbedding, liveEmbedding, backfillEmbedding])) {
     service.setHealingReporter?.((failure) => {
       void repos.healingEvent.create({
         id: crypto.randomUUID(),
@@ -608,7 +608,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     schedulerService, cronParser, dispatchChainEngine, messageBroadcaster,
     featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: queryEmbedding,
     getEmbeddingHealth: () => readEmbeddingHealth(
-      { query: queryEmbedding, live: liveEmbedding, backfill: backfillEmbedding },
+      { live: liveEmbedding, backfill: backfillEmbedding },
       repos.memoryQueue,
     ),
     processInboundRecruit, inboundApiKey, getBridgeStatus,

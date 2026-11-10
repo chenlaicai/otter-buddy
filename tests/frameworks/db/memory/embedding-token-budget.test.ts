@@ -4,6 +4,8 @@ import { createTestDb } from "../../../helpers/db";
 import {
   claimPendingTasks,
   enqueueRetry,
+  markTaskAttemptFailed,
+  pendingTaskStats,
 } from "@frameworks/db/memory/embedding-task-queue";
 
 let db: DatabaseType.Database;
@@ -32,6 +34,17 @@ describe("F20261110embrc token-budget claim", () => {
 
     expect(claimed.map(task => task.entryId)).toEqual(["token-a"]);
     expect(claimed[0].attempts).toBe(1);
+  });
+
+  it("pendingTaskStats 不把 dead 计入 pending 或年龄分布", () => {
+    seed("token-dead", "死信任务");
+    seed("token-pending", "仍在等待的任务");
+    markTaskAttemptFailed(db, "token-dead", new Error("hard"), 0);
+
+    const stats = pendingTaskStats(db);
+
+    expect(stats.pending).toBe(1);
+    expect(stats.byPriority).toEqual({ 2: 1 });
   });
 
   it("单条自身超预算仍独占领取，不把文本拆开", () => {

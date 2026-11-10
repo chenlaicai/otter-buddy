@@ -88,7 +88,7 @@ export function claimPendingTasks(
       -- F20261105embqg：优先级序消费——live 消息（0）先于 bulk 重算（2）出队，
       -- 同级内保持 next_retry_at 时间序（退避语义不变）。无 priority 列的旧库
       -- 由 initSchema 幂等补列后此 SQL 才可达，不存在 NULL priority 行。
-      ORDER BY priority ASC, next_retry_at ASC
+      ORDER BY priority ASC, next_retry_at ASC, entry_id ASC
       LIMIT ?
     )
     RETURNING entry_id, attempts, last_attempt_at, created_at, priority
@@ -118,7 +118,7 @@ function countTasksWithinTokenBudget(db: Database.Database, limit: number, budge
     FROM embedding_tasks et
     LEFT JOIN memory_entries me ON me.id = et.entry_id
     WHERE et.status = 'pending' AND et.next_retry_at <= datetime('now')
-    ORDER BY et.priority ASC, et.next_retry_at ASC
+    ORDER BY et.priority ASC, et.next_retry_at ASC, et.entry_id ASC
     LIMIT ?
   `).all(limit) as Array<{ entry_id: string; content: string | null }>;
   let count = 0;
@@ -160,7 +160,7 @@ export function pendingTaskStats(db: Database.Database): {
   earliestNextRetryAt: string | null;
 } {
   const row = db.prepare(`
-    SELECT COUNT(*) AS n,
+    SELECT COUNT(CASE WHEN status = 'pending' THEN 1 END) AS n,
            MIN(CASE WHEN status = 'pending' THEN created_at END) AS oldest,
            MIN(CASE WHEN status = 'pending' THEN next_retry_at END) AS earliest_next
     FROM embedding_tasks
