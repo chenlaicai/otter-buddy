@@ -158,7 +158,14 @@ export function createMemoryIndex(
   return new MemoryIndexAdapter(new StoreMemory(repos.memoryWriter, repos.memoryQueue, embeddingService, logger), onBulkEnqueued);
 }
 
-export async function syncDocuments(repos: Repositories, memoryIndex: MemoryIndexGateway, logger: Logger, cwd: string): Promise<SyncResult> {
+export async function syncDocuments(
+  repos: Repositories,
+  memoryIndex: MemoryIndexGateway,
+  logger: Logger,
+  cwd: string,
+  /** F20261110dsqy（#1818）：canonical rootDir（服务主仓）——归档判定仅在此视角下启用 */
+  options?: { canonicalRootDir?: string },
+): Promise<SyncResult> {
   const fileSystem = new NodeFileSystem();
   const syncDocs = new SyncDocuments(
     fileSystem,
@@ -167,7 +174,7 @@ export async function syncDocuments(repos: Repositories, memoryIndex: MemoryInde
     memoryIndex,
     logger,
   );
-  return syncDocs.execute(cwd);
+  return syncDocs.execute(cwd, options);
 }
 
 /**

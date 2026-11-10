@@ -254,3 +254,86 @@ describe("SyncDocuments - F20260803mval", () => {
     expect(featureRepo.store[0].status).toBe("draft");
   });
 });
+
+/** F20261110dsqy（#1818）：归档守卫测试。
+ * 案发：sync_docs(rootDir=worktree) 时 worktree 检出比主仓少文档是常态，
+ * 旧逻辑见「该 rootDir 下无此文件」即归档 → 主仓独有文档被批量误归档（实测
+ * 1133/1137 archived）→ 下轮主仓 sync 因 fingerprint 含 status 全量 mismatch →
+ * 全量 reindex 重灌 ~6200 embedding 任务 → 向量级联删白算，队列不收敛。 */
+describe("SyncDocuments - F20261110dsqy 归档守卫（canonical rootDir）", () => {
+  /** fs mock：exists 按文件名精确判定（DB 有而磁盘无 = 候选归档） */
+  function makeFsStrict(fileMap: Record<string, string>): FileSystemGateway {
+    const names = new Set(Object.keys(fileMap));
+    return {
+      readFile: vi.fn(async (p: string) => {
+        for (const [key, content] of Object.entries(fileMap)) {
+          if (p.includes(key)) return content;
+        }
+        throw new Error(`readFile not mocked: ${p}`);
+      }),
+      readDir: vi.fn(async (dir: string) => {
+        if (dir.endsWith("docs/research")) return [];
+        if (dir.endsWith("docs/features"))
+          return [{ name: "2026", isDirectory: () => true, isFile: () => false }];
+        if (dir.endsWith("2026")) return [{ name: "08", isDirectory: () => true, isFile: () => false }];
+        if (dir.endsWith("08")) return [{ name: "03", isDirectory: () => true, isFile: () => false }];
+        if (dir.endsWith("03")) return [...names].map(name => ({ name, isDirectory: () => false, isFile: () => true }));
+        return [];
+      }),
+      exists: vi.fn(async (p: string) => {
+        for (const key of names) if (p.includes(key)) return true;
+        return false;
+      }),
+    };
+  }
+
+  const MI = () => ({ indexMessage: vi.fn(), indexLinkedResource: vi.fn(), indexFeature: vi.fn(async () => {}), indexResearch: vi.fn(), indexFeatureChunks: vi.fn(async () => {}), indexResearchChunks: vi.fn(async () => {}), indexAssistantDigest: vi.fn(async () => {}) });
+
+  it("rootDir ≠ canonicalRootDir：DB 有而 rootDir 磁盘无的文档不归档（archiveGuarded 计数）", async () => {
+    // DB 有两个文档；worktree 磁盘只有 tst1（部分检出——worktree 常态）
+    const dbOnly = makeDoc({ id: "F20260803dbonly", summary: "主仓独有", filePath: "docs/features/2026/08/03/F20260803dbonly.md" });
+    const featureRepo = makeStatefulFeatureRepo([makeDoc(), dbOnly]);
+    const fs = makeFsStrict({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "测试摘要") });
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), MI() as MemoryIndexGateway, createTestLogger());
+
+    const result = await sync.execute("/worktree", { canonicalRootDir: "/main-repo" });
+
+    expect(result.archived).toBe(0);
+    expect(result.archiveGuarded).toBe(1);
+    expect(featureRepo.updateStatus).not.toHaveBeenCalled();
+    expect(featureRepo.store.find(d => d.id === "F20260803dbonly")?.status).toBe("draft");
+  });
+
+  it("rootDir === canonicalRootDir：归档照常（主仓视角权威判定）", async () => {
+    const dbOnly = makeDoc({ id: "F20260803dbonly", summary: "主仓独有", filePath: "docs/features/2026/08/03/F20260803dbonly.md" });
+    const featureRepo = makeStatefulFeatureRepo([makeDoc(), dbOnly]);
+    const fs = makeFsStrict({ "F20260803tst1.md": FEATURE_FM("F20260803tst1", "测试摘要") });
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), MI() as MemoryIndexGateway, createTestLogger());
+
+    const result = await sync.execute("/main-repo", { canonicalRootDir: "/main-repo" });
+
+    expect(result.archived).toBe(1);
+    expect(result.archiveGuarded).toBe(0);
+  });
+
+  it("路径形态差异（尾斜杠/相对）resolve 后等价：不误判非 canonical", async () => {
+    const dbOnly = makeDoc({ id: "F20260803dbonly", summary: "主仓独有", filePath: "docs/features/2026/08/03/F20260803dbonly.md" });
+    const featureRepo = makeStatefulFeatureRepo([dbOnly]);
+    const fs = makeFsStrict({});
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), MI() as MemoryIndexGateway, createTestLogger());
+
+    // 同一目录两种写法 → 视为 canonical，归档启用
+    const result = await sync.execute("/main-repo/", { canonicalRootDir: "/main-repo" });
+    expect(result.archiveGuarded).toBe(0);
+  });
+
+  it("不传 canonicalRootDir：保持旧行为（归档启用，存量调用方兼容）", async () => {
+    const dbOnly = makeDoc({ id: "F20260803dbonly", summary: "主仓独有", filePath: "docs/features/2026/08/03/F20260803dbonly.md" });
+    const featureRepo = makeStatefulFeatureRepo([dbOnly]);
+    const fs = makeFsStrict({});
+    const sync = new SyncDocuments(fs, featureRepo, makeResearchRepo(), MI() as MemoryIndexGateway, createTestLogger());
+
+    const result = await sync.execute("/any-root");
+    expect(result.archived).toBe(1);
+  });
+});

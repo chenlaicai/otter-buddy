@@ -317,8 +317,8 @@ describe("SearchMemory - vec-only snippet 降级（自带 mock，与主套件解
       flagMemory: async () => {},
       updateLayerByConversation: async () => {},
       deleteBySource: async () => {},
-      replaceEntryBySource: async () => {},
-      replaceEntriesBySource: async () => {},
+      replaceEntryBySource: async () => ({ embeddingKept: false }),
+      replaceEntriesBySource: async () => ({ reusedEntryIds: new Set<string>() }),
       deleteBySourceAndType: async () => {},
       getEmbeddingMeta: async () => ({}),
       setEmbeddingMeta: async () => {},
@@ -337,6 +337,8 @@ describe("SearchMemory - vec-only snippet 降级（自带 mock，与主套件解
       deleteEdge: async () => {},
       deleteEdgesByEntryIds: async () => {},
       getEntriesByConversation: async () => [],
+      // F20261110dsqy：chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
+      findEntriesBySourceAndType: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const mockEmbedding: EmbeddingGateway = {
@@ -481,8 +483,8 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       flagMemory: async () => {},
       updateLayerByConversation: async () => {},
       deleteBySource: async () => {},
-      replaceEntryBySource: async () => {},
-      replaceEntriesBySource: async () => {},
+      replaceEntryBySource: async () => ({ embeddingKept: false }),
+      replaceEntriesBySource: async () => ({ reusedEntryIds: new Set<string>() }),
       deleteBySourceAndType: async () => {},
       getEmbeddingMeta: async () => ({}),
       setEmbeddingMeta: async () => {},
@@ -501,6 +503,8 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       deleteEdge: async () => {},
       deleteEdgesByEntryIds: async () => {},
       getEntriesByConversation: async () => [],
+      // F20261110dsqy：chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
+      findEntriesBySourceAndType: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const searchEngine = new SearchEngine({
@@ -563,8 +567,8 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       flagMemory: async () => {},
       updateLayerByConversation: async () => {},
       deleteBySource: async () => {},
-      replaceEntryBySource: async () => {},
-      replaceEntriesBySource: async () => {},
+      replaceEntryBySource: async () => ({ embeddingKept: false }),
+      replaceEntriesBySource: async () => ({ reusedEntryIds: new Set<string>() }),
       deleteBySourceAndType: async () => {},
       getEmbeddingMeta: async () => ({}),
       setEmbeddingMeta: async () => {},
@@ -583,6 +587,8 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       deleteEdge: async () => {},
       deleteEdgesByEntryIds: async () => {},
       getEntriesByConversation: async () => [],
+      // F20261110dsqy：chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
+      findEntriesBySourceAndType: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
     const searchEngine = new SearchEngine({

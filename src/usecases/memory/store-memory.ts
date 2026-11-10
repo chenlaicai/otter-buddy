@@ -2,6 +2,7 @@ import type {
   MemoryLayer,
   MemoryContentType,
   RetrievalGranularity,
+  MemoryEntry,
 } from "@entities/memory/memory-entry";
 import type { MemoryWriter } from "./memory-writer";
 import type { MemoryQueue } from "./memory-queue";
@@ -177,20 +178,30 @@ export class StoreMemory {
       createdAt: new Date().toISOString(),
     };
 
-    await this.writer.replaceEntryBySource(entry);
+    const { embeddingKept } = await this.writer.replaceEntryBySource(entry);
 
     // F20260803fbit + F20260812mrcq Part 1：截断防超长 body OOM worker；失败入队。
     // F20261105embqg S2：fact 类走 normal（1）——量小价值密度高，不与 bulk 重算同档
-    this.fireAndForgetEmbed(id, input.content, EMBED_TASK_PRIORITY.normal);
+    // F20261110dsqci：复活轮 summary content 未变且 vec 已存在时保留向量，零重算。
+    if (!embeddingKept) {
+      this.fireAndForgetEmbed(id, input.content, EMBED_TASK_PRIORITY.normal);
+    }
 
     return id;
   }
 
   /**
    * F20260803chunk: 按 source 原子替换多条 entry（1:N），用于文档 chunk 索引 reindex。
-   * 删旧全部 chunk + 插新 N 个 chunk（单事务）。每 chunk 独立 fire-and-forget embedding。
+   * 删旧全部 chunk + 插新 N 个 chunk（单事务）。
    * M16: N 个 chunk embedding 串行排队 bge-m3 worker，首次部署 ~546 embedding 约 27s，
    *      期间实时搜索的 query embedding 会排队（FTS 不受影响）。批量接口/优先级队列见 follow-up。
+   *
+   * F20261110dsqci（#1818）内容寻址复用：新 chunk 列表先与旧 chunks 对齐（content +
+   * heading_path + char_count 三重一致），命中的复用旧 entry id——向量/fts/weights 卫星
+   * 数据全保留，不登记 embedding 任务；仅新建 chunk 删旧建新 + enqueueRetry。
+   * 动机（#1818 案发）：此前无条件删旧插新+全量登记，归档-复活振荡下每轮全量重灌
+   * ~6200 任务，worker 已算好的向量被级联删白算，排水速度（~119 条/分）永远追不上
+   * 重灌速度，队列不收敛（实测 pending 6301 且涨）。
    */
   async replaceChunksBySource(rawInputs: MemoryEntryInput[]): Promise<string[]> {
     if (rawInputs.length === 0) return [];
@@ -220,23 +231,24 @@ export class StoreMemory {
       return true;
     });
     if (validInputs.length === 0) return [];
-    const now = new Date().toISOString();
-    // F20260915midu（#942）：chunk 保持随机 UUID——1:N 共享 source_id 主键不能直接用，
-    // 且 D3 禁边 + replaceEntriesBySource 每次重建，统一 ID 无收益（见特性文档）。
-    const entries = validInputs.map((input) => ({
-      id: crypto.randomUUID(),
-      layer: input.layer,
-      contentType: input.contentType,
-      sourceId: input.sourceId,
-      sourceTable: input.sourceTable,
-      conversationId: input.conversationId ?? null,
-      granularity: input.granularity,
-      content: input.content,
-      metadata: input.metadata ?? null,
-      createdAt: now,
-    }));
 
-    await this.writer.replaceEntriesBySource(entries);
+    // F20261110dsqci：读旧 chunks，按完整三重判据建「key → 旧 id 队列」。
+    // 同一段 cleaned content 可能来自不同章节/raw 段落，也可能在同文档重复；
+    // 每次命中 shift 一个旧 id，保证重复 chunk 在后续 reindex 全量收敛。
+    const first = validInputs[0];
+    const oldEntries = typeof this.writer.findEntriesBySourceAndType === "function"
+      ? await this.writer.findEntriesBySourceAndType(first.sourceTable, first.sourceId, first.contentType)
+      : [];
+    const oldByReuseKey = StoreMemory.indexReusableChunks(oldEntries);
+
+    const now = new Date().toISOString();
+    // F20260915midu（#942）：chunk 保持随机 UUID；F20261110dsqci 复用例外见 planChunkEntry。
+    const planned = validInputs.map((input) => this.planChunkEntry(input, oldByReuseKey, now));
+    const reuseIds = new Set(planned.filter((p) => p.reused).map((p) => p.entry.id));
+    const { reusedEntryIds } = await this.writer.replaceEntriesBySource(
+      planned.map((p) => p.entry),
+      reuseIds.size > 0 ? { reuseEntryIds: reuseIds } : undefined,
+    );
 
     // F20261109epqst：后台任务统一落库——chunk embedding 不再预占 RAM 槽位长队
     // （fireAndForgetEmbedBatch/slotWaiters 双账本时代的残留），全部先落
@@ -244,7 +256,11 @@ export class StoreMemory {
     // 语义变化：同步路径不再依赖 gateway 可用性（worker 不可用时任务照样落库，
     // 恢复后由消费者吃掉）；RAM 只保留实时短通道（fireAndForgetEmbed）。
     // 失败不丢：DB 写入抛错时向上冒泡（调用方 sync 流程已有错误处理）。
-    for (const entry of entries) {
+    // F20261110dsqci：复用 chunk 的向量已在，不登记——消除重复计算（重复计算本身
+    // 从未被 enqueueRetry 的 ON CONFLICT 拦住：entry id 每次全新，幂等键形同虚设）。
+    for (const { entry } of planned) {
+      // 以 repository 事务内核实后的实际复用集为准；stale 规划降级 INSERT 后必须登记。
+      if (reusedEntryIds.has(entry.id)) continue;
       await this.queue.enqueueRetry(
         entry.id,
         new Error("doc chunk pending embed (F20261109epqst unified queue)"),
@@ -252,11 +268,59 @@ export class StoreMemory {
       );
     }
 
-    return entries.map((e) => e.id);
+    return planned.map((p) => p.entry.id);
+  }
+
+  private static chunkReuseKey(content: string, headingPath: string | null, charCount: number | null): string {
+    return JSON.stringify([content, headingPath, charCount]);
+  }
+
+  private static indexReusableChunks(oldEntries: MemoryEntry[]): Map<string, string[]> {
+    const oldByReuseKey = new Map<string, string[]>();
+    for (const oe of oldEntries) {
+      const meta = oe.metadata as Record<string, unknown> | null;
+      const headingPath = Array.isArray(meta?.heading_path) ? JSON.stringify(meta.heading_path) : null;
+      const charCount = typeof meta?.char_count === "number" ? meta.char_count : null;
+      const key = StoreMemory.chunkReuseKey(oe.content, headingPath, charCount);
+      const queue = oldByReuseKey.get(key) ?? [];
+      queue.push(oe.id);
+      oldByReuseKey.set(key, queue);
+    }
+    return oldByReuseKey;
+  }
+
+  /** F20261110dsqci：单个 chunk 的复用规划——content+heading_path+char_count 三重一致
+   *  时从旧 id 队列 shift 一个复用（向量/fts/weights 卫星数据全保留）；否则新建随机 UUID
+   * （F20260915midu #942：1:N 共享 source_id 不能直接用；复用例外见上）。 */
+  private planChunkEntry(
+    input: MemoryEntryInput,
+    oldByReuseKey: Map<string, string[]>,
+    now: string,
+  ): { entry: Parameters<MemoryWriter["replaceEntriesBySource"]>[0][number]; reused: boolean } {
+    const meta = input.metadata ?? {};
+    const newHeading = Array.isArray(meta.heading_path) ? JSON.stringify(meta.heading_path) : null;
+    const newChars = typeof meta.char_count === "number" ? meta.char_count : null;
+    const key = StoreMemory.chunkReuseKey(input.content, newHeading, newChars);
+    const oldId = oldByReuseKey.get(key)?.shift();
+    const reusable = oldId !== undefined;
+    return {
+      entry: {
+        id: oldId ?? crypto.randomUUID(),
+        layer: input.layer,
+        contentType: input.contentType,
+        sourceId: input.sourceId,
+        sourceTable: input.sourceTable,
+        conversationId: input.conversationId ?? null,
+        granularity: input.granularity,
+        content: input.content,
+        metadata: input.metadata ?? null,
+        createdAt: now,
+      },
+      reused: reusable,
+    };
   }
 
   /**
-   * F20261109epqst：fireAndForgetEmbedBatch 已删除（RAM 长队退役）。
    * 后台 chunk embedding 改为 replaceChunksBySource 内直接落库 embedding_tasks，
    * 由 EmbeddingRetryWorker 批量领取消费（embedBatch）——单一持久化账本，
    * 重启不丢、可观测、旧任务与 doc 任务同队列公平调度（claim 按
