@@ -169,6 +169,24 @@ describe("SdkOtterGateway durable 身份", () => {
     expect(seen[1]?.currentInvokeId).not.toBe(seen[0]?.currentInvokeId);
     expect(seen[0]?.conversationId).toBeUndefined();
   });
+
+  it("带 conversationId 时仍透传，同时补 durable 身份", async () => {
+    const seen: Array<{ conversationId?: string; currentInvokeId?: string } | undefined> = [];
+    const port = {
+      invoke: async (_otterId: string, _message: string, options?: { conversationId?: string; currentInvokeId?: string }) => {
+        seen.push(options);
+        return { text: "ok" };
+      },
+    };
+    const gateway = new SdkOtterGateway(port as never, "conv-mahjong");
+
+    await expect(gateway.invoke("otter-a", "play")).resolves.toBe("ok");
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.conversationId).toBe("conv-mahjong");
+    expect(seen[0]?.currentInvokeId).toEqual(expect.any(String));
+    expect(seen[0]?.currentInvokeId).not.toBe("");
+  });
 });
 
 describe("SdkOtterGateway 超时", () => {

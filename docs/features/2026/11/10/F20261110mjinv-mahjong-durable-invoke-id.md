@@ -49,7 +49,7 @@ npx vitest run tests/usecases/mahjong/room/room-service.test.ts -t '纯 session 
 
 修复前：1 failed；`expect(seen[0]?.currentInvokeId).toEqual(expect.any(String))` 收到 `undefined`。该断言直接检查传入 SDK 端口的 options，不通过规则代理兜底间接推断。
 
-修复后：同一测试通过；完整 `room-service.test.ts` 为 1 file / 10 tests passed。测试连续调用两次，断言 ID 非空且不同，并断言无 conversationId 时仍保持 `undefined`。
+修复后：同一测试通过。测试连续调用两次，断言 ID 非空且不同，并断言无 conversationId 时仍保持 `undefined`。独立检视后补充带 conversationId 的回归，锁定原样透传且同时携带非空 invoke ID；完整 `room-service.test.ts` 为 1 file / 11 tests passed。
 
 ### 仓库检查
 
