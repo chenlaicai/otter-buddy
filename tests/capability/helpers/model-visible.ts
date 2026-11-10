@@ -17,6 +17,7 @@
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 
 /** 脚本化回复：文本块 + 工具调用块（驱动回合按 speak 协议收尾） */
 export interface ScriptedReply {
@@ -154,6 +155,8 @@ const DROP_KEYS = new Set(["metadata"]);
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const ISO_TS_RE = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})/g;
+const LOCAL_TS_RE = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/g;
+const SHORT_TS_RE = /\d{1,2}\/\d{1,2} \d{2}:\d{2}/g;
 
 /**
  * 规范化：tmpDir 路径、UUID、ISO 时间戳按**首次出现序**编号替换（<TMP> / <UUID:n> / <TS:n>，
@@ -184,6 +187,10 @@ export function canonicalizeRequests(
       }
       return token;
     });
+    // 本地时间是每轮动态 envelope，不是需要保序关联的实体 ID。
+    // 全部归一为常量，避免基线/当前历史条数不同或跨分钟时，首个时间戳编号错位。
+    out = out.replace(LOCAL_TS_RE, "<LOCAL_TS>");
+    out = out.replace(SHORT_TS_RE, "<SHORT_TS>");
     return out;
   };
   const walk = (value: unknown): unknown => {
@@ -218,11 +225,15 @@ export function diffCanonical(
   const diffs: string[] = [];
   const full = () => diffs.length >= maxDiffs;
   const brief = (v: unknown): string => JSON.stringify(v)?.slice(0, 120) ?? String(v);
+  /** 新增/缺失/修改字段都带完整内容指纹；brief 仅供人读，许可不能靠前缀宽泛放行。 */
+  const fingerprint = (v: unknown) => createHash("sha256")
+    .update(JSON.stringify(v) ?? String(v))
+    .digest("hex");
 
   type CompareFn = (exp: unknown, act: unknown, path: string) => void;
   const compareValues = (exp: unknown, act: unknown, path: string): void => {
     if (exp === act) return;
-    diffs.push(`${path}: 期望 ${brief(exp)} 实际 ${brief(act)}`);
+    diffs.push(`${path}: 期望 ${brief(exp)} sha256:${fingerprint(exp)} 实际 ${brief(act)} sha256:${fingerprint(act)}`);
   };
   const compareArrays = (exp: unknown[], act: unknown[], path: string, compare: CompareFn): void => {
     if (exp.length !== act.length) diffs.push(`${path}: 数组长度 期望 ${exp.length} 实际 ${act.length}`);
@@ -236,10 +247,10 @@ export function diffCanonical(
     compare: CompareFn,
   ): void => {
     for (const key of Object.keys(exp)) {
-      if (!(key in act)) diffs.push(`${path}.${key}: 期望存在，实际缺失`);
+      if (!(key in act)) diffs.push(`${path}.${key}: 期望存在，实际缺失 sha256:${fingerprint(exp[key])}`);
     }
     for (const key of Object.keys(act)) {
-      if (!(key in exp)) diffs.push(`${path}.${key}: 实际多出`);
+      if (!(key in exp)) diffs.push(`${path}.${key}: 实际多出 sha256:${fingerprint(act[key])}`);
     }
     for (const key of Object.keys(exp)) {
       if (full()) return;

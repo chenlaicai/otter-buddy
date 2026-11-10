@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "allowances": [
+    {
+      "base": "b23868a4d7c14fe4623237e3b8a49d34b101e27e",
+      "reason": "修复 durable 身份与 skills 资源接线（4 次新增 system）并明确 wait 先 speak 后 wait（4 次工具描述变化）；其他 wire 字段零漂移",
+      "diffs": [
+        "$[0].system: 实际多出 sha256:290b75f0aeb89938cbac4dfa9e5b829a3c2d1170b492bbbf79056293b32bfd6e",
+        "$[0].tools[6].description: 期望 \"等待指定时长或条件就绪（替代裸 sleep）. When: 等 CI 变绿、服务启动、状态就绪或退避重试时——先调 speak(body) 告诉搭档在等什么、为什么，再调用本工具. Not for: 5 秒以下的短等待. 等待即黑盒——r sha256:254f70a3078c50401b0068868151713c0157a14e9f12e6d1849110711cb2a3c6 实际 \"等待指定时长或条件就绪（替代裸 sleep）. 硬顺序：当前回合必须先完成 speak(body) 交代在等什么、为什么，之后才允许调用 wait；不得先 wait 后补 speak，也不得用 yield 代替事前的 speak. Whe sha256:98a1b1f1ff538d0539dddf8ee3eaac2d14ea442e4ea7439f9140332e64d8fcbe",
+        "$[1].system: 实际多出 sha256:290b75f0aeb89938cbac4dfa9e5b829a3c2d1170b492bbbf79056293b32bfd6e",
+        "$[1].tools[6].description: 期望 \"等待指定时长或条件就绪（替代裸 sleep）. When: 等 CI 变绿、服务启动、状态就绪或退避重试时——先调 speak(body) 告诉搭档在等什么、为什么，再调用本工具. Not for: 5 秒以下的短等待. 等待即黑盒——r sha256:254f70a3078c50401b0068868151713c0157a14e9f12e6d1849110711cb2a3c6 实际 \"等待指定时长或条件就绪（替代裸 sleep）. 硬顺序：当前回合必须先完成 speak(body) 交代在等什么、为什么，之后才允许调用 wait；不得先 wait 后补 speak，也不得用 yield 代替事前的 speak. Whe sha256:98a1b1f1ff538d0539dddf8ee3eaac2d14ea442e4ea7439f9140332e64d8fcbe",
+        "$[2].system: 实际多出 sha256:290b75f0aeb89938cbac4dfa9e5b829a3c2d1170b492bbbf79056293b32bfd6e",
+        "$[2].tools[6].description: 期望 \"等待指定时长或条件就绪（替代裸 sleep）. When: 等 CI 变绿、服务启动、状态就绪或退避重试时——先调 speak(body) 告诉搭档在等什么、为什么，再调用本工具. Not for: 5 秒以下的短等待. 等待即黑盒——r sha256:254f70a3078c50401b0068868151713c0157a14e9f12e6d1849110711cb2a3c6 实际 \"等待指定时长或条件就绪（替代裸 sleep）. 硬顺序：当前回合必须先完成 speak(body) 交代在等什么、为什么，之后才允许调用 wait；不得先 wait 后补 speak，也不得用 yield 代替事前的 speak. Whe sha256:98a1b1f1ff538d0539dddf8ee3eaac2d14ea442e4ea7439f9140332e64d8fcbe",
+        "$[3].system: 实际多出 sha256:290b75f0aeb89938cbac4dfa9e5b829a3c2d1170b492bbbf79056293b32bfd6e",
+        "$[3].tools[6].description: 期望 \"等待指定时长或条件就绪（替代裸 sleep）. When: 等 CI 变绿、服务启动、状态就绪或退避重试时——先调 speak(body) 告诉搭档在等什么、为什么，再调用本工具. Not for: 5 秒以下的短等待. 等待即黑盒——r sha256:254f70a3078c50401b0068868151713c0157a14e9f12e6d1849110711cb2a3c6 实际 \"等待指定时长或条件就绪（替代裸 sleep）. 硬顺序：当前回合必须先完成 speak(body) 交代在等什么、为什么，之后才允许调用 wait；不得先 wait 后补 speak，也不得用 yield 代替事前的 speak. Whe sha256:98a1b1f1ff538d0539dddf8ee3eaac2d14ea442e4ea7439f9140332e64d8fcbe"
+      ]
+    }
+  ]
+}

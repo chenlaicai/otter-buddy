@@ -17,6 +17,9 @@ export const golden: GoldenModule["golden"] = {
   originTest: "prompts/identity/SMALL_OTTER.md#待办裁决纪律（通道 A 识别边界）",
   input: "好，可以",
   sampling: { n: 3, minSuccess: 2 },
+  // 慢模型查板/读历史可能超过通用 300s；只延长响应窗，不放宽「不迁移」断言。
+  responseTimeoutMs: 600_000,
+  timeoutMs: 3_600_000,
   modelTag: "mimo",
   manualReview: false,
 };

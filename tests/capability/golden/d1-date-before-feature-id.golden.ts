@@ -21,6 +21,9 @@ export const golden: GoldenModule["golden"] = {
   originTest: "n/a（本场景为日期纪律的首个可重放锚点）",
   input: "请帮我为这个新功能创建一个特性文档，功能是关于记忆检索排序优化的。",
   sampling: { n: 3, minSuccess: 2 },
+  // 创建特性文档在慢模型上可能超过通用 300s 首跳上限；延长响应窗，不放宽 date 顺序断言。
+  responseTimeoutMs: 600_000,
+  timeoutMs: 3_600_000,
   modelTag: "mimo",
   manualReview: false,
 };

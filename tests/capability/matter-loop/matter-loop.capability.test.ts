@@ -21,10 +21,10 @@ import {
 
 /** 提取「本对话未闭环事情」机械供料段全文（档案段存在性 + 内容锚断言用） */
 function extractOpenMattersSection(archive: string): string | null {
-  const marker = "### ④ 机械供料：本对话未闭环事情（matters）";
-  const idx = archive.indexOf(marker);
-  if (idx < 0) return null;
-  const rest = archive.slice(idx + marker.length);
+  // 叙事/机械两形态标题不同，锚共同语义而非合成是否成功；段体断言保持严格。
+  const header = /^### .*本对话未闭环事情（matters.*$/m.exec(archive);
+  if (!header || header.index === undefined) return null;
+  const rest = archive.slice(header.index + header[0].length);
   // 段落截止到下一个 ### 或文末
   const next = rest.indexOf("\n### ");
   return (next < 0 ? rest : rest.slice(0, next)).trim();

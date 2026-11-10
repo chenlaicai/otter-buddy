@@ -14,6 +14,9 @@ embedding:
   # 真 bge-m3 本地模型，本层永远禁止 mock embedding
   localModelPath: ./models
 llm:
+  # 真 LLM 能力档默认不接生产缓存策略：Kimi 等端点不支持 prompt_cache_retention=24h。
+  # 需要验证长缓存的用例应显式开启并声明端点能力，不能让所有行为测试在请求层 400。
+  cacheLongRetention: false
   default: "test-default"
   models:
     - alias: "test-default"
