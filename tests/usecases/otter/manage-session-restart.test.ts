@@ -97,8 +97,27 @@ describe("ManageSession.restartSession（F20260810rstart）", () => {
 
     expect(result.status).toBe("active");
     expect(result.summary).toBe("从零开始");
-    // 不应调用 archive（因为没有 active session）
-    expect(gateway._calls.filter((c) => c.method === "reset")).toHaveLength(1); // 只有 createSession 后的 reset 不会触发，但 archive 的 reset 已在上面触发
+    // M-9af49d4a 审视修复（严重 2）：无 active（半态重试）路径仍补执行 transcript reset——
+    // 此处共 2 次：上面显式 archiveSession 内 1 次 + restartSession else 分支补 1 次
+    expect(gateway._calls.filter((c) => c.method === "reset")).toHaveLength(2);
+  });
+
+  it("重试半态防御：active 为 null（上次交接已归档但 transcript reset 失败）时仍补执行 agent reset，再建新世代（M-9af49d4a 审视严重 2）", async () => {
+    // 模拟半态：首次交接 archiveSession 成功（世代已归档）但 agentGateway.reset 抛错；
+    // 重试时 getActiveSession 返回 null——修复前会直接 createSession 跳过 reset，
+    // 「重试成功」静默复现水位循环根因。
+    db.prepare("DELETE FROM otter_sessions WHERE otter_id = ?").run(OTTER_ID);
+    const created = await manageSession.restartSession(OTTER_ID, "retry-summary");
+    const resets = gateway._calls.filter((c) => c.method === "reset");
+    expect(resets.length).toBe(1);
+    expect(resets[0].otterId).toBe(OTTER_ID);
+    expect(created.otterId).toBe(OTTER_ID);
+  });
+
+  it("正常路径（active 存在）：仅 archiveSession 内一次 reset，else 分支不叠加调用", async () => {
+    await manageSession.restartSession(OTTER_ID, "s");
+    const resets = gateway._calls.filter((c) => c.method === "reset");
+    expect(resets.length).toBe(1);
   });
 
   it("summary 为空时不写入前情摘要", async () => {

@@ -229,6 +229,12 @@ export class ManageSession {
         isNegativeCase: false,
         summary: safeSummary,
       }, channel);
+    } else {
+      // M-9af49d4a 审视修复（严重 2）：重试半态防御——首次交接可能已归档旧世代但 transcript
+      // reset 失败（active 已为 null 不代表 transcript 已 reset）。无条件补 agent reset：
+      // 幂等（多一次 pi.reset 边界无害），否则「重试成功」会跳过 reset 静默复现
+      // 水位循环根因（无 reset 的新世代 + 档案不注入）。
+      await this.agentGateway.reset(otterId, undefined, channel ?? 'normal');
     }
 
     // 2. F20260908efmd 硬约束：archive 成功后 → 写 config → createSession

@@ -377,6 +377,10 @@ export class DurableSession {
     const page = await this.conversation.entries({ order: "descending" }, 1, undefined, context);
     const newest = page.items[0];
     if (!newest || newest.kind !== "pi.reset" || newest.head == null) {
+      // 审视修复（严重 1 补偿）：busy 时 durable 会把 reset 排进 inbox 等下一边界而非立即落盘
+      //（上游语义），此时守护读到旧 head 必抛错——best-effort abort 撤回排队输入，
+      // 降低「报错后 queued reset 又落盘」的残余窗口；正常锁序下本路径不可达（防御层）。
+      await this.conversation.abort(context).catch(() => undefined);
       throw new Error(`durable generation reset guard failed: no pi.reset head boundary after reset (otter=${this.options.otterId}, newest=${newest?.kind ?? "none"})`);
     }
   }

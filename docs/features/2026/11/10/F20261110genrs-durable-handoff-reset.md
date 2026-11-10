@@ -69,6 +69,14 @@ JSONL 时代会话身份有**单一事实源**：账本（agent_sessions.session
   反正 miss，无正确性问题；fork 可换新身份但需「当前 conversation 书签」＝重回双记录。
 - rawContext 只含活动上下文：世代边界历史用库查询（entries 表 kind=pi.reset）。
 
+## 审视修复（对抗审视 request-changes → 已修）
+
+**严重 1（handoff 主通道绕过活句柄/守护）**：resetForHandoff 原实现先 markStale+poolMeta.delete 再调 _resetInternal——pooled 恒 undefined，活句柄优先与流中守护在主通道恒失效，永远双开库（冷开 recoverAfterReopen 还会 abort 未完任务）。修复：预清池删除，取句柄→流中检查→出池全部内聚 _resetInternal 单点；流中守护扩面扫 activeSessions 孤儿活句柄；守护失败时 best-effort abort 撤回排队输入（busy 队列残余窗口见 durable-session 注释）。
+
+**严重 2（重试半态静默复发）**：restartSession 在 active=null（上次归档成功但 reset 失败）时直接建新世代不 reset——「重试成功」假象下水位循环根因复活。修复：active=null 分支无条件补 agentGateway.reset（幂等：多一次 pi.reset 边界无害），新世代创建必以 transcript reset 落地为前提。
+
+新增回归：handoff 渠道池内活句柄复用（零冷开日志断言）/孤儿流中拒绝不翻账本/半态重试补 reset/正常路径不叠加调用。
+
 ## 验收（回归断言）
 
 - 换世后：库内存在 pi.reset 且 head 非空（守护内建+测试直查库）

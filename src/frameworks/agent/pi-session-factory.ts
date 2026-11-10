@@ -539,11 +539,10 @@ export class PiSessionFactory implements AgentGateway {
    *  旧 invoke 若仍活着由 GC 兑底——与 markStale 同语义，F20260912nlb896 已验证）。
    *  Precondition: 调用方已持交接冻结锁（acquireSessionLock），否则与 reset() 等价但与并发 invoke 竞态。 */
   async resetForHandoff(otterId: string, context?: AgentContext): Promise<void> {
-    // F20260923hspx：换世期间池内旧 session 用 markStale 出池（不 dispose）
-    //  而非 evict（removeEntry 无条件 dispose）——旧 invoke 若仍活着（isStreaming），
-    //  dispose 会撕裂它的流（与 F20260912nlb896 stale steal 策略同语义）。
-    this.pool.markStale(otterId);
-    this.poolMeta.delete(otterId);
+    // M-9af49d4a 审视修复（严重 1）：不再预清池——poolMeta 预删会让 _resetInternal 的
+    //  活句柄优先与流中守护在 handoff 主通道恒失效（pooled 恒 undefined → 永远双开库，
+    //  且冷开 recoverAfterReopen 会 abort 未完任务，与下方 D1 注释「不撕裂旧 invoke」相反）。
+    //  池的守护/出池/活句柄取用全部内聚到 _resetInternal 单点（出池语义仍为 markStale 不 dispose）。
     await this._resetInternal(otterId, context);
   }
 
@@ -556,8 +555,11 @@ export class PiSessionFactory implements AgentGateway {
     //（head 指针），前世 = reset 点之前的 entries，同库可审计（durable 原生多世代语义）。
     // 流中守护（R5）：换世前提是交接冻结锁/会话锁已持——到达即接线错误，响亮失败而非静默带病。
     const pooled = this.poolMeta.get(otterId);
-    if (pooled?.session.isStreaming) {
-      throw new Error(`generation reset refused while session streaming (otter=${otterId})`);
+    // 流中守护（R5，审视修复严重 1 扩面）：isRunning = poolMeta.isStreaming + activeSessions
+    //（invoke 运行期句柄，含 stale-steal 遗留孤儿）——任何活流中换世都是接线错误，
+    // 响亮失败而非冷开撕裂。交接冻结锁/会话锁正常持有时不应到达。
+    if (this.isRunning(otterId)) {
+      throw new Error(`generation reset refused while session running (otter=${otterId})`);
     }
     // F20260923hspx：换世期间池内旧 session 用 markStale 出池（不 dispose）
     //  旧 invoke 若仍活着由 GC 兑底——与 markStale 同语义，F20260912nlb896 已验证）。
@@ -601,7 +603,7 @@ export class PiSessionFactory implements AgentGateway {
       resolvedModel = this.cfg.modelPool.getModel(modelAlias);
       resolvedThinkingLevel = this.cfg.modelPool.getThinkingLevel(modelAlias ?? this.cfg.modelPool.getDefaultAlias());
     }
-    return await DurableAgentSession.open({
+    const session = await DurableAgentSession.open({
       otterId,
       file: this.durableFile(otterId),
       models: getModelSource(this.cfg.modelPool),
@@ -613,6 +615,8 @@ export class PiSessionFactory implements AgentGateway {
       register: createInvokeRegister(),
       context: BACKGROUND_CONTEXT,
     });
+    this.logger.info('durable reset-only session opened', { otterId, sessionFile: this.durableFile(otterId) });
+    return session;
   }
 
   /** F20260924thnk：合成模型解析（自 runCompactionSynthesis 抽出，complexity 限）。

@@ -32,7 +32,7 @@ import { PiSessionFactory } from "../../../src/frameworks/agent/pi-session-facto
 import { SqliteOtterRepository } from "../../../src/frameworks/db/otter/sqlite-otter-repository";
 import { SqliteOtterConfigProvider } from "../../../src/frameworks/db/otter/sqlite-otter-config-provider";
 import { createTestDb } from "../../helpers/db";
-import { createTestLogger } from "../../helpers/logger";
+import { createCapturingLogger, createTestLogger } from "../../helpers/logger";
 import type { Logger } from "../../../src/usecases/ports/logger";
 import type { Otter } from "../../../src/entities/otter/otter";
 
@@ -203,5 +203,80 @@ describe("工厂层：换世账本与世代文件（M-9af49d4a 回归锁）", ()
     expect(row.session_file).toBe(path.join(sessionDir, `${otterId}.sqlite`));
     // 日志锚点：世代替换事件带 in-file reset 标记（观测口径）
     expect(existsSync(row.session_file)).toBe(true);
+  });
+
+  it("handoff 渠道：池内活句柄优先复用（零冷开），出池且 reset 生效（审视严重 1 回归锁）", async () => {
+    const db = createTestDb();
+    const sessionDir = mkdtempSync(path.join(tmpdir(), "otter-reset-handoff-"));
+    const otterId = "fac-handoff-otter";
+    await new SqliteOtterRepository(db).createOtter(makeOtter(otterId));
+
+    const faux = fauxProvider({});
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const capturing = createCapturingLogger();
+    const factory = new PiSessionFactory({
+      db, sessionDir,
+      otterToolClient: {} as never,
+      model: faux.getModel() as never,
+      createTools: () => [],
+      otterConfigProvider: new SqliteOtterConfigProvider(db),
+      otterRepo: new SqliteOtterRepository(db),
+    }, capturing);
+    await factory.create(otterId, { systemPrompt: "w1" } as never);
+
+    // 预置一世内容 + 活句柄入池（模拟 invoke 池命中态）
+    const durableFile = path.join(sessionDir, `${otterId}.sqlite`);
+    const seeded = await openSession(durableFile, [fauxAssistantMessage("seed-a")]);
+    await seeded.session.prompt(MARKER_OLD, undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
+    const internals = factory as unknown as {
+      poolMeta: Map<string, unknown>;
+    };
+    internals.poolMeta.set(otterId, { session: seeded.session, register: createInvokeRegister(), toolContext: {} });
+
+    await factory.reset(otterId, undefined as never, "handoff");
+
+    // 活句柄路径：零冷开（reset-only open 日志为 0）
+    expect(capturing.captured.infos.filter(m => m === "durable reset-only session opened").length).toBe(0);
+    // 出池完成
+    expect(internals.poolMeta.has(otterId)).toBe(false);
+    // reset 生效：pi.reset 边界 + 前世 marker 断崖
+    const view = await seeded.session.rawContext(BACKGROUND_CONTEXT);
+    expect(view.entries.some(e => e.kind === "pi.reset" && e.head != null)).toBe(true);
+    expect(JSON.stringify(view.messages)).not.toContain(MARKER_OLD);
+    await seeded.session.close(BACKGROUND_CONTEXT);
+  });
+
+  it("流中守护：孤儿活句柄 streaming 时换世响亮拒绝，不冷开不翻账本（审视严重 1 扩面）", async () => {
+    const db = createTestDb();
+    const sessionDir = mkdtempSync(path.join(tmpdir(), "otter-reset-stream-"));
+    const otterId = "fac-stream-otter";
+    await new SqliteOtterRepository(db).createOtter(makeOtter(otterId));
+
+    const faux = fauxProvider({});
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const capturing = createCapturingLogger();
+    const factory = new PiSessionFactory({
+      db, sessionDir,
+      otterToolClient: {} as never,
+      model: faux.getModel() as never,
+      createTools: () => [],
+      otterConfigProvider: new SqliteOtterConfigProvider(db),
+      otterRepo: new SqliteOtterRepository(db),
+    }, capturing);
+    await factory.create(otterId, { systemPrompt: "w1" } as never);
+
+    const durableFile = path.join(sessionDir, `${otterId}.sqlite`);
+    const internals = factory as unknown as {
+      activeSessions: Map<string, unknown>;
+    };
+    internals.activeSessions.set(`${otterId}:msg-1`, { isStreaming: true });
+
+    await expect(factory.reset(otterId, undefined as never, "handoff")).rejects.toThrow(/refused while session running/);
+    // 守护先于一切：无 reset-only 冷开、无世代替换日志
+    expect(capturing.captured.infos.filter(m => m === "durable reset-only session opened").length).toBe(0);
+    expect(capturing.captured.infos.some(m => m.includes("generation replaced"))).toBe(false);
+    void durableFile;
   });
 });
