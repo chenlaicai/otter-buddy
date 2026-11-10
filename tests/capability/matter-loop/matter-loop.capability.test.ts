@@ -168,7 +168,8 @@ describe("matter loop：L2 拍板登记 + 重启机械供料（真系统 + 真 L
         );
 
         try {
-          await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+          // 必须排除首轮 completed speak；否则会在回执 invoke 创建前读取 matter，形成假阴性（#1788）。
+          await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000, afterSeq: firstRound.seq });
         } catch {
           return { ok: false, detail: "owner 獭未在超时内响应回执" };
         }
@@ -201,7 +202,7 @@ describe("matter loop：L2 拍板登记 + 重启机械供料（真系统 + 真 L
 
         // 1. 真实对话一轮拿到大獭 id（登记回执走默认派发——退派兜底在场大獭）
         await sendUserMessage(ctx, convId, "你好，随便回应一句");
-        await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
+        const firstRound = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
 
         // 2. 模拟板上「+」登记的合成回执（准入路径 2：搭档手动登记 initialState=OPEN）——
         //    F20261006mlp2 严重1 修复的验证面：P1 工具面没注册登记工具=登记必丢，本场景锁死后链路。
@@ -215,7 +216,7 @@ describe("matter loop：L2 拍板登记 + 重启机械供料（真系统 + 真 L
         );
 
         try {
-          await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+          await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000, afterSeq: firstRound.seq });
         } catch {
           return { ok: false, detail: "獭未在超时内响应登记回执" };
         }

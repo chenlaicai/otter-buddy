@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { ConversationIdle } from "@earendil-works/pi-durable";
 
 // attachGuards 的 outputGuard 读取进程级配置；本文件不验证配置加载，按既有 agent 测试隔离。
 vi.mock("@frameworks/config", () => ({ getConfig: () => ({ circuitBreaker: {} }) }));
@@ -592,6 +593,44 @@ describe("attachCircuitBreaker - steer 行为纠正", () => {
     session.emit(sdkToolStart("bash", { command: "git status" }));
     for (let i = 0; i < 10; i++) session.emit(sdkToolStart("read", { path: `/f${i}.ts` }));
     expect(session.abort).not.toHaveBeenCalled();
+  });
+});
+
+describe("attachCircuitBreaker - #1788 rejected guard steer 不得浮空", () => {
+  it.each([
+    ["circuit-breaker", "idle"],
+    ["circuit-breaker", "error"],
+    ["orchestration", "idle"],
+    ["orchestration", "error"],
+  ] as const)("%s / %s rejection 被捕获", async (source, kind) => {
+    const session = mockSession();
+    const logger = createCapturingLogger();
+    const error = kind === "idle" ? new ConversationIdle(1 as never) : new Error("admission failed");
+    session.steer.mockRejectedValueOnce(error);
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      attachCircuitBreaker(
+        session,
+        "otter-1",
+        makeConfig(source === "circuit-breaker" ? { maxConsecutiveIdentical: 1, maxRepeatAfterWarning: 5 } : {}),
+        logger,
+        source === "orchestration" ? { orchestrationCheck: () => "call yield next" } : undefined,
+      );
+      session.emit(sdkToolStart("bash", { command: "git status" }));
+      if (source === "circuit-breaker") session.emit(sdkToolStart("bash", { command: "git status" }));
+      expect(session.steer).toHaveBeenCalledOnce();
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(unhandled).not.toHaveBeenCalled();
+      if (kind === "idle") {
+        expect(logger.captured.debugs.some(message => message.includes("stale steer hint"))).toBe(true);
+        expect(logger.captured.warns).toHaveLength(0);
+      } else {
+        expect(logger.captured.warns.some(message => message.includes("admission failed"))).toBe(true);
+      }
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 });
 

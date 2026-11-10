@@ -9,7 +9,7 @@
  * - user 目标过滤：yieldTargets 含 'user' 不点火
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { SignalRouter } from "@usecases/conversation/signal-router";
+import { SignalRouter, type SignalRouterSessionFactory } from "@usecases/conversation/signal-router";
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
@@ -46,6 +46,7 @@ function createEntry(overrides: Partial<Entry> = {}): Entry {
 
 function makeDeps(overrides?: {
   entryRepo?: Partial<EntryRepository>;
+  factory?: Partial<SignalRouterSessionFactory>;
 }) {
   const entryUpdates: Array<{ entryId: string; metadata: EntryMetadata }> = [];
   const entryRepo = {
@@ -70,7 +71,12 @@ function makeDeps(overrides?: {
   } as unknown as DispatchChainEngine;
   const invokeFn = vi.fn(async () => ({ messageId: "inv-mock" }));
   const logger = createLogger();
-  const factory = { isRunning: () => false, followUp: () => false, steerSession: () => false };
+  const factory: SignalRouterSessionFactory = {
+    isRunning: () => false,
+    followUp: async () => false,
+    steerSession: async () => false,
+    ...overrides?.factory,
+  };
   const router = new SignalRouter({
     conversationRepo, entryRepo, queryOtter, dispatchChainEngine, invokeFn, logger, factory,
   });
@@ -136,7 +142,7 @@ describe("SignalRouter 数据源（F20260913ctlv 彻底切换补漏）", () => {
     const entry = createEntry({ yieldTargets: ["otter-big"] });
     const entryUpdates: Array<{ entryId: string; metadata: EntryMetadata }> = [];
     // 目标 running → 默认 steer 注入成功 → 销账（F20260913ctlv test13：用户发言默认 steer）
-    const factory = { isRunning: () => true, followUp: () => false, steerSession: () => true };
+    const factory = { isRunning: () => true, followUp: async () => false, steerSession: async () => true };
     const routerRunning = new SignalRouter({
       conversationRepo: {} as never,
       entryRepo: { getEntryById: async () => entry, updateEntryMetadata: async (id: string, meta: EntryMetadata) => entryUpdates.push({ entryId: id, metadata: meta }) } as never,
@@ -162,8 +168,8 @@ describe("SignalRouter 数据源（F20260913ctlv 彻底切换补漏）", () => {
     // 目标 running + 用户显式选 followUp → 排队注入（不打断）
     const factory = {
       isRunning: () => true,
-      followUp: (_id: string, text: string) => { followCalls.push(text); return true; },
-      steerSession: (id: string, text: string) => { steerCalls.push(`${id}:${text}`); return true; },
+      followUp: async (_id: string, text: string) => { followCalls.push(text); return true; },
+      steerSession: async (id: string, text: string) => { steerCalls.push(`${id}:${text}`); return true; },
     };
     const routerF = new SignalRouter({
       conversationRepo: {} as never,
@@ -181,6 +187,34 @@ describe("SignalRouter 数据源（F20260913ctlv 彻底切换补漏）", () => {
     expect(steerCalls).toHaveLength(0); // 显式 followUp 不走 steer（不打断）
     const meta = JSON.parse(entryUpdates[0]!.metadata.signalMeta as string) as { consumed: string };
     expect(meta.consumed).toBe("followed_up");
+  });
+
+  it("stale running + durable idle：steer 未 admitted → 回退新 invoke 且不销账（#1788）", async () => {
+    const entry = createEntry({ yieldTargets: ["otter-big"] });
+    const { router, chainCalls, entryUpdates } = makeDeps({
+      entryRepo: { getEntryById: vi.fn(async () => entry) },
+      factory: { isRunning: () => true, steerSession: async () => false },
+    });
+
+    const results = await router.routeSignals("conv-1", { triggerMessageId: "entry-u1" });
+
+    expect(results[0]!.action).toBe("invoked");
+    expect(chainCalls).toHaveLength(1);
+    expect(entryUpdates).toHaveLength(0);
+  });
+
+  it("显式 followUp 同族 idle 竞态：未 admitted → 回退新 invoke 且不销账（#1788）", async () => {
+    const entry = createEntry({ yieldTargets: ["otter-big"], metadata: { injectionMode: "followUp" } });
+    const { router, chainCalls, entryUpdates } = makeDeps({
+      entryRepo: { getEntryById: vi.fn(async () => entry) },
+      factory: { isRunning: () => true, followUp: async () => false },
+    });
+
+    const results = await router.routeSignals("conv-1", { triggerMessageId: "entry-u1" });
+
+    expect(results[0]!.action).toBe("invoked");
+    expect(chainCalls).toHaveLength(1);
+    expect(entryUpdates).toHaveLength(0);
   });
 
   it("目标 inactive → skipped_inactive", async () => {

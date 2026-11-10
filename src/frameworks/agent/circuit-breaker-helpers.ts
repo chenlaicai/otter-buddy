@@ -9,6 +9,7 @@ import { getContextWindowTokens, getLastStopReason } from "./context-tokens";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { Model, Api } from "@earendil-works/pi-ai";
+import { ConversationIdle } from "@earendil-works/pi-durable";
 import { getConfig } from "@frameworks/config";
 import type { OutputGuardConfig } from "./output-guard";
 import { attachOutputGuard } from "./output-guard";
@@ -180,6 +181,27 @@ export function buildPromptResult(params: BuildPromptResultParams): BuildInvokeR
   return result;
 }
 
+/** Internal guard hints have no user-signal fallback. An idle rejection means the hint
+ * arrived after the run ended; other failures are observable but must never escape as
+ * an unhandled rejection (main.ts treats those as fatal). */
+function steerGuardHint(
+  session: { steer?: (text: string) => Promise<void> },
+  text: string,
+  source: "circuit-breaker" | "orchestration",
+  otterId: string,
+  logger: Logger,
+): void {
+  if (!session.steer) return;
+  void session.steer(text).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof ConversationIdle) {
+      logger.debug(`[${source}] stale steer hint ignored because session is idle otter=${otterId}`);
+      return;
+    }
+    logger.warn(`[${source}] steer hint failed otter=${otterId}: ${message}`);
+  });
+}
+
 /** 熔断器 tool_execution_start 钩子 */
 // eslint-disable-next-line max-lines-per-function
 export function attachCircuitBreaker(
@@ -251,7 +273,7 @@ export function attachCircuitBreaker(
         return;
       }
       if (result.action === "steer") {
-        if (toolName !== "speak") session.steer?.(result.reason ?? "Stop calling tools. Call speak now."); // F20260806cbsx: speak 是回合出口，对其 steer 有害无益
+        if (toolName !== "speak") steerGuardHint(session, result.reason ?? "Stop calling tools. Call speak now.", "circuit-breaker", otterId, logger); // F20260806cbsx: speak 是回合出口，对其 steer 有害无益
         return;
       }
 
@@ -259,7 +281,7 @@ export function attachCircuitBreaker(
       if (options?.orchestrationCheck && toolName !== "speak") {
         const orchestrationWarning = options.orchestrationCheck(toolName, e.args);
         if (orchestrationWarning) {
-          session.steer?.(orchestrationWarning);
+          steerGuardHint(session, orchestrationWarning, "orchestration", otterId, logger);
           return;
         }
       }
