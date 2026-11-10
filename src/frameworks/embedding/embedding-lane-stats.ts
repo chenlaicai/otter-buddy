@@ -1,5 +1,4 @@
 import type {
-  EmbeddingLaneName,
   EmbeddingLaneState,
   EmbeddingLatencyStats,
 } from "@usecases/memory/embedding-gateway";
@@ -62,32 +61,4 @@ export function laneState(input: {
   if (input.circuitBroken) return "dead";
   if (!input.ready) return "unready";
   return input.inFlight > 0 ? "busy" : "ready";
-}
-
-export function emptyLaneStats(lane: EmbeddingLaneName): {
-  lane: EmbeddingLaneName;
-  state: EmbeddingLaneState;
-  inFlight: number;
-  pendingWaiters: number;
-  attempts: number;
-  lastProgressAt: number | null;
-  unreadySince: number | null;
-  circuitBroken: boolean;
-  tokensPerSec: number;
-  meanTokensPerText: number;
-  perTextLatencyMs: EmbeddingLatencyStats;
-} {
-  return {
-    lane,
-    state: "spawning",
-    inFlight: 0,
-    pendingWaiters: 0,
-    attempts: 0,
-    lastProgressAt: null,
-    unreadySince: null,
-    circuitBroken: false,
-    tokensPerSec: 0,
-    meanTokensPerText: 0,
-    perTextLatencyMs: { p50: null, p95: null, p99: null, samples: 0 },
-  };
 }

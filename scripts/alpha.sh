@@ -350,6 +350,10 @@ cmd_start() {
   config_file="$alpha_home/config.yaml"
   log_file="$alpha_home/otter-buddy.log"
   mkdir -p "$alpha_home"
+  # 真实文档回填验证显式开启：只在请求时链接语料，默认 alpha 不同步 worktree 文档。
+  if [ "${OTTER_ALPHA_SYNC_DOCS:-false}" = true ] && [ ! -e "$alpha_home/docs" ]; then
+    ln -s "$wt_root/docs" "$alpha_home/docs"
+  fi
 
   # 构建（--quick 跳过；dist 缺失时兜底跑一次）
   if [ "$quick" = true ]; then

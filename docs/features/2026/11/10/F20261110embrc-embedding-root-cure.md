@@ -170,8 +170,38 @@ intent:
 | Q8 | 0.525 | 246.22 | 1364 / 4843 / 6194 | 1.0 | 1.0 |
 | 差值/倍率 | +28.7% | +28.7% | -25.7% / -24.0% / -21.5% | 0 | 0 |
 
-决策：recall@5/@10 差均 0 ≤ 2%，质量门通过，默认切 Q8；`OTTER_EMBED_DTYPE=fp32` 显式回滚。`bge-m3-files.json` 同时登记 fp32 与 Q8，旧 fp32 文件不删除，回滚不需要重新下载 2.27GB 外部数据。最终 4 线程复测使用同一语料/query，另列数据，不能用本轮代替。
+决策：recall@5/@10 差均 0 ≤ 2%，质量门通过，默认切 Q8；`OTTER_EMBED_DTYPE=fp32` 显式回滚。`bge-m3-files.json` 同时登记 fp32 与 Q8，旧 fp32 文件不删除，回滚不需要重新下载 2.27GB 外部数据。最终 4 线程复测使用同一抽样规则，但因本文件在实施中增长，输入集合会有漂移；只比较各轮内部 fp32/Q8 的同集数据，不直接比较跨轮绝对吞吐。
 
 ### 8.3 全量回归中间证据
 
 `npm test`：PASS，448 个测试文件 / 5798 条用例（与 Q8 真实基准并行运行）；全仓 ESLint 随 pretest 通过。最终 PR 前还会在新的提交态再跑 build/lint/test 与 CI。
+
+## 9. 最终 4 线程基准与 alpha 真服务证据
+
+### 9.1 最终同集 fp32/Q8（8 物理核，live=2/backfill=4）
+
+命令：`OTTER_EMBED_BENCH_OUTPUT=/tmp/embrc-quantization-final.json node scripts/eppq-real-model-throughput.mjs --benchmark`；进程环境回读确认两轮均为 `intraOpThreads=4`，dtype 分别为 fp32/q8。200 chunk / 50 query，字符 p50/p95/p99=756/2383/2706，token=99,430。
+
+| dtype | texts/s | tokens/s | 单条 p50/p95/p99 ms | recall@5 | recall@10 |
+|---|---:|---:|---|---:|---:|
+| fp32 | 0.700 | 348.12 | 995 / 3795 / 5590 | 1.0 | 1.0 |
+| Q8 | 0.909 | 451.90 | 758 / 2969 / 4079 | 1.0 | 1.0 |
+| 差值/倍率 | +29.9% | +29.8% | -23.8% / -21.8% / -27.0% | 0 | 0 |
+
+最终判定：`q8-quality-pass`，recall 差 0 ≤ 2%，默认 Q8 的决策不变。一次中间 4 线程运行被实现者并发 pre-commit build 删除 dist 打断，已判无效且未纳入任何数字；上表来自 dist 稳定、完整退出的新一轮（exit=0）。
+
+### 9.2 alpha.sh 隔离实例
+
+启动：`OTTER_ALPHA_MODELS_ROOT=/tmp/otter-buddy-embed-root-cure-q8 OTTER_ALPHA_SYNC_DOCS=true bash scripts/alpha.sh start --quick`；冒烟：`node scripts/embrc-alpha-smoke.mjs`；结束：`bash scripts/alpha.sh stop`，回读 `status=none`。
+
+- 两个真实 worker 环境：live `intraOpThreads=2,dtype=q8`；backfill `intraOpThreads=4,dtype=q8`。
+- 文档 sync 产生真实持久化洪峰；冒烟观察到 **120 个 chunk 向量完成**，随后仍有 6043 pending 继续消费，未以队列清空伪造持续出队。
+- 通过 HTTP 创建对话并发送 10 条实时消息，全部落 vec；延迟 [930,905,731,733,726,715,708,1000,991,980]ms，**p95=1000ms < 2000ms**。
+- health：live `ready`，backfill `busy/inFlight=1`；live tokens/sec=133.81，backfill=439.27；backfill per-text p50/p95/p99=496/2833/3751ms；队列 pending=6043、oldest=419s、ageP50=413s、ageP95=419s、ETA=5254s，alerts=[]。
+- 全 alpha 日志 `Embed batch timeout=0`、`embedding_worker_restart=0`。停止时 drain 仍在运行，因此没有完成态 drain summary 可引用；summary 新增字段由单元/行为测试验证，alpha 不冒充该证据。
+
+### 9.3 交付前负向结论
+
+最终干净状态 `npm test`：PASS，448 文件 / 5799 用例（含新增 dtype 用例），无失败豁免。
+
+旧保护没有被静默绕过：live 30s/60s fail-fast 仍有既有测试；DB 持久化/退避/dead-letter 与 #1795 用例全绿；backfill 活性和慢批分别由看门狗与晚到采纳测试判别。新增 Q8 不是无条件加速：两轮真实语料 recall 均不降才默认启用，fp32 文件与环境变量回滚保留。

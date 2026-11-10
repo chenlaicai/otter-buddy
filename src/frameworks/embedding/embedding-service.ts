@@ -81,7 +81,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    */
   private static readonly MAX_IN_FLIGHT = 1;
   /**
-   * F20261016ebrt：batch 超时预算——从 1s/条 放宽到 5s/条，且不低于单条的 30s。
+   * live batch 超时预算（backfill 不读这些常量）——5s/条，且不低于单条的 30s。
    * 旧预算（texts.length×1s）在长文本（~1000 token/条，实测 1-2s/条）+ 高负载下
    * 必超，把「慢」误判成「死」触发自愈杀 worker（2026-10-15 21:22 事故链）。
    * 上限仍 120s 防真死锁拖太久。
@@ -99,9 +99,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    * 慢≠死闭锁，#1521 活锁）改为「lane 占用且 worker 无任何响应」。
    * 慢 batch（健康但 100-200s）持续有响应 → 不杀；真死锁（SpinPause 永不返回）→ 无响应 → 必触发。
    *
-   * 耦合旋钮警示（#948 教训：旋钮必须联动核对）：
-   * 阈值必须 > batch 超时预算上限（120s）× 安全余量。若未来放宽 BATCH_TIMEOUT 上限
-   * 或 BATCH_LIMIT，此处必须同步调整。
+   * backfill 逐条 progress 刷新活动；live 墙钟死线与看门狗相互独立，不再要求阈值大于批死线。
    */
   private static readonly WATCHDOG_INTERVAL_MS = 1_000;
   private static readonly PROGRESS_STALL_MS = 120_000;
@@ -110,14 +108,12 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private static testWatchdogOverride: number | null = null;
   private static testReadyTimeoutOverride: number | null = null;
   /**
-   * F20261109epqst：waitSlot 默认等待上界（ms）——所有后台等待必须有界。
+   * live waitSlot 默认等待上界（ms）——实时排队必须有界并 fail-fast。
    * 生产实锤（2026-11-09）：doc 洪峰 ~2000 条 bulk waiter 堆进队列后，
    * retry worker 首条 embed 挂在队尾无限等待，tick 永久挂起、旧任务 0 出队。
    * 调用方可通过 waitTimeoutMs 覆盖；不传用此默认。等待超时 reject
    * EmbedSlotTimeoutError（继承 EmbedTransientError，retry 不计 attempts）。
-   * 60s 量级依据：单批 embedding 最长 120s（BATCH_TIMEOUT 上限），等待者
-   * 拿到槽位后至少还需一个批的时间——上限取同量级，既容忍慢批又不至于
-   * 把挂起积累成不可观测的黑洞。
+   * 60s 用于限制实时等待，不让挂起积累成不可观测黑洞；backfill 由专属 lane 串行消费。
    */
   private static readonly WAIT_SLOT_DEFAULT_TIMEOUT_MS = 60_000;
   /** 最近一次 worker 活动（send / 任何响应 / ready / 重建）时间戳 */

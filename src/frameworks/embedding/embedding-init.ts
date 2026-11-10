@@ -46,7 +46,7 @@ const noopLogger: Logger = {
  * 为什么必须分进程：onnxruntime 1.23.2 要求 worker 内串行（MAX_IN_FLIGHT=1，
  * 长文×并发>1 必死锁）——串行是原生约束，但「串行」≠「共用一条队列」。
  * 共用时回填/写入把查询排队拖死（处理直接影响读）。两进程各自串行，互不排队。
- * 代价：2 份 bge-m3 ≈ 4.5GB，比「重启时短暂双份 + 泄漏」更可控。
+ * 代价：两份模型常驻；Q8 默认显著低于 fp32 双实例内存，不引入第三份 query 模型。
  */
 export async function initEmbeddingService(
   embedConfig?: EmbeddingConfig,
