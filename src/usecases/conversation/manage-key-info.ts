@@ -130,8 +130,7 @@ export class ManageKeyInfo {
     newInput: LinkedResourceInput,
   ): Promise<LinkedResource> {
     this.validateInput(newInput);
-    const existing = await this.repo.getLinkedResourceById(existingId);
-    if (!existing) throw new DomainError(`LinkedResource ${existingId} not found`, "not_found");
+    const existing = await this.requireOwnedResource(existingId, newInput.conversationId);
     if (!canTransitionArtifactStatus(existing.status, "superseded")) {
       throw new DomainError(`Cannot supersede resource in status '${existing.status}'`, "conflict");
     }

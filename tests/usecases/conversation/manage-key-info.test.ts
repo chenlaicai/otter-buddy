@@ -310,7 +310,7 @@ describe("ManageKeyInfo - F20260829gvid groupId 必填校验（#580）", () => {
   it("supersedeResource: 新输入无 groupId 但旧资源有组 → 继承放行（ptun 补救路径不能被打断）", async () => {
     const { repo, memoryIndex } = createMocks();
     (repo.getLinkedResourceById as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "old-1", status: "active", groupId: "F20260828ptun",
+      id: "old-1", conversationId: "conv-1", status: "active", groupId: "F20260828ptun",
     });
     const uc = new ManageKeyInfo(repo, memoryIndex);
 
@@ -329,7 +329,7 @@ describe("ManageKeyInfo - F20260829gvid groupId 必填校验（#580）", () => {
   it("supersedeResource: 旧资源也无 groupId（历史漏传存量）→ effective groupId 缺失时拒绝", async () => {
     const { repo, memoryIndex } = createMocks();
     (repo.getLinkedResourceById as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: "old-2", status: "active", groupId: null,
+      id: "old-2", conversationId: "conv-1", status: "active", groupId: null,
     });
     const uc = new ManageKeyInfo(repo, memoryIndex);
 
