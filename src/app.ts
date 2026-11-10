@@ -293,7 +293,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
    *  启动失败相比，listen 后失败不该拖垮已就绪的 HTTP 服务） */
   const postListenInit = async (): Promise<void> => {
     try {
-      const syncResult = await syncDocuments(repos, memoryIndex, logger, appRootDir);
+      const syncResult = await syncDocuments(repos, memoryIndex, logger, appRootDir, { canonicalRootDir: appRootDir });
       postSyncMigrations(db, logger, syncResult);
     } catch (err) {
       logger.error("Post-listen document sync failed", err instanceof Error ? err : new Error(String(err)));
@@ -393,7 +393,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const agentInvokerRef: { current?: Pick<AgentInvoker, "restartWithUnifiedHandoff"> } = {};
   resolveOtterToolClient(buildOtterToolClient(uc, {
     syncDocs: async (rootDir?: string) => {
-      const r = await syncDocuments(repos, memoryIndex, logger, rootDir ?? options.rootDir ?? process.cwd());
+      // F20261110dsqy（#1818）：显式传非主仓 rootDir（worktree）时归档自动禁用
+      // （canonical 守卫，防 worktree 部分检出误归档主仓文档→归档-复活振荡重灌）
+      const r = await syncDocuments(repos, memoryIndex, logger, rootDir ?? options.rootDir ?? process.cwd(), { canonicalRootDir: appRootDir });
       return { synced: r.synced, updated: r.updated, skipped: r.skipped, archived: r.archived, errors: r.errors.length };
     },
     /** F20260912avlb：dispatch 工具指向派工台账正式表 */

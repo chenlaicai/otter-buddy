@@ -249,11 +249,14 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   /** F20260813mren：1:1 summary entry 的边做重定向（旧 id→新 id），不再静默删边。
    *  顺序：插新行 → 重定向边 → 按旧 id 删旧行（不能用 source 删，会误删新行）。
    *  chunk 的 N:M replaceEntriesBySource 无法重定向，维持禁边（D3）。 */
-  async replaceEntryBySource(entry: MemoryEntry): Promise<void> {
+  async replaceEntryBySource(entry: MemoryEntry): Promise<{ embeddingKept: boolean }> {
+    /** F20261110dsqci（检视鬾5）：同 id 快路径下 content 未变且 vec 存在时保留 vec——
+     *  归档-复活恢复轮 ~1100 篇 summary 的 content 未变，重 embed 是纯浪费且挤占 live 通道 */
+    let embeddingKept = false;
     this.runInTx(() => {
       const oldRows = this.db
-        .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
-        .all(entry.sourceTable, entry.sourceId, entry.contentType) as Array<{ id: string }>;
+        .prepare("SELECT id, content FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
+        .all(entry.sourceTable, entry.sourceId, entry.contentType) as Array<{ id: string; content: string }>;
 
       // F20260915midu（#942）：ID 统一后旧行 id = source_id = 新行 id，
       // 先插新行会撞 UNIQUE 主键（迁移前“新 id 是全新 UUID 不可能冲突”的假设失效）。
@@ -285,7 +288,15 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
           "INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)",
         ).run(entry.id, tokenizeWithJieba(ftsText, { doubleWrite: true }));
         if (this.vecTableExists) {
-          this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(entry.id);
+          // F20261110dsqci：content 未变且 vec 行存在 → 保留 vec（embeddingKept）
+          const hasVec = (this.db
+            .prepare("SELECT 1 FROM memory_vec WHERE memory_entry_id = ? LIMIT 1")
+            .get(entry.id)) != null;
+          if (oldRows[0].content === entry.content && hasVec) {
+            embeddingKept = true;
+          } else {
+            this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(entry.id);
+          }
         }
         return;
       }
@@ -311,15 +322,26 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
         this.db.prepare("DELETE FROM memory_entries WHERE id = ?").run(row.id);
       }
     });
+    return { embeddingKept };
   }
 
   /**
    * F20260803chunk: 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条）。
    * 用于 chunk 索引：文档 reindex 时删旧全部 chunk + 插新 N 个 chunk。
    * M1：所有 entries 必须同 (sourceTable, sourceId, contentType)，不一致抛异常。
+   *
+   * F20261110dsqci（#1818）：opts.reuseEntryIds——复用集内的 entry 跳过删除重建
+   * （向量/fts/weights 卫星数据全保留，仅 UPDATE metadata）。
+   * 动机：归档-复活振荡下每轮全量 reindex 删旧插新，worker 已算好的向量被级联删
+   * 白算 ~6200 条/轮，回填队列永不收敛（#1818 案发实测 pending 6301 且涨）。
+   *
+   * 并发正确性（检视鬾1）：复用集在事务内与现存行核实交集（stale id——并发
+   * reindex 中已被另一次替换删掉的——降级为 INSERT 该 entry，entries 携带完整数据），
+   * 并返回实际生效集。调用方以返回值决定 embedding 任务登记：stale 降级 = 新建，
+   * 必须登记重算；否则会把文档 chunk 删成 0 且无任务可恢复。
    */
-  async replaceEntriesBySource(entries: MemoryEntry[]): Promise<void> {
-    if (entries.length === 0) return;
+  async replaceEntriesBySource(entries: MemoryEntry[], opts?: { reuseEntryIds?: ReadonlySet<string> }): Promise<{ reusedEntryIds: Set<string> }> {
+    if (entries.length === 0) return { reusedEntryIds: new Set() };
     const { sourceTable, sourceId, contentType } = entries[0];
     // M1 校验：所有 entries 必须同 source
     for (const e of entries) {
@@ -329,24 +351,57 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
         );
       }
     }
+    const requestedReuse = opts?.reuseEntryIds;
+    const effectiveReuse = new Set<string>();
 
-    this.runInTx(() => {
-      // 删旧（同 source + 同 contentType 的全部 entry）
+    const reused = this.runInTx(() => {
+      // 删旧（同 source + 同 contentType 的全部 entry；F20261110dsqci：实际复用集除外）
       const oldRows = this.db
         .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
         .all(sourceTable, sourceId, contentType) as Array<{ id: string }>;
+      const existing = new Set(oldRows.map(r => r.id));
+      // 交集核实：stale 规划（行已不存在）不进入实际复用集
+      for (const id of requestedReuse ?? []) {
+        if (existing.has(id)) effectiveReuse.add(id);
+      }
       for (const row of oldRows) {
+        if (effectiveReuse.has(row.id)) continue;
         this.cascadeDeleteSatellites(row.id);
       }
       this.db.prepare(
         "DELETE FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?"
-      ).run(sourceTable, sourceId, contentType);
+          + (effectiveReuse.size > 0
+            ? ` AND id NOT IN (${[...effectiveReuse].map(() => "?").join(",")})`
+            : "")
+      ).run(...(effectiveReuse.size > 0 ? [sourceTable, sourceId, contentType, ...effectiveReuse] : [sourceTable, sourceId, contentType]));
 
-      // 插新（N 条 entry，每条独立 entryId）
       for (const entry of entries) {
-        this.insertEntryRow(entry);
+        if (effectiveReuse.has(entry.id)) {
+          // 复用：仅 UPDATE metadata（chunk_index/chunk_total 等环境字段漂移随新值落库；
+          // content 不变 → fts/vec/weights 不动，created_at 保留原值）
+          this.db.prepare("UPDATE memory_entries SET metadata = ? WHERE id = ?").run(
+            entry.metadata ? JSON.stringify(entry.metadata) : null,
+            entry.id,
+          );
+        } else {
+          // 新建（含 stale reuse 降级：规划复用但行已被并发替换删掉 → 行不存在，INSERT 不冲突）
+          this.insertEntryRow(entry);
+        }
       }
+      return effectiveReuse;
     });
+    return { reusedEntryIds: reused };
+  }
+
+  /**
+   * F20261110dsqci（#1818）：读同 source+contentType 的现存 entries——chunk 复用对齐用。
+   * 返回全部字段（调用方按 content 比对），含 metadata（heading_path/char_count 复用判据）。
+   */
+  async findEntriesBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<MemoryEntry[]> {
+    const rows = this.db
+      .prepare("SELECT * FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
+      .all(sourceTable, sourceId, contentType) as MemoryEntryRow[];
+    return rows.map(rowToMemoryEntry);
   }
 
   /**

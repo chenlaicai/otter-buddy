@@ -8,16 +8,24 @@ import type { MemoryEntry } from "@entities/memory/memory-entry";
 import { createCapturingLogger, createTestLogger } from "../../helpers/logger";
 import { EMBED_TASK_PRIORITY } from "@usecases/memory/memory-queue";
 
-/** 创建带状态捕获的 MemoryWriter + MemoryQueue mock */
+/** 创建带状态捕获的 MemoryWriter + MemoryQueue mock
+ *  F20261110dsqci：replaceEntriesBySource 升级为有状态模拟（删旧插新 + 复用集跳过），
+ *  findEntriesBySourceAndType 从 storedEntries 过滤返回——支撑 chunk 复用编排验证 */
 function statefulRepo(): MemoryWriter & MemoryQueue & {
   storedEntries: MemoryEntry[];
   storedEmbeddings: { id: string; embedding: Float32Array }[];
+  enqueuedRetryIds: string[];
+  lastReplaceOpts?: { reuseEntryIds?: ReadonlySet<string> };
 } {
   const storedEntries: MemoryEntry[] = [];
   const storedEmbeddings: { id: string; embedding: Float32Array }[] = [];
+  const enqueuedRetryIds: string[] = [];
+  let lastReplaceOpts: { reuseEntryIds?: ReadonlySet<string> } | undefined;
   return {
     storedEntries,
     storedEmbeddings,
+    enqueuedRetryIds,
+    get lastReplaceOpts() { return lastReplaceOpts; },
     storeEntry: async (entry: MemoryEntry) => {
       storedEntries.push(entry);
     },
@@ -25,9 +33,33 @@ function statefulRepo(): MemoryWriter & MemoryQueue & {
       storedEmbeddings.push({ id, embedding });
     },
     deleteBySource: async () => {},
-    replaceEntryBySource: async () => {},
-    replaceEntriesBySource: async () => {},
+    replaceEntryBySource: async () => ({ embeddingKept: false }),
+    replaceEntriesBySource: async (entries: MemoryEntry[], opts?: { reuseEntryIds?: ReadonlySet<string> }) => {
+      lastReplaceOpts = opts;
+      const { sourceTable, sourceId, contentType } = entries[0];
+      const requestedReuse = opts?.reuseEntryIds ?? new Set<string>();
+      const reuse = new Set(storedEntries.filter(e => requestedReuse.has(e.id)).map(e => e.id));
+      // 删旧（同 source+type，排除事务内核实后的实际复用集）
+      for (let i = storedEntries.length - 1; i >= 0; i--) {
+        const e = storedEntries[i];
+        if (e.sourceTable === sourceTable && e.sourceId === sourceId && e.contentType === contentType && !reuse.has(e.id)) {
+          storedEntries.splice(i, 1);
+        }
+      }
+      for (const e of entries) {
+        if (reuse.has(e.id)) {
+          const i = storedEntries.findIndex(x => x.id === e.id);
+          if (i >= 0) storedEntries[i] = e;
+        } else {
+          storedEntries.push(e);
+        }
+      }
+      return { reusedEntryIds: reuse };
+    },
     deleteBySourceAndType: async () => {},
+    // F20261110dsqci：chunk 复用对齐读（从 storedEntries 过滤，支撑二次 sync 复用验证）
+    findEntriesBySourceAndType: async (sourceTable: string, sourceId: string, contentType: MemoryEntry["contentType"]) =>
+      storedEntries.filter(e => e.sourceTable === sourceTable && e.sourceId === sourceId && e.contentType === contentType),
     incrementRetrievalCounts: async () => {},
     flagMemory: async () => {},
     updateLayerByConversation: async () => {},
@@ -35,7 +67,9 @@ function statefulRepo(): MemoryWriter & MemoryQueue & {
     createEdge: async () => "edge-id",
     deleteEdge: async () => {},
     deleteEdgesByEntryIds: async () => {},
-    enqueueRetry: async () => {},
+    enqueueRetry: async (entryId: string) => {
+      enqueuedRetryIds.push(entryId);
+    },
     claimPendingTasks: async () => [],
     markTaskDone: async () => {},
     markTaskAttemptFailed: async () => {},
@@ -312,6 +346,7 @@ describe("StoreMemory - F20260821scrt secrets 脱敏", () => {
     const replaceCalls: MemoryEntry[] = [];
     repo.replaceEntryBySource = async (entry: MemoryEntry) => {
       replaceCalls.push(entry);
+      return { embeddingKept: false };
     };
 
     await store.replaceBySource({
@@ -330,6 +365,7 @@ describe("StoreMemory - F20260821scrt secrets 脱敏", () => {
     const replaceCalls: MemoryEntry[][] = [];
     repo.replaceEntriesBySource = async (entries: MemoryEntry[]) => {
       replaceCalls.push(entries);
+      return { reusedEntryIds: new Set<string>() };
     };
 
     await store.replaceChunksBySource([
@@ -421,6 +457,7 @@ describe("StoreMemory - issue #509 污染防线", () => {
     const replaceCalls: MemoryEntry[][] = [];
     repo.replaceEntriesBySource = async (entries: MemoryEntry[]) => {
       replaceCalls.push(entries);
+      return { reusedEntryIds: new Set<string>() };
     };
 
     await store.replaceChunksBySource([
@@ -439,6 +476,7 @@ describe("StoreMemory - issue #509 污染防线", () => {
     let replaceCalled = false;
     repo.replaceEntriesBySource = async () => {
       replaceCalled = true;
+      return { reusedEntryIds: new Set<string>() };
     };
 
     const ids = await store.replaceChunksBySource([
@@ -456,6 +494,7 @@ describe("StoreMemory - issue #509 污染防线", () => {
     const replaceCalls: MemoryEntry[][] = [];
     repo.replaceEntriesBySource = async (entries: MemoryEntry[]) => {
       replaceCalls.push(entries);
+      return { reusedEntryIds: new Set<string>() };
     };
 
     // char_count=933 但 cleaned content 只剩 100 字符（<20% 阈值）——833391fa 型缺陷兜底感知
@@ -549,6 +588,7 @@ describe("StoreMemory - F20260915midu 投影 ID 统一", () => {
     const storedChunks: MemoryEntry[] = [];
     repo.replaceEntriesBySource = async (entries: MemoryEntry[]) => {
       storedChunks.push(...entries);
+      return { reusedEntryIds: new Set<string>() };
     };
     const store = new StoreMemory(repo, repo, gateway, createTestLogger());
     const ids = await store.replaceChunksBySource([
@@ -621,3 +661,95 @@ describe("StoreMemory - F20261109epqst 后台任务统一落库（RAM 长队退�
   });
 });
 
+
+/** F20261110dsqci（#1818）：chunk 内容寻址复用编排验证。
+ * 案发：无条件删旧插新 + 全量 enqueueRetry（entry id 每次全新，ON CONFLICT
+ * 幂等键形同虚设），归档-复活振荡下每轮全量重灌 ~6200 任务白算。 */
+describe("StoreMemory.replaceChunksBySource - F20261110dsqci 内容寻址复用", () => {
+  const CHUNK_INPUT = (i: number, content: string, total = 3) => ({
+    layer: "document" as const,
+    contentType: "feature_chunk" as const,
+    sourceId: "F20261110dsqci",
+    sourceTable: "features",
+    conversationId: undefined,
+    granularity: "fine" as const,
+    content,
+    metadata: { chunk_index: i, chunk_total: total, heading_path: ["正文"], char_count: content.length },
+  });
+
+  function makeStore(repo: ReturnType<typeof statefulRepo>) {
+    const embedding: EmbeddingGateway = {
+      available: true,
+      embed: async () => new Float32Array([0.1, 0.2, 0.3]),
+    };
+    return new StoreMemory(repo, repo, embedding, createTestLogger());
+  }
+
+  it("二次 sync 同输入：全部复用（id 不变），enqueueRetry 零登记（#1818 验证断言）", async () => {
+    const repo = statefulRepo();
+    const store = makeStore(repo);
+    const inputs = [CHUNK_INPUT(0, "第一段内容足够长，用于复用验证"), CHUNK_INPUT(1, "第二段内容足够长，用于复用验证"), CHUNK_INPUT(2, "第三段内容足够长，用于复用验证")];
+
+    const ids1 = await store.replaceChunksBySource(inputs);
+    expect(repo.enqueuedRetryIds).toHaveLength(3); // 首次：全部登记
+
+    repo.enqueuedRetryIds.length = 0;
+    const ids2 = await store.replaceChunksBySource(inputs);
+
+    expect(ids2).toEqual(ids1); // id 全复用
+    expect(repo.enqueuedRetryIds).toHaveLength(0); // 零重灌
+    expect(repo.storedEntries).toHaveLength(3); // 无重复
+    expect(repo.lastReplaceOpts?.reuseEntryIds?.size).toBe(3);
+  });
+
+  it("局部修改：仅变更 chunk 新建+登记，未变 chunk 复用", async () => {
+    const repo = statefulRepo();
+    const store = makeStore(repo);
+    await store.replaceChunksBySource([
+      CHUNK_INPUT(0, "第一段内容足够长，保持不变"),
+      CHUNK_INPUT(1, "第二段内容足够长，将被改写"),
+      CHUNK_INPUT(2, "第三段内容足够长，保持不变"),
+    ]);
+    repo.enqueuedRetryIds.length = 0;
+
+    const ids2 = await store.replaceChunksBySource([
+      CHUNK_INPUT(0, "第一段内容足够长，保持不变"),
+      CHUNK_INPUT(1, "第二段内容足够长，已经改写为新年"),
+      CHUNK_INPUT(2, "第三段内容足够长，保持不变"),
+    ]);
+
+    expect(repo.enqueuedRetryIds).toHaveLength(1); // 只有改写的 chunk 重算
+    const reused = repo.storedEntries.filter(e => !repo.enqueuedRetryIds.includes(e.id));
+    expect(reused).toHaveLength(2);
+    expect(ids2.filter(id => !repo.enqueuedRetryIds.includes(id))).toHaveLength(2);
+  });
+
+  it("heading_path 变化：content 相同也不复用（三重判据）", async () => {
+    const repo = statefulRepo();
+    const store = makeStore(repo);
+    await store.replaceChunksBySource([{ ...CHUNK_INPUT(0, "同一段内容但换了章节标题"), metadata: { chunk_index: 0, chunk_total: 1, heading_path: ["旧章节"], char_count: 20 } }]);
+    repo.enqueuedRetryIds.length = 0;
+
+    await store.replaceChunksBySource([{ ...CHUNK_INPUT(0, "同一段内容但换了章节标题"), metadata: { chunk_index: 0, chunk_total: 1, heading_path: ["新章节"], char_count: 20 } }]);
+
+    expect(repo.enqueuedRetryIds).toHaveLength(1); // heading 变了 → 不复用
+  });
+
+  it("同文档内重复段落：两个相同 content 各自复用旧 id，第二/三轮均零登记", async () => {
+    const repo = statefulRepo();
+    const store = makeStore(repo);
+    const dup = "重复段落内容足够长，出现两次验证consume语义";
+    const inputs = [CHUNK_INPUT(0, "开头段落的内容足够长了呀", 3), CHUNK_INPUT(1, dup, 3), CHUNK_INPUT(2, dup, 3)];
+    const ids1 = await store.replaceChunksBySource(inputs);
+    repo.enqueuedRetryIds.length = 0;
+
+    const ids2 = await store.replaceChunksBySource(inputs);
+    const ids3 = await store.replaceChunksBySource(inputs);
+
+    expect(new Set(ids2).size).toBe(3);
+    expect(ids2).toEqual(ids1);
+    expect(ids3).toEqual(ids1);
+    expect(repo.storedEntries).toHaveLength(3);
+    expect(repo.enqueuedRetryIds).toHaveLength(0);
+  });
+});

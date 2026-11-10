@@ -34,12 +34,16 @@ export interface MemoryRepository {
   storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void>;
   /** F20260803mval: 按 source 删除记忆条目（upsert reindex 时清旧 entry，防 FTS 命中陈旧内容） */
   deleteBySource(sourceTable: string, sourceId: string): Promise<void>;
-  /** F20260803mval: 按 source 原子替换（单事务内删旧+插新，防 upsert 中间失败丢数据，B2 修复） */
-  replaceEntryBySource(entry: MemoryEntry): Promise<void>;
-  /** F20260803chunk: 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条），chunk 索引用 */
-  replaceEntriesBySource(entries: MemoryEntry[]): Promise<void>;
+  /** F20260803mval: 按 source 原子替换（单事务内删旧+插新，防 upsert 中间失败丢数据，B2 修复）。
+   *  F20261110dsqci（#1818）：镜像 MemoryWriter，返回 summary 向量是否保留。 */
+  replaceEntryBySource(entry: MemoryEntry): Promise<{ embeddingKept: boolean }>;
+  /** F20260803chunk: 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条），chunk 索引。
+   *  F20261110dsqci（#1818）：镜像 MemoryWriter 的复用参数与实际生效复用集返回值（见其注释）。 */
+  replaceEntriesBySource(entries: MemoryEntry[], opts?: { reuseEntryIds?: ReadonlySet<string> }): Promise<{ reusedEntryIds: Set<string> }>;
   /** PR审视 S3-14: 按 source + contentType 删除（body 清空时清理旧 chunk entries） */
   deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void>;
+  /** F20261110dsqci（#1818）：镜像 MemoryWriter——读同 source+type 现存 entries（chunk 复用对齐） */
+  findEntriesBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<MemoryEntry[]>;
   // 查询
   getById(id: string): Promise<MemoryEntry | null>;
   /** #576（F20260901emps）：按创建时间倒序取最近 N 条（记忆搜索页初始态数据源）

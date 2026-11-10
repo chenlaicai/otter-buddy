@@ -55,6 +55,13 @@ function countChunks(sourceId: string): number {
   return row.c;
 }
 
+/** F20261110dsqci：查某 entry 的卫星数据存在性（fts/weights——复用语义的保留对象） */
+function satellitesOf(entryId: string): { fts: number; weights: number } {
+  const fts = (db.prepare("SELECT COUNT(*) c FROM memory_fts_jieba WHERE memory_entry_id=?").get(entryId) as { c: number }).c;
+  const weights = (db.prepare("SELECT COUNT(*) c FROM memory_weights WHERE memory_entry_id=?").get(entryId) as { c: number }).c;
+  return { fts, weights };
+}
+
 describe("replaceEntriesBySource 幂等性（issue #509）", () => {
   it("同 source_id 连续两次 replace：第二次完全替换，DB 中无重复 chunk", async () => {
     const sourceId = "F20260827idem";
@@ -103,5 +110,71 @@ describe("replaceEntriesBySource 幂等性（issue #509）", () => {
     );
     expect(countChunks("F20260827aaa")).toBe(0);
     expect(countChunks("F20260827bbb")).toBe(0);
+  });
+});
+
+describe("replaceEntriesBySource 复用语义（F20261110dsqci / #1818）", () => {
+  it("reuseEntryIds 内的 entry：id/created_at 保留 + 卫星数据（fts/weights）不删 + metadata 被更新", async () => {
+    const sourceId = "F20261110reuse1";
+    const first = makeChunks(sourceId, 3, "原版");
+    await repo.replaceEntriesBySource(first);
+    // 记住第一个 chunk 的 id/created_at 与卫星数据
+    const keep = first[0];
+    const before = satellitesOf(keep.id);
+    expect(before.fts).toBe(1);
+    expect(before.weights).toBe(1);
+
+    // 第二版：content 不变（同 keep），仅 chunk_index 环境字段漂移；复用 keep.id
+    const second = makeChunks(sourceId, 3, "原版");
+    second[0] = { ...keep, metadata: { chunk_index: 9, chunk_total: 3 } };
+    await repo.replaceEntriesBySource(second, { reuseEntryIds: new Set([keep.id]) });
+
+    // id 保留（未删未重建）、卫星数据保留、metadata 更新为漂移后的值
+    const row = db.prepare("SELECT * FROM memory_entries WHERE id=?").get(keep.id) as { metadata: string; created_at: string };
+    expect(row).toBeTruthy();
+    expect(row.created_at).toBe(keep.createdAt);
+    expect(JSON.parse(row.metadata)).toMatchObject({ chunk_index: 9 });
+    const after = satellitesOf(keep.id);
+    expect(after).toEqual(before);
+    expect(countChunks(sourceId)).toBe(3); // 无重复
+  });
+
+  it("reuseEntryIds 外的同 source 旧 chunk：照旧删旧插新（卫星数据清理）", async () => {
+    const sourceId = "F20261110reuse2";
+    const first = makeChunks(sourceId, 3, "旧版");
+    await repo.replaceEntriesBySource(first);
+    const gone = first[1];
+
+    // 第二版全部新建（不复用）——旧三个应全删
+    const second = makeChunks(sourceId, 2, "新版");
+    await repo.replaceEntriesBySource(second, { reuseEntryIds: new Set() });
+
+    expect(db.prepare("SELECT COUNT(*) c FROM memory_entries WHERE id=?").get(gone.id as string)).toEqual({ c: 0 });
+    expect(satellitesOf(gone.id).fts).toBe(0);
+    expect(satellitesOf(gone.id).weights).toBe(0);
+    expect(countChunks(sourceId)).toBe(2);
+  });
+
+  it("不传 opts：保持旧语义（全删全插），存量调用方零破坏", async () => {
+    const sourceId = "F20261110reuse3";
+    await repo.replaceEntriesBySource(makeChunks(sourceId, 3, "v1"));
+    await repo.replaceEntriesBySource(makeChunks(sourceId, 3, "v1"));
+    expect(countChunks(sourceId)).toBe(3);
+  });
+
+  it("findEntriesBySourceAndType：返回同 source+type 全部 entry（含 metadata），其它 type 不泄入", async () => {
+    const sourceId = "F20261110find1";
+    const chunks = makeChunks(sourceId, 2, "定位");
+    await repo.replaceEntriesBySource(chunks);
+    // 插一个同 source 的 summary entry（content_type 不同，不应返回）
+    await repo.storeEntry({
+      id: sourceId, layer: "document", contentType: "feature", sourceId,
+      sourceTable: "features", conversationId: null, granularity: "coarse",
+      content: "摘要内容足够长", metadata: null, createdAt: new Date().toISOString(),
+    });
+
+    const found = await repo.findEntriesBySourceAndType("features", sourceId, "feature_chunk");
+    expect(found).toHaveLength(2);
+    expect(found.every(e => e.contentType === "feature_chunk" && e.metadata && typeof e.metadata === "object")).toBe(true);
   });
 });

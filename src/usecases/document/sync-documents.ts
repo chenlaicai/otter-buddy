@@ -20,6 +20,13 @@ import { cleanMarkdownForFts } from "./markdown-noise-cleaner";
 import { chunkMarkdown } from "./markdown-chunker";
 import { scanDiskIds } from "./disk-id-scanner";
 
+/** F20261110dsqci（#1818）：sync 执行选项 */
+export interface SyncOptions {
+  /** canonical rootDir（服务主仓绝对路径）：归档判定仅在此视角下启用。
+   *  见 execute 内注释（#1818 归档-复活振荡案发）。 */
+  canonicalRootDir?: string;
+}
+
 export interface SyncResult {
   synced: number;
   skipped: number;
@@ -35,6 +42,9 @@ export interface SyncResult {
   /** F20260803mval: supersedes 引用不存在的 ID（因果链悬空） */
   supersedesDangling: string[];
   errors: Array<{ file: string; error: string }>;
+  /** F20261110dsqci（#1818）：canonical 守卫拦下的候选归档数（rootDir 非主仓时，
+   * DB 有而 rootDir 磁盘无的文档不归档——worktree 部分检出是常态不是删除） */
+  archiveGuarded: number;
 }
 
 /** F20260803mval: 内容指纹，用于 upsert 判定（变更才 update + reindex） */
@@ -70,20 +80,36 @@ export class SyncDocuments {
     private readonly logger: Logger
   ) {}
 
-  async execute(rootDir: string): Promise<SyncResult> {
+  async execute(rootDir: string, options?: SyncOptions): Promise<SyncResult> {
     const startTime = Date.now();
     const result: SyncResult = {
       synced: 0, skipped: 0, updated: 0, archived: 0, chunkEntriesIndexed: 0,
       warnings: [], reconcileGaps: [], supersedesDangling: [], errors: [],
+      archiveGuarded: 0,
     };
 
-    this.logger.info('Document sync started', { action: 'sync_start' });
+    /** F20261110dsqci（#1818）：归档只在 canonical rootDir（服务主仓）视角下生效。
+     * 案发：sync_docs(rootDir=worktree) 时 worktree 检出比主仓少文档是常态，
+     * archiveDeletedDocuments 见「该 rootDir 下无此文件」即归档，主仓独有文档被批量
+     * 误归档（实测 1133/1137 archived）；下轮主仓 sync 因 fingerprint 含 status 全量
+     * mismatch → 全量 reindex 重灌 ~6200 embedding 任务 → 向量级联删白算，队列不收敛。
+     * 归档语义 =「文档从仓库删除」，只有主仓视角有资格判定。不传 canonicalRootDir
+     * 时保持旧行为（归档启用，兼容存量调用方与测试）。 */
+    const canonicalRootDir = options?.canonicalRootDir;
+    const archiveEnabled = !canonicalRootDir || path.resolve(canonicalRootDir) === path.resolve(rootDir);
+
+    this.logger.info('Document sync started', {
+      action: 'sync_start',
+      rootDir,
+      canonicalRootDir: canonicalRootDir ?? rootDir,
+      archiveEnabled,
+    });
 
     await this.syncDirectory(rootDir, "docs/features", "feature", result);
     await this.syncDirectory(rootDir, "docs/research", "research", result);
     /** F20260803mval: 正向对账在归档前，避免归档操作干扰 gap 判定 */
     await this.reconcileSync(rootDir, result);
-    await this.archiveDeletedDocuments(rootDir, result);
+    await this.archiveDeletedDocuments(rootDir, result, archiveEnabled);
 
     const duration = Date.now() - startTime;
     this.logger.info('Document sync completed', {
@@ -92,6 +118,7 @@ export class SyncDocuments {
       errors: result.errors.length,
       warnings: result.warnings.length, reconcileGaps: result.reconcileGaps.length,
       supersedesDangling: result.supersedesDangling.length,
+      archiveGuarded: result.archiveGuarded,
       duration, action: 'sync_complete',
     });
     // F20260804jsyn: 把 errors/warnings/reconcileGaps/supersedesDangling 的具体内容
@@ -319,7 +346,21 @@ export class SyncDocuments {
     }
   }
 
-  private async archiveDeletedDocuments(rootDir: string, result: SyncResult): Promise<void> {
+  private async archiveDeletedDocuments(rootDir: string, result: SyncResult, archiveEnabled: boolean): Promise<void> {
+    /** F20261110dsqci（#1818）：归档守卫——rootDir 非主仓时（worktree 部分检出/验证目录），
+     * 「该 rootDir 下无此文件」不等于「文档已删除」。跳过归档并计数（archiveGuarded），
+     * 下一轮主仓 sync 会给出权威判定。 */
+    if (!archiveEnabled) {
+      const guarded = await this.countAbsentDocs(rootDir);
+      if (guarded > 0) {
+        result.archiveGuarded = guarded;
+        this.logger.warn(
+          `Archive skipped (non-canonical rootDir ${rootDir}): ${guarded} documents absent from this root stay unarchived`,
+          { action: 'sync_archive_guarded', rootDir, guarded },
+        );
+      }
+      return;
+    }
     const dbFeatures = await this.featureRepo.findAll();
     for (const doc of dbFeatures) {
       if (doc.status === "archived") continue;
@@ -337,6 +378,18 @@ export class SyncDocuments {
         result.archived++;
       }
     }
+  }
+
+  /** F20261110dsqci：归档守卫计数——DB 中非 archived 且在 rootDir 磁盘不存在的文档数（feature+research） */
+  private async countAbsentDocs(rootDir: string): Promise<number> {
+    let guarded = 0;
+    for (const doc of await this.featureRepo.findAll()) {
+      if (doc.status !== "archived" && !(await this.fs.exists(path.join(rootDir, doc.filePath)))) guarded++;
+    }
+    for (const doc of await this.researchRepo.findAll()) {
+      if (doc.status !== "archived" && !(await this.fs.exists(path.join(rootDir, doc.filePath)))) guarded++;
+    }
+    return guarded;
   }
 
   private async scanMarkdownFiles(dir: string): Promise<string[]> {
