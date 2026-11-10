@@ -364,6 +364,28 @@ export class DurableSession {
   async live(context: Context) { return this.harness.commit(tx => tx.doc(LiveDoc, this.conversation.id), context); }
   async rawContext(context: Context) { return this.conversation.context(context); }
 
+  /** M-9af49d4a 换世根因修复：同库世代 reset——写 pi.reset entry + head 指针，
+   *  模型上下文自此清零（前世 = reset 点之前的 entries，同库可审计）。
+   *  档案仍由既有首注入链路交付（pendingIdentity），与 reset 解耦。
+   *  守护（R5）：reset 落盘后校验边界真实存在（最新可见 entry 为 pi.reset 且 head 非空），
+   *  不满足即抛错——#1783 式「静默空转」必须变成响亮失败，由 unifiedHandoff 向搭档显式报错。 */
+  async resetForGeneration(context: Context = BACKGROUND_CONTEXT): Promise<void> {
+    if (this.isStreaming) {
+      throw new Error(`durable generation reset refused while running (otter=${this.options.otterId})`);
+    }
+    await this.conversation.reset(undefined, context);
+    const page = await this.conversation.entries({ order: "descending" }, 1, undefined, context);
+    const newest = page.items[0];
+    if (!newest || newest.kind !== "pi.reset" || newest.head == null) {
+      // 审视复核澄清：abort **不撤回** queued write（上游 withdrawQueuedInputs 跳过
+      // write 模式，reset 正是 queued write）——此处 abort 仅作活流收尾，残余 queued
+      // reset 若在下一边界落盘，效果等同一次合法世代边界（无害）；守护的职责是
+      // 响亮失败，不是补偿。busy 前置拒绝（pi.live.run 检查）归入 R5 后续防御层。
+      await this.conversation.abort(context).catch(() => undefined);
+      throw new Error(`durable generation reset guard failed: no pi.reset head boundary after reset (otter=${this.options.otterId}, newest=${newest?.kind ?? "none"})`);
+    }
+  }
+
   async close(context: Context): Promise<void> {
     if (this.closeRequested) return;
     this.closeRequested = true;
