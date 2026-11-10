@@ -682,6 +682,12 @@ export class PiSessionFactory implements AgentGateway {
       otterId, file: synthesisFile,
       models: getModelSource(this.cfg.modelPool), model: resolvedModel, thinkingLevel: 'off',
       cwd: resolveSessionCwd('', this.cfg.dataDir ?? './data'), tools: { customTools: [], codingTools: [], readOnly: true },
+      // M-9b24be04：合成影子通道自带合成 invokeId——durable prompt 的 invoke 归属守卫
+      //（"A turn owns watch/admission/settlement"）要求轮有主；影子通道不在任何 invoke
+      // ALS 作用域内，不带 id 会在 prompt() 首行被拒（"Durable prompt requires
+      // currentInvokeId"）——#1783 迁移后叙事合成从未成功的直接原因（R2 修好读取器
+      // 后暴露）。合成 id 与真实 invoke 命名空间隔离（synthesis- 前缀），事件归因不串轮。
+      invokeId: `synthesis-${randomUUID()}`,
       logger: this.logger, register: createInvokeRegister(), context: BACKGROUND_CONTEXT,
     });
     const turnText = { text: '' };
