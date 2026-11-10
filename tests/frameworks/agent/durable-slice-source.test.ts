@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai";
-import { fauxProvider, fauxAssistantMessage } from "@earendil-works/pi-ai/providers/faux";
+import { fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import Database from "better-sqlite3";
 import { DurableSession } from "../../../src/frameworks/agent/durable-session";
 import { DurableEventStream } from "../../../src/frameworks/agent/durable-event-stream";
@@ -115,6 +115,34 @@ describe("durable-slice-source：只读投影（R2）", () => {
     expect(dump).not.toContain("被压缩的旧内容"); // head 边界：压缩点之前不进原料
     const compaction = entries!.find(e => e.type === "compaction") as { summary?: string };
     expect(compaction?.summary).toContain("前世干了 X 和 Y");
+  });
+
+  it("工具轮投影：toolResult 消息进入原料且形状保真（审视建议 2 回归）", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "otter-slice-tool-"));
+    const file = path.join(dir, "session.sqlite");
+    const faux = fauxProvider({});
+    const models = createModels();
+    models.setProvider(faux.provider);
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall("probe", {}, { id: "call-1" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage("工具后总结"),
+    ]);
+    const session = await DurableSession.open({
+      otterId: "otter", file, models, model: faux.getModel(), cwd: tmpdir(), logger,
+      register: createInvokeRegister(), invokeId: "invoke-test", context: BACKGROUND_CONTEXT,
+      tools: { codingTools: [], customTools: [{ name: "probe", label: "probe", description: "probe", parameters: { type: "object", properties: {} }, execute: async () => ({ content: [{ type: "text", text: "tool-ok" }], details: {} }) }] },
+    });
+    await session.prompt("用工具查一下", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
+    await session.close(BACKGROUND_CONTEXT);
+
+    const entries = readDurableActiveSessionEntries(file)!;
+    const roles = (entries.filter(e => e.type === "message") as unknown as Array<{ message: { role: string } }>).map(e => e.message.role);
+    expect(roles).toContain("user");
+    expect(roles).toContain("assistant");
+    expect(roles).toContain("toolResult");
+    // 切片器端到端：工具轮原料可流转
+    const slice = sliceSessionEntries(entries as never);
+    expect(JSON.stringify(slice!.keptEntries)).toContain("工具后总结");
   });
 
   it("切片器端到端：投影原料 → keptEntries 含前世 speak 原文", async () => {

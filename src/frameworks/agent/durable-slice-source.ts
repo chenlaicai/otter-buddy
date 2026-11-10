@@ -29,7 +29,7 @@ interface SessionEntryShape {
 
 interface DurableEntryRow {
   id: number;
-  head: number | null;
+  head?: number | null;
   record: string;
 }
 
@@ -49,9 +49,9 @@ function textOfContent(content: unknown): string | undefined {
   return parts.length ? parts.join("\n") : undefined;
 }
 
-/** 世代边界：最后一条 head 非空条目的 head 值（reset/compaction 指向的活动上下文首条）；
- *  无 head 持有者 = 单世代全量（-Infinity）。 */
-function findGenerationBoundary(rows: DurableEntryRow[]): number {
+/** 世代边界：最后一条 head 非空条目的 head 值（reset/compaction 指向的活动上下文首条）。
+ *  仅被单测直接引用（生产路径已内联为倒序 LIMIT 1 查询，免全量拉取）。 */
+export function findGenerationBoundary(rows: DurableEntryRow[]): number {
   for (let i = rows.length - 1; i >= 0; i--) {
     if (rows[i].head != null) return rows[i].head as number;
   }
@@ -72,25 +72,30 @@ function projectEntry(row: DurableEntryRow, timestamp: string): SessionEntryShap
 /**
  * 只读投影 durable 库「当前世代」entries（= rawContext 活动视图的镜像）。
  * 仅取根 conversation（海獭每獭一库单会话模型）；parentId 链式重接、时间戳合成单调。
+ * 审视建议 1：先倒序定位世代边界（只取 head 列），再仅拉取当前世代 record——
+ *  免每 invoke 全历史 O(全量) 同步读（probeFirstTurn 高频入口，多世代库会湿漉漉变慢）。
  */
 export function readDurableActiveSessionEntries(file: string): SessionEntryShape[] | undefined {
   const resolved = path.resolve(file);
   if (!existsSync(resolved)) return undefined;
   const db = new Database(resolved, { readonly: true, fileMustExist: true });
   try {
+    const boundaryRow = db.prepare(
+      `SELECT head FROM entries
+       WHERE conversation_id = (SELECT MIN(id) FROM conversations) AND head IS NOT NULL
+       ORDER BY id DESC LIMIT 1`,
+    ).get() as { head: number } | undefined;
     const rows = db.prepare(
-      `SELECT id, head, record FROM entries
-       WHERE conversation_id = (SELECT MIN(id) FROM conversations)
+      `SELECT id, record FROM entries
+       WHERE conversation_id = (SELECT MIN(id) FROM conversations) AND id >= ?
        ORDER BY id ASC`,
-    ).all() as DurableEntryRow[];
+    ).all(boundaryRow?.head ?? -1) as Array<{ id: number; record: string }>;
     if (rows.length === 0) return [];
 
-    const boundary = findGenerationBoundary(rows);
-    const active = rows.filter(r => r.id >= boundary);
-    const base = Date.now() - active.length * 1000;
+    const base = Date.now() - rows.length * 1000;
     const out: SessionEntryShape[] = [];
-    for (let i = 0; i < active.length; i++) {
-      const projected = projectEntry(active[i], new Date(base + i * 1000).toISOString());
+    for (let i = 0; i < rows.length; i++) {
+      const projected = projectEntry(rows[i], new Date(base + i * 1000).toISOString());
       if (projected) {
         (projected as unknown as { parentId: string | null }).parentId = out.length ? out[out.length - 1].id : null;
         out.push(projected);
