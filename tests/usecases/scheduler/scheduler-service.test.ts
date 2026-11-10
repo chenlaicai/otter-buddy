@@ -223,7 +223,6 @@ function createMockConvRepo() {
     getLinkedResourcesByGroup: vi.fn(),
     updateResourceStatus: vi.fn(),
     supersedeLinkedResource: vi.fn(),
-    deleteLinkedResource: vi.fn(),
     flagResource: vi.fn(),
     createParticipant: vi.fn(),
     createParticipants: vi.fn(),

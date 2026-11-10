@@ -615,7 +615,7 @@ export function createMockDeps(): TestDeps {
     searchMemory: mockMethods(["search", "searchSimilar"]),
     scanDarkEntries: mockMethods(["execute"]),
     manageMemory: mockMethods(["getById", "getDetails", "flagMemory", "updateLayer"]),
-    manageKeyInfo: mockMethods(["getLinkedResources", "linkResource", "flagResource", "deleteLinkedResource", "supersedeResource", "archiveResource", "updateResourceStatus", "getArtifactIndex", "getLinkedResourcesByGroup"]),
+    manageKeyInfo: mockMethods(["getLinkedResources", "linkResource", "flagResource", "supersedeResource", "archiveResource", "updateResourceStatus", "getArtifactIndex", "getLinkedResourcesByGroup"]),
     settingsConfig: {
       port: 3000,
       dbPath: "./otter-buddy.db",

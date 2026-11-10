@@ -147,13 +147,17 @@ export class ManageKeyInfo {
     return newResource;
   }
 
-  /** 归档产物 */
-  async archiveResource(id: string, _conversationId: string): Promise<void> {
+  /** 归档产物：conversation 归属不匹配与未知 ID 一样按 404 处理，防跨对话写。 */
+  async archiveResource(id: string, conversationId: string): Promise<void> {
     const resource = await this.repo.getLinkedResourceById(id);
-    if (!resource) throw new DomainError(`LinkedResource ${id} not found`, "not_found");
+    if (!resource || resource.conversationId !== conversationId) {
+      throw new DomainError(`LinkedResource ${id} not found in conversation ${conversationId}`, "not_found");
+    }
     if (!canTransitionArtifactStatus(resource.status, "archived")) {
       throw new DomainError(`Cannot archive resource in status '${resource.status}'`, "conflict");
     }
+    // repository 的条件更新与 DomainError(conflict) 兜底并发重复 DELETE；
+    // 不依赖错误文案匹配，第二写不会生效，也不会泄漏为 500。
     await this.repo.updateResourceStatus(id, "archived");
   }
 
@@ -203,10 +207,6 @@ export class ManageKeyInfo {
     }));
 
     return { ungrouped, groups };
-  }
-
-  async deleteLinkedResource(id: string): Promise<void> {
-    await this.repo.deleteLinkedResource(id);
   }
 
   async flagResource(id: string, flagged: boolean): Promise<void> {

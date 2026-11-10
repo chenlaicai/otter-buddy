@@ -66,7 +66,6 @@ export interface ConversationRepository {
   getLinkedResourcesByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]>;
   updateResourceStatus(id: string, status: ArtifactStatus, supersededBy?: string): Promise<void>;
   supersedeLinkedResource(existingId: string, newResource: LinkedResource): Promise<void>;
-  deleteLinkedResource(id: string): Promise<void>;
   flagResource(id: string, flagged: boolean): Promise<void>;
 
   // Participant 管理（UA-4~UA-10）。
