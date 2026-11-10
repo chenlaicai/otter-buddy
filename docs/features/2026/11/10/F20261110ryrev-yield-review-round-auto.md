@@ -80,3 +80,5 @@ intent:
 ## 边界
 
 不处理历史数据，不改变 token 公式，不新增面板异常栏；没有 trace↔work 绑定的协作仍不能归属轮次，后台日志保留缺口。
+
+当前采集覆盖标准 dispatch-chain 的完成交棒；retry、重启恢复、busy follow-up、recruiting 等非标准路径可能漏记，方向是少记而非误计。`assignmentRole` 是派工方对本次协作的声明，系统不再从姓名或正文推断；若把作者派回为 reviewer，会按该声明计轮。缺 trace、binder 或工作绑定时允许业务继续，仅已有日志路径可诊断。
