@@ -29,6 +29,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import type { Model, Api } from "@earendil-works/pi-ai";
+import { ConversationIdle } from "@earendil-works/pi-durable";
 import { createAgentSessionStore } from "./agent-session-store";
 import { classifyGuardInterceptReason } from "./guard-intercept-classify";
 // F20261019gses P0 影子下线：shadow-eval-recorder import 已删（观察期对照机制随转正移除）
@@ -1447,9 +1448,9 @@ export class PiSessionFactory implements AgentGateway {
    *  双路径设计（终审 B4）：本方法从 poolMeta 取池级 session（idle 期队列追加，
    *  SDK 原生排队）；steerSession 走 activeSessions 前缀扫描（invoke 运行期实时
    *  打断）——两条注入路径的 session 取源不同是设计意图，非遗漏 */
-  followUp(otterId: string, text: string): boolean;
+  followUp(otterId: string, text: string): Promise<boolean>;
   followUp(otterId: string, text: string, options: { delegated: true; reason?: 'chain' | 'lock-timeout'; delegatedOptions?: InvokeOptions }): Promise<boolean>;
-  followUp(otterId: string, text: string, options?: { delegated?: boolean; reason?: 'chain' | 'lock-timeout'; delegatedOptions?: InvokeOptions }): boolean | Promise<boolean> {
+  followUp(otterId: string, text: string, options?: { delegated?: boolean; reason?: 'chain' | 'lock-timeout'; delegatedOptions?: InvokeOptions }): Promise<boolean> {
     if (!options?.delegated) return this.enqueueUserFollowUp(otterId, text);
     // D2 也不向交接旧世排队；false 让链回退锁等待，由 D3 统一处理超时。
     if (this.lockManager.isHandoffMode(`session:${otterId}`)) return Promise.resolve(false);
@@ -1502,13 +1503,18 @@ export class PiSessionFactory implements AgentGateway {
       lockTimeout ? '等锁超时，消息已转交当前 session 的 followUp 队列。' : '链式派工已注入持有者队列；持有者异常早退时消息随 session 生命周期处理。');
   }
 
-  private enqueueUserFollowUp(otterId: string, text: string): boolean {
+  private async enqueueUserFollowUp(otterId: string, text: string): Promise<boolean> {
     const pooled = this.poolMeta.get(otterId);
     if (!pooled || !pooled.session.isStreaming) return false;
-    void pooled.session.followUp(text, BACKGROUND_CONTEXT).catch((err: unknown) => {
-      this.logger.warn(`[followUp] followUp 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
-    });
-    return true;
+    try {
+      const disposition = await pooled.session.followUp(text, BACKGROUND_CONTEXT);
+      return disposition === "queued";
+    } catch (err) {
+      if (!(err instanceof ConversationIdle)) {
+        this.logger.warn(`[followUp] followUp 调用失败 otter=${otterId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return false;
+    }
   }
 
   /** 原 prompt settle 代表队列 drain 完成；pool evict/失败注入也走此清理。 */
@@ -1522,42 +1528,38 @@ export class PiSessionFactory implements AgentGateway {
   }
 
 
-  /** #530 梯度护栏：向活跃 session 注入 steer 文案（链引擎调用）。
-   *  复用 circuit-breaker-helpers 的 session.steer 通道。
-   *  键格式：生产链路 sessionKey 恒为 ${otterId}:${messageId}，需前缀扫描匹配。
-   *  返回 true=找到活跃 session 并发出注入请求，false=session 不活跃或无 steer 能力。
-   *  ⚠️ 竞态窗口（F20260907usti）：fire-and-forget 语义下 true ≠ 送达确认——
-   *  session 收尾 finally 块 delete 前的窗口内，steer 可能抛错（session dispose 中）。
-   *  此时返回 true + 路由器写 completed/steered 销账行 → URGENT 零投递且台账说已消费。
-   *  最小修复：catch 内落 healing event（可观测），重启补扫不补（设计显式声明此窗口）。
-   *  F20260913ctlv 整合轮修复：合并时误删，从 main（b4c4e4db）原样恢复。 */
-  steerSession(otterId: string, text: string): boolean {
-    // 遍历 activeSessions 查找 otterId 前缀匹配（键格式 ${otterId}:${messageId}）
+  /** #530 / #1788：只有 durable 原子 admission 成功才允许路由销账。
+   *  activeSessions 可能短暂保留已 idle 的 entry；whenIdle=reject 让该竞态回退新 invoke，
+   *  不再把 fire-and-forget 请求误记为 steered。 */
+  async steerSession(otterId: string, text: string): Promise<boolean> {
     for (const [key, entry] of this.activeSessions) {
       if ((key === otterId || key.startsWith(`${otterId}:`)) && entry.steer) {
-        void entry.steer(text).catch((err: unknown) => {
+        try {
+          await entry.steer(text);
+          return true;
+        } catch (err) {
+          if (err instanceof ConversationIdle) return false;
           const errMsg = err instanceof Error ? err.message : String(err);
           this.logger.warn(`[steer] steer 调用失败 otter=${otterId}: ${errMsg}`);
-          // F20260907usti：steer 失败时落 healing event（可观测）
           if (this.cfg.healingRepo) {
-            this.cfg.healingRepo.create({
+            await this.cfg.healingRepo.create({
               id: crypto.randomUUID(),
               messageId: "",
               conversationId: "",
               otterId,
               errorType: "other",
               severity: "medium",
-              description: `URGENT steer 注入失败（session 收尾竞态窗口）：${errMsg}`,
-              suggestion: "注入未送达且已销账=零投递，需补救时人工重投；链引擎护栏调用则仅警示缺失",
+              description: `URGENT steer 注入失败（未销账，路由回退新 invoke）：${errMsg}`,
+              suggestion: "本次信号未按 steer 销账；路由将尝试新 invoke，仍失败时按入口错误处理",
               context: { layer: "framework", method: "steerSession" },
               status: "open",
               resolution: null,
               createdAt: new Date().toISOString(),
               resolvedAt: null,
-            }).catch(() => {/* healing 落账失败不阻断 */});
+            }).catch(() => {/* healing 落账失败不阻断路由回退 */});
           }
-        });
-        return true;
+          return false;
+        }
       }
     }
     this.logger.warn(`[steer] session 不活跃或无 steer 能力 otter=${otterId}`);

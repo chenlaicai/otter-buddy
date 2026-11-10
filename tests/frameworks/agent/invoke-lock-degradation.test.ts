@@ -192,6 +192,6 @@ describe("F20261027cnsv D2/D3 reliable delegated followUp", () => {
 
   it("普通用户 followUp 不受委托单飞行限制", async () => {
     await h.factory.followUp("otter-1", "delegated", { delegated: true });
-    expect(h.factory.followUp("otter-1", "user")).toBe(true);
+    await expect(h.factory.followUp("otter-1", "user")).resolves.toBe(true);
   });
 });

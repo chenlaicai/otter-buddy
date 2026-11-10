@@ -1,15 +1,13 @@
 /**
- * F20260913ctlv 整合轮修复锁定测试：steerSession（合并时曾误删，检视发现 1）。
- *
- * 守护的行为：activeSessions 前缀匹配命中 → entry.steer 注入（fire-and-forget）→
- * 返回 true；未命中（不活跃/无 steer 能力）→ false + warn 日志。
- * URGENT 急讯路由（signal-router:218）依赖本方法——丢方法 = 运行时崩溃
- * （app.ts 现用显式 adapter，方法缺失编译期即报，本测试锁行为语义）。
+ * #1788：activeSessions 前缀匹配命中后，必须 await entry.steer 的真实 admission。
+ * 只有 admitted 才返回 true；未命中、idle 或 admission 失败均返回 false，
+ * 由 SignalRouter 回退新 invoke，且不得把信号销账为 steered。
  */
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@frameworks/config", () => ({ getConfig: () => ({ circuitBreaker: {} }) }));
 
+import { ConversationIdle } from "@earendil-works/pi-durable";
 import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
 import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
@@ -35,21 +33,17 @@ function makeFactory() {
   }, db };
 }
 
-describe("steerSession（F20260913ctlv 整合轮恢复——main 版语义锁定）", () => {
+describe("steerSession（#1788 真实 admission 后才算成功）", () => {
   it("activeSessions 前缀匹配命中 → entry.steer 注入并返回 true", async () => {
     const { factory, internals, db } = makeFactory();
     const steered: string[] = [];
-    // 生产键格式 ${otterId}:${messageId}
     internals.activeSessions.set("o1:inv-9", {
       abort: async () => {},
       steer: async (text: string) => { steered.push(text); },
       toolCallCount: 0,
     });
 
-    const result = factory.steerSession("o1", "URGENT 急讯");
-    // fire-and-forget：先返回 true，注入异步完成
-    expect(result).toBe(true);
-    await new Promise((r) => setTimeout(r, 10));
+    await expect(factory.steerSession("o1", "URGENT 急讯")).resolves.toBe(true);
     expect(steered).toEqual(["URGENT 急讯"]);
     db.close();
   });
@@ -63,50 +57,57 @@ describe("steerSession（F20260913ctlv 整合轮恢复——main 版语义锁定
       toolCallCount: 0,
     });
 
-    expect(factory.steerSession("o1", "x")).toBe(true);
-    await new Promise((r) => setTimeout(r, 10));
+    await expect(factory.steerSession("o1", "x")).resolves.toBe(true);
     expect(steered).toEqual(["x"]);
     db.close();
   });
 
-  it("session 不活跃（activeSessions 空）→ false", () => {
+  it("session 不活跃（activeSessions 空）→ false", async () => {
     const { factory, db } = makeFactory();
-    expect(factory.steerSession("o-none", "x")).toBe(false);
+    await expect(factory.steerSession("o-none", "x")).resolves.toBe(false);
     db.close();
   });
 
-  it("entry 无 steer 能力 → false（前缀匹配但 steer 缺失）", () => {
+  it("entry 无 steer 能力 → false（前缀匹配但 steer 缺失）", async () => {
     const { factory, internals, db } = makeFactory();
     internals.activeSessions.set("o1:inv-1", {
       abort: async () => {},
-      // steer 缺失（无 steer 能力的 session）
       toolCallCount: 0,
     });
-    expect(factory.steerSession("o1", "x")).toBe(false);
+    await expect(factory.steerSession("o1", "x")).resolves.toBe(false);
     db.close();
   });
 
-  it("不同 otterId 前缀不误匹配（o1 不命中 o10）", () => {
+  it("不同 otterId 前缀不误匹配（o1 不命中 o10）", async () => {
     const { factory, internals, db } = makeFactory();
     internals.activeSessions.set("o10:inv-1", {
       abort: async () => {},
       steer: async () => {},
       toolCallCount: 0,
     });
-    // "o1" 前缀匹配要求 key === "o1" 或以 "o1:" 开头——"o10:" 不满足（':' 边界）
-    expect(factory.steerSession("o1", "x")).toBe(false);
+    await expect(factory.steerSession("o1", "x")).resolves.toBe(false);
     db.close();
   });
 
-  it("steer 抛错不崩（fire-and-forget catch）且返回 true", async () => {
+  it("durable 已 idle 但 active entry 未删 → false，不启动无人托管的新 run", async () => {
+    const { factory, internals, db } = makeFactory();
+    internals.activeSessions.set("o1:inv-1", {
+      abort: async () => {},
+      steer: async () => { throw new ConversationIdle(1 as never); },
+      toolCallCount: 0,
+    });
+    await expect(factory.steerSession("o1", "x")).resolves.toBe(false);
+    db.close();
+  });
+
+  it("其他 steer admission 错误不冒充成功，返回 false", async () => {
     const { factory, internals, db } = makeFactory();
     internals.activeSessions.set("o1:inv-1", {
       abort: async () => {},
       steer: async () => { throw new Error("session dispose 中"); },
       toolCallCount: 0,
     });
-    expect(factory.steerSession("o1", "x")).toBe(true);
-    await new Promise((r) => setTimeout(r, 10)); // 不抛未捕获异常
+    await expect(factory.steerSession("o1", "x")).resolves.toBe(false);
     db.close();
   });
 });

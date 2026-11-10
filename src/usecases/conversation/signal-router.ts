@@ -82,11 +82,11 @@ export interface SignalRouterSessionFactory {
   /** otter 是否在热池且正在运行 */
   isRunning(otterId: string): boolean;
   /** 向运行中的 session 队列追加 followUp 消息 */
-  followUp(otterId: string, text: string): boolean;
+  followUp(otterId: string, text: string): Promise<boolean>;
   /** 向运行中的 session 队列追加 steer（急讯）消息。
    *  方法名 steerSession（对齐 pi-session-factory 实现——原名 steer 与实现不一致，
    *  test14 实测 factory.steer is not a function 崩进程） */
-  steerSession(otterId: string, text: string): boolean;
+  steerSession(otterId: string, text: string): Promise<boolean>;
 }
 
 /** #775 S4a：routeDirectSignal 无法进行执行时抛出——携带不可路由原因 */
@@ -227,14 +227,14 @@ export class SignalRouter {
        *  当前生成）；用户显式选 followUp（副按钮「排队」）时排队等当前轮说完再接。
        *  mode 来自 entry.metadata.injectionMode（sendMessage 请求体透传落库） */
       if (signal.injectionMode === "followUp") {
-        const followed = this.deps.factory.followUp(targetId, await this.buildSignalText(signal));
+        const followed = await this.deps.factory.followUp(targetId, await this.buildSignalText(signal));
         if (followed) {
           this.deps.logger.info("[signal-router] followUp 注入成功（用户显式排队）", { conversationId, messageId: signal.id, targetId });
           return "followed_up";
         }
         this.deps.logger.info("[signal-router] followUp 不可达，降级 invoke", { conversationId, messageId: signal.id, targetId });
       } else {
-        const steered = this.deps.factory.steerSession(targetId, await this.buildSteerText(signal));
+        const steered = await this.deps.factory.steerSession(targetId, await this.buildSteerText(signal));
         if (steered) {
           this.deps.logger.info("[signal-router] steer 注入成功", { conversationId, messageId: signal.id, targetId });
           return "steered";

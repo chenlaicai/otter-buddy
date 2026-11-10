@@ -31,7 +31,7 @@ export interface AgentGateway {
    *  可选——未实现时 reset(channel='handoff') 降级走正常 reset（旧行为，保持兼容）。 */
   resetForHandoff?(otterId: string, context?: AgentContext): Promise<void>;
   /** P3a ① URGENT steer 注入：向活跃 session 注入打断询问文案。
-   *  返回 true=注入成功（session 活跃），false=不可达（降级 busyQueue）。
+   *  返回 true=durable 已实际接纳，false=不可达/已 idle（路由回退新 invoke）。
    *  可选方法——未实现时路由器跳过 steer 路径（行为等同 false）。 */
-  steerSession?(otterId: string, text: string): boolean;
+  steerSession?(otterId: string, text: string): Promise<boolean>;
 }

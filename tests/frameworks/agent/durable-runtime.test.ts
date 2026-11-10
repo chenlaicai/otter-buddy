@@ -6,7 +6,7 @@ import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai";
 import { fauxProvider, fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { DurableSession } from "../../../src/frameworks/agent/durable-session";
+import { DurableSession, type DurableSessionOptions } from "../../../src/frameworks/agent/durable-session";
 import { DurableMcpBridge } from "../../../src/frameworks/agent/durable-mcp";
 import { DurableEventStream } from "../../../src/frameworks/agent/durable-event-stream";
 import { createInvokeRegister } from "../../../src/frameworks/agent/tool-builder";
@@ -14,7 +14,7 @@ import type { Logger } from "../../../src/usecases/ports/logger";
 
 const logger: Logger = { debug() {}, info() {}, warn() {}, error() {}, child() { return this; } };
 
-async function open(file: string, responses: Parameters<ReturnType<typeof fauxProvider>["setResponses"]>[0], execute: (id: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; isError?: boolean; terminate?: boolean }> = async () => ({ content: [{ type: "text" as const, text: "tool-ok" }], details: {} })) {
+async function open(file: string, responses: Parameters<ReturnType<typeof fauxProvider>["setResponses"]>[0], execute: (id: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown>; isError?: boolean; terminate?: boolean }> = async () => ({ content: [{ type: "text" as const, text: "tool-ok" }], details: {} }), afterTool?: DurableSessionOptions["afterTool"]) {
   const faux = fauxProvider({});
   const models = createModels();
   models.setProvider(faux.provider);
@@ -23,10 +23,12 @@ async function open(file: string, responses: Parameters<ReturnType<typeof fauxPr
     otterId: "otter", file, models, model: faux.getModel(), cwd: tmpdir(), logger,
     register: createInvokeRegister(), invokeId: "invoke-test", context: BACKGROUND_CONTEXT,
     tools: { codingTools: [], customTools: [{ name: "side_effect", label: "test", description: "test", parameters: { type: "object", properties: {} }, execute }] },
+    afterTool,
   });
   return { session, faux };
 }
 
+// eslint-disable-next-line max-lines-per-function -- #1788 terminate/steer 生命周期回归共享同一真实 Harness fixture
 describe("durable-native runtime", () => {
   it("runs real custom tools and maps terminal text/usage through public watch", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-"));
@@ -111,6 +113,143 @@ describe("durable-native runtime", () => {
     await session.followUp("next task", BACKGROUND_CONTEXT);
     await pending;
     expect(faux.state.callCount).toBeGreaterThanOrEqual(1);
+    await session.close(BACKGROUND_CONTEXT);
+  });
+
+  it("settles a steer arriving while a terminating tool ends its run (#1788)", { timeout: 10_000 }, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-terminate-steer-"));
+    let notifyFirstTool!: () => void;
+    const firstToolStarted = new Promise<void>(resolve => { notifyFirstTool = resolve; });
+    let releaseFirstTool!: () => void;
+    const firstToolGate = new Promise<void>(resolve => { releaseFirstTool = resolve; });
+    const { session, faux } = await open(path.join(dir, "session.sqlite"), [
+      fauxAssistantMessage(fauxToolCall("side_effect", {}, { id: "terminate-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("side_effect", {}, { id: "receipt-tool-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("receipt handled"),
+    ], async (id) => {
+      if (id === "terminate-call") {
+        notifyFirstTool();
+        await firstToolGate;
+      }
+      return { content: [{ type: "text" as const, text: id }], details: {}, terminate: true };
+    });
+    const pending = session.prompt("first task", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
+    await firstToolStarted;
+    await session.steer("board receipt", BACKGROUND_CONTEXT);
+    releaseFirstTool();
+    await pending;
+    expect(faux.state.callCount).toBe(2);
+    const context = await session.rawContext(BACKGROUND_CONTEXT);
+    expect(context.entries.some(entry => entry.kind === "pi.tool-result" && entry.model?.[0].role === "toolResult" && entry.model[0].toolCallId === "receipt-tool-call")).toBe(true);
+    expect((await session.inspect(BACKGROUND_CONTEXT)).submissions.every(item => item.status === "done" || item.status === "unanswered")).toBe(true);
+    await session.close(BACKGROUND_CONTEXT);
+  });
+
+  it("drains a receipt admitted after a terminating tool returns (#1788 boundary)", { timeout: 10_000 }, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-receipt-boundary-"));
+    let notifyAfterYield!: () => void;
+    const afterYield = new Promise<void>(resolve => { notifyAfterYield = resolve; });
+    let releaseYieldResult!: () => void;
+    const yieldResultGate = new Promise<void>(resolve => { releaseYieldResult = resolve; });
+    const { session, faux } = await open(path.join(dir, "session.sqlite"), [
+      fauxAssistantMessage(fauxToolCall("side_effect", { step: "speak" }, { id: "speak-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("side_effect", { step: "yield" }, { id: "yield-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("side_effect", { step: "receipt" }, { id: "receipt-call" }), { stopReason: "toolUse" }),
+    ], async (id) => ({
+      content: [{ type: "text" as const, text: id }], details: {}, terminate: id !== "speak-call",
+    }), async (call) => {
+      if (call.id === "yield-call") {
+        // execute() has returned, but the terminating result/final boundary has not committed yet.
+        notifyAfterYield();
+        await yieldResultGate;
+      }
+    });
+    const pending = session.prompt("first task", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
+    await afterYield;
+    await session.steer("board receipt", BACKGROUND_CONTEXT);
+    releaseYieldResult();
+    await pending;
+    expect(faux.state.callCount).toBe(3);
+    expect((await session.inspect(BACKGROUND_CONTEXT)).submissions.every(item => item.status === "done")).toBe(true);
+    await session.close(BACKGROUND_CONTEXT);
+  });
+
+  it("keeps the invoke alive while one-at-a-time successor runs drain (#1788)", { timeout: 10_000 }, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-successor-drain-"));
+    let notifyFirstTool!: () => void;
+    const firstToolStarted = new Promise<void>(resolve => { notifyFirstTool = resolve; });
+    let releaseFirstTool!: () => void;
+    const firstToolGate = new Promise<void>(resolve => { releaseFirstTool = resolve; });
+    let notifySuccessor!: () => void;
+    const successorStarted = new Promise<void>(resolve => { notifySuccessor = resolve; });
+    let releaseSuccessor!: () => void;
+    const successorGate = new Promise<void>(resolve => { releaseSuccessor = resolve; });
+    const { session, faux } = await open(path.join(dir, "session.sqlite"), [
+      fauxAssistantMessage(fauxToolCall("side_effect", {}, { id: "terminate-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("side_effect", {}, { id: "successor-one" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("side_effect", {}, { id: "successor-two" }), { stopReason: "toolUse" }),
+    ], async (id) => {
+      if (id === "terminate-call") {
+        notifyFirstTool();
+        await firstToolGate;
+      }
+      if (id === "successor-one") {
+        notifySuccessor();
+        await successorGate;
+      }
+      return { content: [{ type: "text" as const, text: id }], details: {}, terminate: true };
+    });
+    let promptSettled = false;
+    const pending = session.prompt("first task", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
+    void pending.then(() => { promptSettled = true; }, () => { promptSettled = true; });
+    await firstToolStarted;
+    await session.steer("board receipt one", BACKGROUND_CONTEXT);
+    await session.steer("board receipt two", BACKGROUND_CONTEXT);
+    releaseFirstTool();
+    await successorStarted;
+    expect(promptSettled).toBe(false);
+    releaseSuccessor();
+    await pending;
+    expect(faux.state.callCount).toBe(3);
+    expect((await session.inspect(BACKGROUND_CONTEXT)).submissions.every(item => item.status === "done")).toBe(true);
+    await session.close(BACKGROUND_CONTEXT);
+  });
+
+  it("abort remains authoritative while a queued successor is running (#1788)", { timeout: 10_000 }, async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-successor-abort-"));
+    let notifyFirstTool!: () => void;
+    const firstToolStarted = new Promise<void>(resolve => { notifyFirstTool = resolve; });
+    let releaseFirstTool!: () => void;
+    const firstToolGate = new Promise<void>(resolve => { releaseFirstTool = resolve; });
+    let notifySuccessor!: () => void;
+    const successorStarted = new Promise<void>(resolve => { notifySuccessor = resolve; });
+    let successorAborted = false;
+    const { session, faux } = await open(path.join(dir, "session.sqlite"), [
+      fauxAssistantMessage(fauxToolCall("side_effect", {}, { id: "terminate-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage(fauxToolCall("side_effect", {}, { id: "successor-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("must not run"),
+    ], async (id, _args, signal) => {
+      if (id === "terminate-call") {
+        notifyFirstTool();
+        await firstToolGate;
+      }
+      if (id === "successor-call") {
+        notifySuccessor();
+        await new Promise<void>(resolve => { signal?.addEventListener("abort", () => { successorAborted = true; resolve(); }, { once: true }); });
+      }
+      return { content: [{ type: "text" as const, text: id }], details: {}, terminate: true };
+    });
+    const pending = session.prompt("first task", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
+    await firstToolStarted;
+    await session.steer("board receipt", BACKGROUND_CONTEXT);
+    releaseFirstTool();
+    await successorStarted;
+    await session.abort(BACKGROUND_CONTEXT);
+    // The original submission was already done; abort settles the successor as unanswered.
+    await pending;
+    expect(successorAborted).toBe(true);
+    expect(faux.state.callCount).toBe(2);
+    expect((await session.inspect(BACKGROUND_CONTEXT)).submissions.every(item => item.status === "done" || item.status === "unanswered")).toBe(true);
     await session.close(BACKGROUND_CONTEXT);
   });
 

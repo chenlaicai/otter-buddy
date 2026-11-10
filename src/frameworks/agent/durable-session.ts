@@ -5,7 +5,7 @@ import type { EntryId } from "@earendil-works/pi-durable";
 import {
   Harness, LiveDoc, ToolTask, UsageDoc, createRegistry,
   defineExtension, hook, section, type AgentChange, type Conversation, type ConversationView,
-  type Registry, type ToolRegistration,
+  type Registry, type ToolHooks, type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { createCodingTools } from "@earendil-works/pi-durable/tools";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
@@ -49,6 +49,8 @@ export interface DurableSessionOptions {
   haltRegistry?: { takeForBlock(otterId: string): any[]; isHalted(otterId: string): boolean };
   haltSignal?: { addHook(otterId: string, hook: () => void): void };
   onHaltFirstBlock?: (directive: unknown) => void;
+  /** Host hook seam for tool-result boundary tests and observability. */
+  afterTool?: ToolHooks["afterTool"];
 }
 
 /** One per-otter store/writer. Never share a conversation across otters. */
@@ -91,7 +93,10 @@ export class DurableSession {
       name: "otter",
       sections: [section("otter", () => [this.promptText, this.options.identity, this.options.mcp?.instructions()].filter(Boolean).join("\n\n"), { tag: false })],
       tools: this.toolRegistrations().map(tool => options.tools.toolExposure?.[tool.name] === "deferred" ? { ...tool, deferred: true as const } : tool),
-      hooks: [hook(ToolTask, { beforeTool: (call) => this.beforeTool(call) })],
+      hooks: [hook(ToolTask, {
+        beforeTool: (call) => this.beforeTool(call),
+        ...(options.afterTool ? { afterTool: options.afterTool } : {}),
+      })],
     });
     this.registry = createRegistry();
     this.registry.install(createCodingTools());
@@ -287,6 +292,9 @@ export class DurableSession {
     this._state = "running";
     const submission = await this.conversation.submit({ type: "input", content: this.promptInput(text, options) as never, whenBusy: "reject" }, context);
     const settled = await submission.wait(context);
+    // A final terminate boundary can place queued inputs and start a successor run.
+    // Keep the current invoke/abort/tool ownership alive until durable has drained it (#1788).
+    await this.conversation.waitForIdle(context);
     this._state = "idle";
     await sink.apply(this.watcher.value, []);
     const after = await this.usage(BACKGROUND_CONTEXT);
@@ -311,11 +319,11 @@ export class DurableSession {
   }
 
   async steer(text: string, context: Context = BACKGROUND_CONTEXT): Promise<void> {
-    await this.conversation.submit({ type: "input", content: text, whenBusy: "steer" }, context);
+    await this.conversation.submit({ type: "input", content: text, whenBusy: "steer", whenIdle: "reject" }, context);
   }
 
   async followUp(text: string, context: Context): Promise<"queued"> {
-    await this.conversation.submit({ type: "input", content: text, whenBusy: "followUp" }, context);
+    await this.conversation.submit({ type: "input", content: text, whenBusy: "followUp", whenIdle: "reject" }, context);
     return "queued";
   }
 
