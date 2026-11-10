@@ -2237,15 +2237,19 @@ export function extractAssertionDueDate(body: string): string | null {
 export const REGRESSION_GH_FAILED = 'GH_FAILED' as const;
 
 interface RegressionIssueRow { number: number; title: string; body: string; closedAt: string }
+type RegressionGhRunner = (command: string, args: string[], options: { maxBuffer: number }) => Promise<{ stdout: string }>;
 
-/** #1004：调 gh 拉近 62 天 closed 的 daily-review issue。任何失败（auth/网络/未装/JSON 坏）→ null。 */
-async function fetchClosedDailyReviewIssues(): Promise<RegressionIssueRow[] | null> {
+async function defaultRegressionGhRunner(command: string, args: string[], options: { maxBuffer: number }): Promise<{ stdout: string }> {
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
-  const execFileAsync = promisify(execFile);
+  return promisify(execFile)(command, args, options);
+}
+
+/** #1004：调 gh 拉近 62 天 closed 的 daily-review issue。任何失败（auth/网络/未装/JSON 坏）→ null。 */
+async function fetchClosedDailyReviewIssues(runGh: RegressionGhRunner): Promise<RegressionIssueRow[] | null> {
   const since = new Date(Date.now() - 62 * 24 * 3600 * 1000).toISOString().slice(0, 10);
   try {
-    const { stdout } = await execFileAsync('gh', [
+    const { stdout } = await runGh('gh', [
       'issue', 'list', '--state', 'closed', '--label', 'daily-review',
       '--search', `closed:>=${since}`, '--limit', '100',
       '--json', 'number,title,body,closedAt',
@@ -2258,8 +2262,37 @@ async function fetchClosedDailyReviewIssues(): Promise<RegressionIssueRow[] | nu
   }
 }
 
-export async function buildRegressionVerifyBody(): Promise<string | null | typeof REGRESSION_GH_FAILED> {
-  const issues = await fetchClosedDailyReviewIssues();
+/** 每个完整 marker 内绑定解析 issue + verdict；同 issue 以最后一个明确 verdict 为准。 */
+function latestRegressionVerifyVerdict(comments: Array<{ body?: unknown }>, issueNumber: number): string | null {
+  let latest: string | null = null;
+  for (const comment of comments) {
+    if (typeof comment.body !== 'string') continue;
+    for (const match of comment.body.matchAll(/<!--\s*regression-verify:\s*([\s\S]*?)-->/g)) {
+      const issue = match[1].match(/\bissue=(\d+)\b/);
+      const verdict = match[1].match(/\bverdict=([a-z]+)\b/);
+      if (Number(issue?.[1]) === issueNumber && verdict?.[1]) latest = verdict[1];
+    }
+  }
+  return latest;
+}
+
+/** #1779：同 issue 最新 verdict=pass 才排除；查询失败返回 null，调用方 fail-closed。 */
+async function fetchRegressionVerifyResult(issueNumber: number, runGh: RegressionGhRunner): Promise<boolean | null> {
+  try {
+    const { stdout } = await runGh('gh', [
+      'issue', 'view', String(issueNumber), '--json', 'comments',
+    ], { maxBuffer: 16 * 1024 * 1024 });
+    const parsed = JSON.parse(stdout) as { comments?: Array<{ body?: unknown }> };
+    return latestRegressionVerifyVerdict(parsed.comments ?? [], issueNumber) === 'pass';
+  } catch (err) {
+    // eslint-disable-next-line no-console -- 模块级函数无类 logger；与 issue 列表失败路径一致
+    console.warn(`[regression-verify] comments fetch failed for issue #${issueNumber}:`, err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+export async function buildRegressionVerifyBody(runGh: RegressionGhRunner = defaultRegressionGhRunner): Promise<string | null | typeof REGRESSION_GH_FAILED> {
+  const issues = await fetchClosedDailyReviewIssues(runGh);
   if (issues === null) return REGRESSION_GH_FAILED;
 
   const today = new Date().toISOString().slice(0, 10);
@@ -2269,8 +2302,17 @@ export async function buildRegressionVerifyBody(): Promise<string | null | typeo
 
   if (due.length === 0) return null;
 
-  let dataSection = `以下是验证断言已到期的 closed daily-review issue（共 ${due.length} 条，今天 ${today}）：\n\n`;
-  for (const i of due) {
+  // 顺序查询：到期项最多 100，不能无界并发启动 gh 子进程或触发 API 限流。
+  const pending: Array<RegressionIssueRow & { dueDate: string }> = [];
+  for (const issue of due) {
+    const hasResult = await fetchRegressionVerifyResult(issue.number, runGh);
+    if (hasResult === null) return REGRESSION_GH_FAILED;
+    if (!hasResult) pending.push(issue);
+  }
+  if (pending.length === 0) return null;
+
+  let dataSection = `以下是验证断言已到期且尚无回查判定的 closed daily-review issue（共 ${pending.length} 条，今天 ${today}；已排除已回查 ${due.length - pending.length} 条）：\n\n`;
+  for (const i of pending) {
     dataSection += `- issue #${i.number}「${i.title}」（closed ${i.closedAt.slice(0, 10)}，断言到期 ${i.dueDate}）\n`;
   }
   dataSection += '\n逐条按下方步骤回查。\n';
