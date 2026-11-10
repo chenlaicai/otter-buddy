@@ -18,8 +18,8 @@
 
 import type { ToolContext, AgentTool } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
-import type { SignalRepository, SignalBatchBindFilter } from "@usecases/health/signal-repository";
-import { checkOpenIssue, type CheckIssueBinding } from "../../github/issue-binding";
+import type { SignalRepository, SignalBatchBindFilter, SignalRecord } from "@usecases/health/signal-repository";
+import { checkOpenIssue, readIssueState, type CheckIssueBinding, type ReadIssueState } from "../../github/issue-binding";
 
 /** 参数校验：signalId/action 合法性检查（拆出控 complexity）。batch_bind 是批量路径，
  *  不需要 signalId，由 handleBatchBind 单独校验（#1052） */
@@ -178,8 +178,43 @@ export function createTriageSignalTool(ctx: ToolContext, signalRepo: SignalRepos
   };
 }
 
-/** list_rhi_signals：RHI 信号清单查询（status / severity / triageStatus 三维过滤） */
-export function createListRhiSignalsTool(_ctx: ToolContext, signalRepo: SignalRepository): AgentTool {
+/** #1787：仅明确 CLOSED 才进入遗留清单；外部状态按 issue 去重并顺序查询。 */
+async function selectClosedIssueSignals(
+  rows: SignalRecord[],
+  readState: ReadIssueState,
+): Promise<{ rows: SignalRecord[]; failedIssues: number[] }> {
+  const byIssue = new Map<number, SignalRecord[]>();
+  for (const signal of rows) {
+    if (signal.status !== "open" || signal.issue_number === null) continue;
+    const group = byIssue.get(signal.issue_number) ?? [];
+    group.push(signal);
+    byIssue.set(signal.issue_number, group);
+  }
+  const closed: SignalRecord[] = [];
+  const failedIssues: number[] = [];
+  for (const [issueNumber, group] of byIssue) {
+    const result = await readState(issueNumber);
+    if (!result.ok) failedIssues.push(issueNumber);
+    else if (result.state === "CLOSED") closed.push(...group);
+  }
+  return { rows: closed, failedIssues };
+}
+
+function formatSignalRow(s: SignalRecord): string {
+  return `[#${s.id}] ${s.signal_type} · ${s.severity} · ${s.status}` +
+    (s.status !== 'open' ? '' : s.triage_status ? ` · ${s.triage_status}` + (s.issue_number ? `→#${s.issue_number}` : '') : ' · 未接单') + '\n' +
+    `  ${s.file_path ?? s.feature_id ?? ''} · first_seen ${s.first_seen.slice(0, 10)} · occurrences ${s.occurrences}` +
+    (s.triage_note ? `\n  note: ${s.triage_note}` : '');
+}
+
+function failedIssueSuffix(failedIssues: number[]): string {
+  return failedIssues.length > 0
+    ? `\n状态查询失败（未计为关单遗留）：${failedIssues.map(issue => `#${issue}`).join(', ')}`
+    : '';
+}
+
+/** list_rhi_signals：RHI 信号清单查询（status / severity / triageStatus / closedIssueOnly 过滤） */
+export function createListRhiSignalsTool(_ctx: ToolContext, signalRepo: SignalRepository, readState: ReadIssueState = readIssueState): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
     const status = (params.status as string | undefined) ?? 'open';
     const severity = params.severity as string | undefined;
@@ -199,24 +234,31 @@ export function createListRhiSignalsTool(_ctx: ToolContext, signalRepo: SignalRe
     }
     if (severity) rows = rows.filter(s => s.severity === severity);
 
+    if (params.closedIssueOnly === true) {
+      const selected = await selectClosedIssueSignals(rows, readState);
+      rows = selected.rows;
+      if (rows.length === 0) return textResponse(`关单遗留 RHI 信号：0${failedIssueSuffix(selected.failedIssues)}`);
+      return textResponse(
+        `关单遗留 RHI 信号（${rows.length} 条）：\n${rows.map(formatSignalRow).join('\n')}\n` +
+        `处置引导：目标 issue 已 CLOSED；请人工确认后转绑到 OPEN issue（triage_signal bind_issue）或 dismiss。本查询未自动改状态。` +
+        failedIssueSuffix(selected.failedIssues),
+      );
+    }
+
     if (rows.length === 0) return textResponse("（无匹配 RHI 信号）");
-    const lines = rows.map(s =>
-      `[#${s.id}] ${s.signal_type} · ${s.severity} · ${s.status}` +
-      (s.status !== 'open' ? '' : s.triage_status ? ` · ${s.triage_status}` + (s.issue_number ? `→#${s.issue_number}` : '') : ' · 未接单') + '\n' +
-      `  ${s.file_path ?? s.feature_id ?? ''} · first_seen ${s.first_seen.slice(0, 10)} · occurrences ${s.occurrences}` +
-      (s.triage_note ? `\n  note: ${s.triage_note}` : ''),
-    );
+    const lines = rows.map(formatSignalRow);
     return textResponse(`RHI 信号（${rows.length} 条）：\n${lines.join('\n')}`);
   };
   return {
     name: "list_rhi_signals",
-    description: "查询 RHI 健康信号清单（signals 表）. When: 日报处置段拉 critical 清单 / 未接单清单查询作为派工输入 / 面板后端. Not for: 獭间信号（query_signals）. Output: 信号列表（id/类型/severity/处置状态/issue 绑定/note）. GOTCHA: triageStatus 传 'null' 或省略该参数且想看未接单时用 triageStatus='null'——表示 triage_status IS NULL 的未接单信号.",
+    description: "查询 RHI 健康信号清单（signals 表）. When: 日报处置段拉 critical/未接单清单；closedIssueOnly=true 时只读核对绑定 issue，列明确 CLOSED 的遗留信号供日报提醒. Not for: 獭间信号（query_signals）. Output: 信号列表（id/类型/severity/处置状态/issue 绑定/note）或关单遗留数量/ID/转绑引导. GOTCHA: triageStatus='null' 查未接单；closedIssueOnly 不自动改状态，OPEN 不报，查询失败不计为 CLOSED.",
     parameters: {
       type: "object",
       properties: {
         status: { type: "string", enum: ["open", "resolved", "dismissed", "all"], description: "终态过滤（默认 open）" },
         severity: { type: "string", enum: ["critical", "warning"], description: "按严重度过滤（可选）" },
         triageStatus: { type: "string", description: "按处置状态过滤：'null'=未接单 / 'triaged'=已归口 / 'in_progress'=修复中（可选）" },
+        closedIssueOnly: { type: "boolean", description: "true=仅列绑定 issue 已明确 CLOSED 的 open 信号；只读，按 issue 去重查询 gh" },
       },
     },
     execute: exec,
