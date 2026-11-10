@@ -219,6 +219,27 @@ describe("stripHealingReport", () => {
     expect(stripHealingReport(body)).toBe(body);
   });
 
+  it("strips fenced healing JSON no_issue variants (F20261110hjfnx)", () => {
+    const bodies = [
+      "已完成。\n\n```healing\n{\"no_issue\": true}\n```",
+      "已完成。\n\n```healing\n{\"type\":\"no_issue\"}\n```",
+    ];
+    for (const body of bodies) expect(stripHealingReport(body)).toBe("已完成。");
+  });
+
+  it("strips an empty fenced no_issue control block", () => {
+    const body = "已完成。\n\n```no_issue\n```";
+    expect(stripHealingReport(body)).toBe("已完成。");
+  });
+
+  it("preserves non-protocol fenced JSON and ordinary JSON examples", () => {
+    const bodies = [
+      "代码示例：\n```healing\n{\"type\":\"example\"}\n```",
+      "代码示例：\n```json\n{\"no_issue\":true}\n```",
+    ];
+    for (const body of bodies) expect(stripHealingReport(body)).toBe(body);
+  });
+
   // ── 误剥防护（F20260904hstr）──
 
   it("正文裸写/反引号引用标签字样不剥离（消息不丢内容）", () => {

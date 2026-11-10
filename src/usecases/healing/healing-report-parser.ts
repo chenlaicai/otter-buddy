@@ -94,7 +94,11 @@ export function stripHealingReport(body: string): string {
     .replace(/<healing>\s*\[(issues|no.?issues?)\][\s\S]*?<\/healing>/gi, '')
     // LLM 偶尔把 no_issue 写成 JSON 对象；仅剥离这一无载荷控制块，
     // 其他 JSON（如正文代码示例）仍按原文保留，避免扩大误剥面。
-    .replace(/<healing>\s*\{\s*"type"\s*:\s*"no_issue"\s*\}\s*<\/healing>/gi, '')
+    .replace(/<healing>\s*(?:\{\s*"type"\s*:\s*"no_issue"\s*\}|\{\s*"no_issue"\s*:\s*true\s*\})\s*<\/healing>/gi, '')
+    // F20261110hjfnx：模型也会把同一控制块写成 Markdown 代码围栏。
+    // 只认 healing/no_issue 语言标记与精确无载荷内容，普通 json 示例不动。
+    .replace(/```healing\s*(?:\{\s*"type"\s*:\s*"no_issue"\s*\}|\{\s*"no_issue"\s*:\s*true\s*\})\s*```/gi, '')
+    .replace(/```no_issue\s*```/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
