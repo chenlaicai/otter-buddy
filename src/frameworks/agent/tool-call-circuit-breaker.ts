@@ -370,8 +370,8 @@ function rawToolSignature(toolName: string, args?: unknown): string {
 /** 分发链：命中专用签名则返回，否则 null 退回工具名 */
 function dispatchToolSignature(toolName: string, a: Record<string, unknown>): string | null {
   if (toolName === "bash") return bashSignature(a);
-  // read/write/edit + workspace 读写（#1399 同构接入）：path 主体 + 写入内容指纹
-  if (toolName === "read" || toolName === "write" || toolName === "edit" || toolName === "workspace_read" || toolName === "workspace_write") {
+  // read/write/edit + workspace 读/写/删（#1399/#1802）：path 主体 + 写入内容指纹
+  if (toolName === "read" || toolName === "write" || toolName === "edit" || toolName === "workspace_read" || toolName === "workspace_write" || toolName === "workspace_delete") {
     return fileOrWorkspaceSignature(toolName, a);
   }
   // F20260820d338：speak 签名含 body 内容指纹，区分不同输出与同一输出重试
@@ -393,21 +393,21 @@ function bashSignature(a: Record<string, unknown>): string | null {
 }
 
 /**
- * 文件类签名分发：read/write/edit 走 fileToolSignature；workspace 读写同构接入（#1399，
+ * 文件类签名分发：read/write/edit 走 fileToolSignature；workspace 读/写/删同构接入（#1399/#1802，
  * 独立实现——workspace path 是相对沙箱根的短路径，语义独立）。
  */
 function fileOrWorkspaceSignature(toolName: string, a: Record<string, unknown>): string {
-  if (toolName === "workspace_read" || toolName === "workspace_write") {
+  if (toolName === "workspace_read" || toolName === "workspace_write" || toolName === "workspace_delete") {
     return workspaceToolSignature(toolName, a);
   }
   return fileToolSignature(toolName, a);
 }
 
-/** workspace 读写签名：read 取 path；write 取 path+内容指纹 */
+/** workspace 签名：read/delete 取 path；write 取 path+内容指纹 */
 function workspaceToolSignature(toolName: string, a: Record<string, unknown>): string {
   const path = a.path;
   if (typeof path !== "string" || !path) return toolName;
-  if (toolName === "workspace_read") return `workspace_read: ${path}`;
+  if (toolName === "workspace_read" || toolName === "workspace_delete") return `${toolName}: ${path}`;
   const digest = typeof a.content === "string" ? contentDigest(a.content) : "";
   return digest ? `workspace_write: ${path}#${digest}` : `workspace_write: ${path}`;
 }
