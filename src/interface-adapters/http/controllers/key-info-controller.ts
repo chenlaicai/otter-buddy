@@ -74,8 +74,10 @@ export class KeyInfoController {
 
   async deleteLinkedResource(c: Context): Promise<Response> {
     try {
+      const conversationId = param(c, "id");
       const resourceId = param(c, "resourceId");
-      await this.manageKeyInfo.deleteLinkedResource(resourceId);
+      // #1793：HTTP DELETE 保持 204 兼容，但领域语义只能是归档，不得物理删除。
+      await this.manageKeyInfo.archiveResource(resourceId, conversationId);
       return c.body(null, 204);
     } catch (err) {
       return handleError(c, err, this.logger);

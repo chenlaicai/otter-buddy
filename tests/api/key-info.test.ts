@@ -123,19 +123,19 @@ describe("KeyInfo API", () => {
   // ─── DELETE /api/conversations/:id/resources/:resourceId ───
 
   describe("DELETE /api/conversations/:id/resources/:resourceId", () => {
-    it("deletes a linked resource and returns 204", async () => {
-      deps.manageKeyInfo.deleteLinkedResource.mockResolvedValue(undefined);
+    it("archives a linked resource with its conversation owner and returns 204", async () => {
+      deps.manageKeyInfo.archiveResource.mockResolvedValue(undefined);
 
       const res = await app.request("/api/conversations/conv-1/resources/lr-1", {
         method: "DELETE",
       });
 
       expect(res.status).toBe(204);
-      expect(deps.manageKeyInfo.deleteLinkedResource).toHaveBeenCalledWith("lr-1");
+      expect(deps.manageKeyInfo.archiveResource).toHaveBeenCalledWith("lr-1", "conv-1");
     });
 
     it("returns 404 when resource not found", async () => {
-      deps.manageKeyInfo.deleteLinkedResource.mockRejectedValue(
+      deps.manageKeyInfo.archiveResource.mockRejectedValue(
         new DomainError("LinkedResource missing not found", "not_found"),
       );
 
@@ -146,8 +146,20 @@ describe("KeyInfo API", () => {
       expect(res.status).toBe(404);
     });
 
+    it("returns 409 when the resource is already archived", async () => {
+      deps.manageKeyInfo.archiveResource.mockRejectedValue(
+        new DomainError("Cannot archive resource in status 'archived'", "conflict"),
+      );
+
+      const res = await app.request("/api/conversations/conv-1/resources/lr-1", {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(409);
+    });
+
     it("returns 500 for generic errors", async () => {
-      deps.manageKeyInfo.deleteLinkedResource.mockRejectedValue(
+      deps.manageKeyInfo.archiveResource.mockRejectedValue(
         new Error("Database connection failed"),
       );
 

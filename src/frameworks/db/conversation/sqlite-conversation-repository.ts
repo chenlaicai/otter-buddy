@@ -179,7 +179,6 @@ export class SqliteConversationRepository implements ConversationRepository {
   async getLinkedResourcesByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]> { return mixins.getLinkedResourcesByGroup(this.db, conversationId, groupId); }
   async updateResourceStatus(id: string, status: ArtifactStatus, supersededBy?: string): Promise<void> { mixins.updateResourceStatus(this.db, id, status, supersededBy); }
   async supersedeLinkedResource(existingId: string, newResource: LinkedResource): Promise<void> { mixins.supersedeLinkedResource(this.db, existingId, newResource); }
-  async deleteLinkedResource(id: string): Promise<void> { mixins.deleteLinkedResource(this.db, id); }
   async flagResource(id: string, flagged: boolean): Promise<void> { mixins.flagResource(this.db, id, flagged); }
 
   // ── Participant 管理（委托给 mixin） ──

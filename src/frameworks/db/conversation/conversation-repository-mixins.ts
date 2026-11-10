@@ -5,6 +5,7 @@ import type {
   LinkedResource,
 } from "@entities/conversation/conversation";
 import type { Message } from "@entities/conversation/message";
+import { DomainError } from "@entities/errors";
 import {
   rowToLinkedResource,
   rowToParticipant,
@@ -70,7 +71,7 @@ export function updateResourceStatus(db: Database.Database, id: string, status: 
   `).run(status, supersededBy ?? null, id);
 
   if (result.changes === 0) {
-    throw new Error(`LinkedResource ${id} not found or already archived`);
+    throw new DomainError(`LinkedResource ${id} not found or already archived`, "conflict");
   }
 }
 
@@ -94,10 +95,6 @@ export function supersedeLinkedResource(db: Database.Database, existingId: strin
     db.exec("ROLLBACK");
     throw error;
   }
-}
-
-export function deleteLinkedResource(db: Database.Database, id: string): void {
-  db.prepare("DELETE FROM linked_resources WHERE id = ?").run(id);
 }
 
 export function flagResource(db: Database.Database, id: string, flagged: boolean): void {

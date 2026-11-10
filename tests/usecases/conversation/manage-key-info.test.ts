@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
+import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 
@@ -11,7 +12,6 @@ function createMocks() {
     getLinkedResourcesByGroup: vi.fn().mockResolvedValue([]),
     updateResourceStatus: vi.fn().mockResolvedValue(undefined),
     supersedeLinkedResource: vi.fn().mockResolvedValue(undefined),
-    deleteLinkedResource: vi.fn().mockResolvedValue(undefined),
     flagResource: vi.fn().mockResolvedValue(undefined),
   } as unknown as ConversationRepository;
 
@@ -342,6 +342,53 @@ describe("ManageKeyInfo - F20260829gvid groupId 必填校验（#580）", () => {
         autoLinked: false,
       }),
     ).rejects.toThrow("必须提供 groupId");
+  });
+});
+
+describe("ManageKeyInfo.archiveResource（#1793）", () => {
+  it("active 资源按 id + conversationId 归档，不物理删除", async () => {
+    const { repo, memoryIndex } = createMocks();
+    (repo.getLinkedResourceById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "lr-1", conversationId: "conv-1", status: "active" });
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await uc.archiveResource("lr-1", "conv-1");
+
+    expect(repo.updateResourceStatus).toHaveBeenCalledOnce();
+  });
+
+  it("conversation 不匹配按 not_found 拒绝且不写", async () => {
+    const { repo, memoryIndex } = createMocks();
+    (repo.getLinkedResourceById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "lr-1", conversationId: "conv-other", status: "active" });
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await expect(uc.archiveResource("lr-1", "conv-1")).rejects.toMatchObject({ kind: "not_found" });
+    expect(repo.updateResourceStatus).not.toHaveBeenCalled();
+  });
+
+  it("未知 ID 按 not_found 拒绝", async () => {
+    const { repo, memoryIndex } = createMocks();
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await expect(uc.archiveResource("missing", "conv-1")).rejects.toMatchObject({ kind: "not_found" });
+    expect(repo.updateResourceStatus).not.toHaveBeenCalled();
+  });
+
+  it("已 archived 重复归档按 conflict 拒绝且不写", async () => {
+    const { repo, memoryIndex } = createMocks();
+    (repo.getLinkedResourceById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "lr-1", conversationId: "conv-1", status: "archived" });
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await expect(uc.archiveResource("lr-1", "conv-1")).rejects.toMatchObject({ kind: "conflict" });
+    expect(repo.updateResourceStatus).not.toHaveBeenCalled();
+  });
+
+  it("并发下 repository 类型化 conflict 直接透出，不泄漏 500", async () => {
+    const { repo, memoryIndex } = createMocks();
+    (repo.getLinkedResourceById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "lr-1", conversationId: "conv-1", status: "active" });
+    (repo.updateResourceStatus as ReturnType<typeof vi.fn>).mockRejectedValue(new DomainError("LinkedResource lr-1 not found or already archived", "conflict"));
+    const uc = new ManageKeyInfo(repo, memoryIndex);
+
+    await expect(uc.archiveResource("lr-1", "conv-1")).rejects.toMatchObject({ kind: "conflict" });
   });
 });
 
