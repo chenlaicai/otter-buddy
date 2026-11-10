@@ -2,7 +2,7 @@
  * F20261027hwl1：工作账本仓库端口（usecases 层接口）。
  *
  * 只读投影 + 确定性绑定的存储底座。写路径仅三种：
- * track_work 工具（start/resume/complete/cancel/review_round）、
+ * track_work 工具（start/resume/complete/cancel）与 yield 自动检视轮次、
  * 历史归集（inferred-historical，一次性）、binder 绑定（artifact/matter 证据）。
  * 读路径：账本报告（works + coverage + unassigned）与详情。
  */
@@ -65,7 +65,7 @@ export interface WorkLedgerRepository {
 
   updateWorkStatus(workId: string, status: WorkItem["status"], closedAt: string | null): Promise<void>;
 
-  /** 追加/更新检视轮次（roundNo 为键 upsert——同一轮的 state 推进覆盖前值） */
+  /** 追加/更新检视轮次；自动完成轮次以 completedInvokeId 幂等，旧记录沿用 roundNo */
   upsertReviewRound(workId: string, round: WorkReviewRound): Promise<void>;
 
   /** trace→work 绑定（幂等：PK 冲突忽略） */

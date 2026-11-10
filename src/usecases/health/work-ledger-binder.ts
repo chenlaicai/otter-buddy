@@ -9,7 +9,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Logger } from "@usecases/ports/logger";
-import type { WorkItem, WorkReviewRound } from "@entities/health/work-ledger";
+import type { WorkItem } from "@entities/health/work-ledger";
 import type { WorkLedgerRepository } from "./work-ledger-repository";
 
 export interface TrackWorkStartInput {
@@ -89,8 +89,40 @@ export class WorkLedgerBinder {
     return { ...work, status: "cancelled", closedAt: this.now() };
   }
 
-  /** 检视轮次结构化留痕（started/awaiting-fix/delta-review/passed 推进；invoke 证据随轮次保存） */
-  async recordReviewRound(workId: string, round: WorkReviewRound): Promise<void> {
-    await this.repo.upsertReviewRound(workId, round);
+  /** 检视者完成 yield 后自动计一轮；只记完成次数，不解析审查结论。 */
+  async recordCompletedReviewRound(input: {
+    traceId: string;
+    reviewerOtterId: string;
+    invokeId: string;
+  }): Promise<boolean> {
+    try {
+      const work = await this.repo.findWorkByTrace(input.traceId);
+      if (!work) {
+        this.logger.warn("[work-ledger] review round skipped: trace not bound", {
+          traceId: input.traceId, reviewerOtterId: input.reviewerOtterId, invokeId: input.invokeId,
+        });
+        return false;
+      }
+      if (work.reviewRounds.some(r => r.completedInvokeId === input.invokeId)) return true;
+      const roundNo = work.reviewRounds.reduce((max, r) => Math.max(max, r.roundNo), 0) + 1;
+      await this.repo.upsertReviewRound(work.id, {
+        roundNo,
+        reviewerOtterId: input.reviewerOtterId,
+        state: "completed",
+        completedInvokeId: input.invokeId,
+        completedAt: this.now(),
+      });
+      this.logger.info("[work-ledger] review round auto-recorded", {
+        workId: work.id, roundNo, reviewerOtterId: input.reviewerOtterId, invokeId: input.invokeId,
+      });
+      return true;
+    } catch (err) {
+      // 观测失败不阻断协作交棒；日志保留采集缺口。
+      this.logger.warn("[work-ledger] review round auto-record failed", {
+        traceId: input.traceId, invokeId: input.invokeId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
   }
 }

@@ -13,10 +13,10 @@ export type WorkStatus = "active" | "delivered" | "merged" | "closed" | "cancell
 /** 证据质量：tracked=结构化绑定（trace 关系在案）；historical-partial=历史只读归集，不可当精确账 */
 export type WorkEvidenceQuality = "tracked" | "historical-partial";
 
-/** 结构化检视轮次状态（只有结构化生命周期才记轮次；未知显示「未记录」而非 0） */
-export type WorkReviewRoundState = "reviewing" | "awaiting-fix" | "delta-review" | "passed" | "open-unknown";
+/** 检视轮次状态；completed 为 yield 自动采集的完成轮次，其余为既有历史状态 */
+export type WorkReviewRoundState = "reviewing" | "awaiting-fix" | "delta-review" | "passed" | "open-unknown" | "completed";
 
-/** 检视/复核轮次（track_work review_round 动作的结构化留痕，含 invoke 证据） */
+/** 检视/复核轮次；新数据由检视者完成 yield 时按 invoke 自动追加 */
 export interface WorkReviewRound {
   roundNo: number;
   reviewerOtterId: string;
@@ -28,6 +28,9 @@ export interface WorkReviewRound {
   startedAt?: string | null;
   deltaAt?: string | null;
   passedAt?: string | null;
+  /** 自动采集：完成检视交棒的 invoke（幂等键）与时间；不推断通过/需修改 */
+  completedInvokeId?: string | null;
+  completedAt?: string | null;
 }
 
 /** trace→work 绑定来源 */

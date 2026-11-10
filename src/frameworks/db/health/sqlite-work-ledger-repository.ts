@@ -107,8 +107,11 @@ export class SqliteWorkLedgerRepository implements WorkLedgerRepository {
 
   async upsertReviewRound(workId: string, round: WorkReviewRound): Promise<void> {
     const work = await this.getWorkById(workId);
-    if (!work) return;
-    const idx = work.reviewRounds.findIndex(r => r.roundNo === round.roundNo);
+    if (!work) throw new Error(`workId 不存在：${workId}`);
+    // 自动完成轮次按 invoke 幂等；不同检视者/并发完成不能按 roundNo 互相覆盖。
+    const idx = round.completedInvokeId
+      ? work.reviewRounds.findIndex(r => r.completedInvokeId === round.completedInvokeId)
+      : work.reviewRounds.findIndex(r => r.roundNo === round.roundNo);
     if (idx >= 0) work.reviewRounds[idx] = { ...work.reviewRounds[idx], ...round };
     else work.reviewRounds.push(round);
     // 轮次数按 roundNo 排序保持稳定展示

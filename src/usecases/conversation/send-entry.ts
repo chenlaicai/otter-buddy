@@ -22,6 +22,7 @@ import type {
   InvokeEventType,
 } from "@entities/conversation/invoke";
 import type { EntryRepository } from "./entry-repository";
+import { inheritYieldAssignmentMetadata } from "./yield-assignment";
 import type { InvokeRepository } from "./invoke-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { ConversationRepository } from "./conversation-repository";
@@ -77,6 +78,7 @@ export interface CreateYieldEntryInput {
   invokeId: string;
   otterId: string;
   yieldTargets: string[];
+  assignmentRole?: "reviewer"; // 本次派工角色，随 yield entry 传给下一 invoke
 }
 
 /** 创建 invoke_end 条目输入 */
@@ -265,9 +267,7 @@ export class SendEntry {
       throw new DomainError(`createInvoke: otterId 不存在: ${input.otterId}`, "not_found");
     }
 
-    const now = new Date().toISOString();
-
-    // 创建 invoke 记录
+    const now = new Date().toISOString(); const metadata = await inheritYieldAssignmentMetadata(this.entryRepo, input.triggerEntryId, input.metadata);
     const invoke: Invoke = {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
@@ -281,8 +281,7 @@ export class SendEntry {
       tokenUsageInput: null, tokenUsageOutput: null, tokenUsageCacheRead: null, tokenUsageCacheWrite: null,
       ctxWindowUsed: null,
       /** #1241：进程归属标记——重启后非本 pid 的 running 被判孤儿清理 */
-      pid: process.pid,
-      metadata: input.metadata ?? null,
+      pid: process.pid, metadata,
     };
 
     await this.invokeRepo.createInvoke(invoke);
@@ -376,11 +375,9 @@ export class SendEntry {
 
     const now = new Date().toISOString();
 
-    // 更新 invoke 记录：设置 tsp + status=completed
     await this.invokeRepo.updateInvokeTalkingStonePassedTo(input.invokeId, input.yieldTargets);
     await this.invokeRepo.updateInvokeStatus(input.invokeId, "completed", now);
 
-    // 获取更新后的 invoke
     const invoke = await this.invokeRepo.getInvokeById(input.invokeId);
     if (!invoke) {
       throw new DomainError(`createYieldEntry: invoke 不存在: ${input.invokeId}`, "not_found");
@@ -399,7 +396,7 @@ export class SendEntry {
       yieldTargets: input.yieldTargets,
       status: "completed",
       source: null,
-      metadata: null,
+      metadata: input.assignmentRole ? { assignmentRole: input.assignmentRole } : null,
       senderName: otter.name,
       contextTokens: null,
       contextTokensMax: null,
