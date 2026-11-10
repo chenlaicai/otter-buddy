@@ -21,6 +21,8 @@ import { accumulateTokenUsage, emptyTokenUsage, totalTokenUsage, type TokenUsage
 export interface ChainHopResult {
   otterReply?: string;
   nextTargets: string[];
+  /** 下一 hop 的本次派工角色（来源为派发方 invoke.metadata.yieldAssignmentRole） */
+  assignmentRoles?: Map<string, "reviewer">;
   usageDeltas?: TokenUsage[];
   /** 所有 fulfilled target 都有增量才为 true；rejected target 不纳入 telemetry 完整性。 */
   usageTelemetryComplete?: boolean;
@@ -32,7 +34,7 @@ export interface ChainHopResult {
  *  settle 记账（chainSource 回填）与路由（nextTargets）共享同一实例，两处不再各滤各的。 */
 export interface HopOutcome {
   /** F20260913ctlv 彻底切换：行级取数 = invoke 行（含 talkingStonePassedTo 终值）；查库失败/degraded 时 null */
-  producedMsg: { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null;
+  producedMsg: { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null; metadata?: Record<string, unknown> | null } | null;
   /** 取数降级标记（#798）：账面补「出处降级」备注用 */
   degraded: boolean;
   /** 护栏门控后的下一跳目标（已滤 'user'；self 仅护栏放行时含）——记账与路由的唯一口径 */
@@ -63,6 +65,8 @@ export interface InvokeFnParams {
   /** F20261027hwl1：触发本链的 entry id（工作账本归属证据——写 invokes.trigger_entry_id）。
    *  链引擎逐 hop 透传；与 trace scope 内 traceId 一起构成「链→invoke」的可归因锚点。 */
   triggerMessageId?: string;
+  /** 本次 yield 派工角色；由链引擎逐 hop 显式传递 */
+  assignmentRole?: "reviewer";
 }
 
 export interface InvokeFnResult {
@@ -119,7 +123,7 @@ export class DispatchChainEngine {
       /** F20260913ctlv 彻底切换：entries/invoke 仓库（未读注入 + hop 产出判定数据源）。
        *  未注入时（旧装配/测试桩）降级读 messages——生产装配必注入。 */
       entryRepo?: { getUnreadEntries(conversationId: string, otterId: string): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null; createdAt?: string | null; attachments?: Array<{ kind: string; originalName: string }> }>>; getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; senderType: string | null; senderId: string | null; body: string | null; senderName: string; sequenceNum: number; invokeId: string | null; yieldTargets: string[] | null }>>; getEntryById?(id: string): Promise<{ id: string; createdAt?: string | null } | null> };
-      invokeRepo?: { getInvokeById(invokeId: string): Promise<{ id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null } | null> };
+      invokeRepo?: { getInvokeById(invokeId: string): Promise<{ id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null; metadata?: Record<string, unknown> | null } | null> };
       /** #530 专用决定性记录读取：透明条目不消耗有限证据窗口；旧适配器降级通用读取。 */
       selfYieldEntryRepo?: {
         getSelfYieldDecisionEntries(conversationId: string, otterId: string, currentInvokeId: string, limit: number): Promise<Array<{ id: string; entryType: string; senderId: string | null; invokeId: string | null; yieldTargets: string[] | null }>>;
@@ -248,6 +252,7 @@ export class DispatchChainEngine {
     });
 
     let pendingSteerText: string | undefined; // #530 护栏 steer 文案，从上一 hop 传递到下一 hop
+    let assignmentRoles = new Map<string, "reviewer">();
 
     while (targets.length > 0) {
       depth++;
@@ -259,12 +264,14 @@ export class DispatchChainEngine {
         triggerMessageId,
         ledgerSource,
         chainSourceMessageIds,
+        assignmentRoles,
         steerText: pendingSteerText, // #530 注入上一 hop 的 steer 文案
         excludeMessageIds: depth === 1 ? excludeMessageIds : undefined, // F20260908rlcp：仅首 hop 去重
       });
       lastOtterReply = result.otterReply ?? lastOtterReply;
       pendingSteerText = result.steerText; // 收集本 hop 的 steer 文案，传递到下一 hop
       targets = result.nextTargets;
+      assignmentRoles = result.assignmentRoles ?? new Map();
       for (const delta of result.usageDeltas ?? []) accumulateTokenUsage(observation.tokens, delta);
       // F20261026ctbg：usageTelemetryComplete=false 本身就完备刻画缺口（有 fulfilled 目标但缺 delta，
       //  含单目标 hop 过滤后数组为空的情形）——旧写法加 ?.length 前置条件会漏掉单目标缺 delta 的 hop。
@@ -315,12 +322,13 @@ export class DispatchChainEngine {
     ledgerSource?: "chain" | "router" | "retry";
     /** F20260902sgp2 hop 取源修复：链级 target → yield 出处列表（跨 hop 存活，修复局部 Map 回填即丢的 bug） */
     chainSourceMessageIds?: Map<string, string[]>;
+    assignmentRoles?: Map<string, "reviewer">;
     /** #530 护栏 steer 文案：从上一 hop 传递，前置注入到本 hop 消息上下文（解决 session 已 dispose 的生命周期问题） */
     steerText?: string;
     /** F20260908rlcp：恢复侧 steer 去重——已消化的 msg id 从未读注入剔除 */
     excludeMessageIds?: Set<string>;
   }): Promise<ChainHopResult> {
-    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource: _ledgerSource, chainSourceMessageIds: _chainSourceMessageIds, steerText } = params;
+    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource: _ledgerSource, chainSourceMessageIds: _chainSourceMessageIds, assignmentRoles, steerText } = params;
     const roster = await this.buildRoster(conversationId, senderId);
 
     // F20260922ctxi：触发消息去重——触发 entry 以 userMessageContent 形态追加发言流末尾，
@@ -364,6 +372,7 @@ export class DispatchChainEngine {
         ...(images && { images }),
         batchMaxSeq: messageWithContext.batchMaxSeq,
         triggerMessageId,
+        assignmentRole: assignmentRoles?.get(otterId),
       });
     });
 
@@ -732,6 +741,7 @@ export class DispatchChainEngine {
     targets?: string[],
   ): Promise<ChainHopResult> {
     const nextTargets = new Set<string>();
+    const assignmentRoles = new Map<string, "reviewer">();
     let shouldAbort = false;
     let steerText: string | undefined; // #530 护栏 steer 文案，进程级传递到下一 hop
     const usageDeltas: Array<TokenUsage | undefined> = [];
@@ -766,6 +776,7 @@ export class DispatchChainEngine {
       }
       allowedNext.forEach(id => {
         nextTargets.add(id);
+        if (outcome.producedMsg?.metadata?.yieldAssignmentRole === "reviewer") assignmentRoles.set(id, "reviewer");
       });
     }
 
@@ -782,6 +793,7 @@ export class DispatchChainEngine {
     const hasFulfilled = results.some(r => r.status === "fulfilled" && !r.value.delegated);
     return {
       nextTargets: shouldAbort ? [] : [...nextTargets],
+      assignmentRoles,
       steerText, // #530 进程级传递，下一 hop 前置注入
       usageDeltas: usageDeltas.filter((usage): usage is TokenUsage => usage !== undefined),
       usageTelemetryComplete: !hasFulfilled || usageDeltas.every(usage => usage !== undefined),

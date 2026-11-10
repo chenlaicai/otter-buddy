@@ -28,6 +28,7 @@ import type { ScheduledTaskPendingItemRepository } from "@usecases/scheduler/pen
 import { getRepoRoot } from "@frameworks/repo-root";
 import { isAbsolute, join } from "node:path";
 import { runRestartService } from "@frameworks/agent/restart-service-executor";
+import { getTraceContext } from "@usecases/ports/trace-context";
 import { findKillSegments } from "@frameworks/agent/kill-segment-finder";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 // R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
@@ -153,6 +154,32 @@ function parseCardMetaTitle(meta: string | null | undefined): string | null {
 
 /** F20260821i336（F20260912avlb 改造）：yield 成功后记账派工——行动权首次/再次交给目标獭。
  *  markDispatched 只刷 created 状态行：首次派工时间戳不被后续多轮交棒刷新。 */
+function validateYieldParams(params: Record<string, unknown>): ToolResponse | null {
+  const recipients = params.to as string[] | undefined;
+  if (!recipients || recipients.length === 0) return errorResponse("[错误] 交棒目标不能为空。请指定下一个应该行动的参与者名字。");
+  if (params.assignmentRole !== undefined && params.assignmentRole !== "reviewer") {
+    return errorResponse("[错误] assignmentRole 目前仅支持 reviewer（独立检视派工）。");
+  }
+  return null;
+}
+
+/** 检视者完成交棒即自动计一轮；角色来自当前 invoke，工作来自链级 trace。 */
+async function recordCompletedReviewRoundOnYield(
+  ctx: ToolContext,
+  invokeMetadata: Record<string, unknown> | null | undefined,
+  resolvedIds: string[],
+): Promise<void> {
+  if (invokeMetadata?.assignmentRole !== "reviewer") return;
+  if (resolvedIds.every(id => id === ctx.otterId)) return; // self-yield 是续跑，不是完成的检视轮次
+  const traceId = getTraceContext().traceId;
+  if (!traceId || !ctx.currentInvokeId || !ctx.workLedgerBinder) return;
+  await ctx.workLedgerBinder.recordCompletedReviewRound({
+    traceId,
+    reviewerOtterId: ctx.otterId,
+    invokeId: ctx.currentInvokeId,
+  });
+}
+
 async function updateDispatchLedgerOnYield(ctx: ToolContext, resolvedIds: string[]): Promise<void> {
   for (const id of resolvedIds) {
     await ctx.client.dispatch.markDispatched({
@@ -246,6 +273,10 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
           type: "string",
           description: "（to 包含 'user' 时建议提供）说明为什么需要用户介入。生成理由的过程就是暂停思考的过程。",
         },
+        assignmentRole: {
+          type: "string", enum: ["reviewer"],
+          description: "本次派工角色；派给独立检视者时传 reviewer。角色随本次 yield 传递，完成交回后系统自动累计检视轮次，无需额外上报。",
+        },
         expects_partner_decision: {
           type: "boolean",
           description: "（仅 to 包含 'user' 时有意义）true = 本交棒是 L2 显式拍板项（必须等搭档显式动作，不是默认通过模式）——系统自动登记 matter 到本对话待办板（state=WAITING_PARTNER，owner=你），板上钉住不被消息流顶走。R8 默认通过模式（『我推荐 X，今天内无异议就开工』）与待办互斥：携带默认通过语义的 yield 不打标、不登记。",
@@ -258,9 +289,8 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       // 消息非空校验（有 speak entry 才能交棒）
       const msgError = await validateMessageHasContent(ctx);
       if (msgError) return errorResponse(msgError);
-
-      const recipients = params.to as string[];
-      if (!recipients || recipients.length === 0) return errorResponse("[错误] 交棒目标不能为空。请指定下一个应该行动的参与者名字。");
+      const paramsError = validateYieldParams(params);
+      if (paramsError) return paramsError; const recipients = params.to as string[];
 
       const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
       const { resolvedIds, error } = validateAndResolve(recipients, active);
@@ -274,9 +304,10 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
           invokeId: ctx.currentInvokeId!,
           otterId: ctx.otterId,
           yieldTargets: resolvedIds,
+          assignmentRole: params.assignmentRole === "reviewer" ? "reviewer" : undefined,
         });
 
-        // 已发言标记重置（下次 speak 重新登记）
+        await recordCompletedReviewRoundOnYield(ctx, yieldResult.invoke?.metadata, resolvedIds);
         ctx.lastSpeakMessageId = undefined;
 
         // F20260821i336（F20260912avlb 改造）：yield 成功后记账派工——
@@ -1787,7 +1818,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     // 跨对话查询权与编排权对齐（扫描跑在三省吾身对话，matter 工具按对话隔离）。
     tools.push(createMatterSweepTool(ctx, matterRepo));
   }
-  // F20261027hwl1：工作账本登记工具（start/resume/complete/cancel/review_round）。
+  // 工作账本登记工具（start/resume/complete/cancel）；检视轮次由 yield 自动采集。
   // 注册条件 = workLedgerBinder 注入；small/big 均可用（实现者与检视者都要留痕）。
   if (ctx.workLedgerBinder) {
     tools.push(createTrackWorkTool(ctx, ctx.workLedgerBinder));

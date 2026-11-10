@@ -83,22 +83,22 @@ describe("同 conversation 多工作不混", () => {
 });
 
 describe("跨獭链与轮次", () => {
-  it("检视轮次同轮推进覆盖、不同轮追加；报告区分「未记录」", async () => {
+  it("每个完成的 reviewer invoke 自动追加一轮，重复 invoke 幂等", async () => {
     const w = await binder.start({ conversationId: "conv-1", otterId: "otter-big", traceId: "trace-R", title: "带检视的工作" });
-    makeInvoke("inv-r1", "otter-big", "trace-R");
+    makeInvoke("inv-r1", "otter-reviewer", "trace-R");
+    makeInvoke("inv-r2", "otter-reviewer", "trace-R");
 
-    // 第 1 轮：reviewing → awaiting-fix（同轮状态推进覆盖）
-    await binder.recordReviewRound(w.id, { roundNo: 1, reviewerOtterId: "otter-reviewer", state: "reviewing", startedInvokeId: "inv-r1", startedAt: "2026-10-27T10:00:00Z" });
-    await binder.recordReviewRound(w.id, { roundNo: 1, reviewerOtterId: "otter-reviewer", state: "awaiting-fix" });
-    // 第 2 轮 delta-review → passed
-    await binder.recordReviewRound(w.id, { roundNo: 2, reviewerOtterId: "otter-reviewer", state: "delta-review", deltaInvokeId: "inv-r1" });
-    await binder.recordReviewRound(w.id, { roundNo: 2, reviewerOtterId: "otter-reviewer", state: "passed", passedAt: "2026-10-27T12:00:00Z" });
+    await Promise.all([
+      binder.recordCompletedReviewRound({ traceId: "trace-R", reviewerOtterId: "otter-reviewer", invokeId: "inv-r1" }),
+      binder.recordCompletedReviewRound({ traceId: "trace-R", reviewerOtterId: "otter-reviewer", invokeId: "inv-r1" }),
+      binder.recordCompletedReviewRound({ traceId: "trace-R", reviewerOtterId: "otter-small", invokeId: "inv-r2" }),
+    ]);
 
     const back = await repo.getWorkById(w.id);
     expect(back!.reviewRounds.length).toBe(2);
-    expect(back!.reviewRounds[0]!.state).toBe("awaiting-fix");
-    expect(back!.reviewRounds[0]!.startedInvokeId).toBe("inv-r1"); // 首次留痕不被覆盖丢
-    expect(back!.reviewRounds[1]!.state).toBe("passed");
+    expect(back!.reviewRounds[0]).toMatchObject({ state: "completed", completedInvokeId: "inv-r1" });
+    expect(back!.reviewRounds[1]).toMatchObject({ state: "completed", completedInvokeId: "inv-r2" });
+    expect(back!.reviewRounds.map(r => r.roundNo)).toEqual([1, 2]);
 
     const report = await new WorkLedgerReportBuilder(repo, logger).build();
     const item = report.works.find(x => x.workId === w.id)!;

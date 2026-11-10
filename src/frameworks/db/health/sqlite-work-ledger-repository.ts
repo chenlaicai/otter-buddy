@@ -106,9 +106,27 @@ export class SqliteWorkLedgerRepository implements WorkLedgerRepository {
   }
 
   async upsertReviewRound(workId: string, round: WorkReviewRound): Promise<void> {
+    if (round.completedInvokeId) {
+      // better-sqlite3 同步事务：读旧 JSON→分配轮号→追加→写回不在并发调用间交错。
+      this.db.transaction(() => {
+        const row = this.db.prepare("SELECT * FROM work_items WHERE id = ?").get(workId) as WorkItemRow | undefined;
+        if (!row) throw new Error(`workId 不存在：${workId}`);
+        const work = rowToWorkItem(row);
+        if (work.reviewRounds.some(r => r.completedInvokeId === round.completedInvokeId)) return;
+        const roundNo = work.reviewRounds.reduce((max, r) => Math.max(max, r.roundNo), 0) + 1;
+        work.reviewRounds.push({ ...round, roundNo });
+        work.reviewRounds.sort((a, b) => a.roundNo - b.roundNo);
+        this.db.prepare("UPDATE work_items SET review_rounds = ?, updated_at = ? WHERE id = ?")
+          .run(JSON.stringify(work.reviewRounds), new Date().toISOString(), workId);
+      })();
+      return;
+    }
     const work = await this.getWorkById(workId);
-    if (!work) return;
-    const idx = work.reviewRounds.findIndex(r => r.roundNo === round.roundNo);
+    if (!work) throw new Error(`workId 不存在：${workId}`);
+    // 自动完成轮次按 invoke 幂等；不同检视者/并发完成不能按 roundNo 互相覆盖。
+    const idx = round.completedInvokeId
+      ? work.reviewRounds.findIndex(r => r.completedInvokeId === round.completedInvokeId)
+      : work.reviewRounds.findIndex(r => r.roundNo === round.roundNo);
     if (idx >= 0) work.reviewRounds[idx] = { ...work.reviewRounds[idx], ...round };
     else work.reviewRounds.push(round);
     // 轮次数按 roundNo 排序保持稳定展示

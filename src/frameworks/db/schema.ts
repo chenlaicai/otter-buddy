@@ -1163,7 +1163,7 @@ function createEntryFtsTable(db: Database.Database): void {
  *  - work_item_traces：trace→work 绑定（归属主键关系；invoke 经 metadata.traceId 派生）
  *  - conversation_active_work：per-conversation 显式 resume 锚点（新用户点火链默认不继承）
  *  检视轮次不建独立表：轮次是工作的附属生命周期（work_items.review_rounds JSON），
- *  结构化留痕由 track_work 工具的 review_round 动作写入（含 invoke 证据），非文本猜测。 */
+ *  新数据由 reviewer 完成 yield 时按 invoke 自动写入，非文本猜测或主动上报。 */
 function createWorkLedgerTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS work_items (
@@ -1175,7 +1175,7 @@ function createWorkLedgerTables(db: Database.Database): void {
       conversation_id TEXT,
       created_by_otter_id TEXT,
       -- 结构化检视/复核轮次（JSON array：round_no/reviewer_otter_id/started_invoke_id/delta_invoke_id/state/timestamps）。
-      -- 只有结构化生命周期才记轮次（track_work review_round 动作）；未知在报告层显示「未记录」而非 0。
+      -- 新轮次由 reviewer 完成 yield 自动记录；未知在报告层显示「未记录」而非 0。
       review_rounds TEXT,
       evidence_quality TEXT NOT NULL DEFAULT 'tracked' CHECK(evidence_quality IN ('tracked', 'historical-partial')),
       created_at TEXT NOT NULL,

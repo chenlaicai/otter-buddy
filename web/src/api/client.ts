@@ -756,16 +756,18 @@ export interface WorkTokenSummaryDTO {
   totalTokens: number
 }
 
-/** 结构化检视轮次（track_work review_round 留痕） */
+/** 检视轮次；新数据由 reviewer 完成 yield 自动留痕 */
 export interface WorkReviewRoundDTO {
   roundNo: number
   reviewerOtterId: string
-  state: 'reviewing' | 'awaiting-fix' | 'delta-review' | 'passed' | 'open-unknown'
+  state: 'reviewing' | 'awaiting-fix' | 'delta-review' | 'passed' | 'open-unknown' | 'completed'
   startedInvokeId?: string | null
   deltaInvokeId?: string | null
   startedAt?: string | null
   deltaAt?: string | null
   passedAt?: string | null
+  completedInvokeId?: string | null
+  completedAt?: string | null
 }
 
 export interface WorkReportItemDTO {
