@@ -345,6 +345,27 @@ describe("buildToolSignature —— #1761 批量处置收口", () => {
   });
 });
 
+describe("buildToolSignature —— #1802 workspace_delete 清理签名", () => {
+  it("连续清理不同 path 不触发连续同构拦截", () => {
+    expect(buildToolSignature("workspace_delete", { path: "review-1782", recursive: true })).toBe("workspace_delete: review-1782");
+    // recursive 不改变删除目标；同目标重试仍须归入同一签名。
+    expect(buildToolSignature("workspace_delete", { path: "review-1782", recursive: false })).toBe("workspace_delete: review-1782");
+    expect(buildToolSignature("workspace_delete", {})).toBe("workspace_delete");
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 7; i++) {
+      expect(cb.check("workspace_delete", { path: `cleanup-${i}`, recursive: true }).action).toBe("allow");
+    }
+  });
+
+  it("同一 path 反复删除仍触发连续同构拦截", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 5; i++) {
+      expect(cb.check("workspace_delete", { path: "same-target", recursive: true }).action).toBe("allow");
+    }
+    expect(cb.check("workspace_delete", { path: "same-target", recursive: true }).action).toBe("steer");
+  });
+});
+
 describe("ToolCallCircuitBreaker", () => {
   beforeEach(() => {
     vi.useFakeTimers();
