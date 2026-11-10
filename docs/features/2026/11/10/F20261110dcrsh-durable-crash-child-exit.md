@@ -50,4 +50,6 @@ summary: 修复 durable crash fixture 的构建产物前置检查和子进程 ex
 
 ## 独立审查
 
-待独立检视。
+检视獭-1822 独立检视代码修复**通过**，无严重/一般发现：exit 监听无 await 前竞态，失败分支清理并回收子进程，原 SIGKILL 恢复与 calls=1 断言未弱化，前置检查只读且无新增悬挂句柄。独立复验目标用例、durable-runtime 18/18、ESLint 与 tsc 全绿。
+
+流程闸首轮因 PR body 缺「测试改动声明」打回，第二轮补「证据分层声明」；最终 body 已本地通过 `check-pr-tests` 与 `check-pr-evidence`。GitHub CI run `42795380919` 的 check、e2e、golden-selftest、guard-macos 四项全绿。
