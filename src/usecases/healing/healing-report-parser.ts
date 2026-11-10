@@ -92,6 +92,9 @@ export function parseHealingReport(body: string): ParsedHealingReport {
 export function stripHealingReport(body: string): string {
   return body
     .replace(/<healing>\s*\[(issues|no.?issues?)\][\s\S]*?<\/healing>/gi, '')
+    // LLM 偶尔把 no_issue 写成 JSON 对象；仅剥离这一无载荷控制块，
+    // 其他 JSON（如正文代码示例）仍按原文保留，避免扩大误剥面。
+    .replace(/<healing>\s*\{\s*"type"\s*:\s*"no_issue"\s*\}\s*<\/healing>/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
