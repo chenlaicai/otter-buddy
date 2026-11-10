@@ -2176,7 +2176,19 @@ export class AgentInvoker implements AgentTurnPort {
     if (!await this.restartContentFilterWithFallback(signal, fallback)) return null;
 
     try {
-      return await this.invokeConversationInner({ ...params, retryCount: 1, manualRetry: false });
+      const recovered = await this.invokeConversationInner({ ...params, retryCount: 1, manualRetry: false });
+      const retryInvoke = await this.sendEntry?.getInvokeById(recovered.invokeId).catch(() => null);
+      if (retryInvoke?.status === 'completed') return recovered;
+      // 二次 content_filter 已在嵌套恢复出口通知；其他普通 failed 也必须升级。
+      if (!(recovered as TurnResult)._contentFilter) {
+        await this.handleContentFilterTerminal({
+          ...signal,
+          modelAlias: fallback.alias,
+          failedInvokeId: recovered.invokeId,
+          retryCount: 1,
+        });
+      }
+      return recovered;
     } catch (err) {
       this.logger.error('[content-filter] fallback re-invoke failed', err instanceof Error ? err : new Error(String(err)), {
         otterId: signal.otterId,
@@ -2241,10 +2253,15 @@ export class AgentInvoker implements AgentTurnPort {
         createdAt: new Date().toISOString(),
       });
       if (this.sendEntry) {
-        await this.sendSystemEntry(signal.conversationId, buildContentFilterTerminalMsg(otterName, signal.modelAlias));
+        await this.sendSystemEntry(signal.conversationId, buildContentFilterTerminalMsg(otterName, signal.modelAlias)).catch((err: unknown) => {
+          this.logger.warn('[content-filter] terminal system entry failed; dispatch continues', {
+            conversationId: signal.conversationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
       }
       if (!this.agentDispatchService) return;
-      const bigOtterIds = await this.resolveBigOtterIds(signal.conversationId);
+      const bigOtterIds = await this.resolveBigOtterIds(signal.conversationId, signal.otterId);
       if (bigOtterIds.length === 0) return;
       await this.agentDispatchService.dispatch({
         conversationId: signal.conversationId,
@@ -2328,7 +2345,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /** F20260916fst4：查 conversation 在场大獭（依赖未注入 / 无大獭时降级仅日志，返回空数组） */
-  private async resolveBigOtterIds(conversationId: string): Promise<string[]> {
+  private async resolveBigOtterIds(conversationId: string, excludeOtterId?: string): Promise<string[]> {
     if (!this.conversationRepo) {
       this.logger.warn('[first-dumb] conversation repo not injected, skipping wake-up', { conversationId });
       return [];
@@ -2336,6 +2353,7 @@ export class AgentInvoker implements AgentTurnPort {
     const participants = await this.conversationRepo.getActiveParticipants(conversationId);
     const bigOtterIds: string[] = [];
     for (const p of participants) {
+      if (p.otterId === excludeOtterId) continue;
       const otter = await this.queryOtter.getById(p.otterId);
       if (otter?.type === 'big') bigOtterIds.push(p.otterId);
     }

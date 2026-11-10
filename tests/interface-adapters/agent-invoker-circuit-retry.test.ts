@@ -191,10 +191,12 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
     const sendEntry = mockSendEntry();
     const healing = mockHealingRepo();
     const restartModels: Array<string | undefined> = [];
+    let activeModel = "glm";
     const manageSession = mockManageSession({
-      getActiveSession: async () => makeSession({ modelAlias: "glm" }),
+      getActiveSession: async () => makeSession({ modelAlias: activeModel }),
       restartSession: async (otterId: string, _summary?: string | null, modelAlias?: string) => {
         restartModels.push(modelAlias);
+        activeModel = modelAlias ?? activeModel;
         return makeSession({ id: "sess-content-filter", otterId, modelAlias: modelAlias ?? null });
       },
     });
@@ -209,11 +211,13 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
       describeModels: () => [{ alias: "glm" }, { alias: "kimi" }],
     };
     let calls = 0;
+    const modelsSeen: string[] = [];
     const sdk = {
       invoke: async () => {
         calls++;
-        if (calls === 1) throw Object.assign(new Error("LLM API error: Unhandled stop reason: content_filter"), { _modelAlias: "glm" });
-        return { text: "" };
+        modelsSeen.push(activeModel);
+        if (calls === 1) throw Object.assign(new Error("LLM API error: Unhandled stop reason: content_filter"), { _modelAlias: "glm", _tokenUsageDelta: { input: 10, output: 5 } });
+        return { text: "", tokenUsageDelta: { input: 20, output: 10 } };
       },
       abort: () => {}, getInternalAbortReason: () => undefined,
     } as unknown as SdkInvokePort;
@@ -226,12 +230,14 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
     };
     const invoker = makeInvoker(sdk, wrappedEntry as never, { manageSession, healingRepo: healing.repo, modelPool });
 
-    await invoker.invokeConversation({
+    const result = await invoker.invokeConversation({
       otterId: "otter-1", conversationId: "conv-1", userMessageContent: "继续写作", senderId: "user-1",
     });
 
     expect(calls).toBe(2);
     expect(restartModels).toEqual(["kimi"]);
+    expect(modelsSeen).toEqual(["glm", "kimi"]);
+    expect(result.tokenUsageDelta).toMatchObject({ input: 30, output: 15 });
     expect(healing.events.some(e => e.errorType === "content_filter" && e.severity === "high")).toBe(true);
     expect(sendEntry.store.systemBodies.some(b => b.includes("content_filter") && b.includes("kimi"))).toBe(true);
   });

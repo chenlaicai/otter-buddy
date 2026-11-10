@@ -116,13 +116,14 @@ function mockInvokeRepo(count: number) {
 }
 
 /** dispatch mock：记录 userMessageContent + 来源声明 + 调用顺序入 orderLog（行为断言面，非调用次数断言） */
-function mockDispatchService(orderLog: string[], captured?: { message?: string; source?: string }): AgentDispatchService {
+function mockDispatchService(orderLog: string[], captured?: { message?: string; source?: string; targets?: string[] }): AgentDispatchService {
   return {
     dispatch: async (input: { resolvedTargets?: string[]; userMessageContent?: string; triggerSenderType?: string }) => {
       orderLog.push("dispatch");
       if (captured) {
         captured.message = input.userMessageContent;
         captured.source = input.triggerSenderType;
+        captured.targets = input.resolvedTargets;
       }
       return { dispatchedTo: input.resolvedTargets ?? [] };
     },
@@ -205,6 +206,99 @@ describe("#1762 content_filter 终态通知", () => {
       expect(restarts).toBe(1);
       expect(orderLog).toContain("dispatch");
       expect(sendEntry.store.systemBodies.some(b => b.includes("自动换模型续跑不可用或仍失败"))).toBe(true);
+    } finally {
+      healingAlertRegistry.takeAll("conv-1");
+    }
+  });
+
+  it("换模型续跑变成普通 500 failed：仍通知大獭，不把 TurnResult 当成功", async () => {
+    const sendEntry = mockSendEntry();
+    const orderLog: string[] = [];
+    const calls = { count: 0 };
+    const sdk = {
+      invoke: async () => {
+        calls.count++;
+        const message = calls.count === 1
+          ? "LLM API error: Unhandled stop reason: content_filter"
+          : "LLM API error: 500 Internal Server Error";
+        throw Object.assign(new Error(message), { _modelAlias: calls.count === 1 ? "glm" : "kimi" });
+      },
+      abort: () => {}, getInternalAbortReason: () => undefined,
+    } as unknown as SdkInvokePort;
+    instrumentAlertEnqueue(orderLog);
+    try {
+      const invoker = new AgentInvoker(
+        sdk, mockQueryMessage(), mockManageSession(),
+        mockQueryOtter({ "otter-small-1": "small", "otter-big-1": "big" }), createTestLogger(),
+        undefined, undefined, undefined, undefined, undefined,
+        mockConversationRepo(["otter-small-1", "otter-big-1"]),
+        undefined, undefined, undefined, undefined, undefined,
+        sendEntry, mockInvokeRepo(2), mockDispatchService(orderLog),
+        undefined, undefined, undefined, contentFilterModelPool(),
+      );
+
+      await invoker.invokeConversation({
+        otterId: "otter-small-1", conversationId: "conv-1",
+        userMessageContent: "继续小说", senderId: "user-1",
+      });
+
+      expect(calls.count).toBe(2);
+      expect(orderLog).toContain("dispatch");
+    } finally {
+      healingAlertRegistry.takeAll("conv-1");
+    }
+  });
+
+  it("终态 system entry 写失败：alert 已入队且仍 dispatch，通知通道互不连坐", async () => {
+    const sendEntry = mockSendEntry();
+    sendEntry.createSystemEntry = async () => { throw new Error("entry store unavailable"); };
+    const orderLog: string[] = [];
+    instrumentAlertEnqueue(orderLog);
+    try {
+      const invoker = new AgentInvoker(
+        sdkThrowingContentFilter(), mockQueryMessage(), mockManageSession(),
+        mockQueryOtter({ "otter-small-1": "small", "otter-big-1": "big" }), createTestLogger(),
+        undefined, undefined, undefined, undefined, undefined,
+        mockConversationRepo(["otter-small-1", "otter-big-1"]),
+        undefined, undefined, undefined, undefined, undefined,
+        sendEntry, mockInvokeRepo(2), mockDispatchService(orderLog),
+        undefined, undefined, undefined, contentFilterModelPool(["glm"]),
+      );
+
+      await invoker.invokeConversation({
+        otterId: "otter-small-1", conversationId: "conv-1",
+        userMessageContent: "继续小说", senderId: "user-1",
+      });
+
+      expect(orderLog).toContain("enqueue");
+      expect(orderLog).toContain("dispatch");
+    } finally {
+      healingAlertRegistry.takeAll("conv-1");
+    }
+  });
+
+  it("失败的大獭不被回投给自己：只 dispatch 其他在场大獭", async () => {
+    const sendEntry = mockSendEntry();
+    const orderLog: string[] = [];
+    const captured: { targets?: string[] } = {};
+    instrumentAlertEnqueue(orderLog);
+    try {
+      const invoker = new AgentInvoker(
+        sdkThrowingContentFilter(), mockQueryMessage(), mockManageSession(),
+        mockQueryOtter({ "otter-big-1": "big", "otter-big-2": "big" }), createTestLogger(),
+        undefined, undefined, undefined, undefined, undefined,
+        mockConversationRepo(["otter-big-1", "otter-big-2"]),
+        undefined, undefined, undefined, undefined, undefined,
+        sendEntry, mockInvokeRepo(2), mockDispatchService(orderLog, captured),
+        undefined, undefined, undefined, contentFilterModelPool(["glm"]),
+      );
+
+      await invoker.invokeConversation({
+        otterId: "otter-big-1", conversationId: "conv-1",
+        userMessageContent: "继续小说", senderId: "user-1",
+      });
+
+      expect(captured.targets).toEqual(["otter-big-2"]);
     } finally {
       healingAlertRegistry.takeAll("conv-1");
     }

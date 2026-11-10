@@ -61,7 +61,17 @@ npx vitest run tests/interface-adapters/agent-invoker-circuit-retry.test.ts -t '
 
 - `npx tsc --noEmit` 与目标 ESLint：通过。
 - `npm run check`：通过（build、全量 ESLint、schema、双形态 smoke、脚本/端口/OtterBar 探针）。
-- 目标恢复与错误识别：3 files / 18 tests passed。
-- `npm test -- --reporter=dot`：457 files / 5866 tests passed。
+- 目标恢复、终态通知、防自 dispatch 与错误识别：4 files / 26 tests passed。
+- `npm test -- --reporter=dot`：457 files / 5869 tests passed。
 - `lint:docs`、`lint:tests`、`lint:intent`、`lint:date-bombs`、`lint:criteria`：通过；intent 仅存量 warning。
 - 全量首跑曾发现 healing 全枚举清单未加入新类型；已补 `content_filter` 环境分账并重跑全量通过，未跳过该失败。
+
+## 对抗审查处置
+
+首轮独立审查打回后补齐：
+
+- 备用模型续跑只有 invoke=completed 才视为恢复成功；普通 500/no_yield/timeout 等 failed 结果同样进入升级出口。二次 content_filter 由嵌套出口已通知，外层不重复通知。
+- 终态 system entry 与 dispatch 分通道隔离故障；entry 写失败仍主动唤醒。
+- dispatch 排除刚失败的大獭自身，只交给其他在场大獭，避免原敏感任务跨链自循环。
+- 通知文案不再无依据声称已落账/已唤醒或裸重启也已交接。
+- 回归补 ModelPool→ManageSession→第二次调用观察到新模型，以及两段 token delta 合并。
