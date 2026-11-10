@@ -316,6 +316,7 @@ import type { DurableSession } from "./durable-session";
 import { DurableSession as DurableAgentSession } from "./durable-session";
 import { DurableEventStream } from "./durable-event-stream";
 import { getModelSource } from "./durable-model-runtime";
+import { readDurableActiveSessionEntries } from "./durable-slice-source";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { PiSessionPool } from "@frameworks/pi/pi-session-pool";
 
@@ -729,12 +730,24 @@ export class PiSessionFactory implements AgentGateway {
   async readCurrentSessionEntries(otterId: string): Promise<SessionEntryLike[] | undefined> {
     try {
       const stored = this.sessionStore.getWithFile(otterId);
-      if (!stored?.sessionFile || !stored.sessionFile.endsWith(".jsonl")) return undefined;
-      const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent();
-      if (!piCodingAgent) return undefined;
-      const SessionManagerClass = getSessionManagerClass(piCodingAgent);
-      const sessionManager = SessionManagerClass.open(stored.sessionFile);
-      return readSessionEntries(sessionManager) as SessionEntryLike[] | undefined;
+      if (stored?.sessionFile && stored.sessionFile.endsWith(".jsonl")) {
+        const piCodingAgent = this.modelRuntimeRegistry.getPiCodingAgent();
+        if (!piCodingAgent) return undefined;
+        const SessionManagerClass = getSessionManagerClass(piCodingAgent);
+        const sessionManager = SessionManagerClass.open(stored.sessionFile);
+        return readSessionEntries(sessionManager) as SessionEntryLike[] | undefined;
+      }
+      // M-9af49d4a R2：durable 分支——账本指向 sqlite（或未迁移账本行）时直读
+      // durable 库投影当前世代 entries。#1783 迁移后此分支缺失导致换世档案合成
+      // 100% 拿不到原料（「前世 session 文件读取失败」机械转储）。
+      // 零副作用只读（不走 Harness.open：probeFirstTurn 在正常 invoke 期也调此处，
+      // open 的 recoverAfterReopen 会误 abort 在跑任务）。
+      const durableFile = stored?.sessionFile?.endsWith(".sqlite") ? stored.sessionFile : this.durableFile(otterId);
+      const projected = readDurableActiveSessionEntries(durableFile);
+      if (projected) {
+        this.logger.debug('[handoff] durable session entries projected', { otterId, file: durableFile, count: projected.length });
+      }
+      return projected;
     } catch (err) {
       this.logger.warn('[handoff] readCurrentSessionEntries failed', {
         otterId, error: err instanceof Error ? err.message : String(err),
