@@ -249,7 +249,8 @@ export interface AgentRunResult {
 export interface InvokeOptions {
   dynamicContext?: DynamicContext;
   onEvent?: (event: AgentEvent) => void;
-  conversationId: string;
+  /** 对话调度携带；纯 session 直调（如麻将）可省略。 */
+  conversationId?: string;
   /** 当前 streaming 消息 ID（speak 工具需要） */
   messageId?: string;
   /** 首次 invoke 标志（内部使用，注入身份信息） */

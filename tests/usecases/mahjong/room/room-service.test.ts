@@ -148,6 +148,47 @@ describe("wakeOtterForDecision 唤醒与兜底", () => {
   });
 });
 
+describe("SdkOtterGateway durable 身份", () => {
+  it("纯 session 直调也为每次唤醒传独立 currentInvokeId", async () => {
+    const seen: Array<{ conversationId?: string; currentInvokeId?: string } | undefined> = [];
+    const port = {
+      invoke: async (_otterId: string, _message: string, options?: { conversationId?: string; currentInvokeId?: string }) => {
+        seen.push(options);
+        return { text: "ok" };
+      },
+    };
+    const gateway = new SdkOtterGateway(port as never);
+
+    await expect(gateway.invoke("otter-a", "first")).resolves.toBe("ok");
+    await expect(gateway.invoke("otter-a", "second")).resolves.toBe("ok");
+
+    expect(seen).toHaveLength(2);
+    expect(seen[0]?.currentInvokeId).toEqual(expect.any(String));
+    expect(seen[0]?.currentInvokeId).not.toBe("");
+    expect(seen[1]?.currentInvokeId).toEqual(expect.any(String));
+    expect(seen[1]?.currentInvokeId).not.toBe(seen[0]?.currentInvokeId);
+    expect(seen[0]?.conversationId).toBeUndefined();
+  });
+
+  it("带 conversationId 时仍透传，同时补 durable 身份", async () => {
+    const seen: Array<{ conversationId?: string; currentInvokeId?: string } | undefined> = [];
+    const port = {
+      invoke: async (_otterId: string, _message: string, options?: { conversationId?: string; currentInvokeId?: string }) => {
+        seen.push(options);
+        return { text: "ok" };
+      },
+    };
+    const gateway = new SdkOtterGateway(port as never, "conv-mahjong");
+
+    await expect(gateway.invoke("otter-a", "play")).resolves.toBe("ok");
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.conversationId).toBe("conv-mahjong");
+    expect(seen[0]?.currentInvokeId).toEqual(expect.any(String));
+    expect(seen[0]?.currentInvokeId).not.toBe("");
+  });
+});
+
 describe("SdkOtterGateway 超时", () => {
   it("invoke 悬挂超时→wake 走代理兜底（锁由端口 invoke 自带，不再外层取锁）", async () => {
     const engine = new SanmaEngine(cfg("w3"));
