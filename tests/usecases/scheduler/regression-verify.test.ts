@@ -75,6 +75,69 @@ describe('buildRegressionVerifyBody gh 失败路径', () => {
   });
 });
 
+describe('#1779 buildRegressionVerifyBody 排除已回查 issue', () => {
+  function fakeGh(issues: Array<Record<string, unknown>>, commentsByIssue: Record<number, Array<{ body: string }>>, failView = false) {
+    const calls: string[][] = [];
+    let active = 0;
+    let maxActive = 0;
+    const runGh = async (_command: string, args: string[]) => {
+      calls.push(args);
+      active++;
+      maxActive = Math.max(maxActive, active);
+      try {
+        await Promise.resolve();
+        if (args[0] === 'issue' && args[1] === 'list') return { stdout: JSON.stringify(issues) };
+        if (args[0] === 'issue' && args[1] === 'view') {
+          if (failView) throw new Error('comments unavailable');
+          return { stdout: JSON.stringify({ comments: commentsByIssue[Number(args[2])] ?? [] }) };
+        }
+        throw new Error(`unexpected command: ${args.join(' ')}`);
+      } finally {
+        active--;
+      }
+    };
+    return { runGh, calls, get maxActive() { return maxActive; } };
+  }
+
+  const dueIssue = (number: number) => ({
+    number, title: `issue-${number}`, closedAt: '2026-11-01T00:00:00Z',
+    body: '## 验证断言\n- 断言：机制正常\n- 到期：2026-11-01',
+  });
+
+  it('完整 marker 绑定判定，最新 verdict 生效，gh 调用精确且顺序执行', async () => {
+    const gh = fakeGh([
+      dueIssue(101), dueIssue(102), dueIssue(103), dueIssue(104),
+      dueIssue(105), dueIssue(106), dueIssue(107), dueIssue(108),
+    ], {
+      101: [{ body: '<!-- regression-verify: issue=101; verdict=pass; at=2026-11-04T00:00:00Z -->' }],
+      102: [],
+      103: [{ body: '<!-- regression-verify: issue=999; verdict=pass -->' }],
+      104: [{ body: '<!-- regression-verify: issue=104; at=2026-11-04T00:00:00Z -->' }],
+      105: [{ body: '<!-- regression-verify: issue=105; verdict=unknown -->；历史文字 verdict=pass 不算' }],
+      106: [{ body: '<!-- regression-verify: issue=106; verdict=fail --> <!-- regression-verify: issue=999; verdict=pass -->' }],
+      107: [{ body: '<!-- regression-verify: issue=107; verdict=pass --> <!-- regression-verify: issue=107; verdict=fail -->' }],
+      108: [{ body: '<!-- regression-verify: issue=108; verdict=fail --> <!-- regression-verify: issue=108; verdict=pass -->' }],
+    });
+    const { buildRegressionVerifyBody } = await import('@usecases/scheduler/scheduler-service');
+    const result = await buildRegressionVerifyBody(gh.runGh);
+    expect(result).not.toContain('issue #101');
+    expect(result).not.toContain('issue #108');
+    for (const issue of [102, 103, 104, 105, 106, 107]) expect(result).toContain(`issue #${issue}`);
+    expect(result).toContain('共 6 条');
+    expect(gh.calls).toHaveLength(9);
+    expect(gh.calls.filter(args => args[1] === 'view').map(args => Number(args[2])))
+      .toEqual([101, 102, 103, 104, 105, 106, 107, 108]);
+    expect(gh.maxActive).toBe(1);
+  });
+
+  it('评论查询失败返回 GH_FAILED，不把查不到当未回查', async () => {
+    const gh = fakeGh([dueIssue(101)], {}, true);
+    const { buildRegressionVerifyBody, REGRESSION_GH_FAILED } = await import('@usecases/scheduler/scheduler-service');
+    expect(await buildRegressionVerifyBody(gh.runGh)).toBe(REGRESSION_GH_FAILED);
+    expect(gh.calls).toHaveLength(2);
+  });
+});
+
 // ─── #1208：regression-verify 心跳可见性（REGRESSION_VERIFY_HEARTBEAT）──────
 // 生产现场 9/18–9/29：任务每天触发但每天因「无到期断言」或「gh 故障」跳过，
 // 既不落 execution 也无任何心跳——「活着但没活干」与「死了」在指标上不可区分。
