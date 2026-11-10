@@ -63,9 +63,10 @@ export class KeyInfoController {
 
   async flagResource(c: Context): Promise<Response> {
     try {
+      const conversationId = param(c, "id");
       const resourceId = param(c, "resourceId");
       const body = await safeJsonBody<{ flagged: boolean }>(c);
-      await this.manageKeyInfo.flagResource(resourceId, body.flagged);
+      await this.manageKeyInfo.flagResource(resourceId, conversationId, body.flagged);
       return c.json({ status: "ok" });
     } catch (err) {
       return handleError(c, err, this.logger);

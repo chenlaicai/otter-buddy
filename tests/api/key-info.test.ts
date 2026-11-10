@@ -116,7 +116,19 @@ describe("KeyInfo API", () => {
       expect(res.status).toBe(200);
       const body = await json(res);
       expect(body.status).toBe("ok");
-      expect(deps.manageKeyInfo.flagResource).toHaveBeenCalledWith("lr-1", true);
+      expect(deps.manageKeyInfo.flagResource).toHaveBeenCalledWith("lr-1", "conv-1", true);
+    });
+
+    it("returns 404 when flagging a resource outside the conversation", async () => {
+      deps.manageKeyInfo.flagResource.mockRejectedValue(new DomainError("not found", "not_found"));
+
+      const res = await app.request("/api/conversations/conv-other/resources/lr-1", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ flagged: true }),
+      });
+
+      expect(res.status).toBe(404);
     });
   });
 

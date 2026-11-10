@@ -147,12 +147,18 @@ export class ManageKeyInfo {
     return newResource;
   }
 
-  /** 归档产物：conversation 归属不匹配与未知 ID 一样按 404 处理，防跨对话写。 */
-  async archiveResource(id: string, conversationId: string): Promise<void> {
+  /** 未知 ID 与跨对话统一 404，所有资源写入口共用同一归属闸。 */
+  private async requireOwnedResource(id: string, conversationId: string): Promise<LinkedResource> {
     const resource = await this.repo.getLinkedResourceById(id);
     if (!resource || resource.conversationId !== conversationId) {
       throw new DomainError(`LinkedResource ${id} not found in conversation ${conversationId}`, "not_found");
     }
+    return resource;
+  }
+
+  /** 归档产物：conversation 归属不匹配与未知 ID 一样按 404 处理，防跨对话写。 */
+  async archiveResource(id: string, conversationId: string): Promise<void> {
+    const resource = await this.requireOwnedResource(id, conversationId);
     if (!canTransitionArtifactStatus(resource.status, "archived")) {
       throw new DomainError(`Cannot archive resource in status '${resource.status}'`, "conflict");
     }
@@ -171,10 +177,9 @@ export class ManageKeyInfo {
     return this.repo.getLinkedResourcesByGroup(conversationId, groupId);
   }
 
-  /** 更新资源状态（含领域守卫校验） */
-  async updateResourceStatus(id: string, status: ArtifactStatus, supersededBy?: string): Promise<void> {
-    const resource = await this.repo.getLinkedResourceById(id);
-    if (!resource) throw new DomainError(`LinkedResource ${id} not found`, "not_found");
+  /** 更新资源状态（归属 + 领域守卫校验） */
+  async updateResourceStatus(id: string, conversationId: string, status: ArtifactStatus, supersededBy?: string): Promise<void> {
+    const resource = await this.requireOwnedResource(id, conversationId);
     if (!canTransitionArtifactStatus(resource.status, status)) {
       throw new DomainError(`Cannot transition resource from '${resource.status}' to '${status}'`, "conflict");
     }
@@ -209,7 +214,8 @@ export class ManageKeyInfo {
     return { ungrouped, groups };
   }
 
-  async flagResource(id: string, flagged: boolean): Promise<void> {
+  async flagResource(id: string, conversationId: string, flagged: boolean): Promise<void> {
+    await this.requireOwnedResource(id, conversationId);
     await this.repo.flagResource(id, flagged);
   }
 }

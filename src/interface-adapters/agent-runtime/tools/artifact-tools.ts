@@ -84,7 +84,7 @@ export function createUpdateArtifactStatusTool(ctx: ToolContext): AgentTool {
         return errorResponse("[错误] status 为 'superseded' 时必须提供 supersededBy");
       }
 
-      await ctx.client.resource.updateStatus(artifactId, targetStatus, supersededBy);
+      await ctx.client.resource.updateStatus(artifactId, ctx.conversationId, targetStatus, supersededBy);
       return textResponse(`Artifact ${artifactId} status updated to ${targetStatus}`);
     },
   };
