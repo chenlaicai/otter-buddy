@@ -396,6 +396,7 @@ export class MessageController {
           ...(params.images && { images: params.images }),
           // F20260922ctxi：batchMaxSeq 透传（同 invoke-controller 修复——闭包重组漏传致游标不推进）
           batchMaxSeq: params.batchMaxSeq,
+          assignmentRole: params.assignmentRole,
         });
       },
     });

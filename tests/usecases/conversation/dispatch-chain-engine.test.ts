@@ -87,6 +87,30 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
     expect(invoked).toEqual(["otter-worker", "owner-otter"]);
   });
 
+  it("F20261110ryrev：reviewer 角色随 yield 到下一 hop，triggerMessageId 仍保持原始 user entry", async () => {
+    const m = makeMocks();
+    (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) =>
+      id === "inv-big"
+        ? { id, status: "completed", otterId: "big", talkingStonePassedTo: ["reviewer"], endedAt: "2026-11-10T00:00:00Z", metadata: { yieldAssignmentRole: "reviewer" } }
+        : { id, status: "completed", otterId: "reviewer", talkingStonePassedTo: [], endedAt: "2026-11-10T00:00:00Z", metadata: { assignmentRole: "reviewer" } });
+    const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
+    const calls: Array<{ otterId: string; assignmentRole?: string; triggerMessageId?: string }> = [];
+
+    await engine.executeChain({
+      conversationId: "conv-1", userMessageContent: "审查", senderId: "user", triggerMessageId: "user-entry-original",
+      initialTargets: ["big"],
+      invokeFn: async params => {
+        calls.push({ otterId: params.otterId, assignmentRole: params.assignmentRole, triggerMessageId: params.triggerMessageId });
+        return { messageId: params.otterId === "big" ? "inv-big" : "inv-review" };
+      },
+    });
+
+    expect(calls).toEqual([
+      { otterId: "big", assignmentRole: undefined, triggerMessageId: "user-entry-original" },
+      { otterId: "reviewer", assignmentRole: "reviewer", triggerMessageId: "user-entry-original" },
+    ]);
+  });
+
   it("web 路径：senderId=user 时 yield to user 仍被滤除（人类不参与链调度）", async () => {
     const { m, invoked } = makeChainMocks();
     (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) =>

@@ -28,10 +28,10 @@ import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace
 /** F20261027hwl1：invoke 创建时的确定性 metadata（traceId + source）。
  *  只取 trace scope 内的稳定字段（不携业务对象）——与 PinoLogger 的 traceLogFields 同源。
  *  工作账本归属链：work_item_traces.trace_id ← invokes.metadata.traceId（JSON_EXTRACT 派生）。 */
-function buildInvokeCreationMetadata(): Record<string, unknown> | null {
+function buildInvokeCreationMetadata(assignmentRole?: "reviewer"): Record<string, unknown> | null {
   const trace = getTraceContext();
-  if (trace.traceId === undefined && trace.source === undefined) return null;
-  return { ...(trace.traceId !== undefined && { traceId: trace.traceId }), ...(trace.source !== undefined && { traceSource: trace.source }) };
+  if (trace.traceId === undefined && trace.source === undefined && !assignmentRole) return null;
+  return { ...(trace.traceId !== undefined && { traceId: trace.traceId }), ...(trace.source !== undefined && { traceSource: trace.source }), ...(assignmentRole && { assignmentRole }) };
 }
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
@@ -303,6 +303,7 @@ export class AgentInvoker implements AgentTurnPort {
     batchMaxSeq?: number;
     /** F20261027hwl1：链触发 entry id（写 invokes.trigger_entry_id + metadata.traceId 同源） */
     triggerMessageId?: string;
+    assignmentRole?: "reviewer";
   }): Promise<AgentTurnResult> {
     // F20261015mjsg D2 牌局中对话侧防护：入座獺不进 LLM 推理（局中水位换世会打穿牌局上下文）——
     // 自动应答「打牌中」。判据 = RoomService.isSeated 精确谓词（非通用 isRunning——定时任务里的
@@ -377,6 +378,7 @@ export class AgentInvoker implements AgentTurnPort {
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     batchMaxSeq?: number;
     triggerMessageId?: string;
+    assignmentRole?: "reviewer";
   }): Promise<AgentTurnResult> {
     const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId } = params;
     const startTime = Date.now();
@@ -490,7 +492,7 @@ export class AgentInvoker implements AgentTurnPort {
       conversationId,
       otterId,
       triggerEntryId: triggerMessageId ?? undefined,
-      metadata: buildInvokeCreationMetadata(),
+      metadata: buildInvokeCreationMetadata(params.assignmentRole),
     });
     const currentInvokeId = invoke.id;
     const resolvedOtterName = resolveSpeakerName("otter", otterId, otter?.name) ?? otterId;

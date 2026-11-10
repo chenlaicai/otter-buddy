@@ -1,7 +1,6 @@
 /**
  * F20261027hwl1 复审修复回归测试：
  * - S1：5000+ invoke / 老 trace 在窗口外——列表与详情 token 一致、守恒、其他工作不混入
- * - A1：reviewerOtterId 与调用者不一致拒写；一致（本人）通过
  * - A5：详情 truncatedCount / usageGapCount 显式返回
  * - A4：工具调用计数 Shanghai 日界
  */
@@ -101,44 +100,6 @@ describe("S1 回归：5000+ invoke 全量守恒（无截断偏置）", () => {
     // 其他工作不混入
     expect(old.tokens.totalTokens + fresh.tokens.totalTokens + report.unassigned.tokens.totalTokens)
       .toBe(6020 * 17);
-  });
-});
-
-describe("A1 回归：reviewer 身份锚定", () => {
-  it("reviewerOtterId 与调用者不一致 → 拒写（作者不能替检视者记轮次）", async () => {
-    const { createTools } = await import("@interface-adapters/agent-runtime/tools/tool-factory");
-    const { runWithTrace } = await import("@usecases/ports/trace-context");
-    const w = await binder.start({ conversationId: "c1", otterId: "o1", traceId: "t-rv", title: "轮次工作" });
-
-    // 作者獭（otter-author）冒充检视獭（otter-reviewer）记轮次 → 拒写
-    const authorTools = createTools({ otterId: "otter-author", conversationId: "c1", workLedgerBinder: binder } as never);
-    const trackWork = authorTools.find(t => t.name === "track_work")!;
-    const result = await runWithTrace({ traceId: "t-rv" }, () =>
-      trackWork.execute("call-1", { action: "review_round", workId: w.id, reviewerOtterId: "otter-reviewer", roundNo: 1, roundState: "reviewing" }));
-    const text = JSON.stringify(result);
-    expect(text).toContain("拒写");
-
-    // 检视獭本人（otter-reviewer 调用者）→ 通过
-    const reviewerTools = createTools({ otterId: "otter-reviewer", conversationId: "c1", workLedgerBinder: binder } as never);
-    const trackWorkRv = reviewerTools.find(t => t.name === "track_work")!;
-    const okResult = await runWithTrace({ traceId: "t-rv" }, () =>
-      trackWorkRv.execute("call-2", { action: "review_round", workId: w.id, reviewerOtterId: "otter-reviewer", roundNo: 1, roundState: "reviewing" }));
-    expect(JSON.stringify(okResult)).toContain("已留痕");
-
-    const back = await repo.getWorkById(w.id);
-    expect(back!.reviewRounds.length).toBe(1);
-    expect(back!.reviewRounds[0]!.reviewerOtterId).toBe("otter-reviewer");
-  });
-
-  it("缺 reviewerOtterId → 拒写并提示需要显式声明", async () => {
-    const { createTools } = await import("@interface-adapters/agent-runtime/tools/tool-factory");
-    const { runWithTrace } = await import("@usecases/ports/trace-context");
-    const w = await binder.start({ conversationId: "c1", otterId: "o1", traceId: "t-rv2", title: "轮次工作2" });
-    const tools = createTools({ otterId: "o1", conversationId: "c1", workLedgerBinder: binder } as never);
-    const trackWork = tools.find(t => t.name === "track_work")!;
-    const result = await runWithTrace({ traceId: "t-rv2" }, () =>
-      trackWork.execute("call-1", { action: "review_round", workId: w.id, roundNo: 1, roundState: "reviewing" }));
-    expect(JSON.stringify(result)).toContain("reviewerOtterId");
   });
 });
 

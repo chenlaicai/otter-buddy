@@ -23,6 +23,7 @@ const ROUND_STATE_LABELS: Record<WorkReviewRoundDTO['state'], string> = {
   'delta-review': 'delta 复核',
   'passed': '已通过',
   'open-unknown': '开启（未记录）',
+  'completed': '已完成',
 }
 
 function fmtTokens(n: number): string {

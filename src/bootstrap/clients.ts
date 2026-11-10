@@ -180,6 +180,7 @@ export function buildOtterToolClient(
             invokeId: params.invokeId,
             otterId: params.otterId,
             yieldTargets: params.yieldTargets,
+            assignmentRole: params.assignmentRole,
           });
           return {
             yieldEntry: { id: result.yieldEntry.id, entryType: result.yieldEntry.entryType, yieldTargets: result.yieldEntry.yieldTargets ?? [] },
@@ -193,6 +194,7 @@ export function buildOtterToolClient(
               tokenUsageOutput: result.invoke.tokenUsageOutput,
               tokenUsageCacheRead: result.invoke.tokenUsageCacheRead,
               tokenUsageCacheWrite: result.invoke.tokenUsageCacheWrite,
+              metadata: result.invoke.metadata,
             },
           };
         },
