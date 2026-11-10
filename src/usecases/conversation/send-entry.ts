@@ -22,7 +22,7 @@ import type {
   InvokeEventType,
 } from "@entities/conversation/invoke";
 import type { EntryRepository } from "./entry-repository";
-import { inheritYieldAssignmentMetadata } from "./yield-assignment";
+import { markYieldAssignment } from "./yield-assignment";
 import type { InvokeRepository } from "./invoke-repository";
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { ConversationRepository } from "./conversation-repository";
@@ -267,7 +267,7 @@ export class SendEntry {
       throw new DomainError(`createInvoke: otterId 不存在: ${input.otterId}`, "not_found");
     }
 
-    const now = new Date().toISOString(); const metadata = await inheritYieldAssignmentMetadata(this.entryRepo, input.triggerEntryId, input.metadata);
+    const now = new Date().toISOString(); const metadata = input.metadata ?? null;
     const invoke: Invoke = {
       id: crypto.randomUUID(),
       conversationId: input.conversationId,
@@ -379,9 +379,8 @@ export class SendEntry {
     await this.invokeRepo.updateInvokeStatus(input.invokeId, "completed", now);
 
     const invoke = await this.invokeRepo.getInvokeById(input.invokeId);
-    if (!invoke) {
-      throw new DomainError(`createYieldEntry: invoke 不存在: ${input.invokeId}`, "not_found");
-    }
+    if (!invoke) throw new DomainError(`createYieldEntry: invoke 不存在: ${input.invokeId}`, "not_found");
+    await markYieldAssignment(this.invokeRepo, invoke, input.assignmentRole);
 
     // 创建 yield 条目 + invoke_end 条目（原子序号批量插入，天然连续递增）
     const yieldEntry: Entry = {

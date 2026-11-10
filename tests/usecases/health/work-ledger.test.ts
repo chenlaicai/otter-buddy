@@ -88,14 +88,17 @@ describe("跨獭链与轮次", () => {
     makeInvoke("inv-r1", "otter-reviewer", "trace-R");
     makeInvoke("inv-r2", "otter-reviewer", "trace-R");
 
-    await binder.recordCompletedReviewRound({ traceId: "trace-R", reviewerOtterId: "otter-reviewer", invokeId: "inv-r1" });
-    await binder.recordCompletedReviewRound({ traceId: "trace-R", reviewerOtterId: "otter-reviewer", invokeId: "inv-r1" });
-    await binder.recordCompletedReviewRound({ traceId: "trace-R", reviewerOtterId: "otter-reviewer", invokeId: "inv-r2" });
+    await Promise.all([
+      binder.recordCompletedReviewRound({ traceId: "trace-R", reviewerOtterId: "otter-reviewer", invokeId: "inv-r1" }),
+      binder.recordCompletedReviewRound({ traceId: "trace-R", reviewerOtterId: "otter-reviewer", invokeId: "inv-r1" }),
+      binder.recordCompletedReviewRound({ traceId: "trace-R", reviewerOtterId: "otter-small", invokeId: "inv-r2" }),
+    ]);
 
     const back = await repo.getWorkById(w.id);
     expect(back!.reviewRounds.length).toBe(2);
     expect(back!.reviewRounds[0]).toMatchObject({ state: "completed", completedInvokeId: "inv-r1" });
     expect(back!.reviewRounds[1]).toMatchObject({ state: "completed", completedInvokeId: "inv-r2" });
+    expect(back!.reviewRounds.map(r => r.roundNo)).toEqual([1, 2]);
 
     const report = await new WorkLedgerReportBuilder(repo, logger).build();
     const item = report.works.find(x => x.workId === w.id)!;

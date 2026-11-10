@@ -36,6 +36,8 @@ export interface AgentTurnPort {
     /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用）。
      *  F20260922ctxi：port 声明补齐——实现方早已支持，缺声明让 recruiting 路径无法透传（游标不推进） */
     batchMaxSeq?: number;
+    /** yield 派工的本次角色（reviewer 自动轮次采集） */
+    assignmentRole?: "reviewer";
   }): Promise<AgentTurnResult>;
 
   /** 中止 Agent 生成 */

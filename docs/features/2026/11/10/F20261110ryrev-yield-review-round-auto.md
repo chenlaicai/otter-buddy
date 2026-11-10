@@ -14,6 +14,12 @@ modules:
   - src/interface-adapters/agent-runtime/tools/work-ledger-tools.ts
   - src/usecases/conversation/send-entry.ts
   - src/usecases/conversation/yield-assignment.ts
+  - src/usecases/conversation/dispatch-chain-engine.ts
+  - src/interface-adapters/agent-runtime/agent-invoker.ts
+  - src/usecases/ports/agent-turn-port.ts
+  - src/usecases/conversation/agent-dispatch-service.ts
+  - src/interface-adapters/http/controllers/message-controller.ts
+  - src/interface-adapters/http/controllers/invoke-controller.ts
   - src/usecases/ports/otter-tool-client.ts
   - src/bootstrap/clients.ts
   - src/usecases/health/work-ledger-binder.ts
@@ -46,12 +52,16 @@ intent:
 ## 流程与代码锚点
 
 1. `track_work start/resume` 沿用现有 trace↔work 绑定，不传提示词 workId。
-2. 大獭调用 `yield({to, assignmentRole:'reviewer'})`；`SendEntry.createYieldEntry` 把角色写入 yield entry metadata。
-3. 下一跳 `SendEntry.createInvoke` 读取 trigger entry，把 reviewer 角色与现有 traceId 一起写入 invoke metadata。角色由系统记录继承，不经 LLM 转述。
+2. 大獭调用 `yield({to, assignmentRole:'reviewer'})`；`SendEntry.createYieldEntry` 把角色写入 yield entry，同时写入派发方 invoke 的 `yieldAssignmentRole`。
+3. `DispatchChainEngine` 从该 invoke 读取角色并逐 hop 显式传给 `InvokeFn.assignmentRole`；`AgentInvoker` 把角色与现有 traceId 写入下一 invoke metadata。原始 `triggerEntryId` 语义不变。角色由系统传递，不经 LLM 转述。
 4. 检视者正常 speak/yield 交回；`createYieldTool` 在交棒成功后读取当前 invoke 角色。若为 reviewer 且非 self-yield，调用 `WorkLedgerBinder.recordCompletedReviewRound`。
 5. binder 以当前 trace 查原工作，追加 `state=completed + completedInvokeId`；相同 invoke 重放幂等。面板仍按轮次数组显示总数。
 
 轮次只表达“一次检视者完成交棒”，不分析通过/需修改，不扫描评论文本。初轮与每次 delta 各计一轮。
+
+## 独立检视修正
+
+初版仅从 trigger entry 继承角色，但生产链所有 hop 的 triggerMessageId 都是原始 user entry，角色永不触发。改为派发方 invoke `yieldAssignmentRole` → 链引擎下一 hop `assignmentRole` → 被派工 invoke metadata 的显式生产链，并新增判别测试锁定原始 user trigger 不变。并行 reviewer 完成时，roundNo 分配与 JSON 追加在 better-sqlite3 同步事务内完成，防读旧值互覆盖。
 
 ## Retirement handover
 
@@ -62,10 +72,10 @@ intent:
 
 ## 验证
 
-- 新增真实 SQLite + SendEntry + yield 工具集成测试，修复前失败于角色未继承与自动记录方法不存在。
+- 新增真实 SQLite + SendEntry + yield 工具集成测试，修复前失败于角色未传递与自动记录方法不存在；链引擎测试使用生产原始 user trigger 形状判别角色传递。
 - 修复后覆盖两轮连续采集、角色继承、普通派工、自交棒、重复 invoke 与无归属降级。
 - 既有工作账本聚合、详情与报告测试同步到自动轮次语义；生产 OtterToolClient 适配层有角色/metadata 透传回归。
-- 全量 444 文件、5779 用例通过；`npm run check`、Web build、prompt golden-selftest 通过。
+- 全量 444 文件、5780 用例通过；`npm run check`、Web build、prompt golden-selftest 通过。
 
 ## 边界
 

@@ -66,22 +66,16 @@ describe("F20261110ryrev：yield 自动采集检视轮次", () => {
     return result;
   }
 
-  async function invoke(otterId: string, triggerEntryId?: string, traceId = "trace-work") {
+  async function invoke(otterId: string, assignmentRole?: "reviewer", traceId = "trace-work") {
     return (await sendEntry.createInvoke({
-      conversationId: "conv", otterId, triggerEntryId, metadata: { traceId },
+      conversationId: "conv", otterId, metadata: { traceId, ...(assignmentRole ? { assignmentRole } : {}) },
     })).invoke;
-  }
-
-  function latestYieldId(): string {
-    const row = db.prepare("SELECT id FROM entries WHERE entry_type='yield' ORDER BY sequence_num DESC LIMIT 1").get() as { id: string } | undefined;
-    if (!row) throw new Error("yield entry 不存在");
-    return row.id;
   }
 
   it("yield 派工角色随触发 entry 进入 invoke；每次检视完成交回自动计一轮", async () => {
     const big1 = await invoke("big");
     await runYield({ otterId: "big", invokeId: big1.id, to: ["reviewer"], assignmentRole: "reviewer" });
-    const reviewer1 = await invoke("reviewer", latestYieldId());
+    const reviewer1 = await invoke("reviewer", "reviewer");
     expect(reviewer1.metadata).toMatchObject({ traceId: "trace-work", assignmentRole: "reviewer" });
 
     await runYield({ otterId: "reviewer", invokeId: reviewer1.id, to: ["big"] });
@@ -93,7 +87,7 @@ describe("F20261110ryrev：yield 自动采集检视轮次", () => {
 
     const big2 = await invoke("big");
     await runYield({ otterId: "big", invokeId: big2.id, to: ["reviewer"], assignmentRole: "reviewer" });
-    const reviewer2 = await invoke("reviewer", latestYieldId());
+    const reviewer2 = await invoke("reviewer", "reviewer");
     await runYield({ otterId: "reviewer", invokeId: reviewer2.id, to: ["big"] });
     work = await ledgerRepo.getWorkById(workId);
     expect(work!.reviewRounds).toHaveLength(2);
@@ -109,7 +103,7 @@ describe("F20261110ryrev：yield 自动采集检视轮次", () => {
     const yieldRow = await sendEntry.getEntryById(dispatched.yieldEntry.id);
     expect(yieldRow!.metadata).toMatchObject({ assignmentRole: "reviewer" });
 
-    const review = await invoke("reviewer", dispatched.yieldEntry.id);
+    const review = await invoke("reviewer", "reviewer");
     const completed = await client.conversation.entry.createYieldEntry({
       conversationId: "conv", invokeId: review.id, otterId: "reviewer", yieldTargets: ["big"],
     });
@@ -119,13 +113,13 @@ describe("F20261110ryrev：yield 自动采集检视轮次", () => {
   it("自交棒、普通派工与重复 invoke 不计；无工作归属不阻断交棒", async () => {
     const big = await invoke("big");
     await runYield({ otterId: "big", invokeId: big.id, to: ["reviewer"] });
-    const ordinary = await invoke("reviewer", latestYieldId());
+    const ordinary = await invoke("reviewer");
     expect(ordinary.metadata).not.toHaveProperty("assignmentRole");
     await runYield({ otterId: "reviewer", invokeId: ordinary.id, to: ["big"] });
     expect((await ledgerRepo.getWorkById(workId))!.reviewRounds).toHaveLength(0);
 
     await runYield({ otterId: "big", invokeId: (await invoke("big")).id, to: ["reviewer"], assignmentRole: "reviewer" });
-    const review = await invoke("reviewer", latestYieldId());
+    const review = await invoke("reviewer", "reviewer");
     await runYield({ otterId: "reviewer", invokeId: review.id, to: ["reviewer"] });
     expect((await ledgerRepo.getWorkById(workId))!.reviewRounds).toHaveLength(0);
 
@@ -135,7 +129,7 @@ describe("F20261110ryrev：yield 自动采集检视轮次", () => {
 
     const unboundBig = await invoke("big", undefined, "trace-unbound");
     await runYield({ otterId: "big", invokeId: unboundBig.id, to: ["reviewer"], traceId: "trace-unbound", assignmentRole: "reviewer" });
-    const unbound = await invoke("reviewer", latestYieldId(), "trace-unbound");
+    const unbound = await invoke("reviewer", "reviewer", "trace-unbound");
     const result = await runYield({ otterId: "reviewer", invokeId: unbound.id, to: ["big"], traceId: "trace-unbound" });
     expect(result.terminate).toBe(true);
     expect((await ledgerRepo.getWorkById(workId))!.reviewRounds).toHaveLength(1);
