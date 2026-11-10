@@ -70,7 +70,7 @@ process.on("message", () => {
 `
       );
 
-      const { writeService: service, dispose } = await initEmbeddingService({
+      const { liveService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -107,7 +107,7 @@ process.on("message", (msg) => {
 `
       );
 
-      const { writeService: service, dispose } = await initEmbeddingService({
+      const { liveService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -148,7 +148,7 @@ process.on("message", (msg) => {
 `
       );
 
-      const { writeService: service, dispose } = await initEmbeddingService({
+      const { liveService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -186,7 +186,7 @@ process.on("message", (msg) => {
 `
       );
 
-      const { writeService: service, dispose } = await initEmbeddingService({
+      const { liveService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -215,7 +215,7 @@ process.on("message", (msg) => {
 `
       );
 
-      const { writeService: service, dispose } = await initEmbeddingService({
+      const { liveService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -310,7 +310,7 @@ process.on("message", () => {});
 `
       );
 
-      const { writeService: service, dispose } = await initEmbeddingService({
+      const { liveService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -351,7 +351,7 @@ process.on("message", () => {});
 `
       );
 
-      const { writeService: service, dispose } = await initEmbeddingService({
+      const { liveService: service, dispose } = await initEmbeddingService({
         workerPath: mockWorkerPath,
         workerExecArgv: [],
       });
@@ -643,7 +643,7 @@ process.on("message", () => {
   // 收到 embed 不回——占住槽位
 });
 `);
-    const { writeService: service, dispose } = await initEmbeddingService({
+    const { liveService: service, dispose } = await initEmbeddingService({
       workerPath: mockWorkerPath,
       workerExecArgv: [],
     });
@@ -700,9 +700,8 @@ process.on("message", () => {});
   });
 });
 
-// F20261016ebrt：读写双 lane——查询不排在回填后面
-describe("读写双 lane 隔离", () => {
-  it("queryService 与 writeService 是独立实例，互不排队", async () => {
+describe("live/backfill 双 lane 隔离", () => {
+  it("liveService 与 backfillService 是独立实例，回填占住时实时请求仍完成", async () => {
     const mockWorkerPath = writeMockWorker(
       "mock-lane-worker.mjs",
       `
@@ -718,25 +717,21 @@ process.on("message", (msg) => {
 `
     );
 
-    const { queryService, writeService, dispose } = await initEmbeddingService({
+    const { liveService, backfillService, dispose } = await initEmbeddingService({
       workerPath: mockWorkerPath,
       workerExecArgv: [],
     });
 
     try {
-      await waitFor(() => queryService.available && writeService.available, "both lanes ready");
+      await waitFor(() => liveService.available && backfillService.available, "both lanes ready");
+      expect(liveService).not.toBe(backfillService);
 
-      // 两 lane 是独立实例（各自 fork 的 worker 进程）
-      expect(queryService).not.toBe(writeService);
-
-      // write lane 被一个永不返回的请求占住
-      void writeService.embed("write one").catch(() => "hung" as const);
-      const svcWrite = writeService as unknown as { pendingRequests: Map<number, unknown> };
+      void backfillService.embed("write one").catch(() => "hung" as const);
+      const svcWrite = backfillService as unknown as { pendingRequests: Map<number, unknown> };
       await waitFor(() => svcWrite.pendingRequests.size >= 1, "write lane busy");
 
-      // query lane 不受影响——write 卡死时 query 仍能立刻拿到结果
       const queryResult = await Promise.race([
-        queryService.embed("query one"),
+        liveService.embed("query one"),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("query blocked by write")), 1000)),
       ]);
       expect(queryResult).toBeInstanceOf(Float32Array);
@@ -773,7 +768,7 @@ process.on("message", (msg) => {
 process.send({ type: "ready", meta: { modelId: "test", modelRev: "1", dim: 4 } });
 process.on("message", () => {});
 `);
-    const { writeService: service, dispose } = await initEmbeddingService({
+    const { liveService: service, dispose } = await initEmbeddingService({
       workerPath: mockWorkerPath,
       workerExecArgv: [],
     });
@@ -794,7 +789,7 @@ process.on("message", () => {});
   it("晚到 result 触发 salvage 并释放槽位；无 salvage 才丢弃", async () => {
     EmbeddingServiceImpl.setTestTimeoutOverride(100);
     const mockWorkerPath = writeMockWorker("mock-late-result.mjs", lateWorkerScript(250));
-    const { writeService: service, dispose } = await initEmbeddingService({
+    const { liveService: service, dispose } = await initEmbeddingService({
       workerPath: mockWorkerPath,
       workerExecArgv: [],
     });
@@ -833,7 +828,7 @@ process.on("message", (msg) => {
   }, 200);
 });
 `);
-    const { writeService: service, dispose } = await initEmbeddingService({
+    const { liveService: service, dispose } = await initEmbeddingService({
       workerPath: mockWorkerPath,
       workerExecArgv: [],
     });
@@ -889,7 +884,7 @@ process.on("message", (msg) => {
   it("waitSlot：槽满挂起排队而非拒绝，槽空后按序完成", async () => {
     EmbeddingServiceImpl.setTestTimeoutOverride(5000);
     const mockWorkerPath = writeMockWorker("mock-wait-slot.mjs", lateWorkerScript(100));
-    const { writeService: service, dispose } = await initEmbeddingService({
+    const { liveService: service, dispose } = await initEmbeddingService({
       workerPath: mockWorkerPath,
       workerExecArgv: [],
     });

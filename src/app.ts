@@ -15,6 +15,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import { readEmbeddingHealth } from "@usecases/memory/embedding-health";
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SchedulerService } from "@usecases/scheduler/scheduler-service";
@@ -124,9 +125,11 @@ export interface BuiltApp {
   schedulerService: SchedulerService;
   /** F20261016ebrt：查询 lane（search_memory，延迟优先） */
   queryEmbedding: EmbeddingGateway;
-  /** F20261016ebrt：写入 lane（store/sync/retry，吞吐优先） */
-  writeEmbedding: EmbeddingGateway;
-  /** 兼容存量测试访问 available/构造 StoreMemory——等价 writeEmbedding */
+  /** 实时写 lane（store-memory，fail-fast） */
+  liveEmbedding: EmbeddingGateway;
+  /** 回填 lane（retry worker，持续 progress） */
+  backfillEmbedding: EmbeddingGateway;
+  /** 既有调用方使用的实时写入口 */
   embeddingService: EmbeddingGateway;
   modelPool: ModelPool;
   /** F20260812mrcq Part 1：embedding 重试 worker（vec 禁用时为 null）。F20261026emct：getter 经 ref 读——worker 在 listen 后才创建 */
@@ -226,9 +229,31 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     syncApiKeyToAgentAuth(config.llm, logger);
   }
   // ── 数据层初始化 ──
-  const { db, otterConfigProvider, model, modelPool, queryEmbedding, writeEmbedding, dispose: disposeEmbedding } =
-    await initDatabaseAndModels(config, logger, options.models);
+  const {
+    db, otterConfigProvider, model, modelPool,
+    queryEmbedding, liveEmbedding, backfillEmbedding,
+    dispose: disposeEmbedding,
+  } = await initDatabaseAndModels(config, logger, options.models);
   const repos = initRepositoriesWithDb(db, logger);
+  for (const service of new Set([queryEmbedding, liveEmbedding, backfillEmbedding])) {
+    service.setHealingReporter?.((failure) => {
+      void repos.healingEvent.create({
+        id: crypto.randomUUID(),
+        messageId: "",
+        conversationId: "",
+        otterId: "",
+        errorType: "circuit_break",
+        severity: "high",
+        description: `embedding ${failure.lane} lane 连续重启失败并熔断`,
+        suggestion: "检查 worker ready/progress 日志与宿主机算力；恢复前该 lane 降级",
+        context: { ...failure },
+        status: "open",
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      }).catch(err => logger.error("Embedding healing event write failed", err));
+    });
+  }
   await postInitDatabase(db, repos, logger);
 
   // F20260811mrpy Part 3：Embedding 版本锚校验（在 memory index 写入前完成）
@@ -243,7 +268,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // 运行中入库的 chunk 任务不再等 patrol 1h，落库即触发 retry worker 消费（worker
   // 未就绪时静默，启动 tickNow/patrol 周期兜底）。ref 桥接 worker 的延迟创建。
   const retryWorkerRef: { current: Awaited<ReturnType<typeof createAndStartRetryWorker>> } = { current: null };
-  const memoryIndex = createMemoryIndex(repos, writeEmbedding, logger, () => {
+  const memoryIndex = createMemoryIndex(repos, liveEmbedding, logger, () => {
     const w = retryWorkerRef.current;
     if (!w) return; // worker 未就绪：启动 tickNow 会吃掉已落库任务
     void w.tickNow().catch(() => { /* 触发失败不炸生产者；patrol 周期兜底 */ });
@@ -274,7 +299,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       logger.error("Post-listen document sync failed", err instanceof Error ? err : new Error(String(err)));
     }
     try {
-      retryWorkerRef.current = await createAndStartRetryWorker(repos, writeEmbedding, logger);
+      retryWorkerRef.current = await createAndStartRetryWorker(repos, backfillEmbedding, logger);
     } catch (err) {
       logger.error("Post-listen retry worker init failed", err instanceof Error ? err : new Error(String(err)));
     }
@@ -282,7 +307,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // F20260825sgnw（#401）：RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
   // 对齐 startScheduler 开关模式，测试/CI 可关（否则 buildApp 每次起 setInterval + git 采集副作用）
   const rhiScanWorker = createRhiScanWorker({
-    db, repos, embeddingService: writeEmbedding, logger,
+    db, repos, embeddingService: liveEmbedding, logger,
     rootDir: options.rootDir ?? process.cwd(),
   });
   // #927：獭间信号老化扫描——独立于 daily review 调度链（9/10-9/13 断档期唯一消费方停摆的教训），
@@ -582,6 +607,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     queryOtterProfile,
     schedulerService, cronParser, dispatchChainEngine, messageBroadcaster,
     featureRepo: repos.feature, researchRepo: repos.research, embeddingGateway: queryEmbedding,
+    getEmbeddingHealth: () => readEmbeddingHealth(
+      { live: liveEmbedding, backfill: backfillEmbedding },
+      repos.memoryQueue,
+    ),
     processInboundRecruit, inboundApiKey, getBridgeStatus,
     // F20260825rweb（#402）：RHI 面板 API 依赖
     rhiScanWorker,
@@ -714,9 +743,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   return {
     app, db, config, logger, controllers,
     usecases: uc, repos, agentGateway, agentInvoker, schedulerService,
-    queryEmbedding, writeEmbedding,
-    // 兼容存量测试：available 检查 + 构造 StoreMemory 用（写入 lane）
-    embeddingService: writeEmbedding, modelPool, retryWorkerRef, postListenInit,
+    queryEmbedding, liveEmbedding, backfillEmbedding,
+    embeddingService: liveEmbedding, modelPool, retryWorkerRef, postListenInit,
     get retryWorker() { return retryWorkerRef.current; },
     dispose: async () => {
       if (disposed) return;

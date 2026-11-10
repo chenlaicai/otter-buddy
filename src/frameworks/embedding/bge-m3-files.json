@@ -4,5 +4,6 @@
   { "path": "tokenizer_config.json", "size": 1173 },
   { "path": "special_tokens_map.json", "size": 964 },
   { "path": "onnx/model.onnx", "size": 607298 },
-  { "path": "onnx/model.onnx_data", "size": 2266820608 }
+  { "path": "onnx/model.onnx_data", "size": 2266820608 },
+  { "path": "onnx/model_quantized.onnx", "size": 569694530 }
 ]

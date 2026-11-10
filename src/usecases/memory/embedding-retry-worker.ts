@@ -13,16 +13,17 @@
  */
 import type { MemoryReader } from "./memory-reader";
 import type { MemoryWriter } from "./memory-writer";
-import type { MemoryQueue } from "./memory-queue";
+import type { EmbeddingTask, MemoryQueue } from "./memory-queue";
 import { EMBED_TASK_PRIORITY } from "./memory-queue";
+import { separateGhostEmbeddingTasks } from "./embedding-ghost-tasks";
 import type { EmbeddingGateway } from "./embedding-gateway";
+import {
+  laneDrainFields,
+  queueDrainFields,
+  type DrainQueueStats,
+} from "./embedding-drain-observability";
 import { EmbedTimeoutError, EmbedBackpressureError, EmbedTransientError } from "./embedding-gateway";
 import type { Logger } from "@usecases/ports/logger";
-
-/** claimPendingTasks 返回的单条任务（MemoryQueue 接口为匿名类型，此处落名便于拆分函数签名）。
- *  F20261105embqg（对抗审视发现 2）：priority 从 claim 透传到执行端——
- *  retry 的 embed 也要按任务自身的优先级排槽位，否则 claim 层排序在执行层丢失 */
-type EmbeddingTask = { entryId: string; content: string; attempts: number; priority: number };
 
 export class EmbeddingRetryWorker {
   /** bge-m3 8192 tokens 上限的 ~75%（与 StoreMemory.EMBED_MAX_CHARS 一致） */
@@ -102,6 +103,7 @@ export class EmbeddingRetryWorker {
     private readonly logger: Logger,
     private readonly intervalMs: number = 60 * 60 * 1000, // 2026-09-15 闹钟瘦身：30s→1h（暗化条目仅影响语义近邻召回，关键词召回不受影响，1h 延迟可接受）
     private readonly maxAttempts: number = 3,
+    private readonly tokenBudget: number = 8192,
   ) {}
 
   /** #949：启动语义变为「标记可工作」——定时器已由 PatrolWorker 统一持有（扫台账循环合并），
@@ -260,7 +262,7 @@ export class EmbeddingRetryWorker {
   ): Promise<string> {
     for (;;) {
       if (this.haltRequested) return "halted";
-      const claimed = await this.queue.claimPendingTasks(EmbeddingRetryWorker.BATCH_LIMIT);
+      const claimed = await this.queue.claimPendingTasks(EmbeddingRetryWorker.BATCH_LIMIT, this.tokenBudget);
       if (claimed.length === 0) {
         this.consecutiveFullFailures = 0;
         // 队列见底 or 全部在退避——由 scheduleRetrigger 区分并按需续跑
@@ -314,9 +316,8 @@ export class EmbeddingRetryWorker {
     stopReason: string,
   ): Promise<void> {
     if (totals.claimed === 0 && stopReason === "empty") return;
-    const queueStats = (await this.safeQueueStats()) ?? { pending: -1, oldestAgeSeconds: null, byPriority: {} };
-    // service stats：sync getter，可选实现（mock 无 stats 不炸日志）
-    const svcStats = (this.embeddingGateway as { stats?: { inFlight: number; pendingWaiters: number } }).stats;
+    const queueStats = await this.safeQueueStats();
+    const svcStats = this.embeddingGateway.stats;
     this.logger.info("Embedding retry drain done", {
       action: "embedding_retry_drain_summary",
       claimed: totals.claimed,
@@ -324,11 +325,8 @@ export class EmbeddingRetryWorker {
       timedOut: totals.timedOut,
       hardFailed: totals.hardFailed,
       stopReason,
-      pending: queueStats.pending,
-      oldestPendingAgeSeconds: queueStats.oldestAgeSeconds,
-      pendingByPriority: queueStats.byPriority,
-      ramInFlight: svcStats?.inFlight ?? null,
-      ramPendingWaiters: svcStats?.pendingWaiters ?? null,
+      ...queueDrainFields(queueStats),
+      ...laneDrainFields(svcStats),
     });
   }
 
@@ -388,7 +386,7 @@ export class EmbeddingRetryWorker {
   }
 
   /** 队列快照安全读取（pendingTaskStats 抛错时不拖垮 drain 收尾日志） */
-  private async safeQueueStats(): Promise<{ pending: number; oldestAgeSeconds: number | null; byPriority: Record<number, number>; oldestNextRetryIn?: string | null } | null> {
+  private async safeQueueStats(): Promise<DrainQueueStats | null> {
     if (typeof this.queue.pendingTaskStats !== "function") return null;
     try {
       return await this.queue.pendingTaskStats();
@@ -415,24 +413,6 @@ export class EmbeddingRetryWorker {
    * - 批成功后逐条 storeEmbedding；单条写库失败 → 任务留 pending 吃 claim 退避
    *   （不 enqueueRetry——ON CONFLICT 重置 next_retry_at=now 会在无界 drain 下活锁）
    */
-  /** 幽灵任务分离（entry 已删，content 为空）——逐条记账转 dead，返回可执行集 */
-  private async separateGhostTasks(
-    claimed: EmbeddingTask[],
-  ): Promise<{ actionable: EmbeddingTask[]; ghostFailures: number }> {
-    const actionable: EmbeddingTask[] = [];
-    let ghostFailures = 0;
-    for (const task of claimed) {
-      if (!task.content) {
-        this.logger.warn(`EmbeddingRetryWorker: entry ${task.entryId} vanished, recording failed attempt`);
-        await this.queue.markTaskAttemptFailed(task.entryId, new Error("entry deleted"), this.maxAttempts);
-        ghostFailures++;
-        continue;
-      }
-      actionable.push(task);
-    }
-    return { actionable, ghostFailures };
-  }
-
   private async processClaimedTasks(
     claimed: EmbeddingTask[],
   ): Promise<{ successCount: number; timeoutCount: number; hardFailureCount: number; laneBusy: boolean }> {
@@ -441,7 +421,9 @@ export class EmbeddingRetryWorker {
     let hardFailureCount = 0;
 
     // 过滤幽灵任务（entry 已删，content 为空）——逐条记账转 dead
-    const { actionable, ghostFailures } = await this.separateGhostTasks(claimed);
+    const { actionable, ghostFailures } = await separateGhostEmbeddingTasks(
+      claimed, this.queue, this.logger, this.maxAttempts,
+    );
     hardFailureCount += ghostFailures;
 
     const hasBatch = typeof this.embeddingGateway.embedBatch === "function";
@@ -484,6 +466,18 @@ export class EmbeddingRetryWorker {
       const embeddings = await this.embeddingGateway.embedBatch!(texts, {
         waitSlot: true,
         priority: batchPriority,
+        salvage: (partial, startIndex = 0) => {
+          void Promise.all(partial.map(async (embedding, offset) => {
+            const task = slice[startIndex + offset];
+            if (!task) return;
+            try {
+              await this.writer.storeEmbedding(task.entryId, embedding);
+              await this.queue.markTaskDone(task.entryId);
+            } catch (err) {
+              this.logger.warn(`Embedding retry partial salvage failed for ${task.entryId}: ${err}`);
+            }
+          }));
+        },
       });
       for (let i = 0; i < slice.length; i++) {
         try {

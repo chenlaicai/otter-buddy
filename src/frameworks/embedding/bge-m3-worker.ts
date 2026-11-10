@@ -66,12 +66,13 @@ function readWorkerConfig(): WorkerConfig {
  */
 function resolveIntraOpThreads(): number {
   const raw = process.env.OTTER_EMBED_INTRA_OP_THREADS;
-  if (raw === undefined) return 2;
+  const configured = readWorkerConfig().intraOpThreads ?? 2;
+  if (raw === undefined) return configured;
   const n = parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 1) {
     // eslint-disable-next-line no-console -- worker 子进程内无 logger，console.warn 兜底
-    console.warn(`[embedding] OTTER_EMBED_INTRA_OP_THREADS="${raw}" 非法，回落默认 2`);
-    return 2;
+    console.warn(`[embedding] OTTER_EMBED_INTRA_OP_THREADS="${raw}" 非法，回落推导值 ${configured}`);
+    return configured;
   }
   return n;
 }
@@ -98,7 +99,7 @@ function getExtractor(): Promise<Extractor> {
       if (settings.remoteHost) env.remoteHost = settings.remoteHost;
 
       const pipe = await pipeline("feature-extraction", settings.modelId, {
-        dtype: "fp32",
+        dtype: cfg.dtype ?? "fp32",
         // #1107: 钳制 onnxruntime intra-op 线程数。默认 = 物理核数，单条 embed 期间
         // 线程池忙等自旋（SpinPause 不放核）把进程 CPU 打到 ~9 核，挤压主事件循环。
         // embedding 是 worker 内串行队列处理，intra-op 2 线程足够（实测延迟仅微增）；
@@ -153,8 +154,9 @@ async function handleInferenceMessage(msg: EmbedRequest | EmbedBatchRequest): Pr
   if (msg.type === "embed") {
     try {
       const fn = await getExtractor();
+      const startedAt = Date.now();
       const output = await fn(msg.text);
-      post({ type: "result", embedding: output.data, id: msg.id });
+      post({ type: "result", embedding: output.data, id: msg.id, durationMs: Date.now() - startedAt });
     } catch (err: unknown) {
       post({
         type: "error",
@@ -165,25 +167,35 @@ async function handleInferenceMessage(msg: EmbedRequest | EmbedBatchRequest): Pr
     return;
   }
 
-  // F20261013ebps：批量 embed——pipeline 原生支持数组输入，batch 推理共享开销
   if (msg.type === "embed-batch") {
-    try {
-      const fn = await getExtractor();
-      const output = await fn(msg.texts);
-      // output.dims = [batch, dim]，data 是连续 Float32Array（batch × dim）
-      const dim = output.dims[output.dims.length - 1];
-      const embeddings: Float32Array[] = [];
-      for (let i = 0; i < msg.texts.length; i++) {
-        embeddings.push(output.data.slice(i * dim, (i + 1) * dim));
+    const fn = await getExtractor();
+    const embeddings: Float32Array[] = [];
+    const startedAt = Date.now();
+    for (let index = 0; index < msg.texts.length; index++) {
+      try {
+        const itemStartedAt = Date.now();
+        const output = await fn(msg.texts[index]);
+        const embedding = output.data.slice();
+        embeddings.push(embedding);
+        // Why: 每条完成即交付进度，长批持续喂狗；死亡时父进程只重算未交付下标。
+        post({
+          type: "batch-progress",
+          embedding,
+          id: msg.id,
+          index,
+          durationMs: Date.now() - itemStartedAt,
+        });
+      } catch (err: unknown) {
+        post({
+          type: "error",
+          error: err instanceof Error ? err.message : String(err),
+          id: msg.id,
+          index,
+        });
+        return;
       }
-      post({ type: "batch-result", embeddings, id: msg.id });
-    } catch (err: unknown) {
-      post({
-        type: "error",
-        error: err instanceof Error ? err.message : String(err),
-        id: msg.id,
-      });
     }
+    post({ type: "batch-result", embeddings, id: msg.id, durationMs: Date.now() - startedAt });
   }
 }
 

@@ -26,13 +26,22 @@ interface EmbedBatchRequest {
  */
 export type EmbedResponse =
   | { type: "ready"; meta: EmbedModelMeta }
-  | { type: "result"; embedding: Float32Array; id: number }
-  | { type: "batch-result"; embeddings: Float32Array[]; id: number }
-  | { type: "error"; error: string; id: number };
+  | { type: "result"; embedding: Float32Array; id: number; durationMs?: number }
+  | {
+    type: "batch-progress";
+    embedding: Float32Array;
+    id: number;
+    index: number;
+    durationMs: number;
+  }
+  | { type: "batch-result"; embeddings: Float32Array[]; id: number; durationMs?: number }
+  | { type: "error"; error: string; id: number; index?: number };
 
 type PendingRequest = {
   resolve: (value: Float32Array) => void;
   reject: (error: Error) => void;
+  startedAt: number;
+  estimatedTokens: number;
   /**
    * F20261020slvg：调用方已超时放弃。条目保留（槽位不释放）直到 worker 响应——
    * 响应到达时走 salvage（若有）而非丢弃。根治「白算的向量无人消费」。
@@ -46,10 +55,13 @@ type PendingRequest = {
 type PendingBatchRequest = {
   resolve: (value: Float32Array[]) => void;
   reject: (error: Error) => void;
+  startedAt: number;
+  estimatedTokens: number[];
+  partialEmbeddings: Map<number, Float32Array>;
   /** F20261020slvg：同 PendingRequest.abandoned */
   abandoned?: boolean;
   /** F20261020slvg：晚到整批结果的持久化回调 */
-  salvage?: (embeddings: Float32Array[]) => void;
+  salvage?: (embeddings: Float32Array[], startIndex?: number) => void;
 };
 
 interface ReadyState {

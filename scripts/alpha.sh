@@ -234,9 +234,8 @@ except Exception:
 # 从主仓 config.yaml 生成 alpha 副本：
 #   1. server.port          → 分配端口（缺失即失败——alpha 落 3000 默认端口是事故）
 #   2. database.path        → alpha 数据根下的空库
-#   3. embedding.localModelPath → 主仓 models 绝对路径（localModelPath 按进程 cwd
-#      解析，不改写则从 worktree 启动会解析到 <worktree>/models 触发重新下载
-#      bge-m3 ~2GB 到每个 worktree；改写后多实例共享只读）
+#   3. embedding.localModelPath → 主仓 models 绝对路径（可用 OTTER_ALPHA_MODELS_ROOT
+#      指向隔离的完整模型根；验证新增模型文件时禁止触发主仓下载）
 #   4. 剥离 feishu/weixin/inbound 外部通道段——隔离实例连上真实飞书长连接/微信
 #      轮询/招聘桥接是明确违反隔离承诺的副作用（真实消息会打进验证环境）
 # 注意：scheduler/features 等段原样继承（验证环境与生产行为一致），见特性文档
@@ -351,6 +350,10 @@ cmd_start() {
   config_file="$alpha_home/config.yaml"
   log_file="$alpha_home/otter-buddy.log"
   mkdir -p "$alpha_home"
+  # 真实文档回填验证显式开启：只在请求时链接语料，默认 alpha 不同步 worktree 文档。
+  if [ "${OTTER_ALPHA_SYNC_DOCS:-false}" = true ] && [ ! -e "$alpha_home/docs" ]; then
+    ln -s "$wt_root/docs" "$alpha_home/docs"
+  fi
 
   # 构建（--quick 跳过；dist 缺失时兜底跑一次）
   if [ "$quick" = true ]; then
@@ -384,7 +387,7 @@ cmd_start() {
     die "Main config not found: $main_root/config/config.yaml"
   fi
   generate_alpha_config "$main_root/config/config.yaml" "$config_file" \
-    "$port" "$alpha_home/otter-buddy.db" "$main_root/models" \
+    "$port" "$alpha_home/otter-buddy.db" "${OTTER_ALPHA_MODELS_ROOT:-$main_root/models}" \
     || die "Failed to generate alpha config (see stderr above). No process started."
 
   # 全分离启动（survive 獭 shell 退出）。cwd = alpha 数据根：main.ts 的相对路径

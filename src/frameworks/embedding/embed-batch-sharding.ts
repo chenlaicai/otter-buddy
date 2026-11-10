@@ -56,7 +56,10 @@ export function wrapOptsForShard<T extends { salvage?: (embeddings: Float32Array
 ): T | undefined {
   if (!opts?.salvage) return opts;
   const original = opts.salvage;
-  return { ...opts, salvage: (embeddings: Float32Array[]) => original(embeddings, offset) };
+  return {
+    ...opts,
+    salvage: (embeddings: Float32Array[], startIndex = 0) => original(embeddings, offset + startIndex),
+  };
 }
 
 /** 解析 OTTER_EMBED_BATCH_TOKEN_BUDGET 环境变量。

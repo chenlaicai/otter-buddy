@@ -9,7 +9,7 @@ import type { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
 import type { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
-import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import type { EmbeddingGateway, EmbeddingHealthSnapshot } from "@usecases/memory/embedding-gateway";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { QueryOtterProfile } from "@usecases/otter/query-otter-profile";
 import type { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
@@ -96,6 +96,7 @@ export interface ControllerDeps {
   featureRepo: FeatureRepository;
   researchRepo: ResearchRepository;
   embeddingGateway: EmbeddingGateway;
+  getEmbeddingHealth?: () => Promise<EmbeddingHealthSnapshot>;
   processInboundRecruit?: ProcessInboundRecruit;
   inboundApiKey?: string;
   getBridgeStatus?: GetBridgeStatus;
@@ -326,7 +327,9 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     matter: new MatterController(repos.matter, logger),
     // F20261013csv3 T1：链类 unfurl 预览卡——缓存读库 + gh 结构化取数 + pending 三态
     unfurl: unfurlController,    connection: new ConnectionController(uc.manageConnection, logger),
-    health: new HealthController(featureRepo, researchRepo, embeddingGateway, nodeFs, rootDir, logger),
+    health: new HealthController(
+      featureRepo, researchRepo, embeddingGateway, nodeFs, rootDir, logger, deps.getEmbeddingHealth,
+    ),
     rhi: new RhiController(healthSnapshotRepo, signalRepo, rhiScanWorker, logger), workLedger: buildWorkLedgerController(repos, healthSnapshotRepo, logger),
     inbound: processInboundRecruit && inboundApiKey
       ? new InboundController(

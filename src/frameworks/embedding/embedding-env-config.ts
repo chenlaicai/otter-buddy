@@ -8,6 +8,9 @@ import path from "node:path";
 
 /** worker 接收的配置（主线程通过 workerData 透传） */
 export interface WorkerConfig {
+  lane?: "query" | "live" | "backfill";
+  intraOpThreads?: number;
+  dtype?: "fp32" | "q8";
   /** 模型标识：local 模式下为 localModelPath 下的目录名；remote 模式下为 HF repo id（如 Xenova/bge-m3） */
   modelPath?: string;
   /** 本地模型根目录（相对 process.cwd() 或绝对）。设置后启用本地加载、禁用远程下载 */
@@ -27,6 +30,26 @@ export interface ResolvedEnvSettings {
 }
 
 const DEFAULT_MODEL_ID = "Xenova/bge-m3";
+export const DEFAULT_EMBEDDING_DTYPE = "q8" as const;
+
+/** Q8 已通过 F20261110embrc 真实语料 recall 门；fp32 保留为显式回滚路径。 */
+export function resolveEmbeddingDtype(raw?: string): "fp32" | "q8" {
+  if (raw === undefined || raw === "") return DEFAULT_EMBEDDING_DTYPE;
+  if (raw === "fp32" || raw === "q8") return raw;
+  // eslint-disable-next-line no-console -- worker 启动早于 logger 装配
+  console.warn(`[embedding] OTTER_EMBED_DTYPE="${raw}" 非法，回落默认 ${DEFAULT_EMBEDDING_DTYPE}`);
+  return DEFAULT_EMBEDDING_DTYPE;
+}
+
+/** fp32 冷加载在慢盘上可能超过 60s；仅紧急调参使用，不进 config schema。 */
+export function resolveReadyTimeoutMs(raw?: string, fallback = 60_000): number {
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number.parseInt(raw, 10);
+  if (Number.isFinite(value) && value >= 1) return value;
+  // eslint-disable-next-line no-console -- worker 启动早于 logger 装配
+  console.warn(`[embedding] OTTER_EMBED_READY_TIMEOUT_MS="${raw}" 非法，回落默认 ${fallback}`);
+  return fallback;
+}
 
 /**
  * 从 WorkerConfig + 进程环境派生 transformers.js env 设置。

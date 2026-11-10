@@ -141,6 +141,23 @@ describe("HealthController - F20260803mval", () => {
     expect(gap!.errors.join(" ")).toMatch(/Missing frontmatter/);
   });
 
+  it("暴露 live/backfill lane 与队列观测，告警使 healthy=false", async () => {
+    const { featureRepo, researchRepo, fs } = makeRepos({ dbFeatureIds: [], diskIds: [] });
+    const snapshot = {
+      lanes: {},
+      queue: { pending: 2, oldestAgeSeconds: 10, ageP50Seconds: 5, ageP95Seconds: 9, etaSeconds: 20, byPriority: { 2: 2 } },
+      alerts: ["backfill lane unready for 61s"],
+    };
+    const ctrl = new HealthController(
+      featureRepo, researchRepo, makeEmbedding(true), fs, "/root", createTestLogger(), async () => snapshot,
+    );
+    const res = await makeApp(ctrl).request("/api/health/memory");
+    const body = await res.json() as { healthy: boolean; embedding: typeof snapshot };
+    expect(body.healthy).toBe(false);
+    expect(body.embedding.queue.pending).toBe(2);
+    expect(body.embedding.alerts).toEqual(snapshot.alerts);
+  });
+
   it("embedding 不可用 -> healthy=false", async () => {
     const { featureRepo, researchRepo, fs } = makeRepos({ dbFeatureIds: ["F1"], diskIds: ["F1"] });
     const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(false), fs, "/root", createTestLogger());

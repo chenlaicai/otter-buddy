@@ -1,5 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { resolveEnvSettings } from "../../../src/frameworks/embedding/embedding-env-config";
+import { resolveEmbeddingDtype, resolveEnvSettings, resolveReadyTimeoutMs } from "../../../src/frameworks/embedding/embedding-env-config";
+
+describe("resolveEmbeddingDtype", () => {
+  it("真实语料基准通过后默认 q8，fp32 为显式回滚", () => {
+    expect(resolveEmbeddingDtype(undefined)).toBe("q8");
+    expect(resolveEmbeddingDtype("q8")).toBe("q8");
+    expect(resolveEmbeddingDtype("fp32")).toBe("fp32");
+  });
+});
+
+describe("resolveReadyTimeoutMs", () => {
+  it("默认 60s，fp32 慢盘回滚可显式延长；非法值不静默", () => {
+    expect(resolveReadyTimeoutMs(undefined)).toBe(60_000);
+    expect(resolveReadyTimeoutMs("600000")).toBe(600_000);
+    expect(resolveReadyTimeoutMs("0")).toBe(60_000);
+    expect(resolveReadyTimeoutMs("abc")).toBe(60_000);
+  });
+});
 
 describe("resolveEnvSettings", () => {
   describe("local 模式（localModelPath 设了）", () => {

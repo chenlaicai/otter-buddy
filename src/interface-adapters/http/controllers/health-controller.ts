@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import * as path from "node:path";
 import type { FeatureRepository } from "@usecases/document/feature-repository";
 import type { ResearchRepository } from "@usecases/document/research-repository";
-import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
+import type { EmbeddingGateway, EmbeddingHealthSnapshot } from "@usecases/memory/embedding-gateway";
 import type { FileSystemGateway } from "@usecases/ports/file-system-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { scanDiskIds } from "@usecases/document/disk-id-scanner";
@@ -21,7 +21,7 @@ import {
  * 让前端 banner 直接显示根因；scanDiskIds 共享 scanner 修缺 frontmatter 双重消失 bug。
  */
 export class HealthController {
-  // eslint-disable-next-line max-params -- 6 个 DI 依赖均为必需
+  // eslint-disable-next-line max-params -- 记忆健康聚合的 DI 依赖
   constructor(
     private readonly featureRepo: FeatureRepository,
     private readonly researchRepo: ResearchRepository,
@@ -29,6 +29,7 @@ export class HealthController {
     private readonly fs: FileSystemGateway,
     private readonly rootDir: string,
     private readonly logger: Logger,
+    private readonly getEmbeddingHealth?: () => Promise<EmbeddingHealthSnapshot>,
   ) {}
 
   async memory(c: Context): Promise<Response> {
@@ -50,9 +51,10 @@ export class HealthController {
       const featureGaps = [...diskFeatureMap.keys()].filter(id => !dbFeatureIds.has(id));
       const researchGaps = [...diskResearchMap.keys()].filter(id => !dbResearchIds.has(id));
       const embeddingAvailable = this.embeddingGateway.available;
+      const embedding = this.getEmbeddingHealth ? await this.getEmbeddingHealth() : null;
 
-      const healthy =
-        featureGaps.length === 0 && researchGaps.length === 0 && embeddingAvailable;
+      const healthy = featureGaps.length === 0 && researchGaps.length === 0
+        && embeddingAvailable && (embedding?.alerts.length ?? 0) === 0;
 
       // F20260804dcnv: 对每个 gap 跑 validator 拿失败原因，前端 banner 直接显示根因
       const gapReasons = [
@@ -68,6 +70,7 @@ export class HealthController {
         gapReasons,
         embeddingAvailable,
         embeddingModel: "Xenova/bge-m3",
+        embedding,
       });
     } catch (err) {
       this.logger.error(

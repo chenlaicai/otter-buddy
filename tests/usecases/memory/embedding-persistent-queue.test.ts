@@ -343,6 +343,8 @@ describe("F20261109epqst P8：可观测性", () => {
     expect(stats.pending).toBe(2);
     // 最老任务（obs-1，1 小时前创建）年龄 ≥ 3500s
     expect(stats.oldestAgeSeconds).toBeGreaterThanOrEqual(3500);
+    expect(stats.ageP50Seconds).toBeGreaterThanOrEqual(250);
+    expect(stats.ageP95Seconds).toBeGreaterThanOrEqual(3500);
     expect(stats.byPriority[EMBED_TASK_PRIORITY.bulk]).toBe(1);
     expect(stats.byPriority[EMBED_TASK_PRIORITY.live]).toBe(1);
   });

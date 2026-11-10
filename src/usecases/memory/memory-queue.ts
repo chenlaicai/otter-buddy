@@ -26,6 +26,13 @@ export const EMBED_TASK_PRIORITY = {
  */
 export const EMBED_QUEUE_HIGH_WATER = 2000;
 
+export interface EmbeddingTask {
+  entryId: string;
+  content: string;
+  attempts: number;
+  priority: number;
+}
+
 export interface MemoryQueue {
   /**
    * F20260812mrcq Part 1：embedding 失败入队重试。
@@ -46,13 +53,7 @@ export interface MemoryQueue {
    * 注意：相比 MemoryRepository 版本，有意省略 lastAttemptAt/createdAt——
    * embedding-retry-worker 只需 entryId + content + attempts 即可执行重试。
    */
-  claimPendingTasks(limit: number): Promise<Array<{
-    entryId: string;
-    content: string;
-    attempts: number;
-    /** F20261105embqg（对抗审视发现 2）：优先级随任务返回，retry 执行端透传到槽位排队 */
-    priority: number;
-  }>>;
+  claimPendingTasks(limit: number, tokenBudget?: number): Promise<EmbeddingTask[]>;
   /** F20260812mrcq Part 1：task 成功，删除 task 行 */
   markTaskDone(entryId: string): Promise<void>;
   /**
@@ -68,6 +69,8 @@ export interface MemoryQueue {
   pendingTaskStats?(): Promise<{
     pending: number;
     oldestAgeSeconds: number | null;
+    ageP50Seconds: number | null;
+    ageP95Seconds: number | null;
     byPriority: Record<number, number>;
     /** F20261109epqst 检视处置：最早可领取时间（drain 退避续跑延迟计算依据） */
     earliestNextRetryAt: string | null;
