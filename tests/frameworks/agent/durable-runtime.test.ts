@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp } from "node:fs/promises";
+import { access, mkdtemp } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -288,13 +288,30 @@ describe("durable-native runtime", () => {
   it("reopens after a real process SIGKILL without replaying the unsafe tool", { timeout: 20_000 }, async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-crash-"));
     const file = path.join(dir, "session.sqlite");
-    const child = spawn(process.execPath, [path.resolve("tests/fixtures/durable-crash-child.mjs"), file], { cwd: path.resolve("."), stdio: "ignore" });
+    await access(path.resolve("dist/src/frameworks/agent/durable-session.js")).catch(() => {
+      throw new Error("SIGKILL crash fixture 需要 dist 编译产物；请先执行 npm run build，或直接运行 npm run check && npm test");
+    });
+    const child = spawn(process.execPath, [path.resolve("tests/fixtures/durable-crash-child.mjs"), file], { cwd: path.resolve("."), stdio: ["ignore", "ignore", "pipe"] });
+    let childStderr = "";
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => { childStderr += chunk; });
+    // 必须在任何 await 前登记：子进程模块加载失败时可能在 marker 轮询期间提前退出。
+    const childExit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(resolve => {
+      child.once("exit", (code, signal) => resolve({ code, signal }));
+    });
+    let toolStarted = false;
     for (let i = 0; i < 200; i++) {
-      if (await (await import("node:fs/promises")).stat(`${file}.tool-started`).then(() => true).catch(() => false)) break;
+      toolStarted = await (await import("node:fs/promises")).stat(`${file}.tool-started`).then(() => true).catch(() => false);
+      if (toolStarted || child.exitCode !== null || child.signalCode !== null) break;
       await new Promise(resolve => setTimeout(resolve, 20));
     }
-    child.kill("SIGKILL");
-    await new Promise(resolve => child.once("exit", resolve));
+    if (!toolStarted) {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      const exit = await childExit;
+      throw new Error(`durable crash child did not start the tool: code=${exit.code} signal=${exit.signal} stderr=${childStderr.trim() || "<empty>"}`);
+    }
+    expect(child.kill("SIGKILL")).toBe(true);
+    expect((await childExit).signal).toBe("SIGKILL");
     let reopened: Awaited<ReturnType<typeof open>> | undefined;
     for (let i = 0; i < 150; i++) {
       try { reopened = await open(file, [fauxAssistantMessage("recovered")]); break; }
