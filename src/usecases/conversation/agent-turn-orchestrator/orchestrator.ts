@@ -23,6 +23,7 @@ import { isRetryableGuardAbort, isTimeoutGuardReason, buildRetryFailBody, buildG
 import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription } from "./rate-limit-error";
 // #1247：api_error 终态窗口超限识别 + 告警文案（注入超窗黑盒修复——与 #543 同骨架）
 import { matchContextOverflowError, buildContextOverflowSystemMsg, buildContextOverflowDescription } from "./context-overflow-error";
+import { isContentFilterError } from "./content-filter-error";
 // #543：high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
 // 下一次 invoke 的 DynamicContext 补送达（复用 F20260826mwrd Part 4 管道，process 级单例直引，
 // 与 interceptHealingReport 同模式；usecase 内部互引无跨层问题）
@@ -334,6 +335,10 @@ export class AgentTurnOrchestrator {
       await this.notifyContextOverflow(ctx, ctxMatch).catch(() => { /* 通知失败不阻断 */ });
     }
 
+    // #1762：内容过滤不是普通静默 api_error——落独立 high 事件并上抛恢复信号。
+    const contentFilter = isContentFilterError(reason.errorMessage);
+    if (contentFilter) await this.recordContentFilterHealingEvent(ctx);
+
     // F20260916fst4：首哑判定（exhausted 分支内、healing 落账后）。
     // Why 在 failTerminal 之前判定：failTerminal 会把 failed invoke 入库，count 查询须在其后——
     // 此处 await failTerminal 再查计数语义相同（同 invoke 幂等），先判定可避免 failTerminal
@@ -349,7 +354,41 @@ export class AgentTurnOrchestrator {
       });
       if (firstDumb) return { ...result, _firstDumb: firstDumb };
     }
+    if (contentFilter) {
+      return {
+        ...result,
+        _contentFilter: {
+          otterId: ctx.input.otterId,
+          conversationId: ctx.input.conversationId,
+          modelAlias: this.resolveModelAlias(ctx),
+          errorMessage: reason.errorMessage.slice(0, 500),
+          originalUserMessage: ctx.input.originalUserMessage.slice(0, 500),
+          failedInvokeId: ctx.input.invokeId,
+          retryCount: ctx.input.retryCount,
+        },
+      };
+    }
     return result;
+  }
+
+  /** #1762：内容过滤独立落账；写入失败不阻断既有 failTerminal 主路径。 */
+  private async recordContentFilterHealingEvent(ctx: RouteContext): Promise<void> {
+    const modelAlias = this.resolveModelAlias(ctx);
+    await ctx.callbacks.recordHealingEvent({
+      invokeId: ctx.input.invokeId,
+      conversationId: ctx.input.conversationId,
+      otterId: ctx.input.otterId,
+      errorType: "content_filter",
+      severity: "high",
+      description: `模型 ${modelAlias} 返回 content_filter（retry=${ctx.input.retryCount}）`,
+      suggestion: "首次失败自动换备用模型续跑一次；仍失败或无备用模型时立即通知大獭改派/换段",
+      context: { layer: "orchestrator", retryCount: ctx.input.retryCount, modelAlias },
+    }).catch((err: unknown) => {
+      ctx.callbacks.logger.error("content_filter healing_event write FAILED", err instanceof Error ? err : new Error(String(err)), {
+        invokeId: ctx.input.invokeId,
+        otterId: ctx.input.otterId,
+      });
+    });
   }
 
   /**

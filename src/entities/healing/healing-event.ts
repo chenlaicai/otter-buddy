@@ -26,6 +26,8 @@ export type HealingErrorType =
    *  与 rate_limit 分界：限流是「频率/配额」（重试或改派即恢复），超窗是「体积」（重试无意义，
    *  必须缩注入或换大窗口模型）——两类处置方向不同，混账会误导体检归因 */
   | 'context_overflow'
+  /** #1762：模型内容过滤终态；首次换模型续跑，仍失败立即通知编排者。 */
+  | 'content_filter'
   /** F20260922txes：超时类自动重试耗尽终态（L1 重试后仍超时，L3 升级上报数据源） */
   | 'timeout_retry_exhausted'
   /** F20260904tflp：工具使用感受反馈（海獭主动报难用/多余/过度设计；description 以 [tool:工具名] 前缀标识） */
@@ -55,6 +57,7 @@ export const HEALING_ENVIRONMENT_TYPES: readonly HealingErrorType[] = [
   'tool_failure',   // 工具故障/超时/429（环境侧）
   'rate_limit',     // 模型配额耗尽（供应商侧）
   'context_overflow', // #1247：注入超窗（模型窗口容量侧——环境给定，非獭能力失败）
+  'content_filter', // #1762：模型供应商内容过滤（环境侧，非獭工具能力失败）
   'circuit_break',  // 熔断执行（系统保护动作，判「strike 涨满」机械状态）
   'loop_tool_block', // 门拦截（系统保护动作，判「签名命中拉黑表」机械状态——分账口径见枚举处注释）
   'self_restart',   // 自重启执行（系统保护动作）

@@ -18,6 +18,7 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { OtterSession } from "@entities/otter/otter-session";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { HealingEvent } from "@entities/healing/healing-event";
+import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import { createTestLogger } from "../helpers/logger";
 import { mockSendEntry } from "../helpers/mock-send-entry";
 
@@ -62,7 +63,7 @@ function mockHealingRepo(seed: HealingEvent[] = []) {
 function makeInvoker(
   sdk: SdkInvokePort,
   sendEntry: ReturnType<typeof mockSendEntry>,
-  opts?: { manageSession?: ManageSession; healingRepo?: HealingEventRepository },
+  opts?: { manageSession?: ManageSession; healingRepo?: HealingEventRepository; modelPool?: ModelPoolLike },
 ): AgentInvoker {
   return new AgentInvoker(
     sdk, mockQueryMessage(), opts?.manageSession ?? mockManageSession(), mockQueryOtter(), createTestLogger(),
@@ -71,6 +72,8 @@ function makeInvoker(
     undefined, undefined, undefined, undefined, undefined, undefined,
     sendEntry,
     { getInvokeEvents: async () => [] } as never,
+    undefined, undefined, undefined, undefined,
+    opts?.modelPool,
   );
 }
 
@@ -182,6 +185,55 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
     expect(invoke.status).toBe("failed");
     expect(healing.events.some(e => e.errorType === "rate_limit")).toBe(true);
     expect(sendEntry.store.systemBodies.some(b => b.includes("限流") || b.includes("配额"))).toBe(true);
+  });
+
+  it("content_filter 首次失败：落 high 事件并换备用模型续跑一次", async () => {
+    const sendEntry = mockSendEntry();
+    const healing = mockHealingRepo();
+    const restartModels: Array<string | undefined> = [];
+    const manageSession = mockManageSession({
+      getActiveSession: async () => makeSession({ modelAlias: "glm" }),
+      restartSession: async (otterId: string, _summary?: string | null, modelAlias?: string) => {
+        restartModels.push(modelAlias);
+        return makeSession({ id: "sess-content-filter", otterId, modelAlias: modelAlias ?? null });
+      },
+    });
+    const modelPool = {
+      getDefaultAlias: () => "glm",
+      setDefaultAlias: () => {},
+      hasModel: (alias: string) => ["glm", "kimi"].includes(alias),
+      getModelInfos: () => [
+        { alias: "glm", provider: "zai", model: "glm" },
+        { alias: "kimi", provider: "moonshot", model: "kimi" },
+      ],
+      describeModels: () => [{ alias: "glm" }, { alias: "kimi" }],
+    };
+    let calls = 0;
+    const sdk = {
+      invoke: async () => {
+        calls++;
+        if (calls === 1) throw Object.assign(new Error("LLM API error: Unhandled stop reason: content_filter"), { _modelAlias: "glm" });
+        return { text: "" };
+      },
+      abort: () => {}, getInternalAbortReason: () => undefined,
+    } as unknown as SdkInvokePort;
+    const wrappedEntry = mockSendEntry();
+    Object.assign(wrappedEntry.store, sendEntry.store);
+    wrappedEntry.getInvokeById = async (id: string) => {
+      const invoke = sendEntry.store.invokes.get(id) ?? null;
+      if (invoke && calls >= 2) invoke.status = "completed";
+      return invoke;
+    };
+    const invoker = makeInvoker(sdk, wrappedEntry as never, { manageSession, healingRepo: healing.repo, modelPool });
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-1", userMessageContent: "继续写作", senderId: "user-1",
+    });
+
+    expect(calls).toBe(2);
+    expect(restartModels).toEqual(["kimi"]);
+    expect(healing.events.some(e => e.errorType === "content_filter" && e.severity === "high")).toBe(true);
+    expect(sendEntry.store.systemBodies.some(b => b.includes("content_filter") && b.includes("kimi"))).toBe(true);
   });
 
   it("bash_safety 二拦（retry 后再犯）：guard bounce 回发或升级，invoke 进入终态", async () => {
