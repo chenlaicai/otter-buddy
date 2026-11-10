@@ -35,12 +35,14 @@ ALS 作用域、开会话不传 invokeId、fresh register 无 currentInvokeId �
 空间隔离（synthesis- 前缀），事件归因不串轮；影子通道无工具无 speak，合成 id
 仅用于记账边界，无副作用面。
 
-## 观察项（不属本 PR）
+## 观察项（不属本 PR；审视订正口径）
 
-合成 prompt 量级：ea924fef 场景 725K chars（trim 后）——若合成模型窗口不足
-（如 glm 200K）仍可能 synthesis-error。晨检 16:00 后首场换世若再报
-synthesis-error，看 [compaction-synthesis] 日志的错误字段区分（no_model/429/
-length）。预算按模型窗口收窄是后续项。
+合成 prompt 量级：ea924fef 场景 glm 实为 1M 窗口档（ctxMax=1048576），trim 后
+725,444 chars 在 1M 档全文预算 726,752 之内（余 1,308 chars，贴线）——不会
+「发送后 synthesis-error」；若未来切小窗口模型，invoke 前的窗口预检会以
+degradeReason='over-window' 降级跳过（narrative-synthesis-engine 预算分档），
+不是发送后报错。1M 档贴线余量是真实的预算压力信号：前世继续变大时 trim 预算
+收敛是后续项。
 
 ## 验收
 
