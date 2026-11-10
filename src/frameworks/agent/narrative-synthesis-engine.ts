@@ -141,7 +141,7 @@ export interface NarrativeSynthesisInput {
   /** 旧 session ID（meta 行 + 谱系行；缺省时用 'unknown'） */
   oldSessionId?: string;
   /** 触发场景 */
-  trigger: '水位' | '手动' | '自重启' | '熔断';
+  trigger: '水位' | '手动' | '自重启' | '熔断' | '恢复';
   /** 待压缩的对话历史切片（SDK AgentMessage[]，jsonl 权威源切片的产物） */
   messagesToSummarize: Array<{ role: string; content?: unknown }>;
   /** 上一代摘要（谱系继承：合并式更新，非重置） */

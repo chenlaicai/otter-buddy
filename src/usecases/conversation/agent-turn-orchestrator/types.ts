@@ -78,6 +78,17 @@ export interface CircuitBreakInfo {
  * 配额型 429 终态时挂在 TurnResult 上跨层上抛——对齐 _circuitBreak 同款跨层模式，
  * 由 agent-invoker 检测后唤醒大獭处置（restart_otter 换模型复活 / 升级搭档）。
  */
+export interface ContentFilterInfo {
+  otterId: string;
+  conversationId: string;
+  modelAlias: string;
+  errorMessage: string;
+  originalUserMessage: string;
+  failedInvokeId: string;
+  /** 0=首次失败，可换一次模型；>0=降级续跑仍失败，只通知不循环。 */
+  retryCount: number;
+}
+
 export interface FirstDumbInfo {
   otterId: string;
   conversationId: string;
@@ -99,6 +110,8 @@ export interface TurnResult {
   _circuitBreak?: CircuitBreakInfo;
   /** F20260916fst4：首哑 429 信号，agent-invoker 唤醒大獭处置 */
   _firstDumb?: FirstDumbInfo;
+  /** #1762：内容过滤终态，agent-invoker 换一次模型或唤醒大獭。 */
+  _contentFilter?: ContentFilterInfo;
 }
 
 /** AttemptDriver - orchestrator 驱动 adapter 的执行面（仅限重执行当前轮） */
@@ -125,7 +138,7 @@ export interface HealingEventInput {
   invokeId: string;
   conversationId: string;
   otterId: string;
-  errorType: "degenerate" | "circuit_break" | "self_restart" | "guard_intercept" | "guard_bounce_flow" | "rate_limit" | "timeout_retry_exhausted" | "tool_failure" | "context_overflow" | "other";
+  errorType: "degenerate" | "circuit_break" | "self_restart" | "guard_intercept" | "guard_bounce_flow" | "rate_limit" | "timeout_retry_exhausted" | "tool_failure" | "context_overflow" | "content_filter" | "other";
   severity: "low" | "medium" | "high";
   description: string;
   suggestion?: string;

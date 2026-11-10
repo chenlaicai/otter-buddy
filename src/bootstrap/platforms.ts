@@ -237,6 +237,7 @@ function buildAgentInvoker(o: {
   messageBroadcaster: MessageBroadcaster | undefined; workspaceGateway?: WorkspaceGateway;
   agentMetrics?: AgentMetricsPort; appConfig?: AppConfig; ctxWindowProvider?: OtterContextWindowProvider;
   agentDispatchService?: AgentDispatchService;
+  modelPool?: ModelPool;
   /** F20260920uhuc：统一交接引擎函数包 */
   handoffEngine?: HandoffEngineDeps;
 }): AgentInvoker {
@@ -265,6 +266,7 @@ function buildAgentInvoker(o: {
     // F20261006mtlp P1：matters 仓库——机械供料 handoff_open_matters 数据源
     o.repos.matter,
     o.repos.scheduledTaskPending,
+    o.modelPool,
   );
 }
 
@@ -283,7 +285,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   // 对既有构造零侵入（agentDispatchService 为可选参数，缺省降级仅日志）。
   const agentInvoker = buildAgentInvoker({
     agentGateway, uc, repos, logger, messageBroadcaster, workspaceGateway, agentMetrics,
-    appConfig, ctxWindowProvider,
+    appConfig, ctxWindowProvider, modelPool,
     handoffEngine: buildHandoffEngineDeps(),
   });
 

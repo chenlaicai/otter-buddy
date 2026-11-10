@@ -67,7 +67,7 @@ export const HANDOFF_SYNTHESIZE_PAST_DEFAULT = true;
 export interface EngineSynthesisInput {
   otterName: string;
   oldSessionId?: string;
-  trigger: '水位' | '手动' | '自重启' | '熔断';
+  trigger: '水位' | '手动' | '自重启' | '熔断' | '恢复';
   messagesToSummarize: Array<{ role: string; content?: unknown }>;
   previousSummary?: string;
   lineage?: string;
@@ -160,7 +160,9 @@ import { mapToSSEEvent, mapToInvokeEventInput, extractMessageEndUsage } from "@u
 import { classifyGuardInterceptReason } from "@frameworks/agent/guard-intercept-classify";
 import { AgentTurnOrchestrator } from "@usecases/conversation/agent-turn-orchestrator/orchestrator";
 import { CircuitBreakSupport } from "./circuit-break-support";
-import type { TurnInput, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, FirstDumbInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
+import type { TurnInput, TurnResult, AttemptDriver, TurnCallbacks, InvokeResultShape, CircuitBreakInfo, FirstDumbInfo, ContentFilterInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
+import type { ModelInfo, ModelPoolLike } from "@usecases/ports/model-pool-like";
+import { buildContentFilterRetryMsg, buildContentFilterTerminalMsg } from "@usecases/conversation/agent-turn-orchestrator/content-filter-error";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-port";
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
@@ -228,6 +230,8 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly matterRepo?: MatterRepository,
     /** F20261021sprx：每次唤醒读取待执行状态镜像（非消费即删）。 */
     private readonly scheduledTaskPendingRepo?: ScheduledTaskPendingItemRepository,
+    /** #1762：content_filter 首次失败时选择不同模型的备用条目。 */
+    private readonly modelPool?: ModelPoolLike,
   ) {
     this.agentDispatchService = agentDispatchService;
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
@@ -533,7 +537,7 @@ export class AgentInvoker implements AgentTurnPort {
        * restart + 写 circuit_break 事件 + 全新 invoke（新入口重新 buildDynamicContext，前情摘要随新 session.summary 注入）。
        */
       // 同 invoke 的 attempts 由 orchestrator 累加真实增量；递归重启的各段在下方合并。
-      const retried = await this.handleCircuitBreakSignal(turnResult, params, emitEvent);
+      const retried = await this.handleAutomaticRecoverySignals(turnResult, params, emitEvent);
       if (retried) return this.withAdditionalDelta(retried, turnResult.tokenUsageDelta);
 
       /**
@@ -1097,7 +1101,7 @@ export class AgentInvoker implements AgentTurnPort {
     otterId: string,
     conversationId: string,
     params: {
-      trigger: '水位' | '手动' | '自重启' | '熔断';
+      trigger: '水位' | '手动' | '自重启' | '熔断' | '恢复';
       selfSummary?: string;
       synthesizePast: boolean;
       modelAlias?: string;
@@ -2128,6 +2132,152 @@ export class AgentInvoker implements AgentTurnPort {
     }
   }
 
+  /** 熔断与内容过滤共用外层恢复出口，主 invoke 状态机只保留一个恢复分支。 */
+  private async handleAutomaticRecoverySignals(
+    turnResult: TurnResult,
+    params: {
+      otterId: string;
+      conversationId: string;
+      userMessageContent: string;
+      senderId: string;
+      onSSEEvent?: (event: SSEEvent) => void;
+      retryCount?: number;
+      manualRetry?: boolean;
+    },
+    emitEvent: (event: SSEEvent) => void,
+  ): Promise<AgentTurnResult | null> {
+    const circuitRetried = await this.handleCircuitBreakSignal(turnResult, params, emitEvent);
+    if (circuitRetried) return circuitRetried;
+    if (!turnResult._contentFilter) return null;
+    return this.handleContentFilterSignal(turnResult._contentFilter, params);
+  }
+
+  /** #1762：首次 content_filter 换一次模型续跑；无备用/交接失败/续跑仍失败立即升级。 */
+  private async handleContentFilterSignal(
+    signal: ContentFilterInfo,
+    params: {
+      otterId: string;
+      conversationId: string;
+      userMessageContent: string;
+      senderId: string;
+      onSSEEvent?: (event: SSEEvent) => void;
+      retryCount?: number;
+      manualRetry?: boolean;
+    },
+  ): Promise<AgentTurnResult | null> {
+    const fallback = signal.retryCount === 0
+      ? this.modelPool?.getModelInfos().find(m => m.alias !== signal.modelAlias)
+      : undefined;
+    if (!fallback) {
+      await this.handleContentFilterTerminal(signal);
+      return null;
+    }
+
+    if (!await this.restartContentFilterWithFallback(signal, fallback)) return null;
+
+    try {
+      const recovered = await this.invokeConversationInner({ ...params, retryCount: 1, manualRetry: false });
+      const retryInvoke = await this.sendEntry?.getInvokeById(recovered.invokeId).catch(() => null);
+      if (retryInvoke?.status === 'completed') return recovered;
+      // 二次 content_filter 已在嵌套恢复出口通知；其他普通 failed 也必须升级。
+      if (!(recovered as TurnResult)._contentFilter) {
+        await this.handleContentFilterTerminal({
+          ...signal,
+          modelAlias: fallback.alias,
+          failedInvokeId: recovered.invokeId,
+          retryCount: 1,
+        });
+      }
+      return recovered;
+    } catch (err) {
+      this.logger.error('[content-filter] fallback re-invoke failed', err instanceof Error ? err : new Error(String(err)), {
+        otterId: signal.otterId,
+        conversationId: signal.conversationId,
+        fallbackModel: fallback.alias,
+      });
+      await this.handleContentFilterTerminal(signal);
+      return null;
+    }
+  }
+
+  /** #1762：统一交接优先，失败时裸换模型保底；两种换世都失败才升级。 */
+  private async restartContentFilterWithFallback(signal: ContentFilterInfo, fallback: ModelInfo): Promise<boolean> {
+    const summary = `上一轮模型 ${signal.modelAlias} 返回 content_filter；切换到 ${fallback.alias} 继续原任务。`;
+    try {
+      await this.unifiedHandoff(signal.otterId, signal.conversationId, {
+        trigger: '恢复', selfSummary: summary, synthesizePast: false, modelAlias: fallback.alias,
+      });
+    } catch (err) {
+      this.logger.warn('[content-filter] fallback handoff failed, trying bare model restart', {
+        otterId: signal.otterId,
+        conversationId: signal.conversationId,
+        fallbackModel: fallback.alias,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      try {
+        await this.selfRestartBareFallback(signal.otterId, summary, fallback.alias);
+      } catch (restartErr) {
+        this.logger.error('[content-filter] bare model restart failed', restartErr instanceof Error ? restartErr : new Error(String(restartErr)), {
+          otterId: signal.otterId,
+          conversationId: signal.conversationId,
+          fallbackModel: fallback.alias,
+        });
+        await this.handleContentFilterTerminal(signal);
+        return false;
+      }
+    }
+    if (this.sendEntry) {
+      const otter = await this.queryOtter.getById(signal.otterId).catch(() => null);
+      const otterName = resolveSpeakerName("otter", signal.otterId, otter?.name) ?? signal.otterId;
+      await this.sendSystemEntry(signal.conversationId, buildContentFilterRetryMsg(otterName, signal.modelAlias, fallback.alias)).catch((err: unknown) => {
+        this.logger.warn('[content-filter] retry notification failed; recovery continues', {
+          conversationId: signal.conversationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+    return true;
+  }
+
+  /** #1762：终态双通道留痕 + 唤醒在场大獭；不再依赖上下文满后的被动换世。 */
+  private async handleContentFilterTerminal(signal: ContentFilterInfo): Promise<void> {
+    try {
+      const otter = await this.queryOtter.getById(signal.otterId).catch(() => null);
+      const otterName = resolveSpeakerName("otter", signal.otterId, otter?.name) ?? signal.otterId;
+      healingAlertRegistry.enqueue(signal.conversationId, {
+        eventId: crypto.randomUUID(),
+        conversationId: signal.conversationId,
+        otterId: signal.otterId,
+        errorType: "content_filter",
+        description: `模型 ${signal.modelAlias} 内容过滤后自动恢复未成功，需编排者处置`,
+        createdAt: new Date().toISOString(),
+      });
+      if (this.sendEntry) {
+        await this.sendSystemEntry(signal.conversationId, buildContentFilterTerminalMsg(otterName, signal.modelAlias)).catch((err: unknown) => {
+          this.logger.warn('[content-filter] terminal system entry failed; dispatch continues', {
+            conversationId: signal.conversationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+      if (!this.agentDispatchService) return;
+      const bigOtterIds = await this.resolveBigOtterIds(signal.conversationId, signal.otterId);
+      if (bigOtterIds.length === 0) return;
+      await this.agentDispatchService.dispatch({
+        conversationId: signal.conversationId,
+        userMessageContent: `[content_filter 恢复] ${otterName}（模型 ${signal.modelAlias}）自动换模型续跑不可用或仍失败。\n原任务：${signal.originalUserMessage}\n请裁决改派其他獭、换段/缩减敏感内容，或由搭档人工调整后再试；不要重复同一内容的自动重试。`,
+        senderId: 'system',
+        resolvedTargets: bigOtterIds,
+        triggerSenderType: 'system',
+      });
+    } catch (err) {
+      this.logger.error('[content-filter] terminal notification failed', err instanceof Error ? err : new Error(String(err)), {
+        otterId: signal.otterId,
+        conversationId: signal.conversationId,
+      });
+    }
+  }
+
   /**
    * F20260916fst4：首哑信号处理——小獭首次 invoke 即配额型 429 终态时唤醒大獭处置。
    * 严格串行三步（方案时序保证：alert 入队必须先于 dispatch，否则大獭 buildDynamicContext 错过上下文）：
@@ -2195,7 +2345,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /** F20260916fst4：查 conversation 在场大獭（依赖未注入 / 无大獭时降级仅日志，返回空数组） */
-  private async resolveBigOtterIds(conversationId: string): Promise<string[]> {
+  private async resolveBigOtterIds(conversationId: string, excludeOtterId?: string): Promise<string[]> {
     if (!this.conversationRepo) {
       this.logger.warn('[first-dumb] conversation repo not injected, skipping wake-up', { conversationId });
       return [];
@@ -2203,6 +2353,7 @@ export class AgentInvoker implements AgentTurnPort {
     const participants = await this.conversationRepo.getActiveParticipants(conversationId);
     const bigOtterIds: string[] = [];
     for (const p of participants) {
+      if (p.otterId === excludeOtterId) continue;
       const otter = await this.queryOtter.getById(p.otterId);
       if (otter?.type === 'big') bigOtterIds.push(p.otterId);
     }
