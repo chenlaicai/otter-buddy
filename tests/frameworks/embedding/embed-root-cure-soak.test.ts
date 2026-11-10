@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EmbeddingServiceImpl } from "../../../src/frameworks/embedding/embedding-service";
 import type { EmbedRequest, EmbedBatchRequest, EmbedResponse } from "../../../src/frameworks/embedding/embedding-protocol";
 import type { Logger } from "../../../src/usecases/ports/logger";
+import { createTestDb } from "../../helpers/db";
+import { SqliteMemoryRepository } from "../../../src/frameworks/db/memory/sqlite-memory-repository";
+import { EmbeddingRetryWorker } from "../../../src/usecases/memory/embedding-retry-worker";
 
 vi.setConfig({ testTimeout: 20_000 });
 
@@ -57,7 +60,7 @@ class ChaosWorker extends EventEmitter {
       if (this.dead) return;
       const text = message.texts[index];
       this.computed.push(text);
-      const embedding = new Float32Array([index, text.length]);
+      const embedding = new Float32Array(1024).fill(index + 1);
       embeddings.push(embedding);
       this.emitMessage({ type: "batch-progress", id: message.id, index, embedding, durationMs: this.delayMs });
     }
@@ -84,6 +87,7 @@ afterEach(() => {
   EmbeddingServiceImpl.setTestTimeoutOverride(null);
   EmbeddingServiceImpl.setTestWatchdogOverride(null);
   EmbeddingServiceImpl.setTestReadyTimeoutOverride(null);
+  delete process.env.OTTER_EMBED_READY_TIMEOUT_MS;
   vi.useRealTimers();
 });
 
@@ -193,6 +197,29 @@ describe("F20261110embrc lane 生命周期", () => {
     }
   });
 
+  it("READY_TIMEOUT env 允许 fp32 慢盘冷加载越过 60s，不在加载中误杀", async () => {
+    vi.useFakeTimers();
+    process.env.OTTER_EMBED_READY_TIMEOUT_MS = "120000";
+    let spawns = 0;
+    const factory = () => {
+      spawns++;
+      return new ChaosWorker(10, false).asChildProcess();
+    };
+    const service = new EmbeddingServiceImpl(factory(), logger, factory, { lane: "live" });
+    try {
+      await vi.advanceTimersByTimeAsync(61_000);
+      internal(service).watchdogTick();
+      expect(spawns).toBe(1);
+      expect(service.stats.attempts).toBe(0);
+      await vi.advanceTimersByTimeAsync(60_000);
+      internal(service).watchdogTick();
+      expect(spawns).toBe(2);
+      expect(service.stats.attempts).toBe(1);
+    } finally {
+      service.dispose();
+    }
+  });
+
   it("未 ready 第一代被重拉后，第二代 ready 恢复服务", async () => {
     vi.useFakeTimers();
     EmbeddingServiceImpl.setTestReadyTimeoutOverride(1_000);
@@ -210,6 +237,57 @@ describe("F20261110embrc lane 生命周期", () => {
       await expect(result).resolves.toBeInstanceOf(Float32Array);
     } finally {
       service.dispose();
+    }
+  });
+});
+
+describe("F20261110embrc service→salvage→DB re-claim 跨层链路", () => {
+  it("worker 死亡后由 retry worker 自动重领：已 salvage 条目不重算，剩余条目不丢", async () => {
+    vi.useFakeTimers();
+    const db = createTestDb();
+    const repo = new SqliteMemoryRepository(db);
+    const workers: ChaosWorker[] = [];
+    const factory = () => {
+      const worker = new ChaosWorker(1_000);
+      workers.push(worker);
+      return worker.asChildProcess();
+    };
+    const service = new EmbeddingServiceImpl(factory(), logger, factory, { lane: "backfill" });
+    const retry = new EmbeddingRetryWorker(repo, repo, repo, service, logger, 3_600_000, 3);
+    const texts = Array.from({ length: 12 }, (_, index) => `跨层长文档 ${index} ${"内容".repeat(200)}`);
+    try {
+      for (const [index, content] of texts.entries()) {
+        const id = `cross-${String(index).padStart(2, "0")}`;
+        await repo.storeEntry({
+          id, layer: "document", contentType: "feature_chunk", sourceId: id,
+          sourceTable: "features", conversationId: null, granularity: "fine",
+          content, metadata: null, createdAt: new Date().toISOString(),
+        });
+        await repo.enqueueRetry(id, new Error("soak"), 2);
+      }
+      await retry.tickNow();
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(workers[0].computed).toHaveLength(2);
+      workers[0].crash();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(await repo.pendingTaskCount()).toBe(10);
+
+      // 只推进 DB 退避时间，不调用 embedBatch、不手工切剩余文本；生产 retry 自动重领。
+      db.prepare("UPDATE embedding_tasks SET next_retry_at = datetime('now', '-1 second')").run();
+      await retry.tickNow();
+      await vi.advanceTimersByTimeAsync(12_000);
+      expect(await repo.pendingTaskCount()).toBe(0);
+      expect(workers).toHaveLength(2);
+      expect(workers[0].computed).toEqual(texts.slice(0, 2));
+      expect(workers[1].computed).toEqual(texts.slice(2));
+      const computed = workers.flatMap(worker => worker.computed);
+      expect(computed).toHaveLength(12);
+      expect(new Set(computed).size).toBe(12);
+      expect(db.prepare("SELECT COUNT(*) AS n FROM memory_vec").get()).toEqual({ n: 12 });
+    } finally {
+      await retry.stop();
+      service.dispose();
+      db.close();
     }
   });
 });

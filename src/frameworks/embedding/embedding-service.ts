@@ -41,6 +41,7 @@ import type {
 } from "./embedding-protocol";
 import { resolveBatchTokenBudget, splitBatchByTokenBudget, wrapOptsForShard, estimateTokens } from "./embed-batch-sharding";
 import { LaneMetrics, laneState } from "./embedding-lane-stats";
+import { resolveReadyTimeoutMs } from "./embedding-env-config";
 
 export interface EmbeddingServiceOptions {
   lane?: EmbeddingLaneName;
@@ -103,7 +104,6 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    */
   private static readonly WATCHDOG_INTERVAL_MS = 1_000;
   private static readonly PROGRESS_STALL_MS = 120_000;
-  private static readonly READY_TIMEOUT_MS = 60_000;
   /** 测试用看门狗阈值覆盖 */
   private static testWatchdogOverride: number | null = null;
   private static testReadyTimeoutOverride: number | null = null;
@@ -264,7 +264,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
     if (!this.readyState.ready) {
       this.unreadySince ??= this.workerBornAt;
       const readyTimeout = EmbeddingServiceImpl.testReadyTimeoutOverride
-        ?? EmbeddingServiceImpl.READY_TIMEOUT_MS;
+        ?? resolveReadyTimeoutMs(process.env.OTTER_EMBED_READY_TIMEOUT_MS);
       const unreadyMs = now - this.unreadySince;
       if (unreadyMs > readyTimeout) {
         this.restartWorker(`watchdog: worker not ready for ${unreadyMs}ms`);

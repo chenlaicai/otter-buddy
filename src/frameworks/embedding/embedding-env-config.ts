@@ -41,6 +41,16 @@ export function resolveEmbeddingDtype(raw?: string): "fp32" | "q8" {
   return DEFAULT_EMBEDDING_DTYPE;
 }
 
+/** fp32 冷加载在慢盘上可能超过 60s；仅紧急调参使用，不进 config schema。 */
+export function resolveReadyTimeoutMs(raw?: string, fallback = 60_000): number {
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number.parseInt(raw, 10);
+  if (Number.isFinite(value) && value >= 1) return value;
+  // eslint-disable-next-line no-console -- worker 启动早于 logger 装配
+  console.warn(`[embedding] OTTER_EMBED_READY_TIMEOUT_MS="${raw}" 非法，回落默认 ${fallback}`);
+  return fallback;
+}
+
 /**
  * 从 WorkerConfig + 进程环境派生 transformers.js env 设置。
  *

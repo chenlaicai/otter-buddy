@@ -77,6 +77,86 @@ function makeGoldenQueries(chunks, count = 50) {
   });
 }
 
+function loadProductionBenchmarkDataset(queryCount, candidateCount) {
+  const dbPath = process.env.OTTER_EMBED_PROD_DB ?? path.join(MAIN_ROOT, "data/otter-buddy.db");
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const rows = db.prepare(`
+      SELECT id, query, top_entry_ids FROM search_query_logs
+      WHERE total > 0 AND length(trim(query)) >= 8 ORDER BY created_at DESC
+    `).all();
+    const entries = new Map();
+    const readEntry = id => {
+      if (!entries.has(id)) {
+        entries.set(id, db.prepare(`
+          SELECT id, content, content_type FROM memory_entries WHERE id = ?
+        `).get(id));
+      }
+      return entries.get(id);
+    };
+    const golden = [];
+    const seenQueries = new Set();
+    const relevantIds = new Set();
+    const loggedDocIds = new Set();
+    for (const row of rows) {
+      let ids;
+      try { ids = JSON.parse(row.top_entry_ids); } catch { continue; }
+      if (!Array.isArray(ids)) continue;
+      const documents = ids.map(readEntry).filter(entry => entry
+        && ["feature", "feature_chunk", "research", "research_chunk"].includes(entry.content_type)
+        && entry.content.length >= 300);
+      for (const document of documents) loggedDocIds.add(document.id);
+      const normalized = row.query.trim().replace(/\s+/g, " ");
+      if (golden.length < queryCount && documents.length > 0 && !seenQueries.has(normalized)) {
+        const relevant = documents[0];
+        golden.push({ sourceLogId: row.id, query: normalized, relevantId: relevant.id });
+        seenQueries.add(normalized);
+        relevantIds.add(relevant.id);
+      }
+    }
+    if (golden.length < queryCount) throw new Error(`生产 query 不足：${golden.length} < ${queryCount}`);
+    const relevant = [...relevantIds].sort().map(id => entries.get(id));
+    const negativeIds = [...loggedDocIds].filter(id => !relevantIds.has(id)).sort();
+    const fill = candidateCount - relevant.length;
+    if (negativeIds.length < fill) throw new Error(`生产候选负例不足：${negativeIds.length} < ${fill}`);
+    const step = negativeIds.length / fill;
+    const negatives = Array.from({ length: fill }, (_, index) => entries.get(negativeIds[Math.floor(index * step)]));
+    const corpus = [...relevant, ...negatives].map(entry => ({
+      id: entry.id,
+      title: entry.content_type,
+      headingPath: [],
+      content: entry.content.slice(0, 6000),
+    }));
+    const indexById = new Map(corpus.map((entry, index) => [entry.id, index]));
+    return {
+      corpus,
+      golden: golden.map(item => ({ query: item.query, relevantIndex: indexById.get(item.relevantId) })),
+      metadata: {
+        kind: "production-query-logs",
+        source: "production search_query_logs + memory_entries (read-only)",
+        labeling: "real query; first long document in logged ranking = weak relevance; other logged documents = hard negatives",
+      },
+    };
+  } finally {
+    db.close();
+  }
+}
+
+function lexicalOverlap(query, content) {
+  const grams = text => {
+    const normalized = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+    const result = new Set();
+    for (let i = 0; i <= normalized.length - 3; i++) result.add(normalized.slice(i, i + 3));
+    return result;
+  };
+  const a = grams(query);
+  const b = grams(content);
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const gram of a) if (b.has(gram)) intersection++;
+  return intersection / (a.size + b.size - intersection);
+}
+
 function percentile(values, p) {
   const sorted = [...values].sort((a, b) => a - b);
   return Math.round(sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)] * 100) / 100;
@@ -169,6 +249,7 @@ async function runModelBenchmark(dtype, corpus, golden) {
       textsPerSec: Math.round(corpus.length / elapsedSec * 1000) / 1000,
       tokensPerSec: Math.round(tokens / elapsedSec * 100) / 100,
       latencyMs: distribution(latencies),
+      recallAt1: recallAtK(chunkVectors, queryVectors, golden, 1),
       recallAt5: recallAtK(chunkVectors, queryVectors, golden, 5),
       recallAt10: recallAtK(chunkVectors, queryVectors, golden, 10),
       stats: service.stats,
@@ -181,29 +262,46 @@ async function runModelBenchmark(dtype, corpus, golden) {
 async function mainBenchmark() {
   const corpusCount = Number.parseInt(process.env.OTTER_EMBED_BENCH_COUNT ?? "200", 10);
   const queryCount = Number.parseInt(process.env.OTTER_EMBED_BENCH_QUERIES ?? "50", 10);
-  const corpus = loadRealCorpus(corpusCount);
-  const golden = makeGoldenQueries(corpus, queryCount);
-  console.log(`[benchmark] 真实语料字符分布：${JSON.stringify(distribution(corpus.map(c => c.content.length)))}`);
+  const production = process.env.OTTER_EMBED_BENCH_GOLDEN !== "self";
+  const dataset = production
+    ? loadProductionBenchmarkDataset(queryCount, corpusCount)
+    : {
+      corpus: loadRealCorpus(corpusCount),
+      golden: null,
+      metadata: { kind: "self-query", source: "worktree docs", labeling: "self title+heading+first-sentence" },
+    };
+  const corpus = dataset.corpus;
+  const golden = dataset.golden ?? makeGoldenQueries(corpus, queryCount);
+  console.log(`[benchmark] ${dataset.metadata.kind} 字符分布：${JSON.stringify(distribution(corpus.map(c => c.content.length)))}`);
   const fp32 = await runModelBenchmark("fp32", corpus, golden);
   const q8 = await runModelBenchmark("q8", corpus, golden);
+  const withinTolerance = fp32.recallAt5 - q8.recallAt5 <= 0.02
+    && fp32.recallAt10 - q8.recallAt10 <= 0.02;
+  const sufficientSample = corpusCount >= 200 && queryCount >= 50;
+  const discriminative = production && sufficientSample
+    && [fp32.recallAt1, fp32.recallAt5, fp32.recallAt10, q8.recallAt1, q8.recallAt5, q8.recallAt10]
+      .some(value => value < 1);
+  const overlaps = golden.map(item => lexicalOverlap(item.query, corpus[item.relevantIndex].content));
   const result = {
-    schema: 1,
+    schema: 2,
     generatedAt: new Date().toISOString(),
     corpus: {
-      source: "worktree docs/features + docs/research",
+      source: dataset.metadata.source,
       count: corpus.length,
       charLength: distribution(corpus.map(c => c.content.length)),
       goldenQueries: golden.length,
-      labeling: "deterministic title+heading+first-sentence; one relevant chunk/query",
+      labeling: dataset.metadata.labeling,
+      queryRelevantTrigramJaccard: distribution(overlaps),
     },
     fp32,
     q8,
     recallDelta: {
+      at1: Math.round((fp32.recallAt1 - q8.recallAt1) * 10000) / 10000,
       at5: Math.round((fp32.recallAt5 - q8.recallAt5) * 10000) / 10000,
       at10: Math.round((fp32.recallAt10 - q8.recallAt10) * 10000) / 10000,
     },
-    decision: fp32.recallAt5 - q8.recallAt5 <= 0.02 && fp32.recallAt10 - q8.recallAt10 <= 0.02
-      ? "q8-quality-pass" : "keep-fp32",
+    qualityEvidence: discriminative ? "discriminative-non-perfect-baseline" : "inconclusive",
+    decision: withinTolerance && discriminative ? "q8-quality-pass" : "keep-fp32",
   };
   const output = process.env.OTTER_EMBED_BENCH_OUTPUT ?? path.join(os.tmpdir(), "embrc-quantization-benchmark.json");
   fs.writeFileSync(output, JSON.stringify(result, null, 2));

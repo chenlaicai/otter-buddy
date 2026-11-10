@@ -205,3 +205,34 @@ intent:
 最终干净状态 `npm test`：PASS，448 文件 / 5799 用例（含新增 dtype 用例），无失败豁免。
 
 旧保护没有被静默绕过：live 30s/60s fail-fast 仍有既有测试；DB 持久化/退避/dead-letter 与 #1795 用例全绿；backfill 活性和慢批分别由看门狗与晚到采纳测试判别。新增 Q8 不是无条件加速：两轮真实语料 recall 均不降才默认启用，fp32 文件与环境变量回滚保留。
+
+## 10. 初轮检视处置（2026-11-10）
+
+### D1 Q8 golden 自证性——接受并修复（更好）
+
+旧 §8/§9 的「title+heading+首句自产 query」只保留为弱对照，不再作为默认切换的质量依据。基准默认数据源改为**只读生产 `search_query_logs + memory_entries`**：50 条真实 query，取日志排序中首个长文档为弱相关标注，候选 200 个由相关文档与其他真实检索命中的文档（硬负例）组成。该标注不是人工 gold，绝对 recall 不代表全系统生产召回率；它用于同集 fp32/Q8 相对比较，且脚本在样本不足或全集满分无法判別时自动 `keep-fp32`。
+
+最终命令：`OTTER_EMBED_BENCH_OUTPUT=/tmp/embrc-production-golden-final.json node scripts/eppq-real-model-throughput.mjs --benchmark`（exit=0，schema=2）。query↔相关文本 3-gram Jaccard p50/p95/p99=0.02/0.05/0.07；候选字符 p50/p95/p99=448/1941/2754。
+
+| 指标 | fp32 | Q8 | Q8-fp32 |
+|---|---:|---:|---:|
+| recall@1 | 0.24 | 0.26 | +0.02 |
+| recall@5 | 0.50 | 0.54 | +0.04 |
+| recall@10 | 0.58 | 0.62 | +0.04 |
+| texts/s | 0.814 | 1.246 | +53.1% |
+| tokens/s | 310.56 | 475.40 | +53.1% |
+| p50/p95/p99 ms | 784 / 3807 / 5984 | 468 / 2545 / 4426 | 全部下降 |
+
+机器判据=`discriminative-non-perfect-baseline`，决策=`q8-quality-pass`：基线不再满分，recall 无退化且各档差不超过 2% 门（Q8 在此集反而更高），吞吐提升有独立两轮佐证。小样本探针因样本量不足仍判 `keep-fp32/inconclusive`，防止以后用少量/满分数据误切。
+
+### D2 fp32 冷加载与 READY_TIMEOUT——接受并修复（更好）
+
+新增 `OTTER_EMBED_READY_TIMEOUT_MS` 紧急逃生口（默认仍 60,000ms，非法值告警并回落），与既有线程/dtype env 同级，不进 config schema。`embedding-service` 的 !ready 看门狗实际读取该值；不是只在 rollback 文档提醒。fp32 慢盘回滚可设 600,000ms，保留真卡死的有界重建。行为证据：`embed-root-cure-soak` 冷加载用例在 61s 时 attempts=0/spawn=1，越过显式 120s 后才 respawn；非法/默认/覆盖解析由 `embedding-env-config` 用例锁定。
+
+### D3 salvage→markTaskDone→不再 re-claim——接受并修复（更好）
+
+新增 service + 真 SQLite queue + retry worker 的跨层混沌用例，不再由测试手工 `slice(2)` 代替生产消费。第一代计算 2 条后死亡；salvage 写 vec 并 markTaskDone；只推进 DB 退避时间，由 retry 自动重领。机器断言：第一代 computed=前 2 条、第二代 computed=后 10 条、全集 12 条且唯一、memory_vec=12、pending=0。该证据只覆盖「已交付结果不物理重算」，不改变 §6.2-5 的 IPC 未交付边界。
+
+### D4 熔断只能进程重启恢复——接受既有边界并显式记录（更好）
+
+本 PR 不新增半开计时探针。`openCircuit` 后 `available=false`，向量检索持续降级 FTS-only；恢复动作是**重启主进程**。healing severity:high 与 health `circuitBroken/unready` 只负责告警和定位，**不代表自动恢复**。瞬时宿主压力导致的熔断同样需要人工判断后重启；这是既有语义，本 PR 不宣称已经解决。半开恢复属于另一项生命周期策略变更，不在本次已拍板六层规格内偷偷扩张。
