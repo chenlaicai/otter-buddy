@@ -38,6 +38,8 @@ export interface DurableSessionOptions {
   thinkingLevel?: string;
   prompt?: string;
   identity?: string;
+  /** coding-agent ResourceLoader 发现的 skills 可见面；durable 不做隐式资源继承。 */
+  skillsPrompt?: string;
   cwd: string;
   tools: DurableToolBundle;
   logger: Logger;
@@ -91,7 +93,7 @@ export class DurableSession {
     this.deferredTools = options.tools.customTools.filter(t => options.tools.toolExposure?.[t.name] === "deferred").map(t => t.name);
     this.otterExtension = defineExtension({
       name: "otter",
-      sections: [section("otter", () => [this.promptText, this.options.identity, this.options.mcp?.instructions()].filter(Boolean).join("\n\n"), { tag: false })],
+      sections: [section("otter", () => [this.promptText, this.options.identity, this.options.skillsPrompt, this.options.mcp?.instructions()].filter(Boolean).join("\n\n"), { tag: false })],
       tools: this.toolRegistrations().map(tool => options.tools.toolExposure?.[tool.name] === "deferred" ? { ...tool, deferred: true as const } : tool),
       hooks: [hook(ToolTask, {
         beforeTool: (call) => this.beforeTool(call),
@@ -173,6 +175,11 @@ export class DurableSession {
   private async beforeTool(call: { name: string; arguments: Record<string, unknown>; id: string }): Promise<{ block: string } | undefined> {
     const ctx = otterInvokeStorage.getStore();
     if (!this.currentInvokeId) return { block: "Durable tool execution requires currentInvokeId; refusing side effect." };
+    // wait 的「先交代再等待」由工具准入门持有，不再只依赖模型读 description。
+    // register 在每次 invoke 重置；speak 成功后才写 lastSpeakEntryId。
+    if (call.name === "wait" && !this.options.register.lastSpeakEntryId) {
+      return { block: "等待前必须先在本回合调用 speak，说明在等什么、为什么；然后再调用 wait。" };
+    }
     const halt = haltToolCallGuard(ctx, this.options.haltRegistry as never, call.name);
     const guard = await halt ?? loopBlockGuard(ctx, call.name, call.arguments) ?? bashGuardGate(ctx, call.name, call.arguments);
     if (guard) return { block: guard.reason };
@@ -245,7 +252,9 @@ export class DurableSession {
     this.currentInvokeId = next.currentInvokeId;
     this.hasBoundInvoke = true;
     if (next.prompt !== undefined) this.promptText = next.prompt;
-    this.options.identity = next.identity;
+    // 池命中只刷新 invoke/prompt；identity 由 execute 构建后显式刷新。
+    // undefined 不得清空上一轮身份，避免两个 updateOptions 之间形成无身份窗口。
+    if (next.identity !== undefined) this.options.identity = next.identity;
   }
 
   // A turn owns watch, admission, settlement and usage accounting as one boundary.

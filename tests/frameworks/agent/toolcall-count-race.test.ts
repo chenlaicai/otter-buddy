@@ -23,6 +23,7 @@ import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-reposit
 type StubSession = {
   prompt: (text: string, options?: unknown, stream?: { event: (event: unknown) => Promise<void> }) => Promise<void>;
   subscribe: (fn: (event: unknown) => void) => () => void;
+  updateOptions: (next: { currentInvokeId?: string; identity?: string }) => void;
   abort: () => Promise<void>;
   getSessionStats: () => { tokens: { input: number; output: number } };
   sessionManager: { getBranch: () => unknown[] };
@@ -77,6 +78,7 @@ describe("#763 toolCallCount 快照竞态（真实 catch 分支驱动）", () =>
         handlers.push(fn);
         return () => {};
       },
+      updateOptions: () => {},
       // stub prompt：模拟 LLM 两轮工具调用后，跨帧删除（destroy/共键互踩现场）发生，
       // 然后 SDK 错误到达——catch 读取时条目已删
       prompt: async (_text, _options, stream) => {
@@ -112,6 +114,7 @@ describe("#763 toolCallCount 快照竞态（真实 catch 分支驱动）", () =>
         handlers.push(fn);
         return () => {};
       },
+      updateOptions: () => {},
       prompt: async (_text, _options, stream) => {
         await stream!.event({ type: "tool_execution_start", toolCallId: "t1", toolName: "read" });
         throw new Error("plain SDK error, no delete race");

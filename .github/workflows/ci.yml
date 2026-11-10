@@ -82,6 +82,7 @@ jobs:
           npm run lint:tool-manifest
           node scripts/lint-tests.mjs
           node scripts/lint-capability-docs.mjs
+          node scripts/lint-capability-guardrails.mjs
           node scripts/lint-prompt-size.mjs
           node scripts/lint-prompt-anchors.mjs --full
           # #1173 / F20260929dbmb: 时间炸弹收窄扫描 v2（E1/E2 error 阻断 + W1 基线守恒）
@@ -128,6 +129,14 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: npm run lint:evidence-anchors -- --base origin/main
+
+      # 贵的验证跟变更走：仅 runtime/存储/会话/prompt/能力测试改动要求三类证据。
+      # 不按日历触发；此闸验证呈交结构，实际命令输出由对抗审视复核。
+      - name: Run change-triggered capability evidence gate
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/check-capability-change.mjs --base origin/main
 
       - name: Build web frontend (tsc + vite)
         run: |
@@ -209,6 +218,47 @@ jobs:
           name: e2e-screenshots
           path: web/test-results/
           retention-days: 7
+
+  # F20261110grd：全量能力 faux 档硬门禁。真 app/真 sqlite/真 embedding，
+  # 外部 LLM 调用为零；文件级 exclude 只能来自 guardrails.json 且必须绑公开 issue。
+  capability-faux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Upgrade npm to match local version
+        run: npm install -g npm@11.17.0
+      - name: Install dependencies
+        run: npm ci
+      - name: Build project
+        run: npm run build
+      - name: Cache bge-m3 model
+        uses: actions/cache@v6
+        with:
+          path: models/bge-m3
+          key: bge-m3-${{ runner.os }}-v1
+      - name: Download bge-m3 if not cached
+        run: node scripts/download-bge-m3.mjs --force
+        env:
+          HF_ENDPOINT: https://hf-mirror.com
+      - name: Run all capability tests in faux mode
+        run: npm run test:capability:faux:only
+        env:
+          OTTER_TEST_LLM_API_KEY: ""
+          OTTER_TEST_LLM_MODEL: ""
+          OTTER_CAPABILITY_FORCE_FAUX: "1"
+      - name: Run dual-branch model-visible parity when runtime changes
+        run: |
+          git fetch origin main
+          npm run test:capability:parity -- origin/main
 
   # P0-b: Golden Gate selftest-only 独立入口（零 LLM、不配置 LLM 端点）
   # 仅跑 selftest 层（good/bad 参考序列校验断言判别力，纯构造零真实请求）；

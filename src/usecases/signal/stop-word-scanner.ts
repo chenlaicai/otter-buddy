@@ -15,8 +15,8 @@
  *    前侧误报（如「这个词叫停下」）由 LLM 语境确认兑底（不硬拦的设计意图）。
  */
 
-/** 安全词表（母方案取舍：冻结 2 词，新需求先走信号通道验证） */
-const STOP_WORDS = ['停下'] as const;
+/** 现行 2 词都扫描：「停下」走 L2 急停提醒，「绕路了」走 L1 就近重审提醒。 */
+const STOP_WORDS = ['停下', '绕路了'] as const;
 
 /**
  * 硬边界字符类（后侧判定用）：标点（中西文）、空白、emoji、组合记号、格式控制字符。
@@ -88,9 +88,16 @@ function buildEvidenceAnchor(evidence?: StopWordScanEvidence): string {
   return `[证据: msgId=${msgId} seq=${seq} 来源=${source}]`;
 }
 
-/** reminder 文本（SYSTEM.md Magic Words「停下」条目的执行引导） */
+/** reminder 文本（SYSTEM.md Magic Words 条目的执行引导） */
 function buildReminder(matched: string[], evidence?: StopWordScanEvidence): string {
   const source = resolveTriggerSource(evidence?.senderType, evidence?.senderHint);
+  if (matched.includes('绕路了') && !matched.includes('停下')) {
+    return `[L1 方向重审] ${source === "user" ? "用户消息" : `触发消息（来源：${source}）`}命中「绕路了」。`
+      + '若这是搭档指令：本次回答不要再调用任何工具；先明确指出原方案哪里绕/多余，再给更短直达路径。'
+      + '不得只复述原方案。若是讨论/引用该词，则正常回答。\n'
+      + `证据锚点：${buildEvidenceAnchor(evidence)}`;
+  }
+  // 「停下」保持既有 L2 文案与行为。
   // #1430 假急停根因之一：reminder 固定声称「用户消息」误导下游归因。来源措辞如实：
   // user 保持既有措辞（行为面零变化）；其他来源显式标注，下游 LLM 能正确归因。
   const sourceDesc = source === "user" ? "用户消息" : `触发消息（来源：${source}）`;

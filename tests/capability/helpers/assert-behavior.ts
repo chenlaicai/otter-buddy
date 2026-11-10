@@ -239,6 +239,14 @@ export async function waitForOtterMessage(
     if (completed) return completed;
 
     const inFlight = otterMsgs.some((m) => m.status === "streaming" || m.status === "speaking");
+    /** 无 speak 的早失败（如模型 API 400）只有 system invoke_end，不能白等到超时。
+     *  有后续 invoke_start 仍在跑时继续等，保留 no_yield/失败自动重试窗口。 */
+    const anchorSeq = opts.afterSeq ?? Math.max(0, ...messages.filter(m => m.st === "user").map(m => m.seq));
+    const systemInFlight = messages.some(m => m.st === "system" && m.seq > anchorSeq && (m.status === "streaming" || m.status === "speaking"));
+    const invokeFailure = messages.find(m => m.st === "system" && m.seq > anchorSeq && m.status === "failed" && m.content.startsWith("[错误]"));
+    if (invokeFailure && !inFlight && !systemInFlight) {
+      throw new Error(`獭 invoke 已失败：${invokeFailure.content.slice(0, 500)}`);
+    }
     const terminals = otterMsgs.filter((m) => m.status === "failed" || m.status === "aborted");
     const newestTerminal = terminals[terminals.length - 1];
 

@@ -14,6 +14,7 @@
  * 注：本用例走录音网关而非真 LLM 端点（确定性要求），与 llmAvailable skip 逻辑无关。
  */
 import { describe, it, beforeAll, afterAll, expect } from "vitest";
+import fs from "node:fs";
 import { bootCapabilityApp, type CapabilityContext } from "./helpers/boot";
 import {
   createConversation,
@@ -78,7 +79,15 @@ describe("A3: 模型可见内容重建比对（录音网关确定性场景）", 
       tools?: Array<{ name: string }>;
       messages?: unknown[];
     };
-    expect(JSON.stringify(r0.system ?? "").length).toBeGreaterThan(100);
+    /** 消费者观测点：durable 首轮必须把身份/system prompt 真正送到 wire；
+     *  仅断言动态 user envelope 或工具列表会让「身份静默消失」假绿。
+     *  基线 capture 的职责是如实记录旧行为，不用当前分支新断言拦死捕获。 */
+    if (!process.env.A3_SNAPSHOT_CAPTURE) {
+      expect(JSON.stringify(r0.system ?? "").length).toBeGreaterThan(100);
+      expect(JSON.stringify(r0.system ?? "")).toContain("大獭");
+      expect(JSON.stringify(r0.system ?? "")).toContain("<available_skills>");
+      expect(JSON.stringify(r0.system ?? "")).toContain("requirement-analysis");
+    }
     expect(r0.tools?.map((t) => t.name)).toContain("speak");
     expect(r0.tools?.map((t) => t.name)).toContain("yield");
     expect(JSON.stringify(r0.messages)).toContain("A3-第一轮");
@@ -101,6 +110,27 @@ describe("A3: 模型可见内容重建比对（录音网关确定性场景）", 
     expect(dump).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
   });
 
+  it("跨分钟执行与历史条数变化不产生本地时间假阳性", () => {
+    const before = canonicalizeRequests([
+      { messages: [{ content: "当前时间 2026-11-10 18:01（Asia/Shanghai）；历史（10/11 18:01）" }] },
+    ], { tmpDir: ctx.tmpDir });
+    const after = canonicalizeRequests([
+      { messages: [{ content: "较早请求（10/11 18:00）" }] },
+      { messages: [{ content: "当前时间 2026-11-10 18:02（Asia/Shanghai）；历史（10/11 18:02）" }] },
+    ], { tmpDir: ctx.tmpDir });
+    expect(JSON.stringify(after)).toContain("<LOCAL_TS>");
+    expect(JSON.stringify(after)).not.toContain("<LOCAL_TS:4>");
+    expect(diffCanonical(before, [after[1]])).toEqual([]);
+  });
+
+  it("修改字段的许可包含双侧完整指纹，共同前缀之外的变化不能复用", () => {
+    const prefix = "x".repeat(160);
+    const first = diffCanonical([{ value: `${prefix}-a` }], [{ value: `${prefix}-b` }]);
+    const changed = diffCanonical([{ value: `${prefix}-a` }], [{ value: `${prefix}-c` }]);
+    expect(first[0]).toMatch(/sha256:[0-9a-f]{64}.*sha256:[0-9a-f]{64}/);
+    expect(changed).not.toEqual(first);
+  });
+
   it("快照模式：A3_SNAPSHOT_CAPTURE 写基线 / A3_SNAPSHOT_FILE 逐字段比对", () => {
     const canonical = canonicalizeRequests(gateway.requests, { tmpDir: ctx.tmpDir });
 
@@ -121,11 +151,19 @@ describe("A3: 模型可见内容重建比对（录音网关确定性场景）", 
       const snap = readSnapshot(compareWith);
       expect(snap.scenario, `快照场景不匹配：期望 ${SCENARIO}，实际 ${snap.scenario}`).toBe(SCENARIO);
       const diffs = diffCanonical(snap.canonical, canonical);
+      /** 有意变化必须按基线 commit 预先登记精确 diff；许可由 run-capability-parity.sh
+       *  从 parity-allowlist.json 选取，其他基线/未来 PR 不继承。 */
+      const allowFile = process.env.A3_SNAPSHOT_ALLOW_FILE;
+      const allowed = allowFile
+        ? JSON.parse(fs.readFileSync(allowFile, "utf8")) as string[]
+        : [];
+      const unexpected = diffs.filter(diff => !allowed.includes(diff));
       expect(
-        diffs,
-        `模型可见输入与基线漂移（${diffs.length} 处差异，前若干条）：\n${diffs.join("\n")}`,
+        unexpected,
+        `模型可见输入出现未登记漂移（${unexpected.length} 处）：\n${unexpected.join("\n")}`,
       ).toEqual([]);
-      console.log(`[A3] 与基线 ${compareWith} 比对通过：${canonical.length} 次请求逐字段等价`);
+      expect(allowed, "本基线登记的许可必须全部命中，防过期许可永久放行").toEqual(diffs);
+      console.log(`[A3] 与基线 ${compareWith} 比对通过：${canonical.length} 次请求；未登记漂移 0，精确许可 ${allowed.length}`);
     }
   });
 });

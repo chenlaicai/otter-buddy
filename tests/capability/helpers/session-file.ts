@@ -4,6 +4,7 @@
  */
 import * as fs from "node:fs";
 import type Database from "better-sqlite3";
+import { readDurableActiveSessionEntries } from "@frameworks/agent/durable-slice-source";
 
 export interface SessionEntry {
   raw: Record<string, unknown>;
@@ -20,8 +21,16 @@ function detectUser(entry: Record<string, unknown>): boolean {
   return false;
 }
 
-/** 读取 pi session jsonl，返回全部条目（容错：坏行跳过） */
-export function readSessionMessages(sessionFile: string): SessionEntry[] {
+/** 读取当前 pi session：durable sqlite 走公开只读投影，旧 jsonl 保留容错解析。 */
+export async function readSessionMessages(sessionFile: string): Promise<SessionEntry[]> {
+  if (sessionFile.endsWith(".sqlite")) {
+    const projected = await readDurableActiveSessionEntries(sessionFile);
+    return (projected ?? []).map(raw => ({
+      raw,
+      text: JSON.stringify(raw),
+      isUser: detectUser(raw),
+    }));
+  }
   const content = fs.readFileSync(sessionFile, "utf8");
   const entries: SessionEntry[] = [];
   for (const line of content.split("\n")) {

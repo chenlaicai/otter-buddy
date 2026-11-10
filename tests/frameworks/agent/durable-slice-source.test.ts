@@ -19,7 +19,11 @@ import Database from "better-sqlite3";
 import { DurableSession } from "../../../src/frameworks/agent/durable-session";
 import { DurableEventStream } from "../../../src/frameworks/agent/durable-event-stream";
 import { createInvokeRegister } from "../../../src/frameworks/agent/tool-builder";
-import { readDurableActiveSessionEntries } from "../../../src/frameworks/agent/durable-slice-source";
+import {
+  readDurableActiveEntries,
+  readDurableActiveSessionEntries,
+} from "../../../src/frameworks/agent/durable-slice-source";
+import type { EntryRecord, Storage } from "@earendil-works/pi-durable";
 import { sliceSessionEntries } from "../../../src/frameworks/agent/session-slicer";
 import { PiSessionFactory } from "../../../src/frameworks/agent/pi-session-factory";
 import { SqliteOtterRepository } from "../../../src/frameworks/db/otter/sqlite-otter-repository";
@@ -46,6 +50,28 @@ async function openSession(file: string, responses: Parameters<ReturnType<typeof
   return { session, faux };
 }
 
+describe("durable 当前世代 Storage 原语", () => {
+  it("以最新 head 为下界并翻页到尾端，不暴露 SQLite schema", async () => {
+    const rows = [2, 3, 4].map(id => ({ id, kind: "pi.user", conversationId: 1 }) as unknown as EntryRecord);
+    const calls: Array<{ minEntryId?: number; cursor?: unknown }> = [];
+    const storage = {
+      findLatestHeadMarker: async () => ({ ...rows[0], head: 2 }),
+      scanEntries: async (query: { minEntryId?: number }, _limit: number, cursor?: unknown) => {
+        calls.push({ minEntryId: query.minEntryId, cursor });
+        return cursor
+          ? { items: rows.slice(1) }
+          : { items: rows.slice(0, 1), next: { after: 2 } };
+      },
+    } as unknown as Storage;
+    const entries = await readDurableActiveEntries(storage);
+    expect(entries.map(entry => Number(entry.id))).toEqual([2, 3, 4]);
+    expect(calls).toEqual([
+      { minEntryId: 2, cursor: undefined },
+      { minEntryId: 2, cursor: { after: 2 } },
+    ]);
+  });
+});
+
 describe("durable-slice-source：只读投影（R2）", () => {
   it("投影真实 durable 会话：形状/顺序/时间戳单调，满足 slicer 消费面", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "otter-slice-"));
@@ -57,7 +83,7 @@ describe("durable-slice-source：只读投影（R2）", () => {
     await session.prompt("question-one 原料标记", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
     await session.close(BACKGROUND_CONTEXT);
 
-    const entries = readDurableActiveSessionEntries(file);
+    const entries = await readDurableActiveSessionEntries(file);
     expect(entries).toBeDefined();
     const msgs = entries!.filter(e => e.type === "message") as unknown as Array<{ id: string; parentId: string | null; timestamp: string; message: { role: string; content: unknown } }>;
     expect(msgs.length).toBeGreaterThanOrEqual(3); // ≥ user + assistant（faux 单轮无工具）
@@ -78,19 +104,19 @@ describe("durable-slice-source：只读投影（R2）", () => {
     await session.prompt("新世标记-gen2", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
     await session.close(BACKGROUND_CONTEXT);
 
-    const entries = readDurableActiveSessionEntries(file);
+    const entries = await readDurableActiveSessionEntries(file);
     const dump = JSON.stringify(entries);
     expect(dump).toContain("新世标记-gen2");
     expect(dump).not.toContain("前世标记-gen1");
   });
 
   it("真空/缺失语义：无库文件=undefined，空库=[]（降级归因依赖此区分）", async () => {
-    expect(readDurableActiveSessionEntries(path.join(tmpdir(), "no-such", "x.sqlite"))).toBeUndefined();
+    await expect(readDurableActiveSessionEntries(path.join(tmpdir(), "no-such", "x.sqlite"))).resolves.toBeUndefined();
     const dir = await mkdtemp(path.join(tmpdir(), "otter-slice-empty-"));
     const file = path.join(dir, "session.sqlite");
     const { session } = await openSession(file, []);
     await session.close(BACKGROUND_CONTEXT);
-    expect(readDurableActiveSessionEntries(file)).toEqual([]);
+    await expect(readDurableActiveSessionEntries(file)).resolves.toEqual([]);
   });
 
   it("pi.compaction → compaction entry（跨代谱系种子）+ head 边界生效", async () => {
@@ -110,7 +136,7 @@ describe("durable-slice-source：只读投影（R2）", () => {
     );
     db.close();
 
-    const entries = readDurableActiveSessionEntries(file);
+    const entries = await readDurableActiveSessionEntries(file);
     const dump = JSON.stringify(entries);
     expect(dump).not.toContain("被压缩的旧内容"); // head 边界：压缩点之前不进原料
     const compaction = entries!.find(e => e.type === "compaction") as { summary?: string };
@@ -135,7 +161,7 @@ describe("durable-slice-source：只读投影（R2）", () => {
     await session.prompt("用工具查一下", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
     await session.close(BACKGROUND_CONTEXT);
 
-    const entries = readDurableActiveSessionEntries(file)!;
+    const entries = (await readDurableActiveSessionEntries(file))!;
     const roles = (entries.filter(e => e.type === "message") as unknown as Array<{ message: { role: string } }>).map(e => e.message.role);
     expect(roles).toContain("user");
     expect(roles).toContain("assistant");
@@ -152,7 +178,7 @@ describe("durable-slice-source：只读投影（R2）", () => {
     await session.prompt("最后一问", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
     await session.close(BACKGROUND_CONTEXT);
 
-    const projected = readDurableActiveSessionEntries(file)!;
+    const projected = await readDurableActiveSessionEntries(file);
     const slice = sliceSessionEntries(projected as never);
     expect(slice).toBeDefined();
     expect(slice!.keptEntries.length).toBeGreaterThanOrEqual(1);

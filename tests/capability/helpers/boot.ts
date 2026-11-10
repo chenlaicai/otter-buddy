@@ -67,6 +67,11 @@ function resolveTestConfig(tmpDir: string): AppConfig {
     }
   }
 
+  /** local overlay 按顶层键替换 llm，会把基底的 cacheLongRetention:false 一起抹掉；
+   *  在合并后恢复能力档默认，防止端点不支持的 prompt_cache_retention=24h 混入所有真 LLM 用例。 */
+  const mergedLlm = baseRaw.llm as Record<string, unknown>;
+  mergedLlm.cacheLongRetention ??= false;
+
   // 环境变量覆盖 llm.models[0]
   const envModel = process.env.OTTER_TEST_LLM_MODEL;
   const envKey = process.env.OTTER_TEST_LLM_API_KEY;
@@ -77,6 +82,7 @@ function resolveTestConfig(tmpDir: string): AppConfig {
     if (envModel) first.model = envModel;
     if (envKey) first.apiKey = envKey;
     if (process.env.OTTER_TEST_LLM_BASE_URL) first.apiBaseUrl = process.env.OTTER_TEST_LLM_BASE_URL;
+    if (process.env.OTTER_TEST_LLM_THINKING_LEVEL) first.thinkingLevel = process.env.OTTER_TEST_LLM_THINKING_LEVEL;
   }
 
   // __TMPDIR__ 替换后落临时 yaml，复用 loadConfig 的校验与默认值填充
@@ -173,6 +179,12 @@ async function buildFauxModels(config: AppConfig): Promise<{ model: Model<Api>; 
 export async function bootCapabilityApp(options: BootOptions = {}): Promise<CapabilityContext> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "otter-capability-"));
   const config = resolveTestConfig(tmpDir);
+
+  /** faux CI 硬门禁必须不受开发者 local overlay 影响；录音网关仍优先（它本身就是确定性假大脑） */
+  if (process.env.OTTER_CAPABILITY_FORCE_FAUX === "1" && !options.recordingGatewayUrl) {
+    config.llm.models[0].apiKey = "";
+    config.llm.models[0].model = "__placeholder__";
+  }
 
   /** A3 录音网关：llm 整体替换为指向网关的伪 anthropic 端点（SDK 全链路照常走） */
   if (options.recordingGatewayUrl) {

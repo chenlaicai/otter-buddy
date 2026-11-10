@@ -31,7 +31,8 @@
 | 11 | 崩溃恢复 | SDK 原生 checkpoint 精确续跑，副作用单次（迁移核心动机） | recoverAfterReopen |
 | 12 | 会话互斥（进程内） | SimpleLockManager 保留；跨进程单主人归部署层 | deploy/launchd |
 | 13 | 模型接入 | createModels + provider 注册（pi-ai 直连） | durable-model-runtime / models-factory |
-| 14 | 前世档案读取 | 保留只读序列化函数（历史 JSONL 档案兼容，过渡期） | session-slicer |
+| 14 | 前世档案读取 | 当前世代由公开 Storage.findLatestHeadMarker + scanEntries 读取；SessionEntry 投影与历史 JSONL 兼容隔离在适配层 | durable-slice-source / session-slicer |
+| 15 | 身份/system prompt 可见性 | otter section 每轮消费最新 systemPrompt + identityPrefix；wire 录音直接断言消费者所得 | pi-session-factory / model-visible-parity |
 
 **本质变化**（相对 pi-coding-agent 时代）：事件通知 → 状态文档 + 边沿检测；退役三个包袱：私有 MCP patch / 自研 JSONL 重放 / 跨进程文件锁。
 
@@ -57,10 +58,13 @@
 | retry 出现/消失边沿发 auto_retry 事件（双通道） | generation.retry... 边沿发 auto_retry_start/end | 8 |
 | create 同事务写 otter_configs，getConfig 必中 | create() 写入的 session 映射... 同事务落库 | 1 |
 | 真实 DB 层 SELECT 命中 otter_configs | 真实 DB 层验证 | 1 |
+| 当前世代读取只依赖公开 Storage 契约 | durable-slice-source.test.ts 的 reset/compaction/分页与工厂接线 | 14 |
+| 身份/system prompt 进入模型实际 wire 请求 | model-visible-parity.capability.test.ts 的 system 非空且含大獭 | 15 |
 
 ## 四、已知债（显式缓做记录）
 
 - **AgentSessionEvent 类型自有化**：`sdk-invoke-port.ts` 等处的旧 SDK 类型 re-export，当前经 `durable-event-stream` 转换层结构性吸收，上层消费的是兼容流。自有化（定义海獭自己的事件类型，两处消费方切换）**缓到 pi-coding-agent 真退役时顺手做**——届时删除 14 处旧 SDK import，一并收编。
+- **读侧 schema 耦合已消除**：F20261110grdls 起不再直查 entries/head/record；升级只需确认 Storage 公共查询语义与投影消费面，不得回退为消费者拼 SQL。
 - pi-coding-agent 当前角色：**仅工具性借用**（ResourceLoader 只读、ModelRuntime 注册表、类型），「Durable 1.5.0 是唯一执行 runtime」（pi-session-factory.ts 注释）。退役收编时注意：静态 import 口径 14 处之外，model-runtime-registry.ts 另有类型引用/动态 import 各一处，一并处理。
 
 ---

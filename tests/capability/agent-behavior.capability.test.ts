@@ -62,7 +62,7 @@ describe("獭的主动行为：术语捕获 + skill 触发（真系统 + 真 LLM
     }, { budgetMs: 1380000, sampleWorstMs: 450000 });
   }, 1_500_000);
 
-  it("skill 触发：实现类请求触发獭 read core-workflow SKILL.md（3 次采样 ≥1）", async (t) => {
+  it("skill 触发：需求分析请求触发獭 read requirement-analysis SKILL.md（3 次采样 ≥1）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
     await expectSampledBehavior("skill-triggering", 3, 1, async (i) => {
@@ -78,7 +78,8 @@ describe("獭的主动行为：术语捕获 + skill 触发（真系统 + 真 LLM
 
       const tools = toolCallNames(answer);
       const argsText = toolCallArgsText(answer);
-      const readSkill = /SKILL\.md/.test(argsText) || /core-workflow/.test(argsText);
+      // 现行路由：需求分析 → requirement-analysis；core-workflow 只负责查询/记录，不能拿旧契约误判。
+      const readSkill = /requirement-analysis/.test(argsText);
       return {
         ok: readSkill,
         detail: `readSkill=${readSkill} tools=${JSON.stringify(tools)}`,

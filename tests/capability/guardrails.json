@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "changeTrigger": {
+    "paths": [
+      "src/frameworks/agent/**",
+      "src/interface-adapters/agent-runtime/**",
+      "src/usecases/conversation/**",
+      "src/usecases/ports/sdk-invoke-port.ts",
+      "src/bootstrap/**",
+      "prompts/**",
+      "tests/capability/**",
+      "tests/scripts/capability-guardrails.test.ts",
+      "scripts/*capability*",
+      "vitest.capability*.ts",
+      ".github/workflows/ci.yml",
+      "package.json"
+    ],
+    "parityTest": "tests/capability/model-visible-parity.capability.test.ts",
+    "liveCommand": "npm run test:capability"
+  },
+  "capabilities": [
+    {
+      "file": "tests/capability/agent-behavior.capability.test.ts",
+      "trigger": "搭档给出术语定义或任务命中 skill",
+      "effect": "术语被保存，适用 skill 被加载",
+      "consumer": "后续对话中的搭档与执行獭",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/agent-collaboration.capability.test.ts",
+      "trigger": "主獭召唤并派工给子獭",
+      "effect": "子獭就位、执行并可被解散",
+      "consumer": "主獭与协作任务",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/big-otter-dispatch.capability.test.ts",
+      "trigger": "大獭召唤小獭后交棒",
+      "effect": "行动权给小獭而非直接交还搭档",
+      "consumer": "被派工的小獭",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/golden/golden.capability.test.ts",
+      "trigger": "golden 场景参考序列或采样输入变化",
+      "effect": "good/bad 序列具有判别力，行为采样满足门槛",
+      "consumer": "协议与行为门禁维护者",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/html-card-proactive.capability.test.ts",
+      "trigger": "回答包含方案对比或结构化内容",
+      "effect": "在适合场景产出 html-card",
+      "consumer": "阅读时间轴的搭档",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/magic-words-signal.capability.test.ts",
+      "trigger": "消息含 magic word 或獭间信号",
+      "effect": "急停、异议和 blocked 按协议落账并路由",
+      "consumer": "搭档与协作獭",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/matter-loop/matter-loop.capability.test.ts",
+      "trigger": "L2 拍板、重启供料或待办状态迁移",
+      "effect": "事项登记、供料和状态机闭环一致",
+      "consumer": "待办板与接班獭",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/memory-recall.capability.test.ts",
+      "trigger": "跨对话事实写入后检索",
+      "effect": "权威事实可召回且检索不静默降级",
+      "consumer": "后续对话中的模型与搭档",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/memory-relations.capability.test.ts",
+      "trigger": "声明记忆关系并遍历关系图",
+      "effect": "边、路径与 provenance 可被消费者读取",
+      "consumer": "证据链与因果链消费者",
+      "guarantee": "faux",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/model-visible-parity.capability.test.ts",
+      "trigger": "runtime、prompt 或会话上下文装配变更",
+      "effect": "模型实际收到的 wire 请求与基准观察等价",
+      "consumer": "底层模型",
+      "guarantee": "equivalence",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/multi-model.capability.test.ts",
+      "trigger": "解析默认或指定模型别名",
+      "effect": "ModelPool 返回对应实例且不错误回退",
+      "consumer": "模型调用方",
+      "guarantee": "faux",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/otter-lifecycle.capability.test.ts",
+      "trigger": "重启、身份注入、发言与交棒",
+      "effect": "新世只接收应有档案且生命周期可继续",
+      "consumer": "新世模型与接班獭",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/scheduled-task-pending.capability.test.ts",
+      "trigger": "定时任务产生 pending 提醒",
+      "effect": "提醒进入正确角色的模型输入且工具可调用",
+      "consumer": "被提醒的獭",
+      "guarantee": "equivalence",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/sleep-announce.capability.test.ts",
+      "trigger": "獭进入可说明的等待",
+      "effect": "先 speak 交代再 wait，不发生黑盒等待",
+      "consumer": "等待中的搭档",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/system-prompt-behavior.capability.test.ts",
+      "trigger": "系统提示中的行为规则遇到对应场景",
+      "effect": "诚实直言、严肃模式等协议行为可观察",
+      "consumer": "搭档与协议执行者",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/talking-stone-routing.capability.test.ts",
+      "trigger": "子獭完成子任务后交棒",
+      "effect": "行动权回到召唤者或流程下一步",
+      "consumer": "召唤者与下一执行者",
+      "guarantee": "live",
+      "faux": "run"
+    },
+    {
+      "file": "tests/capability/work-ledger/track-work.capability.test.ts",
+      "trigger": "开始、续接或结束一件独立工作",
+      "effect": "工作账本与 trace 归属正确且闲聊不建账",
+      "consumer": "工作账本与审计者",
+      "guarantee": "live",
+      "faux": "run"
+    }
+  ]
+}

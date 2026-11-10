@@ -28,7 +28,7 @@ const IDENTITY_MARKER = "海獭团队的头儿";
  *  不在动态上下文泄漏面（名册段只泄漏獭名「大獭」，不含称谓/角色词；run10 实证模型
  *  会用「统筹全场的那只海獭」改写，单一 token 向量过窄导致误红，按身份内容全谱系取）。
  *  不断言「大獭」「海獭」：名册段直接泄漏，自称无鉴别力。 */
-const IDENTITY_SELF_CLAIM_TOKENS = ["海獭团队", "头儿", "统筹", "编排"];
+const IDENTITY_SELF_CLAIM_TOKENS = ["海獭团队", "头儿", "统筹", "编排", "调度团队", "调度"];
 
 /** 测试提问原文（刻意不含任何身份 token——行为断言的鉴别力来自提示词不泄漏答案；
  *  检视獭-1192 发现 1：旧版「逐字包含『海獭团队的头儿』」是断言空转，无论身份注入
@@ -43,7 +43,8 @@ const IDENTITY_PROMPTS = [
  *  检视獭-1192 建议 1 的未锁定假设，显式收拢）；解析失败返回空串。
  *  负向断言用：session-file helper 的 text 是整行 JSON 序列化，嵌套转义会干扰包含性判定。 */
 function extractUserText(entry: { raw: Record<string, unknown> }): string {
-  const msg = entry.raw.message as { content?: Array<{ type?: string; text?: string }> } | undefined;
+  const msg = entry.raw.message as { content?: string | Array<{ type?: string; text?: string }> } | undefined;
+  if (typeof msg?.content === "string") return msg.content;
   return (msg?.content ?? [])
     .filter((c) => c.type === "text")
     .map((c) => c.text ?? "")
@@ -202,7 +203,7 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
     const sessionFile = getSessionFile(ctx.built.db, otterId);
     expect(sessionFile, "agent_sessions 应有 session_file").toBeTruthy();
 
-    const firstRound = readSessionMessages(sessionFile!);
+    const firstRound = await readSessionMessages(sessionFile!);
     const firstUser = firstRound.find((e) => e.isUser);
     expect(firstUser, "session 中应有用户消息").toBeTruthy();
     expect(extractUserText(firstUser!), "session 中应有可解析的用户文本").toBeTruthy();
@@ -219,7 +220,7 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
     // 假设声明（检视獭-1192 建议 1）：assistant 自己的发言不进自己的未读注入批
     // （未读窗=「你上次发言后的消息」，dispatch-chain-engine.ts 未读批构造），
     // 故第一轮回答中的身份自称不会被回显进第二轮 user message；若该机制变更需同步本断言。
-    const secondRound = readSessionMessages(sessionFile!);
+    const secondRound = await readSessionMessages(sessionFile!);
     for (const e of secondRound.filter((x) => x.isUser)) {
       expect(extractUserText(e), "任何用户消息都不应携带身份前缀（S1 架构）").not.toContain(IDENTITY_MARKER);
     }
