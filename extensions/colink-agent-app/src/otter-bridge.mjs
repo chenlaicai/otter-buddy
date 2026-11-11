@@ -50,12 +50,13 @@ export class ConversationStore {
 }
 
 export class OtterBridge {
-  constructor({ baseUrl, store, fetcher = fetch, timeoutMs = 180_000, pollMs = 1_000 }) {
+  constructor({ baseUrl, store, fetcher = fetch, timeoutMs = 180_000, pollMs = 1_000, toolBridge }) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.store = store;
     this.fetcher = fetcher;
     this.timeoutMs = timeoutMs;
     this.pollMs = pollMs;
+    this.toolBridge = toolBridge;
     this.lanes = new Map();
   }
 
@@ -92,7 +93,7 @@ export class OtterBridge {
     return conversation.id;
   }
 
-  async reply({ kind = 'dm', deploymentId, installationId, conversationId, actorId, text, signal }) {
+  async reply({ kind = 'dm', deploymentId, installationId, conversationId, actorId, text, turn, signal }) {
     if (!['dm', 'channel'].includes(kind)) throw new Error('OTTER_EXTERNAL_KIND_INVALID');
     // Why: 保留既有 DM 映射键；频道加命名空间，避免同 UUID 的 DM 与频道串会话。
     const externalId = kind === 'channel' ? `channel:${conversationId}` : conversationId;
@@ -101,7 +102,12 @@ export class OtterBridge {
     const current = previous.catch(() => {}).then(async () => {
       const label = kind === 'channel' ? '频道' : '私聊';
       const otterConversationId = await this.ensureConversation(key, `CoLink ${label} ${conversationId.slice(0, 8)}`);
-      return this.runTurn({ otterConversationId, actorId, text, signal });
+      // Why: 常驻 MCP bearer 指向当前 active turn；旧 Agent 未终态时重绑会借用新事件授权。
+      await this.assertConversationIdle(otterConversationId, signal);
+      const execute = prompt => this.runTurn({ otterConversationId, actorId, text: prompt, signal });
+      if (!this.toolBridge) return execute(text);
+      if (!turn) throw new Error('COLINK_TURN_REQUIRED_FOR_TOOLS');
+      return this.toolBridge.run({ otterConversationId, turn }, execute);
     });
     this.lanes.set(key, current);
     try { return await current; } finally {
@@ -109,7 +115,51 @@ export class OtterBridge {
     }
   }
 
-  async runTurn({ otterConversationId, actorId, text, signal }) {
+  async listInvokes(otterConversationId, signal) {
+    const response = await this.request(`/api/conversations/${otterConversationId}/invokes?limit=200`, {}, signal);
+    return (await response.json()).invokes;
+  }
+
+  async abortRunningInvokes(otterConversationId) {
+    const invokes = await this.listInvokes(otterConversationId);
+    const running = invokes.filter(invoke => !TERMINAL.has(invoke.status));
+    await Promise.all(running.map(invoke => this.request(`/api/invokes/${invoke.id}/abort`, { method: 'POST', body: '{}' })
+      .catch(error => { if (!String(error.message).includes('OTTER_HTTP_409')) throw error; })));
+    if (!running.length) return;
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const current = await this.listInvokes(otterConversationId);
+      if (current.every(invoke => TERMINAL.has(invoke.status))) return;
+      await sleep(this.pollMs);
+    }
+    throw new Error('OTTER_CONVERSATION_NOT_IDLE');
+  }
+
+  async assertConversationIdle(otterConversationId, signal) {
+    const invokes = await this.listInvokes(otterConversationId, signal);
+    if (invokes.some(invoke => !TERMINAL.has(invoke.status))) {
+      await this.abortRunningInvokes(otterConversationId);
+      // Why: 被清理的是上一事件；当前事件不接着执行，调用方可在下一轮安全重试。
+      throw new Error('OTTER_PREVIOUS_TURN_ABORTED');
+    }
+    const waiting = invokes[0]?.talkingStonePassedTo?.some(target => target && target !== 'user');
+    if (waiting) throw new Error('OTTER_CONVERSATION_NOT_IDLE');
+  }
+
+  async runTurn(input) {
+    try {
+      return await this.runTurnObserved(input);
+    } catch (error) {
+      try {
+        await this.abortRunningInvokes(input.otterConversationId);
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'OTTER_TURN_CLEANUP_FAILED');
+      }
+      throw error;
+    }
+  }
+
+  async runTurnObserved({ otterConversationId, actorId, text, signal }) {
     const startedAt = Date.now();
     const response = await this.request(`/api/conversations/${otterConversationId}/messages`, {
       method: 'POST',

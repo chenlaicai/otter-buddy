@@ -4,9 +4,11 @@ import { createCoLinkApp, openEncryptedStore, validateIssuer } from '@colink/app
 import { ConversationStore, OtterBridge } from './otter-bridge.mjs';
 import { createManifest } from './manifest.mjs';
 import { createMentionHandler } from './mention-handler.mjs';
+import { CoLinkToolBridge } from './colink-tools.mjs';
 
 const required = ['COLINK_APP_ID', 'COLINK_APP_INSTANCE_ID', 'COLINK_CLIENT_ID', 'COLINK_CLIENT_SECRET',
-  'COLINK_SIGNING_SECRET', 'COLINK_ISSUER', 'COLINK_API_BASE', 'COLINK_CREDENTIAL_KEY', 'COLINK_ALLOWED_USER_IDS'];
+  'COLINK_SIGNING_SECRET', 'COLINK_ISSUER', 'COLINK_API_BASE', 'COLINK_CREDENTIAL_KEY', 'COLINK_ALLOWED_USER_IDS',
+  'OTTER_DATA_DIR'];
 for (const name of required) {
   if (!process.env[name]) throw new Error(`${name} is required`);
 }
@@ -28,10 +30,17 @@ validateIssuer(config.issuer, process.env.COLINK_ALLOW_INSECURE_ISSUER === 'true
 const manifest = createManifest();
 const store = openEncryptedStore(resolve(dataDir, 'colink-state.enc'), process.env.COLINK_CREDENTIAL_KEY,
   { aad: process.env.COLINK_STORE_AAD ?? config.appInstanceId });
+const toolBridge = new CoLinkToolBridge({
+  secret: process.env.COLINK_CREDENTIAL_KEY,
+  otterDataDir: process.env.OTTER_DATA_DIR,
+  port: Number(process.env.COLINK_MCP_PORT ?? 31_131),
+});
+await toolBridge.start();
 const bridge = new OtterBridge({
   baseUrl: process.env.OTTER_BASE_URL ?? 'http://127.0.0.1:3000',
   store: new ConversationStore(resolve(dataDir, 'otter-conversations.json')),
   timeoutMs: 180_000,
+  toolBridge,
 });
 const app = createCoLinkApp({
   config, store, manifest,
@@ -48,6 +57,7 @@ const close = () => {
   if (closing) return closing;
   closing = (async () => {
     await app.close();
+    await toolBridge.close();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   })();
   return closing;

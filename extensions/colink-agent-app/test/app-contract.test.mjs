@@ -13,7 +13,8 @@ test('manifest includes a passive otter avatar and both personal/project scopes'
   assert.match(svg, /^<svg /);
   assert.doesNotMatch(svg, /<script|onload=|javascript:|<image|<foreignObject/i);
   assert.doesNotMatch(svg, /<rect[^>]*width="64"[^>]*height="64"/i);
-  assert.equal(manifest.version, '0.2.0');
+  assert.equal(manifest.version, '0.3.0');
+  assert.deepEqual(manifest.permissions, ['messages:receive', 'messages:write', 'messages:read-public', 'messages:read-private']);
 });
 
 function turnFixture(input, replies, userId = 'owner') {
@@ -36,6 +37,8 @@ test('mention handler routes DM and channel to their respective Otter mappings',
   assert.equal(calls[1].kind, 'channel');
   assert.equal(calls[0].conversationId, 'same-id');
   assert.equal(calls[1].conversationId, 'same-id');
+  assert.equal(calls[0].turn.input.reason, 'dm_message');
+  assert.equal(calls[1].turn.input.reason, 'mention');
   assert.deepEqual(replies, [{ text: '回答' }, { text: '回答' }]);
 });
 

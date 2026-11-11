@@ -24,6 +24,7 @@ export function createMentionHandler({ bridge, allowedUserIds, deploymentId }) {
       conversationId: externalId,
       actorId,
       text,
+      turn,
       signal: turn.signal,
     });
     await turn.reply({ text: answer });

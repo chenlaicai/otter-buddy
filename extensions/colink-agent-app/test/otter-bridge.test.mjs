@@ -19,6 +19,7 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
     cancelled: 0,
     polls: 0,
     completeAfterPolls: 0,
+    aborts: [],
     answer: '最终回答',
   };
   const finish = () => {
@@ -35,6 +36,17 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
     if (path === '/api/conversations') {
       state.creates++;
       return Response.json({ id: 'otter-conversation-1', otterIds });
+    }
+    if (/^\/api\/invokes\/[^/]+\/abort$/.test(path)) {
+      const id = path.split('/')[3];
+      state.aborts.push(id);
+      const invoke = state.invokes.find(value => value.id === id);
+      if (!invoke) return Response.json({ error: 'not found' }, { status: 404 });
+      if (invoke.status !== 'running') return Response.json({ error: 'terminal' }, { status: 409 });
+      invoke.status = 'aborted';
+      invoke.talkingStonePassedTo = ['user'];
+      invoke.endedAt = new Date().toISOString();
+      return Response.json({ status: 'aborted' }, { status: 202 });
     }
     if (path.endsWith('/messages')) {
       const body = JSON.parse(options.body);
@@ -74,6 +86,44 @@ test('maps a DM to one single-otter conversation, reuses it, and returns only fi
   assert.equal(state.messages.length, 2);
   assert.equal(store.values.size, 1);
   assert.equal(state.cancelled, 2);
+});
+
+test('binds the active CoLink turn to MCP before dispatching the wrapped Otter message', async () => {
+  const { state, fetcher } = fixture();
+  const bindings = [];
+  const turn = { input: { text: input.text } };
+  const toolBridge = {
+    run: async (binding, execute) => {
+      bindings.push(binding);
+      return execute(`事件上下文\n${input.text}`);
+    },
+  };
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
+  assert.equal(await bridge.reply({ ...input, turn }), '最终回答');
+  assert.deepEqual(bindings, [{ otterConversationId: 'otter-conversation-1', turn }]);
+  assert.equal(state.messages[0].body, `事件上下文\n${input.text}`);
+});
+
+test('refuses to bind a new CoLink turn while an old Otter invoke is alive', async () => {
+  const { state, fetcher } = fixture();
+  const bindings = [];
+  const toolBridge = { run: async (binding, execute) => { bindings.push(binding); return execute(input.text); } };
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
+  await bridge.reply({ ...input, turn: { input: { text: input.text } } });
+  state.invokes.push({ id: 'stale-invoke', status: 'running', startedAt: new Date().toISOString(),
+    endedAt: null, talkingStonePassedTo: [] });
+  await assert.rejects(bridge.reply({ ...input, text: '新用户的新事件', turn: { input: { text: '新用户的新事件' } } }), /OTTER_PREVIOUS_TURN_ABORTED/);
+  assert.deepEqual(state.aborts, ['stale-invoke']);
+  assert.equal(state.messages.length, 1);
+  assert.equal(bindings.length, 1);
+});
+
+test('aborts and waits for the old invoke before releasing a timed-out MCP turn', async () => {
+  const { state, fetcher } = fixture({ autoComplete: false });
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, timeoutMs: 15 });
+  await assert.rejects(bridge.reply(input), /OTTER_TURN_TIMEOUT/);
+  assert.deepEqual(state.aborts, ['invoke-1']);
+  assert.equal(state.invokes[0].status, 'aborted');
 });
 
 test('isolates deployment, installation, and DM conversation mappings', async () => {
