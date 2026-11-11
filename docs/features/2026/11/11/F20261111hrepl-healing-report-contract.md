@@ -52,7 +52,7 @@ Issue #1842 的原始消息、解析器实跑与反向误落账事件支持 X。
 
 ### 非法块边界
 
-YAML 任一条目缺 `type` / `description` 会使整个块非法（不过滤坏条目后继续落账）；JSON 缺 `type`、合法协议 type 缺 `description`、JSON parse 失败、JSON 数组、缺 `[/issues]` 或缺 `</healing>` 也均返回可操作错误。`stripHealingReport` 直接处理缺 `</healing>` 的文本时仍保留原文，延续防止误吞正文的旧保护；正常 speak 路径会在 strip 前阻断该非法块。
+YAML 任一条目缺 `type` / `description` 会使整个块非法（不过滤坏条目后继续落账）；字段只认独立行，值文本中的 `type:` / `description:` 不冒充必填字段。JSON 缺 `type`、合法协议 type 缺 `description`、JSON parse 失败、JSON 数组、缺 `[/issues]` 或缺 `</healing>` 也均返回可操作错误。`stripHealingReport` 直接处理缺 `</healing>` 的文本时仍保留原文，延续防止误吞正文的旧保护；正常 speak 路径会在 strip 前阻断该非法块。
 
 `runtime_status_mismatch` 新增为显式 error type，并列入环境侧分类：它描述 UI/调度状态投影与真实运行态不一致，不归为獭能力退化。其他未知类型维持 other 兜底。
 
@@ -85,6 +85,7 @@ YAML 任一条目缺 `type` / `description` 会使整个块非法（不过滤坏
 
 - 接管后补齐缺 `description`、JSON 数组和缺 `</healing>` 四类边界回归；初轮聚焦套件为 **5 文件、67/67 passed**。
 - 独立对抗检视第一轮复现 YAML 必填字段、嵌套围栏与行内代码 3 项严重缺口；新增反例红测 **6 failed** 后修复，并补混合行内示例+真上报、description 反引号与 YAML 原子拦截回归。
-- `npm test`（含 pretest 全量 ESLint）：**460 文件、5901/5901 passed，0 failed，0 skipped**。
+- 第二轮 delta 复现值文本字段名绕过：新增 parser 2 条 + speak 1 条红测（**3 failed**）后，字段提取改为行锚定；另补合法多行 description 正向回归。最终聚焦 **5 文件、80/80 passed**。
+- 两轮处置后 `npm test`（含 pretest 全量 ESLint）：**460 文件、5920/5920 passed，0 failed，0 skipped**。
 - `npm run build` 通过；rebase 最新 `origin/main` 后再次执行聚焦 **67/67 passed** 与 build 通过。
 - 存量漏报不做批量补记：历史原文虽可逐个重放，但无法可靠界定所有漏报集合，也不能还原未落账事件的真实台账元数据。本 PR 不伪造历史时间或现场；已知的原 UI 状态问题应另行排查，不借本修复自动制造历史事件。

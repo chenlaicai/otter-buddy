@@ -72,4 +72,19 @@ describe("issue #1842 speak 层失败可见（原子性）", () => {
     expect(creates).toHaveLength(1);
     expect((creates[0] as { errorType: string }).errorType).toBe("runtime_status_mismatch");
   });
+
+  it("description 值中的 type 文本不绕过必填校验：entry 与落账均为零", async () => {
+    const { fn, calls } = makeSpeakEntryMock();
+    const { repo, creates } = makeRepo();
+    const speak = findSpeak(createTools(makeCtx(fn), repo));
+    const res = await speak.execute("call-1", { body: `工作完成\n<healing>[issues]
+- severity: high
+  description: 工具输出包含 type: runtime_status_mismatch 字样
+[/issues]</healing>` });
+
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain("type");
+    expect(calls).toHaveLength(0);
+    expect(creates).toHaveLength(0);
+  });
 });

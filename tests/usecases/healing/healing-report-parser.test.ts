@@ -526,3 +526,39 @@ describe("PR #1851 对抗检视第一轮反例", () => {
     expect(result.issues[0].description).toBe("use `alpha` here");
   });
 });
+
+describe("PR #1851 对抗检视第二轮反例", () => {
+  it("description 值文本里的 type: 不冒充缺失的 type 字段", () => {
+    const result = parseHealingReport(`<healing>[issues]
+- severity: high
+  description: 工具输出包含 type: runtime_status_mismatch 字样
+[/issues]</healing>`);
+    expect(result.hasIssues).toBe(false);
+    expect(result.issues).toEqual([]);
+    expect(result.invalidBlocks).toHaveLength(1);
+    expect(result.invalidBlocks[0].reason).toContain("type");
+  });
+
+  it("suggestion 值文本里的 description: 不冒充缺失的 description 字段", () => {
+    const result = parseHealingReport(`<healing>[issues]
+- type: other
+  suggestion: 请补 description: 字段
+[/issues]</healing>`);
+    expect(result.hasIssues).toBe(false);
+    expect(result.issues).toEqual([]);
+    expect(result.invalidBlocks).toHaveLength(1);
+    expect(result.invalidBlocks[0].reason).toContain("description");
+  });
+
+  it("合法多行 description 仍保留到下一字段前", () => {
+    const result = parseHealingReport(`<healing>[issues]
+- type: other
+  description: first line
+    continued line
+  suggestion: fix
+[/issues]</healing>`);
+    expect(result.hasIssues).toBe(true);
+    expect(result.issues[0].description).toBe("first line\n    continued line");
+    expect(result.issues[0].suggestion).toBe("fix");
+  });
+});

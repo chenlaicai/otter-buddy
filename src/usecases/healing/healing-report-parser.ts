@@ -38,24 +38,29 @@ const MAX_FIELD_LENGTH = 500;
 const MAX_HEALING_BLOCK_LENGTH = 5000;
 const INVALID_PREVIEW_LENGTH = 160;
 
+/** 字段只认独立行（允许列表短横线与缩进）；值文本里的 `type:` 等字样不算字段。 */
 function extractField(entry: string, key: string): string {
-  return entry.match(new RegExp(`${key}:\\s*(\\S+)`, 'i'))?.[1]?.toLowerCase() ?? '';
+  return entry.match(new RegExp(`^[ \\t]*(?:-[ \\t]+)?${key}:[ \\t]*(\\S+)`, 'im'))?.[1]?.toLowerCase() ?? '';
 }
 
-function extractMultilineField(entry: string, key: string, nextKey: string): string {
-  return entry.match(new RegExp(`${key}:\\s*([\\s\\S]*?)(?=\\s*${nextKey}:|$)`, 'i'))?.[1]?.trim() ?? '';
+function extractMultilineField(entry: string, key: string): string {
+  const nextField = '^[ \\t]*(?:-[ \\t]+)?(?:type|severity|description|suggestion):';
+  const absoluteEnd = '(?![\\s\\S])';
+  return entry.match(
+    new RegExp(`^[ \\t]*(?:-[ \\t]+)?${key}:[ \\t]*([\\s\\S]*?)(?=${nextField}|${absoluteEnd})`, 'im'),
+  )?.[1]?.trim() ?? '';
 }
 
 function parseSingleIssue(entry: string): HealingIssue | null {
   const type = extractField(entry, 'type');
-  const description = extractMultilineField(entry, 'description', 'suggestion');
+  const description = extractMultilineField(entry, 'description');
   if (!type || !description) return null;
   const severity = extractField(entry, 'severity');
   return {
     type: VALID_TYPES.has(type) ? type as HealingErrorType : 'other',
     severity: VALID_SEVERITIES.has(severity) ? severity as HealingSeverity : 'low',
     description: description.slice(0, MAX_FIELD_LENGTH),
-    suggestion: extractMultilineField(entry, 'suggestion', '').slice(0, MAX_FIELD_LENGTH) || '',
+    suggestion: extractMultilineField(entry, 'suggestion').slice(0, MAX_FIELD_LENGTH) || '',
   };
 }
 
