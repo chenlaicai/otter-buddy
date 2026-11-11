@@ -223,3 +223,53 @@ describe("F20261027cnsv 审视修复（Feb 发现 2）：DelegationInFlightError
     expect(reason).toEqual({ kind: "api_error", errorMessage: "LLM API error: 500", toolCallCount: 0 });
   });
 });
+
+describe("guard_abort 冻结痕迹透传（F20261111slfrz，M-a8f8f080 定案）", () => {
+  const noAbort = new Set<string>();
+
+  it("超时 guard + err 携带 _outputGuardMetadata → elapsed 与冻结判定透传到 ExitReason", () => {
+    const err = new Error("Request was aborted");
+    (err as Error & { _outputGuardMetadata?: { timeoutElapsedMs?: number; suspectedFreeze?: boolean } })._outputGuardMetadata
+      = { timeoutElapsedMs: 51 * 60_000, suspectedFreeze: true };
+    const reason = classifyExit(
+      { messageId: "msg-1", result: { text: "" }, err, toolCallCount: 3 },
+      noAbort,
+      () => "first_byte_timeout",
+    );
+    expect(reason.kind).toBe("guard_abort");
+    if (reason.kind === "guard_abort") {
+      expect(reason.guardTimeoutElapsedMs).toBe(51 * 60_000);
+      expect(reason.guardSuspectedFreeze).toBe(true);
+    }
+  });
+
+  it("超时 guard + err 无 metadata → 冻结字段缺省（不误报）", () => {
+    const reason = classifyExit(
+      { messageId: "msg-1", result: { text: "" }, err: new Error("Request was aborted"), toolCallCount: 0 },
+      noAbort,
+      () => "streaming_timeout",
+    );
+    expect(reason.kind).toBe("guard_abort");
+    if (reason.kind === "guard_abort") {
+      expect(reason.guardTimeoutElapsedMs).toBeUndefined();
+      expect(reason.guardSuspectedFreeze).toBeUndefined();
+    }
+  });
+
+  it("非超时 guard（bash_safety）携带 metadata 也能透传（分类不受影响，落账侧由 isTimeoutGuardReason 过滤）", () => {
+    const err = new Error("Request was aborted");
+    (err as Error & { _outputGuardMetadata?: { timeoutElapsedMs?: number; suspectedFreeze?: boolean } })._outputGuardMetadata
+      = { timeoutElapsedMs: 90_000, suspectedFreeze: false };
+    const reason = classifyExit(
+      { messageId: "msg-1", result: { text: "" }, err, toolCallCount: 1 },
+      noAbort,
+      () => "bash_safety:kill",
+    );
+    expect(reason.kind).toBe("guard_abort");
+    if (reason.kind === "guard_abort") {
+      expect(reason.guardReason).toBe("bash_safety:kill");
+      expect(reason.guardTimeoutElapsedMs).toBe(90_000);
+      expect(reason.guardSuspectedFreeze).toBe(false);
+    }
+  });
+});

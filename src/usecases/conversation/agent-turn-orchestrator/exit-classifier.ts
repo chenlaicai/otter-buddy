@@ -17,7 +17,7 @@ export type AbortUnderlyingError =
 /** Agent invocation exit reason classification */
 export type ExitReason =
   | { kind: 'user_abort'; toolCallCount: number; /** #752：用户中断时的底层 SDK 错误，用于中断归因 */ underlyingError?: AbortUnderlyingError }
-  | { kind: 'guard_abort'; guardReason: string; toolCallCount: number }
+  | { kind: 'guard_abort'; guardReason: string; toolCallCount: number; /** F20261111slfrz：超时类 guard（OutputGuard fire）的实际墙钟耗时与睡眠冻结判定 */ guardTimeoutElapsedMs?: number; guardSuspectedFreeze?: boolean }
   | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
   /** F20261027cnsv 审视修复（Feb 发现 2）：D3 锁超时降级路径的 DelegationInFlightError
    *  是背压显式拒绝而非 API 故障——单独归类，台账可区分「拒绝」与「故障」，
@@ -92,7 +92,7 @@ export function classifyExit(
 
   const guardReason = extractGuardReason(p.messageId, p.result, p.err, getInternalAbortReason);
   if (guardReason) {
-    return { kind: 'guard_abort', guardReason, toolCallCount: p.toolCallCount };
+    return { kind: 'guard_abort', guardReason, toolCallCount: p.toolCallCount, ...extractGuardFreezeTrace(p.err) };
   }
 
   if (p.result?.queued && !p.err) return { kind: 'queued', toolCallCount: p.toolCallCount };
@@ -118,4 +118,18 @@ export function exitKindToOutcome(kind: ExitReason["kind"], retryCount: number):
     default:
       return retryCount === 0 ? 'no_yield_retry' : 'no_yield_failed';
   }
+}
+
+/** F20261111slfrz：从 abort 异常提取 OutputGuard 冻结痕迹（elapsed/判定）——
+ *  超时类 guard（OutputGuard fire）的实际耗时挂在 err._outputGuardMetadata：
+ *  elapsed ≫ budget = 疑似系统睡眠冻结，orchestrator 据此落 healing 痕迹
+ *  （M-a8f8f080 定案）。独立小函数控 classifyExit 复杂度。 */
+function extractGuardFreezeTrace(err: unknown): { guardTimeoutElapsedMs?: number; guardSuspectedFreeze?: boolean } {
+  if (!(err instanceof Error)) return {};
+  const meta = (err as Error & { _outputGuardMetadata?: { timeoutElapsedMs?: number; suspectedFreeze?: boolean } })._outputGuardMetadata;
+  if (!meta) return {};
+  return {
+    ...(meta.timeoutElapsedMs !== undefined && { guardTimeoutElapsedMs: meta.timeoutElapsedMs }),
+    ...(meta.suspectedFreeze !== undefined && { guardSuspectedFreeze: meta.suspectedFreeze }),
+  };
 }

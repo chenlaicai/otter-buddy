@@ -42,7 +42,7 @@ export interface AttachGuardsResult {
   activeEntry: { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string } | undefined;
   circuitBreaker: ToolCallCircuitBreaker;
   unregisterToolCall: (() => void) | undefined;
-  outputGuard: { getMetadata: () => { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number }; armFirstByteTimer: (guardAbort: () => void) => void };
+  outputGuard: { getMetadata: () => { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number; timeoutElapsedMs?: number; suspectedFreeze?: boolean }; armFirstByteTimer: (guardAbort: () => void) => void };
   cleanupOutputGuard: () => void;
   armFirstByte: () => void;
 }
@@ -104,7 +104,7 @@ export interface BuildInvokeResultResult {
   ctxTokens?: number;
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
-  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
+  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number; timeoutElapsedMs?: number; suspectedFreeze?: boolean };
   modelAlias?: string;
   _selfRestart?: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean };
   /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
@@ -158,7 +158,7 @@ export interface BuildPromptResultParams {
   otterId: string;
   session: { getSessionStats: () => { tokens: { input: number; output: number; cacheRead?: number; cacheWrite?: number } }; sessionManager: { getBranch: () => SessionEntry[] } };
   circuitBreaker: ToolCallCircuitBreaker;
-  outputGuard: { getMetadata: () => { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number } };
+  outputGuard: { getMetadata: () => { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number; timeoutElapsedMs?: number; suspectedFreeze?: boolean } };
   activeEntry: { guardAbortReason?: string } | undefined;
   modelPool: ModelPool | undefined;
   otterConfigProvider: OtterConfigProvider;
