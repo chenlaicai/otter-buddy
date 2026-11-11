@@ -1,5 +1,5 @@
 ---
-id: F20261109csvfx
+id: F20261111csvfx
 title: 卡片按钮无效 payload 静默无反应：校验失败改为节流反馈，安全拒绝保持 fail-closed
 change_type: fix
 capability_test: web/e2e/input-fixed-split-visual.spec.ts
@@ -28,7 +28,7 @@ summary: |
   已回复等安全与闸门拒绝保持 fail-closed 静默；预览闸门不放开。
 ---
 
-# 卡片按钮无效 payload 静默无反应（F20261109csvfx）
+# 卡片按钮无效 payload 静默无反应（F20261111csvfx）
 
 ## 1. 背景与问题现象
 
@@ -115,8 +115,8 @@ summary: |
   - `缺 summary 的现场 payload → 反馈 toast + 仍无预览`：`AssertionError: expected "vi.fn()" to be called with arguments: [ StringContaining "卡片提交被拒绝", 'error' ]`
   - `反馈节流（per-card 3s）…`：`expected "vi.fn()" to be called 1 times, but got 0 times`
   - `超限 summary 同样反馈（不静默）`：同上 toHaveBeenCalled 失败
-- 真实浏览器 `E2E_BASE_URL=http://localhost:3116 npx playwright test e2e/input-fixed-split-visual.spec.ts --grep "F20261109csvfx.*9"`（vite dev 隔离实例）：用例 9 失败于 `expect(getByText('卡片提交被拒绝')).toBeVisible()`（element not found）；**其前的断言全部通过**——`父页应收到 card:submit` PASS（探针捕获 `payload:{choice:'persistent-queue',label:'按根治方案实施'}`）、`预览 toBeHidden` PASS、`consoleErrors: []`。
-- 复现步骤：①worktree web/ 起 `npx vite --port 3116 --strictPort`；②`E2E_BASE_URL=http://localhost:3116 npx playwright test e2e/input-fixed-split-visual.spec.ts --grep F20261109csvfx`。修复前现象截图/JSON：对话工作区 `csvf-evidence/csvf-1-before-fix.png`、`csvf-evidence-before-fix.json`（`phase: before-fix, feedbackVisible: false`）。
+- 真实浏览器 `E2E_BASE_URL=http://localhost:3116 npx playwright test e2e/input-fixed-split-visual.spec.ts --grep "F20261111csvfx.*9"`（vite dev 隔离实例）：用例 9 失败于 `expect(getByText('卡片提交被拒绝')).toBeVisible()`（element not found）；**其前的断言全部通过**——`父页应收到 card:submit` PASS（探针捕获 `payload:{choice:'persistent-queue',label:'按根治方案实施'}`）、`预览 toBeHidden` PASS、`consoleErrors: []`。
+- 复现步骤：①worktree web/ 起 `npx vite --port 3116 --strictPort`；②`E2E_BASE_URL=http://localhost:3116 npx playwright test e2e/input-fixed-split-visual.spec.ts --grep F20261111csvfx`。修复前现象截图/JSON：对话工作区 `csvf-evidence/csvf-1-before-fix.png`、`csvf-evidence-before-fix.json`（`phase: before-fix, feedbackVisible: false`）。
 
 ### 修复后对照
 

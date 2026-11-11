@@ -571,7 +571,7 @@ test.describe('F20261019ovmh 覆盖层总高封顶（vite 隔离实例）', () =
   })
 })
 
-/** F20261109csvfx 卡片按钮无效 payload 反馈（搭档 11-09 报告「我点击按钮无反应」）。
+/** F20261111csvfx 卡片按钮无效 payload 反馈（搭档 11-09 报告「我点击按钮无反应」）。
  *  复现现场：大獭简报卡（importance=high 默认展开）按钮
  *  `otterCard.submit({choice:'…',label:'…'})` 缺 summary → 父页 validateCardSubmitPayload
  *  拒绝 → 旧版 useCardBridge 静默 return（点击零反馈）。
@@ -587,7 +587,7 @@ const BROKEN_CARD_BODY = [
   '```',
 ].join('\n')
 
-test.describe('F20261109csvfx 卡片按钮无效 payload 反馈（真实浏览器）', () => {
+test.describe('F20261111csvfx 卡片按钮无效 payload 反馈（真实浏览器）', () => {
   test('9: 无效 payload 按钮真点击 → 反馈可见 + 闸门不放开 + 证据截图', async ({ page }) => {
     const consoleErrors: string[] = []
     page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()) })
