@@ -71,7 +71,7 @@ loop_tool_block = 门拦截观测源（b2 残余误伤面唯一数据）：
 guard_intercept 样本 = 修复-回归循环原料：
 1. `cd <主仓> && node scripts/generate-guard-replay.mjs --db <dbPath（curl /api/settings 取）>`；无拦截写「固化：0」
 2. 逐条 verdict：`ALLOW`（误拦）/ `BLOCK`（负门）/ `SKIP`（一次性/敏感/不可复现）；误拦旁证 = 后续换写法绕过
-3. **非 SKIP 追加** `<主仓>/tests/frameworks/agent/guard-v2-real-replay.test.ts`（对齐 it 块，断言=裁决值）并跑（`cd <主仓> && npx vitest run <该文件>`）；期望不符先疑裁决错勿凑绿，双链不一致提 issue
+3. **非 SKIP 追加** `<主仓>/tests/guard/replay/cases-2026-10-29.ts`（对齐 `ReplayCase`，`expect=allow/block`，裁决 ALLOW→allow / BLOCK→block）并跑（`cd <主仓> && npx vitest run tests/guard/replay/replay.test.ts`）；裁决前必须从 `invoke_events.assistant_toolcall` 取完整命令并按事件时间对齐，不得只看截断 commandHead；期望不符先疑裁决错勿凑绿，双链不一致提 issue
 4. 日报「拦截 N → 候选 M → 固化 K / SKIP S」；同 ruleId ≥3 条误拦开 issue
 
 ## healing events 消费即处置（分析过的必须本次产出内处置完毕）
