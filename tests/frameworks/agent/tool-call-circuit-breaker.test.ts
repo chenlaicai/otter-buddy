@@ -366,6 +366,26 @@ describe("buildToolSignature —— #1802 workspace_delete 清理签名", () => 
   });
 });
 
+describe("buildToolSignature —— #1767 workspace_list 列举签名", () => {
+  it("连续列举不同 path 不触发连续同构拦截", () => {
+    expect(buildToolSignature("workspace_list", { path: "review-a" })).toBe("workspace_list: review-a");
+    expect(buildToolSignature("workspace_list", {})).toBe("workspace_list");
+    expect(buildToolSignature("workspace_list", { path: "" })).toBe("workspace_list");
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 7; i++) {
+      expect(cb.check("workspace_list", { path: `cleanup-${i}` }).action).toBe("allow");
+    }
+  });
+
+  it("同一 path 反复列举仍触发连续同构拦截", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 5; i++) {
+      expect(cb.check("workspace_list", { path: "same-target" }).action).toBe("allow");
+    }
+    expect(cb.check("workspace_list", { path: "same-target" }).action).toBe("steer");
+  });
+});
+
 describe("ToolCallCircuitBreaker", () => {
   beforeEach(() => {
     vi.useFakeTimers();
