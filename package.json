@@ -103,7 +103,10 @@
     "tsc-alias": "^1.9.10",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0",
+    "hono": "^4.13.17",
+    "@hono/node-server": "^2.1.6",
+    "playwright": "1.65.0"
   },
   "allowScripts": {
     "better-sqlite3@13.0.1": true,
