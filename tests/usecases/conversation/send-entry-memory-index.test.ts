@@ -134,20 +134,20 @@ describe("CoLink 全局记忆隔离", () => {
   it("CoLink user 正文不进入全局记忆", async () => {
     const { sendEntry, indexed } = makeSendEntry();
     const res = await sendEntry.sendUserEntry({
-      conversationId: "conv-colink", senderId: "colink:user-1", body: "频道里的秘密不能进全局记忆",
-      talkingStonePassedTo: [], source: "colink",
+      conversationId: "conv-colink", senderId: "external:user-1", body: "频道里的秘密不能进全局记忆",
+      talkingStonePassedTo: [], source: "external",
     });
-    expect(res.entry.source).toBe("colink");
+    expect(res.entry.source).toBe("external");
     expect(indexed).toHaveLength(0);
   });
 
   it("CoLink invoke 的 speak 正文也不进入全局记忆", async () => {
     const { sendEntry, repos, indexed } = makeSendEntry();
-    repos.invokes.set("invoke-colink", { metadata: { externalProfile: "colink" } });
+    repos.invokes.set("invoke-colink", { metadata: { externalProfile: "restricted" } });
     const res = await sendEntry.createSpeakEntry({
       conversationId: "conv-colink", invokeId: "invoke-colink", otterId: "otter-1", body: "外部回复同样隔离",
     });
-    expect(res.entry.source).toBe("colink");
+    expect(res.entry.source).toBe("external");
     expect(indexed).toHaveLength(0);
   });
 
@@ -155,10 +155,10 @@ describe("CoLink 全局记忆隔离", () => {
     const prefetched: string[][] = [];
     const { sendEntry, repos } = makeSendEntry({ unfurlPrefetch: urls => prefetched.push(urls) });
     await sendEntry.sendUserEntry({
-      conversationId: "conv-colink", senderId: "colink:user-1", body: "https://example.com/private",
-      talkingStonePassedTo: [], source: "colink",
+      conversationId: "conv-colink", senderId: "external:user-1", body: "https://example.com/private",
+      talkingStonePassedTo: [], source: "external",
     });
-    repos.invokes.set("invoke-colink", { metadata: { externalProfile: "colink" } });
+    repos.invokes.set("invoke-colink", { metadata: { externalProfile: "restricted" } });
     await sendEntry.createSpeakEntry({
       conversationId: "conv-colink", invokeId: "invoke-colink", otterId: "otter-1", body: "https://example.com/reply",
     });
@@ -167,7 +167,7 @@ describe("CoLink 全局记忆隔离", () => {
 
   it("CoLink yield 在落库和状态变更前拒绝其他 Otter 与 reviewer 派工", async () => {
     const { sendEntry, repos } = makeSendEntry();
-    repos.invokes.set("invoke-colink", { metadata: { externalProfile: "colink" } });
+    repos.invokes.set("invoke-colink", { metadata: { externalProfile: "restricted" } });
     for (const input of [
       { yieldTargets: ["another-otter"] },
       { yieldTargets: ["user"], assignmentRole: "reviewer" as const },

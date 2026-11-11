@@ -169,7 +169,7 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
   it("CoLink 外部 Session 同样绕过普通池，避免复用全工具 Session", async () => {
     const { internals, db, getCreateCount } = makeFactory();
     const first = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1" }));
-    const external = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2", externalProfile: "colink" }));
+    const external = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2", externalProfile: "restricted" }));
     expect(external.isPooled).toBe(false);
     expect(external.session).not.toBe(first.session);
     expect(getCreateCount()).toBe(2);

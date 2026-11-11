@@ -17,25 +17,25 @@ let tmpDir: string;
 let app: Hono;
 
 function config(url = 'http://127.0.0.1:31131/mcp', authorization = TOKEN) {
-  return { mcpServers: { colink_otter_history: { url, headers: { authorization }, exposure: 'direct', timeout: 60 } } };
+  return { mcpServers: { vendor_history: { url, headers: { authorization }, exposure: 'direct', timeout: 60 } } };
 }
 
 function put(body: unknown) {
-  return app.request(`/api/conversations/${CONVERSATION_ID}/workspace/mcp-colink`, {
+  return app.request(`/api/conversations/${CONVERSATION_ID}/workspace/mcp-external`, {
     method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
 }
 
 beforeEach(async () => {
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'workspace-mcp-colink-'));
+  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'workspace-mcp-external-'));
   const controller = new WorkspaceController(new ManageWorkspace(new NodeWorkspaceGateway(tmpDir)), createTestLogger());
   app = new Hono();
-  app.put('/api/conversations/:id/workspace/mcp-colink', c => controller.writeCoLinkMcp(c));
+  app.put('/api/conversations/:id/workspace/mcp-external', c => controller.writeExternalMcp(c));
 });
 
 afterEach(async () => { await fs.rm(tmpDir, { recursive: true, force: true }); });
 
-describe('PUT workspace/mcp-colink', () => {
+describe('PUT workspace/mcp-external', () => {
   it('writes only the constrained loopback config with owner-only permissions and refreshes its own URL', async () => {
     expect((await put(config())).status).toBe(200);
     const file = path.join(tmpDir, 'workspaces', CONVERSATION_ID, 'mcp.json');

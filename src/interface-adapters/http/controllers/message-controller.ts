@@ -200,7 +200,7 @@ export class MessageController {
     try {
       const conversationId = param(c, "id");
       const body = await safeJsonBody<SendMessageRequestDTO>(c);
-      const source = body.source === 'colink' ? 'colink' : 'web';
+      const source = body.source === 'external' ? 'external' : 'web';
 
       /** 1. 前置校验（请求体 + 附件 + Magic Word 全场急停）——response 非 null 即短路 */
       const early = await this.precheckSend(c, conversationId, body);

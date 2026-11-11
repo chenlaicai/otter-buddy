@@ -95,12 +95,12 @@ export class WorkspaceController {
     }
   }
 
-  /** PUT /api/conversations/:id/workspace/mcp-colink——仅写受限 CoLink 回环读取配置。 */
-  async writeCoLinkMcp(c: Context): Promise<Response> {
+  /** PUT /api/conversations/:id/workspace/mcp-external——仅写受限 External 回环读取配置。 */
+  async writeExternalMcp(c: Context): Promise<Response> {
     try {
       const conversationId = this.validateConversationId(param(c, "id"));
       const body = await safeJsonBody<Record<string, unknown>>(c);
-      await this.manageWorkspace.writeCoLinkMcpConfig(conversationId, body);
+      await this.manageWorkspace.writeExternalMcpConfig(conversationId, body);
       return c.json({ ok: true });
     } catch (err) {
       return handleError(c, err, this.logger);

@@ -74,7 +74,7 @@ export const POLICY_TABLE: readonly PolicyRule[] = [
   },
   { methods: ["POST", "PATCH", "DELETE"], path: /^\/api\/scheduled-tasks(\/|$)/, policy: "admin", note: "定时任务增改删+立即触发（服务器侧自动化）" },
   { methods: ["POST"], path: /^\/api\/conversations\/[^/]+\/scheduled-tasks$/, policy: "admin", note: "会话级定时任务创建" },
-  { methods: ["PUT"], path: /^\/api\/conversations\/[^/]+\/workspace\/mcp-colink$/, policy: "admin", note: "CoLink 每会话 MCP 配置=基础设施级写，禁止普通用户注入工具连接" },
+  { methods: ["PUT"], path: /^\/api\/conversations\/[^/]+\/workspace\/mcp-external$/, policy: "admin", note: "External 每会话 MCP 配置=基础设施级写，禁止普通用户注入工具连接" },
   { methods: ["POST"], path: /^\/api\/health\/(scan|signals)/, policy: "admin", note: "体检扫描与 healing 信号处置" },
   // F20261023cnct（issue #1063）：POST /api/connections（create）已随死端点下线，本规则休眠但保留作防御纵深——
   // 若未来误挂 POST /api/connections* 写口，仍强制 admin 档（删规则会跌入 fail-closed 兜底 write = 安全降级）

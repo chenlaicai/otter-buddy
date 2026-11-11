@@ -124,10 +124,10 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
     const invoker = makeInvoker(sdk, mockSendEntry(), { manageSession });
     await invoker.invokeConversation({
       otterId: "otter-1", conversationId: "conv-colink", userMessageContent: "总结之前讨论",
-      senderId: "colink:external-user", onSSEEvent: () => {},
+      senderId: "external:external-user", onSSEEvent: () => {},
     }).catch(() => null);
 
-    expect(captured?.externalProfile).toBe("colink");
+    expect(captured?.externalProfile).toBe("restricted");
     expect(captured?.dynamicContext).toEqual({});
     expect(sessionReads).toBe(0);
   });

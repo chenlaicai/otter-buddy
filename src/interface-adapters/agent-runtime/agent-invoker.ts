@@ -174,8 +174,8 @@ import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch
 // inMemory 引擎而非退化獭的 invoke 通道），手动/熔断路径统一走 LLM 合成 + 降级链。
 // 四件套 options 组装由统一 handoff 入口（unifiedHandoff）内的机械供料收集取代。
 
-/** 普通 Otter 的自动换世/跨獭恢复信号不得从 CoLink 受限会话泄漏到编排面。 */
-function ordinaryRecoveryValue<T>(externalProfile: 'colink' | undefined, value: T): T | undefined {
+/** 普通 Otter 的自动换世/跨獭恢复信号不得从受限外部会话泄漏到编排面。 */
+function ordinaryRecoveryValue<T>(externalProfile: 'restricted' | undefined, value: T): T | undefined {
   return externalProfile ? undefined : value;
 }
 
@@ -392,7 +392,7 @@ export class AgentInvoker implements AgentTurnPort {
     assignmentRole?: "reviewer";
   }): Promise<AgentTurnResult> {
     const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId } = params;
-    const externalProfile = params.senderId.startsWith('colink:') ? 'colink' as const : undefined;
+    const externalProfile = params.senderId.startsWith('external:') ? 'restricted' as const : undefined;
     const startTime = Date.now();
 
     // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent
@@ -453,7 +453,7 @@ export class AgentInvoker implements AgentTurnPort {
     }
 
     this.logger.debug('Building dynamic context', { otterId, externalProfile });
-    /** 外部会话不能读取/消费普通 Otter 的会话摘要、借用式档案或工作区前情，
+    /** 受限外部会话不能读取/消费普通 Otter 的会话摘要、借用式档案或工作区前情，
      * 也不能因普通会话的熔断/水位状态触发换世。当前事件与受限 durable 是唯一历史来源。 */
     if (!externalProfile) await this.circuitBreak?.maybeSecondaryCircuitBreak(otterId, conversationId);
     const dynamicContext: DynamicContext = externalProfile ? {} : await this.buildDynamicContext(otterId, conversationId);
@@ -598,7 +598,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
-    opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string; externalProfile?: 'colink' },
+    opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string; externalProfile?: 'restricted' },
   ): AttemptDriver {
     /** F20260922handoff：ctxTokens 旁路盒——TurnResult 不带 ctxTokens，闭包直改
      *  外部 let 不可行，driver 对象生命周期覆盖整个 turn，invokeConversationInner 收尾处
@@ -2172,7 +2172,7 @@ export class AgentInvoker implements AgentTurnPort {
     },
     emitEvent: (event: SSEEvent) => void,
   ): Promise<AgentTurnResult | null> {
-    if (params.senderId.startsWith('colink:')) return null;
+    if (params.senderId.startsWith('external:')) return null;
     const circuitRetried = await this.handleCircuitBreakSignal(turnResult, params, emitEvent);
     if (circuitRetried) return circuitRetried;
     if (!turnResult._contentFilter) return null;

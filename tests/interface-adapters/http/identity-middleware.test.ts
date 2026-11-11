@@ -42,7 +42,7 @@ describe("resolvePolicy：路由策略表矩阵", () => {
       ["PATCH", "/api/scheduled-tasks/t1", "admin"],
       ["DELETE", "/api/scheduled-tasks/t1", "admin"],
       ["POST", "/api/conversations/c1/scheduled-tasks", "admin"],
-      ["PUT", "/api/conversations/c1/workspace/mcp-colink", "admin"],
+      ["PUT", "/api/conversations/c1/workspace/mcp-external", "admin"],
       ["POST", "/api/health/scan", "admin"],
       ["POST", "/api/health/signals/s1/triage", "admin"],
       // F20261023cnct（issue #1063）：POST /api/connections（create）已下线，矩阵行删除；
@@ -86,7 +86,7 @@ function miniApp(): Hono {
   app.get("/api/things", (c) => c.json({ ok: true, identity: c.get("identity" as never) }));
   app.post("/api/things", (c) => c.json({ ok: true }));
   app.put("/api/settings", (c) => c.json({ ok: true }));
-  app.put("/api/conversations/:id/workspace/mcp-colink", (c) => c.json({ ok: true }));
+  app.put("/api/conversations/:id/workspace/mcp-external", (c) => c.json({ ok: true }));
   app.get("/api/settings", (c) => c.json({ ok: true }));
   app.post("/api/inbound/events", (c) => c.json({ ok: true }));
   app.options("/api/inbound/events", (c) => c.body(null, 204));
@@ -97,8 +97,8 @@ function miniApp(): Hono {
 describe("identityMiddleware：身份解析与裁决", () => {
   const app = miniApp();
 
-  it("CoLink MCP 配置写：admin 200、普通 user 403、匿名 401", async () => {
-    const path = "/api/conversations/c1/workspace/mcp-colink";
+  it("External MCP 配置写：admin 200、普通 user 403、匿名 401", async () => {
+    const path = "/api/conversations/c1/workspace/mcp-external";
     expect((await app.request(path, { method: "PUT", headers: { [H_ID]: "ops", [H_ROLE]: "admin" } })).status).toBe(200);
     expect((await app.request(path, { method: "PUT", headers: { [H_ID]: "alice", [H_ROLE]: "user" } })).status).toBe(403);
     expect((await app.request(path, { method: "PUT" })).status).toBe(401);

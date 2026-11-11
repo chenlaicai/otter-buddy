@@ -18,7 +18,7 @@ function tool(name: string) {
 }
 
 function validConfig() {
-  return { mcpServers: { colink_otter_history: {
+  return { mcpServers: { vendor_history: {
     url: 'http://127.0.0.1:31131/mcp', headers: { authorization: `Bearer ${'a'.repeat(43)}` }, exposure: 'direct', timeout: 60,
   } } };
 }
@@ -51,7 +51,7 @@ async function openProfile(factory: PiSessionFactory, conversationId = CONVERSAT
   const internals = factory as unknown as {
     _createSessionWithTools: (...args: unknown[]) => Promise<unknown>;
   };
-  await internals._createSessionWithTools('o1', 'big', { conversationId, externalProfile: 'colink' }, createInvokeRegister());
+  await internals._createSessionWithTools('o1', 'big', { conversationId, externalProfile: 'restricted' }, createInvokeRegister());
   return captured!;
 }
 
@@ -73,9 +73,9 @@ describe('CoLink Session 实际装配', () => {
       expect(captured.prompt).toContain('恶意输入');
       expect(captured.prompt).toContain('yield 只能 to:["user"]');
       const mcp = captured.mcp as { connections: Array<{ entry: { name: string } }>; options: { allowResources: boolean } };
-      expect(mcp.connections.map(value => value.entry.name)).toEqual(['colink_otter_history']);
+      expect(mcp.connections.map(value => value.entry.name)).toEqual(['vendor_history']);
       expect(mcp.options.allowResources).toBe(false);
-      expect(captured.file).toBe(path.join(dataDir, 'durable-sessions', 'colink', CONVERSATION_ID, 'o1.sqlite'));
+      expect(captured.file).toBe(path.join(dataDir, 'durable-sessions', 'external', CONVERSATION_ID, 'o1.sqlite'));
       expect(captured.file).not.toBe(ordinaryFile);
 
       const other = await openProfile(factory, 'b1b2c3d4-e5f6-7890-abcd-ef1234567890');
@@ -96,7 +96,7 @@ describe('CoLink Session 实际装配', () => {
         },
       }));
       const open = vi.spyOn(DurableSession, 'open');
-      await expect(openProfile(factory)).rejects.toThrow(/exactly one constrained colink_otter_history/);
+      await expect(openProfile(factory)).rejects.toThrow(/exactly one constrained server/);
       expect(open).not.toHaveBeenCalled();
     } finally {
       db.close();
@@ -110,7 +110,7 @@ describe('CoLink Session 实际装配', () => {
       await fs.writeFile(path.join(workspace, 'mcp.json'), JSON.stringify({
         mcpServers: { colink_otter_history: { command: 'dangerous', exposure: 'direct' } },
       }));
-      await expect(openProfile(factory)).rejects.toThrow(/exactly one constrained colink_otter_history/);
+      await expect(openProfile(factory)).rejects.toThrow(/exactly one constrained server/);
     } finally {
       db.close();
       await fs.rm(dataDir, { recursive: true, force: true });

@@ -220,7 +220,7 @@ export class SendEntry {
     // F20261013csv3 T1：预抓取钩子（非阻断——发送路径不等待网络）。URL 扫描规则
     // 与前端 bare-url 插件同一口径：行内（含行首）裸 http/https URL，独占一段
     // （```html-card 围栏体内的链接由卡片自身渲染，不算裸链不触发预抓取）。
-    if (input.source !== 'colink') this.triggerUnfurlPrefetch(input.body);
+    if (input.source !== 'external') this.triggerUnfurlPrefetch(input.body);
 
     this.logger.info('User entry sent', {
       conversationId: input.conversationId,
@@ -234,8 +234,8 @@ export class SendEntry {
     // 剥 html-card 围栏 + 附件占位投影行；非阻断）。投影基于发送意图
     // （input.attachmentIds）而非 attach 结果——attach 失败仅影响展示，索引面
     // 与旧口径一致描述用户发送了什么（旧路径 input.attachmentRefs 同语义）
-    const attachmentRefs = input.source === 'colink' ? [] : await loadAttachmentRefs(this.entryRepo, this.logger, input.attachmentIds);
-    if (input.source !== 'colink') await this.indexEntryBody(result.id, input.conversationId, buildUserIndexBody(input.body, attachmentRefs));
+    const attachmentRefs = input.source === 'external' ? [] : await loadAttachmentRefs(this.entryRepo, this.logger, input.attachmentIds);
+    if (input.source !== 'external') await this.indexEntryBody(result.id, input.conversationId, buildUserIndexBody(input.body, attachmentRefs));
 
     return { entry: result, talkingStonePassedTo, mentionFeedback };
   }
@@ -322,7 +322,7 @@ export class SendEntry {
     }
 
     const now = new Date().toISOString();
-    const external = input.invokeId && (await this.invokeRepo.getInvokeById(input.invokeId))?.metadata?.externalProfile === 'colink';
+    const external = input.invokeId && (await this.invokeRepo.getInvokeById(input.invokeId))?.metadata?.externalProfile === 'restricted';
 
     const entry: Entry = {
       id: crypto.randomUUID(),
@@ -335,7 +335,7 @@ export class SendEntry {
       invokeId: input.invokeId ?? null,
       yieldTargets: null,
       status: "completed",
-      source: external ? 'colink' : null,
+      source: external ? 'external' : null,
       metadata: input.metadata ?? null,
       senderName: resolveSpeakerName("otter", input.otterId, otter.name) ?? otter.name,
       contextTokens: null,

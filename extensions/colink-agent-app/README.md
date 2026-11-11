@@ -26,11 +26,11 @@ npm start
 
 ## 配置
 
-见 `.env.example`。个人 DM 与项目频道均不维护额外用户白名单：可接入个人空间的用户和已安装项目范围内的成员均可触发，由 CoLink 安装授权与事件验签负责；私密历史读取仍要求触发者本人具备 `messages:read-private` 委托。多人输入统一使用 `externalProfile=colink` 外部安全档，不获得普通 Otter 的对话、记忆或编排能力。
+见 `.env.example`。个人 DM 与项目频道均不维护额外用户白名单：可接入个人空间的用户和已安装项目范围内的成员均可触发，由 CoLink 安装授权与事件验签负责；私密历史读取仍要求触发者本人具备 `messages:read-private` 委托。多人输入统一使用 `externalProfile=restricted` 外部安全档，不获得普通 Otter 的对话、记忆或编排能力。
 
 `DATA_DIR` 保存 SDK 加密状态和外部会话→Conversation 映射，目录应仅服务账号可读写并持久备份。单进程、单副本运行；映射写入采用同目录临时文件加原子重命名，文件权限为 `0600`。
 
-App 通过回环管理接口 `PUT /api/conversations/:id/workspace/mcp-colink` 让 **Otter 自己**写入对应 `workspaces/<conversationId>/mcp.json`，文件权限为 `0600`；App 不需要 Otter 数据目录的任何文件系统权限。该接口只接受 `colink_otter_history` 的回环 HTTP 配置，拒绝 command、外部 URL、其他 server 和异常 bearer；已有其他 MCP 配置或全局同名配置时失败关闭，不覆盖。
+App 通过回环管理接口 `PUT /api/conversations/:id/workspace/mcp-external` 让 **Otter 自己**写入对应 `workspaces/<conversationId>/mcp.json`，文件权限为 `0600`；App 不需要 Otter 数据目录的任何文件系统权限。该接口只接受 `colink_otter_history` 的回环 HTTP 配置，拒绝 command、外部 URL、其他 server 和异常 bearer；已有其他 MCP 配置或全局同名配置时失败关闭，不覆盖。
 
 每个 Conversation 使用独立的 HMAC bearer，仅在该 CoLink 唤醒执行期间映射到 SDK 的 `turn.tools`；事件结束后代理立即失效。MCP 代理只暴露四个历史读取工具，并限制为当前事件的 topicId/channelId；DM 固定读取当前会话，不接受其他 conversationId。代理默认监听 `127.0.0.1:31131`（可用 `COLINK_MCP_PORT` 修改），不得加入公网反向代理或安全组。Server 名为 `colink_otter_history`，若 Otter 全局配置已有同名项会失败关闭，避免被其他工具源遮蔽。
 
@@ -43,7 +43,7 @@ App 通过回环管理接口 `PUT /api/conversations/:id/workspace/mcp-colink` �
 - 接受 `reason=dm_message` 的私聊文本，以及 `reason=mention/reply` 且带 `channelId` 的频道文本；附件不在本期范围。个人 DM 与频道均允许 CoLink 授权范围内的用户触发，不经过额外用户白名单。
 - 频道可按需读取当前话题及其根消息之前的当前频道历史；DM 可按需读取当前私聊历史。Manifest 声明 `messages:read-public/messages:read-private`，现有安装必须由用户重新授权后才会获得相应工具。
 - App 会把当前事件定位、工具使用规则和用户原文一起交给 Otter；历史只作为数据，不作为高优先级指令。需求完整时不额外读取历史；只有 @ 时由 App 在 Agent 启动前确定性预读当前话题最近一页，意图/指代不明时由受限历史工具补充当前话题与频道背景。
-- `source=colink` 与 invoke `externalProfile=colink` 启用外部安全档：每轮独立受限 Session，不复用普通池；durable transcript 按 `colink/<conversationId>/<otterId>` 隔离，不注入普通会话摘要或交接档案。编码/文件/bash、全局记忆和其他 MCP 均不进入工具面，只保留 speak/yield 与当前 CoLink 历史读取；yield 在落库和派发前仅允许 `to:["user"]`。
+- `source=external` 与 invoke `externalProfile=restricted` 启用外部安全档：每轮独立受限 Session，不复用普通池；durable transcript 按 `external/<conversationId>/<otterId>` 隔离，不注入普通会话摘要或交接档案。编码/文件/bash、全局记忆和其他 MCP 均不进入工具面，只保留 speak/yield 与当前 CoLink 历史读取；yield 在落库和派发前仅允许 `to:["user"]`。
 - CoLink user 与 invoke speak 均不写入全局记忆索引，也不触发裸 URL 后台 unfurl；频道正文、私聊和历史都按不可信输入处理，恶意套话不能获得其他对话、凭据或系统能力。
 - MCP 配置在 Otter Session 创建时加载。首次部署或权限目录变化后，需要重启 Otter 服务以重建已有会话的工具注册；CoLink 凭证本身不随该配置持久化。
 - 同一外部 DM 或频道内的消息串行处理；进程重启后保留映射，不宣称崩溃自动恢复或多副本能力。

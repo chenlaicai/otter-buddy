@@ -170,13 +170,13 @@ export class ManageWorkspace {
     return this.workspaceGateway.getWorkspacePath(conversationId);
   }
 
-  /** F20261111clota：由 Otter 自己落 CoLink 每会话 MCP 配置，App 无需任何数据目录写权限。
+  /** F20261111clota：由 Otter 自己落 External 每会话 MCP 配置，App 无需任何数据目录写权限。
    * 只接受专属回环 HTTP server；不接受 command/args、外部 URL 或其他 server，避免管理端点变成任意执行入口。 */
-  async writeCoLinkMcpConfig(conversationId: string, raw: unknown): Promise<void> {
-    const config = validateCoLinkMcpConfig(raw);
+  async writeExternalMcpConfig(conversationId: string, raw: unknown): Promise<void> {
+    const config = validateExternalMcpConfig(raw);
     const workspace = this.getWorkspacePath(conversationId);
     const dataDir = path.dirname(path.dirname(workspace));
-    assertNoGlobalCoLinkConflict(path.join(dataDir, 'sessions', 'mcp.json'));
+    assertNoGlobalExternalConflict(path.join(dataDir, 'sessions', 'mcp.json'), Object.keys(config.mcpServers)[0]!);
     assertRealWorkspaceDirectory(workspace);
     const file = path.join(workspace, 'mcp.json');
     if (isSameOwnedConfig(file, config)) {
@@ -184,7 +184,7 @@ export class ManageWorkspace {
       fs.chmodSync(file, 0o600);
       return;
     }
-    await writeCoLinkConfigAtomic(workspace, file, config);
+    await writeExternalConfigAtomic(workspace, file, config);
   }
 
   /**
@@ -256,16 +256,13 @@ export class ManageWorkspace {
 }
 
 type McpConfigFile = { mcpServers?: Record<string, { headers?: { authorization?: unknown } }> };
-type CoLinkMcpConfig = {
-  mcpServers: {
-    colink_otter_history: {
-      url: string;
-      headers: { authorization: string };
-      exposure: 'direct';
-      timeout: number;
-    };
-  };
+type ExternalMcpServer = {
+  url: string;
+  headers: { authorization: string };
+  exposure: 'direct';
+  timeout: number;
 };
+type ExternalMcpConfig = { mcpServers: Record<string, ExternalMcpServer> };
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -287,40 +284,42 @@ function readOptionalJson(file: string): McpConfigFile | undefined {
   }
 }
 
-function invalidCoLinkConfig(): never {
-  throw new DomainError('OTTER_COLINK_MCP_CONFIG_INVALID', 'validation');
+function invalidExternalConfig(): never {
+  throw new DomainError('OTTER_EXTERNAL_MCP_CONFIG_INVALID', 'validation');
 }
 
-function validateCoLinkUrl(raw: unknown): string {
-  if (typeof raw !== 'string') invalidCoLinkConfig();
+function validateExternalUrl(raw: unknown): string {
+  if (typeof raw !== 'string') invalidExternalConfig();
   let url: URL;
-  try { url = new URL(raw); } catch { invalidCoLinkConfig(); }
+  try { url = new URL(raw); } catch { invalidExternalConfig(); }
   if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port ||
-      url.pathname !== '/mcp' || url.search || url.hash || url.username || url.password) invalidCoLinkConfig();
+      url.pathname !== '/mcp' || url.search || url.hash || url.username || url.password) invalidExternalConfig();
   return raw;
 }
 
 function validateTimeout(raw: unknown): number {
-  if (!Number.isInteger(raw) || (raw as number) < 1 || (raw as number) > 300) invalidCoLinkConfig();
+  if (!Number.isInteger(raw) || (raw as number) < 1 || (raw as number) > 300) invalidExternalConfig();
   return raw as number;
 }
 
 function validateAuthorization(raw: unknown): string {
   if (!isObject(raw) || Object.keys(raw).length !== 1 || typeof raw.authorization !== 'string' ||
-      !/^Bearer [A-Za-z0-9_-]{43}$/.test(raw.authorization)) invalidCoLinkConfig();
+      !/^Bearer [A-Za-z0-9_-]{43}$/.test(raw.authorization)) invalidExternalConfig();
   return raw.authorization;
 }
 
-function validateCoLinkMcpConfig(raw: unknown): CoLinkMcpConfig {
-  if (!isObject(raw) || Object.keys(raw).length !== 1 || !isObject(raw.mcpServers)) invalidCoLinkConfig();
+function validateExternalMcpConfig(raw: unknown): ExternalMcpConfig {
+  if (!isObject(raw) || Object.keys(raw).length !== 1 || !isObject(raw.mcpServers)) invalidExternalConfig();
   const servers = raw.mcpServers;
-  if (Object.keys(servers).length !== 1 || !isObject(servers.colink_otter_history)) invalidCoLinkConfig();
-  const server = servers.colink_otter_history;
-  if (Object.keys(server).sort().join(',') !== 'exposure,headers,timeout,url' || server.exposure !== 'direct') invalidCoLinkConfig();
+  const entry = Object.entries(servers)[0];
+  if (Object.keys(servers).length !== 1 || !entry) invalidExternalConfig();
+  const [name, server] = entry;
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(name) || !isObject(server)) invalidExternalConfig();
+  if (Object.keys(server).sort().join(',') !== 'exposure,headers,timeout,url' || server.exposure !== 'direct') invalidExternalConfig();
   return {
     mcpServers: {
-      colink_otter_history: {
-        url: validateCoLinkUrl(server.url),
+      [name]: {
+        url: validateExternalUrl(server.url),
         headers: { authorization: validateAuthorization(server.headers) },
         exposure: 'direct',
         timeout: validateTimeout(server.timeout),
@@ -329,9 +328,9 @@ function validateCoLinkMcpConfig(raw: unknown): CoLinkMcpConfig {
   };
 }
 
-function assertNoGlobalCoLinkConflict(file: string): void {
+function assertNoGlobalExternalConflict(file: string, serverName: string): void {
   const global = readOptionalJson(file);
-  if (global?.mcpServers && typeof global.mcpServers === 'object' && 'colink_otter_history' in global.mcpServers) {
+  if (global?.mcpServers && typeof global.mcpServers === 'object' && serverName in global.mcpServers) {
     throw new DomainError('OTTER_GLOBAL_MCP_CONFIG_CONFLICT', 'conflict');
   }
 }
@@ -342,18 +341,19 @@ function assertRealWorkspaceDirectory(workspace: string): void {
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new DomainError('OTTER_MCP_WORKSPACE_INVALID', 'conflict');
 }
 
-function isSameOwnedConfig(file: string, config: CoLinkMcpConfig): boolean {
+function isSameOwnedConfig(file: string, config: ExternalMcpConfig): boolean {
   const existing = readOptionalJson(file);
   if (!existing) return false;
   const servers = existing.mcpServers;
-  const token = config.mcpServers.colink_otter_history.headers.authorization;
-  if (!servers || Object.keys(servers).length !== 1 || servers.colink_otter_history?.headers?.authorization !== token) {
+  const [serverName, server] = Object.entries(config.mcpServers)[0]!;
+  const token = server.headers.authorization;
+  if (!servers || Object.keys(servers).length !== 1 || servers[serverName]?.headers?.authorization !== token) {
     throw new DomainError('OTTER_MCP_CONFIG_CONFLICT', 'conflict');
   }
   return JSON.stringify(existing) === JSON.stringify(config);
 }
 
-async function writeCoLinkConfigAtomic(workspace: string, file: string, config: CoLinkMcpConfig): Promise<void> {
+async function writeExternalConfigAtomic(workspace: string, file: string, config: ExternalMcpConfig): Promise<void> {
   await fs.promises.mkdir(workspace, { recursive: true });
   const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
   try {

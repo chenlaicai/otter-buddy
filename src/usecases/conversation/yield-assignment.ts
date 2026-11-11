@@ -2,11 +2,11 @@ import type { Invoke } from "@entities/conversation/invoke";
 import { DomainError } from "@entities/errors";
 import type { InvokeRepository } from "./invoke-repository";
 
-/** CoLink 的交棒在写 invoke/entries 和路由派发之前收口，不能仅靠 App 事后发现。 */
+/** 受限外部会话的交棒在写 invoke/entries 和路由派发之前收口，不能仅靠 App 事后发现。 */
 function assertExternalYieldAllowed(invoke: Invoke, targets: string[], assignmentRole?: "reviewer"): void {
-  if (invoke.metadata?.externalProfile === 'colink' &&
+  if (invoke.metadata?.externalProfile === 'restricted' &&
       (targets.length !== 1 || targets[0] !== 'user' || assignmentRole)) {
-    throw new DomainError('CoLink 外部会话只能 yield 给 user，禁止海獭编排与 reviewer 派工', 'forbidden');
+    throw new DomainError('受限外部会话只能 yield 给 user，禁止海獭编排与 reviewer 派工', 'forbidden');
   }
 }
 

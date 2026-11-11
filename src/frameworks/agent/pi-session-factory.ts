@@ -266,8 +266,8 @@ export interface InvokeOptions {
   batchMaxSeq?: number;
   /** F20260913ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
   currentInvokeId?: string;
-  /** CoLink 外部会话：受限工具、独立 Session 与工作区 MCP，禁止普通池和其他工具面。 */
-  externalProfile?: 'colink';
+  /** 受限外部会话：受限工具、独立 Session 与工作区 MCP，禁止普通池和其他工具面。 */
+  externalProfile?: 'restricted';
   /** F20260913ctlv：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }
@@ -449,14 +449,14 @@ export class PiSessionFactory implements AgentGateway {
     return await this.modelRuntimeRegistry.ensurePiCodingAgent();
   }
 
-  private durableFile(otterId: string, externalProfile?: 'colink', conversationId?: string): string {
+  private durableFile(otterId: string, externalProfile?: 'restricted', conversationId?: string): string {
     const base = this.cfg.sessionDir.replace(/([\\/])sessions[\\/]?$/, "$1durable-sessions");
-    if (externalProfile !== 'colink') return path.join(base, `${otterId}.sqlite`);
-    // CoLink 持久历史按 Otter Conversation 隔离，绝不打开普通 Web/其他外部会话的 transcript。
+    if (externalProfile !== 'restricted') return path.join(base, `${otterId}.sqlite`);
+    // 受限外部持久历史按 Otter Conversation 隔离，绝不打开普通 Web/其他外部会话的 transcript。
     if (!conversationId || !/^[A-Za-z0-9_-]+$/.test(conversationId) || !/^[A-Za-z0-9_-]+$/.test(otterId)) {
-      throw new Error('CoLink durable session requires path-safe conversationId and otterId');
+      throw new Error('Restricted external durable session requires path-safe conversationId and otterId');
     }
-    return path.join(base, 'colink', conversationId, `${otterId}.sqlite`);
+    return path.join(base, 'external', conversationId, `${otterId}.sqlite`);
   }
 
   private registerDurableSession(otterId: string, sessionFile: string): void {
@@ -1035,7 +1035,7 @@ export class PiSessionFactory implements AgentGateway {
     // 工具集（只保留 read），池中 session 是全量工具，命中复用会让合成/handoff 类只读
     // 调用拿到越权工具面（越权风险 + 工具行为不一致）。绕过池 = 不复用/不入池，
     // session 用完由调用方处置。此语义同时修掉 main #894 的潜在回归（池命中不看 readOnly）。
-    if (options?.readOnly || options?.externalProfile === 'colink') {
+    if (options?.readOnly || options?.externalProfile === 'restricted') {
       const { createdNew } = await this._restoreOrCreateSession(otterId);
       const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
       if (!otterConfig) {
@@ -1047,7 +1047,7 @@ export class PiSessionFactory implements AgentGateway {
       const { session, sessionKey, toolContext } = await this._createSessionWithTools(
         otterId, otterConfig.otterType, options, register, options?.readOnly,
       );
-      // readOnly / CoLink 受限 Session 均不入池——用完即弃，不能复用普通全工具 Session
+      // readOnly / 受限外部 Session 均不入池——用完即弃，不能复用普通全工具 Session
       return { session, sessionKey, toolContext, turnText: register.turnText, isPooled: false, createdNew };
     }
     const existing = this.poolMeta.get(otterId);
@@ -1337,7 +1337,7 @@ export class PiSessionFactory implements AgentGateway {
           // F20260913ctlv 整合移植：readOnly session 不入池（_acquirePooled 守卫，
           // 独立冷启动路径，不是池内 session），此处 dispose 释放资源——
           // 不涉及外层 streaming session（#897 语义由 _acquirePooled 的嵌套抛错保护）
-          if (options?.readOnly || options?.externalProfile === 'colink') {
+          if (options?.readOnly || options?.externalProfile === 'restricted') {
             session.dispose();
           }
         }
@@ -1514,7 +1514,7 @@ export class PiSessionFactory implements AgentGateway {
   // eslint-disable-next-line complexity -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线（覆写本体在 tool-description-overrides.ts，此处仅组装）；F20261008tecn exposure 接线（manifest 读取 + 激活集重建，机制注释见 _activateDeferredToolSearch）
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, register: InvokeRegister, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
-    const external = options?.externalProfile === 'colink';
+    const external = options?.externalProfile === 'restricted';
     const registeredOtterToolNames = this.buildOtterToolWhitelist(otterType);
     const otterToolNames = getOtterToolNamesForType(otterType, registeredOtterToolNames, process.cwd(), this.logger, options?.externalProfile);
     // F20261008tecn（EazoTack 工具瘦身 v1）：从 manifest 读取 toolExposure 段，

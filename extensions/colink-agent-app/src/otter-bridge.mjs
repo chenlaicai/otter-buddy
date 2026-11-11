@@ -110,7 +110,7 @@ export class OtterBridge {
       return this.toolBridge.run({
         otterConversationId,
         turn,
-        register: config => this.request(`/api/conversations/${otterConversationId}/workspace/mcp-colink`, {
+        register: config => this.request(`/api/conversations/${otterConversationId}/workspace/mcp-external`, {
           method: 'PUT', body: JSON.stringify(config),
         }, signal),
       }, execute);
@@ -169,7 +169,7 @@ export class OtterBridge {
     const startedAt = Date.now();
     const response = await this.request(`/api/conversations/${otterConversationId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ senderId: `colink:${actorId}`, body: text, source: 'colink' }),
+      body: JSON.stringify({ senderId: `external:${actorId}`, body: text, source: 'external' }),
     }, signal);
     // Why: POST SSE 只是通知且 30 秒会关闭；断开不会中止后台 Agent。
     // 主动取消通知流，最终答案只以持久 entries/invokes 为准，避免终态后仍白等 SSE。
@@ -186,7 +186,7 @@ export class OtterBridge {
         this.request(`/api/conversations/${otterConversationId}/invokes?limit=200`, {}, signal),
       ]);
       const [{ entries }, { invokes }] = await Promise.all([entriesResponse.json(), invokesResponse.json()]);
-      trigger ??= entries.find(entry => entry.entryType === 'user' && entry.senderId === `colink:${actorId}`
+      trigger ??= entries.find(entry => entry.entryType === 'user' && entry.senderId === `external:${actorId}`
         && entry.body === text && Date.parse(entry.createdAt) >= startedAt - 1_000);
       if (trigger) {
         const chainEntries = entries.filter(entry => entry.sequenceNum > trigger.sequenceNum);
