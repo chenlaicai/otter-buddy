@@ -320,7 +320,7 @@ export interface AgentSessionFactoryConfig {
 import type { DurableSession } from "./durable-session";
 import { DurableSession as DurableAgentSession } from "./durable-session";
 import { DurableEventStream } from "./durable-event-stream";
-import { getModelSource } from "./durable-model-runtime";
+import { getModelSource, withModelOverride } from "./durable-model-runtime";
 import { readDurableActiveSessionEntries } from "./durable-slice-source";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { PiSessionPool } from "@frameworks/pi/pi-session-pool";
@@ -745,7 +745,10 @@ export class PiSessionFactory implements AgentGateway {
     const synthesisFile = path.join(this.cfg.dataDir && path.isAbsolute(this.cfg.dataDir) ? this.cfg.dataDir : tmpdir(), `durable-synthesis-${randomUUID()}.sqlite`);
     const session = await DurableAgentSession.open({
       otterId, file: synthesisFile,
-      models: getModelSource(this.cfg.modelPool), model, thinkingLevel,
+      // F20261111mwire（#1854）：models 源按 (provider,id) 覆盖注入合成副本——durable Harness
+      // 经 getModel(provider,id) 重解析模型，副本不进 models 源就到不了线缆（maxTokens/
+      // thinkingLevelMap 被池模板替换）。一次性 session 独立包装，随 session 销毁，零泄漏。
+      models: withModelOverride(getModelSource(this.cfg.modelPool), model), model, thinkingLevel,
       cwd: resolveSessionCwd('', this.cfg.dataDir ?? './data'), tools: { customTools: [], codingTools: [], readOnly: true },
       // M-9b24be04：合成影子通道自带合成 invokeId——durable prompt 的 invoke 归属守卫
       //（"A turn owns watch/admission/settlement"）要求轮有主；影子通道不在任何 invoke
