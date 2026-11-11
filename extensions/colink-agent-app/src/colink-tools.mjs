@@ -1,7 +1,5 @@
 import { createServer } from 'node:http';
 import { createHmac } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
 
 const SERVER_NAME = 'colink_otter_history';
 const READ_TOOLS = new Set([
@@ -83,13 +81,10 @@ export function buildCoLinkPrompt(turn) {
 /** Per-conversation MCP proxy. Bearer tokens identify Otter conversations; CoLink
  * credentials remain inside the SDK's active event and are never persisted here. */
 export class CoLinkToolBridge {
-  constructor({ secret, otterDataDir, host = '127.0.0.1', port = 31_131 }) {
+  constructor({ secret, host = '127.0.0.1', port = 31_131 }) {
     if (!secret) throw new Error('COLINK_TOOL_BRIDGE_SECRET_REQUIRED');
-    if (!otterDataDir) throw new Error('OTTER_DATA_DIR is required');
     if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error('COLINK_MCP_PORT_INVALID');
     this.secret = secret;
-    this.workspaceRoot = resolve(otterDataDir, 'workspaces');
-    this.globalMcpFile = resolve(otterDataDir, 'sessions', 'mcp.json');
     this.host = host;
     this.port = port;
     this.active = new Map();
@@ -117,44 +112,25 @@ export class CoLinkToolBridge {
     return createHmac('sha256', this.secret).update(`colink-otter-mcp-v1:${otterConversationId}`).digest('base64url');
   }
 
-  writeConfig(otterConversationId, token) {
-    try {
-      const global = JSON.parse(readFileSync(this.globalMcpFile, 'utf8'));
-      if (global?.mcpServers?.[SERVER_NAME]) throw new Error('OTTER_GLOBAL_MCP_CONFIG_CONFLICT');
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
-    const file = join(this.workspaceRoot, otterConversationId, 'mcp.json');
-    const config = {
+  configFor(otterConversationId) {
+    return {
       mcpServers: {
         [SERVER_NAME]: {
           url: `${this.origin}/mcp`,
-          headers: { authorization: `Bearer ${token}` },
+          headers: { authorization: `Bearer ${this.tokenFor(otterConversationId)}` },
           exposure: 'direct',
           timeout: 60,
         },
       },
     };
-    try {
-      const existing = JSON.parse(readFileSync(file, 'utf8'));
-      const servers = existing?.mcpServers;
-      if (!servers || Object.keys(servers).length !== 1 || servers[SERVER_NAME]?.headers?.authorization !== `Bearer ${token}`)
-        throw new Error('OTTER_MCP_CONFIG_CONFLICT');
-      if (JSON.stringify(existing) === JSON.stringify(config)) return;
-      // Why: 只允许更新本扩展自己的连接参数；token 不同或存在其他 server 一律失败关闭。
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
-    mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-    const temporary = `${file}.${process.pid}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-    renameSync(temporary, file);
   }
 
-  async run({ otterConversationId, turn }, execute) {
+  async run({ otterConversationId, turn, register }, execute) {
     if (!this.origin) throw new Error('COLINK_TOOL_BRIDGE_NOT_STARTED');
+    if (typeof register !== 'function') throw new Error('OTTER_MCP_REGISTRATION_REQUIRED');
     const token = this.tokenFor(otterConversationId);
-    this.writeConfig(otterConversationId, token);
+    // Why: 由 Otter 自己校验并落盘，App 不需要 Otter 数据目录的任何写权限。
+    await register(this.configFor(otterConversationId));
     this.active.set(token, turn);
     try {
       return await execute(buildCoLinkPrompt(turn));

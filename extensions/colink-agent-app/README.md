@@ -30,7 +30,7 @@ npm start
 
 `DATA_DIR` 保存 SDK 加密状态和外部会话→Conversation 映射，目录应仅服务账号可读写并持久备份。单进程、单副本运行；映射写入采用同目录临时文件加原子重命名，文件权限为 `0600`。
 
-`OTTER_DATA_DIR` 必须指向**同一个 Otter Buddy 进程实际使用的 data 目录**。App 在对应 `workspaces/<conversationId>/mcp.json` 写入仅监听回环地址的 MCP 配置，文件权限为 `0600`；已有其他 MCP 配置时失败关闭，不覆盖。App 与 Otter 必须同机部署，Otter 对该目录的写权限不能被 App 越权扩大。
+App 通过回环管理接口 `PUT /api/conversations/:id/workspace/mcp-colink` 让 **Otter 自己**写入对应 `workspaces/<conversationId>/mcp.json`，文件权限为 `0600`；App 不需要 Otter 数据目录的任何文件系统权限。该接口只接受 `colink_otter_history` 的回环 HTTP 配置，拒绝 command、外部 URL、其他 server 和异常 bearer；已有其他 MCP 配置或全局同名配置时失败关闭，不覆盖。
 
 每个 Conversation 使用独立的 HMAC bearer，仅在该 CoLink 唤醒执行期间映射到 SDK 的 `turn.tools`；事件结束后代理立即失效。MCP 代理只暴露四个历史读取工具，并限制为当前事件的 topicId/channelId；DM 固定读取当前会话，不接受其他 conversationId。代理默认监听 `127.0.0.1:31131`（可用 `COLINK_MCP_PORT` 修改），不得加入公网反向代理或安全组。Server 名为 `colink_otter_history`，若 Otter 全局配置已有同名项会失败关闭，避免被其他工具源遮蔽。
 

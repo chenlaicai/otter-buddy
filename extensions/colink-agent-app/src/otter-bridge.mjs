@@ -107,7 +107,13 @@ export class OtterBridge {
       const execute = prompt => this.runTurn({ otterConversationId, actorId, text: prompt, signal });
       if (!this.toolBridge) return execute(text);
       if (!turn) throw new Error('COLINK_TURN_REQUIRED_FOR_TOOLS');
-      return this.toolBridge.run({ otterConversationId, turn }, execute);
+      return this.toolBridge.run({
+        otterConversationId,
+        turn,
+        register: config => this.request(`/api/conversations/${otterConversationId}/workspace/mcp-colink`, {
+          method: 'PUT', body: JSON.stringify(config),
+        }, signal),
+      }, execute);
     });
     this.lanes.set(key, current);
     try { return await current; } finally {

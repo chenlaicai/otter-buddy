@@ -20,6 +20,7 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
     polls: 0,
     completeAfterPolls: 0,
     aborts: [],
+    mcpConfigs: [],
     answer: '最终回答',
   };
   const finish = () => {
@@ -36,6 +37,10 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
     if (path === '/api/conversations') {
       state.creates++;
       return Response.json({ id: 'otter-conversation-1', otterIds });
+    }
+    if (path.endsWith('/workspace/mcp-colink')) {
+      state.mcpConfigs.push(JSON.parse(options.body));
+      return Response.json({ ok: true });
     }
     if (/^\/api\/invokes\/[^/]+\/abort$/.test(path)) {
       const id = path.split('/')[3];
@@ -100,7 +105,11 @@ test('binds the active CoLink turn to MCP before dispatching the wrapped Otter m
   };
   const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
   assert.equal(await bridge.reply({ ...input, turn }), '最终回答');
-  assert.deepEqual(bindings, [{ otterConversationId: 'otter-conversation-1', turn }]);
+  assert.equal(bindings.length, 1);
+  assert.equal(bindings[0].otterConversationId, 'otter-conversation-1');
+  assert.equal(bindings[0].turn, turn);
+  await bindings[0].register({ mcpServers: {} });
+  assert.deepEqual(state.mcpConfigs, [{ mcpServers: {} }]);
   assert.equal(state.messages[0].body, `事件上下文\n${input.text}`);
 });
 

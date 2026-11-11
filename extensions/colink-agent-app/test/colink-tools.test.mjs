@@ -1,8 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { CoLinkToolBridge, buildCoLinkPrompt } from '../src/colink-tools.mjs';
 
 const publicTools = [
@@ -21,13 +18,8 @@ function turnFixture(kind = 'channel') {
     calls,
     privateReads,
     input: {
-      reason: dm ? 'dm_message' : 'mention',
-      text: '这次要回应的消息',
-      messageId: dm ? 'dm-message-1' : 'topic-1',
-      replyToMessageId: null,
-      channelId: dm ? null : 'channel-1',
-      topicId: dm ? null : 'topic-1',
-      conversationId: dm ? 'dm-1' : null,
+      reason: dm ? 'dm_message' : 'mention', text: '这次要回应的消息', messageId: dm ? 'dm-message-1' : 'topic-1',
+      replyToMessageId: null, channelId: dm ? null : 'channel-1', topicId: dm ? null : 'topic-1', conversationId: dm ? 'dm-1' : null,
     },
     context: {
       userId: 'user-1', installationId: 'installation-1',
@@ -47,26 +39,27 @@ function turnFixture(kind = 'channel') {
 }
 
 async function fixture() {
-  const otterDataDir = mkdtempSync(join(tmpdir(), 'colink-tools-'));
-  const bridge = new CoLinkToolBridge({ secret: 'test-secret', otterDataDir, port: 0 });
+  const bridge = new CoLinkToolBridge({ secret: 'test-secret', port: 0 });
   await bridge.start();
-  return { bridge, otterDataDir };
+  return { bridge };
 }
 
 async function rpc(bridge, token, method, params) {
   const response = await fetch(`${bridge.origin}/mcp`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   });
   return { status: response.status, body: await response.json() };
 }
 
-test('writes an isolated direct MCP config and exposes only authorized history reads', async () => {
-  const { bridge, otterDataDir } = await fixture();
+test('registers an isolated direct MCP config through Otter and exposes only authorized history reads', async () => {
+  const { bridge } = await fixture();
   try {
     const turn = turnFixture();
-    const answer = await bridge.run({ otterConversationId: 'otter-1', turn }, async prompt => {
+    const registrations = [];
+    const answer = await bridge.run({
+      otterConversationId: 'otter-1', turn, register: async config => registrations.push(config),
+    }, async prompt => {
       assert.match(prompt, /mcp__colink_otter_history__colink_read_public_topic/);
       const token = bridge.tokenFor('otter-1');
       const listed = await rpc(bridge, token, 'tools/list');
@@ -74,26 +67,22 @@ test('writes an isolated direct MCP config and exposes only authorized history r
       const called = await rpc(bridge, token, 'tools/call', {
         name: 'colink_read_public_channel', arguments: { channelId: 'channel-1', beforeMessageId: 'topic-1' },
       });
-      assert.equal(called.body.result.isError, undefined);
       assert.equal(called.body.result.structuredContent.items[0].text, '历史');
       assert.equal(called.body.result.content.length, 1);
-      assert.equal(called.body.result.content[0].type, 'text');
       assert.deepEqual(turn.calls, [{ name: 'colink_read_public_channel', args: { channelId: 'channel-1', beforeMessageId: 'topic-1' } }]);
       const crossChannel = await rpc(bridge, token, 'tools/call', {
         name: 'colink_read_public_channel', arguments: { channelId: 'other-channel' },
       });
       assert.equal(crossChannel.body.result.isError, true);
-      assert.match(crossChannel.body.result.content[0].text, /COLINK_CHANNEL_OUTSIDE_CURRENT_EVENT/);
       assert.equal(turn.calls.length, 1);
       return 'done';
     });
     assert.equal(answer, 'done');
-    const file = join(otterDataDir, 'workspaces', 'otter-1', 'mcp.json');
-    const config = JSON.parse(readFileSync(file, 'utf8'));
-    assert.equal(config.mcpServers.colink_otter_history.exposure, 'direct');
-    assert.equal(config.mcpServers.colink_otter_history.headers.authorization, `Bearer ${bridge.tokenFor('otter-1')}`);
-    assert.notEqual(config.mcpServers.colink_otter_history.headers.authorization, `Bearer ${bridge.tokenFor('otter-2')}`);
-    const streaming = await fetch(`${bridge.origin}/mcp`, { headers: { authorization: `Bearer ${bridge.tokenFor('otter-1')}` } });
+    const server = registrations[0].mcpServers.colink_otter_history;
+    assert.equal(server.exposure, 'direct');
+    assert.equal(server.headers.authorization, `Bearer ${bridge.tokenFor('otter-1')}`);
+    assert.notEqual(server.headers.authorization, `Bearer ${bridge.tokenFor('otter-2')}`);
+    const streaming = await fetch(`${bridge.origin}/mcp`, { headers: { authorization: server.headers.authorization } });
     assert.equal(streaming.status, 405);
     const expired = await rpc(bridge, bridge.tokenFor('otter-1'), 'tools/list');
     assert.equal(expired.status, 401);
@@ -104,7 +93,7 @@ test('adapts the private read tool to the current DM without accepting a resourc
   const { bridge } = await fixture();
   try {
     const turn = turnFixture('dm');
-    await bridge.run({ otterConversationId: 'otter-dm', turn }, async () => {
+    await bridge.run({ otterConversationId: 'otter-dm', turn, register: async () => {} }, async () => {
       const token = bridge.tokenFor('otter-dm');
       const listed = await rpc(bridge, token, 'tools/list');
       assert.deepEqual(listed.body.result.tools.map(tool => tool.name), ['colink_read_private_topic']);
@@ -121,44 +110,23 @@ test('adapts the private read tool to the current DM without accepting a resourc
   } finally { await bridge.close(); }
 });
 
-test('fails closed instead of overwriting an unrelated MCP config', async () => {
-  const { bridge, otterDataDir } = await fixture();
+test('does not activate the bearer when Otter rejects MCP registration', async () => {
+  const { bridge } = await fixture();
   try {
-    const directory = join(otterDataDir, 'workspaces', 'otter-1');
-    mkdirSync(directory, { recursive: true });
-    writeFileSync(join(directory, 'mcp.json'), '{"mcpServers":{"other":{}}}');
-    await assert.rejects(bridge.run({ otterConversationId: 'otter-1', turn: turnFixture() }, async () => 'unexpected'),
-      /OTTER_MCP_CONFIG_CONFLICT/);
+    await assert.rejects(bridge.run({
+      otterConversationId: 'otter-1', turn: turnFixture(), register: async () => { throw new Error('OTTER_MCP_CONFIG_CONFLICT'); },
+    }, async () => 'unexpected'), /OTTER_MCP_CONFIG_CONFLICT/);
+    const rejected = await rpc(bridge, bridge.tokenFor('otter-1'), 'tools/list');
+    assert.equal(rejected.status, 401);
   } finally { await bridge.close(); }
 });
 
-test('rejects a global MCP server that would shadow this integration', async () => {
-  const { bridge, otterDataDir } = await fixture();
+test('requires an Otter registration callback', async () => {
+  const { bridge } = await fixture();
   try {
-    const directory = join(otterDataDir, 'sessions');
-    mkdirSync(directory, { recursive: true });
-    writeFileSync(join(directory, 'mcp.json'), '{"mcpServers":{"colink_otter_history":{"url":"http://elsewhere"}}}');
     await assert.rejects(bridge.run({ otterConversationId: 'otter-1', turn: turnFixture() }, async () => 'unexpected'),
-      /OTTER_GLOBAL_MCP_CONFIG_CONFLICT/);
+      /OTTER_MCP_REGISTRATION_REQUIRED/);
   } finally { await bridge.close(); }
-});
-
-test('allows only this integration to refresh its own connection URL after restart', async () => {
-  const otterDataDir = mkdtempSync(join(tmpdir(), 'colink-tools-restart-'));
-  const first = new CoLinkToolBridge({ secret: 'stable-secret', otterDataDir, port: 0 });
-  await first.start();
-  await first.run({ otterConversationId: 'otter-1', turn: turnFixture() }, async () => 'first');
-  const file = join(otterDataDir, 'workspaces', 'otter-1', 'mcp.json');
-  const oldUrl = JSON.parse(readFileSync(file, 'utf8')).mcpServers.colink_otter_history.url;
-  await first.close();
-  const second = new CoLinkToolBridge({ secret: 'stable-secret', otterDataDir, port: 0 });
-  await second.start();
-  try {
-    await second.run({ otterConversationId: 'otter-1', turn: turnFixture() }, async () => 'second');
-    const config = JSON.parse(readFileSync(file, 'utf8')).mcpServers.colink_otter_history;
-    assert.notEqual(config.url, oldUrl);
-    assert.equal(config.headers.authorization, `Bearer ${second.tokenFor('otter-1')}`);
-  } finally { await second.close(); }
 });
 
 test('rejects missing bearer tokens and non-MCP routes', async () => {

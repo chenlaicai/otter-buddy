@@ -220,6 +220,7 @@ function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
     app.get("/api/conversations/:id/workspace", (ctx) => c.workspace!.listDir(ctx));
     app.get("/api/conversations/:id/workspace/stats", (ctx) => c.workspace!.getStats(ctx));
     app.get("/api/conversations/:id/workspace/file", (ctx) => c.workspace!.readFile(ctx));
+    app.put("/api/conversations/:id/workspace/mcp-colink", (ctx) => c.workspace!.writeCoLinkMcp(ctx));
     app.post("/api/conversations/:id/workspace/reveal", (ctx) => c.workspace!.reveal(ctx));
   }
 

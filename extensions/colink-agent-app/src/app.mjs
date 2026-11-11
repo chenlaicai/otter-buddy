@@ -7,8 +7,7 @@ import { createMentionHandler } from './mention-handler.mjs';
 import { CoLinkToolBridge } from './colink-tools.mjs';
 
 const required = ['COLINK_APP_ID', 'COLINK_APP_INSTANCE_ID', 'COLINK_CLIENT_ID', 'COLINK_CLIENT_SECRET',
-  'COLINK_SIGNING_SECRET', 'COLINK_ISSUER', 'COLINK_API_BASE', 'COLINK_CREDENTIAL_KEY', 'COLINK_ALLOWED_USER_IDS',
-  'OTTER_DATA_DIR'];
+  'COLINK_SIGNING_SECRET', 'COLINK_ISSUER', 'COLINK_API_BASE', 'COLINK_CREDENTIAL_KEY', 'COLINK_ALLOWED_USER_IDS'];
 for (const name of required) {
   if (!process.env[name]) throw new Error(`${name} is required`);
 }
@@ -32,7 +31,6 @@ const store = openEncryptedStore(resolve(dataDir, 'colink-state.enc'), process.e
   { aad: process.env.COLINK_STORE_AAD ?? config.appInstanceId });
 const toolBridge = new CoLinkToolBridge({
   secret: process.env.COLINK_CREDENTIAL_KEY,
-  otterDataDir: process.env.OTTER_DATA_DIR,
   port: Number(process.env.COLINK_MCP_PORT ?? 31_131),
 });
 await toolBridge.start();
