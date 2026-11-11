@@ -2176,13 +2176,14 @@ export class AgentInvoker implements AgentTurnPort {
       conversationId: string;
       userMessageContent: string;
       senderId: string;
+      externalProfile?: 'restricted';
       onSSEEvent?: (event: SSEEvent) => void;
       retryCount?: number;
       manualRetry?: boolean;
     },
     emitEvent: (event: SSEEvent) => void,
   ): Promise<AgentTurnResult | null> {
-    if (params.senderId.startsWith('external:')) return null;
+    if (params.externalProfile) return null;
     const circuitRetried = await this.handleCircuitBreakSignal(turnResult, params, emitEvent);
     if (circuitRetried) return circuitRetried;
     if (!turnResult._contentFilter) return null;
@@ -2197,6 +2198,7 @@ export class AgentInvoker implements AgentTurnPort {
       conversationId: string;
       userMessageContent: string;
       senderId: string;
+      externalProfile?: 'restricted';
       onSSEEvent?: (event: SSEEvent) => void;
       retryCount?: number;
       manualRetry?: boolean;

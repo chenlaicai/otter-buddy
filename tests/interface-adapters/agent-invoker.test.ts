@@ -11,7 +11,7 @@
  * - SSE 契约：只发 entry.* / invoke.*（无 message.*）
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import type { SdkInvokePort, AgentStreamEvent, InvokeOptions } from "@usecases/ports/sdk-invoke-port";
 import type { QueryMessage } from "@usecases/conversation/query-message";
@@ -141,6 +141,29 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
       senderId: "external:alice", onSSEEvent: () => {},
     })).rejects.toThrow(/requires a persisted external source/);
     expect(sdkCalls).toBe(0);
+  });
+
+  it.each([
+    ["熔断", { _circuitBreak: {} }],
+    ["content-filter", { _contentFilter: {} }],
+  ])("非前缀 restricted 注入%s信号时不进入普通恢复编排", async (_name, signal) => {
+    const invoker = makeInvoker(mockAgentInvoke({}), mockSendEntry());
+    const internals = invoker as unknown as {
+      handleAutomaticRecoverySignals: (...args: unknown[]) => Promise<unknown>;
+      handleCircuitBreakSignal: ReturnType<typeof vi.fn>;
+      handleContentFilterSignal: ReturnType<typeof vi.fn>;
+    };
+    internals.handleCircuitBreakSignal = vi.fn();
+    internals.handleContentFilterSignal = vi.fn();
+
+    const result = await internals.handleAutomaticRecoverySignals(signal, {
+      otterId: "otter-1", conversationId: "conv-external", userMessageContent: "Hi",
+      senderId: "alice", externalProfile: "restricted",
+    }, () => {});
+
+    expect(result).toBeNull();
+    expect(internals.handleCircuitBreakSignal).not.toHaveBeenCalled();
+    expect(internals.handleContentFilterSignal).not.toHaveBeenCalled();
   });
 
   /** F20260914rtsp AT-4/AT-11：message_end usage → invoke.tick 发射与降级 */

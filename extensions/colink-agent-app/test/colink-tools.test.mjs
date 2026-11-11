@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { McpClient, StreamableHttpTransport } from '@earendil-works/pi-mcp';
 import { CoLinkToolBridge, buildCoLinkPrompt, isBareMention } from '../src/colink-tools.mjs';
 
 const publicTools = [
@@ -86,6 +87,31 @@ test('registers an isolated direct MCP config through Otter and exposes only aut
     assert.equal(streaming.status, 405);
     const expired = await rpc(bridge, bridge.tokenFor('otter-1'), 'tools/list');
     assert.equal(expired.status, 401);
+  } finally { await bridge.close(); }
+});
+
+test('interoperates with the real MCP Streamable HTTP client', async () => {
+  const { bridge } = await fixture();
+  const registrations = [];
+  try {
+    const turn = turnFixture();
+    await bridge.run({
+      otterConversationId: 'otter-http-client', turn,
+      register: async config => registrations.push(config),
+    }, async () => {
+      const server = registrations[0].mcpServers.colink_otter_history;
+      const client = new McpClient({ name: 'colink-app-contract-test', version: '1.0.0' });
+      await client.connect(new StreamableHttpTransport({ url: server.url, headers: server.headers }));
+      try {
+        assert.deepEqual((await client.listTools()).map(tool => tool.name), publicTools.slice(0, 4).map(tool => tool.name));
+        const result = await client.callTool('colink_read_public_channel', {
+          channelId: 'channel-1', beforeMessageId: 'topic-1',
+        });
+        assert.equal(result.structuredContent.items[0].text, '历史');
+      } finally { await client.close(); }
+      return 'done';
+    });
+    assert.equal(turn.calls.length, 1);
   } finally { await bridge.close(); }
 });
 
