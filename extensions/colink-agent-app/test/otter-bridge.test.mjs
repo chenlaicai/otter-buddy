@@ -22,6 +22,8 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
     aborts: [],
     mcpConfigs: [],
     answer: '最终回答',
+    pauseInvokeCreation: false,
+    includeTriggerHeader: true,
   };
   const finish = () => {
     const invoke = state.invokes.at(-1);
@@ -30,7 +32,7 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
     invoke.talkingStonePassedTo = ['user'];
     invoke.endedAt = new Date().toISOString();
     state.entries.push({ id: `speak-${state.invokes.length}`, entryType: 'speak', body: state.answer,
-      sequenceNum: 100 + state.invokes.length, createdAt: new Date().toISOString() });
+      invokeId: invoke.id, sequenceNum: 100 + state.invokes.length, createdAt: new Date().toISOString() });
   };
   const fetcher = async (url, options = {}) => {
     const path = new URL(url).pathname;
@@ -58,15 +60,21 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
       const now = new Date().toISOString();
       const sequenceNum = state.messages.length * 10 + 1;
       state.messages.push(body);
-      state.entries.push({ id: `user-${sequenceNum}`, entryType: 'user', senderId: body.senderId,
+      const triggerEntryId = `user-${sequenceNum}`;
+      state.entries.push({ id: triggerEntryId, entryType: 'user', senderId: body.senderId,
         body: body.body, sequenceNum, createdAt: now });
-      state.invokes.push({ id: `invoke-${state.messages.length}`, status: 'running', startedAt: now,
-        endedAt: null, talkingStonePassedTo: [] });
+      if (!state.pauseInvokeCreation) {
+        state.invokes.push({ id: `invoke-${state.messages.length}`, status: 'running', startedAt: now,
+          triggerEntryId, endedAt: null, talkingStonePassedTo: [] });
+      }
       if (autoComplete && state.completeAfterPolls === 0) finish();
       return new Response(new ReadableStream({
         start(controller) { controller.enqueue(new TextEncoder().encode('event: stream.end\ndata: {}\n\n')); },
         cancel() { state.cancelled++; },
-      }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      }), { status: 200, headers: {
+        'content-type': 'text/event-stream',
+        ...(state.includeTriggerHeader ? { 'x-otter-trigger-entry-id': triggerEntryId } : {}),
+      } });
     }
     if (path.endsWith('/entries')) {
       state.polls++;
@@ -91,6 +99,33 @@ test('maps a DM to one single-otter conversation, reuses it, and returns only fi
   assert.equal(state.messages.length, 2);
   assert.equal(store.values.size, 1);
   assert.equal(state.cancelled, 2);
+});
+
+test('does not reuse an old answer for identical text while the new invoke is delayed', async () => {
+  const { state, fetcher, finish } = fixture();
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1 });
+  assert.equal(await bridge.reply(input), '最终回答');
+
+  state.answer = '本轮新回答';
+  state.pauseInvokeCreation = true;
+  let settled = false;
+  const second = bridge.reply(input).then(answer => { settled = true; return answer; });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(settled, false, '新 invoke 尚未创建时不得返回上一轮旧回答');
+
+  const triggerEntryId = state.entries.filter(entry => entry.entryType === 'user').at(-1).id;
+  state.invokes.push({ id: 'invoke-2', status: 'running', startedAt: new Date().toISOString(),
+    triggerEntryId, endedAt: null, talkingStonePassedTo: [] });
+  finish();
+  assert.equal(await second, '本轮新回答');
+  assert.equal(state.invokes.length, 2);
+});
+
+test('fails closed when the core response omits the exact trigger entry id', async () => {
+  const { state, fetcher } = fixture();
+  state.includeTriggerHeader = false;
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1 });
+  await assert.rejects(bridge.reply(input), /OTTER_TRIGGER_ENTRY_MISSING/);
 });
 
 test('binds the active CoLink turn to MCP before dispatching the wrapped Otter message', async () => {
@@ -165,11 +200,11 @@ test('does not wait for the SSE stream or intermediate polls after a persistent 
   const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1 });
   const pending = bridge.reply(input);
   await new Promise(resolve => setTimeout(resolve, 10));
-  state.entries.push({ id: 'progress', entryType: 'speak', body: '正在处理', sequenceNum: 2, createdAt: new Date().toISOString() });
+  state.entries.push({ id: 'progress', entryType: 'speak', body: '正在处理', invokeId: 'invoke-1', sequenceNum: 2, createdAt: new Date().toISOString() });
   state.answer = '蓝鲸\n\n<healing>[no_issue]</healing>';
   state.invokes[0].status = 'completed';
   state.invokes[0].talkingStonePassedTo = ['user'];
-  state.entries.push({ id: 'final', entryType: 'speak', body: state.answer, sequenceNum: 3, createdAt: new Date().toISOString() });
+  state.entries.push({ id: 'final', entryType: 'speak', body: state.answer, invokeId: 'invoke-1', sequenceNum: 3, createdAt: new Date().toISOString() });
   assert.equal(await pending, '蓝鲸');
   assert.equal(state.cancelled, 1);
 });
@@ -182,11 +217,12 @@ test('waits for a yielded invoke chain instead of treating the first completed i
   const now = new Date().toISOString();
   state.invokes[0].status = 'completed';
   state.invokes[0].talkingStonePassedTo = ['another-otter'];
-  state.invokes.push({ id: 'invoke-next', status: 'running', startedAt: now, endedAt: null, talkingStonePassedTo: [] });
+  state.invokes.push({ id: 'invoke-next', status: 'running', startedAt: now,
+    triggerEntryId: state.invokes[0].triggerEntryId, endedAt: null, talkingStonePassedTo: [] });
   await new Promise(resolve => setTimeout(resolve, 10));
   state.invokes[1].status = 'completed';
   state.invokes[1].talkingStonePassedTo = ['user'];
-  state.entries.push({ id: 'final', entryType: 'speak', body: '链条最终回答', sequenceNum: 2, createdAt: now });
+  state.entries.push({ id: 'final', entryType: 'speak', body: '链条最终回答', invokeId: 'invoke-next', sequenceNum: 2, createdAt: now });
   assert.equal(await pending, '链条最终回答');
 });
 

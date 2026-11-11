@@ -132,6 +132,7 @@ interface Harness {
     userEntryCreatedAt?: string;
     userYieldTargets?: string[] | null;
     withPending?: boolean;
+    restricted?: boolean;
   }): Promise<string>;
   queueStatus(invokeId: string): string | undefined;
   buildService(
@@ -167,9 +168,10 @@ function makeHarness(): Harness {
         VALUES (?, 'conv-1', (SELECT COALESCE(MAX(sequence_num), 0) + 1 FROM entries WHERE conversation_id = 'conv-1'), 'user', 'user', 'chen', '开工', NULL, ?, 'completed', '搭档', ?, ?)
       `).run(userEntryId, opts.userYieldTargets === null ? null : JSON.stringify(opts.userYieldTargets ?? [otterId]), createdAt, createdAt);
       db.prepare(`
-        INSERT INTO invokes (id, conversation_id, otter_id, status, trigger_entry_id, started_at)
-        VALUES (?, 'conv-1', ?, 'running', ?, ?)
-      `).run(invokeId, otterId, userEntryId, createdAt);
+        INSERT INTO invokes (id, conversation_id, otter_id, status, trigger_entry_id, started_at, metadata)
+        VALUES (?, 'conv-1', ?, 'running', ?, ?, ?)
+      `).run(invokeId, otterId, userEntryId, createdAt,
+        opts.restricted ? JSON.stringify({ externalProfile: 'restricted' }) : null);
       if (opts.withPending !== false) {
         db.prepare(`
           INSERT INTO restart_pending_resumes (invoke_id, conversation_id, otter_id, trigger_entry_id, status, attempts, created_at)
@@ -237,6 +239,18 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
     expect(h.queueStatus(invokeId)).toBe("done");
     // F20260906rsts 沿用：成功路径静默——零系统消息
     expect(h.systemEntries).toHaveLength(0);
+  });
+
+  it("升级前已入队的 restricted 外部 invoke：消费侧仍禁止恢复", async () => {
+    const invokeId = await h.seedInterrupted({ restricted: true });
+    const chain = stubChainEngine();
+
+    await h.buildService(chain).resume();
+
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(invokeId)).toBe("exhausted");
+    expect(h.systemEntries).toHaveLength(1);
+    expect(h.systemEntries[0]!.body).toContain("不会自动恢复");
   });
 
   it("獭已恢复（中断后有新 invoke）：跳过 + exhausted 静默（F20260917rscr 三点裁决③）", async () => {

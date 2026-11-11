@@ -106,7 +106,7 @@ function makeInvoker(
 
 // eslint-disable-next-line max-lines-per-function -- describe 聚合多特性用例（rtsp tick + evdz 广播），拆 describe 反而割裂
 describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () => {
-  it("CoLink 不读取普通会话摘要或借用式档案，实际 SDK 输入不带 dynamicContext", async () => {
+  it("restricted 外部档不读取普通会话摘要或借用式档案，sender 无需厂商前缀", async () => {
     let sessionReads = 0;
     let captured: InvokeOptions | undefined;
     const manageSession = mockManageSession({
@@ -124,12 +124,23 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
     const invoker = makeInvoker(sdk, mockSendEntry(), { manageSession });
     await invoker.invokeConversation({
       otterId: "otter-1", conversationId: "conv-colink", userMessageContent: "总结之前讨论",
-      senderId: "external:external-user", onSSEEvent: () => {},
+      senderId: "alice", externalProfile: "restricted", onSSEEvent: () => {},
     }).catch(() => null);
 
     expect(captured?.externalProfile).toBe("restricted");
     expect(captured?.dynamicContext).toEqual({});
     expect(sessionReads).toBe(0);
+  });
+
+  it("外部前缀缺少显式 restricted 档时 fail-closed，不调用 SDK", async () => {
+    let sdkCalls = 0;
+    const sdk = mockAgentInvoke({ invokeImpl: async () => { sdkCalls++; return { text: "must not run" }; } });
+    const invoker = makeInvoker(sdk, mockSendEntry());
+    await expect(invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-external", userMessageContent: "Hi",
+      senderId: "external:alice", onSSEEvent: () => {},
+    })).rejects.toThrow(/requires a persisted external source/);
+    expect(sdkCalls).toBe(0);
   });
 
   /** F20260914rtsp AT-4/AT-11：message_end usage → invoke.tick 发射与降级 */
@@ -175,6 +186,23 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
 
     // 水位应被最后一个 message_end 的 usage 更新（240150 > 240000 阈值）
     expect(invoker["handoffState"].getLastCtxTokens("otter-1")).toBe(240150);
+  });
+
+  it("restricted 外部 message_end 不污染普通 Otter 的共享水位", async () => {
+    const invoker = makeInvoker(mockAgentInvoke({
+      events: [
+        { type: "message_end", message: { role: "assistant", usage: { input: 100, output: 50, cacheRead: 900000, cacheWrite: 0, totalTokens: 900150 } } } as AgentStreamEvent,
+      ],
+      result: { text: "", tokenUsage: { input: 100, output: 50 } },
+    }), mockSendEntry());
+    invoker["handoffState"].setLastCtxTokens("otter-1", 12345);
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-external", userMessageContent: "Hi",
+      senderId: "alice", externalProfile: "restricted", onSSEEvent: () => {},
+    }).catch(() => null);
+
+    expect(invoker["handoffState"].getLastCtxTokens("otter-1")).toBe(12345);
   });
 
   /** F20261014wtrm：无 message_end（invoke 直接失败）→ 水位不更新（保持 undefined）

@@ -174,9 +174,10 @@ export class OtterBridge {
     // Why: POST SSE 只是通知且 30 秒会关闭；断开不会中止后台 Agent。
     // 主动取消通知流，最终答案只以持久 entries/invokes 为准，避免终态后仍白等 SSE。
     await response.body?.cancel().catch(() => {});
+    const triggerEntryId = response.headers.get('x-otter-trigger-entry-id');
+    if (!triggerEntryId) throw new Error('OTTER_TRIGGER_ENTRY_MISSING');
 
     const deadline = startedAt + this.timeoutMs;
-    let trigger;
     let previousFingerprint = '';
     let stablePolls = 0;
     while (Date.now() < deadline) {
@@ -186,20 +187,23 @@ export class OtterBridge {
         this.request(`/api/conversations/${otterConversationId}/invokes?limit=200`, {}, signal),
       ]);
       const [{ entries }, { invokes }] = await Promise.all([entriesResponse.json(), invokesResponse.json()]);
-      trigger ??= entries.find(entry => entry.entryType === 'user' && entry.senderId === `external:${actorId}`
-        && entry.body === text && Date.parse(entry.createdAt) >= startedAt - 1_000);
+      const trigger = entries.find(entry => entry.id === triggerEntryId && entry.entryType === 'user');
+      if (trigger && (trigger.senderId !== `external:${actorId}` || trigger.body !== text)) {
+        throw new Error('OTTER_TRIGGER_ENTRY_MISMATCH');
+      }
       if (trigger) {
-        const chainEntries = entries.filter(entry => entry.sequenceNum > trigger.sequenceNum);
-        const chainInvokes = invokes.filter(invoke => Date.parse(invoke.startedAt) >= Date.parse(trigger.createdAt) - 1_000);
+        // 轮次身份只认 POST 返回的 entry id 与持久化 invoke.triggerEntryId；相同正文/相近时间不构成身份。
+        const chainInvokes = invokes.filter(invoke => invoke.triggerEntryId === trigger.id);
+        const chainInvokeIds = new Set(chainInvokes.map(invoke => invoke.id));
         const running = chainInvokes.some(invoke => !TERMINAL.has(invoke.status));
         const failed = chainInvokes.some(invoke => invoke.status === 'failed' || invoke.status === 'aborted');
         const latestInvoke = chainInvokes[0];
         const waitingForOtter = latestInvoke?.talkingStonePassedTo?.some(target => target && target !== 'user');
-        const speaks = chainEntries.filter(entry => entry.entryType === 'speak' && entry.body);
+        const speaks = entries.filter(entry => entry.entryType === 'speak' && entry.body && chainInvokeIds.has(entry.invokeId));
         const fingerprint = JSON.stringify({
           running, waitingForOtter,
           invokes: chainInvokes.map(invoke => [invoke.id, invoke.status]),
-          entries: chainEntries.map(entry => [entry.id, entry.entryType]),
+          entries: speaks.map(entry => [entry.id, entry.invokeId]),
         });
         stablePolls = fingerprint === previousFingerprint ? stablePolls + 1 : 0;
         previousFingerprint = fingerprint;

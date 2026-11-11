@@ -62,10 +62,10 @@ function makeDeps(overrides?: {
   const queryOtter = {
     getById: vi.fn(async (id: string) => ({ id, status: "active" })),
   } as unknown as QueryOtter;
-  const chainCalls: Array<{ initialTargets: string[]; triggerMessageId?: string }> = [];
+  const chainCalls: Array<{ initialTargets: string[]; triggerMessageId?: string; externalProfile?: "restricted" }> = [];
   const dispatchChainEngine = {
-    executeChain: vi.fn(async (params: { initialTargets: string[]; triggerMessageId?: string }) => {
-      chainCalls.push({ initialTargets: params.initialTargets, triggerMessageId: params.triggerMessageId });
+    executeChain: vi.fn(async (params: { initialTargets: string[]; triggerMessageId?: string; externalProfile?: "restricted" }) => {
+      chainCalls.push({ initialTargets: params.initialTargets, triggerMessageId: params.triggerMessageId, externalProfile: params.externalProfile });
       return {};
     }),
   } as unknown as DispatchChainEngine;
@@ -97,6 +97,23 @@ describe("SignalRouter 数据源（F20260913ctlv 彻底切换补漏）", () => {
     expect(chainCalls).toHaveLength(1);
     expect(chainCalls[0]!.initialTargets).toEqual(["otter-big"]);
     expect(chainCalls[0]!.triggerMessageId).toBe("entry-u1");
+  });
+
+  it("external entry 显式传递 restricted 档，且不注入普通热池", async () => {
+    const entry = createEntry({
+      senderId: "alice", source: "external", yieldTargets: ["otter-big"],
+    });
+    const steerSession = vi.fn(async () => true);
+    const { router, chainCalls } = makeDeps({
+      entryRepo: { getEntryById: vi.fn(async () => entry) },
+      factory: { isRunning: () => true, steerSession },
+    });
+
+    const results = await router.routeSignals("conv-1", { triggerMessageId: "entry-u1" });
+
+    expect(results[0]!.action).toBe("invoked");
+    expect(chainCalls[0]!.externalProfile).toBe("restricted");
+    expect(steerSession).not.toHaveBeenCalled();
   });
 
   it("system entry 信号（scheduler 内部信号，收尾批2 切 entries）：yieldTargets → 点火", async () => {

@@ -7,9 +7,6 @@ import { WorkspaceController } from '@interface-adapters/http/controllers/worksp
 import { ManageWorkspace } from '@usecases/conversation/manage-workspace';
 import { NodeWorkspaceGateway } from '@frameworks/file-system/node-workspace-gateway';
 import { createTestLogger } from '../../helpers/logger';
-import { McpClient, StreamableHttpTransport } from '@earendil-works/pi-mcp';
-// @ts-expect-error 独立 Node MJS 扩展没有 d.ts；本测试验证其真实运行时接线。
-import { CoLinkToolBridge } from '../../../extensions/colink-agent-app/src/colink-tools.mjs';
 
 const CONVERSATION_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 const TOKEN = `Bearer ${'a'.repeat(43)}`;
@@ -67,42 +64,6 @@ describe('PUT workspace/mcp-external', () => {
     expect(JSON.parse(await fs.readFile(file, 'utf8'))).toEqual(config());
     await fs.writeFile(file, JSON.stringify({ mcpServers: { other: {} } }));
     expect((await put(config())).status).toBe(409);
-  });
-
-  it('connects App registration, Otter-owned file persistence and a real MCP client', async () => {
-    const bridge = new CoLinkToolBridge({ secret: 'integration-secret', port: 0 });
-    await bridge.start();
-    const calls: Array<{ name: string; args: unknown }> = [];
-    const turn = {
-      input: { reason: 'mention', text: '读取背景', messageId: 'topic-1', replyToMessageId: null,
-        channelId: 'channel-1', topicId: 'topic-1', conversationId: null },
-      context: { userId: 'user-1', installationId: 'installation-1', channelId: 'channel-1', topicId: 'topic-1', conversationId: null },
-      event: { actor: { id: 'user-1' } },
-      tools: {
-        list: async () => [{ name: 'colink_read_public_channel', inputSchema: { type: 'object' } }],
-        call: async (name: string, args: unknown) => {
-          calls.push({ name, args });
-          const value = { items: [{ id: 'm1', text: '频道背景' }] };
-          return { content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value };
-        },
-      },
-      topic: { readPrivate: async () => { throw new Error('unexpected'); } },
-    };
-    try {
-      await bridge.run({ otterConversationId: CONVERSATION_ID, turn, register: async (value: unknown) => {
-        expect((await put(value)).status).toBe(200);
-      } }, async () => {
-        const file = path.join(tmpDir, 'workspaces', CONVERSATION_ID, 'mcp.json');
-        const saved = JSON.parse(await fs.readFile(file, 'utf8')).mcpServers.colink_otter_history;
-        const client = new McpClient({ name: 'workspace-mcp-integration', version: '1.0.0' });
-        await client.connect(new StreamableHttpTransport({ url: saved.url, headers: saved.headers }));
-        expect((await client.listTools()).map(tool => tool.name)).toEqual(['colink_read_public_channel']);
-        const result = await client.callTool('colink_read_public_channel', { channelId: 'channel-1', beforeMessageId: 'topic-1' });
-        expect(result.structuredContent).toEqual({ items: [{ id: 'm1', text: '频道背景' }] });
-        await client.close();
-      });
-      expect(calls).toEqual([{ name: 'colink_read_public_channel', args: { channelId: 'channel-1', beforeMessageId: 'topic-1' } }]);
-    } finally { await bridge.close(); }
   });
 
   it('rejects a global server that would shadow this integration', async () => {

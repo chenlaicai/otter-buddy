@@ -16,6 +16,7 @@
     "lint:docs": "node scripts/lint-docs.mjs",
     "pretest": "npm run lint",
     "test": "vitest run",
+    "test:extensions": "node --test --test-timeout=10000 extensions/*/test/*.test.mjs",
     "test:script-arg-parse": "bash tests/scripts/script-arg-parse.test.sh",
     "test:port-identity": "bash tests/scripts/port-identity.test.sh",
     "test:otterbar-probe": "bash tests/scripts/otterbar-offline-probe.test.sh",

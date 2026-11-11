@@ -106,6 +106,12 @@ export class InvokeController {
       if (!invoke) {
         return c.json({ error: "invoke not found" }, 404);
       }
+      if (invoke.metadata?.externalProfile === 'restricted') {
+        return c.json({
+          error: 'restricted external invokes cannot be retried; send a new external event',
+          code: 'external_invoke_retry_unsupported',
+        }, 409);
+      }
       if (invoke.status === "completed") {
         return c.json({ error: `invoke is not in a retryable status: ${invoke.status}` }, 409);
       }
@@ -146,6 +152,12 @@ export class InvokeController {
       const latest = recent[0];
       if (!latest) {
         return c.json({ error: "no invoke found for this otter" }, 404);
+      }
+      if (latest.metadata?.externalProfile === 'restricted') {
+        return c.json({
+          error: 'restricted external invokes cannot be retried; send a new external event',
+          code: 'external_invoke_retry_unsupported',
+        }, 409);
       }
       // ①库行 running → 明确在跑 → 判重拒绝（F20261020ided）
       if (latest.status === "running") {

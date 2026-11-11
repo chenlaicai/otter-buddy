@@ -304,6 +304,8 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string;
     userMessageContent: string;
     senderId: string;
+    /** 来自持久化触发 entry.source 的安全档；senderId 前缀不是激活凭据。 */
+    externalProfile?: 'restricted';
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
     /** F20260814mtrc：Web 手动重试标识（retry label 区分 manual/auto） */
@@ -383,6 +385,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string;
     userMessageContent: string;
     senderId: string;
+    externalProfile?: 'restricted';
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
     manualRetry?: boolean;
@@ -391,8 +394,11 @@ export class AgentInvoker implements AgentTurnPort {
     triggerMessageId?: string;
     assignmentRole?: "reviewer";
   }): Promise<AgentTurnResult> {
-    const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId } = params;
-    const externalProfile = params.senderId.startsWith('external:') ? 'restricted' as const : undefined;
+    const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId, externalProfile } = params;
+    // fail-closed：外部身份命名不能替代持久化 source → profile 契约，失配时拒绝而非降级全工具。
+    if (!externalProfile && params.senderId.startsWith('external:')) {
+      throw new DomainError('external sender requires a persisted external source and restricted profile', 'validation');
+    }
     const startTime = Date.now();
 
     // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent
@@ -858,7 +864,7 @@ export class AgentInvoker implements AgentTurnPort {
     input: { invokeId: string },
     otterId: string,
     emitEvent: (event: SSEEvent) => void,
-    opts: { otterName?: string; otterType?: string; otterColor?: string | null; currentInvokeId: string },
+    opts: { otterName?: string; otterType?: string; otterColor?: string | null; currentInvokeId: string; externalProfile?: 'restricted' },
     toolStarts: Map<string, number>,
     toolCallCountBox: { count: number },
     onEvent: (e: AgentStreamEvent) => void,
@@ -916,7 +922,10 @@ export class AgentInvoker implements AgentTurnPort {
     this.persistInvokeEvent(e, opts.currentInvokeId, { otterId, conversationId });
     // F20260914rtsp：message_end → invoke.tick（ctx 窗口占用快照 + 工具计数，右栏实时化）
     if (e.type === "message_end") {
-      this.emitInvokeTick(e, { otterId, conversationId, invokeId: opts.currentInvokeId, toolCallCount: toolCallCountBox.count }, emitEvent);
+      this.emitInvokeTick(e, {
+        otterId, conversationId, invokeId: opts.currentInvokeId,
+        toolCallCount: toolCallCountBox.count, externalProfile: opts.externalProfile,
+      }, emitEvent);
     }
     // 传递事件给 orchestrator
     onEvent(e);
@@ -930,7 +939,7 @@ export class AgentInvoker implements AgentTurnPort {
    *  invoke 恰好不留水位证据 → 满 buffer 獭交接永不触发、反复被触发反复 400（《主目录污染》僵尸死循环）。 */
   private emitInvokeTick(
     e: AgentStreamEvent,
-    ctx: { otterId: string; conversationId?: string; invokeId: string; toolCallCount: number },
+    ctx: { otterId: string; conversationId?: string; invokeId: string; toolCallCount: number; externalProfile?: 'restricted' },
     emitEvent: (event: SSEEvent) => void,
   ): void {
     const usage = extractMessageEndUsage(e);
@@ -938,7 +947,8 @@ export class AgentInvoker implements AgentTurnPort {
     const ctxWindowUsed = usage.totalTokens ?? (usage.input + usage.output + usage.cacheRead + usage.cacheWrite);
     if (!Number.isFinite(ctxWindowUsed) || ctxWindowUsed <= 0) return;
     // F20261014wtrm：每轮流式返回即更新交接水位——不等 invoke 收尾（收尾路径在失败时不会执行）
-    this.handoffState.setLastCtxTokens(ctx.otterId, ctxWindowUsed);
+    // 外部 durable 与普通 Otter 水位分属不同生命周期；实时事件也不能污染共享 otterId 状态。
+    if (!ctx.externalProfile) this.handoffState.setLastCtxTokens(ctx.otterId, ctxWindowUsed);
     const ctxMax = this.getCtxMax(ctx.otterId);
     if (ctx.conversationId) {
       emitEvent({ event: "invoke.tick", data: { invokeId: ctx.invokeId, otterId: ctx.otterId, conversationId: ctx.conversationId, ctxWindowUsed, ctxMax, toolCallCount: ctx.toolCallCount } });

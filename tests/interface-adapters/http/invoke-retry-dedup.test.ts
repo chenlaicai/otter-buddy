@@ -167,6 +167,34 @@ describe("F20261020ided retryByOtter 判重去重", () => {
   });
 });
 
+describe("restricted 外部 invoke retry 禁止", () => {
+  it("retryByOtter 返回明确 409，不触达普通调度链", async () => {
+    const restricted = makeInvoke({ metadata: { externalProfile: "restricted" } });
+    const agentInvoker = { isRunning: vi.fn().mockReturnValue(false), invokeConversation: vi.fn() };
+    const dispatchChainEngine = { executeChain: vi.fn() };
+    const controller = new InvokeController(makeRepo(restricted), logger, agentInvoker as never, dispatchChainEngine as never);
+    const c = makeContext();
+
+    await controller.retryByOtter(c as never);
+
+    expect(c.json.mock.calls.some(([body]) => (body as { code?: string }).code === "external_invoke_retry_unsupported")).toBe(true);
+    expect(dispatchChainEngine.executeChain).not.toHaveBeenCalled();
+  });
+
+  it("按 invoke retry 返回明确 409，不触达普通调度链", async () => {
+    const restricted = makeInvoke({ metadata: { externalProfile: "restricted" } });
+    const agentInvoker = { isRunning: vi.fn().mockReturnValue(false), invokeConversation: vi.fn() };
+    const dispatchChainEngine = { executeChain: vi.fn() };
+    const controller = new InvokeController(makeRepo(restricted), logger, agentInvoker as never, dispatchChainEngine as never);
+    const c = makeContext();
+
+    await controller.retry(c as never);
+
+    expect(c.json.mock.calls.some(([body]) => (body as { code?: string }).code === "external_invoke_retry_unsupported")).toBe(true);
+    expect(dispatchChainEngine.executeChain).not.toHaveBeenCalled();
+  });
+});
+
 describe("F20261027cnsv 通用 invoke retry 同口径判重", () => {
   function makeTargeted(latest: Invoke, sdkRunning: boolean) {
     const agentInvoker = { isRunning: vi.fn().mockReturnValue(sdkRunning), invokeConversation: vi.fn() };

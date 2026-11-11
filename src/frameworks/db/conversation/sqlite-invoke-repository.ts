@@ -236,6 +236,7 @@ export class SqliteInvokeRepository implements InvokeRepository {
       conversationId: string;
       otterId: string;
       triggerEntryId: string | null;
+      metadata: Record<string, unknown> | null;
     }>
   > {
     // 判据拼装（OR 关系，见 FailRunningInvokesGuard）：清理 = 非本 pid（NULL 亦属旧世界——列引入前存量）
@@ -248,18 +249,20 @@ export class SqliteInvokeRepository implements InvokeRepository {
       params.push(guard.excludePid, guard.beforeTs);
     }
     const rows = this.db.prepare(
-      `UPDATE invokes SET status = 'failed', ended_at = ? ${where} RETURNING id, conversation_id, otter_id, trigger_entry_id`,
+      `UPDATE invokes SET status = 'failed', ended_at = ? ${where} RETURNING id, conversation_id, otter_id, trigger_entry_id, metadata`,
     ).all(failedAt, ...params) as Array<{
       id: string;
       conversation_id: string;
       otter_id: string;
       trigger_entry_id: string | null;
+      metadata: string | null;
     }>;
     return rows.map(row => ({
       id: row.id,
       conversationId: row.conversation_id,
       otterId: row.otter_id,
       triggerEntryId: row.trigger_entry_id,
+      metadata: row.metadata ? JSON.parse(row.metadata) as Record<string, unknown> : null,
     }));
   }
 

@@ -30,7 +30,7 @@ npm start
 
 `DATA_DIR` 保存 SDK 加密状态和外部会话→Conversation 映射，目录应仅服务账号可读写并持久备份。单进程、单副本运行；映射写入采用同目录临时文件加原子重命名，文件权限为 `0600`。
 
-App 通过回环管理接口 `PUT /api/conversations/:id/workspace/mcp-external` 让 **Otter 自己**写入对应 `workspaces/<conversationId>/mcp.json`，文件权限为 `0600`；App 不需要 Otter 数据目录的任何文件系统权限。该接口只接受 `colink_otter_history` 的回环 HTTP 配置，拒绝 command、外部 URL、其他 server 和异常 bearer；已有其他 MCP 配置或全局同名配置时失败关闭，不覆盖。
+App 通过回环管理接口 `PUT /api/conversations/:id/workspace/mcp-external` 让 **Otter 自己**写入对应 `workspaces/<conversationId>/mcp.json`，文件权限为 `0600`；App 不需要 Otter 数据目录的任何文件系统权限。该接口只接受任意名称的单个受限回环 HTTP server，拒绝 command、外部 URL、多个 server 和异常 bearer；已有其他 MCP 配置或全局同名配置时失败关闭，不覆盖。
 
 每个 Conversation 使用独立的 HMAC bearer，仅在该 CoLink 唤醒执行期间映射到 SDK 的 `turn.tools`；事件结束后代理立即失效。MCP 代理只暴露四个历史读取工具，并限制为当前事件的 topicId/channelId；DM 固定读取当前会话，不接受其他 conversationId。代理默认监听 `127.0.0.1:31131`（可用 `COLINK_MCP_PORT` 修改），不得加入公网反向代理或安全组。Server 名为 `colink_otter_history`，若 Otter 全局配置已有同名项会失败关闭，避免被其他工具源遮蔽。
 
@@ -47,8 +47,9 @@ App 通过回环管理接口 `PUT /api/conversations/:id/workspace/mcp-external`
 - CoLink user 与 invoke speak 均不写入全局记忆索引，也不触发裸 URL 后台 unfurl；频道正文、私聊和历史都按不可信输入处理，恶意套话不能获得其他对话、凭据或系统能力。
 - MCP 配置在 Otter Session 创建时加载。首次部署或权限目录变化后，需要重启 Otter 服务以重建已有会话的工具注册；CoLink 凭证本身不随该配置持久化。
 - 同一外部 DM 或频道内的消息串行处理；进程重启后保留映射，不宣称崩溃自动恢复或多副本能力。
-- POST SSE 只作为通知，拿到响应后立即取消；最终回答以持久 `entries/invokes` 为准。
+- POST SSE 只作为通知，拿到响应后立即取消；最终回答以持久 `entries/invokes` 为准。App 从响应头 `x-otter-trigger-entry-id` 获取本轮精确 ID，只接受 `triggerEntryId` 相同的 invoke 及其关联 `speak`，不以正文或时间近似匹配旧轮次。
 - 必须等本轮 invoke/yield 链终态且交还用户，再取最后一个 `speak`；失败、无回答或超时都会让事件失败，不生成假成功文本。
+- restricted invoke 崩溃后保持失败终态，不参与普通重启恢复，也不接受手动 retry；需要恢复时由 CoLink 新事件重新建立当轮授权与 bearer。
 - 输出剥离 HTML 卡片和 healing 块，单条回复上限 60,000 字符。
 - 当前安全档限制 Otter 工具与全局记忆，但不替代 CoLink 安装范围、成员管理和用户私密授权；仍按单进程单副本 PoC 运行，不宣称多副本或完整生产能力。
 
