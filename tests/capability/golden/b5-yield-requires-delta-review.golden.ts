@@ -72,16 +72,26 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
     (m) => m.st === "otter" && m.si === reviewer.id && m.status === "completed",
   );
   if (!reviewMsg) {
-    /** 诊断：检视獭 invoke 状态 + 全部 invoke 事件序列（定位卡点：工具调用/LLM 挂起/报错循环） */
+    /** 诊断：本采样的 invoke 状态 + 事件序列（定位卡点：工具调用/LLM 挂起/报错循环）。
+     *  错误事件以 invoke_events.event_type='error' 标识，详情在 payload.message；invokes 表只有状态与生命周期字段。 */
     const invs = ctx.built.db
-      .prepare("SELECT id, otter_id, status, substr(coalesce(error,''),1,200) AS err FROM invokes ORDER BY created_at")
-      .all() as Array<{ id: string; otter_id: string; status: string; err: string }>;
-    const invSummary = invs.map((i) => `${i.id.slice(0, 8)}/${i.otter_id.slice(0, 8)} ${i.status} ${i.err}`).join(" ; ");
+      .prepare(
+        "SELECT id, otter_id, status, started_at, ended_at, tool_call_count FROM invokes WHERE conversation_id = ? ORDER BY started_at",
+      )
+      .all(convId) as Array<{
+        id: string; otter_id: string; status: string;
+        started_at: string; ended_at: string | null; tool_call_count: number;
+      }>;
+    const invSummary = invs.map(
+      (i) => `${i.id.slice(0, 8)}/${i.otter_id.slice(0, 8)} ${i.status} tools=${i.tool_call_count} started=${i.started_at} ended=${i.ended_at ?? "-"}`,
+    ).join(" ; ");
     const evRows = ctx.built.db
       .prepare(
-        "SELECT invoke_id, event_type, substr(coalesce(payload,''),1,150) AS p FROM invoke_events ORDER BY invoke_id, sequence_num",
+        `SELECT e.invoke_id, e.event_type, substr(e.payload,1,150) AS p
+         FROM invoke_events e JOIN invokes i ON i.id = e.invoke_id
+         WHERE i.conversation_id = ? ORDER BY e.invoke_id, e.sequence_num`,
       )
-      .all() as Array<{ invoke_id: string; event_type: string; p: string }>;
+      .all(convId) as Array<{ invoke_id: string; event_type: string; p: string }>;
     const evSummary = evRows.map((e) => `${e.invoke_id.slice(0, 8)}:${e.event_type}:${e.p.replace(/\n/g, " ")}`).join(" || ");
     return {
       ok: false,
@@ -214,6 +224,8 @@ export const selftest: GoldenModule["selftest"] = async (ctx: CapabilityContext)
       { messages: [userMsg, bigSummonMsg, reviewMsg, disposalBadSkip], expectedOk: false, convId },
       { messages: [userMsg, bigSummonMsg, reviewMsg, disposalBadMixed], expectedOk: false, convId },
       { messages: [userMsg, bigSummonMsg, reviewMsg, disposalBadNoYield], expectedOk: false, convId },
+      // M-a8f8f080：无检视意见时必须返回诊断详情，不能因 invokes schema 漂移中断断言。
+      { messages: [userMsg, bigSummonMsg], expectedOk: false, convId },
     ],
   };
 };
