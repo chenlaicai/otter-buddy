@@ -20,7 +20,7 @@ status: done
 
 ## Implementation
 
-更新 `package.json` 与 `package-lock.json`，保留各包原有版本范围写法；允许 npm 仅解析这些升级必需的传递依赖。
+更新 `package.json` 与 `package-lock.json`，保留各包原有版本范围写法；传递依赖采用 4 个 Dependabot 原始补丁的锁定结果，不额外做全量解析。
 
 ## Evidence
 
