@@ -2,6 +2,8 @@ import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { createCoLinkApp, openEncryptedStore, validateIssuer } from '@colink/app-sdk';
 import { ConversationStore, OtterBridge } from './otter-bridge.mjs';
+import { createManifest } from './manifest.mjs';
+import { createMentionHandler } from './mention-handler.mjs';
 
 const required = ['COLINK_APP_ID', 'COLINK_APP_INSTANCE_ID', 'COLINK_CLIENT_ID', 'COLINK_CLIENT_SECRET',
   'COLINK_SIGNING_SECRET', 'COLINK_ISSUER', 'COLINK_API_BASE', 'COLINK_CREDENTIAL_KEY', 'COLINK_ALLOWED_USER_IDS'];
@@ -23,17 +25,7 @@ const config = {
   turnTimeoutMs: 240_000,
 };
 validateIssuer(config.issuer, process.env.COLINK_ALLOW_INSECURE_ISSUER === 'true');
-const manifest = {
-  manifestVersion: '2.0.0',
-  name: '海獭',
-  description: '由 Otter Buddy 执行的私聊 Agent 验证应用。',
-  version: '0.1.0',
-  tag: 'Agent',
-  agent: {},
-  supportedInstallationScopes: ['personal'],
-  permissions: ['messages:receive', 'messages:write'],
-  events: { path: '/events', schemaVersion: '2.0.0', types: ['app.mentioned'] },
-};
+const manifest = createManifest();
 const store = openEncryptedStore(resolve(dataDir, 'colink-state.enc'), process.env.COLINK_CREDENTIAL_KEY,
   { aad: process.env.COLINK_STORE_AAD ?? config.appInstanceId });
 const bridge = new OtterBridge({
@@ -43,23 +35,7 @@ const bridge = new OtterBridge({
 });
 const app = createCoLinkApp({
   config, store, manifest,
-  onMention: async turn => {
-    if (turn.input.reason !== 'dm_message' || !turn.input.conversationId) {
-      throw new Error('ONLY_DM_MESSAGE_SUPPORTED');
-    }
-    const text = turn.input.text.trim();
-    if (!text) throw new Error('EMPTY_DM_TEXT');
-    const actorId = turn.context.userId;
-    if (!allowedUserIds.has(actorId)) throw new Error('DM_USER_NOT_ALLOWED');
-    const answer = await bridge.reply({
-      deploymentId: config.appInstanceId,
-      installationId: turn.context.installationId,
-      conversationId: turn.input.conversationId,
-      actorId,
-      text, signal: turn.signal,
-    });
-    await turn.reply({ text: answer });
-  },
+  onMention: createMentionHandler({ bridge, allowedUserIds, deploymentId: config.appInstanceId }),
   log: entry => console.log(JSON.stringify({ code: entry.code, stage: entry.stage, eventId: entry.eventId,
     installationId: entry.installationId, status: entry.status, error: entry.error })),
 });

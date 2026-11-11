@@ -88,6 +88,18 @@ test('isolates deployment, installation, and DM conversation mappings', async ()
   assert.equal(store.values.size, 4);
 });
 
+test('uses separate namespaces for a DM and a channel with the same external UUID', async () => {
+  const { state, fetcher } = fixture();
+  const store = memoryStore();
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store, fetcher, pollMs: 1 });
+  await bridge.reply(input);
+  await bridge.reply({ ...input, kind: 'channel', conversationId: input.conversationId });
+  assert.equal(state.creates, 2);
+  const keys = [...store.values.keys()];
+  assert.ok(keys.some(key => key.endsWith('"dm-1"]')));
+  assert.ok(keys.some(key => key.endsWith('"channel:dm-1"]')));
+});
+
 test('does not wait for the SSE stream or intermediate polls after a persistent terminal answer', async () => {
   const { state, fetcher } = fixture({ autoComplete: false });
   const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1 });

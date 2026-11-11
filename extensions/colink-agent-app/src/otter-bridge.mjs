@@ -92,11 +92,15 @@ export class OtterBridge {
     return conversation.id;
   }
 
-  async reply({ deploymentId, installationId, conversationId, actorId, text, signal }) {
-    const key = JSON.stringify([deploymentId, installationId, conversationId]);
+  async reply({ kind = 'dm', deploymentId, installationId, conversationId, actorId, text, signal }) {
+    if (!['dm', 'channel'].includes(kind)) throw new Error('OTTER_EXTERNAL_KIND_INVALID');
+    // Why: 保留既有 DM 映射键；频道加命名空间，避免同 UUID 的 DM 与频道串会话。
+    const externalId = kind === 'channel' ? `channel:${conversationId}` : conversationId;
+    const key = JSON.stringify([deploymentId, installationId, externalId]);
     const previous = this.lanes.get(key) ?? Promise.resolve();
     const current = previous.catch(() => {}).then(async () => {
-      const otterConversationId = await this.ensureConversation(key, `CoLink 私聊 ${conversationId.slice(0, 8)}`);
+      const label = kind === 'channel' ? '频道' : '私聊';
+      const otterConversationId = await this.ensureConversation(key, `CoLink ${label} ${conversationId.slice(0, 8)}`);
       return this.runTurn({ otterConversationId, actorId, text, signal });
     });
     this.lanes.set(key, current);
