@@ -10,7 +10,7 @@ export type EntryType = "speak" | "user" | "invoke_start" | "invoke_end" | "yiel
 export type EntryStatus = "streaming" | "speaking" | "completed" | "failed" | "aborted";
 
 /** 消息来源 */
-export type EntrySource = "web" | "feishu" | "weixin" | null;
+export type EntrySource = "web" | "feishu" | "weixin" | "colink" | null;
 
 /** 条目附件引用 */
 import type { AttachmentRef } from "./attachment";

@@ -166,6 +166,17 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     db.close();
   });
 
+  it("CoLink 外部 Session 同样绕过普通池，避免复用全工具 Session", async () => {
+    const { internals, db, getCreateCount } = makeFactory();
+    const first = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1" }));
+    const external = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2", externalProfile: "colink" }));
+    expect(external.isPooled).toBe(false);
+    expect(external.session).not.toBe(first.session);
+    expect(getCreateCount()).toBe(2);
+    expect(internals.poolMeta.get("o1")!.session).toBe(first.session);
+    db.close();
+  });
+
   it("F20260913ctlv 整合移植：池命中刷新 currentInvokeId/emitEvent/lastSpeakEntryId（不刷新则挂错 invoke）", async () => {
     const { internals, db } = makeFactory();
     await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1", currentInvokeId: "inv-1" }));

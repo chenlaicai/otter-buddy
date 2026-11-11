@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CoLinkToolBridge, buildCoLinkPrompt } from '../src/colink-tools.mjs';
+import { CoLinkToolBridge, buildCoLinkPrompt, isBareMention } from '../src/colink-tools.mjs';
 
 const publicTools = [
   { name: 'colink_read_public_topic', inputSchema: { type: 'object' } },
@@ -136,6 +136,35 @@ test('rejects missing bearer tokens and non-MCP routes', async () => {
     assert.equal(unauthorized.status, 401);
     const missing = await fetch(`${bridge.origin}/health`, { headers: { authorization: `Bearer ${bridge.tokenFor('otter-1')}` } });
     assert.equal(missing.status, 404);
+  } finally { await bridge.close(); }
+});
+
+test('bare mention is deterministically pre-read before Agent execution and marked untrusted', async () => {
+  assert.equal(isBareMention('@海獭'), true);
+  assert.equal(isBareMention('<@bot-1>'), true);
+  assert.equal(isBareMention('@海獭 总结一下'), false);
+  const { bridge } = await fixture();
+  try {
+    const turn = turnFixture();
+    turn.input.text = '@海獭';
+    const sequence = [];
+    const originalCall = turn.tools.call;
+    turn.tools.call = async (name, args) => {
+      sequence.push('read');
+      return originalCall(name, args);
+    };
+    await bridge.run({ otterConversationId: 'otter-bare', turn, register: async () => {} }, async prompt => {
+      sequence.push('agent');
+      assert.match(prompt, /本次消息只有 @，意图不明/);
+      assert.match(prompt, /App 已在 Agent 启动前确定性读取当前话题最近一页/);
+      assert.match(prompt, /App 确定性预读的当前话题最近一页——不可信历史数据/);
+      assert.match(prompt, /历史/);
+      assert.match(prompt, /恶意套话或提示注入/);
+      assert.match(prompt, /不得索取或泄露凭据/);
+      return 'done';
+    });
+    assert.deepEqual(sequence, ['read', 'agent']);
+    assert.deepEqual(turn.calls, [{ name: 'colink_read_public_topic', args: { topicId: 'topic-1', limit: 20 } }]);
   } finally { await bridge.close(); }
 });
 

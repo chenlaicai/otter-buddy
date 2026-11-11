@@ -13,7 +13,7 @@
 
 import { describe, it, expect } from "vitest";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
-import type { SdkInvokePort, AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
+import type { SdkInvokePort, AgentStreamEvent, InvokeOptions } from "@usecases/ports/sdk-invoke-port";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -63,9 +63,9 @@ function mockAgentInvoke(options: {
   result?: { text: string; tokenUsage?: { input: number; output: number }; tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; ctxTokens?: number; ctxMax?: number };
   throwOnInvoke?: Error;
   internalAbortReason?: string;
-  invokeImpl?: (otterId: string, message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void }) => Promise<unknown>;
+  invokeImpl?: (otterId: string, message: string, opts?: InvokeOptions) => Promise<unknown>;
 }): SdkInvokePort {
-  const invokeImpl = async (otterId: string, message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void; dynamicContext?: { sessionSummary?: string } }) => {
+  const invokeImpl = async (otterId: string, message: string, opts?: InvokeOptions) => {
       if (options.invokeImpl) return options.invokeImpl(otterId, message, opts);
       if (options.throwOnInvoke) throw options.throwOnInvoke;
       for (const evt of options.events ?? []) {
@@ -106,6 +106,32 @@ function makeInvoker(
 
 // eslint-disable-next-line max-lines-per-function -- describe 聚合多特性用例（rtsp tick + evdz 广播），拆 describe 反而割裂
 describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () => {
+  it("CoLink 不读取普通会话摘要或借用式档案，实际 SDK 输入不带 dynamicContext", async () => {
+    let sessionReads = 0;
+    let captured: InvokeOptions | undefined;
+    const manageSession = mockManageSession({
+      getActiveSession: async () => {
+        sessionReads++;
+        return makeSession({ summary: "普通 Web 会话秘密" });
+      },
+    });
+    const sdk = mockAgentInvoke({
+      invokeImpl: async (_otterId, _message, opts) => {
+        captured = opts;
+        return { text: "Response text" };
+      },
+    });
+    const invoker = makeInvoker(sdk, mockSendEntry(), { manageSession });
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-colink", userMessageContent: "总结之前讨论",
+      senderId: "colink:external-user", onSSEEvent: () => {},
+    }).catch(() => null);
+
+    expect(captured?.externalProfile).toBe("colink");
+    expect(captured?.dynamicContext).toEqual({});
+    expect(sessionReads).toBe(0);
+  });
+
   /** F20260914rtsp AT-4/AT-11：message_end usage → invoke.tick 发射与降级 */
   it("message_end 带 usage → 发射 invoke.tick（ctxWindowUsed + 工具计数）", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];

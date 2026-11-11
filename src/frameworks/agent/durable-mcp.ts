@@ -72,12 +72,67 @@ export async function readMcpConfigFiles(cwd: string, agentPath: string): Promis
   return entries.filter((entry, index) => entries.findIndex(other => other.name === entry.name) === index);
 }
 
+/** CoLink 外部会话只接受 App 注册的唯一回环历史 MCP。配置文件一旦被加入其他 server，
+ * 整轮 fail-closed；不能靠后续工具过滤，因为连接本身和 MCP resource 也可能产生副作用。 */
+function invalidCoLinkMcpConfig(): never {
+  throw new Error("Invalid CoLink MCP config: exactly one constrained colink_otter_history server is required");
+}
+
+function validateCoLinkUrl(raw: unknown): void {
+  if (typeof raw !== "string") invalidCoLinkMcpConfig();
+  let url: URL;
+  try { url = new URL(raw); } catch { return invalidCoLinkMcpConfig(); }
+  if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port || url.pathname !== "/mcp" ||
+      url.search || url.hash || url.username || url.password) invalidCoLinkMcpConfig();
+}
+
+function validateCoLinkAuthorization(raw: unknown): void {
+  const headers = raw as Record<string, unknown> | null;
+  if (!headers || Object.keys(headers).length !== 1 || typeof headers.authorization !== "string" ||
+      !/^Bearer [A-Za-z0-9_-]{43}$/.test(headers.authorization)) invalidCoLinkMcpConfig();
+}
+
+function validateCoLinkServer(entry: McpServerEntry | undefined): void {
+  if (!entry) invalidCoLinkMcpConfig();
+  const config = entry.config as unknown as Record<string, unknown>;
+  if (Object.keys(config).sort().join(",") !== "exposure,headers,timeout,url" || config.exposure !== "direct") invalidCoLinkMcpConfig();
+  validateCoLinkUrl(config.url);
+  validateCoLinkAuthorization(config.headers);
+  if (!Number.isInteger(config.timeout) || (config.timeout as number) < 1 || (config.timeout as number) > 300) invalidCoLinkMcpConfig();
+}
+
+function readCoLinkMcpEntries(raw: unknown): McpServerEntry[] {
+  const entries = readMcpEntries(raw);
+  if (entries.length !== 1 || entries[0]?.name !== "colink_otter_history") invalidCoLinkMcpConfig();
+  validateCoLinkServer(entries[0]);
+  return entries;
+}
+
+/** CoLink 外部会话只读工作区 MCP；不加载 sessionDir 全局或其他静态工具。 */
+export async function readWorkspaceMcpConfig(cwd: string): Promise<McpServerEntry[]> {
+  const file = path.join(cwd, "mcp.json");
+  try { return readCoLinkMcpEntries(JSON.parse(await fs.promises.readFile(file, "utf8"))); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw new Error(`Invalid MCP config ${file}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+}
+
+/** Session 启动时的 MCP 来源路由：外部会话仅工作区，普通会话保留全局+工作区。 */
+export async function readSessionMcpConfig(cwd: string, globalFile: string, externalProfile?: 'colink'): Promise<McpServerEntry[]> {
+  return externalProfile === 'colink' ? readWorkspaceMcpConfig(cwd) : readMcpConfigFiles(cwd, globalFile);
+}
+
 /** Native MCP client lifecycle; no coding-agent AgentSession is created. */
 export class DurableMcpBridge {
   private readonly connections: Connection[];
-  constructor(entries: McpServerEntry[], cwd: string, private readonly logger: Logger) {
+  constructor(entries: McpServerEntry[], cwd: string, private readonly logger: Logger, private readonly options?: { allowResources?: boolean }) {
     this.connections = entries.filter(entry => entry.config.enabled !== false).map(entry => new Connection(entry, cwd, logger));
   }
+  private shouldRegisterResources(connection: Connection): boolean {
+    return this.options?.allowResources !== false && connection.hasResources;
+  }
+
   async registrations(signal?: AbortSignal): Promise<ToolRegistration[]> {
     const result: ToolRegistration[] = [];
     const used = new Set<string>();
@@ -101,7 +156,7 @@ export class DurableMcpBridge {
           },
         }));
       }
-      if (connection.hasResources) {
+      if (this.shouldRegisterResources(connection)) {
         result.push(defineTool<any>({
           name: toolName(connection.entry.name, "read_resource", used), description: "Read an MCP resource by URI", replay: "unsafe",
           parameters: { type: "object", properties: { uri: { type: "string" } }, required: ["uri"] },

@@ -111,6 +111,7 @@ test('binds the active CoLink turn to MCP before dispatching the wrapped Otter m
   await bindings[0].register({ mcpServers: {} });
   assert.deepEqual(state.mcpConfigs, [{ mcpServers: {} }]);
   assert.equal(state.messages[0].body, `事件上下文\n${input.text}`);
+  assert.equal(state.messages[0].source, 'colink');
 });
 
 test('refuses to bind a new CoLink turn while an old Otter invoke is alive', async () => {

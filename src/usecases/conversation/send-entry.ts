@@ -163,8 +163,6 @@ export class SendEntry {
     }
   }
 
-
-
   /**
    * 用户发送条目（立即 completed）。
    * 彻底切换：user 消息唯一落点（messages 表不再写入）。
@@ -222,7 +220,7 @@ export class SendEntry {
     // F20261013csv3 T1：预抓取钩子（非阻断——发送路径不等待网络）。URL 扫描规则
     // 与前端 bare-url 插件同一口径：行内（含行首）裸 http/https URL，独占一段
     // （```html-card 围栏体内的链接由卡片自身渲染，不算裸链不触发预抓取）。
-    this.triggerUnfurlPrefetch(input.body);
+    if (input.source !== 'colink') this.triggerUnfurlPrefetch(input.body);
 
     this.logger.info('User entry sent', {
       conversationId: input.conversationId,
@@ -236,13 +234,11 @@ export class SendEntry {
     // 剥 html-card 围栏 + 附件占位投影行；非阻断）。投影基于发送意图
     // （input.attachmentIds）而非 attach 结果——attach 失败仅影响展示，索引面
     // 与旧口径一致描述用户发送了什么（旧路径 input.attachmentRefs 同语义）
-    const attachmentRefs = await loadAttachmentRefs(this.entryRepo, this.logger, input.attachmentIds);
-    await this.indexEntryBody(result.id, input.conversationId, buildUserIndexBody(input.body, attachmentRefs));
+    const attachmentRefs = input.source === 'colink' ? [] : await loadAttachmentRefs(this.entryRepo, this.logger, input.attachmentIds);
+    if (input.source !== 'colink') await this.indexEntryBody(result.id, input.conversationId, buildUserIndexBody(input.body, attachmentRefs));
 
     return { entry: result, talkingStonePassedTo, mentionFeedback };
   }
-
-  /** #1191：user 侧索引正文 = 剥围栏正文 + 附件占位投影行（旧 SendMessage buildIndexBody 同构） */
 
   /** F20261013csv3 T1：预抓取触发——裸 URL 扫描（纯函数）+ 非阻断分发。
    *  扫描口径与前端 bare-url 插件一致：行内（含行首）http/https URL 独占一段才算裸链
@@ -326,6 +322,7 @@ export class SendEntry {
     }
 
     const now = new Date().toISOString();
+    const external = input.invokeId && (await this.invokeRepo.getInvokeById(input.invokeId))?.metadata?.externalProfile === 'colink';
 
     const entry: Entry = {
       id: crypto.randomUUID(),
@@ -338,7 +335,7 @@ export class SendEntry {
       invokeId: input.invokeId ?? null,
       yieldTargets: null,
       status: "completed",
-      source: null,
+      source: external ? 'colink' : null,
       metadata: input.metadata ?? null,
       senderName: resolveSpeakerName("otter", input.otterId, otter.name) ?? otter.name,
       contextTokens: null,
@@ -350,7 +347,7 @@ export class SendEntry {
     const created = await this.entryRepo.createEntryAtomic(entry);
 
     // F20261013csv3 T1：预抓取钩子（非阻断）——user/speak 共用同一扫描口径
-    this.triggerUnfurlPrefetch(input.body);
+    if (!external) this.triggerUnfurlPrefetch(input.body);
 
     this.logger.info('Speak entry created', {
       entryId: created.id,
@@ -360,7 +357,7 @@ export class SendEntry {
 
     // #1191（F20260928rmix）：索引 speak 正文到记忆（旧 SendMessage 同构：剥 html-card 围栏；
     // 失败消息不索引——旧 abort 路径只索引带 body 的中断正文，此处 completed 语义）
-    await this.indexEntryBody(created.id, input.conversationId, stripHtmlCardFences(input.body));
+    if (!external) await this.indexEntryBody(created.id, input.conversationId, stripHtmlCardFences(input.body));
 
     return { entry: created };
   }
@@ -375,12 +372,11 @@ export class SendEntry {
 
     const now = new Date().toISOString();
 
-    await this.invokeRepo.updateInvokeTalkingStonePassedTo(input.invokeId, input.yieldTargets);
-    await this.invokeRepo.updateInvokeStatus(input.invokeId, "completed", now);
-
     const invoke = await this.invokeRepo.getInvokeById(input.invokeId);
     if (!invoke) throw new DomainError(`createYieldEntry: invoke 不存在: ${input.invokeId}`, "not_found");
-    await markYieldAssignment(this.invokeRepo, invoke, input.assignmentRole);
+    await markYieldAssignment(this.invokeRepo, invoke, input.assignmentRole, input.yieldTargets);
+    await this.invokeRepo.updateInvokeTalkingStonePassedTo(input.invokeId, input.yieldTargets);
+    await this.invokeRepo.updateInvokeStatus(input.invokeId, "completed", now);
 
     // 创建 yield 条目 + invoke_end 条目（原子序号批量插入，天然连续递增）
     const yieldEntry: Entry = {

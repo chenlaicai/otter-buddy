@@ -42,13 +42,15 @@ App 通过回环管理接口 `PUT /api/conversations/:id/workspace/mcp-colink` �
 
 - 接受 `reason=dm_message` 的私聊文本，以及 `reason=mention/reply` 且带 `channelId` 的频道文本；附件不在本期范围。DM 仅限白名单本人，频道允许安装范围内其他成员触发。
 - 频道可按需读取当前话题及其根消息之前的当前频道历史；DM 可按需读取当前私聊历史。Manifest 声明 `messages:read-public/messages:read-private`，现有安装必须由用户重新授权后才会获得相应工具。
-- App 会把当前事件定位、工具使用规则和用户原文一起交给 Otter；历史只作为数据，不作为高优先级指令。需求完整时不额外读取历史。
+- App 会把当前事件定位、工具使用规则和用户原文一起交给 Otter；历史只作为数据，不作为高优先级指令。需求完整时不额外读取历史；只有 @ 时由 App 在 Agent 启动前确定性预读当前话题最近一页，意图/指代不明时由受限历史工具补充当前话题与频道背景。
+- `source=colink` 与 invoke `externalProfile=colink` 启用外部安全档：每轮独立受限 Session，不复用普通池；durable transcript 按 `colink/<conversationId>/<otterId>` 隔离，不注入普通会话摘要或交接档案。编码/文件/bash、全局记忆和其他 MCP 均不进入工具面，只保留 speak/yield 与当前 CoLink 历史读取；yield 在落库和派发前仅允许 `to:["user"]`。
+- CoLink user 与 invoke speak 均不写入全局记忆索引，也不触发裸 URL 后台 unfurl；频道正文、私聊和历史都按不可信输入处理，恶意套话不能获得其他对话、凭据或系统能力。
 - MCP 配置在 Otter Session 创建时加载。首次部署或权限目录变化后，需要重启 Otter 服务以重建已有会话的工具注册；CoLink 凭证本身不随该配置持久化。
 - 同一外部 DM 或频道内的消息串行处理；进程重启后保留映射，不宣称崩溃自动恢复或多副本能力。
 - POST SSE 只作为通知，拿到响应后立即取消；最终回答以持久 `entries/invokes` 为准。
 - 必须等本轮 invoke/yield 链终态且交还用户，再取最后一个 `speak`；失败、无回答或超时都会让事件失败，不生成假成功文本。
 - 输出剥离 HTML 卡片和 healing 块，单条回复上限 60,000 字符。
-- 当前 PoC 不具备 external 工具权限档和跨 Conversation 全局记忆隔离，不得据此向其他真实用户开放。
+- 当前安全档限制 Otter 工具与全局记忆，但不替代 CoLink 安装范围、成员管理和用户私密授权；仍按单进程单副本 PoC 运行，不宣称多副本或完整生产能力。
 
 ## 验证
 
@@ -64,4 +66,5 @@ npm test
 4. CoLink 收到最终回答，SDK 事件进入 `done`；
 5. 让 App 总结当前话题，并追问话题根消息之前的频道背景；确认实际调用公共话题/频道读取工具，回答与历史一致；
 6. 在 DM 中追问较早的私聊内容，确认通过用户授权读取当前 DM，跨会话资源参数被拒绝；
-7. App 配置和代码中没有模型供应商密钥或直接模型请求，MCP 配置中没有 CoLink 长期令牌。
+7. 在频道只发 @，确认 App 先读取当前话题最近一页再启动 Agent，回复利用实际上下文而非凭空追问；
+8. App 配置和代码中没有模型供应商密钥或直接模型请求，MCP 配置中没有 CoLink 长期令牌。

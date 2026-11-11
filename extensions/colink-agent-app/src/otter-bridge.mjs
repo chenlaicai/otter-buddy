@@ -169,7 +169,7 @@ export class OtterBridge {
     const startedAt = Date.now();
     const response = await this.request(`/api/conversations/${otterConversationId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ senderId: `colink:${actorId}`, body: text }),
+      body: JSON.stringify({ senderId: `colink:${actorId}`, body: text, source: 'colink' }),
     }, signal);
     // Why: POST SSE 只是通知且 30 秒会关闭；断开不会中止后台 Agent。
     // 主动取消通知流，最终答案只以持久 entries/invokes 为准，避免终态后仍白等 SSE。

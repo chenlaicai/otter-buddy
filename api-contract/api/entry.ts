@@ -29,7 +29,7 @@ export interface EntryDTO {
   invokeId: string | null;
   yieldTargets: string[] | null;
   status: EntryStatusDTO;
-  source: "web" | "feishu" | "weixin" | null;
+  source: "web" | "feishu" | "weixin" | "colink" | null;
   metadata: Record<string, unknown> | null;
   senderName: string;
   /** F20260921otcl：发送者出生色（色板 key；仅 otter 条目携带，大獭/未回填为 null。

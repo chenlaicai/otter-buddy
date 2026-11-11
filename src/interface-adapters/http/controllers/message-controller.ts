@@ -200,6 +200,7 @@ export class MessageController {
     try {
       const conversationId = param(c, "id");
       const body = await safeJsonBody<SendMessageRequestDTO>(c);
+      const source = body.source === 'colink' ? 'colink' : 'web';
 
       /** 1. 前置校验（请求体 + 附件 + Magic Word 全场急停）——response 非 null 即短路 */
       const early = await this.precheckSend(c, conversationId, body);
@@ -218,7 +219,7 @@ export class MessageController {
         conversationId,
         senderId: body.senderId,
         body: body.body,
-        source: "web",
+        source,
         talkingStonePassedTo: body.talkingStonePassedTo ?? [],
         ...(body.mode && { injectionMode: body.mode }),
         ...(body.attachmentIds && body.attachmentIds.length > 0 && { attachmentIds: body.attachmentIds }),
@@ -236,7 +237,7 @@ export class MessageController {
           event: "entry.user",
           // source 显式标 web：IM 出站通道消费 entry.user 时的防回环闸（只投 Web 来源）
           data: {
-            entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: body.senderId, body: body.body, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source: "web",
+            entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: body.senderId, body: body.body, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source,
             ...(userEntry.senderName ? { senderName: userEntry.senderName } : {}),
             ...(userEntry.attachments && userEntry.attachments.length > 0 && { attachments: userEntry.attachments }),
           },
