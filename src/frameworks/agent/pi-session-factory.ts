@@ -116,6 +116,8 @@ export function buildGuardInterceptContext(
   };
 }
 import { SYNTHESIS_EXPLICIT_MAX_TOKENS } from "./narrative-synthesis-engine";
+// F20261111synth（#1850）：合成 thinking 能力解析 + 兑底重试准入
+import { resolveSynthesisThinkingLevelMap, isSynthesisTransportError } from "./synthesis-thinking-capability";
 import type { AgentSessionStore } from "./agent-session-store";
 import { classifyGuardIntercept } from "./guard-intercept-escalation";
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
@@ -305,6 +307,8 @@ export interface AgentSessionFactoryConfig {
   otterRepo: OtterRepository;
   /** Settings 仓库（读取用户显示名，可选） */
   settingsRepo?: SettingsRepository;
+  /** F20261111synth F3：叙事合成兑底模型别名（传输类失败重试一次；缺省 'glm'） */
+  synthesisFallbackAlias?: string;
   /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
   dataDir?: string;
   /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
@@ -383,6 +387,9 @@ export class PiSessionFactory implements AgentGateway {
       otterConfigProvider: OtterConfigProvider;
       otterRepo: OtterRepository;
       settingsRepo?: SettingsRepository;
+      /** F20261111synth F3：叙事合成兑底模型别名（传输类失败重试一次；缺省 'glm'，
+       *  池中不存在则跳过重试）。可选注入（测试/bootstrap），不进 config schema。 */
+      synthesisFallbackAlias?: string;
       /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
       dataDir?: string;
       /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
@@ -678,10 +685,54 @@ export class PiSessionFactory implements AgentGateway {
    */
   async runCompactionSynthesis(otterId: string, prompt: string, modelOverride?: string): Promise<SynthesisRunResult> {
     const { resolvedModel, resolvedModelAlias } = this.resolveSynthesisModel(otterId, modelOverride);
+    // F20261111synth F1：合成专用模型副本挂真实能力表——off 不可表达的端点（kimi responses
+    //  实测拒收 effort:none）由 SDK 既有 clamp 抬到 low，请求携带端点真实词表内的档位；
+    //  intent 仍传 'off'（下方 attempt），clamp 由 SDK 按能力表执行，告警路径保留可见性。
+    const capabilityMap = await resolveSynthesisThinkingLevelMap(resolvedModel);
+    const synthesisModel = capabilityMap
+      ? ({ ...resolvedModel, thinkingLevelMap: capabilityMap } as typeof resolvedModel)
+      : resolvedModel;
+    if (capabilityMap) {
+      this.logger.info('[compaction-synthesis] capability map attached', {
+        otterId, modelAlias: resolvedModelAlias, thinkingLevelMap: capabilityMap,
+      });
+    }
+    try {
+      return await this.runSynthesisAttempt(otterId, prompt, synthesisModel, resolvedModelAlias);
+    } catch (err) {
+      // F20261111synth F3：传输类失败 → 兑底模型重试一次（有界：+1 次尝试，D9 永不阻塞
+      //  换世不变）。非传输失败（逻辑错误/超时——超时在调用方 compaction-hook 层抛，
+      //  非本层错误形态）重试无意义，原样上抛由调用方降级机械档案。
+      if (!isSynthesisTransportError(err)) throw err;
+      const fallbackAlias = this.resolveSynthesisFallbackAlias();
+      if (!fallbackAlias || fallbackAlias === resolvedModelAlias) throw err;
+      this.logger.warn('[compaction-synthesis] transport failure, retrying once with fallback model', {
+        otterId, failedAlias: resolvedModelAlias, fallbackAlias,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      const { resolvedModel: fallbackBase } = this.resolveSynthesisModel(otterId, fallbackAlias);
+      const fallbackCapability = await resolveSynthesisThinkingLevelMap(fallbackBase);
+      const fallbackModel = fallbackCapability
+        ? ({ ...fallbackBase, thinkingLevelMap: fallbackCapability } as typeof fallbackBase)
+        : fallbackBase;
+      const result = await this.runSynthesisAttempt(otterId, prompt, fallbackModel, fallbackAlias);
+      return { ...result, fallbackUsed: fallbackAlias };
+    }
+  }
+
+  /** F20261111synth：单次合成尝试——临时 durable 文件 + 影子 session + 直调 LLM。
+ *  从 runCompactionSynthesis 抽出（F3 兑底重试需要独立的第二次尝试，各自用独立临时
+   *  文件避免失败 session 状态污染重试）。原语义零变化。 */
+  private async runSynthesisAttempt(
+    otterId: string,
+    prompt: string,
+    model: Model<Api>,
+    modelAlias: string,
+  ): Promise<SynthesisRunResult> {
     const synthesisFile = path.join(this.cfg.dataDir && path.isAbsolute(this.cfg.dataDir) ? this.cfg.dataDir : tmpdir(), `durable-synthesis-${randomUUID()}.sqlite`);
     const session = await DurableAgentSession.open({
       otterId, file: synthesisFile,
-      models: getModelSource(this.cfg.modelPool), model: resolvedModel, thinkingLevel: 'off',
+      models: getModelSource(this.cfg.modelPool), model, thinkingLevel: 'off',
       cwd: resolveSessionCwd('', this.cfg.dataDir ?? './data'), tools: { customTools: [], codingTools: [], readOnly: true },
       // M-9b24be04：合成影子通道自带合成 invokeId——durable prompt 的 invoke 归属守卫
       //（"A turn owns watch/admission/settlement"）要求轮有主；影子通道不在任何 invoke
@@ -694,7 +745,7 @@ export class PiSessionFactory implements AgentGateway {
     const turnText = { text: '' };
     const stream = new DurableEventStream(createEventHandler(undefined, undefined, turnText));
     try {
-      this.logSynthesisStarting(otterId, resolvedModelAlias, 'off', prompt.length);
+      this.logSynthesisStarting(otterId, modelAlias, 'off', prompt.length);
       await session.prompt(prompt, undefined, stream, BACKGROUND_CONTEXT);
       const lastStopReason = session.lastStopReason;
       this.logger.info('[compaction-synthesis] shadow channel completed', { otterId, length: turnText.text.length, lastStopReason, usage: session.tokenUsage });
@@ -703,6 +754,19 @@ export class PiSessionFactory implements AgentGateway {
       await session.close(BACKGROUND_CONTEXT);
       await fs.promises.unlink(synthesisFile).catch(() => undefined);
     }
+  }
+
+  /** F20261111synth F3：兑底模型别名解析——cfg.synthesisFallbackAlias ?? 'glm'，
+ *  池中不存在则 undefined（跳过重试，warn 可见）。不进 config schema：缺省值今天正确，
+   *  需要换兑底模型时再升格配置键（特性文档 known issue 记录）。 */
+  private resolveSynthesisFallbackAlias(): string | undefined {
+    const alias = this.cfg.synthesisFallbackAlias ?? 'glm';
+    if (!this.cfg.modelPool) return undefined;
+    if (!this.cfg.modelPool.hasModel(alias)) {
+      this.logger.warn('[compaction-synthesis] fallback model not in pool, skip retry', { alias });
+      return undefined;
+    }
+    return alias;
   }
 
   /** F20260924thnk 观测三件套之 1/2：合成 starting 日志。打真实 resolved 模型
@@ -1669,5 +1733,6 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     settingsRepo: config.settingsRepo,
     conversationRepo: config.conversationRepo,
     dataDir: config.dataDir,
+    synthesisFallbackAlias: config.synthesisFallbackAlias,
   }, logger);
 }

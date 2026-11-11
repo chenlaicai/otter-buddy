@@ -59,6 +59,9 @@ export interface SynthesisRunResult {
   directText: string;
   /** stopReason（length = 截断，调用方 fail-closed） */
   lastStopReason?: string;
+  /** F20261111synth F3：传输类失败后兑底重试成功的模型别名（主模型成功时缺省）——
+   *  观测用：日志/排排查一眼区分「主模型合成成功」与「兑底挽救成功」 */
+  fallbackUsed?: string;
 }
 
 /** 动态上下文（与 Pi 的 DynamicContext 结构匹配） */

@@ -55,9 +55,13 @@ export function synthesisFullBudgetChars(contextWindowTokens: number): number {
 }
 
 /** F20260924swin：显式合成 max_tokens（与 pi-session-factory 调用侧同值，单一真相源）。
- *  输出实证 ≤2,415 chars ≤ ~1K tokens，prompt 规则 7 自限 ≤2000 tokens，4 倍余量。
- *  显式发送后输入容量 = 窗口 − 4,096（不再被服务端默认预留 ~64K 吃掉 25%）。 */
-export const SYNTHESIS_EXPLICIT_MAX_TOKENS = 4_096;
+ *  输出实证 ≤2,415 chars ≤ ~1K tokens，prompt 规则 7 自限 ≤2000 tokens。
+ *  显式发送后输入容量 = 窗口 − 8,192（不再被服务端默认预留 ~64K 吃掉 25%）。
+ *  F20261111synth（#1850）：4,096 → 8,192——off 不可表达的端点（kimi responses）合成
+ *  经 clamp 以 low 档执行，思考与正文共享 max_tokens（reasoning 是 output 子集）；
+ *  9-24 事故是 medium 档烧光 4,096 致 0 字输出，low 档更省但保留双倍余量吸收思考税，
+ *  输入容量代价 4k tokens 对 262K/1M 窗口可忽略。 */
+export const SYNTHESIS_EXPLICIT_MAX_TOKENS = 8_192;
 
 /** F20260924swin：trim-note 渲染长度预留（chars）。
  *  trim-note 三行渲染 ≈85 chars（<trim-note> 标签 + 「预算裁剪：已丢弃最老 N 条…」文案 +
@@ -422,6 +426,10 @@ export function buildMechanicalArchive(input: {
   /** F20260930hsfx：降级原因（贯穿日志与档案文案——「synthesizePast=false / 失败 / 超时」
    *  三并列无法区分真空/无 speak/jsonl 读失败等具体形态；唯一枚举一眼定位）。 */
   degradeReason?: HandoffDegradeReason;
+  /** F20261111synth F4：降级错误摘要（≤200 chars，档案自证）——synthesis-error/timeout
+   *  时由调用方传入 err.message；档案携带失败原因原文，排查不再依赖进程日志存活
+   *  （11-11 事故 09:32 档案因日志轮换只能按同签名推断归因）。 */
+  degradeErrorDetail?: string;
   /** F20261006mtlp P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters） */
   openMatters?: string;
 }): string {
@@ -442,6 +450,10 @@ export function buildMechanicalArchive(input: {
   parts.push('### 说明');
   // F20260930hsfx：reason 具体化——每种降级形态独立文案，不再三并列混淆
   parts.push(`- ${input.degradeReason ? HANDOFF_DEGRADE_REASON_TEXT[input.degradeReason] : 'LLM 叙事合成未执行或降级，本档案为机械转储形态'}`);
+  // F20261111synth F4：失败原因原文进档案（截 200 chars——归因用，不是日志倾倒场）
+  if (input.degradeErrorDetail?.trim()) {
+    parts.push(`- 失败原因：${input.degradeErrorDetail.trim().slice(0, 200)}`);
+  }
   parts.push('- 完整上下文请查阅：记忆检索（search_messages）、产物（list_artifacts）、上下文（get_context）');
   parts.push('- 上一世 session 文件完整保留在磁盘（Session Chain 可追溯）');
   parts.push('');

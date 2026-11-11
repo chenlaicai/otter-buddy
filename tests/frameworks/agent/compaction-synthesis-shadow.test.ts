@@ -148,8 +148,9 @@ describe("F20260912nlb896 压缩合成影子通道（runCompactionSynthesis）",
 
     expect(getModelCalls).toEqual(["kimi"]); // otterConfig.modelAlias
     const createArgs = createSessionCalls[0] as { model: unknown };
-    // F20260924swin 改动点1：合成 model 显式 maxTokens=4,096（否则 SDK falsy 跳过分支，服务端默认预留吃掉 25% 窗口）
-    expect(createArgs.model).toEqual({ ...poolModel, maxTokens: 4_096 });
+    // F20260924swin 改动点1 + F20261111synth F2：合成 model 显式 maxTokens=8,192
+    // （否则 SDK falsy 跳过分支，服务端默认预留吃掉 25% 窗口；8,192 吸收 low 档思考税）
+    expect(createArgs.model).toEqual({ ...poolModel, maxTokens: 8_192 });
     db.close();
   });
 
@@ -187,7 +188,7 @@ describe("F20260924thnk 合成影子通道 thinking 关闭（观测三件套）"
     expect(createSessionCalls[0]?.thinkingLevel).toBe("off");
     // maxTokens 回归钉：显式合成预算仍在（F20260924swin 改动点1 不回退）且为有限数（无 NaN——simple-options off 档 budgets['off']=undefined 边界）
     const model = (createSessionCalls[0] as { model: { maxTokens?: number } }).model;
-    expect(model.maxTokens).toBe(4096);
+    expect(model.maxTokens).toBe(8192); // F20261111synth F2：4,096→8,192（吸收 low 档思考税）
     expect(Number.isFinite(model.maxTokens)).toBe(true);
     // 结果组装不受影响
     expect(result.directText).toBe("七段合成摘要");
