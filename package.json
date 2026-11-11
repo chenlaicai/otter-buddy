@@ -51,7 +51,7 @@
     "@earendil-works/pi-coding-agent": "1.5.0",
     "@earendil-works/pi-durable": "1.5.0",
     "@earendil-works/pi-mcp": "1.5.0",
-    "@hono/node-server": "^2.1.5",
+    "@hono/node-server": "^2.1.6",
     "@huggingface/transformers": "^4.3.0",
     "@larksuiteoapi/node-sdk": "^1.76.0",
     "@node-rs/jieba": "^2.0.3",
