@@ -121,6 +121,8 @@ export interface HandoffEngineDeps {
     fileTrail?: string;
     /** F20260930hsfx S2：降级原因（贯穿日志与档案文案的唯一枚举） */
     degradeReason?: HandoffDegradeReason;
+    /** F20261111synth F4：降级错误摘要（≤200 chars，档案自证） */
+    degradeErrorDetail?: string;
     /** F20261006mtlp P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters——
      *  确定性字段不进叙事合成，matter 表活在 session 之外，獭生封存 ≠ 事情失传） */
     openMatters?: string;
@@ -1267,6 +1269,8 @@ export class AgentInvoker implements AgentTurnPort {
       }
       let narrativeSummary: string | undefined;
       let degradeReason: HandoffDegradeReason | undefined;
+      // F20261111synth F4：降级错误摘要——随档案自证（不依赖进程日志存活）
+      let degradeErrorDetail: string | undefined;
       // F20260930hsfx：circuit-open 判定先于 !synthesizePast——熔断重启传
       //  synthesizePast=false（M4 快速止损），若 !synthesizePast 优先级最高会把熔断场景归因成
       //  「触发方选择跳过」（虚假归因：没人选，是熔断强制），M5「熔断可见」在熔断重启主路径
@@ -1347,6 +1351,8 @@ export class AgentInvoker implements AgentTurnPort {
           degradeReason = err instanceof Error && err.message === 'Narrative synthesis timeout'
             ? 'synthesis-timeout'
             : 'synthesis-error';
+          // F20261111synth F4：失败原文进档案（≤200 chars 由引擎侧截断）
+          degradeErrorDetail = err instanceof Error ? err.message : String(err);
           this.metrics?.recordSynthesis('error');
           this.handoffState.noteHandoffOutcome(otterId, 'synthesis-failed');
           this.logger.warn('[handoff] narrative synthesis failed, degrading to mechanical archive', {
@@ -1377,6 +1383,7 @@ export class AgentInvoker implements AgentTurnPort {
           recencyWindow,
           fileTrail,
           degradeReason,
+          degradeErrorDetail,
           openMatters: openMattersText,
         });
 
@@ -1478,6 +1485,12 @@ export class AgentInvoker implements AgentTurnPort {
         this.agentInvoke.runCompactionSynthesis(otterId, prompt, modelOverride),
         timeoutPromise,
       ]);
+      // F20261111synth F3：兑底挽救可见（主模型传输失败→兑底重试成功的形态入日志）
+      if (result.fallbackUsed) {
+        this.logger.info('[compaction-synthesis] completed via fallback model', {
+          otterId, fallbackUsed: result.fallbackUsed, requestedAlias: modelOverride,
+        });
+      }
     } finally {
       // 成功/超时/异常三条路径都经 finally clear——不再只有成功路径清理，
       //  异常时 timer 泄漏同样保活 300s。

@@ -18,12 +18,15 @@ database:
 
 # === LLM 配置（必填）===
 llm:
-  # 默认模型的 alias（缺省时取 models[] 第一条）
+  # 默认模型的 alias（缺省时取 models[] 第一个启用条目）
   default: "default"
   # 模型列表（唯一配置方式；单模型即一条 models[] 条目）
   # 每个模型有唯一 alias，大獭创建小獭时可通过 modelAlias 选择
   models:
     - alias: "default"
+      # 是否启用（默认 true）；false 时保留本条配置，但不注册、展示或供海獭选择
+      # 默认模型不能指向禁用条目，且至少保留一个启用条目
+      enabled: true
       provider: openai
       model: gpt-4o
       # API Key（可选）
