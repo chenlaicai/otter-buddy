@@ -134,16 +134,26 @@ skill 执行完成后，检查其"后续动作声明"：
 
 ### R5. 系统自愈 tag 格式（speak body 内嵌）
 
-speak 调用遇系统问题（工具故障、检索缺失、格式异常等）时，在 body 末尾附加 `<healing>[issues]` 块；顺利则附 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档看不到。工具使用感受（难用/多余/参数反直觉）也属可报项：type 用 tool_use_feedback，description 以 [tool:工具名] 开头。
+speak 调用遇系统问题（工具故障、检索缺失、格式异常、运行时状态错乱等）时，在 body 末尾附加 healing 块；顺利则附 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档看不到。工具使用感受（难用/多余/参数反直觉）也属可报项：type 用 tool_use_feedback，description 以 [tool:工具名] 开头。
 
-格式（每行一个字段，issues 块允许多条）：
+⚠️ 裸写 = 上报：healing 块必须写在前文正文之后（不在行内代码或代码围栏内）；讲解/演示 healing 语法时用行内代码或代码围栏包裹（代码内不解析）。两种合法上报形态：
+
+1) YAML 列表（每条以 `- type:` 开头，`[/issues]` 闭合必写；多 issues 写多条）：
 
 ```
 <healing>[issues]
-type: <工具故障 | 检索缺失 | 格式异常 | 其他>
-severity: <low | medium | high>
-description: <一句话描述问题>
-suggestion: <建议的处置>
+- type: tool_failure
+  severity: high
+  description: 一句话描述问题
+  suggestion: 建议的处置
+[/issues]</healing>
+```
+
+2) JSON 单对象（type/description 必填，severity 缺省 low，suggestion 可选）：
+
+```
+<healing>
+{"type":"tool_failure","severity":"high","description":"一句话描述问题","suggestion":"建议的处置"}
 </healing>
 ```
 
@@ -152,6 +162,10 @@ suggestion: <建议的处置>
 ```
 <healing>[no_issue]</healing>
 ```
+
+字段取值：type 用 tool_failure（工具故障）/ missing_context（检索缺失）/ format_violation（格式异常）/ tool_use_feedback（工具使用感受）/ runtime_status_mismatch（状态投影与真实运行态不一致）/ 其余填 other；severity 用 low / medium / high；description 必填一句话；suggestion 建议处置（可选）。
+
+格式错误（缺 type/description、缺 [/issues] 闭合、JSON 无法解析、JSON 数组）会被拒绝并给出提示——不会静默丢弃，收到提示按提示重发。
 
 ### R6. 信任校准
 
