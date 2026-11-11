@@ -202,6 +202,23 @@ function steerGuardHint(
   });
 }
 
+const TOOL_COMPLETION_GRACE_MS = 30_000;
+const MAX_BASH_EVENT_TIMEOUT_MS = 3_600_000 + TOOL_COMPLETION_GRACE_MS;
+
+function getEventTimeoutMs(toolName: string, args: unknown, maxPerEventMs: number): number {
+  if (toolName !== "bash") return maxPerEventMs;
+  const timeoutSeconds = (args as { timeout?: unknown } | null)?.timeout;
+  if (typeof timeoutSeconds !== "number" || !Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) return maxPerEventMs;
+
+  // Why: F20261111tdead——工具自身 timeout 需要先返回结果并发出 end，外层不能同刻抢 abort；
+  // 总硬上限防止超大参数让真正挂死的命令无限绕过看门狗。
+  const requestedBudgetMs = timeoutSeconds * 1000 + TOOL_COMPLETION_GRACE_MS;
+  return Math.min(
+    Math.max(maxPerEventMs, MAX_BASH_EVENT_TIMEOUT_MS),
+    Math.max(maxPerEventMs, requestedBudgetMs),
+  );
+}
+
 /** 熔断器 tool_execution_start 钩子 */
 // eslint-disable-next-line max-lines-per-function
 export function attachCircuitBreaker(
@@ -234,21 +251,20 @@ export function attachCircuitBreaker(
   const unregisterToolCall = session.subscribe((event: unknown) => {
     const e = event as { type?: string; toolCallId?: string; toolName?: string; name?: string; args?: unknown };
     if (e.type === "tool_execution_start") {
+      const toolName = e.toolName ?? e.name ?? "unknown";
       const toolCallId = e.toolCallId;
       if (!toolCallId) {
         logger.warn(`[circuit-breaker] tool_execution_start missing toolCallId, skipping per-event timer`);
       } else {
         // 启动 per-event 计时器（按 toolCallId 独立跟踪，支持并行工具调用）
         clearEventTimer(toolCallId);
+        const eventTimeoutMs = getEventTimeoutMs(toolName, e.args, maxPerEventMs);
         const timer = setTimeout(() => {
-          logger.warn(`[circuit-breaker] PER_EVENT_TIMEOUT: otter=${otterId} toolCallId=${toolCallId} elapsed=${maxPerEventMs}ms`);
+          logger.warn(`[circuit-breaker] PER_EVENT_TIMEOUT: otter=${otterId} toolCallId=${toolCallId} tool=${toolName} elapsed=${eventTimeoutMs}ms`);
           doAbort("circuit_break:event_timeout");
-        }, maxPerEventMs);
+        }, eventTimeoutMs);
         eventTimers.set(toolCallId, timer);
       }
-
-      const toolName = e.toolName ?? e.name ?? "unknown";
-
 
       const result = circuitBreaker.check(toolName, e.args);
       // F20261020hlbk → F20261027cbfp：黑名单写入两条件（或）——

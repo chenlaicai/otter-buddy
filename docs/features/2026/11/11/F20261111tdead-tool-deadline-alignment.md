@@ -75,4 +75,8 @@ Issue #1838 的生产证据与当前代码均支持 X：事件同时携带 `tool
 
 ### 验证记录
 
-待实现与回归后补充。
+- 修复后聚焦回归：`circuit-breaker-tool-deadline.test.ts`、`circuit-breaker-helpers.test.ts`、`durable-runtime.test.ts` 与 `retry-policy.test.ts` 共 **4 文件、93/93 passed**。新增 7 用例全绿；真实 durable-runtime 的挂死工具看门狗仍触发原 abort reason。
+- 全量 A 类：`npm test` **458 文件、5878/5878 passed、0 failed、0 skipped**；pretest 全量 ESLint 同步通过。没有 pre-existing 失败声明。
+- `npm run build` 通过；`lint:intent` 本 PR 文档 intent/verify_by 均为 1/1，`lint:docs`、`lint:tests`、`lint:criteria`、`git diff --check` 通过。lint 的既有存量 warning 未新增。
+- 最简实现检查：只增加一个局部纯函数和两个实现常量，复用现有事件参数、Map 与 abort 链；无新文件级生产模块、新依赖、新配置或兼容桥，已达同等效果的最小改动。
+- 负向契约核对：普通工具与 wait 不被延长；非法 bash timeout 不被延长；真正超过自身预算加裕量或总硬上限仍中断；并行 end 仍只清自身 timer。用户文案保持“单次工具调用超时”，日志记录实际生效预算，不把到期描述为已确认无响应。
