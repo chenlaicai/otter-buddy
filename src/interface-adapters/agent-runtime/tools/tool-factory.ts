@@ -196,6 +196,9 @@ async function updateDispatchLedgerOnYield(ctx: ToolContext, resolvedIds: string
 async function validateMessageHasContent(ctx: ToolContext): Promise<string | null> {
   if (!ctx.currentInvokeId) return "[错误] 系统错误：当前 invoke ID 未设置，无法交棒。";
   if (ctx.lastSpeakMessageId) return null;
+  if (ctx.getTurnAssistantText?.().trim()) {
+    return "[错误] 你刚才输出的是普通文本草稿，只有你自己能看到，搭档和其他海獭看不到。请把结论通过 speak(body) 工具正式重发，再调用 yield 交棒。";
+  }
   return "[错误] 你还没有用 speak 输出任何内容。请先调用 speak(body) 输出结论，再调用 yield 交棒。";
 }
 

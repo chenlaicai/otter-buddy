@@ -262,9 +262,12 @@ export class DurableSession {
     // （熔断器/看门狗/编排守卫/outputGuard 经 subscribe 消费），再分发到调用方 stream；
     // sink 同时是派生状态（lastMessage/lastUsage）真相源，promptWatch 指向 sink。
     // 不依赖 factory 层包装：任何直接调 prompt 的路径（含测试）守卫均在场。
-    const sink = new DurableEventStream(event => { this.emit(event); stream.dispatch(event); });
-    this.promptWatch = sink;
     this.watcher ??= await this.conversation.watch(BACKGROUND_CONTEXT, { min: 100, max: 200 });
+    // watch 的初始 value 含历史 transcript；只把本轮 submit 之后的新 entry 送入当前 invoke 事件流。
+    // 否则上一任务的 speak/tool_call 会被持久化到本次 invoke_events，伪装成「本轮已调用」。
+    const entryBoundary = Math.max(0, ...this.watcher.value.entries.map(entry => Number(entry.id)));
+    const sink = new DurableEventStream(event => { this.emit(event); stream.dispatch(event); }, undefined, entryBoundary);
+    this.promptWatch = sink;
     // PR #1783 alpha 实测修复（bug4）：chord Watch.start() 不允许二次调用，watcher 只能 start 一次；
     // 回调经 this.promptWatch 动态分发到当前 sink（闭包捕获首次 sink 会把后续轮事件送进旧流）。
     // 修复前同进程同獭第二次 invoke 必炸「Watch is already started」。
