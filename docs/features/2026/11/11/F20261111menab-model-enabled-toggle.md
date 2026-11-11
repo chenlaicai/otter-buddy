@@ -29,7 +29,7 @@ intent:
 
 ## 目标
 
-- T1：`llm.models[].enabled` 缺省为 `true`，现有配置无需迁移。
+- T1：`llm.models[].enabled` 缺省为 `true`，未配置该字段且助理 alias 有效的现有配置无需迁移。
 - T2：`enabled: false` 的条目保留在 YAML，但不进入 `AppConfig.llm.models`、模型池、设置页模型列表与 prompt 模型描述。
 - T3：未指定默认模型时选择首个启用条目；默认条目被禁用或所有条目均被禁用时启动报错。
 
@@ -38,6 +38,10 @@ intent:
 - 不增加设置页开关或运行时热更新；本特性只读启动配置。
 - 不删除或改写现有模型连接参数，不处理供应商额度状态。
 - 不改变既有 session 对未知 alias 回退默认模型的行为。
+
+## 不兼容更新
+
+`im.assistant.modelAlias` 指向不存在或已禁用的模型时，旧行为是正常启动并在运行时静默回退默认模型；新行为是启动校验直接报错。现网主仓配置未设置该字段，不受此变化影响。若升级后命中此错误，需将助理 alias 改为某个启用条目或移除该配置。
 
 ## 方案设计
 
@@ -76,6 +80,7 @@ intent:
 | 助理模型保护 | `im.assistant.modelAlias` 指向禁用或未知条目 | 启动校验报「不存在或对应模型已禁用」 |
 | 空池保护 | 所有条目均禁用 | 启动校验报「至少一个启用的模型条目」 |
 | 类型保护 | `enabled` 使用非布尔值 | 启动校验报字段类型错误 |
+| 全量别名查重 | 一个禁用条目与一个启用条目使用相同 alias | 启动仍报重复 alias，避免重新启用时出现影子冲突 |
 | 停用条目跳过初始化 | 禁用条目仅保留 alias，缺 provider/model/handoffThresholdTokens | 配置可加载且运行时投影不包含该条目 |
 
 已通过最简实现检查：复用现有配置校验和投影单一入口，下游模型池零新增过滤分支、零依赖、零持久化；新增的助理 alias 校验复用同一份启用模型集合语义，防止静默回退。
@@ -100,4 +105,4 @@ intent:
 - `npm run lint:intent` / `npm run lint:docs`：PASS（仅存量警告）。
 - 真实配置加载：以主仓 `config/config.yaml` 调用构建后的 `loadConfig`，默认模型仍为 `kimi`，运行时 aliases 共 12 个且不含 `mimo-pro` / `mimo-flash`；原 YAML 中两个 MiMo 条目及连接字段均保留并标记 `enabled: false`。
 - Golden Gate：n/a，纯配置解析与模型注册硬代码，无 prompt/skill 行为改动。
-- 对抗审视：待代码 PR 审视后补充。
+- 对抗审视：初轮 0 严重、2 建议；已补不兼容披露与跨启用状态 alias 查重测试，待 delta 复核。

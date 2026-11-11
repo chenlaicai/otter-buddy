@@ -371,6 +371,17 @@ describe("validate — models[] 条目校验", () => {
     })).toThrow("重复的 alias");
   });
 
+  it("F20261111menab: rejects duplicate aliases across enabled and disabled entries", () => {
+    expect(() => validate({
+      llm: {
+        models: [
+          { alias: "same", enabled: false },
+          { alias: "same", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 },
+        ],
+      },
+    })).toThrow("重复的 alias: same");
+  });
+
   it("throws when default alias not in models", () => {
     expect(() => validate({
       llm: {
