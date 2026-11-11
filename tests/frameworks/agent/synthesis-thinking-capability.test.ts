@@ -24,6 +24,7 @@ import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
 import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { buildMechanicalArchive, SYNTHESIS_EXPLICIT_MAX_TOKENS } from "@frameworks/agent/narrative-synthesis-engine";
+import { pickSynthesisThinkingLevel } from "@frameworks/agent/synthesis-thinking-capability";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import type { Model, Api } from "@earendil-works/pi-ai";
 
@@ -135,7 +136,7 @@ async function makeFactoryWithSessionQueue(sessions: ShadowSession[], modelPool?
 }
 
 describe("F20261111synth #1850 叙事合成 thinking 能力/预算/兜底/档案自证", () => {
-  it("F1：kimi 自定义模型合成 → 模型副本继承 kimi-coding 目录真值 thinkingLevelMap（off:null→SDK clamp low），intent 仍传 off", async () => {
+  it("F1：kimi 自定义模型合成 → 模型副本继承 kimi-coding 目录真值 thinkingLevelMap，且显式选最低可表达档 low（durable 不 clamp，off→省略参数=端点默认开思考，不可依赖）", async () => {
     const session = makeShadowSession({ emitText: "## 会话摘要\n（七段）" });
     const { factory, openCalls } = await makeFactoryWithSessionQueue([session]);
 
@@ -144,13 +145,13 @@ describe("F20261111synth #1850 叙事合成 thinking 能力/预算/兜底/档案
     expect(openCalls.length).toBeGreaterThan(0);
     const open = openCalls[0];
     const model = open.model as Record<string, unknown>;
-    // 红点①：今天空表原样透传（thinkingLevelMap = {}）
+    // 红点①：今天空表原样透传（thinkingLevelMap = {}）且盲传 off（→ effort:none 400）
     expect(model.thinkingLevelMap).toEqual(KIMI_K3_TRUTH_MAP);
-    // 意图不变：仍请求 off（能力表让 SDK clamp 到 low——disableSynthesisThinking 告警路径）
-    expect(open.thinkingLevel).toBe("off");
+    // 红点①补：off 不可表达时必须显式选最低可表达档（kimi 真值 → low，端点实测可用）
+    expect(open.thinkingLevel).toBe("low");
   });
 
-  it("F1 反例：未知 host（目录不认识）不继承，空表原样（不猜能力）", async () => {
+  it("F1 反例：未知 host（目录不认识）不继承，空表原样且档位 off（不猜能力）", async () => {
     const unknownHostModel = { ...KIMI_CUSTOM_MODEL, id: "some-model", baseUrl: "https://api.example.com/v1" } as unknown as Model<Api>;
     const session = makeShadowSession({ emitText: "ok" });
     const { factory, openCalls } = await makeFactoryWithSessionQueue([session], {
@@ -162,6 +163,19 @@ describe("F20261111synth #1850 叙事合成 thinking 能力/预算/兜底/档案
 
     const model = openCalls[0].model as Record<string, unknown>;
     expect(model.thinkingLevelMap).toEqual({});
+    expect(openCalls[0].thinkingLevel).toBe("off");
+  });
+
+  it("F1 选档：pickSynthesisThinkingLevel 全序取最低可表达档；off 可表达/空表/off:null 全序命中", () => {
+    // kimi 真值：off 不可表达 → low（全序第一个字符串档）
+    expect(pickSynthesisThinkingLevel({ off: null, minimal: null, low: "low", medium: null, high: "high", max: "max" })).toBe("low");
+    // 无 low 的退化表：取下一个可表达档
+    expect(pickSynthesisThinkingLevel({ off: null, high: "high" })).toBe("high");
+    // off 可表达（字符串）→ off 原语义
+    expect(pickSynthesisThinkingLevel({ off: "none", low: "low" })).toBe("off");
+    // 空表/undefined → off（未知能力不猜档，F3 兑底接传输异常）
+    expect(pickSynthesisThinkingLevel(undefined)).toBe("off");
+    expect(pickSynthesisThinkingLevel({})).toBe("off");
   });
 
   it("F2：合成显式 max_tokens 上调至 8192（吸收 low 档思考税），常量与模型副本同值", async () => {

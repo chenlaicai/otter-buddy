@@ -116,8 +116,8 @@ export function buildGuardInterceptContext(
   };
 }
 import { SYNTHESIS_EXPLICIT_MAX_TOKENS } from "./narrative-synthesis-engine";
-// F20261111synth（#1850）：合成 thinking 能力解析 + 兑底重试准入
-import { resolveSynthesisThinkingLevelMap, isSynthesisTransportError } from "./synthesis-thinking-capability";
+// F20261111synth（#1850）：合成 thinking 能力解析 + 选档 + 兑底重试准入
+import { resolveSynthesisThinkingLevelMap, pickSynthesisThinkingLevel, isSynthesisTransportError, type ThinkingLevelMap } from "./synthesis-thinking-capability";
 import type { AgentSessionStore } from "./agent-session-store";
 import { classifyGuardIntercept } from "./guard-intercept-escalation";
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
@@ -685,20 +685,25 @@ export class PiSessionFactory implements AgentGateway {
    */
   async runCompactionSynthesis(otterId: string, prompt: string, modelOverride?: string): Promise<SynthesisRunResult> {
     const { resolvedModel, resolvedModelAlias } = this.resolveSynthesisModel(otterId, modelOverride);
-    // F20261111synth F1：合成专用模型副本挂真实能力表——off 不可表达的端点（kimi responses
-    //  实测拒收 effort:none）由 SDK 既有 clamp 抬到 low，请求携带端点真实词表内的档位；
-    //  intent 仍传 'off'（下方 attempt），clamp 由 SDK 按能力表执行，告警路径保留可见性。
+    // F20261111synth F1：合成专用模型副本挂真实能力表 + 显式选档。off 不可表达的端点
+    //  （kimi responses 实测拒收 effort:none）不能传 'off'——pi-durable 对 off 的翻译是
+    //  「不发 reasoning 参数」，而端点默认行为是开思考且档位不可控（实测 "hi" 烧 48
+    //  reasoning tokens）→ pickSynthesisThinkingLevel 显式选最低可表达档（kimi 真值 → low）。
     const capabilityMap = await resolveSynthesisThinkingLevelMap(resolvedModel);
     const synthesisModel = capabilityMap
       ? ({ ...resolvedModel, thinkingLevelMap: capabilityMap } as typeof resolvedModel)
       : resolvedModel;
+    const synthesisLevel = pickSynthesisThinkingLevel(
+      capabilityMap ?? (resolvedModel as { thinkingLevelMap?: ThinkingLevelMap }).thinkingLevelMap,
+    );
     if (capabilityMap) {
       this.logger.info('[compaction-synthesis] capability map attached', {
-        otterId, modelAlias: resolvedModelAlias, thinkingLevelMap: capabilityMap,
+        otterId, modelAlias: resolvedModelAlias,
+        thinkingLevelMap: capabilityMap, requestedLevel: synthesisLevel,
       });
     }
     try {
-      return await this.runSynthesisAttempt(otterId, prompt, synthesisModel, resolvedModelAlias);
+      return await this.runSynthesisAttempt(otterId, prompt, synthesisModel, resolvedModelAlias, synthesisLevel);
     } catch (err) {
       // F20261111synth F3：传输类失败 → 兑底模型重试一次（有界：+1 次尝试，D9 永不阻塞
       //  换世不变）。非传输失败（逻辑错误/超时——超时在调用方 compaction-hook 层抛，
@@ -715,7 +720,10 @@ export class PiSessionFactory implements AgentGateway {
       const fallbackModel = fallbackCapability
         ? ({ ...fallbackBase, thinkingLevelMap: fallbackCapability } as typeof fallbackBase)
         : fallbackBase;
-      const result = await this.runSynthesisAttempt(otterId, prompt, fallbackModel, fallbackAlias);
+      const fallbackLevel = pickSynthesisThinkingLevel(
+        fallbackCapability ?? (fallbackBase as { thinkingLevelMap?: ThinkingLevelMap }).thinkingLevelMap,
+      );
+      const result = await this.runSynthesisAttempt(otterId, prompt, fallbackModel, fallbackAlias, fallbackLevel);
       return { ...result, fallbackUsed: fallbackAlias };
     }
   }
@@ -728,11 +736,12 @@ export class PiSessionFactory implements AgentGateway {
     prompt: string,
     model: Model<Api>,
     modelAlias: string,
+    thinkingLevel: string,
   ): Promise<SynthesisRunResult> {
     const synthesisFile = path.join(this.cfg.dataDir && path.isAbsolute(this.cfg.dataDir) ? this.cfg.dataDir : tmpdir(), `durable-synthesis-${randomUUID()}.sqlite`);
     const session = await DurableAgentSession.open({
       otterId, file: synthesisFile,
-      models: getModelSource(this.cfg.modelPool), model, thinkingLevel: 'off',
+      models: getModelSource(this.cfg.modelPool), model, thinkingLevel,
       cwd: resolveSessionCwd('', this.cfg.dataDir ?? './data'), tools: { customTools: [], codingTools: [], readOnly: true },
       // M-9b24be04：合成影子通道自带合成 invokeId——durable prompt 的 invoke 归属守卫
       //（"A turn owns watch/admission/settlement"）要求轮有主；影子通道不在任何 invoke
@@ -745,7 +754,7 @@ export class PiSessionFactory implements AgentGateway {
     const turnText = { text: '' };
     const stream = new DurableEventStream(createEventHandler(undefined, undefined, turnText));
     try {
-      this.logSynthesisStarting(otterId, modelAlias, 'off', prompt.length);
+      this.logSynthesisStarting(otterId, modelAlias, thinkingLevel, prompt.length);
       await session.prompt(prompt, undefined, stream, BACKGROUND_CONTEXT);
       const lastStopReason = session.lastStopReason;
       this.logger.info('[compaction-synthesis] shadow channel completed', { otterId, length: turnText.text.length, lastStopReason, usage: session.tokenUsage });
