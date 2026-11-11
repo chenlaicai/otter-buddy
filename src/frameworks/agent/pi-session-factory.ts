@@ -116,6 +116,8 @@ export function buildGuardInterceptContext(
   };
 }
 import { SYNTHESIS_EXPLICIT_MAX_TOKENS } from "./narrative-synthesis-engine";
+// F20261111synth（#1850）：合成 thinking 能力解析 + 选档 + 兑底重试准入
+import { resolveSynthesisThinkingLevelMap, pickSynthesisThinkingLevel, isSynthesisTransportError, type ThinkingLevelMap } from "./synthesis-thinking-capability";
 import type { AgentSessionStore } from "./agent-session-store";
 import { classifyGuardIntercept } from "./guard-intercept-escalation";
 import type { DynamicContext } from "@usecases/ports/sdk-invoke-port";
@@ -305,6 +307,8 @@ export interface AgentSessionFactoryConfig {
   otterRepo: OtterRepository;
   /** Settings 仓库（读取用户显示名，可选） */
   settingsRepo?: SettingsRepository;
+  /** F20261111synth F3：叙事合成兑底模型别名（传输类失败重试一次；缺省 'glm'） */
+  synthesisFallbackAlias?: string;
   /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
   dataDir?: string;
   /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
@@ -383,6 +387,9 @@ export class PiSessionFactory implements AgentGateway {
       otterConfigProvider: OtterConfigProvider;
       otterRepo: OtterRepository;
       settingsRepo?: SettingsRepository;
+      /** F20261111synth F3：叙事合成兑底模型别名（传输类失败重试一次；缺省 'glm'，
+       *  池中不存在则跳过重试）。可选注入（测试/bootstrap），不进 config schema。 */
+      synthesisFallbackAlias?: string;
       /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
       dataDir?: string;
       /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
@@ -623,8 +630,11 @@ export class PiSessionFactory implements AgentGateway {
 
   /** F20260924thnk：合成模型解析（自 runCompactionSynthesis 抽出，complexity 限）。
    *  链路：modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置——
-   *  F20260924swin 链路；显式 maxTokens=F20260924swin 改动点1
-   *  （SDK falsy 跳过分支 openai-responses.js:235，否则输出预留 = 服务端默认吃掉 ~25% 输入容量）；
+   *  F20260924swin 链路；显式 maxTokens=F20260924swin 改动点1；
+   *  ⚠ 检视 B1（#1854）：durable 运行时按 (provider, modelId) 从 models 源重解析模型，
+   *  副本覆盖（maxTokens / thinkingLevelMap）到不了线缆——本方法产出的是副本层语义
+   *  （预算计算/观测/测试锚点），线缆实际走池模板值；thinkingLevel 字符串另走
+   *  agentChange 独立通道，不受此缺口影响；
    *  resolvedModelAlias = 观测三件套之 1（真实执行模型，非 getModelAliasForLog 的 config 值）。 */
   private resolveSynthesisModel(otterId: string, modelOverride?: string): { resolvedModel: Model<Api>; resolvedModelAlias: string } {
     // F20260924swin：modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置（既有行为）。
@@ -634,7 +644,8 @@ export class PiSessionFactory implements AgentGateway {
       const modelAlias = modelOverride ?? this.cfg.otterConfigProvider.getConfig(otterId)?.modelAlias;
       resolvedModel = this.cfg.modelPool.getModel(modelAlias);
     }
-    // F20260924swin 改动点1：显式合成 max_tokens——合成输出实证 ≤2,415 chars ≤ ~1K tokens，4,096 留 4 倍余量。
+    // F20260924swin 改动点1 + F20261111synth（8,192 吸收 low 档思考税）：副本层目标值，
+    // 线缆机制缺口见 #1854（durable 重解析丢弃覆盖，现状良性：模板值经 clamp 远大于需求）。
     resolvedModel = { ...resolvedModel, maxTokens: SYNTHESIS_EXPLICIT_MAX_TOKENS };
     // F20260924thnk 观测三件套之 1：真实执行模型（14:16 现场显示 mimo-pro 但实际执行 override 的 glm）。
     const resolvedModelAlias = modelOverride ?? this.cfg.otterConfigProvider.getConfig(otterId)?.modelAlias ?? resolvedModel.name ?? 'unknown';
@@ -678,10 +689,63 @@ export class PiSessionFactory implements AgentGateway {
    */
   async runCompactionSynthesis(otterId: string, prompt: string, modelOverride?: string): Promise<SynthesisRunResult> {
     const { resolvedModel, resolvedModelAlias } = this.resolveSynthesisModel(otterId, modelOverride);
+    // F20261111synth F1：合成专用模型副本挂真实能力表 + 显式选档。off 不可表达的端点
+    //  （kimi responses 实测拒收 effort:none）不能传 'off'——pi-durable 对 off 的翻译是
+    //  「不发 reasoning 参数」，而端点默认行为是开思考且档位不可控（实测 "hi" 烧 48
+    //  reasoning tokens）→ pickSynthesisThinkingLevel 显式选最低可表达档（kimi 真值 → low）。
+    const capabilityMap = await resolveSynthesisThinkingLevelMap(resolvedModel);
+    const synthesisModel = capabilityMap
+      ? ({ ...resolvedModel, thinkingLevelMap: capabilityMap } as typeof resolvedModel)
+      : resolvedModel;
+    const synthesisLevel = pickSynthesisThinkingLevel(
+      capabilityMap ?? (resolvedModel as { thinkingLevelMap?: ThinkingLevelMap }).thinkingLevelMap,
+    );
+    if (capabilityMap) {
+      this.logger.info('[compaction-synthesis] capability map attached', {
+        otterId, modelAlias: resolvedModelAlias,
+        thinkingLevelMap: capabilityMap, requestedLevel: synthesisLevel,
+      });
+    }
+    try {
+      return await this.runSynthesisAttempt(otterId, prompt, synthesisModel, resolvedModelAlias, synthesisLevel);
+    } catch (err) {
+      // F20261111synth F3：传输类失败 → 兑底模型重试一次（有界：+1 次尝试，D9 永不阻塞
+      //  换世不变）。非传输失败（逻辑错误/超时——超时在调用方 compaction-hook 层抛，
+      //  非本层错误形态）重试无意义，原样上抛由调用方降级机械档案。
+      if (!isSynthesisTransportError(err)) throw err;
+      const fallbackAlias = this.resolveSynthesisFallbackAlias();
+      if (!fallbackAlias || fallbackAlias === resolvedModelAlias) throw err;
+      this.logger.warn('[compaction-synthesis] transport failure, retrying once with fallback model', {
+        otterId, failedAlias: resolvedModelAlias, fallbackAlias,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      const { resolvedModel: fallbackBase } = this.resolveSynthesisModel(otterId, fallbackAlias);
+      const fallbackCapability = await resolveSynthesisThinkingLevelMap(fallbackBase);
+      const fallbackModel = fallbackCapability
+        ? ({ ...fallbackBase, thinkingLevelMap: fallbackCapability } as typeof fallbackBase)
+        : fallbackBase;
+      const fallbackLevel = pickSynthesisThinkingLevel(
+        fallbackCapability ?? (fallbackBase as { thinkingLevelMap?: ThinkingLevelMap }).thinkingLevelMap,
+      );
+      const result = await this.runSynthesisAttempt(otterId, prompt, fallbackModel, fallbackAlias, fallbackLevel);
+      return { ...result, fallbackUsed: fallbackAlias };
+    }
+  }
+
+  /** F20261111synth：单次合成尝试——临时 durable 文件 + 影子 session + 直调 LLM。
+ *  从 runCompactionSynthesis 抽出（F3 兑底重试需要独立的第二次尝试，各自用独立临时
+   *  文件避免失败 session 状态污染重试）。原语义零变化。 */
+  private async runSynthesisAttempt(
+    otterId: string,
+    prompt: string,
+    model: Model<Api>,
+    modelAlias: string,
+    thinkingLevel: string,
+  ): Promise<SynthesisRunResult> {
     const synthesisFile = path.join(this.cfg.dataDir && path.isAbsolute(this.cfg.dataDir) ? this.cfg.dataDir : tmpdir(), `durable-synthesis-${randomUUID()}.sqlite`);
     const session = await DurableAgentSession.open({
       otterId, file: synthesisFile,
-      models: getModelSource(this.cfg.modelPool), model: resolvedModel, thinkingLevel: 'off',
+      models: getModelSource(this.cfg.modelPool), model, thinkingLevel,
       cwd: resolveSessionCwd('', this.cfg.dataDir ?? './data'), tools: { customTools: [], codingTools: [], readOnly: true },
       // M-9b24be04：合成影子通道自带合成 invokeId——durable prompt 的 invoke 归属守卫
       //（"A turn owns watch/admission/settlement"）要求轮有主；影子通道不在任何 invoke
@@ -694,7 +758,7 @@ export class PiSessionFactory implements AgentGateway {
     const turnText = { text: '' };
     const stream = new DurableEventStream(createEventHandler(undefined, undefined, turnText));
     try {
-      this.logSynthesisStarting(otterId, resolvedModelAlias, 'off', prompt.length);
+      this.logSynthesisStarting(otterId, modelAlias, thinkingLevel, prompt.length);
       await session.prompt(prompt, undefined, stream, BACKGROUND_CONTEXT);
       const lastStopReason = session.lastStopReason;
       this.logger.info('[compaction-synthesis] shadow channel completed', { otterId, length: turnText.text.length, lastStopReason, usage: session.tokenUsage });
@@ -703,6 +767,19 @@ export class PiSessionFactory implements AgentGateway {
       await session.close(BACKGROUND_CONTEXT);
       await fs.promises.unlink(synthesisFile).catch(() => undefined);
     }
+  }
+
+  /** F20261111synth F3：兑底模型别名解析——cfg.synthesisFallbackAlias ?? 'glm'，
+ *  池中不存在则 undefined（跳过重试，warn 可见）。不进 config schema：缺省值今天正确，
+   *  需要换兑底模型时再升格配置键（特性文档 known issue 记录）。 */
+  private resolveSynthesisFallbackAlias(): string | undefined {
+    const alias = this.cfg.synthesisFallbackAlias ?? 'glm';
+    if (!this.cfg.modelPool) return undefined;
+    if (!this.cfg.modelPool.hasModel(alias)) {
+      this.logger.warn('[compaction-synthesis] fallback model not in pool, skip retry', { alias });
+      return undefined;
+    }
+    return alias;
   }
 
   /** F20260924thnk 观测三件套之 1/2：合成 starting 日志。打真实 resolved 模型
@@ -1669,5 +1746,6 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     settingsRepo: config.settingsRepo,
     conversationRepo: config.conversationRepo,
     dataDir: config.dataDir,
+    synthesisFallbackAlias: config.synthesisFallbackAlias,
   }, logger);
 }

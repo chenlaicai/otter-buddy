@@ -434,6 +434,27 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
     expect(doneMsg!).toContain("叙事合成执行失败"); // M5/S2：降级 reason 对搭档可见
   });
 
+  it("F20261111synth F4：合成失败 → 机械档案携带降级错误摘要（档案自证，不依赖进程日志）", async () => {
+    // 11-11 事故：09:32 档案只能按同签名推断归因（进程日志已轮换）——失败原文必须进档案
+    const transportError = 'kimi-lty API error (400): {"code":"invalid_request_error","message":"reasoning.effort value \\"none\\" is not supported"}';
+    const sdk = makeSdkPort({ synth: async () => { throw new Error(transportError); } });
+    const mechanicalInputs: Array<Record<string, unknown>> = [];
+    const engine = makeEngine({
+      buildMechanicalArchive: (input) => {
+        mechanicalInputs.push({ ...input });
+        return "## 前世档案（机械转储）";
+      },
+    });
+    const invoker = makeInvokerWithEngine({ sdk, engine });
+
+    await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
+
+    expect(mechanicalInputs.length).toBe(1);
+    expect(mechanicalInputs[0].degradeReason).toBe("synthesis-error");
+    // F4 管道：err.message 原文进档案输入（截断由引擎渲染层负责，管道不丢失）
+    expect(mechanicalInputs[0].degradeErrorDetail).toBe(transportError);
+  });
+
   it("M2：统一交接内合成失败计入熔断（noteHandoffOutcome 单点），连续两次后熔断开启跳过合成", async () => {
     // handoffState 是 AgentInvoker 实例的私有成员——跨 invoker 不共享，须在同一 invoker 内
     //  连续交接验证熔断累积：第 1 次合成失败计数 1 → 第 2 次合成失败计数 2（≥2 阈值）→
