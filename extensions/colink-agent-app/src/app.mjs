@@ -7,12 +7,10 @@ import { createMentionHandler } from './mention-handler.mjs';
 import { CoLinkToolBridge } from './colink-tools.mjs';
 
 const required = ['COLINK_APP_ID', 'COLINK_APP_INSTANCE_ID', 'COLINK_CLIENT_ID', 'COLINK_CLIENT_SECRET',
-  'COLINK_SIGNING_SECRET', 'COLINK_ISSUER', 'COLINK_API_BASE', 'COLINK_CREDENTIAL_KEY', 'COLINK_ALLOWED_USER_IDS'];
+  'COLINK_SIGNING_SECRET', 'COLINK_ISSUER', 'COLINK_API_BASE', 'COLINK_CREDENTIAL_KEY'];
 for (const name of required) {
   if (!process.env[name]) throw new Error(`${name} is required`);
 }
-const allowedUserIds = new Set(process.env.COLINK_ALLOWED_USER_IDS.split(',').map(value => value.trim()).filter(Boolean));
-if (allowedUserIds.size === 0) throw new Error('COLINK_ALLOWED_USER_IDS must contain at least one user ID');
 const dataDir = resolve(process.env.DATA_DIR ?? './data');
 const config = {
   appId: process.env.COLINK_APP_ID,
@@ -42,7 +40,7 @@ const bridge = new OtterBridge({
 });
 const app = createCoLinkApp({
   config, store, manifest,
-  onMention: createMentionHandler({ bridge, allowedUserIds, deploymentId: config.appInstanceId }),
+  onMention: createMentionHandler({ bridge, deploymentId: config.appInstanceId }),
   log: entry => console.log(JSON.stringify({ code: entry.code, stage: entry.stage, eventId: entry.eventId,
     installationId: entry.installationId, status: entry.status, error: entry.error })),
 });

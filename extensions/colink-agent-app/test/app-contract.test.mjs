@@ -13,7 +13,7 @@ test('manifest includes a passive otter avatar and both personal/project scopes'
   assert.match(svg, /^<svg /);
   assert.doesNotMatch(svg, /<script|onload=|javascript:|<image|<foreignObject/i);
   assert.doesNotMatch(svg, /<rect[^>]*width="64"[^>]*height="64"/i);
-  assert.equal(manifest.version, '0.3.2');
+  assert.equal(manifest.version, '0.3.3');
   assert.deepEqual(manifest.permissions, ['messages:receive', 'messages:write', 'messages:read-public', 'messages:read-private']);
 });
 
@@ -30,8 +30,8 @@ test('mention handler routes DM and channel to their respective Otter mappings',
   const calls = [];
   const replies = [];
   const bridge = { reply: async input => { calls.push(input); return '回答'; } };
-  const handler = createMentionHandler({ bridge, allowedUserIds: new Set(['owner']), deploymentId: 'deployment' });
-  await handler(turnFixture({ reason: 'dm_message', conversationId: 'same-id' }, replies));
+  const handler = createMentionHandler({ bridge, deploymentId: 'deployment' });
+  await handler(turnFixture({ reason: 'dm_message', conversationId: 'same-id' }, replies, 'teammate-dm'));
   await handler(turnFixture({ reason: 'mention', channelId: 'same-id' }, replies, 'teammate'));
   assert.equal(calls[0].kind, 'dm');
   assert.equal(calls[1].kind, 'channel');
@@ -43,11 +43,13 @@ test('mention handler routes DM and channel to their respective Otter mappings',
   assert.deepEqual(replies, [{ text: '回答' }, { text: '回答' }]);
 });
 
-test('mention handler rejects other users and unsupported events before execution', async () => {
+test('mention handler allows personal DM without a user allowlist and rejects unsupported events', async () => {
   let executions = 0;
-  const bridge = { reply: async () => { executions++; return 'unexpected'; } };
-  const handler = createMentionHandler({ bridge, allowedUserIds: new Set(['owner']), deploymentId: 'deployment' });
-  await assert.rejects(handler(turnFixture({ reason: 'dm_message', conversationId: 'dm' }, [], 'other')), /COLINK_USER_NOT_ALLOWED/);
+  const replies = [];
+  const bridge = { reply: async () => { executions++; return '同事回答'; } };
+  const handler = createMentionHandler({ bridge, deploymentId: 'deployment' });
+  await handler(turnFixture({ reason: 'dm_message', conversationId: 'dm' }, replies, 'colleague-not-in-old-allowlist'));
   await assert.rejects(handler(turnFixture({ reason: 'mention', channelId: null }, [])), /ONLY_DM_AND_CHANNEL_TEXT_SUPPORTED/);
-  assert.equal(executions, 0);
+  assert.equal(executions, 1);
+  assert.deepEqual(replies, [{ text: '同事回答' }]);
 });
