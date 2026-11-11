@@ -29,7 +29,7 @@ M-a8f8f080 观察子 agent invoke 偶发挂起，约定后续 b5 gate 复现时�
 #2: FAIL 异常 no such column: error
 ```
 
-当前 `invokes` 表没有 `error` 或 `created_at` 列；错误详情由 `invoke_events.error` 承载，生命周期时间字段是 `started_at` / `ended_at`。因此原诊断在最需要取证的路径上必然中断。
+当前 `invokes` 表没有 `error` 或 `created_at` 列；错误事件以 `invoke_events.event_type='error'` 标识，详情在 `payload.message`，生命周期时间字段是 `started_at` / `ended_at`。因此原诊断在最需要取证的路径上必然中断。
 
 本修复只恢复测试诊断能力，不断言原始偶发挂起已经消失，也不修改 b5 的行为判据、采样阈值或 runner 等待逻辑。
 
@@ -38,7 +38,7 @@ M-a8f8f080 观察子 agent invoke 偶发挂起，约定后续 b5 gate 复现时�
 - 无检视意见时返回正常 `{ ok: false, detail }`，不得因诊断查询抛错。
 - invoke 摘要使用现有字段：`status`、`started_at`、`ended_at`、`tool_call_count`。
 - invoke 与 invoke_events 均按当前 `conversation_id` 过滤，避免同批其他采样污染证据。
-- 错误内容继续由既有 `invoke_events.error` 摘要呈现，不向 invokes 表新增冗余字段。
+- 错误内容继续通过 `invoke_events` 的 `event_type='error'` 事件及其 `payload` 摘要呈现，不向 invokes 表新增冗余字段。
 
 ## 修法决策
 

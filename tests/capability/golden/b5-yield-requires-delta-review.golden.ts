@@ -73,7 +73,7 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
   );
   if (!reviewMsg) {
     /** 诊断：本采样的 invoke 状态 + 事件序列（定位卡点：工具调用/LLM 挂起/报错循环）。
-     *  错误详情在 invoke_events.error；invokes 表只有状态与生命周期字段。 */
+     *  错误事件以 invoke_events.event_type='error' 标识，详情在 payload.message；invokes 表只有状态与生命周期字段。 */
     const invs = ctx.built.db
       .prepare(
         "SELECT id, otter_id, status, started_at, ended_at, tool_call_count FROM invokes WHERE conversation_id = ? ORDER BY started_at",
