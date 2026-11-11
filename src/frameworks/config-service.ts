@@ -254,6 +254,8 @@ interface RawConfig {
     sessionPoolIdleTtlMinutes?: number;
     models?: Array<{
       alias?: string;
+      /** 是否启用（缺省 true）；false 时保留 YAML 条目但不进入运行时模型池。 */
+      enabled?: boolean;
       provider?: string;
       model?: string;
       apiKey?: string;
@@ -365,43 +367,53 @@ function d<T>(value: T | undefined, fallback: T): T {
   return value !== undefined ? value : fallback;
 }
 
+type RawModelConfig = NonNullable<NonNullable<RawConfig["llm"]>["models"]>[number];
+
+/** 校验启用条目的连接与运行参数；禁用条目不进入此路径。 */
+// eslint-disable-next-line complexity -- F20260920uhuc：模型连接字段校验内聚一函数，拆分反而碎
+function validateEnabledModel(m: RawModelConfig): void {
+  if (!m.provider) throw new Error(`配置校验失败: llm.models["${m.alias}"].provider 为必填字段`);
+  if (!m.model) throw new Error(`配置校验失败: llm.models["${m.alias}"].model 为必填字段`);
+  if (!VALID_PROVIDERS.includes(m.provider)) {
+    throw new Error(`配置校验失败: llm.models["${m.alias}"].provider 必须是 ${VALID_PROVIDERS.join(" / ")}，当前值: ${m.provider}`);
+  }
+  if (m.apiFormat !== undefined && m.apiFormat !== "responses" && m.apiFormat !== "chat") {
+    throw new Error(`配置校验失败: llm.models["${m.alias}"].apiFormat 必须是 responses / chat，当前值: ${m.apiFormat}`);
+  }
+  if (m.apiFormat !== undefined && m.provider !== "openai") {
+    throw new Error(`配置校验失败: llm.models["${m.alias}"].apiFormat 仅支持 provider=openai，当前 provider: ${m.provider}`);
+  }
+  if (m.apiFormat !== undefined && !m.apiBaseUrl && !m.apiKey) {
+    throw new Error(`配置校验失败: llm.models["${m.alias}"].apiFormat 仅在配置 apiBaseUrl 或 apiKey 的自定义 OpenAI provider 中生效`);
+  }
+  // F20260909mthl：thinkingLevel 枚举校验（档位→模型的实际映射交给 SDK thinkingLevelMap clamp，配置层只挡非法词）
+  if (m.thinkingLevel !== undefined && !VALID_THINKING_LEVELS.includes(m.thinkingLevel)) {
+    throw new Error(`配置校验失败: llm.models["${m.alias}"].thinkingLevel 必须是 ${VALID_THINKING_LEVELS.join(" / ")}，当前值: ${m.thinkingLevel}`);
+  }
+  // F20260920uhuc 需求变更（2026-09-20）：交接阈值按模型必填（已用 token 绝对值）。
+  // 每模型单独水位线——不同模型窗口差异大（128K 与 1M 不共享一条线），不设全局缺省
+  if (typeof m.handoffThresholdTokens !== "number" || !Number.isFinite(m.handoffThresholdTokens) || m.handoffThresholdTokens <= 0) {
+    throw new Error(
+      `配置校验失败: llm.models["${m.alias}"].handoffThresholdTokens 为必填数字（已用 token 绝对值，超过即触发统一交接）。` +
+      `例：1M 窗口配 340000、128K 窗口配 40000`,
+    );
+  }
+}
+
 /**
  * 校验模型配置（llm.models[]）。
- * 填充 default 值（缺省时取第一个模型）。
+ * 填充 default 值（缺省时取第一个启用模型）。
  */
-// eslint-disable-next-line complexity -- F20260920uhuc 需求变更（2026-09-20）：models 条目校验增 handoffThresholdTokens 必填顶到 15（每条目校验内聚一函数，拆分反而碎）
 function validateModels(raw: RawConfig): void {
   const models = raw.llm!.models!;
 
-  // 校验每个 model 条目
+  // 先校验所有条目的身份与开关；禁用条目保留在 YAML，但无需具备可初始化的连接参数。
   for (const m of models) {
     if (!m.alias) throw new Error("配置校验失败: llm.models[] 中存在缺少 alias 的条目");
-    if (!m.provider) throw new Error(`配置校验失败: llm.models["${m.alias}"].provider 为必填字段`);
-    if (!m.model) throw new Error(`配置校验失败: llm.models["${m.alias}"].model 为必填字段`);
-    if (!VALID_PROVIDERS.includes(m.provider)) {
-      throw new Error(`配置校验失败: llm.models["${m.alias}"].provider 必须是 ${VALID_PROVIDERS.join(" / ")}，当前值: ${m.provider}`);
+    if (m.enabled !== undefined && typeof m.enabled !== "boolean") {
+      throw new Error(`配置校验失败: llm.models["${m.alias}"].enabled 必须是布尔值`);
     }
-    if (m.apiFormat !== undefined && m.apiFormat !== "responses" && m.apiFormat !== "chat") {
-      throw new Error(`配置校验失败: llm.models["${m.alias}"].apiFormat 必须是 responses / chat，当前值: ${m.apiFormat}`);
-    }
-    if (m.apiFormat !== undefined && m.provider !== "openai") {
-      throw new Error(`配置校验失败: llm.models["${m.alias}"].apiFormat 仅支持 provider=openai，当前 provider: ${m.provider}`);
-    }
-    if (m.apiFormat !== undefined && !m.apiBaseUrl && !m.apiKey) {
-      throw new Error(`配置校验失败: llm.models["${m.alias}"].apiFormat 仅在配置 apiBaseUrl 或 apiKey 的自定义 OpenAI provider 中生效`);
-    }
-    // F20260909mthl：thinkingLevel 枚举校验（档位→模型的实际映射交给 SDK thinkingLevelMap clamp，配置层只挡非法词）
-    if (m.thinkingLevel !== undefined && !VALID_THINKING_LEVELS.includes(m.thinkingLevel)) {
-      throw new Error(`配置校验失败: llm.models["${m.alias}"].thinkingLevel 必须是 ${VALID_THINKING_LEVELS.join(" / ")}，当前值: ${m.thinkingLevel}`);
-    }
-    // F20260920uhuc 需求变更（2026-09-20）：交接阈值按模型必填（已用 token 绝对值）。
-    // 每模型单独水位线——不同模型窗口差异大（128K 与 1M 不共享一条线），不设全局缺省
-    if (typeof m.handoffThresholdTokens !== "number" || !Number.isFinite(m.handoffThresholdTokens) || m.handoffThresholdTokens <= 0) {
-      throw new Error(
-        `配置校验失败: llm.models["${m.alias}"].handoffThresholdTokens 为必填数字（已用 token 绝对值，超过即触发统一交接）。` +
-        `例：1M 窗口配 340000、128K 窗口配 40000`,
-      );
-    }
+    if (m.enabled !== false) validateEnabledModel(m);
   }
 
   // 校验 alias 唯一性
@@ -411,19 +423,33 @@ function validateModels(raw: RawConfig): void {
     throw new Error(`配置校验失败: llm.models[] 中存在重复的 alias: ${duplicates.join(", ")}`);
   }
 
-  // 校验 default 有效性
+  resolveDefaultModel(raw, models);
+}
+
+/** 校验默认模型属于启用集合；缺省时取第一个启用条目。 */
+function resolveDefaultModel(raw: RawConfig, models: RawModelConfig[]): void {
+  const aliases = models.map(m => m.alias!);
+  const enabledModels = models.filter(m => m.enabled !== false);
+  const enabledAliases = enabledModels.map(m => m.alias!);
+  if (enabledModels.length === 0) {
+    throw new Error("配置校验失败: llm.models[] 至少需要一个启用的模型条目（enabled 缺省为 true）");
+  }
+
+  // 禁用条目保留在 YAML，但不属于运行时可选模型。
   if (raw.llm!.default && !aliases.includes(raw.llm!.default)) {
     throw new Error(`配置校验失败: llm.default "${raw.llm!.default}" 不在 models[] 中。可用 alias: ${aliases.join(", ")}`);
   }
+  if (raw.llm!.default && !enabledAliases.includes(raw.llm!.default)) {
+    throw new Error(`配置校验失败: llm.default "${raw.llm!.default}" 指向已禁用的模型条目（enabled: false）。已启用 alias: ${enabledAliases.join(", ")}`);
+  }
 
-  // default 缺省时使用第一个模型
   if (!raw.llm!.default) {
-    raw.llm!.default = models[0].alias;
+    raw.llm!.default = enabledModels[0].alias;
   }
 }
 
 /** 校验必填字段和类型，失败直接抛异常（导出供测试） */
-export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { default: string; models: ModelConfig[] } } {
+export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { default: string; models: NonNullable<NonNullable<RawConfig["llm"]>["models"]> } } {
   if (!raw.llm?.models || raw.llm.models.length === 0) {
     throw new Error("配置校验失败: llm.models[] 为必填字段（至少一个模型条目，单模型配置也请写为一条 models[] 条目）");
   }
@@ -445,6 +471,7 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
     );
   }
   validateModels(raw);
+  validateAssistantModelAlias(raw);
 
   if (raw.server?.port !== undefined && typeof raw.server.port !== "number") {
     throw new Error("配置校验失败: server.port 必须是数字");
@@ -452,6 +479,14 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
 
   // F20260901wxnt：contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
   if (raw.weixin) validateWeixinWarnConfig(raw.weixin);
+}
+
+/** 静态助理配置指向禁用条目时启动即报错，避免运行时静默回退到默认模型。 */
+function validateAssistantModelAlias(raw: RawConfig): void {
+  const assistantModelAlias = raw.im?.assistant?.modelAlias;
+  if (assistantModelAlias && !raw.llm!.models!.some(m => m.alias === assistantModelAlias && m.enabled !== false)) {
+    throw new Error(`配置校验失败: im.assistant.modelAlias "${assistantModelAlias}" 不存在或对应模型已禁用`);
+  }
 }
 
 /** 传入值→有限数，非法回退默认值（F20260901wxnt 发现1：YAML "60min" → NaN → 全轰炸） */
@@ -587,7 +622,7 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
 }
 
 /** 将 RawConfig 补全默认值，构建 AppConfig。F20260915cfgt：features/attachments 归一化拆至 features-config.ts */
-function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelConfig[] } }, logger?: Logger): AppConfig {
+function applyDefaults(raw: RawConfig & { llm: { default: string; models: NonNullable<NonNullable<RawConfig["llm"]>["models"]> } }, logger?: Logger): AppConfig {
   return {
     db: buildDbConfig(raw),
     server: { port: d(raw.server?.port, 3000) },
@@ -607,7 +642,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: ModelC
     llm: {
       default: raw.llm.default,
       // alias/provider/model 已由 validateModels 校验非空
-      models: raw.llm.models.map(m => ({
+      models: raw.llm.models.filter(m => m.enabled !== false).map(m => ({
         alias: m.alias!,
         provider: m.provider!,
         model: m.model!,
