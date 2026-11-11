@@ -1,13 +1,14 @@
 export function createMentionHandler({ bridge, allowedUserIds, deploymentId }) {
   return async turn => {
     const actorId = turn.context.userId;
-    if (!allowedUserIds.has(actorId)) throw new Error('COLINK_USER_NOT_ALLOWED');
     const text = turn.input.text?.trim();
     if (!text) throw new Error('EMPTY_MESSAGE_TEXT');
 
     let kind;
     let externalId;
     if (turn.input.reason === 'dm_message' && turn.input.conversationId) {
+      // Why: 白名单只保护个人 DM；频道由 CoLink 安装范围与事件验签授权，成员均可触发。
+      if (!allowedUserIds.has(actorId)) throw new Error('COLINK_USER_NOT_ALLOWED');
       kind = 'dm';
       externalId = turn.input.conversationId;
     } else if (['mention', 'reply'].includes(turn.input.reason) && turn.input.channelId) {

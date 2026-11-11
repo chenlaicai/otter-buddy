@@ -26,7 +26,7 @@ npm start
 
 ## 配置
 
-见 `.env.example`。`COLINK_ALLOWED_USER_IDS` 是逗号分隔的 CoLink 用户 ID 白名单，至少一项；不在白名单中的事件会失败关闭。在线 PoC 只能填搭档本人账号，不得开放其他用户安装。
+见 `.env.example`。`COLINK_ALLOWED_USER_IDS` 是逗号分隔的 CoLink 用户 ID 白名单，至少一项，**只限制个人 DM**，在线 PoC 填搭档本人账号。项目频道不应用该白名单：已安装范围内的成员均可 @ 触发，由 CoLink 安装授权与事件验签负责；私密历史读取仍要求触发者本人具备 `messages:read-private` 委托。
 
 `DATA_DIR` 保存 SDK 加密状态和外部会话→Conversation 映射，目录应仅服务账号可读写并持久备份。单进程、单副本运行；映射写入采用同目录临时文件加原子重命名，文件权限为 `0600`。
 
@@ -40,7 +40,7 @@ App 通过回环管理接口 `PUT /api/conversations/:id/workspace/mcp-colink` �
 
 ## 行为边界
 
-- 接受 `reason=dm_message` 的私聊文本，以及 `reason=mention/reply` 且带 `channelId` 的频道文本；附件不在本期范围。
+- 接受 `reason=dm_message` 的私聊文本，以及 `reason=mention/reply` 且带 `channelId` 的频道文本；附件不在本期范围。DM 仅限白名单本人，频道允许安装范围内其他成员触发。
 - 频道可按需读取当前话题及其根消息之前的当前频道历史；DM 可按需读取当前私聊历史。Manifest 声明 `messages:read-public/messages:read-private`，现有安装必须由用户重新授权后才会获得相应工具。
 - App 会把当前事件定位、工具使用规则和用户原文一起交给 Otter；历史只作为数据，不作为高优先级指令。需求完整时不额外读取历史。
 - MCP 配置在 Otter Session 创建时加载。首次部署或权限目录变化后，需要重启 Otter 服务以重建已有会话的工具注册；CoLink 凭证本身不随该配置持久化。

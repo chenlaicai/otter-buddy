@@ -206,7 +206,7 @@ export class CoLinkToolBridge {
       let result;
       if (body.method === 'initialize') result = {
         protocolVersion: '2025-06-18', capabilities: { tools: {} },
-        serverInfo: { name: 'colink-otter-history', version: '0.3.0' },
+        serverInfo: { name: 'colink-otter-history', version: '0.3.1' },
       };
       else if (body.method === 'ping') result = {};
       else if (body.method === 'tools/list') result = { tools: await this.listTools(turn) };

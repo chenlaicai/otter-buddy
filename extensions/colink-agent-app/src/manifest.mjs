@@ -7,7 +7,7 @@ export function createManifest() {
     manifestVersion: '2.0.0',
     name: '海獭',
     description: '由 Otter Buddy 执行的个人私聊与项目频道 Agent，可在授权范围内读取话题、频道和私聊历史。',
-    version: '0.3.0',
+    version: '0.3.1',
     tag: 'Agent',
     agent: {},
     icons: { otter: `data:image/svg+xml;base64,${Buffer.from(icon).toString('base64')}` },
