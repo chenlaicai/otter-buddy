@@ -630,8 +630,11 @@ export class PiSessionFactory implements AgentGateway {
 
   /** F20260924thnk：合成模型解析（自 runCompactionSynthesis 抽出，complexity 限）。
    *  链路：modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置——
-   *  F20260924swin 链路；显式 maxTokens=F20260924swin 改动点1
-   *  （SDK falsy 跳过分支 openai-responses.js:235，否则输出预留 = 服务端默认吃掉 ~25% 输入容量）；
+   *  F20260924swin 链路；显式 maxTokens=F20260924swin 改动点1；
+   *  ⚠ 检视 B1（#1854）：durable 运行时按 (provider, modelId) 从 models 源重解析模型，
+   *  副本覆盖（maxTokens / thinkingLevelMap）到不了线缆——本方法产出的是副本层语义
+   *  （预算计算/观测/测试锚点），线缆实际走池模板值；thinkingLevel 字符串另走
+   *  agentChange 独立通道，不受此缺口影响；
    *  resolvedModelAlias = 观测三件套之 1（真实执行模型，非 getModelAliasForLog 的 config 值）。 */
   private resolveSynthesisModel(otterId: string, modelOverride?: string): { resolvedModel: Model<Api>; resolvedModelAlias: string } {
     // F20260924swin：modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置（既有行为）。
@@ -641,7 +644,8 @@ export class PiSessionFactory implements AgentGateway {
       const modelAlias = modelOverride ?? this.cfg.otterConfigProvider.getConfig(otterId)?.modelAlias;
       resolvedModel = this.cfg.modelPool.getModel(modelAlias);
     }
-    // F20260924swin 改动点1：显式合成 max_tokens——合成输出实证 ≤2,415 chars ≤ ~1K tokens，4,096 留 4 倍余量。
+    // F20260924swin 改动点1 + F20261111synth（8,192 吸收 low 档思考税）：副本层目标值，
+    // 线缆机制缺口见 #1854（durable 重解析丢弃覆盖，现状良性：模板值经 clamp 远大于需求）。
     resolvedModel = { ...resolvedModel, maxTokens: SYNTHESIS_EXPLICIT_MAX_TOKENS };
     // F20260924thnk 观测三件套之 1：真实执行模型（14:16 现场显示 mimo-pro 但实际执行 override 的 glm）。
     const resolvedModelAlias = modelOverride ?? this.cfg.otterConfigProvider.getConfig(otterId)?.modelAlias ?? resolvedModel.name ?? 'unknown';

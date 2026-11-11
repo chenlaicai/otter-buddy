@@ -80,11 +80,17 @@ off:null → 全序（off/minimal/low/medium/high/xhigh/max）第一个字符串
 收 medium 而目录 medium:null——全量挂聊天路径会把 kimi-highspeed（无显式档位，
 默认 medium，实测可用）静默抬到 high（计费档翻倍）。聊天路径零改动是刻意的。
 
-### F2 预算层：SYNTHESIS_EXPLICIT_MAX_TOKENS 4096→8192
+### F2 预算层：SYNTHESIS_EXPLICIT_MAX_TOKENS 4096→8192（副本层目标值；线缆缺口见 B1/#1854）
 
 off 不可表达时合成以 low 档执行，思考与正文共享 max_tokens（reasoning 是 output
 子集）。9-24 事故是 medium 烧光 4096 致 0 字输出（57s/length:0）；low 更省，双倍
-余量吸收思考税。输入容量代价 4k tokens，对 262K/1M 窗口可忽略。
+余量吸收思考税。
+
+**检视 B1 修正（#1854）**：durable 运行时按 (provider, modelId) 重解析模型，本副本
+覆盖到不了线缆——线缆实际走池模板 maxTokens（经 clamp 自动收缩）。现状良性
+（模板值远大于 low 档思考+正文需求，无回归风险），但「输入容量 = 窗口 − max_tokens」
+旧断言在 durable 线缆不成立；根治立案 #1854。F1 的 thinkingLevelMap 副本同缺口，
+但 F1 的修复主体是 thinkingLevel 字符串（走 agentChange 独立通道，已验证落地）。
 
 ### F3 韧性层：传输类失败兜底重试一次
 
@@ -128,6 +134,10 @@ session、用兜底模型（`synthesisFallbackAlias ?? 'glm'`，池校验缺失�
   `[compaction-synthesis] capability map attached` 日志 + 档案形态）。
 
 ## Known Issues（不在本 PR 处理）
+
+0. **显式合成 max_tokens 未达线缆（检视 B1，已立案 #1854）**：durable 重解析丢弃
+   副本覆盖；现状良性（模板值经 clamp 远大于需求），本 PR 保留 8,192 为线缆修复后
+   的目标值并修正注释。
 
 1. **kimi-highspeed 默认 medium 与目录 medium:null 的矛盾**：端点 responses 实测
    收 medium，目录（completions 词表）说不可用。若未来全量挂表需先解决该矛盾；

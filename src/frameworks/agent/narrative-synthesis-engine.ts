@@ -56,11 +56,14 @@ export function synthesisFullBudgetChars(contextWindowTokens: number): number {
 
 /** F20260924swin：显式合成 max_tokens（与 pi-session-factory 调用侧同值，单一真相源）。
  *  输出实证 ≤2,415 chars ≤ ~1K tokens，prompt 规则 7 自限 ≤2000 tokens。
- *  显式发送后输入容量 = 窗口 − 8,192（不再被服务端默认预留 ~64K 吃掉 25%）。
+ *  ⚠ 机制缺口（检视 B1，#1854）：durable 运行时按 (provider, modelId) 从 models 源
+ *  重解析模型，本副本覆盖到不了线缆——线缆实际走池模板 maxTokens（经
+ *  clampMaxTokensToContext 自动收缩），本常量在 durable 时代为副本层目标值，
+ *  「输入容量 = 窗口 − max_tokens」的旧断言在 durable 线缆上不成立（待 #1854 修复）。
  *  F20261111synth（#1850）：4,096 → 8,192——off 不可表达的端点（kimi responses）合成
- *  经 clamp 以 low 档执行，思考与正文共享 max_tokens（reasoning 是 output 子集）；
- *  9-24 事故是 medium 档烧光 4,096 致 0 字输出，low 档更省但保留双倍余量吸收思考税，
- *  输入容量代价 4k tokens 对 262K/1M 窗口可忽略。 */
+ *  显式选 low 档执行，思考与正文共享 max_tokens（reasoning 是 output 子集）；
+ *  9-24 事故是 medium 档烧光 4,096 致 0 字输出，low 档更省但保留双倍余量吸收思考税。
+ *  现状良性：线缆模板 128000 经 clamp 后远大于 low 档思考 + 正文，无回归风险。 */
 export const SYNTHESIS_EXPLICIT_MAX_TOKENS = 8_192;
 
 /** F20260924swin：trim-note 渲染长度预留（chars）。
