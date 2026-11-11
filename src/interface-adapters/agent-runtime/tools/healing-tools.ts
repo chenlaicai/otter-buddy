@@ -27,7 +27,7 @@ function formatInvalidBlocksError(blocks: HealingBlockError[]): string {
     `合法上报形态（裸写，勿放在代码围栏内）：\n` +
     `1) <healing>[issues]\n- type: other\n  severity: low\n  description: ...\n  suggestion: ...\n[/issues]</healing>\n` +
     `2) <healing>{"type":"other","description":"..."}</healing>（type/description 必填）\n\n` +
-    `若只是讲解/演示 healing 语法，请用代码围栏包裹（围栏内不上报）——裸写 = 上报。`
+    `若只是讲解/演示 healing 语法，请用行内代码或代码围栏包裹（代码内不上报）——裸写 = 上报。`
   );
 }
 

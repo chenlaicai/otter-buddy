@@ -47,9 +47,9 @@ function extractMultilineField(entry: string, key: string, nextKey: string): str
 }
 
 function parseSingleIssue(entry: string): HealingIssue | null {
-  const description = extractMultilineField(entry, 'description', 'suggestion');
-  if (!description) return null;
   const type = extractField(entry, 'type');
+  const description = extractMultilineField(entry, 'description', 'suggestion');
+  if (!type || !description) return null;
   const severity = extractField(entry, 'severity');
   return {
     type: VALID_TYPES.has(type) ? type as HealingErrorType : 'other',
@@ -71,42 +71,96 @@ function splitFences(body: string): Segment[] {
   const lines = body.split('\n');
   const segments: Segment[] = [];
   let current: string[] = [];
-  let inFence = false;
+  let fenceChar = '';
+  let fenceLength = 0;
 
   for (const line of lines) {
-    const isFenceLine = /^\s*(`{3,}|~{3,})/.test(line);
-    if (isFenceLine) {
-      if (!inFence) {
-        if (current.length) segments.push({ text: current.join('\n'), fenced: false });
-        current = [line];
-        inFence = true;
-      } else {
+    if (!fenceChar) {
+      const opening = line.match(/^ {0,3}(`{3,}|~{3,})/);
+      if (!opening) {
         current.push(line);
-        segments.push({ text: current.join('\n'), fenced: true });
-        current = [];
-        inFence = false;
+        continue;
       }
-    } else {
-      current.push(line);
+      if (current.length) segments.push({ text: current.join('\n'), fenced: false });
+      current = [line];
+      fenceChar = opening[1][0];
+      fenceLength = opening[1].length;
+      continue;
+    }
+
+    current.push(line);
+    const closing = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+    if (closing && closing[1][0] === fenceChar && closing[1].length >= fenceLength) {
+      segments.push({ text: current.join('\n'), fenced: true });
+      current = [];
+      fenceChar = '';
+      fenceLength = 0;
     }
   }
-  if (current.length) segments.push({ text: current.join('\n'), fenced: inFence });
+  if (current.length) segments.push({ text: current.join('\n'), fenced: Boolean(fenceChar) });
   return segments;
 }
 
-/** 裸写协议块（围栏外）：<healing> 后紧跟 [ 或 { 的块才进入协议判定（F20260904hstr 锚定）。 */
+function backtickRunEnd(text: string, start: number): number {
+  let end = start;
+  while (end < text.length && text[end] === '`') end += 1;
+  return end;
+}
+
+function inlineCodeCloseEnd(text: string, start: number, runLength: number): number {
+  let i = start;
+  while (i < text.length) {
+    if (text[i] !== '`') {
+      i += 1;
+      continue;
+    }
+    const runEnd = backtickRunEnd(text, i);
+    if (runEnd - i === runLength) return runEnd;
+    i = runEnd;
+  }
+  return -1;
+}
+
+/** 将成对行内代码 span 等长遮罩，检测协议时跳过；保留换行与索引供 strip 原样切片。 */
+function maskInlineCode(text: string): string {
+  const chars = text.split('');
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== '`') {
+      i += 1;
+      continue;
+    }
+    const openEnd = backtickRunEnd(text, i);
+    const closeEnd = inlineCodeCloseEnd(text, openEnd, openEnd - i);
+    if (closeEnd < 0) {
+      i = openEnd;
+      continue;
+    }
+    for (let k = i; k < closeEnd; k += 1) {
+      if (chars[k] !== '\n') chars[k] = ' ';
+    }
+    i = closeEnd;
+  }
+  return chars.join('');
+}
+
+/** 裸写协议块（围栏/行内代码外）：<healing> 后紧跟 [ 或 { 才进入协议判定。 */
 interface RawBlock { text: string; content: string; start: number; end: number; closed: boolean; }
 
 function extractBlocks(plainText: string): RawBlock[] {
   const blocks: RawBlock[] = [];
+  const masked = maskInlineCode(plainText);
   // 同时捕获缺 </healing> 的块：parse 侧必须响亮报错；strip 侧仍保留原文，避免误吞正文。
   const re = /<healing>\s*([[{][\s\S]*?)(<\/healing>|$)/gi;
-  for (const m of plainText.matchAll(re)) {
+  for (const m of masked.matchAll(re)) {
+    const start = m.index;
+    const end = start + m[0].length;
+    const contentStart = start + m[0].indexOf(m[1]);
     blocks.push({
-      text: m[0],
-      content: m[1],
-      start: m.index,
-      end: m.index + m[0].length,
+      text: plainText.slice(start, end),
+      content: plainText.slice(contentStart, contentStart + m[1].length),
+      start,
+      end,
       closed: Boolean(m[2]),
     });
   }
@@ -194,10 +248,21 @@ function classifyXmlMarker(content: string): Classified {
   const closed = content.match(/([\s\S]*?)\[\/issues\]/i)?.[1] ?? null;
   if (closed === null) return { kind: 'invalid', reason: '[issues] 缺 [/issues] 闭合标记' };
 
-  const entries = closed.split(/(?=- type:)/gi).filter(Boolean);
-  const issues = entries.map(parseSingleIssue).filter((i): i is HealingIssue => i !== null);
-  if (issues.length === 0) return { kind: 'invalid', reason: '[issues] 未解析出有效 issue（每条需 description 字段）' };
-  return { kind: 'issues', issues };
+  const entriesRaw = closed.replace(/^\s*\[issues\]/i, '');
+  const entries = entriesRaw.split(/(?=^\s*-\s+)/m).filter(entry => entry.trim());
+  if (entries.length === 0) {
+    return { kind: 'invalid', reason: '[issues] 未解析出 issue（每条需 - type: 与 description 字段）' };
+  }
+  const issues = entries.map(parseSingleIssue);
+  const invalidIndex = issues.findIndex(issue => issue === null);
+  if (invalidIndex >= 0) {
+    const missing = extractField(entries[invalidIndex], 'type') ? 'description' : 'type';
+    return {
+      kind: 'invalid',
+      reason: `[issues] 第 ${invalidIndex + 1} 条缺 ${missing} 字段（必填，整个块未落账）`,
+    };
+  }
+  return { kind: 'issues', issues: issues as HealingIssue[] };
 }
 
 function classifyBlock(content: string): Classified {

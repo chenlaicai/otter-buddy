@@ -144,7 +144,7 @@ describe("parseHealingReport", () => {
     expect(result.issues[0].severity).toBe("low");
   });
 
-  it("skips entries without description", () => {
+  it("rejects the whole block when any entry lacks description", () => {
     const body = `<healing>[issues]
 - type: tool_failure
   severity: high
@@ -154,8 +154,10 @@ describe("parseHealingReport", () => {
   suggestion: fix
 [/issues]</healing>`;
     const result = parseHealingReport(body);
-    expect(result.issues).toHaveLength(1);
-    expect(result.issues[0].description).toBe("actual description");
+    expect(result.hasIssues).toBe(false);
+    expect(result.issues).toEqual([]);
+    expect(result.invalidBlocks).toHaveLength(1);
+    expect(result.invalidBlocks[0].reason).toContain("description");
   });
 
   // ── 防误解析 ──
@@ -453,5 +455,74 @@ describe("issue #1842 healing 协议契约", () => {
     expect(result.hasIssues).toBe(false);
     expect(result.invalidBlocks).toHaveLength(1);
     expect(result.invalidBlocks[0].reason).toContain("</healing>");
+  });
+});
+
+describe("PR #1851 对抗检视第一轮反例", () => {
+  it("YAML 条目缺 type 时整个块非法，不归 other 落账", () => {
+    const result = parseHealingReport(`<healing>[issues]
+- severity: high
+  description: missing type
+[/issues]</healing>`);
+    expect(result.hasIssues).toBe(false);
+    expect(result.invalidBlocks).toHaveLength(1);
+    expect(result.invalidBlocks[0].reason).toContain("type");
+  });
+
+  it("同块任一 YAML 条目缺 description 时整个块非法，不过滤后继续落账", () => {
+    const result = parseHealingReport(`<healing>[issues]
+- type: tool_failure
+  severity: high
+- type: other
+  description: otherwise valid
+[/issues]</healing>`);
+    expect(result.hasIssues).toBe(false);
+    expect(result.issues).toEqual([]);
+    expect(result.invalidBlocks).toHaveLength(1);
+    expect(result.invalidBlocks[0].reason).toContain("description");
+  });
+
+  it("四反引号围栏内嵌三反引号时示例仍受保护", () => {
+    const body = `讲解：
+\`\`\`\`text
+\`\`\`
+<healing>{"type":"other","description":"example"}</healing>
+\`\`\`
+\`\`\`\``;
+    expect(parseHealingReport(body).hasIssues).toBe(false);
+    expect(stripHealingReport(body)).toBe(body);
+  });
+
+  it("波浪围栏内的反引号行不会提前结束保护域", () => {
+    const body = `讲解：
+~~~text
+\`\`\`
+<healing>{"type":"other","description":"example"}</healing>
+\`\`\`
+~~~`;
+    expect(parseHealingReport(body).hasIssues).toBe(false);
+    expect(stripHealingReport(body)).toBe(body);
+  });
+
+  it("行内代码中的完整 JSON healing 示例不落账也不剥离", () => {
+    const body = '讲解：`<healing>{"type":"other","description":"example"}</healing>`';
+    expect(parseHealingReport(body).hasIssues).toBe(false);
+    expect(stripHealingReport(body)).toBe(body);
+  });
+
+  it("行内示例与文末真上报并存时只处理真上报", () => {
+    const body = '讲解：`<healing>{"type":"other","description":"example"}</healing>`\n<healing>{"type":"tool_failure","description":"real"}</healing>';
+    const result = parseHealingReport(body);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].description).toBe("real");
+    const stripped = stripHealingReport(body);
+    expect(stripped).toContain('`<healing>{"type":"other","description":"example"}</healing>`');
+    expect(stripped).not.toContain('"real"');
+  });
+
+  it("真实 JSON description 中的行内反引号内容原样保留", () => {
+    const result = parseHealingReport('<healing>{"type":"other","description":"use `alpha` here"}</healing>');
+    expect(result.hasIssues).toBe(true);
+    expect(result.issues[0].description).toBe("use `alpha` here");
   });
 });

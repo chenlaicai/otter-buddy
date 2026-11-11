@@ -62,4 +62,27 @@ describe("issue #1842 intercept 契约", () => {
     interceptHealingReport(raw, makeCtx(), repo);
     expect(creates).toHaveLength(0);
   });
+
+  it("行内代码中的完整 JSON 示例：repo.create 不调用且正文保留", () => {
+    const { repo, creates } = makeRepo();
+    const raw = '讲解：`<healing>{"type":"other","description":"example"}</healing>`';
+    const result = interceptHealingReport(raw, makeCtx(), repo);
+    expect(result.error).toBeNull();
+    expect(result.cleanBody).toBe(raw);
+    expect(creates).toHaveLength(0);
+  });
+
+  it("YAML 同块有缺 description 条目：整体报错且 repo.create 零调用", () => {
+    const { repo, creates } = makeRepo();
+    const raw = `<healing>[issues]
+- type: tool_failure
+  severity: high
+- type: other
+  description: otherwise valid
+[/issues]</healing>`;
+    const result = interceptHealingReport(raw, makeCtx(), repo);
+    expect(result.error).toContain("description");
+    expect(result.cleanBody).toBe(raw);
+    expect(creates).toHaveLength(0);
+  });
 });
