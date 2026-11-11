@@ -207,11 +207,12 @@ const MAX_BASH_EVENT_TIMEOUT_MS = 3_600_000 + TOOL_COMPLETION_GRACE_MS;
 
 function getEventTimeoutMs(toolName: string, args: unknown, maxPerEventMs: number): number {
   if (toolName !== "bash") return maxPerEventMs;
-  const timeoutSeconds = (args as { timeout?: unknown } | null)?.timeout;
+  const rawTimeout = (args as { timeout?: unknown } | null)?.timeout;
+  const timeoutSeconds = typeof rawTimeout === "string" ? Number(rawTimeout) : rawTimeout;
   if (typeof timeoutSeconds !== "number" || !Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) return maxPerEventMs;
 
-  // Why: F20261111tdead——工具自身 timeout 需要先返回结果并发出 end，外层不能同刻抢 abort；
-  // 总硬上限防止超大参数让真正挂死的命令无限绕过看门狗。
+  // Why: F20261111tdead——事件先于 SDK 参数 coerce 发送，数字字符串与数字须获得同预算；
+  // 工具自身 timeout 需要先返回结果并发出 end，外层不能同刻抢 abort；总硬上限防无限绕过。
   const requestedBudgetMs = timeoutSeconds * 1000 + TOOL_COMPLETION_GRACE_MS;
   return Math.min(
     Math.max(maxPerEventMs, MAX_BASH_EVENT_TIMEOUT_MS),

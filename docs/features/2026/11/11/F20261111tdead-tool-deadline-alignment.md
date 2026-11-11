@@ -44,7 +44,7 @@ Issue #1838 的生产证据与当前代码均支持 X：事件同时携带 `tool
 - **否决：豁免 bash 或信任任意工具参数**。会失去真挂死兜底；`wait` 已有独立预算契约，不能借通用解析成为逃逸通道。
 - **否决：不加收尾裕量**。工具自身 timeout 与外层同刻到期仍有 race，#1838 的 600 秒案例不能闭环。
 
-30 秒裕量用于工具到时后的终止、结果封装和 `tool_execution_end` 送达；总硬上限为 1 小时加这 30 秒。`NaN`、Infinity、字符串、零、负数和缺失值均不延长预算。该舍入与校验只在运行时局部发生，不写配置或持久化状态。
+30 秒裕量用于工具到时后的终止、结果封装和 `tool_execution_end` 送达；总硬上限为 1 小时加这 30 秒。SDK 在工具执行前会以 `coerce: true` 把数字字符串转为数字，而看门狗事件更早、携带原始 args，因此字符串先按同规则做数值转换再校验。`NaN`、Infinity、无法转换为有限正数的字符串、零、负数和缺失值均不延长预算。该校验只在运行时局部发生，不写配置或持久化状态。
 
 ### 机制识别检查点
 
@@ -65,6 +65,8 @@ Issue #1838 的生产证据与当前代码均支持 X：事件同时携带 `tool
 | 工具自身未收尾 | `bash(timeout=600)` 持续到 630 秒 | 达到执行预算后触发 `circuit_break:event_timeout` |
 | 超大显式预算 | `bash(timeout=7200)` 持续到硬上限 | 3630000ms 前不 abort，到点仍 abort |
 | 非逃逸通道 | `wait(seconds=3600)`、非法 bash timeout | 仍按原 `maxPerEventTimeMs` abort |
+| SDK coerce 对齐 | 原始 args 使用 `timeout: "1800"` / `"not-a-number"` | 数字字符串不在 600 秒误杀；非法字符串保持默认预算 |
+| 自定义配置组合 | `maxPerEventTimeMs` 分别取 900000、4000000、10000 | 配置下限不被工具预算缩短；大于通用硬上限时不被截短；较小配置可被合法工具预算加裕量延长 |
 | 并行隔离 | 长 bash 与普通 read 并行，read 先 end | read 完成不影响 bash 预算，二者均不提前 abort |
 
 ## Verification
@@ -73,10 +75,14 @@ Issue #1838 的生产证据与当前代码均支持 X：事件同时携带 `tool
 
 修复前运行 `npx vitest run tests/frameworks/agent/circuit-breaker-tool-deadline.test.ts`：**7 个用例中 5 failed、2 passed**。1800 秒 bash 在 `600_001ms` 已收到 `circuit_break:event_timeout`；600 秒 bash 在自身可收尾的同一时刻被 abort；未收尾、硬上限与并行用例也都在 600 秒提前触发。两个控制组（wait 不延长、非法 timeout 不延长）按预期通过。失败发生在未改实现的测试首提交，断言未随修复调整。
 
+### 对抗发现的红绿证据
+
+独立检视指出数字字符串 coerce 错位后，在未改实现时新增 5 个用例并复跑同文件：**12 个用例中 1 failed、11 passed**。唯一失败是 `timeout: "1800"` 在 600001ms 被 abort；非法字符串与三个自定义 `maxPerEventTimeMs` 组合均通过。该失败证明发现成立，修复仅增加字符串数值转换，既有断言未改弱。
+
 ### 验证记录
 
-- 修复后聚焦回归：`circuit-breaker-tool-deadline.test.ts`、`circuit-breaker-helpers.test.ts`、`durable-runtime.test.ts` 与 `retry-policy.test.ts` 共 **4 文件、93/93 passed**。新增 7 用例全绿；真实 durable-runtime 的挂死工具看门狗仍触发原 abort reason。
-- 全量 A 类：`npm test` **458 文件、5878/5878 passed、0 failed、0 skipped**；pretest 全量 ESLint 同步通过。没有 pre-existing 失败声明。
+- 初轮修复后聚焦回归：`circuit-breaker-tool-deadline.test.ts`、`circuit-breaker-helpers.test.ts`、`durable-runtime.test.ts` 与 `retry-policy.test.ts` 共 **4 文件、93/93 passed**；对抗处置后同组为 **98/98 passed**，其中 deadline 用例 12/12。真实 durable-runtime 的挂死工具看门狗仍触发原 abort reason。
+- 初轮全量 A 类为 5878/5878；对抗处置后 `npm test` **458 文件、5883/5883 passed、0 failed、0 skipped**；pretest 全量 ESLint 同步通过。没有 pre-existing 失败声明。
 - `npm run build` 通过；`lint:intent` 本 PR 文档 intent/verify_by 均为 1/1，`lint:docs`、`lint:tests`、`lint:criteria`、`git diff --check` 通过。lint 的既有存量 warning 未新增。
 - 最简实现检查：只增加一个局部纯函数和两个实现常量，复用现有事件参数、Map 与 abort 链；无新文件级生产模块、新依赖、新配置或兼容桥，已达同等效果的最小改动。
 - 负向契约核对：普通工具与 wait 不被延长；非法 bash timeout 不被延长；真正超过自身预算加裕量或总硬上限仍中断；并行 end 仍只清自身 timer。用户文案保持“单次工具调用超时”，日志记录实际生效预算，不把到期描述为已确认无响应。
