@@ -289,3 +289,169 @@ describe("stripHealingReport", () => {
     expect(stripHealingReport("normal text")).toBe("normal text");
   });
 });
+
+// ── issue #1842：上报协议与解析器不一致（F20261111hrepl）──
+describe("issue #1842 healing 协议契约", () => {
+  // 原始现场：JSON 单对象块（message d08860a8）
+  it("parses JSON 单对象 healing 块（真实现场：runtime_status_mismatch）", () => {
+    const body = `当事人情况上报：我这边确实正在运行……
+
+<healing>
+{"type":"runtime_status_mismatch","description":"用户看到大獭状态为休息中，但大獭实际正在执行方案分析，连续发生工具调用","suggestion":"排查重启后 invoke/otter 运行态与前端休息中投影的关联"}
+</healing>`;
+    const result = parseHealingReport(body);
+    expect(result.hasIssues).toBe(true);
+    expect(result.issues).toHaveLength(1);
+    expect((result.issues[0] as { type: string }).type).toBe("runtime_status_mismatch");
+    expect(result.issues[0].description).toContain("实际正在执行");
+    expect(result.issues[0].suggestion).toContain("重启");
+  });
+
+  // 完整原始现场（message d08860a8 全文）：多段正文 + JSON 单对象块——落账且剥离不损坏正文
+  it("完整原始现场：JSON 单对象落账 + strip 前文正文完整保留", () => {
+    const body = `当事人情况上报：我这边**确实正在运行**，正在连续执行“CoLink × 海獭 Agent App”方案分析。
+
+补充时间线：我在你开始这项新任务前按要求执行过一次自重启，随后继续运行。
+
+<healing>
+{"type":"runtime_status_mismatch","description":"用户看到大獭状态为休息中，但大獭实际正在执行方案分析，连续发生 search_memory/bash 等工具调用","suggestion":"排查重启后 invoke/otter 运行态与前端休息中投影的关联"}
+</healing>`;
+    const result = parseHealingReport(body);
+    expect(result.hasIssues).toBe(true);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].type).toBe("runtime_status_mismatch");
+
+    const stripped = stripHealingReport(body);
+    expect(stripped).toContain("当事人情况上报");
+    expect(stripped).toContain("补充时间线");
+    expect(stripped).not.toContain("<healing>");
+    expect(stripped).not.toContain("runtime_status_mismatch");
+  });
+
+  // R5 文档示范形态（占位符替换后的具体正例——修复后文档将以此为准）
+  it("parses R5 文档列表正例（- type: 项 + [/issues] 闭合）", () => {
+    const body = `<healing>[issues]
+- type: tool_failure
+  severity: high
+  description: search_memory 返回空结果
+  suggestion: 检查 embedding 服务状态
+[/issues]
+</healing>`;
+    const result = parseHealingReport(body);
+    expect(result.hasIssues).toBe(true);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].type).toBe("tool_failure");
+  });
+
+  // R5 文档 JSON 单对象正例（修复后文档新增形态，同样须过 parser）
+  it("parses R5 文档 JSON 单对象正例", () => {
+    const body = `<healing>
+{"type":"tool_failure","severity":"high","description":"一句话描述问题","suggestion":"建议的处置"}
+</healing>`;
+    const result = parseHealingReport(body);
+    expect(result.hasIssues).toBe(true);
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].type).toBe("tool_failure");
+    expect(result.issues[0].severity).toBe("high");
+  });
+
+  // 讲解示例（代码围栏内）不得落账
+  it("代码围栏内的合法 YAML 列表形状是讲解示例，不落账", () => {
+    const body = `当前解析器只接受这种形状：
+
+\`\`\`text
+<healing>[issues]
+- type: other
+  severity: high
+  description: ...
+  suggestion: ...
+[/issues]
+</healing>
+\`\`\``;
+    const result = parseHealingReport(body);
+    expect(result.hasIssues).toBe(false);
+    expect(result.issues).toEqual([]);
+  });
+
+  it("代码围栏内的 JSON 单对象讲解示例不落账", () => {
+    const body = `但当事獭实际发的是：
+
+\`\`\`text
+<healing>
+{"type":"runtime_status_mismatch","description":"..."}
+</healing>
+\`\`\``;
+    const result = parseHealingReport(body);
+    expect(result.hasIssues).toBe(false);
+    expect(result.issues).toEqual([]);
+  });
+
+  it("strip 不剥离代码围栏内的讲解示例（正文不损坏）", () => {
+    const body = `当前解析器只接受这种形状：
+
+\`\`\`text
+<healing>[issues]
+- type: other
+  severity: high
+  description: ...
+  suggestion: ...
+[/issues]
+</healing>
+\`\`\``;
+    const stripped = stripHealingReport(body);
+    expect(stripped).toContain("<healing>[issues]");
+    expect(stripped).toContain("description: ...");
+  });
+
+  // 非法块（非 no_issue 但无法解析）需要可操作反馈
+  it("非法 JSON 块（缺 type）被识别为非法块（invalidBlocks 非空）", () => {
+    const body = `<healing>
+{"description":"没有 type 字段"}
+</healing>`;
+    const result = parseHealingReport(body);
+    expect(result.invalidBlocks).toBeDefined();
+    expect(result.invalidBlocks!.length).toBeGreaterThan(0);
+  });
+
+  it("[issues] 缺 [/issues] 闭合被识别为非法块", () => {
+    const body = `<healing>[issues]
+- type: tool_failure
+  severity: low
+  description: 残缺块
+</healing>`;
+    const result = parseHealingReport(body);
+    expect(result.invalidBlocks).toBeDefined();
+    expect(result.invalidBlocks!.length).toBeGreaterThan(0);
+  });
+
+  it("合法协议 type 缺 description 时是非法块，不静默当讲解示例", () => {
+    const result = parseHealingReport('<healing>{"type":"tool_failure"}</healing>');
+    expect(result.hasIssues).toBe(false);
+    expect(result.invalidBlocks).toHaveLength(1);
+    expect(result.invalidBlocks[0].reason).toContain("description");
+  });
+
+  it("JSON 数组明确拒绝并提示不支持数组", () => {
+    const result = parseHealingReport('<healing>[{"type":"other","description":"x"}]</healing>');
+    expect(result.hasIssues).toBe(false);
+    expect(result.invalidBlocks).toHaveLength(1);
+    expect(result.invalidBlocks[0].reason).toContain("数组");
+  });
+
+  it("真实 JSON 上报缺 </healing> 时响亮报错", () => {
+    const result = parseHealingReport('<healing>{"type":"other","description":"x"}');
+    expect(result.hasIssues).toBe(false);
+    expect(result.invalidBlocks).toHaveLength(1);
+    expect(result.invalidBlocks[0].reason).toContain("</healing>");
+  });
+
+  it("真实 issues 上报缺 </healing> 时响亮报错", () => {
+    const result = parseHealingReport(`<healing>[issues]
+- type: other
+  description: x
+[/issues]`);
+    expect(result.hasIssues).toBe(false);
+    expect(result.invalidBlocks).toHaveLength(1);
+    expect(result.invalidBlocks[0].reason).toContain("</healing>");
+  });
+});

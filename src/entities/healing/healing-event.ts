@@ -38,6 +38,10 @@ export type HealingErrorType =
    *  残余面恰证明当次调用可完全正当）→environment，与 circuit_break（strike 涨满执行）
    *  同构。残余风险：真复犯事件同落环境账不进獭能力账，由体检段真复犯 K 分列补偿。 */
   | 'loop_tool_block'
+  /** F20261111hrepl（#1842）：运行时状态投影与真实运行态不一致（如 UI 显示「休息中」
+   *  实际仍在执行）。模型自报类型——走 speak healing 块，非框架层自动写库；
+   *  分账归 environment（状态投影/系统侧失败，非獭能力退化）。 */
+  | 'runtime_status_mismatch'
   | 'other';
 
 /**
@@ -61,6 +65,8 @@ export const HEALING_ENVIRONMENT_TYPES: readonly HealingErrorType[] = [
   'circuit_break',  // 熔断执行（系统保护动作，判「strike 涨满」机械状态）
   'loop_tool_block', // 门拦截（系统保护动作，判「签名命中拉黑表」机械状态——分账口径见枚举处注释）
   'self_restart',   // 自重启执行（系统保护动作）
+  // F20261111hrepl（#1842）：状态投影/运行态不一致——系统侧失败（UI/调度投影 bug），非獭能力退化
+  'runtime_status_mismatch',
   // F20260922txes：超时自动重试耗尽（环境侧——超时是模型/网络环境信号，非獭能力失败；
   // 漏入本清单会被 classifyHealingErrorType 兜底归 capability，daily-review 误读为獭能力失败）
   'timeout_retry_exhausted',

@@ -107,7 +107,8 @@ describe('interceptHealingReport C3 高危路由', () => {
     expect(alert.otterId).toBe('otter-small-1');
     expect(creates).toHaveLength(1);
     expect(creates[0].severity).toBe('high');
-    expect(clean).not.toContain('<healing>');
+    expect(clean.error).toBeNull();
+    expect(clean.cleanBody).not.toContain('<healing>');
   });
 
   it('severity:low 事件：台账落但登记不路由（高危路由只针对 high）', () => {

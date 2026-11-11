@@ -4,7 +4,7 @@
 
 import type { HealingEventRepository, HealingEventBatchFilter } from "@usecases/healing/healing-event-repository";
 import type { HealingResolutionAction, HealingEventStatus, HealingErrorType } from "@entities/healing/healing-event";
-import { parseHealingReport, stripHealingReport } from "@usecases/healing/healing-report-parser";
+import { parseHealingReport, stripHealingReport, type HealingBlockError } from "@usecases/healing/healing-report-parser";
 import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import { isHealingProbeEvent } from "@usecases/healing/constants";
 import type { Logger } from "@usecases/ports/logger";
@@ -12,10 +12,35 @@ import type { ToolContext, AgentTool, ToolResponse } from "@usecases/ports/agent
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 import { checkOpenIssue, type CheckIssueBinding } from "../../github/issue-binding";
 
-/** 解析并剥离 healing report，返回清理后的 body */
-export function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): string {
+/** intercept 结果：非法块产生 error（阻断发言），否则返回剥离后的 cleanBody */
+export interface HealingInterceptResult {
+  cleanBody: string;
+  error: string | null;
+}
+
+/** 非法协议块 → 可操作、响亮的错误回执（不静默、不落账） */
+function formatInvalidBlocksError(blocks: HealingBlockError[]): string {
+  const lines = blocks.map(b => `- ${b.reason}\n  块预览：${b.preview}`).join('\n');
+  return (
+    `speak 正文含 ${blocks.length} 个非法 healing 协议块，已阻断发言（本次未落账、未创建 entry）。` +
+    `请修正后重发：\n${lines}\n\n` +
+    `合法上报形态（裸写，勿放在代码围栏内）：\n` +
+    `1) <healing>[issues]\n- type: other\n  severity: low\n  description: ...\n  suggestion: ...\n[/issues]</healing>\n` +
+    `2) <healing>{"type":"other","description":"..."}</healing>（type/description 必填）\n\n` +
+    `若只是讲解/演示 healing 语法，请用代码围栏包裹（围栏内不上报）——裸写 = 上报。`
+  );
+}
+
+/** 解析并剥离 healing report。
+ *  原子性（F20261111hrepl，#1842）：存在任一非法协议块时，不剥离、不 repo.create、
+ *  不 enqueue high alert，直接返回 error——避免一次 speak 部分成功。 */
+export function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): HealingInterceptResult {
+  const { hasIssues, issues, invalidBlocks } = parseHealingReport(rawBody);
+  if (invalidBlocks.length > 0) {
+    logger?.warn('Invalid healing protocol block(s) in speak body', { count: invalidBlocks.length });
+    return { cleanBody: rawBody, error: formatInvalidBlocksError(invalidBlocks) };
+  }
   const cleanBody = stripHealingReport(rawBody);
-  const { hasIssues, issues } = parseHealingReport(rawBody);
   if (hasIssues) {
     const now = new Date().toISOString();
     const meta = { otterId: ctx.otterId, conversationId: ctx.conversationId, messageId: ctx.currentMessageId };
@@ -44,7 +69,7 @@ export function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: 
       }).catch(err => logger?.error('Failed to store healing event', err instanceof Error ? err : new Error(String(err))));
     }
   }
-  return cleanBody;
+  return { cleanBody, error: null };
 }
 
 /** ISO 8601 日期校验——非法格式静默参与字典序比较会语义意外（检视獭-454 发现 3） */
