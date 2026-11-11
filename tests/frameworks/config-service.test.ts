@@ -141,6 +141,18 @@ describe("loadConfig", () => {
     expect(loadConfig().llm.cacheLongRetention).toBe(false);
   });
 
+  it("F20261111menab: filters disabled models and defaults to the first enabled entry", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      "llm:\n  models:\n    - alias: disabled-first\n      enabled: false\n    - alias: active\n      provider: openai\n      model: gpt-4o\n      handoffThresholdTokens: 40000\n    - alias: disabled-last\n      enabled: false\n      provider: anthropic\n      model: claude-sonnet-4-20250514\n      handoffThresholdTokens: 40000\n",
+    );
+
+    const cfg = loadConfig();
+    expect(cfg.llm.default).toBe("active");
+    expect(cfg.llm.models.map(m => m.alias)).toEqual(["active"]);
+    expect(cfg.llm.models[0]).not.toHaveProperty("enabled");
+  });
+
   it("loads config with custom values", () => {
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(
@@ -276,6 +288,48 @@ describe("validate — models[] 条目校验", () => {
     expect(raw.llm.default).toBe("fast");
   });
 
+  it("F20261111menab: accepts explicit enabled=true and rejects non-boolean values", () => {
+    expect(() => validate({
+      llm: { models: [{ alias: "main", enabled: true, provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }] },
+    })).not.toThrow();
+
+    expect(() => validate({
+      llm: { models: [{ alias: "main", enabled: "false" as never, provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }] },
+    })).toThrow('llm.models["main"].enabled 必须是布尔值');
+  });
+
+  it("F20261111menab: rejects a disabled default model", () => {
+    expect(() => validate({
+      llm: {
+        default: "disabled",
+        models: [
+          { alias: "disabled", enabled: false },
+          { alias: "active", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 },
+        ],
+      },
+    })).toThrow('llm.default "disabled" 指向已禁用的模型条目');
+  });
+
+  it("F20261111menab: rejects an all-disabled model pool", () => {
+    expect(() => validate({
+      llm: { models: [{ alias: "disabled", enabled: false }] },
+    })).toThrow("至少需要一个启用的模型条目");
+  });
+
+  it("F20261111menab: rejects an assistant alias that is disabled or unknown", () => {
+    const active = { alias: "active", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 };
+    for (const modelAlias of ["disabled", "unknown"]) {
+      expect(() => validate({
+        llm: { models: [active, { alias: "disabled", enabled: false }] },
+        im: { assistant: { modelAlias } },
+      })).toThrow(`im.assistant.modelAlias "${modelAlias}" 不存在或对应模型已禁用`);
+    }
+    expect(() => validate({
+      llm: { models: [active] },
+      im: { assistant: { modelAlias: "active" } },
+    })).not.toThrow();
+  });
+
   it("throws when model alias is missing", () => {
     expect(() => validate({
       llm: {
@@ -315,6 +369,17 @@ describe("validate — models[] 条目校验", () => {
         ],
       },
     })).toThrow("重复的 alias");
+  });
+
+  it("F20261111menab: rejects duplicate aliases across enabled and disabled entries", () => {
+    expect(() => validate({
+      llm: {
+        models: [
+          { alias: "same", enabled: false },
+          { alias: "same", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 },
+        ],
+      },
+    })).toThrow("重复的 alias: same");
   });
 
   it("throws when default alias not in models", () => {
