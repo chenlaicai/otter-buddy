@@ -136,6 +136,26 @@ describe("F20261111mwire #1854 合成模型覆盖到达线缆", () => {
     expect(models.getModel("other-provider", "k3.1-pro")).toBeUndefined();
   });
 
+  it("S1（检视建议采纳）：覆盖经 pi-durable harness 的 withClientIdentity 包装层后仍命中（真实链 harness.js:93）", async () => {
+    // 检视獭-1855 S1：Harness.open 内部会 withClientIdentity(models, identity) 再包一层，
+    // 其 wrapped.getModel 委托底层——本测试把该层钉进回归（防未来 pi-ai 改包装方式时静默断链）
+    const identityMod = await import("@earendil-works/pi-ai/utils/identity");
+    const session = makeShadowSession({ emitText: "ok" });
+    const { factory, openCalls } = await makeFactoryWithSessionQueue([session]);
+    await factory.runCompactionSynthesis("o1", "prompt");
+
+    const models = openCalls[0].models as unknown as { getModel: (p: string, id: string) => unknown };
+    const harnessView = identityMod.withClientIdentity(
+      models as never,
+      { name: "regression-test", version: "1" } as never,
+    ) as unknown as { getModel: (p: string, id: string) => unknown };
+    const resolved = harnessView.getModel("kimi", "k3.1-pro") as { maxTokens?: number } | undefined;
+    expect(resolved).toBeDefined();
+    expect(resolved!.maxTokens).toBe(8192);
+    // 非目标仍委托原样
+    expect(harnessView.getModel("kimi", "nope")).toBeUndefined();
+  });
+
   it("单元：withModelOverride 覆盖命中 + 透传成员委托底层 + 不改底层", () => {
     const base = createModels() as { getModel: (p: string, i: string) => unknown; setProvider: (p: unknown) => void; extra?: never };
     const override = { ...KIMI_CUSTOM_MODEL, maxTokens: 8192, thinkingLevelMap: { ...KIMI_K3_TRUTH_MAP } } as unknown as Model<Api>;
