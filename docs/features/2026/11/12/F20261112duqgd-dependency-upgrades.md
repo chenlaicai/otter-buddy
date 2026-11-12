@@ -1,6 +1,6 @@
 ---
-id: F20261105depup
-title: 统一升级依赖版本（2026-11-12 批次，日期自 11-05 顺延）
+id: F20261112duqgd
+title: 统一升级依赖版本（2026-11-12 批次）
 doc_type: feature
 
 summary: |
@@ -17,7 +17,7 @@ modules:
   - package-lock.json
 capability_test: "n/a: 纯依赖升级，无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
-created_at: 2026-11-05
+created_at: 2026-11-12
 
 intent:
   problem: "Dependabot 7 个依赖 PR 零散堆积无人收敛，人工逐个审阅成本高且易漏安全补丁"
@@ -26,7 +26,7 @@ intent:
     type: behavior_check
 ---
 
-# F20261105depup: 统一升级依赖版本（2026-11-12 批次，日期自 11-05 顺延）
+# F20261112duqgd: 统一升级依赖版本（2026-11-12 批次）
 
 ## 背景与需求
 
