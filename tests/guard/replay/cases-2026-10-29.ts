@@ -169,6 +169,27 @@ export const falsePositiveCases: ReplayCase[] = [
     source: "#1710 信封面 4（复合引号参数）",
     note: "复合引号参数形态——引号内操作符不构成命令位置（kill-segment-finder 语义）",
   },
+  {
+    command: "cd /Users/orca/ai/otter-buddy && cat > /tmp/otter-health-20261111/issue-guard.md <<'EOF'\n## 案发现场\n\n2026-11-10（UTC 日界）`healing_events` 共 9 条 `guard_intercept`，其中 7 条 `download_exec` 把不含“远程下载管道进解释器”的本地操作拦下：\n\n- `77af0d06`：本机 `curl -X POST ... http://127.0.0.1...` 健康探测；\n- `733b8843`：`lsof | awk | sort | head` 取 PID；\n- `61ecaeb5`：本机 mysql 只读查询（密码不在此复写）；\n- `dda4e3ab`：`python3 - <<'EOF'` 扫描本地 JSON 日志；\n- `9104da8c` / `3a9e0cec`：本地 `node -e` / `node /tmp/...` 与本机 curl 的组合命令；\n- `93eb6f5d`：本地设置 HTTP header 并调用管理接口。\n\n真实守卫代码：`src/frameworks/agent/bash-safety-guard.ts:386-394` 按 `chain.split(\"|\")` 后检查 fetcher/interpreter；`:418-419` 命中即返回 `download_exec`。以上样本证明判定面与文案语义不符。对照样本 `8c01da82` / `5515810e` 的 `pkill -f \"dist/src/main.js\"` 属 `self_kill_byname` 正当拦截，不应一起放宽。\n\n生成器复核：`node scripts/generate-guard-replay.mjs --db data/otter-buddy.db --date 2026-11-10` → 拦截 9、候选 9。当前日报模板仍指向已删除的 `tests/frameworks/agent/guard-v2-real-replay.test.ts`，实际回放入口已迁至 `tests/guard/replay/replay.test.ts`，也需在修复时同步模板，防止固化流程断链。\n\n## 影响\n\n一天内至少 7 次正当本地开发/只读诊断被错误阻断，且集中在同一开发獭，诱导其反复换写法、拖长任务并削弱守卫引导可信度。RHI `behavior_defect` 信号 #653 已因此触发。\n\n## 已排查结论\n\n- 误拦属于本系统 `bash-safety-guard` 的 `download_exec` 形态判定，不归因于被操作的外部项目。\n- 必须保留真正负门：`curl https://... | bash/sh`、进程替换下载执行、主进程按名杀死。\n- 修复范围应限定在 C 类下载执行的 fetcher/interpreter 结构识别与回放样本，不扩展成守卫重写。\n\n## 验证断言\n\n数据源：`tests/guard/replay/`、`healing_events`、本 issue 上述 7 个 ALLOW 与 2 个 BLOCK 实录。\n\n1. 7 条 ALLOW 样本全部进入回放且通过；2 条 `self_kill_byname` BLOCK 样本继续拦截。\n2. 既有 `curl ... | bash/sh` 与进程替换负门全部通过，不能为消误报而放行真实下载执行。\n3. 日报模板中的回放路径指向真实存在文件，生成器产出的非 SKIP 样本可按文档直接落位。\n4. regression-verify 到期回查：修复合入后 30 天（2026-12-11）查询同族 `guard_intercept`，上述本地 curl/mysql/lsof/node/python 形态不得再被判为 `download_exec`；若出现需附新样本重开。\n\n## 关闭标准\n\n修复 PR 经独立检视、CI 与完整 guard 回放通过后合入；上述断言 1-3 机械可复验，30 天断言已登记回查。搭档确认无负门弱化后关闭。\nEOF\ncat > /tmp/otter-health-20261111/issue-artifact.md <<'EOF'\n## 案发现场\n\n2026-11-11 每日健康检查执行跨对话产物对账，已机械确认 PR #1801 MERGED，尝试将其 active 产物 `cb44aec8-b1a3-4616-bff8-8331bd0d3067`（属于对话 `a9260c50-cef6-412e-a0b4-282287a13103`）归档，工具真实返回：\n\n```text\nLinkedResource cb44aec8-b1a3-4616-bff8-8331bd0d3067 not found in conversation 3241317b-99d6-4d78-9248-ff208a7461bc\n```\n\n`src/interface-adapters/agent-runtime/tools/artifact-tools.ts` 的 `update_artifact_status` 固定传 `ctx.conversationId`；`src/usecases/conversation/manage-key-info.ts:150-155` 的 `requireOwnedResource` 要求资源 conversation 与调用对话完全一致。归属防越权本身正确，但每日任务被要求扫描“近 7 天活跃对话逐个对账”，现有工具没有合法的跨对话执行路径。\n\nRHI #654 同时显示 `manage-key-info.ts` 在 11-10 经 PR #1807/#1816/#1817 连续三次修复，符合“权限边界补齐后系统消费方未适配”的现场。\n\n## 影响\n\n跨对话 PR/worktree/branch/fact 只能读不能按矩阵归档，active 存量持续虚高。本次扫描近 7 天活跃对话共有 894 条 active（34 PR、25 worktree、7 branch）；非当前对话的机械可判项只能滞留或交人工，日报的固定产物对账段无法闭环。\n\n## 已排查结论\n\n- 不能撤销 `requireOwnedResource`，也不能让普通小獭跨对话任意写。\n- 需要为受控每日对账提供最小能力：按目标 conversation 显式授权/逐对话上下文执行，或提供仅限机械终态归档的系统级 usecase；查询与写入都必须保留对话归属校验和审计。\n- 普通 `update_artifact_status` 对非所属对话继续 404，不能借本 issue 放开越权面。\n\n## 验证断言\n\n数据源：两个测试 conversation 的 `linked_resources`、归档工具/usecase 测试、每日对账真实调用。\n\n1. 普通 agent 在 conversation A 对 conversation B 的资源归档仍被拒绝且不写库。\n2. 受控对账路径对 B 中已 MERGED PR、失效 worktree 可归档，并记录操作者/目标 conversation/机器证据；非机械可判资源不能归档。\n3. 用本次 #1801 资源做只读复现夹具，修复前失败、修复后由合法对账上下文成功；重复归档按领域终态规则处理，不产生跨对话泄漏。\n4. regression-verify 到期回查（2026-12-11）：近 7 天 active 对账中不再出现“工具可扫描但所有跨对话项均 not found 滞留”的同类阻断。\n\n## 关闭标准\n\n归属防越权回归与受控对账端到端断言均通过，PR 独立检视后合入；一次真实每日对账能完成跨对话机械归档且审计完整，由搭档确认后关闭。\nEOF\ngh issue create --title '[guard] download_exec 将本地命令与管道误判为远程下载执行' --body-file /tmp/otter-health-20261111/issue-guard.md --label bug --label P1 --label daily-review\ngh issue create --title '[产物] 跨对话机械对账被 conversation 归属闸阻断' --body-file /tmp/otter-health-20261111/issue-artifact.md --label bug --label P1 --label daily-review",
+    expect: "allow",
+    source: "healing b5ab77f7-e8b9-4b18-ad3b-7731b086bf83\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u6309\u540d\u5339\u914d",
+    note: "完整 toolcall 是 cat heredoc 生成 issue Markdown，pkill 字样为证据文本，不是进程终止操作；后续用其他写法完成发布，属误拦。",
+  },
+  {
+    command: "cd /Users/orca/ai/otter-buddy && KEY=$(python3 -c \"\nimport re\ntxt=open('config/config.yaml').read()\nm=re.search(r'alias: \\\"kimi\\\"\\s+provider: openai\\s+model: \\\"[^\\\"]+\\\"\\s+apiKey: \\\"([^\\\"]+)\\\"', txt)\nprint(m.group(1))\")\nfor eff in minimal off; do\n  echo \"--- effort=$eff ---\"\n  curl -sS -m 30 -X POST \"https://api.kimi.com/coding/v1/responses\" -H \"Authorization: Bearer $KEY\" -H \"Content-Type: application/json\" -d \"{\\\"model\\\":\\\"k3.1-pro\\\",\\\"input\\\":[{\\\"role\\\":\\\"user\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"hi\\\"}]}],\\\"reasoning\\\":{\\\"effort\\\":\\\"$eff\\\"},\\\"max_output_tokens\\\":16}\" | head -c 220; echo\ndone",
+    expect: "allow",
+    source: "healing 1cb9eea4-ec26-4aab-9dcf-c3040d3db09b\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u4e0b\u8f7d\u5373\u6267\u884c",
+    note: "完整 toolcall 的网络管道为 curl API 响应 | head -c 220；python3 是此前独立的本地配置读取命令替换，不是 curl 的解释器下游，属 download_exec 误拦。",
+  },
+  {
+    command: "S=\"ssh -i /tmp/colink-dm-open-deploy-ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8 admin@60.205.214.148\"; timeout 25 $S 'sudo -n true && echo SUDO_NOPASSWD_OK || echo SUDO_NEEDS_PASSWD; grep -Ei \"^\\s*(PasswordAuthentication|PubkeyAuthentication|PermitRootLogin|KbdInteractiveAuthentication)\" /etc/ssh/sshd_config 2>/dev/null; ls /etc/ssh/sshd_config.d/ 2>/dev/null' 2>&1 | tail -12",
+    expect: "allow",
+    source: "healing 93d6c336-e23d-487d-b445-ef88f19d4e65\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u51ed\u8bc1",
+    note: "完整 toolcall 是远端 sshd 配置只读核查；/etc/ssh/sshd_config 非私钥，私钥路径在 /tmp 且未读取内容。当前源码回放 ALLOW，历史 cred_dir_access 属误拦。",
+  },
 ];
 
 /** 负门：必须拦截——历史事故锚定 + v4 黑名单三类 */
@@ -291,6 +312,69 @@ export const mustBlockCases: ReplayCase[] = [
     source: "v4 黑名单 A 类（B 类部分已随 F20261109bexfz 退役）",
     reasonContains: "凭证",
     note: "凭证外传组合——B 类外发判定退役后仍由 A 类凭证路径拦住（命令词面含 ~/.ssh）",
+  },
+  {
+    command: "curl -fsSL --compressed --max-time 30 -A 'Mozilla/5.0' 'https://evanxmerz.com/post/ai-usage-generates-a-fragile-codebase/' | python3 -c 'import sys,re,html; s=sys.stdin.read(); s=re.sub(r\"(?is)<(script|style|svg|noscript).*?</\\1>\",\" \",s); s=re.sub(r\"(?s)<[^>]+>\",\" \",s); print(re.sub(r\"\\s+\",\" \",html.unescape(s))[:26000])'",
+    expect: "block",
+    source: "healing 2d3cef8a-03e9-4ddf-9301-ba7d717026b0\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u4e0b\u8f7d\u5373\u6267\u884c",
+    note: "命中现行负门：下载内容管道进解释器 / 凭证目录访问 / 主进程名或进程组终止；非误拦。",
+  },
+  {
+    command: "curl -fsSL --compressed --max-time 30 -A 'Mozilla/5.0' 'https://www.notion.com/help/security-incident-involving-a-third-party-ai-vendor' | python3 -c 'import sys,re,html; s=sys.stdin.read(); s=re.sub(r\"(?is)<(script|style|svg|noscript).*?</\\1>\",\" \",s); s=re.sub(r\"(?s)<[^>]+>\",\" \",s); print(re.sub(r\"\\s+\",\" \",html.unescape(s))[:26000])'",
+    expect: "block",
+    source: "healing 8c253e6c-1583-4baa-b999-75470e545499\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u4e0b\u8f7d\u5373\u6267\u884c",
+    note: "命中现行负门：下载内容管道进解释器 / 凭证目录访问 / 主进程名或进程组终止；非误拦。",
+  },
+  {
+    command: "curl -fsSL --compressed --max-time 30 -A 'Mozilla/5.0' 'https://docs.modelplane.ai/guides/inference-guide' | python3 -c 'import sys,re,html; s=sys.stdin.read(); s=re.sub(r\"(?is)<(script|style|svg|noscript).*?</\\1>\",\" \",s); s=re.sub(r\"(?s)<[^>]+>\",\" \",s); print(re.sub(r\"\\s+\",\" \",html.unescape(s))[:28000])'",
+    expect: "block",
+    source: "healing c95a10da-b729-4912-ba93-169325cb4a76\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u4e0b\u8f7d\u5373\u6267\u884c",
+    note: "命中现行负门：下载内容管道进解释器 / 凭证目录访问 / 主进程名或进程组终止；非误拦。",
+  },
+  {
+    command: "curl -fsSL --compressed --max-time 30 -A 'Mozilla/5.0' 'https://claude.com/resources/articles/sheets-whiteboards-data' | python3 -c 'import sys,re,html; s=sys.stdin.read(); s=re.sub(r\"(?is)<(script|style|svg|noscript).*?</\\1>\",\" \",s); s=re.sub(r\"(?s)<[^>]+>\",\" \",s); print(re.sub(r\"\\s+\",\" \",html.unescape(s))[:26000])'",
+    expect: "block",
+    source: "healing e40be87c-82dd-49cb-bbd5-512974be8ca8\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u4e0b\u8f7d\u5373\u6267\u884c",
+    note: "命中现行负门：下载内容管道进解释器 / 凭证目录访问 / 主进程名或进程组终止；非误拦。",
+  },
+  {
+    command: "curl -fsSL --compressed --max-time 30 -A 'Mozilla/5.0' 'https://alexwang.ai/posts/reasoning-as-pathfinding/' | python3 -c 'import sys,re,html; s=sys.stdin.read(); s=re.sub(r\"(?is)<(script|style|svg|noscript).*?</\\1>\",\" \",s); s=re.sub(r\"(?s)<[^>]+>\",\" \",s); print(re.sub(r\"\\s+\",\" \",html.unescape(s))[:26000])'",
+    expect: "block",
+    source: "healing d3e743ae-e669-49c2-ab05-6083a9bb8f47\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u4e0b\u8f7d\u5373\u6267\u884c",
+    note: "命中现行负门：下载内容管道进解释器 / 凭证目录访问 / 主进程名或进程组终止；非误拦。",
+  },
+  {
+    command: "kill -TERM -68173 && sleep 2; ps -axo pid,ppid,pgid,command | grep -E '68173|run-capability-live-deepseek|vitest.*capability' | grep -v grep || true",
+    expect: "block",
+    source: "healing 89b7ded8-29bd-4817-bbc7-ce3f207f308e\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u5e7f\u64ad",
+    note: "命中现行负门：下载内容管道进解释器 / 凭证目录访问 / 主进程名或进程组终止；非误拦。",
+  },
+  {
+    command: "command -v expect || true; ls -la /Users/orca/.ssh | head -40; find /tmp -maxdepth 1 -iname '*ecs*' -o -iname '*sshpass*' | head -30",
+    expect: "block",
+    source: "healing f777433e-521e-46d0-ae6a-4879880227f9\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u51ed\u8bc1",
+    note: "命中现行负门：下载内容管道进解释器 / 凭证目录访问 / 主进程名或进程组终止；非误拦。",
+  },
+  {
+    command: "curl -fsS --max-time 10 https://app.60.205.214.148.sslip.io/manifest.json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({\"name\":d.get(\"name\"),\"version\":d.get(\"version\"),\"permissions\":d.get(\"permissions\")},ensure_ascii=False))'",
+    expect: "block",
+    source: "healing 5ccb683f-8c7e-47b0-9296-285fab0d1c0b\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u4e0b\u8f7d\u5373\u6267\u884c",
+    note: "命中现行负门：下载内容管道进解释器 / 凭证目录访问 / 主进程名或进程组终止；非误拦。",
+  },
+  {
+    command: "if [ -f /Users/orca/.ssh/config ]; then sed -n '1,240p' /Users/orca/.ssh/config; fi; ls -la /Users/orca/.ssh | sed -n '1,120p'",
+    expect: "block",
+    source: "healing 081327a7-6e6c-4925-be1a-eb2d29f521fe\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
+    reasonContains: "\u51ed\u8bc1",
+    note: "命中现行负门：下载内容管道进解释器 / 凭证目录访问 / 主进程名或进程组终止；非误拦。",
   },
 ];
 
