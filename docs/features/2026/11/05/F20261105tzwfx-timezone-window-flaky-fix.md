@@ -27,7 +27,7 @@ created_at: 2026-11-05
 
 intent:
   problem: "上海凌晨 0-8 点（UTC 16-24 点）跑 CI/本地测试，两个文件必红——任何在该窗口的 PR 合入与定时任务（07:30 daily-health-check、01:00 依赖升级）都受害"
-  expected_effect: "三时区（Shanghai/UTC/New_York）全绿，时区窗口 flaky 根除；依赖升级 PR #1775/#1776 的 CI 可转绿"
+  expected_effect: "消除 cost/output 双日界与 guard-replay 播种日界两类错位，三时区（Shanghai/UTC/New_York）定向回归全绿；依赖升级 PR #1775/#1776 的 CI 可转绿"
   verify_by:
     type: behavior_check
 ---
@@ -51,7 +51,7 @@ main 昨日 CI 绿）后定位为时区窗口 flaky——触发场景是「上�
 测试 fixture 的 `COST_FIXTURE_DAY = COST_FIXTURE_ISO.slice(0, 10)`（UTC 日界）。
 UTC 16-24 点（上海 0-8 点）时「冻结时钟-24h」跨上海日界：cost 行落上海昨日-1、
 output 行落 UTC 昨日——断言查任何一天都缺另一族的键，`input_tokens`/
-`message_count` 断言必假红（实测 2026-11-05 01:05 与 09:35 两次红）。
+`message_count` 断言必假红（实测 2026-11-05 01:05 上海时间红，即 UTC 11-04 17:05，处于目标分叉窗内）。
 
 #605 的 CLOCK_SNAPSHOT 冻结只消除了种子随真实时钟漂移的问题，未覆盖 hwl1
 引入的新分叉。
@@ -93,18 +93,20 @@ Asia/Shanghai 凌晨 0-8 点播种日=今天而窗口日=昨天，种子全部�
 ## 验证
 
 **机器锚点**：
-- 修复后三时区全绿（2026-11-05 09:50 本地实测，正处分叉窗 UTC 01:50 内）：
+- 修复后三时区全绿（2026-11-05 09:50 上海时间，即 UTC 01:50）：该运行不在目标分叉窗内，
+  只证明跨 TZ 回归，不冒充窗口内复现；窗口内修复前证据见上述 01:05，生产边界由 UTC 20:00 种子回归覆盖：
   - `TZ=Asia/Shanghai / UTC / America/New_York npx vitest run tests/usecases/health/rhi-scan-worker.test.ts` → 11/11 三连绿
   - 同三时区 `tests/scripts/generate-guard-replay.test.ts` → 6/6 三连绿
   - 同三时区 `tests/usecases/health/cost-output-collector.test.ts` → 21/21 三连绿（生产侧修复后新增）
-- 修复前红（对照，同一机同窗口）：rhi-scan-worker 1 failed（message_count 断言）、
-  guard-replay 4 failed（窗口错位 ENOENT）
+- 修复前红（2026-11-05 01:05 上海时间，同机窗口内对照）：rhi-scan-worker 1 failed
+  （message_count 断言）、guard-replay 4 failed（窗口错位 ENOENT）
 - 边界反证（构造验证）：跨月（11-30→12-01）、跨年（12-31→01-01）、二月末三个边界
   下「上海昨日正午」构造的双口径归属恒同天
 - SQLite +8h 语义验证：`DATE('2026-08-28 20:00:00','+8 hours')` → `2026-08-29`（上海凌晨归次日，与 shanghaiDateKey 一致）
 
-**agent 陈述（未复验）**：CI runner 固定 TZ=UTC，本修复在 CI 上等价于旧行为
-（修复主要收益是非 UTC 环境与上海凌晨窗口的全天候稳定）。
+**行为边界**：UTC 播种修复消除非 UTC 环境的测试错位；生产 SQL 在所有环境统一上海归日，
+UTC 16 点后行为有意变化。CI runner 固定 TZ=UTC 也不再等价于旧行为，新增 UTC 20:00 回归
+在 CI 同样锁定新语义。极窄的 UTC 跨午夜多次取时钟竞态不属于本次两类日界修复的绝对根除范围。
 
 ## 影响范围
 
