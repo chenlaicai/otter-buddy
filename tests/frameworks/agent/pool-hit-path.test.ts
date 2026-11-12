@@ -20,6 +20,7 @@ import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import { createInvokeRegister, resetInvokeRegister } from "@frameworks/agent/tool-builder";
 import { invokeEpochStorage, mintEpoch } from "@frameworks/agent/invoke-epoch";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
+import { SessionLockConflictError } from "@entities/errors";
 
 /** F20261009epoc：直接调 _acquirePooled 需自建 epoch 上下文（公共 invoke() 入口
  *  铸造；直接调内部方法的单测模拟该入口职责），否则命中 D3 fail-loud 面。 */
@@ -87,6 +88,7 @@ function makeFactory() {
     }>;
     poolMeta: Map<string, { session: FakeSession; register: ReturnType<typeof createInvokeRegister> }>;
     pendingIdentity: Set<string>;
+    lockManager: { acquire: (key: string) => Promise<() => void> };
   };
 
   internals._restoreOrCreateSession = async () => ({ sessionManager: {}, createdNew: false });
@@ -163,6 +165,35 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     expect(ro.session).not.toBe(first.session);
     // readOnly session 不入池：poolMeta 仍指向首个 session（mock 的 sessions Map 按 otterId 键控被 ro 重建覆盖，不作断言面）
     expect(internals.poolMeta.get("o1")!.session).toBe(first.session);
+    db.close();
+  });
+
+  it("restricted 外部 Session 绕过普通池，避免复用全工具 Session", async () => {
+    const { internals, db, getCreateCount } = makeFactory();
+    const first = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m1" }));
+    const external = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2", externalProfile: "restricted" }));
+    expect(external.isPooled).toBe(false);
+    expect(external.session).not.toBe(first.session);
+    expect(getCreateCount()).toBe(2);
+    expect(internals.poolMeta.get("o1")!.session).toBe(first.session);
+    db.close();
+  });
+
+  it("公共 invoke 锁冲突时 restricted 明确失败，不降级注入普通池", async () => {
+    const { factory, internals, db } = makeFactory();
+    const ordinary = await withEpoch(() => internals._acquirePooled("o1", { messageId: "ordinary-1" }));
+    ordinary.session.isStreaming = true;
+    internals.lockManager.acquire = async () => {
+      throw new SessionLockConflictError("Lock acquire timeout for key: session:o1");
+    };
+    const followUp = vi.spyOn(factory, "followUp").mockResolvedValue(true);
+
+    await expect(factory.invoke("o1", "不可信外部正文", {
+      messageId: "external-1", externalProfile: "restricted",
+    })).rejects.toThrow("受限外部会话正在等待另一项执行");
+
+    expect(followUp).not.toHaveBeenCalled();
+    expect(internals.poolMeta.get("o1")!.session).toBe(ordinary.session);
     db.close();
   });
 

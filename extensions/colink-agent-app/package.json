@@ -1,0 +1,20 @@
+{
+  "name": "otter-colink-agent-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "scripts": {
+    "prepare:sdk": "node scripts/prepare-sdk.mjs",
+    "start": "node src/app.mjs",
+    "test": "node --test --test-timeout=10000 test/*.test.mjs"
+  },
+  "dependencies": {
+    "@colink/app-sdk": "file:./vendor/app-sdk"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-mcp": "1.5.0"
+  }
+}

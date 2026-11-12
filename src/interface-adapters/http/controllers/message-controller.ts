@@ -18,6 +18,11 @@ import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-d
 import { streamEvents } from "../sse-streamer";
 import { awaitTriggerAttemptsSettled } from "../sse-settle-waiter";
 
+function externalProfileForSource(source: string | null | undefined): 'restricted' | undefined {
+  if (source === 'external') return 'restricted';
+  return undefined;
+}
+
 /** F20260913ctlv test12：Magic Word 系统级急停判定（严格口径——搭档拍板「单用才生效」）。
  *  规则：消息去除「首尾标点/空白 + 句首称呼（你们/大家/各位/给我/快/都）+ 句末语气词（吧/了/啊/呢/嘛/呀）」后，
  *  剩余核心恰好是停手指令词「停下」——整句就是停手命令才命中。
@@ -200,6 +205,7 @@ export class MessageController {
     try {
       const conversationId = param(c, "id");
       const body = await safeJsonBody<SendMessageRequestDTO>(c);
+      const source = body.source === 'external' ? 'external' : 'web';
 
       /** 1. 前置校验（请求体 + 附件 + Magic Word 全场急停）——response 非 null 即短路 */
       const early = await this.precheckSend(c, conversationId, body);
@@ -218,7 +224,7 @@ export class MessageController {
         conversationId,
         senderId: body.senderId,
         body: body.body,
-        source: "web",
+        source,
         talkingStonePassedTo: body.talkingStonePassedTo ?? [],
         ...(body.mode && { injectionMode: body.mode }),
         ...(body.attachmentIds && body.attachmentIds.length > 0 && { attachmentIds: body.attachmentIds }),
@@ -236,7 +242,7 @@ export class MessageController {
           event: "entry.user",
           // source 显式标 web：IM 出站通道消费 entry.user 时的防回环闸（只投 Web 来源）
           data: {
-            entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: body.senderId, body: body.body, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source: "web",
+            entryId: userEntry.id, sequenceNum: userEntry.sequenceNum, senderId: body.senderId, body: body.body, createdAt: userEntry.createdAt, yieldTargets: talkingStonePassedTo, source,
             ...(userEntry.senderName ? { senderName: userEntry.senderName } : {}),
             ...(userEntry.attachments && userEntry.attachments.length > 0 && { attachments: userEntry.attachments }),
           },
@@ -255,7 +261,10 @@ export class MessageController {
         sequenceNum: userEntry.sequenceNum,
       };
 
-      return this.streamDispatchResponse(c, { conversationId, body, userMessage, mentionFeedback, payload, entryId: userEntry.id });
+      return this.streamDispatchResponse(c, {
+        conversationId, body, userMessage, mentionFeedback, payload, entryId: userEntry.id,
+        externalProfile: externalProfileForSource(userEntry.source),
+      });
     } catch (err) {
       return handleError(c, err, this.logger);
     }
@@ -275,15 +284,19 @@ export class MessageController {
       payload?: Awaited<ReturnType<AttachmentInjectionService["validateAndBuild"]>>;
       /** F20260913ctlv：user entry id（触发锚） */
       entryId: string;
+      /** 持久化 user entry.source 投影出的受限外部档；不信任 senderId 前缀。 */
+      externalProfile?: 'restricted';
     },
   ): Response {
-    const { conversationId, body, userMessage, mentionFeedback, payload } = ctx;
+    const { conversationId, body, userMessage, mentionFeedback, payload, externalProfile } = ctx;
     /** 首轮立即派发（以解析后的目标为准，含默认解析结果） */
     const firstTurnTargets = userMessage.talkingStonePassedTo ?? [];
 
     /** SSE 流（长连接贯穿多轮）。客户端断开不中止 Agent——发言生命周期由后端状态机管理（UA-刷新续跑） */
     const allTargets = new Set(firstTurnTargets);
     const { response, push, close } = streamEvents(c);
+    // 外部适配器以精确 entry id 收敛本轮 invoke；不得用正文和时间窗口猜测轮次。
+    response.headers.set('x-otter-trigger-entry-id', ctx.entryId);
 
     // F20260820i333 + 广播订阅收口
     const unsubscribe = this.subscribeBroadcasterForPostStream(conversationId, push, mentionFeedback);
@@ -311,6 +324,7 @@ export class MessageController {
     this.dispatchTurnLoop(firstTurnTargets, {
       conversationId, userMessageContent: this.withDocumentBlock(body.body, injection?.documentBlock),
       senderId: body.senderId, allTargets, images: injection?.images,
+      ...(externalProfile && { externalProfile }),
       // F20260902sgp2 S1：触发消息 ID（派发台账首 hop 记账）
       triggerMessageId: userMessage.id,
       // F20261012swsg（#1430）：触发消息序列号（安全词证据锚点 seq 位）
@@ -335,6 +349,11 @@ export class MessageController {
   private validateSendMessageRequest(body: SendMessageRequestDTO): Response | null {
     if (!body.senderId) {
       return Response.json({ error: "senderId is required" }, { status: 400 });
+    }
+    if (body.senderId.startsWith('external:') && body.source !== 'external') {
+      return Response.json({
+        error: 'external sender requires source=external', code: 'external_source_required',
+      }, { status: 400 });
     }
     if (!body.body) {
       return Response.json({ error: "body is required" }, { status: 400 });
@@ -369,15 +388,16 @@ export class MessageController {
   /** Turn 级调度循环：派发一批 otter → 等待全部完成 → 聚合 turn → 派发下一轮 */
   private async dispatchTurnLoop(
     targets: string[],
-    ctx: { conversationId: string; userMessageContent: string; senderId: string; allTargets: Set<string>; images?: Array<{ type: "image"; data: string; mimeType: string }>; triggerMessageId?: string; triggerSequenceNum?: number },
+    ctx: { conversationId: string; userMessageContent: string; senderId: string; externalProfile?: 'restricted'; allTargets: Set<string>; images?: Array<{ type: "image"; data: string; mimeType: string }>; triggerMessageId?: string; triggerSequenceNum?: number },
   ): Promise<void> {
-    const { conversationId, userMessageContent, senderId, allTargets, images, triggerMessageId, triggerSequenceNum } = ctx;
+    const { conversationId, userMessageContent, senderId, externalProfile, allTargets, images, triggerMessageId, triggerSequenceNum } = ctx;
 
     // 使用 DispatchChainEngine 执行发言链（事件通过 broadcastEvent 统一推送到订阅者）
     await this.dispatchChainEngine.executeChain({
       conversationId,
       userMessageContent,
       senderId,
+      ...(externalProfile && { externalProfile }),
       initialTargets: targets,
       // F20260902sgp2 S1：触发消息 ID（首 hop 派发记账）
       triggerMessageId,
@@ -393,6 +413,8 @@ export class MessageController {
           conversationId: params.conversationId,
           userMessageContent: params.userMessageContent,
           senderId: params.senderId,
+          ...(params.externalProfile && { externalProfile: params.externalProfile }),
+          ...(params.triggerMessageId && { triggerMessageId: params.triggerMessageId }),
           ...(params.images && { images: params.images }),
           // F20260922ctxi：batchMaxSeq 透传（同 invoke-controller 修复——闭包重组漏传致游标不推进）
           batchMaxSeq: params.batchMaxSeq,

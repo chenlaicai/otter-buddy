@@ -240,14 +240,23 @@ export class ResumeInterruptedService {
     try {
       // 1. CAS 认领已上提至 resumeOneWithRetry 入口（attempts 语义 = 跨重启恢复次数，
       //    进程内退避重试不重认领——见 resumeOneWithRetry 注释）
-      // 2. 跳过检查：participant 失效（dissolved/inactive）→ exhausted 静默
+      // 2. 受限外部 invoke 不自动恢复：旧队列可能在升级前已落库，消费侧仍需 fail-closed。
+      //    新外部事件会重新建立当轮授权/bearer；合成 resume prompt 没有这些凭据。
+      const interrupted = await this.deps.invokeRepo.getInvokeById(item.invokeId);
+      if (interrupted?.metadata?.externalProfile === 'restricted') {
+        await this.deps.resumePendingRepo.settleResume(item.invokeId, 'exhausted', new Date().toISOString());
+        await this.sendSystemSafe(item.conversationId, '受限外部会话的中断执行不会自动恢复，请由外部系统重新发送新事件。');
+        return 'skipped';
+      }
+
+      // 3. 跳过检查：participant 失效（dissolved/inactive）→ exhausted 静默
       const participant = await this.deps.conversationRepo.getParticipant(item.conversationId, item.otterId);
       if (!participant || participant.status !== "active") {
         await this.markExhaustedSafe(item.invokeId, new Error("Participant inactive or missing"));
         return "skipped";
       }
 
-      // 3. 「獭已恢复」跳过判据（F20260917rscr 三点裁决③，替换用户消息并发窗口）：
+      // 4. 「獭已恢复」跳过判据（F20260917rscr 三点裁决③，替换用户消息并发窗口）：
       //    本质 = 让意外中断的 running invoke 恢复跑起来——该獭在中断时刻之后已有
       //    新 invoke（无论来源：用户手动接上 / cron 重触发 / 其他恢复路径）→ 它
       //    已经在跑了，系统不该再碰。与用户是否发新消息无关。
@@ -256,7 +265,7 @@ export class ResumeInterruptedService {
         return "skipped"; // 静默——獭已在跑，恢复目的已达成（成功路径静默语义）
       }
 
-      // 4. 链引擎续跑：invokeFn 包装捕获首 hop invokeId + 终态（链 allSettled 吞错语义，
+      // 5. 链引擎续跑：invokeFn 包装捕获首 hop invokeId + 终态（链 allSettled 吞错语义，
       //    executeChain 正常返回 ≠ invoke 成功——invoke 行终态直读是准确判据，F4 移植）。
       const capture: { invokeId?: string; rejected?: unknown } = {};
       const captureInvokeFn: InvokeFn = async params => {
@@ -286,7 +295,7 @@ export class ResumeInterruptedService {
         return this.settleChainError(item, chainErr);
       }
 
-      // 5. done 判定：invoke 终态直读
+      // 6. done 判定：invoke 终态直读
       return await this.settleResumedOutcome(item, capture);
     } catch (err) {
       this.deps.logger.error("Resume one interrupted invoke failed", err instanceof Error ? err : new Error(String(err)), {

@@ -110,6 +110,8 @@ export interface SendMessageRequestDTO {
   /** 发言石目标（@ 指定的 otter）。缺省或空数组表示未指定，由后端按默认规则解析（回复最后发言者，兜底大獭） */
   talkingStonePassedTo?: string[];
   body: string;
+  /** 受限外部适配器消息：启用受限工具与全局记忆隔离；缺省 web 保持原行为。 */
+  source?: "external";
   /** 多模态 Phase 1：随消息引用的附件 ID（上传 API 先返回；可选，向后兼容） */
   attachmentIds?: string[];
   /** F20260913ctlv：注入方式（目标 running 时）。steer=打断当前生成立即注入（默认，

@@ -110,7 +110,13 @@ export async function reconcileRunningInvokes(db: Database.Database, repos: Repo
   if (failedInvokes.length === 0) return;
   logger.warn(`Reconciled running invokes on restart: ${failedInvokes.length} marked failed`);
   let queued = 0;
+  let restrictedSkipped = 0;
   for (const invoke of failedInvokes) {
+    // 受限外部 invoke 没有新事件对应的在线 bearer/授权，重启后只允许保持失败终态。
+    if (invoke.metadata?.externalProfile === 'restricted') {
+      restrictedSkipped++;
+      continue;
+    }
     try {
       // F20260917rscr 三点裁决：① 不再排除 scheduler 来源——定时任务中断与用户消息
       // 中断本质相同（意外中断的工作该续上）；「防重复产出」由恢复侧的「獭已恢复」
@@ -128,8 +134,8 @@ export async function reconcileRunningInvokes(db: Database.Database, repos: Repo
       });
     }
   }
-  if (queued > 0) {
-    logger.info("Interrupted invokes queued for auto-resume", { queued });
+  if (queued > 0 || restrictedSkipped > 0) {
+    logger.info("Interrupted invokes reconciled for auto-resume", { queued, restrictedSkipped });
   }
 }
 

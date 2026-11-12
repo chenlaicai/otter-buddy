@@ -151,6 +151,7 @@ describe("dispatchTurnLoop 链调度（F20261026ctbg：资源形态不判死，�
     expect(systemBodies).toHaveLength(0);
     expect(broadcastEventCalls.some(e => e.event === "entry.system")).toBe(false);
     expect(sseText).toContain("stream.end");
+    expect(res.headers.get("x-otter-trigger-entry-id")).toBe("user-entry-1");
   });
 
   it("发言石无目标时正常结束，不发系统消息", async () => {

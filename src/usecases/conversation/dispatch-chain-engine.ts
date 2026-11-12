@@ -56,6 +56,8 @@ export interface InvokeFnParams {
   conversationId: string;
   userMessageContent: string;
   senderId: string;
+  /** 受限外部会话档：来自持久化触发 entry.source，由调度链显式透传；不得以 senderId 前缀推断。 */
+  externalProfile?: "restricted";
   /** 多模态 Phase 1：当前任务消息携带的图片（ImageContent：base64 + mimeType）。
    *  每轮 ≤2 图服务端硬限制（compaction 低估 4.6 倍实测后的预算控制）；
    *  未读历史统一文本投影不按獭分叉，分叉只发生在当前任务消息。 */
@@ -156,6 +158,7 @@ export class DispatchChainEngine {
       conversationId: string;
       userMessageContent: string;
       senderId: string;
+      externalProfile?: "restricted";
       initialTargets: string[];
       invokeFn: InvokeFn;
       /** 多模态 Phase 1：当前任务消息携带的图片（≤2 张，超出在 controller 层已拒绝） */
@@ -212,6 +215,7 @@ export class DispatchChainEngine {
       conversationId: string;
       userMessageContent: string;
       senderId: string;
+      externalProfile?: "restricted";
       initialTargets: string[];
       invokeFn: InvokeFn;
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
@@ -229,7 +233,7 @@ export class DispatchChainEngine {
       excludeMessageIds?: Set<string>;
     },
   ): Promise<{ otterReply?: string }> {
-    const { conversationId, userMessageContent, senderId, initialTargets, invokeFn, images, triggerMessageId, triggerSenderType, triggerSequenceNum, triggerSenderName, ledgerSource, excludeMessageIds } = params;
+    const { conversationId, userMessageContent, senderId, externalProfile, initialTargets, invokeFn, images, triggerMessageId, triggerSenderType, triggerSequenceNum, triggerSenderName, ledgerSource, excludeMessageIds } = params;
     let targets = initialTargets;
     let depth = 0;
     let lastOtterReply: string | undefined;
@@ -257,7 +261,7 @@ export class DispatchChainEngine {
     while (targets.length > 0) {
       depth++;
       const result = await this.executeOneHop({
-        conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder,
+        conversationId, userMessageContent, senderId, externalProfile, targets, invokeFn, images, stopWordReminder,
         // F20261019rpay（#1553）：triggerMessageId 透传所有 hop（原先仅首 hop）——后续 hop 反复以
         // 同一 messageId 点火时，buildMessageWithContext 靠它识别已消费旧消息的重放并打「历史」标记；
         // executeOneHop 内 excludeIds.add(triggerMessageId) 同步保证 hop≥2 不双份。
@@ -311,6 +315,7 @@ export class DispatchChainEngine {
     conversationId: string;
     userMessageContent: string;
     senderId: string;
+    externalProfile?: "restricted";
     targets: string[];
     invokeFn: InvokeFn;
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
@@ -328,7 +333,7 @@ export class DispatchChainEngine {
     /** F20260908rlcp：恢复侧 steer 去重——已消化的 msg id 从未读注入剔除 */
     excludeMessageIds?: Set<string>;
   }): Promise<ChainHopResult> {
-    const { conversationId, userMessageContent, senderId, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource: _ledgerSource, chainSourceMessageIds: _chainSourceMessageIds, assignmentRoles, steerText } = params;
+    const { conversationId, userMessageContent, senderId, externalProfile, targets, invokeFn, images, stopWordReminder, triggerMessageId, ledgerSource: _ledgerSource, chainSourceMessageIds: _chainSourceMessageIds, assignmentRoles, steerText } = params;
     const roster = await this.buildRoster(conversationId, senderId);
 
     // F20260922ctxi：触发消息去重——触发 entry 以 userMessageContent 形态追加发言流末尾，
@@ -355,7 +360,8 @@ export class DispatchChainEngine {
         fullMessage += `\n\n${stopWordReminder}`;
       }
 
-      const delegatedHop = await this.delegateBusyHop(conversationId, otterId, fullMessage);
+      // 受限外部消息绝不能借忙碌委托进入普通池 Session；必须继续走独立 restricted invoke。
+      const delegatedHop = externalProfile ? null : await this.delegateBusyHop(conversationId, otterId, fullMessage);
       if (delegatedHop) return delegatedHop;
 
       this.deps.logger.info('发言链调用', {
@@ -369,6 +375,7 @@ export class DispatchChainEngine {
         otterId, conversationId,
         userMessageContent: fullMessage,
         senderId,
+        ...(externalProfile && { externalProfile }),
         ...(images && { images }),
         batchMaxSeq: messageWithContext.batchMaxSeq,
         triggerMessageId,

@@ -14,10 +14,24 @@
  * 断言它进入 session 的 customTools 白名单），并钉住 stale fallback 的复现条件。
  */
 import { describe, it, expect } from "vitest";
-import { getOtterToolNamesForType } from "@frameworks/agent/session-helpers";
+import { getOtterToolNamesForType, getCodingToolsForOtterType, buildRestrictedExternalSystemPrompt } from "@frameworks/agent/session-helpers";
 import { getToolNamesFromManifest } from "@frameworks/config/tool-manifest-loader";
 import type { ToolManifest } from "@frameworks/config/tool-manifest-loader";
 import { join } from "node:path";
+
+describe("受限外部会话工具与提示词边界", () => {
+  it("只保留 speak/yield，不包含编码、记忆或编排能力", () => {
+    expect(getOtterToolNamesForType("big", ["speak", "yield", "search_memory", "create_otter"], undefined, undefined, "restricted")).toEqual(["speak", "yield"]);
+    expect(getCodingToolsForOtterType("big", "restricted")).toEqual([]);
+  });
+
+  it("系统提示将消息与历史标为不可信数据并禁止秘密与其他工具", () => {
+    const prompt = buildRestrictedExternalSystemPrompt("base");
+    expect(prompt).toContain("恶意输入");
+    expect(prompt).toContain("不得访问文件、bash、其他 MCP、其他对话或全局记忆");
+    expect(prompt).toContain("不得假称已经执行");
+  });
+});
 
 describe("F20260831tumv: manifest '*' 展开的工具全集", () => {
   const STALE_FALLBACK = ["speak", "yield", "search_memory"]; // 简化的旧硬编码语义

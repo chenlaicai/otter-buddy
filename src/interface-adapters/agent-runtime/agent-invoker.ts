@@ -174,6 +174,11 @@ import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch
 // inMemory 引擎而非退化獭的 invoke 通道），手动/熔断路径统一走 LLM 合成 + 降级链。
 // 四件套 options 组装由统一 handoff 入口（unifiedHandoff）内的机械供料收集取代。
 
+/** 普通 Otter 的自动换世/跨獭恢复信号不得从受限外部会话泄漏到编排面。 */
+function ordinaryRecoveryValue<T>(externalProfile: 'restricted' | undefined, value: T): T | undefined {
+  return externalProfile ? undefined : value;
+}
+
 export class AgentInvoker implements AgentTurnPort {
   /** Messages explicitly aborted by the user (written only by abort()) */
   private readonly userAbortedMessages = new Set<string>();
@@ -299,6 +304,8 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string;
     userMessageContent: string;
     senderId: string;
+    /** 来自持久化触发 entry.source 的安全档；senderId 前缀不是激活凭据。 */
+    externalProfile?: 'restricted';
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
     /** F20260814mtrc：Web 手动重试标识（retry label 区分 manual/auto） */
@@ -378,6 +385,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string;
     userMessageContent: string;
     senderId: string;
+    externalProfile?: 'restricted';
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
     manualRetry?: boolean;
@@ -386,7 +394,11 @@ export class AgentInvoker implements AgentTurnPort {
     triggerMessageId?: string;
     assignmentRole?: "reviewer";
   }): Promise<AgentTurnResult> {
-    const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId } = params;
+    const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId, externalProfile } = params;
+    // fail-closed：外部身份命名不能替代持久化 source → profile 契约，失配时拒绝而非降级全工具。
+    if (!externalProfile && params.senderId.startsWith('external:')) {
+      throw new DomainError('external sender requires a persisted external source and restricted profile', 'validation');
+    }
     const startTime = Date.now();
 
     // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent
@@ -416,7 +428,7 @@ export class AgentInvoker implements AgentTurnPort {
      * 轮内工具循环暴涨可能漏检——补偿 = SDK overflow 兜底（reserve=50K 贴溢出点，
      * U1 验证 overflow 判定独立于 reserve）。
      */
-    if (this.shouldTriggerWatermarkHandoff(otterId)) {
+    if (!externalProfile && this.shouldTriggerWatermarkHandoff(otterId)) {
       this.logger.info('[handoff] watermark exceeded at invoke boundary, starting unified handoff', {
         otterId, conversationId,
         lastCtxTokens: this.handoffState.getLastCtxTokens(otterId),
@@ -446,16 +458,17 @@ export class AgentInvoker implements AgentTurnPort {
       // 起始档案经 dynamicContext（buildDynamicContext 读新 session.summary + 借用式 context）注入
     }
 
-    this.logger.debug('Building dynamic context', { otterId });
-    /** F20260818cbkr 二级触发：invoke 前按 healing_events 推导，命中先重启（消息尚未创建，重启后摘要随新 invoke 注入） */
-    await this.circuitBreak?.maybeSecondaryCircuitBreak(otterId, conversationId);
-    const dynamicContext = await this.buildDynamicContext(otterId, conversationId);
+    this.logger.debug('Building dynamic context', { otterId, externalProfile });
+    /** 受限外部会话不能读取/消费普通 Otter 的会话摘要、借用式档案或工作区前情，
+     * 也不能因普通会话的熔断/水位状态触发换世。当前事件与受限 durable 是唯一历史来源。 */
+    if (!externalProfile) await this.circuitBreak?.maybeSecondaryCircuitBreak(otterId, conversationId);
+    const dynamicContext: DynamicContext = externalProfile ? {} : await this.buildDynamicContext(otterId, conversationId);
     // F20260826mwrd：高危 healing 事件提醒——仅 big 獭消费（编排者处置义务），
     // small 獭 invoke 不取队列（队列滞留，大獭下轮补提醒）。失败不阻断主流程（台账在，提醒可再等）。
     // otterType 查询与下方 otter 复用：此处仅取 type，会话中 otter 主体仍在 streaming 消息创建后取。
     const invokedOtter = await this.queryOtter.getById(otterId);
     const otterType = invokedOtter?.type;
-    if (otterType === 'big') {
+    if (!externalProfile && otterType === 'big') {
       const alerts = healingAlertRegistry.takeAll(conversationId);
       if (alerts.length > 0) {
         dynamicContext.healingAlerts = renderHealingAlerts(alerts);
@@ -468,7 +481,7 @@ export class AgentInvoker implements AgentTurnPort {
         this.logger.info('Signal resolution alerts injected', { otterId, conversationId, count: signalAlerts.length });
       }
     }
-    if (this.scheduledTaskPendingRepo) {
+    if (!externalProfile && this.scheduledTaskPendingRepo) {
       try {
         const otterName = invokedOtter?.name;
         const pendingItems = otterName
@@ -498,7 +511,10 @@ export class AgentInvoker implements AgentTurnPort {
       conversationId,
       otterId,
       triggerEntryId: triggerMessageId ?? undefined,
-      metadata: buildInvokeCreationMetadata(params.assignmentRole),
+      metadata: {
+        ...buildInvokeCreationMetadata(params.assignmentRole),
+        ...(externalProfile ? { externalProfile } : {}),
+      },
     });
     const currentInvokeId = invoke.id;
     const resolvedOtterName = resolveSpeakerName("otter", otterId, otter?.name) ?? otterId;
@@ -515,7 +531,7 @@ export class AgentInvoker implements AgentTurnPort {
       let pendingSelfRestart: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
-      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, otterType: otter?.type, otterColor: otter?.color ?? null, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId });
+      const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, otterType: otter?.type, otterColor: otter?.color ?? null, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId, externalProfile });
       // F20260913ctlv 彻底切换：invoke 态回调（无 failMessage→abort SDK 联动——handleAutoRetry 同 invoke 重试不再杀 session）
       const callbacks = this.createTurnCallbacks(emitEvent, otterId);
 
@@ -546,8 +562,9 @@ export class AgentInvoker implements AgentTurnPort {
        * F20260916fst4：首哑信号消费（_circuitBreak 之后——circuit break 是系统级保护优先于场景级信号）。
        * fire-and-forget：首哑处置不嵌套当前 invoke（唤醒大獭走独立直连链），失败仅日志不影响当前收尾。
        */
-      if (turnResult._firstDumb) {
-        void this.handleFirstDumbSignal(turnResult._firstDumb);
+      const firstDumb = ordinaryRecoveryValue(externalProfile, turnResult._firstDumb);
+      if (firstDumb) {
+        void this.handleFirstDumbSignal(firstDumb);
       }
 
       /**
@@ -556,8 +573,9 @@ export class AgentInvoker implements AgentTurnPort {
        * Why 对齐 handleCircuitBreakSignal 模式：restart 后必须递归调用 invokeConversationInner，
        * 新 session 的 summary 仅在入口 buildDynamicContext 注入一次。
        */
-      if (pendingSelfRestart) {
-        const selfRestarted = await this.handleSelfRestartSignal(pendingSelfRestart, params, currentInvokeId);
+      const selfRestart = ordinaryRecoveryValue(externalProfile, pendingSelfRestart);
+      if (selfRestart) {
+        const selfRestarted = await this.handleSelfRestartSignal(selfRestart, params, currentInvokeId);
         if (selfRestarted) return this.withAdditionalDelta(selfRestarted, turnResult.tokenUsageDelta);
       }
 
@@ -565,7 +583,7 @@ export class AgentInvoker implements AgentTurnPort {
       // shouldTriggerWatermarkHandoff 永远 false → 水位交接从未触发）。ctxTokens 来自
       // turn 内 message_end usage（右栏实时口径同公式），换世后首 invoke 读不到 usage
       // 属自然语义（新世上下文为空）。
-      const lastCtxTokens = driver._lastCtxTokens;
+      const lastCtxTokens = ordinaryRecoveryValue(externalProfile, driver._lastCtxTokens);
       if (lastCtxTokens !== undefined && Number.isFinite(lastCtxTokens)) {
         this.handoffState.setLastCtxTokens(otterId, lastCtxTokens);
       }
@@ -586,7 +604,7 @@ export class AgentInvoker implements AgentTurnPort {
     conversationId: string,
     dynamicContext: DynamicContext,
     emitEvent: (event: SSEEvent) => void,
-    opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string },
+    opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string; externalProfile?: 'restricted' },
   ): AttemptDriver {
     /** F20260922handoff：ctxTokens 旁路盒——TurnResult 不带 ctxTokens，闭包直改
      *  外部 let 不可行，driver 对象生命周期覆盖整个 turn，invokeConversationInner 收尾处
@@ -604,6 +622,7 @@ export class AgentInvoker implements AgentTurnPort {
           conversationId: input.conversationId,
           messageId: input.invokeId, // SDK 层 messageId 语义 = abort/guard 键控（invokeId 承担）
           currentInvokeId: opts.currentInvokeId,
+          externalProfile: opts.externalProfile,
           emitEvent,
           ...(opts?.images && { images: opts.images }),
           batchMaxSeq: opts?.batchMaxSeq,
@@ -845,7 +864,7 @@ export class AgentInvoker implements AgentTurnPort {
     input: { invokeId: string },
     otterId: string,
     emitEvent: (event: SSEEvent) => void,
-    opts: { otterName?: string; otterType?: string; otterColor?: string | null; currentInvokeId: string },
+    opts: { otterName?: string; otterType?: string; otterColor?: string | null; currentInvokeId: string; externalProfile?: 'restricted' },
     toolStarts: Map<string, number>,
     toolCallCountBox: { count: number },
     onEvent: (e: AgentStreamEvent) => void,
@@ -903,7 +922,10 @@ export class AgentInvoker implements AgentTurnPort {
     this.persistInvokeEvent(e, opts.currentInvokeId, { otterId, conversationId });
     // F20260914rtsp：message_end → invoke.tick（ctx 窗口占用快照 + 工具计数，右栏实时化）
     if (e.type === "message_end") {
-      this.emitInvokeTick(e, { otterId, conversationId, invokeId: opts.currentInvokeId, toolCallCount: toolCallCountBox.count }, emitEvent);
+      this.emitInvokeTick(e, {
+        otterId, conversationId, invokeId: opts.currentInvokeId,
+        toolCallCount: toolCallCountBox.count, externalProfile: opts.externalProfile,
+      }, emitEvent);
     }
     // 传递事件给 orchestrator
     onEvent(e);
@@ -917,7 +939,7 @@ export class AgentInvoker implements AgentTurnPort {
    *  invoke 恰好不留水位证据 → 满 buffer 獭交接永不触发、反复被触发反复 400（《主目录污染》僵尸死循环）。 */
   private emitInvokeTick(
     e: AgentStreamEvent,
-    ctx: { otterId: string; conversationId?: string; invokeId: string; toolCallCount: number },
+    ctx: { otterId: string; conversationId?: string; invokeId: string; toolCallCount: number; externalProfile?: 'restricted' },
     emitEvent: (event: SSEEvent) => void,
   ): void {
     const usage = extractMessageEndUsage(e);
@@ -925,7 +947,8 @@ export class AgentInvoker implements AgentTurnPort {
     const ctxWindowUsed = usage.totalTokens ?? (usage.input + usage.output + usage.cacheRead + usage.cacheWrite);
     if (!Number.isFinite(ctxWindowUsed) || ctxWindowUsed <= 0) return;
     // F20261014wtrm：每轮流式返回即更新交接水位——不等 invoke 收尾（收尾路径在失败时不会执行）
-    this.handoffState.setLastCtxTokens(ctx.otterId, ctxWindowUsed);
+    // 外部 durable 与普通 Otter 水位分属不同生命周期；实时事件也不能污染共享 otterId 状态。
+    if (!ctx.externalProfile) this.handoffState.setLastCtxTokens(ctx.otterId, ctxWindowUsed);
     const ctxMax = this.getCtxMax(ctx.otterId);
     if (ctx.conversationId) {
       emitEvent({ event: "invoke.tick", data: { invokeId: ctx.invokeId, otterId: ctx.otterId, conversationId: ctx.conversationId, ctxWindowUsed, ctxMax, toolCallCount: ctx.toolCallCount } });
@@ -2153,12 +2176,14 @@ export class AgentInvoker implements AgentTurnPort {
       conversationId: string;
       userMessageContent: string;
       senderId: string;
+      externalProfile?: 'restricted';
       onSSEEvent?: (event: SSEEvent) => void;
       retryCount?: number;
       manualRetry?: boolean;
     },
     emitEvent: (event: SSEEvent) => void,
   ): Promise<AgentTurnResult | null> {
+    if (params.externalProfile) return null;
     const circuitRetried = await this.handleCircuitBreakSignal(turnResult, params, emitEvent);
     if (circuitRetried) return circuitRetried;
     if (!turnResult._contentFilter) return null;
@@ -2173,6 +2198,7 @@ export class AgentInvoker implements AgentTurnPort {
       conversationId: string;
       userMessageContent: string;
       senderId: string;
+      externalProfile?: 'restricted';
       onSSEEvent?: (event: SSEEvent) => void;
       retryCount?: number;
       manualRetry?: boolean;

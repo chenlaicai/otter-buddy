@@ -85,6 +85,8 @@ export interface InvokeRepository {
       conversationId: string;
       otterId: string;
       triggerEntryId: string | null;
+      /** 恢复安全档判据；restricted 不得进入普通自动恢复。 */
+      metadata: Record<string, unknown> | null;
     }>
   >;
 

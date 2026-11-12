@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="sea" x1="10" y1="6" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14B8A6"/>
+      <stop offset="1" stop-color="#0F766E"/>
+    </linearGradient>
+    <linearGradient id="fur" x1="32" y1="14" x2="32" y2="54" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A9754E"/>
+      <stop offset="1" stop-color="#7C4A32"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="url(#sea)"/>
+  <path d="M5 39C15 34 21 42 31 38C42 34 49 40 59 35V49C49 55 42 49 32 53C22 57 14 50 8 53Z" fill="#5EEAD4" opacity=".16"/>
+  <circle cx="19" cy="22" r="8" fill="#7C4A32"/>
+  <circle cx="45" cy="22" r="8" fill="#7C4A32"/>
+  <circle cx="19" cy="22" r="4" fill="#D6A47E"/>
+  <circle cx="45" cy="22" r="4" fill="#D6A47E"/>
+  <path d="M13 34C13 22 21 14 32 14C43 14 51 22 51 34V39C51 50 43 56 32 56C21 56 13 50 13 39Z" fill="url(#fur)"/>
+  <path d="M18 34C20 29 25 27 32 27C39 27 44 29 46 34C49 43 42 52 32 52C22 52 15 43 18 34Z" fill="#F3D7A4"/>
+  <path d="M18 33C22 29 27 29 32 32C37 29 42 29 46 33C44 25 39 20 32 20C25 20 20 25 18 33Z" fill="#8B5A3C" opacity=".55"/>
+  <circle cx="24" cy="31" r="3" fill="#292524"/>
+  <circle cx="40" cy="31" r="3" fill="#292524"/>
+  <circle cx="25" cy="30" r="1" fill="#FFFFFF"/>
+  <circle cx="41" cy="30" r="1" fill="#FFFFFF"/>
+  <ellipse cx="26" cy="40" rx="8" ry="7" fill="#FFF1D2"/>
+  <ellipse cx="38" cy="40" rx="8" ry="7" fill="#FFF1D2"/>
+  <path d="M27 36C27 33 37 33 37 36C37 39 34 41 32 41C30 41 27 39 27 36Z" fill="#292524"/>
+  <path d="M32 41V44M32 44C30 47 26 47 25 44M32 44C34 47 38 47 39 44" fill="none" stroke="#5B3828" stroke-width="2" stroke-linecap="round"/>
+  <path d="M19 39L8 36M19 43L7 44M45 39L56 36M45 43L57 44" fill="none" stroke="#FFF1D2" stroke-width="1.6" stroke-linecap="round" opacity=".9"/>
+</svg>

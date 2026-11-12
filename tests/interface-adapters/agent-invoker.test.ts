@@ -11,9 +11,9 @@
  * - SSE 契约：只发 entry.* / invoke.*（无 message.*）
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
-import type { SdkInvokePort, AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
+import type { SdkInvokePort, AgentStreamEvent, InvokeOptions } from "@usecases/ports/sdk-invoke-port";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
 import type { QueryOtter } from "@usecases/otter/query-otter";
@@ -63,9 +63,9 @@ function mockAgentInvoke(options: {
   result?: { text: string; tokenUsage?: { input: number; output: number }; tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; ctxTokens?: number; ctxMax?: number };
   throwOnInvoke?: Error;
   internalAbortReason?: string;
-  invokeImpl?: (otterId: string, message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void }) => Promise<unknown>;
+  invokeImpl?: (otterId: string, message: string, opts?: InvokeOptions) => Promise<unknown>;
 }): SdkInvokePort {
-  const invokeImpl = async (otterId: string, message: string, opts?: { onEvent?: (e: AgentStreamEvent) => void; dynamicContext?: { sessionSummary?: string } }) => {
+  const invokeImpl = async (otterId: string, message: string, opts?: InvokeOptions) => {
       if (options.invokeImpl) return options.invokeImpl(otterId, message, opts);
       if (options.throwOnInvoke) throw options.throwOnInvoke;
       for (const evt of options.events ?? []) {
@@ -106,6 +106,66 @@ function makeInvoker(
 
 // eslint-disable-next-line max-lines-per-function -- describe 聚合多特性用例（rtsp tick + evdz 广播），拆 describe 反而割裂
 describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () => {
+  it("restricted 外部档不读取普通会话摘要或借用式档案，sender 无需厂商前缀", async () => {
+    let sessionReads = 0;
+    let captured: InvokeOptions | undefined;
+    const manageSession = mockManageSession({
+      getActiveSession: async () => {
+        sessionReads++;
+        return makeSession({ summary: "普通 Web 会话秘密" });
+      },
+    });
+    const sdk = mockAgentInvoke({
+      invokeImpl: async (_otterId, _message, opts) => {
+        captured = opts;
+        return { text: "Response text" };
+      },
+    });
+    const invoker = makeInvoker(sdk, mockSendEntry(), { manageSession });
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-colink", userMessageContent: "总结之前讨论",
+      senderId: "alice", externalProfile: "restricted", onSSEEvent: () => {},
+    }).catch(() => null);
+
+    expect(captured?.externalProfile).toBe("restricted");
+    expect(captured?.dynamicContext).toEqual({});
+    expect(sessionReads).toBe(0);
+  });
+
+  it("外部前缀缺少显式 restricted 档时 fail-closed，不调用 SDK", async () => {
+    let sdkCalls = 0;
+    const sdk = mockAgentInvoke({ invokeImpl: async () => { sdkCalls++; return { text: "must not run" }; } });
+    const invoker = makeInvoker(sdk, mockSendEntry());
+    await expect(invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-external", userMessageContent: "Hi",
+      senderId: "external:alice", onSSEEvent: () => {},
+    })).rejects.toThrow(/requires a persisted external source/);
+    expect(sdkCalls).toBe(0);
+  });
+
+  it.each([
+    ["熔断", { _circuitBreak: {} }],
+    ["content-filter", { _contentFilter: {} }],
+  ])("非前缀 restricted 注入%s信号时不进入普通恢复编排", async (_name, signal) => {
+    const invoker = makeInvoker(mockAgentInvoke({}), mockSendEntry());
+    const internals = invoker as unknown as {
+      handleAutomaticRecoverySignals: (...args: unknown[]) => Promise<unknown>;
+      handleCircuitBreakSignal: ReturnType<typeof vi.fn>;
+      handleContentFilterSignal: ReturnType<typeof vi.fn>;
+    };
+    internals.handleCircuitBreakSignal = vi.fn();
+    internals.handleContentFilterSignal = vi.fn();
+
+    const result = await internals.handleAutomaticRecoverySignals(signal, {
+      otterId: "otter-1", conversationId: "conv-external", userMessageContent: "Hi",
+      senderId: "alice", externalProfile: "restricted",
+    }, () => {});
+
+    expect(result).toBeNull();
+    expect(internals.handleCircuitBreakSignal).not.toHaveBeenCalled();
+    expect(internals.handleContentFilterSignal).not.toHaveBeenCalled();
+  });
+
   /** F20260914rtsp AT-4/AT-11：message_end usage → invoke.tick 发射与降级 */
   it("message_end 带 usage → 发射 invoke.tick（ctxWindowUsed + 工具计数）", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
@@ -149,6 +209,23 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
 
     // 水位应被最后一个 message_end 的 usage 更新（240150 > 240000 阈值）
     expect(invoker["handoffState"].getLastCtxTokens("otter-1")).toBe(240150);
+  });
+
+  it("restricted 外部 message_end 不污染普通 Otter 的共享水位", async () => {
+    const invoker = makeInvoker(mockAgentInvoke({
+      events: [
+        { type: "message_end", message: { role: "assistant", usage: { input: 100, output: 50, cacheRead: 900000, cacheWrite: 0, totalTokens: 900150 } } } as AgentStreamEvent,
+      ],
+      result: { text: "", tokenUsage: { input: 100, output: 50 } },
+    }), mockSendEntry());
+    invoker["handoffState"].setLastCtxTokens("otter-1", 12345);
+
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-external", userMessageContent: "Hi",
+      senderId: "alice", externalProfile: "restricted", onSSEEvent: () => {},
+    }).catch(() => null);
+
+    expect(invoker["handoffState"].getLastCtxTokens("otter-1")).toBe(12345);
   });
 
   /** F20261014wtrm：无 message_end（invoke 直接失败）→ 水位不更新（保持 undefined）

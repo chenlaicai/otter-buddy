@@ -27,6 +27,10 @@ export interface AgentTurnPort {
     conversationId: string;
     userMessageContent: string;
     senderId: string;
+    /** 持久化外部 entry 投影出的受限档；由调度链显式传递。 */
+    externalProfile?: "restricted";
+    /** 本链触发 entry id；写 invoke.triggerEntryId 供外部适配器精确收敛轮次。 */
+    triggerMessageId?: string;
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
     /** Web 手动重试标识（metrics retry label 区分 manual/auto） */

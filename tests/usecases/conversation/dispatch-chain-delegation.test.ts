@@ -42,6 +42,25 @@ describe("F20261027cnsv D2 链式 hop 委托", () => {
     expect(logger.captured.infos).not.toContain("发言链调用");
   });
 
+  it("restricted 外部档绕过普通池委托，profile 与 triggerEntryId 一并透传", async () => {
+    const followUp = vi.fn(async () => true);
+    const { engine, invokeRepo } = makeEngine({ isRunning: () => true, followUp });
+    vi.mocked(invokeRepo.getInvokeById).mockImplementation(async id => invokeRow(id));
+    let received: Parameters<InvokeFn>[0] | undefined;
+    const invokeFn: InvokeFn = async params => {
+      received = params;
+      return { messageId: "restricted-invoke" };
+    };
+
+    await engine.executeChain({
+      ...chain(invokeFn), externalProfile: "restricted", triggerMessageId: "external-entry-1",
+    });
+
+    expect(followUp).not.toHaveBeenCalled();
+    expect(received?.externalProfile).toBe("restricted");
+    expect(received?.triggerMessageId).toBe("external-entry-1");
+  });
+
   it("followUp false 才 fallback invoke", async () => {
     const { engine, invokeRepo, logger } = makeEngine({ isRunning: () => true, followUp: async () => false });
     vi.mocked(invokeRepo.getInvokeById).mockImplementation(async (id) => {

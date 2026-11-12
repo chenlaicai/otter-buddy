@@ -41,12 +41,15 @@ function makeRepos() {
     }))),
     getMaxSequenceNum: vi.fn(async () => entries.size),
   } as unknown as EntryRepository;
-  const invokeRepo = {} as unknown as InvokeRepository;
+  const invokes = new Map<string, { metadata?: Record<string, unknown> }>();
+  const invokeRepo = {
+    getInvokeById: vi.fn(async (id: string) => invokes.get(id) ?? null),
+  } as unknown as InvokeRepository;
   const otterRepo = {
     getById: vi.fn(async (id: string) => ({ id, name: "大獭", status: "active" })),
   } as unknown as OtterRepository;
   const conversationRepo = {} as unknown as ConversationRepository;
-  return { entryRepo, invokeRepo, otterRepo, conversationRepo, entries };
+  return { entryRepo, invokeRepo, otterRepo, conversationRepo, entries, invokes };
 }
 
 /** 索引调用记录 mock：每次 indexMessage 记 [messageId, conversationId, content] */
@@ -66,13 +69,14 @@ function makeMemoryIndex() {
   return { gateway, indexed };
 }
 
-function makeSendEntry(opts?: { memoryIndex?: MemoryIndexGateway }) {
+function makeSendEntry(opts?: { memoryIndex?: MemoryIndexGateway; unfurlPrefetch?: (urls: string[]) => void }) {
   const repos = makeRepos();
   const rec = makeMemoryIndex();
   const memoryIndex = opts?.memoryIndex ?? rec.gateway;
   const sendEntry = new SendEntry(repos.entryRepo, repos.invokeRepo, repos.otterRepo, repos.conversationRepo, {
     logger: createLogger(),
     ...(memoryIndex ? { memoryIndex } : {}),
+    ...(opts?.unfurlPrefetch ? { unfurlPrefetch: opts.unfurlPrefetch } : {}),
   });
   return { sendEntry, repos, gateway: memoryIndex, indexed: rec.indexed };
 }
@@ -123,6 +127,56 @@ describe("#1191 消息索引链路接回：sendUserEntry", () => {
       conversationId: "conv-1", senderId: "user-1", body: "索引挂了消息也要送达", talkingStonePassedTo: [],
     });
     expect(res.entry.id).toBeTruthy();
+  });
+});
+
+describe("CoLink 全局记忆隔离", () => {
+  it("CoLink user 正文不进入全局记忆", async () => {
+    const { sendEntry, indexed } = makeSendEntry();
+    const res = await sendEntry.sendUserEntry({
+      conversationId: "conv-colink", senderId: "external:user-1", body: "频道里的秘密不能进全局记忆",
+      talkingStonePassedTo: [], source: "external",
+    });
+    expect(res.entry.source).toBe("external");
+    expect(indexed).toHaveLength(0);
+  });
+
+  it("CoLink invoke 的 speak 正文也不进入全局记忆", async () => {
+    const { sendEntry, repos, indexed } = makeSendEntry();
+    repos.invokes.set("invoke-colink", { metadata: { externalProfile: "restricted" } });
+    const res = await sendEntry.createSpeakEntry({
+      conversationId: "conv-colink", invokeId: "invoke-colink", otterId: "otter-1", body: "外部回复同样隔离",
+    });
+    expect(res.entry.source).toBe("external");
+    expect(indexed).toHaveLength(0);
+  });
+
+  it("CoLink user/speak 的裸 URL 不触发后台 unfurl 抓取", async () => {
+    const prefetched: string[][] = [];
+    const { sendEntry, repos } = makeSendEntry({ unfurlPrefetch: urls => prefetched.push(urls) });
+    await sendEntry.sendUserEntry({
+      conversationId: "conv-colink", senderId: "external:user-1", body: "https://example.com/private",
+      talkingStonePassedTo: [], source: "external",
+    });
+    repos.invokes.set("invoke-colink", { metadata: { externalProfile: "restricted" } });
+    await sendEntry.createSpeakEntry({
+      conversationId: "conv-colink", invokeId: "invoke-colink", otterId: "otter-1", body: "https://example.com/reply",
+    });
+    expect(prefetched).toEqual([]);
+  });
+
+  it("CoLink yield 在落库和状态变更前拒绝其他 Otter 与 reviewer 派工", async () => {
+    const { sendEntry, repos } = makeSendEntry();
+    repos.invokes.set("invoke-colink", { metadata: { externalProfile: "restricted" } });
+    for (const input of [
+      { yieldTargets: ["another-otter"] },
+      { yieldTargets: ["user"], assignmentRole: "reviewer" as const },
+    ]) {
+      await expect(sendEntry.createYieldEntry({
+        conversationId: "conv-colink", invokeId: "invoke-colink", otterId: "otter-1", ...input,
+      })).rejects.toMatchObject({ kind: "forbidden" });
+    }
+    expect(repos.entries.size).toBe(0);
   });
 });
 

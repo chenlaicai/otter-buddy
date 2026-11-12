@@ -37,11 +37,11 @@ describe("postInitDatabase 重启 reconcile 入队（F20260916b1ea）", () => {
     `).run(id, entryType, opts.yieldTargets ?? null, opts.createdAt ?? T0, opts.createdAt ?? T0);
   }
 
-  function insertRunningInvoke(id: string, triggerEntryId: string | null): void {
+  function insertRunningInvoke(id: string, triggerEntryId: string | null, restricted = false): void {
     db.prepare(`
-      INSERT INTO invokes (id, conversation_id, otter_id, status, trigger_entry_id, started_at)
-      VALUES (?, 'conv-1', 'otter-1', 'running', ?, ?)
-    `).run(id, triggerEntryId, T0);
+      INSERT INTO invokes (id, conversation_id, otter_id, status, trigger_entry_id, started_at, metadata)
+      VALUES (?, 'conv-1', 'otter-1', 'running', ?, ?, ?)
+    `).run(id, triggerEntryId, T0, restricted ? JSON.stringify({ externalProfile: 'restricted' }) : null);
   }
 
   function queueRows(): Array<{ invoke_id: string; status: string; trigger_entry_id: string | null }> {
@@ -85,6 +85,16 @@ describe("postInitDatabase 重启 reconcile 入队（F20260916b1ea）", () => {
     const rows = queueRows();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ invoke_id: "invoke-sys", status: "pending" });
+  });
+
+  it("restricted 外部 invoke：标 failed 但不进入自动恢复队列", async () => {
+    insertRunningInvoke("invoke-external", null, true);
+
+    await postInitDatabase(db, repos, createTestLogger());
+
+    const invoke = db.prepare("SELECT status FROM invokes WHERE id = 'invoke-external'").get() as { status: string };
+    expect(invoke.status).toBe("failed");
+    expect(queueRows()).toHaveLength(0);
   });
 
   it("无 running invoke：空转零副作用", async () => {

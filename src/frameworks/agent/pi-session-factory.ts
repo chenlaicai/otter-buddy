@@ -134,7 +134,7 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
-import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext, buildOtterPrompt } from "./session-helpers";
+import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext, buildOtterPrompt, buildInvokeSystemPrompt } from "./session-helpers";
 import { DelegationInFlightError, isSessionLockConflictError, SessionLockConflictError } from "@entities/errors";
 import { randomUUID } from "node:crypto";
 // F20261008tecn（EazoTack 工具瘦身 v1）：manifest toolExposure 段读取
@@ -266,6 +266,8 @@ export interface InvokeOptions {
   batchMaxSeq?: number;
   /** F20260913ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
   currentInvokeId?: string;
+  /** 受限外部会话：受限工具、独立 Session 与工作区 MCP，禁止普通池和其他工具面。 */
+  externalProfile?: 'restricted';
   /** F20260913ctlv：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }
@@ -447,8 +449,14 @@ export class PiSessionFactory implements AgentGateway {
     return await this.modelRuntimeRegistry.ensurePiCodingAgent();
   }
 
-  private durableFile(otterId: string): string {
-    return `${this.cfg.sessionDir.replace(/([\\/])sessions[\\/]?$/, "$1durable-sessions")}/${otterId}.sqlite`;
+  private durableFile(otterId: string, externalProfile?: 'restricted', conversationId?: string): string {
+    const base = this.cfg.sessionDir.replace(/([\\/])sessions[\\/]?$/, "$1durable-sessions");
+    if (externalProfile !== 'restricted') return path.join(base, `${otterId}.sqlite`);
+    // 受限外部持久历史按 Otter Conversation 隔离，绝不打开普通 Web/其他外部会话的 transcript。
+    if (!conversationId || !/^[A-Za-z0-9_-]+$/.test(conversationId) || !/^[A-Za-z0-9_-]+$/.test(otterId)) {
+      throw new Error('Restricted external durable session requires path-safe conversationId and otterId');
+    }
+    return path.join(base, 'external', conversationId, `${otterId}.sqlite`);
   }
 
   private registerDurableSession(otterId: string, sessionFile: string): void {
@@ -888,6 +896,11 @@ export class PiSessionFactory implements AgentGateway {
 
   /** D3：30s 锁冲突不再直接泄漏技术错误；handoff 旧世绝不注入。 */
   private async degradeLockTimeout(otterId: string, message: string, options: InvokeOptions | undefined, handoffAtTimeout: boolean): Promise<AgentRunResult> {
+    // 受限外部正文在任何锁降级路径都不得进入普通池；新事件必须重新建立独立授权与生命周期。
+    if (options?.externalProfile === 'restricted') {
+      await this.recordLockDegradation(otterId, options, 'restricted-lock-conflict', false, '受限外部会话等待执行锁失败，消息未送达，也未注入普通池。');
+      throw new Error('受限外部会话正在等待另一项执行，消息未送达，请由外部系统重新发送新事件');
+    }
     if (handoffAtTimeout) {
       await this.recordLockDegradation(otterId, options, 'handoff', false, '交接冻结窗口超时，拒绝向即将换世的旧 session 注入。');
       throw new Error('目标海獭正在交接，消息未能送达，请稍后重试');
@@ -1027,7 +1040,7 @@ export class PiSessionFactory implements AgentGateway {
     // 工具集（只保留 read），池中 session 是全量工具，命中复用会让合成/handoff 类只读
     // 调用拿到越权工具面（越权风险 + 工具行为不一致）。绕过池 = 不复用/不入池，
     // session 用完由调用方处置。此语义同时修掉 main #894 的潜在回归（池命中不看 readOnly）。
-    if (options?.readOnly) {
+    if (options?.readOnly || options?.externalProfile === 'restricted') {
       const { createdNew } = await this._restoreOrCreateSession(otterId);
       const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
       if (!otterConfig) {
@@ -1037,9 +1050,9 @@ export class PiSessionFactory implements AgentGateway {
       const register = createInvokeRegister();
       resetInvokeRegister(register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
       const { session, sessionKey, toolContext } = await this._createSessionWithTools(
-        otterId, otterConfig.otterType, options, register, true,
+        otterId, otterConfig.otterType, options, register, options?.readOnly,
       );
-      // readOnly 不入池（poolMeta/pool.adopt 均跳过）——用完即弃
+      // readOnly / 受限外部 Session 均不入池——用完即弃，不能复用普通全工具 Session
       return { session, sessionKey, toolContext, turnText: register.turnText, isPooled: false, createdNew };
     }
     const existing = this.poolMeta.get(otterId);
@@ -1329,7 +1342,7 @@ export class PiSessionFactory implements AgentGateway {
           // F20260913ctlv 整合移植：readOnly session 不入池（_acquirePooled 守卫，
           // 独立冷启动路径，不是池内 session），此处 dispose 释放资源——
           // 不涉及外层 streaming session（#897 语义由 _acquirePooled 的嵌套抛错保护）
-          if (options?.readOnly) {
+          if (options?.readOnly || options?.externalProfile === 'restricted') {
             session.dispose();
           }
         }
@@ -1491,17 +1504,30 @@ export class PiSessionFactory implements AgentGateway {
     return getOtterToolNamesForType(otterType, registeredTools.map(t => t.name), process.cwd(), this.logger);
   }
 
+  private _resolveModelForOtter(otterId: string) {
+    let resolvedModel = this.cfg.model;
+    let resolvedAlias = 'default';
+    if (this.cfg.modelPool) {
+      const modelAlias = this.cfg.otterConfigProvider.getConfig(otterId)?.modelAlias;
+      resolvedModel = this.cfg.modelPool.getModel(modelAlias);
+      resolvedAlias = modelAlias ?? this.cfg.modelPool.getDefaultAlias();
+    }
+    return { resolvedModel, resolvedAlias };
+  }
+
   /** 创建带工具配置的 AgentSession（F20260911pspl：invoke 级字段走寄存器，不再按 invoke 新建） */
   // eslint-disable-next-line complexity -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线（覆写本体在 tool-description-overrides.ts，此处仅组装）；F20261008tecn exposure 接线（manifest 读取 + 激活集重建，机制注释见 _activateDeferredToolSearch）
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, register: InvokeRegister, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
-    const otterToolNames = this.buildOtterToolWhitelist(otterType);
+    const external = options?.externalProfile === 'restricted';
+    const registeredOtterToolNames = this.buildOtterToolWhitelist(otterType);
+    const otterToolNames = getOtterToolNamesForType(otterType, registeredOtterToolNames, process.cwd(), this.logger, options?.externalProfile);
     // F20261008tecn（EazoTack 工具瘦身 v1）：从 manifest 读取 toolExposure 段，
     // deferred 工具不声明给模型，由 tool_search 按需激活。readOnly（合成路径）
     // 不启用 tool_search——工具已白名单过滤，搜索能力只会扩大合成面。
-    const toolExposure = readOnly ? undefined : loadToolExposureFromManifest(process.cwd(), this.logger);
+    const toolExposure = readOnly || external ? undefined : loadToolExposureFromManifest(process.cwd(), this.logger);
     const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, rhiSignalRepo: this.cfg.rhiSignalRepo, matterRepo: this.cfg.matterRepo, workLedgerBinder: this.cfg.workLedgerBinder, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger, ...(toolExposure ? { toolExposure } : {}) });
-    const codingTools = getCodingToolsForOtterType(otterType);
+    const codingTools = getCodingToolsForOtterType(otterType, options?.externalProfile);
     // F20260825hndf Phase 2：readOnly 模式只保留 read 工具，排除 write/edit/bash
     const filteredCodingTools = readOnly ? codingTools.filter(t => t === 'read') : codingTools;
     // F20260901mbfx（审计 F5）：readOnly 模式的自定义工具同样走白名单过滤。
@@ -1512,15 +1538,7 @@ export class PiSessionFactory implements AgentGateway {
       ? customTools.filter(t => SYNTHESIS_READ_ONLY_TOOL_WHITELIST.has(t.name))
       : customTools;
 
-    // 解析模型：多模型模式下按 otterConfig.modelAlias 获取，否则用默认模型
-    let resolvedModel = this.cfg.model;
-    let resolvedAlias = 'default';
-    if (this.cfg.modelPool) {
-      const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
-      const modelAlias = otterConfig?.modelAlias;
-      resolvedModel = this.cfg.modelPool.getModel(modelAlias);
-      resolvedAlias = modelAlias ?? this.cfg.modelPool.getDefaultAlias();
-    }
+    const { resolvedModel, resolvedAlias } = this._resolveModelForOtter(otterId);
 
     this.logger.info('Tools registered for agent session', {
       otterId, otterType, modelAlias: resolvedAlias,
@@ -1531,17 +1549,18 @@ export class PiSessionFactory implements AgentGateway {
     });
 
     const workspaceCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
-    const { DurableMcpBridge, readMcpConfigFiles } = await import("./durable-mcp");
+    const { DurableMcpBridge, readSessionMcpConfig } = await import("./durable-mcp");
     const mcpPath = (await import("node:path")).default;
-    const mcpEntries = await readMcpConfigFiles(workspaceCwd, mcpPath.resolve(this.cfg.sessionDir, "mcp.json"));
-    const mcp = mcpEntries.length ? new DurableMcpBridge(mcpEntries, workspaceCwd, this.logger) : undefined;
+    const mcpEntries = await readSessionMcpConfig(workspaceCwd, mcpPath.resolve(this.cfg.sessionDir, "mcp.json"), options?.externalProfile);
+    const mcp = mcpEntries.length ? new DurableMcpBridge(mcpEntries, workspaceCwd, this.logger, { allowResources: !external }) : undefined;
+    const prompt = buildInvokeSystemPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt, options?.externalProfile);
     const session = await DurableAgentSession.open({
       otterId,
-      file: this.durableFile(otterId),
+      file: this.durableFile(otterId, options?.externalProfile, conversationId),
       models: getModelSource(this.cfg.modelPool),
       model: resolvedModel,
       thinkingLevel: this.cfg.modelPool?.getThinkingLevel(resolvedAlias),
-      prompt: buildOtterPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt),
+      prompt,
       cwd: workspaceCwd,
       tools: { customTools: filteredCustomTools, codingTools: filteredCodingTools, readOnly, toolExposure },
       logger: this.logger,
@@ -1549,11 +1568,11 @@ export class PiSessionFactory implements AgentGateway {
       invokeId: options?.currentInvokeId,
       context: BACKGROUND_CONTEXT,
       mcp,
-      promptProvider: () => buildOtterPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt),
+      promptProvider: () => buildInvokeSystemPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt, options?.externalProfile),
       haltRegistry,
       onHaltFirstBlock: this.cfg.onHaltFirstBlock as never,
     });
-    this.logger.info('Durable session opened', { otterId, modelAlias: resolvedAlias, sessionFile: this.durableFile(otterId) });
+    this.logger.info('Durable session opened', { otterId, modelAlias: resolvedAlias, sessionFile: this.durableFile(otterId, options?.externalProfile, conversationId) });
 
     const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
     this._registerActiveSession(sessionKey, session);

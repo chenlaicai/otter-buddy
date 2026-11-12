@@ -44,6 +44,8 @@ export type SignalRouterInvokeFn = (params: {
   conversationId: string;
   userMessageContent: string;
   senderId: string;
+  externalProfile?: "restricted";
+  triggerMessageId?: string;
 }) => Promise<{ messageId: string; aggregatedTargets?: string[] }>;
 
 /** F20260913ctlv 彻底切换补漏：统一信号视图。
@@ -60,6 +62,8 @@ export interface SignalView {
   signalMeta: string | null;
   status: string;
   senderType: string;
+  /** 安全档唯一事实源 = 持久化 entry.source；路由器不得按 senderId 前缀推断。 */
+  externalProfile?: "restricted";
   /** F20261012swsg（#1430）：触发 entry 序号（安全词证据锚点 seq 位，机械透传） */
   sequenceNum?: number;
   /** F20260913ctlv：注入方式（目标 running 时）——steer=打断默认/followUp=排队；
@@ -218,7 +222,7 @@ export class SignalRouter {
     }
 
     // 2. 目标是否在热池且运行中
-    if (this.deps.factory.isRunning(targetId)) {
+    if (!signal.externalProfile && this.deps.factory.isRunning(targetId)) {
       // F20260908rlcp 实测修复：followUp/steer 注入成功后必须销账（consumed 标记）——
       // 否则 resume 补扫与历史扫描会把已注入的信号当成「待处理」再次点火（09-09 实测三句回复根因）。
       // 销账动作与注入动作同事务语义：注入成功即写 consumed，失败则不写（下次重试）。
@@ -285,6 +289,7 @@ export class SignalRouter {
       signalMeta: entry.metadata?.signalMeta ?? null,
       status: entry.status ?? "completed",
       senderType: entry.senderType ?? "",
+      externalProfile: entry.source === "external" ? "restricted" : undefined,
       sequenceNum: entry.sequenceNum,
       injectionMode: entry.metadata?.injectionMode,
       markConsumed: async (action) => this.markEntrySignalConsumed(entry, action),
@@ -353,6 +358,7 @@ export class SignalRouter {
           conversationId,
           userMessageContent,
           senderId: signal.senderId,
+          ...(signal.externalProfile && { externalProfile: signal.externalProfile }),
           initialTargets: [otterId],
           invokeFn: (params) => this.deps.invokeFn(params),
           triggerMessageId: signal.id,
