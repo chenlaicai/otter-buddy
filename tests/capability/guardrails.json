@@ -16,7 +16,7 @@
       "package.json"
     ],
     "parityTest": "tests/capability/model-visible-parity.capability.test.ts",
-    "liveCommand": "npm run test:capability"
+    "liveCommand": "npm run test:capability:live -- --role <base|head> --out <dir> --provider <provider> --model <model> --base-url <url>"
   },
   "capabilities": [
     {

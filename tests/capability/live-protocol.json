@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "protocolId": "capability-live-noninferiority-v1",
+  "alpha": 0.05,
+  "multipleComparisons": "bonferroni",
+  "runsPerSide": 17,
+  "executionOrder": "ABAB",
+  "minimumValidSamplesPerSide": 50,
+  "absoluteHeadSuccessFloor": 0.8,
+  "nonInferiorityDelta": 0.2,
+  "invalidSamplePolicy": "inconclusive",
+  "referenceModel": {
+    "provider": "openai",
+    "model": "deepseek-v4.1-flash",
+    "baseUrl": "https://st8tp3ajl0df3n8b8l8qu.apigateway-cn-beijing.volceapi.com/v1",
+    "thinkingLevel": null
+  },
+  "notes": "50 是检测约 0.90→0.70 劣化的初始下限，不是通用充分样本量；场景可在看 head 结果前预注册更严格值，禁止事后放宽。"
+}
