@@ -1,5 +1,5 @@
 ---
-id: F20261109otdva
+id: F20261112otdva
 title: 用 sand3d 生成可交互的大獭 3D 头像原型
 change_type: feature
 summary: 用 sand3d 生成保留红围巾识别点的陶偶风大獭，在独立页面支持拖动、眨眼、点头和挥爪，保留 SVG 回退。
@@ -9,7 +9,7 @@ intent:
   expected_effect: "独立预览页加载 sand3d 生成的 GLB，支持拖动旋转、眨眼、点头、挥爪及窄屏展示，WebGL 不可用时保留 2D 兜底"
   verify_by:
     type: behavior_check
-created_at: 2026-11-09
+created_at: 2026-11-12
 created_in_conversation: 98bd9fdd-8e28-4de8-b782-b59f46e733dd
 causal_links: []
 tags: [avatar, 3d, sand3d, threejs]
