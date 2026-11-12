@@ -39,7 +39,7 @@ export interface AgentRunResult {
   ctxTokens?: number;
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
-  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
+  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number; timeoutElapsedMs?: number; suspectedFreeze?: boolean };
   /** 本次 invoke 实际使用的模型别名（F20260814mtrc：metrics model label 数据源） */
   modelAlias?: string;
   /** 本次 invoke 重建了全新 session（F20260814mtrc） */

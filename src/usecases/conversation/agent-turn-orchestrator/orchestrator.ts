@@ -568,6 +568,11 @@ export class AgentTurnOrchestrator {
       await this.recordDegenerateHealingEvent(ctx);
     }
 
+    // F20261111slfrz：超时类 guard 疑似睡眠冻结 → healing 落痕迹（M-a8f8f080 定案：睡眠是正常场景，
+    // 恢复闭环（guard→abort→auto-retry）已存在且工作；痕迹仅让「环境冻结」与「真挂起」可区分，
+    // 不告警不升级）
+    const freezeNote = await this.traceSleepFreeze(reason, ctx);
+
     // F20260831dgrt：首次退化直接熔断（跳过无效重试，自愈更快更省）
     // 例外：session 由熔断创建且在 2h 窗口内——直接熔断会撞上限走 abort，保留重试作为唯一自愈机会
     if (guardReason === 'degenerate_output' && retryCount === 0) {
@@ -604,7 +609,7 @@ export class AgentTurnOrchestrator {
         otterId: ctx.input.otterId,
         guardReason,
       });
-      return this.handleAutoRetry(ctx, guardReason);
+      return this.handleAutoRetry(ctx, guardReason, freezeNote);
     }
 
     // #731：bash 守卫二拦终态自动回发——拦截是反馈信号不是断头台（事故 C：终态后行动权悬空只能等用户手动拉起）
@@ -623,6 +628,51 @@ export class AgentTurnOrchestrator {
       && isRetryableGuardAbort(guardReason);
   }
 
+
+  /** F20261111slfrz：睡眠冻结痕迹——判定+落账+返回重试提醒附注（独立方法控 routeGuardAbort 复杂度）。
+ *  判定：guardSuspectedFreeze 且 guardReason 属超时类（degenerate 等其他 guard 无 timeout 语义） */
+  private async traceSleepFreeze(
+    reason: ExitReason & { kind: 'guard_abort' },
+    ctx: RouteContext,
+  ): Promise<string | undefined> {
+    if (!reason.guardSuspectedFreeze || !isTimeoutGuardReason(reason.guardReason)) return undefined;
+    await this.recordSleepFreezeHealingEvent(ctx, reason.guardReason, reason.guardTimeoutElapsedMs);
+    // 检视 P2：文案只写确证事实（空窗+熔断接管），不断言「已恢复」——重试耗尽路径同样成立，
+    // 避免恢复失败时 healing 留下错误事实
+    return `检测到约 ${Math.round((reason.guardTimeoutElapsedMs ?? 0) / 60000)} 分钟事件空窗（疑似系统睡眠冻结），已由超时熔断接管（guard→abort→自动重试）`;
+  }
+
+  /** F20261111slfrz：睡眠冻结痕迹落 healing（与 recordDegenerateHealingEvent 同模式）——
+   *  errorType=sleep_freeze、low：睡眠是正常生活场景（搭档 2026-11-11 裁决 fact 8cfbbb82），
+   *  不告警不自动处置，痕迹仅用于区分「环境冻结」与「真挂起」，替代人工挖两小时日志 */
+  private async recordSleepFreezeHealingEvent(ctx: RouteContext, guardReason: string, elapsedMs?: number): Promise<void> {
+    try {
+      await ctx.callbacks.recordHealingEvent({
+        invokeId: ctx.input.invokeId,
+        conversationId: ctx.input.conversationId,
+        otterId: ctx.input.otterId,
+        errorType: "sleep_freeze",
+        severity: "low",
+        description: `疑似系统睡眠冻结：超时 guard（${guardReason}）实际耗时约 ${Math.round((elapsedMs ?? 0) / 60000)} 分钟远超预算，已由超时熔断接管（guard→abort→自动重试）`,
+        suggestion: "睡眠是正常场景无需处置；痕迹用于区分环境冻结与真挂起（M-a8f8f080 定案）",
+        context: {
+          guardReason,
+          timeoutElapsedMs: elapsedMs,
+          retryCount: ctx.input.retryCount,
+          toolCallCount: ctx.toolCallCount,
+        },
+      });
+    } catch (err) {
+      ctx.callbacks.logger.error('sleep_freeze healing_event write FAILED — non-fatal',
+        err instanceof Error ? err : new Error(String(err)),
+        {
+          component: 'AgentTurnOrchestrator',
+          errorType: 'sleep_freeze',
+          otterId: ctx.input.otterId,
+        },
+      );
+    }
+  }
 
   /** F20260818cbkr：degenerate guard 每次触发都落 healing_events（二级触发与观测的数据源，非致命） */
   private async recordDegenerateHealingEvent(ctx: RouteContext): Promise<void> {
@@ -751,9 +801,11 @@ export class AgentTurnOrchestrator {
 
   /** Handle auto-retry: fail 过渡 + 系统提醒 + 同 invoke 重试
    *  F20260913ctlv：不再 failMessage/prepareForRetry（messages 状态机已退役）——
-   *  发系统提醒 entry + 返回 null 让主循环重试 */
-  private async handleAutoRetry(ctx: RouteContext, reason: string): Promise<TurnResult | null> {
-    const failBody = `[系统] ${buildRetryFailBody(reason)}, 正在自动重试`;
+   *  发系统提醒 entry + 返回 null 让主循环重试
+   *  F20261111slfrz：freezeNote（睡眠冻结空窗说明）非空时附在系统提醒末尾——
+   *  搭档/后续诊断一眼看出空窗是环境冻结而非挂起 */
+  private async handleAutoRetry(ctx: RouteContext, reason: string, freezeNote?: string): Promise<TurnResult | null> {
+    const failBody = `[系统] ${buildRetryFailBody(reason)}${freezeNote ? `。${freezeNote}` : ''}, 正在自动重试`;
 
     // 系统提醒（entry.system SSE 由 sendSystem 内部发射）
     try {

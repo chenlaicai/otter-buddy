@@ -14,7 +14,7 @@ import type { AbortUnderlyingError } from "./exit-classifier";
 /** 携带工具调用计数的 Error（abort 路径跨层传递用） */
 export type ErrorWithToolCallCount = Error & {
   _toolCallCount?: number;
-  _outputGuardMetadata?: { firstByteLatencyMs?: number };
+  _outputGuardMetadata?: { firstByteLatencyMs?: number; timeoutElapsedMs?: number; suspectedFreeze?: boolean };
   _modelAlias?: string;
   /** F20261026ctbg：SDK 已消耗后抛错时，本次 attempt 的四分量增量。 */
   _tokenUsageDelta?: InvokeResultShape["tokenUsageDelta"];
@@ -31,7 +31,7 @@ export interface InvokeResultShape {
   ctxMax?: number;
   modelAlias?: string;
   sessionRebuilt?: boolean;
-  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number };
+  outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number; timeoutElapsedMs?: number; suspectedFreeze?: boolean };
   /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
   directText?: string;
   /** 末条 assistant 消息的 stopReason（F20260922wbfx：透传自 buildInvokeResult）。
@@ -138,7 +138,7 @@ export interface HealingEventInput {
   invokeId: string;
   conversationId: string;
   otterId: string;
-  errorType: "degenerate" | "circuit_break" | "self_restart" | "guard_intercept" | "guard_bounce_flow" | "rate_limit" | "timeout_retry_exhausted" | "tool_failure" | "context_overflow" | "content_filter" | "other";
+  errorType: "degenerate" | "circuit_break" | "self_restart" | "guard_intercept" | "guard_bounce_flow" | "rate_limit" | "timeout_retry_exhausted" | "tool_failure" | "context_overflow" | "content_filter" | "sleep_freeze" | "other";
   severity: "low" | "medium" | "high";
   description: string;
   suggestion?: string;

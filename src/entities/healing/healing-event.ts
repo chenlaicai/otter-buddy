@@ -30,6 +30,9 @@ export type HealingErrorType =
   | 'content_filter'
   /** F20260922txes：超时类自动重试耗尽终态（L1 重试后仍超时，L3 升级上报数据源） */
   | 'timeout_retry_exhausted'
+  /** F20261111slfrz：疑似系统睡眠冻结（OutputGuard 超时实际耗时 ≫ 预算，唤醒后自动重试恢复）——
+   *  环境侧痕迹事件（M-a8f8f080 定案：睡眠是正常场景，非缺陷非獭能力失败，low 不告警） */
+  | 'sleep_freeze'
   /** F20260904tflp：工具使用感受反馈（海獭主动报难用/多余/过度设计；description 以 [tool:工具名] 前缀标识） */
   | 'tool_use_feedback'
   /** F20261027lbos（#1656）：循环硬熔断门拦截（tool_call 层物理截断）。
@@ -67,9 +70,10 @@ export const HEALING_ENVIRONMENT_TYPES: readonly HealingErrorType[] = [
   'self_restart',   // 自重启执行（系统保护动作）
   // F20261111hrepl（#1842）：状态投影/运行态不一致——系统侧失败（UI/调度投影 bug），非獭能力退化
   'runtime_status_mismatch',
-  // F20260922txes：超时自动重试耗尽（环境侧——超时是模型/网络环境信号，非獭能力失败；
-  // 漏入本清单会被 classifyHealingErrorType 兜底归 capability，daily-review 误读为獭能力失败）
+  // F20260922txes（续）：漏入本清单会被 classifyHealingErrorType 兜底归 capability，daily-review 误读为獭能力失败）
   'timeout_retry_exhausted',
+  // F20261111slfrz：系统睡眠冻结——环境侧（计时器冻结是 OS 行为，非獭能力失败）
+  'sleep_freeze',
 ];
 
 /** #998：不参与成败分账的类型（主动反馈信号，独立一列呈现） */

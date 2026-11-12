@@ -21,6 +21,7 @@ import * as path from "node:path";
 import { execSync } from "node:child_process";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { bootCapabilityApp, type CapabilityContext } from "../helpers/boot";
+import { acquireSleepAssertion } from "../../helpers/sleep-assertion";
 import {
   createConversation,
   sendUserMessage,
@@ -231,16 +232,21 @@ export async function runSelftest(
 /**
  * 注册一组 golden 场景为一个 vitest describe 块。
  * 各场景文件导出 GoldenModule，这里统一 boot 一次、逐场景采样断言。
+ * F20261111slfrz：采样期间持防睡眠断言（sleep-assertion.ts，M-a8f8f080 定案）。
  */
 export function registerGoldenScenarios(modules: GoldenModule[]): void {
   describe("golden 场景集：软代码行为回归（PR gate 精简视图）", () => {
     let ctx: CapabilityContext;
+    /** F20261111slfrz：采样期间防系统睡眠（真 LLM 长链分钟级，撞睡眠 = 假挂起） */
+    let sleepAssertion: { release: () => void } | undefined;
 
     beforeAll(async () => {
+      sleepAssertion = acquireSleepAssertion();
       ctx = await bootCapabilityApp();
     });
 
     afterAll(() => {
+      sleepAssertion?.release();
       ctx?.cleanup();
     });
 
