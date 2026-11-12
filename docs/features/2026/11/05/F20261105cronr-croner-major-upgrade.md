@@ -33,7 +33,7 @@ intent:
 
 Dependabot #1769 发出 croner 10.0.1 → 11.0.0 主版本信号。按主版本纪律
 （依赖升级自动化任务简报：主版本升级需要单独创建 PR，添加警告标记），
-本 PR 独立于同日常规批（F20261105depup）。
+本 PR 独立于同日常规批（F20261112duqgd）。
 
 ## v11 破坏性变更对照（官方 release notes 逐条）
 
@@ -64,12 +64,12 @@ API 面：`new Cron(pattern, { timezone })`、`job.nextRun(ref?)`、`job.previou
 ## 验证
 
 - `node scripts/check-sdk-patch.mjs`：✅（worktree 首次 install 需手动 `npx patch-package`，
-  与 F20261105depup 同现象，非本批引入）
+  与 F20261112duqgd 同现象，非本批引入）
 - 调度专项：`tests/frameworks/scheduler/` + `tests/usecases/scheduler/` 全量
   8 文件 / 191 用例全绿 ✅（2026-11-12 rebase 解耦后复测；含新增 DST gap/overlap 2 用例）
 - `npm run build` / `npm run lint`：✅ exit 0（pre-commit 链内跑过）
 - `npm test` 全量：5663/5668——5 失败与升级无关（generate-guard-replay 时区缺陷 4 +
-  rhi-scan-worker 断言 1，未升级主仓同样失败，见 F20261105depup 对照实验记录）
+  rhi-scan-worker 断言 1，未升级主仓同样失败，见 F20261112duqgd 对照实验记录）
 
 ## Dependabot PR 处置
 
