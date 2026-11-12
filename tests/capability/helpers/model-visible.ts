@@ -157,6 +157,7 @@ const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 const ISO_TS_RE = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})/g;
 const LOCAL_TS_RE = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}（Asia\/Shanghai）/g;
 const SHORT_TS_RE = /\d{1,2}\/\d{1,2} \d{2}:\d{2}/g;
+const SHANGHAI_DATE_RE = /\d{4}-\d{2}-\d{2}（Asia\/Shanghai）/g;
 
 /**
  * 规范化：tmpDir 路径、UUID、ISO 时间戳按**首次出现序**编号替换（<TMP> / <UUID:n> / <TS:n>，
@@ -171,6 +172,8 @@ export function canonicalizeRequests(
   const tsMap = new Map<string, string>();
   const normalizeString = (s: string): string => {
     let out = opts.tmpDir ? s.split(opts.tmpDir).join("<TMP>") : s;
+    // macOS realpath 常把 /tmp 映成 /private/tmp；先替换 tmpDir 后会留下 /private<TMP>。
+    out = out.replaceAll("/private<TMP>", "<TMP>");
     out = out.replace(UUID_RE, (m) => {
       let token = uuidMap.get(m);
       if (!token) {
@@ -190,6 +193,7 @@ export function canonicalizeRequests(
     // 本地时间是每轮动态 envelope，不是需要保序关联的实体 ID。
     // 全部归一为常量，避免基线/当前历史条数不同或跨分钟时，首个时间戳编号错位。
     out = out.replace(LOCAL_TS_RE, "<LOCAL_TS>");
+    out = out.replace(SHANGHAI_DATE_RE, "<SHANGHAI_DATE>");
     out = out.replace(SHORT_TS_RE, "<SHORT_TS>");
     return out;
   };

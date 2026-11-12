@@ -121,6 +121,9 @@ describe("A3: 模型可见内容重建比对（录音网关确定性场景）", 
     expect(JSON.stringify(after)).toContain("<LOCAL_TS>");
     expect(JSON.stringify(after)).not.toContain("<LOCAL_TS:4>");
     expect(diffCanonical(before, [after[1]])).toEqual([]);
+    const mac = canonicalizeRequests([{ system: `/private${ctx.tmpDir}/sandbox/.pi/skills/x；今天是 2026-11-11（Asia/Shanghai）` }], { tmpDir: ctx.tmpDir });
+    const linux = canonicalizeRequests([{ system: `${ctx.tmpDir}/sandbox/.pi/skills/x；今天是 2026-11-12（Asia/Shanghai）` }], { tmpDir: ctx.tmpDir });
+    expect(diffCanonical(mac, linux), "macOS /private/tmp 与日期不产生跨环境假漂移").toEqual([]);
   });
 
   it("修改字段的许可包含双侧完整指纹，共同前缀之外的变化不能复用", () => {

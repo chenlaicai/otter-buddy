@@ -69,12 +69,12 @@ describe("变更触发能力证据门禁", () => {
     expect(checkCapabilityEvidence(partial).join("\n")).toContain("换底");
   });
 
-  it("三类证据带锚点时通过；字段只证明呈交不冒充执行", () => {
+  it("真 LLM 不能只交自报 PASS，必须引用机器生成的 comparison manifest", () => {
     const body = `## 能力变更验证
 - parity: PASS — gh run 123 / model-visible
 - 真 LLM: PASS — npm run test:capability，17/17 文件
 - 换底: PASS — 新增 Storage 契约测试，schema 依赖已下推
 `;
-    expect(checkCapabilityEvidence(body)).toEqual([]);
+    expect(checkCapabilityEvidence(body).join("\n")).toContain("comparison JSON");
   });
 });

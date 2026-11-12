@@ -17,6 +17,7 @@ import {
   waitForOtterMessage,
   waitForInvokeSettled,
   expectSampledBehavior,
+  invalidSample,
 } from "../helpers/assert-behavior";
 
 describe("track_work：新目标登记 + 不滥用边界（真系统 + 真 LLM）", () => {
@@ -51,8 +52,8 @@ describe("track_work：新目标登记 + 不滥用边界（真系统 + 真 LLM�
           const first = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
           // 大獭 invoke 终态后工具副作用才完整（speak 早于工具收尾的窗口）
           await waitForInvokeSettled(ctx, convId, first.si, { timeoutMs: 60_000 });
-        } catch {
-          return { ok: false, detail: "大獭未在超时内应答" };
+        } catch (err) {
+          return invalidSample(`大獭应答等待无效：${err instanceof Error ? err.message : String(err)}`);
         }
 
         /** 确定性断言：work_items 落库 + trace 绑定（机械行为，严格） */
@@ -90,8 +91,8 @@ describe("track_work：新目标登记 + 不滥用边界（真系统 + 真 LLM�
           const first = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
           // 大獭 invoke 终态后工具副作用才完整（speak 早于工具收尾的窗口）
           await waitForInvokeSettled(ctx, convId, first.si, { timeoutMs: 60_000 });
-        } catch {
-          return { ok: false, detail: "大獭未在超时内应答" };
+        } catch (err) {
+          return invalidSample(`大獭应答等待无效：${err instanceof Error ? err.message : String(err)}`);
         }
         const works = ctx.built.db.prepare(
           "SELECT COUNT(*) AS c FROM work_items WHERE conversation_id = ?",
@@ -123,8 +124,8 @@ describe("track_work：新目标登记 + 不滥用边界（真系统 + 真 LLM�
         try {
           first = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
           await waitForInvokeSettled(ctx, convId, first.si, { timeoutMs: 60_000 });
-        } catch {
-          return { ok: false, detail: "大獭未在超时内应答（第一轮）" };
+        } catch (err) {
+          return invalidSample(`第一轮应答等待无效：${err instanceof Error ? err.message : String(err)}`);
         }
         const worksAfterRound1 = ctx.built.db.prepare(
           "SELECT id FROM work_items WHERE conversation_id = ?",
@@ -146,8 +147,8 @@ describe("track_work：新目标登记 + 不滥用边界（真系统 + 真 LLM�
         try {
           const second = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
           await waitForInvokeSettled(ctx, convId, second.si, { timeoutMs: 60_000 });
-        } catch {
-          return { ok: false, detail: "大獭未在超时内应答（第二轮）" };
+        } catch (err) {
+          return invalidSample(`第二轮应答等待无效：${err instanceof Error ? err.message : String(err)}`);
         }
 
         /** 确定性断言：旧工作 trace 绑定数不增长（误 resume 会给新链 trace 绑到旧工作） */

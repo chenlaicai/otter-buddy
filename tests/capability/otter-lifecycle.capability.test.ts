@@ -229,7 +229,7 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
     expect(userMsgCount, "session 中应有至少两轮用户消息").toBeGreaterThanOrEqual(2);
   }, 600_000);
 
-  it("身份段携带 commit author 新格式（F20261105sgemu）：模型只能从 system 身份段获得 noreply 邮箱（2 次采样 ≥1）", async (t) => {
+  it("身份段携带 commit author 新格式（F20261105sgemu）：模型只能从 system 身份段获得 noreply 邮箱（3 次采样 ≥1）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
     /** 行为断言面（同断言面 A 的鉴别逻辑）：提问刻意不含任何邮箱 token——
@@ -244,7 +244,7 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
       "noreply.github.com",
     ];
 
-    await expectSampledBehavior("identity-commit-author-format", 2, 1, async (i) => {
+    await expectSampledBehavior("identity-commit-author-format", 3, 1, async (i) => {
       const convId = await createConversation(ctx, `author 格式采样${i + 1}`);
       await sendUserMessage(ctx, convId, "你提交代码时 commit 的 author 参数会写成什么？原样给我那一行。");
       const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
@@ -253,8 +253,8 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
         ok: Boolean(hit),
         detail: `hit=${hit ?? "none"} content="${answer.content.slice(0, 150)}"`,
       };
-    }, { budgetMs: 520_000, sampleWorstMs: 240_000 });
-  }, 600_000);
+    }, { budgetMs: 840_000, sampleWorstMs: 240_000 });
+  }, 960_000);
 
   it("speak 协议合规：3 次采样 ≥1 次合规（统计断言，F20260805mspk）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);

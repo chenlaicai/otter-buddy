@@ -18,20 +18,62 @@ import {
   loadCapabilityRegistry,
   matchingCapabilityChanges,
 } from "./lint-capability-guardrails.mjs";
+import {
+  CANONICAL_INVENTORY,
+  CANONICAL_INVENTORY_SHA256,
+  CANONICAL_PROTOCOL,
+  CANONICAL_PROTOCOL_SHA256,
+  hashCapabilityHarness,
+  loadJson,
+  validateComparison,
+} from "./capability-live-evidence.mjs";
 
 const EVIDENCE_PATTERNS = [
   { name: "parity", re: /^[-*]\s*parity\s*:\s*PASS\s*[—:-]/im },
-  { name: "真 LLM", re: /^[-*]\s*真\s*LLM\s*:\s*PASS\s*[—:-]/im },
   { name: "换底", re: /^[-*]\s*换底\s*:\s*PASS\s*[—:-]/im },
 ];
+const LIVE_RE = /^[-*]\s*真\s*LLM\s*:\s*(PASS|FAIL|BLOCKED|INCONCLUSIVE)\s*[—:-]\s*(\S+)/im;
 
-export function checkCapabilityEvidence(prBody) {
+export function checkCapabilityEvidence(prBody, { root = process.cwd(), expectedHead, expectedBase } = {}) {
   const section = extractSection(prBody, "能力变更验证");
   if (section === null) return ["缺「## 能力变更验证」段"];
   if (!hasSubstance(section)) return ["「## 能力变更验证」段为空或仅占位"];
-  return EVIDENCE_PATTERNS
+  const errors = EVIDENCE_PATTERNS
     .filter(item => !item.re.test(section))
     .map(item => `${item.name} 证据缺失：写「- ${item.name}: PASS — <命令与输出锚点>」`);
+  const live = section.match(LIVE_RE);
+  if (!live) {
+    errors.push("真 LLM 非劣证据缺失：PASS 必须指向机器生成的 comparison manifest；BLOCKED/INCONCLUSIVE 不会放行");
+    return errors;
+  }
+  if (live[1] !== "PASS") {
+    errors.push(`真 LLM 非劣证据为 ${live[1]}，不能合入`);
+    return errors;
+  }
+  const evidenceRoot = path.resolve(root, "docs/evidence/capability");
+  const comparisonPath = path.resolve(root, live[2]);
+  if (!comparisonPath.startsWith(`${evidenceRoot}${path.sep}`) || path.extname(comparisonPath) !== ".json") {
+    errors.push("真 LLM PASS 必须引用 docs/evidence/capability/ 下的 comparison JSON");
+    return errors;
+  }
+  if (!fs.existsSync(comparisonPath)) {
+    errors.push(`真 LLM comparison 不存在: ${live[2]}`);
+    return errors;
+  }
+  try {
+    errors.push(...validateComparison(loadJson(comparisonPath), {
+      expectedHead,
+      expectedBase,
+      expectedProtocol: CANONICAL_PROTOCOL,
+      expectedProtocolSha: CANONICAL_PROTOCOL_SHA256,
+      expectedInventory: CANONICAL_INVENTORY,
+      expectedInventorySha: CANONICAL_INVENTORY_SHA256,
+      expectedHarnessSha: hashCapabilityHarness(root),
+    }));
+  } catch (error) {
+    errors.push(`真 LLM comparison 不可读: ${error.message}`);
+  }
+  return errors;
 }
 
 export function changedPathsFromGit(base = "origin/main") {
@@ -58,7 +100,9 @@ function main() {
   }
   console.log(`[capability-change] 命中 ${hits.length} 个变更路径：\n${hits.map(hit => `  - ${hit}`).join("\n")}`);
   console.log("换底清单：逐项分类文件名/扩展名/schema/调用作用域依赖为语义或约定；约定依赖须下推、补契约测试或加运行时守护。");
-  const errors = checkCapabilityEvidence(prBody);
+  const expectedHead = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const expectedBase = execFileSync("git", ["merge-base", "HEAD", base], { encoding: "utf8" }).trim();
+  const errors = checkCapabilityEvidence(prBody, { expectedHead, expectedBase });
   if (errors.length) {
     for (const error of errors) console.error(`❌ [capability-change] ${error}`);
     process.exit(1);
