@@ -3,9 +3,10 @@ import {
   OutputGuard,
   DEFAULT_OUTPUT_GUARD_CONFIG,
   attachOutputGuard,
+  isSuspectedFreeze,
 } from "@frameworks/agent/output-guard";
 import type { OutputGuardConfig } from "@frameworks/agent/output-guard";
-import { createTestLogger } from "../../helpers/logger";
+import { createTestLogger, createCapturingLogger } from "../../helpers/logger";
 
 function makeConfig(overrides?: Partial<OutputGuardConfig>): OutputGuardConfig {
   return { ...DEFAULT_OUTPUT_GUARD_CONFIG, ...overrides };
@@ -580,5 +581,56 @@ describe("attachOutputGuard（SDK 事件契约）", () => {
     handler(updateEvent("text_delta", randomText(50, 10)));
     vi.advanceTimersByTime(5000);
     expect(onAbort).not.toHaveBeenCalled(); // 兜底抑制
+  });
+});
+
+describe("OutputGuard 睡眠冻结痕迹（F20261111slfrz，M-a8f8f080 定案）", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("isSuspectedFreeze 边界：elapsed > 2×budget 判冻结，恰好 2× 不判", () => {
+    expect(isSuspectedFreeze(300_000, 2 * 300_000)).toBe(false);
+    expect(isSuspectedFreeze(300_000, 2 * 300_000 + 1)).toBe(true);
+    // 实证样本形态：300s 预算实际 51min（3060s）→ 冻结
+    expect(isSuspectedFreeze(300_000, 51 * 60_000)).toBe(true);
+  });
+
+  it("正常超时 fire：metadata 透出 timeoutElapsedMs，不判冻结", () => {
+    const guard = new OutputGuard(makeConfig({ firstByteTimeoutMs: 10_000 }), "otter-1", createTestLogger());
+    guard.armFirstByteTimer(vi.fn());
+    vi.advanceTimersByTime(10_001);
+    const meta = guard.getMetadata();
+    expect(meta.tripped).toBe(true);
+    expect(meta.timeoutElapsedMs).toBeGreaterThanOrEqual(10_000);
+    expect(meta.suspectedFreeze).toBe(false);
+  });
+
+  it("冻结形态 fire（elapsed ≫ budget）：suspectedFreeze=true，日志含冻结提示", () => {
+    const logger = createCapturingLogger();
+    const guard = new OutputGuard(makeConfig({ firstByteTimeoutMs: 10_000 }), "otter-1", logger);
+    const abort = vi.fn();
+    guard.armFirstByteTimer(abort);
+    // 模拟 Mac 睡眠：墙钟前移 51 分钟（计时器预算仍 10s——睡眠中 timer 冻结不前进）
+    vi.setSystemTime(Date.now() + 51 * 60_000);
+    vi.advanceTimersByTime(10_001);
+    expect(abort).toHaveBeenCalled();
+    const meta = guard.getMetadata();
+    expect(meta.suspectedFreeze).toBe(true);
+    expect(meta.timeoutElapsedMs).toBeGreaterThanOrEqual(51 * 60_000);
+    // 冻结提示进 warn 日志（人工排查一眼可见）
+    const freezeWarn = logger.captured.warns.find((m) => m.includes("疑似系统睡眠冻结"));
+    expect(freezeWarn).toBeDefined();
+    expect(freezeWarn).toContain("elapsedMs=");
+  });
+
+  it("未超时（正常完成）：metadata.timeoutElapsedMs 为 undefined", () => {
+    const guard = new OutputGuard(makeConfig({ firstByteTimeoutMs: 10_000, streamingTimeoutMs: 2000 }), "otter-1", createTestLogger());
+    guard.armFirstByteTimer(vi.fn());
+    guard.onDelta(randomText(50, 1), "text_delta", vi.fn());
+    const meta = guard.getMetadata();
+    expect(meta.tripped).toBe(false);
+    expect(meta.timeoutElapsedMs).toBeUndefined();
+    expect(meta.suspectedFreeze).toBeUndefined();
+    guard.destroy();
   });
 });

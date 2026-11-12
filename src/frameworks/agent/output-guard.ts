@@ -46,6 +46,19 @@ export interface OutputGuardMetadata {
   reason?: OutputGuardTripReason;
   /** 首字节延迟埋点（F20260804dglp）：最近一次首字节窗口从 arm 到首个 delta 的耗时，用于调参观测 */
   firstByteLatencyMs?: number;
+  /** F20261111slfrz：超时 fire 时的实际墙钟耗时（arm → fire）。elapsed ≫ budget
+   *  = 计时器被系统睡眠冻结、唤醒瞬间才走完残余预算——睡眠冻结痕迹（M-a8f8f080 定案）。 */
+  timeoutElapsedMs?: number;
+  /** F20261111slfrz：fire 时则判定 elapsed > 2×budget（睡眠冻结判定在 guard 内完成，
+   *  消费方（orchestrator 落 healing）无需 import 预算常量，也避免 usecase→frameworks 反向依赖） */
+  suspectedFreeze?: boolean;
+}
+
+/** F20261111slfrz：疑似系统睡眠冻结判定——实际 elapsed 超预算 2× 认定。
+ *  2× 余量覆盖慢 prefill/网络抖动（实证样本：300s 预算实际 51min~11.6h，远超 2×；
+ *  正常慢请求最坏 ~8-10min < 2×300s）。导出供 orchestrator 落账与单测复用。 */
+export function isSuspectedFreeze(budgetMs: number, elapsedMs: number): boolean {
+  return elapsedMs > 2 * budgetMs;
 }
 
 /** pause 原因（按原因 ref-count） */
@@ -80,6 +93,10 @@ export class OutputGuard {
   /** 首字节延迟埋点 */
   private firstByteArmedAt = 0;
   private firstByteLatencyMs: number | undefined;
+  /** F20261111slfrz：超时 fire 实际墙钟耗时（睡眠冻结痕迹） */
+  private timeoutElapsedMs: number | undefined;
+  /** F20261111slfrz：fire 时的睡眠冻结判定（elapsed > 2×budget） */
+  private timeoutSuspectedFreeze: boolean | undefined;
   /** 终态标记：destroy 后拒绝任何 resume/arm 复活计时器 */
   private destroyed = false;
 
@@ -217,6 +234,8 @@ export class OutputGuard {
       tripped: this.tripped,
       reason: this.tripReason,
       firstByteLatencyMs: this.firstByteLatencyMs,
+      timeoutElapsedMs: this.timeoutElapsedMs,
+      suspectedFreeze: this.timeoutSuspectedFreeze,
     };
   }
 
@@ -244,9 +263,14 @@ export class OutputGuard {
     }
     this.tripped = true;
     this.tripReason = this.timerKind === "first_byte" ? "first_byte_timeout" : "streaming_timeout";
+    this.timeoutElapsedMs = Date.now() - this.timerStartedAt;
+    this.timeoutSuspectedFreeze = isSuspectedFreeze(this.timerBudgetMs, this.timeoutElapsedMs);
+    const freezeHint = this.timeoutSuspectedFreeze
+      ? " elapsed≫budget（疑似系统睡眠冻结，唤醒瞬间走完残余预算）"
+      : "";
     this.logger.warn(
       `[output-guard] ${this.tripReason}: otter=${this.otterId} ` +
-      `timeoutMs=${this.timerBudgetMs} totalLength=${this.detector.length}`,
+      `timeoutMs=${this.timerBudgetMs} elapsedMs=${this.timeoutElapsedMs}${freezeHint} totalLength=${this.detector.length}`,
     );
     this.pendingAbort?.();
   }
