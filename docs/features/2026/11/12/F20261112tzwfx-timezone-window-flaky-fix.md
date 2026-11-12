@@ -1,5 +1,5 @@
 ---
-id: F20261105tzwfx
+id: F20261112tzwfx
 title: 时区窗口 flaky 修复：rhi-scan-worker 上海日界对齐 + generate-guard-replay UTC 播种
 doc_type: feature
 
@@ -23,7 +23,7 @@ modules:
   - tests/scripts/generate-guard-replay.test.ts
 capability_test: "n/a: 测试基建修复，无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
-created_at: 2026-11-05
+created_at: 2026-11-12
 
 intent:
   problem: "上海凌晨 0-8 点（UTC 16-24 点）跑 CI/本地测试，两个文件必红——任何在该窗口的 PR 合入与定时任务（07:30 daily-health-check、01:00 依赖升级）都受害"
@@ -32,7 +32,7 @@ intent:
     type: behavior_check
 ---
 
-# F20261105tzwfx: 时区窗口 flaky 修复
+# F20261112tzwfx: 时区窗口 flaky 修复
 
 ## 背景
 
