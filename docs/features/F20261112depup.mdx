@@ -14,21 +14,27 @@ status: done
 ## Scope
 
 - `vitest`：5.0.5 → 5.1.0
-- `@hono/node-server`：2.1.5 → 2.1.6（含安全修复）
-- `hono`：4.13.13 → 4.13.17（含安全修复）
+- `@hono/node-server`：2.1.5 → 2.1.7（含安全修复）
+- `hono`：4.13.13 → 4.13.18（含安全修复）
 - `playwright`：1.63.0 → 1.65.0
 
 ## Implementation
 
-更新 `package.json` 与 `package-lock.json`，保留各包原有版本范围写法；传递依赖采用 4 个 Dependabot 原始补丁的锁定结果，不额外做全量解析。
+更新 `package.json` 与 `package-lock.json`，保留各包原有版本范围写法；传递依赖采用 4 个 Dependabot 原始补丁的锁定结果，不额外做全量解析。独立检视发现 2026-11-11 新公开的 Hono GHSA 后，将 `@hono/node-server` / `hono` 从原 Dependabot 目标 2.1.6 / 4.13.17 继续推进到完整修复版本 2.1.7 / 4.13.18；其余包范围不变。
 
 ## Evidence
 
 - Dependabot 原 PR 已关闭，远程分支已删除。
-- `npm ci` 成功；`npm ls @hono/node-server hono playwright vitest --depth=0` 分别解析为 2.1.6、4.13.17、1.65.0、5.1.0。
+- `npm ci` 成功；`npm ls @hono/node-server hono playwright vitest --depth=0` 分别解析为 2.1.7、4.13.18、1.65.0、5.1.0。
 - `npm run check` 通过：构建、ESLint、schema、双形态启动冒烟及脚本测试均通过。
 - 安装 Playwright 1.65 对应 Chromium 后，`npm test` 结果为 460 个测试文件通过、5927 个测试通过；剩余 5 个失败与 `origin/main@b23868a4` + Vitest 5.0.5 基线完全一致：`generate-guard-replay.test.ts` 4 个、`rhi-scan-worker.test.ts` 1 个，非本次升级引入。
 - Vitest 5.1 输出既有 `vitest.config.ts` 使用 `__dirname` 的未来兼容性警告，不影响测试执行。
+
+## Security
+
+- 2.1.6 / 4.13.16 已覆盖 Dependabot 原批安全修复。
+- 2.1.7 / 4.13.18 进一步覆盖 2026-11-11 公开的 GHSA-fj57-4f93-cfw6、GHSA-74fm-fwc7-3fwp、GHSA-39q9-qp46-w8xg、GHSA-92p4-j3wq-jmqx、GHSA-h25j-2p75-qj33。
+- 本仓未启用 `allowPercentInPath`，未调用 `bodyLimit()`、`validator()`、`mount()` 或 `upgradeWebSocket`；升级同时消除当前与未来的已知版本面风险。
 
 ## Links
 
