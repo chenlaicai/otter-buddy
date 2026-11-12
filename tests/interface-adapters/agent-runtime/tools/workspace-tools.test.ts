@@ -8,16 +8,19 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { createWorkspaceTools } from "@interface-adapters/agent-runtime/tools/workspace-tools";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
+import { LocalExecutionMachine } from "@frameworks/execution/local-execution-machine";
+import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
 import type { ToolContext } from "@usecases/ports/agent-tools";
 
 describe("workspace-tools: workspace_delete（#1484）", () => {
   let tmpDir: string;
   let gw: NodeWorkspaceGateway;
+  let runner: ExecutionMachineRegistry;
   const convId = "test-conv-del";
   const ctx = { conversationId: convId, otterId: "otter-1", currentMessageId: "m1" } as unknown as ToolContext;
 
   const findTool = () => {
-    const tools = createWorkspaceTools(ctx, gw);
+    const tools = createWorkspaceTools(ctx, runner);
     const del = tools.find((t) => t.name === "workspace_delete");
     expect(del).toBeDefined();
     return del!;
@@ -26,6 +29,8 @@ describe("workspace-tools: workspace_delete（#1484）", () => {
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ws-tools-test-"));
     gw = new NodeWorkspaceGateway(tmpDir);
+    runner = new ExecutionMachineRegistry();
+    runner.register(new LocalExecutionMachine(gw));
     await gw.ensureWorkspace(convId);
   });
 
@@ -34,7 +39,7 @@ describe("workspace-tools: workspace_delete（#1484）", () => {
   });
 
   it("createWorkspaceTools 注册 5 个工具且含 workspace_delete", () => {
-    const tools = createWorkspaceTools(ctx, gw);
+    const tools = createWorkspaceTools(ctx, runner);
     expect(tools.map((t) => t.name)).toEqual([
       "workspace_info",
       "workspace_list",

@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * F20261111mwire（#1854）：合成模型覆盖到达线缆——红测。
  *
@@ -69,6 +70,7 @@ function makeShadowSession(opts: { emitText?: string } = {}): ShadowSession {
 async function makeFactoryWithSessionQueue(sessions: ShadowSession[], modelPool?: { getModel: () => Model<Api>; hasModel?: () => boolean }) {
   const db = createTestDb();
   const factory = new PiSessionFactory({
+    executionMachines: createTestExecutionMachineRegistry(),
     db,
     sessionDir: ":memory:",
     otterToolClient: {} as never,

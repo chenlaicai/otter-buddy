@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * #896：嵌套 invoke 锁旁路 + streaming 保护。
  *
@@ -59,6 +60,7 @@ function makeBarrier() {
 function makeFactory(internalImpl: (id: string, msg: string) => Promise<{ text: string }>) {
   const db = createTestDb();
   const factory = new PiSessionFactory({
+    executionMachines: createTestExecutionMachineRegistry(),
     db,
     sessionDir: ":memory:",
     otterToolClient: {} as never,
@@ -84,6 +86,7 @@ function makeFactory(internalImpl: (id: string, msg: string) => Promise<{ text: 
 function makePoolFactory() {
   const db = createTestDb();
   const factory = new PiSessionFactory({
+    executionMachines: createTestExecutionMachineRegistry(),
     db,
     sessionDir: ":memory:",
     otterToolClient: {} as never,

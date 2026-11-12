@@ -2,6 +2,7 @@
 import { DurableSession } from "../../dist/src/frameworks/agent/durable-session.js";
 import { DurableEventStream } from "../../dist/src/frameworks/agent/durable-event-stream.js";
 import { createModels } from "@earendil-works/pi-ai";
+import { createTestExecutionMachineRegistry } from "../../dist/tests/helpers/execution-machine.js";
 import { fauxProvider, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import fs from "node:fs";
@@ -15,6 +16,7 @@ models.setProvider(faux.provider);
 faux.setResponses([fauxAssistantMessage(fauxToolCall("side_effect", {}, { id: "crash-call" }), { stopReason: "toolUse" })]);
 const session = await DurableSession.open({
   otterId: "crash-test", file, models, model: faux.getModel(), cwd: process.cwd(),
+  executionMachines: createTestExecutionMachineRegistry(),
   logger: { debug() {}, info() {}, warn() {}, error() {}, child() { return this; } },
   register: { currentInvokeId: "crash-invoke" }, invokeId: "crash-invoke", context: BACKGROUND_CONTEXT,
   tools: { codingTools: [], customTools: [{ name: "side_effect", label: "test", description: "test", parameters: { type: "object" }, execute: async () => {

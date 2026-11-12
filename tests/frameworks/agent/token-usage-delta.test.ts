@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 import { describe, expect, it, vi } from "vitest";
 import { buildInvokeResult, buildResult } from "@frameworks/agent/circuit-breaker-helpers";
 import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
@@ -28,6 +29,7 @@ describe("F20261026ctbg invoke token 透传", () => {
   it("prompt 已消耗后抛错，异常仍携带本次四分量差分", async () => {
     const db = createTestDb();
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db, sessionDir: ":memory:", otterToolClient: {} as never, model: null as never, createTools: () => [],
       otterConfigProvider: { getConfig: () => ({ systemPrompt: undefined, otterType: "big", modelAlias: null }), setConfig: () => {}, deleteConfig: () => {} } as never,
       otterRepo: new SqliteOtterRepository(db),

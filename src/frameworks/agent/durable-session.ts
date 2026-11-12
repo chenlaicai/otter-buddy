@@ -11,8 +11,8 @@ import { createCodingTools } from "@earendil-works/pi-durable/tools";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
-import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { stripEmptyAssistantText } from "./assistant-message-sanitizer";
+import type { ExecutionMachineResolver } from "@usecases/ports/execution-machine";
 import { bashGuardGate, haltToolCallGuard, loopBlockGuard, otterInvokeStorage } from "./model-runtime-registry";
 import { toDurableTool } from "./durable-tool-registry";
 import { DurableEventStream } from "./durable-event-stream";
@@ -40,6 +40,7 @@ export interface DurableSessionOptions {
   prompt?: string;
   identity?: string;
   cwd: string;
+  executionMachines: ExecutionMachineResolver;
   tools: DurableToolBundle;
   logger: Logger;
   register: InvokeRegister;
@@ -119,7 +120,7 @@ export class DurableSession {
     session.harness = await Harness.open(storage, {
       models: options.models,
       registry: session.registry,
-      env: ({ cwd }) => new NodeExecutionEnv({ cwd: cwd ?? options.cwd }),
+      env: ({ cwd }) => options.executionMachines.resolve().createExecutionEnvironment(cwd ?? options.cwd),
       settings: {
         retry: { enabled: true, maxRetries: 4, baseDelayMs: 1000, maxAgentDelayMs: 30000 },
         stream: { timeoutMs: 600000, maxRetries: 0 },

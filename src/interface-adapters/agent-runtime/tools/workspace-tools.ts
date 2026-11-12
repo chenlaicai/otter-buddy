@@ -1,23 +1,23 @@
-import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
+import type { ActionRunner } from "@usecases/ports/execution-machine";
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 
-function createWorkspaceInfoTool(ctx: ToolContext, workspaceGateway: WorkspaceGateway): AgentTool {
+function createWorkspaceInfoTool(ctx: ToolContext, actionRunner: ActionRunner): AgentTool {
   return {
     name: "workspace_info",
     description: "获取当前对话的工作区信息（绝对路径 + 根目录列表）. When: 需要知道工作区在哪 / 浏览根目录结构. Output: { path, entries }. BOUNDARY: 工作区是 sandbox，不影响项目代码.",
     parameters: { type: "object", properties: {} },
     execute: async () => {
-      const ok = await workspaceGateway.exists(ctx.conversationId);
+      const ok = await actionRunner.run({ type: "workspace.exists", input: { conversationId: ctx.conversationId } });
       if (!ok) return errorResponse("[错误] 工作区不存在。");
-      const entries = await workspaceGateway.listDir(ctx.conversationId);
-      const wsPath = workspaceGateway.getWorkspacePath(ctx.conversationId);
+      const entries = await actionRunner.run({ type: "workspace.list", input: { conversationId: ctx.conversationId } });
+      const wsPath = await actionRunner.run({ type: "workspace.path", input: { conversationId: ctx.conversationId } });
       return textResponse(JSON.stringify({ path: wsPath, entries }));
     },
   };
 }
 
-function createWorkspaceListTool(ctx: ToolContext, workspaceGateway: WorkspaceGateway): AgentTool {
+function createWorkspaceListTool(ctx: ToolContext, actionRunner: ActionRunner): AgentTool {
   return {
     name: "workspace_list",
     description: "列出工作区中指定目录的内容. When: 浏览工作区某目录结构. Output: 文件/目录 entries 列表. BOUNDARY: 只读; 工作区是 sandbox.",
@@ -28,13 +28,16 @@ function createWorkspaceListTool(ctx: ToolContext, workspaceGateway: WorkspaceGa
       },
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      const entries = await workspaceGateway.listDir(ctx.conversationId, params.path as string | undefined);
+      const entries = await actionRunner.run({
+        type: "workspace.list",
+        input: { conversationId: ctx.conversationId, relativePath: params.path as string | undefined },
+      });
       return textResponse(JSON.stringify(entries));
     },
   };
 }
 
-function createWorkspaceReadTool(ctx: ToolContext, workspaceGateway: WorkspaceGateway): AgentTool {
+function createWorkspaceReadTool(ctx: ToolContext, actionRunner: ActionRunner): AgentTool {
   return {
     name: "workspace_read",
     description: "读取工作区中指定文件的内容. When: 需要查看工作区里某个文件. Output: 文件文本内容. BOUNDARY: 只读; 工作区是 sandbox.",
@@ -46,13 +49,16 @@ function createWorkspaceReadTool(ctx: ToolContext, workspaceGateway: WorkspaceGa
       required: ["path"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      const content = await workspaceGateway.readFile(ctx.conversationId, params.path as string);
+      const content = await actionRunner.run({
+        type: "workspace.read",
+        input: { conversationId: ctx.conversationId, relativePath: params.path as string },
+      });
       return textResponse(content);
     },
   };
 }
 
-function createWorkspaceWriteTool(ctx: ToolContext, workspaceGateway: WorkspaceGateway): AgentTool {
+function createWorkspaceWriteTool(ctx: ToolContext, actionRunner: ActionRunner): AgentTool {
   return {
     name: "workspace_write",
     description: "向工作区写入文件（自动创建中间目录）. When: 在工作区 sandbox 里产出/修改文件（如草稿、测试数据）. Not for: 修改项目代码 → 走 worktree-isolation skill. Output: 写入确认. BOUNDARY: 工作区是 sandbox，不影响项目代码. GOTCHA: 大小獭均可使用但只在自己的 sandbox 内有效.",
@@ -65,13 +71,16 @@ function createWorkspaceWriteTool(ctx: ToolContext, workspaceGateway: WorkspaceG
       required: ["path", "content"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      await workspaceGateway.writeFile(ctx.conversationId, params.path as string, params.content as string);
+      await actionRunner.run({
+        type: "workspace.write",
+        input: { conversationId: ctx.conversationId, relativePath: params.path as string, content: params.content as string },
+      });
       return textResponse(`文件已写入: ${params.path}`);
     },
   };
 }
 
-function createWorkspaceDeleteTool(ctx: ToolContext, workspaceGateway: WorkspaceGateway): AgentTool {
+function createWorkspaceDeleteTool(ctx: ToolContext, actionRunner: ActionRunner): AgentTool {
   return {
     name: "workspace_delete",
     description: "删除工作区中的文件或目录. When: 回收工作区沙箱内的临时件/草稿（合入善后清整、时效性清理）. Not for: 删项目代码文件 → 在 worktree 内走 git；整个工作区回收 → 对话归档时系统整体删除. Output: 删除确认（含类型）. BOUNDARY: 只作用本对话工作区，路径穿越/symlink 逃逸/工作区根删除均拒绝. GOTCHA: 不可逆无回收站——目录须 recursive=true 才整树删除；删前建议先 workspace_list 确认目标.",
@@ -90,7 +99,10 @@ function createWorkspaceDeleteTool(ctx: ToolContext, workspaceGateway: Workspace
       }
       const recursive = params.recursive === true;
       try {
-        const result = await workspaceGateway.deletePath(ctx.conversationId, relPath, { recursive });
+        const result = await actionRunner.run({
+          type: "workspace.delete",
+          input: { conversationId: ctx.conversationId, relativePath: relPath, recursive },
+        });
         return textResponse(`已删除${result.deleted === "directory" ? "目录" : "文件"}: ${relPath}`);
       } catch (err) {
         return errorResponse(`[错误] 删除失败: ${err instanceof Error ? err.message : String(err)}`);
@@ -99,12 +111,12 @@ function createWorkspaceDeleteTool(ctx: ToolContext, workspaceGateway: Workspace
   };
 }
 
-export function createWorkspaceTools(ctx: ToolContext, workspaceGateway: WorkspaceGateway): AgentTool[] {
+export function createWorkspaceTools(ctx: ToolContext, actionRunner: ActionRunner): AgentTool[] {
   return [
-    createWorkspaceInfoTool(ctx, workspaceGateway),
-    createWorkspaceListTool(ctx, workspaceGateway),
-    createWorkspaceReadTool(ctx, workspaceGateway),
-    createWorkspaceWriteTool(ctx, workspaceGateway),
-    createWorkspaceDeleteTool(ctx, workspaceGateway),
+    createWorkspaceInfoTool(ctx, actionRunner),
+    createWorkspaceListTool(ctx, actionRunner),
+    createWorkspaceReadTool(ctx, actionRunner),
+    createWorkspaceWriteTool(ctx, actionRunner),
+    createWorkspaceDeleteTool(ctx, actionRunner),
   ];
 }

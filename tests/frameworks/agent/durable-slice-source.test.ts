@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * M-9af49d4a R2 回归：durable 会话 entries 只读投影（换世档案合成原料修复）。
  *
@@ -39,6 +40,7 @@ async function openSession(file: string, responses: Parameters<ReturnType<typeof
   models.setProvider(faux.provider);
   faux.setResponses(responses);
   const session = await DurableSession.open({
+    executionMachines: createTestExecutionMachineRegistry(),
     otterId: "otter", file, models, model: faux.getModel(), cwd: tmpdir(), logger,
     register: createInvokeRegister(), invokeId: "invoke-test", context: BACKGROUND_CONTEXT,
     tools: { codingTools: [], customTools: [] },
@@ -128,6 +130,7 @@ describe("durable-slice-source：只读投影（R2）", () => {
       fauxAssistantMessage("工具后总结"),
     ]);
     const session = await DurableSession.open({
+      executionMachines: createTestExecutionMachineRegistry(),
       otterId: "otter", file, models, model: faux.getModel(), cwd: tmpdir(), logger,
       register: createInvokeRegister(), invokeId: "invoke-test", context: BACKGROUND_CONTEXT,
       tools: { codingTools: [], customTools: [{ name: "probe", label: "probe", description: "probe", parameters: { type: "object", properties: {} }, execute: async () => ({ content: [{ type: "text", text: "tool-ok" }], details: {} }) }] },
@@ -175,6 +178,7 @@ describe("工厂接线：readCurrentSessionEntries durable 分支（R2）", () =
     const models = createModels();
     models.setProvider(faux.provider);
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db, sessionDir,
       otterToolClient: {} as never,
       model: faux.getModel() as never,
@@ -204,6 +208,7 @@ describe("工厂接线：readCurrentSessionEntries durable 分支（R2）", () =
     const models = createModels();
     models.setProvider(faux.provider);
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db, sessionDir,
       otterToolClient: {} as never,
       model: faux.getModel() as never,

@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * buildIdentityPrefix 分支测试（真 schema + 真 repo）。
  *
@@ -27,6 +28,7 @@ const REAL_IDENTITY_DIR = path.resolve(__dirname, "../../../prompts/identity");
 
 function makeFactory(db: Database.Database, identityPromptDir?: string): PiSessionFactory {
   return new PiSessionFactory({
+    executionMachines: createTestExecutionMachineRegistry(),
     db,
     sessionDir: ":memory:",
     otterToolClient: {} as never,
@@ -154,6 +156,7 @@ describe("身份注入触发链路（pendingIdentity / createdNew）", () => {
   function makeWiredFactory(createdNew: boolean) {
     const db = createTestDb();
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,
@@ -270,6 +273,7 @@ describe("F20260917cvid: 所在对话身份段（对话标题注入）", () => {
 
   function makeFactoryWithConv(db: Database.Database): PiSessionFactory {
     return new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,
