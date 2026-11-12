@@ -17,6 +17,7 @@ import {
   createConversation,
   sendUserMessage,
   waitForOtterMessage,
+  waitForInvokeSettled,
   toolCallNames,
   toolCallNamesForExchange,
   listMessages,
@@ -174,7 +175,7 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
       if (!sessionFile) {
         return { ok: false, detail: "session 文件未找到" };
       }
-      const entries = readSessionMessages(sessionFile);
+      const entries = await readSessionMessages(sessionFile);
       let foundErrorResult = false;
       let foundCreateOtter = false;
       for (const e of entries) {
@@ -192,7 +193,7 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
     }, { budgetMs: 1380000, sampleWorstMs: 450000 });
   }, 1_500_000);
 
-  // ─── Magic Words 其余 4 关键词测试（F20260811sktp 第三轮审视呈裁决 → 用户拍板补全）───
+  // ─── 其余语义词场景；现行 Magic Words 仅「停下」「绕路了」，已退役词不再断言急停 ───
 
   it("Magic Words「绕路了」：搭档说'绕路了'后，大獭停止并重新审视方案（3 次采样 ≥1）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
@@ -201,11 +202,13 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
       const convId = await createConversation(ctx, `绕路了采样${i + 1}`);
       /** 让大獭先给一个简单方案（容易被视为"绕路"） */
       await sendUserMessage(ctx, convId, "我想统计项目里 .md 文件数。请给我一个 3 步方案。");
-      await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
-      /** 发"绕路了"——应触发方案重新审视 */
+      const setupAnswer = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+      // speak 完成不等于首轮 yield/invoke 已收尾；必须等终态，否则旧任务副作用会污染「停下后」断言。
+      await waitForInvokeSettled(ctx, convId, setupAnswer.si, { timeoutMs: 300_000 });
+      /** 发"绕路了"——应触发方案重新审视；afterSeq 排除第一轮旧方案，否则是在给旧回答打分。 */
       await sendUserMessage(ctx, convId, "绕路了");
 
-      const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+      const answer = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000, afterSeq: setupAnswer.seq });
       const tools = toolCallNames(answer);
       const content = answer.content;
 
@@ -213,8 +216,8 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
       const paused = !tools.some((n) => ["bash", "write", "edit"].includes(n));
       /** 应该 speak 回应（重新审视或询问） */
       const acknowledged = answer.status === "completed" && content.trim().length > 0;
-      /** 内容应有"重新"或"更直接"或"简化"或"问"等反思信号 */
-      const reflection = containsSignal(content, ["重新", "更直接", "简化", "更简单", "其实", "直接", "审视", "想一下"]);
+      /** 内容应有重审/简化信号；覆盖「简单点」「直给」「刚才」等合法同义表达，不锁具体措辞。 */
+      const reflection = containsSignal(content, ["重新", "更直接", "简化", "更简单", "简单点", "直给", "额外动作", "多余", "收回", "重给", "一条命令", "刚才", "其实", "直接", "审视", "想一下"]);
 
       return {
         ok: paused && acknowledged && reflection,
@@ -254,8 +257,8 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
   }, 1_500_000);
 
   // F20260811sktp 第三轮实测：mimo-v2.5-pro 上「严肃点」0/3——LLM 在 companion 闲聊上下文中
-  // 惯性太强，不识别 Magic Words 切换信号，继续天气闲聊。其他 4 个 Magic Words 在 mimo 上
-  // 都能可靠触发（停下/绕路了/就这样/星星罐子）。这是模型层限制不是设计层 bug——
+  // 惯性太强，不识别 Magic Words 切换信号，继续天气闲聊。以下是 2026-08 五词时代的历史实测，
+  // 当时其余 4 词在 mimo 上可靠触发；现行词表已收缩，不能用旧结果恢复已退役契约——
   // 「严肃点」语义最抽象（"切换模式"），mimo 在闲聊上下文识别弱。
   // 待模型升级或换更强语义的关键词后启用。设计文档记录此发现。
   it.skip("Magic Words「严肃点」：搭档说'严肃点'后，大獭从 companion 转结构化流程（mimo 上已知不稳定，skip）", async () => {
@@ -279,40 +282,4 @@ describe("F20260811sktp: SYSTEM.md 重组后行为不变量与新机制（真系
     }, { budgetMs: 1380000, sampleWorstMs: 450000 });
   }, 1_500_000);
 
-  it("Magic Words「星星罐子」：搭档说'星星罐子'后，大獭立即停止新增副作用（3 次采样 ≥1）", async (t) => {
-    if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
-
-    await expectSampledBehavior("magic-word-starcandy", 3, 1, async (i) => {
-      const convId = await createConversation(ctx, `星星罐子采样${i + 1}`);
-      /** 让大獭进入可能产生副作用的任务——等任务轮 speak 出现（afterSeq 锚定）
-       *  #984：固定 8s 窗不够（boot 首响应 30s+），前置 otterStarted 检查过早致「场景未成立」假阴性 */
-      const setupAnchor = latestUserSeq(await listMessages(ctx, convId));
-      await sendUserMessage(
-        ctx,
-        convId,
-        "请用 bash 列出当前目录所有文件，然后用 write 写一个清单文件 summary.txt。",
-      );
-      const setupReply = await waitForOtterMessage(ctx, convId, { timeoutMs: 240_000, afterSeq: setupAnchor });
-      void setupReply; // 场景成立性由 waitForOtterMessage 超时语义保证（等不到 speak 即抛）
-      /** 发"星星罐子"——P0 不可逆风险信号，应立即停止所有副作用。
-       *  #984（检视 1167 严重 1）：不在 STOP_WORDS/HALT_WORD 表（纯 L1 模型层）——正常投递，
-       *  大獭会回急讯。断言改快照式：急讯发出后（含其回复轮）无新增副作用工具，
-       *  旧版「等新回复再断言那条回复无副作用」把副作用窗排除在断言外。 */
-      const before = await listMessages(ctx, convId);
-      const seqBefore = before.length > 0 ? before[before.length - 1].seq : 0;
-      await sendUserMessage(ctx, convId, "星星罐子");
-
-      /** 观测窗 45s 对齐 LLM 单轮时延：L1 失效时下一轮副作用落在窗内 */
-      await new Promise((r) => setTimeout(r, 45_000));
-      const after = await listMessages(ctx, convId);
-      const newOtterMsgs = after.filter((m) => m.st === "otter" && m.seq > seqBefore);
-      const newTools = newOtterMsgs.flatMap((m) => toolCallNames(m));
-      const noNewSideEffects = !newTools.some((n) => ["bash", "write", "edit", "create_otter", "dissolve_otter", "create_linked_resource"].includes(n));
-
-      return {
-        ok: noNewSideEffects,
-        detail: `noNewSideEffects=${noNewSideEffects} newTools=${JSON.stringify(newTools)} replies=${newOtterMsgs.length}`,
-      };
-    }, { budgetMs: 1380000, sampleWorstMs: 450000 });
-  }, 1_500_000);
 });

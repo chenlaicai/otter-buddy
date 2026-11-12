@@ -41,6 +41,7 @@ describe("F20261026ctbg invoke token 透传", () => {
     let tokens = { input: 100, output: 20, cacheRead: 40, cacheWrite: 2 };
     const session = {
       subscribe: () => () => {},
+      updateOptions: () => {},
       prompt: async () => { tokens = { input: 150, output: 25, cacheRead: 60, cacheWrite: 5 }; session.tokenUsage = { input: 50, output: 5, cacheRead: 20, cacheWrite: 3 }; throw new Error("prompt rejected after billable work"); },
       tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       configureGuards() {},

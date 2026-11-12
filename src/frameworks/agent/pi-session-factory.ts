@@ -199,7 +199,7 @@ import { SYNTHESIS_READ_ONLY_TOOL_WHITELIST } from "./synthesis-prompt-builder";
 import { ModelRuntimeRegistry, otterInvokeStorage } from "./model-runtime-registry";
 import { invokeEpochStorage, mintEpoch, type InvokeEpoch } from "./invoke-epoch";
 import type { PiCodingAgentModule } from "./model-runtime-registry";
-import type { ResourceLoader } from "@earendil-works/pi-coding-agent";
+import { formatSkillsForPrompt, type ResourceLoader } from "@earendil-works/pi-coding-agent";
 import { createEventHandler } from "./agent-event-utils";
 import type { AgentEvent } from "./agent-event-utils";
 
@@ -440,6 +440,13 @@ export class PiSessionFactory implements AgentGateway {
   /** 获取 ResourceLoader（profile 端点用；需 warmup 完成后调用） */
   getResourceLoader() {
     return this.modelRuntimeRegistry.getResourceLoader();
+  }
+
+  /** durable 显式接回 coding-agent skills 资源面；loader 未预热时保持空并沿用现有启动口径。 */
+  private async buildDurableSkillsPrompt(): Promise<string> {
+    const loader = this.modelRuntimeRegistry.getResourceLoader();
+    if (!loader) return "";
+    return formatSkillsForPrompt((await loader.getSkills()).skills);
   }
 
   /** 懒加载 pi-coding-agent（ESM-only）+ ResourceLoader（skill 发现）+ ModelRuntime（API key） */
@@ -830,7 +837,7 @@ export class PiSessionFactory implements AgentGateway {
       // 零副作用只读（不走 Harness.open：probeFirstTurn 在正常 invoke 期也调此处，
       // open 的 recoverAfterReopen 会误 abort 在跑任务）。
       const durableFile = stored?.sessionFile?.endsWith(".sqlite") ? stored.sessionFile : this.durableFile(otterId);
-      const projected = readDurableActiveSessionEntries(durableFile);
+      const projected = await readDurableActiveSessionEntries(durableFile);
       if (projected) {
         this.logger.debug('[handoff] durable session entries projected', { otterId, file: durableFile, count: projected.length });
       }
@@ -1263,6 +1270,10 @@ export class PiSessionFactory implements AgentGateway {
         try {
           /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
           armFirstByte();
+          /** durable 身份接线：identityPrefix 旧时代经 ALS extension 进入 system role；
+           *  DurableSession 的 otter section 只消费 options.identity。每轮刷新（身份含模型/对话上下文），
+           *  否则模型只见用户 envelope 与工具，SYSTEM.md/角色身份静默丢失。 */
+          session.updateOptions({ currentInvokeId: options?.currentInvokeId, identity: identityPrefix });
           /** 多模态 Phase 1：images 透传（机制层不做策略；SDK 按模型 input 自动降级）。
    *  空对象省略：undefined 与 {images:[]} 等价走纯文本路径 */
           await session.prompt(fullMessage, buildPromptOptions(options), durableStream, BACKGROUND_CONTEXT);
@@ -1531,6 +1542,7 @@ export class PiSessionFactory implements AgentGateway {
     });
 
     const workspaceCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
+    // durable 不再自动继承 coding-agent 的 system 资源；skills 必须显式接回模型可见面。
     const { DurableMcpBridge, readMcpConfigFiles } = await import("./durable-mcp");
     const mcpPath = (await import("node:path")).default;
     const mcpEntries = await readMcpConfigFiles(workspaceCwd, mcpPath.resolve(this.cfg.sessionDir, "mcp.json"));
@@ -1542,6 +1554,7 @@ export class PiSessionFactory implements AgentGateway {
       model: resolvedModel,
       thinkingLevel: this.cfg.modelPool?.getThinkingLevel(resolvedAlias),
       prompt: buildOtterPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt),
+      skillsPrompt: await this.buildDurableSkillsPrompt(),
       cwd: workspaceCwd,
       tools: { customTools: filteredCustomTools, codingTools: filteredCodingTools, readOnly, toolExposure },
       logger: this.logger,

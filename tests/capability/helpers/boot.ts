@@ -67,16 +67,26 @@ function resolveTestConfig(tmpDir: string): AppConfig {
     }
   }
 
+  /** local overlay 按顶层键替换 llm，会把基底的 cacheLongRetention:false 一起抹掉；
+   *  在合并后恢复能力档默认，防止端点不支持的 prompt_cache_retention=24h 混入所有真 LLM 用例。 */
+  const mergedLlm = baseRaw.llm as Record<string, unknown>;
+  mergedLlm.cacheLongRetention ??= false;
+
   // 环境变量覆盖 llm.models[0]
   const envModel = process.env.OTTER_TEST_LLM_MODEL;
   const envKey = process.env.OTTER_TEST_LLM_API_KEY;
   if (envModel || envKey) {
-    const llm = baseRaw.llm as { models: Array<Record<string, unknown>> };
-    const first = llm.models[0];
-    if (process.env.OTTER_TEST_LLM_PROVIDER) first.provider = process.env.OTTER_TEST_LLM_PROVIDER;
-    if (envModel) first.model = envModel;
-    if (envKey) first.apiKey = envKey;
-    if (process.env.OTTER_TEST_LLM_BASE_URL) first.apiBaseUrl = process.env.OTTER_TEST_LLM_BASE_URL;
+    const llm = baseRaw.llm as { default: string; models: Array<Record<string, unknown>> };
+    /** 证据运行必须控制实际 default 与所有可路由别名，而非只改 models[0] 后自报。 */
+    llm.default = llm.models[0].alias as string;
+    for (const model of llm.models) {
+      if (process.env.OTTER_TEST_LLM_PROVIDER) model.provider = process.env.OTTER_TEST_LLM_PROVIDER;
+      if (envModel) model.model = envModel;
+      if (envKey) model.apiKey = envKey;
+      if (process.env.OTTER_TEST_LLM_BASE_URL) model.apiBaseUrl = process.env.OTTER_TEST_LLM_BASE_URL;
+      if (process.env.OTTER_TEST_LLM_THINKING_LEVEL) model.thinkingLevel = process.env.OTTER_TEST_LLM_THINKING_LEVEL;
+      else if (process.env.OTTER_TEST_LLM_CLEAR_THINKING === "1") delete model.thinkingLevel;
+    }
   }
 
   // __TMPDIR__ 替换后落临时 yaml，复用 loadConfig 的校验与默认值填充
@@ -173,6 +183,12 @@ async function buildFauxModels(config: AppConfig): Promise<{ model: Model<Api>; 
 export async function bootCapabilityApp(options: BootOptions = {}): Promise<CapabilityContext> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "otter-capability-"));
   const config = resolveTestConfig(tmpDir);
+
+  /** faux CI 硬门禁必须不受开发者 local overlay 影响；录音网关仍优先（它本身就是确定性假大脑） */
+  if (process.env.OTTER_CAPABILITY_FORCE_FAUX === "1" && !options.recordingGatewayUrl) {
+    config.llm.models[0].apiKey = "";
+    config.llm.models[0].model = "__placeholder__";
+  }
 
   /** A3 录音网关：llm 整体替换为指向网关的伪 anthropic 端点（SDK 全链路照常走） */
   if (options.recordingGatewayUrl) {

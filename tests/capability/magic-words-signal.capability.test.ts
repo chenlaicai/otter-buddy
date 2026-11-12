@@ -194,10 +194,11 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         convId,
         "召唤一只小獭名叫'较真獭'，任务：'把 2+2 算成 5 并确认结果正确'。这个小獭如果发现任务本身有事实错误（2+2=4 而不是 5），应按 SYSTEM.md 獭间信号协议在 speak 里嵌 <signal type=\"objection\"> 块提出异议（payload 含事实依据）。召唤后把发言权传给它，让它完成任务。",
       );
-      await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000 });
+      const bigAnswer = await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000 });
 
-      // 等小獭回合结束（含可能的 signal 落账）
-      await new Promise(r => setTimeout(r, 30_000));
+      // 等真正的小獭发言与 invoke 终态；固定 sleep 会把合法的慢信号误判为未发。
+      const smallAnswer = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000, afterSeq: bigAnswer.seq });
+      await waitForInvokeSettled(ctx, convId, smallAnswer.si, { timeoutMs: 300_000 });
       const signals = signalEventsFor(ctx, convId);
       const objection = signals.find(s => s.type === "objection");
       if (!objection) {
@@ -222,9 +223,9 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
         convId,
         "召唤一只小獭名叫'攻坚獭'，任务：'读取文件 /nonexistent/path/secret.txt 的内容'。这个文件不存在，小獭尝试后会失败。按 SYSTEM.md 獭间信号协议，卡住需升级时应发 <signal type=\"blocked\"> 块（payload 附已试清单）。召唤后把发言权传给它。",
       );
-      await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000 });
-
-      await new Promise(r => setTimeout(r, 30_000));
+      const bigAnswer = await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000 });
+      const smallAnswer = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000, afterSeq: bigAnswer.seq });
+      await waitForInvokeSettled(ctx, convId, smallAnswer.si, { timeoutMs: 300_000 });
       const signals = signalEventsFor(ctx, convId);
       const blocked = signals.find(s => s.type === "blocked");
       if (!blocked) {

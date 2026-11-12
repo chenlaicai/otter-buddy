@@ -137,6 +137,20 @@ describe('reminder 证据锚点（F20261012acpt T1 插槽，#1430）', () => {
   });
 });
 
+describe('绕路了 L1 就近重审提醒', () => {
+  it('独立成词命中，提醒禁止先调工具且保留讨论豁免', () => {
+    const r = scanStopWords('绕路了');
+    expect(r.matched).toEqual(['绕路了']);
+    expect(r.reminder).toContain('不要再调用任何工具');
+    expect(r.reminder).toContain('讨论/引用');
+    expect(r.reminder).not.toContain('halt_otter');
+  });
+
+  it('粘连成其他词句不命中', () => {
+    expect(scanStopWords('绕路了吗').matched).toEqual([]);
+  });
+});
+
 describe('resolveTriggerSource 来源机械推导（三态 + otter）', () => {
   it('user / otter 直映射', () => {
     expect(resolveTriggerSource('user')).toBe('user');

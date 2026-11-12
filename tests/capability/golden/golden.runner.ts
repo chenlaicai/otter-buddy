@@ -50,8 +50,10 @@ export interface GoldenScenario {
   /** 长链场景覆盖 settle 窗口（默认 180_000）。多跳编排链（如 b5 检视链 4 跳）
    *  默认窗口不够走完，按场景拉长。 */
   settleMs?: number;
+  /** 慢模型首跳预算（默认 300_000）；只延长等待，不改变行为断言。 */
+  responseTimeoutMs?: number;
   /** 长链场景覆盖 it 超时帽（默认 1_800_000）。须满足
-   *  sampling.n × (300_000 + settleMs) ≤ timeoutMs − 120_000（expectSampledBehavior 预算算术）。 */
+   *  sampling.n × (responseTimeoutMs + settleMs) ≤ timeoutMs − 120_000（expectSampledBehavior 预算算术）。 */
   timeoutMs?: number;
 }
 
@@ -314,7 +316,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
             const r = await runOneSample(ctx, golden, assert);
             if (r.ok) successes++;
             return r;
-          }, { budgetMs: (golden.timeoutMs ?? 1_800_000) - 120_000, sampleWorstMs: 300_000 + (golden.settleMs ?? 180_000) });
+          }, { budgetMs: (golden.timeoutMs ?? 1_800_000) - 120_000, sampleWorstMs: (golden.responseTimeoutMs ?? 300_000) + (golden.settleMs ?? 180_000) });
         } catch (err) {
           appendResult({
             ts: new Date().toISOString(),
@@ -358,7 +360,7 @@ async function runOneSample(
 ): Promise<SampleResult & { messages?: MessageDto[] }> {
   const convId = await createConversation(ctx, `golden:${golden.id}`);
   await sendUserMessage(ctx, convId, golden.input);
-  const firstMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
+  const firstMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: golden.responseTimeoutMs ?? 300_000 });
   void firstMsg; // 首跳等待仅为了拿到「回合已开始产出终态」的锚点；settle 窗口自己探终态数
 
   // settle 窗口：等后续 hop。每 5s 拉一次消息数，链静止或窗口耗尽则进入断言。

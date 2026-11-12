@@ -38,7 +38,7 @@ export async function createConversation(ctx: CapabilityContext, name: string): 
     } catch (e) {
       bodyErr = e;
     }
-    throw new Error(`createConversation HTTP ${res.status}: ${errBody.slice(0, 300)}`, { cause: bodyErr });
+    throw new CapabilityInvalidSampleError(`createConversation HTTP ${res.status}: ${errBody.slice(0, 300)}`, { cause: bodyErr });
   }
   const body = await res.json() as { id: string };
   return body.id;
@@ -82,7 +82,7 @@ export const sendUserMessage = diagnosticWrap(async function sendUserMessage(
     // 202 + halted 是 Magic Word「停下」的合法急停响应（message-controller 硬编码）——
     // 发「停下」类用例预期触发，不应视为发送失败。其他非 200 照旧抛。
     if (!(res.status === 202 && errBody.includes('"halted"'))) {
-      throw new Error(`sendUserMessage HTTP ${res.status}: ${errBody.slice(0, 300)}`, { cause: bodyErr });
+      throw new CapabilityInvalidSampleError(`sendUserMessage HTTP ${res.status}: ${errBody.slice(0, 300)}`, { cause: bodyErr });
     }
     // 202 halt 短路响应：body 已被 text() 消费（locked），不能再 cancel；返回 halted 供断言触发层
     return { halted: true };
@@ -108,7 +108,7 @@ export async function listMessages(ctx: CapabilityContext, convId: string): Prom
       } catch (e) {
         bodyErr = e;
       }
-      throw new Error(`listMessages(entries) HTTP ${res.status}: ${errBody.slice(0, 300)}`, { cause: bodyErr });
+      throw new CapabilityInvalidSampleError(`listMessages(entries) HTTP ${res.status}: ${errBody.slice(0, 300)}`, { cause: bodyErr });
     }
     const body = await res.json() as { entries: Array<Record<string, unknown>>; hasMore: boolean };
     all.unshift(...body.entries);
@@ -205,7 +205,7 @@ export async function waitForInvokeSettled(
     else await new Promise((r) => setTimeout(r, 2000));
   }
   if (!seen) {
-    throw new Error(`等待 invoke 创建超时（otter=${otterId.slice(0, 8)}）——信号/halt 路径下 invoke 行可能不创建`);
+    throw new CapabilityInvalidSampleError(`等待 invoke 创建超时（otter=${otterId.slice(0, 8)}）——信号/halt 路径下 invoke 行可能不创建`);
   }
   while (Date.now() < deadline) {
     const row = ctx.built.db.prepare(
@@ -214,7 +214,7 @@ export async function waitForInvokeSettled(
     if (row && row.status !== "running") return;
     await new Promise((r) => setTimeout(r, 2000));
   }
-  throw new Error(`等待 invoke 终态超时（otter=${otterId.slice(0, 8)}）`);
+  throw new CapabilityInvalidSampleError(`等待 invoke 终态超时（otter=${otterId.slice(0, 8)}）`);
 }
 
 /** 轮询直到獭的回合产出最终结果（优先 completed；无重试迹象时才接受 failed/aborted） */
@@ -239,6 +239,14 @@ export async function waitForOtterMessage(
     if (completed) return completed;
 
     const inFlight = otterMsgs.some((m) => m.status === "streaming" || m.status === "speaking");
+    /** 无 speak 的早失败（如模型 API 400）只有 system invoke_end，不能白等到超时。
+     *  有后续 invoke_start 仍在跑时继续等，保留 no_yield/失败自动重试窗口。 */
+    const anchorSeq = opts.afterSeq ?? Math.max(0, ...messages.filter(m => m.st === "user").map(m => m.seq));
+    const systemInFlight = messages.some(m => m.st === "system" && m.seq > anchorSeq && (m.status === "streaming" || m.status === "speaking"));
+    const invokeFailure = messages.find(m => m.st === "system" && m.seq > anchorSeq && m.status === "failed" && m.content.startsWith("[错误]"));
+    if (invokeFailure && !inFlight && !systemInFlight) {
+      throw new CapabilityInvalidSampleError(`獭 invoke 已失败：${invokeFailure.content.slice(0, 500)}`);
+    }
     const terminals = otterMsgs.filter((m) => m.status === "failed" || m.status === "aborted");
     const newestTerminal = terminals[terminals.length - 1];
 
@@ -253,7 +261,7 @@ export async function waitForOtterMessage(
     }
     await new Promise((r) => setTimeout(r, 2000));
   }
-  throw new Error(`等待獭消息终态超时（${opts.timeoutMs ?? 150_000}ms）`);
+  throw new CapabilityInvalidSampleError(`等待獭消息终态超时（${opts.timeoutMs ?? 150_000}ms）`);
 }
 
 /** 消息事件流中的工具调用名（按发生顺序） */
@@ -328,6 +336,20 @@ export async function expectEventually(
 export interface SampleResult {
   ok: boolean;
   detail: string;
+  /** 装置/端点未产生可判定行为：不计入成功或有效行为分母。 */
+  invalid?: boolean;
+}
+
+export class CapabilitySampleThresholdError extends Error {
+  constructor(message: string) { super(message); this.name = "CapabilitySampleThresholdError"; }
+}
+
+export class CapabilityInvalidSampleError extends Error {
+  constructor(message: string, options?: ErrorOptions) { super(message, options); this.name = "CapabilityInvalidSampleError"; }
+}
+
+export function invalidSample(detail: string): SampleResult {
+  return { ok: false, invalid: true, detail };
 }
 
 /**
@@ -358,6 +380,7 @@ export async function expectSampledBehavior(
 ): Promise<void> {
   let successes = 0;
   let skipped = 0;
+  let invalid = 0;
   const outcomes: string[] = [];
   const start = Date.now();
   const worst = opts.sampleWorstMs ?? 0;
@@ -372,17 +395,25 @@ export async function expectSampledBehavior(
      *  否则后续采样不执行，且残留回合对着已 dispose 的 app 跑 */
     try {
       const result = await sample(i);
-      if (result.ok) successes++;
-      outcomes.push(`#${i + 1}: ${result.ok ? "OK" : "FAIL"} ${result.detail}`);
+      if (result.invalid) invalid++;
+      else if (result.ok) successes++;
+      outcomes.push(`#${i + 1}: ${result.invalid ? "INVALID" : result.ok ? "OK" : "FAIL"} ${result.detail}`);
     } catch (err) {
+      if (err instanceof CapabilityInvalidSampleError) invalid++;
       const msg = err instanceof Error ? err.message : String(err);
       /** #1187 僵尸征兆专项诊断：500 not open = it 超时后 afterAll 已 dispose，本样本是僵尸残留 */
       const zombieHint = msg.includes("database connection is not open")
         ? "〔#1187 诊断：app DB 已被关闭——大概率 it 超时后僵尸采样（vitest 不取消测试函数），检查 budgetMs 是否覆盖全部采样〕"
         : "";
-      outcomes.push(`#${i + 1}: FAIL 异常 ${msg.slice(0, 150)}${zombieHint}`);
+      outcomes.push(`#${i + 1}: ${err instanceof CapabilityInvalidSampleError ? "INVALID" : "FAIL"} 异常 ${msg.slice(0, 150)}${zombieHint}`);
     }
   }
-  console.log(`[capability] ${label} 采样结果（${successes}/${samples - skipped} 成功${skipped ? `，SKIP ${skipped} 个` : ""}）:\n${outcomes.join("\n")}`);
-  expect(successes, `${label}：${samples} 次采样至少 ${minSuccess} 次成功\n${outcomes.join("\n")}`).toBeGreaterThanOrEqual(minSuccess);
+  console.log(`[capability] ${label} 采样结果（${successes}/${samples - skipped - invalid} 成功${skipped ? `，SKIP ${skipped} 个` : ""}${invalid ? `，INVALID ${invalid} 个` : ""}）:\n${outcomes.join("\n")}`);
+  /** 预算/端点/超时都不是一次成功的统计实验：不得缩减分母套原阈值制造假绿。 */
+  if (skipped > 0 || invalid > 0) {
+    throw new CapabilityInvalidSampleError(`${label}：INCONCLUSIVE——SKIP ${skipped}，INVALID ${invalid}，必须补足有效样本\n${outcomes.join("\n")}`);
+  }
+  if (successes < minSuccess) {
+    throw new CapabilitySampleThresholdError(`${label}：${samples} 次采样至少 ${minSuccess} 次成功\n${outcomes.join("\n")}`);
+  }
 }

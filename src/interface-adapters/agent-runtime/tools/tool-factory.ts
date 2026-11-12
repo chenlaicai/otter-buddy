@@ -815,7 +815,7 @@ function buildWaitEcho(reason: string | undefined, seconds: number, untilResultT
 function createWaitTool(): AgentTool {
   return {
     name: "wait",
-    description: "等待指定时长或条件就绪（替代裸 sleep）. When: 等 CI 变绿、服务启动、状态就绪或退避重试时——先调 speak(body) 告诉搭档在等什么、为什么，再调用本工具. Not for: 5 秒以下的短等待. 等待即黑盒——reason 参数是你对搭档的交代. Output: 等待完成确认；带 until 时在一次调用内立即探测，未就绪每 10 秒重试，直到条件为真或 seconds 总预算耗尽；gh pr checks 确认 CI 失败（真实业务应答）时提前终止（带 until 才轮询，不要写 bash 轮询）.",
+    description: "等待指定时长或条件就绪（替代裸 sleep）. 硬顺序：当前回合必须先完成 speak(body) 交代在等什么、为什么，之后才允许调用 wait；不得先 wait 后补 speak，也不得用 yield 代替事前的 speak. When: 等 CI 变绿、服务启动、状态就绪或退避重试时. Not for: 5 秒以下的短等待. 等待即黑盒——reason 参数是你对搭档的交代. Output: 等待完成确认；带 until 时在一次调用内立即探测，未就绪每 10 秒重试，直到条件为真或 seconds 总预算耗尽；gh pr checks 确认 CI 失败（真实业务应答）时提前终止（带 until 才轮询，不要写 bash 轮询）.",
     parameters: {
       type: "object",
       properties: {
