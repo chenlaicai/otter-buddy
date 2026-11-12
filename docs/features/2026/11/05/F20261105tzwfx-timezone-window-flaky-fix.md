@@ -98,6 +98,8 @@ Asia/Shanghai 凌晨 0-8 点播种日=今天而窗口日=昨天，种子全部�
   - `TZ=Asia/Shanghai / UTC / America/New_York npx vitest run tests/usecases/health/rhi-scan-worker.test.ts` → 11/11 三连绿
   - 同三时区 `tests/scripts/generate-guard-replay.test.ts` → 6/6 三连绿
   - 同三时区 `tests/usecases/health/cost-output-collector.test.ts` → 21/21 三连绿（生产侧修复后新增）
+- 独立检视于 2026-11-12 在 Asia/Shanghai / UTC / America/New_York 分别复跑上述三文件，
+  每次均为 3 files / 38 tests passed
 - 修复前红（2026-11-05 01:05 上海时间，同机窗口内对照）：rhi-scan-worker 1 failed
   （message_count 断言）、guard-replay 4 failed（窗口错位 ENOENT）
 - 边界反证（构造验证）：跨月（11-30→12-01）、跨年（12-31→01-01）、二月末三个边界
