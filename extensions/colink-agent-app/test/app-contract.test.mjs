@@ -13,7 +13,7 @@ test('manifest includes a passive otter avatar and both personal/project scopes'
   assert.match(svg, /^<svg /);
   assert.doesNotMatch(svg, /<script|onload=|javascript:|<image|<foreignObject/i);
   assert.doesNotMatch(svg, /<rect[^>]*width="64"[^>]*height="64"/i);
-  assert.equal(manifest.version, '0.4.0');
+  assert.equal(manifest.version, '0.4.1');
   assert.deepEqual(manifest.permissions, ['messages:receive', 'messages:write', 'messages:read-public', 'messages:read-private']);
 });
 
