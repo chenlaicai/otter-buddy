@@ -57,3 +57,6 @@ export interface ExecutionMachine extends ActionRunner {
 export interface ExecutionMachineResolver {
   resolve(targetMachineId?: string): ExecutionMachine;
 }
+
+/** Composition-root injection port: action execution plus explicit target resolution. */
+export interface ExecutionMachineRouter extends ActionRunner, ExecutionMachineResolver {}

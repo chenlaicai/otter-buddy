@@ -1,15 +1,14 @@
 import {
   LOCAL_EXECUTION_MACHINE_ID,
-  type ActionRunner,
   type ExecutionAction,
   type ExecutionActionResult,
   type ExecutionActionType,
   type ExecutionMachine,
-  type ExecutionMachineResolver,
+  type ExecutionMachineRouter,
 } from "@usecases/ports/execution-machine";
 
 /** The single target-resolution entry for OS/workspace actions. */
-export class ExecutionMachineRegistry implements ActionRunner, ExecutionMachineResolver {
+export class ExecutionMachineRegistry implements ExecutionMachineRouter {
   private readonly machines = new Map<string, ExecutionMachine>();
 
   constructor(private readonly defaultMachineId = LOCAL_EXECUTION_MACHINE_ID) {}

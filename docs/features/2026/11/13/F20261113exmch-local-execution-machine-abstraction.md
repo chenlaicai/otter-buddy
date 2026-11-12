@@ -1,5 +1,5 @@
 ---
-id: F20261112exmch
+id: F20261113exmch
 title: 执行机抽象与内置 LocalExecutionMachine
 doc_type: feature
 summary: |
@@ -23,7 +23,7 @@ intent:
     type: behavior_check
 ---
 
-# F20261112exmch：执行机抽象与内置 LocalExecutionMachine
+# F20261113exmch：执行机抽象与内置 LocalExecutionMachine
 
 ## 背景
 
@@ -66,6 +66,8 @@ interface ExecutionMachine extends ActionRunner {
   readonly id: string;
   createExecutionEnvironment(cwd: string): ExecutionEnv;
 }
+
+interface ExecutionMachineRouter extends ActionRunner, ExecutionMachineResolver {}
 ```
 
 `ExecutionAction` 首版只含现有 workspace info/list/read/write/delete 所需操作。`targetMachineId` 是路由入口参数，不加入本阶段工具 schema，因此模型可见契约不变。`ExecutionEnv` 继续由 pi-durable 定义，文件与 shell 的底层动作不在本仓另造一套协议。它不是本机专用句柄：其 `FileSystem`/`Shell` 契约明确允许不同 namespace/远程主机实现，未来 RemoteExecutionMachine 可返回远程 ExecutionEnv，而本地实现返回 NodeExecutionEnv。
@@ -139,6 +141,12 @@ interface ExecutionMachine extends ActionRunner {
 | 工作区行为 | 跑现有 workspace 工具测试及真实临时目录读写删 | 原响应与安全边界不变 |
 | 文件/bash 行为 | faux 模型驱动真实 durable read/write/bash | 文件真实写入、命令输出和读取结果正确 |
 | 本机回归 | build、lint、相关测试、完整 npm test、alpha 启动 | 全部通过；对话/记忆/定时任务装配无远程依赖 |
+
+## 代码对抗审视处置
+
+### 初轮建议 1：bootstrap 形参使用具体 Registry 类
+
+**接受并修复。** 改成 `ExecutionMachineRouter` 端口让系统更好：组合根本来就同时需要 ActionRunner 与 ExecutionMachineResolver，显式组合端口既保留这两种能力，又与 DurableSession、PiSessionFactory、createTools 的端口注入对称；维持具体类没有额外收益。`ExecutionMachineRegistry` 实现该端口，`createAgentGateway` 改依赖端口。纯类型边界调整，无运行行为变化，build 与定向行为回归重验。
 
 ## Verification
 

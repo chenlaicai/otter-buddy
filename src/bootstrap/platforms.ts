@@ -20,7 +20,7 @@ import { sliceSessionEntries, serializeKeptWindow, setSliceLogger } from "@frame
 import { collectStateInventory, renderStateInventory } from "@frameworks/agent/state-inventory";
 import { scanWorkspaceFiles, renderFileTrail } from "@frameworks/agent/file-trail-extractor";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
-import type { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
+import type { ExecutionMachineRouter } from "@usecases/ports/execution-machine";
 import type { Repositories, UseCases } from "./types";
 import { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
@@ -87,7 +87,7 @@ export async function createAgentGateway(options: {
   /** Otter 身份文案目录（默认 ./prompts/identity） */
   identityPromptDir?: string;
   /** OS/工作区动作执行机路由（组合根已注册内置 local） */
-  executionMachines: ExecutionMachineRegistry;
+  executionMachines: ExecutionMachineRouter;
   /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
   dataDir?: string;
 }): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
