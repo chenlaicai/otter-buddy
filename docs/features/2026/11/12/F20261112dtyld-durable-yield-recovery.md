@@ -1,9 +1,9 @@
 ---
-id: F20261111dtyld
+id: F20261112dtyld
 title: durable 直出文本交棒纠错与历史回放隔离
 change_type: fix
 status: development
-created_at: 2026-11-11
+created_at: 2026-11-12
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 capability_test: "n/a: faux provider 驱动真实 durable runtime，验证确定性工具与事件契约"
 intent:
