@@ -16,7 +16,12 @@ export class DurableEventStream {
   lastUsage: TokenUsage = { input: 0, output: 0 };
   lastMessage: { content?: Array<Record<string, unknown>>; stopReason?: string } | undefined;
 
-  constructor(private readonly onEvent?: (event: AgentEvent) => void, private readonly onFirstEvent?: () => void) {}
+  constructor(
+    private readonly onEvent?: (event: AgentEvent) => void,
+    private readonly onFirstEvent?: () => void,
+    /** 本轮开始前的 durable entry 边界；初始 watch 视图里的历史 entry 不属于当前 invoke。 */
+    private readonly afterEntryId: number = 0,
+  ) {}
 
   async apply(view: ConversationView, ops: readonly unknown[] = []): Promise<void> {
     this.applyPartialOps(ops);
@@ -51,6 +56,7 @@ export class DurableEventStream {
   }
 
   private applyEntry(entry: EntryRecord): void {
+    if (Number(entry.id) <= this.afterEntryId) return;
     if (this.endedEntries.has(String(entry.id))) return;
     this.endedEntries.add(String(entry.id));
     if (entry.kind === "pi.assistant") this.applyAssistant(entry);
