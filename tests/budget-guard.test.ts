@@ -3,7 +3,7 @@
  * 保护两个语义：
  * 1. 前瞻拦截——elapsed + sampleWorstMs > budgetMs 时剩余采样 SKIP（不跑，不进分母）
  * 2. 无预算——行为与原版一致（全部采样跑完）
- * 3. SKIP 后断言方向——successes 不变，不足 minSuccess 时红
+ * 3. 任何预算 SKIP 都是 INCONCLUSIVE/红——成功数已达原阈值也不能缩减分母凑绿
  */
 import { describe, it } from "vitest";
 import { expectSampledBehavior } from "./capability/helpers/assert-behavior";
@@ -11,13 +11,19 @@ import { expectSampledBehavior } from "./capability/helpers/assert-behavior";
 describe("expectSampledBehavior budgetMs（#1187）", () => {
   it("前瞻拦截：预算 900ms、worst 500ms、3 采各 300ms——#1/#2 跑，#3 前瞻拦截（600+500>900）", { timeout: 10_000 }, async () => {
     let ran = 0;
-    await expectSampledBehavior("budget-forward", 3, 1, async (i) => {
-      ran++;
-      await new Promise((r) => setTimeout(r, 300));
-      return { ok: true, detail: `#${i + 1}` };
-    }, { budgetMs: 900, sampleWorstMs: 500 });
-    // #1 起跑 elapsed≈0；#2 起跑 elapsed≈300（300+500<900 跑）；#3 起跑 elapsed≈600（600+500>900 SKIP）
+    let assertionError: unknown;
+    try {
+      await expectSampledBehavior("budget-forward", 3, 1, async (i) => {
+        ran++;
+        await new Promise((r) => setTimeout(r, 300));
+        return { ok: true, detail: `#${i + 1}` };
+      }, { budgetMs: 900, sampleWorstMs: 500 });
+    } catch (err) {
+      assertionError = err;
+    }
+    // #1/#2 成功也不能抵消 #3 SKIP：实验无效，不能按 2/2 判绿。
     if (ran > 2) throw new Error(`前瞻未生效：ran=${ran}（应 ≤2）`);
+    if (!String(assertionError).includes("INCONCLUSIVE")) throw new Error("预算 SKIP 必须响亮判 INCONCLUSIVE");
   });
 
   it("在途保护对齐检视语义：worst=实际耗时上限时，最后样本不越预算", { timeout: 10_000 }, async () => {

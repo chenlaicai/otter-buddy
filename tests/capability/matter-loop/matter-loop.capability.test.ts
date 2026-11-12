@@ -17,6 +17,7 @@ import {
   sendUserMessage,
   waitForOtterMessage,
   expectSampledBehavior,
+  invalidSample,
 } from "../helpers/assert-behavior";
 
 /** 提取「本对话未闭环事情」机械供料段全文（档案段存在性 + 内容锚断言用） */
@@ -62,8 +63,8 @@ describe("matter loop：L2 拍板登记 + 重启机械供料（真系统 + 真 L
 
         try {
           await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
-        } catch {
-          return { ok: false, detail: "大獭未在超时内交棒（可能 yield 失败或 LLM 未按指令打标）" };
+        } catch (err) {
+          return invalidSample(`大獭交棒等待无效：${err instanceof Error ? err.message : String(err)}`);
         }
 
         /** 确定性断言：matters 表是否登记（打标与否是机械行为——登记只在参数为 true 时发生） */
@@ -170,8 +171,8 @@ describe("matter loop：L2 拍板登记 + 重启机械供料（真系统 + 真 L
         try {
           // 必须排除首轮 completed speak；否则会在回执 invoke 创建前读取 matter，形成假阴性（#1788）。
           await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000, afterSeq: firstRound.seq });
-        } catch {
-          return { ok: false, detail: "owner 獭未在超时内响应回执" };
+        } catch (err) {
+          return invalidSample(`owner 獭响应等待无效：${err instanceof Error ? err.message : String(err)}`);
         }
 
         // 4. 确定性断言：matters 表已迁移 + resolution 留痕（代执行是机械行为——
@@ -217,8 +218,8 @@ describe("matter loop：L2 拍板登记 + 重启机械供料（真系统 + 真 L
 
         try {
           await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000, afterSeq: firstRound.seq });
-        } catch {
-          return { ok: false, detail: "獭未在超时内响应登记回执" };
+        } catch (err) {
+          return invalidSample(`登记回执等待无效：${err instanceof Error ? err.message : String(err)}`);
         }
 
         // 3. 确定性断言：matters 表新增一件 OPEN 状态、标题匹配（登记是机械行为——

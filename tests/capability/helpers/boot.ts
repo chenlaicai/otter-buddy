@@ -76,13 +76,17 @@ function resolveTestConfig(tmpDir: string): AppConfig {
   const envModel = process.env.OTTER_TEST_LLM_MODEL;
   const envKey = process.env.OTTER_TEST_LLM_API_KEY;
   if (envModel || envKey) {
-    const llm = baseRaw.llm as { models: Array<Record<string, unknown>> };
-    const first = llm.models[0];
-    if (process.env.OTTER_TEST_LLM_PROVIDER) first.provider = process.env.OTTER_TEST_LLM_PROVIDER;
-    if (envModel) first.model = envModel;
-    if (envKey) first.apiKey = envKey;
-    if (process.env.OTTER_TEST_LLM_BASE_URL) first.apiBaseUrl = process.env.OTTER_TEST_LLM_BASE_URL;
-    if (process.env.OTTER_TEST_LLM_THINKING_LEVEL) first.thinkingLevel = process.env.OTTER_TEST_LLM_THINKING_LEVEL;
+    const llm = baseRaw.llm as { default: string; models: Array<Record<string, unknown>> };
+    /** 证据运行必须控制实际 default 与所有可路由别名，而非只改 models[0] 后自报。 */
+    llm.default = llm.models[0].alias as string;
+    for (const model of llm.models) {
+      if (process.env.OTTER_TEST_LLM_PROVIDER) model.provider = process.env.OTTER_TEST_LLM_PROVIDER;
+      if (envModel) model.model = envModel;
+      if (envKey) model.apiKey = envKey;
+      if (process.env.OTTER_TEST_LLM_BASE_URL) model.apiBaseUrl = process.env.OTTER_TEST_LLM_BASE_URL;
+      if (process.env.OTTER_TEST_LLM_THINKING_LEVEL) model.thinkingLevel = process.env.OTTER_TEST_LLM_THINKING_LEVEL;
+      else if (process.env.OTTER_TEST_LLM_CLEAR_THINKING === "1") delete model.thinkingLevel;
+    }
   }
 
   // __TMPDIR__ 替换后落临时 yaml，复用 loadConfig 的校验与默认值填充

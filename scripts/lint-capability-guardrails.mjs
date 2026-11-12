@@ -7,6 +7,15 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+  CANONICAL_INVENTORY,
+  CANONICAL_INVENTORY_SHA256,
+  CANONICAL_PROTOCOL,
+  CANONICAL_PROTOCOL_SHA256,
+  loadJson,
+  sha256File,
+  validateProtocol,
+} from "./capability-live-evidence.mjs";
 
 export const GUARANTEE_LAYERS = new Set([
   "structure",
@@ -72,6 +81,24 @@ export function validateCapabilityGuardrails(root = process.cwd(), registry = lo
   }
   if (typeof registry.changeTrigger?.liveCommand !== "string" || !registry.changeTrigger.liveCommand.trim()) {
     errors.push("changeTrigger.liveCommand 必须声明真 LLM 全量档命令");
+  }
+  const protocolPath = path.join(root, "tests/capability/live-protocol.json");
+  if (!fs.existsSync(protocolPath)) errors.push("缺真 LLM 预注册统计协议 live-protocol.json");
+  else {
+    try {
+      const protocol = loadJson(protocolPath);
+      errors.push(...validateProtocol(protocol));
+      if (JSON.stringify(protocol) !== JSON.stringify(CANONICAL_PROTOCOL)) errors.push("live-protocol 与 canonical 合入协议不一致");
+      if (sha256File(protocolPath) !== CANONICAL_PROTOCOL_SHA256) errors.push("live-protocol 文件哈希未锁定");
+    }
+    catch (error) { errors.push(`live-protocol 不可读: ${error.message}`); }
+  }
+
+  const inventoryPath = path.join(root, "tests/capability/live-inventory.json");
+  if (!fs.existsSync(inventoryPath)) errors.push("缺完整 live 场景 inventory");
+  else {
+    if (sha256File(inventoryPath) !== CANONICAL_INVENTORY_SHA256) errors.push("live inventory 未绑定 canonical 哈希；新增/删改场景须独立预注册审视");
+    if (JSON.stringify(loadJson(inventoryPath)) !== JSON.stringify(CANONICAL_INVENTORY)) errors.push("live inventory 内容与 canonical 不一致");
   }
 
   const seen = new Set();

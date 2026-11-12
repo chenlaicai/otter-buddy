@@ -58,8 +58,11 @@ faux/live 测试 → 机制测试 → 显式无保证。登记不是能力文件
   `parity-allowlist.json` 按完整基线 commit 登记精确 diff，未登记漂移与过期许可都会红。
   许可绑定 HEAD 与 `origin/main` 的实际 merge-base：rebase 改变真实基线后必须重新跑
   parity 并同步 base/diffs，不得只改 SHA 复用旧许可；无关 main 尖端前进不影响许可。
-- `真 LLM: PASS`：`npm run test:capability`，真实执行记录由对抗审视复核；仓内不伪造
-  「有 secret」或把文本字段当成测试执行。
+- `真 LLM: PASS`：不再接受一次全绿或 PR 文本自报。`run-capability-live.mjs` 分别生成
+  base/head manifest，绑定完整 source/merge-base SHA、模型与配置指纹、harness/断言哈希、
+  原始日志和 Vitest JSON 哈希；`compare-capability-live.mjs` 生成自包含 comparison，
+  证据门从两侧 run 重算结果。仓库没有真 LLM CI secret，因此本地证据真实性仍由对抗审视
+  核对原始日志与全部 attempts，机器闸不声称能识别一个精心伪造的本地文件。
 - `换底: PASS`：逐项检查新增/改动依赖的文件名、扩展名、schema、调用作用域，分类为
   语义依赖或约定依赖；约定依赖必须下推为原语、补消费者契约测试或加运行时守护。
 
@@ -69,6 +72,36 @@ faux/live 测试 → 机制测试 → 显式无保证。登记不是能力文件
 取得根会话当前世代；`projectDurableSessionEntries` 才负责 coding-agent 消费形状。
 SQLite 表名、record JSON 与 head 列不再是交接消费者的共同知识。只读连接不开 Harness，
 保留 `undefined=缺失/失败`、`[]=真空` 语义，也不触发 reopen recovery。
+
+### 2.1 概率行为的三态非劣协议
+
+2026-11-12 搭档确认按第一性原理重构：目标不是「62 项同一轮碰巧全绿」，而是
+「不可谈判机制仍成立，且本次变更没有让受支持配置的能力分布变差」。三层责任分开：
+
+1. faux/parity/权限/持久化/状态机/fail-closed 等确定性硬门始终零失败；
+2. 概率行为同时满足 head 绝对成功底线和 base→head 非劣区间，不能只证明「base 也差」；
+3. 既有能力缺口独立记账，不自动成为 PR 豁免。
+
+`live-protocol.json` 在任何 head 结果之前固定 α、样本下限、绝对底线、非劣 δ 和多重比较
+方法。当前初始口径为每侧恰好 17 轮完整运行、ABAB 交错、每侧至少 50 个有效样本、
+head 观测成功率 ≥0.8、Newcombe 差值区间下限 >−0.2，按同族场景数做 Bonferroni 修正。
+17 轮沿用各测试原有 3/5/7 采样与超时，不改断言；50 是检测约 0.90→0.70 劣化的初始下限，
+不是任何场景的万能充分样本量；更严格场景可在看 head 前预注册覆盖，禁止事后调宽。
+少跑、额外抽奖重跑、复制 runId、运行重叠或时间顺序不交错都拒判。canonical 常量锁定协议，
+完整 inventory 锁定 62 测试、37 自动采样、2 人工场景与 2 个声明期 skip；CI 逐 run 重算实际
+内容而非只认哈希。每轮先干净 build，default/secondary/fallback 均固定参考模型，禁止测试过滤。
+
+结论为 `PASS / FAIL / INCONCLUSIVE / BLOCKED`：样本不足、预算 SKIP、超时、429、 undeclared
+skip 或基线不可比均不放行；head 跌破底线、场景静默消失或确认劣化为 FAIL。完整跑完但
+行为断言失败仍是有效实验，可进入比较并判红，不再要求先拿到一次全绿才允许比较。
+共享 runtime/prompt/helper 变更默认全套件为影响面；全量运行保留以发现资源泄漏、限流和
+跨会话污染，但联合全绿不被误当统计证明。base 使用当前版本 tests/harness 覆盖，保证两侧
+场景与断言一致；被测 src 分别属于 merge-base 与 head。参考模型在协议中固定为当前测试
+基座 apig-deepseek-v4.1-flash（搭档 2026-11-12 在首个有效 head 运行前指定）；禁止看结果后换模型凑绿，其他模型只进入独立兼容性报告。
+manualReview 场景必须附 verdict 与 judged_by，缺失或两侧不一致均拒判。运行后附件通过同一生成器
+从原始 log/Vitest/exitCode 重算，保留 unreviewed 原件与同 runId 哈希链；异常退出或其他无效原因
+不能借人工附件洗绿。base 允许带明确硬/人工能力缺陷作为修复前证据，但不得携带 INVALID 或
+inventory 缺口；head 始终必须零硬失败，防止把「base 也差」当放行理由。
 
 ## 三连事故的首批格点
 
@@ -96,6 +129,8 @@ SQLite 表名、record JSON 与 head 列不再是交接消费者的共同知识�
 - faux 排除的 issue 号当前只做格式校验；本 PR 实际排除数为零，未来启用排除时须由审视核对 issue 存在且开放。
 - faux 档按每次 CI 运行全量执行（含 bge-m3 缓存），这是「便宜断言跟运行走」的有意选择；parity 仍按相关路径跳过。
 - 只读 Storage 不执行未来新增 migration；pi-durable 升级窗口若 schema 未先由写路径升级，读取会响亮失败并由调用方降级为机械档案，不作静默写迁移。
+- 当前尚未取得新协议下的同配置 base/head 非劣 PASS，PR 继续 Draft；旧日志是问题定位证据，
+  不能倒填成新协议证明。
 - 首轮真 LLM 全量档暴露的装置腐化已修：session 读取器适配 durable sqlite/string content；
   matters 档案断言兼容叙事/机械两种合法标题；已退役「星星罐子」急停契约的旧测试删除，
   现行「停下」3/3 守护不变。wait 工具描述明确「先 speak 后 wait」硬顺序；「绕路了」

@@ -27,6 +27,8 @@
     "test:capability:faux": "npm run build && OTTER_CAPABILITY_FORCE_FAUX=1 vitest run --config vitest.capability-faux.config.ts",
     "test:capability:faux:only": "OTTER_CAPABILITY_FORCE_FAUX=1 vitest run --config vitest.capability-faux.config.ts",
     "test:capability:parity": "bash scripts/run-capability-parity.sh",
+    "test:capability:live": "node scripts/run-capability-live.mjs",
+    "test:capability:compare": "node scripts/compare-capability-live.mjs",
     "eval:golden": "vitest run tests/usecases/memory/golden-eval.test.ts --disable-console-intercept",
     "test:all": "npm test && npm run test:capability",
     "lint:capability": "node scripts/lint-capability-docs.mjs",
