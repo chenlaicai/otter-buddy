@@ -108,6 +108,28 @@ describe("SimpleCronParser", () => {
       // 两者应返回相同结果
       expect(withRef.getTime()).toBe(withoutRef.getTime());
     });
+
+    it("croner v11：DST spring-forward 不存在的固定时刻顺延到 gap 后首个有效时间", () => {
+      const parser = new SimpleCronParser();
+      // America/New_York 2026-03-08 02:00→03:00；02:30 不存在。
+      // v10 返回 03:30，v11 按 Vixie cron 语义返回 03:00（07:00Z）。
+      const ref = new Date("2026-03-08T05:00:00.000Z");
+
+      expect(parser.getNextTime("0 30 2 * * *", "America/New_York", ref).toISOString()).toBe(
+        "2026-03-08T07:00:00.000Z",
+      );
+    });
+
+    it("croner v11：DST fall-back interval cron 覆盖重复小时的两个 occurrence", () => {
+      const parser = new SimpleCronParser();
+      // 05:30Z 是 01:30 EDT 第一次发生；下一次应为 01:00 EST（06:00Z），
+      // 而不是跳过重复小时直接到 01:30 EST（06:30Z）。
+      const ref = new Date("2026-11-01T05:30:00.000Z");
+
+      expect(parser.getNextTime("*/30 * * * *", "America/New_York", ref).toISOString()).toBe(
+        "2026-11-01T06:00:00.000Z",
+      );
+    });
   });
 
   describe("resolveCronSlot", () => {
