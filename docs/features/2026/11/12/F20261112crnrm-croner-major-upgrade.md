@@ -1,6 +1,6 @@
 ---
-id: F20261105cronr
-title: croner 主版本升级 10.0.1 → 11.0.0（2026-11-05 批次）
+id: F20261112crnrm
+title: croner 主版本升级 10.0.1 → 11.0.0（2026-11-12 批次）
 doc_type: feature
 
 summary: |
@@ -18,7 +18,7 @@ modules:
   - package-lock.json
 capability_test: "n/a: 纯依赖升级，无 LLM 参与行为"
 created_in_conversation: 3241317b-99d6-4d78-9248-ff208a7461bc
-created_at: 2026-11-05
+created_at: 2026-11-12
 
 intent:
   problem: "croner 10 停留在主版本旧线，Dependabot 发出 11.0.0 升级信号；主版本升级混入常规批会放大回滚粒度与审视盲区"
@@ -27,7 +27,7 @@ intent:
     type: behavior_check
 ---
 
-# F20261105cronr: croner 主版本升级 10.0.1 → 11.0.0
+# F20261112crnrm: croner 主版本升级 10.0.1 → 11.0.0
 
 ## 背景与决策
 
