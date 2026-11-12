@@ -1,28 +1,28 @@
 ---
-id: F20261111arlxv
+id: F20261112arlxv
 title: 记忆检索排序优化 Phase 1：rerank 加法栈实施规格与子问题台账
 doc_type: feature
 summary: |
-  「记忆检索排序优化」Phase 1 的实施规格（承接 F20261008mrrk，落实 F20261105rnkph）。
+  「记忆检索排序优化」Phase 1 的实施规格（承接 F20261008mrrk，落实 F20261112rnkph）。
   父文档已交付 Phase 0（golden 套件 44 查询/50 语料，地板 0.673/0.707/0.811 进 CI）；
-  F20261105rnkph 已把 Phase 1 设计写到可开工粒度；原 PR #1784 关闭后，rebase 版本由本 PR 携带。
-  本文不重写设计，只补设计文档缺的三件：① F20261105rnkph 的交付状态核实
+  F20261112rnkph 已把 Phase 1 设计写到可开工粒度；原 PR #1784 关闭后，rebase 版本由本 PR 携带。
+  本文不重写设计，只补设计文档缺的三件：① F20261112rnkph 的交付状态核实
   （原 PR #1784 已关闭，rebase 后设计由本 PR 携带）；② 两处定量校订——用权重/偏置
   矩阵精确定义加法域的全中性化与逐单关，以及收紧 44 条合成集上的默认切换门槛
   （全中性化比生产默认高 0.13 nDCG@5，存在过拟合风险）；③ 把归一化融合、标定、
   切默认拆成四段可独立交付的实施规格，每段带验收证据与回滚口径。
 change_type: feature
 intent:
-  problem: "记忆检索排序优化 Phase 1 缺实施载体：F20261105rnkph 已到可开工粒度，原 PR #1784 已关闭，rebase 后设计由本 PR 携带，但施工顺序与验收仍需具体化；且设计中的选择准则在 44 条合成 golden 集上做网格搜索存在过拟合风险（该集上全中性化比生产默认高 0.13 nDCG@5），直接按设计施工可能把一个只是拟合了构造分布的系数矩阵切为生产默认"
+  problem: "记忆检索排序优化 Phase 1 缺实施载体：F20261112rnkph 已到可开工粒度，原 PR #1784 已关闭，rebase 后设计由本 PR 携带，但施工顺序与验收仍需具体化；且设计中的选择准则在 44 条合成 golden 集上做网格搜索存在过拟合风险（该集上全中性化比生产默认高 0.13 nDCG@5），直接按设计施工可能把一个只是拟合了构造分布的系数矩阵切为生产默认"
   expected_effect: "产出可逐段施工的 Phase 1 实施规格：四段 PR 拆分（归一化函数与加法规路径 / debug 贡献分量 / 网格标定 / 切默认），每段给定输入、输出、验收证据与回滚口径；默认行为在第三段之前零变化；标定环节强制要求真实数据抽查作为切默认的前置，否则只交付 additive 路径不切默认"
   verify_by:
     type: static_only
     note: "本文是实施规格，零行为变更；行为验收在四段实施 PR（各段验收证据见「实施规格」节，均落到 tests/usecases/memory/golden-eval.test.ts 与 npm run eval:golden）"
 capability_test: "n/a: 实施规格文档零行为变更；实施 PR 的门禁为 tests/usecases/memory/golden-eval.test.ts 三项地板 + 逐信号对比表"
-created_at: 2026-11-11
+created_at: 2026-11-12
 created_in_conversation: 1af0abaa-63e9-4f84-bf3a-ce32c48ce461
 causal_links:
-  from: [F20261105rnkph, F20261008mrrk, F20260917cvid, F20260902rcp1]
+  from: [F20261112rnkph, F20261008mrrk, F20260917cvid, F20260902rcp1]
   supersedes: []
 tags: [memory, retrieval, ranking, rerank, normalization, golden-eval, implementation-spec]
 modules:
@@ -36,9 +36,9 @@ modules:
 
 > **定位**：这是「记忆检索排序优化」的第三份文档，不是新设计。分工是：
 > F20261008mrrk（10/08，已合入）= 现状核实 + 问题定性 + Phase 0 交付；
-> F20261105rnkph（原 PR #1784；rebase 后由本 PR 携带）= Phase 1 设计（归一化口径、融合公式、配置键、网格步骤）；
+> F20261112rnkph（原 PR #1784；rebase 后由本 PR 携带）= Phase 1 设计（归一化口径、融合公式、配置键、网格步骤）；
 > **本文 = 实施规格**——把那份设计的施工顺序、每段验收证据、以及它没覆盖的两个定量问题补齐。
-> 若与设计文档冲突，设计口径以 F20261105rnkph 为准，本文只做增量与订正，订正处逐条标注理由。
+> 若与设计文档冲突，设计口径以 F20261112rnkph 为准，本文只做增量与订正，订正处逐条标注理由。
 
 ## 一、为什么还要多一份文档（交付状态核实）
 
@@ -47,14 +47,14 @@ modules:
 | 事实 | 核实方式 |
 |---|---|
 | 原设计 PR **#1784 已 CLOSED**；其历史检查中 e2e 失败，不再是当前交付路径 | `gh pr view 1784 --json state,statusCheckRollup` |
-| rebase 后的 F20261105rnkph 设计 commit `8e1d609f` **由本 PR #1856 携带**，本 PR 四绿 | `gh pr view 1856 --json commits,statusCheckRollup` |
+| rebase 后的 F20261112rnkph 设计 commit `8e1d609f` **由本 PR #1856 携带**，本 PR 四绿 | `gh pr view 1856 --json commits,statusCheckRollup` |
 | 该文档**尚不在 main**，将随本 PR 合入 | `ls docs/features/2026/11/05/` 无 `rnkph` 文件 |
 | main 上 rerank 五信号连乘**原样未动** | `search-engine.ts:168-196` `rerank()` |
 
 所以载体的最后一跳由本 PR 一次完成，无需重开或继续等待 #1784。S0 只保留这段
 关闭与携带关系，避免实施后仍沿旧 PR 空等。
 
-## 二、设计基线摘要（一句话版，细节见 F20261105rnkph）
+## 二、设计基线摘要（一句话版，细节见 F20261112rnkph）
 
 现状（`search-engine.ts:183-190`）：
 
@@ -70,7 +70,7 @@ score = w_rrf·norm(rrf) + w_time·timeDecay + w_freq·norm(freq) + b_flag·[fla
 ```
 
 逐信号归一化口径（rrf 池内 min-max / freq 饱和截断 CAP=log(11) / 两个类别信号转加法偏置）已在
-F20261105rnkph 表 1 定死，本文不重复。
+F20261112rnkph 表 1 定死，本文不重复。
 
 ## 三、两处定量校订（本文的实质增量）
 
@@ -116,7 +116,7 @@ Phase 0 的对照数字（v2 扩充后重录，n=44，FTS-only 口径）：
   写进 config 注释，不切默认。这样 Phase 1 的工程价值（可解释、可标定）先落地，
   风险留到数据齐了再付。
 
-这条改变了 F20261105rnkph「标定后系数使默认排序与今天不同——这是本特性的目的本身」的节奏：
+这条改变了 F20261112rnkph「标定后系数使默认排序与今天不同——这是本特性的目的本身」的节奏：
 目的不变，但**默认切换从实施 PR 的必然后果变成一个独立的、有前置条件的第四段**。
 
 ## 四、实施规格：四段 PR
@@ -125,7 +125,7 @@ Phase 0 的对照数字（v2 扩充后重录，n=44，FTS-only 口径）：
 
 ### 段 1：加法规路径（零默认变更）
 
-- **输入**：F20261105rnkph 的归一化口径表。
+- **输入**：F20261112rnkph 的归一化口径表。
 - **产出**：`search-engine.ts` 新增 `rerankAdditive()`（与现有 `rerank()` 并存），
   归一化纯函数独立导出（`normalizeRrfPool` / `normalizeFrequency`）；配置新增
   `memory.rerankMode: multiply | additive`，**缺省 `multiply`**；不新增信号中性化开关。
@@ -148,7 +148,7 @@ Phase 0 的对照数字（v2 扩充后重录，n=44，FTS-only 口径）：
   逐信号反事实表（全开 / 全中性 / 逐单关 × 三项指标）。
 - **验收**：候选矩阵三项不劣于地板；完整对比表进 PR 描述；`rerankMode` 缺省仍是
   `multiply`——**本段结束时生产行为仍零变化**。
-- **取舍**：搜索空间与选择准则沿用 F20261105rnkph 第 5 节；唯一的加项是
+- **取舍**：搜索空间与选择准则沿用 F20261112rnkph 第 5 节；唯一的加项是
   `w_time=0` 的候选必须同时报告「关时间衰减」的语义后果（时间新近度不再影响排序），
   让读者知道自己在选什么。
 
@@ -170,9 +170,9 @@ Phase 0 的对照数字（v2 扩充后重录，n=44，FTS-only 口径）：
 | S1 | 全中性化与逐单关需用明确矩阵复现（校订 1） | 本文已给配置 | 段 1 验收 |
 | S2 | 合成集上网格搜索过拟合（校订 2） | 本文已给拆分 | 段 4 前置 |
 | S3 | 真实数据标注 20-30 条谁标、何时排（父文档 R2 存量欠账） | **资源投入 → 搭档** | 段 4 |
-| S4 | 三份同主题文档的去留（F20261008mrrk 已合入保留；F20261105rnkph 合入后本文与其关系） | 技术域 | 无需动作，见下 |
+| S4 | 三份同主题文档的去留（F20261008mrrk 已合入保留；F20261112rnkph 合入后本文与其关系） | 技术域 | 无需动作，见下 |
 
-S4 解释：F20261105rnkph 合入后即为历史文档（不可改），本文与它是「设计 → 实施规格」的
+S4 解释：F20261112rnkph 合入后即为历史文档（不可改），本文与它是「设计 → 实施规格」的
 `from` 关系，不 supersede——两份都要，分工明确。不做三合一，因为合并意味着改一份已合入
 文档的正文，违反历史文档不可变铁律。
 

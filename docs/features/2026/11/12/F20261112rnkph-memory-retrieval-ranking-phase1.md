@@ -1,5 +1,5 @@
 ---
-id: F20261105rnkph
+id: F20261112rnkph
 title: 记忆检索排序优化 Phase 1 实施设计：五信号归一化加法融合
 doc_type: feature
 summary: |
@@ -20,7 +20,7 @@ intent:
     type: static_only
     note: "设计文档零行为变更：lint:docs / lint:intent / commit 链全绿，文中代码锚点由检视獭锚点重放核对；行为验收发生在 Phase 1 实施 PR（npm run eval:golden 三项地板 + 逐信号前后对比表）"
 capability_test: "n/a: 设计文档零行为变更；Phase 1 实施 PR 的行为门禁为 tests/usecases/memory/golden-eval.test.ts（nDCG@5/@10、MRR 三项地板断言）"
-created_at: 2026-11-05
+created_at: 2026-11-12
 created_in_conversation: d6fbfe61-8310-46f7-bb1c-76f5e401a0ec
 causal_links:
   from: [F20261008mrrk, R20260826rcmm, F20260902rcp1, F20260917cvid]
@@ -32,7 +32,7 @@ modules:
   - tests/usecases/memory/golden-eval.test.ts
 ---
 
-# 记忆检索排序优化 Phase 1 实施设计（F20261105rnkph）
+# 记忆检索排序优化 Phase 1 实施设计（F20261112rnkph）
 
 > **定位与查重记录**：本文是「记忆检索排序优化」的 **Phase 1 实施设计**。同主题父文档
 > 已存在且不重复——`docs/features/2026/10/08/F20261008mrrk-memory-retrieval-ranking-optimization.md`
@@ -159,7 +159,7 @@ conversationBoost / multiHitCount` 六字段并列（字段清单见 `search-mem
    并列取参数更少偏离默认者（更保守）。主指标 nDCG@5、副指标 nDCG@10 与 MRR 只做不劣约束。
 4. **无组合达标** → 触发父文档 R3 备选：保留乘法、只做信号归一化预处理（各信号先归一
    再连乘），把网格结果与该结论写入实施 PR 与新记录文档（本文合入 main 后即为历史文档，
-   不回改——后续结论走新文档 `causal_links.from: [F20261105rnkph]`）。
+   不回改——后续结论走新文档 `causal_links.from: [F20261112rnkph]`）。
 5. 每个候选组合的三项数字进实施 PR 附表，检视獭可复跑（`npm run eval:golden`）。
 
 ## 验收约束（承父文档，收成清单）
@@ -214,6 +214,6 @@ conversationBoost / multiHitCount` 六字段并列（字段清单见 `search-mem
 
 1. 本文过对抗审视 → 搭档终审合入。
 2. 实施 PR（Phase 1）：按本文网格步骤标定系数、落实施工、按验收清单逐条出证据。
-3. 实施 PR 之后的结论（尤其触发 R3 备选时）新建文档记录，`from: [F20261105rnkph]`。
+3. 实施 PR 之后的结论（尤其触发 R3 备选时）新建文档记录，`from: [F20261112rnkph]`。
 
 🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 大獭
