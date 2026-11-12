@@ -152,6 +152,7 @@ interface ExecutionMachine extends ActionRunner {
 | `npm run check` | PASS：build、lint、schema、全新/存量 DB 全栈装配、脚本与端口/探活检查 |
 | `npm run lint:intent` / `lint:capability` / `lint:docs` | PASS；本 PR intent 1/1、capability_test 声明有效，输出仅存量豁免/警告 |
 | alpha 真启动 | PASS：端口 3196 启动，Web `/` 200；无身份 API 401；声明式本机身份下 `/api/conversations` 200、`/api/health/memory` 200 且 healthy=true；验证后已停止实例 |
+| GitHub CI | PASS：run 43204974197 的 check / guard-macos / e2e / golden-selftest 全绿（PR body 编辑事件）；首次 opened run 仅缺测试改动声明，已在 PR body 补齐；旧 rerun 固化旧 body 的失败记录不代表代码失败 |
 | 旧路径清查 | PASS：`new NodeExecutionEnv` 仅存在于 LocalExecutionMachine；createAgentGateway 不再接受 WorkspaceGateway 直注；工具 schema 未改 |
 
 最简实现检查：已通过。方案复用现有 NodeExecutionEnv、NodeWorkspaceGateway 与 SDK 工具，只新增路由/动作边界，不新增依赖；没有另写 shell、文件或工作区实现。
