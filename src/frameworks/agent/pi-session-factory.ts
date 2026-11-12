@@ -896,6 +896,11 @@ export class PiSessionFactory implements AgentGateway {
 
   /** D3：30s 锁冲突不再直接泄漏技术错误；handoff 旧世绝不注入。 */
   private async degradeLockTimeout(otterId: string, message: string, options: InvokeOptions | undefined, handoffAtTimeout: boolean): Promise<AgentRunResult> {
+    // 受限外部正文在任何锁降级路径都不得进入普通池；新事件必须重新建立独立授权与生命周期。
+    if (options?.externalProfile === 'restricted') {
+      await this.recordLockDegradation(otterId, options, 'restricted-lock-conflict', false, '受限外部会话等待执行锁失败，消息未送达，也未注入普通池。');
+      throw new Error('受限外部会话正在等待另一项执行，消息未送达，请由外部系统重新发送新事件');
+    }
     if (handoffAtTimeout) {
       await this.recordLockDegradation(otterId, options, 'handoff', false, '交接冻结窗口超时，拒绝向即将换世的旧 session 注入。');
       throw new Error('目标海獭正在交接，消息未能送达，请稍后重试');
