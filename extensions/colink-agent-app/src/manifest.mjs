@@ -7,7 +7,7 @@ export function createManifest() {
     manifestVersion: '2.0.0',
     name: '海獭',
     description: '由 Otter Buddy 执行的个人私聊与项目频道 Agent，可在授权范围内读取话题、频道和私聊历史。',
-    version: '0.5.0',
+    version: '0.5.1',
     tag: 'Agent',
     agent: {},
     icons: { otter: `data:image/svg+xml;base64,${Buffer.from(icon).toString('base64')}` },
@@ -30,6 +30,12 @@ export function createManifest() {
           extensionPoint: { id: 'colink.navigation.modules', version: '1.0.0' },
           navigation: { parentId: 'nav.project' },
           openView: { viewId: 'otter.embed', container: 'page_content' },
+        },
+        {
+          entryId: 'otter.topic',
+          label: '海獭',
+          extensionPoint: { id: 'colink.topic.actions', version: '1.0.0' },
+          openView: { viewId: 'otter.embed', container: 'side_panel' },
         },
       ],
       views: [
