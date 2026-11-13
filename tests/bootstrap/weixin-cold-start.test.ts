@@ -34,34 +34,36 @@ describe("ensureWeixinConfig（F20260831wxsp bugfix 1/2/3）", () => {
       "server:",
       "  port: 3000",
     ].join("\n"));
-    ensureWeixinConfig({ configPath, ilinkUserId: "u1@im.wechat", logger });
+    ensureWeixinConfig({ configPath, logger });
     const after = fs.readFileSync(configPath, "utf8");
     expect(after).toContain("# Otter Buddy 配置文件"); // 注释保留
     const parsed = yaml.load(after) as { weixin?: { partnerUserId?: string } };
-    expect(parsed.weixin?.partnerUserId).toBe("u1@im.wechat");
+    expect(parsed.weixin).toBeTruthy();
+    // F20261113wxplo：不再回写 partnerUserId——首号扫码不被持久化为全局搭档锚
+    expect(parsed.weixin?.partnerUserId).toBeUndefined();
   });
 
   it("已有 weixin 段时幂等不写（内容不变）", () => {
     const original = ["llm:", "  default: faux", "weixin:", "  partnerUserId: existing@im.wechat"].join("\n");
     const { configPath } = tmpDirWithConfig(original);
-    ensureWeixinConfig({ configPath, ilinkUserId: "new@im.wechat", logger });
+    ensureWeixinConfig({ configPath, logger });
     expect(fs.readFileSync(configPath, "utf8")).toBe(original); // 一字不动
   });
 
-  it("stateDir 与 ilinkUserId 同时写入，缩进为顶层段", () => {
+  it("stateDir 写入，缩进为顶层段；partnerUserId 不回写", () => {
     const { configPath } = tmpDirWithConfig("server:\n  port: 3000");
-    ensureWeixinConfig({ configPath, stateDir: "./data/weixin", ilinkUserId: "u2@im.wechat", logger });
+    ensureWeixinConfig({ configPath, stateDir: "./data/weixin", logger });
     const parsed = yaml.load(fs.readFileSync(configPath, "utf8")) as {
       weixin?: { stateDir?: string; partnerUserId?: string };
     };
     expect(parsed.weixin?.stateDir).toBe("./data/weixin");
-    expect(parsed.weixin?.partnerUserId).toBe("u2@im.wechat");
+    expect(parsed.weixin?.partnerUserId).toBeUndefined();
   });
 
   it("文件不存在时 warn 而非抛出（扫码回调不允许炸主流程）", () => {
     const warn = vi.fn();
     const l: Logger = { ...logger, warn };
-    ensureWeixinConfig({ configPath: "/nonexistent/dir/config.yaml", ilinkUserId: "u@im.wechat", logger: l });
+    ensureWeixinConfig({ configPath: "/nonexistent/dir/config.yaml", logger: l });
     expect(warn).toHaveBeenCalled();
     expect(() => fs.accessSync("/nonexistent/dir/config.yaml")).toThrow();
   });

@@ -10,7 +10,9 @@
  *
  * F20260928wxid：构造参数改 rest 收多渠道 ID——同一搭档在飞书是 open_id、
  * 在微信是 ilink_user_id，两者指向同一人。微信消息入站后海獭也要能认出
- * 「这是搭档本人」而非陌生人；旧单参构造兼容保留（旧调用处降级为单渠道判定）。
+ * 「这是搭档本人」而非陌生人。
+ * F20261113wxplo：拆 forGate（单渠道锚，门禁）/ forIdentity（多渠道，身份标注）
+ * 双入口，构造器私有——误用（把跨渠道 ID 塞进门禁）编译期可查。
  *
  * F20260928fsqr：addPartnerId 运行时写入——飞书扫码首个 ownerOpenId 先写先得
  * （对齐微信 ensureWeixinConfig 幂等语义）；仅渲染链全局实例用（每线命令门禁
@@ -25,7 +27,25 @@ export class PartnerResolver {
 
   private readonly partnerIds: Set<string>;
 
-  constructor(...partnerIdList: Array<string | undefined>) {
+  /**
+   * 门禁语义单入口（单渠道锚）：「配置了本渠道搭档锚才拦截」——
+   * 只应传同一渠道的 ID（如微信线 owner / 飞书线 owner+首号），
+   * 混入跨渠道 ID 会让 configured 误翻 true，锁死另一渠道命令。
+   */
+  static forGate(...partnerIdList: Array<string | undefined>): PartnerResolver {
+    return new PartnerResolver(partnerIdList);
+  }
+
+  /**
+   * 身份标注语义入口（多渠道）：同一搭档跨渠道 ID（飞书 open_id、微信 ilink_user_id）
+   * 一起传入，任一命中即认作本人。仅供渲染链（dispatch-chain-engine）装配处，
+   * 不用于命令门禁。
+   */
+  static forIdentity(...partnerIdList: Array<string | undefined>): PartnerResolver {
+    return new PartnerResolver(partnerIdList);
+  }
+
+  private constructor(partnerIdList: Array<string | undefined>) {
     // trim 双保险：config 层已 trim，这里再守一道——空白串视为未配置，避免 yaml 留空格导致"已配置但无人能匹配"
     this.partnerIds = new Set(
       partnerIdList

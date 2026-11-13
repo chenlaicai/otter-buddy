@@ -151,7 +151,7 @@ describe("FeishuMessageProcessor 命令门禁（F20260826fpbd 方案B）", () =>
     const deps = {
       ...m.deps,
       commandDispatcher: { dispatch } as unknown as CommandDispatcher,
-      partnerResolver: new PartnerResolver(partnerOpenId),
+      partnerResolver: PartnerResolver.forIdentity(partnerOpenId),
     };
     return { m, deps, dispatch, replyText: m.deps.feishuGateway.replyText as ReturnType<typeof vi.fn> };
   }
