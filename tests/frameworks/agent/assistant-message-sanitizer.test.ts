@@ -70,4 +70,22 @@ describe("stripEmptyAssistantText（F20261113etsan：kimi 空 text 块致 fc/out
     expect((cleaned![2] as AssistantMessage).content).toHaveLength(3);
     expect(cleaned![3]).toBe(result);
   });
+
+  it("openai-responses 带 textSignature 的空 text 块仍剥除（该签名是消息元数据，非思维载荷）", () => {
+    const signed = {
+      ...poisonedAssistant(""),
+      content: [{ type: "text", text: "", textSignature: "{v:1,id,phase}" }],
+    } as AssistantMessage;
+    const cleaned = stripEmptyAssistantText([signed]);
+    expect((cleaned![0] as AssistantMessage).content).toEqual([]);
+  });
+
+  it("非 openai-responses 的 assistant 空 text 不剥除（google 把 thoughtSignature 挂在空块上，剥掉断推理链）", () => {
+    const gemini = {
+      ...poisonedAssistant(""),
+      api: "google-generative-ai",
+      content: [{ type: "text", text: "", textSignature: "encrypted-thought-signature" }],
+    } as AssistantMessage;
+    expect(stripEmptyAssistantText([gemini])).toBeUndefined();
+  });
 });
