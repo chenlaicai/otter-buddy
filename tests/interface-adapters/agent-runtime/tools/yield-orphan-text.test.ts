@@ -25,11 +25,15 @@ describe("#1837 yield 对直出文本的纠错", () => {
     expect(result.content[0].text).toContain("speak(body)");
   });
 
-  it("没有任何文本或 speak 时保留原有通用提示", async () => {
+  it("没有任何文本或 speak 时，告知本轮未落账并指引补 speak（#1871 跨重启误判）", async () => {
     const ctx = contextWithTurnText("");
     const tool = createTools(ctx).find(t => t.name === "yield")!;
     const result = await tool.execute("yield-1", { to: ["user"] });
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("你还没有用 speak 输出任何内容");
+    expect(result.content[0].text).toContain("本轮 invoke 尚未落账 speak");
+    // #1871：明确指出计数跨 invoke（含重启/重试）归零，引导模型补 speak 而非排查工具
+    expect(result.content[0].text).toContain("归零");
+    expect(result.content[0].text).toContain("再调用一次 speak");
+    expect(result.content[0].text).toContain("不要排查工具");
   });
 });

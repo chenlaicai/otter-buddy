@@ -199,7 +199,9 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
   if (ctx.getTurnAssistantText?.().trim()) {
     return "[错误] 你刚才输出的是普通文本草稿，只有你自己能看到，搭档和其他海獭看不到。请把结论通过 speak(body) 工具正式重发，再调用 yield 交棒。";
   }
-  return "[错误] 你还没有用 speak 输出任何内容。请先调用 speak(body) 输出结论，再调用 yield 交棒。";
+  // #1871：跨世重启/自动重试后模型常把「历史里说过」误当本轮已发言，直接 yield 被拒后
+  // 又去排查工具而非补一句 speak——此处把语义戳破：计数按 invoke 归零，补 speak 即可，勿排查。
+  return "[错误] 本轮 invoke 尚未落账 speak，拒绝交棒。speak 计数在每次 invoke（含服务重启/自动重试）都会归零——即使你记得刚才说过，也请在本轮再调用一次 speak(body) 输出结论，然后立刻再 yield；不要排查工具、不要重复空 yield。";
 }
 
  
@@ -266,7 +268,7 @@ async function emitYieldEvent(
 function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "yield",
-    description: "交棒工具——结束本轮行动，把行动权交给指定参与者（对方立即被唤醒）。先 speak 再 yield（yield 不携带内容）；yield 必须单独调用（同批 terminate 不生效）。路由：子任务完成传回召唤者或流程下一步执行者；终审才传 'user'；不确定在场成员先调 get_active_participants。yield 给自己=任务锚点入箱下轮续跑（合法但受梯度护栏保护，禁止长期占用不产出）。⚠️ yield to 'user' 前先想：为什么需要用户介入？自己能处理或该先找其他獭就别传，用 reason 说明理由。",
+    description: "交棒工具——结束本轮行动，把行动权交给指定参与者（对方立即被唤醒）。先 speak 再 yield（yield 不携带内容）；若 yield 被拒「尚未落账 speak」，直接补一次 speak 再 yield，勿排查工具。yield 必须单独调用（同批 terminate 不生效）。路由：子任务完成传回召唤者或流程下一步执行者；终审才传 'user'；不确定在场成员先调 get_active_participants。yield 给自己=任务锚点入箱下轮续跑（合法但受梯度护栏保护，禁止长期占用不产出）。⚠️ yield to 'user' 前先想：为什么需要用户介入？自己能处理或该先找其他獭就别传，用 reason 说明理由。",
     parameters: {
       type: "object",
       properties: {
