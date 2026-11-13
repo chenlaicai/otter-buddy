@@ -3,12 +3,12 @@
  *
  * 三层覆盖：
  * 1. registry 纯逻辑：enqueue/takeAll/上限/滞留语义
- * 2. interceptHealingReport 集成：high 事件登记 + 台账照落 + low 不登记
+ * 2. persistHealingIssues 集成：high 事件登记 + 台账照落 + low 不登记
  * 3. renderHealingAlerts：提醒文本形态与截断
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { healingAlertRegistry, renderHealingAlerts } from '@usecases/healing/healing-alert-registry';
-import { interceptHealingReport } from '@interface-adapters/agent-runtime/tools/healing-tools';
+import { persistHealingIssues, type HealingIssueParam } from '@interface-adapters/agent-runtime/tools/healing-tools';
 import type { ToolContext } from '@usecases/ports/agent-tools';
 import type { HealingEventRepository } from '@usecases/healing/healing-event-repository';
 
@@ -93,13 +93,15 @@ describe('healingAlertRegistry 纯逻辑', () => {
   });
 });
 
-describe('interceptHealingReport C3 高危路由', () => {
+describe('persistHealingIssues C3 高危路由', () => {
   beforeEach(() => healingAlertRegistry.resetForTest());
 
-  it('severity:high 事件：登记提醒 + 台账照落 + body 剥离不变', () => {
+  it('severity:high 事件：登记提醒 + 台账照落', () => {
     const { repo, creates } = makeRepo();
-    const body = '工作完成\n<healing>[issues]\n- type: tool_failure\n  severity: high\n  description: 某工具连续失败\n  suggestion: 修复\n[/issues]</healing>';
-    const clean = interceptHealingReport(body, makeCtx(), repo);
+    const issues: HealingIssueParam[] = [
+      { type: 'tool_failure', severity: 'high', description: '某工具连续失败', suggestion: '修复' },
+    ];
+    persistHealingIssues(issues, makeCtx(), repo);
     expect(healingAlertRegistry.peek('conv-1')).toHaveLength(1);
     const alert = healingAlertRegistry.peek('conv-1')[0];
     expect(alert.errorType).toBe('tool_failure');
@@ -107,22 +109,25 @@ describe('interceptHealingReport C3 高危路由', () => {
     expect(alert.otterId).toBe('otter-small-1');
     expect(creates).toHaveLength(1);
     expect(creates[0].severity).toBe('high');
-    expect(clean.error).toBeNull();
-    expect(clean.cleanBody).not.toContain('<healing>');
   });
 
   it('severity:low 事件：台账落但登记不路由（高危路由只针对 high）', () => {
     const { repo, creates } = makeRepo();
-    const body = '<healing>[issues]\n- type: format_violation\n  severity: low\n  description: d\n[/issues]</healing>';
-    interceptHealingReport(body, makeCtx(), repo);
+    const issues: HealingIssueParam[] = [
+      { type: 'format_violation', severity: 'low', description: 'd', suggestion: '' },
+    ];
+    persistHealingIssues(issues, makeCtx(), repo);
     expect(healingAlertRegistry.peek('conv-1')).toHaveLength(0);
     expect(creates).toHaveLength(1);
   });
 
   it('多条 high 同消息：逐条登记', () => {
     const { repo } = makeRepo();
-    const body = '<healing>[issues]\n- type: tool_failure\n  severity: high\n  description: a\n  suggestion: s\n- type: missing_context\n  severity: high\n  description: b\n[/issues]</healing>';
-    interceptHealingReport(body, makeCtx(), repo);
+    const issues: HealingIssueParam[] = [
+      { type: 'tool_failure', severity: 'high', description: 'a', suggestion: 's' },
+      { type: 'missing_context', severity: 'high', description: 'b', suggestion: '' },
+    ];
+    persistHealingIssues(issues, makeCtx(), repo);
     expect(healingAlertRegistry.peek('conv-1')).toHaveLength(2);
   });
 });

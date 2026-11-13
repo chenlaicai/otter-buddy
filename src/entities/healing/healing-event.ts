@@ -42,7 +42,7 @@ export type HealingErrorType =
    *  同构。残余风险：真复犯事件同落环境账不进獭能力账，由体检段真复犯 K 分列补偿。 */
   | 'loop_tool_block'
   /** F20261111hrepl（#1842）：运行时状态投影与真实运行态不一致（如 UI 显示「休息中」
-   *  实际仍在执行）。模型自报类型——走 speak healing 块，非框架层自动写库；
+   *  实际仍在执行）。模型自报类型——走 speak 的 healing 参数，非框架层自动写库；
    *  分账归 environment（状态投影/系统侧失败，非獭能力退化）。 */
   | 'runtime_status_mismatch'
   | 'other';

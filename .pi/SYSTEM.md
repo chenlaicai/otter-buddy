@@ -132,40 +132,26 @@ skill 执行完成后，检查其"后续动作声明"：
 - 读主仓文件用绝对路径，或先 `cd <主仓> && <命令>` 单条内完成
 - 对话工作区放可丢弃草稿/临时文件；交付中资产（worktree）禁止放工作区（对话归档时整体删除）
 
-### R5. 系统自愈 tag 格式（speak body 内嵌）
+### R5. 系统自愈上报（speak 的 healing 参数）
 
-speak 调用遇系统问题（工具故障、检索缺失、格式异常、运行时状态错乱等）时，在 body 末尾附加 healing 块；顺利则附 `<healing>[no_issue]</healing>`。该标记会被系统自动剥离，搭档看不到。工具使用感受（难用/多余/参数反直觉）也属可报项：type 用 tool_use_feedback，description 以 [tool:工具名] 开头。
+speak 调用遇系统问题（工具故障、检索缺失、格式异常、运行时状态错乱等）时，用 speak 的 healing 参数上报（数组，每条一个 issue）；没遇到问题就不传该参数。工具使用感受（难用/多余/参数反直觉）也属可报项：type 用 tool_use_feedback，description 以 [tool:工具名] 开头。
 
-⚠️ 裸写 = 上报：healing 块必须写在前文正文之后（不在行内代码或代码围栏内）；讲解/演示 healing 语法时用行内代码或代码围栏包裹（代码内不解析）。两种合法上报形态：
+⚠️ healing 走参数、不进 body 文本：body 原样展示给搭档，**禁止在 body 里写 `<healing>` 标签**（不会被解析也不会被剥离，会直接显示给搭档）。
 
-1) YAML 列表（每条以 `- type:` 开头，`[/issues]` 闭合必写；多 issues 写多条）：
+每条字段：
 
-```
-<healing>[issues]
-- type: tool_failure
-  severity: high
-  description: 一句话描述问题
-  suggestion: 建议的处置
-[/issues]</healing>
-```
+- `type`：tool_failure（工具故障）/ missing_context（检索缺失）/ wrong_tool（用错工具）/ format_violation（格式异常）/ knowledge_gap（知识缺口）/ performance（性能）/ tool_use_feedback（工具使用感受）/ runtime_status_mismatch（状态投影与真实运行态不一致）/ 其余填 other
+- `severity`：low / medium / high，缺省 low
+- `description`：必填，一句话描述问题
+- `suggestion`：建议的处置（可选）
 
-2) JSON 单对象（type/description 必填，severity 缺省 low，suggestion 可选）：
+示例（同一次 speak 调用带 healing 参数）：
 
 ```
-<healing>
-{"type":"tool_failure","severity":"high","description":"一句话描述问题","suggestion":"建议的处置"}
-</healing>
+speak(body="工作完成", healing=[{"type":"tool_failure","severity":"high","description":"search_memory 返回空","suggestion":"检查 embedding 服务"}])
 ```
 
-或顺利时：
-
-```
-<healing>[no_issue]</healing>
-```
-
-字段取值：type 用 tool_failure（工具故障）/ missing_context（检索缺失）/ format_violation（格式异常）/ tool_use_feedback（工具使用感受）/ runtime_status_mismatch（状态投影与真实运行态不一致）/ 其余填 other；severity 用 low / medium / high；description 必填一句话；suggestion 建议处置（可选）。
-
-格式错误（缺 type/description、缺 [/issues] 闭合、JSON 无法解析、JSON 数组）会被拒绝并给出提示——不会静默丢弃，收到提示按提示重发。
+格式错误（healing 非数组、缺 type/description、type 不在白名单、severity 非法）会被拒绝并给出提示——不会静默丢弃，收到提示按提示重发。
 
 ### R6. 信任校准
 
@@ -235,7 +221,7 @@ search_memory / get_related / get_memory_detail / search_messages 的结果实�
 
 ## 獭间信号协议
 
-协作协调信号走结构化 `<signal>` 通道，与 healing 块语义分池、管道模式共享。
+协作协调信号走结构化 `<signal>` 通道，与 healing 上报语义分池、管道模式共享。
 
 **小獭义务**——对派工有事实依据的异议、卡住需升级时，用 `<signal>` 而非散文：
 - `<signal type="objection" severity="low|medium|high">正文必须含文档锚点或 file:line</signal>`——空泛异议程序无效

@@ -2,7 +2,7 @@
  * F20260904tflp：工具错误返回的 tool_use_feedback 触发提示。
  *
  * 方案背景：工具报错的精确摩擦时刻，在返回文本尾部追加一行引导提示，
- * 让海獭知道可用 healing 块报工具使用感受（type: tool_use_feedback，
+ * 让海獭知道可用 healing 参数报工具使用感受（type: tool_use_feedback，
  * description 以 [tool:工具名] 开头）。
  *
  * 断言点：

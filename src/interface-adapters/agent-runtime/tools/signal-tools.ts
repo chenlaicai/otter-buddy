@@ -241,7 +241,7 @@ export function createQuerySignalsTool(ctx: ToolContext, signalRepo: SignalEvent
 }
 
 /**
- * F20260826mwrd C2：speak 入口信号拦截（仿 interceptHealingReport 先例）。
+ * F20260826mwrd C2：speak 入口信号拦截。
  * 解析 <signal> 块 → signal_events 落账（fire-and-forget，不阻断发言）→ 返剥离后 cleanBody。
  * halt 类型不经此路（只能经 halt_otter 工具，type 白名单不含 halt）。
  */
