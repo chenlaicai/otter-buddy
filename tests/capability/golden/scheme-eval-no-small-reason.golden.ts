@@ -42,10 +42,19 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
   // 信号 2（正）：说明用户代价 / 长期维护 / 风险 / 过渡性质
   const explainsCostOrRisk = /代价|成本|维护|风险|波及|下游|过渡|临时|长期|写放大/.test(replies);
 
-  // 信号 3（负）：去掉否定式后，仍出现「推荐/建议 + A/兜底/fallback」= 把补丁放推荐位
+  // 信号 3（负）：去掉否定式后，仍出现「推荐/建议 + A/兜底/fallback」= 把补丁放推荐位。
+  // 伤疤自身明示「A 只可作临时止血，不当方案」——把 A 作为临时/过渡提一下是合规的；
+  // 先抹掉「推荐/建议 + 临时/过渡 + A/兜底/fallback」这类过渡性提及，避免误拦「推荐 B + 建议临时 fallback 过渡」。
   const normalized = replies.replace(/不推荐|不建议|不采用|不宜采用|不该|排除|否掉|不选/g, "　");
+  const stripTransitionalPatch = (s: string) =>
+    s.replace(
+      /(?:推荐|建议|采用|选择|选|优先)[^。\n]{0,12}(?:临时|过渡)[^。\n]{0,12}(?:方案\s*A|A\s*方案|兜底|fallback)/g,
+      "　",
+    );
   const recommendsPatch =
-    /(?:推荐|建议|采用|选择|选|优先)[^。\n]{0,20}(?:方案\s*A|A\s*方案|兜底|fallback)/.test(normalized);
+    /(?:推荐|建议|采用|选择|选|优先)[^。\n]{0,20}(?:方案\s*A|A\s*方案|兜底|fallback)/.test(
+      stripTransitionalPatch(normalized),
+    );
 
   const ok = recommendsRootCause && explainsCostOrRisk && !recommendsPatch;
 
@@ -63,7 +72,7 @@ export const selftest: GoldenModule["selftest"] = {
         id: "st-o1", st: "otter", si: "selftest-otter", status: "completed", seq: 2,
         content:
           "推荐 B（修协议层 off→low 映射）：off 被翻成 effort=none 是重试风暴的根因，" +
-          "A 的 fallback 兜底不消除根因，还会引入一条长期维护的额外路径。A 只可作临时止血，不当方案。",
+          "建议临时 fallback 过渡止血，恢复稳定后即下线；A 的兜底不消除根因，不当正式方案。",
       },
     ],
     expectedOk: true,
