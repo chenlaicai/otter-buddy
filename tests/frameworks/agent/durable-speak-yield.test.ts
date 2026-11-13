@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 import { describe, expect, it } from "vitest";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -58,6 +59,7 @@ describe("#1837 durable invoke 直出文本纠错后 speak→yield", () => {
     };
     const customTools = createTools(ctx).filter(tool => tool.name === "speak" || tool.name === "yield").map(tool => ({ ...tool, label: tool.name }));
     const session = await DurableSession.open({
+      executionMachines: createTestExecutionMachineRegistry(),
       otterId: "big", file: path.join(dir, "session.sqlite"), models, model: faux.getModel(), cwd: tmpdir(), logger,
       register, invokeId: "invoke-scheduled", context: BACKGROUND_CONTEXT,
       tools: { codingTools: [], customTools },

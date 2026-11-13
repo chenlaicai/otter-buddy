@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 vi.mock('@frameworks/config', () => ({ getConfig: () => ({ circuitBreaker: {} }) }));
@@ -32,6 +33,7 @@ async function fixture() {
   await fs.writeFile(path.join(sessionDir, 'mcp.json'), JSON.stringify({ mcpServers: { unrelated: { command: 'dangerous' } } }));
   const db = createTestDb();
   const factory = new PiSessionFactory({
+    executionMachines: createTestExecutionMachineRegistry(),
     db, sessionDir, dataDir, otterToolClient: {} as never, model: null as never,
     createTools: () => [tool('speak'), tool('yield'), tool('search_memory'), tool('create_otter')] as never,
     otterConfigProvider: {

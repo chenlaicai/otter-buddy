@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * M-9af49d4a 换世交接 durable 路径失配——根因修复回归锁。
  *
@@ -44,6 +45,7 @@ async function openSession(file: string, responses: Parameters<ReturnType<typeof
   models.setProvider(faux.provider);
   faux.setResponses(responses);
   const session = await DurableSession.open({
+    executionMachines: createTestExecutionMachineRegistry(),
     otterId: "otter", file, models, model: faux.getModel(), cwd: tmpdir(), logger,
     register: createInvokeRegister(), invokeId: "invoke-test", context: BACKGROUND_CONTEXT,
     tools: { codingTools: [], customTools: [] },
@@ -126,6 +128,7 @@ describe("会话层：durable 换世代 reset（M-9af49d4a 根因修复）", () 
 describe("工厂层：换世账本与世代文件（M-9af49d4a 回归锁）", () => {
   function buildFactory(db: Database.Database, sessionDir: string, model: unknown) {
     return new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir,
       otterToolClient: {} as never,
@@ -216,6 +219,7 @@ describe("工厂层：换世账本与世代文件（M-9af49d4a 回归锁）", ()
     models.setProvider(faux.provider);
     const capturing = createCapturingLogger();
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db, sessionDir,
       otterToolClient: {} as never,
       model: faux.getModel() as never,
@@ -258,6 +262,7 @@ describe("工厂层：换世账本与世代文件（M-9af49d4a 回归锁）", ()
     models.setProvider(faux.provider);
     const capturing = createCapturingLogger();
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db, sessionDir,
       otterToolClient: {} as never,
       model: faux.getModel() as never,

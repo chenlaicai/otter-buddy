@@ -24,6 +24,8 @@ import type { SignalRouterSessionFactory } from "@usecases/conversation/signal-r
 import { ResumeInterruptedService } from "@usecases/conversation/resume-interrupted-service";
 
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
+import { LocalExecutionMachine } from "@frameworks/execution/local-execution-machine";
+import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
 
 import {
   syncApiKeyToAgentAuth, initDatabaseAndModels, initRepositoriesWithDb,
@@ -374,15 +376,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // initAgentAndScheduler 之后（见下）消除 schedulerService TDZ。
   if (modelPool) validateModelAliases(db, modelPool, logger);
   
-  // ── 对话工作区 ──
+  // ── 对话工作区与内置本机执行机 ──
   const workspaceGateway = new NodeWorkspaceGateway(dataDir);
+  const executionMachines = new ExecutionMachineRegistry();
+  executionMachines.register(new LocalExecutionMachine(workspaceGateway));
 
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
   const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask } = await createAgentGateway({
     repos, otterConfigProvider, model, modelPool, db, logger,
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
-    workspaceGateway,
+    executionMachines,
     dataDir,
   });
   const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService: queryEmbedding, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });

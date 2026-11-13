@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
@@ -21,6 +22,7 @@ function makeFactory() {
     getSessionStats: () => ({ tokens: { input: 0, output: 0 } }),
   } as unknown as AgentSession;
   const factory = new PiSessionFactory({
+    executionMachines: createTestExecutionMachineRegistry(),
     db, sessionDir: ":memory:", otterToolClient: {} as never, model: null as never,
     createTools: () => [], otterConfigProvider: new SqliteOtterConfigProvider(db),
     otterRepo: new SqliteOtterRepository(db),

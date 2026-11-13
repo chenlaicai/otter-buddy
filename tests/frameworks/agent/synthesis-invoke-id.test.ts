@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * M-9b24be04：合成影子通道 invokeId 守卫修复回归。
  *
@@ -38,6 +39,7 @@ describe("合成影子通道 invokeId（M-9b24be04）", () => {
     const models = createModels();
     models.setProvider(faux.provider);
     const session = await DurableSession.open({
+      executionMachines: createTestExecutionMachineRegistry(),
       otterId: "otter", file: path.join(dir, "s.sqlite"), models, model: faux.getModel(),
       cwd: tmpdir(), logger, register: createInvokeRegister(), context: BACKGROUND_CONTEXT,
       tools: { codingTools: [], customTools: [] }, // 不传 invokeId——影子通道旧形态
@@ -63,6 +65,7 @@ describe("合成影子通道 invokeId（M-9b24be04）", () => {
     const pool = { getModel: () => faux.getModel(), getDefaultAlias: () => "faux", getThinkingLevel: () => "off" } as never;
     registerModelSource(pool, models);
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db, sessionDir,
       otterToolClient: {} as never,
       model: faux.getModel() as never,

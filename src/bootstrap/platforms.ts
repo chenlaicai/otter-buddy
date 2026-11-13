@@ -20,6 +20,7 @@ import { sliceSessionEntries, serializeKeptWindow, setSliceLogger } from "@frame
 import { collectStateInventory, renderStateInventory } from "@frameworks/agent/state-inventory";
 import { scanWorkspaceFiles, renderFileTrail } from "@frameworks/agent/file-trail-extractor";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
+import type { ExecutionMachineRouter } from "@usecases/ports/execution-machine";
 import type { Repositories, UseCases } from "./types";
 import { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
@@ -85,8 +86,8 @@ export async function createAgentGateway(options: {
   sessionDir?: string;
   /** Otter 身份文案目录（默认 ./prompts/identity） */
   identityPromptDir?: string;
-  /** 对话工作区网关 */
-  workspaceGateway?: WorkspaceGateway;
+  /** OS/工作区动作执行机路由（组合根已注册内置 local） */
+  executionMachines: ExecutionMachineRouter;
   /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
   dataDir?: string;
 }): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
@@ -100,6 +101,7 @@ export async function createAgentGateway(options: {
   // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
   const agentGateway = await initAgentSessionFactory({
     model, modelPool, db,
+    executionMachines: options.executionMachines,
     otterToolClient: null,
     sessionDir: options.sessionDir,
     // Why: 默认目录基于代码位置解析（#429）；注入参数 override 优先
@@ -108,7 +110,7 @@ export async function createAgentGateway(options: {
       const scheduledTaskDeps = manageScheduledTaskRef
         ? { manage: manageScheduledTaskRef, pending: repos.scheduledTaskPending }
         : undefined;
-      const tools = createTools(ctx, repo, log, options.workspaceGateway, scheduledTaskDeps);
+      const tools = createTools(ctx, repo, log, options.executionMachines, scheduledTaskDeps);
       // PR #1783 alpha 实测修复：此处追加与 tool-factory.ts 的 `if (healingRepo)` 注册（F20260811sktp）
       // 同源重复——旧 SDK 不查重名无症状，durable registry validateExtension 遇重名抛错、
       // otter extension 拒载、invoke 必炸。注册权归 tool-factory 单点，此处只透传 repo。

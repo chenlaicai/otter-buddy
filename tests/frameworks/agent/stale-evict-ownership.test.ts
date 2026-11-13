@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * #904：stale 双活下 pendingRestart 消费的归属校验。
  *
@@ -51,6 +52,7 @@ function makeFactory() {
   const db = createTestDb();
   const logger = createTestLogger();
   const factory = new PiSessionFactory({
+    executionMachines: createTestExecutionMachineRegistry(),
     db,
     sessionDir: ":memory:",
     otterToolClient: {} as never,
@@ -153,6 +155,7 @@ describe("#904 stale 双活 pendingRestart 归属校验（_evictPooledIfOwned，
     const db = createTestDb();
     const warnSpy = vi.fn();
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,

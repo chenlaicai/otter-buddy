@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * F20260912nlb896：压缩合成影子通道（runCompactionSynthesis）单测。
  *
@@ -67,6 +68,7 @@ async function makeFactoryForShadow(shadow: ShadowSession, modelPool?: { getMode
   const db = createTestDb();
   const defaultModel = { id: "default-model", contextWindow: 200_000 } as unknown as Model<Api>;
   const factory = new PiSessionFactory({
+    executionMachines: createTestExecutionMachineRegistry(),
     db,
     sessionDir: ":memory:",
     otterToolClient: {} as never,

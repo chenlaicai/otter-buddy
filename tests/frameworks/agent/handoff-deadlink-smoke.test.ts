@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * F20260922handoff 死链修复：装配冒烟测试（防「mock 掩盖生产接线」复发）。
  *
@@ -28,6 +29,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
 
   it("readCurrentSessionEntries 在真实工厂实例上存在且为函数", () => {
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,
@@ -42,6 +44,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
 
   it("acquireSessionLock 在真实工厂实例上存在且为函数", () => {
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,
@@ -56,6 +59,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
 
   it("readCurrentSessionEntries：无 session 的獭返回 undefined（不抛错）", async () => {
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,
@@ -100,6 +104,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
     };
 
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir,
       otterToolClient: {} as never,
@@ -133,6 +138,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
 
   it("readCurrentSessionEntries：账本 sessionFile 磁盘缺失 → open 抛错 → 返回 undefined（降级，不 create）", async () => {
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,
@@ -164,6 +170,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
 
   it("acquireSessionLock：交接模式覆盖整个持锁期（release 闭包内复位，非 finally）", async () => {
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,
@@ -188,6 +195,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
 
   it("acquireSessionLock：acquire 抛错路径复位 handoffMode（防泄漏）", async () => {
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,
@@ -212,6 +220,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
 
   it("acquireSessionLock：取锁/释放闭环（释放函数可调用，不抛错）", async () => {
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,

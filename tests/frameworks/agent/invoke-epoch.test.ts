@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * F20261009epoc（#905）：invoke epoch 统一世代——方案验证节 8 条用例中的新增行为锁定。
  *
@@ -29,6 +30,7 @@ import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-reposit
 function makeFactory() {
   const db = createTestDb();
   const factory = new PiSessionFactory({
+    executionMachines: createTestExecutionMachineRegistry(),
     db,
     sessionDir: ":memory:",
     otterToolClient: {} as never,
@@ -312,6 +314,7 @@ describe("F20261009epoc（检视 A-3）：池命中所有权转移降级面", ()
     const db = createTestDb();
     const warnSpy = vi.fn();
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,
@@ -344,6 +347,7 @@ describe("F20261009epoc（检视 A-3）：池命中所有权转移降级面", ()
   it("hitEpoch 在场：所有权正常转移（回归锁定）", async () => {
     const db = createTestDb();
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,

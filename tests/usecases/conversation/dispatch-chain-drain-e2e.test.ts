@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { DispatchChainEngine, type InvokeFn } from "@usecases/conversation/dispatch-chain-engine";
@@ -51,6 +52,7 @@ describe("F20261027cnsv 原案 e2e：委托 drain 借道持有者原链 S", () =
       getSessionStats: () => ({ tokens: { input: 0, output: 0 } }),
     } as unknown as AgentSession;
     const factory = new PiSessionFactory({
+      executionMachines: createTestExecutionMachineRegistry(),
       db, sessionDir: ":memory:", otterToolClient: {} as never, model: null as never,
       createTools: () => [], otterConfigProvider: new SqliteOtterConfigProvider(db), otterRepo: repos.otter,
       healingRepo: repos.healingEvent,

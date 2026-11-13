@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 import { describe, it, expect, vi } from "vitest";
 
 /**
@@ -33,6 +34,7 @@ function makeFactory() {
   const db = createTestDb();
   const factory = new PiSessionFactory(
     {
+      executionMachines: createTestExecutionMachineRegistry(),
       db,
       sessionDir: ":memory:",
       otterToolClient: {} as never,

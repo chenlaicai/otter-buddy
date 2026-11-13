@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * F20261111synth：叙事合成 thinking 能力解析 + 兜底重试 + 预算上调（#1850）。
  *
@@ -93,6 +94,7 @@ const GLM_MODEL = {
 async function makeFactoryWithSessionQueue(sessions: ShadowSession[], modelPool?: { getModel: (alias: string | null | undefined) => Model<Api>; hasModel?: (alias: string) => boolean }) {
   const db = createTestDb();
   const factory = new PiSessionFactory({
+    executionMachines: createTestExecutionMachineRegistry(),
     db,
     sessionDir: ":memory:",
     otterToolClient: {} as never,

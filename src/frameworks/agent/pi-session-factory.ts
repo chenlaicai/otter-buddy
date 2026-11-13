@@ -27,6 +27,7 @@ import type { OtterType } from "@entities/otter/otter";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { Logger } from "@usecases/ports/logger";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
+import type { ExecutionMachineResolver } from "@usecases/ports/execution-machine";
 import type { AgentTool, ToolContext } from "@usecases/ports/agent-tools";
 import type { Model, Api } from "@earendil-works/pi-ai";
 import { ConversationIdle } from "@earendil-works/pi-durable";
@@ -291,6 +292,8 @@ export interface AgentSessionFactoryConfig {
   identityPromptDir?: string;
   /** 工具工厂函数（由 Composition Root 注入，解耦 interface-adapters） */
   createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
+  /** OS/工作区动作统一执行机路由（内置 local 由组合根注册） */
+  executionMachines: ExecutionMachineResolver;
   /** Healing event 仓库（可选，由 Composition Root 注入） */
   healingRepo?: HealingEventRepository;
   /** F20260826mwrd C1：signal_events 仓库（halt 落账） */
@@ -377,6 +380,7 @@ export class PiSessionFactory implements AgentGateway {
       modelPool?: ModelPool;
       identityPromptDir?: string;
       createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
+      executionMachines: ExecutionMachineResolver;
       healingRepo?: HealingEventRepository;
       signalRepo?: SignalEventRepository;
       rhiSignalRepo?: SignalRepository;
@@ -627,6 +631,7 @@ export class PiSessionFactory implements AgentGateway {
       model: resolvedModel,
       ...(resolvedThinkingLevel ? { thinkingLevel: resolvedThinkingLevel } : {}),
       cwd: this.cfg.dataDir ?? "./data",
+      executionMachines: this.cfg.executionMachines,
       tools: { customTools: [], codingTools: [] },
       logger: this.logger,
       register: createInvokeRegister(),
@@ -757,7 +762,8 @@ export class PiSessionFactory implements AgentGateway {
       // 经 getModel(provider,id) 重解析模型，副本不进 models 源就到不了线缆（maxTokens/
       // thinkingLevelMap 被池模板替换）。一次性 session 独立包装，随 session 销毁，零泄漏。
       models: withModelOverride(getModelSource(this.cfg.modelPool), model), model, thinkingLevel,
-      cwd: resolveSessionCwd('', this.cfg.dataDir ?? './data'), tools: { customTools: [], codingTools: [], readOnly: true },
+      cwd: resolveSessionCwd('', this.cfg.dataDir ?? './data'), executionMachines: this.cfg.executionMachines,
+      tools: { customTools: [], codingTools: [], readOnly: true },
       // M-9b24be04：合成影子通道自带合成 invokeId——durable prompt 的 invoke 归属守卫
       //（"A turn owns watch/admission/settlement"）要求轮有主；影子通道不在任何 invoke
       // ALS 作用域内，不带 id 会在 prompt() 首行被拒（"Durable prompt requires
@@ -1562,6 +1568,7 @@ export class PiSessionFactory implements AgentGateway {
       thinkingLevel: this.cfg.modelPool?.getThinkingLevel(resolvedAlias),
       prompt,
       cwd: workspaceCwd,
+      executionMachines: this.cfg.executionMachines,
       tools: { customTools: filteredCustomTools, codingTools: filteredCodingTools, readOnly, toolExposure },
       logger: this.logger,
       register,
@@ -1757,6 +1764,7 @@ export async function initAgentSessionFactory(config: AgentSessionFactoryConfig,
     modelPool: config.modelPool,
     identityPromptDir: config.identityPromptDir,
     createTools: config.createTools,
+    executionMachines: config.executionMachines,
     healingRepo: config.healingRepo,
     signalRepo: config.signalRepo,
     rhiSignalRepo: config.rhiSignalRepo,

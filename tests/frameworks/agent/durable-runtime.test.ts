@@ -10,6 +10,7 @@ import { DurableSession, type DurableSessionOptions } from "../../../src/framewo
 import { DurableMcpBridge } from "../../../src/frameworks/agent/durable-mcp";
 import { DurableEventStream } from "../../../src/frameworks/agent/durable-event-stream";
 import { createInvokeRegister } from "../../../src/frameworks/agent/tool-builder";
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 import type { Logger } from "../../../src/usecases/ports/logger";
 
 const logger: Logger = { debug() {}, info() {}, warn() {}, error() {}, child() { return this; } };
@@ -21,6 +22,7 @@ async function open(file: string, responses: Parameters<ReturnType<typeof fauxPr
   faux.setResponses(responses);
   const session = await DurableSession.open({
     otterId: "otter", file, models, model: faux.getModel(), cwd: tmpdir(), logger,
+    executionMachines: createTestExecutionMachineRegistry(),
     register: createInvokeRegister(), invokeId: "invoke-test", context: BACKGROUND_CONTEXT,
     tools: { codingTools: [], customTools: [{ name: "side_effect", label: "test", description: "test", parameters: { type: "object", properties: {} }, execute }] },
     afterTool,

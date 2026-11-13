@@ -1,3 +1,4 @@
+import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
  * F20260911pspl：池命中路径集成测试（检视 r2 严重 1）。
  *
@@ -64,6 +65,7 @@ function fakeSession(): FakeSession {
 function makeFactory() {
   const db = createTestDb();
   const factory = new PiSessionFactory({
+    executionMachines: createTestExecutionMachineRegistry(),
     db,
     sessionDir: ":memory:",
     otterToolClient: {} as never,

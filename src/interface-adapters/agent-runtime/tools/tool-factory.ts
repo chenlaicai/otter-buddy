@@ -11,7 +11,7 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIRED_TYPES, GROUP_ID_REQUIRED_MESSAGE_PREFIX } from "@usecases/conversation/manage-key-info";
 import type { Logger } from "@usecases/ports/logger";
-import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
+import type { ActionRunner } from "@usecases/ports/execution-machine";
 import { parseHealingParam, persistHealingIssues, SPEAK_HEALING_PARAM_SCHEMA, createManageHealingEventsTool } from "./healing-tools";
 import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, createUnhaltOtterTool, interceptSignalReport } from "./signal-tools";
 import { createListMattersTool, createTransitionMatterTool, createRegisterMatterTool, createMatterSweepTool } from "./matter-tools";
@@ -1742,8 +1742,8 @@ type ScheduledTaskToolDeps = ManageScheduledTask | {
   pending: ScheduledTaskPendingItemRepository;
 };
 
-function appendWorkspaceTools(tools: AgentTool[], ctx: ToolContext, gateway?: WorkspaceGateway): void {
-  if (gateway) tools.push(...createWorkspaceTools(ctx, gateway));
+function appendWorkspaceTools(tools: AgentTool[], ctx: ToolContext, actionRunner?: ActionRunner): void {
+  if (actionRunner) tools.push(...createWorkspaceTools(ctx, actionRunner));
 }
 
 function appendScheduledTaskTools(tools: AgentTool[], ctx: ToolContext, deps?: ScheduledTaskToolDeps): void {
@@ -1755,7 +1755,7 @@ function appendScheduledTaskTools(tools: AgentTool[], ctx: ToolContext, deps?: S
   }
 }
 
-export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, workspaceGateway?: WorkspaceGateway, scheduledTaskDeps?: ScheduledTaskToolDeps): AgentTool[] {
+export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, actionRunner?: ActionRunner, scheduledTaskDeps?: ScheduledTaskToolDeps): AgentTool[] {
   // F20260826mwrd C1：signal 仓库经 ToolContext.signalRepo 注入（避免参数继续膨胀）
   const signalRepo = ctx.signalRepo;
   // F20261006mtlp P1：matter 仓库经 ToolContext.matterRepo 注入（同 signalRepo 模式）
@@ -1794,7 +1794,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   if (healingRepo) {
     tools.push(createManageHealingEventsTool(ctx, healingRepo));
   }
-  appendWorkspaceTools(tools, ctx, workspaceGateway);
+  appendWorkspaceTools(tools, ctx, actionRunner);
   appendScheduledTaskTools(tools, ctx, scheduledTaskDeps);
   // F20260920stkx：stock_data / paper_trade 工具随能力整体移除（实验结论文档 R20260920stkx）
   // F20260826mwrd C1：halt 工具（仅 signalRepo 注入时注册；编排大獭用——
