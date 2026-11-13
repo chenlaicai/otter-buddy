@@ -38,7 +38,9 @@ PORT_FOREIGN=3460  # 场景C：python 占用者（拒杀边界）
 PORT_PIDF=3461     # 场景D：PID 文件正路（指向谁停谁）
 
 # 沙箱：脚本副本的 PROJECT_DIR=TMP（物理路径归一，见头部隔离设计说明）
-TMP="$(cd "$(mktemp -d -t port-identity-test)" && pwd -P)"
+# mktemp 跨平台形态：显式路径模板 + 6 个 X（GNU mktemp 强制要求模板含 X，
+# macOS -t prefix 无 X 也能跑但 GNU 会报 too few X's——CI Linux 首轮实证）
+TMP="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/port-identity-test.XXXXXX")" && pwd -P)"
 mkdir -p "$TMP/scripts"
 cp "$SCRIPT_SRC" "$TMP/scripts/otter-buddy.sh"
 SCRIPT="$TMP/scripts/otter-buddy.sh"
