@@ -108,6 +108,16 @@ describe("buildApp 组装根启动", () => {
     expect(capturedLogs.errors.some((m) => m.includes("Patrol duty failed: scheduler-reconcile"))).toBe(false);
   });
 
+  // #1869 回归防护：RHI 扫描的 Git 工作目录绑定项目根（getRepoRoot）而非 rootDir。
+  // 本测试 rootDir 指向非 Git 空目录（docs-root）——修复前 scanOnce 会对该目录执行 git log
+  // 报 fatal: not a git repository → POST /api/health/scan 返回 500；修复后绑定真仓库根成功。
+  it("RHI 扫描 git 工作目录绑定项目根而非 rootDir（#1869 回归防护）", async () => {
+    const res = await built.app.request("/api/health/scan", { method: "POST" });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { result: { commitCount: number } };
+    expect(body.result.commitCount).toBeGreaterThan(0);
+  }, 60_000);
+
   it("建獭全链路：POST /api/otters → 真 sqlite 落行 → GET 可取回", async () => {
     const createRes = await built.app.request("/api/otters", {
       method: "POST",
