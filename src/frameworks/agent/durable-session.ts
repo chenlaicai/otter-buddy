@@ -3,7 +3,7 @@ import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context"
 import type { WatchHandle } from "@earendil-works/chord";
 import type { EntryId } from "@earendil-works/pi-durable";
 import {
-  Harness, LiveDoc, ToolTask, UsageDoc, createRegistry,
+  Harness, GenerationTask, LiveDoc, ToolTask, UsageDoc, createRegistry,
   defineExtension, hook, section, type AgentChange, type Conversation, type ConversationView,
   type Registry, type ToolHooks, type ToolRegistration,
 } from "@earendil-works/pi-durable";
@@ -12,6 +12,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import type { Api, Model, Models } from "@earendil-works/pi-ai";
 import type { Logger } from "@usecases/ports/logger";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { stripEmptyAssistantText } from "./assistant-message-sanitizer";
 import { bashGuardGate, haltToolCallGuard, loopBlockGuard, otterInvokeStorage } from "./model-runtime-registry";
 import { toDurableTool } from "./durable-tool-registry";
 import { DurableEventStream } from "./durable-event-stream";
@@ -96,6 +97,14 @@ export class DurableSession {
       hooks: [hook(ToolTask, {
         beforeTool: (call) => this.beforeTool(call),
         ...(options.afterTool ? { afterTool: options.afterTool } : {}),
+      }), hook(GenerationTask, {
+        // F20261113etsan：kimi 会在 toolCall 响应里附带空 text 块，回放时插在
+        // function_call 与其 output 之间触发 kimi /responses 邻接校验 400（session 每轮必死）。
+        // 请求前剥空空块，存量中毒 session 一并痊愈；历史记录不动、可审计。
+        beforeRequest: ({ messages }) => {
+          const cleaned = stripEmptyAssistantText(messages);
+          return cleaned === undefined ? undefined : { messages: cleaned };
+        },
       })],
     });
     this.registry = createRegistry();
