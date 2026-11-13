@@ -60,14 +60,20 @@ export class InvokeAbortError extends ApiError {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  // #1322（F20261016autz）：身份头恒并入；调用方自带 headers 时整体替换语义保留
+  // #1868 阶段 2：身份随会话 cookie（同源 fetch 默认携带）；identityHeaders() 现返回 {}。
+  // 调用方自带 headers 时整体替换语义保留
   //（如 uploadAttachments 传 {} = 不设 Content-Type 让浏览器带 multipart boundary）
   const { headers: initHeaders, ...initRest } = init ?? {}
   const res = await fetch(`${BASE}${url}`, {
     ...initRest,
+    credentials: 'same-origin',
     headers: { ...(initHeaders ?? { 'Content-Type': 'application/json' }), ...identityHeaders() },
   })
   if (!res.ok) {
+    // 未登录/会话失效：广播给会话门，主布局切回登录屏（而不是每页各自弹 401）
+    if (res.status === 401) {
+      window.dispatchEvent(new CustomEvent('otter:unauthorized'))
+    }
     const body = await res.json().catch(() => ({ error: res.statusText }))
     throw new ApiError(body.error ?? res.statusText, res.status, body.code, body.invoke_status)
   }

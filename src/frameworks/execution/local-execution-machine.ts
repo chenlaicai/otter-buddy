@@ -13,6 +13,8 @@ import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 /** Built-in machine: reuse the existing Node implementations, with no second OS path. */
 export class LocalExecutionMachine implements ExecutionMachine {
   readonly id = LOCAL_EXECUTION_MACHINE_ID;
+  /** Web 当前执行机投影展示名（阶段 2） */
+  readonly name = "本机";
 
   constructor(private readonly workspaceGateway: WorkspaceGateway) {}
 

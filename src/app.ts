@@ -26,6 +26,9 @@ import { ResumeInterruptedService } from "@usecases/conversation/resume-interrup
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 import { LocalExecutionMachine } from "@frameworks/execution/local-execution-machine";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
+import { resolveOwnerToken, verifyOwnerToken } from "@interface-adapters/http/auth/owner-token";
+import { createSessionSigner } from "@interface-adapters/http/auth/session-cookie";
+import { AuthController } from "@interface-adapters/http/controllers/auth-controller";
 
 import {
   syncApiKeyToAgentAuth, initDatabaseAndModels, initRepositoriesWithDb,
@@ -708,7 +711,29 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   }, logger);
 
   const mahjongRoot = options.staticRoot === false ? false : path.resolve(import.meta.dirname, "../..", "web-mahjong");
-  const app = buildHttpApp(controllers, logger, options.staticRoot ?? path.resolve(import.meta.dirname, "../..", "web/dist"), mahjongRoot);
+  // ── 统一接入（issue #1868 阶段 2）：owner token → HMAC 会话签名器 → auth 三端点 + 中间件会话优先 ──
+  const ownerToken = resolveOwnerToken({ dataDir, logger, env: process.env });
+  const sessionSigner = createSessionSigner(ownerToken);
+  const authController = new AuthController({
+    verifyOwnerToken: (token) => verifyOwnerToken(ownerToken, token),
+    signSession: (identity) => sessionSigner.sign(identity, Date.now()),
+  });
+  const app = buildHttpApp(
+    controllers,
+    logger,
+    options.staticRoot ?? path.resolve(import.meta.dirname, "../..", "web/dist"),
+    mahjongRoot,
+    {
+      auth: {
+        verifySession: (value) => sessionSigner.verify(value, Date.now()),
+        controller: authController,
+      },
+      executionMachines: {
+        list: () => executionMachines.list(),
+        currentId: () => executionMachines.currentMachineId(),
+      },
+    },
+  );
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
   // #460：捕获 stopFeishu 句柄接入 dispose 链（防 WSClient 重连阻止退出）

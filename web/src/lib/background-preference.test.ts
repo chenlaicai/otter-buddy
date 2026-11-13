@@ -6,8 +6,9 @@ const saveBackgroundMock = vi.hoisted(() => vi.fn())
 const deleteBackgroundMock = vi.hoisted(() => vi.fn())
 vi.mock('../api/client', () => ({ saveBackground: saveBackgroundMock, deleteBackground: deleteBackgroundMock }))
 vi.mock('../api/identity', () => ({
-  identityHeaders: () => ({ 'X-Otter-User-Id': 'web-ui', 'X-Otter-User-Role': 'admin' }),
-  withIdentity: (path: string) => `${path}${path.includes('?') ? '&' : '?'}otterUserId=web-ui&otterRole=admin`,
+  // #1868 阶段 2：web 身份随会话 cookie——identityHeaders 空、withIdentity 恒等
+  identityHeaders: () => ({}),
+  withIdentity: (path: string) => path,
 }))
 
 const VALID_PNG = 'data:image/png;base64,iVBORw0KGgo='

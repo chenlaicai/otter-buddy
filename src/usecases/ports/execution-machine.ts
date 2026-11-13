@@ -51,6 +51,8 @@ export interface ActionRunner {
 
 export interface ExecutionMachine extends ActionRunner {
   readonly id: string;
+  /** 人类可读展示名（Web 当前执行机投影用；缺省回退 id） */
+  readonly name?: string;
   createExecutionEnvironment(cwd: string): ExecutionEnv;
 }
 
