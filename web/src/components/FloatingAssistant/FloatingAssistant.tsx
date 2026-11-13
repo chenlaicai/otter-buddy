@@ -29,7 +29,7 @@ export function FloatingAssistant(props: FloatingAssistantProps) {
   const { enabled } = props
   const mood = useOtterMood()
   const { conversations } = useGlobalConversationSnapshot()
-  const { open, setOpen, toggle, position, dragging, bindDrag, panelRef } = useFloatingOtter()
+  const { open, setOpen, toggle, position, dragging, dragMovedRef, bindDrag, panelRef } = useFloatingOtter()
 
   /** web 助理对话 id（null = 尚无） */
   const [webConvId, setWebConvId] = useState<string | null>(null)
@@ -97,6 +97,7 @@ export function FloatingAssistant(props: FloatingAssistantProps) {
         onToggle={handleToggle}
         position={position}
         dragging={dragging}
+        dragMovedRef={dragMovedRef}
         onPointerDown={bindDrag.onPointerDown}
       />
       {open && (
