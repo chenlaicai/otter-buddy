@@ -56,8 +56,11 @@ export interface UseFloatingOtterResult {
   setOpen: (v: boolean) => void
   toggle: () => void
   position: OtterPosition
-  /** 拖动中（拖动态抑制点击判定与 hover 气泡） */
+  /** 拖动中（拖动态抑制点击判定与 hover 气泡，驱动视觉态） */
   dragging: boolean
+  /** 本轮 pointer 交互是否为拖动（ref 同步维护——供 click handler 判定 click/drag 分离，
+   *  不依赖 React state 异步刷新，修 #1181/#1858 Esc 收起后点击偶发不展开的竞态） */
+  dragMovedRef: React.RefObject<boolean>
   /** pointer 事件 handlers（挂到獭本体元素） */
   bindDrag: {
     onPointerDown: (e: React.PointerEvent) => void
@@ -87,6 +90,10 @@ export function useFloatingOtter(): UseFloatingOtterResult {
   const [position, setPosition] = useState<OtterPosition>(() => loadOtterPosition() ?? defaultOtterPosition())
   const [dragging, setDragging] = useState(false)
   const dragStateRef = useRef<{ startX: number; startY: number; origin: OtterPosition; moved: boolean } | null>(null)
+  // #1181/#1858：click 判定不读 dragging state（pointerup 的 setDragging(false) 在 click 触发时
+  // 可能尚未重渲染，click 读到陈旧 true 被抑制 → Esc 收起后点獭偶发不展开）。改为 ref 同步维护——
+  // pointerdown 重置 false，move 越阈值置 true，click handler 直接读 ref。
+  const dragMovedRef = useRef(false)
   // F20260928waf1 P1 修复：panelRef 从「定义未绑定」改为经 return 暴露，由宿主绑到面板根元素。
   // 此前 panelRef 恒 null → panelRef.current?.contains(target) 恒 undefined → 点面板内部
   // （含输入框）被判为「外部」→ 收起——用户点输入框弹窗即消失的根因
@@ -135,6 +142,7 @@ export function useFloatingOtter(): UseFloatingOtterResult {
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return
     dragStateRef.current = { startX: e.clientX, startY: e.clientY, origin: position, moved: false }
+    dragMovedRef.current = false
     setDragging(true)
   }, [position])
 
@@ -146,6 +154,7 @@ export function useFloatingOtter(): UseFloatingOtterResult {
       const dy = e.clientY - st.startY
       if (!st.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return
       st.moved = true
+      dragMovedRef.current = true
       setPosition(clampPosition({ x: st.origin.x + dx, y: st.origin.y + dy }))
     }
     function onUp() {
@@ -169,5 +178,5 @@ export function useFloatingOtter(): UseFloatingOtterResult {
 
   const bindDrag = { onPointerDown }
 
-  return { open, setOpen, toggle, position, dragging, bindDrag, panelRef }
+  return { open, setOpen, toggle, position, dragging, dragMovedRef, bindDrag, panelRef }
 }
