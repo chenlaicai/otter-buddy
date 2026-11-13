@@ -18,7 +18,8 @@
 # 断言强度（S1 加固）：全部用「正断言」——exit 0 + 输出含 [ok]/[info]（cmd_status
 # 输出面仅此前缀，见 scripts/otter-buddy.sh:214-233），杜绝「非 Usage 早崩也绿」假阳性。
 #
-# 不触主进程、不起真实服务：status 是只读路径（读 PID 文件 + sqlite 查询）。
+# 不触主进程、不起真实服务：status 是只读路径（读 PID 文件 + 端口探测；
+# F20261113stopp 起主服务缺 PID 文件时会自愈重建该文件——验明身份后的零风险写，仍不触进程）。
 
 set -euo pipefail
 
