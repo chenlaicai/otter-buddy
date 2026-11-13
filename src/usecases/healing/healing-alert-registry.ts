@@ -14,7 +14,7 @@
  * 键为 conversationId（非 bigOtterId）：intercept 时 ctx 没有 otter 类型信息，
  * 解析「谁是大獭」是消费侧（agent-invoker）的职责——它查得到参与者与类型。
  *
- * 进程级单例（同 haltRegistry 模式）：interceptHealingReport 写、
+ * 进程级单例（同 haltRegistry 模式）：persistHealingIssues 写、
  * agent-invoker buildDynamicContext 读，同进程无跨进程需求。
  */
 
@@ -85,7 +85,7 @@ class HealingAlertRegistry {
   }
 }
 
-/** 进程级单例（跨模块共享：interceptHealingReport 写、agent-invoker 读） */
+/** 进程级单例（跨模块共享：persistHealingIssues 写、agent-invoker 读） */
 export const healingAlertRegistry = new HealingAlertRegistry();
 
 /**

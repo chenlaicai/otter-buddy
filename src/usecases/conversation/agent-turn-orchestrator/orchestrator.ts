@@ -26,7 +26,7 @@ import { matchContextOverflowError, buildContextOverflowSystemMsg, buildContextO
 import { isContentFilterError } from "./content-filter-error";
 // #543：high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
 // 下一次 invoke 的 DynamicContext 补送达（复用 F20260826mwrd Part 4 管道，process 级单例直引，
-// 与 interceptHealingReport 同模式；usecase 内部互引无跨层问题）
+// 与 persistHealingIssues 同模式；usecase 内部互引无跨层问题）
 import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, TerminalContext, FirstDumbInfo } from "./types";
@@ -446,7 +446,7 @@ export class AgentTurnOrchestrator {
         },
       });
       // C3 高警入队：仅 high（配额耗尽）入；eventId 先行生成、与台账 create 同源双写
-      // 各自失败不阻塞对方（interceptHealingReport 同款语义，审计面以 healing_events 为准）
+      // 各自失败不阻塞对方（persistHealingIssues 同款语义，审计面以 healing_events 为准）
       if (match.exhausted) {
         healingAlertRegistry.enqueue(ctx.input.conversationId, {
           eventId: crypto.randomUUID(),

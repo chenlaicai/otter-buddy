@@ -1,10 +1,9 @@
 /**
- * Healing 相关工具：系统自愈报告解析和 healing event 管理。
+ * Healing 相关工具：speak healing 参数校验/落账和 healing event 管理。
  */
 
 import type { HealingEventRepository, HealingEventBatchFilter } from "@usecases/healing/healing-event-repository";
-import type { HealingResolutionAction, HealingEventStatus, HealingErrorType } from "@entities/healing/healing-event";
-import { parseHealingReport, stripHealingReport, type HealingBlockError } from "@usecases/healing/healing-report-parser";
+import type { HealingResolutionAction, HealingEventStatus, HealingErrorType, HealingSeverity } from "@entities/healing/healing-event";
 import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import { isHealingProbeEvent } from "@usecases/healing/constants";
 import type { Logger } from "@usecases/ports/logger";
@@ -12,64 +11,139 @@ import type { ToolContext, AgentTool, ToolResponse } from "@usecases/ports/agent
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 import { checkOpenIssue, type CheckIssueBinding } from "../../github/issue-binding";
 
-/** intercept 结果：非法块产生 error（阻断发言），否则返回剥离后的 cleanBody */
-export interface HealingInterceptResult {
-  cleanBody: string;
+/** 模型自报 healing 的合法 type 集合（走 speak healing 参数，非框架层自动写库类型） */
+const SELF_REPORT_TYPES: ReadonlySet<string> = new Set([
+  'tool_failure', 'missing_context', 'wrong_tool', 'format_violation',
+  'knowledge_gap', 'performance', 'other', 'tool_use_feedback', 'runtime_status_mismatch',
+]);
+
+const SELF_REPORT_SEVERITIES: ReadonlySet<string> = new Set(['low', 'medium', 'high']);
+const MAX_FIELD_LENGTH = 500;
+const MAX_ISSUES_PER_SPEAK = 10;
+
+/** speak healing 参数的 JSON Schema（F20261113hlprm）：白名单与 parseHealingParam 同源维护 */
+export const SPEAK_HEALING_PARAM_SCHEMA = {
+  type: "array",
+  description: "系统自愈上报（可选）。遇系统问题（工具故障/检索缺失/格式异常/工具难用等）时填，每条一个 issue；没遇到问题就不传。",
+  items: {
+    type: "object",
+    properties: {
+      type: {
+        type: "string",
+        enum: [...SELF_REPORT_TYPES],
+        description: "问题类型。工具难用/参数反直觉/多余报 tool_use_feedback（description 以 [tool:工具名] 开头）。",
+      },
+      severity: { type: "string", enum: [...SELF_REPORT_SEVERITIES], description: "严重度，缺省 low。" },
+      description: { type: "string", description: "一句话描述问题（必填）。" },
+      suggestion: { type: "string", description: "建议的处置（可选）。" },
+    },
+    required: ["type", "description"],
+  },
+} as const;
+
+/** speak healing 参数解析后的一条 issue（已校验合法） */
+export interface HealingIssueParam {
+  type: HealingErrorType;
+  severity: HealingSeverity;
+  description: string;
+  suggestion: string;
+}
+
+export interface HealingParamResult {
+  issues: HealingIssueParam[];
   error: string | null;
 }
 
-/** 非法协议块 → 可操作、响亮的错误回执（不静默、不落账） */
-function formatInvalidBlocksError(blocks: HealingBlockError[]): string {
-  const lines = blocks.map(b => `- ${b.reason}\n  块预览：${b.preview}`).join('\n');
-  return (
-    `speak 正文含 ${blocks.length} 个非法 healing 协议块，已阻断发言（本次未落账、未创建 entry）。` +
-    `请修正后重发：\n${lines}\n\n` +
-    `合法上报形态（裸写，勿放在代码围栏内）：\n` +
-    `1) <healing>[issues]\n- type: other\n  severity: low\n  description: ...\n  suggestion: ...\n[/issues]</healing>\n` +
-    `2) <healing>{"type":"other","description":"..."}</healing>（type/description 必填）\n\n` +
-    `若只是讲解/演示 healing 语法，请用行内代码或代码围栏包裹（代码内不上报）——裸写 = 上报。`
-  );
+/** 单条 severity 合法化（缺省 low；非法返回 error） */
+function normalizeSeverity(raw: unknown, index: number): { value: HealingSeverity; error: null } | { value: null; error: string } {
+  if (raw === undefined || raw === null) return { value: 'low', error: null };
+  if (typeof raw === 'string') {
+    const v = raw.trim().toLowerCase();
+    if (!v) return { value: 'low', error: null };
+    if (SELF_REPORT_SEVERITIES.has(v)) return { value: v as HealingSeverity, error: null };
+  }
+  return { value: null, error: `healing 参数第 ${index + 1} 条 severity 非法，可选 low / medium / high。` };
 }
 
-/** 解析并剥离 healing report。
- *  原子性（F20261111hrepl，#1842）：存在任一非法协议块时，不剥离、不 repo.create、
- *  不 enqueue high alert，直接返回 error——避免一次 speak 部分成功。 */
-export function interceptHealingReport(rawBody: string, ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): HealingInterceptResult {
-  const { hasIssues, issues, invalidBlocks } = parseHealingReport(rawBody);
-  if (invalidBlocks.length > 0) {
-    logger?.warn('Invalid healing protocol block(s) in speak body', { count: invalidBlocks.length });
-    return { cleanBody: rawBody, error: formatInvalidBlocksError(invalidBlocks) };
+/** 单条 issue 合法化（非法返回可操作 error） */
+function normalizeIssueItem(item: unknown, index: number): { issue: HealingIssueParam } | { error: string } {
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+    return { error: `healing 参数第 ${index + 1} 条必须是对象（含 type/description 字段）。` };
   }
-  const cleanBody = stripHealingReport(rawBody);
-  if (hasIssues) {
-    const now = new Date().toISOString();
-    const meta = { otterId: ctx.otterId, conversationId: ctx.conversationId, messageId: ctx.currentMessageId };
-    for (const issue of issues) {
-      if (issue.severity === 'high') {
-        logger?.warn('High severity healing event', { type: issue.type, description: issue.description });
-        // F20260826mwrd C3（Part 4）：high 事件不再止步于日志——登记待提醒，
-        // 大獭下一次 invoke 的 dynamicContext 注入（台账照旧落 healing_events）。
-        // 键用 conversationId（对话粒度队列）：消费侧（agent-invoker）按对话取全部，
-        // 大獭不在场则滞留到下一轮，不丢。eventId 先行生成、与台账 create 同源
-        // （fire-and-forget 双写各自失败不阻塞对方，审计面以 healing_events 为准）。
-        healingAlertRegistry.enqueue(ctx.conversationId, {
-          eventId: crypto.randomUUID(),
-          conversationId: ctx.conversationId,
-          otterId: ctx.otterId,
-          errorType: issue.type,
-          description: issue.description,
-          createdAt: now,
-        });
-      }
-      repo.create({
-        id: crypto.randomUUID(), messageId: ctx.currentMessageId, conversationId: ctx.conversationId,
-        otterId: ctx.otterId, errorType: issue.type, severity: issue.severity,
-        description: issue.description, suggestion: issue.suggestion,
-        context: meta, status: 'open', resolution: null, createdAt: now, resolvedAt: null,
-      }).catch(err => logger?.error('Failed to store healing event', err instanceof Error ? err : new Error(String(err))));
+  const obj = item as Record<string, unknown>;
+  const type = typeof obj.type === 'string' ? obj.type.trim().toLowerCase() : '';
+  if (!type) {
+    return { error: `healing 参数第 ${index + 1} 条缺 type 字段（必填）。可选：${[...SELF_REPORT_TYPES].join(' / ')}。` };
+  }
+  if (!SELF_REPORT_TYPES.has(type)) {
+    return { error: `healing 参数第 ${index + 1} 条 type "${type}" 不在白名单。可选：${[...SELF_REPORT_TYPES].join(' / ')}。` };
+  }
+  const description = typeof obj.description === 'string' ? obj.description.trim() : '';
+  if (!description) {
+    return { error: `healing 参数第 ${index + 1} 条缺 description 字段（必填，一句话描述问题）。` };
+  }
+  const severity = normalizeSeverity(obj.severity, index);
+  if (severity.error) return { error: severity.error };
+  return {
+    issue: {
+      type: type as HealingErrorType,
+      severity: severity.value as HealingSeverity,
+      description: description.slice(0, MAX_FIELD_LENGTH),
+      suggestion: typeof obj.suggestion === 'string' ? obj.suggestion.trim().slice(0, MAX_FIELD_LENGTH) : '',
+    },
+  };
+}
+
+/**
+ * 校验 speak 的 healing 结构化参数（F20261113hlprm：healing 从 body 文本标签改为独立参数）。
+ * 未传/空 → 空 issues；非法 → 可操作 error（原子阻断发言，不落账不建 entry）。
+ */
+export function parseHealingParam(raw: unknown): HealingParamResult {
+  if (raw === undefined || raw === null) return { issues: [], error: null };
+  if (!Array.isArray(raw)) {
+    return { issues: [], error: 'healing 参数必须是 issue 数组（如 [{"type":"tool_use_feedback","description":"..."}]）；没遇到问题就不传该参数。' };
+  }
+  if (raw.length === 0) return { issues: [], error: null };
+  if (raw.length > MAX_ISSUES_PER_SPEAK) {
+    return { issues: [], error: `healing 参数最多 ${MAX_ISSUES_PER_SPEAK} 条（收到 ${raw.length} 条），请精简。` };
+  }
+  const issues: HealingIssueParam[] = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const normalized = normalizeIssueItem(raw[i], i);
+    if ('error' in normalized) return { issues: [], error: normalized.error };
+    issues.push(normalized.issue);
+  }
+  return { issues, error: null };
+}
+
+/**
+ * 落账 healing issues（F20261113hlprm：从 interceptHealingReport 迁移，参数法专用）。
+ * high → healingAlertRegistry.enqueue + repo.create；fire-and-forget 双写各自失败不阻塞对方
+ * （审计面以 healing_events 为准，语义同 F20260826mwrd C3）。
+ */
+export function persistHealingIssues(issues: HealingIssueParam[], ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): void {
+  if (issues.length === 0) return;
+  const now = new Date().toISOString();
+  const meta = { otterId: ctx.otterId, conversationId: ctx.conversationId, messageId: ctx.currentMessageId };
+  for (const issue of issues) {
+    if (issue.severity === 'high') {
+      logger?.warn('High severity healing event', { type: issue.type, description: issue.description });
+      healingAlertRegistry.enqueue(ctx.conversationId, {
+        eventId: crypto.randomUUID(),
+        conversationId: ctx.conversationId,
+        otterId: ctx.otterId,
+        errorType: issue.type,
+        description: issue.description,
+        createdAt: now,
+      });
     }
+    repo.create({
+      id: crypto.randomUUID(), messageId: ctx.currentMessageId, conversationId: ctx.conversationId,
+      otterId: ctx.otterId, errorType: issue.type, severity: issue.severity,
+      description: issue.description, suggestion: issue.suggestion,
+      context: meta, status: 'open', resolution: null, createdAt: now, resolvedAt: null,
+    }).catch(err => logger?.error('Failed to store healing event', err instanceof Error ? err : new Error(String(err))));
   }
-  return { cleanBody, error: null };
 }
 
 /** ISO 8601 日期校验——非法格式静默参与字典序比较会语义意外（检视獭-454 发现 3） */
@@ -270,7 +344,7 @@ export function createManageHealingEventsTool(
   };
   return {
     name: "manage_healing_events",
-    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略 / 同族事件批量归口到 issue. Not for: 主动注入 healing 标记 → 走 speak 的 healing 块. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve/batch_bind）. query 默认过滤健康探针心跳事件（includeProbe: true 可含，仅诊断用）. batch_resolve: 按 filter 批量处置（filterStatus/filterErrorType/filterRuleId/filterBoundIssue/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. ⚠️批量闸：未归口 high 事件禁批量静默——先 batch_bind 归口（high 的推荐路径）或逐条处置；已归口（bound）high 可随 issue 收尾批量 resolve（filterBoundIssue=N）. batch_bind：按 filter 批量归口到 GitHub issue（bind≠resolve，事件保持 open 直到修复合入后收尾）——issueNumber 必填且必须为 OPEN（CLOSED/不存在/状态查询失败均拒绝且不写库；幻觉编号会使后续 filterBoundIssue 收尾静默终结 high）+ 至少一个过滤条件（防异质归口），guard_intercept 事件族按 filterErrorType=guard_intercept + filterRuleId=<指纹> 分组归口；high 不设闸（归口是结构化认领非静默，恰是 high 的推荐去向）；只作用未归口 open 事件；单批 100，truncated=true 需再次执行. GOTCHA: resolve/dismiss 对不存在或已终态（非 open）的 eventId 返回 isError 并列明失败 ID（fail-closed——假成功曾致回执与库状态不一致；dismiss 仅作用 open 态——已终态的再 dismiss 同样报错，防重复处置静默吞）；部分失败时同样返回 isError——需检查响应中失败计数.",
+    description: "查询和管理 healing events（系统自愈问题记录）. When: 查看自愈检测到的问题 / 标记已解决或忽略 / 同族事件批量归口到 issue. Not for: 主动注入 healing 标记 → 走 speak 的 healing 参数（结构化字段，勿在 body 文本里写标签）. Output: 问题列表或处置确认（action: query/resolve/dismiss/batch_resolve/batch_bind）. query 默认过滤健康探针心跳事件（includeProbe: true 可含，仅诊断用）. batch_resolve: 按 filter 批量处置（filterStatus/filterErrorType/filterRuleId/filterBoundIssue/filterCreatedBefore/filterCreatedAfter 替代 eventIds），单批上限 100，建议先 dryRun 预览再真实执行；响应含 truncated=true 时需再次执行处理剩余批次. ⚠️批量闸：未归口 high 事件禁批量静默——先 batch_bind 归口（high 的推荐路径）或逐条处置；已归口（bound）high 可随 issue 收尾批量 resolve（filterBoundIssue=N）. batch_bind：按 filter 批量归口到 GitHub issue（bind≠resolve，事件保持 open 直到修复合入后收尾）——issueNumber 必填且必须为 OPEN（CLOSED/不存在/状态查询失败均拒绝且不写库；幻觉编号会使后续 filterBoundIssue 收尾静默终结 high）+ 至少一个过滤条件（防异质归口），guard_intercept 事件族按 filterErrorType=guard_intercept + filterRuleId=<指纹> 分组归口；high 不设闸（归口是结构化认领非静默，恰是 high 的推荐去向）；只作用未归口 open 事件；单批 100，truncated=true 需再次执行. GOTCHA: resolve/dismiss 对不存在或已终态（非 open）的 eventId 返回 isError 并列明失败 ID（fail-closed——假成功曾致回执与库状态不一致；dismiss 仅作用 open 态——已终态的再 dismiss 同样报错，防重复处置静默吞）；部分失败时同样返回 isError——需检查响应中失败计数.",
     parameters: {
       type: "object",
       properties: {
