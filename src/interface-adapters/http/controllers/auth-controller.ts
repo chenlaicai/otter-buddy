@@ -38,16 +38,20 @@ export class AuthController {
     return c.json({ ok: true, identity });
   }
 
-  /** POST /api/auth/logout（public）：清会话 cookie（登出幂等，未登录调用也 200）。 */
+  /** POST /api/auth/logout（public）：清客户端会话 cookie（登出幂等，未登录调用也 200）。
+   *  无状态签名器下登出不撤销已签发的 cookie 值——旧值 7 天内仍可凭 HMAC 签名通过校验；
+   *  整体撤销靠轮换 owner token（secret 变更即全部既有会话失效）。 */
   async logout(c: Context): Promise<Response> {
     const existing = getCookie(c, SESSION_COOKIE_NAME);
     if (existing !== undefined) deleteCookie(c, SESSION_COOKIE_NAME, { path: "/" });
     return c.json({ ok: true });
   }
 
-  /** GET /api/auth/session（authenticated）：当前会话身份（能走到这里 = 中间件已放行）。 */
+  /** GET /api/auth/session（authenticated）：当前会话身份（能走到这里 = 中间件已放行）。
+   *  兜底 fail-closed：identity 缺失（异常装配路径）返回 401，而非 fabricate admin。 */
   async session(c: Context): Promise<Response> {
     const identity = c.get("identity" as never) as { userId: string; role: string } | undefined;
-    return c.json({ ok: true, identity: identity ?? { userId: OWNER_SESSION_USER_ID, role: "admin" } });
+    if (!identity) return c.json({ error: "Unauthenticated", code: "unauthenticated" }, 401);
+    return c.json({ ok: true, identity });
   }
 }

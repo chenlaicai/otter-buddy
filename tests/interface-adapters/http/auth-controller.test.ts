@@ -86,13 +86,31 @@ describe("统一接入登录（auth 三端点）", () => {
     expect(body.identity.userId).toBe("owner");
   });
 
-  it("logout：幂等清 cookie；登出后 session 端点 401", async () => {
-    await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: OWNER_TOKEN }) });
+  it("logout：幂等清 cookie（无状态会话：登出不撤销已签发 cookie 值，撤销靠 token 轮换）", async () => {
+    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: OWNER_TOKEN }) });
+    const cookie = cookieOf(login); // 裸 app.request 不自动管理 cookie，此处显式取出以验证精确语义
     const logout = await app.request("/api/auth/logout", { method: "POST" });
     expect(logout.status).toBe(200);
     // 无 cookie 登出也 200（幂等）
     const again = await app.request("/api/auth/logout", { method: "POST" });
     expect(again.status).toBe(200);
+    // 已签发的 cookie 值在登出后仍可凭 HMAC 签名通过校验（无状态设计：登出仅清客户端 cookie）
+    const after = await app.request("/api/auth/session", { headers: { Cookie: `otter_session=${cookie}` } });
+    expect(after.status).toBe(200);
+  });
+
+  it("AuthController.session 兜底：identity 缺失 → 401（fail-closed，不 fabricate admin）", async () => {
+    const controller = new AuthController({
+      verifyOwnerToken: () => true,
+      signSession: () => "unused-sig",
+    });
+    const bareContext = {
+      get: () => undefined as unknown,
+      json: (body: unknown, status = 200) => new Response(JSON.stringify(body), { status }),
+    };
+    const res = await controller.session(bareContext as never);
+    expect(res.status).toBe(401);
+    expect((await res.json() as { code: string }).code).toBe("unauthenticated");
   });
 
   it("登录拿到的 cookie 能通过受保护列表端点（authenticated 档）", async () => {

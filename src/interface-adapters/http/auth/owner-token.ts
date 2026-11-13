@@ -50,14 +50,16 @@ export function resolveOwnerToken(options: ResolveOwnerTokenOptions): string {
   try {
     const existing = readFileSync(filePath, "utf8").trim();
     if (existing) return existing;
-  } catch {
-    // 文件不存在或不可读 → 走生成
+    // 文件存在但内容空白 → 损坏形态：宁 fail 不静默换 token（换 token 会静默踢掉旧会话）。
+    throw new Error(`Owner token file exists but is blank (corrupt): ${filePath}`);
+  } catch (err) {
+    // 仅「文件不存在」是首启正常路径，放行走生成；其余（不可读/空白/其他 IO 错误）一律向上抛，
+    // 由启动链 fail-fast——与设计取舍「文件损坏宁 fail 不静默换 token」对齐。
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
 
   const token = generateOwnerToken();
-  // 不可读的既有文件这里会抛——老板 token 损坏宁可 fail 也不静默换 token（换 token 会静默踢掉旧会话），
-  // 但「整文件不存在」是首启正常路径，必须放行。上面 try/catch 已把 not-found 吞掉；
-  // 这里 mkdir/write 失败则向上抛，由启动链 fail-fast。
+  // mkdir/write 失败向上抛，由启动链 fail-fast。
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, `${token}\n`, { mode: 0o600 });
   options.logger?.info("Owner token generated", { filePath });

@@ -36,6 +36,12 @@ describe("owner-token：值源解析", () => {
     expect(token.length).toBeGreaterThan(20);
   });
 
+  it("文件已存在但空白 → 抛错（损坏宁 fail 不静默换 token）", () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, OWNER_TOKEN_FILENAME), "\n  \n", { mode: 0o600 });
+    expect(() => resolveOwnerToken({ dataDir: dir })).toThrow(/blank/);
+  });
+
   it("文件已存在则复用（会话跨重启可续）", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, OWNER_TOKEN_FILENAME), "persisted-token\n", { mode: 0o600 });

@@ -54,8 +54,8 @@ intent:
 ## 非目标
 
 不实现多用户、OAuth/OIDC、速率限制/防爆破、云同步登录态、设备管理 UI；token 轮换即「整体
-撤销全部会话」（无状态签名器天然如此）。session cookie 仅在浏览器内存中（无
-`Max-Age`/`Expires`），关浏览器即退。
+撤销全部会话」（无状态签名器天然如此）。session cookie 为 7 天 `Max-Age` 持久 cookie
+（关闭浏览器不登出）；撤销靠轮换 owner token。
 
 ## 方案设计
 
@@ -88,7 +88,7 @@ createSessionSigner(secret: string): {
 }
 ```
 
-cookie 值形态：`${userId}.${role}.${issuedAt}.${maxAge}.${sig}`（HMAC-SHA256，`===` 常数时间比对）。
+cookie 值形态：`${userId}.${role}.${issuedAt}.${maxAge}.${sig}`（HMAC-SHA256，`timingSafeEqual` 常数时间比对）。
 `SessionIdentity = { userId: string; role: "admin" | "user" | "guest" }`。
 
 `RouterPlumbingOptions`（模块级可选装配；测试不传则退化为 F20261019autz 基线）：
@@ -137,6 +137,7 @@ interface RouterPlumbingOptions {
 
 1. **决策者变了么**：没有。登录成功与否判断由服务端机械校验；Web 布局互锁由 useSession 状态机守卫，不涉及 LLM。
 2. **靠自觉还是靠守卫**：会话签名/过期/篡改/role 白名单/会话优先于伪造头/登录成败/登出幂等/执行机契约均有单测；
+   Web 会话门（未登录渲染登录屏）、401 广播切回登录、登出 UI、执行机 badge 亦有单测守卫；
    e2e global-setup 真实 POST 登录写 storageState、43 条 e2e 以登录态跑通。非靠自觉。
 3. **深潜成本降了吗**：是。auth 目录集中三文件，身份解析单一中间件，登录链路在 app.ts 组合根可见。
 4. **P0 负面清单**：未命中；不自动巡检、不替人审批、不自动跳过或重放。
@@ -156,8 +157,14 @@ tests/api 与 tests/interface-adapters/http 基线不回归。
 
 ## 风险与约束
 
+- 防护边界（诚实声明）：登录墙实际只覆盖浏览器 UI 路径——网络可达的 API 调用者仍可用声明式
+  `X-Otter-User-Id/Role` 头无凭据伪造 admin（与 #1322 基线行为一致，本阶段未扩大也未收窄该回退面）；
+  回退路径按「本机运维脚本通道」保留，来源限制（如 localhost-only）留待网络部署阶段收紧。
+- 登出不清除已签发 cookie 的服务端有效性：无状态签名器只清客户端 cookie，旧值 7 天内仍可凭签名通过校验；
+  cookie 泄漏需轮换 owner token 才能整体撤销，而非仅登出。
 - 删除 `data/owner-token` 会整体登出所有会话（含 alpha/e2e 首启后的已登录态）；
   生产首次部署若未设 `OTTER_OWNER_TOKEN` 则生成的 token 必须妥善保管于本机。
+- owner token 文件可读但空白视为损坏：解析时 fail-fast，不静默生成新 token 覆盖（静默换 token 会踢掉旧会话）。
 - cookie 未设 `Secure`（本机 http 场景）；部署到公网需由反向代理终止 TLS 并另评估 Secure 标志。
 - 轮换 token 应立即重启服务（会话签名器 secret 为启动时快照）。
 
@@ -169,7 +176,7 @@ tests/api 与 tests/interface-adapters/http 基线不回归。
 | 会话读取 | 带 cookie 请求 session | 200，identity = owner/admin |
 | 会话优先 | 有效 cookie + 伪造 admin 头 | 采信 cookie 的 owner |
 | 未登录拒绝 | 无 cookie 请求 session / execution-machines | 401（fail-closed） |
-| 登出幂等 | logout 有/无 cookie | 均 200；登出后 session 401 |
+| 登出幂等 | logout 有/无 cookie | 均 200；登出清客户端 cookie（已签发 cookie 值 7 天内服务端仍有效，撤销靠 token 轮换） |
 | 端点契约 | 登录后 GET /api/execution-machines | `{ machines:[{id, name}], currentMachineId }` |
 | 过期边界 | 签名器 at issuedAt+maxAge | 有效；+1ms 拒绝 |
 | Web 会话门 | 未登录加载业务页 | 渲染登录屏，不挂载业务布局 |
@@ -182,8 +189,8 @@ tests/api 与 tests/interface-adapters/http 基线不回归。
 | `npx tsc --noEmit`（服务端 + web） | PASS；加入 env 装配修复后无类型错误 |
 | `npm run build` | PASS；SDK patch 校验 + tsc + tsc-alias + 模型复用 |
 | `npm run lint` | PASS：0 problems（含 max-lines-per-function 路由拆解后） |
-| 服务端 `npm test` | PASS：474 files / 5982 tests（新增 auth 三件套 + 执行机契约 19 例，既有 21 例 identity 不回归） |
-| web `vitest run` | PASS：83 files / 851 tests |
+| 服务端 `npm test` | PASS：475 files / 5988 tests（auth 三件套 + 执行机契约含登出精确语义 / session 兜底 fail-closed / owner-token 空白损坏 fail-fast；既有 identity 不回归） |
+| web `vitest run` | PASS：88 files / 862 tests（新增 use-session / LoginScreen / TopBar badge / client 401 广播 / AppLayout 会话门守卫） |
 | Playwright e2e | PASS：43 passed / 8 skipped；global-setup 真实登录写 `otter_session` storageState |
 | `npm run check` | PASS：build + lint + schema + smoke:boot（全新/存量双库）+ 三个脚本/端口/探活检查，EXIT 0 |
 | alpha 真启动（main 入口点，e2e 配置） | PASS：`OTTER_OWNER_TOKEN` env 生效（无 Owner token generated 日志）；登录 → cookie → session → 页面 e2e 全通 |
