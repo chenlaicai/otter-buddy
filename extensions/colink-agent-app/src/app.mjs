@@ -1,8 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { createServer } from 'node:http';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createCoLinkApp, openEncryptedStore, validateIssuer } from '@colink/app-sdk';
+import { resolve } from 'node:path';
+import { createCoLinkApp, openEncryptedStore, serveCoLinkApp, validateIssuer } from '@colink/app-sdk';
 import { ConversationStore, OtterBridge } from './otter-bridge.mjs';
 import { createManifest } from './manifest.mjs';
 import { createMentionHandler } from './mention-handler.mjs';
@@ -46,51 +43,37 @@ const app = createCoLinkApp({
   log: entry => console.log(JSON.stringify({ code: entry.code, stage: entry.stage, eventId: entry.eventId,
     installationId: entry.installationId, status: entry.status, error: entry.error })),
 });
-const server = (() => {
-  const appDir = dirname(fileURLToPath(import.meta.url));
-  const embedHtml = readFileSync(join(appDir, 'embed-page.html'), 'utf8');
-  const browserBundle = (() => {
-    for (const file of [join(appDir, '..', 'vendor', 'app-sdk', 'browser.mjs'),
-        join(appDir, '..', 'node_modules', '@colink', 'app-sdk', 'browser.mjs')]) {
-      try { return readFileSync(file, 'utf8'); } catch { /* 尝试下一处 */ }
-    }
-    throw new Error('未找到 @colink/app-sdk 的浏览器包，请先运行 npm run prepare:sdk 并安装依赖');
-  })();
-  const pageConfigJson = JSON.stringify({
-    hostOrigin: process.env.COLINK_HOST_ORIGIN ?? config.issuer,
-    issuer: config.issuer,
-    ...(config.allowInsecureIssuer ? { allowInsecureLocal: true } : {}),
-  });
-  const delegate = app.publicHandler ?? app.handleRequest;
-  return createServer((req, res) => {
-    const url = new URL(req.url ?? '/', 'http://localhost');
-    if (req.method === 'GET') {
-      if (url.pathname === '/colink/embed.html') {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        return res.end(embedHtml);
-      }
-      if (url.pathname === '/colink-browser.mjs') {
-        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
-        return res.end(browserBundle);
-      }
-      if (url.pathname === '/page-config.json') {
-        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-        return res.end(pageConfigJson);
-      }
-    }
-    delegate.call(app, req, res);
-  });
-})();
+
+// 宿主页面 web origin：嵌入 iframe 时用于 postMessage 握手。
+// 当前部署 App 与宿主同域（issuer 即宿主 origin）；若宿主前端与 API 分域，显式设置 COLINK_HOST_ORIGIN 覆盖。
+const hostOrigin = process.env.COLINK_HOST_ORIGIN ?? config.issuer;
+console.log(JSON.stringify({ code: 'app_host_origin', hostOrigin }));
+
 const host = process.env.HOST ?? '127.0.0.1';
 const port = Number(process.env.PORT ?? 31130);
-server.listen(port, host, () => console.log(`Otter CoLink App listening on ${host}:${port}`));
+const appServer = await serveCoLinkApp(app, {
+  host,
+  port,
+  // 显式公开资源：只暴露嵌入页单文件；page-config 与 SDK 浏览器包由 serveCoLinkApp 内建提供，
+  // 并带 validateIssuer 启动校验、publicHandler 503 兜底与 reserved 路径保护。
+  assets: {
+    '/embed.html': { file: new URL('./embed-page.html', import.meta.url), contentType: 'text/html; charset=utf-8' },
+  },
+  pageConfig: {
+    hostOrigin,
+    issuer: config.issuer,
+    ...(config.allowInsecureIssuer ? { allowInsecureLocal: true } : {}),
+  },
+  handleSignals: false,
+});
+console.log(`Otter CoLink App listening on ${appServer.host}:${appServer.port}`);
+
 let closing;
 const close = () => {
   if (closing) return closing;
   closing = (async () => {
-    await app.close();
+    await appServer.close();
     await toolBridge.close();
-    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   })();
   return closing;
 };

@@ -38,11 +38,11 @@ manifest 的 `ui.entries` 只声明了 `colink.app.home` 与 `colink.navigation.
 
 | 文件 | 改动 |
 | --- | --- |
-| `src/manifest.mjs` | 版本 0.4.1 → 0.5.1；`ui.entries` 新增 `colink.topic.actions`（DM 私聊顶栏，side_panel），与既有 `colink.app.home`（side_panel）、`colink.navigation.modules`（page_content）三入口统一走 `otter.embed` view |
-| `src/app.mjs` | 自托管三个 GET 路由：`/colink/embed.html`（iframe 页面）、`/colink-browser.mjs`（浏览器 SDK 包）、`/page-config.json`（页面握手配置） |
+| `src/manifest.mjs` | 版本 0.4.1 → 0.5.1；`ui.entries` 新增 `colink.topic.actions`（DM 私聊顶栏，side_panel），与既有 `colink.app.home`（side_panel）、`colink.navigation.modules`（page_content）三入口统一走 `otter.embed` view（entryPath `/embed.html`） |
+| `src/app.mjs` | 改用 SDK `serveCoLinkApp`：显式 assets 暴露 `/embed.html` 嵌入页，`pageConfig` 提供 `/page-config.json` 与 `/colink-browser.mjs`（含 validateIssuer 启动校验、publicHandler 503 兜底、reserved 路径保护）；宿主 origin 支持 `COLINK_HOST_ORIGIN` 覆盖 |
 | `src/embed-page.html` | 新增 iframe 页面：`connectPage` 桥接 + 连接状态展示 |
 | `assets/otter-icon.svg` | 恢复单色线条图标（CoLink 图标契约禁止渐变/opacity 元素） |
-| `test/app-contract.test.mjs` | 契约测试同步 0.5.1 与 `ui` 声明断言（三个扩展点 + view + contractVersion） |
+| `test/app-contract.test.mjs` | 契约测试同步 0.5.1 与 `ui` 声明断言（三个扩展点 + view + contractVersion），并补齐图标契约断言（无渐变/opacity/引用颜料，颜色仅 currentColor/none） |
 
 ## 验证
 

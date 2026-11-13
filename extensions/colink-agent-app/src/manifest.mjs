@@ -39,7 +39,7 @@ export function createManifest() {
         },
       ],
       views: [
-        { viewId: 'otter.embed', renderer: 'app', entryPath: '/colink/embed.html', bridgeVersion: '1.0.0' },
+        { viewId: 'otter.embed', renderer: 'app', entryPath: '/embed.html', bridgeVersion: '1.0.0' },
       ],
     },
   };

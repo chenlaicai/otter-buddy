@@ -13,10 +13,15 @@ test('manifest includes a passive otter avatar and both personal/project scopes'
   assert.match(svg, /^<svg /);
   assert.doesNotMatch(svg, /<script|onload=|javascript:|<image|<foreignObject/i);
   assert.doesNotMatch(svg, /<rect[^>]*width="64"[^>]*height="64"/i);
+  // 图标契约（CoLink）：单色线条，禁止渐变/opacity/引用颜料，颜色只允许 currentColor 与 none
+  assert.doesNotMatch(svg, /<(?:linear|radial)Gradient/i);
+  assert.doesNotMatch(svg, /\bopacity\s*=/i);
+  assert.doesNotMatch(svg, /url\(#/i);
+  assert.doesNotMatch(svg, /(?:fill|stroke)\s*=\s*["'](?!currentColor|none)[^"']+["']/i);
   assert.equal(manifest.version, '0.5.1');
   assert.deepEqual(manifest.permissions, ['messages:receive', 'messages:write', 'messages:read-public', 'messages:read-private']);
   assert.equal(manifest.ui.contractVersion, '1.0.0');
-  assert.deepEqual(manifest.ui.views, [{ viewId: 'otter.embed', renderer: 'app', entryPath: '/colink/embed.html', bridgeVersion: '1.0.0' }]);
+  assert.deepEqual(manifest.ui.views, [{ viewId: 'otter.embed', renderer: 'app', entryPath: '/embed.html', bridgeVersion: '1.0.0' }]);
   assert.ok(manifest.ui.entries.some(entry => entry.extensionPoint.id === 'colink.app.home' && entry.openView.container === 'side_panel'));
   assert.ok(manifest.ui.entries.some(entry => entry.extensionPoint.id === 'colink.navigation.modules' && entry.openView.container === 'page_content'));
   assert.ok(manifest.ui.entries.some(entry => entry.extensionPoint.id === 'colink.topic.actions' && entry.openView.container === 'side_panel'));
