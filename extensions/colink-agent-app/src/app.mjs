@@ -1,6 +1,5 @@
-import { createServer } from 'node:http';
 import { resolve } from 'node:path';
-import { createCoLinkApp, openEncryptedStore, validateIssuer } from '@colink/app-sdk';
+import { createCoLinkApp, openEncryptedStore, serveCoLinkApp, validateIssuer } from '@colink/app-sdk';
 import { ConversationStore, OtterBridge } from './otter-bridge.mjs';
 import { createManifest } from './manifest.mjs';
 import { createMentionHandler } from './mention-handler.mjs';
@@ -44,17 +43,37 @@ const app = createCoLinkApp({
   log: entry => console.log(JSON.stringify({ code: entry.code, stage: entry.stage, eventId: entry.eventId,
     installationId: entry.installationId, status: entry.status, error: entry.error })),
 });
-const server = createServer(app.publicHandler);
+
+// 宿主页面 web origin：嵌入 iframe 时用于 postMessage 握手。
+// 当前部署 App 与宿主同域（issuer 即宿主 origin）；若宿主前端与 API 分域，显式设置 COLINK_HOST_ORIGIN 覆盖。
+const hostOrigin = process.env.COLINK_HOST_ORIGIN ?? config.issuer;
+console.log(JSON.stringify({ code: 'app_host_origin', hostOrigin }));
+
 const host = process.env.HOST ?? '127.0.0.1';
 const port = Number(process.env.PORT ?? 31130);
-server.listen(port, host, () => console.log(`Otter CoLink App listening on ${host}:${port}`));
+const appServer = await serveCoLinkApp(app, {
+  host,
+  port,
+  // 显式公开资源：只暴露嵌入页单文件；page-config 与 SDK 浏览器包由 serveCoLinkApp 内建提供，
+  // 并带 validateIssuer 启动校验、publicHandler 503 兜底与 reserved 路径保护。
+  assets: {
+    '/embed.html': { file: new URL('./embed-page.html', import.meta.url), contentType: 'text/html; charset=utf-8' },
+  },
+  pageConfig: {
+    hostOrigin,
+    issuer: config.issuer,
+    ...(config.allowInsecureIssuer ? { allowInsecureLocal: true } : {}),
+  },
+  handleSignals: false,
+});
+console.log(`Otter CoLink App listening on ${appServer.host}:${appServer.port}`);
+
 let closing;
 const close = () => {
   if (closing) return closing;
   closing = (async () => {
-    await app.close();
+    await appServer.close();
     await toolBridge.close();
-    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   })();
   return closing;
 };
