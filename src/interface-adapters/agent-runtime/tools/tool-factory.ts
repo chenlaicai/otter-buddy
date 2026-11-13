@@ -13,7 +13,7 @@ import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIR
 import type { Logger } from "@usecases/ports/logger";
 import type { ActionRunner } from "@usecases/ports/execution-machine";
 import { parseHealingParam, persistHealingIssues, SPEAK_HEALING_PARAM_SCHEMA, createManageHealingEventsTool } from "./healing-tools";
-import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, createUnhaltOtterTool, interceptSignalReport } from "./signal-tools";
+import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, createUnhaltOtterTool, parseSignalParam, persistSignalEvents, SPEAK_SIGNAL_PARAM_SCHEMA } from "./signal-tools";
 import { createListMattersTool, createTransitionMatterTool, createRegisterMatterTool, createMatterSweepTool } from "./matter-tools";
 import { createTrackWorkTool } from "./work-ledger-tools";
 import { RegisterMatter, matterShortAnchor } from "@usecases/matter/register-matter";
@@ -40,18 +40,37 @@ import { validateAndResolve } from "@usecases/conversation/talking-stone";
 
 
  
+/** F20261113hlprm + F20261113sgnpr：healing/signal 结构化参数统一「先全 parse、全合法才落账」。
+ *  任一非法返回 error（调用方原子阻断：不建 entry、不落账）；全合法则各自 fire-and-forget 落账后返回 null。
+ *  分两步是为了跨参数原子性：避免「healing 已落账、signal 非法阻断发言」的部分落账。 */
+function validateAndPersistSpeakParams(
+  params: Record<string, unknown>,
+  ctx: ToolContext,
+  healingRepo: HealingEventRepository | undefined,
+  logger: Logger | undefined,
+): string | null {
+  const healingParsed = healingRepo ? parseHealingParam(params.healing) : null;
+  if (healingParsed?.error) return healingParsed.error;
+  const signalParsed = ctx.signalRepo ? parseSignalParam(params.signal) : null;
+  if (signalParsed?.error) return signalParsed.error;
+  if (healingParsed && healingRepo) persistHealingIssues(healingParsed.issues, ctx, healingRepo, logger);
+  if (signalParsed && ctx.signalRepo) persistSignalEvents(signalParsed.signals, ctx, ctx.signalRepo, logger);
+  return null;
+}
+
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
     // F20260825hcpg 判断标准归位（原设计 F20260728htar L81，在 description 压缩中失传）。
     // 勿再移出：行为触发类引导必须在工具 description（每请求随 tools 参数注入，pi-ai
     // anthropic-messages.js convertTools），references 指针对「要不要用」的决策无效。
-    description: "发言工具——你在聊天室里唯一的发言通道：普通文本输出其他人不可见，只有 speak(body) 的内容会被所有人看到；进展/结论/提问/汇报一律 speak. 纯内容输出不移交行动权，调用后 agent loop 继续，可连续多次 speak（body 按顺序拼接）. TIP: 形态选择（六形态平权，什么场景选什么形态）——短问答/代码片段/简单列表等纯对话用 md 言语直答；方案对比/设计思路/排查结论/结构化数据正文先写 1-2 句结论、html-card 卡片放详情（每条都出卡等于没出卡）；可交互演示/游戏/小工具用 html-card-play 围栏（默认展开运行，自动登记产物）；外部链接/PR 呈递把 URL 裸写独占一段（勿 [label](url)、勿句中夹带——独占一段才自动 unfurl 预览卡；编排者动作）；PR/文档/报告等产物用 create_linked_resource 登记（摘要卡自动混排进时间轴）；图类暂无我方发图通道（lightbox 只管消息附件）；形态选对 ≠ 内容讲清——内容纪律仍由 SYSTEM.md 兑住. GOTCHA: speak≠交棒——说完还需 yield 回合才结束；HTML 卡片（```html-card 围栏）必须完整写在 body 内（写在外面系统会拒绝并指导重试），一条消息最多 2 张、单卡体积限制等具体数值以 get_html_card_contract 返回的契约为准；写卡前必调该工具. 议题汇报卡（L2 拍板）用 importance=\"high\" 默认展开——写进 meta 属性（如 ```html-card title=\"议题\" importance=\"high\"），不豁免单消息卡片预算；折叠态摘要行取卡内首个有效文本行（≤120 字符），关键结论放可见文本靠前位置. 搭档回复中的 ```html-card-reply 围栏是卡片回执（内嵌 JSON 可解析）. 系统自愈：遇系统问题（工具故障/检索缺失/格式异常/工具难用等）用 healing 参数上报——数组，每条 {type, severity, description, suggestion}；type 选 tool_failure/missing_context/wrong_tool/format_violation/knowledge_gap/performance/other/tool_use_feedback/runtime_status_mismatch，severity 缺省 low。禁止在 body 文本里写 <healing> 标签——body 原样展示给搭档，不再解析剥离。工具难用报 type=tool_use_feedback，description 以 [tool:工具名] 开头写清痛点与建议；该报的时机：调用失败且自行绕路解决/同一意图连试多个工具/参数语义反直觉/疑似与相邻工具职责重叠.",
+    description: "发言工具——你在聊天室里唯一的发言通道：普通文本输出其他人不可见，只有 speak(body) 的内容会被所有人看到；进展/结论/提问/汇报一律 speak. 纯内容输出不移交行动权，调用后 agent loop 继续，可连续多次 speak（body 按顺序拼接）. TIP: 形态选择（六形态平权，什么场景选什么形态）——短问答/代码片段/简单列表等纯对话用 md 言语直答；方案对比/设计思路/排查结论/结构化数据正文先写 1-2 句结论、html-card 卡片放详情（每条都出卡等于没出卡）；可交互演示/游戏/小工具用 html-card-play 围栏（默认展开运行，自动登记产物）；外部链接/PR 呈递把 URL 裸写独占一段（勿 [label](url)、勿句中夹带——独占一段才自动 unfurl 预览卡；编排者动作）；PR/文档/报告等产物用 create_linked_resource 登记（摘要卡自动混排进时间轴）；图类暂无我方发图通道（lightbox 只管消息附件）；形态选对 ≠ 内容讲清——内容纪律仍由 SYSTEM.md 兑住. GOTCHA: speak≠交棒——说完还需 yield 回合才结束；HTML 卡片（```html-card 围栏）必须完整写在 body 内（写在外面系统会拒绝并指导重试），一条消息最多 2 张、单卡体积限制等具体数值以 get_html_card_contract 返回的契约为准；写卡前必调该工具. 议题汇报卡（L2 拍板）用 importance=\"high\" 默认展开——写进 meta 属性（如 ```html-card title=\"议题\" importance=\"high\"），不豁免单消息卡片预算；折叠态摘要行取卡内首个有效文本行（≤120 字符），关键结论放可见文本靠前位置. 搭档回复中的 ```html-card-reply 围栏是卡片回执（内嵌 JSON 可解析）. 系统自愈：遇系统问题（工具故障/检索缺失/格式异常/工具难用等）用 healing 参数上报——数组，每条 {type, severity, description, suggestion}；type 选 tool_failure/missing_context/wrong_tool/format_violation/knowledge_gap/performance/other/tool_use_feedback/runtime_status_mismatch，severity 缺省 low。禁止在 body 文本里写 <healing> 标签——body 原样展示给搭档，不再解析剥离。工具难用报 type=tool_use_feedback，description 以 [tool:工具名] 开头写清痛点与建议；该报的时机：调用失败且自行绕路解决/同一意图连试多个工具/参数语义反直觉/疑似与相邻工具职责重叠. 獭间信号：对派工的事实性异议/卡住升级用 signal 参数上报（objection/blocked，每条 {type, severity, payload}）；禁止在 body 文本写 <signal> 标签——body 原样展示，不再解析剥离；halt 只能大獭经 halt_otter 工具发出。",
     parameters: {
       type: "object",
       properties: {
         body: { type: "string", description: "发言内容（进展/结论，会即时呈现给搭档）" },
         healing: SPEAK_HEALING_PARAM_SCHEMA,
+        signal: SPEAK_SIGNAL_PARAM_SCHEMA,
       },
       required: ["body"],
     },
@@ -60,17 +79,11 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (!ctx.currentInvokeId) return errorResponse("[错误] 系统错误：当前 invoke ID 未设置，无法发言。");
 
       const rawBody = params.body as string;
-      // F20261113hlprm：healing 走 speak 独立参数（结构化字段），不再从 body 文本解析/剥离标签。
-      if (healingRepo) {
-        const parsed = parseHealingParam(params.healing);
-        // 非法 healing 参数阻断发言——不创建 entry、不落账（原子性，语义同 F20261111hrepl #1842）
-        if (parsed.error) return errorResponse(parsed.error);
-        persistHealingIssues(parsed.issues, ctx, healingRepo, logger);
-      }
-      // F20260826mwrd C2：信号块拦截（在 cleanBody 入库前剥离+落账）
-      const cleanBody = ctx.signalRepo && rawBody
-        ? await interceptSignalReport(rawBody, ctx, ctx.signalRepo, logger)
-        : rawBody;
+      // F20261113hlprm + F20261113sgnpr：healing 与 signal 均走 speak 独立参数（结构化字段），
+      // 不再从 body 文本解析/剥离标签；先全 parse、全合法才落账（跨参数原子性）。
+      const paramError = validateAndPersistSpeakParams(params, ctx, healingRepo, logger);
+      if (paramError) return errorResponse(paramError);
+      const cleanBody = rawBody;
 
       /** F20260804hcob: 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
       const bodyError = validateSpeakBody(ctx.getTurnAssistantText?.(), cleanBody);
@@ -586,7 +599,7 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
       const retryEscalationHint =
         '\n⚠️ 元规则预告：小獭被 bash 守卫拦截后若变体重试，6h 内 ≥3 次将自动升级 high 事件落账' +
         '（大概率误拦或正当诉求无出路）。建议派工 systemPrompt 里写明：被拦勿变体绕试，' +
-        '带上命中详情用 <signal type=blocked> 升级报告。';
+        '带上命中详情用 speak 的 signal 参数（type=blocked）升级报告。';
       /** F20260813actk C3：回包提示就位待命状态（串行场景教育）；#543：附配额提示 */
       return textResponse(
         `Otter created: ${otter.id} (${otter.name}${modelLabel}). 已就位待命，但尚未开工——` +

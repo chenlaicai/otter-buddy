@@ -2,7 +2,7 @@
  * 信号裁决提醒登记表（#1227，M1：当场处理可见性保证）。
  *
  * 同构 healing-alert-registry（F20260826mwrd C3）模式：
- * - 小獭 speak 嵌 <signal> 落账时（interceptSignalReport）在此登记
+ * - 小獭 speak 用 signal 参数落账时（persistSignalEvents）在此登记
  * - 大獭下一次 invoke 的 buildDynamicContext 消费（DynamicContext.signalAlerts）
  *   ——送达时点由「下一个 invoke 边界」保证，无需轮询
  * - 大獭 resolve_signal 裁决后注销（信号 ID 粒度）——提醒与台账状态联动

@@ -32,7 +32,7 @@ export type SignalStatus = 'pending' | 'resolved' | 'dismissed';
 export interface SignalEvent {
   id: string;
   conversationId: string;
-  /** 触发信号的消息（halt=halt_otter 工具调用所在消息；objection/blocked=携带 <signal> 块的 speak 消息） */
+  /** 触发信号的消息（halt=halt_otter 工具调用所在消息；objection/blocked=携带 signal 参数的 speak 消息） */
   messageId: string;
   /** 信号发起者 otterId（halt=发起停手的獭；objection/blocked=发信号的獭） */
   fromOtterId: string;
