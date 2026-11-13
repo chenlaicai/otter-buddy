@@ -87,6 +87,11 @@ category: technique
 
    **锚点版本纪律（实证背景：依赖升级期多 worktree 版本混位，检视獭 grep 命中真实但行号虚标 35 行）**：引用依赖包内文件的 `file:line` 锚点时，必须同时注明所读**版本号与来源路径**。覆盖范围：`node_modules/` 全形态（主仓 / worktree / web 等子包独立 node_modules）与 npm 缓存解包文件——npm 包版本不在文件路径内，裸行号在同机多版本并存时无法定位（如 `agent-session.d.ts:173 @1.1.0（主仓 node_modules）`）。行号无版本信息时降级为「符号名 + 版本」引用（如「`QueuedInputDisposition` @1.1.0」），行号仅在带版本标注时保留作辅助。
 
+   **锚点 commit 与 range 支撑句纪律（实证背景：anchor 抽查连续三日检出 range 未含支撑句）**：引用仓库内文件（`src/`、`dev/`、`tests/` 等非 `node_modules/`）的 `file:line` 锚点时，两条硬规则：
+
+   - **必带 commit**：同时注明所读 commit（pinned commit 短 sha；回查原时点用当日最近 commit）——修复后行号漂移无法用「当前 main」宣判，缺 commit 导致「原时点成立与否」无法判定。格式：`<file>:<range> @ <commit短sha>`，回查命令 `git show <commit>:<file>`。
+   - **range 必须包含支撑句本身**：`file:line` 范围必须包含支撑断言的那一行/段——不得只引测试名、相邻注释、闭合括号、或「调用点」代替「定义点」（现场：夹具顺序定义在 52-53，引用 62-64 却是 `<DmHeader …>` 组件；引 578 行是注释，校验在 579-580）。写锚点前先读原文件确认 range 内确含支撑句；支撑句在 range 外 = 范围错误，按失败处置。
+
 5. **独立核实**：直接运行测试和构建，不只检查开发者的结果。
 
 6. **输出报告到 PR**：先将检视结论 post 到 PR（按步骤 6a 的 state 决策表带 request-changes/approve/comment），再在 otter 对话中发轻量通知。报告中的处置栏格式见 `references/author-response-protocol.md`；多轮审视的收敛判据与终止条件见 `references/review-loop.md`。
