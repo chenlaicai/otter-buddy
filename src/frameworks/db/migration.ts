@@ -225,6 +225,30 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
 
   /** F20261021sprx：执行者角色列 + 全量存量任务（含 disabled）惰性回填。 */
   migrateScheduledTaskExecutorRoles(db, logger);
+
+  /** #1835（F20261113recon）：linked_resources 加对账归档审计三列（存量库迁移）。
+   *  schema.ts 新库已含三列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。
+   *  幂等：PRAGMA 检测（同 ensureHealingEventsBoundIssueColumns 模式）。 */
+  ensureLinkedResourceReconciliationAuditColumns(db, logger);
+}
+
+/** #1835：linked_resources 对账归档审计列（archived_by_otter_id / archived_at / archive_evidence）。
+ *  受控跨对话归档路径（ManageKeyInfo.archiveResourceForReconciliation）写入；
+ *  普通 update_artifact_status 不写。幂等：PRAGMA 检测列存在性。 */
+function ensureLinkedResourceReconciliationAuditColumns(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(linked_resources)").all() as Array<{ name: string }>;
+  const missing = [
+    { name: "archived_by_otter_id", ddl: "ALTER TABLE linked_resources ADD COLUMN archived_by_otter_id TEXT" },
+    { name: "archived_at", ddl: "ALTER TABLE linked_resources ADD COLUMN archived_at TEXT" },
+    { name: "archive_evidence", ddl: "ALTER TABLE linked_resources ADD COLUMN archive_evidence TEXT" },
+  ].filter(col => !columns.some(c => c.name === col.name));
+
+  for (const col of missing) {
+    db.prepare(col.ddl).run();
+  }
+  if (missing.length > 0) {
+    logger.info(`linked_resources reconciliation audit columns added: ${missing.map(c => c.name).join(", ")}`);
+  }
 }
 
 /** 执行者改为「角色声明 + 触发时名册解析」。旧 talking_stone_passed_to 保留作 fallback，

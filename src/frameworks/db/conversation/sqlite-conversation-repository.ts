@@ -178,6 +178,7 @@ export class SqliteConversationRepository implements ConversationRepository {
   async getLinkedResourceById(id: string): Promise<LinkedResource | null> { return mixins.getLinkedResourceById(this.db, id); }
   async getLinkedResourcesByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]> { return mixins.getLinkedResourcesByGroup(this.db, conversationId, groupId); }
   async updateResourceStatus(id: string, status: ArtifactStatus, supersededBy?: string): Promise<void> { mixins.updateResourceStatus(this.db, id, status, supersededBy); }
+  async updateResourceArchiveAudit(id: string, audit: { archivedByOtterId: string; archivedAt: string; archiveEvidence: string }): Promise<void> { mixins.updateResourceArchiveAudit(this.db, id, audit); }
   async supersedeLinkedResource(existingId: string, newResource: LinkedResource): Promise<void> { mixins.supersedeLinkedResource(this.db, existingId, newResource); }
   async flagResource(id: string, flagged: boolean): Promise<void> { mixins.flagResource(this.db, id, flagged); }
 

@@ -308,27 +308,42 @@ export function makeLinkedResource(overrides: Partial<{
   statusChangedAtTurnNumber: number;
   groupId: string | null;
   supersededBy: string | null;
+  archivedByOtterId: string | null;
+  archivedAt: string | null;
+  archiveEvidence: string | null;
 }> = {}) {
-  return {
-    id: overrides.id ?? "lr-1",
-    conversationId: overrides.conversationId ?? "conv-1",
-    resourceType: overrides.resourceType ?? "url",
-    url: overrides.url ?? "https://example.com",
-    title: overrides.title ?? "Example",
-    content: overrides.content ?? null,
-    category: overrides.category ?? null,
-    userFlagged: overrides.userFlagged ?? false,
-    metadata: overrides.metadata ?? null,
-    linkedBy: overrides.linkedBy ?? "otter-1",
-    otterId: overrides.otterId ?? "otter-1",
-    autoLinked: overrides.autoLinked ?? false,
-    createdAt: overrides.createdAt ?? new Date().toISOString(),
-    status: overrides.status ?? "active",
-    linkedAtTurnNumber: overrides.linkedAtTurnNumber ?? 0,
-    statusChangedAtTurnNumber: overrides.statusChangedAtTurnNumber ?? 0,
-    groupId: overrides.groupId ?? null,
-    supersededBy: overrides.supersededBy ?? null,
+  // 用 base + 单次映射替代逐字段 ?? 默认值——保持「overrides.x ?? 默认」语义的同时避开
+  // eslint complexity 上限（字段数已超 20）。null 重写语义不变：仍被 ?? 呑掉，
+  // 需要传 null 的调用方继续用 {...makeLinkedResource(...), url: null} 事后覆写。
+  const base: Record<string, unknown> = {
+    id: "lr-1",
+    conversationId: "conv-1",
+    resourceType: "url",
+    url: "https://example.com",
+    title: "Example",
+    content: null,
+    category: null,
+    userFlagged: false,
+    metadata: null,
+    linkedBy: "otter-1",
+    otterId: "otter-1",
+    autoLinked: false,
+    createdAt: new Date().toISOString(),
+    status: "active",
+    linkedAtTurnNumber: 0,
+    statusChangedAtTurnNumber: 0,
+    groupId: null,
+    supersededBy: null,
+    archivedByOtterId: null,
+    archivedAt: null,
+    archiveEvidence: null,
   };
+  const merged: Record<string, unknown> = {};
+  for (const key of Object.keys(base)) {
+    const override = (overrides as Record<string, unknown>)[key];
+    merged[key] = override ?? base[key];
+  }
+  return merged;
 }
 
 export function makeScheduledTask(overrides: Partial<{

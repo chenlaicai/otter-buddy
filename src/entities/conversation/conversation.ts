@@ -69,6 +69,10 @@ export interface LinkedResource {
   status: ArtifactStatus;
   groupId: string | null;
   supersededBy: string | null;
+  /** 对账归档审计（#1835）：受控跨对话归档路径写入，普通 update_artifact_status 不写。 */
+  archivedByOtterId: string | null;
+  archivedAt: string | null;
+  archiveEvidence: string | null;
 }
 
 /** 对话参与者状态（UA-4~UA-10 进场/退场机制） */
@@ -140,6 +144,19 @@ export function canTransitionArtifactStatus(
   if (from === "active") return to === "superseded" || to === "archived";
   if (from === "superseded") return to === "archived";
   return false;
+}
+
+/**
+ * 受控对账归档的资源类型白名单（#1835）。
+ * 机械终态可判的资源类型 = 有明确外部机器证据的交付物：
+ * pr（PR MERGED/CLOSED）、worktree（路径不存在/PR 已合入）、branch（PR 已合入）。
+ * fact/file/url/game 不在此列——归档判定依赖人工判断，不得经对账路径跨对话归档。
+ */
+export const RECONCILIATION_ARCHIVABLE_RESOURCE_TYPES: ReadonlySet<string> = new Set(["pr", "worktree", "branch"]);
+
+/** 资源类型是否可经受控对账路径归档（#1835）。 */
+export function isReconciliationArchivableType(resourceType: string): boolean {
+  return RECONCILIATION_ARCHIVABLE_RESOURCE_TYPES.has(resourceType);
 }
 
 /** 产物是否处于活跃状态 */

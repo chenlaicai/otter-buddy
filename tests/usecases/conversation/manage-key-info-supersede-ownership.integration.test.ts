@@ -19,6 +19,7 @@ describe("ManageKeyInfo.supersedeResource ownership（#1815）", () => {
         title: "old", content: null, category: null, userFlagged: false, metadata: null,
         linkedBy: "test", otterId: null, autoLinked: false, createdAt: now,
         status: "active", groupId: null, supersededBy: null,
+        archivedByOtterId: null, archivedAt: null, archiveEvidence: null,
       });
       const memoryIndex = { indexLinkedResource: vi.fn().mockResolvedValue(undefined) } as unknown as MemoryIndexGateway;
       const uc = new ManageKeyInfo(repo, memoryIndex);

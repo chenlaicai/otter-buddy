@@ -23,6 +23,7 @@ describe("resource ownership write paths（#1804）", () => {
         title: "owned", content: null, category: null, userFlagged: false, metadata: null,
         linkedBy: "test", otterId: null, autoLinked: false, createdAt: now,
         status: "active", groupId: null, supersededBy: null,
+        archivedByOtterId: null, archivedAt: null, archiveEvidence: null,
       });
       const uc = new ManageKeyInfo(repo, { indexLinkedResource: async () => {} } as unknown as MemoryIndexGateway);
       const deps = createMockDeps();

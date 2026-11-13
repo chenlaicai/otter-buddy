@@ -11,7 +11,7 @@ budget_bytes: 10750
 
 1. **对话历史**：跨对话 search_memory + get_related（按范围过滤）
 2. **GitHub issues / PRs**：`gh issue list` / `gh pr list --state all --limit 50`，筛昨日
-3. **self-healing events**：`manage_healing_events(action: query)`。**二维分账**：errorType 分环境/系统 vs 獭能力（口径 `src/entities/healing/healing-event.ts`）
+3. **self-healing events**：`manage_healing_events(action: query)`。**二维分账**：errorType 分环境/系统 vs 獭能力
 4. **memory**：`search_memory`（created_after 昨日）——跨会话/未闭环
 5. **RHI 健康信号**：`curl http://localhost:<port>/api/health/overview` 与 `/api/health/signals`——critical 优先
 6. **signal_events**：`query_signals(status=pending)` 查悬置信号（跨对话统计用 sqlite3）
@@ -23,14 +23,15 @@ budget_bytes: 10750
 2. **处置**：`bind_issue`（note=依据）/ `dismiss`（note必填）/ `in_progress`；同类 >10 用 `batch_bind`；同issue同忽略用 `batch_dismiss+filterIssueNumber`（note含issue/理由），异质逐条
 3. **未接**：`list_rhi_signals(triageStatus=null)` 全归口；同模块同类 warning ≥5 按 critical，零散汇总
 4. **自检**：critical N=开M+并入K+dismiss D，不等则补查遗漏
-5. **关单遗留**：`list_rhi_signals(triageStatus=triaged, closedIssueOnly=true)`；日报列数量/issue/ID，人工转绑或dismiss，不自动改状态；0写「关单遗留：0」，失败单列
+5. **关单遗留**：`list_rhi_signals(triageStatus=triaged, closedIssueOnly=true)`；日报列数量/issue/ID，人工转绑或dismiss，不自动改状态；0写「关单遗留：0」
 
 ## 产物清单对账段（类型×终态矩阵的 L2 机械兜底）
 **范围**：近 7 天活跃对话逐个 `list_artifacts(status: active)`。
-1. **机械可判 → `update_artifact_status` 归档**：
+1. **机械可判 → 归档**：
    - **pr 类**：解析 PR 号 → `gh pr view <N> --json state` 为 MERGED/CLOSED → archived；解析不出跳过不判
    - **worktree 类**：url 路径不存在 / PR 已合入 → archived；**branch 类**：PR 已合入 → archived
    - **「合入事实」类 fact**：title 含「合入」且 PR 已合入 → archived
+   - **入口**：当前对话走 `update_artifact_status`，其他对话走 `archive_artifact_for_reconciliation`（evidence=机器证据）。
 2. **纪律类**：file/fact/url 类单对话 > 10 → 日报清单提醒大獭归档
 3. **报告**（产出表固定行）：`产物对账: 归档 N ｜ 存量 active M ｜ 待人工 K`
 
@@ -40,7 +41,7 @@ budget_bytes: 10750
 
 ## 观测器信噪比自监控（误报率比检出率更决定告警生死）
 1. **昨日统计**（日报末尾固定段）：healing resolve X / dismiss Y（dismiss 率 = Y/(X+Y)）；RHI 不处置率 L/(M+K+L)（取昨日闭环自检行）；产给搭档物件数；人工 dismiss 用时间差 <30 天分离
-2. **趋势**：与近 7 日均值比突增 → 标「信号源可能劣化」（<4/7 标置信低）
+2. **趋势**：与近 7 日均值比突增 → 标「信号源可能劣化」
 3. **降级触发线**：任一信号源/healing 类型连续两周 dismiss/不处置率 >50% → 日报建议降级/关停/调阈值（含数据锚点）；未达线一行数字
 
 ## 锚点真实性抽查（证据锚点规则的外部强制）

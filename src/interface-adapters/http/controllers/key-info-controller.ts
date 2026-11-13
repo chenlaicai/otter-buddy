@@ -7,7 +7,7 @@ import type { SqliteUnfurlCacheRepository, UnfurlCacheRow } from "@frameworks/db
 import { handleError, param } from "../http-error";
 import { safeJsonBody } from "../parse-json-body";
 import { toKeyInfoDTO, toLinkedResourceDTO } from "../dto/key-info-dto";
-import type { LinkResourceRequestDTO } from "../dto/key-info-dto";
+import type { LinkResourceRequestDTO, LinkedResourceDTO } from "../dto/key-info-dto";
 
 /**
  * F20261013csv3 T2：产物卡数据源增密。
@@ -87,8 +87,8 @@ export class KeyInfoController {
 
   /** 读侧 join 投影：resource.url ↔ unfurl_cache.url（join 键单一真相源）。
    *  落空的资源不携带 unfurl 字段（undefined——JSON 序列化后缺失，前端判 null/undefined 均为未抓取）。 */
-  private withUnfurlProjection(resources: LinkedResource[]): LinkedResource[] {
-    if (!this.unfurlCache) return resources;
+  private withUnfurlProjection(resources: LinkedResource[]): LinkedResourceDTO[] {
+    if (!this.unfurlCache) return resources.map(r => toLinkedResourceDTO(r));
     const urls = resources.map(r => r.url).filter((u): u is string => !!u);
     const cache = this.unfurlCache.getByUrls(urls);
     return resources.map(r => this.projectOne(r, cache));
