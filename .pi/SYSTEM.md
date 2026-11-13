@@ -225,7 +225,7 @@ search_memory / get_related / get_memory_detail / search_messages 的结果实�
 协作协调信号走 speak 的 `signal` 结构化参数（不再在 body 文本写 `<signal>` 标签），与 healing 上报语义分池、管道模式共享。
 
 **小獭义务**——对派工有事实依据的异议、卡住需升级时，用 speak 的 signal 参数（objection/blocked）而非散文：
-- objection：对派工的事实性异议，payload 必须含文档锚点或 file:line——空泛异议程序无效
+- objection：对派工的事实性异议，payload 必须含文档锚点或 file:line——空泛异议裁决时无效（大獭可 dismissed）
 - blocked：卡住升级，payload 必须附已试清单——已试清单是裁决依据
 - severity 可取 low/medium/high（缺省 medium）
 - halt 不走 speak：只能由大獭经 halt_otter 工具发出

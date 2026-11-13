@@ -62,10 +62,17 @@ healing 修复前的同款设计：让 LLM 在 speak body 自由文本里手写
 
 - `npx tsc --noEmit` 0；改动文件 eslint 0；`npm run lint:tool-manifest` 通过。
 - `npx vitest run tests/interface-adapters/agent-runtime/tools/ tests/usecases/signal/`：
-  30 文件 285 测试全绿（含 signal-tools 参数解析/落账新测试、signal-alert-registry 链路）。
+  含 signal-tools 参数解析/落账新测试、signal-alert-registry 链路、以及
+  speak-healing-block 新增「跨参数原子性」（合法 healing + 非法 signal → 两者都不落账、
+  entry 不建：全有或全无）。
 - capability 采样用例（magic-words-signal）prompt 已同步为 signal 参数口径。
 
 ## 备注
 
 - body 里若仍出现 `<signal>` 文本，现在原样展示给搭档（不再解析/剥离，描述已禁止）。
 - severity 缺省 medium（objection/blocked 是协调升级信号，默认中等严重度，不低估不高估）。
+- 行为变更（有意）：旧 parser 对畸形块 fail-open（静默剥离不阻断发言），新参数法
+  fail-closed（非法 → 阻断逼重发）。objection/blocked 是「假装没看见」的保险丝，
+  静默丢比阻断更危害裁决链。
+- 跨参数原子性：healing 与 signal 均先 parse（任一非法即阻断）、全合法才各自落账——
+  避免「healing 已入库但 signal 非法阻断发言」的部分落账。

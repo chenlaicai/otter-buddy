@@ -40,6 +40,24 @@ import { validateAndResolve } from "@usecases/conversation/talking-stone";
 
 
  
+/** F20261113hlprm + F20261113sgnpr：healing/signal 结构化参数统一「先全 parse、全合法才落账」。
+ *  任一非法返回 error（调用方原子阻断：不建 entry、不落账）；全合法则各自 fire-and-forget 落账后返回 null。
+ *  分两步是为了跨参数原子性：避免「healing 已落账、signal 非法阻断发言」的部分落账。 */
+function validateAndPersistSpeakParams(
+  params: Record<string, unknown>,
+  ctx: ToolContext,
+  healingRepo: HealingEventRepository | undefined,
+  logger: Logger | undefined,
+): string | null {
+  const healingParsed = healingRepo ? parseHealingParam(params.healing) : null;
+  if (healingParsed?.error) return healingParsed.error;
+  const signalParsed = ctx.signalRepo ? parseSignalParam(params.signal) : null;
+  if (signalParsed?.error) return signalParsed.error;
+  if (healingParsed && healingRepo) persistHealingIssues(healingParsed.issues, ctx, healingRepo, logger);
+  if (signalParsed && ctx.signalRepo) persistSignalEvents(signalParsed.signals, ctx, ctx.signalRepo, logger);
+  return null;
+}
+
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
@@ -61,20 +79,10 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (!ctx.currentInvokeId) return errorResponse("[错误] 系统错误：当前 invoke ID 未设置，无法发言。");
 
       const rawBody = params.body as string;
-      // F20261113hlprm：healing 走 speak 独立参数（结构化字段），不再从 body 文本解析/剥离标签。
-      if (healingRepo) {
-        const parsed = parseHealingParam(params.healing);
-        // 非法 healing 参数阻断发言——不创建 entry、不落账（原子性，语义同 F20261111hrepl #1842）
-        if (parsed.error) return errorResponse(parsed.error);
-        persistHealingIssues(parsed.issues, ctx, healingRepo, logger);
-      }
-      // F20261113sgnpr：signal 走 speak 独立参数（结构化字段），不再从 body 文本解析/剥离 <signal> 标签。
-      if (ctx.signalRepo) {
-        const signalParsed = parseSignalParam(params.signal);
-        // 非法 signal 参数阻断发言——不创建 entry、不落账（原子性，语义同 healing F20261113hlprm）
-        if (signalParsed.error) return errorResponse(signalParsed.error);
-        persistSignalEvents(signalParsed.signals, ctx, ctx.signalRepo, logger);
-      }
+      // F20261113hlprm + F20261113sgnpr：healing 与 signal 均走 speak 独立参数（结构化字段），
+      // 不再从 body 文本解析/剥离标签；先全 parse、全合法才落账（跨参数原子性）。
+      const paramError = validateAndPersistSpeakParams(params, ctx, healingRepo, logger);
+      if (paramError) return errorResponse(paramError);
       const cleanBody = rawBody;
 
       /** F20260804hcob: 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
