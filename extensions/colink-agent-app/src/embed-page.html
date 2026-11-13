@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>海獭 × CoLink</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font: 16px/1.7 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    .card {
+      max-width: 30em;
+      padding: 2rem;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      background: #1e293b;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+    }
+    h1 { margin: 0 0 .5rem; font-size: 1.4rem; }
+    p { margin: .4rem 0; color: #94a3b8; }
+    #status { margin-top: 1rem; white-space: pre-wrap; overflow-wrap: anywhere; color: #7dd3fc; }
+    .ok { color: #4ade80; }
+    .err { color: #f87171; }
+    code { background: #0f172a; padding: .1rem .4rem; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🦦 海獭 × CoLink</h1>
+    <p>这个 iframe 由海獭 Agent App 自己提供（<code>renderer: app</code>），正在等待与 CoLink 宿主完成页面握手。</p>
+    <div id="status">正在连接 CoLink…</div>
+  </div>
+  <script type="module">
+    import { connectPage } from '/colink-browser.mjs';
+    const status = document.querySelector('#status');
+    try {
+      const response = await fetch('/page-config.json');
+      if (!response.ok) throw new Error(`PAGE_CONFIG_UNAVAILABLE (${response.status})`);
+      const config = await response.json();
+      const connection = connectPage(config);
+      await connection.ready;
+      status.className = 'ok';
+      status.textContent = '✅ 页面连接已就绪 —— 海獭 iframe 成功接入 CoLink。';
+    } catch (error) {
+      status.className = 'err';
+      status.textContent = '❌ 连接失败：' + (error?.message ?? error);
+    }
+  </script>
+</body>
+</html>

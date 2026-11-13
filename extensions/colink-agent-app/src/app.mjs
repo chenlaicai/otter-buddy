@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createCoLinkApp, openEncryptedStore, validateIssuer } from '@colink/app-sdk';
 import { ConversationStore, OtterBridge } from './otter-bridge.mjs';
 import { createManifest } from './manifest.mjs';
@@ -44,7 +46,41 @@ const app = createCoLinkApp({
   log: entry => console.log(JSON.stringify({ code: entry.code, stage: entry.stage, eventId: entry.eventId,
     installationId: entry.installationId, status: entry.status, error: entry.error })),
 });
-const server = createServer(app.publicHandler);
+const server = (() => {
+  const appDir = dirname(fileURLToPath(import.meta.url));
+  const embedHtml = readFileSync(join(appDir, 'embed-page.html'), 'utf8');
+  const browserBundle = (() => {
+    for (const file of [join(appDir, '..', 'vendor', 'app-sdk', 'browser.mjs'),
+        join(appDir, '..', 'node_modules', '@colink', 'app-sdk', 'browser.mjs')]) {
+      try { return readFileSync(file, 'utf8'); } catch { /* 尝试下一处 */ }
+    }
+    throw new Error('未找到 @colink/app-sdk 的浏览器包，请先运行 npm run prepare:sdk 并安装依赖');
+  })();
+  const pageConfigJson = JSON.stringify({
+    hostOrigin: process.env.COLINK_HOST_ORIGIN ?? config.issuer,
+    issuer: config.issuer,
+    ...(config.allowInsecureIssuer ? { allowInsecureLocal: true } : {}),
+  });
+  const delegate = app.publicHandler ?? app.handleRequest;
+  return createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    if (req.method === 'GET') {
+      if (url.pathname === '/colink/embed.html') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(embedHtml);
+      }
+      if (url.pathname === '/colink-browser.mjs') {
+        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(browserBundle);
+      }
+      if (url.pathname === '/page-config.json') {
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        return res.end(pageConfigJson);
+      }
+    }
+    delegate.call(app, req, res);
+  });
+})();
 const host = process.env.HOST ?? '127.0.0.1';
 const port = Number(process.env.PORT ?? 31130);
 server.listen(port, host, () => console.log(`Otter CoLink App listening on ${host}:${port}`));
