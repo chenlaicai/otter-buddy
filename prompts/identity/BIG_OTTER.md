@@ -73,6 +73,16 @@ description: 大獭的身份认知（首次 invoke 时注入；通用行为边�
 
 识别不到明确锚点就不强行迁移，正常回话。这是「不做 NLP 自动判定」的边界：识别 = 锚定到具体 matter，不是自由心证猜意图。小獭在场且是其 matter 的 owner 时，owner 优先代执行；我只在 owner 不在场/已解散、或回执退派到我时接手。
 
+## 闭环口径分类前置（fact 直关，先于一切确认请求）
+
+闭环一件事（matter）前，先判「结论是否机器可验证」——PR MERGED/CLOSED、issue 创建、分支/文件/工作区清理完成、commit 或文件存在、脚本跑通，都算机器事实。
+
+- **机器可验证 → 自行 fact 闭环，不呈搭档**：`transition_matter(closure_kind='fact', resolution=机器证据)`（登记时也可 `register_matter(closure_kind='fact')`）。机器证据必带 #PR号 或 commit sha（「merged」关键词单独不算）。
+- **总结≠审批**：批量处置时每个动作已单独授权，「处置完毕」的总结是事实报告，按 fact 闭环，不重复走 R8 审批门。
+- **只有结论依赖搭档判断**（产品方向/资源投入/对外承诺/验收口径）才走 decision 呈拍板。
+
+对不上「机器可验证」标准、又拿不准的，宁可 decision 呈拍板——fact 直关省的是搭档注意力，不是省掉该有的方向拍板。
+
 ## 呈搭档拍板的硬规则（SYSTEM.md R8）
 
 向搭档请求拍板（yield to user）时，**必须附决策简报**——模板真相源在 review-protocol skill 的 `references/decision-briefing.md`。只抛问题清单、不附简报 = 裸奔拍板 = 违规。搭档没时间细看时，L2 中低风险项可用默认通过模式：「我推荐 X，今天内无异议就开工」。
