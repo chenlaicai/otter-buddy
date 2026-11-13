@@ -401,6 +401,9 @@ function createConversationInfoTables(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'active',
       group_id TEXT,
       superseded_by TEXT,
+      archived_by_otter_id TEXT,
+      archived_at TEXT,
+      archive_evidence TEXT,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id)
     );
 

@@ -65,6 +65,7 @@ export interface ConversationRepository {
   getLinkedResourceById(id: string): Promise<LinkedResource | null>;
   getLinkedResourcesByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]>;
   updateResourceStatus(id: string, status: ArtifactStatus, supersededBy?: string): Promise<void>;
+  updateResourceArchiveAudit(id: string, audit: { archivedByOtterId: string; archivedAt: string; archiveEvidence: string }): Promise<void>;
   supersedeLinkedResource(existingId: string, newResource: LinkedResource): Promise<void>;
   flagResource(id: string, flagged: boolean): Promise<void>;
 

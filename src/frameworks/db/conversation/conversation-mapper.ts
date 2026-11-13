@@ -78,6 +78,9 @@ export interface LinkedResourceRow {
   status: string;
   group_id: string | null;
   superseded_by: string | null;
+  archived_by_otter_id: string | null;
+  archived_at: string | null;
+  archive_evidence: string | null;
 }
 
 export interface ParticipantRow {
@@ -166,6 +169,9 @@ export function rowToLinkedResource(row: LinkedResourceRow): LinkedResource {
     status: row.status as ArtifactStatus,
     groupId: row.group_id,
     supersededBy: row.superseded_by,
+    archivedByOtterId: row.archived_by_otter_id,
+    archivedAt: row.archived_at,
+    archiveEvidence: row.archive_evidence,
   };
 }
 

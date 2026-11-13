@@ -34,8 +34,6 @@ export function toLinkedResourceDTO(
   };
 }
 
-export function toKeyInfoDTO(resources: LinkedResource[]): KeyInfoDTO {
-  return {
-    resources: resources.map(toLinkedResourceDTO),
-  };
+export function toKeyInfoDTO(resources: LinkedResourceDTO[]): KeyInfoDTO {
+  return { resources };
 }

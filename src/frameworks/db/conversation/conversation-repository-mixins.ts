@@ -75,6 +75,26 @@ export function updateResourceStatus(db: Database.Database, id: string, status: 
   }
 }
 
+/**
+ * 受控对账归档审计写入（#1835）。仅由 ManageKeyInfo.archiveResourceForReconciliation
+ * 在状态迁移成功后调用；普通 update_artifact_status 路径不写审计列。
+ */
+export function updateResourceArchiveAudit(
+  db: Database.Database,
+  id: string,
+  audit: { archivedByOtterId: string; archivedAt: string; archiveEvidence: string },
+): void {
+  const result = db.prepare(`
+    UPDATE linked_resources
+    SET archived_by_otter_id = ?, archived_at = ?, archive_evidence = ?
+    WHERE id = ?
+  `).run(audit.archivedByOtterId, audit.archivedAt, audit.archiveEvidence, id);
+
+  if (result.changes === 0) {
+    throw new DomainError(`LinkedResource ${id} not found`, "not_found");
+  }
+}
+
 export function supersedeLinkedResource(db: Database.Database, existingId: string, newResource: LinkedResource): void {
   db.exec("BEGIN");
   try {

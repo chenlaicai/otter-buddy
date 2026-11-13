@@ -3,7 +3,7 @@ import type {
   ArtifactStatus,
   LinkedResource,
 } from "@entities/conversation/conversation";
-import { canTransitionArtifactStatus } from "@entities/conversation/conversation";
+import { canTransitionArtifactStatus, isReconciliationArchivableType } from "@entities/conversation/conversation";
 import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
@@ -85,6 +85,9 @@ export class ManageKeyInfo {
       status: "active",
       groupId: input.groupId ?? fallbackGroupId ?? null,
       supersededBy: null,
+      archivedByOtterId: null,
+      archivedAt: null,
+      archiveEvidence: null,
     };
   }
 
@@ -186,6 +189,60 @@ export class ManageKeyInfo {
       throw new DomainError(`supersededBy is required when transitioning to 'superseded'`, "validation");
     }
     await this.repo.updateResourceStatus(id, status, supersededBy);
+  }
+
+  /**
+   * 受控对账归档（#1835）：跨对话机械终态归档的唯一合法入口。
+   *
+   * 与普通 update_artifact_status 的关键差异：
+   * 1. 不需 conversation 归属——按资源 ID 全局定位（resolve 目标是别的对话的产物）；
+   * 2. 只能归档（status → archived），不能 superseded / 不能改其他字段；
+   * 3. 仅限机械终态可判资源类型（pr/worktree/branch）——fact/file/url/game 一律拒绝；
+   * 4. 必须附机器证据（如 `gh pr view 1801 --json state → MERGED`），写入审计列；
+   * 5. 审计三列（archivedByOtterId / archivedAt / archiveEvidence）与目标 conversation 均留痕。
+   *
+   * 用途收口在每日健康检查的「产物清单对账段」；普通对话里的 update_artifact_status
+   * 仍按归属闸 404 跨对话写，不受本路径影响。
+   */
+  async archiveResourceForReconciliation(params: {
+    artifactId: string;
+    operatorOtterId: string;
+    evidence: string;
+  }): Promise<LinkedResource> {
+    const resource = await this.repo.getLinkedResourceById(params.artifactId);
+    if (!resource) {
+      throw new DomainError(`LinkedResource ${params.artifactId} not found`, "not_found");
+    }
+    if (!isReconciliationArchivableType(resource.resourceType)) {
+      throw new DomainError(
+        `非机械可判资源（${resource.resourceType}）不能经对账路径归档；仅 pr/worktree/branch 允许`,
+        "validation",
+      );
+    }
+    if (!canTransitionArtifactStatus(resource.status, "archived")) {
+      throw new DomainError(`Cannot archive resource in status '${resource.status}'`, "conflict");
+    }
+    const evidence = params.evidence.trim();
+    if (evidence.length < 4) {
+      throw new DomainError(
+        "对账归档必须附带机器证据（如 gh pr view <N> --json state → MERGED）",
+        "validation",
+      );
+    }
+    const archivedAt = new Date().toISOString();
+    await this.repo.updateResourceStatus(resource.id, "archived");
+    await this.repo.updateResourceArchiveAudit(resource.id, {
+      archivedByOtterId: params.operatorOtterId,
+      archivedAt,
+      archiveEvidence: evidence,
+    });
+    return {
+      ...resource,
+      status: "archived",
+      archivedByOtterId: params.operatorOtterId,
+      archivedAt,
+      archiveEvidence: evidence,
+    };
   }
 
   /** 产物总览：按 groupId 分组 */

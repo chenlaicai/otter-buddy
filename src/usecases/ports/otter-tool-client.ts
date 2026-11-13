@@ -166,6 +166,7 @@ export interface OtterToolClient {
     list(conversationId: string, filters?: { status?: ArtifactStatus; resourceType?: string }): Promise<LinkedResource[]>;
     listByGroup(conversationId: string, groupId: string): Promise<LinkedResource[]>;
     updateStatus(id: string, conversationId: string, status: ArtifactStatus, supersededBy?: string): Promise<void>;
+    archiveForReconciliation(params: { artifactId: string; operatorOtterId: string; evidence: string }): Promise<LinkedResource>;
     supersede(existingId: string, newInput: LinkResourceInput, currentTurnNumber: number): Promise<LinkedResource>;
     archive(id: string, conversationId: string, currentTurnNumber: number): Promise<void>;
   };

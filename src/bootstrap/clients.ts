@@ -102,6 +102,8 @@ export function buildResourceClient(uc: UseCases) {
       uc.manageKeyInfo.getLinkedResourcesByGroup(convId, groupId),
     updateStatus: (id: string, conversationId: string, status: "active" | "superseded" | "archived", supersededBy?: string) =>
       uc.manageKeyInfo.updateResourceStatus(id, conversationId, status, supersededBy),
+    archiveForReconciliation: (params: { artifactId: string; operatorOtterId: string; evidence: string }) =>
+      uc.manageKeyInfo.archiveResourceForReconciliation(params),
     supersede: (existingId: string, newInput: { conversationId: string; resourceType?: string; url?: string; title?: string; content?: string; category?: string; linkedBy: string; groupId?: string }) =>
       uc.manageKeyInfo.supersedeResource(existingId, {
         conversationId: newInput.conversationId,

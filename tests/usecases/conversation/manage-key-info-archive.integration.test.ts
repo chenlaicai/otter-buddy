@@ -29,6 +29,7 @@ describe("DELETE → archiveResource → SQLite（#1793）", () => {
         title: "keep me", content: null, category: null, userFlagged: false, metadata: null,
         linkedBy: "test", otterId: null, autoLinked: false, createdAt: now,
         status: "active", groupId: null, supersededBy: null,
+        archivedByOtterId: null, archivedAt: null, archiveEvidence: null,
       });
       const deps = createMockDeps();
       deps.manageKeyInfo = new ManageKeyInfo(repo, memoryIndex);

@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- 合并 main 分支 contentType + recruiting createdAfter 后行数增加 */
 import type { MemoryContentType } from "@entities/memory/memory-entry";
 import type { EdgeType } from "@entities/memory/memory-edge";
-import { createListArtifactsTool, createUpdateArtifactStatusTool } from "./artifact-tools";
+import { createListArtifactsTool, createUpdateArtifactStatusTool, createArchiveArtifactForReconciliationTool } from "./artifact-tools";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool } from "./message-tools";
 /** 前后端共享常量，单一真相源在 @contract/api/html-card */
@@ -1785,6 +1785,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createAddTerminologyTool(ctx),
     createListArtifactsTool(ctx),
     createUpdateArtifactStatusTool(ctx),
+    createArchiveArtifactForReconciliationTool(ctx),
     createGetActiveParticipantsTool(ctx),
     createGetHtmlCardContractTool(),
     createQueryDispatchLedgerTool(ctx),
