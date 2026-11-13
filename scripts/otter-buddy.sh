@@ -127,6 +127,34 @@ report_port_occupant() {
   esac
 }
 
+# F20261113stopp：优雅终止序列（SIGTERM → 5s 宽限 → SIGKILL）抽为公共函数——
+# PID 文件路径与「无 PID 文件但监听者验明是主服务」路径共用同一杀伐节奏。
+terminate_pid() {
+  local pid="$1"
+  echo -n "Stopping Otter Buddy (PID $pid) ..."
+  kill -15 "$pid" 2>/dev/null || true
+  local _i
+  for _i in $(seq 1 5); do
+    kill -0 "$pid" 2>/dev/null || break
+    echo -n "."
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null || true
+    echo " (killed)"
+  else
+    echo " done"
+  fi
+}
+
+# F20261113stopp：PID 文件自愈——主服务身份经 listener_class 三重验证（LISTEN 端口 +
+# cwd=本仓 + node/main.js 特征）后重建管理通道。文件丢失不可考（11/11 现场与
+# F20261103portx 遗留问题同源：删除发生在脚本管辖外，磁盘无审计轨迹），与其报错
+# 要人手动补，不如验明正身后原地重建——丢失从此无感。
+heal_pid_file() {
+  echo "$1" > "$PID_FILE"
+}
+
 cmd_start() {
   if is_running; then
     echo "[ok] Already running (PID $(cat "$PID_FILE")) -> http://localhost:$PORT"
@@ -138,9 +166,11 @@ cmd_start() {
   occupant=$(port_owner_pid "$PORT")
   if [ -n "$occupant" ]; then
     if [ "$(listener_class "$occupant")" = "main-service" ]; then
-      echo "[error] Otter Buddy is already running (PID $occupant, $PID_FILE missing)"
-      echo "        To restart it:  kill $occupant && $0 start"
-      exit 1
+      # F20261113stopp：主服务在跑仅缺 PID 文件——自愈重建后按「已在运行」幂等返回，
+      # 不再 exit 1 逼搭档手动 kill（要重启走 $0 restart，stop 已能认人代停）。
+      heal_pid_file "$occupant"
+      echo "[ok] Already running (PID $occupant, PID file re-created) -> http://localhost:$PORT"
+      return 0
     fi
     report_port_occupant "$PORT" "$occupant"
     exit 1
@@ -227,19 +257,7 @@ cmd_stop() {
         return 1
       fi
     fi
-    echo -n "Stopping Otter Buddy (PID $my_pid) ..."
-    kill -15 "$my_pid" 2>/dev/null || true
-    for _ in $(seq 1 5); do
-      kill -0 "$my_pid" 2>/dev/null || break
-      echo -n "."
-      sleep 1
-    done
-    if kill -0 "$my_pid" 2>/dev/null; then
-      kill -9 "$my_pid" 2>/dev/null || true
-      echo " (killed)"
-    else
-      echo " done"
-    fi
+    terminate_pid "$my_pid"
     rm -f "$PID_FILE"
     return 0
   fi
@@ -253,9 +271,14 @@ cmd_stop() {
   occupant=$(port_owner_pid "$PORT")
   if [ -n "$occupant" ]; then
     if [ "$(listener_class "$occupant")" = "main-service" ]; then
-      echo "[warn] Otter Buddy appears to be running (PID $occupant) but $PID_FILE is missing."
-      echo "       To restart it:  kill $occupant && $0 start"
-      return 1
+      # F20261113stopp：搭档拍板（2026-11-13）——stop 的语义就是停掉当前服务，PID 文件
+      # 只是寻址手段之一。信任根从「PID 文件」扩展为 listener_class 三重验证（LISTEN 端口
+      # + cwd=本仓 + node/main.js 特征），验证通过即为本仓服务，直接停；这把
+      # F20261103portx「不代杀、只指引」的保守取舍按搭档明确需求反转——攻击面并未打开：
+      # 代杀仍只限验明正身的本仓服务，外人占用（otter-or-node/foreign）依旧拒杀。
+      echo "[info] Otter Buddy is running (PID $occupant) but $PID_FILE is missing — stopping by verified listener identity."
+      terminate_pid "$occupant"
+      return 0
     fi
     report_port_occupant "$PORT" "$occupant"
     return 1
@@ -284,7 +307,9 @@ cmd_status() {
   occupant=$(port_owner_pid "$PORT")
   if [ -n "$occupant" ]; then
     if [ "$(listener_class "$occupant")" = "main-service" ]; then
-      echo "[ok] Running (PID $occupant, $PID_FILE missing) -> http://localhost:$PORT"
+      # F20261113stopp：status 顺手自愈 PID 文件（身份已验证，重建零风险）。
+      heal_pid_file "$occupant"
+      echo "[ok] Running (PID $occupant, PID file re-created) -> http://localhost:$PORT"
       return 0
     fi
     report_port_occupant "$PORT" "$occupant"
