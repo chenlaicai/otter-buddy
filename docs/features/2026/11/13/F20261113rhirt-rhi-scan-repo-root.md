@@ -1,12 +1,12 @@
 ---
 id: F20261113rhirt
 title: RHI 扫描 Git 工作目录绑定项目根而非隔离数据根
-summary: "alpha 隔离实例以数据根（~/.otter/alpha/<hash>/）为 cwd 启动，该目录不是 Git 仓库；RhiScanWorker 的 repoPath 此前透传 rootDir（默认 process.cwd()），导致 git log 在数据根执行报 `fatal: not a git repository`、patrol 每轮 rhi-scan 失败。本次把 RHI 扫描的 Git 工作目录改为 getRepoRoot()（基于代码位置定位项目根，与 cwd 无关），与文档同步根 rootDir 解耦；sessionsDir 仍从 rootDir（数据根语义）派生不变。"
+summary: "alpha 隔离实例以数据根（~/.otter/alpha/<hash>/）为 cwd 启动，该目录不是 Git 仓库；RhiScanWorker 的 repoPath 此前透传 rootDir（默认 process.cwd()），导致 git log 在数据根执行报 `fatal: not a git repository`、patrol 每轮 rhi-scan 失败。本次把 RHI 扫描的 Git 工作目录改为 getRepoRoot()（基于代码位置定位项目根，与 cwd 无关），与文档同步根 rootDir 解耦；sessionsDir 仍从 rootDir（数据根语义）派生不变。连带修复：CI 分离检出（actions/checkout ref=<sha>）无本地 main 分支时 `git log main` 报 ambiguous argument——git-log-collector 按 main → origin/main → HEAD 顺序回退。"
 change_type: fix
 capability_test: "n/a: 无 LLM 行为 golden 场景可回归；行为由全栈装配测试覆盖——tests/app/build-app.test.ts 新增 #1869 回归（rootDir 指向非 Git 空目录时 POST /api/health/scan 仍 200 且 commitCount>0，修复前 500）"
 created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 tags: [health, rhi-scan, repo-root, alpha, path-resolution]
-modules: [app]
+modules: [app, health]
 created_at: 2026-11-13
 
 intent:
@@ -35,11 +35,11 @@ alpha 隔离实例的启动命令是 `cd <alpha_home> && node <wt_root>/dist/src
 
 ## 修复
 
-`src/app.ts` `createRhiScanWorker` 中，RhiScanWorker 构造器的第一个参数由 `deps.rootDir` 改为 `getRepoRoot()`（`@frameworks/repo-root`，F20260916fndv 既有机制——基于 `import.meta.dirname` 向上探测含 `package.json` 且 `name === "otter-buddy"` 的目录，与 process.cwd() 无关；vitest 直跑 src/ 与 tsc 产物 dist/src/frameworks/ 两种布局均兼容）。alpha 场景下 getRepoRoot() 返回 worktree 根（编译产物在 `$wt_root/dist/src/`，向上即 worktree 根）。
+1. **RHI 扫描工作目录绑定项目根**（`src/app.ts` `createRhiScanWorker`）：RhiScanWorker 构造器的第一个参数由 `deps.rootDir` 改为 `getRepoRoot()`（`@frameworks/repo-root`，F20260916fndv 既有机制——基于 `import.meta.dirname` 向上探测含 `package.json` 且 `name === "otter-buddy"` 的目录，与 process.cwd() 无关；vitest 直跑 src/ 与 tsc 产物 dist/src/frameworks/ 两种布局均兼容）。alpha 场景下 getRepoRoot() 返回 worktree 根（编译产物在 `$wt_root/dist/src/`，向上即 worktree 根）。`sessionsDir`（成本/产出采集的数据源）仍从 `deps.rootDir` 派生，保持数据根语义——Git 工作目录与数据根就此解耦。
 
-`sessionsDir`（成本/产出采集的数据源）仍从 `deps.rootDir` 派生，保持数据根语义——Git 工作目录与数据根就此解耦。
+2. **git ref 解析健壮性**（`src/usecases/health/git-log-collector.ts`）：修复后 scanOnce 真正落到 `git log main`，暴露 `main` 本地分支缺失场景（CI actions/checkout ref=<sha> 分离检出、无本地 main——alpha/production 因本地 main 存在不受影响）。`collectGitLogWithFiles` 不传 ref 时按序回退 `main → origin/main → HEAD`，首个可解析者生效；显式传 ref 时行为不变。main 在时仍优先 main，可复现指标口径（PR #417）不受影响。
 
-改动为一行语义替换 + 注释，无新增机制、无删除机制（narrow-fix）。alpha.sh / main.ts 均无需改动：getRepoRoot 不依赖任何 CLI 参数或环境变量。
+改动为语义替换 + 回退链，无新增机制、无删除机制（narrow-fix）。alpha.sh / main.ts 均无需改动：getRepoRoot 不依赖任何 CLI 参数或环境变量。
 
 ## Verification
 
@@ -73,6 +73,11 @@ AssertionError: expected 500 to be 200 // Object.is equality
 ### 复现步骤
 
 1. `npx vitest run tests/app/build-app.test.ts -t "1869"`（修复前 500 红，修复后 200 绿、`result.commitCount > 0`）。
+2. `npx vitest run tests/usecases/health/git-log-collector.test.ts`（含新增「main 本地分支缺失时回退 HEAD」用例，CI 分离检出形态）。
+
+### CI 实测
+
+首版只改了 app.ts 入参，CI golden-selftest/check 的 smoke:boot 红（分离检出无本地 main → `git log main` ambiguous argument → 500）——补修 git-log-collector 回退链后转绿。
 
 ## 设计取舍
 

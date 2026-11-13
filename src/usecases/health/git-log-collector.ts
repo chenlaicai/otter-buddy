@@ -97,24 +97,36 @@ export async function collectGitLogWithFiles(
     ref?: string;
   }
 ): Promise<GitCommitWithFiles[]> {
-  const args = [
-    "log",
-    options?.ref ?? "main",
-    // %aI=ISO 作者日期：链构建/信号窗口的时间基准（不用 %cI 提交日期——rebase 会改写）
-    "--format=%x1e%H%x1f%aI%x1f%s",
-    "--name-only",
-  ];
+  // #1869 连带修复：CI 分离检出（actions/checkout ref=<sha>）无本地 main 分支，
+  // `git log main` 报 ambiguous argument。按序回退 main → origin/main → HEAD，
+  // 首个可解析者生效；main 仍在时行为不变（可复现指标不受影响）。
+  const refs = options?.ref ? [options.ref] : ["main", "origin/main", "HEAD"];
+  let lastError: unknown = null;
+  for (const ref of refs) {
+    const args = [
+      "log",
+      ref,
+      // %aI=ISO 作者日期：链构建/信号窗口的时间基准（不用 %cI 提交日期——rebase 会改写）
+      "--format=%x1e%H%x1f%aI%x1f%s",
+      "--name-only",
+    ];
 
-  if (options?.since) args.push(`--since=${options.since}`);
-  if (options?.until) args.push(`--until=${options.until}`);
-  if (options?.maxCount) args.push(`--max-count=${options.maxCount}`);
+    if (options?.since) args.push(`--since=${options.since}`);
+    if (options?.until) args.push(`--until=${options.until}`);
+    if (options?.maxCount) args.push(`--max-count=${options.maxCount}`);
 
-  const { stdout } = await execFileAsync("git", args, {
-    cwd: repoPath,
-    maxBuffer: 10 * 1024 * 1024,
-  });
+    try {
+      const { stdout } = await execFileAsync("git", args, {
+        cwd: repoPath,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      return parseLogWithFiles(stdout);
+    } catch (error) {
+      lastError = error;
+    }
+  }
 
-  return parseLogWithFiles(stdout);
+  throw new Error(`Failed to collect git log: ${String(lastError)}`, { cause: lastError });
 }
 
 /** 解析 `git log --format=%x1e%H%x1f%aI%x1f%s --name-only` 输出 */
