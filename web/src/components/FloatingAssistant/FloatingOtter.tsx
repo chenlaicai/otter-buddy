@@ -26,11 +26,13 @@ export interface FloatingOtterProps {
   onToggle: () => void
   position: { x: number; y: number }
   dragging: boolean
+  /** 本轮交互是否拖动（ref 同步值，供 click 判定——不依赖 dragging state 异步刷新） */
+  dragMovedRef: React.RefObject<boolean>
   onPointerDown: (e: React.PointerEvent) => void
 }
 
 export function FloatingOtter(props: FloatingOtterProps) {
-  const { mood, unreadCount, open, onToggle, position, dragging, onPointerDown } = props
+  const { mood, unreadCount, open, onToggle, position, dragging, dragMovedRef, onPointerDown } = props
 
   return (
     <div
@@ -46,7 +48,7 @@ export function FloatingOtter(props: FloatingOtterProps) {
       <button
         type="button"
         data-testid="floating-otter-avatar"
-        onClick={() => { if (!dragging) onToggle() }}
+        onClick={() => { if (!dragMovedRef.current) onToggle() }}
         className={`relative w-14 h-14 rounded-2xl bg-white/80 backdrop-blur border border-white/60 shadow-lg
           transition-transform duration-200 hover:scale-105 active:scale-95 cursor-pointer
           ${mood === 'sleep' ? 'animate-otter-breathe' : ''}
