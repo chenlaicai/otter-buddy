@@ -427,7 +427,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const agentMetrics = new AgentMetrics(metricsRegistry);
 
   // ── 调度引擎 + 平台集成 ──
-  const globalPartnerResolver = new PartnerResolver(undefined, config.weixin?.partnerUserId); // F20260928fsqr：渲染 resolver 外置——扫码首号运行时写入。F20260929fsqr：feishu.partnerOpenId 随静态段退役移除，飞书搭档锚一律扫码首号
+  const globalPartnerResolver = PartnerResolver.forIdentity(undefined, config.weixin?.partnerUserId); // F20260928fsqr：渲染 resolver 外置——扫码首号运行时写入。F20260929fsqr：feishu.partnerOpenId 随静态段退役移除，飞书搭档锚一律扫码首号
   const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger, { agentMetrics, agentGateway, partnerResolver: globalPartnerResolver });
   /** issue #281：广播总线无条件创建（平台无关），飞书出站作为 channel 注册——
    *  旧实现 messageBroadcaster: feishu?.broadcaster 导致 web-only 部署流式链路断流 */
@@ -539,7 +539,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // Bugfix（F20260831wxsp）：补写目标必须与读入路径一致——此前缺省 "./config.yaml" 而真实
       // 配置在 config/config.yaml，写回 ENOENT 静默失败，重启后 weixin 段丢失、轮询拉不起来。
       // options.configPath 是测试注入的临时路径；生产缺省走 ensureWeixinConfig 内的默认（对齐 loadConfig）。
-      ensureWeixinConfig({ configPath: options.configPath, stateDir: config.weixin?.stateDir, ilinkUserId, logger });
+      ensureWeixinConfig({ configPath: options.configPath, stateDir: config.weixin?.stateDir, logger });
       const account = weixinAccountStore.getAccount(accountId);
       if (!account) return;
       // #591 替换语义：同 accountId 的旧 poller 先停再重启（防同账号并发轮询
