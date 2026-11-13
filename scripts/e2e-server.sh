@@ -76,7 +76,9 @@ cmd_start() {
   npm --prefix web run build
 
   # 启动（后台、日志落文件）
-  nohup node dist/src/main.js --config config/config.e2e.yaml > "${LOG_FILE}" 2>&1 &
+  # #1868 阶段 2：注入固定 owner token（与 web/e2e/global-setup.ts 缺省值一致）供登录写 storageState；
+  # 覆盖用户 shell 环境避免误用生产 token 写入 e2e 登录态。
+  nohup env OTTER_OWNER_TOKEN="${E2E_OWNER_TOKEN:-e2e-owner-token}" node dist/src/main.js --config config/config.e2e.yaml > "${LOG_FILE}" 2>&1 &
   local pid=$!
   echo "$pid" > "${E2E_PID_FILE}"
   echo "e2e server starting (pid ${pid}) -> ${BASE_URL}"

@@ -1,6 +1,17 @@
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { MessageCircle, Search, Package, Settings, Activity, ClipboardList, type LucideIcon } from 'lucide-react'
 import { NAV_ROUTES } from '@contract/web/pages'
+
+interface ExecutionMachineDTO {
+  id: string
+  name?: string
+}
+
+interface ExecutionMachinesDTO {
+  machines: ExecutionMachineDTO[]
+  currentMachineId: string
+}
 
 /** icon 映射（路由 path → icon 组件）。新增路由忘配 icon 只视觉降级不编译失败 */
 const ICONS: Record<string, LucideIcon> = {
@@ -16,6 +27,22 @@ const ICONS: Record<string, LucideIcon> = {
 /** SPA TopBar —— 由 AppLayout 渲染一次，导航用 <Link> 客户端路由 */
 export function TopBar() {
   const location = useLocation()
+  // #1868 阶段 2：当前执行机投影（阶段 2 恒为本机，后续多终端接入后随侧边栏选持久机变化）
+  const [machineName, setMachineName] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/execution-machines', { credentials: 'same-origin' })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`))))
+      .then((d: ExecutionMachinesDTO) => {
+        if (!cancelled) {
+          const cur = d.machines.find(m => m.id === d.currentMachineId)
+          setMachineName(cur?.name ?? d.currentMachineId)
+        }
+      })
+      .catch(() => { if (!cancelled) setMachineName(null) })
+    return () => { cancelled = true }
+  }, [])
 
   /** 判断当前路由是否激活：精确匹配或前缀匹配（/conversation 匹配 /conversation/xxx） */
   function isActive(path: string): boolean {
@@ -55,8 +82,19 @@ export function TopBar() {
         })}
       </nav>
 
-      {/* Right spacer for centering */}
-      <div className="flex-1" />
+      {/* Right：当前执行机投影（数据不可得时静默隐藏，不阻塞布局） */}
+      <div className="flex-1 flex justify-end">
+        {machineName && (
+          <span
+            data-testid="execution-machine"
+            title={`当前执行机：${machineName}`}
+            className="px-2.5 py-1 text-xs font-medium rounded-full text-otter-600"
+            style={{ background: 'rgba(139,111,71,0.06)' }}
+          >
+            执行机：{machineName}
+          </span>
+        )}
+      </div>
     </header>
   )
 }

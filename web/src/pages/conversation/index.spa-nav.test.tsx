@@ -406,6 +406,30 @@ describe('右栏 invoke 状态对账：缓存模型合并（F20260928icmm）', (
   /** 服务端 invokes 数据（可变——模拟切走期间状态变化） */
   let invokesByConv: Record<string, unknown[]>
 
+  /** 静默 SSE 桩：本组用例只测右栏对账，不测订阅链路；替换真实 jsdom XHR 免其网络噪声
+   *  干扰 fake-timer 对账计数（#1868 阶段 2 移除了订阅身份头后，jsdom XHR 会真去取订阅
+   *  响应并触发 onprogress/onload 重连链，污染 listInvokes 计数）。 */
+  class SilentXHR {
+    responseText = ''
+    onprogress: (() => void) | null = null
+    onerror: (() => void) | null = null
+    onload: (() => void) | null = null
+    open() {}
+    setRequestHeader() {}
+    send() {}
+    abort() {}
+  }
+  let savedXHR: unknown
+
+  beforeEach(() => {
+    savedXHR = globalThis.XMLHttpRequest
+    ;(globalThis as Record<string, unknown>).XMLHttpRequest = SilentXHR as unknown
+  })
+
+  afterEach(() => {
+    ;(globalThis as Record<string, unknown>).XMLHttpRequest = savedXHR
+  })
+
   function mockApiWithInvokes() {
     listInvokesCalls = []
     invokesByConv = {

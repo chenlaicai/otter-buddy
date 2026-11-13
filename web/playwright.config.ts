@@ -10,10 +10,13 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/global-setup.ts',
   timeout: 30_000,
   retries: process.env.CI ? 1 : 0,
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3116',
+    // #1868 阶段 2：登录后会话 cookie 统一进 storageState（global-setup 写入）
+    storageState: 'e2e/.auth/owner.json',
   },
   outputDir: './test-results',
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',

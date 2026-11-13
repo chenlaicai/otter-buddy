@@ -11,7 +11,7 @@ test.describe('浮动獭开关关闭降级（F20260924wast）', () => {
     // 前置：建一条普通对话（LeftPanel 只在有对话的页面渲染——列表页空态独占是既有行为）
     const created = await request.post('/api/conversations', {
       data: { title: '降级测试' },
-      // #1322：对话域已接鉴权——直连 API 也带身份头
+      // #1868 阶段 2：request fixture 不带 storageState cookie——直连 API 走声明式头回退路径
       headers: { 'X-Otter-User-Id': 'e2e', 'X-Otter-User-Role': 'admin' },
     })
     expect(created.ok()).toBeTruthy()
