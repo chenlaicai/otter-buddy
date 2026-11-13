@@ -15,8 +15,8 @@ import type { OtterInvokeContext } from "@frameworks/agent/model-runtime-registr
 import type { OtterPromptConfig } from "@contract/api/otter";
 
 const BASE_PROMPT = "You are a coding agent with tools: read, write, edit, bash.";
-const IDENTITY_BIG = "## 你的身份\n- 名称：大獭\n- 类型：大獭\n- 海獭团队的头儿";
-const IDENTITY_SMALL = "## 你的身份\n- 名称：小獭\n- 类型：小獭";
+const IDENTITY_BIG = "## 我的身份\n- 名称：大獭\n- 类型：大獭\n- 海獭团队的头儿";
+const IDENTITY_SMALL = "## 我的身份\n- 名称：小獭\n- 类型：小獭";
 const OTTER_PROMPT_STRING = "你是一个友好的助手。";
 const OTTER_PROMPT_CONFIG: OtterPromptConfig = {
   systemPrompt: "你是一个专业的编码助手。",

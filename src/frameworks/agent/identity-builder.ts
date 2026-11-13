@@ -71,7 +71,7 @@ export class IdentityBuilder {
     // 用户身份段：告诉海獭搭档叫什么名字
     const rawName = this.settingsRepo ? ((await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || undefined) : undefined;
     const userName = rawName?.replace(/[\r\n]/g, '');
-    const userIdentity = userName ? `## 你的搭档\n- 名字：${userName}\n- 称呼：搭档（你可以用名字称呼 ta）` : '';
+    const userIdentity = userName ? `## 我的搭档\n- 名字：${userName}\n- 称呼：搭档（你可以用名字称呼 ta）` : '';
 
     // F20260810rout: 小獭注入召唤者身份（修复行动权路由 bug——子獭需知道召唤者是谁，结论才能交回）
     const summonerIdentity = isBig ? '' : await this.buildSummonerIdentity(otter);
@@ -99,7 +99,7 @@ export class IdentityBuilder {
     // 格式实体是 signature-convention skill 的管道快照（同 .github/pull_request_template.md
     // 性质，机制上无法指针化），同步义务见该 skill。
     return [
-      `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- 你的署名行（PR description / review 评论末尾，原样复制下面这行，不要凭记忆改写格式）：\n  🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by ${otter.name}\n- commit author（git commit --author 参数值，整体照抄）：${otter.name} <41982931+chenlaicai@users.noreply.github.com>\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
+      `## 我的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- 你的署名行（PR description / review 评论末尾，原样复制下面这行，不要凭记忆改写格式）：\n  🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by ${otter.name}\n- commit author（git commit --author 参数值，整体照抄）：${otter.name} <41982931+chenlaicai@users.noreply.github.com>\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
       conversationIdentity,
       userIdentity,
       summonerIdentity,
@@ -162,7 +162,7 @@ export class IdentityBuilder {
     const parentOtter = await this.otterRepo.getById(otter.parentOtterId);
     if (!parentOtter) return '';
     return [
-      '## 你的召唤者',
+      '## 我的召唤者',
       `- 召唤你的海獭：${parentOtter.name}（本次任务的主导者）`,
       `- **子任务完成后，行动权默认交回 ${parentOtter.name} 处置，不要传 'user'**`,
       `- 只有整个协作任务真正完成、需要搭档（用户）拍板时，才传 'user'`,
