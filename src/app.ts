@@ -10,6 +10,7 @@ import type Database from "better-sqlite3";
 import type { Hono } from "hono";
 
 import { loadConfig, initConfig, type AppConfig } from "@frameworks/config";
+import { getRepoRoot } from "@frameworks/repo-root";
 import { PinoLogger } from "@frameworks/logger";
 import type { Logger } from "@usecases/ports/logger";
 import type { ModelPool } from "@frameworks/llm/model-pool";
@@ -201,7 +202,11 @@ function createRhiScanWorker(deps: {
     deps.logger.info("cost_output snapshots invalidated for Shanghai-date rekey + provider metadata", { staleRows: stale.c });
   };
 
-  return new RhiScanWorker(deps.rootDir, pipeline, healingSource, deps.logger, {
+  // #1869：RHI 扫描的 Git 工作目录绑定项目根（getRepoRoot——基于代码位置定位，
+  // 与 process.cwd() 无关），不绑定 rootDir/隔离数据根。alpha 隔离实例以数据根为 cwd
+  // 启动（非 Git 仓库），此前 repoPath 落到数据根导致 git log 报 `fatal: not a git repository`。
+  // sessionsDir 仍从 rootDir 派生（数据根语义），两者不再混用同一入参。
+  return new RhiScanWorker(getRepoRoot(), pipeline, healingSource, deps.logger, {
     snapshotSink, signalRepo, costOutputSink, sessionsDir, agentSessionSource, costOutputDb: deps.db,
     costOutputInvalidateAll,
   });

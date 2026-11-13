@@ -152,4 +152,15 @@ describe("collectGitLogWithFiles（临时仓库 fixture）", () => {
     expect(multiCommit?.message).toBe("[F20260921tst9][health][Chore] 标题行");
     expect(multiCommit?.filesChanged).toEqual([]);
   });
+
+  it("#1869 连带：main 本地分支缺失时回退 origin/main → HEAD（CI 分离检出形态）", async () => {
+    // 模拟 actions/checkout ref=<sha>：分离 HEAD + 无本地 main（无远程 → 只剩 HEAD 可解析）
+    const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoDir, encoding: "utf8" }).trim();
+    git(["checkout", "--detach"]);
+    git(["branch", "-D", "main"]);
+
+    const commits = await collectGitLogWithFiles(repoDir);
+    expect(commits.length).toBeGreaterThan(0);
+    expect(commits[0].sha).toBe(headSha);
+  });
 });
