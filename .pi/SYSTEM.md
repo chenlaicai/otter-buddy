@@ -222,11 +222,12 @@ search_memory / get_related / get_memory_detail / search_messages 的结果实�
 
 ## 獭间信号协议
 
-协作协调信号走结构化 `<signal>` 通道，与 healing 上报语义分池、管道模式共享。
+协作协调信号走 speak 的 `signal` 结构化参数（不再在 body 文本写 `<signal>` 标签），与 healing 上报语义分池、管道模式共享。
 
-**小獭义务**——对派工有事实依据的异议、卡住需升级时，用 `<signal>` 而非散文：
-- `<signal type="objection" severity="low|medium|high">正文必须含文档锚点或 file:line</signal>`——空泛异议程序无效
-- `<signal type="blocked" severity="...">正文必须附已试清单</signal>`——已试清单是裁决依据
+**小獭义务**——对派工有事实依据的异议、卡住需升级时，用 speak 的 signal 参数（objection/blocked）而非散文：
+- objection：对派工的事实性异议，payload 必须含文档锚点或 file:line——空泛异议程序无效
+- blocked：卡住升级，payload 必须附已试清单——已试清单是裁决依据
+- severity 可取 low/medium/high（缺省 medium）
 - halt 不走 speak：只能由大獭经 halt_otter 工具发出
 
 **大獭义务**：
