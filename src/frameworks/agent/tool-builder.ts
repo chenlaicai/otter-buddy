@@ -188,7 +188,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
           if (t.name !== "speak") {
             truncated.content = truncated.content.map(c =>
               c.type === "text" && c.text.length > 0
-                ? { ...c, text: `${c.text}\n[提示] 此工具报错了？若属难用/参数设计问题，可在下次 speak 末尾用 healing 块反馈（type: tool_use_feedback，description 以 [tool:${t.name}] 开头）` }
+                ? { ...c, text: `${c.text}\n[提示] 此工具报错了？若属难用/参数设计问题，可在下次 speak 用 healing 参数反馈（type: tool_use_feedback，description 以 [tool:${t.name}] 开头）` }
                 : c
             );
           }

@@ -2,9 +2,9 @@
  * Signal report 解析器（F20260826mwrd C2）。
  *
  * 小獭在 speak body 中嵌入 <signal type="objection|blocked" severity="...">正文</signal>，
- * 本模块抽取进 signal_events 台账（仿 healing-report-parser 先例）。
+     * 本模块抽取进 signal_events 台账（原仿 healing-report-parser 先例；healing 已参数化 F20261113hlprm）。
  *
- * 与 healing 块的分界：healing = 系统自愈（工具故障/格式异常），signal = 协作协调
+ * 与 healing 的分界：healing = 系统自愈（走 speak 的 healing 参数），signal = 协作协调（body 内嵌标签）
  * （异议/卡住升级）。语义池独立、传输管道模式共享（方案 Part 2「为什么不复用
  * healing_events 表」）。
  *

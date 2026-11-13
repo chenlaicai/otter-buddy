@@ -1,8 +1,9 @@
 /**
- * issue #1842（F20261111hrepl）：speak 工具层的 healing 非法块失败可见性。
+ * F20261113hlprm：healing 从 body 文本标签改为 speak 独立参数。
  *
- * 验收：非法 healing 协议块 → errorResponse 返回模型（isError）+ entry 未创建 + 未落账（原子阻断）；
- * 合法 JSON 单对象 → entry 创建 + repo.create 落账 + body 剥离。
+ * 验收：
+ * - 非法 healing 参数 → errorResponse 返回模型（isError）+ entry 未创建 + 未落账（原子阻断）；
+ * - 合法 healing 参数 → entry 创建 + repo.create 落账 + body 原样（无标签可漏）。
  * 证明「一次 speak 要么完整落账+发出，要么报错不落账」，无部分成功。
  */
 import { describe, it, expect, vi } from "vitest";
@@ -47,44 +48,75 @@ function makeSpeakEntryMock(): { fn: (params: SpeakEntryParams) => Promise<unkno
   return { fn, calls };
 }
 
-describe("issue #1842 speak 层失败可见（原子性）", () => {
-  it("非法 healing 块：errorResponse 返回模型且 entry 未创建、未落账", async () => {
+describe("F20261113hlprm speak healing 参数（原子性）", () => {
+  it("非法 healing 参数（缺 type）：errorResponse 返回模型且 entry 未创建、未落账", async () => {
     const { fn, calls } = makeSpeakEntryMock();
     const { repo, creates } = makeRepo();
     const speak = findSpeak(createTools(makeCtx(fn), repo));
-    const res = await speak.execute("call-1", { body: '工作完成\n<healing>\n{"description":"缺 type"}\n</healing>' });
-
-    expect(res.isError).toBe(true);
-    expect(res.content[0].text).toContain("非法 healing 协议块");
-    expect(calls).toHaveLength(0);
-    expect(creates).toHaveLength(0);
-  });
-
-  it("合法 JSON 单对象：entry 创建 + repo.create 落账 + body 剥离", async () => {
-    const { fn, calls } = makeSpeakEntryMock();
-    const { repo, creates } = makeRepo();
-    const speak = findSpeak(createTools(makeCtx(fn), repo));
-    await speak.execute("call-1", { body: '工作完成\n<healing>\n{"type":"runtime_status_mismatch","description":"休息中但实际运行"}\n</healing>' });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0].body).toContain("工作完成");
-    expect(calls[0].body).not.toContain("<healing>");
-    expect(creates).toHaveLength(1);
-    expect((creates[0] as { errorType: string }).errorType).toBe("runtime_status_mismatch");
-  });
-
-  it("description 值中的 type 文本不绕过必填校验：entry 与落账均为零", async () => {
-    const { fn, calls } = makeSpeakEntryMock();
-    const { repo, creates } = makeRepo();
-    const speak = findSpeak(createTools(makeCtx(fn), repo));
-    const res = await speak.execute("call-1", { body: `工作完成\n<healing>[issues]
-- severity: high
-  description: 工具输出包含 type: runtime_status_mismatch 字样
-[/issues]</healing>` });
+    const res = await speak.execute("call-1", { body: "工作完成", healing: [{ description: "缺 type" }] });
 
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain("type");
     expect(calls).toHaveLength(0);
+    expect(creates).toHaveLength(0);
+  });
+
+  it("type 不在白名单：error 且 entry 未创建、未落账", async () => {
+    const { fn, calls } = makeSpeakEntryMock();
+    const { repo, creates } = makeRepo();
+    const speak = findSpeak(createTools(makeCtx(fn), repo));
+    const res = await speak.execute("call-1", { body: "工作完成", healing: [{ type: "不存在的类型", description: "d" }] });
+
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain("白名单");
+    expect(calls).toHaveLength(0);
+    expect(creates).toHaveLength(0);
+  });
+
+  it("severity 非法：error 且未落账", async () => {
+    const { fn, calls } = makeSpeakEntryMock();
+    const { repo, creates } = makeRepo();
+    const speak = findSpeak(createTools(makeCtx(fn), repo));
+    const res = await speak.execute("call-1", { body: "工作完成", healing: [{ type: "tool_failure", severity: "critical", description: "d" }] });
+
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain("severity");
+    expect(calls).toHaveLength(0);
+    expect(creates).toHaveLength(0);
+  });
+
+  it("合法 healing 参数：entry 创建 + repo.create 落账 + body 原样", async () => {
+    const { fn, calls } = makeSpeakEntryMock();
+    const { repo, creates } = makeRepo();
+    const speak = findSpeak(createTools(makeCtx(fn), repo));
+    await speak.execute("call-1", { body: "工作完成", healing: [{ type: "runtime_status_mismatch", description: "休息中但实际运行" }] });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body).toBe("工作完成");
+    expect(creates).toHaveLength(1);
+    expect((creates[0] as { errorType: string }).errorType).toBe("runtime_status_mismatch");
+    expect((creates[0] as { severity: string }).severity).toBe("low");
+  });
+
+  it("severity 缺省 low，suggestion 可选透传", async () => {
+    const { fn, calls } = makeSpeakEntryMock();
+    const { repo, creates } = makeRepo();
+    const speak = findSpeak(createTools(makeCtx(fn), repo));
+    await speak.execute("call-1", { body: "x", healing: [{ type: "tool_use_feedback", description: "[tool:wait] 难用", suggestion: "改文档" }] });
+
+    expect(calls).toHaveLength(1);
+    expect(creates).toHaveLength(1);
+    expect((creates[0] as { severity: string }).severity).toBe("low");
+    expect((creates[0] as { suggestion: string }).suggestion).toBe("改文档");
+  });
+
+  it("不传 healing：正常发言且不落账", async () => {
+    const { fn, calls } = makeSpeakEntryMock();
+    const { repo, creates } = makeRepo();
+    const speak = findSpeak(createTools(makeCtx(fn), repo));
+    await speak.execute("call-1", { body: "工作完成" });
+
+    expect(calls).toHaveLength(1);
     expect(creates).toHaveLength(0);
   });
 });
