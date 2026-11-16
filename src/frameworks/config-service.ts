@@ -172,6 +172,12 @@ export interface AppConfig {
   web?: {
     baseUrl?: string;
   };
+  /** 统一接入登录（F20261113uaccs 阶段 2）：登录口令配置。
+   *  ownerPassword 显式指定时优先于 data/owner-token 文件（env OTTER_OWNER_TOKEN 仍最高优先）。
+   *  缺省 undefined = 未配置，回退 env / data/owner-token 文件 / 首启自动生成。 */
+  auth?: {
+    ownerPassword?: string;
+  };
   /** 附件配置（多模态 Phase 1）。缺省全部用内置默认值 */
   attachments?: {
     /** 存储根目录（相对仓库根或绝对路径，默认 ./data/attachments） */
@@ -344,6 +350,9 @@ interface RawConfig {
   };
   web?: {
     baseUrl?: string;
+  };
+  auth?: {
+    ownerPassword?: string;
   };
   attachments?: {
     storageRoot?: string;
@@ -621,6 +630,12 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   return { baseUrl: raw.web.baseUrl };
 }
 
+/** 登录口令配置归一化（F20261113uaccs 阶段 2）：空白/未配置一律 undefined，回退到 env / 文件 / 首启生成。 */
+function buildAuthConfig(raw: RawConfig): AppConfig["auth"] {
+  const ownerPassword = raw.auth?.ownerPassword?.trim();
+  return ownerPassword ? { ownerPassword } : undefined;
+}
+
 /** 将 RawConfig 补全默认值，构建 AppConfig。F20260915cfgt：features/attachments 归一化拆至 features-config.ts */
 function applyDefaults(raw: RawConfig & { llm: { default: string; models: NonNullable<NonNullable<RawConfig["llm"]>["models"]> } }, logger?: Logger): AppConfig {
   return {
@@ -669,6 +684,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: NonNul
     im: buildImConfig(raw),
     inbound: buildInboundConfig(raw),
     web: buildWebConfig(raw),
+    auth: buildAuthConfig(raw),
     attachments: buildRawAttachmentsConfig(raw),
     features: buildFeaturesConfig(raw, logger),
   };

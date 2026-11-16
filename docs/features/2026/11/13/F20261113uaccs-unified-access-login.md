@@ -4,7 +4,7 @@ title: 统一接入与登录（本机即接入端）
 doc_type: feature
 summary: |
   落实 #1868 阶段 2：把 Web 客户端的身份来源从「可伪造的声明式头」换成「登录拿到的
-  HMAC 签名会话 cookie」，本机 owner token 即唯一真实凭据；执行机投影端点让 Web 显示当前执行机。
+  HMAC 签名会话 cookie」，本机登录口令（owner password，旧称 owner token）即唯一真实凭据；执行机投影端点让 Web 显示当前执行机。
   声明式头/query 降级为本机运维脚本回退路径，既有 curl/测试不回归。
 change_type: feature
 tags: [auth, session, login, execution-machine, web]
@@ -39,14 +39,14 @@ intent:
 `X-Otter-User-Id: web-ui` / `X-Otter-User-Role: admin` 声明式头。这套头完全可伪造——任何
 能打开页面的浏览器（或 curl）都天然是 admin，与「个人云端中枢」的安全叙事不符。
 
-阶段 2 把接入统一为一个真实登录环节：单用户自部署场景下，本机的 owner token 就是唯一真实
+阶段 2 把接入统一为一个真实登录环节：单用户自部署场景下，本机的登录口令就是唯一真实
 凭据；登录成功由服务端派发 HMAC 签名会话 cookie，之后所有 Web 请求凭 cookie 派生身份。
 `Web 客户端不再自报身份`——这是本阶段的语义核心。
 
 ## 目标
 
-- T1：owner token 解析三层（env → data/owner-token 文件 → 生成落盘 0600），提供轮换/撤销底座。
-- T2：无状态 HMAC 会话签名器（secret=owner token，7 天有效），login/logout/session 三端点。
+- T1：登录口令解析四层（env `OTTER_OWNER_TOKEN` → config `auth.ownerPassword` → data/owner-token 文件 → 生成落盘 0600），提供轮换/撤销底座。
+- T2：无状态 HMAC 会话签名器（secret=登录口令，7 天有效），login/logout/session 三端点。
 - T3：身份中间件会话优先（cookie 命中不再看头/query），声明式头/query 降级为本机脚本回退路径。
 - T4：Web 会话门（LoginScreen + useSession + AppLayout 互锁），登录态进业务布局。
 - T5：执行机投影端点 `GET /api/execution-machines`，TopBar 显示当前执行机。
@@ -55,14 +55,14 @@ intent:
 
 不实现多用户、OAuth/OIDC、速率限制/防爆破、云同步登录态、设备管理 UI；token 轮换即「整体
 撤销全部会话」（无状态签名器天然如此）。session cookie 为 7 天 `Max-Age` 持久 cookie
-（关闭浏览器不登出）；撤销靠轮换 owner token。
+（关闭浏览器不登出）；撤销靠轮换登录口令。
 
 ## 方案设计
 
 ### 模块切分
 
 - `src/interface-adapters/http/auth/owner-token.ts`：`generateOwnerToken`(base64url 32B)、
-  `verifyOwnerToken`(timingSafeEqual)、`resolveOwnerToken`(env 优先 → 文件 → 生成 0600)。
+  `verifyOwnerToken`(timingSafeEqual)、`resolveOwnerToken`(env → config auth.ownerPassword → 文件 → 生成 0600)。
 - `src/interface-adapters/http/auth/session-cookie.ts`：`SESSION_COOKIE_NAME='otter_session'`、
   7 天有效期、`createSessionSigner(secret)` HMAC-SHA256 无状态签名
   `userId.role.issuedAt.maxAge.sig`。
@@ -104,21 +104,21 @@ interface RouterPlumbingOptions {
 
 | 取舍 | 决策 | 被否替代 | 理由 |
 |---|---|---|---|
-| 会话凭据 | 无状态 HMAC 签名 cookie，secret=owner token | 服务端 session 表 / 数据库落 session | 单用户自部署无状态免存储；轮换 token 即整体撤销，无需 GC；失败模式简单可测 |
+| 会话凭据 | 无状态 HMAC 签名 cookie，secret=登录口令 | 服务端 session 表 / 数据库落 session | 单用户自部署无状态免存储；轮换口令即整体撤销，无需 GC；失败模式简单可测 |
 | Web 身份值源 | 登录 cookie 会话，不再发声明式头 | 保留头 + cookie 双通道 | 保留头则 Web 永远无法「登出」——过期 cookie 仍会掉进 admin 回退路径，登录门形同虚设 |
 | 声明式头/query | 降级为本机脚本回退路径（103 处 curl/测试继续可用） | 直接删除声明式路径 | 一次性删光会让既有运维脚本与集成测试大面积回归，且后台探活在浏览器场景外仍需脚本身份 |
 | 会话优先 | cookie 命中则不再看头/query（明文头造假无效） | 头优先 / 合并 | 头可伪造，必须在可验证凭据面前让位；合并语义会引入歧义 |
-| owner token | env `OTTER_OWNER_TOKEN` 优先，缺省生成 `data/owner-token`(0600) | 仅 env / 仅文件 | 三态（生产部署/alpha/e2e）显式注入优先；本机零配置首启可用；文件损坏宁 fail 不静默换 token |
+| 登录口令 | env 优先 → config `auth.ownerPassword` → 缺省生成 `data/owner-token`(0600) | 仅 env / 仅文件 / 仅 config | 四态（生产/部署/alpha/e2e）显式注入优先；支持自定义可记的固定密码；本机零配置首启可用；文件损坏宁 fail 不静默换口令 |
 | 会话有效期 | 7 天；`now = issuedAt+maxAge` 边界仍有效，`+1ms` 起拒绝 | 更长/更短 | 个人中枢本机访问为主，7 天与轮换撤销配合足够 |
 | SSE 身份 | 同源 XHR 自动携带会话 cookie | 继续给 SSE XHR 设声明式头 | 与 Web 整体「不自报身份」语义一致；cookie 由浏览器自动附带 |
 
 ### 机制识别检查点
 
-- 新增配置字段：是（`OTTER_OWNER_TOKEN` env，可缺省）。
+- 新增配置字段：是（`auth.ownerPassword` config / `OTTER_OWNER_TOKEN` env，可缺省）。
 - 新增状态生命周期：是（会话 cookie 持有期 7 天，无状态无存储）。
 - 新增定时任务/后台进程：否。
 - 新增信号类型/消息格式：是（session cookie 值格式 `userId.role.issuedAt.maxAge.sig`）。
-- 新增持久化存储：是（`data/owner-token` 首启生成，0600）。
+- 新增持久化存储：是（`data/owner-token` 首启生成，0600；config `auth.ownerPassword` 为可选的显式覆盖值，不落盘）。
 - 新增会被记住的决策分支：是（会话优先于声明式身份的解析顺序）。
 - 新增跨模块调用路径：是（app → resolveOwnerToken → createSessionSigner → AuthController → router 中间件/端点）。
 
@@ -131,7 +131,7 @@ interface RouterPlumbingOptions {
 1. **谁需要它**：#1868 已拍板端云一体的安全叙事；本机大獭/小獭与 Web 同源访问需要单一真实凭据入口，后续阶段的多终端接入复用同一会话签名器。
 2. **失败后果**：登录失败只会挡住 Web 业务布局（不会破坏服务启动）；若会话校验误拒绝，用户被登出可见；若回退路径误放行，头伪造即 admin——故回退路径必须与既有基线行为一致且用测试钉死。
 3. **后续机制**：token 轮换唤醒需求、会话撤销审计；7 天无状态语义由签名器测试固化。签名器升级/删除需先迁移所有 Web 调用点到新凭据并跑 e2e。
-4. **退役条件**：若未来引入多用户中央 IdP（OIDC 等），本 owner-token 登录可保留为 bootstrap/本机 fallback；仅当所有接入方迁移且无状态 cookie 被 IdP 会话替代、声明式回退路径确认无消费者后可整体删除。
+4. **退役条件**：若未来引入多用户中央 IdP（OIDC 等），本登录口令登录可保留为 bootstrap/本机 fallback；仅当所有接入方迁移且无状态 cookie 被 IdP 会话替代、声明式回退路径确认无消费者后可整体删除。
 
 ### 机制提案准入三问
 
@@ -161,10 +161,12 @@ tests/api 与 tests/interface-adapters/http 基线不回归。
   `X-Otter-User-Id/Role` 头无凭据伪造 admin（与 #1322 基线行为一致，本阶段未扩大也未收窄该回退面）；
   回退路径按「本机运维脚本通道」保留，来源限制（如 localhost-only）留待网络部署阶段收紧。
 - 登出不清除已签发 cookie 的服务端有效性：无状态签名器只清客户端 cookie，旧值 7 天内仍可凭签名通过校验；
-  cookie 泄漏需轮换 owner token 才能整体撤销，而非仅登出。
+  cookie 泄漏需轮换登录口令才能整体撤销，而非仅登出。
 - 删除 `data/owner-token` 会整体登出所有会话（含 alpha/e2e 首启后的已登录态）；
-  生产首次部署若未设 `OTTER_OWNER_TOKEN` 则生成的 token 必须妥善保管于本机。
-- owner token 文件可读但空白视为损坏：解析时 fail-fast，不静默生成新 token 覆盖（静默换 token 会踢掉旧会话）。
+  生产首次部署若既未设 `OTTER_OWNER_TOKEN` 也未设 `auth.ownerPassword`，则生成的口令必须妥善保管于本机。
+- 登录口令文件可读但空白视为损坏：解析时 fail-fast，不静默生成新口令覆盖（静默换口令会踢掉旧会话）。
+- cookie 未设 `Secure`（本机 http 场景）；部署到公网需由反向代理终止 TLS 并另评估 Secure 标志。
+- 轮换登录口令应立即重启服务（会话签名器 secret 为启动时快照）。
 - cookie 未设 `Secure`（本机 http 场景）；部署到公网需由反向代理终止 TLS 并另评估 Secure 标志。
 - 轮换 token 应立即重启服务（会话签名器 secret 为启动时快照）。
 
@@ -189,11 +191,11 @@ tests/api 与 tests/interface-adapters/http 基线不回归。
 | `npx tsc --noEmit`（服务端 + web） | PASS；加入 env 装配修复后无类型错误 |
 | `npm run build` | PASS；SDK patch 校验 + tsc + tsc-alias + 模型复用 |
 | `npm run lint` | PASS：0 problems（含 max-lines-per-function 路由拆解后） |
-| 服务端 `npm test` | PASS：475 files / 5988 tests（auth 三件套 + 执行机契约含登出精确语义 / session 兜底 fail-closed / owner-token 空白损坏 fail-fast；既有 identity 不回归） |
+| 服务端 `npm test` | PASS：475 files / 5993 tests（auth 三件套 + 执行机契约含登出精确语义 / session 兜底 fail-closed / 登录口令空白损坏 fail-fast / config auth.ownerPassword 优先级；既有 identity 不回归） |
 | web `vitest run` | PASS：88 files / 862 tests（新增 use-session / LoginScreen / TopBar badge / client 401 广播 / AppLayout 会话门守卫） |
 | Playwright e2e | PASS：43 passed / 8 skipped；global-setup 真实登录写 `otter_session` storageState |
 | `npm run check` | PASS：build + lint + schema + smoke:boot（全新/存量双库）+ 三个脚本/端口/探活检查，EXIT 0 |
-| alpha 真启动（main 入口点，e2e 配置） | PASS：`OTTER_OWNER_TOKEN` env 生效（无 Owner token generated 日志）；登录 → cookie → session → 页面 e2e 全通 |
+| alpha 真启动（main 入口点） | PASS：登录 → cookie → session → 页面全通（含 config auth.ownerPassword 优先级）；前端登录屏文案为「登录口令」 |
 | GitHub CI | PR 创建后运行（见 PR checks） |
 
 最简实现检查：已通过。复用既有 identity-middleware 策略表与 fail-closed，不新起第二鉴权层；

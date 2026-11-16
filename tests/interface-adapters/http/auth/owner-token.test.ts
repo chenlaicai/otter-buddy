@@ -1,6 +1,6 @@
 /**
- * 阶段 2（F20261113uaccs）：owner token 值源单测。
- * 覆盖：env 优先、文件复用、首启生成（0600）、常数时间比对。
+ * 阶段 2（F20261113uaccs）：登录口令（owner token）值源单测。
+ * 覆盖：env 优先、config auth.ownerPassword 次之、文件复用、首启生成（0600）、常数时间比对。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from "node:fs";
@@ -24,10 +24,33 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("owner-token：值源解析", () => {
-  it("env 优先于文件（alpha/e2e/生产三态显式注入）", () => {
-    const token = resolveOwnerToken({ env: { [OWNER_TOKEN_ENV]: "from-env" }, dataDir: dir });
+describe("登录口令（owner token）：值源解析", () => {
+  it("env 优先于 config 与文件（alpha/e2e/生产三态显式注入）", () => {
+    const token = resolveOwnerToken({
+      env: { [OWNER_TOKEN_ENV]: "from-env" },
+      configuredPassword: "from-config",
+      dataDir: dir,
+    });
     expect(token).toBe("from-env");
+  });
+
+  it("config auth.ownerPassword 优先于文件（可自定义、能记住的固定登录密码）", () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, OWNER_TOKEN_FILENAME), "from-file\n", { mode: 0o600 });
+    const token = resolveOwnerToken({ configuredPassword: "my-rememberable-pwd", dataDir: dir });
+    expect(token).toBe("my-rememberable-pwd");
+  });
+
+  it("config auth.ownerPassword 生效时不落盘文件", () => {
+    const token = resolveOwnerToken({ configuredPassword: "pwd-only", dataDir: dir });
+    expect(token).toBe("pwd-only");
+    expect(() => readFileSync(path.join(dir, OWNER_TOKEN_FILENAME))).toThrow();
+  });
+
+  it("config auth.ownerPassword 为空白时回落文件/生成", () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, OWNER_TOKEN_FILENAME), "from-file\n", { mode: 0o600 });
+    expect(resolveOwnerToken({ configuredPassword: "  ", dataDir: dir })).toBe("from-file");
   });
 
   it("env 为空串时不采信，回落文件生成", () => {
@@ -36,10 +59,10 @@ describe("owner-token：值源解析", () => {
     expect(token.length).toBeGreaterThan(20);
   });
 
-  it("文件已存在但空白 → 抛错（损坏宁 fail 不静默换 token）", () => {
+  it("文件已存在但空白 → 抛错（损坏宁 fail 不静默换口令）", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(path.join(dir, OWNER_TOKEN_FILENAME), "\n  \n", { mode: 0o600 });
-    expect(() => resolveOwnerToken({ dataDir: dir })).toThrow(/blank/);
+    expect(() => resolveOwnerToken({ dataDir: dir })).toThrow(/空白/);
   });
 
   it("文件已存在则复用（会话跨重启可续）", () => {
@@ -56,7 +79,7 @@ describe("owner-token：值源解析", () => {
     expect(readFileSync(filePath, "utf8").trim()).toBe(token);
   });
 
-  it("生成 token 为 base64url 无歧义字符形态", () => {
+  it("生成口令为 base64url 无歧义字符形态", () => {
     expect(generateOwnerToken()).toMatch(/^[A-Za-z0-9_-]{40,}$/);
   });
 });

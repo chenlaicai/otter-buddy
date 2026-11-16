@@ -716,8 +716,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   }, logger);
 
   const mahjongRoot = options.staticRoot === false ? false : path.resolve(import.meta.dirname, "../..", "web-mahjong");
-  // ── 统一接入（issue #1868 阶段 2）：owner token → HMAC 会话签名器 → auth 三端点 + 中间件会话优先 ──
-  const ownerToken = resolveOwnerToken({ dataDir, logger, env: process.env });
+  // ── 统一接入（issue #1868 阶段 2）：登录口令 → HMAC 会话签名器 → auth 三端点 + 中间件会话优先 ──
+  const ownerToken = resolveOwnerToken({ dataDir, logger, env: process.env, configuredPassword: config.auth?.ownerPassword });
   const sessionSigner = createSessionSigner(ownerToken);
   const authController = new AuthController({
     verifyOwnerToken: (token) => verifyOwnerToken(ownerToken, token),
