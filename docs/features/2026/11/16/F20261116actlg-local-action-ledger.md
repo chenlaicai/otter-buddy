@@ -80,7 +80,8 @@ intent:
 - `src/entities/execution/action-record.ts`：ActionRecord/五态/StartActionInput/SettleVerdict。
 - `src/usecases/ports/action-ledger.ts`：台账端口（start/settle/getByActionId/listByInvoke/sweepStaleBoot/close）。
 - `src/frameworks/execution/ledger/sqlite-action-ledger.ts`：实现（WAL；meta.boot_seq 单调
-  纪元；清扫裁决；终态行 14 天/10 万行修剪，非终态永不修剪）。
+  纪元；清扫裁决；succeeded/failed/interrupted 14 天/10 万行修剪，unknown 留 30 天检查宽限窗，
+  running 永不修剪）。
 - `src/frameworks/execution/recording-node-execution-env.ts`：RecordingNodeExecutionEnv extends
   NodeExecutionEnv——拦截 writeFile（原子化+hash）/appendFile/truncateFile/renameFile/remove/
   createDir/exec 入账，只读直通；台账失败绝不打断真实动作（recordQuietly）。
@@ -111,7 +112,9 @@ actionId 查询无行）。语义对齐 #1868 §3.D：interrupted=确认未完�
 判定转检查（bash 崩溃且回执）；bash 非零退出码记 succeeded——「动作跑完了」是事实，退出码是数据。
 
 actionId 铸造：sdk-env 面 `${toolCallId}:${opSeq}`；workspace 面 `${attribution}:ws:${seq}`；
-ALS 外 `internal:${seq}`。去重协议仅对 succeeded 生效（interrupted/failed/unknown 重开新一轮，重做合法）。
+ALS 外 `internal:${bootEpoch}:${seq}`。自铸 id 一律含 boot 纪元（MAJOR-1：防跨 boot 同序号碰撞错误去重）；
+调用方显式传入的 actionId 原样使用（跨 boot 复用是去重协议本体）。去重协议仅对 succeeded 生效
+（interrupted/failed/unknown 重开新一轮，重做合法）。
 
 ### 设计取舍
 

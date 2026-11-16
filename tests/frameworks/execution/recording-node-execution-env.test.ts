@@ -243,6 +243,22 @@ describe("检视发现回填（reviewer-1900）", () => {
     expect(lstatSync(link).isSymbolicLink()).toBe(true); // 链接未被替换
     expect(readFileSync(referent, "utf8")).toBe("via-broken-link"); // 内容落在 referent
   });
+
+  it("R-1：多级断链 link1→link2→缺失，穿透链创建最终 referent，两级链接都保留", async () => {
+    const dir = tempDir();
+    const { env } = makeEnv(dir, null);
+    const referent = path.join(dir, "final-target.txt");
+    const link2 = path.join(dir, "level2.txt");
+    const link1 = path.join(dir, "level1.txt");
+    symlinkSync(referent, link2);
+    symlinkSync(link2, link1); // 两级链，最终 referent 缺失
+    const result = await env.writeFile(link1, "chain-content", BACKGROUND_CONTEXT);
+    expect(result.ok).toBe(true);
+    const { readFileSync, lstatSync } = await import("node:fs");
+    expect(lstatSync(link1).isSymbolicLink()).toBe(true);
+    expect(lstatSync(link2).isSymbolicLink()).toBe(true);
+    expect(readFileSync(referent, "utf8")).toBe("chain-content");
+  });
 });
 
 /** 取全部行（listByInvoke 不过滤 null invoke 的辅助直查） */

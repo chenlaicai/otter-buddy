@@ -3,8 +3,22 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 
+type FsPromises = typeof fs;
+
 /** 单文件大小上限 1MB */
 const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024;
+
+/** R-1：链式断链逐级 readlink 解析到最终缺失目标（深度上限防循环链） */
+async function resolveBrokenLinkTarget(fs: FsPromises, linkPath: string): Promise<string> {
+  let current = linkPath;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const raw = await fs.readlink(current);
+    current = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(current), raw);
+    const next = await fs.lstat(current).catch(() => undefined);
+    if (!next || !next.isSymbolicLink()) return current;
+  }
+  return current;
+}
 
 /**
  * WorkspaceGateway 的 Node.js 文件系统实现。
@@ -108,8 +122,8 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
         try {
           target = await fs.realpath(target);
         } catch {
-          const raw = await fs.readlink(fullPath);
-          target = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(fullPath), raw);
+          // 链式断链：逐级 readlink 到最终缺失目标（深度上限防循环链），穿透创建 referent
+          target = await resolveBrokenLinkTarget(fs, fullPath);
           await fs.mkdir(path.dirname(target), { recursive: true });
         }
       }

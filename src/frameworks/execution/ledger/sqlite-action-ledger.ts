@@ -20,11 +20,11 @@ import type { Logger } from "@usecases/ports/logger";
  * 每机一库——「执行机本地的动作真相」语义：阶段 4/5 远程机各自持有台账，
  * 中枢只经机器接口查询；工具执行热路径与主库隔离。
  *
- * 纪元（boot epoch）：meta.boot_seq 单调递增，每次开机 +1；行携带铸造时的
- * boot_seq，清扫裁决「旧纪元 running 行」。单调计数器规避时钟回拨。
+ * 纪元（boot epoch）：meta.boot_seq 单调递增（单语句原子自增），每次开机 +1；
+ * 行携带铸造时的 boot_seq，清扫裁决「旧纪元 running 行」。单调计数器规避时钟回拨。
  *
- * 修剪：终态行保留 retentionDays 天 / maxRows 封顶（开机修剪，best-effort）；
- * running/interrupted/unknown 非终态与未处置行永不修剪。
+ * 修剪：succeeded/failed/interrupted 终态行保留 retentionDays 天 / maxRows 封顶
+ * （开机修剪，best-effort）；unknown 留 30 天检查宽限窗后修剪；running 行永不修剪。
  */
 export interface SqliteActionLedgerOptions {
   deviceId?: string;

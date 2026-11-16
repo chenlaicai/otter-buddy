@@ -9,6 +9,20 @@ import type { ActionLedger } from "@usecases/ports/action-ledger";
 import type { ActionKind, ActionRecord, SettleVerdict, StartActionInput } from "@entities/execution/action-record";
 import { sha256 } from "./ledger/sqlite-action-ledger";
 
+/** R-1：链式断链逐级 readlink 解析到最终缺失目标（或非链接项）——深度上限防循环链；
+ *  返回应写入的真实路径（可能仍不存在，由调用方 mkdir+创建）。 */
+async function resolveBrokenLinkTarget(linkPath: string): Promise<string> {
+  const { readlink } = await import("node:fs/promises");
+  let current = linkPath;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const raw = await readlink(current);
+    current = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(current), raw);
+    const next = await lstat(current).catch(() => undefined);
+    if (!next || !next.isSymbolicLink()) return current; // 最终 referent 缺失或非链接：在此创建
+  }
+  return current;
+}
+
 /** node:fs 错误码 → SDK FileError code（对齐 env/node.js 的 toFileError 映射） */
 const NODE_ERROR_TO_FILE_ERROR: Record<string, "aborted" | "not_found" | "permission_denied" | "not_directory" | "is_directory" | "invalid"> = {
   ABORT_ERR: "aborted",
@@ -194,8 +208,9 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
     await mkdir(path.dirname(resolvedTarget), { recursive: true });
     if (context.abortSignal?.aborted) throw new FileError("aborted", "aborted before write", resolvedTarget);
     // symlink 跟随 + mode 保留：写链接指向的真实文件，不替换链接本身。
-    // MINOR-3：broken symlink（realpath ENOENT）不能落到 rename 覆盖链接——回退 SDK 语义
-    // （穿透链接创建/覆写 referent），对齐 node.js env/node.js writeFile 基线行为。
+    // MINOR-3/R-1：broken symlink（realpath ENOENT）不能落到 rename 覆盖链接——回退 SDK
+    // 语义（穿透链创建/覆写最终 referent），对齐 node.js env/node.js writeFile 基线；
+    // 链式断链逐级 readlink 解析到最终缺失目标（深度上限防循环链）。
     let target = resolvedTarget;
     let mode: number | undefined;
     try {
@@ -204,10 +219,7 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
         try {
           target = await realpath(target);
         } catch {
-          // broken link：解析链接目标路径（readlink 一层，相对目标按链接目录解析），写 referent
-          const { readlink } = await import("node:fs/promises");
-          const raw = await readlink(resolvedTarget);
-          target = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(resolvedTarget), raw);
+          target = await resolveBrokenLinkTarget(resolvedTarget);
           await mkdir(path.dirname(target), { recursive: true });
         }
       }
