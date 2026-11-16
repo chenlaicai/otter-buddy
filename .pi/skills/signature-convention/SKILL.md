@@ -61,7 +61,7 @@ category: reference
 格式实体在真相源之外存在两处快照，机制上均无法指针化，同步义务成文如下：
 
 1. **平台快照** `.github/pull_request_template.md` 尾部署名行——GitHub 网页创建 PR 依赖模板自动预填（`gh pr create --body-file` 不加载模板）。
-2. **管道快照** `src/frameworks/agent/identity-builder.ts` 头部「你的身份」段——署名行成品与 commit author 格式随身份每轮注入，是运行时署名格式的实际供给源（格式在场性事实源）。名字（身份）由 otter.name 动态填充。
+2. **管道快照** `src/frameworks/agent/identity-builder.ts` 头部「我的身份」段——署名行成品与 commit author 格式随身份每轮注入，是运行时署名格式的实际供给源（格式在场性事实源）。名字（身份）由 otter.name 动态填充。
 
 同步义务：**修改本 skill 的署名格式时，必须同 commit 同步上述两处快照**，反之亦然。
 
