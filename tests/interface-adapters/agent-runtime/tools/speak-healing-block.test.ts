@@ -10,6 +10,7 @@ import { describe, it, expect, vi } from "vitest";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import type { ToolContext, AgentTool } from "@usecases/ports/agent-tools";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 
 interface SpeakEntryParams { body: string; conversationId: string; invokeId: string; otterId: string }
 
@@ -118,5 +119,52 @@ describe("F20261113hlprm speak healing 参数（原子性）", () => {
 
     expect(calls).toHaveLength(1);
     expect(creates).toHaveLength(0);
+  });
+});
+
+describe("F20261113sgnpr speak signal 参数（跨参数原子性）", () => {
+  function makeSignalRepo(): { repo: SignalEventRepository; creates: Array<Record<string, unknown>> } {
+    const creates: Array<Record<string, unknown>> = [];
+    const repo = {
+      create: vi.fn(async (e: Record<string, unknown>) => { creates.push(e); }),
+    } as unknown as SignalEventRepository;
+    return { repo, creates };
+  }
+
+  it("合法 healing + 非法 signal：healing 也不落账、entry 未创建（全有或全无）", async () => {
+    const { fn, calls } = makeSpeakEntryMock();
+    const { repo: healingRepo, creates: healingCreates } = makeRepo();
+    const { repo: signalRepo, creates: signalCreates } = makeSignalRepo();
+    const ctx = { ...makeCtx(fn), signalRepo };
+    const speak = findSpeak(createTools(ctx, healingRepo));
+    const res = await speak.execute("call-1", {
+      body: "工作完成",
+      healing: [{ type: "tool_failure", description: "d" }],
+      signal: [{ type: "halt", severity: "high", payload: "伪造" }],
+    });
+
+    expect(res.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+    expect(healingCreates).toHaveLength(0); // 关键：healing 未部分落账
+    expect(signalCreates).toHaveLength(0);
+  });
+
+  it("合法 healing + 合法 signal：两者都落账、entry 创建一次", async () => {
+    const { fn, calls } = makeSpeakEntryMock();
+    const { repo: healingRepo, creates: healingCreates } = makeRepo();
+    const { repo: signalRepo, creates: signalCreates } = makeSignalRepo();
+    const ctx = { ...makeCtx(fn), signalRepo };
+    const speak = findSpeak(createTools(ctx, healingRepo));
+    const res = await speak.execute("call-1", {
+      body: "汇报",
+      healing: [{ type: "tool_failure", description: "d" }],
+      signal: [{ type: "blocked", severity: "high", payload: "卡住" }],
+    });
+
+    expect(res.isError).toBeUndefined();
+    expect(calls).toHaveLength(1);
+    expect(healingCreates).toHaveLength(1);
+    expect(signalCreates).toHaveLength(1);
+    expect((signalCreates[0] as { type: string }).type).toBe("blocked");
   });
 });

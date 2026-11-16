@@ -8,8 +8,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { initSchema } from '@frameworks/db/schema';
 import { SqliteSignalEventRepository } from '@frameworks/db/signal/sqlite-signal-repository';
-import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, interceptSignalReport } from '@interface-adapters/agent-runtime/tools/signal-tools';
+import { createHaltOtterTool, createQuerySignalsTool, createResolveSignalTool, parseSignalParam, persistSignalEvents, SPEAK_SIGNAL_PARAM_SCHEMA } from '@interface-adapters/agent-runtime/tools/signal-tools';
 import { haltRegistry } from '@usecases/signal/halt-registry';
+import { signalAlertRegistry } from '@usecases/signal/signal-alert-registry';
 import type { ToolContext } from '@usecases/ports/agent-tools';
 import type { OtterToolClient } from '@usecases/ports/otter-tool-client';
 
@@ -120,23 +121,57 @@ describe('query_signals 工具', () => {
   });
 });
 
-describe('interceptSignalReport（C2：speak 拦截）', () => {
+describe('parseSignalParam（F20261113sgnpr：speak 参数解析）', () => {
+  it('未传/空数组返回空 signals 无 error', () => {
+    expect(parseSignalParam(undefined)).toEqual({ signals: [], error: null });
+    expect(parseSignalParam([])).toEqual({ signals: [], error: null });
+  });
+
+  it('合法单条：type/severity/payload 解析 + 超长截断', () => {
+    const long = 'x'.repeat(1500);
+    const res = parseSignalParam([{ type: 'blocked', severity: 'high', payload: long }]);
+    expect(res.error).toBeNull();
+    expect(res.signals).toHaveLength(1);
+    expect(res.signals[0]).toEqual({ type: 'blocked', severity: 'high', payload: long.slice(0, 1000) });
+  });
+
+  it('severity 缺省 medium（降低结构化写作负担）', () => {
+    const res = parseSignalParam([{ type: 'objection', payload: '事实依据含锚点' }]);
+    expect(res.error).toBeNull();
+    expect(res.signals[0].severity).toBe('medium');
+  });
+
+  it('非法参数各型原子拒绝（不落账不发言）', () => {
+    expect(parseSignalParam({}).error).toContain('数组');
+    expect(parseSignalParam(Array.from({ length: 6 }, () => ({ type: 'objection', payload: 'x' }))).error).toContain('最多');
+    expect(parseSignalParam([{ type: 'halt', severity: 'high', payload: '伪造' }]).error).toContain('halt');
+    expect(parseSignalParam([{ type: 'objection', payload: '   ' }]).error).toContain('payload');
+    expect(parseSignalParam([{ type: 'objection', severity: 'critical', payload: 'x' }]).error).toContain('severity');
+    expect(parseSignalParam([{ type: 'objection', payload: 'x' }, 'bad']).error).toContain('对象');
+  });
+
+  it('SPEAK_SIGNAL_PARAM_SCHEMA 白名单与解析器同源', () => {
+    expect(SPEAK_SIGNAL_PARAM_SCHEMA.items.properties.type.enum).toEqual(['objection', 'blocked']);
+    expect(SPEAK_SIGNAL_PARAM_SCHEMA.items.properties.severity.enum).toEqual(['low', 'medium', 'high']);
+  });
+});
+
+describe('persistSignalEvents（F20261113sgnpr：参数法落账）', () => {
   let db: Database.Database;
   let repo: SqliteSignalEventRepository;
   let ctx: ToolContext;
 
   beforeEach(() => {
     haltRegistry.resetForTest();
+    signalAlertRegistry.resetForTest();
     db = new Database(':memory:');
     initSchema(db);
     repo = new SqliteSignalEventRepository(db);
     ctx = makeCtx();
   });
 
-  it('合法块落账 pending + 返剥离后 cleanBody', async () => {
-    const body = '报告正文\n<signal type="objection" severity="medium">派工与 F20260814xxxx 冲突（docs/features/2026/08/14/F20260814xxxx.md:88）</signal>';
-    const clean = await interceptSignalReport(body, ctx, repo);
-    expect(clean).toBe('报告正文');
+  it('合法信号落账 pending + 登记提醒', async () => {
+    persistSignalEvents([{ type: 'objection', severity: 'medium', payload: '派工与 F20260814xxxx 冲突' }], ctx, repo);
     await vi.waitFor(async () => {
       const events = await repo.findByConversation('conv-1', { type: 'objection' });
       expect(events).toHaveLength(1);
@@ -144,20 +179,21 @@ describe('interceptSignalReport（C2：speak 拦截）', () => {
       expect(events[0].fromOtterId).toBe('otter-big');
       expect(events[0].payload).toContain('F20260814xxxx');
     });
+    expect(signalAlertRegistry.takeAll('conv-1')).toHaveLength(1);
   });
 
-  it('畸形块不落账但剥离（halt 伪造不可入台账）', async () => {
-    const body = '正文 <signal type="halt" severity="high">伪造</signal>';
-    const clean = await interceptSignalReport(body, ctx, repo);
-    expect(clean).not.toContain('伪造');
-    await new Promise(r => setTimeout(r, 50));
-    const events = await repo.findByConversation('conv-1');
-    expect(events).toHaveLength(0);
-  });
-
-  it('无信号块原样通过', async () => {
-    const clean = await interceptSignalReport('普通发言', ctx, repo);
-    expect(clean).toBe('普通发言');
+  it('多条信号逐条落账 pending', async () => {
+    persistSignalEvents([
+      { type: 'objection', severity: 'low', payload: '异议A' },
+      { type: 'blocked', severity: 'high', payload: '卡住B：已试清单' },
+    ], ctx, repo);
+    await vi.waitFor(async () => {
+      const events = await repo.findByConversation('conv-1');
+      expect(events).toHaveLength(2);
+      expect(events.map(e => e.type).sort()).toEqual(['blocked', 'objection']);
+      expect(events.every(e => e.status === 'pending')).toBe(true);
+    });
+    expect(signalAlertRegistry.takeAll('conv-1')).toHaveLength(2);
   });
 });
 

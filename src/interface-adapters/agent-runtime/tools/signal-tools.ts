@@ -12,7 +12,6 @@ import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 import { signalAlertRegistry } from "@usecases/signal/signal-alert-registry";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
-import { parseSignalReport, stripSignalReport } from "@usecases/signal/signal-report-parser";
 import type { Logger } from "@usecases/ports/logger";
 import type { SignalQueryFilter, SignalType, SignalEvent } from "@entities/signal/signal-event";
 
@@ -241,57 +240,149 @@ export function createQuerySignalsTool(ctx: ToolContext, signalRepo: SignalEvent
 }
 
 /**
- * F20260826mwrd C2：speak 入口信号拦截。
- * 解析 <signal> 块 → signal_events 落账（fire-and-forget，不阻断发言）→ 返剥离后 cleanBody。
- * halt 类型不经此路（只能经 halt_otter 工具，type 白名单不含 halt）。
+ * F20261113sgnpr：speak 入口信号参数（signal 从 body 文本 <signal> 标签改为独立参数）。
+ * halt 仍只能经 halt_otter 工具（type 白名单不含 halt）。
  */
-export async function interceptSignalReport(
-  rawBody: string,
-  ctx: ToolContext,
-  repo: SignalEventRepository,
-  logger?: Logger,
-): Promise<string> {
-  const cleanBody = stripSignalReport(rawBody);
-  const { signals } = parseSignalReport(rawBody);
-  if (signals.length > 0) {
-    const now = new Date().toISOString();
-    for (const sig of signals) {
-      const event: SignalEvent = {
-        id: crypto.randomUUID(),
-        conversationId: ctx.conversationId,
-        messageId: ctx.currentMessageId,
-        fromOtterId: ctx.otterId,
-        targetOtterId: null,
-        type: sig.type,
-        severity: sig.severity,
-        payload: sig.payload,
-        status: 'pending',
-        resolution: null,
-        resolvedBy: null,
-        resolvedAt: null,
-        createdAt: now,
-      };
-      // fire-and-forget：信号落库失败不阻断发言（台账是审计面，不是发言前置条件）
-      repo.create(event)
-        .then(() => {
-          // #1227 M1：落账即登记提醒——大獭下一轮 invoke 头部可见「N 条 pending 待裁决」，
-          // 当场处理可见性由注入面保证（协议义务 → 物理可见）。落库失败不登记（台账没有的信号不提醒）。
-          signalAlertRegistry.register({
-            signalId: event.id,
-            conversationId: event.conversationId,
-            fromOtterId: event.fromOtterId,
-            signalType: event.type,
-            severity: event.severity,
-            payloadPreview: event.payload.slice(0, 80),
-            createdAt: event.createdAt,
-          });
-        })
-        .catch(err =>
-          logger?.error('Failed to persist signal event', err instanceof Error ? err : new Error(String(err))),
-        );
-    }
+const SIGNAL_PARAM_TYPES: ReadonlySet<string> = new Set(['objection', 'blocked']);
+const SIGNAL_PARAM_SEVERITIES: ReadonlySet<string> = new Set(['low', 'medium', 'high']);
+const SIGNAL_MAX_FIELD_LENGTH = 1000;
+const SIGNAL_MAX_PER_SPEAK = 5;
+
+/** speak signal 参数的 JSON Schema（F20261113sgnpr）：白名单与 parseSignalParam 同源维护 */
+export const SPEAK_SIGNAL_PARAM_SCHEMA = {
+  type: "array",
+  description: "獭间协作信号上报（可选）——小獭对派工的异议/卡住升级走结构化参数，不再在 body 文本写 <signal> 标签。objection=对派工的事实性异议（payload 须含文档锚点/file:line）；blocked=卡住升级（payload 须附已试清单）。halt 不走此参数，只能大獭经 halt_otter 工具发出。没信号就不传。",
+  items: {
+    type: "object",
+    properties: {
+      type: {
+        type: "string",
+        enum: [...SIGNAL_PARAM_TYPES],
+        description: "信号类型（必填）：objection=事实性异议；blocked=卡住升级。",
+      },
+      severity: { type: "string", enum: [...SIGNAL_PARAM_SEVERITIES], description: "严重度，缺省 medium。" },
+      payload: { type: "string", description: "信号正文（必填，≤1000 字符）：objection=事实依据（含文档锚点/file:line）；blocked=卡点+已试清单。" },
+    },
+    required: ["type", "payload"],
+  },
+} as const;
+
+/** speak signal 参数解析后的一条信号（已校验合法） */
+export interface SignalParamItem {
+  type: 'objection' | 'blocked';
+  severity: 'low' | 'medium' | 'high';
+  payload: string;
+}
+
+export interface SignalParamResult {
+  signals: SignalParamItem[];
+  error: string | null;
+}
+
+/** 单条 severity 合法化（缺省 medium；非法返回 error） */
+function normalizeSignalSeverity(raw: unknown, index: number): { value: SignalParamItem['severity']; error: null } | { value: null; error: string } {
+  if (raw === undefined || raw === null) return { value: 'medium', error: null };
+  if (typeof raw === 'string') {
+    const v = raw.trim().toLowerCase();
+    if (!v) return { value: 'medium', error: null };
+    if (SIGNAL_PARAM_SEVERITIES.has(v)) return { value: v as SignalParamItem['severity'], error: null };
   }
-  return cleanBody;
+  return { value: null, error: `signal 参数第 ${index + 1} 条 severity 非法，可选 low / medium / high。` };
+}
+
+/** 单条信号合法化（非法返回可操作 error） */
+function normalizeSignalItem(item: unknown, index: number): { signal: SignalParamItem } | { error: string } {
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+    return { error: `signal 参数第 ${index + 1} 条必须是对象（含 type/payload 字段）。` };
+  }
+  const obj = item as Record<string, unknown>;
+  const type = typeof obj.type === 'string' ? obj.type.trim().toLowerCase() : '';
+  if (!type) {
+    return { error: `signal 参数第 ${index + 1} 条缺 type 字段（必填）。可选：${[...SIGNAL_PARAM_TYPES].join(' / ')}。` };
+  }
+  if (!SIGNAL_PARAM_TYPES.has(type)) {
+    return { error: `signal 参数第 ${index + 1} 条 type "${type}" 不在白名单。可选：${[...SIGNAL_PARAM_TYPES].join(' / ')}。halt 只能经 halt_otter 工具发出，不走 speak。` };
+  }
+  const payload = typeof obj.payload === 'string' ? obj.payload.trim() : '';
+  if (!payload) {
+    return { error: `signal 参数第 ${index + 1} 条缺 payload 字段（必填）。objection=事实依据（含文档锚点/file:line）、blocked=卡点+已试清单。` };
+  }
+  const severity = normalizeSignalSeverity(obj.severity, index);
+  if (severity.error) return { error: severity.error };
+  return {
+    signal: {
+      type: type as SignalParamItem['type'],
+      severity: severity.value as SignalParamItem['severity'],
+      payload: payload.slice(0, SIGNAL_MAX_FIELD_LENGTH),
+    },
+  };
+}
+
+/**
+ * 校验 speak 的 signal 结构化参数（F20261113sgnpr：signal 从 body 文本标签改为独立参数）。
+ * 未传/空 → 空 signals；非法 → 可操作 error（原子阻断发言，不建 entry 不落账——
+ * objection/blocked 是「假装没看见」的保险丝，不可静默丢弃）。
+ */
+export function parseSignalParam(raw: unknown): SignalParamResult {
+  if (raw === undefined || raw === null) return { signals: [], error: null };
+  if (!Array.isArray(raw)) {
+    return { signals: [], error: 'signal 参数必须是信号数组（如 [{"type":"blocked","severity":"high","payload":"..."}]）；没有信号就不传该参数。' };
+  }
+  if (raw.length === 0) return { signals: [], error: null };
+  if (raw.length > SIGNAL_MAX_PER_SPEAK) {
+    return { signals: [], error: `signal 参数最多 ${SIGNAL_MAX_PER_SPEAK} 条（收到 ${raw.length} 条），请精简。` };
+  }
+  const signals: SignalParamItem[] = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const normalized = normalizeSignalItem(raw[i], i);
+    if ('error' in normalized) return { signals: [], error: normalized.error };
+    signals.push(normalized.signal);
+  }
+  return { signals, error: null };
+}
+
+/**
+ * 落账 signal 事件（F20261113sgnpr：从 interceptSignalReport 迁移，参数法专用）。
+ * repo.create 成功后 signalAlertRegistry.register（#1227 M1 提醒）；fire-and-forget
+ * 失败仅日志不阻断发言（台账是审计面，不是发言前置条件）。
+ */
+export function persistSignalEvents(signals: SignalParamItem[], ctx: ToolContext, repo: SignalEventRepository, logger?: Logger): void {
+  if (signals.length === 0) return;
+  const now = new Date().toISOString();
+  for (const sig of signals) {
+    const event: SignalEvent = {
+      id: crypto.randomUUID(),
+      conversationId: ctx.conversationId,
+      messageId: ctx.currentMessageId,
+      fromOtterId: ctx.otterId,
+      targetOtterId: null,
+      type: sig.type,
+      severity: sig.severity,
+      payload: sig.payload,
+      status: 'pending',
+      resolution: null,
+      resolvedBy: null,
+      resolvedAt: null,
+      createdAt: now,
+    };
+    repo.create(event)
+      .then(() => {
+        // #1227 M1：落账即登记提醒——大獭下一轮 invoke 头部可见「N 条 pending 待裁决」。
+        // 落库失败不登记（台账没有的信号不提醒）。
+        signalAlertRegistry.register({
+          signalId: event.id,
+          conversationId: event.conversationId,
+          fromOtterId: event.fromOtterId,
+          signalType: event.type,
+          severity: event.severity,
+          payloadPreview: event.payload.slice(0, 80),
+          createdAt: event.createdAt,
+        });
+      })
+      .catch(err =>
+        logger?.error('Failed to persist signal event', err instanceof Error ? err : new Error(String(err))),
+      );
+  }
 }
 
 /** 短 ID 解析：非完整 UUID 时前缀匹配本对话 pending 信号（query_signals 回显为短 ID）。只搜 pending——已裁决信号有幂等路径，无需短 ID 再次触达 */
@@ -375,7 +466,7 @@ export function createResolveSignalTool(ctx: ToolContext, signalRepo: SignalEven
   };
   return {
     name: "resolve_signal",
-    description: "裁决一条獭间信号（objection/blocked）. When: 小獭发了 <signal> 异议或 blocked 信号后，你（大獭）必须显式裁决——采纳/resolved 或驳回/dismissed，不得悬置. Not for: halt 信号（系统自动落账 resolved，无需裁决）/ 查询（用 query_signals）. Output: 裁决确认（状态迁移 + 台账留痕）. GOTCHA: 裁决必须带理由（resolution），空裁决等于没裁决；ID 支持 query_signals 回显的短 ID（前 8 位）.",
+    description: "裁决一条獭间信号（objection/blocked）. When: 小獭经 speak 的 signal 参数发了 objection/blocked 信号后，你（大獭）必须显式裁决——采纳/resolved 或驳回/dismissed，不得悬置. Not for: halt 信号（系统自动落账 resolved，无需裁决）/ 查询（用 query_signals）. Output: 裁决确认（状态迁移 + 台账留痕）. GOTCHA: 裁决必须带理由（resolution），空裁决等于没裁决；ID 支持 query_signals 回显的短 ID（前 8 位）.",
     parameters: {
       type: "object",
       properties: {
