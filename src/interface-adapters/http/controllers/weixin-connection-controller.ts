@@ -52,11 +52,17 @@ export interface WeixinAccountStorePort {
  * GET  /api/weixin/accounts       — 已登录账号列表（token 脱敏；F20260921imux：含 assistantLine 投影）
  * DELETE /api/weixin/accounts/:id — 删除账号（停轮询+释放绑定，回调链处理）
  */
-/** F20260928wxid：userName 校验（可空 0-60 字符）——provision/PATCH 两端点共用；非法返回 null */
+/** F20260928wxid：userName 校验（可空 0-60 字符）——provision/PATCH 两端点共用；非法返回 null。
+ * F20261113wxplo：控制字符（含换行）strip——否则污染注入历史行结构。 */
 function parseUserName(raw: unknown): string | null | undefined {
   if (raw === undefined) return undefined; // 未传字段
-  if (typeof raw !== "string" || raw.trim().length > 60) return null; // 非法
-  return raw.trim();
+  if (typeof raw !== "string") return null; // 非法
+  const trimmed = raw.trim();
+  if (trimmed.length > 60) return null; // 非法（超长）
+  return [...trimmed].filter(ch => {
+    const code = ch.charCodeAt(0);
+    return code >= 0x20 && code !== 0x7f; // strip 控制字符（含换行/制表符）
+  }).join("");
 }
 
 export class WeixinConnectionController {

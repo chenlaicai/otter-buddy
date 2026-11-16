@@ -169,7 +169,7 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     // F20260928wxid：双渠道 ID——微信消息也经链引擎渲染历史，搭档需被认出（含微信 ilink_user_id）
     // F20260928fsqr：外置实例（扫码首号运行时写入）；缺省内部构造保持存量行为
     // F20261008fsrm：feishu 静态段移除，feishu 锚一律扫码首号（app.ts 全局 resolver）
-    partnerResolver: options?.partnerResolver ?? new PartnerResolver(undefined, appConfig.weixin?.partnerUserId),
+    partnerResolver: options?.partnerResolver ?? PartnerResolver.forIdentity(undefined, appConfig.weixin?.partnerUserId),
     // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
     // #530 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
@@ -400,7 +400,7 @@ export interface FeishuRuntime {
  * 出站键控（#591 同构）：通道按 botKey 注册/注销，FeishuMessageChannel 按
  * externalId === botKey 过滤归属——多 app 广播互不串扰。
  *
- * 命令门禁锚（D7 双层）：每线独立 resolver——`new PartnerResolver(线ownerOpenId, 首号ownerOpenId?)`；
+ * 命令门禁锚（D7 双层）：每线独立 resolver——`PartnerResolver.forGate(线ownerOpenId, 首号ownerOpenId?)`；
  * 线主人自己线上可跑命令、首号（部署者）任意线上可跑、陌生人被拦。
  * （静态 config app 路径已随 F20261008fsrm 移除——锚一律来自扫码人/首号。）
  */
@@ -430,7 +430,7 @@ export function buildFeishuRuntime(options: {
     const tokenManager = new FeishuAccessTokenManager(feishuConfig, logger);
     const client = new FeishuClient(feishuConfig, logger, tokenManager);
 
-    const gateResolver = new PartnerResolver(options.gateOwnerOpenId, options.globalFirstOwnerOpenId);
+    const gateResolver = PartnerResolver.forGate(options.gateOwnerOpenId, options.globalFirstOwnerOpenId);
     const agentDispatchService = new AgentDispatchService({
       dispatchChainEngine,
       entryRepo: repos.entry,
@@ -649,7 +649,9 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
         entryRepo: repos.entry,
         weixinGateway: gateway,
         // F20260928wxid：保持单渠道锚（语义同飞书装配处——门禁只认本渠道搭档锚，防 configured 误翻锁死命令）
-        partnerResolver: new PartnerResolver(weixinConfig.partnerUserId),
+        // F20261113wxplo：门禁锚=显式 partnerUserId 优先，否则回退线 owner（每线主人自管自线；
+        // 不再吃 config 回写的首号 global 兜底——那会把首号错认成所有线的搭档）
+        partnerResolver: PartnerResolver.forGate(weixinConfig.partnerUserId ?? account.ilinkUserId),
         // F20260901sgpv P1：微信入口换轨（与飞书同构）
         agentDispatchService: (() => {
           const svc = new AgentDispatchService({
@@ -693,7 +695,7 @@ export function hotStartWeixinAccount(options: StartWeixinAccountOptions): Weixi
   return startWeixinAccount(options);
 }
 
-export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: string; ilinkUserId?: string; logger?: Logger }): void {
+export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: string; logger?: Logger }): void {
   // Why: 默认路径基于代码位置解析（#429）；opts.configPath override 优先
   const configPath = opts.configPath ?? path.resolve(getRepoRoot(), "config/config.yaml");
   try {
@@ -704,10 +706,11 @@ export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: strin
     // Why: 文本追加而非 yaml.dump 全量重写——config/config.yaml 满篇人工注释（对齐 example），
     // dump 会把注释全部抹掉（F20260829wxui 引入的隐患，仅在写回路径修对后才会显现）。
     // weixin 是顶层段，追加到文件末尾即等价；缩进对齐顶层键。
+    // F20261113wxplo：只回写 stateDir，不回写 partnerUserId——首号扫码不得被持久化成
+    // 全局搭档锚（多账号时「第一个扫码的人」会被错认成搭档，重启后锁死他人命令）。
     const section = yaml.dump({
       weixin: {
         ...(opts.stateDir ? { stateDir: opts.stateDir } : {}),
-        ...(opts.ilinkUserId ? { partnerUserId: opts.ilinkUserId } : {}),
       },
     }, { lineWidth: -1, noRefs: true });
     // Why: write-to-temp + rename 原子写——对齐 updateDefaultModelInYaml 的既有模式，

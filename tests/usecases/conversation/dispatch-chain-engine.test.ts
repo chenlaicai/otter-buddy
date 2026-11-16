@@ -584,7 +584,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
       conversationRepo: m.conversationRepo,
             queryOtter: m.queryOtter,
       logger: m.logger,
-      partnerResolver: new PartnerResolver(partnerOpenId),
+      partnerResolver: PartnerResolver.forIdentity(partnerOpenId),
       entryRepo: m.entryRepo,
       invokeRepo: m.invokeRepo,
     });
