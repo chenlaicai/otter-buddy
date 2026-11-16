@@ -71,6 +71,11 @@ data/*.db
 *.db-shm
 *.db-wal
 
+# Owner password（#1868 阶段 2 首启自动生成的真实凭据——绝不能入库；轮换=删除此文件重启）
+data/owner-password
+# 墓碑行（F20261113uaccs 命名统一前旧名）：旧分支机器上的旧凭据文件也绝不能入 git
+data/owner-token
+
 # Agent sessions
 data/sessions/
 data/durable-sessions/
