@@ -51,7 +51,7 @@
 
 ## Let It Slide
 
-**Symptom**: "Not blocking", "Non-blocking", "Can optimize later", "Low risk", "Low priority", "已记录"（无 issue 链接）, **"非阻断"、"建议"作为可忽略暗示**（如"只是建议，可以忽略"、"建议性问题"——把分级标签当作降级许可证）.
+**Symptom**: "Not blocking", "Non-blocking", "Can optimize later", "Low risk", "Low priority", "已记录"（无 issue 链接）, **"非阻断"、"建议"作为可忽略暗示**（如"只是建议，可以忽略"、"建议性问题"——把分级标签当作降级许可证）. 中文直译与派生引导词同属本反模式："不阻塞"、"非阻塞"、"均不阻塞（合并）"、"可接受"、"零成本"、"影响面小"、"风险低"、"不构成合入建议"、"可延后"——判据是语义而非词面，凡对「是否现在处理/是否可忽略/是否影响合入」做定性即命中（反例：检视留痕「均不阻塞合并」「可接受」「零成本」曾零命中旧清单被放行）. 
 
 **Problem**: Issues accumulate. "Later" never comes. "已记录" without an issue link is the same as "later" — the issue goes into a black hole. 任何暗示"可延后"的标签（非阻断、建议等）都会被 LLM 解读为"可忽略"——这是分级框架的天然缺陷，必须靠机制（强制决策树）托底。
 
