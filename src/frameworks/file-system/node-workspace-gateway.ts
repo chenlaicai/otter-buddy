@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
@@ -96,7 +97,25 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
     }
     const fullPath = await this.resolveSafe(conversationId, relativePath);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, content, "utf-8");
+    // F20261116actlg（#1868 阶段 3）：原子写——同目录临时文件 → rename 原子落位，
+    // 崩溃不留半截文件；已存在目标保留 mode；symlink 目标先 realpath 跟随（写真实文件，不替换链接）。
+    let target = fullPath;
+    let mode: number | undefined;
+    try {
+      const linkStat = await fs.lstat(target);
+      if (linkStat.isSymbolicLink()) target = await fs.realpath(target);
+      mode = (await fs.stat(target)).mode & 0o777;
+    } catch {
+      /* 目标不存在：全新文件 */
+    }
+    const tmp = path.join(path.dirname(target), `.otter-tmp-${crypto.randomUUID()}`);
+    try {
+      await fs.writeFile(tmp, content, { encoding: "utf-8", mode: mode ?? 0o644 });
+      await fs.rename(tmp, target);
+    } catch (error) {
+      await fs.rm(tmp, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 
   async listDir(

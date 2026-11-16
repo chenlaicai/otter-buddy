@@ -182,6 +182,9 @@ export class DurableSession {
   // wiring both feeds would double-count the breaker sliding window.
   private async beforeTool(call: { name: string; arguments: Record<string, unknown>; id: string }): Promise<{ block: string } | undefined> {
     const ctx = otterInvokeStorage.getStore();
+    // F20261116actlg：当前工具调用 id 传播给动作台账（RecordingNodeExecutionEnv 按
+    // toolCallId 铸造 actionId；下一枚 beforeTool 自然覆盖，无需显式清理）。
+    if (ctx) ctx.currentToolCallId = call.id;
     if (!this.currentInvokeId) return { block: "Durable tool execution requires currentInvokeId; refusing side effect." };
     const halt = haltToolCallGuard(ctx, this.options.haltRegistry as never, call.name);
     const guard = await halt ?? loopBlockGuard(ctx, call.name, call.arguments) ?? bashGuardGate(ctx, call.name, call.arguments);
@@ -262,9 +265,14 @@ export class DurableSession {
   // eslint-disable-next-line complexity, max-statements
   async prompt(text: string, options: DurablePromptOptions | undefined, stream: DurableEventStream, context: Context): Promise<void> {
     const scope = otterInvokeStorage.getStore();
-    const invokeId = this.hasBoundInvoke ? this.currentInvokeId : ((scope as { currentInvokeId?: string } | undefined)?.currentInvokeId ?? this.options.invokeId ?? this.options.register.currentInvokeId);
+    // F20261116actlg：原 scope.currentInvokeId fallback 分支是死代码（store 每次 execute 新建、
+    // 此前无人写入）——摘除，避免本阶段写入后跨 prompt 复用旧值。
+    const invokeId = this.hasBoundInvoke ? this.currentInvokeId : (this.options.invokeId ?? this.options.register.currentInvokeId);
     if (!invokeId) throw new Error("Durable prompt requires currentInvokeId");
     this.currentInvokeId = invokeId;
+    // F20261116actlg：invoke id 写入 ALS store——动作台账归属（RecordingNodeExecutionEnv
+    // 与 LocalExecutionMachine 读取）；工具调用 id 由 beforeTool 逐枚覆盖。
+    if (scope) scope.currentInvokeId = invokeId;
     if (this.options.promptProvider) this.promptText = await this.options.promptProvider();
     await this.conversation.configure(this.agentChange(), BACKGROUND_CONTEXT);
     const before = await this.usage(BACKGROUND_CONTEXT);
