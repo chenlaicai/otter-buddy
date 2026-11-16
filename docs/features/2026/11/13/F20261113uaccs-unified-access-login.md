@@ -191,7 +191,7 @@ tests/api 与 tests/interface-adapters/http 基线不回归。
 | `npx tsc --noEmit`（服务端 + web） | PASS；加入 env 装配修复后无类型错误 |
 | `npm run build` | PASS；SDK patch 校验 + tsc + tsc-alias + 模型复用 |
 | `npm run lint` | PASS：0 problems（含 max-lines-per-function 路由拆解后） |
-| 服务端 `npm test` | PASS：475 files / 5993 tests（auth 三件套 + 执行机契约含登出精确语义 / session 兜底 fail-closed / 登录口令空白损坏 fail-fast / config auth.ownerPassword 优先级；既有 identity 不回归） |
+| 服务端 `npm test` | PASS：474 files / 5965 tests（auth 三件套 + 执行机契约含登出精确语义 / session 兜底 fail-closed / 登录口令空白损坏 fail-fast / config auth.ownerPassword 优先级；既有 identity 不回归） |
 | web `vitest run` | PASS：88 files / 862 tests（新增 use-session / LoginScreen / TopBar badge / client 401 广播 / AppLayout 会话门守卫） |
 | Playwright e2e | PASS：43 passed / 8 skipped；global-setup 真实登录写 `otter_session` storageState |
 | `npm run check` | PASS：build + lint + schema + smoke:boot（全新/存量双库）+ 三个脚本/端口/探活检查，EXIT 0 |
