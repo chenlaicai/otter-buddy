@@ -291,12 +291,12 @@ describe("F20260917cvid: 所在对话身份段（对话标题注入）", () => {
       .identityBuilder.buildIdentityPrefix(otterId, "big", conversationId);
   }
 
-  it("对话有标题时注入「你所在的对话」段（含标题）", async () => {
+  it("对话有标题时注入「我所在的对话」段（含标题）", async () => {
     await seedOtter("o-big");
     await seedConversation("conv-1", "echo agent 项目");
     const prefix = await buildWithConv(makeFactoryWithConv(db), "o-big", "conv-1");
 
-    expect(prefix).toContain("## 你所在的对话");
+    expect(prefix).toContain("## 我所在的对话");
     expect(prefix).toContain("对话标题：echo agent 项目");
     expect(prefix).toContain("检索记忆时本对话来源的条目会被优先加权");
   });
@@ -306,7 +306,7 @@ describe("F20260917cvid: 所在对话身份段（对话标题注入）", () => {
     await seedConversation("conv-2", "   ");
     const prefix = await buildWithConv(makeFactoryWithConv(db), "o-big", "conv-2");
 
-    expect(prefix).not.toContain("## 你所在的对话");
+    expect(prefix).not.toContain("## 我所在的对话");
   });
 
   it("conversationRepo 未装配时降级为空段（不影响身份注入主流程）", async () => {
@@ -314,7 +314,7 @@ describe("F20260917cvid: 所在对话身份段（对话标题注入）", () => {
     const prefix = await buildIdentityPrefix(makeFactory(db, REAL_IDENTITY_DIR), "o-big", "big");
 
     expect(prefix).toContain("名称：大獭");
-    expect(prefix).not.toContain("## 你所在的对话");
+    expect(prefix).not.toContain("## 我所在的对话");
   });
 
   it("conversationId 不存在时降级为空段", async () => {
@@ -322,6 +322,6 @@ describe("F20260917cvid: 所在对话身份段（对话标题注入）", () => {
     const prefix = await buildWithConv(makeFactoryWithConv(db), "o-big", "nonexistent-conv");
 
     expect(prefix).toContain("名称：大獭");
-    expect(prefix).not.toContain("## 你所在的对话");
+    expect(prefix).not.toContain("## 我所在的对话");
   });
 });

@@ -2,7 +2,7 @@
  * buildIdentityPrefix 模型身份段测试（F20260824aibd）。
  *
  * 验证：
- * - 多模型池 + 传入 modelAlias → 包含"你的运行时模型"段
+ * - 多模型池 + 传入 modelAlias → 包含"我的运行时模型"段
  * - 多模型池 + 不传 modelAlias → 使用默认模型
  * - 单模型池 → 省略该段（信息量为零）
  * - modelAlias 不在池中 → 使用默认模型
@@ -68,7 +68,7 @@ describe("buildIdentityPrefix 模型身份段（F20260824aibd）", () => {
     await seedOtter("o1", "开发獭", "small");
     const prefix = await makeBuilder(makeModelPool(MULTI_MODEL)).buildIdentityPrefix("o1", "small", "", "mimo");
 
-    expect(prefix).toContain("你的运行时模型");
+    expect(prefix).toContain("我的运行时模型");
     expect(prefix).toContain("mimo");
     expect(prefix).toContain("小米 MiMo 推理模型");
     expect(prefix).toContain("强推理");
@@ -80,7 +80,7 @@ describe("buildIdentityPrefix 模型身份段（F20260824aibd）", () => {
     await seedOtter("o1", "开发獭", "small");
     const prefix = await makeBuilder(makeModelPool(MULTI_MODEL)).buildIdentityPrefix("o1", "small", "");
 
-    expect(prefix).toContain("你的运行时模型");
+    expect(prefix).toContain("我的运行时模型");
     expect(prefix).toContain("mimo"); // MULTI_MODEL[0] = 默认
   });
 
@@ -97,7 +97,7 @@ describe("buildIdentityPrefix 模型身份段（F20260824aibd）", () => {
     await seedOtter("o1", "开发獭", "small");
     const prefix = await makeBuilder(makeModelPool(SINGLE_MODEL)).buildIdentityPrefix("o1", "small", "", "only");
 
-    expect(prefix).not.toContain("你的运行时模型");
+    expect(prefix).not.toContain("我的运行时模型");
     expect(prefix).toContain("类型：小獭");
   });
 
@@ -105,14 +105,14 @@ describe("buildIdentityPrefix 模型身份段（F20260824aibd）", () => {
     await seedOtter("o1", "开发獭", "small");
     const prefix = await makeBuilder(undefined).buildIdentityPrefix("o1", "small", "", "mimo");
 
-    expect(prefix).not.toContain("你的运行时模型");
+    expect(prefix).not.toContain("我的运行时模型");
   });
 
   it("modelAlias 不在池中 → 回退到默认模型", async () => {
     await seedOtter("o1", "开发獭", "small");
     const prefix = await makeBuilder(makeModelPool(MULTI_MODEL)).buildIdentityPrefix("o1", "small", "", "nonexistent");
 
-    expect(prefix).toContain("你的运行时模型");
+    expect(prefix).toContain("我的运行时模型");
     expect(prefix).toContain("mimo");
   });
 });

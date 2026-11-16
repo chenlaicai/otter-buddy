@@ -71,7 +71,7 @@ export class IdentityBuilder {
     // 用户身份段：告诉海獭搭档叫什么名字
     const rawName = this.settingsRepo ? ((await this.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || undefined) : undefined;
     const userName = rawName?.replace(/[\r\n]/g, '');
-    const userIdentity = userName ? `## 你的搭档\n- 名字：${userName}\n- 称呼：搭档（你可以用名字称呼 ta）` : '';
+    const userIdentity = userName ? `## 我的搭档\n- 名字：${userName}\n- 称呼：搭档（我可以用名字称呼 ta）` : '';
 
     // F20260810rout: 小獭注入召唤者身份（修复行动权路由 bug——子獭需知道召唤者是谁，结论才能交回）
     const summonerIdentity = isBig ? '' : await this.buildSummonerIdentity(otter);
@@ -99,7 +99,7 @@ export class IdentityBuilder {
     // 格式实体是 signature-convention skill 的管道快照（同 .github/pull_request_template.md
     // 性质，机制上无法指针化），同步义务见该 skill。
     return [
-      `## 你的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- 你的署名行（PR description / review 评论末尾，原样复制下面这行，不要凭记忆改写格式）：\n  🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by ${otter.name}\n- commit author（git commit --author 参数值，整体照抄）：${otter.name} <41982931+chenlaicai@users.noreply.github.com>\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
+      `## 我的身份\n- 名称：${otter.name}\n- 名号：${otter.name}\n- 我的署名行（PR description / review 评论末尾，原样复制下面这行，不要凭记忆改写格式）：\n  🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by ${otter.name}\n- commit author（git commit --author 参数值，整体照抄）：${otter.name} <41982931+chenlaicai@users.noreply.github.com>\n- ID：${otterId}\n- 类型：${isBig ? '大獭' : '小獭'}${conversationId ? `\n- 当前对话 ID：${conversationId}（创建特性文档时写入 frontmatter 的 created_in_conversation 字段）` : ''}`,
       conversationIdentity,
       userIdentity,
       summonerIdentity,
@@ -119,7 +119,7 @@ export class IdentityBuilder {
       const title = conv?.title?.trim();
       if (!title) return '';
       const sanitized = title.replace(/[\r\n]/g, ' ');
-      return `## 你所在的对话\n- 对话标题：${sanitized}\n- 你正身处这个对话中——本对话的历史讨论与长期记忆中的一样有效，检索记忆时本对话来源的条目会被优先加权`;
+      return `## 我所在的对话\n- 对话标题：${sanitized}\n- 我正身处这个对话中——本对话的历史讨论与长期记忆中的一样有效，检索记忆时本对话来源的条目会被优先加权`;
     } catch (err) {
       this.logger.warn('对话身份段注入降级：查询对话标题失败', { conversationId, error: String(err) });
       return '';
@@ -130,7 +130,7 @@ export class IdentityBuilder {
   private buildModelIdentity(alias: string | undefined): string {
     if (!this.modelPool) return '';
     const models = this.modelPool.describeModels();
-    // 单模型池省略："你用的是唯一模型"信息量为零，徒增 token
+    // 单模型池省略："我用的是唯一模型"信息量为零，徒增 token
     if (models.length <= 1) return '';
 
     const target = alias
@@ -145,14 +145,14 @@ export class IdentityBuilder {
     const modelLabel = isDefault ? `${target.alias}（默认）` : target.alias;
 
     return [
-      '## 你的运行时模型',
+      '## 我的运行时模型',
       `- 模型：${modelLabel}——${target.description ?? '无描述'}`,
       `- 优势：${strengths}`,
       `- 劣势：${weaknesses}`,
       '- 以上信息由系统注入，以此为准判断自己的能力边界，不要凭预训练记忆推测或声称其他模型身份',
-      '- 对抗性协作提示：在开发/检视、编写/审核等配对场景中，你与对方使用不同模型。',
+      '- 对抗性协作提示：在开发/检视、编写/审核等配对场景中，我与对方使用不同模型。',
       '  训练路径不同 → 思考盲区不同，这正是对抗价值的来源。审视对方产出时，',
-      '  优先从你的优势维度切入，不要假设“我想不到的对方也想不到”。',
+      '  优先从我的优势维度切入，不要假设“我想不到的对方也想不到”。',
     ].join('\n');
   }
 
@@ -162,8 +162,8 @@ export class IdentityBuilder {
     const parentOtter = await this.otterRepo.getById(otter.parentOtterId);
     if (!parentOtter) return '';
     return [
-      '## 你的召唤者',
-      `- 召唤你的海獭：${parentOtter.name}（本次任务的主导者）`,
+      '## 我的召唤者',
+      `- 召唤我的海獭：${parentOtter.name}（本次任务的主导者）`,
       `- **子任务完成后，行动权默认交回 ${parentOtter.name} 处置，不要传 'user'**`,
       `- 只有整个协作任务真正完成、需要搭档（用户）拍板时，才传 'user'`,
     ].join('\n');
