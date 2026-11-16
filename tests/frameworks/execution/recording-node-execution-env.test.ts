@@ -141,15 +141,19 @@ describe("归属传播（ALS）与去重协议", () => {
     ledger!.close();
   });
 
-  it("ALS 外执行 → source=internal、invoke/toolCall 归属为空", async () => {
+  it("ALS 外执行 → source=internal、归属为空；多实例同库不碰撞（RESIDUAL-1）", async () => {
     const dir = tempDir();
-    const { env, ledger } = makeEnv(dir, new SqliteActionLedger(path.join(dir, "actions.db")));
-    await env.writeFile(path.join(dir, "internal.md"), "x", BACKGROUND_CONTEXT);
-    const rows = await allRows(ledger!);
-    expect(rows[0].source).toBe("internal");
-    expect(rows[0].invokeId).toBeNull();
-    expect(rows[0].actionId).toContain("internal:");
-    ledger!.close();
+    const ledger = new SqliteActionLedger(path.join(dir, "actions.db"));
+    const { env: envA } = makeEnv(dir, ledger);
+    const { env: envB } = makeEnv(dir, ledger);
+    await envA.writeFile(path.join(dir, "internal-a.md"), "x", BACKGROUND_CONTEXT);
+    await envB.writeFile(path.join(dir, "internal-b.md"), "y", BACKGROUND_CONTEXT); // 同库另一实例首动作：id 含实例标签，不碰撞
+    const rows = await allRows(ledger);
+    expect(rows).toHaveLength(2);
+    expect(rows.every(r => r.source === "internal" && r.invokeId === null)).toBe(true);
+    expect(new Set(rows.map(r => r.actionId)).size).toBe(2); // 两实例 id 互异
+    expect(rows.every(r => r.status === "succeeded")).toBe(true); // 都真实执行，未被错误去重
+    ledger.close();
   });
 
   it("同 actionId 已 succeeded → 去重：不执行、返回 ok、文件未被改动", async () => {
@@ -227,7 +231,7 @@ describe("检视发现回填（reviewer-1900）", () => {
     expect(readFileSync(target, "utf8")).toBe("boot-N+1-content"); // 不再被旧 boot 的 succeeded 行静默跳写
     const rows = await allRows(ledgerB);
     expect(rows.filter(r => r.source === "internal")).toHaveLength(2); // 旧行 + 新行共存
-    expect(rows.some(r => r.actionId === `internal:${ledgerB.bootEpoch}:1`)).toBe(true);
+    expect(rows.some(r => r.actionId.startsWith(`internal-`) && r.actionId.includes(`:${ledgerB.bootEpoch}:1`))).toBe(true); // 新行含新纪元与实例标签
     ledgerB.close();
   });
 

@@ -318,6 +318,9 @@ export class DurableSession {
     await this.conversation.waitForIdle(context);
     this._state = "idle";
     await sink.apply(this.watcher.value, []);
+    // F20261116actlg（dspro RESIDUAL-3）：回合结束即清除当前工具调用 id（置于 unanswered
+    // 抛错之前——异常回合同样清除，非工具期 env 动作不误归属）。
+    if (scope) scope.currentToolCallId = undefined;
     const after = await this.usage(BACKGROUND_CONTEXT);
     this.invocationTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     for (const bucket of ["models", "tools"] as const) for (const [key, usage] of Object.entries(after?.[bucket] ?? {})) {
@@ -332,9 +335,6 @@ export class DurableSession {
       this.totalTokens.cacheWrite += (usage.cacheWrite ?? 0) - (previous?.cacheWrite ?? 0);
     }
     if (settled.status === "unanswered") throw new Error(`Durable turn unanswered: ${settled.reason}${settled.detail ? ` (${JSON.stringify(settled.detail)})` : ""}`);
-    // F20261116actlg（dspro suggestion）：回合结束后清除当前工具调用 id——
-    // 非工具期的 env 动作不再误归属到上一枚 call.id（残留窗口收窄到单工具执行内）。
-    if (scope) scope.currentToolCallId = undefined;
   }
 
   private promptInput(text: string, options?: DurablePromptOptions): string | { content: Array<Record<string, unknown>> } {

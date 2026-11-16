@@ -59,6 +59,9 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
   /** 单调全局序（dspro minor：不再按 attribution 分桶——Map 键随 toolCall 无界增长；
    *  全局序保证同 boot 内唯一性，归属信息在 invoke/toolCall 列里完整保留） */
   private opSeq = 0;
+  /** 实例标签（dspro RESIDUAL-1：SDK 每次工具调用新铸 env，实例间 opSeq 各自从 0 起——
+   *  internal 归属拼入实例标签，杜绝同进程多实例同 id 铸造） */
+  private readonly instanceTag = randomUUID().slice(0, 8);
 
   constructor(
     options: { cwd: string; shellPath?: string; shellEnv?: NodeJS.ProcessEnv },
@@ -272,8 +275,8 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
     contentHash?: string;
     contentBytes?: number;
   }): StartActionInput {
+    const attribution = this.currentAttribution();
     const store = otterInvokeStorage.getStore();
-    const attribution = store?.currentToolCallId ?? "internal";
     this.opSeq += 1;
     return {
       actionId: `${attribution}:${this.bootEpoch}:${this.opSeq}`,
@@ -301,6 +304,12 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
   private async tryDisplayPath(filePath: string): Promise<string | undefined> {
     const resolved = await this.absolutePath(filePath, BACKGROUND_CONTEXT);
     return resolved.ok ? resolved.value : filePath;
+  }
+
+  /** 归属链（RESIDUAL-1）：toolCallId → invokeId → internal-实例标签（实例间唯一） */
+  private currentAttribution(): string {
+    const store = otterInvokeStorage.getStore();
+    return store?.currentToolCallId ?? store?.currentInvokeId ?? `internal-${this.instanceTag}`;
   }
 
   private toFileError(error: unknown, fallbackPath: string): FileError {

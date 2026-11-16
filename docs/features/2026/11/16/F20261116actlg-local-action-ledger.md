@@ -56,8 +56,8 @@ intent:
   NodeWorkspaceGateway.writeFile）改临时文件→rename 原子落位，mode 保留、symlink 跟随。
 - T3 actionId 去重协议：ActionRunner 增可选 `options.actionId`；同 id 已 succeeded 直接返回
   已记录结果不执行（阶段 4 connector 重投递的幂等底座）。
-- T4 开机清扫：旧 bootEpoch 的 running 行裁决——文件写 hash 核对（命中→succeeded 且回执修复），
-  幂等类→interrupted，bash→unknown（转检查）。
+- T4 开机清扫：旧 bootEpoch 的 running 行裁决——文件写 hash 核对（命中→succeeded 且回执修复；
+  全量写不中→interrupted，append 尾不中→unknown 转检查防重复追加），幂等类→interrupted，bash→unknown（转检查）。
 - T5 归属传播：OtterInvokeContext 增 currentInvokeId/currentToolCallId（ALS），DurableSession
   prompt/beforeTool 写入，记录层读取。
 
@@ -208,7 +208,7 @@ ALS 外 `internal:${bootEpoch}:${seq}`。自铸 id 一律含 boot 纪元（MAJOR
 | mintActionId 死路径且格式漂移 | **接受——删死路径**：actionId 改必填（铸造责任归记录层） |
 | 链深度 8 与 OS ELOOP(40) 不一致 | **接受**：对齐 40 |
 | 无 busy_timeout | **接受**：显式 pragma busy_timeout=5000 |
-| ALS currentToolCallId 无清除路径 | **接受**：回合结束清除（残留窗口收窄到单工具执行内） |
+| ALS currentToolCallId 无清除路径 | **接受**：回合结束即清除（含异常回合，置于 unanswered 抛错前），残留窗口收窄到单工具执行内；归属链补 invokeId 兜底与实例标签（RESIDUAL-1/3，delta 复核残留收口） |
 | 去重仅凭 actionId 不核对 content hash | **驳回（设计如此）**：去重是身份精确协议——「同 actionId=同动作」是调用方契约；加 hash 核对会把协议变模糊（hash 相同的不同动作会被误吞） |
 | 原子写把覆盖权限前提从文件可写改为目录可写；无 fsync/不保 xattr | **记录为已知取舍**：rename 原子替换的固有属性（进程崩溃原子性优先于掉电持久性与 xattr 保留；目录可写是工作区/会话目录的既有前提） |
 
