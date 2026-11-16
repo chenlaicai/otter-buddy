@@ -23,7 +23,7 @@ export class AuthController {
     const body = (await c.req.json().catch(() => ({}))) as { password?: unknown };
     const password = typeof body.password === "string" ? body.password : "";
     if (!password || !this.deps.verifyOwnerPassword(password)) {
-      return c.json({ error: "登录口令错误", code: "invalid_token" }, 401);
+      return c.json({ error: "登录口令错误", code: "invalid_password" }, 401);
     }
     const identity = { userId: OWNER_SESSION_USER_ID, role: "admin" as const };
     const cookie = this.deps.signSession(identity);

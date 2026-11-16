@@ -174,7 +174,7 @@ tests/api 与 tests/interface-adapters/http 基线不回归。
 
 | 场景 | 操作 | 预期结果 |
 |---|---|---|
-| 登录成败 | login 端点对/错口令 | 对 → 200 + otter_session cookie；错/缺 → 401 invalid_token |
+| 登录成败 | login 端点对/错口令 | 对 → 200 + otter_session cookie；错/缺 → 401 invalid_password |
 | 会话读取 | 带 cookie 请求 session | 200，identity = owner/admin |
 | 会话优先 | 有效 cookie + 伪造 admin 头 | 采信 cookie 的 owner |
 | 未登录拒绝 | 无 cookie 请求 session / execution-machines | 401（fail-closed） |

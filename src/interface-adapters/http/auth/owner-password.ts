@@ -51,7 +51,7 @@ export function resolveOwnerPassword(options: ResolveOwnerPasswordOptions): stri
 
   const configuredPassword = options.configuredPassword?.trim();
   if (configuredPassword) {
-    warnIfOverrideFileToken(options, configuredPassword);
+    warnIfOverrideFilePassword(options, configuredPassword);
     return configuredPassword;
   }
 
@@ -77,11 +77,11 @@ export function resolveOwnerPassword(options: ResolveOwnerPasswordOptions): stri
 
 /** delta 检视 S3：config 口令生效时，既有的 data/owner-password 文件若存在且值不同，记 warn——
  *  避免运维拿旧文件口令登录困惑（真正生效的是 config 口令，旧文件值将被忽略）。 */
-function warnIfOverrideFileToken(options: ResolveOwnerPasswordOptions, configuredPassword: string): void {
+function warnIfOverrideFilePassword(options: ResolveOwnerPasswordOptions, configuredPassword: string): void {
   const filePath = path.join(options.dataDir, OWNER_PASSWORD_FILENAME);
   try {
-    const fileToken = readFileSync(filePath, "utf8").trim();
-    if (fileToken && fileToken !== configuredPassword) {
+    const filePassword = readFileSync(filePath, "utf8").trim();
+    if (filePassword && filePassword !== configuredPassword) {
       options.logger?.warn("config auth.ownerPassword 已覆盖 data/owner-password 文件口令（旧文件值将被忽略）", { filePath });
     }
   } catch {

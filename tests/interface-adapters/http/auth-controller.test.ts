@@ -52,10 +52,10 @@ function cookieOf(res: Response): string {
 describe("统一接入登录（auth 三端点）", () => {
   const app = rawApp();
 
-  it("login：错误/缺失口令 → 401 invalid_token", async () => {
+  it("login：错误/缺失口令 → 401 invalid_password", async () => {
     const bad = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "wrong" }) });
     expect(bad.status).toBe(401);
-    expect((await bad.json() as { code: string }).code).toBe("invalid_token");
+    expect((await bad.json() as { code: string }).code).toBe("invalid_password");
     const empty = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
     expect(empty.status).toBe(401);
   });
