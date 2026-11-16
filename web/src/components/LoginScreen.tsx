@@ -1,25 +1,25 @@
 /**
  * 登录屏（issue #1868 阶段 2）：单用户本机部署的登录口令登录。
- * 口令来源：config auth.ownerPassword / env OTTER_OWNER_TOKEN / 首启自动生成于 data/owner-token。
+ * 口令来源：config auth.ownerPassword / env OTTER_OWNER_PASSWORD / 首启自动生成于 data/owner-password。
  */
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 
 interface LoginScreenProps {
-  onLogin: (token: string) => Promise<void>
+  onLogin: (password: string) => Promise<void>
   error: string | null
 }
 
 export function LoginScreen({ onLogin, error }: LoginScreenProps) {
-  const [token, setToken] = useState('')
+  const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!token.trim() || submitting) return
+    if (!password.trim() || submitting) return
     setSubmitting(true)
     try {
-      await onLogin(token.trim())
+      await onLogin(password.trim())
     } finally {
       setSubmitting(false)
     }
@@ -33,9 +33,9 @@ export function LoginScreen({ onLogin, error }: LoginScreenProps) {
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <input
             type="password"
-            data-testid="owner-token"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
+            data-testid="owner-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             placeholder="登录口令"
             autoFocus
             className="rounded-lg border border-otter-200 px-3 py-2 text-sm outline-none focus:border-otter-400"
@@ -44,7 +44,7 @@ export function LoginScreen({ onLogin, error }: LoginScreenProps) {
           <button
             type="submit"
             data-testid="login-submit"
-            disabled={!token.trim() || submitting}
+            disabled={!password.trim() || submitting}
             className="rounded-lg bg-otter-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {submitting ? '登录中…' : '登录'}

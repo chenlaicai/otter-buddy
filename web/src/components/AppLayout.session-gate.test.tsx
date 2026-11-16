@@ -26,7 +26,7 @@ import { AppLayout } from './AppLayout'
 describe('AppLayout 会话门守卫（#1868）', () => {
   it('unauthenticated → 渲染登录屏，不挂载业务布局', () => {
     render(<MemoryRouter><AppLayout /></MemoryRouter>)
-    expect(screen.getByTestId('owner-token')).toBeTruthy()
+    expect(screen.getByTestId('owner-password')).toBeTruthy()
     expect(screen.queryByTestId('app-content-scroll')).toBeNull()
   })
 })

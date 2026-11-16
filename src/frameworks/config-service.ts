@@ -173,8 +173,8 @@ export interface AppConfig {
     baseUrl?: string;
   };
   /** 统一接入登录（F20261113uaccs 阶段 2）：登录口令配置。
-   *  ownerPassword 显式指定时优先于 data/owner-token 文件（env OTTER_OWNER_TOKEN 仍最高优先）。
-   *  缺省 undefined = 未配置，回退 env / data/owner-token 文件 / 首启自动生成。 */
+   *  ownerPassword 显式指定时优先于 data/owner-password 文件（env OTTER_OWNER_PASSWORD 仍最高优先）。
+   *  缺省 undefined = 未配置，回退 env / data/owner-password 文件 / 首启自动生成。 */
   auth?: {
     ownerPassword?: string;
   };

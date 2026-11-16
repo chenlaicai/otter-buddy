@@ -71,8 +71,8 @@ data/*.db
 *.db-shm
 *.db-wal
 
-# Owner token（#1868 阶段 2 首启自动生成的真实凭据——绝不能入库；轮换=删除此文件重启）
-data/owner-token
+# Owner password（#1868 阶段 2 首启自动生成的真实凭据——绝不能入库；轮换=删除此文件重启）
+data/owner-password
 
 # Agent sessions
 data/sessions/

@@ -27,7 +27,7 @@ import { ResumeInterruptedService } from "@usecases/conversation/resume-interrup
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 import { LocalExecutionMachine } from "@frameworks/execution/local-execution-machine";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
-import { resolveOwnerToken, verifyOwnerToken } from "@interface-adapters/http/auth/owner-token";
+import { resolveOwnerPassword, verifyOwnerPassword } from "@interface-adapters/http/auth/owner-password";
 import { createSessionSigner } from "@interface-adapters/http/auth/session-cookie";
 import { AuthController } from "@interface-adapters/http/controllers/auth-controller";
 
@@ -717,10 +717,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   const mahjongRoot = options.staticRoot === false ? false : path.resolve(import.meta.dirname, "../..", "web-mahjong");
   // ── 统一接入（issue #1868 阶段 2）：登录口令 → HMAC 会话签名器 → auth 三端点 + 中间件会话优先 ──
-  const ownerToken = resolveOwnerToken({ dataDir, logger, env: process.env, configuredPassword: config.auth?.ownerPassword });
-  const sessionSigner = createSessionSigner(ownerToken);
+  const ownerPassword = resolveOwnerPassword({ dataDir, logger, env: process.env, configuredPassword: config.auth?.ownerPassword });
+  const sessionSigner = createSessionSigner(ownerPassword);
   const authController = new AuthController({
-    verifyOwnerToken: (token) => verifyOwnerToken(ownerToken, token),
+    verifyOwnerPassword: (password) => verifyOwnerPassword(ownerPassword, password),
     signSession: (identity) => sessionSigner.sign(identity, Date.now()),
   });
   const app = buildHttpApp(

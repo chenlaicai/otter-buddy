@@ -5,11 +5,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { Hono } from "hono";
 import { createSessionSigner } from "../../../src/interface-adapters/http/auth/session-cookie";
-import { verifyOwnerToken } from "../../../src/interface-adapters/http/auth/owner-token";
+import { verifyOwnerPassword } from "../../../src/interface-adapters/http/auth/owner-password";
 import { AuthController } from "../../../src/interface-adapters/http/controllers/auth-controller";
 import { createRouter, type Controllers, type RouterPlumbingOptions } from "../../../src/interface-adapters/http/router";
 
-const OWNER_TOKEN = "test-owner-token";
+const OWNER_PASSWORD = "test-owner-password";
 
 interface ExecutionMachineFixture {
   id: string;
@@ -20,11 +20,11 @@ function rawApp(executionMachines?: {
   list: () => ExecutionMachineFixture[];
   currentId: () => string;
 }): Hono {
-  const signer = createSessionSigner(OWNER_TOKEN);
+  const signer = createSessionSigner(OWNER_PASSWORD);
   const auth = {
     verifySession: (value: string) => signer.verify(value, Date.now()),
     controller: new AuthController({
-      verifyOwnerToken: (t) => verifyOwnerToken(OWNER_TOKEN, t),
+      verifyOwnerPassword: (t) => verifyOwnerPassword(OWNER_PASSWORD, t),
       signSession: (identity) => signer.sign(identity, Date.now()),
     }),
   };
@@ -52,16 +52,16 @@ function cookieOf(res: Response): string {
 describe("统一接入登录（auth 三端点）", () => {
   const app = rawApp();
 
-  it("login：错误/缺失 token → 401 invalid_token", async () => {
-    const bad = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: "wrong" }) });
+  it("login：错误/缺失口令 → 401 invalid_token", async () => {
+    const bad = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: "wrong" }) });
     expect(bad.status).toBe(401);
     expect((await bad.json() as { code: string }).code).toBe("invalid_token");
     const empty = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
     expect(empty.status).toBe(401);
   });
 
-  it("login：正确 token → 200 + 派发会话 cookie；session 端点凭 cookie 读到 owner/admin", async () => {
-    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: OWNER_TOKEN }) });
+  it("login：正确口令 → 200 + 派发会话 cookie；session 端点凭 cookie 读到 owner/admin", async () => {
+    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
     expect(login.status).toBe(200);
     const cookie = cookieOf(login);
 
@@ -77,7 +77,7 @@ describe("统一接入登录（auth 三端点）", () => {
   });
 
   it("会话优先：有效 cookie 即使并发伪造 admin 头，也采信会话（owner 不来自可伪造值源）", async () => {
-    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: OWNER_TOKEN }) });
+    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
     const cookie = cookieOf(login);
     const res = await app.request("/api/auth/session", {
       headers: { Cookie: `otter_session=${cookie}`, "X-Otter-User-Id": "evil", "X-Otter-User-Role": "guest" },
@@ -86,8 +86,8 @@ describe("统一接入登录（auth 三端点）", () => {
     expect(body.identity.userId).toBe("owner");
   });
 
-  it("logout：幂等清 cookie（无状态会话：登出不撤销已签发 cookie 值，撤销靠 token 轮换）", async () => {
-    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: OWNER_TOKEN }) });
+  it("logout：幂等清 cookie（无状态会话：登出不撤销已签发 cookie 值，撤销靠口令轮换）", async () => {
+    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
     const cookie = cookieOf(login); // 裸 app.request 不自动管理 cookie，此处显式取出以验证精确语义
     const logout = await app.request("/api/auth/logout", { method: "POST" });
     expect(logout.status).toBe(200);
@@ -101,7 +101,7 @@ describe("统一接入登录（auth 三端点）", () => {
 
   it("AuthController.session 兜底：identity 缺失 → 401（fail-closed，不 fabricate admin）", async () => {
     const controller = new AuthController({
-      verifyOwnerToken: () => true,
+      verifyOwnerPassword: () => true,
       signSession: () => "unused-sig",
     });
     const bareContext = {
@@ -114,7 +114,7 @@ describe("统一接入登录（auth 三端点）", () => {
   });
 
   it("登录拿到的 cookie 能通过受保护列表端点（authenticated 档）", async () => {
-    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: OWNER_TOKEN }) });
+    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
     const cookie = cookieOf(login);
     // /api/auth/session 是 authenticated 档的活端点，跨请求复用 cookie 即可
     expect((await app.request("/api/auth/session", { headers: { Cookie: `otter_session=${cookie}` } })).status).toBe(200);
@@ -133,7 +133,7 @@ describe("执行机投影端点（/api/execution-machines）", () => {
   });
 
   it("登录后 → 200 返回 { machines, currentMachineId } 契约", async () => {
-    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: OWNER_TOKEN }) });
+    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
     const cookie = cookieOf(login);
     const res = await app.request("/api/execution-machines", { headers: { Cookie: `otter_session=${cookie}` } });
     expect(res.status).toBe(200);

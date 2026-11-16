@@ -8,7 +8,7 @@ export type SessionState = 'loading' | 'authenticated' | 'unauthenticated'
 
 export function useSession(onLoggedIn?: () => void): {
   state: SessionState
-  login: (token: string) => Promise<void>
+  login: (password: string) => Promise<void>
   logout: () => Promise<void>
 } {
   const [state, setState] = useState<SessionState>('loading')
@@ -26,8 +26,8 @@ export function useSession(onLoggedIn?: () => void): {
     }
   }, [])
 
-  const login = useCallback(async (token: string) => {
-    await authApi.login(token)
+  const login = useCallback(async (password: string) => {
+    await authApi.login(password)
     setState('authenticated')
     onLoggedIn?.()
   }, [onLoggedIn])

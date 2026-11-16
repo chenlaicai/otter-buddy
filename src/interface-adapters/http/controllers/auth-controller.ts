@@ -9,7 +9,7 @@ import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "../auth/session-cookie"
  */
 
 export interface AuthControllerDeps {
-  verifyOwnerToken: (token: string) => boolean;
+  verifyOwnerPassword: (password: string) => boolean;
   signSession: (identity: { userId: string; role: "admin" | "user" | "guest" }) => string;
 }
 
@@ -20,9 +20,9 @@ export class AuthController {
 
   /** POST /api/auth/login（public）：校验登录口令，派发会话 cookie。 */
   async login(c: Context): Promise<Response> {
-    const body = (await c.req.json().catch(() => ({}))) as { token?: unknown };
-    const token = typeof body.token === "string" ? body.token : "";
-    if (!token || !this.deps.verifyOwnerToken(token)) {
+    const body = (await c.req.json().catch(() => ({}))) as { password?: unknown };
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!password || !this.deps.verifyOwnerPassword(password)) {
       return c.json({ error: "登录口令错误", code: "invalid_token" }, 401);
     }
     const identity = { userId: OWNER_SESSION_USER_ID, role: "admin" as const };

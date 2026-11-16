@@ -1,12 +1,12 @@
 /**
  * Playwright global-setup（issue #1868 阶段 2）：统一接入登录后写 storageState。
  * 之后所有 spec 以已登录浏览器上下文运行——不再需要硬编码 X-Otter 声明头。
- * token 来源：env E2E_OWNER_TOKEN（缺省 e2e-owner-token，与 scripts/e2e-server.sh 启动注入一致）。
+ * 口令来源：env E2E_OWNER_PASSWORD（缺省 e2e-owner-password，与 scripts/e2e-server.sh 启动注入一致）。
  */
 import { chromium } from '@playwright/test'
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3116'
-const TOKEN = process.env.E2E_OWNER_TOKEN ?? 'e2e-owner-token'
+const PASSWORD = process.env.E2E_OWNER_PASSWORD ?? 'e2e-owner-password'
 const STORAGE_STATE = 'e2e/.auth/owner.json'
 
 async function globalSetup(): Promise<void> {
@@ -16,7 +16,7 @@ async function globalSetup(): Promise<void> {
   await page.goto('/')
   // 会话门未登录会渲染登录屏；直接 POST 登录更快，也验证三端点真实链路
   const res = await page.request.post(`${BASE_URL}/api/auth/login`, {
-    data: { token: TOKEN },
+    data: { password: PASSWORD },
   })
   if (!res.ok()) {
     throw new Error(`e2e global-setup login failed: ${res.status()} ${await res.text()}`)

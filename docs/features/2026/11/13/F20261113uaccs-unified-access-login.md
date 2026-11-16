@@ -4,7 +4,7 @@ title: 统一接入与登录（本机即接入端）
 doc_type: feature
 summary: |
   落实 #1868 阶段 2：把 Web 客户端的身份来源从「可伪造的声明式头」换成「登录拿到的
-  HMAC 签名会话 cookie」，本机登录口令（owner password，旧称 owner token）即唯一真实凭据；执行机投影端点让 Web 显示当前执行机。
+  HMAC 签名会话 cookie」，本机登录口令（owner password）即唯一真实凭据；执行机投影端点让 Web 显示当前执行机。
   声明式头/query 降级为本机运维脚本回退路径，既有 curl/测试不回归。
 change_type: feature
 tags: [auth, session, login, execution-machine, web]
@@ -45,7 +45,7 @@ intent:
 
 ## 目标
 
-- T1：登录口令解析四层（env `OTTER_OWNER_TOKEN` → config `auth.ownerPassword` → data/owner-token 文件 → 生成落盘 0600），提供轮换/撤销底座。
+- T1：登录口令解析四层（env `OTTER_OWNER_PASSWORD` → config `auth.ownerPassword` → data/owner-password 文件 → 生成落盘 0600），提供轮换/撤销底座。
 - T2：无状态 HMAC 会话签名器（secret=登录口令，7 天有效），login/logout/session 三端点。
 - T3：身份中间件会话优先（cookie 命中不再看头/query），声明式头/query 降级为本机脚本回退路径。
 - T4：Web 会话门（LoginScreen + useSession + AppLayout 互锁），登录态进业务布局。
@@ -61,8 +61,8 @@ intent:
 
 ### 模块切分
 
-- `src/interface-adapters/http/auth/owner-token.ts`：`generateOwnerToken`(base64url 32B)、
-  `verifyOwnerToken`(timingSafeEqual)、`resolveOwnerToken`(env → config auth.ownerPassword → 文件 → 生成 0600)。
+- `src/interface-adapters/http/auth/owner-password.ts`：`generateOwnerPassword`(base64url 32B)、
+  `verifyOwnerPassword`(timingSafeEqual)、`resolveOwnerPassword`(env → config auth.ownerPassword → 文件 → 生成 0600)。
 - `src/interface-adapters/http/auth/session-cookie.ts`：`SESSION_COOKIE_NAME='otter_session'`、
   7 天有效期、`createSessionSigner(secret)` HMAC-SHA256 无状态签名
   `userId.role.issuedAt.maxAge.sig`。
@@ -77,7 +77,7 @@ intent:
 - Web 切片：`api/auth.ts`、`api/client.ts`(credentials same-origin + 401 广播)、
   `hooks/use-session.ts`、`components/LoginScreen.tsx`、`AppLayout.tsx`(会话门)、`TopBar.tsx`(执行机 badge)、
   `conversation/index.tsx`(SSE 订阅不再设声明式头)。
-- e2e：`web/e2e/global-setup.ts` 用 `E2E_OWNER_TOKEN` POST 登录写 storageState；启动脚本注入同 token。
+- e2e：`web/e2e/global-setup.ts` 用 `E2E_OWNER_PASSWORD` POST 登录写 storageState；启动脚本注入同口令。
 
 ### 关键接口与核心数据结构
 
@@ -108,19 +108,19 @@ interface RouterPlumbingOptions {
 | Web 身份值源 | 登录 cookie 会话，不再发声明式头 | 保留头 + cookie 双通道 | 保留头则 Web 永远无法「登出」——过期 cookie 仍会掉进 admin 回退路径，登录门形同虚设 |
 | 声明式头/query | 降级为本机脚本回退路径（103 处 curl/测试继续可用） | 直接删除声明式路径 | 一次性删光会让既有运维脚本与集成测试大面积回归，且后台探活在浏览器场景外仍需脚本身份 |
 | 会话优先 | cookie 命中则不再看头/query（明文头造假无效） | 头优先 / 合并 | 头可伪造，必须在可验证凭据面前让位；合并语义会引入歧义 |
-| 登录口令 | env 优先 → config `auth.ownerPassword` → 缺省生成 `data/owner-token`(0600) | 仅 env / 仅文件 / 仅 config | 四态（生产部署/alpha/e2e）显式注入优先；支持自定义可记的固定密码；本机零配置首启可用；文件损坏宁 fail 不静默换口令 |
+| 登录口令 | env 优先 → config `auth.ownerPassword` → 缺省生成 `data/owner-password`(0600) | 仅 env / 仅文件 / 仅 config | 四态（生产部署/alpha/e2e）显式注入优先；支持自定义可记的固定密码；本机零配置首启可用；文件损坏宁 fail 不静默换口令 |
 | 会话有效期 | 7 天；`now = issuedAt+maxAge` 边界仍有效，`+1ms` 起拒绝 | 更长/更短 | 个人中枢本机访问为主，7 天与轮换撤销配合足够 |
 | SSE 身份 | 同源 XHR 自动携带会话 cookie | 继续给 SSE XHR 设声明式头 | 与 Web 整体「不自报身份」语义一致；cookie 由浏览器自动附带 |
 
 ### 机制识别检查点
 
-- 新增配置字段：是（`auth.ownerPassword` config / `OTTER_OWNER_TOKEN` env，可缺省）。
+- 新增配置字段：是（`auth.ownerPassword` config / `OTTER_OWNER_PASSWORD` env，可缺省）。
 - 新增状态生命周期：是（会话 cookie 持有期 7 天，无状态无存储）。
 - 新增定时任务/后台进程：否。
 - 新增信号类型/消息格式：是（session cookie 值格式 `userId.role.issuedAt.maxAge.sig`）。
-- 新增持久化存储：是（`data/owner-token` 首启生成，0600；config `auth.ownerPassword` 为可选的显式覆盖值，不落盘）。
+- 新增持久化存储：是（`data/owner-password` 首启生成，0600；config `auth.ownerPassword` 为可选的显式覆盖值，不落盘）。
 - 新增会被记住的决策分支：是（会话优先于声明式身份的解析顺序）。
-- 新增跨模块调用路径：是（app → resolveOwnerToken → createSessionSigner → AuthController → router 中间件/端点）。
+- 新增跨模块调用路径：是（app → resolveOwnerPassword → createSessionSigner → AuthController → router 中间件/端点）。
 
 结论：命中配置、消息格式、持久化、决策分支与跨模块路径，属修法决策树④新增机制。既有「声明式身份」机制内无法同时满足
 「Web 不能自报可伪造 admin」与「本机脚本仍可无 cookie 调用」——前者要求删 Web 头，后者要求留路径，只有把真实登录设为
@@ -162,13 +162,13 @@ tests/api 与 tests/interface-adapters/http 基线不回归。
   回退路径按「本机运维脚本通道」保留，来源限制（如 localhost-only）留待网络部署阶段收紧。
 - 登出不清除已签发 cookie 的服务端有效性：无状态签名器只清客户端 cookie，旧值 7 天内仍可凭签名通过校验；
   cookie 泄漏需轮换登录口令才能整体撤销，而非仅登出。
-- 删除 `data/owner-token` 会整体登出所有会话（含 alpha/e2e 首启后的已登录态）；
-  生产首次部署若既未设 `OTTER_OWNER_TOKEN` 也未设 `auth.ownerPassword`，则生成的口令必须妥善保管于本机。
+- 删除 `data/owner-password` 会整体登出所有会话（含 alpha/e2e 首启后的已登录态）；
+  生产首次部署若既未设 `OTTER_OWNER_PASSWORD` 也未设 `auth.ownerPassword`，则生成的口令必须妥善保管于本机。
 - 登录口令文件可读但空白视为损坏：解析时 fail-fast，不静默生成新口令覆盖（静默换口令会踢掉旧会话）。
-- config `auth.ownerPassword` 覆盖既有 `data/owner-token` 文件值时，启动记 warn（旧文件值被忽略，避免运维拿旧值登录困惑）。
+- config `auth.ownerPassword` 覆盖既有 `data/owner-password` 文件值时，启动记 warn（旧文件值被忽略，避免运维拿旧值登录困惑）。
 - cookie 未设 `Secure`（本机 http 场景）；部署到公网需由反向代理终止 TLS 并另评估 Secure 标志。
 - 轮换登录口令应立即重启服务（会话签名器 secret 为启动时快照）。
-- 已知边界（delta 检视 S4）：app.ts 组合根把 `config.auth.ownerPassword` 接线到 resolveOwnerToken 无单测——组合根级别，由 alpha 冒烟 + e2e 兑底；为单字段加 app 级测试性价比低，已接受。
+- 已知边界（delta 检视 S4）：app.ts 组合根把 `config.auth.ownerPassword` 接线到 resolveOwnerPassword 无单测——组合根级别，由 alpha 冒烟 + e2e 兑底；为单字段加 app 级测试性价比低，已接受。
 
 ## 验收标准
 
@@ -200,7 +200,7 @@ tests/api 与 tests/interface-adapters/http 基线不回归。
 
 最简实现检查：已通过。复用既有 identity-middleware 策略表与 fail-closed，不新起第二鉴权层；
 hmac 用 node:crypto 内建，无新依赖；session cookie 无状态免存储。发现并修复 app.ts 未向
-`resolveOwnerToken` 传递 `env`（env 注入实际失效）的装配缺口。
+`resolveOwnerPassword` 传递 `env`（env 注入实际失效）的装配缺口。
 
 负面向核查：未删除声明式身份任何既有放行路径（103 处 curl/测试脚本仍可无 cookie 调用）；
 未改变 identity-middleware 对未知 route 的 fail-closed；Web 布局互锁只在 unauthenticated 态

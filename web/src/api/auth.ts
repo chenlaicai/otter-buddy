@@ -28,8 +28,8 @@ async function authRequest<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export function login(token: string): Promise<SessionInfo> {
-  return authRequest<SessionInfo>('login', { method: 'POST', body: JSON.stringify({ token }) })
+export function login(password: string): Promise<SessionInfo> {
+  return authRequest<SessionInfo>('login', { method: 'POST', body: JSON.stringify({ password }) })
 }
 
 export function logout(): Promise<{ ok: true }> {
