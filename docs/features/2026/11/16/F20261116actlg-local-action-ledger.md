@@ -195,6 +195,8 @@ ALS 外 `internal:${bootEpoch}:${seq}`。自铸 id 一律含 boot 纪元（MAJOR
 | MINOR-6 多进程三边界 | **部分接受**：epoch 自增改单语句原子 RETURNING + 上一 boot_pid 存活性告警；「每 data 目录单进程」入文档与代码注释（部署假设，不建锁） |
 | SUGG-1/2/3/4/5 | **全部接受**：两处注释对齐实现；新文件 mode 0o666 对齐 SDK 基线；upsert 刷新归属列；beforeTool 守卫放行后才写 call.id；补四项测试 |
 
+三轮复核链：首轮 12 项 → 18362296（9 项处置+全收 SUGG）→ 二轮 2 残余 → 8cd094cd（链式断链穿透+文档对齐，delta 复核通过）→ 三轮 1 suggestion（深度耗尽路径）→ d06176a9（按检视枚举的选项②：循环/超深链显式报错对齐 SDK ELOOP 基线，不静默替换链接，补循环链回归测试）。
+
 ## 验收标准
 
 | 场景 | 操作 | 预期结果 |
