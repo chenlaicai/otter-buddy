@@ -17,9 +17,11 @@ created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 tags: [prompt, identity-builder, first-person]
 modules:
   - src/frameworks/agent/identity-builder.ts
+  - src/usecases/conversation/dispatch-chain-engine.ts
   - tests/frameworks/agent/system-prompt-injection.test.ts
   - tests/frameworks/agent/identity-prefix.test.ts
   - tests/frameworks/agent/model-identity.test.ts
+  - tests/usecases/conversation/dispatch-chain-engine.test.ts
   - prompts/identity/BIG_OTTER.md
   - .pi/skills/signature-convention/SKILL.md
 causal_links:
@@ -57,7 +59,9 @@ PR #1754 将 SYSTEM.md / BIG_OTTER.md / SMALL_OTTER.md 全量第一人称化，�
 - `prompts/identity/BIG_OTTER.md`「见『你的身份』段」→「见『我的身份』段」
 - `.pi/skills/signature-convention/SKILL.md`「『你的身份』段」→「『我的身份』段」
 
-测试 fixture（system-prompt-injection.test.ts / identity-prefix.test.ts / model-identity.test.ts 段名断言）同步。
+顺带收尾（搭档 2026-11-16 定调：同一「全局第一人称」主题的可完善项一次了结，不留尾）：`dispatch-chain-engine.ts` 的「当前说话者」roster 提示行「非你的搭档…你的搭档是 X」→「非我的搭档…我的搭档是 X」（F20260928wxid 注入面）。
+
+测试 fixture（system-prompt-injection.test.ts / identity-prefix.test.ts / model-identity.test.ts / dispatch-chain-engine.test.ts 段名断言）同步。
 
 ## 验证
 

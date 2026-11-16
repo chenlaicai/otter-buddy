@@ -704,7 +704,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     const engine = makeEngine(m, "ou_chen");
     const roster = await engine.buildRoster("conv-1", "ou_joy");
 
-    expect(roster).toContain("非你的搭档");
+    expect(roster).toContain("非我的搭档");
     expect(roster).toContain("ou_joy");
   });
 
@@ -717,11 +717,11 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
 
     const engine = makeEngine(m, "ou_chen");
     const partnerRoster = await engine.buildRoster("conv-1", "ou_chen");
-    expect(partnerRoster).not.toContain("非你的搭档");
+    expect(partnerRoster).not.toContain("非我的搭档");
 
     const degraded = makeEngine(m, undefined);
     const degradedRoster = await degraded.buildRoster("conv-1", "ou_joy");
-    expect(degradedRoster).not.toContain("非你的搭档");
+    expect(degradedRoster).not.toContain("非我的搭档");
   });
 });
 

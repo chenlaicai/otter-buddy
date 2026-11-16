@@ -824,7 +824,7 @@ export class DispatchChainEngine {
     if (senderId && this.deps.partnerResolver?.configured && !this.deps.partnerResolver.isPartner(senderId)) {
       const channelLabel = senderId.includes('@im.wechat') ? '微信' : '飞书';
       lines.push('');
-      lines.push(`## 当前说话者\n非你的搭档（访客，${channelLabel} ID: ${senderId}）；你的搭档是 ${partnerLabel}`);
+      lines.push(`## 当前说话者\n非我的搭档（访客，${channelLabel} ID: ${senderId}）；我的搭档是 ${partnerLabel}`);
     }
     return `## 在场成员\n${lines.join('\n')}`;
   }
