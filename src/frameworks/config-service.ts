@@ -172,6 +172,12 @@ export interface AppConfig {
   web?: {
     baseUrl?: string;
   };
+  /** 统一接入登录（F20261113uaccs 阶段 2）：登录口令配置。
+   *  ownerPassword 显式指定时优先于 data/owner-password 文件（env OTTER_OWNER_PASSWORD 仍最高优先）。
+   *  缺省 undefined = 未配置，回退 env / data/owner-password 文件 / 首启自动生成。 */
+  auth?: {
+    ownerPassword?: string;
+  };
   /** 附件配置（多模态 Phase 1）。缺省全部用内置默认值 */
   attachments?: {
     /** 存储根目录（相对仓库根或绝对路径，默认 ./data/attachments） */
@@ -345,6 +351,9 @@ interface RawConfig {
   web?: {
     baseUrl?: string;
   };
+  auth?: {
+    ownerPassword?: string;
+  };
   attachments?: {
     storageRoot?: string;
     maxImageBytes?: number;
@@ -476,9 +485,20 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
   if (raw.server?.port !== undefined && typeof raw.server.port !== "number") {
     throw new Error("配置校验失败: server.port 必须是数字");
   }
+  validateAuthConfig(raw);
 
   // F20260901wxnt：contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
   if (raw.weixin) validateWeixinWarnConfig(raw.weixin);
+}
+
+/** F20261113uaccs（delta 检视 S2）：auth.ownerPassword 非字符串（如 YAML 裸数字 123456）
+ *  会在 buildAuthConfig 裸 TypeError——此处 fail-fast 给引导性报错（与 server.port 同语义）。 */
+function validateAuthConfig(raw: RawConfig): void {
+  if (raw.auth?.ownerPassword !== undefined && typeof raw.auth.ownerPassword !== "string") {
+    throw new Error(
+      "配置校验失败: auth.ownerPassword 必须是字符串（YAML 中请加引号，如 ownerPassword: \"my-password\"）",
+    );
+  }
 }
 
 /** 静态助理配置指向禁用条目时启动即报错，避免运行时静默回退到默认模型。 */
@@ -621,6 +641,13 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   return { baseUrl: raw.web.baseUrl };
 }
 
+/** 登录口令配置归一化（F20261113uaccs 阶段 2）：空白/未配置一律 undefined，回退到 env / 文件 / 首启生成。
+ *  非字符串类型已在 validate() fail-fast；此处防御性兼容（直接调 applyDefaults 的测试路径）。 */
+function buildAuthConfig(raw: RawConfig): AppConfig["auth"] {
+  const ownerPassword = typeof raw.auth?.ownerPassword === "string" ? raw.auth.ownerPassword.trim() : "";
+  return ownerPassword ? { ownerPassword } : undefined;
+}
+
 /** 将 RawConfig 补全默认值，构建 AppConfig。F20260915cfgt：features/attachments 归一化拆至 features-config.ts */
 function applyDefaults(raw: RawConfig & { llm: { default: string; models: NonNullable<NonNullable<RawConfig["llm"]>["models"]> } }, logger?: Logger): AppConfig {
   return {
@@ -669,6 +696,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: NonNul
     im: buildImConfig(raw),
     inbound: buildInboundConfig(raw),
     web: buildWebConfig(raw),
+    auth: buildAuthConfig(raw),
     attachments: buildRawAttachmentsConfig(raw),
     features: buildFeaturesConfig(raw, logger),
   };

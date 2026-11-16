@@ -41,6 +41,11 @@ vi.mock('../../api/client', () => ({
   getSettings: vi.fn().mockResolvedValue({ models: [], defaultModelAlias: 'main', userName: '', assistantWebEnabled: true }),
 }))
 
+// #1868 阶段 2：AppLayout 加会话门——本骨架回归不关心登录流程，固定为已登录态直测布局
+vi.mock('../hooks/use-session', () => ({
+  useSession: () => ({ state: 'authenticated', login: vi.fn(), logout: vi.fn() }),
+}))
+
 import { AppLayout } from './AppLayout'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true

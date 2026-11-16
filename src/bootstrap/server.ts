@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Logger } from "@usecases/ports/logger";
-import { createRouter } from "@interface-adapters/http/router";
+import { createRouter, type RouterPlumbingOptions } from "@interface-adapters/http/router";
 import { getMetricsRegistry } from "@frameworks/metrics/registry";
 import type { initControllers } from "./controllers";
 
@@ -18,6 +18,7 @@ export function buildHttpApp(
   logger: Logger,
   staticRoot: string | false,
   mahjongStaticRoot: string | false = staticRoot === false ? false : resolve(process.cwd(), "web-mahjong"),
+  plumbing?: RouterPlumbingOptions,
 ): Hono {
   const app = new Hono();
 
@@ -35,7 +36,7 @@ export function buildHttpApp(
     return c.text(text, 200, { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" });
   });
 
-  app.route("/", createRouter(controllers, logger));
+  app.route("/", createRouter(controllers, logger, plumbing));
 
   // 页面层：三麻牌局页（F20261015mjsg 模块四）。独立原生单页、不进 web/ 的 vite 构建链；
   // 必须先于下方 SPA fallback 注册——app.get("*") 会把 /mahjong/:roomId 吞成 SPA 入口

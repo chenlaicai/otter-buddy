@@ -2,7 +2,8 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { randomUUID } from "crypto";
 import type { Logger } from "@usecases/ports/logger";
-import { identityMiddleware, type Identity } from "./identity-middleware";
+import { identityMiddleware, type Identity, type SessionVerifier } from "./identity-middleware";
+import type { AuthController } from "./controllers/auth-controller";
 import type { ConversationController } from "./controllers/conversation-controller";
 import type { OtterController } from "./controllers/otter-controller";
 import type { MessageController } from "./controllers/message-controller";
@@ -30,6 +31,19 @@ import type { UnfurlController } from "./controllers/unfurl-controller";
 import type { MahjongController } from "./controllers/mahjong-controller";
 
 
+
+/** createRouter 可选装配（统一接入 + 执行机投影；测试不传则退化为 F20261019autz 基线 + 无 auth 端点）。 */
+export interface RouterPlumbingOptions {
+  auth?: {
+    /** 会话校验器（session cookie → 身份），注入身份中间件。 */
+    verifySession: SessionVerifier;
+    controller: AuthController;
+  };
+  executionMachines?: {
+    list: () => Array<{ id: string; name: string }>;
+    currentId: () => string;
+  };
+}
 
 export interface Controllers {
   conversation: ConversationController;
@@ -251,7 +265,7 @@ function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
 
 /** 创建 Hono 路由并挂载所有 Controller 端点 */
 // eslint-disable-next-line max-statements -- 路由注册表：每资源域一行注册，语句数随端点域线性增长（可选域条件注册同体）
-export function createRouter(ctrl: Controllers, logger: Logger): Hono {
+export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: RouterPlumbingOptions): Hono {
   const app = new Hono();
 
   /** HTTP 请求日志中间件 */
@@ -279,9 +293,12 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
     });
   });
 
-  /** #1322（F20261016autz）：对话域鉴权层——身份声明 + 路由策略表 + fail-closed 兜底，
-   *  挂在 requestId 之后、所有路由之前（一处覆盖既有与新增端点） */
-  app.use('*', identityMiddleware());
+  /** #1322（F20261016autz）：对话域鉴权层——身份声明 + 路由策略表 + fail-closed 兑底，
+   *  挂在 requestId 之后、所有路由之前（一处覆盖既有与新增端点）。
+   *  阶段 2（#1868）：注入会话校验器后真实登录 cookie 优先，声明式头/query 回退。 */
+  app.use('*', identityMiddleware(plumbing?.auth?.verifySession));
+
+  registerPlumbingRoutes(app, plumbing);
 
   registerConvRoutes(app, ctrl);
   registerMsgRoutes(app, ctrl);
@@ -321,4 +338,24 @@ export function createRouter(ctrl: Controllers, logger: Logger): Hono {
   }
 
   return app;
+}
+
+/** 统一接入 + 执行机投影端点（#1868 阶段 2）。拆出以守住 createRouter 行数预算。 */
+function registerPlumbingRoutes(app: Hono, plumbing?: RouterPlumbingOptions): void {
+  // 登录/登出已在策略表置 public，session 走 authenticated。
+  if (plumbing?.auth) {
+    app.post("/api/auth/login", (ctx) => plumbing.auth!.controller.login(ctx));
+    app.post("/api/auth/logout", (ctx) => plumbing.auth!.controller.logout(ctx));
+    app.get("/api/auth/session", (ctx) => plumbing.auth!.controller.session(ctx));
+  }
+
+  // Web 当前执行机投影：默认 local；后续连接器扩展列表与在线状态。
+  if (plumbing?.executionMachines) {
+    app.get("/api/execution-machines", (ctx) => {
+      return ctx.json({
+        machines: plumbing.executionMachines!.list(),
+        currentMachineId: plumbing.executionMachines!.currentId(),
+      });
+    });
+  }
 }

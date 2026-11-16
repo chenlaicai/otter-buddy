@@ -7,6 +7,14 @@ server:
   # HTTP 服务监听端口（默认 3000）
   port: 3000
 
+# === 统一接入登录（F20261113uaccs 阶段 2）===
+auth:
+  # 登录口令（登录页输入的口令，owner password）。
+  # 显式配置后优先于 data/owner-password 文件（env OTTER_OWNER_PASSWORD 仍最高优先）；
+  # 不配置则回退 env → data/owner-password 文件 → 首启自动生成。
+  # 建议部署时写一个自己能记住的固定密码：
+  # ownerPassword: "my-rememberable-password"
+
 # === 数据库配置 ===
 database:
   # SQLite 数据库文件路径（默认当前目录下 otter-buddy.db）

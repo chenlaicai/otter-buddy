@@ -62,9 +62,8 @@ describe('MessageList 附件渲染（多模态 Phase 1）', () => {
     const img = container.querySelector('img[src^="/api/attachments/att-img-1"]')
     expect(img).not.toBeNull()
     expect(img!.getAttribute('src')).toBe(withIdentity('/api/attachments/att-img-1'))
-    // #1322：直链身份 query 通道的字面契约（防 withIdentity 自身回归被自引用断言掩盖）
-    expect(img!.getAttribute('src')).toContain('otterUserId=web-ui')
-    expect(img!.getAttribute('src')).toContain('otterRole=admin')
+    // #1868 阶段 2：直链身份随会话 cookie，不再拼 otterUserId/otterRole query（withIdentity 恒等返回）
+    expect(img!.getAttribute('src')).toBe('/api/attachments/att-img-1')
     expect(img!.getAttribute('alt')).toBe('photo.png')
   })
 

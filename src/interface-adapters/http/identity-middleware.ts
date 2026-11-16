@@ -1,4 +1,6 @@
 import type { Context, Next } from "hono";
+import { getCookie } from "hono/cookie";
+import { SESSION_COOKIE_NAME } from "./auth/session-cookie";
 
 /**
  * #1322 对话域 HTTP 鉴权层：身份声明解析 + 路由级策略表 + fail-closed 兜底。
@@ -50,6 +52,11 @@ interface PolicyRule {
  */
 export const POLICY_TABLE: readonly PolicyRule[] = [
   // ── public ──
+  {
+    path: /^\/api\/auth\/(login|logout)$/,
+    policy: "public",
+    note: "登录/登出端点本身免身份（登录前无会话可提供；登出幂等清 cookie）。session 端点走 GET 兑底 authenticated",
+  },
   {
     path: /^\/api\/inbound(\/|$)/,
     policy: "public",
@@ -107,10 +114,21 @@ export function resolvePolicy(method: string, path: string): Policy {
   return m === "GET" || m === "HEAD" || m === "OPTIONS" ? "authenticated" : "write";
 }
 
-/** 解析身份声明：头优先、query 退路（附件直链）；id 非法视同缺失，role 非法/缺失降级 guest。
- *  通道整体性：任一身份头在场 ⇒ 整体走头通道、query 不参与（防 URL 参数越权上抬角色——
- *  query 会进日志/Referrer，不得与头混通道）；两通道皆无才走 query 直链退路。 */
-export function parseIdentity(c: Context): Identity | null {
+/** 会话校验器：给 cookie 值返回可信身份，无效/过期返回 null（注入自 session 工程——见 auth/session-cookie）。 */
+export type SessionVerifier = (cookieValue: string) => Identity | null;
+
+/** 解析身份：会话 cookie 优先（真实登录，不可伪造）→ 声明式头/query 回退（本机运维脚本/测试）。
+ *  会话命中即采信，不再看头（同一请求两通道冲突时以结实的会话为准）。
+ *  声明式路径通道整体性：任一身份头在场 ⇒ 整体走头通道、query 不参与（防 URL 参数越权上抬
+ *  角色——query 会进日志/Referrer，不得与头混通道）；两通道皆无才走 query 直链退路。 */
+export function parseIdentity(c: Context, verifySession?: SessionVerifier): Identity | null {
+  if (verifySession) {
+    const sessionCookie = getCookie(c, SESSION_COOKIE_NAME);
+    if (sessionCookie !== undefined && sessionCookie !== "") {
+      const sessionIdentity = verifySession(sessionCookie);
+      if (sessionIdentity) return sessionIdentity;
+    }
+  }
   const headerId = nonEmpty(c.req.header(IDENTITY_HEADERS.userId));
   const headerRole = nonEmpty(c.req.header(IDENTITY_HEADERS.role));
   const anyHeader = headerId !== undefined || headerRole !== undefined;
@@ -125,15 +143,17 @@ function deny(c: Context, status: 401 | 403, error: string, code: "unauthorized"
   return c.json({ error, code }, status);
 }
 
-/** 挂在 router 最外层（requestId 之后）：一处覆盖全部既有与新增路由 */
-export function identityMiddleware() {
+/** 挂在 router 最外层（requestId 之后）：一处覆盖全部既有与新增路由。
+ *  verifySession 由装配层注入（app.ts 用 owner token 构造 HMAC 校验器）；测试/引导脚本
+ *  不注入时退化为纯声明式路径（既有行为，F20261019autz 基线不变）。 */
+export function identityMiddleware(verifySession?: SessionVerifier) {
   return async (c: Context, next: Next): Promise<Response | void> => {
     const policy = resolvePolicy(c.req.method, c.req.path);
     if (policy === "public") {
       await next();
       return;
     }
-    const identity = parseIdentity(c);
+    const identity = parseIdentity(c, verifySession);
     if (!identity) return deny(c, 401, "Authentication required", "unauthorized");
     // 下游控制器可读身份（接缝已就位；当前无消费方——session 工程的挂点）
     c.set("identity" as never, identity);

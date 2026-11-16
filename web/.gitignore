@@ -2,3 +2,5 @@ node_modules/
 dist/
 *.local
 test-results/
+# e2e 登录态 storageState（global-setup 写入，含会话 cookie 不可提交）
+e2e/.auth/
