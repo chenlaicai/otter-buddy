@@ -38,7 +38,7 @@ export interface ResolveOwnerTokenOptions {
   /** config.yaml `auth.ownerPassword`（显式自定义的登录密码；缺省 undefined = 未配置）。 */
   configuredPassword?: string;
   dataDir: string;
-  logger?: Pick<Logger, "info">;
+  logger?: Pick<Logger, "info" | "warn">;
 }
 
 /**
@@ -50,7 +50,10 @@ export function resolveOwnerToken(options: ResolveOwnerTokenOptions): string {
   if (envToken) return envToken;
 
   const configuredPassword = options.configuredPassword?.trim();
-  if (configuredPassword) return configuredPassword;
+  if (configuredPassword) {
+    warnIfOverrideFileToken(options, configuredPassword);
+    return configuredPassword;
+  }
 
   const filePath = path.join(options.dataDir, OWNER_TOKEN_FILENAME);
   try {
@@ -70,4 +73,18 @@ export function resolveOwnerToken(options: ResolveOwnerTokenOptions): string {
   writeFileSync(filePath, `${token}\n`, { mode: 0o600 });
   options.logger?.info("登录口令已生成", { filePath });
   return token;
+}
+
+/** delta 检视 S3：config 口令生效时，既有的 data/owner-token 文件若存在且值不同，记 warn——
+ *  避免运维拿旧文件口令登录困惑（真正生效的是 config 口令，旧文件值将被忽略）。 */
+function warnIfOverrideFileToken(options: ResolveOwnerTokenOptions, configuredPassword: string): void {
+  const filePath = path.join(options.dataDir, OWNER_TOKEN_FILENAME);
+  try {
+    const fileToken = readFileSync(filePath, "utf8").trim();
+    if (fileToken && fileToken !== configuredPassword) {
+      options.logger?.warn("config auth.ownerPassword 已覆盖 data/owner-token 文件口令（旧文件值将被忽略）", { filePath });
+    }
+  } catch {
+    // 文件不存在/不可读：首启或非文件源场景，无需提示。
+  }
 }

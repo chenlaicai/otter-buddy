@@ -63,6 +63,15 @@ describe("validate", () => {
     ).toThrow("server.port");
   });
 
+  it("throws when auth.ownerPassword is not a string (YAML 裸数字)", () => {
+    expect(() =>
+      validate({
+        llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }] },
+        auth: { ownerPassword: 123456 as unknown as string },
+      }),
+    ).toThrow("auth.ownerPassword 必须是字符串");
+  });
+
   it("passes with valid single-entry models[]", () => {
     expect(() => validate({ llm: { models: [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }] } })).not.toThrow();
   });

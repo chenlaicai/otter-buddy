@@ -485,9 +485,20 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
   if (raw.server?.port !== undefined && typeof raw.server.port !== "number") {
     throw new Error("配置校验失败: server.port 必须是数字");
   }
+  validateAuthConfig(raw);
 
   // F20260901wxnt：contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
   if (raw.weixin) validateWeixinWarnConfig(raw.weixin);
+}
+
+/** F20261113uaccs（delta 检视 S2）：auth.ownerPassword 非字符串（如 YAML 裸数字 123456）
+ *  会在 buildAuthConfig 裸 TypeError——此处 fail-fast 给引导性报错（与 server.port 同语义）。 */
+function validateAuthConfig(raw: RawConfig): void {
+  if (raw.auth?.ownerPassword !== undefined && typeof raw.auth.ownerPassword !== "string") {
+    throw new Error(
+      "配置校验失败: auth.ownerPassword 必须是字符串（YAML 中请加引号，如 ownerPassword: \"my-password\"）",
+    );
+  }
 }
 
 /** 静态助理配置指向禁用条目时启动即报错，避免运行时静默回退到默认模型。 */
@@ -630,9 +641,10 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   return { baseUrl: raw.web.baseUrl };
 }
 
-/** 登录口令配置归一化（F20261113uaccs 阶段 2）：空白/未配置一律 undefined，回退到 env / 文件 / 首启生成。 */
+/** 登录口令配置归一化（F20261113uaccs 阶段 2）：空白/未配置一律 undefined，回退到 env / 文件 / 首启生成。
+ *  非字符串类型已在 validate() fail-fast；此处防御性兼容（直接调 applyDefaults 的测试路径）。 */
 function buildAuthConfig(raw: RawConfig): AppConfig["auth"] {
-  const ownerPassword = raw.auth?.ownerPassword?.trim();
+  const ownerPassword = typeof raw.auth?.ownerPassword === "string" ? raw.auth.ownerPassword.trim() : "";
   return ownerPassword ? { ownerPassword } : undefined;
 }
 

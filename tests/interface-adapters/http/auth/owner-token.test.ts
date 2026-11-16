@@ -2,7 +2,7 @@
  * 阶段 2（F20261113uaccs）：登录口令（owner token）值源单测。
  * 覆盖：env 优先、config auth.ownerPassword 次之、文件复用、首启生成（0600）、常数时间比对。
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -57,6 +57,19 @@ describe("登录口令（owner token）：值源解析", () => {
     const token = resolveOwnerToken({ env: { [OWNER_TOKEN_ENV]: "  " }, dataDir: dir });
     expect(token).not.toBe("  ");
     expect(token.length).toBeGreaterThan(20);
+  });
+
+  it("config 口令覆盖既有文件时记 warn（避免运维拿旧值困惑）", () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, OWNER_TOKEN_FILENAME), "old-file-token\n", { mode: 0o600 });
+    const warn = vi.fn();
+    const token = resolveOwnerToken({
+      configuredPassword: "new-config-pwd",
+      dataDir: dir,
+      logger: { info: () => {}, warn },
+    });
+    expect(token).toBe("new-config-pwd");
+    expect(warn).toHaveBeenCalledOnce();
   });
 
   it("文件已存在但空白 → 抛错（损坏宁 fail 不静默换口令）", () => {

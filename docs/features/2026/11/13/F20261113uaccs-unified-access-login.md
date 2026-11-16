@@ -53,7 +53,7 @@ intent:
 
 ## 非目标
 
-不实现多用户、OAuth/OIDC、速率限制/防爆破、云同步登录态、设备管理 UI；token 轮换即「整体
+不实现多用户、OAuth/OIDC、速率限制/防爆破、云同步登录态、设备管理 UI；口令轮换即「整体
 撤销全部会话」（无状态签名器天然如此）。session cookie 为 7 天 `Max-Age` 持久 cookie
 （关闭浏览器不登出）；撤销靠轮换登录口令。
 
@@ -108,7 +108,7 @@ interface RouterPlumbingOptions {
 | Web 身份值源 | 登录 cookie 会话，不再发声明式头 | 保留头 + cookie 双通道 | 保留头则 Web 永远无法「登出」——过期 cookie 仍会掉进 admin 回退路径，登录门形同虚设 |
 | 声明式头/query | 降级为本机脚本回退路径（103 处 curl/测试继续可用） | 直接删除声明式路径 | 一次性删光会让既有运维脚本与集成测试大面积回归，且后台探活在浏览器场景外仍需脚本身份 |
 | 会话优先 | cookie 命中则不再看头/query（明文头造假无效） | 头优先 / 合并 | 头可伪造，必须在可验证凭据面前让位；合并语义会引入歧义 |
-| 登录口令 | env 优先 → config `auth.ownerPassword` → 缺省生成 `data/owner-token`(0600) | 仅 env / 仅文件 / 仅 config | 四态（生产/部署/alpha/e2e）显式注入优先；支持自定义可记的固定密码；本机零配置首启可用；文件损坏宁 fail 不静默换口令 |
+| 登录口令 | env 优先 → config `auth.ownerPassword` → 缺省生成 `data/owner-token`(0600) | 仅 env / 仅文件 / 仅 config | 四态（生产部署/alpha/e2e）显式注入优先；支持自定义可记的固定密码；本机零配置首启可用；文件损坏宁 fail 不静默换口令 |
 | 会话有效期 | 7 天；`now = issuedAt+maxAge` 边界仍有效，`+1ms` 起拒绝 | 更长/更短 | 个人中枢本机访问为主，7 天与轮换撤销配合足够 |
 | SSE 身份 | 同源 XHR 自动携带会话 cookie | 继续给 SSE XHR 设声明式头 | 与 Web 整体「不自报身份」语义一致；cookie 由浏览器自动附带 |
 
@@ -130,7 +130,7 @@ interface RouterPlumbingOptions {
 
 1. **谁需要它**：#1868 已拍板端云一体的安全叙事；本机大獭/小獭与 Web 同源访问需要单一真实凭据入口，后续阶段的多终端接入复用同一会话签名器。
 2. **失败后果**：登录失败只会挡住 Web 业务布局（不会破坏服务启动）；若会话校验误拒绝，用户被登出可见；若回退路径误放行，头伪造即 admin——故回退路径必须与既有基线行为一致且用测试钉死。
-3. **后续机制**：token 轮换唤醒需求、会话撤销审计；7 天无状态语义由签名器测试固化。签名器升级/删除需先迁移所有 Web 调用点到新凭据并跑 e2e。
+3. **后续机制**：口令轮换唤醒需求、会话撤销审计；7 天无状态语义由签名器测试固化。签名器升级/删除需先迁移所有 Web 调用点到新凭据并跑 e2e。
 4. **退役条件**：若未来引入多用户中央 IdP（OIDC 等），本登录口令登录可保留为 bootstrap/本机 fallback；仅当所有接入方迁移且无状态 cookie 被 IdP 会话替代、声明式回退路径确认无消费者后可整体删除。
 
 ### 机制提案准入三问
@@ -165,20 +165,20 @@ tests/api 与 tests/interface-adapters/http 基线不回归。
 - 删除 `data/owner-token` 会整体登出所有会话（含 alpha/e2e 首启后的已登录态）；
   生产首次部署若既未设 `OTTER_OWNER_TOKEN` 也未设 `auth.ownerPassword`，则生成的口令必须妥善保管于本机。
 - 登录口令文件可读但空白视为损坏：解析时 fail-fast，不静默生成新口令覆盖（静默换口令会踢掉旧会话）。
+- config `auth.ownerPassword` 覆盖既有 `data/owner-token` 文件值时，启动记 warn（旧文件值被忽略，避免运维拿旧值登录困惑）。
 - cookie 未设 `Secure`（本机 http 场景）；部署到公网需由反向代理终止 TLS 并另评估 Secure 标志。
 - 轮换登录口令应立即重启服务（会话签名器 secret 为启动时快照）。
-- cookie 未设 `Secure`（本机 http 场景）；部署到公网需由反向代理终止 TLS 并另评估 Secure 标志。
-- 轮换 token 应立即重启服务（会话签名器 secret 为启动时快照）。
+- 已知边界（delta 检视 S4）：app.ts 组合根把 `config.auth.ownerPassword` 接线到 resolveOwnerToken 无单测——组合根级别，由 alpha 冒烟 + e2e 兑底；为单字段加 app 级测试性价比低，已接受。
 
 ## 验收标准
 
 | 场景 | 操作 | 预期结果 |
 |---|---|---|
-| 登录成败 | login 端点对/错 token | 对 → 200 + otter_session cookie；错/缺 → 401 invalid_token |
+| 登录成败 | login 端点对/错口令 | 对 → 200 + otter_session cookie；错/缺 → 401 invalid_token |
 | 会话读取 | 带 cookie 请求 session | 200，identity = owner/admin |
 | 会话优先 | 有效 cookie + 伪造 admin 头 | 采信 cookie 的 owner |
 | 未登录拒绝 | 无 cookie 请求 session / execution-machines | 401（fail-closed） |
-| 登出幂等 | logout 有/无 cookie | 均 200；登出清客户端 cookie（已签发 cookie 值 7 天内服务端仍有效，撤销靠 token 轮换） |
+| 登出幂等 | logout 有/无 cookie | 均 200；登出清客户端 cookie（已签发 cookie 值 7 天内服务端仍有效，撤销靠口令轮换） |
 | 端点契约 | 登录后 GET /api/execution-machines | `{ machines:[{id, name}], currentMachineId }` |
 | 过期边界 | 签名器 at issuedAt+maxAge | 有效；+1ms 拒绝 |
 | Web 会话门 | 未登录加载业务页 | 渲染登录屏，不挂载业务布局 |
@@ -191,7 +191,7 @@ tests/api 与 tests/interface-adapters/http 基线不回归。
 | `npx tsc --noEmit`（服务端 + web） | PASS；加入 env 装配修复后无类型错误 |
 | `npm run build` | PASS；SDK patch 校验 + tsc + tsc-alias + 模型复用 |
 | `npm run lint` | PASS：0 problems（含 max-lines-per-function 路由拆解后） |
-| 服务端 `npm test` | PASS：474 files / 5965 tests（auth 三件套 + 执行机契约含登出精确语义 / session 兜底 fail-closed / 登录口令空白损坏 fail-fast / config auth.ownerPassword 优先级；既有 identity 不回归） |
+| 服务端 `npm test` | PASS：474 files / 5967 tests（auth 三件套 + 执行机契约含登出精确语义 / session 兜底 fail-closed / 登录口令空白损坏 fail-fast / config auth.ownerPassword 优先级；既有 identity 不回归） |
 | web `vitest run` | PASS：88 files / 862 tests（新增 use-session / LoginScreen / TopBar badge / client 401 广播 / AppLayout 会话门守卫） |
 | Playwright e2e | PASS：43 passed / 8 skipped；global-setup 真实登录写 `otter_session` storageState |
 | `npm run check` | PASS：build + lint + schema + smoke:boot（全新/存量双库）+ 三个脚本/端口/探活检查，EXIT 0 |
