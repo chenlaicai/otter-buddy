@@ -5,9 +5,11 @@
  * 拖动位移 < 6px 判点击（阈值纯函数）、位置持久化 round-trip。
  */
 import { describe, it, expect } from 'vitest'
+import { renderHook, act } from '@testing-library/react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import { inferMood } from './global-conversation-store'
 import {
-  matchesToggleHotkey, loadOtterPosition, saveOtterPosition, clampPosition, DRAG_THRESHOLD_PX,
+  matchesToggleHotkey, loadOtterPosition, saveOtterPosition, clampPosition, DRAG_THRESHOLD_PX, useFloatingOtter,
 } from './use-floating-otter'
 import type { LocalConversation } from '../../lib/mappers'
 
@@ -84,5 +86,32 @@ describe('拖动阈值与位置持久化', () => {
     const clamped = clampPosition({ x: 5000, y: 5000 })
     expect(clamped.x).toBeLessThanOrEqual(1024 - 8)
     expect(clamped.y).toBeLessThanOrEqual(768 - 8)
+  })
+})
+
+describe('click/drag 分离（ref 同步判定，修 Esc 收起后点击竞态 #1181/#1858）', () => {
+  it('pointerdown → 越阈值 pointermove → pointerup：dragMovedRef=true（点击被抑制）', () => {
+    const { result } = renderHook(() => useFloatingOtter())
+    act(() => {
+      result.current.bindDrag.onPointerDown({ button: 0, clientX: 0, clientY: 0 } as unknown as ReactPointerEvent)
+    })
+    act(() => {
+      window.dispatchEvent(new MouseEvent('pointermove', { clientX: 20, clientY: 0 }))
+    })
+    act(() => {
+      window.dispatchEvent(new MouseEvent('pointerup'))
+    })
+    expect(result.current.dragMovedRef.current).toBe(true)
+  })
+
+  it('pointerdown → pointerup（无位移）：dragMovedRef=false（点击放行）', () => {
+    const { result } = renderHook(() => useFloatingOtter())
+    act(() => {
+      result.current.bindDrag.onPointerDown({ button: 0, clientX: 0, clientY: 0 } as unknown as ReactPointerEvent)
+    })
+    act(() => {
+      window.dispatchEvent(new MouseEvent('pointerup'))
+    })
+    expect(result.current.dragMovedRef.current).toBe(false)
   })
 })
