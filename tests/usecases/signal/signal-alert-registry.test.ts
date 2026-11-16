@@ -1,12 +1,12 @@
 /**
  * #1227：信号裁决提醒链路测试（M1：当场处理可见性）。
  *
- * 链路：小獭 speak 嵌 <signal> → interceptSignalReport 落账 + signalAlertRegistry.register
+ * 链路：小獭 speak 用 signal 参数 → persistSignalEvents 落账 + signalAlertRegistry.register
  * → 大獭下一轮 invoke 头部注入（renderSignalAlerts）→ resolve_signal 裁决 → dismiss 注销。
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { signalAlertRegistry, renderSignalAlerts } from '@usecases/signal/signal-alert-registry';
-import { interceptSignalReport, createResolveSignalTool } from '@interface-adapters/agent-runtime/tools/signal-tools';
+import { persistSignalEvents, createResolveSignalTool } from '@interface-adapters/agent-runtime/tools/signal-tools';
 import { SqliteSignalEventRepository } from '@frameworks/db/signal/sqlite-signal-repository';
 import { initSchema } from '@frameworks/db/schema';
 import Database from 'better-sqlite3';
@@ -82,7 +82,7 @@ describe('signalAlertRegistry（#1227 M1）', () => {
 
 });
 
-describe('落账→提醒 闭环（interceptSignalReport 联动）', () => {
+describe('落账→提醒 闭环（persistSignalEvents 联动）', () => {
   let db: Database.Database;
   let repo: SqliteSignalEventRepository;
 
@@ -93,10 +93,10 @@ describe('落账→提醒 闭环（interceptSignalReport 联动）', () => {
     repo = new SqliteSignalEventRepository(db);
   });
 
-  it('小獭嵌 signal 落账后 registry 有提醒（fire-and-forget 落库完成后）', async () => {
+  it('小獭经 signal 参数落账后 registry 有提醒（fire-and-forget 落库完成后）', async () => {
     const ctx = makeCtx();
-    await interceptSignalReport(
-      '汇报进度 <signal type="objection" severity="medium">派工方向与 F20260901xxxx 冲突</signal>',
+    persistSignalEvents(
+      [{ type: 'objection', severity: 'medium', payload: '派工方向与 F20260901xxxx 冲突' }],
       ctx,
       repo,
     );
@@ -110,8 +110,8 @@ describe('落账→提醒 闭环（interceptSignalReport 联动）', () => {
 
   it('大獭 resolve 后提醒注销（台账-提醒联动）', async () => {
     const smallCtx = makeCtx();
-    await interceptSignalReport(
-      '<signal type="blocked" severity="high">卡住需要资源</signal>',
+    persistSignalEvents(
+      [{ type: 'blocked', severity: 'high', payload: '卡住需要资源' }],
       smallCtx,
       repo,
     );
@@ -135,7 +135,7 @@ describe('落账→提醒 闭环（interceptSignalReport 联动）', () => {
   it('resolve 失败提醒残留：落库失败的工具调用不注销已登记提醒', async () => {
     // 落账成功 → 登记在队；resolve_signal 传错 status（必填校验拒）→ 提醒应仍在
     const ctx = makeCtx();
-    await interceptSignalReport('<signal type="objection" severity="low">测试残留</signal>', ctx, repo);
+    persistSignalEvents([{ type: 'objection', severity: 'low', payload: '测试残留' }], ctx, repo);
     await new Promise(r => setTimeout(r, 20));
     const bigCtx = makeCtx('conv-1', 'otter-big');
     const tool = createResolveSignalTool(bigCtx, repo);
