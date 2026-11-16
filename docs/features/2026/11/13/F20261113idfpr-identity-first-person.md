@@ -18,6 +18,8 @@ tags: [prompt, identity-builder, first-person]
 modules:
   - src/frameworks/agent/identity-builder.ts
   - tests/frameworks/agent/system-prompt-injection.test.ts
+  - tests/frameworks/agent/identity-prefix.test.ts
+  - tests/frameworks/agent/model-identity.test.ts
   - prompts/identity/BIG_OTTER.md
   - .pi/skills/signature-convention/SKILL.md
 causal_links:
@@ -55,10 +57,10 @@ PR #1754 将 SYSTEM.md / BIG_OTTER.md / SMALL_OTTER.md 全量第一人称化，�
 - `prompts/identity/BIG_OTTER.md`「见『你的身份』段」→「见『我的身份』段」
 - `.pi/skills/signature-convention/SKILL.md`「『你的身份』段」→「『我的身份』段」
 
-测试 fixture（system-prompt-injection.test.ts）同步。
+测试 fixture（system-prompt-injection.test.ts / identity-prefix.test.ts / model-identity.test.ts 段名断言）同步。
 
 ## 验证
 
-- system-prompt-injection.test.ts 11/11 通过。
+- system-prompt-injection.test.ts 11/11、identity-prefix.test.ts 16/16、model-identity.test.ts 6/6 通过（33/33）。
 - grep 校验 identity-builder.ts 注入文案零「你」残留（仅存代码注释「我用的是唯一模型」已同步）。
 - 纯文案替换，无行为语义变更。
