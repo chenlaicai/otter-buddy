@@ -332,6 +332,9 @@ export class DurableSession {
       this.totalTokens.cacheWrite += (usage.cacheWrite ?? 0) - (previous?.cacheWrite ?? 0);
     }
     if (settled.status === "unanswered") throw new Error(`Durable turn unanswered: ${settled.reason}${settled.detail ? ` (${JSON.stringify(settled.detail)})` : ""}`);
+    // F20261116actlg（dspro suggestion）：回合结束后清除当前工具调用 id——
+    // 非工具期的 env 动作不再误归属到上一枚 call.id（残留窗口收窄到单工具执行内）。
+    if (scope) scope.currentToolCallId = undefined;
   }
 
   private promptInput(text: string, options?: DurablePromptOptions): string | { content: Array<Record<string, unknown>> } {

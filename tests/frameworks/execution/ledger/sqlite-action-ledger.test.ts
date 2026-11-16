@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SqliteActionLedger, sha256 } from "@frameworks/execution/ledger/sqlite-action-ledger";
+import { LocalExecutionMachine } from "@frameworks/execution/local-execution-machine";
+import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
 /** F20261116actlg（#1868 阶段 3）PR-A：本机动作台账 sqlite 实现单测。 */
 
@@ -27,6 +29,7 @@ describe("SqliteActionLedger 基础生命周期", () => {
   it("start 落 running 行，settle 裁决终态", async () => {
     const ledger = new SqliteActionLedger(ledgerFile());
     const { record, deduped } = await ledger.start({
+      actionId: "life-1",
       source: "sdk-env",
       kind: "file.write",
       invokeId: "inv-1",
@@ -100,6 +103,32 @@ describe("去重协议", () => {
 });
 
 describe("开机清扫（旧纪元 running 行裁决）", () => {
+  it("dspro MAJOR：workspace.write 绝对 target——清扫 hash 核对能追认真实完成的写入", async () => {
+    const dir = tempDir();
+    const file = path.join(dir, "actions.db");
+    // 真实走一遍机器写入（target 现在记绝对路径）
+    const ledgerA = new SqliteActionLedger(file);
+    const machine = new LocalExecutionMachine(new NodeWorkspaceGateway(dir), ledgerA);
+    await machine.run({ type: "workspace.write", input: { conversationId: "conv-sw", relativePath: "a.md", content: "hello sweep" } });
+    ledgerA.close();
+
+    // 模拟崩溃：把已 succeeded 的行拨回旧纪元 running（磁盘内容保持完整）
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(file);
+    db.prepare("UPDATE execution_actions SET status = 'running', boot_epoch = 0, settled_at = NULL WHERE kind = 'workspace.write'").run();
+    db.close();
+
+    // 新开机清扫：hash 应命中磁盘真实内容 → 追认 succeeded
+    const ledgerB = new SqliteActionLedger(file);
+    const report = await ledgerB.open();
+    expect(report.upgradedToSucceeded).toBe(1);
+    const rows = await allRawRows(ledgerB);
+    expect(rows[0].status).toBe("succeeded");
+    expect(JSON.parse(rows[0].result_summary ?? "{}")).toMatchObject({ receiptRecovered: true });
+    expect(rows[0].target).toBe(path.join(dir, "workspaces", "conv-sw", "a.md")); // 绝对路径
+    ledgerB.close();
+  });
+
   it("file.write hash 命中 → succeeded（且回执修复）", async () => {
     const dir = tempDir();
     const file = path.join(dir, "actions.db");
@@ -145,7 +174,7 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
     ledgerB.close();
   });
 
-  it("file.append 尾部 hash 命中 → succeeded；不中 → interrupted", async () => {
+  it("file.append 尾部 hash 命中 → succeeded；不中 → unknown（重做会重复追加，转检查）", async () => {
     const dir = tempDir();
     const file = path.join(dir, "actions.db");
     const target = path.join(dir, "c.log");
@@ -153,7 +182,7 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
 
     const ledgerA = new SqliteActionLedger(file);
     await ledgerA.start({
-      source: "sdk-env", kind: "file.append", target,
+      actionId: "sweep-append-1", source: "sdk-env", kind: "file.append", target,
       contentHash: sha256("appended-tail"), contentBytes: 13,
     });
     ledgerA.close();
@@ -169,13 +198,14 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
     writeFileSync(target2, "only-prefix");
     const ledgerC = new SqliteActionLedger(file2);
     await ledgerC.start({
-      source: "sdk-env", kind: "file.append", target: target2,
+      actionId: "sweep-append-miss", source: "sdk-env", kind: "file.append", target: target2,
       contentHash: sha256("appended-tail"), contentBytes: 13,
     });
     ledgerC.close();
     const ledgerD = new SqliteActionLedger(file2);
     const report2 = await ledgerD.open();
-    expect(report2.markedInterrupted).toBe(1);
+    expect(report2.markedUnknown).toBe(1); // dspro minor：尾不匹配不能证明没追加上——重做会重复，转检查
+    expect((await ledgerD.getByActionId("sweep-append-miss"))?.status).toBe("unknown");
     ledgerD.close();
   });
 
@@ -199,9 +229,9 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
   it("file.rename/remove/mkdir → interrupted（幂等可重做）", async () => {
     const file = ledgerFile();
     const ledgerA = new SqliteActionLedger(file);
-    await ledgerA.start({ source: "sdk-env", kind: "file.rename", target: "/tmp/dst" });
-    await ledgerA.start({ source: "sdk-env", kind: "file.remove", target: "/tmp/x" });
-    await ledgerA.start({ source: "sdk-env", kind: "file.mkdir", target: "/tmp/y" });
+    await ledgerA.start({ actionId: "sw-ren", source: "sdk-env", kind: "file.rename", target: "/tmp/dst" });
+    await ledgerA.start({ actionId: "sw-rm", source: "sdk-env", kind: "file.remove", target: "/tmp/x" });
+    await ledgerA.start({ actionId: "sw-mk", source: "sdk-env", kind: "file.mkdir", target: "/tmp/y" });
     ledgerA.close();
 
     const ledgerB = new SqliteActionLedger(file);
@@ -212,7 +242,7 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
 
   it("同纪元 running 行（同 boot 内重试）不被清扫", async () => {
     const ledger = new SqliteActionLedger(ledgerFile());
-    await ledger.start({ source: "sdk-env", kind: "shell.exec" });
+    await ledger.start({ actionId: "epoch-1", source: "sdk-env", kind: "shell.exec" });
     const report = await ledger.sweepStaleBoot();
     expect(report.markedUnknown).toBe(0);
     ledger.close();
@@ -264,7 +294,7 @@ describe("boot epoch", () => {
   it("每次开机单调递增，行携带铸造时纪元", async () => {
     const file = ledgerFile();
     const a = new SqliteActionLedger(file);
-    const { record } = await a.start({ source: "sdk-env", kind: "file.write" });
+    const { record } = await a.start({ actionId: "epoch-check-1", source: "sdk-env", kind: "file.write" });
     expect(record.bootEpoch).toBe(a.bootEpoch);
     a.close();
     const b = new SqliteActionLedger(file);
@@ -272,3 +302,12 @@ describe("boot epoch", () => {
     b.close();
   });
 });
+
+/** 直读全部行（测试辅助：绕过 listByInvoke 的 invoke 过滤） */
+async function allRawRows(ledger: SqliteActionLedger): Promise<Array<{ status: string; target: string | null; result_summary: string | null }>> {
+  const Database = (await import("better-sqlite3")).default;
+  const db = new Database(ledger.file, { readonly: true });
+  const rows = db.prepare("SELECT * FROM execution_actions ORDER BY started_at ASC, action_id ASC").all() as Array<{ status: string; target: string | null; result_summary: string | null }>;
+  db.close();
+  return rows;
+}

@@ -77,6 +77,7 @@ export class SqliteActionLedger implements ActionLedger {
     mkdirSync(path.dirname(file), { recursive: true });
     this.db = new Database(file);
     this.db.pragma("journal_mode = WAL");
+    this.db.pragma("busy_timeout = 5000");
     this.initTables();
     this.bootEpoch = this.bumpBootEpoch();
   }
@@ -140,7 +141,7 @@ export class SqliteActionLedger implements ActionLedger {
   }
 
   async start(input: StartActionInput): Promise<{ record: ActionRecord; deduped: boolean }> {
-    const actionId = input.actionId ?? this.mintActionId(input.source);
+    const actionId = input.actionId;
     const dedup = this.settleStaleExistingRow(actionId);
     if (dedup) return dedup;
     const now = new Date().toISOString();
@@ -236,12 +237,13 @@ export class SqliteActionLedger implements ActionLedger {
     return report;
   }
 
-  /** 单行清扫裁决（文件写 hash 核对；exec → unknown；幂等类 → interrupted）。 */
+  /** 单行清扫裁决（文件写 hash 核对；exec → unknown；幂等类 → interrupted）。
+   *  dspro minor：UPDATE 带 status='running' 守卫——清扫与落定在多进程下交错时不覆写已裁决行。 */
   private applySweepVerdict(row: ActionRow): { upgradedToSucceeded: number; markedInterrupted: number; markedUnknown: number } {
     const kind = row.kind as ActionKind;
     const now = new Date().toISOString();
     const settle = (status: string, error: string | null, summary: Record<string, unknown> | null) => {
-      this.db.prepare("UPDATE execution_actions SET status = ?, error = ?, result_summary = ?, settled_at = ? WHERE action_id = ?")
+      this.db.prepare("UPDATE execution_actions SET status = ?, error = ?, result_summary = ?, settled_at = ? WHERE action_id = ? AND status = 'running'")
         .run(status, error, summary ? JSON.stringify(summary) : null, now, row.action_id);
     };
     if (HASH_VERIFIABLE_KINDS.has(kind) && row.target && row.content_hash) {
@@ -249,6 +251,12 @@ export class SqliteActionLedger implements ActionLedger {
       if (verdict.matched) {
         settle("succeeded", null, { receiptRecovered: true, ...verdict.detail });
         return { upgradedToSucceeded: 1, markedInterrupted: 0, markedUnknown: 0 };
+      }
+      // dspro minor：append 尾不匹配不能证明「没追加上」（可能已追加且后续又有写入）——
+      // 重做会重复追加，必须转检查（unknown）；全量写不匹配=确认未完成，重做幂等（interrupted）。
+      if (kind === "file.append") {
+        settle("unknown", "append tail hash mismatch; re-appending would duplicate — inspect before redo", { receiptRecovered: false });
+        return { upgradedToSucceeded: 0, markedInterrupted: 0, markedUnknown: 1 };
       }
       settle("interrupted", "crash before completion; hash mismatch", { receiptRecovered: false });
       return { upgradedToSucceeded: 0, markedInterrupted: 1, markedUnknown: 0 };
@@ -317,11 +325,6 @@ export class SqliteActionLedger implements ActionLedger {
       `).run(count - this.maxRows).changes;
     }
     return byAge + byCap;
-  }
-
-  private mintActionId(source: string): string {
-    this.mintSeq += 1;
-    return `${source}:${this.bootEpoch}:${this.mintSeq}`;
   }
 
   close(): void {

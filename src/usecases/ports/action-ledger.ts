@@ -16,8 +16,8 @@ import type {
  */
 export interface ActionLedger {
   /**
-   * 动作开始：落 running 行。若同 actionId 已有终态行（succeeded/failed/interrupted）
-   * 返回 deduped=true——调用方应直接采用已记录结果，不重复执行（去重协议）。
+   * 动作开始：落 running 行。actionId 必填（铸造归记录层）。若同 actionId 已有 succeeded
+   * 行返回 deduped=true——调用方应直接采用已记录结果，不重复执行（去重协议）。
    * 同 boot 内的 running 残留（同 actionId）允许重跑（覆盖为新一轮 running）。
    */
   start(input: StartActionInput): Promise<{ record: ActionRecord; deduped: boolean }>;

@@ -8,11 +8,11 @@ type FsPromises = typeof fs;
 /** 单文件大小上限 1MB */
 const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024;
 
-/** R-1：链式断链逐级 readlink 解析到最终缺失目标；耗尽仍指向链接 = 循环/超深链，
- *  显式报错对齐 SDK 基线的 ELOOP（不静默替换链接）。 */
+/** R-1：链式断链逐级 readlink 解析到最终缺失目标；深度上限对齐 OS ELOOP 常见配额 40，
+ *  耗尽仍指向链接 = 循环/超深链，显式报错对齐 SDK 基线的 ELOOP（不静默替换链接）。 */
 async function resolveBrokenLinkTarget(fs: FsPromises, linkPath: string): Promise<string> {
   let current = linkPath;
-  for (let depth = 0; depth < 8; depth += 1) {
+  for (let depth = 0; depth < 40; depth += 1) {
     const raw = await fs.readlink(current);
     current = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(current), raw);
     const next = await fs.lstat(current).catch(() => undefined);

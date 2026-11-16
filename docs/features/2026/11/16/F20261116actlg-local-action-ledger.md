@@ -197,6 +197,21 @@ ALS 外 `internal:${bootEpoch}:${seq}`。自铸 id 一律含 boot 纪元（MAJOR
 
 三轮复核链：首轮 12 项 → 18362296（9 项处置+全收 SUGG）→ 二轮 2 残余 → 8cd094cd（链式断链穿透+文档对齐，delta 复核通过）→ 三轮 1 suggestion（深度耗尽路径）→ d06176a9（按检视枚举的选项②：循环/超深链显式报错对齐 SDK ELOOP 基线，不静默替换链接，补循环链回归测试）。
 
+第四轮（reviewer-dspro-1900，deepseek 异体，搭档指定）：发现 glm 链未覆盖的 MAJOR 与 10 项 minor/suggestion，处置：
+
+| 发现 | 处置 |
+|---|---|
+| MAJOR：workspace.write 记相对 target，清扫 hash 核对对进程 CWD 解析——回执修复对 workspace 面全线失效（实证） | **接受并修复**：machine 经 gateway.getWorkspacePath 记绝对 target（delete 同改）；补「拨回旧纪元 running→清扫追认 succeeded」回归测试 |
+| opSeq/wsOpSeqBy 按 attribution 分桶，长跑无界增长 | **接受并修复**：改单一全局单调序（同 boot 唯一性不变，归属在列里保留） |
+| append 尾 hash 不中→interrupted 会诱导重复追加 | **接受并修复**：append 不中改判 unknown（尾不匹配不能证明没追加上，转检查） |
+| applySweepVerdict UPDATE 无 running 守卫 | **接受并修复**：UPDATE 带 status='running' |
+| mintActionId 死路径且格式漂移 | **接受——删死路径**：actionId 改必填（铸造责任归记录层） |
+| 链深度 8 与 OS ELOOP(40) 不一致 | **接受**：对齐 40 |
+| 无 busy_timeout | **接受**：显式 pragma busy_timeout=5000 |
+| ALS currentToolCallId 无清除路径 | **接受**：回合结束清除（残留窗口收窄到单工具执行内） |
+| 去重仅凭 actionId 不核对 content hash | **驳回（设计如此）**：去重是身份精确协议——「同 actionId=同动作」是调用方契约；加 hash 核对会把协议变模糊（hash 相同的不同动作会被误吞） |
+| 原子写把覆盖权限前提从文件可写改为目录可写；无 fsync/不保 xattr | **记录为已知取舍**：rename 原子替换的固有属性（进程崩溃原子性优先于掉电持久性与 xattr 保留；目录可写是工作区/会话目录的既有前提） |
+
 ## 验收标准
 
 | 场景 | 操作 | 预期结果 |

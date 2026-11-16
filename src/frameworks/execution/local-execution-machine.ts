@@ -1,4 +1,5 @@
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import path from "node:path";
 import {
   LOCAL_EXECUTION_MACHINE_ID,
   type ExecutionAction,
@@ -71,6 +72,18 @@ export class LocalExecutionMachine implements ExecutionMachine {
     }
   }
 
+  /** F20261116actlg：workspace 动作的绝对 target（MAJOR 修复：清扫 hash 核对需要可解析的
+   *  真实路径——相对逻辑路径会让 verifyHashOnDisk 拿它对进程 CWD 做 realpath，全线误判）。
+   *  解析失败时回退逻辑展示路径（记账仍完整，hash 核对降级为 interrupted——诚实但可用）。 */
+  private async workspaceAbsoluteTarget(conversationId: string, relativePath: string): Promise<string> {
+    try {
+      const root = await this.workspaceGateway.getWorkspacePath(conversationId);
+      return path.join(root, relativePath);
+    } catch {
+      return `${conversationId}/${relativePath}`;
+    }
+  }
+
   /** F20261116actlg：workspace 写入入账（content hash 先记后写——崩溃后 hash 核对的基础）。 */
   private async recordedWorkspaceWrite(conversationId: string, relativePath: string, content: string, options?: ActionRunOptions): Promise<void> {
     if (!this.ledger) {
@@ -80,7 +93,7 @@ export class LocalExecutionMachine implements ExecutionMachine {
     const started = await this.startWorkspaceAction({
       kind: "workspace.write",
       conversationId,
-      target: `${conversationId}/${relativePath}`,
+      target: await this.workspaceAbsoluteTarget(conversationId, relativePath),
       content,
       actionId: options?.actionId,
     });
@@ -107,7 +120,7 @@ export class LocalExecutionMachine implements ExecutionMachine {
     const started = await this.startWorkspaceAction({
       kind: "workspace.delete",
       conversationId,
-      target: `${conversationId}/${relativePath}`,
+      target: await this.workspaceAbsoluteTarget(conversationId, relativePath),
       actionId: options?.actionId,
     });
     if (started?.deduped) {
@@ -133,7 +146,7 @@ export class LocalExecutionMachine implements ExecutionMachine {
   }): Promise<{ record: { actionId: string; resultSummary: string | null }; deduped: boolean } | null> {
     try {
       const attribution = this.currentAttribution();
-      const seq = this.nextWorkspaceSeq(attribution);
+      const seq = this.nextWorkspaceSeq();
       const store = otterInvokeStorage.getStore();
       return await this.ledger!.start({
         actionId: input.actionId ?? `${attribution}:ws:${this.bootEpoch}:${seq}`,
@@ -157,10 +170,12 @@ export class LocalExecutionMachine implements ExecutionMachine {
     return store?.currentToolCallId ?? store?.currentInvokeId ?? "internal";
   }
 
-  private nextWorkspaceSeq(attribution: string): number {
-    const seq = (this.wsOpSeqBy.get(attribution) ?? 0) + 1;
-    this.wsOpSeqBy.set(attribution, seq);
-    return seq;
+  /** 单调全局序（dspro minor：不再按 attribution 分桶，防长跑无界增长） */
+  private wsOpSeq = 0;
+
+  private nextWorkspaceSeq(): number {
+    this.wsOpSeq += 1;
+    return this.wsOpSeq;
   }
 
   private async settleWorkspaceAction(
@@ -174,6 +189,4 @@ export class LocalExecutionMachine implements ExecutionMachine {
       this.warn?.("action ledger settle failed (non-fatal)", { actionId: started.record.actionId, error: String(error) });
     }
   }
-
-  private readonly wsOpSeqBy = new Map<string, number>();
 }

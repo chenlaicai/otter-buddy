@@ -71,8 +71,9 @@ export interface ActionRecord {
 }
 
 export interface StartActionInput {
-  /** 调用方显式指定（去重协议）；缺省由台账铸造 */
-  actionId?: string;
+  /** 动作唯一 id（必填——铸造责任归记录层：env/machine 自铸含 boot 纪元；
+   *  调用方显式传入 = 去重协议位，跨 boot 复用是预期行为） */
+  actionId: string;
   deviceId?: string;
   onlineSessionId?: string | null;
   invokeId?: string | null;

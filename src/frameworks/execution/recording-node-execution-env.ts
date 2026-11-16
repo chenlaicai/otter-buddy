@@ -12,10 +12,13 @@ import { sha256 } from "./ledger/sqlite-action-ledger";
 /** R-1：链式断链逐级 readlink 解析到最终缺失目标（或非链接项）——深度上限防循环链；
  *  耗尽时仍指向链接 = 循环链或超深链——显式报错对齐 SDK 基线的 ELOOP（不猜、不静默替换链接）。
  *  返回应写入的真实路径（可能仍不存在，由调用方 mkdir+创建）。 */
+/** 链式断链解析深度上限（对齐 OS realpath/ELOOP 常见配额 40；耗尽=循环或超深链→显式报错） */
+const SYMLINK_CHAIN_DEPTH_LIMIT = 40;
+
 async function resolveBrokenLinkTarget(linkPath: string): Promise<string> {
   const { readlink } = await import("node:fs/promises");
   let current = linkPath;
-  for (let depth = 0; depth < 8; depth += 1) {
+  for (let depth = 0; depth < SYMLINK_CHAIN_DEPTH_LIMIT; depth += 1) {
     const raw = await readlink(current);
     current = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(current), raw);
     const next = await lstat(current).catch(() => undefined);
@@ -53,7 +56,9 @@ const NODE_ERROR_TO_FILE_ERROR: Record<string, "aborted" | "not_found" | "permis
  * 失败语义：台账是恢复增强面不是控制面——记录失败绝不打断真实动作（recordQuietly）。
  */
 export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
-  private readonly opSeq = new Map<string, number>();
+  /** 单调全局序（dspro minor：不再按 attribution 分桶——Map 键随 toolCall 无界增长；
+   *  全局序保证同 boot 内唯一性，归属信息在 invoke/toolCall 列里完整保留） */
+  private opSeq = 0;
 
   constructor(
     options: { cwd: string; shellPath?: string; shellEnv?: NodeJS.ProcessEnv },
@@ -269,10 +274,9 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
   }): StartActionInput {
     const store = otterInvokeStorage.getStore();
     const attribution = store?.currentToolCallId ?? "internal";
-    const seq = (this.opSeq.get(attribution) ?? 0) + 1;
-    this.opSeq.set(attribution, seq);
+    this.opSeq += 1;
     return {
-      actionId: `${attribution}:${this.bootEpoch}:${seq}`,
+      actionId: `${attribution}:${this.bootEpoch}:${this.opSeq}`,
       invokeId: store?.currentInvokeId ?? null,
       toolCallId: store?.currentToolCallId ?? null,
       source: store?.currentToolCallId ? "sdk-env" : "internal",
