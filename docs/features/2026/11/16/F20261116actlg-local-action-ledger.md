@@ -121,9 +121,9 @@ ALS 外 `internal:${seq}`。去重协议仅对 succeeded 生效（interrupted/fa
 | 台账 vs pi-durable | 裁决层不重建恢复 | 自实现任务恢复 | pi-durable 已有 transcript/task 状态/unsafe 不重放；台账只补它管不了的副作用验证（伙伴质询后定调） |
 | 去重范围 | 仅 succeeded 去重 | 全终态去重 | interrupted=确认未完成，重做是完成它的合法路径；failed 同理可重试 |
 | 原子写位置 | env 子类 + gateway 双改 | patch SDK | SDK writeFile 直接覆写（已核实 node.js 源码）；patch 维护成本高于本仓包装 |
-| symlink 处理 | realpath 跟随写真实文件 | rename 替换链接 | 保持「写链接指向的文件」语义，不悄悄改变路径性质 |
+| symlink 处理 | realpath 跟随写真实文件；broken link 回退 SDK 语义穿透创建 referent | rename 替换链接 | 有效链接下写真实文件不换链接性质；broken 链接对齐 env/node.js 基线（链接保留、内容落 referent） |
 | 记录失败语义 | 静默降级+warn（动作照常） | 台账失败阻断动作 | 台账是恢复增强面不是控制面；阻断会把观测故障放大成业务故障 |
-| bash 退出码 | 非零也是 succeeded | 非零记 failed | failed 留给确定性未达成（spawn 失败从未跑起来）；退出码是结果数据 |
+| bash 退出码 | 非零也是 succeeded，且大输出记 spillPath（结果位置） | 非零记 failed / 全量存输出 | failed 留给确定性未达成；小输出本体在 durable transcript 不重复存（台账非第二份主记忆），spill 文件路径即机器真相的结果位置 |
 | timeout/abort 杀进程 | interrupted | failed / unknown | 我们主动确定性停止：未完成确定，重做合法；unknown 留给崩溃且回执（清扫裁决） |
 
 ### 机制识别检查点
@@ -173,7 +173,24 @@ ALS 外 `internal:${seq}`。去重协议仅对 succeeded 生效（interrupted/fa
 - rename 原子写替换 inode：依赖 inode 的外部观察者理论上受影响（盘点未发现消费者）。
 - 同毫秒动作的台账排序退化 action_id 字典序（listByInvoke ORDER BY started_at, action_id）。
 - ALS 外（internal）动作归属为空——SDK 内部若直接用 env 做文件操作会记 internal 行，属预期。
-- 台账记命令与路径（截断 512B）——只落本机 data/，不上云不入主记忆，14 天修剪。
+- 台账记命令与路径（截断 512B）——只落本机 data/，不上云不入主记忆；succeeded/failed/interrupted 14 天、unknown 30 天（转检查宽限窗）后修剪。
+- **单进程假设**：每 data 目录单进程（部署层保证）；违反时开表会告警（上一 boot_pid 存活性检查）。
+- 自铸 actionId 含 boot 纪元防跨 boot 碰撞；调用方显式传的 actionId 不含纪元（跨 boot 复用是去重协议本体）。
+
+## 重对抗门（reviewer-1900，异体 glm，2026-11-16）
+
+独立检视结论：恢复链零变化/清扫先于恢复链/串行轮归属模型/五态语义逐条核实一致；发现 MAJOR-1、MINOR-6、SUGG-5。处置：
+
+| 发现 | 处置 |
+|---|---|
+| MAJOR-1 internal 前缀 actionId 跨 boot 碰撞→错误去重静默跳写 | **接受并修复**：两处生产铸造点均并入 bootEpoch（`${attribution}:${epoch}:${seq}` / `${attribution}:ws:${epoch}:${seq}`），补跨 boot 碰撞回归 |
+| MINOR-1 start 内联清扫裁决被 upsert 覆写 | **接受——删内联清扫**（open() 已覆盖；仅多进程共享库时可达且有害） |
+| MINOR-2 cleanupTempQuietly 目录级扫删并发 tmp | **接受——删目录级扫除**（atomicWrite 已精确自清） |
+| MINOR-3 broken symlink 被替换为普通文件 | **接受并修复**：realpath ENOENT 时 readlink 穿透创建 referent，链接保留（/tmp 复现验证 + 补测） |
+| MINOR-4 interrupted/unknown 无界累积 | **接受并修复**：interrupted 随终态同窗 14 天；unknown 30 天检查宽限窗后修剪 |
+| MINOR-5 exec 去重返回值缺输出 | **部分接受**：settle 记 exitCode+spillPath（大输出的真实结果位置），去重重放返回两者；小输出本体在 durable transcript，不重复入账（台账非第二份主记忆） |
+| MINOR-6 多进程三边界 | **部分接受**：epoch 自增改单语句原子 RETURNING + 上一 boot_pid 存活性告警；「每 data 目录单进程」入文档与代码注释（部署假设，不建锁） |
+| SUGG-1/2/3/4/5 | **全部接受**：两处注释对齐实现；新文件 mode 0o666 对齐 SDK 基线；upsert 刷新归属列；beforeTool 守卫放行后才写 call.id；补四项测试 |
 
 ## 验收标准
 
@@ -199,16 +216,15 @@ ALS 外 `internal:${seq}`。去重协议仅对 succeeded 生效（interrupted/fa
 
 | 验证 | 结果 |
 |---|---|
-| `npx tsc --noEmit` | PASS |
-| 台账单测（sqlite-action-ledger） | PASS：13 用例——生命周期/去重协议/清扫五路裁决/修剪/纪元单调 |
-| 记录 env 单测（recording-node-execution-env） | PASS：12 用例——原子写四路/append/exec 语义/ALS 归属/去重/降级 |
-| 机器入账单测（local-execution-machine-ledger） | PASS：6 用例——workspace 入账/失败上抛/去重/null 降级 |
-| 真实 durable 工具链（faux 驱动） | PASS：write/bash 副作用入账且 invokeId/toolCallId 归属穿透 SDK 执行链 |
-| `npm run build` / `lint` | PASS：0 problems（复杂度拆分后） |
-| `npm test` | PASS：477 files / 5999 tests |
-| `npm run check` | PASS：EXIT 0（build+lint+schema+smoke:boot+探活三场景） |
-| `lint:intent` / `lint:capability` / `lint:docs` | PASS：本 PR 文档 intent 1/1；capability 存量警告 80/80 未新增；docs 1046 OK |
-| alpha 实启（scripts/alpha.sh，端口 3132 隔离数据根） | PASS：启动→健康→停止全走脚本；台账 actions.db 随 boot 创建（boot_seq=1、0 行，无 invoke 无副作用符合预期）；实例零残留 |
-| GitHub CI | PR 创建后运行（见 PR checks） |
+| 台账单测（sqlite-action-ledger） | PASS：14 用例（含 unknown 30 天宽限窗修剪） |
+| 记录 env 单测（recording-node-execution-env） | PASS：14 用例（含跨 boot 碰撞回归、broken symlink 穿透） |
+| 机器入账单测（local-execution-machine-ledger） | PASS：6 用例 |
+| 真实 durable 工具链（faux 驱动） | PASS：write/bash 副作用入账且归属穿透（actionId 含纪元） |
+| `npx tsc --noEmit` / `npm run build` / `lint` | PASS |
+| `npm test` | PASS（见 PR checks） |
+| `npm run check` | PASS：EXIT 0 |
+| `lint:intent` / `lint:capability` / `lint:docs` | PASS（本 PR 文档 intent 1/1；存量警告未新增） |
+| alpha 实启（scripts/alpha.sh，端口 3132 隔离数据根） | PASS：启动→健康→停止全走脚本；台账随 boot 创建；零残留 |
+| GitHub CI | check / e2e / golden-selftest / guard-macos 全绿（见 PR checks） |
 
 （PR-B 合入时本表补充：恢复链扩展与摘要注入的验证行。）

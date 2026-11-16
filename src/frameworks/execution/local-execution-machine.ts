@@ -28,10 +28,17 @@ export class LocalExecutionMachine implements ExecutionMachine {
     private readonly warn?: (message: string, meta?: Record<string, unknown>) => void,
   ) {}
 
+  /** MAJOR-1：自铸 actionId 的 boot 纪元（台账侧读取；无台账时 0 无所谓） */
+  private get bootEpoch(): number {
+    const ledger = this.ledger as { bootEpoch?: number } | null;
+    return ledger?.bootEpoch ?? 0;
+  }
+
   createExecutionEnvironment(cwd: string): ExecutionEnv {
     // F20261116actlg：SDK 文件/bash 面走记录 env（副作用入账 + 原子写）；
     // 只读操作直通。ledger=null 时 RecordingNodeExecutionEnv 等价裸 NodeExecutionEnv。
-    return new RecordingNodeExecutionEnv({ cwd }, this.ledger, this.warn);
+    // MAJOR-1：bootEpoch 传入 env——自铸 actionId 必含纪元，防跨 boot 同序号碰撞错误去重。
+    return new RecordingNodeExecutionEnv({ cwd }, this.ledger, this.warn, this.bootEpoch);
   }
 
   async run<K extends ExecutionActionType>(
@@ -129,7 +136,7 @@ export class LocalExecutionMachine implements ExecutionMachine {
       const seq = this.nextWorkspaceSeq(attribution);
       const store = otterInvokeStorage.getStore();
       return await this.ledger!.start({
-        actionId: input.actionId ?? `${attribution}:ws:${seq}`,
+        actionId: input.actionId ?? `${attribution}:ws:${this.bootEpoch}:${seq}`,
         invokeId: store?.currentInvokeId ?? null,
         conversationId: input.conversationId,
         toolCallId: store?.currentToolCallId ?? null,

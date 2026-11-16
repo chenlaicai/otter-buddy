@@ -44,6 +44,9 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
     options: { cwd: string; shellPath?: string; shellEnv?: NodeJS.ProcessEnv },
     private readonly ledger: ActionLedger | null,
     private readonly warn?: (message: string, meta?: Record<string, unknown>) => void,
+    /** 当前 boot 纪元（MAJOR-1 修复：自铸 actionId 必含纪元，防跨 boot 同序号碰撞错误去重；
+     *  显式传入的 actionId 不受影响——那才是去重协议的本体） */
+    private readonly bootEpoch = 0,
   ) {
     super(options);
   }
@@ -68,7 +71,7 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
       await this.settleQuietly(record, { status: "succeeded", resultSummary: { bytes } });
       return ok(undefined);
     } catch (error) {
-      await this.cleanupTempQuietly(resolved.value);
+      // atomicWrite 自身的 catch 已精确清理本次临时文件（MINOR-2：不做目录级扫删，防误删并发者的 tmp）
       const fileError = this.toFileError(error, resolved.value);
       await this.settleQuietly(record, settleFromFileError(fileError, { bytes }));
       return err(fileError);
@@ -153,12 +156,17 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
     const display = typeof command === "string" ? command : command.map(part => /[^\w.,:/=@%-]/.test(part) ? `'${part.replace(/'/g, `'\\''`)}'` : part).join(" ");
     const record = await this.recordQuietly({ kind: "shell.exec", target: display });
     if (record?.deduped) {
-      const exitCode = record.record.resultSummary ? (JSON.parse(record.record.resultSummary) as { exitCode?: number }).exitCode : undefined;
-      return ok({ exitCode: exitCode ?? 0 });
+      // MINOR-5：重放返回已记录的 exitCode + spillPath（大输出的真实结果位置；
+      // 小输出本体在 durable transcript，不在台账重复存储——台账不是第二份主记忆）
+      const summary = record.record.resultSummary ? (JSON.parse(record.record.resultSummary) as { exitCode?: number; spillPath?: string }) : {};
+      return ok({ exitCode: summary.exitCode ?? 0, ...(summary.spillPath ? { spillPath: summary.spillPath } : {}) });
     }
     const result = await super.exec(command, options, context);
     if (result.ok) {
-      await this.settleQuietly(record, { status: "succeeded", resultSummary: { exitCode: result.value.exitCode } });
+      await this.settleQuietly(record, {
+        status: "succeeded",
+        resultSummary: { exitCode: result.value.exitCode, ...(result.value.spillPath ? { spillPath: result.value.spillPath } : {}) },
+      });
     } else {
       // 确定性停止（我们主动杀）→ interrupted（未完成是确定的，重做合法）；
       // 从未跑起来（spawn/shell 不可用）→ failed；崩溃丢失回执由开机清扫裁决为 unknown。
@@ -185,36 +193,39 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
   private async atomicWrite(resolvedTarget: string, content: string | Uint8Array, context: Context): Promise<void> {
     await mkdir(path.dirname(resolvedTarget), { recursive: true });
     if (context.abortSignal?.aborted) throw new FileError("aborted", "aborted before write", resolvedTarget);
-    // symlink 跟随 + mode 保留：写链接指向的真实文件，不替换链接本身
+    // symlink 跟随 + mode 保留：写链接指向的真实文件，不替换链接本身。
+    // MINOR-3：broken symlink（realpath ENOENT）不能落到 rename 覆盖链接——回退 SDK 语义
+    // （穿透链接创建/覆写 referent），对齐 node.js env/node.js writeFile 基线行为。
     let target = resolvedTarget;
     let mode: number | undefined;
     try {
       const linkStat = await lstat(target);
-      if (linkStat.isSymbolicLink()) target = await realpath(target);
-      mode = (await stat(target)).mode & 0o777;
+      if (linkStat.isSymbolicLink()) {
+        try {
+          target = await realpath(target);
+        } catch {
+          // broken link：解析链接目标路径（readlink 一层，相对目标按链接目录解析），写 referent
+          const { readlink } = await import("node:fs/promises");
+          const raw = await readlink(resolvedTarget);
+          target = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(resolvedTarget), raw);
+          await mkdir(path.dirname(target), { recursive: true });
+        }
+      }
+      const existingStat = await stat(target).catch(() => undefined);
+      mode = existingStat ? existingStat.mode & 0o777 : undefined;
     } catch {
-      /* 目标不存在：全新文件，默认 mode */
+      /* 全新文件，默认 mode */
     }
     const tmp = path.join(path.dirname(target), `.otter-tmp-${randomUUID()}`);
     try {
-      await writeFile(tmp, content, { mode: mode ?? 0o644, signal: context.abortSignal });
+      // 新文件用 0o666（SUGG-2：与 SDK 基线一致，实际权限由 umask 决定）；已有文件保留原 mode
+      await writeFile(tmp, content, { mode: mode ?? 0o666, signal: context.abortSignal });
       if (context.abortSignal?.aborted) throw new FileError("aborted", "aborted before rename", target);
       await rename(tmp, target);
     } catch (error) {
       await rm(tmp, { force: true }).catch(() => undefined);
       throw error;
     }
-  }
-
-  private async cleanupTempQuietly(resolvedTarget: string): Promise<void> {
-    // atomicWrite 已自清临时文件；此处兜底极端路径（如 rename 后异常），best-effort
-    const dir = path.dirname(resolvedTarget);
-    try {
-      const { readdir } = await import("node:fs/promises");
-      for (const name of await readdir(dir)) {
-        if (name.startsWith(".otter-tmp-")) await rm(path.join(dir, name), { force: true }).catch(() => undefined);
-      }
-    } catch { /* best-effort */ }
   }
 
   // ── 台账记录（失败绝不打断真实动作） ──
@@ -247,7 +258,7 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
     const seq = (this.opSeq.get(attribution) ?? 0) + 1;
     this.opSeq.set(attribution, seq);
     return {
-      actionId: `${attribution}:${seq}`,
+      actionId: `${attribution}:${this.bootEpoch}:${seq}`,
       invokeId: store?.currentInvokeId ?? null,
       toolCallId: store?.currentToolCallId ?? null,
       source: store?.currentToolCallId ? "sdk-env" : "internal",

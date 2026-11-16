@@ -220,7 +220,7 @@ describe("开机清扫（旧纪元 running 行裁决）", () => {
 });
 
 describe("修剪", () => {
-  it("超期终态行被修剪；非终态行永不修剪", async () => {
+  it("超期终态行被修剪；running 行永不修剪", async () => {
     const file = path.join(tempDir(), "actions.db");
     const ledger = new SqliteActionLedger(file, { retentionDays: 0 });
     const staleAt = new Date(Date.now() - 60_000).toISOString();
@@ -230,6 +230,32 @@ describe("修剪", () => {
     const report = await ledger.sweepStaleBoot();
     expect(report.pruned).toBe(1); // 仅终态行
     expect(await ledger.getByActionId("old-run")).not.toBeNull();
+    ledger.close();
+  });
+
+  it("MINOR-4：interrupted 随终态同窗修剪；unknown 留 30 天检查窗后修剪", async () => {
+    const file = path.join(tempDir(), "actions.db");
+    const ledger = new SqliteActionLedger(file, { retentionDays: 0 });
+    const staleAt = new Date(Date.now() - 60_000).toISOString();
+    await ledger.start({ actionId: "old-int", source: "sdk-env", kind: "file.remove" });
+    await ledger.settle("old-int", { status: "interrupted", error: "x" }, staleAt);
+    await ledger.start({ actionId: "old-unk", source: "sdk-env", kind: "shell.exec" });
+    await ledger.settle("old-unk", { status: "failed", error: "y" }); // settle 只收三种裁决，unknown 经行内 SQL 预置
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(file);
+    db.prepare("UPDATE execution_actions SET status = 'unknown', settled_at = ? WHERE action_id = 'old-unk'").run(staleAt);
+    db.close();
+    // retentionDays=0：interrupted 立即超窗；unknown 窗 30 天，远未到 → 不剪
+    const report1 = await ledger.sweepStaleBoot();
+    expect(report1.pruned).toBe(1);
+    expect(await ledger.getByActionId("old-unk")).not.toBeNull();
+    // 把 unknown 行 settled_at 拨回 31 天前 → 超窗剪掉
+    const db2 = new Database(file);
+    db2.prepare("UPDATE execution_actions SET settled_at = ? WHERE action_id = 'old-unk'").run(new Date(Date.now() - 31 * 86_400_000).toISOString());
+    db2.close();
+    const report2 = await ledger.sweepStaleBoot();
+    expect(report2.pruned).toBe(1);
+    expect(await ledger.getByActionId("old-unk")).toBeNull();
     ledger.close();
   });
 });

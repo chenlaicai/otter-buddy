@@ -20,9 +20,9 @@ afterEach(() => {
   dirs = [];
 });
 
-function makeEnv(cwd: string, ledger: SqliteActionLedger | null) {
+function makeEnv(cwd: string, ledger: SqliteActionLedger | null, bootEpoch?: number) {
   const warns: string[] = [];
-  const env = new RecordingNodeExecutionEnv({ cwd }, ledger, message => warns.push(message));
+  const env = new RecordingNodeExecutionEnv({ cwd }, ledger, message => warns.push(message), bootEpoch);
   return { env, ledger, warns };
 }
 
@@ -136,8 +136,8 @@ describe("归属传播（ALS）与去重协议", () => {
     const rows = await allRows(ledger!);
     expect(rows).toHaveLength(2);
     expect(rows.every(r => r.invokeId === "inv-77" && r.toolCallId === "call-9" && r.source === "sdk-env")).toBe(true);
-    expect(rows[0].actionId).toBe("call-9:1");
-    expect(rows[1].actionId).toBe("call-9:2");
+    expect(rows[0].actionId).toBe("call-9:0:1");
+    expect(rows[1].actionId).toBe("call-9:0:2");
     ledger!.close();
   });
 
@@ -156,10 +156,10 @@ describe("归属传播（ALS）与去重协议", () => {
     const dir = tempDir();
     const ledger = new SqliteActionLedger(path.join(dir, "actions.db"));
     const target = path.join(dir, "dedup.md");
-    // 预置：另一 boot 中该动作已成功（hash 对应当前磁盘内容）
+    // 预置：另一 boot 中该动作已成功（hash 对应当前磁盘内容）；env 未传 epoch → 0，与预置 id 对齐
     writeFileSync(target, "already-written");
-    await ledger.start({ actionId: "call-z:1", source: "sdk-env", kind: "file.write", target, contentHash: sha256("already-written"), contentBytes: 15 });
-    await ledger.settle("call-z:1", { status: "succeeded" });
+    await ledger.start({ actionId: "call-z:0:1", source: "sdk-env", kind: "file.write", target, contentHash: sha256("already-written"), contentBytes: 15 });
+    await ledger.settle("call-z:0:1", { status: "succeeded" });
 
     const { env } = makeEnv(dir, ledger);
     await otterInvokeStorage.run({ otterId: "o1", currentInvokeId: "inv-1", currentToolCallId: "call-z", otterPromptConfig: "", identityPrefix: "" } as never, async () => {
@@ -171,15 +171,16 @@ describe("归属传播（ALS）与去重协议", () => {
     ledger.close();
   });
 
-  it("exec 去重：返回已记录的 exitCode", async () => {
+  it("exec 去重：返回已记录的 exitCode 与 spillPath（结果位置）", async () => {
     const dir = tempDir();
     const ledger = new SqliteActionLedger(path.join(dir, "actions.db"));
-    await ledger.start({ actionId: "call-e:1", source: "sdk-env", kind: "shell.exec", target: "printf done" });
-    await ledger.settle("call-e:1", { status: "succeeded", resultSummary: { exitCode: 0 } });
+    await ledger.start({ actionId: "call-e:0:1", source: "sdk-env", kind: "shell.exec", target: "printf done" });
+    await ledger.settle("call-e:0:1", { status: "succeeded", resultSummary: { exitCode: 0, spillPath: "/tmp/spill-xyz" } });
     const { env } = makeEnv(dir, ledger);
     await otterInvokeStorage.run({ otterId: "o1", currentInvokeId: "inv-1", currentToolCallId: "call-e", otterPromptConfig: "", identityPrefix: "" } as never, async () => {
       const result = await env.exec("printf done", undefined, BACKGROUND_CONTEXT);
       expect(result.ok && result.value.exitCode).toBe(0);
+      expect(result.ok && result.value.spillPath).toBe("/tmp/spill-xyz");
     });
     ledger.close();
   });
@@ -203,6 +204,44 @@ describe("台账失败不打断真实动作", () => {
     const { readFileSync } = await import("node:fs");
     expect(readFileSync(target, "utf8")).toBe("content");
     expect(warns.length).toBeGreaterThan(0);
+  });
+});
+
+describe("检视发现回填（reviewer-1900）", () => {
+  it("MAJOR-1：自铸 actionId 含 boot 纪元——跨 boot 同序号不再碰撞去重，文件照常写入", async () => {
+    const dir = tempDir();
+    const file = path.join(dir, "actions.db");
+    const target = path.join(dir, "cross-boot.md");
+    // boot N：internal 第 1 个动作已 succeeded（旧行 id 形态 internal:1）
+    const ledgerA = new SqliteActionLedger(file);
+    await ledgerA.start({ actionId: `internal:${ledgerA.bootEpoch}:1`, source: "internal", kind: "file.write", target, contentHash: sha256("boot-N-content"), contentBytes: 14 });
+    await ledgerA.settle(`internal:${ledgerA.bootEpoch}:1`, { status: "succeeded" });
+    ledgerA.close();
+
+    // boot N+1（重开库，纪元递增）：同样无 ALS 上下文的第 1 个写动作 → id 含新纪元，不撞旧行
+    const ledgerB = new SqliteActionLedger(file);
+    const { env } = makeEnv(dir, ledgerB, ledgerB.bootEpoch);
+    const result = await env.writeFile(target, "boot-N+1-content", BACKGROUND_CONTEXT);
+    expect(result.ok).toBe(true);
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync(target, "utf8")).toBe("boot-N+1-content"); // 不再被旧 boot 的 succeeded 行静默跳写
+    const rows = await allRows(ledgerB);
+    expect(rows.filter(r => r.source === "internal")).toHaveLength(2); // 旧行 + 新行共存
+    expect(rows.some(r => r.actionId === `internal:${ledgerB.bootEpoch}:1`)).toBe(true);
+    ledgerB.close();
+  });
+
+  it("MINOR-3：broken symlink 写入穿透创建 referent，链接保留（对齐 SDK 基线）", async () => {
+    const dir = tempDir();
+    const { env } = makeEnv(dir, null);
+    const referent = path.join(dir, "not-there-yet.txt");
+    const link = path.join(dir, "dangling-link.txt");
+    symlinkSync(referent, link); // 目标不存在：broken link
+    const result = await env.writeFile(link, "via-broken-link", BACKGROUND_CONTEXT);
+    expect(result.ok).toBe(true);
+    const { readFileSync, lstatSync } = await import("node:fs");
+    expect(lstatSync(link).isSymbolicLink()).toBe(true); // 链接未被替换
+    expect(readFileSync(referent, "utf8")).toBe("via-broken-link"); // 内容落在 referent
   });
 });
 

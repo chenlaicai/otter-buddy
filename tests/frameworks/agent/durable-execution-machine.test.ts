@@ -96,7 +96,7 @@ describe("durable coding tools through LocalExecutionMachine", () => {
       const execRow = rows.find(r => r.kind === "shell.exec");
       expect(writeRow?.toolCallId).toBe("ledger-write-call");
       expect(writeRow?.status).toBe("succeeded");
-      expect(writeRow?.actionId).toBe("ledger-write-call:1");
+      expect(writeRow?.actionId).toBe(`ledger-write-call:${ledger.bootEpoch}:1`);
       expect(execRow?.toolCallId).toBe("ledger-bash-call");
       expect(execRow?.status).toBe("succeeded");
       expect(JSON.parse(execRow?.resultSummary ?? "{}")).toMatchObject({ exitCode: 0 });

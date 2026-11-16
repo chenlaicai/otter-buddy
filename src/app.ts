@@ -389,8 +389,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // ── 对话工作区与内置本机执行机 ──
   const workspaceGateway = new NodeWorkspaceGateway(dataDir);
   // F20261116actlg（#1868 阶段 3）：本机动作台账——每机一库（执行机本地真相：副作用
-  // 五态 + hash + 结果位置）。开机清扫（旧纪元 running 裁决）在构造内完成；
-  // 失败降级为无台账运行（记录关间，动作照常执行），不阻断启动。
+  // 五态 + hash + 结果位置）。open() 内完成开机清扫（旧纪元 running 裁决）+ 终态修剪；
+  // 失败降级为无台账运行（记录关闭，动作照常执行），不阻断启动。
   let actionLedger: SqliteActionLedger | null = null;
   try {
     actionLedger = new SqliteActionLedger(

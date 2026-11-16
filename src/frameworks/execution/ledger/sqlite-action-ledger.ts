@@ -56,6 +56,8 @@ interface ActionRow {
 
 const HASH_VERIFIABLE_KINDS = new Set<ActionKind>(["file.write", "file.append", "workspace.write"]);
 const INTERRUPTIBLE_KINDS = new Set<ActionKind>(["file.truncate", "file.rename", "file.remove", "file.mkdir", "workspace.delete"]);
+/** unknown（转检查）行的保留窗：比常规终态长，检查语义的宽限期 */
+const UNKNOWN_RETENTION_DAYS = 30;
 
 export class SqliteActionLedger implements ActionLedger {
   private readonly db: Database.Database;
@@ -117,9 +119,22 @@ export class SqliteActionLedger implements ActionLedger {
   }
 
   private bumpBootEpoch(): number {
-    const row = this.db.prepare("SELECT value FROM action_ledger_meta WHERE key = 'boot_seq'").get() as { value: string } | undefined;
-    const next = (row ? Number(row.value) : 0) + 1;
-    this.db.prepare("INSERT INTO action_ledger_meta (key, value) VALUES ('boot_seq', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(next));
+    // MINOR-6：先建基线再单语句原子自增（RETURNING），多进程并发开机也铸出互异纪元
+    this.db.prepare("INSERT OR IGNORE INTO action_ledger_meta (key, value) VALUES ('boot_seq', '0')").run();
+    const row = this.db.prepare(
+      "UPDATE action_ledger_meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'boot_seq' "
+      + "RETURNING value",
+    ).get() as { value: string };
+    const next = Number(row.value);
+    const prevPid = this.db.prepare("SELECT value FROM action_ledger_meta WHERE key = 'boot_pid'").get() as { value: string } | undefined;
+    if (prevPid) {
+      const pid = Number(prevPid.value);
+      // MINOR-6 软守卫：上一纪元进程若仍存活，共享同一台账库的多进程会互相清扫对方 running 行
+      // ——部署假设「每 data 目录单进程」，违反时告警不阻断
+      if (Number.isInteger(pid) && pid !== process.pid) {
+      try { process.kill(pid, 0); this.logger?.warn("action ledger shared by multiple live processes (single-process-per-data-dir assumption violated)", { previousBootPid: pid }); } catch { /* 已退出：正常换代 */ }
+      }
+    }
     this.db.prepare("INSERT OR REPLACE INTO action_ledger_meta (key, value) VALUES ('boot_pid', ?)").run(String(process.pid));
     return next;
   }
@@ -136,6 +151,9 @@ export class SqliteActionLedger implements ActionLedger {
         boot_epoch, pid, started_at, settled_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', NULL, NULL, ?, ?, ?, NULL)
       ON CONFLICT(action_id) DO UPDATE SET
+        invoke_id = excluded.invoke_id,
+        conversation_id = excluded.conversation_id,
+        tool_call_id = excluded.tool_call_id,
         target = excluded.target,
         content_hash = excluded.content_hash,
         content_bytes = excluded.content_bytes,
@@ -156,17 +174,15 @@ export class SqliteActionLedger implements ActionLedger {
     return { record: rowToRecord(row), deduped: false };
   }
 
-  /** 同 actionId 已有行的去重/清扫预处理：仅 succeeded 去重（已完成确定性结果）；
-   *  failed/interrupted/unknown 不是「已完成」——重开新一轮，重做合法；
-   *  清扫漏网的旧纪元 running 行先裁决。 */
+  /** 同 actionId 已有行的去重预处理：仅 succeeded 去重（已完成确定性结果）；
+   *  failed/interrupted/unknown 不是「已完成」——重开新一轮，重做合法。
+   *  MINOR-1：不再内联清扫旧纪元 running 行（open() 已覆盖；内联裁决会被随后的 upsert
+   *  覆写，只在多进程共享库时可达且有書）——残留行留给下次开机清扫。 */
   private settleStaleExistingRow(actionId: string): { record: ActionRecord; deduped: boolean } | null {
     const existing = this.db.prepare("SELECT * FROM execution_actions WHERE action_id = ?").get(actionId) as ActionRow | undefined;
     if (!existing) return null;
     if (existing.status === "succeeded") {
       return { record: rowToRecord(existing), deduped: true };
-    }
-    if (existing.status === "running" && existing.boot_epoch < this.bootEpoch) {
-      this.applySweepVerdict(existing);
     }
     return null;
   }
@@ -281,15 +297,21 @@ export class SqliteActionLedger implements ActionLedger {
 
   private pruneTerminalRows(): number {
     const cutoff = new Date(Date.now() - this.retentionDays * 86_400_000).toISOString();
-    const byAge = this.db.prepare(
-      "DELETE FROM execution_actions WHERE status IN ('succeeded','failed') AND settled_at IS NOT NULL AND settled_at < ?",
-    ).run(cutoff).changes;
-    const count = (this.db.prepare("SELECT COUNT(*) AS n FROM execution_actions WHERE status IN ('succeeded','failed')").get() as { n: number }).n;
+    // MINOR-4：interrupted 与终态同窗修剪（常规 abort 也会产生，不修则无界增长）；
+    // unknown 留 30 天检查窗（转检查语义），超期仍未处置则随历史退场
+    const unknownCutoff = new Date(Date.now() - UNKNOWN_RETENTION_DAYS * 86_400_000).toISOString();
+    const byAge = this.db.prepare(`
+      DELETE FROM execution_actions WHERE (
+        (status IN ('succeeded','failed','interrupted') AND settled_at IS NOT NULL AND settled_at < ?)
+        OR (status = 'unknown' AND settled_at IS NOT NULL AND settled_at < ?)
+      )
+    `).run(cutoff, unknownCutoff).changes;
+    const count = (this.db.prepare("SELECT COUNT(*) AS n FROM execution_actions WHERE status IN ('succeeded','failed','interrupted')").get() as { n: number }).n;
     let byCap = 0;
     if (count > this.maxRows) {
       byCap = this.db.prepare(`
         DELETE FROM execution_actions WHERE action_id IN (
-          SELECT action_id FROM execution_actions WHERE status IN ('succeeded','failed')
+          SELECT action_id FROM execution_actions WHERE status IN ('succeeded','failed','interrupted')
           ORDER BY settled_at ASC LIMIT ?
         )
       `).run(count - this.maxRows).changes;

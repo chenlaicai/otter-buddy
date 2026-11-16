@@ -182,13 +182,13 @@ export class DurableSession {
   // wiring both feeds would double-count the breaker sliding window.
   private async beforeTool(call: { name: string; arguments: Record<string, unknown>; id: string }): Promise<{ block: string } | undefined> {
     const ctx = otterInvokeStorage.getStore();
-    // F20261116actlg：当前工具调用 id 传播给动作台账（RecordingNodeExecutionEnv 按
-    // toolCallId 铸造 actionId；下一枚 beforeTool 自然覆盖，无需显式清理）。
-    if (ctx) ctx.currentToolCallId = call.id;
     if (!this.currentInvokeId) return { block: "Durable tool execution requires currentInvokeId; refusing side effect." };
     const halt = haltToolCallGuard(ctx, this.options.haltRegistry as never, call.name);
     const guard = await halt ?? loopBlockGuard(ctx, call.name, call.arguments) ?? bashGuardGate(ctx, call.name, call.arguments);
     if (guard) return { block: guard.reason };
+    // F20261116actlg：守卫放行后才写入当前工具调用 id（SUGG-4：被拦截的 call.id 不应
+    // 残留到下一枚覆盖前——那会让非工具期的 env 动作误归属到被拦调用）。
+    if (ctx) ctx.currentToolCallId = call.id;
     return undefined;
   }
 

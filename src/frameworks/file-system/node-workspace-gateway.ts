@@ -98,19 +98,29 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
     const fullPath = await this.resolveSafe(conversationId, relativePath);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     // F20261116actlg（#1868 阶段 3）：原子写——同目录临时文件 → rename 原子落位，
-    // 崩溃不留半截文件；已存在目标保留 mode；symlink 目标先 realpath 跟随（写真实文件，不替换链接）。
+    // 崩溃不留半截文件；已存在目标保留 mode；symlink 跟随写真实文件不替换链接；
+    // broken symlink 回退 SDK 语义（穿透创建 referent），对齐 env 基线。
     let target = fullPath;
     let mode: number | undefined;
     try {
       const linkStat = await fs.lstat(target);
-      if (linkStat.isSymbolicLink()) target = await fs.realpath(target);
-      mode = (await fs.stat(target)).mode & 0o777;
+      if (linkStat.isSymbolicLink()) {
+        try {
+          target = await fs.realpath(target);
+        } catch {
+          const raw = await fs.readlink(fullPath);
+          target = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(fullPath), raw);
+          await fs.mkdir(path.dirname(target), { recursive: true });
+        }
+      }
+      const existingStat = await fs.stat(target).catch(() => undefined);
+      mode = existingStat ? existingStat.mode & 0o777 : undefined;
     } catch {
-      /* 目标不存在：全新文件 */
+      /* 全新文件 */
     }
     const tmp = path.join(path.dirname(target), `.otter-tmp-${crypto.randomUUID()}`);
     try {
-      await fs.writeFile(tmp, content, { encoding: "utf-8", mode: mode ?? 0o644 });
+      await fs.writeFile(tmp, content, { encoding: "utf-8", mode: mode ?? 0o666 });
       await fs.rename(tmp, target);
     } catch (error) {
       await fs.rm(tmp, { force: true }).catch(() => undefined);

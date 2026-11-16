@@ -41,7 +41,10 @@ export type ActionKind =
   | "workspace.delete";
 
 export interface ActionRecord {
-  /** 全局唯一；铸造规则：`${toolCallId}:${opSeq}`（sdk-env）/ `${invokeId}:${toolCallId}:${opSeq}`（workspace）/ `internal:${seq}` */
+  /** 全局唯一；自铸规则（SUGG-1 修正，均含 boot 纪元防跨 boot 同序号碰撞）：
+   *  sdk-env 面 `${toolCallId}:${bootEpoch}:${opSeq}`；workspace 面 `${attribution}:ws:${bootEpoch}:${seq}`
+   *  （attribution=toolCallId??invokeId??"internal"）；ALS 外 internal 面 `internal:${bootEpoch}:${seq}`。
+   *  调用方显式传的 actionId 原样使用（去重协议本体，跨 boot 复用是预期行为）。 */
   actionId: string;
   deviceId: string;
   /** 阶段 4 onlineSession 落地前恒 null */
