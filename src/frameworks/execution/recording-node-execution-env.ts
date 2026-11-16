@@ -10,6 +10,7 @@ import type { ActionKind, ActionRecord, SettleVerdict, StartActionInput } from "
 import { sha256 } from "./ledger/sqlite-action-ledger";
 
 /** R-1：链式断链逐级 readlink 解析到最终缺失目标（或非链接项）——深度上限防循环链；
+ *  耗尽时仍指向链接 = 循环链或超深链——显式报错对齐 SDK 基线的 ELOOP（不猜、不静默替换链接）。
  *  返回应写入的真实路径（可能仍不存在，由调用方 mkdir+创建）。 */
 async function resolveBrokenLinkTarget(linkPath: string): Promise<string> {
   const { readlink } = await import("node:fs/promises");
@@ -20,7 +21,7 @@ async function resolveBrokenLinkTarget(linkPath: string): Promise<string> {
     const next = await lstat(current).catch(() => undefined);
     if (!next || !next.isSymbolicLink()) return current; // 最终 referent 缺失或非链接：在此创建
   }
-  return current;
+  throw new FileError("invalid", `symlink chain too deep or cyclic: ${linkPath}`, linkPath);
 }
 
 /** node:fs 错误码 → SDK FileError code（对齐 env/node.js 的 toFileError 映射） */
@@ -225,7 +226,8 @@ export class RecordingNodeExecutionEnv extends NodeExecutionEnv {
       }
       const existingStat = await stat(target).catch(() => undefined);
       mode = existingStat ? existingStat.mode & 0o777 : undefined;
-    } catch {
+    } catch (error) {
+      if (error instanceof FileError) throw error; // 链解析显式失败（循环/超深）不吞——fail-loud
       /* 全新文件，默认 mode */
     }
     const tmp = path.join(path.dirname(target), `.otter-tmp-${randomUUID()}`);

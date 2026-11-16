@@ -259,6 +259,21 @@ describe("检视发现回填（reviewer-1900）", () => {
     expect(lstatSync(link2).isSymbolicLink()).toBe(true);
     expect(readFileSync(referent, "utf8")).toBe("chain-content");
   });
+
+  it("R-1 尾：循环链（a→b→a）显式报错，不静默替换链接（对齐 SDK ELOOP 基线）", async () => {
+    const dir = tempDir();
+    const { env } = makeEnv(dir, null);
+    const a = path.join(dir, "cycle-a.txt");
+    const b = path.join(dir, "cycle-b.txt");
+    symlinkSync(b, a);
+    symlinkSync(a, b);
+    const result = await env.writeFile(a, "never", BACKGROUND_CONTEXT);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("invalid");
+    const { lstatSync, readFileSync } = await import("node:fs");
+    expect(lstatSync(a).isSymbolicLink()).toBe(true); // 链接未被替换
+    expect(() => readFileSync(b)).toThrow(); // 无内容被写入循环链任何一环
+  });
 });
 
 /** 取全部行（listByInvoke 不过滤 null invoke 的辅助直查） */

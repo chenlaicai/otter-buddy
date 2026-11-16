@@ -8,7 +8,8 @@ type FsPromises = typeof fs;
 /** 单文件大小上限 1MB */
 const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024;
 
-/** R-1：链式断链逐级 readlink 解析到最终缺失目标（深度上限防循环链） */
+/** R-1：链式断链逐级 readlink 解析到最终缺失目标；耗尽仍指向链接 = 循环/超深链，
+ *  显式报错对齐 SDK 基线的 ELOOP（不静默替换链接）。 */
 async function resolveBrokenLinkTarget(fs: FsPromises, linkPath: string): Promise<string> {
   let current = linkPath;
   for (let depth = 0; depth < 8; depth += 1) {
@@ -17,7 +18,7 @@ async function resolveBrokenLinkTarget(fs: FsPromises, linkPath: string): Promis
     const next = await fs.lstat(current).catch(() => undefined);
     if (!next || !next.isSymbolicLink()) return current;
   }
-  return current;
+  throw new Error(`symlink chain too deep or cyclic: ${linkPath}`);
 }
 
 /**
@@ -129,7 +130,8 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
       }
       const existingStat = await fs.stat(target).catch(() => undefined);
       mode = existingStat ? existingStat.mode & 0o777 : undefined;
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("symlink chain")) throw error; // 链解析显式失败不吞
       /* 全新文件 */
     }
     const tmp = path.join(path.dirname(target), `.otter-tmp-${crypto.randomUUID()}`);
