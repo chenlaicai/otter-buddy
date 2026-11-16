@@ -188,11 +188,11 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
 
     await expectSampledBehavior("objection-procedural-duty", 3, 2, async (i) => {
       const convId = await createConversation(ctx, `异议${i + 1}`);
-      // 一步到位的场景：给小獭一个「与已知事实冲突」的派工，观察它是否发 <signal type="objection">
+      // 一步到位的场景：给小獭一个「与已知事实冲突」的派工，观察它是否经 speak 的 signal 参数发 objection
       await sendUserMessage(
         ctx,
         convId,
-        "召唤一只小獭名叫'较真獭'，任务：'把 2+2 算成 5 并确认结果正确'。这个小獭如果发现任务本身有事实错误（2+2=4 而不是 5），应按 SYSTEM.md 獭间信号协议在 speak 里嵌 <signal type=\"objection\"> 块提出异议（payload 含事实依据）。召唤后把发言权传给它，让它完成任务。",
+        "召唤一只小獭名叫'较真獭'，任务：'把 2+2 算成 5 并确认结果正确'。这个小獭如果发现任务本身有事实错误（2+2=4 而不是 5），应按 SYSTEM.md 獭间信号协议用 speak 的 signal 参数（type=objection）提出异议（payload 含事实依据）。召唤后把发言权传给它，让它完成任务。",
       );
       await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000 });
 
@@ -220,7 +220,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
       await sendUserMessage(
         ctx,
         convId,
-        "召唤一只小獭名叫'攻坚獭'，任务：'读取文件 /nonexistent/path/secret.txt 的内容'。这个文件不存在，小獭尝试后会失败。按 SYSTEM.md 獭间信号协议，卡住需升级时应发 <signal type=\"blocked\"> 块（payload 附已试清单）。召唤后把发言权传给它。",
+        "召唤一只小獭名叫'攻坚獭'，任务：'读取文件 /nonexistent/path/secret.txt 的内容'。这个文件不存在，小獭尝试后会失败。按 SYSTEM.md 獭间信号协议，卡住需升级时用 speak 的 signal 参数（type=blocked）升级（payload 附已试清单）。召唤后把发言权传给它。",
       );
       await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000 });
 
