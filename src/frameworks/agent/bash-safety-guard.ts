@@ -346,12 +346,29 @@ const CREDENTIAL_PATH_PATTERNS = [
   /\.aws([/ "'$]|$)/,
 ];
 
+/** #1892 公开只读放行：写操作动词（命中凭证路径时恒拦截，无论读私密）；重定向/追加亦算写 */
+const CRED_WRITE_RE = /\b(?:cp|mv|rm|install|tee|chmod|chown|chattr|truncate|ssh-keygen|touch|ln)\b|>>|>/;
+/** #1892 公开只读放行：目录列举（不泄文件内容） */
+const CRED_LS_RE = /(?:^|[\s;&|])ls(?:\s+-[A-Za-z]+)*\s+[^\s|;&]*\.(?:ssh|gnupg|aws)\b/;
+/** #1892 公开只读放行：公钥 / known_hosts / ssh config（无凭证内容） */
+const CRED_READ_PUBLIC_PATTERNS = [
+  /\.pub(?:["'\s]|$)/,
+  /(?:^|[\s/])known_hosts(?:["'\s]|$)/,
+  /\.ssh\/config(?:["'\s]|$)/,
+];
+
 /** 展开归一：~/x 与 /Users/<who>/.x 双形态都认（不依赖 HOME 求值——路径特征即拦） */
 function credentialPathHit(command: string): boolean {
   // 命令中出现 ~/.ssh 形态或 <home>/.ssh 形态。家目录绝对路径形态由 HOME 前缀匹配：
   const home = process.env.HOME ?? "";
   const normalized = home ? command.split(home).join("~") : command;
-  return CREDENTIAL_PATH_PATTERNS.some(p => p.test(normalized));
+  if (!CREDENTIAL_PATH_PATTERNS.some(p => p.test(normalized))) return false;
+  // #1892：命中凭证路径后按「公开只读」口径放行——写操作恒拦，私钥/credentials 读取恒拦；
+  // 只放行：目录列举（ls）、公钥（.pub）、known_hosts、ssh config。其余（id_rsa/credentials/任何写）继续拦。
+  if (CRED_WRITE_RE.test(normalized)) return true;
+  if (CRED_LS_RE.test(normalized)) return false;
+  if (CRED_READ_PUBLIC_PATTERNS.some(p => p.test(normalized))) return false;
+  return true;
 }
 
 /** F20261109bexfz（搭档 2026-11-09 拍板）：B 类外发域名表判定整类退役——
@@ -379,6 +396,8 @@ function processSubstitutionHit(command: string): boolean {
 }
 function pipeToInterpreterHit(command: string): boolean {
   const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
+  // #1892：python -m json.tool 是格式化模块（读 stdin 输出格式化 JSON），非「执行下载内容」——排除出解释器判定
+  const jsonToolFormatterRe = /^(?:sudo\s+)?python\d?\s+-m\s+json\.tool\b/;
   // D4（检视 delta-r3）：段首 fetcher 或段内进程替换 fetcher（cat <(curl …) 形态——
   // 替换输出即该段的数据源，管道对端解释器吃到下载内容，与 curl|sh 同构）
   const fetcherRe = /^(?:sudo\s+)?(?:curl|wget)\b|<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
@@ -387,9 +406,9 @@ function pipeToInterpreterHit(command: string): boolean {
   for (const chain of command.split(/&&|\|\||[;&\n]/)) {
     const parts = chain.split("|").map(p => p.trim()).filter(Boolean);
     if (parts.length < 2) continue;
-    // 链内任一前置段是 fetcher 且任一后续段是解释器 → 命中
+    // 链内任一前置段是 fetcher 且任一后续段是解释器（格式化模块除外）→ 命中
     const hasFetcher = parts.slice(0, -1).some(p => fetcherRe.test(p));
-    const hasInterpreter = parts.slice(1).some(p => interpreterRe.test(p));
+    const hasInterpreter = parts.slice(1).some(p => interpreterRe.test(p) && !jsonToolFormatterRe.test(p));
     if (hasFetcher && hasInterpreter) return true;
   }
   return false;
