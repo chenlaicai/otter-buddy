@@ -38,12 +38,13 @@ capability_test: "guard-intercept-classify 新增公开只读/边界/格式化�
 
 ## 方案（C 最小改动：只放行公开只读 + 格式化模块，真负门零弱化）
 
-### ① cred_dir_access 公开只读口径
+### ① cred_dir_access 公开只读口径（检视 delta 后：私钥/写先拦）
 
-命中凭证路径后分层：
-- **写操作恒拦**：`cp/mv/rm/install/tee/chmod/chown/chattr/truncate/ssh-keygen/touch/ln` 与 `>` / `>>` 重定向。
-- **私钥/凭证读取恒拦**：不命中下列公开目标即拦（含 `id_rsa`/`id_ed25519` 私钥、`credentials`、`grep -R` 全目录扫）。
-- **仅放行公开只读**：目录列举（`ls … ~/.ssh`）、公钥（`*.pub`）、`known_hosts`、`ssh config`。
+命中凭证路径后分层（顺序即判定优先级）：
+1. **写操作恒拦**：`cp/mv/rm/install/tee/chmod/chown/chattr/truncate/ssh-keygen/touch/ln/rsync/dd/unlink`、`sed/gawk/awk -i` 就地改写、任何 `>`/`>>` 重定向。
+2. **私钥/凭证本体恒拦**：`id_rsa/id_ed25519/id_ecdsa/id_dsa/id_xmss`（非 .pub）、`.pem`、`.key`、`credentials`——先于公开只读判定，防「私钥+公开文件」混合命令整串放行。
+3. **仅放行公开只读**：目录列举（`ls … ~/.ssh`）、公钥（`*.pub`）、`known_hosts`、`ssh config`。
+4. 其余（未识别读形态/authorized_keys/secring.gpg 等）默认拦。
 
 ### ② download_exec 排除格式化模块
 
@@ -59,6 +60,7 @@ capability_test: "guard-intercept-classify 新增公开只读/边界/格式化�
 
 - [x] guard 相关 6 测试文件 238/238 通过（含 replay 147/147、classify、bounce）
 - [x] replay 2 条改判：`ls ~/.ssh`、`cat/sed ssh config` 从 block 改 allow（#1892 现场同形态）；既有 curl|sh、进程替换、curl|python3 -c、主进程 kill 等负门全部仍 block
+- [x] 检视 delta 回归钉：混合命令（`cat id_rsa known_hosts` / `cat id_rsa; ls`）仍 block；写动词扩容（sed -i / gawk -i / rsync / unlink）仍 block；`sed -n` 读态 ssh config 仍放行
 
 ## 影响
 
