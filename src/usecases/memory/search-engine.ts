@@ -68,9 +68,9 @@ export interface SearchEngineConfig {
   weightHalfLifeDaysDocument: number;
   userFlagMultiplier: number;
   frequencyBoostFactor: number;
-  /** F20261112rnkph Phase 1：rerank 融合模式，缺省 multiply（段 1 零默认变更）。缺省在构造时归一化。 */
+  /** F20261112rnkph Phase 1：rerank 融合模式，缺省 multiply（段 1 零默认变更）。缺省在构造时回填。 */
   rerankMode?: RerankMode;
-  /** F20261112rnkph Phase 1：加法融合系数（wRrf/wTime/wFreq 连续权重隐微和为 1，运行时比例归一）。缺省在构造时回填。 */
+  /** F20261112rnkph Phase 1：加法融合系数（wRrf/wTime/wFreq 连续权重隐微和为 1，运行时在 rerankAdditive 内比例归一）。缺省在构造时回填。 */
   rerank?: RerankWeights;
 }
 
@@ -116,7 +116,8 @@ export class SearchEngine {
   private readonly config: SearchEngineConfig;
 
   constructor(config: SearchEngineConfig = {} as SearchEngineConfig) {
-    // F20261112rnkph 段 1：缺省归一化——rerankMode 缺省 multiply（零行为变更），系数缺省回填设计值。
+    // F20261112rnkph 段 1：构造时只回填缺省——rerankMode 缺省 multiply（零行为变更），系数缺省回填设计值；
+    // 连续权重的比例归一（normalizeRerankWeights）在 rerankAdditive 调用时执行，不在构造时。
     this.config = {
       ...config,
       rerankMode: config.rerankMode ?? "multiply",
