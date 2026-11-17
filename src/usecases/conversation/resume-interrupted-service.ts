@@ -5,6 +5,9 @@ import type { ResumePendingRepository } from "./resume-pending-repository";
 import type { DispatchChainEngine, InvokeFn } from "./dispatch-chain-engine";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
+import { randomUUID } from "node:crypto";
+import { buildActionLedgerSummary } from "@usecases/execution/action-ledger-summary";
+import type { ActionRecord } from "@entities/execution/action-record";
 import {
   buildRestartResumeMsg,
   buildRestartResumeFailedInvokeMsg,
@@ -44,6 +47,9 @@ export class ResumeInterruptedService {
   private static readonly RATE_LIMIT_MAX_RETRIES = 3;
   private static readonly RATE_LIMIT_BASE_DELAY_MS = 5_000;
 
+  /** F20261116actlg PR-B：本进程 boot 纪元（毫秒时间戳，构造时定格；进程内恒定、跨进程互异） */
+  private readonly bootEpoch: number;
+
   constructor(
     private readonly deps: {
       conversationRepo: ConversationRepository;
@@ -62,8 +68,14 @@ export class ResumeInterruptedService {
       delayMs?: number;
       /** 429 限流退避基础延迟（ms），测试可注入小值 */
       rateLimitBaseDelayMs?: number;
+      /** F20261116actlg PR-B：动作台账只读面（恢复摘要数据源；缺省无摘要——旧文案兼容） */
+      actionLedger?: { listByInvoke(invokeId: string, limit?: number): Promise<ActionRecord[]> };
+      /** F20261116actlg PR-B：本进程 boot 纪元（认领绑定；测试可注入固定值） */
+      bootEpoch?: number;
     },
-  ) {}
+  ) {
+    this.bootEpoch = deps.bootEpoch ?? Date.now();
+  }
 
   /** 入口：延迟后逐条恢复。fire-and-forget 调用（不阻塞服务就绪）。
    *  F20260917rscr：只恢复队列里的中断 invoke——不再做任何历史信号扫描。 */
@@ -170,8 +182,13 @@ export class ResumeInterruptedService {
   private async resumeOneWithRetry(item: ResumeQueueItem): Promise<"done" | "skipped" | "failed"> {
     // CAS 认领只在恢复入口一次（attempts 语义 = 跨重启恢复次数）；进程内 429/网络退避
     // 重试不再重认领——S1 修复轮实证：认领放循环内时，1+3 次重试把 attempts 顶到上限
-    // 与跨重启守卫撞车（「429 重试耗尽」用例 4 次调用只走了 3 次）
-    const claimed = await this.deps.resumePendingRepo.claimPendingResume(item.invokeId);
+    // 与跨重启守卫撞车（「429 重试耗尽」用例 4 次调用只走了 3 次）。
+    // F20261116actlg PR-B：认领绑定 claim token + 本进程 boot 纪元——同 boot 内拒重认领，
+    // 恢复者自身崩溃的旧纪元残留可被新开机重认领（attempts 继续累加，上限不放松）。
+    const claimed = await this.deps.resumePendingRepo.claimPendingResume(item.invokeId, {
+      token: randomUUID(),
+      bootEpoch: this.bootEpoch,
+    });
     if (!claimed) {
       // 认领失败两类：① attempts 达上限（pending 残留，跨重启无限重试守卫触发）→ exhausted
       // 闭环；② 已被其他窗口认领/已终态（status 非 pending）→ 保持现状（那已是正确终态）
@@ -236,6 +253,44 @@ export class ResumeInterruptedService {
     return retryablePatterns.some(pattern => message.toLowerCase().includes(pattern.toLowerCase()));
   }
 
+  /** F20261116actlg PR-B：取中断 invoke 的台账摘要（机器真相；台账缺席/无行动作返回 null） */
+  private async buildLedgerSummary(invokeId: string): Promise<string | null> {
+    if (!this.deps.actionLedger) return null;
+    try {
+      const rows = await this.deps.actionLedger.listByInvoke(invokeId);
+      return buildActionLedgerSummary(rows);
+    } catch (err) {
+      this.deps.logger.warn("resume ledger summary fetch failed (non-fatal)", { invokeId, error: err instanceof Error ? err.message : String(err) });
+      return null;
+    }
+  }
+
+  /** 跳过判据合并（participant 失效 → exhausted 静默；「獭已恢复」→ exhausted 静默）。
+   *  「獭已恢复」（F20260917rscr 三点裁决③）：中断时刻之后该獭已有新 invoke
+   *  （用户手动接上 / cron 重触发 / 其他恢复路径）→ 已在跑，系统不再碰。 */
+  private async resolveSkipReason(item: ResumeQueueItem): Promise<"skipped" | null> {
+    const participant = await this.deps.conversationRepo.getParticipant(item.conversationId, item.otterId);
+    if (!participant || participant.status !== "active") {
+      await this.markExhaustedSafe(item.invokeId, new Error("Participant inactive or missing"));
+      return "skipped";
+    }
+    if (await this.isOtterAlreadyResumed(item)) {
+      await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
+      return "skipped"; // 静默——獭已在跑，恢复目的已达成（成功路径静默语义）
+    }
+    return null;
+  }
+
+  /** F20261116actlg PR-B：恢复轮 invoke 审计链回填（best-effort，失败仅日志） */
+  private async backfillRecoveryInvokeSafe(item: ResumeQueueItem, capture: { invokeId?: string }): Promise<void> {
+    if (!capture.invokeId) return;
+    try {
+      await this.deps.resumePendingRepo.backfillRecoveryInvoke(item.invokeId, capture.invokeId);
+    } catch (err) {
+      this.deps.logger.warn("recovery invoke backfill failed (non-fatal)", { invokeId: item.invokeId, error: String(err) });
+    }
+  }
+
   private async resumeOne(item: ResumeQueueItem): Promise<"done" | "skipped" | "failed"> {
     try {
       // 1. CAS 认领已上提至 resumeOneWithRetry 入口（attempts 语义 = 跨重启恢复次数，
@@ -249,21 +304,9 @@ export class ResumeInterruptedService {
         return 'skipped';
       }
 
-      // 3. 跳过检查：participant 失效（dissolved/inactive）→ exhausted 静默
-      const participant = await this.deps.conversationRepo.getParticipant(item.conversationId, item.otterId);
-      if (!participant || participant.status !== "active") {
-        await this.markExhaustedSafe(item.invokeId, new Error("Participant inactive or missing"));
-        return "skipped";
-      }
-
-      // 4. 「獭已恢复」跳过判据（F20260917rscr 三点裁决③，替换用户消息并发窗口）：
-      //    本质 = 让意外中断的 running invoke 恢复跑起来——该獭在中断时刻之后已有
-      //    新 invoke（无论来源：用户手动接上 / cron 重触发 / 其他恢复路径）→ 它
-      //    已经在跑了，系统不该再碰。与用户是否发新消息无关。
-      if (await this.isOtterAlreadyResumed(item)) {
-        await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
-        return "skipped"; // 静默——獭已在跑，恢复目的已达成（成功路径静默语义）
-      }
+      // 3-4. 跳过检查合并提取（participant 失效 / 「獭已恢复」判据）
+      const skip = await this.resolveSkipReason(item);
+      if (skip) return skip;
 
       // 5. 链引擎续跑：invokeFn 包装捕获首 hop invokeId + 终态（链 allSettled 吞错语义，
       //    executeChain 正常返回 ≠ invoke 成功——invoke 行终态直读是准确判据，F4 移植）。
@@ -279,9 +322,10 @@ export class ResumeInterruptedService {
         }
       };
       try {
+        const ledgerSummary = await this.buildLedgerSummary(item.invokeId);
         await this.deps.dispatchChainEngine.executeChain({
           conversationId: item.conversationId,
-          userMessageContent: buildRestartResumeMsg(),
+          userMessageContent: buildRestartResumeMsg(ledgerSummary),
           senderId: "",
           initialTargets: [item.otterId],
           triggerMessageId: item.invokeId,
@@ -289,6 +333,8 @@ export class ResumeInterruptedService {
           triggerSenderType: "system",
           invokeFn: captureInvokeFn,
         });
+        // F20261116actlg PR-B：恢复轮 invoke 审计链回填（best-effort）
+        await this.backfillRecoveryInvokeSafe(item, capture);
       } catch (chainErr) {
         // executeChain 自身抛错（链前置失败等）= 恢复失败；可重试错误上抛交退避层
         if (this.isRetryableNetworkError(chainErr)) throw chainErr;

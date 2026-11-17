@@ -1095,7 +1095,12 @@ function createRestartPendingResumesTable(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'done', 'failed', 'exhausted')),
       attempts INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
-      settled_at TEXT
+      settled_at TEXT,
+      /* F20261116actlg PR-B：认领绑定 claim token/boot epoch（恢复者自身崩溃不留死锁，
+       *  旧纪元残留可被新开机重认领）+ 恢复轮 invoke 审计链 */
+      claim_token TEXT,
+      boot_epoch INTEGER,
+      recovery_invoke_id TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_restart_pending_resumes_status ON restart_pending_resumes(status);

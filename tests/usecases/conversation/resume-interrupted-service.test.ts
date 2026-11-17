@@ -142,6 +142,8 @@ interface Harness {
       delayMs?: number;
       rateLimitBaseDelayMs?: number;
       invokeFn?: () => Promise<{ messageId: string }>;
+      actionLedger?: { listByInvoke(invokeId: string, limit?: number): Promise<import("@entities/execution/action-record").ActionRecord[]> };
+      bootEpoch?: number;
     },
   ): ResumeInterruptedService;
 }
@@ -198,6 +200,8 @@ function makeHarness(): Harness {
       logger: createTestLogger(),
       delayMs: opts.delayMs ?? 0,
       rateLimitBaseDelayMs: opts.rateLimitBaseDelayMs,
+      actionLedger: opts.actionLedger,
+      bootEpoch: opts.bootEpoch ?? 42,
     }),
   };
   return h;
@@ -233,7 +237,7 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
       initialTargets: ["otter-big"],
       triggerMessageId: invokeId,
     });
-    expect(chain.calls[0]!.userMessageContent).toContain("[系统提醒] 服务重启导致你的发言中断");
+    expect(chain.calls[0]!.userMessageContent).toContain("[系统提醒] 服务重启导致你的执行中断");
     expect(chain.calls[0]!.userMessageContent).toContain("保留在对话中");
     // done 流转
     expect(h.queueStatus(invokeId)).toBe("done");
@@ -442,4 +446,47 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
     expect(h.queueStatus(invokeId1)).toBe("failed");
     expect(h.queueStatus(invokeId2)).toBe("done");
   });
+  // ─── F20261116actlg PR-B：恢复摘要注入 + 恢复轮回填 ───
+
+it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢复轮 invoke 回填审计锚", async () => {
+    const invokeId = await h.seedInterrupted();
+    const chain = stubChainEngine();
+    const service = h.buildService(chain, {
+      actionLedger: {
+        listByInvoke: async (id: string) => id === invokeId ? [
+          { actionId: "a1", deviceId: "local", onlineSessionId: null, invokeId: id, conversationId: null, toolCallId: "c1", source: "sdk-env", kind: "shell.exec", target: "npm run build", contentHash: null, contentBytes: null, status: "unknown", error: null, resultSummary: null, bootEpoch: 1, pid: null, startedAt: T0, settledAt: null },
+          { actionId: "a2", deviceId: "local", onlineSessionId: null, invokeId: id, conversationId: null, toolCallId: "c2", source: "sdk-env", kind: "file.write", target: "/tmp/a.md", contentHash: null, contentBytes: null, status: "succeeded", error: null, resultSummary: null, bootEpoch: 1, pid: null, startedAt: T0, settledAt: null },
+        ] : [],
+      },
+    });
+
+    await service.resume();
+
+    expect(chain.calls).toHaveLength(1);
+    const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
+    expect(content).toContain("机器台账");
+    expect(content).toContain("[unknown] shell.exec 命令 npm run build");
+    expect(content).toContain("禁止盲目重试");
+    expect(content).toContain("[succeeded] file.write /tmp/a.md");
+    expect(content).toContain("不要重做");
+    // 恢复轮 invoke 回填（审计链）
+    const row = await h.resumeRepo.getByInvokeId(invokeId);
+    expect(row?.recoveryInvokeId).toBe("new-invoke-1");
+    expect(h.queueStatus(invokeId)).toBe("done");
+  });
+
+  it("台账缺席 → 旧版文案（无摘要块）；认领绑定注入的 bootEpoch", async () => {
+    const invokeId = await h.seedInterrupted();
+    const chain = stubChainEngine();
+    const service = h.buildService(chain, { bootEpoch: 777 });
+
+    await service.resume();
+
+    const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
+    expect(content).not.toContain("机器台账");
+    const row = await h.resumeRepo.getByInvokeId(invokeId);
+    expect(row?.bootEpoch).toBe(777);
+    expect(row?.claimToken).toBeTruthy();
+  });
+
 });

@@ -199,6 +199,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   ensureOtterColorColumn(db, logger);
   backfillOtterColors(db, logger);
 
+  /** F20261116actlg PR-B：restart_pending_resumes 补 claim 三列（存量库 ALTER，幂等 PRAGMA 探测）。
+   *  认领绑定 claim_token/boot_epoch + 恢复轮 recovery_invoke_id 审计链。 */
+  ensureRestartPendingResumesClaimColumns(db, logger);
+
   /** F20260923icus（#1149）：invokes 表补 cache token 两列（存量库 ALTER，幂等 PRAGMA 探测）。 */
   ensureInvokeCacheColumns(db, logger);
 
@@ -2233,4 +2237,25 @@ function ensureHealingEventsBoundIssueColumns(db: Database.Database, logger: Log
   add('bound_issue', 'bound_issue INTEGER DEFAULT NULL');
   add('bound_at', 'bound_at TEXT DEFAULT NULL');
   db.exec("-- lint-schema:allow-index-before-column——PRAGMA 探测幂等补列：add() 内部有 if (!columns.some(...)) 守卫，列已存在时 ALTER 不执行；本索引是 #1390 修复后从 schema.ts 挪来的存量库补建，安全。\nCREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue)");
+}
+
+/**
+ * F20261116actlg PR-B：restart_pending_resumes 补 claim 三列（存量库 ALTER，幂等）。
+ * - claim_token/boot_epoch：认领绑定（同 boot 内已认领拒重认领；旧纪元残留可被新开机重认领）；
+ * - recovery_invoke_id：恢复轮 invoke 审计锚（originalInvokeId=行 PK 跨世代不变）。
+ */
+function ensureRestartPendingResumesClaimColumns(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(restart_pending_resumes)").all() as Array<{ name: string }>;
+  if (columns.length === 0) return; // 表尚不存在（分步建库场景）：schema 建表时自带新列，无需 ALTER
+  const additions: Array<[string, string]> = [
+    ["claim_token", "TEXT"],
+    ["boot_epoch", "INTEGER"],
+    ["recovery_invoke_id", "TEXT"],
+  ];
+  for (const [name, type] of additions) {
+    if (!columns.some(col => col.name === name)) {
+      db.prepare(`ALTER TABLE restart_pending_resumes ADD COLUMN ${name} ${type}`).run();
+      logger.info(`Added ${name} column to restart_pending_resumes table`);
+    }
+  }
 }
