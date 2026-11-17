@@ -124,7 +124,8 @@ export class ConnectorWsGateway {
     });
   }
 
-  /** hello → 版本协商（取交集最高，无交集拒连）→ 库表开 session（先库后内存）→ hello.ack 下发 sid */
+  /** hello → 版本协商（hub 支持集 ∩ connector 支持集取最高；无交集拒连——当前 hub 侧
+   *  支持集为单版本 [v1]，多版本演进时只扩本端支持集常量即可）→ 库表开 session（先库后内存）→ hello.ack 下发 sid */
   private async handleHello(
     socket: WebSocket,
     device: { id: string; name: string },

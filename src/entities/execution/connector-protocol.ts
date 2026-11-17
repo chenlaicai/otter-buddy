@@ -7,6 +7,12 @@
 
 export const CONNECTOR_PROTOCOL_VERSION = 1;
 
+/**
+ * seq 帧字段契约（检视 s5 澄清）：单调递增，仅用于日志对账与乱序观测——
+ * **不承担可靠性/重放防护**（重放防护由 actionId 幂等协议承担，C2 落地；
+ * sid 代际已天然隔离跨会话重放）。消费方不得以 seq 做正确性判断。
+ */
+
 /** connector 支持的版本区间（hello 携带）；中枢取交集最高，无交集拒连 */
 export const HELLO_SUPPORTED_VERSIONS = [CONNECTOR_PROTOCOL_VERSION] as const;
 

@@ -70,6 +70,21 @@ export class SqliteConnectorRegistryRepository implements ConnectorRegistryRepos
     return result.changes > 0;
   }
 
+  async redeemAndCreateDevice(code: string, device: Device, now: string): Promise<boolean> {
+    // 检视 s6：事务原子化——核销失败不建设备（消除「码已烧但设备未建」窗口）
+    const runAll = this.db.transaction((): boolean => {
+      const redeemed = this.db.prepare(
+        "UPDATE pairing_codes SET redeemed_at = ? WHERE code = ? AND redeemed_at IS NULL AND expires_at > ?",
+      ).run(now, code, now);
+      if (redeemed.changes === 0) return false;
+      this.db.prepare(
+        "INSERT INTO devices (id, name, pair_token, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",
+      ).run(device.id, device.name, device.pairToken, device.createdAt, device.lastSeenAt);
+      return true;
+    });
+    return runAll();
+  }
+
   async createDevice(device: Device): Promise<void> {
     this.db.prepare(
       "INSERT INTO devices (id, name, pair_token, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",

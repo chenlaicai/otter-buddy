@@ -2,9 +2,11 @@
  * F20261117cnnct（#1868 阶段 4 C1）：connector 独立进程入口（客户端侧）。
  *
  * 轻量铁律（issue #1868 阶段 4 / 方案 v3 §7）：本进程不加载模型、embedding、主记忆——
- * 依赖闭包仅 ws + node 内置（构建后由脚本断言）。C1 承载通道与会话：
- * 首启配对（HTTP 换 token）→ WSS 连接（Bearer upgrade 鉴权）→ hello → 心跳 →
- * SIGINT/SIGTERM 主动 offline（总闸）。
+ * 依赖闭包仅 ws + node 内置（构建后由脚本断言）。
+ *
+ * 通道语义（检视 s1/s2/s3 处置）：断线自动重连（指数退避 1s→30s，重连=新会话——
+ * hub 侧 sid 代际天然隔离跨会话重放）；心跳半开自愈（45s 无 heartbeat.ack 判死重连）；
+ * version 类协议不兼容是致命错误（重连无意义，退出进程让人介入）。
  *
  * 用法：
  *   node dist/connector/main.js --hub http://localhost:3000 --pair <码> --name <设备名>   # 首启配对
@@ -16,7 +18,11 @@ import { WebSocket } from "ws";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { CONNECTOR_HEARTBEAT_INTERVAL_MS, CONNECTOR_PROTOCOL_VERSION } from "@entities/execution/connector-protocol";
+import {
+  CONNECTOR_HEARTBEAT_INTERVAL_MS,
+  CONNECTOR_PROTOCOL_VERSION,
+  type ConnectorFrame,
+} from "@entities/execution/connector-protocol";
 
 interface DeviceIdentity {
   deviceId: string;
@@ -28,6 +34,12 @@ interface Args {
   pair?: string;
   name?: string;
 }
+
+/** 心跳半开判死：3 个间隔无 ack 即认为通道死（检视 s2——hub 侧 90s 判死，客户端侧更早自愈） */
+const HEARTBEAT_ACK_TIMEOUT_MS = CONNECTOR_HEARTBEAT_INTERVAL_MS * 3;
+/** 重连退避：1s 起，指数翻倍，上限 30s */
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
 
 function parseArgs(argv: string[]): Args {
   const args: Partial<Args> = {};
@@ -84,56 +96,87 @@ function log(message: string, meta?: Record<string, unknown>): void {
 }
 
 let seq = 0;
-function connect(hub: string, identity: DeviceIdentity): void {
-  const wsUrl = new URL("/connector-ws", hub.replace(/^http/, "ws"));
-  const ws = new WebSocket(wsUrl, { headers: { authorization: `Bearer ${identity.pairToken}` } });
-  let sessionId: string | null = null;
-  let heartbeat: NodeJS.Timeout | null = null;
 
-  ws.on("open", () => {
-    seq += 1;
-    ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq, data: { supportedVersions: [CONNECTOR_PROTOCOL_VERSION] } }));
-  });
+/** 单次连接的共享状态（处理器拆分后经对象传递） */
+interface ConnState {
+  sessionId: string | null;
+  heartbeat: NodeJS.Timeout | null;
+  ackWatch: NodeJS.Timeout | null;
+  lastAckAt: number;
+  settled: boolean;
+}
 
+/** 心跳双循环：发送间隔 + ack 判死（检视 s2：3 间隔无 ack 主动断开重连——不等 TCP 超时） */
+function startHeartbeatLoops(ws: WebSocket, state: ConnState): void {
+  state.heartbeat = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN && state.sessionId) {
+      seq += 1;
+      ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "heartbeat", seq, sid: state.sessionId, data: {} }));
+    }
+  }, CONNECTOR_HEARTBEAT_INTERVAL_MS);
+  state.ackWatch = setInterval(() => {
+    if (Date.now() - state.lastAckAt > HEARTBEAT_ACK_TIMEOUT_MS) {
+      log("heartbeat ack timeout, reconnecting", { sessionId: state.sessionId });
+      ws.terminate();
+    }
+  }, CONNECTOR_HEARTBEAT_INTERVAL_MS);
+}
+
+function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: ConnState, settle: (o: "closed" | "fatal") => void): void {
   ws.on("message", raw => {
-    const frame = JSON.parse(String(raw)) as { type: string; sid?: string; data?: Record<string, unknown> };
+    const frame = JSON.parse(String(raw)) as ConnectorFrame;
     if (frame.type === "hello.ack" && frame.sid) {
-      sessionId = frame.sid;
-      log("online", { deviceId: identity.deviceId, sessionId, version: frame.data?.version });
-      heartbeat = setInterval(() => {
-        if (sessionId && ws.readyState === ws.OPEN) {
-          seq += 1;
-          ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "heartbeat", seq, sid: sessionId, data: {} }));
-        }
-      }, CONNECTOR_HEARTBEAT_INTERVAL_MS);
+      state.sessionId = frame.sid;
+      state.lastAckAt = Date.now();
+      log("online", { deviceId: identity.deviceId, sessionId: frame.sid, version: frame.data.version });
+      startHeartbeatLoops(ws, state);
     } else if (frame.type === "heartbeat.ack") {
-      // 心跳被确认——通道健康
+      state.lastAckAt = Date.now();
     } else if (frame.type === "error") {
       log("hub error frame", { data: frame.data });
+      if (frame.data.code === "version") settle("fatal"); // 协议不兼容：重连无意义
     }
   });
+}
 
+/** SIGINT/SIGTERM → 主动 offline（尽力而为发帧；hub 侧断线兜底会补收尾） */
+function attachSignalHandlers(ws: WebSocket, state: ConnState): void {
   const goOffline = (signal: string): void => {
-    if (sessionId && ws.readyState === ws.OPEN) {
+    if (state.sessionId && ws.readyState === WebSocket.OPEN) {
       seq += 1;
-      ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "offline", seq, sid: sessionId, data: {} }));
+      ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "offline", seq, sid: state.sessionId, data: {} }));
       log("offline requested", { signal });
     }
-    if (heartbeat) clearInterval(heartbeat);
-    // 给 offline 帧一拍发送窗口后退出（100ms——尽力而为，中枢侧断线兜底会补收尾）
-    setTimeout(() => process.exit(0), 100).unref?.();
-    setTimeout(() => process.exit(0), 100);
+    setTimeout(() => process.exit(0), 100); // 一拍发送窗口后退出
   };
   process.on("SIGINT", () => goOffline("SIGINT"));
   process.on("SIGTERM", () => goOffline("SIGTERM"));
+}
 
-  ws.on("close", (code, reason) => {
-    if (heartbeat) clearInterval(heartbeat);
-    log("disconnected", { code, reason: String(reason), note: "reconnect = new session (resume ≠ restore)" });
-    process.exit(0);
-  });
-  ws.on("error", err => {
-    log("ws error", { error: err.message });
+/** 单次连接生命周期。resolve "fatal" = 协议不兼容（重连无意义）；"closed" = 可重连。 */
+function connectOnce(hub: string, identity: DeviceIdentity): Promise<"closed" | "fatal"> {
+  return new Promise(resolve => {
+    const wsUrl = new URL("/connector-ws", hub.replace(/^http/, "ws"));
+    const ws = new WebSocket(wsUrl, { headers: { authorization: `Bearer ${identity.pairToken}` } });
+    const state: ConnState = { sessionId: null, heartbeat: null, ackWatch: null, lastAckAt: 0, settled: false };
+    const settle = (outcome: "closed" | "fatal"): void => {
+      if (state.settled) return;
+      state.settled = true;
+      if (state.heartbeat) clearInterval(state.heartbeat);
+      if (state.ackWatch) clearInterval(state.ackWatch);
+      resolve(outcome);
+    };
+    ws.on("open", () => {
+      seq += 1;
+      ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq, data: { supportedVersions: [CONNECTOR_PROTOCOL_VERSION] } }));
+    });
+    attachMessageHandler(ws, identity, state, settle);
+    attachSignalHandlers(ws, state);
+    ws.on("close", () => {
+      log("disconnected", { note: "will reconnect with a fresh session (reconnect ≠ resume)" });
+      settle("closed");
+    });
+    ws.on("error", err => log("ws error", { error: err.message }));
   });
 }
 
@@ -149,7 +192,19 @@ async function main(): Promise<void> {
     process.stderr.write("no device identity: run with --pair <code> --name <name> first\n");
     process.exit(2);
   }
-  connect(args.hub, identity);
+
+  // 断线自动重连（检视 s1）：指数退避，重连=新会话（hub 侧 sid 代际隔离跨会话重放）
+  let backoff = RECONNECT_BASE_MS;
+  for (;;) {
+    const outcome = await connectOnce(args.hub, identity);
+    if (outcome === "fatal") {
+      process.stderr.write("protocol version incompatible with hub — upgrade connector (reconnect pointless)\n");
+      process.exit(3);
+    }
+    log("reconnecting", { inMs: backoff });
+    await new Promise(r => setTimeout(r, backoff));
+    backoff = Math.min(backoff * 2, RECONNECT_MAX_MS);
+  }
 }
 
 main().catch(err => {

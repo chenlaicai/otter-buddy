@@ -18,6 +18,9 @@ export interface ConnectorRegistryRepository {
   redeemPairingCode(code: string, now: string): Promise<boolean>;
   /** 核销成功后建立设备身份（写 devices 行，返长效 token 由调用方生成传入） */
   createDevice(device: Device): Promise<void>;
+  /** 检视 s6：核销+建设备事务原子化——消除「码已烧但设备未建」的窗口（进程崩溃/并发）。
+   *  事务内：核销 UPDATE 命中 1 → INSERT devices；命中 0 → 回滚返 false。 */
+  redeemAndCreateDevice(code: string, device: Device, now: string): Promise<boolean>;
   /** 按 token 查设备（upgrade 鉴权用；无/撤销返回 null） */
   findDeviceByToken(token: string): Promise<Device | null>;
   /** 撤销配对：删 devices 行（token 即刻失效） */

@@ -27,13 +27,8 @@ export class ConnectorPairController {
     }
 
     const now = new Date().toISOString();
-    // 原子核销：时效内且未核销才成功——过期/重放/不存在统一 403（不区分，防探测）
-    const redeemed = await this.repo.redeemPairingCode(code, now).catch(() => false);
-    if (!redeemed) {
-      this.logger.warn("connector pairing rejected", { codePrefix: code.slice(0, 2) });
-      return ctx.json({ error: "pairing code invalid, expired, or already redeemed" }, 403);
-    }
-
+    // 原子核销+建设备（s6：事务内一气呵成，码烧空耗窗口消除）；
+    // 过期/重放/不存在统一 403（不区分，防探测）
     const device: Device = {
       id: `connector-${randomUUID().slice(0, 8)}`,
       name,
@@ -41,7 +36,11 @@ export class ConnectorPairController {
       createdAt: now,
       lastSeenAt: now,
     };
-    await this.repo.createDevice(device);
+    const redeemed = await this.repo.redeemAndCreateDevice(code, device, now).catch(() => false);
+    if (!redeemed) {
+      this.logger.warn("connector pairing rejected", { codePrefix: code.slice(0, 2) });
+      return ctx.json({ error: "pairing code invalid, expired, or already redeemed" }, 403);
+    }
     this.logger.info("connector device paired", { deviceId: device.id, name });
     return ctx.json({ deviceId: device.id, pairToken: device.pairToken }, 201);
   }

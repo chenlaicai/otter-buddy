@@ -39,6 +39,18 @@ describe("connector 注册仓库（配对码/设备/会话三态）", () => {
     expect(await repo.redeemPairingCode("ABCD2345", "2026-11-17T00:06:00Z")).toBe(false); // 重放拒绝
   });
 
+  it("s6 原子配对：核销失败不建设备（码烧空耗窗口消除）", async () => {
+    await repo.createPairingCode("ZZZZ9999", "2026-11-17T00:10:00Z");
+    // 过期码 → 原子方法整体 false，devices 零行
+    expect(await repo.redeemAndCreateDevice("ZZZZ9999", deviceFixture({ pairToken: "tok-z" }), "2026-11-17T00:11:00Z")).toBe(false);
+    expect(await repo.findDeviceByToken("tok-z")).toBeNull();
+    // 时效内 → 核销+建设备一次成型；重放再试 false
+    expect(await repo.redeemAndCreateDevice("ZZZZ9999", deviceFixture({ pairToken: "tok-z" }), "2026-11-17T00:05:00Z")).toBe(true);
+    expect((await repo.findDeviceByToken("tok-z"))?.id).toBe("connector-aaa");
+    expect(await repo.redeemAndCreateDevice("ZZZZ9999", deviceFixture({ id: "connector-x", pairToken: "tok-x" }), "2026-11-17T00:06:00Z")).toBe(false);
+    expect(await repo.findDeviceByToken("tok-x")).toBeNull(); // 重放不建设备
+  });
+
   it("配对码：过期拒绝（fail-closed）", async () => {
     await repo.createPairingCode("EFGH6789", "2026-11-17T00:10:00Z");
     expect(await repo.redeemPairingCode("EFGH6789", "2026-11-17T00:10:01Z")).toBe(false);

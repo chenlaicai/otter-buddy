@@ -69,7 +69,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createMahjongTables(db);
     /** F20261117cnnct（#1868 阶段 4 C1）：connector 设备注册——devices（配对身份）+
      *  online_sessions（执行授权会话，总闸唯一事实源；每 device 至多一 online 行的
-     *  partial unique index 库层兕底）+ pairing_codes（一次性配对码）。新表走 #506 幂等补建 */
+     *  partial unique index 库层兜底）+ pairing_codes（一次性配对码）。新表走 #506 幂等补建 */
     createConnectorRegistryTables(db);
     /** F20261027hwl1：工作账本投影（work_items / work_item_traces / conversation_active_work）。
      *  独立工作 ≠ conversation 的成本归集单位——详见特性文档「核心数据结构」；
@@ -1254,7 +1254,7 @@ function createConnectorRegistryTables(db: Database.Database): void {
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
-    /* 每 device 至多一 online 行——总闸库层兕底：顶替写必须先关旧行（repo 事务内做），
+    /* 每 device 至多一 online 行——总闸库层兜底：顶替写必须先关旧行（repo 事务内做），
      * 并发双上线撞索引即拒，不依赖应用层检查 */
     CREATE UNIQUE INDEX IF NOT EXISTS idx_online_sessions_device_online
       ON online_sessions(device_id) WHERE status = 'online';
