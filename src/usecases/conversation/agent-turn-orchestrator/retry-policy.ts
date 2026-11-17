@@ -83,9 +83,14 @@ export function buildAutoRetryMsg(reason: string): string {
 /**
  * F20260916b1ea：恢复链续跑引导文案。invoke 模型下被中断獭已落库的
  * speak entries 追加式保留，文案由旧版「保留在本条消息中」改为「保留在对话中」。
+ * F20261116actlg PR-B：可选内嵌动作台账摘要（机器真相——succeeded 别重做/unknown
+ * 先检查/interrupted 可重做），「上一步实际做没做成」从此查台账不靠回忆。
  */
-export function buildRestartResumeMsg(): string {
-  return '[系统提醒] 服务重启导致你的发言中断，系统已自动恢复。你之前 speak 的内容已保留在对话中，请基于已有进度继续完成发言，然后 yield 交棒。如果对任务上下文记忆不完整，先查阅消息历史再继续。';
+export function buildRestartResumeMsg(actionLedgerSummary?: string | null): string {
+  const summaryBlock = actionLedgerSummary
+    ? `\n${actionLedgerSummary}\n请以台账为准核对现场后继续任务：已完成（succeeded）的动作不要重做；结果不明（unknown）的先检查再决定；确认未完成（interrupted）的可安全重做。\n`
+    : "";
+  return `[系统提醒] 服务重启导致你的执行中断，系统已自动恢复。${summaryBlock}你之前 speak 的内容已保留在对话中，请基于已有进度继续完成发言，然后 yield 交棒。如果对任务上下文记忆不完整，先查阅消息历史再继续。`;
 }
 
 /** F20260916b1ea：恢复失败/跳过的用户可见提示（成功路径静默——沿用搭档 9/6 裁决）。 */

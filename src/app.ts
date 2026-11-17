@@ -791,6 +791,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       },
       healingRepo: repos.healingEvent,
       logger,
+      // F20261116actlg PR-B：恢复摘要数据源（本机动作台账只读面；台账缺席时恢复文案退回旧版）
+      actionLedger: actionLedger ?? undefined,
     });
     resumeService.resume().catch((err) => {
       logger.error("Resume interrupted service failed", err instanceof Error ? err : new Error(String(err)));
