@@ -20,7 +20,7 @@
     "test:script-arg-parse": "bash tests/scripts/script-arg-parse.test.sh",
     "test:port-identity": "bash tests/scripts/port-identity.test.sh",
     "test:otterbar-probe": "bash tests/scripts/otterbar-offline-probe.test.sh",
-    "check": "npm run build && npm run lint && npm run lint:schema && npm run smoke:boot && npm run test:script-arg-parse && npm run test:port-identity && npm run test:otterbar-probe",
+    "check": "npm run build && npm run lint && npm run lint:schema && npm run smoke:boot && npm run test:script-arg-parse && npm run test:port-identity && npm run test:otterbar-probe && npm run build:connector",
     "download:bge-m3": "node scripts/download-bge-m3.mjs",
     "start": "node scripts/check-sdk-patch.mjs && npm run build && node dist/src/main.js",
     "test:capability": "npm run build && vitest run --config vitest.capability.config.ts",
@@ -40,7 +40,8 @@
     "lint:evidence-anchors": "node scripts/lint-evidence-anchors.mjs",
     "smoke:boot": "bash scripts/smoke-boot.sh",
     "lint:schema": "node scripts/lint-schema-ddl.mjs",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "build:connector": "npx tsc -p tsconfig.connector.json && npx tsc-alias -f -p tsconfig.connector.json && node scripts/check-connector-closure.mjs"
   },
   "keywords": [],
   "author": "",

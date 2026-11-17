@@ -1250,6 +1250,7 @@ function createConnectorRegistryTables(db: Database.Database): void {
       disconnect_reason TEXT CHECK(disconnect_reason IS NULL OR disconnect_reason IN ('device-offline', 'heartbeat-timeout', 'hub-restart', 'auth-failed')),
       last_seen_at TEXT NOT NULL,
       protocol_version INTEGER,
+      /* CASCADE：撤销设备 = 身份+token+会话史彻底清除（动作审计归 remote_action_requests，C2） */
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
