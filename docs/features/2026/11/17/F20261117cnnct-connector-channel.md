@@ -145,6 +145,7 @@ BuiltApp.connectorGateway 字段（dispose 链 hub-restart 收尾）；server.ts
 | `npm run build:connector` | PASS：tsc → tsc-alias → 闭包断言（import 图零违禁+无逃逸） |
 | `npm run check` | PASS（check 聚合已挂 build:connector） |
 | `npm test` | 全量回归（local 机器与恢复链零改动） |
+| alpha 实启端到端（hub :3114 + 独立 connector 进程） | PASS：配对全链（码核销/devices/token）/WSS 上线（sid+库行+中枢日志）/心跳（last_seen 持续前移）/SIGTERM 主动下线（库 offline/device-offline；竞态时 close 兜底 heartbeat-timeout）/断线自动重连（新会话顶替旧行）——证据见 PR comment |
 | GitHub CI | PR 创建后运行（见 PR checks） |
 
 ## Rollback
