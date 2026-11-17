@@ -299,6 +299,11 @@ export function buildBeforeAgentStartResult(
 
 /** S1（R20260810piab）：per-invoke 上下文，通过 AsyncLocalStorage 传递给 extension handler。 */
 export interface OtterInvokeContext {
+  /** F20261116actlg（#1868 阶段 3）：当前 invoke id——动作台账归属用。 */
+  currentInvokeId?: string;
+  /** F20261116actlg：当前正在执行的工具调用 id（DurableSession.beforeTool 写入、
+   * 下一枚 beforeTool 覆盖）——动作台账按 toolCallId 铸造 actionId。 */
+  currentToolCallId?: string;
   /** otterConfig.systemPrompt（string 或 OtterPromptConfig 含 reminders） */
   otterPromptConfig: string | OtterPromptConfig | undefined;
   /** 首次 invoke 的身份前缀（名称/ID/类型/身份文案/模型指南/搭档名）；非首次为空串 */

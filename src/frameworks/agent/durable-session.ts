@@ -186,6 +186,9 @@ export class DurableSession {
     const halt = haltToolCallGuard(ctx, this.options.haltRegistry as never, call.name);
     const guard = await halt ?? loopBlockGuard(ctx, call.name, call.arguments) ?? bashGuardGate(ctx, call.name, call.arguments);
     if (guard) return { block: guard.reason };
+    // F20261116actlg：守卫放行后才写入当前工具调用 id（SUGG-4：被拦截的 call.id 不应
+    // 残留到下一枚覆盖前——那会让非工具期的 env 动作误归属到被拦调用）。
+    if (ctx) ctx.currentToolCallId = call.id;
     return undefined;
   }
 
@@ -262,9 +265,14 @@ export class DurableSession {
   // eslint-disable-next-line complexity, max-statements
   async prompt(text: string, options: DurablePromptOptions | undefined, stream: DurableEventStream, context: Context): Promise<void> {
     const scope = otterInvokeStorage.getStore();
-    const invokeId = this.hasBoundInvoke ? this.currentInvokeId : ((scope as { currentInvokeId?: string } | undefined)?.currentInvokeId ?? this.options.invokeId ?? this.options.register.currentInvokeId);
+    // F20261116actlg：原 scope.currentInvokeId fallback 分支是死代码（store 每次 execute 新建、
+    // 此前无人写入）——摘除，避免本阶段写入后跨 prompt 复用旧值。
+    const invokeId = this.hasBoundInvoke ? this.currentInvokeId : (this.options.invokeId ?? this.options.register.currentInvokeId);
     if (!invokeId) throw new Error("Durable prompt requires currentInvokeId");
     this.currentInvokeId = invokeId;
+    // F20261116actlg：invoke id 写入 ALS store——动作台账归属（RecordingNodeExecutionEnv
+    // 与 LocalExecutionMachine 读取）；工具调用 id 由 beforeTool 逐枚覆盖。
+    if (scope) scope.currentInvokeId = invokeId;
     if (this.options.promptProvider) this.promptText = await this.options.promptProvider();
     await this.conversation.configure(this.agentChange(), BACKGROUND_CONTEXT);
     const before = await this.usage(BACKGROUND_CONTEXT);
@@ -310,6 +318,9 @@ export class DurableSession {
     await this.conversation.waitForIdle(context);
     this._state = "idle";
     await sink.apply(this.watcher.value, []);
+    // F20261116actlg（dspro RESIDUAL-3）：回合结束即清除当前工具调用 id（置于 unanswered
+    // 抛错之前——异常回合同样清除，非工具期 env 动作不误归属）。
+    if (scope) scope.currentToolCallId = undefined;
     const after = await this.usage(BACKGROUND_CONTEXT);
     this.invocationTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     for (const bucket of ["models", "tools"] as const) for (const [key, usage] of Object.entries(after?.[bucket] ?? {})) {

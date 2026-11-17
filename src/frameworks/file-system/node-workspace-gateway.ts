@@ -1,9 +1,25 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 
+type FsPromises = typeof fs;
+
 /** 单文件大小上限 1MB */
 const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024;
+
+/** R-1：链式断链逐级 readlink 解析到最终缺失目标；深度上限对齐 OS ELOOP 常见配额 40，
+ *  耗尽仍指向链接 = 循环/超深链，显式报错对齐 SDK 基线的 ELOOP（不静默替换链接）。 */
+async function resolveBrokenLinkTarget(fs: FsPromises, linkPath: string): Promise<string> {
+  let current = linkPath;
+  for (let depth = 0; depth < 40; depth += 1) {
+    const raw = await fs.readlink(current);
+    current = path.isAbsolute(raw) ? raw : path.resolve(path.dirname(current), raw);
+    const next = await fs.lstat(current).catch(() => undefined);
+    if (!next || !next.isSymbolicLink()) return current;
+  }
+  throw new Error(`symlink chain too deep or cyclic: ${linkPath}`);
+}
 
 /**
  * WorkspaceGateway 的 Node.js 文件系统实现。
@@ -96,7 +112,36 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
     }
     const fullPath = await this.resolveSafe(conversationId, relativePath);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, content, "utf-8");
+    // F20261116actlg（#1868 阶段 3）：原子写——同目录临时文件 → rename 原子落位，
+    // 崩溃不留半截文件；已存在目标保留 mode；symlink 跟随写真实文件不替换链接；
+    // broken symlink 回退 SDK 语义（穿透创建 referent），对齐 env 基线。
+    let target = fullPath;
+    let mode: number | undefined;
+    try {
+      const linkStat = await fs.lstat(target);
+      if (linkStat.isSymbolicLink()) {
+        try {
+          target = await fs.realpath(target);
+        } catch {
+          // 链式断链：逐级 readlink 到最终缺失目标（深度上限防循环链），穿透创建 referent
+          target = await resolveBrokenLinkTarget(fs, fullPath);
+          await fs.mkdir(path.dirname(target), { recursive: true });
+        }
+      }
+      const existingStat = await fs.stat(target).catch(() => undefined);
+      mode = existingStat ? existingStat.mode & 0o777 : undefined;
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("symlink chain")) throw error; // 链解析显式失败不吞
+      /* 全新文件 */
+    }
+    const tmp = path.join(path.dirname(target), `.otter-tmp-${crypto.randomUUID()}`);
+    try {
+      await fs.writeFile(tmp, content, { encoding: "utf-8", mode: mode ?? 0o666 });
+      await fs.rename(tmp, target);
+    } catch (error) {
+      await fs.rm(tmp, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 
   async listDir(

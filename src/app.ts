@@ -26,6 +26,8 @@ import { ResumeInterruptedService } from "@usecases/conversation/resume-interrup
 
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 import { LocalExecutionMachine } from "@frameworks/execution/local-execution-machine";
+import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-ledger";
+import { LOCAL_EXECUTION_MACHINE_ID } from "@usecases/ports/execution-machine";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
 import { resolveOwnerPassword, verifyOwnerPassword } from "@interface-adapters/http/auth/owner-password";
 import { createSessionSigner } from "@interface-adapters/http/auth/session-cookie";
@@ -386,8 +388,28 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   
   // ── 对话工作区与内置本机执行机 ──
   const workspaceGateway = new NodeWorkspaceGateway(dataDir);
+  // F20261116actlg（#1868 阶段 3）：本机动作台账——每机一库（执行机本地真相：副作用
+  // 五态 + hash + 结果位置）。open() 内完成开机清扫（旧纪元 running 裁决）+ 终态修剪；
+  // 失败降级为无台账运行（记录关闭，动作照常执行），不阻断启动。
+  let actionLedger: SqliteActionLedger | null = null;
+  try {
+    actionLedger = new SqliteActionLedger(
+      path.join(dataDir, "execution-machines", LOCAL_EXECUTION_MACHINE_ID, "actions.db"),
+      { logger },
+    );
+    // 清扫旧纪元残留（await：恢复链读台账前完成裁决）
+    await actionLedger.open();
+  } catch (err) {
+    logger.warn("action ledger open failed; running without action recording (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
+  }
   const executionMachines = new ExecutionMachineRegistry();
-  executionMachines.register(new LocalExecutionMachine(workspaceGateway));
+  executionMachines.register(
+    new LocalExecutionMachine(
+      workspaceGateway,
+      actionLedger,
+      (message, meta) => logger.warn(message, meta),
+    ),
+  );
 
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
   const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask } = await createAgentGateway({
@@ -787,6 +809,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       disposed = true;
       // F20260930roiv：停延迟 reconcile 定时器（防进程退出后回调炸）
       if (delayedReconcileTimer) clearTimeout(delayedReconcileTimer);
+      // F20261116actlg：关动作台账（WAL checkpoint 落盘）
+      try { actionLedger?.close(); } catch { /* best-effort */ }
       // #460：停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
       feishuScan.disposeAll(); // F20260929fsqr：扫码线持有全部飞书 WS 句柄，dispose 时统一停（原 feishuStop 随静态线退役）
       // F20260829wxch（#213）：停微信长轮询通道——否则 SIGINT/SIGTERM 时
