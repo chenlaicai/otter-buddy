@@ -186,6 +186,15 @@ describe("F20261030gcfbx · v4 对齐收尾", () => {
     expectClass("grep -R colink ~/.ssh", "cred_dir_access");
     expectClass("echo x >> ~/.ssh/authorized_keys", "cred_dir_access");
     expectClass("ssh-keygen -y -f ~/.ssh/id_ed25519", "cred_dir_access");
+    // 检视 delta：混合命令绕过 + 清单外写动词回归钉
+    expectClass("cat ~/.ssh/id_rsa ~/.ssh/known_hosts", "cred_dir_access");
+    expectClass("cat ~/.ssh/id_rsa; ls ~/.ssh", "cred_dir_access");
+    expectClass("sed -i 's/x/y/' ~/.ssh/config", "cred_dir_access");
+    expectClass("gawk -i inplace '{}' ~/.ssh/config", "cred_dir_access");
+    expectClass("rsync -a ~/.ssh /tmp/backup", "cred_dir_access");
+    expectClass("unlink ~/.ssh/known_hosts", "cred_dir_access");
+    // 公开只读仍放行（sed 无 -i 读态）
+    expect(checkBashCommandSafety("sed -n '1,240p' ~/.ssh/config", 12345, undefined, { projectRoot: "/repo", processProbe: PROBE })).toBeNull();
   });
 
   it("B 类外发 fail-closed 分支（无 URL 上传动词）已随退役放行", () => {

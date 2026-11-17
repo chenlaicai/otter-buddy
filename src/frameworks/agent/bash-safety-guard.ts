@@ -346,10 +346,12 @@ const CREDENTIAL_PATH_PATTERNS = [
   /\.aws([/ "'$]|$)/,
 ];
 
-/** #1892 公开只读放行：写操作动词（命中凭证路径时恒拦截，无论读私密）；重定向/追加亦算写 */
-const CRED_WRITE_RE = /\b(?:cp|mv|rm|install|tee|chmod|chown|chattr|truncate|ssh-keygen|touch|ln)\b|>>|>/;
+/** #1892 写操作：枚举动词 + sed/gawk/awk 就地改写（-i）+ 任何重定向/追加（> / >>） */
+const CRED_WRITE_RE = /\b(?:cp|mv|rm|install|tee|chmod|chown|chattr|truncate|ssh-keygen|touch|ln|rsync|dd|unlink)\b|\b(?:sed|gawk|awk)\b[^\n;|&]*\s-i\b|>>|>/;
+/** #1892 私钥/凭证本体（读也拦——先于公开只读判定，防「私钥+公开文件」混合命令整串放行） */
+const CRED_PRIVATE_RE = /(?:id_rsa|id_ed25519|id_ecdsa|id_dsa|id_xmss)(?![\w-]*\.pub)|\.pem\b|\.key\b|credentials\b/;
 /** #1892 公开只读放行：目录列举（不泄文件内容） */
-const CRED_LS_RE = /(?:^|[\s;&|])ls(?:\s+-[A-Za-z]+)*\s+[^\s|;&]*\.(?:ssh|gnupg|aws)\b/;
+const CRED_LS_RE = /(?:^|[\s;&|])ls(?:\s+-[A-Za-z0-9]+)*\s+[^\s|;&]*\.(?:ssh|gnupg|aws)\b/;
 /** #1892 公开只读放行：公钥 / known_hosts / ssh config（无凭证内容） */
 const CRED_READ_PUBLIC_PATTERNS = [
   /\.pub(?:["'\s]|$)/,
@@ -363,11 +365,15 @@ function credentialPathHit(command: string): boolean {
   const home = process.env.HOME ?? "";
   const normalized = home ? command.split(home).join("~") : command;
   if (!CREDENTIAL_PATH_PATTERNS.some(p => p.test(normalized))) return false;
-  // #1892：命中凭证路径后按「公开只读」口径放行——写操作恒拦，私钥/credentials 读取恒拦；
-  // 只放行：目录列举（ls）、公钥（.pub）、known_hosts、ssh config。其余（id_rsa/credentials/任何写）继续拦。
+  // #1892 命中凭证路径后按「公开只读」口径分层（检视 delta：先拦私钥与写，防混合命令绕过）：
+  // ① 写操作恒拦（含 sed -i/gawk -i 就地改写与任何重定向）
   if (CRED_WRITE_RE.test(normalized)) return true;
+  // ② 私钥/凭证本体恒拦——先于公开只读判定，否则「cat id_rsa known_hosts」整串被公开命中放行
+  if (CRED_PRIVATE_RE.test(normalized)) return true;
+  // ③ 仅放行：目录列举（ls）、公钥（.pub）、known_hosts、ssh config
   if (CRED_LS_RE.test(normalized)) return false;
   if (CRED_READ_PUBLIC_PATTERNS.some(p => p.test(normalized))) return false;
+  // ④ 其余（未识别读形态 / 其他凭证文件如 secring.gpg、authorized_keys）默认拦
   return true;
 }
 
