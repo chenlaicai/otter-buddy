@@ -45,6 +45,15 @@ export class DissolveOtter {
     }
 
     /** 2. 不变量校验 */
+    // F20261117dsgrd：大獭永远不可解散（搭档 2026-11-17 定调）。
+    // big 獭是对话常驻/宿主执行体，解散不可逆且影响面跨对话——任何入口（工具/HTTP/清理）一律拒绝。
+    // 事故背景：2026-11-16 端云改造大獭按不属本对话的 ID 误解散了「三省吾身」大獭。
+    if (otter.type === 'big') {
+      throw new DomainError(
+        `大獭（big 獭）不可解散，永久保留: ${otterId}`,
+        "validation",
+      );
+    }
     if (!canDissolveOtter(otter.status)) {
       throw new DomainError(
         `Cannot dissolve otter with status: ${otter.status}`,

@@ -8,12 +8,12 @@ import type { AgentGateway } from "@usecases/otter/agent-gateway";
 import type { OtterSession } from "@entities/otter/otter-session";
 import type { ManageSession } from "@usecases/otter/manage-session";
 
-/** 创建一个 active 状态的 otter 测试数据 */
+/** 创建一个 active 状态的 otter 测试数据（默认 small——big 獭不可解散，见 F20261117dsgrd） */
 function makeActiveOtter(overrides: Partial<Otter> = {}): Otter {
   return {
     id: "otter-1",
     name: "测试水獭",
-    type: "big",
+    type: "small",
     status: "active",
     color: null,
     role: null,
@@ -162,6 +162,22 @@ describe("DissolveOtter", () => {
 
       expect(err).toBeInstanceOf(DomainError);
       expect(err.kind).toBe("validation");
+    });
+
+    it("F20261117dsgrd：big 獭不可解散（大獭永远保留）", async () => {
+      const otter = makeActiveOtter({ type: "big" });
+      const repo = mockRepo(otter);
+      const gateway = mockAgentGateway();
+      const manageSession = mockManageSession();
+
+      const useCase = new DissolveOtter(repo, gateway, manageSession);
+      const err = await useCase.execute("otter-1").catch((e) => e);
+
+      expect(err).toBeInstanceOf(DomainError);
+      expect(err.kind).toBe("validation");
+      /** 关键：不得落到 repo.dissolve 或 agent.destroy */
+      expect(repo._operations).not.toContain("dissolve");
+      expect(gateway._destroyedIds).toHaveLength(0);
     });
 
     it("传入 summary 时归档使用该 summary", async () => {
