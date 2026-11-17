@@ -346,18 +346,28 @@ const CREDENTIAL_PATH_PATTERNS = [
   /\.aws([/ "'$]|$)/,
 ];
 
-/** #1892 写操作：枚举动词 + sed/gawk/awk 就地改写（-i）+ 任何重定向/追加（> / >>） */
-const CRED_WRITE_RE = /\b(?:cp|mv|rm|install|tee|chmod|chown|chattr|truncate|ssh-keygen|touch|ln|rsync|dd|unlink)\b|\b(?:sed|gawk|awk)\b[^\n;|&]*\s-i\b|>>|>/;
-/** #1892 私钥/凭证本体（读也拦——先于公开只读判定，防「私钥+公开文件」混合命令整串放行） */
-const CRED_PRIVATE_RE = /(?:id_rsa|id_ed25519|id_ecdsa|id_dsa|id_xmss)(?![\w-]*\.pub)|\.pem\b|\.key\b|credentials\b/;
-/** #1892 公开只读放行：目录列举（不泄文件内容） */
-const CRED_LS_RE = /(?:^|[\s;&|])ls(?:\s+-[A-Za-z0-9]+)*\s+[^\s|;&]*\.(?:ssh|gnupg|aws)\b/;
-/** #1892 公开只读放行：公钥 / known_hosts / ssh config（无凭证内容） */
-const CRED_READ_PUBLIC_PATTERNS = [
-  /\.pub(?:["'\s]|$)/,
-  /(?:^|[\s/])known_hosts(?:["'\s]|$)/,
-  /\.ssh\/config(?:["'\s]|$)/,
-];
+/** #1892 写操作：读动词的就地改写旗标（sed/awk/gawk/perl/ruby -i / --in-place）+ 任何重定向（> / >>）。
+ *  清单动词（cp/mv/rm/…）不在此枚举——它们不是读动词，默认兜底即拦。 */
+const CRED_WRITE_RE = /\b(?:sed|gawk|awk|perl|ruby)\b[^\n;|&]*\s(?:-i(?:\.[A-Za-z]+)?|--in-place)\b|>>|>/;
+/** #1892 公开只读放行：目录列举（ls 不读文件内容，含 -la/--all/-1 旗标形态） */
+const CRED_LS_RE = /(?:^|[\s;&|])ls(?:\s+-{1,2}[A-Za-z0-9]+)*\s+[^\s|;&]*\.(?:ssh|gnupg|aws)\b/;
+/** #1892 公开只读放行：读动词 + 公开目标（公钥 / known_hosts / ssh config）——结构匹配，
+ *  防「python3 -c 写 config / echo 路径」之类任意串撞公开 token；私密 token 另由 hasPrivateCredFile 拦。 */
+const CRED_READ_PUBLIC_RE = /(?:^|[\s;&|])(?:cat|grep|head|tail|wc|file|less|more|sed|awk)\b[^\n;|&]*?(?:\.pub|known_hosts|\.ssh\/config)(?:["'\s;|&]|$)/;
+
+/** #1892 凭证目录内私密文件 token 扫描——公开清单外的任何文件引用（id_rsa/colink_ed25519/
+ *  credentials/secring.gpg 等）都视为私密。公共口径：.ssh/{known_hosts,config,*.pub}。 */
+function hasPrivateCredFile(normalized: string): boolean {
+  const re = /\.(ssh|gnupg|aws)\/([^\s|;&$'"\\]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(normalized)) !== null) {
+    const dir = m[1];
+    const name = m[2].replace(/\/$/, "");
+    const isPublic = dir === "ssh" && (name === "known_hosts" || name === "config" || name.endsWith(".pub"));
+    if (!isPublic) return true;
+  }
+  return false;
+}
 
 /** 展开归一：~/x 与 /Users/<who>/.x 双形态都认（不依赖 HOME 求值——路径特征即拦） */
 function credentialPathHit(command: string): boolean {
@@ -365,14 +375,14 @@ function credentialPathHit(command: string): boolean {
   const home = process.env.HOME ?? "";
   const normalized = home ? command.split(home).join("~") : command;
   if (!CREDENTIAL_PATH_PATTERNS.some(p => p.test(normalized))) return false;
-  // #1892 命中凭证路径后按「公开只读」口径分层（检视 delta：先拦私钥与写，防混合命令绕过）：
-  // ① 写操作恒拦（含 sed -i/gawk -i 就地改写与任何重定向）
+  // #1892 分层（delta-2：改为白名单収口——只放行读动词+公开目标，其余一并默认拦）：
+  // ① 写操作恒拦（就地改写旗标 / 重定向）
   if (CRED_WRITE_RE.test(normalized)) return true;
-  // ② 私钥/凭证本体恒拦——先于公开只读判定，否则「cat id_rsa known_hosts」整串被公开命中放行
-  if (CRED_PRIVATE_RE.test(normalized)) return true;
-  // ③ 仅放行：目录列举（ls）、公钥（.pub）、known_hosts、ssh config
-  if (CRED_LS_RE.test(normalized)) return false;
-  if (CRED_READ_PUBLIC_PATTERNS.some(p => p.test(normalized))) return false;
+  // ② 目录列举放行（ls 不读文件内容；但私密 token 扫描不豁免——「cat 私钥; ls」混合段仍拦）
+  if (CRED_LS_RE.test(normalized) && !hasPrivateCredFile(normalized)) return false;
+  // ③ 读动词 + 公开目标 + 无私密 token 才放行（混合命令在私密 token 扫描处被拦）
+  if (CRED_READ_PUBLIC_RE.test(normalized) && !hasPrivateCredFile(normalized)) return false;
+  // ④ 其余（cp/mv/rm/写动词 / 读私钥 / grep -R / 解释器以码写 config 等）默认拦
   // ④ 其余（未识别读形态 / 其他凭证文件如 secring.gpg、authorized_keys）默认拦
   return true;
 }
@@ -388,7 +398,7 @@ function credentialPathHit(command: string): boolean {
  *  （bash <(curl) 拦；bash <(echo)|diff <(curl) 放——解释器吃 echo，curl 只是 diff 参数）；
  *  cat <(curl)|bash 漏判面由 pipeToInterpreterHit 的 D4 段内扩形态覆盖。 */
 function processSubstitutionHit(command: string): boolean {
-  const interpreterRe = /^(?:sudo\s+)?(?:env\s+)?(?:[A-Za-z_]\w*=\S+\s+)*(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript|source)\b/;
+  const interpreterRe = /^(?:sudo\s+)?(?:env\s+(?:-[A-Za-z]+\s+)*)?(?:[A-Za-z_]\w*=\S+\s+)*(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript|source)\b/;
   const fetcherInsideRe = /<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
   // delta-r3：链内再按 | 拆管道段——解释器段与 <(fetcher) 必须在同一段
   // （bash <(echo)|diff <(curl)：解释器段的替换里是 echo，curl 在 diff 段——放行）
@@ -401,9 +411,9 @@ function processSubstitutionHit(command: string): boolean {
   return false;
 }
 function pipeToInterpreterHit(command: string): boolean {
-  const interpreterRe = /^(?:sudo\s+)?(?:env\s+)?(?:[A-Za-z_]\w*=\S+\s+)*(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
+  const interpreterRe = /^(?:sudo\s+)?(?:env\s+(?:-[A-Za-z]+\s+)*)?(?:[A-Za-z_]\w*=\S+\s+)*(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
   // #1892：python -m json.tool 是格式化模块（读 stdin 输出格式化 JSON），非「执行下载内容」——排除出解释器判定
-  const jsonToolFormatterRe = /^(?:sudo\s+)?(?:env\s+)?python\d?\s+-m\s+json\.tool\b/;
+  const jsonToolFormatterRe = /^(?:sudo\s+)?(?:env\s+(?:-[A-Za-z]+\s+)*)?python\d?\s+-m\s+json\.tool\b/;
   // D4（检视 delta-r3）：段首 fetcher 或段内进程替换 fetcher（cat <(curl …) 形态——
   // 替换输出即该段的数据源，管道对端解释器吃到下载内容，与 curl|sh 同构）
   const fetcherRe = /^(?:sudo\s+)?(?:curl|wget)\b|<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;

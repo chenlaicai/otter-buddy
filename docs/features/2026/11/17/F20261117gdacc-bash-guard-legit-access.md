@@ -38,17 +38,19 @@ capability_test: "guard-intercept-classify 新增公开只读/边界/格式化�
 
 ## 方案（C 最小改动：只放行公开只读 + 格式化模块，真负门零弱化）
 
-### ① cred_dir_access 公开只读口径（检视 delta 后：私钥/写先拦）
+### ① cred_dir_access 公开只读白名单（delta-2 収口：默认拦，只白名单读/列举）
 
-命中凭证路径后分层（顺序即判定优先级）：
-1. **写操作恒拦**：`cp/mv/rm/install/tee/chmod/chown/chattr/truncate/ssh-keygen/touch/ln/rsync/dd/unlink`、`sed/gawk/awk -i` 就地改写、任何 `>`/`>>` 重定向。
-2. **私钥/凭证本体恒拦**：`id_rsa/id_ed25519/id_ecdsa/id_dsa/id_xmss`（非 .pub）、`.pem`、`.key`、`credentials`——先于公开只读判定，防「私钥+公开文件」混合命令整串放行。
-3. **仅放行公开只读**：目录列举（`ls … ~/.ssh`）、公钥（`*.pub`）、`known_hosts`、`ssh config`。
-4. 其余（未识别读形态/authorized_keys/secring.gpg 等）默认拦。
+命中凭证路径后只白名单两形态，其余一并默认拦：
+1. **写操作恒拦**：读动词的就地改写旗标（`sed/gawk/awk/perl/ruby -i` / `--in-place`）、任何 `>`/`>>` 重定向；cp/mv/rm/rsync/dd/unlink 等本身不是读动词，默认兜底即拦。
+2. **目录列举放行**：`ls …`（含 `-la / --all / -1`）——ls 不读文件内容；但整串含私密文件 token 时不豁免。
+3. **纯读公开文件放行**：`cat/grep/head/tail/wc/file/less/more/sed/awk`（无就地旗标）+ 公开目标（`.pub` / `known_hosts` / `.ssh/config`），且整串无任何私密文件 token。
+4. **私密文件 token 扫描**：凭证目录内任何非公开清单文件引用（`id_rsa` / 自定义钥匙名 `colink_ed25519` / `credentials` / `secring.gpg` 等）即视为私密——防混合命令与自定义钥匙名绕过。
+
+私有密钥名不可枚举穷尽，故収口为「公开文件白名单 + 读动词白名单」，非「私密黑名单」。
 
 ### ② download_exec 排除格式化模块 + 解释器形态收口
 
-管道解释器判定排除 `python3 -m json.tool`（读 stdin 输出格式化 JSON，非执行下载内容），`env` 前缀同排除。裸 `python3` / `python -c` / `env python3` 吃 stdin 当脚本执行仍拦。
+管道解释器判定排除 `python3 -m json.tool`（读 stdin 输出格式化 JSON，非执行下载内容），`env` / `env -i` 前缀同排除。裸 `python3` / `python -c` / `env [赋] python3` / `env -i python3` 吃 stdin 当脚本执行仍拦。
 
 ## R8.5 准入三问
 
@@ -60,8 +62,8 @@ capability_test: "guard-intercept-classify 新增公开只读/边界/格式化�
 
 - [x] guard 相关 6 测试文件 238/238 通过（含 replay 147/147、classify、bounce）
 - [x] replay 2 条改判：`ls ~/.ssh`、`cat/sed ssh config` 从 block 改 allow（#1892 现场同形态）；既有 curl|sh、进程替换、curl|python3 -c、主进程 kill 等负门全部仍 block
-- [x] 检视 delta 回归钉：混合命令（`cat id_rsa known_hosts` / `cat id_rsa; ls`）仍 block；写动词扩容（sed -i / gawk -i / rsync / unlink）仍 block；`sed -n` 读态 ssh config 仍放行
-- [x] 检视建议 3 补修：`curl | env python3` / `env VAR=1 python3 -c` 仍拦，`env python3 -m json.tool` 仍放行
+- [x] 检视 delta / delta-2 回归钉：混合命令（`cat id_rsa known_hosts` / `cat id_rsa; ls` / 自定义钥匙名）、写形态（sed -i / --in-place / gawk -i / perl -i / rsync / unlink / python3 -c 写 config）均仍 block；`sed -n` 读态 config、`ls --all` 仍放行
+- [x] 检视建议 3/4 补修：`curl | env python3` / `env -i python3` / `env VAR=1 python3 -c` 仍拦，`env python3 -m json.tool` 仍放行；`ls --all` 长选项放行
 
 ## 影响
 
