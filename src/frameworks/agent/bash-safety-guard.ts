@@ -388,7 +388,7 @@ function credentialPathHit(command: string): boolean {
  *  （bash <(curl) 拦；bash <(echo)|diff <(curl) 放——解释器吃 echo，curl 只是 diff 参数）；
  *  cat <(curl)|bash 漏判面由 pipeToInterpreterHit 的 D4 段内扩形态覆盖。 */
 function processSubstitutionHit(command: string): boolean {
-  const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript|source)\b/;
+  const interpreterRe = /^(?:sudo\s+)?(?:env\s+)?(?:[A-Za-z_]\w*=\S+\s+)*(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript|source)\b/;
   const fetcherInsideRe = /<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
   // delta-r3：链内再按 | 拆管道段——解释器段与 <(fetcher) 必须在同一段
   // （bash <(echo)|diff <(curl)：解释器段的替换里是 echo，curl 在 diff 段——放行）
@@ -401,9 +401,9 @@ function processSubstitutionHit(command: string): boolean {
   return false;
 }
 function pipeToInterpreterHit(command: string): boolean {
-  const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
+  const interpreterRe = /^(?:sudo\s+)?(?:env\s+)?(?:[A-Za-z_]\w*=\S+\s+)*(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
   // #1892：python -m json.tool 是格式化模块（读 stdin 输出格式化 JSON），非「执行下载内容」——排除出解释器判定
-  const jsonToolFormatterRe = /^(?:sudo\s+)?python\d?\s+-m\s+json\.tool\b/;
+  const jsonToolFormatterRe = /^(?:sudo\s+)?(?:env\s+)?python\d?\s+-m\s+json\.tool\b/;
   // D4（检视 delta-r3）：段首 fetcher 或段内进程替换 fetcher（cat <(curl …) 形态——
   // 替换输出即该段的数据源，管道对端解释器吃到下载内容，与 curl|sh 同构）
   const fetcherRe = /^(?:sudo\s+)?(?:curl|wget)\b|<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
