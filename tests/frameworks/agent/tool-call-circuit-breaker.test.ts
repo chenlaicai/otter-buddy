@@ -345,6 +345,79 @@ describe("buildToolSignature —— #1761 批量处置收口", () => {
   });
 });
 
+describe("buildToolSignature —— #1895 archive_artifact_for_reconciliation 签名", () => {
+  it("按 artifactId 分签名，evidence 不入签名", () => {
+    expect(buildToolSignature("archive_artifact_for_reconciliation", { artifactId: "a-1", evidence: "gh pr view 1801 --json state" }))
+      .toBe("archive_artifact_for_reconciliation: a-1");
+    expect(buildToolSignature("archive_artifact_for_reconciliation", { artifactId: "a-2", evidence: "worktree 路径不存在" }))
+      .toBe("archive_artifact_for_reconciliation: a-2");
+    // 同一产物不同 evidence 仍是同一归档目标，同签名（幂等重试值得提醒）。
+    expect(buildToolSignature("archive_artifact_for_reconciliation", { artifactId: "a-1", evidence: "other evidence" }))
+      .toBe("archive_artifact_for_reconciliation: a-1");
+    expect(buildToolSignature("archive_artifact_for_reconciliation", {})).toBe("archive_artifact_for_reconciliation");
+  });
+
+  it("同日连续归档不同产物不触发连续同构拦截（#1895 现场）", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 8; i++) {
+      expect(cb.check("archive_artifact_for_reconciliation", { artifactId: `artifact-${i}`, evidence: `evidence-${i}` }).action).toBe("allow");
+    }
+  });
+
+  it("同一产物反复归档仍触发连续同构拦截", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 5; i++) {
+      expect(cb.check("archive_artifact_for_reconciliation", { artifactId: "artifact-1", evidence: "e" }).action).toBe("allow");
+    }
+    expect(cb.check("archive_artifact_for_reconciliation", { artifactId: "artifact-1", evidence: "e" }).action).toBe("steer");
+  });
+});
+
+describe("buildToolSignature —— #1895 同族收口（五个带实体工具入表）", () => {
+  it("resolve_signal 按 signalId 分签名", () => {
+    expect(buildToolSignature("resolve_signal", { signalId: "sig-1", status: "resolved", resolution: "r" })).toBe("resolve_signal: sig-1");
+    expect(buildToolSignature("resolve_signal", { signalId: "sig-2", status: "dismissed", resolution: "r" })).toBe("resolve_signal: sig-2");
+    expect(buildToolSignature("resolve_signal", {})).toBe("resolve_signal");
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 6; i++) {
+      expect(cb.check("resolve_signal", { signalId: `sig-${i}`, status: "resolved", resolution: "r" }).action).toBe("allow");
+    }
+  });
+
+  it("triage_signal 单条按 signalId（number）分签名，批量按动作+过滤特征分签名", () => {
+    expect(buildToolSignature("triage_signal", { signalId: 101, action: "dismiss", note: "n" })).toBe("triage_signal: 101");
+    expect(buildToolSignature("triage_signal", { signalId: 102, action: "dismiss", note: "n" })).toBe("triage_signal: 102");
+    expect(buildToolSignature("triage_signal", { action: "batch_bind", issueNumber: 11 })).toBe("triage_signal: batch_bind [issue:11]");
+    expect(buildToolSignature("triage_signal", { action: "batch_bind", issueNumber: 22 })).toBe("triage_signal: batch_bind [issue:22]");
+    expect(buildToolSignature("triage_signal", { action: "batch_dismiss", filterSignalType: "x" })).toBe("triage_signal: batch_dismiss [type:x]");
+    expect(buildToolSignature("triage_signal", { action: "batch_dismiss", filterSignalType: "y" })).toBe("triage_signal: batch_dismiss [type:y]");
+    expect(buildToolSignature("triage_signal", { action: "batch_dismiss" })).toBe("triage_signal: batch_dismiss");
+    expect(buildToolSignature("triage_signal", {})).toBe("triage_signal");
+  });
+
+  it("get_context 按 key 分签名（与 set/delete 对称），不传 key 退回工具名", () => {
+    expect(buildToolSignature("get_context", { key: "task_status" })).toBe("get_context: task_status");
+    expect(buildToolSignature("get_context", { key: "next_step" })).toBe("get_context: next_step");
+    expect(buildToolSignature("get_context", {})).toBe("get_context");
+  });
+
+  it("add_terminology 按 term 分签名", () => {
+    expect(buildToolSignature("add_terminology", { term: "海獭", definition: "d" })).toBe("add_terminology: 海獭");
+    expect(buildToolSignature("add_terminology", { term: "搭档", definition: "d" })).toBe("add_terminology: 搭档");
+    expect(buildToolSignature("add_terminology", {})).toBe("add_terminology");
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 6; i++) {
+      expect(cb.check("add_terminology", { term: `term-${i}`, definition: "d" }).action).toBe("allow");
+    }
+  });
+
+  it("create_scheduled_task 按 name 分签名", () => {
+    expect(buildToolSignature("create_scheduled_task", { name: "每日摘要", body: "b" })).toBe("create_scheduled_task: 每日摘要");
+    expect(buildToolSignature("create_scheduled_task", { name: "定时提醒", body: "b" })).toBe("create_scheduled_task: 定时提醒");
+    expect(buildToolSignature("create_scheduled_task", {})).toBe("create_scheduled_task");
+  });
+});
+
 describe("buildToolSignature —— #1802 workspace_delete 清理签名", () => {
   it("连续清理不同 path 不触发连续同构拦截", () => {
     expect(buildToolSignature("workspace_delete", { path: "review-1782", recursive: true })).toBe("workspace_delete: review-1782");
