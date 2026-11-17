@@ -114,4 +114,5 @@ PR-A（F20261116actlg，#1900）建立了本机动作台账（五态/hash/开机
 | 服务级注入/回填（resume-interrupted-service 新增 10 例 + 既有 14 例） | PASS：真实 sqlite + stub 链，含台账缺席兼容路径、S3 旧持有者存活拒抢/已死接手/同 boot 不进预检、S2 二轮恢复链追加 |
 | `npm test` | PASS：479 files 全绿（含 SIGKILL unsafe 不重放回归；rebase main #1903/#1905 后） |
 | `npm run check` | PASS：EXIT 0 |
+| alpha 验证环境实启（5683b5f1） | PASS：旧形态 8 列表重启 ALTER 逐列补四列（日志留痕）；播种中断现场→重启→认领写入（token/epoch/pid=进程 PID 一致）→恢复 invoke 点火→审计链追加→invoke 终态直读→持有者 token 收口 failed→失败提示消息落对话（证据见 PR comment） |
 | GitHub CI | PR 创建后运行（见 PR checks） |
