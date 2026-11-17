@@ -67,6 +67,11 @@ export const POLICY_TABLE: readonly PolicyRule[] = [
     policy: "public",
     note: "issue #1322 评论「新增面」：**暂置** public——并行分支 fix/mahjong-chat-echo 未接身份头，强启会打断牌局页。翻转条件：web-mahjong 前端接入 identityHeaders 后按 L2 选型（issue 评论①②③）收紧为 read/write",
   },
+  {
+    path: /^\/api\/connector\/pair$/,
+    policy: "public",
+    note: "F20261117cnnct（阶段 4 C1）：connector 配对端点——码即秘密（一次性+时效+原子核销，防探测不区分拒绝原因），connector 是无浏览器进程无登录态；后续需评估配对失败限频",
+  },
   // ── 族内例外（必须先于同族 admin 规则命中）──
   { methods: ["POST"], path: /^\/api\/otters\/[^/]+\/retry$/, policy: "write", note: "会话重试=用户级交互，非建散重启" },
   // F20261023cnct（issue #1063）：POST :id/leave 已随死端点下线，正则 leave 分支休眠保留（零行为变化，防未来误挂时语义退化）

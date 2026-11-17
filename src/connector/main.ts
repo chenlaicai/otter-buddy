@@ -9,8 +9,8 @@
  * version 类协议不兼容是致命错误（重连无意义，退出进程让人介入）。
  *
  * 用法：
- *   node dist/connector/main.js --hub http://localhost:3000 --pair <码> --name <设备名>   # 首启配对
- *   node dist/connector/main.js --hub http://localhost:3000                              # 凭已存身份连接
+ *   node dist/connector/connector/main.js --hub http://localhost:3000 --pair <码> --name <设备名>   # 首启配对
+ *   node dist/connector/connector/main.js --hub http://localhost:3000                              # 凭已存身份连接
  * 身份落 ~/.otter/connector/device.json（deviceId + pairToken）。
  */
 
