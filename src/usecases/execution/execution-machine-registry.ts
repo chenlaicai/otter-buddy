@@ -21,6 +21,18 @@ export class ExecutionMachineRegistry implements ExecutionMachineRouter {
     this.machines.set(machine.id, machine);
   }
 
+  /** F20261117cnnct（阶段 4 C1）：注销机器（总闸撤栅栏的内存投影侧）。
+   *  幂等——未注册的 id 静默（下线幂等语义；库表才是唯一事实源，本表只是缓存）。 */
+  unregister(machineId: string): void {
+    this.machines.delete(machineId);
+  }
+
+  /** F20261117cnnct：重复注册顶替语义——同 id 后到者顶替前者（设备重新上线场景：
+   *  旧投影先注销再注册新投影）。等价 unregister + register，原子化避免窗口。 */
+  replace(machine: ExecutionMachine): void {
+    this.machines.set(machine.id, machine);
+  }
+
   resolve(targetMachineId?: string): ExecutionMachine {
     const id = targetMachineId ?? this.defaultMachineId;
     const machine = this.machines.get(id);

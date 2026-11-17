@@ -75,6 +75,7 @@
     "silk-wasm": "^3.7.1",
     "sqlite-vec": "^0.1.9",
     "unist-util-visit": "^5.2.0",
+    "ws": "^8.21.0",
     "yaml": "^2.9.1"
   },
   "overrides": {
@@ -91,22 +92,23 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@hono/node-server": "^2.1.7",
     "@types/better-sqlite3": "^7.6.13",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^26.6.6",
     "@types/qrcode": "^1.5.6",
+    "@types/ws": "^8.18.2",
     "eslint": "^10.14.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "hono": "^4.13.18",
     "patch-package": "^8.0.1",
     "pixelmatch": "^8.0.0",
+    "playwright": "1.65.0",
     "pngjs": "^7.0.0",
     "tsc-alias": "^1.9.10",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1",
-    "vitest": "^5.1.0",
-    "hono": "^4.13.18",
-    "@hono/node-server": "^2.1.7",
-    "playwright": "1.65.0"
+    "vitest": "^5.1.0"
   },
   "allowScripts": {
     "better-sqlite3@13.0.1": true,
