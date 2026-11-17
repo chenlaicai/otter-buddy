@@ -46,9 +46,9 @@ capability_test: "guard-intercept-classify 新增公开只读/边界/格式化�
 3. **仅放行公开只读**：目录列举（`ls … ~/.ssh`）、公钥（`*.pub`）、`known_hosts`、`ssh config`。
 4. 其余（未识别读形态/authorized_keys/secring.gpg 等）默认拦。
 
-### ② download_exec 排除格式化模块
+### ② download_exec 排除格式化模块 + 解释器形态收口
 
-管道解释器判定排除 `python3 -m json.tool`（读 stdin 输出格式化 JSON，非执行下载内容）。裸 `python3` / `python -c` 吃 stdin 当脚本执行仍拦。
+管道解释器判定排除 `python3 -m json.tool`（读 stdin 输出格式化 JSON，非执行下载内容），`env` 前缀同排除。裸 `python3` / `python -c` / `env python3` 吃 stdin 当脚本执行仍拦。
 
 ## R8.5 准入三问
 
@@ -61,6 +61,7 @@ capability_test: "guard-intercept-classify 新增公开只读/边界/格式化�
 - [x] guard 相关 6 测试文件 238/238 通过（含 replay 147/147、classify、bounce）
 - [x] replay 2 条改判：`ls ~/.ssh`、`cat/sed ssh config` 从 block 改 allow（#1892 现场同形态）；既有 curl|sh、进程替换、curl|python3 -c、主进程 kill 等负门全部仍 block
 - [x] 检视 delta 回归钉：混合命令（`cat id_rsa known_hosts` / `cat id_rsa; ls`）仍 block；写动词扩容（sed -i / gawk -i / rsync / unlink）仍 block；`sed -n` 读态 ssh config 仍放行
+- [x] 检视建议 3 补修：`curl | env python3` / `env VAR=1 python3 -c` 仍拦，`env python3 -m json.tool` 仍放行
 
 ## 影响
 
