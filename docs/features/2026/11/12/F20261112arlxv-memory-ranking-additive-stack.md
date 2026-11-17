@@ -47,7 +47,7 @@ modules:
 | 事实 | 核实方式 |
 |---|---|
 | 原设计 PR **#1784 已 CLOSED**；其历史检查中 e2e 失败，不再是当前交付路径 | `gh pr view 1784 --json state,statusCheckRollup` |
-| rebase 后的 F20261112rnkph 设计 commit `8e1d609f` **由本实施 PR 携带**，实施 PR 四绿 | `gh pr view <本实施 PR> --json commits,statusCheckRollup` |
+| rebase 后的 F20261112rnkph 设计 commit `8e1d609f` **由本实施 PR #1910 携带**，实施 PR 四绿 | `gh pr view 1910 --json commits,statusCheckRollup` |
 | 该文档**尚不在 main**，将随本 PR 合入 | `ls docs/features/2026/11/05/` 无 `rnkph` 文件 |
 | main 上 rerank 五信号连乘**原样未动** | `search-engine.ts:168-196` `rerank()` |
 
