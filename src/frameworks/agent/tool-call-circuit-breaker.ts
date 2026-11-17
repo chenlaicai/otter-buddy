@@ -137,6 +137,29 @@ function entityToolSignature(toolName: string, key: string, value: unknown): str
   return typeof value === "string" && value ? `${toolName}: ${value}` : toolName;
 }
 
+/**
+ * 简单实体工具表：工具名 → 实体键。异实体即不同签名（批量流合法），同实体连发累计（幂等值得提醒）。
+ * #1895 同族收口：带实体参数却漏进签名表的工具统一走表（避免 managementToolSignature
+ * switch 逐 case 膨胀——复杂度 lint 曾卡在 20/12，收口用数据表非控制流）。
+ */
+const ENTITY_KEYED_TOOLS: Record<string, string> = {
+  "archive_artifact_for_reconciliation": "artifactId",
+  "resolve_signal": "signalId",
+  "add_terminology": "term",
+  "create_scheduled_task": "name",
+  "get_context": "key",
+  "set_context": "key",
+  "delete_context": "key",
+  "transition_matter": "matter_id",
+  "get_message": "messageId",
+  "get_related": "entry_id",
+};
+
+function entityKeyedToolSignature(toolName: string, a: Record<string, unknown>): string | null {
+  const key = ENTITY_KEYED_TOOLS[toolName];
+  return key ? entityToolSignature(toolName, key, a[key]) : null;
+}
+
 /** Otter 管理工具签名：dissolve/restart 取 otterId；create 取 name。F20260826d464 */
 function otterToolSignature(toolName: string, a: Record<string, unknown>): string | null {
   if (toolName === "dissolve_otter" || toolName === "restart_otter") {
@@ -261,23 +284,15 @@ function managementToolSignature(toolName: string, a: Record<string, unknown>): 
   switch (toolName) {
     case "update_artifact_status":
       return updateArtifactStatusSignature(a);
-    case "archive_artifact_for_reconciliation":
-      // #1895：签名表漏进本工具（#1835/#1881 引入）——异参批量归档退回工具名兑底、同日连续 8 次被误判连发。
-      // 实体 = artifactId（evidence 是审计文本非实体标识），不同产物归档是合法批量流。
-      return entityToolSignature(toolName, "artifactId", a.artifactId);
+    case "triage_signal":
+      return triageSignalSignature(toolName, a);
     case "merge_pr":
       return mergePrSignature(a);
     case "halt_otter":
     case "unhalt_otter":
       return haltOtterSignature(toolName, a);
-    case "transition_matter":
-      return entityToolSignature(toolName, "matter_id", a.matter_id);
-    case "get_message":
-      return entityToolSignature(toolName, "messageId", a.messageId);
     case "get_memory_detail":
       return memoryDetailSignature(a);
-    case "get_related":
-      return entityToolSignature(toolName, "entry_id", a.entry_id);
     case "manage_healing_events":
       return healingEventsSignature(a);
     case "register_matter":
@@ -296,9 +311,6 @@ function residualToolSignature(toolName: string, a: Record<string, unknown>): st
       return memoryEdgeSignature(toolName, a);
     case "create_linked_resource":
       return linkedResourceSignature(a);
-    case "set_context":
-    case "delete_context":
-      return entityToolSignature(toolName, "key", a.key);
     case "search_memory":
     case "search_messages":
     case "search_terminology":
@@ -371,13 +383,29 @@ function rawToolSignature(toolName: string, args?: unknown): string {
   return dispatchToolSignature(toolName, a) ?? toolName;
 }
 
+/** 文件/工作区工具判定：read/write/edit + workspace 列/读/写/删（#1399/#1767/#1802）——独立函数控 dispatchToolSignature 复杂度 */
+function isFileOrWorkspaceTool(toolName: string): boolean {
+  return toolName === "read"
+    || toolName === "write"
+    || toolName === "edit"
+    || toolName === "workspace_list"
+    || toolName === "workspace_read"
+    || toolName === "workspace_write"
+    || toolName === "workspace_delete";
+}
+
+/** triage_signal 签名：单条实体=signalId（number/string）；批量无 signalId 退回工具名（同 action 连发仍兜底） */
+function triageSignalSignature(toolName: string, a: Record<string, unknown>): string {
+  const sid = a.signalId;
+  if (typeof sid === "number" && Number.isFinite(sid)) return `triage_signal: ${sid}`;
+  if (typeof sid === "string" && sid) return `triage_signal: ${sid}`;
+  return toolName;
+}
+
 /** 分发链：命中专用签名则返回，否则 null 退回工具名 */
 function dispatchToolSignature(toolName: string, a: Record<string, unknown>): string | null {
   if (toolName === "bash") return bashSignature(a);
-  // read/write/edit + workspace 列/读/写/删（#1399/#1767/#1802）：path 主体 + 写入内容指纹
-  if (toolName === "read" || toolName === "write" || toolName === "edit" || toolName === "workspace_list" || toolName === "workspace_read" || toolName === "workspace_write" || toolName === "workspace_delete") {
-    return fileOrWorkspaceSignature(toolName, a);
-  }
+  if (isFileOrWorkspaceTool(toolName)) return fileOrWorkspaceSignature(toolName, a);
   // F20260820d338：speak 签名含 body 内容指纹，区分不同输出与同一输出重试
   if (toolName === "speak" && typeof a.body === "string") {
     return `speak#${contentDigest(a.body)}`;
@@ -385,6 +413,9 @@ function dispatchToolSignature(toolName: string, a: Record<string, unknown>): st
   // F20260826d464：otter 管理工具签名含实体标识——批量解散/重启不同 otter 不算重复
   const otterSig = otterToolSignature(toolName, a);
   if (otterSig !== null) return otterSig;
+  // #1895 同族收口：简单实体工具（表驱动）——异实体批量不算重复
+  const entityKeyedSig = entityKeyedToolSignature(toolName, a);
+  if (entityKeyedSig !== null) return entityKeyedSig;
   // #475 + #1399：带实体参数的管理工具签名——批量管理操作不同实体不算重复
   return managementToolSignature(toolName, a);
 }

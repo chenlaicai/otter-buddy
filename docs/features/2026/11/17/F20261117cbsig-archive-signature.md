@@ -1,6 +1,6 @@
 ---
 id: F20261117cbsig
-title: 循环熔断签名表补 archive_artifact_for_reconciliation：异参批量归档不再误判连发（#1895）
+title: 循环熔断签名表补全：archive_artifact_for_reconciliation 与五个带实体工具入表（#1895）
 change_type: fix
 status: implemented
 created: 2026-11-17
@@ -8,17 +8,17 @@ created_in_conversation: a9260c50-cef6-412e-a0b4-282287a13103
 modules:
   - src/frameworks/agent/tool-call-circuit-breaker.ts
   - tests/frameworks/agent/tool-call-circuit-breaker.test.ts
-summary: "#1895：每日产物对账段连续调用 archive_artifact_for_reconciliation 8 次（每次 artifactId 与 evidence 均不同），被循环熔断判定「Consecutive identical call」steer 并截断，对账段无法执行。根因：该工具（#1835/#1881 引入）漏进签名分发链，grep 零命中→退回工具名兜底→8 次异参同签名误判连发。同族 #1399/#1802 已补齐 read/write/edit/workspace_*/link_memory/create_linked_resource/set_context/search_*，本工具是残余口子。方案：managementToolSignature 补分支，实体=artifactId（evidence 是审计文本非实体标识）。零新机制。"
+summary: "#1895：每日产物对账段连续调用 archive_artifact_for_reconciliation 8 次（每次 artifactId 与 evidence 均不同），被循环熔断判定「Consecutive identical call」steer 并截断，对账段无法执行。根因：该工具（#1835/#1881 引入）漏进签名分发链，grep 零命中→退回工具名兜底→8 次异参同签名误判连发。同族 #1399/#1802 已补齐其余工具。方案：签名表驱动化——archive_artifact_for_reconciliation + resolve_signal/triage_signal/get_context/add_terminology/create_scheduled_task 六个带实体工具入表（实体各自取 artifactId/signalId/key/term/name），异实体批量连发不再误判。零新机制。"
 tags: [health, circuit-breaker, signature, reconciliation]
 intent:
-  problem: "archive_artifact_for_reconciliation 不在循环熔断签名分发链中，退回工具名兑底；同日异参批量归档 8 次同签名，被误判 Consecutive identical call 并 steer，每日产物对账段整体阻断，~120 条终态产物无法批量清扫"
-  expected_effect: "不同 artifactId 的归档调用产生不同签名，不再触发连续同构拦截；同一产物反复归档仍同签名、保留重复提醒语义；每日对账段可连续批量归档"
+  problem: "签名分发链漏掉多个带实体参数的工具（archive_artifact_for_reconciliation 及其同族 resolve_signal/triage_signal/get_context/add_terminology/create_scheduled_task），退回工具名兜底；异实体批量连发被误判 Consecutive identical call 并 steer，产物对账、信号裁决、术语入库等合法批量流被阻断"
+  expected_effect: "六个带实体工具的异实体批量连发产生不同签名，不再触发连续同构拦截；同一实体反复操作仍同签名、保留重复提醒语义；产物对账/信号裁决/术语入库等批量流可连续执行"
   verify_by:
     type: static_only
-capability_test: "连续归档不同 artifactId 8 次全部 allow（修复前第 N 次 steer）；同一 artifactId 反复归档第 6 次 steer（重复语义保留）——tests/frameworks/agent/tool-call-circuit-breaker.test.ts 新增 3 用例机械可测"
+capability_test: "连续归档不同 artifactId 8 次全部 allow（修复前第 N 次 steer）；同一 artifactId 反复归档第 6 次 steer（重复语义保留）；同族五工具各自异实体批量连发 allow——tests/frameworks/agent/tool-call-circuit-breaker.test.ts 新增用例机械可测"
 ---
 
-# 循环熔断签名表补 archive_artifact_for_reconciliation：异参批量归档不再误判连发（#1895）
+# 循环熔断签名表补全：archive_artifact_for_reconciliation 与五个带实体工具入表（#1895）
 
 ## 问题（现场）
 
@@ -32,28 +32,33 @@ capability_test: "连续归档不同 artifactId 8 次全部 allow（修复前第
 
 ## 方案
 
-`managementToolSignature` 补分支：
+`managementToolSignature` / `residualToolSignature` 补六个带实体工具分支（实体=各自实体标识键，异实体即不同签名）：
 
-```
-case "archive_artifact_for_reconciliation":
-  return entityToolSignature(toolName, "artifactId", a.artifactId);
-```
+| 工具 | 实体键 | 签名 |
+|---|---|---|
+| archive_artifact_for_reconciliation | artifactId | `archive_artifact_for_reconciliation: <id>` |
+| resolve_signal | signalId | `resolve_signal: <id>` |
+| triage_signal | signalId（单条） | `triage_signal: <id>`；批量无 signalId 退回工具名 |
+| get_context | key | `get_context: <key>`（与 set/delete 对称） |
+| add_terminology | term | `add_terminology: <term>` |
+| create_scheduled_task | name | `create_scheduled_task: <name>` |
 
-- 实体 = artifactId（evidence 是审计文本，非实体标识，不入签名）——不同产物归档是合法批量流。
-- 同一产物反复归档同签名，重复提醒语义保留（幂等重登记值得提醒，与 update_artifact_status 同哲学）。
+- evidence（archive）、status/resolution（resolve）、definition（terminology）等附加参数不入签名——与 #1399「实体相同即同签名，附加参数不区分」哲学一致。
+- 同一实体反复操作同签名，重复提醒语义保留（幂等重登记值得提醒）。
+- 缺参退回工具名，连续缺参 steer 是合理纠错信号（entityToolSignature 契约）。
 
 ## R8.5 准入三问
 
 1. **决策者变了么**：没有。签名表补齐是既有分发链的收口，不新增裁决权。
-2. **靠自觉还是靠守卫**：**机械可测**——签名函数是纯函数，新增 3 用例（8 连不同产物 allow / 同产物第 6 次 steer / evidence 不入签名）锁死行为。
-3. **深潜成本降了吗**：降——每日对账段从「每批 1-2 条手工穿插」恢复为连续批量归档，不再被熔断物理截断。
+2. **靠自觉还是靠守卫**：**机械可测**——签名函数是纯函数，新增用例（六工具异实体批量 allow / 同实体第 6 次 steer / 附加参数不入签名）锁死行为。
+3. **深潜成本降了吗**：降——每日对账、信号裁决、术语入库等批量流不再被熔断物理截断。
 
 ## 验证
 
-- [x] tests/frameworks/agent/tool-call-circuit-breaker.test.ts 新增 3 用例，65/65 通过
-- [x] 无行为级回归风险：仅新增一个签名分支，不触碰检测/steer 核心逻辑
+- [x] tests/frameworks/agent/tool-call-circuit-breaker.test.ts 新增 8 用例（#1895 现场 3 + 同族五工具 5），全部通过
+- [x] 无行为级回归风险：仅新增签名分支，不触碰检测/steer 核心逻辑
 
 ## 影响
 
-- 每日产物对账段可连续批量归档（#1895 现场恢复）
-- 与既有条款关系：本单是 #1399/#1802 签名表收口的最后一处已知残余口子（工具面），不新增机制
+- 每日产物对账段可连续批量归档（#1895 现场恢复）；信号裁决/术语入库/定时任务创建的异实体批量流同受益
+- 与既有条款关系：本单是 #1399/#1802 签名表收口的工具面补全（archive 工具 + 五个带实体工具），不新增机制
