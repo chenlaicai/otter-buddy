@@ -4,7 +4,7 @@ import path from "node:path";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { FileError, ok, err, type ExecutionError, type Result, type ShellExecOptions, type ShellExecResult } from "@earendil-works/pi-durable/env";
-import { otterInvokeStorage } from "@frameworks/agent/model-runtime-registry";
+import { otterInvokeStorage } from "@entities/execution/otter-invoke-context";
 import type { ActionLedger } from "@usecases/ports/action-ledger";
 import type { ActionKind, ActionRecord, SettleVerdict, StartActionInput } from "@entities/execution/action-record";
 import { sha256 } from "./ledger/sqlite-action-ledger";
