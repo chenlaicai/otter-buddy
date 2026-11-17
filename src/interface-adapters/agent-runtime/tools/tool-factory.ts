@@ -1189,7 +1189,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
 function createDissolveOtterTool(ctx: ToolContext): AgentTool {
   return {
     name: "dissolve_otter",
-    description: "解散指定 Otter. When: 小獭任务完成不再需要 / 需要清理临时召唤的 Otter. Not for: 重启 Otter（保留身份换 session）→ restart_otter. 创建 → create_otter. Output: 解散成功的确认（含 participant 记录更新警告）. GOTCHA: **解散不可逆**——session 和上下文永久丢失，无法恢复. GOTCHA: 不能解散自己（Otter 无法自我溶解，会留下孤儿 session）. dissolve 后 participant 记录若未更新仅留警告（不阻断，otter 已销毁）.",
+    description: "解散指定 Otter. When: 小獭任务完成不再需要 / 需要清理临时召唤的 Otter. Not for: 重启 Otter（保留身份换 session）→ restart_otter. 创建 → create_otter. Output: 解散成功的确认（含 participant 记录更新警告）. GOTCHA: **解散不可逆**——session 和上下文永久丢失，无法恢复. GOTCHA: 不能解散自己（Otter 无法自我溶解，会留下孤儿 session）. BOUNDARY: 大獭（big 獭）永远不可解散；目标必须与调用者在同一对话的在场名单里，否则拒绝（防跨对话误杀）. dissolve 后 participant 记录若未更新仅留警告（不阻断，otter 已销毁）.",
     parameters: {
       type: "object",
       properties: {
@@ -1202,7 +1202,24 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
       if (targetOtterId === ctx.otterId) {
         return errorResponse("[错误] 不能解散自己。Otter 无法自我溶解。");
       }
-      await ctx.client.otter.dissolve(targetOtterId);
+      // F20261117dsgrd：同对话范围守卫——只允许解散当前对话的在场参与者，
+      // 防跨对话误杀（2026-11-16 端云大獭误解散三省吾身大獭事故）。
+      // big 獭的拒绝在 use case 层（DissolveOtter.execute），此处只管小獭的对话归属。
+      const participants = await ctx.client.conversation.participant.getActive(ctx.conversationId);
+      const target = participants.find(p => p.otterId === targetOtterId);
+      if (!target) {
+        return errorResponse(`[错误] 目标獭 ${targetOtterId} 不在当前对话在场名单，拒绝跨对话解散。`);
+      }
+      // use case 层的 DomainError（big 獭不可解散 / 已解散 / 不存在）转干净 errorResponse，
+      // 不向上抛成未处理异常（检视建议 #4：big 守卫在 use case 层，现网不可达但须可读兜底）。
+      try {
+        await ctx.client.otter.dissolve(targetOtterId);
+      } catch (err) {
+        if (err instanceof DomainError) {
+          return errorResponse(`[错误] ${err.message}`);
+        }
+        throw err;
+      }
       /** F20260803trrf: 顺带更新 participant status。leave 失败不阻断 dissolve（otter 已销毁不可逆），仅附警告。 */
       let warning = "";
       try {

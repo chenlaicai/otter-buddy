@@ -67,7 +67,7 @@ describe("獭协作：召唤与解散（真系统 + 真 LLM）", () => {
     const createRes = await ctx.built.app.request("/api/otters", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "待解散獭", type: "big" }),
+      body: JSON.stringify({ name: "待解散獭", type: "small" }),
     });
     expect(createRes.status).toBe(201);
     const otter = await createRes.json() as { id: string };
@@ -87,5 +87,22 @@ describe("獭协作：召唤与解散（真系统 + 真 LLM）", () => {
     /** agent 层：agent_sessions 映射已销毁 */
     const agentRow = ctx.built.db.prepare("SELECT pi_session_id FROM agent_sessions WHERE otter_id = ?").get(otter.id);
     expect(agentRow).toBeUndefined();
+  });
+
+  it("F20261117dsgrd：大獭解散拦截（HTTP 路径）——DELETE big 獭 → 400 且状态保持 active", async () => {
+    const createRes = await ctx.built.app.request("/api/otters", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "永驻大獭", type: "big" }),
+    });
+    expect(createRes.status).toBe(201);
+    const otter = await createRes.json() as { id: string };
+
+    const delRes = await ctx.built.app.request(`/api/otters/${otter.id}`, { method: "DELETE" });
+    expect(delRes.status).toBe(400);
+
+    /** otters 行保持 active（未被解散） */
+    const row = ctx.built.db.prepare("SELECT status FROM otters WHERE id = ?").get(otter.id) as { status: string };
+    expect(row.status).toBe("active");
   });
 });
