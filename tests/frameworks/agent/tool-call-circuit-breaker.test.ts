@@ -384,10 +384,15 @@ describe("buildToolSignature —— #1895 同族收口（五个带实体工具�
     }
   });
 
-  it("triage_signal 单条按 signalId（number）分签名，批量无 signalId 退回工具名", () => {
+  it("triage_signal 单条按 signalId（number）分签名，批量按动作+过滤特征分签名", () => {
     expect(buildToolSignature("triage_signal", { signalId: 101, action: "dismiss", note: "n" })).toBe("triage_signal: 101");
     expect(buildToolSignature("triage_signal", { signalId: 102, action: "dismiss", note: "n" })).toBe("triage_signal: 102");
-    expect(buildToolSignature("triage_signal", { action: "batch_dismiss", filterSignalType: "x" })).toBe("triage_signal");
+    expect(buildToolSignature("triage_signal", { action: "batch_bind", issueNumber: 11 })).toBe("triage_signal: batch_bind [issue:11]");
+    expect(buildToolSignature("triage_signal", { action: "batch_bind", issueNumber: 22 })).toBe("triage_signal: batch_bind [issue:22]");
+    expect(buildToolSignature("triage_signal", { action: "batch_dismiss", filterSignalType: "x" })).toBe("triage_signal: batch_dismiss [type:x]");
+    expect(buildToolSignature("triage_signal", { action: "batch_dismiss", filterSignalType: "y" })).toBe("triage_signal: batch_dismiss [type:y]");
+    expect(buildToolSignature("triage_signal", { action: "batch_dismiss" })).toBe("triage_signal: batch_dismiss");
+    expect(buildToolSignature("triage_signal", {})).toBe("triage_signal");
   });
 
   it("get_context 按 key 分签名（与 set/delete 对称），不传 key 退回工具名", () => {

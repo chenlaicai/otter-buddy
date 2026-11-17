@@ -394,12 +394,26 @@ function isFileOrWorkspaceTool(toolName: string): boolean {
     || toolName === "workspace_delete";
 }
 
-/** triage_signal 签名：单条实体=signalId（number/string）；批量无 signalId 退回工具名（同 action 连发仍兜底） */
+/** triage_signal 批量路径的过滤特征（与 manage_healing_events 的 healingFilterParts 同构）。 */
+function triageSignalFilterParts(a: Record<string, unknown>): string[] {
+  const parts: string[] = [];
+  // issueNumber=batch_bind 归口目标；filterIssueNumber=batch_dismiss 收尾过滤——不同参数不同前缀防同值混淆
+  if (typeof a.issueNumber === "number" && Number.isFinite(a.issueNumber)) parts.push(`issue:${a.issueNumber}`);
+  if (typeof a.filterIssueNumber === "number" && Number.isFinite(a.filterIssueNumber)) parts.push(`fissue:${a.filterIssueNumber}`);
+  if (typeof a.filterSignalType === "string" && a.filterSignalType) parts.push(`type:${a.filterSignalType}`);
+  if (typeof a.filterSeverity === "string" && a.filterSeverity) parts.push(`sev:${a.filterSeverity}`);
+  return parts;
+}
+
+/** triage_signal 签名：单条实体=signalId（number/string）；批量路径按动作 + 过滤特征分签名——不同 issue/信号类型/严重度是不同批量操作。dryRun 不入签名（不改变目标集）。 */
 function triageSignalSignature(toolName: string, a: Record<string, unknown>): string {
   const sid = a.signalId;
   if (typeof sid === "number" && Number.isFinite(sid)) return `triage_signal: ${sid}`;
   if (typeof sid === "string" && sid) return `triage_signal: ${sid}`;
-  return toolName;
+  const action = typeof a.action === "string" && a.action ? a.action : "";
+  const parts = triageSignalFilterParts(a);
+  if (!action && parts.length === 0) return toolName;
+  return parts.length > 0 ? `triage_signal: ${action} [${parts.join(",")}]` : `triage_signal: ${action}`;
 }
 
 /** 分发链：命中专用签名则返回，否则 null 退回工具名 */

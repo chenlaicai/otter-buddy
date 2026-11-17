@@ -38,7 +38,7 @@ capability_test: "连续归档不同 artifactId 8 次全部 allow（修复前第
 |---|---|---|
 | archive_artifact_for_reconciliation | artifactId | `archive_artifact_for_reconciliation: <id>` |
 | resolve_signal | signalId | `resolve_signal: <id>` |
-| triage_signal | signalId（单条） | `triage_signal: <id>`；批量无 signalId 退回工具名 |
+| triage_signal | signalId（单条）；动作+过滤特征（批量） | 单条 `triage_signal: <id>`；批量 `triage_signal: <action> [issue:/type:/sev:]` |
 | get_context | key | `get_context: <key>`（与 set/delete 对称） |
 | add_terminology | term | `add_terminology: <term>` |
 | create_scheduled_task | name | `create_scheduled_task: <name>` |
