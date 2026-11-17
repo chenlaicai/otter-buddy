@@ -74,6 +74,11 @@ export class ResumeInterruptedService {
       actionLedger?: { listByInvoke(invokeId: string, limit?: number): Promise<ActionRecord[]> };
       /** F20261116actlg PR-B：本进程 boot 纪元（认领绑定；测试可注入固定值） */
       bootEpoch?: number;
+      /** F20261117 检视轮 S3：旧持有者 pid 死活探针（重认领预检；测试可注入 fake，
+       *  缺省 process.kill(pid, 0) 试探——ESRCH=死，EPERM=活着但权限不足） */
+      isPidAlive?: (pid: number) => boolean;
+      /** F20261117 检视轮 S3：认领进程 pid（写 claim_pid 供重认领预检；测试可注入） */
+      pid?: number;
     },
   ) {
     this.bootEpoch = deps.bootEpoch ?? Date.now();
@@ -142,10 +147,13 @@ export class ResumeInterruptedService {
   /**
    * 单条 resume 的安全包装——捕获所有异常确保不崩循环。
    * 移植旧 resumeItemSafe 三分类语义（done/skipped/failed）。
+   * F20261117 检视轮 S1：认领 token 在此生成并全程传递（并行恢复下不能走实例字段），
+   * 持有者终态收口用 settleResumeHeld（token 校验）。
    */
   private async resumeItemSafe(item: ResumeQueueItem): Promise<"done" | "skipped" | "failed"> {
+    const claimToken = randomUUID();
     try {
-      return await this.resumeOneWithRetry(item);
+      return await this.resumeOneWithRetry(item, claimToken);
     } catch (err) {
       this.deps.logger.error("Resume item failed after retries", err instanceof Error ? err : new Error(String(err)), {
         invokeId: item.invokeId, conversationId: item.conversationId, otterId: item.otterId,
@@ -153,18 +161,43 @@ export class ResumeInterruptedService {
       // F4 语义统一（移植）：可重试错误耗尽重试后仍标 failed（可手动重试），不说「永久放弃」。
       // 收尾异常不逃逸（对齐 markExhaustedSafe 纪律）——中断同会话剩余 items 是更坏结果。
       if (this.isRetryableNetworkError(err)) {
-        await this.markFailedSafe(item, err);
+        await this.markFailedSafe(item, claimToken, err);
       } else {
-        await this.markExhaustedSafe(item.invokeId, err);
+        await this.markExhaustedSafe(item.invokeId, claimToken, err);
       }
       return "failed";
     }
   }
 
-  /** 安全标记 failed（可手动重试）+ 失败文案——收尾异常不逃逸 */
-  private async markFailedSafe(item: ResumeQueueItem, originalErr: unknown): Promise<void> {
+  /** 持有校验 settle（F20261117 检视轮 S1）：行被他人接管时 changes=0 不覆盖（交接管者
+   *  负责闭环）；写库失败仅日志（收尾异常不逃逸纪律）。 */
+  private async settleHeld(invokeId: string, claimToken: string, status: "done" | "failed" | "exhausted"): Promise<void> {
     try {
-      await this.deps.resumePendingRepo.settleResume(item.invokeId, "failed", new Date().toISOString());
+      const settled = await this.deps.resumePendingRepo.settleResumeHeld(invokeId, claimToken, status, new Date().toISOString());
+      if (!settled) {
+        this.deps.logger.warn("settle skipped: row held by another claimant", { invokeId, status });
+      }
+    } catch (err) {
+      this.deps.logger.error(`Failed to settle resume as ${status}`, err instanceof Error ? err : new Error(String(err)), { invokeId });
+    }
+  }
+
+  /** F20261117 检视轮 S3：pid 死活探针（缺省 process.kill(pid, 0) 试探）。 */
+  private checkPidAlive(pid: number): boolean {
+    if (this.deps.isPidAlive) return this.deps.isPidAlive(pid);
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (err) {
+      // EPERM=进程存在但权限不足（活着）；ESRCH=进程不存在（死）。其他异常保守判活（拒绝重认领，防双跑优先）。
+      return (err as NodeJS.ErrnoException).code !== "ESRCH";
+    }
+  }
+
+  /** 安全标记 failed（可手动重试）+ 失败文案——收尾异常不逃逸 */
+  private async markFailedSafe(item: ResumeQueueItem, claimToken: string, originalErr: unknown): Promise<void> {
+    try {
+      await this.settleHeld(item.invokeId, claimToken, "failed");
       await this.deps.sendSystemEntry(item.conversationId, buildRestartResumeFailedInvokeMsg());
     } catch {
       this.deps.logger.error("Failed to mark resume as failed", originalErr instanceof Error ? originalErr : new Error(String(originalErr)), { invokeId: item.invokeId });
@@ -172,46 +205,74 @@ export class ResumeInterruptedService {
   }
 
   /** 安全标记 exhausted——写库失败不阻塞后续 */
-  private async markExhaustedSafe(invokeId: string, originalErr: unknown): Promise<void> {
+  private async markExhaustedSafe(invokeId: string, claimToken: string, originalErr: unknown): Promise<void> {
     try {
-      await this.deps.resumePendingRepo.settleResume(invokeId, "exhausted", new Date().toISOString());
+      await this.settleHeld(invokeId, claimToken, "exhausted");
     } catch {
       this.deps.logger.error("Failed to mark resume as exhausted", originalErr instanceof Error ? originalErr : new Error(String(originalErr)), { invokeId });
     }
   }
 
-  /** 429 限流/网络错误的指数退避重试包装（F20260830rfto 移植） */
-  private async resumeOneWithRetry(item: ResumeQueueItem): Promise<"done" | "skipped" | "failed"> {
+  /** F20261117 检视轮 S3：旧持有者死活预检——旧纪元持有进程仍存活时不抢（防双跑）。
+   *  CAS 互斥仍由 claimPendingResume 的 UPDATE 原子保证（预检只收紧旧纪元重认领准入）。 */
+  private async isStaleHolderAlive(invokeId: string): Promise<boolean> {
+    const holder = await this.deps.resumePendingRepo.getByInvokeId(invokeId).catch(() => null);
+    if (holder?.status !== "pending" || holder.claimPid == null || holder.bootEpoch == null) return false;
+    if (holder.bootEpoch === this.bootEpoch) return false; // 同 boot 归认领失败分支处理
+    if (!this.checkPidAlive(holder.claimPid)) return false;
+    this.deps.logger.warn("skip reclaim: stale-boot holder process still alive (anti dual-run)", {
+      invokeId, holderPid: holder.claimPid, holderBootEpoch: holder.bootEpoch, bootEpoch: this.bootEpoch,
+    });
+    return true;
+  }
+
+  /** 认领段：S3 预检 + CAS 认领 + 失败分支处置。返回 "claimed"（可续跑）或 "skipped"。 */
+  private async claimForResume(item: ResumeQueueItem, claimToken: string): Promise<"claimed" | "skipped"> {
+    if (await this.isStaleHolderAlive(item.invokeId)) return "skipped";
+
     // CAS 认领只在恢复入口一次（attempts 语义 = 跨重启恢复次数）；进程内 429/网络退避
     // 重试不再重认领——S1 修复轮实证：认领放循环内时，1+3 次重试把 attempts 顶到上限
     // 与跨重启守卫撞车（「429 重试耗尽」用例 4 次调用只走了 3 次）。
     // F20261116actlg PR-B：认领绑定 claim token + 本进程 boot 纪元——同 boot 内拒重认领，
-    // 恢复者自身崩溃的旧纪元残留可被新开机重认领（attempts 继续累加，上限不放松）。
+    // 恢复者自身崩溃的旧纪元残留可被新开机重认领（attempts 继续累加，上限不放松）；
+    // F20261117 S3：认领同时写 pid（供后续开机做死活预检）。
     const claimed = await this.deps.resumePendingRepo.claimPendingResume(item.invokeId, {
-      token: randomUUID(),
+      token: claimToken,
       bootEpoch: this.bootEpoch,
+      pid: this.deps.pid ?? process.pid,
     });
-    if (!claimed) {
-      // 认领失败三类：① attempts 达上限（pending 残留，跨重启无限重试守卫触发）→
-      // exhausted 闭环；② 已终态（status 非 pending）→ 保持现状（那已是正确终态）；
-      // ③ 同 boot 已认领（boot_epoch = 本纪元且 claim_token 已写入——同毫秒双路径
-      // 并发 resume）→ 持有者仍在处理，保持 pending 不动（settle 会把在途恢复静默
-      // 吞成终态，且 exhausted 无兜底重试）。〔检视 minor-1〕
-      const row = await this.deps.resumePendingRepo.getByInvokeId(item.invokeId);
-      if (row?.status === "pending") {
-        const sameBootClaimed = row.claimToken != null && row.bootEpoch === this.bootEpoch;
-        if (!sameBootClaimed) {
-          await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
-        }
+    if (claimed) return "claimed";
+
+    // 认领失败三类：① attempts 达上限（pending 残留，跨重启无限重试守卫触发）→
+    // exhausted 闭环；② 已终态（status 非 pending）→ 保持现状（那已是正确终态）；
+    // ③ 同 boot 已认领（boot_epoch = 本纪元且 claim_token 已写入——同毫秒双路径
+    // 并发 resume）→ 持有者仍在处理，保持 pending 不动（settle 会把在途恢复静默
+    // 吞成终态，且 exhausted 无兜底重试）。〔检视 minor-1〕
+    // ①场景若旧纪元持有者仍在途，其后续持有 settle 会覆盖这里的 exhausted（S1 收口）。
+    const row = await this.deps.resumePendingRepo.getByInvokeId(item.invokeId);
+    if (row?.status === "pending") {
+      const sameBootClaimed = row.claimToken != null && row.bootEpoch === this.bootEpoch;
+      if (!sameBootClaimed) {
+        await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
+      } else {
+        // F20261117 检视轮 S1：claim_token 值消费——跳过时记录持有者令牌前缀（可观测：排查谁持有）
+        this.deps.logger.warn("claim rejected: same-boot holder exists", {
+          invokeId: item.invokeId, holderTokenPrefix: row.claimToken?.slice(0, 8), holderBootEpoch: row.bootEpoch,
+        });
       }
-      return "skipped";
     }
+    return "skipped";
+  }
+
+  /** 429 限流/网络错误的指数退避重试包装（F20260830rfto 移植） */
+  private async resumeOneWithRetry(item: ResumeQueueItem, claimToken: string): Promise<"done" | "skipped" | "failed"> {
+    if ((await this.claimForResume(item, claimToken)) === "skipped") return "skipped";
 
     let lastErr: unknown;
     const baseDelay = this.deps.rateLimitBaseDelayMs ?? ResumeInterruptedService.RATE_LIMIT_BASE_DELAY_MS;
     for (let attempt = 0; attempt <= ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES; attempt++) {
       try {
-        return await this.resumeOne(item);
+        return await this.resumeOne(item, claimToken);
       } catch (err) {
         lastErr = err;
         if (this.isRetryableNetworkError(err) && attempt < ResumeInterruptedService.RATE_LIMIT_MAX_RETRIES) {
@@ -282,30 +343,31 @@ export class ResumeInterruptedService {
   /** 跳过判据合并（participant 失效 → exhausted 静默；「獭已恢复」→ exhausted 静默）。
    *  「獭已恢复」（F20260917rscr 三点裁决③）：中断时刻之后该獭已有新 invoke
    *  （用户手动接上 / cron 重触发 / 其他恢复路径）→ 已在跑，系统不再碰。 */
-  private async resolveSkipReason(item: ResumeQueueItem): Promise<"skipped" | null> {
+  private async resolveSkipReason(item: ResumeQueueItem, claimToken: string): Promise<"skipped" | null> {
     const participant = await this.deps.conversationRepo.getParticipant(item.conversationId, item.otterId);
     if (!participant || participant.status !== "active") {
-      await this.markExhaustedSafe(item.invokeId, new Error("Participant inactive or missing"));
+      await this.markExhaustedSafe(item.invokeId, claimToken, new Error("Participant inactive or missing"));
       return "skipped";
     }
     if (await this.isOtterAlreadyResumed(item)) {
-      await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
+      await this.settleHeld(item.invokeId, claimToken, "exhausted");
       return "skipped"; // 静默——獭已在跑，恢复目的已达成（成功路径静默语义）
     }
     return null;
   }
 
-  /** F20261116actlg PR-B：恢复轮 invoke 审计链回填（best-effort，失败仅日志） */
-  private async backfillRecoveryInvokeSafe(item: ResumeQueueItem, capture: { invokeId?: string }): Promise<void> {
+  /** F20261116actlg PR-B：恢复轮 invoke 审计链追加（best-effort，失败仅日志）。
+   *  F20261117 检视轮 S2：改追加式——多次恢复全历史不丢（单槽覆盖消除）。 */
+  private async appendRecoveryInvokeSafe(item: ResumeQueueItem, capture: { invokeId?: string }): Promise<void> {
     if (!capture.invokeId) return;
     try {
-      await this.deps.resumePendingRepo.backfillRecoveryInvoke(item.invokeId, capture.invokeId);
+      await this.deps.resumePendingRepo.appendRecoveryInvoke(item.invokeId, capture.invokeId);
     } catch (err) {
-      this.deps.logger.warn("recovery invoke backfill failed (non-fatal)", { invokeId: item.invokeId, error: String(err) });
+      this.deps.logger.warn("recovery invoke append failed (non-fatal)", { invokeId: item.invokeId, error: String(err) });
     }
   }
 
-  private async resumeOne(item: ResumeQueueItem): Promise<"done" | "skipped" | "failed"> {
+  private async resumeOne(item: ResumeQueueItem, claimToken: string): Promise<"done" | "skipped" | "failed"> {
     try {
       // 1. CAS 认领已上提至 resumeOneWithRetry 入口（attempts 语义 = 跨重启恢复次数，
       //    进程内退避重试不重认领——见 resumeOneWithRetry 注释）
@@ -313,13 +375,13 @@ export class ResumeInterruptedService {
       //    新外部事件会重新建立当轮授权/bearer；合成 resume prompt 没有这些凭据。
       const interrupted = await this.deps.invokeRepo.getInvokeById(item.invokeId);
       if (interrupted?.metadata?.externalProfile === 'restricted') {
-        await this.deps.resumePendingRepo.settleResume(item.invokeId, 'exhausted', new Date().toISOString());
+        await this.settleHeld(item.invokeId, claimToken, 'exhausted');
         await this.sendSystemSafe(item.conversationId, '受限外部会话的中断执行不会自动恢复，请由外部系统重新发送新事件。');
         return 'skipped';
       }
 
       // 3-4. 跳过检查合并提取（participant 失效 / 「獭已恢复」判据）
-      const skip = await this.resolveSkipReason(item);
+      const skip = await this.resolveSkipReason(item, claimToken);
       if (skip) return skip;
 
       // 5. 链引擎续跑：invokeFn 包装捕获首 hop invokeId + 终态（链 allSettled 吞错语义，
@@ -347,33 +409,33 @@ export class ResumeInterruptedService {
           triggerSenderType: "system",
           invokeFn: captureInvokeFn,
         });
-        // F20261116actlg PR-B：恢复轮 invoke 审计链回填（best-effort）
-        await this.backfillRecoveryInvokeSafe(item, capture);
+        // F20261116actlg PR-B：恢复轮 invoke 审计链追加（best-effort；S2 改追加式）
+        await this.appendRecoveryInvokeSafe(item, capture);
       } catch (chainErr) {
         // executeChain 自身抛错（链前置失败等）= 恢复失败；可重试错误上抛交退避层
         if (this.isRetryableNetworkError(chainErr)) throw chainErr;
-        return this.settleChainError(item, chainErr);
+        return this.settleChainError(item, claimToken, chainErr);
       }
 
       // 6. done 判定：invoke 终态直读
-      return await this.settleResumedOutcome(item, capture);
+      return await this.settleResumedOutcome(item, claimToken, capture);
     } catch (err) {
       this.deps.logger.error("Resume one interrupted invoke failed", err instanceof Error ? err : new Error(String(err)), {
         invokeId: item.invokeId, conversationId: item.conversationId, otterId: item.otterId,
       });
       if (this.isRetryableNetworkError(err)) throw err;
-      await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
+      await this.settleHeld(item.invokeId, claimToken, "exhausted");
       await this.sendSystemSafe(item.conversationId, buildRestartResumeFailedInvokeMsg());
       return "failed";
     }
   }
 
   /** 链抛不可重试异常的终态收尾（F202609048840 F4 移植：标 failed 可手动重试） */
-  private async settleChainError(item: ResumeQueueItem, chainErr: unknown): Promise<"failed"> {
+  private async settleChainError(item: ResumeQueueItem, claimToken: string, chainErr: unknown): Promise<"failed"> {
     this.deps.logger.error("Resume chain failed (invoke error)", chainErr instanceof Error ? chainErr : new Error(String(chainErr)), {
       invokeId: item.invokeId, conversationId: item.conversationId, otterId: item.otterId,
     });
-    await this.deps.resumePendingRepo.settleResume(item.invokeId, "failed", new Date().toISOString());
+    await this.settleHeld(item.invokeId, claimToken, "failed");
     await this.sendSystemSafe(item.conversationId, buildRestartResumeFailedInvokeMsg());
     return "failed";
   }
@@ -387,6 +449,7 @@ export class ResumeInterruptedService {
    */
   private async settleResumedOutcome(
     item: ResumeQueueItem,
+    claimToken: string,
     capture: { invokeId?: string; rejected?: unknown },
   ): Promise<"done" | "failed"> {
     if (capture.rejected !== undefined) {
@@ -396,7 +459,7 @@ export class ResumeInterruptedService {
         invokeId: item.invokeId, conversationId: item.conversationId, otterId: item.otterId,
         error: invokeErr instanceof Error ? invokeErr.message : String(invokeErr),
       });
-      await this.deps.resumePendingRepo.settleResume(item.invokeId, "failed", new Date().toISOString());
+      await this.settleHeld(item.invokeId, claimToken, "failed");
       await this.sendSystemSafe(item.conversationId, buildRestartResumeFailedInvokeMsg());
       return "failed";
     }
@@ -406,12 +469,12 @@ export class ResumeInterruptedService {
         this.deps.logger.warn("Resume chain returned but invoke failed (terminal read = failed)", {
           invokeId: item.invokeId, conversationId: item.conversationId, otterId: item.otterId,
         });
-        await this.deps.resumePendingRepo.settleResume(item.invokeId, "failed", new Date().toISOString());
+        await this.settleHeld(item.invokeId, claimToken, "failed");
         await this.sendSystemSafe(item.conversationId, buildRestartResumeFailedInvokeMsg());
         return "failed";
       }
     }
-    await this.deps.resumePendingRepo.settleResume(item.invokeId, "done", new Date().toISOString());
+    await this.settleHeld(item.invokeId, claimToken, "done");
     return "done";
   }
 

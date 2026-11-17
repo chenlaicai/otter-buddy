@@ -2240,9 +2240,10 @@ function ensureHealingEventsBoundIssueColumns(db: Database.Database, logger: Log
 }
 
 /**
- * F20261116actlg PR-B：restart_pending_resumes 补 claim 三列（存量库 ALTER，幂等）。
+ * F20261116actlg PR-B：restart_pending_resumes 补 claim 四列（存量库 ALTER，幂等）。
  * - claim_token/boot_epoch：认领绑定（同 boot 内已认领拒重认领；旧纪元残留可被新开机重认领）；
- * - recovery_invoke_id：恢复轮 invoke 审计锚（originalInvokeId=行 PK 跨世代不变）。
+ * - claim_pid：认领进程 pid（重认领前 liveness 预检——旧持有者仍存活则不抢，防双跑）；
+ * - recovery_invoke_id：恢复轮 invoke 审计链（追加式，多次恢复全历史；originalInvokeId=行 PK 跨世代不变）。
  */
 function ensureRestartPendingResumesClaimColumns(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(restart_pending_resumes)").all() as Array<{ name: string }>;
@@ -2250,6 +2251,7 @@ function ensureRestartPendingResumesClaimColumns(db: Database.Database, logger: 
   const additions: Array<[string, string]> = [
     ["claim_token", "TEXT"],
     ["boot_epoch", "INTEGER"],
+    ["claim_pid", "INTEGER"],
     ["recovery_invoke_id", "TEXT"],
   ];
   for (const [name, type] of additions) {

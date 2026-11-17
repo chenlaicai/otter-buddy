@@ -16,6 +16,7 @@ interface PendingResumeRow {
   settled_at: string | null;
   claim_token: string | null;
   boot_epoch: number | null;
+  claim_pid: number | null;
   recovery_invoke_id: string | null;
 }
 
@@ -31,6 +32,7 @@ function rowToPendingResume(row: PendingResumeRow): PendingResume {
     settledAt: row.settled_at,
     claimToken: row.claim_token,
     bootEpoch: row.boot_epoch,
+    claimPid: row.claim_pid,
     recoveryInvokeId: row.recovery_invoke_id,
   };
 }
@@ -53,22 +55,27 @@ export class SqliteResumePendingRepository implements ResumePendingRepository {
    *  机会不够）。 */
   private static readonly MAX_RESUME_ATTEMPTS = 5;
 
-  async claimPendingResume(invokeId: string, claim: { token: string; bootEpoch: number }): Promise<boolean> {
-    // F20261116actlg PR-B：认领绑定 token+epoch——同 boot 内已认领拒重认领（boot_epoch = 本次纪元
-    // 且已有 token = 本 boot 已有持有者）；旧纪元残留可重认领（恢复者自身崩溃不留死锁）；
-    // attempts 每次认领（含重认领）自增，上限守卫不放松。
+  async claimPendingResume(invokeId: string, claim: { token: string; bootEpoch: number; pid: number }): Promise<boolean> {
+    // F20261116actlg PR-B：认领绑定 token+epoch（F20261117 检视轮 S3 补 pid）——同 boot 内已认领
+    // 拒重认领（boot_epoch = 本次纪元且已有 token = 本 boot 已有持有者）；旧纪元残留可重认领
+    // （恢复者自身崩溃不留死锁，服务层预检旧持有者 pid 死活）；attempts 每次认领（含重认领）
+    // 自增，上限守卫不放松。
     const result = this.db.prepare(
-      "UPDATE restart_pending_resumes SET attempts = attempts + 1, claim_token = ?, boot_epoch = ? "
+      "UPDATE restart_pending_resumes SET attempts = attempts + 1, claim_token = ?, boot_epoch = ?, claim_pid = ? "
       + "WHERE invoke_id = ? AND status = 'pending' AND attempts < ? "
       + "AND (claim_token IS NULL OR boot_epoch IS NULL OR boot_epoch != ?)",
-    ).run(claim.token, claim.bootEpoch, invokeId, SqliteResumePendingRepository.MAX_RESUME_ATTEMPTS, claim.bootEpoch);
+    ).run(claim.token, claim.bootEpoch, claim.pid, invokeId, SqliteResumePendingRepository.MAX_RESUME_ATTEMPTS, claim.bootEpoch);
     return result.changes > 0;
   }
 
-  async backfillRecoveryInvoke(invokeId: string, recoveryInvokeId: string): Promise<void> {
+  async appendRecoveryInvoke(invokeId: string, recoveryInvokeId: string): Promise<void> {
+    // F20261117 检视轮 S2：追加式审计链——多次恢复全历史不丢（单槽覆盖改逗号追加，
+    // attempts 上限钳住链长 ≤5）；首次写入为单值，兼容既有单次恢复断言。
     this.db.prepare(
-      "UPDATE restart_pending_resumes SET recovery_invoke_id = ? WHERE invoke_id = ?",
-    ).run(recoveryInvokeId, invokeId);
+      "UPDATE restart_pending_resumes SET recovery_invoke_id = "
+      + "CASE WHEN recovery_invoke_id IS NULL OR recovery_invoke_id = '' THEN ? "
+      + "ELSE recovery_invoke_id || ',' || ? END WHERE invoke_id = ?",
+    ).run(recoveryInvokeId, recoveryInvokeId, invokeId);
   }
 
   async getByInvokeId(invokeId: string): Promise<PendingResume | null> {
@@ -86,5 +93,21 @@ export class SqliteResumePendingRepository implements ResumePendingRepository {
     this.db.prepare(
       "UPDATE restart_pending_resumes SET status = ?, settled_at = ? WHERE invoke_id = ?",
     ).run(status, settledAt, invokeId);
+  }
+
+  async settleResumeHeld(
+    invokeId: string,
+    token: string,
+    status: ResumePendingStatus,
+    settledAt: string,
+  ): Promise<boolean> {
+    // F20261117 检视轮 S1：claim_token 真消费——持有者收口终态。仅当行无主（token IS NULL，
+    // 存量库迁移行）或持有者即本 token 时写入；行已被他人接管则 changes=0（本持有者
+    // 不覆盖他人终态，交由接管者负责闭环）。
+    const result = this.db.prepare(
+      "UPDATE restart_pending_resumes SET status = ?, settled_at = ? "
+      + "WHERE invoke_id = ? AND (claim_token = ? OR claim_token IS NULL)",
+    ).run(status, settledAt, invokeId, token);
+    return result.changes > 0;
   }
 }

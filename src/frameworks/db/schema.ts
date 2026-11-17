@@ -1097,9 +1097,11 @@ function createRestartPendingResumesTable(db: Database.Database): void {
       created_at TEXT NOT NULL,
       settled_at TEXT,
       /* F20261116actlg PR-B：认领绑定 claim token/boot epoch（恢复者自身崩溃不留死锁，
-       *  旧纪元残留可被新开机重认领）+ 恢复轮 invoke 审计链 */
+       *  旧纪元残留可被新开机重认领——重认领前判旧持有者 pid 死活防双跑）
+       *  + 恢复轮 invoke 审计链（追加式，多次恢复全历史） */
       claim_token TEXT,
       boot_epoch INTEGER,
+      claim_pid INTEGER,
       recovery_invoke_id TEXT
     );
 

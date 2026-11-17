@@ -144,6 +144,8 @@ interface Harness {
       invokeFn?: () => Promise<{ messageId: string }>;
       actionLedger?: { listByInvoke(invokeId: string, limit?: number): Promise<import("@entities/execution/action-record").ActionRecord[]> };
       bootEpoch?: number;
+      pid?: number;
+      isPidAlive?: (pid: number) => boolean;
     },
   ): ResumeInterruptedService;
 }
@@ -202,6 +204,8 @@ function makeHarness(): Harness {
       rateLimitBaseDelayMs: opts.rateLimitBaseDelayMs,
       actionLedger: opts.actionLedger,
       bootEpoch: opts.bootEpoch ?? 42,
+      pid: opts.pid,
+      isPidAlive: opts.isPidAlive,
     }),
   };
   return h;
@@ -512,7 +516,7 @@ describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持
   it("同 boot 已认领（双路径并发窗口）：认领失败不 settle——保持 pending 交还原持有者〔minor-1〕", async () => {
     const invokeId = await h.seedInterrupted();
     // 模拟同 boot 另一路径已认领（同毫秒双进程/二次 resume），行仍 pending
-    await h.resumeRepo.claimPendingResume(invokeId, { token: "holder-token", bootEpoch: 42 });
+    await h.resumeRepo.claimPendingResume(invokeId, { token: "holder-token", bootEpoch: 42, pid: 100 });
 
     const chain = stubChainEngine();
     await h.buildService(chain, { bootEpoch: 42 }).resume();
@@ -559,6 +563,92 @@ describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持
     expect(chain.calls).toHaveLength(1);
     const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
     expect(content).not.toContain("机器台账");
+    expect(h.queueStatus(invokeId)).toBe("done");
+  });
+});
+
+// ─── F20261117 检视轮可优化项 S1/S2/S3（搭档裁决：可优化项做完整）───
+describe("ResumeInterruptedService 可优化项完整落地（S1 持有收口/S2 审计链追加/S3 旧持有者死活预检）", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = await setupHarness();
+  });
+
+  afterEach(() => {
+    h.db.close();
+  });
+
+  it("S3：旧纪元持有进程仍存活 → 不抢不双跑，行保持 pending 归旧持有者", async () => {
+    const invokeId = await h.seedInterrupted();
+    // 旧纪元（epoch 100）持有者在途：pid 4321 存活
+    await h.resumeRepo.claimPendingResume(invokeId, { token: "old-holder", bootEpoch: 100, pid: 4321 });
+
+    const chain = stubChainEngine();
+    await h.buildService(chain, { bootEpoch: 999, isPidAlive: () => true }).resume();
+
+    expect(chain.calls).toHaveLength(0); // 不抢——旧持有者活着
+    expect(h.queueStatus(invokeId)).toBe("pending");
+    const row = await h.resumeRepo.getByInvokeId(invokeId);
+    expect(row?.claimToken).toBe("old-holder"); // 归旧持有者
+    expect(row?.attempts).toBe(1); // 预检拒抢不自增 attempts
+  });
+
+  it("S3：旧纪元持有进程已死 → 重认领接手（防死锁），pid 更新为新持有者", async () => {
+    const invokeId = await h.seedInterrupted();
+    await h.resumeRepo.claimPendingResume(invokeId, { token: "dead-holder", bootEpoch: 100, pid: 4321 });
+
+    const chain = stubChainEngine();
+    await h.buildService(chain, { bootEpoch: 999, pid: 7777, isPidAlive: () => false }).resume();
+
+    expect(chain.calls).toHaveLength(1); // 接手恢复
+    const row = await h.resumeRepo.getByInvokeId(invokeId);
+    expect(row?.claimToken).not.toBe("dead-holder"); // 新 token
+    expect(row?.claimPid).toBe(7777); // S3：pid 更新为新持有者
+    expect(row?.attempts).toBe(2); // 重认领自增
+    expect(h.queueStatus(invokeId)).toBe("done");
+  });
+
+  it("S3：同 boot 冲突不进 liveness 预检路径（epoch 相等不触发旧纪元预检）", async () => {
+    const invokeId = await h.seedInterrupted();
+    await h.resumeRepo.claimPendingResume(invokeId, { token: "holder", bootEpoch: 42, pid: 4321 });
+
+    let probed = false;
+    const chain = stubChainEngine();
+    await h.buildService(chain, {
+      bootEpoch: 42,
+      isPidAlive: () => { probed = true; return true; },
+    }).resume();
+
+    expect(probed).toBe(false); // 同 boot（epoch 相等）不走旧纪元预检——归认领失败分支处理
+    expect(chain.calls).toHaveLength(0);
+    expect(h.queueStatus(invokeId)).toBe("pending");
+  });
+
+  it("S1+S2：恢复成功写入 claim_pid + 持有者收口 done + 审计链记录本轮恢复 invoke", async () => {
+    const invokeId = await h.seedInterrupted();
+    const chain = stubChainEngine();
+    await h.buildService(chain, { bootEpoch: 42, pid: 5555 }).resume();
+
+    const row = await h.resumeRepo.getByInvokeId(invokeId);
+    expect(row?.claimPid).toBe(5555); // S3 数据承载：认领写 pid
+    expect(h.queueStatus(invokeId)).toBe("done"); // S1：持有者 token 收口成功
+    expect(row?.recoveryInvokeId).toBe("new-invoke-1"); // S2：审计链首轮
+  });
+
+  it("S2：崩溃重启二次恢复——审计链追加不丢首轮记录（恢复者崩溃后新开机接手）", async () => {
+    const invokeId = await h.seedInterrupted();
+    // 第一轮恢复成功，但模拟恢复者崩溃（行未 settle 退回 pending，审计链已记）
+    const chain1 = stubChainEngine();
+    await h.buildService(chain1, { bootEpoch: 42, pid: 1000 }).resume();
+    h.db.prepare("UPDATE restart_pending_resumes SET status = 'pending', attempts = 0, claim_pid = 1000, boot_epoch = 42, claim_token = 'stale' WHERE invoke_id = ?").run(invokeId);
+
+    // 第二轮：新开机（新纪元、旧 pid 已死）接手恢复
+    const chain2 = stubChainEngine();
+    await h.buildService(chain2, { bootEpoch: 999, pid: 2000, isPidAlive: () => false }).resume();
+
+    const row = await h.resumeRepo.getByInvokeId(invokeId);
+    expect(row?.recoveryInvokeId).toBe("new-invoke-1,new-invoke-1"); // S2：两轮全历史（stub 固定 messageId）
     expect(h.queueStatus(invokeId)).toBe("done");
   });
 });
