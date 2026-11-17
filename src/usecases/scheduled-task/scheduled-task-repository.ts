@@ -34,6 +34,8 @@ export interface ScheduledTaskRepository {
   createExecution(execution: ScheduledTaskExecution): Promise<void>;
   /** 全部 running execution（可按任务过滤；无 20 条窗口，忙判/对账不能漏旧行）。 */
   getRunningExecutions(taskId?: string): Promise<ScheduledTaskExecution[]>;
+  /** #1510：取启动对账误标「执行被中断」的 failed 行——对账分级修复时回查其 invoke 是否真收尾。 */
+  getReconciliationFailedExecutions(): Promise<ScheduledTaskExecution[]>;
   /** 启动对账：无近期产出证据的 running 翻篇为 failed；有证据的 ID 由调用方保留。
    *  @returns 翻篇行数（日志可见）。 */
   failAllRunningExecutions(preserveExecutionIds?: string[]): Promise<number>;

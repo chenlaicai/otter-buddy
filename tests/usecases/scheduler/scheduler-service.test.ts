@@ -172,6 +172,12 @@ function createMockTaskRepo() {
       }
       return changed;
     }),
+    // #1510：启动对账误标「执行被中断」的 failed 行（对账分级修复回查用）
+    getReconciliationFailedExecutions: vi.fn(async () =>
+      Array.from(executions.values()).filter(e =>
+        e.status === 'failed' && (e.errorMessage as string | null | undefined)?.includes('执行被中断'),
+      ) as never,
+    ),
   };
 }
 
@@ -260,13 +266,25 @@ function createMockSendEntry() {
 /** 创建 EntryRepository 的状态化 mock（看门狗/记账校验数据源） */
 function createMockEntryRepo() {
   /** entry 存储：id → entry（测试可预置锚点后产出） */
-  const entries = new Map<string, { id: string; senderId: string | null; entryType: string; body: string | null; yieldTargets: string[] | null; metadata: Record<string, unknown> | null }>();
+  const entries = new Map<string, {
+    id: string; senderId: string | null; entryType: string; body: string | null;
+    yieldTargets: string[] | null; metadata: Record<string, unknown> | null;
+    senderName?: string; createdAt?: string; invokeId?: string | null;
+  }>();
 
   return {
     _entries: entries,
     /** 预置一条 entry */
-    _addEntry: (e: { id: string; senderId?: string | null; entryType?: string; body?: string | null; yieldTargets?: string[] | null; metadata?: Record<string, unknown> | null }) => {
-      entries.set(e.id, { id: e.id, senderId: e.senderId ?? null, entryType: e.entryType ?? 'speak', body: e.body ?? null, yieldTargets: e.yieldTargets ?? null, metadata: e.metadata ?? null });
+    _addEntry: (e: {
+      id: string; senderId?: string | null; entryType?: string; body?: string | null;
+      yieldTargets?: string[] | null; metadata?: Record<string, unknown> | null;
+      senderName?: string; createdAt?: string; invokeId?: string | null;
+    }) => {
+      entries.set(e.id, {
+        id: e.id, senderId: e.senderId ?? null, entryType: e.entryType ?? 'speak', body: e.body ?? null,
+        yieldTargets: e.yieldTargets ?? null, metadata: e.metadata ?? null,
+        senderName: e.senderName, createdAt: e.createdAt, invokeId: e.invokeId,
+      });
     },
     getEntryById: vi.fn(async (id: string) => entries.get(id) ?? null),
     getEntriesAfter: vi.fn(async (id: string, count: number) => {
@@ -275,6 +293,20 @@ function createMockEntryRepo() {
       const idx = all.findIndex(e => e.id === id);
       if (idx === -1) return [];
       return all.slice(idx + 1, idx + 1 + count);
+    }),
+    // #1510 对账分级：按 entryType 过滤（DESC）——空 messageId 执行回找 scheduler 系统锚点用
+    getEntries: vi.fn(async (conversationId: string, options?: { entryType?: string; limit?: number }) => {
+      const filtered = [...entries.values()].filter(e =>
+        (!options?.entryType || e.entryType === options.entryType),
+      ).reverse();
+      return filtered.slice(0, options?.limit ?? 50);
+    }),
+    // #1510 对账分级：senderName + since 后最早一条 system entry（Map 插入序=ASC）
+    getFirstSystemEntrySince: vi.fn(async (conversationId: string, senderName: string, sinceIso: string) => {
+      const all = [...entries.values()].filter(e =>
+        e.entryType === 'system' && e.senderName === senderName && (e.createdAt ?? '') >= sinceIso,
+      );
+      return all[0] ?? null;
     }),
   };
 }
@@ -3433,6 +3465,79 @@ describe('#775 S4a: scheduler 换轨', () => {
     });
     await service.start();
     expect(taskRepo.failAllRunningExecutions.mock.calls).toHaveLength(1);
+  });
+
+  it('#1510 对账分级：空 messageId 但 invoke_end 已落账的执行翻篇为 completed（不误标「执行被中断」）', async () => {
+    const taskRepo = createMockTaskRepo();
+    const entryRepo = createMockEntryRepo();
+    taskRepo._store.set('task-1510', makeTask({
+      id: 'task-1510', name: '每日补丁清单回看', conversationId: 'conv-1',
+    }));
+    taskRepo._executions.set('exec-21aef3fc', {
+      id: 'exec-21aef3fc', taskId: 'task-1510',
+      triggeredAt: '2026-10-22T00:00:00.000Z',
+      completedAt: null, status: 'running', errorMessage: null, messageId: '',
+    });
+    // 旧代码触发未写锚点（空 messageId），但 invoke 已收尾：锚点 → invoke_start → invoke_end
+    entryRepo._addEntry({
+      id: 'anchor-1', entryType: 'system', senderName: 'scheduler:每日补丁清单回看',
+      createdAt: '2026-10-22T00:00:01.000Z',
+    });
+    entryRepo._addEntry({ id: 'is-1', entryType: 'invoke_start', invokeId: 'inv-1', senderId: 'otter-1' });
+    entryRepo._addEntry({ id: 'ie-1', entryType: 'invoke_end', invokeId: 'inv-1', senderId: 'otter-1' });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: createMockConvRepo() as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date('2026-10-22T00:40:00.000Z')) as unknown as CronParser,
+      logger: mockLogger,
+    });
+    await service.start();
+    const exec = taskRepo._executions.get('exec-21aef3fc');
+    expect(exec?.status).toBe('completed');
+    expect(exec?.messageId).toBe('anchor-1');
+    expect(exec?.errorMessage).toBeNull();
+  });
+
+  it('#1510 历史修复：误标「执行被中断」的 failed 行若 invoke 已收尾 → 回补为 completed', async () => {
+    const taskRepo = createMockTaskRepo();
+    const entryRepo = createMockEntryRepo();
+    taskRepo._store.set('task-1510', makeTask({
+      id: 'task-1510', name: '每日补丁清单回看', conversationId: 'conv-1',
+    }));
+    taskRepo._executions.set('exec-a0c3703f', {
+      id: 'exec-a0c3703f', taskId: 'task-1510',
+      triggeredAt: '2026-10-22T00:30:01.621Z',
+      completedAt: '2026-10-22T00:40:00.000Z', status: 'failed',
+      errorMessage: '进程重启对账：执行被中断，锚点后无近期产出证据', messageId: '',
+    });
+    entryRepo._addEntry({
+      id: 'anchor-2', entryType: 'system', senderName: 'scheduler:每日补丁清单回看',
+      createdAt: '2026-10-22T00:30:02.000Z',
+    });
+    entryRepo._addEntry({ id: 'is-2', entryType: 'invoke_start', invokeId: 'inv-2', senderId: 'otter-1' });
+    entryRepo._addEntry({
+      id: 'ie-2', entryType: 'invoke_end', invokeId: 'inv-2', senderId: 'otter-1',
+      createdAt: '2026-10-22T00:33:00.000Z',
+    });
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: createMockConvRepo() as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date('2026-10-22T00:40:00.000Z')) as unknown as CronParser,
+      logger: mockLogger,
+    });
+    await service.start();
+    const exec = taskRepo._executions.get('exec-a0c3703f');
+    expect(exec?.status).toBe('completed');
+    expect(exec?.messageId).toBe('anchor-2');
+    expect(exec?.completedAt).toBe('2026-10-22T00:33:00.000Z');
   });
 });
 

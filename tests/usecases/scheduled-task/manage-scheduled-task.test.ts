@@ -71,6 +71,7 @@ function mockRepo() {
       return [...storedExecutions.values()].flat().filter(e => e.status === 'running');
     }),
     failAllRunningExecutions: vi.fn(async () => 0),
+    getReconciliationFailedExecutions: vi.fn(async () => []),
   } satisfies ScheduledTaskRepository & {
     _storedTasks: Map<string, ScheduledTask>;
     _storedExecutions: Map<string, ScheduledTaskExecution[]>;
