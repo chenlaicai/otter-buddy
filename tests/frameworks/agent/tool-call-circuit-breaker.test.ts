@@ -345,6 +345,34 @@ describe("buildToolSignature —— #1761 批量处置收口", () => {
   });
 });
 
+describe("buildToolSignature —— #1895 archive_artifact_for_reconciliation 签名", () => {
+  it("按 artifactId 分签名，evidence 不入签名", () => {
+    expect(buildToolSignature("archive_artifact_for_reconciliation", { artifactId: "a-1", evidence: "gh pr view 1801 --json state" }))
+      .toBe("archive_artifact_for_reconciliation: a-1");
+    expect(buildToolSignature("archive_artifact_for_reconciliation", { artifactId: "a-2", evidence: "worktree 路径不存在" }))
+      .toBe("archive_artifact_for_reconciliation: a-2");
+    // 同一产物不同 evidence 仍是同一归档目标，同签名（幂等重试值得提醒）。
+    expect(buildToolSignature("archive_artifact_for_reconciliation", { artifactId: "a-1", evidence: "other evidence" }))
+      .toBe("archive_artifact_for_reconciliation: a-1");
+    expect(buildToolSignature("archive_artifact_for_reconciliation", {})).toBe("archive_artifact_for_reconciliation");
+  });
+
+  it("同日连续归档不同产物不触发连续同构拦截（#1895 现场）", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 8; i++) {
+      expect(cb.check("archive_artifact_for_reconciliation", { artifactId: `artifact-${i}`, evidence: `evidence-${i}` }).action).toBe("allow");
+    }
+  });
+
+  it("同一产物反复归档仍触发连续同构拦截", () => {
+    const cb = new ToolCallCircuitBreaker(makeConfig(), "big-otter", createTestLogger());
+    for (let i = 0; i < 5; i++) {
+      expect(cb.check("archive_artifact_for_reconciliation", { artifactId: "artifact-1", evidence: "e" }).action).toBe("allow");
+    }
+    expect(cb.check("archive_artifact_for_reconciliation", { artifactId: "artifact-1", evidence: "e" }).action).toBe("steer");
+  });
+});
+
 describe("buildToolSignature —— #1802 workspace_delete 清理签名", () => {
   it("连续清理不同 path 不触发连续同构拦截", () => {
     expect(buildToolSignature("workspace_delete", { path: "review-1782", recursive: true })).toBe("workspace_delete: review-1782");

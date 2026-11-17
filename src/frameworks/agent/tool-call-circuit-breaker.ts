@@ -261,6 +261,10 @@ function managementToolSignature(toolName: string, a: Record<string, unknown>): 
   switch (toolName) {
     case "update_artifact_status":
       return updateArtifactStatusSignature(a);
+    case "archive_artifact_for_reconciliation":
+      // #1895：签名表漏进本工具（#1835/#1881 引入）——异参批量归档退回工具名兑底、同日连续 8 次被误判连发。
+      // 实体 = artifactId（evidence 是审计文本非实体标识），不同产物归档是合法批量流。
+      return entityToolSignature(toolName, "artifactId", a.artifactId);
     case "merge_pr":
       return mergePrSignature(a);
     case "halt_otter":
