@@ -355,7 +355,7 @@ const CRED_LS_RE = /(?:^|[\s;&|])ls(?:\s+-{1,2}[A-Za-z0-9]+)*\s+[^\s|;&]*\.(?:ss
  *  防「python3 -c 写 config / echo 路径」之类任意串撞公开 token；私密 token 另由 hasPrivateCredFile 拦。 */
 const CRED_READ_PUBLIC_RE = /(?:^|[\s;&|])(?:cat|grep|head|tail|wc|file|less|more|sed|awk)\b[^\n;|&]*?(?:\.pub|known_hosts|\.ssh\/config)(?:["'\s;|&]|$)/;
 
-/** #1892 凭证目录内私密文件 token 扫描——公开清单外的任何文件引用（id_rsa/colink_ed25519/
+/** #1892 凭证目录内私密文件 token 扫描——公开清单外的任何文件引用（id_rsa/deploy_ed25519/
  *  credentials/secring.gpg 等）都视为私密。公共口径：.ssh/{known_hosts,config,*.pub}。 */
 function hasPrivateCredFile(normalized: string): boolean {
   const re = /\.(ssh|gnupg|aws)\/([^\s|;&$'"\\]+)/g;
