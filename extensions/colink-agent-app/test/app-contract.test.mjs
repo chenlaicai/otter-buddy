@@ -18,13 +18,15 @@ test('manifest includes a passive otter avatar and both personal/project scopes'
   assert.doesNotMatch(svg, /\bopacity\s*=/i);
   assert.doesNotMatch(svg, /url\(#/i);
   assert.doesNotMatch(svg, /(?:fill|stroke)\s*=\s*["'](?!currentColor|none)[^"']+["']/i);
-  assert.equal(manifest.version, '0.5.1');
+  assert.equal(manifest.version, '0.5.2');
   assert.deepEqual(manifest.permissions, ['messages:receive', 'messages:write', 'messages:read-public', 'messages:read-private']);
   assert.equal(manifest.ui.contractVersion, '1.0.0');
   assert.deepEqual(manifest.ui.views, [{ viewId: 'otter.embed', renderer: 'app', entryPath: '/embed.html', bridgeVersion: '1.0.0' }]);
   assert.ok(manifest.ui.entries.some(entry => entry.extensionPoint.id === 'colink.app.home' && entry.openView.container === 'side_panel'));
   assert.ok(manifest.ui.entries.some(entry => entry.extensionPoint.id === 'colink.navigation.modules' && entry.openView.container === 'page_content'));
-  assert.ok(manifest.ui.entries.some(entry => entry.extensionPoint.id === 'colink.topic.actions' && entry.openView.container === 'side_panel'));
+  assert.ok(manifest.ui.entries.some(entry => entry.extensionPoint.id === 'colink.dm.actions' && entry.openView.container === 'side_panel'));
+  // 不再声明 colink.topic.actions：该点会把入口带进频道话题标题栏与消息操作栏（个人空间兜底还会泄漏进项目频道）。
+  assert.ok(!manifest.ui.entries.some(entry => entry.extensionPoint.id === 'colink.topic.actions'));
 });
 
 function turnFixture(input, replies, userId = 'owner') {
