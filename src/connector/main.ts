@@ -127,6 +127,7 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
     const frame = JSON.parse(String(raw)) as ConnectorFrame;
     if (frame.type === "hello.ack" && frame.sid) {
       state.sessionId = frame.sid;
+      currentSid = frame.sid; // minor-1：信号处理读最新会话
       state.lastAckAt = Date.now();
       log("online", { deviceId: identity.deviceId, sessionId: frame.sid, version: frame.data.version });
       startHeartbeatLoops(ws, state);
@@ -139,12 +140,20 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
   });
 }
 
-/** SIGINT/SIGTERM → 主动 offline（尽力而为发帧；hub 侧断线兜底会补收尾） */
-function attachSignalHandlers(ws: WebSocket, state: ConnState): void {
+/**
+ * SIGINT/SIGTERM → 主动 offline（尽力而为发帧；hub 侧断线兜底会补收尾）。
+ * 检视 minor-1：信号处理**注册一次**（main 里 connectOnce 循环外），经模块级
+ * currentWs/currentSid 引用读最新连接——避免随重连循环累积监听器
+ * （MaxListenersExceededWarning）与 stale handler 引用已关 ws。
+ */
+let currentWs: WebSocket | null = null;
+let currentSid: string | null = null;
+
+function registerSignalHandlersOnce(): void {
   const goOffline = (signal: string): void => {
-    if (state.sessionId && ws.readyState === WebSocket.OPEN) {
+    if (currentWs?.readyState === WebSocket.OPEN && currentSid) {
       seq += 1;
-      ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "offline", seq, sid: state.sessionId, data: {} }));
+      currentWs.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "offline", seq, sid: currentSid, data: {} }));
       log("offline requested", { signal });
     }
     setTimeout(() => process.exit(0), 100); // 一拍发送窗口后退出
@@ -171,7 +180,7 @@ function connectOnce(hub: string, identity: DeviceIdentity): Promise<"closed" | 
       ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq, data: { supportedVersions: [CONNECTOR_PROTOCOL_VERSION] } }));
     });
     attachMessageHandler(ws, identity, state, settle);
-    attachSignalHandlers(ws, state);
+    currentWs = ws; // minor-1：信号处理读最新连接（注册一次，见 registerSignalHandlersOnce）
     ws.on("close", () => {
       log("disconnected", { note: "will reconnect with a fresh session (reconnect ≠ resume)" });
       settle("closed");
@@ -194,6 +203,7 @@ async function main(): Promise<void> {
   }
 
   // 断线自动重连（检视 s1）：指数退避，重连=新会话（hub 侧 sid 代际隔离跨会话重放）
+  registerSignalHandlersOnce(); // minor-1：信号处理注册一次（循环外），读 currentWs/currentSid
   let backoff = RECONNECT_BASE_MS;
   for (;;) {
     const outcome = await connectOnce(args.hub, identity);
