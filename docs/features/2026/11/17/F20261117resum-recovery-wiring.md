@@ -65,7 +65,7 @@ PR-A（F20261116actlg，#1900）建立了本机动作台账（五态/hash/开机
 
 | 取舍 | 决策 | 被否替代 | 理由 |
 |---|---|---|---|
-| boot epoch 判定 | 进程构造时定格 Date.now()，认领写库；跨进程互异即够 | 复用动作台账 boot_seq | 两个库各自单调，不跨库耦合；同毫秒双开概率可忽略且 attempts 上限兜底 |
+| boot epoch 判定 | 进程构造时定格 Date.now()，认领写库；跨进程互异即够 | 复用动作台账 boot_seq | 两个库各自单调，不跨库耦合；同毫秒双开铸相同 epoch 时同 boot CAS 仍拒重认领（防双跑不失效，代价是该纪元内恢复由先认领者独占），attempts 上限只守跨 boot 无限重试，不参与此场景 |
 | 同 boot 重认领 | 拒绝（boot_epoch=本次且已有 token 即 CAS 失败） | 允许覆盖 | 同 boot 双恢复窗口=真双跑风险；跨 boot 重认领已覆盖崩溃场景 |
 | 摘要注入点 | executeChain 的 userMessageContent（合成文本，triggerSenderType=system 沿用不进安全词扫描） | 新增系统 entry / 工具注入 | 与既有续跑指令同通道同语义，最小增量 |
 | 摘要排序 | unknown > running > interrupted > failed > succeeded | 时间序 | unknown 需人/獭检查最优先可见；running 是清扫漏网按 unknown 对待 |
