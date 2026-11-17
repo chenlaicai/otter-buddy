@@ -346,12 +346,24 @@ const CREDENTIAL_PATH_PATTERNS = [
   /\.aws([/ "'$]|$)/,
 ];
 
+/** #1892 明确写凭证目录：写/删/改动词 + 就地改写（sed/awk/gawk/perl/ruby -i / --in-place）+ 重定向/追加（> / >>） */
+const CRED_WRITE_RE = /\b(?:cp|mv|rm|install|tee|chmod|chown|chattr|truncate|ssh-keygen|touch|ln|rsync|dd|unlink)\b|\b(?:sed|gawk|awk|perl|ruby)\b[^\n;|&]*\s(?:-i(?:\.[A-Za-z]+)?|--in-place)\b|>>|>/;
+/** #1892 明确读私钥/凭证本体：已知私钥名（id_* 非 .pub）/ .pem / .key / credentials / secring.gpg */
+const CRED_PRIVATE_READ_RE = /(?:id_rsa|id_ed25519|id_ecdsa|id_dsa|id_xmss)(?![\w.-]*\.pub)|\.pem\b|\.key\b|credentials\b|secring\.gpg\b/;
+
 /** 展开归一：~/x 与 /Users/<who>/.x 双形态都认（不依赖 HOME 求值——路径特征即拦） */
 function credentialPathHit(command: string): boolean {
   // 命令中出现 ~/.ssh 形态或 <home>/.ssh 形态。家目录绝对路径形态由 HOME 前缀匹配：
   const home = process.env.HOME ?? "";
   const normalized = home ? command.split(home).join("~") : command;
-  return CREDENTIAL_PATH_PATTERNS.some(p => p.test(normalized));
+  if (!CREDENTIAL_PATH_PATTERNS.some(p => p.test(normalized))) return false;
+  // 搭档拍板（2026-11-17）：明确才拦，不明确一律放通；不叠加判断规则。
+  // ① 明确读已知私钥/凭证本体 → 拦
+  if (CRED_PRIVATE_READ_RE.test(normalized)) return true;
+  // ② 明确写凭证目录 → 拦
+  if (CRED_WRITE_RE.test(normalized)) return true;
+  // ③ 其余（ls / 公钥 / known_hosts / ssh config / 自定义钥匙名等不明确形态）→ 放通
+  return false;
 }
 
 /** F20261109bexfz（搭档 2026-11-09 拍板）：B 类外发域名表判定整类退役——
@@ -365,7 +377,7 @@ function credentialPathHit(command: string): boolean {
  *  （bash <(curl) 拦；bash <(echo)|diff <(curl) 放——解释器吃 echo，curl 只是 diff 参数）；
  *  cat <(curl)|bash 漏判面由 pipeToInterpreterHit 的 D4 段内扩形态覆盖。 */
 function processSubstitutionHit(command: string): boolean {
-  const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript|source)\b/;
+  const interpreterRe = /^(?:sudo\s+)?(?:env\s+(?:\S+\s+)*?)?(?:[A-Za-z_]\w*=\S+\s+)*(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript|source)\b/;
   const fetcherInsideRe = /<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
   // delta-r3：链内再按 | 拆管道段——解释器段与 <(fetcher) 必须在同一段
   // （bash <(echo)|diff <(curl)：解释器段的替换里是 echo，curl 在 diff 段——放行）
@@ -378,7 +390,9 @@ function processSubstitutionHit(command: string): boolean {
   return false;
 }
 function pipeToInterpreterHit(command: string): boolean {
-  const interpreterRe = /^(?:sudo\s+)?(?:env\s+\S+\s+)?(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
+  const interpreterRe = /^(?:sudo\s+)?(?:env\s+(?:\S+\s+)*?)?(?:[A-Za-z_]\w*=\S+\s+)*(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
+  // #1892：python -m json.tool 是格式化模块（读 stdin 输出格式化 JSON），非「执行下载内容」——排除出解释器判定
+  const jsonToolFormatterRe = /^(?:sudo\s+)?(?:env\s+(?:\S+\s+)*?)?python\d?\s+-m\s+json\.tool\b/;
   // D4（检视 delta-r3）：段首 fetcher 或段内进程替换 fetcher（cat <(curl …) 形态——
   // 替换输出即该段的数据源，管道对端解释器吃到下载内容，与 curl|sh 同构）
   const fetcherRe = /^(?:sudo\s+)?(?:curl|wget)\b|<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
@@ -387,9 +401,9 @@ function pipeToInterpreterHit(command: string): boolean {
   for (const chain of command.split(/&&|\|\||[;&\n]/)) {
     const parts = chain.split("|").map(p => p.trim()).filter(Boolean);
     if (parts.length < 2) continue;
-    // 链内任一前置段是 fetcher 且任一后续段是解释器 → 命中
+    // 链内任一前置段是 fetcher 且任一后续段是解释器（格式化模块除外）→ 命中
     const hasFetcher = parts.slice(0, -1).some(p => fetcherRe.test(p));
-    const hasInterpreter = parts.slice(1).some(p => interpreterRe.test(p));
+    const hasInterpreter = parts.slice(1).some(p => interpreterRe.test(p) && !jsonToolFormatterRe.test(p));
     if (hasFetcher && hasInterpreter) return true;
   }
   return false;
