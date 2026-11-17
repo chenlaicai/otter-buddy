@@ -55,6 +55,9 @@ const POLL_INTERVAL_MS = 300_000;
  *  Why 2h：正常任务时长上限 ~1h（日报级），2h 留一倍余量；1h 内即便闸门锁死自愈失败，
  *  挤占 healing 也已落账可见（软路径），2h 是硬兜底的机械释放。 */
 const RUNNING_STUCK_THRESHOLD_MS = 2 * 60 * 60 * 1000;
+/** #1510：空 messageId 执行回找 scheduler 锚点的触发时间匹配窗（5min）——锚点在触发时同步落账，
+ *  正常偏差秒级；5min 足够容错同时避免把次日同名任务的锚点误配到本次执行。 */
+const ANCHOR_MATCH_WINDOW_MS = 5 * 60 * 1000;
 /** #1449：挤占 skip 落 healing 的同任务节流窗（1h）——挤占态持续时多次触发
  *  （如每日补丁清单双触发）只落一条，防告警刷屏；节流状态存内存（重启重置可接受）。 */
 const PREEMPTION_SKIP_HEALING_THROTTLE_MS = 60 * 60 * 1000;
@@ -297,11 +300,7 @@ export class SchedulerService {
     // 启动对账以执行侧证据为准：有近期产出≠僵尸，不能因行仍 running 误杀已落账工作。
     // 无证据的在同一 UPDATE 中翻篇，返回后 claim 立即可走，消除「已清行但仍被 running 拒」的缝。
     try {
-      const preserveExecutionIds = await this.findRunningExecutionsWithFreshOutput();
-      const stale = await this.taskRepo.failAllRunningExecutions(preserveExecutionIds);
-      if (stale > 0) {
-        this.logger.warn(`启动对账：${stale} 条无近期产出证据的 running 执行已翻篇为 failed`, { stale, preserved: preserveExecutionIds.length });
-      }
+      await this.reconcileRunningExecutionsOnStartup();
     } catch (err) {
       this.logger.warn('启动对账失败（不阻塞启动）', { error: err instanceof Error ? err.message : String(err) });
     }
@@ -442,6 +441,109 @@ export class SchedulerService {
       if (await this.hasExecutionFreshOutput(execution)) preserve.push(execution.id);
     }
     return preserve;
+  }
+
+  /** #1510 对账分级：先识别「已收尾但账面滞留 running」的执行（invoke_end 已落账但
+   *  completeExecution 因进程重启未跑）——按 completed 翻篇，而非误标「执行被中断」；
+   *  再对无近期产出证据的剩余 running 单次 UPDATE 翻篇为 failed。 */
+  private async reconcileRunningExecutionsOnStartup(): Promise<void> {
+    // 先修复历史误标：「执行被中断」但 invoke 已收尾的 failed 行按 completed 回补。
+    const repaired = await this.repairCompletedFailedExecutions();
+    const preserveExecutionIds = await this.findRunningExecutionsWithFreshOutput();
+    const completedExecutions = await this.findCompletedRunningExecutions();
+    for (const completed of completedExecutions) {
+      await this.taskRepo.updateExecutionStatus(completed.id, {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+        messageId: completed.messageId ?? null,
+      });
+    }
+    const skipIds = new Set([...preserveExecutionIds, ...completedExecutions.map(c => c.id)]);
+    const stale = await this.taskRepo.failAllRunningExecutions([...skipIds]);
+    if (stale > 0 || completedExecutions.length > 0 || repaired > 0) {
+      this.logger.warn(`启动对账：${stale} 条无近期产出证据的 running 执行已翻篇为 failed`, {
+        stale, preserved: preserveExecutionIds.length, completed: completedExecutions.length, repaired,
+      });
+    }
+  }
+
+  /** #1510：历史修复——扫描「执行被中断」failed 行，invoke 已收尾（invoke_end 已落账）者按
+   *  completed 回补（completedAt 取 invoke_end entry 时间，messageId 回写锚点）。真实中断行不回补。 */
+  private async repairCompletedFailedExecutions(): Promise<number> {
+    const failed = await this.taskRepo.getReconciliationFailedExecutions();
+    let repaired = 0;
+    for (const execution of failed) {
+      const task = await this.taskRepo.getById(execution.taskId);
+      if (!task) continue;
+      const anchorId = await this.resolveExecutionAnchor(execution, task);
+      if (!anchorId) continue;
+      const endEntry = await this.findInvokeEndEntry(anchorId);
+      if (!endEntry) continue;
+      await this.taskRepo.updateExecutionStatus(execution.id, {
+        status: 'completed',
+        completedAt: endEntry.createdAt,
+        messageId: anchorId,
+      });
+      repaired++;
+    }
+    return repaired;
+  }
+
+  /** #1510：找出「invoke 已收尾但账面仍 running」的执行——进程在 invoke_end 与 completeExecution
+   *  之间重启时，执行侧证据（invoke_end entry）已落账而 DB 行未翻篇；启动对账按 completed 翻篇
+   *  而非误标「执行被中断」。锚点优先用 execution.messageId；旧代码触发未写锚点（空 messageId）时
+   *  按触发时间回找同任务的 scheduler 系统锚点。 */
+  private async findCompletedRunningExecutions(): Promise<Array<{ id: string; messageId: string | null }>> {
+    const running = await this.taskRepo.getRunningExecutions();
+    const completed: Array<{ id: string; messageId: string | null }> = [];
+    for (const execution of running) {
+      const task = await this.taskRepo.getById(execution.taskId);
+      if (!task) continue;
+      const anchorId = await this.resolveExecutionAnchor(execution, task);
+      if (!anchorId) continue;
+      const hasEnd = await this.hasInvokeEndAfter(anchorId);
+      if (hasEnd) completed.push({ id: execution.id, messageId: anchorId });
+    }
+    return completed;
+  }
+
+  /** 解析执行对应的锚点 entry id：优先账面 messageId，空时按触发时间回找 scheduler 系统锚点。 */
+  private async resolveExecutionAnchor(execution: ScheduledTaskExecution, task: ScheduledTask): Promise<string | null> {
+    if (execution.messageId) return execution.messageId;
+    try {
+      const systemEntries = await this.entryRepo.getEntries(task.conversationId, { entryType: 'system', limit: 50 });
+      const anchor = systemEntries.find(entry =>
+        entry.senderName === `scheduler:${task.name}`
+        && entry.createdAt >= execution.triggeredAt
+        && new Date(entry.createdAt).getTime() - new Date(execution.triggeredAt).getTime() <= ANCHOR_MATCH_WINDOW_MS,
+      );
+      return anchor?.id ?? null;
+    } catch (error) {
+      this.logger.warn('执行锚点回找失败（按无锚点处理）', {
+        executionId: execution.id, error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /** 锚点后首个 invoke 的 invoke_end entry（=执行侧已收尾）；未收尾/查询失败返回 null。 */
+  private async findInvokeEndEntry(anchorId: string): Promise<Entry | null> {
+    try {
+      const after = await this.entryRepo.getEntriesAfter(anchorId, 200);
+      const invokeId = after.find(entry => entry.entryType === 'invoke_start' && entry.invokeId)?.invokeId;
+      if (!invokeId) return null;
+      return after.find(entry => entry.entryType === 'invoke_end' && entry.invokeId === invokeId) ?? null;
+    } catch (error) {
+      this.logger.warn('invoke 收尾对账查询失败（按未收尾处理）', {
+        anchorId, error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /** 锚点后首个 invoke 是否已有 invoke_end 落账（=执行侧已收尾）。 */
+  private async hasInvokeEndAfter(anchorId: string): Promise<boolean> {
+    return (await this.findInvokeEndEntry(anchorId)) !== null;
   }
 
   /** session 池只说明“疑似占用”；超龄行还须看执行侧证据，避免挂死 session 让 reap 永不 fire。 */

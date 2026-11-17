@@ -153,6 +153,16 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     return rows.map(rowToExecution);
   }
 
+  /** #1510：启动对账误标「执行被中断」的 failed 行——对账分级修复时回查 invoke 是否真收尾。 */
+  async getReconciliationFailedExecutions(): Promise<ScheduledTaskExecution[]> {
+    const rows = this.db.prepare(`
+      SELECT * FROM scheduled_task_executions
+      WHERE status = 'failed' AND error_message LIKE '%执行被中断%'
+      ORDER BY triggered_at DESC
+    `).all() as ScheduledTaskExecutionRow[];
+    return rows.map(rowToExecution);
+  }
+
   /** 启动对账不 increment consecutiveFailures；保留 ID 由 scheduler 以锚点后近期产出计算。 */
   async failAllRunningExecutions(preserveExecutionIds: string[] = []): Promise<number> {
     const placeholders = preserveExecutionIds.map(() => '?').join(', ');

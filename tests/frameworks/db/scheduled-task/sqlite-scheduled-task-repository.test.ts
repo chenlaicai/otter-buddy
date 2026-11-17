@@ -421,6 +421,21 @@ describe("SqliteScheduledTaskRepository - 状态管理与执行记录", () => {
       expect(results[0].errorMessage).toBe("执行超时");
     });
 
+    it("#1510 getReconciliationFailedExecutions：只取「执行被中断」的 failed 行，不收普通 failed", async () => {
+      await repo.create(createTaskFixture());
+      await repo.createExecution(createExecutionFixture({ id: "exec-interrupted" }));
+      await repo.createExecution(createExecutionFixture({ id: "exec-other-fail" }));
+      await repo.updateExecutionStatus("exec-interrupted", {
+        status: "failed", errorMessage: "进程重启对账：执行被中断，锚点后无近期产出证据",
+      });
+      await repo.updateExecutionStatus("exec-other-fail", {
+        status: "failed", errorMessage: "任务本身失败",
+      });
+
+      const results = await repo.getReconciliationFailedExecutions();
+      expect(results.map(e => e.id)).toEqual(["exec-interrupted"]);
+    });
+
     it("0901 PR4 FK 回归：messageId='' 空串被 repo 层归一化为 NULL，不再触发外键炸（F20260901ppfk 防御层）", async () => {
       await repo.create(createTaskFixture());
       await repo.createExecution(createExecutionFixture());

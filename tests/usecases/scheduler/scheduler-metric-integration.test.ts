@@ -76,6 +76,7 @@ interface MockRepo {
   resetConsecutiveFailures: ReturnType<typeof vi.fn>;
   getExecutions: ReturnType<typeof vi.fn>;
   getRunningExecutions: ReturnType<typeof vi.fn>;
+  getReconciliationFailedExecutions: ReturnType<typeof vi.fn>;
   getExecutionCount: ReturnType<typeof vi.fn>;
 }
 
@@ -107,6 +108,7 @@ function createMockRepo(): MockRepo {
     resetConsecutiveFailures: vi.fn(async () => undefined),
     getExecutions: vi.fn(async () => []),
     getRunningExecutions: vi.fn(async () => []),
+    getReconciliationFailedExecutions: vi.fn(async () => []),
     getExecutionCount: vi.fn(async () => 0),
   };
 }
