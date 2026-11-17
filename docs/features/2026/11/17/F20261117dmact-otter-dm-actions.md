@@ -1,5 +1,5 @@
 ---
-id: F20261116dmact
+id: F20261117dmact
 title: 海獭 CoLink App 改声明 colink.dm.actions（撤销 colink.topic.actions）
 doc_type: feature
 summary: |
@@ -13,7 +13,7 @@ tags: [colink, extension, manifest, dm]
 modules:
   - extensions/colink-agent-app
 capability_test: "n/a: 声明性 manifest 改动，契约测试已覆盖断言（entry 拆分为 colink.dm.actions 且不再含 colink.topic.actions）"
-created_at: 2026-11-16
+created_at: 2026-11-17
 intent:
   problem: "海獭声明 colink.topic.actions 以获得 DM 私聊顶栏入口，结果按钮同时出现在频道话题标题栏与消息操作栏，个人空间安装经兜底泄漏进项目频道话题栏（搭档实测确认，拍板修正）"
   expected_effect: "海獭只声明 colink.dm.actions，入口仅出现在 Agent 私聊顶栏；频道话题标题栏与消息操作栏不再出现海獭；契约测试全绿"
@@ -21,7 +21,7 @@ intent:
     type: behavior_check
 ---
 
-# F20261116dmact：海獭改声明 colink.dm.actions
+# F20261117dmact：海獭改声明 colink.dm.actions
 
 ## 背景
 
