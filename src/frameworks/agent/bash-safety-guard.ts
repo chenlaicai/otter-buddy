@@ -346,28 +346,10 @@ const CREDENTIAL_PATH_PATTERNS = [
   /\.aws([/ "'$]|$)/,
 ];
 
-/** #1892 写操作：读动词的就地改写旗标（sed/awk/gawk/perl/ruby -i / --in-place）+ 任何重定向（> / >>）。
- *  清单动词（cp/mv/rm/…）不在此枚举——它们不是读动词，默认兜底即拦。 */
-const CRED_WRITE_RE = /\b(?:sed|gawk|awk|perl|ruby)\b[^\n;|&]*\s(?:-i(?:\.[A-Za-z]+)?|--in-place)\b|>>|>/;
-/** #1892 公开只读放行：目录列举（ls 不读文件内容，含 -la/--all/-1 旗标形态） */
-const CRED_LS_RE = /(?:^|[\s;&|])ls(?:\s+-{1,2}[A-Za-z0-9]+)*\s+[^\s|;&]*\.(?:ssh|gnupg|aws)\b/;
-/** #1892 公开只读放行：读动词 + 公开目标（公钥 / known_hosts / ssh config）——结构匹配，
- *  防「python3 -c 写 config / echo 路径」之类任意串撞公开 token；私密 token 另由 hasPrivateCredFile 拦。 */
-const CRED_READ_PUBLIC_RE = /(?:^|[\s;&|])(?:cat|grep|head|tail|wc|file|less|more|sed|awk)\b[^\n;|&]*?(?:\.pub|known_hosts|\.ssh\/config)(?:["'\s;|&]|$)/;
-
-/** #1892 凭证目录内私密文件 token 扫描——公开清单外的任何文件引用（id_rsa/deploy_ed25519/
- *  credentials/secring.gpg 等）都视为私密。公共口径：.ssh/{known_hosts,config,*.pub}。 */
-function hasPrivateCredFile(normalized: string): boolean {
-  const re = /\.(ssh|gnupg|aws)\/([^\s|;&$'"\\]+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(normalized)) !== null) {
-    const dir = m[1];
-    const name = m[2].replace(/\/$/, "");
-    const isPublic = dir === "ssh" && (name === "known_hosts" || name === "config" || name.endsWith(".pub"));
-    if (!isPublic) return true;
-  }
-  return false;
-}
+/** #1892 明确写凭证目录：写/删/改动词 + 就地改写（sed/awk/gawk/perl/ruby -i / --in-place）+ 重定向/追加（> / >>） */
+const CRED_WRITE_RE = /\b(?:cp|mv|rm|install|tee|chmod|chown|chattr|truncate|ssh-keygen|touch|ln|rsync|dd|unlink)\b|\b(?:sed|gawk|awk|perl|ruby)\b[^\n;|&]*\s(?:-i(?:\.[A-Za-z]+)?|--in-place)\b|>>|>/;
+/** #1892 明确读私钥/凭证本体：已知私钥名（id_* 非 .pub）/ .pem / .key / credentials / secring.gpg */
+const CRED_PRIVATE_READ_RE = /(?:id_rsa|id_ed25519|id_ecdsa|id_dsa|id_xmss)(?![\w.-]*\.pub)|\.pem\b|\.key\b|credentials\b|secring\.gpg\b/;
 
 /** 展开归一：~/x 与 /Users/<who>/.x 双形态都认（不依赖 HOME 求值——路径特征即拦） */
 function credentialPathHit(command: string): boolean {
@@ -375,16 +357,13 @@ function credentialPathHit(command: string): boolean {
   const home = process.env.HOME ?? "";
   const normalized = home ? command.split(home).join("~") : command;
   if (!CREDENTIAL_PATH_PATTERNS.some(p => p.test(normalized))) return false;
-  // #1892 分层（delta-2：改为白名单収口——只放行读动词+公开目标，其余一并默认拦）：
-  // ① 写操作恒拦（就地改写旗标 / 重定向）
+  // 搭档拍板（2026-11-17）：明确才拦，不明确一律放通；不叠加判断规则。
+  // ① 明确读已知私钥/凭证本体 → 拦
+  if (CRED_PRIVATE_READ_RE.test(normalized)) return true;
+  // ② 明确写凭证目录 → 拦
   if (CRED_WRITE_RE.test(normalized)) return true;
-  // ② 目录列举放行（ls 不读文件内容；但私密 token 扫描不豁免——「cat 私钥; ls」混合段仍拦）
-  if (CRED_LS_RE.test(normalized) && !hasPrivateCredFile(normalized)) return false;
-  // ③ 读动词 + 公开目标 + 无私密 token 才放行（混合命令在私密 token 扫描处被拦）
-  if (CRED_READ_PUBLIC_RE.test(normalized) && !hasPrivateCredFile(normalized)) return false;
-  // ④ 其余（cp/mv/rm/写动词 / 读私钥 / grep -R / 解释器以码写 config 等）默认拦
-  // ④ 其余（未识别读形态 / 其他凭证文件如 secring.gpg、authorized_keys）默认拦
-  return true;
+  // ③ 其余（ls / 公钥 / known_hosts / ssh config / 自定义钥匙名等不明确形态）→ 放通
+  return false;
 }
 
 /** F20261109bexfz（搭档 2026-11-09 拍板）：B 类外发域名表判定整类退役——

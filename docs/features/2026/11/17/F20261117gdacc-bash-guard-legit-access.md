@@ -36,36 +36,34 @@ capability_test: "guard-intercept-classify 新增公开只读/边界/格式化�
 1. `cred_dir_access` 对 `.ssh/.gnupg/.aws` 任何访问一刀切——目录列举、公钥、known_hosts、config 等无凭证内容的正当只读也被拦（读公钥不泄私钥）。
 2. `download_exec` 把「curl 管道进 python3 -m json.tool（格式化模块）」当作「管道进解释器执行下载内容」——管道目标是格式化而非执行远程脚本。
 
-## 方案（C 最小改动：只放行公开只读 + 格式化模块，真负门零弱化）
+## 方案（搭档拍板 2026-11-17：明确才拦，不明确一律放通；不叠加判断规则）
 
-### ① cred_dir_access 公开只读白名单（delta-2 収口：默认拦，只白名单读/列举）
+### ① cred_dir_access 黑名单収口（只拦明确两项，其余放通）
 
-命中凭证路径后只白名单两形态，其余一并默认拦：
-1. **写操作恒拦**：读动词的就地改写旗标（`sed/gawk/awk/perl/ruby -i` / `--in-place`）、任何 `>`/`>>` 重定向；cp/mv/rm/rsync/dd/unlink 等本身不是读动词，默认兜底即拦。
-2. **目录列举放行**：`ls …`（含 `-la / --all / -1`）——ls 不读文件内容；但整串含私密文件 token 时不豁免。
-3. **纯读公开文件放行**：`cat/grep/head/tail/wc/file/less/more/sed/awk`（无就地旗标）+ 公开目标（`.pub` / `known_hosts` / `.ssh/config`），且整串无任何私密文件 token。
-4. **私密文件 token 扫描**：凭证目录内任何非公开清单文件引用（`id_rsa` / 自定义钥匙名 `colink_ed25519` / `credentials` / `secring.gpg` 等）即视为私密——防混合命令与自定义钥匙名绕过。
+不再白名单判定、不再叠加静态规则。命中凭证路径后只拦两类明确危险：
+1. **明确读已知私钥/凭证本体**：`id_rsa / id_ed25519 / id_ecdsa / id_dsa / id_xmss`（非 .pub）、`.pem`、`.key`、`credentials`、`secring.gpg`。
+2. **明确写凭证目录**：`cp/mv/rm/install/tee/chmod/chown/chattr/truncate/ssh-keygen/touch/ln/rsync/dd/unlink`、`sed/gawk/awk/perl/ruby -i / --in-place` 就地改写、任何 `>`/`>>` 重定向。
 
-私有密钥名不可枚举穷尽，故収口为「公开文件白名单 + 读动词白名单」，非「私密黑名单」。
+其余（`ls`、公钥 `.pub`、`known_hosts`、`ssh config`、自定义钥匙名、递归 grep、解释器动态写等无法明确判定的形态）**一律放通**。
 
 ### ② download_exec 排除格式化模块 + 解释器形态收口
 
-管道解释器判定排除 `python3 -m json.tool`（读 stdin 输出格式化 JSON，非执行下载内容），`env` / `env -i` 前缀同排除。裸 `python3` / `python -c` / `env [赋] python3` / `env -i python3` 吃 stdin 当脚本执行仍拦。
+管道解释器判定排除 `python3 -m json.tool`（读 stdin 输出格式化 JSON，非执行下载内容），`env` / `env -i` / `env -u` / `--ignore-environment` 等前缀均正确处理。裸 `python3` / `python -c` / `env … python3` 吃 stdin 当脚本执行仍拦。
 
 ## R8.5 准入三问
 
-1. **决策者变了么**：没有。方案 C 是口径细化（公开 vs 私密、格式化 vs 执行），不新增放行面外机制。
-2. **靠自觉还是靠守卫**：**机械可测**——classify 新增公开只读/边界/格式化用例 + replay 全量回放（含既有负门）锁行为。
-3. **深潜成本降了吗**：降——部署前只读确认不再被物理拦截，獭无需变体重试。
+1. **决策者变了么**：变了——搭档 2026-11-17 拍板「明确才拦，不明确一律放通；不允许叠加判断规则」，取代 delta 迭代中的静态白名单思路。
+2. **靠自觉还是靠守卫**：**机械可测**——classify 新增「明确两项仍拦 + 不明确放通」用例 + replay 全量回放（含既有负门）锁行为。
+3. **深潜成本降了吗**：降——部署前只读确认不再被物理拦截，獭无需变体重试；且规则简化（不再白名单/私密 token 扫描）。
 
 ## 验证
 
-- [x] guard 相关 6 测试文件 238/238 通过（含 replay 147/147、classify、bounce）
-- [x] replay 2 条改判：`ls ~/.ssh`、`cat/sed ssh config` 从 block 改 allow（#1892 现场同形态）；既有 curl|sh、进程替换、curl|python3 -c、主进程 kill 等负门全部仍 block
-- [x] 检视 delta / delta-2 回归钉：混合命令（`cat id_rsa known_hosts` / `cat id_rsa; ls` / 自定义钥匙名）、写形态（sed -i / --in-place / gawk -i / perl -i / rsync / unlink / python3 -c 写 config）均仍 block；`sed -n` 读态 config、`ls --all` 仍放行
-- [x] 检视建议 3/4 补修：`curl | env python3` / `env -i python3` / `env VAR=1 python3 -c` 仍拦，`env python3 -m json.tool` 仍放行；`ls --all` 长选项放行
+- [x] guard 相关 7 测试文件 239/239 通过（含 replay、classify、bounce、lexer/model/sanitizer、架构边界）
+- [x] replay 3 条改判：`ls ~/.ssh`、`sed ssh config`、`.ssh 词面 grep` 从 block 改 allow（#1892 现场同形态 / 搭档拍板「词面即拦废止」）；既有 curl|sh、进程替换、curl|python3 -c、主进程 kill 等负门全部仍 block
+- [x] 明确两项负门未弱化：`cat id_rsa`（含混合 `cat id_rsa known_hosts`、`cat id_rsa; ls`）仍 block；`sed -i / --in-place / gawk -i / perl -i / rsync / unlink / ssh-keygen / echo >>` 仍 block
 
 ## 影响
 
 - colink 类自有项目部署的只读确认与 manifest 格式化管道放行（#1892 现场恢复）
-- 真负门零弱化：私钥/凭证读取、凭证写、远程脚本执行（含管道进裸 python）继续拦截
+- 明确负门保留：已知私钥/凭证读取、凭证目录写、远程脚本执行（含管道进裸 python）继续拦截
+- 不明确形态（自定义钥匙名、递归 grep、解释器动态写、词面 `.ssh`）按搭档拍板一律放通——静态守卫不再逐形态叠加规则

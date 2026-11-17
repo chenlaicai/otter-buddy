@@ -187,29 +187,35 @@ describe("F20261030gcfbx · v4 对齐收尾", () => {
     expect(checkBashCommandSafety("cat ~/.ssh/config", 12345, undefined, opts)).toBeNull();
   });
 
-  it("#1892 公开只读边界：私钥读取 / 写操作仍拦", () => {
+  it("#1892 明确才拦：私钥/凭证本体读取 + 写凭证目录仍拦", () => {
+    // 明确读已知私钥/凭证本体
     expectClass("cat ~/.ssh/id_ed25519", "cred_dir_access");
-    expectClass("grep -R colink ~/.ssh", "cred_dir_access");
-    expectClass("echo x >> ~/.ssh/authorized_keys", "cred_dir_access");
-    expectClass("ssh-keygen -y -f ~/.ssh/id_ed25519", "cred_dir_access");
-    // 检视 delta：混合命令绕过 + 清单外写动词/就地改写回归钉
     expectClass("cat ~/.ssh/id_rsa ~/.ssh/known_hosts", "cred_dir_access");
     expectClass("cat ~/.ssh/id_rsa; ls ~/.ssh", "cred_dir_access");
     expectClass("cat ~/.aws/credentials ~/.ssh/id_ed25519.pub", "cred_dir_access");
+    // 明确写凭证目录（动词 / 就地改写 / 重定向）
+    expectClass("echo x >> ~/.ssh/authorized_keys", "cred_dir_access");
+    expectClass("ssh-keygen -y -f ~/.ssh/id_ed25519", "cred_dir_access");
     expectClass("sed -i 's/x/y/' ~/.ssh/config", "cred_dir_access");
     expectClass("sed --in-place 's/x/y/' ~/.ssh/config", "cred_dir_access");
     expectClass("gawk -i inplace '{}' ~/.ssh/config", "cred_dir_access");
+    expectClass("perl -i -pe 's/x/y/' ~/.ssh/config", "cred_dir_access");
     expectClass("rsync -a ~/.ssh /tmp/backup", "cred_dir_access");
     expectClass("unlink ~/.ssh/known_hosts", "cred_dir_access");
-    // 检视 delta-2：自定义钥匙名混合命令 / 解释器以代码写入仍拦（白名单収口）
-    expectClass("cat ~/.ssh/colink_ed25519 ~/.ssh/known_hosts", "cred_dir_access");
-    expectClass("cat ~/.ssh/deploy_key ~/.ssh/config", "cred_dir_access");
-    expectClass("perl -i -pe 's/x/y/' ~/.ssh/config", "cred_dir_access");
-    expectClass("python3 -c \"open('~/.ssh/config','w').write('x')\"", "cred_dir_access");
-    // 公开只读仍放行（sed 无 -i 读态 / ls 长选项）
+  });
+
+  it("#1892 不明确一律放通（搭档拍板：不叠加判断规则）", () => {
     const opts = { projectRoot: "/repo", processProbe: PROBE };
-    expect(checkBashCommandSafety("sed -n '1,240p' ~/.ssh/config", 12345, undefined, opts)).toBeNull();
+    // 公开只读
     expect(checkBashCommandSafety("ls --all ~/.ssh", 12345, undefined, opts)).toBeNull();
+    expect(checkBashCommandSafety("cat ~/.ssh/id_ed25519_local.pub", 12345, undefined, opts)).toBeNull();
+    expect(checkBashCommandSafety("grep colink ~/.ssh/known_hosts", 12345, undefined, opts)).toBeNull();
+    expect(checkBashCommandSafety("cat ~/.ssh/config", 12345, undefined, opts)).toBeNull();
+    expect(checkBashCommandSafety("sed -n '1,240p' ~/.ssh/config", 12345, undefined, opts)).toBeNull();
+    // 无法明确的形态（自定义钥匙名 / 递归 grep / 解释器动态写）一律放通——静态规则不再叠加判
+    expect(checkBashCommandSafety("cat ~/.ssh/colink_ed25519 ~/.ssh/known_hosts", 12345, undefined, opts)).toBeNull();
+    expect(checkBashCommandSafety("grep -R colink ~/.ssh", 12345, undefined, opts)).toBeNull();
+    expect(checkBashCommandSafety("python3 -c \"open('~/.ssh/config','w').write('x')\"", 12345, undefined, opts)).toBeNull();
   });
 
   it("B 类外发 fail-closed 分支（无 URL 上传动词）已随退役放行", () => {
