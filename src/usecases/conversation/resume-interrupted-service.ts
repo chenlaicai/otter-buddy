@@ -46,6 +46,8 @@ export class ResumeInterruptedService {
   /** 429 限流重试配置（F20260830rfto 移植） */
   private static readonly RATE_LIMIT_MAX_RETRIES = 3;
   private static readonly RATE_LIMIT_BASE_DELAY_MS = 5_000;
+  /** 恢复摘要台账查询上限：远超真实单 invoke 动作量（个位数到几十），仅为拦截病态增长 */
+  private static readonly LEDGER_SUMMARY_FETCH_LIMIT = 1_000;
 
   /** F20261116actlg PR-B：本进程 boot 纪元（毫秒时间戳，构造时定格；进程内恒定、跨进程互异） */
   private readonly bootEpoch: number;
@@ -190,11 +192,17 @@ export class ResumeInterruptedService {
       bootEpoch: this.bootEpoch,
     });
     if (!claimed) {
-      // 认领失败两类：① attempts 达上限（pending 残留，跨重启无限重试守卫触发）→ exhausted
-      // 闭环；② 已被其他窗口认领/已终态（status 非 pending）→ 保持现状（那已是正确终态）
+      // 认领失败三类：① attempts 达上限（pending 残留，跨重启无限重试守卫触发）→
+      // exhausted 闭环；② 已终态（status 非 pending）→ 保持现状（那已是正确终态）；
+      // ③ 同 boot 已认领（boot_epoch = 本纪元且 claim_token 已写入——同毫秒双路径
+      // 并发 resume）→ 持有者仍在处理，保持 pending 不动（settle 会把在途恢复静默
+      // 吞成终态，且 exhausted 无兜底重试）。〔检视 minor-1〕
       const row = await this.deps.resumePendingRepo.getByInvokeId(item.invokeId);
       if (row?.status === "pending") {
-        await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
+        const sameBootClaimed = row.claimToken != null && row.bootEpoch === this.bootEpoch;
+        if (!sameBootClaimed) {
+          await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
+        }
       }
       return "skipped";
     }
@@ -253,12 +261,18 @@ export class ResumeInterruptedService {
     return retryablePatterns.some(pattern => message.toLowerCase().includes(pattern.toLowerCase()));
   }
 
-  /** F20261116actlg PR-B：取中断 invoke 的台账摘要（机器真相；台账缺席/无行动作返回 null） */
+  /** F20261116actlg PR-B：取中断 invoke 的台账摘要（机器真相；台账缺席/无行动作返回 null）。
+   *  查询上限远大于默认 200——listByInvoke 默认升序 LIMIT 截断会把崩溃时刻的最新动作
+   *  （最可能 unknown）先截掉，计数静默失真；真超限时显性标注不完整。〔检视 minor-2〕 */
   private async buildLedgerSummary(invokeId: string): Promise<string | null> {
     if (!this.deps.actionLedger) return null;
     try {
-      const rows = await this.deps.actionLedger.listByInvoke(invokeId);
-      return buildActionLedgerSummary(rows);
+      const rows = await this.deps.actionLedger.listByInvoke(invokeId, ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT);
+      const summary = buildActionLedgerSummary(rows);
+      if (summary && rows.length >= ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT) {
+        return `${summary}\n- ⚠️ 台账行数达查询上限（${ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT}），计数可能不完整`;
+      }
+      return summary;
     } catch (err) {
       this.deps.logger.warn("resume ledger summary fetch failed (non-fatal)", { invokeId, error: err instanceof Error ? err.message : String(err) });
       return null;

@@ -207,18 +207,24 @@ function makeHarness(): Harness {
   return h;
 }
 
+/** 会话夹具播种（两个 describe 共用）：conv-1 + otter-big 参与者 */
+async function setupHarness(): Promise<Harness> {
+  const h = makeHarness();
+  const conv: Conversation = {
+    id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, kind: "normal", workspaceDir: null,
+    createdAt: T0, updatedAt: T0, completedAt: null, archivedAt: null,
+  };
+  await h.convRepo.create(conv);
+  await h.otterRepo.createOtter(otterFixture("otter-big"));
+  await h.convRepo.createParticipant(participantFixture("otter-big"));
+  return h;
+}
+
 describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () => {
   let h: Harness;
 
   beforeEach(async () => {
-    h = makeHarness();
-    const conv: Conversation = {
-      id: "conv-1", title: "测试对话", status: "active", summary: null, pinned: false, kind: "normal", workspaceDir: null,
-      createdAt: T0, updatedAt: T0, completedAt: null, archivedAt: null,
-    };
-    await h.convRepo.create(conv);
-    await h.otterRepo.createOtter(otterFixture("otter-big"));
-    await h.convRepo.createParticipant(participantFixture("otter-big"));
+    h = await setupHarness();
   });
 
   afterEach(() => {
@@ -489,4 +495,70 @@ it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢�
     expect(row?.claimToken).toBeTruthy();
   });
 
+});
+
+// ─── F20261117 检视轮修复（PR #1902 review minor-1/minor-2 + 未覆盖点）───
+describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持 pending / 摘要超限显性标注 / 台账查询失败退化）", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = await setupHarness();
+  });
+
+  afterEach(() => {
+    h.db.close();
+  });
+
+  it("同 boot 已认领（双路径并发窗口）：认领失败不 settle——保持 pending 交还原持有者〔minor-1〕", async () => {
+    const invokeId = await h.seedInterrupted();
+    // 模拟同 boot 另一路径已认领（同毫秒双进程/二次 resume），行仍 pending
+    await h.resumeRepo.claimPendingResume(invokeId, { token: "holder-token", bootEpoch: 42 });
+
+    const chain = stubChainEngine();
+    await h.buildService(chain, { bootEpoch: 42 }).resume();
+
+    expect(chain.calls).toHaveLength(0); // 不双跑
+    expect(h.queueStatus(invokeId)).toBe("pending"); // 不被吞成终态——持有者继续负责闭环
+    const row = await h.resumeRepo.getByInvokeId(invokeId);
+    expect(row?.claimToken).toBe("holder-token"); // 原持有者不被覆盖
+    expect(row?.attempts).toBe(1); // 失败认领不自增 attempts
+  });
+
+  it("台账行数达查询上限：摘要显性标注计数可能不完整〔minor-2〕", async () => {
+    const invokeId = await h.seedInterrupted();
+    const chain = stubChainEngine();
+    const service = h.buildService(chain, {
+      actionLedger: {
+        listByInvoke: async (id: string, limit?: number) =>
+          Array.from({ length: limit ?? 200 }, (_, i) => ({
+            actionId: `a${i}`, deviceId: "local", onlineSessionId: null, invokeId: id, conversationId: null,
+            toolCallId: null, source: "sdk-env", kind: "file.write", target: `/tmp/f${i}`, contentHash: null,
+            contentBytes: null, status: "succeeded", error: null, resultSummary: null, bootEpoch: 1,
+            pid: null, startedAt: T0, settledAt: null,
+          })),
+      },
+    });
+
+    await service.resume();
+
+    const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
+    expect(content).toContain("机器台账");
+    expect(content).toContain("计数可能不完整");
+    expect(h.queueStatus(invokeId)).toBe("done");
+  });
+
+  it("台账查询抛错：退回旧版文案（无摘要块），恢复不受阻〔未覆盖点补测〕", async () => {
+    const invokeId = await h.seedInterrupted();
+    const chain = stubChainEngine();
+    const service = h.buildService(chain, {
+      actionLedger: { listByInvoke: async () => { throw new Error("db locked"); } },
+    });
+
+    await service.resume();
+
+    expect(chain.calls).toHaveLength(1);
+    const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
+    expect(content).not.toContain("机器台账");
+    expect(h.queueStatus(invokeId)).toBe("done");
+  });
 });
