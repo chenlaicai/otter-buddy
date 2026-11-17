@@ -1,5 +1,6 @@
 import {
   LOCAL_EXECUTION_MACHINE_ID,
+  type ActionRunOptions,
   type ExecutionAction,
   type ExecutionActionResult,
   type ExecutionActionType,
@@ -42,7 +43,8 @@ export class ExecutionMachineRegistry implements ExecutionMachineRouter {
   async run<K extends ExecutionActionType>(
     action: ExecutionAction<K>,
     targetMachineId?: string,
+    options?: ActionRunOptions,
   ): Promise<ExecutionActionResult<K>> {
-    return this.resolve(targetMachineId).run(action);
+    return this.resolve(targetMachineId).run(action, undefined, options);
   }
 }
