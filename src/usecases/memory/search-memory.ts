@@ -558,7 +558,10 @@ export class SearchMemory {
     const weights = await this.reader.getWeights(hitIds);
     const weightMap = new Map(weights.map((w) => [w.memoryEntryId, w]));
 
-    const scored = this.searchEngine.rerank(rrfHits, weightMap, currentConversationId);
+    // F20261112rnkph Phase 1 段 1：rerankMode 路由——缺省 multiply 零行为变更，additive 走加法融合
+    const scored = this.searchEngine.configRef.rerankMode === "additive"
+      ? this.searchEngine.rerankAdditive(rrfHits, weightMap, currentConversationId)
+      : this.searchEngine.rerank(rrfHits, weightMap, currentConversationId);
     /** F20260803chunk: 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分（dedupAndBoostBySource） */
     const deduped = dedup ? this.dedupAndBoostBySource(scored) : scored;
     deduped.sort((a, b) => b.finalScore - a.finalScore);
