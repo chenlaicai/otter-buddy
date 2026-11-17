@@ -511,13 +511,17 @@ export class SchedulerService {
   private async resolveExecutionAnchor(execution: ScheduledTaskExecution, task: ScheduledTask): Promise<string | null> {
     if (execution.messageId) return execution.messageId;
     try {
-      const systemEntries = await this.entryRepo.getEntries(task.conversationId, { entryType: 'system', limit: 50 });
-      const anchor = systemEntries.find(entry =>
-        entry.senderName === `scheduler:${task.name}`
-        && entry.createdAt >= execution.triggeredAt
-        && new Date(entry.createdAt).getTime() - new Date(execution.triggeredAt).getTime() <= ANCHOR_MATCH_WINDOW_MS,
+      // #1510：按 senderName 取触发时间后最早一条 system entry（不设“最近 N 条”窗口——旧执行锚点
+      // 可能远早于窗口；ASC 取最早 = 本次触发锚点，避免短窗双触发串锚）。
+      const anchor = await this.entryRepo.getFirstSystemEntrySince(
+        task.conversationId,
+        `scheduler:${task.name}`,
+        execution.triggeredAt,
       );
-      return anchor?.id ?? null;
+      if (!anchor) return null;
+      return new Date(anchor.createdAt).getTime() - new Date(execution.triggeredAt).getTime() <= ANCHOR_MATCH_WINDOW_MS
+        ? anchor.id
+        : null;
     } catch (error) {
       this.logger.warn('执行锚点回找失败（按无锚点处理）', {
         executionId: execution.id, error: error instanceof Error ? error.message : String(error),

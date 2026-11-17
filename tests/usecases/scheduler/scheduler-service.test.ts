@@ -301,6 +301,13 @@ function createMockEntryRepo() {
       ).reverse();
       return filtered.slice(0, options?.limit ?? 50);
     }),
+    // #1510 对账分级：senderName + since 后最早一条 system entry（Map 插入序=ASC）
+    getFirstSystemEntrySince: vi.fn(async (conversationId: string, senderName: string, sinceIso: string) => {
+      const all = [...entries.values()].filter(e =>
+        e.entryType === 'system' && e.senderName === senderName && (e.createdAt ?? '') >= sinceIso,
+      );
+      return all[0] ?? null;
+    }),
   };
 }
 

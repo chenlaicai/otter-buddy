@@ -330,6 +330,24 @@ export class SqliteEntryRepository implements EntryRepository {
     return this.hydrateEntries(rows);
   }
 
+  /** #1510：since 之后最早一条 system entry（ASC，窗口内最早 = 本次触发锚点）。 */
+  async getFirstSystemEntrySince(
+    conversationId: string,
+    senderName: string,
+    sinceIso: string,
+  ): Promise<Entry | null> {
+    const row = this.db.prepare(`
+      SELECT * FROM entries
+      WHERE conversation_id = ?
+        AND entry_type = 'system'
+        AND sender_name = ?
+        AND created_at >= ?
+      ORDER BY sequence_num ASC
+      LIMIT 1
+    `).get(conversationId, senderName, sinceIso) as EntryRow | undefined;
+    return row ? (await this.hydrateEntries([row]))[0] ?? null : null;
+  }
+
   /**
    * F20260913ctlv 彻底切换：獭未读注入数据源——entries 表。
    * 游标：conversation_participants.last_read_seq（语义切到 entries.sequence_num）。

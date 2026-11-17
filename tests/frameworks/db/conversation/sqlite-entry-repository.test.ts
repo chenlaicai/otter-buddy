@@ -192,6 +192,51 @@ describe("SqliteEntryRepository - 条目基础操作", () => {
     });
   });
 
+  describe("getFirstSystemEntrySince（#1510 锚点按时间回查）", () => {
+    it("按 senderName + since 返回最早一条 system entry，不受其后条目数量影响", async () => {
+      await repo.createEntry(entryFixture({
+        id: "anchor-old", entryType: "system", senderType: "system", senderId: null,
+        senderName: "scheduler:每日补丁清单回看", createdAt: "2026-10-22T00:00:01.000Z", sequenceNum: 1,
+      }));
+      // 锚点后塞 60 条更新 system entry（不同 senderName）——旧实现对账用最近 50 条必漏此锚点
+      for (let i = 0; i < 60; i++) {
+        await repo.createEntry(entryFixture({
+          id: `other-${i}`, entryType: "system", senderType: "system", senderId: null,
+          senderName: "scheduler:其他任务", createdAt: `2026-11-15T00:00:${String(i).padStart(2, "0")}.000Z`,
+          sequenceNum: 2 + i,
+        }));
+      }
+
+      const anchor = await repo.getFirstSystemEntrySince(
+        "conv-1", "scheduler:每日补丁清单回看", "2026-10-22T00:00:00.000Z",
+      );
+      expect(anchor?.id).toBe("anchor-old");
+    });
+
+    it("ASC 取最早：同 senderName 短窗多锚点时不串锚", async () => {
+      await repo.createEntry(entryFixture({
+        id: "anchor-1st", entryType: "system", senderType: "system", senderId: null,
+        senderName: "scheduler:每日补丁清单回看", createdAt: "2026-10-22T00:00:01.000Z", sequenceNum: 1,
+      }));
+      await repo.createEntry(entryFixture({
+        id: "anchor-2nd", entryType: "system", senderType: "system", senderId: null,
+        senderName: "scheduler:每日补丁清单回看", createdAt: "2026-10-22T00:03:00.000Z", sequenceNum: 2,
+      }));
+
+      const anchor = await repo.getFirstSystemEntrySince(
+        "conv-1", "scheduler:每日补丁清单回看", "2026-10-22T00:00:00.000Z",
+      );
+      expect(anchor?.id).toBe("anchor-1st");
+    });
+
+    it("since 之后不存在时返回 null", async () => {
+      const anchor = await repo.getFirstSystemEntrySince(
+        "conv-1", "scheduler:每日补丁清单回看", "2026-10-22T00:00:00.000Z",
+      );
+      expect(anchor).toBeNull();
+    });
+  });
+
   describe("updateEntryStatus", () => {
     it("should update entry status", async () => {
       await repo.createEntry(entryFixture({ id: "entry-1", status: "streaming" }));

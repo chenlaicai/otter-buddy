@@ -57,6 +57,13 @@ export interface EntryRepository {
   /** 取指定条目之前的 N 条（时间线回看） */
   getEntriesBefore(entryId: string, count: number): Promise<Entry[]>;
   getEntriesAfter(entryId: string, count: number): Promise<Entry[]>;
+  /** #1510：按 senderName 取 since 之后最早的 system entry（ASC——窗口内最早一条 = 本次触发锚点，
+   *  避免 DESC 窗口内最新一条在同任务短窗双触发时串锚）。时间窗过滤由调用方做。 */
+  getFirstSystemEntrySince(
+    conversationId: string,
+    senderName: string,
+    sinceIso: string,
+  ): Promise<Entry | null>;
   getMaxSequenceNum(conversationId: string): Promise<number>;
 
   // FTS 搜索
