@@ -134,6 +134,20 @@ function workflowLineRange(bodyLines) {
   return start >= 0 ? [start, end] : null;
 }
 
+/** 提取「### 禁用语」节全文（#1896 ratchet 专用）：标题必须精确为「### 禁用语」（行尾无其他内容），
+ *  到下一个 `## ` 节标题前结束。标题带后缀/改名均返回 null（触发 error，防节被改名绕过）。
+ *  三级标题（###）属节内子级，只以二级（##）作为节边界。 */
+function extractBannedSection(body) {
+  const lines = body.split("\n");
+  let start = -1;
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^###\s+禁用语\s*$/.test(lines[i]) && start < 0) { start = i; continue; }
+    if (start >= 0 && /^##\s/.test(lines[i])) { end = i; break; }
+  }
+  return start >= 0 ? lines.slice(start, end).join("\n") : null;
+}
+
 // ── 校验主流程 ──
 
 const skillDirs = scanSkillDirs();
@@ -234,6 +248,41 @@ for (const s of skills) {
   // category 合法性
   if (s.fm.category && !VALID_CATEGORIES.has(s.fm.category)) {
     error(`${rel}: category="${s.fm.category}" 不合法（应为 technique / pattern / reference）`);
+  }
+
+  // 校验 10（F20261118arbwp，#1896）：adversarial-review 禁用语节完整性 ratchet——
+  // 兜底原则句与关键中文变体词族不得删减（防回退到「仅枚举匹配」的缺口态）。
+  // 语义：禁语判定必须按原则泛化，不是字面命中清单。
+  // 只校验「### 禁用语」节（标题精确匹配 + 到下一 `## ` 前），避免 body 别处合法用例
+  // （如 B2 说明里的「不可降级为『可接受』或『完整』」）把 ratchet 榨空成永远真。
+  if (s.name === "adversarial-review") {
+    const bannedSection = extractBannedSection(s.body);
+    if (!bannedSection) {
+      error(`${rel}: 未找到「### 禁用语」节（标题须精确为「### 禁用语」）——#1896 ratchet 无法核验，禁语节不得改名/删除/加后缀`);
+    } else {
+      // 词项按带引号完整形态匹配：裸子串 includes 会被「均不阻塞」/「不阻塞合入」兑住
+      // （发现 1 复现：删独立词项「不阻塞」后子串仍命中 → 假绿）。
+      const requiredBanned = [
+        '"不阻塞"',
+        '"均不阻塞"',
+        '"非阻塞"',
+        '"可接受"',
+        '"零成本"',
+        '"不构成合入建议"',
+      ];
+      for (const phrase of requiredBanned) {
+        if (!bannedSection.includes(phrase)) {
+          error(`${rel}: 禁用语节缺词项 ${phrase}——#1896 复发根因是中文变体未被枚举、禁语靠字面匹配。清单不得删减`);
+        }
+      }
+      // 兜底原则完整语义（发现 1 复现：删语义只留「枚举仅为示例」字样 → 假绿）。
+      const requiredPrinciple = ["枚举仅为示例", "不是完整清单", "凡暗示"];
+      for (const phrase of requiredPrinciple) {
+        if (!bannedSection.includes(phrase)) {
+          error(`${rel}: 禁用语节兜底原则语义不完整，缺「${phrase}」——#1896 兜底句不得删减为标记性字样`);
+        }
+      }
+    }
   }
 
   // W1: 行数

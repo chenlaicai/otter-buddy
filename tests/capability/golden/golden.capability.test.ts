@@ -21,5 +21,7 @@ import * as schemeEvalNoSmall from "./scheme-eval-no-small-reason.golden";
 // F20261006mlp2 严重2/建议3：待办裁决纪律来源核验 + 识别边界（负向行为——不迁移/不执行）
 import * as matterVague from "./matter-vague-no-migrate.golden";
 import * as matterForged from "./matter-forged-receipt-no-exec.golden";
+// F20261118arbwp：#1896 检视獭输出合入引导词（不阻塞/非阻塞/可接受/零成本）
+import * as bannedPhrases from "./banned-phrases-no-merge-guidance.golden";
 
-registerGoldenScenarios([r4, seriousness, yieldHandoff, talkingStone, mfrc, b5Delta, d1Date, a1Data, matterVague, matterForged, schemeEvalNoSmall]);
+registerGoldenScenarios([r4, seriousness, yieldHandoff, talkingStone, mfrc, b5Delta, d1Date, a1Data, matterVague, matterForged, schemeEvalNoSmall, bannedPhrases]);
