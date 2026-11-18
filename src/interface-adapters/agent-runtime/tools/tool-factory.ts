@@ -6,7 +6,7 @@ import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool } from "./message-tools";
 /** 前后端共享常量，单一真相源在 @contract/api/html-card */
 import { CARD_SCHEMA_VERSION } from "@contract/api/html-card";
-import { validateSpeakBody, hasCardFences, extractPlayableCardSummary } from "./tool-helpers";
+import { validateSpeakBody, hasCardFences, extractPlayableCardSummary, stripToolCallSerializationLeak } from "./tool-helpers";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIRED_TYPES, GROUP_ID_REQUIRED_MESSAGE_PREFIX } from "@usecases/conversation/manage-key-info";
@@ -83,7 +83,11 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       // 不再从 body 文本解析/剥离标签；先全 parse、全合法才落账（跨参数原子性）。
       const paramError = validateAndPersistSpeakParams(params, ctx, healingRepo, logger);
       if (paramError) return errorResponse(paramError);
-      const cleanBody = rawBody;
+      // F20261118dsmlk（#1916）：剥离 body 末尾混入的工具调用序列化泄漏（模型在
+      // 「speak 后紧跟 yield」时把第二个调用写进本参数）。剥离而非拒绝——正文已完整，
+      // 截断保留正文即可正常落账，避免模型重试死循环。
+      const { body: cleanBody, leaked } = stripToolCallSerializationLeak(rawBody);
+      if (leaked) logger?.warn?.(`[speak] 工具调用序列化泄漏已剥离（invoke=${ctx.currentInvokeId}）`);
 
       /** F20260804hcob: 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
       const bodyError = validateSpeakBody(ctx.getTurnAssistantText?.(), cleanBody);

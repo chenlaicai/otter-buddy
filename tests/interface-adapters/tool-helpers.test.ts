@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { truncateToolResult, textResponse, MAX_TOOL_RESULT_CHARS } from "@usecases/ports/agent-tools";
-import { validateSpeakBody, hasCardFences, extractPlayableCardSummary } from "../../src/interface-adapters/agent-runtime/tools/tool-helpers";
+import { validateSpeakBody, hasCardFences, extractPlayableCardSummary, stripToolCallSerializationLeak } from "../../src/interface-adapters/agent-runtime/tools/tool-helpers";
 
 /** F20260915hcel：validateSpeakBody 新校验逻辑测试 */
 describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
@@ -320,5 +320,131 @@ describe("extractPlayableCardSummary（检视处置补丁）", () => {
     expect(summary).not.toMatch(/^[\uDC00-\uDFFF]/); // 开头不是低代理
     // 码点数恰为 10
     expect(Array.from(summary).length).toBe(10);
+  });
+});
+
+
+
+/** F20261118dsmlk（#1916）：工具调用序列化泄漏剥离 */
+describe("stripToolCallSerializationLeak", () => {
+  // 真实事故字节（durable-sessions/30288072 entry 333 hexdump）：左尖括号 + 全角竖线
+  // （U+FF5C）+ 大写 DSML + 全角竖线 + 标签名。用 Unicode 转义拼接，避免源码直写全角。
+  const FULLWIDTH_BAR = "\uFF5C"; // 全角竖线
+  const DSML_PREFIX = "\u003c" + FULLWIDTH_BAR + "DSML" + FULLWIDTH_BAR;
+  const THINK_CLOSE = "\u003c/think\u003e"; // thinking 闭合标签
+
+  it("无泄漏：原样返回且 leaked=false", () => {
+    const r = stripToolCallSerializationLeak("正常发言内容");
+    expect(r).toEqual({ body: "正常发言内容", leaked: false });
+  });
+
+  it("全角变体（真实事故字节）：截断到正文，清掉思维闭合标签残留", () => {
+    const body =
+      "你定个倾向，我据此把 P2 的触发写死。" + THINK_CLOSE + "\n\n" +
+      DSML_PREFIX + "tool_calls>\n" +
+      DSML_PREFIX + "invoke name=\"yield\">\n" +
+      DSML_PREFIX + "parameter name=\"reason\" string=\"true\">已按搭档两点裁决修正方案";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(true);
+    expect(r.body).toBe("你定个倾向，我据此把 P2 的触发写死。");
+  });
+
+  it("半角下划线锚点变体（issue 转写的半角分隔 + 思维闭合标签）：也命中", () => {
+    const body = "正文。" + THINK_CLOSE + "\n\n<dsml_calls>\n<dsml_invoke name=\"yield\">";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(true);
+    expect(r.body).toBe("正文。");
+  });
+
+  it("裸 invoke/parameter 标签不带 DSML 前缀：不误剥（检视发现：合法代码示例防截断）", () => {
+    const body = "代码示例：\n```xml\n<invoke name=\"yield\">\n<parameter name=\"reason\" string=\"true\">\n```\n后续正文保留。";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("后续正文保留");
+  });
+
+    it("围栏内展示全角 DSML 序列化示例（讨论本 bug 的合法场景）：不误剥（检视 delta 发现）", () => {
+    const body = "事故字节如下：\n```\n<｜DSML｜tool_calls>\n<｜DSML｜invoke name=\"yield\">\n```\n正文继续。";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("正文继续");
+  });
+
+  it("围栏内展示半角 dsml_ 序列化示例：不误剥", () => {
+    const body = "转写如下：\n```\n<dsml_calls>\n<dsml_invoke name=\"yield\">\n```\n后续正文。";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("后续正文");
+  });
+
+it("剥离后为空串（整段都是泄漏）→ 由 validateSpeakBody 空检兜底拒绝", () => {
+    // 思维闭合标签后带空行，与真实事故字节同构（若不带空行会被 remark 视为单个 HTML 块）
+    const body = THINK_CLOSE + "\n\n" + DSML_PREFIX + "tool_calls>\n" + DSML_PREFIX + "invoke name=\"yield\">";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(true);
+    expect(r.body).toBe("");
+  });
+
+  it("句号后接 DSML 示例再续正文：不误剥（检视 delta 发现）", () => {
+    const body = "事故语法如下。\n" + DSML_PREFIX + "tool_calls>\n后面是分析正文。";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("分析正文");
+  });
+
+  it("正文提及 invoke 一词但无标签语法：不误剥离", () => {
+    const r = stripToolCallSerializationLeak("关于 invoke 工具的说明：先 speak 再 yield。");
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("invoke 工具");
+  });
+
+  it("围栏内完整事故回放（含思维闭合标签 + DSML）：不误剥（检视 delta3 发现 🔴）", () => {
+    const body =
+      "事故 body 原文如下：\n```\n写死。 " + THINK_CLOSE + "\n\n" +
+      DSML_PREFIX + "tool_calls>\n" + DSML_PREFIX + "invoke name=\"yield\">\n" +
+      "```\n后续分析正文保留。";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("后续分析正文保留");
+  });
+
+  it("行内代码内的完整事故回放（含思维闭合标签 + DSML）：不误剥（检视 delta4 发现 🔴）", () => {
+    const body =
+      "行内事故示例：`" + THINK_CLOSE + "\n" +
+      DSML_PREFIX + "tool_calls>\n" + DSML_PREFIX + "invoke name=\"yield\">` 后续分析正文保留。";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("后续分析正文保留");
+  });
+
+  it("HTML 原始块（pre）内的完整事故回放：不误剥（检视 delta5 发现 🔴）", () => {
+    const PRE_OPEN = "\u003cpre\u003e";
+    const PRE_CLOSE = "\u003c/pre\u003e";
+    const body =
+      PRE_OPEN + "写死。 " + THINK_CLOSE + "\n\n" +
+      DSML_PREFIX + "tool_calls>\n" + DSML_PREFIX + "invoke name=\"yield\">\n" +
+      PRE_CLOSE + "后续分析正文保留。";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("后续分析正文保留");
+  });
+
+  it("行内 HTML code 包装内的完整事故回放：不误剥（检视 delta6 发现 🔴）", () => {
+    const CODE_OPEN = "\u003ccode\u003e";
+    const CODE_CLOSE = "\u003c/code\u003e";
+    const body =
+      CODE_OPEN + "正文 " + THINK_CLOSE + "\n" +
+      DSML_PREFIX + "tool_calls>\n" + DSML_PREFIX + "invoke name=\"yield\">" +
+      CODE_CLOSE + "后续分析正文保留。";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("后续分析正文保留");
+  });
+
+  it("issue #1916 转写原形态（句号 + 英文 response 单词 + 半角 dsml_）：不剥（fail-open，转写失真非可靠指纹）", () => {
+    const body = "…你定个倾向，我据此把 P2 的触发写死。 response\n\n<dsml_calls>\n<dsml_invoke name=\"yield\">";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toBe(body);
   });
 });
