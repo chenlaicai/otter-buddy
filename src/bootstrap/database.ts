@@ -55,7 +55,7 @@ export async function initDatabaseAndModels(
   // 首启目录预建：云部署数据卷（如 /var/lib/otter-buddy）首次可能不存在，
   // 否则锁文件创建直接 ENOENT fail-closed（首启检视发现）。
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  const instanceLock = acquireInstanceLock(dbPath);
+  const instanceLock = await acquireInstanceLock(dbPath);
   logger.info("Instance lock acquired", { lockPath: instanceLock.lockPath, pid: process.pid });
   const isNewDb = !fs.existsSync(dbPath);
   const db = initDatabase(appConfig.db, logger);

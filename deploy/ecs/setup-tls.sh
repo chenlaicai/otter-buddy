@@ -14,12 +14,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$WEBROOT"
 
 if [ ! -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
-  # 阶段一：80-only（ACME 挑战 + 重定向；无证书引用）
+  # 阶段一：80-only（仅 IPv4——IPv6 未启用的主机 nginx -t 不因 [::] 失败；
+  # 完整配置（阶段二）才带 IPv6，且需主机 IPv6 栈已启用）
   cat > "$CONF_DST" <<EOF
 server {
     server_name ${DOMAIN};
     listen 80;
-    listen [::]:80;
     location /.well-known/acme-challenge/ { root ${WEBROOT}; }
     location / { return 301 https://\$host\$request_uri; }
 }

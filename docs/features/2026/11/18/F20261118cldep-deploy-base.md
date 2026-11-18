@@ -29,7 +29,7 @@ capability_test: "tests/bootstrap/instance-lock.test.ts"
 
 | 文件 | 内容 |
 |---|---|
-| `src/bootstrap/instance-lock.ts`（新） | 单实例锁：`<db-path>.otter-instance.lock` 原子创建（O_EXCL）；活 PID 持锁 → 拒绝启动（fail-closed，报持锁 PID）；死 PID/损坏内容 → stale 接管；release 幂等且防误删他人锁 |
+| `src/bootstrap/instance-lock.ts`（新） | 单实例锁（TCP 端口互斥，两轮检视迭代定稿）：dbPath 确定性派生回环端口（FNV-1a → 20000-39999），listen 独占——内核仲裁无 TOCTOU、进程死端口自动释放无 stale；同进程重入拒绝；锁文件仅诊断（持锁 PID）非互斥依据 |
 | `src/bootstrap/database.ts` | initDatabaseAndModels 开头 acquire（打开 DB 前）；dispose 链 release；`OTTER_EMBEDDING=off` 分支——跳过 ensureBgeM3Model + 不 fork 双 worker，注入 disabledEmbeddingServices（available=false + embed 恒拒） |
 | `src/interface-adapters/http/router.ts` | `GET /api/ping` → `{ok,pid,uptimeSec}`（零依赖：不碰库/不上游） |
 | `src/interface-adapters/http/identity-middleware.ts` | POLICY_TABLE public 段加 /api/ping |
@@ -62,9 +62,10 @@ capability_test: "tests/bootstrap/instance-lock.test.ts"
 | 验证 | 结果 |
 |---|---|
 | tsc --noEmit | EXIT=0 |
-| 全量 vitest（495 文件） | 6276 全绿（含新增 8 例：锁 5 + 嵌入开关 2 + ping 1） |
+| 全量 vitest（495 文件） | 6260 全绿（净增 9 例：锁 6 + 嵌入开关 2 + ping 1） |
 | eslint（改动文件） | EXIT=0 |
 | 实机冒烟 | 6b 迁移演练时按 runbook 走（本 PR 不动线上） |
+| ECS 部署链实证 | 双 node 并存（系统 22 + /opt/node24）与原生模块编译链（fs-ext 三重摩擦）已实测记录——最终选零依赖端口锁规避整条链 |
 
 ## Rollback
 
