@@ -32,20 +32,26 @@ export function executableWords(tokens: Token[]): Word[] {
 }
 
 /** 仅接受单一管道链；||/;/& 两侧是独立执行面，调用方必须先切 clause。
- *  尾随 |（如 slice 到 while 前的边界）产生的空段跳过——不是命令。 */
-function pipelineCommands(tokens: Token[]): Word[][] | null {
-  const commands: Word[][] = [];
+ *  尾随 | 产生的空段跳过。每段同时记录真实文件重定向（stdin/stdout；
+ *  N>&M 的 fd 复制不算——`xargs kill 2>&1` 不断流）。 */
+interface PipeCommand { words: Word[]; stdinRedirect: boolean; stdoutRedirect: boolean }
+
+function pipelineCommands(tokens: Token[]): PipeCommand[] | null {
+  const commands: PipeCommand[] = [];
   let current: Token[] = [];
+  const pushCurrent = () => {
+    if (current.length === 0) return;
+    const stdinRedirect = current.some(t => t.type === "op" && /^[0-9]*<(?!&)/.test(t.op!));
+    const stdoutRedirect = current.some(t => t.type === "op" && /^([0-9]*>>?|&>>?)/.test(t.op!) && !/[>&]&\d+$/.test(t.op!));
+    commands.push({ words: executableWords(current), stdinRedirect, stdoutRedirect });
+    current = [];
+  };
   for (const token of tokens) {
-    if (token.type === "op" && token.op === "|") {
-      if (current.length > 0) commands.push(executableWords(current));
-      current = [];
-      continue;
-    }
+    if (token.type === "op" && token.op === "|") { pushCurrent(); continue; }
     if (token.type === "op" && CLAUSE_BOUNDARIES.has(token.op!)) return null;
     current.push(token);
   }
-  if (current.length > 0) commands.push(executableWords(current));
+  pushCurrent();
   return commands;
 }
 
@@ -66,14 +72,16 @@ interface TemplateGrep { pattern: string; inverted: boolean }
  *  （-v 与上述可组合）；其余任何形态 → null（不确认，放行）。 */
 function parseTemplateGrep(args: (string | null)[]): TemplateGrep | null {
   if (args.some(a => a === null)) return null;
-  const [first, second, third] = args as string[];
+  let rest = args as string[];
+  let inverted = false;
+  if (rest[0] === "-v") { inverted = true; rest = rest.slice(1); }
+  const [first, second, third] = rest;
   if (first === undefined || third !== undefined) return null;
-  if (first === "-v" && second !== undefined) return { pattern: second, inverted: true };
-  if (first === "-e" && second !== undefined) return { pattern: second, inverted: false };
-  if (first === "-v" || first === "-e") return null;
+  if (first === "-e" && second !== undefined) return { pattern: second, inverted };
+  if (first === "-e" || first === "--regexp" || first === "-v") return null;
   if (second === undefined) {
-    if (first.startsWith("--regexp=")) return { pattern: first.slice("--regexp=".length), inverted: false };
-    return { pattern: first, inverted: false };
+    if (first.startsWith("--regexp=")) return { pattern: first.slice("--regexp=".length), inverted };
+    return { pattern: first, inverted };
   }
   return null;
 }
@@ -89,50 +97,62 @@ function grepMatchesMain(words: Word[]): GrepMatch | "self" | null {
   return { positive: normalized.includes(MAIN_SIGNATURE), inverted: parsed.inverted };
 }
 
-/** 模板内 awk：单 script 参数、无文件操作数、无选项（awk '{print $2}' 形态）。 */
+/** 模板内 awk：单引号字面 script，或双引号全静态 script（非 lit part 只允许 \\$ 类
+ *  escape——单引号 -c 载荷内物理写不了单引号，awk "{print \\$2}" 是唯一朴素形态；
+ *  未转义 $N 是 var 展开、语义不同构，不在模板）。 */
 function isTemplateAwk(words: Word[]): boolean {
   if (words.length !== 2 || basename(words[0].evaluated ?? "") !== "awk") return false;
-  const script = words[1].evaluated;
-  return script !== null && script.startsWith("{") && script.endsWith("}");
-}
-
-interface TemplateState { sawPs: boolean; positive: boolean }
-
-/** 模板链单命令流转；返回 false=链断裂（放行），true=继续。 */
-function applyTemplateCommand(state: TemplateState, command: Word[]): boolean {
-  const name = basename(command[0]?.evaluated ?? "");
-  if (name === "ps") { state.sawPs = true; return true; }
-  if (!state.sawPs) return true;
-  if (isTemplateAwk(command)) return true;
-  const match = grepMatchesMain(command);
-  if (match === "self") return true;
-  if (!match || !match.positive || match.inverted) return false;
-  state.positive = true;
-  return true;
+  const script = words[1];
+  if (!script.evaluated || !script.evaluated.startsWith("{") || !script.evaluated.endsWith("}")) return false;
+  const quotes = new Set(script.parts.map(p => p.quoted));
+  if (quotes.has(false)) return false; // 裸词：shell 会切词，不是单 script
+  return script.parts.every(p => p.type === "lit" || (p.type === "escape" && p.quoted === "double"));
 }
 
 /** 链尾形态：kill 直接收流，或 xargs kill（xargs 其他内层命令非链尾）。 */
-function isChainTerminator(command: Word[]): boolean {
-  const name = basename(command[0]?.evaluated ?? "");
+function isChainTerminator(command: PipeCommand): boolean {
+  const name = basename(command.words[0]?.evaluated ?? "");
   if (name === "kill") return true;
   if (name !== "xargs") return false;
-  return basename(command[1]?.evaluated ?? "") === "kill";
+  return basename(command.words[1]?.evaluated ?? "") === "kill";
 }
 
 /**
- * 固定模板数据流判定：ps(任意 argv) → [grep -v grep]* → grep(签名) →
+ * 固定模板阶段机（M-de200a08）：ps → [grep -v grep]* → 唯一 grep(签名) →
  * [grep -v grep | awk 单script]* → 链尾（kill / xargs kill）。
- * 链中出现任何非白名单命令/旗标形态 → 数据流确认不了 → false（放行）。
+ * 任何白名单外形态（双 ps/第二正签名/awk 前置/非单引号 script/真实文件重定向）
+ * → 数据流确认不了 → false（放行）。fd 复制（2>&1）不断流。
  */
+
+/** grep 阶段流转：self 透明；唯一正签名置位；其余断裂。 */
+function grepTemplateStep(signed: boolean, command: PipeCommand): boolean | null {
+  const match = grepMatchesMain(command.words);
+  if (match === "self") return signed;
+  if (!match || !match.positive || match.inverted) return null;
+  return signed ? null : true; // 第二个正签名：模板外
+}
+
+/** 阶段机单命令流转；返回新 signed，null=链断裂（放行）。 */
+function templateStep(signed: boolean, command: PipeCommand): boolean | null {
+  const name = basename(command.words[0]?.evaluated ?? "");
+  if (name === "ps") return signed ? null : signed; // 第二个 ps：双 ps 结构不在模板
+  if (name === "grep") return grepTemplateStep(signed, command);
+  if (name === "awk" && signed && isTemplateAwk(command.words)) return signed;
+  return null; // ps 前的命令不关心；ps 后白名单外断
+}
+
 export function tokensScanMainSignature(tokens: Token[]): boolean {
   const commands = pipelineCommands(tokens);
   if (!commands) return false;
-  const state: TemplateState = { sawPs: false, positive: false };
+  let signed = false; // 是否已过唯一正签名 grep
   for (const command of commands) {
-    if (isChainTerminator(command)) return state.positive; // 链尾形态：到此为止
-    if (!applyTemplateCommand(state, command)) return false;
+    if (command.stdinRedirect || command.stdoutRedirect) return false;
+    if (isChainTerminator(command)) return signed;
+    const next = templateStep(signed, command);
+    if (next === null) return false;
+    signed = next;
   }
-  return state.positive;
+  return signed;
 }
 
 export function textScansMainSignature(text: string): boolean {
