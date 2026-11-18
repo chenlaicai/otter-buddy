@@ -298,6 +298,47 @@ export const mustBlockCases: ReplayCase[] = [
     source: "#1899 负门：非特征名不拦",
     note: "grep vitest 非主进程特征名——确认不了≠拦（与 vitest while-read 存量 allow 同语义）",
   },
+  // ── #1899 检视獭对抗探针（跨数据流误拦 / grep -v 排除 / 漏拦形态补齐）──
+  {
+    command: "ps aux | grep 'dist/src/main.js' > /tmp/main.list; cat pids/backend.pid | xargs kill",
+    expect: "allow",
+    source: "#1899 检视探针：跨数据流不误拦",
+    note: "ps|grep 扫描写盘（非 kill 输入），xargs kill 的 stdin 来自自有 backend pid 文件——无喂送关系，放行",
+  },
+  {
+    command: "ps aux | grep -v 'dist/src/main.js' | grep vite | awk '{print $2}' | xargs kill",
+    expect: "allow",
+    source: "#1899 检视探针：grep -v 排除不拦",
+    note: "grep -v 特征名明确排除主进程，只清 vite——非按名扫描主进程，放行",
+  },
+  {
+    command: "for PID in $(ps aux | grep \"[d]ist/src/main.js\" | awk '{print $2}'); do kill ${PID}; done",
+    expect: "block",
+    source: "#1899 检视探针：${VAR} 花括号变体",
+    reasonContains: "按名匹配",
+    note: "kill ${PID} 花括号变量形态，for 循环变量喂 kill",
+  },
+  {
+    command: "ps aux | grep 'dist/src/main.js' | grep -v grep | while IFS= read u p rest; do kill $p; done",
+    expect: "block",
+    source: "#1899 检视探针：while IFS= read 变体",
+    reasonContains: "按名匹配",
+    note: "while IFS= read 前缀形态，输入链为 ps|grep 特征名扫描",
+  },
+  {
+    command: "kill `ps aux | grep 'dist/src/main.js' | awk '{print $2}'`",
+    expect: "block",
+    source: "#1899 检视探针：反引号命令替换直给",
+    reasonContains: "按名匹配",
+    note: "kill 反引号命令替换，内容即 ps|grep 特征名扫描链",
+  },
+  {
+    command: "kill $(cat /tmp/other.pid) $(ps aux | grep 'dist/src/main.js' | awk '{print $2}')",
+    expect: "block",
+    source: "#1899 检视探针：第二个 $() 是主进程扫描",
+    reasonContains: "按名匹配",
+    note: "kill 多命令替换，第二个 $() 内容为 ps|grep 特征名扫描链",
+  },
   {
     command: "cat ~/.ssh/id_rsa",
     expect: "block",

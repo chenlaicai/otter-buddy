@@ -307,38 +307,120 @@ function upstreamIsMainPidFile(command: string, segment: string): boolean {
 
 /** #1899：ps→grep(主进程特征名)→…→kill 数据流——目标来源可确认为主进程（与 pkill 按名同构）。
  *  事故：`for PID in $(ps aux | grep "[d]ist/src/main.js" | awk '{print $2}'); do kill $PID; done`
- *  主进程与 worktree alpha 同命令行，按名扫描等价无差别扫射，裸 bash 绕过 pkill/killall 防线。
- *  grep 反 self-match 括号变体归一：[d]ist/src/main.js → dist/src/main.js（单字符类仅 self-match 用）。
- *  只认 grep 模式含 PKILL_OTTER_PATTERNS 特征名——非特征名（vitest 等）不构成确认，放行。 */
+ *  只认「ps → grep(正向特征名)」且无「grep -v(特征名)」排除的扫描链，且扫描产物确实喂给 kill
+ *  （xargs 同链 / 命令替换直给 / for 循环变量 / while read 变量）。非特征名不构成确认，放行。 */
+
+/** [d]ist → dist 反 self-match 归一（单字符类仅 self-match 用；[0-9]/[a-z] 多字符类不动） */
+function unbracketGrepSelfMatch(s: string): string {
+  return s.replace(/\[([A-Za-z0-9])\]/g, "$1");
+}
+
+/** grep 段是否带 -v/--invert（反向匹配——命中「排除特征名」而非「扫描特征名」） */
+function isInvertedGrepSegment(seg: string): boolean {
+  return /(?:^|\s)(?:-[A-Za-z]*v|--invert-match)(?:\s|$)/.test(unbracketGrepSelfMatch(seg));
+}
+
+/** grep 段模式是否含主进程特征名（反 self-match 归一后） */
+function grepSegmentHasMainFeature(seg: string): boolean {
+  return /\bgrep\b/.test(seg)
+    && PKILL_OTTER_PATTERNS.some(sig => unbracketGrepSelfMatch(seg).toLowerCase().includes(sig.toLowerCase()));
+}
+
+/** 管道链是否「按名扫描主进程」：有 ps → grep(正向特征名)，且无 grep -v(特征名) 排除 */
+function chainScansMainSignature(s: string): boolean {
+  const parts = s.split("|").map(p => p.trim());
+  const psIdx = parts.findIndex(p => /\bps\b/.test(p));
+  if (psIdx < 0) return false;
+  const tail = parts.slice(psIdx + 1);
+  if (tail.some(p => isInvertedGrepSegment(p) && grepSegmentHasMainFeature(p))) return false; // grep -v 特征名 = 排除主进程
+  return tail.some(p => !isInvertedGrepSegment(p) && grepSegmentHasMainFeature(p));
+}
+
+/** 从 s 起始提取 $(…) / `…` 内容（平衡匹配）；非替换开头返回 null */
+function extractSubstitutionContent(s: string): string | null {
+  const t = s.trimStart();
+  if (t.startsWith("$(")) {
+    let depth = 0;
+    for (let i = 1; i < t.length; i++) {
+      if (t[i] === "(") depth++;
+      else if (t[i] === ")") { depth--; if (depth === 0) return t.slice(2, i); }
+    }
+    return null;
+  }
+  if (t.startsWith("`")) {
+    const end = t.indexOf("`", 1);
+    return end > 1 ? t.slice(1, end) : null;
+  }
+  return null;
+}
+
+/** 提取从 i 起的替代表达内容（i 指向 $ 或 `）；返回 { content, end }，未闭合返回 null */
+function substitutionAt(command: string, i: number): { content: string; end: number } | null {
+  if (command[i] === "$" && command[i + 1] === "(") {
+    let d = 0;
+    let j = i + 1;
+    for (; j < command.length; j++) {
+      if (command[j] === "(") d++;
+      else if (command[j] === ")") { d--; if (d === 0) break; }
+    }
+    return j < command.length ? { content: command.slice(i + 2, j), end: j } : null;
+  }
+  if (command[i] === "`") {
+    const end = command.indexOf("`", i + 1);
+    return end > i ? { content: command.slice(i + 1, end), end } : null;
+  }
+  return null;
+}
+
+/** kill 词元之后、顶层分隔符之前的命令替换/反引号里，是否有主进程特征名扫描（命令替换直给） */
+function killDirectSubstitutionsScanMain(command: string, killIdx: number): boolean {
+  let depth = 0;
+  for (let i = killIdx; i < command.length; i++) {
+    const c = command[i];
+    if (depth === 0 && /[|;&\n]/.test(c)) return false;
+    const isSubStart = (c === "$" && command[i + 1] === "(") || c === "`";
+    if (!isSubStart) {
+      if (c === "(") depth++;
+      else if (c === ")") depth = Math.max(0, depth - 1);
+      continue;
+    }
+    const sub = substitutionAt(command, i);
+    if (sub && chainScansMainSignature(sub.content)) return true;
+    if (sub) i = sub.end;
+  }
+  return false;
+}
+
+/** for VAR in <list> 的 list 是否主进程特征名扫描（$(…)/`…`/裸链） */
+function forListScansMain(forRest: string): boolean {
+  const sub = extractSubstitutionContent(forRest);
+  if (sub) return chainScansMainSignature(sub);
+  const listEnd = forRest.search(/[;|&\n]|\bdo\b/i);
+  const list = listEnd >= 0 ? forRest.slice(0, listEnd) : forRest;
+  return chainScansMainSignature(list);
+}
+
 function psGrepMainSignatureFeedsKill(command: string, killSegment: string): boolean {
-  /** 管道链内是否有 ps … grep(主进程特征名) 扫描（grep 段含反 self-match 变体归一后特征名） */
-  const scanIn = (s: string): boolean => {
-    const norm = s.replace(/\[([A-Za-z0-9])\]/g, "$1");
-    const parts = norm.split("|").map(p => p.trim());
-    const psIdx = parts.findIndex(p => /\bps\b/.test(p));
-    if (psIdx < 0) return false;
-    return parts.slice(psIdx + 1).some(p =>
-      /\bgrep\b/.test(p) && PKILL_OTTER_PATTERNS.some(sig => p.toLowerCase().includes(sig.toLowerCase())),
-    );
-  };
-  // A. 命令替换直给：kill $(ps …|grep main|awk)（finder 按 | 截段，须看全命令才能拿到完整 $() 内容）
-  const sub = /\bkill\b[^|;&\n]*?\$\(\s*([^)]*)\)/i.exec(command);
-  if (sub && scanIn(sub[1])) return true;
-  // B. xargs kill：stdin 直接来自同命令的 ps→grep(特征名) 扫描链
-  if (/\bxargs\b/i.test(killSegment) && scanIn(command)) return true;
-  // C. 循环/read 变量目标：for VAR in $(scan…) / `scan…`；while read … <scan>
-  const varM = /\$([A-Za-z_]\w*)/.exec(killSegment.replace(/^.*?\bkill\b\s*(?:-\S+\s+)*/, ""));
+  const killIdx = command.indexOf(killSegment);
+  if (killIdx >= 0 && killDirectSubstitutionsScanMain(command, killIdx)) return true;
+  // xargs kill：stdin 直接来自同链上游 ps→grep(特征名) 扫描（只看含 kill 段的那条链，不扫整命令）
+  if (/\bxargs\b/i.test(killSegment)) {
+    const clause = command.split(/[;&\n]/).find(c => c.includes(killSegment));
+    if (clause && chainScansMainSignature(clause)) return true;
+  }
+  // 循环/read 变量目标：$VAR / ${VAR}
+  const varM = /\$\{?([A-Za-z_]\w*)\}?/.exec(killSegment.replace(/^.*?\bkill\b\s*(?:-\S+\s+)*/, ""));
   if (!varM) return false;
   const v = varM[1];
-  const forDollar = new RegExp(`for\\s+${v}\\s+in\\s+\\$\\(\\s*([^)]*)\\)`, "i").exec(command);
-  if (forDollar && scanIn(forDollar[1])) return true;
-  const forBacktick = new RegExp("for\\s+" + v + "\\s+in\\s+`([^`]+)`", "i").exec(command);
-  if (forBacktick && scanIn(forBacktick[1])) return true;
-  // while read … done：读变量 v，输入链在 `| while read` 之前
-  const readRe = new RegExp(`\\|\\s*while\\s+read\\b[^;\\n]*\\b${v}\\b`, "i");
-  const readM = readRe.exec(command);
-  if (readM && scanIn(command.slice(0, readM.index))) return true;
-  return false;
+  const forRe = new RegExp(`for\\s+${v}\\s+in\\s+`, "ig");
+  let fm;
+  while ((fm = forRe.exec(command)) !== null) {
+    if (forListScansMain(command.slice(fm.index + fm[0].length))) return true;
+  }
+  // while read [IFS=] … VAR …：输入链在 `| while read` 之前
+  const whileRe = new RegExp(`\\|\\s*while\\s+(?:IFS=\\S*\\s+)?read\\b[^;\\n]*\\b${v}\\b`, "i");
+  const wm = whileRe.exec(command);
+  return !!(wm && chainScansMainSignature(command.slice(0, wm.index)));
 }
 
 /** kill 段循环判定（从 checkKillStation 拆出，complexity 分解） */
