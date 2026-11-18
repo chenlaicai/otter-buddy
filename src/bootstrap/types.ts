@@ -31,6 +31,9 @@ import type { ManageMemory } from "@usecases/memory/manage-memory";
 import type { ManageTerminology } from "@usecases/memory/manage-terminology";
 import type { ScanDarkEntries } from "@usecases/memory/scan-dark-entries";
 import type { SearchMemory } from "@usecases/memory/search-memory";
+import type { RecordBelief } from "@usecases/memory/record-belief";
+import type { TransitionBelief } from "@usecases/memory/transition-belief";
+import type { SupersedeBelief } from "@usecases/memory/supersede-belief";
 import type { CreateEdge } from "@usecases/memory/create-edge";
 import type { GetRelated } from "@usecases/memory/get-related";
 import type { DeleteEdge } from "@usecases/memory/delete-edge";
@@ -104,6 +107,12 @@ export interface UseCases {
   manageTerminology: ManageTerminology;
   searchMemory: SearchMemory;
   scanDarkEntries: ScanDarkEntries;
+  /** F20261118bltls P1c：belief 现场记录 */
+  recordBelief: RecordBelief;
+  /** F20261118bltls P1c：belief 状态迁移（verify/reject/supersede 共用） */
+  transitionBelief: TransitionBelief;
+  /** F20261118bltls P1c：belief supersede（标记过期/新取代旧 + 建边 + TOCTOU 防护） */
+  supersedeBelief: SupersedeBelief;
   createEdge: CreateEdge;
   getRelated: GetRelated;
   deleteEdge: DeleteEdge;
