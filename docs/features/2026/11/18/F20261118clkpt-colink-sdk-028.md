@@ -70,6 +70,14 @@ Otter 的 `PUT /api/conversations/:id/workspace/mcp-external` 用 `isSameOwnedCo
 
 **已知余量**：稳定 bearer 不等价于密码学层面的轮次隔离——它依赖 lane 串行、旧 invoke 已终态、不存在迟到请求这几个前提；若旧 bearer 被窃取且攻击者在未来轮次 active 时发起请求，会命中新轮 ctx（实现有响应前 ctx 二次校验，但旧请求若跨越 active 切换会在写响应前 401，而非从根上不可用）。要「被盗 bearer 永远不能用于未来事件」，需要受控轮换 + 修改 Otter `mcp-external` 守卫契约，属另一项工作。
 
+## 状态文件换代（真机部署时发现）
+
+0.15 的 state 是 `format 1`、AAD 取 `appInstanceId`；0.28 的 SDK 只认 `format 2`、AAD 固定 `colink-agent-state-v1`，`decode` 还会校验每行形状。直接把 `COLINK_STATE_FILE` 指过去会在启动时报 `Unsupported state format`——**这一条只有真机部署才会撞到，单测与冒烟都覆盖不到**。
+
+处置：`scripts/migrate-state.mjs` 原地迁移（先停服务）。授权类映射（`oauthInstallations` / `oauthUserExecutions` / `controls` / `oauthControlReceipts` / `sessions` / `eventStops`）逐字节保留，因此**既有安装授权不需要重做**；唯一丢弃的是 `events`——旧行带 `status`/`startedAt`/`interactionStatus` 等新 schema 不再接受的字段，且内容都是已终态投递记录，丢了对后续投递无影响（测试 `test/migrate-state.test.mjs` 同时锁住「保留映射」与「旧事件行确实过不了新 schema」两件事，防止有人把 `--keep-events` 当默认）。脚本写盘后用 SDK 自己的 `openEncryptedStore` 回读校验，错误 AAD 会直接失败而不是写出坏文件。
+
+实测（ECS 线上旧状态）：`format 1 / events 78` → `format 2 / events 0 / oauthInstallations 3 / oauthUserExecutions 58 / controls 19 / oauthControlReceipts 19`，迁移后服务正常起、公网 200。
+
 ## 打包与 pin
 
 0.28 的 SDK 源码只有 `.mts`，发行包需要构建。新的 `scripts/prepare-sdk.mjs`：

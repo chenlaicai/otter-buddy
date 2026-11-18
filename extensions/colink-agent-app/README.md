@@ -38,6 +38,17 @@ node --env-file=./.env src/app.mjs
 1. **无缝（推荐）**：把 `COLINK_MCP_SECRET` 设为**旧的 `COLINK_CREDENTIAL_KEY` 原值**（≥32 字符即可，旧值通常是 64 位十六进制）。派生结果逐字节相同，已落盘的 `workspaces/<conversationId>/mcp.json` 不会被判成换人。
 2. **换新密钥**：已绑定 Conversation 的旧 `mcp.json` 会与新 bearer 冲突（每次唤醒 409，不是只有第一次）。必须一次性清理：停 Otter 后删除这些 Conversation 的 `data/workspaces/<conversationId>/mcp.json`（下一轮由 Otter 重新写入），或改用新的 Conversation 绑定。
 
+**状态文件也要换格式**（否则启动直接报 `Unsupported state format`）：0.15 落盘是 `format 1` + AAD=`COLINK_APP_INSTANCE_ID`，0.28 只认 `format 2` + AAD 固定 `colink-agent-state-v1`。用 `scripts/migrate-state.mjs` 原地迁移，授权类映射（安装授权 / 用户执行凭据 / 控制回执）原样保留，**不需要重新安装 App**：
+
+```bash
+# 先停服务；key/aad 取旧部署生效的那两个值
+node scripts/migrate-state.mjs --source <旧 state.enc> --target <新 state.enc> \
+  --key "$COLINK_CREDENTIAL_KEY" --aad "$COLINK_APP_INSTANCE_ID"
+# 然后把 COLINK_STATE_FILE 指向新文件；旧文件留着回滚
+```
+
+迁移只丢弃 `events`（投递日志，旧行字段不符合 0.28 schema，且内容都是已终态事件）。脚本写盘后会用 SDK 自己的解码路径回读校验，写坏不了。
+
 另：0.28 起监听地址/端口读 `COLINK_BIND_HOST`/`COLINK_PORT`，`HOST`/`PORT` 不再生效；`COLINK_API_BASE` 已由 SDK 派生，不再需要。
 
 ## 配置
