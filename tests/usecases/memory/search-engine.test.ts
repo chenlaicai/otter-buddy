@@ -664,6 +664,7 @@ describe("SearchEngine - Phase 1 段 1：归一化纯函数与加法融合路径
     });
   });
 
+
   describe("rerankAdditive（加法融合）", () => {
     function makeRrfHit(id: string, rrfScore: number, conversationId: string | null): RrfHit {
       return {
@@ -773,3 +774,86 @@ describe("SearchEngine - Phase 1 段 1：归一化纯函数与加法融合路径
     });
   });
 });
+describe("rerank belief 优先级（F20261118blsrk P1b）", () => {
+  const NOW = "2026-09-20T00:00:00Z";
+  const engine = new SearchEngine(TEST_CONFIG);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function makeHit(id: string, rrfScore: number, contentType: string, status?: string): RrfHit {
+    return {
+      entryId: id,
+      rrfScore,
+      source: "fts",
+      entry: makeEntry({
+        id,
+        contentType: contentType as MemoryEntry["contentType"],
+        createdAt: NOW,
+        ...(status
+          ? { metadata: { kind: "state", status, anchors: ["m-anchor"] } }
+          : {}),
+      }),
+    };
+  }
+
+  it("verified belief ×beliefBoost，非 belief 不乘", () => {
+    const hits = new Map([
+      ["b-verified", makeHit("b-verified", 0.5, "belief", "verified")],
+      ["plain", makeHit("plain", 0.5, "message")],
+    ]);
+    const result = engine.rerank(hits, new Map());
+    const b = result.find(r => r.entryId === "b-verified")!;
+    const p = result.find(r => r.entryId === "plain")!;
+    // beliefBoost 默认 2.0，verified 状态乘 1.0
+    expect(b.finalScore).toBeCloseTo(p.finalScore * 2.0, 10);
+    expect(b.beliefStatus).toBe("verified");
+    expect(p.beliefStatus).toBeUndefined();
+  });
+
+  it("recorded belief ×beliefBoost×0.6，低于 verified", () => {
+    const hits = new Map([
+      ["b-recorded", makeHit("b-recorded", 0.5, "belief", "recorded")],
+      ["b-verified", makeHit("b-verified", 0.5, "belief", "verified")],
+    ]);
+    const result = engine.rerank(hits, new Map());
+    const rec = result.find(r => r.entryId === "b-recorded")!;
+    const ver = result.find(r => r.entryId === "b-verified")!;
+    expect(rec.finalScore).toBeCloseTo(ver.finalScore * 0.6, 10);
+    expect(rec.beliefStatus).toBe("recorded");
+  });
+
+  it("superseded belief 深埋（×beliefBoost×0.1），disputed 存疑（×0.3）", () => {
+    const hits = new Map([
+      ["b-sup", makeHit("b-sup", 0.5, "belief", "superseded")],
+      ["b-dis", makeHit("b-dis", 0.5, "belief", "disputed")],
+      ["b-ver", makeHit("b-ver", 0.5, "belief", "verified")],
+    ]);
+    const result = engine.rerank(hits, new Map());
+    const sup = result.find(r => r.entryId === "b-sup")!;
+    const dis = result.find(r => r.entryId === "b-dis")!;
+    const ver = result.find(r => r.entryId === "b-ver")!;
+    expect(sup.finalScore).toBeCloseTo(ver.finalScore * 0.1, 10);
+    expect(dis.finalScore).toBeCloseTo(ver.finalScore * 0.3, 10);
+  });
+
+  it("rerankAdditive 同样应用 belief 优先级", () => {
+    const additiveEngine = new SearchEngine({ ...TEST_CONFIG, rerankMode: "additive" });
+    const hits = new Map([
+      ["b-verified", makeHit("b-verified", 0.5, "belief", "verified")],
+      ["plain", makeHit("plain", 0.5, "message")],
+    ]);
+    const result = additiveEngine.rerankAdditive(hits, new Map());
+    const b = result.find(r => r.entryId === "b-verified")!;
+    const p = result.find(r => r.entryId === "plain")!;
+    expect(b.finalScore).toBeCloseTo(p.finalScore * 2.0, 10);
+    expect(b.beliefStatus).toBe("verified");
+  });
+});
+
