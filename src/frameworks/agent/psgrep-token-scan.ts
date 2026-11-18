@@ -160,8 +160,12 @@ export function tokensScanMainSignature(tokens: Token[]): boolean {
   if (!commands) return false;
   let stage: TemplateStage | null = { started: false, signed: false };
   for (const command of commands) {
+    if (isChainTerminator(command)) {
+      // 链尾（kill/xargs kill）的 PID 来自 stdin：stdout/stderr 改向不影响数据流，
+      // 只看 stdin 是否被真实替换（七轮）。
+      return command.stdinRedirect ? false : stage.signed;
+    }
     if (command.stdinRedirect || command.stdoutRedirect) return false;
-    if (isChainTerminator(command)) return stage.signed;
     stage = templateStep(stage, command);
     if (stage === null) return false;
   }

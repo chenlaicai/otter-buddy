@@ -74,6 +74,6 @@ for PID in $(ps aux | grep "[d]ist/src/main.js" | awk '{print $2}'); do kill $PI
 - kill 形态四种（数据流挂钩可证明）：①for 循环变量 ②while read 变量 ③xargs ④命令替换直给；字面量与扫描来源可混合（`kill 12345 $p`）
 - 载荷（`bash -c '…'`）剥引号后仍按本模板匹配
 
-**模板外（不明确必须放通——已接受残余）**：wrapper 变体（`env -u FOO grep`、`sudo -u root grep`、`command/timeout/nohup` 包裹、赋值前缀）、非常见旗标（`-i/-m/-f/-q/-o/-n/--extended-regexp` 等）、stdin 占位与文件操作数组合（`grep 签名 -`）、`-v 非签名模式`（过滤效果确认不了）、双 ps 结构、双引号 awk script、非白名单中间命令（`sed/head/cat` 变体）。残余风险边界：模板公开后故意加 wrapper 可穿透——本通道保护对象是**事故型误杀**（失控会话顺手裸写，如 11-16 原案），非对抗型故意杀；字面量 PID 三查/pkill 按名/广播 kill 等既有防线不受影响；残余误杀经 healing 回路拿真实证据再扩模板。
+**模板外（不明确必须放通——已接受残余）**：wrapper 变体（`env -u FOO grep`、`sudo -u root grep`、`command/timeout/nohup` 包裹、赋值前缀）、非常见旗标（`-i/-m/-f/-q/-o/-n/--extended-regexp` 等）、stdin 占位与文件操作数组合（`grep 签名 -`）、`-v 非签名模式`（过滤效果确认不了）、双 ps 结构、含动态展开的双引号 awk script、非白名单中间命令（`sed/head/cat` 变体）、含动态展开的双引号 awk script。残余风险边界：模板公开后故意加 wrapper 可穿透——本通道保护对象是**事故型误杀**（失控会话顺手裸写，如 11-16 原案），非对抗型故意杀；字面量 PID 三查/pkill 按名/广播 kill 等既有防线不受影响；残余误杀经 healing 回路拿真实证据再扩模板。
 
 **其他既有语义保持**：转义 `\$()`/反引号是字面量非执行面（宁漏勿误）；双引号 `-c` 载荷的延后替换属确认不了的面放行；`||`/`&&`/`;` 两侧独立数据流；comment/单引号字面量不进执行面；kill 前最后一次重赋值与最内层同名循环绑定优先。
