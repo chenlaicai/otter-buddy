@@ -69,14 +69,15 @@ describe("ConversationActionRouter（阶段 5 PR-A）", () => {
     expect(local.calls).toHaveLength(0); // 没有静默落回 local
   });
 
-  it("对话查询失败 → 回落默认 local（路由是增强不是硬依赖）", async () => {
+  it("M1（检视）：对话查询失败 → 抛错不落 local（fail-closed——无法读配置=不知道指向哪，\n      // 落 local 是危险方向的猜测「以为在 B 其实在 A」）", async () => {
     const local = fakeMachine("local");
     const registry = { resolve: (target?: string) => (target === undefined ? local : (() => { throw new Error("x"); })()) };
     const router = new ConversationActionRouter(registry, {
       getExecutionMachineId: async () => { throw new Error("db locked"); },
     });
-    await router.run({ type: "workspace.exists", input: { conversationId: "c-1" } });
-    expect(local.calls).toHaveLength(1);
+    await expect(router.run({ type: "workspace.exists", input: { conversationId: "c-1" } }))
+      .rejects.toThrow("db locked");
+    expect(local.calls).toHaveLength(0); // 没有静默落 local
   });
 
   it("六动作外的动作无 conversationId → 默认 local（防御路径）", async () => {

@@ -19,7 +19,7 @@ interface ExecutionMachineFixture {
 function rawApp(executionMachines?: {
   list: () => ExecutionMachineFixture[];
   currentId: () => string;
-  deviceStatus?: () => Array<{ deviceId: string; online: boolean; lastSeenAt: string | null }>;
+  deviceStatus?: () => Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
   setConversationMachine?: (conversationId: string, machineId: string | null) => Promise<{ ok: true } | { ok: false; status: 400 | 404; error: string }>;
 }): Hono {
   const signer = createSessionSigner(OWNER_PASSWORD);
@@ -146,20 +146,33 @@ describe("执行机投影端点（/api/execution-machines）", () => {
     });
   });
 
-  it("阶段 5：deviceStatus 注入时 GET join 在线状态（缺省退化无 online 字段）", async () => {
+  it("阶段 5 + M2（检视）：GET 全量设备列表——离线已配对设备可见 + 在线状态点", async () => {
     const appJoin = rawApp({
-      list: () => [{ id: "local", name: "本机" }, { id: "connector-b", name: "B 机" }],
+      list: () => [{ id: "local", name: "本机" }],
       currentId: () => "local",
-      deviceStatus: () => [{ deviceId: "connector-b", online: true, lastSeenAt: "2026-11-18T00:00:00Z" }],
+      deviceStatus: async () => [
+        { deviceId: "connector-b", name: "B 机", online: true, lastSeenAt: "2026-11-18T06:00:00Z" },
+        { deviceId: "connector-c", name: "C 机（离线）", online: false, lastSeenAt: "2026-11-17T00:00:00Z" },
+      ],
     });
     const login = await appJoin.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
     const cookie = cookieOf(login);
     const res = await appJoin.request("/api/execution-machines", { headers: { Cookie: `otter_session=${cookie}` } });
-    const body = await res.json() as { machines: Array<{ id: string; online?: boolean; lastSeenAt?: string }> };
-    const b = body.machines.find(m => m.id === "connector-b")!;
-    expect(b.online).toBe(true);
-    expect(b.lastSeenAt).toBe("2026-11-18T00:00:00Z");
-    expect(body.machines.find(m => m.id === "local")!.online).toBeUndefined(); // 无会话设备不带 online 字段
+    const body = await res.json() as { machines: Array<{ id: string; name: string; online?: boolean; lastSeenAt?: string }>; currentMachineId: string };
+    // local 恒在首位（Registry）；已配对设备全量（含离线——人要看得见才能决定切回）
+    expect(body.machines.map(m => m.id)).toEqual(["local", "connector-b", "connector-c"]);
+    expect(body.machines.find(m => m.id === "connector-b")).toMatchObject({ online: true, lastSeenAt: "2026-11-18T06:00:00Z" });
+    expect(body.machines.find(m => m.id === "connector-c")).toMatchObject({ online: false, lastSeenAt: "2026-11-17T00:00:00Z" });
+    expect(body.machines.find(m => m.id === "local")!.online).toBeUndefined(); // local 不带 online 字段
+  });
+
+  it("阶段 5：deviceStatus 缺省 → 仅 local（旧装配兼容退化）", async () => {
+    const appNoStatus = rawApp({ list: () => [{ id: "local", name: "本机" }], currentId: () => "local" });
+    const login = await appNoStatus.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
+    const cookie = cookieOf(login);
+    const res = await appNoStatus.request("/api/execution-machines", { headers: { Cookie: `otter_session=${cookie}` } });
+    const body = await res.json() as { machines: Array<{ id: string }> };
+    expect(body.machines).toEqual([{ id: "local", name: "本机" }]);
   });
 });
 

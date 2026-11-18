@@ -43,9 +43,9 @@ export interface RouterPlumbingOptions {
   executionMachines?: {
     list: () => Array<{ id: string; name: string }>;
     currentId: () => string;
-    /** F20261118crtgr（阶段 5 PR-A）：已配对设备在线状态（GET 列表 join 用；
-     *  缺省退化无 online 字段——旧装配/测试兼容） */
-    deviceStatus?: () => Array<{ deviceId: string; online: boolean; lastSeenAt: string | null }>;
+    /** F20261118crtgr（阶段 5 PR-A）+ M2（检视）：已配对设备全量状态（含离线——
+     *  人要看得见离线设备才能决定切回；缺省退化仅 local——旧装配/测试兼容） */
+    deviceStatus?: () => Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
     /** F20261118crtgr（阶段 5 PR-A）：对话级切换（目标校验+写列；缺省 501） */
     setConversationMachine?: (conversationId: string, machineId: string | null) => Promise<{ ok: true } | { ok: false; status: 400 | 404; error: string }>;
   };
@@ -359,18 +359,16 @@ function registerPlumbingRoutes(app: Hono, plumbing?: RouterPlumbingOptions): vo
     app.get("/api/auth/session", (ctx) => plumbing.auth!.controller.session(ctx));
   }
 
-  // Web 当前执行机投影：默认 local；阶段 5 增设备在线状态与对话级切换。
+  // Web 执行机列表：local（Registry 恒在）+ 已配对设备全量（M2：含离线——Registry
+  // 投影下线即注销，离线设备只有 devices 表可见；方案 §2.4「已配对设备含在线状态点」）。
   if (plumbing?.executionMachines) {
-    app.get("/api/execution-machines", (ctx) => {
-      const status = plumbing.executionMachines!.deviceStatus?.() ?? [];
-      const statusMap = new Map(status.map(s => [s.deviceId, s]));
-      return ctx.json({
-        machines: plumbing.executionMachines!.list().map(m => {
-          const device = statusMap.get(m.id);
-          return device ? { ...m, online: device.online, lastSeenAt: device.lastSeenAt } : m;
-        }),
-        currentMachineId: plumbing.executionMachines!.currentId(),
-      });
+    app.get("/api/execution-machines", async (ctx) => {
+      const currentId = plumbing.executionMachines!.currentId();
+      const local = plumbing.executionMachines!.list().find(m => m.id === currentId)
+        ?? { id: currentId, name: currentId };
+      const devices = (await plumbing.executionMachines!.deviceStatus?.())
+        ?.map(d => ({ id: d.deviceId, name: d.name, online: d.online, lastSeenAt: d.lastSeenAt })) ?? [];
+      return ctx.json({ machines: [local, ...devices], currentMachineId: currentId });
     });
   }
 

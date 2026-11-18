@@ -809,19 +809,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       executionMachines: {
         list: () => executionMachines.list(),
         currentId: () => executionMachines.currentMachineId(),
-        // F20261118crtgr（阶段 5 PR-A）：设备在线 join + 对话级切换
-        deviceStatus: () => {
-          const rows = db.prepare(
-            "SELECT d.id AS deviceId, CASE WHEN o.status = 'online' THEN 1 ELSE 0 END AS online, o.last_seen_at AS lastSeenAt "
-            + "FROM devices d LEFT JOIN online_sessions o ON o.device_id = d.id AND o.status = 'online'",
-          ).all() as Array<{ deviceId: string; online: number; lastSeenAt: string | null }>;
-          return rows.map(r => ({ deviceId: r.deviceId, online: r.online === 1, lastSeenAt: r.lastSeenAt }));
-        },
+        // F20261118crtgr（阶段 5 PR-A）+ M2/m3b（检视）：设备全量状态收口 repo（含离线设备）
+        deviceStatus: async () => connectorRepo.listDeviceOnlineStatus(),
         setConversationMachine: async (conversationId, machineId) => {
-          if (machineId !== null && !executionMachines.list().some(m => m.id === machineId)) {
-            return { ok: false as const, status: 400 as const, error: `machine not registered: ${String(machineId)}（设备未上线或未配对——目标必须当前在册）` };
+          // m1b（检视）："local" 归一化为 null（列语义唯一——默认只有 NULL 一种表示）
+          const normalized = machineId === executionMachines.currentMachineId() ? null : machineId;
+          if (normalized !== null && !executionMachines.list().some(m => m.id === normalized)) {
+            return { ok: false as const, status: 400 as const, error: `machine not registered: ${String(normalized)}（设备未上线或未配对——目标必须当前在册；离线设备重连后可切）` };
           }
-          const updated = await repos.conversation.setExecutionMachineId(conversationId, machineId);
+          const updated = await repos.conversation.setExecutionMachineId(conversationId, normalized);
           if (!updated) return { ok: false as const, status: 404 as const, error: "conversation not found" };
           return { ok: true as const };
         },

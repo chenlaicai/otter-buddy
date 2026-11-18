@@ -37,17 +37,15 @@ export class ConversationActionRouter implements ActionRunner {
       ?? await this.conversationMachineOf(action.input as { conversationId?: unknown })
       ?? undefined;
     const machine = this.registry.resolve(target);
-    return machine.run(action, targetOverride, options);
+    return machine.run(action, undefined, options); // s1（检视）：对齐 Registry 转发语义（机器自身忽略 target）
   }
 
-  /** 六动作 input 提取 conversationId → 查对话当前机（无/查询失败回落 null=默认） */
+  /** 六动作 input 提取 conversationId → 查对话当前机（无配置/无 conversationId 返回 null
+   *  = 默认 local；查询失败**抛错**——M1（检视）：无法读配置=不知道指向哪，落 local 是
+   * 危险方向的猜测（「以为在 B 其实在 A」），与悬空目标同 fail-closed） */
   private async conversationMachineOf(input: { conversationId?: unknown }): Promise<string | null> {
     const conversationId = typeof input.conversationId === "string" ? input.conversationId : null;
     if (!conversationId) return null;
-    try {
-      return await this.conversations.getExecutionMachineId(conversationId);
-    } catch {
-      return null; // 查询失败回落默认（local）——工具可用性优先，路由是增强不是硬依赖
-    }
+    return await this.conversations.getExecutionMachineId(conversationId);
   }
 }

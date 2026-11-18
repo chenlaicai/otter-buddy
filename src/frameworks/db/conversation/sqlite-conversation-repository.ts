@@ -165,8 +165,9 @@ export class SqliteConversationRepository implements ConversationRepository {
   }
 
   async setExecutionMachineId(id: string, machineId: string | null): Promise<boolean> {
-    const result = this.db.prepare("UPDATE conversations SET current_machine_id = ?, updated_at = ? WHERE id = ?")
-      .run(machineId, new Date().toISOString(), id);
+    // m2（检视）：配置变更不污染活动时间戳（updated_at 语义=最后活动）
+    const result = this.db.prepare("UPDATE conversations SET current_machine_id = ? WHERE id = ?")
+      .run(machineId, id);
     return result.changes > 0;
   }
 

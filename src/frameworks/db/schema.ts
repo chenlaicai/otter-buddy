@@ -161,6 +161,13 @@ function createConversationTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
   `);
+  // F20261118crtgr（#1868 阶段 5 PR-A，m3a 检视归位）：存量库迁移——conversations.current_machine_id 列
+  // （幂等 ALTER：新库 CREATE TABLE 已含，旧库补列；同 introduced_by_pr 模式但归 conversations 建表函数）
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN current_machine_id TEXT`);
+  } catch {
+    // 列已存在，忽略
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS conversation_otters (
@@ -722,13 +729,6 @@ function createHealingEventTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_healing_events_conversation ON healing_events(conversation_id, error_type, created_at);
   `);
 
-  // F20261118crtgr（#1868 阶段 5 PR-A）：存量库迁移——conversations.current_machine_id 列
-  // （同 introduced_by_pr 幂等模式：新库 CREATE TABLE 已含，旧库 ALTER 补列）
-  try {
-    db.exec(`ALTER TABLE conversations ADD COLUMN current_machine_id TEXT`);
-  } catch {
-    // 列已存在，忽略
-  }
 
   // F20260824ax376: 存量数据库迁移——introduced_by_pr 列
   // ALTER TABLE ADD COLUMN 幂等：列已存在时 SQLite 抛错，try/catch 静默处理

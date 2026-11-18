@@ -48,7 +48,8 @@ capability_test: "tests/usecases/execution/conversation-action-router.test.ts"
 
 - 实现 ActionRunner：targetOverride（显式）→ 对话 current_machine_id（六动作
   input 提取 conversationId，无需 ToolContext）→ Registry 默认 local
-- 对话查询失败回落默认（路由是增强不是硬依赖——工具可用性优先）
+- **查询失败 fail-closed 抛错**（M1 检视处置：无法读配置=不知道指向哪，落 local
+  是危险方向的猜测——与悬空目标同处置；仅真实「无配置 null」回落默认）
 - 悬空目标（设备撤销/未上线）：resolve 抛错不静默回切——防「以为在 B 干活
   其实在 A」
 - 装配：platforms options 加 toolActionRunner（缺省退化 executionMachines——
@@ -57,9 +58,11 @@ capability_test: "tests/usecases/execution/conversation-action-router.test.ts"
 
 ### API 面
 
-- `GET /api/execution-machines` 增强：deviceStatus（devices LEFT JOIN
-  online_sessions online 行）join 进 machines（local 不带 online 字段）
-- `PUT /api/conversations/:id/execution-machine`：body `{machineId: string|null}`；
+- `GET /api/execution-machines` 增强（M2 检视处置：**全量设备列表**——local +
+  devices 表全部已配对设备含离线；Registry 投影下线即注销，离线设备只有 devices
+  表可见——「人要看得见离线设备才能决定切回」；lastSeenAt 优先在线会话实时值，
+  否则 devices.last_seen_at；收口 connectorRepo.listDeviceOnlineStatus）
+- `PUT /api/conversations/:id/execution-machine`：body `{machineId: string|null}`（**空 body ≠ null**——回默认须显式 `{machineId:null}`，m4 契约）；`"local"` 归一化为 null 写列（m1b：列语义唯一）；
   目标不在 Registry（未上线/未配对）→ 400；对话不存在 → 404；null 回默认；
   鉴权 owner session（非 public）
 - connector repo：listDevices()（设备列表查询面）
@@ -92,6 +95,8 @@ capability_test: "tests/usecases/execution/conversation-action-router.test.ts"
 | 对话切换 connector 后 | 獭 workspace_write 物理落远程机数据目录 |
 | 显式 target | 压过对话配置（协议位语义不变） |
 | 对话指向已撤销设备 | 动作报「machine not registered」不落 local |
+| 对话查询失败（DB 异常） | 动作抛错不落 local（M1：fail-closed 与悬空一致） |
+| 离线已配对设备 | GET 列表可见（online:false + lastSeenAt）——人能看见才能决定切回（M2） |
 | GET 列表 | machines join 在线状态（无会话设备不带 online） |
 | PUT 切换 | 目标未注册 400 / 对话不存在 404 / 成功 200 / null 回默认 |
 | 未登录 | 两端点 401（fail-closed） |
@@ -103,8 +108,27 @@ capability_test: "tests/usecases/execution/conversation-action-router.test.ts"
 | `npx tsc --noEmit` | PASS |
 | conversation-action-router（6 例） | PASS |
 | conversation-machine-column（2 例：新库/存量 ALTER） | PASS |
-| auth-controller 端点（+3 例：GET join/PUT 四态） | PASS |
-| `npm test` 全量 | 488 files / 6162 全绿 |
+| auth-controller 端点（+5 例：GET 全量含离线/缺省退化/PUT 四态/local 归一化随装配） | PASS |
+| `npm test` 全量 | 488 files / 6162 全绿（修复轮 +1：M1 抛错用例改造） |
+
+## 检视处置记录（dspro 首轮：0 blocker / 2 major / 5 minor / 2 suggestion）
+
+- **M1 查询失败静默回落 local（fail-closed 后门）**：已修——catch 改 throw
+  （仅真实「无配置 null」回落默认）；单测改造为「抛错 + local 零调用」。
+- **M2 设备列表半接线（离线设备不可见/online 恒 true/listDevices 零调用）**：
+  已修（选 (a) 全量方案）——GET 改 local + `connectorRepo.listDeviceOnlineStatus()`
+  全量（含离线 + lastSeenAt 取 COALESCE(在线会话, devices.last_seen_at)）；
+  裸 SQL 收口 repo；listDevices 删除（被含 name 的状态视图取代）；测试补
+  「离线已配对设备可见」断言。
+- **m1(a) PUT TOCTOU**：记录不改（窗口毫秒级且语义与「切换后下线→动作报错」
+  设计一致）；**m1(b) "local" 归一化 null**：已修。
+- **m2 切换写动 updated_at**：已修——去掉（updated_at 语义=最后活动）。
+- **m3(a) ALTER 归位**：已修——挪 conversations 建表函数；**m3(b) 裸 SQL**：
+  并入 M2 收口 repo。
+- **m4 空 body ≠ null 契约**：已修（F 文档 API 段写明）。
+- **m5 计数**：已修（Verification 表）。
+- **s1 router 转发原始 override**：已修——对齐 Registry 转发 undefined（一行）。
+- **s2 离线 lastSeenAt 数据源**：并入 M2（COALESCE 方案）。
 
 ## Rollback
 
