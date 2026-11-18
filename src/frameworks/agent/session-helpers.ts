@@ -10,6 +10,18 @@ import { SessionLockConflictError } from "@entities/errors";
 import { loadToolManifest, getToolNamesFromManifest } from "../config/tool-manifest-loader";
 
 /**
+ * F20261118nrwht P2a：belief 迁移三工具（verify/reject/supersede）仅 night-reviewer 受限写者獭可见。
+ * big（"*" 展开全量注册集）与 small（memory 组）都不得持有——迁移权只属于夜间审视獭；
+ * 任何普通 agent 可自我核实会掏空独立核实信任模型（P1c k3 审视结论）。
+ */
+export const BELIEF_MIGRATION_TOOLS = ["belief_verify", "belief_reject", "belief_supersede"] as const;
+
+/** 非 night-reviewer 类型的白名单一律剔除迁移三工具（night-reviewer 白名单已在 getOtterToolNamesForType 早返）。 */
+function stripBeliefMigrationTools(names: string[]): string[] {
+  return names.filter((n) => !(BELIEF_MIGRATION_TOOLS as readonly string[]).includes(n));
+}
+
+/**
  * 按 otterType 获取编码工具列表。
  * big otter 和 small otter 均启用全部编码工具（read/write/edit/bash + grep/find/ls）。
  * Why: small otter 需要写代码（开发獭）、评论 PR（检视獭）、执行构建命令等实际工作，
@@ -20,8 +32,10 @@ import { loadToolManifest, getToolNamesFromManifest } from "../config/tool-manif
  * 语义清晰可降低试探性调用。pi 侧 createAllToolDefinitions 全量创建工具 registry，
  * activeToolNames 按名激活（sdk.js L139-144），白名单加名即生效，SDK 零改动。
  */
-export function getCodingToolsForOtterType(_otterType: string | undefined, externalProfile?: 'restricted'): string[] {
+export function getCodingToolsForOtterType(otterType: string | undefined, externalProfile?: 'restricted'): string[] {
   if (externalProfile === 'restricted') return [];
+  // F20261118nrwht P2a：night-reviewer 受限写者獭只审不写码，不持 read/write/edit/bash 等编码工具。
+  if (otterType === 'night-reviewer') return [];
   // big 和 small otter 均启用全部编码工具（含搜索/浏览专用工具）
   return ["read", "write", "edit", "bash", "grep", "find", "ls"];
 }
@@ -46,6 +60,12 @@ export function getOtterToolNamesForType(
   externalProfile?: 'restricted',
 ): string[] {
   if (externalProfile === 'restricted') return ['speak', 'yield'];
+  // F20261118nrwht P2a：night-reviewer 受限写者獭恒 5 工具（speak/yield + 三迁移）。
+  // 不依赖 manifest defaultType fallback——manifest 缺 night-reviewer 类型时
+  // getToolNamesFromManifest 会退到 defaultType='big' 的 "*" 全集（fail-open 风险）。
+  if (otterType === 'night-reviewer') {
+    return ['speak', 'yield', ...BELIEF_MIGRATION_TOOLS];
+  }
   // Fallback 默认工具列表（与原硬编码一致）
   const fallbackToolNames = allToolNames ?? [
     "speak", "yield", "search_memory",
@@ -72,20 +92,20 @@ export function getOtterToolNamesForType(
   if (projectRoot) {
     const manifest = loadToolManifest(projectRoot, logger);
     if (manifest) {
-      return getToolNamesFromManifest(manifest, otterType ?? "big", fallbackToolNames);
+      return stripBeliefMigrationTools(getToolNamesFromManifest(manifest, otterType ?? "big", fallbackToolNames));
     }
   }
 
   // Fallback: 硬编码默认行为（manifest 加载失败时）
   if (!otterType || otterType === "big") {
-    return fallbackToolNames;
+    return stripBeliefMigrationTools(fallbackToolNames);
   }
 
   /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询 + 工作区 + 定时任务 + 自愈管理 + 自身重启，不含 Otter 管理类工具（create_otter/dissolve_otter）。
    *  restart_otter 工具内部有访问控制：小獭只能重启自己。
    *  F20260826mwrd C1：query_signals 开放（复盘自己的 halt/信号）；halt_otter 仅 big。
    *  F20260826mwrd C2：resolve_signal 仅 big（裁决权在大獭）。 */
-  return [
+  return stripBeliefMigrationTools([
     "speak", "yield", "search_memory", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages",
     "get_context", "set_context", "delete_context",
@@ -101,7 +121,7 @@ export function getOtterToolNamesForType(
     "list_matters", "transition_matter", // F20261006mtlp P1：待办板查/迁（transition 守卫在 usecase）
     "track_work", // F20261027hwl1：工作账本登记（实现者与检视者都要留痕）
     "restart_service", // F20261028egitx：deny signal 下保留既有受控重启正道
-  ];
+  ]);
 }
 
 /**

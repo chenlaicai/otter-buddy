@@ -58,6 +58,11 @@ describe("getCodingToolsForOtterType", () => {
     expect(tools).toContain("ls");
     expect(tools).toHaveLength(7);
   });
+
+  // F20261118nrwht P2a：night-reviewer 受限写者獭只审不写码
+  it("night-reviewer otter 不持任何编码工具（只审不写码）", () => {
+    expect(getCodingToolsForOtterType("night-reviewer")).toEqual([]);
+  });
 });
 
 describe("getOtterToolNamesForType", () => {
@@ -203,5 +208,49 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("track_work"); // F20261027hwl1：工作账本登记
     expect(tools).toContain("restart_service"); // F20261028egitx：受控服务重启
     expect(tools).toHaveLength(40); // F20261028egitx：+restart_service（39→40）
+  });
+
+  // F20261118nrwht P2a：belief 迁移三工具仅 night-reviewer 可见
+  describe("night-reviewer 受限写者獭白名单（P2a）", () => {
+    it("fallback 路径：night-reviewer 有且仅有 speak/yield + 三迁移工具", () => {
+      expect(getOtterToolNamesForType("night-reviewer")).toEqual([
+        "speak", "yield", "belief_verify", "belief_reject", "belief_supersede",
+      ]);
+    });
+
+    it("fallback 路径：big 白名单不含三迁移工具（registered universe 含它们也被剔除）", () => {
+      const universe = ["speak", "yield", "search_memory", "belief_verify", "belief_reject", "belief_supersede"];
+      const tools = getOtterToolNamesForType("big", universe);
+      expect(tools).toContain("search_memory");
+      expect(tools).not.toContain("belief_verify");
+      expect(tools).not.toContain("belief_reject");
+      expect(tools).not.toContain("belief_supersede");
+    });
+
+    it('生产路径（manifest）：big 白名单不含三迁移工具（"*" 展开后剔除）', () => {
+      const projectRoot = join(import.meta.dirname, "../../../"); // worktree 根
+      const universe = [...getOtterToolNamesForType("big", undefined), "belief_verify", "belief_reject", "belief_supersede"];
+      const tools = getOtterToolNamesForType("big", universe, projectRoot);
+      expect(tools).not.toContain("belief_verify");
+      expect(tools).not.toContain("belief_reject");
+      expect(tools).not.toContain("belief_supersede");
+    });
+
+    it("生产路径（manifest）：small 白名单不含三迁移工具", () => {
+      const projectRoot = join(import.meta.dirname, "../../../"); // worktree 根
+      const tools = getOtterToolNamesForType("small", undefined, projectRoot);
+      expect(tools).not.toContain("belief_verify");
+      expect(tools).not.toContain("belief_reject");
+      expect(tools).not.toContain("belief_supersede");
+      expect(tools).toContain("record_belief"); // 现场记录工具 small 可用（memory 组）
+    });
+
+    it("生产路径（manifest）：night-reviewer 有且仅有 5 工具，恒不依赖 manifest defaultType fallback", () => {
+      const projectRoot = join(import.meta.dirname, "../../../"); // worktree 根
+      const universe = ["speak", "yield", "create_otter", "belief_verify", "belief_reject", "belief_supersede", "search_memory"];
+      expect(getOtterToolNamesForType("night-reviewer", universe, projectRoot)).toEqual([
+        "speak", "yield", "belief_verify", "belief_reject", "belief_supersede",
+      ]);
+    });
   });
 });
