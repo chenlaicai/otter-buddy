@@ -59,7 +59,7 @@
     "@larksuiteoapi/node-sdk": "^1.76.0",
     "@node-rs/jieba": "^2.0.3",
     "@types/busboy": "^1.5.4",
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3": "^13.2.0",
     "busboy": "^1.6.0",
     "croner": "^11.0.0",
     "hono": "^4.13.18",
