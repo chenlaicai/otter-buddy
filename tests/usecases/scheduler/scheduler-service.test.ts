@@ -3839,7 +3839,7 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
 });
 
 describe('F20261021sprx 执行者解析失败', () => {
-  it('名册无角色且 fallback 不可用：skipped + low healing，不直发', async () => {
+  it('名册无角色且 fallback 不可用且无 pending 通道：skipped + low healing 兜底，不直发', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();
     const agentInvoke = createMockAgentInvoke();
@@ -3861,6 +3861,95 @@ describe('F20261021sprx 执行者解析失败', () => {
     expect(agentInvoke.invokeConversation).not.toHaveBeenCalled();
     expect([...taskRepo._executions.values()][0]?.status).toBe('skipped');
     expect(healingRepo._events.some(e => e.severity === 'low' && String(e.description).includes('no-such-role-in-roster'))).toBe(true);
+  });
+});
+
+describe('roster miss 自愈降级', () => {
+  it('cron 任务 roster miss：skipped + 入 pending 队列，不记 healing', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const healingRepo = makeObservableHealingRepo();
+    taskRepo._store.set('task-miss-pending', makeTask({ id: 'task-miss-pending', scheduleType: 'cron' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+      otterRepo: { getById: async () => null },
+    });
+    const enqueuedItems: Array<Record<string, unknown>> = [];
+    const enqueue = vi.fn(async (item: Record<string, unknown>) => {
+      enqueuedItems.push(item);
+      return true;
+    });
+    (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+      hasExecutionInSlot: vi.fn(async () => false),
+      enqueue,
+    };
+    await service.trigger('task-miss-pending');
+    expect([...taskRepo._executions.values()][0]?.status).toBe('skipped');
+    expect(enqueuedItems).toHaveLength(1);
+    expect(enqueuedItems[0]).toMatchObject({ taskId: 'task-miss-pending', role: '大獭', conversationId: 'conv-1' });
+    expect(healingRepo._events).toHaveLength(0);
+  });
+
+  it('cron 任务 roster miss 且入队失败：fail-closed 回退 healing 记账', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const healingRepo = makeObservableHealingRepo();
+    taskRepo._store.set('task-miss-enqueue-fail', makeTask({ id: 'task-miss-enqueue-fail' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+      otterRepo: { getById: async () => null },
+    });
+    (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+      hasExecutionInSlot: vi.fn(async () => false),
+      enqueue: vi.fn(async () => { throw new Error('db locked'); }),
+    };
+    await service.trigger('task-miss-enqueue-fail');
+    expect([...taskRepo._executions.values()][0]?.status).toBe('skipped');
+    expect(healingRepo._events.some(e => String(e.description).includes('no-such-role-in-roster'))).toBe(true);
+  });
+
+  it('once 任务 roster miss：有声系统通知代替 healing（任务即将删除，通知是唯一留痕）', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const healingRepo = makeObservableHealingRepo();
+    const sendEntry = createMockSendEntry();
+    taskRepo._store.set('task-miss-once', makeTask({
+      id: 'task-miss-once', scheduleType: 'once', triggerAt: new Date(Date.now() + 60_000).toISOString(),
+    }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+      otterRepo: { getById: async () => null },
+    });
+    await service.trigger('task-miss-once');
+    expect([...taskRepo._executions.values()][0]?.status).toBe('skipped');
+    const entryCalls = (sendEntry.createSystemEntry as unknown as { mock: { calls: Array<Array<{ body?: string }>> } }).mock.calls;
+    const notified = entryCalls.some(call => String(call[0]?.body ?? '').includes('不在对话名册中'));
+    expect(notified).toBe(true);
+    expect(healingRepo._events).toHaveLength(0);
   });
 });
 

@@ -690,13 +690,66 @@ export class SchedulerService {
     });
   }
 
-  private async notifyOnceBusySkip(task: ScheduledTask): Promise<void> {
-    const body = `[定时任务未执行] 一次性任务「${task.name}」触发时执行獭「${task.executorRole}」正忙，本轮已记 skipped；任务将按 once 语义删除，承诺未执行。请需要时重新创建任务或手动补执行。`;
+  /** once 触发未执行的有声通知（触发后任务行即删，通知是唯一留痕）。
+   *  Why 参数化 reason：busy（正忙）与 roster miss（名册不可见）共用通道但根因不同，
+   *  搭档看到通知需知道该等一等还是该查名册。 */
+  private async notifyOnceSkipUnavailable(task: ScheduledTask, reasonClause: string): Promise<void> {
+    const body = `[定时任务未执行] 一次性任务「${task.name}」触发时${reasonClause}，本轮已记 skipped；任务将按 once 语义删除，承诺未执行。请需要时重新创建任务或手动补执行。`;
     const { entry } = await this.sendEntry.createSystemEntry({ conversationId: task.conversationId, body });
     this.messageBroadcaster?.broadcastEvent(task.conversationId, {
       event: 'entry.system',
       data: { entryId: entry.id, content: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt },
     });
+  }
+
+  /** roster miss 的自愈降级：执行者暂不可见不等于任务该丢。
+   *  Why：miss 多为执行者暂时不在名册（重启/恢复窗口——误解散事故当天三任务
+   *  全部 skipped 丢轮、次日 cron 才补跑实证）。cron 任务入 pending 队列，执行者
+   *  就位后经 manage_scheduled_task_pending 提醒补执行（部分唯一索引保证同任务
+   *  仅一条 pending 在队）；once 行触发后即删（pending FK 会悬空），有声通知代替。
+   *  healing 只在降级通道本身失败时记（fail-closed）：正常降级是已进入自愈通道的
+   *  预期态，不是需要人工处置的缺陷——每天白记 low event 只会污染账本。 */
+  private async degradeRosterMissToPending(task: ScheduledTask, triggeredAt: string): Promise<void> {
+    this.logger.warn('定时任务执行者角色在名册中无匹配，降级等待执行者就位', {
+      taskId: task.id,
+      conversationId: task.conversationId,
+      executorRole: task.executorRole,
+    });
+    if (task.scheduleType === 'once') {
+      try {
+        await this.notifyOnceSkipUnavailable(task, `执行獭「${task.executorRole}」不在对话名册中（暂无法解析执行实例）`);
+        return;
+      } catch (err) {
+        this.logger.warn('roster miss 的 once 有声通知失败，回退 healing 记账', {
+          taskId: task.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        await this.recordExecutorResolutionFailure(task);
+        return;
+      }
+    }
+    let enqueued = false;
+    if (this.pendingItemRepo) {
+      try {
+        enqueued = await this.pendingItemRepo.enqueue({
+          id: crypto.randomUUID(),
+          taskId: task.id,
+          conversationId: task.conversationId,
+          role: task.executorRole,
+          triggeredAt,
+          status: 'pending',
+          consumedAt: null,
+          resolution: null,
+          resolutionReason: null,
+        });
+      } catch (err) {
+        this.logger.warn('roster miss 降级入 pending 失败，回退 healing 记账', {
+          taskId: task.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    if (!enqueued) await this.recordExecutorResolutionFailure(task);
   }
 
   /** #1449：挤占 skip 落 healing（low）——触发被拒即见，不等 2h 硬兜底。
@@ -1233,7 +1286,7 @@ export class SchedulerService {
         await this.createExecution(executionId, task.id, now);
         executionEstablished = true;
         await this.handleExecutionSkipped(executionId, new Error('no-such-role-in-roster'));
-        await this.recordExecutorResolutionFailure(task);
+        await this.degradeRosterMissToPending(task, now);
         return { executionId };
       }
       const executorOtterId = resolution.otter.id;
@@ -1245,7 +1298,7 @@ export class SchedulerService {
         await this.createExecution(executionId, task.id, now);
         executionEstablished = true;
         await this.handleExecutionSkipped(executionId, new Error('once task skipped: executor otter is busy'));
-        await this.notifyOnceBusySkip(task);
+        await this.notifyOnceSkipUnavailable(task, `执行獭「${task.executorRole}」正忙`);
         return { executionId };
       }
 
