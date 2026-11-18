@@ -134,12 +134,25 @@ function clauseBounds(command: string, idx: number): { start: number; end: numbe
   return { start, end };
 }
 
-/** kill 是否在 headerIdx 之后的 do…done 循环体内 */
+/** startIdx 之后命令位置的 shell 关键字（do/done）位置；段首或 ; & | \n ( 之后才算命令位置（防 `echo done` 子串） */
+function nextCommandKeyword(command: string, startIdx: number, word: string): number {
+  const re = new RegExp(`\\b${word}\\b`, "g");
+  let m;
+  while ((m = re.exec(command)) !== null) {
+    if (m.index <= startIdx) continue;
+    let i = m.index - 1;
+    while (i >= 0 && /\s/.test(command[i])) i--;
+    const prev = i < 0 ? "" : command[i];
+    if (prev === "" || prev === ";" || prev === "&" || prev === "|" || prev === "\n" || prev === "(") return m.index;
+  }
+  return -1;
+}
+
+/** kill 是否在 headerIdx 之后的 do…done 循环体内（do/done 按命令位置识别，防 `echo done` 子串） */
 function killInsideDoDone(command: string, killIdx: number, headerIdx: number): boolean {
-  const doMatch = /\bdo\b/.exec(command.slice(headerIdx));
-  if (!doMatch) return false;
-  const doIdx = headerIdx + doMatch.index;
-  const doneIdx = command.indexOf("done", doIdx);
+  const doIdx = nextCommandKeyword(command, headerIdx, "do");
+  if (doIdx < 0) return false;
+  const doneIdx = nextCommandKeyword(command, doIdx, "done");
   return doneIdx > doIdx && killIdx >= doIdx && killIdx < doneIdx;
 }
 
@@ -163,6 +176,20 @@ function forLoopFeedsMainScan(command: string, v: string, killIdx: number): bool
   return false;
 }
 
+/** beforeIdx 之前最近的语句分隔符位置（; \n 或非重定向的 &——`&` 排除 >& <& 2>& 形态） */
+function lastClauseSep(command: string, beforeIdx: number): number {
+  let last = -1;
+  for (let i = 0; i < beforeIdx; i++) {
+    const c = command[i];
+    if (c === ";" || c === "\n") { last = i; continue; }
+    if (c === "&") {
+      const prev = i > 0 ? command[i - 1] : "";
+      if (prev !== ">" && prev !== "<" && !/\d/.test(prev)) last = i;
+    }
+  }
+  return last;
+}
+
 /** while read 变量目标：…| while [IFS=] read … VAR，且 kill 在该循环体内，输入链为特征名扫描 */
 function whileReadFeedsMainScan(command: string, v: string, killIdx: number): boolean {
   const whileRe = new RegExp(`\\|\\s*while\\s+(?:IFS=(?:\\S+|'[^']*'|"[^"]*")?\\s+)?read\\b([^;\\n]*)`, "ig");
@@ -170,7 +197,7 @@ function whileReadFeedsMainScan(command: string, v: string, killIdx: number): bo
   while ((wm = whileRe.exec(command)) !== null) {
     if (!new RegExp(`\\b${v}\\b`).test(wm[1])) continue;
     if (!killInsideDoDone(command, killIdx, wm.index)) continue;
-    const upstreamStart = Math.max(command.lastIndexOf(";", wm.index - 1), command.lastIndexOf("\n", wm.index - 1)) + 1;
+    const upstreamStart = lastClauseSep(command, wm.index) + 1;
     if (chainScansMainSignature(command.slice(upstreamStart, wm.index))) return true;
   }
   return false;
@@ -192,4 +219,3 @@ export function psGrepMainSignatureFeedsKill(command: string, killSegment: strin
   const v = varM[1];
   return forLoopFeedsMainScan(command, v, killIdx) || whileReadFeedsMainScan(command, v, killIdx);
 }
-

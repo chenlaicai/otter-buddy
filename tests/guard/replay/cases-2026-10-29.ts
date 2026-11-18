@@ -366,6 +366,27 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "while IFS=' ' read 前缀带引号空格值，输入链为 ps|grep 特征名扫描",
   },
+  // ── #1899 检视獭三轮探针（done 子串不提前截断作用域 / & 语句边界）──
+  {
+    command: "for PID in $(ps aux | grep \"[d]ist/src/main.js\" | awk '{print $2}'); do echo done; kill $PID; done",
+    expect: "block",
+    source: "#1899 检视三轮：echo done 子串不截断循环作用域",
+    reasonContains: "按名匹配",
+    note: "循环体内 echo done 的 done 是数据不是关键字，kill 仍在 do…done 内",
+  },
+  {
+    command: "ps aux | grep 'dist/src/main.js' | grep -v grep | while read u p rest; do echo done; kill $p; done",
+    expect: "block",
+    source: "#1899 检视三轮：while 体内 done 子串不漏拦",
+    reasonContains: "按名匹配",
+    note: "while 体内 echo done 子串，真正的 done 关键字在末尾",
+  },
+  {
+    command: "ps aux | grep 'dist/src/main.js' > /tmp/main.list & cat pids/backend.pid | while read p; do kill $p; done",
+    expect: "allow",
+    source: "#1899 检视三轮：& 语句边界不跨数据流",
+    note: "ps|grep 扫描在 & 前的独立后台语句，while 输入只来自 backend pid 文件——无喂送关系",
+  },
   {
     command: "cat ~/.ssh/id_rsa",
     expect: "block",
