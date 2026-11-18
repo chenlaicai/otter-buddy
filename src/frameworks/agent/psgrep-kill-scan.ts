@@ -3,6 +3,7 @@
  * 词法层只消费真实执行 token；确认不了的数据流一律放行（宁漏勿误）。
  */
 import { lex, type Token, type Word } from "./command-lexer";
+import { findKillSegments } from "./kill-segment-finder";
 import type { GuardBlock } from "./bash-safety-guard";
 import {
   executableWords,
@@ -193,7 +194,12 @@ function segmentTokens(tokens: Token[], start: number, end: number): Token[] {
 }
 
 function directExpansionFeedsKill(tokens: Token[], kill: number, clauseEnd: number): boolean {
-  const targets = tokens.slice(kill + 1, clauseEnd);
+  // 直接目标只在当前命令内：遇 | 即止——下游命令的 cmdsub 不是 kill argv（二轮 D）。
+  let end = clauseEnd;
+  for (let i = kill + 1; i < clauseEnd; i++) {
+    if (tokens[i].type === "op" && tokens[i].op === "|") { end = i; break; }
+  }
+  const targets = tokens.slice(kill + 1, end);
   return executableWords(targets).some(wordExpansionScansMain);
 }
 
@@ -205,23 +211,76 @@ function xargsFeedsKill(tokens: Token[], segment: Token[], kill: number): boolea
   return tokensScanMainSignature(tokens.slice(start, end));
 }
 
-/** 外层 lex 中覆盖 kill 段的引号载荷 word（剥引号前的原文判定）。
- *  findKillSegments 按字符分段，载荷内 ; / | 会切碎外层段使 extractDashCPayloads 拿不到
- *  成对引号——kill 段命中但 payload 丢失。此时回词法层找覆盖段的双引号 word。 */
-function coveringQuotedPayload(command: string, tokens: Token[], killIdx: number, segmentEnd: number): { payload: string; localIdx: number; delayed: boolean } | null {
-  for (const token of tokens) {
-    if (token.type !== "word") continue;
-    const { start, end } = token.span;
-    if (start > killIdx || end < segmentEnd) continue;
-    const quote = command[start];
-    if ((quote !== '"' && quote !== "'") || command[end - 1] !== quote) continue;
-    return {
-      payload: command.slice(start + 1, end - 1),
-      localIdx: killIdx - (start + 1),
-      delayed: quote === '"',
-    };
+/** word 是否处于 bash/sh -c 载荷位（前一 token 是 -c，再前命令名是 bash/sh）。 */
+function isDashCPayloadAt(tokens: Token[], tokenIndex: number): boolean {
+  const prev = tokens[tokenIndex - 1];
+  const prevPrev = tokens[tokenIndex - 2];
+  const isDashC = prev?.type === "word" && prev.word?.evaluated === "-c";
+  const runner = prevPrev?.type === "word" ? commandBasename(prevPrev.word?.evaluated ?? null) : null;
+  return isDashC && (runner === "bash" || runner === "sh");
+}
+
+/** 外层 lex 中覆盖 kill 段的引号载荷 word——必须有 bash/sh -c 载荷 provenance
+ *  （普通 echo/printf 参数不递归，二轮 A）；findKillSegments 按字符分段，载荷内
+ *  ; / | 会切碎外层段使 extractDashCPayloads 拿不到成对引号——kill 段命中但
+ *  payload 丢失，此时回词法层找覆盖段的引号 word。 */
+function coveringDashCPayload(command: string, tokens: Token[], tokenIndex: number): { payload: string; delayed: boolean } | null {
+  const token = tokens[tokenIndex];
+  if (!token || token.type !== "word") return null;
+  const { start, end } = token.span;
+  const quote = command[start];
+  if ((quote !== '"' && quote !== "'") || command[end - 1] !== quote) return null;
+  if (!isDashCPayloadAt(tokens, tokenIndex)) return null;
+  return { payload: command.slice(start + 1, end - 1), delayed: quote === '"' };
+}
+
+/** 载荷文本内重跑 findKillSegments 定位真实 kill 段（不沿用外层段首坐标，二轮 B）；
+ *  嵌套 -c 由 finder 的 extractDashCPayloads 逐层展开。 */
+function payloadFeedsKill(payload: string, delayed: boolean): boolean {
+  for (const seg of findKillSegments(payload)) {
+    if (psGrepMainSignatureFeedsKill(payload, seg.segment, seg.start, delayed)) return true;
   }
-  return null;
+  return false;
+}
+
+/** cmdsub 内 kill 的目标变量：$(kill $p) 的 $p 引用外层绑定，取 cmdsub 内全部 var 词。
+ *  kill 词自身无 var parts，多命令/多目标 cmdsub 一并枚举（查不到绑定自然 false）。 */
+function cmdsubKillVariables(word: Word, delayedPayload: boolean): string[] {
+  const names: string[] = [];
+  for (const part of word.parts) {
+    if (part.type !== "cmdsub") continue;
+    const inner = lex(part.text);
+    if (!inner.parseOk) continue;
+    names.push(...executableWords(inner.tokens).flatMap(w => variableNames(w, delayedPayload)));
+  }
+  return names;
+}
+
+/** kill 段落在引号载荷/cmdsub word 内的判定（顶层无 kill token 时）：
+ *  段首可能是 bash -c / do echo 等前缀，引号/cmdsub word 只覆盖段尾——逐个相交 word 判定。
+ *  -c 载荷 → 载荷内重新定位 kill 段递归；cmdsub 内 kill → kill 位置取该 word，
+ *  变量绑定仍在当前层判定。 */
+function coveringWordFeedsKill(command: string, tokens: Token[], killIdx: number, segmentEnd: number, delayedPayload: boolean): boolean {
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.type !== "word") continue;
+    if (token.span.end <= killIdx || token.span.start >= segmentEnd) continue;
+    const dashC = coveringDashCPayload(command, tokens, i);
+    if (dashC && payloadFeedsKill(dashC.payload, dashC.delayed || delayedPayload)) return true;
+    if (cmdsubWordFeedsKill(tokens, i, delayedPayload)) return true;
+  }
+  return false;
+}
+
+/** word 的 cmdsub part 含 kill 执行面时，用 cmdsub 内变量对外层循环绑定做数据流判定。 */
+function cmdsubWordFeedsKill(tokens: Token[], tokenIndex: number, delayedPayload: boolean): boolean {
+  const word = tokens[tokenIndex].word!;
+  const hasCmdsubKill = word.parts.some(
+    part => part.type === "cmdsub" && findKillSegments(part.text).length > 0);
+  if (!hasCmdsubKill) return false;
+  const loops = loopBindings(tokens);
+  const variables = cmdsubKillVariables(word, delayedPayload);
+  return variables.some(variable => variableFeedsMain(tokens, loops, tokenIndex, variable));
 }
 
 /** @param delayedPayload 双引号 bash -c 原始载荷；只放宽变量识别，不把 \$() 当执行面。 */
@@ -237,13 +296,7 @@ export function psGrepMainSignatureFeedsKill(
   const tokens = parsed.tokens;
   const segmentEnd = killIdx + killSegment.length;
   const kill = killTokenIndex(tokens, killIdx, segmentEnd);
-  if (kill < 0) {
-    // kill 段落在外层引号载荷 word 内：剥引号对载荷递归（双引号保留 \$ 延后语义）。
-    const quoted = coveringQuotedPayload(command, tokens, killIdx, segmentEnd);
-    return quoted
-      ? psGrepMainSignatureFeedsKill(quoted.payload, killSegment, quoted.localIdx, quoted.delayed || delayedPayload)
-      : false;
-  }
+  if (kill < 0) return coveringWordFeedsKill(command, tokens, killIdx, segmentEnd, delayedPayload);
   const clause = clauseRange(tokens, kill);
   if (directExpansionFeedsKill(tokens, kill, clause.end)) return true;
   const segment = segmentTokens(tokens, killIdx, segmentEnd);
