@@ -3,7 +3,7 @@ id: F20261118kills
 title: "kill 守卫第 4 确认通道：ps|grep 主服务入口签名→kill 数据流（#1899 裸 bash 绕过面）"
 summary: "2026-11-16 stage3a 验证会话裸写 `for PID in $(ps aux | grep \"[d]ist/src/main.js\" | awk '{print $2}'); do kill $PID; done` 按名全局匹配杀死主服务（pid 45203）——pkill/killall 防线被 ps|grep|awk|kill 管线绕过。新政 A 第 4 确认通道：ps→grep(主服务入口签名 dist/src/main.js)→…→kill 数据流等价 pkill 按名，恒拦（复用 self_kill_byname 规则族）；只认精确签名——裸 node/main.js/otter-buddy 不构成确认（无法确认是主服务），宁漏勿误继续放行。"
 change_type: fix
-capability_test: "n/a: 守卫判定逻辑（纯函数），以 guard 回放回归库（146 用例，七轮检视+两轮独立复核对抗探针持续追钉）+ 全量 vitest 为验证载体"
+capability_test: "n/a: 守卫判定逻辑（纯函数），以 guard 回放回归库（169 用例，七轮检视+三轮独立复核对抗探针持续追钉）+ 全量 vitest 为验证载体"
 intent:
   problem: "#1899 事故：主服务与 worktree alpha 跑同一命令行 `node dist/src/main.js`，大獭清理 alpha 实例时裸写 ps|grep|awk|kill 按进程名匹配，把主进程连带杀死（全系统离线）。既有 self_kill_byname 只拦 pkill/killall 按名形态；政策 A 下「非字面量 kill（变量/命令替换/管道）确认不了就放行」——ps|grep 按名扫描主进程特征再 kill 恰是「能确认」（目标来源=主进程特征名匹配），却落进放行面，形成可复发的绕过缺口。"
   solution: "psGrepMainSignatureFeedsKill 作为政策 A 第 4 确认通道：识别 ps→grep(主服务入口签名 dist/src/main.js)→…→kill 数据流，命中即拦（PS_GREP_KILL_BLOCK_MSG，ruleId 复用 self_kill_byname，与 pkill 按名同族聚合）。覆盖四种喂 kill 形态：①for 循环变量（for VAR in $(scan…); do kill $VAR）②while read 变量（scan… | while read …; do kill $v）③xargs（scan… | xargs kill）④命令替换直给（kill $(scan…)）。grep 反 self-match 括号变体 [d]ist 归一后再对 PS_GREP_MAIN_SIGNATURES（仅 dist/src/main.js）匹配；只认精确签名——裸 node/main.js/otter-buddy/vitest 无法确认是主服务，宁漏勿误放行（对偶负门保留）。"
@@ -11,7 +11,7 @@ intent:
   verify_by:
     type: behavior_check
     assertions:
-      - "guard 回放 146/146 全绿：事故凶器及同族变体 mustBlock + 对抗探针负门 allow 全保留（七轮检视共追钉 5+4+3+4+2+2 组探针；独立复核两轮：15 条+14 条对抗钉全部修复并钉入回归）"
+      - "guard 回放 169/169 全绿：事故凶器及同族变体 mustBlock + 对抗探针负门 allow 全保留（七轮检视共追钉 5+4+3+4+2+2 组探针；独立复核三轮：15+14+23 条对抗钉全部修复并钉入回归）"
       - "存量 allow 用例不受影响：ps|grep vitest while-read 批量清理、p=$(cat pids/backend.pid); kill $p 等政策 A 改向用例全放行"
       - "guard-intercept-classify 28/28：新文案含「按名匹配会命中主进程」锚词，classify 归因 self_kill_byname 连续"
       - "全量 vitest run 无回归；tsc --noEmit 与 eslint 对改动文件零告警"
@@ -60,7 +60,7 @@ for PID in $(ps aux | grep "[d]ist/src/main.js" | awk '{print $2}'); do kill $PI
 - 第 4 通道在字面量三查之后无条件追加（不再被「存在字面量 PID」短路——字面量与扫描来源可混合出现在同一 kill argv）。
 - `checkOneKillSegment` 拆出单段四查（complexity 分解）。
 
-`tests/guard/replay/cases-2026-10-29.ts`：#1899 区块 62 条（36 block + 26 allow）——含独立复核两轮 29 条对抗钉（一轮：6 漏拦+9 误拦；二轮：9 漏拦+5 误拦）+ 4 条自钉（-e 文件操作数/while-cmdsub kill/echo 引号数据/timeout wrapper 载荷）。
+`tests/guard/replay/cases-2026-10-29.ts`：#1899 区块 85 条——独立复核三轮对抗钉（15+14+23）+4 条自钉。三轮覆盖：-f 模式文件 vs 数据文件、stdin 占位 -、-q/-o 输出语义断流、常见无害长选项白名单、-m 数值参数、env -u/sudo -u 选项 arity、command -v 非执行、xargs 仅对 kill 透传 stdin、cmdsub 载荷自包含数据流递归、kill argv 变量遇管道即止、cat/echo 替换数据流。
 
 ## 判定语义（为何不误伤）
 
