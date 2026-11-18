@@ -11,7 +11,10 @@ export function buildMemoryClient(uc: UseCases) {
   return {
     getById: async (id: string) => {
       const entry = await uc.manageMemory.getById(id);
-      return entry ? { id: entry.id, content: entry.content, score: 1, layer: entry.layer } : null;
+      // createdAt 快照校验消费（belief 三迁移工具范围检查）——缺失即 fail-closed 拒
+      return entry
+        ? { id: entry.id, content: entry.content, score: 1, layer: entry.layer, createdAt: entry.createdAt }
+        : null;
     },
     // Phase 0：检索埋点（fire-and-forget）。调用方（search_memory 工具）注入
     // conversationId/callerId——client 是单例，拿不到 per-request 上下文，故由 tool 层传。

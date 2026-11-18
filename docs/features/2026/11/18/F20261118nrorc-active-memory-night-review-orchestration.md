@@ -1,0 +1,158 @@
+---
+id: F20261118nrorc
+title: 夜间审视编排（P2b2：scheduled-task 调度 + 夜审獭召唤 + fyi 否决锚）
+doc_type: feature
+summary: |
+  「主动记忆层」P2 的收官刀。夜间审视从「档案与治量结构」落成「每日自动运转的编排」：
+  function executor 通道（scheduler 通用机制的首次真实装配）承载全部治量逻辑——幂等取档
+  （claim settled 短路）、跨档水位推进（停机补跑从旧水位继续，未清失败区间取较早不丢审）、
+  当日 recorded 清单+原文注入、动态召唤 night-reviewer 獭（快照范围写进獭 context，三迁移
+  工具 fail-closed 校验 createdAt ∈ [after, through]）、审后全量处置校验（recorded 残留 =
+  丢审 → recordFailure 重跑同区间）、变更集 fyi 进时间线 + matter 否决锚（搭档一句话打回）。
+  任务 seed 挂 healing 初始化链（幂等，尊重手动 disable），cron 每日 03:00 Asia/Shanghai，
+  #814 迟到补跑由 scheduler 对 active cron 任务自动生效。
+change_type: feature
+intent:
+  problem: "P2b1 交付的治量结构（claim/complete/recordFailure + listBeliefsByStatus）没有消费方——夜间审视作为非确定性 LLM 会话，其编排（何时跑、审哪段、跑挂了怎么办、产出如何存档可见）此前不存在；三迁移工具虽对 night-reviewer 白名单可见，但无快照范围约束，獭理论上可波及任意 belief；变更集对搭档不可见、无打回通道。"
+  expected_effect: "每日 03:00（Asia/Shanghai）自动核对当日 recorded belief：全量核对非抽样，审后无 recorded 残留才 settle；停机/崩溃不丢不重（幂等键撞键短路 + 水位推进 + 失败区间重跑）；三迁移工具严格限定快照范围（无范围档即拒）；每次夜审的变更集以 system entry 汇总进 healing 主对话时间线并挂 matter 否决锚，搭档回复「打回 M-xxx」即由大獭迁 disputed。"
+  verify_by:
+    type: behavior_check
+    note: "单测钉住：编排 12 项（幂等短路/水位三种来源/失败重跑原区间/连败 skip+healing/空集 settle/全处置成功链路/未全处置 recordFailure/invoke 抛错/范围写 context/獭解散 finally/Shanghai 日界/损坏档案降级）+ 三迁移工具快照校验 8 项（fail-closed 全分支）+ repo listByTaskId 1 项 + seed 幂等 3 项。"
+capability_test: "n/a: 本刀编排逻辑由单测钉行为门禁（function executor 通道 + 獭生命周期为装配级，无 capability 断言面）；端到端夜审依赖真实 LLM 会话，验收走生产首夜观察。"
+created_at: 2026-11-18
+created_in_conversation: 82f71e1a-a8b0-4e0f-916e-5e219624483c
+causal_links:
+  from: [F20261118nrcst, F20261118nrwht]
+tags: [memory, belief, active-memory, night-review, scheduler, function-executor, idempotency, watermark, veto-anchor]
+modules:
+  - src/usecases/scheduler/night-review-orchestrator.ts
+  - src/usecases/scheduler/ensure-night-review-task.ts
+  - src/entities/memory/consolidation-state.ts
+  - src/usecases/memory/consolidation-state-repository.ts
+  - src/frameworks/db/memory/sqlite-consolidation-state-repository.ts
+  - src/interface-adapters/agent-runtime/tools/tool-factory.ts
+  - src/bootstrap/platforms.ts
+  - src/bootstrap/clients.ts
+---
+
+# 夜间审视编排（F20261118nrorc）
+
+> **定位**：P2「夜间审视」收官刀。P2a（F20261118nrwht）给了夜审獭身份，P2b1（F20261118nrcst）
+> 给了治量结构——本刀把它们编排成每日自动运转的流程，消费全部前置接口，v4 §4.2-4.5 落地。
+
+## 背景
+
+夜间审视是非确定性 LLM 会话（开獭读当日 recorded belief 清单、逐条核对原文并迁移状态），
+重跑两次产出必不同。P2b1 已给出判重（幂等键撞键返原结果）与失败治理（区间连败）的**结构**，
+但没有任何东西调用它。编排本身必须是确定性代码——治量逻辑（何时跑、审哪段、跑挂了怎么办）
+若交给 LLM 自己管理，等于让被审者管理审计流程。
+
+## 方案
+
+### 1. 编排通道：function executor（治量进代码，LLM 只做核对判断）
+
+`scheduled-task` 的 function executor（executorType='function'，F20260920stkx 保留的 scheduler
+通用机制，此前零在用者）承载编排：`NightReviewOrchestrator` 注册为
+`night-review-orchestrator` 函数，任务 body（JSON params）携带 conversationId。
+
+选择 function 而非 agent executor 的理由：
+- claim/complete/recordFailure 是治量动作，必须在代码层原子执行，不能进夜审獭白名单（P2a
+  恒 5 工具约束）；
+- 成功判据机器可验证（审后状态快照 vs 审前 recorded 清单），不依赖 LLM 文本自述；
+- 失败判定明确（invoke 抛错 / 审后残留 recorded → recordFailure），scheduler 的 3 连败熔断
+  与 #814 对账自然衔接。
+
+### 2. 编排流程（night-review-orchestrator.ts）
+
+```
+claim(review:{上海日}:night-review)
+  ├─ settled → 短路返回原结果（幂等，崩溃重触发不重跑）
+  ├─ failingRange 且连败≥3 → skip + healing「这段没审视成」（留档待人工介入）
+  ├─ failingRange → 重跑原区间 [after, through]（双端原值）
+  └─ 无 range → through=now，after=跨档水位
+        after = min(最新 settle 档 through, 最早未清失败区间 failedAfter)
+        无任何档 → now - 30h（首跑兜底回看窗）
+listBeliefsByStatus('recorded', after, through)
+  ├─ 空 → complete 空变更集（当天无现场记录也是合法 settle）
+  └─ 非空 → 召唤夜审獭 → 写范围进獭 context → 锚点 entry → invoke
+        → 审后全量处置校验：
+            recorded 残留 → recordFailure + throw（下次重跑同区间）
+            全处置 → complete({after, through, changes}) → fyi + matter 否决锚
+finally: 解散夜审獭（动态召唤不入名册，不解散即孤儿）
+```
+
+水位语义（「停机错过 → 从旧水位继续」的物理实现）：settle 档的 resultJson 里存 through，
+跨天新键 claim 不到昨天档，从 listByTaskId 全档读水位——**min(最新成功水位, 最早未清失败
+区间)**，保证停机/失败漏掉的段不丢审、已审过的段不重跑。
+
+### 3. 快照范围校验（工具层 fail-closed）
+
+召唤时编排把 `{after, through}` 写进獭 otter context 的 `night_review_range` key；三迁移工具
+（belief_verify/reject/supersede）执行时先读此 key 再校验目标 belief 的 createdAt 落在闭区间：
+
+- 无 key / 档案损坏 / createdAt 缺失 / 超区间 → 拒（fail-closed——非编排召唤的獭无从获得迁移权）；
+- 夜审獭白名单恒 5 工具（speak/yield + 三迁移），**不含 set_context**——LLM 无法篡改范围；
+- `buildMemoryClient.getById` 补回填 createdAt（快照校验消费）。
+
+### 4. fyi 否决锚（v4 §4.5）
+
+夜审成功后编排层做两件事：
+- `RegisterMatter`：state=WAITING_PARTNER，title=「夜间审视 {date}：N 条 belief 迁移待过目」，
+  payload=完整变更集 JSON（打回时大獭按 id 迁 disputed 的数据源）；
+- system entry 汇总进 healing 主对话时间线：每条标注 [已核实]/[存疑]/[已过期] + matter 短锚
+  （M-xxx）+ 打回指引。
+
+搭档回复「打回 M-xxx」→ 大獭走 transition_matter + belief 迁 disputed（prompt 层行为，无需
+新机制——设计原文「不需要额外机制」）。空变更集不挂锚（无事可否决）。
+
+### 5. 任务 seed（ensure-night-review-task.ts）
+
+挂 healing 初始化链尾（`gates.selfHealing` on ⟹ healing 对话存在 ⟹ seed）：幂等查重按
+任务名，**存在即返回（含 disabled）**——手动停用是搭档操作，seed 不复活也不重建同名双任务。
+任务形态：cron `0 3 * * *` Asia/Shanghai（凌晨 3 点，避开 7:30-11:00 时间轴；夜间审视字面
+意义放凌晨，LLM 长会话不与晨间任务抢链）、timeoutMinutes=240、executorRole='night-reviewer'
+（function 任务不解析 executor，仅语义标注）。#814 迟到补跑对账由 scheduler 对 active cron
+任务自动生效（停机错过 → 重启补触发 → 编排从旧水位继续），无需新机制。
+
+## 设计取舍
+
+1. **治量进代码 vs 獭自律**：编排（幂等/水位/失败治理）全部在 function executor 纯代码层，
+   夜审獭只做「核对原文 + 三选一迁移」。LLM 判断錯了有搭档打回（fyi 锚），LLM 没跑完有
+   recordFailure 重跑，LLM 跑偏了有快照范围硬约束——三层防线都不依赖提示词自律。
+2. **动态召唤 vs 持久夜审獭**：每次夜审 CreateOtter(type='night-reviewer') → 审完 Dissolve。
+   持久獭会占对话名册（干扰大獭 get_active_participants 派工判断）且需要 restartBeforeInvoke
+   管理 session；动态召唤上下文天然干净（每天新獭新 session），代价是每晚一次建/散开销（可忽略）。
+3. **审后全量处置校验（严格）**：三工具覆盖全部处置空间（吻合→verify、不吻合→reject、
+   过期→supersede），不存在「保持原状」的合法选项——审后仍有 recorded 即 LLM 未完成核对，
+   记失败重跑而非带病 settle。防的是「该核实的没核实」静默漏审（P2b1 设计文档点名的丢审形态）。
+4. **水位跨档计算 vs 只看当日档**：claim 键按天分档，跨天新键看不到昨天的失败区间——若只看
+   当日档，停机两天后 D3 的 claim 是空白档，会从兜底窗（30h）起审，中间漏掉的段超过 30h 即
+   丢审。listByTaskId 全档读水位 + min(成功水位, 最早未清失败) 把「从旧水位继续」做成物理保证。
+
+### 设计取舍（mechanism-addition 四问）
+
+1. **谁需要它？** 主动记忆层的 belief 数据完整性——recorded 不经核实永远以 [未核实] 面目
+   出现，verified 的独立审视信任模型需要这个每日通道兑现。
+2. **失败后果？** 编排炸了走 function executor failed 记账（scheduler 3 连败熔断 + healing
+   可见）；连败达阈值跳过并报 healing「这段没审视成」——belief 系统退回「全部未核实」状态，
+   检索降权标注仍在，无数据损坏。
+3. **后续机制？** 无——本刀是 P2 收官。观察项：top-k belief 挤占（P1b 遗留验收）与夜审獭
+   审核质量（生产首夜观察 reject 率）。
+4. **退役条件？** 夜间审视下线时：删 seed 链 + functionRegistry 注册 + 编排文件 + 工具快照
+   校验段（回退 P2a 形态）；consolidation_state 表与三迁移工具按 P2b1/P2a 各自退役条件处理。
+
+## 验证
+
+- 单测 24 项全绿（编排 12 + 工具快照校验 8 + repo listByTaskId 1 + seed 3），在 worktree 内跑。
+- `npx tsc --noEmit`、`npx eslint`（改动文件）零错误；tests/usecases/scheduler +
+  tests/interface-adapters/belief-migration-range-guard + tests/frameworks/db/memory +
+  tests/usecases/memory 全量 550 项通过（无回归）。
+- 端到端（真实 LLM 夜审会话）留生产首夜观察：首夜 03:00 触发后核对 healing 主对话的 fyi
+  entry 与 matter 锚、consolidation_state settle 档、獭解散无残留。
+
+## 部署注意
+
+- 任务由启动 seed 自动创建（healing 门 on 的环境）；生产库 selfHealing=on（存量 healing 对话
+  实证），重启即生效。
+- 手动触发验证：scheduler 触发面或直接调 orchestrator（对话内不暴露工具——编排不是 agent
+  动作面）。

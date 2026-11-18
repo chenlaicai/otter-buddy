@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- 合并 main 分支 contentType + recruiting createdAfter 后行数增加 */
 import type { MemoryContentType } from "@entities/memory/memory-entry";
 import type { EdgeType } from "@entities/memory/memory-edge";
+import { NIGHT_REVIEW_RANGE_CONTEXT_KEY } from "@entities/memory/consolidation-state";
 import { createListArtifactsTool, createUpdateArtifactStatusTool, createArchiveArtifactForReconciliationTool } from "./artifact-tools";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool } from "./message-tools";
@@ -1643,7 +1644,10 @@ function createRecordBeliefTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20261118bltls P1c：belief_verify / belief_reject / belief_supersede（F20261118nrwht P2a 重建——仅 night-reviewer 白名单可见） */
+/** belief 三迁移工具（P1c 首建、P2a 以 night-reviewer 白名单重建，后续夜审编排阶段加快照范围校验——
+ *  设计依据 v4 §4.2「出处 ID 存在且在当日快照范围内」：
+ *  范围从夜审獭 otter context 的 night_review_range 读取（编排召唤时写入；白名单无
+ *  set_context，LLM 无法篡改），无此 key 即拒（fail-closed：非编排召唤的獭无从获得迁移权）。 */
 function buildBeliefMigrationTool(
   ctx: ToolContext,
   name: "belief_verify" | "belief_reject" | "belief_supersede",
@@ -1655,7 +1659,7 @@ function buildBeliefMigrationTool(
     belief_supersede: "标记 belief 过期 → superseded（旧条目保留、降权、可回滚，不删）。",
   };
   return {
-    description: `${desc[name]} When: 夜间审视/现场纠错时。BOUNDARY: 只做状态迁移，改不了条目内容；superseded 为终态无出边。`,
+    description: `${desc[name]} When: 夜间审视/现场纠错时。BOUNDARY: 只做状态迁移，改不了条目内容；仅限快照范围内创建的条目；superseded 为终态无出边。`,
     parameters: {
       type: "object",
       properties: {
@@ -1665,6 +1669,35 @@ function buildBeliefMigrationTool(
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       try {
+        const entryId = params.entry_id as string;
+        // 快照范围校验（fail-closed）：无范围档即拒；目标条目 createdAt 须落在闭区间内。
+        // 防的是「夜审獭波及范围外条目」——范围由编排层写入，不受提示词约束。
+        const context = await ctx.client.context.get(ctx.otterId, NIGHT_REVIEW_RANGE_CONTEXT_KEY);
+        const raw = context[NIGHT_REVIEW_RANGE_CONTEXT_KEY];
+        if (!raw) {
+          return errorResponse(
+            `${name} 拒绝：本会话无快照范围（非夜审编排召唤）——belief 状态迁移仅限夜间审视编排内进行`,
+          );
+        }
+        let range: { after: string; through: string };
+        try {
+          range = JSON.parse(raw) as { after: string; through: string };
+        } catch {
+          return errorResponse(`${name} 拒绝：快照范围档案损坏（${NIGHT_REVIEW_RANGE_CONTEXT_KEY}）`);
+        }
+        const target = await ctx.client.memory.getById(entryId);
+        if (!target) {
+          return errorResponse(`${name} 失败：目标条目不存在（${entryId}）`);
+        }
+        // createdAt 缺失（装配未回填）同样 fail-closed 拒——快照校验不仓促放行
+        const createdMs = target.createdAt !== undefined ? Date.parse(target.createdAt) : Number.NaN;
+        if (Number.isNaN(createdMs)
+          || createdMs < Date.parse(range.after)
+          || createdMs > Date.parse(range.through)) {
+          return errorResponse(
+            `${name} 拒绝：目标条目 createdAt（${target.createdAt ?? "缺失"}）不在快照范围 [${range.after}, ${range.through}] 内`,
+          );
+        }
         if (name === "belief_supersede") {
           const r = await ctx.client.memory.markBeliefExpired(params.entry_id as string);
           return textResponse(JSON.stringify(r));

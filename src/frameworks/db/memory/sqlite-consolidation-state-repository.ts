@@ -6,7 +6,7 @@
  */
 
 import type Database from "better-sqlite3";
-import type { ConsolidationState } from "@entities/memory/consolidation-state";
+import { parseReviewKey, type ConsolidationState } from "@entities/memory/consolidation-state";
 import type { ConsolidationStateRepository } from "@usecases/memory/consolidation-state-repository";
 
 interface ConsolidationStateRow {
@@ -58,5 +58,26 @@ export class SqliteConsolidationStateRepository implements ConsolidationStateRep
       state.resultJson,
       state.updatedAt,
     );
+  }
+
+  /**
+   * P2b2：列指定 taskId 的全部档，日期升序。全表读出后用 parseReviewKey 内存过滤
+   * （表一天一行量级；不用的 LIKE 前缀匹配规避 taskId 含通配符的误匹配面）。
+   */
+  async listByTaskId(taskId: string): Promise<ConsolidationState[]> {
+    const rows = this.db.prepare(
+      "SELECT review_key FROM consolidation_state",
+    ).all() as Array<{ review_key: string }>;
+    const keys = rows
+      .map((r) => r.review_key)
+      .map((key) => parseReviewKey(key))
+      .filter((p): p is { date: string; taskId: string } => p !== null && p.taskId === taskId)
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const states: ConsolidationState[] = [];
+    for (const { date } of keys) {
+      const state = await this.getByKey(`review:${date}:${taskId}`);
+      if (state) states.push(state);
+    }
+    return states;
   }
 }

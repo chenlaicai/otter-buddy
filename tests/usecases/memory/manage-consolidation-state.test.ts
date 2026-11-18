@@ -18,6 +18,7 @@ function makeRepo() {
   const repo: ConsolidationStateRepository = {
     getByKey: async (key) => rows.get(key) ?? null,
     save: async (state) => { rows.set(state.reviewKey, state); },
+    listByTaskId: async () => [],
   };
   return { repo, rows };
 }
