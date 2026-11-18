@@ -161,13 +161,25 @@ export function isKillAtCommandPosition(text: string, pattern: RegExp): boolean 
  *  outer 仅载荷级命中携带（含 bash -c 包装与外层位置参数的原始段文本）——
  *  #1154 r2（N1）：载荷引用位置参数（$0/$1/$@…）时外层参数成为 kill 目标的
  *  一部分（`bash -c 'kill $0' 42877` 的 $0 绑定 42877），PID 判定需在引用时纳入。 */
-export interface KillSegment { segment: string; isPkill: boolean; payload?: string; source?: "pipe"; outer?: string }
+export interface KillSegment {
+  segment: string;
+  isPkill: boolean;
+  payload?: string;
+  source?: "pipe";
+  outer?: string;
+  /** 当前原文中的全局偏移；嵌套 bash -c 时用于外部诊断。 */
+  start: number;
+  /** payload 内的局部偏移；数据流扫描必须在与 segment 同源的文本中进行。 */
+  localStart?: number;
+  /** bash -c 载荷引号上下文；双引号只识别延后变量，不把转义 cmdsub 当执行面。 */
+  payloadQuote?: "single" | "double";
+}
 
 /** 单段 kill 位置判定（findKillSegments 主支/次支出口）
  * #1154 r1：从 findKillSegments 拆出——分段循环内分支复杂度超限。 */
-function matchKillAtPosition(trimmed: string, pipeSource: boolean): KillSegment | null {
+function matchKillAtPosition(trimmed: string, pipeSource: boolean, start: number): KillSegment | null {
   if (isKillAtCommandPosition(trimmed, PKILL_COMMANDS)) {
-    return { segment: trimmed, isPkill: true, ...(pipeSource ? { source: "pipe" as const } : {}) };
+    return { segment: trimmed, isPkill: true, start, ...(pipeSource ? { source: "pipe" as const } : {}) };
   }
   if (!isKillAtCommandPosition(trimmed, KILL_COMMANDS)) return null;
   // #777：bash -c 分支（KILL_COMMANDS 右支）可内嵌 pkill/killall 词元——
@@ -176,7 +188,7 @@ function matchKillAtPosition(trimmed: string, pipeSource: boolean): KillSegment 
   // 族时按 pkill 语义检查目标进程名（否则 'pkill -f otter-buddy' 走 kill 语义
   // 解析不到字面量 PID 而漏拦，#698 攻击链回归实证）。
   const innerPkill = /(?:bash|sh)\s*-c\s*[\s'"]?[^|;&]*\b(?:pkill|killall|killall5)\b/i.test(trimmed);
-  return { segment: trimmed, isPkill: innerPkill, ...(pipeSource ? { source: "pipe" as const } : {}) }
+  return { segment: trimmed, isPkill: innerPkill, start, ...(pipeSource ? { source: "pipe" as const } : {}) }
 }
 
 export function findKillSegments(command: string): KillSegment[] {
@@ -202,7 +214,7 @@ export function findKillSegments(command: string): KillSegment[] {
     let p = segStart - 1;
     while (p >= 0 && /\s/.test(command[p])) p--;
     const pipeSource = p >= 0 && command[p] === "|" && (p < 1 || command[p - 1] !== "|");
-    const direct = matchKillAtPosition(trimmed, pipeSource);
+    const direct = matchKillAtPosition(trimmed, pipeSource, segStart);
     if (direct) {
       results.push(direct);
       continue;
@@ -213,9 +225,18 @@ export function findKillSegments(command: string): KillSegment[] {
     // 的真实攻击（良性 decoy 漏拦）；判定文本改用载荷级命中段（hit.segment），外层
     // 包装/传参/注释不是 kill 目标语义的一部分（混入致注释命中进程名表、传参变量
     // 命中间接 PID 模式两类误拦）。
-    for (const payload of extractDashCPayloads(trimmed)) {
+    for (const { payload, offset, quote } of extractDashCPayloads(trimmed)) {
       for (const hit of findKillSegments(payload)) {
-        results.push({ segment: hit.segment, isPkill: hit.isPkill, payload, outer: trimmed, ...(hit.source ? { source: hit.source } : {}) });
+        results.push({
+          segment: hit.segment,
+          isPkill: hit.isPkill,
+          start: segStart + offset + hit.start,
+          localStart: hit.start,
+          payload,
+          payloadQuote: quote,
+          outer: trimmed,
+          ...(hit.source ? { source: hit.source } : {}),
+        });
       }
     }
   }
@@ -223,13 +244,16 @@ export function findKillSegments(command: string): KillSegment[] {
 }
 
 /** #852：提取 bash/sh -c 的引号包裹载荷（不含外层引号）。无引号形态走 KILL 右支原路径。 */
-function extractDashCPayloads(segment: string): string[] {
-  const out: string[] = [];
+function extractDashCPayloads(segment: string): { payload: string; offset: number; quote: "single" | "double" }[] {
+  const out: { payload: string; offset: number; quote: "single" | "double" }[] = [];
   const re = /(?:bash|sh)\s*-c\s*(?:'([^']*)'|"([^"]*)")/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(segment)) !== null) {
-    const payload = (m[1] ?? m[2] ?? "").trim();
-    if (payload) out.push(payload);
+    const raw = m[1] ?? m[2] ?? "";
+    const payload = raw.trim();
+    if (!payload) continue;
+    const leadSpaces = raw.length - raw.trimStart().length;
+    out.push({ payload, offset: m.index + m[0].indexOf(raw) + leadSpaces, quote: m[1] !== undefined ? "single" : "double" });
   }
   return out;
 }
