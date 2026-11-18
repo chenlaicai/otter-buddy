@@ -1,13 +1,13 @@
 ---
 id: F20261118kills
-title: "kill 守卫第 4 确认通道：ps|grep 主进程特征名→kill 数据流（#1899 裸 bash 绕过面）"
-summary: "2026-11-16 stage3a 验证会话裸写 `for PID in $(ps aux | grep \"[d]ist/src/main.js\" | awk '{print $2}'); do kill $PID; done` 按名全局匹配杀死主服务（pid 45203）——pkill/killall 防线被 ps|grep|awk|kill 管线绕过，政策 A「能确认才拦」漏掉「按名扫描主进程特征再 kill」这一可确认形态。新增第 4 确认通道：ps→grep(主进程特征名)→…→kill 数据流等价 pkill 按名，恒拦（复用 self_kill_byname 规则族）；grep 反 self-match 括号变体 [d]ist 归一后命中特征名；非特征名（vitest 等）不构成确认，继续放行。"
+title: "kill 守卫第 4 确认通道：ps|grep 主服务入口签名→kill 数据流（#1899 裸 bash 绕过面）"
+summary: "2026-11-16 stage3a 验证会话裸写 `for PID in $(ps aux | grep \"[d]ist/src/main.js\" | awk '{print $2}'); do kill $PID; done` 按名全局匹配杀死主服务（pid 45203）——pkill/killall 防线被 ps|grep|awk|kill 管线绕过。新政 A 第 4 确认通道：ps→grep(主服务入口签名 dist/src/main.js)→…→kill 数据流等价 pkill 按名，恒拦（复用 self_kill_byname 规则族）；只认精确签名——裸 node/main.js/otter-buddy 不构成确认（无法确认是主服务），宁漏勿误继续放行。"
 change_type: fix
 capability_test: "n/a: 守卫判定逻辑（纯函数），以 guard 回放回归库（147 用例，七轮检视对抗探针持续追钉）+ 全量 vitest 为验证载体"
 intent:
   problem: "#1899 事故：主服务与 worktree alpha 跑同一命令行 `node dist/src/main.js`，大獭清理 alpha 实例时裸写 ps|grep|awk|kill 按进程名匹配，把主进程连带杀死（全系统离线）。既有 self_kill_byname 只拦 pkill/killall 按名形态；政策 A 下「非字面量 kill（变量/命令替换/管道）确认不了就放行」——ps|grep 按名扫描主进程特征再 kill 恰是「能确认」（目标来源=主进程特征名匹配），却落进放行面，形成可复发的绕过缺口。"
-  solution: "psGrepMainSignatureFeedsKill 作为政策 A 第 4 确认通道：识别 ps→grep(主进程特征名)→…→kill 数据流，命中即拦（PS_GREP_KILL_BLOCK_MSG，ruleId 复用 self_kill_byname，与 pkill 按名同族聚合）。覆盖四种喂 kill 形态：①for 循环变量（for VAR in $(scan…); do kill $VAR）②while read 变量（scan… | while read …; do kill $v）③xargs（scan… | xargs kill）④命令替换直给（kill $(scan…)）。grep 反 self-match 括号变体 [d]ist 归一后再对 PKILL_OTTER_PATTERNS 匹配；只认特征名——非特征名（vitest/自有 dev server）不构成确认，放行（对偶负门保留）。"
-  expected_effect: "#1899 事故凶器及同族变体全部转 block（self_kill_byname）；存量政策 A allow 面（vitest 管道批量清理、自有 pid 文件变量 kill）不受影响；主进程保护面收紧一处可复发缺口。"
+  solution: "psGrepMainSignatureFeedsKill 作为政策 A 第 4 确认通道：识别 ps→grep(主服务入口签名 dist/src/main.js)→…→kill 数据流，命中即拦（PS_GREP_KILL_BLOCK_MSG，ruleId 复用 self_kill_byname，与 pkill 按名同族聚合）。覆盖四种喂 kill 形态：①for 循环变量（for VAR in $(scan…); do kill $VAR）②while read 变量（scan… | while read …; do kill $v）③xargs（scan… | xargs kill）④命令替换直给（kill $(scan…)）。grep 反 self-match 括号变体 [d]ist 归一后再对 PS_GREP_MAIN_SIGNATURES（仅 dist/src/main.js）匹配；只认精确签名——裸 node/main.js/otter-buddy/vitest 无法确认是主服务，宁漏勿误放行（对偶负门保留）。"
+  expected_effect: "#1899 事故凶器及同族变体全部转 block（self_kill_byname）；存量政策 A allow 面（vitest 管道批量清理、自有 pid 文件变量 kill、按裸 node/main.js 名批量清理）不受影响；主进程保护面收紧一处可复发缺口，且不违背宁漏勿误。"
   verify_by:
     type: behavior_check
     assertions:
@@ -24,7 +24,7 @@ causal_links:
   - {type: "corrects", id: "issue#1899", note: "2026-11-16 stage3a 误杀主服务事故根因与防线补强"}
 ---
 
-# kill 守卫第 4 确认通道：ps|grep 特征名→kill（F20261118kills）
+# kill 守卫第 4 确认通道：ps|grep 主服务入口签名→kill（F20261118kills）
 
 ## 事故还原
 
@@ -53,16 +53,15 @@ for PID in $(ps aux | grep "[d]ist/src/main.js" | awk '{print $2}'); do kill $PI
 `src/frameworks/agent/bash-safety-guard.ts`：
 
 - 新增 `PS_GREP_KILL_BLOCK_MSG`（ruleId `self_kill_byname`，layer `self_kill`——与 pkill 按名同族聚合，healing 归因连续）。
-- 新增 `psGrepMainSignatureFeedsKill(command, killSegment)`：政策 A 第 4 确认通道，识别四种喂 kill 形态（for 循环变量 / while read 变量 / xargs / 命令替换直给）。
+- 新增 `psGrepMainSignatureFeedsKill(command, killSegment, killIdx)`：政策 A 第 4 确认通道，识别四种喂 kill 形态（for 循环变量 / while read 变量 / xargs / 命令替换直给）。
 - `checkKillSegments` 非字面量分支：`checkIndirectKillTarget` 确认不了后，追加第 4 通道判定，命中即拦。
 
 `tests/guard/replay/cases-2026-10-29.ts`：新增 5 条 mustBlock + 1 条 allow 负门。
 
 ## 判定语义（为何不误伤）
 
-- **只认特征名**：grep 模式须含 `PKILL_OTTER_PATTERNS`（otter-buddy/dist/src/main.js/node 等）才构成确认；`grep vitest`、`grep backend` 等非特征名继续放行（与存量政策 A allow 面一致）。
-- **`grep -v` 是排除非扫描**：`grep -v 特征名` / `--invert-match` 明确从结果里搬除主进程，不构成正面扫描；`ps | grep -v 'main' | grep vite | xargs kill`（只清 vite）放行。
+- **只认精确签名**：grep 模式须含 `dist/src/main.js`（主服务与 worktree alpha 同命令行，按此签名扫描后 kill 时二者不可区分，属「能确认」）才拦截；`grep node`、`grep main.js`、`grep otter-buddy`、`grep vitest` 等无法确认是主服务，宁漏勿误放行。
+- **`grep -v` 是排除非扫描**：`grep -v 签名` / `--invert-match` 明确从结果里搬除主进程，不构成正面扫描；`ps | grep -v 'main' | grep vite | xargs kill`（只清 vite）放行。
 - **反 self-match 归一**：`[d]ist` 单字符括号变体先归一为 `dist` 再匹配——只剥离单字符类（self-match 惯用法），不动 `[0-9]`/`[a-z]` 等真实字符类。
 - **数据流挂钩**：扫描链与 kill 必须有变量绑定/管道/命令替换的真实喂送关系，非「同命令内恰好共现」；变量目标还要求 kill 落在对应循环体的 `do…done` 内（跨循环/重赋值不误关联），同名 kill 段按出现次序对齐（重复 `xargs kill` 不漏后一段）。
-
-已知 fail-closed 边角（检视七轮 OBSERVATION 1，不阻塞）：识别双引号 `-c` 载荷的 `\$()`/反引号时全局剥反斜杠，普通 shell 里字面量转义反引号若恰好写成 ps|grep 主进程特征名会被误拦——但该字面量不是合法 PID，不影响正当清理路径，宁可多拦不放过。
+- **转义字面量不当替换**：`\$()`/反引号是字面量非执行面（宁漏勿误），双引号 `-c` 载荷的延后替换属确认不了的面，放行——单引号等价载荷仍在拦截面。

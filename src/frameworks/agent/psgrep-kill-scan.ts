@@ -8,16 +8,21 @@
 
 import type { GuardBlock } from "./bash-safety-guard";
 
-/** pkill/killall 族命中的主进程特征名（按名匹配无法区分目标，恒拦；#1899 ps|grep 同表） */
+/** pkill/killall 族命中的主进程特征名（按名匹配无法区分目标，恒拦） */
 export const PKILL_OTTER_PATTERNS = [
   "otter-buddy", "otter_buddy", "dist/src/main", "dist/src/main.js",
   ".otter-buddy.pid", "main.js", "node",
 ];
 
-// #1899：ps→grep(主进程特征名)→…→kill 数据流——与 pkill/killall 按名同构，恒拦（政策 A 第 4 确认通道）。
-// 复用 self_kill_byname 规则族：按名匹配主进程特征即「能确认」，宁漏勿误总则不因此放宽。
+/** #1899 ps|grep 通道的「可确认」特征名——只认主服务入口签名 dist/src/main.js。
+ *  理由（宁漏勿误）：主服务与 worktree alpha 同命令行，按此签名扫描后 kill 时二者
+ *  不可区分，恒拦；裸 node / main.js / otter-buddy 无法确认是主服务，政策 A 放行。 */
+const PS_GREP_MAIN_SIGNATURES = ["dist/src/main.js"];
+
+// #1899：ps→grep(主服务入口签名)→…→kill 数据流——与 pkill/killall 按名同构，恒拦（政策 A 第 4 确认通道）。
+// 只认精确签名 dist/src/main.js（主服务与 worktree alpha 同命令行不可区分）——裸 node/main.js 不构成确认，放行。
 export const PS_GREP_KILL_BLOCK_MSG: GuardBlock = {
-  text: "ps|grep 按名匹配会命中主进程（node/otter-buddy 特征名）再 kill——与 pkill/killall 按名同构，不允许。精确终止请用字面量 PID kill。",
+  text: "ps|grep 按名匹配会命中主进程（dist/src/main.js 入口签名）再 kill——主服务与 worktree alpha 同签名不可区分，不允许。精确终止请用字面量 PID kill。",
   ruleId: "self_kill_byname",
   layer: "self_kill",
 };
@@ -40,7 +45,7 @@ function isInvertedGrepSegment(seg: string): boolean {
 /** grep 段模式是否含主进程特征名（反 self-match 归一后） */
 function grepSegmentHasMainFeature(seg: string): boolean {
   return /\bgrep\b/.test(seg)
-    && PKILL_OTTER_PATTERNS.some(sig => unbracketGrepSelfMatch(seg).toLowerCase().includes(sig.toLowerCase()));
+    && PS_GREP_MAIN_SIGNATURES.some(sig => unbracketGrepSelfMatch(seg).toLowerCase().includes(sig.toLowerCase()));
 }
 
 /** 管道链是否「按名扫描主进程」：有 ps → grep(正向特征名)，且无 grep -v(特征名) 排除 */
@@ -54,28 +59,36 @@ function chainScansMainSignature(s: string): boolean {
 }
 
 /** 从 s 起始提取 $(…) / `…` 内容（平衡匹配）；非替换开头返回 null。
- *  双引号 bash -c 载荷里的 \$() / \` 延后给内层 shell 执行——前导反斜杠剥除后同识别。 */
+ *  宁漏勿误：转义 \$() / \` 是字面量非执行面，不当命令替换（double-quote -c 的延后
+ *  替换属确认不了的面，政策 A 放行）。 */
 function extractSubstitutionContent(s: string): string | null {
   const t = s.trimStart();
-  const body = t.startsWith("\\") ? t.slice(1) : t; // \$() / \` → 内层 shell 执行面
-  if (body.startsWith("$(")) {
+  if (t.startsWith("$(")) {
     let depth = 0;
-    for (let i = 1; i < body.length; i++) {
-      if (body[i] === "(") depth++;
-      else if (body[i] === ")") { depth--; if (depth === 0) return body.slice(2, i); }
+    for (let i = 1; i < t.length; i++) {
+      if (t[i] === "(") depth++;
+      else if (t[i] === ")") { depth--; if (depth === 0) return t.slice(2, i); }
     }
     return null;
   }
-  if (body.startsWith("`")) {
-    const end = body.indexOf("`", 1);
-    return end > 1 ? body.slice(1, end) : null;
+  if (t.startsWith("`")) {
+    const end = t.indexOf("`", 1);
+    return end > 1 ? t.slice(1, end) : null;
   }
   return null;
 }
 
-/** 提取从 i 起的替代表达内容（i 指向 $ 或 `）；返回 { content, end }，未闭合返回 null */
+/** i 处 $ 是否被反斜杠转义（奇数个前置反斜杠=字面量，政策 A 放行） */
+function isEscapedDollar(command: string, i: number): boolean {
+  let bs = 0;
+  for (let j = i - 1; j >= 0 && command[j] === "\\"; j--) bs++;
+  return bs % 2 === 1;
+}
+
+/** 提取从 i 起的替代表达内容（i 指向 $ 或 `）；返回 { content, end }，未闭合/转义返回 null */
 function substitutionAt(command: string, i: number): { content: string; end: number } | null {
   if (command[i] === "$" && command[i + 1] === "(") {
+    if (isEscapedDollar(command, i)) return null; // \$() 字面量非执行面
     let d = 0;
     let j = i + 1;
     for (; j < command.length; j++) {

@@ -287,10 +287,21 @@ export const mustBlockCases: ReplayCase[] = [
   },
   {
     command: "kill $(ps aux | grep node | awk '{print $2}')",
-    expect: "block",
-    source: "#1899 命令替换直给变体",
-    reasonContains: "按名匹配",
-    note: "命令替换内容即 ps|grep node 扫描链，kill 直吃其输出",
+    expect: "allow",
+    source: "#1899 负门：裸 node 非确认签名",
+    note: "grep node 无法确认是主服务（任意 node 进程），宁漏勿误放行——只拦精确 dist/src/main.js 签名",
+  },
+  {
+    command: "ps aux | grep node | awk '{print $2}' | xargs kill",
+    expect: "allow",
+    source: "#1899 负门：按 node 名批量杀放行",
+    note: "裸 node 不构成确认，与 killall node 语义不同（ps|grep 通道只认精确签名）",
+  },
+  {
+    command: "ps aux | grep 'main.js' | awk '{print $2}' | xargs kill",
+    expect: "allow",
+    source: "#1899 负门：裸 main.js 非确认签名",
+    note: "裸 main.js 无法确认是主服务，宁漏勿误放行",
   },
   {
     command: "for PID in $(ps aux | grep vitest | awk '{print $2}'); do kill $PID; done",
@@ -431,20 +442,19 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "echo xargs kill 无引号同理——真实 xargs kill 段按 start 偏移对齐不漏",
   },
-  // ── #1899 检视獭六轮探针（双引号 bash -c 载荷 \$() 延后替换）──
+  // ── #1899 检视獭六轮探针（双引号 bash -c 载荷 \$() 延后替换——宁漏勿误放行面）──
   {
     command: "bash -c \"for p in \\$(ps aux | grep 'dist/src/main.js' | awk '{print \\$2}'); do kill \\$p; done\"",
-    expect: "block",
-    source: "#1899 检视六轮：双引号 -c 载荷 \\$() 延后替换",
-    reasonContains: "按名匹配",
-    note: "双引号 bash -c 内 \\$() 剥反斜杠后是内层 shell 执行面，for 循环变量喂 kill",
+    expect: "allow",
+    source: "#1899 负门：双引号 -c 转义 \\$() 确认不了放行",
+    note: "双引号 -c 内 \\$() 延后替换确认不了（宁漏勿误），单引号等价载荷仍 BLOCK",
   },
   {
     command: "bash -c \"ps aux | grep 'dist/src/main.js' | grep -v grep | while read u p rest; do kill \\$p; done\"",
     expect: "block",
-    source: "#1899 检视六轮：双引号 -c 载荷 while-read",
+    source: "#1899 六轮探针：双引号 -c while-read 仍拦（链文本字面可确认）",
     reasonContains: "按名匹配",
-    note: "双引号 bash -c 内 while read 变量喂 kill，输入链为 ps|grep 特征名扫描",
+    note: "双引号 -c 内 while-read 输入链 ps|grep 签名字面可确认，\\$p 延后给内层 shell 仍拦",
   },
   {
     command: "cat ~/.ssh/id_rsa",
