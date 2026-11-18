@@ -3,6 +3,7 @@
 import type Database from "better-sqlite3";
 import type { MemoryEntry, MemoryWeight, MemoryLayer, MemoryContentType } from "@entities/memory/memory-entry";
 import type { MemoryEdge, EdgeType } from "@entities/memory/memory-edge";
+import type { BeliefStatus } from "@entities/memory/belief";
 import type {
   FTSHit,
   SearchFilters,
@@ -894,6 +895,26 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   /** F20261118stale P0：批量查候选条目里哪些被 supersede（旧→新映射）。 */
   async getSupersededBy(entryIds: string[]): Promise<Map<string, string>> {
     return getSupersededBy(this.db, entryIds);
+  }
+
+  /**
+   * F20261118nrcst P2b1：按状态 + 时间闭区间列 belief（夜间审视清单数据源）。
+   * 状态在 metadata JSON 内，用 json_extract 匹配；created_at 升序（现场时间先后）。
+   */
+  async listBeliefsByStatus(
+    status: BeliefStatus,
+    after: string,
+    through: string,
+  ): Promise<MemoryEntry[]> {
+    const rows = this.db.prepare(`
+      SELECT * FROM memory_entries
+      WHERE content_type = 'belief'
+        AND json_extract(metadata, '$.status') = ?
+        AND created_at >= ?
+        AND created_at <= ?
+      ORDER BY created_at ASC
+    `).all(status, after, through) as MemoryEntryRow[];
+    return rows.map(rowToMemoryEntry);
   }
 
   /** F20260813mren: 删除一条边（unlink_memory 用） */

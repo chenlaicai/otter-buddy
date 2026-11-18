@@ -33,6 +33,9 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
   try {
     createConversationTables(db);
     createMemoryTables(db);
+    /** F20261118nrcst P2b1：夜间审视治量结构（幂等键 + 失败区间 + 连败计数）。
+     *  新表只写 schema.ts 一处（#506：bootstrap 无条件幂等 initSchema，老库自动补建）。 */
+    createConsolidationStateTable(db);
     createTerminologyTables(db);
     createConversationInfoTables(db);
     createUnfurlCacheTable(db);
@@ -319,6 +322,26 @@ function createMemoryTables(db: Database.Database): void {
       ON memory_edges(from_entry_id, to_entry_id, edge_type);
     CREATE INDEX IF NOT EXISTS idx_memory_edges_from ON memory_edges(from_entry_id, edge_type);
     CREATE INDEX IF NOT EXISTS idx_memory_edges_to ON memory_edges(to_entry_id, edge_type);
+  `);
+}
+
+/** F20261118nrcst P2b1：夜间审视治量结构（otter-memory-design v4 §4.4）。
+ *  幂等键 review:{date}:{taskId} 一行一档；failed_range=[failed_after, failed_through] 区间不是点，
+ *  连败计数绑定该区间；result_json 非空 = 已 settle（撞键直接返回原结果）。 */
+function createConsolidationStateTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS consolidation_state (
+      review_key TEXT PRIMARY KEY,
+      failed_after TEXT,
+      failed_through TEXT,
+      failures INTEGER NOT NULL DEFAULT 0,
+      result_json TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      CHECK ((failed_after IS NULL) = (failed_through IS NULL))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_consolidation_state_updated
+      ON consolidation_state (updated_at);
   `);
 }
 

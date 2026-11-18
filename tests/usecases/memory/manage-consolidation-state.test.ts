@@ -1,0 +1,104 @@
+/**
+ * F20261118nrcst P2b1：夜间审视治量状态管理 usecase 单测。
+ *
+ * 覆盖：claim 幂等撞键 / complete 写存档点清零 / recordFailure 同区间连败与异区间重置。
+ */
+import { describe, it, expect } from "vitest";
+import { ManageConsolidationState } from "@usecases/memory/manage-consolidation-state";
+import type { ConsolidationStateRepository } from "@usecases/memory/consolidation-state-repository";
+import {
+  MAX_CONSECUTIVE_FAILURES,
+  newConsolidationState,
+  type ConsolidationState,
+} from "@entities/memory/consolidation-state";
+
+function makeRepo() {
+  const rows = new Map<string, ConsolidationState>();
+  const repo: ConsolidationStateRepository = {
+    getByKey: async (key) => rows.get(key) ?? null,
+    save: async (state) => { rows.set(state.reviewKey, state); },
+  };
+  return { repo, rows };
+}
+
+const KEY = "review:2026-11-18:night-review-task";
+
+describe("ManageConsolidationState.claim（F20261118nrcst P2b1）", () => {
+  it("首次 claim 建档：未 settle、无失败区间、零连败", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    const claim = await uc.claim(KEY);
+    expect(claim.settled).toBe(false);
+    expect(claim.resultJson).toBeNull();
+    expect(claim.failingRange).toBeNull();
+    expect(claim.failures).toBe(0);
+  });
+
+  it("撞键返回原结果（幂等）：resultJson 非空即 settle，不重跑", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    await uc.complete(KEY, '{"verified":["b1"]}');
+    const claim = await uc.claim(KEY);
+    expect(claim.settled).toBe(true);
+    expect(claim.resultJson).toBe('{"verified":["b1"]}');
+    expect(claim.failures).toBe(0);
+  });
+
+  it("已完成档之后失败区间为 null（complete 清零）", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    await uc.recordFailure(KEY, "2026-11-18T00:00:00Z", "2026-11-18T12:00:00Z");
+    await uc.complete(KEY, "{}");
+    const claim = await uc.claim(KEY);
+    expect(claim.settled).toBe(true);
+    expect(claim.failingRange).toBeNull();
+    expect(claim.failures).toBe(0);
+  });
+});
+
+describe("ManageConsolidationState.recordFailure（F20261118nrcst P2b1）", () => {
+  it("同区间连败递增，达阈值应跳过", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    const range = { after: "2026-11-18T00:00:00Z", through: "2026-11-18T12:00:00Z" };
+    for (let i = 1; i < MAX_CONSECUTIVE_FAILURES; i++) {
+      const outcome = await uc.recordFailure(KEY, range.after, range.through);
+      expect(outcome.failures).toBe(i);
+      expect(outcome.shouldSkip).toBe(false);
+    }
+    const third = await uc.recordFailure(KEY, range.after, range.through);
+    expect(third.failures).toBe(MAX_CONSECUTIVE_FAILURES);
+    expect(third.shouldSkip).toBe(true);
+  });
+
+  it("异区间重置连败为 1（水位前移，旧连败不追新区间）", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    await uc.recordFailure(KEY, "2026-11-18T00:00:00Z", "2026-11-18T06:00:00Z");
+    await uc.recordFailure(KEY, "2026-11-18T00:00:00Z", "2026-11-18T06:00:00Z");
+    const outcome = await uc.recordFailure(KEY, "2026-11-18T12:00:00Z", "2026-11-18T23:00:00Z");
+    expect(outcome.failures).toBe(1);
+    expect(outcome.shouldSkip).toBe(false);
+  });
+
+  it("claim 能看到失败区间与连败计数（重跑只重做该区间）", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    await uc.recordFailure(KEY, "2026-11-18T00:00:00Z", "2026-11-18T06:00:00Z");
+    const claim = await uc.claim(KEY);
+    expect(claim.settled).toBe(false);
+    expect(claim.failingRange).toEqual({ after: "2026-11-18T00:00:00Z", through: "2026-11-18T06:00:00Z" });
+    expect(claim.failures).toBe(1);
+  });
+});
+
+describe("newConsolidationState 与 repo 协作（F20261118nrcst P2b1）", () => {
+  it("claim 建档后 repo 中可读回该行", async () => {
+    const { repo, rows } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    await uc.claim(KEY);
+    const stored = rows.get(KEY);
+    expect(stored).toBeDefined();
+    expect(stored).toEqual(newConsolidationState(KEY, stored!.updatedAt));
+  });
+});
