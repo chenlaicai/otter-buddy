@@ -236,3 +236,49 @@ describe("lint-historical-docs --base CI 模式（F20261009hcig，#1281）", () 
     fs.rmSync(r2, { recursive: true, force: true });
   });
 });
+
+describe("F20261118lhist：stderr 收进 pipe 后不得构成静默绿灯", () => {
+  /** 造一个 PATH 前置的假 git：命中 predicate 时以注入码失败并写 stderr，否则透传真 git */
+  function withFakeGit(
+    repo: string,
+    predicateSource: string,
+    injected: { status: number; stderr: string }
+  ): { env: NodeJS.ProcessEnv; cleanup: () => void } {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "lint-hist-fakegit-"));
+    const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    const script = [
+      "#!/bin/sh",
+      `if ${predicateSource}; then`,
+      `  printf '%s\\n' ${JSON.stringify(injected.stderr)} >&2`,
+      `  exit ${injected.status}`,
+      "fi",
+      `exec ${JSON.stringify(realGit)} "$@"`,
+      "",
+    ].join("\n");
+    const file = path.join(bin, "git");
+    fs.writeFileSync(file, script, { mode: 0o755 });
+    return {
+      env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` },
+      cleanup: () => fs.rmSync(bin, { recursive: true, force: true }),
+    };
+  }
+
+  it("pre-commit 模式：staged diff 读取失败 → 仍 exit 0 宽松放行，但必须留下诊断行（不得静默）", () => {
+    const repo = freshRepo("lint-hist-fakegit-precommit-");
+    // 无任何 staged 变更时也命中 findViolations 的首个 nameStatus 调用。
+    const fake = withFakeGit(repo, 'echo "$*" | grep -q "diff --cached --name-status"', {
+      status: 42,
+      stderr: "fatal: reviewer injected unexpected git failure",
+    });
+    try {
+      const r = spawnSync("node", [LINT], { cwd: repo, encoding: "utf8", env: fake.env });
+      expect(r.status).toBe(0); // 语义不变：环境异常宽松放行
+      // 修复前该路径完全静默（stdout/stderr 皆空）；修复后必须自报诊断。
+      expect(`${r.stdout}${r.stderr}`).toMatch(/宽松放行/);
+      expect(`${r.stdout}${r.stderr}`).toMatch(/reviewer injected unexpected git failure/);
+    } finally {
+      fake.cleanup();
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});

@@ -274,6 +274,14 @@ function hasRenameLineageToBase(oldPath, ref) {
   return false;
 }
 
+/** git 故障诊断摘要：取 stderr 首行（去 ANSI/换行、截断），供降级放行时打印。
+ *  只取首行 + 截断，避免把整段 git 输出糊进门禁日志；不含任何仓库内容。 */
+function briefGitFailure(error) {
+  const raw = String(error?.stderr || error?.message || "").trim();
+  const first = sanitize(raw.split("\n").find((line) => line.trim()) || "");
+  return first.length > 200 ? first.slice(0, 200) + "…" : first;
+}
+
 /** 解析 staged 状态行（git diff --cached --name-status），返回 {status, path, oldPath} */
 function parseStatusLine(line) {
   const [rawStatus, ...rest] = line.split("\t");
@@ -287,8 +295,11 @@ export function findViolations(ctx = stagedCtx()) {
   let staged;
   try {
     staged = ctx.nameStatus();
-  } catch {
-    return { errors: [], degraded: true };
+  } catch (error) {
+    // F20261118lhist 阻断 1：stderr 收进 pipe 后，「环境异常」不能再是静默的 exit 0——
+    // 降级放行可以保留（语义不变），但必须留下脚本自己的诊断行，否则本门禁从
+    // 「有诊断的宽松放行」退化成「完全静默的成功」，等于给非预期故障发绿灯。
+    return { errors: [], degraded: true, degradedReason: briefGitFailure(error) };
   }
   if (!staged) return { errors: [], degraded: false };
 
@@ -471,8 +482,15 @@ function checkLinkFixScope(files, entries = {}, ctx = stagedCtx()) {
 }
 
 function main() {
-  const { errors, entries } = findViolations();
+  const { errors, entries, degraded, degradedReason } = findViolations();
   const ctx = stagedCtx();
+  if (degraded) {
+    // 语义不变（仍 exit 0 宽松放行），但绝不静默：留下可搜的诊断行（F20261118lhist 阻断 1）。
+    console.warn(
+      `[lint:historical-docs] 无法读取 staged diff，本次校验宽松放行（未校验）；诊断：${degradedReason || "unknown"}`
+    );
+    process.exit(0);
+  }
   if (errors.length === 0) process.exit(0);
 
   // 显式开口：staged 区存在 .doc-fix 声明文件（内容≥10字符）+ 每个历史文档变更均在 frontmatter 块内
@@ -582,7 +600,9 @@ function runBaseMode(baseRefArg) {
     // 环境异常（某 commit diff 不可读）→ 宽松放行该 commit（与 pre-commit degraded 同语义）
     const r = findViolations(ctx);
     if (r.degraded) {
-      console.warn(`[lint:historical-docs] ${ctx.where} 环境异常，宽松放行`);
+      console.warn(
+        `[lint:historical-docs] ${ctx.where} 环境异常，宽松放行；诊断：${r.degradedReason || "unknown"}`
+      );
       continue;
     }
     if (r.errors.length === 0) continue;

@@ -10,17 +10,19 @@ summary: |
   新增文档是否已在 base、frontmatterLastLineOf 的 git show）在**预期失败**时把 git 自己的
   `fatal: path ... exists on disk, but not in <base>` 泄漏到门禁输出。退出码一直是对的（0），但
   安全门禁输出里出现 fatal 会训练人忽略它，真故障因此失去信号。修法：helper 统一
-  stdio:["ignore","pipe","pipe"]，失败信息随异常 error.stderr 交调用方处置；并给既有用例补
-  stderr 不含 fatal 的断言。
+  stdio:["ignore","pipe","pipe"]；同时把降级放行从「静默 exit 0」改成「脚本自报诊断行」——
+  否则收窄 stderr 等于连非预期故障的最后一条诊断也抹掉（独立检视阻断 1），逐条用例分别锁
+  stderr 无 fatal 与降级必有诊断。
 intent:
   problem: "本仓重复出现的「新增特性文档 + 后续 commit 修改它」形态（任何多轮修订的 PR）都会在历史文档门禁输出里打印 fatal。本次在 #1927 的检视中被独立检视獭指出，作者先前把他当成正常输出，属对门禁信号的钝化"
-  expected_effect: "门禁输出只剩脚本自己的 judgement（违规/警告），预期失败的 git 探测彻底静默；真故障仍以非零退出码 + 脚本自身报错呈现；用例锁定该行为防回归"
+  expected_effect: "门禁输出只剩脚本自己的 judgement（违规/警告），预期失败的 git 探测彻底静默；非预期的 git 故障仍以脚本自身诊断行可见（降级放行的 exit 0 语义不变，但不再静默）；两条用例分别锁定「无 fatal 噪音」与「降级必有诊断」防回归"
   verify_by:
     type: behavior_check
     evidence:
       - "tests/lint-historical-docs-cibase.test.ts：新增文档首 commit 新增、后续 commit 修改的放行用例，追加 stderr 不含 /fatal:/ 断言（修复前该断言必红）"
       - "修复前后实测：同一仓库同一分支，修复前 stderr 出现 `fatal: path 'docs/features/.../F20261118zzzzz-probe.md' exists on disk, but not in '3f9459bb...'`，修复后为空；退出码两态均为 0"
-      - "回归：`npx vitest run tests/lint-historical-docs*.test.ts` → 6 files / 61 tests 全通过"
+      - "fake-git 注入（`diff --cached --name-status` 以 42 失败 + stderr）用例：修复前 stdout/stderr 全空、修复后必须命中 /宽松放行/ 与注入字符串——去掉诊断行后该用例必红（实测 1 failed）"
+      - "回归：`npx vitest run tests/lint-historical-docs*.test.ts` → 6 files / 62 tests 全通过"
 capability_test: "tests/lint-historical-docs-cibase.test.ts"
 ---
 
@@ -52,8 +54,21 @@ fatal: path 'docs/features/2026/11/18/F20261118clkid-colink-identity-split.md' e
 - `git()` helper 统一 `stdio: ["ignore", "pipe", "pipe"]`：stdin 关掉，stdout/stderr 都收进内存；失败时信息仍在异常对象上（`error.stderr`），调用方原有的 catch/降级逻辑不变。
 - 既有用例 `range 内首个 commit 新增文档、后续 commit 改它 → 放行` 追加断言 `stderr` 不含 `fatal:`——修复前必红。
 
+### 阻断 1 的补救：收窄 stderr 不得顺手抹掉真故障诊断
+
+独立检视实测：pre-commit 模式下 `findViolations()` 首个 `nameStatus()` 失败会返回 `degraded: true`，而 `main()` 丢弃该标志直接 `exit 0`——旧版靠 git 自己往终端打的那行 fatal 当唯一信号，本 PR 把 stderr 收进 pipe 后这条路径变成**完全静默的成功**。这与「让门禁信号可信」的修复目的正相反。
+
+补救（保持 exit 0 放行语义不变，只补可观测性）：
+
+- `findViolations()` 的 catch 保留诊断：新增 `briefGitFailure()`（stderr 首行、去 ANSI/换行、截断 200 字符）返回为 `degradedReason`；
+- `main()` 收到 `degraded` 时打印 `[lint:historical-docs] 无法读取 staged diff，本次校验宽松放行（未校验）；诊断：…` 后 exit 0；
+- `--base` 模式的逐 commit 降级本就自带警告，这里把 `degradedReason` 一并附上，两种模式诊断口径统一；
+- 新增 fake-git 回归用例：PATH 前置假 git 命中 `diff --cached --name-status` 时以 42 失败并写 stderr，断言 **exit 0 + 输出含「宽松放行」+ 含注入字符串**；去掉诊断行后该用例必红（实测）。
+
 ## 影响面与边界
 
-- 只改**输出通道**，不改任何判定：违规判定、`.doc-fix` 配对语义、宽松放行条件、退出码全部原样（61 个用例全绿）。
+- 只改**输出通道**，不改任何判定：违规判定、`.doc-fix` 配对语义、宽松放行条件、退出码全部原样（62 个用例全绿）。
 - 未把 git 的全部 stderr 丢弃：错误仍随异常传递，脚本自身仍会打印自己的违规说明与警告。
 - 不覆盖「git 在成功路径写 warning 到 stderr」的形态（本仓门禁不依赖它们）。
+- 诊断行只放 stderr 首行摘要（截断 200 字符），不打印完整 git 输出，避免把仓库内容糊进 CI 日志。
+- 降级放行的判定保持宽松（exit 0）是既有取舍，本次不动；把它改成 fail-closed 属另一个决策，需单独论证误报面。
