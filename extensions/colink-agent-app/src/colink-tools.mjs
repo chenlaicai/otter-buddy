@@ -134,6 +134,7 @@ export function buildCoLinkPrompt(ctx, preRead) {
         '需要当前话题历史时调用 mcp__colink_otter_history__colink_read_topic，参数只传 limit/cursor；话题与身份由平台按事件固定，不能指定其他话题。',
         '需要话题开始之前的频道背景时调用 mcp__colink_otter_history__colink_read_channel，参数只传 limit/cursor；频道路由本次事件决定。',
         '公共频道由 App 身份读取、私密频道与私聊由当前用户身份读取，身份由平台按事件快照固定；不能凭猜测切换身份绕过授权。',
+        '频道里只能发文字和 App 渲染的图片：用户要求画图/配图时，用 ```svg 围栏直接输出 SVG 矢量图（每轮最多 2 个），App 会渲染成图片附在回复里；不要输出 base64 或图片外链，私聊不支持发图。',
         bareMention
           ? '本次消息只有 @，意图不明：App 已在 Agent 启动前确定性读取当前话题最近一页。必须先阅读下方预读上下文，再按需读取话题根之前的频道背景；不要凭空猜测，也不要在上下文已有答案时反问。'
           : '如果本次消息意图、任务或指代不明，必须先读取当前话题最近一页，再按需读取频道背景；先利用上下文理解，不要凭空猜测。',

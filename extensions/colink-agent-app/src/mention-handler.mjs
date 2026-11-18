@@ -1,8 +1,56 @@
+import { extractSvgBlocks, svgToPng } from './image-forward.mjs';
+
 /** 每轮注入海獭系统的图片上限（对齐海獭系统 dispatch-chain 的 vision 注入硬限制：每轮 ≤2 图）。 */
 const MAX_IMAGES_PER_TURN = 2;
 
 function base64ToBytes(base64) {
   return Uint8Array.from(Buffer.from(base64, 'base64'));
+}
+
+/**
+ * 把海獭最终回复发回 CoLink。
+ * - 频道：解析回复中的 SVG（≤2 个），渲染 PNG 后上传，用 messages.send 发「文字+图片」；
+ * - 私聊：files.upload 需要 channelId（私聊没有），降级为纯文本回复。
+ * 发送阶段不回抛异常——handler 失败会触发 SDK 重放，导致 bridge.reply 重复跑海獭 turn。
+ */
+async function forwardAnswer(ctx, kind, answer) {
+  try {
+    if (kind === 'channel') {
+      const { svgs, text } = extractSvgBlocks(answer);
+      if (svgs.length > 0) {
+        const data = ctx.event.data;
+        const fileIds = [];
+        for (let i = 0; i < svgs.length; i++) {
+          try {
+            const bytes = await svgToPng(svgs[i]);
+            const receipt = await ctx.colink.app.files.upload({
+              bytes,
+              idempotencyKey: `reply:${data.messageId}:img:${i}`,
+              channelId: data.channelId,
+              fileName: `image-${i + 1}.png`,
+            });
+            if (receipt?.fileId) fileIds.push(receipt.fileId);
+          } catch (error) {
+            // 单张渲染/上传失败逐张降级：跳过该图，不阻断其余图与文本。
+            console.error(`[colink-app] image ${i} render/upload failed:`, error?.message ?? error);
+          }
+        }
+        const body = text || (fileIds.length ? '[图片]' : '（图片生成失败，已省略）');
+        await ctx.colink.app.messages.send({
+          idempotencyKey: `reply:${data.messageId}`,
+          text: body,
+          ...(fileIds.length ? { fileIds } : {}),
+          channelId: data.channelId,
+          topicId: data.topicId,
+        });
+        return;
+      }
+    }
+    await ctx.reply({ text: answer });
+  } catch (error) {
+    // 发送失败不回抛（见 forwardAnswer 注释）。
+    console.error('[colink-app] reply delivery failed:', error?.message ?? error);
+  }
 }
 
 /**
@@ -75,6 +123,6 @@ export function createMentionHandler({ bridge }) {
       ctx,
       signal: ctx.signal,
     });
-    await ctx.reply({ text: answer });
+    await forwardAnswer(ctx, kind, answer);
   };
 }

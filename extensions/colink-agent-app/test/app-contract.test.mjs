@@ -20,7 +20,7 @@ test('manifest includes a passive otter avatar and both personal/project scopes'
   assert.doesNotMatch(svg, /url\(#/i);
   assert.doesNotMatch(svg, /(?:fill|stroke)\s*=\s*["'](?!currentColor|none)[^"']+["']/i);
   assert.equal(manifest.version, '0.6.0');
-  assert.deepEqual(manifest.permissions, ['messages:receive', 'messages:write', 'messages:read-public', 'messages:read-private', 'files:read']);
+  assert.deepEqual(manifest.permissions, ['messages:receive', 'messages:write', 'messages:read-public', 'messages:read-private', 'files:read', 'files:upload']);
   // Why: 0.28 协议把用户消息统一为 app.user_message_received；app.mentioned 已退役。
   assert.deepEqual(manifest.events, { path: '/events', schemaVersion: '2.0.0', types: ['app.user_message_received'] });
   assert.equal(manifest.ui.contractVersion, '1.0.0');
@@ -84,12 +84,25 @@ test('mention handler allows personal DM without a user allowlist and rejects un
 const RED_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 /** 带 colink 客户端 mock 的事件上下文：channel 用 readImage、DM 用 downloadAttachment。 */
-function imageCtxFixture({ kind = 'channel', text = '看图', fileIds = [], imageData = RED_PNG_BASE64, imageMimeType = 'image/png' } = {}) {
+function imageCtxFixture({ kind = 'channel', text = '看图', fileIds = [], imageData = RED_PNG_BASE64, imageMimeType = 'image/png', uploadFails = false } = {}) {
   const reads = [];
+  const uploads = [];
+  const sends = [];
+  const replies = [];
   const colink = {
     user: {
       topics: { readImage: async ({ topicId, artifactId }) => { reads.push({ topicId, artifactId }); return { artifactId, mimeType: imageMimeType, data: imageData }; } },
       directMessages: { downloadAttachment: async ({ conversationId, artifactId }) => { reads.push({ conversationId, artifactId }); return { bytes: Uint8Array.from(Buffer.from(imageData, 'base64')), contentType: imageMimeType }; } },
+    },
+    app: {
+      files: {
+        upload: async input => {
+          uploads.push(input);
+          if (uploadFails) throw new Error('upload failed');
+          return { fileId: `file-upload-${uploads.length}` };
+        },
+      },
+      messages: { send: async input => { sends.push(input); return { messageId: 'out-1' }; } },
     },
   };
   const data = kind === 'dm'
@@ -100,9 +113,9 @@ function imageCtxFixture({ kind = 'channel', text = '看图', fileIds = [], imag
     context: { userId: 'owner', installationId: 'installation' },
     signal: new AbortController().signal,
     colink,
-    reply: async () => {},
+    reply: async value => replies.push(value),
   };
-  return { ctx, reads };
+  return { ctx, reads, uploads, sends, replies };
 }
 
 test('mention handler downloads event images through readImage and forwards them to the bridge', async () => {
@@ -162,6 +175,57 @@ test('mention handler downloads DM images through downloadAttachment', async () 
   assert.equal(calls[0].images.length, 1);
   assert.equal(calls[0].images[0].mimeType, 'image/jpeg');
   assert.equal(calls[0].images[0].fileName, 'colink-image.jpg');
+});
+
+const FORWARD_SVG = '```svg\n<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="red"/></svg>\n```';
+
+test('mention handler renders reply SVGs to PNG and sends them with the message in a channel', async () => {
+  const bridge = { reply: async () => `看这张图\n${FORWARD_SVG}` };
+  const handler = createMentionHandler({ bridge });
+  const { ctx, uploads, sends, replies } = imageCtxFixture();
+  await handler(ctx);
+  assert.equal(replies.length, 0);
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].fileName, 'image-1.png');
+  assert.equal(uploads[0].channelId, 'ch-1');
+  assert.ok(uploads[0].bytes instanceof Uint8Array);
+  assert.ok(uploads[0].bytes.length > 0);
+  assert.equal(sends.length, 1);
+  assert.deepEqual(sends[0].fileIds, ['file-upload-1']);
+  assert.equal(sends[0].text, '看这张图');
+  assert.equal(sends[0].channelId, 'ch-1');
+  assert.equal(sends[0].topicId, 'topic-1');
+});
+
+test('mention handler keeps text-only channel replies on ctx.reply', async () => {
+  const bridge = { reply: async () => '纯文本回答' };
+  const handler = createMentionHandler({ bridge });
+  const { ctx, sends, replies } = imageCtxFixture();
+  await handler(ctx);
+  assert.equal(sends.length, 0);
+  assert.deepEqual(replies, [{ text: '纯文本回答' }]);
+});
+
+test('mention handler degrades an SVG in a DM to a text-only reply (no channel to upload into)', async () => {
+  const bridge = { reply: async () => FORWARD_SVG };
+  const handler = createMentionHandler({ bridge });
+  const { ctx, uploads, sends, replies } = imageCtxFixture({ kind: 'dm' });
+  await handler(ctx);
+  assert.equal(uploads.length, 0);
+  assert.equal(sends.length, 0);
+  assert.deepEqual(replies, [{ text: FORWARD_SVG }]);
+});
+
+test('mention handler degrades a failed SVG upload to a text-only send', async () => {
+  const bridge = { reply: async () => FORWARD_SVG };
+  const handler = createMentionHandler({ bridge });
+  const { ctx, uploads, sends, replies } = imageCtxFixture({ uploadFails: true });
+  await handler(ctx);
+  assert.equal(uploads.length, 1);
+  assert.equal(replies.length, 0);
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].fileIds, undefined);
+  assert.equal(sends[0].text, '（图片生成失败，已省略）');
 });
 
 /** vendor/ 入库（由 prepare:sdk 生成），CI 直接核对 pin 与实物版本一致。 */

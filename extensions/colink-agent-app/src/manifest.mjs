@@ -16,7 +16,7 @@ export function createManifest() {
     icons: { otter: `data:image/svg+xml;base64,${Buffer.from(icon).toString('base64')}` },
     iconId: 'otter',
     supportedInstallationScopes: [InstallationScope.Personal, InstallationScope.Project],
-    permissions: [Permission.MessagesReceive, Permission.MessagesWrite, Permission.MessagesReadPublic, Permission.MessagesReadPrivate, Permission.FilesRead],
+    permissions: [Permission.MessagesReceive, Permission.MessagesWrite, Permission.MessagesReadPublic, Permission.MessagesReadPrivate, Permission.FilesRead, Permission.FilesUpload],
     events: { path: '/events', schemaVersion: '2.0.0', types: [EventType.UserMessageReceived] },
     ui: {
       contractVersion: '1.0.0',
