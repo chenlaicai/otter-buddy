@@ -64,7 +64,6 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(collectAnchorViolations("检视轮次 2").some((x) => x.kind === "轮次编号")).toBe(true);
     expect(collectAnchorViolations("S1 修复").some((x) => x.kind === "轮次编号")).toBe(true);
     expect(collectAnchorViolations("r2 处置后").some((x) => x.kind === "轮次编号")).toBe(true);
-    // 孤立单字母序号仍禁（S1 / R10 / N2）
     expect(collectAnchorViolations("S1").some((x) => x.kind === "轮次编号" && x.token === "S1")).toBe(true);
     expect(collectAnchorViolations("R10").some((x) => x.kind === "轮次编号" && x.token === "R10")).toBe(true);
   });
