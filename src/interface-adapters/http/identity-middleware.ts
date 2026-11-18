@@ -53,6 +53,11 @@ interface PolicyRule {
 export const POLICY_TABLE: readonly PolicyRule[] = [
   // ── public ──
   {
+    path: /^\/api\/ping$/,
+    policy: "public",
+    note: "探活端点（阶段 6a）：无身份、零依赖，仅返回进程存活与 uptime——不暴露业务数据；systemd ExecStartPost 与部署脚本健康检查用",
+  },
+  {
     path: /^\/api\/auth\/(login|logout)$/,
     policy: "public",
     note: "登录/登出端点本身免身份（登录前无会话可提供；登出幂等清 cookie）。session 端点走 GET 兑底 authenticated",

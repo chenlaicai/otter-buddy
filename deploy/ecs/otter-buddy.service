@@ -1,0 +1,35 @@
+# Otter Buddy 中枢 — ECS 正式 systemd 单元（阶段 6a 部署底座）
+# 安装：sudo cp otter-buddy.service /etc/systemd/system/ && sudo systemctl daemon-reload
+# 数据根：/var/lib/otter-buddy（持久卷，迁移/备份都围绕它）
+# 代码根：/opt/otter-buddy（deploy.sh rsync 更新）
+# 注意：替换 colink PoC 实例时先 systemctl disable --now otter-buddy（旧 PoC）再装本单元
+
+[Unit]
+Description=Otter Buddy Hub (stage-6 production)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=otter
+Group=otter
+WorkingDirectory=/opt/otter-buddy
+Environment=PATH=/opt/node24/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/var/lib/otter-buddy/home
+EnvironmentFile=/etc/otter-buddy.env
+ExecStart=/opt/node24/bin/node /opt/otter-buddy/dist/src/main.js --config /etc/otter-buddy/config.yaml
+# 探活：起服后连探 60s，/api/ping 通了才算就绪（失败算启动失败触发重启）
+ExecStartPost=/bin/bash -c 'for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3000/api/ping >/dev/null 2>&1 && exit 0; sleep 2; done; echo "health check failed: /api/ping not ready in 60s" >&2; exit 1'
+Restart=always
+RestartSec=5
+# 内存红线（阶段 6 方案）：小内存机（无嵌入模型）上限 1.2G，超限 OOM kill 由 systemd 拉起
+MemoryMax=1280M
+# 数据域只写持久卷；代码目录只读（更新走 deploy.sh rsync + restart）
+ReadWritePaths=/var/lib/otter-buddy
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
