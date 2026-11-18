@@ -16,7 +16,7 @@ intent:
   verify_by:
     type: behavior_check
     note: "单测钉住：实体（buildReviewKey 形态边界 fail-closed、parseReviewKey 回解、半空区间一致性）；usecase（claim 撞键返原结果、complete 清零、recordFailure 同区间连败+异区间重置+达阈值跳过）；SQLite 表（save upsert 幂等、CHECK 拒半空区间、getByKey 往返）；listBeliefsByStatus（状态过滤、时间闭区间、升序、非 belief 不命中）。"
-capability_test: "n/a: 本刀是治量结构（表+usecase）+ 读口，无编排行为；行为门禁为新增单测（实体 9 + usecase 12 + repo 4 + 读口 6 = 31 项）。编排消费在 P2b2。"
+capability_test: "n/a: 本刀是治量结构（表+usecase）+ 读口，无编排行为；行为门禁为新增单测（实体 9 + usecase 13 + repo 4 + 读口 6 = 32 项）。编排消费在 P2b2。"
 created_at: 2026-11-18
 created_in_conversation: 82f71e1a-a8b0-4e0f-916e-5e219624483c
 causal_links:
@@ -121,6 +121,6 @@ listBeliefsByStatus(status: BeliefStatus, after: string, through: string): Promi
 
 ## 验证
 
-- 单测共 31 项（实体 9 + usecase 12 + repo 4 + 读口 6），全部通过（在 worktree 内跑）。
+- 单测共 32 项（实体 9 + usecase 13 + repo 4 + 读口 6），全部通过（在 worktree 内跑）。
 - `npx eslint`（改动文件）、`lint-schema-ddl`、`lint-tests`、`npx tsc --noEmit` 全绿。
-- `tests/frameworks/db/memory/` + `tests/usecases/memory/` 全量 349 项通过（无回归）。
+- `tests/frameworks/db/memory/` + `tests/usecases/memory/` 全量 350 项通过（无回归）。
