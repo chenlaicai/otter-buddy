@@ -98,6 +98,19 @@ export class SqliteConnectorRegistryRepository implements ConnectorRegistryRepos
     return row ? rowToDevice(row) : null;
   }
 
+  /** M2（检视）：设备在线状态全量视图——离线已配对设备也返回（方案 §2.4「已配对设备
+   *  含在线状态点」——设备下线不自动回切，人要看得见才能决定切回/等重连） */
+  async listDeviceOnlineStatus(): Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>> {
+    const rows = this.db.prepare(
+      "SELECT d.id AS deviceId, d.name AS name, "
+      + "CASE WHEN o.status = 'online' THEN 1 ELSE 0 END AS online, "
+      + "COALESCE(o.last_seen_at, d.last_seen_at) AS lastSeenAt "
+      + "FROM devices d LEFT JOIN online_sessions o ON o.device_id = d.id AND o.status = 'online' "
+      + "ORDER BY d.created_at ASC",
+    ).all() as Array<{ deviceId: string; name: string; online: number; lastSeenAt: string | null }>;
+    return rows.map(r => ({ deviceId: r.deviceId, name: r.name, online: r.online === 1, lastSeenAt: r.lastSeenAt }));
+  }
+
   async deleteDevice(deviceId: string): Promise<void> {
     // 级联：删设备同时把其 online 行关掉（token 失效即执行授权失效）
     this.db.prepare(

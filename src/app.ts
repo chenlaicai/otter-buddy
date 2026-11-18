@@ -29,6 +29,7 @@ import { LocalExecutionMachine } from "@frameworks/execution/local-execution-mac
 import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-ledger";
 import { LOCAL_EXECUTION_MACHINE_ID } from "@usecases/ports/execution-machine";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
+import { ConversationActionRouter } from "@usecases/execution/conversation-action-router";
 import type { ExecutionMachine } from "@usecases/ports/execution-machine";
 import { SqliteConnectorRegistryRepository } from "@frameworks/db/execution/sqlite-connector-registry-repository";
 import { ConnectorWsGateway } from "@frameworks/execution/connector-ws-gateway";
@@ -420,11 +421,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   );
 
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
+  // F20261118crtgr（阶段 5 PR-A）：工具面动作路由——六动作按对话当前执行机下发
+  // （SDK env 构造面仍走 executionMachines 恒 local——边界见 router 头注）
+  const toolActionRouter = new ConversationActionRouter(executionMachines, repos.conversation);
   const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask } = await createAgentGateway({
     repos, otterConfigProvider, model, modelPool, db, logger,
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
     executionMachines,
+    toolActionRunner: toolActionRouter,
     dataDir,
   });
   const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService: queryEmbedding, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
@@ -804,6 +809,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       executionMachines: {
         list: () => executionMachines.list(),
         currentId: () => executionMachines.currentMachineId(),
+        // F20261118crtgr（阶段 5 PR-A）+ M2/m3b（检视）：设备全量状态收口 repo（含离线设备）
+        deviceStatus: async () => connectorRepo.listDeviceOnlineStatus(),
+        setConversationMachine: async (conversationId, machineId) => {
+          // m1b（检视）："local" 归一化为 null（列语义唯一——默认只有 NULL 一种表示）
+          const normalized = machineId === executionMachines.currentMachineId() ? null : machineId;
+          if (normalized !== null && !executionMachines.list().some(m => m.id === normalized)) {
+            return { ok: false as const, status: 400 as const, error: `machine not registered: ${String(normalized)}（设备未上线或未配对——目标必须当前在册；离线设备重连后可切）` };
+          }
+          const updated = await repos.conversation.setExecutionMachineId(conversationId, normalized);
+          if (!updated) return { ok: false as const, status: 404 as const, error: "conversation not found" };
+          return { ok: true as const };
+        },
       },
       connectorPair: new ConnectorPairController(connectorRepo, logger),
     },

@@ -153,11 +153,21 @@ function createConversationTables(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
-      archived_at TEXT
+      archived_at TEXT,
+      /* F20261118crtgr（#1868 阶段 5 PR-A）：对话级当前执行机——NULL=默认 local
+       * （存量对话零迁移行为不变）；显式切换不自动漂移（设备下线不回切，fail-closed） */
+      current_machine_id TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
   `);
+  // F20261118crtgr（#1868 阶段 5 PR-A，m3a 检视归位）：存量库迁移——conversations.current_machine_id 列
+  // （幂等 ALTER：新库 CREATE TABLE 已含，旧库补列；同 introduced_by_pr 模式但归 conversations 建表函数）
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN current_machine_id TEXT`);
+  } catch {
+    // 列已存在，忽略
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS conversation_otters (
@@ -718,6 +728,7 @@ function createHealingEventTables(db: Database.Database): void {
     -- mimo 审视焦点4：无此索引时每次查询全表扫，healing_events 增长后成性能瓶颈
     CREATE INDEX IF NOT EXISTS idx_healing_events_conversation ON healing_events(conversation_id, error_type, created_at);
   `);
+
 
   // F20260824ax376: 存量数据库迁移——introduced_by_pr 列
   // ALTER TABLE ADD COLUMN 幂等：列已存在时 SQLite 抛错，try/catch 静默处理
