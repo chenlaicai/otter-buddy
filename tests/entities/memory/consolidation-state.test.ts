@@ -8,8 +8,9 @@ import {
   buildReviewKey,
   parseReviewKey,
   newConsolidationState,
-  hasCoherentFailureRange,
   isValidReviewDate,
+  isValidInstant,
+  isOrderedFailureRange,
 } from "@entities/memory/consolidation-state";
 
 describe("buildReviewKey（F20261118nrcst P2b1）", () => {
@@ -53,15 +54,19 @@ describe("newConsolidationState（F20261118nrcst P2b1）", () => {
   });
 });
 
-describe("hasCoherentFailureRange（F20261118nrcst P2b1）", () => {
-  it("两端同空或同非空为一致", () => {
-    expect(hasCoherentFailureRange({ failedAfter: null, failedThrough: null })).toBe(true);
-    expect(hasCoherentFailureRange({ failedAfter: "a", failedThrough: "b" })).toBe(true);
+describe("isValidInstant / isOrderedFailureRange（F20261118nrcst P2b1）", () => {
+  it("只认 ISO 8601 UTC（T + Z）", () => {
+    expect(isValidInstant("2026-11-18T00:00:00.000Z")).toBe(true);
+    expect(isValidInstant("2026-11-18T00:00:00Z")).toBe(true);
+    expect(isValidInstant("2026-11-18 00:00:00")).toBe(false); // SQLite datetime('now') 格式不入秩序比较
+    expect(isValidInstant("")).toBe(false);
+    expect(isValidInstant("yesterday")).toBe(false);
   });
 
-  it("半空区间为不一致（连败计数无法绑定区间）", () => {
-    expect(hasCoherentFailureRange({ failedAfter: "a", failedThrough: null })).toBe(false);
-    expect(hasCoherentFailureRange({ failedAfter: null, failedThrough: "b" })).toBe(false);
+  it("区间要求两端合法且 after <= through（倒挂拒）", () => {
+    expect(isOrderedFailureRange("2026-11-18T00:00:00.000Z", "2026-11-18T12:00:00.000Z")).toBe(true);
+    expect(isOrderedFailureRange("2026-11-18T12:00:00.000Z", "2026-11-18T00:00:00.000Z")).toBe(false);
+    expect(isOrderedFailureRange("", "2026-11-18T12:00:00.000Z")).toBe(false);
   });
 });
 

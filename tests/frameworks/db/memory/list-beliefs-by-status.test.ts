@@ -75,4 +75,23 @@ describe("SqliteMemoryRepository.listBeliefsByStatus（F20261118nrcst P2b1）", 
     const list = await repo.listBeliefsByStatus("recorded", "2026-11-19T00:00:00Z", "2026-11-19T08:00:00Z");
     expect(list).toEqual([]);
   });
+
+  it("区间内缺 status 元数据的 belief 行 fail-loud（不静默丢审）", async () => {
+    // 旁路写入：belief content_type 但 metadata 无 status（今天唯一写者给足了 status，此行为未来防线）
+    await repo.storeEntry({
+      id: "b-corrupt",
+      layer: "working",
+      contentType: "belief",
+      sourceId: "b-corrupt",
+      sourceTable: "belief",
+      conversationId: null,
+      granularity: "coarse",
+      content: "缺 status 的 belief",
+      metadata: { kind: "state", anchors: ["anchor-1"] },
+      createdAt: "2026-11-18T10:30:00Z",
+    });
+    await expect(
+      repo.listBeliefsByStatus("recorded", "2026-11-18T00:00:00Z", "2026-11-19T00:00:00Z"),
+    ).rejects.toThrow(/b-corrupt/);
+  });
 });

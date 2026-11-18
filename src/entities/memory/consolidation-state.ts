@@ -17,6 +17,23 @@
 /** 同区间连败阈值：达到后跳过该区间 + 报 healing（P2b2 编排侧消费） */
 export const MAX_CONSECUTIVE_FAILURES = 3;
 
+/**
+ * 合法时间点：ISO 8601 UTC（YYYY-MM-DDTHH:mm:ss(.sss)Z）。
+ * 重现路径：memory_entries.createdAt 由 new Date().toISOString() 产出（store-memory.ts:78），
+ * 失败区间 after/through 取自已落库的 createdAt 边界，必须与之一致；
+ * SQLite datetime('now') 默认格式（空格分隔无 Z）不出现在秩序比较中。
+ */
+const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/;
+
+export function isValidInstant(s: string): boolean {
+  return typeof s === "string" && ISO_INSTANT_RE.test(s);
+}
+
+/** 失败区间形态合法：两端都是 ISO instant 且 after <= through（ISO 字符串序即时间序）。 */
+export function isOrderedFailureRange(after: string, through: string): boolean {
+  return isValidInstant(after) && isValidInstant(through) && after <= through;
+}
+
 /** 幂等键前缀 */
 const IDEMPOTENCY_PREFIX = "review";
 
@@ -77,12 +94,4 @@ export function newConsolidationState(reviewKey: string, nowIso: string): Consol
     resultJson: null,
     updatedAt: nowIso,
   };
-}
-
-/**
- * 运行时校验失败区间的形态合法性：两端同空或同非空（半空区间是写入错误，
- * 连败计数无法绑定一个有头的区间）。
- */
-export function hasCoherentFailureRange(s: Pick<ConsolidationState, "failedAfter" | "failedThrough">): boolean {
-  return (s.failedAfter === null) === (s.failedThrough === null);
 }

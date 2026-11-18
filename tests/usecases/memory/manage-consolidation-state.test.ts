@@ -6,6 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { ManageConsolidationState } from "@usecases/memory/manage-consolidation-state";
 import type { ConsolidationStateRepository } from "@usecases/memory/consolidation-state-repository";
+import { DomainError } from "@entities/errors";
 import {
   MAX_CONSECUTIVE_FAILURES,
   newConsolidationState,
@@ -100,5 +101,53 @@ describe("newConsolidationState 与 repo 协作（F20261118nrcst P2b1）", () =>
     const stored = rows.get(KEY);
     expect(stored).toBeDefined();
     expect(stored).toEqual(newConsolidationState(KEY, stored!.updatedAt));
+  });
+});
+
+describe("ManageConsolidationState 防误用护栏（F20261118nrcst P2b1，审视 R2/R3/R5）", () => {
+  it("非法幂等键拒绝（空 taskId / 非 YYYY-MM-DD）", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    await expect(uc.claim("review:bad-date:t")).rejects.toThrow(DomainError);
+    await expect(uc.claim("review:2026-11-18:")).rejects.toThrow(DomainError);
+    await expect(uc.complete("not-a-key", "{}")).rejects.toThrow(DomainError);
+  });
+
+  it("complete 空结果拒绝", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    await expect(uc.complete(KEY, "")).rejects.toThrow(DomainError);
+  });
+
+  it("complete 同内容重入幂等；异内容拒绝覆盖第一份变更集", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    await uc.complete(KEY, "{\"verified\":[\"b1\"]}");
+    await uc.complete(KEY, "{\"verified\":[\"b1\"]}"); // 幂等重入不抛
+    await expect(uc.complete(KEY, "{\"verified\":[\"b2\"]}")).rejects.toThrow(DomainError);
+    const claim = await uc.claim(KEY);
+    expect(claim.resultJson).toBe("{\"verified\":[\"b1\"]}");
+  });
+
+  it("已 settle 档拒绝迟到失败回报（不污染成功档）", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    await uc.complete(KEY, "{}");
+    await expect(
+      uc.recordFailure(KEY, "2026-11-18T00:00:00.000Z", "2026-11-18T12:00:00.000Z"),
+    ).rejects.toThrow(DomainError);
+    const claim = await uc.claim(KEY);
+    expect(claim.settled).toBe(true);
+    expect(claim.failingRange).toBeNull();
+  });
+
+  it("失败区间非法或倒挂拒绝（空串 / 非 ISO / after > through）", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    await expect(uc.recordFailure(KEY, "", "2026-11-18T12:00:00.000Z")).rejects.toThrow(DomainError);
+    await expect(uc.recordFailure(KEY, "2026-11-18 00:00:00", "2026-11-18T12:00:00.000Z")).rejects.toThrow(DomainError);
+    await expect(
+      uc.recordFailure(KEY, "2026-11-18T12:00:00.000Z", "2026-11-18T00:00:00.000Z"),
+    ).rejects.toThrow(DomainError);
   });
 });

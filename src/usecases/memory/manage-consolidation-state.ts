@@ -11,8 +11,11 @@
 import {
   MAX_CONSECUTIVE_FAILURES,
   newConsolidationState,
+  parseReviewKey,
+  isOrderedFailureRange,
   type ConsolidationState,
 } from "@entities/memory/consolidation-state";
+import { DomainError } from "@entities/errors";
 import type { ConsolidationStateRepository } from "./consolidation-state-repository";
 
 /** claim 返回的审视取档视图 */
@@ -55,8 +58,16 @@ function toClaim(state: ConsolidationState): ConsolidationClaim {
 export class ManageConsolidationState {
   constructor(private readonly repo: ConsolidationStateRepository) {}
 
+  /** 幂等键 fail-closed：非法键直接拒（防空 taskId / 非 YYYY-MM-DD 撞上错档）。 */
+  private assertKey(reviewKey: string): void {
+    if (parseReviewKey(reviewKey) === null) {
+      throw new DomainError(`非法审视幂等键：${JSON.stringify(reviewKey)}`, "validation");
+    }
+  }
+
   /** 幂等取档：建档（首次）或取档（已存在）。撞键（settled）返回原结果。 */
   async claim(reviewKey: string): Promise<ConsolidationClaim> {
+    this.assertKey(reviewKey);
     let state = await this.repo.getByKey(reviewKey);
     if (!state) {
       state = newConsolidationState(reviewKey, nowIso());
@@ -65,9 +76,20 @@ export class ManageConsolidationState {
     return toClaim(state);
   }
 
-  /** 成功后写存档点：resultJson 落地 + 失败区间/连败清零（该档自此 settle）。 */
+  /**
+   * 成功后写存档点：resultJson 落地 + 失败区间/连败清零（该档自此 settle）。
+   * 防误用：①空结果拒绝；②已 settle 档的重入仅同内容幂等、内容不同拒绝覆盖（只允许一份成功变更集）。
+   */
   async complete(reviewKey: string, resultJson: string): Promise<void> {
+    this.assertKey(reviewKey);
+    if (typeof resultJson !== "string" || resultJson.length === 0) {
+      throw new DomainError("resultJson 必须为非空字符串（空串不是合法变更集）", "validation");
+    }
     const existing = await this.repo.getByKey(reviewKey);
+    if (existing && existing.resultJson !== null) {
+      if (existing.resultJson === resultJson) return; // 崩溃重试的幂等重入
+      throw new DomainError(`该档已 settle，拒绝覆盖第一份变更集（reviewKey=${reviewKey}）`, "conflict");
+    }
     const base = existing ?? newConsolidationState(reviewKey, nowIso());
     await this.repo.save({
       ...base,
@@ -82,9 +104,17 @@ export class ManageConsolidationState {
   /**
    * 登记一次失败。同区间（after/through 与上次一致）连败 +1；异区间重置为 1。
    * 区间语义（不是点）：重跑只重做这个区间，换区间说明水位前移，旧连败不该追着新区间跑。
+   * 防误用：已 settle 档拒绝迟到失败回报（不污染已成功档）；after/through 须合法 ISO 且不倒挂。
    */
   async recordFailure(reviewKey: string, after: string, through: string): Promise<FailureOutcome> {
+    this.assertKey(reviewKey);
+    if (!isOrderedFailureRange(after, through)) {
+      throw new DomainError(`失败区间非法或倒挂：after=${JSON.stringify(after)} through=${JSON.stringify(through)}`, "validation");
+    }
     const existing = await this.repo.getByKey(reviewKey);
+    if (existing && existing.resultJson !== null) {
+      throw new DomainError(`该档已 settle，拒绝迟到失败回报（reviewKey=${reviewKey}）`, "conflict");
+    }
     const base = existing ?? newConsolidationState(reviewKey, nowIso());
     const sameRange = base.failedAfter === after && base.failedThrough === through;
     const failures = sameRange ? base.failures + 1 : 1;

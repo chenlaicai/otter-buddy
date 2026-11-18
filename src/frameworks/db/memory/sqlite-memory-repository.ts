@@ -914,6 +914,22 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
         AND created_at <= ?
       ORDER BY created_at ASC
     `).all(status, after, through) as MemoryEntryRow[];
+    // fail-loud 防线（防静默丢审）：区间内 metadata 缺 status 的 belief 行会从所有状态查询
+    // 静默消失——当天信念“没人审”。这些行今天不可达（RecordBelief 唯一写者 + guard 给足 status），
+    // 但 StoreMemory 通用路径不拦 contentType='belief' 直写，用最小代价探针挡住未来的旁路写入。
+    const corrupt = this.db.prepare(`
+      SELECT id FROM memory_entries
+      WHERE content_type = 'belief'
+        AND created_at >= ?
+        AND created_at <= ?
+        AND (metadata IS NULL OR json_extract(metadata, '$.status') IS NULL)
+    `).all(after, through) as Array<{ id: string }>;
+    if (corrupt.length > 0) {
+      throw new Error(
+        `belief 行缺 status 元数据，夜间审视清单无法精确归类（区间 [${after}, ${through}]）: ` +
+        corrupt.map((r) => r.id).join(", "),
+      );
+    }
     return rows.map(rowToMemoryEntry);
   }
 
