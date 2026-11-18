@@ -8,10 +8,10 @@ export type ToolSearchCandidate = { name: string; description?: string; paramete
 /**
  * Native deferred tool loading; BM25 stays otter-owned, activation is durable control.
  *
- * #1894：候选集只含 deferred 工具（deferred customTools + deferred MCP extraTools），与 SDK 版
+ * 候选集只含 deferred 工具（deferred customTools + deferred MCP extraTools），与 SDK 版
  * tool_search 语义一致（candidates = agent.deferred）——loaded 清单只含未激活工具；direct 工具
  * 已直接 offer，不重复搜进 loaded。候选集用 getter 延迟求值：MCP extraTools 在 open() 阶段才就位，
- * 构造时固定数组会漏掉它们（#1894 检视发现 2）。
+ * 构造时固定数组会漏掉它们。
  */
 export class DurableToolSearch {
   constructor(private readonly candidates: () => ReadonlyArray<ToolSearchCandidate>, private readonly logger: Logger) {}
