@@ -17,8 +17,9 @@ intent:
   verify_by:
     type: behavior_check
     evidence:
-      - "web/src/pages/conversation/ExecutionMachineModal.test.tsx：全量列表/离线置灰/PUT 切换（null 回默认）/400 错误不落选中/空态（5 例）"
-      - "tests/interface-adapters/http/auth-controller.test.ts：GET 回显/remote-actions 倒序+limit 收口/401（3 例）"
+      - "web/src/pages/conversation/ExecutionMachineModal.test.tsx：全量列表/离线置灰/PUT 切换（null 回默认）/400 错误不落选中/空态/401 与 5xx 错误条（7 例）"
+      - "tests/interface-adapters/http/auth-controller.test.ts：GET 回显/remote-actions 倒序+limit 收口/401/ghost 404 与不误伤（5 例）"
+      - "tests/frameworks/execution/remote-execution-machine.test.ts：同毫秒 created_at rowid 定序（desc 后插入在前/asc 先插入在前/limit 边界，+1 例）"
       - "workspace verify-s5b-alpha.mts：双 connector 场景 alpha（issue 四条）"
 capability_test: "web/src/pages/conversation/ExecutionMachineModal.test.tsx"
 ---
@@ -99,6 +100,7 @@ issue 四条的真进程实证，收尾阶段 5。
 | 「本机」选项 | PUT null（回默认） |
 | 切换 400 | 就地显示错误，选中态不漂移 |
 | 未登录 | 两 GET 401 |
+| 不存在对话 | 两 GET 404「conversation not found」（对齐 PUT 口径，不混作默认 local） |
 | 双 connector 闭环 | 文件物理落 B 不在 hub；下线拒；重连恢复；历史可见 |
 
 ## Verification
@@ -106,8 +108,9 @@ issue 四条的真进程实证，收尾阶段 5。
 | 验证 | 结果 |
 |---|---|
 | `npx tsc --noEmit`（主仓+web） | PASS |
-| ExecutionMachineModal（5 例） | PASS |
-| auth-controller（+3 例） | PASS |
+| ExecutionMachineModal（7 例） | PASS |
+| auth-controller（+5 例） | PASS |
+| remote-execution-machine registry（+1 例） | PASS |
 | `npm test` 全量 | 见 PR checks |
 | alpha 双 connector（issue 四条） | ALL PASS |
 
