@@ -8,10 +8,11 @@ status: active
 summary: |
   拍板口径：CoLink 回话的**发送身份**恒为 App 安装令牌（POST /messages 用 appToken，用户令牌不用于
   正式回话）；用户身份只用于读私密。但「用哪个身份发」与「这一轮能不能发」是两件事：ctx.reply 与真正
-  发送前都会执行 platform.validate —— 安装必须 ready 且 authorizationVersion 一致，本轮带 executionId
-  时还要校验用户执行授权。失败码分四类且处置不同：EXPIRED（记录/期限/invalid_grant）、INVALID（事件与
-  execution 绑定不一致）、UNAVAILABLE（上游非 OK，含 500，不等于过期）；入口拒绝是 INSTALLATION_NOT_READY(503)，
-  回合内版本变化是 INSTALLATION_AUTHORIZATION_CHANGED(403)。故 #2681 delta8 的 A/B 只消解了发送身份这一半。
+  发送前都会执行 platform.validate——安装必须 ready 且 authorizationVersion 一致，本轮带 executionId 时
+  还要校验用户执行授权。回话路径的失败码要分开看：EXPIRED（本地记录/期限/eventId 不符，或上游明确
+  invalid_grant）、INVALID（execution 已非 active 或事件绑定不一致）、UNAVAILABLE（上游非 OK 且非
+  invalid_grant，带状态码，不等于过期）；入口拒绝是 INSTALLATION_NOT_READY(503)，回合内版本变化是
+  INSTALLATION_AUTHORIZATION_CHANGED(403)。故 #2681 delta8 的 A/B 只消解了发送身份这一半。
 from:
   - id: F20261118clkpt
     note: 本次口径以 0.28 对齐后的实现与 vendored SDK 控制流为事实基础
@@ -53,14 +54,16 @@ capability_test: "extensions/colink-agent-app/test/colink-tools.test.mjs"
 | 安装必须 `status='ready'` 且 `authorizationVersion` 与事件快照一致 | `clients/platform.mjs:19-23` | `INSTALLATION_AUTHORIZATION_CHANGED`(403) |
 | 本轮带 `executionId` 时校验用户执行授权 | `clients/platform.mjs:24-28` → `auth/user-oauth.mjs:164-177` | 见下表 |
 
+作用域：下面只覆盖**回话校验路径**（`platform.validate` → `users.validateEvent`），不是全 SDK 错误码穷举（page 登录等旁支不在此列）。
+
 用户执行授权的失败码**不是同一类问题**，处置也不同：
 
 | 失败码 | 真实触发条件（锚点） | 语义 |
 | --- | --- | --- |
-| `USER_AUTHORIZATION_EXPIRED` | 本地记录缺失/形状不符（`auth/user-oauth.mjs:18-22`）；人/安装/deadline 不符或 deadline 已过（`:146-148`）；refresh 交换返回非 OK 且 `error=invalid_grant`（`:50-51`，状态码随上游） | 授权确实不可用/过期 |
-| `USER_AUTHORIZATION_INVALID` | execution 状态非 `active`，或人/安装/source（channelId/topicId/taskId/conversationId）与事件不一致（`:164-177`，另有 page 登录路径 `:123-129`） | 授权存在但**事件与 execution 绑定不一致** |
-| `USER_AUTHORIZATION_UNAVAILABLE` | 上游返回非 OK 且 `error≠invalid_grant`（`:50-51`，**保留上游 HTTP 状态码，例如 500**） | 上游/平台侧响应异常，**不等于授权过期** |
-| 原始 `TypeError` 等 | fetch 网络异常未做归一化（`auth/user-oauth.mjs:52-56` 只包装非 OK 响应） | 网络/连接问题，按基础设施排障 |
+| `USER_AUTHORIZATION_EXPIRED` | ①本地记录缺失/形状不符（`auth/user-oauth.mjs:18-22`）；②`validateEvent` 本地校验失败：`eventId`／`userId`／`installationId`／`deadline` 与事件不符（`:167-169`）；③**任一上游请求**返回非 OK 且 `error=invalid_grant`——`read()` 是 `request()` 的共用出口（`:54-57`），包含 refresh 交换与 `GET /extensions/user-executions/:id`（`:171-173`），状态码随上游 | 授权确实不可用/过期，或平台明确判定 grant 无效 |
+| `USER_AUTHORIZATION_INVALID` | execution `status !== 'active'`，**或** `userId`／`installationId`／`sourceKind`／source 字段（channelId/topicId/taskId/conversationId）与事件不一致（`:174-177`） | 两种情况：execution 已非 active，**或**事件与 execution 绑定不一致 |
+| `USER_AUTHORIZATION_UNAVAILABLE` | 上游返回非 OK 且 `error≠invalid_grant`（`:50-51`），**保留上游任意状态码（4xx/5xx）** | 上游响应异常，**不等于授权过期**；具体含义要看状态码 |
+| 原始 `TypeError` 等 | fetch 网络异常未做归一化（`:54-57` 只处理响应，不捕获 fetch 异常） | 网络/连接问题，按基础设施排障 |
 
 结论：**用户执行授权失效会让整轮失败，回话发不出去**。失败点在校验，不在发送身份——所以「发送用安装令牌」不能推出「授权问题与回话无关」。
 
@@ -90,13 +93,13 @@ capability_test: "extensions/colink-agent-app/test/colink-tools.test.mjs"
 | --- | --- | --- |
 | **新事件入口**收到 `INSTALLATION_NOT_READY`(503) | 该安装当前不是 `ready`（`events/event-handler.mjs:121-122`），事件在入口就被拒，连回合都没有 | 用户重新授权该安装，或卸载 |
 | **已接受回合**的回话报 `INSTALLATION_AUTHORIZATION_CHANGED`(403) | 事件被接受后，安装状态或 `authorizationVersion` 与本轮快照不一致（`clients/platform.mjs:19-23`）——典型是中途换了授权版本 | 让该轮失败重来（新事件会带新快照）；反复出现说明授权在抖动 |
-| `USER_AUTHORIZATION_EXPIRED` | 授权记录缺失/过期/refresh 拿不到（`invalid_grant`） | 重新授权；不要因为"发送用安装令牌"就排除授权问题 |
-| `USER_AUTHORIZATION_INVALID` | 授权有效但**事件与 execution 绑定不一致**（人/安装/source 字段） | 查事件与 `oauthUserExecutions` 绑定，不是无脑重授权 |
-| `USER_AUTHORIZATION_UNAVAILABLE`(带上游状态码) | 上游非 OK 且非 `invalid_grant`，例如平台 500 | 按平台故障排障/重试，**不要当授权过期处理** |
+| `USER_AUTHORIZATION_EXPIRED` | 授权记录缺失/期限已过（本地判定），或上游明确回 `invalid_grant`（refresh 或 execution 查询任一） | 重新授权；不要因为"发送用安装令牌"就排除授权问题 |
+| `USER_AUTHORIZATION_INVALID` | **执行状态已非 active**（已完成/失效），或事件与 execution 的人/安装/sourceKind/source 不一致 | 先看 execution 状态（是不是早就结束），再看绑定字段；**不要当过期直接重授权** |
+| `USER_AUTHORIZATION_UNAVAILABLE`(带上游状态码) | 上游非 OK 且非 `invalid_grant`，状态码 4xx/5xx 都可能 | **按状态码分流**：5xx 查平台侧/重试；4xx 查请求参数、execution 与授权状态。**既不一律重授权，也不一律按平台故障重试** |
 | 原始 `TypeError` / 网络错误 | fetch 未被归一化 | 查网络与出网链路 |
 | `installation_control` 事件后状态翻 `ready` | SDK 已自动续期安装授权 | 无需人工干预 |
 
-真机证据（只写日志能证明的部分）：2026-11-16 的事件 `3ac142a0…` 报 `USER_AUTHORIZATION_UNAVAILABLE` 后直接 `failed`，**没有** `reply_pending`/`output_confirmed`/`done` 阶段——与"整轮在校验处失败"一致，但不能据此判定失败发生在读私密还是回话；同一安装 `04806b83…`（installationId）于 2026-11-18 收到 `installation_control` 后状态转为 `ready`。
+真机证据（只写日志能证明的部分）：2026-11-16 17:52:13 的事件 `3ac142a0…` 报 `USER_AUTHORIZATION_UNAVAILABLE` 后直接 `failed`，**没有** `reply_pending`/`output_confirmed`/`done` 阶段——与"整轮在校验处失败"一致。按上表语义，`UNAVAILABLE` 是**上游非 OK 响应**，不是授权过期；且同一安装 `04806b83…`（installationId）在同日 17:52:34 的下一条事件就走到 `done`，更像**瞬态上游异常**而非授权失效。另有安装 `bce97c6c…` 自 2026-11-16 起停在 `reconnect_required`、无 access/refresh 令牌，属安装级失效。
 
 ## 边界
 
