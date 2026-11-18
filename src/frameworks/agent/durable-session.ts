@@ -170,7 +170,10 @@ export class DurableSession {
   private toolRegistrations(): ToolRegistration[] {
     const tools = this.options.tools.customTools.map(toDurableTool);
     if (this.deferredTools.length > 0 && !this.options.tools.readOnly) {
-      tools.push(new DurableToolSearch(this.options.tools.customTools, this.options.logger).registration());
+      // #1894：tool_search 只检索 deferred 工具（与 SDK 版语义一致：candidates = agent.deferred），
+      // 而非全量 customTools——direct 工具已直接 offer，搜进 loaded 清单属“清单虚报”。
+      const deferredCustomTools = this.options.tools.customTools.filter(t => this.deferredTools.includes(t.name));
+      tools.push(new DurableToolSearch(deferredCustomTools, this.options.logger).registration());
     }
     return tools;
   }
@@ -274,7 +277,11 @@ export class DurableSession {
     // 与 LocalExecutionMachine 读取）；工具调用 id 由 beforeTool 逐枚覆盖。
     if (scope) scope.currentInvokeId = invokeId;
     if (this.options.promptProvider) this.promptText = await this.options.promptProvider();
-    await this.conversation.configure(this.agentChange(), BACKGROUND_CONTEXT);
+    // #1894：不再每轮 configure(agentChange())——它会把 state.tools 重置为初始激活集，
+    // 覆盖 tool_search `control.addTools` 的加载结果（deferred 工具跨 invoke 报 not available）。
+    // 初始配置在 open() 的 root+configure 完成；session 生命周期内 model/thinkingLevel/
+    // extensions/tools 均不变（换模型走 restart 重建 session，cwd 走 setCwd），
+    // prompt/identity 经 otterExtension section 的动态 render 即时生效，无需 configure。
     const before = await this.usage(BACKGROUND_CONTEXT);
     // 检视处置（PR #1783 严亟 1）：事件单一源在 watch→sink 路径——派生事件先上 session 事件总线
     // （熔断器/看门狗/编排守卫/outputGuard 经 subscribe 消费），再分发到调用方 stream；

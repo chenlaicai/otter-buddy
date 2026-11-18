@@ -3,7 +3,12 @@ import type { Logger } from "@usecases/ports/logger";
 import { rankToolsByQuery } from "./tool-search-tool";
 import type { LegacyTool } from "./durable-tool-registry";
 
-/** Native deferred tool loading; BM25 stays otter-owned, activation is durable control. */
+/**
+ * Native deferred tool loading; BM25 stays otter-owned, activation is durable control.
+ *
+ * #1894：构造入参只收 deferred 工具（由 DurableSession 过滤），与 SDK 版 tool_search
+ * 语义一致——loaded 清单只含未激活工具；direct 工具已直接 offer，不重复搜进 loaded。
+ */
 export class DurableToolSearch {
   constructor(private readonly tools: LegacyTool[], private readonly logger: Logger) {}
   registration(): ToolRegistration<any> {
