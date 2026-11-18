@@ -22,7 +22,7 @@ intent:
       - "tests/lint-historical-docs-cibase.test.ts：新增文档首 commit 新增、后续 commit 修改的放行用例，追加 stderr 不含 /fatal:/ 断言（修复前该断言必红）"
       - "修复前后实测：同一仓库同一分支，修复前 stderr 出现 `fatal: path 'docs/features/.../F20261118zzzzz-probe.md' exists on disk, but not in '3f9459bb...'`，修复后为空；退出码两态均为 0"
       - "fake-git 注入（`diff --cached --name-status` 以 42 失败 + stderr）用例：修复前 stdout/stderr 全空、修复后必须命中 /宽松放行/ 与注入字符串——去掉诊断行后该用例必红（实测 1 failed）"
-      - "回归：`npx vitest run tests/lint-historical-docs*.test.ts` → 6 files / 62 tests 全通过"
+      - "回归：`npx vitest run tests/lint-historical-docs*.test.ts` → 6 files / 63 tests 全通过"
 capability_test: "tests/lint-historical-docs-cibase.test.ts"
 ---
 
@@ -64,10 +64,12 @@ fatal: path 'docs/features/2026/11/18/F20261118clkid-colink-identity-split.md' e
 - `main()` 收到 `degraded` 时打印 `[lint:historical-docs] 无法读取 staged diff，本次校验宽松放行（未校验）；诊断：…` 后 exit 0；
 - `--base` 模式的逐 commit 降级本就自带警告，这里把 `degradedReason` 一并附上，两种模式诊断口径统一；
 - 新增 fake-git 回归用例：PATH 前置假 git 命中 `diff --cached --name-status` 时以 42 失败并写 stderr，断言 **exit 0 + 输出含「宽松放行」+ 含注入字符串**；去掉诊断行后该用例必红（实测）。
+- 第二处（检视 r2 非阻断）：`briefGitFailure()` 改「先 sanitize 再判空」——原实现先选原始首个非空行再清洗，纯 ANSI 首行清洗后为空会把真正的诊断（第二行）一起丢掉、输出 `unknown`，即诊断函数丢掉诊断本身。补用例：注入 `ESC[31m` + 换行 + `fatal: REAL_SECOND_LINE_DIAG`，断言输出含该串且不含 `诊断：unknown`、不外泄 ESC；**旧实现下该用例必红**（实测 1 failed）。
+- fake-git 的 stderr 注入改走 `printf '%b'`（把真实 ESC/换行转成 `\033`/`\n` 转义），否则 `%s` 会把转义写成字面反斜杠、边界形态根本构造不出来（第一版用例就是这么假绿的，已变异验证纠正）。
 
 ## 影响面与边界
 
-- 只改**输出通道**，不改任何判定：违规判定、`.doc-fix` 配对语义、宽松放行条件、退出码全部原样（62 个用例全绿）。
+- 只改**输出通道**，不改任何判定：违规判定、`.doc-fix` 配对语义、宽松放行条件、退出码全部原样（63 个用例全绿）。
 - 未把 git 的全部 stderr 丢弃：错误仍随异常传递，脚本自身仍会打印自己的违规说明与警告。
 - 不覆盖「git 在成功路径写 warning 到 stderr」的形态（本仓门禁不依赖它们）。
 - 诊断行只放 stderr 首行摘要（截断 200 字符），不打印完整 git 输出，避免把仓库内容糊进 CI 日志。

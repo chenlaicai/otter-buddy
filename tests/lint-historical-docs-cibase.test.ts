@@ -246,10 +246,13 @@ describe("F20261118lhist：stderr 收进 pipe 后不得构成静默绿灯", () =
   ): { env: NodeJS.ProcessEnv; cleanup: () => void } {
     const bin = fs.mkdtempSync(path.join(os.tmpdir(), "lint-hist-fakegit-"));
     const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    // stderr 用 printf %b 输出：把真实 ESC/换行转成 \033 / \n 转义序列，让注入能构造
+    // 「纯 ANSI 首行」这类边界形态（%s 不解释转义，会把它们写成字面反斜杠）。
+    const escaped = injected.stderr.replace(/\u001b/g, "\\033").replace(/\n/g, "\\n");
     const script = [
       "#!/bin/sh",
       `if ${predicateSource}; then`,
-      `  printf '%s\\n' ${JSON.stringify(injected.stderr)} >&2`,
+      `  printf '%b\\n' ${JSON.stringify(escaped)} >&2`,
       `  exit ${injected.status}`,
       "fi",
       `exec ${JSON.stringify(realGit)} "$@"`,
@@ -276,6 +279,26 @@ describe("F20261118lhist：stderr 收进 pipe 后不得构成静默绿灯", () =
       // 修复前该路径完全静默（stdout/stderr 皆空）；修复后必须自报诊断。
       expect(`${r.stdout}${r.stderr}`).toMatch(/宽松放行/);
       expect(`${r.stdout}${r.stderr}`).toMatch(/reviewer injected unexpected git failure/);
+    } finally {
+      fake.cleanup();
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("诊断摘要先清洗再判空：纯 ANSI 首行不得把真正的诊断行（第二行）吞掉", () => {
+    const repo = freshRepo("lint-hist-fakegit-ansi-");
+    // 首行只由颜色码组成 → 清洗后为空，必须继续往下取到 fatal 那行
+    const fake = withFakeGit(repo, 'echo "$*" | grep -q "diff --cached --name-status"', {
+      status: 42,
+      stderr: "\u001b[31m\nfatal: REAL_SECOND_LINE_DIAG",
+    });
+    try {
+      const r = spawnSync("node", [LINT], { cwd: repo, encoding: "utf8", env: fake.env });
+      expect(r.status).toBe(0);
+      const out = `${r.stdout}${r.stderr}`;
+      expect(out).toContain("REAL_SECOND_LINE_DIAG");
+      expect(out).not.toMatch(/诊断：unknown/);
+      expect(out.includes("\u001b")).toBe(false); // ANSI 不外泄
     } finally {
       fake.cleanup();
       fs.rmSync(repo, { recursive: true, force: true });

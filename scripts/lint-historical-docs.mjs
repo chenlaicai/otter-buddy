@@ -274,12 +274,18 @@ function hasRenameLineageToBase(oldPath, ref) {
   return false;
 }
 
-/** git 故障诊断摘要：取 stderr 首行（去 ANSI/换行、截断），供降级放行时打印。
- *  只取首行 + 截断，避免把整段 git 输出糊进门禁日志；不含任何仓库内容。 */
+/** git 故障诊断摘要：取 stderr 首个**清洗后**非空行（去 ANSI/换行、截断 200），供降级放行时打印。
+ *  只取首行 + 截断，避免把整段 git 输出糊进门禁日志；不含任何仓库内容。
+ *  先 sanitize 再判空（检视 r2 非阻断）：纯 ANSI 首行（如只由颜色码组成）清洗后为空，
+ *  若先判空再清洗就会把真正的诊断行（第二行）丢掉、输出 unknown——诊断函数丢掉诊断本身。 */
 function briefGitFailure(error) {
-  const raw = String(error?.stderr || error?.message || "").trim();
-  const first = sanitize(raw.split("\n").find((line) => line.trim()) || "");
-  return first.length > 200 ? first.slice(0, 200) + "…" : first;
+  const raw = String(error?.stderr || error?.message || "");
+  const first = raw
+    .split("\n")
+    .map((line) => sanitize(line).trim())
+    .find(Boolean);
+  const text = first || "";
+  return text.length > 200 ? text.slice(0, 200) + "…" : text;
 }
 
 /** 解析 staged 状态行（git diff --cached --name-status），返回 {status, path, oldPath} */
