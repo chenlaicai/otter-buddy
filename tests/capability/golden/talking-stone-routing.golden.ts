@@ -1,5 +1,5 @@
 /**
- * F20260825evgl 伤疤4：talking-stone 路由。
+ * 伤疤4：talking-stone 路由。
  *
  * 源测试锚点：talking-stone-routing.capability.test.ts（断言复用该测试，分叉时以该测试为准）。
  *

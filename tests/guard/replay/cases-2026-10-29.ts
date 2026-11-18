@@ -1,8 +1,8 @@
 /**
- * guard 回放回归库（F20261030gblkv）——守卫行为以真实使用为准。
+ * guard 回放回归库——守卫行为以真实使用为准。
  *
  * 用例来源：healing 台账 guard_intercept 事件（采集于 2026-10-29）+ 历史事故锚定
- * + GitHub issue #1710 误拦语义清单（信封形态家族）。
+ * + GitHub 误拦语义清单（信封形态家族）。
  * 每条：{ command, expect: "allow" | "block", source: healing 事件 id 或事故编号 }
  *
  * 铁律：守卫任何改动必须全量回放全绿。新增误拦 → 搭档确认误拦后固化新用例进此文件。
@@ -16,14 +16,14 @@ export interface ReplayCase {
   expect: "allow" | "block";
   source: string;
   note?: string;
-  /** 建议①（delta-r2 做实）：must-block 拦截理由锚词——断言 reason.toContain(锚词)，
+  /** 建议①（delta-做实）：must-block 拦截理由锚词——断言 reason.toContain(锚词)，
    *  防「拦对了理由错」的类别漂移（如主进程误报成上传）。 */
   reasonContains?: string;
 }
 
-/** 正门：2026-10-29 healing 实录误拦（退役面防复发）+ #1710 信封形态——终态守卫必须全部放行 */
+/** 正门：2026-10-29 healing 实录误拦（退役面防复发）+ 信封形态——终态守卫必须全部放行 */
 export const falsePositiveCases: ReplayCase[] = [
-  // ── 非泛拦回归钉（PR #1724 处置建议 3，2026-11-02）──
+  // ── 非泛拦回归钉（处置建议 3，2026-11-02）──
   {
     command:
       'git show origin/main:tests/guard/replay/cases-2026-10-29.ts | grep -n heredoc /tmp/cases-a.ts; grep -n heredoc /tmp/cases-b.ts; grep -n heredoc /tmp/cases-c.ts; grep -n heredoc /tmp/cases-d.ts',
@@ -112,7 +112,7 @@ export const falsePositiveCases: ReplayCase[] = [
     source: "healing 0b421629",
     note: "sleep 拦截（habit 层）退役——wait 工具引导属软约束不该硬拦；命令其余部分无风险",
   },
-  // ── heredoc 判读族 → v4：退役（#1690 链随之退役） ──
+  // ── heredoc 判读族 → v4：退役（链随之退役） ──
   {
     command: "python3 - <<'EOF'\np = '/Users/orca/ai/others/colink/.otter/worktrees/pr3c-thread-public/dev/frontend/src/features/colink'\nimport pathlib\nprint(list(pathlib.Path(p).glob('*.tsx'))[:5])\nEOF",
     expect: "allow",
@@ -138,7 +138,7 @@ export const falsePositiveCases: ReplayCase[] = [
     source: "healing 703ffbf1",
     note: "只读进程查询（lsof 组合）——ps/lsof 查询不进站；INDIRECT_PID 只对 kill 段生效",
   },
-  // ── #1710 信封形态家族：引号参数 / --author / git -c user.* / URL push / 复合形态 ──
+  // ── 信封形态家族：引号参数 / --author / git -c user.* / URL push / 复合形态 ──
   {
     command: "git -C /Users/orca/ai/otter-buddy/.otter/worktrees/fix-1695-file-write-regions commit -m \"fix: 修复写区误拦（引号内消息形态）\" --author \"修复獭1705 <otter-buddy>\"",
     expect: "allow",
@@ -918,7 +918,7 @@ export const mustBlockCases: ReplayCase[] = [
     source: "healing 081327a7-6e6c-4925-be1a-eb2d29f521fe\uff082026-11-11 \u65e5\u62a5\u5b9e\u5f55\uff09",
     note: "#1892 改判：ssh config 无凭证内容、目录列举不泄文件内容，属部署前只读确认合法流——cred_dir_access 公开只读口径放行。",
   },
-  // ── 2026-11-10 完整 invoke transcript 裁决：ALLOW 0 / BLOCK 9 / SKIP 0（#1834）──
+  // ── 2026-11-10 完整 invoke transcript 裁决：ALLOW 0 / BLOCK 9 / SKIP 0──
   {
     command: "curl -s -H 'X-Otter-User-Id: orca' 'http://localhost:3000/api/health/signals?status=open' | python3 -c \"import json,sys; print(len(json.load(sys.stdin)['signals']))\"",
     expect: "block",
@@ -1030,7 +1030,7 @@ export const dailyTrafficCases: ReplayCase[] = [
   { command: "lsof -tiTCP:3126 -sTCP:LISTEN", expect: "allow", source: "日常抽样", note: "alpha 实例端口查询" },
   { command: "git push origin feat/x", expect: "allow", source: "日常抽样", note: "git push 不进站" },
   { command: "cd /Users/orca/ai/others/colink && git fetch origin", expect: "allow", source: "日常抽样", note: "外部仓 fetch" },
-  // ── F20261105killa 政策 A 新增：11-04 healing 实录误拦形态回放（原保守拦产物，改向放行）──
+  // ── 政策 A 新增：11-04 healing 实录误拦形态回放（原保守拦产物，改向放行）──
   { command: "p=$(cat pids/backend.pid); kill $p", expect: "allow", source: "healing 47419e82（F20261105killa）", note: "自有 dev server pid 文件变量击杀——非主进程 pid 文件，确认不了≠拦（原 #1778 拟钉 mustBlock，政策 A 改向）。同名管道形态 cat pids/backend.pid | xargs kill 亦放行（检视 S1 区分：仅主 pid 文件管道拦）" },
   { command: "ps aux | grep vitest | grep -v grep | while read u p rest; do kill $p; done", expect: "allow", source: "healing 9b7eb7c7（F20261105killa）", note: "ps 管道批量清理测试进程——非字面量批量形态，确认不了≠拦（原 #1778 拟钉 mustBlock，政策 A 改向）" },
   { command: "cat pids/backend.pid | xargs kill", expect: "allow", source: "检视 S1 对照（F20261105killa）", note: "自有 pid 文件管道形态——非主 pid 文件，放行（与主 pid 文件管道拦截对偶的负门）" },

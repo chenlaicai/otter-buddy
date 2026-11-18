@@ -1,5 +1,5 @@
 /**
- * F20261022mjls「建房≠开局」——lobby 等待态生命周期测试。
+ * 「建房≠开局」——lobby 等待态生命周期测试。
  *
  * 覆盖方案「验证」节七条断言：
  *  1. 建房 → status=waiting、未发牌（无 hand）、无 kick 起跑
@@ -252,7 +252,7 @@ describe("F20261022mjls 建房≠开局", () => {
     }
   });
 
-  // PR#1609 delta（检视建议 2）：waiting 房 recover→start 链路——「恢复真相源」核心承诺防护断言
+  // PR#1609 delta：waiting 房 recover→start 链路——「恢复真相源」核心承诺防护断言
   it("⑧ waiting 房断线恢复：新实例按库恢复 waiting 房，重挂 TTL 后 start 正常开局", async () => {
     const first = setup({ lobbyTtlMs: 300_000 });
     try {

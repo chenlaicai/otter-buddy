@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * F20261026emct: embedding 幽灵死信一次性清理脚本。
+ * embedding 幽灵死信一次性清理脚本。
  *
  * 清理对象（两类，均属「claim 永远空转的孤儿任务」）：
  *  1. last_error LIKE '%entry deleted%' 的 pending/dead 任务（2026-10-23 实测 ~1646 条）
@@ -25,7 +25,7 @@
  *       命中 0 行，不复活；② enqueueRetry 前置校验 entry 不存在即 no-op，与删除
  *       条件互斥，不会边删边插；③ claim 后行被删则 content=''，entry-deleted 分支
  *       UPDATE 0 行，安全；④ NOT EXISTS 删除条件保证 entry 存活的有效任务不受影响。
- *    隐含前提（delta 审视建议 3，未来重构不得静默破坏）：
+ * 隐含前提（delta 未来重构不得静默破坏）：
  *    ⑤ check→insert 之间无事件循环让步：enqueueRetry 的 SELECT→INSERT 是
  *       better-sqlite3 同步调用（queue:23-35 无 await），与本脚本同进程外
  *       互斥由 SQLite 写锁保证；若改为异步 await 间隙，须重审②。

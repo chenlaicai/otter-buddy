@@ -6,7 +6,7 @@ import { SqliteActionLedger, sha256 } from "@frameworks/execution/ledger/sqlite-
 import { LocalExecutionMachine } from "@frameworks/execution/local-execution-machine";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 
-/** F20261116actlg（#1868 阶段 3）PR-A：本机动作台账 sqlite 实现单测。 */
+/** （阶段 3）PR-A：本机动作台账 sqlite 实现单测。 */
 
 let dirs: string[] = [];
 

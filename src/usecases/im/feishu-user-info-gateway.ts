@@ -1,9 +1,9 @@
 /**
- * 飞书用户身份解析端口（F20260826fuid）。
+ * 飞书用户身份解析端口。
  *
  * 群聊场景：飞书事件仅携带 sender 的 open_id，不带姓名。
  * 本端口负责把 open_id 换成人类可读姓名（如「张三」），供消息入库时
- * 快照进 senderName（层 1，对齐 sender name 单一真相源架构 PR #392）。
+ * 快照进 senderName（层 1，对齐 sender name 单一真相源架构 ）。
  *
  * 实现方应做进程内缓存（open_id → name），并容忍 API 失败——
  * 失败时返回 null，消息照常入库（senderName 空串走层 3 前端 fallback），
@@ -17,7 +17,7 @@ export interface FeishuUserInfoGateway {
   getUserName(openId: string): Promise<string | null>;
 
   /**
-   * F20261012cmmn：按 chat_id 拉取聊天成员 id→姓名 映射。
+   * 按 chat_id 拉取聊天成员 id→姓名 映射。
    *
    * 为什么不只用 getUserName：contact/v3/users 对「不在应用可用范围/通讯录
    * 授权范围」的用户返回脱敏对象（code 0 但无 name 字段，2026-10-12 实测

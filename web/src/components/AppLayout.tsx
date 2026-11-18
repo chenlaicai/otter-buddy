@@ -15,10 +15,10 @@ import { ApiError } from '../api/client'
  *
  * Why: min-h-0 + overflow-y-auto 兜底——
  * body overflow:hidden + h-screen 骨架下，页面忘写滚动容器会让超出视口的内容被裁掉且无滚动条
- * （IM 页第三次现场，前两次 #503/#628，F20260902imsc）。
+ * （IM 页第三次现场，前两次 /）。
  * 显式 overflow-* 声明优先于本兜底，不受影响。
  *
- * F20260924wast：挂载浮动獭（全页面常驻）+ 全局轮询单例（M2：App 层一份 5s 轮询，
+ * 挂载浮动獭（全页面常驻）+ 全局轮询单例（M2：App 层一份 5s 轮询，
  * 对话列表页与浮动獭共用）。开关 = assistant.web.enabled（settings DTO 下发）。
  */
 /** 全屏加载占位（会话探测/懒加载页面共用形态） */
@@ -37,7 +37,7 @@ export function LoadingFullScreen() {
 export function AppLayout() {
   const [assistantWebEnabled, setAssistantWebEnabled] = useState<boolean | null>(null)
   const [loginError, setLoginError] = useState<string | null>(null)
-  // #1868 阶段 2：会话门——未登录不渲染业务布局（聚合页面/浮动獭不 401 空转）
+  // 阶段 2：会话门——未登录不渲染业务布局（聚合页面/浮动獭不 401 空转）
   const { state, login } = useSession()
 
   useEffect(() => {
@@ -71,7 +71,7 @@ export function AppLayout() {
         <Outlet />
       </div>
       <ToastContainer />
-      {/* F20260924wast：全局轮询单例 + 浮动獭（enabled 未知时不渲染——避免关掉后闪现） */}
+      {/* 全局轮询单例 + 浮动獭（enabled 未知时不渲染——避免关掉后闪现） */}
       {assistantWebEnabled !== false && <GlobalConversationPoller />}
       {assistantWebEnabled === true && <FloatingAssistant enabled={assistantWebEnabled} />}
     </div>

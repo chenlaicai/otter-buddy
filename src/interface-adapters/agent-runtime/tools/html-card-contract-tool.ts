@@ -3,7 +3,7 @@ import { textResponse } from "@usecases/ports/agent-tools";
 import { CARD_MAX_PER_MESSAGE, CARD_MAX_BYTES } from "@contract/api/html-card";
 
 /**
- * HTML 卡片完整写作契约（F20260728htar）。
+ * HTML 卡片完整写作契约。
  * 按需披露：speak description 只带最小骨架，写卡片前必须调本工具取回完整契约。
  * 冷启动设计（每次 invoke 重建 session）下每个写卡回合都要重新调用。
  */

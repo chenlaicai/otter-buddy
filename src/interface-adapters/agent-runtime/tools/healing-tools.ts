@@ -21,7 +21,7 @@ const SELF_REPORT_SEVERITIES: ReadonlySet<string> = new Set(['low', 'medium', 'h
 const MAX_FIELD_LENGTH = 500;
 const MAX_ISSUES_PER_SPEAK = 10;
 
-/** speak healing 参数的 JSON Schema（F20261113hlprm）：白名单与 parseHealingParam 同源维护 */
+/** speak healing 参数的 JSON Schema：白名单与 parseHealingParam 同源维护 */
 export const SPEAK_HEALING_PARAM_SCHEMA = {
   type: "array",
   description: "系统自愈上报（可选）。遇系统问题（工具故障/检索缺失/格式异常/工具难用等）时填，每条一个 issue；没遇到问题就不传。",

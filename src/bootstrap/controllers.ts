@@ -24,7 +24,7 @@ import * as path from "node:path";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
 import { BackgroundStore } from "@usecases/settings/background-store";
 import { BackgroundController } from "@interface-adapters/http/controllers/background-controller";
-/** 多模态 Phase 1（审视修复 R4/R7）：注入服务（usecases 层策略） */
+/** 多模态 Phase 1（审视修复 /）：注入服务（usecases 层策略） */
 import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
@@ -61,7 +61,7 @@ import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
-/** F20261015mjsg 三麻将局域装配（可选） */
+/** 三麻将局域装配（可选） */
 import type Database from "better-sqlite3";
 import type { SdkInvokePort } from "@usecases/ports/sdk-invoke-port";
 import { SqliteFrameStore } from "@usecases/mahjong/room/frames";
@@ -102,47 +102,47 @@ export interface ControllerDeps {
   getBridgeStatus?: GetBridgeStatus;
   /** PR-2：面板 profile 聚合端点 */
   queryOtterProfile?: QueryOtterProfile;
-  /** F20260825rweb（#402）：RHI 面板 API 依赖（worker + 两个 repo） */
+  /** RHI 面板 API 依赖（worker + 两个 repo） */
   rhiScanWorker: RhiScanWorker;
   signalRepo: SignalRepository;
   healthSnapshotRepo: HealthSnapshotRepository;
-  /** F20260826mwrd C4：消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分） */
+  /** C4：消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分） */
   signalEventRepo: SignalEventRepository;
   /** 多模态 Phase 1：附件 repo（message-controller vision 读图 + attachment-controller 文件流） */
   attachmentRepo?: AttachmentRepository;
   attachmentStorageRoot?: string;
-  /** 微信连接管理（issue #566）：登录会话管理 + 账号 store */
+  /** 微信连接管理：登录会话管理 + 账号 store */
   weixinLoginSessions?: WeixinLoginSessionPort;
   weixinAccountStore?: WeixinAccountStorePort;
   onWeixinAccountDeleted?: (accountId: string) => void | Promise<void>;
-  /** F20260928fsqr：飞书扫码连接管理句柄组（bootstrap/feishu-scan.ts 产出） */
+  /** 飞书扫码连接管理句柄组（bootstrap/feishu-scan.ts 产出） */
   feishuScan?: {
     feishuLoginSessions: FeishuLoginSessionPort;
     feishuAppStore: FeishuAppStorePort;
     provisionFeishuAssistantLine: (appId: string, name: string) => Promise<{ conversationId: string; title: string }>;
     onAppDeleted: (appId: string) => void | Promise<void>;
   };
-  /** F20260920imax：微信扫码后按名开助理线（app.ts 注入——依赖 AssistantSessionManager，
-   *  controllers 层不直接引 usecases 装配产物，经 deps 闭包传递）。F20260928wxid：第三参 userName 可选——扫码人称呼存 connection.metadata */
+  /** 微信扫码后按名开助理线（app.ts 注入——依赖 AssistantSessionManager，
+   * controllers 层不直接引 usecases 装配产物，经 deps 闭包传递）。第三参 userName 可选——扫码人称呼存 connection.metadata */
   provisionWeixinAssistantLine?: (accountId: string, name: string) => Promise<{ conversationId: string; title: string }>;
-  /** 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） */
+  /** 通道状态注册表（统一 IM 页 + 真实健康状态） */
   registry?: ChannelStatusRegistry;
-  /** F20260901sgpv P1：信号路由器（主入口调度收敛；未注入时 MC/ADS/RIS 降级直连链） */
+  /** P1：信号路由器（主入口调度收敛；未注入时 MC/ADS/RIS 降级直连链） */
   signalRouter?: SignalRouter;
-  /** #576（F20260901emps）：能力库页面数据源（ResourceLoader 适配器）；缺省时路由返回 503 */
+  /** 能力库页面数据源（ResourceLoader 适配器）；缺省时路由返回 503 */
   skillDirectory?: SkillDirectory;
-  /** F20260929scfx：能力库全书——系统提示词分节 + 工具清单数据源 */
+  /** 能力库全书——系统提示词分节 + 工具清单数据源 */
   promptDirectory?: PromptDirectory;
-  /** F20261015mjsg：三麻将局域装配（db + SDK 直调口）——齐备才暴露 /api/mahjong 路由 */
+  /** 三麻将局域装配（db + SDK 直调口）——齐备才暴露 /api/mahjong 路由 */
   mahjongDeps?: { db: Database.Database; sdkPort: SdkInvokePort };
-  /** F20261022mjls：麻将默认陪打獭/獭可用性校验的依赖（settings repo + otter repo）——可选注入 */
+  /** 麻将默认陪打獭/獭可用性校验的依赖（settings repo + otter repo）——可选注入 */
   mahjongOtterDeps?: {
     settingsRepo: SettingsRepository;
     otterRepo: Pick<OtterRepository, "getByIds">;
   };
 }
 
-/** F20261015mjsg：三麻将局域装配（gateway 不带 conversationId = 纯 session 直调不落对话 entry——S1/S2 口径） */
+/** 三麻将局域装配（gateway 不带 conversationId = 纯 session 直调不落对话 entry——/口径） */
 function buildMahjongController(deps: ControllerDeps, logger: Logger): MahjongController | undefined {
   if (!deps.mahjongDeps) return undefined;
   const store = new SqliteFrameStore(deps.mahjongDeps.db);
@@ -151,7 +151,7 @@ function buildMahjongController(deps: ControllerDeps, logger: Logger): MahjongCo
     gateway: new SdkOtterGateway(deps.mahjongDeps.sdkPort),
     bus: new RoomBus(),
     logger,
-    // F20261022mjls：默认陪打獭（settings mahjong.defaultOtters）与獭可用性校验（active 且未 dissolved）
+    // 默认陪打獭（settings mahjong.defaultOtters）与獭可用性校验（active 且未 dissolved）
     ...(deps.mahjongOtterDeps
       ? {
           defaultOtters: async () =>
@@ -165,7 +165,7 @@ function buildMahjongController(deps: ControllerDeps, logger: Logger): MahjongCo
           },
         }
       : {}),
-    // F20261015mjsg 模块五：局终战报卡——首个 otter 座位挂靠对话发 html-card + 登记 fact
+    // 模块五：局终战报卡——首个 otter 座位挂靠对话发 html-card + 登记 fact
     onGameover: (report) => sendGameoverReport({
       sendEntry: deps.uc.sendEntry,
       conversationRepo: deps.repos.conversation,
@@ -173,7 +173,7 @@ function buildMahjongController(deps: ControllerDeps, logger: Logger): MahjongCo
       logger,
     }, report),
   });
-  // F20261015mjsg D2：入座谓词挂接（装配内完成——同 agentDispatchService 先例）——
+  // D2：入座谓词挂接（装配内完成——同 agentDispatchService 先例）——
   // 对话侧对入座獭自动应答「打牌中」不进 LLM（防局中水位换世打穿牌局上下文）
   deps.agentInvoker.attachMahjongSeatQuery({ isSeated: (otterId: string) => rooms.isSeated(otterId) });
   return new MahjongController(rooms, store, logger);
@@ -184,7 +184,7 @@ function buildChannelController(deps: ControllerDeps) {
   return new ChannelController(deps.registry, deps.weixinAccountStore);
 }
 
-/** F20261013csv3 T2：KeyInfoController 装配——注入 unfurl 缓存（join 投影）+
+/** T2：KeyInfoController 装配——注入 unfurl 缓存（join 投影）+
  *  登记侧预抓取回调（非阻断包一层异常捕获——抓取失败由 unfurl 控制器落 failed 记录）。 */
 function buildKeyInfoController(
   manageKeyInfo: ManageKeyInfo,

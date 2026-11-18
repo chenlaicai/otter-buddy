@@ -1,5 +1,5 @@
 /**
- * Agent 工具领域接口（R20260817arnt PR-A / D2 拍板）。
+ * Agent 工具领域接口（PR-A / D2 拍板）。
  *
  * 工具是"给 LLM 的手脚"，其契约（AgentTool/ToolContext/ToolResponse）是应用层概念——
  * interface-adapters（工具实现与文案）与 frameworks（pi-session-factory 装载）双方
@@ -20,12 +20,12 @@ import type { ModelPoolLike } from "./model-pool-like";
 import type { OtterConfigProvider } from "./otter-config-provider";
 
 /**
- * 工具层的模型池窄接口（R20260817arnt PR-A）：工具只做 modelAlias 校验与列举，
+ * 工具层的模型池窄接口（PR-A）：工具只做 modelAlias 校验与列举，
  * 不需要默认模型切换/全量信息。具体 ModelPool 结构化兼容，无需 adapter。
  * 取代 tool-factory 内的重复 ModelPoolLike 定义（双定义消除）。
  */
 export type ToolModelPool = Pick<ModelPoolLike, "hasModel" | "describeModels"> & {
-  /** #1247：create_otter 注入体积预算检查需要窗口查询；可选（旧装配/测试桩未带时 fail-soft 跳过） */
+  /** create_otter 注入体积预算检查需要窗口查询；可选（旧装配/测试桩未带时 fail-soft 跳过） */
   getContextWindow?: (alias?: string) => number | undefined;
 };
 
@@ -34,7 +34,7 @@ export interface ToolResponse {
   content: Array<{ type: "text"; text: string }>;
   details: Record<string, unknown>;
   /**
-   * F20260811sktp: 错误标志。
+   * 错误标志。
    * SDK 的 AgentToolResult 不直接消费此字段——otter-hooks 的 tool_result extension handler
    * 把它复制到 details.__isError，再由 handler 返回 { isError: true } 覆盖 SDK 的 isError 标志，
    * 从而透传到 Anthropic API 的 tool_result.is_error。
@@ -49,7 +49,7 @@ export function textResponse(text: string): ToolResponse {
 }
 
 /**
- * F20260811sktp: 错误返回工厂。
+ * 错误返回工厂。
  * 文案保留 `[错误]` 前缀（人类可读），同时设 isError=true（机器可识别）。
  * 经 otter-hooks tool_result handler 透传到 Anthropic API 的 is_error 字段。
  */

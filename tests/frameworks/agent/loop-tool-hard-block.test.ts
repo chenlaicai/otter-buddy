@@ -1,5 +1,5 @@
 /**
- * F20261020hlbk：循环工具硬熔断（#1556）——tool_call 门物理截断 + 检测器报警粘滞标记。
+ * 循环工具硬熔断——tool_call 门物理截断 + 检测器报警粘滞标记。
  *
  * 直攻主场景（非单测传 id）：attachCircuitBreaker 派发 tool_execution_start 命中
  * create_linked_resource 循环 → loopBlockedTools 记入签名 → loopBlockGuard 对后续

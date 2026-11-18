@@ -5,7 +5,7 @@ import { WeixinApiClient } from "@frameworks/weixin/api-client";
  * 微信 ilink API 客户端单测（全 mock fetch，不出网）。
  * 断言风格对齐 tests/frameworks/feishu/client.test.ts：captureFetch 记录
  * 请求（url/headers/body），断言记录内容而非 mock 调用本身。
- * 协议契约来源：@tencent-weixin/openclaw-weixin@2.4.6 源码审计（issue #564/#565）。
+ * 协议契约来源：@tencent-weixin/openclaw-weixin@2.4.6 源码审计（/）。
  */
 function captureFetch(respond: () => unknown = () => ({ ret: 0 })) {
   const calls: Array<{ url: string; method?: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
@@ -141,7 +141,7 @@ describe("WeixinApiClient", () => {
     }
   });
 
-  // F20260904wxeg 审视处置（检视獭-789 严重发现 1）：errcode 通道校验零覆盖——
+  // 审视处置（检视獭-789 严重发现 1）：errcode 通道校验零覆盖——
   // F137 实证 sendmessage 失败可能走 errcode 而非 ret（ret 缺失/为 0 但 errcode≠0），
   // 仅查 ret 会静默放行。以下三用例锁住该行为。
   it("sendTextMessage errcode≠0 且 ret 缺失时抛错（F137 假成功场景）", async () => {
@@ -207,7 +207,7 @@ describe("WeixinApiClient", () => {
     }
   });
 
-  // #624：GET/POST headers 两套构造（对齐参考实现 buildCommonHeaders）
+  // GET/POST headers 两套构造（对齐参考实现 buildCommonHeaders）
   it("GET 请求不带 Content-Type（无 body 语义，#624）", async () => {
     const { calls, restore } = captureFetch(ok({ ret: 0, status: "wait" }));
     try {

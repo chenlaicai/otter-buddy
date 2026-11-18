@@ -20,7 +20,7 @@ export interface FeatureRow {
 
 /** Row -> Entity */
 export function rowToEntity(row: FeatureRow): FeatureDocument {
-  // F20260803mval: 读取侧 isKnown 校验，防非 sync 路径写入的未知值绕过类型安全（S2）
+  // 读取侧 isKnown 校验，防非 sync 路径写入的未知值绕过类型安全
   const ct = row.change_type;
   const st = row.status;
   return {
@@ -28,7 +28,7 @@ export function rowToEntity(row: FeatureRow): FeatureDocument {
     title: row.title,
     summary: row.summary,
     bodyHash: row.body_hash,
-    // F20261031ctuny（#1718）：归一值落库（' fix '/'bugfix' 判合法后存规范值，DB 不进脏值）
+    // 归一值落库（' fix '/'bugfix' 判合法后存规范值，DB 不进脏值）
     changeType: (isKnownChangeType(ct) ? normalizeChangeType(ct) : "feature") as ChangeType,
     status: (isKnownFeatureStatus(st) ? st : "draft") as FeatureStatus,
     tags: JSON.parse(row.tags),

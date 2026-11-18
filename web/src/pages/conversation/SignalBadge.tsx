@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { LocalMessageSignal } from '../../lib/mappers'
 
 /**
- * F20260826mwrd C4：獭间信号徽章——消息原位渲染 <signal> 块的视觉表达。
+ * C4：獭间信号徽章——消息原位渲染 <signal> 块的视觉表达。
  *
  * 分档（母方案 Part 5）：
  * - objection/blocked：常规徽章，点击展开 payload 正文

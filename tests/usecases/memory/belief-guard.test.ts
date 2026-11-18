@@ -1,5 +1,5 @@
 /**
- * F20261118belif P1a：belief-guard 四维出处校验 + 状态机 + 防环 单元测试。
+ * P1a：belief-guard 四维出处校验 + 状态机 + 防环 单元测试。
  */
 import { describe, it, expect } from "vitest";
 import { BeliefGuard, isLegalBeliefTransition } from "@usecases/memory/belief-guard";

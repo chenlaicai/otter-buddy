@@ -2,7 +2,7 @@ import type { LocalMessage } from './mappers'
 import { nowTs } from './utils'
 
 /**
- * 消息流纯函数（F20260724cwgn：统一渲染通道 + 轮询续看）。
+ * 消息流纯函数（统一渲染通道 + 轮询续看）。
  * 从 pages/conversation/index.tsx 提取，便于独立测试。
  */
 
@@ -43,7 +43,7 @@ export function insertBySeq(list: LocalMessage[], msg: LocalMessage): LocalMessa
   return [...list.slice(0, pos), msg, ...list.slice(pos)]
 }
 
-/** F20260930s1x0 delta2（delta 复核发现：初版修复死链）：abort 409（假行动中）按服务端
+/** delta2（delta 复核发现：初版修复死链）：abort 409（假行动中）按服务端
  *  真实终态收敛。匹配集 = 快照 ∪ 当前 in-flight：
  *  - 快照命中（请求前 in-flight）——覆盖已被乐观置为 'aborted' 的气泡。初版只匹配
  *    isInFlight(current)，而入口在发请求前已乐观置终态，409 回来时恒零匹配，
@@ -70,7 +70,7 @@ export function settleInvokeToTerminal(
   })
 }
 
-/** F20260930s1x0 delta（PR #1268 审视发现 1）：abort 失败（非 409）回滚乐观 aborted——
+/** delta（）：abort 失败（非 409）回滚乐观 aborted——
  *  仅回滚本次乐观置位的气泡：旧实现 status==='aborted' 误伤同 invokeId 的历史真实
  *  aborted 气泡，快照精确匹配本次乐观产物；回滚保留 content（乐观置时 m.content || '[中断]' 保留原内容，
  *  清空会丢弃已流出内容——不对称）。delta2（复核建议 3）：状态恢复快照原值
@@ -88,7 +88,7 @@ export function rollbackOptimisticAbort(
   })
 }
 
-/** F20260913ctlv：invoke 边界/yield/system 居中条目插入（无 seq，按 ts 时序）。
+/** invoke 边界/yield/system 居中条目插入（无 seq，按 ts 时序）。
  *  从尾部向前找最后一个 ts <= msg.ts 的真实条目，插其后；越过 tmp-/err- 前缀的
  *  乐观/错误条目（它们无 seq 但时间上先于本次獭行动）；全部更新则插头部。
  *  幂等：同 id 已存在时原位替换 */
@@ -102,7 +102,7 @@ export function insertCenteredByTs(list: LocalMessage[], msg: LocalMessage): Loc
   const ts = msg.ts || ''
   for (let i = list.length - 1; i >= 0; i--) {
     const m = list[i]
-    // F20260913ctlv 实测修复：tmp 乐观消息参与 ts 比较（不跳过）——用户刚发的 tmp 在列表尾，
+    // 实测修复：tmp 乐观消息参与 ts 比较（不跳过）——用户刚发的 tmp 在列表尾，
     // 后续居中条目（invoke_start）ts 更晚，应插在 tmp 之后；旧逻辑 continue 跳过 tmp 后
     // 插到更早的条目前，导致「开始行动」排到用户发言上方。
     // ts 为空的 tmp 无时序语义，越过（与历史行为兼容）；err- 投影同越过。
@@ -115,7 +115,7 @@ export function insertCenteredByTs(list: LocalMessage[], msg: LocalMessage): Loc
 }
 
 /**
- * 终态消息 upsert（F20260805abpp 第四轮检视 S4-1）：与已有投影合并保留字段。
+ * 终态消息 upsert（第四轮检视 -1）：与已有投影合并保留字段。
  * MPA 新页面的 live 状态为空，终态事件（complete/failed/aborted）构造的消息缺
  * events/seq/ts 等字段，整体替换会抹掉 DTO 快照已加载的投影（工具调用链、消息时间、
  * 时序锚点）。调用方把能确定的字段放进 msg（ts 传空串表示未知），已有投影回退补齐。
@@ -138,7 +138,7 @@ export function upsertTerminalMessage(list: LocalMessage[], msg: LocalMessage): 
 }
 
 /**
- * 需要向服务器定点拉取终态的进行中消息（F20260805abpp）。
+ * 需要向服务器定点拉取终态的进行中消息。
  * /after 增量游标是本地最后一条消息，结果严格在其之后——
  * 游标消息自身的 streaming→aborted/completed 状态迁移永远不在增量里，
  * 尤其 in-flight 恰好是最新消息时增量恒为空，定点拉取是唯一收敛路径。

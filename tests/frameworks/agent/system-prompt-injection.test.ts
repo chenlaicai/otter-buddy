@@ -1,5 +1,5 @@
 /**
- * S1（R20260810piab）system prompt 注入测试。
+ * system prompt 注入测试。
  *
  * 覆盖对抗检视要求的 3 个场景：
  * 1. before_agent_start handler 返回值包含 otter prompt + identity

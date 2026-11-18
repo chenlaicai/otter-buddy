@@ -7,7 +7,7 @@ import { RecordingNodeExecutionEnv } from "@frameworks/execution/recording-node-
 import { SqliteActionLedger, sha256 } from "@frameworks/execution/ledger/sqlite-action-ledger";
 import { otterInvokeStorage } from "@frameworks/agent/model-runtime-registry";
 
-/** F20261116actlg PR-A：记录 env（副作用入账 + 原子写 + 归属传播 + 去重协议）。 */
+/** PR-A：记录 env（副作用入账 + 原子写 + 归属传播 + 去重协议）。 */
 
 let dirs: string[] = [];
 function tempDir(): string {

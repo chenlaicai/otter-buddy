@@ -4,8 +4,8 @@ import { WeixinMessageChannel } from "@usecases/im/weixin-message-channel";
 import type { SSEEvent } from "@contract/sse/events";
 
 /**
- * issue #565：微信出站通道测试。
- * F20260913ctlv 处置轮重写：消息级 broadcast 链路已删——出站走事件通道
+ * 微信出站通道测试。
+ * 处置轮重写：消息级 broadcast 链路已删——出站走事件通道
  * （entry.speak 獭气泡 / entry.user Web 用户消息同步，source 防回环闸）。
  * 副作用断言风格：记录 gateway 实际出站内容。
  */
@@ -32,7 +32,7 @@ function createBroadcaster() {
   const manageConnection = {
     getSessionByConversation: vi.fn().mockResolvedValue(null),
     getConnection: vi.fn().mockResolvedValue(null),
-    // F20260922wxeg：真实 resolveReplyTarget 语义（bot 锚 connection 走 metadata.lastChatId，
+    // 真实 resolveReplyTarget 语义（bot 锚 connection 走 metadata.lastChatId，
     // 普通连接直用 externalId）——出站目标断言必须穿透这层，否则锚分裂回归抓不到
     resolveReplyTarget: vi.fn((conn: { externalId: string; externalType: string; metadata?: Record<string, unknown> | null }) => {
       if (conn.externalType === "weixin" && conn.externalId.startsWith("weixin-")) {

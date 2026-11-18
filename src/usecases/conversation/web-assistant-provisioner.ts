@@ -4,14 +4,14 @@ import type { CreateOtter } from "@usecases/otter/create-otter";
 import type { Logger } from "@usecases/ports/logger";
 
 /**
- * F20260924wast：web 助理开户（全局唯一 kind=web-assistant 对话）。
+ * web 助理开户（全局唯一 kind=web-assistant 对话）。
  *
- * 语义（T2b/N2/N3）：
+ * 语义（T2b//）：
  * - web 助理 = 全局唯一对话（与 IM 助理零关联），首唤时由前端经 POST /api/conversations
  *   {kind:'web-assistant'} 触发创建——controller 层调本模块完成幂等收敛
  * - 人设 systemPrompt 创建时后端注入（前端只传 kind，不传 prompt）：
  *   IM 助理同款「构建一次全链共用」模式适配 web 场景
- * - 幂等（N3）：创建前按 kind=web-assistant 查询，多条并发残留时取最早创建的
+ * - 幂等：创建前按 kind=web-assistant 查询，多条并发残留时取最早创建的
  *   一条（并发收敛——双 tab 同 tick 首唤的极端 race 产生的多条以第一条为准）
  *
  * 不动 ManageConversation.create（避免通用 API 看到特化人设字段——recruiting 同款
@@ -106,7 +106,7 @@ export class WebAssistantProvisioner {
     const active = items.filter(c => c.status === "active");
     if (active.length === 0) return null;
     if (active.length > 1) {
-      // 并发收敛（N3）：取最早创建的一条；多余的残留记 warn 供诊断（不自动归档——
+      // 并发收敛：取最早创建的一条；多余的残留记 warn 供诊断（不自动归档——
       // 归档是副作用，留给搭档手动处理更安全）
       this.deps.logger.warn("Multiple web-assistant conversations found (concurrent provision residue), using earliest", {
         count: active.length,

@@ -9,7 +9,7 @@ import { encryptAesEcb, decryptAesEcb, aesEcbPaddedSize } from "./aes-ecb";
 import { buildCdnUploadUrl, buildCdnDownloadUrl } from "./cdn-url";
 
 /**
- * 微信 CDN 媒体客户端（issue #567）。
+ * 微信 CDN 媒体客户端。
  *
  * 上传管线（平移自 openclaw-weixin cdn/upload.ts + cdn-upload.ts，MIT）：
  *   读文件 → md5 → 随机 aeskey → getuploadurl → AES-ECB 加密 → CDN PUT

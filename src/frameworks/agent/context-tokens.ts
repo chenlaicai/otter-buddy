@@ -1,5 +1,5 @@
 /**
- * 上下文窗口占用计算（F20260808ctxw）。
+ * 上下文窗口占用计算。
  *
  * 口径：末次有效 assistant 消息的 usage（input+output+cacheRead+cacheWrite），
  * 与 SDK compaction 判定（calculateContextTokens）同公式。
@@ -40,7 +40,7 @@ export function getContextWindowTokens(entries: SessionEntry[]): number | undefi
 }
 
 /**
- * 末条 assistant 消息的 stopReason（F20260903lngth）。
+ * 末条 assistant 消息的 stopReason。
  * 与 validAssistantUsage 的过滤规则互补：validAssistantUsage 跳过 aborted/error，
  * 本函数不过滤——截断（length）信号恰恰需要从"看起来成功"的响应里暴露出来。
  * 取自最后一条含 stopReason 的 assistant 消息（含 usage 为零的边缘情形）。
@@ -57,7 +57,7 @@ export function getLastStopReason(entries: SessionEntry[]): string | undefined {
   return undefined;
 }
 
-/** F20260924thnk 观测三件套之 3：取最后一条 assistant 消息的 usage。
+/** 观测三件套之 3：取最后一条 assistant 消息的 usage。
  *  与 getLastStopReason 同源同构（最后一条 assistant 消息），usage 形状来自
  *  @earendil-works/pi-ai types.d.ts:265（input/output/cacheRead/cacheWrite/reasoning?）。
  *  reasoning 是 output 子集（思考 token）——合成链路 off 失效/被忽略时可从 reasoning>0 直接证伪。

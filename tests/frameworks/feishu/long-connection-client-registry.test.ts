@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChannelStatusRegistry } from "@usecases/channel/channel-status";
 
-// F20260901chun：飞书 WS 回调→registry 状态映射测试
+// 飞书 WS 回调→registry 状态映射测试
 // 检视獭 D2 要求：飞书4回调映射至少一组测试覆盖
 
-/** Mock 连接状态（#663：onReconnecting 上报 reconnectAttempts 的数据源，用例内可改） */
+/** Mock 连接状态（onReconnecting 上报 reconnectAttempts 的数据源，用例内可改） */
 let mockConnectionStatus: { state: string; lastConnectTime?: string; reconnectAttempts: number } = {
   state: "connected", lastConnectTime: "t", reconnectAttempts: 0,
 };
@@ -135,7 +135,7 @@ describe("FeishuLongConnectionClient WS回调→registry 状态映射", () => {
     capturedCallbacks.onReconnected!();
   });
 
-  // ── #663：重连次数入 registry + appId 掩码上报 ──
+  // ── 重连次数入 registry + appId 掩码上报 ──
 
   it("onReconnecting：registry 状态携带 reconnectAttempts（#663 数据源只打日志→入 registry）", async () => {
     const { FeishuLongConnectionClient } = await import("@frameworks/feishu/long-connection-client");

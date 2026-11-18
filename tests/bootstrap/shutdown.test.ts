@@ -1,5 +1,5 @@
 /**
- * #460：dispose 超时兜底测试（bootstrap/shutdown.ts）。
+ * dispose 超时兜底测试（bootstrap/shutdown.ts）。
  * 僵尸进程根因之一的直接防线：dispose 卡住 → 强制退出，绝不悬挂。
  * exitFn 注入记录副作用（不真退出）；断言用副作用状态而非调用参数
  * （仓规：禁止 toHaveBeenCalledWith 绑定实现细节）。
@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
 import { disposeWithTimeout } from "../../src/bootstrap/shutdown";
 
 /** 记录型 exitFn：副作用 = 记录退出码。
- *  注（检视#808 发现 1）：生产 exitFn = process.exit，同步终止进程、不返回；
+ * 注：生产 exitFn = process.exit，同步终止进程、不返回；
  *  测试用 throw 模拟「不返回」——race 走 reject/catch 路径，而生产直接终止（catch 不执行）。
  *  两种语义下进程都会退出，功能等价；本测试验证的是「exitFn 被调 + 退出码正确」的副作用事实，
  *  reject 语义仅是可观测载体。 */

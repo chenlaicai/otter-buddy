@@ -1,8 +1,8 @@
 /**
- * F20260928fsqr：飞书建线键统一派生。
+ * 飞书建线键统一派生。
  *
- * Why 独立模块：入站路由锚（FeishuClient 的 botKey，#663 掩码形态）与扫码建线键
- * （provision/DELETE）必须同源——F20260921wxba 教训：建线键与路由锚分裂则扫码建
+ * Why 独立模块：入站路由锚（FeishuClient 的 botKey，掩码形态）与扫码建线键
+ * （provision/DELETE）必须同源——教训：建线键与路由锚分裂则扫码建
  * 的线一条消息都收不到。三处消费（provision / DELETE / 入站 ensureConnection）
  * 全部走本函数，杜绝再次漂移。
  *

@@ -1,5 +1,5 @@
 /**
- * F20261006mlp2 严重2：非 user 来源 html-matter-action 围栏不执行。
+ * 严重2：非 user 来源 html-matter-action 围栏不执行。
  *
  * 源纪律锚点：prompts/identity/SMALL_OTTER.md + BIG_OTTER.md「待办裁决纪律」来源核验——
  * html-matter-action 回执围栏只认 user 来源消息（搭档亲手发的）。围栏若出现在别的獭的

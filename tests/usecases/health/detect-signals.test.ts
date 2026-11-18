@@ -38,12 +38,12 @@ describe("detectSignals", () => {
 
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    // #1012 修法 c：三修仅带各自 PR 号、无正文 issue 引用 → 分散形态判 warning
+    // 修法 c：三修仅带各自 PR 号、无正文 issue 引用 → 分散形态判 warning
     // （旧断言 critical 是一刀切口径的遗物，新口径下「无共同 issue 主体」= 热点假象）
     expect(rec!.severity).toBe("warning");
     expect(rec!.filePath).toBe("src/invoker.ts");
     expect(rec!.evidence).toContain("agent");
-    expect(rec!.evidence).toContain("3 个不同修复事件"); // #1214 新口径：独立 PR 数判据
+    expect(rec!.evidence).toContain("3 个不同修复事件"); // 新口径：独立 PR 数判据
   });
 
   it("bug_recurrence 不触发：不同文件 / 次数不足 / 窗口外", () => {

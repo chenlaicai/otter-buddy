@@ -179,7 +179,7 @@ describe("CreateOtter", () => {
     });
   });
 
-  /** F20260921otcl：出生挑色（方案 §3） */
+  /** 出生挑色（方案 §3） */
   describe("出生挑色", () => {
     it("空对话：小獭取色板首色 teal", async () => {
       const repo = mockRepo();

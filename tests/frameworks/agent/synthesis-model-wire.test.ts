@@ -1,8 +1,8 @@
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
- * F20261111mwire（#1854）：合成模型覆盖到达线缆——红测。
+ * ：合成模型覆盖到达线缆——红测。
  *
- * 事故链（#1852 检视 B1）：durable 运行时按 (provider, modelId) 从 models 源重解析
+ * 事故链（检视 B1）：durable 运行时按 (provider, modelId) 从 models 源重解析
  * 模型（harness/generation.js:138），durable-session 的 agentChange() 只传
  * {provider, modelId}——合成模型副本上的 maxTokens/thinkingLevelMap 覆盖被丢弃，
  * 线缆实际走池模板值（maxTokens 128000 + 空 thinkingLevelMap）。
@@ -139,7 +139,7 @@ describe("F20261111mwire #1854 合成模型覆盖到达线缆", () => {
   });
 
   it("S1（检视建议采纳）：覆盖经 pi-durable harness 的 withClientIdentity 包装层后仍命中（真实链 harness.js:93）", async () => {
-    // 检视獭-1855 S1：Harness.open 内部会 withClientIdentity(models, identity) 再包一层，
+    // 检视獭-1855 Harness.open 内部会 withClientIdentity(models, identity) 再包一层，
     // 其 wrapped.getModel 委托底层——本测试把该层钉进回归（防未来 pi-ai 改包装方式时静默断链）
     const identityMod = await import("@earendil-works/pi-ai/utils/identity");
     const session = makeShadowSession({ emitText: "ok" });

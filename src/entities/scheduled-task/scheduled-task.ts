@@ -4,7 +4,7 @@ export type ScheduledTaskStatus = 'active' | 'disabled' | 'error';
 /** 调度类型：cron=周期性，once=一次性 */
 export type ScheduleType = 'cron' | 'once';
 
-/** 执行记录状态。#654: skipped=并发冲突（如 session 锁被活跃方持有），非任务失败，不计 consecutiveFailures */
+/** 执行记录状态。skipped=并发冲突（如 session 锁被活跃方持有），非任务失败，不计 consecutiveFailures */
 export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'skipped';
 
 /** 执行器类型 */
@@ -22,7 +22,7 @@ export interface ScheduledTask {
   triggerAt: string | null;
   timezone: string;
   body: string;
-  /** F20260915desc: 人类可读任务描述（≤500 字符）。面板优先显示此字段；
+  /** 人类可读任务描述（≤500 字符）。面板优先显示此字段；
    *  未填时面板回退渲染 body/functionName（executorType=function 时 body 常为 '{}'） */
   description: string | null;
   /** 执行者角色名。agent 任务触发时按对话 active 名册解析到当前实例。 */
@@ -33,9 +33,9 @@ export interface ScheduledTask {
   status: ScheduledTaskStatus;
   consecutiveFailures: number;
   lastTriggeredAt: string | null;
-  /** F20260815rstrt: 每次触发前是否重启执行獭的 session（默认 false） */
+  /** 每次触发前是否重启执行獭的 session（默认 false） */
   restartBeforeInvoke: boolean;
-  /** #516: 任务级链超时配置（分钟）。null = 用调度器默认（15 分钟）。
+  /** 任务级链超时配置（分钟）。null = 用调度器默认（15 分钟）。
    *  语义：链静默容忍窗——窗口内链无任何活跃消息即视为死亡；链活跃则续期等待，直至硬上限。 */
   timeoutMinutes: number | null;
   /** PR4: 执行器类型（agent=LLM 会话，function=纯代码） */
@@ -118,12 +118,12 @@ export function isValidTimezone(tz: string): boolean {
   }
 }
 
-/** #516: 任务级超时配置校验（分钟）。允许 1-1440（1 分钟到 24 小时）。 */
+/** 任务级超时配置校验（分钟）。允许 1-1440（1 分钟到 24 小时）。 */
 export function isValidTimeoutMinutes(value: number): boolean {
   return Number.isInteger(value) && value >= 1 && value <= 1440;
 }
 
-/** F20260915desc: 任务描述校验（可选，≤500 字符）。一句话说明任务干什么，给人看。 */
+/** 任务描述校验（可选，≤500 字符）。一句话说明任务干什么，给人看。 */
 export function isValidDescription(value: string): boolean {
   return value.length <= 500;
 }

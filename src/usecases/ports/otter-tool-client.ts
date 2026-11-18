@@ -1,5 +1,5 @@
 /**
- * OtterToolClient 端口（R20260817arnt PR-A：自 interface-adapters/agent-runtime/otter-tool-client.ts
+ * OtterToolClient 端口（PR-A：自 interface-adapters/agent-runtime/otter-tool-client.ts
  * 整体上移）——usecase 门面：agent 工具经此访问对话/记忆/文档领域查询，bootstrap/clients.ts
  * 装配具体实现。其 import 全部落在 entities/usecases（上移合法的前提）。
  */
@@ -33,7 +33,7 @@ export interface CreateOtterInput {
   parentOtterId: string;
   /** 模型别名（多模型路由，可选） */
   modelAlias?: string;
-  /** F20260921otcl：出生挑色域——工具链创建时恒为当前对话（tool-factory 注入 ctx.conversationId） */
+  /** 出生挑色域——工具链创建时恒为当前对话（tool-factory 注入 ctx.conversationId） */
   conversationId?: string;
 }
 
@@ -56,9 +56,9 @@ export interface LinkResourceInput {
  */
 export interface OtterToolClient {
   conversation: {
-    // F20260913ctlv 批4a：message 命名空间删除——tool 层全切 entry/participant 命名空间，
+    // 批4a：message 命名空间删除——tool 层全切 entry/participant 命名空间，
     // messages 客户端方法（getById/list/search/expand/getTurnHistory/...）零消费。
-    // F20260913ctlv：entry 和 invoke 子命名空间（新模型，渐进迁移）
+    // entry 和 invoke 子命名空间（新模型，渐进迁移）
     entry: {
       /** 创建 speak 条目 */
       createSpeakEntry(params: {
@@ -80,18 +80,18 @@ export interface OtterToolClient {
         invokeEndEntry: { id: string; entryType: string };
         invoke: { id: string; status: string; endedAt: string | null; toolCallCount: number; tokenUsageInput: number | null; tokenUsageOutput: number | null; tokenUsageCacheRead: number | null; tokenUsageCacheWrite: number | null; metadata: Record<string, unknown> | null };
       }>;
-      /** 查询条目列表（F20260913ctlv 批3：返回 createdAt/senderId——自重启用户介入检测等只读消费；F20260929mpav 补 sequenceNum：实现层 Entry 全量含此字段，merge_pr 原话校验需它做命中锚点） */
+      /** 查询条目列表（批3：返回 createdAt/senderId——自重启用户介入检测等只读消费；补 sequenceNum：实现层 Entry 全量含此字段，merge_pr 原话校验需它做命中锚点） */
       getEntries(conversationId: string, opts?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; entryType: string; body: string | null; senderId: string | null; senderType: string | null; sequenceNum: number; createdAt: string }>>;
-      /** F20260913ctlv 批3：全文搜索（entries_fts，时间线唯一真相源） */
+      /** 批3：全文搜索（entries_fts，时间线唯一真相源） */
       searchEntries(conversationId: string, query: string, limit?: number): Promise<Array<{ id: string; entryType: string; senderId: string | null; senderType: string | null; body: string | null; sequenceNum: number; createdAt: string }>>;
-      /** F20260913ctlv 批4a：按 ID 取条目（get_message 工具——卡片全文回看源） */
+      /** 批4a：按 ID 取条目（get_message 工具——卡片全文回看源） */
       getEntryById(entryId: string): Promise<{
         id: string; conversationId: string; entryType: string;
         senderType: string | null; senderId: string | null; body: string | null;
         status: string; sequenceNum: number;
         createdAt: string; completedAt: string | null;
       } | null>;
-      /** F20260913ctlv 批4a：时间线倒序分页（list_messages 工具） */
+      /** 批4a：时间线倒序分页（list_messages 工具） */
       listEntries(conversationId: string, opts?: { entryType?: string; limit?: number }): Promise<Array<{
         id: string; entryType: string; senderType: string | null; senderId: string | null;
         body: string | null; sequenceNum: number; createdAt: string;
@@ -99,7 +99,7 @@ export interface OtterToolClient {
     };
     invoke: {
       /** 追加 invoke 事件。
- *  F20260914evdz：返回落库事件标识（id/sequenceNum/createdAt）——agent-invoker
+ * 返回落库事件标识（id/sequenceNum/createdAt）——agent-invoker
  *  拿去广播 invoke.event SSE（Session 弹窗实时观察数据源）。落库异常时抛错（调用方 catch） */
       appendInvokeEvent(invokeId: string, eventType: string, payload: Record<string, unknown>): Promise<{ id: string; sequenceNum: number; createdAt: string } | null>;
       /** 获取 invoke 信息 */
@@ -108,9 +108,9 @@ export interface OtterToolClient {
       incrementToolCallCount(invokeId: string): Promise<void>;
     };
     participant: {
-      /** 返回 participant + 进场 system entry 投影（F20260913ctlv：create_otter 广播 entry.system SSE 用） */
+      /** 返回 participant + 进场 system entry 投影（create_otter 广播 entry.system SSE 用） */
       join(conversationId: string, otterId: string): Promise<ConversationParticipant & { systemEntry?: { id: string; body: string | null; sequenceNum: number; createdAt: string } }>;
-      /** modelAlias 由 ManageParticipant.getActiveParticipants 批量预取后透传（#446） */
+      /** modelAlias 由 ManageParticipant.getActiveParticipants 批量预取后透传 */
       getActive(conversationId: string): Promise<Array<ConversationParticipant & { otterName: string; modelAlias?: string }>>;
       /** 标记 otter 在指定对话中已离开（dissolve_otter 顺带修） */
       leave(conversationId: string, otterId: string): Promise<void>;
@@ -120,7 +120,7 @@ export interface OtterToolClient {
     getById(id: string): Promise<MemorySearchEntry | null>;
     search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean, currentConversationId?: string): Promise<{ entries: MemorySearchEntry[]; total: number; contextEntries?: MemorySearchEntry[]; vecCoverage?: VecCoverage }>;
     /**
-     * F20260826rcmm Phase 0：检索埋点（fire-and-forget）。
+     * Phase 0：检索埋点（fire-and-forget）。
      * search_memory 工具 execute 后调用——记录查询 + top 命中 + 对话上下文，供评估基线标注。
      * beforeMessageId：上下文快照上界（不含），传触发检索的当前消息 ID，防检索动作自身发言污染标注。
      * total 必须传检索系统真值（search 返回的 total），非 entries.length。
@@ -129,14 +129,14 @@ export interface OtterToolClient {
     logSearch(params: { query: string; conversationId: string; callerId: string | null; beforeMessageId?: string | null; detailLevel?: string; library?: string; limitCount?: number; topEntryIds: string[]; total: number }): void;
     /** 按 ID 批量获取完整记忆条目（渐进式披露 get_memory_detail） */
     getDetails(ids: string[]): Promise<MemorySearchEntry[]>;
-    /** F20260813mren: 声明两个记忆条目之间的关系（LLM 自主判断） */
+    /** 声明两个记忆条目之间的关系（LLM 自主判断） */
     linkMemory(params: { fromId: string; toId: string; edgeType: EdgeType; note?: string }, createdBy?: string): Promise<{ edgeId: string }>;
-    /** F20260813mren: 从某 entry 出发 BFS 遍历关系图，返回结构化 path */
+    /** 从某 entry 出发 BFS 遍历关系图，返回结构化 path */
     getRelated(params: { entryId: string; depth?: number; edgeTypes?: EdgeType[]; direction?: "out" | "in"; limit?: number }): Promise<RelatedEntryItem[]>;
-    /** F20260813mren: 删除一条关系边（纠错用） */
+    /** 删除一条关系边（纠错用） */
     unlinkEdge(edgeId: string): Promise<void>;
     /**
-     * F20261118bltls P1c：现场记录 belief（kind/content/anchors/inferredFrom/supersedes）。
+     * P1c：现场记录 belief（kind/content/anchors/inferredFrom/supersedes）。
      * supersedes 可选——带则同步建 supersedes 边 + 旧条目迁 superseded。
      */
     recordBelief(params: {
@@ -149,12 +149,12 @@ export interface OtterToolClient {
       partnerUserId: string;
       createdBy?: string;
     }): Promise<{ entryId: string; edgeId?: string }>;
-    /** F20261118bltls P1c：belief 状态迁移（verify/reject/supersede 共用） */
+    /** P1c：belief 状态迁移（verify/reject/supersede 共用） */
     transitionBelief(params: { entryId: string; to: "verified" | "disputed" | "superseded" }): Promise<{ entryId: string; from: string; to: string }>;
-    /** F20261118bltls P1c：belief 标记过期（无新条目，只迁 superseded） */
+    /** P1c：belief 标记过期（无新条目，只迁 superseded） */
     markBeliefExpired(entryId: string): Promise<{ entryId: string }>;
     /**
-     * F20260813mren Part 2: 查文档 provenance——该文档由哪段对话产出 + 该对话的消息。
+     * Part 2: 查文档 provenance——该文档由哪段对话产出 + 该对话的消息。
      * 只对 feature/research 文档有效；非文档或无 provenance 返回 conversationId=null。
      */
     getDocProvenance(entryId: string): Promise<{ conversationId: string | null; messages: MemorySearchEntry[] }>;
@@ -167,11 +167,11 @@ export interface OtterToolClient {
     create(params: CreateOtterInput): Promise<Otter>;
     dissolve(otterId: string): Promise<void>;
     getById(id: string): Promise<Otter | null>;
-    /** F20260824srst：获取当前 active session（自重启循环防护 tool 层拦截用） */
+    /** 获取当前 active session（自重启循环防护 tool 层拦截用） */
     getActiveSession(otterId: string): Promise<OtterSession | null>;
-    /** 重启獭生：归档当前 session + 创建新 session（含前情摘要）。F20260810rstart
-     *  F20260908efmd: 增可选 modelAlias 参数——配额耗尽时应急切模型 */
-    /** F20260920uhuc：synthesizePast 透传统一交接管线（缺省 true；false = 跳过引擎合成） */
+    /** 重启獭生：归档当前 session + 创建新 session（含前情摘要）。
+     * 增可选 modelAlias 参数——配额耗尽时应急切模型 */
+    /** synthesizePast 透传统一交接管线（缺省 true；false = 跳过引擎合成） */
     restart(otterId: string, summary?: string, modelAlias?: string, synthesizePast?: boolean): Promise<OtterSession>;
   };
   context: {
@@ -189,7 +189,7 @@ export interface OtterToolClient {
     archive(id: string, conversationId: string, currentTurnNumber: number): Promise<void>;
   };
   /**
-   * F20260813mren 审视二轮：文档同步工具。
+   * 审视二轮：文档同步工具。
    * 海獭写完 docs/features|research 下的文档后调用，立即入库（不等重启），
    * 让文档立刻可被 search_memory 检索 + provenance 立即可查。
    * 审视三轮 A-10：rootDir 可选——worktree 流程下文槛在 worktree 里，
@@ -199,7 +199,7 @@ export interface OtterToolClient {
     sync(rootDir?: string): Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
   };
   /**
-   * F20260821i336：派工台账工具（F20260912avlb：数据源切 dispatch_records 正式表）。
+   * 派工台账工具（数据源切 dispatch_records 正式表）。
    * 状态只记客观生命周期三态 created/dispatched/dissolved——不设完成终态
    * （「完成」真相在对话汇报里，无系统可判定信号；详见特性文档）。
    */

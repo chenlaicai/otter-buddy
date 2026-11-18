@@ -22,11 +22,11 @@ export class IdentityBuilder {
   /** 小獭身份文案（首次 invoke 时注入，从 identityPromptDir 加载） */
   private smallOtterIdentity = "";
 
-  // eslint-disable-next-line max-params -- F20260917cvid 加 conversationRepo 后 6 参；DI 装配参数，拆 options 对象无增益
+  // eslint-disable-next-line max-params -- 加 conversationRepo 后 6 参；DI 装配参数，拆 options 对象无增益
   constructor(
     private readonly otterRepo: OtterRepository,
     private readonly settingsRepo: SettingsRepository | undefined,
-    /** F20260917cvid: 对话仓库（可选）——读取对话标题注入「所在对话」身份段 */
+    /** 对话仓库（可选）——读取对话标题注入「所在对话」身份段 */
     private readonly conversationRepo: ConversationRepository | undefined,
     private readonly modelPool: ModelPool | undefined,
     private readonly logger: Logger,
@@ -110,7 +110,7 @@ export class IdentityBuilder {
     ].filter(Boolean).join("\n\n");
   }
 
-  /** F20260917cvid: 构建所在对话身份段。对话无标题（空串/纯空白）时返回空——
+  /** 构建所在对话身份段。对话无标题（空串/纯空白）时返回空——
    *  搭档明确「没有 summary 就不要乱填」，标题是唯一注入的对话语义。 */
   private async buildConversationIdentity(conversationId: string): Promise<string> {
     if (!this.conversationRepo || !conversationId) return '';

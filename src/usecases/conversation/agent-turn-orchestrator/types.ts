@@ -1,7 +1,7 @@
 /**
  * AgentTurnOrchestrator 类型定义
  *
- * F20260913ctlv 彻底切换：turn 生命周期从 messages 行剥离到 invokes 行。
+ * 彻底切换：turn 生命周期从 messages 行剥离到 invokes 行。
  * - TurnInput.invokeId 必填（invoke 是行动主体，messageId 退役）
  * - TurnCallbacks 全部 invoke 化（completeMessage/failMessage/... 已删除）
  */
@@ -16,7 +16,7 @@ export type ErrorWithToolCallCount = Error & {
   _toolCallCount?: number;
   _outputGuardMetadata?: { firstByteLatencyMs?: number; timeoutElapsedMs?: number; suspectedFreeze?: boolean };
   _modelAlias?: string;
-  /** F20261026ctbg：SDK 已消耗后抛错时，本次 attempt 的四分量增量。 */
+  /** SDK 已消耗后抛错时，本次 attempt 的四分量增量。 */
   _tokenUsageDelta?: InvokeResultShape["tokenUsageDelta"];
 };
 
@@ -34,7 +34,7 @@ export interface InvokeResultShape {
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number; timeoutElapsedMs?: number; suspectedFreeze?: boolean };
   /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
   directText?: string;
-  /** 末条 assistant 消息的 stopReason（F20260922wbfx：透传自 buildInvokeResult）。
+  /** 末条 assistant 消息的 stopReason（透传自 buildInvokeResult）。
    *  length=输出被 token 上限截断——no_yield 失败文案据此区分「真没 yield」与「开口即截断」 */
   lastStopReason?: string;
 }
@@ -45,14 +45,14 @@ export interface AttemptResult {
   toolCallCount: number;
 }
 
-/** 发言轮输入（F20260913ctlv：invokeId 必填——invoke 是行动主体） */
+/** 发言轮输入（invokeId 必填——invoke 是行动主体） */
 export interface TurnInput {
   otterId: string;
   conversationId: string;
-  /** F20260913ctlv：invoke ID（状态机主体。yield 工具置 completed = 成功信号） */
+  /** invoke ID（状态机主体。yield 工具置 completed = 成功信号） */
   invokeId: string;
   userMessageContent: string;
-  /** F20260818cbkr：用户原始消息。retry 会覆写 userMessageContent 为系统提醒文案，熔断摘要必须取此字段 */
+  /** 用户原始消息。retry 会覆写 userMessageContent 为系统提醒文案，熔断摘要必须取此字段 */
   originalUserMessage: string;
   senderId: string;
   retryCount: number;
@@ -61,7 +61,7 @@ export interface TurnInput {
 }
 
 /**
- * F20260818cbkr 熔断信号载荷。挂在 TurnResult 上跨层上抛——
+ * 熔断信号载荷。挂在 TurnResult 上跨层上抛——
  * executeTurn 不在循环内消费（区别于重试），
  * 由 agent-invoker 检测后执行 restartSession + 全新 invoke。
  */
@@ -74,7 +74,7 @@ export interface CircuitBreakInfo {
 }
 
 /**
- * F20260916fst4：首哑信号载荷（first-dumb）。大獭新建小獭后其首次 invoke 即
+ * 首哑信号载荷（first-dumb）。大獭新建小獭后其首次 invoke 即
  * 配额型 429 终态时挂在 TurnResult 上跨层上抛——对齐 _circuitBreak 同款跨层模式，
  * 由 agent-invoker 检测后唤醒大獭处置（restart_otter 换模型复活 / 升级搭档）。
  */
@@ -100,17 +100,17 @@ export interface FirstDumbInfo {
   failedInvokeId: string;
 }
 
-/** 发言轮结果（F20260913ctlv：invokeId 主体，messageId 退役） */
+/** 发言轮结果（invokeId 主体，messageId 退役） */
 export interface TurnResult {
   invokeId: string;
   tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   duration: number;
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
-  /** F20260818cbkr：degenerate 二次退化时携带，agent-invoker 执行熔断重启 */
+  /** degenerate 二次退化时携带，agent-invoker 执行熔断重启 */
   _circuitBreak?: CircuitBreakInfo;
-  /** F20260916fst4：首哑 429 信号，agent-invoker 唤醒大獭处置 */
+  /** 首哑 429 信号，agent-invoker 唤醒大獭处置 */
   _firstDumb?: FirstDumbInfo;
-  /** #1762：内容过滤终态，agent-invoker 换一次模型或唤醒大獭。 */
+  /** 内容过滤终态，agent-invoker 换一次模型或唤醒大獭。 */
   _contentFilter?: ContentFilterInfo;
 }
 
@@ -124,16 +124,16 @@ export interface AttemptDriver {
   getInternalAbortReason(invokeId: string): string | undefined;
   /** 检查 invoke 是否被用户中止 */
   isUserAborted(invokeId: string): boolean;
-  /** #764：invoke 最近一次 SDK auto_retry 的底层 errorMessage（429 backoff 归因通道）。
+  /** invoke 最近一次 SDK auto_retry 的底层 errorMessage（429 backoff 归因通道）。
    *  backoff 等待期间恒有值；retry 成功（auto_retry_end success=true）即清空——
    *  之后 abort 不再带 retry 归因；turn 结束兜底清理。无 retry 发生过 → undefined。 */
   getRetryErrorMessage?(invokeId: string): string | undefined;
-  /** F20260922handoff 建议1：turn 内末次 invoke 的 ctxTokens（水位状态数据源）。
+  /** 建议1：turn 内末次 invoke 的 ctxTokens（水位状态数据源）。
    *  由实现层（agent-invoker createAttemptDriver）经旁路盒填充，orchestrator 不写。 */
   readonly _lastCtxTokens?: number;
 }
 
-/** F20260818cbkr：healing 事件写入回调入参（完整实体由 invoker 层组装） */
+/** healing 事件写入回调入参（完整实体由 invoker 层组装） */
 export interface HealingEventInput {
   invokeId: string;
   conversationId: string;
@@ -145,7 +145,7 @@ export interface HealingEventInput {
   context?: Record<string, unknown>;
 }
 
-/** TurnCallbacks - orchestrator 回调 adapter 的接口（F20260913ctlv：全部 invoke 化） */
+/** TurnCallbacks - orchestrator 回调 adapter 的接口（全部 invoke 化） */
 export interface TurnCallbacks {
   /** 查询 invoke 状态（成功检测判据：status 离开 running = 已 yield） */
   getInvokeById(invokeId: string): Promise<{ status: string; toolCallCount: number; talkingStonePassedTo?: string[] | null } | null>;
@@ -155,37 +155,37 @@ export interface TurnCallbacks {
   updateInvokeTalkingStonePassedTo?(invokeId: string, targets: string[]): Promise<void>;
   /** 更新 invoke token 用量（成功路径终态快照） */
   updateInvokeTokenUsage?(invokeId: string, input: number, output: number, cacheRead?: number, cacheWrite?: number): Promise<void>;
-  /** F20260914usgm：更新 invoke model 归属（usage 面板按模型统计单次问答均值的数据源） */
+  /** 更新 invoke model 归属（usage 面板按模型统计单次问答均值的数据源） */
   updateInvokeModel?(invokeId: string, model: string): Promise<void>;
   /** 创建 invoke_end entry（fail/abort 终态条目）。返回 entry id + body（供前端实时居中条目同源渲染） */
   createInvokeEndEntry(invokeId: string, status: 'failed' | 'aborted', body?: string): Promise<{ entryId: string; body: string } | undefined>;
   /** 发送 invoke.end SSE 事件 */
   emitInvokeEnd(invokeId: string, status: 'completed' | 'failed' | 'aborted', duration: number, stats?: { toolCallCount?: number; tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number }; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }): void;
-  /** F20260818cbkr：写 healing 事件（degenerate guard 触发点数据源） */
+  /** 写 healing 事件（degenerate guard 触发点数据源） */
   recordHealingEvent(input: HealingEventInput): Promise<void>;
   /**
-   * #731：查询 otter 在滑窗内的 guard bounce 次数（errorType=guard_intercept 且 context.bounced=true，
+   * 查询 otter 在滑窗内的 guard bounce 次数（errorType=guard_intercept 且 context.bounced=true，
    * 含调用时刻刚落账的本轮）。上限判定数据源；不可用时拋错由调用方 fail-closed 升级。
    */
   getRecentGuardBounces(otterId: string, windowMs: number): Promise<number>;
   /**
-   * F20261008gduc P0-2：查询滑窗内拦截结构化事件列表（疑似误拦降级通道数据源）。
+   * P0-2：查询滑窗内拦截结构化事件列表（疑似误拦降级通道数据源）。
    * 与 getRecentGuardBounces 同 errorType 查询，但数据源是拦截结构化事件
    * （pi-session-factory 落账，context 含 ruleId/ruleLayer/commandHead）而非 bounce:true 计数事件，
    * 每条对应一轮拦截。不可用时拋错由调用方 fail-closed。
-   * PR #1360 §3.5 处置：额外归一 currentRuleLayer（宪法分层，高危层通知文案中性化用）。
+   * §3.5 处置：额外归一 currentRuleLayer（宪法分层，高危层通知文案中性化用）。
    */
   getRecentGuardBounceEvents?(otterId: string, windowMs: number, guardReason?: string): Promise<Array<{ ruleId?: string; ruleLayer?: string; commandHead?: string; currentRuleId?: string; currentRuleLayer?: string }>>;
-  /** F20260818cbkr：当前 active session 是否由熔断创建（上限判定） */
+  /** 当前 active session 是否由熔断创建（上限判定） */
   isSessionCircuitBreakCreated(otterId: string): Promise<boolean>;
-  /** F20260818cbkr：熔断是否可用。上限/二级判定依赖 healing_events 状态载体，repo 缺失时禁用并降级为旧 abort 语义 */
+  /** 熔断是否可用。上限/二级判定依赖 healing_events 状态载体，repo 缺失时禁用并降级为旧 abort 语义 */
   isCircuitBreakerEnabled(): boolean;
-  /** 发送系统消息（F20260913ctlv：只写 entries + entry.system SSE，实现方负责） */
+  /** 发送系统消息（只写 entries + entry.system SSE，实现方负责） */
   sendSystem(conversationId: string, body: string): Promise<{ id: string; body: string | null; sequenceNum: number; createdAt: string }>;
   /** 查询 otter */
   getOtterById(otterId: string): Promise<{ name: string; type?: string; color?: string | null } | null>;
   /**
-   * F20260916fst4：首哑判定数据源——查 otter 在本 conversation 的 invoke 计数。
+   * 首哑判定数据源——查 otter 在本 conversation 的 invoke 计数。
    * 当前 failed invoke 已入库（failTerminal 先于计数查询），count==1 即首次；
    * retry 走同 invoke 不增 count，天然幂等。SELECT COUNT 轻量口径（delta 复核建议 1）。
    */
@@ -210,7 +210,7 @@ export interface RouteContext {
   startTime: number;
   /** LLM 输出了直出文本但未调 speak（旁白流失检测） */
   hasOrphanText?: boolean;
-  /** F20261026ctbg：同一 invoke 已执行 attempts 的累计增量，终态统一读取。 */
+  /** 同一 invoke 已执行 attempts 的累计增量，终态统一读取。 */
   tokenUsageDelta?: TurnResult["tokenUsageDelta"];
 }
 
@@ -232,6 +232,6 @@ export interface TerminalContext {
   startTime: number;
   kind: 'user' | 'guard';
   guardReason?: string;
-  /** #752：用户中断时的底层 SDK 错误（用于中断归因） */
+  /** 用户中断时的底层 SDK 错误（用于中断归因） */
   underlyingError?: AbortUnderlyingError;
 }

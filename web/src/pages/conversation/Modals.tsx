@@ -23,7 +23,7 @@ const AVATAR_IMAGERY: Record<string, string> = {
   'otter-09-hulu': '葫芦',
 }
 
-/** 创建小獭表单提交对象（F20260827ucrt：替代三个散参数）。
+/** 创建小獭表单提交对象（替代三个散参数）。
  *  avatarName 仅用于前端 localStorage override 写入，不进 POST body */
 export interface CreateOtterFormValue {
   name: string
@@ -69,7 +69,7 @@ export function ConversationModals(props: ModalsProps) {
       {modal.type === 'archive' && <ArchiveModal {...props} />}
       {modal.type === 'create-otter' && <CreateOtterModal {...props} />}
       {modal.type === 'dissolve' && <DissolveModal {...props} />}
-      {/* F20260924uxrc：确认即转后台交接——RestartModal 只负责表单收集，
+      {/* 确认即转后台交接——RestartModal 只负责表单收集，
            submitting 交接收尾（防连点→API 返回后关弹窗）由 index.confirmRestart 落地：
            await 期间 Modal 锁死全屏 5-15s（合成前世档案）= 搭档实证「啥也干不了」。
            新语义：onConfirmRestart 触发即关弹窗 + 即时 toast，重活留在后台。 */}

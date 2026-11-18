@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * 自有项目 dev server 受控重启脚本（#844，F20260914dsrv，方案 B；#1069 补 bootstrap）。
- * F20261008hcpa（#1356 层2 疏通）：kill-by-pid 子命令——指定 PID 受控终止。
+ * 自有项目 dev server 受控重启脚本（方案 B；补 bootstrap）。
+ * （层2 疏通）：kill-by-pid 子命令——指定 PID 受控终止。
  *
  * 用途：bash 守卫生态内唯一合法的「终止自有项目 dev server / 受控进程」入口。
  *   restart-service.mjs <port> [--project /abs/path]              # 重启白名单内端口
- *   restart-service.mjs <port> --project /abs/path --add          # 声明并写回白名单，随后重启（#1069）
- *   restart-service.mjs kill-by-pid <pid> --project /abs/path     # 按 PID 受控终止（F20261008hcpa）
+ * restart-service.mjs <port> --project /abs/path --add          # 声明并写回白名单，随后重启
+ * restart-service.mjs kill-by-pid <pid> --project /abs/path     # 按 PID 受控终止
  *
  * 守卫设计契约（为什么这样写）：
  * - 本脚本的命令行形态（restart-service.mjs 3100）不含任何 kill/pkill 词元，
  *   天然不触发 bash-safety-guard——「放行」不是守卫开了口子，而是形态本身干净；
  * - 因此本脚本是全生态唯一做真杀校验的地方，必须自证目标不是 otter-buddy 主进程：
  *   ① 目标端口必须在 <otterRoot>/.otter/allowed-service-ports.json 白名单内
- *      （#1069：白名单缺失/端口未声明时可用 --project + --add 现场声明写回，
+ * （白名单缺失/端口未声明时可用 --project + --add 现场声明写回，
  *        不再硬依赖搭档手动创建——「正道死路」修复；写回后仍走 ②③ 校验）
  *   ② 解析出的每个 PID 经 lsof 校验 cwd 在声明项目目录下（或 --project 指定目录）
  *   ③ PID === 主进程 PID（.otter-buddy.pid）→ 拒绝（纵深防御，白名单本身不该含主进程端口）

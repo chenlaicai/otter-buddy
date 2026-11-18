@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { updateTurnText, extractAssistantTextFromMessageEnd, type AgentEvent } from "@frameworks/agent/agent-event-utils";
 
-/** F20260804hcob: speak 外卡片检测的接线层——缓冲按 assistant 消息维护（message_start 清零、message_end 累积） */
+/** speak 外卡片检测的接线层——缓冲按 assistant 消息维护（message_start 清零、message_end 累积） */
 describe("updateTurnText（speak 外卡片检测接线）", () => {
   const assistantTextMsg = (text: string): AgentEvent => ({
     type: "message_end",

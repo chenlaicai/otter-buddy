@@ -1,7 +1,7 @@
 /**
- * F20260825dva2: validate-commit-date.mjs 的持久化测试。
+ * validate-commit-date.mjs 的持久化测试。
  *
- * 覆盖 PR #435 处置记录中实测过的 11 用例 + DST 边界。
+ * 覆盖 处置记录中实测过的 11 用例 + DST 边界。
  * 所有用例注入固定 now 参数，避免依赖系统时钟。
  */
 import { describe, it, expect } from 'vitest';
@@ -13,8 +13,8 @@ import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.resolve(__dirname, '../../scripts/validate-commit-date.mjs');
 
-// F20260914prdb: execFileSync 换 spawnSync——成功路径（exit 0）也要能收 stderr，
-// 否则 --warn-on-drift 的警告文本无法断言（#789 定稿改名模型测试需要）
+// execFileSync 换 spawnSync——成功路径（exit 0）也要能收 stderr，
+// 否则 --warn-on-drift 的警告文本无法断言（定稿改名模型测试需要）
 function runCLI(args: string[]): { exitCode: number; stdout: string; stderr: string } {
   const r = spawnSync('node', [SCRIPT, ...args], { encoding: 'utf-8' });
   return { exitCode: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
@@ -57,8 +57,8 @@ describe('validateCommitDate', () => {
     });
 
     it('should pass when F-type ID date is 3 days before', () => {
-      // F20260913ctlv：±2 → ±7 放宽（原 ±2 系时区漂移推导，非特性周期限制——
-      // 长周期 PR 的 commit/PR 标题撞闸是设计盲区，见 F20260913ctlv 收尾）
+      // ±2 → ±7 放宽（原 ±2 系时区漂移推导，非特性周期限制——
+      // 长周期 PR 的 commit/PR 标题撞闸是设计盲区，见 收尾）
       const result = validateCommitDate('[F20260822abcd][agent][Feature Update] 测试', NOW);
       expect(result.valid).toBe(true);
       expect(result.diffDays).toBe(3);
@@ -151,7 +151,7 @@ describe('validateCommitDate', () => {
   describe('CLI --at 基准时间注入（F20260914prdb）', () => {
     // Why: CI 的 PR 标题校验改传 PR 创建时间（github.event.pull_request.created_at），
     // 必须验证 --at 参数语义：ID 日期与注入基准比对，而非与当前时间比对。
-    // 复现 #789 现场：PR 创建于 2026-09-04，标题 ID 2026-09-04，但校验运行于 2026-09-14
+    // 复现 现场：PR 创建于 2026-09-04，标题 ID 2026-09-04，但校验运行于 2026-09-14
     it('should pass when ID date matches PR creation time (10-day-old PR, #789 现场)', () => {
       const { exitCode } = runCLI([
         '--at', '2026-09-04T03:56:11Z',
@@ -193,7 +193,7 @@ describe('validateCommitDate', () => {
   describe('CLI 双基准与 --warn-on-drift（F20260914prdb 定稿改名模型）', () => {
     // 搭档决策 2026-09-14：squash 模型下 PR 标题即 main 历史，特性文档 ID ≡ PR 标题 ID；
     // PR 定稿改名（创建日→合入日）后，双基准任一通过：创建基准覆盖旧 ID，当前基准覆盖新 ID
-    // F20260922ctbf（#1098）：CLI 用例跑真实脚本（用真实当前时间），硬编码日期 = 日期炸弹——
+    // CLI 用例跑真实脚本（用真实当前时间），硬编码日期 = 日期炸弹——
     // 改为动态生成：「今天」与「10 天前」两个基准，ID 日期按场景取其一。
     const fmtId = (d: Date): string => {
       const p = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);

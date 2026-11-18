@@ -1,5 +1,5 @@
 /**
- * F20261014cwsp：resolveSessionCwd 纯函数单测（V1 验证项）。
+ * resolveSessionCwd 纯函数单测（V1 验证项）。
  *
  * 锁定语义：
  * ① 有 conversationId → data/workspaces/<conversationId>

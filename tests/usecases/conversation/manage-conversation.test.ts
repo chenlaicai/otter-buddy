@@ -1,6 +1,6 @@
 /**
  * ManageConversation 单元测试（真 sqlite）。
- * getById 是纯委托，按 F20260806tstr Part 4 标准删除。
+ * getById 是纯委托，按 Part 4 标准删除。
  * CreateOtter 保留 stub（其真实行为由 create-otter.test.ts 与能力层覆盖），
  * 但 stub 会真实写 otters 行以满足参与者 FK。
  */
@@ -51,7 +51,7 @@ describe("ManageConversation（真 sqlite）", () => {
     db.close();
   });
 
-  // F20260922cgrp：弱状态两态——completed 退役，存量只剩 active | archived
+  // 弱状态两态——completed 退役，存量只剩 active | archived
   async function seedConversation(id: string, status: "active" | "archived"): Promise<void> {
     await repo.create({
       id, title: "存量对话", status, summary: null, pinned: false, kind: "normal", workspaceDir: null,
@@ -101,7 +101,7 @@ describe("ManageConversation（真 sqlite）", () => {
     });
   });
 
-  // F20260922cgrp：弱状态两态管理——complete 链路整体退役（搭档：「没有完成一说了」），
+  // 弱状态两态管理——complete 链路整体退役（搭档：「没有完成一说了」），
   // PATCH /api/conversations/:id/complete 路由同步删除
   describe("archive", () => {
     it("active 对话 -> archived（弱状态：归档即移到独立空间）", async () => {

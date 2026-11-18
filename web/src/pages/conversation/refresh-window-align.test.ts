@@ -1,5 +1,5 @@
 /**
- * F20261009rwqa 窗口对齐单测：refreshMessages 快照不得引入已加载窗口外的历史条目。
+ * 窗口对齐单测：refreshMessages 快照不得引入已加载窗口外的历史条目。
  *
  * 背景（三轮上跳根因）：长会话首屏只装 50 条，旧版 refreshMessages 固定拉尾页 100 条，
  * 周期审计（60s）触发时 mergeMessages 以快照为主体 → 列表 50→100 暴增（sh +8817px 实测），

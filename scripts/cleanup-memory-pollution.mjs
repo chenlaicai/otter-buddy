@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * issue #509: memory 污染存量清理（一次性运维脚本）。
+ * memory 污染存量清理（一次性运维脚本）。
  *
  * 清理三类历史污染（8-26 daily-review 实证）：
  *  A. 空/纯空白 content 的条目（任何类型）

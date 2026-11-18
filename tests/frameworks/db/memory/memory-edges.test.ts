@@ -1,5 +1,5 @@
 /**
- * F20260813mren: 记忆关系层集成测试
+ * 记忆关系层集成测试
  * 覆盖：createEdge 幂等/自环、getEdgesByEntry 方向/relates-to 双向、deleteEdgesByEntryIds、
  *       CreateEdge coarse 校验、GetRelated BFS/path 结构/环安全
  */
@@ -286,7 +286,7 @@ describe("F20260813mren 审视二轮 P1-12: re-sync 边重定向", () => {
     expect(await repo.getById("dirty-old-2")).toBeNull();
     expect(await repo.getById("dirty-new")).not.toBeNull();
 
-    // 只剩一条 references 边，指向新行（第一行重定向保留，第二行按审视三轮 #2 删除防 UNIQUE 冲突）
+    // 只剩一条 references 边，指向新行（第一行重定向保留，第二行按审视三轮 删除防 UNIQUE 冲突）
     const related = await getRelated.execute({ entryId: "dirty-msg", direction: "out", edgeTypes: ["references"] });
     const hits = related.filter(r => r.entry.sourceId === "F20260817dirty");
     expect(hits).toHaveLength(1);

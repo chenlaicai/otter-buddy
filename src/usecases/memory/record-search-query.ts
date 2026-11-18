@@ -1,7 +1,7 @@
 /**
  * RecordSearchQuery：检索埋点 use case。
  *
- * F20260826rcmm Phase 0：search_memory 每次真实调用后记录
+ * Phase 0：search_memory 每次真实调用后记录
  * （查询 + top 命中 + 对话上下文快照），供评估基线标注。
  *
  * 设计约束（方案决策）：
@@ -22,7 +22,7 @@ const TOP_ENTRY_IDS_COUNT = 5;
 export class RecordSearchQuery {
   constructor(
     private readonly repo: SearchQueryLogRepository,
-    /** F20260913ctlv 收尾批3：上下文快照切 entries（时间线唯一真相源） */
+    /** 收尾批3：上下文快照切 entries（时间线唯一真相源） */
     private readonly entryRepo: EntryRepository,
     private readonly logger: Logger,
   ) {}
@@ -32,7 +32,7 @@ export class RecordSearchQuery {
    * @param callerId 发起方 Otter ID（agent 路径）；HTTP 路径传 null
    * @param beforeMessageId 上下文快照上界（不含）：触发检索的当前消息 ID。
    *        传入后快照取「查询发起前」的上下文，避免 agent 检索动作自身的发言
-   *        混入快照污染意图还原（kimi 审视发现 1）。
+   * 混入快照污染意图还原（kimi ）。
    */
   async record(input: {
     query: string;
@@ -66,7 +66,7 @@ export class RecordSearchQuery {
   }
 
   /** 取查询前最近 5 条对话条目的预览快照（标注者还原查询意图用）。
-   *  F20260913ctlv 收尾批3：数据源切 entries（speak+user 合并按 seq 倒取）。
+   * 收尾批3：数据源切 entries（speak+user 合并按 seq 倒取）。
    *  beforeMessageId 存在时以该条目为上界（不含）——快照 = 查询发起前的上下文。 */
   private async buildContextPreview(
     conversationId: string,

@@ -4,8 +4,8 @@ import { normalizeConversationInput } from "@entities/conversation/conversation"
 import type { Conversation } from "@entities/conversation/conversation";
 
 /**
- * F20260918imas / F20260920imax：助理对话 kind 标识测试。
- * F20260920imax：真相源已从 title 前缀约定改为 schema 字段 conversation.kind
+ * / 助理对话 kind 标识测试。
+ * 真相源已从 title 前缀约定改为 schema 字段 conversation.kind
  * （存量库迁移回填，见 migration.ts ensureConversationsKindColumn）；
  */
 function convFixture(overrides: Partial<Conversation> = {}): Conversation {
@@ -37,7 +37,7 @@ describe("toConversationDTO kind 标识（F20260920imax：schema 字段真相源
     expect("kind" in dto).toBe(false);
   });
 
-  // 检视发现 3 补：迁移前存量语义边界（实体层 kind 必填，缺省场景由
+  // 补：迁移前存量语义边界（实体层 kind 必填，缺省场景由
   // rowToConversation/normalizeConversationInput 归一化为 normal——DTO 侧不出现 undefined 流入）
   it("构造层归一化：缺省 kind 由 normalizeConversationInput 补 normal，DTO 不含 kind", () => {
     const normalized = normalizeConversationInput({ ...convFixture(), kind: undefined });

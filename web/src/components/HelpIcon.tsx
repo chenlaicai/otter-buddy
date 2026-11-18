@@ -8,7 +8,7 @@ import { HelpCircle } from 'lucide-react'
  *  F20260903：text 放宽为 ReactNode——健康页五维雷达的公式说明是结构化列表
  *  （逐维度公式行），纯 string 装不下；字符串用法不变，兼容全部既有调用点。
  *
- *  F20260826pfix: 气泡改 Portal + fixed 按钮坐标定位。
+ * 气泡改 Portal + fixed 按钮坐标定位。
  *  Why: 原 absolute + bottom-full 方案在 Modal 的 overflow-hidden /
  *  内容区 overflow-y-auto 双重剪裁下被截断（面板双栏每栏 ~260px，
  *  240px 气泡从栏首 ? 图标弹出必然溢出弹窗边缘，用户看不全）。
@@ -30,7 +30,7 @@ export function HelpIcon({ text }: { text: React.ReactNode }) {
   }, [open])
 
   /** 打开时计算气泡位置：按钮上方居中，视口四边 clamp（含安全边距 8px）。
-   *  F20260826pfix 审视发现4：高度不用估算值——首帧渲染后 useLayoutEffect
+   * 高度不用估算值——首帧渲染后 useLayoutEffect
    *  读实际 offsetHeight 二次 clamp，长文本气泡底部不会被视口截断 */
   useEffect(() => {
     if (!open || !ref.current) return

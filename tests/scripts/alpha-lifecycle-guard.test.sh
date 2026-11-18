@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# F20261014alps capability_test：alpha 生命周期机械闸 + sweep 全局兜底
+# capability_test：alpha 生命周期机械闸 + sweep 全局兜底
 # 验证 7 个场景（对齐特性文档 capability_test 声明）
 
 set -euo pipefail

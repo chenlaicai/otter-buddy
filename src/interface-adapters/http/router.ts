@@ -33,7 +33,7 @@ import type { ConnectorPairController } from "./controllers/connector-pair-contr
 
 
 
-/** createRouter 可选装配（统一接入 + 执行机投影；测试不传则退化为 F20261019autz 基线 + 无 auth 端点）。 */
+/** createRouter 可选装配（统一接入 + 执行机投影；测试不传则退化为 基线 + 无 auth 端点）。 */
 export interface RouterPlumbingOptions {
   auth?: {
     /** 会话校验器（session cookie → 身份），注入身份中间件。 */
@@ -43,7 +43,7 @@ export interface RouterPlumbingOptions {
   executionMachines?: {
     list: () => Array<{ id: string; name: string }>;
     currentId: () => string;
-    /** F20261118crtgr（阶段 5 PR-A）+ M2（检视）：已配对设备全量状态（含离线——
+    /** （阶段 5 PR-A）+ M2（检视）：已配对设备全量状态（含离线——
      *  人要看得见离线设备才能决定切回；缺省退化仅 local——旧装配/测试兼容） */
     deviceStatus?: () => Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
     /** 对话存在性校验（GET 404 口径对齐 PUT——不注入则不校验，测试桩兼容） */
@@ -52,10 +52,10 @@ export interface RouterPlumbingOptions {
     getConversationMachine?: (conversationId: string) => Promise<string | null>;
     /** 对话远程动作状态（执行状态展示） */
     listConversationRemoteActions?: (conversationId: string, limit?: number) => Promise<Array<{ actionId: string; deviceId: string; actionType: string; status: string; error: string | null; createdAt: string; settledAt: string | null }>>;
-    /** F20261118crtgr（阶段 5 PR-A）：对话级切换（目标校验+写列；缺省 501） */
+    /** （阶段 5 PR-A）：对话级切换（目标校验+写列；缺省 501） */
     setConversationMachine?: (conversationId: string, machineId: string | null) => Promise<{ ok: true } | { ok: false; status: 400 | 404; error: string }>;
   };
-  /** F20261117cnnct（阶段 4 C1）：connector 配对端点（码即秘密，无登录态） */
+  /** （阶段 4 C1）：connector 配对端点（码即秘密，无登录态） */
   connectorPair?: ConnectorPairController;
 }
 
@@ -63,9 +63,9 @@ export interface Controllers {
   conversation: ConversationController;
   otter: OtterController;
   message: MessageController;
-  /** F20260913ctlv Phase 4：invoke 只读查询端点（Session 弹窗数据源） */
+  /** Phase 4：invoke 只读查询端点（Session 弹窗数据源） */
   invoke: InvokeController;
-  /** F20260913ctlv 切换清扫：entries 时间线只读查询端点 */
+  /** 切换清扫：entries 时间线只读查询端点 */
   entry: EntryController;
   memory: MemoryController;
   keyInfo: KeyInfoController;
@@ -75,31 +75,31 @@ export interface Controllers {
   connection: ConnectionController;
   health: HealthController;
   rhi: RhiController;
-  /** F20261027hwl1：工作账本 + 模型效率（只读报告） */
+  /** 工作账本 + 模型效率（只读报告） */
   workLedger?: WorkLedgerController;
   /** 多模态 Phase 1：附件端点（上传 + 文件流） */
   attachment?: AttachmentController;
   /** 工作区文件浏览端点（只读） */
   workspace?: WorkspaceController;
-  /** 微信连接管理端点（issue #566） */
+  /** 微信连接管理端点 */
   weixin?: WeixinConnectionController;
-  /** F20260928fsqr：飞书扫码连接管理端点 */
+  /** 飞书扫码连接管理端点 */
   feishuScan?: FeishuConnectionController;
-  /** 通道状态聚合端点（F20260901chun：统一 IM 页 + 真实健康状态） */
+  /** 通道状态聚合端点（统一 IM 页 + 真实健康状态） */
   channel?: ChannelController;
-  /** #576（F20260901emps）：能力库真数据源端点 */
+  /** 能力库真数据源端点 */
   skills?: SkillController;
-  /** F20260929scfx：能力库全书——系统提示词分节 + 工具清单端点 */
+  /** 能力库全书——系统提示词分节 + 工具清单端点 */
   prompts?: PromptController;
-  /** F20260912avlb：活动页三域台账只读端点 */
+  /** 活动页三域台账只读端点 */
   activity: ActivityController;
-  /** F20261006mtlp P1：待办板只读端点（matters 表 open 清单） */
+  /** P1：待办板只读端点（matters 表 open 清单） */
   matter: MatterController;
-  /** F20261008csf1 P1：链类 unfurl 预览卡数据端点（og 元数据代理抓取） */
+  /** P1：链类 unfurl 预览卡数据端点（og 元数据代理抓取） */
   unfurl: UnfurlController;
-  /** F20261015mjsg：三麻将局 API（建房/入座/开局/动作/视图/复盘/SSE/恢复）——可选装配 */
+  /** 三麻将局 API（建房/入座/开局/动作/视图/复盘/SSE/恢复）——可选装配 */
   mahjong?: MahjongController;
-  /** F20261117cnnct（阶段 4 C1）：connector 配对端点（可选装配——测试不传则无此路由） */
+  /** （阶段 4 C1）：connector 配对端点（可选装配——测试不传则无此路由） */
   connectorPair?: ConnectorPairController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
@@ -125,15 +125,15 @@ function registerMsgRoutes(app: Hono, c: Controllers): void {
   app.post("/api/conversations/:id/messages", (ctx) => c.message.sendMessage(ctx));
   app.get("/api/conversations/:id/unread", (ctx) => c.message.getUnreadState(ctx));
   app.post("/api/conversations/:id/read", (ctx) => c.message.markRead(ctx));
-  // F20260913ctlv Phase 4：invoke 只读查询（Session 弹窗 + 獭状态面板）
+  // Phase 4：invoke 只读查询（Session 弹窗 + 獭状态面板）
   app.get("/api/conversations/:id/invokes", (ctx) => c.invoke.list(ctx));
   app.get("/api/invokes/:id/events", (ctx) => c.invoke.getEvents(ctx));
-  // F20260913ctlv 彻底切换：invoke 中止/重试（UI 停止与重试按钮唯一后端；messages abort/retry 退役）
+  // 彻底切换：invoke 中止/重试（UI 停止与重试按钮唯一后端；messages abort/retry 退役）
   app.post("/api/invokes/:id/abort", (ctx) => c.invoke.abort(ctx));
   app.post("/api/invokes/:id/retry", (ctx) => c.invoke.retry(ctx));
-  // F20260913ctlv test17（搭档拍板）：獭锚重试——重试的是獭的 session（上下文载体），invoke 只是执行记录
+  // test17（搭档拍板）：獭锚重试——重试的是獭的 session（上下文载体），invoke 只是执行记录
   app.post("/api/otters/:id/retry", (ctx) => c.invoke.retryByOtter(ctx));
-  // F20260913ctlv 彻底切换：entries 时间线唯一渲染数据源（messages 只读端点退役）
+  // 彻底切换：entries 时间线唯一渲染数据源（messages 只读端点退役）
   app.get("/api/conversations/:id/entries", (ctx) => c.entry.list(ctx));
 }
 
@@ -146,7 +146,7 @@ function registerOtterRoutes(app: Hono, c: Controllers): void {
   app.get("/api/otters/:id/profile", (ctx) => c.otter.getProfile(ctx));
 }
 
-/** F20260912avlb：活动页三域台账（全只读，无写端点——纯展示承诺） */
+/** 活动页三域台账（全只读，无写端点——纯展示承诺） */
 function registerActivityRoutes(app: Hono, c: Controllers): void {
   app.get("/api/activity/healing", (ctx) => c.activity.healing(ctx));
   app.get("/api/activity/signals", (ctx) => c.activity.signals(ctx));
@@ -156,11 +156,11 @@ function registerActivityRoutes(app: Hono, c: Controllers): void {
 /** RHI 面板写路径（扫描 + 处置队列 triage）——从 registerDataRoutes 拆出控语句数 */
 function registerRhiWriteRoutes(app: Hono, c: Controllers): void {
   app.post("/api/health/scan", (ctx) => c.rhi.scan(ctx));
-  // F20260917trig：面板处置队列写路径（与 agent 工具共享 repo.triage() 单一方法）
+  // 面板处置队列写路径（与 agent 工具共享 repo.triage() 单一方法）
   app.post("/api/health/signals/:id/triage", (ctx) => c.rhi.triageSignal(ctx));
 }
 
-/** F20261027cbgix：背景资产端点，与工作账本等新路由并存时保持装配函数精简。 */
+/** 背景资产端点，与工作账本等新路由并存时保持装配函数精简。 */
 function registerBackgroundRoutes(app: Hono, c: Controllers): void {
   app.get("/api/settings/background", (ctx) => c.background.get(ctx));
   app.put("/api/settings/background", (ctx) => c.background.put(ctx));
@@ -172,19 +172,19 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
 
   registerActivityRoutes(app, c);
 
-  // #576 能力库真数据 + F20260929scfx 全书三编数据源；未注入时 503，前端降级
+  // 能力库真数据 + 全书三编数据源；未注入时 503，前端降级
   if (c.skills) app.get("/api/skills", (ctx) => c.skills!.list(ctx));
   if (c.prompts) app.get("/api/prompts", (ctx) => c.prompts!.list(ctx));
-  // F20260825rweb（#402）：RHI 面板 API（与 memory 健康端点同前缀，职责分离的 controller）
+  // RHI 面板 API（与 memory 健康端点同前缀，职责分离的 controller）
   app.get("/api/health/overview", (ctx) => c.rhi.overview(ctx));
   app.get("/api/health/signals", (ctx) => c.rhi.signals(ctx));
   app.get("/api/health/chains", (ctx) => c.rhi.chains(ctx));
-  // Issue #644：链详情（commits 全类型序列——泳道时间线/复发卡数据源）
+  // 链详情（commits 全类型序列——泳道时间线/复发卡数据源）
   app.get("/api/health/chains/:featureId", (ctx) => c.rhi.chainDetail(ctx));
   app.get("/api/health/trends", (ctx) => c.rhi.trends(ctx));
   app.get("/api/health/score", (ctx) => c.rhi.score(ctx));
   app.get("/api/health/cost-output", (ctx) => c.rhi.costOutput(ctx));
-  // F20261027hwl1：工作账本（列表/详情）+ 模型效率（provider+model × 日/周/月）
+  // 工作账本（列表/详情）+ 模型效率（provider+model × 日/周/月）
   const workLedger = c.workLedger;
   if (workLedger) {
     app.get("/api/health/work-ledger", (ctx) => workLedger.workLedger(ctx));
@@ -203,10 +203,10 @@ function registerDataRoutes(app: Hono, c: Controllers): void {
 }
 
 
-/** 记忆域路由（F20261012qtbc 拆出，守 registerDataRoutes 语句数上限；行为不变） */
+/** 记忆域路由（拆出，守 registerDataRoutes 语句数上限；行为不变） */
 function registerMemoryRoutes(app: Hono, c: Controllers): void {
   app.get("/api/memory/search", (ctx) => c.memory.search(ctx));
-  // #576（F20260901emps）：记忆搜索页初始态数据源（最近记忆，非检索）
+  // 记忆搜索页初始态数据源（最近记忆，非检索）
   app.get("/api/memory/recent", (ctx) => c.memory.recent(ctx));
   app.post("/api/memory/search/similar", (ctx) => c.memory.searchSimilar(ctx));
   app.get("/api/memory/batch", (ctx) => c.memory.getDetails(ctx));
@@ -225,25 +225,25 @@ function registerScheduledTaskRoutes(app: Hono, c: Controllers): void {
   app.get("/api/scheduled-tasks/:taskId/executions", (ctx) => c.scheduledTask.listExecutions(ctx));
 }
 
-/** F20261006mtlp P1：待办板只读端点（matters 表 open 清单） */
+/** P1：待办板只读端点（matters 表 open 清单） */
 function registerMatterRoutes(app: Hono, c: Controllers): void {
   app.get("/api/conversations/:id/matters", (ctx) => c.matter.listOpenByConversation(ctx));
 }
 
-/** F20261008csf1 P1：链类 unfurl——GET /api/unfurl?url=，失败 404 前端降级普通链接 */
+/** P1：链类 unfurl——GET /api/unfurl?url=，失败 404 前端降级普通链接 */
 function registerUnfurlRoutes(app: Hono, c: Controllers): void {
   app.get("/api/unfurl", (ctx) => c.unfurl.get(ctx));
 }
 
 function registerConnectionRoutes(app: Hono, c: Controllers): void {
-  // F20261023cnct（issue #1063）：死端点下线——GET/POST /api/connections、GET :id/session、
-  // POST :id/leave 已退役（前端 PR #1055 后零调用），仅存活端点保留；usecase 方法留命令体系。
+  // 死端点下线——GET/POST /api/connections、GET :id/session、
+  // POST :id/leave 已退役（前端 后零调用），仅存活端点保留；usecase 方法留命令体系。
   app.get("/api/connections/:id", (ctx) => c.connection.getById(ctx));
   app.post("/api/connections/:id/enter", (ctx) => c.connection.enterConversation(ctx));
   app.get("/api/connections/:id/conversations", (ctx) => c.connection.listActiveConversations(ctx));
 }
 
-/** F20260805rbrg：通用 inbound 端点（按 source 分发到 use case，路由名不焊死领域） */
+/** 通用 inbound 端点（按 source 分发到 use case，路由名不焊死领域） */
 function registerInboundRoutes(app: Hono, c: Controllers): void {
   app.options('/api/inbound/events', (ctx) => c.inbound.optionsEvents(ctx));
   app.post('/api/inbound/events', (ctx) => c.inbound.receiveEvents(ctx));
@@ -260,21 +260,21 @@ function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
     app.post("/api/conversations/:id/workspace/reveal", (ctx) => c.workspace!.reveal(ctx));
   }
 
-  // 微信连接管理（issue #566）：扫码登录 + 多账号
+  // 微信连接管理：扫码登录 + 多账号
   if (c.weixin) {
     app.post("/api/weixin/login", (ctx) => c.weixin!.startLogin(ctx));
     app.get("/api/weixin/login/:id", (ctx) => c.weixin!.getLogin(ctx));
     app.post("/api/weixin/login/:id/cancel", (ctx) => c.weixin!.cancelLogin(ctx));
     app.get("/api/weixin/accounts", (ctx) => c.weixin!.listAccounts(ctx));
-    // F20260921imux：同号识别（扫码前探测已有账号，覆盖确认用）
+    // 同号识别（扫码前探测已有账号，覆盖确认用）
     app.post("/api/weixin/accounts/lookup", (ctx) => c.weixin!.lookupExistingAccount(ctx));
     app.post("/api/weixin/accounts/:id/assistant-line", (ctx) => c.weixin!.provisionAssistantLine(ctx));
-    // F20260928wxid：存量线补/改称呼（connection.metadata.userName）
+    // 存量线补/改称呼（connection.metadata.userName）
     app.patch("/api/weixin/accounts/:id/user-name", (ctx) => c.weixin!.updateUserName(ctx));
     app.delete("/api/weixin/accounts/:id", (ctx) => c.weixin!.deleteAccount(ctx));
   }
 
-  // F20260928fsqr：飞书扫码接入（registerApp 免凭证建 app；对齐微信全套语义）
+  // 飞书扫码接入（registerApp 免凭证建 app；对齐微信全套语义）
   if (c.feishuScan) {
     app.post("/api/feishu/login", (ctx) => c.feishuScan!.startLogin(ctx));
     app.get("/api/feishu/login/:id", (ctx) => c.feishuScan!.getLogin(ctx));
@@ -387,7 +387,7 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
     await next();
 
     const duration = Date.now() - start;
-    // #1322（F20261016autz）：身份中间件已在 next 链内解析——带上 userId 供访问日志审计
+    // 身份中间件已在 next 链内解析——带上 userId 供访问日志审计
     const identity = c.get('identity' as never) as Identity | undefined;
     logger.info('HTTP request completed', {
       requestId,
@@ -400,9 +400,9 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
     });
   });
 
-  /** #1322（F20261016autz）：对话域鉴权层——身份声明 + 路由策略表 + fail-closed 兑底，
+  /** 对话域鉴权层——身份声明 + 路由策略表 + fail-closed 兑底，
    *  挂在 requestId 之后、所有路由之前（一处覆盖既有与新增端点）。
-   *  阶段 2（#1868）：注入会话校验器后真实登录 cookie 优先，声明式头/query 回退。 */
+   * 阶段 2：注入会话校验器后真实登录 cookie 优先，声明式头/query 回退。 */
   app.use('*', identityMiddleware(plumbing?.auth?.verifySession));
 
   registerPlumbingRoutes(app, plumbing);
@@ -410,7 +410,7 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
   registerConvRoutes(app, ctrl);
   registerMsgRoutes(app, ctrl);
 
-  /** F20261015mjsg：三麻将局域端点（控制器注入时挂载） */
+  /** 三麻将局域端点（控制器注入时挂载） */
   if (ctrl.mahjong) registerMahjongRoutes(app, ctrl);
   registerOtterRoutes(app, ctrl);
   registerDataRoutes(app, ctrl);
@@ -420,7 +420,7 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
   registerConnectionRoutes(app, ctrl);
   registerInboundRoutes(app, ctrl);
   registerWorkspaceRoutes(app, ctrl);
-  // 通道状态聚合端点（F20260901chun：统一 IM 页 + 真实健康状态）
+  // 通道状态聚合端点（统一 IM 页 + 真实健康状态）
   if (ctrl.channel) {
     app.get("/api/channels/status", (ctx) => ctrl.channel!.getStatus(ctx));
   }
@@ -434,14 +434,14 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
   return app;
 }
 
-/** 统一接入 + 执行机投影端点（#1868 阶段 2）。拆出以守住 createRouter 行数预算。 */
+/** 统一接入 + 执行机投影端点（阶段 2）。拆出以守住 createRouter 行数预算。 */
 function registerPlumbingRoutes(app: Hono, plumbing?: RouterPlumbingOptions): void {
   // 登录/登出已在策略表置 public，session 走 authenticated。
   if (plumbing) registerAuthRoutes(app, plumbing);
 
   if (plumbing) registerExecutionMachineRoutes(app, plumbing);
 
-  // F20261117cnnct（阶段 4 C1）：connector 配对——码即秘密，不要求登录态（connector 无浏览器）
+  // （阶段 4 C1）：connector 配对——码即秘密，不要求登录态（connector 无浏览器）
   if (plumbing?.connectorPair) {
     app.post("/api/connector/pair", (ctx) => plumbing.connectorPair!.pair(ctx));
   }

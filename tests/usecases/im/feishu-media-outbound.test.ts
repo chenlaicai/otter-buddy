@@ -5,7 +5,7 @@ import type { SSEEvent } from "@contract/sse/events";
 import type { AttachmentRef } from "@entities/conversation/attachment";
 
 /**
- * #902 媒体出站恢复：飞书通道附件消费测试。
+ * 媒体出站恢复：飞书通道附件消费测试。
  *
  * 三断点之二（飞书侧）的回归锁：
  * - entry.user（事件自带 attachments）→ projectForChannel 占位投影 + replyImage 真实投递

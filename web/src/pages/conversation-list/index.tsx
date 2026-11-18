@@ -12,7 +12,7 @@ import { useConversationListPolling } from '../../hooks/use-conversation-list-po
 import * as api from '../../api/client'
 import { getSettings, ApiError } from '../../api/client'
 
-/** 新建对话弹窗的「大獭模型」下拉块（检视发现 3 抽取消重）：空列表态/常规态两处 Modal 共用。
+/** 新建对话弹窗的「大獭模型」下拉块（抽取消重）：空列表态/常规态两处 Modal 共用。
  *  models 为空（settings 未返回/加载失败）时整体不渲染——降级走服务端默认模型 */
 function BigOtterModelDropdown({ models, defaultAlias, selectedModel, onSelect }: {
   models: ModelInfoDTO[]

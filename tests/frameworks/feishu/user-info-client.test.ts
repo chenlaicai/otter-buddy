@@ -3,7 +3,7 @@ import { FeishuUserInfoClient } from "@frameworks/feishu/user-info-client";
 import type { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manager";
 
 /**
- * #490 在途请求合并（in-flight dedup）行为测试（fetch 全 mock，不出网）。
+ * 在途请求合并（in-flight dedup）行为测试（fetch 全 mock，不出网）。
  * 锁定：同 open_id 并发只发一次 API / 成功后入缓存 / 失败（业务码/网络异常）
  * 不缓存且在途表已清（下次调用重新发起）/ 不同 open_id 不互相合并 /
  * 缓存命中与空参数防御不出网。

@@ -1,5 +1,5 @@
 /**
- * F20261027hwl1 工作账本 A 类行为测试（createTestDb 全生产 schema）。
+ * 工作账本 A 类行为测试（createTestDb 全生产 schema）。
  *
  * 覆盖（任务简报执行要求 5）：
  * - 同 conversation 多工作不混（trace 绑定是唯一归属键）

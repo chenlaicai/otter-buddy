@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { WeixinConnectionController } from "@interface-adapters/http/controllers/weixin-connection-controller";
 
-/** F20260921imux：账号列表助理线投影 + 同号识别端点测试（先名后码流程的后端支撑） */
+/** 账号列表助理线投影 + 同号识别端点测试（先名后码流程的后端支撑） */
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   const accounts = (overrides.accounts as Array<Record<string, unknown>>) ?? [

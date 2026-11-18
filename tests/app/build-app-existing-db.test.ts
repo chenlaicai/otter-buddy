@@ -1,26 +1,26 @@
 /**
- * F20261009smex: 存量库形态冒烟测试（#1390 事故防线 A）。
- * lint-tests:allow-ddl——存量库快照需手写 DDL 回退 healing_events 到 #1365 前形态
+ * 存量库形态冒烟测试（事故防线 A）。
+ * lint-tests:allow-ddl——存量库快照需手写 DDL 回退 healing_events 到 前形态
  * （删掉 bound_issue/bound_at 重建 14 列旧表），被测对象就是「旧 schema → 新 schema」
  * 的补列迁移本身，与 migration.test.ts 同类场景。
  *
- * 背景（第二次 P0 启动事故，#1390 复盘）：
+ * 背景（第二次 P0 启动事故，复盘）：
  *   build-app.test.ts 用 fs.mkdtempSync 空目录 + 全新 sqlite——只证明「新库能起」。
- *   而线上 100% 是存量库（升级场景），#1365 的索引抢跑在全新库上永远绿、
+ * 而线上 100% 是存量库（升级场景），的索引抢跑在全新库上永远绿、
  *   在存量库上必炸。防线与线上形态错位，两次事故同一模式。
  *
- *   F20260929boot 文档预言过这个洞：「若未来出现编译过但启动挂的新模式
+ * 文档预言过这个洞：「若未来出现编译过但启动挂的新模式
  *   （如 DB migration 回归），冒烟测试应扩展覆盖」——本次兑现预言。
  *
  * 设计：
  *   先跑 initSchema 建全新库（保证所有表/索引/列与生产 schema 一致），
- *   再删掉 healing_events 的补列（bound_issue/bound_at）回退到 #1365 前形态，
+ * 再删掉 healing_events 的补列（bound_issue/bound_at）回退到 前形态，
  *   最后跑 initDatabaseAndModels 完整启动路径（initSchema + migrateDatabase），
  *   验证「旧 schema → 新 schema」补列 + 建索引后系统能完成 DB 启动层装配。
  *
  *   为什么不用「最小快照」：最小快照只建 conversations + healing_events，
  *   但 initSchema 的 CREATE INDEX idx_conversations_status ON conversations(status)
- *   要求 status 列存在——最小快照缺列即炸，与 #1365 同型问题（快照本身成了事故源）。
+ * 要求 status 列存在——最小快照缺列即炸，与 同型问题（快照本身成了事故源）。
  *   「全新库建全 → 定向回退」保证快照是真实存量库形态，非人工拼凑。
  *
  * 与 tests/frameworks/db/schema.test.ts 的分工：
@@ -44,7 +44,7 @@ const STUB_WORKER = `
 process.send({ type: "error", error: "test stub worker", id: -1 });
 `;
 
-/** 预置存量库：先跑 initSchema 建全新库，再删掉 healing_events 的补列回退到 #1365 前形态。 */
+/** 预置存量库：先跑 initSchema 建全新库，再删掉 healing_events 的补列回退到 前形态。 */
 function seedExistingDb(dbPath: string): void {
   const db = new Database(dbPath);
   db.pragma("foreign_keys = ON");
@@ -52,7 +52,7 @@ function seedExistingDb(dbPath: string): void {
   // 第一步：initSchema 建全新库（所有表/索引/列与生产 schema 一致）
   initSchema(db);
 
-  // 第二步：回退 healing_events 到 #1365 前形态（删掉 bound_issue/bound_at，重建 14 列旧表）
+  // 第二步：回退 healing_events 到 前形态（删掉 bound_issue/bound_at，重建 14 列旧表）
   // SQLite 不支持 DROP COLUMN（3.35 前），用表重建：建新表 → 拷贝 → 删旧 → 重命名
   db.exec(`
     CREATE TABLE healing_events_pre1365 (
@@ -89,7 +89,7 @@ describe("buildApp 存量库形态启动（#1390 防线 A）", () => {
     fs.mkdirSync(docsRoot, { recursive: true });
     fs.writeFileSync(path.join(tmpDir, "stub-worker.cjs"), STUB_WORKER);
 
-    // 预置存量库：#1365 前形态（healing_events 14 列，无 bound_issue/bound_at）
+    // 预置存量库：前形态（healing_events 14 列，无 bound_issue/bound_at）
     const dbPath = path.join(tmpDir, "existing.db");
     seedExistingDb(dbPath);
 

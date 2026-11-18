@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { HelpCircle } from 'lucide-react'
 
 /**
- * F20260831mmwh：输入框旁 Magic Word 问号弹层。
+ * 输入框旁 Magic Word 问号弹层。
  * 点击「?」图标显示 magic word 词表浮层，再点击或点外部关闭。
  *
  * 词表数据硬编码（2 词，与 .pi/SYSTEM.md Magic Words 段同步维护）。

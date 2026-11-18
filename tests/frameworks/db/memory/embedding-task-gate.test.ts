@@ -1,5 +1,5 @@
 /**
- * F20261026emct：embedding 队列垃圾出清单测。
+ * embedding 队列垃圾出清单测。
  *
  * 覆盖：
  * - enqueueRetry 前置校验：entry 不存在 / content 空白 → no-op 不入队；

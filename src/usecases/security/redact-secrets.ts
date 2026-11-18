@@ -1,5 +1,5 @@
 /**
- * F20260821scrt: secrets 写入前脱敏（PR-3 / issue #366 #2）。
+ * secrets 写入前脱敏（PR-3 / ）。
  *
  * LLM 可写持久层（memory_entries / otter_context / linked_resources /
  * otter_sessions.summary / memory_edges）的统一 redaction 纯函数。
@@ -8,7 +8,7 @@
  *
  * 模式集刻意保守（已知前缀 + 带标签赋值），避免误伤正常文本；
  * 覆盖面是"明文密钥不再入库"，不是全量 PII 清洗。
- * 已知边界（对抗审视 F20260821scrt 记录）：换行切断的 key、二次编码
+ * 已知边界（对抗审视 记录）：换行切断的 key、二次编码
  * （整体 base64/URL 编码/HTML 实体）不覆盖——regex 追不完，属声明边界。
  */
 
@@ -52,7 +52,7 @@ const KNOWN_SECRET_PATTERNS: RegExp[] = [
  * 带标签的赋值（宽松阈值 8+）：密码类标签。真实密码大量在 8-15 位，
  * 只有密码类降阈值，其余标签保持 16+ 防误伤。
  * 支持全角/半角引号与全角/半角冒号（中文用户混用普遍）。
- * 标签允许 `X_password` / `X-password` 形前缀（二轮审视#2：词表外复合标签漏检）；
+ * 标签允许 `X_password` / `X-password` 形前缀（二轮审视词表外复合标签漏检）；
  * 前缀与词根之间必须有 `_`/`-` 分隔，故 `csrftoken`/`pretoken` 这类无分隔
  * 粘合词不命中；左侧 lookbehind 防止从粘合词中间起配。
  */
@@ -67,7 +67,7 @@ const LABELED_SECRET_PATTERN =
   /((?:(?<![A-Za-z0-9_-])(?:[A-Za-z0-9]+[_-])?(?:api[_-]?key|apikey|app[_-]?secret|client[_-]?secret|account[_-]?key|private[_-]?key|access[_-]?token|refresh[_-]?token|secret|token|credential)|访问令牌|密钥|秘钥|私钥|令牌|凭据)\s*[：:=]\s*)(["'\u201c\u2018]?)([A-Za-z0-9+/=_.-]{16,})/gi;
 
 /**
- * 环境变量引用不是密钥值（二轮审视#3 误报：`apiKey: process.env.OPENAI_API_KEY`
+ * 环境变量引用不是密钥值（二轮审视误报：`apiKey: process.env.OPENAI_API_KEY`
  * 被吞）。值命中以下形态时跳过脱敏。
  */
 const ENV_REFERENCE_PATTERN = /process\.env\.|os\.environ|\$\{/;

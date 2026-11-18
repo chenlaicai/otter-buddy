@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
 
-/** 登录会话管理端口（issue #566）：实现往 frameworks/weixin/login-session-manager，
+/** 登录会话管理端口：实现往 frameworks/weixin/login-session-manager，
  * controller 依赖接口而非实现，避免 interface-adapters → frameworks 分层违规 */
 export interface WeixinLoginSessionPort {
   start(): {
@@ -44,16 +44,16 @@ export interface WeixinAccountStorePort {
 }
 
 /**
- * 微信连接管理 HTTP 端点（issue #566）。
+ * 微信连接管理 HTTP 端点。
  *
  * POST /api/weixin/login          — 发起扫码登录会话
  * GET  /api/weixin/login/:id      — 轮询登录状态（前端 2s 间隔）
  * POST /api/weixin/login/:id/cancel — 取消登录会话
- * GET  /api/weixin/accounts       — 已登录账号列表（token 脱敏；F20260921imux：含 assistantLine 投影）
+ * GET  /api/weixin/accounts       — 已登录账号列表（token 脱敏；含 assistantLine 投影）
  * DELETE /api/weixin/accounts/:id — 删除账号（停轮询+释放绑定，回调链处理）
  */
-/** F20260928wxid：userName 校验（可空 0-60 字符）——provision/PATCH 两端点共用；非法返回 null。
- * F20261113wxplo：控制字符（含换行）strip——否则污染注入历史行结构。 */
+/** userName 校验（可空 0-60 字符）——provision/PATCH 两端点共用；非法返回 null。
+ * 控制字符（含换行）strip——否则污染注入历史行结构。 */
 function parseUserName(raw: unknown): string | null | undefined {
   if (raw === undefined) return undefined; // 未传字段
   if (typeof raw !== "string") return null; // 非法
@@ -70,17 +70,17 @@ export class WeixinConnectionController {
     private readonly deps: {
       loginSessions: WeixinLoginSessionPort;
       accountStore: WeixinAccountStorePort;
-      /** 账号删除后回调（停轮询、释放绑定等清理；调用方注入）。F20260921wxba：
+      /** 账号删除后回调（停轮询、释放绑定等清理；调用方注入）。
        *  实现含 DB 释放已 async——签名允许 Promise，deleteAccount 端 await 后再回包 */
       onAccountDeleted?: (accountId: string) => void | Promise<void>;
-      /** F20260920imax：扫码后按名开助理线（必填名；app.ts 闭包注入，未注入时端点 503） */
+      /** 扫码后按名开助理线（必填名；app.ts 闭包注入，未注入时端点 503） */
       provisionAssistantLine?: (accountId: string, name: string, userName?: string) => Promise<{ conversationId: string; title: string }>;
-      /** F20260921imux：连接仓库（listAccounts 投影助理线：账号→活跃对话绑定）。
+      /** 连接仓库（listAccounts 投影助理线：账号→活跃对话绑定）。
       *  可选注入——未注入时列表不带 assistantLine 字段（向后兼容） */
       connectionRepo?: {
         getByExternalId(externalId: string): Promise<{ id: string; metadata?: Record<string, unknown> | null } | null>;
         getActiveSession(connectionId: string): Promise<{ conversationId: string } | null>;
-        /** F20260928wxid：存量线补/改称呼（PATCH /accounts/:id/user-name） */
+        /** 存量线补/改称呼（PATCH /accounts/:id/user-name） */
         mergeMetadata(id: string, patch: Record<string, unknown>): Promise<void>;
       };
       logger: Logger;
@@ -117,8 +117,8 @@ export class WeixinConnectionController {
   }
 
   /**
-   * F20260920imax：微信扫码后按名开助理线（登录成功即建，名字必填）。
-   * F20260928wxid：body 增可选 userName（扫码人称呼）——存 connection.metadata.userName，
+   * 微信扫码后按名开助理线（登录成功即建，名字必填）。
+   * body 增可选 userName（扫码人称呼）——存 connection.metadata.userName，
    * 入站消息据此填 senderName（微信无查名 API，自报是唯一解；可空维持现状）。
    * POST /api/weixin/accounts/:id/assistant-line  body: { name: string, userName?: string }
    * 幂等：已有 active 绑定则返回当前对话（不重复建；userName 每次调用覆盖更新）。
@@ -139,7 +139,7 @@ export class WeixinConnectionController {
         return c.json({ error: "userName 若填须为 0-60 字符" }, 400);
       }
       const result = await this.deps.provisionAssistantLine!(accountId, name.trim());
-      // F20260928wxid：称呼写 metadata（不走 app 闭包，与本端点对称；检视建议 2：写失败仅降级
+      // 称呼写 metadata（不走 app 闭包，与本端点对称；写失败仅降级
       //  warn 不 500——建线已成功，称呼不生效可后续 PATCH 补，与 app.ts 出站锚同策略）
       try {
         await this.writeUserNameMetadata(accountId, un);
@@ -154,7 +154,7 @@ export class WeixinConnectionController {
 
   async listAccounts(c: Context): Promise<Response> {
     try {
-      // F20260921imux：并行投影助理线（externalId=accountId 查 connection，取 active 绑定）——
+      // 并行投影助理线（externalId=accountId 查 connection，取 active 绑定）——
       // 前端账号↔对话映射的真相源，取代此前前端 title.includes(acc.id) 启发式（增量三后必 miss）
       const accounts = this.deps.accountStore.listAccounts();
       const connectionRepo = this.deps.connectionRepo;
@@ -171,7 +171,7 @@ export class WeixinConnectionController {
                 // token 不出网（脱敏——bot_token 是长效凭证）
                 hasToken: Boolean(a.token),
                 ...(session && { assistantLine: { conversationId: session.conversationId } }),
-                // F20260928wxid：扫码人自报称呼投影（connection.metadata.userName；存量线无则 undefined）
+                // 扫码人自报称呼投影（connection.metadata.userName；存量线无则 undefined）
                 ...(typeof conn?.metadata?.userName === "string" && conn.metadata.userName.trim() && { userName: conn.metadata.userName.trim() }),
               };
             }),
@@ -189,7 +189,7 @@ export class WeixinConnectionController {
     }
   }
 
-  /** F20260928wxid：称呼落 metadata（provision/PATCH 共用；未建线/未注入 repo 时静默跳过） */
+  /** 称呼落 metadata（provision/PATCH 共用；未建线/未注入 repo 时静默跳过） */
   private async writeUserNameMetadata(accountId: string, userName: string | undefined): Promise<void> {
     const un = userName?.trim();
     if (!un || !this.deps.connectionRepo) return;
@@ -198,7 +198,7 @@ export class WeixinConnectionController {
   }
 
   /**
-   * F20260928wxid：存量线补/改称呼。PATCH /api/weixin/accounts/:id/user-name  body: { userName?: string }
+   * 存量线补/改称呼。PATCH /api/weixin/accounts/:id/user-name  body: { userName?: string }
    * 空 userName = 清除称呼（维持裸 ID）。写 connection.metadata.userName，下次入站消息生效。
    */
   async updateUserName(c: Context): Promise<Response> {
@@ -228,7 +228,7 @@ export class WeixinConnectionController {
     }
   }
 
-  /** F20260921imux：同号识别（扫码前探测）——按 ilinkUserId（微信侧稳定身份）查已有账号。
+  /** 同号识别（扫码前探测）——按 ilinkUserId（微信侧稳定身份）查已有账号。
    *  前端用途：扫码前已知同名号将覆盖；扫码后得知实际冲突账号。
    *  POST body { ilinkUserId } → { account?: { id, assistantLine? } } */
   async lookupExistingAccount(c: Context): Promise<Response> {

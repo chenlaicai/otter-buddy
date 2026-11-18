@@ -62,8 +62,8 @@ function rowToEntry(row: EntryRow): Entry {
   };
 }
 
-/** F20260921otcl：批量填充 entries 的发送者身份（读路径 join otters，不入库）。
- *  F20261021sprx：同批带出 type，名册外历史发言不再靠名册猜 small。 */
+/** 批量填充 entries 的发送者身份（读路径 join otters，不入库）。
+ * 同批带出 type，名册外历史发言不再靠名册猜 small。 */
 async function attachSenderIdentity(db: Database.Database, entries: Entry[]): Promise<void> {
   const otterIds = [...new Set(entries.filter(e => e.senderType === "otter" && e.senderId).map(e => e.senderId as string))];
   if (otterIds.length === 0) return;

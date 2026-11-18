@@ -1,5 +1,5 @@
 /**
- * F20261008mrrk Phase 0：golden 评测 runner + 回归地板（合成种子集基线）。
+ * Phase 0：golden 评测 runner + 回归地板（合成种子集基线）。
  *
  * 跑真实检索全链路：FTS5(jieba) → 预聚合 → RRF 融合 → rerank 五信号（SearchMemory.execute
  * 完整路径，非只测 rerank）。Vec 路径口径与现有 search 测试一致：mock EmbeddingGateway
@@ -40,7 +40,7 @@ const PROD_MEMORY_CONFIG = {
   weightHalfLifeDaysDocument: 90,
   userFlagMultiplier: 2,
   frequencyBoostFactor: 0.1,
-  // F20261112rnkph Phase 1 段 1：默认 multiply 零行为变更；加法系数按设计回填（段 1 不切默认）
+  // Phase 1 段 1：默认 multiply 零行为变更；加法系数按设计回填（段 1 不切默认）
   rerankMode: "multiply" as const,
   rerank: {
     wRrf: 0.6,
@@ -54,7 +54,7 @@ const PROD_MEMORY_CONFIG = {
 
 /** 首跑锁定基线（v2 扩充后重录，2026-10-08，本地 3 次复跑完全一致）。
  *  地板取首跑值向下取整 3 位小数（吸收浮点末位，语义仍是「不许变差」）。
- *  ⚠️ 地板灵敏度声明（检视发现 2）：本种子集上 rerank 五信号对指标是净负贡献
+ * ⚠️ 地板灵敏度声明：本种子集上 rerank 五信号对指标是净负贡献
  *  （全信号中性化反事实：nDCG@5 0.7998 > 基线 0.6732）——地板只能拦「变差」，
  *  不能证明「变好」；Phase 1 改 rerank 的 PR 绿灯必须附逐信号前后对比，禁单看
  *  地板（见特性文档 Phase 0 实现记录「反事实与地板灵敏度」节）。
@@ -67,7 +67,7 @@ export const BASELINE = {
 } as const;
 
 function mockEmbeddingGateway(): EmbeddingGateway {
-  // F20261008mrrk 检视处置：现有 search 测试同口径的 mock——真实降级机制是
+  // 检视处置：现有 search 测试同口径的 mock——真实降级机制是
   // searchVec 内 embed() 抛异常被 catch（search-memory.ts searchVec），available
   // 字段在 search 路径不被读（仅 bootstrap/健康检查消费）。这里 embed() 抛异常
   // 即复现真实降级分支（FTS-only）。

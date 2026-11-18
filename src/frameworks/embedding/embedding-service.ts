@@ -1,10 +1,10 @@
-/* eslint-disable max-lines -- F20261026emct 闸门接入后 467 行（限 450，skipBlank/Comments 后实际逻辑未超），拆文件另开 PR（F20261020slvg 已拆过 protocol） */
+/* eslint-disable max-lines -- 闸门接入后 467 行（限 450，skipBlank/Comments 后实际逻辑未超），拆文件另开 PR（已拆过 protocol） */
 /**
  * Embedding 服务主线程：通过 child_process.fork 调用 bge-m3 模型子进程。
  * 实现 EmbeddingGateway 接口，dispose() 通过工厂返回值暴露。
  *
- * F20261015kill：worker_threads → child_process 进程隔离。
- * 根因（2026-10-15 21:22 进程 abort 实锤）：F20261015selfheal 的
+ * worker_threads → child_process 进程隔离。
+ * 根因（2026-10-15 21:22 进程 abort 实锤）：的
  * oldWorker.terminate() 拆 isolate 时，onnxruntime InferenceSession
  * 方法回调抛 Napi::Error，ThrowAsJavaScriptException 在 teardown 路径
  * 退化成 C++ 异常 → std::terminate → 打死整个主进程。
@@ -27,10 +27,10 @@ import { EmbedTimeoutError, EmbedBackpressureError, EmbedTransientError, EmbedSl
 import type { Logger } from "@usecases/ports/logger";
 
 
-/** F20261015selfheal：worker 工厂——timeout 自愈重建 worker 时需要重新 spawn，注入以保测试可 mock */
+/** worker 工厂——timeout 自愈重建 worker 时需要重新 spawn，注入以保测试可 mock */
 export type WorkerFactory = () => ChildProcess;
 
-// F20261020slvg：IPC 协议与 pending 簿记类型拆到 embedding-protocol.ts（压文件行数上限）
+// IPC 协议与 pending 簿记类型拆到 embedding-protocol.ts（压文件行数上限）
 import type {
   EmbedRequest,
   EmbedBatchRequest,
@@ -52,27 +52,27 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private readonly pendingBatchRequests = new Map<number, PendingBatchRequest>();
   /**
-   * F20261013ebps→F20261109epqst：等待空槽的 waiter 队列（waitSlot 挂起在此，出队释放时
-   * 优先级唤醒）。F20261109epqst 后唯一合法挂入方是实时短通道（live 消息 fireAndForget）
+   * 等待空槽的 waiter 队列（waitSlot 挂起在此，出队释放时
+   * 优先级唤醒）。后唯一合法挂入方是实时短通道（live 消息 fireAndForget）
    * 与 retry worker 批次——每次挂入都带超时上界，后台长队已改为 DB 落库（不进 RAM）。
-   * F20261105embqg S2a： waiter 携带优先级——releaseSlot 唤醒最高优先级（数值最小）
+   * waiter 携带优先级——releaseSlot 唤醒最高优先级（数值最小）
    * 而非 FIFO。积压泄洪期间 bulk chunk 批在排队时，live 消息 embed 可插队，
    * 活消息入库延迟从 retry tick 周期（最差 1h）降到单批时长（~14s 量级）。
    */
   private readonly slotWaiters: Array<{ priority: number; resolve: () => void; timer?: ReturnType<typeof setTimeout>; expired?: boolean }> = [];
   private readonly readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
-  /** F20260811mrpy Part 3：worker ready 时缓存的模型元信息 */
+  /** Part 3：worker ready 时缓存的模型元信息 */
   private cachedMeta: EmbedModelMeta | null = null;
   private requestId = 0;
-  /** 单次 embed 请求超时（ms）。超时后触发 FTS5-only 降级（#306） */
+  /** 单次 embed 请求超时（ms）。超时后触发 FTS5-only 降级 */
   private static readonly EMBED_TIMEOUT_MS = 30_000;
   /**
-   * F20261013ebps：in-flight 上限——pendingRequests 满时新 embed 直接 reject，
+   * in-flight 上限——pendingRequests 满时新 embed 直接 reject，
    * 不 send 到 worker（防 document sync 等批量场景瞬间打满 worker 消息队列，
-   * 后续请求全部排队超时——#1453 实证：3269 条 chunk embed 淹没 worker，27min 排不完）。
+   * 后续请求全部排队超时——实证：3269 条 chunk embed 淹没 worker，27min 排不完）。
    * 超出上限的请求由调用方 catch 后入 retry 队列，不丢失。
    *
-   * F20261015selfheal 治本：50 → 1（worker 内严格串行）。
+   * 治本：50 → 1（worker 内严格串行）。
    * 根因实验定论（/tmp/repro-long-text.mjs 对照矩阵）：onnxruntime 1.23.2 ThreadPool
    * 嵌套 parallel section 在长文本（>1500 token）× 并发 >1 时必然 lost-wakeup 死锁——
    * 并发=1 全过（30 次）、并发=2 第 8 条卡死、并发=4 第 6 条、并发=16 第 4 条。
@@ -93,11 +93,11 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private static testTimeoutOverride: number | null = null;
   /** 测试用覆盖 in-flight 上限 */
   private static testMaxInFlightOverride: number | null = null;
-  /** F20261026emct：测试用分片预算覆盖（避免测试依赖环境变量） */
+  /** 测试用分片预算覆盖（避免测试依赖环境变量） */
   private static testBatchTokenBudgetOverride: number | null = null;
   /**
-   * F20261020slvg：无进展看门狗——「死」的定义从「墙钟超预算」（超时自杀，#1493 误杀；
-   * 慢≠死闭锁，#1521 活锁）改为「lane 占用且 worker 无任何响应」。
+   * 无进展看门狗——「死」的定义从「墙钟超预算」（超时自杀，误杀；
+   * 慢≠死闭锁，活锁）改为「lane 占用且 worker 无任何响应」。
    * 慢 batch（健康但 100-200s）持续有响应 → 不杀；真死锁（SpinPause 永不返回）→ 无响应 → 必触发。
    *
    * backfill 逐条 progress 刷新活动；live 墙钟死线与看门狗相互独立，不再要求阈值大于批死线。
@@ -126,13 +126,13 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private healingReporter: ((failure: EmbeddingLaneFailure) => void) | null = null;
 
   /**
-   * F20261015selfheal：embed 超时自愈——onnxruntime 1.23.2 在 Intel x86 mac 上存在偶发
-   * ThreadPool lost-wakeup 竞态（#1453/#1460 实证：worker 推理卡死永不返回，主线程超时后
+   * embed 超时自愈——onnxruntime 1.23.2 在 Intel x86 mac 上存在偶发
+   * ThreadPool lost-wakeup 竞态（/实证：worker 推理卡死永不返回，主线程超时后
    * 只清 pending，已 send 的消息堆积在假死 worker 队列造成 ~1GB/h 泄漏）。
    * 应用层无法修复原生竞态，唯一可行的恢复手段是杀掉假死进程销毁其 ThreadPool
    * 上下文后重建。熔断防风暴：窗口内重启次数超限则降级（available=false），避免无限重建。
    *
-   * F20261015kill：恢复手段从 worker.terminate() 改为 child.kill('SIGKILL')——
+   * 恢复手段从 worker.terminate() 改为 child.kill('SIGKILL')——
    * terminate 拆 isolate 触发 Napi::Error 未捕获 C++ 异常 abort 主进程。
    */
   private static readonly RESTART_WINDOW_MS = 300_000; // 5min
@@ -142,21 +142,21 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   private circuitBroken = false;
 
   /**
-   * F20261015kill：worker 代际号——重建时递增，旧 worker 的事件回调因代际不匹配被丢弃，
+   * worker 代际号——重建时递增，旧 worker 的事件回调因代际不匹配被丢弃，
    * 防止 kill/exit 滞后事件污染新一代 readyState（原 handleWorkerExit 会把
    * ready 打回 false + rejectAllPending，把刚 ready 的新 worker 一并打死）。
    */
   private workerGeneration = 0;
 
   /**
-   * F20261015selfheal 观测增强（搭档要求：不能把锅推给「生产环境无法复现」，
+   * 观测增强（搭档要求：不能把锅推给「生产环境无法复现」，
    * 下次卡死必须拿到真实现场数据作线索）。worker 生命画像：
    * 跟踪本代 worker 的存活期指标，重启时连同宿主环境快照一起落结构化日志。
    */
   private workerBornAt = Date.now();
   private workerEmbedSucceeded = 0; // 本代 worker 成功 embed 次数（单条+batch 按请求计）
-  private workerEmbedTimeouts = 0; // 本代 worker embed 超时次数（#1493：原名 attempted 只计超时，名实不符）
-  /** F20261020slvg：本代 worker 晚到结果被 salvage 的次数（原先是静默丢弃，不可观测） */
+  private workerEmbedTimeouts = 0; // 本代 worker embed 超时次数（原名 attempted 只计超时，名实不符）
+  /** 本代 worker 晚到结果被 salvage 的次数（原先是静默丢弃，不可观测） */
   private workerSalvagedResults = 0;
   /** 最近一次触发超时的请求画像（定位「是否特定文本模式触发嵌套算子」） */
   private lastTimeoutContext: Record<string, unknown> | null = null;
@@ -190,7 +190,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 
   /**
-   * F20261109epqst：RAM 侧在飞/等待深度快照（可观测性——验收不变量 ③有界性）。
+   * RAM 侧在飞/等待深度快照（可观测性——验收不变量 ③有界性）。
    * 后台任务统一落库后，这里应只剩实时短通道的有限在飞；
    * 若 pendingWaiters 持续增长即说明有调用方在堆 RAM 长队（回归信号）。
    */
@@ -227,7 +227,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 
   private setupHandlers(): void {
-    // F20261015kill：捕获当前代际，旧 worker 滞后事件直接丢弃
+    // 捕获当前代际，旧 worker 滞后事件直接丢弃
     const generation = this.workerGeneration;
     this.worker.on("message", (msg: EmbedResponse) => {
       if (generation !== this.workerGeneration) return;
@@ -244,8 +244,8 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
   }
 
   /**
-   * F20261020slvg：无进展看门狗——「死」的判定入口，取代两代失败方案
-   * （#1493 超时自杀误杀慢 worker；#1521 慢≠死把活锁逃生通道闭锁）。
+   * 无进展看门狗——「死」的判定入口，取代两代失败方案
+   * （超时自杀误杀慢 worker；慢≠死把活锁逃生通道闭锁）。
    * 判据与墙钟超时解耦：lane 有 outstanding 且 worker 超过阈值无任何响应。
    * 慢而健康（响应持续到达）永不触发；真死锁（SpinPause 永不返回）必触发。
    */

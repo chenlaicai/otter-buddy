@@ -6,13 +6,13 @@ import { SessionModal } from './SessionModal'
 import type { LocalOtter } from '../../lib/mappers'
 import * as api from '../../api/client'
 
-/** F20260914evdz：实时通道 mock（buffer + listeners，空实现） */
+/** 实时通道 mock（buffer + listeners，空实现） */
 import type { SessionLiveItem } from './SessionModal'
 const liveEvents = { current: [] as SessionLiveItem[] }
 const liveListeners = { current: new Set<(e: SessionLiveItem) => void>() }
 
-/** F20260914rtsp：Session 弹窗升级（自动展开 + 折叠视图）测试。
- *  F20260918sesp：主从双栏重构——自动选中（running 优先）+ 左栏索引/右栏事件流分栏 +
+/** Session 弹窗升级（自动展开 + 折叠视图）测试。
+ * 主从双栏重构——自动选中（running 优先）+ 左栏索引/右栏事件流分栏 +
  *  user_injection 步（steer 可见）验证。 */
 
 vi.mock('../../api/client', () => ({
@@ -43,7 +43,7 @@ describe('SessionModal（F20260918sesp 主从双栏）', () => {
       ],
       hasMore: false,
     })
-    // speak 事件吸收同名 start（真实落库形态）——F20260918sesp：user_injection 首条为触发 prompt
+    // speak 事件吸收同名 start（真实落库形态）——user_injection 首条为触发 prompt
     vi.mocked(api.getInvokeEvents).mockResolvedValue({
       invoke: {} as never,
       events: [
@@ -66,7 +66,7 @@ describe('SessionModal（F20260918sesp 主从双栏）', () => {
       expect(callSteps).toHaveLength(1)
       expect(callSteps[0].textContent).toContain('read')
     })
-    // user_injection 步渲染（F20260918sesp：触发 prompt 可见）
+    // user_injection 步渲染（触发 prompt 可见）
     expect(screen.getByTestId('folded-user-step').textContent).toContain('排查一下这个问题')
     expect(screen.getByText('发言', { exact: true })).toBeTruthy()
     expect(screen.getByText('排查完成')).toBeTruthy()

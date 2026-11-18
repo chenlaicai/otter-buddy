@@ -1,4 +1,4 @@
-/** 模型内容过滤终态识别与恢复文案（#1762）。 */
+/** 模型内容过滤终态识别与恢复文案。 */
 
 /** 仅匹配 provider/runtime 的错误文本，不扫描用户内容。 */
 export function isContentFilterError(errorMessage: string): boolean {

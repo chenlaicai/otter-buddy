@@ -1,5 +1,5 @@
 /**
- * #1107 最小复现脚本：验证 session_options.intraOpNumThreads 是否生效。
+ * 最小复现脚本：验证 session_options.intraOpNumThreads 是否生效。
  *
  * 用法：
  *   node scripts/verify-onnx-threads.mjs            # 不传 session_options（修复前行为）

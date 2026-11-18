@@ -3,7 +3,7 @@
  *
  * 协议来源：@tencent-weixin/openclaw-weixin@2.4.6 源码审计（MIT）+
  * 该包 README「后端 API 协议」节公开文档（2026-08-28 审计，见工作区
- * openclaw-weixin-protocol-notes.md / issue #564）。
+ * openclaw-weixin-protocol-notes.md / ）。
  * 网关 https://ilinkai.weixin.qq.com，接口前缀 ilink/bot/。
  */
 
@@ -13,7 +13,7 @@ export interface WeixinConfig {
   baseUrl?: string;
   /** 账号/游标持久化目录（默认 ./data/weixin） */
   stateDir?: string;
-  /** 搭档（本实例主人）的微信 ilink_user_id——命令门禁锚定（F20260826fpbd 同语义） */
+  /** 搭档（本实例主人）的微信 ilink_user_id——命令门禁锚定（同语义） */
   partnerUserId?: string;
 }
 
@@ -158,7 +158,7 @@ export interface WeixinGetUpdatesResp {
 
 export interface WeixinSendMessageResp {
   ret?: number;
-  /** F20260914wxeg（原 F20260904wxeg，定稿改名）：errcode 与 ret 并列留痕——relay-claw F137 实证 sendmessage
+  /** （原 定稿改名）：errcode 与 ret 并列留痕——relay-claw F137 实证 sendmessage
    * 失败可能走 errcode 通道（-2 token 失效 / -14 会话过期），仅查 ret 会漏判 */
   errcode?: number;
   errmsg?: string;
@@ -208,7 +208,7 @@ export interface WeixinQrStatusResp {
 /** 服务端 stale token 错误码（session-guard 暂停语义） */
 export const WEIXIN_STALE_TOKEN_ERRCODE = -14;
 
-// ── 媒体支持（issue #567，协议平移自 openclaw-weixin cdn/）──
+// ── 媒体支持（协议平移自 openclaw-weixin cdn/）──
 
 /** getuploadurl media_type 枚举（proto: UploadMediaType） */
 export const WeixinUploadMediaType = {

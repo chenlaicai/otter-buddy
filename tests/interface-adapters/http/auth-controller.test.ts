@@ -1,5 +1,5 @@
 /**
- * 阶段 2（F20261113uaccs）：统一接入登录三端点 + 中间件会话优先。
+ * 阶段 2：统一接入登录三端点 + 中间件会话优先。
  * 裸 createRouter + auth plumbing（不经 tests/api/helpers 身份包装）——断言真实装配行为。
  */
 import { describe, it, expect, vi } from "vitest";

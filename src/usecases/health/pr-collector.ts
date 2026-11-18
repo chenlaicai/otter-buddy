@@ -1,16 +1,16 @@
 /**
- * PrCollector: open PR 采集器（F20260902sigm 链路信号模型）
+ * PrCollector: open PR 采集器（链路信号模型）
  *
  * 为 pr-stalled 信号提供数据源：gh CLI 现拉 open PR + 每条 PR 的推进时间
  * （lastActivity = max(最新 commit, 最新 review, 最新 comment)）。
  *
- * 设计取舍（方案 R3）：不建 PR 持久化表——本仓 GitHub 单远程，gh 已是既定
+ * 设计取舍（方案 ）：不建 PR 持久化表——本仓 GitHub 单远程，gh 已是既定
  * 基础设施（docs-advance.mjs 同款用法）；查询时实时派生，零滞后零维护。
  *
- * 降级语义（与 #658 检测器清洗原则一致）：无 gh / 无凭据 / 限流 / 无网络 →
+ * 降级语义（与 检测器清洗原则一致）：无 gh / 无凭据 / 限流 / 无网络 →
  * 返回空数组，pr-stalled 信号缺席，不误报、不崩——检测器缺失 ≠ 系统健康。
  *
- * PR↔链关联规则（方案 S1 处置定稿，三级优先）：
+ * PR↔链关联规则（方案 处置定稿，三级优先）：
  * 1. PR commits 的 message FID（最高优先）：commit-msg hook 强制 [FID][module][type]
  *    前缀，规范确立后 100% 覆盖，零误配
  * 2. PR body 的 FID（次优先）：覆盖 commit 不带但 body 带的场景（如汇总 PR）

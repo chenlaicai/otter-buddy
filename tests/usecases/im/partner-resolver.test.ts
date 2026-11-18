@@ -32,7 +32,7 @@ describe("PartnerResolver（F20260826fpbd）", () => {
     expect(r.configured).toBe(false);
   });
 
-  // F20260928wxid：多渠道——同一搭档在飞书是 open_id、微信是 ilink_user_id
+  // 多渠道——同一搭档在飞书是 open_id、微信是 ilink_user_id
   it("F20260928wxid：双渠道 ID——任一匹配即搭档（微信消息也能被认出是本人）", () => {
     const r = PartnerResolver.forIdentity("ou_partner", "wxid_partner@im.wechat");
     expect(r.configured).toBe(true);

@@ -1,5 +1,5 @@
 /**
- * F20260803chunk: 文档分段索引（chunking）。
+ * 文档分段索引（chunking）。
  *
  * 把特性/研究文档的 body 按标题结构切成多个 chunk。每个 chunk 是独立 memory_entry
  * 的内容来源。分段在原始 markdown 上进行（保留标题井号），逐 chunk 清理在

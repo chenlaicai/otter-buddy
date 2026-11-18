@@ -27,7 +27,7 @@ export interface EntryMetadata {
   severity?: "warning" | "critical";
   /** signal 销账标记（consumed） */
   signalMeta?: string;
-  /** F20260913ctlv：注入方式（目标 running 时 steer=打断/followUp=排队；signal-router 消费） */
+  /** 注入方式（目标 running 时 steer=打断/followUp=排队；signal-router 消费） */
   injectionMode?: "steer" | "followUp";
   [key: string]: unknown;
 }
@@ -57,10 +57,10 @@ export interface Entry {
   metadata: EntryMetadata | null;
   /** 发送者显示名快照 */
   senderName: string;
-  /** F20260921otcl：发送者出生色（色板 key；仅 otter 条目有值，大獭/未回填为 null）。
+  /** 发送者出生色（色板 key；仅 otter 条目有值，大獭/未回填为 null）。
    *  读路径 join otters 填充，不入库 */
   senderColor?: string | null;
-  /** F20261021sprx：发送者类型读时投影（otters 真相源）；名册外历史发言也能正确渲染。 */
+  /** 发送者类型读时投影（otters 真相源）；名册外历史发言也能正确渲染。 */
   senderOtterType?: 'big' | 'small';
   contextTokens: number | null;
   contextTokensMax: number | null;

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * #1805 / #1793：恢复 DELETE 事故行的可证明字段并归档。
+ * / 恢复 DELETE 事故行的可证明字段并归档。
  *
  * 默认 dry-run，仅打印计划；--apply 才允许写生产 DB。
  * - 先用 better-sqlite3 backup API 生成一致性备份，再在单事务中更新。

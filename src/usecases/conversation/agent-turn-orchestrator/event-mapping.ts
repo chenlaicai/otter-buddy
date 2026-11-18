@@ -22,7 +22,7 @@ export function extractAssistantContent(e: AgentStreamEvent): { type: "toolcall"
   return textBlocks.length > 0 ? { type: "text", blocks: textBlocks } : null;
 }
 
-/** R20260810piab 遗漏 1：SDK 结构化事件 → SSE 事件映射（auto_retry / compaction，之前被丢弃） */
+/** 遗漏 1：SDK 结构化事件 → SSE 事件映射（auto_retry / compaction，之前被丢弃） */
 const SDK_EVENT_SSE_MAP: Record<string, string> = {
   auto_retry_start: "agent.retry_start",
   auto_retry_end: "agent.retry_end",
@@ -52,7 +52,7 @@ export function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
     return { event: sseEventName, data: extractSdkEventFields(e) };
   }
   switch (e.type) {
-    // F20260913ctlv：流式过程不进 SSE（从消息气泡挪出，只在 Session 弹窗展示）——
+    // 流式过程不进 SSE（从消息气泡挪出，只在 Session 弹窗展示）——
     // tool.result / assistant_text / assistant_toolcall 不再广播，仅落 invoke_events
     case "tool_execution_end":
       return null;
@@ -67,7 +67,7 @@ export function mapToSSEEvent(e: AgentStreamEvent): SSEEvent | null {
   }
 }
 
-/** F20260914rtsp：从 message_end 事件提取 usage（invoke.tick 数据源）。
+/** 从 message_end 事件提取 usage（invoke.tick 数据源）。
  *  防御性解析：路径兼容 e.message.usage / e.assistantMessageEvent.usage；input/output 非有限数 → null（不发射 tick）。
  *  实测验证（pi session jsonl）：totalTokens = input+output+cacheRead+cacheWrite（不含 reasoning）——优先重用，缺失时本地求和。 */
 export function extractMessageEndUsage(e: AgentStreamEvent): { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens?: number } | null {
@@ -86,13 +86,13 @@ export function extractMessageEndUsage(e: AgentStreamEvent): { input: number; ou
   return { input, output, cacheRead, cacheWrite, ...(totalTokens !== undefined && { totalTokens }) };
 }
 
-/** F20260913ctlv：Pi 事件 → InvokeEvent 映射（持久化到 invoke_events 表，Session 弹窗数据源）。 */
+/** Pi 事件 → InvokeEvent 映射（持久化到 invoke_events 表，Session 弹窗数据源）。 */
 // eslint-disable-next-line complexity -- 事件类型分发表，拆分降低可读性
 export function mapToInvokeEventInput(
   e: AgentStreamEvent,
 ): { eventType: InvokeEventType; payload: Record<string, unknown> } | null {
   switch (e.type) {
-    /** F20260918sesp：user 消息进入模型上下文的时点（含触发 invoke 的首条 prompt +
+    /** user 消息进入模型上下文的时点（含触发 invoke 的首条 prompt +
      *  steer/followUp 注入的消费点，pi agent-session._handleAgentEvent 发射）。
      *  数据源保持纯 pi 流（搭档拍板：不自造注入事件），落库后 Session 弹窗可见
      *  「steer 插在哪」——与模型实际看到的时序一致 */

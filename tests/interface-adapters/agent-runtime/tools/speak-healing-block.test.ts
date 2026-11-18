@@ -1,5 +1,5 @@
 /**
- * F20261113hlprm：healing 从 body 文本标签改为 speak 独立参数。
+ * healing 从 body 文本标签改为 speak 独立参数。
  *
  * 验收：
  * - 非法 healing 参数 → errorResponse 返回模型（isError）+ entry 未创建 + 未落账（原子阻断）；

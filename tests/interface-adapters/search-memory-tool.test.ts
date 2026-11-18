@@ -1,8 +1,8 @@
 /**
- * F20260821evaf 二/三轮审视：search_memory 工具输出 shape 单测。
+ * 二/三轮审视：search_memory 工具输出 shape 单测。
  * vecCoverage 透传是 agent 感知 FTS-only 降级/暗化条目的唯一通道（otter_context 告警已移除），
  * 此前在 clients/tool-factory 两层被丢弃——钉住最后一环的序列化契约。
- * F20260826rcmp 审视补充（mimo 必修）：钉住埋点接线——logSearch 被调用且参数正确
+ * 审视补充（mimo 必修）：钉住埋点接线——logSearch 被调用且参数正确
  * （含 beforeMessageId 传 ctx.currentMessageId、total 传检索真值两个审视修正）。
  */
 import { describe, it, expect } from "vitest";
@@ -12,7 +12,7 @@ import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 
 function makeCtx(searchImpl: NonNullable<OtterToolClient["memory"]["search"]>, logSearchImpl?: OtterToolClient["memory"]["logSearch"]): ToolContext {
   const client = {
-    memory: { search: searchImpl, logSearch: logSearchImpl ?? (() => undefined) }, // F20260826rcmm Phase 0：埋点 mock（fire-and-forget）
+    memory: { search: searchImpl, logSearch: logSearchImpl ?? (() => undefined) }, // Phase 0：埋点 mock（fire-and-forget）
   } as unknown as OtterToolClient;
   return { client, otterId: "otter-1", conversationId: "conv-1", currentMessageId: "msg-cur" };
 }

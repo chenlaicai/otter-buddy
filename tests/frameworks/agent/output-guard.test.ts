@@ -27,7 +27,7 @@ function randomText(length: number, seed = 42): string {
   return out;
 }
 
-/** SDK 真实事件形状：delta 在 assistantMessageEvent 内层（F20260804dglp 根因 2） */
+/** SDK 真实事件形状：delta 在 assistantMessageEvent 内层（根因 2） */
 function updateEvent(deltaType: string, delta: string) {
   return { type: "message_update", assistantMessageEvent: { type: deltaType, delta } };
 }
@@ -238,7 +238,7 @@ describe("OutputGuard pause/resume（停表 + ref-count + resume 首字节窗口
     vi.advanceTimersByTime(600_000); // 慢工具执行 600s
     expect(abort).not.toHaveBeenCalled();
 
-    guard.resume("tool", abort); // 慢工具结束 → re-arm 首字节窗口（F20260805abpp）
+    guard.resume("tool", abort); // 慢工具结束 → re-arm 首字节窗口
     vi.advanceTimersByTime(3001); // 已超滑动预算，首字节窗口内不误切
     expect(abort).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1000);

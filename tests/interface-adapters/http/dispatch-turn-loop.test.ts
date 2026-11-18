@@ -49,13 +49,13 @@ function makeSendMessageUseCase() {
 }
 
 const queryOtterStub = { getById: async () => null } as unknown as QueryOtter;
-// F20260904schf：行级出处语义下，链引擎从消息行读 yield 目标——stub 按 messageId 返回带 tsp 的行
+// 行级出处语义下，链引擎从消息行读 yield 目标——stub 按 messageId 返回带 tsp 的行
 //（模拟生产事实：completeMessage 先落库 tsp）；「互传死循环」测试意图因此得以保留。
 const queryMessageStub = {
   getMessageById: async (id: string) => {
-    // F20260904schf：行级出处语义下，链引擎从消息行读 yield 目标（生产事实：completeMessage 先落库 tsp）。
-    // 测试意图升级：旧版用「自指 yield」制造死循环（恰是 #792 要杀的病态，自指守卫下已一轮终止），
-    // F20261026ctbg：改为一跳互传后自然收尾（合法信号流，无资源形态截断）。
+    // 行级出处语义下，链引擎从消息行读 yield 目标（生产事实：completeMessage 先落库 tsp）。
+    // 测试意图升级：旧版用「自指 yield」制造死循环（恰是 要杀的病态，自指守卫下已一轮终止），
+    // 改为一跳互传后自然收尾（合法信号流，无资源形态截断）。
     if (id === "m-otter-x") {
       return { id, conversationId: "conv-1", turnId: "turn-1", senderId: "otter-x", senderType: "otter", status: "completed", segments: [], sequenceNum: 2, talkingStonePassedTo: ["otter-y"], contextTokens: null, contextTokensMax: null, source: "web", senderName: "Otter X", createdAt: "", completedAt: "" };
     }

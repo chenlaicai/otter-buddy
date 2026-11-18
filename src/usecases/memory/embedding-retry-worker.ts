@@ -1,13 +1,13 @@
 /**
- * F20260812mrcq Part 1 → F20261109epqst：embedding 后台队列消费者（原「重试 worker」）。
+ * Part 1 → embedding 后台队列消费者（原「重试 worker」）。
  *
- * F20261109epqst 后本 worker 是后台 embedding 的唯一消费者：
+ * 后本 worker 是后台 embedding 的唯一消费者：
  * - store-memory 后台路径（文档 chunk）直接落库 embedding_tasks（不再预占 RAM 槽位）
  * - 实时路径失败/超时/槽位等待超时的任务也回流到本队列
  * - 本 worker 批量 claim → embedBatch 批量推理 → 逐条 storeEmbedding → markTaskDone
  *
  * 生命周期：PatrolWorker 每 1h 调 tickNow()；有积压时 fire-and-forget 后台 drain
- * 自续跑（无轮次/时间预算，直到清空；退避空窗由 retrigger 补上，检视处置 1）；
+ * 自续跑（无轮次/时间预算，直到清空；退避空窗由 retrigger 补上，）；
  * stop()/stopSync() 清理续跑定时器并等待收尾；dispose 不属在飞写入已关 DB。
  * 设计细节（守卫/退避/dead-letter/批处理）见各成员函数注释。
  */
@@ -30,18 +30,18 @@ export class EmbeddingRetryWorker {
   private static readonly EMBED_MAX_CHARS = 6000;
   /**
    * 每次 tick 认领的任务上限。
-   * F20261016ebrt：10 → 50——#948 闹钟瘦身把 tick 从 30s 调到 1h，却没调 BATCH_LIMIT，
+   * 10 → 50——闹钟瘦身把 tick 从 30s 调到 1h，却没调 BATCH_LIMIT，
    * 吞吐被打掉 120 倍（1200/时 → 10/时），1000 积压要 4 天才能吃完。
    * 50 条/tick × 1h = 50/时，配合 drain 循环可在一个 tick 内连吃多批。
    */
   private static readonly BATCH_LIMIT = 50;
   /**
-   * F20261109epqst：批量消费的单批条数上限（组装 embedBatch 调用）。
+   * 批量消费的单批条数上限（组装 embedBatch 调用）。
    * 50 与 BATCH_LIMIT 对齐；service 层 token 预算闸门（8192）会再拆过大的批。
    */
   private static readonly EMBED_BATCH_SIZE = 50;
   /**
-   * F20261109epqst 检视处置（严重发现 1）：MAX_DRAIN_ROUNDS/MAX_DRAIN_MS 已删除。
+   * 检视处置（严重发现 1）：MAX_DRAIN_ROUNDS/MAX_DRAIN_MS 已删除。
    * 原 20 轮/10min 预算是 tick 内联阻塞时代的约束（防 tick 挂死饿死 patrol），
    * drain 后台化后照抄成了「正常积压推回小时巡检」的脉冲边界——按实测
    * 1.13 条/s，600s 只够 ~678 条，生产 1000 条积压首轮即被截断，剩余空等
@@ -50,14 +50,14 @@ export class EmbeddingRetryWorker {
    * 终止条件），退避感知 retrigger 补上「全部在退避」的空窗。
    */
   /**
-   * F20261109epqst：后台 drain 轮间冷却——让出事件循环给实时请求（live 消息
+   * 后台 drain 轮间冷却——让出事件循环给实时请求（live 消息
    * 的 fireAndForgetEmbed 在槽位层优先级更高，但冷却让 IO/HTTP 也有呼吸窗口）。
    */
   private static readonly DRAIN_COOLDOWN_MS = 100;
   /** retrigger 下界：防 DB 时钟秒级精度下轮询式自触发 */
   private static readonly RETRIGGER_MIN_MS = 2_000;
   /**
-   * F20261105embqg S3（对抗审视发现 3）：空闲回填单 tick 上限——S3 闸门跳过的
+   * S3（对抗）：空闲回填单 tick 上限——S3 闸门跳过的
    * 暗条目在队列清空后的恢复路径。有界增量，与启动暗扫的一次性全量区分。
    */
   private static readonly IDLE_BACKFILL_LIMIT = 200;
@@ -68,8 +68,8 @@ export class EmbeddingRetryWorker {
   /** 测试用 retrigger 延迟封顶（压缩等待窗口；null=不封顶） */
   private static testRetriggerCapMs: number | null = null;
   /**
-   * F20261013ebps：连续全失败熔断——连续 N 轮 drain 全部失败（10/10 超时）
-   * 说明 worker 已淹没（#1453），继续打只会加压。熔断后暂停消费，
+   * 连续全失败熔断——连续 N 轮 drain 全部失败（10/10 超时）
+   * 说明 worker 已淹没，继续打只会加压。熔断后暂停消费，
    * 等下个 patrol 周期 tickNow 自动恢复（天然退避）。
    */
   private static readonly MAX_CONSECUTIVE_FULL_FAILURES = 3;
@@ -77,10 +77,10 @@ export class EmbeddingRetryWorker {
 
   private timer: NodeJS.Timeout | null = null;
   private inflightTick: Promise<void> | null = null;
-  /** F20261109epqst：后台 drain 循环（tickNow/retrigger 触发，fire-and-forget 运行） */
+  /** 后台 drain 循环（tickNow/retrigger 触发，fire-and-forget 运行） */
   private drainLoop: Promise<void> | null = null;
   /**
-   * F20261109epqst 检视处置：退避感知续跑定时器（唯一槽位）。drain 因「全部
+   * 检视处置：退避感知续跑定时器（唯一槽位）。drain 因「全部
    * 任务在退避/lane 忙」退出且队列非空时，按最早可领取时间短延迟重启 drain——
    * 消灭「积压退避空窗等 patrol 1h」的脉冲。与 drainLoop 守卫配合保证单实例：
    * retrigger 回调经 ensureDrain 统一入口，已在跑则跳过。
@@ -88,7 +88,7 @@ export class EmbeddingRetryWorker {
   private retriggerTimer: NodeJS.Timeout | null = null;
   private stopped = true;
   /**
-   * F20261109epqst：停机请求标志（stop/stopSync 置位）。与 stopped 生命周期标志
+   * 停机请求标志（stop/stopSync 置位）。与 stopped 生命周期标志
    * 分离：stopped 初始为 true（start() 前），若 drain 循环直接检查 stopped，
    * 未 start 的 worker（测试直接 tickNow / 生产首骋）会立即退出 drain。
    */
@@ -106,7 +106,7 @@ export class EmbeddingRetryWorker {
     private readonly tokenBudget: number = 8192,
   ) {}
 
-  /** #949：启动语义变为「标记可工作」——定时器已由 PatrolWorker 统一持有（扫台账循环合并），
+  /** 启动语义变为「标记可工作」——定时器已由 PatrolWorker 统一持有（扫台账循环合并），
    *  本 worker 的周期性 tick 由 PatrolWorker 每 1h 调 tickNow() 驱动。
    *  start/stop 保留（生命周期幂等契约 + dispose 的 stopSync 调用方不动）。 */
   start(): void {
@@ -155,7 +155,7 @@ export class EmbeddingRetryWorker {
     }
   }
 
-  /** F20261109epqst 检视处置：测试钩子——压缩 retrigger 等待窗口（判别性测试用） */
+  /** 检视处置：测试钩子——压缩 retrigger 等待窗口（判别性测试用） */
   static setTestRetriggerCapMs(cap: number | null): void {
     EmbeddingRetryWorker.testRetriggerCapMs = cap;
   }
@@ -164,9 +164,9 @@ export class EmbeddingRetryWorker {
    * 立即跑一轮 tick（当前唯一驱动：PatrolWorker 每 1h 巡检调用，见 app.ts）。
    * 启动首轮由 createAndStartRetryWorker 自跑，无事件接线。
    *
-   * F20261020slvg：重入守卫——单 tick 可能跑几十分钟。
+   * 重入守卫——单 tick 可能跑几十分钟。
    *
-   * F20261109epqst：tickNow 只做「触发」——守卫检查 + 熔断检查 + 空闲回填，
+   * tickNow 只做「触发」——守卫检查 + 熔断检查 + 空闲回填，
    * 有积压时启动后台 drain 循环（fire-and-forget，不阻塞 patrol duty 串行链——
    * 生产实锤：09:16 的 tick 挂死 1h+，把 PatrolWorker 其余 duty 全部饿死）。
    * drainLoop 重入守卫：已在跑则本轮 tickNow 直接受益（不并发）。

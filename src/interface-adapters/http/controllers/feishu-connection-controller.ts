@@ -5,7 +5,7 @@ import type { Logger } from "@usecases/ports/logger";
 import { handleError, param } from "../http-error";
 
 /**
- * F20260928fsqr：飞书扫码连接管理端点（对齐 weixin-connection-controller 全套语义）。
+ * 飞书扫码连接管理端点（对齐 weixin-connection-controller 全套语义）。
  *
  * - POST /api/feishu/login                 发起扫码（registerApp 后台跑）
  * - GET  /api/feishu/login/:id             轮询会话状态（前端 2s 拉一次）
@@ -54,7 +54,7 @@ export class FeishuConnectionController {
       logger: Logger;
       /** 建助理线（app.ts 闭包注入，botKey 锚定）；签名对齐微信 provisionAssistantLine */
       provisionAssistantLine?: (appId: string, name: string) => Promise<{ conversationId: string; title: string }>;
-      /** 删除后回调（停 WS + unregister 出站 + 释放绑定；调用方注入，#592 防复活） */
+      /** 删除后回调（停 WS + unregister 出站 + 释放绑定；调用方注入，防复活） */
       onAppDeleted?: (appId: string) => void | Promise<void>;
       /** 连接查询（助理线投影用；不注入时投影省略） */
       connectionRepo?: { getByExternalId(externalId: string): Promise<{ id: string; metadata: Record<string, unknown> | null } | null>; getActiveSession(connectionId: string): Promise<{ conversationId: string } | null> };
@@ -81,7 +81,7 @@ export class FeishuConnectionController {
     try {
       const session = this.deps.loginSessions.get(param(c, "id"));
       if (!session) return c.json({ error: "login session not found" }, 404);
-      // F20260928fsqr（检视建议⑥）：完整 appId 不出网——会话态回包掩码化
+      // （检视建议⑥）：完整 appId 不出网——会话态回包掩码化
       //  （onLoginConfirmed 前端只需感知成功，不消费 appId 原文）
       const { appId: _full, ...rest } = session;
       return c.json({ ...rest, ...(session.appId && { appId: maskAppId(session.appId) }) });
@@ -134,7 +134,7 @@ export class FeishuConnectionController {
   }
 
   /** 幂等建助理线（onSuccess 自动触发失败后的补建/重试入口，微信 provisionAssistantLine 同构）
-   *  F20260928fsqr（检视严重 3）：path id 是掩码 appId（前端唯一可见形态），按掩码回查 */
+   * （检视严重 3）：path id 是掩码 appId（前端唯一可见形态），按掩码回查 */
   async provisionAssistantLine(c: Context): Promise<Response> {
     try {
       if (!this.deps.provisionAssistantLine) {
@@ -144,7 +144,7 @@ export class FeishuConnectionController {
       if (!app) return c.json({ error: "feishu app not found" }, 404);
       const body = await c.req.json<unknown>().catch(() => ({}));
       const rawName = (body as { name?: unknown }).name;
-      const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : (app.name ?? maskAppId(app.appId)); // N1：缺省回退掩码（完整 appId 不进会话标题）
+      const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : (app.name ?? maskAppId(app.appId)); // 缺省回退掩码（完整 appId 不进会话标题）
       const result = await this.deps.provisionAssistantLine!(app.appId, name);
       return c.json(result, 201);
     } catch (err) {
@@ -154,10 +154,10 @@ export class FeishuConnectionController {
 
   async deleteApp(c: Context): Promise<Response> {
     try {
-      // F20260928fsqr（检视严重 3）：前端拿掩码回查（掩码单射；碰撞 404 宁拒勿错删）
+      // （检视严重 3）：前端拿掩码回查（掩码单射；碰撞 404 宁拒勿错删）
       const app = this.deps.appStore.getAppByMaskedId(param(c, "id"));
       if (!app) return c.json({ error: "feishu app not found" }, 404);
-      // #592 防复活序：先回调（停 WS + unregister 出站 + 释放绑定），后删 store——
+      // 防复活序：先回调（停 WS + unregister 出站 + 释放绑定），后删 store——
       // 反序崩溃会留下「store 已删但 WS 还在拉」的复活通道
       await this.deps.onAppDeleted?.(app.appId);
       this.deps.appStore.removeApp(app.appId);

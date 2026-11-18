@@ -1,5 +1,5 @@
 /**
- * #506（F20260827mgux）：表级等价性守卫。
+ * ：表级等价性守卫。
  *
  * 不变量：任何 8/5 基线形态的老库（互斥分支时代的最老存量库），跑完 bootstrap
  * 升级序列（initSchema + migrateDatabase + migrateMessageSegments）后，表集合

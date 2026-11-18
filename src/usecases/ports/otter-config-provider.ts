@@ -1,11 +1,11 @@
 import type { OtterPromptConfig } from "@contract/api/otter";
 import type { ModelPoolLike } from "./model-pool-like";
 
-/** F20260820a4rt: 从联合类型改为 string，运行时校验交由 manifest loader + lint 处理 */
+/** 从联合类型改为 string，运行时校验交由 manifest loader + lint 处理 */
 export type OtterType = string;
 
 /**
- * F20260908efmd: 有效模型解析结果。
+ * 有效模型解析结果。
  * 所有展示面显示真实生效模型（空配置回退默认并标注）；
  * 「默认」是一种配置来源标注，不是「无模型」。
  */
@@ -17,7 +17,7 @@ export interface EffectiveModel {
 }
 
 /**
- * F20260908efmd: 统一有效模型解析 helper。
+ * 统一有效模型解析 helper。
  * 用于 ManageParticipant / QueryOtterProfile / createSession / restartSession 等需要展示面的点位，
  * 不重复造逻辑。
  * @param config 配置（null = 该 otter 无配置记录）
@@ -44,7 +44,7 @@ export interface OtterConfig {
 export interface OtterConfigProvider {
   getConfig(otterId: string): OtterConfig | null;
   /**
-   * #446: 批量获取配置（单条 IN 查询），供循环场景消除 N+1。
+   * 批量获取配置（单条 IN 查询），供循环场景消除 N+1。
    * 未配置的 otterId 不出现在返回 Map 中。
    *
    * 同步签名是有意为之（SQLite 同步驱动，与 getConfig 一致）；

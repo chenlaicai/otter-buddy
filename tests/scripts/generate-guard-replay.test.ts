@@ -1,5 +1,5 @@
 /**
- * F20261008gdcc P1 项 4：generate-guard-replay.mjs 单测。
+ * P1 项 4：generate-guard-replay.mjs 单测。
  *
  * 脚本职责：前日 guard_intercept 事件 → replay 候选 JSON（裁决前置的机械部分：
  * 按日筛选、commandHead/reason 反查、ruleId 分类、脱敏、去重）。期望值裁决是人工/獭审
@@ -23,7 +23,7 @@ let dbPath: string;
 let outDir: string;
 
 /** 昨日/前日 ISO 日期串（UTC 日界，与脚本同源口径——脚本 targetDate 用
- *  getUTC* 算 UTC 昨日（PR #1368 §3.3），旧本地时区实现在 Asia/Shanghai 凌晨
+ * getUTC* 算 UTC 昨日（§3.3），旧本地时区实现在 Asia/Shanghai 凌晨
  *  0-8 点（UTC 前日 16-24 点）播种日与窗口日错位一天，种子全部窗外、断言必红 */
 function utcDate(offsetDays: number): string {
   const d = new Date(Date.now() + offsetDays * 24 * 3600 * 1000);

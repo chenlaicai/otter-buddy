@@ -1,5 +1,5 @@
 /**
- * F20261112rnkph Phase 1 段 3：合成集网格标定 + 逐信号反事实表（不切默认）。
+ * Phase 1 段 3：合成集网格标定 + 逐信号反事实表（不切默认）。
  *
  * 本文件不是回归测试（不进 npm test 默认套件，扩展名非 .test.ts），由 `npm run eval:grid`
  * 显式执行。复用 golden-corpus（44 查询/50 语料）+ ranking-metrics，与 golden-eval 同口径
@@ -8,7 +8,7 @@
  * 产出：
  * - 逐信号反事实表（multiply 生产默认 / additive 全开 / 全中性 / 逐单关 × 三项指标）
  * - 网格搜索结果全集 → data/metrics/golden-grid-results.jsonl
- * - 候选系数矩阵（选择准则见 F20261112rnkph 第 5 节：三项均不劣于地板，取 nDCG@5 最高，
+ * - 候选系数矩阵（选择准则见 第 5 节：三项均不劣于地板，取 nDCG@5 最高，
  *   并列取参数更少偏离默认）
  */
 import { describe, it, expect } from "vitest";
@@ -48,7 +48,7 @@ interface MetricResult {
   mrr: number;
 }
 
-/** 地板（golden-eval BASELINE，向下取整 3 位，见 F20261008mrrk） */
+/** 地板（golden-eval BASELINE，向下取整 3 位，见 ） */
 const FLOOR = { ndcg5: 0.673, ndcg10: 0.707, mrr: 0.811 } as const;
 
 /** 设计回填默认系数（段 1 已入配置缺省） */

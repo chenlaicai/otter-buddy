@@ -1,8 +1,8 @@
 /**
- * F20261008mrrk Phase 0：golden 评测语料与查询集（合成种子集，待真实使用数据校准）。
+ * Phase 0：golden 评测语料与查询集（合成种子集，待真实使用数据校准）。
  *
  * 构成原则：
- * - 确定性：内容固定；时间戳用 daysAgo(N) 相对构造（动态日期模式，参考 #1126——
+ * - 确定性：内容固定；时间戳用 daysAgo(N) 相对构造（动态日期模式，参考 ——
  *   禁写死 ISO 日期防日期炸弹，lint:date-bombs 在 CI）。相对年龄恒定 →
  *   time_decay 输入恒定 → 指标跨日复跑稳定。
  * - 覆盖面：contentType 覆盖 message/fact/feature/feature_chunk/research/research_chunk；
@@ -11,7 +11,7 @@
  * - 相关性分级：3=核心答案 / 2=强相关 / 1=弱相关 / 0=不相关（未标注默认）。
  *
  * ⚠️ 合成种子集声明：条目与标注为人工构造，不是真实使用数据；真实数据校准
- * 需搭档抽查（特性文档 R2）。基线数字锁定的是当前管线在此种子集上的行为。
+ * 需搭档抽查（特性文档 ）。基线数字锁定的是当前管线在此种子集上的行为。
  */
 import type { MemoryEntry } from "@entities/memory/memory-entry";
 
@@ -174,7 +174,7 @@ export const CORPUS: MemoryEntry[] = [
     "F20260803chunk 多 chunk 聚合：按 source 去重与 chunk 最高分代表排序",
     null),
 
-  // ── 近邻干扰簇（v2 扩充，检视发现 2 处置：压候选池过窄问题）──
+  // ── 近邻干扰簇（v2 扩充，压候选池过窄问题）──
   // 每簇同一主题多侧面条目：FTS 词汇重叠高难区分，期望排序由 rerank 信号
   // （本对话加成/新鲜度/标记）决定——让基线对排序质量敏感，而不只是召回存在性。
 
@@ -330,7 +330,7 @@ export const GOLDEN_QUERIES: GoldenQuery[] = [
     currentConversationId: CONV_ALPHA,
     expected: { "g-msg-09": 3, "g-feat-06": 1 } },
 
-  // E. 高区分度排序探针（v2 新增，检视发现 2 处置；layer=probe）
+  // E. 高区分度排序探针（v2 新增，；layer=probe）
   // 特征：候选池 ≥3 条近邻干扰，FTS 词汇重叠难分；期望排序依赖 rerank 信号
   //（本对话加成/新鲜度/标记），把「排得好不好」与「能不能搜到」分开。
   { id: "E1", layer: "probe", query: "worktree 改动 提交 规范",

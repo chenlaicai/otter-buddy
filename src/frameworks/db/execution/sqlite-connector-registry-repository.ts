@@ -49,7 +49,7 @@ function rowToSession(row: OnlineSessionRow): OnlineSession {
 }
 
 /**
- * F20261117cnnct（#1868 阶段 4 C1）：connector 注册仓库 sqlite 实现。
+ * （阶段 4 C1）：connector 注册仓库 sqlite 实现。
  * 总闸唯一事实源——所有状态变更先落库，内存投影（Registry/WSS 通道）随后跟进；
  * 库写失败由调用方收敛 fail-closed（宁可误下线不可误放行）。
  */

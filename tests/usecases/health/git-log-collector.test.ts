@@ -92,7 +92,7 @@ describe("collectGitLogWithFiles（临时仓库 fixture）", () => {
     git(["checkout", "main"]);
   });
 
-  // ── #426 边界场景补齐：rename / binary / 空 commit / merge / 多行 message ──
+  // ── 边界场景补齐：rename / binary / 空 commit / merge / 多行 message ──
   // 基于各形态真实输出实测（2026-09-21，git 2.x --name-only）后写断言，
   // 不是按想象中的行为写。
 
@@ -104,7 +104,7 @@ describe("collectGitLogWithFiles（临时仓库 fixture）", () => {
     const renameCommit = commits.find(c => c.message.includes("tst4"));
     expect(renameCommit).toBeDefined();
     // 实测：git log --name-only 对 rename 只输出新路径（与 diff-tree -r 的 old+new 两行不同）。
-    // 文件热点不会把 rename 算作两次修改——issue #426 的双计担忧在此采集路径不成立。
+    // 文件热点不会把 rename 算作两次修改——的双计担忧在此采集路径不成立。
     // 锁定该行为：若未来 git 版本/参数变更导致双计，本断言会红。
     expect(renameCommit?.filesChanged).toEqual(["renamed-a.txt"]);
   });

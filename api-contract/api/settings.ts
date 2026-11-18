@@ -9,7 +9,7 @@ export interface ModelInfoDTO {
   contextWindow?: number;
 }
 
-/** 默认陪打獭条目（F20261022mjls：settings mahjong.defaultOtters） */
+/** 默认陪打獭条目（settings mahjong.defaultOtters） */
 export interface MahjongDefaultOtterDTO {
   otterId: string;
   name: string;
@@ -23,7 +23,7 @@ export interface SettingsDTO {
   defaultModelAlias: string;
   /** 用户显示名（海獭称呼搭档用的名字，空字符串表示未设置） */
   userName: string;
-  /** F20261022mjls：默认陪打獭（空数组 = 未配置；建房 otter 座位缺省时回填） */
+  /** 默认陪打獭（空数组 = 未配置；建房 otter 座位缺省时回填） */
   defaultOtters: MahjongDefaultOtterDTO[];
   port: number;
   dbPath: string;
@@ -31,7 +31,7 @@ export interface SettingsDTO {
   /** 本地模型根目录。设置后走本地加载，未设置走远程下载 */
   embeddingLocalModelPath?: string;
   embeddingDim: number;
-  /** F20260924wast：浮动獭开关（config im.assistant.web.enabled，DI 启动注入；
+  /** 浮动獭开关（config im.assistant.web.enabled，DI 启动注入；
    *  false 时前端不挂载浮动元素，降级入口 = 侧栏 web 助理对话。默认 true） */
   assistantWebEnabled: boolean;
 }
@@ -42,6 +42,6 @@ export interface UpdateSettingsRequestDTO {
   defaultModelAlias?: string;
   /** 用户显示名（海獭称呼搭档用的名字，传空字符串清除） */
   userName?: string;
-  /** F20261022mjls：默认陪打獭（传空数组清除） */
+  /** 默认陪打獭（传空数组清除） */
   defaultOtters?: MahjongDefaultOtterDTO[];
 }

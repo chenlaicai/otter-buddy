@@ -1,6 +1,6 @@
 /**
  * 獭调度适配（方案模块三）——轮到獭时经 SdkInvokePort.invoke **直调**唤醒决策。
- * ⚠️ 不走 AgentInvoker 对话链（S1/S2 处置定死：对话链灌 entry 会污染牌局时间线）。
+ * ⚠️ 不走 AgentInvoker 对话链（/处置定死：对话链灌 entry 会污染牌局时间线）。
  *
  * 决策唤醒协议（方案口径）：快照（**不含他家手牌**）+ 合法操作集 → 要求回复
  * `{"action": <动作对象或合法集序号>, "speech": "一句桌上发言"}`（speech 必填，与 prompt 口径一致——空串/纯空白视同未提供，不进事件）。
@@ -171,7 +171,7 @@ export type ParseResult =
 export function parseActionReply(text: string, legal: readonly EngineAction[]): ParseResult {
   const obj = extractJson(text);
   if (!obj) return { ok: false, error: "回复中未找到 JSON 对象" };
-  // 空串/纯空白 speech 视同未提供（检视建议7：不携带空串进事件，防前端判空歧义）
+  // 空串/纯空白 speech 视同未提供（不携带空串进事件，防前端判空歧义）
   const rawSpeech = typeof obj.speech === "string" ? (obj.speech as string) : undefined;
   const speech = rawSpeech !== undefined && rawSpeech.trim() !== "" ? rawSpeech : undefined;
   let candidate: unknown = obj.action;

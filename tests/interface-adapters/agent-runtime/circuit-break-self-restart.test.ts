@@ -1,5 +1,5 @@
 /**
- * F20261005srst（#1203）：invoker 层自重启防线测试（检视处置严重 2——13/13 全锚 tool 层，
+ * ：invoker 层自重启防线测试（检视处置严重 2——13/13 全锚 tool 层，
  * invoker 层 hasUserMessageSince/isSessionSelfRestartCreated 零覆盖）。
  *
  * 覆盖面：

@@ -8,7 +8,7 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
   constructor(private readonly db: Database.Database) {}
 
   async create(event: HealingEvent): Promise<void> {
-    // F20261019f714（M-f7148deb 第 1 条）：bound_issue/bound_at 入 INSERT 列清单。
+    // （M-f7148deb 第 1 条）：bound_issue/bound_at 入 INSERT 列清单。
     // 修复前：调用方/种子数据直接给 boundIssue/boundAt 会被静默丢弃（INSERT 不含
     // 两列，库内落 NULL）——round-trip 契约破缺，测试曾用直插 SQL 绕过（隐性契约）。
     // 现在列全量写入，与 eventToRow/rowToHealingEvent 双向映射对齐：任何写入路径
@@ -51,7 +51,7 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
   }
 
   async findByConversation(conversationId: string, errorType?: string): Promise<HealingEvent[]> {
-    // F20260903ah68 S3.5（mimo 审视焦点4）：可选 errorType 过滤——GateBanner 2s 轮询
+    // S3.5（mimo 审视焦点4）：可选 errorType 过滤——GateBanner 2s 轮询
     // 只消费 rate_limit 事件，过滤下推 SQL + idx_healing_events_conversation 索引命中
     const rows = errorType
       ? this.db.prepare(
@@ -72,9 +72,9 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
 
   async updateStatus(id: string, status: HealingEventStatus): Promise<void> {
     const now = new Date().toISOString();
-    // #1370：changes=0（ID 不存在）时 fail-closed 抛错——better-sqlite3 UPDATE 不匹配
+    // changes=0（ID 不存在）时 fail-closed 抛错——better-sqlite3 UPDATE 不匹配
     // 返回 changes=0 但不抛错，吞掉会让上层 Promise.allSettled 全 fulfilled → 回执假成功
-    // （#1391 断言收敛至 assertUpdated）
+    // （断言收敛至 assertUpdated）
     const result = this.db.prepare(
       'UPDATE healing_events SET status = ?, resolved_at = ? WHERE id = ?',
     ).run(status, status === 'resolved' || status === 'dismissed' ? now : null, id);
@@ -83,10 +83,10 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
 
   async dismiss(id: string, resolution: HealingResolution): Promise<void> {
     const now = new Date().toISOString();
-    // #1545 缺陷③：单条 dismiss 落 resolution——终态记录不再只有 status+resolved_at 两列，
+    // 缺陷③：单条 dismiss 落 resolution——终态记录不再只有 status+resolved_at 两列，
     // 「为何 dismiss」可考（2026-10-19 事件：298 条空 resolution 只能靠代码阅读反推）。
     // WHERE 带 status='open'：dismiss 已终态事件属语义错配（重复处置），fail-closed 抛错
-    // 对齐 assertUpdated 口径（#1370/#1391）。
+    // 对齐 assertUpdated 口径（/）。
     const result = this.db.prepare(
       "UPDATE healing_events SET status = 'dismissed', resolution = ?, resolved_at = ? WHERE id = ? AND status = 'open'",
     ).run(JSON.stringify(resolution), now, id);
@@ -95,8 +95,8 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
 
   async resolve(id: string, resolution: HealingResolution): Promise<void> {
     const now = new Date().toISOString();
-    // #1370：同上，changes=0 fail-closed——「消费即处置」闭环的回执可信度靠此保证
-    // （#1391 断言收敛至 assertUpdated）
+    // 同上，changes=0 fail-closed——「消费即处置」闭环的回执可信度靠此保证
+    // （断言收敛至 assertUpdated）
     const result = this.db.prepare(
       'UPDATE healing_events SET status = ?, resolution = ?, resolved_at = ? WHERE id = ?',
     ).run('resolved', JSON.stringify(resolution), now, id);
@@ -131,9 +131,9 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
   async autoStaleDismiss(staleDays: number): Promise<number> {
     const cutoff = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000).toISOString();
     const now = new Date().toISOString();
-    // F20261008hcpa（#1356 选 A）：severity <> 'high'——high 升级信号不被时间静默，
-    // 走超龄识别独立通道（#1545 后 findAgedUnboundHigh 只读识别 + alert-registry 提醒，不 dismiss）。
-    // #1545 处置轮 S2：dismiss 终态记录三列齐——此前只写 status+resolved_at，与旧 age-out
+    // （选 A）：severity <> 'high'——high 升级信号不被时间静默，
+    // 走超龄识别独立通道（后 findAgedUnboundHigh 只读识别 + alert-registry 提醒，不 dismiss）。
+    // 处置轮 dismiss 终态记录三列齐——此前只写 status+resolved_at，与旧 age-out
     // 同构的审计断链写路径（缺陷③第三条孪生）；decidedBy='system' 标注调度器自动行为
     // （非 user/agent 决策），notes 落清理规则供反查。
     const resolution = JSON.stringify({

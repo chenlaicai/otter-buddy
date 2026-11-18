@@ -1,19 +1,19 @@
 /**
- * RHI 信号老化扫描（F20260917trig §3）。
+ * RHI 信号老化扫描（§3）。
  *
  * 现场事故：40 条 critical bug_recurrence 信号最老挂 23 天（2026-08-25 first_seen），
- * 已全部聚入 issue #1012 但 issue 仍 open——RHI 信号池（signals 表）无任何老化/升级机制，
- * 挂 23 天系统不觉得疼。獭间信号（signal_events）已有 SignalAgingWorker（#927），
+ * 已全部聚入 但 issue 仍 open——RHI 信号池（signals 表）无任何老化/升级机制，
+ * 挂 23 天系统不觉得疼。獭间信号（signal_events）已有 SignalAgingWorker，
  * RHI 信号量级是它的几十倍（8 种检测类型 × 多文件），不共享代码但复刻其模式。
  *
  * 扫描范围（status='open'）：
  * - 未接单（triage_status IS NULL）：critical 超 72h / warning 超 7d（从 first_seen 计）
- * - 已归口停滞（triage_status='triaged' 且 triaged_at 超 7 天）——一期纳入（S3 处置收紧），
- *   「每日 issue 处理」任务 disabled 后「归口后没人干」的尾段断链风险升高（#1012 挂 23 天
+ * - 已归口停滞（triage_status='triaged' 且 triaged_at 超 7 天）——一期纳入（处置收紧），
+ * 「每日 issue 处理」任务 disabled 后「归口后没人干」的尾段断链风险升高（挂 23 天
  *   正是此模式）；纯本地时间戳判断，不引 GitHub API 轮询，机制零膨胀
  * - in_progress 不扫：修复节奏由 PR/worktree 生命周期自己管
  *
- * 告警聚合限流（S4 修订）：同 signal_type 一轮最多落 1 条聚合 healing（context 带 signalIds
+ * 告警聚合限流（修订）：同 signal_type 一轮最多落 1 条聚合 healing（context 带 signalIds
  * 数组），不逐条落——存量场景一次 40 条同根因告警 = 呻吟轰炸，消耗处置注意力。
  * 獭间 SignalAgingWorker 不做聚合是因为其信号量小；RHI 量级差异显式处理。
  *
@@ -35,7 +35,7 @@ import { randomUUID } from 'node:crypto';
 export const RHI_CRITICAL_AGING_THRESHOLD_MS = 72 * 60 * 60 * 1000;
 /** warning 未接单超 7d 落告警（ms） */
 export const RHI_WARNING_AGING_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
-/** triaged 归口停滞超 7 天落告警（ms）——一期纳入（S3 处置收紧） */
+/** triaged 归口停滞超 7 天落告警（ms）——一期纳入（处置收紧） */
 export const RHI_TRIAGED_STALL_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** 扫描间隔（默认 1h；unref 不阻退出） */
@@ -84,10 +84,10 @@ export class RhiSignalAgingWorker {
     if (!this.stopped) return;
     this.stopped = false;
     // 启动即扫一轮（学 SignalAgingWorker：服务重启后尽快发现悬置存量）。
-    // 编排现实（检视 S2 修正）：PatrolWorker 启动即扫，存量出清依赖服务在线（http/工具路径），
+    // 编排现实（检视 修正）：PatrolWorker 启动即扫，存量出清依赖服务在线（http/工具路径），
     // 出清必然发生在首轮扫描之后——部署后首轮会落 1 条聚合告警（聚合限流兜底，非风暴），
     // 这是诚实特性：系统确实疼了 23 天，该告警不冤。出清后告警悬置属预期（组内全部终态化才销号），
-    // 待 #1012 闭环 auto-resolve 清场或人工 resolve healing。
+    // 待 闭环 auto-resolve 清场或人工 resolve healing。
     this.inflight = this.tickSafely();
     this.timer = setInterval(() => {
       this.inflight = this.tickSafely();
@@ -135,7 +135,7 @@ export class RhiSignalAgingWorker {
     return result;
   }
 
-  /** 聚合限流落账（S4）：同 signal_type 一轮最多 1 条聚合 healing；同 type 已有未销号告警则整组跳过 */
+  /** 聚合限流落账：同 signal_type 一轮最多 1 条聚合 healing；同 type 已有未销号告警则整组跳过 */
   private async createAggregateAlerts(
     aged: SignalRecord[], healingRepo: HealingEventRepository, scannedAt: string, now: Date,
   ): Promise<number> {

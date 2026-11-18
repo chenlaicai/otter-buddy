@@ -1,5 +1,5 @@
 /**
- * F20261019f714（M-f7148deb 第 1 条）：create() INSERT 缺 bound_issue/bound_at 列修复。
+ * （M-f7148deb 第 1 条）：create() INSERT 缺 bound_issue/bound_at 列修复。
  *
  * 修复前缺陷：create() 的 INSERT 列清单不含归口两列——调用方/种子数据直接给
  * boundIssue/boundAt 会被**静默丢弃**（库内落 NULL）。此前测试用直插 SQL 绕过

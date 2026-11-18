@@ -1,5 +1,5 @@
 /**
- * F20260805rsto：存量迁移 backfillSessionLedger 测试。
+ * 存量迁移 backfillSessionLedger 测试。
  * 覆盖：补登记缺失首世 / 幂等跳过 / dissolved 獭跳过 / 单条失败不阻塞。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";

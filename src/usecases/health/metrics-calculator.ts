@@ -1,7 +1,7 @@
 /**
- * MetricsCalculator: 核心指标计算（Issue #395）
+ * MetricsCalculator: 核心指标计算
  *
- * 全确定性、无 LLM。口径对齐特性文档 F20260824rhib 的实测数字：
+ * 全确定性、无 LLM。口径对齐特性文档 的实测数字：
  * - bugfix 比率分母 = 有 FID 的 commit（含非标准格式），merge/init 等无 FID 者不计
  *   （实测口径 72/259 ≈ 27.8% 中的 259 为全部 commit，其中带 F 前缀 249；
  *    MVP 用 FID 口径，CLI 报告中同时输出两个口径供校对）

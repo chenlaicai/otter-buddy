@@ -4,7 +4,7 @@ import type { LocalLinkedResource } from '../../lib/mappers'
 import { GameEmbedPanel, resolveGameEmbedPath } from './GameEmbedPanel'
 import { Modal } from '../../components/Modal'
 
-/** F20261008csf1 P1：文类产物摘要卡。
+/** P1：文类产物摘要卡。
  *
  * 宪法定义：文类 = PR/F-R 文档/报告/fact，中间栏展示形态 = 摘要卡（diff 统计/首段摘要/结论
  * 数字），点击进全文。视觉与消息气泡强区分（边框+底色+类型徽章）——混排可扫读性的来源。
@@ -26,7 +26,7 @@ const TYPE_BADGES: Record<string, { label: string; icon: typeof FileText; badgeC
   game: { label: '游戏', icon: Gamepad2, badgeClass: 'bg-violet-50 text-violet-600 border-violet-200/60' },
 }
 
-/** F20261013csv3 T2：file/fact 卡折叠态摘要行最大字符数——content 首行摘要 */
+/** T2：file/fact 卡折叠态摘要行最大字符数——content 首行摘要 */
 const FOLDED_SNIPPET_MAX = 120
 
 /** content 首行摘要：取首个非空行，截断至 FOLDED_SNIPPET_MAX（T2——file 卡折叠态信息增量） */
@@ -45,7 +45,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
   onTogglePin: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  /** F20261021gmbe：game 放大态（modal 全屏）——与 expanded 独立（放大必先展开） */
+  /** game 放大态（modal 全屏）——与 expanded 独立（放大必先展开） */
   const [enlarged, setEnlarged] = useState(false)
   const badge = TYPE_BADGES[resource.type] ?? {
     label: resource.type,
@@ -54,7 +54,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
   }
   const Icon = badge.icon
 
-  // F20261021gmbe：game 型——白名单校验（同源 ^/mahjong/[\w-]+$ 全匹配），不通过降级摘要卡
+  // game 型——白名单校验（同源 ^/mahjong/[\w-]+$ 全匹配），不通过降级摘要卡
   const isGame = resource.type === 'game'
   const gamePath = isGame ? resolveGameEmbedPath(resource.url) : null
   /** 展开态：game 紧凑内嵌（限宽+降高，时间轴预览窗不喧宾夺主；搭档反馈「牌桌比中间栏还大」优化）。
@@ -67,7 +67,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
       return <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap break-words">{resource.content}</p>
     }
     if (gamePath) {
-      // F20261021gmbe：game 卡折叠态（与现摘要卡视觉一致）——房间号 + 展开玩入口；
+      // game 卡折叠态（与现摘要卡视觉一致）——房间号 + 展开玩入口；
       // 展开态 body 让位面板（不重复显示 url 文本）
       if (expanded) return null
       const roomId = gamePath.split('/').pop()

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * F20260825scrf：Modal Portal + body.modal-open 生命周期测试。
+ * Modal Portal + body.modal-open 生命周期测试。
  *
  * 覆盖：
  * 1. open 时 body.modal-open 挂载，close 后卸载（多重弹窗共存时不误删）

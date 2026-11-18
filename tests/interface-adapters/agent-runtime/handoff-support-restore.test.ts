@@ -1,5 +1,5 @@
 /**
- * F20261027hfup（M-5f45049e）：restoreHandoffContext 死键清除测试。
+ * （M-5f45049e）：restoreHandoffContext 死键清除测试。
  *
  * 背景：restoreHandoffContext 曾强写 4 键（含 handoff_open_matters → ctx.openMatters），
  * 但 DynamicContext 接口与渲染函数均无 openMatters 字段——强写后静默丢弃。

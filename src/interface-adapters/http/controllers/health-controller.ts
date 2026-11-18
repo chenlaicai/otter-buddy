@@ -13,11 +13,11 @@ import {
 } from "@entities/document/frontmatter-validator";
 
 /**
- * F20260803mval: 记忆系统健康端点。
+ * 记忆系统健康端点。
  * 实时聚合磁盘 vs DB 对账 + embedding 状态，让链路断裂可见（不靠人翻日志）。
  * try-catch 兜底：DB 异常时返回 healthy:false 而非 500，守门人自身可观测。
  *
- * F20260804dcnv: 增 gapReasons 字段--对每个 gap 文档跑 validator 返回失败原因，
+ * 增 gapReasons 字段--对每个 gap 文档跑 validator 返回失败原因，
  * 让前端 banner 直接显示根因；scanDiskIds 共享 scanner 修缺 frontmatter 双重消失 bug。
  */
 export class HealthController {
@@ -56,7 +56,7 @@ export class HealthController {
       const healthy = featureGaps.length === 0 && researchGaps.length === 0
         && embeddingAvailable && (embedding?.alerts.length ?? 0) === 0;
 
-      // F20260804dcnv: 对每个 gap 跑 validator 拿失败原因，前端 banner 直接显示根因
+      // 对每个 gap 跑 validator 拿失败原因，前端 banner 直接显示根因
       const gapReasons = [
         ...await this.reasonFor(featureGaps, diskFeatureMap, "feature"),
         ...await this.reasonFor(researchGaps, diskResearchMap, "research"),
@@ -77,7 +77,7 @@ export class HealthController {
         "Memory health check failed",
         err instanceof Error ? err : undefined,
       );
-      // F20260803mval: 返回 200 + healthy:false（非 500），客户端只需看 body 判定健康度
+      // 返回 200 + healthy:false（非 500），客户端只需看 body 判定健康度
       return c.json(
         { healthy: false, error: err instanceof Error ? err.message : String(err) },
       );

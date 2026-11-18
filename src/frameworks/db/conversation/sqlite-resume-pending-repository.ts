@@ -37,7 +37,7 @@ function rowToPendingResume(row: PendingResumeRow): PendingResume {
   };
 }
 
-/** F20260916b1ea：restart_pending_resumes 表 sqlite 实现（invoke 模型重建版） */
+/** restart_pending_resumes 表 sqlite 实现（invoke 模型重建版） */
 export class SqliteResumePendingRepository implements ResumePendingRepository {
   constructor(private readonly db: Database.Database) {}
 
@@ -48,15 +48,15 @@ export class SqliteResumePendingRepository implements ResumePendingRepository {
     return rows.map(rowToPendingResume);
   }
 
-  /** S1 修复（PR #994 检视）：attempts 上限防跨重启无限重试——恢复中崩溃则 pending 残留，
-   *  下次重启重拾再崩溃 → 无限循环（配额耗尽型 429 场景每次重启白烧 LLM 调用，#843 实证）。
+  /** 修复（检视）：attempts 上限防跨重启无限重试——恢复中崩溃则 pending 残留，
+   * 下次重启重拾再崩溃 → 无限循环（配额耗尽型 429 场景每次重启白烧 LLM 调用，实证）。
    *  上限值 5：每次重启恢复消耗 1 attempts（认领只在恢复入口一次，进程内 429 退避
    *  不重认领），允许 5 次重启窗口（旧实现 MAX=1 太激进——crash-recovery 只给一次
    *  机会不够）。 */
   private static readonly MAX_RESUME_ATTEMPTS = 5;
 
   async claimPendingResume(invokeId: string, claim: { token: string; bootEpoch: number; pid: number }): Promise<boolean> {
-    // F20261116actlg PR-B：认领绑定 token+epoch（F20261117 检视轮 S3 补 pid）——同 boot 内已认领
+    // PR-B：认领绑定 token+epoch（F20261117 检视轮 S3 补 pid）——同 boot 内已认领
     // 拒重认领（boot_epoch = 本次纪元且已有 token = 本 boot 已有持有者）；旧纪元残留可重认领
     // （恢复者自身崩溃不留死锁，服务层预检旧持有者 pid 死活）；attempts 每次认领（含重认领）
     // 自增，上限守卫不放松。
@@ -69,7 +69,7 @@ export class SqliteResumePendingRepository implements ResumePendingRepository {
   }
 
   async appendRecoveryInvoke(invokeId: string, recoveryInvokeId: string): Promise<void> {
-    // F20261117 检视轮 S2：追加式审计链——多次恢复全历史不丢（单槽覆盖改逗号追加，
+    // F20261117 检视轮 追加式审计链——多次恢复全历史不丢（单槽覆盖改逗号追加，
     // attempts 上限钳住链长 ≤5）；首次写入为单值，兼容既有单次恢复断言。
     this.db.prepare(
       "UPDATE restart_pending_resumes SET recovery_invoke_id = "
@@ -101,7 +101,7 @@ export class SqliteResumePendingRepository implements ResumePendingRepository {
     status: ResumePendingStatus,
     settledAt: string,
   ): Promise<boolean> {
-    // F20261117 检视轮 S1：claim_token 真消费——持有者收口终态。仅当行无主（token IS NULL，
+    // F20261117 检视轮 claim_token 真消费——持有者收口终态。仅当行无主（token IS NULL，
     // 存量库迁移行）或持有者即本 token 时写入；行已被他人接管则 changes=0（本持有者
     // 不覆盖他人终态，交由接管者负责闭环）。
     const result = this.db.prepare(

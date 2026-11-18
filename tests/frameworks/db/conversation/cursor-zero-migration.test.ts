@@ -1,10 +1,10 @@
 /**
- * F20260929czi0：进场游标零点修正存量迁移测试（db 迁移三不变量）。
+ * 进场游标零点修正存量迁移测试（db 迁移三不变量）。
  *
  * 迁移语义：active 参与者 × active 对话 × last_read_seq=0 → 该对话 max(seq)。
- * 零游标是 F20260913ctlv 口径的事故值（零游标獭把全历史当未读，多为换世后
+ * 零游标是 口径的事故值（零游标獭把全历史当未读，多为换世后
  * 爆窗锁死——pushCursorOnStartup 只在启动成功时推进游标，爆窗 400 → 不推进 →
- * 永远全量未读），事实状态就是「读到最新」，与 #775 backfillLastReadSeq 同源。
+ * 永远全量未读），事实状态就是「读到最新」，与 backfillLastReadSeq 同源。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type Database from "better-sqlite3";

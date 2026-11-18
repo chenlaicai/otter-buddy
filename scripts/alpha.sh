@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# F20260917alph: alpha 验证环境管理器 — 每个 worktree 一个隔离的 otter-buddy 实例。
+# alpha 验证环境管理器 — 每个 worktree 一个隔离的 otter-buddy 实例。
 #
 # Usage:
 #   scripts/alpha.sh start [--port PORT] [--quick]  在当前 worktree 拉起隔离验证实例
@@ -25,7 +25,7 @@ ALPHA_PORT_MAX=3198
 ALPHA_SLOTS=50            # 3100-3198 偶数共 50 槽
 HEALTH_PATH="/api/settings"
 HEALTH_TIMEOUT=60         # 主服务冷启动含 embedding 模型加载，放宽到 60s
-                          # #1322（F20261016autz）：/api/settings 已接鉴权——探针必须带身份头，无头 401 会被 curl -sf 判为不健康
+                          # /api/settings 已接鉴权——探针必须带身份头，无头 401 会被 curl -sf 判为不健康
 
 # ── 基础 helpers ────────────────────────────────────────────
 
@@ -65,7 +65,7 @@ is_pid_alive() {
 }
 
 # 白名单端口列表（换行分隔）。文件不存在/解析失败 → 空集（无避让）。
-# 语义域：搭档手工声明的外部项目 dev server 端口（F20260914dsrv）——alpha 不占用，
+# 语义域：搭档手工声明的外部项目 dev server 端口——alpha 不占用，
 # 防「白名单放行杀 alpha」与「restart-service 撞 alpha」两类语义混淆。
 whitelisted_ports() {
   local repo_root="$1" wl
@@ -122,7 +122,7 @@ is_valid_alpha_port() {
 #   2. 进程 cmdline 含 dist/src/main.js（otter-buddy 形态）
 #   3. 进程 cwd 属于本仓 worktree（.otter/worktrees/ 下）
 #   4. 无对应 .otter-alpha.json 锁文件（有锁文件 = 在册实例，不归 sweep 管）
-# 孤儿形态：worktree 已删 / 锁文件被删 / 手工 detached 直拉零登记（F20261005clup 遗留）。
+# 孤儿形态：worktree 已删 / 锁文件被删 / 手工 detached 直拉零登记（遗留）。
 sweep_orphans() {
   local main port pid cwd wt_name lock_file
   main="$(main_repo_root)"
@@ -300,7 +300,7 @@ cmd_start() {
   wt_root="$(worktree_root)"
   json_path="$(alpha_json_path)"
 
-  # L3 兜底：start 前置自动跑一次孤儿扫描（F20261014alps）。
+  # L3 兜底：start 前置自动跑一次孤儿扫描。
   # 扫描到孤儿 = 有实例在裸奔，直接拒绝启动并引导 sweep --kill——
   # 不让「再开一个」掩盖「上一个没收」的事故。
   local orphans
@@ -367,7 +367,7 @@ cmd_start() {
     (cd "$wt_root" && npm run build) >&2
   fi
 
-  # 前端构建（#1601）：alpha 实例 serve 的是 worktree/web/dist（app.ts 以
+  # 前端构建：alpha 实例 serve 的是 worktree/web/dist（app.ts 以
   # import.meta.dirname 相对解析），而后端 build 不产前端——不补则 alpha 静默
   # serve 旧/缺失的 web/dist，表现为「改了前端不生效、无报错」的隐蔽失效。
   # 与后端同语义：非 --quick 全量构建；--quick 时 web/dist 缺失才兜底。
@@ -475,7 +475,7 @@ cmd_stop() {
   fi
 
   if is_pid_alive "$pid"; then
-    # 杀伐校验（沿用 otter-buddy.sh F20260831aksp T1）：锁文件 PID 必须确实是
+    # 杀伐校验（沿用 otter-buddy.sh T1）：锁文件 PID 必须确实是
     # 锁定端口的监听者。锁文件指向别的进程时拒杀——宁可让人来裁决。
     # lsof 不可用时跳过校验降级放行（增强闸门不做硬依赖）。
     if command -v lsof >/dev/null 2>&1; then
@@ -497,7 +497,7 @@ cmd_stop() {
   rm -f "$json_path"
 }
 
-# L3 全局兜底扫描（F20261014alps）：找「无锁文件、worktree 已删或锁文件被删」的孤儿实例。
+# L3 全局兜底扫描：找「无锁文件、worktree 已删或锁文件被删」的孤儿实例。
 # 默认只报告不杀；--kill 才执行清理。
 # 本命令委托给跨项目通用工具 service-lifecycle-sweep.sh（吃自己的狗粮）。
 cmd_sweep() {

@@ -5,7 +5,7 @@ import type { ConnectorRegistryRepository } from "@usecases/ports/connector-regi
 import type { Device } from "@entities/execution/device";
 
 /**
- * F20261117cnnct（#1868 阶段 4 C1）：connector 配对端点。
+ * （阶段 4 C1）：connector 配对端点。
  * POST /api/connector/pair { code, name } → 核销一次性码 → 建设备身份 → 返 deviceId+pairToken。
  *
  * 鉴权模型：码即秘密（CLI 生成 → 人贴给 connector）——本端点不要求登录态（connector

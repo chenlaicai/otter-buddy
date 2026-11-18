@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 
-// F20261106gtagl：Modification-Class 词表闸元测试。
+// Modification-Class 词表闸元测试。
 // 双职责：
 // 1. 行为验证——五值词表硬闸 + 历史惯用形态容忍（括号说明/首 token 提取）
 // 2. 词表镜像一致性——.githooks/commit-msg 内联词表与 worktree-isolation SKILL

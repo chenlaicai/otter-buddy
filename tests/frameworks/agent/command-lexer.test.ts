@@ -1,5 +1,5 @@
 /**
- * F20260928grv2 词法层 golden token 流测试（方案 D7 三层测试之第①层）。
+ * 词法层 golden token 流测试（方案 D7 三层测试之第①层）。
  *
  * 锁死「shell 理解对不对」：输入命令 → 期望 token 结构（词的求值结果/操作符序列/
  * heredoc 元数据/parseOk）。判定层决策表在 bash-safety-guard.test.ts（第③层）。

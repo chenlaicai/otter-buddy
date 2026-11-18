@@ -11,7 +11,7 @@ import { mockSendEntry } from "../../helpers/mock-send-entry";
 import { createTestLogger } from "../../helpers/logger";
 
 /**
- * r1-A3：entry.speak attachments 透传的真实发射行用例（补静态断言的哑管线缺口）。
+ * -A3：entry.speak attachments 透传的真实发射行用例（补静态断言的哑管线缺口）。
  *
  * mock SDK agent 的 speak 工具结束时 result.details 带 attachments →
  * invokeConversation 端到端 → 断言广播出的 entry.speak 事件 data 含该 attachments。

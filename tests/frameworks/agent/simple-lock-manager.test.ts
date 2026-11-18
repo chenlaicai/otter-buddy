@@ -1,7 +1,7 @@
 /**
  * SimpleLockManager 并发安全测试
  *
- * Why: #376 根因是旧版锁只检查 waiters 队列长度，第一个获取者不入队，
+ * Why: 根因是旧版锁只检查 waiters 队列长度，第一个获取者不入队，
  * 导致第二个调用者也绕过等待。本测试验证修复后的锁正确跟踪 held 状态。
  */
 import { describe, it, expect, vi } from "vitest";
@@ -156,7 +156,7 @@ describe("SimpleLockManager", () => {
   });
 
   it("should handle late release after destroy safely", async () => {
-    // Why: 检视獭发现 #2 —— destroy 在持有者释放前调用的边界场景
+    // Why: 检视獭发现 —— destroy 在持有者释放前调用的边界场景
     // 持有者的闭包仍引用旧 lock 对象，但 lock.held 已被 Map 清理
     // 验证：不 crash、不挂起
     const lock = new SimpleLockManager();
@@ -176,7 +176,7 @@ describe("SimpleLockManager", () => {
   });
 
   it("should allow new acquire after waiter timeout and holder release", async () => {
-    // Why: 检视獭发现 #3 —— timeout 后 stale entry 清理的端到端路径
+    // Why: 检视獭发现 —— timeout 后 stale entry 清理的端到端路径
     // holder 持有锁 → waiter 超时 → holder 释放 → 新 acquire 立即获取锁
     const lock = new SimpleLockManager();
 
@@ -197,7 +197,7 @@ describe("SimpleLockManager", () => {
   });
 
   it("should emit structured diagnostic log on lock acquire timeout (#423)", async () => {
-    // Why(#423 方案1): 超时路径此前是静默故障——报错文本之外无任何证据，
+    // Why(方案1): 超时路径此前是静默故障——报错文本之外无任何证据，
     // 无法定位持有者是谁、持有了多久。注入 logger 后，超时时必须落结构化日志。
     const errorSpy = vi.fn();
     const logger = {
@@ -229,7 +229,7 @@ describe("SimpleLockManager", () => {
       queueLength: 0,
       activeLocks: 1,
     });
-    // Why(#F20260827clk): Node 计时器在负载下可早触发（实测 59ms 醒），精确边界断言会 CI flake，
+    // Why: Node 计时器在负载下可早触发（实测 59ms 醒），精确边界断言会 CI flake，
     // 下界放宽 5ms 容差。超时行为本身由 rejects.toThrow 覆盖，这里只验证量级。
     expect(context.waitedMs).toBeGreaterThanOrEqual(55);
     expect(context.holderHeldForMs).toBeGreaterThanOrEqual(25);
@@ -264,7 +264,7 @@ describe("SimpleLockManager", () => {
   });
 
   it("should steal lock from stale holder instead of timing out (#599)", async () => {
-    // Why(#599): #599 现场——服务重启后恢复路径抢 session 锁，持有者是
+    // Why: 现场——服务重启后恢复路径抢 session 锁，持有者是
     // abort 后未 settle 的僵尸 invoke，永久持有。等待必超时，恢复失败。
     // steal 语义：持有超龄（>= stealThreshold）时新 acquire 直接接管。
     const lock = new SimpleLockManager(30000, undefined, 100); // steal 阈值 100ms
@@ -281,7 +281,7 @@ describe("SimpleLockManager", () => {
   });
 
   it("stolen holder's release should be a no-op (#599)", async () => {
-    // Why(#599): 僵尸 invoke 的 finally 迟早会执行（或永不执行）。
+    // Why: 僵尸 invoke 的 finally 迟早会执行（或永不执行）。
     // 若执行，其 release 不能干扰新持有者——世代号不匹配时静默丢弃。
     const lock = new SimpleLockManager(30000, undefined, 100);
 
@@ -319,7 +319,7 @@ describe("SimpleLockManager", () => {
   });
 
   it("steal should log structured warning (#599)", async () => {
-    // Why(#423 同源): steal 是异常事件，必须留诊断证据（谁被接管、持了多久）
+    // Why(同源): steal 是异常事件，必须留诊断证据（谁被接管、持了多久）
     const warnSpy = vi.fn();
     const logger = { info: vi.fn(), warn: warnSpy, debug: vi.fn(), error: vi.fn(), child: vi.fn() } as unknown as Logger;
     const lock = new SimpleLockManager(30000, logger, 50);

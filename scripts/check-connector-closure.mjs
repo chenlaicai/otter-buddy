@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * F20261117cnnct（#1868 阶段 4）：connector 构建产物依赖闭包断言（方案 v3 §7）。
+ * （阶段 4）：connector 构建产物依赖闭包断言（方案 v3 §7）。
  *
  * 轻量铁律的构建级硬约束：dist/connector 的 import 图不得出现模型/embedding/记忆/
  * agent 全家桶节点（issue 阶段 4「不加载模型、embedding 或主记忆」）。eslint 边界

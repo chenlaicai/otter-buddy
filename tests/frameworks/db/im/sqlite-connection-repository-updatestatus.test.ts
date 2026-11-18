@@ -4,7 +4,7 @@ import { initSchema } from "@frameworks/db/schema";
 import { SqliteConnectionRepository } from "@frameworks/db/im/sqlite-connection-repository";
 import type { Connection } from "@entities/im/connection";
 
-/** #1391：im-connection 仓 updateStatus 对不存在 ID fail-closed（#1370 族模式收尾） */
+/** im-connection 仓 updateStatus 对不存在 ID fail-closed（族模式收尾） */
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");

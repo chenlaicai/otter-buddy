@@ -1,5 +1,5 @@
 /**
- * #751：manage_healing_events query 默认过滤健康探针事件。
+ * manage_healing_events query 默认过滤健康探针事件。
  *
  * 写入侧修复（探针写入即 resolved）保证新探针不进 open 池；
  * 本文件测消费侧兜底：历史遗留的 open/dismissed 探针事件，
@@ -25,7 +25,7 @@ function seedEvent(overrides: Partial<HealingEvent> = {}): HealingEvent {
   };
 }
 
-/** #751 历史堆积探针样本：messageId/conversationId/otterId 均为哨兵 */
+/** 历史堆积探针样本：messageId/conversationId/otterId 均为哨兵 */
 function seedProbeEvent(overrides: Partial<HealingEvent> = {}): HealingEvent {
   return seedEvent({
     messageId: HEALING_PROBE_SENTINEL,

@@ -1,5 +1,5 @@
 /**
- * F20261027hwl1：工作账本 + 模型效率 HTTP 控制器（只读）。
+ * 工作账本 + 模型效率 HTTP 控制器（只读）。
  *
  * - GET /api/health/work-ledger          → 列表 + 覆盖率 + 未归属 + usageGap
  * - GET /api/health/work-ledger/:id      → 详情（404 不返回演示对象）

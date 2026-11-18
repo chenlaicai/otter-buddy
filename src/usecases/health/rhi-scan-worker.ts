@@ -1,5 +1,5 @@
 /**
- * RhiScanWorker: RHI 定时采集 worker（Issue #401）
+ * RhiScanWorker: RHI 定时采集 worker
  *
  * 周期执行完整管道：git 采集 → commit 解析 → F 文档采集 → 特性链构建
  *   → 信号检测 → SignalPipeline（落库 + 记忆通道 + critical 唤醒）。
@@ -44,9 +44,9 @@ import type { CreateCostOutputRow } from "./cost-output-rows";
 /** healing 事件数据源端口（由 bootstrap 注入 DB 查询；worker 不直接依赖 healing repository 细节） */
 export type HealingEventSource = () => Promise<CollectedHealingEvent[]>;
 
-/** 指标快照落库端口（F20260829hviz Fix A）：接收快照日期 + 行集，同日覆盖写入。
+/** 指标快照落库端口（Fix A）：接收快照日期 + 行集，同日覆盖写入。
  *  由 bootstrap 注入 HealthSnapshotRepository.replaceForDate；测试可注入内存实现。
- *  @param metricType 可选，指定后只删除该 metric_type 的行（#583 修复：避免误删其他类型数据）。 */
+ * @param metricType 可选，指定后只删除该 metric_type 的行（修复：避免误删其他类型数据）。 */
 export type SnapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[], metricType?: string) => void;
 
 export interface RhiScanWorkerOptions {
@@ -58,33 +58,33 @@ export interface RhiScanWorkerOptions {
   windowDays?: number;
   /** critical 信号唤醒回调（SignalPipeline 用） */
   wakeup?: CriticalSignalWakeup;
-  /** open PR 数据源（F20260902sigm pr-stalled 信号；默认 collectOpenPrs 现拉 gh CLI）。
+  /** open PR 数据源（pr-stalled 信号；默认 collectOpenPrs 现拉 gh CLI）。
    *  采集失败降级：返回空数组 → pr-stalled 信号缺席，不误报不崩 */
   prSource?: (repoPath: string) => Promise<OpenPrInfo[]>;
   /** pr-stalled 阈值天数（透传 buildFeatureChains，默认 7） */
   stalledPrDays?: number;
-  /** 指标快照落库端口（F20260829hviz Fix A）：注入后 scanOnce 会计算指标并写入 health_snapshots。
+  /** 指标快照落库端口（Fix A）：注入后 scanOnce 会计算指标并写入 health_snapshots。
    *  未注入时跳过（向后兼容，旧测试/CLI 直调不受影响）。 */
   snapshotSink?: SnapshotSink;
-  /** 成本/产出快照落库端口（#583）：注入后 scanOnce 采集成本/产出数据写入 health_snapshots。
+  /** 成本/产出快照落库端口：注入后 scanOnce 采集成本/产出数据写入 health_snapshots。
    *  与 overview snapshotSink 分离，避免类型冲突。未注入时跳过。
-   *  @param metricType 可选，指定后只删除该 metric_type 的行（#583 修复：全局行按历史日期分批写入需类型限定）。 */
+   * @param metricType 可选，指定后只删除该 metric_type 的行（修复：全局行按历史日期分批写入需类型限定）。 */
   costOutputSink?: (snapshotDate: string, rows: CreateCostOutputRow[], metricType?: string) => void;
-  /** F20261027hwl1：cost_output 存量失效钩子——日界换轨（UTC→Asia/Shanghai）与 provider 元数据
+  /** cost_output 存量失效钩子——日界换轨（UTC→Asia/Shanghai）与 provider 元数据
    *  入库后，旧口径行必须一次性清除（60 天窗口下轮重扫重建），否则双日界双计。
    *  注入后首次扫描执行 DELETE，幂等（标志位由调用方持久化或自身探测旧行 provider 缺失）。 */
   costOutputInvalidateAll?: () => void;
   /** 指标计算滚动窗口天数（默认 60：趋势图 30 天 + 前后各 15 天缓冲） */
   metricsWindowDays?: number;
-  /** 信号仓库（可选，issue #595 PR1）：注入后健康评分 D5 用真实 open 计数；未注入时降级零值 */
+  /** 信号仓库（可选，PR1）：注入后健康评分 D5 用真实 open 计数；未注入时降级零值 */
   signalRepo?: SignalRepository;
-  /** session JSONL 目录路径（#583：LLM 成本采集数据源）。未注入时跳过成本采集。 */
+  /** session JSONL 目录路径（LLM 成本采集数据源）。未注入时跳过成本采集。 */
   sessionsDir?: string;
-  /** agent_sessions → otter 映射数据源（#583）。注入后从 session JSONL 关联到 otterId。 */
+  /** agent_sessions → otter 映射数据源。注入后从 session JSONL 关联到 otterId。 */
   agentSessionSource?: AgentSessionSource;
-  /** 成本/产出 DB 句柄（#583：OtterOutputCollector 需要查 messages 表）。 */
+  /** 成本/产出 DB 句柄（OtterOutputCollector 需要查 messages 表）。 */
   costOutputDb?: Database.Database;
-  /** 环比骤变数据源（Issue #645）：昨日 health_index 快照行（五维+overall）。
+  /** 环比骤变数据源：昨日 health_index 快照行（五维+overall）。
    *  注入后 scanOnce 自动对比昨日/今日评分，|Δ|≥10 产出 snapshot_shift 信号进管道。
    *  未注入时跳过（消费方=每日检查任务可自行调 diffHealthIndex 深挖）。
    *  Why 由调用方注入而非 worker 直查 DB：health_snapshots 的读取端口已由
@@ -103,11 +103,11 @@ export interface RhiScanResult {
   memoryIndexed: number;
   wakeupsTriggered: number;
   errors: string[];
-  /** 写入 health_snapshots 的指标行数（F20260829hviz；未注入 sink 时为 0） */
+  /** 写入 health_snapshots 的指标行数（；未注入 sink 时为 0） */
   metricsStored: number;
-  /** 写入 health_snapshots 的成本/产出行数（#583；未注入 costOutputSink 时为 0） */
+  /** 写入 health_snapshots 的成本/产出行数（；未注入 costOutputSink 时为 0） */
   costOutputStored: number;
-  /** snapshot_shift 环比骤变信号数（Issue #645；prevDayHealthIndexSource 未注入时恒为 0） */
+  /** snapshot_shift 环比骤变信号数（；prevDayHealthIndexSource 未注入时恒为 0） */
   snapshotShiftCount: number;
 }
 
@@ -118,7 +118,7 @@ export class RhiScanWorker {
   /** 最近一轮扫描后的 open 信号计数（health_index D5 输入；signalRepo 未注入时恒 null） */
   private lastOpenSignalCounts: { critical: number; warning: number } | null = null;
 
-  /** 最近一轮写入的 health_index 快照行（Issue #645 环比骤变的「今日」侧：
+  /** 最近一轮写入的 health_index 快照行（环比骤变的「今日」侧：
    *  persistSnapshot 构建行时缓存，detectSnapshotShift 读取。首扫当日为空 → 跳过检测，
    *  下一轮（≤1h 后）自动生效——环比骤变是日粒度信号，一小时延迟可接受） */
   private lastHealthIndexRows: HealthIndexSnapshot[] | null = null;
@@ -132,7 +132,7 @@ export class RhiScanWorker {
   ) {}
 
   /** open 信号按 severity 计数（D5 输入；repo 未注入返回 null → 评分降级零值）。
-   *  Issue #652 方案甲：confidence=low 不进 critical/warning 计数（与 overview 同源
+   * 方案甲：confidence=low 不进 critical/warning 计数（与 overview 同源
    *  aggregateOpenSignalCounts）——低置信折叠后健康分不再纹丝不动。 */
   private countOpenBySeverity(): { critical: number; warning: number } | null {
     if (!this.options.signalRepo) return null;
@@ -150,7 +150,7 @@ export class RhiScanWorker {
     this.timer = setInterval(() => {
       this.inflightTick = this.tickSafely();
     }, interval);
-    // #460：1h 扫描 timer unref，不阻止进程自然退出（僵尸进程根因之二）
+    // 1h 扫描 timer unref，不阻止进程自然退出（僵尸进程根因之二）
     this.timer?.unref?.();
     this.logger.info("RHI scan worker started", { action: "rhi_worker_start", intervalMs: interval });
   }
@@ -210,7 +210,7 @@ export class RhiScanWorker {
       filesChanged: c.filesChanged,
     }));
 
-    // 4. F 文档 + healing 事件 + open PR（F20260902sigm pr-stalled 数据源）
+    // 4. F 文档 + healing 事件 + open PR（pr-stalled 数据源）
     const [docs, healingEvents, openPrs] = await Promise.all([
       collectFeatureDocs(this.repoPath),
       this.healingSource().catch(err => {
@@ -232,7 +232,7 @@ export class RhiScanWorker {
       windowDays: this.options.windowDays,
     });
 
-    // 5.5 环比骤变检测（Issue #645）：昨日 health_index 快照 vs 今日（persistSnapshot 会写今日行）。
+    // 5.5 环比骤变检测：昨日 health_index 快照 vs 今日（persistSnapshot 会写今日行）。
     //     必须在 persistSnapshot 之前取昨日数据（不依赖今日写入），信号并入主管道统一落库/记忆/唤醒
     const shiftSignals = this.detectSnapshotShift();
     signals.push(...shiftSignals);
@@ -243,11 +243,11 @@ export class RhiScanWorker {
     // 6.5 记录 open 信号计数（health_index D5 输入：本次扫描后的真实余压）
     this.lastOpenSignalCounts = this.countOpenBySeverity() ?? { critical: 0, warning: 0 };
 
-    // 7. 指标计算 + 快照落库（F20260829hviz Fix A：修「面板扫描不写指标」断链）
+    // 7. 指标计算 + 快照落库（Fix A：修「面板扫描不写指标」断链）
     //    独立窗口重采（60 天滚动）而非复用信号窗口——趋势口径要稳定，链构建余量会污染分子分母
     const metricsStored = this.persistSnapshot(signalInputs, chains);
 
-    // 8. 成本/产出快照落库（#583）：与 overview 指标同日写入，独立 sink
+    // 8. 成本/产出快照落库：与 overview 指标同日写入，独立 sink
     const costOutputStored = await this.persistCostOutputSnapshot();
 
     return {
@@ -265,9 +265,9 @@ export class RhiScanWorker {
     };
   }
 
-  /** 成本/产出快照写入（#583）：解析 session JSONL + 查 messages 表，同日覆盖。
+  /** 成本/产出快照写入：解析 session JSONL + 查 messages 表，同日覆盖。
    *  独立于 overview 快照（metric_type=cost_output），失败不阻断信号管道。 */
-  /** F20261027hwl1：日界换轨失效——旧 UTC 口径行清除后由本轮 60 天重扫全量重建。
+  /** 日界换轨失效——旧 UTC 口径行清除后由本轮 60 天重扫全量重建。
    *  失败不阻断重扫（stale rows kept，下轮重试）。 */
   private invalidateStaleCostOutput(): void {
     if (!this.options.costOutputInvalidateAll) return;
@@ -300,7 +300,7 @@ export class RhiScanWorker {
         collectFdocCounts(this.repoPath),
       ]);
       const dispatchRecords = collectDispatchTaskCounts(db, { since });
-      // F20260914usgm：单次问答均值（invokes 表，按模型 + 全模型合计）
+      // 单次问答均值（invokes 表，按模型 + 全模型合计）
       const invokeStatsRecords = collectInvokeStats(db, { since });
 
       const outputRecords = collectOtterOutput(db, toolCallCounts, { since });
@@ -381,7 +381,7 @@ export class RhiScanWorker {
     }
   }
 
-  /** 派生行追加（persistSnapshot 拆出）：health_index（#595）+ fix_interval（#645），
+  /** 派生行追加（persistSnapshot 拆出）：health_index+ fix_interval，
    *  各自独立降级——派生失败与快照失败同策略（传感器分离，不阻断主路） */
   private appendDerivedRows(
     rows: CreateSnapshotRow[],
@@ -406,7 +406,7 @@ export class RhiScanWorker {
         openSignals: this.lastOpenSignalCounts ?? { critical: 0, warning: 0 },
       });
       rows.push(...buildHealthIndexRows(score));
-      // Issue #645：缓存今日 health_index 行（环比骤变「今日」侧，与落库行同源同口径）
+      // 缓存今日 health_index 行（环比骤变「今日」侧，与落库行同源同口径）
       this.lastHealthIndexRows = rows
         .filter(r => r.metricType === "health_index")
         .map(r => ({ snapshotDate: r.snapshotDate, metricKey: r.metricKey, metricValue: r.metricValue }));
@@ -417,8 +417,8 @@ export class RhiScanWorker {
       });
     }
 
-    // 修复半衰期（Issue #645）：滚动窗口 bugfix 间隔中位数，落 fix_interval 行
-    // （#647 sparkline/热点条消费；窗口随 metricsWindowDays 同口径，趋势可回放）
+    // 修复半衰期：滚动窗口 bugfix 间隔中位数，落 fix_interval 行
+    // （sparkline/热点条消费；窗口随 metricsWindowDays 同口径，趋势可回放）
     try {
       const fixInterval = computeFixInterval(
         ctx.windowInputs.map(c => c.parsed),
@@ -435,7 +435,7 @@ export class RhiScanWorker {
     }
   }
 
-  /** 环比骤变检测（Issue #645）：昨日 health_index 快照 vs 今日，任一维度/综合 |Δ|≥阈值
+  /** 环比骤变检测：昨日 health_index 快照 vs 今日，任一维度/综合 |Δ|≥阈值
    *  产出 snapshot_shift 信号（evidence 带维度前后值，null 维度跳过并注明）。
    *  数据源未注入 / 异常 → 返回空数组（传感器分离，不阻断主管道）。
    *  信号走主管道：落库 + critical 唤醒；同日重复触发 upsert 累加，次日不再触发时
@@ -525,9 +525,9 @@ export class RhiScanWorker {
   }
 }
 
-/** commit author date 是否落在统计窗口内（#1704）。
+/** commit author date 是否落在统计窗口内。
  *  必须用时间戳比较——author date 是 %aI（带原时区偏移），windowStart 是 UTC 'Z' 全串，
- *  字符串字典序混比两种时区格式会在窗口边界日随当日时刻翻转（2026-10-29 实爆，见 #1704）。
+ * 字符串字典序混比两种时区格式会在窗口边界日随当日时刻翻转（2026-10-29 实爆，见 ）。
  *  入参契约：两参数必须是带时区/时刻的 ISO 8601（%aI 带偏移或 toISOString 的 'Z'）。
  *  date-only 字符串会被 Date.parse 按 UTC 解析、无时刻无时区串按本地时区解析——
  *  混用会引入解析歧义（当前调用面恒为带时区格式，不可触发）。 */

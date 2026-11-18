@@ -31,9 +31,9 @@ function dtoOf(c: LocalConversation) {
   return { id: c.id, title: c.title, status: c.status, pinned: c.pinned, otterIds: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', ...(c.kind === 'assistant' ? { kind: 'assistant' } : {}) }
 }
 
-/** F20260922cgrp：LeftPanel 普通/已归档分组自拉分页数据——默认 stub 空页（total=0），
+/** LeftPanel 普通/已归档分组自拉分页数据——默认 stub 空页（total=0），
  *  各用例需要具体数据时显式调用本函数覆盖 */
-// F20260922cgrp delta（检视严重 1）：普通区拉取恒带 pinned:false——total/items 均不含置顶，
+// delta（检视严重 1）：普通区拉取恒带 pinned:false——total/items 均不含置顶，
 // stub 语义 = 「非置顶普通对话」（与生产口径一致，不再固化「total 含置顶」的错误假设）
 function stubGroupFetch(normalItems: unknown[] = [], normalTotal = 0, archivedItems: unknown[] = [], archivedTotal = 0) {
   return vi.spyOn(api, 'listConversations').mockImplementation((options) => {
@@ -110,7 +110,7 @@ describe('LeftPanel sessionStorage 滚动位置保持', () => {
 
   it('onSelect 回调正常触发，不被 beforeunload 逻辑影响', async () => {
     const onSelect = vi.fn()
-    // F20260922cgrp：普通对话由 LeftPanel 内部分页拉取（异步）——显式 stub 提供 c1
+    // 普通对话由 LeftPanel 内部分页拉取（异步）——显式 stub 提供 c1
     stubGroupFetch([dtoOf(mockConversations[0])], 1)
     renderLeftPanel(onSelect)
     const item = await vi.waitFor(() => {
@@ -177,7 +177,7 @@ describe('LeftPanel 对话标题搜索（F20260916lpsc）', () => {
   const searchHit: LocalConversation = { id: 'c9', title: '工作区优化', status: 'active', otterIds: [], pinned: false }
 
   function mockSearchFetch(dtos: unknown[], groupDtos: unknown[] = []) {
-    // F20260922cgrp：listConversations 返回 { items, total }；
+    // listConversations 返回 { items, total }；
     // 分组分页拉取（无 search 参数）与搜索请求按 URL 区分返回
     return vi.fn().mockImplementation((url: unknown) => {
       const isSearch = String(url).includes('search=')
@@ -218,7 +218,7 @@ describe('LeftPanel 对话标题搜索（F20260916lpsc）', () => {
 
     const input = container.querySelector('[data-testid="leftpanel-search-bar"] input') as HTMLInputElement
     typeKeyword(input, '工作区')
-    // 防抖 300ms 内不发搜索请求（F20260922cgrp：mount 时的分组拉取不计——断言带 search 参数的请求）
+    // 防抖 300ms 内不发搜索请求（mount 时的分组拉取不计——断言带 search 参数的请求）
     expect(mock.mock.calls.filter(c => String(c[0]).includes('search='))).toHaveLength(0)
     await act(async () => { vi.advanceTimersByTime(350) })
 
@@ -248,7 +248,7 @@ describe('LeftPanel 对话标题搜索（F20260916lpsc）', () => {
 
     act(() => { (container.querySelector('[data-testid="leftpanel-search-close"]') as HTMLElement).click() })
     expect(container.querySelector('[data-testid="leftpanel-search-bar"]')).toBeNull()
-    // F20260922cgrp：恢复分组视图后普通对话由内部分页拉取（异步渲染）
+    // 恢复分组视图后普通对话由内部分页拉取（异步渲染）
     await vi.waitFor(() => expect(container.textContent).toContain('对话1'))
     expect(container.textContent).not.toContain('工作区优化')
     vi.useRealTimers()

@@ -60,7 +60,7 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     private readonly logger: Logger,
     private readonly tokenManager: FeishuAccessTokenManager,
     private readonly registry?: ChannelStatusRegistry,
-    /** F20260928fsqr：多 app 并行时每线一个 registry 条目（缺省 "feishu" 存量单 app 兼容） */
+    /** 多 app 并行时每线一个 registry 条目（缺省 "feishu" 存量单 app 兼容） */
     private readonly channelId: string = "feishu",
   ) {
     this.eventDispatcher = new EventDispatcher({
@@ -89,7 +89,7 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
       },
       onReconnecting: () => {
         this.logger.warn("Feishu WSClient onReconnecting callback fired");
-        // 上报 error_backoff 状态（WS 重连中）+ 连续重连次数（#663：数据源
+        // 上报 error_backoff 状态（WS 重连中）+ 连续重连次数（数据源
         // getConnectionStatus().reconnectAttempts 原本只打日志，现入 registry 供 IM 页展示）
         const status = this.wsClient.getConnectionStatus();
         this.reportStatus("error_backoff", {
@@ -106,13 +106,13 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
   }
 
   /** 上报通道状态到 registry（防御性调用：registry 可选注入）。
-   *  #663：飞书条目同时携带掩码 appId（完整凭证不出 frameworks 层） */
+   * 飞书条目同时携带掩码 appId（完整凭证不出 frameworks 层） */
   private reportStatus(
     kind: "running" | "error_backoff",
     extra?: { errorMsg?: string; reconnectAttempts?: number },
   ): void {
     if (!this.registry) return;
-    // F20260928fsqr：channelId 构造注入（多 app 各一条目；存量单 app 缺省 "feishu"）
+    // channelId 构造注入（多 app 各一条目；存量单 app 缺省 "feishu"）
     const channelId = this.channelId;
     const now = Date.now();
     switch (kind) {
@@ -121,7 +121,7 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
           kind: "feishu",
           state: { kind: "running", since: now },
           appIdMasked: maskAppId(this.config.appId),
-          // F20260920imax：自建应用 applink 分享链——扫码/点击直接打开机器人
+          // 自建应用 applink 分享链——扫码/点击直接打开机器人
           // 会话页（已添加则直达对话；未添加则展示添加卡片）。前端渲染二维码用
           appShareUrl: `https://applink.feishu.cn/client/chat/open?appId=${this.config.appId}`,
         });

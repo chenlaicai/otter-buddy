@@ -1,5 +1,5 @@
 /**
- * #460：进程关闭的 dispose 超时兜底。
+ * 进程关闭的 dispose 超时兜底。
  * 根因：SIGTERM handler await dispose()——任一 async 清理（DB/worker/metric flush）卡住
  * 就永远到不了 process.exit()，进程"杀不死"，必须 kill -9（僵尸进程根因之一）。
  *

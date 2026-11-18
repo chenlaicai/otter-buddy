@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { aggregateOpenSignalCounts } from "@usecases/health/signal-counts";
 import type { SignalRecord } from "@usecases/health/signal-repository";
 
-/** Issue #652：open 信号计数口径（confidence=low 不进 severity 计数，单列 byConfidence） */
+/** open 信号计数口径（confidence=low 不进 severity 计数，单列 byConfidence） */
 
 function rec(overrides: Partial<SignalRecord>): SignalRecord {
   return {

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { FeishuConnectionController } from "@interface-adapters/http/controllers/feishu-connection-controller";
 import { maskAppId } from "@frameworks/feishu/long-connection-client";
 
-/** F20260928fsqr：飞书扫码连接端点测试——账号列表投影（掩码 appId）+ 删除防复活序 + 幂等建线 */
+/** 飞书扫码连接端点测试——账号列表投影（掩码 appId）+ 删除防复活序 + 幂等建线 */
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   const apps = (overrides.apps as Array<Record<string, string>>) ?? [

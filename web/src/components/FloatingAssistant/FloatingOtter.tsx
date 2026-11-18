@@ -1,13 +1,13 @@
 import type { OtterMood } from './global-conversation-store'
 
 /**
- * F20260924wast：浮动獭本体（纯展示 + 交互回调）。
+ * 浮动獭本体（纯展示 + 交互回调）。
  * datu 像素头像三态（只加装饰不动脸）：
  * - sleep 睡觉：呼吸（scale 1→1.03）+ zZ 气泡
  * - look 张望：左右探头（rotate ±6°）
  * - bubble 冒泡：红点（未读数）+ 轻跳
  * 位置/拖动状态由宿主（FloatingAssistant）经 props 注入——獭与面板共享同一份。
- * F20260928waf1 P2：hover 快捷气泡（三条「随便问点什么」）移除——实测反馈多余，
+ * P2：hover 快捷气泡（三条「随便问点什么」）移除——实测反馈多余，
  * 交互简化为「点击獭=开面板」，无中间层
  */
 

@@ -54,7 +54,7 @@ interface CardRenderCtx {
   variant: MarkdownVariant
   messageId: string
   authorId: string
-  /** F20260916hcel：html-card schema版本（保留字段，供未来默认状态变化用；当前所有卡默认折叠） */
+  /** html-card schema版本（保留字段，供未来默认状态变化用；当前所有卡默认折叠） */
   cardSchemaVersion?: number
 }
 const CardRenderContext = createContext<CardRenderCtx>({ variant: 'otter-body', messageId: '', authorId: '' })
@@ -97,7 +97,7 @@ function CardAwareCode({ className, children, node, ...props }: CodeComponentPro
     const rawFenceIndex = node?.properties?.dataFenceIndex
     if (rawFenceIndex == null) return highlightSource('html', text)
     const fenceIndex = Number(rawFenceIndex)
-    // F20261009csp2：活类标记（html-card-play 围栏由插件写入）
+    // 活类标记（html-card-play 围栏由插件写入）
     const playable = node?.properties?.dataPlayable === true
     // react-markdown 9.1：meta 在 hast data 上，不在 node.meta
     const meta = (node?.data as { meta?: string } | undefined)?.meta

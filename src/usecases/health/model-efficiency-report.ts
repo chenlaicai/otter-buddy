@@ -1,5 +1,5 @@
 /**
- * F20261027hwl1：模型效率报告——真实 provider+model × 日/周/月 token 总量 + KV cache 率。
+ * 模型效率报告——真实 provider+model × 日/周/月 token 总量 + KV cache 率。
  *
  * 数据源：health_snapshots 的 cost_output 行（日级原始量，provider 进 metadata）。
  * 周/月从日级原始量重汇总（SUM 四分量后算率），绝不平均每日百分比。

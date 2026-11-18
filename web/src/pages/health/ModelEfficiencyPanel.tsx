@@ -1,5 +1,5 @@
 /**
- * F20261027hwl1：模型效率面板——真实 provider+model × 日/周/月 token 总量 + KV cache 率。
+ * 模型效率面板——真实 provider+model × 日/周/月 token 总量 + KV cache 率。
  *
  * 每格：totalTokens 主数字 + cacheHitRate（零分母显「—」）；日/周/月并列
  * （原始量重汇总，不是日均）。空态：snapshotDays=0 时说明等首次扫描，不显示演示矩阵。

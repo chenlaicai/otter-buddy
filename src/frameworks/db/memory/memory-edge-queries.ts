@@ -1,6 +1,6 @@
 /**
- * F20260813mren: 记忆关系层（memory_edges）SQL 查询。
- * F20260814qswp 从 sqlite-memory-repository.ts 拆出——edges 图查询与 entry 存储是
+ * 记忆关系层（memory_edges）SQL 查询。
+ * 从 sqlite-memory-repository.ts 拆出——edges 图查询与 entry 存储是
  * 正交关注点；Repository 的 port 方法委托到这里的纯函数。
  */
 import type Database from "better-sqlite3";

@@ -13,7 +13,7 @@ import type { Logger } from "@usecases/ports/logger";
 import { Readable } from "node:stream";
 import { parseCommand, formatConversationList, HELP_TEXT } from "@usecases/im/im-command-parser";
 
-/** F20260913ctlv 收尾批2：entries 版历史格式化（原 formatMessageHistory 消费 messages.segments） */
+/** 收尾批2：entries 版历史格式化（原 formatMessageHistory 消费 messages.segments） */
 function formatEntryHistory(entries: Array<{ senderType: string; body: string; createdAt: string }>): string {
   if (entries.length === 0) return "暂无历史消息";
   const lines = entries.map(e => {

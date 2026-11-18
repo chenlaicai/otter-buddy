@@ -1,5 +1,5 @@
 /**
- * HealthSnapshotRepository: health_snapshots 表读写（Issue #396）
+ * HealthSnapshotRepository: health_snapshots 表读写
  *
  * SQLite 持久化指标快照，支持按日期/日期范围/指标键查询。
  * schema 定义见 frameworks/db/schema.ts createHealthSnapshotsTable。
@@ -62,9 +62,9 @@ export class HealthSnapshotRepository {
     return tx(snapshots);
   }
 
-  /** 同日覆盖写入：单事务内先删当日旧快照再批量插入（对抗审视发现 4）。
+  /** 同日覆盖写入：单事务内先删当日旧快照再批量插入（对抗）。
    *  @param metricType 可选，指定后只删除该 metric_type 的行（避免误删其他类型数据）。
-   *                   #583 修复：cost_output 全局行按历史日期分批写入，需类型限定删除范围。 */
+   * 修复：cost_output 全局行按历史日期分批写入，需类型限定删除范围。 */
   replaceForDate(snapshotDate: string, snapshots: CreateHealthSnapshot[], metricType?: string): HealthSnapshot[] {
     const tx = this.db.transaction((rows: CreateHealthSnapshot[]) => {
       if (metricType) {
@@ -119,7 +119,7 @@ export class HealthSnapshotRepository {
       .run(cutoff.toISOString().slice(0, 10)).changes;
   }
 
-  /** 查询 status='active' 的 otter ID 列表（#583 active 过滤用） */
+  /** 查询 status='active' 的 otter ID 列表（active 过滤用） */
   findActiveOtterIds(): string[] {
     return (this.db
       .prepare("SELECT id FROM otters WHERE status = 'active'")

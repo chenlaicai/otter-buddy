@@ -1,8 +1,8 @@
 /**
- * BugfixMetrics: 修复半衰期派生指标（Issue #645）
+ * BugfixMetrics: 修复半衰期派生指标
  *
  * bugfix 间隔在缩短还是拉长：滚动窗口内相邻 bugfix commit 间隔的中位数，
- * 落 health_snapshots（metric_type=fix_interval）供 sparkline/热点条（#647）消费。
+ * 落 health_snapshots（metric_type=fix_interval）供 sparkline/热点条消费。
  * 缩短=退化加速（修复节奏变密），拉长=进化（问题收敛）。
  *
  * Why 派生指标而非检测器（合议定稿 §1.3）：不产生信号，只落库供时间序列回放；

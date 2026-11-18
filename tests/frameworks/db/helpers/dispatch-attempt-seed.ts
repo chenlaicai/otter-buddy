@@ -1,7 +1,7 @@
 // lint-tests:allow-ddl —— 派发台账测试 seed：手工建旧格式消息/獭数据（真实投影格式，禁 mock）
 /**
  * dispatch-attempt 系列测试共用的 seed helpers。
- * 从 dispatch-attempt-repo.test.ts 内联定义提取（#810 测试加入时复用），行为不变。
+ * 从 dispatch-attempt-repo.test.ts 内联定义提取（测试加入时复用），行为不变。
  */
 import type Database from "better-sqlite3";
 

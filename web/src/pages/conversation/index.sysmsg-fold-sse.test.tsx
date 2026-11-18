@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * F20261104ssfde SSE 端到端集成回归（检视发现 4 补全）：
+ * SSE 端到端集成回归（补全）：
  *   XHR SSE 帧（event: entry.system + data: {...senderName}）
  *   → index.tsx 订阅 handler 解析
  *   → LocalMessage（sn=scheduler:任务名）

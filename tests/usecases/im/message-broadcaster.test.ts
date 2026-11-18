@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 
-/** F20260913ctlv 处置轮重写：消息级面（subscribe 三参/broadcast/broadcastToWeb）已删，
+/** 处置轮重写：消息级面（subscribe 三参/broadcast/broadcastToWeb）已删，
  *  事件级面（subscribeEvents/broadcastEvent）是唯一通道。 */
 
 function createBroadcaster() {
@@ -65,7 +65,7 @@ describe("MessageBroadcaster（事件总线）", () => {
     });
   });
 
-  // #591：键控注册语义——同 key 替换、unregister 清理（副作用数组断言，非调用次数）
+  // 键控注册语义——同 key 替换、unregister 清理（副作用数组断言，非调用次数）
   describe("出站通道键控注册（#591）", () => {
     it("同 key 重复注册替换旧通道：一个事件只投递给新通道一次", () => {
       const { broadcaster } = createBroadcaster();

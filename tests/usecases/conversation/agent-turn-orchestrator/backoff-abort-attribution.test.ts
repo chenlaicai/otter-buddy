@@ -1,5 +1,5 @@
 /**
- * #764：429 backoff 期间 abort 的归因盲区修复——orchestrator 集成测试。
+ * 429 backoff 期间 abort 的归因盲区修复——orchestrator 集成测试。
  *
  * bug 形态：用户在 SDK retry backoff 睡眠期间点 abort → retry 层抹 errorMessage
  * （{...rest, stopReason:"aborted"}）→ err 通道拿不到底层错误 → underlyingError

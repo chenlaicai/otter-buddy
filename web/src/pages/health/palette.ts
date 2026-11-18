@@ -1,8 +1,8 @@
 /**
- * RHI 健康面板图表色板（Issue #647 项 5：色彩 token 统一）
+ * RHI 健康面板图表色板（项 5：色彩 token 统一）
  *
  * 纪律三条（观澜 3.4）：
- * 1. 图表库默认色（蓝 #0ea5e9 / 绿 #10b981 / 橙 #f59e0b 等）全面退场——系列色
+ * 1. 图表库默认色（蓝 / 绿 / 橙 等）全面退场——系列色
  *    需求用 teal 阶 + otter 阶 + caramel 阶 + lavender 阶解决（globals.css @theme 同值）。
  * 2. 红色只允许出现在「需要行动」的元素（critical 信号、骤降箭头）；装饰性用色禁红——
  *    BugFix 比率线（中性指标）禁用警示色。
@@ -48,4 +48,4 @@ export const CHANGE_TYPE_COLORS: Record<string, string> = {
 
 /* 链五态色不在此定义：活映射是 index.tsx 的 CHAIN_STATE_LABELS（teal=活跃、
  * caramel=滞留/回退、otter-300=僵尸/孤儿）——单一真相源，勿在此复制第二份
- * （曾并行存在语义漂移的死导出 CHAIN_STATE_COLORS，检视建议 7 删除） */
+ * （曾并行存在语义漂移的死导出 CHAIN_STATE_COLORS，删除） */

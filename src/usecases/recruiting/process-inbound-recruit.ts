@@ -48,7 +48,7 @@ export interface ProcessResult {
 }
 
 /**
- * F20260805rbrg：处理外部桥接（boss-zhipin-bridge）推送的入站事件。
+ * 处理外部桥接（boss-zhipin-bridge）推送的入站事件。
  *
  * **关键设计：一次扫描 = 一条系统消息 = 一次大獭 invoke**
  *
@@ -65,13 +65,13 @@ export class ProcessInboundRecruit {
   // eslint-disable-next-line max-params -- 7+1 个 DI 依赖均为必需
   constructor(
     private readonly settings: SettingsRepository,
-    /** F20260913ctlv 批4a：入站信号切 entries（system entry + yieldTargets；messages 退役） */
+    /** 批4a：入站信号切 entries（system entry + yieldTargets；messages 退役） */
     private readonly sendEntry: SendEntry,
     private readonly entryRepo: EntryRepository,
     private readonly dispatchChainEngine: DispatchChainEngine,
     private readonly agentInvokePort: AgentTurnPort,
     private readonly logger: Logger,
-    /** #775 S4a：信号路由器（可选注入）——注入后触发过闸门+台账，未注入回退直连链 */
+    /** 信号路由器（可选注入）——注入后触发过闸门+台账，未注入回退直连链 */
     private readonly signalRouter?: SignalRouter,
   ) {}
 
@@ -129,7 +129,7 @@ export class ProcessInboundRecruit {
     const body = formatRecruitBatch(fresh);
 
     // 3. 入库：metadata 标记 externalIds（JSON 数组，便于查重），单条 system entry
-    //    F20260913ctlv 批4a：messages 退役——yieldTargets 即信号目标（与 scheduler 同构）
+    // 批4a：messages 退役——yieldTargets 即信号目标（与 scheduler 同构）
     const externalIds = fresh.map(m => m.externalId);
     const { entry: signalEntry } = await this.sendEntry.createSystemEntry({
       conversationId,
@@ -174,7 +174,7 @@ export class ProcessInboundRecruit {
       // 状态事件无 externalId 查重（30 分钟去重在扩展端做）。每个事件一条系统消息
       try {
         const body = formatStatusEvent(event);
-        // F20260913ctlv 批4a：状态事件落 system entry（eventType/severity 进 metadata）
+        // 批4a：状态事件落 system entry（eventType/severity 进 metadata）
         const { entry: statusEntry } = await this.sendEntry.createSystemEntry({
           conversationId,
           body,

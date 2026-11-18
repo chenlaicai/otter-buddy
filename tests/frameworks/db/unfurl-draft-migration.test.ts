@@ -7,7 +7,7 @@ import { SqliteUnfurlCacheRepository, unfurlNowIso } from "@frameworks/db/conver
 import { createTestLogger } from "../../helpers/logger";
 
 /**
- * F20261030draft：unfurl_cache 存量库补列迁移专项测试（检视 r1 建议 5-4）。
+ * unfurl_cache 存量库补列迁移专项测试（-4）。
  * migration-equivalence.guard 只做表级等价（表集合断言），不覆盖「存量表补列」路径——
  * 本测试锁定：①老库（无 is_draft）跑 initSchema 后列存在；②老数据读出 isDraft=null
  * （旧数据无损，徽章退化为原三态行为）；③迁移后写入三态 round-trip；④幂等重入不抛。
@@ -19,7 +19,7 @@ let db: Database.Database;
 
 beforeEach(() => {
   db = createTestDb();
-  // 模拟 #1463 前的存量库：is_draft 列不存在（老库在 createTestDb 的 initSchema 后删列还原）
+  // 模拟 前的存量库：is_draft 列不存在（老库在 createTestDb 的 initSchema 后删列还原）
   db.exec("ALTER TABLE unfurl_cache DROP COLUMN is_draft");
 });
 

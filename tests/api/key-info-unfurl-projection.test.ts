@@ -9,9 +9,9 @@ import type { LinkedResource } from "../../src/entities/conversation/conversatio
 import { makeLinkedResource } from "./helpers";
 
 /**
- * F20261030draft：key-info 读侧 unfurl join 投影端到端测试（检视 r1 建议 5-3）。
+ * key-info 读侧 unfurl join 投影端到端测试（-3）。
  * 锁定：①GET key-resources 响应携带 unfurl 投影（曾因 toKeyInfoDTO re-map 整体丢弃，
- * 检视 r1 处置中发现的同族断链——本测试即其回归锁）；②isDraft 三态（true/false/null）
+ * 检视 处置中发现的同族断链——本测试即其回归锁）；②isDraft 三态（true/false/null）
  * 经 projectOne → toKeyInfoDTO → JSON 全链无损透传；③join 落空显式 null、无 url 不带键。
  */
 
@@ -67,7 +67,7 @@ describe("key-info unfurl join 投影（F20261030draft）", () => {
     const res = await ctrl.getKeyResources(makeCtx("conv-1")) as unknown as { status: number; body: { resources: Array<Record<string, unknown>> } };
     expect(res.status).toBe(200);
     const [r1, r2, r3] = res.body.resources;
-    // unfurl 投影未被 toKeyInfoDTO re-map 剥掉（检视 r1 处置发现的断链回归锁）
+    // unfurl 投影未被 toKeyInfoDTO re-map 剥掉（检视 处置发现的断链回归锁）
     expect(r1.unfurl).toMatchObject({ source: "github-api", state: "OPEN" });
     expect((r1.unfurl as { isDraft?: boolean | null }).isDraft).toBe(true);
     expect((r2.unfurl as { isDraft?: boolean | null }).isDraft).toBe(false);

@@ -1,5 +1,5 @@
 /**
- * #1484：workspace_delete 工具面测试（临时件回收机械路径）。
+ * workspace_delete 工具面测试（临时件回收机械路径）。
  * 用真实 NodeWorkspaceGateway 走 tmpdir，覆盖工具层参数校验 + 网关安全边界的透传。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";

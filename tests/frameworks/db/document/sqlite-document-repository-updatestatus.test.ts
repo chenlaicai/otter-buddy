@@ -6,7 +6,7 @@ import { SqliteResearchRepository } from "@frameworks/db/document/sqlite-researc
 import type { FeatureDocument } from "@entities/document/feature";
 import type { ResearchDocument } from "@entities/document/research";
 
-/** #1385：feature/research 两仓 updateStatus 对不存在 ID fail-closed（同 #1370 族模式） */
+/** feature/research 两仓 updateStatus 对不存在 ID fail-closed（同 族模式） */
 
 function seedFeature(id: string): FeatureDocument {
   return {

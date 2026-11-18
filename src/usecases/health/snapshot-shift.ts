@@ -1,10 +1,10 @@
 /**
- * SnapshotShift: 健康分环比骤变检测（Issue #645）
+ * SnapshotShift: 健康分环比骤变检测
  *
  * 输入相邻两日的 health_index 快照行（五维 + overall，metricKey=D1..D5/overall），
  * 输出 |Δ|≥阈值的维度骤变列表。全确定性、无 LLM、纯函数。
  *
- * 消费链（Issue #645 定稿）：本模块只产出检测函数；每日检查任务用
+ * 消费链（定稿）：本模块只产出检测函数；每日检查任务用
  * findByDateRange(昨日, 今日) 取快照行后调用，深挖信号 evidence 给出的
  * 维度与前后值。数据形态为消费关系（不修改 signal-repository 的 upsert/schema）。
  *
@@ -15,7 +15,7 @@
 
 import type { DimensionId } from "./health-score";
 
-/** 环比骤变判定阈值：单日 |Δ|≥10 触发（五维与综合分同阈值，issue #645 定稿） */
+/** 环比骤变判定阈值：单日 |Δ|≥10 触发（五维与综合分同阈值，定稿） */
 export const SNAPSHOT_SHIFT_THRESHOLD = 10;
 
 /** 相邻两日的健康分快照值（null=当日该维度无数据，不参与 diff） */

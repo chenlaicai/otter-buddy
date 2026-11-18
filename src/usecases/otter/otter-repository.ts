@@ -15,11 +15,11 @@ export interface OtterRepository {
   createOtter(otter: Otter): Promise<void>;
   getById(id: string): Promise<Otter | null>;
   /**
-   * #446: 批量获取（单条 IN 查询），供循环场景消除 N+1。
+   * 批量获取（单条 IN 查询），供循环场景消除 N+1。
    * 不存在的 id 不出现在返回 Map 中。
    */
   getByIds(ids: string[]): Promise<Map<string, Otter>>;
-  /** F20260921otcl：对话内小獭出生色占用集（色板 key → 占用数，一次 SELECT）。
+  /** 对话内小獭出生色占用集（色板 key → 占用数，一次 SELECT）。
    *  占用范围 = active 参与者中 type='small' 且 color 非空的行（dissolved 不占色） */
   getColorOccupancy(conversationId: string): Promise<Map<string, number>>;
   dissolve(otterId: string, dissolvedAt: string): Promise<void>;
@@ -34,6 +34,6 @@ export interface OtterRepository {
   ): Promise<void>;
   getSessionHistory(otterId: string): Promise<OtterSession[]>;
   getSessionById(sessionId: string): Promise<OtterSession | null>;
-  /** 更新 session 摘要（F20260805rsto：restart 竞态认领既有新行时补写前情） */
+  /** 更新 session 摘要（restart 竞态认领既有新行时补写前情） */
   setSessionSummary(sessionId: string, summary: string): Promise<void>;
 }

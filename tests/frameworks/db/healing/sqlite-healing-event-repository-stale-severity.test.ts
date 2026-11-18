@@ -1,7 +1,7 @@
 /**
- * F20261008hcpa（#1356 选 A 层3）→ #1545 处置轮：healing 时间静默通道 severity 分层
+ * （选 A 层3）→ 处置轮：healing 时间静默通道 severity 分层
  *
- * - autoStaleDismiss 排除 high（high 升级信号不被时间静默）；dismiss 落 resolution 三列（处置轮 S2）
+ * - autoStaleDismiss 排除 high（high 升级信号不被时间静默）；dismiss 落 resolution 三列（处置轮 ）
  * - findAgedUnboundHigh 只读识别超龄 unbound high（供调度层推 alert-registry），不处置
  * - 两通道协同：low/medium 走时间静默，high 走「识别+提醒」
  */

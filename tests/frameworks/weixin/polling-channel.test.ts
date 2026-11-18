@@ -141,7 +141,7 @@ describe("WeixinPollingChannel", () => {
     expect(ch.ilinkUserId).toBeUndefined();
     ch.setIdentity("u1@im.wechat");
     expect(ch.ilinkUserId).toBe("u1@im.wechat");
-    // accountId 语义不变（issue #566 账号删除定位用）
+    // accountId 语义不变（账号删除定位用）
     expect(ch.accountId).toBe("acc-old");
     ch.stop();
   });

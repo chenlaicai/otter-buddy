@@ -1,5 +1,5 @@
 /**
- * ManageSession.restartSession 单元测试（F20260810rstart）。
+ * ManageSession.restartSession 单元测试。
  * 真 sqlite + 真 ManageSession，仅 seam 掉 AgentGateway 和记忆/对话网关。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";

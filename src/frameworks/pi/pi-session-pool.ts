@@ -1,5 +1,5 @@
 /**
- * PiSessionPool —— pi AgentSession 的通用 LRU 会话池（F20260911pspl）
+ * PiSessionPool —— pi AgentSession 的通用 LRU 会话池
  *
  * 定位：与宿主无关的 pi session 生命周期管理设施——池不知道"对话/房间/协作机制"，
  * 只知道 key → AgentSession 的拉起、保活、驱逐。
@@ -108,7 +108,7 @@ export class PiSessionPool {
   }
 
   /**
-   * 宿主自建的 session 入池（F20260911pspl v1 接入）。
+   * 宿主自建的 session 入池（v1 接入）。
    * v1 的 session 创建需 otterConfig/工具装配，无法经池 factory 路径——
    * 宿主创建后 adopt 进来，池接管驱逐生命周期。已存在同 key 条目时先驱逐旧的。
    */
@@ -148,7 +148,7 @@ export class PiSessionPool {
 
   private busy(entry: PoolEntry): boolean {
     // 异常防护：isBusy 谓词与 isStreaming getter 均为宿主可控代码，sweep 由 setInterval 驱动，
-    // 抛错 = uncaughtException → 进程 crash（检视发现 1）。抛错保守视为 running（不杀活会话）。
+    // 抛错 = uncaughtException → 进程 crash。抛错保守视为 running（不杀活会话）。
     try {
       if (this.isBusy) return this.isBusy(entry.session);
       return entry.session.isStreaming;

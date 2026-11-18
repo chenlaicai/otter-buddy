@@ -1,5 +1,5 @@
 /**
- * 房间粒度 SSE 订阅（F20261015mjsg 模块四·实时联动）。
+ * 房间粒度 SSE 订阅（模块四·实时联动）。
  *
  * 端点：GET /api/mahjong/rooms/:roomId/events
  *   · 首帧 data {"type":"hello",roomId,gameId}

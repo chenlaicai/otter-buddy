@@ -10,7 +10,7 @@ import { SessionLockConflictError } from "@entities/errors";
 import { loadToolManifest, getToolNamesFromManifest } from "../config/tool-manifest-loader";
 
 /**
- * F20261118nrwht P2a：belief 迁移三工具（verify/reject/supersede）仅 night-reviewer 受限写者獭可见。
+ * P2a：belief 迁移三工具（verify/reject/supersede）仅 night-reviewer 受限写者獭可见。
  * big（"*" 展开全量注册集）与 small（memory 组）都不得持有——迁移权只属于夜间审视獭；
  * 任何普通 agent 可自我核实会掏空独立核实信任模型（P1c k3 审视结论）。
  */
@@ -26,7 +26,7 @@ function stripBeliefMigrationTools(names: string[]): string[] {
  * big otter 和 small otter 均启用全部编码工具（read/write/edit/bash + grep/find/ls）。
  * Why: small otter 需要写代码（开发獭）、评论 PR（检视獭）、执行构建命令等实际工作，
  * 只给 read 会导致它们无法完成任务。管理类工具的隔离在 getOtterToolNamesForType 中控制。
- * F20260904（#776）：加入 pi 内置的 grep/find/ls 专用工具——此前搜索/浏览全走 bash 管道，
+ * F20260904：加入 pi 内置的 grep/find/ls 专用工具——此前搜索/浏览全走 bash 管道，
  * 输出无结构且量不可控（《对话中invoke机制》大獭 session 实测 bash 的 toolCall+toolResult 合计 833KB/1.6M，
  * 是 538K token 上下文膨胀的最大单一来源）。pi 的专用工具自带结果截断与格式化，
  * 语义清晰可降低试探性调用。pi 侧 createAllToolDefinitions 全量创建工具 registry，
@@ -34,7 +34,7 @@ function stripBeliefMigrationTools(names: string[]): string[] {
  */
 export function getCodingToolsForOtterType(otterType: string | undefined, externalProfile?: 'restricted'): string[] {
   if (externalProfile === 'restricted') return [];
-  // F20261118nrwht P2a：night-reviewer 受限写者獭只审不写码，不持 read/write/edit/bash 等编码工具。
+  // P2a：night-reviewer 受限写者獭只审不写码，不持 read/write/edit/bash 等编码工具。
   if (otterType === 'night-reviewer') return [];
   // big 和 small otter 均启用全部编码工具（含搜索/浏览专用工具）
   return ["read", "write", "edit", "bash", "grep", "find", "ls"];
@@ -43,7 +43,7 @@ export function getCodingToolsForOtterType(otterType: string | undefined, extern
 /**
  * 按 otterType 获取 Otter 自定义工具名称白名单。
  *
- * F20260820a4rt: 从硬编码改为声明式 manifest 路由。
+ * 从硬编码改为声明式 manifest 路由。
  * - 优先从 config/tool-manifest.json 加载配置
  * - manifest 加载失败时 fallback 到硬编码默认值（兼容性保证）
  *
@@ -60,7 +60,7 @@ export function getOtterToolNamesForType(
   externalProfile?: 'restricted',
 ): string[] {
   if (externalProfile === 'restricted') return ['speak', 'yield'];
-  // F20261118nrwht P2a：night-reviewer 受限写者獭恒 5 工具（speak/yield + 三迁移）。
+  // P2a：night-reviewer 受限写者獭恒 5 工具（speak/yield + 三迁移）。
   // 不依赖 manifest defaultType fallback——manifest 缺 night-reviewer 类型时
   // getToolNamesFromManifest 会退到 defaultType='big' 的 "*" 全集（fail-open 风险）。
   if (otterType === 'night-reviewer') {
@@ -75,17 +75,17 @@ export function getOtterToolNamesForType(
     "search_terminology", "add_terminology",
     "list_artifacts", "update_artifact_status",
     "get_active_participants", "get_html_card_contract",
-    "track_work", // F20261027hwl1：工作账本登记（manifest 缺失时的 fallback 名单）
-    "restart_service", // F20261028egitx：不经 bash 的受控服务重启
+    "track_work", // 工作账本登记（manifest 缺失时的 fallback 名单）
+    "restart_service", // 不经 bash 的受控服务重启
     "manage_healing_events",
     "create_scheduled_task", "manage_scheduled_task_pending",
     "workspace_info", "workspace_list", "workspace_read", "workspace_write", "workspace_delete",
     "link_memory", "get_related", "unlink_memory",
     "sync_docs",
-    "query_dispatch_ledger", // F20260821i336：派工台账查询工具
-    "query_signals", // F20260826mwrd C1：信号台账查询（halt 是编排动作，仅 big 型）
-    "halt_otter", "unhalt_otter", "resolve_signal", // F20260826mwrd C2：编排/裁决仅 big 型；#927 unhalt 解除同属编排
-    "merge_pr", // F20260922pmgd：PR 合入授权闸仅 big 型（fallback 列表；manifest 模式下 big="*" 自动包含，small 按组不含）
+    "query_dispatch_ledger", // 派工台账查询工具
+    "query_signals", // C1：信号台账查询（halt 是编排动作，仅 big 型）
+    "halt_otter", "unhalt_otter", "resolve_signal", // C2：编排/裁决仅 big 型；unhalt 解除同属编排
+    "merge_pr", // PR 合入授权闸仅 big 型（fallback 列表；manifest 模式下 big="*" 自动包含，small 按组不含）
   ];
 
   // 尝试从 manifest 加载
@@ -103,8 +103,8 @@ export function getOtterToolNamesForType(
 
   /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询 + 工作区 + 定时任务 + 自愈管理 + 自身重启，不含 Otter 管理类工具（create_otter/dissolve_otter）。
    *  restart_otter 工具内部有访问控制：小獭只能重启自己。
-   *  F20260826mwrd C1：query_signals 开放（复盘自己的 halt/信号）；halt_otter 仅 big。
-   *  F20260826mwrd C2：resolve_signal 仅 big（裁决权在大獭）。 */
+   * C1：query_signals 开放（复盘自己的 halt/信号）；halt_otter 仅 big。
+   * C2：resolve_signal 仅 big（裁决权在大獭）。 */
   return stripBeliefMigrationTools([
     "speak", "yield", "search_memory", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages",
@@ -114,13 +114,13 @@ export function getOtterToolNamesForType(
     "get_active_participants", "get_html_card_contract",
     "create_scheduled_task", "manage_healing_events",
     "restart_otter",
-    "workspace_info", "workspace_list", "workspace_read", "workspace_write", "workspace_delete", // #1484：临时件回收机械路径
+    "workspace_info", "workspace_list", "workspace_read", "workspace_write", "workspace_delete", // 临时件回收机械路径
     "link_memory", "get_related", "unlink_memory",
     "sync_docs",
-    "query_signals", // F20260826mwrd C1：小獭可查信号台账（halt_otter 仅 big 型）
-    "list_matters", "transition_matter", // F20261006mtlp P1：待办板查/迁（transition 守卫在 usecase）
-    "track_work", // F20261027hwl1：工作账本登记（实现者与检视者都要留痕）
-    "restart_service", // F20261028egitx：deny signal 下保留既有受控重启正道
+    "query_signals", // C1：小獭可查信号台账（halt_otter 仅 big 型）
+    "list_matters", "transition_matter", // P1：待办板查/迁（transition 守卫在 usecase）
+    "track_work", // 工作账本登记（实现者与检视者都要留痕）
+    "restart_service", // deny signal 下保留既有受控重启正道
   ]);
 }
 
@@ -129,15 +129,15 @@ export function getOtterToolNamesForType(
  *
  * Why: 显式跟踪 held 状态 —— 旧版仅检查 waiters 队列长度，
  * 第一个获取锁的人不入队，导致第二个调用者也看到队列为空而直接获锁，
- * 两个操作并发执行（EEXIST 竞态条件的根因，见 #376）。
+ * 两个操作并发执行（EEXIST 竞态条件的根因，见 ）。
  *
- * #599：stale 持有强制接管（steal）——invoke 在整个 agent 运行期间持锁
+ * stale 持有强制接管（steal）——invoke 在整个 agent 运行期间持锁
  * （正常可达数分钟）。超 stealThreshold 只触发 holder 行态×SDK 态探测，
  * 不是单独的判死条件；completed+SDK 活的 drain 窗口绝不接管。
  * steal 后旧持有者的 release 对已易主的锁是 no-op（generation 世代号判定）。
  */
 /**
- * F20260920uhuc：交接模式锁 waiter 超时（对抗审视严重发现 1 采纳）。
+ * 交接模式锁 waiter 超时（对抗审视严重发现 1 采纳）。
  * 合成上界 60s + turn 尾缓冲 → 120s；交接期间后续 waiter 用此值，交接结束恢复正常 30s。
  */
 export const HANDOFF_LOCK_WAITER_TIMEOUT_MS = 120_000;
@@ -159,12 +159,12 @@ export function shouldStealSessionLock(probe: SessionLockProbeResult): boolean {
 }
 
 export class SimpleLockManager {
-  // F20261009epoc（#905）：锁条目记录当前持有者 epoch（对象引用）——steal 接管时
+  // 锁条目记录当前持有者 epoch（对象引用）——steal 接管时
   //  由新 acquire 者带入自己的 epoch，旧持有者 release 闭包比对「锁当前 epoch 对象
   //  === 闭包捕获的 epoch 对象」（引用相等）不等则 no-op。等价性（方案取舍表）：
   //  「锁 generation 的本质是锁位易主事件计数」→ epoch 收编后「steal = 新 invoke
   //  （新 epoch 对象）接管锁位，旧 release 引用不等 → no-op」——同键跨 steal 的
-  //  前后持有者（含嵌套链）不共享 epoch 对象（r3-E-1 判据唯一化保证）。
+  // 前后持有者（含嵌套链）不共享 epoch 对象（-E-1 判据唯一化保证）。
   //  **generation 计数器保留且不可退役（D3 fail-soft，检视 A-1 订正）**：锁是热路径
   //  不能 fail-loud；且 reset/destroy/handoff 等非 invoke 调用点不传 epoch，
   //  generation 是这些路径的**唯一** steal 防线（不是可选兑底）。两判定关系：
@@ -172,16 +172,16 @@ export class SimpleLockManager {
   //  全路径同真同假（结构论证见特性文档），epoch 的价值在语义统一与拓扑演进免疫。
   private locks = new Map<string, { held: boolean; heldAt: number | null; generation: number; holderEpoch?: object; waiters: Array<() => void> }>();
   private readonly defaultTimeout: number;
-  /** #599：锁持有超龄阈值——超过该时长视为 stale，等待中的 acquire 可强制接管 */
+  /** 锁持有超龄阈值——超过该时长视为 stale，等待中的 acquire 可强制接管 */
   private readonly stealThresholdMs: number;
-  /** F20260920uhuc：交接模式锁 key 集合——窗口内后续 waiter 超时延长至 120s。
+  /** 交接模式锁 key 集合——窗口内后续 waiter 超时延长至 120s。
    *  Why：交接持锁最坏 60s（合成上界）+turn 尾，默认 waiter 超时 30s 会在窗口内假超时
-   *  报错（F20260917rsta 锁雪崩 500 变体）；只延长交接 key，不动全局锁语义。 */
+   * 报错（锁雪崩 500 变体）；只延长交接 key，不动全局锁语义。 */
   private readonly handoffModeKeys = new Set<string>();
 
   constructor(
     timeoutMs: number = 30000,
-    /** 可选日志器：锁获取超时时输出结构化诊断日志（#423 方案 1） */
+    /** 可选日志器：锁获取超时时输出结构化诊断日志（方案 1） */
     private readonly logger?: Logger,
     stealThresholdMs: number = 300_000,
     private readonly probe?: SessionLockProbe,
@@ -194,7 +194,7 @@ export class SimpleLockManager {
     return this.handoffModeKeys.has(key);
   }
 
-  /** F20260923hspx 检视严重2b 修正：交接模式（handoffMode）下禁止 steal——
+  /** 检视严重2b 修正：交接模式（handoffMode）下禁止 steal——
    *  交接持锁可能 legitimately 超 stealThresholdMs（合成超时上限 300s = 阈值默认 300s 相邻，
    *  慢合成交接持锁 ≥300s 时并发 invoke 会误 steal 冻结锁，换世 dispose 可撕裂 stolen invoke 活 session）。
    *  handoffMode 本身即「持有者是交接」的声明，冻结窗口内 steal 无合法场景。 */
@@ -203,7 +203,7 @@ export class SimpleLockManager {
     else this.handoffModeKeys.delete(key);
   }
 
-  async acquire(key: string, timeoutMs?: number, /** F20261009epoc：本 invoke 的 epoch（对象引用，从 invokeEpochStorage 传入）；缺省回退 generation 计数器 */ epoch?: object): Promise<() => void> {
+  async acquire(key: string, timeoutMs?: number, /** 本 invoke 的 epoch（对象引用，从 invokeEpochStorage 传入）；缺省回退 generation 计数器 */ epoch?: object): Promise<() => void> {
     const timeout = timeoutMs ?? (this.handoffModeKeys.has(key) ? HANDOFF_LOCK_WAITER_TIMEOUT_MS : this.defaultTimeout);
     const waitStartedAt = Date.now();
     let lock = this.locks.get(key);

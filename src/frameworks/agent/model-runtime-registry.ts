@@ -19,7 +19,7 @@ import { getConfig } from "../config";
 import { buildOtterPrompt } from "./session-helpers";
 import { externalizeHistoricalImages } from "./image-externalizer";
 import { externalizeHistoricalToolResults } from "./toolresult-externalizer";
-// F20260920uhuc：compaction-hook 导入退役（session_before_compact 钩子随时机权回收而退役）
+// compaction-hook 导入退役（session_before_compact 钩子随时机权回收而退役）
 import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry";
 import { buildHaltBlockReason } from "@usecases/signal/halt-block-reason";
 import { buildToolSignature } from "./tool-call-circuit-breaker";
@@ -52,7 +52,7 @@ export class ModelRuntimeRegistry {
     private readonly modelPool: ModelPool | undefined,
     private readonly logger: Logger,
     private readonly resourceLoaderOverride?: ResourceLoader,
-    /** F20260826mwrd C1：halt 首次注入回调（signal_events 落账更新 + 外部监听） */
+    /** C1：halt 首次注入回调（signal_events 落账更新 + 外部监听） */
     private readonly onHaltFirstBlock?: (directive: HaltDirective) => void,
   ) {}
 
@@ -94,8 +94,8 @@ export class ModelRuntimeRegistry {
         const { DefaultResourceLoader, getAgentDir } = piCodingAgent;
         this.resourceLoader = this.resourceLoaderOverride ?? new DefaultResourceLoader({
           cwd: process.cwd(), agentDir: getAgentDir(),
-          noContextFiles: true, // #496 屏蔽祖先 CLAUDE.md（Claude Code 指令污染 otter agent；.pi/SYSTEM.md 不受影响）
-          // F20261009tsts（#1371）：不再注册 SDK createToolSearchExtension——它经共享
+          noContextFiles: true, // 屏蔽祖先 CLAUDE.md（Claude Code 指令污染 otter agent；.pi/SYSTEM.md 不受影响）
+          // 不再注册 SDK createToolSearchExtension——它经共享
           // extension runtime 工作，任一 session dispose 即全进程 stale（三会话实证）。
           // tool_search 改会话级 customTools 路径，见 pi-session-factory + tool-search-tool.ts。
           extensionFactories: [{
@@ -104,12 +104,12 @@ export class ModelRuntimeRegistry {
             // ExtensionAPI.on 的 overload 不包含 "context"/"before_agent_start"，需要 any 绕过
             factory: (pi: any) => {
               // strip 历史 assistant 消息的 thinking 块（保留最新一条）
-              // + F20260915iext（#779）：历史图片外置（当轮图片保留，上一 turn 及更早文本化）
-              // + F20260922txre（#1093）：历史文本 toolResult 收缩（当轮保留，历史区超大文本投影为头+标记）
+              // + ：历史图片外置（当轮图片保留，上一 turn 及更早文本化）
+              // + ：历史文本 toolResult 收缩（当轮保留，历史区超大文本投影为头+标记）
               pi.on("context", (event: { messages: any[] }) => {
                 return { messages: externalizeHistoricalToolResults(externalizeHistoricalImages(stripHistoricalThinking(event.messages))) };
               });
-              // F20260826mwrd C1：halt 边界注入。tool_call 扩展事件在每次工具执行前触发，
+              // C1：halt 边界注入。tool_call 扩展事件在每次工具执行前触发，
               // 返回 { block, reason } → SDK agent-loop 对该次调用生成 isError tool result
               // （reason 正文）返回 LLM。读 ALS store 拿当前 invoke 的 otterId（fail-open：
               // 读不到 store 时放行，见 haltToolCallGuard 注释）。
@@ -118,7 +118,7 @@ export class ModelRuntimeRegistry {
                   ?? loopBlockGuard(otterInvokeStorage.getStore(), event.toolName, event.input)
                   ?? bashGuardGate(otterInvokeStorage.getStore(), event.toolName, event.input);
               });
-              // S1（R20260810piab）：otter system prompt 注入 system role。
+              // otter system prompt 注入 system role。
               // handler 在 prompt() 调用栈内执行，此时 AsyncLocalStorage scope 有效，
               // 可读到 per-invoke 的 otterPromptConfig + identityPrefix。
               // 返回的 systemPrompt 会替换 SDK base（runner.js 链式覆盖语义），
@@ -127,7 +127,7 @@ export class ModelRuntimeRegistry {
                 return buildBeforeAgentStartResult(event, otterInvokeStorage.getStore());
               });
               /**
-               * F20260811sktp: isError 透传。
+               * isError 透传。
                * SDK 的 AgentToolResult 不消费工具返回值顶层 isError 字段（成功路径硬编码 isError=false）。
                * buildCustomTools mapping 时把 otter ToolResponse.isError 复制到 details.__isError，
                * 此 handler 读 details.__isError 返回 { isError: true } 覆盖 SDK 标志，
@@ -140,7 +140,7 @@ export class ModelRuntimeRegistry {
                 }
                 return undefined;
               });
-              // F20260920uhuc：session_before_compact 钩子退役——压缩时机权收回应用层
+              // session_before_compact 钩子退役——压缩时机权收回应用层
               //（agent-invoker 轮边界水位检查，超线走统一交接换 session）；
               // SDK compaction 保留 enabled 且 reserve 降为 50K 量级，仅作真溢出
               //（overflow）时的 Pi 默认原地压缩救急（U1 验证：overflow 判定独立于
@@ -149,7 +149,7 @@ export class ModelRuntimeRegistry {
           }],
         });
         await this.resourceLoader.reload();
-        // F20260826mwrd C1：halt 首次注入回调——落账更新（指令已到达）+ 日志。
+        // C1：halt 首次注入回调——落账更新（指令已到达）+ 日志。
         // 注册在 resourceLoader 就绪后（首次 halt 必然晚于 session 创建，而 session 依赖 resourceLoader）。
         haltRegistry.onFirstBlock(directive => {
           this.logger.info('Halt directive first block injected', { targetOtterId: directive.targetOtterId, signalId: directive.id, fromOtterId: directive.fromOtterId });

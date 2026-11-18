@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 /**
- * WorkspacePanel 测试（F20260831wsui）。
+ * WorkspacePanel 测试。
  *
  * 覆盖：
  * 1. 树形渲染：文件夹可展开/收起、子级缩进、排序（文件夹在前）
  * 2. 懒加载：展开时才调 listDir API
- * 3. 内容渲染分发：md→ReactMarkdown / html→sandbox iframe / plain→pre（S1 闭环）
+ * 3. 内容渲染分发：md→ReactMarkdown / html→sandbox iframe / plain→pre（闭环）
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
@@ -159,7 +159,7 @@ describe('WorkspacePanel 树形渲染', () => {
 })
 
 /**
- * 文件预览 Modal 内容渲染分发测试（F20260831wsui 基线 + F20261014pvmd 迁移到 Modal）。
+ * 文件预览 Modal 内容渲染分发测试（基线 + 迁移到 Modal）。
  * 验证分发正确性：
  *  .md → ReactMarkdown、.html → sandbox iframe、图片 → img、其他 → pre；
  *  预览经 portal 挂 document.body（Modal 形态），关闭后内容清除。

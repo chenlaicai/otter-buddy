@@ -6,7 +6,7 @@ const saveBackgroundMock = vi.hoisted(() => vi.fn())
 const deleteBackgroundMock = vi.hoisted(() => vi.fn())
 vi.mock('../api/client', () => ({ saveBackground: saveBackgroundMock, deleteBackground: deleteBackgroundMock }))
 vi.mock('../api/identity', () => ({
-  // #1868 阶段 2：web 身份随会话 cookie——identityHeaders 空、withIdentity 恒等
+  // 阶段 2：web 身份随会话 cookie——identityHeaders 空、withIdentity 恒等
   identityHeaders: () => ({}),
   withIdentity: (path: string) => path,
 }))

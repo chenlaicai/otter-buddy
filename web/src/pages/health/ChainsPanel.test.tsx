@@ -8,7 +8,7 @@ import { CHAIN_STATE_PROGRESS } from './chain-state-meta'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-/** issue #1029 验证：特性链页四态进度语言——异常排前、正常折叠、文案映射无黑话 */
+/** 验证：特性链页四态进度语言——异常排前、正常折叠、文案映射无黑话 */
 
 function chain(featureId: string, state: string, daysSince = 1): RhiChainDTO {
   return {

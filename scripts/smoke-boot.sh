@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# F20260929boot: 启动保障冒烟测试门——「系统必须能启动」从测试变成机械门槛。
+# 启动保障冒烟测试门——「系统必须能启动」从测试变成机械门槛。
 #
-# 设计定位（事故回溯 #1202）：
+# 设计定位（事故回溯 ）：
 #   启动链路只保留「没有它系统一定起不来」的检查（tsc 编译）；
 #   lint 这类「代码丑但系统能跑」的检查必须挪出启动链（见 package.json build/start）。
 #   本脚本补的是另一半：build 之后、listen 之前，用 buildApp 全栈装配冒烟
@@ -34,7 +34,7 @@ fi
 echo "==> [smoke:boot] 运行 buildApp 全栈装配冒烟测试（真 sqlite + faux LLM）..."
 npx vitest run "$SMOKE_TEST" --reporter=dot
 
-# F20261009smex: 存量库形态冒烟（#1390 事故防线 A）——全新库绿 ≠ 存量库能起。
+# 存量库形态冒烟（事故防线 A）——全新库绿 ≠ 存量库能起。
 EXISTING_DB_TEST="tests/app/build-app-existing-db.test.ts"
 if [ ! -f "$EXISTING_DB_TEST" ]; then
   echo "==> [smoke:boot] 失败：存量库冒烟测试文件不存在：$EXISTING_DB_TEST" >&2

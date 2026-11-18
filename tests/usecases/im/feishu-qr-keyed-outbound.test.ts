@@ -6,11 +6,11 @@ import { botKey } from "@frameworks/feishu/bot-key";
 import type { SSEEvent } from "@contract/sse/events";
 
 /**
- * F20260928fsqr：多 app 键控出站隔离（#591 同构）+ PartnerResolver.addPartnerId 运行时写入。
+ * 多 app 键控出站隔离（同构）+ PartnerResolver.addPartnerId 运行时写入。
  *
  * 场景：两个扫码 app（A/B）各注册一条出站通道（key=botKey）；A 线的会话事件
  * 只能被 A 通道投递——B 通道的 client 打 A 的会话会被飞书 API 拒（bot 不在会话里），
- * 且双通道广播是 #591 修过的重复投递面。
+ * 且双通道广播是 修过的重复投递面。
  */
 
 function userEntryEvent(): SSEEvent {

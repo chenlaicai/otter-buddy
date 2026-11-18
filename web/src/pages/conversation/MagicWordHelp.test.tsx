@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * F20260831mmwh：MagicWordHelp 问号弹层测试。
+ * MagicWordHelp 问号弹层测试。
  *
  * 锁定行为：
  * - 默认不展开（无 popover DOM）

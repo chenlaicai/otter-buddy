@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * #1173：测试时间炸弹静态扫描（收窄版 v2，B1 方案重生）。
+ * 测试时间炸弹静态扫描（收窄版 v2，B1 方案重生）。
  *
- * 历史：v1（F20260915dabm）9/23 随 #931 退役——辅助面全量报 ISO 日期 warning
- * 873 条，刷屏训练开发者无视；退役次日 rhi-api 即被存量炸弹引爆（#1165 CI 红），
- * 证明「写法规范 only」管不住存量与漏写。本版按 #1173 的 B1 倾向重生，
+ * 历史：v19/23 随 退役——辅助面全量报 ISO 日期 warning
+ * 873 条，刷屏训练开发者无视；退役次日 rhi-api 即被存量炸弹引爆（CI 红），
+ * 证明「写法规范 only」管不住存量与漏写。本版按 的 B1 倾向重生，
  * 收窄策略：只报「ISO 日期与真实时钟共现/交互」的高危组合，纯 fixture 不报。
  *
  * 三层检测（只扫 tests/ 下 *.test.ts / *.spec.ts）：
  *
- * E1 error（v1 主防线原样保留，精度实证 #541/#544 形态）：
+ * E1 error（v1 主防线原样保留，精度实证 /形态）：
  *   日期校验函数（validateCommitDate/validate-commit-date CLI 形态）调用中
  *   硬编码特性 ID（F20YYMMDDxxxx）且未注入 now（第二参数或 --at）。
  *
- * E2 error（v2 新增，#1165 + #1173 三处真炸弹的共同形态）：
+ * E2 error（v2 新增，+ 三处真炸弹的共同形态）：
  *   快照窗口写入 API（replaceForDate）收到 ISO 日期字面量或绑定到字面量的
  *   变量（const d1 = "2026-08-28"; replaceForDate(d1, ...)）。
  *   被测端（trends/costOutput）用 Date.now() 算窗口起点，字面量滑出窗口后
@@ -58,7 +58,7 @@ export const EXEMPTIONS = [EXEMPTION_NOW, EXEMPTION_RELATIVE];
 
 /**
  * W1 基线（CI 守恒，只减不增）。
- * 2026-09-29 #1173 清扫后全仓实测值。每次人为消除共现块后手动下调。
+ * 2026-09-29 清扫后全仓实测值。每次人为消除共现块后手动下调。
  * Why 固化在代码里：CI 无状态，基线必须可执行文件自持。
  */
 export const W1_BASELINE = 14;
@@ -100,7 +100,7 @@ const isCommentLine = (line) => /^\s*(\/\/|\/\*|\*|\{\/\*)/.test(line);
 /** it/test 块切片：返回 [{start, end}]（行号 1-based，含边界）。
  * 简化策略：遇 it(/test( 开新块；块以「缩进 <= it 行缩进的 }); 行」结束。
  * vitest 嵌套闭包内的 it 罕见；误切的后果只是窗口放大（跨块合并）。
- * 开块正则含 .skip/.each/.only 等修饰形态（#1206 检视 S2 探针实证曾漏检）。 */
+ * 开块正则含 .skip/.each/.only 等修饰形态（检视 探针实证曾漏检）。 */
 function sliceItBlocks(lines) {
   const blocks = [];
   let cur = null;
@@ -108,7 +108,7 @@ function sliceItBlocks(lines) {
     const line = lines[i];
     const codePart = stripInlineComment(line);
     if (!cur) {
-      // #1206 检视 S2：it.skip/it.each/it.only 修饰形态必须开块（检视獭探针实证漏检面）
+      // 检视 it.skip/it.each/it.only 修饰形态必须开块（检视獭探针实证漏检面）
       const m = codePart.match(/^(\s*)(?:it|test)(?:\.(?:skip|only|each|todo|concurrent|sequential))*\s*(?:\(|\[)/);
       if (m && !isCommentLine(line)) {
         cur = { start: i + 1, indent: m[1].length };

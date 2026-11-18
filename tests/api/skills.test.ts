@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createTestApp, json, createMockDeps } from "./helpers";
 import type { TestDeps } from "./helpers";
 
-/** #576（F20260901emps）：能力库真数据源端点——ResourceLoader 适配器的契约测试 */
+/** 能力库真数据源端点——ResourceLoader 适配器的契约测试 */
 describe("Skills API", () => {
   let deps: TestDeps;
   let app: ReturnType<typeof createTestApp>;
@@ -52,7 +52,7 @@ describe("Skills API", () => {
   });
 });
 
-/** F20260929scfx：能力库全书——/api/prompts（卷首心法总纲 + 卷末兵器谱）契约测试 */
+/** 能力库全书——/api/prompts（卷首心法总纲 + 卷末兵器谱）契约测试 */
 describe("Prompts API", () => {
   let deps: TestDeps;
   let app: ReturnType<typeof createTestApp>;

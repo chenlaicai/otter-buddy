@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 /**
- * 响应式断点 hook（#500）：matchMedia 监听，窗口resize 跨断点时触发重渲染。
+ * 响应式断点 hook：matchMedia 监听，窗口resize 跨断点时触发重渲染。
  *
  * jsdom 无 matchMedia——守卫返回 false（视为宽屏，三栏全开），
  * 测试环境行为与桌面默认一致，不影响既有组件测试。

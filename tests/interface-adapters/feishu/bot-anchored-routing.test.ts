@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { FeishuMessageProcessor } from "@interface-adapters/feishu/message-processor";
 
 /**
- * F20260920imax 增量五：bot 锚定路由——一个 im 侧 bot = 一个海獭助理对话。
+ * 增量五：bot 锚定路由——一个 im 侧 bot = 一个海獭助理对话。
  * 两个不同的人私聊同一 bot → 汇入同一对话；消息带 [姓名] 前缀；
  * connection 的 metadata.lastChatId 随入站刷新（出站定向锚）。
  */
@@ -14,7 +14,7 @@ function makeDeps() {
       expect(externalId).toBe("feishu-bot:cli_a****k8"); // 锚 = bot，不是 chatId
       return { id: "conn-bot", externalId };
     }),
-    // F20260920imax 第四轮检视修正：首条返 null（触发开户）→ 后续返已建对话（走复用分支），
+    // 第四轮检视修正：首条返 null（触发开户）→ 后续返已建对话（走复用分支），
     // 真实覆盖 ensureAssistantConversation 仅被首条消息调用一次的行为
     getCurrentConversation: vi.fn()
       .mockResolvedValueOnce(null)

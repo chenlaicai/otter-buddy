@@ -1,5 +1,5 @@
 /**
- * F20260805rsto 端到端集成测试：重启獭生全链路。
+ * 端到端集成测试：重启獭生全链路。
  *
  * 刻意不 mock usecase/repo——本次事故的根因（双层 session 断裂）恰恰在所有层
  * 都被 mock 时才不可见。真 sqlite + 真 CreateOtter/ManageSession/OtterController，
@@ -59,7 +59,7 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
 
     manageSession = new ManageSession(repo, gateway, conversationQuery, memoryLayer, createTestLogger());
     createOtter = new CreateOtter(repo, gateway, createTestLogger());
-    // F20261009s6ej6：controller 三元兜底删除后必须注入 agentInvoker。本集成测试目标是
+    // controller 三元兜底删除后必须注入 agentInvoker。本集成测试目标是
     //  manageSession 层的 restart 业务逻辑（记忆转历史/换世/backfill），stub 直接委托
     //  manageSession.restartSession 保持被测语义不变（agentInvoker 那层另有专测）。
     const agentInvokerStub = {
@@ -70,7 +70,7 @@ describe("重启獭生全链路（F20260805rsto 集成）", () => {
       createOtter,
       {} as DissolveOtter,
       manageSession,
-      /** restart 控制器会查 otter 类型（小獭拒重启，F20260805rsto），stub 为大獭 */
+      /** restart 控制器会查 otter 类型（小獭拒重启，），stub 为大獭 */
       { getById: async () => ({ type: "big" }) } as unknown as QueryOtter,
       createTestLogger(),
       undefined, // configProvider

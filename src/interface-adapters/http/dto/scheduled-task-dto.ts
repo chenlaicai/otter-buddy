@@ -11,15 +11,15 @@ export interface CreateScheduledTaskRequestDTO {
   triggerAt?: string;
   timezone?: string;
   body: string;
-  /** F20260915desc: 人类可读任务描述（≤500 字符），面板优先显示。可选 */
+  /** 人类可读任务描述（≤500 字符），面板优先显示。可选 */
   description?: string | null;
   executorRole?: string;
   /** 旧实例绑定写入面（读取兼容）；新任务请使用 executorRole。 */
   talkingStonePassedTo?: string[];
   senderId?: string;
-  /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
+  /** 每次触发前是否重启执行獭的 session */
   restartBeforeInvoke?: boolean;
-  /** #516: 任务级链超时配置（分钟）。null/缺省 = 调度器默认（15 分钟） */
+  /** 任务级链超时配置（分钟）。null/缺省 = 调度器默认（15 分钟） */
   timeoutMinutes?: number | null;
 }
 
@@ -31,16 +31,16 @@ export interface UpdateScheduledTaskRequestDTO {
   triggerAt?: string | null;
   timezone?: string;
   body?: string;
-  /** F20260915desc: 任务描述。传 null 清除 */
+  /** 任务描述。传 null 清除 */
   description?: string | null;
   executorRole?: string;
-  /** #610: watchlist-only patch——只替换 body JSON 中的 watchlist 字段，无需携带 prompt 全文。与 body 互斥。 */
+  /** watchlist-only patch——只替换 body JSON 中的 watchlist 字段，无需携带 prompt 全文。与 body 互斥。 */
   watchlist?: string[];
   talkingStonePassedTo?: string[];
   status?: 'active' | 'disabled' | 'error';
-  /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
+  /** 每次触发前是否重启执行獭的 session */
   restartBeforeInvoke?: boolean;
-  /** #516: 任务级链超时配置（分钟）。null = 回退调度器默认 */
+  /** 任务级链超时配置（分钟）。null = 回退调度器默认 */
   timeoutMinutes?: number | null;
 }
 
@@ -54,7 +54,7 @@ export interface ScheduledTaskDTO {
   triggerAt: string | null;
   timezone: string;
   body: string;
-  /** F20260915desc: 人类可读任务描述（未设置时为 null，前端回退渲染 body/functionName） */
+  /** 人类可读任务描述（未设置时为 null，前端回退渲染 body/functionName） */
   description: string | null;
   executorRole: string;
   talkingStonePassedTo: string[];
@@ -62,9 +62,9 @@ export interface ScheduledTaskDTO {
   status: string;
   consecutiveFailures: number;
   lastTriggeredAt: string | null;
-  /** F20260815rstrt */
+  /** */
   restartBeforeInvoke: boolean;
-  /** #516: 任务级链超时（分钟）。null = 调度器默认 */
+  /** 任务级链超时（分钟）。null = 调度器默认 */
   timeoutMinutes: number | null;
   nextTriggerAt: string | null;
   createdAt: string;

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 微信扫码登录 CLI（issue #565）。
+ * 微信扫码登录 CLI。
  *
  * 用法：npm run weixin:login
  * 流程：申请二维码 → 终端渲染（qrcode-terminal）→ 长轮询扫码状态 →

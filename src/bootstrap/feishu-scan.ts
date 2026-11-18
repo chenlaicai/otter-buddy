@@ -1,5 +1,5 @@
 /**
- * F20260928fsqr：飞书扫码接入装配（从 app.ts 抽出，控 max-lines）。
+ * 飞书扫码接入装配（从 app.ts 抽出，控 max-lines）。
  *
  * 职责：运行时注册表（boot + onSuccess 两源统一入表）+ 首号判定（D7 先写先得）
  * + 幂等 provision 闭包 + 登录会话管理。app.ts 只消费返回的句柄组。
@@ -45,7 +45,7 @@ export function setupFeishuScanChannels(options: {
 
   /** 飞书助理线建线（botKey 锚定，微信 provisionAssistantLine 同构；幂等） */
   const provisionFeishuAssistantLine = async (appId: string, name: string): Promise<{ conversationId: string; title: string }> => {
-    // 建线键 = botKey(appId)（掩码形态）——与入站路由锚同源（F20260921wxba：键分裂则收不到消息）
+    // 建线键 = botKey(appId)（掩码形态）——与入站路由锚同源（键分裂则收不到消息）
     const key = botKey(appId);
     const app = feishuAppStore.getApp(appId);
     const connection = await uc.manageConnection.ensureConnection(key, name, "feishu");

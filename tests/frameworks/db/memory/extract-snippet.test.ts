@@ -1,5 +1,5 @@
 /**
- * F20260811mrpy Part 2：extractSnippet 边界测试
+ * Part 2：extractSnippet 边界测试
  *
  * SqliteMemoryRepository.extractSnippet 是 private 方法，通过 searchFTSWithHighlight 间接测试。
  */
@@ -69,14 +69,14 @@ describe("searchFTSWithHighlight - F20260811mrpy Part 2 extractSnippet", () => {
     // 即使 FTS 命中，extractSnippet 在 content 里 indexOf "e3" 找不到
     const target = hits.find(h => h.entryId === "e3");
     if (target) {
-      // #740: fallback 带 sourceId 前缀（[e3] + 空格 + 200 字符）
+      // fallback 带 sourceId 前缀（[e3] + 空格 + 200 字符）
       expect(target.snippet?.startsWith("[e3] ")).toBe(true);
       expect((target.snippet?.length ?? 0) <= 205).toBe(true); // 前缀 + 200 字符
     }
   });
 
   it("#740: 锚点命中时 snippet 回退显示文档标识前缀", async () => {
-    // 模拟 F20260902rcq3 锚点注入形态：FTS 索引含 sourceId 前缀，content 本体不含
+    // 模拟 锚点注入形态：FTS 索引含 sourceId 前缀，content 本体不含
     const content = "这是文档正文，不包含自己的编号。".repeat(10);
     const fid = "F20260829raft";
     db.prepare(`

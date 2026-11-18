@@ -17,9 +17,9 @@ export function useDraftCache(conversationId: string | null) {
   const [draft, setDraft] = useState('')
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const conversationIdRef = useRef(conversationId)
-  // R5 修复：用 ref 追踪最新 draft 值，确保 cleanup 读到最新值而非闭包旧值
+  // 修复：用 ref 追踪最新 draft 值，确保 cleanup 读到最新值而非闭包旧值
   const draftRef = useRef(draft)
-  // #1132 检视处置（flush-on-switch）：pending 写入意图（debounce 窗口内未落盘的输入）
+  // 检视处置（flush-on-switch）：pending 写入意图（debounce 窗口内未落盘的输入）
   // 单一真相源——切换对话时同步 flush 到旧 key，防三形态竞态：
   // A 快速切回读不到未落盘输入；B beforeunload 时序覆盖；C 新对话输入 clearTimeout
   // 把旧对话 pending timer 清掉（共享句柄）→ 旧输入永久丢失
@@ -35,7 +35,7 @@ export function useDraftCache(conversationId: string | null) {
 
   // 加载草稿：组件挂载或 conversationId 变化时，从 localStorage 读取对应对话的草稿
   useEffect(() => {
-    // #1132 检视处置（flush-on-switch）：切走前把旧对话 pending 输入同步落盘。
+    // 检视处置（flush-on-switch）：切走前把旧对话 pending 输入同步落盘。
     // Why: debounce timer 的 300ms 窗口内切换对话，旧输入向未写 localStorage——
     // 不 flush 则：快速切回读不到（state/storage 分叉）、新对话输入 clearTimeout
     // 后永久丢失（timer 句柄共享）。flush 后 timer 消费掉，三形态同治。

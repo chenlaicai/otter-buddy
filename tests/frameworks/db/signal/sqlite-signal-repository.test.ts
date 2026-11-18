@@ -1,5 +1,5 @@
 /**
- * F20260826mwrd C1：signal_events 仓库 CRUD 单测。
+ * C1：signal_events 仓库 CRUD 单测。
  *
  * 覆盖：create/findByConversation（过滤组合）/resolve（幂等防重——
  * 已裁决的信号不可被二次 resolve，裁决写路径唯一性）。

@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * F20261010gshw：影子观察统计——从 healing_events 拉取 guard_eval_shadow 对照记录，
+ * 影子观察统计——从 healing_events 拉取 guard_eval_shadow 对照记录，
  * 出观察期聚合报告（大獭每日呈报用）。
  *
  * 用法：node scripts/shadow-eval-report.mjs [--db <dbPath>] [--days N]
  *
- * 数据源两形态（审视 r1 S2 处置后的口径）：
+ * 数据源两形态（审视 处置后的口径）：
  * - 个体记录（kind=shadow_eval，subkind 分桶）：真误拦候选（人工裁决队列）/
  *   EVAL_GAIN / same_block / family_fallback（族内判据逐条证据，防抖后口径）
  * - 聚合记录（kind=shadow_eval_aggregate）：进程内计数器按窗落账——全量
  *   total/evaluated/unevaluated（pre-dedup 流量口径），判据③④（覆盖率/回落率）数据源
  *
- * 判据口径（预注册，F20261010gshw 特性文档「观察期判据」节 + r1 处置）：
+ * 判据口径（预注册，特性文档「观察期判据」节 + 处置）：
  * - ① 红线（真误放）：miss_block_candidate 人工裁 BLOCK > 0 → 建议停止切换回炉
- *   ——仅 main_write 维度拦截进候选池（S1 维度过滤，sleep/kill 别族拦截不进）
+ * ——仅 main_write 维度拦截进候选池（维度过滤，sleep/kill 别族拦截不进）
  * - ② 族内成功率：same_block / (same_block + miss_block_candidate + family_fallback)
  *   ≥ 90%（个体记录口径）
  * - ③ 全量回落率：Σ unevaluated / Σ total（聚合记录口径）≤ 50%
@@ -52,7 +52,7 @@ const parsed = rows.map(r => {
 const individuals = parsed.filter(r => r.ctx.kind === "shadow_eval");
 const aggregates = parsed.filter(r => r.ctx.kind === "shadow_eval_aggregate");
 
-// ── 个体分桶（S1 处置：subkind 键；旧数据无 subkind 兼容——按形态推断） ──
+// ── 个体分桶（处置：subkind 键；旧数据无 subkind 兼容——按形态推断） ──
 const bySub = (sub) => individuals.filter(r => r.ctx.subkind === sub
   || (r.ctx.subkind === undefined && (sub === "miss_block_candidate" ? (r.ctx.oldVerdict === "BLOCK" && r.ctx.evaluatorWouldAllow === true) : false)));
 const missBlock = bySub("miss_block_candidate");
@@ -62,13 +62,13 @@ const sameBlock = bySub("same_block");
 const familyFallback = bySub("family_fallback");
 
 // 人工裁决状态（miss_block_candidate 队列）：resolution 含「真误放」= 求值器判错（判据红线）；
-// 「确认误拦」= 求值器对；「维度外」= r1 处置前误入池的样本（剔除不计）
+// 「确认误拦」= 求值器对；「维度外」= 处置前误入池的样本（剔除不计）
 const missAdjudicated = missBlock.filter(r => r.resolution && r.resolution.trim() !== "");
 const trueMissPlaced = missAdjudicated.filter(r => /真误放/.test(r.resolution));
 const confirmedMiss = missAdjudicated.filter(r => /确认误拦/.test(r.resolution));
 const dimExcluded = missAdjudicated.filter(r => /维度外/.test(r.resolution));
 
-// ── 聚合计数（S2 处置：判据③ 全量回落率） ──
+// ── 聚合计数（处置：判据③ 全量回落率） ──
 const aggTotal = aggregates.reduce((s, r) => s + (Number(r.ctx.total) || 0), 0);
 const aggUneval = aggregates.reduce((s, r) => s + (Number(r.ctx.unevaluated) || 0), 0);
 const aggDimMismatch = aggregates.reduce((s, r) => s + (Number(r.ctx.dimensionMismatchBlocked) || 0), 0);

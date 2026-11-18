@@ -1,5 +1,5 @@
 /**
- * HealthScore: 健康指标评分（issue #595，原设计 R20260829hidx）
+ * HealthScore: 健康指标评分（原设计 ）
  *
  * 在可观测数据（overview/distribution 快照行 + 信号计数）之上计算语义层：
  * 五维度健康分（0-100 + 绿/黄/红）+ 加权综合分 + 拖累归因 + 走向判定。
@@ -7,12 +7,12 @@
  * 全确定性规则（无 LLM 判定，与信号引擎同一哲学）；纯函数零副作用，
  * worker 旁路（rhi-scan-worker.persistSnapshot）与 score 端点共用同一实现。
  *
- * 维度口径（F20260920hcal 实测校准版）：
+ * 维度口径（实测校准版）：
  * - D1 质量成本: bugfix_ratio 分段线性 min(100, 100×max(0,(0.55-ratio)/0.30))
  *   三档锚点：≤25% 满分 / 40% = 50 / ≥55% 归零
  * - D2 架构稳定: 100 - bugfixReworkRate×250 - imbalance触发?20:0（返工率，与 D1/信号错位）
- * - D3 交付活力: active占比×100 - regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分（F20260902sigm 四态：
- *   pr-stalled 投影 stalled 顶上原 zombie 权重位，F20260920hcal 降至 ×50；D5 分母口径不变——
+ * - D3 交付活力: active占比×100 - regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分（四态：
+ * pr-stalled 投影 stalled 顶上原 zombie 权重位，降至 ×50；D5 分母口径不变——
  *   active+stalled 仍为「活跃+停滞中」链）
  * - D4 流程合规: compliance_rate×100（线性）
  * - D5 信号压力: 100-(critical密度×40+warning密度×30)（clamp）；
@@ -29,7 +29,7 @@ export type DimensionId = "D1" | "D2" | "D3" | "D4" | "D5";
 
 export type HealthStatus = "green" | "yellow" | "red";
 
-/** 综合分权重（#595 设计定稿；F20260920hcal 实测校准确认权重不变） */
+/** 综合分权重（设计定稿；实测校准确认权重不变） */
 export const DIMENSION_WEIGHTS: Record<DimensionId, number> = {
   D1: 0.25,
   D2: 0.2,
@@ -46,7 +46,7 @@ export const DIMENSION_NAMES: Record<DimensionId, string> = {
   D5: "信号压力",
 };
 
-/** 归因句用大白话维度名（F20260917hprl 检视 S1：主标题消费场景不说黑话）。改此文案须同步前端 web/src/pages/health/VerdictPanel.tsx 的 DIMENSION_PLAIN */
+/** 归因句用大白话维度名（检视 主标题消费场景不说黑话）。改此文案须同步前端 web/src/pages/health/VerdictPanel.tsx 的 DIMENSION_PLAIN */
 export const DIMENSION_PLAIN_NAMES: Record<DimensionId, string> = {
   D1: "修 bug 比例",
   D2: "架构晃动",
@@ -116,7 +116,7 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(100, n));
 }
 
-/** D1 质量成本：ratio≤20% 满分，线性降至 40% 归零（审视 S1 定稿：分段线性 + clamp）
+/** D1 质量成本：ratio≤20% 满分，线性降至 40% 归零（审视 定稿：分段线性 + clamp）
  *  2026-09-20 搭档裁决：37.9% bugfix 占比是 harness 完工质量的持续信号，保留原锚点不放宽。
  *  「排除特性变化后一直改得多，就是完工质量不好、返工率高，就是要反思改进的信号」 */
 export function scoreD1(bugfixRatio: number): number {
@@ -133,15 +133,15 @@ export function scoreD1(bugfixRatio: number): number {
  *    20%→50（黄）——「5 个修复 1 个返工」
  *    40%→ 0（红）——「近半修复在返工」
  *  与 bug_recurrence 信号区分：返工率是宏观统计（全仓口径），recurrence 是微观信号（单文件 3 次/30 天）
- *  教训（S7）：锚点宣称数字必须用公式反推验证，不能拍脑袋写——本 PR 因此栽了三轮 */
+ * 教训：锚点宣称数字必须用公式反推验证，不能拍脑袋写——本 PR 因此栽了三轮 */
 export function scoreD2(bugfixReworkRate: number, imbalanceTriggered: boolean): number {
   const penalty = bugfixReworkRate * 250;
   return clamp(100 - penalty - (imbalanceTriggered ? 20 : 0));
 }
 
 /** D3 交付活力：active 占比给分，regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分
- *  F20260902sigm：zombie 删除，stalled 顶上原 zombie 权重位
- *  F20260920hcal 校准：stalled 权重从 ×100 降至 ×50（r1 建议），与 zombie/orphan 分级；
+ * zombie 删除，stalled 顶上原 zombie 权重位
+ * 校准：stalled 权重从 ×100 降至 ×50（建议），与 zombie/orphan 分级；
  *  当前 stalled=0（9/3后），但为未来 stalled 复现预留中间惩罚系数 */
 export function scoreD3(chainStates: Record<string, number>, stalledWeight = 50): number {
   const total = Object.values(chainStates).reduce((s, n) => s + n, 0);

@@ -27,7 +27,7 @@ cases = [
     ('[F20260825zzzc][ci][Feature] 类型 Feature 应拒绝', False),
     ('[F20260825zzzd][ci-x][Design] 模块段连字符应拒绝', False),
     ('[F20260825cmhg][ci][BugFix] 存量ID应通过', True),
-    # 新字母表边界（#670 回修）：含 l/o/0/1 后缀放行、3 位下界拒收、10 位上界放行
+    # 新字母表边界（回修）：含 l/o/0/1 后缀放行、3 位下界拒收、10 位上界放行
     ('[F20260729imlo][im][New Feature] 含 l+o 后缀应通过', True),
     ('[F20260826o46s][im][BugFix] 含 o+数字后缀应通过', True),
     ('[F20260826scl1][im][BugFix] 含 l+1 后缀应通过', True),

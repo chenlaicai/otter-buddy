@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * F20260914rmap：ctlv 批4c 迁移读游标重映射修复（一次性运维脚本）。
+ * ctlv 批4c 迁移读游标重映射修复（一次性运维脚本）。
  *
- * 问题：F20260913ctlv 批4c（messages→entries）迁移对每个对话的 entries
+ * 问题：批4c（messages→entries）迁移对每个对话的 entries
  * 重新编号 1..N（为 yield 合成行腾独立序号），但无重叠路径漏调
  * remapReadCursors——两张读游标表滞留旧 messages seq 空间：
  *   A. conversation_user_read_state.last_read_message_seq（Web 用户游标）

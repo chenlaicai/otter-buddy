@@ -1,7 +1,7 @@
 /**
- * 牌桌聊天流（#1532）——獭注入回应广播 + 下局开局注入编排（自 room-service 拆出控 max-lines）。
+ * 牌桌聊天流——獭注入回应广播 + 下局开局注入编排（自 room-service 拆出控 max-lines）。
  *
- * 竞态口径（检视发现2，本 PR 修复）：**先同步段原子快照换队、再并发注入**——
+ * 竞态口径（本 PR 修复）：**先同步段原子快照换队、再并发注入**——
  * 注入窗口（LLM 秒级调用）内 `addChat` 只会 push 进新队，不落入任何已拍快照；
  * 失败时把本次快照合并回**队首**（时序：旧消息在前、窗口内新消息在后），保「失败留次局重试」语义。
  */
@@ -60,7 +60,7 @@ export async function injectPendingChat(deps: ChatInjectDeps, room: ChatInjectRo
   // 终局轮过渡（东4 结束→gameOver）不注入——牌局已了，队随房间释放
   if (room.engine.state.status !== "playing") return;
   const roundNo = room.engine.state.roundNo;
-  // 同步段原子换队：全部 snapshot+置空完成后才进 await——窗口内 addChat 只进新队（检视发现2）
+  // 同步段原子换队：全部 snapshot+置空完成后才进 await——窗口内 addChat 只进新队
   const pending: Array<{ otterId: string; snapshot: ChatMessage[] }> = [];
   for (const [otterId, queue] of room.chatQueues) {
     if (queue.length === 0) continue;

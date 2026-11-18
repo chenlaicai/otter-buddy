@@ -1,5 +1,5 @@
 /**
- * F20260804dcnv: disk-id-scanner 共享 scanner 测试
+ * disk-id-scanner 共享 scanner 测试
  *
  * 覆盖：frontmatter 优先、文件名兜底、缺 frontmatter 文档不双重消失、
  * 非字符串 id 跳过、Map 冲突警告。

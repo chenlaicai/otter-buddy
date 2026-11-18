@@ -1,5 +1,5 @@
 /**
- * F20260803mval: HealthController 行为测试
+ * HealthController 行为测试
  * 覆盖聚合字段、healthy 判定、DB 异常返回 200 + healthy:false
  */
 import { describe, it, expect, vi } from "vitest";

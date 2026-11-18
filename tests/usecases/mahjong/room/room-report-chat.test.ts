@@ -1,5 +1,5 @@
 /**
- * F20261015mjsg 收尾三钩测试（大獭裁决归引擎层的三条跨层缺口）：
+ * 收尾三钩测试（大獭裁决归引擎层的三条跨层缺口）：
  *  - isSeated(otterId)：D2 精确谓词（入座且进行中；终局后不算）
  *  - 真人回话：addChat 校验与广播 + 下局开局经 gateway 直调注入 + 失败留队次局重试
  *  - onGameover：局终一次性上报（名次/跨局结算亮点/獭发言/代打数），回调抛错仅告警，
@@ -109,14 +109,14 @@ afterEach(() => db.close());
 
 describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
 
-  it("isSeated：入座且进行中 true；未知 otter false；终局后 false", { timeout: 20_000 }, async () => {  // F20261021ttos：重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
+  it("isSeated：入座且进行中 true；未知 otter false；终局后 false", { timeout: 20_000 }, async () => {  // 重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
     const svc = new RoomService({
       store,
       gateway: recordingGateway(),
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
-      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
+      settleHoldMs: 10, // -5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("seated-seed"));
     await svc.startRoom("r1");
@@ -135,7 +135,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
-      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
+      settleHoldMs: 10, // -5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("chat-validate"));
     await svc.startRoom("r1");
@@ -156,7 +156,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
-      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
+      settleHoldMs: 10, // -5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("chat-seed-1"));
     await svc.startRoom("r1");
@@ -164,7 +164,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
     await driveUntilFinished(svc, "r1");
 
     // 注入按 otter 座位分队并行：首次跨局两个 otter 各注入一次，成功即清队
-    //（R2→R3、R3→R4 队空；R4→终局被 status 守卫跳过）
+    //（队空；终局被 status 守卫跳过）
     expect(gw.chatInvocations.length).toBe(2);
     expect(gw.chatInvocations.map((c) => c.otterId).sort()).toEqual(["otter-a", "otter-c"]);
     for (const inv of gw.chatInvocations) {
@@ -184,7 +184,7 @@ describe("收尾三钩：isSeated / 真人回话 / onGameover", () => {
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
-      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
+      settleHoldMs: 10, // -5：测试走快自动继续（不点「继续」）
     });
     svc.createRoom("r1", cfg("chat-seed-2"));
     await svc.startRoom("r1");
@@ -212,7 +212,7 @@ describe("收尾三钩：onGameover 战报（自上段拆出——控 describe �
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
-      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
+      settleHoldMs: 10, // -5：测试走快自动继续（不点「继续」）
       onGameover: (r) => {
         reports.push(r);
       },
@@ -256,7 +256,7 @@ describe("收尾三钩：onGameover 战报（自上段拆出——控 describe �
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
-      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
+      settleHoldMs: 10, // -5：测试走快自动继续（不点「继续」）
       onGameover: () => {
         throw new Error("card send failed");
       },
@@ -282,7 +282,7 @@ describe("收尾三钩：onGameover 战报（自上段拆出——控 describe �
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
-      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
+      settleHoldMs: 10, // -5：测试走快自动继续（不点「继续」）
       onGameover: (r) => {
         reports.push(r);
       },
@@ -299,7 +299,7 @@ describe("收尾三钩：onGameover 战报（自上段拆出——控 describe �
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
-      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
+      settleHoldMs: 10, // -5：测试走快自动继续（不点「继续」）
       onGameover: (r) => {
         reports.push(r);
       },
@@ -318,7 +318,7 @@ describe("收尾三钩：onGameover 战报（自上段拆出——控 describe �
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
-      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
+      settleHoldMs: 10, // -5：测试走快自动继续（不点「继续」）
       evictFinishedMs: 200,
     });
     const first = svc.createRoom("r1", cfg("evict-seed-1"));
@@ -354,7 +354,7 @@ describe("收尾三钩：onGameover 战报（自上段拆出——控 describe �
     const first = svc.getGameId("r1");
     const reopened = svc.createRoom("r1", cfg("evict-seed-2b"));
     expect(reopened.gameId).not.toBe(first);
-    expect(svc.view("r1", null)!.status).toBe("waiting"); // F20261022mjls：重开房停在等待态
+    expect(svc.view("r1", null)!.status).toBe("waiting"); // 重开房停在等待态
     await svc.startRoom("r1");
     expect(svc.view("r1", null)!.status).toBe("playing"); // start 后发牌起跑
     svc.close("r1");
@@ -367,7 +367,7 @@ describe("收尾三钩：onGameover 战报（自上段拆出——控 describe �
       bus,
       humanTimeoutMs: 60_000,
       humanGraceMs: 60_000,
-      settleHoldMs: 10, // #1564-5：测试走快自动继续（不点「继续」）
+      settleHoldMs: 10, // -5：测试走快自动继续（不点「继续」）
       evictFinishedMs: 20,
     });
     svc.createRoom("r1", cfg("evict-seed-3"));

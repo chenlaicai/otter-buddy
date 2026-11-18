@@ -9,7 +9,7 @@ import { createCapturingLogger, createTestLogger } from "../../helpers/logger";
 import { EMBED_TASK_PRIORITY } from "@usecases/memory/memory-queue";
 
 /** 创建带状态捕获的 MemoryWriter + MemoryQueue mock
- *  F20261110dsqci：replaceEntriesBySource 升级为有状态模拟（删旧插新 + 复用集跳过），
+ * replaceEntriesBySource 升级为有状态模拟（删旧插新 + 复用集跳过），
  *  findEntriesBySourceAndType 从 storedEntries 过滤返回——支撑 chunk 复用编排验证 */
 function statefulRepo(): MemoryWriter & MemoryQueue & {
   storedEntries: MemoryEntry[];
@@ -57,7 +57,7 @@ function statefulRepo(): MemoryWriter & MemoryQueue & {
       return { reusedEntryIds: reuse };
     },
     deleteBySourceAndType: async () => {},
-    // F20261110dsqci：chunk 复用对齐读（从 storedEntries 过滤，支撑二次 sync 复用验证）
+    // chunk 复用对齐读（从 storedEntries 过滤，支撑二次 sync 复用验证）
     findEntriesBySourceAndType: async (sourceTable: string, sourceId: string, contentType: MemoryEntry["contentType"]) =>
       storedEntries.filter(e => e.sourceTable === sourceTable && e.sourceId === sourceId && e.contentType === contentType),
     incrementRetrievalCounts: async () => {},
@@ -99,7 +99,7 @@ describe("StoreMemory.execute()", () => {
 
     const id = await store.execute(SAMPLE_INPUT);
 
-    // F20260915midu（#942）：投影条目主键 = 源实体 ID，消灭双 ID
+    // 投影条目主键 = 源实体 ID，消灭双 ID
     expect(id).toBe("msg-001");
     // 条目应已被存入 repo
     expect(repo.storedEntries).toHaveLength(1);
@@ -286,8 +286,8 @@ describe("StoreMemory - F20260803fbit embedding 截断", () => {
     const repo = statefulRepo();
     const embedding = capturingEmbedGateway();
     const store = new StoreMemory(repo, repo, embedding, createTestLogger());
-    // 原断言：空字符串走完 execute 不抛异常（F20260803fbit 截断边界用例）。
-    // #509 后：空 content 是污染信号（962c4b80/707ac5c3 实证），execute 入口直接拒绝。
+    // 原断言：空字符串走完 execute 不抛异常（截断边界用例）。
+    // 后：空 content 是污染信号（962c4b80/707ac5c3 实证），execute 入口直接拒绝。
     await expect(store.execute({ ...SAMPLE_INPUT, content: "" })).rejects.toThrow(
       "Refusing to store polluted memory entry",
     );
@@ -543,7 +543,7 @@ describe("StoreMemory - issue #509 污染防线", () => {
   });
 });
 
-/** F20260915midu（#942）：投影条目主键 = 源实体 ID（消灭双 ID）的规则锁定。
+/** 投影条目主键 = 源实体 ID（消灭双 ID）的规则锁定。
  *  可统一类（messages/linked_resources/features/research）id = source_id；
  *  豁免类保持随机 UUID：signals（INTEGER PK + 1:N upsert）、chunk（1:N + D3 禁边）。 */
 describe("StoreMemory - F20260915midu 投影 ID 统一", () => {

@@ -1,5 +1,5 @@
 /**
- * F20260904cq30：compaction 触发线质量修正的边界测试。
+ * compaction 触发线质量修正的边界测试。
  *
  * 验证注入的 reserveTokens=700_000 在 1M 窗口（1048576）下的触发边界：
  * 1048576 − 700000 = 348576 ≈ 340K 触发线。
@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { shouldCompact } from "@earendil-works/pi-coding-agent";
 
-/** Otter 注入的 reserveTokens（F20260904cq30，model-runtime-registry applyOverrides） */
+/** Otter 注入的 reserveTokens（model-runtime-registry applyOverrides） */
 export const OTTER_RESERVE_TOKENS = 700_000;
 /** config.yaml 中 mimo/glm 的 contextWindow（全模型统一 1M） */
 const CONTEXT_WINDOW = 1_048_576;

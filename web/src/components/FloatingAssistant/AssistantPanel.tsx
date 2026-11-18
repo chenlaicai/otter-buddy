@@ -7,7 +7,7 @@ import { showToast } from '../Toast'
 import { nowTs } from '../../lib/utils'
 
 /**
- * F20260924wast：浮层对话面板（380×520）。
+ * 浮层对话面板（380×520）。
  * 消息流（HTTP sendMessage + POST SSE 流式）+ 输入框 + 「完整对话 ↗」跳转。
  * 一期纯文本渲染（非目标：富内容 html-card）；无上下文 chip（T4 已砍）。
  * session 状态：一期展示轮换提示文案（剩余时长二期补——方案未决 1）。
@@ -37,7 +37,7 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
   const { conversationId, ensuring, ensureError, onRetryEnsure, onClose, style } = props
   const navigate = useNavigate()
   const [messages, setMessages] = useState<PanelMessage[]>([])
-  // F20260929wap1 DS1：已收尾 invoke 的 id 集合——entry.failed/aborted 与 invoke.end 同帧双发时防双收尾条
+  // DS1：已收尾 invoke 的 id 集合——entry.failed/aborted 与 invoke.end 同帧双发时防双收尾条
   const finishedInvokeIdsRef = useRef<Set<string>>(new Set())
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -51,7 +51,7 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
     let cancelled = false
     api.listEntries(conversationId, 30).then(({ entries }) => {
       if (cancelled) return
-      // F20260929wap1：entries API 返回正序（entry-controller :45 将 DESC 取数反转为 ASC）
+      // entries API 返回正序（entry-controller :45 将 DESC 取数反转为 ASC）
       // ——旧代码误加 reverse 造成双重反转，历史时间线倒序渲染。直接按返回序渲染。
       // 渲染五类：user/speak/system + invoke_start/invoke_end 行动边界（成对，居中状态条）
       const view: PanelMessage[] = entries
@@ -106,7 +106,7 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
             return [...prev, { id: d.entryId, st: 'otter' as const, content: body, ts: createdAt }]
           })
         },
-        // F20260929wap1：流内 invoke.start 渲染（发送后本轮行动边界即时可见，居中状态条）。
+        // 流内 invoke.start 渲染（发送后本轮行动边界即时可见，居中状态条）。
         //  契约事件名是 invoke.start（invoke 记录创建 + invoke_start entry 投影，events.ts:36）。
         //  S3：去重键用事件自带的 triggerEntryId（= entry id，agent-invoker.ts:356）——与历史
         //  加载的 e.id 同构，未来做历史刷新（K7 二期）不会双条

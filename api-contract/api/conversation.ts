@@ -4,17 +4,17 @@ import type { ConversationKind } from "../../src/entities/conversation/conversat
 export interface ConversationDTO {
   id: string;
   title: string;
-  /** F20260922cgrp：弱状态两态管理——completed 退役，只剩 active | archived */
+  /** 弱状态两态管理——completed 退役，只剩 active | archived */
   status: "active" | "archived";
   pinned: boolean;
-  /** F20260918imas：助理对话标识（微信/飞书 IM 自动开户；缺省 = 普通对话。前端左侧栏分组依据）
-   *  F20260924wast：kind 联合类型扩 web-assistant（web 浮动獭全局唯一对话）
-   *  #1224：DTO 联合从 entities 单源派生（Exclude normal——DTO 缺省 = normal 不传输），
+  /** 助理对话标识（微信/飞书 IM 自动开户；缺省 = 普通对话。前端左侧栏分组依据）
+   * kind 联合类型扩 web-assistant（web 浮动獭全局唯一对话）
+   * DTO 联合从 entities 单源派生（Exclude normal——DTO 缺省 = normal 不传输），
    *  新增枚举值不再需要改本文件 */
   kind?: Exclude<ConversationKind, "normal">;
   createdAt: string;
   updatedAt: string;
-  /** F20260922cgrp：completed 状态退役，字段保留（DB 列不动，历史数据可读，恒为 null 或旧值） */
+  /** completed 状态退役，字段保留（DB 列不动，历史数据可读，恒为 null 或旧值） */
   completedAt: string | null;
   archivedAt: string | null;
 }
@@ -36,7 +36,7 @@ export interface ConversationListItemDTO extends ConversationDTO {
   activityStatus?: 'processing' | 'awaiting_user' | 'idle';
 }
 
-/** F20260922cgrp：对话列表响应——items + total（total 供分组分页页码跳转） */
+/** 对话列表响应——items + total（total 供分组分页页码跳转） */
 export interface ConversationListResponseDTO {
   items: ConversationListItemDTO[];
   /** 满足过滤条件的总数（不含 limit/offset） */
@@ -49,7 +49,7 @@ export interface CreateConversationRequestDTO {
   otterIds?: string[];
   /** 新建对话时大獭的模型自选（可选，缺省 = 配置文件默认模型） */
   modelAlias?: string;
-  /** F20260924wast：web 助理开户标识（后端按此注入 web 助理人设 systemPrompt 并用固定标题，
+  /** web 助理开户标识（后端按此注入 web 助理人设 systemPrompt 并用固定标题，
    *  忽略 title；调用方可传占位 title 满足契约必填约束） */
   kind?: "web-assistant";
 }
@@ -62,13 +62,13 @@ export interface ParticipantDTO {
   otterName: string;
   /** otter 类型（big/small），查询时从 otters 表解析 */
   otterType?: string;
-  /** F20260921otcl：出生颜色（色板 key，如 'teal'；大獭/未回填为 null）——从 otters 表解析 */
+  /** 出生颜色（色板 key，如 'teal'；大獭/未回填为 null）——从 otters 表解析 */
   otterColor?: string | null;
   /** otter 角色名（小獭的角色，如"审查獭"） */
   roleName?: string;
   /** 模型别名（有效模型解析后，恒非空——默认模型回退后也有值） */
   modelAlias?: string;
-  /** F20260908efmd: true = 配置未显式指定，跟随默认 */
+  /** true = 配置未显式指定，跟随默认 */
   modelIsDefault?: boolean;
   status: string;
   createdAt: string;

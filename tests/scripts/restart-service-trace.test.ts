@@ -1,11 +1,11 @@
 /**
- * F20261023ktru（#1069）：restart-service.mjs 执行级使用痕迹单测。
+ * ：restart-service.mjs 执行级使用痕迹单测。
  *
- * 背景：issue #1069 验证断言②「restart-service.mjs 至少被使用 1 次」无执行级数据源
+ * 背景：验证断言②「restart-service.mjs 至少被使用 1 次」无执行级数据源
  * （regression-verify 2026-10-23 到期回查判「无法判定」的缺口：无运行日志表）。
  * traceUsage 落 append-only JSONL（data/metrics/restart-service-usage.jsonl），
  * 成功/拒绝双通道留痕——「正道走了但被拒」正是死链的自动取证通道
- * （2026-10-22 colink 现场只能事后人工回查）。写失败不抛、stderr 提示（#1632 检视建议 1）：
+ * （2026-10-22 colink 现场只能事后人工回查）。写失败不抛、stderr 提示（）：
  * 留痕是可观测性副产物，不得反过来让受控终止更脆，但静默断供也不可接受。
  */
 import { afterAll, describe, expect, it, vi } from "vitest";

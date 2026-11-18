@@ -1,5 +1,5 @@
 /**
- * CliReport: CLI 报告生成（Issue #397）
+ * CliReport: CLI 报告生成
  *
  * JSON + 可读文本双格式输出。纯函数，无 IO——输出动作由调用方（脚本层）执行。
  */

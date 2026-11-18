@@ -1,5 +1,5 @@
 /**
- * F20260811mrpy Part 1：ScanDarkEntries 用例测试
+ * Part 1：ScanDarkEntries 用例测试
  */
 import { describe, it, expect, vi } from "vitest";
 import { ScanDarkEntries } from "@usecases/memory/scan-dark-entries";

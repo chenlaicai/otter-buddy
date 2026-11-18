@@ -1,5 +1,5 @@
 /**
- * F20260826mwrd C1：halt 注入链路集成测试（无 LLM）。
+ * C1：halt 注入链路集成测试（无 LLM）。
  *
  * 验证装配而非行为（行为由 halt-core.test.ts 纯函数覆盖）：
  * DefaultResourceLoader 装载 otter-hooks 后——
@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { haltRegistry } from '@usecases/signal/halt-registry';
 import { otterInvokeStorage, haltToolCallGuard } from '@frameworks/agent/model-runtime-registry';
 
-// F20260922txre 检视发现顺手修（与 ensure-hooks.test.ts 同根因）：ResourceLoader 真实装载
+// 检视发现顺手修（与 ensure-hooks.test.ts 同根因）：ResourceLoader 真实装载
 // 用例单跑 3.2s 本就贴着 vitest 默认 5s 预算，并行负载下随机 timeout flaky。
 // 断言零改动，仅加 20s 超时预算。
 vi.setConfig({ testTimeout: 20_000 });

@@ -4,7 +4,7 @@ import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { Logger } from "@usecases/ports/logger";
 
 /**
- * F20260805rsto 存量迁移：为「agent_sessions 有行但 otter_sessions 无 active 行」的獭
+ * 存量迁移：为「agent_sessions 有行但 otter_sessions 无 active 行」的獭
  * 补登记首世 domain session。
  *
  * 背景：修复前日常对话只建 agent 层会话，从不建 domain 账本行，导致这些獭的

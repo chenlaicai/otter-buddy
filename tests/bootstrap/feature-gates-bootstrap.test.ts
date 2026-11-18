@@ -1,5 +1,5 @@
 /**
- * issue #937：feature-gates 装配层集成测试（platforms.ts 级接线验证）。
+ * feature-gates 装配层集成测试（platforms.ts 级接线验证）。
  *
  * 验证 resolveFeatureGates 解析结果真实接线到 seed 点行为级——不是单测 gateOn
  * 三态短路（那是 tests/frameworks/config/features-config.test.ts 的活），而是跑真实
@@ -7,11 +7,11 @@
  * healingInit / recruitingInit 两个 seed 点在「显式配置 / DB 存量推断 / 缺省」三态下的
  * 启动与否。
  *
- * 结构变迁说明（issue #937 立案 2026-09-15 时为四 seed 点）：
- * - F20260920stkx：seedPaperTradingTasks 随 paper-trading 能力整体移除
- * - F20260917swsh：dailyReviewInit 随每日复盘任务移除
+ * 结构变迁说明（立案 2026-09-15 时为四 seed 点）：
+ * - seedPaperTradingTasks 随 paper-trading 能力整体移除
+ * - dailyReviewInit 随每日复盘任务移除
  * 现存 seed 点 = healingInit（gates.selfHealing 单门）+ recruitingInit
- * （apiKey && gates.recruiting 双门），S1 型回归（paperTrading 门 raw 值双入口
+ * （apiKey && gates.recruiting 双门），型回归（paperTrading 门 raw 值双入口
  * 读值不一致）的载体已随门移除，其等价防线改由「双入口一致性」用例承接
  * （resolveFeatureGates vs inferDomainActive 同数据同结果）。
  */

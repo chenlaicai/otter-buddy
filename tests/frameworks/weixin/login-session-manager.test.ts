@@ -7,7 +7,7 @@ import { WeixinAccountStore } from "@frameworks/weixin/account-store";
 import type { Logger } from "@usecases/ports/logger";
 
 /**
- * web 扫码登录会话管理单测（issue #566）。
+ * web 扫码登录会话管理单测。
  * fetch 全 mock（复用 api-client.test.ts 的 capture 模式），断言会话状态机
  * 迁移：pending → waiting_scan（PNG 渲染）→ scaned → success + onSuccess 回调。
  */
@@ -126,7 +126,7 @@ describe("WeixinLoginSessionManager", () => {
 
   it("cancel() 后流仍在跑时：登录完成仍落盘（不回滚微信侧授权）", async () => {
     const store = new WeixinAccountStore({ stateDir: tempStateDir() });
-    // 第 1 轮 wait（给 waitFor 留窗口），第 2 轮 confirmed——模拟扫码后用户确认。
+    // wait（给 waitFor 留窗口），confirmed——模拟扫码后用户确认。
     // mock 延迟 10ms，cancel 时 confirmed 可能已到（竞态窗口窄）——两种结局都合法：
     // a) cancel 先到：状态停 cancelled，账号保留，不热启动；
     // b) confirmed 先到：状态 success，账号保留 + onSuccess 触发
@@ -179,7 +179,7 @@ describe("WeixinLoginSessionManager", () => {
     expect(s.qrcodeUrl).toBeUndefined(); // QR 不写入已取消会话
   });
 
-  // ── #592：账号删除时的会话清理（防「删了又复活」）──
+  // ── 账号删除时的会话清理（防「删了又复活」）──
   describe("cancelByAccountId / cancelByIlinkUserId（#592）", () => {
     it("cancelByAccountId：仅取消该账号的非终态会话，终态不动", async () => {
       const store = new WeixinAccountStore({ stateDir: tempStateDir() });

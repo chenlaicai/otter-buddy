@@ -1,5 +1,5 @@
 /**
- * #1173 / F20260929dbmb: lint-date-bombs.mjs（收窄版 v2）的持久化测试。
+ * / lint-date-bombs.mjs（收窄版 v2）的持久化测试。
  *
  * Why: 所有用例用 temp 文件做 fixture，避免扫描自身触发误报。
  * 测试中的 ISO 日期与特性 ID 日期仅为字符串 fixture，不用于时间敏感断言

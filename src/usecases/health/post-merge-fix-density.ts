@@ -1,18 +1,18 @@
 /**
- * post_merge_fix_density: 合并后修复密度检测（Issue #647 项 6，PR2 的灵魂信号）
+ * post_merge_fix_density: 合并后修复密度检测（项 6，PR2 的灵魂信号）
  *
- * 规则（2026-10-19 调整，#1051 方案 1）：特性合入后窗口期内（小修 14 天 / 大特性
+ * 规则（2026-10-19 调整，方案 1）：特性合入后窗口期内（小修 14 天 / 大特性
  * 30 天），触碰链文件的 bugfix ≥3 次 **且** 占链窗口内全部 commit 的 ≥15% → 报
  * 「特性不对劲」（warning——是待查证不是定罪，不预设立场，只统计出血）。
  *
- * 双门 AND 的由来（#1051 产出-消费断链治理，#1335 阈值口径拍板）：原口径是
+ * 双门 AND 的由来（产出-消费断链治理，阈值口径拍板）：原口径是
  * 「次数 ≥3 **或** 占比 ≥30%」的或门。实测 sqlite 52 条 open 存量里 **43 条只过了
  * 次数门**——占比 1–12%，分母 15–236 条 commit。在月产 200+ commit 的仓库里，任何
  * 合入 30 天内的特性都会凑够 3 条 bugfix，次数门在大分母下形同虚设（实测样本
- * #435 = 3 次 / 111 条 = 3%）。占比下限 15% 取自实测分布的断层：噪音群 1–12%，
+ * = 3 次 / 111 条 = 3%）。占比下限 15% 取自实测分布的断层：噪音群 1–12%，
  * 真信号群 15–29%，15% 恰落在断层内。
  *
- * 三条边界（缺一不可，issue #647）：
+ * 三条边界（缺一不可，）：
  * 1. 高扇入文件排除清单：被 ≥FAN_IN_THRESHOLD 个特性触碰的文件自动进清单（实测
  *    src/app.ts 被 22 个特性碰过）——枢纽文件天天被碰，链级密度对它全是噪音。
  *    清单随信号 evidence 透出 + chains 端点常驻暴露（computeFanInExclusions），
@@ -48,10 +48,10 @@ export const LARGE_FEATURE_WINDOW_DAYS = 30;
 /** 触发阈值：窗口内触碰链文件的 bugfix ≥ 此次数 */
 export const FIX_COUNT_THRESHOLD = 3;
 /** 触发阈值：bugfix 占窗口全部 commit 比例 ≥ 此值。
- *  Why 0.15（#1051 方案 1）：实测 open 存量 ratio 分布呈双群——噪音群 1–12%（分母
+ * Why 0.15（方案 1）：实测 open 存量 ratio 分布呈双群——噪音群 1–12%（分母
  *  15–236，纯次数门凑够）、真信号群 15–29%。15% 取在两群断层里，实测 52 条存量仅
- *  9 条达标（归零或个位数，符合 #1051 验收断言）。
- *  另注（诚实声明，PR #1560 检视严重发现 3 + delta 复核 A/B 订正）：未达阈值的链不
+ * 9 条达标（归零或个位数，符合 验收断言）。
+ * 另注（诚实声明，检视严重发现 3 + delta 复核 A/B 订正）：未达阈值的链不
  *  产出 signal，而 health_snapshots **没有链级（per-feature）密度落点**——快照里只有
  *  全仓级指标（bugfix_ratio / bugfix_count / bugfix_ratio_of_fid），chain_states 也只是
  *  active/orphan/regressed 计数（sqlite 实测），不含单链的 bugfix 分子/分母。所以被
@@ -87,7 +87,7 @@ export interface PostMergeFixDensityResult {
 export function detectPostMergeFixDensity(input: PostMergeFixDensityInput): PostMergeFixDensityResult {
   const { commits, chains, now } = input;
   const reg = SIGNAL_REGISTRY.post_merge_fix_density;
-  // 单一真相源（检视建议 3）：排除清单与 chains 端点共用 computeFanInExclusions(chains)——
+  // 单一真相源：排除清单与 chains 端点共用 computeFanInExclusions(chains)——
   // 若从检测窗口 commit 流独立计算（30 天）会与链构建窗口（60 天）双源漂移，
   // 边界文件漂出阈值时 UI 声明的排除集与实际排除集失配
   const excludedFiles = computeFanInExclusions(chains);

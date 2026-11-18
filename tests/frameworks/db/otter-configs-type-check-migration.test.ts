@@ -5,7 +5,7 @@ import { initSchema } from "@frameworks/db/schema";
 import { migrateDatabase } from "@frameworks/db/migration";
 import { createTestLogger, createCapturingLogger } from "../../helpers/logger";
 
-/** F20261118nrwht P2a：otter_configs.otter_type CHECK 约束扩展 'night-reviewer'（存量库迁移）。
+/** P2a：otter_configs.otter_type CHECK 约束扩展 'night-reviewer'（存量库迁移）。
  *  场景：老库建表时是窄 CHECK（'big','small'），跑 migrateDatabase 后应能插入
  *  night-reviewer 行且六列数据无损；幂等（第二次跑不再重建）；新库天然宽约束。
  *  otter_configs 未纳入 schema.ts（历史原因，仅 migration.ts 一处定义），故测试

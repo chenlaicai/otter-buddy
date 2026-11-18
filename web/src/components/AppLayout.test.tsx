@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * F20260902imsc：IM 页滚动 + 双列布局回归测试。
+ * IM 页滚动 + 双列布局回归测试。
  *
  * 背景：body overflow:hidden + h-screen 骨架下，IM 页忘写滚动容器，
- * 内容超出视口被裁且无滚动条（同类问题第三次现场：#503/#628 之后）。
+ * 内容超出视口被裁且无滚动条（同类问题第三次现场：/之后）。
  *
  * 覆盖：
  * 1. AppLayout 主内容区自带 overflow-y-auto 兜底 —— 新页面忘写滚动类不再导致内容被裁（骨架层防御）
@@ -37,11 +37,11 @@ vi.mock('../../api/client', () => ({
   deleteWeixinAccount: vi.fn(),
   listActiveConversations: vi.fn().mockResolvedValue([]),
   enterConversation: vi.fn(),
-  // F20260924wast：AppLayout 拉浮动獭开关（settings）
+  // AppLayout 拉浮动獭开关（settings）
   getSettings: vi.fn().mockResolvedValue({ models: [], defaultModelAlias: 'main', userName: '', assistantWebEnabled: true }),
 }))
 
-// #1868 阶段 2：AppLayout 加会话门——本骨架回归不关心登录流程，固定为已登录态直测布局
+// 阶段 2：AppLayout 加会话门——本骨架回归不关心登录流程，固定为已登录态直测布局
 vi.mock('../hooks/use-session', () => ({
   useSession: () => ({ state: 'authenticated', login: vi.fn(), logout: vi.fn() }),
 }))
@@ -84,7 +84,7 @@ describe('AppLayout 骨架滚动兜底（F20260902imsc）', () => {
   it('主内容区自带 overflow-y-auto——子页面无需自声明即可滚动', async () => {
     renderWithLayout(<div>任意内容</div>)
     // 骨架防御：body overflow:hidden 裁剪之下，内容区必须有滚动容器
-    // Why: 用 data-testid 而非 class 组合选择器 —— class 重构（如 h-screen→h-dvh）不应假阳性破坏行为断言（检视发现 1）
+    // Why: 用 data-testid 而非 class 组合选择器 —— class 重构（如 h-screen→h-dvh）不应假阳性破坏行为断言
     const scrollable = document.querySelector('[data-testid="app-content-scroll"]')
     expect(scrollable).not.toBeNull()
   })

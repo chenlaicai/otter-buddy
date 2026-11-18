@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * F20261009csp2 活类卡渲染测试。
+ * 活类卡渲染测试。
  * 锁定行为：①html-card-play 围栏渲染为活类卡（默认 expanded + 🎮 徽章）；
  * ②暂停按钮收起（卸载 iframe）、重启按钮重挂载（nonce 变化）；
  * ③与 html-card 共享 fenceIndex 计数（1 普通 + 1 活类 = index 0,1）；

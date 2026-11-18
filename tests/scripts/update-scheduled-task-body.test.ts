@@ -1,9 +1,9 @@
 /**
- * update-scheduled-task-body.mjs 脚本测试（#430）
+ * update-scheduled-task-body.mjs 脚本测试
  *
- * 覆盖 #428 引入但无测试的两处逻辑 + #406 依赖的落库路径：
- * 1. isDynamicTemplate 单元测试（dynamic 防护——防止静态文案覆盖 DB 占位符 body，#416）
- * 2. loadTemplate direct path 分支：去 frontmatter 正确性（#428 修的 bug 的回归锁）
+ * 覆盖 引入但无测试的两处逻辑 + 依赖的落库路径：
+ * 1. isDynamicTemplate 单元测试（dynamic 防护——防止静态文案覆盖 DB 占位符 body，）
+ * 2. loadTemplate direct path 分支：去 frontmatter 正确性（修的 bug 的回归锁）
  * 3. dynamic 模板跳过时 exit 0 且不写库（集成：子进程级）
  * 4. 静态模板同步：写库内容 = 模板去 frontmatter 后逐字节一致（集成：临时 DB + 临时模板目录）
  */

@@ -72,7 +72,7 @@ describe("SqliteConversationRepository - 对话基础操作", () => {
       expect(result!.archivedAt).toBeNull();
     });
 
-    // F20260929wak1：kind 透传回归（线上 bug——mapper 双值折叠把 web-assistant 折成 normal，
+    // kind 透传回归（线上 bug——mapper 双值折叠把 web-assistant 折成 normal，
     // 侧栏分组认不出，web 助理对话掉进普通组）
     it("F20260929wak1：kind=web-assistant 透传不折叠为 normal（getById 路径）", async () => {
       await repo.create(conversationFixture({ id: "conv-wa", kind: "web-assistant" }));
@@ -160,7 +160,7 @@ describe("SqliteConversationRepository - 对话基础操作", () => {
   });
 
   describe("updateStatus", () => {
-    // F20260922cgrp：弱状态两态——completed 写入路径退役，只剩 archived
+    // 弱状态两态——completed 写入路径退役，只剩 archived
     it("将对话状态更新为 archived 并设置 archivedAt", async () => {
       await repo.create(conversationFixture());
 
@@ -368,7 +368,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
   it("事故链路回归（#1249）：孤儿 running invoke 被 reconcile 清理后，左栏状态从 processing 恢复 awaiting_user", async () => {
     // 事故现场（9/29 13:09 目击）：对话实际等待用户，但 invokes 表残留
     // 窗口期写入的 running 记录，派生 SQL 判为 processing，左栏滞留「处理中」。
-    // 根因修复 = F20260930roiv（bootTs 守卫 + 周期清理）；本用例锁死事故链路末端的
+    // 根因修复 = （bootTs 守卫 + 周期清理）；本用例锁死事故链路末端的
     // 状态一致性：reconcile 清理后，同一对话的派生状态必须回到 awaiting_user。
     await repo.create(conversationFixture());
     await entryRepo.createEntryAtomic(entryFixture({ yieldTargets: ["user"] }));
@@ -384,8 +384,8 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     const before = await repo.listConversationsWithMeta("user-1");
     expect(before.items[0].activityStatus).toBe("processing");
 
-    // F20260930roiv 的清理动作：failRunningInvokes(guard 守卫) 把窗口期孤儿置 failed
-    //  （rebase 适配：签名演进 bootTs: string → guard: FailRunningInvokesGuard，F20261005g1240）
+    // 的清理动作：failRunningInvokes(guard 守卫) 把窗口期孤儿置 failed
+    // （rebase 适配：签名演进 bootTs: string → guard: FailRunningInvokesGuard，）
     //  事故形态复刻：该 invoke 无 pid 字段（旧世界存量，列引入前写入）→ pid IS NULL 命中清理，
     //   与本进程 pid 无关；startedAt < beforeTs 同为满足但非判据主力（OR 语义，检视严重2核实）。
     const failed = await invokeRepo.failRunningInvokes("2026-09-30T00:00:00Z", {
@@ -394,7 +394,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 活动状态�
     expect(failed).toHaveLength(1);
     expect(failed[0].id).toBe("inv-orphan");
 
-    // 恢复断言：清理后同一对话派生为 awaiting_user——issue #1249 验证断言的数据层支撑
+    // 恢复断言：清理后同一对话派生为 awaiting_user——验证断言的数据层支撑
     const after = await repo.listConversationsWithMeta("user-1");
     expect(after.items[0].activityStatus).toBe("awaiting_user");
   });
@@ -486,7 +486,7 @@ describe("SqliteConversationRepository - listConversationsWithMeta 标题搜索�
     expect(page1.items.length).toBe(1);
     expect(page2.items.length).toBe(1);
     expect(page1.items[0].id).not.toBe(page2.items[0].id);
-    // F20260922cgrp：total = 满足过滤条件的总数（不含分页）
+    // total = 满足过滤条件的总数（不含分页）
     expect(page1.total).toBe(2);
   });
 });

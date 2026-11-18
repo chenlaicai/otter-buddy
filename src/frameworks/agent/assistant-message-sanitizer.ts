@@ -1,7 +1,7 @@
 import type { Message } from "@earendil-works/pi-ai";
 
 /**
- * F20261113etsan：剥离 openai-responses 路径 assistant 消息中的空 text 块。
+ * 剥离 openai-responses 路径 assistant 消息中的空 text 块。
  *
  * Why（2026-11-13《严重错误2》排查实证）：kimi k3 会在并行 toolCall 的响应里附带
  * 空 output_text item；pi-durable 原样落库后，下一轮请求回放时该空块被转成

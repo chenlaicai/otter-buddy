@@ -25,7 +25,7 @@ export default function SettingsPage() {
   const backgroundInputRef = useRef<HTMLInputElement>(null)
   const [selectingBackground, setSelectingBackground] = useState(false)
   const [settingsInfo, setSettingsInfo] = useState<{ port: number; dbPath: string; embeddingModelPath: string; embeddingLocalModelPath?: string; embeddingDim: number; assistantWebEnabled?: boolean } | null>(null)
-  // F20260924wast：浮动獭快捷键（可配置，localStorage 本地；⌘J/Ctrl+J 默认）
+  // 浮动獭快捷键（可配置，localStorage 本地；⌘J/Ctrl+J 默认）
   const [hotkey, setHotkey] = useState(() => localStorage.getItem('floating-otter:hotkey') || 'j')
   const [glassT, setGlassT] = useState(() => {
     const v = parseFloat(localStorage.getItem('otter-glass-t') || '0.85')

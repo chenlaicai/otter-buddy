@@ -6,7 +6,7 @@
  * 任何前端通道（web/feishu）不持有私有附件实现。
  */
 
-/** 附件种类（#608：audio/video 入白名单；PDF 落 document） */
+/** 附件种类（audio/video 入白名单；PDF 落 document） */
 export type AttachmentKind = "image" | "document" | "audio" | "video";
 
 /**

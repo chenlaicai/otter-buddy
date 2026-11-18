@@ -1,5 +1,5 @@
 /**
- * 命令结构模型（F20260928grv2，guard-v2-redesign）。
+ * 命令结构模型（guard-v2-redesign）。
  *
  * 词法层 token 流 → 结构化命令模型（segments / argv / 重定向 / cd 链 / 递归载荷），
  * 全部判定层消费本模型而非原始文本（方案 §3.2「parse once, judge everywhere」）。
@@ -12,7 +12,7 @@
 
 import { lex, type Token, type Word } from "./command-lexer";
 // 值引用（非 cycle：payload-extract-aux 对本模块仅 import type，运行时单向）——
-// 段首解析与 SCRIPT_RUNNERS/SHELL_INTERPRETERS 单一真相源在 payload-extract-aux（F20261022vwfg）
+// 段首解析与 SCRIPT_RUNNERS/SHELL_INTERPRETERS 单一真相源在 payload-extract-aux
 import { resolveExecHead, SCRIPT_RUNNERS, SHELL_INTERPRETERS } from "./payload-extract-aux";
 export { SHELL_INTERPRETERS };
 
@@ -21,7 +21,7 @@ export { SHELL_INTERPRETERS };
 export interface RedirTarget {
   op: string;          // > >> 2> &> >| <> < << <<< &>>
   target: string | null; // evaluated 目标词；null=不可求值（$VAR 目标等）
-  /** F20261019f714（M-f7148deb 第 3 条）：目标词原始词对象（含 var part 时词法不进
+  /** （M-f7148deb 第 3 条）：目标词原始词对象（含 var part 时词法不进
    *  words——evaluated=null 的目标词在此保留 parts 供写求值器同命令赋值溯源；
    *  纯字面目标词为省内存不存（words/…无消费面））*/
   targetWord?: Word;
@@ -39,7 +39,7 @@ export interface Segment {
   /** 段内注释文本（# 后内容——V1 pipe-to-shell 口径保持：注释词样计入上游检测） */
   commentText: string | null;
   /** 本段 heredoc 体（能力 1：`<<`/`<<-` stdin 投递）。脚本投递（解释器段）与数据投递
-   *  （cat/tee 等）由接收段 argv0 判定、求值层消费；模型层载荷收集口径不变（#1171 保持） */
+   * （cat/tee 等）由接收段 argv0 判定、求值层消费；模型层载荷收集口径不变（保持） */
   heredocs: Array<{ body: string; delimQuoted: boolean }>;
   /** 赋值前缀 W=/path（Ad1：独立段表示——赋值不进 args） */
   assignments: Array<{ name: string; value: string | null }>;
@@ -84,12 +84,12 @@ function isRedirOp(op: string): boolean {
     || (op.startsWith("2>") || op.startsWith("1>") || op.startsWith("0<"));
 }
 
-/** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10）——SHELL_INTERPRETERS 归 payload-extract-aux
- *  单一真相源（F20261022vwfg 迁入，本行 re-export 保持既有引用面） */
+/** bash -c / sh -c 载荷识别（方案 D5 矩阵 /）——SHELL_INTERPRETERS 归 payload-extract-aux
+ * 单一真相源（迁入，本行 re-export 保持既有引用面） */
 // SCRIPT_RUNNERS 归 payload-extract-aux 单一真相源（本模块曾有同名单本地副本，
-// 双份清单正是识别域漂移源——F20261022vwfg 收敛）
+// 双份清单正是识别域漂移源——收敛）
 
-/** cmdsub 递归深度上限（D2/S2：≤2 层，超限=载荷不可知） */
+/** cmdsub 递归深度上限（D2/≤2 层，超限=载荷不可知） */
 const MAX_DEPTH = 2;
 
 // ────────────────────────────── 解析 ──────────────────────────────
@@ -176,7 +176,7 @@ function buildSegments(tokens: Token[], text: string): { segments: Segment[]; su
         if (nextT && nextT.type === "word") {
           curTokens.push(nextT);
           target = nextT.word!.evaluated;
-          if (target === null) targetWord = nextT.word!; // F20261019f714：动态目标词保留（溯源用）
+          if (target === null) targetWord = nextT.word!; // 动态目标词保留（溯源用）
           i++; // 消费目标词
         }
         cur.redirects.push({ op, target, ...(targetWord !== undefined ? { targetWord } : {}) });
@@ -241,7 +241,7 @@ function collectParenBody(tokens: Token[], start: number, text: string): { raw: 
 /** 赋值前缀拆分（Ad1）：词流前部 NAME=value 形态词 → assignments。
  *  可求值词直接记；不可求值词（含 cmdsub/var part，如 P=$(lsof …)）拆 part：
  *  首 part lit 形如 NAME= → 记赋值（value=null，溯源走段 payloads 的 cmdsub）。
- *  这样白名单溯源（#844 规则 2b）能拿到「P 被赋值为 lsof 结果」的模型证据。 */
+ * 这样白名单溯源（规则 2b）能拿到「P 被赋值为 lsof 结果」的模型证据。 */
 function finalizeAssignments(seg: Segment): void {
   while (seg.words.length > 0) {
     const w = seg.words[0];
@@ -249,7 +249,7 @@ function finalizeAssignments(seg: Segment): void {
     if (m && seg.argv0 === null) {
       seg.assignments.push(m);
       // 含展开的赋值词（P=$(lsof …)）：词保留在 words（但标记为赋值——argv0 跳过它）。
-      // 白名单溯源（#844 规则 2b）需要从段 words 的 cmdsub part 找 lsof 证据。
+      // 白名单溯源（规则 2b）需要从段 words 的 cmdsub part 找 lsof 证据。
       const hasExpansion = w.parts.some(p => p.type !== "lit" && p.type !== "escape");
       seg.words = seg.words.slice(1);
       if (hasExpansion) seg.assignWords.push(w);
@@ -278,7 +278,7 @@ function matchAssignment(w: Word): { name: string; value: string | null } | null
 
 /** 全词扫描：cmdsub/backtick part + bash -c 载荷 + heredoc 体 → 递归 payload。
  *  裸定界 heredoc 体对齐 V1 stripHeredocPayloads 语义——体内容
- *  无展开特征（$/反引号）时是纯数据不递归（V1 剥离放行；#1171 白名单完整落实：
+ * 无展开特征（$/反引号）时是纯数据不递归（V1 剥离放行；白名单完整落实：
  *  裸定界 body 的数据行 kill 词样不拦）；体含展开才作为危险通道递归。 */
 function collectPayloads(tokens: Token[], text: string, depth: number, tokenSegments: Map<Token, number>): { payloads: Payload[]; parseOk: boolean } {
   const payloads: Payload[] = [];

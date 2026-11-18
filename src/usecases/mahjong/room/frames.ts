@@ -6,7 +6,7 @@
  * - 恢复：latestFrame → 全量 state 直接还原引擎（断线重连/进程重启）
  * - 复盘：frames 按 seq 升序回放
  *
- * 表结构见 frameworks/db/schema.ts createMahjongTables（#506 幂等补建）。
+ * 表结构见 frameworks/db/schema.ts createMahjongTables（幂等补建）。
  */
 
 import { createHash } from "crypto";

@@ -1,12 +1,12 @@
 /**
- * 附件 HTTP 端点集成测试（多模态 Phase 1，审视修复 R2/R13）。
+ * 附件 HTTP 端点集成测试（多模态 Phase 1，审视修复 /）。
  *
  * 真 Hono app + 真 busboy + 真 sharp + 真 sqlite：
- * - 竞态回归（R2 核心）：上传响应必须含附件 ID——close 后 await 全部 in-flight upload
+ * - 竞态回归（核心）：上传响应必须含附件 ID——close 后 await 全部 in-flight upload
  * - 每轮 ≤2 图硬限制（400 拒绝）
  * - GET 响应头（nosniff / document 强制 attachment / image inline / immutable 缓存）
  * - 会话存在性校验（404）
- * - FTS 时序（R3）：带附件消息经 send 落库后 messages_fts.body 含附件占位
+ * - FTS 时序：带附件消息经 send 落库后 messages_fts.body 含附件占位
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -88,7 +88,7 @@ describe("附件 HTTP 端点集成（真管线：busboy→upload→sharp→sqlit
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it("R2 竞态回归：上传响应含附件 ID（close 后 await 全部 in-flight upload）", { timeout: 20_000 }, async () => {  // F20261021ttos：真管线 busboy→sharp→sqlite 重成本
+  it("R2 竞态回归：上传响应含附件 ID（close 后 await 全部 in-flight upload）", { timeout: 20_000 }, async () => {  // 真管线 busboy→sharp→sqlite 重成本
     // 真图走完整管线（sharp resize 是异步的——正是旧实现竞态的触发源）
     const png = await makePng(800, 600);
     const res = await app.request("/api/conversations/conv-1/attachments?uploaderId=user-1", {

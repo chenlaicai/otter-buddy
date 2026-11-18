@@ -12,7 +12,7 @@ import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { Logger } from "@usecases/ports/logger";
 import type { Attachment } from "@entities/conversation/attachment";
 
-/** F20260829fpst：飞书 post 富文本混排消息的 processor 行为测试。
+/** 飞书 post 富文本混排消息的 processor 行为测试。
  *  锁定：多媒体项逐个走管线 → attachmentIds 随消息入库；单项失败单项降级
  *  （其余项照常）；注入载荷透传 dispatch；纯文本 post 走原文本路径。 */
 

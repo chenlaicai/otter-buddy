@@ -1,8 +1,8 @@
 /**
  * get_active_participants 工具测试：modelAlias 返回
  *
- * F20260824aibd：tool 曾在循环内逐个 getConfig 补 modelAlias；
- * #446 后 modelAlias 由 ManageParticipant.getActiveParticipants 批量预取，
+ * tool 曾在循环内逐个 getConfig 补 modelAlias；
+ * 后 modelAlias 由 ManageParticipant.getActiveParticipants 批量预取，
  * 经 HTTP DTO 透传到 tool 层——tool 只做 DTO → JSON 的字段选择，不再查配置。
  *
  * 验证：

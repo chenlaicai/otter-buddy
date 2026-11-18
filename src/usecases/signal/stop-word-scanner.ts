@@ -1,5 +1,5 @@
 /**
- * L2「停下」安全词扫描（F20260826mwrd C3，母方案 Part 6）。
+ * L2「停下」安全词扫描（C3，母方案 Part 6）。
  *
  * 设计要点（母方案 L143-151 + 取舍表 L198）：
  * - 显式字符类匹配，不用分词——分词结果随词典漂移，安全词检测不挂在概率性 NLP 上
@@ -21,14 +21,14 @@ const STOP_WORDS = ['停下'] as const;
 /**
  * 硬边界字符类（后侧判定用）：标点（中西文）、空白、emoji、组合记号、格式控制字符。
  * emoji 判定用 Unicode 扩展区段（\p{Extended_Pictographic}），需 u flag。
- * 组合记号（\p{Mn}\p{Mc}）与格式控制（\p{Cf}）归入边界类（F20260827c3hr）：
+ * 组合记号（\p{Mn}\p{Mc}）与格式控制（\p{Cf}）归入边界类：
  * 零宽/变体字符（VS16、ZWSP、ZWNJ、组合重音符）是 emoji 键盘与复制粘贴的
  * 常见夹带，用户不可见、不构成词义——按边界处理收窄漏报面（漏报方向安全：
  * 退化纯 L1，但 L2 的存在价值是保底，失效面该收窄）。
  */
 const HARD_BOUNDARY_CHAR_RE = /[\p{P}\p{Zs}\s\p{Extended_Pictographic}\p{Mn}\p{Mc}\p{Cf}]/u;
 
-/** trim 字符类 = 硬边界类减去 emoji（emoji 是内容的一部分，不剥——F20260827c3hr） */
+/** trim 字符类 = 硬边界类减去 emoji（emoji 是内容的一部分，不剥——） */
 const TRIM_CHAR_RE = /[\p{P}\p{Zs}\s\p{Mn}\p{Mc}\p{Cf}]/u;
 
 function trimPunctuationAndSpace(text: string): string {
@@ -47,13 +47,13 @@ export interface StopWordScanResult {
 }
 
 /**
- * 触发来源标注（F20261012acpt T1 证据锚点枚举）：user | scheduler | system | otter。
+ * 触发来源标注（T1 证据锚点枚举）：user | scheduler | system | otter。
  * 三态（user|scheduler|system）为 T1 基线要求，otter 为机械诚实补全（来源信息存在时不归并）。
  */
 export type TriggerSourceLabel = "user" | "scheduler" | "system" | "otter" | "未知";
 
 /**
- * 来源机械推导（#1430）：user/otter 直映射；system 细分 scheduler（senderName/senderId
+ * 来源机械推导：user/otter 直映射；system 细分 scheduler（senderName/senderId
  * 形如 `scheduler:每日 AI 雷达`）；来源信息缺失 → 「未知」（机械降级，不猜）。
  */
 export function resolveTriggerSource(senderType?: string | null, senderHint?: string | null): TriggerSourceLabel {
@@ -78,7 +78,7 @@ export interface StopWordScanEvidence {
 }
 
 /**
- * 证据锚点（F20261012acpt T1 插槽）：模板生成器机械拼接，缺字段降级「未提供」，不编造、
+ * 证据锚点（T1 插槽）：模板生成器机械拼接，缺字段降级「未提供」，不编造、
  * 不经 LLM 书写。下游 LLM 可按锚点机械核实「提醒声称的命中」对应哪条真实消息。
  */
 function buildEvidenceAnchor(evidence?: StopWordScanEvidence): string {

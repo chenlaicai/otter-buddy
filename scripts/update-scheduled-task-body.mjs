@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 更新定时任务 body 的通用脚本（F20260824dhck）
+ * 更新定时任务 body 的通用脚本
  *
  * 用法：
  *   node scripts/update-scheduled-task-body.mjs --name "每日对话健康检查" [--db <path>] [--dry-run]
@@ -10,10 +10,10 @@
  * - 模板文件查找规则：prompts/scheduled/<任务名去空格转kebab>.md（如 每日对话健康检查 → daily-health-check.md）
  *   若未找到按名称匹配的模板，则扫描目录中所有 .md，取 frontmatter 的 task_name 字段匹配
  * - frontmatter 含 dynamic: true 的模板（运行时填充占位符，如 self-healing-analysis）会被跳过，
- *   不写入 DB——它们的 body 由调度器动态生成，静态同步会破坏占位符形态（issue #416）
+ * 不写入 DB——它们的 body 由调度器动态生成，静态同步会破坏占位符形态
  * - --dry-run：只打印 diff，不写库
  *
- * 背景：定时任务 body 曾是纯 DB 状态（issue #352 教训之一——prompt 层修复散落在 DB 里，
+ * 背景：定时任务 body 曾是纯 DB 状态（教训之一——prompt 层修复散落在 DB 里，
  * 无法走 PR 评审、无法被 git 追踪）。此脚本把 body 的真相源移到 git 仓库，
  * DB 只是运行时副本。CI 环境下跳过执行（无 DB）。
  */
@@ -36,7 +36,7 @@ function parseArgs() {
     if (args[i] === '--dry-run') parsed.dryRun = true;
     else if (args[i] === '--name') parsed.name = args[++i];
     else if (args[i] === '--db') parsed.dbPath = args[++i];
-    else if (args[i] === '--tpl-dir') parsed.tplDir = args[++i]; // 测试注入用（#430），生产默认仓内 prompts/scheduled
+    else if (args[i] === '--tpl-dir') parsed.tplDir = args[++i]; // 测试注入用，生产默认仓内 prompts/scheduled
   }
   if (!parsed.name) {
     console.error('用法: node scripts/update-scheduled-task-body.mjs --name <任务名> [--dry-run]');
@@ -50,7 +50,7 @@ function kebab(name) {
 }
 
 /** 从模板名找对应文件：direct path（kebab 名）优先，退回 frontmatter task_name 扫描。
- *  dir 可注入（测试用），默认仓库 prompts/scheduled/。#430 */
+ * dir 可注入（测试用），默认仓库 prompts/scheduled/。*/
 export function loadTemplate(taskName, dir = join(repoRoot, 'prompts', 'scheduled')) {
   const direct = join(dir, `${kebab(taskName)}.md`);
   if (existsSync(direct)) {

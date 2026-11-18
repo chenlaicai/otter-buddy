@@ -5,14 +5,14 @@ import { WeixinItemType } from "./types";
 import { silkToWav } from "./silk-transcode";
 
 /**
- * 微信入站媒体下载实现（frameworks 层，issue #567 → #608 恢复四类全量）。
+ * 微信入站媒体下载实现（frameworks 层，恢复四类全量）。
  *
  * 职责：协议 item → CDN 下载 + AES 解密（+ voice 的 silk→wav 转码）→
  * { fileName, mimeType, buffer }（交统一附件上传管线探嗅入库）。
  * key 优先级/编码细节来自 openclaw-weixin media/media-download.ts（MIT）审计。
  *
- * #567 期间曾收敛为仅图片（附件管线白名单不收音视频/pdf，检视发现 2）；
- * #608 扩展 sniffType（WAV/MP3/MP4/PDF magic bytes）后恢复 voice/file/video 分支。
+ * 期间曾收敛为仅图片（附件管线白名单不收音视频/pdf，）；
+ * 扩展 sniffType（WAV/MP3/MP4/PDF magic bytes）后恢复 voice/file/video 分支。
  */
 
 export class WeixinMediaClient implements WeixinMediaGateway {

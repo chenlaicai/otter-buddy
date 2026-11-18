@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * RightPanel 关键资源展示测试（F20260825krui；F20260827rsux 升级 hover 卡行为）
+ * RightPanel 关键资源展示测试（；升级 hover 卡行为）
  * - FactItem：长内容截断（truncate）+ 悬浮详情卡显示全文（可复制）
  * - LinkedResourceItem：统一 stone 色系 + 类型色块 + 截断 + 悬浮详情卡
  * - F20260828tab：tab 切换逻辑
@@ -82,7 +82,7 @@ describe('RightPanel tab 切换', () => {
     switchTab('tasks')
     expect(container.textContent).toContain('定时任务')
 
-    // A5: mock fetch BEFORE switching to workspace tab (WorkspacePanel useEffect fires on mount)
+    // mock fetch BEFORE switching to workspace tab (WorkspacePanel useEffect fires on mount)
     const workspaceEntries = {
       entries: [{ name: 'file.txt', isDirectory: false, isFile: true, path: 'file.txt' }]
     }
@@ -120,7 +120,7 @@ describe('RightPanel tab 切换', () => {
   })
 })
 
-/* F20261009csf3：FactItem/LinkedResourceItem describe 块随关键资源 tab 退役移除 */
+/* FactItem/LinkedResourceItem describe 块随关键资源 tab 退役移除 */
 
 describe('OtterParticipantCard 模型标签（web-model-display）', () => {
   function makeOtter(overrides: Partial<Otter> = {}): Otter {
@@ -164,7 +164,7 @@ describe('OtterParticipantCard 模型标签（web-model-display）', () => {
     renderPanel([], [makeOtter({ id: 'big-1', name: '大獭', type: 'big', modelAlias: 'glm' })])
     // 名字仍在
     expect(container.textContent).toContain('大獭')
-    // F20260914rtsp：「大獭 · 持久」前缀移除（副行只余世数时间，无 session 时为空）
+    // 「大獭 · 持久」前缀移除（副行只余世数时间，无 session 时为空）
     expect(container.textContent).not.toContain('持久')
     // 身份 badge（rounded-full 且文本恰为「大獭」）不存在
     const texts = Array.from(container.querySelectorAll('span.rounded-full')).map(el => el.textContent)
@@ -285,4 +285,4 @@ describe('OtterParticipantCard memo（#502 轮询引用稳定）', () => {
   })
 })
 
-/* F20261009csf3：ResourceHoverCard describe 块随关键资源 tab 退役移除（悬浮卡只服务资源条目） */
+/* ResourceHoverCard describe 块随关键资源 tab 退役移除（悬浮卡只服务资源条目） */

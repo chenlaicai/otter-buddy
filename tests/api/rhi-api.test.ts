@@ -27,7 +27,7 @@ function makeDetailCtx(featureId: string): Parameters<RhiController["chainDetail
   } as never;
 }
 
-/** #581：断言错误路径状态码的 ctx（handleError 会调 c.get('requestId')，必须 mock） */
+/** 断言错误路径状态码的 ctx（handleError 会调 c.get('requestId')，必须 mock） */
 function makeStatusCtx(query?: string, params?: Record<string, string>): Parameters<RhiController["overview"]>[0] {
   return {
     req: { query: () => query, param: (name: string) => params?.[name] },
@@ -42,7 +42,7 @@ const fakeChain = (featureId: string, state: FeatureChain["state"], opts?: { doc
   touchFiles: new Set<string>(), doc: opts?.doc ?? null, unknownPrCount: 0,
 });
 
-/** chainDetail 用例的链夹具（含全类型 commit 序列，Issue #644） */
+/** chainDetail 用例的链夹具（含全类型 commit 序列，） */
 function fakeDetailChain(): FeatureChain {
   return {
     featureId: "F20260801aaaa",
@@ -86,7 +86,7 @@ describe("RHI API（真 sqlite）", () => {
 
   describe("overview", () => {
     it("返回最新快照指标与信号分级计数", async () => {
-      /* #1173 时间炸弹清扫：原硬编码 2026-08-25，overview 断言锁 snapshotDate 字面量。
+      /* 时间炸弹清扫：原硬编码 2026-08-25，overview 断言锁 snapshotDate 字面量。
        * 改相对日期（今天），断言用同一变量。 */
       const day = new Date().toISOString().slice(0, 10);
       snapshotRepo.replaceForDate(day, [
@@ -191,7 +191,7 @@ describe("RHI API（真 sqlite）", () => {
     }
 
     it("返回日期序列（比率×100）与最新分布", async () => {
-      /* 时间炸弹修复（PR #1165 CI 排查）：原造数硬编码 2026-08-26/27，trends 默认
+      /* 时间炸弹修复（CI 排查）：原造数硬编码 2026-08-26/27，trends 默认
        * 30 天窗口的 startDate = 今天-29，日期滑出窗口后 series 只剩 1 条 → 断言炸。
        * 改相对日期（今天-1 / 今天），永在窗口内；断言同步用同一变量。 */
       const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -276,8 +276,8 @@ describe("RHI API（真 sqlite）", () => {
     });
 
     it("series cacheHitRate 为加权平均（非简单平均）", async () => {
-      /* #1173 时间炸弹清扫：原硬编码 2026-08-28/29，costOutput 90 天窗滑出后 series 缺日 → 断言炸。
-       * 改相对日期（今天-1 / 今天），永在窗口内；断言用同一变量，写法对齐 #1165 的 trends 修复。 */
+      /* 时间炸弹清扫：原硬编码 2026-08-28/29，costOutput 90 天窗滑出后 series 缺日 → 断言炸。
+       * 改相对日期（今天-1 / 今天），永在窗口内；断言用同一变量，写法对齐 的 trends 修复。 */
       const d1 = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const d2 = new Date().toISOString().slice(0, 10);
       // day1: cacheRead=800, input=200 → hitRate 0.8
@@ -429,14 +429,14 @@ describe("RHI costOutput 模型维度聚合（F20260914usgm）", () => {
     const b = body.models.find(m => m.model === "model-b")!;
     expect(b.totalTokens).toBe(2000);
     expect(b.cacheHitRate).toBe(0); // 无 cache/input 行
-    // totals 改从 models 汇总（F20260914usgm）
+    // totals 改从 models 汇总
     expect(body.totals.totalTokens).toBe(3000);
     expect(body.totals.callCount).toBe(15);
     expect(body.totals.errorCalls).toBe(2);
   });
 
   it("F20260914usgm：invokeStats 从 stats 行取最新日（per-model + _total）", async () => {
-    /* #1173 时间炸弹清扫：原硬编码 2026-09-12/13，costOutput 默认 30 天窗滑出后 invokeStats 断链 → 炸。
+    /* 时间炸弹清扫：原硬编码 2026-09-12/13，costOutput 默认 30 天窗滑出后 invokeStats 断链 → 炸。
      * 改相对日期（今天-1 / 今天）；「取最新日不被旧值污染」的语义由 d1(旧) < d2(新) 保留。 */
     const d1 = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const d2 = new Date().toISOString().slice(0, 10);
@@ -582,7 +582,7 @@ describe("RHI API 错误路径状态码（#581：废除守门人 200+error，cat
     expect(body.error).toBe("git exploded");
   });
 
-  /** #581 回修（检视建议 2）：ADR 声称的 DomainError→4xx 自动映射，在 RHI 端点级佐证 */
+  /** 回修：ADR 声称的 DomainError→4xx 自动映射，在 RHI 端点级佐证 */
   it("DomainError not_found 经 handleError → 404（ADR 4xx 映射在 RHI 端点真实生效）", async () => {
     const repo = {
       findLatestByMetricKey: () => { throw new DomainError("snapshot not found", "not_found"); },
@@ -616,9 +616,9 @@ describe("RHI API 错误路径状态码（#581：废除守门人 200+error，cat
   });
 });
 
-/** Issue #636 B5 防回归（检视獭-甲审视建议，PR #715 处置）：信号中文标签真相源锁定。
+/** B5 防回归（检视獭-甲审视建议，处置）：信号中文标签真相源锁定。
  *  独立 describe：主 describe 已贴近 max-lines-per-function(300) 限额（见文件头注释）。
- *  锁定目标：controller 曾有本地 9 类映射落后 registry 10 类（#645 snapshot_shift 缺席）——
+ * 锁定目标：controller 曾有本地 9 类映射落后 registry 10 类（snapshot_shift 缺席）——
  *  若未来回退为本地映射或裸 type 回退，此断言即红。断言用字面中文名（用户可见契约）而非引用
  *  registry 常量，防止「测试与实现同源共漂移」。 */
 describe("RHI signals 标签真相源（#636 B5 防回归）", () => {
@@ -686,7 +686,7 @@ it("链响应包含 docTitle、signals 与信号事实 stateReason", async () =>
 
   expect(body.chains[0].docTitle).toBe("健康面板综合分卡");
   expect(body.chains[0].signals).toEqual([{ id: "pr-stalled", evidence: "open PR #42 已 10 天无推进（无新 commit/review/comment）" }]);
-  // F20260902sigm：stateReason 是信号事实文案，不再拼 docStatus
+  // stateReason 是信号事实文案，不再拼 docStatus
   expect(body.chains[0].stateReason).toContain("#42");
   expect(body.chains[0].stateReason).toContain("10 天无推进");
   expect(body.chains[0].stateReason).not.toContain("development");

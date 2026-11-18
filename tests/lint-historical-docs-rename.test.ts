@@ -1,7 +1,7 @@
 /**
- * F20261001lrbk（#1257）：R 形态 rename 的 .doc-fix 通道行为锁定。
+ * ：R 形态 rename 的 .doc-fix 通道行为锁定。
  *
- * 与 tests/lint-historical-docs.test.ts（F20260831dgim 主套件）分离成独立文件：
+ * 与 tests/lint-historical-docs.test.ts（主套件）分离成独立文件：
  * 主套件的 describe 体已接近 eslint max-lines-per-function（220）上限，且其既有用例
  * 会故意遗留 OLD_DOC 的磁盘态 rename（跨用例共享一个 repo），本文件用独立迷你 fixture
  * 隔离，互不干扰。
@@ -12,7 +12,7 @@
  * 无声明拦截；rename+frontmatter 编辑按两侧边界校验放行；rename+正文编辑仍拦。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-// F20261021ttos：临时 git 仓库结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+// 临时 git 仓库结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
 vi.setConfig({ testTimeout: 20_000 });
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";

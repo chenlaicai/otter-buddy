@@ -1,5 +1,5 @@
 /**
- * OutputGuard：文本生成退化检测与流式超时（F20260804dglp 重构）。
+ * OutputGuard：文本生成退化检测与流式超时（重构）。
  *
  * 三重职责：
  * 1. 退化重复检测：text/thinking delta 喂给 DegenerateDetector（双机制），
@@ -7,13 +7,13 @@
  * 2. 超时体系：首字节超时（prompt 前 arm，覆盖排队+prefill）+ per-delta 滑动超时；
  * 3. 健康窗口避让：工具执行 / compaction / auto-retry 期间 pause（停表 + ref-count）。
  *
- * 计时语义（F20260805abpp）：pause 即停表，resume 一律 re-arm 首字节窗口——
+ * 计时语义：pause 即停表，resume 一律 re-arm 首字节窗口——
  * 所有 pause 原因（tool/compaction/auto_retry）结束后都是新请求的冷 prefill，
- * 与 prompt 首发同性质。（F20260804dglp 曾按"工具结束恢复冻结的滑动剩余"设计，
+ * 与 prompt 首发同性质。（曾按"工具结束恢复冻结的滑动剩余"设计，
  * 大上下文 prefill 超滑动预算被误切，见该文档根因 2b 的演进。）
  *
- * 设计文档：F20260727guard-degenerate-output-guard（初版）、F20260804dglp（重构）、
- * F20260805abpp（resume 统一首字节窗口）
+ * 设计文档：-degenerate-output-guard（初版）、（重构）、
+ * （resume 统一首字节窗口）
  */
 
 import type { Logger } from "@usecases/ports/logger";
@@ -44,17 +44,17 @@ export interface OutputGuardMetadata {
   totalLength: number;
   tripped: boolean;
   reason?: OutputGuardTripReason;
-  /** 首字节延迟埋点（F20260804dglp）：最近一次首字节窗口从 arm 到首个 delta 的耗时，用于调参观测 */
+  /** 首字节延迟埋点：最近一次首字节窗口从 arm 到首个 delta 的耗时，用于调参观测 */
   firstByteLatencyMs?: number;
-  /** F20261111slfrz：超时 fire 时的实际墙钟耗时（arm → fire）。elapsed ≫ budget
+  /** 超时 fire 时的实际墙钟耗时（arm → fire）。elapsed ≫ budget
    *  = 计时器被系统睡眠冻结、唤醒瞬间才走完残余预算——睡眠冻结痕迹（M-a8f8f080 定案）。 */
   timeoutElapsedMs?: number;
-  /** F20261111slfrz：fire 时则判定 elapsed > 2×budget（睡眠冻结判定在 guard 内完成，
+  /** fire 时则判定 elapsed > 2×budget（睡眠冻结判定在 guard 内完成，
    *  消费方（orchestrator 落 healing）无需 import 预算常量，也避免 usecase→frameworks 反向依赖） */
   suspectedFreeze?: boolean;
 }
 
-/** F20261111slfrz：疑似系统睡眠冻结判定——实际 elapsed 超预算 2× 认定。
+/** 疑似系统睡眠冻结判定——实际 elapsed 超预算 2× 认定。
  *  2× 余量覆盖慢 prefill/网络抖动（实证样本：300s 预算实际 51min~11.6h，远超 2×；
  *  正常慢请求最坏 ~8-10min < 2×300s）。导出供 orchestrator 落账与单测复用。 */
 export function isSuspectedFreeze(budgetMs: number, elapsedMs: number): boolean {
@@ -82,7 +82,7 @@ export class OutputGuard {
 
   /**
    * pause ref-count：按原因计数（并行工具调用会同原因多次 start/end，
-   * Set 去重会导致第一个 end 就重建计时器误杀其余工具——PR #138 检视 S1）。
+   * Set 去重会导致第一个 end 就重建计时器误杀其余工具——检视 ）。
    * 计数归零才真正 resume（停表语义：pause 时长不计入任何超时预算）。
    */
   private readonly pauseCounts = new Map<PauseReason, number>();
@@ -93,9 +93,9 @@ export class OutputGuard {
   /** 首字节延迟埋点 */
   private firstByteArmedAt = 0;
   private firstByteLatencyMs: number | undefined;
-  /** F20261111slfrz：超时 fire 实际墙钟耗时（睡眠冻结痕迹） */
+  /** 超时 fire 实际墙钟耗时（睡眠冻结痕迹） */
   private timeoutElapsedMs: number | undefined;
-  /** F20261111slfrz：fire 时的睡眠冻结判定（elapsed > 2×budget） */
+  /** fire 时的睡眠冻结判定（elapsed > 2×budget） */
   private timeoutSuspectedFreeze: boolean | undefined;
   /** 终态标记：destroy 后拒绝任何 resume/arm 复活计时器 */
   private destroyed = false;
@@ -135,7 +135,7 @@ export class OutputGuard {
       this.armTimer("streaming", this.config.streamingTimeoutMs, abort);
     } else if (this.onlyAutoRetryPaused()) {
       /**
-       * auto_retry 特例（PR 检视第四轮 S1）：SDK 的 auto_retry_end 在成功路径上
+       * auto_retry 特例（PR 检视第四轮 ）：SDK 的 auto_retry_end 在成功路径上
        * 要等到重试生成完整跑完才发（agent-session.js:377-384），pause 会贯穿整个
        * 重试请求（冷 prefill + 流式）。若等 end 事件，重试 prefill 挂死（零 delta）
        * 时两道超时全部失效。首个 delta 到达即证明重试 prefill 已结束：
@@ -146,7 +146,7 @@ export class OutputGuard {
       this.armTimer("streaming", this.config.streamingTimeoutMs, abort);
     } else {
       /** pause 期间到达的 delta（SDK 事件乱序等边界）：只更新 abort 引用，
-       *  resume 时统一 arm 首字节窗口（F20260805abpp 后不再有冻结剩余可恢复） */
+       * resume 时统一 arm 首字节窗口（后不再有冻结剩余可恢复） */
       this.pendingAbort = abort;
     }
 
@@ -157,7 +157,7 @@ export class OutputGuard {
       this.tripped = true;
       this.tripReason = "degenerate_output";
       /** trip 即停表：否则僵尸计时器会在 abort 展开期间二次 fire，
-       *  覆写 tripReason（degenerate_output → streaming_timeout）并重复 abort（检视 S2） */
+       * 覆写 tripReason（degenerate_output → streaming_timeout）并重复 abort（检视 ） */
       this.clearTimerOnly();
       this.logger.warn(
         `[output-guard] Degenerate output detected: otter=${this.otterId} ` +

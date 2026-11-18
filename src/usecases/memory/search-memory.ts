@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- F20260812mrcq 加 anchor/context-expand 后超 450 行 */
+/* eslint-disable max-lines -- 加 anchor/context-expand 后超 450 行 */
 import type {
   MemoryEntry,
   MemoryLayer,
@@ -25,16 +25,16 @@ import type { Logger } from "@usecases/ports/logger";
 const SNIPPET_FALLBACK_LENGTH = 200;
 
 /**
- * F20260812mrcq Part 3：F/R 文档 ID anchor 正则。
- * 子串提取（非全匹配）——支持 "F20260812mrcq 召回优化" 这种 "ID + 限定词" 模式。
+ * Part 3：F/R 文档 ID anchor 正则。
+ * 子串提取（非全匹配）——支持 "召回优化" 这种 "ID + 限定词" 模式。
  * 用 (?<![\w])/(?![\w]) 替代 \b 显式表达意图：ID 前后不能紧接 ASCII 单词字符。
  * 4-6 位后缀兼容历史（推荐 4 位）。
- * 修法：m3（#245 follow-up），用显式否定回顾/前瞻替代 \b 防未来 JS 引擎 Unicode \b 变更。
+ * 修法：m3（follow-up），用显式否定回顾/前瞻替代 \b 防未来 JS 引擎 Unicode \b 变更。
  */
 const ANCHOR_PATTERN = /(?<![\w])([FR])\d{8}-?[a-z0-9]{4,10}(?![\w])/i;
 
 /**
- * #542 修复：summary 模式首句提取正则（数字感知）。
+ * 修复：summary 模式首句提取正则（数字感知）。
  * 从 entry.content 原文开头提取首句：
  * - 主体 `[^\n]*?` 非贪婪同行拉长，直到「真正的句末」或行尾；
  * - 句末标点集 `[.。！？!?]` 含 ASCII `.`（英文句子）；数字感知终止（`(?!\d|[A-Za-z])`）：
@@ -50,7 +50,7 @@ export interface SearchQuery {
   granularity?: RetrievalGranularity;
   conversationId?: string;
   /**
-   * F20260917cvid: 当前对话 ID（排序加成，区别于 conversationId 过滤语义）——
+   * 当前对话 ID（排序加成，区别于 conversationId 过滤语义）——
    * 命中条目 conversationId 匹配时乘 SearchEngineConfig.currentConversationBoost。
    * 由 agent 工具层自动注入（搭档「本对话历史权重更高」），检索结果仍含跨对话条目。
    */
@@ -61,33 +61,33 @@ export interface SearchQuery {
   library?: string;
   /** 按记忆层过滤（working/historical/document） */
   layer?: MemoryLayer;
-  /** F20260805rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
+  /** 仅返回 createdAt >= 此时间戳（ISO string）的记录 */
   createdAfter?: string;
-  /** F20260803fbit: 按 contentType 过滤（多选），支持"只搜 body"或"只搜 summary" */
+  /** 按 contentType 过滤（多选），支持"只搜 body"或"只搜 summary" */
   contentType?: MemoryContentType[];
   /**
-   * F20260811mrpy Part 1：开启时注入中间分值（rrfScore/timeDecay/frequencyBoost/multiHitCount）。
+   * Part 1：开启时注入中间分值（rrfScore/timeDecay/frequencyBoost/multiHitCount）。
    * 默认关闭避免 token 膨胀。
    */
   debug?: boolean;
   /**
-   * F20260812mrcq Part 2：开启时对命中条目扩展邻域（chunk ±1 / message 前后条），
+   * Part 2：开启时对命中条目扩展邻域（chunk ±1 / message 前后条），
    * 结果放在 contextEntries 字段（不混入 entries，避免评分断层）。
    * summary / fact 等无邻域结构的 contentType 不扩展。
    */
   expandContext?: boolean;
 }
 
-/** F20260811mrpy Part 1：debug=true 时注入的中间分值（召回诊断用） */
+/** Part 1：debug=true 时注入的中间分值（召回诊断用） */
 export interface RetrievalDebugInfo {
   rrfScore: number;
   finalScore: number;
   timeDecay: number;
   frequencyBoost: number;
-  /** F20260917cvid: 本对话加成系数（命中=配置值，未命中=1.0） */
+  /** 本对话加成系数（命中=配置值，未命中=1.0） */
   conversationBoost?: number;
   multiHitCount?: number;
-  /** F20261112rnkph Phase 1 段 2：additive 融合逐信号贡献分量（仅 rerankMode=additive 时注入；
+  /** Phase 1 段 2：additive 融合逐信号贡献分量（仅 rerankMode=additive 时注入；
    *  各自 = 归一值 × 权重或偏置，去重前 finalScore = 五项之和）。 */
   contrib_rrf?: number;
   contrib_time?: number;
@@ -103,41 +103,41 @@ export interface RetrievalResultEntry extends MemoryEntry {
   snippet?: string;
   /** 用户标记（检索路径从 MemoryWeight 带出） */
   userFlagged?: boolean;
-  /** F20261118stale P0：被哪个条目取代（supersedes 边 from 端=取代者/新条目），有则说明此条已过期。 */
+  /** P0：被哪个条目取代（supersedes 边 from 端=取代者/新条目），有则说明此条已过期。 */
   supersededBy?: string;
-  /** F20261118blsrk P1b：belief 生命周期状态（recorded=[未核实]、verified=[已核实]、disputed=[存疑]、superseded=[已取代]）。 */
+  /** P1b：belief 生命周期状态（recorded=[未核实]、verified=[已核实]、disputed=[存疑]、superseded=[已取代]）。 */
   beliefStatus?: BeliefStatus;
-  /** F20260811mrpy Part 1：debug=true 时注入的中间分值 */
+  /** Part 1：debug=true 时注入的中间分值 */
   debug?: RetrievalDebugInfo;
   /**
-   * F20260811mrpy Part 2：detail_level != "full" 时填充，告知调用方用什么工具拿全文。
-   * 形如 { tool: "get_memory_detail", params: { ids: [id] } }——参数形态与目标工具 schema 一致（#1398）
+   * Part 2：detail_level != "full" 时填充，告知调用方用什么工具拿全文。
+   * 形如 { tool: "get_memory_detail", params: { ids: [id] } }——参数形态与目标工具 schema 一致
    */
   drillDown?: { tool: string; params: Record<string, unknown> };
 }
 
 /**
- * F20260811mrpy Part 1：vec 路径覆盖率（默认返回）。
+ * Part 1：vec 路径覆盖率（默认返回）。
  * ratio<1.0 说明有暗化条目（fire-and-forget 失败导致无 vec）。
  *
- * F20260812mrcq Part 2 审视 m5：加 vecDisabled 字段，消除 ratio=0 歧义
+ * Part 2 审视 m5：加 vecDisabled 字段，消除 ratio=0 歧义
  * （空结果 vs vec 路径不可用）。
  */
 export interface VecCoverage {
   total: number;
   withVec: number;
   ratio: number;
-  /** F20260812mrcq Part 2: vec 路径运行时禁用（disableVec 清表后），消费方区分"无结果"vs"vec 不可用" */
+  /** Part 2: vec 路径运行时禁用（disableVec 清表后），消费方区分"无结果"vs"vec 不可用" */
   vecDisabled?: boolean;
 }
 
 export interface RetrievalResult {
   entries: RetrievalResultEntry[];
   total: number;
-  /** F20260811mrpy Part 1：默认返回（不加 debug 参数也有） */
+  /** Part 1：默认返回（不加 debug 参数也有） */
   vecCoverage: VecCoverage;
   /**
-   * F20260812mrcq Part 2：邻域扩展条目（仅 expandContext=true 时存在）。
+   * Part 2：邻域扩展条目（仅 expandContext=true 时存在）。
    * 独立于 entries，不参与 RRF 排序，source='context-expand'。
    * agent 应理解这是命中条目的"上下文补充"而非独立检索结果。
    */
@@ -155,22 +155,22 @@ export class SearchMemory {
     private readonly terminologyRepo?: TerminologyRepository,
   ) {}
 
-  /** F20260902rcp1 审视修复：document 层半衰期（debug 注入与 rerank 同源） */
+  /** 审视修复：document 层半衰期（debug 注入与 rerank 同源） */
   private get documentHalfLifeDays(): number | undefined {
     return this.searchEngine.configRef.weightHalfLifeDaysDocument;
   }
 
-  // eslint-disable-next-line complexity -- F20260812mrcq 加 anchor 短路 + expandContext 分支后超 12
+  // eslint-disable-next-line complexity -- 加 anchor 短路 + expandContext 分支后超 12
   async search(query: SearchQuery): Promise<RetrievalResult> {
     /**
-     * F20260812mrcq Part 3: anchor 短路（仅 conversation / 全库，terminology 库跳过）。
+     * Part 3: anchor 短路（仅 conversation / 全库，terminology 库跳过）。
      * 命中 F/R ID 时短路注入顶格，剩余 query 走 RRF。
      * 审视三轮 M3：用白名单式守卫——无效 library 值（如 "foo"）不走 anchor，让后续路由抛 DomainError。
      */
     if (!query.library || query.library === "conversation") {
       const anchorResult = await this.tryAnchorShortCircuit(query);
       if (anchorResult) {
-        // F20260812mrcq Part 2: anchor 命中后也做邻域扩展（若 anchor 是 chunk）
+        // Part 2: anchor 命中后也做邻域扩展（若 anchor 是 chunk）
         if (query.expandContext && query.detailLevel !== "full") {
           const ctx = await this.expandContextForEntries(anchorResult.entries);
           if (ctx.length > 0) anchorResult.contextEntries = ctx;

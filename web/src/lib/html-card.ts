@@ -1,5 +1,5 @@
 /** HTML 卡片（html-card）纯函数库：meta 解析 / payload 校验 / 已回复集合派生 / 回执构造
- *  设计文档 F20260728htar §2/§3；与后端剥离函数、useCardBridge 共享同一套规则与测试向量。
+ * 设计文档 §2/§3；与后端剥离函数、useCardBridge 共享同一套规则与测试向量。
  *  围栏扫描用 remark（mdast）解析：普通代码围栏是不透明块（内部的 reply 字样只是代码示例），
  *  支持 ~~~ 围栏与 blockquote/list 容器嵌套，与后端剥离函数同一解析语义 */
 
@@ -9,11 +9,11 @@ import remarkGfm from 'remark-gfm'
 import type { Code, Nodes } from 'mdast'
 
 /** 解析管线必须与渲染管线（react-markdown 挂 remarkGfm singleTilde:false）逐字节对齐：
- *  GFM 的 footnote definition 是容器块，裸 parse 与渲染对容器内围栏判定会分裂（R9） */
+ * GFM 的 footnote definition 是容器块，裸 parse 与渲染对容器内围栏判定会分裂 */
 const parseMd = (body: string) =>
   unified().use(remarkParse).use(remarkGfm, { singleTilde: false }).parse(body)
 
-// Why: 转发共享常量（Issue #360 单一真相源在 @contract/api/html-card）——
+// Why: 转发共享常量（单一真相源在 @contract/api/html-card）——
 // 保持从 lib/html-card 的既有导入路径不变，避免改动全部消费方
 export { CARD_MAX_PER_MESSAGE, CARD_MAX_BYTES, CARD_SCHEMA_VERSION, CARD_MIN_HEIGHT, CARD_MAX_HEIGHT, CARD_PRESET_CLASSES_CSS } from '@contract/api/html-card'
 /** 卡片提交 payload 限制 */
@@ -48,7 +48,7 @@ export function parseCardTitle(meta: string | null | undefined): string | null {
   return parseMetaAttr(meta, 'title')
 }
 
-/** F20261013csv3 T4：卡片重要性分级（`importance="high"` 默认展开）。
+/** T4：卡片重要性分级（`importance="high"` 默认展开）。
  *  只有两档：normal（默认，折叠）/ high（默认展开）；不是 `high` 一律按 normal
  *  （含缺失/解析失败——降级安全方向是折叠）。约束：high 不豁免单消息卡片预算
  *  （CARD_MAX_PER_MESSAGE），防止把 high 当预算旁路。 */
@@ -63,7 +63,7 @@ export function parseCardImportance(meta: string | null | undefined): CardImport
 /** 折叠态摘要行最大字符数（T3） */
 export const CARD_FOLDED_SUMMARY_MAX_CHARS = 120
 
-/** F20261013csv3 T3：从卡片 HTML 提取折叠态摘要行。
+/** T3：从卡片 HTML 提取折叠态摘要行。
  *  口径（与既有卡面摘要互不依赖，纯展示层派生）：
  *  - 跳过 <script>/<style>/<textarea> 内容（脚本/样式不是给人看的）
  *  - 纯标点行视同空（装饰性分隔线等不产出信息）

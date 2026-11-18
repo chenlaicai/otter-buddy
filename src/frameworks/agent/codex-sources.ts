@@ -22,7 +22,7 @@ function resolveRepoRoot(): string {
 }
 
 /**
- * F20260929scfx：能力库全书数据源辅助——skill 正文与 SYSTEM.md 分节的文件读取。
+ * 能力库全书数据源辅助——skill 正文与 SYSTEM.md 分节的文件读取。
  * 从 app.ts 拆出（lint max-lines）：失败均降级空值，不抛错（页面该节只少内容，不整页消失）。
  */
 
@@ -54,7 +54,7 @@ export function readSystemSections(): Array<{ title: string; content: string }> 
   }
 }
 
-/** 按 ## 二级标题切分 markdown；行内锚点（## 标题 {#id}）剥为纯标题。
+/** 按 ## 二级标题切分 markdown；行内锚点（## 标题 {}）剥为纯标题。
  *  首 ## 前的引言独立成节（UI 上空标题显示「卷首语」）；代码围栏内的 ## 不视为分节边界。 */
 function splitByH2(markdown: string): Array<{ title: string; content: string }> {
   const sections: Array<{ title: string; content: string }> = [];

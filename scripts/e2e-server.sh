@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# e2e 冒烟服务管理器（F20260920ecig，issue #1058）。
+# e2e 冒烟服务管理器（）。
 #
 # Usage:
 #   scripts/e2e-server.sh start   构建并启动 e2e 冒烟服务（config.e2e.yaml，端口 3199）
@@ -12,9 +12,9 @@
 #     本脚本是「CI/本地共用的 e2e 冒烟流水线」（固定 config.e2e.yaml + 固定端口 3199 +
 #     幂等清理）。CI 步骤与本地命令完全同构，避免两套逻辑漂移。
 #   - 端口 3199：3100-3198 偶数段是 alpha 专属（scripts/alpha.sh），取段外奇数尾避免冲突。
-#   - 健康等待复用 alpha.sh 同款轮询（/api/settings），超时 150s（#1077：90s 在冷缓存 runner 上
+# - 健康等待复用 alpha.sh 同款轮询（/api/settings），超时 150s（90s 在冷缓存 runner 上
 #     实证不够——bge-m3 加载 ~30s + Document sync ~19s+，同步启动链全部完成才 listen；
-#     PR #1071 e2e job 106189197172 同 commit 重跑通过，flaky 实锤。下载模型失败不阻塞
+# e2e job 106189197172 同 commit 重跑通过，flaky 实锤。下载模型失败不阻塞
 #     启动——FTS-only 降级路径；分阶段健康检查（listen 提前 + 阶段端点）为后续演进，
 #     涉启动顺序重构不在止血范围）。
 set -euo pipefail
@@ -34,7 +34,7 @@ die() { echo "Error: $1" >&2; exit 1; }
 wait_healthy() {
   local deadline=$((SECONDS + HEALTH_TIMEOUT))
   while [ $SECONDS -lt $deadline ]; do
-    # #1322（F20261016autz）：/api/settings 已接鉴权——健康等待带身份头（无头 401 会让探针永远不绿）
+    # /api/settings 已接鉴权——健康等待带身份头（无头 401 会让探针永远不绿）
     if curl -sf -o /dev/null -H 'X-Otter-User-Id: script:e2e-server.sh' -H 'X-Otter-User-Role: admin' "${BASE_URL}/api/settings"; then
       echo "e2e server healthy at ${BASE_URL}"
       return 0
@@ -76,7 +76,7 @@ cmd_start() {
   npm --prefix web run build
 
   # 启动（后台、日志落文件）
-  # #1868 阶段 2：注入固定 owner password（与 web/e2e/global-setup.ts 缺省值一致）供登录写 storageState；
+  # 阶段 2：注入固定 owner password（与 web/e2e/global-setup.ts 缺省值一致）供登录写 storageState；
   # 覆盖用户 shell 环境避免误用生产口令写入 e2e 登录态。
   nohup env OTTER_OWNER_PASSWORD="${E2E_OWNER_PASSWORD:-e2e-owner-password}" node dist/src/main.js --config config/config.e2e.yaml > "${LOG_FILE}" 2>&1 &
   local pid=$!

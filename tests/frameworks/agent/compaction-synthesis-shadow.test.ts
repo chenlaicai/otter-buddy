@@ -1,8 +1,8 @@
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
- * F20260912nlb896：压缩合成影子通道（runCompactionSynthesis）单测。
+ * 压缩合成影子通道（runCompactionSynthesis）单测。
  *
- * 守护的行为（PR #897 delta 复核发现 A：影子通道本体零测试）：
+ * 守护的行为（delta 复核发现 A：影子通道本体零测试）：
  * 1. 影子 session 用 inMemory SessionManager 创建——不写共享 jsonl、不入池、不触锁；
  * 2. 模型解析链：otter 显式 modelAlias → 池默认（与 _createSessionWithTools 同链）；
  * 3. 结果组装：directText 来自 turnText 捕获、lastStopReason 从 session branch 提取；
@@ -29,7 +29,7 @@ type ShadowSession = {
   lastStopReason?: string;
   tokenUsage?: { input: number; output: number; reasoning?: number };
   close: () => Promise<void>;
-  /** F20260924thnk：thinkingLevel 注入链 */
+  /** thinkingLevel 注入链 */
   setThinkingLevel: (level: string) => void;
   thinkingLevel: string;
   /** 测试侧控制：prompt 时经 subscribe 回调推 message 事件喂 turnText */
@@ -150,7 +150,7 @@ describe("F20260912nlb896 压缩合成影子通道（runCompactionSynthesis）",
 
     expect(getModelCalls).toEqual(["kimi"]); // otterConfig.modelAlias
     const createArgs = createSessionCalls[0] as { model: unknown };
-    // F20260924swin 改动点1 + F20261111synth F2：合成 model 显式 maxTokens=8,192
+    // 改动点1 + F2：合成 model 显式 maxTokens=8,192
     // （否则 SDK falsy 跳过分支，服务端默认预留吃掉 25% 窗口；8,192 吸收 low 档思考税）
     expect(createArgs.model).toEqual({ ...poolModel, maxTokens: 8_192 });
     db.close();
@@ -188,9 +188,9 @@ describe("F20260924thnk 合成影子通道 thinking 关闭（观测三件套）"
 
     // off 请求已发且生效（mock 回显默认 off——空 thinkingLevelMap 生产路径）
     expect(createSessionCalls[0]?.thinkingLevel).toBe("off");
-    // maxTokens 回归钉：显式合成预算仍在（F20260924swin 改动点1 不回退）且为有限数（无 NaN——simple-options off 档 budgets['off']=undefined 边界）
+    // maxTokens 回归钉：显式合成预算仍在（改动点1 不回退）且为有限数（无 NaN——simple-options off 档 budgets['off']=undefined 边界）
     const model = (createSessionCalls[0] as { model: { maxTokens?: number } }).model;
-    expect(model.maxTokens).toBe(8192); // F20261111synth F2：4,096→8,192（吸收 low 档思考税）
+    expect(model.maxTokens).toBe(8192); // F2：4,096→8,192（吸收 low 档思考税）
     expect(Number.isFinite(model.maxTokens)).toBe(true);
     // 结果组装不受影响
     expect(result.directText).toBe("七段合成摘要");

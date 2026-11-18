@@ -16,11 +16,11 @@ export class AgentDispatchService {
   constructor(
     private readonly deps: {
       dispatchChainEngine: DispatchChainEngine;
-      /** F20260913ctlv 收尾批1：entries 数据源（最新 user entry 的 yieldTargets / 触发锚） */
+      /** 收尾批1：entries 数据源（最新 user entry 的 yieldTargets / 触发锚） */
       entryRepo: EntryRepository;
       agentInvokePort: AgentTurnPort;
       logger: Logger;
-      /** F20260901sgpv P1：信号路由器（可选注入）——注入后 IM 入口走信号路由，
+      /** P1：信号路由器（可选注入）——注入后 IM 入口走信号路由，
        *  resolveFirstTurnTargets 隐式查询随之停用（四入口勘测硬约束 1：删，不双轨） */
       signalRouter?: SignalRouter;
     },
@@ -35,30 +35,30 @@ export class AgentDispatchService {
     userMessageContent: string;
     senderId: string;
     injection?: InjectionPayload;
-    /** F20260908rlcp：本条触发消息的 ID（feishu/weixin 调用点在消息落库后传入）。只路由本轮触发，不扫历史。 */
+    /** 本条触发消息的 ID（feishu/weixin 调用点在消息落库后传入）。只路由本轮触发，不扫历史。 */
     messageId?: string;
-    /** F20260913ctlv 彻底切换：entries 解析的目标——传入时直连链点火（IM 入口不再写 messages 信号行，
+    /** 彻底切换：entries 解析的目标——传入时直连链点火（IM 入口不再写 messages 信号行，
      *  路由器的 messages 扫描路径对 IM 失效；显式目标直连链是唯一点火路径） */
     resolvedTargets?: string[];
-    /** F20261012swsg（#1430 首轮严重1）：触发消息来源——安全词扫描闸的真相源，由调用方显式声明：
+    /** （首轮严重1）：触发消息来源——安全词扫描闸的真相源，由调用方显式声明：
      *  IM 用户消息传 "user"（feishu/weixin），合成文本（首哑告警等）传 "system"。缺省不扫描（漏报方向安全）。
      *  不在本入口硬编码——dispatch() 是共享入口，合成文本曾被当用户消息扫描注入假急停提醒。 */
     triggerSenderType?: SenderType;
   }): Promise<AgentDispatchResult> {
     const { conversationId, userMessageContent, senderId, injection, messageId, resolvedTargets, triggerSenderType } = input;
     try {
-      // F20260913ctlv 彻底切换：IM 入口带显式目标时直连链（entries 目标）
+      // 彻底切换：IM 入口带显式目标时直连链（entries 目标）
       if (this.deps.signalRouter && resolvedTargets && resolvedTargets.length > 0) {
         this.fireDirectChain(conversationId, userMessageContent, senderId, resolvedTargets, { injection, triggerSenderType });
         return {};
       }
 
-      // F20260901sgpv P1：IM 入口换轨——信号路由（消息自带 talkingStonePassedTo 是
+      // P1：IM 入口换轨——信号路由（消息自带 talkingStonePassedTo 是
       // 唯一目标真相源）。四入口勘测硬约束 1：resolveFirstTurnTargets 读库最新 user
       // 消息定目标在并发时有竞态，隐式查询必须删而非双轨——注入路由器后旧路径不可达。
-      // #826 多模态收口：带附件消息从此过信号路由器闸门+台账（注入载荷由路由器从 attachments 重建）
+      // 多模态收口：带附件消息从此过信号路由器闸门+台账（注入载荷由路由器从 attachments 重建）
       if (this.deps.signalRouter) {
-        // F20260908rlcp：IM 入口路由——dispatch 调用点（feishu/weixin message-processor）
+        // IM 入口路由——dispatch 调用点（feishu/weixin message-processor）
         // 传 triggerMessageId 只路由本轮触发消息（不扫历史，防已处理信号重燃）。
         // messageId 缺省（老调用点）时降级为「每目标最新一条」补扫语义。
         await this.deps.signalRouter.routeSignals(conversationId, messageId ? { triggerMessageId: messageId } : undefined);

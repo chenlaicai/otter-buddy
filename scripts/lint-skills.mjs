@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * F20260811sktp Part A: Skill 系统契约校验（commit-time gate）。
- * F20260903（#726 拆解）: _shared/ 目录退役——skills/ 下只有 skill；引用校验改为
- *   跨 skill 引用规范（校验 7/9），设计继承 PR #758 诊断资产（940 session 扫描、
+ * Part A: Skill 系统契约校验（commit-time gate）。
+ * F20260903（拆解）: _shared/ 目录退役——skills/ 下只有 skill；引用校验改为
+ * 跨 skill 引用规范（校验 7/9），设计继承 诊断资产（940 session 扫描、
  *   28 次 ENOENT 根因、索引-only 零读取实证、golden 判据）。
  *
  * error（阻断）：
@@ -14,7 +14,7 @@
  *   6. manifest category 与 SKILL.md frontmatter category 一致（防漂移）
  *   7. SKILL.md 中提到的 references 路径必须存在（合法引用形态统一解析）
  *   8. 数量下限 ratchet（防"删光 skills + 同步清空 manifest"静默绿）
- *   9. 引用形态与可见性（#726/#758 实证）：
+ * 9. 引用形态与可见性（/实证）：
  *      E1 绝对路径引用（agent 换 cwd/worktree 后必然读不到）
  *      E1b _shared/ 目录残留引用（目录已删除，任何形态的 _shared 引用都必然 ENOENT）
  *      E2 引用仅出现在参考索引、未在任何 skill 工作流步骤中内联出现
@@ -31,9 +31,9 @@
  *     agent 的 read 从 SKILL.md 所在目录出发）
  *   - 跨 skill 引用：**必须 `../` 前缀**（`../other-skill/references/x.md`）——与 SDK
  *     解析规则对齐（SDK 相对路径一律从当前 skill 目录解析）。
- *   非法形态（E1c，#773）：跨 skill **裸写**（`other-skill/references/x.md`、
+ * 非法形态（E1c，）：跨 skill **裸写**（`other-skill/references/x.md`、
  *   `other-skill/SKILL.md`）——lint 曾按 skills 根解析放行，但 SDK 从当前 skill 目录
- *   解析必然 ENOENT（#726 28 次 ENOENT 同族病灶：lint 认存在、SDK 读不到 = 错误安全感）。
+ * 解析必然 ENOENT（28 次 ENOENT 同族病灶：lint 认存在、SDK 读不到 = 错误安全感）。
  *   其他非法：`_shared/x`、`../_shared/x`（目录已删，E1b）、绝对路径（E1）。
  *
  * 退出码：0 通过（含警告）/ 1 有错误。
@@ -46,13 +46,13 @@ const root = process.cwd();
 const SKILLS_DIR = path.join(root, ".pi/skills");
 const MANIFEST_PATH = path.join(root, "prompts/skills/manifest.yaml");
 const VALID_CATEGORIES = new Set(["technique", "pattern", "reference"]);
-// F20260821kgts: 数量下限 ratchet（防"删光 skills + 同步清空 manifest"静默绿）。
+// 数量下限 ratchet（防"删光 skills + 同步清空 manifest"静默绿）。
 // 有意移除 skill 时须同步下调此值，让移除成为显式决策。F20260903 拆解后 14 个 skill。
 const MIN_SKILLS = 9;
 const THREE_PART_MARKERS = ["Use when", "Not for", "Output"];
 const THREE_PART_EXEMPT = new Set(["companion"]); // fallback skill 豁免
 
-// 引用宇宙（合法形态）：本 skill 相对（references/）+ 跨 skill（../ 前缀，#773 写死）。
+// 引用宇宙（合法形态）：本 skill 相对（references/）+ 跨 skill（../ 前缀，写死）。
 // 跨 skill 裸写不再属于合法宇宙——由 E1c 显式拦截并给迁移指引。
 const REF_LINE_RE = /`((?:\.\.\/|references\/)[^`]*\.md)`|\]\(((?:\.\.\/|references\/)[^)]+\.md)\)/g;
 
@@ -62,7 +62,7 @@ const BARE_CROSS_SKILL_RE = /`([a-z][a-z0-9-]*\/(?:references\/[^`]*\.md|SKILL\.
 // E1：反引号内的绝对路径 .md 引用（含 .pi/skills 前缀）——cwd 依赖，跨环境必然失效
 const ABSOLUTE_REF_RE = /`(\/[^`\n]*\.pi\/skills\/[^`\n]*\.md)`/;
 // E1b：任何 _shared/ 引用（裸写或 ../ 前缀）。目录已随 F20260903 拆解删除，
-// 任何形态都必然 ENOENT。#758 实证：_shared/x 裸写 28 次读取失败（8/10→9/02）。
+// 任何形态都必然 ENOENT。实证：_shared/x 裸写 28 次读取失败（8/10→9/02）。
 const SHARED_REF_RE = /(\.\.\/)?_shared\/[^`\n)\s]+\.md/;
 
 let errors = 0;
@@ -220,8 +220,8 @@ for (const s of skills) {
     const shown = s.body.match(SHARED_REF_RE)?.[0] ?? "_shared/x.md";
     error(`${rel}: _shared/ 残留引用 \`${shown}\`——目录已随 F20260903 拆解删除。约定类内容已升格为 skill（signature-convention / review-protocol / conflict-resolution-protocol），模板在 writing-skills/references/`);
   }
-  // 校验 9 E1c（#773）：跨 skill 裸写引用——lint 按 skills 根解析会放行，SDK 从当前
-  // skill 目录解析必然 ENOENT（#726 同族病灶：lint 认存在、SDK 读不到）。必须 ../ 前缀。
+  // 校验 9 E1c：跨 skill 裸写引用——lint 按 skills 根解析会放行，SDK 从当前
+  // skill 目录解析必然 ENOENT（同族病灶：lint 认存在、SDK 读不到）。必须 ../ 前缀。
   {
     const bare = [...s.body.matchAll(BARE_CROSS_SKILL_RE)];
     for (const m of bare) {

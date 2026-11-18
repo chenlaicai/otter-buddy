@@ -1,5 +1,5 @@
 /**
- * F20260915cfgt：features 配置门测试
+ * features 配置门测试
  *
  * 覆盖两层：
  * 1. 配置层 buildFeaturesConfig（经 loadConfig 验证）：三态归一化（显式 true/false、
@@ -7,7 +7,7 @@
  * 2. 装配层 gateOn / resolveFeatureGates：显式短路不查 DB、存量推断、
  *    recruiting 双通道（apiKey 或 DB 存量）
  *
- * F20260917swsh：dailyReview 开关随每日复盘任务一并移除，相关用例同步删除。
+ * dailyReview 开关随每日复盘任务一并移除，相关用例同步删除。
  */
 
 import { describe, it, expect, vi, beforeAll } from "vitest";

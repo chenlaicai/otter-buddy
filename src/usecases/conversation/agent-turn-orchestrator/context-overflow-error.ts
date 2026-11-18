@@ -1,11 +1,11 @@
 /**
- * #1247：模型上下文窗口超限（400）识别与告警文案。
+ * 模型上下文窗口超限（400）识别与告警文案。
  *
  * 现状（问题）：注入体积超过模型上下文窗口时，API 直接 400 拒答（非 429 配额），
  * 小獭首条请求即死（kimi-256k 实证），错误只走 generic failTerminal——无 healing
- * 落账类型、无告警，体检不可见（issue #1247 改进点 1）。
+ * 落账类型、无告警，体检不可见（改进点 1）。
  *
- * 本模块与 rate-limit-error.ts 同骨架（#543 先例）：把「模型客户端上抛的错误消息」
+ * 本模块与 rate-limit-error.ts 同骨架（先例）：把「模型客户端上抛的错误消息」
  * 翻译成编排层可落账的结构化事实。识别策略同为正则匹配错误消息文本——数据源是
  * formatProviderError 终端形态字符串，跨 provider 统一。
  *
@@ -19,7 +19,7 @@
 
 /** 窗口超限形态（词族与限流互斥：不含 quota/usage/429/rate limit） */
 const CTX_OVERFLOW_PATTERNS: readonly RegExp[] = [
-  /exceeded k3-256k model token limit/i, // kimi-256k 实证（issue #1247 原文，2026-09-29 现场）
+  /exceeded k3-256k model token limit/i, // kimi-256k 实证（原文，2026-09-29 现场）
   /maximum context length/i, // OpenAI「This model's maximum context length is 262144 tokens. However, you requested...」
   /prompt is too long/i, // Anthropic/OpenAI 变体「prompt is too long: X tokens > Y maximum」
   /context[ _-]?overflow/i, // SDK 侧「Context overflow recovery failed」

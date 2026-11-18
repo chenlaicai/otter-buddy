@@ -3,8 +3,8 @@
   "algorithm": "sha256",
   "files": {
     "criteria/invariants.json": "ba55f3b9ed43c0636b15b69fff5d1bebeaec4048378df1d7d755ab4c4f1b4afa",
-    "scripts/check-criteria.mjs": "b20aa1cae29201dbb01740b023ca71f152c1a51ca5c10c06668ad2a2876416e3",
+    "scripts/check-criteria.mjs": "b83c25a8f2b377a925458d4d2a135fa30586fc0fc425794171b62d86bf6b065b",
     "criteria/waivers.json": "c312bd2f1f4a1ebed86c08b3ccba9814e50ead8ea0e832798ca56f0358532a75"
   },
-  "combined": "b14b17a025deb253b1902a462dd87dcef9660e84611116f543b12030d9b6557a"
+  "combined": "d4439aed4c20b1ae3ada10b48fb72fba29a40b79df63355c14a9dd0d6cc078db"
 }

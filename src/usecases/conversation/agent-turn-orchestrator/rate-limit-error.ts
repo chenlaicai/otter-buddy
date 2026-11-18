@@ -1,8 +1,8 @@
 /**
- * #543：模型限流 429 / 配额耗尽识别与告警文案。
+ * 模型限流 429 / 配额耗尽识别与告警文案。
  *
  * 现状（问题）：LLM api_error 终态只走 failTerminal——无 healing 落账、无通知，
- * 配额对编排层完全黑盒（检视席空转 3 小时无告警实证，见 issue #543）。
+ * 配额对编排层完全黑盒（检视席空转 3 小时无告警实证，见 ）。
  *
  * 本模块把「模型客户端上抛的错误消息」翻译成编排层可落账的结构化事实：
  * - 是否配额耗尽（终态限流：SDK 已判定不可重试，退避无意义，需告警改派）
@@ -15,7 +15,7 @@
  * 重置时间的边界：pi-ai 的 openai-completions 路径（GLM 走这条）不透传
  * Retry-After 响应头，Reset-After 元数据拿不到——重置提示从错误正文尽力提取
  * （智谱 code 1310 响应体常含「每日/每周/每月」粒度说明），提取不到则落
- * 观察时间戳（issue #543 原文：没有则记观察时间戳）。宁可保守缺省，不误报。
+ * 观察时间戳（原文：没有则记观察时间戳）。宁可保守缺省，不误报。
  */
 
 /** 配额耗尽（终态限流）：SDK isTerminalRateLimitError 同族信号 + 智谱中文文案 */
@@ -29,7 +29,7 @@ const QUOTA_EXHAUSTED_PATTERNS: readonly RegExp[] = [
   /arrearage/i,
   /(使用|用量)[^\n]{0,6}上限/, // 智谱「使用上限」文案
   /(每周|每月)[^\n]{0,12}(上限|限额|重置)/, // 智谱每周/每月上限文案
-  /access_terminated_error/i, // kimi 403 配额型终态 type——周配额耗尽报 403 而非 429（实证 .otter-buddy.log 2026-09-18，F20260916fst4 首哑因此未触发）
+  /access_terminated_error/i, // kimi 403 配额型终态 type——周配额耗尽报 403 而非 429（实证 .otter-buddy.log 2026-09-18，首哑因此未触发）
   /(reached|hit|exceeded)[^\n]{0,40}usage[ _-]?limit/i, // kimi "You've reached your weekly (7-day) usage limit"
 ];
 
@@ -66,7 +66,7 @@ export function matchRateLimitError(errorMessage: string): RateLimitMatch | null
 }
 
 /** 告警系统消息文案（会话内可见：搭档 + 在场獭）
- *  F20260908rlcp：告警文案分态——transient/exhausted 两套 */
+ * 告警文案分态——transient/exhausted 两套 */
 export function buildRateLimitSystemMsg(p: {
   otterName: string;
   modelAlias: string;

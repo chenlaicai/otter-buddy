@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
- * F20260924wast：浮动獭交互 hook。
+ * 浮动獭交互 hook。
  * - 唤起/收起：点击獭、⌘J/Ctrl+J、Esc、点外收起
  * - 拖动：pointer 事件；位移 < 6px 判点击（click 与 drag 分离）
  * - 位置记忆：localStorage（右下角安全区 + 边界 clamp）
@@ -59,7 +59,7 @@ export interface UseFloatingOtterResult {
   /** 拖动中（拖动态抑制点击判定与 hover 气泡，驱动视觉态） */
   dragging: boolean
   /** 本轮 pointer 交互是否为拖动（ref 同步维护——供 click handler 判定 click/drag 分离，
-   *  不依赖 React state 异步刷新，修 #1181/#1858 Esc 收起后点击偶发不展开的竞态） */
+   * 不依赖 React state 异步刷新，修 /Esc 收起后点击偶发不展开的竞态） */
   dragMovedRef: React.RefObject<boolean>
   /** pointer 事件 handlers（挂到獭本体元素） */
   bindDrag: {
@@ -90,11 +90,11 @@ export function useFloatingOtter(): UseFloatingOtterResult {
   const [position, setPosition] = useState<OtterPosition>(() => loadOtterPosition() ?? defaultOtterPosition())
   const [dragging, setDragging] = useState(false)
   const dragStateRef = useRef<{ startX: number; startY: number; origin: OtterPosition; moved: boolean } | null>(null)
-  // #1181/#1858：click 判定不读 dragging state（pointerup 的 setDragging(false) 在 click 触发时
+  // /click 判定不读 dragging state（pointerup 的 setDragging(false) 在 click 触发时
   // 可能尚未重渲染，click 读到陈旧 true 被抑制 → Esc 收起后点獭偶发不展开）。改为 ref 同步维护——
   // pointerdown 重置 false，move 越阈值置 true，click handler 直接读 ref。
   const dragMovedRef = useRef(false)
-  // F20260928waf1 P1 修复：panelRef 从「定义未绑定」改为经 return 暴露，由宿主绑到面板根元素。
+  // P1 修复：panelRef 从「定义未绑定」改为经 return 暴露，由宿主绑到面板根元素。
   // 此前 panelRef 恒 null → panelRef.current?.contains(target) 恒 undefined → 点面板内部
   // （含输入框）被判为「外部」→ 收起——用户点输入框弹窗即消失的根因
   const panelRef = useRef<HTMLDivElement | null>(null)

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * PR 标题 FID/模块形态检查（F20261027fidrx）。
+ * PR 标题 FID/模块形态检查。
  * 此步骤在 CI build 前运行，故必须零依赖/零编译产物；CommonJS 兼容仓库默认 CJS。
  * FID_STRICT_SEGMENT / MODULE_BANNED 均由元测试与 entities 单一真相源字符级锁镜像。
  */

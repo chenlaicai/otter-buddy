@@ -4,11 +4,11 @@ import type { Logger } from "@usecases/ports/logger";
 
 
 /**
- * F20260928fsqr：飞书扫码建应用会话管理（frameworks 层）。
+ * 飞书扫码建应用会话管理（frameworks 层）。
  *
  * 每次「发起扫码」创建一个会话：后台跑 SDK registerApp（RFC 8628 设备授权流，
  * accounts.feishu.cn），前端轮询会话状态渲染二维码与进度。结构对齐微信
- * login-session-manager（issue #566 先例），差异：
+ * login-session-manager（先例），差异：
  *  - SDK 无 scanned 态（onStatusChange 仅 polling/slow_down/domain_switched）
  *    ——状态机不含「已扫码等确认」，waiting_scan 直达 success
  *  - 凭据由 SDK 返回（registerApp 自动建 app），onSuccess 回调注入落库+起线
@@ -38,7 +38,7 @@ export interface FeishuLoginSession {
   error?: string;
   createdAt: string;
   /** 取消原因标记——app_deleted 值保留为未来删除联动预留（当前无删除联动；同 id
-   *  重绑由 onSuccess upsert 幂等覆盖，无微信式复活面，检视 N2 口径） */
+   * 重绑由 onSuccess upsert 幂等覆盖，无微信式复活面，检视 口径） */
   cancellationReason?: "app_deleted";
 }
 

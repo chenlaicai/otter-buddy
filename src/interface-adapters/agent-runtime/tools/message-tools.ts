@@ -14,7 +14,7 @@ export function createGetMessageTool(ctx: ToolContext): AgentTool {
       required: ["messageId"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // F20260913ctlv 批4a：数据源切 entries（messages 停写——卡片全文回看源）
+      // 批4a：数据源切 entries（messages 停写——卡片全文回看源）
       const e = await ctx.client.conversation.entry.getEntryById(params.messageId as string);
       if (!e) return errorResponse(`[错误] 条目 ${params.messageId} 不存在`);
       return textResponse(JSON.stringify({

@@ -38,7 +38,7 @@ function createEntry(overrides: Partial<Entry> = {}): Entry {
   };
 }
 
-/** F20260913ctlv 补漏：settle 判据 = 触发 entry 的 yieldTargets 目标獭无 running invoke */
+/** 补漏：settle 判据 = 触发 entry 的 yieldTargets 目标獭无 running invoke */
 describe("awaitTriggerAttemptsSettled（entries/invokes 判据）", () => {
   let logger: Logger;
 
@@ -133,7 +133,7 @@ describe("awaitTriggerAttemptsSettled（entries/invokes 判据）", () => {
     expect(logger.warn).toHaveBeenCalled();
   });
 
-  /** F20260928icmm 阶段2：POST 流 settle 首查竞态回归——invoke 行延迟创建时不得误判
+  /** 阶段2：POST 流 settle 首查竞态回归——invoke 行延迟创建时不得误判
    *  settled 提前关流（9/25 现场实证：14:51:02.246 关流 / .288 invoke 才创建）。 */
   it("首查时 invoke 尚未创建（竞态窗口）→ 不立即 settle，等到 invoke 出现且终态后才关流", async () => {
     vi.useFakeTimers();

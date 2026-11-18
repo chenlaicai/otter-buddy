@@ -48,7 +48,7 @@ describe("Connection API", () => {
     db.close();
   });
 
-  // F20261023cnct（issue #1063）：POST /api/connections 与 GET /api/connections 的用例随死端点下线删除
+  // POST /api/connections 与 GET /api/connections 的用例随死端点下线删除
   describe("GET /api/connections/:id", () => {
     it("返回连接详情", async () => {
       const conn = await manageConnection.createConnection("测试群", "chat-123");

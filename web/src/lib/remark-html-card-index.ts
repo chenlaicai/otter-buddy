@@ -2,10 +2,10 @@ import type { Code, Nodes, Root } from 'mdast'
 import type { Plugin } from 'unified'
 
 /** remark 插件：按文档序为 html-card 围栏写入 fenceIndex（0 基序号）。
- *  关键（设计文档 R7）：mdast→hast 只透传 hName/hProperties/hChildren 三个保留 key，
+ * 关键（设计文档 ）：mdast→hast 只透传 hName/hProperties/hChildren 三个保留 key，
  *  任意 data key 静默丢弃——必须走 hProperties 通道（dataFenceIndex → hast properties.dataFenceIndex），
  *  组件从 node.properties.dataFenceIndex 读。覆盖嵌套在 blockquote/list 内的围栏（递归遍历）。
- *  F20261009csp2：html-card-play 活类围栏共享同一计数器（预算口径与服务端 countCardFences 一致：
+ * html-card-play 活类围栏共享同一计数器（预算口径与服务端 countCardFences 一致：
  *  两种围栏计入同一单消息卡数上限），并以 dataPlayable 标记形态——组件据此默认展开 + 活类徽章。 */
 export const remarkHtmlCardIndex: Plugin<[], Root> = () => {
   return (tree) => {

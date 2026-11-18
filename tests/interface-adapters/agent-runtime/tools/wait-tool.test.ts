@@ -1,12 +1,12 @@
 /**
- * F20260928slan V2：wait 工具行为测试。
+ * V2：wait 工具行为测试。
  *
  * 验证方案「L2：wait 工具」execute 实现：
  * - seconds ∈ [5,600]（<5 / >600 拒绝）
  * - 带 until 时 seconds ≤ 560（D6 预算裕量；561 拒绝）
- * - until 过 checkBashCommandSafety 主链（命中即拒绝并透传拦截文案，S1）
+ * - until 过 checkBashCommandSafety 主链（命中即拒绝并透传拦截文案，）
  * - until 禁元字符/单双引号（A1/D4③）
- * - F20261022wtpr：until 立即探测，非零在 seconds 总预算内每 10s 重试；
+ * - until 立即探测，非零在 seconds 总预算内每 10s 重试；
  *   成功/超时返回真实探测次数，abort 清理计时器；安全校验在首次执行前完成
  * - 回显 reason / 缺省附轻提示（A2）
  * - 注册进全獭工具集
@@ -50,7 +50,7 @@ it("工具描述引导等 CI / 服务 / 状态使用 until，并明确一次调�
       until: { description: expect.stringContaining("等 CI / 服务 / 状态就用它") },
     },
   });
-  // F20261026wfpb（#1623）：描述不再引导 --json（JSON 模式恒 exit 0 会假绿），
+  // 描述不再引导 --json（JSON 模式恒 exit 0 会假绿），
   // 改教 gh pr checks 裸命令三态语义与 --watch 禁用。
   const untilDesc = (tool.parameters as { properties: { until: { description: string } } }).properties.until.description;
   // 旧描述「带过滤需求请让命令自身支持（如 gh pr checks --json）」是假绿陷阱，必须已删
@@ -72,7 +72,7 @@ async function runWait(tool: ReturnType<typeof findWait>, params: Record<string,
 
 type ProbeCallback = (e: Error | null, r?: { stdout: string; stderr: string }) => void;
 
-/** #1623 用例共享 mock：构造「以 exitCode 退出失败」的探活错误。 */
+/** 用例共享 mock：构造「以 exitCode 退出失败」的探活错误。 */
 function failWithCode(code: number, stderr: string) {
   const err = new Error(stderr) as Error & { code: number; stderr: string };
   err.code = code;
@@ -80,7 +80,7 @@ function failWithCode(code: number, stderr: string) {
   return err;
 }
 
-/** #1623 用例共享 mock：每次探测按序列推进——前 failTimes 次退出 failCode，之后成功返回 successStdout。 */
+/** 用例共享 mock：每次探测按序列推进——前 failTimes 次退出 failCode，之后成功返回 successStdout。 */
 function mockProbeSequence(failCode: number, failStderr: string, successStdout: string, failTimes: number) {
   let attempts = 0;
   execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ProbeCallback) => {
@@ -90,7 +90,7 @@ function mockProbeSequence(failCode: number, failStderr: string, successStdout: 
   });
 }
 
-/** #1623 用例共享 mock：每次探测都返回同一 failCode。 */
+/** 用例共享 mock：每次探测都返回同一 failCode。 */
 function mockProbeAlwaysFail(code: number, stderr: string) {
   execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: ProbeCallback) => {
     cb(failWithCode(code, stderr), { stdout: "", stderr });
@@ -256,11 +256,11 @@ describe("F20260928slan wait 工具", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  // ─── r1 发现 1 锁定：until 载荷杀主形态必拦（真 mainPid 链路，非 null 旁路） ───
+  // ─── 发现 1 锁定：until 载荷杀主形态必拦（真 mainPid 链路，非 null 旁路） ───
   // 原缺陷：validateUntil 传 mainPid=null → kill 族整体旁路（8/30 事故同款威胁
   // 经 wait 工具新通道重开）。修复后透传 readMainProcessPid——本机 PID 文件存在时
   // 走完整主链。用杀主三形态（pkill 特征名/killall node/间接 $(cat pid) 文件）断言拦截。
-  // N1 硬化后：kill 族词样在守卫主链之前就被 until 通道一律拒（零合法形态，fail-closed）。
+  // 硬化后：kill 族词样在守卫主链之前就被 until 通道一律拒（零合法形态，fail-closed）。
   describe("r1-发现1: until 苏醒检查命令安全（真 mainPid 链路）", () => {
     // 测试环境无主仓 PID 文件（cwd=worktree 根）——写临时文件使 readMainProcessPid
     // 命中真值链路（生产环境 cwd=主服务目录，PID 文件原生存在，无需此 setup）
@@ -292,7 +292,7 @@ describe("F20260928slan wait 工具", () => {
     it("N1 硬化：until 含 kill + 无关字面量 PID（V1 降级链会放行的形态）→ 拦", async () => {
       const tool = findWait();
       // pid 文件存在且真链路下，kill 12345 与 mainPid(42877) 无关——主链本会放行；
-      // N1 fail-closed 一律拒（until 零合法 kill 形态）
+      // fail-closed 一律拒（until 零合法 kill 形态）
       const result = await tool.execute("t1", { seconds: 5, reason: "等 CI", until: "k" + "ill 12345" });
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain("不支持进程终止类命令");
@@ -310,7 +310,7 @@ describe("F20261026wfpb（#1623 返修）gh pr checks 业务失败 fail-fast（s
     vi.useRealTimers();
   });
 
-  // ─── F20261026wfpb（#1623 返修）：gh pr checks 业务失败 fail-fast（stderr 分类，非裸退出码）───
+  // ─── （返修）：gh pr checks 业务失败 fail-fast（stderr 分类，非裸退出码）───
   // Review-1640 反例实证：exit 1 同时覆盖业务失败、test -f/grep 未就绪、gh transport 错误、
   // NONE、GraphQL 错误——退出码不可分类。改为：gh + exit 1 + stderr 空 + stdout 含 bucket
   // 行 = 真实业务应答 → 终态失败；其余（含所有非 gh 命令）保留预算内重试。

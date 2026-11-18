@@ -100,7 +100,7 @@ export class DurableSession {
         beforeTool: (call) => this.beforeTool(call),
         ...(options.afterTool ? { afterTool: options.afterTool } : {}),
       }), hook(GenerationTask, {
-        // F20261113etsan：kimi 会在 toolCall 响应里附带空 text 块，回放时插在
+        // kimi 会在 toolCall 响应里附带空 text 块，回放时插在
         // function_call 与其 output 之间触发 kimi /responses 邻接校验 400（session 每轮必死）。
         // 请求前剥空空块，存量中毒 session 一并痊愈；历史记录不动、可审计。
         beforeRequest: ({ messages }) => {
@@ -228,7 +228,7 @@ export class DurableSession {
     const halt = haltToolCallGuard(ctx, this.options.haltRegistry as never, call.name);
     const guard = await halt ?? loopBlockGuard(ctx, call.name, call.arguments) ?? bashGuardGate(ctx, call.name, call.arguments);
     if (guard) return { block: guard.reason };
-    // F20261116actlg：守卫放行后才写入当前工具调用 id（SUGG-4：被拦截的 call.id 不应
+    // 守卫放行后才写入当前工具调用 id（SUGG-4：被拦截的 call.id 不应
     // 残留到下一枚覆盖前——那会让非工具期的 env 动作误归属到被拦调用）。
     if (ctx) ctx.currentToolCallId = call.id;
     return undefined;
@@ -246,7 +246,7 @@ export class DurableSession {
   }
 
   /** auto_retry 边沿：generation.retry 出现 = 退避中（auto_retry_start + errorMessage 透传，
-   * 恢复 #764 abort 归因观测窗的信号源）；消失 = 退避结束（auto_retry_end）。 */
+   * 恢复 abort 归因观测窗的信号源）；消失 = 退避结束（auto_retry_end）。 */
   private detectRetryEdge(live: { generation?: { retry?: { at: number; error: string } } } | undefined): void {
     const retryingNow = live?.generation?.retry !== undefined;
     if (retryingNow === this.wasRetrying) return;
@@ -264,7 +264,7 @@ export class DurableSession {
       this.wasCompacting = compactingNow;
       this.forwardCompactionEvent({ type: compactingNow ? "compaction_start" : "compaction_end" });
     }
-    // 压缩失败上报（delta #3 残余补全）：pi.live.compactionFailure 随 watch 分发，
+    // 压缩失败上报（delta 残余补全）：pi.live.compactionFailure 随 watch 分发，
     // 9/22 事故同款呼救信号——agent-invoker 的 compaction_end(errorMessage) warn 恢复喂数。
     // 每 taskId 只报一次（failure 对象在后续视图会保持存在，靠 lastFailureTaskId 去重）。
     const failure = live?.compactionFailure;
@@ -276,10 +276,10 @@ export class DurableSession {
     }
   }
 
-  /** delta #4 修复：compaction 事件双通道送达。sink.dispatch 经构造回调一次双投——
+  /** delta 修复：compaction 事件双通道送达。sink.dispatch 经构造回调一次双投——
    *  emit 进 subscribe 总线（outputGuard 等订阅者）+ stream.dispatch 进当前 invoke 的
    *  消费链（handleStreamEvent：agent-invoker:853 的失败 warn / metrics / 域事件映射）。
-   *  仅 emit 总线时 invoke 侧收不到（delta #4 严重发现）；无活跃 sink（非 invoke 期）回落总线。 */
+   * 仅 emit 总线时 invoke 侧收不到（delta 严重发现）；无活跃 sink（非 invoke 期）回落总线。 */
   private forwardCompactionEvent(evt: { type: string; errorMessage?: string }): void {
     if (this.promptWatch) this.promptWatch.dispatch(evt);
     else this.emit(evt);
@@ -307,12 +307,12 @@ export class DurableSession {
   // eslint-disable-next-line complexity, max-statements
   async prompt(text: string, options: DurablePromptOptions | undefined, stream: DurableEventStream, context: Context): Promise<void> {
     const scope = otterInvokeStorage.getStore();
-    // F20261116actlg：原 scope.currentInvokeId fallback 分支是死代码（store 每次 execute 新建、
+    // 原 scope.currentInvokeId fallback 分支是死代码（store 每次 execute 新建、
     // 此前无人写入）——摘除，避免本阶段写入后跨 prompt 复用旧值。
     const invokeId = this.hasBoundInvoke ? this.currentInvokeId : (this.options.invokeId ?? this.options.register.currentInvokeId);
     if (!invokeId) throw new Error("Durable prompt requires currentInvokeId");
     this.currentInvokeId = invokeId;
-    // F20261116actlg：invoke id 写入 ALS store——动作台账归属（RecordingNodeExecutionEnv
+    // invoke id 写入 ALS store——动作台账归属（RecordingNodeExecutionEnv
     // 与 LocalExecutionMachine 读取）；工具调用 id 由 beforeTool 逐枚覆盖。
     if (scope) scope.currentInvokeId = invokeId;
     if (this.options.promptProvider) this.promptText = await this.options.promptProvider();
@@ -321,7 +321,7 @@ export class DurableSession {
     // 初始 tools/modelTools 由 open() 的 harness.root 首次创建时写入（重开时只刷新会变字段）；
     // prompt/identity 经 otterExtension section 的动态 render 即时生效，无需 configure。
     const before = await this.usage(BACKGROUND_CONTEXT);
-    // 检视处置（PR #1783 严亟 1）：事件单一源在 watch→sink 路径——派生事件先上 session 事件总线
+    // 检视处置（严亟 1）：事件单一源在 watch→sink 路径——派生事件先上 session 事件总线
     // （熔断器/看门狗/编排守卫/outputGuard 经 subscribe 消费），再分发到调用方 stream；
     // sink 同时是派生状态（lastMessage/lastUsage）真相源，promptWatch 指向 sink。
     // 不依赖 factory 层包装：任何直接调 prompt 的路径（含测试）守卫均在场。
@@ -331,7 +331,7 @@ export class DurableSession {
     const entryBoundary = Math.max(0, ...this.watcher.value.entries.map(entry => Number(entry.id)));
     const sink = new DurableEventStream(event => { this.emit(event); stream.dispatch(event); }, undefined, entryBoundary);
     this.promptWatch = sink;
-    // PR #1783 alpha 实测修复（bug4）：chord Watch.start() 不允许二次调用，watcher 只能 start 一次；
+    // alpha 实测修复（bug4）：chord Watch.start() 不允许二次调用，watcher 只能 start 一次；
     // 回调经 this.promptWatch 动态分发到当前 sink（闭包捕获首次 sink 会把后续轮事件送进旧流）。
     // 修复前同进程同獭第二次 invoke 必炸「Watch is already started」。
     if (!this.watcherStarted) {
@@ -359,11 +359,11 @@ export class DurableSession {
     const submission = await this.conversation.submit({ type: "input", content: this.promptInput(text, options) as never, whenBusy: "reject" }, context);
     const settled = await submission.wait(context);
     // A final terminate boundary can place queued inputs and start a successor run.
-    // Keep the current invoke/abort/tool ownership alive until durable has drained it (#1788).
+    // Keep the current invoke/abort/tool ownership alive until durable has drained it .
     await this.conversation.waitForIdle(context);
     this._state = "idle";
     await sink.apply(this.watcher.value, []);
-    // F20261116actlg（dspro RESIDUAL-3）：回合结束即清除当前工具调用 id（置于 unanswered
+    // （dspro RESIDUAL-3）：回合结束即清除当前工具调用 id（置于 unanswered
     // 抛错之前——异常回合同样清除，非工具期 env 动作不误归属）。
     if (scope) scope.currentToolCallId = undefined;
     const after = await this.usage(BACKGROUND_CONTEXT);
@@ -438,8 +438,8 @@ export class DurableSession {
   /** M-9af49d4a 换世根因修复：同库世代 reset——写 pi.reset entry + head 指针，
    *  模型上下文自此清零（前世 = reset 点之前的 entries，同库可审计）。
    *  档案仍由既有首注入链路交付（pendingIdentity），与 reset 解耦。
-   *  守护（R5）：reset 落盘后校验边界真实存在（最新可见 entry 为 pi.reset 且 head 非空），
-   *  不满足即抛错——#1783 式「静默空转」必须变成响亮失败，由 unifiedHandoff 向搭档显式报错。 */
+   * 守护：reset 落盘后校验边界真实存在（最新可见 entry 为 pi.reset 且 head 非空），
+   * 不满足即抛错——式「静默空转」必须变成响亮失败，由 unifiedHandoff 向搭档显式报错。 */
   async resetForGeneration(context: Context = BACKGROUND_CONTEXT): Promise<void> {
     if (this.isStreaming) {
       throw new Error(`durable generation reset refused while running (otter=${this.options.otterId})`);

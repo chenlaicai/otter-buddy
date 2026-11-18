@@ -10,7 +10,7 @@ import { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
 import { SignalPipeline } from "@usecases/health/signal-pipeline";
 import type { HealthIndexSnapshot } from "@usecases/health/snapshot-shift";
 
-/** Issue #645 环比骤变的 worker 集成测试（独立文件：主测试文件超 lint 单函数行数上限） */
+/** 环比骤变的 worker 集成测试（独立文件：主测试文件超 lint 单函数行数上限） */
 
 function makePipeline(db: Database.Database): SignalPipeline {
   const writer = { storeEntry: async () => {} };
@@ -38,8 +38,8 @@ describe("RhiScanWorker 环比骤变（Issue #645）", () => {
     git(["config", "user.email", "test@example.com"]);
     git(["config", "user.name", "RHI Shift Test"]);
 
-    // F20261029dupfx 追加：fixture 日期改相对日期（写死 2026-08-30 会在其 +60 天前后卡进
-    // metricsWindowDays=60 的窗口边界——2026-10-29 实爆，见 #1704）。相对日期恒在窗口深处。
+    // 追加：fixture 日期改相对日期（写死 2026-08-30 会在其 +60 天前后卡进
+    // metricsWindowDays=60 的窗口边界——2026-10-29 实爆，见 ）。相对日期恒在窗口深处。
     const commitDate1 = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
     const commitDate2 = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000).toISOString();
     // 最小 fixture：1 feature commit + 文档（有 commit 才有 health_index 行 = 骤变「今日」侧）

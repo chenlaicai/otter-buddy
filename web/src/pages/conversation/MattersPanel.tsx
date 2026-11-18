@@ -5,7 +5,7 @@ import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import { useMatters, type MatterAction } from './hooks/useMatters'
 
 /**
- * F20261006mtlp P1 只读板 + F20261006mlp2 P2 交互层。
+ * P1 只读板 + P2 交互层。
  *
  * P2 范围（方案 §5 就地操作 + §3.5 通道 B）：
  * - WAITING_PARTNER 条目内嵌裁决按钮（批准/否决/打回）
@@ -13,7 +13,7 @@ import { useMatters, type MatterAction } from './hooks/useMatters'
  * - 折叠「近期闭环」区 = 翻案入口（CLOSED → OPEN）
  * - 「+」登记入口（准入路径 2：搭档手动登记，initialState=OPEN）
  *
- * 按钮架构（F20261006mlp2「按钮挂点架构定案」= 回执代执行通道 B）：
+ * 按钮架构（「按钮挂点架构定案」= 回执代执行通道 B）：
  * 按钮不新增 HTTP 写端点，合成 html-matter-action 回执、经 onRouteToOtter(owner)
  * 复用 sendMessage SSE 管线路由 owner 獭，由其 transition_matter(on_behalf_of='partner')
  * 代执行迁移（守卫语义不变）。owner 已解散时后端自动退派在场大獭兜底，按钮仍可用。

@@ -14,7 +14,7 @@ export interface OtterRow {
   name: string;
   type: string;
   status: string;
-  /** F20260921otcl：出生颜色（色板 key；大獭/未回填 NULL） */
+  /** 出生颜色（色板 key；大獭/未回填 NULL） */
   color: string | null;
   role_name: string | null;
   role_responsibilities: string | null;
@@ -33,7 +33,7 @@ export interface SessionRow {
   is_negative_case: number;
   summary: string | null;
   previous_session_id: string | null;
-  /** F20260908efmd: 该世生效的模型 alias */
+  /** 该世生效的模型 alias */
   model_alias: string | null;
 }
 

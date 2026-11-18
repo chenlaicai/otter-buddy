@@ -1,5 +1,5 @@
 /**
- * 消息体投影：HTML 卡片围栏剥离（F20260728htar）。
+ * 消息体投影：HTML 卡片围栏剥离。
  *
  * 消息体是唯一事实源（body 原文不动）；检索（FTS/记忆索引）与上下文注入出口
  * 给剥离投影：html-card 围栏整体替换为 `[html-card: {title}]`，
@@ -26,13 +26,13 @@ import { projectAttachments } from "./attachment-projection";
 
 /**
  * 解析管线必须与前端渲染（react-markdown 挂 remarkGfm singleTilde:false）逐字节对齐：
- * GFM 的 footnote definition 是容器块，裸 parse 与渲染管线对容器内围栏判定会分裂（R9）。
+ * GFM 的 footnote definition 是容器块，裸 parse 与渲染管线对容器内围栏判定会分裂。
  */
 const parser = () => remark().use(remarkGfm, { singleTilde: false });
 
 /**
  * 机器占位符前缀(零宽空格 \u200B):用于区分 stripHtmlCardFences 产出的占位符 vs
- * body 原文里 LLM 手工打出的字面量 `[html-card: xxx]`。审视 F20260812fmdr R5 发现。
+ * body 原文里 LLM 手工打出的字面量 `[html-card: xxx]`。审视 发现。
  *
  * stripHtmlCardFences 的 placeholder 格式是公开契约,不能为单个出口改动(影响 FTS/
  * 记忆索引/上下文注入)。通过 options.markPlaceholders=true 让 stripHtmlCardFences

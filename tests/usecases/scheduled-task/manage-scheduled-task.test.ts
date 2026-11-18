@@ -413,9 +413,9 @@ describe("update()", () => {
     expect(err.kind).toBe("not_found");
   });
 
-  // #610: watchlist-only patch 语义
+  // watchlist-only patch 语义
   describe("watchlist patch", () => {
-    /** 复刻生产体 #610：{prompt, watchlist} 全文 JSON body */
+    /** 复刻生产体 {prompt, watchlist} 全文 JSON body */
     const productionBody = JSON.stringify({
       prompt: "# 操盘獭每日任务\n\n...81 行全文...",
       watchlist: ["600519", "000001", "300750"],
@@ -519,14 +519,14 @@ describe("update()", () => {
         .catch((e) => e);
 
       expect(err).toBeInstanceOf(DomainError);
-      // 检视发现 1：报错需区分 patch 路径（合并 watchlist 后溢出）与旧通道 body 超限
+      // 报错需区分 patch 路径（合并 watchlist 后溢出）与旧通道 body 超限
       expect(err.message).toContain("patched body");
       expect(err.message).toContain("10000");
     });
   });
 });
 
-// ─── #516: timeoutMinutes 任务级超时配置 ────────────────────
+// ─── timeoutMinutes 任务级超时配置 ────────────────────
 
 describe("#516: timeoutMinutes 任务级超时配置", () => {
   it("create 传入 timeoutMinutes -> 持久化到任务", async () => {

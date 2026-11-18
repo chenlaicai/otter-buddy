@@ -1,7 +1,7 @@
 /**
  * AgentTurnOrchestrator - 发言轮编排（usecase 层）
  *
- * F20260913ctlv 彻底切换：turn 生命周期从 messages 行剥离到 invokes 行。
+ * 彻底切换：turn 生命周期从 messages 行剥离到 invokes 行。
  * - invoke 是行动主体：TurnInput.invokeId 必填；成功检测 = invoke.status 离开 running（yield 工具置 completed）
  * - 状态机操作对象：updateInvokeStatus / createInvokeEndEntry（无 message 态回调）
  * - SSE 只发 entry / invoke 事件（message 类事件已退役）
@@ -19,13 +19,13 @@ import { getTraceContext } from "@usecases/ports/trace-context";
 import type { ExitReason } from "./exit-classifier";
 import { classifyExit, exitKindToOutcome } from "./exit-classifier";
 import { isRetryableGuardAbort, isTimeoutGuardReason, buildRetryFailBody, buildGuardAbortBody, buildUserAbortBody, buildYieldRetryMsg, buildAutoRetryMsg, buildCircuitBreakFailBody, buildCircuitBreakSystemMsg, GUARD_BOUNCE_MAX, GUARD_BOUNCE_WINDOW_MS, buildGuardBounceMsg, buildGuardBounceFailBody, buildGuardBounceEscalationMsg, buildTimeoutRetryExhaustedMsg, buildGuardBounceSuspectedFpMsg, buildGuardBounceSuspectedFpRetryMsg } from "./retry-policy";
-// #543：api_error 终态限流识别 + 告警文案（配额黑盒修复）
+// api_error 终态限流识别 + 告警文案（配额黑盒修复）
 import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription } from "./rate-limit-error";
-// #1247：api_error 终态窗口超限识别 + 告警文案（注入超窗黑盒修复——与 #543 同骨架）
+// api_error 终态窗口超限识别 + 告警文案（注入超窗黑盒修复——与 同骨架）
 import { matchContextOverflowError, buildContextOverflowSystemMsg, buildContextOverflowDescription } from "./context-overflow-error";
 import { isContentFilterError } from "./content-filter-error";
-// #543：high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
-// 下一次 invoke 的 DynamicContext 补送达（复用 F20260826mwrd Part 4 管道，process 级单例直引，
+// high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
+// 下一次 invoke 的 DynamicContext 补送达（复用 Part 4 管道，process 级单例直引，
 // 与 persistHealingIssues 同模式；usecase 内部互引无跨层问题）
 import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
@@ -36,7 +36,7 @@ import { addTokenUsage } from "../token-usage";
 export class AgentTurnOrchestrator {
   /**
    * 已进入终态的 invoke 集合（abort/fail 防重入——同 invoke 不得二次终态化）。
-   * F20260913ctlv：键从 messageId 换成 invokeId。
+   * 键从 messageId 换成 invokeId。
    */
   private readonly terminalInvokes = new Set<string>();
   /**
@@ -56,7 +56,7 @@ export class AgentTurnOrchestrator {
    * 核心循环：invoke → classify → route（可能重试 → 再 invoke）。
    * 递归重入改为循环 + driver.invoke，避免栈溢出。
    */
-  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- executeTurn is the core retry loop; splitting would obscure control flow（#543：+rate_limit err 元数据保留分支；F20260914usgm：+model 归属记录分支）
+  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- executeTurn is the core retry loop; splitting would obscure control flow（+rate_limit err 元数据保留分支；+model 归属记录分支）
   async executeTurn(
     input: TurnInput,
     driver: AttemptDriver,
@@ -82,18 +82,18 @@ export class AgentTurnOrchestrator {
         toolCallCount = attempt.toolCallCount;
       } catch (e) {
         err = e;
-        // #543：err 路径保留 _modelAlias——rate_limit 落账需要模型标识（与 toolCallCount 同模式提取）
+        // err 路径保留 _modelAlias——rate_limit 落账需要模型标识（与 toolCallCount 同模式提取）
         const errMeta = e as ErrorWithToolCallCount;
         result = {
           text: '',
           ...(errMeta._modelAlias && { modelAlias: errMeta._modelAlias }),
           ...(errMeta._tokenUsageDelta && { tokenUsageDelta: errMeta._tokenUsageDelta }),
         };
-        // #1116：无 _toolCallCount ⟺ 抛错发生在首个工具调用之前（_acquirePooled 阶段：
+        // 无 _toolCallCount ⟺ 抛错发生在首个工具调用之前（_acquirePooled 阶段：
         // 嵌套撞 streaming / config 缺失 / lock 超时；以及 attachGuards 后、内层 try
         // 前的准备段——该窗口已过 attachGuards 但同样零调用）⟺ 本 invoke
         // 零次工具调用 → ?? 0 即真实值。原 Map 重查兜底（getToolCallCount）
-        // 已退役：它对经 factory catch 的错误恒不触发（#763 后 _toolCallCount 恒为
+        // 已退役：它对经 factory catch 的错误恒不触发（后 _toolCallCount 恒为
         // number，死链），对首工具前抛错则重查裸 otterId 键——读到同 otter 其他
         // 活跃 invoke 的计数（跨 invoke 污染，比 0 更糟）。
         toolCallCount = errMeta._toolCallCount ?? 0;
@@ -103,7 +103,7 @@ export class AgentTurnOrchestrator {
       }
 
       tokenUsageDelta = addTokenUsage(tokenUsageDelta, result.tokenUsageDelta);
-      // F20260913ctlv：invoke 成功检测——yield 工具置 invoke completed（离开 running 即成功）
+      // invoke 成功检测——yield 工具置 invoke completed（离开 running 即成功）
       const completedResult = await this.tryCompleteInvoke(
         currentInput, result, driver, { callbacks, startTime, attemptStartTime, toolCallCount }, tokenUsageDelta,
       );
@@ -120,7 +120,7 @@ export class AgentTurnOrchestrator {
         (id) => driver.getInternalAbortReason(id) ?? undefined,
       );
 
-      // #764：user_abort 且 err 通道无底层错误时，查 retry 观测窗——429 backoff 期间
+      // user_abort 且 err 通道无底层错误时，查 retry 观测窗——429 backoff 期间
       // abort 的 errorMessage 被 SDK retry 层抹掉，但 auto_retry_start 事件留有原文。
       // 有值即确证「abort 发生在 retry backoff 等待中」，归因文案主路径恢复可达。
       if (reason.kind === 'user_abort' && !reason.underlyingError) {
@@ -130,12 +130,12 @@ export class AgentTurnOrchestrator {
         }
       }
 
-      // F20260821spcm: 旁白流失检测——LLM 输出了直出文本但未调 speak
+      // 旁白流失检测——LLM 输出了直出文本但未调 speak
       const hasOrphanText = this.detectOrphanText(reason, result);
 
       // Record failed attempt
       this.recordFailedAttempt(reason, currentInput, result, err, { callbacks, attemptStartTime });
-      // F20260914usgm：model 归属落 invoke metadata（err 路径）——成功路径在 tryCompleteInvoke 写
+      // model 归属落 invoke metadata（err 路径）——成功路径在 tryCompleteInvoke 写
       this.recordInvokeModelSafe(callbacks, currentInput.invokeId, result.modelAlias ?? (err as ErrorWithToolCallCount)?._modelAlias);
       if (hasOrphanText) {
         this.recordNoYieldWithOrphanText(currentInput.otterId, currentInput, callbacks);
@@ -166,8 +166,8 @@ export class AgentTurnOrchestrator {
       }
 
       // If routeByReason returns null, retry with updated input
-      // F20260825rtmx: 按退出原因使用匹配的重试文案（timeout 用超时提醒，no_yield 用 yield 提醒）
-      // F20260913ctlv：同 invoke 内重试——retryMsg 走 userMessageContent，不再建新 message
+      // 按退出原因使用匹配的重试文案（timeout 用超时提醒，no_yield 用 yield 提醒）
+      // 同 invoke 内重试——retryMsg 走 userMessageContent，不再建新 message
       currentInput = {
         ...currentInput,
         retryCount: 1,
@@ -177,7 +177,7 @@ export class AgentTurnOrchestrator {
   }
 
   /**
-   * F20260913ctlv：invoke 成功检测（取代 tryCompleteSpeaking 的 messages speaking 判据）。
+   * invoke 成功检测（取代 tryCompleteSpeaking 的 messages speaking 判据）。
    *
    * 判据：invoke.status 离开 running——yield 工具调 createYieldEntry 时置 completed。
    * user abort 时不抢先完成（让 abort 路径收尾）。
@@ -204,7 +204,7 @@ export class AgentTurnOrchestrator {
       if (result.tokenUsage) {
         await ctx.callbacks.updateInvokeTokenUsage?.(input.invokeId, result.tokenUsage.input, result.tokenUsage.output, result.tokenUsage.cacheRead, result.tokenUsage.cacheWrite);
       }
-      // F20260914usgm：model 归属落 invoke metadata（成功路径）
+      // model 归属落 invoke metadata（成功路径）
       this.recordInvokeModelSafe(ctx.callbacks, input.invokeId, result.modelAlias);
 
       void this.recordAttempt({
@@ -229,7 +229,7 @@ export class AgentTurnOrchestrator {
 
       // 发送 invoke.end + turn.complete 事件（yield 已发 entry.yield/invoke_end 由 tool-factory 负责；
       // 此处补发 invoke.end 终态事件保证前端右栏状态收敛——emitInvokeEnd 幂等安全）
-      // F20260921otcl：completed 路径补 otter 身份（前端气泡终态收敛时 upsert 占位用）
+      // completed 路径补 otter 身份（前端气泡终态收敛时 upsert 占位用）
       {
         const otter = await ctx.callbacks.getOtterById(input.otterId);
         ctx.callbacks.emitInvokeEnd(input.invokeId, "completed", duration, { toolCallCount: ctx.toolCallCount, tokenUsage: result.tokenUsage, otterName: otter?.name, otterType: otter?.type, otterColor: otter?.color ?? null });
@@ -259,11 +259,11 @@ export class AgentTurnOrchestrator {
       case 'guard_abort':
         return this.routeGuardAbort(reason, ctx);
       case 'api_error':
-        // #543：api_error 终态限流识别——配额黑盒修复点。
+        // api_error 终态限流识别——配额黑盒修复点。
         // 识别失败/写入失败不阻断 failTerminal（主路径），告警尽力而为。
         return this.handleApiError(reason, ctx);
       case 'delegation_rejected':
-        // F20261027cnsv：背压拒绝——处置与 api_error 同路
+        // 背压拒绝——处置与 api_error 同路
         // （failTerminal + invoke_end 人话文案；文案不含限流/超窗关键词，模式识别
         // 自然不命中，无需额外分支），分类差异仅体现在 metrics outcome 标签。
         return this.handleApiError(reason, ctx);
@@ -818,7 +818,7 @@ export class AgentTurnOrchestrator {
       });
     }
 
-    // F20260913ctlv：entry.retry SSE（前端唯一重试信号；message.retry 已退役）
+    // entry.retry SSE（前端唯一重试信号；message.retry 已退役）
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: 'entry.retry',
@@ -829,7 +829,7 @@ export class AgentTurnOrchestrator {
   }
 
   /**
-   * #731：bash 守卫二拦终态自动回发控制信号（guard bounce）。
+   * bash 守卫二拦终态自动回发控制信号（guard bounce）。
    *
    * 路径：上限判定（滑窗内已回发次数 ≥ GUARD_BOUNCE_MAX → abortTerminal 升级）
    * → sendSystem 写入对话流（搭档可见）→ 返回 null 主循环继续重试（同 invoke）。
@@ -839,7 +839,7 @@ export class AgentTurnOrchestrator {
    * 查询经 TurnCallbacks.getRecentGuardBounces（不 fail-open：台账失明时宁可走升级路径，
    * 防御「写失败 → 计数失明 → 无限自循环」）。
    */
-  // #731：bounce 主路径——上限判定/升级/回发三段，复杂度与回发执行已拆出子方法
+  // bounce 主路径——上限判定/升级/回发三段，复杂度与回发执行已拆出子方法
   private async handleGuardBounce(
     reason: ExitReason & { kind: 'guard_abort' },
     ctx: RouteContext,
@@ -863,9 +863,9 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     const otterName = resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId;
 
-    // F20261008gduc P0-2：超限且滑窗内 bounce 全部命中同一规则（ruleId 同且非 unknown）
+    // P0-2：超限且滑窗内 bounce 全部命中同一规则（ruleId 同且非 unknown）
     // → 判「疑似误拦」走降级通道（通知搭档 + 引导獭换写法），而非静默 abort——
-    // 同规则命中说明命令形态稳定（獭在正确命令上反复撞墙），abort 是错杀（#1353）。
+    // 同规则命中说明命令形态稳定（獭在正确命令上反复撞墙），abort 是错杀。
     // 真违规（异规则反复撞 / unknown 无法归类）仍走原 escalateGuardBounce abort 终态。
     if (!countQueryFailed && priorBounces >= GUARD_BOUNCE_MAX) {
       const sameRule = await this.detectSameRuleBounce(ctx, guardReason);
@@ -875,14 +875,14 @@ export class AgentTurnOrchestrator {
     }
 
     // 超限 / 计数不可信 → 停止自动回发，升级上报（healing high 由 abortTerminal 终态分支落）
-    // F20261008hcpa（#1356 层1 打断）：升级附守卫生态指引——e8e21216 案例显示即使升级后
+    // （层1 打断）：升级附守卫生态指引——e8e21216 案例显示即使升级后
     // 獭仍会继续撞墙（6 分钟 7 次），在消息里给出正道出口比静默 abort 更能止撞。
     if (countQueryFailed || priorBounces >= GUARD_BOUNCE_MAX) {
       return this.escalateGuardBounce(ctx, guardReason, otterName, priorBounces, countQueryFailed);
     }
 
     // bounce 计数落账（下一轮上限判定的数据源；失败仅日志——本轮回发照常，下轮查询兜底）
-    // F20261102grfix（A 口径拆分）：guard_bounce_flow 独立类型——bounce 是流程动作非规则拦截，
+    // （A 口径拆分）：guard_bounce_flow 独立类型——bounce 是流程动作非规则拦截，
     // 混入 guard_intercept 口径会虚增拦截计数（escalation 误升 high）并制造「无指纹盲区」假象
     try {
       await ctx.callbacks.recordHealingEvent({

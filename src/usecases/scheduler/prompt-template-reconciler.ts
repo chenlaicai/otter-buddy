@@ -5,13 +5,13 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getRepoRoot } from '@frameworks/repo-root';
 
-/** #784：定时任务 prompt 启动对账。
+/** 定时任务 prompt 启动对账。
  *
- * 背景：定时任务 body 已 git 化（PR #428）——prompts/scheduled/*.md 是真相源，
+ * 背景：定时任务 body 已 git 化——prompts/scheduled/*.md 是真相源，
  * DB 是运行时副本。但同步纯手动（scripts/update-scheduled-task-body.mjs），
  * 实证：daily-health-check.md 四次 PR 更新后脚本从未运行，9/3-9/4 健康检查跑旧版
- * prompt（issue #784）。本模块在 scheduler 启动时逐模板比对 DB body，漂移即同步——
- * 重启即自愈，与 #739 backfill 墓碑守卫、#814 调度完整性对账同模式。
+ * prompt。本模块在 scheduler 启动时逐模板比对 DB body，漂移即同步——
+ * 重启即自愈，与 backfill 墓碑守卫、调度完整性对账同模式。
  *
  * 对账方向为正向遍历（模板 → DB），git 真相源语义：无模板的任务（生日提醒、
  * backlog digest 等运行时创建）天然豁免，不会被误伤。
@@ -19,11 +19,11 @@ import { getRepoRoot } from '@frameworks/repo-root';
  * 匹配规则（与 scripts/update-scheduled-task-body.mjs 的 loadTemplate 保持一致）：
  * - frontmatter task_name 字段精确匹配任务名（跨语言命名唯一可靠键）
  * - 无 task_name 时：kebab(任务名) === 文件名去 .md（kebab = 空格转连字符）
- * - frontmatter dynamic: true 的模板跳过（body 由调度器运行时填充占位符，issue #416）
+ * - frontmatter dynamic: true 的模板跳过（body 由调度器运行时填充占位符，）
  *
- * JSON 包装兼容（通用，原 paper-trading-daily-trading 形态——F20260920stkx 能力移除后无在用者，
+ * JSON 包装兼容（通用，原 paper-trading-daily-trading 形态——能力移除后无在用者，
  * 机制保留）：任务 body 解析为 JSON 对象且含 prompt 字符串字段 → 只对账/替换内层 prompt，
- * watchlist 等运行时字段保留（#610 watchlist-only patch 语义的对偶面）。
+ * watchlist 等运行时字段保留（watchlist-only patch 语义的对偶面）。
  *
  * 覆盖范围：getAll() 全量（含 disabled）——disabled 任务的 body 漂移同样要治，
  * 重新启用时该跑新 prompt（实证：每日 issue 处理 disabled 且 body 落后模板 2000+ 字符）。
@@ -40,7 +40,7 @@ export interface PromptReconcileResult {
   unmatched: string[];
   /** 每条变更的一句话描述 */
   changes: string[];
-  /** 同步失败明细（#1030：降级不得哑——失败以 error 级暴露，不静默跳过） */
+  /** 同步失败明细（降级不得哑——失败以 error 级暴露，不静默跳过） */
   failed: string[];
 }
 
@@ -98,7 +98,7 @@ function replaceWrappedPrompt(taskBody: string, newPrompt: string): string | nul
 
 export async function reconcilePromptTemplates(opts: PromptReconcileOptions): Promise<PromptReconcileResult> {
   const { taskRepo, logger } = opts;
-  // Why: 默认目录基于代码位置解析（#429）；显式传入的 templateDir override 优先
+  // Why: 默认目录基于代码位置解析；显式传入的 templateDir override 优先
   const templateDir = opts.templateDir ?? resolve(getRepoRoot(), 'prompts', 'scheduled');
   const result: PromptReconcileResult = { checked: 0, updated: 0, skippedDynamic: 0, unmatched: [], changes: [], failed: [] };
 

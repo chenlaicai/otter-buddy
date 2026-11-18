@@ -1,4 +1,4 @@
-/** F20260803chunk: 分段后的 chunk 数据（原始 markdown，未清理） */
+/** 分段后的 chunk 数据（原始 markdown，未清理） */
 export interface ChunkData {
   /** 原始 markdown 内容（含标题井号，清理在索引时做） */
   content: string;
@@ -35,18 +35,18 @@ export interface MemoryIndexGateway {
     summary: string,
     metadata: Record<string, unknown>,
   ): Promise<void>;
-  /** F20260803chunk: 索引 Feature 文档分段 chunks（N 个独立 entry，原子替换旧 chunks） */
+  /** 索引 Feature 文档分段 chunks（N 个独立 entry，原子替换旧 chunks） */
   indexFeatureChunks(
     id: string,
     chunks: ChunkData[],
     metadata: Record<string, unknown>,
   ): Promise<void>;
-  /** F20260803chunk: 索引 Research 文档分段 chunks */
+  /** 索引 Research 文档分段 chunks */
   indexResearchChunks(
     id: string,
     chunks: ChunkData[],
     metadata: Record<string, unknown>,
   ): Promise<void>;
-  /** F20260918imas：助理对话收篇摘要入记忆（fact 类，关联 conversationId 供新篇召回） */
+  /** 助理对话收篇摘要入记忆（fact 类，关联 conversationId 供新篇召回） */
   indexAssistantDigest(digestId: string, conversationId: string, digest: string): Promise<void>;
 }

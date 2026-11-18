@@ -2,7 +2,7 @@
 /**
  * RHI 快照回填 CLI：pnpm health:backfill [--days=30] [--db=...] [--dry-run]
  *
- * F20260829hviz Fix C：用真实 git 历史按天重算历史快照，让健康面板趋势图
+ * Fix C：用真实 git 历史按天重算历史快照，让健康面板趋势图
  * 「立刻有内容」——不是造假数据，是对既有 commit 历史按当日窗口重放计算。
  *
  * 逐天循环调用 HealthReport.generate({ since, until, snapshotDate })：

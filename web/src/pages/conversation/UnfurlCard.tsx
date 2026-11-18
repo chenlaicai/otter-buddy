@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react'
 import { identityHeaders } from '../../api/identity'
 import { Globe, ImageOff } from 'lucide-react'
 
-/** F20261008csf1 P1 + F20261013csv3 T1：链类 unfurl 预览卡（数据先行架构）。
+/** P1 + T1：链类 unfurl 预览卡（数据先行架构）。
  *
  * 宪法「不点开就有信息增量」：裸 URL 在消息流里是零信息（域名+路径），
  * 预览卡把它变成「标题 + 描述 + 站点」——决定去不去之前先知道那是什么。
  * 数据源：GET /api/unfurl?url=（读 unfurl_cache 表，不再实时抓取——P1 数据先行）。
  *
- * F20261013csv3 三态（mimo S1——预抓取未完成是常态）：
+ * 三态（mimo ——预抓取未完成是常态）：
  * - ok：缓存命中 → 渲染完整预览卡
  * - pending：记录不存在/后台抓取中 → 骨架卡轮询（500ms×12，~6s 窗口），
  *   下一次轮询命中已落库的结果（发送时预抓取钩子通常已提前备好数据）
@@ -26,14 +26,14 @@ export interface UnfurlData {
   image: string | null
   siteName: string | null
   host: string
-  /** F20261013csv3：github-api 记录的 PR/issue 状态（open/merged/closed）——状态徽章 */
+  /** github-api 记录的 PR/issue 状态（open/merged/closed）——状态徽章 */
   state?: string | null
-  /** #1463：draft 子态（state='OPEN' 且 isDraft → 徽章「草稿」琥珀色） */
+  /** draft 子态（state='OPEN' 且 isDraft → 徽章「草稿」琥珀色） */
   isDraft?: boolean | null
-  /** F20261013csv3：github-api PR 记录的 diff stat（+additions/−deletions） */
+  /** github-api PR 记录的 diff stat（+additions/−deletions） */
   additions?: number | null
   deletions?: number | null
-  /** F20261013csv3：SWR 陈旧徽记（github-api 记录超 24h 时由后端透传） */
+  /** SWR 陈旧徽记（github-api 记录超 24h 时由后端透传） */
   stale?: boolean
 }
 
@@ -232,7 +232,7 @@ export function UnfurlCard({ url }: { url: string }) {
         <span className="min-w-0">
           <span className="flex items-center gap-1.5 flex-wrap">
             <span className="block text-sm font-medium text-stone-700 leading-snug break-words">{displayTitle}</span>
-            {/* github-api 状态徽章：merged=紫 / open=绿 / closed=灰 / draft=琥珀（#1463：isDraft 子态判定） */}
+            {/* github-api 状态徽章：merged=紫 / open=绿 / closed=灰 / draft=琥珀（isDraft 子态判定） */}
             {d.state && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
                 d.state === 'merged' || d.state === 'MERGED' ? 'bg-lavender-400/20 text-lavender-500'

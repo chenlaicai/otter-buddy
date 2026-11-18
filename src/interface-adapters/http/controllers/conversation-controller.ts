@@ -17,11 +17,11 @@ import type { CreateConversationRequestDTO } from "../dto/conversation-dto";
 import { DomainError } from "@entities/errors";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import type { ListConversationsFilter } from "@usecases/conversation/conversation-repository";
-/** F20260924wast：web 助理开户（幂等 + 人设后端注入） */
+/** web 助理开户（幂等 + 人设后端注入） */
 import type { WebAssistantProvisioner } from "@usecases/conversation/web-assistant-provisioner";
 
 /**
- * 解析 GET /api/conversations 的过滤参数（F20260922cgrp：status/kind 过滤——三分组分页数据源）。
+ * 解析 GET /api/conversations 的过滤参数（status/kind 过滤——三分组分页数据源）。
  * 非法 limit/offset 返回错误消息字符串（400）；非法 status/kind 静默忽略（缺省行为兜底）。
  */
 /** 解析布尔 query 参数（"true"/"false"，其余 undefined 静默忽略） */
@@ -31,7 +31,7 @@ function parseBoolQuery(raw: string | undefined): boolean | undefined {
   return undefined;
 }
 
-/** F20260924wast：kind 合法值解析（其余 undefined）。#1224：白名单改经
+/** kind 合法值解析（其余 undefined）。白名单改经
  *  isConversationKind 守卫（entities 单源派生）——新增枚举值不再需要改本文件 */
 function parseKindQuery(raw: string | undefined): ConversationKind | undefined {
   return raw !== undefined && isConversationKind(raw) ? raw : undefined;
@@ -48,7 +48,7 @@ function parseListFilter(c: Context): ListConversationsFilter | string {
   const statusRaw = c.req.query("status");
   const status = statusRaw === "active" || statusRaw === "archived" ? statusRaw : undefined;
   const kind = parseKindQuery(c.req.query("kind"));
-  /** F20260922cgrp：pinned=true|false（普通区分页传 false 排除置顶，计数口径对齐） */
+  /** pinned=true|false（普通区分页传 false 排除置顶，计数口径对齐） */
   const pinned = parseBoolQuery(c.req.query("pinned"));
   return { limit, offset, search, status, kind, pinned };
 }
@@ -63,7 +63,7 @@ export class ConversationController {
     /** 新建对话选大獭模型：modelAlias 校验（otter-controller 同层先例）。
      *  可选注入保持测试兼容；未注入时跳过校验，usecase 层缺省走默认模型 */
     private readonly modelPool?: ModelPoolLike,
-    /** F20260924wast：web 助理开户（首唤幂等创建，kind=web-assistant 人设后端注入）。可选注入 */
+    /** web 助理开户（首唤幂等创建，kind=web-assistant 人设后端注入）。可选注入 */
     private readonly webAssistantProvisioner?: WebAssistantProvisioner,
   ) {}
 
@@ -97,7 +97,7 @@ export class ConversationController {
   async create(c: Context): Promise<Response> {
     try {
       const body = await safeJsonBody<CreateConversationRequestDTO>(c);
-      /** F20260924wast：kind=web-assistant = web 助理首唤开户——走幂等 provisioner
+      /** kind=web-assistant = web 助理首唤开户——走幂等 provisioner
        *  （人设后端注入 + 并发收敛），忽略 title/modelAlias 等其余字段 */
       if (body.kind === "web-assistant") {
         if (!this.webAssistantProvisioner) {

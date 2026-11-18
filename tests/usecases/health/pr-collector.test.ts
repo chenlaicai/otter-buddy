@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { collectOpenPrs, extractFeatureIds } from "@usecases/health/pr-collector";
 
 /**
- * F20260902sigm PrCollector 测试：
+ * PrCollector 测试：
  * - PR↔链关联三级规则（commit FID > body FID > branch name 不提取）
  * - lastActivity = max(commit, review, comment)
  * - 降级语义：gh 失败 → 空数组，不抛错

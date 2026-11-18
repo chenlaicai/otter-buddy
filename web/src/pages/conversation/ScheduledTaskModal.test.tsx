@@ -2,7 +2,7 @@
 /**
  * ScheduledTaskModal restartBeforeInvoke toggle 测试
  *
- * F20260825scrf 适配：Modal 改 createPortal 后内容渲染到 document.body，
+ * 适配：Modal 改 createPortal 后内容渲染到 document.body，
  * 查询范围从 container 改为 document（container 里只剩挂载占位）
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -24,7 +24,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => { root.unmount() })
   container.remove()
-  // F20260825scrf 检视 A-2：Modal Portal 后内容挂 document.body，清理残留防串测
+  // 检视 A-2：Modal Portal 后内容挂 document.body，清理残留防串测
   document.body.innerHTML = ''
 })
 
@@ -77,7 +77,7 @@ function fillRequiredFields() {
     nameInput.dispatchEvent(new Event('change', { bubbles: true }))
   })
 
-  // F20260915desc: modal 现有两个 textarea（description + body）——用 maxLength=10000 锁定 body
+  // modal 现有两个 textarea（description + body）——用 maxLength=10000 锁定 body
   const textarea = Array.from(document.querySelectorAll('textarea')).find(
     t => t.maxLength === 10000
   ) as HTMLTextAreaElement

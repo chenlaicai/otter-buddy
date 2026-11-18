@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * F20261021gmbe：ArtifactCard game 型渲染测试。
+ * ArtifactCard game 型渲染测试。
  *
  * 覆盖：
  * 1. 折叠态：游戏徽章 + 房间号 + 「展开玩」入口，无 iframe（E4 折叠不挂载）

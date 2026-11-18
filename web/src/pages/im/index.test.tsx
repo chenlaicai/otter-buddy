@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ImPage 组件测试（#1079）——三路覆盖：
+ * ImPage 组件测试——三路覆盖：
  * ① 流程状态机：idle → naming → connecting 转换、取消/返回路径（微信 + 飞书同款）
  * ② 覆盖确认弹层：同号命中展示、覆盖执行、两步错误语义（delete 失败 vs provision 失败）
  * ③ 账号列表：assistantLine 投影渲染（已建线/未建线两态）

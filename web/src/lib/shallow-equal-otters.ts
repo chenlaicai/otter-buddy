@@ -1,7 +1,7 @@
 import type { LocalOtter } from './mappers'
 
 /**
- * 参与者列表逐字段浅比较（#502）。
+ * 参与者列表逐字段浅比较。
  *
  * 轮询/事件回调每次 mapParticipantDTO 产出全新对象数组，即便内容一字未变，
  * setAllOtters 也会拿到新引用 → RightPanel 整树 re-render → hover 快览卡微闪。

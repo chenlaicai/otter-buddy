@@ -1,11 +1,11 @@
 /**
- * F20260922txre（#1093）：文本工具返回值历史层收缩——context 钩子发送层投影。
+ * ：文本工具返回值历史层收缩——context 钩子发送层投影。
  *
- * 问题（issue #1093 现场）：文本 toolResult 进入 session 历史后无任何收缩机制，以全文
+ * 问题（现场）：文本 toolResult 进入 session 历史后无任何收缩机制，以全文
  * 形态永久驻留到 compaction，每轮 LLM request 全量重发——长任务下是上下文第一大头
  * （单条实测 8.9K / 12.9K / 16.8K 字符，远超用户消息包装的 ~0.9K 字符/条）。
  *
- * 设计（对齐 F20260915iext image-externalizer 的投影语义，取舍见特性文档）：
+ * 设计（对齐 image-externalizer 的投影语义，取舍见特性文档）：
  * - 当前 turn 的 toolResult 原样保留（invoke 内多步工具链中模型还要回看刚拿到的结果）
  * - 上一 turn 及更早、超过 PROJECT_MIN_CHARS 的文本块投影为「头 400 字符 + 收缩标记」
  * - 存储不动：session jsonl 原文保留（回读按 toolCallId 检索），只有发给 LLM 的消息数组被投影

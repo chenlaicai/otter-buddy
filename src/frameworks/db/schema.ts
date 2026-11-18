@@ -7,15 +7,15 @@ import type { Logger } from "@usecases/ports/logger";
  * 所有 CREATE 使用 IF NOT EXISTS，单事务内执行。
  * 存量库补列例外：引入新列时可在建表块之后用「每列独立 try/catch 的 ALTER」幂等补列（先例：
  * introduced_by_pr / bound_issue / bound_at）——但索引/约束不得写在建表块内：存量库
- * IF NOT EXISTS no-op 后列尚不存在，会抛 no such column（#1390 事故教训），
+ * IF NOT EXISTS no-op 后列尚不存在，会抛 no such column（事故教训），
  * 必须排在全部补列之后（同款约束见 migration.ts）。
  *
- * F20260827mgux（#506）后本函数承担双职责：新库建全表 + 老库补缺失表（bootstrap 无条件执行）。
+ * 后本函数承担双职责：新库建全表 + 老库补缺失表（bootstrap 无条件执行）。
  * ⚠️ 由此产生的约束：破坏性 schema 变更（改列类型/删列）不能只改这里的 CREATE——
  * 老库表已存在不会重建，必须同时在 migration.ts 写补丁。表级漏登的强制力由
  * tests/frameworks/db/migration-equivalence.guard.test.ts 守卫，此处约定只是人类提示。
  *
- * ⚠️ 时间戳双轨声明（F20260920tdun）：
+ * ⚠️ 时间戳双轨声明：
  * 本 schema 多处使用 `DEFAULT (datetime('now'))` 作为兜底默认值，但实际写入路径
  * 全部走 JS 侧 `new Date().toISOString()`（UTC 带 Z 后缀）。两者的区别：
  * - JS ISO 写入：`2026-09-20T14:00:00.000Z`（带 Z，前端 `new Date()` 解析为 UTC 正确偏移）
@@ -26,7 +26,7 @@ import type { Logger } from "@usecases/ports/logger";
 // eslint-disable-next-line max-statements -- 多表初始化，语句数由表数量决定
 export function initSchema(db: Database.Database, logger?: Logger): void {
   const startTime = Date.now();
-  /** #506: 执行前表快照——老库升级时差集日志可作为「补建发生」的可观测证据 */
+  /** 执行前表快照——老库升级时差集日志可作为「补建发生」的可观测证据 */
   const tablesBefore = listTableNames(db);
   db.exec("BEGIN");
 
@@ -52,33 +52,33 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createHealthSnapshotsTable(db);
     createSignalsTable(db);
     createSignalEventsTable(db);
-    /** F20261006mtlp P1：matters 表（待办——per-conversation 承诺台账）。
-     *  同构 signal_events（F20260826mwrd）但语义不同（持续工作单元 ≠ 瞬时信号），
-     *  不复用。字段/索引严格按 F20261006mtlp §1 字段表。 */
+    /** P1：matters 表（待办——per-conversation 承诺台账）。
+     * 同构 signal_events但语义不同（持续工作单元 ≠ 瞬时信号），
+     * 不复用。字段/索引严格按 §1 字段表。 */
     createMattersTable(db);
-    /** F20260912avlb：派工台账正式表（本 PR 核心）。dispatch_attempts 与
-     * restart_pending_resumes 随 main #886 批次（F20260908rlcp/ctlv）退役。 */
+    /** 派工台账正式表（本 PR 核心）。dispatch_attempts 与
+     * restart_pending_resumes 随 main 批次（/ctlv）退役。 */
     createDispatchRecordsTable(db);
     createAttachmentTables(db);
     createPaperTradingTables(db);
     createInvokeTables(db);
     createEntryTables(db);
     createEntryFtsTable(db);
-    /** F20260916b1ea：重启自动恢复队列重建（8/28 同名机制被 #886 误删，
+    /** 重启自动恢复队列重建（8/28 同名机制被 误删，
      *  invoke 模型重映射——invoke_id 为 PK 锚点）。schema.ts 单点登记
-     *  （#506 模式：bootstrap 无条件幂等 initSchema，老库自动补建）。 */
+     * （模式：bootstrap 无条件幂等 initSchema，老库自动补建）。 */
     createRestartPendingResumesTable(db);
-    /** F20261015mjsg 三麻：牌局元数据 + 逐帧快照（断线恢复/复盘/哈希链）。新表走 #506 幂等补建 */
+    /** 三麻：牌局元数据 + 逐帧快照（断线恢复/复盘/哈希链）。新表走 幂等补建 */
     createMahjongTables(db);
-    /** F20261117cnnct（#1868 阶段 4 C1）：connector 设备注册——devices（配对身份）+
+    /** （阶段 4 C1）：connector 设备注册——devices（配对身份）+
      *  online_sessions（执行授权会话，总闸唯一事实源；每 device 至多一 online 行的
-     *  partial unique index 库层兜底）+ pairing_codes（一次性配对码）。新表走 #506 幂等补建 */
+     * partial unique index 库层兜底）+ pairing_codes（一次性配对码）。新表走 幂等补建 */
     createConnectorRegistryTables(db);
-    /** F20261118remex（阶段 4 C2）：中枢侧远程动作请求登记（五态投影，恢复摘要数据源） */
+    /** （阶段 4 C2）：中枢侧远程动作请求登记（五态投影，恢复摘要数据源） */
     createRemoteActionRequestsTable(db);
-    /** F20261027hwl1：工作账本投影（work_items / work_item_traces / conversation_active_work）。
+    /** 工作账本投影（work_items / work_item_traces / conversation_active_work）。
      *  独立工作 ≠ conversation 的成本归集单位——详见特性文档「核心数据结构」；
-     *  新表走 #506 幂等补建模式（bootstrap 无条件 initSchema，老库自动补建）。 */
+     * 新表走 幂等补建模式（bootstrap 无条件 initSchema，老库自动补建）。 */
     createWorkLedgerTables(db);
 
     db.exec("COMMIT");
@@ -87,13 +87,13 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     if (logger) {
       const duration = Date.now() - startTime;
       // 42 regular tables + 5 virtual tables (FTS/vec) = 47 total → +2 mahjong = 49 total
-      // (含多模态 attachments 2表 + PR4 paper trading 9表 + F20260912avlb dispatch_records + F20261006mtlp matters + F20261015mjsg mahjong 2表)
-      // F20261027hwl1：+3 work ledger 表 = 52 total
+      // (含多模态 attachments 2表 + PR4 paper trading 9表 + dispatch_records + matters + mahjong 2表)
+      // +3 work ledger 表 = 52 total
       logger.info('Schema initialized', {
         duration,
         tables: 52,
       });
-      /** #506: 补建差集——新库差集=全部表（与现状等价）；老库无缺表时差集为空不打扰 */
+      /** 补建差集——新库差集=全部表（与现状等价）；老库无缺表时差集为空不打扰 */
       const created = listTableNames(db).filter(t => !tablesBefore.includes(t));
       if (created.length > 0) {
         logger.info(`Schema init: ${created.length} tables created on existing database`, { created });
@@ -157,7 +157,7 @@ function createConversationTables(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       archived_at TEXT,
-      /* F20261118crtgr（#1868 阶段 5 PR-A）：对话级当前执行机——NULL=默认 local
+      /* （阶段 5 PR-A）：对话级当前执行机——NULL=默认 local
        * （存量对话零迁移行为不变）；显式切换不自动漂移（设备下线不回切，fail-closed） */
       current_machine_id TEXT
     );
@@ -1092,7 +1092,7 @@ function createInvokeTables(db: Database.Database): void {
       token_usage_cache_read INTEGER,
       token_usage_cache_write INTEGER,
       ctx_window_used INTEGER,
-      /** #1241：创建本 invoke 的进程 pid——孤儿判据（非本进程 pid 的 running = 旧进程遗留）。
+      /** 创建本 invoke 的进程 pid——孤儿判据（非本进程 pid 的 running = 旧进程遗留）。
        *  NULL = pid 列引入前的存量行（启动 reconcile 无条件清理）。 */
       pid INTEGER,
       metadata TEXT,
@@ -1136,7 +1136,7 @@ function createRestartPendingResumesTable(db: Database.Database): void {
       attempts INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       settled_at TEXT,
-      /* F20261116actlg PR-B：认领绑定 claim token/boot epoch（恢复者自身崩溃不留死锁，
+      /* PR-B：认领绑定 claim token/boot epoch（恢复者自身崩溃不留死锁，
        *  旧纪元残留可被新开机重认领——重认领前判旧持有者 pid 死活防双跑）
        *  + 恢复轮 invoke 审计链（追加式，多次恢复全历史） */
       claim_token TEXT,
@@ -1319,7 +1319,7 @@ function createRemoteActionRequestsTable(db: Database.Database): void {
       result TEXT,
       created_at TEXT NOT NULL,
       settled_at TEXT,
-      /* R2 关联维度（nullable——测试/内部调用可无 invoke 上下文）：恢复链按
+      /* 关联维度（nullable——测试/内部调用可无 invoke 上下文）：恢复链按
        * conversation 并入远程动作五态；invoke 精确归因（hub 进程内 invoke 上下文可得） */
       conversation_id TEXT,
       invoke_id TEXT

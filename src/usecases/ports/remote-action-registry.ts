@@ -1,7 +1,7 @@
 import type { RemoteActionRequest, RemoteActionStatus } from "@entities/execution/remote-action-request";
 
 /**
- * F20261118remex（#1868 阶段 4 C2）：远程动作请求登记仓库（remote_action_requests）。
+ * （阶段 4 C2）：远程动作请求登记仓库（remote_action_requests）。
  * 登记（requested）→ 回执/超时/断线收尾（五态终态）——中枢侧「落 unknown」的落点。
  */
 export interface RemoteActionRegistry {

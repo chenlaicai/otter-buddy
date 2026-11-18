@@ -3,7 +3,7 @@
  * prompt/skill/tool 锚点污染 gate（commit-time）。
  *
  * 规则：每轮注入面（.pi/SYSTEM.md、prompts/**、.pi/skills/**、src/**\/*ools*描述字面量）
- * 禁止写入 F 编号（F2026xxxx）与 issue 锚点（#123）——它们是出处/决策史，
+ * 禁止写入 F 编号（F2026xxxx）与 issue 锚点——它们是出处/决策史，
  * 出处归特性文档 frontmatter causal_links 与 git 历史，不进每轮注入的 prompt。
  *
  * 豁免：白名单文件 scripts/prompt-anchor-whitelist.txt（每行一条 path:linenum 或
@@ -14,8 +14,8 @@
  *
  * 退出码：0 通过 / 1 有违规 / 2 环境异常（宽松放行，不误伤）。
  *
- * name: 属性关闭状态机存在跨行窗口（审视发现 6/10，记录在案不阻塞）。
- * 正则字面量识别已在 #1128 修复（scripts/strip-ts-comments.mjs，含除法/正则区分启发式）。
+ * name: 属性关闭状态机存在跨行窗口（/10，记录在案不阻塞）。
+ * 正则字面量识别已在 修复（scripts/strip-ts-comments.mjs，含除法/正则区分启发式）。
  */
 import { execFileSync } from "node:child_process";
 import { stripTsComments } from "./strip-ts-comments.mjs";
@@ -23,14 +23,14 @@ import { readFileSync, existsSync } from "node:fs";
 
 const ANCHOR_RE = /F20\d{6}[a-z0-9]{4}|#\d{3,}\b/g; // F+8位日期+4随机缀；issue 号不限位数（防年份到期静默失效）
 
-/** #1089：hex 色值假阳性修复——色值（#000/#1a1a1a）与 issue 号（#419/#1089）结构同形，
- * 只能靠上下文判别：色值总伴随 CSS 语境词出现在匹配点之前（solid #000 / 底 #0a0a0a / 色块 #FFD400）。
+/** hex 色值假阳性修复——色值（/）与 issue 号（/）结构同形，
+ * 只能靠上下文判别：色值总伴随 CSS 语境词出现在匹配点之前（solid / 底 / 色块 ）。
  * 判别器宁漏放不误拦：漏放（真 issue 号恰好前文有 CSS 词）由白名单兑底，误拦（合法色值被拦）
- * 直接阻塞合法 commit（F20260921vsds 提交现场：词典色值 #000 被拦三道）。 */
+ * 直接阻塞合法 commit（提交现场：词典色值 被拦三道）。 */
 const CSS_CONTEXT_RE = /(?:solid|shadow|gradient|background|color|border|fill|stroke|色|底|块|线条?)/i;
 
 /** 判别单个 #\d{3,} 命中是否为 hex 色值（带上下文）：匹配点前 24 字符内含 CSS 语境词即视为色值。
- * 伪 3 位/6 位 hex 同形（#fff 与 #123 同合法），结构无法区分，只认上下文。 */
+ * 伪 3 位/6 位 hex 同形（与 同合法），结构无法区分，只认上下文。 */
 function isHexColorHit(line, hit) {
   const idx = line.indexOf(hit);
   if (idx < 0) return false;

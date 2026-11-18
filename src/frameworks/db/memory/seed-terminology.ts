@@ -24,7 +24,7 @@ const SEED_TIMESTAMP = "2026-07-09T00:00:00Z";
  * 此处补全为完整的 TerminologyEntry。
  */
 function loadSeedEntries(): TerminologyEntry[] {
-  // Why: 种子数据路径基于代码位置解析（#429），cwd 非项目根也能读到
+  // Why: 种子数据路径基于代码位置解析，cwd 非项目根也能读到
   const filePath = resolve(getRepoRoot(), "data/terminology/seed-terminology.json");
   const raw = readFileSync(filePath, "utf-8");
   const terms = JSON.parse(raw) as SeedTermData[];

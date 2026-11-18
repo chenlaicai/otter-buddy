@@ -1,5 +1,5 @@
 /**
- * F20261111slfrz：睡眠冻结痕迹落账行为测试（检视 P2 补覆盖）。
+ * 睡眠冻结痕迹落账行为测试（检视 P2 补覆盖）。
  *
  * 走真实 executeTurn（backoff-abort-attribution 同模式）：invoke 抛
  * guard abort（_guardAbortReason + _outputGuardMetadata 冻结痕迹）→ 断言

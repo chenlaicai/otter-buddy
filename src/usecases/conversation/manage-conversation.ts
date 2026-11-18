@@ -15,8 +15,8 @@ export interface CreateConversationInput {
   title: string;
   /** 新建对话时大獭的模型自选（透传给 CreateOtter，缺省 = 默认模型） */
   modelAlias?: string;
-  /** F20260920imax：对话类别（assistant = IM 助理自动开户；缺省 normal）。
-   *  F20260924wast：web-assistant = web 浮动獭全局唯一对话（首唤开户，HTTP create 链） */
+  /** 对话类别（assistant = IM 助理自动开户；缺省 normal）。
+   * web-assistant = web 浮动獭全局唯一对话（首唤开户，HTTP create 链） */
   kind?: "normal" | "assistant" | "web-assistant";
 }
 
@@ -28,7 +28,7 @@ export class ManageConversation {
   ) {}
 
   async create(params: CreateConversationInput): Promise<Conversation> {
-    // #891 对抗审视发现 2：null body 经 safeJsonBody 兜底 {} 后 title 为 undefined，
+    // 对抗null body 经 safeJsonBody 兜底 {} 后 title 为 undefined，
     // 无校验落库会撞 DB NOT NULL 约束 → 500 且回显表结构（conversations.title）
     if (typeof params.title !== "string" || params.title.trim().length === 0) {
       throw new DomainError("title 必填且为非空字符串", "validation");

@@ -1,6 +1,6 @@
 // lint-tests:allow-ddl —— 迁移测试需手工补建 messages 族旧表 DDL（模拟存量库形态——生产 schema 已删除旧表，迁移函数仍须可跑）
 /**
- * F20260913ctlv 收尾批4b：messages → entries 幂等回填迁移测试（真 sqlite）。
+ * 收尾批4b：messages → entries 幂等回填迁移测试（真 sqlite）。
  *
  * 覆盖：无重叠直迁 / 重叠对话合并重编号+游标重映射 / yield 合成 /
  * externalIds metadata 保留 / attachments 关联 / entries_fts 回填 /
@@ -19,7 +19,7 @@ beforeEach(() => {
   ensureLegacyTables();
 });
 
-/** F20260913ctlv 批4c：新库已无 messages 族表——本测试模拟「存量库」形态：
+/** 批4c：新库已无 messages 族表——本测试模拟「存量库」形态：
  *  手工补建旧表 DDL（生产 schema 已删），让迁移有对象可迁。 */
 function ensureLegacyTables(): void {
   db.exec(`

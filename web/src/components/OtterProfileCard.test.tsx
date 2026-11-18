@@ -140,7 +140,7 @@ describe('hover 400ms debounce 时序（PR-3）', () => {
       fireEvent.mouseEnter(card)
     })
 
-    // ≥400ms：快览卡应出现（F20260826pfix 后 portal 挂 body，断言 body）
+    // ≥400ms：快览卡应出现（后 portal 挂 body，断言 body）
     act(() => { vi.advanceTimersByTime(400) })
     expect(document.body.textContent).toContain('Lv.')
   })

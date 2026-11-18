@@ -4,8 +4,8 @@ import path from "node:path";
 import type { Logger } from "@usecases/ports/logger";
 
 /**
- * 单用户自部署的「真实凭据」值源（issue #1868 阶段 2：统一接入与登录）。
- * 替换 F20261019autz 的声明式身份头值源——web 前端不再自报 `web-ui/admin`，而是
+ * 单用户自部署的「真实凭据」值源（阶段 2：统一接入与登录）。
+ * 替换 的声明式身份头值源——web 前端不再自报 `web-ui/admin`，而是
  * 经登录端点校验登录口令后派发会话 cookie；身份中间件从会话派生身份。
  *
  * 登录口令（owner password）来源优先级：

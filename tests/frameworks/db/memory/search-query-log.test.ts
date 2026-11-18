@@ -1,5 +1,5 @@
 /**
- * F20260826rcmm Phase 0：检索埋点集成测试。
+ * Phase 0：检索埋点集成测试。
  * 覆盖：insert 落表（JSON 字段序列化）、RecordSearchQuery 上下文快照构建
  * （最近 5 条、正序、预览截断）、fire-and-forget 失败不抛。
  */
@@ -13,7 +13,7 @@ import { createTestLogger } from "../../../helpers/logger";
 
 let db: DatabaseType.Database;
 let repo: SqliteSearchQueryLogRepository;
-/** F20260913ctlv 批3：上下文快照数据源切 entries（speak 模拟——时间线条目） */
+/** 批3：上下文快照数据源切 entries（speak 模拟——时间线条目） */
 let entryRepo: {
   getEntries: (convId: string, opts: { entryType?: string; limit?: number }) => Promise<Array<{ id: string; senderId: string | null; senderType: string | null; body: string | null; sequenceNum: number }>>;
   getEntryById: (id: string) => Promise<{ id: string; sequenceNum: number } | null>;

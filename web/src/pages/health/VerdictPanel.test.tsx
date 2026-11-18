@@ -8,7 +8,7 @@ import { SCORE_STATUS_CONFIG } from './score-status'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-/** issue #1029 验证：总览三层——归因句主标题、五维大白话+点开展开证据层、建议动作链到警报 */
+/** 验证：总览三层——归因句主标题、五维大白话+点开展开证据层、建议动作链到警报 */
 
 function score(overrides: Partial<RhiScoreDTO> = {}): RhiScoreDTO {
   return {

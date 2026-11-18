@@ -1,5 +1,5 @@
 /**
- * PiSessionPool 单元测试（F20260911pspl）
+ * PiSessionPool 单元测试
  *
  * 覆盖：acquire 命中/重建、LRU touch 刷新、TTL 驱逐、running 豁免（isBusy 注入与
  * isStreaming 回退两条路径）、容量驱逐、inflight 并发去重、factory 失败不入池、
