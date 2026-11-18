@@ -367,6 +367,7 @@ function buildNightReviewFunctionRegistry(o: {
     otterContextRepo: o.repos.otterContext,
     agentTurnPort: o.agentInvoker,
     registerMatter: new RegisterMatter(o.repos.matter),
+    matterRepo: o.repos.matter,
     healingRepo: o.repos.healingEvent,
     sendEntry: o.uc.sendEntry,
     logger: o.logger,

@@ -75,6 +75,35 @@ describe("belief 三迁移工具快照范围校验（P2b2）", () => {
     expect(r.body).toContain("损坏");
   });
 
+  it("语义损坏（合法 JSON 但无 after/through）→ 拒（NaN 比较恒 false 不得放行）", async () => {
+    const h = makeHarness({ rangeRaw: JSON.stringify({}), target: { id: "b-any", createdAt: "2020-01-01T00:00:00.000Z" } });
+    const r = await run(h.ctx, "belief_verify", "b-any");
+    expect(r.isError).toBe(true);
+    expect(r.body).toContain("语义非法");
+    expect(h.transitionCalls).toHaveLength(0);
+  });
+
+  it("语义损坏（字段非法时间字符串）→ 拒", async () => {
+    const h = makeHarness({
+      rangeRaw: JSON.stringify({ after: "yesterday", through: "tomorrow" }),
+      target: IN_RANGE_TARGET,
+    });
+    const r = await run(h.ctx, "belief_reject", "b1");
+    expect(r.isError).toBe(true);
+    expect(r.body).toContain("语义非法");
+    expect(h.transitionCalls).toHaveLength(0);
+  });
+
+  it("语义损坏（倒挂区间 after > through）→ 拒", async () => {
+    const h = makeHarness({
+      rangeRaw: JSON.stringify({ after: RANGE.through, through: RANGE.after }),
+      target: IN_RANGE_TARGET,
+    });
+    const r = await run(h.ctx, "belief_supersede", "b1");
+    expect(r.isError).toBe(true);
+    expect(h.expireCalls).toHaveLength(0);
+  });
+
   it("目标条目不存在 → 拒", async () => {
     const h = makeHarness({ rangeRaw: JSON.stringify(RANGE), target: null });
     const r = await run(h.ctx, "belief_verify", "absent");
@@ -128,5 +157,38 @@ describe("belief 三迁移工具快照范围校验（P2b2）", () => {
     expect(r.isError).toBe(false);
     expect(h.expireCalls).toEqual(["b1"]);
     expect(h.transitionCalls).toHaveLength(0);
+  });
+});
+
+describe("belief_dispute（搭档否决打回——夜审编排阶段补全）", () => {
+  it("无快照范围约束：直接迁 disputed（打回对象可为任何历史 belief）", async () => {
+    const transitionCalls: Array<{ entryId: string; to: string }> = [];
+    const client = {
+      memory: {
+        transitionBelief: async (p: { entryId: string; to: string }) => {
+          transitionCalls.push(p);
+          return { entryId: p.entryId, from: "verified", to: p.to };
+        },
+      },
+      // context.get 返回空（无范围档）——dispute 不受快照约束，照常执行
+      context: { get: async () => ({}) },
+    } as unknown as OtterToolClient;
+    const ctx = { client, otterId: "big-1", conversationId: "conv-1", currentMessageId: "m-1" } as ToolContext;
+    const r = await run(ctx, "belief_dispute", "old-belief-2020");
+    expect(r.isError).toBe(false);
+    expect(transitionCalls).toEqual([{ entryId: "old-belief-2020", to: "disputed" }]);
+  });
+
+  it("迁移非法（superseded 终态）→ usecase 层错误回显", async () => {
+    const client = {
+      memory: {
+        transitionBelief: async () => { throw new Error("belief 状态迁移非法：superseded → disputed"); },
+      },
+      context: { get: async () => ({}) },
+    } as unknown as OtterToolClient;
+    const ctx = { client, otterId: "big-1", conversationId: "conv-1", currentMessageId: "m-1" } as ToolContext;
+    const r = await run(ctx, "belief_dispute", "b-final");
+    expect(r.isError).toBe(true);
+    expect(r.body).toContain("迁移非法");
   });
 });

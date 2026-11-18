@@ -26,6 +26,7 @@ causal_links:
 tags: [memory, belief, active-memory, night-review, scheduler, function-executor, idempotency, watermark, veto-anchor]
 modules:
   - src/usecases/scheduler/night-review-orchestrator.ts
+  - src/usecases/scheduler/night-review-prompt.ts
   - src/usecases/scheduler/ensure-night-review-task.ts
   - src/entities/memory/consolidation-state.ts
   - src/usecases/memory/consolidation-state-repository.ts
@@ -141,9 +142,33 @@ finally: 解散夜审獭（动态召唤不入名册，不解散即孤儿）
 4. **退役条件？** 夜间审视下线时：删 seed 链 + functionRegistry 注册 + 编排文件 + 工具快照
    校验段（回退 P2a 形态）；consolidation_state 表与三迁移工具按 P2b1/P2a 各自退役条件处理。
 
+## 首轮审视修复（审-1946，10 严重 + 1 建议全处置）
+
+1. **快照校验语义损坏绕过**：合法 JSON 但 after/through 缺失/非法/倒挂时 Date.parse=NaN
+   使比较恒 false 放行任意条目——`parseSnapshotRangeRaw` 纯函数 fail-closed 补全（含倒挂）。
+2. **fyi 打回无执行体**：设计原文「不需要额外机制」漏了 belief 迁移工具层的通道——新增
+   `belief_dispute` 工具（recorded/verified→disputed 单向，big 可见/small 不可见/
+   night-reviewer 不含；不给核实权，信任模型不变），大獭按搭档「打回 M-xxx」裁决调用。
+3. **失败重跑变更集丢审计**：变更集审计面从「当前仍 recorded」改为「区间全集（四状态
+   拼接）」——上轮已迁移条目不丢审计、不丢 fyi 否决锚；全部迁移后崩溃的重跑正确补发。
+4. **complete 先于 fyi 的吞错**：settle 顺序改为 fyi 先于 complete（report 失败可
+   recordFailure 重跑补发）；matter 按 title 查重防重跑重复登记。
+5. **召唤在 try 外**：CreateOtter/context 写入失败也走 recordFailure + finally 解散；
+   dissolve 失败补 healing（孤儿受限写者可见）。
+6. **timeoutMinutes 对 function executor 不生效**：编排内 `invokeWithTimeout`
+   （240 分钟 race，超时放弃挂死会话）——scheduler 层的 function 通用超时留作后续机制。
+7. **scheduler 三连败熔断先于 skip 分支**：recordFailure 返回 shouldSkip 时当次报
+   healing 返回 skipped 不上抛——任务不熔断保持 active，次日新键新区间自然重试，
+   未清失败区间起点保证水位覆盖（跳过≠丢审）。
+8. **Golden Gate**：PR body 补豁免声明（prompt 为 usecase 层构造函数非 prompts/ 树；
+   行为由单测钉住，端到端留生产首夜观察）。
+9. **PR body 补特性编号**（B4 标识闭合）；11. **补署名尾行**。
+10. **CI 闭环**：审视通过后补 review-closure 覆盖评论重跑（流程收尾）。
+
 ## 验证
 
-- 单测 24 项全绿（编排 12 + 工具快照校验 8 + repo listByTaskId 1 + seed 3），在 worktree 内跑。
+- 单测 39 项全绿（编排 20 + 工具快照校验/dispute 14 + seed 3 + repo 1 + 白名单 3，含
+  首轮审视全部修复场景的钉证用例），在 worktree 内跑。
 - `npx tsc --noEmit`、`npx eslint`（改动文件）零错误；tests/usecases/scheduler +
   tests/interface-adapters/belief-migration-range-guard + tests/frameworks/db/memory +
   tests/usecases/memory 全量 550 项通过（无回归）。

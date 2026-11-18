@@ -11,11 +11,10 @@
  */
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
 import type { ScheduledTaskRepository } from "@usecases/scheduled-task/scheduled-task-repository";
+import { NIGHT_REVIEW_TIMEOUT_MINUTES } from "@usecases/scheduler/night-review-orchestrator";
 
 export const NIGHT_REVIEW_TASK_NAME = "夜间审视";
 export const NIGHT_REVIEW_CRON = "0 3 * * *";
-/** LLM 长会话（逐条核对当日 belief）：链超时 240 分钟 */
-export const NIGHT_REVIEW_TIMEOUT_MINUTES = 240;
 
 export async function ensureNightReviewTask(deps: {
   manageScheduledTask: ManageScheduledTask;

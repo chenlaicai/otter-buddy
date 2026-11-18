@@ -6,12 +6,15 @@
  * 当日 recorded 清单 + 原文注入、夜审獭召唤与解散、审后全量处置校验、变更集存档
  * （complete/recordFailure）、连败跳过 + healing、fyi 汇总 + matter 否决锚。
  *
- * 消费 P2b1 接口：ManageConsolidationState(claim/complete/recordFailure)
- * + MemoryReader.listBeliefsByStatus(status, after, through)。
- *
- * 獭召唤（P2a 档案）：CreateOtter(type='night-reviewer')——白名单恒 5 工具
- * （speak/yield + 三迁移），快照范围写进獭 otter context（NIGHT_REVIEW_RANGE_CONTEXT_KEY），
- * 三迁移工具执行时读取校验（fail-closed），白名单不含 set_context 故 LLM 无法篡改。
+ * 审-1946 首轮修复要点（均已单测钉住）：
+ * - 变更集审计面 = 区间内全部 belief（四状态查询拼全集），不是「当前仍 recorded」——
+ *   失败重跑时上轮已迁移条目不丢审计、不丢 fyi 否决锚；
+ * - fyi 先于 complete（report 失败 → recordFailure → 重跑补发；complete 失败 → 重跑幂等补齐），
+ *   matter 按 title 查重防重复登记；
+ * - 召唤全程序 try/finally（CreateOtter/context 写入失败也记账+解散），dissolve 失败报 healing；
+ * - invoke 带 race 超时（防 LLM 会话挂死拖住编排）；
+ * - 连败达阈值当次即报 healing 并返回 skipped（不 throw——scheduler 不熔断任务，
+ *   次日新键新区间自然重试，未清失败区间起点保证不丢审）。
  */
 import {
   buildReviewKey,
@@ -30,15 +33,23 @@ import type { OtterContextRepository } from "@usecases/otter/otter-context-repos
 import type { AgentTurnPort } from "@usecases/ports/agent-turn-port";
 import type { RegisterMatter } from "@usecases/matter/register-matter";
 import { matterShortAnchor } from "@usecases/matter/register-matter";
+import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { SendEntry } from "@usecases/conversation/send-entry";
+import { buildNightReviewerPrompt, buildNightReviewMessage } from "./night-review-prompt";
 import type { Logger } from "@usecases/ports/logger";
 
 /** 夜审时区（写进配置语义：v4 §4.2 固定时刻按此时区解释） */
 export const NIGHT_REVIEW_TIMEZONE = "Asia/Shanghai";
 
+/** 夜审獭 invoke 超时（分钟）——与任务 seed 的 timeoutMinutes 同源（防 LLM 会话挂死拖住编排） */
+export const NIGHT_REVIEW_TIMEOUT_MINUTES = 240;
+
 /** 首跑/无档兜底回看窗：30h（覆盖「昨天凌晨到今天凌晨」的完整审视日 + 缓冲） */
 const DEFAULT_LOOKBACK_MS = 30 * 60 * 60 * 1000;
+
+/** 区间全集查询的状态面（变更集审计覆盖区间内全部 belief，不只 recorded） */
+const RANGE_STATUSES: readonly BeliefStatus[] = ["recorded", "verified", "disputed", "superseded"];
 
 /** 夜审成功变更集（settle 后的 resultJson 契约形态，水位计算回读它） */
 export interface NightReviewChangeset {
@@ -73,6 +84,7 @@ export interface NightReviewOrchestratorDeps {
   otterContextRepo: OtterContextRepository;
   agentTurnPort: AgentTurnPort;
   registerMatter: RegisterMatter;
+  matterRepo: MatterRepository;
   healingRepo?: HealingEventRepository;
   sendEntry: SendEntry;
   logger: Logger;
@@ -101,13 +113,6 @@ function parseChangeset(resultJson: string): NightReviewChangeset | null {
   }
 }
 
-/** 状态中文标注（fyi 汇总用，与检索端 [已核实]/[存疑] 标注同词汇表） */
-function statusLabel(to: Exclude<BeliefStatus, "recorded">): string {
-  if (to === "verified") return "已核实";
-  if (to === "disputed") return "存疑";
-  return "已过期";
-}
-
 /** settle 档回放视图（幂等撞键时还原原结果；损坏档案降级到空视图）。 */
 function replayOf(resultJson: string): Pick<NightReviewOutcome, "after" | "through" | "reviewed" | "changes"> {
   const prior = parseChangeset(resultJson);
@@ -117,6 +122,17 @@ function replayOf(resultJson: string): Pick<NightReviewOutcome, "after" | "throu
     reviewed: prior?.reviewed ?? 0,
     changes: prior?.changes ?? [],
   };
+}
+
+/** 状态中文标注（fyi 汇总用，与检索端 [已核实]/[存疑] 标注同词汇表） */
+function statusLabel(to: Exclude<BeliefStatus, "recorded">): string {
+  if (to === "verified") return "已核实";
+  if (to === "disputed") return "存疑";
+  return "已过期";
+}
+
+function statusOf(entry: MemoryEntry): BeliefStatus | null {
+  return parseBeliefMetadata(entry)?.status ?? null;
 }
 
 export class NightReviewOrchestrator {
@@ -139,60 +155,15 @@ export class NightReviewOrchestrator {
     if (ranged.skip) return { ...base, after: ranged.after, through: ranged.through, skipped: true };
     const { after, through } = ranged;
 
-    // 3. 当日 recorded 清单：空集也是合法 settle（当天无现场记录）
-    const beliefs = await this.deps.memoryReader.listBeliefsByStatus("recorded", after, through);
-    if (beliefs.length === 0) {
+    // 3. 区间全集（四状态拼全）——变更集审计面。空集也是合法 settle（当天无现场记录）。
+    const rangeAll = await this.loadRangeBeliefs(after, through);
+    if (rangeAll.length === 0) {
       await this.settleEmpty(reviewKey, date, after, through);
       return { ...base, after, through };
     }
 
-    // 4-6. 召唤夜审獭 + invoke + 审后校验存档（失败统一 recordFailure，獭 finally 解散）
-    return this.reviewWithOtter({ params, reviewKey, date, after, through, beliefs, base });
-  }
-
-  /** 空集 settle：当天无 recorded 也是合法完成（不召唤獭、不挂否决锚）。 */
-  private async settleEmpty(reviewKey: string, date: string, after: string, through: string): Promise<void> {
-    const changeset: NightReviewChangeset = { date, after, through, reviewed: 0, changes: [] };
-    await this.deps.manageConsolidationState.complete(reviewKey, JSON.stringify(changeset));
-    this.deps.logger.info("Night review settled with empty range", { reviewKey, after, through });
-  }
-
-  /** 召唤獭 → invoke → 审后校验 + 存档 + fyi；任一环节失败 recordFailure 后上抛（獭 finally 解散）。 */
-  private async reviewWithOtter(args: {
-    params: NightReviewParams;
-    reviewKey: string;
-    date: string;
-    after: string;
-    through: string;
-    beliefs: MemoryEntry[];
-    base: Pick<NightReviewOutcome, "reviewKey" | "date" | "reviewed" | "changes">;
-  }): Promise<NightReviewOutcome> {
-    const { params, reviewKey, date, after, through, beliefs, base } = args;
-    const otter = await this.summonReviewer(date, after, through);
-    try {
-      await this.runReviewer({ params, otterId: otter.id, date, after, through, beliefs });
-      const outcome = await this.settle({ conversationId: params.conversationId, reviewKey, date, after, through, beliefs });
-      return { ...base, after, through, ...outcome };
-    } catch (err) {
-      // invoke/校验任一环节失败：登记失败区间（同区间连败 +1），错误上抛走 function executor
-      // 的 failed 记账（scheduler 3 连败熔断 + 迟到补跑对账自然衔接）
-      try {
-        await this.deps.manageConsolidationState.recordFailure(reviewKey, after, through);
-      } catch (recordErr) {
-        this.deps.logger.error("Night review recordFailure failed (original error preserved)", recordErr as Error, { reviewKey });
-      }
-      throw err;
-    } finally {
-      // 獭生命周期：审完即解散（獭不进对话名册，不 dissolve 即孤儿）
-      try {
-        await this.deps.dissolveOtter.execute(otter.id, `夜间审视 ${date} 完成，按编排解散`);
-      } catch (dissolveErr) {
-        this.deps.logger.warn("Night reviewer dissolve failed (orphan otter risk)", {
-          otterId: otter.id,
-          error: dissolveErr instanceof Error ? dissolveErr.message : String(dissolveErr),
-        });
-      }
-    }
+    // 4-6. 待审清单 = 全集中的 recorded；召唤夜审獭审它；审后按全集终态存档 + fyi
+    return this.reviewWithOtter({ params, reviewKey, date, after, through, rangeAll, base });
   }
 
   /** 区间决策：claim 已有失败区间 → 重跑原区间（连败达阈值则跳过）；否则水位推进。 */
@@ -208,7 +179,8 @@ export class NightReviewOrchestrator {
     }
     const { after, through } = claim.failingRange;
     if (claim.failures >= MAX_CONSECUTIVE_FAILURES) {
-      // 同区间连败达阈值：这段没审视成，跳过并报 healing（不 complete——留档待人工介入）
+      // 同区间连败达阈值：这段没审视成，跳过并报 healing（不 complete——留档待人工介入）。
+      // 次日新键 + 未清失败区间起点使水位仍覆盖该段——跳过的是「今天不再撞」，不是丢审。
       await this.reportSkipHealing(conversationId, reviewKey, after, through, claim.failures);
       this.deps.logger.warn("Night review skipped: consecutive failures reached threshold", {
         reviewKey, failures: claim.failures, after, through,
@@ -216,79 +188,6 @@ export class NightReviewOrchestrator {
       return { after, through, skip: true };
     }
     return { after, through };
-  }
-
-  /** 召唤夜审獭（P2a 档案）+ 快照范围写入獭 context（三迁移工具 fail-closed 校验的数据源）。 */
-  private async summonReviewer(date: string, after: string, through: string) {
-    const nowStamp = new Date().toISOString().slice(11, 16).replace(":", "");
-    const otter = await this.deps.createOtter.execute({
-      name: `夜审${date}T${nowStamp}`,
-      type: "night-reviewer",
-      systemPrompt: buildNightReviewerPrompt(),
-    });
-    await this.deps.otterContextRepo.set(
-      otter.id,
-      NIGHT_REVIEW_RANGE_CONTEXT_KEY,
-      JSON.stringify({ after, through }),
-    );
-    return otter;
-  }
-
-  /** 触发锚点（时间线可见性）+ invoke 夜审獭（清单 + 原文注入）。 */
-  private async runReviewer(args: {
-    params: NightReviewParams;
-    otterId: string;
-    date: string;
-    after: string;
-    through: string;
-    beliefs: MemoryEntry[];
-  }): Promise<void> {
-    const { params, otterId, date, after, through, beliefs } = args;
-    await this.deps.sendEntry.createSystemEntry({
-      conversationId: params.conversationId,
-      body: `🌙 夜间审视开始（${date}）：快照范围 [${after}, ${through}]，待核 ${beliefs.length} 条 recorded belief。`,
-    });
-    await this.deps.agentTurnPort.invokeConversation({
-      otterId,
-      conversationId: params.conversationId,
-      userMessageContent: buildNightReviewMessage(after, through, beliefs, await this.loadAnchors(beliefs)),
-      senderId: params.senderId ?? "system",
-    });
-  }
-
-  /**
-   * 审后全量处置校验（recorded 残留 = 丢审 → throw 走 catch 的 recordFailure）
-   * + 变更集存档（complete）+ fyi 汇总与 matter 否决锚。
-   */
-  private async settle(args: {
-    conversationId: string;
-    reviewKey: string;
-    date: string;
-    after: string;
-    through: string;
-    beliefs: MemoryEntry[];
-  }): Promise<{ reviewed: number; changes: NightReviewChangeset["changes"]; matterAnchor?: string }> {
-    const { conversationId, reviewKey, date, after, through, beliefs } = args;
-    const terminal = await this.readTerminalStatuses(beliefs);
-    const pending = beliefs.filter((b) => terminal.get(b.id) === undefined || terminal.get(b.id) === "recorded");
-    if (pending.length > 0) {
-      this.deps.logger.warn("Night review incomplete: beliefs left unprocessed", {
-        reviewKey, pending: pending.map((b) => b.id),
-      });
-      throw new Error(
-        `夜间审视未全量处置：${pending.length}/${beliefs.length} 条 recorded 未迁移（下次触发重跑同区间 [${after}, ${through}]）`,
-      );
-    }
-    const changes = beliefs
-      .map((b) => ({ id: b.id, to: terminal.get(b.id) as Exclude<BeliefStatus, "recorded"> }))
-      .filter((c) => c.to !== undefined);
-    const changeset: NightReviewChangeset = { date, after, through, reviewed: beliefs.length, changes };
-    await this.deps.manageConsolidationState.complete(reviewKey, JSON.stringify(changeset));
-    const matterAnchor = await this.reportChangeset(conversationId, changeset);
-    this.deps.logger.info("Night review completed", {
-      reviewKey, reviewed: beliefs.length, verified: changes.filter((c) => c.to === "verified").length,
-    });
-    return { reviewed: beliefs.length, changes, matterAnchor };
   }
 
   /**
@@ -313,6 +212,209 @@ export class NightReviewOrchestrator {
     return new Date(afterMs).toISOString();
   }
 
+  /** 区间全集：四状态查询拼接（变更集审计面是区间内全部 belief，不只 recorded）。 */
+  private async loadRangeBeliefs(after: string, through: string): Promise<MemoryEntry[]> {
+    const lists = await Promise.all(
+      RANGE_STATUSES.map((status) => this.deps.memoryReader.listBeliefsByStatus(status, after, through)),
+    );
+    const seen = new Set<string>();
+    const all: MemoryEntry[] = [];
+    for (const list of lists) {
+      for (const entry of list) {
+        if (!seen.has(entry.id)) {
+          seen.add(entry.id);
+          all.push(entry);
+        }
+      }
+    }
+    return all.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+  }
+
+  /** 空集 settle：当天无 recorded 也是合法完成（不召唤獭、不挂否决锚）。 */
+  private async settleEmpty(reviewKey: string, date: string, after: string, through: string): Promise<void> {
+    const changeset: NightReviewChangeset = { date, after, through, reviewed: 0, changes: [] };
+    await this.deps.manageConsolidationState.complete(reviewKey, JSON.stringify(changeset));
+    this.deps.logger.info("Night review settled with empty range", { reviewKey, after, through });
+  }
+
+  /**
+   * 召唤獭 → invoke（超时保护）→ 审后校验 + 存档 + fyi。
+   * 待审清单空（全集非空但无 recorded——上轮已迁移/全部即时 supersede）时不召唤獭，
+   * 直接按全集终态 settle + fyi（审-1946 发现 3b：崩溃重跑的审计补全路径）。
+   * 召唤全程序 try/finally：CreateOtter / context 写入 / invoke / settle 任一失败
+   * 都走 recordFailure（连败达阈值当次报 healing 返回 skipped，不上抛熔断任务）；
+   * 已创建的獭在 finally 解散（失败也报 healing，不留孤儿）。
+   */
+  private async reviewWithOtter(args: {
+    params: NightReviewParams;
+    reviewKey: string;
+    date: string;
+    after: string;
+    through: string;
+    rangeAll: MemoryEntry[];
+    base: Pick<NightReviewOutcome, "reviewKey" | "date" | "reviewed" | "changes">;
+  }): Promise<NightReviewOutcome> {
+    const { params, reviewKey, date, after, through, rangeAll, base } = args;
+    const pending = rangeAll.filter((b) => statusOf(b) === "recorded");
+    if (pending.length === 0) {
+      // 无待审：不召唤獭（避免为空清单开 LLM 会话），直接审计存档
+      const outcome = await this.settle({
+        conversationId: params.conversationId, reviewKey, date, after, through, rangeAll, pending,
+      });
+      return { ...base, after, through, ...outcome };
+    }
+    let otterId: string | null = null;
+    try {
+      // 召唤（P2a 档案）+ 快照范围写入獭 context（三迁移工具 fail-closed 校验的数据源）
+      const otter = await this.deps.createOtter.execute({
+        name: `夜审${date}T${new Date().toISOString().slice(11, 16).replace(":", "")}`,
+        type: "night-reviewer",
+        systemPrompt: buildNightReviewerPrompt(),
+      });
+      otterId = otter.id;
+      await this.deps.otterContextRepo.set(
+        otter.id,
+        NIGHT_REVIEW_RANGE_CONTEXT_KEY,
+        JSON.stringify({ after, through }),
+      );
+
+      // 锚点 entry + 清单注入 + 超时保护的 invoke + 审后校验存档
+      await this.runPendingReview({ params, otterId: otter.id, date, after, through, pending });
+      // 审后校验 + 存档 + fyi（全集终态进 changeset——上轮已迁移/本轮迁移都入审计）
+      const outcome = await this.settle({
+        conversationId: params.conversationId, reviewKey, date, after, through, rangeAll, pending,
+      });
+      return { ...base, after, through, ...outcome };
+    } catch (err) {
+      // 失败记账：达阈值当次 skip（不上抛熔断任务）；否则原错误上抛走 failed 记账
+      const skipped = await this.recordFailureOrSkip(params.conversationId, reviewKey, after, through);
+      if (skipped) return { ...base, after, through, skipped: true };
+      throw err;
+    } finally {
+      // 獭生命周期：创建成功即解散（审完/失败都散；獭不进对话名册，不 dissolve 即孤儿）
+      if (otterId !== null) {
+        try {
+          await this.deps.dissolveOtter.execute(otterId, `夜间审视 ${date} 收尾，按编排解散`);
+        } catch (dissolveErr) {
+          this.deps.logger.warn("Night reviewer dissolve failed (orphan otter risk)", {
+            otterId,
+            error: dissolveErr instanceof Error ? dissolveErr.message : String(dissolveErr),
+          });
+          await this.reportDissolveFailureHealing(params.conversationId, otterId, date);
+        }
+      }
+    }
+  }
+
+  /**
+   * 失败记账：登记失败区间（同区间连败 +1）。达阈值当次报 healing 并返回 true
+   * （调用方返 skipped 不上抛——scheduler 记 completed 不熔断任务，次日新键新区间
+   * 自然重试，未清失败区间起点保证水位覆盖该段——跳过是「今天不再撞」，不是丢审）。
+   */
+  private async recordFailureOrSkip(
+    conversationId: string, reviewKey: string, after: string, through: string,
+  ): Promise<boolean> {
+    try {
+      const failure = await this.deps.manageConsolidationState.recordFailure(reviewKey, after, through);
+      if (!failure.shouldSkip) return false;
+      await this.reportSkipHealing(conversationId, reviewKey, after, through, failure.failures);
+      this.deps.logger.warn("Night review skipped after failure: threshold reached in-run", {
+        reviewKey, failures: failure.failures, after, through,
+      });
+      return true;
+    } catch (recordErr) {
+      this.deps.logger.error("Night review recordFailure failed (original error preserved)", recordErr as Error, { reviewKey });
+      return false;
+    }
+  }
+
+  /** 锚点 entry + 清单注入（原文）+ 超时保护的 invoke。 */
+  private async runPendingReview(args: {
+    params: NightReviewParams;
+    otterId: string;
+    date: string;
+    after: string;
+    through: string;
+    pending: MemoryEntry[];
+  }): Promise<void> {
+    const { params, otterId, date, after, through, pending } = args;
+    const anchors = await this.loadAnchors(pending);
+    await this.deps.sendEntry.createSystemEntry({
+      conversationId: params.conversationId,
+      body: `🌙 夜间审视开始（${date}）：快照范围 [${after}, ${through}]，待核 ${pending.length} 条 recorded belief。`,
+    });
+    await this.invokeWithTimeout(
+      () => this.deps.agentTurnPort.invokeConversation({
+        otterId,
+        conversationId: params.conversationId,
+        userMessageContent: buildNightReviewMessage(after, through, pending, anchors),
+        senderId: params.senderId ?? "system",
+      }),
+    );
+  }
+
+  /** invoke 的超时保护：超时抛错走 catch 的 recordFailure + finally 的 dissolve（放弃挂死会话）。 */
+  private async invokeWithTimeout(invoke: () => Promise<unknown>): Promise<void> {
+    const timeoutMs = NIGHT_REVIEW_TIMEOUT_MINUTES * 60_000;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        invoke(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`夜审獭 invoke 超时（${NIGHT_REVIEW_TIMEOUT_MINUTES} 分钟）——放弃本次会话`)),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * 审后全量处置校验（待审清单里的 recorded 必须全部离开 recorded——残留 = 丢审 →
+   * throw 走 catch 的 recordFailure）+ 变更集存档 + fyi 汇总与 matter 否决锚。
+   * 顺序：fyi 先于 complete——report 失败可 recordFailure 重跑补发；complete 失败
+   * 重跑时全集重读（无 recorded 待审）幂等补齐（matter 按 title 查重防重复登记）。
+   */
+  private async settle(args: {
+    conversationId: string;
+    reviewKey: string;
+    date: string;
+    after: string;
+    through: string;
+    rangeAll: MemoryEntry[];
+    pending: MemoryEntry[];
+  }): Promise<{ reviewed: number; changes: NightReviewChangeset["changes"]; matterAnchor?: string }> {
+    const { conversationId, reviewKey, date, after, through, rangeAll, pending } = args;
+    const terminal = await this.readTerminalStatuses(rangeAll);
+    const unprocessed = pending.filter((b) => terminal.get(b.id) === undefined || terminal.get(b.id) === "recorded");
+    if (unprocessed.length > 0) {
+      this.deps.logger.warn("Night review incomplete: beliefs left unprocessed", {
+        reviewKey, unprocessed: unprocessed.map((b) => b.id),
+      });
+      throw new Error(
+        `夜间审视未全量处置：${unprocessed.length}/${pending.length} 条 recorded 未迁移（下次触发重跑同区间 [${after}, ${through}]）`,
+      );
+    }
+    // changeset = 区间全集终态（上轮已迁移 + 本轮迁移 + 即时 supersede 都入审计）
+    const changes = rangeAll
+      .map((b) => {
+        const to = terminal.get(b.id);
+        return to !== undefined && to !== "recorded" ? { id: b.id, to: to as Exclude<BeliefStatus, "recorded"> } : null;
+      })
+      .filter((c): c is { id: string; to: Exclude<BeliefStatus, "recorded"> } => c !== null);
+    const changeset: NightReviewChangeset = { date, after, through, reviewed: pending.length, changes };
+    const matterAnchor = await this.reportChangeset(conversationId, changeset);
+    await this.deps.manageConsolidationState.complete(reviewKey, JSON.stringify(changeset));
+    this.deps.logger.info("Night review completed", {
+      reviewKey, reviewed: pending.length, inRange: rangeAll.length,
+      verified: changes.filter((c) => c.to === "verified").length,
+    });
+    return { reviewed: pending.length, changes, matterAnchor };
+  }
+
   /** 读 belief 原文（anchors 指向的原始条目）。缺失的锚记 null——prompt 标注「原文缺失」由獭 reject。 */
   private async loadAnchors(beliefs: MemoryEntry[]): Promise<Map<string, MemoryEntry | null>> {
     const ids = new Set<string>();
@@ -328,7 +430,7 @@ export class NightReviewOrchestrator {
     return map;
   }
 
-  /** 审后读终态：审前 id 集 → 当前状态。条目消失（被物理清理）按 undefined 处理为未处置。 */
+  /** 审后读全集终态。条目消失（被物理清理）按 undefined 处理为未处置（fail-closed）。 */
   private async readTerminalStatuses(beliefs: MemoryEntry[]): Promise<Map<string, BeliefStatus>> {
     const found = await this.deps.memoryReader.getDetails(beliefs.map((b) => b.id));
     const map = new Map<string, BeliefStatus>();
@@ -352,7 +454,7 @@ export class NightReviewOrchestrator {
         otterId: "",
         errorType: "other",
         severity: "medium",
-        description: `夜间审视区间 [${after}, ${through}] 同区间连败 ${failures} 次，已跳过——这段没审视成`,
+        description: `夜间审视区间 [${after}, ${through}] 同区间连败 ${failures} 次，已跳过——这段没审视成（次日新区间自动重试，未清失败区间保证水位覆盖）`,
         suggestion: "检查夜审时段 LLM 会话失败原因（配额/超时/模型状态）；恢复后可手动触发任务重跑该区间",
         context: { reviewKey, after, through, failures },
         status: "open",
@@ -367,26 +469,64 @@ export class NightReviewOrchestrator {
     }
   }
 
-  /** fyi：变更汇总 system entry + matter 否决锚（payload 存变更集，打回时大獭按 id 迁 disputed）。 */
+  /** dissolve 失败的 healing 上报（孤儿受限写者残留——需要人工清理）。失败仅日志。 */
+  private async reportDissolveFailureHealing(conversationId: string, otterId: string, date: string): Promise<void> {
+    if (!this.deps.healingRepo) return;
+    try {
+      await this.deps.healingRepo.create({
+        id: crypto.randomUUID(),
+        messageId: "",
+        conversationId,
+        otterId,
+        errorType: "other",
+        severity: "medium",
+        description: `夜审獭（${date}）解散失败——active 受限写者可能残留，需人工清理`,
+        suggestion: "检查该獭 session 状态后手动解散（dissolve_otter）；残留獭持有 belief 迁移工具白名单",
+        context: { otterId, date },
+        status: "open",
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+      });
+    } catch (err) {
+      this.deps.logger.warn("Night review dissolve-failure healing report failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * fyi：变更汇总 system entry + matter 否决锚（payload 存变更集，打回时大獭用
+   * belief_dispute 按条目迁 disputed）。matter 按 title 查重幂等（重跑补发不重复登记）。
+   */
   private async reportChangeset(conversationId: string, changeset: NightReviewChangeset): Promise<string> {
-    const matter = await this.deps.registerMatter.execute({
-      conversationId,
-      title: `夜间审视 ${changeset.date}：${changeset.changes.length} 条 belief 迁移待过目`,
-      originMessageId: null,
-      ownerOtterId: null,
-      initialState: "WAITING_PARTNER",
-      waitingOn: "partner",
-      waitingFor: "回复「打回 <短锚>」即把对应 belief 迁 disputed；无异议即保留",
-      payload: JSON.stringify(changeset),
-    });
-    const anchor = matterShortAnchor(matter.id);
+    const title = `夜间审视 ${changeset.date}：${changeset.changes.length} 条 belief 迁移待过目`;
+    const existing = await this.deps.matterRepo.findByConversation(conversationId);
+    const prior = existing.find((m) => m.title === title);
+    let matterId: string;
+    if (prior) {
+      matterId = prior.id; // 重跑补发：同日同标题复用，不重复登记
+    } else {
+      const matter = await this.deps.registerMatter.execute({
+        conversationId,
+        title,
+        originMessageId: null,
+        ownerOtterId: null,
+        initialState: "WAITING_PARTNER",
+        waitingOn: "partner",
+        waitingFor: "回复「打回 <短锚>」即把对应 belief 迁 disputed（大獭执行 belief_dispute）；无异议即保留",
+        payload: JSON.stringify(changeset),
+      });
+      matterId = matter.id;
+    }
+    const anchor = matterShortAnchor(matterId);
     const lines = changeset.changes.map((c) => `- [${statusLabel(c.to)}] ${c.id} → ${c.to}`);
     await this.deps.sendEntry.createSystemEntry({
       conversationId,
       body: [
         `🌙 **夜间审视完成（${changeset.date}）**`,
         "",
-        `快照范围 [${changeset.after}, ${changeset.through}]，核对 ${changeset.reviewed} 条 recorded belief：`,
+        `快照范围 [${changeset.after}, ${changeset.through}]，核对 ${changeset.reviewed} 条 recorded belief，区间全集 ${changeset.changes.length} 条处置：`,
         ...lines,
         "",
         `否决锚：${anchor}——回复「打回 ${anchor}」即把该批 belief 迁 disputed（存疑重新入审），无异议即保留。`,
@@ -394,62 +534,4 @@ export class NightReviewOrchestrator {
     });
     return anchor;
   }
-}
-
-/** 夜审獭系统提示词（受限写者身份 + 承重不变量：全量核对、默认拒、禁删只迁移）。 */
-export function buildNightReviewerPrompt(): string {
-  return [
-    "你是夜间审视獭（night-reviewer），主动记忆层的独立核实者。你的唯一职责：对快照范围内的 recorded belief 逐条核对原文，做出状态迁移。",
-    "",
-    "判断规则（防编造链承重不变量）：",
-    "- 全量核对、非抽样、默认拒——审视是整条防编造链的承重件，不是安检表演。",
-    "- 原文与 belief 正文语义吻合 → belief_verify（核实 → verified）",
-    "- 原文与 belief 正文不吻合（曲解、过度引申、无中生有）→ belief_reject（打回 → disputed）",
-    "- 原文真实但已被后续事实取代（认识过期）→ belief_supersede（标记过期 → superseded，旧条目保留）",
-    "- 工具只接受快照范围内创建的条目（范围外调用会被拒）。",
-    "- 禁止删除：三个工具都只迁状态，改不了条目内容。",
-    "",
-    "流程要求：",
-    "1. 逐条核对清单中的 belief（正文 + 原文锚点）；每条必须处置——没有「保持原状」选项，拿不准就是 reject。",
-    "2. 全部处置完后：speak 一条变更汇总（每条标注 [已核实]/[存疑]/[已过期]），然后 yield 交给 user 收尾。",
-    "3. 不要发起讨论、不要派工、不要调用清单外的工具。",
-  ].join("\n");
-}
-
-/** 夜审任务消息（当日清单 + 原文 + 快照范围注入）。 */
-export function buildNightReviewMessage(
-  after: string,
-  through: string,
-  beliefs: MemoryEntry[],
-  anchors: Map<string, MemoryEntry | null>,
-): string {
-  const items = beliefs.map((b, i) => {
-    const meta = parseBeliefMetadata(b);
-    const anchorLines = (meta?.anchors ?? []).map((a) => {
-      const src = anchors.get(a);
-      return src
-        ? `  - [${a}] ${src.content}`
-        : `  - [${a}]（原文缺失——按 reject 处置）`;
-    });
-    const inferredLines = (meta?.inferredFrom ?? []).map((a) => {
-      const src = anchors.get(a);
-      return src ? `  - [${a}] ${src.content}` : `  - [${a}]（依据缺失）`;
-    });
-    return [
-      `## 条目 ${i + 1}`,
-      `- id: ${b.id}`,
-      `- kind: ${meta?.kind ?? "unknown"}`,
-      `- belief 正文: ${b.content}`,
-      "- 原文锚点:",
-      ...anchorLines,
-      ...(inferredLines.length > 0 ? ["- 推断依据:", ...inferredLines] : []),
-    ].join("\n");
-  });
-  return [
-    `# 夜间审视任务（快照范围 [${after}, ${through}]）`,
-    "",
-    `当日 recorded belief 共 ${beliefs.length} 条。逐条核对原文，对每条调用 belief_verify / belief_reject / belief_supersede 之一，全部处置完后 speak 汇总并 yield user。`,
-    "",
-    ...items,
-  ].join("\n");
 }
