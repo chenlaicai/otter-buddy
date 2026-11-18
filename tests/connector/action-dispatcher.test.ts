@@ -1,0 +1,111 @@
+import { describe, expect, it } from "vitest";
+import { ConnectorActionDispatcher } from "../../src/connector/action-dispatcher";
+import type { ActionRecord } from "@entities/execution/action-record";
+import type { ConnectorFrame } from "@entities/execution/connector-protocol";
+
+/**
+ * F20261118remex（#1868 阶段 4 C2）：connector 侧动作分发器单测——
+ * 幂等快路径（台账已 succeeded 不重执行）/白名单拒/执行回执/台账读失败降级（方案 §5）。
+ */
+
+type ResultFrame = Extract<ConnectorFrame, { type: "action.result" }>["data"];
+
+function requestFrame(actionId: string, type: string, input: Record<string, unknown>) {
+  return { v: 1, type: "action.request", seq: 1, sid: "s1", data: { actionId, action: { type, input } } } as const;
+}
+
+function makeDeps(opts: {
+  existing?: ActionRecord | null;
+  ledgerError?: boolean;
+  executorImpl?: (action: { type: string; input: Record<string, unknown> }, options?: { actionId?: string }) => Promise<unknown>;
+} = {}) {
+  const sent: ResultFrame[] = [];
+  const executorCalls: Array<{ type: string; actionId?: string }> = [];
+  const deps = {
+    executor: {
+      run: async (action: { type: string; input: Record<string, unknown> }, options?: { actionId?: string }) => {
+        executorCalls.push({ type: action.type, actionId: options?.actionId });
+        if (opts.executorImpl) return opts.executorImpl(action, options);
+        return "ok";
+      },
+    },
+    ledger: {
+      getByActionId: async () => {
+        if (opts.ledgerError) throw new Error("db locked");
+        return opts.existing ?? null;
+      },
+    },
+    send: (data: ResultFrame) => { sent.push(data); },
+    log: () => {},
+  };
+  return { deps, sent, executorCalls, dispatcher: new ConnectorActionDispatcher(deps) };
+}
+
+function ledgerRow(status: ActionRecord["status"], resultSummary: string | null = null): ActionRecord {
+  return {
+    actionId: "a-1", deviceId: "conn-1", onlineSessionId: null, invokeId: null, conversationId: null,
+    toolCallId: null, source: "workspace", kind: "workspace.write", target: "c1/b.txt", contentHash: null,
+    contentBytes: null, status, error: null, resultSummary, bootEpoch: 1, pid: null, startedAt: "2026-11-18T00:00:00Z", settledAt: null,
+  };
+}
+
+describe("ConnectorActionDispatcher", () => {
+  it("白名单外动作类型 → failed 回执（协议 v1 只放六动作）", async () => {
+    const { dispatcher, sent } = makeDeps();
+    await dispatcher.handleActionRequest(requestFrame("a-x", "shell.exec", { command: "rm -rf /" }));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.status).toBe("failed");
+    expect(sent[0]!.error).toContain("unsupported action type");
+  });
+
+  it("幂等快路径：台账已 succeeded → 不重执行；write 类回 null（活体 void 语义，m5）", async () => {
+    const { dispatcher, sent, executorCalls } = makeDeps({
+      existing: ledgerRow("succeeded", JSON.stringify({ bytes: 3 })),
+    });
+    await dispatcher.handleActionRequest(requestFrame("a-1", "workspace.write", { conversationId: "c1", relativePath: "b.txt", content: "xyz" }));
+    expect(executorCalls).toHaveLength(0); // 未重执行
+    expect(sent[0]!.status).toBe("succeeded");
+    expect(sent[0]!.result).toBeNull(); // write 活体 result 为 void → 快路径归一 null（不回 {bytes}）
+  });
+
+  it("幂等快路径：delete 类回记录的 {deleted}（与活体结果一致）", async () => {
+    const { dispatcher, sent } = makeDeps({
+      existing: { ...ledgerRow("succeeded", JSON.stringify({ deleted: "file" })), kind: "workspace.delete" },
+    });
+    await dispatcher.handleActionRequest(requestFrame("a-1", "workspace.delete", { conversationId: "c1", relativePath: "b.txt" }));
+    expect(sent[0]!.status).toBe("succeeded");
+    expect(sent[0]!.result).toEqual({ deleted: "file" });
+  });
+
+  it("台账无行 → 正常执行 → succeeded + 执行结果；actionId 透传 executor（台账记账锚）", async () => {
+    const { dispatcher, sent, executorCalls } = makeDeps();
+    await dispatcher.handleActionRequest(requestFrame("a-2", "workspace.read", { conversationId: "c1", relativePath: "a.txt" }));
+    expect(executorCalls).toEqual([{ type: "workspace.read", actionId: "a-2" }]);
+    expect(sent[0]!.status).toBe("succeeded");
+    expect(sent[0]!.result).toBe("ok");
+  });
+
+  it("台账非终态/其他状态（running/unknown/interrupted）→ 照常执行（executor 内部 dedupe 兜底真冲突）", async () => {
+    for (const status of ["running", "unknown", "interrupted", "failed"] as const) {
+      const { dispatcher, executorCalls } = makeDeps({ existing: ledgerRow(status) });
+      await dispatcher.handleActionRequest(requestFrame("a-1", "workspace.exists", { conversationId: "c1" }));
+      expect(executorCalls).toHaveLength(1); // 走执行
+    }
+  });
+
+  it("执行抛错 → failed 回执带 error", async () => {
+    const { dispatcher, sent } = makeDeps({
+      executorImpl: async () => { throw new Error("ENOENT: a.txt"); },
+    });
+    await dispatcher.handleActionRequest(requestFrame("a-3", "workspace.read", { conversationId: "c1", relativePath: "a.txt" }));
+    expect(sent[0]!.status).toBe("failed");
+    expect(sent[0]!.error).toContain("ENOENT");
+  });
+
+  it("台账读失败 → 降级执行（记账降级语义：台账缺席动作照常执行）", async () => {
+    const { dispatcher, sent, executorCalls } = makeDeps({ ledgerError: true });
+    await dispatcher.handleActionRequest(requestFrame("a-4", "workspace.exists", { conversationId: "c1" }));
+    expect(executorCalls).toHaveLength(1);
+    expect(sent[0]!.status).toBe("succeeded");
+  });
+});

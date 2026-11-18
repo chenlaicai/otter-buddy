@@ -143,6 +143,7 @@ interface Harness {
       rateLimitBaseDelayMs?: number;
       invokeFn?: () => Promise<{ messageId: string }>;
       actionLedger?: { listByInvoke(invokeId: string, limit?: number): Promise<import("@entities/execution/action-record").ActionRecord[]> };
+      remoteActions?: { listByConversation(conversationId: string, limit?: number): Promise<import("@entities/execution/remote-action-request").RemoteActionRequest[]> };
       bootEpoch?: number;
       pid?: number;
       isPidAlive?: (pid: number) => boolean;
@@ -203,6 +204,7 @@ function makeHarness(): Harness {
       delayMs: opts.delayMs ?? 0,
       rateLimitBaseDelayMs: opts.rateLimitBaseDelayMs,
       actionLedger: opts.actionLedger,
+      remoteActions: opts.remoteActions,
       bootEpoch: opts.bootEpoch ?? 42,
       pid: opts.pid,
       isPidAlive: opts.isPidAlive,
@@ -485,6 +487,8 @@ it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢�
     expect(h.queueStatus(invokeId)).toBe("done");
   });
 
+  // ─── F20261118remex（C2/R2）：远程动作五态并入恢复摘要 ───
+
   it("台账缺席 → 旧版文案（无摘要块）；认领绑定注入的 bootEpoch", async () => {
     const invokeId = await h.seedInterrupted();
     const chain = stubChainEngine();
@@ -650,5 +654,54 @@ describe("ResumeInterruptedService 可优化项完整落地（S1 持有收口/S2
     const row = await h.resumeRepo.getByInvokeId(invokeId);
     expect(row?.recoveryInvokeId).toBe("new-invoke-1,new-invoke-1"); // S2：两轮全历史（stub 固定 messageId）
     expect(h.queueStatus(invokeId)).toBe("done");
+  });
+});
+
+// ─── F20261118remex（#1868 阶段 4 C2/R2）：远程动作五态并入恢复摘要 ───
+describe("ResumeInterruptedService 远程动作摘要并入（C2/R2）", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = await setupHarness();
+  });
+
+  afterEach(() => {
+    h.db.close();
+  });
+
+  it("远程动作段并入：本机台账段缺席时远程段独现，远程五态可裁决", async () => {
+    await h.seedInterrupted();
+    const chain = stubChainEngine();
+    const service = h.buildService(chain, {
+      remoteActions: {
+        listByConversation: async (conversationId: string) => conversationId === "conv-1" ? [
+          { actionId: "r-1", onlineSessionId: "s-1", deviceId: "conn-a", actionType: "workspace.write", status: "unknown", error: "timeout after 30000ms", result: null, createdAt: T0, settledAt: null, conversationId: "conv-1", invokeId: null },
+          { actionId: "r-2", onlineSessionId: "s-1", deviceId: "conn-a", actionType: "workspace.read", status: "succeeded", error: null, result: null, createdAt: T0, settledAt: null, conversationId: "conv-1", invokeId: null },
+        ] : [],
+      },
+    });
+
+    await service.resume();
+
+    const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
+    expect(content).toContain("远程动作");
+    expect(content).toContain("[unknown] workspace.write @conn-a");
+    expect(content).toContain("禁止盲目重试");
+    expect(content).toContain("[succeeded] workspace.read @conn-a");
+    expect(content).not.toContain("机器台账"); // 本机台账缺席——只有远程段
+  });
+
+  it("remoteActions 查询失败 → 远程段静默缺席（non-fatal，不阻断恢复）", async () => {
+    await h.seedInterrupted();
+    const chain = stubChainEngine();
+    const service = h.buildService(chain, {
+      remoteActions: { listByConversation: async () => { throw new Error("db locked"); } },
+    });
+
+    await service.resume();
+
+    expect(chain.calls).toHaveLength(1); // 恢复照常
+    const content = (chain.calls[0] as { userMessageContent: string }).userMessageContent;
+    expect(content).not.toContain("远程动作");
   });
 });

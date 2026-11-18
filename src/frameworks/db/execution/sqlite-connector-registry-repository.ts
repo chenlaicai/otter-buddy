@@ -149,6 +149,13 @@ export class SqliteConnectorRegistryRepository implements ConnectorRegistryRepos
     ).run(at, reason, sessionId);
   }
 
+  async listOnlineSessionsByDevice(deviceId: string): Promise<Array<{ id: string; status: string; connectedAt: string }>> {
+    const rows = this.db.prepare(
+      "SELECT id, status, connected_at FROM online_sessions WHERE device_id = ? AND status = 'online' ORDER BY connected_at DESC LIMIT 1",
+    ).all(deviceId) as Array<{ id: string; status: string; connected_at: string }>;
+    return rows.map(r => ({ id: r.id, status: r.status, connectedAt: r.connected_at }));
+  }
+
   async sweepStaleOnlineSessions(at: string): Promise<number> {
     const result = this.db.prepare(
       "UPDATE online_sessions SET status = 'offline', disconnected_at = ?, disconnect_reason = 'hub-restart' WHERE status = 'online'",

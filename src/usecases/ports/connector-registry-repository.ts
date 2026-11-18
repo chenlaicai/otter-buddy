@@ -37,6 +37,8 @@ export interface ConnectorRegistryRepository {
   touchOnlineSession(sessionId: string, at: string): Promise<void>;
   /** 下线/断线/清扫：落 offline + reason（幂等——已 offline 不改写原因） */
   closeOnlineSession(sessionId: string, reason: Exclude<OnlineSessionDisconnectReason, null>, at: string): Promise<void>;
+  /** F20261118remex（C2）：按 device 查当前 online 会话（总闸①事实源直查；至多一行——唯一索引兜底） */
+  listOnlineSessionsByDevice(deviceId: string): Promise<Array<{ id: string; status: string; connectedAt: string }>>;
   /** 中枢启动清扫：所有 online 行落 offline/hub-restart（返回清扫数，幂等） */
   sweepStaleOnlineSessions(at: string): Promise<number>;
 }

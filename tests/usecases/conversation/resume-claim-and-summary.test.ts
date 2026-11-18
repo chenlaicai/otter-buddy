@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type Database from "better-sqlite3";
 import { SqliteResumePendingRepository } from "@frameworks/db/conversation/sqlite-resume-pending-repository";
-import { buildActionLedgerSummary } from "@usecases/execution/action-ledger-summary";
+import { buildActionLedgerSummary, buildRemoteActionSummary } from "@usecases/execution/action-ledger-summary";
 import type { ActionRecord } from "@entities/execution/action-record";
+import type { RemoteActionRequest } from "@entities/execution/remote-action-request";
 import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
 
@@ -121,6 +122,42 @@ describe("buildActionLedgerSummary 恢复摘要", () => {
   it("超过上限折叠为「另有 N 项」", () => {
     const rows = Array.from({ length: 25 }, (_, i) => row({ actionId: `a${i}`, status: "succeeded", target: `/f/${i}` }));
     const summary = buildActionLedgerSummary(rows)!;
+    expect(summary).toContain("另有 5 项");
+    expect(summary.split("\n").filter(l => l.startsWith("- [")).length).toBe(20);
+  });
+});
+
+describe("buildRemoteActionSummary 远程动作五态摘要（C2/R2）", () => {
+  function req(overrides: Partial<RemoteActionRequest>): RemoteActionRequest {
+    return {
+      actionId: "r-1", onlineSessionId: "sess-1", deviceId: "conn-dev", actionType: "workspace.write",
+      status: "requested", error: null, result: null, createdAt: "2026-11-18T00:00:00Z", settledAt: null,
+      conversationId: "c1", invokeId: null, ...overrides,
+    };
+  }
+
+  it("unknown/requested 排最前（需检查优先），含设备标识与五态处置指引", () => {
+    const summary = buildRemoteActionSummary([
+      req({ actionId: "r-ok", status: "succeeded", actionType: "workspace.delete" }),
+      req({ actionId: "r-unk", status: "unknown", error: "timeout after 30000ms" }),
+      req({ actionId: "r-req", status: "requested" }),
+    ]);
+    expect(summary).not.toBeNull();
+    expect(summary!).toContain("unknown×1、requested×1、succeeded×1");
+    expect(summary!.indexOf("[unknown]")).toBeLessThan(summary!.indexOf("[succeeded]"));
+    expect(summary!).toContain("workspace.delete @conn-dev");
+    expect(summary!).toContain("禁止盲目重试");
+    expect(summary!).toContain("回执未达"); // requested 的处置指引
+    expect(summary!).toContain("timeout after 30000ms"); // error 详情内嵌
+  });
+
+  it("空行返回 null（无远程动作——旧文案兼容）", () => {
+    expect(buildRemoteActionSummary([])).toBeNull();
+  });
+
+  it("超过上限折叠为「另有 N 项」", () => {
+    const rows = Array.from({ length: 25 }, (_, i) => req({ actionId: `r${i}`, status: "succeeded" }));
+    const summary = buildRemoteActionSummary(rows)!;
     expect(summary).toContain("另有 5 项");
     expect(summary.split("\n").filter(l => l.startsWith("- [")).length).toBe(20);
   });
