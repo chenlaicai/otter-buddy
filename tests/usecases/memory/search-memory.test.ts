@@ -1069,12 +1069,11 @@ describe("SearchMemory - Phase 1 段 2 debug 贡献分量", () => {
       expect(d!.bias_flag).toBeDefined();
       expect(d!.bias_conv).toBeDefined();
     }
-    // 本对话来源条目应吃到 b_conv 偏置（0.05）
+    // 本对话来源条目应吃到 b_conv 偏置（0.05）；前置断言防条目掉出结果集时静默跳过
     const convHit = result.entries.find(e => e.id === "a");
-    if (convHit) {
-      expect(convHit.debug!.bias_conv).toBeCloseTo(0.05, 10);
-      expect(convHit.debug!.contrib_time).toBeGreaterThan(0); // 同量纲 timeDecay 参与融合
-    }
+    expect(convHit, "conv-A 条目应命中结果集").toBeDefined();
+    expect(convHit!.debug!.bias_conv).toBeCloseTo(0.05, 10);
+    expect(convHit!.debug!.contrib_time).toBeGreaterThan(0); // 同量纲 timeDecay 参与融合
   });
 
   it("multiply 模式：旧字段逐字节不变（field set 恰好六项），不注入 contrib 字段", async () => {
