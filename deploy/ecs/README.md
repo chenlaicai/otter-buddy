@@ -26,8 +26,11 @@
 
 ## 首次部署步骤
 
-1. **替换 colink PoC 实例**（如旧 PoC 在跑）：
-   `sudo systemctl disable --now otter-buddy`（旧 PoC 单元）；PoC 验证数据默认丢弃（不迁移）
+1. **替换海獭 CoLink PoC 体系**（终态：本机只跑一个海獭系统进程）：
+   `sudo systemctl disable --now otter-buddy`（PoC 中枢退役，验证数据默认不迁移）。
+   colink-agent-app 是海獭的 CoLink 通道适配（独立轻进程，OtterBridge 连中枢 API）——
+   过渡期保留（CoLink 对接不能断），待 CoLink 能力并入主中枢进程后退役；
+   其 `Requires=otter-buddy.service` 在新单元安装后自然满足
 2. **配置面**：
    - `/etc/otter-buddy/config.yaml`：沿 PoC 版（server.port 3000 / database.path `/var/lib/otter-buddy/otter-buddy.db` / llm models 走本机 apig 回环或真实 key——**从本机主中枢 config.yaml 拷贝 llm 段，勿用 PoC 占位 key**）
    - `/etc/otter-buddy.env`：
@@ -57,5 +60,7 @@
 ## 已知边界
 
 - 6a 阶段 ECS 是**空库新实例**（无历史对话）——真数据在 6b 迁移后才上云
-- colink-agent-app 依赖 `otter-buddy.service` 存在（Requires=）——替换后 colink-agent 不受影响（主中枢 API 是 PoC 超集）；但 PoC 的对话数据不迁移
+- **终态进程拓扑（搭档定稿）**：这台机只有一个海獭系统——主中枢进程（含全部模块能力）；
+  PoC 中枢（263M）退役让位，colink-agent-app（~几十 M，CoLink 通道适配）过渡保留至
+  能力并入；内存账：系统服务 ~500M + 主中枢（关 bge）400-700M + swap 6G 兜底，余量健康
 - 阶段 6c 将加 connector WSS 升级鉴权强化与 packages 化，当前 wss 面靠 Bearer token（阶段 4 配对码产物）
