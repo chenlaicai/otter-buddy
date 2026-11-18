@@ -23,6 +23,8 @@ export interface ConnectorRegistryRepository {
   redeemAndCreateDevice(code: string, device: Device, now: string): Promise<boolean>;
   /** 按 token 查设备（upgrade 鉴权用；无/撤销返回 null） */
   findDeviceByToken(token: string): Promise<Device | null>;
+  /** 全部已配对设备（阶段 5 设备列表/在线状态 join 用） */
+  listDevices(): Promise<Device[]>;
   /** 撤销配对：删 devices 行（token 即刻失效） */
   deleteDevice(deviceId: string): Promise<void>;
   touchDeviceLastSeen(deviceId: string, at: string): Promise<void>;

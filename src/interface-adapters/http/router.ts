@@ -43,6 +43,11 @@ export interface RouterPlumbingOptions {
   executionMachines?: {
     list: () => Array<{ id: string; name: string }>;
     currentId: () => string;
+    /** F20261118crtgr（阶段 5 PR-A）：已配对设备在线状态（GET 列表 join 用；
+     *  缺省退化无 online 字段——旧装配/测试兼容） */
+    deviceStatus?: () => Array<{ deviceId: string; online: boolean; lastSeenAt: string | null }>;
+    /** F20261118crtgr（阶段 5 PR-A）：对话级切换（目标校验+写列；缺省 501） */
+    setConversationMachine?: (conversationId: string, machineId: string | null) => Promise<{ ok: true } | { ok: false; status: 400 | 404; error: string }>;
   };
   /** F20261117cnnct（阶段 4 C1）：connector 配对端点（码即秘密，无登录态） */
   connectorPair?: ConnectorPairController;
@@ -354,13 +359,31 @@ function registerPlumbingRoutes(app: Hono, plumbing?: RouterPlumbingOptions): vo
     app.get("/api/auth/session", (ctx) => plumbing.auth!.controller.session(ctx));
   }
 
-  // Web 当前执行机投影：默认 local；后续连接器扩展列表与在线状态。
+  // Web 当前执行机投影：默认 local；阶段 5 增设备在线状态与对话级切换。
   if (plumbing?.executionMachines) {
     app.get("/api/execution-machines", (ctx) => {
+      const status = plumbing.executionMachines!.deviceStatus?.() ?? [];
+      const statusMap = new Map(status.map(s => [s.deviceId, s]));
       return ctx.json({
-        machines: plumbing.executionMachines!.list(),
+        machines: plumbing.executionMachines!.list().map(m => {
+          const device = statusMap.get(m.id);
+          return device ? { ...m, online: device.online, lastSeenAt: device.lastSeenAt } : m;
+        }),
         currentMachineId: plumbing.executionMachines!.currentId(),
       });
+    });
+  }
+
+  // F20261118crtgr（阶段 5 PR-A）：对话级当前执行机切换（owner session）
+  if (plumbing?.executionMachines?.setConversationMachine) {
+    app.put("/api/conversations/:id/execution-machine", async (ctx) => {
+      const machineId = (await ctx.req.json().catch(() => null) as { machineId?: unknown } | null)?.machineId;
+      if (machineId !== null && typeof machineId !== "string") {
+        return ctx.json({ error: "machineId must be a string or null" }, 400);
+      }
+      const result = await plumbing.executionMachines!.setConversationMachine!(ctx.req.param("id"), machineId);
+      if (!result.ok) return ctx.json({ error: result.error }, result.status);
+      return ctx.json({ ok: true });
     });
   }
 

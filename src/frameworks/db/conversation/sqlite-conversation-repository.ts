@@ -156,6 +156,20 @@ export class SqliteConversationRepository implements ConversationRepository {
       .run(pinned ? 1 : 0, id);
   }
 
+  // ── F20261118crtgr（#1868 阶段 5 PR-A）：对话级当前执行机 ──
+
+  async getExecutionMachineId(id: string): Promise<string | null> {
+    const row = this.db.prepare("SELECT current_machine_id FROM conversations WHERE id = ?")
+      .get(id) as { current_machine_id: string | null } | undefined;
+    return row?.current_machine_id ?? null;
+  }
+
+  async setExecutionMachineId(id: string, machineId: string | null): Promise<boolean> {
+    const result = this.db.prepare("UPDATE conversations SET current_machine_id = ?, updated_at = ? WHERE id = ?")
+      .run(machineId, new Date().toISOString(), id);
+    return result.changes > 0;
+  }
+
   /** F20260918imas：收篇摘要落库（助理对话软轮换用） */
   async updateSummary(id: string, summary: string): Promise<void> {
     this.db.prepare("UPDATE conversations SET summary = ?, updated_at = ? WHERE id = ?")

@@ -12,6 +12,7 @@ import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
 // F20260826mwrd C3（#534）：createManageHealingEventsTool 改为仅 tool-factory 内注册，此处不再 import
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
+import type { ActionRunner } from "@usecases/ports/execution-machine";
 import type { OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
 // F20260920uhuc：统一交接引擎（bootstrap=组合根，import frameworks 合法）
 import type { HandoffEngineDeps } from "../interface-adapters/agent-runtime/agent-invoker";
@@ -86,8 +87,11 @@ export async function createAgentGateway(options: {
   sessionDir?: string;
   /** Otter 身份文案目录（默认 ./prompts/identity） */
   identityPromptDir?: string;
-  /** OS/工作区动作执行机路由（组合根已注册内置 local） */
+  /** OS/工作区动作执行机路由（组合根已注册内置 local；SDK env 构造面恒走此实例） */
   executionMachines: ExecutionMachineRouter;
+  /** F20261118crtgr（阶段 5 PR-A）：工具面动作路由器（对话级当前机；缺省退化
+   *  executionMachines——零行为变化，测试/旧装配兼容） */
+  toolActionRunner?: ActionRunner;
   /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
   dataDir?: string;
 }): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
@@ -110,7 +114,7 @@ export async function createAgentGateway(options: {
       const scheduledTaskDeps = manageScheduledTaskRef
         ? { manage: manageScheduledTaskRef, pending: repos.scheduledTaskPending }
         : undefined;
-      const tools = createTools(ctx, repo, log, options.executionMachines, scheduledTaskDeps);
+      const tools = createTools(ctx, repo, log, options.toolActionRunner ?? options.executionMachines, scheduledTaskDeps);
       // PR #1783 alpha 实测修复：此处追加与 tool-factory.ts 的 `if (healingRepo)` 注册（F20260811sktp）
       // 同源重复——旧 SDK 不查重名无症状，durable registry validateExtension 遇重名抛错、
       // otter extension 拒载、invoke 必炸。注册权归 tool-factory 单点，此处只透传 repo。

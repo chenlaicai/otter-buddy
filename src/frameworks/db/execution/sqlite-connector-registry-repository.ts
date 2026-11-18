@@ -98,6 +98,12 @@ export class SqliteConnectorRegistryRepository implements ConnectorRegistryRepos
     return row ? rowToDevice(row) : null;
   }
 
+  /** F20261118crtgr（阶段 5 PR-A）：设备列表（阶段 5 列表/在线状态 join 用） */
+  async listDevices(): Promise<Device[]> {
+    const rows = this.db.prepare("SELECT * FROM devices ORDER BY created_at ASC").all() as DeviceRow[];
+    return rows.map(rowToDevice);
+  }
+
   async deleteDevice(deviceId: string): Promise<void> {
     // 级联：删设备同时把其 online 行关掉（token 失效即执行授权失效）
     this.db.prepare(

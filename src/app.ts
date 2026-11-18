@@ -29,6 +29,7 @@ import { LocalExecutionMachine } from "@frameworks/execution/local-execution-mac
 import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-ledger";
 import { LOCAL_EXECUTION_MACHINE_ID } from "@usecases/ports/execution-machine";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
+import { ConversationActionRouter } from "@usecases/execution/conversation-action-router";
 import type { ExecutionMachine } from "@usecases/ports/execution-machine";
 import { SqliteConnectorRegistryRepository } from "@frameworks/db/execution/sqlite-connector-registry-repository";
 import { ConnectorWsGateway } from "@frameworks/execution/connector-ws-gateway";
@@ -420,11 +421,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   );
 
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
+  // F20261118crtgr（阶段 5 PR-A）：工具面动作路由——六动作按对话当前执行机下发
+  // （SDK env 构造面仍走 executionMachines 恒 local——边界见 router 头注）
+  const toolActionRouter = new ConversationActionRouter(executionMachines, repos.conversation);
   const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask } = await createAgentGateway({
     repos, otterConfigProvider, model, modelPool, db, logger,
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
     executionMachines,
+    toolActionRunner: toolActionRouter,
     dataDir,
   });
   const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService: queryEmbedding, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
@@ -804,6 +809,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       executionMachines: {
         list: () => executionMachines.list(),
         currentId: () => executionMachines.currentMachineId(),
+        // F20261118crtgr（阶段 5 PR-A）：设备在线 join + 对话级切换
+        deviceStatus: () => {
+          const rows = db.prepare(
+            "SELECT d.id AS deviceId, CASE WHEN o.status = 'online' THEN 1 ELSE 0 END AS online, o.last_seen_at AS lastSeenAt "
+            + "FROM devices d LEFT JOIN online_sessions o ON o.device_id = d.id AND o.status = 'online'",
+          ).all() as Array<{ deviceId: string; online: number; lastSeenAt: string | null }>;
+          return rows.map(r => ({ deviceId: r.deviceId, online: r.online === 1, lastSeenAt: r.lastSeenAt }));
+        },
+        setConversationMachine: async (conversationId, machineId) => {
+          if (machineId !== null && !executionMachines.list().some(m => m.id === machineId)) {
+            return { ok: false as const, status: 400 as const, error: `machine not registered: ${String(machineId)}（设备未上线或未配对——目标必须当前在册）` };
+          }
+          const updated = await repos.conversation.setExecutionMachineId(conversationId, machineId);
+          if (!updated) return { ok: false as const, status: 404 as const, error: "conversation not found" };
+          return { ok: true as const };
+        },
       },
       connectorPair: new ConnectorPairController(connectorRepo, logger),
     },
