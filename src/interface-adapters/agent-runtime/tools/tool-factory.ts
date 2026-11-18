@@ -1127,10 +1127,10 @@ function checkApprovalGates(
   return null;
 }
 
-/** F20261118rvcls：检视闭环闸——merge_pr 执行前 call scripts/check-pr-review-closure.mjs fail-closed。
+/** 检视闭环闸——merge_pr 执行前 call scripts/check-pr-review-closure.mjs fail-closed。
  *  断环（exit 1）与拒判（exit 2）均拒绝合入；脚本输出缺口描述回显供搭档/大獭补环。
  *  与授权原话闸并列：授权闸保「人点头」，闭环闸保「当前版本被独立检视过」。
- *  A6 修复：脚本路径用 import.meta.url 模块位置锚点（不依赖 process.cwd()），
+ *  脚本路径用 import.meta.url 模块位置锚点（不依赖 process.cwd()），
  *  cwd 漂移不再导致 ENOENT 误杀全部合入。 */
 async function checkReviewClosureOnPr(prNumber: number): Promise<{ terminal?: ReturnType<typeof errorResponse> }> {
   try {
@@ -1155,7 +1155,7 @@ async function checkReviewClosureOnPr(prNumber: number): Promise<{ terminal?: Re
   }
 }
 
-/** 授权通过后的合入执行段（F20261118rvcls 抽出控 execute 复杂度）——检视闭环闸 → 审计 → merge。 */
+/** 授权通过后的合入执行段（抽出控复杂度）——检视闭环闸 → 审计 → merge。 */
 async function performMerge(
   ctx: ToolContext,
   logger: Logger | undefined,
@@ -1167,7 +1167,7 @@ async function performMerge(
   },
 ): Promise<ToolResponse> {
   const { prNumber, strategy, partnerApproval, approvalAnchor } = info;
-  // F20261118rvcls：检视闭环闸（授权通过后、合入执行前）——当前 head 必须被独立检视回执覆盖。
+  // 检视闭环闸（授权通过后、合入执行前）——当前 head 必须被独立检视回执覆盖。
   const closureCheck = await checkReviewClosureOnPr(prNumber);
   if (closureCheck.terminal) return closureCheck.terminal;
   // 审计先落（执行失败也留有授权依据记录），再执行合入。
@@ -1232,7 +1232,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
         });
         return errorResponse(gateRejection.userMessage);
       }
-      // F20261118rvcls：检视闭环闸 → 审计 → merge（抽出控 execute 复杂度）。
+      // 检视闭环闸 → 审计 → merge（抽出控 execute 复杂度）。
       return performMerge(ctx, logger, {
         prNumber,
         strategy,

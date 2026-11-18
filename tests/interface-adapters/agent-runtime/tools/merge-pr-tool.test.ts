@@ -70,7 +70,7 @@ function findMergePr(ctx: ToolContext, logger?: Logger) {
 const DEFAULT_PR_CREATED_AT = '2026-09-22T02:00:00.000Z';
 function stubGh(state: string, prCreatedAt = DEFAULT_PR_CREATED_AT, mergeStdout = 'Merged PR #1095', reviewClosureExit = 0) {
   execFileMock.mockImplementation((cmd: string, args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
-    // F20261118rvcls：检视闭环闸脚本调用（node scripts/check-pr-review-closure.mjs --pr-number <n>）
+    // 检视闭环闸脚本调用（node scripts/check-pr-review-closure.mjs --pr-number <n>）
     if (cmd === 'node' && String(args[0]).includes('check-pr-review-closure')) {
       if (reviewClosureExit === 0) cb(null, { stdout: '✅ 检视闭环', stderr: '' });
       else {
@@ -158,7 +158,7 @@ describe('F20260922pmgd merge_pr 工具（PR 合入搭档授权闸）', () => {
     expect(JSON.stringify(bad)).toContain('正整数');
   });
 
-  it('F20261118rvcls 检视闭环闸：判定器断环（exit 1）→ 拒绝合入不 merge', async () => {
+  it('检视闭环闸：判定器断环（exit 1）→ 拒绝合入不 merge', async () => {
     stubGh('OPEN', DEFAULT_PR_CREATED_AT, 'Merged PR #1095', 1);
     const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
     const tool = findMergePr(makeCtx(linkMock));

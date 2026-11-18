@@ -1,11 +1,11 @@
 /**
- * check-pr-review-closure 机械闸可持续测试（F20261118rvcls）。
+ * check-pr-review-closure 机械闸可持续测试。
  *
  * 覆盖闭环谓词四条件（head 覆盖 / 结论段通过语义 / 处置确认 / 审查者署名）的正反路径，
  * 及断环①（检视覆盖后 head 前移）、断环②（alpha 修复 commit 无 review 覆盖）的
  * 真实形态回归——实证 PR #1909 的两处断环均由「覆盖后 head 前移」触发本闸。
- * 另覆盖 S1（结论判定限定「审查结论」段，上轮处置确认的「需要修改」不误伤）与
- * A3（否定式「未通过」误受）修复回归，以及 docs-only 豁免集合。
+ * 另覆盖结论判定限定「审查结论」段（上轮处置确认的「需要修改」不误伤）与
+ * 否定式「未通过」误受的修复回归，以及 docs-only 豁免集合。
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -129,7 +129,7 @@ describe("checkReviewClosure 闭环谓词四条件", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("S1 回归：结论=通过但上轮处置确认含「需要修改」→ closed（不再误拒）", () => {
+  it("结论=通过但上轮处置确认含「需要修改」→ closed（不再误拒）", () => {
     const body = [
       "## 审查者",
       "reviewer-1",
@@ -143,7 +143,7 @@ describe("checkReviewClosure 闭环谓词四条件", () => {
     expect(r).toEqual({ ok: true, status: "closed", reasons: [] });
   });
 
-  it("A3 回归：结论段否定式「没有通过」→ neg_pass 拒绝", () => {
+  it("结论段否定式「没有通过」→ neg_pass 拒绝", () => {
     const r = checkReviewClosure({
       headRefOid: "aaa1111",
       reviews: [

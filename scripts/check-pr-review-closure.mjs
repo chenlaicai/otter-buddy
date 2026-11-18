@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 检视闭环机械闸（F20261118rvcls）：唯一判定器——「当前 head 是否持有有效独立检视通过回执」。
+ * 检视闭环机械闸：唯一判定器——「当前 head 是否持有有效独立检视通过回执」。
  *
  * 第一性原理：检视结论是对特定 commit 的证书。任何 push（新 commit）都让被审对象
  * 更换，旧证书必须自动失效；断环的本质 = 新 head 静默继承了旧 head 的通过叙事。
@@ -14,14 +14,14 @@
  *   3. 处置确认   —— 覆盖回执含「上轮处置确认」段或逐条处置核实语义（空段即断环）
  *   4. 审查者署名 —— 覆盖回执含审查者名号（reviewer- / ## 审查者 / 检视獭）
  *
- * 结论判定限定在「## 审查结论」段（S1 修复）：不得对整篇回执做通过/未通过子串匹配——
+ * 结论判定限定在「## 审查结论」段：不得对整篇回执做通过/未通过子串匹配——
  * 「上轮处置确认」段必然枚举上一轮「需要修改」的发现，整篇匹配会把合法 delta 复核
  * 回执误拒为 needs_changes。
  *
  * docs-only 豁免：diff 全部落在 docs/ 或仓根标准文档时豁免（不要求检视回执），
  * 与 check-pr-evidence 的豁免集合同源——纯文档改动不改变系统行为面。
  *
- * 已知局限（第一版，F20261118rvcls 特性文档「设计取舍」节）：独立检视的真证据
+ * 已知局限（第一版，详见特性文档「设计取舍」节）：独立检视的真证据
  * 是 yield 检视派工 trace（DB 侧），脚本拿不到——「审查者署名」是脚本能判的最硬
  * 代理，署名真实性与「回执语义真实」由对抗审视 B9 抽样兜底（与 check-pr-evidence
  * 同构：机械闸不判真实，判结构；真实归检视獭 B9）。
@@ -40,7 +40,7 @@ import { fileURLToPath } from "node:url";
 const PASS_RE = /(通过|闭环|复核确认|至此闭合|均已处置|全部落实)/;
 /** 未通过结论词（「## 审查结论」段内，优先于 PASS_RE 判定） */
 const FAIL_RE = /(需要修改|存在以下问题|request[ _-]?changes)/i;
-/** PASS 负向排除（A3：防「未通过/没有通过/未闭环」等否定式误受） */
+/** PASS 负向排除（防「未通过/没有通过/未闭环」等否定式误受） */
 const PASS_NEG_RE = /(未通过|没有通过|不通过|尚未通过|未闭环|未均已处置|未全部落实)/;
 /** 审查者署名（防 self-PASS——字符串在场，真实性由 B9 抽样兜底） */
 const REVIEWER_RE = /(##\s*审查者|reviewer-[\w-]+|检视獭)/;
@@ -103,7 +103,7 @@ export function checkReviewClosure(pr) {
   const last = covering.at(-1);
   const body = String(last?.body ?? "");
 
-  // 2. 通过语义：仅判定「## 审查结论」段（S1——不整篇匹配，避免上轮处置确认的「需要修改」误伤）
+  // 2. 通过语义：仅判定「## 审查结论」段（不整篇匹配，避免上轮处置确认的「需要修改」误伤）
   const conclusion = extractSection(body, "审查结论");
   if (!conclusion) {
     reasons.push("覆盖 head 的回执无「## 审查结论」段——结论段是判定器可解析输入，缺失即断环");
@@ -218,7 +218,7 @@ export function main(argv = process.argv.slice(2)) {
   }
 }
 
-/** 直接执行判定（N2 修复）：realpath 双端解析 symlink 后比较——macOS /tmp→/private/tmp 等
+/** 直接执行判定：realpath 双端解析 symlink 后比较——macOS /tmp→/private/tmp 等
  *  symlink 路径下 import.meta.url 与 argv[1] 字符串形态不同，若用字符串比对会失配致 main() 不跑，
  *  静默 exit 0 假绿（对 fail-closed 安全闸是最坏失败模态）。realpath 后两端口都在真实路径，
  *  相对/绝对/symlink 调用均能正确触发 CLI；被 import 单测时 process.argv[1] 是 vitest 入口，
