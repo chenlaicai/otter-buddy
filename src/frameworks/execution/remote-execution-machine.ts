@@ -62,19 +62,23 @@ export class RemoteExecutionMachine implements ExecutionMachine {
       if (frame.data.status === "succeeded") waiter.resolve(frame.data.result);
       else waiter.reject(new Error(frame.data.error ?? `remote action ${frame.data.status}: ${frame.data.actionId}`));
     });
-    this.deps.channel.onSessionDown((sessionId, deviceId) => {
+    this.deps.channel.onSessionDown((sessionId, deviceId, reason) => {
       // M1（检视）：网关下线事件是全局广播，本机器只收口**自己设备**的会话——
       // 多设备同时在线时任一设备下线不得误杀其他设备的在途请求（孤儿化 requested 行）
       if (deviceId !== this.id) return;
-      // 会话下线：该会话在途等待全部收尾 unknown（registry 批量落；等待者 reject）
-      void this.deps.remoteActions.markSessionRequestsUnknown(sessionId, this.isoNow()).catch(err => {
+      // C3（方案 §6 第4步）：收尾按原因分流——主动优雅下线（device-offline）在途可
+      // 确定性裁决 interrupted（可安全重做）；意外断开（心跳超时/hub 重启）真相不明落
+      // unknown（禁止盲目重试）——S2 不对称边界
+      const verdict = reason === "device-offline" ? "interrupted" : "unknown";
+      const batchError = verdict === "interrupted" ? "device offline before result (graceful: interrupted)" : "device offline before result";
+      void this.deps.remoteActions.markSessionRequests(sessionId, verdict, this.isoNow(), batchError).catch(err => {
         // m2（检视）：批量收尾失败不能零日志——DB 行滞留 requested 会永久「在途」，排障需要线索
-        this.deps.warn?.("remote action session-down settle failed (rows stay requested)", { sessionId, error: String(err) });
+        this.deps.warn?.("remote action session-down settle failed (rows stay requested)", { sessionId, verdict, error: String(err) });
       });
       for (const [actionId, waiter] of [...this.pending.entries()]) {
         clearTimeout(waiter.timer);
         this.pending.delete(actionId);
-        waiter.reject(new Error(`device session down before result: ${sessionId}`));
+        waiter.reject(new Error(`device session down before result (${verdict}): ${sessionId}`));
       }
     });
   }

@@ -1,4 +1,6 @@
 import type { MemoryEntry, MemoryWeight } from "@entities/memory/memory-entry";
+import { parseBeliefMetadata } from "@entities/memory/belief";
+import type { BeliefStatus } from "@entities/memory/belief";
 import type { RetrievalSource, FTSHit, VecHit } from "./memory-types";
 
 /** F20260902rcp1: document 层条目类型——半衰期分层与层配额共用此集合（导出供 search-memory debug 注入复用） */
@@ -49,6 +51,18 @@ export function normalizeRerankWeights(weights: RerankWeights): RerankWeights {
   };
 }
 
+/** F20261118blsrk P1b：belief 状态相对权重（应用于 beliefBoost 之上）。
+ *  verified=1.0（全加成）；recorded=0.6（可用但 [未核实] 不当权威）；
+ *  disputed=0.3（打回重新入审，存疑）；superseded=0.1（已被取代，可检索但深埋）。 */
+export function beliefStatusMultiplier(status: BeliefStatus): number {
+  switch (status) {
+    case "verified": return 1.0;
+    case "recorded": return 0.6;
+    case "disputed": return 0.3;
+    case "superseded": return 0.1;
+  }
+}
+
 export interface SearchEngineConfig {
   rrfK: number;
   /** Vec 权重（0-1），0=纯 FTS，1=纯 Vec，默认 0.4（偏信任 FTS） */
@@ -74,6 +88,8 @@ export interface SearchEngineConfig {
   rerank?: RerankWeights;
   /** F20261118stale P0：被 supersedes 边指向的旧条目的降权因子（finalScore × 此值）。可选，构造时回填默认 0.3。 */
   supersededPenalty?: number;
+  /** F20261118blsrk P1b：主动记忆层（belief）排序加成系数，默认 2.0——检索最高优先级（v4 §1）。缺省在构造时回填。 */
+  beliefBoost?: number;
 }
 
 /** F20261112rnkph Phase 1：加法融合系数缺省（设计回填，段 1 不切默认；标定后段 3 再写回）。 */
@@ -110,6 +126,8 @@ export interface ScoredHit {
   biasConv?: number;
   /** F20261118stale P0：被哪个条目取代（supersedes 边的 from 端=取代者/新条目），有则说明此条已过期，检索端标注并降权。 */
   supersededBy?: string;
+  /** F20261118blsrk P1b：belief 生命周期状态（供结果标注 [未核实]/[已核实]/[存疑]）。 */
+  beliefStatus?: BeliefStatus;
 }
 
 /**
@@ -134,6 +152,7 @@ export class SearchEngine {
       rerankMode: config.rerankMode ?? "multiply",
       rerank: config.rerank ?? DEFAULT_RERANK_WEIGHTS,
       supersededPenalty: config.supersededPenalty ?? 0.3,
+      beliefBoost: config.beliefBoost ?? 2.0,
     };
   }
 
@@ -257,6 +276,17 @@ export class SearchEngine {
     return supersededById?.get(entryId);
   }
 
+  /** F20261118blsrk P1b：belief 条目排序因子与状态（非 belief 返回因子 1、无状态）。 */
+  private beliefFactor(entry: MemoryEntry): { factor: number; status: BeliefStatus | undefined } {
+    if (entry.contentType !== "belief") return { factor: 1.0, status: undefined };
+    const belief = parseBeliefMetadata(entry);
+    if (!belief) return { factor: 1.0, status: undefined };
+    return {
+      factor: (this.config.beliefBoost ?? 2.0) * beliefStatusMultiplier(belief.status),
+      status: belief.status,
+    };
+  }
+
   /** 权重重排：rrfScore × timeDecay × frequencyBoost × userFlagMultiplier × conversationBoost（F20260917cvid）
    *  F20260902rcp1: document 层（feature/research summary+chunk）按 weightHalfLifeDaysDocument 衰减，
    *  其余层维持 weightHalfLifeDays。
@@ -280,6 +310,7 @@ export class SearchEngine {
       const halfLifeDays = DOCUMENT_CONTENT_TYPES.has(hit.entry.contentType)
         ? this.config.weightHalfLifeDaysDocument
         : this.config.weightHalfLifeDays;
+      const { factor: beliefFactor, status: beliefStatus } = this.beliefFactor(hit.entry);
       const finalScore =
         hit.rrfScore *
         this.computeTimeDecay(hit.entry.createdAt, halfLifeDays) *
@@ -288,7 +319,8 @@ export class SearchEngine {
         (currentConversationId && hit.entry.conversationId === currentConversationId
           ? this.config.currentConversationBoost
           : 1.0) *
-        this.supersededMultiplier(id, supersededById);
+        this.supersededMultiplier(id, supersededById) *
+        beliefFactor;
       const supersededBy = this.supersededLabel(id, supersededById);
       result.push({
         entryId: id,
@@ -297,6 +329,7 @@ export class SearchEngine {
         entry: hit.entry,
         source: hit.source,
         ...(supersededBy ? { supersededBy } : {}),
+        ...(beliefStatus ? { beliefStatus } : {}),
       });
     }
     return result;
@@ -332,13 +365,15 @@ export class SearchEngine {
         currentConversationId && hit.entry.conversationId === currentConversationId,
       );
       const supersededBy = this.supersededLabel(hit.entryId, supersededById);
+      const { factor: beliefFactor, status: beliefStatus } = this.beliefFactor(hit.entry);
       const finalScore =
         (w.wRrf * rrfNorm[i]
           + w.wTime * timeDecay
           + w.wFreq * freqNorm
           + (isFlagged ? w.bUserFlag : 0)
           + (isCurrentConversation ? w.bConv : 0)) *
-        this.supersededMultiplier(hit.entryId, supersededById);
+        this.supersededMultiplier(hit.entryId, supersededById) *
+        beliefFactor;
       // F20261112rnkph Phase 1 段 2：透出逐信号贡献分量，供 debug 通道采集（逐信号对比表不靠外部重算）
       const contribRrf = w.wRrf * rrfNorm[i];
       const contribTime = w.wTime * timeDecay;
@@ -357,6 +392,7 @@ export class SearchEngine {
         biasFlag,
         biasConv,
         ...(supersededBy ? { supersededBy } : {}),
+        ...(beliefStatus ? { beliefStatus } : {}),
       });
     });
     return result;

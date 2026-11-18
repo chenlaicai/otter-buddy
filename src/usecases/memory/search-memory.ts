@@ -7,6 +7,7 @@ import type {
   DetailLevel,
 } from "@entities/memory/memory-entry";
 import { DomainError } from "@entities/errors";
+import type { BeliefStatus } from "@entities/memory/belief";
 import type {
   SearchFilters,
   RetrievalSource,
@@ -104,6 +105,8 @@ export interface RetrievalResultEntry extends MemoryEntry {
   userFlagged?: boolean;
   /** F20261118stale P0：被哪个条目取代（supersedes 边 from 端=取代者/新条目），有则说明此条已过期。 */
   supersededBy?: string;
+  /** F20261118blsrk P1b：belief 生命周期状态（recorded=[未核实]、verified=[已核实]、disputed=[存疑]、superseded=[已取代]）。 */
+  beliefStatus?: BeliefStatus;
   /** F20260811mrpy Part 1：debug=true 时注入的中间分值 */
   debug?: RetrievalDebugInfo;
   /**
@@ -637,6 +640,7 @@ export class SearchMemory {
           source: h.source,
           userFlagged: weightMap.get(h.entryId)?.userFlagged ?? false,
           ...(h.supersededBy ? { supersededBy: h.supersededBy } : {}),
+          ...(h.beliefStatus ? { beliefStatus: h.beliefStatus } : {}),
           ...(debugInfo ? { debug: debugInfo } : {}),
           ...(drillDown ? { drillDown } : {}),
           ...this.buildSnippet(h.entry, detailLevel, snippetMap),

@@ -34,6 +34,10 @@ function makeDeps(opts: {
         if (opts.ledgerError) throw new Error("db locked");
         return opts.existing ?? null;
       },
+      settled: [] as Array<{ actionId: string; verdict: unknown }>,
+      settle: async (actionId: string, verdict: unknown) => {
+        deps.ledger.settled.push({ actionId, verdict });
+      },
     },
     send: (data: ResultFrame) => { sent.push(data); },
     log: () => {},
@@ -100,6 +104,27 @@ describe("ConnectorActionDispatcher", () => {
     await dispatcher.handleActionRequest(requestFrame("a-3", "workspace.read", { conversationId: "c1", relativePath: "a.txt" }));
     expect(sent[0]!.status).toBe("failed");
     expect(sent[0]!.error).toContain("ENOENT");
+  });
+
+  it("M1（检视）：自杀收尾——在途动作立即落 interrupted（不等执行完成）", async () => {
+    let releaseExecution: () => void = () => {};
+    const gate = new Promise<void>(resolve => { releaseExecution = resolve; });
+    const { dispatcher, deps, sent } = makeDeps({
+      executorImpl: async () => { await gate; return "late-success"; },
+    });
+    // 动作在途（执行挂起）
+    const done = dispatcher.handleActionRequest(requestFrame("m1-kill-1", "workspace.write", { conversationId: "c1", relativePath: "a.txt", content: "x" }));
+    await new Promise(r => setTimeout(r, 0));
+    expect(dispatcher.inflightCount).toBe(1);
+    // SIGTERM 自杀收尾：在途立即 settle interrupted
+    await dispatcher.markInflightInterrupted();
+    expect(deps.ledger.settled).toEqual([
+      { actionId: "m1-kill-1", verdict: { status: "interrupted", error: "connector shutting down (graceful offline)" } },
+    ]);
+    // 执行随后完成：回执照发（socket 已关时被丢弃——由 send 层负责），台账 settle succeeded 被 ledger 幂等拦（真 ledger 语义，此处 fake 只验证顺序）
+    releaseExecution();
+    await done;
+    expect(sent[sent.length - 1]!.status).toBe("succeeded"); // 回执面不撒谎（送达层已死则丢弃）
   });
 
   it("台账读失败 → 降级执行（记账降级语义：台账缺席动作照常执行）", async () => {
