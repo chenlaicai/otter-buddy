@@ -1,5 +1,5 @@
 /**
- * F20261118blief P1a：RecordBelief 写入路径测试（校验拒收 + 合法入库形态）。
+ * F20261118belif P1a：RecordBelief 写入路径测试（校验拒收 + 合法入库形态）。
  */
 import { describe, it, expect } from "vitest";
 import { BeliefGuard } from "@usecases/memory/belief-guard";
@@ -42,7 +42,7 @@ function build(entries: Record<string, MemoryEntry>, senders: Record<string, Mes
 
 const partner = "user-42";
 
-describe("F20261118blief: RecordBelief 写入路径", () => {
+describe("F20261118belif: RecordBelief 写入路径", () => {
   it("合法 preference 入库：contentType=belief、status=recorded、metadata.kind=preference", async () => {
     const m1 = makeEntry({ id: "m1", contentType: "message", conversationId: "conv-A" });
     const { record, stored } = build({ m1 }, { m1: { senderType: "user", senderId: partner } });

@@ -1,5 +1,5 @@
 /**
- * F20261118blief P1a：belief-guard 四维出处校验 + 状态机 + 防环 单元测试。
+ * F20261118belif P1a：belief-guard 四维出处校验 + 状态机 + 防环 单元测试。
  */
 import { describe, it, expect } from "vitest";
 import { BeliefGuard, isLegalBeliefTransition } from "@usecases/memory/belief-guard";
@@ -33,7 +33,7 @@ function makeGuard(entries: Record<string, MemoryEntry>, senders: Record<string,
 const partner = "user-42";
 const conv = "conv-A";
 
-describe("F20261118blief: belief 状态机迁移矩阵", () => {
+describe("F20261118belif: belief 状态机迁移矩阵", () => {
   it("合法迁移全覆盖", () => {
     expect(isLegalBeliefTransition("recorded", "verified")).toBe(true);
     expect(isLegalBeliefTransition("recorded", "disputed")).toBe(true);
@@ -53,11 +53,11 @@ describe("F20261118blief: belief 状态机迁移矩阵", () => {
   });
 });
 
-describe("F20261118blief: belief-guard 四维出处校验", () => {
+describe("F20261118belif: belief-guard 四维出处校验", () => {
   it("新条目 status 非 recorded 拒收", async () => {
     const guard = makeGuard({}, {});
     const r = await guard.validate({
-      kind: "state", status: "verified", anchors: ["m1"], conversationId: conv, partnerUserId: partner,
+      kind: "state", status: "verified", content: "测试内容", anchors: ["m1"], conversationId: conv, partnerUserId: partner,
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.some((e) => e.dimension === "transition")).toBe(true);
@@ -66,17 +66,37 @@ describe("F20261118blief: belief-guard 四维出处校验", () => {
   it("preference 锚点不存在拒收（anchor_existence）", async () => {
     const guard = makeGuard({}, {});
     const r = await guard.validate({
-      kind: "preference", status: "recorded", anchors: ["ghost"], conversationId: conv, partnerUserId: partner,
+      kind: "preference", status: "recorded", content: "测试内容", anchors: ["ghost"], conversationId: conv, partnerUserId: partner,
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.some((e) => e.dimension === "anchor_existence")).toBe(true);
+  });
+
+  it("空 anchors 拒收（空出处 = 拒收，v4 硬约束 2）", async () => {
+    const guard = makeGuard({}, {});
+    const r = await guard.validate({
+      kind: "state", status: "recorded", content: "测试内容", anchors: [], inferredFrom: ["m1"],
+      conversationId: conv, partnerUserId: partner,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.some((e) => e.dimension === "anchor_existence")).toBe(true);
+  });
+
+  it("belief 内容超长拒收（content_length）", async () => {
+    const guard = makeGuard({}, {});
+    const r = await guard.validate({
+      kind: "state", status: "recorded", content: "长".repeat(501), anchors: ["m1"], inferredFrom: ["m1"],
+      conversationId: conv, partnerUserId: partner,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.some((e) => e.dimension === "content_length")).toBe(true);
   });
 
   it("preference 锚点非 user 拒收（anchor_identity）", async () => {
     const m1 = makeEntry({ id: "m1", contentType: "message", conversationId: conv });
     const guard = makeGuard({ m1 }, { m1: { senderType: "otter", senderId: "otter-x" } });
     const r = await guard.validate({
-      kind: "preference", status: "recorded", anchors: ["m1"], conversationId: conv, partnerUserId: partner,
+      kind: "preference", status: "recorded", content: "测试内容", anchors: ["m1"], conversationId: conv, partnerUserId: partner,
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.some((e) => e.dimension === "anchor_identity")).toBe(true);
@@ -86,7 +106,7 @@ describe("F20261118blief: belief-guard 四维出处校验", () => {
     const m1 = makeEntry({ id: "m1", contentType: "message", conversationId: conv });
     const guard = makeGuard({ m1 }, { m1: { senderType: "user", senderId: "another-user" } });
     const r = await guard.validate({
-      kind: "preference", status: "recorded", anchors: ["m1"], conversationId: conv, partnerUserId: partner,
+      kind: "preference", status: "recorded", content: "测试内容", anchors: ["m1"], conversationId: conv, partnerUserId: partner,
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.some((e) => e.dimension === "anchor_identity")).toBe(true);
@@ -96,7 +116,7 @@ describe("F20261118blief: belief-guard 四维出处校验", () => {
     const m1 = makeEntry({ id: "m1", contentType: "message", conversationId: conv });
     const guard = makeGuard({ m1 }, { m1: { senderType: "user", senderId: partner } });
     const r = await guard.validate({
-      kind: "preference", status: "recorded", anchors: ["m1"], conversationId: conv, partnerUserId: partner,
+      kind: "preference", status: "recorded", content: "测试内容", anchors: ["m1"], conversationId: conv, partnerUserId: partner,
     });
     expect(r).toEqual({ ok: true });
   });
@@ -105,7 +125,7 @@ describe("F20261118blief: belief-guard 四维出处校验", () => {
     const m1 = makeEntry({ id: "m1", contentType: "message", conversationId: conv });
     const guard = makeGuard({ m1 }, {});
     const r = await guard.validate({
-      kind: "state", status: "recorded", anchors: ["m1"], conversationId: conv, partnerUserId: partner,
+      kind: "state", status: "recorded", content: "测试内容", anchors: ["m1"], conversationId: conv, partnerUserId: partner,
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.some((e) => e.dimension === "inference_basis")).toBe(true);
@@ -115,7 +135,7 @@ describe("F20261118blief: belief-guard 四维出处校验", () => {
     const m1 = makeEntry({ id: "m1", contentType: "message", conversationId: conv });
     const guard = makeGuard({ m1 }, {});
     const r = await guard.validate({
-      kind: "state", status: "recorded", anchors: ["m1"], inferredFrom: ["ghost-basis"],
+      kind: "state", status: "recorded", content: "测试内容", anchors: ["m1"], inferredFrom: ["ghost-basis"],
       conversationId: conv, partnerUserId: partner,
     });
     expect(r.ok).toBe(false);
@@ -127,7 +147,7 @@ describe("F20261118blief: belief-guard 四维出处校验", () => {
     const m2 = makeEntry({ id: "m2", contentType: "message", conversationId: conv });
     const guard = makeGuard({ m1, m2 }, {});
     const r = await guard.validate({
-      kind: "state", status: "recorded", anchors: ["m1"], inferredFrom: ["m2"],
+      kind: "state", status: "recorded", content: "测试内容", anchors: ["m1"], inferredFrom: ["m2"],
       conversationId: conv, partnerUserId: partner,
     });
     expect(r).toEqual({ ok: true });
@@ -138,7 +158,7 @@ describe("F20261118blief: belief-guard 四维出处校验", () => {
     const m2 = makeEntry({ id: "m2", contentType: "message", conversationId: conv });
     const guard = makeGuard({ m1, m2 }, {});
     const r = await guard.validate({
-      kind: "state", status: "recorded", anchors: ["m1"], inferredFrom: ["m2"],
+      kind: "state", status: "recorded", content: "测试内容", anchors: ["m1"], inferredFrom: ["m2"],
       conversationId: conv, partnerUserId: partner,
     });
     expect(r.ok).toBe(false);
@@ -146,12 +166,12 @@ describe("F20261118blief: belief-guard 四维出处校验", () => {
   });
 });
 
-describe("F20261118blief: belief-guard 防环", () => {
+describe("F20261118belif: belief-guard 防环", () => {
   it("supersedes 目标不存在拒收", async () => {
     const m1 = makeEntry({ id: "m1", contentType: "message", conversationId: conv });
     const guard = makeGuard({ m1 }, {});
     const r = await guard.validate({
-      kind: "state", status: "recorded", anchors: ["m1"], inferredFrom: ["m1"], supersedes: "ghost-belief",
+      kind: "state", status: "recorded", content: "测试内容", anchors: ["m1"], inferredFrom: ["m1"], supersedes: "ghost-belief",
       conversationId: conv, partnerUserId: partner,
     });
     expect(r.ok).toBe(false);
@@ -163,7 +183,7 @@ describe("F20261118blief: belief-guard 防环", () => {
     const notBelief = makeEntry({ id: "n1", contentType: "fact" });
     const guard = makeGuard({ m1, n1: notBelief }, {});
     const r = await guard.validate({
-      kind: "state", status: "recorded", anchors: ["m1"], inferredFrom: ["m1"], supersedes: "n1",
+      kind: "state", status: "recorded", content: "测试内容", anchors: ["m1"], inferredFrom: ["m1"], supersedes: "n1",
       conversationId: conv, partnerUserId: partner,
     });
     expect(r.ok).toBe(false);
@@ -178,7 +198,7 @@ describe("F20261118blief: belief-guard 防环", () => {
     });
     const guard = makeGuard({ m1, "b-future": futureBelief }, {});
     const r = await guard.validate({
-      kind: "state", status: "recorded", anchors: ["m1"], inferredFrom: ["m1"], supersedes: "b-future",
+      kind: "state", status: "recorded", content: "测试内容", anchors: ["m1"], inferredFrom: ["m1"], supersedes: "b-future",
       conversationId: conv, partnerUserId: partner, nowMs: Date.parse("2026-11-18T00:00:00Z"),
     });
     expect(r.ok).toBe(false);
@@ -193,7 +213,7 @@ describe("F20261118blief: belief-guard 防环", () => {
     });
     const guard = makeGuard({ m1, "b-old": oldBelief }, {});
     const r = await guard.validate({
-      kind: "state", status: "recorded", anchors: ["m1"], inferredFrom: ["m1"], supersedes: "b-old",
+      kind: "state", status: "recorded", content: "测试内容", anchors: ["m1"], inferredFrom: ["m1"], supersedes: "b-old",
       conversationId: conv, partnerUserId: partner, nowMs: Date.parse("2026-11-18T00:00:00Z"),
     });
     expect(r).toEqual({ ok: true });

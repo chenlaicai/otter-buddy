@@ -1,5 +1,5 @@
 ---
-id: F20261118blief
+id: F20261118belif
 title: 主动记忆层 belief 数据模型与写入守卫（P1a：出处四维校验 + 状态机 + 防环）
 doc_type: feature
 summary: |
@@ -16,7 +16,7 @@ intent:
   expected_effect: "新增 belief 内容类型 + metadata 契约（kind/status/anchors/inferredFrom/supersedes）；四维出处校验挡无源之水（空/ID 不存在/preference 非搭档原话/state 无推断依据均拒收）；状态机非法迁移全拒；A↔B 互替环被 createdAt 拦截。本刀零 LLM 行为变更（不接工具、不动检索）。"
   verify_by:
     type: behavior_check
-    note: "单测覆盖状态机矩阵（合法 7 + 非法 6）、四维校验各维拒收、防环三态（不存在/非 belief/时间不早于源）、RecordBelief 合法入库与非法拒收不写入；npm run check 全绿；检视獭核对声明 mechanism-addition 与 diff 一致。"
+    note: "单测覆盖状态机矩阵（合法 7 + 非法 6）、四维+非空+限长校验各维拒收、防环三态（不存在/非 belief/时间不早于源）、RecordBelief 合法入库与非法拒收不写入；npm run check 全绿；检视獭核对声明 mechanism-addition 与 diff 一致。"
 capability_test: "n/a: 本刀纯领域层（实体 + 校验 usecase + 写入 usecase），不新增 prompt/工具/检索行为，agent 尚不可触达；行为门禁为新增单测（belief-guard / record-belief）。"
 created_at: 2026-11-18
 created_in_conversation: 82f71e1a-a8b0-4e0f-916e-5e219624483c
@@ -32,7 +32,7 @@ modules:
   - tests/usecases/memory/record-belief.test.ts
 ---
 
-# 主动记忆层 belief 数据模型与写入守卫（F20261118blief）
+# 主动记忆层 belief 数据模型与写入守卫（F20261118belif）
 
 > **定位**：P1「主动记忆层」的第一刀（地基）。承接 P0（F20261118stale，检索端 stale 降权已合入）。
 > 方案 v4 定稿见对话工作区 `otter-memory-design-v2.md`（§3 主动记忆层设计、§5 硬约束）。
@@ -63,9 +63,10 @@ recorded ──verified──▶ verified ──disputed──▶ disputed ─�
 
 | 维 | 校验 | 拒收条件 |
 |---|---|---|
+| 0 非空 | anchors 非空；content trim ≤ 500 字符 | 空 → anchor_existence；超长 → content_length |
 | 1 ID 存在 | 每条 anchor 在 memory_entries 存在 | 不存在 → anchor_existence |
 | 2 来源身份 | preference 锚点 senderType=user ∧ senderId=本对话搭档 | 非 user / 非本搭档 → anchor_identity |
-| 3 引用范围 | message 锚点 conversationId = 本会话 | 跨会话 → anchor_scope |
+| 3 引用范围 | **仅 state**：message 锚点 conversationId = 本会话（preference 跨对话成立，不受 scope 约束） | 跨会话 → anchor_scope |
 | 4 推断依据 | state 必须给 inferredFrom 且条目存在 | 缺失/不存在 → inference_basis |
 | 防环 | supersedes 目标存在、为 belief、createdAt 早于源 | 任一不满足 → cycle |
 
@@ -86,4 +87,5 @@ recorded ──verified──▶ verified ──disputed──▶ disputed ─�
 ## 后续（本 PR 之外）
 
 - P1b：检索端 belief 优先级 + `[未核实]`/`[已核实]` 标注 + verified 权重高于 recorded。
+  **前瞻注意（k3）**：belief 写 `layer="working"`，会话归档时会被整对话 working→historical 连坐；P1b 做优先级时**别依赖 layer=working，按 contentType=belief 提优先级**。
 - P1c：belief 工具面（记录/核实/打回/supersede），含 `getMessageSender` 真实实现与 bootstrap 装配。

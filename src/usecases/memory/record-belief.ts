@@ -1,5 +1,5 @@
 /**
- * F20261118blief P1a：主动记忆层（belief）写入路径。
+ * F20261118belif P1a：主动记忆层（belief）写入路径。
  *
  * 现场记录的主要入口（otter-memory-design v4 §4.1）：
  * 1. BeliefGuard 四维出处校验（空/不存在/身份不符 = 拒收）；
@@ -40,6 +40,7 @@ export class RecordBelief {
     const validation = await this.guard.validate({
       kind: input.kind,
       status: "recorded",
+      content: input.content,
       anchors: input.anchors,
       inferredFrom: input.inferredFrom,
       supersedes: input.supersedes,

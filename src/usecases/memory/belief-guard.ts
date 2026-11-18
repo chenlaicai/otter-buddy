@@ -1,5 +1,5 @@
 /**
- * F20261118blief P1a：主动记忆层（belief）写入守卫。
+ * F20261118belif P1a：主动记忆层（belief）写入守卫。
  *
  * 四维出处校验（otter-memory-design v4 §3.2）+ 状态机迁移守卫（§3.3）+ 防环（§3.3）。
  * 机器校验挡「无源之水」：空出处 / ID 不存在 / 来源身份不符 = 拒收（视为编造）。
@@ -25,6 +25,7 @@ export interface BeliefGuardPorts {
 export interface ValidateBeliefInput {
   kind: BeliefKind;
   status: BeliefStatus;
+  content: string;
   anchors: string[];
   inferredFrom?: string[];
   supersedes?: string;
@@ -36,9 +37,12 @@ export interface ValidateBeliefInput {
   nowMs?: number;
 }
 
+/** belief 内容长度上限（对齐 fact ≤500 先例，v4 §7 防主动记忆噪声增长） */
+export const BELIEF_MAX_CONTENT_CHARS = 500;
+
 /** 一条校验失败（结构化，便于调用方透出给 agent） */
 export interface BeliefGuardError {
-  dimension: "anchor_existence" | "anchor_identity" | "anchor_scope" | "inference_basis" | "transition" | "cycle";
+  dimension: "anchor_existence" | "anchor_identity" | "anchor_scope" | "inference_basis" | "transition" | "cycle" | "content_length";
   message: string;
 }
 
@@ -86,10 +90,24 @@ export class BeliefGuard {
     }
 
     const errors: BeliefGuardError[] = [];
+    this.validateBasicConstraints(input, errors);
     await this.validateAnchors(input, errors);
     await this.validateInferenceBasis(input, errors);
     await this.validateSupersede(input, errors);
     return errors.length === 0 ? { ok: true } : { ok: false, errors };
+  }
+
+  /** 空出处 + 内容长度上限（两者都属「拒收」级硬约束） */
+  private validateBasicConstraints(input: ValidateBeliefInput, errors: BeliefGuardError[]): void {
+    if (input.anchors.length === 0) {
+      errors.push({ dimension: "anchor_existence", message: "出处锚点为空——空出处拒收（v4 硬约束 2：空 = 拒收）" });
+    }
+    if (input.content.trim().length > BELIEF_MAX_CONTENT_CHARS) {
+      errors.push({
+        dimension: "content_length",
+        message: `belief 内容超长（${input.content.trim().length} > ${BELIEF_MAX_CONTENT_CHARS}）——防主动记忆噪声增长限长`,
+      });
+    }
   }
 
   /** 四维 1/2/3：anchors 存在性 + 来源身份 + 引用范围 */
