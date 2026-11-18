@@ -3,15 +3,15 @@ id: F20261118sprmd
 title: "scheduler roster miss 自愈降级：pending 队列兜底替代 healing 账本污染（#1913）"
 summary: "2026-11-16 误解散事故（F20261117dsgrd 背景）当天，大獭 session 空窗期内三个 cron 任务触发全部 no-such-role-in-roster skipped：当天任务直接丢轮（次日 cron 才补跑），且每轮白记一条 low healing event 污染账本。修复：roster miss 从「skipped + healing」改为自愈降级——cron 任务入 pending 队列（执行者就位后经 manage_scheduled_task_pending 提醒补执行，部分唯一索引保证同任务仅一条在队）；once 任务触发后即删（pending FK 悬空不能入队），改有声系统通知（原 busy 专用通道参数化复用）。healing 只在降级通道本身失败时记（fail-closed）。"
 change_type: fix
-capability_test: "n/a: 调度器降级路径（无独立可观测端点），以 scheduler-service.test.ts 单测（roster miss 降级 describe 3 用例：入队成功无 healing / 入队失败回退 healing / once 有声通知）+ 全量 vitest 为验证载体"
+capability_test: "n/a: 调度器降级路径（无独立可观测端点），以 scheduler-service.test.ts 单测（roster miss 降级 describe 4 用例：入队成功零 healing / 入队失败回退 healing / once 有声通知）+ 全量 vitest 为验证载体"
 intent:
   problem: "resolveExecutorOtter 双路（名册角色解析 + talkingStone 旧实例 fallback）都落空时，triggerTask 直接 skipped + recordExecutorResolutionFailure 落 healing event。误解散事故窗口实证该路径的三个缺陷：①执行者暂时不可见≠任务该丢——当天三任务全部丢轮，次日 cron 才补跑，承诺静默迟到 24h；②暂时性 miss 记 low healing 是账本污染（daily-review 人工处置负担）；③once 任务触发后即删行，skipped + healing 之外零留痕，比 cron 更彻底的无声丢失。"
-  solution: "degradeRosterMissToPending 私有方法接管 roster miss 后置处理：非 once 任务 enqueue pending（对齐 busy 分支同款兜底，id 用 crypto.randomUUID、triggeredAt 用本轮触发时刻）；once 任务走参数化后的 notifyOnceSkipUnavailable（原 notifyOnceBusySkip 泛化，reasonClause 区分「正忙」与「不在对话名册中」）。healing 记账条件收窄为降级通道失败（once 通知抛错 / pending 未注入 / enqueue 抛错或返回 false）——正常降级是已进入自愈通道的预期态，不是需要人工处置的缺陷。"
+  solution: "degradeRosterMissToPending 私有方法接管 roster miss 后置处理：非 once 任务 enqueue pending（对齐 busy 分支同款兜底，id 用 crypto.randomUUID、triggeredAt 用本轮触发时刻）；once 任务走参数化后的 notifyOnceSkipUnavailable（原 notifyOnceBusySkip 泛化，reasonClause 区分「正忙」与「不在对话名册中」）。healing 记账条件收窄为降级通道故障（once 通知抛错 / pending 未注入 / enqueue 抛错）——enqueue 返回 false 是部分唯一索引去重命中（同任务已有 pending 在队）的自愈正常态，不记账。"
   expected_effect: "#1913 关闭标准达成：roster miss 自动重试（pending 补执行通道）或有声降级，不再产生无意义 healing event。误解散类根因已由 F20261117dsgrd（大獭不可解散）从入口防死；本修复是调度器侧纵深防御——任何未来的名册空窗（恢复窗口/误操作/真配置错误）都不再丢当天任务。真配置错误的可见性由 pending 提醒机制承载（执行者唤醒即见），不靠 healing 刷屏。"
   verify_by:
     type: behavior_check
     assertions:
-      - "scheduler-service.test.ts roster miss 降级 3 用例全绿：cron miss → skipped+pending 入队+零 healing；enqueue 抛错 → fail-closed 回退 healing；once miss → createSystemEntry body 含「不在对话名册中」+零 healing"
+      - "scheduler-service.test.ts roster miss 降级 4 用例全绿：cron miss → skipped+pending 入队+零 healing；enqueue 抛错 → fail-closed 回退 healing；去重命中（enqueue 返 false）→ 零 healing；once miss → createSystemEntry body 含「不在对话名册中」+零 healing"
       - "既有 F20261021sprx 用例（无 pendingItemRepo 注入）语义更新为「无 pending 通道兜底记 healing」，断言不变仍绿——最小装配环境向后兼容"
       - "busy 分支 once 通知文案经参数化后语义不变（「正忙」），相关既有用例不回归"
       - "全量 vitest 无回归；tsc --noEmit 与 eslint 对改动文件零告警"
@@ -73,7 +73,7 @@ busy 与 roster miss 共用 once 有声通知通道，reasonClause 区分根因�
 
 ## 验证
 
-- `tests/usecases/scheduler/scheduler-service.test.ts`：roster miss 降级 describe 3 用例（入队成功零 healing / enqueue 失败回退 healing / once 有声通知）+ 既有 F20261021sprx 用例语义更新（无 pending 通道的最小装配走 healing 兜底，断言不变）。
+- `tests/usecases/scheduler/scheduler-service.test.ts`：roster miss 降级 describe 4 用例（入队成功零 healing / enqueue 抛错回退 healing / 去重命中零 healing / once 有声通知，修复前 3 failed 判别力实证见 PR）+ 既有 F20261021sprx 用例语义更新（无 pending 通道的最小装配走 healing 兜底，断言不变）。
 - 全量 vitest、tsc --noEmit、eslint 改动文件零告警。
 
 ## Rollback
