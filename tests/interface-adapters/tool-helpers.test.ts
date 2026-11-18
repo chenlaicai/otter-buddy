@@ -378,7 +378,8 @@ describe("stripToolCallSerializationLeak", () => {
   });
 
 it("剥离后为空串（整段都是泄漏）→ 由 validateSpeakBody 空检兜底拒绝", () => {
-    const body = THINK_CLOSE + "\n" + DSML_PREFIX + "tool_calls>\n" + DSML_PREFIX + "invoke name=\"yield\">";
+    // 思维闭合标签后带空行，与真实事故字节同构（若不带空行会被 remark 视为单个 HTML 块）
+    const body = THINK_CLOSE + "\n\n" + DSML_PREFIX + "tool_calls>\n" + DSML_PREFIX + "invoke name=\"yield\">";
     const r = stripToolCallSerializationLeak(body);
     expect(r.leaked).toBe(true);
     expect(r.body).toBe("");
@@ -411,6 +412,18 @@ it("剥离后为空串（整段都是泄漏）→ 由 validateSpeakBody 空检�
     const body =
       "行内事故示例：`" + THINK_CLOSE + "\n" +
       DSML_PREFIX + "tool_calls>\n" + DSML_PREFIX + "invoke name=\"yield\">` 后续分析正文保留。";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("后续分析正文保留");
+  });
+
+  it("HTML 原始块（pre）内的完整事故回放：不误剥（检视 delta5 发现 🔴）", () => {
+    const PRE_OPEN = "\u003cpre\u003e";
+    const PRE_CLOSE = "\u003c/pre\u003e";
+    const body =
+      PRE_OPEN + "写死。 " + THINK_CLOSE + "\n\n" +
+      DSML_PREFIX + "tool_calls>\n" + DSML_PREFIX + "invoke name=\"yield\">\n" +
+      PRE_CLOSE + "后续分析正文保留。";
     const r = stripToolCallSerializationLeak(body);
     expect(r.leaked).toBe(false);
     expect(r.body).toContain("后续分析正文保留");

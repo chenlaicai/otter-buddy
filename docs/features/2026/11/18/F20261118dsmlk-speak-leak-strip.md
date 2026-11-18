@@ -8,15 +8,15 @@ modules:
   - src/interface-adapters/agent-runtime/tools/tool-helpers.ts
   - src/interface-adapters/agent-runtime/tools/tool-factory.ts
   - tests/interface-adapters/tool-helpers.test.ts
-summary: "#1916：大獭 speak 发言 body 末尾混入第二个工具调用（yield）的序列化文本，搭档在聊天界面看到乱码。排查确认：不是解析层切分错误，而是模型（deepseek-v4-pro / openai-completions）在「speak 后紧跟 yield」的连续工具调用时，把第二个调用的序列化写进了第一个调用的 body 参数。应用层无法根治模型/provider 行为，修法走修法决策树①（既有 speak body 校验机制内补缺，narrow-fix）：在 speak 唯一入库口加工具调用序列化泄漏剥离——仅当锚点在 Markdown 代码节点（围栏/行内代码）之外且锚点前紧邻思维闭合标签（泄漏强指纹）时截断，保留正文正常落账；选剥离而非拒绝，避免连续 speak+yield 场景重试死循环。"
+summary: "#1916：大獭 speak 发言 body 末尾混入第二个工具调用（yield）的序列化文本，搭档在聊天界面看到乱码。排查确认：不是解析层切分错误，而是模型（deepseek-v4-pro / openai-completions）在「speak 后紧跟 yield」的连续工具调用时，把第二个调用的序列化写进了第一个调用的 body 参数。应用层无法根治模型/provider 行为，修法走修法决策树①（既有 speak body 校验机制内补缺，narrow-fix）：在 speak 唯一入库口加工具调用序列化泄漏剥离——仅当锚点在 Markdown 字面文本容器（围栏/行内代码/HTML 原始块）之外且锚点前紧邻思维闭合标签（泄漏强指纹）时截断，保留正文正常落账；选剥离而非拒绝，避免连续 speak+yield 场景重试死循环。"
 tags: [speak, serialization, tool-call, leak, P0]
 intent:
   problem: "deepseek-v4-pro 在连续工具调用（speak 后紧跟 yield）时，第二个调用未走结构化 tool_calls 通道，而是把其序列化文本写进 speak.body 参数末尾，直接污染搭档可见的发言流，并可能让下游渲染把序列化标签误当合法标记或泄漏内部实现细节。"
-  expected_effect: "speak.body 中出现 DSML 序列化锚点（全角竖线定界 / dsml_ 前缀），且锚点在 Markdown 代码节点（块级围栏/行内代码）之外（顶层）、锚点前紧邻思维闭合标签（仅空白分隔）时，从锚点前截断并把思维闭合标签一并清掉，只把正文落账；其余情况（无锚点、锚点在代码节点内——如完整事故回放示例、锚点前无思维闭合标签——如正文裸写序列化字节后仍续正文）逐字节不变不误剥；剥离发生时记 warn 日志可观测。"
+  expected_effect: "speak.body 中出现 DSML 序列化锚点（全角竖线定界 / dsml_ 前缀），且锚点在 Markdown 字面文本容器（块级围栏/行内代码/HTML 原始块）之外（顶层）、锚点前紧邻思维闭合标签（仅空白分隔）时，从锚点前截断并把思维闭合标签一并清掉，只把正文落账；其余情况（无锚点、锚点在字面文本容器内——如完整事故回放示例、锚点前无思维闭合标签——如正文裸写序列化字节后仍续正文）逐字节不变不误剥；剥离发生时记 warn 日志可观测。"
   verify_by:
     type: behavior_check
-    note: "tests/interface-adapters/tool-helpers.test.ts 新增 12 用例：全角现场字节、半角下划线锚点 + 思维闭合标签、issue #1916 转写原形态（英文 response 单词 fail-open）、围栏内完整事故回放不误剥、行内代码内完整事故回放不误剥、裸标签不误剥、围栏内 DSML 示例不误剥（全角/半角）、句号后接 DSML 再续正文不误剥、无泄漏不误剥、剥空兜底、正文提 invoke 一词不误剥。修复前旧管线泄漏直落（事故 entry 335 hexdump 机器锚点），修复后 strip 对真实字节回放通过 + 50 passed。"
-capability_test: "tests/interface-adapters/tool-helpers.test.ts 新增 12 用例（修复后 50 passed）；npm run check 全绿。改动是 speak 工具实现的防御逻辑，不新增 prompt/工具/协议指令，无 golden gate 场景。"
+    note: "tests/interface-adapters/tool-helpers.test.ts 新增 13 用例：全角现场字节、半角下划线锚点 + 思维闭合标签、issue #1916 转写原形态（英文 response 单词 fail-open）、围栏内完整事故回放不误剥、行内代码内完整事故回放不误剥、HTML 原始块内完整事故回放不误剥、裸标签不误剥、围栏内 DSML 示例不误剥（全角/半角）、句号后接 DSML 再续正文不误剥、无泄漏不误剥、剥空兜底、正文提 invoke 一词不误剥。修复前旧管线泄漏直落（事故 entry 335 hexdump 机器锚点），修复后 strip 对真实字节回放通过 + 51 passed。"
+capability_test: "tests/interface-adapters/tool-helpers.test.ts 新增 13 用例（修复后 51 passed）；npm run check 全绿。改动是 speak 工具实现的防御逻辑，不新增 prompt/工具/协议指令，无 golden gate 场景。"
 ---
 
 # speak 入口工具调用序列化泄漏剥离（F20261118dsmlk）
@@ -83,7 +83,7 @@ narrow-fix，无需重对抗门。
      - 全角竖线定界（事故现场字节）：`<｜DSML｜tool_calls`、`<｜DSML｜invoke`、`<｜DSML｜parameter`（左尖 + 全角 + 大写 DSML + 全角 + 标签名）
      - 半角下划线（issue 转写）：`<dsml_calls>`、`<dsml_invoke>`、`<dsml_parameter>`（小写）
    - **截断需同时满足两个独立条件**：
-     1. **代码节点感知**：锚点必须落在 Markdown 代码节点（块级围栏 code + 行内代码 inlineCode）之外（顶层）。代码节点内的 DSML 是「讨论本 bug 的合法示例回放」（含完整事故字节），一律不剥——「代码节点内示例」与「顶层真实泄漏」的唯一可靠分界：真实泄漏是顶层裸序列化字节，合法示例必然包在代码节点里（检视 delta3 发现围栏、delta4 补行内代码）。
+     1. **字面文本容器感知**：锚点必须落在 Markdown 字面文本容器（块级围栏 code + 行内代码 inlineCode + HTML 原始块 html，如 pre 块）之外（顶层）。容器内的 DSML 是「讨论本 bug 的合法示例回放」（含完整事故字节），一律不剥——「容器内示例」与「顶层真实泄漏」的唯一可靠分界：真实泄漏是顶层裸序列化字节，合法示例必然包在字面文本容器里（检视 delta3 发现围栏、delta4 补行内代码、delta5 补 HTML 原始块）。
      2. **思维闭合标签指纹**：锚点前必须紧邻思维闭合标签（仅空白分隔）。这是泄漏的强指纹——模型失手时把 thinking 闭合标签也带进了 body（entry 333 实测字节有）。**句末标点不作为判据**：讨论本 bug 时正文会裸写序列化字节再续正文，以句号判据会误剥吞掉后续（检视 delta 发现）。
    - **不收裸 invoke / parameter 标签**：裸标签可能是正文里合法的代码示例（Markdown 代码节点内），收进来会静默截断（检视发现）。
 2. `tool-factory.ts` 的 `createSpeakTool.execute`：
@@ -118,9 +118,9 @@ narrow-fix，无需重对抗门。
 - **永久回归单测**：新增用例「全角变体（真实事故字节）」用与 entry 333 相同的字节形态
   断言剥离后只剩正文；「半角下划线锚点 + 思维闭合标签」用例覆盖半角分隔变体；另加
   「围栏内完整事故回放（含思维闭合标签 + DSML）不误剥」「行内代码内完整事故回放不误剥」
-  「issue #1916 转写原形态（英文 response 单词）fail-open」「裸 invoke 不误剥」「围栏内
-  DSML 示例不误剥（全角/半角）」「句号后接 DSML 再续正文不误剥」反例防合法正文被截断。
-  修复后 50 passed。
+  「HTML 原始块内完整事故回放不误剥」「issue #1916 转写原形态（英文 response 单词）fail-open」
+  「裸 invoke 不误剥」「围栏内 DSML 示例不误剥（全角/半角）」「句号后接 DSML 再续正文不误剥」
+  反例防合法正文被截断。修复后 51 passed。
 
 ### 验收断言
 
@@ -130,18 +130,19 @@ narrow-fix，无需重对抗门。
 | 半角下划线锚点 + 思维闭合标签（半角分隔变体，顶层） | strip | leaked=true，body=正文 |
 | 围栏内完整事故回放（含思维闭合标签 + DSML） | strip | leaked=false，不误剥（闭合围栏与后续正文保留） |
 | 行内代码内完整事故回放（含思维闭合标签 + DSML） | strip | leaked=false，不误剥（闭合反引号与后续正文保留） |
+| HTML 原始块（pre）内完整事故回放（含思维闭合标签 + DSML） | strip | leaked=false，不误剥（闭合 pre 与后续正文保留） |
 | issue #1916 转写原形态（句号 + 英文 response 单词 + 半角 dsml_） | strip | leaked=false，fail-open（转写失真非可靠指纹） |
 | 无泄漏正文 | strip（正常发言） | leaked=false，逐字节不变 |
 | 整段都是泄漏（思维闭合标签 + DSML，无正文，顶层） | strip | body 为空串，由 validateSpeakBody 空检兜底拒绝 |
 | 裸 invoke/parameter 标签（无 DSML 前缀） | strip | leaked=false，不误剥（合法代码示例防截断） |
-| 代码节点内 DSML 序列化示例（围栏/行内，全角/半角，无思维闭合标签） | strip | leaked=false，不误剥（示例后正文保留） |
+| 字面文本容器内 DSML 序列化示例（围栏/行内/HTML，全角/半角，无思维闭合标签） | strip | leaked=false，不误剥（示例后正文保留） |
 | 句号后接 DSML 示例再续正文 | strip | leaked=false，不误剥（后续正文保留） |
 | 正文提及 invoke 一词（无标签语法） | strip | leaked=false，不误剥 |
 
 ### 自检
 
 - `npx tsc --noEmit` 通过；`npx eslint`（改动三文件）通过；`npx vitest run
-  tests/interface-adapters/tool-helpers.test.ts` 50 passed。
+  tests/interface-adapters/tool-helpers.test.ts` 51 passed。
 - 最简实现检查：已过——复用既有 `validateSpeakBody` 所在的 tool-helpers 模块，新增一个
   纯函数 + 一个调用点，无新依赖、无新文件（测试除外）。
 - 影响面：只动 speak 入库前处理，yield / 其他工具不变；正常发言（无锚点或锚点前无思维

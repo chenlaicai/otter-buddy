@@ -9,7 +9,7 @@
 import { CARD_MAX_PER_MESSAGE, CARD_MAX_BYTES } from "@contract/api/html-card";
 import { remark } from "remark";
 import remarkGfm from "remark-gfm";
-import type { Code, InlineCode, Nodes } from "mdast";
+import type { Code, Html, InlineCode, Nodes } from "mdast";
 import { visit } from "unist-util-visit";
 
 /** F20261022cfme：解析管线与投影层 message-body-projection.ts 的 parser 逐字节对齐——
@@ -37,15 +37,15 @@ function countCardFences(body: string): number {
   return collectCardFenceNodes(body).length;
 }
 
-/** 收集 body 中所有代码节点（块级代码围栏 code + 行内代码 inlineCode）的起止偏移。
- *  复用与卡片校验同源的 remark+remarkGfm 解析，边界与前端渲染逐字节对齐
- *  （Parser 说明见本文件顶部 parser() 注释）。
- *  F20261118dsmlk（#1916）：供 stripToolCallSerializationLeak 判定锚点是否落在代码节点内——
- *  围栏/行内代码内的 DSML 是「讨论本 bug 的合法示例回放」，不能剥。 */
+/** 收集 body 中所有「字面文本容器」节点的起止偏移：块级代码围栏 code、行内代码
+ *  inlineCode、HTML 原始块 html（如 <pre>…</pre>）。复用与卡片校验同源的
+ *  remark+remarkGfm 解析，边界与前端渲染逐字节对齐（Parser 说明见本文件顶部 parser() 注释）。
+ *  F20261118dsmlk（#1916）：供 stripToolCallSerializationLeak 判定锚点是否落在字面容器内——
+ *  容器内的 DSML 是「讨论本 bug 的合法示例回放」，不能剥。 */
 function collectCodeNodeRanges(body: string): Array<{ start: number; end: number }> {
   const ranges: Array<{ start: number; end: number }> = [];
-  visit(parser().parse(body) as Nodes, ["code", "inlineCode"], (node) => {
-    const pos = (node as Code | InlineCode).position;
+  visit(parser().parse(body) as Nodes, ["code", "inlineCode", "html"], (node) => {
+    const pos = (node as Code | InlineCode | Html).position;
     if (pos && pos.start.offset !== undefined && pos.end.offset !== undefined) {
       ranges.push({ start: pos.start.offset, end: pos.end.offset });
     }
@@ -53,7 +53,7 @@ function collectCodeNodeRanges(body: string): Array<{ start: number; end: number
   return ranges;
 }
 
-/** 判定字符偏移 index 是否落在任一代码节点区间内。 */
+/** 判定字符偏移 index 是否落在任一字面文本容器区间内。 */
 function isInsideCodeNode(index: number, ranges: Array<{ start: number; end: number }>): boolean {
   return ranges.some((r) => index >= r.start && index < r.end);
 }
