@@ -255,31 +255,28 @@ export class NightReviewOrchestrator {
     base: Pick<NightReviewOutcome, "reviewKey" | "date" | "reviewed" | "changes">;
   }): Promise<NightReviewOutcome> {
     const { params, reviewKey, date, after, through, rangeAll, base } = args;
+    // 待审清单 = 全集中的 recorded。空（首轮全迁后崩溃的重跑/全部即时 supersede）时不
+    // 召唤獭，但仍走统一 try/catch 的失败治理（补审计再失败也要 recordFailureOrSkip，
+    // 不得直上抛让 scheduler 熔断——delta 复审补审计治理缺口）
     const pending = rangeAll.filter((b) => statusOf(b) === "recorded");
-    if (pending.length === 0) {
-      // 无待审：不召唤獭（避免为空清单开 LLM 会话），直接审计存档
-      const outcome = await this.settle({
-        conversationId: params.conversationId, reviewKey, date, after, through, rangeAll, pending,
-      });
-      return { ...base, after, through, ...outcome };
-    }
     let otterId: string | null = null;
     try {
-      // 召唤（P2a 档案）+ 快照范围写入獭 context（三迁移工具 fail-closed 校验的数据源）
-      const otter = await this.deps.createOtter.execute({
-        name: `夜审${date}T${new Date().toISOString().slice(11, 16).replace(":", "")}`,
-        type: "night-reviewer",
-        systemPrompt: buildNightReviewerPrompt(),
-      });
-      otterId = otter.id;
-      await this.deps.otterContextRepo.set(
-        otter.id,
-        NIGHT_REVIEW_RANGE_CONTEXT_KEY,
-        JSON.stringify({ after, through }),
-      );
-
-      // 锚点 entry + 清单注入 + 超时保护的 invoke + 审后校验存档
-      await this.runPendingReview({ params, otterId: otter.id, date, after, through, pending });
+      if (pending.length > 0) {
+        // 召唤（P2a 档案）+ 快照范围写入獭 context（三迁移工具 fail-closed 校验的数据源）
+        const otter = await this.deps.createOtter.execute({
+          name: `夜审${date}T${new Date().toISOString().slice(11, 16).replace(":", "")}`,
+          type: "night-reviewer",
+          systemPrompt: buildNightReviewerPrompt(),
+        });
+        otterId = otter.id;
+        await this.deps.otterContextRepo.set(
+          otter.id,
+          NIGHT_REVIEW_RANGE_CONTEXT_KEY,
+          JSON.stringify({ after, through }),
+        );
+        // 锚点 entry + 清单注入 + 超时保护的 invoke
+        await this.runPendingReview({ params, otterId: otter.id, date, after, through, pending });
+      }
       // 审后校验 + 存档 + fyi（全集终态进 changeset——上轮已迁移/本轮迁移都入审计）
       const outcome = await this.settle({
         conversationId: params.conversationId, reviewKey, date, after, through, rangeAll, pending,
@@ -501,7 +498,10 @@ export class NightReviewOrchestrator {
    */
   private async reportChangeset(conversationId: string, changeset: NightReviewChangeset): Promise<string> {
     const title = `夜间审视 ${changeset.date}：${changeset.changes.length} 条 belief 迁移待过目`;
-    const existing = await this.deps.matterRepo.findByConversation(conversationId);
+    // 查重窗口：repo 默认只回最近 50 条（delta 审视发现 17）——夜审 matter 每日累积，
+    // 补发重跑与首次登记之间可能隔超过 50 条新 matter。窗口提到 1000（单对话 matter
+    // 极端量级），超出窗口的重复登记代价是搭档多闭环一条 WAITING_PARTNER，非数据损坏。
+    const existing = await this.deps.matterRepo.findByConversation(conversationId, undefined, 1000);
     const prior = existing.find((m) => m.title === title);
     let matterId: string;
     if (prior) {

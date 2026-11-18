@@ -136,7 +136,11 @@ function makeHarness(overrides?: Partial<Harness>): Harness {
       }),
     } as never,
     matterRepo: {
-      findByConversation: vi.fn(async () => h.existingMatters.map((m) => ({ id: m.id, title: m.title }))),
+      findByConversation: vi.fn(async (_conv: string, _filter?: unknown, limit?: number) => {
+        // delta 审视发现 17：查重窗口语义——mock 镜像 repo 的 limit 截断（默认 50）
+        const cap = limit ?? 50;
+        return h.existingMatters.slice(0, cap).map((m) => ({ id: m.id, title: m.title }));
+      }),
     } as never,
     healingRepo: {
       create: vi.fn(async (e: Record<string, unknown>) => { h.healings.push(e); }),
@@ -450,5 +454,47 @@ describe("NightReviewOrchestrator（审-1946 首轮发现修复）", () => {
     expect(String(h.healings[0].description)).toContain("没审视成");
     expect(h.failures).toHaveLength(1); // 当次只记一笔
     expect(h.dissolved).toEqual(["otter-1"]);
+  });
+  it("发现 12：无待审的补审计路径失败 → recordFailureOrSkip 统一治理（不直上抛熔断）", async () => {
+    const h = makeHarness();
+    // 首轮全部迁移后崩溃（pending=0 的补审计重跑场景）
+    h.invokeImpl = async () => {
+      h.liveStatuses.set("b1", "verified");
+      h.liveStatuses.set("b2", "disputed");
+      throw new Error("crash after all");
+    };
+    await expect(h.orch.execute({ conversationId: CONV, now: NOW })).rejects.toThrow("crash after all");
+    // 重跑：补发再次失败（完成 entry 挂）
+    h.invokeImpl = undefined;
+    h.claimResult = {
+      settled: false, resultJson: null, failures: 1,
+      failingRange: { after: DEFAULT_AFTER, through: NOW.toISOString() },
+    };
+    h.entryImpl = async (body: string) => {
+      if (body.includes("夜间审视完成")) throw new Error("report failed again");
+      h.entries.push(body);
+    };
+    // 不召唤獭（无待审）但失败记账必须发生——修复前 failures 恒 0 直上抛
+    await expect(h.orch.execute({ conversationId: CONV, now: NOW })).rejects.toThrow("report failed again");
+    expect(h.createdOtters).toHaveLength(1); // 只有首轮召唤
+    expect(h.failures).toHaveLength(2); // 首轮 + 补发失败各一笔
+    expect(h.completes).toHaveLength(0);
+  });
+
+  it("发现 17：matter 查重窗口扩到 1000（超默认 50 条窗口的重复登记防护）", async () => {
+    const h = makeHarness();
+    h.invokeImpl = async () => {
+      h.liveStatuses.set("b1", "verified");
+      h.liveStatuses.set("b2", "disputed");
+    };
+    // 首轮登记成功后，同对话灌 60 条更新 matter——旧夜审 matter 落在默认 50 窗口外
+    h.existingMatters = Array.from({ length: 60 }, (_, i) => ({
+      id: `noise-${i}`,
+      title: `其他事项 ${i}`,
+    }));
+    h.existingMatters.push({ id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", title: `夜间审视 ${DATE}：2 条 belief 迁移待过目` });
+    const out = await h.orch.execute({ conversationId: CONV, now: NOW });
+    expect(out.matterAnchor).toBe("M-aaaaaaaa"); // 查重命中（窗口 1000 覆盖），不重复登记
+    expect(h.matters).toHaveLength(0);
   });
 });

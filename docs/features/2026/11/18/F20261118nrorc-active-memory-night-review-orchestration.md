@@ -17,7 +17,7 @@ intent:
   expected_effect: "每日 03:00（Asia/Shanghai）自动核对当日 recorded belief：全量核对非抽样，审后无 recorded 残留才 settle；停机/崩溃不丢不重（幂等键撞键短路 + 水位推进 + 失败区间重跑）；三迁移工具严格限定快照范围（无范围档即拒）；每次夜审的变更集以 system entry 汇总进 healing 主对话时间线并挂 matter 否决锚，搭档回复「打回 M-xxx」即由大獭迁 disputed。"
   verify_by:
     type: behavior_check
-    note: "单测钉住：编排 12 项（幂等短路/水位三种来源/失败重跑原区间/连败 skip+healing/空集 settle/全处置成功链路/未全处置 recordFailure/invoke 抛错/范围写 context/獭解散 finally/Shanghai 日界/损坏档案降级）+ 三迁移工具快照校验 8 项（fail-closed 全分支）+ repo listByTaskId 1 项 + seed 幂等 3 项。"
+    note: "单测钉住：编排 22 项（幂等/水位/失败重跑/连败 skip/空集/成功链路/审计全集/补审计失败治理/召唤生命周期三态/超时常量同源/Shanghai 日界/损坏档案降级，含两轮审视修复场景钉证）+ 工具快照校验与 dispute 13 项 + 白名单矩阵 2 项 + seed 幂等 3 项 + repo listByTaskId 1 项。"
 capability_test: "n/a: 本刀编排逻辑由单测钉行为门禁（function executor 通道 + 獭生命周期为装配级，无 capability 断言面）；端到端夜审依赖真实 LLM 会话，验收走生产首夜观察。"
 created_at: 2026-11-18
 created_in_conversation: 82f71e1a-a8b0-4e0f-916e-5e219624483c
@@ -73,13 +73,17 @@ claim(review:{上海日}:night-review)
   └─ 无 range → through=now，after=跨档水位
         after = min(最新 settle 档 through, 最早未清失败区间 failedAfter)
         无任何档 → now - 30h（首跑兜底回看窗）
-listBeliefsByStatus('recorded', after, through)
-  ├─ 空 → complete 空变更集（当天无现场记录也是合法 settle）
-  └─ 非空 → 召唤夜审獭 → 写范围进獭 context → 锚点 entry → invoke
-        → 审后全量处置校验：
-            recorded 残留 → recordFailure + throw（下次重跑同区间）
-            全处置 → complete({after, through, changes}) → fyi + matter 否决锚
-finally: 解散夜审獭（动态召唤不入名册，不解散即孤儿）
+区间全集 = 四状态查询拼接（recorded/verified/disputed/superseded）——变更集审计面
+  ├─ 全集空 → complete 空变更集（当天无任何 belief 也是合法 settle）
+  ├─ 待审（recorded）非空 → 召唤夜审獭 → 写范围进獭 context → 锚点 entry → invoke（240min race 超时）
+  └─ 待审空（重跑补审计/全部即时 supersede）→ 不召唤獭
+统一 settle（两条路径同一失败治理）：
+  → 审后全量处置校验（待审 recorded 残留 = 丢审 → throw 走失败记账）
+  → changeset = 区间全集终态（上轮已迁移 + 本轮迁移 + 即时 supersede 都入审计）
+  → fyi（matter 查重幂等 + system entry）先于 complete（report 失败可重跑补发）
+失败（任一环节）→ recordFailureOrSkip：连败达阈值当次报 healing 返 skipped（不熔断任务，
+  次日新键 + 未清失败区间起点 = 水位覆盖该段，跳过≠丢审）；否则上抛走 failed 记账
+finally: 解散夜审獭（动态召唤不入名册，不解散即孤儿；dissolve 失败报 healing）
 ```
 
 水位语义（「停机错过 → 从旧水位继续」的物理实现）：settle 档的 resultJson 里存 through，
@@ -103,8 +107,10 @@ finally: 解散夜审獭（动态召唤不入名册，不解散即孤儿）
 - system entry 汇总进 healing 主对话时间线：每条标注 [已核实]/[存疑]/[已过期] + matter 短锚
   （M-xxx）+ 打回指引。
 
-搭档回复「打回 M-xxx」→ 大獭走 transition_matter + belief 迁 disputed（prompt 层行为，无需
-新机制——设计原文「不需要额外机制」）。空变更集不挂锚（无事可否决）。
+搭档回复「打回 M-xxx」→ 大獭走 transition_matter 闭环 matter + **belief_dispute 工具**把
+对应 belief 迁 disputed（首轮审视发现 2 补全的执行体——设计原文「不需要额外机制」指 matter
+流程，belief 迁移通道当时是疏漏：dispute 单向 recorded/verified→disputed，big 可见/
+small 不可见/night-reviewer 不含，不给核实权）。空变更集不挂锚（无事可否决）。
 
 ### 5. 任务 seed（ensure-night-review-task.ts）
 
@@ -165,13 +171,27 @@ finally: 解散夜审獭（动态召唤不入名册，不解散即孤儿）
 9. **PR body 补特性编号**（B4 标识闭合）；11. **补署名尾行**。
 10. **CI 闭环**：审视通过后补 review-closure 覆盖评论重跑（流程收尾）。
 
+## delta 复审修复（审-1946 第二轮，4 严重 + 2 建议）
+
+12. **补审计路径失败治理缺口**：pending=0 的 settle 原在 try 之外（补发再失败直上抛
+    熔断任务）——统一进 try/catch（recordFailureOrSkip 治理覆盖两条路径）+ 用例钉证。
+13. **Golden Gate**：豁免类型分歧呈搭档裁决（夜审 prompt 行为失效的失败模式已被编排
+    硬代码封死——漏处置不 settle、越界被拒、连败 healing 可见；保真 golden 场景需
+    runner 支持受限獭会话的基建扩展，独立一刀）。PR body 豁免声明保留。
+14. **文档主方案与代码同步**：主流程节改四状态全集 + fyi 先于 complete + 统一失败
+    治理 + dispute 执行体；verify_by note 与验证计数同步。
+15. **CI up-to-date 闸**：rebase 最新 main 重跑（流程收尾）。
+16. **commit author 署名**：按 signature-convention 真相源改 `大獭 <noreply>`。
+17. **matter 查重窗口**：repo 默认 50 条截断 → 调用侧显式 limit=1000（超出窗口的重复
+    登记代价=搭档多闭环一条，非数据损坏）+ 用例钉证（60 条噪声后查重仍命中）。
+
 ## 验证
 
-- 单测 39 项全绿（编排 20 + 工具快照校验/dispute 14 + seed 3 + repo 1 + 白名单 3，含
-  首轮审视全部修复场景的钉证用例），在 worktree 内跑。
+- 单测 41 项全绿（编排 22 + 工具快照校验/dispute 13 + 白名单矩阵 2 + seed 3 + repo 1，含
+  两轮审视全部修复场景的钉证用例），在 worktree 内跑。
 - `npx tsc --noEmit`、`npx eslint`（改动文件）零错误；tests/usecases/scheduler +
-  tests/interface-adapters/belief-migration-range-guard + tests/frameworks/db/memory +
-  tests/usecases/memory 全量 550 项通过（无回归）。
+  tests/interface-adapters/belief-migration-range-guard + tests/frameworks/agent/coding-tools +
+  tests/frameworks/db/memory + tests/usecases/memory 全量 582 项通过（无回归；delta 后 rebase 复跑）。
 - 端到端（真实 LLM 夜审会话）留生产首夜观察：首夜 03:00 触发后核对 healing 主对话的 fyi
   entry 与 matter 锚、consolidation_state settle 档、獭解散无残留。
 
