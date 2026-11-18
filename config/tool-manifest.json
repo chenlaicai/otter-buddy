@@ -116,6 +116,16 @@
         "yield",
         "restart_otter"
       ]
+    },
+    "night-reviewer": {
+      "description": "夜间审视獭（受限写者）——仅 belief 三迁移工具 + speak/yield，不带编码/管理工具",
+      "tools": [
+        "speak",
+        "yield",
+        "belief_verify",
+        "belief_reject",
+        "belief_supersede"
+      ]
     }
   }
 }

@@ -47,7 +47,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     CREATE TABLE IF NOT EXISTS otter_configs (
       otter_id TEXT PRIMARY KEY,
       system_prompt TEXT,
-      otter_type TEXT NOT NULL DEFAULT 'big' CHECK(otter_type IN ('big', 'small')),
+      otter_type TEXT NOT NULL DEFAULT 'big' CHECK(otter_type IN ('big', 'small', 'night-reviewer')),
       model_alias TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -62,6 +62,9 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     db.prepare("ALTER TABLE otter_configs ADD COLUMN model_alias TEXT").run();
     logger.info('Added model_alias column to otter_configs table');
   }
+
+  /** F20261118nrwht P2a：otter_configs.otter_type CHECK 扩展 'night-reviewer'（存量库迁移）。 */
+  rebuildOtterConfigsTypeCheck(db, logger);
 
   // F20260908efmd: otter_sessions 加 model_alias 列（该世生效的模型 alias 快照）
   const otterSessionColumns = db.prepare("PRAGMA table_info(otter_sessions)").all() as Array<{ name: string }>;
@@ -628,6 +631,37 @@ function backfillGhostSenders(db: Database.Database, logger: Logger): void {
     }
   })();
   logger.info(`Backfilled ghost otter senders: fixed=${fixed}, skipped=${skipped}`, {});
+}
+
+/** F20261118nrwht P2a：otter_configs.otter_type CHECK 扩展 'night-reviewer'（存量库迁移）。
+ *  受限写者獭档案须可落库：night-reviewer 只持 belief 三迁移工具，是夜间审视的执行体。
+ *  Why 表重建而非 ALTER：SQLite 无法修改已有 CHECK 约束，只能重建表替换（同 rebuildAttachmentsKindCheck 模式）。
+ *  幂等：新库 schema 已是宽约束（检测不到旧文本直接返回）；重建 DROP+RENAME 事务内完成。
+ *  otter_configs 是叶子配置表（无入边 FK、无索引），重建无需 foreign_keys 开关。 */
+function rebuildOtterConfigsTypeCheck(db: Database.Database, logger: Logger): void {
+  const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='otter_configs'")
+    .get() as { sql: string } | undefined;
+  // 检测旧窄约束（'big','small' 结尾）——新库宽约束（含 night-reviewer）不命中
+  if (!schema?.sql?.includes("CHECK(otter_type IN ('big', 'small'))")) return;
+
+  logger.info('Rebuilding otter_configs table to widen otter_type CHECK constraint (add night-reviewer)');
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE otter_configs_new (
+        otter_id TEXT PRIMARY KEY,
+        system_prompt TEXT,
+        otter_type TEXT NOT NULL DEFAULT 'big' CHECK(otter_type IN ('big', 'small', 'night-reviewer')),
+        model_alias TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO otter_configs_new (otter_id, system_prompt, otter_type, model_alias, created_at, updated_at)
+      SELECT otter_id, system_prompt, otter_type, model_alias, created_at, updated_at FROM otter_configs;
+      DROP TABLE otter_configs;
+      ALTER TABLE otter_configs_new RENAME TO otter_configs;
+    `);
+  })();
+  logger.info('otter_configs otter_type CHECK widened: night-reviewer now accepted');
 }
 
 /** Issue #608：attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。

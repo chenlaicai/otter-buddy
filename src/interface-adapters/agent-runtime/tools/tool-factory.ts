@@ -1552,10 +1552,80 @@ function createRecordBeliefTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20261118bltls P1c：belief 工具集（当前仅 record_belief；verify/reject/supersede 留待 P2 受限写者獭白名单单独注册） */
+/** F20261118bltls P1c：belief_verify / belief_reject / belief_supersede（F20261118nrwht P2a 重建——仅 night-reviewer 白名单可见） */
+function buildBeliefMigrationTool(
+  ctx: ToolContext,
+  name: "belief_verify" | "belief_reject" | "belief_supersede",
+  to: "verified" | "disputed",
+): Pick<AgentTool, "description" | "parameters" | "execute"> {
+  const desc: Record<typeof name, string> = {
+    belief_verify: "核实 recorded belief → verified（检索标 [已核实]）。仅夜间审视獭核实原文后调用。",
+    belief_reject: "打回 belief → disputed（检索标 [存疑]，重新入审）。原文与正文不吻合即打回。",
+    belief_supersede: "标记 belief 过期 → superseded（旧条目保留、降权、可回滚，不删）。",
+  };
+  return {
+    description: `${desc[name]} When: 夜间审视/现场纠错时。BOUNDARY: 只做状态迁移，改不了条目内容；superseded 为终态无出边。`,
+    parameters: {
+      type: "object",
+      properties: {
+        entry_id: { type: "string", description: "目标 belief 条目 ID" },
+      },
+      required: ["entry_id"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      try {
+        if (name === "belief_supersede") {
+          const r = await ctx.client.memory.markBeliefExpired(params.entry_id as string);
+          return textResponse(JSON.stringify(r));
+        }
+        const r = await ctx.client.memory.transitionBelief({ entryId: params.entry_id as string, to });
+        return textResponse(JSON.stringify(r));
+      } catch (err) {
+        return errorResponse(`${name} 失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  };
+}
+
+function createVerifyBeliefTool(ctx: ToolContext): AgentTool {
+  const base = buildBeliefMigrationTool(ctx, "belief_verify", "verified");
+  return {
+    name: "belief_verify",
+    description: base.description,
+    parameters: base.parameters,
+    execute: base.execute,
+  };
+}
+
+function createRejectBeliefTool(ctx: ToolContext): AgentTool {
+  const base = buildBeliefMigrationTool(ctx, "belief_reject", "disputed");
+  return {
+    name: "belief_reject",
+    description: base.description,
+    parameters: base.parameters,
+    execute: base.execute,
+  };
+}
+
+function createSupersedeBeliefTool(ctx: ToolContext): AgentTool {
+  const base = buildBeliefMigrationTool(ctx, "belief_supersede", "disputed");
+  return {
+    name: "belief_supersede",
+    description: base.description,
+    parameters: base.parameters,
+    execute: base.execute,
+  };
+}
+
+/** F20261118bltls P1c：belief 工具集（record + verify/reject/supersede）——
+ *  F20261118nrwht P2a：三个迁移工具回归注册，但仅 night-reviewer 白名单可见
+ *  （session-helpers BELIEF_MIGRATION_TOOLS 排除集兜底：big "*" 与小 small memory 组均剔除）。 */
 function createBeliefTools(ctx: ToolContext): AgentTool[] {
   return [
     createRecordBeliefTool(ctx),
+    createVerifyBeliefTool(ctx),
+    createRejectBeliefTool(ctx),
+    createSupersedeBeliefTool(ctx),
   ];
 }
 
