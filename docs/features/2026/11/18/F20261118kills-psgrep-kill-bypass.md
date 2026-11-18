@@ -61,5 +61,6 @@ for PID in $(ps aux | grep "[d]ist/src/main.js" | awk '{print $2}'); do kill $PI
 ## 判定语义（为何不误伤）
 
 - **只认特征名**：grep 模式须含 `PKILL_OTTER_PATTERNS`（otter-buddy/dist/src/main.js/node 等）才构成确认；`grep vitest`、`grep backend` 等非特征名继续放行（与存量政策 A allow 面一致）。
+- **`grep -v` 是排除非扫描**：`grep -v 特征名` / `--invert-match` 明确从结果里搬除主进程，不构成正面扫描；`ps | grep -v 'main' | grep vite | xargs kill`（只清 vite）放行。
 - **反 self-match 归一**：`[d]ist` 单字符括号变体先归一为 `dist` 再匹配——只剥离单字符类（self-match 惯用法），不动 `[0-9]`/`[a-z]` 等真实字符类。
-- **数据流挂钩**：扫描链与 kill 必须有变量绑定/管道/命令替换的真实喂送关系，非「同命令内恰好共现」。
+- **数据流挂钩**：扫描链与 kill 必须有变量绑定/管道/命令替换的真实喂送关系，非「同命令内恰好共现」；变量目标还要求 kill 落在对应循环体的 `do…done` 内（跨循环/重赋值不误关联），同名 kill 段按出现次序对齐（重复 `xargs kill` 不漏后一段）。

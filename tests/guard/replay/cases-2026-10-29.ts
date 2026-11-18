@@ -339,6 +339,33 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "kill 多命令替换，第二个 $() 内容为 ps|grep 特征名扫描链",
   },
+  // ── #1899 检视獭二轮探针（跨循环/重赋值误拦、重复 xargs 错配、IFS 带值）──
+  {
+    command: "ps aux | grep 'dist/src/main.js' | grep -v grep | while read u p rest; do echo $p; done; p=$(cat pids/backend.pid); kill $p",
+    expect: "allow",
+    source: "#1899 检视二轮：扫描循环结束后重赋值不误拦",
+    note: "kill $p 在主进程扫描循环体外，p 已重赋为 backend 自 有 pid 文件值——无喂送关系，放行",
+  },
+  {
+    command: "ps aux | grep 'dist/src/main.js' | grep -v grep | while read u p rest; do echo $p; done; cat pids/backend.pid | while read p; do kill $p; done",
+    expect: "allow",
+    source: "#1899 检视二轮：后续独立 while 喂 backend 不误拦",
+    note: "kill $p 所在 while 的输入链是 cat backend 自 有 pid 文件（非主进程特征名），前面的扫描循环与之无关",
+  },
+  {
+    command: "cat pids/backend.pid | xargs kill; ps aux | grep 'dist/src/main.js' | awk '{print $2}' | xargs kill",
+    expect: "block",
+    source: "#1899 检视二轮：重复 xargs kill 按位置对齐不漏拦",
+    reasonContains: "按名匹配",
+    note: "同名 xargs kill 两次，危险的第二段（ps|grep 特征名）不能因文本错配漏拦",
+  },
+  {
+    command: "ps aux | grep 'dist/src/main.js' | grep -v grep | while IFS=' ' read u p rest; do kill $p; done",
+    expect: "block",
+    source: "#1899 检视二轮：IFS 带引号空格值不漏拦",
+    reasonContains: "按名匹配",
+    note: "while IFS=' ' read 前缀带引号空格值，输入链为 ps|grep 特征名扫描",
+  },
   {
     command: "cat ~/.ssh/id_rsa",
     expect: "block",
