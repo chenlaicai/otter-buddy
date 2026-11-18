@@ -622,6 +622,7 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
  *  data JSON 围栏不作授权源），未命中拒绝执行；授权原话落 linked_resources + warn 日志双通道。 */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
 
@@ -1128,12 +1129,16 @@ function checkApprovalGates(
 
 /** F20261118rvcls：检视闭环闸——merge_pr 执行前 call scripts/check-pr-review-closure.mjs fail-closed。
  *  断环（exit 1）与拒判（exit 2）均拒绝合入；脚本输出缺口描述回显供搭档/大獭补环。
- *  与授权原话闸并列：授权闸保「人点头」，闭环闸保「当前版本被独立检视过」。 */
+ *  与授权原话闸并列：授权闸保「人点头」，闭环闸保「当前版本被独立检视过」。
+ *  A6 修复：脚本路径用 import.meta.url 模块位置锚点（不依赖 process.cwd()），
+ *  cwd 漂移不再导致 ENOENT 误杀全部合入。 */
 async function checkReviewClosureOnPr(prNumber: number): Promise<{ terminal?: ReturnType<typeof errorResponse> }> {
   try {
+    // 模块位置 <root>/dist/interface-adapters/agent-runtime/tools/ → 上 4 层到 <root>/scripts/
+    const scriptPath = fileURLToPath(new URL("../../../../scripts/check-pr-review-closure.mjs", import.meta.url));
     await execFileAsync(
       "node",
-      ["scripts/check-pr-review-closure.mjs", "--pr-number", String(prNumber)],
+      [scriptPath, "--pr-number", String(prNumber)],
       { timeout: 60_000, maxBuffer: 1024 * 1024 },
     );
     return {}; // exit 0 = 闭环放行

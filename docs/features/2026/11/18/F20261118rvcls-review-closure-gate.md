@@ -25,9 +25,10 @@ intent:
   problem: "检视通过后 head 又前移（新增修复 commit），新 head 静默继承旧证书直接合入——断环①/②（PR #1909 实证）靠人开 issue 才被发现，无机械闸兑底"
   expected_effect: "PR 当前 head 未持有有效独立检视通过回执时，merge_pr 合入被物理拒绝；CI pull_request 时判定器红，断环在呈拍板前即可见"
   verify_by:
-    type: behavior_check
+    type: static_only
     bugfix_acceptance:
       - "判定器：head 前移无覆盖 → head_not_covered 拒绝；四条件齐备 → closed 放行"
+      - "S1 回归：结论=通过但上轮处置确认含「需要修改」→ closed 不误拒"
       - "merge_pr：判定器 exit 1 → 拒绝合入不执行 gh pr merge；exit 0 → 正常合入"
       - "CI 闸：pull_request 事件跑判定器，断环时 check 红"
 ---
@@ -78,7 +79,7 @@ CI 绿/alpha 通过证明「代码健康」，不能证明「过程闭合」；�
 ## 设计取舍
 
 1. **独立检视证据强度（第一版）**：真证据是 yield 检视派工 trace（DB 侧），脚本拿不到。「审查者署名」是脚本能判的最硬代理——它挡得住「作者随手写 PASS」，但挡不住「检视獭署名被冒用」；署名真实性与回执语义真实由对抗审视 B9 抽样兜底（与 check-pr-evidence 同构：机械闸判结构，真实归检视獭 B9）。trace 强绑定作为后续加码，不在本版。
-2. **前闸只做可见，不做 required status**：物理拦截已由 merge_pr 后闸承担；把 CI 闸设为 required 需要 GitHub 分支保护配置变更（仓库设置层，非代码）。前闸红灯 = 「未满足闸」，是机械闸正常形态（同 check-pr-evidence），不是坏。
+2. **前闸落在 required `check` job 内，实际是阻塞式**：本仓分支保护 `required_status_checks.contexts` 含 `check`（`strict: true`），前闸 step 在 `check` job 内即继承 required——断环不仅可见，而且物理阻塞合入。这与 merge_pr 后闸形成双保险（CI 平台 + 工具层），是设计意图而非矛盾；文档如实声明为阻塞式。适用范围含 docs-only 豁免：判定器在 diff 全 docs/ 或仓根文档时直接豁免（同 check-pr-evidence 豁免集合），依赖 bump / 纯文档 PR 不被误拦。
 3. **单账号环境 APPROVED 不可用**：判定器不依赖 GitHub review state（全 COMMENTED），靠正文结构化段 + commit.oid 覆盖判定，与既有「单账号降级 comment、结论词在正文首行」纪律同源。
 4. **rebase 的严格性**：rebase 改 oid 会让旧回执 commit.oid ≠ 新 head，判定器判断环——这是「正确的严格」：rebase 本就是「检视通过后代码又变」，应重新检视，与 review-protocol「呈终审前确认 base 未落后、落后则 rebase 重验」同构。
 
@@ -92,7 +93,7 @@ CI 绿/alpha 通过证明「代码健康」，不能证明「过程闭合」；�
 
 - **谁需要**：一切呈拍板/合入的代码 PR——合入点必须证明「当前版本被独立检视过」。
 - **失败后果**：缺这道闸，检视通过后的一切小修（confirm 轮新增发现、alpha 实启修复）都可能跳过复核直接合入，断环重演（#1909 实证）。
-- **后续机制**：CI 前闸从「可见」升级 required status（分支保护）；独立检视证据从「署名代理」升级「检视派工 trace 强绑定」。
+- **后续机制**：独立检视证据从「署名代理」升级「检视派工 trace 强绑定」（现闸不解析 trace，DB 侧证据链待接）。
 - **退役条件**：当 GitHub 多账号环境接入使 APPROVED state 物理可用，且分支保护 required reviews 真正生效时，覆盖判定可退化由平台承担，本判定器可退役（判定器与 merge_pr 授权闸同构：平台能兜住就不再需要自家闸）。
 
 ## 变更清单
@@ -114,6 +115,10 @@ Revert 本 PR 即回 main 现状：判定器脚本与测试为新增文件（删
 
 - **机器锚点**：commits 见 PR commits 页；`npm run check` / `npm test` 全绿（判定器 10 例 + merge_pr 工具 35 例 + 全量）；CI 四项见 PR checks。
 - **agent 陈述**：判定器四条件均基于 gh 服务端字段（review.commit.oid / review.body），无作者自报输入；merge_pr 后闸 fail-closed（脚本 exit 非 0 一律拒绝，脚本崩溃同拒）。
+
+## Golden Gate
+
+Golden Gate: n/a（verify_by=static_only，判定器为纯函数单测 + 集成测试可静态判定，无 LLM 采样场景可跑）。
 
 ## 测试改动声明（方向：收紧 + 理由）
 
