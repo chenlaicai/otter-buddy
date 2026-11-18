@@ -128,8 +128,17 @@ C1 已有 sid 校验丢弃（heartbeat 帧用例）；C3 补 action.result 变�
 connector 侧收尾从「有界等待完成」回到方案 §6 原设计「自杀收尾（取消在途，
 台账落 interrupted）」：优雅下线时在途动作在两端一致裁决 interrupted（可安全
 重做——重做由 actionId 幂等兜底，write 类覆盖同内容幂等）；fs 物理完成但裁决
-interrupted 的窗口，其补充裁决（write 类 hash 核对 upgradedToSucceeded）由台账
-开机清扫体系承担，与本机台账崩溃恢复语义同构。
+interrupted 的窗口：interrupted 是终态（开机清扫只裁决 running 残留行，终态行
+不做 hash 追认）——端上核对时 connector 台账的 interrupted 即最终机器真相，
+重做安全由 actionId 幂等与 write 覆盖幂等兜底。
+
+### 二轮复核观察留档（非阻塞）
+
+- 两层同态 interrupted/interrupted 的确定性端到端实证：alpha 快动作竞态命中
+  succeeded/succeeded（in-flight 自杀路径由单测 E2E 各覆盖一侧）——阶段 5 开放
+  工具路由后补确定性 E2E。
+- markInflightInterrupted 后 executor 仍跑完并照发 succeeded 回执（FIFO+关 socket
+  必弃，dispatcher 层残影无害）——留档，阶段 5 若引入取消链可顺带清理。
 
 ## Rollback
 
