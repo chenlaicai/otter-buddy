@@ -13,14 +13,14 @@ export function isRetryableGuardAbort(reason: string): boolean {
   if (reason === 'streaming_timeout') return true;
   if (reason === 'first_byte_timeout') return true;
   if (reason.startsWith('circuit_break:')) return true;
-  // F20260830bsgr: bash 安全守卫命中后给 LLM 一次自纠机会
+  // bash 安全守卫命中后给 LLM 一次自纠机会
   if (reason.startsWith('bash_safety:')) return true;
-  // F20260928slan：sleep 拦截（感知问题）同纪律——一次自纠机会：先 speak 说明理由 → 改 wait 工具
+  // sleep 拦截（感知问题）同纪律——一次自纠机会：先 speak 说明理由 → 改 wait 工具
   if (reason.startsWith('bash_sleep:')) return true;
   return false;
 }
 
-/** F20260922txes：确证超时类 guard 原因闭集（L3 升级判定口径收窄）。
+/** 确证超时类 guard 原因闭集（L3 升级判定口径收窄）。
  *  circuit_break 仅 event_timeout（单次工具调用超时，circuit-breaker-helpers.ts:229）属超时；
  *  ignored_steer 等非超时 trigger（tool-call-circuit-breaker.ts:259）不进 timeout_retry_exhausted 枚举。 */
 export function isTimeoutGuardReason(reason: string): boolean {
@@ -30,15 +30,15 @@ export function isTimeoutGuardReason(reason: string): boolean {
 }
 
 /** 构造自动重试的过渡态消息。
- *  F20260913ctlv 口径：只写确证内容——「超时」有计时证据；「模型」是归因不确证，统一去「模型」字样。 */
+ * 口径：只写确证内容——「超时」有计时证据；「模型」是归因不确证，统一去「模型」字样。 */
 export function buildRetryFailBody(reason: string): string {
   if (reason === "streaming_timeout") return "生成过程超时";
   if (reason === "first_byte_timeout") return "生成超时（长时间无输出）";
   if (reason.startsWith("circuit_break:")) return "工具调用异常";
   if (reason === "api_error") return "底层调用错误";
-  // F20260831aksp T2：对话流可见文案——事实而非误导（修复前显示通用「执行异常」）
+  // T2：对话流可见文案——事实而非误导（修复前显示通用「执行异常」）
   if (reason.startsWith("bash_safety:")) return "检测到针对主进程的不允许命令，已拦截并引导海獭重新分析任务";
-  // F20260928slan：sleep 拦截的对话流文案——感知问题非安全问题，措辞向引导而非 kill 域
+  // sleep 拦截的对话流文案——感知问题非安全问题，措辞向引导而非 kill 域
   if (reason.startsWith("bash_sleep:")) return "检测到长时间静默等待（sleep），已拦截并引导海獭说明理由后改用 wait 工具";
   return "执行异常";
 }
@@ -65,8 +65,8 @@ export function buildAutoRetryMsg(reason: string): string {
   if (reason.startsWith('circuit_break:')) {
     return '[系统提醒] 你上一轮工具调用异常，已被系统自动重试。请检查工具调用策略后继续。';
   }
-  // F20260831aksp T2：透传拦截原因 + 无 restart 出口口径（搭档终审：不存在海獭重启主进程的合法场景）
-  // F20260923glay Part B：文案压缩——原因透传保留（自诊断必需），引导语从 200 字长文压为一句
+  // T2：透传拦截原因 + 无 restart 出口口径（搭档终审：不存在海獭重启主进程的合法场景）
+  // Part B：文案压缩——原因透传保留（自诊断必需），引导语从 200 字长文压为一句
   // （四要素浓缩：不允许 + 无合法场景 + worktree 正道 + 换写法；9/23 实证重试 3 次重复长文刷屏）。
   if (reason.startsWith('bash_safety:')) {
     return `[系统提醒] 你刚才的 bash 命令被安全守卫拦截：${reason.slice('bash_safety:'.length)} 该命令不允许（主进程是海獭运行环境，不存在需要重启或停止主进程的合法场景）——验证代码变更请在 worktree 起隔离实例，服务异常报告搭档。请换写法继续，不要重复原命令。`;

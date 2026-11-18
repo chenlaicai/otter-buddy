@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 /**
- * F20260913ctlv 彻底切换：SendEntry mock 助手。
+ * 彻底切换：SendEntry mock 助手。
  *
  * 旧 agent-invoker 测试族（circuit-break/guard-bounce/metrics/rate-limit/self-restart）
  * 的状态机 mock 面从 SendMessage（messages 行）切到 SendEntry（invokes + entries）。
@@ -12,7 +12,7 @@ import type { Entry } from "@entities/conversation/entry";
 import type { Invoke } from "@entities/conversation/invoke";
 
 export interface MockInvokeStore {
-  /** F20260914evdz：appendInvokeEvent 序号发生器（invoke.event 广播测试面） */
+  /** appendInvokeEvent 序号发生器（invoke.event 广播测试面） */
   eventSeq: number;
   invokes: Map<string, Invoke>;
   entries: Entry[];

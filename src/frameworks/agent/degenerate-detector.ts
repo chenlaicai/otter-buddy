@@ -1,5 +1,5 @@
 /**
- * DegenerateDetector：退化重复输出检测器（F20260804dglp）。
+ * DegenerateDetector：退化重复输出检测器。
  *
  * 双机制，运行时 OutputGuard（流式增量）使用：
  *
@@ -16,7 +16,7 @@
  *   distinctRatioThreshold 判退化。专抓换措辞的近似重复。
  *
  * 阴性安全距离（实测 110 个 ≥5KB 合法块）：最低 distinct ratio 0.838，阈值 0.3 无假阳性。
- * F20260820d338：maxWindowRepeats 50→20，minBlockLength 5000→3000，更早捕获退化。
+ * maxWindowRepeats 50→20，minBlockLength 5000→3000，更早捕获退化。
  */
 
 export interface DegenerateConfig {
@@ -34,7 +34,7 @@ export interface DegenerateConfig {
 
 export const DEFAULT_DEGENERATE_CONFIG: DegenerateConfig = {
   windowLength: 100,
-  // Why: 从 50 降至 20 —— 原阈值需 ~5000 字符才触发，Issue #338 中重复内容 4 次
+  // Why: 从 50 降至 20 —— 原阈值需 ~5000 字符才触发，中重复内容 4 次
   // 已被用户感知但未及时捕获。20 次（~2000 字符）仍远高于良性复述（≤2 次），
   // 安全边际充足（实测 110 个合法块最低 distinct ratio 0.838，远高于 0.3 阈值）。
   maxWindowRepeats: 20,

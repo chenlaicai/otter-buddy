@@ -31,7 +31,7 @@ describe("#1837 yield 对直出文本的纠错", () => {
     const result = await tool.execute("yield-1", { to: ["user"] });
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("本轮 invoke 尚未落账 speak");
-    // #1871：明确指出计数跨 invoke（含重启/重试）归零，引导模型补 speak 而非排查工具
+    // 明确指出计数跨 invoke（含重启/重试）归零，引导模型补 speak 而非排查工具
     expect(result.content[0].text).toContain("归零");
     expect(result.content[0].text).toContain("再调用一次 speak");
     expect(result.content[0].text).toContain("不要排查工具");

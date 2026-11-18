@@ -1,7 +1,7 @@
 /**
- * #1247：上下文窗口超限识别单测（与 rate-limit-error.test.ts 同骨架）。
+ * 上下文窗口超限识别单测（与 rate-limit-error.test.ts 同骨架）。
  *
- * 用例文本来源：issue #1247 原文实证（kimi-256k 2026-09-29 现场）+ OpenAI/Anthropic
+ * 用例文本来源：原文实证（kimi-256k 2026-09-29 现场）+ OpenAI/Anthropic
  * 公开错误形态 + 中文变体。互斥性用例确保与限流词族不串扰。
  */
 import { describe, it, expect } from "vitest";

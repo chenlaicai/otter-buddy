@@ -15,15 +15,15 @@ interface RightPanelProps {
   conversation: Conversation
   otters: Otter[]
   sessions: Record<string, OtterSession[]>
-  /** F20260913ctlv：獭 invoke 实时状态（streaming/休眠 + 当前 invoke 统计） */
+  /** 獭 invoke 实时状态（streaming/休眠 + 当前 invoke 统计） */
   invokeStates?: import('../../lib/invoke-tracker').InvokeStates
-  /** F20260913ctlv：点击獭头像 → Session 弹窗（invoke 历史 + 流式过程） */
+  /** 点击獭头像 → Session 弹窗（invoke 历史 + 流式过程） */
   onOpenSession?: (otterId: string) => void
-  /** F20260913ctlv：中断獭当前 running invoke（右栏按钮；POST /api/invokes/:id/abort） */
+  /** 中断獭当前 running invoke（右栏按钮；POST /api/invokes/:id/abort） */
   onAbortInvoke?: (otterId: string, invokeId: string) => void
-  /** F20260913ctlv：重试失败/中断 invoke（右栏按钮；POST /api/invokes/:id/retry） */
+  /** 重试失败/中断 invoke（右栏按钮；POST /api/invokes/:id/retry） */
   onRetryInvoke?: (otterId: string) => void
-  /** F20261009csf3：linkedResources/onAddFact/onToggleResourceFlag/onAddLinkedResource/onDeleteLinkedResource
+  /** linkedResources/onAddFact/onToggleResourceFlag/onAddLinkedResource/onDeleteLinkedResource
    *  随关键资源 tab 退役——产物展示走中间栏时间轴（ChatView 的 linkedResources prop），
    *  管理（登记/标旗/删除）走对话通道（create_linked_resource 等工具） */
   onCreateSmallOtter: () => void
@@ -39,20 +39,20 @@ interface RightPanelProps {
   onDeleteScheduledTask: (taskId: string) => void
   onTriggerScheduledTask: (taskId: string) => void
   onViewScheduledTaskHistory: (taskId: string) => void
-  /** F20261006mlp2 P2：待办板裁决回执路由（handleSend 的 mention 路由封装——owner 为空时默认派发） */
+  /** P2：待办板裁决回执路由（handleSend 的 mention 路由封装——owner 为空时默认派发） */
   onRouteToOtter?: (body: string, ownerOtterId: string | null) => void
 }
 
-/** 右侧栏 tab 类型（F20261009csf3：resources/关键资源 tab 已退役——产物改由中间栏时间轴混排展示
- *  （F20261008csf1 摘要卡 + F20261009csp2 活类登记），手动登记/标旗/删除走对话通道，
+/** 右侧栏 tab 类型（resources/关键资源 tab 已退役——产物改由中间栏时间轴混排展示
+ * （摘要卡 + 活类登记），手动登记/标旗/删除走对话通道，
  *  搭档拍板方案 A「彻底退役，平时主要海獭间用」） */
 type RightPanelTab = 'participants' | 'tasks' | 'workspace' | 'matters'
 
 export function RightPanel(props: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<RightPanelTab>('participants')
-  /** F20260914rtsp：走秒驱动——有任一 running 时 1s interval 重渲染右栏（无 running 停，AT-3）。
+  /** 走秒驱动——有任一 running 时 1s interval 重渲染右栏（无 running 停，AT-3）。
  *  Why 容器级单定时器：N 獭 N 定时器无意义；现状仅靠对话列表轮询（5s）间接 re-render 搭便车，
- *  页面隐藏即完全定格（F20260805actv 副作用，见 F20260914rtsp P1） */
+ * 页面隐藏即完全定格（副作用，见 P1） */
   const [tickNow, setTickNow] = useState(() => Date.now())
   const anyRunning = Object.values(props.invokeStates ?? {}).some(s => s.status === 'running')
   useEffect(() => {
@@ -61,7 +61,7 @@ export function RightPanel(props: RightPanelProps) {
     return () => clearInterval(t)
   }, [anyRunning])
 
-  /** tab 配置（F20261009csf3：resources tab 移除） */
+  /** tab 配置（resources tab 移除） */
   const tabs: Array<{ id: RightPanelTab; icon: React.ReactNode; label: string }> = [
     { id: 'participants', icon: <Users className="w-4 h-4" />, label: '参与者' },
     { id: 'tasks', icon: <Timer className="w-4 h-4" />, label: '定时任务' },

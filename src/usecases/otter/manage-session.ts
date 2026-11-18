@@ -10,7 +10,7 @@ import type { OtterRepository } from "./otter-repository";
 import type { AgentGateway } from "./agent-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { redactSecrets } from "@usecases/security/redact-secrets";
-// F20260908efmd: 有效模型解析（createSession/restartSession 快照用）
+// 有效模型解析（createSession/restartSession 快照用）
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { ModelPoolLike } from "@usecases/ports/model-pool-like";
 import { resolveEffectiveModel } from "@usecases/ports/otter-config-provider";
@@ -36,18 +36,18 @@ export interface ArchiveSessionInput {
 }
 
 export class ManageSession {
-  /* eslint-disable max-params -- F20260908efmd: 新增 otterConfigProvider + modelPool 用于有效模型解析 */
+  /* eslint-disable max-params -- 新增 otterConfigProvider + modelPool 用于有效模型解析 */
   constructor(
     private readonly repo: OtterRepository,
     private readonly agentGateway: AgentGateway,
-    /** F20260917rsta：可读暴露（agent-invoker 手动重启空摘要自动交接解析对话 ID 用）
+    /** 可读暴露（agent-invoker 手动重启空摘要自动交接解析对话 ID 用）
      *  ConversationQueryGateway 是纯查询窄接口，暴露不改变 usecase 写路径 */
     readonly conversationQuery: ConversationQueryGateway,
     private readonly memoryLayer: MemoryLayerGateway,
     private readonly logger: Logger,
-    /** F20260908efmd: 可选——用于有效模型解析（createSession/restartSession 快照）。未注入时 session.modelAlias 不写入 */
+    /** 可选——用于有效模型解析（createSession/restartSession 快照）。未注入时 session.modelAlias 不写入 */
     private readonly otterConfigProvider?: OtterConfigProvider,
-    /** F20260908efmd: 可选——用于有效模型解析。未注入时 session.modelAlias 不写入 */
+    /** 可选——用于有效模型解析。未注入时 session.modelAlias 不写入 */
     private readonly modelPool?: ModelPoolLike,
   ) {}
 
@@ -55,7 +55,7 @@ export class ManageSession {
    * 创建新 Session。
    * 前置条件：该 otter 无 active session。
    * previousSessionId 指向前一个 session（链式关系，B14）。
-   * summary（F20260805rsto）：写入新行，供下一轮 invoke 注入新獭生上下文
+   * summary：写入新行，供下一轮 invoke 注入新獭生上下文
    * （restart 的「前情摘要」原本只写旧行，新 session 永远读不到）。
    */
   async createSession(

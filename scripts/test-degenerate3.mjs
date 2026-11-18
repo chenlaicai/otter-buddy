@@ -12,7 +12,7 @@ import * as yaml from "js-yaml";
 const SCENE_SESSION = "/tmp/pi-degenerate-cleaned-memory.jsonl";
 const TIMEOUT_MS = 120_000;
 
-/** F20260813actk 安全修复：key 不再硬编码（曾泄漏进 git 历史并已轮换），
+/** 安全修复：key 不再硬编码（曾泄漏进 git 历史并已轮换），
  *  改读 gitignored 的本地测试配置 config/config.test.local.yaml */
 const LOCAL_CONFIG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../config/config.test.local.yaml");
 function loadLlmConfig() {

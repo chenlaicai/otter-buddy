@@ -1,10 +1,10 @@
 /**
- * F20260903（#726 拆解）：lint-skills.mjs 引用规范校验测试。
+ * F20260903（拆解）：lint-skills.mjs 引用规范校验测试。
  *
- * 覆盖规则（校验 7/9，F20260903 拆解后结构 + #773 E1c）：
+ * 覆盖规则（校验 7/9，F20260903 拆解后结构 + E1c）：
  *   E1: 绝对路径 .md 引用（含 /…/.pi/skills/…）→ error（agent 换 cwd 后必然读不到）
  *   E1b: 任何 _shared/ 引用（裸写或 ../ 前缀）→ error（目录已随拆解删除，必然 ENOENT）
- *   E1c: 跨 skill 裸写引用（`other/references/x.md`、`other/SKILL.md`）→ error（#773：
+ * E1c: 跨 skill 裸写引用（`other/references/x.md`、`other/SKILL.md`）→ error（
  *        lint 曾按 skills 根解析放行，SDK 从当前 skill 目录解析必然 ENOENT）
  *   E2: 引用可见性 = 出现在任一 skill 的「## 工作流」section：
  *       - 哪都没绑定 → error
@@ -12,7 +12,7 @@
  *       - SKILL.md 目标豁免（skill 名引用由加载机制直接消费）
  *   7: 引用路径存在性（合法形态：本 skill 相对 + 跨 skill ../ 前缀；裸写归 E1c）
  *
- * 设计继承 PR #758 的 tests/scripts/lint-skills.test.ts（其方案被架构决策取代，
+ * 设计继承 的 tests/scripts/lint-skills.test.ts（其方案被架构决策取代，
  * 诊断资产由本测试继承）。
  *
  * 测试策略：临时 skills 目录 + 临时 manifest，构造违规/合规 SKILL.md 后跑真 lint 脚本。
@@ -143,8 +143,8 @@ describe("lint-skills 校验 9（F20260903 拆解后引用规范）", () => {
         refs: { "review/references/protocol.md": "# protocol" },
       },
       impl: {
-        // 裸写形态：F20260903 拆解后曾放行，#773 非法化（lint 按 skills 根解析会放行，
-        // SDK 从当前 skill 目录解析读不到——#726 28 次 ENOENT 同族病灶）
+        // 裸写形态：F20260903 拆解后曾放行，非法化（lint 按 skills 根解析会放行，
+        // SDK 从当前 skill 目录解析读不到——28 次 ENOENT 同族病灶）
         body: skillBody({ wfRef: "review/references/protocol.md" }),
         refs: {},
       },
@@ -156,7 +156,7 @@ describe("lint-skills 校验 9（F20260903 拆解后引用规范）", () => {
 
   it("E1c（#773）：跨 skill 裸写 SKILL.md 形态 → error（r1 死分支回归防线）", () => {
     // 检视发现：旧正则 `(?:references\/|SKILL\.md)[^`]*\.md` 的 SKILL.md 分支消费后仍强制
-    // 再匹配一段 .md，裸写 `foo/SKILL.md` 完全拦不到——而 #773 原文示例正是此形态。
+    // 再匹配一段 .md，裸写 `foo/SKILL.md` 完全拦不到——而 原文示例正是此形态。
     const r = runLint({
       review: {
         body: skillBody({ wfRef: "references/protocol.md" }),

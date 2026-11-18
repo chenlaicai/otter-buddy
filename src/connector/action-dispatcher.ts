@@ -1,5 +1,5 @@
 /**
- * F20261118remex（#1868 阶段 4 C2）：connector 侧动作分发器——action.request →
+ * （阶段 4 C2）：connector 侧动作分发器——action.request →
  * 本地执行 → action.result 回执。
  *
  * 可测性：不持有 ws 对象（发帧经 sender 回调，sid/seq 由会话层闭包负责），

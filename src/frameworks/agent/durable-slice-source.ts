@@ -1,11 +1,11 @@
 /**
- * M-9af49d4a R2：durable 会话「当前世代 entries」只读投影（换世档案合成原料）。
+ * M-9af49d4a durable 会话「当前世代 entries」只读投影（换世档案合成原料）。
  *
  * Why 直读 sqlite 而不开 Harness：readCurrentSessionEntries 的调用点含 probeFirstTurn
  * （正常 invoke 期的 buildDynamicContext），DurableSession.open 的 recoverAfterReopen
  * 会 abort 未完任务——正常轮里误伤在跑 generation。只读连接零副作用（与运维查库同模式）。
  *
- * Why 不复用 jsonl 分支：#1783 迁移后前世对话在 durable sqlite 里（entries 表），
+ * Why 不复用 jsonl 分支：迁移后前世对话在 durable sqlite 里（entries 表），
  * JSONL 读取器拿不到原料 → 换世档案 100% 机械转储（2026-11-10 08:04 起全部降级）。
  *
  * 语义对齐 legacy 分支：undefined=读失败/无档案；[]=真空 session（0 条有结构）——

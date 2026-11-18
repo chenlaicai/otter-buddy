@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { sortSessionChain } from './session-chain'
 import type { LocalOtterSession } from './mappers'
 
-/** F20260805dmux：sortSessionChain 承载「第N世」计数口径契约（seed-011 引用），防口径回归 */
+/** sortSessionChain 承载「第N世」计数口径契约（seed-011 引用），防口径回归 */
 
 function makeSession(id: string, previousSessionId: string | null, overrides: Partial<LocalOtterSession> = {}): LocalOtterSession {
   return {

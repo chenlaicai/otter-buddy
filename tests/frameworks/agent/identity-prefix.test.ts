@@ -81,7 +81,7 @@ describe("buildIdentityPrefix 分支", () => {
     expect(prefix).toContain("类型：大獭");
     expect(prefix).toContain("海獭团队的头儿");
     expect(prefix).not.toContain("name: big-otter-identity");
-    // F20260825m422a: 日期锚点注入——日粒度 YYYY-MM-DD（F20260829cach 改日粒度保前缀缓存稳定）
+    // 日期锚点注入——日粒度 YYYY-MM-DD（改日粒度保前缀缓存稳定）
     const dateSection = extractDateSection(prefix);
     expect(dateSection).toBeDefined();
     expect(dateSection).toMatch(/## 当前日期时间\n- 今天是 \d{4}-\d{2}-\d{2}（Asia\/Shanghai）/);
@@ -174,7 +174,7 @@ describe("身份注入触发链路（pendingIdentity / createdNew）", () => {
     const captured: { invokeOptions: unknown } = { invokeOptions: undefined };
     const executeShouldFail = { value: false };
     const internals = factory as unknown as FactoryInternals;
-    // F20260911pspl 池化后身份判定在 _acquirePooled：mock 掉它，直接返回池外场景
+    // 池化后身份判定在 _acquirePooled：mock 掉它，直接返回池外场景
     // （isPooled=false + createdNew 语义由测试参数控制，经 pendingIdentity 标记传递）
     internals._acquirePooled = async (otterId: string) => {
       if (createdNew) internals.pendingIdentity.add(otterId);

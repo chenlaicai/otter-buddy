@@ -4,7 +4,7 @@
  * 独立 hook 而非塞进 useDraftCache：草稿是纯文本可 localStorage 持久化，
  * 附件含 File 对象（不可序列化）且上传后就是服务端 id 引用——生命周期不同，不混存。
  * 会话切换即清空（未发送的附件选择不跨会话保留，与草稿行为差异是刻意决策：
- * 附件上传有服务端落盘副作用，遗留状态容易误发——PR #546 审视发现 1 后落地：
+ * 附件上传有服务端落盘副作用，遗留状态容易误发——后落地：
  * 清空逻辑收进 hook 内部 effect，调用方（ChatView 不重挂载）免费获得，
  * 不依赖调用方记得调 clearAll）。
  */
@@ -22,7 +22,7 @@ export interface StagedAttachment extends LocalAttachment {
   uploading: boolean
 }
 
-/** 上传错误结构化透出（PR #546 审视发现 3）：status 保留 HTTP 语义（400 MIME/413 超限/415 类型），
+/** 上传错误结构化透出（）：status 保留 HTTP 语义（400 MIME/413 超限/415 类型），
  *  供 UI 层按需分流展示；网络/未知错误 status 为 null */
 export interface UploadErrorInfo {
   message: string

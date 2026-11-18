@@ -1,5 +1,5 @@
 /**
- * F20260913ctlv 补漏回归：sendUserEntry 的点火依据落库测试。
+ * 补漏回归：sendUserEntry 的点火依据落库测试。
  *
  * test09 阻断问题回归锚：user entry 必须把解析后的 talkingStonePassedTo 写进
  * entry.yieldTargets——信号路由（SignalRouter.loadSignalView）读此字段点火。
@@ -115,7 +115,7 @@ describe("sendUserEntry 点火依据落库（F20260913ctlv 补漏）", () => {
       logger: createLogger(),
     });
     // entry 落库成功 + attach 失败 → 仍正常返回（不抛）——文字消息优先送达，
-    // 附件投影为空由前端 tmp 保留兜底（大獭裁决：原 controller 语义 F20260826fsyc）
+    // 附件投影为空由前端 tmp 保留兜底（大獭裁决：原 controller 语义 ）
     const { entry } = await sendEntry.sendUserEntry({
       conversationId: "conv-1",
       senderId: "user-1",

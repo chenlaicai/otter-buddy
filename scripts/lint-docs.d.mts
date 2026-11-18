@@ -1,4 +1,4 @@
-/** #1294: from 链检查纯函数类型声明（mjs 供测试 import） */
+/** from 链检查纯函数类型声明（mjs 供测试 import） */
 export interface BacklinkEntry {
   rel: string;
   id?: string;

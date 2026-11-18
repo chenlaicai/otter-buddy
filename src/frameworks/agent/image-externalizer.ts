@@ -1,7 +1,7 @@
 /**
- * F20260915iext（#779）：历史图片外置——context 钩子发送层投影。
+ * ：历史图片外置——context 钩子发送层投影。
  *
- * 问题（issue #779 现场）：多模态 read 的图片 toolResult 以 base64 原文堆积在 session
+ * 问题（现场）：多模态 read 的图片 toolResult 以 base64 原文堆积在 session
  * 上下文中直到 session 结束（某 session 29.6MB 里 97% 是 9 张 ~3.5MB 截图）。图片价值
  * 集中在读图当轮，之后趋近于零，却每轮全量重复参与注意力计算。
  *

@@ -1,7 +1,7 @@
 /**
  * SqliteSearchQueryLogRepository：检索埋点写入实现。
  *
- * F20260826rcmm Phase 0。表结构见 schema.ts search_query_logs。
+ * Phase 0。表结构见 schema.ts search_query_logs。
  */
 
 import type Database from "better-sqlite3";

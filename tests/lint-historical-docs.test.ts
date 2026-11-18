@@ -1,15 +1,15 @@
 /**
- * F20260831dgim: 历史特性文档不可变——lint 脚本行为锁定。
+ * 历史特性文档不可变——lint 脚本行为锁定。
  *
  * 在临时 git 仓库中模拟场景（每个用例先 reset 干净 staged 区，避免跨用例污染）：
  * 1. 历史文档（基准分支已合入）被修改 → 违规
  * 2. 本分支新建的文档被修改 → 通过（迭代载体）
  * 3. 非 docs/features|research 路径的修改 → 不在管辖范围
- * 4. staged .doc-fix 声明文件（理由≥10字符）→ 放行（F20260922dfch 显式开口）
+ * 4. staged .doc-fix 声明文件（理由≥10字符）→ 放行（显式开口）
  * 5. .doc-fix 理由不足 / 未 staged → 拦截（声明必须进索引区才生效）
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-// F20261021ttos：临时 git 仓库结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+// 临时 git 仓库结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
 vi.setConfig({ testTimeout: 20_000 });
 import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -236,7 +236,7 @@ describe("lint-historical-docs: 历史文档不可变", () => {
   });
 
   it("#1164 同 staged 混合形态：历史文档 M + .doc-fix D → 拦截（fail-closed，不经声明通道）", () => {
-    // #1162/#1164 关联场景：上一轮配对订正后（HEAD 含 .doc-fix），新 staged 区同时含
+    // 关联场景：上一轮配对订正后（HEAD 含 .doc-fix），新 staged 区同时含
     // 历史文档修改与 .doc-fix 删除——「声明与订正同 commit 进、独立 commit 出」语义下
     // 这是抹除路径的本地形态。声明已被 stage 为 D → 变更集中声明文件名在场但
     // readDocFixDeclaration 读 index :.doc-fix 失败（已删除无树对象）→ 通道不开，

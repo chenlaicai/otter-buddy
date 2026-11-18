@@ -1,5 +1,5 @@
 /**
- * F20260913ctlv 彻底切换：AgentInvoker 测试（invoke 状态机语义）。
+ * 彻底切换：AgentInvoker 测试（invoke 状态机语义）。
  *
  * 旧测试族的 messages 状态机（speaking 判定/message.retry 事件/segments 聚合）已退役。
  * 新核心覆盖：
@@ -166,7 +166,7 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
     expect(internals.handleContentFilterSignal).not.toHaveBeenCalled();
   });
 
-  /** F20260914rtsp AT-4/AT-11：message_end usage → invoke.tick 发射与降级 */
+  /** AT-4/AT-11：message_end usage → invoke.tick 发射与降级 */
   it("message_end 带 usage → 发射 invoke.tick（ctxWindowUsed + 工具计数）", async () => {
     const events: { event: string; data: Record<string, unknown> }[] = [];
     const sendEntry = mockSendEntry();
@@ -189,7 +189,7 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
     expect(tick?.data.toolCallCount).toBe(1);
   });
 
-  /** F20261014wtrm：message_end 带 usage → 水位实时写回 lastCtxTokens（交接判定数据源）
+  /** message_end 带 usage → 水位实时写回 lastCtxTokens（交接判定数据源）
    *  锁定破口①核心新行为——流式过程中每轮拿到 usage 即更新水位，不等 invoke 收尾。
    *  若未来重构删掉 emitInvokeTick 里的 setLastCtxTokens，此用例红。 */
   it("message_end 带 usage → 实时写回 lastCtxTokens（水位随流式每轮更新）", async () => {
@@ -228,7 +228,7 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
     expect(invoker["handoffState"].getLastCtxTokens("otter-1")).toBe(12345);
   });
 
-  /** F20261014wtrm：无 message_end（invoke 直接失败）→ 水位不更新（保持 undefined）
+  /** 无 message_end（invoke 直接失败）→ 水位不更新（保持 undefined）
    *  锁定边界：截断/overflow 时 SDK 抛异常、无 message_end 事件，水位保持旧值/undefined。
    *  这是机制固有边界——失败轮的上下文数据只能靠下一轮 invoke 开头的检查兜底。 */
   it("无 message_end（invoke 直接失败）→ 水位不更新", async () => {
@@ -247,7 +247,7 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
     expect(invoker["handoffState"].getLastCtxTokens("otter-2")).toBeUndefined();
   });
 
-  /** F20260914evdz：persistInvokeEvent 落库后广播 invoke.event（Session 弹窗实时通道） */
+  /** persistInvokeEvent 落库后广播 invoke.event（Session 弹窗实时通道） */
   it("过程事件落库成功 → 广播 invoke.event（带落库 id/seq）", async () => {
     const sseEvents: { event: string; data: Record<string, unknown> }[] = [];
     const logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as unknown as Logger;
@@ -539,7 +539,7 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
 });
 
 /**
- * F20260922handoff 死链修复②语义锁：invoke 完成 → setLastCtxTokens 写回 →
+ * 死链修复②语义锁：invoke 完成 → setLastCtxTokens 写回 →
  * 超阈值时水位交接真实触发（此前 setter 零调用，水位触发器从未触发）。
  */
 describe("水位触发端到端（F20260922handoff 死链修复语义锁）", () => {

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 /**
- * 记忆召回页面（F20260929mrui 重构，前称记忆搜索）测试：
+ * 记忆召回页面（重构，前称记忆搜索）测试：
  *
- * 1. #576 冒烟（保留）：初始态非空——最近记忆列表 / 显式空态文案 / 静默降级
- * 2. F20260929mrui：多条件查询面板渲染（内容类型多选/时间范围/对话过滤/高级开关）
- * 3. F20260929mrui：搜索请求携带新参数（content_type/created_after/expand_context/debug）
- * 4. F20260929mrui：结果结构化分组——doc 聚合（chunk 归拢）/ conversation 时间线 / 独立条目
- * 5. F20260929mrui：数据结构面板（showStructure 开关联动每条展开）
+ * 1. 冒烟（保留）：初始态非空——最近记忆列表 / 显式空态文案 / 静默降级
+ * 2. 多条件查询面板渲染（内容类型多选/时间范围/对话过滤/高级开关）
+ * 3. 搜索请求携带新参数（content_type/created_after/expand_context/debug）
+ * 4. 结果结构化分组——doc 聚合（chunk 归拢）/ conversation 时间线 / 独立条目
+ * 5. 数据结构面板（showStructure 开关联动每条展开）
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act } from 'react'
@@ -333,7 +333,7 @@ describe('结果结构化分组（F20260929mrui 核心）', () => {
     await act(async () => {})
 
     const text = container.textContent!
-    // doc 组：标题 + 命中口径（检视发现 5：邻域不计命中——2 主命中 + 1 邻域）
+    // doc 组：标题 + 命中口径（邻域不计命中——2 主命中 + 1 邻域）
     expect(text).toContain('记忆召回界面重构')
     const docCard = container.querySelector('[data-group-id="F20260929mrui"]')
     expect(docCard).toBeTruthy()

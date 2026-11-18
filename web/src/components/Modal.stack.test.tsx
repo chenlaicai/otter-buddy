@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * #510（F20260901mftz）：多 Modal 叠加 focus trap 栈测试。
+ * ：多 Modal 叠加 focus trap 栈测试。
  *
  * 覆盖：
  * 1. 叠加时 Escape 只关栈顶（次层不响应）——原先两实例都挂 keydown 会连锁关闭

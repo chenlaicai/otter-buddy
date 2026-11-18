@@ -1,5 +1,5 @@
 /**
- * Dispatch record 持久化仓库接口（F20260912avlb）。
+ * Dispatch record 持久化仓库接口。
  *
  * 写路径：create_otter 钩子（created）；yield 钩子（markDispatched）；
  * dissolve 清算钩子（markDissolved，与 DissolveOtter 既有 4.5/4.6/4.7 清账同模式）。
@@ -12,7 +12,7 @@ export interface DispatchRecordRepository {
   create(record: DispatchRecord): Promise<void>;
 
   /**
-   * 批量语义（方案 delta 复审建议 1 显式定义）：该獭在该对话**全部 created 状态记录**
+   * 批量语义（方案 delta 显式定义）：该獭在该对话**全部 created 状态记录**
    * 刷为 dispatched（一条记录 = 创建到首派窗口闭合；旧记录不停留在 created）。
    * 只刷 created：已 dispatched 的记录保留首次时间戳，不重复刷新。
    * @returns 更新行数

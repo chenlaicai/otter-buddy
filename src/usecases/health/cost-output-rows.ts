@@ -1,5 +1,5 @@
 /**
- * CostOutputRows: cost_output 快照行构建（Issue #583）
+ * CostOutputRows: cost_output 快照行构建
  *
  * 将 LLMCallCollector 和 OtterOutputCollector 的采集结果转为
  * health_snapshots 表的 CreateSnapshotRow 格式。
@@ -37,7 +37,7 @@ interface OtterMeta {
   otterName: string;
   otterType?: string;
   model?: string;
-  /** F20261027hwl1：真实 provider（null/unknown 省略——报告层归 unknown 桶） */
+  /** 真实 provider（null/unknown 省略——报告层归 unknown 桶） */
   provider?: string;
 }
 
@@ -55,7 +55,7 @@ export const COST_OUTPUT_KEYS = {
   COST_TOTAL: "cost_total",
   LLM_CALL_COUNT: "llm_call_count",
   ERROR_CALL_COUNT: "error_call_count",
-  // cache_hit_rate 行已删除（#602）：消费端统一从 cache_read_tokens/input_tokens 推导，
+  // cache_hit_rate 行已删除：消费端统一从 cache_read_tokens/input_tokens 推导，
   // 该行成为无消费者死数据——保留只会造成口径分裂陷阱（谁再消费它就绕过统一推导口径）
   MESSAGE_COUNT: "message_count",
   TOOL_CALL_COUNT: "tool_call_count",
@@ -82,7 +82,7 @@ interface GlobalRecords {
 }
 
 /**
- * 构建 invoke stats 快照行集（F20260914usgm）。
+ * 构建 invoke stats 快照行集。
  *
  * 每条 InvokeStatsRecord 生成 5 行（invoke_count + 4 均值），metadata 携带 model。
  * model="_total" 为全模型合计行，metadata.model 同值（消费端按需过滤）。
@@ -119,7 +119,7 @@ export function buildCostOutputSnapshotRows(
 
   // 1. Per-otter per-model cost 行（日期取记录真实日期）
   for (const rec of costRecords) {
-    // F20261027hwl1：provider 恒写入（unknown 显式标记）——新旧口径的幂等判据
+    // provider 恒写入（unknown 显式标记）——新旧口径的幂等判据
     //（旧行无 provider 字段；新行有 provider 或显式 unknown）
     const meta: OtterMeta = {
       otterId: rec.otterId,

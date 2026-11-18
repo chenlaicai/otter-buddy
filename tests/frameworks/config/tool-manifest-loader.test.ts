@@ -1,6 +1,6 @@
 /**
- * F20260820a4rt: tool-manifest-loader 单元测试
- * F20260821a5cb: 新增 capabilityBlocks / groups 测试
+ * tool-manifest-loader 单元测试
+ * 新增 capabilityBlocks / groups 测试
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { writeFileSync, mkdirSync, rmSync, existsSync } from "fs";
@@ -476,7 +476,7 @@ describe("getToolNamesFromManifest", () => {
 });
 
 /**
- * F20261008tecn（EazoTack 工具瘦身 v1）：toolExposure 段解析与校验。
+ * （EazoTack 工具瘦身 v1）：toolExposure 段解析与校验。
  * 覆盖：合法解析/字段缺失/非法值/非对象/非字符串键名。
  */
 describe("loadToolManifest toolExposure (F20261008tecn)", () => {

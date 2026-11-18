@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { parseCardImportance, extractFoldedSummary, CARD_FOLDED_SUMMARY_MAX_CHARS } from './html-card'
 
 /**
- * F20261013csv3 T3/T4：html-card meta 扩展单测。
+ * T3/T4：html-card meta 扩展单测。
  * T4 importance：high 默认展开 / normal 默认折叠；解析失败按 normal（绝不抛错）。
  * T3 折叠态摘要行：跳过 script/style/textarea；纯标点视同空；截断至 120 字符。
  */

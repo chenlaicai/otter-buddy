@@ -1,5 +1,5 @@
 /**
- * F20260813mren Part 1: 创建记忆关系边。
+ * Part 1: 创建记忆关系边。
  *
  * D3: 校验 from/to entry 都是 coarse 粒度——防 chunk sync 时 replaceEntriesBySource
  *     删旧建新 chunk 导致 CASCADE/手动删边静默丢失。

@@ -1,5 +1,5 @@
 /**
- * F20260909scrf6：弹窗期模糊语义切换的样式契约测试。
+ * 弹窗期模糊语义切换的样式契约测试。
  * 背景：backdrop-filter 实时采样下层位图，任何漏网变化源（流式计时器等）都会
  * 造成「清晰帧↔模糊帧」跳变闪烁——白名单冻结补 5 轮仍漏网。
  * 修复：body.modal-open 期间内容区自模糊（filter:blur）+ scrim 摘掉 backdrop-filter。
@@ -35,15 +35,15 @@ describe('F20260909scrf6：弹窗期内容自模糊样式契约', () => {
   })
 })
 
-/** 冻结链标识 pattern（r3-C2）：模块级单一真相源，契约用例与 corpus 自测共用 */
+/** 冻结链标识 pattern（-C2）：模块级单一真相源，契约用例与 corpus 自测共用 */
 const FREEZE_CHAIN_PATTERN = /modalOpen|isAnyModalOpen|runOrDefer|flushDeferredOps|getShouldDefer/
 
 /**
- * F20260929fcln（#884）：冻结链退役契约。
- * 背景：F20260909srf6 模糊语义换轨（scrim 采样 → 内容自模糊）后，前五轮为保
+ * ：冻结链退役契约。
+ * 背景：模糊语义换轨（scrim 采样 → 内容自模糊）后，前五轮为保
  * scrim 采样准静态而建的冻结机制全部失去服务对象——本轮清理：
  * - globals.css：body.modal-open .stream-shimmer 冻结规则 + 孤儿类定义（挂载点
- *   已随 #886 对话视图重构退役）全删
+ * 已随 对话视图重构退役）全删
  * - index.tsx：batcher defer / 轮询 gate / deferred ops / 关窗 flush 全拆
  *   （app-content-scroll 包含整个 <Outlet />，全部背景更新都在模糊层内，无采样失效）
  * 本组断言锁定清理不被回退（防止「顺手」恢复冻结式写法重新引入双轨语义）。

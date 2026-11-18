@@ -1,5 +1,5 @@
 /**
- * SqliteEntryRepository 的附件与 FTS 维护助手（F20261026ctbg 拆分：主文件超 450 行 lint 上限，
+ * SqliteEntryRepository 的附件与 FTS 维护助手（拆分：主文件超 450 行 lint 上限，
  * 附件读写与 FTS upsert 是独立关注面，抽为模块级函数供仓库类薄委托）。
  */
 import type Database from "better-sqlite3";
@@ -15,7 +15,7 @@ export function attachEntryAttachment(db: Database.Database, entryId: string, at
 interface AttachmentJoinRow { attachment_id: string; sequence_num: number }
 
 export function getEntryAttachments(db: Database.Database, entryId: string): Array<{ attachmentId: string; sequenceNum: number }> {
-  // F20261026ctbg 审视修复：恢复原实现（无 JOIN）——entry_attachments 本身有 (entry_id, attachment_id)
+  // 审视修复：恢复原实现（无 JOIN）——entry_attachments 本身有 (entry_id, attachment_id)
   // 唯一约束，孤儿关联行在写入路径已排除；JOIN attachments 只会把历史孤儿行静默吞掉，非严格等价
   const rows = db.prepare(
     "SELECT attachment_id, sequence_num FROM entry_attachments WHERE entry_id = ? ORDER BY sequence_num",

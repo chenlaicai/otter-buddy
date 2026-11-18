@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * F20260804dcnv: 文档 frontmatter 校验脚本（commit-time gate）。
+ * 文档 frontmatter 校验脚本（commit-time gate）。
  *
  * 把反馈从运行时（启动 sync）推到 commit 时（pre-commit hook）--作者改完文档
  * 立刻知道违规，不用等启动后看 health banner。
@@ -8,14 +8,14 @@
  * 复用 dist/ 里编译好的 validator + parser（单一真相源，不重复规则）。
  * 依赖：pre-commit hook 已跑 `npm run check`（= build）产出 dist/。
  *
- * F20261022frsh（#1400）: 新增 dist 新鲜度闸——src 修改晚于 dist 构建即报错
+ * : 新增 dist 新鲜度闸——src 修改晚于 dist 构建即报错
  * （陈旧 dist 假绿防线）。issue 现场：本地 dist 停在旧 commit 时跑 lint:docs
  * 用旧 validator 逻辑假绿、误导「预检干净」判断，CI fresh build 才报红返工。
  * pre-commit 路径不受影响（check 的 build 先行，dist 恒新鲜）。
  *
- * F20261009fdid（#1274）: 新增 id 唯一性检查——文档 id 是 sync_docs 入库的
- * 主键性质标识，两个文件共用同一 id 会导致后同步覆盖前同步（#1274 实证：
- * F20260824ax376 组 fix-lock 篇内容在记忆库被 pr-evaluation 后同步覆盖丢失）。
+ * : 新增 id 唯一性检查——文档 id 是 sync_docs 入库的
+ * 主键性质标识，两个文件共用同一 id 会导致后同步覆盖前同步（实证：
+ * 组 fix-lock 篇内容在记忆库被 pr-evaluation 后同步覆盖丢失）。
  * 存量两组重复（ax376 / gh698）已治理清零，本检查防复发。
  *
  * 退出码：0 通过 / 1 有违规。
@@ -25,7 +25,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 
-/** #1274 / F20261009fdid: id 唯一性检查（纯函数，供测试 import）。
+/**  id 唯一性检查（纯函数，供测试 import）。
  *  entries: Array<{ rel: string, id?: string }>（rel = 仓库根相对路径）。
  *  返回 Map<重复 id, 文件路径列表>；缺 id 的条目跳过（缺 id 由
  *  validateXxxFrontmatter 管辖，不属重复语义）。
@@ -48,7 +48,7 @@ export function findDuplicateIds(entries) {
   return dupes;
 }
 
-/** #1400 / F20261022frsh: dist 新鲜度检查（纯函数，供测试 import）。
+/**  dist 新鲜度检查（纯函数，供测试 import）。
  *  srcEntries / distEntries: Array<{ rel: string, mtimeMs: number }>。
  *  判据（fail-closed）：src 最新修改时刻 >= dist 产物最早写入时刻 → 这次 src
  *  修改未进 dist（陈旧），lint 结果基于旧 validator 不可信（假绿——issue 现场：
@@ -71,11 +71,11 @@ export function evaluateDistFreshness(srcEntries, distEntries) {
   return { fresh: true };
 }
 
-/** #1294 / F20261103blnkr: from 链存在性检查（纯函数，供测试 import）。
+/**  from 链存在性检查（纯函数，供测试 import）。
  *  方向定案（搭档 2026-11-03 拍板）：文档体系 append-only/快照可信——反向关系
  *  （谁指向我）不物化（不写 amended_by、不回头改旧文档），由扫描期动态计算反向
  *  索引呈现（computeReverseIndex）。lint 层只拦正向断链与形态违规。
- *  物化方案代价实证：617 处回头改旧文档补登债（#1749 复盘，方案已撤）。
+ * 物化方案代价实证：617 处回头改旧文档补登债（复盘，方案已撤）。
  *  entries: Array<{ rel, id?, from?, fromMalformed? }> */
 export function findBrokenBacklinks(entries) {
   const byId = new Set(entries.filter((e) => e.id).map((e) => e.id));
@@ -88,7 +88,7 @@ export function findBrokenBacklinks(entries) {
     const from = Array.isArray(e.from) ? e.from : [];
     for (const target of from) {
       // 元素级形态：非字符串（YAML map 形态的 issue/外链引用等）按断链报但文本可诊断
-      // （r1 建议 4：3 条存量 [object Object] 误诊不可修复；新链元素违规落同桶受基线拦）
+      // （建议 4：3 条存量 [object Object] 误诊不可修复；新链元素违规落同桶受基线拦）
       const label = typeof target === "string" ? target : `非字符串元素（${JSON.stringify(target).slice(0, 60)}）`;
       if (label === e.id) {
         broken.push({ rel: e.rel, self: label });

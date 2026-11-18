@@ -10,7 +10,7 @@ import { getCodingToolsForOtterType, getOtterToolNamesForType } from "@framework
 describe("getCodingToolsForOtterType", () => {
   // Why: 函数现在返回常量数组，但测试多个输入确保没有隐藏的分支逻辑
   // 如果未来有人恢复了 otterType 分支，这些测试会捕获回归
-  // F20260904（#776）：+grep/find/ls 专用工具（bash 一把梭 → 结构化搜索/浏览）
+  // F20260904：+grep/find/ls 专用工具（bash 一把梭 → 结构化搜索/浏览）
   it("big otter 应包含全部编码工具（含 grep/find/ls 专用工具）", () => {
     const tools = getCodingToolsForOtterType("big");
     expect(tools).toContain("read");
@@ -59,7 +59,7 @@ describe("getCodingToolsForOtterType", () => {
     expect(tools).toHaveLength(7);
   });
 
-  // F20261118nrwht P2a：night-reviewer 受限写者獭只审不写码
+  // P2a：night-reviewer 受限写者獭只审不写码
   it("night-reviewer otter 不持任何编码工具（只审不写码）", () => {
     expect(getCodingToolsForOtterType("night-reviewer")).toEqual([]);
   });
@@ -94,20 +94,20 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
-    expect(tools).toContain("workspace_delete"); // #1484：临时件回收机械路径
-    // F20260813mren: 记忆关系层工具
+    expect(tools).toContain("workspace_delete"); // 临时件回收机械路径
+    // 记忆关系层工具
     expect(tools).toContain("link_memory");
     expect(tools).toContain("get_related");
     expect(tools).toContain("unlink_memory");
     expect(tools).toContain("yield");
     expect(tools).toContain("query_dispatch_ledger");
-    expect(tools).toContain("query_signals"); // F20260826mwrd C1
-    expect(tools).toContain("resolve_signal"); // F20260826mwrd C2：裁决写路径（big）
-    expect(tools).toContain("unhalt_otter"); // #927：halt 解除（big 编排域）
-    expect(tools).toContain("merge_pr"); // F20260922pmgd：PR 合入授权闸（big 型唯一合入通道）
-    expect(tools).toContain("track_work"); // F20261027hwl1：工作账本登记
-    expect(tools).toContain("restart_service"); // F20261028egitx：受控服务重启
-    expect(tools).toHaveLength(40); // F20261028egitx：+restart_service（39→40）
+    expect(tools).toContain("query_signals"); // C1
+    expect(tools).toContain("resolve_signal"); // C2：裁决写路径（big）
+    expect(tools).toContain("unhalt_otter"); // halt 解除（big 编排域）
+    expect(tools).toContain("merge_pr"); // PR 合入授权闸（big 型唯一合入通道）
+    expect(tools).toContain("track_work"); // 工作账本登记
+    expect(tools).toContain("restart_service"); // 受控服务重启
+    expect(tools).toHaveLength(40); // +restart_service（39→40）
   });
 
   it("small otter 应包含消息/记忆/上下文/术语/产物/参与者/工作区/定时任务/自愈管理/自身重启工具，不含管理类工具", () => {
@@ -136,47 +136,47 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("workspace_list");
     expect(tools).toContain("workspace_read");
     expect(tools).toContain("workspace_write");
-    expect(tools).toContain("workspace_delete"); // #1484：临时件回收（大小獭均可）
-    // F20260813mren: 记忆关系层工具（大小獭都能用）
+    expect(tools).toContain("workspace_delete"); // 临时件回收（大小獭均可）
+    // 记忆关系层工具（大小獭都能用）
     expect(tools).toContain("link_memory");
     expect(tools).toContain("get_related");
     expect(tools).toContain("unlink_memory");
-    expect(tools).toContain("query_signals"); // F20260826mwrd C1：小獭可查信号台账
-    expect(tools).toContain("list_matters"); // F20261006mtlp P1：小獭可查待办板
-    expect(tools).toContain("transition_matter"); // F20261006mtlp P1：通道 A 代执行迁移（守卫在 usecase）
-    expect(tools).not.toContain("resolve_signal"); // F20260826mwrd C2：裁决仅 big
-    expect(tools).toContain("track_work"); // F20261027hwl1：工作账本登记（大小獭都可用）
-    expect(tools).toContain("restart_service"); // F20261028egitx：受控服务重启（两型都可用）
-    expect(tools).toHaveLength(34); // F20261028egitx：+restart_service（33→34）
+    expect(tools).toContain("query_signals"); // C1：小獭可查信号台账
+    expect(tools).toContain("list_matters"); // P1：小獭可查待办板
+    expect(tools).toContain("transition_matter"); // P1：通道 A 代执行迁移（守卫在 usecase）
+    expect(tools).not.toContain("resolve_signal"); // C2：裁决仅 big
+    expect(tools).toContain("track_work"); // 工作账本登记（大小獭都可用）
+    expect(tools).toContain("restart_service"); // 受控服务重启（两型都可用）
+    expect(tools).toHaveLength(34); // +restart_service（33→34）
     // halt_otter / resolve_signal / unhalt_otter 是编排/裁决动作，仅 big 型
     expect(tools).not.toContain("halt_otter");
-    expect(tools).not.toContain("unhalt_otter"); // #927：解除同样仅 big
-    expect(tools).not.toContain("resolve_signal"); // F20260826mwrd C2
-    expect(tools).not.toContain("merge_pr"); // F20260922pmgd：合入权恒在大獭呈终审链路，小獭无场景
+    expect(tools).not.toContain("unhalt_otter"); // 解除同样仅 big
+    expect(tools).not.toContain("resolve_signal"); // C2
+    expect(tools).not.toContain("merge_pr"); // 合入权恒在大獭呈终审链路，小獭无场景
     // 管理类工具不包含
     expect(tools).not.toContain("create_otter");
     expect(tools).not.toContain("dissolve_otter");
   });
 
-  // F20260827c2sg 审视处置（严重发现 1）：生产环境走 manifest 路径（pi-session-factory 传 process.cwd()），
+  // 审视处置（严重发现 1）：生产环境走 manifest 路径（pi-session-factory 传 process.cwd()），
   // 此前断言未传 projectRoot 走的是 fallback——断言面与生产面不是同一个面，隔离在生产失效。
   // 本组断言走真实 manifest（仓库根 config/tool-manifest.json），与生产同构。
-  // F20260831tumv：原路径多算一级（../../../../ 落在 .claude/worktrees/ 上，无 config/ 目录），
+  // 原路径多算一级（../../../../ 落在 .claude/worktrees/ 上，无 config/ 目录），
   // 导致本组「生产路径」断言实际从未走过 manifest，一直在测 fallback（碰巧也绿）。
   // 修正为 3 级，现在真正走 worktree 根的 config/tool-manifest.json。
   it("生产路径（manifest）：small 型不得含 halt_otter/resolve_signal（编排/裁决仅 big）", () => {
     const projectRoot = join(import.meta.dirname, "../../../"); // worktree 根
     const tools = getOtterToolNamesForType("small", undefined, projectRoot);
     expect(tools).toContain("query_signals"); // 信号台账查询开放给 small
-    // F20260920stkx：stock_data/paper_trade 随炒股能力移除，small 展开不得再含
+    // stock_data/paper_trade 随炒股能力移除，small 展开不得再含
     expect(tools).not.toContain("stock_data");
     expect(tools).not.toContain("paper_trade");
     expect(tools).not.toContain("halt_otter");
-    expect(tools).not.toContain("unhalt_otter"); // #927：解除同样仅 big
+    expect(tools).not.toContain("unhalt_otter"); // 解除同样仅 big
     expect(tools).not.toContain("resolve_signal");
     expect(tools).not.toContain("create_otter");
     expect(tools).not.toContain("dissolve_otter");
-    // F20261027mreg（#1349 检视处置）：matter 域登记入 orchestration 后，small 展开仍不得含两工具
+    // （检视处置）：matter 域登记入 orchestration 后，small 展开仍不得含两工具
     // （声明现状零权限变化的测试锁定——与 halt_otter 断言同构）
     expect(tools).not.toContain("register_matter");
     expect(tools).not.toContain("matter_sweep");
@@ -201,16 +201,16 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("restart_otter");
     expect(tools).toContain("yield");
     expect(tools).toContain("query_dispatch_ledger");
-    expect(tools).toContain("query_signals"); // F20260826mwrd C1
-    expect(tools).toContain("unhalt_otter"); // #927：halt 解除（big 编排域）
-    expect(tools).toContain("merge_pr"); // F20260922pmgd：undefined 按 big 处理，含合入授权闸
-    expect(tools).toContain("workspace_delete"); // #1484：undefined 路径同样含回收动词
-    expect(tools).toContain("track_work"); // F20261027hwl1：工作账本登记
-    expect(tools).toContain("restart_service"); // F20261028egitx：受控服务重启
-    expect(tools).toHaveLength(40); // F20261028egitx：+restart_service（39→40）
+    expect(tools).toContain("query_signals"); // C1
+    expect(tools).toContain("unhalt_otter"); // halt 解除（big 编排域）
+    expect(tools).toContain("merge_pr"); // undefined 按 big 处理，含合入授权闸
+    expect(tools).toContain("workspace_delete"); // undefined 路径同样含回收动词
+    expect(tools).toContain("track_work"); // 工作账本登记
+    expect(tools).toContain("restart_service"); // 受控服务重启
+    expect(tools).toHaveLength(40); // +restart_service（39→40）
   });
 
-  // F20261118nrwht P2a：belief 迁移三工具仅 night-reviewer 可见
+  // P2a：belief 迁移三工具仅 night-reviewer 可见
   describe("night-reviewer 受限写者獭白名单（P2a）", () => {
     it("fallback 路径：night-reviewer 有且仅有 speak/yield + 三迁移工具", () => {
       expect(getOtterToolNamesForType("night-reviewer")).toEqual([

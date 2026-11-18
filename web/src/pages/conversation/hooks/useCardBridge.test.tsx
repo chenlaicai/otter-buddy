@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** useCardBridge 安全闸门测试（F20260728htar P2-6）：
+/** useCardBridge 安全闸门测试（P2-6）：
  *  jsdom + 手动 dispatch MessageEvent + mock registry/Toast 模块。
  *  覆盖：伪造 source / cardId 不匹配 / 超限 payload / submit 节流 / 挂起期同卡重发 /
  *  A 挂起 B 提交 / 连续 3 次拒绝关闭 / 已回复集合命中 / resize clamp / 挂起预览存活判据 */
@@ -218,7 +218,7 @@ describe('已回复集合（历史派生）', () => {
   })
 })
 
-/** F20261111csvfx：无效 payload 的作者反馈——搭档 11-09 报告「点击按钮无反应」。
+/** 无效 payload 的作者反馈——搭档 11-09 报告「点击按钮无反应」。
  *  现场：简报卡按钮 otterCard.submit({choice,label}) 缺 summary → 校验拒绝 → 旧版静默
  *  return（点击零反馈）。契约闸门不放开（预览仍不出现），但拒绝必须可见。 */
 describe('无效 payload 的作者反馈（不再静默）', () => {

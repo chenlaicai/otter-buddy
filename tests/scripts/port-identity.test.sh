@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# F20261103portx / F20261113stopp 防再犯 regression_test：
+#  防再犯 regression_test：
 # stop/start/status 端口占用者身份识别 + 无 PID 文件时代停主服务与自愈重建。
 #
-# 事故背景（2026-11-02 现场，F20261103portx）：
+# 事故背景（2026-11-02 现场，）：
 #   主服务健康在跑但 PID 文件缺失 → stop 落入端口占用分支；port_owner_pid 用
 #   `lsof -ti:3000 | head -1`（无 LISTEN 过滤）把 Safari 网络进程（与 3000 的
 #   ESTABLISHED 客户端连接，恰排监听者前面）当成占用者，未验证身份即断言
 #   「another worktree's Otter Buddy」并建议 kill——照做会杀浏览器进程。
 #
-# 需求变更（2026-11-13 搭档拍板，F20261113stopp）：
+# 需求变更（2026-11-13 搭档拍板，）：
 #   PID 文件再次丢失（11/11 启动写入后于脚本管辖外被删，轨迹不可考——与
-#   F20261103portx 遗留问题同源），stop 依旧只给「kill <pid> && start」指引。
+# 遗留问题同源），stop 依旧只给「kill <pid> && start」指引。
 #   搭档明确：stop 的语义就是停掉当前服务，PID 文件只是寻址手段——身份经
 #   listener_class 三重验证（LISTEN 端口 + cwd=本仓 + node 特征）后即可代停；
 #   start/status 发现主服务在跑但缺 PID 文件时自愈重建文件。本次重写本测试。
 #
-# 隔离设计（F20261113stopp 重写动机）：
+# 隔离设计（重写动机）：
 #   旧版直接在仓根跑真实脚本，隐含假设「仓根无存活 PID 文件」——自愈功能落地后
 #   该假设不再成立（正常态=PID 文件存在且指向真实主服务，stop 会撞 T1 拒杀分支）。
 #   现把脚本拷进 mktemp 沙箱跑（PROJECT_DIR=沙箱），PID 文件/监听者全部隔离，
@@ -116,7 +116,7 @@ echo "$out" | grep -q "PID $CLI_PID" \
   && fail "场景A: 误报客户端进程 ${CLI_PID}（LISTEN 过滤失效？）: $out" || true
 pass "场景A: 占用者=监听者（PID ${SRV_PID}），客户端 $CLI_PID 未被选中"
 
-# ── 场景B：无 PID 文件 + 本仓 node 监听 → stop 验明身份直接代停（F20261113stopp 新语义）──
+# ── 场景B：无 PID 文件 + 本仓 node 监听 → stop 验明身份直接代停（新语义）──
 echo "--- 场景B: 无 PID 文件 stop 代停主服务 ---"
 spawn_node_listener "$PORT_MAIN"; NODE_PID=$SPAWNED_PID
 [ ! -f "$PID_FILE" ] || fail "场景B前置: 沙箱 PID 文件应不存在"
@@ -145,7 +145,7 @@ assert_dead "$NODE_PID2" "场景B2"
 [ ! -f "$PID_FILE" ] || fail "场景B2: 过期 PID 文件应被清理"
 pass "场景B2: 过期 PID 文件不挡路，验明身份后代停（PID ${NODE_PID2}）"
 
-# ── 场景B3/B4：status/start 发现主服务缺 PID 文件 → 自愈重建（F20261113stopp）──
+# ── 场景B3/B4：status/start 发现主服务缺 PID 文件 → 自愈重建──
 echo "--- 场景B3/B4: status/start 自愈重建 PID 文件 ---"
 spawn_node_listener "$PORT_HEAL"; NODE_PID3=$SPAWNED_PID
 [ ! -f "$PID_FILE" ] || fail "场景B3前置: 沙箱 PID 文件应不存在"

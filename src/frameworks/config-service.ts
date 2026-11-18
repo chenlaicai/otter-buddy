@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- F20260917cvid 加 currentConversationBoost 后 453>450；配置字段聚合本文件是设计使然 */
+/* eslint-disable max-lines -- 加 currentConversationBoost 后 453>450；配置字段聚合本文件是设计使然 */
 /**
  * 统一配置读取模块。
  * 从 config/config.yaml 读取配置，进行校验，导出不可变配置对象。
@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getRepoRoot } from "@frameworks/repo-root";
 import { parseDocument } from "yaml";
-// 双 YAML 库并存说明（#391 审视采纳）：js-yaml 仅用于读路径（loadConfig/validate），
+// 双 YAML 库并存说明（审视采纳）：js-yaml 仅用于读路径（loadConfig/validate），
 // 写路径 updateDefaultModelInYaml 用 yaml 包 parseDocument 保留注释——js-yaml 无此 API。
 // 两库对 config.yaml 解析结果逐字段一致（检视獭独立验证）；收敛到单库需另开 issue 评估，暂不动读路径。
 import * as yaml from "js-yaml";
@@ -29,17 +29,17 @@ export interface ModelConfig {
   strengths?: string[];
   weaknesses?: string[];
   contextWindow?: number;
-  /** 最大输出 tokens（自定义模型注入 SDK 时携带，缺省回退 provider 模板值，F20260808ctxw） */
+  /** 最大输出 tokens（自定义模型注入 SDK 时携带，缺省回退 provider 模板值，） */
   maxTokens?: number;
   /** 模型输入能力（多模态 Phase 1）：["text"] 或 ["text","image"]。
    *  显式声明后经 models-factory 覆盖 provider 模板默认值（消除隐式继承的静默变更风险）。
    *  SDK downgradeUnsupportedImages 按 Model.input 自动降级非 vision 模型的图片。 */
   input?: Array<"text" | "image">;
-  /** 每模型思考深度（F20260909mthl）：session 创建后经 setThinkingLevel 生效。
+  /** 每模型思考深度：session 创建后经 setThinkingLevel 生效。
    *  "off"（默认）= 关闭 thinking；档位映射按模型目录 thinkingLevelMap 决定（如 kimi k3 支持 low/high/max），
    *  配置了映射为 null 的档位时 SDK 自动向上/向下 clamp 到最近可用档。 */
   thinkingLevel?: ThinkingLevel;
-  /** 每模型交接阈值（F20260920uhuc 需求变更，2026-09-20）：已用 token 绝对值。
+  /** 每模型交接阈值（需求变更，2026-09-20）：已用 token 绝对值。
    *  agent-invoker 轮边界检查上轮 ctxTokens 超过此值即触发统一交接（换世+档案）。
    *  按模型必填（不同模型窗口差异大，不共享全局水位线）；旧全局
    *  contextQuality.compactionReserveTokens（预留制）已退役——用户心智从
@@ -69,16 +69,16 @@ export interface AppConfig {
     vecSimilarityThreshold: number;
     /** 两路命中（source=both）的加成系数，默认 1.2 */
     bothBoost: number;
-    /** F20260917cvid: 本对话来源条目排序加成系数，默认 1.5 */
+    /** 本对话来源条目排序加成系数，默认 1.5 */
     currentConversationBoost: number;
     weightHalfLifeDays: number;
-    /** F20260902rcp1: document 层（feature/research）专用半衰期，默认 90 天 */
+    /** document 层（feature/research）专用半衰期，默认 90 天 */
     weightHalfLifeDaysDocument: number;
     userFlagMultiplier: number;
     frequencyBoostFactor: number;
-    /** F20261112rnkph Phase 1：rerank 融合模式（multiply=现状连乘，additive=归一化加法）。 */
+    /** Phase 1：rerank 融合模式（multiply=现状连乘，additive=归一化加法）。 */
     rerankMode: "multiply" | "additive";
-    /** F20261112rnkph Phase 1：加法融合系数与偏置。 */
+    /** Phase 1：加法融合系数与偏置。 */
     rerank: {
       wRrf: number;
       wTime: number;
@@ -98,12 +98,12 @@ export interface AppConfig {
     /** worker 线程 execArgv 覆盖（测试用：vitest 注入的 --conditions 会让 worker 内模型库解析错乱），默认继承 process.execArgv */
     workerExecArgv?: string[];
   };
-  /** 上下文质量（F20260904cq30）：SDK 兜底层 reserve 配置域。
-   *  F20260920uhuc 需求变更（2026-09-20）：应用层交接阈值改为按模型直给制
+  /** 上下文质量：SDK 兜底层 reserve 配置域。
+   * 需求变更（2026-09-20）：应用层交接阈值改为按模型直给制
    *  （ModelConfig.handoffThresholdTokens，已用 token 绝对值），旧全局
    *  compactionReserveTokens（预留制）退役 */
   contextQuality: {
-    /** F20260920uhuc：SDK 兜底 reserve（U1 验证后定稿）——SDK threshold 触发线 = 窗口 − 此值。
+    /** SDK 兜底 reserve（U1 验证后定稿）——SDK threshold 触发线 = 窗口 − 此值。
      * 缺省 50000：1M 窗口下 995K 才触发 SDK 原地压缩（贴溢出点，平时永不触发），
      * 真溢出（overflow，判定独立于 reserve）时 Pi 默认算法救急。
      * 注意方向：reserve 越小触发线越高——「永不触发」靠小 reserve 而非大 reserve */
@@ -114,14 +114,14 @@ export interface AppConfig {
     default: string;
     /** 模型列表（唯一真相源，至少一条） */
     models: ModelConfig[];
-    /** LLM prompt 缓存长留存（F20260829cach）：true 时 SDK 请求携带
+    /** LLM prompt 缓存长留存：true 时 SDK 请求携带
      *  cache_control.ttl="1h"，缓存命中窗口从默认 5 分钟扩到 1 小时。
      *  机制：bootstrap 启动时注入环境变量 PI_CACHE_RETENTION=long，
      *  pi-ai anthropic-messages 适配器读该 env 发 ttl 标记。 */
     cacheLongRetention?: boolean;
-    /** F20260908rlcp：Session 热池容量（per-otter 单对象 LRU 池） */
+    /** Session 热池容量（per-otter 单对象 LRU 池） */
     sessionPoolSize?: number;
-    /** F20260908rlcp：Session 热池空闲 TTL（分钟），超过此时间未活跃的条目被驱逐 */
+    /** Session 热池空闲 TTL（分钟），超过此时间未活跃的条目被驱逐 */
     sessionPoolIdleTtlMinutes?: number;
   };
   circuitBreaker: {
@@ -132,7 +132,7 @@ export interface AppConfig {
     maxRepeatAfterWarning: number;
     outputGuard: {
       enabled: boolean;
-      /** 退化检测器参数（F20260804dglp 双机制） */
+      /** 退化检测器参数（双机制） */
       detector: {
         windowLength: number;
         maxWindowRepeats: number;
@@ -141,12 +141,12 @@ export interface AppConfig {
       };
     };
     streamingTimeoutMs: number;
-    /** 首字节超时（F20260804dglp）：prompt 后无 delta 的挂死保护 */
+    /** 首字节超时：prompt 后无 delta 的挂死保护 */
     firstByteTimeoutMs: number;
-    /** F20260831cbkw：熔断创建的 session 年龄窗口阈值（ms）——超过此时间视为「已证明健康」，允许再次熔断 */
+    /** 熔断创建的 session 年龄窗口阈值（ms）——超过此时间视为「已证明健康」，允许再次熔断 */
     healthySessionThresholdMs: number;
   };
-  /** 微信通道（issue #565）——协议直连 ilink，无需 appId/Secret（扫码授权） */
+  /** 微信通道——协议直连 ilink，无需 appId/Secret（扫码授权） */
   weixin?: {
     /** ilink 网关 base URL（默认 https://ilinkai.weixin.qq.com） */
     baseUrl?: string;
@@ -154,20 +154,20 @@ export interface AppConfig {
     stateDir?: string;
     /** 搭档的微信 ilink_user_id（命令门禁锚定） */
     partnerUserId?: string;
-    /** 静默多久（分钟）后发 context_token 预警（F20260901wxnt，默认 60；显式 0 关闭。F20260920wxho：同一静默期只提醒一次，cooldown 键退役） */
+    /** 静默多久（分钟）后发 context_token 预警（默认 60；显式 0 关闭。同一静默期只提醒一次，cooldown 键退役） */
     contextTokenWarnMinutes?: number;
   };
-  /** F20260918imas / F20260920imax：IM 助理模式（免绑定自动开户；对话永续 + 8h 静默换 session） */
+  /**  IM 助理模式（免绑定自动开户；对话永续 + 8h 静默换 session） */
   im?: {
     assistant?: {
       /** 助理态总开关（默认 true；关闭时微信私聊/飞书 p2p 回退拒聊提示） */
       enabled?: boolean;
-      /** F20260920imax：session 静默重启阈值小时数（last-entry 距今，默认 8；旧名 rotationHours 已废弃） */
+      /** session 静默重启阈值小时数（last-entry 距今，默认 8；旧名 rotationHours 已废弃） */
       sessionIdleHours?: number;
-      /** F20260920imax：助理线模型（自动开户的对话大獭用此模型；缺省 = 全局 default）。
-       *  F20260924wast：web 助理共用此配置值（对话实例各自独立——改配置后 web 助理下个 session 生效） */
+      /** 助理线模型（自动开户的对话大獭用此模型；缺省 = 全局 default）。
+       * web 助理共用此配置值（对话实例各自独立——改配置后 web 助理下个 session 生效） */
       modelAlias?: string;
-      /** F20260924wast：web 助理（浮动獭）总开关（默认 true；关闭时前端浮动獭不挂载，
+      /** web 助理（浮动獭）总开关（默认 true；关闭时前端浮动獭不挂载，
        *  降级入口 = 侧栏 web 助理对话页。DI 启动注入，改配置需重启进程生效） */
       web?: {
         enabled?: boolean;
@@ -179,11 +179,11 @@ export interface AppConfig {
       apiKey: string;
     };
   };
-  /** Web 端 base URL,用于 IM 信道 html-card 占位符拼接跳转链接(F20260812fmdr) */
+  /** Web 端 base URL,用于 IM 信道 html-card 占位符拼接跳转链接 */
   web?: {
     baseUrl?: string;
   };
-  /** 统一接入登录（F20261113uaccs 阶段 2）：登录口令配置。
+  /** 统一接入登录（阶段 2）：登录口令配置。
    *  ownerPassword 显式指定时优先于 data/owner-password 文件（env OTTER_OWNER_PASSWORD 仍最高优先）。
    *  缺省 undefined = 未配置，回退 env / data/owner-password 文件 / 首启自动生成。 */
   auth?: {
@@ -198,7 +198,7 @@ export interface AppConfig {
     /** 文档大小上限（字节，默认 20MB） */
     maxDocumentBytes?: number;
   };
-  /** 功能开关（F20260915cfgt）：三态——true/false 显式生效；undefined=未配置，
+  /** 功能开关：三态——true/false 显式生效；undefined=未配置，
    *  由装配层（feature-gates.ts）按 DB 存量任务推断后再走缺省值 */
   features: {
     /** self-healing 自愈分析（海獭系统优化，缺省 false——除作者外无人关心） */
@@ -225,7 +225,7 @@ export function updateDefaultModelInYaml(
     throw new Error(`模型别名 "${alias}" 不存在于 config.yaml models[] 中`);
   }
 
-  // Why: parseDocument 而非 yaml.load+dump（#391）——config.yaml 有 52 行注释（约占 40%），
+  // Why: parseDocument 而非 yaml.load+dump——config.yaml 有 52 行注释（约占 40%），
   // dump 序列化会全部丢失，parseDocument 的 Document 模型保留源注释。
   // lineWidth: 0 禁止长行折行、flowCollectionPadding: false 保持 flow 序列原格式（["a"] 不变 [ "a" ]），
   // 对齐原 dump lineWidth: -1 的最小 diff 语义：round-trip 后与变更无关的行逐字节不变。
@@ -681,14 +681,14 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   return { baseUrl: raw.web.baseUrl };
 }
 
-/** 登录口令配置归一化（F20261113uaccs 阶段 2）：空白/未配置一律 undefined，回退到 env / 文件 / 首启生成。
+/** 登录口令配置归一化（阶段 2）：空白/未配置一律 undefined，回退到 env / 文件 / 首启生成。
  *  非字符串类型已在 validate() fail-fast；此处防御性兼容（直接调 applyDefaults 的测试路径）。 */
 function buildAuthConfig(raw: RawConfig): AppConfig["auth"] {
   const ownerPassword = typeof raw.auth?.ownerPassword === "string" ? raw.auth.ownerPassword.trim() : "";
   return ownerPassword ? { ownerPassword } : undefined;
 }
 
-/** 将 RawConfig 补全默认值，构建 AppConfig。F20260915cfgt：features/attachments 归一化拆至 features-config.ts */
+/** 将 RawConfig 补全默认值，构建 AppConfig。features/attachments 归一化拆至 features-config.ts */
 function applyDefaults(raw: RawConfig & { llm: { default: string; models: NonNullable<NonNullable<RawConfig["llm"]>["models"]> } }, logger?: Logger): AppConfig {
   return {
     db: buildDbConfig(raw),
@@ -702,7 +702,7 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: NonNul
       localModelPath: raw.embedding?.localModelPath ?? undefined,
     },
     contextQuality: {
-      // F20260920uhuc 需求变更：compactionReserveTokens 退役（按模型 handoffThresholdTokens 直给制，
+      // 需求变更：compactionReserveTokens 退役（按模型 handoffThresholdTokens 直给制，
       // validateModels 强制必填）；本节只留 SDK 兜底 reserve（与模型无关的全局量）
       sdkOverflowReserveTokens: d(raw.contextQuality?.sdkOverflowReserveTokens, 50_000),
     },
@@ -725,9 +725,9 @@ function applyDefaults(raw: RawConfig & { llm: { default: string; models: NonNul
         thinkingLevel: m.thinkingLevel ?? undefined,
         handoffThresholdTokens: m.handoffThresholdTokens!,
       })),
-      // F20260829cach: 缺省 true（实测 GLM anthropic 兼容端点接受 ttl 字段）
+      // 缺省 true（实测 GLM anthropic 兼容端点接受 ttl 字段）
       cacheLongRetention: raw.llm.cacheLongRetention ?? true,
-      // F20260908rlcp: session 热池配置（容量默认 50，空闲 TTL 默认 30min）
+      // session 热池配置（容量默认 50，空闲 TTL 默认 30min）
       sessionPoolSize: raw.llm.sessionPoolSize ?? 50,
       sessionPoolIdleTtlMinutes: raw.llm.sessionPoolIdleTtlMinutes ?? 30,
     },

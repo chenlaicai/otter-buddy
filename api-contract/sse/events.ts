@@ -1,7 +1,7 @@
 /**
  * SSE 事件类型映射
  *
- * F20260913ctlv 彻底切换：时间线模型唯一事件集。
+ * 彻底切换：时间线模型唯一事件集。
  * - entry.*：时间线条目（speak/user/system/invoke 边界/yield/终态投影）
  * - invoke.*：invoke 生命周期（右栏状态面板数据源）
  * - agent.*：SDK 结构化事件（自动重试/压缩）
@@ -10,16 +10,16 @@
  */
 export type SSEEventMap = {
   // ── 时间线条目事件（entries 表投影） ──
-  /** F20260921otcl：otter 身份字段（otterType/otterColor）在携带 otterId 的
+  /** otter 身份字段（otterType/otterColor）在携带 otterId 的
    *  entry/invoke 事件上可选携带（发射处在手实体则透传；缺失时前端
    *  resolveOtterVisual 展示回退）。otterColor 为色板 key（非色值） */
   /** user entry（用户发言气泡）。yieldTargets = 发言石目标（渲染「→ 目标」传递行）。
-   *  source（F20260913ctlv 处置轮）：消息接入面（web/feishu/weixin）——IM 出站通道
+   * source（处置轮）：消息接入面（web/feishu/weixin）——IM 出站通道
    *  只投 source=web 的 user 消息（Web→IM 同步），IM 来源的消息不回投（防回环） */
   "entry.user": { entryId: string; sequenceNum: number; senderId: string; body: string; createdAt: string; yieldTargets?: string[]; source?: "web" | "feishu" | "weixin" | null; senderName?: string; attachments?: import("../api/entry").EntryAttachmentDTO[] };
   /** speak entry（獭气泡唯一来源）——speak 是原子工具调用（无流式生命周期），落库即 completed，
    *  单事件携带全量 body 一次性渲染完整气泡。原 entry.start 伪事件已退役（与 entry.speak 背靠背同数据，纯冗余）。
-   *  #902：attachments 预留字段——speak 工具暂无附件写入源（#608 speak 侧上传就绪后发射点带值），
+   * attachments 预留字段——speak 工具暂无附件写入源（speak 侧上传就绪后发射点带值），
    *  IM 出站通道消费时 data.attachments 缺失则按 entryId 补拉（entry 读出链自带投影） */
   "entry.speak": { entryId: string; invokeId: string; otterId?: string; body: string; otterName?: string; createdAt?: string; otterType?: string; otterColor?: string | null; attachments?: import("../api/entry").EntryAttachmentDTO[] };
   /** invoke 终态失败（invoke_end entry 对应投影） */
@@ -28,7 +28,7 @@ export type SSEEventMap = {
   "entry.retry": { entryId: string; invokeId: string; otterId: string; otterName?: string; reason: string; attempt: number };
   /** invoke 被中止（invoke_end entry 对应投影） */
   "entry.aborted": { entryId: string; invokeId: string; otterId?: string; otterName?: string; body?: string; otterType?: string; otterColor?: string | null };
-  /** 系统条目（居中 system entry）。F20261104ssfde：字段对齐实际广播——全部生产点
+  /** 系统条目（居中 system entry）。字段对齐实际广播——全部生产点
    *  均发 sequenceNum/createdAt（scheduler 锚点另发 senderName 供前端折叠分流）；
    *  旧声明的 seq 无生产点，移除（sse.ts 泛型消费方按 key 取值，无运行时依赖） */
   "entry.system": { entryId: string; content: string; sequenceNum?: number; createdAt?: string; senderName?: string };
@@ -38,13 +38,13 @@ export type SSEEventMap = {
   // ── invoke 生命周期事件（invokes 表投影） ──
   /** invoke 开始（invoke 记录创建 + invoke_start entry） */
   "invoke.start": { invokeId: string; otterId: string; otterName: string; conversationId: string; startedAt: string; triggerEntryId?: string; otterType?: string; otterColor?: string | null };
-  /** invoke 过程心跳（F20260914rtsp）：每次 LLM 往返（message_end）发射一次。
+  /** invoke 过程心跳：每次 LLM 往返（message_end）发射一次。
    *  ctxWindowUsed = 末次往返 usage.totalTokens（上下文窗口占用快照，含 cacheRead/cacheWrite），
-   *  与 invoke.end.tokenUsage（input+output 成本口径累计）语义不同——勿混用（见 F20260914rtsp D8）。
-   *  usage 缺失时不发射（右栏显示 '—' 兑底）。（modelAlias 字段审视发现 2 删除：发射端从未携带，
+   * 与 invoke.end.tokenUsage（input+output 成本口径累计）语义不同——勿混用（见 D8）。
+   * usage 缺失时不发射（右栏显示 '—' 兑底）。（modelAlias 字段删除：发射端从未携带，
    *  前端用 otter.modelAlias；需要时再加，避免契约与实现不对齐） */
   "invoke.tick": { invokeId: string; otterId: string; conversationId: string; ctxWindowUsed: number; ctxMax: number; toolCallCount?: number };
-  /** F20260914evdz：invoke 过程事件实时广播（Session 弹窗观察模式数据源）。
+  /** invoke 过程事件实时广播（Session 弹窗观察模式数据源）。
  *  发射时机 = persistInvokeEvent 落库成功后——每个落库的流式过程事件顺手广播一帧；
  *  主界面不渲染（弹窗独享），推送节奏 = 獭干活的真实节奏（无定时器）。
  *  广播失败静默（落库才是真相源，弹窗重新打开时会全量拉取补齐） */

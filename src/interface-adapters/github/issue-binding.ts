@@ -17,7 +17,7 @@ export type IssueStateRead =
 
 export type ReadIssueState = (issueNumber: number) => Promise<IssueStateRead>;
 
-/** #1787：只读状态边界供关单遗留提醒使用；任何失败都不得被调用方当成 CLOSED。 */
+/** 只读状态边界供关单遗留提醒使用；任何失败都不得被调用方当成 CLOSED。 */
 export async function readIssueState(issueNumber: number): Promise<IssueStateRead> {
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
     return { ok: false, reason: `目标 issue 编号无效：${issueNumber}` };

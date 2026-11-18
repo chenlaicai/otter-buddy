@@ -5,7 +5,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PID_FILE="${PROJECT_DIR}/.otter-buddy.pid"
 LOG_FILE="${PROJECT_DIR}/.otter-buddy.log"
 
-# issue #1252 遗留问题1：端口口径与 loadConfig 对齐（config-service.ts applyDefaults
+# 遗留问题1：端口口径与 loadConfig 对齐（config-service.ts applyDefaults
 # server: { port: d(raw.server?.port, 3000) }）——服务监听端口的唯一裁决者是
 # config/config.yaml 的 server.port；PORT env 不参与服务端端口决策（src/ 全域零消费
 # process.env.PORT），本脚本也不消费——保留 env 层会造成脚本探测口与服务监听口错位，
@@ -28,11 +28,11 @@ main_repo_root() {
   (cd "$common/.." && pwd)
 }
 
-# F20261014alps 机械闸：worktree 场景下禁止解析到主服务默认端口 3000。
+# 机械闸：worktree 场景下禁止解析到主服务默认端口 3000。
 # 端口宪法：主服务 3000 只有主仓能碰；worktree 内应走 alpha.sh（3100-3198 偶数段）。
 # 此闸只拦「未显式指定端口却落到 3000」的默认路径——显式 -p 3000 是搭档特权，不拦。
 # 只探测不消费：用 for 遍历 "$@"，禁止 shift——shift 会吞掉全部参数，
-# 导致下方正式解析循环拿不到命令（start/stop 全落 usage，#1473 引入的回归）。
+# 导致下方正式解析循环拿不到命令（start/stop 全落 usage，引入的回归）。
 port_explicit=false
 for arg in "$@"; do
   case "$arg" in
@@ -51,7 +51,7 @@ if [ "$port_explicit" = false ] && [ "$PORT" = "3000" ]; then
   fi
 fi
 
-# F20260916gtlr：本脚本是纯工具——不携带任何防海獭逻辑。
+# 本脚本是纯工具——不携带任何防海獭逻辑。
 # 「海獭不得杀主进程」由 agent 运行时守卫在 tool 调用层拦截（bash-safety-guard），
 # 海獭的一切命令必经 tool 管道，人走终端天然不在拦截域内。
 
@@ -73,21 +73,21 @@ get_pid() {
   [ -f "$PID_FILE" ] && cat "$PID_FILE" || echo ""
 }
 
-# 端口占用者 = 监听者，不是「与端口有任意 TCP 关系的进程」（F20261103portx）。
+# 端口占用者 = 监听者，不是「与端口有任意 TCP 关系的进程」。
 # -sTCP:LISTEN 只留监听套接字：客户端连接进程（浏览器 ESTABLISHED 连接等）天然
 # 排除——本案事故：Safari 网络进程的连接条目排在监听者前面，head -1 选中了它，
 # stop 报「another worktree's Otter Buddy」并建议 kill 浏览器进程。
-# 口径与下方杀伐校验（F20260831aksp T1）对齐——同文件同一端口问题不再两种写法。
+# 口径与下方杀伐校验（T1）对齐——同文件同一端口问题不再两种写法。
 port_owner_pid() {
   lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -1 || true
 }
 
-# F20261103portx 监听者身份三分类：main-service / otter-or-node / foreign。
+# 监听者身份三分类：main-service / otter-or-node / foreign。
 # PID 文件丢失时 stop/start/status 也要认得出自己的主进程（本案现场：主服务健康
 # 在跑，仅因 PID 文件缺失被当「外人」）。特征：command 带 node 特征（绝对/相对
 # 路径的 node 或 dist/src/main.js）→ 查 cwd；cwd=本仓 → main-service，否则
 # otter-or-node（他处实例或别的 node 进程，cwd 一并展示供人判断）；无 node 特征
-# → foreign。*/node 与 */node.exe 覆盖绝对路径启动形态（检视发现#2）。
+# → foreign。*/node 与 */node.exe 覆盖绝对路径启动形态（检视发现）。
 # 占用者身份必须验证后才能断言——「likely another worktree's Otter Buddy」
 # 这类未验证断言正是本案误报的第三层。
 listener_class() {
@@ -105,7 +105,7 @@ listener_class() {
   fi
 }
 
-# F20261103portx 占用者报告（stop/start/status 复用）：报告「外人占端口」的两类
+# 占用者报告（stop/start/status 复用）：报告「外人占端口」的两类
 # （otter-or-node / foreign），main-service 分支由调用方自行处理（三处文案语义不同）。
 # kill 建议只给经过身份验证的分支；foreign 分支明确提示「不是海獭，杀前先核实」。
 report_port_occupant() {
@@ -127,7 +127,7 @@ report_port_occupant() {
   esac
 }
 
-# F20261113stopp：优雅终止序列（SIGTERM → 5s 宽限 → SIGKILL）抽为公共函数——
+# 优雅终止序列（SIGTERM → 5s 宽限 → SIGKILL）抽为公共函数——
 # PID 文件路径与「无 PID 文件但监听者验明是主服务」路径共用同一杀伐节奏。
 terminate_pid() {
   local pid="$1"
@@ -147,9 +147,9 @@ terminate_pid() {
   fi
 }
 
-# F20261113stopp：PID 文件自愈——主服务身份经 listener_class 三重验证（LISTEN 端口 +
+# PID 文件自愈——主服务身份经 listener_class 三重验证（LISTEN 端口 +
 # cwd=本仓 + node/main.js 特征）后重建管理通道。文件丢失不可考（11/11 现场与
-# F20261103portx 遗留问题同源：删除发生在脚本管辖外，磁盘无审计轨迹），与其报错
+# 遗留问题同源：删除发生在脚本管辖外，磁盘无审计轨迹），与其报错
 # 要人手动补，不如验明正身后原地重建——丢失从此无感。
 heal_pid_file() {
   echo "$1" > "$PID_FILE"
@@ -161,12 +161,12 @@ cmd_start() {
     return 0
   fi
 
-  # 端口冲突检测（F20261103portx：占用者身份先验证再报告）
+  # 端口冲突检测（占用者身份先验证再报告）
   local occupant
   occupant=$(port_owner_pid "$PORT")
   if [ -n "$occupant" ]; then
     if [ "$(listener_class "$occupant")" = "main-service" ]; then
-      # F20261113stopp：主服务在跑仅缺 PID 文件——自愈重建后按「已在运行」幂等返回，
+      # 主服务在跑仅缺 PID 文件——自愈重建后按「已在运行」幂等返回，
       # 不再 exit 1 逼搭档手动 kill（要重启走 $0 restart，stop 已能认人代停）。
       heal_pid_file "$occupant"
       echo "[ok] Already running (PID $occupant, PID file re-created) -> http://localhost:$PORT"
@@ -221,7 +221,7 @@ cmd_start() {
       rm -f "$PID_FILE"
       exit 1
     fi
-    # #1322（F20261016autz）：/api/settings 已接鉴权——健康探针带身份头（无头 401 → curl -sf 判失败）
+    # /api/settings 已接鉴权——健康探针带身份头（无头 401 → curl -sf 判失败）
     if curl -sf -H 'X-Otter-User-Id: script:otter-buddy.sh' -H 'X-Otter-User-Role: admin' "http://localhost:$PORT/api/settings" >/dev/null 2>&1; then
       echo ""
       echo "[ok] Started (PID $pid) -> http://localhost:$PORT"
@@ -243,7 +243,7 @@ cmd_stop() {
 
   # 有 PID 文件且进程存活：只杀自己的（先 SIGTERM 优雅退出，超时再 SIGKILL）
   if [ -n "$my_pid" ] && kill -0 "$my_pid" 2>/dev/null; then
-    # F20260831aksp T1 杀伐校验：PID 文件里的进程必须确实是 $PORT 的监听者。
+    # T1 杀伐校验：PID 文件里的进程必须确实是 $PORT 的监听者。
     # 关闭 8/29 事故 A 窗口：主仓目录跑 stop -p 3002 时 PID 文件指向 3000 主服务，-p 参数原先不参与杀伐决策。
     # lsof 不可用时跳过校验降级放行（增强闸门不做硬依赖）；端口无人监听但进程存活 → 拒杀（正是事故 A 形态）。
     if command -v lsof >/dev/null 2>&1; then
@@ -265,16 +265,16 @@ cmd_stop() {
   # 清理过期 PID 文件
   [ -f "$PID_FILE" ] && rm -f "$PID_FILE" || true
 
-  # 端口占用报告（F20261103portx：无 PID 文件时先认人再说话——本案现场：主服务
+  # 端口占用报告（无 PID 文件时先认人再说话——本案现场：主服务
   # 健康在跑，仅因 PID 文件缺失被当「另一实例」并误导 kill 命令）
   local occupant
   occupant=$(port_owner_pid "$PORT")
   if [ -n "$occupant" ]; then
     if [ "$(listener_class "$occupant")" = "main-service" ]; then
-      # F20261113stopp：搭档拍板（2026-11-13）——stop 的语义就是停掉当前服务，PID 文件
+      # 搭档拍板（2026-11-13）——stop 的语义就是停掉当前服务，PID 文件
       # 只是寻址手段之一。信任根从「PID 文件」扩展为 listener_class 三重验证（LISTEN 端口
       # + cwd=本仓 + node/main.js 特征），验证通过即为本仓服务，直接停；这把
-      # F20261103portx「不代杀、只指引」的保守取舍按搭档明确需求反转——攻击面并未打开：
+      # 「不代杀、只指引」的保守取舍按搭档明确需求反转——攻击面并未打开：
       # 代杀仍只限验明正身的本仓服务，外人占用（otter-or-node/foreign）依旧拒杀。
       echo "[info] Otter Buddy is running (PID $occupant) but $PID_FILE is missing — stopping by verified listener identity."
       terminate_pid "$occupant"
@@ -302,12 +302,12 @@ cmd_status() {
     return 0
   fi
 
-  # 检查端口占用（F20261103portx：身份验证后分类报告）
+  # 检查端口占用（身份验证后分类报告）
   local occupant
   occupant=$(port_owner_pid "$PORT")
   if [ -n "$occupant" ]; then
     if [ "$(listener_class "$occupant")" = "main-service" ]; then
-      # F20261113stopp：status 顺手自愈 PID 文件（身份已验证，重建零风险）。
+      # status 顺手自愈 PID 文件（身份已验证，重建零风险）。
       heal_pid_file "$occupant"
       echo "[ok] Running (PID $occupant, PID file re-created) -> http://localhost:$PORT"
       return 0

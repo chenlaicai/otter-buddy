@@ -1,11 +1,11 @@
 /**
- * issue #509: chunk 入库幂等性集成测试（真 sqlite，:memory:）
+ * chunk 入库幂等性集成测试（真 sqlite，:memory:）
  *
  * 覆盖缺陷：sync_docs 重跑同一文档产生同 chunk 双份入库
- *（otter-create-unify chunk_4 两条 / F20260826ybx6 chunk_0 两条实证）。
+ *（otter-create-unify chunk_4 两条 / chunk_0 两条实证）。
  *
- * 根因背景：历史重复是"文档文件改 ID 重入"（F2026082650eb→F20260826ybx6、
- * F20260826ocui→F20260826ucrt）——旧 source_id 的 chunk 在归档时未被清理。
+ * 根因背景：历史重复是"文档文件改 ID 重入"（
+ * ）——旧 source_id 的 chunk 在归档时未被清理。
  * 本测试锁定「同 source_id 重复 reindex 不产生重复」这一可代码防住的语义，
  * 跨 ID 撞车的治理在特性文档「边界与遗留」节声明（流程层 ID 协调，非本 PR）。
  */

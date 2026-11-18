@@ -1,5 +1,5 @@
 /**
- * F20261117cnnct（#1868 阶段 4 C1）：执行授权会话——online_sessions 表实体。
+ * （阶段 4 C1）：执行授权会话——online_sessions 表实体。
  * 模块 C 总闸的库层载体（唯一事实源；Registry 内存注册只是投影缓存）：
  * - 每次主动上线新建一行（重连也是新会话——断线重连 ≠ 恢复执行）
  * - 每 device 至多一 online 行（partial unique index 库层兜底）

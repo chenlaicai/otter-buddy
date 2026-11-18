@@ -1,5 +1,5 @@
 /**
- * F20261009hcig（#1281）：lint-historical-docs --base CI 模式行为锁定。
+ * ：lint-historical-docs --base CI 模式行为锁定。
  *
  * 与既有三个套件分离（先例：rename/final 套件），聚焦 --base 逐 commit 重放语义：
  * 1. 同 commit 配对语义（本任务最关键约束）：
@@ -12,12 +12,12 @@
  *    对消 .doc-fix 的误报面不可接受；非 merge commit 逐个全量重放，取舍见特性文档）
  * 5. 分支新建文档修改放行（isAddedOnBranch 的 range 内自洽：log 上界 = 父 commit）
  * 6. --base 缺参数 → exit 2（调用错误，立即红）
- * 7. #1164 amend 抹除重放：配对声明 commit 被 `git rm .doc-fix && git commit --amend`
+ * 7. amend 抹除重放：配对声明 commit 被 `git rm .doc-fix && git commit --amend`
  *    整体抹除声明后，amend 产物（含历史文档变更、无声明）在逐 commit 重放下必拦——
- *    #1162 案发路径的回归锁定（issue 关闭标准指定的验证断言）。
+ * 案发路径的回归锁定（issue 关闭标准指定的验证断言）。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-// F20261021ttos：临时 git 仓库结构性重活（7/10 用例常态 >2s），文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+// 临时 git 仓库结构性重活（7/10 用例常态 >2s），文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
 vi.setConfig({ testTimeout: 20_000 });
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -179,7 +179,7 @@ describe("lint-historical-docs --base CI 模式（F20261009hcig，#1281）", () 
 
   it("merge commit 携带 docs 变更（含 evil merge 塞内容）→ 跳过不拦截（实测修正：误报面优先）", () => {
     // 实测发现：本仓 up-to-date gate 强制 PR rebase/merge main，而 main 的 squash 合入会把
-    // .doc-fix 创建/删除对消（#1375 两 R099 实证）——「PR merge main」时 merge commit 的
+    // .doc-fix 创建/删除对消（两 R099 实证）——「PR merge main」时 merge commit 的
     // first-parent diff 会把 main 来的变更记入本 PR，若检查则必红。故 merge commit 跳过；
     // 本用例锁定该行为（含 evil merge 形态，取舍见特性文档）。
     const r2 = freshRepo("lint-hist-cibase-evil-");
@@ -206,7 +206,7 @@ describe("lint-historical-docs --base CI 模式（F20261009hcig，#1281）", () 
     commitFiles(r2, [[NEW_DOC, "# v3\n"]], "edit again");
     const r = runLint(r2, ["--base", "origin/main"]);
     expect(r.status).toBe(0);
-    // F20261118lhist：新增文档在 base 树上不存在是判定语义的一部分，探测式 git 调用的
+    // 新增文档在 base 树上不存在是判定语义的一部分，探测式 git 调用的
     // 预期失败不得泄漏到 stderr——门禁输出里出现 `fatal:` 会让真故障失去信号。
     expect(r.stderr).not.toMatch(/fatal:/);
     fs.rmSync(r2, { recursive: true, force: true });
@@ -215,7 +215,7 @@ describe("lint-historical-docs --base CI 模式（F20261009hcig，#1281）", () 
   it("#1164 amend 抹除重放（#1162 案发路径）：配对声明 commit 经 git rm .doc-fix + --amend 抹除声明 → CI 必拦", () => {
     // amend 抹除的产物 commit：diff 含历史文档 M、无 .doc-fix——对逐 commit 重放而言与
     // 「未配对声明的篡改 commit」同形，per-commit 配对语义天然拦截。本用例锁定该行为
-    //（issue #1164 关闭标准指定验证断言：构造 amend 抹除场景 CI 拦截测试）。
+    //（关闭标准指定验证断言：构造 amend 抹除场景 CI 拦截测试）。
     // 注意 reflog 可回溯（18182a68 → a8642089）不构成拦截——CI 只见终态 commit 列表。
     const r2 = freshRepo("lint-hist-cibase-amend-");
     commitFiles(
@@ -226,7 +226,7 @@ describe("lint-historical-docs --base CI 模式（F20261009hcig，#1281）", () 
       ],
       "metadata fix with paired declaration"
     );
-    // #1162 实际路径：git rm .doc-fix（连同临时文件）后 amend，声明被从 commit 中抹除
+    // 实际路径：git rm .doc-fix（连同临时文件）后 amend，声明被从 commit 中抹除
     git(r2, ["rm", "-q", ".doc-fix"]);
     git(r2, ["commit", "-q", "--amend", "--no-edit"]);
     const r = runLint(r2, ["--base", "origin/main"]);

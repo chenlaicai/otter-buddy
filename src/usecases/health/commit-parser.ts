@@ -2,23 +2,23 @@
  * CommitParser: 从 commit message 中提取结构化信息
  * 
  * 支持的格式：
- * 1. 标准格式：[F20260824rhib][health][New Feature] 标题 (#409)
+ * 1. 标准格式：[][health][New Feature] 标题 
  *    类型白名单 5 种（New Feature/Feature Update/BugFix/Refactor/Design，
- *    与 commit-convention.md、.githooks/commit-msg 对齐，#671；
- *    FeatureUpdate 无空格笔误归一化为 Feature Update，#425 建议 2）
+ * 与 commit-convention.md、.githooks/commit-msg 对齐，；
+ * FeatureUpdate 无空格笔误归一化为 Feature Update，建议 2）
  * 2. 不合规格式：init/Revert/R 文档头等 → skip-with-reason；
- *    三段结构完整但类型未识别 → unrecognized_change_type（#425 发现 7）；
+ * 三段结构完整但类型未识别 → unrecognized_change_type（发现 7）；
  *    缺类型段等格式问题 → non_standard_format
  * 
- * 口径说明（来自特性文档 F20260824rhib）：
+ * 口径说明（来自特性文档 ）：
  * - F 前缀：249/259（96.1%）
- * - 严格三段格式：182/259（70.3%）（F20260824rhib 当时口径；现模块段正则
- *   [a-z][a-z-]* 允许连字符，如 agent-runtime——#788 检视发现 3 勘误）
+ * - 严格三段格式：182/259（70.3%）（当时口径；现模块段正则
+ * [a-z][a-z-]* 允许连字符，如 agent-runtime——勘误）
  *
- * FID 形态契约（#667）：F/R ID 的日期段与后缀段正则源自单一真相源
+ * FID 形态契约：F/R ID 的日期段与后缀段正则源自单一真相源
  * src/entities/document/fid-format.ts（排除 0/1/l/o 的旧字母表已废弃——
  * 仓库从无该约定，frontmatter-validator 与 ID 生成现状均为全小写字母数字，
- * 旧正则致 5 个存量特性 commit 被漏判 no_f_prefix，详见 issue #667）
+ * 旧正则致 5 个存量特性 commit 被漏判 no_f_prefix，详见 ）
  */
 
 export interface ParsedCommit {
@@ -26,7 +26,7 @@ export interface ParsedCommit {
   sha: string;
   /** 完整 commit message */
   message: string;
-  /** 提取的 F 文档 ID（如 F20260824rhib），无则为 null */
+  /** 提取的 F 文档 ID（如 ），无则为 null */
   featureId: string | null;
   /** 提取的模块名（如 agent、skills），无则为 null */
   module: string | null;
@@ -43,22 +43,22 @@ export interface ParsedCommit {
 import { FID_DATE_SEGMENT, FID_READ_SUFFIX_SEGMENT } from "@entities/document/fid-format";
 
 /**
- * 类型白名单：真相源为 commit-convention.md Type Tags 表与 .githooks/commit-msg（#671）。
- * parser 原白名单仅 3 种（缺 Refactor/Design），与 #427（hook 补录）/ #432（文档删
+ * 类型白名单：真相源为 commit-convention.md Type Tags 表与 .githooks/commit-msg。
+ * parser 原白名单仅 3 种（缺 Refactor/Design），与 （hook 补录）/ （文档删
  * Feature 历史别名）两次收口漂移，致存量真实特性 commit 被误判 non_standard_format。
- * 导出供元测试与 hook types 变量交叉断言（#788 检视发现 2：双向锁定）。
+ * 导出供元测试与 hook types 变量交叉断言（双向锁定）。
  */
 export const CHANGE_TYPE_WHITELIST = ["New Feature", "Feature Update", "BugFix", "Refactor", "Design"] as const;
 
-/** 白名单 → 正则类型段（空格兼容无空格笔误：Feature Update → Feature ?Update，#425 建议 2） */
+/** 白名单 → 正则类型段（空格兼容无空格笔误：Feature Update → Feature ?Update，建议 2） */
 const TYPE_PATTERN = CHANGE_TYPE_WHITELIST.map((t) => t.replace(" ", " ?")).join("|");
 
-/** FeatureUpdate 笔误归一化（#425 建议 2）：无空格形态归一为标准类型名 */
+/** FeatureUpdate 笔误归一化（建议 2）：无空格形态归一为标准类型名 */
 function normalizeChangeType(raw: string): string {
   return raw === "FeatureUpdate" ? "Feature Update" : raw;
 }
 
-/** 标准三段格式正则：[FID][module][type]（#667：FID 段源自 fid-format.ts 单一真相源；#671：类型段由白名单生成） */
+/** 标准三段格式正则：[FID][module][type]（FID 段源自 fid-format.ts 单一真相源；类型段由白名单生成） */
 const STANDARD_FORMAT_REGEX = new RegExp(
   `^\\[F(${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[(${TYPE_PATTERN})\\]`
 );

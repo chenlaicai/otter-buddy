@@ -1,5 +1,5 @@
 /**
- * parseMentionsFromText 单元测试（F20260820i333）。
+ * parseMentionsFromText 单元测试。
  *
  * 纯函数测试，不依赖数据库。
  */
@@ -124,7 +124,7 @@ describe("parseMentionsFromText", () => {
     expect(r.invalidNames).toEqual([]);
   });
 
-  // F20260916ment：Twitter 词边界规则——@ 前必须是行首/空白/中文标点，
+  // Twitter 词边界规则——@ 前必须是行首/空白/中文标点，
   // 防止行文「在@功能」「npm 包 @scope/pkg@latest」被当成点名（issue 现场回归）
   it("F20260916ment：@ 紧贴前字（在@功能来触发）不算点名", () => {
     const r = parseMentionsFromText("但是系统还当作是在@功能来触发，然后还报错", participants);

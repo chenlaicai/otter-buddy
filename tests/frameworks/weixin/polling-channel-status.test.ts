@@ -1,7 +1,7 @@
 /**
- * WeixinPollingChannel 状态上报测试（F20260901chun 测试设计承诺）
+ * WeixinPollingChannel 状态上报测试（测试设计承诺）
  *
- * 使用 fake registry 收集副作用（沿用 #638 副作用断言风格），
+ * 使用 fake registry 收集副作用（沿用 副作用断言风格），
  * 断言 5 个关键节点（starting/running/token_stale/error_backoff/stopped）+ start/stop。
  * 禁止断言调用次数的 lint 红线。
  */

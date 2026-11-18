@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { getRepoRoot, findRepoRoot, __resetRepoRootCacheForTests } from '@frameworks/repo-root';
 
-// ─── issue #429：运行时资源路径统一解析 ──────
+// ─── 运行时资源路径统一解析 ──────
 // getRepoRoot() 基于代码位置（import.meta.dirname）向上逐级探测
 // 含 package.json 且 name === "otter-buddy" 的目录，与 process.cwd() 无关。
 // 本文件验证：

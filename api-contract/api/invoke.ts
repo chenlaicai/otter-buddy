@@ -1,5 +1,5 @@
 /**
- * F20260913ctlv: Invoke DTO（Session 弹窗 + 右侧栏獭状态面板数据源）
+ * Invoke DTO（Session 弹窗 + 右侧栏獭状态面板数据源）
  * 对应后端 Invoke/InvokeEvent 实体（src/entities/conversation/invoke.ts）
  */
 
@@ -22,14 +22,14 @@ export interface InvokeDTO {
   toolCallCount: number;
   tokenUsageInput: number | null;
   tokenUsageOutput: number | null;
-  /** F20261027hwl1：四分量补齐——cache 两列读回链修复后暴露到 DTO（右栏/账本同源） */
+  /** 四分量补齐——cache 两列读回链修复后暴露到 DTO（右栏/账本同源） */
   tokenUsageCacheRead: number | null;
   tokenUsageCacheWrite: number | null;
-  /** F20260914rtsp：末次 LLM 往返上下文窗口占用（含 cache），右栏「休息中 · xx/xx」数据源 */
+  /** 末次 LLM 往返上下文窗口占用（含 cache），右栏「休息中 · xx/xx」数据源 */
   ctxWindowUsed: number | null;
 }
 
-/** invoke 事件类型（流式过程记录）。F20260918sesp：+user_injection——pi 的
+/** invoke 事件类型（流式过程记录）。+user_injection——pi 的
  *  message_start(role=user) 事件（触发 invoke 的首条 prompt + steer/followUp 注入消费点） */
 export type InvokeEventTypeDTO =
   | "assistant_text"

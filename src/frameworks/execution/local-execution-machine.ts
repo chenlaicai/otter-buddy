@@ -15,7 +15,7 @@ import { RecordingNodeExecutionEnv } from "./recording-node-execution-env";
 
 /**
  * Built-in machine: reuse the existing Node implementations, with no second OS path.
- * F20261118remex（阶段 4 C2）：六动作执行语义抽出 WorkspaceActionExecutor（与 connector
+ * （阶段 4 C2）：六动作执行语义抽出 WorkspaceActionExecutor（与 connector
  * 远程共用），本类薄壳化为机器身份（id/name/Env 工厂）+ 委托执行。
  */
 export class LocalExecutionMachine implements ExecutionMachine {
@@ -27,7 +27,7 @@ export class LocalExecutionMachine implements ExecutionMachine {
 
   constructor(
     workspaceGateway: WorkspaceGateway,
-    /** F20261116actlg：本机动作台账（null = 记录降级关闭，动作照常执行） */
+    /** 本机动作台账（null = 记录降级关闭，动作照常执行） */
     ledger: ActionLedger | null = null,
     warn?: (message: string, meta?: Record<string, unknown>) => void,
   ) {
@@ -45,7 +45,7 @@ export class LocalExecutionMachine implements ExecutionMachine {
   }
 
   createExecutionEnvironment(cwd: string): ExecutionEnv {
-    // F20261116actlg：SDK 文件/bash 面走记录 env（副作用入账 + 原子写）；
+    // SDK 文件/bash 面走记录 env（副作用入账 + 原子写）；
     // 只读操作直通。ledger=null 时 RecordingNodeExecutionEnv 等价裸 NodeExecutionEnv。
     // MAJOR-1：bootEpoch 传入 env——自铸 actionId 必含纪元，防跨 boot 同序号碰撞错误去重。
     return new RecordingNodeExecutionEnv({ cwd }, this.executor.ledgerRef, this.executor.warnRef, this.bootEpoch);

@@ -1,4 +1,4 @@
-/** #1761：同族信号批量忽略，复用单条终态语义且不越过 issue 边界。 */
+/** 同族信号批量忽略，复用单条终态语义且不越过 issue 边界。 */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type Database from "better-sqlite3";
 import { createTestDb } from "../../helpers/db";

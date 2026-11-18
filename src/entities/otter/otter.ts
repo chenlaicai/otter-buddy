@@ -1,5 +1,5 @@
 /** Otter 类型 */
-/** F20260820a4rt: 从联合类型改为 string，运行时校验交由 manifest loader + lint 处理 */
+/** 从联合类型改为 string，运行时校验交由 manifest loader + lint 处理 */
 export type OtterType = string;
 
 /** Otter 状态 */
@@ -17,7 +17,7 @@ export interface Otter {
   name: string;
   type: OtterType;
   status: OtterStatus;
-  /** F20260921otcl：出生颜色（色板 key，如 'teal'）。大獭与未回填存量为 null；
+  /** 出生颜色（色板 key，如 'teal'）。大獭与未回填存量为 null；
    *  值域见 api-contract OTTER_PALETTE_KEYS（消费方经投影透传，前端最终消费） */
   color: string | null;
   role: OtterRole | null;

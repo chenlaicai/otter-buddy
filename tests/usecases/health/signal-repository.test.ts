@@ -354,7 +354,7 @@ describe("Issue #645 审视 S1：severity/suggested_action 档位推进（僵尸
     expect(r2.severity).toBe("critical");
     expect(r2.suggested_action).toBe("强制链复盘：90 天内归档或重启");
     expect(r2.occurrences).toBe(2);
-    // DB 实态同步验证（不只信 TS 拼装返回值，同 #644 发现 2 的教训）
+    // DB 实态同步验证（不只信 TS 拼装返回值，同 发现 2 的教训）
     const open = repo.findOpen();
     expect(open).toHaveLength(1);
     expect(open[0]!.severity).toBe("critical");

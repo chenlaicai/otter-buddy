@@ -1,5 +1,5 @@
 /**
- * TransitionMatter——状态迁移单入口（F20261006mtlp §2 + §3.5 代执行）。
+ * TransitionMatter——状态迁移单入口（§2 + §3.5 代执行）。
  *
  * 单一真相源纪律的物理落点：所有状态迁移（獭侧 transition_matter 工具、
  * 板上按钮 P2、扫描器兜底重派）必须走本 usecase，非法迁移在此拒绝。
@@ -15,7 +15,7 @@
  *    触发者身份 = onBehalfOf ?? actor
  * 3. 宣告权守卫（L2 闭环分权）：DONE_PENDING_CONFIRM → CLOSED 时
  *    level=L2 必须搭档确认（触发者身份须为 partner，可代执行声明）；
- *    L1 獭可自关留痕（搭档可翻案重开）；F20261019fckd（#1457）分流：
+ * L1 獭可自关留痕（搭档可翻案重开）；分流：
  *    closureKind='fact' 且 resolution 携机器证据时 owner 可直关；decision/null 闸不变
  * 4. 幂等：已是目标态短路返回；repo.transition 条件更新（WHERE state = ?）——
  *    并发迁移只有一方成功，另一方读到 changes=0 走幂等/冲突语义
@@ -34,7 +34,7 @@ export interface TransitionMatterInput {
   actor: string;
   /** §3.5 代执行声明：'partner' | otterId——声明后按被代理者身份过守卫（留痕 actor 字段） */
   onBehalfOf?: string;
-  /** F20261019fckd 补标闭环口径（迁移时可标，写入留痕）：'fact' | 'decision'；未传不改动存量值 */
+  /** 补标闭环口径（迁移时可标，写入留痕）：'fact' | 'decision'；未传不改动存量值 */
   closureKind?: MatterClosureKind | null;
   resolution?: string | null;
   waitingOn?: string | null;
@@ -43,9 +43,9 @@ export interface TransitionMatterInput {
 }
 
 /**
- * 机器证据判定（F20261019fckd，#1457）：fact 型 owner 直关的补偿条件。
+ * 机器证据判定（）：fact 型 owner 直关的补偿条件。
  * 认可形态（须命中其一）：
- * ① #PR/issue 号（#后 2-6 位数字）
+ * ① /issue 号（#后 2-6 位数字）
  * ② 7-40 位 hex commit sha
  * mergedAt/mergeCommit 关键词仅是辅助描述信号，不单独构成证据（对抗审视
  * 建议 1 收紧：否则「见上文 mergedAt」零锚点散文可直关，违背验收标准③
@@ -70,10 +70,10 @@ function actorAllowed(transition: MatterTransition, actorType: 'partner' | 'owne
 }
 
 /**
- * 宣告权守卫（§2 闭环宣告权表 + F20261019fckd fact 分流）：
+ * 宣告权守卫（§2 闭环宣告权表 + fact 分流）：
  * - L1：獭自关留痕（搭档可翻案）——不变
  * - L2 decision/null：必须搭档确认（触发者身份须为 partner，含代执行声明）——不变
- * - L2 fact：owner 可携机器证据直关（resolution 必含 #PR号/commit sha 锚点，缺证据照拒）；
+ * - L2 fact：owner 可携机器证据直关（resolution 必含 号/commit sha 锚点，缺证据照拒）；
  *   partner 确认路径不受影响（搭档永远有权确认）
  */
 function assertCloseAuthority(
@@ -114,7 +114,7 @@ function defaultWaitingOn(matter: Matter, to: MatterState, requested: string | n
   return matter.waitingOn;
 }
 
-/** 认领/打回路径的默认等待方（N3：消灭 stale 'partner' 行——dissolve 双扫描都依赖 waiting_on） */
+/** 认领/打回路径的默认等待方（消灭 stale 'partner' 行——dissolve 双扫描都依赖 waiting_on） */
 function defaultWaitingOnForTransition(matter: Matter, to: MatterState, actor: string, requested: string | null | undefined): string | null {
   if (requested !== undefined) return requested;
   if (to !== 'WAITING_OTTER') return defaultWaitingOn(matter, to, requested);

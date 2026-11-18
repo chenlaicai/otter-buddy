@@ -131,7 +131,7 @@ describe("isValidTimezone", () => {
   });
 });
 
-// ─── #516: isValidTimeoutMinutes ────────────────────
+// ─── isValidTimeoutMinutes ────────────────────
 
 describe("isValidTimeoutMinutes (#516)", () => {
   it("1-1440 整数合法", () => {

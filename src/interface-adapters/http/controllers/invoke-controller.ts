@@ -11,7 +11,7 @@ import { streamEvents } from "../sse-streamer";
 import type { SSEEvent } from "@contract/sse/events";
 
 /**
- * F20260913ctlv Phase 4：invoke 只读查询端点。
+ * Phase 4：invoke 只读查询端点。
  * Session 弹窗（invoke 列表 + 流式过程展开）与右侧栏状态面板刷新的数据源。
  * 只读——invoke 生命周期写入由 agent-invoker/orchestrator 负责（Phase 2 已建）。
  */
@@ -20,11 +20,11 @@ export class InvokeController {
   constructor(
     private readonly invokeRepo: InvokeRepository,
     private readonly logger: Logger,
-    /** F20260913ctlv 彻底切换：invoke 中止（AgentInvoker） */
+    /** 彻底切换：invoke 中止（AgentInvoker） */
     private readonly agentInvoker?: AgentInvoker,
-    /** F20260913ctlv 彻底切换：重试调度链（链引擎） */
+    /** 彻底切换：重试调度链（链引擎） */
     private readonly dispatchChainEngine?: DispatchChainEngine,
-    /** F20260913ctlv 彻底切换：重试 SSE 流订阅（broadcaster） */
+    /** 彻底切换：重试 SSE 流订阅（broadcaster） */
     private readonly messageBroadcaster?: MessageBroadcaster,
   ) {}
 
@@ -64,7 +64,7 @@ export class InvokeController {
     }
   }
 
-  /** POST /api/invokes/:id/abort——中止运行中 invoke（F20260913ctlv 彻底切换：停止按钮唯一后端） */
+  /** POST /api/invokes/:id/abort——中止运行中 invoke（彻底切换：停止按钮唯一后端） */
   async abort(c: Context): Promise<Response> {
     try {
       const invokeId = param(c, "id");
@@ -72,7 +72,7 @@ export class InvokeController {
       if (!invoke) {
         return c.json({ error: "invoke not found" }, 404);
       }
-      // F20260930s1x0（issue #1251）：显式 409 + 可机读 code + 真实终态，前端据此提示「并非真实运行」
+      // 显式 409 + 可机读 code + 真实终态，前端据此提示「并非真实运行」
       // 并收敛气泡（delta：invoke_status 让前端等效补发错失的 invoke.end，见特性文档处置记录）
       if (invoke.status !== "running") {
         return c.json(
@@ -188,7 +188,7 @@ export class InvokeController {
   }
 
   /** 重试核心：对指定獭重新 invoke 一次（session 上下文承载原始任务，SSE 流同正常发言链）。
-   *  F20260913ctlv test17：running（用户刚点中断、abort 终态化异步收敛中）也放行——
+   * test17：running（用户刚点中断、abort 终态化异步收敛中）也放行——
    *  消除「中断后立即重试撞 409」的窗口竞态。triggerAnchor 仅作链引擎记账原点（非差异化逻辑）。 */
   private retryOtter(c: Context, conversationId: string, otterId: string, triggerAnchor: string): Response {
     try {
@@ -210,7 +210,7 @@ export class InvokeController {
         senderId: "user",
         initialTargets: [otterId],
         triggerMessageId: triggerAnchor,
-        // F20261012swsg（#1430）：重试续跑指令是合成文本非用户消息——不进安全词扫描
+        // 重试续跑指令是合成文本非用户消息——不进安全词扫描
         triggerSenderType: "system",
         invokeFn: async (params) => {
           const r = await this.agentInvoker!.invokeConversation({
@@ -221,7 +221,7 @@ export class InvokeController {
             retryCount: 1,
             manualRetry: true,
             ...(params.images && { images: params.images }),
-            // F20260922ctxi：batchMaxSeq 透传——闭包重组字段时漏传会让 pushCursorOnStartup
+            // batchMaxSeq 透传——闭包重组字段时漏传会让 pushCursorOnStartup
             // 拿不到批次游标（永不推进），重试 invoke 已注入的未读下轮重复注入。
             batchMaxSeq: params.batchMaxSeq,
             assignmentRole: params.assignmentRole,

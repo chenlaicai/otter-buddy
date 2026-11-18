@@ -67,7 +67,7 @@ describe("SearchMemory - progressive disclosure", () => {
     storeEntry(db, { ...BASE_ENTRY, id: "e3", content: "这是一条完全不相关的内容，关于烹饪食谱和食材准备" });
   });
 
-  it("detail_level=snippet 返回匹配片段（默认行为）", { timeout: 20_000 }, async () => {  // F20261021ttos：重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
+  it("detail_level=snippet 返回匹配片段（默认行为）", { timeout: 20_000 }, async () => {  // 重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
     const result = await searchMemory.search({ query: "记忆系统", limit: 5 });
 
     expect(result.entries.length).toBeGreaterThan(0);
@@ -88,7 +88,7 @@ describe("SearchMemory - progressive disclosure", () => {
     const first = result.entries[0];
     expect(first.snippet).toBeDefined();
     /**
-     * #542 契约：content = 原文首句（开头即有信息量），snippet = FTS 匹配窗口。
+     * 契约：content = 原文首句（开头即有信息量），snippet = FTS 匹配窗口。
      * 两者提取源不同（原文 vs 匹配位置），短文浅匹配时可能恰好重合——
      * 分离的意义在深匹配场景（见下方回归测试），此处断言契约本身：
      */
@@ -115,7 +115,7 @@ describe("SearchMemory - progressive disclosure", () => {
     expect(withDrill.length).toBeGreaterThan(0);
     for (const e of withDrill) {
       expect(e.drillDown!.tool).toBe("get_memory_detail");
-      /** #1398：schema 要求 ids 数组——若回退为 { id } 单数形态本断言即红（修复前失败锚） */
+      /** schema 要求 ids 数组——若回退为 { id } 单数形态本断言即红（修复前失败锚） */
       expect(e.drillDown!.params).toHaveProperty("ids");
       expect(Array.isArray(e.drillDown!.params.ids)).toBe(true);
       expect((e.drillDown!.params.ids as string[])[0]).toBe(e.id);
@@ -172,7 +172,7 @@ describe("SearchMemory - progressive disclosure", () => {
     expect(snippetEntry).toBeDefined();
     expect(snippetEntry!.content).toBe(snippetEntry!.snippet);
 
-    /** summary 模式：content = 原文首句（#542：与 FTS 窗口解耦） */
+    /** summary 模式：content = 原文首句（与 FTS 窗口解耦） */
     const summaryResult = await searchMemory.search({ query: "渐进式披露", limit: 5, detailLevel: "summary" });
     const summaryEntry = summaryResult.entries.find(e => e.id === "e-long");
     expect(summaryEntry).toBeDefined();
@@ -203,7 +203,7 @@ describe("SearchMemory - progressive disclosure", () => {
   });
 
   /**
-   * #542 回归锁：summary 模式空 content 投影缺陷。
+   * 回归锁：summary 模式空 content 投影缺陷。
    * issue 实证（2026-08-28 起，40% 复现）：FTS 深匹配条目（匹配词在 100 字符后）的
    * 匹配窗口带 `...` 前缀，旧首句正则从窗口提取出 `.`；换行开头提取出 `\n`；
    * 编号标题（`2.2 方案`）提取出 `2.`。修复后 content 恒为原文首句（与匹配位置解耦）。

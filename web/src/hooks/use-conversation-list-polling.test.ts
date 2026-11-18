@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * useConversationListPolling 回归测试（F20261008sbss / issue #1249）
+ * useConversationListPolling 回归测试（/ ）
  *
  * 事故链路：对话实际 awaiting_user，左侧栏仍显示「处理中」。
- * 根因层（孤儿 running invoke）已由 F20260930roiv 延迟 reconcile 修复；
+ * 根因层（孤儿 running invoke）已由 延迟 reconcile 修复；
  * 本文件锁死显示链路的三个行为：
  * 1. 5s 轮询 tick：服务端状态翻转后，列表数据跟随翻转
  * 2. 切回标签页：立即刷新一次，不等首个 5s tick（旧 badge 最长滞留 5s）

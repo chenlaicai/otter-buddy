@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestApp, json, createMockDeps } from "./helpers";
 import type { TestDeps } from "./helpers";
 
-/** F20260913ctlv Phase 4：invoke 只读查询端点（Session 弹窗数据源） */
+/** Phase 4：invoke 只读查询端点（Session 弹窗数据源） */
 
 const invokeFixture = {
   id: "inv-1",

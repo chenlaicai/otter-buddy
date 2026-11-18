@@ -8,7 +8,7 @@ import {
   isArtifactVisible,
 } from "../../../src/entities/conversation/conversation";
 
-/** F20260922cgrp：弱状态两态管理——completed 退役（canCompleteConversation 一并删除），
+/** 弱状态两态管理——completed 退役（canCompleteConversation 一并删除），
  *  对话只剩 active -> archived 单向转换，archived 为终态 */
 describe("canArchiveConversation", () => {
   it("active can be archived", () => {

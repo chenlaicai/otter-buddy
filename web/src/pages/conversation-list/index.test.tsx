@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * 对话列表右键菜单 Portal 化测试（F20261023pmnu，#1006）。
+ * 对话列表右键菜单 Portal 化测试（）。
  *
  * 覆盖：
  * 1. 菜单经 createPortal 挂 document.body（脱离根容器 containing block 风险域）——

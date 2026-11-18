@@ -1,6 +1,6 @@
 /**
- * 健康分状态色配置（issue #595：绿≥75 / 黄 50-74 / 红<50，与后端 statusFromScore 对齐）。
- * issue #1029 从 index.tsx 抽出：总览三层组件（VerdictPanel）与 index.tsx 共用，单一真相源。
+ * 健康分状态色配置（绿≥75 / 黄 50-74 / 红<50，与后端 statusFromScore 对齐）。
+ * 从 index.tsx 抽出：总览三层组件（VerdictPanel）与 index.tsx 共用，单一真相源。
  */
 
 export const SCORE_STATUS_CONFIG: Record<string, { label: string; text: string; bg: string; border: string }> = {

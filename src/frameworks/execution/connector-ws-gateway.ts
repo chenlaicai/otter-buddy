@@ -15,10 +15,10 @@ import {
 
 /** 下线原因（收尾语义分流的依据）：device-offline=主动优雅下线（在途可确定性裁决
  *  interrupted——方案 §6 第4步）；heartbeat-timeout/hub-restart=意外断开（在途真相
- *  不明落 unknown，S2 不对称边界） */
+ * 不明落 unknown，不对称边界） */
 export type ConnectorSessionDownReason = "device-offline" | "heartbeat-timeout" | "hub-restart";
 
-/** F20261118remex（C2）：动作通道面——RemoteExecutionMachine 依赖的网关能力子集（测试可 fake） */
+/** （C2）：动作通道面——RemoteExecutionMachine 依赖的网关能力子集（测试可 fake） */
 export interface ConnectorActionChannel {
   /** 向设备在线连接发帧；离线/无连接返回 false */
   sendToDevice(deviceId: string, frame: ConnectorFrame): boolean;
@@ -37,10 +37,10 @@ interface LiveConnection {
 }
 
 /**
- * F20261117cnnct（#1868 阶段 4 C1）：connector WSS 网关——upgrade 鉴权 + 协议 v1
+ * （阶段 4 C1）：connector WSS 网关——upgrade 鉴权 + 协议 v1
  * （hello/heartbeat/offline + sid 会话代际）+ 总闸库层状态机。
  *
- * 事实源纪律（方案 v3 §3/S1）：online_sessions 表是唯一事实源——上线/下线先落库，
+ * 事实源纪律（方案 v3 §3/）：online_sessions 表是唯一事实源——上线/下线先落库，
  * Registry 内存投影随后（先库后内存；库写失败 fail-closed 关通道，宁误下线不误放行）。
  * 旧 sid 帧一律静默丢弃 + 计数日志（模块 C 红线：重连≠恢复）。
  *

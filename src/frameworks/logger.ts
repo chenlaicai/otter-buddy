@@ -19,7 +19,7 @@ export class PinoLogger implements Logger {
     }
   }
 
-  /** F20260814mtrc：合并 trace 字段（traceId/messageId）；显式 context 优先 */
+  /** 合并 trace 字段（traceId/messageId）；显式 context 优先 */
   private withTrace(context?: LogContext): LogContext | undefined {
     const trace = traceLogFields();
     if (!trace.traceId && !trace.messageId) return context;

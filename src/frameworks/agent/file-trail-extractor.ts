@@ -1,5 +1,5 @@
 /**
- * 文件轨迹提取器（F20260825hndf 件②）
+ * 文件轨迹提取器（件②）
  *
  * 从 session entries 机械提取文件操作轨迹，零 LLM 成本。
  * Layer 1：SDK 的 read/write/edit 工具 → 直接提取 path（精确）

@@ -8,7 +8,7 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import type { HealingEvent, HealingResolution } from "@entities/healing/healing-event";
 import type { Logger } from "@usecases/ports/logger";
 
-/** F20260917trig §3 验收 #5/#9：老化 worker 聚合限流 + 孤儿 healing 清理 + triaged 停滞告警 */
+/** §3 验收 /老化 worker 聚合限流 + 孤儿 healing 清理 + triaged 停滞告警 */
 
 function makeDeps(): { repo: SignalRepository; healing: HealingEventRepository & { events: HealingEvent[] } } {
   const db = new Database(":memory:");
@@ -39,10 +39,10 @@ function makeDeps(): { repo: SignalRepository; healing: HealingEventRepository &
     async getStats() { return { total: events.length, open: events.filter(e => e.status === "open").length } as never; },
     async autoStaleDismiss() { return 0; },
     async findAgedUnboundHigh() { return []; },
-    async dismiss() { /* #1545：接口新增成员，mock 补齐 */ },
+    async dismiss() { /* 接口新增成员，mock 补齐 */ },
     async batchResolveByFilter() { return { matched: 0, resolved: 0, resolvedIds: [] }; },
     async countByFilter() { return 0; },
-    // #1271（F20261008hbbd）：接口新增方法的 mock（本测试不触 batch_bind，占位满足类型）
+    // 接口新增方法的 mock（本测试不触 batch_bind，占位满足类型）
     async batchBindIssue() { return { matched: 0, bound: 0, boundIds: [], truncated: false, totalMatched: 0 }; },
   };
   return { repo, healing };

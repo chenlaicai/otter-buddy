@@ -1,5 +1,5 @@
 /**
- * F20261027hwl1 collector 行为测试：Shanghai 日界 + provider 进 cost records。
+ * collector 行为测试：Shanghai 日界 + provider 进 cost records。
  * 使用 tests/fixtures/sessions 之外的临时 JSONL（覆盖 UTC 16:00 跨日界样本）。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";

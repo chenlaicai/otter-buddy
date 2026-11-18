@@ -25,7 +25,7 @@ import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { SSEEvent } from "@contract/sse/events";
 import { runWithTrace, getTraceContext, newTraceId } from "@usecases/ports/trace-context";
 
-/** F20261027hwl1：invoke 创建时的确定性 metadata（traceId + source）。
+/** invoke 创建时的确定性 metadata（traceId + source）。
  *  只取 trace scope 内的稳定字段（不携业务对象）——与 PinoLogger 的 traceLogFields 同源。
  *  工作账本归属链：work_item_traces.trace_id ← invokes.metadata.traceId（JSON_EXTRACT 派生）。 */
 function buildInvokeCreationMetadata(assignmentRole?: "reviewer"): Record<string, unknown> | null {
@@ -47,17 +47,17 @@ import type { OtterSession } from "@entities/otter/otter-session";
 import type { StateInventoryDeps, HandoffEntryReader } from "@frameworks/agent/state-inventory";
  
 import type { SynthesisPrefetch } from "@frameworks/agent/synthesis-prompt-builder";
-// F20260920uhuc：统一交接引擎与 jsonl 切片的 DI 契约（层约束：interface-adapters 不
+// 统一交接引擎与 jsonl 切片的 DI 契约（层约束：interface-adapters 不
 // import frameworks 实现——同 buildHandoffPackage 注入先例，运行时由 bootstrap 装配）
 import { DomainError } from "@entities/errors";
 import { scanStopWords } from "@usecases/signal/stop-word-scanner";
 import { addTokenUsage } from "@usecases/conversation/token-usage";
 
-/** F20260923hlck：合成 prompt 长度→token 估算比率——9/23 生产日志实测校准。
- *  F20260924swin 起退役：预检与 trim 共享 synthesisFullBudgetChars（引擎端口注入），
+/** 合成 prompt 长度→token 估算比率——9/23 生产日志实测校准。
+ * 起退役：预检与 trim 共享 synthesisFullBudgetChars（引擎端口注入），
  *  不再各自维护密度常数（此前 trim chars/3 预检 chars/2 双口径漂移的教训）。 */
 
-/** F20260930hsfx 层积岩清理：synthesizePast 默认值单点真相源——此前 4 处散布
+/** 层积岩清理：synthesizePast 默认值单点真相源——此前 4 处散布
  *  （水位入口/自重启/otter-controller/tool-factory/bootstrap clients 的内联 `= true` /
  *  `!== false`）各自硬编码，改默认值要全文 grep。收敛到本常量，语义不变（默认合成）。 */
 export const HANDOFF_SYNTHESIZE_PAST_DEFAULT = true;
@@ -73,7 +73,7 @@ export interface EngineSynthesisInput {
   lineage?: string;
   selfSummary?: string;
   stateInventoryText?: string;
-  /** F20261027hfup（M-12b165a7）：本对话未闭环 matters 清单进合成原料（与引擎 NarrativeSynthesisInput.openMatters 结构兼容） */
+  /** （M-12b165a7）：本对话未闭环 matters 清单进合成原料（与引擎 NarrativeSynthesisInput.openMatters 结构兼容） */
   openMatters?: string;
   prefetch?: {
     contextKeys?: string[];
@@ -81,9 +81,9 @@ export interface EngineSynthesisInput {
     recentUserMessages?: string[];
   };
   timestamp?: string;
-  /** F20260923hsyn：目标模型上下文窗口（tokens）——传入则历史段预算裁剪（丢最老保最近）；缺省不裁 */
+  /** 目标模型上下文窗口（tokens）——传入则历史段预算裁剪（丢最老保最近）；缺省不裁 */
   contextWindowTokens?: number;
-  /** F20260924swin 观测锚：trim 结果回调（与引擎 NarrativeSynthesisInput.onTrim 结构兼容） */
+  /** 观测锚：trim 结果回调（与引擎 NarrativeSynthesisInput.onTrim 结构兼容） */
   onTrim?: (result: {
     inputChars: number;
     measuredFixedChars: number;
@@ -94,9 +94,9 @@ export interface EngineSynthesisInput {
 }
 
 /** jsonl 切片结果的最小消费面（与 session-slicer.JsonlSlice 结构兼容）。
- *  F20260929kws1 契约：messagesToSummarize=叙事合成原料；turnPrefixMessages 恒空、
+ * 契约：messagesToSummarize=叙事合成原料；turnPrefixMessages 恒空、
  *  isSplitTurn 恒 false（cutPoint 概念退役）。
- *  F20260930hsfx S1：keptEntries 暴露给调用方——保留段空（无 speak 有原料）时调用方据此
+ * keptEntries 暴露给调用方——保留段空（无 speak 有原料）时调用方据此
  *  标注「前世无发言」但原料照送合成，不再连坐跳过叙事合成。 */
 export interface EngineJsonlSlice {
   firstKeptEntryId: string | undefined;
@@ -119,11 +119,11 @@ export interface HandoffEngineDeps {
     stateInventoryText?: string;
     recencyWindow?: string;
     fileTrail?: string;
-    /** F20260930hsfx S2：降级原因（贯穿日志与档案文案的唯一枚举） */
+    /** 降级原因（贯穿日志与档案文案的唯一枚举） */
     degradeReason?: HandoffDegradeReason;
-    /** F20261111synth F4：降级错误摘要（≤200 chars，档案自证） */
+    /** F4：降级错误摘要（≤200 chars，档案自证） */
     degradeErrorDetail?: string;
-    /** F20261006mtlp P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters——
+    /** P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters——
      *  确定性字段不进叙事合成，matter 表活在 session 之外，獭生封存 ≠ 事情失传） */
     openMatters?: string;
   }) => string;
@@ -134,7 +134,7 @@ export interface HandoffEngineDeps {
     fileTrail?: string;
     stateInventory?: string;
     recencyWindow?: string;
-    /** F20261006mtlp P1：机械供料——未闭环 matters 清单（同 buildMechanicalArchive 语义） */
+    /** P1：机械供料——未闭环 matters 清单（同 buildMechanicalArchive 语义） */
     openMatters?: string;
   }) => string;
   sliceSessionEntries: (entries: unknown[], options?: { scopeKey?: string }) => EngineJsonlSlice | undefined;
@@ -145,13 +145,13 @@ export interface HandoffEngineDeps {
   renderFileTrail: (trail: unknown) => string;
   /** 合成超时上界 ms */
   synthesisTimeoutMs: number;
-  /** F20260924swin：合成全文预算函数（trim 与预检共享的唯一预算对象）——
+  /** 合成全文预算函数（trim 与预检共享的唯一预算对象）——
    *  引擎端口注入（层约束：interface-adapters 不 import frameworks 常量）。
    *  可选 → 必填——可选时漏注入 = 预检静默失效 fail-open。 */
   synthesisFullBudgetChars: (contextWindowTokens: number) => number;
 }
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
-// F20260826mwrd C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
+// C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
 import { signalAlertRegistry, renderSignalAlerts } from "@usecases/signal/signal-alert-registry";
 import { HandoffState, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
@@ -169,7 +169,7 @@ import type { InvokeRepository } from "@usecases/conversation/invoke-repository"
 import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-port";
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 
-// F20260920uhuc：buildAutoHandoffOptions / buildManualHandoffOptions 退役——
+// buildAutoHandoffOptions / buildManualHandoffOptions 退役——
 // 红线重审后推翻原判：影子通道改变了 P1 当年的技术形态（合成者是干净的
 // inMemory 引擎而非退化獭的 invoke 通道），手动/熔断路径统一走 LLM 合成 + 降级链。
 // 四件套 options 组装由统一 handoff 入口（unifiedHandoff）内的机械供料收集取代。
@@ -182,19 +182,19 @@ function ordinaryRecoveryValue<T>(externalProfile: 'restricted' | undefined, val
 export class AgentInvoker implements AgentTurnPort {
   /** Messages explicitly aborted by the user (written only by abort()) */
   private readonly userAbortedMessages = new Set<string>();
-  /** #764：SDK auto_retry_start 观测窗——retry backoff 期间 abort 时 err 被 retry 层抹掉
+  /** SDK auto_retry_start 观测窗——retry backoff 期间 abort 时 err 被 retry 层抹掉
    *  errorMessage（{...rest, stopReason: "aborted"}），exit 分类拿不到底层错误；
    *  但 auto_retry_start 事件带完整 errorMessage，且 retry 会话在成功/耗尽前不结束。
    *  invokeId → 最近一次 retry 的 errorMessage，abort 归因消费后随 invoke 生命周期清理。 */
   private readonly retryContextByInvoke = new Map<string, string>();
   private readonly orchestrator: AgentTurnOrchestrator;
-  /** F20260818cbkr：熔断执行器（healingRepo 未注入时为 null，熔断禁用） */
+  /** 熔断执行器（healingRepo 未注入时为 null，熔断禁用） */
   private readonly circuitBreak: CircuitBreakSupport | null;
-  /** F20260825hndf：handoff 状态管理 */
+  /** handoff 状态管理 */
   private readonly handoffState = new HandoffState();
-  /** F20260901cxmw：按 otter 缓存解析出的 ctxMax（池条目启动后不可变，见 ModelPool 注释） */
+  /** 按 otter 缓存解析出的 ctxMax（池条目启动后不可变，见 ModelPool 注释） */
   private readonly resolvedCtxMax = new Map<string, number>();
-  /** F20260901cxmw：按 otter 缓存解析出的 ctxMax。缓存边界：
+  /** 按 otter 缓存解析出的 ctxMax。缓存边界：
    * ModelPool 的 entries 启动后不可变；defaultAlias 可通过 settings 页运行时切换，
    * 仅影响无显式 modelAlias otter 的新解析（新 session 口径）——已缓存的 otter 保持首解析值。 */
 
@@ -208,36 +208,36 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly messageBroadcaster?: MessageBroadcaster,
     private readonly workspaceGateway?: WorkspaceGateway,
     private readonly settingsRepo?: SettingsRepository,
-    /** F20260814mtrc：可选注入，缺省 no-op（不破坏既有测试） */
+    /** 可选注入，缺省 no-op（不破坏既有测试） */
     private readonly metrics?: AgentMetricsPort,
-    /** F20260818cbkr：可选注入，缺省禁用熔断（不破坏既有测试） */
+    /** 可选注入，缺省禁用熔断（不破坏既有测试） */
     private readonly healingRepo?: HealingEventRepository,
-    /** F20260825hndf：可选注入，用于活状态盘点（不破坏既有测试） */
+    /** 可选注入，用于活状态盘点（不破坏既有测试） */
     private readonly conversationRepo?: ConversationRepository,
-    /** F20260825hndf：可选注入，用于调度任务盘点（不破坏既有测试） */
+    /** 可选注入，用于调度任务盘点（不破坏既有测试） */
     private readonly scheduledTaskRepo?: ScheduledTaskRepository,
-    /** F20260825hndf：可选注入，用于产物盘点（不破坏既有测试） */
+    /** 可选注入，用于产物盘点（不破坏既有测试） */
     private readonly listArtifacts?: (conversationId: string) => Promise<LinkedResource[]>,
-    /** F20260825hndf：可选注入，用于 otter_context 读写（借用式交接上下文） */
+    /** 可选注入，用于 otter_context 读写（借用式交接上下文） */
     private readonly manageContext?: ManageContext,
-    /** F20260831cbkw：可选注入，熔断 session 年龄窗口阈值（ms），缺省 2h */
+    /** 可选注入，熔断 session 年龄窗口阈值（ms），缺省 2h */
     private readonly healthySessionThresholdMs?: number,
-    /** F20260901cxmw：可选注入，otter 实际模型 contextWindow 解析（缺省回退 128k，兼容旧测试） */
+    /** 可选注入，otter 实际模型 contextWindow 解析（缺省回退 128k，兼容旧测试） */
     private readonly ctxWindowProvider?: OtterContextWindowProvider,
-    /** F20260913ctlv：invoke 生命周期管理（彻底切换后必注入——invoke/entries 唯一写入面） */
+    /** invoke 生命周期管理（彻底切换后必注入——invoke/entries 唯一写入面） */
     private readonly sendEntry?: SendEntry,
-    /** F20260913ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events） */
+    /** 彻底切换：invoke 仓库（熔断摘要读 invoke_events） */
     private readonly invokeRepo?: InvokeRepository,
-    /** F20260916fst4：可选注入，首哑信号消费时 dispatch 大獭——正常装配走 attachAgentDispatchService
+    /** 可选注入，首哑信号消费时 dispatch 大獭——正常装配走 attachAgentDispatchService
      * setter（bootstrap 时序补偿）；构造直传仅供测试（缺省降级仅日志，不破坏既有测试构造调用） */
     agentDispatchService?: AgentDispatchService,
-    /** F20260920uhuc：统一交接引擎函数包（bootstrap 注入；缺省时统一交接降级机械档案） */
+    /** 统一交接引擎函数包（bootstrap 注入；缺省时统一交接降级机械档案） */
     private readonly engine?: HandoffEngineDeps,
-    /** F20261006mtlp P1：matters 仓库（机械供料 handoff_open_matters 数据源；可选注入） */
+    /** P1：matters 仓库（机械供料 handoff_open_matters 数据源；可选注入） */
     private readonly matterRepo?: MatterRepository,
-    /** F20261021sprx：每次唤醒读取待执行状态镜像（非消费即删）。 */
+    /** 每次唤醒读取待执行状态镜像（非消费即删）。 */
     private readonly scheduledTaskPendingRepo?: ScheduledTaskPendingItemRepository,
-    /** #1762：content_filter 首次失败时选择不同模型的备用条目。 */
+    /** content_filter 首次失败时选择不同模型的备用条目。 */
     private readonly modelPool?: ModelPoolLike,
   ) {
     this.agentDispatchService = agentDispatchService;
@@ -245,46 +245,46 @@ export class AgentInvoker implements AgentTurnPort {
     this.circuitBreak = healingRepo && sendEntry
       ? new CircuitBreakSupport({
         manageSession,
-        // F20260913ctlv 收尾批3：历史读取切 entries（user entry 唯一真相源）
+        // 收尾批3：历史读取切 entries（user entry 唯一真相源）
         entryReader: {
           getEntries: async (convId: string, opts?: { entryType?: string; limit?: number }) =>
             sendEntry.getEntries(convId, opts),
         },
-        // F20260913ctlv 彻底切换：sendSystem 走 entries（system entry），不再写 messages
+        // 彻底切换：sendSystem 走 entries（system entry），不再写 messages
         sendSystem: async (convId, body) => {
           const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, body });
-          // F20260921urdo 契约收口：投影补 createdAt
+          // 契约收口：投影补 createdAt
           return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt };
         },
         healingRepo,
         invokeRepo,
         logger,
         healthySessionThresholdMs,
-        // F20260922handoff：熔断换世也清水位状态（与 unifiedHandoff 入口同语义）。
+        // 熔断换世也清水位状态（与 unifiedHandoff 入口同语义）。
         onSessionRestarted: (id: string) => { this.handoffState.clearLastCtxTokens(id); },
       })
       : null;
   }
 
-  // F20260916fst4：首哑信号消费依赖——AgentDispatchService 构建晚于 agentInvoker
+  // 首哑信号消费依赖——AgentDispatchService 构建晚于 agentInvoker
   //（initPlatforms / app.ts setupFeishu 内各建一份），时序上无法构造注入。
   // 选定 setter 延迟挂接：装配完成后由调用方挂接首个可用实例（见 app.ts），
   // 对既有构造零侵入（agentDispatchService 为可选参数，缺省降级仅日志）。
   private agentDispatchService?: AgentDispatchService;
 
-  /** F20260916fst4：装配后挂接 AgentDispatchService（bootstrap 时序补偿，见属性注释）。
+  /** 装配后挂接 AgentDispatchService（bootstrap 时序补偿，见属性注释）。
    *  幂等：飞书/微信双通道装配时后挂接者覆盖前者——两实例的 dispatch 能力等价
    *  （同 dispatchChainEngine/entryRepo/agentInvokePort），覆盖无语义差异 */
   attachAgentDispatchService(service: AgentDispatchService): void {
     this.agentDispatchService = service;
   }
 
-  /** F20261015mjsg D2：入座獺谓词（RoomService.isSeated）延迟挂接——
+  /** D2：入座獺谓词（RoomService.isSeated）延迟挂接——
    *  时序：agentInvoker 先于 controllers 诞生（app.ts initAgentAndScheduler → initControllers），
    *  与 agentDispatchService 同款 setter 补偿，对既有构造零侵入。缺省不拦（非三麻部署降级）。 */
   private mahjongSeatQuery?: { isSeated(otterId: string): boolean };
 
-  /** F20261015mjsg D2：装配后挂接入座谓词（app.ts initControllers 之后调用） */
+  /** D2：装配后挂接入座谓词（app.ts initControllers 之后调用） */
   attachMahjongSeatQuery(query: { isSeated(otterId: string): boolean }): void {
     this.mahjongSeatQuery = query;
   }
@@ -296,7 +296,7 @@ export class AgentInvoker implements AgentTurnPort {
    * streaming 事件通过 messageBroadcaster.broadcastEvent 统一推送给所有订阅者。
    * onSSEEvent 可选覆盖（测试用），默认走 broadcastEvent。
    *
-   * F20260814mtrc：trace 兜底——已有链级 trace（DispatchChainEngine 注入）则直接执行；
+   * trace 兜底——已有链级 trace（DispatchChainEngine 注入）则直接执行；
    * 直连路径（scheduler/手动重试）生成新 traceId 并标记 source="direct"。
    */
   async invokeConversation(params: {
@@ -308,17 +308,17 @@ export class AgentInvoker implements AgentTurnPort {
     externalProfile?: 'restricted';
     onSSEEvent?: (event: SSEEvent) => void;
     retryCount?: number;
-    /** F20260814mtrc：Web 手动重试标识（retry label 区分 manual/auto） */
+    /** Web 手动重试标识（retry label 区分 manual/auto） */
     manualRetry?: boolean;
     /** 多模态 Phase 1：当前任务消息携带的图片（≤2 张，dispatch-chain 透传） */
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
-    /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
+    /** 本批未读消息的最大 sequence_num（启动成功后推进游标用） */
     batchMaxSeq?: number;
-    /** F20261027hwl1：链触发 entry id（写 invokes.trigger_entry_id + metadata.traceId 同源） */
+    /** 链触发 entry id（写 invokes.trigger_entry_id + metadata.traceId 同源） */
     triggerMessageId?: string;
     assignmentRole?: "reviewer";
   }): Promise<AgentTurnResult> {
-    // F20261015mjsg D2 牌局中对话侧防护：入座獺不进 LLM 推理（局中水位换世会打穿牌局上下文）——
+    // D2 牌局中对话侧防护：入座獺不进 LLM 推理（局中水位换世会打穿牌局上下文）——
     // 自动应答「打牌中」。判据 = RoomService.isSeated 精确谓词（非通用 isRunning——定时任务里的
     // 獺不误伤，大獭 10/16 裁决）。安全词例外：消息命中「停下」→ 放行走 LLM（L2 急停不能被牌局
     // 吞掉；reminder 已由链引擎附在消息尾随，扫到即放行）——过度放行是安全方向（顶多一轮 LLM）。
@@ -334,7 +334,7 @@ export class AgentInvoker implements AgentTurnPort {
     return runWithTrace({ traceId: newTraceId(), source: "direct" }, () => this.invokeConversationInner(params));
   }
 
-  /** F20261015mjsg D2：入座獺的对话 invoke 拦截——speak entry 自动应答 + entry.speak 广播（实时气泡），
+  /** D2：入座獺的对话 invoke 拦截——speak entry 自动应答 + entry.speak 广播（实时气泡），
    *  不进 LLM、不建 invoke。返回合成 turn 结果：链引擎 fetchProducedMessage 查 invokes 无此 id →
    *  tsp 空 → 发言链自然收束（降级路径既有的容错语义，不新增分支）。 */
   private async blockSeatedInvoke(params: { otterId: string; conversationId: string }): Promise<AgentTurnResult> {

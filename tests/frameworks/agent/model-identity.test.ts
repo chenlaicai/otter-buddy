@@ -1,5 +1,5 @@
 /**
- * buildIdentityPrefix 模型身份段测试（F20260824aibd）。
+ * buildIdentityPrefix 模型身份段测试。
  *
  * 验证：
  * - 多模型池 + 传入 modelAlias → 包含"我的运行时模型"段

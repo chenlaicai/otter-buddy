@@ -1,5 +1,5 @@
 /**
- * F20260826fpbd：搭档身份静态判定。
+ * 搭档身份静态判定。
  *
  * Why 独立类：搭档身份在两处消费（dispatch-chain-engine 的历史渲染/roster、
  * message-processor 的命令门禁），集中判定便于测试与未来扩展（白名单/访客模式）。
@@ -8,14 +8,14 @@
  * 「是否搭档」而非「是否飞书搭档」，按 senderId 形态内部分派，
  * 未来其他渠道（钉钉/Slack）接入时门禁无需改动。
  *
- * F20260928wxid：构造参数改 rest 收多渠道 ID——同一搭档在飞书是 open_id、
+ * 构造参数改 rest 收多渠道 ID——同一搭档在飞书是 open_id、
  * 在微信是 ilink_user_id，两者指向同一人。微信消息入站后海獭也要能认出
  * 「这是搭档本人」而非陌生人。
- * F20261113wxplo：拆 forGate（单渠道锚，门禁）/ forIdentity（多渠道，身份标注）
+ * 拆 forGate（单渠道锚，门禁）/ forIdentity（多渠道，身份标注）
  * 双入口，构造器私有——绕过双入口直接 new 编译期报错；调用方必须二选一显式声明语义
  *（注意：forGate 内误塞跨渠道 ID 仍是运行时语义，编译期查不出）。
  *
- * F20260928fsqr：addPartnerId 运行时写入——飞书扫码首个 ownerOpenId 先写先得
+ * addPartnerId 运行时写入——飞书扫码首个 ownerOpenId 先写先得
  * （对齐微信 ensureWeixinConfig 幂等语义）；仅渲染链全局实例用（每线命令门禁
  * resolver 独立构造，不调用本方法）。configured 定为 getter：动态写入后
  * 后续判定能看到新锚（构造期快照会固住 false）。
@@ -53,7 +53,7 @@ export class PartnerResolver {
         .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
         .map(id => id.trim()),
     );
-    // F20260928fsqr：configured 是 getter（动态反映 addPartnerId 运行时写入），构造期不再赋值
+    // configured 是 getter（动态反映 addPartnerId 运行时写入），构造期不再赋值
   }
 
   isPartner(senderId: string): boolean {
@@ -63,7 +63,7 @@ export class PartnerResolver {
     return this.partnerIds.has(senderId.trim());
   }
 
-  /** F20260928fsqr：运行时追加搭档 ID（幂等；空白串忽略）。
+  /** 运行时追加搭档 ID（幂等；空白串忽略）。
    * 仅供渲染链全局实例——首个飞书扫码人先写先得；DELETE 不回收（记特性文档遗留） */
   addPartnerId(id: string | undefined): void {
     if (typeof id !== 'string') return;

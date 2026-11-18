@@ -9,12 +9,12 @@ import type { ToolContext } from "@usecases/ports/agent-tools";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 
 /**
- * #1835：跨对话机械对账被 conversation 归属闸阻断。
+ * 跨对话机械对账被 conversation 归属闸阻断。
  * 受控对账归档路径（archive_artifact_for_reconciliation）是唯一合法跨对话写入口；
  * 普通 update_artifact_status 对非所属对话仍 404。
  */
 describe("archiveResourceForReconciliation（#1835）", () => {
-  const RESOURCE_ID = "cb44aec8-b1a3-4616-bff8-8331bd0d3067"; // #1801 真实资源 ID（issue 案发现场）
+  const RESOURCE_ID = "cb44aec8-b1a3-4616-bff8-8331bd0d3067"; // 真实资源 ID（issue 案发现场）
   const TARGET_CONVERSATION = "a9260c50-cef6-412e-a0b4-282287a13103"; // 资源所属对话
   const OPERATOR_CONVERSATION = "3241317b-99d6-4d78-9248-ff208a7461bc"; // 每日健康检查所在对话
 
@@ -141,7 +141,7 @@ describe("archiveResourceForReconciliation（#1835）", () => {
       expect(payload.archivedByOtterId).toBe("otter-scheduler");
       expect(payload.conversationId).toBe(TARGET_CONVERSATION);
 
-      // 网关反击（#1835 断言 1）：普通路径对该跨对话资源继续按 404 拒绝
+      // 网关反击（断言 1）：普通路径对该跨对话资源继续按 404 拒绝
       const client = { resource: buildResourceClient({ manageKeyInfo: uc } as never) } as unknown as OtterToolClient;
       const plainCtx: ToolContext = {
         client, otterId: "otter-other", conversationId: OPERATOR_CONVERSATION, currentMessageId: "msg-2",

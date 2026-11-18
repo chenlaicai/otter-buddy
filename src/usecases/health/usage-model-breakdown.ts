@@ -1,11 +1,11 @@
 /**
- * F20260914usgm：用量看板按模型聚合（从 rhi-controller 拆出，守 max-lines 450）。
+ * 用量看板按模型聚合（从 rhi-controller 拆出，守 max-lines 450）。
  *
  * 两个聚合器，数据源均为 health_snapshots 的 cost_output 行：
  * - buildModelBreakdown: per-model token 四分类/调用数/失败数/缓存命中率（窗口累计）
  * - buildInvokeStats: 单次问答均值（per-model + _total，最新快照日）
  *
- * 口径：无 model 或非法 metadata → "unknown"（两处同口径，检视发现 2 处置）。
+ * 口径：无 model 或非法 metadata → "unknown"（两处同口径，）。
  */
 
 /** per-model 用量汇总（面板主维度） */

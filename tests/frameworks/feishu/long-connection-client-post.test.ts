@@ -4,7 +4,7 @@ import type { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-m
 import type { FeishuConfig } from "@frameworks/feishu/types";
 import type { FeishuLongConnectionMessage } from "@usecases/im/feishu-long-connection-gateway";
 
-/** F20260829fpst：飞书 post 富文本混排消息解析测试。
+/** 飞书 post 富文本混排消息解析测试。
  *  锁定：post 放行；text 段拼正文（段落间空行）；img/media 段按序提 key 进 postItems；
  *  纯文本 post 不带 media 载荷（走原文本路径）；非法 content 不炸（空 text 无 media）；
  *  a 超链接段输出 Markdown 链接（href 缺失/含空白时降级只保文字）；text/image/file 既有行为不回归。 */

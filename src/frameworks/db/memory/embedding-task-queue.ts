@@ -1,5 +1,5 @@
 /**
- * F20261105embqg：任务优先级常量与 S3 水位阈值定义在 port 层（usecases/memory/memory-queue.ts）
+ * 任务优先级常量与 S3 水位阈值定义在 port 层（usecases/memory/memory-queue.ts）
  * ——本文件（frameworks）从 port 导入，依赖方向 frameworks→usecases。
  */
 import { EMBED_TASK_PRIORITY } from "../../../usecases/memory/memory-queue";
@@ -7,8 +7,8 @@ import { estimateTokens } from "../../embedding/embed-batch-sharding";
 import { percentile } from "../../embedding/embedding-lane-stats";
 
 /**
- * F20260812mrcq Part 1：embedding 失败重试任务队列（embedding_tasks 表）SQL。
- * F20260814qswp 从 sqlite-memory-repository.ts 拆出——job-queue 职责与 entry 存储正交；
+ * Part 1：embedding 失败重试任务队列（embedding_tasks 表）SQL。
+ * 从 sqlite-memory-repository.ts 拆出——job-queue 职责与 entry 存储正交；
  * Repository 的 port 方法委托到这里的纯函数。
  */
 import type Database from "better-sqlite3";
@@ -20,7 +20,7 @@ import type Database from "better-sqlite3";
  *   - status 强制 'pending'（dead 也可被 enqueueRetry 复活）
  *   - next_retry_at = now（立即可重试）
  *
- * F20261026emct：入队前置校验——entry 已不存在或 content 为空时直接 no-op。
+ * 入队前置校验——entry 已不存在或 content 为空时直接 no-op。
  * 2026-10-23 实锤：last_error='entry deleted' 的幽灵任务 1646 条——replaceEntriesBySource
  * 事务里新 chunk 已入库，但 fire-and-forget 的 embed 失败回除时新 chunk 已被下一轮 replace
  * 删除，enqueueRetry 给已删 entry 插入任务行；这类任务 claim 时 JOIN 不到 content，永远
@@ -28,7 +28,7 @@ import type Database from "better-sqlite3";
  * 启动迁移）共用此入口，一处拦截全部覆盖。置 0 行事务外发生，不影响主写入路径。
  */
 /**
- * F20261105embqg：任务优先级语义见 port 层 EMBED_TASK_PRIORITY（usecases/memory/memory-queue.ts）。
+ * 任务优先级语义见 port 层 EMBED_TASK_PRIORITY（usecases/memory/memory-queue.ts）。
  */
 export function enqueueRetry(
   db: Database.Database,

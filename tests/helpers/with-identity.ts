@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
 
 /**
- * #1322（F20261016autz）测试身份注入：给被测 app 的 request 补默认身份头（admin 档）。
+ * 测试身份注入：给被测 app 的 request 补默认身份头（admin 档）。
  *
  * 业务用例不该被身份噪声污染——鉴权矩阵本身用**裸 app**（createRouter/mini-app 直建，
  * 不经此包装），见 tests/interface-adapters/http/identity-middleware.test.ts。

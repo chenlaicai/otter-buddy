@@ -3,13 +3,13 @@ import { parseBeliefMetadata } from "@entities/memory/belief";
 import type { BeliefStatus } from "@entities/memory/belief";
 import type { RetrievalSource, FTSHit, VecHit } from "./memory-types";
 
-/** F20260902rcp1: document 层条目类型——半衰期分层与层配额共用此集合（导出供 search-memory debug 注入复用） */
+/** document 层条目类型——半衰期分层与层配额共用此集合（导出供 search-memory debug 注入复用） */
 export const DOCUMENT_CONTENT_TYPES = new Set(["feature", "research", "feature_chunk", "research_chunk"]);
 
-/** F20261112rnkph Phase 1：rerank 融合模式。multiply=五信号连乘（现状），additive=归一化加法融合。 */
+/** Phase 1：rerank 融合模式。multiply=五信号连乘（现状），additive=归一化加法融合。 */
 export type RerankMode = "multiply" | "additive";
 
-/** F20261112rnkph Phase 1：加法融合系数与偏置（隐微权重和为 1，见 normalizeRerankWeights）。 */
+/** Phase 1：加法融合系数与偏置（隐微权重和为 1，见 normalizeRerankWeights）。 */
 export interface RerankWeights {
   wRrf: number;
   wTime: number;
@@ -20,7 +20,7 @@ export interface RerankWeights {
   freqCap: number;
 }
 
-/** F20261112rnkph 方案 1：RRF 候选池内 min-max 归一化。
+/** 方案 1：RRF 候选池内 min-max 归一化。
  *  单候选池与全并列退化为常量 1.0（单调变换，排序与 raw RRF 一致）。 */
 export function normalizeRrfPool(scores: number[]): number[] {
   if (scores.length === 0) return [];
@@ -31,13 +31,13 @@ export function normalizeRrfPool(scores: number[]): number[] {
   return scores.map(x => (x - min) / (max - min));
 }
 
-/** F20261112rnkph 方案 1：frequency 饱和截断归一化——min(log(1+n), CAP)/CAP，CAP=log(1+countCap)。 */
+/** 方案 1：frequency 饱和截断归一化——min(log(1+n), CAP)/CAP，CAP=log(1+countCap)。 */
 export function normalizeFrequency(retrievalCount: number, countCap = 10): number {
   const cap = Math.log(1 + countCap);
   return Math.min(Math.log(1 + retrievalCount), cap) / cap;
 }
 
-/** F20261112rnkph 方案 2：连续权重 w_rrf+w_time+w_freq 归一化为 1（比例归一，防坏配置静默采用）。
+/** 方案 2：连续权重 w_rrf+w_time+w_freq 归一化为 1（比例归一，防坏配置静默采用）。
  *  和为 0（纯偏置配置）时不做除法，原样返回。 */
 export function normalizeRerankWeights(weights: RerankWeights): RerankWeights {
   const sum = weights.wRrf + weights.wTime + weights.wFreq;
@@ -51,7 +51,7 @@ export function normalizeRerankWeights(weights: RerankWeights): RerankWeights {
   };
 }
 
-/** F20261118blsrk P1b：belief 状态相对权重（应用于 beliefBoost 之上）。
+/** P1b：belief 状态相对权重（应用于 beliefBoost 之上）。
  *  verified=1.0（全加成）；recorded=0.6（可用但 [未核实] 不当权威）；
  *  disputed=0.3（打回重新入审，存疑）；superseded=0.1（已被取代，可检索但深埋）。 */
 export function beliefStatusMultiplier(status: BeliefStatus): number {
@@ -71,28 +71,28 @@ export interface SearchEngineConfig {
   vecSimilarityThreshold: number;
   /** 两路命中（source=both）的加成系数，默认 1.2 */
   bothBoost: number;
-  /** F20260917cvid: 本对话来源记忆条目的排序加成系数（>1），默认 1.5——
+  /** 本对话来源记忆条目的排序加成系数（>1），默认 1.5——
    *  搭档「本对话的历史消息权重应该更高」：长对话几十世同一主题，本对话来源
    *  的记忆与当前语境天然强相关。乘法加成（与 userFlagMultiplier 同型），
    *  作用于 rerank 阶段（RRF 之后），保留跨对话知识可见只是排序下沉。 */
   currentConversationBoost: number;
   weightHalfLifeDays: number;
-  /** F20260902rcp1: document 层（feature/research summary+chunk）专用半衰期，默认 90 天——
+  /** document 层（feature/research summary+chunk）专用半衰期，默认 90 天——
    *  7 天半衰期下一个月前的文档权重只剩 5%，「找历史特性」类查询永久出局（Phase 0 根因3） */
   weightHalfLifeDaysDocument: number;
   userFlagMultiplier: number;
   frequencyBoostFactor: number;
-  /** F20261112rnkph Phase 1：rerank 融合模式，缺省 multiply（段 1 零默认变更）。缺省在构造时回填。 */
+  /** Phase 1：rerank 融合模式，缺省 multiply（段 1 零默认变更）。缺省在构造时回填。 */
   rerankMode?: RerankMode;
-  /** F20261112rnkph Phase 1：加法融合系数（wRrf/wTime/wFreq 连续权重隐微和为 1，运行时在 rerankAdditive 内比例归一）。缺省在构造时回填。 */
+  /** Phase 1：加法融合系数（wRrf/wTime/wFreq 连续权重隐微和为 1，运行时在 rerankAdditive 内比例归一）。缺省在构造时回填。 */
   rerank?: RerankWeights;
-  /** F20261118stale P0：被 supersedes 边指向的旧条目的降权因子（finalScore × 此值）。可选，构造时回填默认 0.3。 */
+  /** P0：被 supersedes 边指向的旧条目的降权因子（finalScore × 此值）。可选，构造时回填默认 0.3。 */
   supersededPenalty?: number;
-  /** F20261118blsrk P1b：主动记忆层（belief）排序加成系数，默认 2.0——检索最高优先级（v4 §1）。缺省在构造时回填。 */
+  /** P1b：主动记忆层（belief）排序加成系数，默认 2.0——检索最高优先级（v4 §1）。缺省在构造时回填。 */
   beliefBoost?: number;
 }
 
-/** F20261112rnkph Phase 1：加法融合系数缺省（设计回填，段 1 不切默认；标定后段 3 再写回）。 */
+/** Phase 1：加法融合系数缺省（设计回填，段 1 不切默认；标定后段 3 再写回）。 */
 export const DEFAULT_RERANK_WEIGHTS: RerankWeights = {
   wRrf: 0.6,
   wTime: 0.3,
@@ -115,18 +115,18 @@ export interface ScoredHit {
   rrfScore: number;
   source: RetrievalSource;
   entry: MemoryEntry;
-  /** F20260803chunk: 同源多 chunk 命中数（dedupAndBoostBySource 设置，>1 时注入返回 metadata） */
+  /** 同源多 chunk 命中数（dedupAndBoostBySource 设置，>1 时注入返回 metadata） */
   multiHitCount?: number;
-  /** F20261112rnkph Phase 1 段 2：additive 分解分量（仅 rerankAdditive 填充；multiply 路径 undefined）。
+  /** Phase 1 段 2：additive 分解分量（仅 rerankAdditive 填充；multiply 路径 undefined）。
    *  finalScore（去重前）= contribRrf + contribTime + contribFreq + biasFlag + biasConv。 */
   contribRrf?: number;
   contribTime?: number;
   contribFreq?: number;
   biasFlag?: number;
   biasConv?: number;
-  /** F20261118stale P0：被哪个条目取代（supersedes 边的 from 端=取代者/新条目），有则说明此条已过期，检索端标注并降权。 */
+  /** P0：被哪个条目取代（supersedes 边的 from 端=取代者/新条目），有则说明此条已过期，检索端标注并降权。 */
   supersededBy?: string;
-  /** F20261118blsrk P1b：belief 生命周期状态（供结果标注 [未核实]/[已核实]/[存疑]）。 */
+  /** P1b：belief 生命周期状态（供结果标注 [未核实]/[已核实]/[存疑]）。 */
   beliefStatus?: BeliefStatus;
 }
 
@@ -139,13 +139,13 @@ export interface ScoredHit {
  *     × time_decay          // exp(-ln(2) * age_days / half_life_days)
  *     × frequency_boost     // log(1 + retrieval_count) * factor + 1
  *     × user_flag_multiplier // user_flagged ? userFlagMultiplier : 1.0
- *     × conversation_boost // F20260917cvid: 本对话来源条目 × currentConversationBoost（rerank 传 currentConversationId 时）
+ * × conversation_boost // 本对话来源条目 × currentConversationBoost（rerank 传 currentConversationId 时）
  */
 export class SearchEngine {
   private readonly config: SearchEngineConfig;
 
   constructor(config: SearchEngineConfig = {} as SearchEngineConfig) {
-    // F20261112rnkph 段 1：构造时只回填缺省——rerankMode 缺省 multiply（零行为变更），系数缺省回填设计值；
+    // 段 1：构造时只回填缺省——rerankMode 缺省 multiply（零行为变更），系数缺省回填设计值；
     // 连续权重的比例归一（normalizeRerankWeights）在 rerankAdditive 调用时执行，不在构造时。
     this.config = {
       ...config,
@@ -156,7 +156,7 @@ export class SearchEngine {
     };
   }
 
-  /** F20260902rcp1 审视修复：debug 注入需要按层取半衰期，暴露 config 读取（只读语义） */
+  /** 审视修复：debug 注入需要按层取半衰期，暴露 config 读取（只读语义） */
   get configRef(): Readonly<SearchEngineConfig> {
     return this.config;
   }
@@ -260,7 +260,7 @@ export class SearchEngine {
     return result;
   }
 
-  /** F20261118stale P0：被 supersedes 边指向的旧条目降权系数——命中返回 supersededPenalty，否则 1。 */
+  /** P0：被 supersedes 边指向的旧条目降权系数——命中返回 supersededPenalty，否则 1。 */
   private supersededMultiplier(
     entryId: string,
     supersededById?: ReadonlyMap<string, string>,
@@ -268,7 +268,7 @@ export class SearchEngine {
     return supersededById?.has(entryId) ? this.config.supersededPenalty ?? 0.3 : 1.0;
   }
 
-  /** F20261118stale P0：取取代此条目的新条目 ID（无则 undefined）。 */
+  /** P0：取取代此条目的新条目 ID（无则 undefined）。 */
   private supersededLabel(
     entryId: string,
     supersededById?: ReadonlyMap<string, string>,
@@ -276,7 +276,7 @@ export class SearchEngine {
     return supersededById?.get(entryId);
   }
 
-  /** F20261118blsrk P1b：belief 条目排序因子与状态（非 belief 返回因子 1、无状态）。 */
+  /** P1b：belief 条目排序因子与状态（非 belief 返回因子 1、无状态）。 */
   private beliefFactor(entry: MemoryEntry): { factor: number; status: BeliefStatus | undefined } {
     if (entry.contentType !== "belief") return { factor: 1.0, status: undefined };
     const belief = parseBeliefMetadata(entry);
@@ -287,16 +287,16 @@ export class SearchEngine {
     };
   }
 
-  /** 权重重排：rrfScore × timeDecay × frequencyBoost × userFlagMultiplier × conversationBoost（F20260917cvid）
-   *  F20260902rcp1: document 层（feature/research summary+chunk）按 weightHalfLifeDaysDocument 衰减，
+  /** 权重重排：rrfScore × timeDecay × frequencyBoost × userFlagMultiplier × conversationBoost
+   * document 层（feature/research summary+chunk）按 weightHalfLifeDaysDocument 衰减，
    *  其余层维持 weightHalfLifeDays。
-   *  F20261118stale P0：supersededById 里的条目再乘 supersededPenalty，并透出 supersededBy。 */
+   * P0：supersededById 里的条目再乘 supersededPenalty，并透出 supersededBy。 */
   rerank(
     hits: Map<string, RrfHit>,
     weights: Map<string, MemoryWeight>,
-    /** F20260917cvid: 当前对话 ID——命中条目 conversationId 匹配时乘 currentConversationBoost */
+    /** 当前对话 ID——命中条目 conversationId 匹配时乘 currentConversationBoost */
     currentConversationId?: string,
-    /** F20261118stale P0：被 supersede 的旧条目 → 取代它的条目 */
+    /** P0：被 supersede 的旧条目 → 取代它的条目 */
     supersededById?: ReadonlyMap<string, string>,
   ): ScoredHit[] {
     const result: ScoredHit[] = [];
@@ -335,7 +335,7 @@ export class SearchEngine {
     return result;
   }
 
-  /** F20261112rnkph Phase 1 段 1：归一化加法融合路径（与 rerank() 并存，rerankMode=additive 时调用）。
+  /** Phase 1 段 1：归一化加法融合路径（与 rerank() 并存，rerankMode=additive 时调用）。
    *  score = w_rrf·norm(rrf) + w_time·timeDecay + w_freq·norm(freq) + b_flag·[flagged] + b_conv·[同对话]
    *  连续权重隐微和为 1（normalizeRerankWeights 比例归一）；rrf 池内 min-max、freq 饱和截断。 */
   rerankAdditive(
@@ -374,7 +374,7 @@ export class SearchEngine {
           + (isCurrentConversation ? w.bConv : 0)) *
         this.supersededMultiplier(hit.entryId, supersededById) *
         beliefFactor;
-      // F20261112rnkph Phase 1 段 2：透出逐信号贡献分量，供 debug 通道采集（逐信号对比表不靠外部重算）
+      // Phase 1 段 2：透出逐信号贡献分量，供 debug 通道采集（逐信号对比表不靠外部重算）
       const contribRrf = w.wRrf * rrfNorm[i];
       const contribTime = w.wTime * timeDecay;
       const contribFreq = w.wFreq * freqNorm;
@@ -399,7 +399,7 @@ export class SearchEngine {
   }
 
   /** time_decay: exp(-ln(2) * age_days / half_life_days)
-   *  F20260902rcp1: halfLifeDays 可选参数——document 层传 90 天半衰期，缺省走 weightHalfLifeDays（旧行为） */
+   * halfLifeDays 可选参数——document 层传 90 天半衰期，缺省走 weightHalfLifeDays（旧行为） */
   private computeTimeDecay(createdAt: string, halfLifeDays?: number): number {
     const hl = halfLifeDays ?? this.config.weightHalfLifeDays;
     /** SQLite datetime('now') returns UTC as "YYYY-MM-DD HH:MM:SS" (space-separated).
@@ -418,7 +418,7 @@ export class SearchEngine {
   }
 
   /**
-   * F20260811mrpy Part 1：public 暴露 time_decay 计算（debug 信息注入用）。
+   * Part 1：public 暴露 time_decay 计算（debug 信息注入用）。
    * 与内部 computeTimeDecay 等价。
    */
   computeTimeDecayPublic(createdAt: string, halfLifeDays?: number): number {
@@ -426,7 +426,7 @@ export class SearchEngine {
   }
 
   /**
-   * F20260811mrpy Part 1：public 暴露 frequency_boost 计算（debug 信息注入用）。
+   * Part 1：public 暴露 frequency_boost 计算（debug 信息注入用）。
    * 与内部 computeFrequencyBoost 等价。
    */
   computeFrequencyBoostPublic(retrievalCount: number): number {

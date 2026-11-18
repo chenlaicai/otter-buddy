@@ -3,18 +3,18 @@ import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE_NAME } from "./auth/session-cookie";
 
 /**
- * #1322 对话域 HTTP 鉴权层：身份声明解析 + 路由级策略表 + fail-closed 兜底。
- * F20261016autz。
+ * 对话域 HTTP 鉴权层：身份声明解析 + 路由级策略表 + fail-closed 兜底。
+ * 
  *
  * 定位（特性文档取舍③）：这是**声明式身份接缝**，不是凭据校验——头/query 可被蓄意伪造者
  * 构造。防线价值：① 挡裸 URL/链接预取/忘带凭据的误访；② 强制自定义头 ⇒ 浏览器跨站
  * 简单请求（表单 POST 等 CSRF 面）必先 preflight，服务未开 CORS 即被拦；③ 给未来
  * session/凭据体系一个挂点——值源从常量换成 session 派生即升级，策略表与调用面不动。
- * 凭据绑定属 session 工程（#1322 非目标），本层是接缝不是终态。
+ * 凭据绑定属 session 工程（非目标），本层是接缝不是终态。
  *
  * 策略表**顺序敏感**（首条命中）：public 面 → 族内例外（write/须先于 admin 族规则）→ admin 族。
  * 表外 `/api/*` 走方法级兜底：GET/HEAD/OPTIONS → authenticated、其余 → write（fail-closed——
- * 直击「新端点忘配策略表」的扩散根因，见 issue #1322 评论「新增面」：三麻九端点即为活例）。
+ * 直击「新端点忘配策略表」的扩散根因，见 评论「新增面」：三麻九端点即为活例）。
  * 非 `/api/*`（静态/SPA/metrics）不在本域，直通。
  */
 
@@ -47,7 +47,7 @@ interface PolicyRule {
 }
 
 /**
- * 路由级策略表（#1322 修复方向：X-Otter 身份头中间件 + 路由级策略表）。
+ * 路由级策略表（修复方向：X-Otter 身份头中间件 + 路由级策略表）。
  * 新增路由：先想清楚落哪档——忘写也兜底（GET→authenticated、非 GET→write），但显式列出才是文档。
  */
 export const POLICY_TABLE: readonly PolicyRule[] = [
@@ -79,7 +79,7 @@ export const POLICY_TABLE: readonly PolicyRule[] = [
   },
   // ── 族内例外（必须先于同族 admin 规则命中）──
   { methods: ["POST"], path: /^\/api\/otters\/[^/]+\/retry$/, policy: "write", note: "会话重试=用户级交互，非建散重启" },
-  // F20261023cnct（issue #1063）：POST :id/leave 已随死端点下线，正则 leave 分支休眠保留（零行为变化，防未来误挂时语义退化）
+  // POST :id/leave 已随死端点下线，正则 leave 分支休眠保留（零行为变化，防未来误挂时语义退化）
   { methods: ["POST"], path: /^\/api\/connections\/[^/]+\/(enter|leave)$/, policy: "write", note: "IM 进出会话=用户级交互，非通道凭据注册" },
   { methods: ["POST"], path: /^\/api\/memory\/search\/similar$/, policy: "authenticated", note: "语义是检索（POST 形态的读），不按写兜底" },
   // ── admin（建散/凭据/自动化/配置等系统级写）──
@@ -93,7 +93,7 @@ export const POLICY_TABLE: readonly PolicyRule[] = [
   { methods: ["POST"], path: /^\/api\/conversations\/[^/]+\/scheduled-tasks$/, policy: "admin", note: "会话级定时任务创建" },
   { methods: ["PUT"], path: /^\/api\/conversations\/[^/]+\/workspace\/mcp-external$/, policy: "admin", note: "External 每会话 MCP 配置=基础设施级写，禁止普通用户注入工具连接" },
   { methods: ["POST"], path: /^\/api\/health\/(scan|signals)/, policy: "admin", note: "体检扫描与 healing 信号处置" },
-  // F20261023cnct（issue #1063）：POST /api/connections（create）已随死端点下线，本规则休眠但保留作防御纵深——
+  // POST /api/connections（create）已随死端点下线，本规则休眠但保留作防御纵深——
   // 若未来误挂 POST /api/connections* 写口，仍强制 admin 档（删规则会跌入 fail-closed 兜底 write = 安全降级）
   { methods: ["POST", "DELETE"], path: /^\/api\/connections(\/|$)/, policy: "admin", note: "通道（微信/飞书 ilink）注册" },
   {
@@ -155,7 +155,7 @@ function deny(c: Context, status: 401 | 403, error: string, code: "unauthorized"
 
 /** 挂在 router 最外层（requestId 之后）：一处覆盖全部既有与新增路由。
  *  verifySession 由装配层注入（app.ts 用 owner token 构造 HMAC 校验器）；测试/引导脚本
- *  不注入时退化为纯声明式路径（既有行为，F20261019autz 基线不变）。 */
+ * 不注入时退化为纯声明式路径（既有行为，基线不变）。 */
 export function identityMiddleware(verifySession?: SessionVerifier) {
   return async (c: Context, next: Next): Promise<Response | void> => {
     const policy = resolvePolicy(c.req.method, c.req.path);

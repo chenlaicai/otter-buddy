@@ -1,5 +1,5 @@
 /**
- * F20261008f1fx 逐帧滚动护栏（H1 闪跳回归锚）。
+ * 逐帧滚动护栏（H1 闪跳回归锚）。
  *
  * 背景：两轮人工验证都判「通过」但线上仍跳——肉眼对 1 帧闪跳不敏感。本 spec 在真实
  * 浏览器逐帧采样 scrollTop，覆盖两大类高度变化源：
@@ -56,12 +56,12 @@ function isViolation(dist: number, viewport: number) {
   return dist > Math.max(viewport * 0.4, 150)
 }
 
-/** F20261010vwst 场景 C 专用：scrollTop 稳定性采样器——逐帧记录 scroller 的 scrollTop。
+/** 场景 C 专用：scrollTop 稳定性采样器——逐帧记录 scroller 的 scrollTop。
  *
  * 与 SAMPLER（距底距离）不同：本场景断言的是「内容不动」而非「贴底跟随」——
  * 视口高度变化（输入框撑高）时距底距离会合法地变大（dist=sh−top−ch，clientHeight 缩
  * 小而 top/sh 不变），用距底距离断言会把合法变化误判为跳变，改直接盯 scrollTop。
- * F20261015inpd 补 clientHeight 采样：覆盖层方案的核心断言是「视口高度恒定」。 */
+ * 补 clientHeight 采样：覆盖层方案的核心断言是「视口高度恒定」。 */
 const TOP_SAMPLER = `
   window.__tops = []
   window.__chs = []
@@ -78,7 +78,7 @@ const TOP_SAMPLER = `
   })()
 `
 
-/** 终态断言辅助：采样末尾 N 帧均 ≤ 阈值（检视发现 6——峰值合规但终态停底不回的回归，
+/** 终态断言辅助：采样末尾 N 帧均 ≤ 阈值（——峰值合规但终态停底不回的回归，
  *  逐帧断言抓不到：实验 3 实锤 600px 卡无补偿时 finalDist=124 恰在阈值下停住） */
 async function assertFinalPinned(page: import('@playwright/test').Page, tag: string) {
   const frames = await page.evaluate(() => (window as unknown as { __frames: number[] }).__frames)

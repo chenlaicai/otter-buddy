@@ -1,5 +1,5 @@
 /**
- * SignalPipeline: 信号管道编排（Issue #400 记忆通道）
+ * SignalPipeline: 信号管道编排（记忆通道）
  *
  * Signal 产生 →（1）落库 signals 表（upsert occurrences）
  *            →（2）critical 信号写记忆系统（StoreMemory，search_memory 可检索）
@@ -17,7 +17,7 @@ import type { MemoryQueue } from "@usecases/memory/memory-queue";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { StoreMemory } from "@usecases/memory/store-memory";
 
-/** critical 信号唤醒端口（#400 第 3 步：create_scheduled_task 桥由 bootstrap 注入，本层不依赖 agent 工具） */
+/** critical 信号唤醒端口（第 3 步：create_scheduled_task 桥由 bootstrap 注入，本层不依赖 agent 工具） */
 export interface CriticalSignalWakeup {
   (signal: DetectedSignal, signalRecordId: number): Promise<void>;
 }

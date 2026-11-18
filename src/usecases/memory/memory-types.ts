@@ -17,24 +17,24 @@ export interface SearchFilters {
   layer?: MemoryLayer;
   granularity?: RetrievalGranularity;
   conversationId?: string;
-  /** F20260805rbrg：仅返回 createdAt >= 此时间戳（ISO string）的记录 */
+  /** 仅返回 createdAt >= 此时间戳（ISO string）的记录 */
   createdAfter?: string;
-  /** F20260803fbit: 按 contentType 过滤（多选 IN 查询），支持"只搜 body"或"只搜 summary" */
+  /** 按 contentType 过滤（多选 IN 查询），支持"只搜 body"或"只搜 summary" */
   contentType?: MemoryContentType[];
 }
 
 /**
  * 检索来源标识。
- * F20260811mrpy Part 1：扩展契约为多种检索路径预留。
- * F20260812mrcq Part 3：收敛——删 keyword-fallback（用因已被 jieba 双表消解）和
- *   related-expand（重工程收益不明）。保留 anchor + context-expand 由 F20260812mrcq 实施。
+ * Part 1：扩展契约为多种检索路径预留。
+ * Part 3：收敛——删 keyword-fallback（用因已被 jieba 双表消解）和
+ * related-expand（重工程收益不明）。保留 anchor + context-expand 由 实施。
  */
 export type RetrievalSource =
   | "fts"
   | "vec"
   | "both"
-  | "anchor"            // F20260812mrcq Part 3：F/R ID 子串提取 + 主键直查短路注入
-  | "context-expand";   // F20260812mrcq Part 2：邻域扩展（chunk ±1 / message 前后条）
+  | "anchor"            // Part 3：F/R ID 子串提取 + 主键直查短路注入
+  | "context-expand";   // Part 2：邻域扩展（chunk ±1 / message 前后条）
 
 /** FTS5 全文检索命中 */
 export interface FTSHit {
@@ -59,7 +59,7 @@ export interface VecHit {
   entry: MemoryEntry;
 }
 
-/** F20260811mrpy Part 1：暗化条目（无 vec 索引的 memory entry） */
+/** Part 1：暗化条目（无 vec 索引的 memory entry） */
 export interface DarkEntry {
   entryId: string;
   contentType: string;

@@ -1,13 +1,13 @@
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
- * #896：嵌套 invoke 锁旁路 + streaming 保护。
+ * 嵌套 invoke 锁旁路 + streaming 保护。
  *
- * 守护的行为链（PR #897 检视后修正版）：
+ * 守护的行为链（检视后修正版）：
  * 1. 锁层：同 async context 嵌套 invoke（ALS store 同 otterId）旁路 per-otter 锁——
- *    压缩钩子在 prompt 中途触发，外层持锁，嵌套再取锁必死锁（原 #896）。
+ * 压缩钩子在 prompt 中途触发，外层持锁，嵌套再取锁必死锁（原 ）。
  * 2. 池层：嵌套 invoke 遇到 streaming session **抛错降级**（不得 stale 出池顶替外层活 session——
- *    出池会丢压缩摘要 entry + 外层后续消息，压缩永不生效，PR #897 检视严重 1）。
- * 3. 真并发（不同 async context / stale steal）遇 streaming 照常走 stale 出池冷启动（#599 语义不变）。
+ * 出池会丢压缩摘要 entry + 外层后续消息，压缩永不生效，检视严重 1）。
+ * 3. 真并发（不同 async context / stale steal）遇 streaming 照常走 stale 出池冷启动（语义不变）。
  *
  * 测试策略：锁层用 barrier 挂起外层模拟 prompt 中途；池层直接测 _acquirePooled 的
  * streaming 分支（与 pool-hit-path.test.ts 同构的 mock 边界）。
@@ -24,7 +24,7 @@ import { otterInvokeStorage } from "@frameworks/agent/model-runtime-registry";
 import { invokeEpochStorage, mintEpoch } from "@frameworks/agent/invoke-epoch";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 
-/** F20261009epoc：直接调 _acquirePooled 需自建 epoch 上下文（公共 invoke() 入口
+/** 直接调 _acquirePooled 需自建 epoch 上下文（公共 invoke() 入口
  *  铸造；直接调内部方法的单测模拟该入口职责），否则命中 D3 fail-loud 面。 */
 let epochSeq = 0;
 function withEpoch<T>(fn: () => Promise<T>): Promise<T> {

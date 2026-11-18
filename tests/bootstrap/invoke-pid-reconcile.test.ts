@@ -1,8 +1,8 @@
 /**
- * #1241（F20261006opid）pid 归属判据 reconcile 测试。
+ * pid 归属判据 reconcile 测试。
  *
  * 失败固化用例：9/29 事故形态——旧进程在新进程启动后晚写入的 running invoke
- * （started_at 晚于 duty 构造时刻 bootTs）。#1244 的 bootTs 时间戳守卫对该形态
+ * （started_at 晚于 duty 构造时刻 bootTs）。的 bootTs 时间戳守卫对该形态
  * 永远跳过（10s 补跑与 1h 兜底同一 bootTs，空转），pid 归属判据可清理。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";

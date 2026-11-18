@@ -1,5 +1,5 @@
 /**
- * CostOutputCollector: 成本/产出数据采集（Issue #583）
+ * CostOutputCollector: 成本/产出数据采集
  *
  * 三条数据路径：
  * 1. LLMCallCollector: 解析 session JSONL → per-otter per-day token/cost 聚合
@@ -11,7 +11,7 @@
  * - 数据边界：只取 usage/统计类字段，会话内容不入库
  * - Goodhart 防线：成本/产出只作信号不作 KPI
  *
- * F20260829cstd 审视修复：
+ * 审视修复：
  * - Finding 2: 行内 otterId 提取（不再依赖 agent_sessions 表单一映射）
  * - Finding 3: 行级 timestamp 归属（不再按文件名前缀过滤跨日数据）
  * - Scope: 新增工具调用计数（tool_call_count）
@@ -55,7 +55,7 @@ interface SessionMessageLine {
     usage?: SessionUsage;
     stopReason?: string;
     content?: Array<{ type: string; [k: string]: unknown }>;
-    /** F20261027hwl1：Pi 1.x message 行原生 provider 字段（部分版本存在） */
+    /** Pi 1.x message 行原生 provider 字段（部分版本存在） */
     provider?: string;
   };
 }
@@ -64,7 +64,7 @@ interface SessionMessageLine {
 interface SessionModelChangeLine {
   type: "model_change";
   modelId: string;
-  /** F20261027hwl1：原生 provider 字段（Pi session 写入形态）——真实 provider 主源 */
+  /** 原生 provider 字段（Pi session 写入形态）——真实 provider 主源 */
   provider?: string;
 }
 
@@ -75,7 +75,7 @@ export interface OtterCostRecord {
   otterName: string;
   otterType: string;
   model: string;
-  /** F20261027hwl1：真实 provider（session JSONL model_change.provider / message.model 前缀解析）。
+  /** 真实 provider（session JSONL model_change.provider / message.model 前缀解析）。
  *  无法可靠解析时为 null——报告层归 unknown 桶，不把 alias 当真模型。 */
   provider: string | null;
   inputTokens: number;
@@ -89,9 +89,9 @@ export interface OtterCostRecord {
   costCacheWrite: number;
   costTotal: number;
   callCount: number;
-  /** stopReason=error 的调用数（F20260914usgm：模型失败次数） */
+  /** stopReason=error 的调用数（模型失败次数） */
   errorCalls: number;
-  // cacheHitRate 字段已删（#602）：不再单独写入快照，消费端从 cacheReadTokens/inputTokens 推导
+  // cacheHitRate 字段已删：不再单独写入快照，消费端从 cacheReadTokens/inputTokens 推导
 }
 
 /** 聚合结果：per-otter per-day 的产出计数 */
@@ -225,7 +225,7 @@ function consumeLine(
   const msg = obj as unknown as SessionMessageLine;
   if (msg.message.role !== "assistant") return;
 
-  // F20261027hwl1：日界从 UTC 裸 slice 改 Asia/Shanghai（搭档时区）——UTC 16:00 后的
+  // 日界从 UTC 裸 slice 改 Asia/Shanghai（搭档时区）——UTC 16:00 后的
   // 调用归错日（北京时间次日凌晨）。裸 slice(0,10) 是 UTC 日界，非本地日。
   const date = shanghaiDateKey(msg.timestamp);
   if (sinceDate && date < sinceDate) return;
@@ -233,7 +233,7 @@ function consumeLine(
   state.toolCallCount += countToolCalls(msg.message.content);
   if (!msg.message.usage) return;
 
-  // F20261027hwl1：per-message provider（原生字段优先，回退当前 model_change 状态）
+  // per-message provider（原生字段优先，回退当前 model_change 状态）
   const provider = resolveProvider(msg.message.provider ?? state.currentProvider, msg.message.model ?? state.currentModel);
 
   costRecords.push(buildCostRecord(
@@ -253,7 +253,7 @@ async function parseSessionFile(
   if (!content) return { costRecords: [], toolCallCount: 0 };
 
   const costRecords: Array<OtterCostRecord & { _key: string }> = [];
-  // F20261027hwl1：provider 追踪状态并入跨行 state（model_change.provider 原生字段主源）
+  // provider 追踪状态并入跨行 state（model_change.provider 原生字段主源）
   const state: LineState = { currentModel: "unknown", currentProvider: null, toolCallCount: 0 };
 
   for (const line of content.split("\n").filter(Boolean)) {

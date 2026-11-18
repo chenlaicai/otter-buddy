@@ -1,5 +1,5 @@
 /**
- * #530 梯度护栏集成测试
+ * 梯度护栏集成测试
  *
  * 测试 self-yield 连续计数 + 梯度响应（第 3 次 steer 警示 / 第 5 次 abort + healing 留痕）。
  * 设计锚点：p3a-design-full.md「③ 梯度护栏」节。
@@ -75,7 +75,7 @@ function makeMocks() {
   const queryOtter = { getById: vi.fn().mockResolvedValue(null) } as unknown as QueryOtter;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
 
-  // F20260913ctlv 彻底切换：护栏计数数据源 = entries（yield/user 条目）+ invoke 行
+  // 彻底切换：护栏计数数据源 = entries（yield/user 条目）+ invoke 行
   let seededEntries: Array<Record<string, unknown>> = [];
   const invokeRows = new Map<string, Record<string, unknown>>();
   const entryRepo = {
@@ -98,9 +98,9 @@ function makeMocks() {
     getMessageById, getMessages,
     entryRepo, invokeRepo, getInvokeById,
     setSeededMessages: (msgs: Message[]) => { seededMessages = msgs; },
-    /** F20260913ctlv：seed entry 序列（最新在前语义由 getEntries mock 排序处理） */
+    /** seed entry 序列（最新在前语义由 getEntries mock 排序处理） */
     setSeededEntries: (entries: Array<Record<string, unknown>>) => { seededEntries = entries; },
-    /** F20260913ctlv：注册 invoke 行（isEntryOfOtter 无 senderId 时回查） */
+    /** 注册 invoke 行（isEntryOfOtter 无 senderId 时回查） */
     setInvokeRow: (id: string, row: Record<string, unknown>) => { invokeRows.set(id, row); },
   };
 }
@@ -119,7 +119,7 @@ function makeChainEngine(m: ReturnType<typeof makeMocks>, overrides?: { abort?: 
 
 // ── Test suite ──
 
-/** F20261026ctbg：深度/资源硬停退役后，静态 mock 的自链不再被 maxChainDepth 兜底。
+/** 深度/资源硬停退役后，静态 mock 的自链不再被 maxChainDepth 兜底。
  *  真实世界消息表逐 hop 增长，计数会爬升到 abort；静态 seed 冻结计数 → 无限续跑。
  *  降级/重置类用例改为一跳自续后自然收尾：invoke 行首跳返回 self-tsp（护栏计数在首 hop 即被验证），
  *  之后空 tsp 终链。计数爬升到 abort 的行为见梯度响应组（seed 逐次增长）。 */
@@ -133,7 +133,7 @@ function selfTspOnceThenEnd(m: ReturnType<typeof makeMocks>): void {
   });
 }
 
-// eslint-disable-next-line max-lines-per-function -- #530 护栏集成测试：各场景共享 beforeEach 和 mock 工厂，拆文件会重复 90% 样板
+// eslint-disable-next-line max-lines-per-function -- 护栏集成测试：各场景共享 beforeEach 和 mock 工厂，拆文件会重复 90% 样板
 describe("#530 self-yield guardrail", () => {
   let m: ReturnType<typeof makeMocks>;
 
@@ -163,7 +163,7 @@ describe("#530 self-yield guardrail", () => {
         initialTargets: ["otter-1"],
         invokeFn: async ({ otterId, userMessageContent }) => {
           invoked.push(otterId);
-          // F20260907ylfs ②（件 B 转正）：self 链真实续跑——第一跳 self-yield（计数 total=3
+          // ②（件 B 转正）：self 链真实续跑——第一跳 self-yield（计数 total=3
           // 命中 steer），第二跳真实被唤醒并收到注入文案；第二跳无 yield（tsp=[]）收链。
           // 旧版「if (invoked.length > 1)」死代码（② 前滤 self → 第二跳不存在）退役。
           receivedSteer.push(userMessageContent.includes("连续 3 次 self-yield"));
@@ -211,7 +211,7 @@ describe("#530 self-yield guardrail", () => {
       expect(healingArg.severity).toBe("medium");
       expect(healingArg.description).toContain("#530");
       expect(healingArg.description).toContain("5 次");
-      // F20260913ctlv 彻底切换：otterReply 从 invoke 行不可得（内容在 speak entries）——
+      // 彻底切换：otterReply 从 invoke 行不可得（内容在 speak entries）——
       // 链终止语义改由 abort 断言锁定（nextTargets 清空终链）
     });
 
@@ -222,7 +222,7 @@ describe("#530 self-yield guardrail", () => {
         { id: "ey-1", sequenceNum: 1, entryType: "yield", senderType: "otter", senderId: "otter-1", body: "", invokeId: "inv-e1", yieldTargets: ["otter-1"] },
       ]);
       selfTspOnceThenEnd(m);
-      // F20261026ctbg 审视修复③：恢复被掏空的用例体——必须真实跑链（静态 seed 3 条 previous
+      // 审视修复③：恢复被掏空的用例体——必须真实跑链（静态 seed 3 条 previous
       // + 首跳 self-tsp = totalCount 4），断言第 4 次只日志不 steer 不 abort 的静默边界
       let calls = 0;
       let steerSeen = false;
@@ -335,7 +335,7 @@ describe("#530 self-yield guardrail", () => {
         initialTargets: ["otter-1"],
         invokeFn: async ({ otterId, userMessageContent }) => {
           invoked.push(otterId);
-          // F20260907ylfs ②（件 B 转正）：不相关 system 消息透明 → 计数累计 → steer
+          // ②（件 B 转正）：不相关 system 消息透明 → 计数累计 → steer
           // 注入第二 hop（真实续跑）；第二跳无 yield 收链
           receivedSteer.push(userMessageContent.includes("连续 3 次 self-yield"));
           (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue(
@@ -371,7 +371,7 @@ describe("#530 self-yield guardrail", () => {
         initialTargets: ["otter-1"],
         invokeFn: async ({ otterId, userMessageContent }) => {
           invoked.push(otterId);
-          // F20260907ylfs ②（件 B 转正）：不相关外部 otter 消息透明 → 计数累计 → steer
+          // ②（件 B 转正）：不相关外部 otter 消息透明 → 计数累计 → steer
           // 注入第二 hop（真实续跑）；第二跳无 yield 收链
           receivedSteer.push(userMessageContent.includes("连续 3 次 self-yield"));
           (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockResolvedValue(
@@ -407,7 +407,7 @@ describe("#530 self-yield guardrail", () => {
         invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
-      // 不抛异常（回调可选，降级为 no-op）——F20260913ctlv：otterReply 已退役，不抛即通过
+      // 不抛异常（回调可选，降级为 no-op）——otterReply 已退役，不抛即通过
     });
 
     it("无 healingRepo 时 abort 不留痕（不抛）", async () => {

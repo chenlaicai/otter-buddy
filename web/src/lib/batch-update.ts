@@ -1,7 +1,7 @@
 import type { LocalMessage } from './mappers'
 
 /**
- * 消息批量更新器（F20260814qswp）。
+ * 消息批量更新器。
  *
  * 旧实现缺陷：batchUpdateMessages 在 setAllMessages 的 updater 内执行业务 updater
  * 并返回 prev（state 永不变），导致同一 50ms 窗口内的后续 updater 读到的永远是
@@ -77,8 +77,8 @@ export class MessageBatcher {
 
   /** 立即产出全部暂存更新的 materialize 闭包并交给 apply（窗口到期时调用）。
    *  materialize 必须在 React setState 的函数式 updater 内调用（current 取队列最新值）。
-   *  历史：F20260825scrf 曾加 getShouldDefer 冻结窗口产出（弹窗期保 scrim 采样准静态）；
-   *  F20260909srf6 模糊语义换轨后失去服务对象，F20260929fcln 拆除，flush 回归无门控语义 */
+   * 历史：曾加 getShouldDefer 冻结窗口产出（弹窗期保 scrim 采样准静态）；
+   * 模糊语义换轨后失去服务对象，拆除，flush 回归无门控语义 */
   flush(): void {
     if (this.pending.size === 0) return
     const updates = new Map<string, (current: LocalMessage[] | undefined) => LocalMessage[]>()

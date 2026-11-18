@@ -1,5 +1,5 @@
 /**
- * #1052：SignalRepository.batchBindIssue 单测（真 sqlite）。
+ * SignalRepository.batchBindIssue 单测（真 sqlite）。
  *
  * 覆盖：dryRun 预览、filter 过滤、单批 100 截断、只碰未接单边界、
  * note COALESCE 保留、与单条 bind_issue 语义等价（triaged + issue_number + triaged_at）。

@@ -1,5 +1,5 @@
 /**
- * Dispatch record 实体（F20260912avlb）：派工台账。
+ * Dispatch record 实体：派工台账。
  *
  * 状态只记系统可客观判定的生命周期事件——created（create_otter 成功，獭就位待命）/
  * dispatched（行动权首次交给该獭）/ dissolved（獭被解散）。

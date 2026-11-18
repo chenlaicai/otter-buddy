@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* global URL, Buffer */ // eslint no-undef：Node 全局在 .mjs 下需显式声明
 /**
- * data/ 运行时数据备份（#1038）
+ * data/ 运行时数据备份
  *
  * 背景：data/metrics（含 golden-results.jsonl 执行历史）gitignore、无备份，
  * 2026-09-17 一条误删命令整目录丢失、不可恢复。本脚本是防误删双重措施的兜底层：

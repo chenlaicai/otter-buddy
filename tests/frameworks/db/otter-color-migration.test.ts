@@ -1,6 +1,6 @@
 // lint-tests:allow-ddl —— 迁移测试需要手工建旧 schema 的表（模拟存量库形态）
 /**
- * F20260921otcl：otters.color 列迁移 + 存量回填测试。
+ * otters.color 列迁移 + 存量回填测试。
  *
  * 覆盖：
  * - 老库补列（PRAGMA 探测幂等）
@@ -38,7 +38,7 @@ function seedOtters(db: Database.Database, seeds: OtterSeed[]): void {
     INSERT INTO otters (id, name, type, status, created_at) VALUES (?, ?, ?, ?, ?)
   `);
   const insertConv = db.prepare("INSERT OR IGNORE INTO conversations (id, title) VALUES (?, ?)");
-  // F20260921otcl 修正：小獭对话归属在 conversation_participants（现行参与者表），
+  // 修正：小獭对话归属在 conversation_participants（现行参与者表），
   // conversation_otters 是遗留 join 表（几乎全为大獭）——迁移 join 后者会漏掉全部小獭
   const insertJoin = db.prepare("INSERT OR IGNORE INTO conversation_participants (id, conversation_id, otter_id, status, created_at) VALUES (?, ?, ?, 'active', ?)");
   const convs = new Set(seeds.map(s => s.conv).filter((c): c is string => !!c));

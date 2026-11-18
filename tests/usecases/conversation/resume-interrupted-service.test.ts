@@ -1,11 +1,11 @@
 /**
- * F20260916b1ea ResumeInterruptedService 恢复编排测试（invoke 模型重建版，真 sqlite + stub 链引擎）。
+ * ResumeInterruptedService 恢复编排测试（invoke 模型重建版，真 sqlite + stub 链引擎）。
  *
  * 验证：pending 消费 → CAS 认领 → 链引擎续跑（引导文案 + initialTargets=[otterId]）
  * → invoke 终态直读 done 流转；并发窗口跳过（entries 数据源）；participant 失效
  * exhausted 静默；链引擎抛错 failed + 失败提示；429 退避重试与耗尽；CAS 认领冲突
  * 跳过；成功零系统消息（静默裁决沿用 9/6）；healing 落账。
- * F20260917rscr：信号补扫已删除（9/17 重启风暴实证，修法排序③）——恢复只认队列。
+ * 信号补扫已删除（9/17 重启风暴实证，修法排序③）——恢复只认队列。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type Database from "better-sqlite3";

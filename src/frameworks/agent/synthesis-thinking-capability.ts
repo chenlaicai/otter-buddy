@@ -1,5 +1,5 @@
 /**
- * F20261111synth（#1850）：叙事合成 thinking 能力解析 + 选档 + 传输失败兜底准入。
+ * ：叙事合成 thinking 能力解析 + 选档 + 传输失败兜底准入。
  *
  * 事故背景（2026-11-11 换世合成 100% 降级）：合成影子通道固定 thinkingLevel:'off'，
  * pi-ai openai-responses 构造器对无能力表的模型把 off 翻译成 reasoning.effort:"none"
@@ -49,7 +49,7 @@ const SYNTHESIS_CAPABILITY_CATALOGS: ReadonlyArray<{
   },
 ];
 
-/** F20261111synth F1：解析合成模型的真实 thinkingLevelMap。
+/** F1：解析合成模型的真实 thinkingLevelMap。
  *  - 模型已带非空能力表 → undefined（不覆盖既有声明）；
  *  - baseUrl host 命中注册表且目录存在同 id 模型 → 返回目录能力表副本；
  *  - 其余（未知 host / 目录无此 id / baseUrl 不可解析）→ undefined（不猜能力，
@@ -79,7 +79,7 @@ export async function resolveSynthesisThinkingLevelMap(
   return { ...hit.thinkingLevelMap };
 }
 
-/** F20261111synth F1：按能力表选合成请求档位。
+/** F1：按能力表选合成请求档位。
  *  - 无能力表 / off 可表达（map.off 为字符串）→ 'off'（原语义，端点自己表达关思考）；
  *  - off 不可表达（off:null）→ 全序上第一个可表达档（kimi 真值 → 'low'——最低成本
  *    且端点实测可用）；
@@ -94,7 +94,7 @@ export function pickSynthesisThinkingLevel(map: ThinkingLevelMap | undefined): s
   return "off";
 }
 
-/** F20261111synth F3：合成传输类失败判定——兜底重试的准入谓词。
+/** F3：合成传输类失败判定——兜底重试的准入谓词。
  *  只重试「换一个模型可能就好」的失败（API 4xx/5xx、网络层）；逻辑错误
  *  （如 fail-closed 校验、编程错误）重试无意义，原样上抛由调用方降级。 */
 export function isSynthesisTransportError(err: unknown): boolean {

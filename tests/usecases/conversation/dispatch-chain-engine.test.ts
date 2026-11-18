@@ -22,7 +22,7 @@ function makeMsg(overrides: Partial<Message> = {}): Message {
 
 function makeMocks() {
   const updateLastReadSeq = vi.fn();
-  // F20260904schf：链引擎改读行级 tsp（getMessageById 的 talkingStonePassedTo），
+  // 链引擎改读行级 tsp（getMessageById 的 talkingStonePassedTo），
   // mock 默认按 messageId 返回对应消息行（tsp 默认空）——需 yield 路由的测试自行 override mockImplementation 注册行级 tsp
   const getMessageById = vi.fn(async (messageId: string) => makeMsg({ id: messageId }));
   const getLastMessageBySender = vi.fn().mockResolvedValue(makeMsg());
@@ -38,7 +38,7 @@ function makeMocks() {
 
   const queryOtter = { getById: vi.fn().mockResolvedValue(null) } as unknown as QueryOtter;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
-  // F20260913ctlv 彻底切换：未读注入读 entries——mock entryRepo（entry 形状）
+  // 彻底切换：未读注入读 entries——mock entryRepo（entry 形状）
   const entryRepo = {
     getUnreadEntries: vi.fn().mockResolvedValue([]),
     getEntries: vi.fn().mockResolvedValue([]),
@@ -70,7 +70,7 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
 
   it("scheduler 路径：小獭 yield 回任务属主 otter，属主应被唤醒（不再被 senderId 过滤吞掉）", async () => {
     const { m, invoked, invokeFn } = makeChainMocks();
-    // F20260913ctlv 彻底切换：行级出处 = invoke 行 tsp（生产中 yield 工具落 invokes.talkingStonePassedTo）
+    // 彻底切换：行级出处 = invoke 行 tsp（生产中 yield 工具落 invokes.talkingStonePassedTo）
     (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) =>
       id === "m-work"
         ? { id, status: "completed", otterId: "otter-worker", talkingStonePassedTo: ["owner-otter"], endedAt: "2026-09-10T00:00:00Z" }
@@ -136,8 +136,8 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
     const engine = new DispatchChainEngine({ conversationRepo: m.conversationRepo, queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo });
     const invoked: string[] = [];
 
-    // F20260913ctlv 彻底切换：self-yield 出处 = invoke 行 tsp（yield 回自己）
-    // F20261026ctbg：深度硬停已撤——mock 前 12 跳返回 self-tsp，第 12 跳后自然收尾（无资源截断）
+    // 彻底切换：self-yield 出处 = invoke 行 tsp（yield 回自己）
+    // 深度硬停已撤——mock 前 12 跳返回 self-tsp，第 12 跳后自然收尾（无资源截断）
     let selfYieldHops = 0;
     (m.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async (id: string) => {
       const isSelf = id === "m-work" && selfYieldHops < 11 && ++selfYieldHops;
@@ -158,10 +158,10 @@ describe("executeChain nextTargets 路由（#474: 熔断重启后 yield 交棒�
       },
     });
 
-    /** 新契约（F20261026ctbg）：资源形态（深度）不再终链——self 链无介入证据时永放行，
+    /** 新契约：资源形态（深度）不再终链——self 链无介入证据时永放行，
      *  12 跳全为 otter-worker 且超过旧 maxChainDepth:10 未被截断，自然收尾；
      *  终链由 self-yield 行为护栏（steer@3/abort@5）在真实消息表上兜底（见 self-yield-guardrail 集成测试）。
-     *  旧 F20260904schf「自指滤除 → 一轮终止」不变量与 F20260907ylfs「深度兜底」注释随硬停退役 */
+     * 旧 「自指滤除 → 一轮终止」不变量与 「深度兜底」注释随硬停退役 */
     expect(invoked).toEqual(Array(12).fill("otter-worker"));
   });
 });

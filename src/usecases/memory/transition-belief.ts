@@ -1,5 +1,5 @@
 /**
- * F20261118bltls P1c：belief 状态迁移 usecase（verify/reject/supersede 共用）。
+ * P1c：belief 状态迁移 usecase（verify/reject/supersede 共用）。
  *
  * 只做「已存在 belief 的 metadata.status 原地迁移」——不新建条目、不删条目（v4 硬约束 1），
  * 迁移合法性走 belief-guard 的 isLegalBeliefTransition 纯函数；写回走

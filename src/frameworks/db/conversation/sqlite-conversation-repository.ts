@@ -21,7 +21,7 @@ import * as mixins from "./conversation-repository-mixins";
 import type { Logger } from "@usecases/ports/logger";
 
 /**
- * F20260922cgrp：列表查询 where 子句与参数构建（status/kind/search 过滤）。
+ * 列表查询 where 子句与参数构建（status/kind/search 过滤）。
  * 缺省 status = 仅 active（弱状态两态：归档对话移入独立空间，不出现在默认列表）。
  * search 转义 LIKE 通配符（%/\\_）防误匹配——标题关键字属用户任意输入，
  * 不转义则搜 "50%" 会命中所有含 "50" 的标题（LIKE 注入的退化形态）
@@ -38,7 +38,7 @@ function buildConversationListWhere(options?: ListConversationsFilter): {
     clauses.push({ sql: "AND c.status != 'archived'", param: null });
   }
   if (options?.kind) clauses.push({ sql: "AND c.kind = ?", param: options.kind });
-  // F20260922cgrp：pinned=false → 仅非置顶（普通区分页排除置顶，total 与 items 口径一致）
+  // pinned=false → 仅非置顶（普通区分页排除置顶，total 与 items 口径一致）
   if (options?.pinned === false) clauses.push({ sql: "AND c.pinned = 0", param: null });
   if (options?.pinned === true) clauses.push({ sql: "AND c.pinned = 1", param: null });
   const search = options?.search?.trim();

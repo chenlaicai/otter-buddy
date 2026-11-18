@@ -190,7 +190,7 @@ describe('upsertTerminalMessage（F20260805abpp 第四轮检视 S4-1：终态事
   })
 })
 
-/** F20260913ctlv：invoke 边界/yield 居中条目插入（无 seq，按 ts 时序） */
+/** invoke 边界/yield 居中条目插入（无 seq，按 ts 时序） */
 describe('insertCenteredByTs', () => {
   const base = [
     msg({ id: 'm1', ts: '2026-09-10T06:00:00Z', seq: 1 }),

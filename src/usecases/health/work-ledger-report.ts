@@ -1,10 +1,10 @@
 /**
- * F20261027hwl1：工作账本只读报告——work-ledger 聚合（列表 + 覆盖率 + 未归属）。
+ * 工作账本只读报告——work-ledger 聚合（列表 + 覆盖率 + 未归属）。
  *
  * 总量守恒（特性文档）：所有真实调用 = 已归属工作 + 未归属；缺失 usage 的调用数
  * 另列，不当作零。token 主数字，金额本期无价格配置（pricingAvailable=false）。
  *
- * F20261027hwl1：聚合入口从「listInvokeAttributions（LIMIT 截断后内存分桶）」
+ * 聚合入口从「listInvokeAttributions（LIMIT 截断后内存分桶）」
  * 改为 aggregateAttributionCounts（SQL 内全量 GROUP BY）——coverage/未归属口径从
  * 「最近 5000 条」回到全量，不受数据增长影响，列表与详情同守恒。
  */
@@ -112,7 +112,7 @@ export class WorkLedgerReportBuilder {
         noTraceCount: agg.unassigned.noTraceCount,
       },
       usageGapInvokeCount: usageGapTotal,
-      // F20261027hwl1：本期货架零价格配置——只有显式可信配置才计算金额（特性文档「token 与金额」）
+      // 本期货架零价格配置——只有显式可信配置才计算金额（特性文档「token 与金额」）
       pricingAvailable: false,
     };
   }

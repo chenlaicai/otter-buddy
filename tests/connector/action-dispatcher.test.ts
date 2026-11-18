@@ -4,7 +4,7 @@ import type { ActionRecord } from "@entities/execution/action-record";
 import type { ConnectorFrame } from "@entities/execution/connector-protocol";
 
 /**
- * F20261118remex（#1868 阶段 4 C2）：connector 侧动作分发器单测——
+ * （阶段 4 C2）：connector 侧动作分发器单测——
  * 幂等快路径（台账已 succeeded 不重执行）/白名单拒/执行回执/台账读失败降级（方案 §5）。
  */
 

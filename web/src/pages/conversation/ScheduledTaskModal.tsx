@@ -128,7 +128,7 @@ export function ScheduledTaskModal({ mode, task, onSave, onClose }: Props) {
           </select>
         </div>
 
-        {/* 任务描述（F20260915desc：面板优先显示此字段） */}
+        {/* 任务描述（面板优先显示此字段） */}
         <div>
           <label className="block text-sm font-medium text-stone-700 mb-1.5">
             任务描述

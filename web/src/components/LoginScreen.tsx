@@ -1,5 +1,5 @@
 /**
- * 登录屏（issue #1868 阶段 2）：单用户本机部署的登录口令登录。
+ * 登录屏（阶段 2）：单用户本机部署的登录口令登录。
  * 口令来源：config auth.ownerPassword / env OTTER_OWNER_PASSWORD / 首启自动生成于 data/owner-password。
  */
 import { useState } from 'react'

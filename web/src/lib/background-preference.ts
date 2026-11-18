@@ -5,13 +5,13 @@ import { setBackgroundSnapshot } from './background-preference-store'
 export const MAX_BACKGROUND_BYTES = 8 * 1024 * 1024
 const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 let operationGeneration = 0
-/** F20261102glmtr A1：取色代际守卫——快速换图/清除时，陈旧 onload 回调不得回写 var（检视獭-impl 建议采纳） */
+/** A1：取色代际守卫——快速换图/清除时，陈旧 onload 回调不得回写 var（检视獭-impl 建议采纳） */
 let tintGeneration = 0
 
 
 export class BackgroundPreferenceError extends Error {}
 
-/** F20261102glmtr v3.0：中性纱 fallback——主色提取前/失败时薄纱用（与 globals.css var fallback 同值） */
+/** v3.0：中性纱 fallback——主色提取前/失败时薄纱用（与 globals.css var fallback 同值） */
 const NEUTRAL_TINT_RGB = '250, 247, 238'
 
 function clearAppliedBackground() {
@@ -27,7 +27,7 @@ function applyDecodedBackground(url: string) {
   const root = document.documentElement
   root.style.setProperty('--custom-bg-image', `url("${url}")`)
   root.setAttribute('data-custom-bg', 'true')
-  // F20261102glmtr：同步落中性纱兜底（CSS var fallback 双保险），再异步换成真主色——
+  // 同步落中性纱兜底（CSS var fallback 双保险），再异步换成真主色——
   // 薄纱任何窗口期都不会让背景图失效（var 未定义→整条多层声明 invalid 的红线）。
   root.style.setProperty('--canvas-tint-rgb', NEUTRAL_TINT_RGB)
   const gen = ++tintGeneration
@@ -35,7 +35,7 @@ function applyDecodedBackground(url: string) {
 }
 
 /**
- * F20261102glmtr：Mica 式主色提取——离屏 canvas 降采样取平均色，向 stone 系中和
+ * Mica 式主色提取——离屏 canvas 降采样取平均色，向 stone 系中和
  * （降饱和+亮度锥制）后写 --canvas-tint-rgb，供 globals.css 静态薄纱合成。
  * 一次性计算、纯运行时 CSS var（不落库）；失败静默保留当前值（中性纱）。
  */

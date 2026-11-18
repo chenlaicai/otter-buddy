@@ -1,8 +1,8 @@
 /**
  * 检索来源（纯字符串联合，不依赖 usecases 层）。
- * F20260811mrpy Part 1：扩展契约。
- * F20260812mrcq Part 3：收敛——删 keyword-fallback（用因已被 jieba 双表消解）和
- *   related-expand（重工程收益不明）。anchor + context-expand 由 F20260812mrcq 实施。
+ * Part 1：扩展契约。
+ * Part 3：收敛——删 keyword-fallback（用因已被 jieba 双表消解）和
+ * related-expand（重工程收益不明）。anchor + context-expand 由 实施。
  */
 export type RetrievalSource =
   | "fts"
@@ -15,18 +15,18 @@ export type RetrievalSource =
 export type DetailLevel = "summary" | "snippet" | "full";
 
 /**
- * F20260811mrpy Part 1：vec 路径覆盖率（默认返回）。
- * F20260812mrcq Part 2 审视 m5：加 vecDisabled，消除 ratio=0 歧义。
+ * Part 1：vec 路径覆盖率（默认返回）。
+ * Part 2 审视 m5：加 vecDisabled，消除 ratio=0 歧义。
  */
 export interface VecCoverageDTO {
   total: number;
   withVec: number;
   ratio: number;
-  /** F20260812mrcq Part 2: vec 路径运行时禁用（disableVec 清表后） */
+  /** Part 2: vec 路径运行时禁用（disableVec 清表后） */
   vecDisabled?: boolean;
 }
 
-/** F20260811mrpy Part 1：debug 模式注入的中间分值 */
+/** Part 1：debug 模式注入的中间分值 */
 export interface RetrievalDebugInfoDTO {
   rrfScore: number;
   finalScore: number;
@@ -57,7 +57,7 @@ export interface MemoryEntryDTO {
 
 /** 检索结果 DTO */
 
-/** #576（F20260901emps）：最近记忆列表（记忆搜索页初始态数据源） */
+/** 最近记忆列表（记忆搜索页初始态数据源） */
 export interface RecentMemoryDTO {
   entries: MemoryEntryDTO[];
   total: number;
@@ -66,7 +66,7 @@ export interface SearchResultDTO {
   entries: MemoryEntryDTO[];
   total: number;
   vecCoverage: VecCoverageDTO;
-  /** F20260812mrcq Part 2: 邻域扩展条目（仅 expand_context=true 时存在） */
+  /** Part 2: 邻域扩展条目（仅 expand_context=true 时存在） */
   contextEntries?: MemoryEntryDTO[];
 }
 
@@ -80,11 +80,11 @@ export interface SearchQueryDTO {
   detail_level?: DetailLevel;
   library?: string;
   debug?: boolean;
-  /** F20260812mrcq Part 2: 开启邻域扩展（chunk ±1 / message 前后条） */
+  /** Part 2: 开启邻域扩展（chunk ±1 / message 前后条） */
   expand_context?: boolean;
-  /** F20260803fbit/F20260803chunk: contentType 多选（逗号分隔），如 ?content_type=feature_chunk,feature */
+  /** /contentType 多选（逗号分隔），如 ?content_type=feature_chunk,feature */
   content_type?: string;
-  /** F20260805rbrg: 时间过滤（ISO timestamp），仅返回此时间之后创建的记忆 */
+  /** 时间过滤（ISO timestamp），仅返回此时间之后创建的记忆 */
   created_after?: string;
 }
 

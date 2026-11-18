@@ -1,7 +1,7 @@
 /**
- * 信号裁决提醒登记表（#1227，M1：当场处理可见性保证）。
+ * 信号裁决提醒登记表（M1：当场处理可见性保证）。
  *
- * 同构 healing-alert-registry（F20260826mwrd C3）模式：
+ * 同构 healing-alert-registry（C3）模式：
  * - 小獭 speak 用 signal 参数落账时（persistSignalEvents）在此登记
  * - 大獭下一次 invoke 的 buildDynamicContext 消费（DynamicContext.signalAlerts）
  *   ——送达时点由「下一个 invoke 边界」保证，无需轮询
@@ -73,7 +73,7 @@ class SignalAlertRegistry {
 
 export const signalAlertRegistry = new SignalAlertRegistry();
 
-/** #1227 M1：pending 信号裁决提醒渲染——大獭 invoke 头部注入文案（借用式，消费即删） */
+/** M1：pending 信号裁决提醒渲染——大獭 invoke 头部注入文案（借用式，消费即删） */
 export function renderSignalAlerts(alerts: SignalAlert[]): string {
   const lines = alerts.map(a =>
     `- ${a.signalId.slice(0, 8)}（${a.signalType}/${a.severity}，from ${a.fromOtterId.slice(0, 8)}）：${a.payloadPreview}`,

@@ -1,5 +1,5 @@
 /**
- * F20261026emct：worker IPC 发送防护单测。
+ * worker IPC 发送防护单测。
  *
  * 场景：父进程已死/IPC 已关时 process.send 抛 EPIPE——postResponse 必须
  * 受控退出（warn + exit(1)）而不是 uncaught 杀进程（10-23 实锤的

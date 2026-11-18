@@ -2,9 +2,9 @@
  * 三麻将局 HTTP 面（方案模块四接口层）——建房/入座/开局/动作注入/视图/复盘/SSE/恢复。
  *
  * 端点（全在 /api/mahjong 下）：
- *   POST /rooms                建房开 lobby 等待房（F20261022mjls：不发牌不 start——body: {roomId?, seed?, players[3]}）
+ * POST /rooms                建房开 lobby 等待房（不发牌不 start——body: {roomId?, seed?, players[3]}）
  *   POST /rooms/:roomId/join   入座（body: {seat}）→ 返回该座私有视图
- *   POST /rooms/:roomId/start  开始（F20261022mjls：waiting→playing 发牌起跑；body 可选 players 覆盖；幂等）
+ * POST /rooms/:roomId/start  开始（waiting→playing 发牌起跑；body 可选 players 覆盖；幂等）
  *   POST /rooms/:roomId/actions 真人动作注入（body: {seat, action}；停驻在该座才接受）
  *   POST /rooms/:roomId/chat  真人回话（body: {seat, text}；入队，下局开局注入各 otter session）
  *   GET  /rooms/:roomId/view?seat= 视图（无 seat=观战全览）
@@ -38,13 +38,13 @@ export class MahjongController {
     private readonly logger: Logger,
   ) {}
 
-  /** F20261015mjsg D2：app.ts 用——挂接入座谓词到 AgentInvoker（对话侧「打牌中」拦截） */
+  /** D2：app.ts 用——挂接入座谓词到 AgentInvoker（对话侧「打牌中」拦截） */
   get roomService(): RoomService {
     return this.rooms;
   }
 
   /** body.players 合法性（3 座位/种类/otterId 齐全）——通过即返回配置，否则 null */
-  /** PR#1609 delta（检视建议 1）：otter 座位允许缺省 otterId（占位——建房/开始时走 applyDefaultOtters 默认回填）；
+  /** PR#1609 delta：otter 座位允许缺省 otterId（占位——建房/开始时走 applyDefaultOtters 默认回填）；
    *  非法形状（非数组/非 3 项/name 非串/kind 未知）仍拒 */
   private static parsePlayers(raw: unknown): GameConfig["players"] | null {
     const players = raw;
@@ -55,7 +55,7 @@ export class MahjongController {
     return players as unknown as GameConfig["players"];
   }
 
-  /** 建房开 lobby 等待房（F20261022mjls：不发牌，等牌桌「开始」） */
+  /** 建房开 lobby 等待房（不发牌，等牌桌「开始」） */
   async create(ctx: Context): Promise<Response> {
     const body = (await ctx.req.json().catch(() => ({}))) as CreateBody;
     const players = MahjongController.parsePlayers(body.players);

@@ -30,7 +30,7 @@ import { consumeSSE } from '../../api/sse'
 async function loadInitialData(): Promise<{
   conversations: LocalConversation[]
 }> {
-  // F20260922cgrp：listConversations 返回 { items, total }（分组分页）；
+  // listConversations 返回 { items, total }（分组分页）；
   // 首屏全量拉 active（IM 助理组 + 置顶区数据源；普通区由 LeftPanel 内部分页自拉）
   const { items } = await api.listConversations({ limit: 500 })
   return { conversations: items.map(mapConversationDTO) }
@@ -40,15 +40,15 @@ export default function ConversationPage() {
   const { id: urlConvId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [conversations, setConversations] = useState<LocalConversation[]>([])
-  /** F20260921inrl（#1074）：activeId 直接从路由参数派生——SPA 下切换对话只变 urlConvId，
+  /** activeId 直接从路由参数派生——SPA 下切换对话只变 urlConvId，
    *  不再经由 useState 中转（旧链路每次切换重跑 loadInitialData 全量重拉列表+设置）。
    *  深链接指向不存在对话时，mount 初始化 effect 会 navigate(replace) 兑底为列表首个。 */
   const activeId = urlConvId ?? null
-  /** F20260921urdo 判定换轨：activeId 镜像 ref——focus/visibilitychange 监听器闭包读最新值 */
+  /** 判定换轨：activeId 镜像 ref——focus/visibilitychange 监听器闭包读最新值 */
   const activeIdRef = useRef<string | null>(null)
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
   const [allMessages, setAllMessages] = useState<Record<string, LocalMessage[]>>({})
-  /** F20260913ctlv：獭 invoke 实时状态（右侧栏面板数据源；invoke.start/end 事件驱动） */
+  /** 獭 invoke 实时状态（右侧栏面板数据源；invoke.start/end 事件驱动） */
   const [invokeStates, setInvokeStates] = useState<InvokeStates>({})
   const [allOtters, setAllOtters] = useState<Record<string, LocalOtter[]>>({})
   const [sessions, setSessions] = useState<Record<string, LocalOtterSession[]>>({})
@@ -57,7 +57,7 @@ export default function ConversationPage() {
   const [pageState, setPageState] = useState<'normal' | 'empty' | 'loading' | 'error' | 'no-llm'>('loading')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
 
-  /** #500：响应式断点——lg(1024px) 以上三栏全开；md(768px) 以上左栏常驻。
+  /** 响应式断点——lg(1024px) 以上三栏全开；md(768px) 以上左栏常驻。
    *  窄屏时面板抽屉化（悬浮不挤压聊天区），按钮切换展开。 */
   const isLgUp = useMediaQuery('(min-width: 1024px)')
   const isMdUp = useMediaQuery('(min-width: 768px)')
@@ -68,13 +68,13 @@ export default function ConversationPage() {
     if (isLgUp && isMdUp) { setLeftDrawerOpen(false); setRightDrawerOpen(false) }
   }, [isLgUp, isMdUp])
 
-  // 滚动状态（F20261008scpg：更名 pinRef——语义从几何快照升级为 scroll-pin 状态机的贴底跟随标志）
+  // 滚动状态（更名 pinRef——语义从几何快照升级为 scroll-pin 状态机的贴底跟随标志）
   const pinRef = useRef(true)
   const [newMessagesCount, setNewMessagesCount] = useState(0)
   // 双向分页状态
   const [hasMoreBefore, setHasMoreBefore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
-  /** F20261021lmfe（issue #1581）：loadMoreBefore 失败态——之前 catch 只 console.error，
+  /** loadMoreBefore 失败态——之前 catch 只 console.error，
    *  加载历史失败（网络断/服务端错/游标失效）用户零感知；错误态驱动按钮反馈 + 重试入口 */
   const [loadMoreError, setLoadMoreError] = useState(false)
   const loadingMoreRef = useRef(false)
@@ -84,15 +84,15 @@ export default function ConversationPage() {
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null)
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
   const [userName, setUserName] = useState('')
-  /** F20260921urdo 判定换轨：已读 ack 防抖 ref（打开/聚焦/聚焦期新消息到达共用）。
-   *  「底部即已读」（F20260916ubrd）与「滚到底已读」机制已退役——已读判定输入
+  /** 判定换轨：已读 ack 防抖 ref（打开/聚焦/聚焦期新消息到达共用）。
+   * 「底部即已读」与「滚到底已读」机制已退役——已读判定输入
    *  从滚动几何换轨为会话状态（打开+聚焦，Slack/Discord 同型）：
    *  · 会话打开即 ack（loadConversationDetail 成功后）
    *  · 窗口聚焦/切回可见即 ack（focus + visibilitychange）
    *  · 聚焦期间新消息到达即 ack（activeMessages.length effect）
    *  滚动信息只服务视觉（自动滚底门控/未读分隔线定位），不再进已读判定。 */
   const ackReadDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  /** abort toast 同步去重（F20260805abpp 第三轮检视 S-1）：发送流与常驻通道共享广播总线，
+  /** abort toast 同步去重（第三轮检视 S-1）：发送流与常驻通道共享广播总线，
    *  message.aborted 会双通道投递；不能用 updater 闭包标志——React 有 pending update 时
    *  updater 延迟执行，同步读取恒为 false（零 toast）。ref Set 绕开调度时序 */
   const abortNotifiedRef = useRef<Set<string>>(new Set())
@@ -101,7 +101,7 @@ export default function ConversationPage() {
   useEffect(() => {
     allMessagesRef.current = allMessages
   }, [allMessages])
-  /** F20260913ctlv：invokeStates / otters 镜像 ref——SSE handler 闭包读最新值
+  /** invokeStates / otters 镜像 ref——SSE handler 闭包读最新值
    *  （handler 在 activeId effect 内创建，若直接读 state 会闭包性过期） */
   const invokeStatesRef = useRef<InvokeStates>({})
   useEffect(() => { invokeStatesRef.current = invokeStates }, [invokeStates])
@@ -111,7 +111,7 @@ export default function ConversationPage() {
     if (ackReadDebounceRef.current) clearTimeout(ackReadDebounceRef.current)
   }, [])
 
-  /** F20260921urdo 判定换轨：已读统一 ack 函数——会话状态（打开/聚焦/聚焦期新消息到达）
+  /** 判定换轨：已读统一 ack 函数——会话状态（打开/聚焦/聚焦期新消息到达）
    *  触发，不依赖滚动几何。fire-and-forget；服务端 MAX 钐制游标只进不退；
    *  游标越过 invoke_start/invoke_end/yield 安全（未读统计口径只数 speak/system）。
    *  msgsOverride：打开路径刚拉到的新 msgs 直通（setState 异步，ref 尚未同步，读旧值会 ack 到过期 seq）。 */
@@ -126,9 +126,9 @@ export default function ConversationPage() {
   // 批量更新机制：50ms 窗口内的 SSE 事件合并为一次 setAllMessages，减少消息列表重渲染
   // 选择依据：≥16ms 保证至少一帧合并，≤100ms 保证流式体感（人类感知延迟阈值约 100ms）
   // 50ms 是平衡点：既减少重渲染频率，又不明显影响流式文本的实时感
-  // F20260814qswp：改为 MessageBatcher 暂存副本链式执行——旧实现在 setState updater 内
+  // 改为 MessageBatcher 暂存副本链式执行——旧实现在 setState updater 内
   // 执行业务 updater 且返回 prev，窗口内后续 updater 读到的是原始列表，中间更新丢失
-  // F20260814qswp 三轮：materialize 在 setState 函数式 updater 内调用（prev=队列最新值），
+  // 三轮：materialize 在 setState 函数式 updater 内调用（prev=队列最新值），
   // 消除 allMessagesRef 镜像在 commit→passive-effect 间隙的引用比较盲区
   const BATCH_WINDOW_MS = 50
   const batcher = useMemo(() => new MessageBatcher({
@@ -162,9 +162,9 @@ export default function ConversationPage() {
     task?: LocalScheduledTask
   }>({ type: 'none' })
   const [executionHistoryTaskId, setExecutionHistoryTaskId] = useState<string | null>(null)
-  /** F20260913ctlv：Session 弹窗（点击獭头像弹出，展示该獭 invoke 历史与流式过程） */
+  /** Session 弹窗（点击獭头像弹出，展示该獭 invoke 历史与流式过程） */
   const [sessionModalOtter, setSessionModalOtter] = useState<LocalOtter | null>(null)
-  /** F20260914evdz：Session 弹窗实时事件通道（事件驱动，无定时器）。
+  /** Session 弹窗实时事件通道（事件驱动，无定时器）。
    *  SSE invoke.event 落进 buffer（不直接 setState——避免无关事件驱动主界面 re-render）；
    *  SessionModal 挂载时拉空 buffer 并注册 onChange 订阅后续增量。
    *  invoke.end 到达即 flush（防事件乱序覆盖终态前最后几帧） */
@@ -172,16 +172,16 @@ export default function ConversationPage() {
   const sessionLiveListeners = useRef(new Set<(e: SessionLiveItem) => void>())
   /** SSE 连接状态（弹窗断连提示数据源） */
   const sseConnectedRef = useRef(true)
-  /** 参与者占位 upsert（fill-only 幂等）：SSE 事件驱动，#502 浅比较保引用。
-   *  历史：F20260827scrf2 曾按「弹窗期攒队列、关窗 flush」延迟执行（防 scrim 采样闪烁）；
-   *  F20260909srf6 改内容自模糊语义后冻结失去服务对象，F20260929fcln 拆冻结链恢复直行 */
+  /** 参与者占位 upsert（fill-only 幂等）：SSE 事件驱动，浅比较保引用。
+   * 历史：曾按「弹窗期攒队列、关窗 flush」延迟执行（防 scrim 采样闪烁）；
+   * 改内容自模糊语义后冻结失去服务对象，拆冻结链恢复直行 */
   const upsertOtterIfAbsent = useCallback((otterId: string, otterName?: string, convId?: string, identity?: { type?: string | null; color?: string | null }) => {
     const apply = (prev: Record<string, LocalOtter[]>) => {
       const cid = convId || activeId
       if (!cid || !otterId) return prev
       const convOtters = prev[cid] || []
       if (convOtters.some(o => o.id === otterId)) return prev
-      // F20260921otcl：占位身份用事件携带的 otterType/otterColor（不再硬编码 'small'；
+      // 占位身份用事件携带的 otterType/otterColor（不再硬编码 'small'；
       //  事件字段缺席时回退 small + color undefined，resolveOtterVisual 展示回退承接）
       const newOtter: LocalOtter = { id: otterId, name: otterName || '', type: (identity?.type === 'big' ? 'big' : 'small') as 'big' | 'small', ...(identity?.color != null && { color: identity.color }), createdAt: '' }
       return { ...prev, [cid]: [...convOtters, newOtter] }
@@ -201,17 +201,17 @@ export default function ConversationPage() {
     trigger: triggerScheduledTask,
   } = useScheduledTasks(activeId)
 
-  /** F20260922rprf：SSE 断连重连后补偿拉取 invoke 状态——重连窗口内丢失的 invoke.end
+  /** SSE 断连重连后补偿拉取 invoke 状态——重连窗口内丢失的 invoke.end
    *  会导致右栏永久卡在「运行中」。合并逻辑提取为纯函数 mergeInvokesFromServer（invoke-tracker），
    *  幂等（无变更返回原引用）。
-   *  F20260923sswd：兼作 loadConversationDetail 内联 listInvokes 失败时的重试兜底——
-   *  F20260928icmm 阶段3：门控与重试链退役——弱合并换轨后双拉无害化，防双拉补丁失去
+   * 兼作 loadConversationDetail 内联 listInvokes 失败时的重试兜底——
+   * 阶段3：门控与重试链退役——弱合并换轨后双拉无害化，防双拉补丁失去
    *  存在理由；对账统一走无门控的 syncInvokeStatesFromServer。 */
-  /** F20260928icmm 阶段3（旧补丁退役）：统一拉取对账（原 syncInvokeStatesFromServer（带门控）+
+  /** 阶段3（旧补丁退役）：统一拉取对账（原 syncInvokeStatesFromServer（带门控）+
    *  syncInvokeStatesOnReconnect（无门控）双函数收敛为单函数，无门控）。
    *  缓存模型下 mergeInvokesFromServer 幂等，任何时机重复拉取都安全；历史上为防
    *  初始双拉设的 invokeStatesLoadedRef 门控已退役（弱合并退役后双拉无害，门控失去
-   *  存在理由）。#1144 曾因门控错误覆盖补偿路径引入回归，#1161 拆双函数过渡，本阶段收敛。 */
+   * 存在理由）。曾因门控错误覆盖补偿路径引入回归，拆双函数过渡，本阶段收敛。 */
   const syncInvokeStatesFromServer = useCallback(async (convId: string) => {
     try {
       const resp = await api.listInvokes(convId, { limit: 50 })
@@ -221,12 +221,12 @@ export default function ConversationPage() {
     }
   }, [])
 
-  /** F20260923sswd 检视发现 3：listInvokes 重试兜底链的定时器句柄——
+  /** listInvokes 重试兜底链的定时器句柄——
    *  切对话时清理，防滞后重试把旧会话 invoke 记录 merge 进新会话 invokeStates（同 otterId 跨会话可见）。 */
   const invokeRetryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
   /** dissolve/create/restart 等参与者变更工具执行完成后刷新右栏参与者列表。
-   *  F20260811dsrt 原版走 SSE tool.result 钩子；F20260913ctlv 后 tool.result 停发 SSE（仅落 invoke_events），
+   * 原版走 SSE tool.result 钩子；后 tool.result 停发 SSE（仅落 invoke_events），
    *  改为在常驻通道 invoke.event（tool_result 类）里按 payload.name 触发本函数。 */
   const refreshParticipantsAfterDissolve = useCallback((toolName: string) => {
     if (!activeId) return
@@ -239,7 +239,7 @@ export default function ConversationPage() {
   }, [activeId])
 
   useEffect(() => {
-    // F20260921inrl（#1074）：mount-only 初始化——拉列表 + 设置 + 首次 pageState 判定。
+    // mount-only 初始化——拉列表 + 设置 + 首次 pageState 判定。
     // 旧代码依赖 [urlConvId]，SPA 下每次切换对话都会重跑（全量重拉列表+设置）；
     // 列表新鲜度由 useConversationListPolling 的 5s 轮询保障，切换无需重拉。
     let disposed = false
@@ -1675,7 +1675,7 @@ export default function ConversationPage() {
           }}
           onAbortInvoke={handleAbortInvoke}
           onRetryInvoke={handleRetryInvoke}
-          /* F20261009csf3：linkedResources 及其管理 props 随关键资源 tab 退役——
+          /* linkedResources 及其管理 props 随关键资源 tab 退役——
              产物展示走中间栏时间轴（ChatView），管理走对话通道 */
           onCreateSmallOtter={() => setModal({ type: 'create-otter' })}
           onDissolveOtter={(oid) => setModal({ type: 'dissolve', otterId: oid })}
@@ -1694,8 +1694,8 @@ export default function ConversationPage() {
           }}
           onTriggerScheduledTask={triggerScheduledTask}
           onViewScheduledTaskHistory={(taskId) => setExecutionHistoryTaskId(taskId)}
-          // F20261006mlp2 P2：待办板裁决回执路由——owner 在场显式路由 owner 代执行；owner 已解散传 null 走默认派发（大獭兜底）。
-          // F20261006mlp2 P2 处置严重1/建议1：handleSend 返回 Promise（成功 resolve / 失败 throw），
+          // P2：待办板裁决回执路由——owner 在场显式路由 owner 代执行；owner 已解散传 null 走默认派发（大獭兜底）。
+          // P2 处置严重1/建议1：handleSend 返回 Promise（成功 resolve / 失败 throw），
           // onRouteToOtter 改 async 让 useMatters 的 act/register 能接真实发送结果再 toast——不再 fire-and-forget。
           onRouteToOtter={async (body, ownerOtterId) => { await handleSend(body, ownerOtterId ? [ownerOtterId] : undefined) }}
           />
@@ -1709,7 +1709,7 @@ export default function ConversationPage() {
             {activeConvForMenu.status !== 'archived' && (
               <div onClick={() => ctxAction(activeConvForMenu.pinned ? 'unpin' : 'pin', ctxMenu.cid)} className="px-2.5 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-white/40 text-stone-600">{activeConvForMenu.pinned ? '取消置顶' : '置顶'}</div>
             )}
-            {/* F20260922cgrp delta（检视严重 3）：archived 对话禁用点击——className 置灰挡不住 onClick，
+            {/* delta（检视严重 3）：archived 对话禁用点击——className 置灰挡不住 onClick，
                 本 PR 让 archived 对话首次可右键，不守卫则确认后走 400 报错路径 */}
             <div onClick={() => { if (activeConvForMenu.status !== 'archived') ctxAction('archive', ctxMenu.cid) }} className={`px-2.5 py-1.5 rounded-lg text-xs ${activeConvForMenu.status !== 'archived' ? 'cursor-pointer hover:bg-white/40 text-stone-600' : 'text-stone-300 cursor-not-allowed'}`}>归档对话</div>
           </div>

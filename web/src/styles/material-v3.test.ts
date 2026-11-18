@@ -1,7 +1,7 @@
 /**
- * F20261102glmtr：材质体系 v3.0 静态 CSS 契约——分层材质学说落地。
+ * 材质体系 v3.0 静态 CSS 契约——分层材质学说落地。
  *
- * 学说（R20261102glass）：闪动可见度 = 实时重采样(R) × 覆盖(C) × 嵌套(N)，
+ * 学说：闪动可见度 = 实时重采样(R) × 覆盖(C) × 嵌套(N)，
  * R→0（常驻层零 backdrop-filter）是唯一严格不闪保证。本测试锁定：
  *   1. 常驻层 5 token 全部置 none（chrome/panel/card/bubble/form-input）
  *   2. 瞬态/遮罩层 2 token 保留（overlay/scrim）——防误伤真玻璃

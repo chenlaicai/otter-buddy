@@ -16,7 +16,7 @@ import type { Repositories } from "./types";
 
 export class MemoryIndexAdapter implements MemoryIndexGateway {
   /**
-   * F20261109epqst 检视处置（严重发现 1 配套）：后台批量任务落库后的弱触发回调。
+   * 检视处置（严重）：后台批量任务落库后的弱触发回调。
    * doc sync 运行中入库的 chunk 任务如果没有触发通道，要等 patrol 下一轮 1h——
    * 「持续出队」对运行期入库也必须成立。bootstrap 装配时接到 retry worker 的
    * tickNow（fire-and-forget，drainLoop 守卫防重入；worker 未就绪时静默丢弃，
@@ -31,9 +31,9 @@ export class MemoryIndexAdapter implements MemoryIndexGateway {
   }
 
   async indexMessage(messageId: string, conversationId: string, content: string): Promise<void> {
-    // #1191（F20260928rmix）：sourceTable 统一 'entries'——#886 后消息已住在 entries 表，
+    // sourceTable 统一 'entries'——后消息已住在 entries 表，
     // 旧 'messages' 是表族退役前的遗留口径；与回填迁移（backfillEntryMemoryIndex）同口径，
-    // 幂等按主键 id 对齐（#942 后投影主键=源 id）
+    // 幂等按主键 id 对齐（后投影主键=源 id）
     await this.storeMemory.execute({
       layer: "working", contentType: "message",
       sourceId: messageId, sourceTable: "entries",
@@ -76,7 +76,7 @@ export class MemoryIndexAdapter implements MemoryIndexGateway {
     });
   }
 
-  /** F20260918imas：助理对话收篇摘要（fact 类、working 层、关联 conversationId）——
+  /** 助理对话收篇摘要（fact 类、working 层、关联 conversationId）——
    *  用 execute 而非 replaceBySource：同一对话多次轮换会生成多条 digest
    *  （每篇一条），replace 会互相覆盖只剩最后一篇 */
   async indexAssistantDigest(digestId: string, conversationId: string, digest: string): Promise<void> {
@@ -152,7 +152,7 @@ export function createMemoryIndex(
   repos: Repositories,
   embeddingService: EmbeddingGateway,
   logger: Logger,
-  /** F20261109epqst 检视处置：批量落库弱触发（接 retry worker tickNow） */
+  /** 检视处置：批量落库弱触发（接 retry worker tickNow） */
   onBulkEnqueued?: (() => void) | null,
 ): MemoryIndexGateway {
   return new MemoryIndexAdapter(new StoreMemory(repos.memoryWriter, repos.memoryQueue, embeddingService, logger), onBulkEnqueued);
@@ -163,7 +163,7 @@ export async function syncDocuments(
   memoryIndex: MemoryIndexGateway,
   logger: Logger,
   cwd: string,
-  /** F20261110dsqy（#1818）：canonical rootDir（服务主仓）——归档判定仅在此视角下启用 */
+  /** canonical rootDir（服务主仓）——归档判定仅在此视角下启用 */
   options?: { canonicalRootDir?: string },
 ): Promise<SyncResult> {
   const fileSystem = new NodeFileSystem();
@@ -178,7 +178,7 @@ export async function syncDocuments(
 }
 
 /**
- * F20260812mrcq Part 1：创建并启动 embedding 重试 worker。
+ * Part 1：创建并启动 embedding 重试 worker。
  *
  * 启动前做存量迁移：扫描已存在的暗化条目（本 F 上线前累积），
  * 批量 enqueueRetry 入队，让 retry worker tick 后逐步修复。
@@ -197,7 +197,7 @@ export async function createAndStartRetryWorker(
     return null;
   }
 
-  // F20261020slvg：pending 任务 attempts 一次性赦免归零——历史积压任务不该永久占用熔断计数。
+  // pending 任务 attempts 一次性赦免归零——历史积压任务不该永久占用熔断计数。
   // claim 即 attempts+1 的语义被超时循环（不计失败）反复 claim 撑大——2026-10-16
   // 活锁 4h40m 后存量积压大量 attempts≥3，不重置的话新代码上线后遇到一次硬错误
   // 就会成批 dead-letter（markTaskAttemptFailed 判死看的是被撑大的 attempts）。

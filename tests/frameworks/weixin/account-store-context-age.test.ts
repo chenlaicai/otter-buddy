@@ -1,5 +1,5 @@
 /**
- * WeixinAccountStore context_token v2 格式测试（F20260901wxnt）
+ * WeixinAccountStore context_token v2 格式测试
  *
  * 断言行为（副作用），不断言内部调用细节。
  * 覆盖：v1 mtime 兼容 / v2 往返 / save 保留其他用户条目并清 warnedAt / recordContextTokenWarned

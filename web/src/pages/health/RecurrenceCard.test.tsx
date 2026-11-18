@@ -7,7 +7,7 @@ import { RecurrenceSection, toRecurrenceCard, LowConfidenceDrawer, FreqBadge, Fa
 import { HotspotHeatBar, hotspotData } from './HotspotHeat'
 import type { RhiTrendsDTO } from '../../api/client'
 
-// 页面入口 index.tsx 在 import 时挂载 #root，本测试不 import 它，无副作用
+// 页面入口 index.tsx 在 import 时挂载 本测试不 import 它，无副作用
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 function recurrenceSignal(overrides: Partial<RhiSignalDTO> = {}): RhiSignalDTO {

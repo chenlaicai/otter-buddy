@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// game-diff.mjs — 图像 diff 工具（F20261014ghst 原子工具之二）
+// game-diff.mjs — 图像 diff 工具（原子工具之二）
 // 文本报告：similarity / mismatchRatio / 通过判定（默认 mismatchRatio<1% 通过，threshold 是单像素色差容忍度）。
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";

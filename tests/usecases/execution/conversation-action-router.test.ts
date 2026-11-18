@@ -3,7 +3,7 @@ import { ConversationActionRouter } from "@usecases/execution/conversation-actio
 import type { ExecutionMachine } from "@usecases/ports/execution-machine";
 
 /**
- * F20261118crtgr（#1868 阶段 5 PR-A）：对话级执行机路由单测——
+ * （阶段 5 PR-A）：对话级执行机路由单测——
  * 默认 local / 对话切换远程 / 显式 target 优先 / 悬空目标 fail-closed（方案 §2.2）。
  */
 

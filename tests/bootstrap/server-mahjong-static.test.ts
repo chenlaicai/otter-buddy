@@ -1,5 +1,5 @@
 /**
- * F20261015mjsg 模块四·缺口④：三麻牌局页静态挂载（/mahjong 大厅 + /mahjong/:roomId 牌局页）。
+ * 模块四·缺口④：三麻牌局页静态挂载（/mahjong 大厅 + /mahjong/:roomId 牌局页）。
  *
  * 覆盖点：
  *  ① 深链接直达牌局页（不被 SPA fallback 吞成 SPA 入口——方案模块四「注意与 SPA fallback 的交互」）

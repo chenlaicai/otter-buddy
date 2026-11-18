@@ -54,7 +54,7 @@ export class WeixinPollingChannel {
 
   private abort?: AbortController;
   private running = false;
-  /** F20260901wxnt 发现3：recordContextTokenWarned 落盘失败时的内存级 warnedAt 补偿——
+  /** 发现3：recordContextTokenWarned 落盘失败时的内存级 warnedAt 补偿——
    *  disk 丢失后内存保底，下个 tick 冷却判断不旁路（防成功的预警每 35s 重发） */
   private warnedAtMemoryCache = new Map<string, number>();
 
@@ -68,19 +68,19 @@ export class WeixinPollingChannel {
       logger: Logger;
       /** 通道状态注册表（可选注入，用于上报运行时状态） */
       registry?: ChannelStatusRegistry;
-      /** context_token 过期预警配置（可选注入，缺省不启用检查）。F20260920wxho：cooldownMs 退役——每静默期只提醒一次 */
+      /** context_token 过期预警配置（可选注入，缺省不启用检查）。cooldownMs 退役——每静默期只提醒一次 */
       contextTokenWarn?: { afterMs: number };
       /** 时间注入（默认 Date.now，供测试控制时钟） */
       now?: () => number;
     },
   ) {}
 
-  /** 本轮询通道对应的账号 id（issue #566：账号删除时定位停轮询用） */
+  /** 本轮询通道对应的账号 id（账号删除时定位停轮询用） */
   get accountId(): string {
     return this.deps.accountId;
   }
 
-  /** 本通道归属的扫码人 ilink user id（F20260831wxsp：重新扫码后按人回收旧轮询用）。
+  /** 本通道归属的扫码人 ilink user id（重新扫码后按人回收旧轮询用）。
    *  账号 id 每次扫码都新生成（weixin-<时间戳>），同一个人重新扫码后旧账号轮询
    *  无法靠 accountId 定位——用 ilinkUserId 识别「同一个人的旧轮询」。 */
   get ilinkUserId(): string | undefined {

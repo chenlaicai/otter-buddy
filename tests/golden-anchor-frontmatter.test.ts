@@ -1,5 +1,5 @@
 /**
- * F20260917asgv: 锚点 md frontmatter schema 校验测试。
+ * 锚点 md frontmatter schema 校验测试。
  *
  * 验证 tests/capability/golden/anchors/*.md 的 frontmatter 符合契约：
  * - 必填字段：anchor_id, verdict, domain, meta_rule, source, judged_by, judged_at

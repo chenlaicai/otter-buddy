@@ -1,5 +1,5 @@
 /**
- * F20261105embqg S2b/S3：任务队列优先级与水位闸门单测。
+ * /S3：任务队列优先级与水位闸门单测。
  *
  * 覆盖：
  * - enqueueRetry priority 写入 + ON CONFLICT 不降优先级（首入队优先级保留）

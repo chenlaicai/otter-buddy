@@ -9,7 +9,7 @@ describe('buildCardBridgeScript（桥脚本 cardId 注入）', () => {
     expect(script).toContain("card:resize")
     expect(script).toContain("card:submit")
     expect(script).toContain("otterCard")
-    // F20260929ahgt：otterCard.resize 已移除——resize 上报仅由桥 ResizeObserver 驱动
+    // otterCard.resize 已移除——resize 上报仅由桥 ResizeObserver 驱动
     expect(script).not.toContain("resize: function")
   })
 

@@ -1,5 +1,5 @@
 /**
- * F20260803fbit: markdown 噪声清理单元测试
+ * markdown 噪声清理单元测试
  */
 import { describe, it, expect } from "vitest";
 import { cleanMarkdownForFts } from "@usecases/document/markdown-noise-cleaner";

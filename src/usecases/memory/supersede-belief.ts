@@ -1,5 +1,5 @@
 /**
- * F20261118bltls P1c：belief supersede usecase（标记过期 / 新 belief 取代旧 belief）。
+ * P1c：belief supersede usecase（标记过期 / 新 belief 取代旧 belief）。
  *
  * 两条路径：
  * - markExpired(oldId)：夜间审视獭「标记过期」——旧条目迁 superseded，不建边（无新条目）。

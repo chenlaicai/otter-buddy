@@ -4,7 +4,7 @@ import type { Logger } from "@usecases/ports/logger";
 import { MessageController } from "@interface-adapters/http/controllers/message-controller";
 
 /**
- * F20260924wast（S1）：HTTP sendMessage 链的 web 助理 session 检查测试。
+ * ：HTTP sendMessage 链的 web 助理 session 检查测试。
  * 断言：kind=web-assistant 对话在 precheck 后、sendEntry 前调用
  * checkIdleAndRestartSession；kind=normal/assistant 对话不触发（严格限定）。
  * 副作用断言风格：sessionChecks 数组记录检查过的对话（行为结果），不绑 mock 调用次数。
@@ -33,7 +33,7 @@ function makeHarness(conversationKind: "web-assistant" | "normal" | "assistant")
       },
     } as never,
     undefined, undefined,
-    // F20260924wast：web 助理 session 检查
+    // web 助理 session 检查
     { checkIdleAndRestartSession: async (id: string) => { sessionChecks.push(id); } },
     { getById: async () => ({ id: "conv-1", kind: conversationKind }) } as never,
   );

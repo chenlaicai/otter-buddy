@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * F20261117cnnct（#1868 阶段 4 C1）：connector 配对管理 CLI。
+ * （阶段 4 C1）：connector 配对管理 CLI。
  *
  * 用法：
  *   node scripts/connector-pair.mjs                       # 生成一次性配对码（8 位，10 分钟有效）

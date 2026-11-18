@@ -1,5 +1,5 @@
 /**
- * #889：InboundController JSON null body 防御测试。
+ * InboundController JSON null body 防御测试。
  *
  * 背景：req.json() 解析合法 JSON `null` 成功不走 catch，
  * 修复前 null.source 解引用崩 500 并回显 V8 内部错误文本。

@@ -1,10 +1,10 @@
 /**
- * F20260908rlcp：信号路由器（事件驱动终态）。
+ * 信号路由器（事件驱动终态）。
  *
  * 职责：把「消息表里的信号」路由为 invoke 或 followUp/steer——入口（web sendMessage / IM / resume
  * 补扫 / scheduler·招聘直投 routeDirectSignal）的调度收敛点。
  *
- * F20260908rlcp 改动摘要（与 F20260901sgpv 对比）：
+ * 改动摘要（与 对比）：
  * - 退役：busyQueue / QueuedSignal / drainBusyQueue / signalContent / rebuildInjection
  *   / userHalted / markUserHalt / clearUserHalt / isRateLimited / RATE_LIMIT_BLOCK_*
  *   / shouldThrottle / isOtterActive / DEBOUNCE_MS / ACTIVE_WINDOW_MS / MIN_INVOKE_INTERVAL_SEC
@@ -25,10 +25,10 @@ import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import type { HealingErrorType, HealingEventStatus, HealingEvent, HealingSeverity } from "@entities/healing/healing-event";
 
 /**
- * F20260922ctxi：发送者显示名回退链（导出纯函数供直测）——快照名 → 配置显示名 → senderId。
+ * 发送者显示名回退链（导出纯函数供直测）——快照名 → 配置显示名 → senderId。
  * 修 [user] 标签瑕疵：senderName 缺失时直接掉 senderId（显示 [user]），与对话历史段的 [chen]
  * （partnerLabel 快照路径）不一致；降级语义对齐 dispatch-chain resolveUnreadSenderLabel 的
- * #488 回退约定（当前 sender 无快照 → partnerLabel）。
+ * 回退约定（当前 sender 无快照 → partnerLabel）。
  */
 export function resolveSignalSenderLabel(
   senderName: string | null | undefined,
@@ -48,7 +48,7 @@ export type SignalRouterInvokeFn = (params: {
   triggerMessageId?: string;
 }) => Promise<{ messageId: string; aggregatedTargets?: string[] }>;
 
-/** F20260913ctlv 彻底切换补漏：统一信号视图。
+/** 彻底切换补漏：统一信号视图。
  *  数据源优先级：entries（user 信号，新真相源）→ messages（scheduler 内部系统信号，
  *  范围外决策仍写 messages）。消费面：id/senderId/senderName/body/tsp/signalMeta。 */
 export interface SignalView {
@@ -64,9 +64,9 @@ export interface SignalView {
   senderType: string;
   /** 安全档唯一事实源 = 持久化 entry.source；路由器不得按 senderId 前缀推断。 */
   externalProfile?: "restricted";
-  /** F20261012swsg（#1430）：触发 entry 序号（安全词证据锚点 seq 位，机械透传） */
+  /** 触发 entry 序号（安全词证据锚点 seq 位，机械透传） */
   sequenceNum?: number;
-  /** F20260913ctlv：注入方式（目标 running 时）——steer=打断默认/followUp=排队；
+  /** 注入方式（目标 running 时）——steer=打断默认/followUp=排队；
    *  入口 sendMessage 按 body.mode 落 entry.metadata.injectionMode，路由时消费 */
   injectionMode?: "steer" | "followUp";
   /** 销账写回通道（entry metadata 或 message signal_meta） */
@@ -81,7 +81,7 @@ export type RouteAction =
   | "skipped_inactive"
   | "retry_invoked";
 
-/** F20260908rlcp：PiSessionFactory 窄接口（信号路由只需要这三个方法） */
+/** PiSessionFactory 窄接口（信号路由只需要这三个方法） */
 export interface SignalRouterSessionFactory {
   /** otter 是否在热池且正在运行 */
   isRunning(otterId: string): boolean;
@@ -93,7 +93,7 @@ export interface SignalRouterSessionFactory {
   steerSession(otterId: string, text: string): Promise<boolean>;
 }
 
-/** #775 S4a：routeDirectSignal 无法进行执行时抛出——携带不可路由原因 */
+/** routeDirectSignal 无法进行执行时抛出——携带不可路由原因 */
 export class DirectChainGatedError extends Error {
   constructor(public readonly gate: "skipped_no_signal" | "skipped_inactive" | "skipped_no_target") {
     super(`调度闸门/不可路由拦截：${gate}`);

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { foldInvokeEvents, type FoldedStep } from './invoke-event-fold'
 import type { InvokeEventDTO } from '@contract/api'
 
-/** F20260914rtsp AT-8/AT-9/AT-12：折叠归并规则验证 */
+/** AT-8/AT-9/AT-12：折叠归并规则验证 */
 
 function ev(id: string, eventType: string, payload: Record<string, unknown>, seq: number, ts = '2026-09-14T10:00:00Z'): InvokeEventDTO {
   return { id, invokeId: 'inv-1', eventType: eventType as InvokeEventDTO['eventType'], payload, sequenceNum: seq, createdAt: ts }

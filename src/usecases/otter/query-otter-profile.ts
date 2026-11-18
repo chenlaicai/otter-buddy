@@ -72,7 +72,7 @@ export class QueryOtterProfile {
     if (otter.status === "dissolved") throw new DomainError("Otter dissolved", "not_found");
 
     const config = this.configProvider.getConfig(otterId);
-    // F20260908efmd: 有效模型解析——恒非空 + 来源标注
+    // 有效模型解析——恒非空 + 来源标注
     const effective = resolveEffectiveModel(config, this.modelPool);
     const modelAlias = effective.alias;
     const modelIsDefault = effective.isDefault;

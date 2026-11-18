@@ -1,5 +1,5 @@
 /**
- * F20260921otcl：出生挑色纯函数（单一算法，两处消费）。
+ * 出生挑色纯函数（单一算法，两处消费）。
  *
  * 消费方：CreateOtter usecase（实时出生分配）+ db/migration 存量回填。
  * 放 entities 层的理由：migration（frameworks）与 usecase 都能依赖 entities，

@@ -1,7 +1,7 @@
 import type { LocalMessage } from './mappers'
 
 /**
- * F20260913ctlv：獭 invoke 状态追踪（右侧栏獭状态面板数据源）。
+ * 獭 invoke 状态追踪（右侧栏獭状态面板数据源）。
  * 红线：只根据 invoke.start / invoke.end SSE 事件维护状态——
  * entry.*（speak 粒度）不参与，避免流式 speak 事件驱动右栏高频 re-render；
  * toolCallCount/tokenUsage 仅 invoke.end 携带（终态快照，页面加载后刷新即恢复）。
@@ -18,9 +18,9 @@ export interface OtterInvokeState {
   /** invoke.end 携带（终态快照） */
   toolCallCount?: number
   tokenUsage?: { input: number; output: number }
-  /** F20260914rtsp：末次 LLM 往返 ctx 窗口占用（invoke.tick 携带；右栏 xx/xx 数据源） */
+  /** 末次 LLM 往返 ctx 窗口占用（invoke.tick 携带；右栏 xx/xx 数据源） */
   ctxWindowUsed?: number
-  /** F20260914rtsp：模型 ctx 上限（invoke.tick 携带） */
+  /** 模型 ctx 上限（invoke.tick 携带） */
   ctxMax?: number
 }
 
@@ -43,7 +43,7 @@ export interface InvokeEndPayload {
   tokenUsage?: { input: number; output: number }
 }
 
-/** F20260914rtsp：invoke.tick 事件负载（见 api-contract/sse/events.ts；modelAlias 审视发现 2 删——发射端从未携带） */
+/** invoke.tick 事件负载（见 api-contract/sse/events.ts；modelAlias 删——发射端从未携带） */
 export interface InvokeTickPayload {
   invokeId: string
   otterId: string
@@ -56,7 +56,7 @@ export interface InvokeTickPayload {
 
 export type InvokeStates = Record<string, OtterInvokeState>
 
-/** F20260922rprf：服务端 invoke 记录（listInvokes 响应元素）的最小形状——
+/** 服务端 invoke 记录（listInvokes 响应元素）的最小形状——
  *  与 api-contract InvokeDTO 结构兼容（此处独立声明避免 web→api-contract 深层 import）。 */
 export interface ServerInvokeRecord {
   id: string
@@ -71,7 +71,7 @@ export interface ServerInvokeRecord {
 }
 
 /** 服务端 invokes 合并进本地 invokeStates（拉取对账的写入语义，唯一真相源）。
- *  F20260928icmm 缓存模型（阶段1，弱合并退役）：服务端 invokes 表是权威数据源，
+ * 缓存模型（阶段1，弱合并退役）：服务端 invokes 表是权威数据源，
  *  同獭按 startedAt 最新者胜（同刻同 invokeId 时终态胜 running；同刻异 id 保守
  *  保持先到者；startedAt 不可解析时保守保持）；服务端更新即可覆盖本地任何旧状态
  *  （含本地终态——旧「本地终态即跳过」反向洞已随弱合并退役）；本地新于服务端
@@ -80,7 +80,7 @@ export interface ServerInvokeRecord {
  *  时回填本地上一轮值，与 applyInvokeStart「跨 invoke 保留 ctx」语义对齐。
  *  幂等：无任何变更时返回原引用（周期/重连/读点对账不驱动多余 re-render）。 */
 export function mergeInvokesFromServer(states: InvokeStates, invokes: ServerInvokeRecord[]): InvokeStates {
-  /** F20260928icmm 阶段1：缓存模型合并语义——服务端 invokes 表是权威数据源，同獭按
+  /** 阶段1：缓存模型合并语义——服务端 invokes 表是权威数据源，同獭按
    *  startedAt 最新者胜（同刻比状态终态性：终态胜 running）；幂等：无变更返回原引用。
    *  弱合并（本地已有即跳过 / 本地终态即跳过）退役——它让切回对话后的对账拉取写不进状态，
    *  是右栏卡「运行中」四轮未愈的根因（联合排查 2026-09-28）。
@@ -106,7 +106,7 @@ export function mergeInvokesFromServer(states: InvokeStates, invokes: ServerInvo
       ...(inv.tokenUsageInput != null && inv.tokenUsageOutput != null && { tokenUsage: { input: inv.tokenUsageInput, output: inv.tokenUsageOutput } }),
       ...(inv.ctxWindowUsed != null
         ? { ctxWindowUsed: inv.ctxWindowUsed }
-        // 检视建议 4（PR #1179）：服务端 ctx 尚未落库（新 invoke 首个 message_end 前）
+        // 服务端 ctx 尚未落库（新 invoke 首个 message_end 前）
         // 时回填本地上一轮值——与 applyInvokeStart 跨 invoke 保留 ctx 语义对齐
         // （「上下文只增不减」），避免右栏「行动中 · 45.2k/128k」闪成「—/—」。
         : (existing?.ctxWindowUsed != null && { ctxWindowUsed: existing.ctxWindowUsed })),
@@ -116,7 +116,7 @@ export function mergeInvokesFromServer(states: InvokeStates, invokes: ServerInvo
   return next ?? states
 }
 
-/** F20260928icmm：记录新旧比较——startedAt 新者胜；同刻同 invokeId 时终态胜 running
+/** 记录新旧比较——startedAt 新者胜；同刻同 invokeId 时终态胜 running
  *  （对账收敛本地幽灵 running）；无信息可判时保守返回 false（本地/先到者保持）。 */
 function recordNewer(a: ServerInvokeRecord, b: ServerInvokeRecord): boolean {
   const ta = Date.parse(a.startedAt)
@@ -126,7 +126,7 @@ function recordNewer(a: ServerInvokeRecord, b: ServerInvokeRecord): boolean {
   return false
 }
 
-/** F20260928icmm：本地状态 → 服务端记录形状（供记录比较；无关字段置空）。 */
+/** 本地状态 → 服务端记录形状（供记录比较；无关字段置空）。 */
 function localAsRecord(s: OtterInvokeState): ServerInvokeRecord {
   return {
     id: s.invokeId,
@@ -172,7 +172,7 @@ export function applyInvokeEnd(states: InvokeStates, data: InvokeEndPayload): In
     endedAt: data.endedAt,
     toolCallCount: data.toolCallCount,
     tokenUsage: data.tokenUsage,
-    // F20260914rtsp：终态保留 tick 已写入的 ctx（「休息中 · xx/xx」数据源——上轮末次往返占用）
+    // 终态保留 tick 已写入的 ctx（「休息中 · xx/xx」数据源——上轮末次往返占用）
     ctxWindowUsed: prev.ctxWindowUsed,
     ctxMax: prev.ctxMax,
   }
@@ -185,7 +185,7 @@ export function isStreaming(states: InvokeStates, otterId: string): boolean {
   return states[otterId]?.status === 'running'
 }
 
-/** F20260914rtsp：invoke.tick → 更新 ctx/工具计数（running 期间实时化）。
+/** invoke.tick → 更新 ctx/工具计数（running 期间实时化）。
  *  幂等：同 invokeId 同值返回原引用（避免高频 tick 触发无谓 re-render）。
  *  乱序防御：无 prev 或 invokeId 不匹配则忽略（重连重放场景）。 */
 export function applyInvokeTick(states: InvokeStates, data: InvokeTickPayload): InvokeStates {
@@ -205,7 +205,7 @@ export function applyInvokeTick(states: InvokeStates, data: InvokeTickPayload): 
   return { ...states, [data.otterId]: next }
 }
 
-/** F20260914rtsp：ctx 占用短格式（45200 → 45.2k；null/undefined → '—'） */
+/** ctx 占用短格式（45200 → 45.2k；null/undefined → '—'） */
 export function fmtCtx(n: number | undefined | null): string {
   if (n == null) return '—'
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)

@@ -6,7 +6,7 @@ import { HelpIcon } from './HelpIcon'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-// F20260826pfix：气泡改 Portal 挂 document.body（脱离 Modal overflow 剪裁），
+// 气泡改 Portal 挂 document.body（脱离 Modal overflow 剪裁），
 // 断言范围从 container 扩大到 document.body
 function renderToBody(text: string) {
   const container = document.createElement('div')

@@ -137,7 +137,7 @@ describe("AttachmentUploadService（上传管线集成，多模态 Phase 1）", 
   });
 
 
-  // ── #608：audio/video/pdf 白名单扩展 ──
+  // ── audio/video/pdf 白名单扩展 ──
 
   it("WAV 音频上传：识别为 audio，直落盘不重编码（#608）", async () => {
     // 44 字节 WAV 头 + 少量 PCM 数据

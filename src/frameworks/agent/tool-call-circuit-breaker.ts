@@ -4,12 +4,12 @@
  * 防止 agent 陷入无限工具调用循环，保护 token 资源。
  * 通过 tool_execution_start 事件拦截，利用 session.steer() 注入纠正提示。
  *
- * 行为范式（事件驱动两档制，F20260728cbwt）：
+ * 行为范式（事件驱动两档制，）：
  *   首次触发规则 → steer 警告；警告后仍不纠正、继续触发规则满 maxRepeatAfterWarning 次
  *   → terminate 当场中断。中途出现任何一次正常调用（allow）即解除警告状态。
  *   时间维度的挂死保护由 per-event 超时（circuit-breaker-helpers 中 resettable timer）负责，熔断器只管行为模式。
  *
- * 设计文档：F20260716bte2-agent-circuit-breaker（初版）、F20260728cbwt（事件驱动改造）
+ * 设计文档：-agent-circuit-breaker（初版）、（事件驱动改造）
  */
 
 import type { Logger } from "@usecases/ports/logger";
@@ -38,10 +38,10 @@ interface CheckResult {
   action: "allow" | "warn" | "steer" | "terminate";
   /** terminate 的触发规则标识，用于向上传递 abort 原因 */
   trigger?: string;
-  /** steer 的规则来源（F20261027cbfp）：仅滑窗 steer 触发清窗（B-3 连续同签名不涉及） */
+  /** steer 的规则来源：仅滑窗 steer 触发清窗（B-3 连续同签名不涉及） */
   origin?: "consecutive" | "sliding_window";
   /**
-   * 同签名第 2 次触发 steer（S1 补防，#1653）：该签名已复犯——上次警告未生效，
+   * 同签名第 2 次触发 steer（补防，）：该签名已复犯——上次警告未生效，
    * 交由调用方写入粘滞黑名单物理拦截。首次 steer 不标记（纯警告，误伤优先）。
    */
   repeatOffender?: boolean;

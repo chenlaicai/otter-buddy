@@ -4,7 +4,7 @@ import { handleError } from "../http-error";
 import type { PromptBundleDTO } from "@contract/api/prompt";
 
 /**
- * F20260929scfx：能力库全书——系统提示词与工具清单端口。
+ * 能力库全书——系统提示词与工具清单端口。
  *
  * system: .pi/SYSTEM.md 按二级标题（## ）切分为 sections。
  * tools: 无条件注册的基础工具集（name + description，不含 inputSchema）。
@@ -16,7 +16,7 @@ export interface PromptDirectory {
 }
 
 /**
- * F20260929scfx：卷首·心法总纲 + 卷末·兵器谱数据源。
+ * 卷首·心法总纲 + 卷末·兵器谱数据源。
  *
  * 路由：GET /api/prompts
  */

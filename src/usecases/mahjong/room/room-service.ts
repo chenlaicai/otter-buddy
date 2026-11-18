@@ -14,7 +14,7 @@
  *   - 每步落地即落帧（appendFrame）并广播 {events, decision, frameSeq}
  *   - 断线重连：recover(roomId) = 最新帧 restoreEngine + 续推
  *
- * F20261015mjsg 收尾三钩（大獭裁决归引擎层）：
+ * 收尾三钩（大獭裁决归引擎层）：
  *   - isSeated(otterId)：D2 精确谓词——入座且对局进行中，对话侧据此自动应答「打牌中」
  *   - addChat + 下局开局注入：真人回话入队（按 otter 座位分队），下局开局后经 gateway
  *     直调注入各 otter session（方案口径：不走运行中 reset/不走 systemPrompt）
@@ -64,15 +64,15 @@ interface RoomInternal {
   startedAt: number;
   /** 终局已上报（防重复：loop 顶只 fire 一次；recover 已终局也置位） */
   reportedOver: boolean;
-  /** F20261022mjls：lobby TTL 驱逐定时器（waiting 房超时未开始自动清房） */
+  /** lobby TTL 驱逐定时器（waiting 房超时未开始自动清房） */
   lobbyEvictTimer?: ReturnType<typeof setTimeout>;
   /** 终局宽限驱逐定时器（scheduleEvict；close/同房重开后由代际校验失效） */
   evictTimer?: ReturnType<typeof setTimeout>;
-  /** #1564-5：局终结算停驻定时器（有真人的房暂停等「继续」，到期自动继续） */
+  /** -5：局终结算停驻定时器（有真人的房暂停等「继续」，到期自动继续） */
   settleTimer?: ReturnType<typeof setTimeout>;
-  /** #1564-5：结算停驻已放行（继续按钮/超时置位；loop 直推下局后复位，防重 park） */
+  /** -5：结算停驻已放行（继续按钮/超时置位；loop 直推下局后复位，防重 park） */
   settleResumed: boolean;
-  /** #1564-6：真人连续超时代打计数（离桌 runaway 界；真人注入动作清零） */
+  /** -6：真人连续超时代打计数（离桌 runaway 界；真人注入动作清零） */
   humanIdleStrikes: number;
   /** 待注入聊天（按 otterId 分队；下局开局消费，成功即清、失败保留次局重试） */
   chatQueues: Map<string, ChatMessage[]>;
@@ -97,20 +97,20 @@ export class RoomService {
     this.lobbyTtlMs = deps.lobbyTtlMs ?? 3_600_000;
   }
 
-  /** 终局房宽限出 Map（检视发现3）：宽限内 view/recover 可用（页面终局展示），到期驱逐防 rooms Map 无界 */
+  /** 终局房宽限出 Map：宽限内 view/recover 可用（页面终局展示），到期驱逐防 rooms Map 无界 */
   private readonly evictFinishedMs: number;
 
-  /** F20261022mjls：lobby 等待房 TTL（1 小时未开始自动清房防占位） */
+  /** lobby 等待房 TTL（1 小时未开始自动清房防占位） */
   private readonly lobbyTtlMs: number;
 
   // ── 生命周期 ──
 
-  /** 建房开 lobby 等待房（F20261022mjls 建房≠开局）：配座位不上牌、不发牌不起跑。
+  /** 建房开 lobby 等待房（建房≠开局）：配座位不上牌、不发牌不起跑。
    *  返回 waiting 房；搭档在牌桌点「开始」才 startRoom 发牌起跑。*/
   createRoom(roomId: string, config: GameConfig): { gameId: string } {
     const existing = this.rooms.get(roomId);
     if (existing) {
-      // 检视发现3：终局旧房占位曾致同 roomId 永久 409——单房间单赛（头部口径），
+      // 终局旧房占位曾致同 roomId 永久 409——单房间单赛（头部口径），
       // 终局即换局：旧房出 Map（旧宽限定时器由代际校验自失效），重开 = 新 gameId
       if (existing.engine.state.status === "playing") throw new Error(`room already exists: ${roomId}`);
       this.close(roomId);

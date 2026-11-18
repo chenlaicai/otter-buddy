@@ -1,9 +1,9 @@
 /**
- * Workspace HTTP API 集成测试（PR #554 审视修复补齐）。
+ * Workspace HTTP API 集成测试（审视修复补齐）。
  *
  * 覆盖：
- * - S1 路径穿越：conversationId UUID 校验拒绝含路径分隔符/.. 的值
- * - S2 多字节截断：中文文件按字节截断且不破坏 UTF-8 边界
+ * - 路径穿越：conversationId UUID 校验拒绝含路径分隔符/.. 的值
+ * - 多字节截断：中文文件按字节截断且不破坏 UTF-8 边界
  * - S3 正常链路：listDir / readFile 核心路径
  * - 错误语义：工作区不存在 → 404（DomainError）而非 500
  */
@@ -17,7 +17,7 @@ import { WorkspaceController } from "@interface-adapters/http/controllers/worksp
 import { ManageWorkspace } from "@usecases/conversation/manage-workspace";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 import { createTestLogger } from "../../helpers/logger";
-// Why: 契约形状锁（issue #558）——响应体断言直接用契约类型，形成契约↔wire 双向绑定
+// Why: 契约形状锁——响应体断言直接用契约类型，形成契约↔wire 双向绑定
 import type { WorkspaceListDirResponse, WorkspaceFileContent } from "@contract/api/workspace";
 
 /** 合法 conversationId 样本 */
@@ -56,7 +56,7 @@ afterEach(async () => {
 });
 
 describe("Workspace HTTP API", () => {
-  // ─── S1: 路径穿越防护 ───
+  // ─── 路径穿越防护 ───
 
   describe("conversationId 路径穿越防护（UUID 校验）", () => {
     it("含 .. 的 conversationId 拒绝 400", async () => {

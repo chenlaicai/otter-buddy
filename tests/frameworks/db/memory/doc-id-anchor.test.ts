@@ -1,5 +1,5 @@
 /**
- * F20260902rcq3 单测：doc ID 锚点注入
+ * 单测：doc ID 锚点注入
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";

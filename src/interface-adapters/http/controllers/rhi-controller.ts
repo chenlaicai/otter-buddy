@@ -1,7 +1,7 @@
-/* eslint-disable max-lines -- F20260921rctr 显式序列化（serializeSignal + metricKeyToCamel）后有效行 458>450；
+/* eslint-disable max-lines -- 显式序列化（serializeSignal + metricKeyToCamel）后有效行 458>450；
    controller 是 /api/health/* 全端点聚合点，拆分待视图稳定后另立 issue */
 /**
- * RhiController: /api/health/* 端点（F20260825rweb Phase 2 / Issue #402）
+ * RhiController: /api/health/* 端点（Phase 2 / ）
  *
  * 三个读端点 + 一个手动扫描端点，数据全部来自 Phase 0/1 的现成结构：
  * - overview: health_snapshots 最新快照 + open 信号计数（含 critical 数）
@@ -9,8 +9,8 @@
  * - chains:  实时构建特性链（buildFeatureChains 纯函数，读 git + docs）
  * - scan:    手动触发一轮 RhiScanWorker.scanOnce（调试/演示用）
  *
- * 设计：HTTP 语义优先——catch 块经 handleError 统一返回 5xx/4xx（#581，废除历史上的
- * 「守门人模式」即 200+error body；决策记录见特性文档 F20260901r5xx）。
+ * 设计：HTTP 语义优先——catch 块经 handleError 统一返回 5xx/4xx（废除历史上的
+ * 「守门人模式」即 200+error body；决策记录见特性文档 ）。
  */
 
 import type { Context } from "hono";
@@ -19,19 +19,19 @@ import { handleError } from "../http-error";
 import type { SignalRepository, SignalRecord } from "@usecases/health/signal-repository";
 import type { HealthSnapshotRepository } from "@usecases/health/health-snapshot-repository";
 import type { RhiScanWorker } from "@usecases/health/rhi-scan-worker";
-// Issue #448：RHI DTO 契约单一真相源（api-contract）——响应序列化显式对齐
+// RHI DTO 契约单一真相源（api-contract）——响应序列化显式对齐
 import type { RhiSignalDTO } from "@contract/api/rhi";
 import { judgeTrend, DIMENSION_NAMES, statusFromScore } from "@usecases/health/health-score";
 import { buildModelBreakdown, buildInvokeStats } from "@usecases/health/usage-model-breakdown";
 import type { DimensionId, TrendDirection } from "@usecases/health/health-score";
 import { aggregateOpenSignalCounts } from "@usecases/health/signal-counts";
 import { computeFanInExclusions } from "@usecases/health/post-merge-fix-density";
-// Issue #636 B5：信号中文名的单一真相源是 signal-registry（SIGNAL_REGISTRY[type].name）
+// B5：信号中文名的单一真相源是 signal-registry（SIGNAL_REGISTRY[type].name）
 import { SIGNAL_REGISTRY } from "@usecases/health/signal-registry";
 import type { SignalType } from "@usecases/health/signal-registry";
 import { checkOpenIssue, type CheckIssueBinding } from "../../github/issue-binding";
 
-/** Issue #644：JSON 字符串安全解析（evidence_detail 列）——解析失败降级 null 不阻断列表 */
+/** JSON 字符串安全解析（evidence_detail 列）——解析失败降级 null 不阻断列表 */
 function safeParseJson(raw: string): unknown {
   try {
     return JSON.parse(raw);
@@ -40,13 +40,13 @@ function safeParseJson(raw: string): unknown {
   }
 }
 
-/** Issue #636 B5：原 SIGNAL_TYPE_LABELS 本地映射（与 registry name 逐字重复）已收口——
+/** B5：原 SIGNAL_TYPE_LABELS 本地映射（与 registry name 逐字重复）已收口——
  *  中文名从 SIGNAL_REGISTRY[type].name 取，registry 为单一真相源。未收录类型回退原始 type 字符串。 */
 function signalTypeLabel(type: string): string {
   return SIGNAL_REGISTRY[type as SignalType]?.name ?? type;
 }
 
-/** 特性链信号事实解释（F20260902sigm：链路信号模型，判据 100% 来自 git/PR 事实，
+/** 特性链信号事实解释（链路信号模型，判据 100% 来自 git/PR 事实，
  *  docStatus 不再参与文案；信号可叠加，逐条列出，无生命周期叙事） */
 function buildChainStateReason(
   chain: {

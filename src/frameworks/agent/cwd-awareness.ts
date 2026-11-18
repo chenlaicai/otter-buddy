@@ -1,5 +1,5 @@
 /**
- * F20260922scwd：bash 感知对齐与主仓写保护——
+ * bash 感知对齐与主仓写保护——
  * 让 LLM 每条 bash 命令都看到真实执行目录（感知对齐），
  * 并在未 cd 时拦截落点为主仓的写命令（事故兜底）。
  *
@@ -15,7 +15,7 @@
  * ③工具描述补充：bash 工具描述加「每条命令独立 shell，cd 不跨命令保持」。
  *
  * Why 不做粘性：文本跟踪有固有盲区（脚本内 cd、嵌套引用、临时查看误粘），
- * 感知对齐把「状态管理」复杂度换成「误差显式化」的简洁，与 #776 同构。
+ * 感知对齐把「状态管理」复杂度换成「误差显式化」的简洁，与 同构。
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -35,7 +35,7 @@ export const CWD_PREFIX_TAG = "[cwd:";
  * 感知对齐核心：LLM 每轮看到真实执行目录，自行修正心理模型误差。
  *
  * 注入位置：成功返回的 content[0].text 开头；错误场景——pi 0.x 抛 Error（文本在
- * error.message）→ 前缀注入 message 后 rethrow；pi 1.x（F20261008pi11）改为 resolve
+ * error.message）→ 前缀注入 message 后 rethrow；pi 1.x改为 resolve
  * isError:true 的结构化结果（command_response 语义：结果就是给模型看的，不再 throw）
  * → 前缀注入 text 开头后照常 resolve。两条路径都保留「失败命令在哪跑的」感知。
  *

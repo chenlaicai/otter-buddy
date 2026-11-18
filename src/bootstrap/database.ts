@@ -28,7 +28,7 @@ export interface DatabaseBootstrapResult {
   otterConfigProvider: OtterConfigProvider;
   model: Model<Api>;
   modelPool: ModelPool;
-  /** F20261016ebrt：查询 lane——只服务 search_memory（延迟优先） */
+  /** 查询 lane——只服务 search_memory（延迟优先） */
   queryEmbedding: EmbeddingGateway;
   /** 实时写 lane——store-memory fireAndForget（fail-fast） */
   liveEmbedding: EmbeddingGateway;
@@ -60,14 +60,14 @@ export async function initDatabaseAndModels(
   const isNewDb = !fs.existsSync(dbPath);
   const db = initDatabase(appConfig.db, logger);
 
-  /** F20260827mgux（#506）：initSchema 无条件执行（幂等，全 IF NOT EXISTS）——
+  /** initSchema 无条件执行（幂等，全 IF NOT EXISTS）——
    *  新库建全表，老库补缺失表。消灭「新表需在 initSchema + migrateDatabase 两处登记」
    *  的誊抄结构（历史四案：embedding_meta / RHI 两表 / signal_events+restart_pending_resumes /
    *  search_query_logs 漏登，最后一例被 fire-and-forget 吞错静默丢数据）。 */
   initSchema(db, logger);
   /** initSchema 不含历史补丁列（如 agent_sessions.session_file）。
    *  migrateDatabase 幂等（PRAGMA 检查 + IF NOT EXISTS），新库也必须跑到最新结构——
-   *  否则下方 migrateExistingData 读 session_file 直接崩（F20260805codx 曾把两者做成互斥分支，新库无法启动）。 */
+   * 否则下方 migrateExistingData 读 session_file 直接崩（曾把两者做成互斥分支，新库无法启动）。 */
   migrateDatabase(db, logger);
   migrateMessageSegments(db, logger);
 
@@ -124,11 +124,11 @@ export function initRepositoriesWithDb(db: Database.Database, logger?: Logger): 
 }
 
 /**
- * F20260916b1ea 重建：重启 reconcile——running invokes 全部置 failed
+ * 重建：重启 reconcile——running invokes 全部置 failed
  * （进程死亡时在跑的 invoke，页面刷新后不残留「运行中」假象），
  * RETURNING 原子取回被标记行详情并逐条入队 restart_pending_resumes
  * （pending 状态跨重启持久，恢复服务 fire-and-forget 消费）。
- * A3 处置：scheduler 来源 invoke 排除入队（trigger_entry_id 为 NULL 或
+ * 处置：scheduler 来源 invoke 排除入队（trigger_entry_id 为 NULL 或
  * 指向 system entry——定时任务有自己的重触发语义，误恢复会重复产出）。
  * 失败仅日志不阻断启动（对齐既有 non-fatal 纪律）。
  */

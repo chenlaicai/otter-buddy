@@ -1,9 +1,9 @@
 // lint-tests:allow-ddl —— 迁移/恢复测试需要手工建旧 schema 的表（模拟存量库形态）
 /**
- * F20260728htar 一次性补丁测试：
+ * 一次性补丁测试：
  * (a) messages_fts_stripped_rebuild：存量 FTS 重建为剥离投影（settings 幂等键）
  * (b) attachments_drop_column：messages 表 DROP COLUMN attachments（PRAGMA 探测幂等）
- * F20260803pncv：addPinnedColumn — conversations 表添加 pinned 列（PRAGMA 探测幂等）
+ * addPinnedColumn — conversations 表添加 pinned 列（PRAGMA 探测幂等）
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
@@ -64,7 +64,7 @@ describe("migrateDatabase - F20260728htar 补丁", () => {
 });
 
 /**
- * F20260803mval 补丁测试：rebuildDocumentTablesDropCheck
+ * 补丁测试：rebuildDocumentTablesDropCheck
  * 重建 features/research 表移除枚举 CHECK 约束（SQLite 不支持 DROP CHECK，必须重建表）
  */
 describe("migrateDatabase - F20260803mval 补丁: rebuildDocumentTablesDropCheck", () => {
@@ -184,10 +184,10 @@ describe("migrateDatabase - F20260803fbit body_hash 列", () => {
 });
 
 /**
- * F20260821evaf：embedding_meta 表老库补建（#506 后由无条件 initSchema 承担）。
+ * embedding_meta 表老库补建（后由无条件 initSchema 承担）。
  * 原语境：initSchema 仅新库执行——存量库若只靠 initSchema，embedding_meta 永远不存在，
  * getEmbeddingMeta 的 SELECT 直接抛 no such table。
- * #506 后：bootstrap 无条件跑幂等 initSchema，补建语义由
+ * 后：bootstrap 无条件跑幂等 initSchema，补建语义由
  * tests/frameworks/db/migration-equivalence.guard.test.ts 的等价性守卫整体覆盖，
  * 此处仅保留独立补建行为的直接验证。
  */
@@ -221,8 +221,8 @@ describe("#506 initSchema 补建：embedding_meta 表", () => {
 });
 
 /**
- * F20260827he2f：healing_events 表添加 introduced_by_pr 列（存量库迁移）。
- * PR #386 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
+ * healing_events 表添加 introduced_by_pr 列（存量库迁移）。
+ * 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
  * 此处用 PRAGMA table_info 检测列存在性作幂等，与 session_file 等历史补丁列一致。
  */
 describe("migrateDatabase - F20260827he2f healing_events.introduced_by_pr 列", () => {
@@ -230,7 +230,7 @@ describe("migrateDatabase - F20260827he2f healing_events.introduced_by_pr 列", 
     const db = new Database(":memory:");
     try {
       initSchema(db);
-      // 模拟早于 F20260824ax376 时代的存量库：healing_events 表无 introduced_by_pr 列
+      // 模拟早于 时代的存量库：healing_events 表无 introduced_by_pr 列
       db.exec("ALTER TABLE healing_events DROP COLUMN introduced_by_pr");
       
       // 验证列不存在
@@ -278,7 +278,7 @@ describe("migrateDatabase - #654 补丁: rebuildExecutionsStatusCheck", () => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
     initSchema(db);
-    // initSchema 新建已含 skipped，DROP 后用旧式定义重建（模拟 #654 之前的存量库）
+    // initSchema 新建已含 skipped，DROP 后用旧式定义重建（模拟 之前的存量库）
     db.exec("DROP TABLE scheduled_task_executions");
     db.exec(`
       CREATE TABLE scheduled_task_executions (
@@ -359,9 +359,9 @@ describe("migrateDatabase - F20260908rlcp: dispatch_attempts table drop", () => 
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
     initSchema(db);
-    // F20260908rlcp：dispatch_attempts 已从 initSchema 退役，手动创建模拟存量库
+    // dispatch_attempts 已从 initSchema 退役，手动创建模拟存量库
     db.exec(`CREATE TABLE IF NOT EXISTS dispatch_attempts (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, target_otter_id TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('in_progress','completed','failed','aborted')), source TEXT NOT NULL DEFAULT 'chain' CHECK (source IN ('chain','router','retry','backfill')), attempt_started_at TEXT NOT NULL DEFAULT (datetime('now')), attempt_finished_at TEXT, note TEXT, UNIQUE(message_id, target_otter_id), FOREIGN KEY (conversation_id) REFERENCES conversations(id))`);
-    // 父表先 seed（FK 验证用）——messages 已退役（F20260913ctlv 批4c），message_id 为弱引用文本
+    // 父表先 seed（FK 验证用）——messages 已退役（批4c），message_id 为弱引用文本
     db.prepare(`INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-m', 't', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run();
     db.prepare(`INSERT INTO otters (id, name, type, created_at) VALUES ('otter-1', 'o1', 'big', '2026-09-01T00:00:00Z')`).run();
     db.prepare(`INSERT INTO dispatch_attempts (id, conversation_id, message_id, target_otter_id, status, source, attempt_started_at, note)
@@ -404,7 +404,7 @@ describe("migrateDatabase - F20260908rlcp: dispatch_attempts table drop", () => 
     const db = new Database(":memory:");
     try {
       initSchema(db);
-      // 全新库无 dispatch_attempts 表（F20260908rlcp 退役）
+      // 全新库无 dispatch_attempts 表（退役）
       // 迁移中的 dropDispatchAttemptsTable 检测表不存在后跳过
       expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
       // 验证表不存在（退役后新库不建此表）
@@ -419,8 +419,8 @@ describe("migrateDatabase - F20260908rlcp: dispatch_attempts table drop", () => 
 
 // lint-tests:allow-ddl —— 迁移/恢复测试需要手工建旧 schema 的表（模拟存量库形态）
 /**
- * F20260914fkx1：scheduled_task_executions 残留 FK REFERENCES messages(id) 清理
- * 现场（2026-09-14 生产）：#886 批4c drop messages 表后，存量库该表 FK 指向已删表，
+ * scheduled_task_executions 残留 FK REFERENCES messages(id) 清理
+ * 现场（2026-09-14 生产）：批4c drop messages 表后，存量库该表 FK 指向已删表，
  * foreign_keys=ON 时 INSERT 抛 SqliteError: no such table: main.messages，
  * 定时任务 catch-up 全部静默失败（log 887782）。
  */
@@ -488,7 +488,7 @@ describe("migrateDatabase - F20260914fkx1: rebuildExecutionsDropMessagesFk", () 
       const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_executions_task'").get();
       expect(idx).toBeTruthy();
 
-      // 幂等：二次迁移不报错不重复重建（检视建议 1：另验数据完整——二次迁移后存量行仍在、计数不变）
+      // 幂等：二次迁移不报错不重复重建（另验数据完整——二次迁移后存量行仍在、计数不变）
       expect(() => migrateDatabase(db, createTestLogger())).not.toThrow();
       const row2 = db.prepare("SELECT status FROM scheduled_task_executions WHERE id = 'exec-fkx-1'").get() as { status: string };
       expect(row2.status).toBe("skipped");
@@ -516,7 +516,7 @@ describe("migrateDatabase - F20260914fkx1: rebuildExecutionsDropMessagesFk", () 
   });
 });
 
-/** F20260915midu（#942）：记忆投影条目主键统一为 source_id 的存量迁移。
+/** 记忆投影条目主键统一为 source_id 的存量迁移。
  *  验证：id 换键、edges 重定向（含重复边去重）、卫星表（weights/FTS/embedding_tasks）
  *  键复制、豁免类（signals-fact / chunk）不动、幂等。 */
 describe("migrateDatabase - F20260915midu: rebuildMemoryEntriesUnifyIds", () => {
@@ -539,7 +539,7 @@ describe("migrateDatabase - F20260915midu: rebuildMemoryEntriesUnifyIds", () => 
     insertEntry.run("old-proj-res", "working", "linked_resource", "res-001", "linked_resources", "conv-1", "coarse", "资源内容", null, "2026-09-01T00:00:00Z");
     insertFts.run("old-proj-res", "资源 内容");
     insertWeights.run("old-proj-res");
-    // feature：文档 F20260915aaaa，投影旧 ID old-proj-feat
+    // feature：文档 投影旧 ID old-proj-feat
     insertEntry.run("old-proj-feat", "document", "feature", "F20260915aaaa", "features", null, "coarse", "文档 summary", null, "2026-09-01T00:00:00Z");
     insertFts.run("old-proj-feat", "文档 summary");
     insertWeights.run("old-proj-feat");
@@ -667,7 +667,7 @@ describe("migrateDatabase - F20260915midu: rebuildMemoryEntriesUnifyIds", () => 
     const db = createLegacyDualIdDb();
     try {
       migrateDatabase(db, createTestLogger());
-      // 资源 ID 直查命中（#942 的核心验收）
+      // 资源 ID 直查命中（的核心验收）
       const hit = db.prepare("SELECT id FROM memory_entries WHERE id = 'res-001'").get();
       expect(hit).toBeTruthy();
       // 对资源 ID 建边成功（FK 约束下新边可落）
@@ -752,7 +752,7 @@ describe("migrateDatabase - F20260915midu: rebuildMemoryEntriesUnifyIds", () => 
   });
 });
 
-/** F20260915midu 检视严重发现 1 回归：post-migration replaceBySource 重入（同 id 快路径）。
+/** 检视严重发现 1 回归：post-migration replaceBySource 重入（同 id 快路径）。
  *  迁移后 feature entry id = source_id，replaceEntryBySource 先插后删会撞 UNIQUE 主键——
  *  修复为同 id 走快路径（边 remap 是 no-op，直接级联删 + 删旧 + 插新）。
  *  本用例锁死「迁移 → sync_docs reindex」端到端衔接面。 */
@@ -775,7 +775,7 @@ describe("migrateDatabase - F20260915midu: post-migration replaceBySource re-ent
       insertWeights.run("old-proj-msg");
       db.prepare(`INSERT INTO memory_edges (id, from_entry_id, to_entry_id, edge_type, created_at) VALUES ('edge-1', 'old-proj-msg', 'old-proj-feat', 'produced', '2026-09-01T00:00:00Z')`).run();
 
-      // 迁移：id 统一（feature id 变为 F20260915bbbb，边重定向）
+      // 迁移：id 统一（feature id 变为 边重定向）
       migrateDatabase(db, createTestLogger());
       expect((db.prepare("SELECT id FROM memory_entries WHERE content_type='feature'").get() as { id: string }).id).toBe("F20260915bbbb");
 

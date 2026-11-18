@@ -62,7 +62,7 @@ describe('MessageList 附件渲染（多模态 Phase 1）', () => {
     const img = container.querySelector('img[src^="/api/attachments/att-img-1"]')
     expect(img).not.toBeNull()
     expect(img!.getAttribute('src')).toBe(withIdentity('/api/attachments/att-img-1'))
-    // #1868 阶段 2：直链身份随会话 cookie，不再拼 otterUserId/otterRole query（withIdentity 恒等返回）
+    // 阶段 2：直链身份随会话 cookie，不再拼 otterUserId/otterRole query（withIdentity 恒等返回）
     expect(img!.getAttribute('src')).toBe('/api/attachments/att-img-1')
     expect(img!.getAttribute('alt')).toBe('photo.png')
   })

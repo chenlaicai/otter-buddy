@@ -11,7 +11,7 @@ export const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif']
 /** document 扩展名白名单（与后端 DOCUMENT_EXTENSION_MAP 一致——纯文本类，可注入 LLM；PDF 走二进制魔数） */
 export const DOCUMENT_EXTENSIONS = ['.txt', '.md', '.markdown', '.csv', '.json', '.pdf']
 
-/** audio/video 扩展名白名单（#608：与后端 AUDIO/VIDEO_MIME_WHITELIST 对齐） */
+/** audio/video 扩展名白名单（与后端 AUDIO/VIDEO_MIME_WHITELIST 对齐） */
 export const AUDIO_EXTENSIONS = ['.wav', '.mp3']
 export const VIDEO_EXTENSIONS = ['.mp4']
 
@@ -31,7 +31,7 @@ export interface RejectedFile {
   reason: string
 }
 
-/** 按扩展名判定附件类型（白名单外返回 null；#608 扩 audio/video/pdf） */
+/** 按扩展名判定附件类型（白名单外返回 null；扩 audio/video/pdf） */
 export function classifyByExtension(name: string): AttachmentKind | null {
   const lower = name.toLowerCase()
   if (IMAGE_EXTENSIONS.some(ext => lower.endsWith(ext))) return 'image'

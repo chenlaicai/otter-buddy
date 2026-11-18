@@ -5,9 +5,9 @@ import path from "node:path";
 import { WeixinAccountStore } from "@frameworks/weixin/account-store";
 
 /**
- * removeAccount 幂等性单测（PR #682 回修——检视 #682 发现 1）。
+ * removeAccount 幂等性单测（回修——）。
  *
- * #592 的「删了又复活」防线依赖 removeAccount 可被二次调用而不抛错
+ * 的「删了又复活」防线依赖 removeAccount 可被二次调用而不抛错
  * （主路径 onWeixinAccountDeleted 先删 + account_deleted 分支后到二次删）。
  * 此前幂等性仅靠代码审查确认，本用例锁定行为假设，防重构打破。
  */

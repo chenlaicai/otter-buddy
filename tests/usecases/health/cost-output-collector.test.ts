@@ -100,7 +100,7 @@ describe("collectOtterOutput", () => {
     db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run("otter-bbb", "小獭甲", "small");
     // 插入消息数据（用 conversation 的依赖数据）
     db.prepare("INSERT INTO conversations (id, title) VALUES (?, ?)").run("conv-1", "test");
-    // 插入不同日期的獭 speak entries（F20260913ctlv 批4c：messages 表已 drop）
+    // 插入不同日期的獭 speak entries（批4c：messages 表已 drop）
     const seedEntry = (id: string, seq: number, senderId: string, senderName: string, createdAt: string) =>
       db.prepare(`
         INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, sender_name, created_at, completed_at)
@@ -110,7 +110,7 @@ describe("collectOtterOutput", () => {
     seedEntry("m2", 2, "otter-aaa", "大獭", "2026-08-28 11:00:00");
     seedEntry("m3", 3, "otter-bbb", "小獭甲", "2026-08-28 12:00:00");
     seedEntry("m4", 4, "otter-aaa", "大獭", "2026-08-29 09:00:00");
-    // F20261105tzwfx：上海日界回归钉子——UTC 20:00（上海 08-29 04:00）应归 08-29，
+    // 上海日界回归钉子——UTC 20:00（上海 08-29 04:00）应归 08-29，
     // 防止 DATE() UTC 日界口径回退（与 toolCallCounts 上海日键错配曾致静默归零）
     seedEntry("m6", 6, "otter-aaa", "大獭", "2026-08-28 20:00:00");
     // user 消息不应被计入
@@ -272,7 +272,7 @@ describe("collectInvokeStats（F20260914usgm：单次问答均值）", () => {
 });
 
 describe("collectFdocCounts", () => {
-  it("返回 per-date F 文档数数组（仓库真实数据）", { timeout: 20_000 }, async () => {  // F20261021ttos：重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
+  it("返回 per-date F 文档数数组（仓库真实数据）", { timeout: 20_000 }, async () => {  // 重成本用例显式宽窗（判据见 testing-rules「重成本用例超时策略」）
     const repoPath = resolve(__dirname, "../../../");
     const results = await collectFdocCounts(repoPath);
     // 仓库有 F 文档，结果应为非空数组

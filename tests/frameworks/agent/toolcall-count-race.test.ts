@@ -2,13 +2,13 @@ import { createTestExecutionMachineRegistry } from "../../helpers/execution-mach
 import { describe, it, expect, vi } from "vitest";
 
 /**
- * #763：toolCallCount 快照竞态修复——驱动真实 catch 分支的回归锁。
+ * toolCallCount 快照竞态修复——驱动真实 catch 分支的回归锁。
  *
  * bug 形态：catch 分支经 activeSessions.get(sessionKey) 重查计数——跨帧删除
  * （destroy() 外部 abort→delete / 同键并发 invoke 互踩）先于 catch 读取时，
  * 重查 undefined 退化为 0，中断文案与统计失真。修复：优先取 activeEntry 闭包引用。
  *
- * 测试策略（审视 S1 修复——不做同义反复）：构造 stub session 打进真实
+ * 测试策略（审视 修复——不做同义反复）：构造 stub session 打进真实
  * _executeWithSession：prompt() 内 emit 两次 tool_execution_start（计数 ++ 落
  * activeEntry），然后**先 delete Map 条目再 reject**——跨帧删除现场。断言捕获的
  * err._toolCallCount === 2。修复前的旧表达式（Map 重查）在本现场必得 0 → 红。

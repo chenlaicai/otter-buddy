@@ -18,12 +18,12 @@ export interface ParticipantWithOtter {
   participant: ConversationParticipant;
   otterName: string;
   otterType?: string;
-  /** F20260921otcl：出生颜色（色板 key；大獭/未回填为 null） */
+  /** 出生颜色（色板 key；大獭/未回填为 null） */
   otterColor?: string | null;
   roleName?: string;
   /** 模型别名（有效模型解析后，恒非空——默认模型回退后也有值） */
   modelAlias?: string;
-  /** F20260908efmd: true = 配置未显式指定，跟随默认 */
+  /** true = 配置未显式指定，跟随默认 */
   modelIsDefault?: boolean;
 }
 
@@ -31,17 +31,17 @@ export class ManageParticipant {
   constructor(
     private readonly repo: ConversationRepository,
     private readonly otterRepo: OtterRepository,
-    /** F20260913ctlv 批4c：系统消息写入依赖（进场/退场 system entry + turn 关闭判据）——必注入 */
+    /** 批4c：系统消息写入依赖（进场/退场 system entry + turn 关闭判据）——必注入 */
     private readonly entryDeps: { entryRepo: EntryRepository; invokeRepo: InvokeRepository },
     /** 可选：老数据/测试场景无 config 注入时 modelAlias 缺省不返回 */
     private readonly configProvider?: OtterConfigProvider,
-    /** F20260908efmd: 可选——用于有效模型解析。未注入时 modelAlias 降级为配置裸值（旧行为） */
+    /** 可选——用于有效模型解析。未注入时 modelAlias 降级为配置裸值（旧行为） */
     private readonly modelPool?: ModelPoolLike,
   ) {}
 
   /**
    * Otter 进场：创建参与记录 + 进场系统消息。
-   * F20260913ctlv 彻底切换：去掉「必须 open turn」硬校验（invokes 状态机下 turns 不再
+   * 彻底切换：去掉「必须 open turn」硬校验（invokes 状态机下 turns 不再
    * 长期 open，test11 实测 getActiveTurn 恒 null → create_otter 全挂）；turn 用
    * ensureActiveTurn 兜底创建，系统消息改写 system entry（messages 停写）。
    */

@@ -1,5 +1,5 @@
 /**
- * 会话状态钩子（issue #1868 阶段 2）：启动时探测会话，登录/登出/会话失效统一收敛。
+ * 会话状态钩子（阶段 2）：启动时探测会话，登录/登出/会话失效统一收敛。
  */
 import { useCallback, useEffect, useState } from 'react'
 import * as authApi from '../api/auth'

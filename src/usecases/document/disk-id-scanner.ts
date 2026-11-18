@@ -1,10 +1,10 @@
 /**
- * F20260804dcnv: 磁盘 ID 扫描共享逻辑。
+ * 磁盘 ID 扫描共享逻辑。
  *
  * 设计动机：之前 `SyncDocuments.collectDiskIds` 和 `HealthController.collectDiskIds`
  * 各自实现一份，且都用 `parseFrontmatterFromContent` 提 ID。缺 frontmatter 的文档
  * 会抛错被 catch 吞掉，导致 ID 既不在 diskIds 也不在 DB -- 双重消失，reconcile
- * 检测不到。F20260803vmsg 就是这种隐藏 bug 的实例。
+ * 检测不到。就是这种隐藏 bug 的实例。
  *
  * 修复：frontmatter 解析失败时，用文件名正则兜底提 ID。返回 `Map<id, filepath>`
  * 让下游能反查文件做二次校验（如 health 端点的 gapReasons）。
@@ -17,8 +17,8 @@ import type { Logger } from "@usecases/ports/logger";
 import { parseFrontmatterFromContent } from "@usecases/document/frontmatter-parse";
 import { FID_DATE_SEGMENT, FID_READ_SUFFIX_SEGMENT } from "@entities/document/fid-format";
 
-/** 文件名提 ID：F20260803vmsg-xxx.md / R20260716x2k9-xxx.md / F20260803vmsg.md
- *  ID 段口径同 fid-format.ts 单一真相源（#667；旧副本 {3,8} 比契约窄，已对齐；
+/** 文件名提 ID：-xxx.md / -xxx.md / .md
+ * ID 段口径同 fid-format.ts 单一真相源（；旧副本 {3,8} 比契约窄，已对齐；
  *  下限 4 系实查最短后缀，见真相源头注释）*/
 const ID_FROM_FILENAME = new RegExp(`^([FR]${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT})(?:[-.]|$)`);
 

@@ -1,5 +1,5 @@
 /**
- * PR #1783 alpha 实测回归守卫：新獭 create() 必须同事务持久化 otter_configs。
+ * alpha 实测回归守卫：新獭 create() 必须同事务持久化 otter_configs。
  *
  * 事故线：main 的 session-restore.createSessionAndPersist（session-restore.ts:165-173）
  * 在建 session 时同事务 setConfig；durable 迁移版 _createSessionAndPersist 只注册

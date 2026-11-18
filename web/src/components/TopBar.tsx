@@ -27,7 +27,7 @@ const ICONS: Record<string, LucideIcon> = {
 /** SPA TopBar —— 由 AppLayout 渲染一次，导航用 <Link> 客户端路由 */
 export function TopBar() {
   const location = useLocation()
-  // #1868 阶段 2：当前执行机投影（阶段 2 恒为本机，后续多终端接入后随侧边栏选持久机变化）
+  // 阶段 2：当前执行机投影（阶段 2 恒为本机，后续多终端接入后随侧边栏选持久机变化）
   const [machineName, setMachineName] = useState<string | null>(null)
 
   useEffect(() => {

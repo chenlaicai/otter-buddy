@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink, RefreshCw, Loader2 } from 'lucide-react'
-// F20261021gmbe（检视发现 2 修复）：白名单正则前后端唯一真相源——同引 api-contract
+// （）：白名单正则前后端唯一真相源——同引 api-contract
 import { GAME_URL_PATTERN } from '@contract/api/key-info'
 
-/** F20261021gmbe E1：宿主内嵌游戏面板。
+/** E1：宿主内嵌游戏面板。
  *
  * 游戏型产物卡的展开态渲染通道：宿主直渲 iframe（非 html-card 沙箱——沙箱 CSP
  * connect-src 'none' 断 SSE/fetch，麻将 EventSource 不可行，方案 E1 定稿）。
@@ -21,8 +21,8 @@ import { GAME_URL_PATTERN } from '@contract/api/key-info'
  * 生命周期：收起即卸载（ArtifactCard 条件渲染 → iframe 移除 → SSE 断），
  * 折叠态不挂 iframe（E4——省连接，时间轴扫读性优先）。 */
 
-/** F20261021gmbe：游戏内嵌白名单模式——仅本应用麻将牌局路由。
- *  正则引自 api-contract（前后端唯一真相源，检视发现 2）；数组形态保留扩展位，
+/** 游戏内嵌白名单模式——仅本应用麻将牌局路由。
+ * 正则引自 api-contract（前后端唯一真相源，）；数组形态保留扩展位，
  *  后续新形态接入=往数组加本应用路由前缀（方案「后续形态接入契约」1）；
  *  未接入白名单的资源型/URL 一律降级摘要卡，内嵌是显式开通的特权。 */
 const GAME_EMBED_PATTERNS: RegExp[] = [GAME_URL_PATTERN]
@@ -42,7 +42,7 @@ function hasControlChar(url: string): boolean {
 }
 
 /**
- * 同源白名单校验（F20261021gmbe 安全边界第 1 层）。
+ * 同源白名单校验（安全边界第 1 层）。
  *
  * 返回可直接作 iframe src 的同源 pathname；不通过白名单返回 null（调用方降级
  * 「摘要卡+新窗口」，不内嵌）。校验链：

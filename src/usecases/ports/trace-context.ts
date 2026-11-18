@@ -1,5 +1,5 @@
 /**
- * TraceContext — 链级追踪上下文（F20260814mtrc）
+ * TraceContext — 链级追踪上下文
  *
  * 基于 AsyncLocalStorage 的轻量 trace：一次用户消息触发的完整发言链（多 hop、多 otter、
  * 可能重试）共享同一 traceId，全链路日志自动携带，日志↔metrics 可按时间轴对齐。

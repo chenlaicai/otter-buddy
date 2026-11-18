@@ -1,5 +1,5 @@
 /**
- * InvokeStatsCollector: 单次问答均值采集（F20260914usgm，从 cost-output-collector 拆出守 max-lines）。
+ * InvokeStatsCollector: 单次问答均值采集（从 cost-output-collector 拆出守 max-lines）。
  *
  * 数据源 invokes 表。token 口径：invokes.token_usage_* 是 session 累计快照，
  * 按 otter_id + started_at 升序相邻差分（首条/回退取全量）——与 agent-metrics.ts 同模式。
@@ -36,7 +36,7 @@ interface InvokeStatsRow {
 }
 
 /**
- * 从 invokes 表采集 per-day 单次问答均值（F20260914usgm）。
+ * 从 invokes 表采集 per-day 单次问答均值。
  *
  * token 口径：invokes.token_usage_* 是 session 累计快照（同 session 前一次 invoke 的
  * 基线之上的累计值）。此处按 otter_id + started_at 升序做相邻差分：首条取全量、

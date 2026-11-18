@@ -1,13 +1,13 @@
 /**
- * #1069：restart-service.mjs resolvePortEntry 单测（纯逻辑 + tmp 目录驱动文件 IO）。
- * #1250 检视处置后追加：S1 工作根边界（allowedRoots）、M1 原子写/并发锁、L1 权限错误文案。
+ * restart-service.mjs resolvePortEntry 单测（纯逻辑 + tmp 目录驱动文件 IO）。
+ * 检视处置后追加：工作根边界（allowedRoots）、M1 原子写/并发锁、L1 权限错误文案。
  *
  * 覆盖：白名单缺失/端口未声明时的两条正道（--add 现场声明 vs 拒绝+指引）、
  * --add 写回保留既有 entries、projectDir 不一致拒绝、损坏 JSON 不覆盖、
  * --add 越工作根拒绝（含 --project / 根本身攻击面）、不存在的目录拒绝、
  * 写回原子性（无 .tmp 残留）、锁释放、main-guard（被 import 时不触发主流程）。
  *
- * 注：execFileSync/lsof 级校验（PID/cwd）仍靠脚本内逻辑 + 手工冒烟（#844 原口径）。
+ * 注：execFileSync/lsof 级校验（PID/cwd）仍靠脚本内逻辑 + 手工冒烟（原口径）。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
@@ -126,7 +126,7 @@ describe('#1069 resolvePortEntry（白名单声明解析）', () => {
     expect(typeof resolvePortEntry).toBe('function');
   });
 
-  // ── #1250 检视处置：S1 工作根边界 ──
+  // ── 检视处置：工作根边界 ──
 
   it('S1·攻击面 1：--project / （任意 cwd 都能匹配的根）+ --add → 拒绝', () => {
     writeWl([]);
@@ -173,7 +173,7 @@ describe('#1069 resolvePortEntry（白名单声明解析）', () => {
     expect(r.ok).toBe(true); // 已声明条目不受 --add 边界影响
   });
 
-  // ── #1250 检视处置：M1 原子写 / 锁 ──
+  // ── 检视处置：M1 原子写 / 锁 ──
 
   it('M1·写回后无 .tmp 残留文件（temp+rename 原子替换）', () => {
     const r = resolvePortEntry({ port: 3100, projectDir: dongbeiDir, add: true, whitelistPath: wlPath, allowedRoots });

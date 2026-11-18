@@ -20,35 +20,35 @@ import { cleanMarkdownForFts } from "./markdown-noise-cleaner";
 import { chunkMarkdown } from "./markdown-chunker";
 import { scanDiskIds } from "./disk-id-scanner";
 
-/** F20261110dsqci（#1818）：sync 执行选项 */
+/** sync 执行选项 */
 export interface SyncOptions {
   /** canonical rootDir（服务主仓绝对路径）：归档判定仅在此视角下启用。
-   *  见 execute 内注释（#1818 归档-复活振荡案发）。 */
+   * 见 execute 内注释（归档-复活振荡案发）。 */
   canonicalRootDir?: string;
 }
 
 export interface SyncResult {
   synced: number;
   skipped: number;
-  /** F20260803mval: upsert 更新的文档数（内容指纹变了） */
+  /** upsert 更新的文档数（内容指纹变了） */
   updated: number;
   archived: number;
-  /** F20260803chunk: chunk entry 索引数（new + updated 分支累加 chunk 数），运维对照文档数×平均chunk数确认覆盖 */
+  /** chunk entry 索引数（new + updated 分支累加 chunk 数），运维对照文档数×平均chunk数确认覆盖 */
   chunkEntriesIndexed: number;
-  /** F20260803mval: 未知枚举值等软警告，不阻断入库，进健康端点暴露 */
+  /** 未知枚举值等软警告，不阻断入库，进健康端点暴露 */
   warnings: string[];
-  /** F20260803mval: 磁盘有 DB 无的文档 ID（同步失败正向对账） */
+  /** 磁盘有 DB 无的文档 ID（同步失败正向对账） */
   reconcileGaps: string[];
-  /** F20260803mval: supersedes 引用不存在的 ID（因果链悬空） */
+  /** supersedes 引用不存在的 ID（因果链悬空） */
   supersedesDangling: string[];
   errors: Array<{ file: string; error: string }>;
-  /** F20261110dsqci（#1818）：canonical 守卫拦下的候选归档数（rootDir 非主仓时，
+  /** canonical 守卫拦下的候选归档数（rootDir 非主仓时，
    * DB 有而 rootDir 磁盘无的文档不归档——worktree 部分检出是常态不是删除） */
   archiveGuarded: number;
 }
 
-/** F20260803mval: 内容指纹，用于 upsert 判定（变更才 update + reindex） */
-/** F20260803fbit: 指纹加入 bodyHash，文档改正文触发 reindex */
+/** 内容指纹，用于 upsert 判定（变更才 update + reindex） */
+/** 指纹加入 bodyHash，文档改正文触发 reindex */
 function featureFingerprint(doc: FeatureDocument): string {
   return [doc.title, doc.summary, doc.bodyHash, doc.changeType, doc.status, doc.filePath,
     JSON.stringify(doc.tags), JSON.stringify(doc.modules),
@@ -63,8 +63,8 @@ function researchFingerprint(doc: ResearchDocument): string {
     doc.createdInConversationId ?? ""].join("|");
 }
 
-/** F20260803fbit: 计算 body_hash（清理后 body 的 sha256 前 16 字符） */
-/** F20260803chunk: D3 加版本前缀 "chunk-v1|"，版本变化触发全量 reindex 生成 chunk */
+/** 计算 body_hash（清理后 body 的 sha256 前 16 字符） */
+/** D3 加版本前缀 "chunk-v1|"，版本变化触发全量 reindex 生成 chunk */
 const CHUNKING_VERSION = "chunk-v1";
 function computeBodyHash(cleanedBody: string): string | null {
   if (!cleanedBody) return null;

@@ -23,20 +23,20 @@ interface ChatViewProps {
   pinRef: RefObject<boolean>
   newMessagesCount?: number
   onJumpToBottom?: () => void
-  /** F20261027nmbf：回锚清零——MessageList floating→pinned 转换时透传（清 newMessagesCount） */
+  /** 回锚清零——MessageList floating→pinned 转换时透传（清 newMessagesCount） */
   onPinnedToBottom?: () => void
   onLoadMore?: () => void
   loadingMore?: boolean
   hasMoreBefore?: boolean
-  /** F20261021lmfe：加载历史失败态（透传给 MessageList 加载入口） */
+  /** 加载历史失败态（透传给 MessageList 加载入口） */
   loadMoreError?: boolean
   unreadSeparatorSeq?: number | null
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼 */
   userName?: string
-  /** F20261008csf1 P1：文类产物摘要卡数据源 */
+  /** P1：文类产物摘要卡数据源 */
   linkedResources?: LinkedResource[]
-  /** F20261013csv3 T5：过程明细开关（内存态——刷新回默认关闭） */
+  /** T5：过程明细开关（内存态——刷新回默认关闭） */
   showProcessDetail?: boolean
   onToggleProcessDetail?: () => void
   /** 卡片提交待确认预览（输入框上方单槽位） */
@@ -45,13 +45,13 @@ interface ChatViewProps {
   onRejectCard?: () => void
 }
 
-/** F20261016inbs：输入框固定边界分割条常量。搭档拍板（微信式）：消息框与输入框之间隔离
+/** 输入框固定边界分割条常量。搭档拍板（微信式）：消息框与输入框之间隔离
  *  边界固定、两框各自滚动、输入内容不改变边界，用户可手动拖动分割条改变上下两框大小。
  *  localStorage 持久化——下次进入恢复；clamp 下限保单行可用，上限防输入框吃掉整个聊天区 */
 const INPUT_SPLIT_KEY = 'otter.chat.inputHeight'
 const INPUT_HEIGHT_DEFAULT = 120
 const INPUT_HEIGHT_MIN = 64
-/** F20261019ovmh-R2（检视獭-1552 严重 1 处置）：卡片在场时输入有效上限动态收紧的几何常量。
+/** -（检视獭-1552 ）：卡片在场时输入有效上限动态收紧的几何常量。
  *  实测校准（检视獭探针 + 本单复测）：
  *  - INPUT_ROOT_OVERHEAD 28 = MessageInput root 的 pt-2(8) + pb-5(20)；提示行在
  *    style={height:inputHeight} 盒内（MessageInput.tsx:226），故 root 高 = inputHeight + 28 恒等
@@ -60,7 +60,7 @@ const INPUT_HEIGHT_MIN = 64
  *    极端大卡片时不再抬高地板（消息区优先） */
 const INPUT_ROOT_OVERHEAD = 28
 const SPLITTER_H = 8
-/** 卡片地板 = py-3×2(24) + 警示行(~14) + 按钮行(~30)：按钮行可达是硬承诺（#1535 核心
+/** 卡片地板 = py-3×2(24) + 警示行(~14) + 按钮行(~30)：按钮行可达是硬承诺（核心
  *  价值），警示行随地板一并保住；极端大卡片时不再抬高地板（消息区优先） */
 const CARD_FLOOR_MAX = 68
 /** 上限取容器高的 55%——不是常量而是容器实高的比例（拖动时实时 clamp） */
@@ -73,13 +73,13 @@ function inputHeightMax(overlayEl: HTMLElement): number {
 function clampInputHeight(px: number, overlayEl: HTMLElement): number {
   return Math.min(Math.max(px, INPUT_HEIGHT_MIN), inputHeightMax(overlayEl))
 }
-/** F20261019ovmh-R2：卡片在场时输入有效上限 + 卡片地板。零和公式：输入高 + 固定开销
+/** -卡片在场时输入有效上限 + 卡片地板。零和公式：输入高 + 固定开销
  *  （分割条 8 + root 28）+ 卡片高 ≤ 封顶 floor(60%·main)。谁让步：输入让步（大獭方向
  *  拍板，检视方案 a/c 组合）——卡片是即时任务（待决），输入高度是偏好。地板计算以
  *  「无地板上限 limitRaw」为参照（非用户当前值）：拖到无地板上限时也保证卡片按钮行可见，
  *  与当前拖到哪无关，拖动中卡片不变 → 地板稳定。无卡时 limit=Infinity（行为零变化）。
  *  返回 floor：卡片 minHeight 用——若 60% 预算装不下地板（矮视口极端态），宁可让 overlay
- *  溢出 main 底也不裁按钮（#1538 保消息区 vs #1535 保按钮可点，不互相牺牲） */
+ * 溢出 main 底也不裁按钮（保消息区 vs 保按钮可点，不互相牺牲） */
 function cardAwareInputLimit(overlayEl: HTMLElement): { limit: number; floor: number } {
   const card = overlayEl.querySelector('[data-testid="card-preview"]') as HTMLElement | null
   if (!card) return { limit: Infinity, floor: 0 }
@@ -107,7 +107,7 @@ export function ChatView(props: ChatViewProps) {
   const staging = useAttachmentStaging(props.conversationId || null)
   // 执行机选择器 + 远程动作状态
   const [showMachineModal, setShowMachineModal] = useState(false)
-  /** F20261016inbs：输入覆盖层容器 ref——ResizeObserver 观测目标（实高含分割条+附件行+玻璃框+
+  /** 输入覆盖层容器 ref——ResizeObserver 观测目标（实高含分割条+附件行+玻璃框+
    *  底部提示行），实高变化时同步 bottomSpacerPx 给 MessageList 做等高衬垫。首帧 mount 前
    *  为 null（0px 兜底），mount 后立即触发（无内容时玻璃框实高 = inputHeight，衬垫即就位） */
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -116,7 +116,7 @@ export function ChatView(props: ChatViewProps) {
   const [bottomSpacerPx, setBottomSpacerPx] = useState(0)
 
   /** mount/首帧：恢复持久化高度（需 overlay 已挂载才能 clamp 容器比例上限）。
-   *  F20261019ovmh-R2：恢复也过卡片态收紧 clamp——卡片在场时存的旧高度（可能超收紧上限）
+   * -恢复也过卡片态收紧 clamp——卡片在场时存的旧高度（可能超收紧上限）
    *  开场即收回，不等首次拖动 */
   useEffect(() => {
     const overlay = overlayRef.current
@@ -124,7 +124,7 @@ export function ChatView(props: ChatViewProps) {
     setInputHeight(clampInputHeight(loadInputHeight(overlay), overlay))
   }, [])
 
-  /** F20261019ovmh-R2：卡片出现/换卡时重算收紧上限，超限的当前高度立即收回（不等拖动）。
+  /** -卡片出现/换卡时重算收紧上限，超限的当前高度立即收回（不等拖动）。
    *  依赖 cardId：同卡内容恒定（summary/data 不可变）scrollHeight 不变；换卡/卡片消失时
    *  重算。拖动中卡片不变 → 上限稳定，不会拖拽中途突变 */
   const cardLimitRef = useRef<number>(Infinity)
@@ -157,7 +157,7 @@ export function ChatView(props: ChatViewProps) {
    *  setPointerCapture 在 iframe/边界场景不可靠，window 监听 + pointerup 兜底更稳）→
    *  pointerup/pointercancel 持久化。拖动只写 inputHeight（玻璃框固定高），overlay 实高随之
    *  变化，衬垫经 RO 链同步。
-   *  R2 竞态修复（检视獭发现）：onUp 不得读 inputHeightRef（useEffect 镜像在 move 与 up
+   * 竞态修复（检视獭发现）：onUp 不得读 inputHeightRef（useEffect 镜像在 move 与 up
    *  同一 React batch 内未 flush，读到拖动前旧值——同帧松手持久化陈旧高度，CI flake 的
    *  「拖到 160 存 120/152」即此）：改为闭包内局部 latest 变量，move 同步写入，零 React
    *  时序依赖。pointercancel（触屏被电话/手势打断）与 up 同路径：按当前最新高度收尾，
@@ -171,7 +171,7 @@ export function ChatView(props: ChatViewProps) {
     const startY = e.clientY
     const startHeight = inputHeightRef.current
     let latestHeight = startHeight
-    // F20261019ovmh-R2：拖动 clamp 用卡片态收紧上限（无卡 = Infinity，即原 55% 上限）。
+    // -拖动 clamp 用卡片态收紧上限（无卡 = Infinity，即原 55% 上限）。
     // 拖动期间卡片不变 → 上限稳定；ref 镜像供卡片出现 effect 后的拖动读最新值，避免闭包旧值
     const maxHeight = Math.min(cardLimitRef.current, inputHeightMax(overlay))
     const onMove = (ev: PointerEvent) => {
@@ -191,9 +191,9 @@ export function ChatView(props: ChatViewProps) {
     window.addEventListener('pointercancel', onFinish, { passive: true })
   }, [])
 
-  /** F20260916sgcl：发送成功后清空中转区——此前 MessageInput 直接透传 staged 给 onSend，
+  /** 发送成功后清空中转区——此前 MessageInput 直接透传 staged 给 onSend，
    *  没有任何环节调 clearAll/takeForSend，导致悬浮附件发送后不消失、下一条消息还会重复携带。
-   *  await 到 Promise 落定再 clearAll（S1 修复）：失败路径（sendMessage reject）不清空，
+   * await 到 Promise 落定再 clearAll（修复）：失败路径（sendMessage reject）不清空，
    *  附件保留在中转区供重试；错误 toast 由 index.tsx handleSend 内部统一出，这里不重复。 */
   async function handleSendWithStaging(text: string, mentionOtterIds?: string[], attachments?: StagedAttachment[], mode?: 'steer' | 'followUp') {
     try {
@@ -205,7 +205,7 @@ export function ChatView(props: ChatViewProps) {
   }
 
   return (
-    // F20261016inbs R1：relative 显式锚定输入覆盖层（absolute bottom-0）的 containing block。
+    // relative 显式锚定输入覆盖层（absolute bottom-0）的 containing block。
     // 背景：dev 下 .glass 的标准 backdrop-filter（建 CB）锚 main 内盒；build 压缩丢弃标准
     // 属性只留 -webkit-（不建 CB）→ 覆盖层漂到外层 wrapper 底、探出 main 13px、死区 38px
     // （CI 实测，检视獭发现；本地 dev 25px 绿是环境差异掩盖的断言失实）。relative 使两

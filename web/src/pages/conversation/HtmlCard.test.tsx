@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** HtmlCard 回归测试（F20260728htar P1-2）：
+/** HtmlCard 回归测试（P1-2）：
  *  user 卡片（interactive=false，无桥无 registry）collapse→re-expand 不被误判为导航逃逸。
  *  修复前 loadCountRef 只在 interactive 分支内重置，重展开时二次 load 计数沿用旧值 → invalid */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'

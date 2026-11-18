@@ -1,5 +1,5 @@
 /**
- * 走向箭头（issue #1029 从 index.tsx 抽出——TrendIcon 有既有单测 TrendIcon.test.tsx，
+ * 走向箭头（从 index.tsx 抽出——TrendIcon 有既有单测 TrendIcon.test.tsx，
  * VerdictPanel 证据层复用同一组件，单一真相源在此）。
  * 后端 TrendDirection：improving/stable/declining，不足 8 点 null。
  */

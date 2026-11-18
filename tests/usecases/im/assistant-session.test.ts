@@ -2,11 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import { AssistantSessionManager } from "@usecases/im/assistant-session";
 
 /**
- * F20260918imas / F20260920imax：助理会话管理器测试。
+ * / 助理会话管理器测试。
  * 副作用断言风格：记录 conversationRepo/memoryIndex/manageSession 收到的调用，
  * 验证自动开户与 8h 静默 session 重启的编排逻辑（不测 DB 真实现）。
  *
- * F20260920imax 语义修订：对话永续（删 72h 软轮换翻篇）——
+ * 语义修订：对话永续（删 72h 软轮换翻篇）——
  * 8h 静默改为 restartSession（换 session 不换对话），收篇摘要保留（交接 + 记忆）。
  */
 function makeManager(overrides: { sessionIdleHours?: number; lastEntryAgeHours?: number } = {}) {

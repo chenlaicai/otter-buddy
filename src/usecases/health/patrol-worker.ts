@@ -1,5 +1,5 @@
 /**
- * 巡检 worker（#949）：四个「扫台账」同构循环合并为单一定时器。
+ * 巡检 worker：四个「扫台账」同构循环合并为单一定时器。
  *
  * 背景（chen 15:09「后台循环太多」裁决 → 闹钟盘点 timer-audit-20260915）：
  * 运行时对账 / Signal Aging / RHI Scan / Embedding Retry 是同一动作模式——
@@ -11,7 +11,7 @@
  * tickSafely 的语义对齐）。run 顺序即注册顺序（对账先行——它是调度健康
  * 的第一可见性）。
  *
- * 周期：1h（四家原周期已对齐——#948 把 Embedding Retry 降到 1h 后全体同节奏，
+ * 周期：1h（四家原周期已对齐——把 Embedding Retry 降到 1h 后全体同节奏，
  * 合并无时钟语义变化）。启动即跑一轮（对齐 signal-aging-worker 的存量发现语义）。
  */
 

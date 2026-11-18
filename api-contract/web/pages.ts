@@ -1,5 +1,5 @@
 /**
- * SPA 路由配置单一真相源（F20260920spa，继承 #487）。
+ * SPA 路由配置单一真相源（F20260920spa，继承 ）。
  *
  * 从 MPA 页面清单改造为 SPA 路由定义。消费方：
  * - web/src/components/TopBar.tsx（导航 tab 渲染）

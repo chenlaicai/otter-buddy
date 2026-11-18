@@ -7,7 +7,7 @@ import { ensureWeixinConfig, startWeixinChannels } from "../../src/bootstrap/pla
 import type { Logger } from "@usecases/ports/logger";
 
 /**
- * F20260831wxsp：微信冷启动三缺陷回归测试。
+ * 微信冷启动三缺陷回归测试。
  * 1. ensureWeixinConfig 缺省路径曾是 "./config.yaml"（真实配置在 config/config.yaml）——
  *    扫码后补写 ENOENT 静默失败，重启后 weixin 段丢失、轮询无声消失。
  * 2. yaml.dump 全量重写抹掉人工注释——文本追加保注释。
@@ -39,7 +39,7 @@ describe("ensureWeixinConfig（F20260831wxsp bugfix 1/2/3）", () => {
     expect(after).toContain("# Otter Buddy 配置文件"); // 注释保留
     const parsed = yaml.load(after) as { weixin?: { partnerUserId?: string } };
     expect(parsed.weixin).toBeTruthy();
-    // F20261113wxplo：不再回写 partnerUserId——首号扫码不被持久化为全局搭档锚
+    // 不再回写 partnerUserId——首号扫码不被持久化为全局搭档锚
     expect(parsed.weixin?.partnerUserId).toBeUndefined();
   });
 
@@ -74,7 +74,7 @@ describe("startWeixinChannels 冷启动降级（F20260831wxsp bugfix 4）", () =
   // 分支行为：无 weixin 段 + 无账号 → 空数组且不 warn（既有零配置行为不回归）。
   // 有账号分支由 build-app 级集成测试覆盖（装配链真实拉起）。
   it("无 weixin 段且无已登录账号：返回空数组（零配置首次使用，不误报）", () => {
-    // F20260922ctbf（#1098）：WeixinAccountStore(undefined) 默认读 ./data/weixin/accounts.json——
+    // WeixinAccountStore(undefined) 默认读 ./data/weixin/accounts.json——
     // 开发机有真实登录账号时本用例命中「孤儿账号降级」分支误报。隔离：chdir 到临时空目录，
     // 相对路径自然落空（listAccounts 读不到文件 → []）。
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "wx-cold-"));

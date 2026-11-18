@@ -6,14 +6,14 @@ import { WeixinApiClient } from "./api-client";
 import type { WeixinAccountStore } from "./account-store";
 
 /**
- * Web 扫码登录会话管理（issue #566，frameworks 层）。
+ * Web 扫码登录会话管理（frameworks 层）。
  *
  * 每次「发起扫码」创建一个会话：后台跑 WeixinLoginFlow（5 分钟窗口），
  * 前端轮询会话状态渲染二维码与进度。与 CLI 共用 login-flow，差异仅在
  * onQrCode 回调：CLI 渲终端 ASCII，这里渲染 PNG dataURL 推给前端。
  *
  * 生命周期：wait/scaned → confirmed（成功，账号落盘）/ binded_redirect
- * （already_connected，#1112）/ expired / error / cancelled。终态会话保留
+ * （already_connected，）/ expired / error / cancelled。终态会话保留
  * 10 分钟（供前端取终态）后清理。
  */
 
@@ -22,7 +22,7 @@ export type WeixinLoginSessionStatus =
   | "waiting_scan" // 码已出，等扫码
   | "scaned" // 已扫码，等确认
   | "success" // confirmed，账号已落盘
-  | "already_connected" // #1112：binded_redirect——bot 已绑定本实例，不发新凭证不落盘
+  | "already_connected" // binded_redirect——bot 已绑定本实例，不发新凭证不落盘
   | "expired"
   | "error"
   | "cancelled";
@@ -48,7 +48,7 @@ export interface WeixinLoginSession {
   ilinkUserId?: string;
   error?: string;
   createdAt: string;
-  /** #592：取消原因标记（account_deleted = 账号删除时取消，防复活路径识别用） */
+  /** 取消原因标记（account_deleted = 账号删除时取消，防复活路径识别用） */
   cancellationReason?: "account_deleted";
 }
 

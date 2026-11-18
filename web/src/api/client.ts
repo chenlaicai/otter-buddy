@@ -35,10 +35,10 @@ const BASE = '/api'
 
 export class ApiError extends Error {
   status: number
-  /** F20260930s1x0（issue #1251）：透传服务端可机读错误码（如 invoke_not_running），
+  /** 透传服务端可机读错误码（如 invoke_not_running），
    *  前端据此走专属提示而非兜底文案 */
   code?: string
-  /** F20260930s1x0 delta（PR #1268 审视发现 1）：409 携带的 invoke 真实终态，
+  /** delta（）：409 携带的 invoke 真实终态，
    *  调用方据此直接收敛气泡（等效补发错失的 invoke.end） */
   invokeStatus?: 'completed' | 'failed' | 'aborted'
   constructor(message: string, status: number, code?: string, invokeStatus?: 'completed' | 'failed' | 'aborted') {
@@ -50,8 +50,8 @@ export class ApiError extends Error {
   }
 }
 
-/** F20260930s1x0（issue #1251）：abort 失败时携带服务端错误码的专属错误类，
- *  区分「目标并非真实运行（假行动中，#1241 范围）」与「中断链路本身故障（方向②）」 */
+/** abort 失败时携带服务端错误码的专属错误类，
+ * 区分「目标并非真实运行（假行动中，范围）」与「中断链路本身故障（方向②）」 */
 export class InvokeAbortError extends ApiError {
   constructor(message: string, status: number, code?: string, invokeStatus?: 'completed' | 'failed' | 'aborted') {
     super(message, status, code, invokeStatus)
@@ -60,7 +60,7 @@ export class InvokeAbortError extends ApiError {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  // #1868 阶段 2：身份随会话 cookie（同源 fetch 默认携带）；identityHeaders() 现返回 {}。
+  // 阶段 2：身份随会话 cookie（同源 fetch 默认携带）；identityHeaders() 现返回 {}。
   // 调用方自带 headers 时整体替换语义保留
   //（如 uploadAttachments 传 {} = 不设 Content-Type 让浏览器带 multipart boundary）
   const { headers: initHeaders, ...initRest } = init ?? {}
@@ -964,6 +964,6 @@ export function getActivityDispatch(params?: { conversationId?: string; status?:
   return request(`/activity/dispatch${qs ? `?${qs}` : ''}`, { signal })
 }
 
-// ── Quota（F20261012qtbc：三家控制台余量统一展示，纯展示不进观测） ──
+// ── Quota（三家控制台余量统一展示，纯展示不进观测） ──
 
 

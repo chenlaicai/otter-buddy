@@ -1,5 +1,5 @@
 /**
- * IM 出站时间格式化共享模块（F20260920tdun）。
+ * IM 出站时间格式化共享模块。
  *
  * 出站时间展示统一收口：assistant-session 收篇摘要与 feishu /history 的时间戳
  * 显式锚定 Asia/Shanghai，不再依赖服务器进程恰好跑在该时区。

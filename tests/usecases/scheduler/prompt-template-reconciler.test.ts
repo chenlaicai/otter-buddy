@@ -6,8 +6,8 @@ import { reconcilePromptTemplates } from '@usecases/scheduler/prompt-template-re
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 import type { Logger } from '@usecases/ports/logger';
 
-// ─── #784：定时任务 prompt 启动对账 ──────
-// prompts/scheduled/*.md 是真相源（PR #428 git 化），DB body 是运行时副本。
+// ─── 定时任务 prompt 启动对账 ──────
+// prompts/scheduled/*.md 是真相源（git 化），DB body 是运行时副本。
 // 本文件验证对账核心语义：
 // 1. 漂移同步：DB body ≠ 模板 → 更新（含 disabled 任务）
 // 2. 已同步跳过；dynamic 模板跳过；无匹配任务只记 unmatched 不视为错误
@@ -227,7 +227,7 @@ describe('#784 prompt 启动对账', () => {
   });
 });
 
-// ─── issue #429：默认 templateDir 不依赖 cwd ──────
+// ─── 默认 templateDir 不依赖 cwd ──────
 describe('默认 templateDir（#429）', () => {
   beforeEach(() => {
     // Why: mockLogger 全文件共享，历史用例的「目录不可读」告警会串台——只看本轮调用
@@ -258,16 +258,16 @@ describe('默认 templateDir（#429）', () => {
   });
 });
 
-// ─── issue #1030：对账失败不得静默（降级不哑）──────
+// ─── 对账失败不得静默（降级不哑）──────
 describe('#1030 同步失败显式暴露', () => {
   beforeEach(() => {
-    vi.clearAllMocks(); // mockLogger 全文件共享，防历史用例串台（同 #429 块惯例）
+    vi.clearAllMocks(); // mockLogger 全文件共享，防历史用例串台（同 块惯例）
   });
 
   it('DB 写入失败：warn 降级跳过，但 failed 明细累计且 error 级汇总打日志', async () => {
     fs.writeFileSync(path.join(tmpDir, 'daily-x.md'), `---\ntask_name: 每日X\n---\n新版`);
     const base = createMockRepo([makeTask({ name: '每日X', body: '旧版' })]);
-    // 模拟 CHECK 约束类写入失败（#1030 现场：SqliteError CHECK constraint failed）
+    // 模拟 CHECK 约束类写入失败（现场：SqliteError CHECK constraint failed）
     const failingRepo = { ...base, update: vi.fn(async () => { throw new Error('SqliteError: CHECK constraint failed'); }) };
 
     const result = await reconcilePromptTemplates({ taskRepo: failingRepo as unknown as typeof base, logger: mockLogger, templateDir: tmpDir });

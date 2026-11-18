@@ -5,14 +5,14 @@ export interface LocalOtter {
   id: string
   name: string
   type: 'big' | 'small'
-  /** F20260921otcl：出生颜色（色板 key；大獭/未回填为 null——resolveOtterVisual 消费） */
+  /** 出生颜色（色板 key；大獭/未回填为 null——resolveOtterVisual 消费） */
   color?: string | null
   createdAt: string
   role?: { name: string; resp: string[] }
   parentOtterId?: string
   /** 模型别名（有效模型解析后，恒非空——默认模型回退后也有值） */
   modelAlias?: string
-  /** F20260908efmd: true = 配置未显式指定，跟随默认 */
+  /** true = 配置未显式指定，跟随默认 */
   modelIsDefault?: boolean
 }
 
@@ -20,13 +20,13 @@ export interface LocalOtter {
 export interface LocalConversation {
   id: string
   title: string
-  /** F20260922cgrp：弱状态两态——completed 退役 */
+  /** 弱状态两态——completed 退役 */
   status: 'active' | 'archived'
   pinned: boolean
-  /** F20260918imas：助理对话标识（IM 自动开户；缺省 = 普通对话。左侧栏分组依据）。
-   *  F20260924wast：扩 web-assistant（web 浮动獭全局唯一对话，独立分组）。
-   *  #1224：本地视图类型从 DTO 契约派生（非 normal 值，DTO 缺省 = normal）——
-   *  后端新增枚举值时前端零改动，消除本地平行声明（#1201 同型成因） */
+  /** 助理对话标识（IM 自动开户；缺省 = 普通对话。左侧栏分组依据）。
+   * 扩 web-assistant（web 浮动獭全局唯一对话，独立分组）。
+   * 本地视图类型从 DTO 契约派生（非 normal 值，DTO 缺省 = normal）——
+   * 后端新增枚举值时前端零改动，消除本地平行声明（同型成因） */
   kind?: NonNullable<ConversationListItemDTO['kind']>
   otterIds: string[]
   /** 未读消息计数（消息级） */
@@ -39,7 +39,7 @@ export interface LocalConversation {
   activityStatus?: 'processing' | 'awaiting_user' | 'idle'
 }
 
-/** 前端本地消息信号（F20260826mwrd C4：徽章数据，后端 MessageSignalDTO 投影） */
+/** 前端本地消息信号（C4：徽章数据，后端 MessageSignalDTO 投影） */
 export interface LocalMessageSignal {
   id: string
   type: 'objection' | 'blocked' | 'halt'
@@ -73,7 +73,7 @@ export interface LocalMessageSegment {
   sequenceNum: number
 }
 
-/** 前端本地附件（多模态 Phase 1；#608 扩 kind 值域）——与 AttachmentDTO 同构，历史/乐观两条路径共用 */
+/** 前端本地附件（多模态 Phase 1；扩 kind 值域）——与 AttachmentDTO 同构，历史/乐观两条路径共用 */
 export interface LocalAttachment {
   id: string
   kind: 'image' | 'document' | 'audio' | 'video'
@@ -91,10 +91,10 @@ export interface LocalMessage {
   si: string
   /** 发送者显示名（otter 消息来自后端投影，实时消息来自 message.start） */
   sn?: string
-  /** F20260921otcl：发送者出生色（SSE 事件携带 / entries DTO 投影；
+  /** 发送者出生色（SSE 事件携带 / entries DTO 投影；
    *  缺失时 resolveOtterVisual 展示回退。otterType 走 SSE 事件字段/名册，不入 LocalMessage） */
   scolor?: string | null
-  /** F20261021sprx：entries DTO 携带的发送者类型；优先于名册查询。 */
+  /** entries DTO 携带的发送者类型；优先于名册查询。 */
   stype?: 'big' | 'small'
   content: string
   /** 消息生命周期状态；仅历史查询（DTO）路径携带，SSE 实时构造的消息为 undefined（视同 completed/对应事件态） */
@@ -110,31 +110,31 @@ export interface LocalMessage {
   src?: 'web' | 'feishu'
   /** 消息分段（F-multi-speak-bubble）；历史消息可能无此字段 */
   segments?: LocalMessageSegment[]
-  /** 消息关联信号（F20260826mwrd C4 徽章）；历史消息可能无此字段 */
+  /** 消息关联信号（C4 徽章）；历史消息可能无此字段 */
   signals?: LocalMessageSignal[]
-  /** 发言石目标（F20260902u5tr：信号轨迹判定用）；乐观消息/SSE 实时消息无此字段 */
+  /** 发言石目标（信号轨迹判定用）；乐观消息/SSE 实时消息无此字段 */
   tsp?: string[] | null
   /** 多模态 Phase 1：随消息携带的附件 */
   atts?: LocalAttachment[]
-  /** F20260913ctlv：时间线条目类型（speak/user 气泡渲染，其余居中特殊渲染）。
+  /** 时间线条目类型（speak/user 气泡渲染，其余居中特殊渲染）。
    *  旧 messages 表数据无此字段（undefined）——按 st 回退推导，历史兼容零迁移 */
   entryType?: TimelineEntryType
-  /** F20260913ctlv：invoke 关联（SSE entry.* 事件携带；旧数据无） */
+  /** invoke 关联（SSE entry.* 事件携带；旧数据无） */
   invokeId?: string
-  /** F20260913ctlv test17：invoke 真实终态（invoke_end entry 的 metadata.invokeStatus 透出；
+  /** test17：invoke 真实终态（invoke_end entry 的 metadata.invokeStatus 透出；
    *  entries.status 是死字段全部 completed，重试按钮等终态 UI 靠它判断） */
   invokeStatus?: 'failed' | 'aborted'
-  /** F20260913ctlv：yield 条目专有——行动权传递目标 */
+  /** yield 条目专有——行动权传递目标 */
   yieldTargets?: string[] | null
-  /** F20260916hcel：html-card schema版本（保留字段，供未来默认状态变化用；当前所有卡默认折叠）。
+  /** html-card schema版本（保留字段，供未来默认状态变化用；当前所有卡默认折叠）。
    *  ≥2 → 默认 expanded；缺失 → 默认 collapsed */
   cardSchemaVersion?: number
-  /** F20261013csv3 T5：过程明细（?includeEvents=true 批量投影——foldInvokeEvents 同源
+  /** T5：过程明细（?includeEvents=true 批量投影——foldInvokeEvents 同源
    *  折叠步；仅 invoke 关联条目携带；开关关闭时不存在此字段） */
   foldedEvents?: FoldedStepDTO[]
 }
 
-// ── F20260913ctlv：时间线条目类型 ──
+// ── 时间线条目类型 ──
 
 /** 时间线条目类型（与后端 EntryType 对齐） */
 export type TimelineEntryType =
@@ -163,7 +163,7 @@ export function isCenteredEntry(m: LocalMessage): boolean {
   return t === 'invoke_start' || t === 'invoke_end' || t === 'yield' || t === 'system'
 }
 
-/** F20260913ctlv：invoke 边界/yield/system 条目文案（entry.body 为空时按约定文案渲染）。
+/** invoke 边界/yield/system 条目文案（entry.body 为空时按约定文案渲染）。
  *  yield 带来源獭名（senderName）：「大獭 → 交给 user」——多獭并发时能区分是谁交的棒 */
 export function centeredEntryText(m: LocalMessage): string {
   const t = deriveEntryType(m)

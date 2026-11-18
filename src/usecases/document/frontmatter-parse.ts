@@ -10,7 +10,7 @@ export interface ParsedFrontmatter {
  * 依赖 yaml 第三方库，但 yaml.parse 是纯函数，usecases 层可以使用
  */
 export function parseFrontmatterFromContent(content: string): ParsedFrontmatter {
-  // F20260803mval: strip UTF-8 BOM，防带 BOM 的文件被误判 "Missing frontmatter"
+  // strip UTF-8 BOM，防带 BOM 的文件被误判 "Missing frontmatter"
   const stripped = content.replace(/^\uFEFF/, "");
   const match = stripped.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
   if (!match) {

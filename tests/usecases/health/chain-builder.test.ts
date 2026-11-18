@@ -6,7 +6,7 @@ import type { CollectedFeatureDoc } from "@usecases/health/feature-doc-collector
 import { parseCommit } from "@usecases/health/commit-parser";
 
 /**
- * F20260902sigm 链路信号模型测试：
+ * 链路信号模型测试：
  * - zombie/doc-only 判死用例已删（判定本身已删）
  * - stalled 语义 = pr-stalled（open PR >7 天无推进），不再看 daysSinceLastCommit
  * - 判据 100% 来自 git/PR 事实，docStatus 不参与（status 值不再影响判定）
@@ -118,7 +118,7 @@ describe("buildFeatureChains", () => {
   });
 
   it("doc-only 链：有文档无 commit → 稳定（active、零信号），无论 status/创建多久", () => {
-    // 「写了文档没动工」不是病：245 篇零 commit 文档是本仓常态（方案 R6）
+    // 「写了文档没动工」不是病：245 篇零 commit 文档是本仓常态（方案 ）
     const docs = [
       doc("F20260101oldd", "development", 400),
       doc("F20260301oldz", "draft", 500),

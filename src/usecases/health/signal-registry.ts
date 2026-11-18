@@ -1,8 +1,8 @@
 /**
- * 信号注册表（Issue #399 单一真相源）
+ * 信号注册表（单一真相源）
  *
- * 10 类信号定义与特性文档 F20260824rhib 信号注册表一一对应（snapshot_shift 为
- * Issue #645 新增——环比骤变检测；post_merge_fix_density 为 Issue #647 新增——
+ * 10 类信号定义与特性文档 信号注册表一一对应（snapshot_shift 为
+ * 新增——环比骤变检测；post_merge_fix_density 为 新增——
  * 合并后修复密度，实现在 post-merge-fix-density.ts）。
  * 检测器实现度分级：
  * - MVP 已实现：bug_recurrence / chain_stall / hotspot / behavior_defect / hotspot_imbalance
@@ -67,7 +67,7 @@ export const SIGNAL_REGISTRY: Readonly<Record<SignalType, SignalDefinition>> = {
   behavior_defect: {
     type: "behavior_defect",
     name: "行为缺陷",
-    // Issue #645 窗口化升级：原「同一 errorType healing event 复发」为全量聚合无窗口——
+    // 窗口化升级：原「同一 errorType healing event 复发」为全量聚合无窗口——
     // degenerate 57 次/12 天（healing 库最高频）会永久占用警报位，失去「最近在恶化」的语义。
     triggerRule: "同一 errorType healing event 7 天窗口内 ≥3 次",
     severity: "warning",
@@ -85,7 +85,7 @@ export const SIGNAL_REGISTRY: Readonly<Record<SignalType, SignalDefinition>> = {
   post_merge_fix_density: {
     type: "post_merge_fix_density",
     name: "合并后修复密度",
-    // Issue #647：分档与排除清单口径见 post-merge-fix-density.ts 头注释（分档按链文件数实测校准）
+    // 分档与排除清单口径见 post-merge-fix-density.ts 头注释（分档按链文件数实测校准）
     triggerRule: "特性合入后窗口期（小修 14 天/大特性 30 天，按链触碰文件数分档）内，触碰链文件的 bugfix ≥3 次或占比 ≥30%（高扇入文件 ≥10 特性触碰进排除清单）",
     severity: "warning",
     suggestedAction: "链复盘：核对合入范围是否消化完毕（「特性不对劲」是待查证不是定罪）",

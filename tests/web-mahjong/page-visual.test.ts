@@ -1,5 +1,5 @@
 /**
- * 牌局页真机自查（F20261015mjsg 模块四）——真实 Chrome + 真实 HTTP 端口 + 真实牌局。
+ * 牌局页真机自查（模块四）——真实 Chrome + 真实 HTTP 端口 + 真实牌局。
  *
  * 为什么不用 app.request 断言渲染：本页是视觉产物，view.js 单测只证逻辑，
  * 「牌桌摆得下、字形出得来、按钮点得动」必须在真浏览器里看一眼。
@@ -9,7 +9,7 @@
  * 供人工/AI 目视复核，不入库。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-// F20261021ttos：Playwright 真浏览器结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+// Playwright 真浏览器结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
 vi.setConfig({ testTimeout: 20_000 });
 import { serve } from "@hono/node-server";
 import { chromium, type Browser, type Page } from "playwright";

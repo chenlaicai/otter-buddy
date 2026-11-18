@@ -1,12 +1,12 @@
 /**
- * #731：bash 守卫二拦终态自动回发控制信号（guard bounce）
+ * bash 守卫二拦终态自动回发控制信号（guard bounce）
  *
- * F20260913ctlv 彻底切换重写：mock 面从 SendMessage（messages 行）切到
+ * 彻底切换重写：mock 面从 SendMessage（messages 行）切到
  * SendEntry（invokes + entries 状态机），能力断言保持 GB-1~GB-5：
  * - GB-1/GB-2 二拦终态 → 不再 aborted，自动回发：invoke failed 过渡 + sendSystem
  *   （带原因+引导）+ 同 invoke 重试；回发后自纠成功 → 闭环
  * - GB-3 滑窗内已回发 2 次 → 停止回发，abort 终态 + 升级系统消息 + healing high
- *   （F20261008hcpa，#1356 层1 打断：GUARD_BOUNCE_MAX 3→2——同规则第 3 次拦截直接升级）
+ * （层1 打断：GUARD_BOUNCE_MAX 3→2——同规则第 3 次拦截直接升级）
  * - GB-3b 窗口外 bounce 不计数
  * - GB-4 计数查询失败（台账失明）→ fail-closed 升级
  * - GB-5 bounce 前 failMessage 已 abort SDK session（dead invoke 不僵尸运行）
@@ -24,7 +24,7 @@ import { createTestLogger } from "../helpers/logger";
 import { mockSendEntry } from "../helpers/mock-send-entry";
 
 const GUARD_REASON = "bash_safety:目标命中主进程（otter-buddy 主服务）——海獭不能杀主进程。需要重启服务走 restart-service 工具（受控通道）；stop/restart 脚本同样禁止直接执行。";
-/** F20260928slan：sleep 域 guard reason（验证 orchestrator 三门对 bash_sleep: 适配） */
+/** sleep 域 guard reason（验证 orchestrator 三门对 bash_sleep: 适配） */
 const SLEEP_GUARD_REASON = "bash_sleep:检测到你使用了 sleep 等待（约 30 秒）。裸 sleep 会让搭档看到长时间静默黑盒。请先 speak 说明你要等什么、为什么要等这么久，然后改用 wait 工具。";
 
 function makeSession(overrides: Partial<OtterSession> = {}): OtterSession {

@@ -131,7 +131,7 @@ describe("SignalPipeline", () => {
     const s2 = signal("critical", "chain_stall");
     await pipeline.process([s1, s2]);
 
-    // s2 归口 issue #1012（经 repo.triage——与生产路径同一方法）
+    // s2 归口 （经 repo.triage——与生产路径同一方法）
     const repo = new SignalRepository(db);
     const s2Record = pipeline.listOpen().find(s => s.signal_type === "chain_stall")!;
     repo.triage(s2Record.id, "bind_issue", { issueNumber: 1012, note: "并入 #1012" });

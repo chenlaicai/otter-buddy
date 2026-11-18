@@ -1,7 +1,7 @@
 /**
- * F20261009tsts（#1371）：会话级 tool_search——替代 SDK createToolSearchExtension。
+ * ：会话级 tool_search——替代 SDK createToolSearchExtension。
  *
- * Why（根因，#1371 三会话三连 stale 实证）：
+ * Why（根因，三会话三连 stale 实证）：
  * SDK 的 createToolSearchExtension() 在 ResourceLoader 创建时实例化一次（本仓
  * model-runtime-registry.ts 缓存 loader 为进程级单例），工具定义闭包捕获当时的
  * extension ctx。而 pi SDK 的 AgentSession.dispose() 会无条件 invalidate **共享的
@@ -34,7 +34,7 @@ export interface ToolSearchSessionLike {
   getAllTools(): ReadonlyArray<{
     name: string;
     description?: string;
-    /** JSON Schema（TypeBox Static）——检索语料含参数描述与属性名（与 SDK 版对齐，检视发现 1） */
+    /** JSON Schema（TypeBox Static）——检索语料含参数描述与属性名（与 SDK 版对齐，） */
     parameters?: unknown;
   }>;
   getActiveToolNames(): string[];

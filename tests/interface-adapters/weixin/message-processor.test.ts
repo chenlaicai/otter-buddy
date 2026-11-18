@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { WeixinMessageProcessor } from "@interface-adapters/weixin/message-processor";
 
 /**
- * issue #565：微信入站处理器测试（照 feishu message-processor 测试模式）。
+ * 微信入站处理器测试（照 feishu message-processor 测试模式）。
  * 副作用断言风格：记录 sendMessage 收到的入参、gateway 出站的文本。
  */
 function makeProcessor(overrides: Record<string, unknown> = {}) {
@@ -12,17 +12,17 @@ function makeProcessor(overrides: Record<string, unknown> = {}) {
 
   const manageConnection = {
     ensureConnection: vi.fn().mockResolvedValue({ id: "conn-1", externalId: "u-1" }),
-    // F20260920imax：默认「已建线」；noConversation 覆写未建线场景
+    // 默认「已建线」；noConversation 覆写未建线场景
     getCurrentConversation: vi.fn().mockResolvedValue((overrides as { noConversation?: boolean }).noConversation ? null : { id: "conv-1", title: "助理线" }),
     listActiveConversations: vi.fn().mockResolvedValue([]),
     enterConversation: vi.fn().mockResolvedValue(undefined),
     leaveConversation: vi.fn().mockResolvedValue(undefined),
-    // F20260922wxeg：出站目标记录（入站时 noteChatId，供 resolveReplyTarget 出站定向）
+    // 出站目标记录（入站时 noteChatId，供 resolveReplyTarget 出站定向）
     noteChatId: vi.fn().mockResolvedValue(undefined),
-    // F20260928wxid：称呼解析 mock 默认无称呼；有用例单独 mockResolvedValue 覆盖
+    // 称呼解析 mock 默认无称呼；有用例单独 mockResolvedValue 覆盖
     getConnection: vi.fn().mockResolvedValue(null),
   } as any;
-  // F20260913ctlv 收尾批2：微信消息唯一落点 = entries（sendUserEntry）
+  // 收尾批2：微信消息唯一落点 = entries（sendUserEntry）
   const sendEntry = {
     sendUserEntry: vi.fn(async (input: Record<string, unknown>) => (sentMessages.push(input), { entry: { id: "entry-1", conversationId: "conv-1", sequenceNum: 1, createdAt: "2026-09-12T00:00:00Z" }, talkingStonePassedTo: ["otter-1"], mentionFeedback: undefined })),
   } as any;
@@ -39,14 +39,14 @@ function makeProcessor(overrides: Record<string, unknown> = {}) {
 
   const processor = new WeixinMessageProcessor({
     manageConnection,
-    // F20260921wxba：bot 账号锚（bot=对话模型；默认测试值，覆盖可换）
+    // bot 账号锚（bot=对话模型；默认测试值，覆盖可换）
     botAccountId: "bot-acc-1", sendEntry, entryRepo, weixinGateway, partnerResolver,
     agentDispatchService, messageBroadcaster, logger, ...overrides,
   } as any);
   return { processor, sentMessages, replies, dispatched, manageConnection, logger };
 }
 
-/** F20260921wxba：有状态 fake 连接仓库——按 externalId 建连/取对话，
+/** 有状态 fake 连接仓库——按 externalId 建连/取对话，
  *  行为断言用（消息落点由路由锚决定，与真实链路同构） */
 function fakeAnchorLedger() {
   const anchoredExternals: string[] = [];

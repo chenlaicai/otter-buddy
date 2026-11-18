@@ -11,7 +11,7 @@ import type { LocalMessage, LocalMessageSegment } from './mappers'
  *
  * 设计决策：
  * - 使用 Map<messageId, Map<segmentId, LocalMessageSegment>> 结构
- * - upsert 语义保证重放安全（F20260819spyd 翻倍 bug 的土壤被消灭）
+ * - upsert 语义保证重放安全（翻倍 bug 的土壤被消灭）
  * - 完成态以后端 segments 为准（complete 事件覆盖）
  */
 export function useSpeakSegments() {

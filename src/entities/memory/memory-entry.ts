@@ -26,7 +26,7 @@ export type MemoryContentType =
   | "research_chunk"
   | "belief";
 
-/** F20260803fbit: 运行时校验字符串是否为合法 MemoryContentType（HTTP 参数校验等） */
+/** 运行时校验字符串是否为合法 MemoryContentType（HTTP 参数校验等） */
 const VALID_CONTENT_TYPES: ReadonlySet<string> = new Set<MemoryContentType>([
   "message", "fact", "linked_resource", "feature", "feature_chunk", "research", "research_chunk", "belief",
 ]);
@@ -83,7 +83,7 @@ export interface MemoryWeight {
 }
 
 /**
- * F20260811mrpy Part 2：下钻提示，告知调用方用什么工具拿全文。
+ * Part 2：下钻提示，告知调用方用什么工具拿全文。
  * detail_level != "full" 时填充到 RetrievalResultEntry.drillDown。
  */
 export interface DrillDownHint {

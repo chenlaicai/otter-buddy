@@ -1,5 +1,5 @@
 /**
- * PatrolWorker（#949）：四个扫台账循环合并后的单一定时器巡检。
+ * PatrolWorker：四个扫台账循环合并后的单一定时器巡检。
  * 契约：注册职责按序执行 / 失败隔离（一家炸不影响后续）/ stop 等 in-flight / 防重复 start。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

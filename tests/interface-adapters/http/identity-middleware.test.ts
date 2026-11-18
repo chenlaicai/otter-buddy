@@ -1,5 +1,5 @@
 /**
- * #1322（F20261016autz）对话域鉴权层测试：身份声明解析 + 路由策略表 + fail-closed 兜底。
+ * 对话域鉴权层测试：身份声明解析 + 路由策略表 + fail-closed 兜底。
  *
  * 三个层次：
  *  1. resolvePolicy 纯矩阵——策略表档位与顺序（例外先于族规则）、方法级兜底、非 /api 直通；
@@ -30,11 +30,11 @@ describe("resolvePolicy：路由策略表矩阵", () => {
       ["POST", "/api/inbound/events", "public"],
       ["OPTIONS", "/api/inbound/events", "public"],
       ["GET", "/api/inbound/status", "public"],
-      ["POST", "/api/mahjong/rooms", "public"], // #1322 新增面：暂置（见表内翻转锚点）
+      ["POST", "/api/mahjong/rooms", "public"], // 新增面：暂置（见表内翻转锚点）
       ["GET", "/api/mahjong/rooms/r1/view", "public"],
       // admin 族
       ["PUT", "/api/settings", "admin"],
-      ["GET", "/api/settings", "admin"], // #1541 处置 1：读面显式收档，不留隐式兜底
+      ["GET", "/api/settings", "admin"], // 处置 1：读面显式收档，不留隐式兜底
       ["GET", "/api/settings/status", "admin"],
       ["POST", "/api/otters", "admin"],
       ["DELETE", "/api/otters/o1", "admin"],
@@ -46,14 +46,14 @@ describe("resolvePolicy：路由策略表矩阵", () => {
       ["PUT", "/api/conversations/c1/workspace/mcp-external", "admin"],
       ["POST", "/api/health/scan", "admin"],
       ["POST", "/api/health/signals/s1/triage", "admin"],
-      // F20261023cnct（issue #1063）：POST /api/connections（create）已下线，矩阵行删除；
+      // POST /api/connections（create）已下线，矩阵行删除；
       // identity-middleware.ts 的 admin 兼规则保留作防御纵深（防误挂降级），见源码注释。
       ["POST", "/api/weixin/login", "admin"],
       ["DELETE", "/api/feishu/apps/a1", "admin"],
       // 族内例外（必须先于同族 admin 命中——顺序敏感）
       ["POST", "/api/otters/o1/retry", "write"],
       ["POST", "/api/connections/c1/enter", "write"],
-      // F20261023cnct（issue #1063）：POST :id/leave 已下线，矩阵行删除（enter 保留为活端点）
+      // POST :id/leave 已下线，矩阵行删除（enter 保留为活端点）
       // 读语义的 POST 形态不按写兜底
       ["POST", "/api/memory/search/similar", "authenticated"],
     ];

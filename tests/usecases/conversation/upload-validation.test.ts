@@ -115,26 +115,26 @@ describe("containsNul", () => {
 });
 
 
-/** #608：WAV 头（RIFF....WAVE） */
+/** WAV 头（RIFF....WAVE） */
 const WAV_HEAD = Buffer.from([
   0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, // "RIFF" + size
   0x57, 0x41, 0x56, 0x45, // "WAVE"
   0x66, 0x6d, 0x74, 0x20, // "fmt "
 ]);
 
-/** #608：MP3 ID3v2 头 */
+/** MP3 ID3v2 头 */
 const MP3_ID3_HEAD = Buffer.from([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
 
-/** #608：MP3 裸帧同步头（MPEG1 Layer III 128kbps：FF FB） */
+/** MP3 裸帧同步头（MPEG1 Layer III 128kbps：FF FB） */
 const MP3_SYNC_HEAD = Buffer.from([0xff, 0xfb, 0x90, 0x00]);
 
-/** #608：MP4 ISO-BMFF 头（size + "ftyp" + brand） */
+/** MP4 ISO-BMFF 头（size + "ftyp" + brand） */
 const MP4_HEAD = Buffer.from([
   0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, // size + "ftyp"
   0x69, 0x73, 0x6f, 0x6d, // "isom"
 ]);
 
-/** #608：PDF 头 */
+/** PDF 头 */
 const PDF_HEAD = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]); // "%PDF-1.4"
 
 describe("sniffType（#608 扩展：audio/video/pdf magic bytes）", () => {

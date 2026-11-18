@@ -1,10 +1,10 @@
 /**
- * #858（F20260914ectx）内嵌文本脱敏测试。
+ * 内嵌文本脱敏测试。
  *
  * 覆盖：
  * - shouldSanitizeForScan 判定（引号内词元 + 无危险通道才脱敏）
  * - sanitizeQuotedText 只动引号内、等长替换
- * - 守卫集成：#858 现场形态（gh --body 引 review 文本 / heredoc 描述 / 测试字符串）
+ * - 守卫集成：现场形态（gh --body 引 review 文本 / heredoc 描述 / 测试字符串）
  *   放行；真实危险命令（引号外命令位 / bash -c / pipe-to-shell）维持拦截
  * - 回归：原守卫 91 用例语义不变（在 bash-safety-guard.test.ts 内，此处只测增量）
  */

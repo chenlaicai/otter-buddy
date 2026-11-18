@@ -8,7 +8,7 @@
  * 占位格式（方案 §3.5）：
  * - 图片：[图片: caption|文件名]——caption 存在时用 caption，Phase 2 worker
  *   上线前恒 NULL，降级文件名兜底
- * - 语音：[语音: 文件名 (size)]——#608 audio kind
+ * - 语音：[语音: 文件名 (size)]——audio kind
  * - 文件：[文件: name (size)]（document/video 统一此格式）
  */
 

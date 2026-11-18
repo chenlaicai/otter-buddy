@@ -7,7 +7,7 @@ import { useOtterMood, upsertGlobalConversation, useGlobalConversationSnapshot }
 import { useFloatingOtter } from './use-floating-otter'
 
 /**
- * F20260924wast：浮动獭宿主（AppLayout 挂载，全页面常驻）。
+ * 浮动獭宿主（AppLayout 挂载，全页面常驻）。
  * - 三态：全局轮询单例推断（冒泡 > 张望 > 睡觉）
  * - 开户（T2b）：无 web 助理对话时首次唤起自动创建（POST /api/conversations
  *   {kind:'web-assistant'}，后端幂等 + 人设注入）；双 tab 并发首唤由后端收敛
@@ -48,7 +48,7 @@ export function FloatingAssistant(props: FloatingAssistantProps) {
   )
 
   /** 首唤开户（幂等——后端 ensure 收敛；双 tab 并发由后端最早创建规则兜底）。
-   *  F20260925wast delta K9：契约 title 保持必填，调用传占位（后端 web-assistant 分支忽略 title 用固定标题）；
+   * delta K9：契约 title 保持必填，调用传占位（后端 web-assistant 分支忽略 title 用固定标题）；
    *  响应为列表项 DTO（api client 已显式类型）——不再 cast */
   const ensureConversation = useCallback(async () => {
     if (webConvId || ensuring) return

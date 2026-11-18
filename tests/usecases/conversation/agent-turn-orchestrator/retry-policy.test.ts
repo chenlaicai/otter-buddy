@@ -64,7 +64,7 @@ describe("buildGuardAbortBody", () => {
     const msg = buildGuardAbortBody('bash_safety:kill main process');
     expect(msg).toContain('不允许命令');
     expect(msg).toContain('worktree');
-    // F20260831aksp 终审口径：不提供任何 restart 出口（含转手版）
+    // 终审口径：不提供任何 restart 出口（含转手版）
     expect(msg).not.toContain('otter-buddy.sh restart');
     expect(msg).not.toContain('大獭');
   });
@@ -91,7 +91,7 @@ describe("buildAutoRetryMsg", () => {
     expect(msg).toContain("检查");
   });
 
-  // F20260831aksp T2：事故 C 回归——bash_safety 拦截后重试提示必须携带拦截原因与替代路径
+  // T2：事故 C 回归——bash_safety 拦截后重试提示必须携带拦截原因与替代路径
   it("bash_safety:* 透传拦截原因（不再落到通用兜底文案）", () => {
     const msg = buildAutoRetryMsg('bash_safety:bash 命令包含针对主进程 PID 的终止命令');
     expect(msg).toContain("安全守卫拦截");
@@ -237,7 +237,7 @@ describe("buildUserAbortBody（F20260913ctlv：只写确证内容，不写根因
   });
 });
 
-// ─── F20260928slan V5：bash_sleep 前缀全链 ───
+// ─── V5：bash_sleep 前缀全链 ───
 
 describe("bash_sleep: 分支（F20260928slan）", () => {
   it("isRetryableGuardAbort: bash_sleep:* 可重试（一次自纠机会，同 bash_safety 纪律）", () => {

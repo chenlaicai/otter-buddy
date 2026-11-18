@@ -13,7 +13,7 @@ export function buildMemoryClient(uc: UseCases) {
       const entry = await uc.manageMemory.getById(id);
       return entry ? { id: entry.id, content: entry.content, score: 1, layer: entry.layer } : null;
     },
-    // F20260826rcmm Phase 0：检索埋点（fire-and-forget）。调用方（search_memory 工具）注入
+    // Phase 0：检索埋点（fire-and-forget）。调用方（search_memory 工具）注入
     // conversationId/callerId——client 是单例，拿不到 per-request 上下文，故由 tool 层传。
     logSearch: (p: { query: string; conversationId: string; callerId: string | null; beforeMessageId?: string | null; detailLevel?: string; library?: string; limitCount?: number; topEntryIds: string[]; total: number }) => {
       // 双层防护：catch 防 Promise rejection，try/catch 防 uc 未装配时的同步 TypeError 逃逸
@@ -24,7 +24,7 @@ export function buildMemoryClient(uc: UseCases) {
         // 装配遗漏等同步错误同样不得影响检索主流程
       }
     },
-    // eslint-disable-next-line max-params -- 合并 main 分支 contentType + recruiting createdAfter + F20260812mrcq expandContext 参数
+    // eslint-disable-next-line max-params -- 合并 main 分支 contentType + recruiting createdAfter + expandContext 参数
     search: async (query: string, limit?: number, detailLevel?: "summary" | "snippet" | "full", library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean, currentConversationId?: string) => {
       const result = await uc.searchMemory.search({ query, limit: limit ?? 10, detailLevel, library, createdAfter, contentType, expandContext, currentConversationId });
       const mapEntry = (e: { id: string; content: string; score: number; layer: string; snippet?: string; contentType: string; metadata: Record<string, unknown> | null; createdAt: string }) => ({
@@ -33,11 +33,11 @@ export function buildMemoryClient(uc: UseCases) {
       });
       return {
         entries: result.entries.map(mapEntry),
-        // F20260826rcmp 审视修正：透传检索真值 total——埋点/失败分类用（区分「只找到 N 条」vs「命中多返回 top-k」）
+        // 审视修正：透传检索真值 total——埋点/失败分类用（区分「只找到 N 条」vs「命中多返回 top-k」）
         total: result.total,
-        // F20260812mrcq Part 2 审视二轮 B1: agent 路径透传 contextEntries
+        // Part 2 审视二轮 B1: agent 路径透传 contextEntries
         ...(result.contextEntries ? { contextEntries: result.contextEntries.map(mapEntry) } : {}),
-        // F20260821evaf 二轮审视: agent 路径透传 vecCoverage——移除 otter_context 降级告警后，
+        // 二轮审视: agent 路径透传 vecCoverage——移除 otter_context 降级告警后，
         // 这是 agent 感知 FTS-only 降级/暗化条目的唯一通道（此前只到 HTTP 端点，工具 description 却已承诺）
         vecCoverage: result.vecCoverage,
       };
@@ -46,7 +46,7 @@ export function buildMemoryClient(uc: UseCases) {
       const entries = await uc.manageMemory.getDetails(ids);
       return entries.map(e => ({ id: e.id, content: e.content, layer: e.layer, contentType: e.contentType, metadata: e.metadata ?? undefined, createdAt: e.createdAt }));
     },
-    // F20260813mren: 记忆关系层工具方法
+    // 记忆关系层工具方法
     linkMemory: async (params: { fromId: string; toId: string; edgeType: EdgeType; note?: string }, createdBy?: string) => {
       const edgeId = await uc.createEdge.execute({
         fromEntryId: params.fromId,
@@ -74,7 +74,7 @@ export function buildMemoryClient(uc: UseCases) {
   };
 }
 
-/** F20261118bltls P1c：belief 工具面客户端方法（拆出降 buildMemoryClient 行数） */
+/** P1c：belief 工具面客户端方法（拆出降 buildMemoryClient 行数） */
 function buildBeliefClientMethods(uc: UseCases) {
   return {
     recordBelief: async (params: {
@@ -155,15 +155,15 @@ export function buildResourceClient(uc: UseCases) {
   };
 }
 
-// eslint-disable-next-line max-lines-per-function -- F20260813mren 加 docs.sync 后超 60 行；Composition Root 集中装配，拆分降低可读性
+// eslint-disable-next-line max-lines-per-function -- 加 docs.sync 后超 60 行；Composition Root 集中装配，拆分降低可读性
 export function buildOtterToolClient(
   uc: UseCases,
   deps?: {
-    /** F20260813mren 审视二轮：文档同步（sync_docs 工具）。由 app.ts 装配时注入。 */
+    /** 审视二轮：文档同步（sync_docs 工具）。由 app.ts 装配时注入。 */
     syncDocs?: (rootDir?: string) => Promise<{ synced: number; updated: number; skipped: number; archived: number; errors: number }>;
-    /** F20260912avlb：派工台账正式表 repo（dispatch client 数据源） */
+    /** 派工台账正式表 repo（dispatch client 数据源） */
     dispatchRepo?: DispatchRecordRepository;
-    /** F20260920uhuc：统一交接入口（restart_otter 工具重启别人走统一管线）。
+    /** 统一交接入口（restart_otter 工具重启别人走统一管线）。
      *  app.ts 装配时注入；缺省降级域层直透 restartSession */
     agentInvoker?: Pick<AgentInvoker, "restartWithUnifiedHandoff">;
   },

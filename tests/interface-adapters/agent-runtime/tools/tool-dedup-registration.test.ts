@@ -1,5 +1,5 @@
 /**
- * F20260826mwrd C3（#534）：manage_healing_events 双注册修复的防回归断言。
+ * C3：manage_healing_events 双注册修复的防回归断言。
  *
  * 双注册史：tool-factory 内注册 + platforms.ts 闭包二次 push（C1 审视顺手发现）。
  * 修复后唯一注册点 = tool-factory（healingRepo 注入时）。

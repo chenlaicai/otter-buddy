@@ -34,7 +34,7 @@ export class AttachmentController {
     private readonly attachmentRepo: AttachmentRepository,
     private readonly storageRoot: string,
     private readonly logger: Logger,
-    /** 审视修复 R10：上传时校验会话存在（API 形态 /conversations/:id/attachments 的隔离语义）；可选注入 */
+    /** 审视修复 上传时校验会话存在（API 形态 /conversations/:id/attachments 的隔离语义）；可选注入 */
     private readonly conversationRepo?: ConversationRepository,
   ) {}
 
@@ -44,7 +44,7 @@ export class AttachmentController {
       const conversationId = param(c, "id");
       const uploaderId = c.req.query("uploaderId") ?? "user";
 
-      /** 审视修复 R10：会话存在性校验（不存在/已归档→404）——附件虽不落会话归属列，
+      /** 审视修复 会话存在性校验（不存在/已归档→404）——附件虽不落会话归属列，
        *  但上传入口的会话隔离语义必须成立（防止向任意 ID 上传垃圾）。 */
       if (this.conversationRepo) {
         const conv = await this.conversationRepo.getById(conversationId);
@@ -86,7 +86,7 @@ export class AttachmentController {
   }
 
   /** busboy 流式解析 multipart：逐文件走上传管线（MIME 校验/大小限制/sha256 去重在管线内）。
-   *  审视修复 R2（竞态）：file handler 内的 upload promise 必须收集，close 后 await 全部
+   * 审视修复 （竞态）：file handler 内的 upload promise 必须收集，close 后 await 全部
    *  in-flight 再返回——否则 sharp 异步处理未完成时 resolve，响应几乎必然返回空列表（主链路断）。 */
   private async parseMultipart(c: Context, contentType: string, uploaderId: string): Promise<UploadOutcome> {
     const results: Array<Record<string, unknown>> = [];
@@ -163,7 +163,7 @@ export class AttachmentController {
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "public, max-age=31536000, immutable",
         // document 强制下载（清洗后文件名）；image inline（白名单已排除可执行向量）；
-        // audio/video inline（原生控件回放，#608——mp4/wav/mp3 不在浏览器可执行向量内，与 image 同理）
+        // audio/video inline（原生控件回放，——mp4/wav/mp3 不在浏览器可执行向量内，与 image 同理）
         ...(att.kind !== "image" && att.kind !== "audio" && att.kind !== "video" && {
           "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(att.originalName)}`,
         }),

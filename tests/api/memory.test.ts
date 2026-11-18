@@ -70,7 +70,7 @@ describe("Memory API", () => {
       const res = await app.request("/api/memory/search?query=test&detail_level=summary");
       expect(res.status).toBe(200);
       const body = await json(res);
-      /** content 保持 usecase 投影的首句（DTO 层二次覆盖会把首句替换回 FTS 窗口，重蹈 #542） */
+      /** content 保持 usecase 投影的首句（DTO 层二次覆盖会把首句替换回 FTS 窗口，重蹈 ） */
       expect(body.entries[0].content).toBe("这是一条很长的记忆内容。");
       expect(body.entries[0].snippet).toBe("...多细节信息。需要被裁剪...");
     });
@@ -257,7 +257,7 @@ describe("Memory API", () => {
     });
   });
 
-  // ─── GET /api/memory/recent（#576 F20260901emps） ───
+  // ─── GET /api/memory/recent（） ───
 
   describe("GET /api/memory/recent", () => {
     it("returns recent entries (newest first, DTO shape)", async () => {

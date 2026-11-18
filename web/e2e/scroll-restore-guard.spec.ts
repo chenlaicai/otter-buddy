@@ -1,7 +1,7 @@
 /**
- * F20261020wcsr e2e 护栏（微信式重构）：scroll-restore-guard.spec.ts 的新语义接替版。
+ * e2e 护栏（微信式重构）：scroll-restore-guard.spec.ts 的新语义接替版。
  * 旧 spec 断言「loadMore 恢复不甩位」——距顶恢复链已退役，位置保持主力移交浏览器
- * scroll anchoring（F20261010vwst §3.3 要求：启用前专项 e2e 验证四锚不回归+原始抖动
+ * scroll anchoring（§3.3 要求：启用前专项 e2e 验证四锚不回归+原始抖动
  * 不重现，本文即该验证的承担者之一）。
  * 三用例：
  * ①中部 prepend 零跳变（锚 2，锚定核心验收）：上翻到中部阅读 → 哨兵自动加载历史 →

@@ -2,10 +2,10 @@ import { createTestExecutionMachineRegistry } from "../../helpers/execution-mach
 /**
  * M-9b24be04：合成影子通道 invokeId 守卫修复回归。
  *
- * 生产实证（2026-11-10 15:08/15:46）：#1814（R2 读取器）修好后，叙事合成在
+ * 生产实证（2026-11-10 15:08/15:46）：（读取器）修好后，叙事合成在
  * durable 上仍 100% 失败——`error: "Durable prompt requires currentInvokeId"`。
  * 影子通道（runCompactionSynthesis）不在任何 invoke ALS 作用域内且开会话不带
- * invokeId，被 prompt() 首行的轮归属守卫当场拒绝（#1783 迁移后从未成功过，
+ * invokeId，被 prompt() 首行的轮归属守卫当场拒绝（迁移后从未成功过，
  * 上午被读取失败掩盖）。修复：合成会话自带 synthesis-<uuid> 合成 id。
  */
 import { describe, expect, it, vi } from "vitest";

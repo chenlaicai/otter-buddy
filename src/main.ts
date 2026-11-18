@@ -17,7 +17,7 @@ function parseConfigPathArg(argv: string[]): string | undefined {
 
 async function main(): Promise<void> {
   const logger = createLogger("./data/logs");
-  // F20260917alph：--config <path> CLI 参数（alpha 隔离实例用）。buildApp({ configPath })
+  // --config <path> CLI 参数（alpha 隔离实例用）。buildApp({ configPath })
   // 程序内接口早已存在（app.ts），此处仅暴露到 CLI；无参数时行为与旧版逐分一致。
   // 注意：相对路径（./data/logs 等）按进程 cwd 解析——alpha.sh 以数据根为 cwd 启动。
   const configPath = parseConfigPathArg(process.argv.slice(2));

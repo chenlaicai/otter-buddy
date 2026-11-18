@@ -1,5 +1,5 @@
 /**
- * F20261008mlp3 P3：MatterSweep usecase + SqliteMatterRepository 停滞扫描扩展测试。
+ * P3：MatterSweep usecase + SqliteMatterRepository 停滞扫描扩展测试。
  *
  * 验证节锁定项「未闭环扫描升格」：
  * - stalledOpen：OPEN 无人认领 / WAITING_PARTNER 积压——跨日未收尾（24h 基准）
@@ -151,7 +151,7 @@ describe('MatterSweep（F20261008mlp3 P3——未闭环扫描升格）', () => {
     expect(result.stalled).toHaveLength(0);
   });
 
-  // F20261027hfup（M-12b165a7）：接单≠落位——WAITING_OTTER 跨日未动也入停滞扫描（与搭档侧同 24h 基准）
+  // （M-12b165a7）：接单≠落位——WAITING_OTTER 跨日未动也入停滞扫描（与搭档侧同 24h 基准）
   it('停滞扫描：WAITING_OTTER 接单未落位（>24h）命中', async () => {
     seedMatter(repo, {
       id: 'm-6',

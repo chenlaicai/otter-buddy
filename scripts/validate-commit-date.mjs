@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * F20260825dva2: commit-msg 钩子 / CI 日期校验的单一真相源。
+ * commit-msg 钩子 / CI 日期校验的单一真相源。
  *
  * 抽取 .githooks/commit-msg 和 .github/workflows/ci.yml 中重复的
- * 日期校验逻辑（解析 F 类特性 ID 前 8 位、与基准日期比对、偏差 >7 天拒绝（F20260913ctlv：±2→±7，原 ±2 系时区漂移推导，误伤长周期特性 PR）），
+ * 日期校验逻辑（解析 F 类特性 ID 前 8 位、与基准日期比对、偏差 >7 天拒绝（±2→±7，原 ±2 系时区漂移推导，误伤长周期特性 PR）），
  * 消灭双处维护。
  *
  * TZ 根除：用 Intl.DateTimeFormat.formatToParts() 替代 toLocaleString 字符串解析，
- * 消除 PR #435 检视时发现的 ~0.3s/roundtrip 理论漂移。
+ * 消除 检视时发现的 ~0.3s/roundtrip 理论漂移。
  *
- * F20260914prdb: 基准时间可注入——CLI 支持 `--at <ISO>`。CI 的 PR 标题校验传 PR
+ * 基准时间可注入——CLI 支持 `--at <ISO>`。CI 的 PR 标题校验传 PR
  * 创建时间（github.event.pull_request.created_at）+ 当前时间双基准任一通过：
  * PR 全生命周期（创建日 ID → 定稿改名合入日）均肠通——squash 模型下 PR 标题即 main
  * 历史，特性文档 ID 必须 ≡ PR 标题 ID（搭档决策 2026-09-14），定稿改名不再被拦。
@@ -17,19 +17,19 @@
  * 标题会被 squash 抹掉，阻断是纯摩擦）；bad_date 非法日期仍硬拦。
  *
  * 用法：
- *   CLI: node scripts/validate-commit-date.mjs "[F20260825abcd]..."
- *        node scripts/validate-commit-date.mjs --at "2026-09-04T03:56:11Z" "[F20260904wxeg]..."
- *        node scripts/validate-commit-date.mjs --warn-on-drift "[F20260801abcd]..."  # 钩子用
- *   或:  echo "[F20260825abcd]..." | node scripts/validate-commit-date.mjs
+ * CLI: node scripts/validate-commit-date.mjs "[]..."
+ * node scripts/validate-commit-date.mjs --at "2026-09-04T03:56:11Z" "[]..."
+ * node scripts/validate-commit-date.mjs --warn-on-drift "[]..."  # 钩子用
+ * 或:  echo "[]..." | node scripts/validate-commit-date.mjs
  *
  * 退出码：
  *   0 = 通过（ok / skip）
- *   1 = 日期偏差 > 7 天 或 非法日期（bad_date）（F20260913ctlv：±2→±7）
+ * 1 = 日期偏差 > 7 天 或 非法日期（bad_date）（±2→±7）
  */
 
 /**
  * 用 Intl.DateTimeFormat.formatToParts 获取指定时区的年/月/日。
- * Why: 不用 toLocaleString 字符串解析——PR #435 检视发现其 roundtrip 有 ~0.3s 理论漂移。
+ * Why: 不用 toLocaleString 字符串解析——检视发现其 roundtrip 有 ~0.3s 理论漂移。
  *
  * @param {Date} date
  * @param {string} timeZone

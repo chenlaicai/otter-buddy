@@ -1,11 +1,11 @@
 /**
- * F20260922pmgd：merge_pr 工具（PR 合入搭档授权闸）单测。
+ * merge_pr 工具（PR 合入搭档授权闸）单测。
  *
- * 事故锚：2026-09-22 大獭在搭档未显式授权时自行 gh pr merge 合入 #1095（流水线惯性）。
- * 机制定位：v1 提醒 + 审计 → F20260929mpav v2 物理闸——partnerApproval 逐字命中搭档消息；
+ * 事故锚：2026-09-22 大獭在搭档未显式授权时自行 gh pr merge 合入 （流水线惯性）。
+ * 机制定位：v1 提醒 + 审计 → v2 物理闸——partnerApproval 逐字命中搭档消息；
  * 授权原话落 linked_resources（对话内查询面）+ warn 日志（跨对话兜底）双通道。
  *
- * F20260929mpav：v2 升级真伪校验（物理闸）。事故锚：2026-09-29 大獭在 PR #1201
+ * v2 升级真伪校验（物理闸）。事故锚：2026-09-29 大獭在 
  * 合入时把自我推理文本塞进 partnerApproval，零校验照单全收落了审计——触发 v1 文档
  * U1 预留的升级条件（「出现伪造授权原话事故即升级真伪校验」）。
  * partnerApproval 必须逐字命中搭档（user）历史消息（容忍空白/引号形态差异；
@@ -65,7 +65,7 @@ function findMergePr(ctx: ToolContext, logger?: Logger) {
   return tool!;
 }
 
-/** gh 调用编排：view 返回 {state,createdAt} JSON（#1431：checkPrMergeable 拉 state,createdAt 供时间窗校验）；merge 返回成功。
+/** gh 调用编排：view 返回 {state,createdAt} JSON（checkPrMergeable 拉 state,createdAt 供时间窗校验）；merge 返回成功。
  *  DEFAULT_PR_CREATED_AT 早于 DEFAULT_USER_ENTRIES 全部消息时间——既有放行用例在时间窗下不回归。 */
 const DEFAULT_PR_CREATED_AT = '2026-09-22T02:00:00.000Z';
 function stubGh(state: string, prCreatedAt = DEFAULT_PR_CREATED_AT, mergeStdout = 'Merged PR #1095', reviewClosureExit = 0) {

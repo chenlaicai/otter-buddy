@@ -3,7 +3,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_MS } from "../auth/session-cookie";
 
 /**
- * 统一接入登录控制器（issue #1868 阶段 2）。
+ * 统一接入登录控制器（阶段 2）。
  * 单用户自部署：一个登录口令 ↔ 一个 admin 会话。登录成功后派发 HMAC 签名会话 cookie，
  * 身份中间件后续从 cookie 派生身份（不再信任 web 自报的声明式头）。
  */

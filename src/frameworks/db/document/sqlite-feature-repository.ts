@@ -13,7 +13,7 @@ export class SqliteFeatureRepository implements FeatureRepository {
     return row ? rowToEntity(row) : null;
   }
 
-  /** F20260901dsyn: id 漂移诊断用（磁盘文档 id 与同 file_path 的 DB 记录 id 不一致） */
+  /** id 漂移诊断用（磁盘文档 id 与同 file_path 的 DB 记录 id 不一致） */
   async findByFilePath(filePath: string): Promise<FeatureDocument | null> {
     const row = this.db.prepare("SELECT * FROM features WHERE file_path = ?").get(filePath) as FeatureRow | undefined;
     return row ? rowToEntity(row) : null;
@@ -47,14 +47,14 @@ export class SqliteFeatureRepository implements FeatureRepository {
   }
 
   async updateStatus(id: string, status: FeatureStatus): Promise<void> {
-    // #1385：changes=0（ID 不存在）时 fail-closed 抛错——better-sqlite3 UPDATE 不匹配
-    // 返回 changes=0 但不抛错，静默吞掉 = sync 产物状态流转假成功（同 #1370 族模式；
-    // #1391 断言收敛至 assertUpdated）
+    // changes=0（ID 不存在）时 fail-closed 抛错——better-sqlite3 UPDATE 不匹配
+    // 返回 changes=0 但不抛错，静默吞掉 = sync 产物状态流转假成功（同 族模式；
+    // 断言收敛至 assertUpdated）
     const result = this.db.prepare("UPDATE features SET status = ? WHERE id = ?").run(status, id);
     assertUpdated(result, 'feature', id);
   }
 
-  /** F20260803mval: upsert 场景更新文档内容（内容指纹变了） */
+  /** upsert 场景更新文档内容（内容指纹变了） */
   async updateContent(doc: FeatureDocument): Promise<void> {
     const row = entityToRow(doc);
     this.db.prepare(`
@@ -68,7 +68,7 @@ export class SqliteFeatureRepository implements FeatureRepository {
     );
   }
 
-  /** F20260813mren: 读取文档的对话 provenance */
+  /** 读取文档的对话 provenance */
   async getCreatedInConversationId(id: string): Promise<string | null> {
     const row = this.db.prepare("SELECT created_in_conversation_id FROM features WHERE id = ?")
       .get(id) as { created_in_conversation_id: string | null } | undefined;

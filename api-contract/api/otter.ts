@@ -16,12 +16,12 @@ export interface OtterDTO {
   name: string;
   type: string;
   status: string;
-  /** F20260921otcl：出生颜色（色板 key；大獭/未回填为 null） */
+  /** 出生颜色（色板 key；大獭/未回填为 null） */
   color?: string | null;
   role: { name: string; responsibilities: string[] } | null;
   /** 模型别名（多模型路由，如 "mimo"）；未配置（大獭/老数据/默认模型）时不返回 */
   modelAlias?: string;
-  /** F20260908efmd: true = 配置未显式指定，跟随默认 */
+  /** true = 配置未显式指定，跟随默认 */
   modelIsDefault?: boolean;
   parentOtterId: string | null;
   createdAt: string;
@@ -33,11 +33,11 @@ export interface CreateOtterRequestDTO {
   name: string;
   type: "big" | "small";
   role?: { name: string; responsibilities: string[] };
-  /** F20260827ucrt：UI 入口模型自选。与大獭工具链同源语义——须为 config.yaml models[] 合法 alias，
+  /** UI 入口模型自选。与大獭工具链同源语义——须为 config.yaml models[] 合法 alias，
    *  缺省用默认模型；controller 层校验（settings-controller hasModel 同层先例）。
    *  注：大獭工具入口走 otter-tool-client（modelAlias 存 otter_configs），不经此 DTO */
   modelAlias?: string;
-  /** F20260827ucrt T4：UI 入口（POST /api/otters）忽略此字段，血缘诚实落 null；
+  /** T4：UI 入口（POST /api/otters）忽略此字段，血缘诚实落 null；
    *  大獭工具链走 otter-tool-client 系统注入，不经此 DTO */
   parentOtterId?: string;
   /** Otter 级系统提示词（可选，与平台 prompt 叠加） */
@@ -56,7 +56,7 @@ export interface OtterSessionDTO {
   archiveReason: string | null;
   isNegativeCase: boolean;
   summary: string | null;
-  /** F20260908efmd: 该世生效的模型 alias（null = 存量历史数据未快照） */
+  /** 该世生效的模型 alias（null = 存量历史数据未快照） */
   modelAlias?: string | null;
 }
 
@@ -67,7 +67,7 @@ export interface OtterProfileDTO {
   type: 'big' | 'small';
   roleName: string | null;
   modelAlias: string | null;
-  /** F20260908efmd: true = 配置未显式指定，跟随默认 */
+  /** true = 配置未显式指定，跟随默认 */
   modelIsDefault?: boolean;
   modelDescriptor: {
     alias: string;

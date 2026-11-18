@@ -61,11 +61,11 @@ async function readSSEEvents(res: Response, timeoutMs = 500): Promise<Array<{ ev
 }
 
 describe("Subscribe SSE streaming events", () => {
-  /** issue #281：以下用例的裸总线（无出站通道）即 web-only 部署形态——
+  /** 以下用例的裸总线（无出站通道）即 web-only 部署形态——
    *  修复前 web-only 装配中 broadcaster 为 undefined，subscribe 返回 500、POST 流无事件 */
   it("broadcastEvent 推送的事件以正确的 event type 到达 SSE 流", async () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any;
-    const broadcaster = new MessageBroadcaster(logger); // issue #281：纯总线
+    const broadcaster = new MessageBroadcaster(logger); // 纯总线
 
     const app = createTestApp(broadcaster);
 
@@ -75,7 +75,7 @@ describe("Subscribe SSE streaming events", () => {
     // 等待订阅建立
     await new Promise(r => setTimeout(r, 50));
 
-    // 广播 entries/invoke 事件（F20260913ctlv：SSE 单通道语义）
+    // 广播 entries/invoke 事件（SSE 单通道语义）
     broadcaster.broadcastEvent("conv-1", { event: "invoke.start", data: { invokeId: "inv-1", otterId: "otter-1", otterName: "大獭", startedAt: new Date().toISOString() } });
     broadcaster.broadcastEvent("conv-1", { event: "entry.speak", data: { entryId: "e-1", invokeId: "inv-1", otterId: "otter-1", body: "hello", otterName: "大獭" } });
 
@@ -95,7 +95,7 @@ describe("Subscribe SSE streaming events", () => {
 
   it("broadcastEvent 推送的 entry.user 事件到达 SSE 流（F20260913ctlv：消息面回调已删）", async () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as any;
-    const broadcaster = new MessageBroadcaster(logger); // issue #281：纯总线
+    const broadcaster = new MessageBroadcaster(logger); // 纯总线
 
     const app = createTestApp(broadcaster);
 

@@ -2,7 +2,7 @@
  * 三麻牌局页 · 纯视图层（零 DOM、零网络）——供单测直接 import。
  *
  * 输入：GET /api/mahjong/rooms/:roomId/view 返回的 RoomView 快照（字段签名见
- * docs/features/2026/10/15/F20261015mjsg-mahjong-sanma.md「实现记录（Engine 层）·页面獭接口面」）。
+ * docs/features/2026/10/15/-mahjong-sanma.md「实现记录（Engine 层）·页面獭接口面」）。
  * 输出：渲染所需的结构化视图模型。DOM 组装在 app.js，不回流本模块；
  * 动作发出的 EngineAction 必须逐字取自 view.decision.actions（HTTP 面按此校验）。
  */

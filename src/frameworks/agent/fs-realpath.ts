@@ -1,14 +1,14 @@
 /**
- * F20261019syml（M-ed285d7c）：symlink 穿透归一（realpath 归一化）。
+ * （M-ed285d7c）：symlink 穿透归一（realpath 归一化）。
  *
- * 逃逸链形态（#1515 delta 建议 2 立档）：ln -s <主仓内容> <worktrees 区>/link 之后，
+ * 逃逸链形态（立档）：ln -s <主仓内容> <worktrees 区>/link 之后，
  * `git -C <link> 写族` / `cd <link> && …` / `echo x > <link>/f` 的**字符串**落点在
  * worktrees 区（豁免命中）而**真实**落点在主仓内容树——两步全放。判定基元在路径比较
  * 前经本模块做 symlink 穿透归一，字符串形态与真实落点的偏差在此收口（两侧同口径：
  * wv pathWithinMain / prod isInsideMainCheckout、classifyDestructiveTarget、
  * git -C 落点累积均引本模块）。
  *
- * 二轮（检视 r1 严重 1，`..`-after-symlink）：`..` 必须按内核逐分量语义解析——
+ * 二轮（检视 严重 1，`..`-after-symlink）：`..` 必须按内核逐分量语义解析——
  * 先解 symlink 再弹栈。path.normalize 与 JS 版 realpathSync 都在 symlink 解析前
  * **词法**折叠 `..`（`<wt>/link/../x` 折成 `<wt>/x`，内核真实落点 `<root>/x`），
  * 守卫口径与内核落点分歧即逃逸面。故：不前置 normalize，存在段解析用

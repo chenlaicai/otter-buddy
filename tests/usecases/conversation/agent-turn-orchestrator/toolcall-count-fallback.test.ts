@@ -1,8 +1,8 @@
 /**
- * #1116：orchestrator 兜底死链 + getToolCallCount Map 重查竞态——终态计数语义锁。
+ * orchestrator 兜底死链 + getToolCallCount Map 重查竞态——终态计数语义锁。
  *
  * bug 形态（两半）：
- * 1. factory catch（#763 修复后）恒写 number _toolCallCount → orchestrator
+ * 1. factory catch（修复后）恒写 number _toolCallCount → orchestrator
  *    `?? driver.getToolCallCount(...)` 右半对经 factory 的错误永不触发（死链）。
  * 2. 错误亦可从 _acquirePooled 阶段抛出（嵌套撞 streaming / config not found /
  *    lock timeout）——此时尚未 attachGuards、无任何工具调用，本 invoke 计数必为 0；

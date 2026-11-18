@@ -9,14 +9,14 @@
  */
 import type { SSEEvent } from "@contract/sse/events";
 
-/** Agent 发言轮结果（F20260913ctlv 彻底切换：invokeId 主体；messageId 为兼容别名=invokeId） */
+/** Agent 发言轮结果（彻底切换：invokeId 主体；messageId 为兼容别名=invokeId） */
 export interface AgentTurnResult {
   invokeId: string;
   tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   messageId: string;
   duration: number;
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
-  /** @deprecated F20260904schf：turn 级并集，链引擎已改读行级 tsp（#792），新代码禁止消费 */
+  /** @deprecated turn 级并集，链引擎已改读行级 tsp，新代码禁止消费 */
   aggregatedTargets?: string[];
 }
 
@@ -37,8 +37,8 @@ export interface AgentTurnPort {
     manualRetry?: boolean;
     /** 多模态 Phase 1：当前任务消息携带的图片（ImageContent；≤2 图由服务端硬限制把关） */
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
-    /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用）。
-     *  F20260922ctxi：port 声明补齐——实现方早已支持，缺声明让 recruiting 路径无法透传（游标不推进） */
+    /** 本批未读消息的最大 sequence_num（启动成功后推进游标用）。
+     * port 声明补齐——实现方早已支持，缺声明让 recruiting 路径无法透传（游标不推进） */
     batchMaxSeq?: number;
     /** yield 派工的本次角色（reviewer 自动轮次采集） */
     assignmentRole?: "reviewer";
@@ -47,7 +47,7 @@ export interface AgentTurnPort {
   /** 中止 Agent 生成 */
   abort(otterId: string, messageId: string): void;
 
-  /** #1449：目标獭是否有存活执行现场（activeSessions / 池内 streaming）。
+  /** 目标獭是否有存活执行现场（activeSessions / 池内 streaming）。
    *  可选——scheduler 孤儿 running 执行扫描判活用；未实现按「无存活」处理（保守清理）。
    *  AgentInvoker 委托 PiSessionFactory.isRunning（U3 口径同源）。 */
   isRunning?(otterId: string): boolean;

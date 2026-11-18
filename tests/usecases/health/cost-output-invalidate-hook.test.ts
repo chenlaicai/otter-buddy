@@ -1,5 +1,5 @@
 /**
- * F20261027hwl1 cost_output 旧口径失效钩子测试：
+ * cost_output 旧口径失效钩子测试：
  * 幂等判据 = 存在 metadata 无 provider 字段的 cost_output 行 → 全清；新口径行全带 provider → 不清。
  * 场景：换轨后首次扫描清旧行；二次扫描（新口径）不再清（保护重扫窗口）。
  */

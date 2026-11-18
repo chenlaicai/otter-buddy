@@ -33,7 +33,7 @@ interface UseCardBridgeOptions {
 const RESIZE_THROTTLE_MS = 60
 /** submit 节流间隔（per-card，防脚本高频轰炸预览闸门） */
 const SUBMIT_THROTTLE_MS = 200
-/** F20261111csvfx：无效 payload 反馈冷却（per-card）——防脚本用无效提交骚扰 toast。
+/** 无效 payload 反馈冷却（per-card）——防脚本用无效提交骚扰 toast。
  *  3s > toast 自身存活 2.5s，反馈不叠影；脚本上限 1 条/3s/卡（骚扰有界） */
 const REJECT_FEEDBACK_THROTTLE_MS = 3000
 /** 连续拒绝次数上限：达到后该卡 submit 会话内关闭（防脚本打地鼠；刷新后重置，预览闸门仍在） */
@@ -67,7 +67,7 @@ export function useCardBridge({ activeId, messages, onSendReply }: UseCardBridge
   const closedCardsRef = useRef(new Set<string>())
   const lastResizeRef = useRef(new Map<string, number>())
   const lastSubmitRef = useRef(new Map<string, number>())
-  /** F20261111csvfx：无效 payload 反馈时间戳（per-card，与 lastSubmitRef 同构的运行时节流） */
+  /** 无效 payload 反馈时间戳（per-card，与 lastSubmitRef 同构的运行时节流） */
   const lastFeedbackRef = useRef(new Map<string, number>())
   /** derive 缓存：按 messages 引用记忆化（message 事件里不重扫） */
   const repliedCacheRef = useRef<{ messages: LocalMessage[]; ids: Set<string> } | null>(null)
@@ -109,7 +109,7 @@ export function useCardBridge({ activeId, messages, onSendReply }: UseCardBridge
         const now = Date.now()
         if (now - (lastResizeRef.current.get(cardId) || 0) < RESIZE_THROTTLE_MS) return
         lastResizeRef.current.set(cardId, now)
-        /** F20260929ahgt：clamp 下限改为 1——初始高度固定 CARD_MIN_HEIGHT 后 documentElement.scrollHeight
+        /** clamp 下限改为 1——初始高度固定 CARD_MIN_HEIGHT 后 documentElement.scrollHeight
          *  等于真实内容高度，上报值可信，解开单向棘轮（内容变矮可缩回） */
         const clamped = Math.min(CARD_MAX_HEIGHT, Math.max(1, Math.round(h)))
         getCardEntry(cardId)?.setHeight?.(clamped)
@@ -126,7 +126,7 @@ export function useCardBridge({ activeId, messages, onSendReply }: UseCardBridge
       // payload 形状校验（500 字符 / 2KB / 禁循环引用与函数）
       const validation = validateCardSubmitPayload(data.payload)
       if (!validation.ok) {
-        /** F20261111csvfx：作者错误类不再静默——旧版 `return` 零反馈，搭档点击「无反应」
+        /** 作者错误类不再静默——旧版 `return` 零反馈，搭档点击「无反应」
          *  （11-09 简报卡按钮 {choice,label} 缺 summary 实证）。只有此分支给反馈；
          *  伪造 source / 超节流 / 已关闭 / 已回复等安全与闸门拒绝仍 fail-closed 静默 */
         if (now - (lastFeedbackRef.current.get(cardId) || 0) >= REJECT_FEEDBACK_THROTTLE_MS) {

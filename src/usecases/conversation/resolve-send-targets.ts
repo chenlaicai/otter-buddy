@@ -1,5 +1,5 @@
 /**
- * F20260913ctlv：user/system 发言目标解析（独立共享模块）。
+ * user/system 发言目标解析（独立共享模块）。
  *
  * Why: 彻底切换后 user 消息只写 entries（SendEntry.sendUserEntry），
  * 原本挂在 SendMessage.send 内的目标解析链（显式校验 + @提及解析 + 默认派发）
@@ -22,7 +22,7 @@ export interface ResolveTargetsDeps {
   getRecentSpeakSenders(conversationId: string, limit: number): Promise<Array<string | null>>;
   /** otter 实体查询（状态/类型/名字） */
   getOtterById(otterId: string): Promise<{ id: string; name: string; status: string; type: string } | null>;
-  /** F20260913ctlv test12：当前 running invoke 的獭集合（steer/followUp 语义的优先目标源） */
+  /** test12：当前 running invoke 的獭集合（steer/followUp 语义的优先目标源） */
   getRunningOtterIds(conversationId: string): Promise<string[]>;
 }
 
@@ -45,7 +45,7 @@ export function buildResolveTargetsDeps(
       return entries.map(e => e.senderId);
     },
     getOtterById: (otterId) => otterRepo.getById(otterId) as Promise<{ id: string; name: string; status: string; type: string } | null>,
-    // F20260913ctlv test12：running 判定用 invokes 表（唯一状态机）；未注入时返回空（退回旧逻辑）
+    // test12：running 判定用 invokes 表（唯一状态机）；未注入时返回空（退回旧逻辑）
     getRunningOtterIds: invokeRepo
       ? async (conversationId) => {
           const invokes = await invokeRepo.getInvokes(conversationId, { status: "running", limit: 200 });
@@ -60,7 +60,7 @@ export function buildResolveTargetsDeps(
  *
  * 规则（与原 SendMessage.resolveUserTargets 语义一致）：
  * 1. 有显式目标（@点名/卡片路由）：校验在场 + otter active，不可用退默认派发（带 feedback）
- * 2. 无显式目标且文本含 @：从文本解析提及（F20260820i333）
+ * 2. 无显式目标且文本含 @：从文本解析提及
  * 3. 全空：默认派发——最后发言的獭（仍在场）→ 兜底在场大獭
  */
 export async function resolveSendTargets(
@@ -90,7 +90,7 @@ export async function resolveSendTargets(
   const participantNames = await fetchParticipantNames(deps, participants);
   const { resolvedIds, invalidNames } = parseMentionsFromText(body, participantNames);
   if (invalidNames.length > 0) logger.info('从文本解析到无效 @提及', { conversationId, invalidNames });
-  /** F20260916ment：无有效解析结果时静默走默认派发——不弹「目标不存在」 feedback 打扰搭档。
+  /** 无有效解析结果时静默走默认派发——不弹「目标不存在」 feedback 打扰搭档。
    *  文本里没匹配到任何在场獭名（@npm 包名/普通行文提及/词边界外 @），
    *  语义等同未 @，静默走默认派发链即可——搭档不需要为「@了不存在的獭」负责。 */
   if (resolvedIds.length === 0) {
@@ -112,7 +112,7 @@ async function fetchParticipantNames(
   return names;
 }
 
-/** 校验显式目标 + 构建 feedback（F20260820i333） */
+/** 校验显式目标 + 构建 feedback */
 async function validateTargets(
   deps: ResolveTargetsDeps,
   logger: Logger,

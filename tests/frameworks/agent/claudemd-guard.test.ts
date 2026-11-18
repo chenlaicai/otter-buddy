@@ -1,5 +1,5 @@
 /**
- * #496：ResourceLoader 屏蔽 CLAUDE.md / AGENTS.md 祖先目录发现。
+ * ResourceLoader 屏蔽 CLAUDE.md / AGENTS.md 祖先目录发现。
  *
  * 背景：SDK loadContextFileFromDir 从 cwd 逐层向上找 CLAUDE.md / AGENTS.md，
  * 注入 buildSystemPrompt 的 <project_context> 段。主仓根的 CLAUDE.md 是给

@@ -1,7 +1,7 @@
 /**
- * F20260825evgl 伤疤3：speak+yield 收尾协议。
+ * 伤疤3：speak+yield 收尾协议。
  *
- * 来源：PR #310 合入、PR #358 no_yield 内容丢失——speak 后必须 yield，speak 不等于交棒。
+ * 来源：合入、no_yield 内容丢失——speak 后必须 yield，speak 不等于交棒。
  * 新增场景（现有测试有相关覆盖，golden 提取精简版）。
  *
  * 行为不变量：小獭完成发言后，回合必须收尾（speak 产生的 completed 消息存在）且
@@ -25,10 +25,10 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
   const userSeq = latestUserSeq(messages.filter((m) => m.st === "user"));
   const tools = toolCallNamesForExchange(messages, userSeq);
 
-  /** 收尾协议判据（发现 3 修复）：completed 消息存在 + 内容非空 + tsp 非空。
+  /** 收尾协议判据：completed 消息存在 + 内容非空 + tsp 非空。
    *  yield 机制已核实：yield 调 startSpeaking(currentMessageId, { talkingStonePassedTo })
    *  写 tsp（tool-factory.ts）——所以 completed 消息的 tsp 非空 = yield 被调用过。
-   *  仅看 completed && hasContent 会漏过 no_yield 场景（自动重试 F20260730sbrt 可能补 completed）。 */
+   * 仅看 completed && hasContent 会漏过 no_yield 场景（自动重试 可能补 completed）。 */
   const otterMsgs = messages.filter((m) => m.st === "otter" && m.seq > userSeq);
   const completed = otterMsgs.find((m) => m.status === "completed");
   const hasContent = (completed?.content.trim().length ?? 0) > 0;

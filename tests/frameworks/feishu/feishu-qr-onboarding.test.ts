@@ -14,7 +14,7 @@ import * as sdk from "@larksuiteoapi/node-sdk";
 import type { Logger } from "@usecases/ports/logger";
 
 /**
- * F20260928fsqr 单测：bot-key 统一派生 + app-store CRUD + 扫码登录会话状态机。
+ * 单测：bot-key 统一派生 + app-store CRUD + 扫码登录会话状态机。
  * registerApp 全 mock（sdk 模块级 spy——真流程要出网到 accounts.feishu.cn）。
  */
 

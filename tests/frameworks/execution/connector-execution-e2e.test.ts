@@ -23,7 +23,7 @@ import { createTestLogger } from "../../helpers/logger";
 import type { Device } from "@entities/execution/device";
 
 /**
- * F20261118remex（#1868 阶段 4 C2）端到端验收：RemoteExecutionMachine → WSS 网关 →
+ * （阶段 4 C2）端到端验收：RemoteExecutionMachine → WSS 网关 →
  * 真 connector 执行栈（dispatcher + 公共执行器 + 本地台账 + workspace 网关临时目录）
  * → 六动作全链 / 中枢幂等拒 / connector 侧幂等快路径 / 断线在途落 unknown（方案 §8）。
  * 拓扑对齐生产装配：hub 侧 machine 投影接真 gateway 通道（app.ts 形态），

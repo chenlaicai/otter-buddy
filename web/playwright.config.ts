@@ -1,5 +1,5 @@
 /**
- * Playwright e2e 配置（F20260920ecig，issue #1058）。
+ * Playwright e2e 配置（）。
  *
  * - baseURL：环境变量 E2E_BASE_URL 优先（CI 指向 e2e 服务实例），本地默认 alpha 实例端口
  * - spec 内 page.goto 用相对路径（'/memory'），由本配置的 baseURL 解析——单一真相源
@@ -15,7 +15,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3116',
-    // #1868 阶段 2：登录后会话 cookie 统一进 storageState（global-setup 写入）
+    // 阶段 2：登录后会话 cookie 统一进 storageState（global-setup 写入）
     storageState: 'e2e/.auth/owner.json',
   },
   outputDir: './test-results',

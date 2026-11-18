@@ -5,7 +5,7 @@ import type { SSEEvent } from "@contract/sse/events";
 import type { AttachmentRef } from "@entities/conversation/attachment";
 
 /**
- * #902 媒体出站恢复：微信通道附件消费测试。
+ * 媒体出站恢复：微信通道附件消费测试。
  *
  * 三断点之三（微信侧）的回归锁：
  * - entry.user（事件自带 attachments）→ 占位投影 + replyMedia（CDN 上传）真实投递

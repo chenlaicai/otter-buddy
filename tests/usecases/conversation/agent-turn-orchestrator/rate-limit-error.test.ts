@@ -73,7 +73,7 @@ describe("buildRateLimitSystemMsg", () => {
     expect(msg).toContain("glm");
     expect(msg).toContain("配额耗尽");
     expect(msg).toContain("改派");
-    // F20260908rlcp: rate_limit reference removed from system message
+    // rate_limit reference removed from system message
     expect(msg).toContain("2026-09-04 20:22");
   });
 

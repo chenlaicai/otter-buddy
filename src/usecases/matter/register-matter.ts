@@ -1,5 +1,5 @@
 /**
- * RegisterMatter——准入白名单三条的登记 usecase（F20261006mtlp §3 生死线）。
+ * RegisterMatter——准入白名单三条的登记 usecase（§3 生死线）。
  *
  * matter 只能由白名单动作产生：
  * 1. L2 显式拍板项的 yield to user（yield 工具 expects_partner_decision 打标 →
@@ -25,7 +25,7 @@ export interface RegisterMatterInput {
   /** 负责獭：路径 1=发起 yield 的獭 */
   ownerOtterId?: string | null;
   level?: MatterLevel | null;
-  /** F20261019fckd：闭环口径——fact=机器可验证事实（owner 可携证据直关 L2）；decision=判断型（保留 partner 确认闸）；缺省 null 保守视同 decision */
+  /** 闭环口径——fact=机器可验证事实（owner 可携证据直关 L2）；decision=判断型（保留 partner 确认闸）；缺省 null 保守视同 decision */
   closureKind?: MatterClosureKind | null;
   /** 登记即态：路径 1=WAITING_PARTNER；路径 2/3=OPEN */
   initialState: Extract<MatterState, 'WAITING_PARTNER' | 'OPEN'>;

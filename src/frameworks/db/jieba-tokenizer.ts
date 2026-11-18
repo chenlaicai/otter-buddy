@@ -36,7 +36,7 @@ const STOP_WORDS = new Set([
  */
 export function tokenizeWithJieba(text: string, options?: { doubleWrite?: boolean }): string {
   if (!text) return "";
-  // F20260902rcp1: 索引侧改 HMM 词典模式（cut(x,true)），产出词典词；
+  // 索引侧改 HMM 词典模式（cut(x,true)），产出词典词；
   // doubleWrite=true 时追加全单字序列（cut(x,false) 兼容旧单字查询行为）
   const hmmWords = getJieba().cut(text, true);
   const hmmJoined = hmmWords.join(" ");

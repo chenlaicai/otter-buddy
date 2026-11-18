@@ -1,5 +1,5 @@
 /**
- * #446 批量查询行为测试（真 sqlite）。
+ * 批量查询行为测试（真 sqlite）。
  *
  * OtterConfigProvider.getConfigs / OtterRepository.getByIds 的行为契约：
  * 一次调用返回 Map、未配置/不存在的 id 缺席、空数组返回空 Map、重复 id 去重。

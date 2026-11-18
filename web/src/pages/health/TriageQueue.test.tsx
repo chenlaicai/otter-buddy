@@ -7,7 +7,7 @@ import { TriageQueue, daysSince } from './TriageQueue'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
-/** F20260917trig 验证 #7：处置队列分组渲染组件测试（web/src/pages/health/ 既有 vitest 模式） */
+/** 验证 处置队列分组渲染组件测试（web/src/pages/health/ 既有 vitest 模式） */
 
 function sig(overrides: Partial<RhiSignalDTO>): RhiSignalDTO {
   return {

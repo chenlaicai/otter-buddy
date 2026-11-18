@@ -2,8 +2,8 @@ import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import type { Logger } from "@usecases/ports/logger";
 
-/** K3（F20260903k23 → F20260908rlcp → F20260913ctlv）：POST SSE 等触发信号产出终态的超时兜底与轮询。
- *  F20260913ctlv 彻底切换补漏：判据从 messages 行改到 invokes 行——
+/** K3（F20260903k23 → ）：POST SSE 等触发信号产出终态的超时兜底与轮询。
+ * 彻底切换补漏：判据从 messages 行改到 invokes 行——
  *  触发 entry 的 tsp 目标獭是否还有 running invoke（无 → 本轮产出已终态）。
  *  30s 超时覆盖正常链路；更长排队由常驻 GET SSE 承载流式。 */
 export const SSE_SETTLE_TIMEOUT_MS = 30_000;
@@ -41,7 +41,7 @@ export function awaitTriggerAttemptsSettled(
   };
   return new Promise<void>((resolve) => {
     const deadline = Date.now() + SSE_SETTLE_TIMEOUT_MS;
-    // F20260928icmm 阶段2：首查延迟一个轮询周期起步——POST 请求链路上 trigger entry 落库
+    // 阶段2：首查延迟一个轮询周期起步——POST 请求链路上 trigger entry 落库
     // 与目标獭 invoke 行创建存在竞态（实测 entry 入库→invoke 创建最短 ~40ms，极端调度下可
     // 拉开数百 ms）：首查立即执行时 invoke 尚未创建，getActiveInvokeByOtterId 返回 null 被
     // 误判 settled 提前关流（架构獭 9/25 现场实证：14:51:02.246 关流 / .288 invoke 才创建）。

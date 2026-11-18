@@ -1,5 +1,5 @@
 /**
- * #906（F20260930esqu）：entries 表 (conversation_id, sequence_num) UNIQUE 索引迁移测试。
+ * ：entries 表 (conversation_id, sequence_num) UNIQUE 索引迁移测试。
  *
  * 覆盖四类场景（任务简报设计要求 3）：
  * 1. 新库：initSchema 后索引即 UNIQUE

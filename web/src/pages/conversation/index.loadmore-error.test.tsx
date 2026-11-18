@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * issue #1581 验证：loadMoreBefore 加载历史失败必须有用户可见反馈 + 可用重试入口。
+ * 验证：loadMoreBefore 加载历史失败必须有用户可见反馈 + 可用重试入口。
  *
  * bug 现象：catch 块静默（只 console.error），加载历史失败（网络断/服务端错/游标失效）时
  * 按钮/哨兵仍在、无报错、无重试提示——用户表现为「点加载更多没反应」。

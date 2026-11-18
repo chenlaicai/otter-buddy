@@ -23,9 +23,9 @@ interface ResumeQueueItem {
 }
 
 /**
- * F20260916b1ea 服务重启自动恢复（invoke 模型重建版）。
+ * 服务重启自动恢复（invoke 模型重建版）。
  *
- * 8/28 同名机制（messages 模型）被 #886 误删（issue #992），本类按 invoke 模型
+ * 8/28 同名机制（messages 模型）被 误删，本类按 invoke 模型
  * 重映射重建：
  * - 中断锚点：running invoke 行（原生有 trigger_entry_id / otter_id / conversation_id）
  * - 半截内容：entries 追加式天然保留，无需 prepareForRetry 保留逻辑
@@ -36,7 +36,7 @@ interface ResumeQueueItem {
  * 移植旧实现（b1d11c5f^）的成熟逻辑：429/网络指数退避、跨会话并行同会话串行、
  * attempts CAS 认领、终态守卫、healing 台账落账。
  *
- * F20260917rscr：信号补扫（rescanPending/rescanSignals）已删除——9/17 重启风暴
+ * 信号补扫（rescanPending/rescanSignals）已删除——9/17 重启风暴
  * （682 invoke/656 failed）实证「扫历史消息补点火」是净负资产：已读标记在主流
  * 路径不写入导致全部历史消息误判未处理。恢复机制只认 restart_pending_resumes
  * 队列（被系统停止打断的 invoke），搭档裁决（修法排序③ deletion）。
@@ -44,13 +44,13 @@ interface ResumeQueueItem {
 export class ResumeInterruptedService {
   /** 恢复触发前的等待窗口：错开启动尾段的装配/首条用户消息并发 */
   private static readonly RESUME_DELAY_MS = 3_000;
-  /** 429 限流重试配置（F20260830rfto 移植） */
+  /** 429 限流重试配置（移植） */
   private static readonly RATE_LIMIT_MAX_RETRIES = 3;
   private static readonly RATE_LIMIT_BASE_DELAY_MS = 5_000;
   /** 恢复摘要台账查询上限：远超真实单 invoke 动作量（个位数到几十），仅为拦截病态增长 */
   private static readonly LEDGER_SUMMARY_FETCH_LIMIT = 1_000;
 
-  /** F20261116actlg PR-B：本进程 boot 纪元（毫秒时间戳，构造时定格；进程内恒定、跨进程互异） */
+  /** PR-B：本进程 boot 纪元（毫秒时间戳，构造时定格；进程内恒定、跨进程互异） */
   private readonly bootEpoch: number;
 
   constructor(
@@ -60,23 +60,23 @@ export class ResumeInterruptedService {
       invokeRepo: InvokeRepository;
       resumePendingRepo: ResumePendingRepository;
       dispatchChainEngine: DispatchChainEngine;
-      /** invokeFn 在装配处闭包捕获 agentInvoker（审视发现 1 修复，旧模式沿用） */
+      /** invokeFn 在装配处闭包捕获 agentInvoker（旧模式沿用） */
       invokeFn: InvokeFn;
       /** 失败/跳过的用户可见系统消息写入（装配处闭包 uc.sendEntry.createSystemEntry） */
       sendSystemEntry: (conversationId: string, body: string) => Promise<void>;
-      /** #613（移植）：healing 台账写入（服务重启事件落账） */
+      /** （移植）：healing 台账写入（服务重启事件落账） */
       healingRepo?: HealingEventRepository;
       logger: Logger;
       /** 测试注入假时钟/立即触发 */
       delayMs?: number;
       /** 429 限流退避基础延迟（ms），测试可注入小值 */
       rateLimitBaseDelayMs?: number;
-      /** F20261116actlg PR-B：动作台账只读面（恢复摘要数据源；缺省无摘要——旧文案兼容） */
+      /** PR-B：动作台账只读面（恢复摘要数据源；缺省无摘要——旧文案兼容） */
       actionLedger?: { listByInvoke(invokeId: string, limit?: number): Promise<ActionRecord[]> };
-      /** F20261118remex（C2）：远程动作登记只读面（R2——远程动作五态并入恢复摘要；
+      /** （C2）：远程动作登记只读面（——远程动作五态并入恢复摘要；
        *  缺省无远程段——无 connector 场景旧文案兼容） */
       remoteActions?: { listByConversation(conversationId: string, limit?: number): Promise<RemoteActionRequest[]> };
-      /** F20261116actlg PR-B：本进程 boot 纪元（认领绑定；测试可注入固定值） */
+      /** PR-B：本进程 boot 纪元（认领绑定；测试可注入固定值） */
       bootEpoch?: number;
       /** F20261117 检视轮 S3：旧持有者 pid 死活探针（重认领预检；测试可注入 fake，
        *  缺省 process.kill(pid, 0) 试探——ESRCH=死，EPERM=活着但权限不足） */
@@ -89,7 +89,7 @@ export class ResumeInterruptedService {
   }
 
   /** 入口：延迟后逐条恢复。fire-and-forget 调用（不阻塞服务就绪）。
-   *  F20260917rscr：只恢复队列里的中断 invoke——不再做任何历史信号扫描。 */
+   * 只恢复队列里的中断 invoke——不再做任何历史信号扫描。 */
   async resume(): Promise<void> {
     const delay = this.deps.delayMs ?? ResumeInterruptedService.RESUME_DELAY_MS;
     await new Promise(resolve => setTimeout(resolve, delay));
@@ -97,10 +97,10 @@ export class ResumeInterruptedService {
       const pending = await this.deps.resumePendingRepo.getPendingResumes();
       if (pending.length === 0) return;
       this.deps.logger.info("Resuming interrupted invokes after restart", { count: pending.length });
-      // #613（移植）：服务重启事件落 healing 台账（severity 按中断数分级）
+      // （移植）：服务重启事件落 healing 台账（severity 按中断数分级）
       await this.recordRestartHealingEvent(pending.length);
 
-      // F20260917rscr 三点裁决②：全并行恢复——同会话多 running 说明中断前就是并发
+      // 三点裁决②：全并行恢复——同会话多 running 说明中断前就是并发
       // （生产实证：同会话同秒不同獭 running 真实存在）；串行是 messages 时代防 seq
       // 竞态的遗留，createEntryAtomic 原子序号后并发写不撞号。串行的实际代价：一只
       // 429 退避堵住同会话其余恢复。

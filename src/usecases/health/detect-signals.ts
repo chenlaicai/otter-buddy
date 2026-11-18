@@ -1,5 +1,5 @@
 /**
- * SignalDetector: 信号检测引擎（Issue #399）
+ * SignalDetector: 信号检测引擎
  *
  * 输入采集层数据，输出触发的信号列表。全确定性、无 LLM。
  * 信号定义以 signal-registry 为单一真相源，本文件只实现检测逻辑。
@@ -25,11 +25,11 @@ export interface DetectedSignal {
   /** 证据（人类可读，确定性数据） */
   evidence: string;
   suggestedAction: string;
-  /** 结构化证据详情（Issue #644）：窗口内全类型 commit 序列（bug●→fix● 交替时间轴的数据源）。
+  /** 结构化证据详情：窗口内全类型 commit 序列（bug●→fix● 交替时间轴的数据源）。
    *  Why 全类型而非仅 bugfix：只有 bugfix 画不出「引入-修复-回归-再修复」的交替节奏，
    *  前端时间轴需要 changeType 区分节点形态（观澜视觉方案 3.1）。窗口滑动时整体重算覆盖。 */
   detail?: SignalDetail;
-  /** 置信度（Issue #644）：low = 大概率误报（如「干完没归档」的滞留），UI 折叠收纳不进主警报区。
+  /** 置信度：low = 大概率误报（如「干完没归档」的滞留），UI 折叠收纳不进主警报区。
    *  未标注 = normal（默认，走正常警报）。 */
   confidence?: SignalConfidence;
 }
@@ -64,7 +64,7 @@ export interface DetectOptions {
   imbalanceRatio?: number;
   /** 检测窗口（commit 只统计窗口内的，默认 30 天） */
   windowDays?: number;
-  /** behavior_defect 窗口天数（healing 事件只统计窗口内的，默认 7；Issue #645 窗口化升级）。
+  /** behavior_defect 窗口天数（healing 事件只统计窗口内的，默认 7；窗口化升级）。
    *  命名对齐 rhi-scan-worker 的 windowDays 先例（信号检测窗口天数的既有叫法） */
   behaviorWindowDays?: number;
   /** behavior_defect 触发次数（同 errorType 窗口内，默认 3；独立于 recurrenceThreshold——
@@ -110,25 +110,25 @@ export function detectSignals(
   signals.push(...detectHotspot(inWindow, chains, options));
   signals.push(...detectBehaviorDefect(healingEvents, options, now));
   signals.push(...detectHotspotImbalance(inWindow, options));
-  // Issue #647：合并后修复密度（「哪个特性不对劲」，排除清单后；文件级 bug_recurrence 兑「哪里在出血」）
+  // 合并后修复密度（「哪个特性不对劲」，排除清单后；文件级 bug_recurrence 兑「哪里在出血」）
   signals.push(...detectPostMergeFixDensity({ commits: inWindow, chains, now }).signals);
 
   return signals;
 }
 
-/** 非逻辑载体文件：类型定义 / 装配组装 / 测试——修复「复发」计数的噪声面（#1214）。
+/** 非逻辑载体文件：类型定义 / 装配组装 / 测试——修复「复发」计数的噪声面。
  *  Why 排除：types.ts 等类型文件被多特性被动触碰是架构使然（类型修改必然扩散），
  *  组装/测试文件同理——它们不是「同一根因反复修」的载体，计入只会稀释信号区分度。 */
 function isNonLogicCarrier(filePath: string): boolean {
   if (isTestFile(filePath)) return true;
   const base = filePath.split("/").pop() ?? "";
-  // 检视发现 4：types 规则收窄到 src 根 + bootstrap/——全仓 basename 排除会误伤
+  // types 规则收窄到 src 根 + bootstrap/——全仓 basename 排除会误伤
   // src/frameworks/weixin/types.ts 等 runtime 常量载体（262 行含 WEIXIN_* 导出）。
   // 深层域 types.ts 不排除：纯类型文件（如 agent-turn-orchestrator/types.ts，存量信号 222）
   // 3 events 达阈时翻回触发——「类型定义反复修」达阈报警是可接受的边界形态（如实记录，非静音）
   if (/(^|\/)bootstrap\//.test(filePath)) return true;   // 启动装配目录整体（含其 types.ts）
   if (/^src\/types?\.[cm]?[jt]s$/i.test(filePath)) return true; // src 根装配类型；深层域 types.ts 不排除——见 weixin 回归锚
-  // #1012 修法 c 补全：schema 演进载体——migration.ts/schema.ts 的 N 修 = N 个独立 schema 演进，
+  // 修法 c 补全：schema 演进载体——migration.ts/schema.ts 的 N 修 = N 个独立 schema 演进，
   // 被动累加非同一根因反复修（与 types/测试同属「载体噪声」，归因报告 10/23 条盲区中 4 条是它们）
   if (/^(src\/frameworks\/db\/)?(migration|schema)\.[cm]?[jt]s$/i.test(filePath)) return true;
   // 转发桶（barrel：重导出 .ts/.js）——不含 .tsx/.jsx（delta D1：web/src/pages/*/index.tsx
@@ -137,14 +137,14 @@ function isNonLogicCarrier(filePath: string): boolean {
     || /^(platforms|usecases|main)\.[cm]?[jt]s$/i.test(base); // 组装/入口（src 根的组装文件）
 }
 
-/** #1214：触发判据——独立修复事件数（同 PR 去重 + 无 PR 号按 sha 计） */
+/** 触发判据——独立修复事件数（同 PR 去重 + 无 PR 号按 sha 计） */
 function countDistinctEvents(entry: { prs: Set<number>; noPrShas: Set<string> }): number {
   return entry.prs.size + entry.noPrShas.size;
 }
 
-/** #1012 修法 c：severity 分级——
+/** 修法 c：severity 分级——
  *  「主体同一 issue」= 最大 issue 引用数 ≥ 窗口内事件数一半 → critical（同根因修复系列，
- *  #1160 五连 / #1207 集群形态）；跨 issue 分散 → warning（热点活跃假象）；
+ * 五连 / 集群形态）；跨 issue 分散 → warning（热点活跃假象）；
  *  无任何 issue 锚点 → critical（防漏报默认）。
  *  分级而非过滤：warning 仍出信号（可观察），只是不进 critical 主警报区。
  *  判据细节：prs 也计入 issueRefCounts 统计（squash 流 PR 号是唯一锚点）。「主体线」
@@ -165,9 +165,9 @@ function classifyRecurrenceSeverity(
   return "warning"; // 跨 issue 分散 / 主体不占优 = 热点活跃假象
 }
 
-/** #1214：evidence 文案——「N 个不同修复事件 + PR 清单 + 首末修复日期」语义澄清。
- *  文案分支（检视发现 3）：纯 PR / 纯无 PR / 混合三形态各自不冗余。
- *  #1012 修法 c：追加系列归因数据（关联 issue 清单），severity 判据可见。 */
+/** evidence 文案——「N 个不同修复事件 + PR 清单 + 首末修复日期」语义澄清。
+ * 文案分支：纯 PR / 纯无 PR / 混合三形态各自不冗余。
+ * 修法 c：追加系列归因数据（关联 issue 清单），severity 判据可见。 */
 function buildRecurrenceEvidence(
   entry: { module: string; file: string; prs: Set<number>; noPrShas: Set<string>; issueRefCounts: Map<number, number>; shas: string[]; dates: Date[] },
   windowDays: number,
@@ -383,14 +383,14 @@ function isTestFile(filePath: string): boolean {
 }
 
 /** hotspot：文件修改次数超阈值（窗口内全类型 commit 计数，排除测试文件 + 高扇入枢纽）
- *  Why 排除高扇入（#1051 方案 1，2026-10-19）：实测 open 存量 15 条全指向 src/app.ts（19 次）、
+ * Why 排除高扇入（方案 1，2026-10-19）：实测 open 存量 15 条全指向 src/app.ts（19 次）、
  *  src/bootstrap/platforms.ts（19）、web/src/pages/conversation/index.tsx（23）、
  *  agent-invoker.ts（29）、tool-factory.ts（24）——**正是 post_merge_fix_density 用
  *  FAN_IN_THRESHOLD=10 主动排除的那批枢纽文件**（实测近 60 天 fan-in：app.ts×65 /
  *  platforms.ts×56 / index.tsx×50 / agent-invoker.ts×55）。同一仓库一个检测器认定
  *  「枢纽文件被碰是常态」、另一个拿它报警，自相矛盾。枢纽被高频触碰是架构使然，
  *  不是异常——枢纽被高频触碰属架构常态而非异常信号。
- *  观测落点（PR #1560 delta 复核订正）：被排除的枢纽热度**仍进 health_snapshots**——
+ * 观测落点（delta 复核订正）：被排除的枢纽热度**仍进 health_snapshots**——
  *  metric_type=distribution / metric_key=file_hotspots（sqlite 实测 74 行，metadata 完整
  *  携带被排除的枢纽文件，如 app.ts×66、platforms.ts×58、agent-invoker.ts×57），
  *  历史序列在，故此处「观测不丢」成立。这与 density 不同：density 的链级密度快照里

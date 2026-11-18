@@ -39,7 +39,7 @@ const layerLabels: Record<string, string> = {
   document: '文档层',
 }
 
-/** F20260929mrui：contentType 多选清单（与 src/entities/memory/memory-entry.ts 七类对齐） */
+/** contentType 多选清单（与 src/entities/memory/memory-entry.ts 七类对齐） */
 const CONTENT_TYPE_OPTIONS = [
   { value: 'message', label: '消息' },
   { value: 'fact', label: '事实' },
@@ -93,7 +93,7 @@ function TerminologyCard({ entry }: { entry: MemoryEntryDTO }) {
   )
 }
 
-/** F20260929mrui：debug 中间分值（召回诊断，高级开关开启时返回） */
+/** debug 中间分值（召回诊断，高级开关开启时返回） */
 function DebugScores({ debug }: { debug: NonNullable<MemoryEntryDTO['debug']> }) {
   const rows = [
     ['rrfScore', debug.rrfScore],
@@ -149,7 +149,7 @@ function ContextBadge() {
   return <span className="text-[10px] bg-sky-50 text-sky-600 border border-sky-100 px-1.5 py-0.5 rounded-full">邻域</span>
 }
 
-/** 组头命中计数：邻域条目（source='context-expand'）不计命中，单独报告（检视发现 5 口径统一） */
+/** 组头命中计数：邻域条目（source='context-expand'）不计命中，单独报告（口径统一） */
 function hitCountLabel(group: Extract<ResultGroup, { kind: 'doc' }>): string {
   const hits = (group.docEntry ? 1 : 0) + group.items.filter(e => e.source !== 'context-expand').length
   const ctx = group.items.filter(e => e.source === 'context-expand').length

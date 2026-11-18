@@ -11,7 +11,7 @@ import type { SignalRouter } from "@usecases/conversation/signal-router";
 import type { SendEntry } from "@usecases/conversation/send-entry";
 import type { SignalEventRepository } from "@usecases/signal/signal-event-repository";
 import { handleError, param } from "../http-error";
-// F20260913ctlv 整合：safeJsonBody 取 main 版（#891/#893 JSON null body 防御）；
+// 整合：safeJsonBody 取 main 版（/JSON null body 防御）；
 // dto-builder/toMessageDTO 族随 messages 视图退役（本 PR 删除），只保留请求 DTO
 import { safeJsonBody } from "../parse-json-body";
 import type { SendMessageRequestDTO, MarkReadRequestDTO } from "../dto/message-dto";
@@ -23,7 +23,7 @@ function externalProfileForSource(source: string | null | undefined): 'restricte
   return undefined;
 }
 
-/** F20260913ctlv test12：Magic Word 系统级急停判定（严格口径——搭档拍板「单用才生效」）。
+/** test12：Magic Word 系统级急停判定（严格口径——搭档拍板「单用才生效」）。
  *  规则：消息去除「首尾标点/空白 + 句首称呼（你们/大家/各位/给我/快/都）+ 句末语气词（吧/了/啊/呢/嘛/呀）」后，
  *  剩余核心恰好是停手指令词「停下」——整句就是停手命令才命中。
  *  命中：「停下」「停下吧」「你们停下吧！」「快停下」「都停下。」
@@ -48,7 +48,7 @@ import type { InvokeRepository } from "@usecases/conversation/invoke-repository"
 /** 多模态 Phase 1：附件注入策略归位 usecases 层——controller 只透传调用 */
  
 import type { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
-/** F20260924wast（S1）：web 助理对话 8h 静默 session 重启检查（HTTP 链补链） */
+/** web 助理对话 8h 静默 session 重启检查（HTTP 链补链） */
 import type { AssistantSessionManager } from "@usecases/im/assistant-session";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
 
@@ -63,19 +63,19 @@ export class MessageController {
     private readonly queryOtter: QueryOtter,
     private readonly dispatchChainEngine: DispatchChainEngine,
     private readonly messageBroadcaster?: MessageBroadcaster,
-    /** F20260826mwrd C4：消息 DTO signals 挂载（徽章数据源） */
+    /** C4：消息 DTO signals 挂载（徽章数据源） */
     private readonly signalRepo?: SignalEventRepository,
     /** 多模态 Phase 1：附件注入服务（usecases 层策略——校验+真图+document 文本）；可选装配 */
     private readonly attachmentInjection?: AttachmentInjectionService,
-    /** F20260901sgpv P1：信号路由器——主入口调度收敛（火车头换轨）。可选注入：
+    /** P1：信号路由器——主入口调度收敛（火车头换轨）。可选注入：
      *  未注入时降级田直连链（旧装配/存量测试不变，灰度回滚面） */
     private readonly signalRouter?: SignalRouter,
-    /** F20260913ctlv 切换清扫：user 消息双写 entries（时间线真相源） */
+    /** 切换清扫：user 消息双写 entries（时间线真相源） */
     private readonly sendEntry?: SendEntry,
-    /** F20260913ctlv 补漏：settle 判据数据源（K3 关流读 entries/invokes） */
+    /** 补漏：settle 判据数据源（K3 关流读 entries/invokes） */
     private readonly settleEntryRepo?: EntryRepository,
     private readonly settleInvokeRepo?: InvokeRepository,
-    /** F20260924wast（S1）：web 助理对话 session 重启检查——注入后 sendMessage 对
+    /** web 助理对话 session 重启检查——注入后 sendMessage 对
      *  kind=web-assistant 对话在 precheck 后、sendEntry 前调 checkIdleAndRestartSession
      *  （严格限定 web-assistant，IM 助理对话由 IM 入站链保证不重复触发）；可选注入 */
     private readonly webAssistantSession?: {
@@ -85,8 +85,8 @@ export class MessageController {
   ) {}
 
   /** 批量解析 otter 消息的发送者显示名（dissolve 不删行，永远可解析） */
-  /** DTO 组装 helper 依赖包（F20260828c4sg 合并适配：从本类拆出，见 message-dto-builder.ts） */
-  /** F20260913ctlv：settle 判据数据源（entries tsp + invokes running） */
+  /** DTO 组装 helper 依赖包（合并适配：从本类拆出，见 message-dto-builder.ts） */
+  /** settle 判据数据源（entries tsp + invokes running） */
   private settleRepos(): { entryRepo?: EntryRepository; invokeRepo?: InvokeRepository } {
     return { entryRepo: this.settleEntryRepo, invokeRepo: this.settleInvokeRepo };
   }
@@ -103,7 +103,7 @@ export class MessageController {
 
     const { response, push, close } = streamEvents(c, undefined, this.logger);
 
-    // F20260913ctlv 批4a：只订阅事件流（entry.*/invoke.*）——消息回调链路删除：
+    // 批4a：只订阅事件流（entry.*/invoke.*）——消息回调链路删除：
     // broadcaster.broadcast 已无调用方（messages 停写），前端只消费 entry.* 事件
     const unsubscribe = this.messageBroadcaster.subscribeEvents(
       conversationId,
@@ -126,7 +126,7 @@ export class MessageController {
     return response;
   }
 
-  /** 多模态附件前置校验（#826 收口：路由器在位时仅校验不组装——路由器消费信号时从 attachments 重建） */
+  /** 多模态附件前置校验（收口：路由器在位时仅校验不组装——路由器消费信号时从 attachments 重建） */
   private async validateAttachmentPayload(attachmentIds?: string[]): Promise<Response | Awaited<ReturnType<AttachmentInjectionService["validateAndBuild"]>>> {
     const payload = this.signalRouter
       ? await this.attachmentInjection?.validateForSendOnly(attachmentIds) ?? undefined
@@ -137,7 +137,7 @@ export class MessageController {
     return payload;
   }
 
-  /** F20260913ctlv test12：全场急停——abort 会话内全部 running invoke。
+  /** test12：全场急停——abort 会话内全部 running invoke。
    *  agentInvoker.abort 内部走 SDK session abort（userAborted 标记 + invoke 终态化
    *  aborted 的完整链路由 orchestrator abortTerminal 接管：invoke_end entry + SSE）。 */
   private async haltAllRunningInvokes(c: Context, conversationId: string, matchedWords: string[]): Promise<Response> {
@@ -159,7 +159,7 @@ export class MessageController {
     return c.json({ status: "halted", halted, matched: matchedWords }, 202);
   }
 
-  /** F20260913ctlv：发送前置校验（自 sendMessage 拆出控复杂度）——
+  /** 发送前置校验（自 sendMessage 拆出控复杂度）——
    *  请求体合法性 + 附件校验 + Magic Word「停下」全场急停（落库/点火前，急停优先）。
    *  返回 response 非 null = 短路返回它；payload = 附件注入载荷（通过校验时） */
   private async precheckSend(
@@ -176,7 +176,7 @@ export class MessageController {
     const payloadResult = await this.validateAttachmentPayload(body.attachmentIds);
     if (payloadResult instanceof Response) return { response: payloadResult, payload: undefined };
 
-    /** F20260913ctlv test12：Magic Word「停下」系统级全场急停。
+    /** test12：Magic Word「停下」系统级全场急停。
      *  搭档拍板：用户消息命中（含「停下」即触发，大獭指令口径）时直接 halt 所有
      *  running invoke（system 级，不依赖大獭 LLM 自觉）——在落库/点火前执行，急停优先。
      *  误报而 abort 的损失 = 一次可重试的中断，可接受（fail-safe 方向）。
@@ -188,7 +188,7 @@ export class MessageController {
     return { response: null, payload: payloadResult };
   }
 
-  /** F20260924wast（S1）：web 助理对话 session 重启检查——precheck 后、sendEntry 前。
+  /** web 助理对话 session 重启检查——precheck 后、sendEntry 前。
    *  失败不阻塞发送（与 IM 链「丢摘要代价 < 丢消息代价」语义一致），只记日志。 */
   private async checkWebAssistantSession(conversationId: string): Promise<void> {
     if (!this.webAssistantSession || !this.conversationRepo) return;
@@ -212,12 +212,12 @@ export class MessageController {
       if (early.response) return early.response;
       const payload = early.payload;
 
-      /** 1.5 F20260924wast（S1）：web 助理对话 8h 静默 session 重启检查
+      /** 1.5 ：web 助理对话 8h 静默 session 重启检查
        *  （precheck 后、sendEntry 前——重启先于新消息落库，新消息天然落新 session；
        *  restart 内部有并发防重，不中断进行中的 dispatch/流式输出，D2 边界） */
       await this.checkWebAssistantSession(conversationId);
 
-      /** 2. F20260913ctlv 彻底切换：user 消息唯一落点 = entries（messages 表停写）。
+      /** 2. 彻底切换：user 消息唯一落点 = entries（messages 表停写）。
        *  目标解析（默认派发/@提及）在 SendEntry 内完成；显式目标透传；talkingStonePassedTo 是点火依据。
        *  mode 透传（injectionMode）：目标 running 时 steer=打断（默认）/followUp=排队 */
       const { entry: userEntry, talkingStonePassedTo, mentionFeedback } = await this.sendEntry!.sendUserEntry({
@@ -231,7 +231,7 @@ export class MessageController {
       });
 
       /** 附件关联（多模态）：user entry 挂附件（内存载荷仅降级直连链用） */
-      // F20260913ctlv 终审修复：附件绑定已下沉 sendUserEntry（三入口统一）——
+      // 终审修复：附件绑定已下沉 sendUserEntry（三入口统一）——
       // 此处手动 attach 删除（冗余）；返回的 userEntry 已带 attachments 投影
 
       /** 广播 entry 事件（user 气泡，前端 entry 通道消费；旧 message 广播已退役）。
@@ -278,11 +278,11 @@ export class MessageController {
     ctx: {
       conversationId: string;
       body: SendMessageRequestDTO;
-      /** F20260913ctlv 彻底切换：路由器信号视图（轻量内存对象，不入库） */
+      /** 彻底切换：路由器信号视图（轻量内存对象，不入库） */
       userMessage: { id: string; conversationId: string; senderType: "user"; senderId: string; talkingStonePassedTo: string[]; status: "completed"; segments: never[]; sequenceNum: number };
       mentionFeedback?: string;
       payload?: Awaited<ReturnType<AttachmentInjectionService["validateAndBuild"]>>;
-      /** F20260913ctlv：user entry id（触发锚） */
+      /** user entry id（触发锚） */
       entryId: string;
       /** 持久化 user entry.source 投影出的受限外部档；不信任 senderId 前缀。 */
       externalProfile?: 'restricted';
@@ -298,14 +298,14 @@ export class MessageController {
     // 外部适配器以精确 entry id 收敛本轮 invoke；不得用正文和时间窗口猜测轮次。
     response.headers.set('x-otter-trigger-entry-id', ctx.entryId);
 
-    // F20260820i333 + 广播订阅收口
+    // + 广播订阅收口
     const unsubscribe = this.subscribeBroadcasterForPostStream(conversationId, push, mentionFeedback);
 
     const injection = payload && typeof payload !== "string" ? payload : undefined;
-    // F20260901sgpv P1：主入口火车头换轨——调度收敛到信号路由器（投递即点火）。
-    // K3（F20260908rlcp）：SSE 生命周期挂消息终态——本轮信号到终态或超时才关流。
+    // P1：主入口火车头换轨——调度收敛到信号路由器（投递即点火）。
+    // K3：SSE 生命周期挂消息终态——本轮信号到终态或超时才关流。
     if (this.signalRouter) {
-      // F20260908rlcp 整合修复：传入 triggerMessageId 只路由本轮触发消息——
+      // 整合修复：传入 triggerMessageId 只路由本轮触发消息——
       // 不扫历史（历史已处理信号的重复点火是 09-09 实测双触发根因）
       this.signalRouter.routeSignals(conversationId, { triggerMessageId: userMessage.id })
         .then(async (results) => {
@@ -325,9 +325,9 @@ export class MessageController {
       conversationId, userMessageContent: this.withDocumentBlock(body.body, injection?.documentBlock),
       senderId: body.senderId, allTargets, images: injection?.images,
       ...(externalProfile && { externalProfile }),
-      // F20260902sgp2 S1：触发消息 ID（派发台账首 hop 记账）
+      // 触发消息 ID（派发台账首 hop 记账）
       triggerMessageId: userMessage.id,
-      // F20261012swsg（#1430）：触发消息序列号（安全词证据锚点 seq 位）
+      // 触发消息序列号（安全词证据锚点 seq 位）
       triggerSequenceNum: userMessage.sequenceNum,
     })
       .catch((err: unknown) => {

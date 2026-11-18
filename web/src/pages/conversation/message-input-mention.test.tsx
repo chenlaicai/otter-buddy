@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * F20260916ment：MessageInput @提及显式 ID 通道测试（Slack 结构化提及模式）。
+ * MessageInput @提及显式 ID 通道测试（Slack 结构化提及模式）。
  *
  * 锁定行为：
  * 1. 弹层选中 → 发送时走 pickedMentions 显式 ID（不再从文本反解析）

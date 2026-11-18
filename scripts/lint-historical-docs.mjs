@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * F20260831dgim: 历史特性文档不可变（commit-time gate）。
- * F20260922dfch: BYPASS 环境变量自觉制 → `.doc-fix` 声明文件显式开口（搭档决策 2026-09-22）。
+ * 历史特性文档不可变（commit-time gate）。
+ * BYPASS 环境变量自觉制 → `.doc-fix` 声明文件显式开口（搭档决策 2026-09-22）。
  *
  * 规则：已合入的特性/研究文档是交付时点的快照，禁止在后续分支上修改（M/R/C/D）。
  * 后续特性更新一律追加新特性文档记录变化（frontmatter from/supersedes 关联前文）。
@@ -10,19 +10,19 @@
  * 显式开口（仅限元数据订正：frontmatter 字段修正、id 对齐、格式订正——内容/设计修改一律走 supersede 新文档）：
  *   在仓库根目录新建 `.doc-fix` 文件并 staged 进同一个 commit，文件内容写明订正理由（≥10 字符）。
  *   声明文件随 commit 历史与 PR commits 可见（squash 合并下不进 main 净 diff）——比环境变量更不易悄悄绕过，且理由强制留痕。
- *   机械边界（F20260922dfch 严重 1 处置）：除声明文件外，每个历史文档的变更行必须全部落在 frontmatter
+ * 机械边界（）：除声明文件外，每个历史文档的变更行必须全部落在 frontmatter
  *   块内（首个 --- 至次个 ---）；正文实质修改（增/删非空行）即使配 .doc-fix 也拒绝放行——「仅限元数据」
  *   是机制不是约定。提交后由使用者删除 .doc-fix（lint 仅提示；忘删 fail-closed：残留且未变更的声明不开启通道）。
- *   F20261019f714（M-f7148deb 第 2 条）：第二开口「链接订正」——全部变更行是成对的纯 markdown 链接路径
+ * （M-f7148deb 第 2 条）：第二开口「链接订正」——全部变更行是成对的纯 markdown 链接路径
  *   替换（`](path)` 内 path 变化、行内其余字节相同）时放行（需 .doc-fix 声明）。链接路径是「指向哪」的
  *   机械事实（文档 rename 后的引用链同步），与 frontmatter 元数据订正同性质；正文观点/非链接字节仍拦。
- *   R 形态 rename（#1257，F20261001lrbk）：git mv 产生的 R 配对此前被双重误拦（isAddedOnBranch 按
+ * R 形态 rename（）：git mv 产生的 R 配对此前被双重误拦（isAddedOnBranch 按
  *   oldPath 判历史 + checkFrontmatterScope 单路径 diff 把 rename 展开成全文新增）——纯 rename
  *   （similarity 100%，内容零变化）本质是文件名级元数据订正。修复：R 配对改从全量 diff 取 hunks，
  *   无 hunks（纯 rename）放行；有 hunks 按 old/new 两侧 frontmatter 边界校验（正文编辑仍拦）；
  *   相似度 <50% 退化为 A+D 配对的仍宁拦（大改不是文件名订正）。.doc-fix 声明对 rename 通道同样强制。
  *
- * F20261009hcig（#1281）：--base <ref> CI 模式——补齐执行面缺口（本脚本此前只挂 pre-commit，
+ * ：--base <ref> CI 模式——补齐执行面缺口（本脚本此前只挂 pre-commit，
  *   git commit --no-verify 可整体绕过；其余 7 个 pre-commit lint gate 均有 CI 对应，唯本门禁缺席）。
  *   逐 commit 重放同等校验：git rev-list --parents base..HEAD 逐个 commit，对其 first-parent diff
  *   （等价于该 commit 提交时的 staged 区）跑与 pre-commit 完全相同的判定。
@@ -33,7 +33,7 @@
  *   HEAD → <commit>^（精确重放 pre-commit 时点语义：pre-commit 运行时 HEAD 即待提交 commit 的父）。
  *   merge commit 跳过不检查（实测取舍）：曾设计按 first-parent diff 检查（封 evil merge），
  *   但实测发现误报面不可接受——本仓 CI up-to-date gate 强制 PR 分支 rebase/merge main，而
- *   main 的 squash 合入会把 .doc-fix 创建/删除对消出净 diff（如 #1375 两个 R099）：
+ * main 的 squash 合入会把 .doc-fix 创建/删除对消出净 diff（如 两个 R099）：
  *   「PR merge main」时 merge commit 的 first-parent diff 会把 main 来的变更记入本 PR → 必红。
  *   如实声明恣意口子：跳过意味着 merge commit 路径无机械拦截，evil merge 成为与
  *   --no-verify 同等易行的绕过通道（与普通 PR 恰在本 gate 分道——普通 PR 的非 merge
@@ -51,7 +51,7 @@ function git(args, opts = {}) {
   // 全检-5（终审严重 1）：统一禁用 quotePath——默认开启时非 ASCII 路径输出 \3xx 转义形态，
   // 本脚本的路径过滤/段匹配/show 查询全部打在原始串上恒 miss，CJK 文件名历史文档整类
   // 逃出门禁（实测：同 staged 改 CJK 文档正文 exit=0 零输出）。所有调用面一次收口。
-  // F20261118lhist：stderr 必须 pipe 而不是继承——本脚本有大量**预期失败**的探测式调用
+  // stderr 必须 pipe 而不是继承——本脚本有大量**预期失败**的探测式调用
   // （pathExistsOnRef 的 `git cat-file -e <base>:<新路径>`、frontmatterLastLineOf 的
   // `git show <ref>`），失败是判定语义的一部分，git 自己会往 stderr 打 `fatal: path ...
   // exists on disk, but not in ...`。继承 stderr 会让这些预期内失败污染门禁输出，教人

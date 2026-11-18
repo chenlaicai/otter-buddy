@@ -1,5 +1,5 @@
 /**
- * Healing 高危路由登记表（F20260826mwrd C3，母方案 Part 4）。
+ * Healing 高危路由登记表（C3，母方案 Part 4）。
  *
  * 现状：severity:high 事件写入后仅 logger.warn——大獭要等每日批处理才知道。
  * 增强：high 事件写入时在此登记，大獭下一次 invoke 的 buildDynamicContext 消费
@@ -56,7 +56,7 @@ class HealingAlertRegistry {
     return list;
   }
 
-  /** F20261008hcpa 层3（审视建议 B）：批量登记超限时聚合为单条摘要，不静默丢——
+  /** 层3（审视建议 B）：批量登记超限时聚合为单条摘要，不静默丢——
    *  逐条 enqueue 超过 MAX_PENDING_PER_CONVERSATION 会 drop-oldest 丢最早的事件提醒。
    *  趭龄 high 批量推送场景改走本入口：≤上限时逐条保留（逐条可见）；超限时聚合成
    *  单条摘要（错误类型计数 + ids），提醒不丢。台账（healing_events）仍是全量真相源。 */

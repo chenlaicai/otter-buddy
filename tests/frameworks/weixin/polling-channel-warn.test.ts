@@ -1,5 +1,5 @@
 /**
- * WeixinPollingChannel context_token 过期预警测试（F20260901wxnt）
+ * WeixinPollingChannel context_token 过期预警测试
  *
  * fake clock + mock api：断言副作用（发送尝试 / warnedAt 记录 / 日志），
  * 不断言 mock 调用参数本身（项目 lint 约定）。
@@ -330,7 +330,7 @@ describe("WeixinPollingChannel - 入站清除内存缓存 warnedAt (F20260901wxn
   });
 
   it("入站消息清除内存缓存 warnedAt（资格重置的内存侧，F20260920wxho 语义）", async () => {
-    // 场景（F20260920wxho 后：每静默期只提醒一次）
+    // 场景（后：每静默期只提醒一次）
     // Phase 1: disk warnedAt=10min ago → 已提醒过 → 抑制
     // Phase 2: 快进121min → 仍抑制（cooldown 已退役，warnedAt 存在即跳过）
     //   ——但为验证内存清除链路，本测试 Phase 2 先入站换新重置资格：
@@ -452,7 +452,7 @@ describe("WeixinPollingChannel - 预警内存补偿止损 (F20260901wxnt 发现3
         user2: { token: "tok-ok", receivedAt },
       },
     });
-    // user1 落盘失败（模拟磁盘故障），user2 正常（F20260920wxho：不再恢复磁盘——每静默期一次无重发路径）
+    // user1 落盘失败（模拟磁盘故障），user2 正常（不再恢复磁盘——每静默期一次无重发路径）
     const diskFailForUser1 = true;
     const origWarned = fakeStore.accountStore.recordContextTokenWarned as ReturnType<typeof vi.fn>;
     origWarned.mockImplementation((accountId: string, userId: string) => {
@@ -497,7 +497,7 @@ describe("WeixinPollingChannel - 预警内存补偿止损 (F20260901wxnt 发现3
 
     const sendsAfterTick1 = sendCalls.length;
 
-    // tick 2：即使 user1 落盘失败，内存缓存的 warnedAt 生效 → 本静默期内不重发（F20260920wxho：无论过多久）
+    // tick 2：即使 user1 落盘失败，内存缓存的 warnedAt 生效 → 本静默期内不重发（无论过多久）
     await vi.advanceTimersByTimeAsync(DELAY_MS + 100); // 推进到 tick 2
     fakeNow += 121 * 60_000; // 快进超过原 cooldown，仍不应重发
     await vi.advanceTimersByTimeAsync(DELAY_MS + 100); // tick 3

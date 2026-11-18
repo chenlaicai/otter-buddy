@@ -1,5 +1,5 @@
 /**
- * F20260920uhuc：统一叙事合成引擎——压缩/交接共享的单一七段算法。
+ * 统一叙事合成引擎——压缩/交接共享的单一七段算法。
  *
  * 合并来源（两套模板的合并体，谱系同源）：
  * - compaction-hook.ts 的七段模板（Pi preparation 视角：messagesToSummarize 序列化 + previousSummary 谱系继承）
@@ -17,35 +17,35 @@ import { serializeConversation } from "@earendil-works/pi-coding-agent";
 import type { HandoffDegradeReason } from "@frameworks/agent/session-slicer";
 import { HANDOFF_DEGRADE_REASON_TEXT } from "@frameworks/agent/session-slicer";
 
-/** 合成超时上界（ms）：兜底异常语义——防 LLM 卡死/网络挂起，不是质量闸门（F20260923hsyn）。
+/** 合成超时上界（ms）：兜底异常语义——防 LLM 卡死/网络挂起，不是质量闸门。
  *  实证分布（9/23 日志配对统计）：正常 20-65s，最大真实案例 146s（956k chars prompt）。
  *  60s 会把大 session 的正常合成误判超时并丢弃迟到结果（白跑+降级双重损失），故定 300s。 */
 export const NARRATIVE_SYNTHESIS_TIMEOUT_MS = 300_000;
 
-/** F20260924swin：合成全文预算（chars）——trim 与预检共享的唯一预算对象。
+/** 合成全文预算（chars）——trim 与预检共享的唯一预算对象。
  *  定标（夹逼法，只用实测成败样本，不依赖容量/密度推导链，锚点见特性文档「全量合成样本回放」）：
  *    ~~最小失败 227,110 chars（09-24 大獭重启）× 0.8 余量 = 181,688 chars @262K~~
- *    【已被 F20261009s6ej6 取代——旧「最小失败 227,110」下界被 10-09 更小失败样本 173,485 证伪（F20261027obsc 措辞订正：证伪的是下界样本，非密度本身），见下块】
+ * 【已被 取代——旧「最小失败 227,110」下界被 10-09 更小失败样本 173,485 证伪（措辞订正：证伪的是下界样本，非密度本身），见下块】
  *    已知最大成功（262K 档）41,951 chars（历史值，仍 < 138,788 新预算 ✓）。
- *  F20261009s6ej6 重新定标（2026-10-09 真实失败样本 7 例，全部 262K 档）：
+ * 重新定标（2026-10-09 真实失败样本 7 例，全部 262K 档）：
  *    最小失败 173,485 chars（16:24:51 手动重启，promptChars trim 后值）× 0.8 = 138,788 chars。
  *    密度推算：173,485 chars 超 262,144 tokens → 实际密度 ≥ 1.511 token/char，
  *    显著高于 0.693 倒数的 1.443——旧定标低估了 262K 档的内容密度。
  *    新预算 138,788 chars 对应密度 1.889 token/char，留有 ~25% 密度方差余量。
- *  跨窗口泛化：不再用统一比率缩放（F20260924swin 假设不成立——两档密度不对称：
+ * 跨窗口泛化：不再用统一比率缩放（假设不成立——两档密度不对称：
  *    262K 档实测 ≥ 1.511；1M 档 956,403 chars 成功样本对应密度 ≤ 1.096）。
  *    改为按窗口档位分别定标：262K → 138,788；1M → 726,752（现行值保留）。
- *  1M 档口径更正（依据 F20260924swin 文档 :86 实录 09-23 成功样本 956,403 chars）：
+ * 1M 档口径更正（依据 文档 :86 实录 09-23 成功样本 956,403 chars）：
  *    kimi 1M 档 > 726,752——(726,752, 956,403] 区间输入会被 trim 裁掉
- *    最老 ~24%（确定的保真代价，F20260924swin 已 L1 拍板接受）。此前注释误用 trim 日志
+ * 最老 ~24%（确定的保真代价，已 L1 拍板接受）。此前注释误用 trim 日志
  *    观测上限 726,586 当「最大成功」，是循环论证（trim 已裁到预算内），特此更正。
- *    保留 726,752 是延续 F20260924swin 保守外推决策，非「无代价」。
+ * 保留 726,752 是延续 保守外推决策，非「无代价」。
  *  夹逼缺口：(41,951, 173,485) 内无成败样本——0.8× 因子即此缺口的残余风险定价。
  *  预算对象 = 全文（含固定段）；trim 内部用「全文预算 − 固定段实测」裁历史段，
  *  公式内不再扣固定段（实测在 trim 内单点扣，此处只定天花板）。 */
 const SYNTHESIS_BUDGET_BY_WINDOW: Record<number, number> = {
   262_144: 138_788,  // 262K 档：最小失败 173,485 × 0.8
-  1_048_576: 726_752, // 1M 档：现行值保留（延续 F20260924swin 保守外推，含 ~24% 保真代价）
+  1_048_576: 726_752, // 1M 档：现行值保留（延续 保守外推，含 ~24% 保真代价）
 };
 export function synthesisFullBudgetChars(contextWindowTokens: number): number {
   // 精确匹配已知窗口档位；未命中档位用保守密度 1.6 token/char 推算（介于两档实测之间）
@@ -54,19 +54,19 @@ export function synthesisFullBudgetChars(contextWindowTokens: number): number {
   return Math.floor(contextWindowTokens / 1.6);
 }
 
-/** F20260924swin：显式合成 max_tokens（与 pi-session-factory 调用侧同值，单一真相源）。
+/** 显式合成 max_tokens（与 pi-session-factory 调用侧同值，单一真相源）。
  *  输出实证 ≤2,415 chars ≤ ~1K tokens，prompt 规则 7 自限 ≤2000 tokens。
- *  ⚠ 机制缺口（检视 B1，#1854）：durable 运行时按 (provider, modelId) 从 models 源
+ * ⚠ 机制缺口（检视 B1，）：durable 运行时按 (provider, modelId) 从 models 源
  *  重解析模型，本副本覆盖到不了线缆——线缆实际走池模板 maxTokens（经
  *  clampMaxTokensToContext 自动收缩），本常量在 durable 时代为副本层目标值，
- *  「输入容量 = 窗口 − max_tokens」的旧断言在 durable 线缆上不成立（待 #1854 修复）。
- *  F20261111synth（#1850）：4,096 → 8,192——off 不可表达的端点（kimi responses）合成
+ * 「输入容量 = 窗口 − max_tokens」的旧断言在 durable 线缆上不成立（待 修复）。
+ * ：4,096 → 8,192——off 不可表达的端点（kimi responses）合成
  *  显式选 low 档执行，思考与正文共享 max_tokens（reasoning 是 output 子集）；
  *  9-24 事故是 medium 档烧光 4,096 致 0 字输出，low 档更省但保留双倍余量吸收思考税。
  *  现状良性：线缆模板 128000 经 clamp 后远大于 low 档思考 + 正文，无回归风险。 */
 export const SYNTHESIS_EXPLICIT_MAX_TOKENS = 8_192;
 
-/** F20260924swin：trim-note 渲染长度预留（chars）。
+/** trim-note 渲染长度预留（chars）。
  *  trim-note 三行渲染 ≈85 chars（<trim-note> 标签 + 「预算裁剪：已丢弃最老 N 条…」文案 +
  *  </trim-note> + 换行，droppedCount ≤ 7 位数），取 200 为渲染上界（×2 余量）。
  *  恒定预留（裁不裁都留）→ 历史正文进预算 + trim-note 必 ≤ 全文预算 → 预检严格 > 不自拦。
@@ -74,19 +74,19 @@ export const SYNTHESIS_EXPLICIT_MAX_TOKENS = 8_192;
  *  + 熔断计一次（构造性证明）。 */
 export const TRIM_NOTE_RESERVE_CHARS = 200;
 
-/** F20260923hsyn：预算裁剪结果（供调用方留痕裁剪幅度） */
+/** 预算裁剪结果（供调用方留痕裁剪幅度） */
 /**
- * F20260923hsyn：合成 prompt 预算裁剪——丢最老保最近（方案 A，搭档 9/23 拍板）。
+ * 合成 prompt 预算裁剪——丢最老保最近（方案 A，搭档 9/23 拍板）。
  *
  * 根因（9/23 压缩死亡链）：合成请求 = 全量历史 + prompt，从不裁剪——一旦 ctx 超过
  * 「模型窗口 − prompt 开销」临界点，compaction/narrative synthesis 全部数学性失效
  * （kimi-256k 实测 prompt 362k-956k chars 超 262k 窗口必 400）。
  *
- * 裁剪策略：历史段预算 = 全文预算 − 固定段实测开销（F20260924swin 口径修正）；
+ * 裁剪策略：历史段预算 = 全文预算 − 固定段实测开销（口径修正）；
  * 从最老消息开始整条丢，直到序列化文本进预算。谱系摘要（previousSummary）与 §④⑤⑥
  * 机械供料不裁——它们已是压缩过的全局信息，交接场景「最近正在干什么」远比「开头聊了啥」重要。
  *
- * F20260924swin 口径修正：
+ * 口径修正：
  * - 预算基准从「(窗口−预留−固定段)×密度」理论式改为「synthesisFullBudgetChars」夹逼定标——
  *   理论式的容量/密度都是边界反推（循环论证），夹逼常数只依赖实测成败样本
  * - 预算对象从「历史段」改为「全文」——调用方传 measuredFixedChars（固定段实测），
@@ -99,9 +99,9 @@ export interface BudgetTrimResult {
   messages: Array<{ role: string; content?: unknown }>;
   /** 被丢弃的最老消息条数（0 = 未裁剪） */
   droppedCount: number;
-  /** F20260924swin 观测锚：裁剪前历史段序列化长度（chars）——trim 日志用 */
+  /** 观测锚：裁剪前历史段序列化长度（chars）——trim 日志用 */
   inputChars: number;
-  /** F20260924swin 观测锚：历史段预算（chars，全文预算 − 固定段实测）——trim 日志用 */
+  /** 观测锚：历史段预算（chars，全文预算 − 固定段实测）——trim 日志用 */
   historyBudgetChars: number;
 }
 
@@ -110,7 +110,7 @@ export function trimMessagesToBudget(
   contextWindowTokens: number,
   measuredFixedChars: number,
 ): BudgetTrimResult {
-  // F20260924swin：历史段预算 = 全文预算 − 固定段实测 − trim-note 预留。
+  // 历史段预算 = 全文预算 − 固定段实测 − trim-note 预留。
   //  legacy 双口径回退分支删除（第三参必填——src 唯一调用方恒传，无参「兼容」无生产消费者）。
   const historyBudgetChars = synthesisFullBudgetChars(contextWindowTokens) - measuredFixedChars - TRIM_NOTE_RESERVE_CHARS;
   if (historyBudgetChars <= 0) {
@@ -165,17 +165,17 @@ export interface NarrativeSynthesisInput {
     activeArtifacts?: Array<{ id: string; resourceType: string; title?: string }>;
     recentUserMessages?: string[];
   };
-  /** F20261006mtlp P1：本对话未闭环 matters 清单（§④ 机械供料——F20261027hfup 起接入合成原料） */
+  /** P1：本对话未闭环 matters 清单（§④ 机械供料——起接入合成原料） */
   openMatters?: string;
   /** 当前时间戳（缺省 now） */
   timestamp?: string;
   /**
-   * F20260923hsyn：目标模型上下文窗口（tokens）——传入则对历史段做预算裁剪
+   * 目标模型上下文窗口（tokens）——传入则对历史段做预算裁剪
    * （trimMessagesToBudget，丢最老保最近）；缺省不裁（向后兼容旧调用）。
    * 9/23 压缩死亡链根因：合成请求从不裁剪，ctx 超「窗口 − prompt 开销」后数学性必败。
    */
   contextWindowTokens?: number;
-  /** F20260924swin 观测锚：trim 结果回调（输入/固定段实测/预算/dropped/最终 prompt 长度）——
+  /** 观测锚：trim 结果回调（输入/固定段实测/预算/dropped/最终 prompt 长度）——
    *  调用方（agent-invoker）落日志用；缺省静默（测试/旧调用无感）。 */
   onTrim?: (result: {
     inputChars: number;
@@ -199,7 +199,7 @@ export interface NarrativeSynthesisInput {
  */
 export function buildNarrativeSynthesisPrompt(input: NarrativeSynthesisInput): string {
   const ctx = resolvePromptContext(input);
-  // F20260924swin：固定段实测（预算口径 = 全文预算 − 固定段实测 = 历史段预算）。
+  // 固定段实测（预算口径 = 全文预算 − 固定段实测 = 历史段预算）。
   // 两遍组装：先无裁剪组出「固定段基线」（历史段置空），实测其长度；再带历史段预算裁剪组装终稿。
   // 两遍成本可接受（序列化是纯字符串拼接，大 session 百 ms 级），换来预算对象唯一（全文）无双重扣减。
   let measuredFixedChars: number | undefined;
@@ -224,7 +224,7 @@ export function buildNarrativeSynthesisPrompt(input: NarrativeSynthesisInput): s
   lines.push('');
   lines.push('请基于上述原料，按七段模板直接输出摘要文本。');
   const prompt = lines.join('\n');
-  // F20260924swin 观测锚：trim 日志（输入/预算/固定段实测/dropped/最终 prompt 长度）——
+  // 观测锚：trim 日志（输入/预算/固定段实测/dropped/最终 prompt 长度）——
   //  生产 vs 探针数字偏差的定谳锚（「裁没裁」从此可查，不再是观测缺口）。
   input.onTrim?.({
     // 不裁剪路径（window 缺省）也报真实输入长度，不再报 0 造成观测歧义

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * F20260917pbgg: 定时任务 prompt 模板体积预算闸（issue #1030 根治层A）。
+ * 定时任务 prompt 模板体积预算闸（根治层A）。
  *
  * 背景：daily-health-check.md 23 天增长 4.6 倍（4479B → 20607B）超出 DB CHECK
  * 约束 length(body) <= 10000（schema.ts scheduled_tasks.body），同步脚本失败、

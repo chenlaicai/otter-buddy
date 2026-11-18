@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { LocalConversation } from '../../lib/mappers'
 
 /**
- * F20260924wast：浮动獭全局单例轮询（M2 处置）。
+ * 浮动獭全局单例轮询（处置）。
  * use-conversation-list-polling 提升全局——App 层起一份 5s 轮询，
  * 对话列表页/对话页/浮动獭共用，避免多份轮询。
  *
@@ -49,7 +49,7 @@ export function getGlobalConversations(): LocalConversation[] {
   return store.conversations
 }
 
-/** F20260924wast：三态推断（优先级写死：冒泡 > 张望 > 睡觉，SG1）。
+/** 三态推断（优先级写死：冒泡 > 张望 > 睡觉，SG1）。
  *  冒泡 = 任一对话有未读；张望 = 任一对话 activityStatus=processing；否则睡觉。
  *  已知失真由产品语义「大概状态」认领（方案取舍 2）。 */
 export type OtterMood = 'sleep' | 'look' | 'bubble'

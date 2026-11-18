@@ -8,7 +8,7 @@ import type { AgentGateway } from "@usecases/otter/agent-gateway";
 import type { OtterSession } from "@entities/otter/otter-session";
 import type { ManageSession } from "@usecases/otter/manage-session";
 
-/** 创建一个 active 状态的 otter 测试数据（默认 small——big 獭不可解散，见 F20261117dsgrd） */
+/** 创建一个 active 状态的 otter 测试数据（默认 small——big 獭不可解散，见 ） */
 function makeActiveOtter(overrides: Partial<Otter> = {}): Otter {
   return {
     id: "otter-1",

@@ -11,7 +11,7 @@ describe("HealthSnapshotRepository（真 sqlite）", () => {
     return { repo: new HealthSnapshotRepository(db), db };
   }
 
-  // #1173 时间炸弹清扫：原硬编码 "2026-08-25"，deleteOlderThan 用例 2026-11-23 起翻转（day 亦滑出 90 天 cutoff）
+  // 时间炸弹清扫：原硬编码 "2026-08-25"，deleteOlderThan 用例 2026-11-23 起翻转（day 亦滑出 90 天 cutoff）
   const day = new Date().toISOString().slice(0, 10);
   const rows = (date: string, value: number) => [
     { snapshotDate: date, metricType: "overview", metricKey: "bugfix_ratio", metricValue: value },

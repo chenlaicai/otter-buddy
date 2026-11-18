@@ -1,5 +1,5 @@
 /**
- * F20261006mlp2 严重2/建议3：无锚点模糊表态不迁移。
+ * 严重2/建议3：无锚点模糊表态不迁移。
  *
  * 源纪律锚点：prompts/identity/SMALL_OTTER.md + BIG_OTTER.md「待办裁决纪律」——
  * 识别 = 锚定到具体 matter 短锚（M-xxxxxxxx），模糊表态（只说「好」「可以」没说哪件）

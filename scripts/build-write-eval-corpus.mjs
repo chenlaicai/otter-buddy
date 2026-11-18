@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * F20261009gwte：shadow 语料库构建（三源合成，方案 v2 模块 2）。
+ * shadow 语料库构建（三源合成，方案 v2 模块 2）。
  *
  * 用法：
  *   node scripts/build-write-eval-corpus.mjs --db <dbPath> [--out <path>]
  *
  * 三源：
- *   S1 replay 存量（guard-v2-real-replay.test.ts + #1368 固化候选——命令+期望内嵌在本脚本，单一真相源为 fixtures JSON）
- *   S2 healing 台账回捞（复用 generate-guard-replay.mjs 的查询口径——guard_intercept 结构化事件 commandHead 反查）
+ * replay 存量（guard-v2-real-replay.test.ts + 固化候选——命令+期望内嵌在本脚本，单一真相源为 fixtures JSON）
+ * healing 台账回捞（复用 generate-guard-replay.mjs 的查询口径——guard_intercept 结构化事件 commandHead 反查）
  *   S3 形态补齐（覆盖面表逐行 × 三态人工构造——内嵌本脚本）
  *
  * 输出：tests/fixtures/guard-write-eval-corpus.json

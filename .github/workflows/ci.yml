@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  # F20260914prdb: 加 edited——PR 标题改名（定稿改合入日）必须重跑标题校验，
+  # 加 edited——PR 标题改名（定稿改合入日）必须重跑标题校验，
   # 否则 checks 停留在旧标题的结果，新标题从未被验过
   pull_request:
     types: [opened, synchronize, reopened, edited]
@@ -27,8 +27,8 @@ jobs:
         run: |
           node scripts/check-pr-title.cjs "$PR_TITLE"
 
-      # F20260825dva2: 特性 ID 日期校验——复用 scripts/validate-commit-date.mjs 单一实现
-      # F20260914prdb: 基准时间双基准任一通过——PR 创建时间（创建日 ID 合法）与
+      # 特性 ID 日期校验——复用 scripts/validate-commit-date.mjs 单一实现
+      # 基准时间双基准任一通过——PR 创建时间（创建日 ID 合法）与
       # 当前时间（定稿改名合入日后合法）均肠通，PR 全生命周期不撞墙
       - name: Check PR title feature ID date
         if: github.event_name == 'pull_request'
@@ -70,11 +70,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # F20261014ghst: game-dev-harness 测试（tests/game/）跑真 Playwright 截图/diff——CI 需预装 chromium
+      # game-dev-harness 测试（tests/game/）跑真 Playwright 截图/diff——CI 需预装 chromium
       - name: Install Playwright chromium (for game-harness tests)
         run: npx playwright install --with-deps chromium
 
-      # F20260821kgts: lint gates 接入 CI（#366 PR-2：纪律≠机制，只挂 pre-commit 会被 --no-verify 绕过）
+      # lint gates 接入 CI（PR-2：纪律≠机制，只挂 pre-commit 会被 --no-verify 绕过）
       # 以下只读源文件、零构建依赖，放 build 前获得快速反馈
       - name: Run fast lint gates (skills / tool-manifest / tests / capability-docs)
         run: |
@@ -89,7 +89,7 @@ jobs:
           # F20261013crit: 验收判据闸——不变量 registry 在位性 + lock 防静默篡改自校验
           npm run lint:criteria
 
-      # F20261009hcig（#1281）：历史文档不可变门禁接 CI——补齐执行面缺口（--no-verify 可整体
+      # 历史文档不可变门禁接 CI——补齐执行面缺口（--no-verify 可整体
       # 绕过 pre-commit；其余 7 个 lint gate 均有 CI 对应，唯此门禁缺席）。--base 逐 commit 模式：
       # 对 origin/main..HEAD 每个 commit 重放 pre-commit 同等校验，.doc-fix 配对语义保真
       # （声明与历史文档变更必须同 commit）。零构建依赖（只调 git），放 build 前；
@@ -100,22 +100,22 @@ jobs:
       - name: Run full project checks
         run: npm run check
 
-      # F20260821kgts: lint:docs 复用 dist 编译产物（单一真相源），必须在 build 之后
+      # lint:docs 复用 dist 编译产物（单一真相源），必须在 build 之后
       - name: Run docs frontmatter lint gate
         run: npm run lint:docs
 
-      # F20260824ax376: PR 评估体系 - intent 字段校验（commit-time gate）
+      # PR 评估体系 - intent 字段校验（commit-time gate）
       - name: Run intent lint gate
         run: npm run lint:intent
 
-      # F20261013crit: 验收判据闸 PR 侧——测试弱化声明闸（删测试行必须登记声明）
+      # 验收判据闸 PR 侧——测试弱化声明闸（删测试行必须登记声明）
       - name: Run test-weakening declaration gate (check-pr-tests)
         if: github.event_name == 'pull_request'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: npm run lint:pr-tests -- --base origin/main
 
-      # F20261028evpkg: 证据化交付机械闸——非纯文档 PR 必须含 Rollback 段与证据分层声明
+      # 证据化交付机械闸——非纯文档 PR 必须含 Rollback 段与证据分层声明
       - name: Run evidence-package gate (check-pr-evidence)
         if: github.event_name == 'pull_request'
         env:
@@ -137,7 +137,7 @@ jobs:
         if: github.event_name == 'pull_request'
         run: node scripts/check-pr-anchor-discipline.mjs --base origin/main
 
-      # F20261013crit: 断言证据锚点轻量规则（warn 起步，ratchet）
+      # 断言证据锚点轻量规则（warn 起步，ratchet）
       - name: Run evidence-anchor lint (warn-level)
         if: github.event_name == 'pull_request'
         env:
@@ -159,7 +159,7 @@ jobs:
       - name: Run extension tests
         run: npm run test:extensions
 
-  # F20261030gblkv（guard-v4）：守卫真机验证 job——10-29 全部事故（#1694/1695/1697/1698/1699）
+  # （guard-v4）：守卫真机验证 job——10-29 全部事故
   # 的共同根源=守卫改动从未在真机验证（CI 全 Linux、本机沙箱不可嵌套）。守卫的进程
   # 身份三查（ps/lsof/PID 文件）与 OS 行为强相关，macOS 是生产运行环境——本 job 在
   # macOS 真机上跑守卫回放库与 kill 族单测，堵「守卫改动从未真机验证」盲区。
@@ -189,7 +189,7 @@ jobs:
       - name: Run guard replay + kill-finder 依赖单测
         run: npx vitest run tests/guard/ tests/frameworks/agent/allowed-service-ports.test.ts
 
-  # F20260920ecig（#1058）：SPA e2e 冒烟闸门——四轮对抗循环三次实证「静态检查绿 ≠ 运行时没崩」
+  # SPA e2e 冒烟闸门——四轮对抗循环三次实证「静态检查绿 ≠ 运行时没崩」
   # （TS 编译过但设置页白屏 D1、断言改了但恒假 D3），真机验证必须进 CI 拦合入。
   # 流水线与本地完全同构：scripts/e2e-server.sh run（起服务→playwright→停服务，trap 始终清理）。
   # 无 bge-m3 模型：embedding 缺失不阻塞启动（FTS-only 降级），LLM 用占位端点（e2e 不触达）。

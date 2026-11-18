@@ -1,5 +1,5 @@
 /**
- * F20260929dbmb: lint-date-bombs.mjs（收窄版 v2）的类型声明。
+ * lint-date-bombs.mjs（收窄版 v2）的类型声明。
  * Why: TypeScript strict 模式下 .mjs 需要声明文件才能消除 TS7016。
  */
 export declare const FID_DATE_RE: RegExp;

@@ -5,13 +5,13 @@
  * - Session 复用机制：首次 invoke 创建 session 并持久化，后续 invoke 恢复已有 session
  * - 只有在 reset/create 时才创建新 session，构建 session 链
  * - tools 配置控制编码工具启用，customTools 注入 Otter 工具
- * - 系统提示通过 extension before_agent_start 事件注入 system role（R20260810piab S1）
+ * - 系统提示通过 extension before_agent_start 事件注入 system role（）
  * - 熔断器通过 session.subscribe 拦截 tool_execution_start 事件
  * - 并发安全：外部方法获取锁，内部方法不获取锁，避免死锁
  *
- * F20260722ta2k: Session 复用机制修复
+ * Session 复用机制修复
  */
-/* eslint-disable max-lines -- #530 护栏 +11 行（steerSession 方法 + activeSessions steer 字段）；拆工厂会切断 session 生命周期与 steer/abort 的闭包内聚 */
+/* eslint-disable max-lines -- 护栏 +11 行（steerSession 方法 + activeSessions steer 字段）；拆工厂会切断 session 生命周期与 steer/abort 的闭包内聚 */
 
 import fs from 'fs';
 import path from 'node:path';
@@ -23,7 +23,7 @@ import type {
   AgentGateway,
 } from "@usecases/otter/agent-gateway";
 import type { OtterType } from "@entities/otter/otter";
-// R20260817arnt PR-A：以下四项自 interface-adapters 上移 @usecases/ports——消除 frameworks→interface-adapters 倒穿
+// PR-A：以下四项自 interface-adapters 上移 @usecases/ports——消除 frameworks→interface-adapters 倒穿
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { Logger } from "@usecases/ports/logger";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
@@ -33,23 +33,23 @@ import type { Model, Api } from "@earendil-works/pi-ai";
 import { ConversationIdle } from "@earendil-works/pi-durable";
 import { createAgentSessionStore } from "./agent-session-store";
 import { classifyGuardInterceptReason } from "./guard-intercept-classify";
-// F20261019gses P0 影子下线：shadow-eval-recorder import 已删（观察期对照机制随转正移除）
+// P0 影子下线：shadow-eval-recorder import 已删（观察期对照机制随转正移除）
 import { sanitizeQuotedText } from "./quoted-text-sanitizer";
 import type { TokenUsage } from "@usecases/conversation/token-usage";
 
 /**
- * F20260930gslog：拦截事件落账 context 组装（纯函数，供单测直接验证字段完整性）。
+ * 拦截事件落账 context 组装（纯函数，供单测直接验证字段完整性）。
  * commandHead 对齐 description 命令前缀 120 字符口径（60 字符可能在长
- * cd 前缀场景截掉 worktree 路径特征），sanitizeQuotedText 脱敏后再截短（#858 口径）。
+ * cd 前缀场景截掉 worktree 路径特征），sanitizeQuotedText 脱敏后再截短（口径）。
  */
 /**
- * F20261008gduc P0-2：导出 classifyGuardInterceptReason 供 orchestrator 熔断降级通道用
- * （usecases 层禁直 import frameworks——D39/#429 分层约束，经本模块 re-export 收口）。
+ * P0-2：导出 classifyGuardInterceptReason 供 orchestrator 熔断降级通道用
+ * （usecases 层禁直 import frameworks——D39/分层约束，经本模块 re-export 收口）。
  */
 export { classifyGuardInterceptReason };
 
 /**
- * F20261027lbos（#1656）：循环硬熔断门拦截落 healing 的钩子构造（从 PiSessionFactory
+ * ：循环硬熔断门拦截落 healing 的钩子构造（从 PiSessionFactory
  * 提出为独立函数供单测——payload 形态是体检段消费契约，seed 与生产脱节先例见
  * agent-invoker-guard-bounce.test.ts:78-81 注记）。
  */
@@ -578,9 +578,9 @@ export class PiSessionFactory implements AgentGateway {
     // 账本不换 transcript：水位循环（上下文不降反复触发交接）、幽灵账本（世代文件从未创建）、
     // 前世档案恒机械转储（读取前世文件失败）三连伤。修复后世代边界 = 库内 pi.reset entry
     //（head 指针），前世 = reset 点之前的 entries，同库可审计（durable 原生多世代语义）。
-    // 流中守护（R5）：换世前提是交接冻结锁/会话锁已持——到达即接线错误，响亮失败而非静默带病。
+    // 流中守护：换世前提是交接冻结锁/会话锁已持——到达即接线错误，响亮失败而非静默带病。
     const pooled = this.poolMeta.get(otterId);
-    // 流中守护（R5，审视修复严重 1 扩面）：isRunning = poolMeta.isStreaming + activeSessions
+    // 流中守护（审视修复严重 1 扩面）：isRunning = poolMeta.isStreaming + activeSessions
     //（invoke 运行期句柄，含 stale-steal 遗留孤儿）——任何活流中换世都是接线错误，
     // 响亮失败而非冷开撕裂。交接冻结锁/会话锁正常持有时不应到达。
     if (this.isRunning(otterId)) {

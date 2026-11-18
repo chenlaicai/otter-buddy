@@ -1,5 +1,5 @@
 /**
- * F20260803fbit: markdown 噪声清理。
+ * markdown 噪声清理。
  *
  * body 是原始 markdown，含代码围栏（```）、标题井号（###）、列表符号（1. / -）、
  * HTML 注释、加粗（**）等语法符号。trigram tokenizer 会把这些切成噪声三元组--
@@ -18,8 +18,8 @@ export function cleanMarkdownForFts(body: string): string {
   return body
     // HTML 注释
     .replace(/<!--[\s\S]*?-->/g, '')
-    // 代码围栏开头（保留代码内容，只删围栏行）；F20260803chunk B6: 同时清理 ``` 和 ~~~ 围栏
-    // PR审视 S13: 加 ^ {0,3} 缩进限制（与 isFenceLine 一致，CommonMark 最多 3 空格）
+    // 代码围栏开头（保留代码内容，只删围栏行）；B6: 同时清理 ``` 和 ~~~ 围栏
+    // PR审视 加 ^ {0,3} 缩进限制（与 isFenceLine 一致，CommonMark 最多 3 空格）
     .replace(/^ {0,3}(?:```|~~~)[^\n]*\n/gm, '')
     // 代码围栏结尾
     .replace(/^ {0,3}(?:```|~~~)\s*$/gm, '')

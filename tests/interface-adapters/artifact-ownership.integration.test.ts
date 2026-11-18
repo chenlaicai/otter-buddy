@@ -9,7 +9,7 @@ import { buildResourceClient } from "../../src/bootstrap/clients";
 import type { ToolContext } from "@usecases/ports/agent-tools";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 
-/** #1804：真实 HTTP 与工具入口共用同一 usecase + SQLite 归属闸。 */
+/** 真实 HTTP 与工具入口共用同一 usecase + SQLite 归属闸。 */
 describe("resource ownership write paths（#1804）", () => {
   it("真实入口拒绝未知或跨对话资源，正确归属可写且非法状态冲突", async () => {
     const db = createTestDb();

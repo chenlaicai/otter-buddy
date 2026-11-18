@@ -1,11 +1,11 @@
 /**
- * 能力测试：matter loop 闭环链路（F20261006mtlp P1）。
+ * 能力测试：matter loop 闭环链路（P1）。
  *
  * 方案验证节锁定三条能力测试场景：
  * ①yield to user 的 L2 自动登记 matter（准入路径 1——獭打标 expects_partner_decision）
  * ②restart 后新世獭档案含 open matters 清单字段（机械供料 handoff_open_matters）
- * ③板上按钮批准回执 → 路由 owner 獭代执行迁移（matters 表状态迁移 + resolution 留痕——P2 补上，F20261006mlp2）
- * ④板上「+」登记回执 → 獭用 register_matter 工具登记（matters 表新增 OPEN 行——P2 严重1 死链修复的验证面，F20261006mlp2）
+ * ③板上按钮批准回执 → 路由 owner 獭代执行迁移（matters 表状态迁移 + resolution 留痕——P2 补上，）
+ * ④板上「+」登记回执 → 獭用 register_matter 工具登记（matters 表新增 OPEN 行——P2 严重1 死链修复的验证面，）
  *
  * 断言策略：LLM 行为（獭是否会按指令打标）用统计采样；DB 登记与档案供料是
  * 确定性断言（严格）——登记发生在工具层，只要獭调 yield 带标就必然落库。
@@ -168,7 +168,7 @@ describe("matter loop：L2 拍板登记 + 重启机械供料（真系统 + 真 L
         );
 
         try {
-          // 必须排除首轮 completed speak；否则会在回执 invoke 创建前读取 matter，形成假阴性（#1788）。
+          // 必须排除首轮 completed speak；否则会在回执 invoke 创建前读取 matter，形成假阴性。
           await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000, afterSeq: firstRound.seq });
         } catch {
           return { ok: false, detail: "owner 獭未在超时内响应回执" };

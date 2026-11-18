@@ -4,12 +4,12 @@ import { mapConversationDTO, type LocalConversation } from '../lib/mappers'
 import { mergeConversations } from '../lib/merge-conversations'
 
 /**
- * 对话列表活动状态轮询（F20260805actv）：
+ * 对话列表活动状态轮询：
  * - 每 5 秒刷新列表，仅在页面可见时运行（Page Visibility API）
  * - enabled=false（加载中/错误态）时不启动
  * - 合并策略见 merge-conversations.ts：服务端权威，本地 unreadCount 兜底
  *
- * F20260916lpsc：visibleIds 参数——传入时仅保留「轮询首屏 ∪ visibleIds」的对话，
+ * visibleIds 参数——传入时仅保留「轮询首屏 ∪ visibleIds」的对话，
  * 分页（加载更多）追加的后续页对话不被首屏轮询结果冲掉。不传则全量替换（旧行为）。
  */
 export function useConversationListPolling(
@@ -63,9 +63,9 @@ export function useConversationListPolling(
       if (document.hidden) {
         stopPolling()
       } else {
-        // F20261008sbss：切回标签页立即刷一次，不等首个 5s tick——
+        // 切回标签页立即刷一次，不等首个 5s tick——
         // 隐藏期间服务端状态已变（如 processing → awaiting_user），
-        // 檅留的旧 badge 会误导「是否轮到我」的判断（issue #1249）
+        // 檅留的旧 badge 会误导「是否轮到我」的判断
         refresh()
         startPolling()
       }

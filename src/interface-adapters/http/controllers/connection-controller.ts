@@ -9,7 +9,7 @@ import {
   type EnterConversationRequestDTO,
 } from "../dto/connection-dto";
 
-// F20261023cnct（issue #1063）：死端点下线——list/create/getSession/leaveConversation 四个
+// 死端点下线——list/create/getSession/leaveConversation 四个
 // HTTP 方法已删（对应 GET/POST /api/connections、GET :id/session、POST :id/leave）。
 // usecase ManageConnection 方法全部保留给 IM 命令体系（feishu command-dispatcher.ts /
 // weixin message-processor.ts 复用 leaveConversation 等），仅 HTTP 层退役。

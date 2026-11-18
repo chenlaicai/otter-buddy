@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mapToInvokeEventInput, mapToSSEEvent } from "@usecases/conversation/agent-turn-orchestrator/event-mapping";
 
 /**
- * F20260918sesp：message_start(role=user) → user_injection 落库映射验证。
+ * message_start(role=user) → user_injection 落库映射验证。
  * pi 源码锚点：agent-session._handleAgentEvent 对 steering/followUp 出队后的
  * user 消息照发 message_start（steer/followUp/触发 prompt 三态同路）。
  */

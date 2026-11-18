@@ -22,7 +22,7 @@ export interface HealingEventRow {
   created_at: string;
   resolved_at: string | null;
   introduced_by_pr: string | null;
-  /** #1271（F20261008hbbd）：归口链两列，可缺省（新列旧库兼容读） */
+  /** 归口链两列，可缺省（新列旧库兼容读） */
   bound_issue?: number | null;
   bound_at?: string | null;
 }

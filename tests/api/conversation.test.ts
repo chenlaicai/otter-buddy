@@ -16,7 +16,7 @@ describe("Conversation API", () => {
 
   describe("GET /api/conversations", () => {
     it("returns conversation list", async () => {
-      // F20260922cgrp：listWithMeta 返回 { items, total }；HTTP 响应同构
+      // listWithMeta 返回 { items, total }；HTTP 响应同构
       deps.manageConversation.listWithMeta.mockResolvedValue({
         items: [
           { ...makeConversation(), otterIds: ["otter-1"], unreadCount: 0, lastMessagePreview: null, lastMessageTs: null },
@@ -97,7 +97,7 @@ describe("Conversation API", () => {
       });
     });
 
-    // F20260929wak1 SG2：DTO 第二投影点回归——entity.kind=web-assistant 经 API 透出不丢
+    // SG2：DTO 第二投影点回归——entity.kind=web-assistant 经 API 透出不丢
     // （线上 bug 逃逸路径：mapper 修复有用例锁，但 DTO 层 !== 'normal' 吞字段无 API 级断言）
     it("GET /api/conversations 响应透传 kind=web-assistant（F20260929wak1：DTO 投影回归锁）", async () => {
       deps.manageConversation.listWithMeta.mockResolvedValue({
@@ -204,7 +204,7 @@ describe("Conversation API", () => {
     });
   });
 
-  // F20260922cgrp：PATCH /complete 路由退役（弱状态两态管理——「没有完成一说了」）
+  // PATCH /complete 路由退役（弱状态两态管理——「没有完成一说了」）
 
   // ─── PATCH /api/conversations/:id/archive ───
 

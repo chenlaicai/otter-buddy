@@ -1,5 +1,5 @@
 /**
- * F20260929wap1 失败固化（临时）：面板历史消息顺序 + invoke_start 渲染。
+ * 失败固化（临时）：面板历史消息顺序 + invoke_start 渲染。
  * 修复前预期红：双重 reverse 使顺序颠倒；invoke_start 被过滤不渲染。
  */
 import { test, expect } from '@playwright/test'
