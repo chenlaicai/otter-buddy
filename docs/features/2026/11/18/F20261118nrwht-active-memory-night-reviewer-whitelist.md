@@ -66,12 +66,19 @@ P1c 二轮审视（k3 + glm）收口后，`belief_verify` / `belief_reject` / `b
 
 `otter_configs.otter_type` 的 CHECK 约束从 `('big', 'small')` 扩展为 `('big', 'small', 'night-reviewer')`。SQLite 无法修改 CHECK 约束，按既有 `rebuildAttachmentsKindCheck` 模式做存量表重建（叶子配置表，无入边 FK / 无索引，事务内 DROP+RENAME 即可）；新库直接建宽约束表，重建检测旧文本不命中即跳过。
 
+## 设计取舍（mechanism-addition 四问）
+
+1. **谁需要**：夜间审视獭（night-reviewer）需要把 belief 状态迁移（verify/reject/supersede）作为独立写权；普通 big/small agent 不需要也不能自我核实。
+2. **失败后果**：若排除集失效（迁移工具漏进 big/small），任何 agent 可自我核实 → verified 失去独立审视意义，防编造链被掏空；若 night-reviewer 档案误带编码/管理工具，受限写者变全能写者，最小权限失守。
+3. **后续机制**：P2b 的夜间审视调度（consolidation_state 区间幂等 + 快照范围注入）消费本档案；三迁移工具的「出处 ID 存在且在当日快照范围内」校验在 P2b 由任务 prompt 注入。
+4. **退役条件**：若夜间审视整体下版（v5 重构或 belief 层退役），night-reviewer 类型随 P2b 调度一并下线；届时需回收 `otter_configs` CHECK 中的 `night-reviewer` 枚举（一次性窄化重建迁移）+ 移除 manifest 类型与 BELIEF_MIGRATION_TOOLS 排除集。
+
 ## 验收
 
 - `getOtterToolNamesForType("night-reviewer", ...)` 有且仅有 5 工具（fallback 与 manifest 两路径一致）。
 - big（`"*"` 展开后）与 small 白名单均不含三迁移工具。
 - `getCodingToolsForOtterType("night-reviewer")` 为空。
-- 老库窄 CHECK 存量表迁移后可插 `night-reviewer`，非法类型仍拒，重复迁移幂等。
+- 老库窄 CHECK 存量表迁移后可插 `night-reviewer`，非法类型仍拒；存量六列数据无损；重复迁移只重建一次（第二次早返，日志判别）。
 - `lint:tool-manifest` 通过（night-reviewer 类型与 DB CHECK 一致）。
 
 ## 后续（P2b 依赖）
