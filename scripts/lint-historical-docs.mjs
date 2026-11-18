@@ -51,7 +51,16 @@ function git(args, opts = {}) {
   // 全检-5（终审严重 1）：统一禁用 quotePath——默认开启时非 ASCII 路径输出 \3xx 转义形态，
   // 本脚本的路径过滤/段匹配/show 查询全部打在原始串上恒 miss，CJK 文件名历史文档整类
   // 逃出门禁（实测：同 staged 改 CJK 文档正文 exit=0 零输出）。所有调用面一次收口。
-  return execFileSync("git", ["-c", "core.quotePath=false", ...args], { encoding: "utf8", ...opts }).trim();
+  // F20261118lhist：stderr 必须 pipe 而不是继承——本脚本有大量**预期失败**的探测式调用
+  // （pathExistsOnRef 的 `git cat-file -e <base>:<新路径>`、frontmatterLastLineOf 的
+  // `git show <ref>`），失败是判定语义的一部分，git 自己会往 stderr 打 `fatal: path ...
+  // exists on disk, but not in ...`。继承 stderr 会让这些预期内失败污染门禁输出，教人
+  // 忽略 fatal（真故障也因此失去信号）。失败信息仍随抛出异常（error.stderr）供调用方处置。
+  return execFileSync("git", ["-c", "core.quotePath=false", ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    ...opts,
+  }).trim();
 }
 
 /** 找基准分支引用（origin/main 优先，退化为 main，都无则返回 null 宽松放行） */
@@ -265,6 +274,20 @@ function hasRenameLineageToBase(oldPath, ref) {
   return false;
 }
 
+/** git 故障诊断摘要：取 stderr 首个**清洗后**非空行（去 ANSI/换行、截断 200），供降级放行时打印。
+ *  只取首行 + 截断，避免把整段 git 输出糊进门禁日志；不含任何仓库内容。
+ *  先 sanitize 再判空（检视 r2 非阻断）：纯 ANSI 首行（如只由颜色码组成）清洗后为空，
+ *  若先判空再清洗就会把真正的诊断行（第二行）丢掉、输出 unknown——诊断函数丢掉诊断本身。 */
+function briefGitFailure(error) {
+  const raw = String(error?.stderr || error?.message || "");
+  const first = raw
+    .split("\n")
+    .map((line) => sanitize(line).trim())
+    .find(Boolean);
+  const text = first || "";
+  return text.length > 200 ? text.slice(0, 200) + "…" : text;
+}
+
 /** 解析 staged 状态行（git diff --cached --name-status），返回 {status, path, oldPath} */
 function parseStatusLine(line) {
   const [rawStatus, ...rest] = line.split("\t");
@@ -278,8 +301,11 @@ export function findViolations(ctx = stagedCtx()) {
   let staged;
   try {
     staged = ctx.nameStatus();
-  } catch {
-    return { errors: [], degraded: true };
+  } catch (error) {
+    // F20261118lhist 阻断 1：stderr 收进 pipe 后，「环境异常」不能再是静默的 exit 0——
+    // 降级放行可以保留（语义不变），但必须留下脚本自己的诊断行，否则本门禁从
+    // 「有诊断的宽松放行」退化成「完全静默的成功」，等于给非预期故障发绿灯。
+    return { errors: [], degraded: true, degradedReason: briefGitFailure(error) };
   }
   if (!staged) return { errors: [], degraded: false };
 
@@ -462,8 +488,15 @@ function checkLinkFixScope(files, entries = {}, ctx = stagedCtx()) {
 }
 
 function main() {
-  const { errors, entries } = findViolations();
+  const { errors, entries, degraded, degradedReason } = findViolations();
   const ctx = stagedCtx();
+  if (degraded) {
+    // 语义不变（仍 exit 0 宽松放行），但绝不静默：留下可搜的诊断行（F20261118lhist 阻断 1）。
+    console.warn(
+      `[lint:historical-docs] 无法读取 staged diff，本次校验宽松放行（未校验）；诊断：${degradedReason || "unknown"}`
+    );
+    process.exit(0);
+  }
   if (errors.length === 0) process.exit(0);
 
   // 显式开口：staged 区存在 .doc-fix 声明文件（内容≥10字符）+ 每个历史文档变更均在 frontmatter 块内
@@ -573,7 +606,9 @@ function runBaseMode(baseRefArg) {
     // 环境异常（某 commit diff 不可读）→ 宽松放行该 commit（与 pre-commit degraded 同语义）
     const r = findViolations(ctx);
     if (r.degraded) {
-      console.warn(`[lint:historical-docs] ${ctx.where} 环境异常，宽松放行`);
+      console.warn(
+        `[lint:historical-docs] ${ctx.where} 环境异常，宽松放行；诊断：${r.degradedReason || "unknown"}`
+      );
       continue;
     }
     if (r.errors.length === 0) continue;

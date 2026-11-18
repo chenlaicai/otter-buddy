@@ -206,6 +206,9 @@ describe("lint-historical-docs --base CI 模式（F20261009hcig，#1281）", () 
     commitFiles(r2, [[NEW_DOC, "# v3\n"]], "edit again");
     const r = runLint(r2, ["--base", "origin/main"]);
     expect(r.status).toBe(0);
+    // F20261118lhist：新增文档在 base 树上不存在是判定语义的一部分，探测式 git 调用的
+    // 预期失败不得泄漏到 stderr——门禁输出里出现 `fatal:` 会让真故障失去信号。
+    expect(r.stderr).not.toMatch(/fatal:/);
     fs.rmSync(r2, { recursive: true, force: true });
   });
 
@@ -231,5 +234,76 @@ describe("lint-historical-docs --base CI 模式（F20261009hcig，#1281）", () 
     expect(r.stderr).toContain(OLD_DOC);
     expect(r.stderr).toMatch(/同一个 commit/); // 配对语义报错（声明未随历史文档变更同 commit）
     fs.rmSync(r2, { recursive: true, force: true });
+  });
+});
+
+describe("F20261118lhist：stderr 收进 pipe 后不得构成静默绿灯", () => {
+  /** 造一个 PATH 前置的假 git：命中 predicate 时以注入码失败并写 stderr，否则透传真 git */
+  function withFakeGit(
+    repo: string,
+    predicateSource: string,
+    injected: { status: number; stderr: string }
+  ): { env: NodeJS.ProcessEnv; cleanup: () => void } {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "lint-hist-fakegit-"));
+    const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    // stderr 用 printf %b 输出：把真实 ESC/换行转成 \033 / \n 转义序列，让注入能构造
+    // 「纯 ANSI 首行」这类边界形态（%s 不解释转义，会把它们写成字面反斜杠）。
+    // eslint no-control-regex：ESC 用 String.fromCharCode 构造，不写字面控制字符
+    const ESC = String.fromCharCode(27);
+    const escaped = injected.stderr.split(ESC).join("\\033").replace(/\n/g, "\\n");
+    const script = [
+      "#!/bin/sh",
+      `if ${predicateSource}; then`,
+      `  printf '%b\\n' ${JSON.stringify(escaped)} >&2`,
+      `  exit ${injected.status}`,
+      "fi",
+      `exec ${JSON.stringify(realGit)} "$@"`,
+      "",
+    ].join("\n");
+    const file = path.join(bin, "git");
+    fs.writeFileSync(file, script, { mode: 0o755 });
+    return {
+      env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` },
+      cleanup: () => fs.rmSync(bin, { recursive: true, force: true }),
+    };
+  }
+
+  it("pre-commit 模式：staged diff 读取失败 → 仍 exit 0 宽松放行，但必须留下诊断行（不得静默）", () => {
+    const repo = freshRepo("lint-hist-fakegit-precommit-");
+    // 无任何 staged 变更时也命中 findViolations 的首个 nameStatus 调用。
+    const fake = withFakeGit(repo, 'echo "$*" | grep -q "diff --cached --name-status"', {
+      status: 42,
+      stderr: "fatal: reviewer injected unexpected git failure",
+    });
+    try {
+      const r = spawnSync("node", [LINT], { cwd: repo, encoding: "utf8", env: fake.env });
+      expect(r.status).toBe(0); // 语义不变：环境异常宽松放行
+      // 修复前该路径完全静默（stdout/stderr 皆空）；修复后必须自报诊断。
+      expect(`${r.stdout}${r.stderr}`).toMatch(/宽松放行/);
+      expect(`${r.stdout}${r.stderr}`).toMatch(/reviewer injected unexpected git failure/);
+    } finally {
+      fake.cleanup();
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("诊断摘要先清洗再判空：纯 ANSI 首行不得把真正的诊断行（第二行）吞掉", () => {
+    const repo = freshRepo("lint-hist-fakegit-ansi-");
+    // 首行只由颜色码组成 → 清洗后为空，必须继续往下取到 fatal 那行
+    const fake = withFakeGit(repo, 'echo "$*" | grep -q "diff --cached --name-status"', {
+      status: 42,
+      stderr: "\u001b[31m\nfatal: REAL_SECOND_LINE_DIAG",
+    });
+    try {
+      const r = spawnSync("node", [LINT], { cwd: repo, encoding: "utf8", env: fake.env });
+      expect(r.status).toBe(0);
+      const out = `${r.stdout}${r.stderr}`;
+      expect(out).toContain("REAL_SECOND_LINE_DIAG");
+      expect(out).not.toMatch(/诊断：unknown/);
+      expect(out.includes("\u001b")).toBe(false); // ANSI 不外泄
+    } finally {
+      fake.cleanup();
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
