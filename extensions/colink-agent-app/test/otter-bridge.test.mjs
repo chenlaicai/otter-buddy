@@ -41,7 +41,17 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
       return Response.json({ id: 'otter-conversation-1', otterIds });
     }
     if (path.endsWith('/workspace/mcp-external')) {
-      state.mcpConfigs.push(JSON.parse(options.body));
+      const config = JSON.parse(options.body);
+      // Why: 复刻核心 manage-workspace 的 isSameOwnedConfig —— 同一 server 换 bearer 即 409，
+      // 否则「每轮随机 bearer」这类回归会在全绿单测里漏过去。
+      const bearer = config.mcpServers?.colink_otter_history?.headers?.authorization;
+      const previous = state.mcpConfigs.at(-1);
+      const previousBearer = previous?.mcpServers?.colink_otter_history?.headers?.authorization;
+      if (previous && previousBearer !== bearer) {
+        state.mcpConflicts = (state.mcpConflicts ?? 0) + 1;
+        return Response.json({ error: 'conflict' }, { status: 409 });
+      }
+      state.mcpConfigs.push(config);
       return Response.json({ ok: true });
     }
     if (/^\/api\/invokes\/[^/]+\/abort$/.test(path)) {
@@ -131,7 +141,7 @@ test('fails closed when the core response omits the exact trigger entry id', asy
 test('binds the active CoLink turn to MCP before dispatching the wrapped Otter message', async () => {
   const { state, fetcher } = fixture();
   const bindings = [];
-  const turn = { input: { text: input.text } };
+  const ctx = { event: { data: { text: input.text } } };
   const toolBridge = {
     run: async (binding, execute) => {
       bindings.push(binding);
@@ -139,10 +149,10 @@ test('binds the active CoLink turn to MCP before dispatching the wrapped Otter m
     },
   };
   const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
-  assert.equal(await bridge.reply({ ...input, turn }), '最终回答');
+  assert.equal(await bridge.reply({ ...input, ctx }), '最终回答');
   assert.equal(bindings.length, 1);
   assert.equal(bindings[0].otterConversationId, 'otter-conversation-1');
-  assert.equal(bindings[0].turn, turn);
+  assert.equal(bindings[0].ctx, ctx);
   await bindings[0].register({ mcpServers: {} });
   assert.deepEqual(state.mcpConfigs, [{ mcpServers: {} }]);
   assert.equal(state.messages[0].body, `事件上下文\n${input.text}`);
@@ -154,10 +164,10 @@ test('refuses to bind a new CoLink turn while an old Otter invoke is alive', asy
   const bindings = [];
   const toolBridge = { run: async (binding, execute) => { bindings.push(binding); return execute(input.text); } };
   const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
-  await bridge.reply({ ...input, turn: { input: { text: input.text } } });
+  await bridge.reply({ ...input, ctx: { event: { data: { text: input.text } } } });
   state.invokes.push({ id: 'stale-invoke', status: 'running', startedAt: new Date().toISOString(),
     endedAt: null, talkingStonePassedTo: [] });
-  await assert.rejects(bridge.reply({ ...input, text: '新用户的新事件', turn: { input: { text: '新用户的新事件' } } }), /OTTER_PREVIOUS_TURN_ABORTED/);
+  await assert.rejects(bridge.reply({ ...input, text: '新用户的新事件', ctx: { event: { data: { text: '新用户的新事件' } } } }), /OTTER_PREVIOUS_TURN_ABORTED/);
   assert.deepEqual(state.aborts, ['stale-invoke']);
   assert.equal(state.messages.length, 1);
   assert.equal(bindings.length, 1);
@@ -258,4 +268,38 @@ test('persists mappings with owner-only file permissions', () => {
   assert.equal(new ConversationStore(file).get('external'), 'otter-conversation');
   const content = readFileSync(file, 'utf8');
   assert.deepEqual(JSON.parse(content), { external: 'otter-conversation' });
+});
+
+test('re-registers byte-identical MCP config on the next round so Otter accepts the rewrite', async () => {
+  const { state, fetcher } = fixture();
+  const toolBridge = { run: async (_binding, execute) => execute(input.text) };
+  const registers = [];
+  // 用真实代理生成配置，验证与 Otter 守卫的契约（同 bearer、同全文）。
+  const { CoLinkToolBridge } = await import('../src/colink-tools.mjs');
+  const realBridge = new CoLinkToolBridge({ secret: 'test-mcp-secret-0123456789abcdef0123456789', port: 0 });
+  await realBridge.start();
+  try {
+    // Why: 必须透传 OtterBridge 给的 register（它才执行 PUT）；否则 mock 的 409 分支永远不触发，
+    // 「配置相等」的断言就变成了自我证明。
+    toolBridge.run = async ({ otterConversationId, ctx, register }, execute) => realBridge.run({
+      otterConversationId, ctx, register: async config => { registers.push(config); return register(config); },
+    }, execute);
+    const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
+    const ctx = {
+      event: { data: { text: input.text, reason: 'dm_message', conversationId: 'dm-1', channelId: null, topicId: null, messageId: 'm-1', replyToMessageId: null } },
+      context: { userId: 'user-1', installationId: 'installation-1' },
+      source: { kind: 'dm', listMessages: async () => ({ items: [] }) },
+      colink: { user: {}, app: {} },
+    };
+    assert.equal(await bridge.reply({ ...input, ctx }), '最终回答');
+    assert.equal(await bridge.reply({ ...input, ctx, text: '第二轮' }), '最终回答');
+  } finally {
+    await realBridge.close();
+  }
+  assert.equal(state.mcpConflicts ?? 0, 0);
+  assert.equal(registers.length, 2);
+  assert.deepEqual(registers[1], registers[0]);
+  // 两轮都真的走了 HTTP PUT，且都被 Otter 侧误配检查接受。
+  assert.equal(state.mcpConfigs.length, 2);
+  assert.deepEqual(state.mcpConfigs[1], state.mcpConfigs[0]);
 });

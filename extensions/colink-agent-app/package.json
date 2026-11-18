@@ -11,9 +11,6 @@
     "start": "node src/app.mjs",
     "test": "node --test --test-timeout=10000 test/*.test.mjs"
   },
-  "dependencies": {
-    "@colink/app-sdk": "file:./vendor/app-sdk"
-  },
   "devDependencies": {
     "@earendil-works/pi-mcp": "1.5.0"
   }

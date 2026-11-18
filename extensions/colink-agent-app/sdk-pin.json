@@ -1,0 +1,8 @@
+{
+  "package": "@colink/app-sdk",
+  "version": "0.28.0",
+  "integrity": "sha512-h+8Xn1zx8aZXKeCpaNwe4uu4egvvr2Sk84wEOCEGKXXbz3c/lCCoR6sU+r7TOStzkmYxo4xCNQs+88ThHnDL9w==",
+  "builtFrom": "dev/app-toolkit/distribution/build.mjs",
+  "sourceCommit": "a9525f46daf77f462b2cd28c48dd85c72095df1f",
+  "note": "由 npm run prepare:sdk 生成，勿手改；升级 SDK 时重跑并同步适配插件代码"
+}
