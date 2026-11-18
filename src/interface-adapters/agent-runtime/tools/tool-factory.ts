@@ -1541,7 +1541,12 @@ function createRecordBeliefTool(ctx: ToolContext): AgentTool {
         });
         return textResponse(JSON.stringify(result));
       } catch (err) {
-        return errorResponse(`belief 写入失败：${err instanceof Error ? err.message : String(err)}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        // 带 supersedes 时：RecordBelief 已落库、markReplaced 失败 → 部分成功，披露防盲重试
+        const hint = params.supersedes
+          ? "（新 belief 可能已写入但取代关系未建立——重试前先 search_memory 查重，或用 link_memory 手工补 supersedes 边）"
+          : "";
+        return errorResponse(`belief 写入失败：${msg}${hint}`);
       }
     },
   };

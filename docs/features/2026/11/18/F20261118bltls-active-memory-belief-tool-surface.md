@@ -51,5 +51,6 @@ modules:
 ## 关键语义
 
 - supersedes 边方向沿用 P0 契约：from=取代者（新）、to=被取代（旧）——检索端 `getSupersededBy` 据此降权。
-- 工具层 partnerUserId 走 ToolContext.partnerUserId（缺省 "user" = Web 口径；IM 平台由装配层注入实际 owner id），不再硬编码在工具工厂内。
+- 工具层 partnerUserId 走 ToolContext.partnerUserId（缺省 "user" = Web 口径），注入链已通到 InvokeOptions.partnerUserId；**IM 平台的装配层填充（agent-invoker 经 PartnerResolver 解析 owner id）为 P2 已知未接线项**——接线前 IM 平台的 preference 记录会被 anchor_identity 拒收（state 不受影响），非静默串味。
+- record_belief 带 supersedes 部分失败时，工具错误文案披露「新条目可能已写入、可 link_memory 补边」，挡盲重试活体重复。
 - P1c 不引入夜间审视定时任务（P2）、不引入受限写者獭白名单类型（P2）——三个迁移工具本刀不注册，避免任何 agent 自我核实掏空「verified 必须独立核实」的信任模型。
