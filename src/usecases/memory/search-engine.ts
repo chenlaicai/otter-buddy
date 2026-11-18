@@ -99,6 +99,13 @@ export interface ScoredHit {
   entry: MemoryEntry;
   /** F20260803chunk: 同源多 chunk 命中数（dedupAndBoostBySource 设置，>1 时注入返回 metadata） */
   multiHitCount?: number;
+  /** F20261112rnkph Phase 1 段 2：additive 分解分量（仅 rerankAdditive 填充；multiply 路径 undefined）。
+   *  finalScore（去重前）= contribRrf + contribTime + contribFreq + biasFlag + biasConv。 */
+  contribRrf?: number;
+  contribTime?: number;
+  contribFreq?: number;
+  biasFlag?: number;
+  biasConv?: number;
 }
 
 /**
@@ -302,12 +309,23 @@ export class SearchEngine {
         + w.wFreq * freqNorm
         + (isFlagged ? w.bUserFlag : 0)
         + (isCurrentConversation ? w.bConv : 0);
+      // F20261112rnkph Phase 1 段 2：透出逐信号贡献分量，供 debug 通道采集（逐信号对比表不靠外部重算）
+      const contribRrf = w.wRrf * rrfNorm[i];
+      const contribTime = w.wTime * timeDecay;
+      const contribFreq = w.wFreq * freqNorm;
+      const biasFlag = isFlagged ? w.bUserFlag : 0;
+      const biasConv = isCurrentConversation ? w.bConv : 0;
       result.push({
         entryId: hit.entryId,
         finalScore,
         rrfScore: hit.rrfScore,
         entry: hit.entry,
         source: hit.source,
+        contribRrf,
+        contribTime,
+        contribFreq,
+        biasFlag,
+        biasConv,
       });
     });
     return result;

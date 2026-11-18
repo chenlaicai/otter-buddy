@@ -86,6 +86,13 @@ export interface RetrievalDebugInfo {
   /** F20260917cvid: 本对话加成系数（命中=配置值，未命中=1.0） */
   conversationBoost?: number;
   multiHitCount?: number;
+  /** F20261112rnkph Phase 1 段 2：additive 融合逐信号贡献分量（仅 rerankMode=additive 时注入；
+   *  各自 = 归一值 × 权重或偏置，去重前 finalScore = 五项之和）。 */
+  contrib_rrf?: number;
+  contrib_time?: number;
+  contrib_freq?: number;
+  bias_flag?: number;
+  bias_conv?: number;
 }
 
 export interface RetrievalResultEntry extends MemoryEntry {
@@ -610,6 +617,14 @@ export class SearchMemory {
             ? this.searchEngine.configRef.currentConversationBoost
             : 1.0,
           multiHitCount: h.multiHitCount,
+          // F20261112rnkph Phase 1 段 2：additive 贡献分量，仅 additive 路径命中时注入（multiply 旧字段逐字节不变）
+          ...(h.contribRrf !== undefined ? {
+            contrib_rrf: h.contribRrf,
+            contrib_time: h.contribTime,
+            contrib_freq: h.contribFreq,
+            bias_flag: h.biasFlag,
+            bias_conv: h.biasConv,
+          } : {}),
         } : undefined;
         return {
           ...base,

@@ -656,5 +656,51 @@ describe("SearchEngine - Phase 1 段 1：归一化纯函数与加法融合路径
         vi.useRealTimers();
       }
     });
+
+    it("段 2：透出逐信号贡献分量，五项之和 = 去重前 finalScore 且各分量可手工复算", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-20T00:00:00Z"));
+      try {
+        const engine = new SearchEngine({
+          ...TEST_CONFIG,
+          rerankMode: "additive",
+          rerank: { wRrf: 0.5, wTime: 0.3, wFreq: 0.2, bUserFlag: 0.1, bConv: 0.15, freqCap: 10 },
+        });
+        // rrfScore: flagged=0.1（norm 0） conv=0.3（norm 0.5） plain=0.5（norm 1）；createdAt=now → timeDecay=1
+        const hits = new Map<string, RrfHit>([
+          ["plain", makeRrfHit("plain", 0.5, null)],
+          ["flagged", makeRrfHit("flagged", 0.1, null)],
+          ["conv", makeRrfHit("conv", 0.3, "conv-A")],
+        ]);
+        const weights = new Map<string, MemoryWeight>([
+          ["flagged", { memoryEntryId: "flagged", retrievalCount: 0, lastRetrievedAt: null, userFlagged: true }],
+        ]);
+        const result = engine.rerankAdditive(hits, weights, "conv-A");
+        for (const r of result) {
+          const sum = (r.contribRrf ?? 0) + (r.contribTime ?? 0) + (r.contribFreq ?? 0)
+            + (r.biasFlag ?? 0) + (r.biasConv ?? 0);
+          expect(sum, `entryId=${r.entryId} 贡献分量之和应等于 finalScore`).toBeCloseTo(r.finalScore, 12);
+        }
+        const hit = (id: string) => result.find(r => r.entryId === id)!;
+        // plain: 0.5*1 + 0.3*1 + 0.2*0 + 0 + 0 = 0.8
+        const plain = hit("plain");
+        expect(plain.contribRrf).toBeCloseTo(0.5, 12);
+        expect(plain.contribTime).toBeCloseTo(0.3, 12);
+        expect(plain.contribFreq).toBeCloseTo(0, 12);
+        expect(plain.biasFlag).toBe(0);
+        expect(plain.biasConv).toBe(0);
+        // flagged（norm 0 + b_flag 0.1）
+        const flagged = hit("flagged");
+        expect(flagged.biasFlag).toBeCloseTo(0.1, 12);
+        expect(flagged.biasConv).toBe(0);
+        // conv（norm 0.5 → 0.25 + time 0.3 + conv 0.15 = 0.7）
+        const conv = hit("conv");
+        expect(conv.contribRrf).toBeCloseTo(0.25, 12);
+        expect(conv.biasConv).toBeCloseTo(0.15, 12);
+        expect(conv.biasFlag).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
