@@ -122,9 +122,10 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: node scripts/check-pr-evidence.mjs --base origin/main
 
-      # F20261118rvcls: 检视闭环机械闸（前闸，可见）——PR 当前 head 必须被独立检视通过回执覆盖，
+      # F20261118rvcls: 检视闭环机械闸（前闸）——PR 当前 head 必须被独立检视通过回执覆盖，
       # 否则本 check 红，呈拍板前即暴露“检视通过后 head 又前移”的断环（不等到 merge_pr 后闸才爆炸）。
-      # 后闸在 merge_pr 工具内 fail-closed（合入点物理拦截）；本闸只做可见，不设 required status。
+      # 本 step 落在 check job 内（check 是本仓分支保护 required_status_checks 上下文，strict: true），
+      # 断环即红且物理阻塞合入；后闸在 merge_pr 工具内 fail-closed（合入点拦截）——前后闸双保险。
       - name: Run review-closure gate (check-pr-review-closure)
         if: github.event_name == 'pull_request'
         env:

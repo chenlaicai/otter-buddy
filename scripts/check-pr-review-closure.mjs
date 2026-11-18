@@ -33,7 +33,8 @@
  * 环境变量：GH_TOKEN（CI 拉 gh 用，本地已登录可省略）。
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 /** 通过结论词（「## 审查结论」段内） */
 const PASS_RE = /(通过|闭环|复核确认|至此闭合|均已处置|全部落实)/;
@@ -217,7 +218,21 @@ export function main(argv = process.argv.slice(2)) {
   }
 }
 
+/** 直接执行判定（N2 修复）：realpath 双端解析 symlink 后比较——macOS /tmp→/private/tmp 等
+ *  symlink 路径下 import.meta.url 与 argv[1] 字符串形态不同，若用字符串比对会失配致 main() 不跑，
+ *  静默 exit 0 假绿（对 fail-closed 安全闸是最坏失败模态）。realpath 后两端口都在真实路径，
+ *  相对/绝对/symlink 调用均能正确触发 CLI；被 import 单测时 process.argv[1] 是 vitest 入口，
+ *  realpath 不同 → 不跑 main。 */
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
 // 直接执行时跑 CLI（被 import 单测时不触发）
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule()) {
   main();
 }
