@@ -72,6 +72,8 @@ export interface SearchEngineConfig {
   rerankMode?: RerankMode;
   /** F20261112rnkph Phase 1：加法融合系数（wRrf/wTime/wFreq 连续权重隐微和为 1，运行时在 rerankAdditive 内比例归一）。缺省在构造时回填。 */
   rerank?: RerankWeights;
+  /** F20261118stale P0：被 supersedes 边指向的旧条目的降权因子（finalScore × 此值）。可选，构造时回填默认 0.3。 */
+  supersededPenalty?: number;
 }
 
 /** F20261112rnkph Phase 1：加法融合系数缺省（设计回填，段 1 不切默认；标定后段 3 再写回）。 */
@@ -106,6 +108,8 @@ export interface ScoredHit {
   contribFreq?: number;
   biasFlag?: number;
   biasConv?: number;
+  /** F20261118stale P0：被哪个条目取代（supersedes 边的 to 端），有则说明此条已过期，检索端标注并降权。 */
+  supersededBy?: string;
 }
 
 /**
@@ -129,6 +133,7 @@ export class SearchEngine {
       ...config,
       rerankMode: config.rerankMode ?? "multiply",
       rerank: config.rerank ?? DEFAULT_RERANK_WEIGHTS,
+      supersededPenalty: config.supersededPenalty ?? 0.3,
     };
   }
 
@@ -236,14 +241,33 @@ export class SearchEngine {
     return result;
   }
 
+  /** F20261118stale P0：被 supersedes 边指向的旧条目降权系数——命中返回 supersededPenalty，否则 1。 */
+  private supersededMultiplier(
+    entryId: string,
+    supersededById?: ReadonlyMap<string, string>,
+  ): number {
+    return supersededById?.has(entryId) ? this.config.supersededPenalty ?? 0.3 : 1.0;
+  }
+
+  /** F20261118stale P0：取取代此条目的新条目 ID（无则 undefined）。 */
+  private supersededLabel(
+    entryId: string,
+    supersededById?: ReadonlyMap<string, string>,
+  ): string | undefined {
+    return supersededById?.get(entryId);
+  }
+
   /** 权重重排：rrfScore × timeDecay × frequencyBoost × userFlagMultiplier × conversationBoost（F20260917cvid）
    *  F20260902rcp1: document 层（feature/research summary+chunk）按 weightHalfLifeDaysDocument 衰减，
-   *  其余层维持 weightHalfLifeDays。 */
+   *  其余层维持 weightHalfLifeDays。
+   *  F20261118stale P0：supersededById 里的条目再乘 supersededPenalty，并透出 supersededBy。 */
   rerank(
     hits: Map<string, RrfHit>,
     weights: Map<string, MemoryWeight>,
     /** F20260917cvid: 当前对话 ID——命中条目 conversationId 匹配时乘 currentConversationBoost */
     currentConversationId?: string,
+    /** F20261118stale P0：被 supersede 的旧条目 → 取代它的条目 */
+    supersededById?: ReadonlyMap<string, string>,
   ): ScoredHit[] {
     const result: ScoredHit[] = [];
     for (const [id, hit] of hits) {
@@ -263,13 +287,16 @@ export class SearchEngine {
         (weight.userFlagged ? this.config.userFlagMultiplier : 1.0) *
         (currentConversationId && hit.entry.conversationId === currentConversationId
           ? this.config.currentConversationBoost
-          : 1.0);
+          : 1.0) *
+        this.supersededMultiplier(id, supersededById);
+      const supersededBy = this.supersededLabel(id, supersededById);
       result.push({
         entryId: id,
         finalScore,
         rrfScore: hit.rrfScore,
         entry: hit.entry,
         source: hit.source,
+        ...(supersededBy ? { supersededBy } : {}),
       });
     }
     return result;
@@ -282,6 +309,7 @@ export class SearchEngine {
     hits: Map<string, RrfHit>,
     weights: Map<string, MemoryWeight>,
     currentConversationId?: string,
+    supersededById?: ReadonlyMap<string, string>,
   ): ScoredHit[] {
     const w = normalizeRerankWeights(this.config.rerank ?? DEFAULT_RERANK_WEIGHTS);
     const hitList = Array.from(hits.values());
@@ -303,12 +331,14 @@ export class SearchEngine {
       const isCurrentConversation = Boolean(
         currentConversationId && hit.entry.conversationId === currentConversationId,
       );
+      const supersededBy = this.supersededLabel(hit.entryId, supersededById);
       const finalScore =
-        w.wRrf * rrfNorm[i]
-        + w.wTime * timeDecay
-        + w.wFreq * freqNorm
-        + (isFlagged ? w.bUserFlag : 0)
-        + (isCurrentConversation ? w.bConv : 0);
+        (w.wRrf * rrfNorm[i]
+          + w.wTime * timeDecay
+          + w.wFreq * freqNorm
+          + (isFlagged ? w.bUserFlag : 0)
+          + (isCurrentConversation ? w.bConv : 0)) *
+        this.supersededMultiplier(hit.entryId, supersededById);
       // F20261112rnkph Phase 1 段 2：透出逐信号贡献分量，供 debug 通道采集（逐信号对比表不靠外部重算）
       const contribRrf = w.wRrf * rrfNorm[i];
       const contribTime = w.wTime * timeDecay;
@@ -326,6 +356,7 @@ export class SearchEngine {
         contribFreq,
         biasFlag,
         biasConv,
+        ...(supersededBy ? { supersededBy } : {}),
       });
     });
     return result;

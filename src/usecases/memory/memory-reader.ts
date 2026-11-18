@@ -104,4 +104,11 @@ export interface MemoryReader {
 
   /** 按 edge id 获取单条边（unlink_memory 用） */
   getEdgeById(edgeId: string): Promise<MemoryEdge | null>;
+
+  /**
+   * F20261118stale P0：批量查候选条目里哪些被 supersede。
+   * 返回 Map<旧条目 ID, 取代它的条目 ID>（supersedes 边的 from→to）。
+   * 用于检索端 stale 降权 + 标注「已被 [新条目] 取代」。
+   */
+  getSupersededBy(entryIds: string[]): Promise<Map<string, string>>;
 }

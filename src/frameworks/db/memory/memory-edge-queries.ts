@@ -112,6 +112,26 @@ export function getEdgeById(db: Database.Database, edgeId: string): MemoryEdge |
   return row ? rowToMemoryEdge(row) : null;
 }
 
+/**
+ * F20261118stale P0：批量查候选条目里哪些被 supersede。
+ * 只查 supersedes 边的 from 端（被取代的旧条目）→ to 端（取代它的新条目）。
+ * 返回 Map<旧条目 ID, 新条目 ID>；无边的条目不在结果里。
+ */
+export function getSupersededBy(
+  db: Database.Database,
+  entryIds: string[],
+): Map<string, string> {
+  const result = new Map<string, string>();
+  if (entryIds.length === 0) return result;
+  const placeholders = entryIds.map(() => "?").join(",");
+  const rows = db.prepare(`
+    SELECT from_entry_id, to_entry_id FROM memory_edges
+    WHERE edge_type = 'supersedes' AND from_entry_id IN (${placeholders})
+  `).all(...entryIds) as Array<{ from_entry_id: string; to_entry_id: string }>;
+  for (const row of rows) result.set(row.from_entry_id, row.to_entry_id);
+  return result;
+}
+
 /** 删除一条边（unlink_memory 用） */
 export function deleteEdge(db: Database.Database, edgeId: string): void {
   db.prepare(`DELETE FROM memory_edges WHERE id = ?`).run(edgeId);
