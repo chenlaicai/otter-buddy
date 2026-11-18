@@ -9,7 +9,7 @@
 import { CARD_MAX_PER_MESSAGE, CARD_MAX_BYTES } from "@contract/api/html-card";
 import { remark } from "remark";
 import remarkGfm from "remark-gfm";
-import type { Code, Nodes } from "mdast";
+import type { Code, InlineCode, Nodes } from "mdast";
 import { visit } from "unist-util-visit";
 
 /** F20261022cfme：解析管线与投影层 message-body-projection.ts 的 parser 逐字节对齐——
@@ -37,16 +37,15 @@ function countCardFences(body: string): number {
   return collectCardFenceNodes(body).length;
 }
 
-/** 收集 body 中所有代码围栏节点的起止偏移（含普通代码块与 html-card 围栏）。
- *  复用与卡片校验同源的 remark+remarkGfm 解析，围栏边界与前端渲染逐字节对齐
+/** 收集 body 中所有代码节点（块级代码围栏 code + 行内代码 inlineCode）的起止偏移。
+ *  复用与卡片校验同源的 remark+remarkGfm 解析，边界与前端渲染逐字节对齐
  *  （Parser 说明见本文件顶部 parser() 注释）。
- *  F20261118dsmlk（#1916）：供 stripToolCallSerializationLeak 判定锚点是否落在围栏内——
- *  围栏内的 DSML 是「讨论本 bug 的合法示例回放」，不能剥。 */
-function collectCodeFenceRanges(body: string): Array<{ start: number; end: number }> {
+ *  F20261118dsmlk（#1916）：供 stripToolCallSerializationLeak 判定锚点是否落在代码节点内——
+ *  围栏/行内代码内的 DSML 是「讨论本 bug 的合法示例回放」，不能剥。 */
+function collectCodeNodeRanges(body: string): Array<{ start: number; end: number }> {
   const ranges: Array<{ start: number; end: number }> = [];
-  visit(parser().parse(body) as Nodes, "code", (node) => {
-    const code = node as Code;
-    const pos = code.position;
+  visit(parser().parse(body) as Nodes, ["code", "inlineCode"], (node) => {
+    const pos = (node as Code | InlineCode).position;
     if (pos && pos.start.offset !== undefined && pos.end.offset !== undefined) {
       ranges.push({ start: pos.start.offset, end: pos.end.offset });
     }
@@ -54,8 +53,8 @@ function collectCodeFenceRanges(body: string): Array<{ start: number; end: numbe
   return ranges;
 }
 
-/** 判定字符偏移 index 是否落在任一代码围栏区间内。 */
-function isInsideCodeFence(index: number, ranges: Array<{ start: number; end: number }>): boolean {
+/** 判定字符偏移 index 是否落在任一代码节点区间内。 */
+function isInsideCodeNode(index: number, ranges: Array<{ start: number; end: number }>): boolean {
   return ranges.some((r) => index >= r.start && index < r.end);
 }
 
@@ -67,8 +66,8 @@ function isInsideCodeFence(index: number, ranges: Array<{ start: number; end: nu
  *  dsml_parameter（小写），并把思维闭合标签写成了英文单词 “response”。锚点两种前缀
  *  形态都覆盖（i 不计大小写）；“response” 单词不作为判据（转写失真，见 strip 函数
  *  注释）。不收裸 invoke / parameter——裸标签可能是正文里合法的代码示例（Markdown
- *  围栏内），收进来会把正文静默截断（检视发现）。锚点全文匹配后还需通过
- *  stripToolCallSerializationLeak 的围栏感知 + 思维闭合标签前缀双判定才截断。 */
+ *  围栏/行内代码内），收进来会把正文静默截断（检视发现）。锚点全文匹配后还需通过
+ *  stripToolCallSerializationLeak 的代码节点感知 + 思维闭合标签前缀双判定才截断。 */
 const TOOL_CALL_SERIALIZATION_RE =
   /<(?:\uFF5CDSML\uFF5C|dsml_)(?:calls|tool_calls|invoke|parameter)\b/i;
 
@@ -77,10 +76,11 @@ const TOOL_CALL_SERIALIZATION_RE =
  *  序列化文本写进了第一个调用的 body 参数），应用层无法根治，只能在唯一入库口净化。
  *
  *  截断需同时满足两个独立条件（漏剥优于误剥，fail-open）：
- *   1. 围栏感知：锚点必须落在 Markdown 代码围栏之外（顶层）。讨论本 bug 时正文会把
- *      事故字节包在围栏里当示例回放（含完整「思维闭合标签 + DSML」），锚点在围栏内
- *      一律不剥——「围栏内示例」与「顶层真实泄漏」的唯一可靠分界：真实泄漏是顶层裸
- *      序列化字节，合法示例必然包在围栏里。
+ *   1. 代码节点感知：锚点必须落在 Markdown 代码节点（块级围栏 code + 行内代码 inlineCode）
+ *      之外（顶层）。讨论本 bug 时正文会把事故字节包进代码节点当示例回放（含完整
+ *      「思维闭合标签 + DSML」），锚点在代码节点内一律不剥——「代码节点内示例」与
+ *      「顶层真实泄漏」的唯一可靠分界：真实泄漏是顶层裸序列化字节，合法示例必然包在
+ *      代码节点里。
  *   2. 思维闭合标签指纹：锚点前必须紧邻思维闭合标签（仅空白分隔）。这是泄漏的强指纹——
  *      模型失手时把 thinking 的闭合标签也带进了 body（entry 333 实测字节有）。句末
  *      标点不作为判据：正文会裸写序列化字节再续正文，以句号判据会误剥吞掉后续。
@@ -96,10 +96,10 @@ export function stripToolCallSerializationLeak(body: string): { body: string; le
   const globalRe = new RegExp(TOOL_CALL_SERIALIZATION_RE.source, TOOL_CALL_SERIALIZATION_RE.flags + "g");
   const matches = Array.from(body.matchAll(globalRe));
   if (matches.length === 0) return { body, leaked: false };
-  const fenceRanges = collectCodeFenceRanges(body);
+  const codeRanges = collectCodeNodeRanges(body);
   for (const match of matches) {
     const index = match.index ?? 0;
-    if (isInsideCodeFence(index, fenceRanges)) continue; // 围栏内示例回放：不剥
+    if (isInsideCodeNode(index, codeRanges)) continue; // 代码节点内示例回放：不剥
     const prefix = body.slice(0, index);
     if (!/<\/think>\s*$/.test(prefix)) continue; // 无思维闭合标签指纹：fail-open
     return { body: prefix.replace(/<\/think>\s*$/, "").replace(/\s+$/, ""), leaked: true };

@@ -407,6 +407,15 @@ it("剥离后为空串（整段都是泄漏）→ 由 validateSpeakBody 空检�
     expect(r.body).toContain("后续分析正文保留");
   });
 
+  it("行内代码内的完整事故回放（含思维闭合标签 + DSML）：不误剥（检视 delta4 发现 🔴）", () => {
+    const body =
+      "行内事故示例：`" + THINK_CLOSE + "\n" +
+      DSML_PREFIX + "tool_calls>\n" + DSML_PREFIX + "invoke name=\"yield\">` 后续分析正文保留。";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("后续分析正文保留");
+  });
+
   it("issue #1916 转写原形态（句号 + 英文 response 单词 + 半角 dsml_）：不剥（fail-open，转写失真非可靠指纹）", () => {
     const body = "…你定个倾向，我据此把 P2 的触发写死。 response\n\n<dsml_calls>\n<dsml_invoke name=\"yield\">";
     const r = stripToolCallSerializationLeak(body);
