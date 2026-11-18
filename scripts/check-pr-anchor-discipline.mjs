@@ -140,11 +140,11 @@ function annotateTs(content) {
   return out;
 }
 
-/** YAML：# 仅在行首或空白后作注释；块标量（| 或 >）缩进正文是字符串非注释。 */
+/** YAML：# 仅在行首或空白后作注释；块标量（| 或 >，含列表项与显式缩进指示符）正文是字符串非注释。 */
 function annotateYaml(content) {
   const lines = content.split("\n");
   const out = new Array(lines.length).fill(null);
-  let blockIndent = null; // 块标量正文的最小缩进（父键缩进 + 1）
+  let blockIndent = null; // 块标量正文的最小缩进（父键缩进）
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (blockIndent != null) {
@@ -153,9 +153,10 @@ function annotateYaml(content) {
       }
       const indent = line.match(/^\s*/)[0].length;
       if (indent > blockIndent) continue; // 正文，非注释
-      blockIndent = null; // 缩进回到父级，块标量结束，继续正常扫描
+      blockIndent = null; // 缩进回到父级，块标量结束
     }
     let state = "normal";
+    let commentStart = null;
     for (let j = 0; j < line.length; j++) {
       const ch = line[j];
       if (state === "normal") {
@@ -164,6 +165,7 @@ function annotateYaml(content) {
         else if (ch === "#") {
           const prev = j === 0 ? " " : line[j - 1];
           if (prev === " " || prev === "\t") {
+            commentStart = j;
             out[i] = line.slice(j);
             break;
           }
@@ -178,16 +180,16 @@ function annotateYaml(content) {
         else if (ch === '"') state = "normal";
       }
     }
-    // 块标量标记：行尾的 | 或 >（可选 +-），且在注释外
-    if (out[i] == null) {
-      const m = line.match(/(?:^|:\s*|\?\s*)[|>][+-]?\s*$/);
-      if (m) blockIndent = (line.match(/^\s*/) || [""])[0].length;
+    // 块标量 opener 在注释前的代码区间检测（覆盖 key: |、- |、|2 等合法形式）
+    const codePart = commentStart == null ? line : line.slice(0, commentStart);
+    if (/(?:^|:\s*|\?\s*|-\s*)[|>][+-]?[0-9]*\s*$/.test(codePart)) {
+      blockIndent = (line.match(/^\s*/) || [""])[0].length;
     }
   }
   return out;
 }
 
-/** Shell：# 仅在词首或控制运算符后作注释；heredoc 正文是数据非注释。 */
+/** Shell：# 仅在词首或控制运算符后作注释；heredoc 正文是数据非注释（opener 在行尾注释前检测）。 */
 function annotateSh(content) {
   const lines = content.split("\n");
   const out = new Array(lines.length).fill(null);
@@ -200,6 +202,7 @@ function annotateSh(content) {
       continue;
     }
     let state = "normal";
+    let commentStart = null;
     for (let j = 0; j < line.length; j++) {
       const ch = line[j];
       if (state === "normal") {
@@ -208,6 +211,7 @@ function annotateSh(content) {
         else if (ch === "#") {
           const prev = j === 0 ? "" : line[j - 1];
           if (j === 0 || /\s|;|&|\||\(|\)/.test(prev)) {
+            commentStart = j;
             out[i] = line.slice(j);
             break;
           }
@@ -219,10 +223,10 @@ function annotateSh(content) {
         else if (ch === '"') state = "normal";
       }
     }
-    if (out[i] == null) {
-      const heredocM = line.match(/<<-?\s*(?:'([^']+)'|"([^"]+)"|(\w+))/);
-      if (heredocM) heredocDelim = heredocM[1] || heredocM[2] || heredocM[3];
-    }
+    // heredoc opener 在注释前的代码区间检测
+    const codePart = commentStart == null ? line : line.slice(0, commentStart);
+    const heredocM = codePart.match(/<<-?\s*(?:'([^']+)'|"([^"]+)"|(\w+))/);
+    if (heredocM) heredocDelim = heredocM[1] || heredocM[2] || heredocM[3];
   }
   return out;
 }
@@ -286,23 +290,38 @@ function annotatePyOrToml(content, tomlLiteral) {
   return out;
 }
 
-/** HTML：<!-- --> 跨行。 */
+/** HTML：<!-- --> 跨行；闭合行从闭合标记后恢复扫描。 */
 function annotateHtml(content) {
   const lines = content.split("\n");
   const out = new Array(lines.length).fill(null);
   let inComment = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const comments = [];
+    let j = 0;
     if (inComment) {
-      out[i] = line;
-      if (line.indexOf("-->") >= 0) inComment = false;
-      continue;
+      const close = line.indexOf("-->");
+      if (close < 0) {
+        out[i] = line;
+        continue;
+      }
+      comments.push(line.slice(0, close + 3));
+      j = close + 3; // 闭合后继续扫描
+      inComment = false;
     }
-    const open = line.indexOf("<!--");
-    if (open >= 0) {
-      out[i] = line.slice(open);
-      if (line.indexOf("-->", open + 4) < 0) inComment = true;
+    for (; j < line.length; j++) {
+      if (line.startsWith("<!--", j)) {
+        const close = line.indexOf("-->", j + 4);
+        if (close < 0) {
+          comments.push(line.slice(j));
+          inComment = true;
+          break;
+        }
+        comments.push(line.slice(j, close + 3));
+        j = close + 2;
+      }
     }
+    if (comments.length) out[i] = comments.join(" ");
   }
   return out;
 }
@@ -349,6 +368,26 @@ function annotateCss(content, allowLineComment) {
             comments.push(line.slice(j));
             break;
           }
+        } else if (allowLineComment && (ch === "u" || ch === "U") && /^url\(/i.test(line.slice(j, j + 4))) {
+          // url( 无引号参数：跳过到匹配 )。其中的 // 不是行注释
+          let depth = 0;
+          let k = j + 3; // 指向 (
+          let q = null;
+          k += 1;
+          while (k < line.length) {
+            const c = line[k];
+            if (q) {
+              if (c === "\\") k += 1;
+              else if (c === q) q = null;
+            } else if (c === "'" || c === '"') q = c;
+            else if (c === "(") depth += 1;
+            else if (c === ")") {
+              if (depth === 0) break;
+              depth -= 1;
+            }
+            k += 1;
+          }
+          j = k;
         }
       } else if (state === "single") {
         if (ch === "\\") j += 1;

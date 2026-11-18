@@ -109,13 +109,20 @@ describe("annotateFile TS 编译器级词法", () => {
 });
 
 describe("annotateFile Hash 语言各自规则", () => {
-  it("YAML：空白后 # 是注释，裸 URL 内 # 不是，块标量正文不是注释", () => {
+  it("YAML：空白后 # 是注释，裸 URL 内 # 不是，块标量正文不是注释（含行尾注释/列表/显式缩进）", () => {
     expect(annotateFile(`url: https://x.test/${hash()}1937`, "a.yml")[0]).toBeNull();
     expect(annotateFile(`key: value ${hash()} 注释`, "a.yml")[0]).toBe(`${hash()} 注释`);
     const src = [`description: |`, `  ${hash()}1937 正文`, `key: v ${hash()} 注释`].join("\n");
     const ann = annotateFile(src, "a.yml");
     expect(ann[1]).toBeNull(); // 块标量正文
     expect(ann[2]).toBe(`${hash()} 注释`);
+    // 带行尾注释的 opener、列表项 opener、显式缩进指示符
+    const a1 = annotateFile([`run: | ${hash()} 说明`, `  ${hash()}1937`].join("\n"), "a.yml");
+    expect(a1[1]).toBeNull();
+    const a2 = annotateFile([`- |`, `  ${hash()}1937`].join("\n"), "a.yml");
+    expect(a2[1]).toBeNull();
+    const a3 = annotateFile([`description: |2`, `  ${hash()}1937`].join("\n"), "a.yml");
+    expect(a3[1]).toBeNull();
   });
 
   it("Python：行内 # 是注释（无需空白），三引号正文跳过，注释里三引号不破坏状态", () => {
@@ -132,12 +139,14 @@ describe("annotateFile Hash 语言各自规则", () => {
     expect(ann2[1]).toBe(`${hash()}1937`);
   });
 
-  it("Shell：控制运算符后 # 是注释，heredoc 正文不是注释", () => {
+  it("Shell：控制运算符后 # 是注释，heredoc 正文不是注释（含行尾注释 opener）", () => {
     expect(annotateFile(`echo ok;${hash()}1937`, "a.sh")[0]).toBe(`${hash()}1937`);
     const src = [`cat <<EOF`, `${hash()}1937`, `EOF`, `echo x;${hash()}9`].join("\n");
     const ann = annotateFile(src, "a.sh");
     expect(ann[1]).toBeNull(); // heredoc 正文
     expect(ann[3]).toBe(`${hash()}9`);
+    const a2 = annotateFile([`cat <<EOF ${hash()} 输出说明`, `${hash()}1937`, `EOF`].join("\n"), "a.sh");
+    expect(a2[1]).toBeNull();
   });
 
   it("TOML：行内 # 是注释；单引号 literal string 不转义反斜杠", () => {
@@ -156,16 +165,21 @@ describe("annotateFile CSS/SCSS/HTML", () => {
     expect(ann[1]).toBe("*/");
   });
 
-  it("SCSS：行注释命中，裸 URL 的 // 不误判", () => {
+  it("SCSS：行注释命中，裸 URL 与协议相对 URL 的 // 不误判", () => {
     expect(annotateFile(`${sl()} ${fid()}`, "a.scss")[0]).toBe(`${sl()} ${fid()}`);
     expect(annotateFile(`.x { background: url(https://x.test/${fid()}); }`, "a.scss")[0]).toBeNull();
+    expect(annotateFile(`.x { background: url(${sl()}x.test/${fid()}); }`, "a.scss")[0]).toBeNull();
   });
 
-  it("HTML：注释跨行命中", () => {
+  it("HTML：注释跨行命中，闭合行后属性字符串不误判", () => {
     const ann = annotateFile([`<!--`, `${fid()}`, `-->`].join("\n"), "a.html");
     expect(ann[0]).toContain("<!--");
     expect(ann[1]).toContain(fid());
     expect(ann[2]).toContain("-->");
+    const src = [`<!--`, `--> <div data-id="${fid()}"></div>`].join("\n");
+    const ann2 = annotateFile(src, "a.html");
+    expect(ann2[0]).toContain("<!--");
+    expect(ann2[1]).toBe("-->");
   });
 });
 
