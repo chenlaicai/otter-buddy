@@ -784,6 +784,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   await connectorGateway.sweepStaleSessionsOnBoot().catch((err) => {
     logger.warn("connector stale session sweep failed (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
   });
+  // m1（检视）：硬崩溃重启收口——残留 requested 行真相不明落 unknown（与 online 行清扫同位）
+  await remoteActionRegistry.sweepStaleRequested(new Date().toISOString()).then((swept) => {
+    if (swept > 0) logger.info("swept stale remote action requests on boot", { swept });
+  }).catch((err) => {
+    logger.warn("remote action request sweep failed (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
+  });
 
   const app = buildHttpApp(
     controllers,

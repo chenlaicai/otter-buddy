@@ -53,7 +53,7 @@ export class ConnectorWsGateway {
   /** deviceId → sessionId 反查（动作帧路由用；顶替上线时刷新） */
   private readonly deviceIndex = new Map<string, string>();
   private readonly actionResultHandlers: Array<(frame: Extract<ConnectorFrame, { type: "action.result" }>) => void> = [];
-  private readonly sessionDownHandlers: Array<(sessionId: string, deviceId: string, reason: "device-offline" | "heartbeat-timeout" | "hub-restart") => void> = [];
+  private readonly sessionDownHandlers: Array<(sessionId: string, deviceId: string, reason: ConnectorSessionDownReason) => void> = [];
   private sweepTimer: NodeJS.Timeout | null = null;
   /** 旧 sid 帧丢弃计数（观测模块 C 红线命中情况） */
   private staleFrameDrops = 0;
@@ -202,7 +202,7 @@ export class ConnectorWsGateway {
 
   /** 下线五步的通道侧（C1）：库表 offline（幂等）→ Registry 注销投影 → 关通道。
    *  queued/running 动作收尾与晚到回执丢弃随 C2 remote_action_requests 落地。 */
-  private async shutdown(live: LiveConnection, reason: "device-offline" | "heartbeat-timeout" | "hub-restart", code: number, message: string): Promise<void> {
+  private async shutdown(live: LiveConnection, reason: ConnectorSessionDownReason, code: number, message: string): Promise<void> {
     this.connections.delete(live.sessionId);
     if (this.deviceIndex.get(live.deviceId) === live.sessionId) this.deviceIndex.delete(live.deviceId);
     for (const handler of this.sessionDownHandlers) handler(live.sessionId, live.deviceId, reason);
@@ -264,7 +264,7 @@ export class ConnectorWsGateway {
     this.actionResultHandlers.push(handler);
   }
 
-  onSessionDown(handler: (sessionId: string, deviceId: string, reason: "device-offline" | "heartbeat-timeout" | "hub-restart") => void): void {
+  onSessionDown(handler: (sessionId: string, deviceId: string, reason: ConnectorSessionDownReason) => void): void {
     this.sessionDownHandlers.push(handler);
   }
 

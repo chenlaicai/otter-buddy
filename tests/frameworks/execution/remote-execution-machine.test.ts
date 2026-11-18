@@ -186,6 +186,14 @@ describe("RemoteExecutionMachine（C2 执行通道核心）", () => {
     // 分流互斥：无 unknown 落行
     expect(await h.remoteActions.listByStatuses(["unknown"])).toHaveLength(0);
   });
+  it("m6（检视）：hub-restart 分流——dispose 路径在途落 unknown（与心跳超时同分支）", async () => {
+    await seedOnlineSession(h.connectorRepo, "sess-H");
+    const pending = h.machine.run({ type: "workspace.exists", input: { conversationId: "cH" } }, undefined, { actionId: "hub-restart-1" });
+    await new Promise(r => setTimeout(r, 0));
+    h.channel.emitSessionDown("sess-H", "hub-restart");
+    await expect(pending).rejects.toThrow("device session down before result (unknown)");
+    expect(await h.remoteActions.listByStatuses(["unknown"])).toHaveLength(1);
+  });
 
   it("M1（检视）：多设备串扰隔离——设备 A 下线不误杀设备 B 的在途请求", async () => {
     // 广播语义 channel（对齐网关 sessionDownHandlers 全局广播）
@@ -274,4 +282,17 @@ describe("SqliteRemoteActionRegistry（五态登记幂等）", () => {
     db.exec("DROP TABLE remote_action_requests");
     await expect(registry.recordRequest(reqRow("a-x"))).rejects.toThrow();
   });
+
+  it("m1/m6（检视）：sweepStaleRequested 硬崩溃重启收口——残留 requested 全落 unknown", async () => {
+    const db = createTestDb();
+    const registry = new SqliteRemoteActionRegistry(db);
+    await registry.recordRequest(reqRow("boot-1"));
+    await registry.recordRequest(reqRow("boot-2"));
+    await registry.settleRequest("boot-2", "succeeded", new Date(T0).toISOString(), {});
+    const swept = await registry.sweepStaleRequested(new Date(T0).toISOString());
+    expect(swept).toBe(1); // 仅 requested 行被收口
+    expect(await registry.listByStatuses(["unknown"])).toHaveLength(1);
+    expect((await registry.listByStatuses(["succeeded"])).map(r => r.actionId)).toEqual(["boot-2"]); // 终态不动
+  });
+
 });

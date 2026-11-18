@@ -298,6 +298,9 @@ describe("C2 执行通道端到端（六动作/幂等/断线收尾）", () => {
     const interrupted = await hub.remoteActions.listByStatuses(["interrupted"]);
     expect(interrupted.map(r => r.actionId)).toEqual(["c3-graceful-1"]);
     expect(interrupted[0]!.error).toContain("graceful");
+    // m3（检视）：优雅路径的会话行收尾 reason 必须是 device-offline（区别于心跳超时）
+    const reasonRow = db.prepare("SELECT status, disconnect_reason FROM online_sessions WHERE id = ?").get(sid) as { status: string; disconnect_reason: string };
+    expect(reasonRow).toMatchObject({ status: "offline", disconnect_reason: "device-offline" });
 
     // 下线后旧会话不能执行（issue 验收②：总闸①拒——唯一事实源已 offline）
     await expect(machine.run({ type: "workspace.exists", input: { conversationId: "c1" } }))
@@ -321,6 +324,14 @@ describe("C2 执行通道端到端（六动作/幂等/断线收尾）", () => {
     const fresh = await connectConnector(hub.url, runtime); // 新会话（新 sid）
     expect(fresh.sid).not.toBe(staleSid);
 
+    // m5（检视）：先登记一条 requested 行——stale result 即便被误派发也 settle 不了它
+    // （强断言：此前用未登记 actionId 是同义反复）
+    const staleSid2 = stale.sid;
+    await hub.remoteActions.recordRequest({
+      actionId: "stale-result-1", onlineSessionId: staleSid2, deviceId: DEVICE_ID,
+      actionType: "workspace.write", status: "requested", error: null, result: null,
+      createdAt: new Date().toISOString(), settledAt: null, conversationId: "c1", invokeId: null,
+    });
     const dropsBefore = hub.gateway.staleDropCount;
     // 旧会话的晚到回执（stale sid）从**当前活跃连接**发出——gateway 校验 sid 不匹配即丢
     fresh.ws.send(JSON.stringify({
@@ -330,8 +341,9 @@ describe("C2 执行通道端到端（六动作/幂等/断线收尾）", () => {
     await new Promise(r => setTimeout(r, 150));
 
     expect(hub.gateway.staleDropCount).toBe(dropsBefore + 1); // 丢弃计数（模块 C 红线观测）
-    // 丢弃的回执不产生任何落账（stale-result-1 无登记行）
-    expect((await hub.remoteActions.listByConversation("c1")).find(r => r.actionId === "stale-result-1")).toBeUndefined();
+    // 丢弃的回执零效果：已登记的 requested 行保持 requested（未被 stale result settle）
+    const afterRow = (await hub.remoteActions.listByConversation("c1")).find(r => r.actionId === "stale-result-1");
+    expect(afterRow).toMatchObject({ status: "requested", settledAt: null });
 
     fresh.ws.close();
     hub.server.close();

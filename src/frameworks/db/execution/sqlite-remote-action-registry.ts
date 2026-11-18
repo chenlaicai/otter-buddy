@@ -82,4 +82,14 @@ export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
     ).run(status, settledAt, error, onlineSessionId);
     return result.changes;
   }
+
+  /** m1（检视）：中枢硬崩溃重启后，残留 requested 行统一落 unknown（hub 停摆期间
+   *  在途动作无人收尾——真相不明；与 sweepStaleOnlineSessions 同位调用） */
+  async sweepStaleRequested(settledAt: string): Promise<number> {
+    const result = this.db.prepare(
+      "UPDATE remote_action_requests SET status = 'unknown', settled_at = ?, error = COALESCE(error, 'hub restart before result') "
+      + "WHERE status = 'requested'",
+    ).run(settledAt);
+    return result.changes;
+  }
 }

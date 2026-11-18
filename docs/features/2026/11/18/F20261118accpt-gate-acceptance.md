@@ -7,8 +7,8 @@ change_type: feature
 summary: |
   落实 #1868 阶段 4 C3（收尾）：主动下线五步全链的收尾语义分流——优雅下线
   （offline 帧）在途动作确定性落 interrupted（可安全重做），意外断开（心跳超时/
-  hub 重启）真相不明落 unknown（S2 不对称边界）+ connector SIGTERM 优雅退出窗
-  （在途动作等其入账，超时/未完成由台账开机清扫分类裁决兜底）+ 旧 sid 晚到
+  hub 重启）真相不明落 unknown（S2 不对称边界）+ connector SIGTERM 自杀收尾（在途立即落
+  interrupted——与中枢同裁决，两侧一致；M1 检视处置后回方案原设计）+ 旧 sid 晚到
   action.result 帧丢弃专测（模块 C 红线）+ issue 三条验收全过（六动作/下线后
   旧会话不能执行/本机海獭并存零回归——alpha 实启真进程验证）。
 intent:
@@ -99,6 +99,37 @@ C1 已有 sid 校验丢弃（heartbeat 帧用例）；C3 补 action.result 变�
 | `npm test` 全量 | 484 files / 6116 全绿 |
 | `npm run build:connector` | 闭包断言 PASS |
 | alpha 实启（verify-c3-alpha.mts） | issue 三条验收全过 + 优雅下线 succeeded 保持（窗内完成）+ disconnectReason=device-offline + local 并存冒烟 |
+
+## 检视处置记录（dspro 首轮：0 blocker / 1 major / 6 minor / 2 suggestion）
+
+- **M1 优雅下线两面裁决冲突**（中枢 interrupted / 端上 succeeded 违反 S2 前提）：
+  已修——**选处置 (a) 回方案 §6 第4步原设计**：connector SIGTERM 改自杀收尾
+  （`markInflightInterrupted`——在途 actionId 立即对台账 settle interrupted，不等
+  fs 完成；完成后 executor 的 succeeded settle 被幂等拦），两侧一致 interrupted；
+  alpha 验证升级为「两层同态」断言（interrupted/interrupted 或赶上完成的
+  succeeded/succeeded，禁止交叉）。
+- **m1** hub-restart 收尾仅 dispose 路径（硬重启 boot sweep 不收 requested）：
+  已修——`sweepStaleRequested`（残留 requested 全落 unknown/hub restart before
+  result）挂 app.ts 启动清扫（与 online 行清扫同位）+ 单测。
+- **m2** 优雅窗与重连循环未互斥（顶替重连再死）：已修——`exiting` 标志，重连
+  循环见此不再起新连接（自杀收尾后窗口缩至 150ms 发送拍，不再 3s drain）。
+- **m3** disconnect_reason=device-offline 无断言：已修——E2E + alpha 双断言。
+- **m4** reason union 三处行内重复：已修——统一引用 `ConnectorSessionDownReason`。
+- **m5** 旧 sid「零落账」断言同义反复：已修——先登记 requested 行，stale result
+  后断言行保持 requested（未被 settle）。
+- **m6** hub-restart 分支无测试：已修——机器单测（emitSessionDown hub-restart →
+  unknown）+ sweepStaleRequested 单测。
+- **s1** 双信号重复 goOffline：已修——shuttingDown 幂等守卫（与 m2 共用标志）。
+- **s2** 信号注册挪 buildRuntime 后（boot sweep 期间 SIGTERM 走默认处置）：留档
+  ——此刻无连接无在途，行为可接受（F 文档此行即留档）。
+
+## 设计修订（M1 处置后的语义定稿）
+
+connector 侧收尾从「有界等待完成」回到方案 §6 原设计「自杀收尾（取消在途，
+台账落 interrupted）」：优雅下线时在途动作在两端一致裁决 interrupted（可安全
+重做——重做由 actionId 幂等兜底，write 类覆盖同内容幂等）；fs 物理完成但裁决
+interrupted 的窗口，其补充裁决（write 类 hash 核对 upgradedToSucceeded）由台账
+开机清扫体系承担，与本机台账崩溃恢复语义同构。
 
 ## Rollback
 

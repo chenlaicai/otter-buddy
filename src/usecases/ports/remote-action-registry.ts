@@ -16,4 +16,7 @@ export interface RemoteActionRegistry {
   /** 断线收尾批量：某 onlineSession 的全部 requested 行落指定终态（C3 分流：
    *  interrupted=优雅下线确定性裁决 / unknown=意外断开真相不明；先到真相幂等保护） */
   markSessionRequests(onlineSessionId: string, status: "interrupted" | "unknown", settledAt: string, error: string): Promise<number>;
+  /** 中枢启动收口：残留 requested 行全部落 unknown（硬崩溃后 boot sweep 路径——
+   *  会话行清扫时在途动作无人收尾，真相不明；m1 检视补齐） */
+  sweepStaleRequested(settledAt: string): Promise<number>;
 }
