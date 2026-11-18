@@ -99,6 +99,7 @@ describe("golden grid + 反事实（段 3 标定，不切默认）", () => {
       const ndcg10s: number[] = [];
       const rrs: number[] = [];
       for (const q of GOLDEN_QUERIES) {
+        resetWeights();
         const result = await sm.search({
           query: q.query,
           limit: 10,
@@ -109,7 +110,6 @@ describe("golden grid + 反事实（段 3 标定，不切默认）", () => {
         ndcg5s.push(ndcgAtK(rankedIds, rel, 5));
         ndcg10s.push(ndcgAtK(rankedIds, rel, 10));
         rrs.push(reciprocalRank(rankedIds, rel));
-        resetWeights();
       }
       return { ndcg5: mean(ndcg5s), ndcg10: mean(ndcg10s), mrr: mrr(rrs) };
     }
@@ -191,13 +191,45 @@ describe("golden grid + 反事实（段 3 标定，不切默认）", () => {
     fs.writeFileSync(outPath, grid.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf-8");
     console.log(`\n网格结果已写: ${outPath}（${grid.length} 行）`);
 
-    // ── 断言（eval 自检，不弱化）───────────────────────────────────
+    // ── 断言（eval 自检，锁定锚点与网格结构）────────────────────
+    // 反事实 8 组；锚点行（multiply 生产默认 / additive 全中性）与 golden-eval 地板、全中性断言同值
     expect(counterfactuals.length).toBe(8);
-    expect(grid.length).toBeGreaterThan(300);
+    const cfByName = new Map(cfRows.map((r) => [r.name, r]));
+    const mult = cfByName.get("multiply 生产默认（全开）")!;
+    expect(mult.ndcg5).toBeCloseTo(0.6732, 4);
+    expect(mult.ndcg10).toBeCloseTo(0.7079, 4);
+    expect(mult.mrr).toBeCloseTo(0.8114, 4);
+    const neutral = cfByName.get("additive 全中性（w_rrf=1 其余 0）")!;
+    expect(neutral.ndcg5).toBeCloseTo(0.7998, 4);
+    expect(neutral.ndcg10).toBeCloseTo(0.8029, 4);
+    expect(neutral.mrr).toBeCloseTo(0.9364, 4);
+
+    // 网格结构：空间尺寸精确、行唯一、权重和≈1、指标有限
+    expect(grid.length).toBe(352);
+    expect(eligible.length).toBe(grid.length);
+    const seen = new Set<string>();
+    for (const r of grid) {
+      const key = `${r.wRrf}|${r.wTime}|${r.wFreq}|${r.bFlag}|${r.bConv}`;
+      expect(seen.has(key), `网格组合应唯一：${key}`).toBe(false);
+      seen.add(key);
+      expect(r.wRrf + r.wTime + r.wFreq).toBeCloseTo(1, 9);
+      for (const v of [r.ndcg5, r.ndcg10, r.mrr]) {
+        expect(Number.isFinite(v)).toBe(true);
+        expect(v).toBeGreaterThanOrEqual(0);
+        expect(v).toBeLessThanOrEqual(1);
+      }
+    }
+
+    // 候选：锁定段 3 结论（w_rrf=0.8, w_time=0, w_freq=0.2, b_flag=0.1, b_conv=0.05）
     expect(candidate, "网格应存在三项均不劣于地板的组合").toBeDefined();
-    expect(candidate.ndcg5).toBeGreaterThanOrEqual(FLOOR.ndcg5);
-    expect(candidate.ndcg10).toBeGreaterThanOrEqual(FLOOR.ndcg10);
-    expect(candidate.mrr).toBeGreaterThanOrEqual(FLOOR.mrr);
+    expect(candidate.wRrf).toBe(0.8);
+    expect(candidate.wTime).toBe(0);
+    expect(candidate.wFreq).toBeCloseTo(0.2, 9);
+    expect(candidate.bFlag).toBe(0.1);
+    expect(candidate.bConv).toBe(0.05);
+    expect(candidate.ndcg5).toBeCloseTo(0.8019, 4);
+    expect(candidate.ndcg10).toBeCloseTo(0.805, 4);
+    expect(candidate.mrr).toBeCloseTo(0.9364, 4);
 
     db.close();
   });
