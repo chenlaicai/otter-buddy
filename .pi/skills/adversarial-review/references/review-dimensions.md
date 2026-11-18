@@ -74,7 +74,7 @@ End-to-end verification failure must be reported as a 严重发现 in the review
 
 > 特性编号是变更追溯的锚点——编号不一致会导致特性文档无法被 `search_memory` 按 ID 召回，也会让 `get_related` 的关系链断裂。
 
-> **基础维度失败 → 严重发现**：任一基础维度失败（B1 CI 失败 / B2 文档缺失或不一致 / B3 端到端验证失败 / B4 特性编号缺失或不一致）必须在审视报告的"严重发现"节建立对应条目（标明 B1/B2/B3/B4 来源），不可仅在基础维度检查表中标记"失败"就跳过处置队列。严重发现不可延后——见 `SKILL.md` 严重发现模板和 `author-response-protocol.md` 决策树。
+> **基础维度失败 → 严重发现**：任一基础维度失败（B1 CI 失败 / B2 文档缺失或不一致 / B3 端到端验证失败 / B4 特性编号缺失或不一致 / B10 注释编号禁绝）必须在审视报告的"严重发现"节建立对应条目（标明 B1/B2/B3/B4/B10 来源），不可仅在基础维度检查表中标记"失败"就跳过处置队列。严重发现不可延后——见 `SKILL.md` 严重发现模板和 `author-response-protocol.md` 决策树。
 
 > **基础维度必须附验证证据**：每项基础维度的结论必须附实际验证证据（命令输出 / 工具返回 / 文件路径）。你有 bash、read 等编码工具——必须实际运行检查，不可凭印象填"通过"。
 >
@@ -82,11 +82,19 @@ End-to-end verification failure must be reported as a 严重发现 in the review
 > - B2 文档完整性：实际运行 `list_artifacts` 查找特性文档，贴结果；read 特性文档核对实现一致性
 > - B3 全链路验证：实际运行测试或构建命令，贴关键输出
 > - B4 变更标识一致性：从 commit/PR 提取编号，与 `list_artifacts` groupId / 特性文档 frontmatter 对照
+> - B10 注释编号禁绝：实际运行 `node scripts/check-pr-anchor-discipline.mjs --base origin/main`，贴输出
 >
 > **无证据填"通过" = 虚假签收，等同漏报。** 报告合规门禁（见 `review-loop.md`）有权打回。
 
-### B9. Evidence Package & Reproduction Evidence
+### B10. 注释编号禁绝
 
+非特性文档的代码注释里不允许出现任何编号——特性编号（字母+日期形态）、检视轮次序号（单字母序号 / 中文动作词+序号）、issue 号（井号+数字）。注释 why 用文字写清，不挂编号。
+
+- 实际运行机械闸验证：`cd <主仓> && node scripts/check-pr-anchor-discipline.mjs --base origin/main`，贴输出（违规则列 文件:行 + 编号类型）
+- 命中违规 = 严重发现（标明 B10 来源）：作者剥编号保 why 结论即可，无需删除整条注释
+- 特性文档（docs/features/）不受此限——编号是特性文档的家
+
+### B9. Evidence Package & Reproduction Evidence
 改系统状态的交付必须有可下钻的证据包；纯 `docs/` 交付豁免。机械闸只查结构，真实性、判别力由本维度核对。
 
 - **通用证据包**：PR body 含 Rollback 段与证据分层声明；机器锚点与标「未复验」的 agent 陈述分开列，不混排冒充已验证。分层缺失或冒充 = 严重发现。抽样点开 1-2 个机器锚点复验，失效/伪造 = 严重发现。

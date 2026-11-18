@@ -132,6 +132,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/check-pr-review-closure.mjs --pr-number ${{ github.event.pull_request.number }}
 
+      # 注释编号禁绝闸：非特性文档注释不许出现特性/轮次/issue 编号（PR 新增行硬拦截，违规则红）
+      - name: Run annotation-anchor gate (check-pr-anchor-discipline)
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-pr-anchor-discipline.mjs --base origin/main
+
       # F20261013crit: 断言证据锚点轻量规则（warn 起步，ratchet）
       - name: Run evidence-anchor lint (warn-level)
         if: github.event_name == 'pull_request'
