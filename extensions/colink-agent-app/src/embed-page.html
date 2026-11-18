@@ -38,16 +38,17 @@
     <div id="status">正在连接 CoLink…</div>
   </div>
   <script type="module">
-    import { connectPage } from '/colink-browser.mjs';
+    // 0.28：createPageClient 自行读取同源 /page-config.json 并完成宿主握手；
+    // 纯展示页不需要登录或业务授权，只证明 iframe 已接入宿主。
+    import { createPageClient } from '/colink-browser.mjs';
     const status = document.querySelector('#status');
+    let page;
+    window.addEventListener('pagehide', () => page?.close());
     try {
-      const response = await fetch('/page-config.json');
-      if (!response.ok) throw new Error(`PAGE_CONFIG_UNAVAILABLE (${response.status})`);
-      const config = await response.json();
-      const connection = connectPage(config);
-      await connection.ready;
+      page = await createPageClient();
+      document.documentElement.style.colorScheme = page.context.theme;
       status.className = 'ok';
-      status.textContent = '✅ 页面连接已就绪 —— 海獭 iframe 成功接入 CoLink。';
+      status.textContent = `✅ 页面连接已就绪 —— 容器 ${page.context.container}，海獭 iframe 成功接入 CoLink。`;
     } catch (error) {
       status.className = 'err';
       status.textContent = '❌ 连接失败：' + (error?.message ?? error);

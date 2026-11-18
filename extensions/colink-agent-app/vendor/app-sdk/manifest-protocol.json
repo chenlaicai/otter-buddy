@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "defaults": {
+    "manifestVersion": "2.0.0",
+    "events.schemaVersion": "2.0.0",
+    "ui.contractVersion": "1.0.0",
+    "ui.entries.*.extensionPoint.version": "1.0.0",
+    "ui.views.*.bridgeVersion": "1.0.0",
+    "api.contextVersion": 2
+  }
+}

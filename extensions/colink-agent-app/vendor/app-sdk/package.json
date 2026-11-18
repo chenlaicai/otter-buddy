@@ -1,0 +1,66 @@
+{
+  "name": "@colink/app-sdk",
+  "version": "0.28.0",
+  "type": "module",
+  "colink": {
+    "manifestProtocol": "./manifest-protocol.json"
+  },
+  "description": "CoLink App SDK for JavaScript and TypeScript",
+  "exports": {
+    ".": {
+      "types": "./types/entries/index.d.ts",
+      "import": "./index.mjs"
+    },
+    "./browser": {
+      "types": "./types/entries/browser.d.ts",
+      "import": "./browser.mjs"
+    },
+    "./agent": {
+      "types": "./types/entries/agent.d.ts",
+      "import": "./agent.mjs"
+    },
+    "./diagnostics": {
+      "types": "./types/entries/diagnostics.d.ts",
+      "import": "./diagnostics.mjs"
+    },
+    "./provider": {
+      "types": "./types/entries/provider.d.ts",
+      "import": "./provider.mjs"
+    }
+  },
+  "types": "./types/entries/index.d.ts",
+  "files": [
+    "manifest-protocol.json",
+    "browser.mjs",
+    "index.mjs",
+    "agent.mjs",
+    "src/**/*.mjs",
+    "README.md",
+    "app.env.example",
+    "examples",
+    "init.mjs",
+    "diagnostics.mjs",
+    "provider.mjs",
+    "types/**/*.d.ts"
+  ],
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "scripts": {
+    "pretest": "node ../../compiler/check.mjs && npm run build && node scripts/sync-failure-contracts.mjs --check && node scripts/sync-message-mentions.mjs --check && node scripts/sync-provider.mjs --check && node scripts/sync-oauth.mjs --check && node scripts/sync-capabilities.mjs --check && node scripts/sync-method-guide.mjs --check && node scripts/sync-api-index.mjs --check && node scripts/sync-file-save.mjs --check && node scripts/sync-browser.mjs --check && node ../../../sample-apps/dsh-agent/scripts/prepare-sdk.mjs --check-source",
+    "test": "node scripts/test-runtime.mjs",
+    "test:pack": "node scripts/test-package.mjs",
+    "test:types": "npm run build && node scripts/test-examples.mjs",
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/build.mjs --check",
+    "prepack": "npm run build"
+  },
+  "private": true,
+  "devDependencies": {
+    "@types/node": "26.4.1",
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3",
+    "typescript-api-6": "npm:typescript@6.0.3",
+    "typescript-api-7": "npm:typescript@7.0.2"
+  }
+}

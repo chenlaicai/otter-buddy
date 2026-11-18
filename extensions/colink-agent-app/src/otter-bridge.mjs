@@ -93,7 +93,7 @@ export class OtterBridge {
     return conversation.id;
   }
 
-  async reply({ kind = 'dm', deploymentId, installationId, conversationId, actorId, text, turn, signal }) {
+  async reply({ kind = 'dm', deploymentId, installationId, conversationId, actorId, text, ctx, signal }) {
     if (!['dm', 'channel'].includes(kind)) throw new Error('OTTER_EXTERNAL_KIND_INVALID');
     // Why: 保留既有 DM 映射键；频道加命名空间，避免同 UUID 的 DM 与频道串会话。
     const externalId = kind === 'channel' ? `channel:${conversationId}` : conversationId;
@@ -106,10 +106,10 @@ export class OtterBridge {
       await this.assertConversationIdle(otterConversationId, signal);
       const execute = prompt => this.runTurn({ otterConversationId, actorId, text: prompt, signal });
       if (!this.toolBridge) return execute(text);
-      if (!turn) throw new Error('COLINK_TURN_REQUIRED_FOR_TOOLS');
+      if (!ctx) throw new Error('COLINK_EVENT_CONTEXT_REQUIRED_FOR_TOOLS');
       return this.toolBridge.run({
         otterConversationId,
-        turn,
+        ctx,
         register: config => this.request(`/api/conversations/${otterConversationId}/workspace/mcp-external`, {
           method: 'PUT', body: JSON.stringify(config),
         }, signal),

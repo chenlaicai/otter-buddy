@@ -131,7 +131,7 @@ test('fails closed when the core response omits the exact trigger entry id', asy
 test('binds the active CoLink turn to MCP before dispatching the wrapped Otter message', async () => {
   const { state, fetcher } = fixture();
   const bindings = [];
-  const turn = { input: { text: input.text } };
+  const ctx = { event: { data: { text: input.text } } };
   const toolBridge = {
     run: async (binding, execute) => {
       bindings.push(binding);
@@ -139,10 +139,10 @@ test('binds the active CoLink turn to MCP before dispatching the wrapped Otter m
     },
   };
   const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
-  assert.equal(await bridge.reply({ ...input, turn }), '最终回答');
+  assert.equal(await bridge.reply({ ...input, ctx }), '最终回答');
   assert.equal(bindings.length, 1);
   assert.equal(bindings[0].otterConversationId, 'otter-conversation-1');
-  assert.equal(bindings[0].turn, turn);
+  assert.equal(bindings[0].ctx, ctx);
   await bindings[0].register({ mcpServers: {} });
   assert.deepEqual(state.mcpConfigs, [{ mcpServers: {} }]);
   assert.equal(state.messages[0].body, `事件上下文\n${input.text}`);
@@ -154,10 +154,10 @@ test('refuses to bind a new CoLink turn while an old Otter invoke is alive', asy
   const bindings = [];
   const toolBridge = { run: async (binding, execute) => { bindings.push(binding); return execute(input.text); } };
   const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
-  await bridge.reply({ ...input, turn: { input: { text: input.text } } });
+  await bridge.reply({ ...input, ctx: { event: { data: { text: input.text } } } });
   state.invokes.push({ id: 'stale-invoke', status: 'running', startedAt: new Date().toISOString(),
     endedAt: null, talkingStonePassedTo: [] });
-  await assert.rejects(bridge.reply({ ...input, text: '新用户的新事件', turn: { input: { text: '新用户的新事件' } } }), /OTTER_PREVIOUS_TURN_ABORTED/);
+  await assert.rejects(bridge.reply({ ...input, text: '新用户的新事件', ctx: { event: { data: { text: '新用户的新事件' } } } }), /OTTER_PREVIOUS_TURN_ABORTED/);
   assert.deepEqual(state.aborts, ['stale-invoke']);
   assert.equal(state.messages.length, 1);
   assert.equal(bindings.length, 1);

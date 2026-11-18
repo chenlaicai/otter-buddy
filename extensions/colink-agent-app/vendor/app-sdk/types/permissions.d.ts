@@ -1,0 +1,25 @@
+export declare const Permission: {
+    readonly MessagesReadPrivate: "messages:read-private";
+    readonly MessagesReadPublic: "messages:read-public";
+    readonly MessagesWrite: "messages:write";
+    readonly MessagesDraft: "messages:draft";
+    readonly MessagesReceive: "messages:receive";
+    readonly ChannelsReadPublicMembers: "channels:read-public-members";
+    readonly ChannelsReadUnread: "channels:read-unread";
+    readonly FilesRead: "files:read";
+    readonly FilesUpload: "files:upload";
+    readonly TasksRead: "tasks:read";
+    readonly TasksManage: "tasks:manage";
+    readonly TasksExecute: "tasks:execute";
+    readonly ContactsSelect: "contacts:select";
+    readonly ProjectsList: "projects:list";
+    readonly ChannelsList: "channels:list";
+    readonly TopicsList: "topics:list";
+    readonly AppsRead: "apps:read";
+    readonly AppsCall: "apps:call";
+    readonly AppManage: "app:manage";
+};
+export type Permission = typeof Permission[keyof typeof Permission];
+export type PageScope = typeof Permission["MessagesReadPrivate" | "MessagesDraft" | "ChannelsReadUnread" | "FilesRead" | "TasksRead" | "TasksManage" | "ContactsSelect" | "ProjectsList" | "ChannelsList" | "TopicsList" | "AppsRead" | "AppsCall" | "AppManage"];
+export type BackgroundScope = typeof Permission["MessagesReadPrivate" | "MessagesDraft" | "ChannelsReadUnread" | "FilesRead" | "TasksRead" | "TasksManage" | "ProjectsList" | "ChannelsList" | "TopicsList" | "AppsRead" | "AppsCall" | "AppManage"];
+export type InstallationPermission = typeof Permission["MessagesReadPublic" | "MessagesWrite" | "MessagesReceive" | "ChannelsReadPublicMembers" | "FilesUpload" | "TasksExecute" | "ProjectsList" | "ChannelsList" | "AppsRead" | "AppsCall"];
