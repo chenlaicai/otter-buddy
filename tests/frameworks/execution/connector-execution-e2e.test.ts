@@ -273,4 +273,67 @@ describe("C2 执行通道端到端（六动作/幂等/断线收尾）", () => {
     ws.close();
     hub.server.close();
   });
+
+  // ─── C3（方案 §6/§8）：主动下线五步 + 旧 sid 晚到回执 + 总闸验收 ───
+
+  it("C3：主动优雅下线（offline 帧）在途落 interrupted + 下线后旧会话不能执行（issue 验收②）", async () => {
+    const hub = await startE2E(db);
+    await seedDevice(hub.connectorRepo);
+    const { ws, sid } = await connectConnector(hub.url, runtime);
+    const machine = hub.machine();
+
+    // 在途动作（dispatcher 挂起——优雅下线时未完成）
+    const originalHandle = runtime.dispatcher.handleActionRequest.bind(runtime.dispatcher);
+    runtime.dispatcher.handleActionRequest = async (frame: unknown) => {
+      const f = frame as Extract<ConnectorFrame, { type: "action.request" }>;
+      if (f.data.actionId === "c3-graceful-1") await new Promise(r => setTimeout(r, 800));
+      return originalHandle(f as never);
+    };
+    const pending = machine.run({ type: "workspace.write", input: { conversationId: "c1", relativePath: "g.txt", content: "x" } }, undefined, { actionId: "c3-graceful-1" });
+    await new Promise(r => setTimeout(r, 150)); // 请求已到 connector 挂起
+
+    // 主动下线：发 offline 帧（优雅路径——区别于 socket 直断）
+    ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "offline", seq: 98, sid, data: {} }));
+    await expect(pending).rejects.toThrow("(interrupted)");
+    const interrupted = await hub.remoteActions.listByStatuses(["interrupted"]);
+    expect(interrupted.map(r => r.actionId)).toEqual(["c3-graceful-1"]);
+    expect(interrupted[0]!.error).toContain("graceful");
+
+    // 下线后旧会话不能执行（issue 验收②：总闸①拒——唯一事实源已 offline）
+    await expect(machine.run({ type: "workspace.exists", input: { conversationId: "c1" } }))
+      .rejects.toThrow("connector device offline or unpaired");
+    // 重连后恢复可达（重连≠恢复，但新会话可执行——顶替上线）
+    const reconnected = await connectConnector(hub.url, runtime);
+    await machine.run({ type: "workspace.exists", input: { conversationId: "c1" } });
+    reconnected.ws.close();
+
+    hub.server.close();
+  });
+
+  it("C3：旧 sid 晚到 result 帧丢弃 + 计数（模块 C 红线：晚到回执不恢复执行）", async () => {
+    const hub = await startE2E(db);
+    await seedDevice(hub.connectorRepo);
+    const stale = await connectConnector(hub.url, runtime);
+    const staleSid = stale.sid;
+    stale.ws.close(); // 旧会话关闭
+    await new Promise(r => setTimeout(r, 100));
+
+    const fresh = await connectConnector(hub.url, runtime); // 新会话（新 sid）
+    expect(fresh.sid).not.toBe(staleSid);
+
+    const dropsBefore = hub.gateway.staleDropCount;
+    // 旧会话的晚到回执（stale sid）从**当前活跃连接**发出——gateway 校验 sid 不匹配即丢
+    fresh.ws.send(JSON.stringify({
+      v: CONNECTOR_PROTOCOL_VERSION, type: "action.result", seq: 99, sid: staleSid,
+      data: { actionId: "stale-result-1", status: "succeeded", result: "late" },
+    }));
+    await new Promise(r => setTimeout(r, 150));
+
+    expect(hub.gateway.staleDropCount).toBe(dropsBefore + 1); // 丢弃计数（模块 C 红线观测）
+    // 丢弃的回执不产生任何落账（stale-result-1 无登记行）
+    expect((await hub.remoteActions.listByConversation("c1")).find(r => r.actionId === "stale-result-1")).toBeUndefined();
+
+    fresh.ws.close();
+    hub.server.close();
+  });
 });

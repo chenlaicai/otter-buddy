@@ -13,6 +13,7 @@ export interface RemoteActionRegistry {
   listByStatuses(statuses: RemoteActionStatus[], limit?: number): Promise<RemoteActionRequest[]>;
   /** R2 恢复摘要数据源：按 conversation 查该会话的远程动作五态（含 requested 在途行） */
   listByConversation(conversationId: string, limit?: number): Promise<RemoteActionRequest[]>;
-  /** 断线收尾批量：某 onlineSession 的全部 requested 行落 unknown（先到真相幂等保护） */
-  markSessionRequestsUnknown(onlineSessionId: string, settledAt: string): Promise<number>;
+  /** 断线收尾批量：某 onlineSession 的全部 requested 行落指定终态（C3 分流：
+   *  interrupted=优雅下线确定性裁决 / unknown=意外断开真相不明；先到真相幂等保护） */
+  markSessionRequests(onlineSessionId: string, status: "interrupted" | "unknown", settledAt: string, error: string): Promise<number>;
 }

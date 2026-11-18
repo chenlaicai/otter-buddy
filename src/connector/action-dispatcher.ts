@@ -42,6 +42,10 @@ const SUPPORTED_ACTION_TYPES = new Set<string>([
 ]);
 
 export class ConnectorActionDispatcher {
+  /** 在途执行计数（C3：SIGTERM 优雅退出窗——有在途时等其入账再退） */
+  private inflight = 0;
+  get inflightCount(): number { return this.inflight; }
+
   constructor(private readonly deps: ConnectorActionDispatcherDeps) {}
 
   /** 处理一帧 action.request（sid 已由会话层校验过——本层只管执行与回执） */
@@ -69,6 +73,7 @@ export class ConnectorActionDispatcher {
     }
 
     try {
+      this.inflight += 1;
       const result = await this.deps.executor.run(
         { type: action.type, input: action.input } as AnyExecutionAction,
         { actionId },
@@ -77,6 +82,8 @@ export class ConnectorActionDispatcher {
     } catch (err) {
       // executor 内部已 settle failed（台账在场时）；此处只负责回执
       this.sendResult(actionId, { status: "failed", error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      this.inflight -= 1;
     }
   }
 

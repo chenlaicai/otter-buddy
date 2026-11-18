@@ -165,14 +165,25 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
 let currentWs: WebSocket | null = null;
 let currentSid: string | null = null;
 
-function registerSignalHandlersOnce(): void {
+function registerSignalHandlersOnce(getInflight: () => number): void {
   const goOffline = (signal: string): void => {
     if (currentWs?.readyState === WebSocket.OPEN && currentSid) {
       seq += 1;
       currentWs.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "offline", seq, sid: currentSid, data: {} }));
       log("offline requested", { signal });
     }
-    setTimeout(() => process.exit(0), 100); // 一拍发送窗口后退出
+    // C3（方案 §6 第4步 connector 侧）：优雅退出窗——在途动作等其入账（有界 3s；超时
+    // 或未完成 → 进程死 → 台账 running 残留由开机清扫按 verdict 分类裁决，兜底等价）。
+    // 中枢侧已按 device-offline 落 interrupted（确定性裁决），端上完成度以台账为真相。
+    const GRACEFUL_WAIT_MS = 3_000;
+    const startedAt = Date.now();
+    const poll = (): void => {
+      if (getInflight() === 0 || Date.now() - startedAt >= GRACEFUL_WAIT_MS) {
+        process.exit(0);
+      }
+      setTimeout(poll, 50);
+    };
+    setTimeout(poll, 100); // 一拍发送窗口后再开始等（offline 帧先出门）
   };
   process.on("SIGINT", () => goOffline("SIGINT"));
   process.on("SIGTERM", () => goOffline("SIGTERM"));
@@ -263,8 +274,9 @@ async function main(): Promise<void> {
   }
 
   // 断线自动重连（检视 s1）：指数退避，重连=新会话（hub 侧 sid 代际隔离跨会话重放）
-  registerSignalHandlersOnce(); // minor-1：信号处理注册一次（循环外），读 currentWs/currentSid
   const runtime = await buildRuntime(identity); // C2：执行栈（台账清扫后才开始执行动作）
+  // C3：信号处理注册一次（runtime 后——优雅退出窗读 dispatcher 在途计数）
+  registerSignalHandlersOnce(() => runtime.dispatcher.inflightCount);
   let backoff = RECONNECT_BASE_MS;
   for (;;) {
     const outcome = await connectOnce(args.hub, identity, runtime);

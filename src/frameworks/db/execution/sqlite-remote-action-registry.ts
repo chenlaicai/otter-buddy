@@ -75,11 +75,11 @@ export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
     return rows.map(rowToReq);
   }
 
-  async markSessionRequestsUnknown(onlineSessionId: string, settledAt: string): Promise<number> {
+  async markSessionRequests(onlineSessionId: string, status: "interrupted" | "unknown", settledAt: string, error: string): Promise<number> {
     const result = this.db.prepare(
-      "UPDATE remote_action_requests SET status = 'unknown', settled_at = ?, error = COALESCE(error, 'device offline before result') "
+      "UPDATE remote_action_requests SET status = ?, settled_at = ?, error = COALESCE(error, ?) "
       + "WHERE online_session_id = ? AND status = 'requested'",
-    ).run(settledAt, onlineSessionId);
+    ).run(status, settledAt, error, onlineSessionId);
     return result.changes;
   }
 }

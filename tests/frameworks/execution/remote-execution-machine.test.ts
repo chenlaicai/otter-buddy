@@ -22,19 +22,19 @@ function fakeChannel(): ConnectorActionChannel & {
   sent: ConnectorFrame[];
   setSendOk: (ok: boolean) => void;
   emitResult: (actionId: string, status: "succeeded" | "failed" | "interrupted" | "unknown", result?: unknown, error?: string) => void;
-  emitSessionDown: (sessionId: string) => void;
+  emitSessionDown: (sessionId: string, reason: "device-offline" | "heartbeat-timeout" | "hub-restart") => void;
 } {
   const sent: ConnectorFrame[] = [];
   let sendOk = true;
   let resultHandler: ((frame: Extract<ConnectorFrame, { type: "action.result" }>) => void) | null = null;
-  let downHandler: ((sessionId: string, deviceId: string) => void) | null = null;
+  let downHandler: ((sessionId: string, deviceId: string, reason: "device-offline" | "heartbeat-timeout" | "hub-restart") => void) | null = null;
   return {
     sent,
     setSendOk: ok => { sendOk = ok; },
     emitResult: (actionId, status, result, error) => {
       resultHandler?.({ v: 1, type: "action.result", seq: 1, sid: "s1", data: { actionId, status, ...(status === "succeeded" ? { result } : { error: error ?? "x" }) } });
     },
-    emitSessionDown: sessionId => { downHandler?.(sessionId, DEVICE_ID); },
+    emitSessionDown: (sessionId, reason) => { downHandler?.(sessionId, DEVICE_ID, reason); },
     sendToDevice: (_deviceId, frame) => {
       if (!sendOk) return false;
       sent.push(frame);
@@ -158,24 +158,38 @@ describe("RemoteExecutionMachine（C2 执行通道核心）", () => {
     expect(await h.remoteActions.listByStatuses(["unknown"])).toHaveLength(1);
   });
 
-  it("会话下线钩子：在途等待 reject + 该会话 requested 行批量落 unknown", async () => {
+  it("会话下线钩子：意外断开（心跳超时）在途落 unknown + 等待者 reject", async () => {
     await seedOnlineSession(h.connectorRepo, "sess-A");
     const p1 = h.machine.run({ type: "workspace.read", input: { conversationId: "c1", relativePath: "a.txt" } });
     const p2 = h.machine.run({ type: "workspace.write", input: { conversationId: "c1", relativePath: "b.txt", content: "x" } });
     await new Promise(r => setTimeout(r, 0));
     expect(await h.remoteActions.listByStatuses(["requested"])).toHaveLength(2);
 
-    h.channel.emitSessionDown("sess-A"); // 断线/下线（C2 最小断线收尾）
-    await expect(p1).rejects.toThrow("device session down");
-    await expect(p2).rejects.toThrow("device session down");
+    h.channel.emitSessionDown("sess-A", "heartbeat-timeout"); // 意外断开（真相不明）
+    await expect(p1).rejects.toThrow("device session down before result (unknown)");
+    await expect(p2).rejects.toThrow("device session down before result (unknown)");
     const unknowns = await h.remoteActions.listByStatuses(["unknown"]);
     expect(unknowns).toHaveLength(2);
     expect(unknowns.every(r => r.error === "device offline before result")).toBe(true);
   });
 
+  it("C3（方案 §6 第4步）：主动优雅下线（offline 帧）在途落 interrupted（确定性裁决）", async () => {
+    await seedOnlineSession(h.connectorRepo, "sess-G");
+    const p1 = h.machine.run({ type: "workspace.write", input: { conversationId: "c1", relativePath: "c.txt", content: "x" } });
+    await new Promise(r => setTimeout(r, 0));
+
+    h.channel.emitSessionDown("sess-G", "device-offline"); // 优雅下线（确定性：可安全重做）
+    await expect(p1).rejects.toThrow("device session down before result (interrupted)");
+    const interrupted = await h.remoteActions.listByStatuses(["interrupted"]);
+    expect(interrupted).toHaveLength(1);
+    expect(interrupted[0]!.error).toContain("graceful: interrupted");
+    // 分流互斥：无 unknown 落行
+    expect(await h.remoteActions.listByStatuses(["unknown"])).toHaveLength(0);
+  });
+
   it("M1（检视）：多设备串扰隔离——设备 A 下线不误杀设备 B 的在途请求", async () => {
     // 广播语义 channel（对齐网关 sessionDownHandlers 全局广播）
-    const downHandlers: Array<(sessionId: string, deviceId: string) => void> = [];
+    const downHandlers: Array<(sessionId: string, deviceId: string, reason: "device-offline" | "heartbeat-timeout" | "hub-restart") => void> = [];
     const resultHandlers: Array<(frame: Extract<ConnectorFrame, { type: "action.result" }>) => void> = [];
     const broadcastChannel: ConnectorActionChannel = {
       sendToDevice: () => true,
@@ -207,8 +221,8 @@ describe("RemoteExecutionMachine（C2 执行通道核心）", () => {
     await new Promise(r => setTimeout(r, 0));
 
     // 设备 A 会话下线（广播给所有 handler）——B 不受影响
-    for (const handler of downHandlers) handler("sess-A", "conn-dev-1");
-    await expect(pendingA).rejects.toThrow("device session down before result: sess-A");
+    for (const handler of downHandlers) handler("sess-A", "conn-dev-1", "heartbeat-timeout");
+    await expect(pendingA).rejects.toThrow("device session down before result (unknown): sess-A");
     // B 的在途动作仍可正常回执（未被误杀）
     for (const handler of resultHandlers) handler({ v: 1, type: "action.result", seq: 1, sid: "sess-B", data: { actionId: "m1-b", status: "succeeded", result: true } });
     await expect(pendingB).resolves.toBe(true);
