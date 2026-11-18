@@ -248,7 +248,9 @@ describe("F20261118lhist：stderr 收进 pipe 后不得构成静默绿灯", () =
     const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
     // stderr 用 printf %b 输出：把真实 ESC/换行转成 \033 / \n 转义序列，让注入能构造
     // 「纯 ANSI 首行」这类边界形态（%s 不解释转义，会把它们写成字面反斜杠）。
-    const escaped = injected.stderr.replace(/\u001b/g, "\\033").replace(/\n/g, "\\n");
+    // eslint no-control-regex：ESC 用 String.fromCharCode 构造，不写字面控制字符
+    const ESC = String.fromCharCode(27);
+    const escaped = injected.stderr.split(ESC).join("\\033").replace(/\n/g, "\\n");
     const script = [
       "#!/bin/sh",
       `if ${predicateSource}; then`,

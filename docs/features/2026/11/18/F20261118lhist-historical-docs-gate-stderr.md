@@ -65,6 +65,7 @@ fatal: path 'docs/features/2026/11/18/F20261118clkid-colink-identity-split.md' e
 - `--base` 模式的逐 commit 降级本就自带警告，这里把 `degradedReason` 一并附上，两种模式诊断口径统一；
 - 新增 fake-git 回归用例：PATH 前置假 git 命中 `diff --cached --name-status` 时以 42 失败并写 stderr，断言 **exit 0 + 输出含「宽松放行」+ 含注入字符串**；去掉诊断行后该用例必红（实测）。
 - 第二处（检视 r2 非阻断）：`briefGitFailure()` 改「先 sanitize 再判空」——原实现先选原始首个非空行再清洗，纯 ANSI 首行清洗后为空会把真正的诊断（第二行）一起丢掉、输出 `unknown`，即诊断函数丢掉诊断本身。补用例：注入 `ESC[31m` + 换行 + `fatal: REAL_SECOND_LINE_DIAG`，断言输出含该串且不含 `诊断：unknown`、不外泄 ESC；**旧实现下该用例必红**（实测 1 failed）。
+- 用例里的 ESC 用 `String.fromCharCode(27)` 构造（仓库 eslint `no-control-regex` 禁止字面控制字符；CI 因此先红过一次，本机 `npx eslint` 复验通过）。
 - fake-git 的 stderr 注入改走 `printf '%b'`（把真实 ESC/换行转成 `\033`/`\n` 转义），否则 `%s` 会把转义写成字面反斜杠、边界形态根本构造不出来（第一版用例就是这么假绿的，已变异验证纠正）。
 
 ## 影响面与边界
