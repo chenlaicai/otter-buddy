@@ -79,6 +79,7 @@ export class DurableSession {
   private readonly codingTools = createCodingTools();
   private readonly deferredTools: string[];
   private readonly otterExtension: ReturnType<typeof defineExtension>;
+  private toolSearchExtension?: ReturnType<typeof defineExtension>;
   private currentInvokeId?: string;
   private hasBoundInvoke = false;
   private promptText: string;
@@ -94,7 +95,7 @@ export class DurableSession {
     this.otterExtension = defineExtension({
       name: "otter",
       sections: [section("otter", () => [this.promptText, this.options.identity, this.options.mcp?.instructions()].filter(Boolean).join("\n\n"), { tag: false })],
-      tools: this.toolRegistrations().map(tool => options.tools.toolExposure?.[tool.name] === "deferred" ? { ...tool, deferred: true as const } : tool),
+      tools: this.customToolRegistrations().map(tool => options.tools.toolExposure?.[tool.name] === "deferred" ? { ...tool, deferred: true as const } : tool),
       hooks: [hook(ToolTask, {
         beforeTool: (call) => this.beforeTool(call),
         ...(options.afterTool ? { afterTool: options.afterTool } : {}),
@@ -137,10 +138,45 @@ export class DurableSession {
       session.extraTools = tools;
       session.registry.install(defineExtension({ name: "mcp-native", tools }));
     }
-    session.conversation = await session.harness.root(options.context, { agent: session.agentChange() });
-    await session.conversation.configure(session.agentChange(), options.context);
+    // tool_search 只在「实际存在 deferred 工具」时注册（deferred customTools 或 deferred MCP）。
+    // extraTools 在 open() 阶段才就位，故在此处动态创建并安装（构造时无法知道 MCP 的 deferred 面）。
+    // direct-only MCP / restricted external 不注册空候选 tool_search，保持工具声明面与 deferred 检索语义一致。
+    if (!options.tools.readOnly && (session.deferredTools.length > 0 || session.extraTools.some(t => t.deferred === true))) {
+      session.toolSearchExtension = defineExtension({ name: "tool-search", tools: [new DurableToolSearch(() => session.toolSearchCandidates(), options.logger).registration()] });
+      session.registry.install(session.toolSearchExtension);
+    }
+    const change = session.agentChange();
+    session.conversation = await session.harness.root(options.context, { agent: change });
+    await session.reconcileToolsAfterReopen(change, options.context);
     await session.recoverAfterReopen();
     return session;
+  }
+
+  // harness.root 只在 root conversation 首次创建时应用 agent（重开直接返回），因此重开必须自己在 configure 里
+  // 把 tools/modelTools 对账到当前配置：direct 白名单与 modelTools 基底随工作区 MCP 配置而变，只 configure 会变
+  // 字段会留下旧 state.tools/modelTools——同一个持久库从 direct-only MCP 变为 deferred MCP 时，重开得到
+  // offered/deferred 双双为空且没有 tool_search。
+  // 但不能无条件全量覆盖：上一 session 已通过 tool_search 加载的 deferred 工具名持久化在 state.tools 白名单里，
+  // 粗暴重置会让冷启动重开后这些工具重新 not available。对账规则：resolved agent 里「已 offer 且 deferred」
+  // 的工具 = 已加载且当前仍为 deferred 的工具，把它们并回当前 direct 白名单与 modelTools 基底——刷新配置面，
+  // 同时保留合法加载。prompt() 轮内不再 configure，该加载在会话内不会被任何 configure 抹掉。
+  private async reconcileToolsAfterReopen(change: AgentChange, context: Context): Promise<void> {
+    const before = await this.conversation.agent(context);
+    const loadedDeferred = before.tools.filter(tool => tool.deferred === true);
+    const tools = Array.isArray(change.tools) ? [...change.tools] : [];
+    const modelToolsAdd = change.modelTools && "add" in change.modelTools ? [...(change.modelTools.add ?? [])] : [];
+    for (const tool of loadedDeferred) {
+      if (!tools.some(t => t.name === tool.name)) tools.push(tool);
+      if (!modelToolsAdd.some(t => t.name === tool.name)) modelToolsAdd.push(tool);
+    }
+    await this.conversation.configure({
+      model: change.model,
+      ...(change.thinkingLevel ? { thinkingLevel: change.thinkingLevel } : {}),
+      extensions: change.extensions,
+      tools,
+      modelTools: { add: modelToolsAdd },
+      cwd: change.cwd,
+    }, context);
   }
 
   private async ensureDir(): Promise<void> {
@@ -153,26 +189,32 @@ export class DurableSession {
   }
 
   private agentChange(): AgentChange {
+    const searchTools = this.toolSearchExtension?.tools ?? [];
     return {
       model: { provider: this.options.model.provider, modelId: this.options.model.id },
       ...(this.options.thinkingLevel ? { thinkingLevel: this.options.thinkingLevel as never } : {}),
-      extensions: { add: [this.codingTools, this.otterExtension, ...(this.options.mcp ? [defineExtension({ name: "mcp-native", tools: this.extraTools })] : [])] },
+      extensions: { add: [this.codingTools, this.otterExtension, ...(this.toolSearchExtension ? [this.toolSearchExtension] : []), ...(this.options.mcp ? [defineExtension({ name: "mcp-native", tools: this.extraTools })] : [])] },
       tools: [
         ...(this.codingTools.tools ?? []).filter(tool => this.options.tools.codingTools.includes(tool.name)),
-        ...this.toolRegistrations().filter(tool => this.options.tools.toolExposure?.[tool.name] !== "deferred"),
+        ...this.customToolRegistrations().filter(tool => this.options.tools.toolExposure?.[tool.name] !== "deferred"),
+        ...searchTools,
         ...this.extraTools.filter(tool => !tool.deferred),
       ],
-      modelTools: { add: [...this.toolRegistrations(), ...this.extraTools] },
+      modelTools: { add: [...this.customToolRegistrations(), ...searchTools, ...this.extraTools] },
       cwd: this.options.cwd,
     };
   }
 
-  private toolRegistrations(): ToolRegistration[] {
-    const tools = this.options.tools.customTools.map(toDurableTool);
-    if (this.deferredTools.length > 0 && !this.options.tools.readOnly) {
-      tools.push(new DurableToolSearch(this.options.tools.customTools, this.options.logger).registration());
-    }
-    return tools;
+  private customToolRegistrations(): ToolRegistration[] {
+    return this.options.tools.customTools.map(toDurableTool);
+  }
+
+  /** tool_search 检索候选：deferred customTools + deferred MCP extraTools（与 SDK candidates=agent.deferred 对齐）。 */
+  private toolSearchCandidates(): Array<{ name: string; description?: string; parameters?: unknown }> {
+    return [
+      ...this.options.tools.customTools.filter(t => this.deferredTools.includes(t.name)),
+      ...this.extraTools.filter(t => t.deferred === true).map(t => ({ name: t.name, description: t.description, parameters: t.parameters })),
+    ];
   }
 
   // Durable tool admission keeps the physical gates that must run BEFORE execution:
@@ -274,7 +316,10 @@ export class DurableSession {
     // 与 LocalExecutionMachine 读取）；工具调用 id 由 beforeTool 逐枚覆盖。
     if (scope) scope.currentInvokeId = invokeId;
     if (this.options.promptProvider) this.promptText = await this.options.promptProvider();
-    await this.conversation.configure(this.agentChange(), BACKGROUND_CONTEXT);
+    // 不再每轮 configure(agentChange())——它会把 state.tools 重置为初始激活集，
+    // 覆盖 tool_search `control.addTools` 的加载结果（deferred 工具跨 invoke 报 not available）。
+    // 初始 tools/modelTools 由 open() 的 harness.root 首次创建时写入（重开时只刷新会变字段）；
+    // prompt/identity 经 otterExtension section 的动态 render 即时生效，无需 configure。
     const before = await this.usage(BACKGROUND_CONTEXT);
     // 检视处置（PR #1783 严亟 1）：事件单一源在 watch→sink 路径——派生事件先上 session 事件总线
     // （熔断器/看门狗/编排守卫/outputGuard 经 subscribe 消费），再分发到调用方 stream；
@@ -387,6 +432,8 @@ export class DurableSession {
   async inspect(context: Context) { return this.harness.inspect(context); }
   async live(context: Context) { return this.harness.commit(tx => tx.doc(LiveDoc, this.conversation.id), context); }
   async rawContext(context: Context) { return this.conversation.context(context); }
+  /** 只读视图：当前 durable agent 配置（model/cwd/thinkingLevel/tools）——测试与诊断用。 */
+  async agentView(context: Context = BACKGROUND_CONTEXT) { return this.conversation.agent(context); }
 
   /** M-9af49d4a 换世根因修复：同库世代 reset——写 pi.reset entry + head 指针，
    *  模型上下文自此清零（前世 = reset 点之前的 entries，同库可审计）。
