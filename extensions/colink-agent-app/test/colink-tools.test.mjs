@@ -354,14 +354,20 @@ test('a request that outlives its round is rejected while the next round is acti
 });
 
 test('提示词与 schema 都讲明「游标绑定 limit」：续页要重复首页的 limit（否则平台判 INVALID_CURSOR）', async () => {
-  const dmPrompt = buildCoLinkPrompt(ctxFixture('dm'));
-  assert.match(dmPrompt, /续页重复同一个 limit/);
+  // 逐条规则断言：话题与频道两条提示词措辞相同，只对整篇 prompt 做一次 regex 会漏检单点回退。
+  const ruleOf = (prompt, tool) => prompt.split('\n').find(line => line.includes(tool));
+  const dmRule = ruleOf(buildCoLinkPrompt(ctxFixture('dm')), 'colink_read_topic');
+  assert.match(dmRule, /续页重复同一个 limit/);
   const channelPrompt = buildCoLinkPrompt(ctxFixture('channel'));
-  assert.match(channelPrompt, /续页重复同一个 limit/);
+  const topicRule = ruleOf(channelPrompt, 'colink_read_topic');
+  const channelRule = ruleOf(channelPrompt, 'colink_read_channel');
+  assert.ok(topicRule && channelRule);
+  assert.match(topicRule, /续页重复同一个 limit/);
+  assert.match(channelRule, /续页重复同一个 limit/);
+  // schema 与工具描述两处也要各自锁住（模型读的是描述，不是提示词）
   const [topicTool] = toolsFor(ctxFixture('dm'));
   assert.match(topicTool.description, /游标与 limit 绑定/);
   assert.match(topicTool.inputSchema.properties.cursor.description, /重复同一个 limit/);
-  const tools = toolsFor(ctxFixture('channel'));
-  const channelTool = tools.find(tool => tool.name === 'colink_read_channel');
+  const channelTool = toolsFor(ctxFixture('channel')).find(tool => tool.name === 'colink_read_channel');
   assert.match(channelTool.description, /重复同一个 limit/);
 });
