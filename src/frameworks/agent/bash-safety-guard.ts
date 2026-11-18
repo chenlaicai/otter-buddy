@@ -204,6 +204,13 @@ const PKILL_OTTER_BLOCK_MSG: GuardBlock = {
   ruleId: "self_kill_byname",
   layer: "self_kill",
 };
+// #1899：ps→grep(主进程特征名)→…→kill 数据流——与 pkill/killall 按名同构，恒拦（政策 A 第 4 确认通道）。
+// 复用 self_kill_byname 规则族：按名匹配主进程特征即「能确认」，宁漏勿误总则不因此放宽。
+const PS_GREP_KILL_BLOCK_MSG: GuardBlock = {
+  text: "ps|grep 按名匹配会命中主进程（node/otter-buddy 特征名）再 kill——与 pkill/killall 按名同构，不允许。精确终止请用字面量 PID kill。",
+  ruleId: "self_kill_byname",
+  layer: "self_kill",
+};
 
 /** 字面量 kill 目标的三查身份（一查 PID 相等 / 二查 args 指纹 / 三查直接父进程）——返回拦截块或 null（放行） */
 function checkLiteralKillTarget(segment: string, mainPid: number | null, probe: ProcessProbe): GuardBlock | null {
@@ -298,6 +305,42 @@ function upstreamIsMainPidFile(command: string, segment: string): boolean {
     || /<\s*\S*\.otter-buddy\.pid/.test(upstream);
 }
 
+/** #1899：ps→grep(主进程特征名)→…→kill 数据流——目标来源可确认为主进程（与 pkill 按名同构）。
+ *  事故：`for PID in $(ps aux | grep "[d]ist/src/main.js" | awk '{print $2}'); do kill $PID; done`
+ *  主进程与 worktree alpha 同命令行，按名扫描等价无差别扫射，裸 bash 绕过 pkill/killall 防线。
+ *  grep 反 self-match 括号变体归一：[d]ist/src/main.js → dist/src/main.js（单字符类仅 self-match 用）。
+ *  只认 grep 模式含 PKILL_OTTER_PATTERNS 特征名——非特征名（vitest 等）不构成确认，放行。 */
+function psGrepMainSignatureFeedsKill(command: string, killSegment: string): boolean {
+  /** 管道链内是否有 ps … grep(主进程特征名) 扫描（grep 段含反 self-match 变体归一后特征名） */
+  const scanIn = (s: string): boolean => {
+    const norm = s.replace(/\[([A-Za-z0-9])\]/g, "$1");
+    const parts = norm.split("|").map(p => p.trim());
+    const psIdx = parts.findIndex(p => /\bps\b/.test(p));
+    if (psIdx < 0) return false;
+    return parts.slice(psIdx + 1).some(p =>
+      /\bgrep\b/.test(p) && PKILL_OTTER_PATTERNS.some(sig => p.toLowerCase().includes(sig.toLowerCase())),
+    );
+  };
+  // A. 命令替换直给：kill $(ps …|grep main|awk)（finder 按 | 截段，须看全命令才能拿到完整 $() 内容）
+  const sub = /\bkill\b[^|;&\n]*?\$\(\s*([^)]*)\)/i.exec(command);
+  if (sub && scanIn(sub[1])) return true;
+  // B. xargs kill：stdin 直接来自同命令的 ps→grep(特征名) 扫描链
+  if (/\bxargs\b/i.test(killSegment) && scanIn(command)) return true;
+  // C. 循环/read 变量目标：for VAR in $(scan…) / `scan…`；while read … <scan>
+  const varM = /\$([A-Za-z_]\w*)/.exec(killSegment.replace(/^.*?\bkill\b\s*(?:-\S+\s+)*/, ""));
+  if (!varM) return false;
+  const v = varM[1];
+  const forDollar = new RegExp(`for\\s+${v}\\s+in\\s+\\$\\(\\s*([^)]*)\\)`, "i").exec(command);
+  if (forDollar && scanIn(forDollar[1])) return true;
+  const forBacktick = new RegExp("for\\s+" + v + "\\s+in\\s+`([^`]+)`", "i").exec(command);
+  if (forBacktick && scanIn(forBacktick[1])) return true;
+  // while read … done：读变量 v，输入链在 `| while read` 之前
+  const readRe = new RegExp(`\\|\\s*while\\s+read\\b[^;\\n]*\\b${v}\\b`, "i");
+  const readM = readRe.exec(command);
+  if (readM && scanIn(command.slice(0, readM.index))) return true;
+  return false;
+}
+
 /** kill 段循环判定（从 checkKillStation 拆出，complexity 分解） */
 function checkKillSegments(command: string, mainPid: number | null, probe: ProcessProbe, guardOptions: GuardOptions | undefined): GuardBlock | null {
   // kill 族粗筛（kill-segment-finder：命令位置/引号/$()嵌套/前缀包装）
@@ -320,6 +363,8 @@ function checkKillSegments(command: string, mainPid: number | null, probe: Proce
     if (extractLiteralPids(k.segment).length === 0) {
       const indirectBlock = checkIndirectKillTarget(killSegments, command, k.segment, allowedServices, mainPid);
       if (indirectBlock) return indirectBlock;
+      // #1899：ps|grep 主进程特征名→kill 数据流（政策 A 第 4 确认通道，等价 pkill 按名）
+      if (psGrepMainSignatureFeedsKill(command, k.segment)) return PS_GREP_KILL_BLOCK_MSG;
     }
   }
   return null;

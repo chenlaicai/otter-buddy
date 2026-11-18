@@ -256,6 +256,48 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "会命中主进程（node）——otter 特征名恒拦",
   },
+  // ── #1899：ps|grep 主进程特征名→kill 数据流（等价 pkill 按名，裸 bash 绕过面）──
+  {
+    command: "for PID in $(ps aux | grep \"[d]ist/src/main.js\" | awk '{print $2}'); do kill $PID 2>/dev/null; done",
+    expect: "block",
+    source: "#1899 事故凶器（2026-11-16 stage3a 误杀主服务）",
+    reasonContains: "按名匹配",
+    note: "grep 反 self-match 括号变体 [d]ist 归一后命中特征名 dist/src/main.js；for 循环变量喂 kill",
+  },
+  {
+    command: "for PID in $(ps aux | grep 'otter-buddy/dist/src/main.js' | awk '{print $2}'); do kill $PID; done",
+    expect: "block",
+    source: "#1899 无括号变体",
+    reasonContains: "按名匹配",
+    note: "grep 直写特征名，for 循环变量喂 kill",
+  },
+  {
+    command: "ps aux | grep 'dist/src/main.js' | grep -v grep | while read u p rest; do kill $p; done",
+    expect: "block",
+    source: "#1899 while-read 变体",
+    reasonContains: "按名匹配",
+    note: "ps|grep 特征名→while read 变量喂 kill（与 vitest 同名形态的负门对偶）",
+  },
+  {
+    command: "ps aux | grep 'dist/src/main.js' | awk '{print $2}' | xargs kill",
+    expect: "block",
+    source: "#1899 xargs 变体",
+    reasonContains: "按名匹配",
+    note: "ps|grep 特征名→awk $2→xargs kill，stdin 直接来自扫描链",
+  },
+  {
+    command: "kill $(ps aux | grep node | awk '{print $2}')",
+    expect: "block",
+    source: "#1899 命令替换直给变体",
+    reasonContains: "按名匹配",
+    note: "命令替换内容即 ps|grep node 扫描链，kill 直吃其输出",
+  },
+  {
+    command: "for PID in $(ps aux | grep vitest | awk '{print $2}'); do kill $PID; done",
+    expect: "allow",
+    source: "#1899 负门：非特征名不拦",
+    note: "grep vitest 非主进程特征名——确认不了≠拦（与 vitest while-read 存量 allow 同语义）",
+  },
   {
     command: "cat ~/.ssh/id_rsa",
     expect: "block",
