@@ -37,6 +37,37 @@ function countCardFences(body: string): number {
   return collectCardFenceNodes(body).length;
 }
 
+/** F20261118dsmlk（#1916）：工具调用序列化泄漏锚点。
+ *  事故现场字节（data/durable-sessions/30288072 entry 333 hexdump）：左尖括号 + 全角
+ *  竖线（U+FF5C）+ 大写 DSML + 全角竖线 + 标签名，如 `｜DSML｜tool_calls` / 后随
+ *  `｜DSML｜invoke name="yield"` / `｜DSML｜parameter name="reason" string="true"`。
+ *  issue 转写为半角下划线变体 dsml_calls / dsml_invoke / dsml_parameter（小写）。两者
+ *  都覆盖（i 不计大小写），不收裸 invoke / parameter——裸标签可能是正文里合法的代码
+ *  示例（Markdown 围栏内），收进来会把正文静默截断（检视发现）。锚点全文匹配后还需
+ *  通过 stripToolCallSerializationLeak 的思维闭合标签前缀判定才截断。 */
+const TOOL_CALL_SERIALIZATION_RE =
+  /<(?:\uFF5CDSML\uFF5C|dsml_)(?:calls|tool_calls|invoke|parameter)\b/i;
+
+/** F20261118dsmlk（#1916）：剥离 speak body 末尾混入的工具调用序列化泄漏。
+ *  根因在模型/provider（deepseek-v4-pro 在「speak 后紧跟 yield」时把第二个调用的
+ *  序列化文本写进了第一个调用的 body 参数），应用层无法根治，只能在唯一入库口净化。
+ *
+ *  唯一截断判据：锚点前必须紧邻思维闭合标签（仅空白分隔）。这是泄漏的强指纹——
+ *  模型失手时把 thinking 的闭合标签也带进了 body；已观察的两份证据（entry 333 实测
+ *  + issue 记录）都带思维闭合标签。句末标点不作为充分判据：讨论本 bug 时正文会裸写
+ *  序列化字节（如「格式如下。样例」后接标签再续正文），误剥会吞掉后续正文（检视
+ *  delta 发现）。取舍：漏剥优于误剥（fail-open）——漏剥只是回到现状，误剥伤正常发言。
+ *
+ *  选「剥离」而非「拒绝」：连续 speak+yield 场景下拒绝会让模型重试后再次踩同一输出
+ *  形态，发言内容本已完整，截断保留正文即可正常落账。 */
+export function stripToolCallSerializationLeak(body: string): { body: string; leaked: boolean } {
+  const match = TOOL_CALL_SERIALIZATION_RE.exec(body);
+  if (!match) return { body, leaked: false };
+  const prefix = body.slice(0, match.index);
+  if (!/<\/think>\s*$/.test(prefix)) return { body, leaked: false };
+  return { body: prefix.replace(/<\/think>\s*$/, "").replace(/\s+$/, ""), leaked: true };
+}
+
 /**
  * speak body 校验：返回错误文案（null 表示通过）。
  * F20260804hcob: 除空 body 外，还检测"卡片写在 speak 外"——assistant 文本不持久化，
