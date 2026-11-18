@@ -256,7 +256,7 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "会命中主进程（node）——otter 特征名恒拦",
   },
-  // ── #1899：ps|grep 主进程特征名→kill 数据流（等价 pkill 按名，裸 bash 绕过面）──
+  // ── ps|grep 主进程特征名→kill 数据流（等价 pkill 按名，裸 bash 绕过面）──
   {
     command: "for PID in $(ps aux | grep \"[d]ist/src/main.js\" | awk '{print $2}'); do kill $PID 2>/dev/null; done",
     expect: "block",
@@ -309,7 +309,7 @@ export const mustBlockCases: ReplayCase[] = [
     source: "#1899 负门：非特征名不拦",
     note: "grep vitest 非主进程特征名——确认不了≠拦（与 vitest while-read 存量 allow 同语义）",
   },
-  // ── #1899 检视獭对抗探针（跨数据流误拦 / grep -v 排除 / 漏拦形态补齐）──
+  // ──  检视獭对抗探针（跨数据流误拦 / grep -v 排除 / 漏拦形态补齐）──
   {
     command: "ps aux | grep 'dist/src/main.js' > /tmp/main.list; cat pids/backend.pid | xargs kill",
     expect: "allow",
@@ -350,7 +350,7 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "kill 多命令替换，第二个 $() 内容为 ps|grep 特征名扫描链",
   },
-  // ── #1899 检视獭二轮探针（跨循环/重赋值误拦、重复 xargs 错配、IFS 带值）──
+  // ──  检视獭二轮探针（跨循环/重赋值误拦、重复 xargs 错配、IFS 带值）──
   {
     command: "ps aux | grep 'dist/src/main.js' | grep -v grep | while read u p rest; do echo $p; done; p=$(cat pids/backend.pid); kill $p",
     expect: "allow",
@@ -377,7 +377,7 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "while IFS=' ' read 前缀带引号空格值，输入链为 ps|grep 特征名扫描",
   },
-  // ── #1899 检视獭三轮探针（done 子串不提前截断作用域 / & 语句边界）──
+  // ──  检视獭三轮探针（done 子串不提前截断作用域 / & 语句边界）──
   {
     command: "for PID in $(ps aux | grep \"[d]ist/src/main.js\" | awk '{print $2}'); do echo done; kill $PID; done",
     expect: "block",
@@ -398,7 +398,7 @@ export const mustBlockCases: ReplayCase[] = [
     source: "#1899 检视三轮：& 语句边界不跨数据流",
     note: "ps|grep 扫描在 & 前的独立后台语句，while 输入只来自 backend pid 文件——无喂送关系",
   },
-  // ── #1899 检视獭四轮探针（嵌套循环深度配对 / xargs 重定向 &）──
+  // ──  检视獭四轮探针（嵌套循环深度配对 / xargs 重定向 &）──
   {
     command: "for p in $(ps aux | grep 'dist/src/main.js' | awk '{print $2}'); do for q in 1 2; do echo $q; done; kill $p; done",
     expect: "block",
@@ -427,7 +427,7 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "ps 后 2>&1 的 & 是重定向非语句边界，xargs kill 前仍为 ps|grep 特征名扫描",
   },
-  // ── #1899 检视獭五轮探针（echo 字面量占位不偏移真实 kill 段）──
+  // ──  检视獭五轮探针（echo 字面量占位不偏移真实 kill 段）──
   {
     command: "echo 'xargs kill'; ps aux | grep 'dist/src/main.js' | awk '{print $2}' | xargs kill",
     expect: "block",
@@ -442,7 +442,7 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "echo xargs kill 无引号同理——真实 xargs kill 段按 start 偏移对齐不漏",
   },
-  // ── #1899 检视獭六轮探针（双引号 bash -c 载荷 \$() 延后替换——宁漏勿误放行面）──
+  // ──  检视獭六轮探针（双引号 bash -c 载荷 \$() 延后替换——宁漏勿误放行面）──
   {
     command: "bash -c \"for p in \\$(ps aux | grep 'dist/src/main.js' | awk '{print \\$2}'); do kill \\$p; done\"",
     expect: "allow",
@@ -456,7 +456,7 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "双引号 -c 内 while-read 输入链 ps|grep 签名字面可确认，\\$p 延后给内层 shell 仍拦",
   },
-  // ── #1899 新世独立复核：混合目标 / 词法执行面 / 最内层绑定（15 条对抗钉）──
+  // ──  新世独立复核：混合目标 / 词法执行面 / 最内层绑定（15 条对抗钉）──
   {
     command: "ps aux | grep 'dist/src/main.js' | awk '{print $2}' | xargs kill 12345",
     expect: "block",
@@ -553,7 +553,7 @@ export const mustBlockCases: ReplayCase[] = [
     source: "#1899 新世复核：最内层同名循环绑定优先",
     note: "内层 p 来自 backend，与外层同名扫描变量无关",
   },
-  // ── #1899 修复验证二轮：执行面 provenance / 载荷局部坐标 / argv 文法（14 条对抗钉）──
+  // ──  修复验证二轮：执行面 provenance / 载荷局部坐标 / argv 文法（14 条对抗钉）──
   {
     command: "echo \"ps aux | grep 'dist/src/main.js' | xargs kill\"",
     expect: "allow",
@@ -662,7 +662,7 @@ export const mustBlockCases: ReplayCase[] = [
     source: "#1899 二轮自钉：timeout wrapper 包裹 bash -c 载荷",
     note: "wrapper 剥除后 -c 载荷递归仍能定位 kill 段",
   },
-  // ── #1899 三轮复核：模式文件/stdin 占位/输出语义/wrapper arity/cmdsub 递归（23 条对抗钉）──
+  // ──  三轮复核：模式文件/stdin 占位/输出语义/wrapper arity/cmdsub 递归（23 条对抗钉）──
   {
     command: "ps aux | grep -e 'dist/src/main.js' -f /dev/null | awk '{print $2}' | xargs kill",
     expect: "allow",

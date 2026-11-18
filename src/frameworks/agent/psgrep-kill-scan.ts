@@ -1,5 +1,5 @@
 /**
- * ps|grep 主服务精确入口签名→kill 数据流（F20261118kills / #1899）。
+ * ps|grep 主服务精确入口签名→kill 数据流（特性文档：psgrep-kill-bypass）。
  * 词法层只消费真实执行 token；确认不了的数据流一律放行（宁漏勿误）。
  */
 import { lex, type Token, type Word } from "./command-lexer";
