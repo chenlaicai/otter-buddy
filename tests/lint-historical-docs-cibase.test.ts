@@ -206,6 +206,9 @@ describe("lint-historical-docs --base CI 模式（F20261009hcig，#1281）", () 
     commitFiles(r2, [[NEW_DOC, "# v3\n"]], "edit again");
     const r = runLint(r2, ["--base", "origin/main"]);
     expect(r.status).toBe(0);
+    // F20261118lhist：新增文档在 base 树上不存在是判定语义的一部分，探测式 git 调用的
+    // 预期失败不得泄漏到 stderr——门禁输出里出现 `fatal:` 会让真故障失去信号。
+    expect(r.stderr).not.toMatch(/fatal:/);
     fs.rmSync(r2, { recursive: true, force: true });
   });
 

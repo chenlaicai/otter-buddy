@@ -51,7 +51,16 @@ function git(args, opts = {}) {
   // 全检-5（终审严重 1）：统一禁用 quotePath——默认开启时非 ASCII 路径输出 \3xx 转义形态，
   // 本脚本的路径过滤/段匹配/show 查询全部打在原始串上恒 miss，CJK 文件名历史文档整类
   // 逃出门禁（实测：同 staged 改 CJK 文档正文 exit=0 零输出）。所有调用面一次收口。
-  return execFileSync("git", ["-c", "core.quotePath=false", ...args], { encoding: "utf8", ...opts }).trim();
+  // F20261118lhist：stderr 必须 pipe 而不是继承——本脚本有大量**预期失败**的探测式调用
+  // （pathExistsOnRef 的 `git cat-file -e <base>:<新路径>`、frontmatterLastLineOf 的
+  // `git show <ref>`），失败是判定语义的一部分，git 自己会往 stderr 打 `fatal: path ...
+  // exists on disk, but not in ...`。继承 stderr 会让这些预期内失败污染门禁输出，教人
+  // 忽略 fatal（真故障也因此失去信号）。失败信息仍随抛出异常（error.stderr）供调用方处置。
+  return execFileSync("git", ["-c", "core.quotePath=false", ...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    ...opts,
+  }).trim();
 }
 
 /** 找基准分支引用（origin/main 优先，退化为 main，都无则返回 null 宽松放行） */
