@@ -325,4 +325,20 @@ describe("F20261118stale P0: getSupersededBy 批量查询", () => {
     // 空集合不抛且返回空 Map
     expect((await repo.getSupersededBy([])).size).toBe(0);
   });
+
+  it("同一旧条目被多条 supersedes 边指向时取 created_at 最新（ASC+后写覆盖）", async () => {
+    await insertEntry("multi-old", "旧认识", { createdAt: "2026-09-01T00:00:00Z" });
+    await insertEntry("multi-new1", "新认识 v1", { createdAt: "2026-09-02T00:00:00Z" });
+    await insertEntry("multi-new2", "新认识 v2", { createdAt: "2026-09-03T00:00:00Z" });
+    // 手工插入两条边，created_at 显式错开——createEdge 用 datetime('now') 秒粒度会撞车导致非确定
+    db.prepare(`
+      INSERT INTO memory_edges (id, from_entry_id, to_entry_id, edge_type, metadata, created_at, created_by)
+      VALUES ('edge-multi-1', 'multi-new1', 'multi-old', 'supersedes', NULL, '2026-09-02T01:00:00Z', NULL),
+             ('edge-multi-2', 'multi-new2', 'multi-old', 'supersedes', NULL, '2026-09-03T01:00:00Z', NULL)
+    `).run();
+
+    const result = await repo.getSupersededBy(["multi-old"]);
+    expect(result.size).toBe(1);
+    expect(result.get("multi-old")).toBe("multi-new2");
+  });
 });
