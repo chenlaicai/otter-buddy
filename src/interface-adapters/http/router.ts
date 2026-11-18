@@ -46,6 +46,12 @@ export interface RouterPlumbingOptions {
     /** F20261118crtgr（阶段 5 PR-A）+ M2（检视）：已配对设备全量状态（含离线——
      *  人要看得见离线设备才能决定切回；缺省退化仅 local——旧装配/测试兼容） */
     deviceStatus?: () => Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
+    /** 对话存在性校验（GET 404 口径对齐 PUT——不注入则不校验，测试桩兼容） */
+    conversationExists?: (conversationId: string) => Promise<boolean>;
+    /** 对话当前执行机读（选择器回显用） */
+    getConversationMachine?: (conversationId: string) => Promise<string | null>;
+    /** 对话远程动作状态（执行状态展示） */
+    listConversationRemoteActions?: (conversationId: string, limit?: number) => Promise<Array<{ actionId: string; deviceId: string; actionType: string; status: string; error: string | null; createdAt: string; settledAt: string | null }>>;
     /** F20261118crtgr（阶段 5 PR-A）：对话级切换（目标校验+写列；缺省 501） */
     setConversationMachine?: (conversationId: string, machineId: string | null) => Promise<{ ok: true } | { ok: false; status: 400 | 404; error: string }>;
   };
@@ -273,8 +279,93 @@ function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
   }
 }
 
-/** 创建 Hono 路由并挂载所有 Controller 端点 */
-// eslint-disable-next-line max-statements -- 路由注册表：每资源域一行注册，语句数随端点域线性增长（可选域条件注册同体）
+/** 创建 Hono 路由并挂载所有 Controller 端点（端点域拆分注册函数，见各 register*Routes） */
+
+
+/** 麻将房间端点组（拆分降复杂度） */
+function registerMahjongRoutes(app: Hono, ctrl: Controllers): void {
+  if (ctrl.mahjong) {
+    const m = ctrl.mahjong;
+    app.post("/api/mahjong/rooms", (ctx) => m.create(ctx));
+    app.post("/api/mahjong/rooms/:roomId/join", (ctx) => m.join(ctx));
+    app.post("/api/mahjong/rooms/:roomId/start", (ctx) => m.start(ctx));
+    app.post("/api/mahjong/rooms/:roomId/actions", (ctx) => m.action(ctx));
+    app.post("/api/mahjong/rooms/:roomId/continue", (ctx) => m.continueRound(ctx));
+    app.post("/api/mahjong/rooms/:roomId/stop", (ctx) => m.stop(ctx));
+    app.post("/api/mahjong/rooms/:roomId/chat", (ctx) => m.chat(ctx));
+    app.get("/api/mahjong/rooms/:roomId/view", (ctx) => m.view(ctx));
+    app.get("/api/mahjong/rooms/:roomId/frames", (ctx) => m.frames(ctx));
+    app.get("/api/mahjong/rooms/:roomId/events", (ctx) => m.events(ctx));
+    app.post("/api/mahjong/rooms/:roomId/recover", (ctx) => m.recover(ctx));
+  }
+}
+
+/** auth 端点组（拆分降复杂度；connector 配对端点在 registerPlumbingRoutes 尾部注册） */
+function registerAuthRoutes(app: Hono, plumbing: RouterPlumbingOptions): void {
+  if (plumbing?.auth) {
+    app.post("/api/auth/login", (ctx) => plumbing.auth!.controller.login(ctx));
+    app.post("/api/auth/logout", (ctx) => plumbing.auth!.controller.logout(ctx));
+    app.get("/api/auth/session", (ctx) => plumbing.auth!.controller.session(ctx));
+  }
+}
+
+/** 执行机端点组（拆出降 registerPlumbingRoutes 复杂度） */
+function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptions): void {
+  // Web 执行机列表：local（Registry 恒在）+ 已配对设备全量（M2：含离线——Registry
+  // 投影下线即注销，离线设备只有 devices 表可见；方案 §2.4「已配对设备含在线状态点」）。
+  if (plumbing?.executionMachines) {
+    app.get("/api/execution-machines", async (ctx) => {
+      const currentId = plumbing.executionMachines!.currentId();
+      const local = plumbing.executionMachines!.list().find(m => m.id === currentId)
+        ?? { id: currentId, name: currentId };
+      const devices = (await plumbing.executionMachines!.deviceStatus?.())
+        ?.map(d => ({ id: d.deviceId, name: d.name, online: d.online, lastSeenAt: d.lastSeenAt })) ?? [];
+      return ctx.json({ machines: [local, ...devices], currentMachineId: currentId });
+    });
+  }
+
+  // 对话当前执行机 + 远程动作状态（执行状态展示）。
+  //  minor1（检视遗留处置）：GET 404 口径对齐 PUT——不存在对话显式 404「conversation not found」。
+  if (plumbing?.executionMachines?.getConversationMachine) {
+    app.get("/api/conversations/:id/execution-machine", async (ctx) => {
+      const conversationId = ctx.req.param("id");
+      if (plumbing.executionMachines!.conversationExists
+        && !(await plumbing.executionMachines!.conversationExists(conversationId))) {
+        return ctx.json({ error: "conversation not found" }, 404);
+      }
+      const machineId = await plumbing.executionMachines!.getConversationMachine!(conversationId);
+      return ctx.json({ machineId });
+    });
+  }
+  if (plumbing?.executionMachines?.listConversationRemoteActions) {
+    app.get("/api/conversations/:id/remote-actions", async (ctx) => {
+      const conversationId = ctx.req.param("id");
+      if (plumbing.executionMachines!.conversationExists
+        && !(await plumbing.executionMachines!.conversationExists(conversationId))) {
+        return ctx.json({ error: "conversation not found" }, 404);
+      }
+      // s3（检视遗留处置）：ctx.req.query 地道用法（行为与 URL searchParams 等价）
+      const limitParam = Number(ctx.req.query("limit") ?? 50);
+      const limit = Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 200 ? limitParam : 50;
+      const actions = await plumbing.executionMachines!.listConversationRemoteActions!(conversationId, limit);
+      return ctx.json({ actions });
+    });
+  }
+
+  // 对话级当前执行机切换（owner session）
+  if (plumbing?.executionMachines?.setConversationMachine) {
+    app.put("/api/conversations/:id/execution-machine", async (ctx) => {
+      const machineId = (await ctx.req.json().catch(() => null) as { machineId?: unknown } | null)?.machineId;
+      if (machineId !== null && typeof machineId !== "string") {
+        return ctx.json({ error: "machineId must be a string or null" }, 400);
+      }
+      const result = await plumbing.executionMachines!.setConversationMachine!(ctx.req.param("id"), machineId);
+      if (!result.ok) return ctx.json({ error: result.error }, result.status);
+      return ctx.json({ ok: true });
+    });
+  }
+}
+
 export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: RouterPlumbingOptions): Hono {
   const app = new Hono();
 
@@ -314,20 +405,7 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
   registerMsgRoutes(app, ctrl);
 
   /** F20261015mjsg：三麻将局域端点（控制器注入时挂载） */
-  if (ctrl.mahjong) {
-    const m = ctrl.mahjong;
-    app.post("/api/mahjong/rooms", (ctx) => m.create(ctx));
-    app.post("/api/mahjong/rooms/:roomId/join", (ctx) => m.join(ctx));
-    app.post("/api/mahjong/rooms/:roomId/start", (ctx) => m.start(ctx));
-    app.post("/api/mahjong/rooms/:roomId/actions", (ctx) => m.action(ctx));
-    app.post("/api/mahjong/rooms/:roomId/continue", (ctx) => m.continueRound(ctx));
-    app.post("/api/mahjong/rooms/:roomId/stop", (ctx) => m.stop(ctx));
-    app.post("/api/mahjong/rooms/:roomId/chat", (ctx) => m.chat(ctx));
-    app.get("/api/mahjong/rooms/:roomId/view", (ctx) => m.view(ctx));
-    app.get("/api/mahjong/rooms/:roomId/frames", (ctx) => m.frames(ctx));
-    app.get("/api/mahjong/rooms/:roomId/events", (ctx) => m.events(ctx));
-    app.post("/api/mahjong/rooms/:roomId/recover", (ctx) => m.recover(ctx));
-  }
+  if (ctrl.mahjong) registerMahjongRoutes(app, ctrl);
   registerOtterRoutes(app, ctrl);
   registerDataRoutes(app, ctrl);
   registerScheduledTaskRoutes(app, ctrl);
@@ -353,37 +431,9 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
 /** 统一接入 + 执行机投影端点（#1868 阶段 2）。拆出以守住 createRouter 行数预算。 */
 function registerPlumbingRoutes(app: Hono, plumbing?: RouterPlumbingOptions): void {
   // 登录/登出已在策略表置 public，session 走 authenticated。
-  if (plumbing?.auth) {
-    app.post("/api/auth/login", (ctx) => plumbing.auth!.controller.login(ctx));
-    app.post("/api/auth/logout", (ctx) => plumbing.auth!.controller.logout(ctx));
-    app.get("/api/auth/session", (ctx) => plumbing.auth!.controller.session(ctx));
-  }
+  if (plumbing) registerAuthRoutes(app, plumbing);
 
-  // Web 执行机列表：local（Registry 恒在）+ 已配对设备全量（M2：含离线——Registry
-  // 投影下线即注销，离线设备只有 devices 表可见；方案 §2.4「已配对设备含在线状态点」）。
-  if (plumbing?.executionMachines) {
-    app.get("/api/execution-machines", async (ctx) => {
-      const currentId = plumbing.executionMachines!.currentId();
-      const local = plumbing.executionMachines!.list().find(m => m.id === currentId)
-        ?? { id: currentId, name: currentId };
-      const devices = (await plumbing.executionMachines!.deviceStatus?.())
-        ?.map(d => ({ id: d.deviceId, name: d.name, online: d.online, lastSeenAt: d.lastSeenAt })) ?? [];
-      return ctx.json({ machines: [local, ...devices], currentMachineId: currentId });
-    });
-  }
-
-  // F20261118crtgr（阶段 5 PR-A）：对话级当前执行机切换（owner session）
-  if (plumbing?.executionMachines?.setConversationMachine) {
-    app.put("/api/conversations/:id/execution-machine", async (ctx) => {
-      const machineId = (await ctx.req.json().catch(() => null) as { machineId?: unknown } | null)?.machineId;
-      if (machineId !== null && typeof machineId !== "string") {
-        return ctx.json({ error: "machineId must be a string or null" }, 400);
-      }
-      const result = await plumbing.executionMachines!.setConversationMachine!(ctx.req.param("id"), machineId);
-      if (!result.ok) return ctx.json({ error: result.error }, result.status);
-      return ctx.json({ ok: true });
-    });
-  }
+  if (plumbing) registerExecutionMachineRoutes(app, plumbing);
 
   // F20261117cnnct（阶段 4 C1）：connector 配对——码即秘密，不要求登录态（connector 无浏览器）
   if (plumbing?.connectorPair) {

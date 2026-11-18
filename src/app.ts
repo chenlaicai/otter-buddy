@@ -811,6 +811,18 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         currentId: () => executionMachines.currentMachineId(),
         // F20261118crtgr（阶段 5 PR-A）+ M2/m3b（检视）：设备全量状态收口 repo（含离线设备）
         deviceStatus: async () => connectorRepo.listDeviceOnlineStatus(),
+        // F20261118exstt minor1（检视遗留处置）：GET 404 口径对齐 PUT（不存在对话显式 404，不再混作「默认 local」）
+        conversationExists: async (conversationId) => (await repos.conversation.getById(conversationId)) !== null,
+        // F20261118exstt（阶段 5 PR-B）：对话当前机 + 远程动作状态
+        getConversationMachine: (conversationId) => repos.conversation.getExecutionMachineId(conversationId),
+        listConversationRemoteActions: async (conversationId, limit) => {
+          // 最近优先（DESC——ASC LIMIT 会截掉最新动作）；列裁剪到展示面
+          const rows = await remoteActionRegistry.listByConversation(conversationId, limit ?? 50, "desc");
+          return rows.map(r => ({
+            actionId: r.actionId, deviceId: r.deviceId, actionType: r.actionType,
+            status: r.status, error: r.error, createdAt: r.createdAt, settledAt: r.settledAt,
+          }));
+        },
         setConversationMachine: async (conversationId, machineId) => {
           // m1b（检视）："local" 归一化为 null（列语义唯一——默认只有 NULL 一种表示）
           const normalized = machineId === executionMachines.currentMachineId() ? null : machineId;

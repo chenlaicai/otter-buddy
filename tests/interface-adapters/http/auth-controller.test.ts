@@ -20,7 +20,10 @@ function rawApp(executionMachines?: {
   list: () => ExecutionMachineFixture[];
   currentId: () => string;
   deviceStatus?: () => Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
+  conversationExists?: (conversationId: string) => Promise<boolean>;
   setConversationMachine?: (conversationId: string, machineId: string | null) => Promise<{ ok: true } | { ok: false; status: 400 | 404; error: string }>;
+  getConversationMachine?: (conversationId: string) => Promise<string | null>;
+  listConversationRemoteActions?: (conversationId: string, limit?: number) => Promise<Array<{ actionId: string; deviceId: string; actionType: string; status: string; error: string | null; createdAt: string; settledAt: string | null }>>;
 }): Hono {
   const signer = createSessionSigner(OWNER_PASSWORD);
   const auth = {
@@ -223,5 +226,75 @@ describe("对话级执行机切换端点（阶段 5 PR-A：PUT /api/conversation
     // machineId=null 回默认 local
     expect((await put("c-1", null)).status).toBe(200);
     expect(calls[3]).toEqual(["c-1", null]);
+  });
+});
+
+// ─── F20261118exstt（#1868 阶段 5 PR-B）：对话当前机 + 远程动作状态端点 ───
+describe("执行状态端点（GET execution-machine / remote-actions）", () => {
+  function statusApp(current: string | null, actions: Array<{ actionId: string; status: string }>, exists?: () => Promise<boolean>): Hono {
+    return rawApp({
+      list: () => [{ id: "local", name: "本机" }],
+      currentId: () => "local",
+      ...(exists ? { conversationExists: exists } : {}),
+      getConversationMachine: async () => current,
+      listConversationRemoteActions: async (_cid, limit) =>
+        actions.slice(-(limit ?? 50)).reverse().map(a => ({
+          actionId: a.actionId, deviceId: "connector-b", actionType: "workspace.write",
+          status: a.status, error: null, createdAt: "2026-11-18T06:00:00Z", settledAt: "2026-11-18T06:00:01Z",
+        })),
+    });
+  }
+  async function cookieOfApp(app: Hono): Promise<string> {
+    const login = await app.request("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: OWNER_PASSWORD }) });
+    return cookieOf(login);
+  }
+
+  it("GET /execution-machine：返回对话当前机（null=默认 local）", async () => {
+    const app = statusApp(null, []);
+    const cookie = await cookieOfApp(app);
+    const res = await app.request("/api/conversations/c-1/execution-machine", { headers: { Cookie: `otter_session=${cookie}` } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ machineId: null });
+  });
+
+  it("GET /remote-actions：最近优先（倒序）+ limit 收口（>200 归 50）", async () => {
+    const app = statusApp("connector-b", [
+      { actionId: "a-1", status: "succeeded" },
+      { actionId: "a-2", status: "unknown" },
+      { actionId: "a-3", status: "interrupted" },
+    ]);
+    const cookie = await cookieOfApp(app);
+    const res = await app.request("/api/conversations/c-1/remote-actions?limit=2", { headers: { Cookie: `otter_session=${cookie}` } });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { actions: Array<{ actionId: string }> };
+    expect(body.actions.map(a => a.actionId)).toEqual(["a-3", "a-2"]); // 最近优先 + limit=2
+    const resBad = await app.request("/api/conversations/c-1/remote-actions?limit=999", { headers: { Cookie: `otter_session=${cookie}` } });
+    expect(resBad.status).toBe(200); // 越界 limit 归 50 不 500
+  });
+
+  it("未登录 → 401（fail-closed）", async () => {
+    const app = statusApp(null, []);
+    expect((await app.request("/api/conversations/c-1/execution-machine")).status).toBe(401);
+    expect((await app.request("/api/conversations/c-1/remote-actions")).status).toBe(401);
+  });
+
+  // minor1（检视遗留处置）：GET 404 口径对齐 PUT——不存在对话不再混作「默认 local」
+  it("GET 两端点：不存在对话 → 404 conversation not found（对齐 PUT 口径）", async () => {
+    const app = statusApp(null, [], async () => false);
+    const cookie = await cookieOfApp(app);
+    const res1 = await app.request("/api/conversations/ghost/execution-machine", { headers: { Cookie: `otter_session=${cookie}` } });
+    expect(res1.status).toBe(404);
+    expect(await res1.json()).toEqual({ error: "conversation not found" });
+    const res2 = await app.request("/api/conversations/ghost/remote-actions", { headers: { Cookie: `otter_session=${cookie}` } });
+    expect(res2.status).toBe(404);
+    expect(await res2.json()).toEqual({ error: "conversation not found" });
+  });
+
+  it("存在对话 → 200 正常（存在性校验不误伤）", async () => {
+    const app = statusApp("connector-b", [], async () => true);
+    const cookie = await cookieOfApp(app);
+    const res = await app.request("/api/conversations/c-1/execution-machine", { headers: { Cookie: `otter_session=${cookie}` } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ machineId: "connector-b" });
   });
 });
