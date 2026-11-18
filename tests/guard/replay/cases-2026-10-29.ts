@@ -387,6 +387,35 @@ export const mustBlockCases: ReplayCase[] = [
     source: "#1899 检视三轮：& 语句边界不跨数据流",
     note: "ps|grep 扫描在 & 前的独立后台语句，while 输入只来自 backend pid 文件——无喂送关系",
   },
+  // ── #1899 检视獭四轮探针（嵌套循环深度配对 / xargs 重定向 &）──
+  {
+    command: "for p in $(ps aux | grep 'dist/src/main.js' | awk '{print $2}'); do for q in 1 2; do echo $q; done; kill $p; done",
+    expect: "block",
+    source: "#1899 检视四轮：嵌套 for 外层变量不漏拦",
+    reasonContains: "按名匹配",
+    note: "内层 for 的 done 不算外层结束，kill $p 在外层 do…done 内",
+  },
+  {
+    command: "ps aux | grep 'dist/src/main.js' | grep -v grep | while read u p rest; do cat pids/backend.pid | while read q; do echo $q; done; kill $p; done",
+    expect: "block",
+    source: "#1899 检视四轮：嵌套 while 外层变量不漏拦",
+    reasonContains: "按名匹配",
+    note: "内层 while 的 done 不算外层结束，kill $p 在外层 do…done 内",
+  },
+  {
+    command: "ps aux | grep 'dist/src/main.js' | awk '{print $2}' 2>&1 | xargs kill",
+    expect: "block",
+    source: "#1899 检视四轮：xargs 链 2>&1 重定向不截断",
+    reasonContains: "按名匹配",
+    note: "avk 后 2>&1 的 & 是重定向非语句边界，xargs kill 前仍为 ps|grep 特征名扫描",
+  },
+  {
+    command: "ps aux 2>&1 | grep 'dist/src/main.js' | awk '{print $2}' | xargs kill",
+    expect: "block",
+    source: "#1899 检视四轮：xargs 链 ps 2>&1 不截断",
+    reasonContains: "按名匹配",
+    note: "ps 后 2>&1 的 & 是重定向非语句边界，xargs kill 前仍为 ps|grep 特征名扫描",
+  },
   {
     command: "cat ~/.ssh/id_rsa",
     expect: "block",

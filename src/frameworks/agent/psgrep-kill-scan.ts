@@ -118,20 +118,18 @@ function nthIndexOf(haystack: string, needle: string, n: number): number {
   return idx;
 }
 
-/** idx 所在语句段（以 ; & \n 为边界）的 [start, end) */
+/** idx 所在语句段（以 ; 换行 与非重定向 & 为边界——& 排除 >& <& 2>& 形态）的 [start, end) */
 function clauseBounds(command: string, idx: number): { start: number; end: number } {
-  const seps = [";", "&", "\n"];
-  let start = 0;
   let end = command.length;
-  for (const sep of seps) {
-    const l = command.lastIndexOf(sep, idx - 1);
-    if (l >= start) start = l + 1;
+  for (let i = idx; i < command.length; i++) {
+    const c = command[i];
+    if (c === ";" || c === "\n") { end = i; break; }
+    if (c === "&") {
+      const prev = i > 0 ? command[i - 1] : "";
+      if (prev !== ">" && prev !== "<" && !/\d/.test(prev)) { end = i; break; }
+    }
   }
-  for (const sep of seps) {
-    const r = command.indexOf(sep, idx);
-    if (r >= 0 && r < end) end = r;
-  }
-  return { start, end };
+  return { start: lastClauseSep(command, idx) + 1, end };
 }
 
 /** startIdx 之后命令位置的 shell 关键字（do/done）位置；段首或 ; & | \n ( 之后才算命令位置（防 `echo done` 子串） */
@@ -148,11 +146,30 @@ function nextCommandKeyword(command: string, startIdx: number, word: string): nu
   return -1;
 }
 
-/** kill 是否在 headerIdx 之后的 do…done 循环体内（do/done 按命令位置识别，防 `echo done` 子串） */
+/** 找 doIdx 处 do 的配对 done（嵌套 do/done 深度配对——内层 done 不算外层结束） */
+function findMatchingDone(command: string, doIdx: number): number {
+  let depth = 1;
+  let pos = doIdx;
+  while (depth > 0) {
+    const nextDo = nextCommandKeyword(command, pos, "do");
+    const nextDone = nextCommandKeyword(command, pos, "done");
+    if (nextDo < 0 && nextDone < 0) return -1;
+    if (nextDone >= 0 && (nextDo < 0 || nextDone < nextDo)) {
+      depth--;
+      pos = nextDone;
+    } else {
+      depth++;
+      pos = nextDo;
+    }
+  }
+  return pos;
+}
+
+/** kill 是否在 headerIdx 之后的 do…done 循环体内（do/done 命令位置识别 + 深度配对） */
 function killInsideDoDone(command: string, killIdx: number, headerIdx: number): boolean {
   const doIdx = nextCommandKeyword(command, headerIdx, "do");
   if (doIdx < 0) return false;
-  const doneIdx = nextCommandKeyword(command, doIdx, "done");
+  const doneIdx = findMatchingDone(command, doIdx);
   return doneIdx > doIdx && killIdx >= doIdx && killIdx < doneIdx;
 }
 
