@@ -37,14 +37,38 @@ function countCardFences(body: string): number {
   return collectCardFenceNodes(body).length;
 }
 
+/** 收集 body 中所有代码围栏节点的起止偏移（含普通代码块与 html-card 围栏）。
+ *  复用与卡片校验同源的 remark+remarkGfm 解析，围栏边界与前端渲染逐字节对齐
+ *  （Parser 说明见本文件顶部 parser() 注释）。
+ *  F20261118dsmlk（#1916）：供 stripToolCallSerializationLeak 判定锚点是否落在围栏内——
+ *  围栏内的 DSML 是「讨论本 bug 的合法示例回放」，不能剥。 */
+function collectCodeFenceRanges(body: string): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  visit(parser().parse(body) as Nodes, "code", (node) => {
+    const code = node as Code;
+    const pos = code.position;
+    if (pos && pos.start.offset !== undefined && pos.end.offset !== undefined) {
+      ranges.push({ start: pos.start.offset, end: pos.end.offset });
+    }
+  });
+  return ranges;
+}
+
+/** 判定字符偏移 index 是否落在任一代码围栏区间内。 */
+function isInsideCodeFence(index: number, ranges: Array<{ start: number; end: number }>): boolean {
+  return ranges.some((r) => index >= r.start && index < r.end);
+}
+
 /** F20261118dsmlk（#1916）：工具调用序列化泄漏锚点。
  *  事故现场字节（data/durable-sessions/30288072 entry 333 hexdump）：左尖括号 + 全角
  *  竖线（U+FF5C）+ 大写 DSML + 全角竖线 + 标签名，如 `｜DSML｜tool_calls` / 后随
  *  `｜DSML｜invoke name="yield"` / `｜DSML｜parameter name="reason" string="true"`。
- *  issue 转写为半角下划线变体 dsml_calls / dsml_invoke / dsml_parameter（小写）。两者
- *  都覆盖（i 不计大小写），不收裸 invoke / parameter——裸标签可能是正文里合法的代码
- *  示例（Markdown 围栏内），收进来会把正文静默截断（检视发现）。锚点全文匹配后还需
- *  通过 stripToolCallSerializationLeak 的思维闭合标签前缀判定才截断。 */
+ *  issue #1916 转写有出入：把全角竖线写成了半角下划线 dsml_calls / dsml_invoke /
+ *  dsml_parameter（小写），并把思维闭合标签写成了英文单词 “response”。锚点两种前缀
+ *  形态都覆盖（i 不计大小写）；“response” 单词不作为判据（转写失真，见 strip 函数
+ *  注释）。不收裸 invoke / parameter——裸标签可能是正文里合法的代码示例（Markdown
+ *  围栏内），收进来会把正文静默截断（检视发现）。锚点全文匹配后还需通过
+ *  stripToolCallSerializationLeak 的围栏感知 + 思维闭合标签前缀双判定才截断。 */
 const TOOL_CALL_SERIALIZATION_RE =
   /<(?:\uFF5CDSML\uFF5C|dsml_)(?:calls|tool_calls|invoke|parameter)\b/i;
 
@@ -52,20 +76,35 @@ const TOOL_CALL_SERIALIZATION_RE =
  *  根因在模型/provider（deepseek-v4-pro 在「speak 后紧跟 yield」时把第二个调用的
  *  序列化文本写进了第一个调用的 body 参数），应用层无法根治，只能在唯一入库口净化。
  *
- *  唯一截断判据：锚点前必须紧邻思维闭合标签（仅空白分隔）。这是泄漏的强指纹——
- *  模型失手时把 thinking 的闭合标签也带进了 body；已观察的两份证据（entry 333 实测
- *  + issue 记录）都带思维闭合标签。句末标点不作为充分判据：讨论本 bug 时正文会裸写
- *  序列化字节（如「格式如下。样例」后接标签再续正文），误剥会吞掉后续正文（检视
- *  delta 发现）。取舍：漏剥优于误剥（fail-open）——漏剥只是回到现状，误剥伤正常发言。
+ *  截断需同时满足两个独立条件（漏剥优于误剥，fail-open）：
+ *   1. 围栏感知：锚点必须落在 Markdown 代码围栏之外（顶层）。讨论本 bug 时正文会把
+ *      事故字节包在围栏里当示例回放（含完整「思维闭合标签 + DSML」），锚点在围栏内
+ *      一律不剥——「围栏内示例」与「顶层真实泄漏」的唯一可靠分界：真实泄漏是顶层裸
+ *      序列化字节，合法示例必然包在围栏里。
+ *   2. 思维闭合标签指纹：锚点前必须紧邻思维闭合标签（仅空白分隔）。这是泄漏的强指纹——
+ *      模型失手时把 thinking 的闭合标签也带进了 body（entry 333 实测字节有）。句末
+ *      标点不作为判据：正文会裸写序列化字节再续正文，以句号判据会误剥吞掉后续。
+ *
+ *  issue #1916 转写与本判据的出入（详见锚点常量注释）：issue 把思维闭合标签转写成了
+ *  英文单词 “response”、把全角竖线转写成了半角下划线。半角下划线锚点已覆盖；“response”
+ *  单词不是可靠指纹——合法正文句末也会出现英文 response，匹配它会误剥正常发言，该转写
+ *  形态不剥（fail-open 如实记录），权威字节以 entry 333 为准。
  *
  *  选「剥离」而非「拒绝」：连续 speak+yield 场景下拒绝会让模型重试后再次踩同一输出
  *  形态，发言内容本已完整，截断保留正文即可正常落账。 */
 export function stripToolCallSerializationLeak(body: string): { body: string; leaked: boolean } {
-  const match = TOOL_CALL_SERIALIZATION_RE.exec(body);
-  if (!match) return { body, leaked: false };
-  const prefix = body.slice(0, match.index);
-  if (!/<\/think>\s*$/.test(prefix)) return { body, leaked: false };
-  return { body: prefix.replace(/<\/think>\s*$/, "").replace(/\s+$/, ""), leaked: true };
+  const globalRe = new RegExp(TOOL_CALL_SERIALIZATION_RE.source, TOOL_CALL_SERIALIZATION_RE.flags + "g");
+  const matches = Array.from(body.matchAll(globalRe));
+  if (matches.length === 0) return { body, leaked: false };
+  const fenceRanges = collectCodeFenceRanges(body);
+  for (const match of matches) {
+    const index = match.index ?? 0;
+    if (isInsideCodeFence(index, fenceRanges)) continue; // 围栏内示例回放：不剥
+    const prefix = body.slice(0, index);
+    if (!/<\/think>\s*$/.test(prefix)) continue; // 无思维闭合标签指纹：fail-open
+    return { body: prefix.replace(/<\/think>\s*$/, "").replace(/\s+$/, ""), leaked: true };
+  }
+  return { body, leaked: false };
 }
 
 /**

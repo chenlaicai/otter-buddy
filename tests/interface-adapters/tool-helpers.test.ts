@@ -349,7 +349,7 @@ describe("stripToolCallSerializationLeak", () => {
     expect(r.body).toBe("你定个倾向，我据此把 P2 的触发写死。");
   });
 
-  it("半角下划线变体（issue 转写）：只含小写 dsml 前缀也命中", () => {
+  it("半角下划线锚点变体（issue 转写的半角分隔 + 思维闭合标签）：也命中", () => {
     const body = "正文。" + THINK_CLOSE + "\n\n<dsml_calls>\n<dsml_invoke name=\"yield\">";
     const r = stripToolCallSerializationLeak(body);
     expect(r.leaked).toBe(true);
@@ -395,5 +395,22 @@ it("剥离后为空串（整段都是泄漏）→ 由 validateSpeakBody 空检�
     const r = stripToolCallSerializationLeak("关于 invoke 工具的说明：先 speak 再 yield。");
     expect(r.leaked).toBe(false);
     expect(r.body).toContain("invoke 工具");
+  });
+
+  it("围栏内完整事故回放（含思维闭合标签 + DSML）：不误剥（检视 delta3 发现 🔴）", () => {
+    const body =
+      "事故 body 原文如下：\n```\n写死。 " + THINK_CLOSE + "\n\n" +
+      DSML_PREFIX + "tool_calls>\n" + DSML_PREFIX + "invoke name=\"yield\">\n" +
+      "```\n后续分析正文保留。";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toContain("后续分析正文保留");
+  });
+
+  it("issue #1916 转写原形态（句号 + 英文 response 单词 + 半角 dsml_）：不剥（fail-open，转写失真非可靠指纹）", () => {
+    const body = "…你定个倾向，我据此把 P2 的触发写死。 response\n\n<dsml_calls>\n<dsml_invoke name=\"yield\">";
+    const r = stripToolCallSerializationLeak(body);
+    expect(r.leaked).toBe(false);
+    expect(r.body).toBe(body);
   });
 });
