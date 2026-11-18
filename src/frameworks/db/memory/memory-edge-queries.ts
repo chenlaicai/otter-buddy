@@ -114,8 +114,9 @@ export function getEdgeById(db: Database.Database, edgeId: string): MemoryEdge |
 
 /**
  * F20261118stale P0：批量查候选条目里哪些被 supersede。
- * 只查 supersedes 边的 from 端（被取代的旧条目）→ to 端（取代它的新条目）。
- * 返回 Map<旧条目 ID, 新条目 ID>；无边的条目不在结果里。
+ * supersedes 边语义（F20260813mren，link_memory 工具描述）：from=取代者（新），to=被取代（旧）。
+ * 故对候选条目查「to 端命中」——候选在 to_entry_id 说明它被取代；返回 Map<旧条目 ID, 新条目 ID>。
+ * 多次更新会产生多条指向同一旧条目的边，取 created_at 最新的一条作为取代者。
  */
 export function getSupersededBy(
   db: Database.Database,
@@ -126,9 +127,10 @@ export function getSupersededBy(
   const placeholders = entryIds.map(() => "?").join(",");
   const rows = db.prepare(`
     SELECT from_entry_id, to_entry_id FROM memory_edges
-    WHERE edge_type = 'supersedes' AND from_entry_id IN (${placeholders})
+    WHERE edge_type = 'supersedes' AND to_entry_id IN (${placeholders})
+    ORDER BY created_at DESC
   `).all(...entryIds) as Array<{ from_entry_id: string; to_entry_id: string }>;
-  for (const row of rows) result.set(row.from_entry_id, row.to_entry_id);
+  for (const row of rows) result.set(row.to_entry_id, row.from_entry_id);
   return result;
 }
 

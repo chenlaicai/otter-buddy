@@ -108,7 +108,7 @@ export interface ScoredHit {
   contribFreq?: number;
   biasFlag?: number;
   biasConv?: number;
-  /** F20261118stale P0：被哪个条目取代（supersedes 边的 to 端），有则说明此条已过期，检索端标注并降权。 */
+  /** F20261118stale P0：被哪个条目取代（supersedes 边的 from 端=取代者/新条目），有则说明此条已过期，检索端标注并降权。 */
   supersededBy?: string;
 }
 

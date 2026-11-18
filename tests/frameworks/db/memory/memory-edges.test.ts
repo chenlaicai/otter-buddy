@@ -303,8 +303,9 @@ describe("F20261118stale P0: getSupersededBy 批量查询", () => {
     await insertEntry("ref-from", "引用者", { createdAt: "2026-09-05T00:00:00Z" });
     await insertEntry("ref-to", "被引", { createdAt: "2026-09-06T00:00:00Z" });
 
-    await createEdge.execute({ fromEntryId: "old-a", toEntryId: "new-a", edgeType: "supersedes" });
-    await createEdge.execute({ fromEntryId: "old-b", toEntryId: "new-b", edgeType: "supersedes" });
+    // supersedes 边真实语义（link_memory 工具描述）：from=取代者（新），to=被取代（旧）
+    await createEdge.execute({ fromEntryId: "new-a", toEntryId: "old-a", edgeType: "supersedes" });
+    await createEdge.execute({ fromEntryId: "new-b", toEntryId: "old-b", edgeType: "supersedes" });
     await createEdge.execute({ fromEntryId: "ref-from", toEntryId: "ref-to", edgeType: "references" });
 
     // 只查部分候选：old-a 命中 → new-a；ref-from 是 references 不命中；不存在的条目无行

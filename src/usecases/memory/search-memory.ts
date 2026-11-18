@@ -102,7 +102,7 @@ export interface RetrievalResultEntry extends MemoryEntry {
   snippet?: string;
   /** 用户标记（检索路径从 MemoryWeight 带出） */
   userFlagged?: boolean;
-  /** F20261118stale P0：被哪个条目取代（supersedes 边 to 端），有则说明此条已过期。 */
+  /** F20261118stale P0：被哪个条目取代（supersedes 边 from 端=取代者/新条目），有则说明此条已过期。 */
   supersededBy?: string;
   /** F20260811mrpy Part 1：debug=true 时注入的中间分值 */
   debug?: RetrievalDebugInfo;
