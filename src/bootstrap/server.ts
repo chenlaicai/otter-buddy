@@ -3,6 +3,8 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 import type { Logger } from "@usecases/ports/logger";
 import { createRouter, type RouterPlumbingOptions } from "@interface-adapters/http/router";
 import { getMetricsRegistry } from "@frameworks/metrics/registry";
@@ -96,13 +98,29 @@ export function buildHttpApp(
   return app;
 }
 
+/** WSS upgrade 挂载面（F20261117cnnct 阶段 4 C1）：返回 true = 已处理该 upgrade
+ *  （connector 路径，鉴权失败也已回执）；false = 非 connector 路径（宿主自行处理/销毁）。 */
+export type WsUpgradeHandler = (
+  request: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+) => Promise<boolean>;
+
 /** 监听端口（生产路径；测试用 app.request 不需要）。
  *  #460：serve() 回调只在成功时触发；EADDRINUSE 等绑定错误走 server 的 'error' 事件——
- *  捕获后干净退出，避免 port 冲突时走 uncaughtException → dispose 链又卡住（僵尸进程根因之三）。 */
-export function listen(app: Hono, port: number, logger: Logger): void {
+ *  捕获后干净退出，避免 port 冲突时走 uncaughtException → dispose 链又卡住（僵尸进程根因之三）。
+ *  F20261117cnnct：可选 WSS upgrade 挂载（同端口 connector 通道；不传则 upgrade 一律销毁）。 */
+export function listen(app: Hono, port: number, logger: Logger, wsUpgrade?: WsUpgradeHandler): void {
   const server = serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`Otter Buddy server running at http://localhost:${info.port}`);
   });
+  if (wsUpgrade) {
+    server.on("upgrade", (request, socket, head) => {
+      void wsUpgrade(request, socket, head).then(handled => {
+        if (!handled) socket.destroy();
+      }).catch(() => socket.destroy());
+    });
+  }
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
       logger.error(`Port ${port} already in use — another instance is likely running. Exiting. (code=${err.code})`);

@@ -1,0 +1,243 @@
+import { WebSocketServer, type WebSocket } from "ws";
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
+import { randomUUID } from "node:crypto";
+
+import type { Logger } from "@usecases/ports/logger";
+import type { ConnectorRegistryRepository } from "@usecases/ports/connector-registry-repository";
+import type { ExecutionMachine } from "@usecases/ports/execution-machine";
+import type { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
+import {
+  CONNECTOR_HEARTBEAT_TIMEOUT_MS,
+  CONNECTOR_PROTOCOL_VERSION,
+  type ConnectorFrame,
+} from "@entities/execution/connector-protocol";
+import type { OnlineSession } from "@entities/execution/online-session";
+
+interface LiveConnection {
+  socket: WebSocket;
+  deviceId: string;
+  sessionId: string;
+  lastSeenAt: number;
+}
+
+/**
+ * F20261117cnnct（#1868 阶段 4 C1）：connector WSS 网关——upgrade 鉴权 + 协议 v1
+ * （hello/heartbeat/offline + sid 会话代际）+ 总闸库层状态机。
+ *
+ * 事实源纪律（方案 v3 §3/S1）：online_sessions 表是唯一事实源——上线/下线先落库，
+ * Registry 内存投影随后（先库后内存；库写失败 fail-closed 关通道，宁误下线不误放行）。
+ * 旧 sid 帧一律静默丢弃 + 计数日志（模块 C 红线：重连≠恢复）。
+ *
+ * C1 边界：只承载通道与会话；动作帧（action.request/result）C2 落地——本网关收到
+ * 未知类型帧回 error/protocol。
+ */
+export class ConnectorWsGateway {
+  private readonly wss: WebSocketServer;
+  private readonly connections = new Map<string, LiveConnection>(); // key: sessionId
+  private sweepTimer: NodeJS.Timeout | null = null;
+  /** 旧 sid 帧丢弃计数（观测模块 C 红线命中情况） */
+  private staleFrameDrops = 0;
+
+  constructor(
+    private readonly repo: ConnectorRegistryRepository,
+    private readonly machineRegistry: ExecutionMachineRegistry,
+    private readonly logger: Logger,
+    private readonly deps: {
+      /** 执行机投影工厂：上线时注册进 Registry（C1 装配处传占位投影，C2 换真 RemoteExecutionMachine） */
+      makeMachineProjection?: (deviceId: string, deviceName: string) => ExecutionMachine;
+      now?: () => number;
+    } = {},
+  ) {
+    // noServer 模式：upgrade 事件由宿主 HTTP server 路由进来（同端口，方案 §2）
+    this.wss = new WebSocketServer({ noServer: true });
+    this.wss.on("connection", (socket, request) => this.onConnection(socket, request));
+  }
+
+  /** 宿主 server upgrade 路由挂载点：校验 path 与 Bearer token（fail-closed 拒升级）。
+   *  非 connector 路径直接返回 false（交还宿主处理）；鉴权失败返回 true + reject 回执。 */
+  async handleUpgrade(
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    reject: (code: number, reason: string) => void,
+  ): Promise<boolean> {
+    const url = new URL(request.url ?? "/", "http://localhost");
+    if (url.pathname !== "/connector-ws") return false;
+    const token = /^Bearer (.+)$/.exec(request.headers.authorization ?? "")?.[1];
+    if (!token) { reject(401, "missing bearer token"); return true; }
+    const device = await this.repo.findDeviceByToken(token).catch(() => null);
+    if (!device) { reject(401, "unknown or revoked token"); return true; }
+    // token 有效：设备身份挂 request 上下文，交 ws 完成 upgrade（onConnection 读取）
+    (request as IncomingMessage & { __connectorDevice?: { id: string; name: string } }).__connectorDevice = { id: device.id, name: device.name };
+    this.wss.handleUpgrade(request, socket, head, ws => this.wss.emit("connection", ws, request));
+    return true;
+  }
+
+  private onConnection(socket: WebSocket, request: IncomingMessage & { __connectorDevice?: { id: string; name: string } }): void {
+    const device = request.__connectorDevice;
+    if (!device) return socket.close(1011, "internal: device context missing");
+    let live: LiveConnection | null = null;
+
+    socket.on("message", raw => {
+      void (async () => {
+        try {
+          const frame = JSON.parse(String(raw)) as ConnectorFrame;
+          if (!live) {
+            // 第一帧必须是 hello（未建立会话代际）
+            if (frame.type !== "hello") {
+              this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "error", seq: 0, data: { code: "protocol", message: "first frame must be hello" } });
+              return socket.close(1002, "protocol violation");
+            }
+            live = await this.handleHello(socket, device, frame);
+            return;
+          }
+          // 会话建立后：所有帧必须带正确 sid（旧 sid 丢弃+计数——模块 C 红线）
+          if (frame.sid !== live.sessionId || frame.v !== CONNECTOR_PROTOCOL_VERSION) {
+            this.staleFrameDrops += 1;
+            this.logger.warn("connector frame dropped (stale sid or bad version)", { deviceId: device.id, sessionId: live.sessionId, frameSid: frame.sid, drops: this.staleFrameDrops });
+            return;
+          }
+          live.lastSeenAt = this.now();
+          switch (frame.type) {
+            case "heartbeat":
+              await this.repo.touchOnlineSession(live.sessionId, new Date(this.now()).toISOString());
+              this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "heartbeat.ack", seq: frame.seq, sid: live.sessionId, data: {} });
+              break;
+            case "offline":
+              await this.shutdown(live, "device-offline", 1001, "device requested offline");
+              break;
+            default:
+              this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "error", seq: frame.seq, sid: live.sessionId, data: { code: "protocol", message: `frame type not supported in C1: ${String((frame as { type?: string }).type)}` } });
+          }
+        } catch (err) {
+          this.logger.warn("connector frame handling failed", { deviceId: device.id, error: err instanceof Error ? err.message : String(err) });
+        }
+      })();
+    });
+
+    socket.on("close", () => {
+      if (live) void this.shutdown(live, "heartbeat-timeout", 1000, "socket closed").catch(() => {});
+    });
+    socket.on("error", () => {
+      if (live) void this.shutdown(live, "heartbeat-timeout", 1011, "socket error").catch(() => {});
+    });
+  }
+
+  /** hello → 版本协商（hub 支持集 ∩ connector 支持集取最高；无交集拒连——当前 hub 侧
+   *  支持集为单版本 [v1]，多版本演进时只扩本端支持集常量即可）→ 库表开 session（先库后内存）→ hello.ack 下发 sid */
+  private async handleHello(
+    socket: WebSocket,
+    device: { id: string; name: string },
+    frame: Extract<ConnectorFrame, { type: "hello" }>,
+  ): Promise<LiveConnection> {
+    const supported = frame.data.supportedVersions ?? [];
+    const version = Math.max(0, ...supported.filter(v => v === CONNECTOR_PROTOCOL_VERSION));
+    if (version !== CONNECTOR_PROTOCOL_VERSION) {
+      this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "error", seq: frame.seq, data: { code: "version", message: "no overlapping protocol version" } });
+      socket.close(1002, "version mismatch");
+      throw new Error("version mismatch");
+    }
+
+    const now = this.now();
+    const session: OnlineSession = {
+      id: randomUUID(),
+      deviceId: device.id,
+      status: "online",
+      connectedAt: new Date(now).toISOString(),
+      disconnectedAt: null,
+      disconnectReason: null,
+      lastSeenAt: new Date(now).toISOString(),
+      protocolVersion: version,
+    };
+    // 唯一事实源先行：库写失败 → fail-closed 关通道（不注册内存投影）
+    try {
+      await this.repo.openOnlineSession(session);
+      await this.repo.touchDeviceLastSeen(device.id, session.connectedAt);
+    } catch (err) {
+      this.logger.error("connector online-session persist failed (fail-closed)", err instanceof Error ? err : new Error(String(err)), { deviceId: device.id });
+      socket.close(1011, "session persist failed");
+      throw err;
+    }
+    // 内存投影随后（顶替语义：同 id 后到者顶替旧投影）
+    if (this.deps.makeMachineProjection) {
+      try {
+        this.machineRegistry.replace(this.deps.makeMachineProjection(device.id, device.name));
+      } catch (err) {
+        this.logger.warn("machine projection register failed (non-fatal, channel stays)", { deviceId: device.id, error: String(err) });
+      }
+    }
+
+    const live: LiveConnection = { socket, deviceId: device.id, sessionId: session.id, lastSeenAt: now };
+    this.connections.set(session.id, live);
+    this.ensureSweepTimer();
+    this.logger.info("connector device online", { deviceId: device.id, sessionId: session.id, protocolVersion: version });
+    this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "hello.ack", seq: frame.seq, sid: session.id, data: { version } });
+    return live;
+  }
+
+  /** 下线五步的通道侧（C1）：库表 offline（幂等）→ Registry 注销投影 → 关通道。
+   *  queued/running 动作收尾与晚到回执丢弃随 C2 remote_action_requests 落地。 */
+  private async shutdown(live: LiveConnection, reason: "device-offline" | "heartbeat-timeout" | "hub-restart", code: number, message: string): Promise<void> {
+    this.connections.delete(live.sessionId);
+    try {
+      await this.repo.closeOnlineSession(live.sessionId, reason, new Date(this.now()).toISOString());
+    } catch (err) {
+      this.logger.error("connector offline persist failed", err instanceof Error ? err : new Error(String(err)), { sessionId: live.sessionId });
+    }
+    this.machineRegistry.unregister(live.deviceId);
+    this.logger.info("connector device offline", { deviceId: live.deviceId, sessionId: live.sessionId, reason });
+    if (live.socket.readyState === live.socket.OPEN) live.socket.close(code, message);
+  }
+
+  /** 心跳判死扫描（90s 无心跳的连接判断开——半开检测） */
+  private ensureSweepTimer(): void {
+    if (this.sweepTimer) return;
+    this.sweepTimer = setInterval(() => {
+      const deadline = this.now() - CONNECTOR_HEARTBEAT_TIMEOUT_MS;
+      for (const live of [...this.connections.values()]) {
+        if (live.lastSeenAt < deadline) {
+          this.logger.warn("connector heartbeat timeout", { deviceId: live.deviceId, sessionId: live.sessionId });
+          void this.shutdown(live, "heartbeat-timeout", 1001, "heartbeat timeout").catch(() => {});
+        }
+      }
+      if (this.connections.size === 0 && this.sweepTimer) {
+        clearInterval(this.sweepTimer);
+        this.sweepTimer = null;
+      }
+    }, CONNECTOR_HEARTBEAT_TIMEOUT_MS / 3);
+  }
+
+  /** 中枢启动清扫：所有 online 行落 offline/hub-restart（方案 §3 D2；幂等） */
+  async sweepStaleSessionsOnBoot(): Promise<number> {
+    const swept = await this.repo.sweepStaleOnlineSessions(new Date(this.now()).toISOString());
+    if (swept > 0) this.logger.info("swept stale online sessions on boot", { swept });
+    return swept;
+  }
+
+  /** 观测面：当前在线连接（诊断/测试） */
+  listLiveSessions(): Array<{ deviceId: string; sessionId: string; lastSeenAt: number }> {
+    return [...this.connections.values()].map(c => ({ deviceId: c.deviceId, sessionId: c.sessionId, lastSeenAt: c.lastSeenAt }));
+  }
+
+  get staleDropCount(): number {
+    return this.staleFrameDrops;
+  }
+
+  dispose(): void {
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
+    this.sweepTimer = null;
+    for (const live of [...this.connections.values()]) {
+      void this.shutdown(live, "hub-restart", 1001, "hub shutting down").catch(() => {});
+    }
+    this.wss.close();
+  }
+
+  private send(socket: WebSocket, frame: ConnectorFrame): void {
+    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
+  }
+
+  private now(): number {
+    return this.deps.now?.() ?? Date.now();
+  }
+}

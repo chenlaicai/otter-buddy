@@ -9,13 +9,12 @@
  * - 设置 API key 到 alias 和 provider 两个名称上
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Model, Api } from "@earendil-works/pi-ai";
 import type { ResourceLoader, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { Logger } from "@usecases/ports/logger";
 import type { ModelConfig } from "@frameworks/config";
 import type { ModelPool } from "@frameworks/llm/model-pool";
-import type { OtterPromptConfig } from "@contract/api/otter";
+import { otterInvokeStorage, type OtterInvokeContext } from "@entities/execution/otter-invoke-context";
 import { getConfig } from "../config";
 import { buildOtterPrompt } from "./session-helpers";
 import { externalizeHistoricalImages } from "./image-externalizer";
@@ -298,49 +297,12 @@ export function buildBeforeAgentStartResult(
 }
 
 /** S1（R20260810piab）：per-invoke 上下文，通过 AsyncLocalStorage 传递给 extension handler。 */
-export interface OtterInvokeContext {
-  /** F20261116actlg（#1868 阶段 3）：当前 invoke id——动作台账归属用。 */
-  currentInvokeId?: string;
-  /** F20261116actlg：当前正在执行的工具调用 id（DurableSession.beforeTool 写入、
-   * 下一枚 beforeTool 覆盖）——动作台账按 toolCallId 铸造 actionId。 */
-  currentToolCallId?: string;
-  /** otterConfig.systemPrompt（string 或 OtterPromptConfig 含 reminders） */
-  otterPromptConfig: string | OtterPromptConfig | undefined;
-  /** 首次 invoke 的身份前缀（名称/ID/类型/身份文案/模型指南/搭档名）；非首次为空串 */
-  identityPrefix: string;
-  /** F20260826mwrd C1：当前 invoke 的 otterId——tool_call handler 查 halt 标用 */
-  otterId: string;
-  /** per-invoke 幂等标记，避免重复 abort 与重复覆盖退出原因。 */
-  haltAbortRequested?: boolean;
-  /** 装配完成后由 attachGuards 注入；处理器内只发同步 abort，不等待其 Promise。 */
-  requestHaltAbort?: () => void;
-  /** F20260903cmpk：otter 显示名（otters.name）——压缩钩子合成 prompt 的 meta 行用（#770） */
-  displayName?: string;
-  /** F20261020hlbk（#1556）：per-turn 循环硬熔断标记（签名→阻断理由）。检测器报警时写入，
-   *  tool_call 门读到即物理阻断该工具后续调用（speak/yield 豁免）。粘滞不被穿插调用清零，
-   *  堵死「speak 重置 steerStrikes」逃逸；随本 store（每 execute 新建）生灭，作用域=至回合结束。 */
-  loopBlockedTools?: Map<string, string>;
-  /** F20261026gobs（M-2bf6e98c）→ F20261030gblkv（guard-v4）：bash 守卫门（tool_call 层显式落痕）
-   *  所需守卫参数。projectRoot/sessionCwd 由 _executeWithSession 注入（铸造点单一）。
-   *  v4：无沙箱层无 abort 兜底链——本门是 bash 守卫唯一执行点；缺省时 fail-open
-   *  （不拦，与守卫空窗过渡态同语义），因此 store 缺失 = 守卫不生效，而非误拦。 */
-  guardProjectRoot?: string;
-  guardSessionCwd?: string;
-  /** F20261109bexfz 退役兼容字段：B 类外发域名表已删（原 bashGuard.allowedEgressDomains
-   *  配置链同废），恒 undefined（保留接口形状兼容存量 store 消费方/测试桩，判定不再读取）。 */
-  guardAllowedEgressDomains?: string[];
-  /** F20261026gobs：拦截落 healing 钩子——门拦截时上报（写 guard_intercept
-   *  healing 事件），守卫行为以真实使用为准（回放库语料来源）。缺省时拦截照常。 */
-  guardOnIntercept?: (input: { command: string; reason: string; ruleId?: string; ruleLayer?: string }) => void;
-  /** F20261027lbos（#1656）：循环硬熔断门拦截落 healing 钩子——门拦截时上报
-   *  （签名+工具名+拉黑理由），写 healing loop_tool_block 事件；同签名去重防淹漫。
-   *  缺省时拦截照常（fail-open 落账，不阻断拦截本身）。 */
-  loopBlockOnIntercept?: (input: { toolName: string; signature: string; reason: string }) => void;
-  /** F20261027lbos：已落账签名去重集（与 loopBlockedTools 同生命周期）*/
-  loopBlockLoggedSignatures?: Set<string>;
-}
+/** S1（R20260810piab）：per-invoke 上下文——F20261117cnnct（阶段 4 B1 搬家）已抽至
+ *  @entities/execution/otter-invoke-context（纯 AsyncLocalStorage 小模块，依赖闭包干净——
+ *  execution 侧公共执行器抽包给 connector 复用时不再拖 agent 全家桶）；
+ *  此处转发导出保持 agent 侧既有 import 点零改动。 */
+export { otterInvokeStorage, type OtterInvokeContext } from "@entities/execution/otter-invoke-context";
 
-export const otterInvokeStorage = new AsyncLocalStorage<OtterInvokeContext>();
 
 
 // F20260920uhuc：compactionHookDeps/setCompactionHookDeps 退役（session_before_compact

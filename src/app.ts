@@ -29,6 +29,10 @@ import { LocalExecutionMachine } from "@frameworks/execution/local-execution-mac
 import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-ledger";
 import { LOCAL_EXECUTION_MACHINE_ID } from "@usecases/ports/execution-machine";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
+import { SqliteConnectorRegistryRepository } from "@frameworks/db/execution/sqlite-connector-registry-repository";
+import { ConnectorWsGateway } from "@frameworks/execution/connector-ws-gateway";
+import { ConnectorMachineProjection } from "@frameworks/execution/connector-machine-projection";
+import { ConnectorPairController } from "@interface-adapters/http/controllers/connector-pair-controller";
 import { resolveOwnerPassword, verifyOwnerPassword } from "@interface-adapters/http/auth/owner-password";
 import { createSessionSigner } from "@interface-adapters/http/auth/session-cookie";
 import { AuthController } from "@interface-adapters/http/controllers/auth-controller";
@@ -146,6 +150,8 @@ export interface BuiltApp {
   retryWorkerRef: { current: { stopSync(): void; stop(): Promise<void> } | null };
   /** F20261026emct：listen 成功后异步初始化（document sync + retry worker + 暗化迁移）。main.ts 在 listen 回调 fire-and-forget；失败不炸进程（内部已 catch 落日志） */
   postListenInit: () => Promise<void>;
+  /** F20261117cnnct（阶段 4 C1）：connector WSS 网关（main 传给 listen 挂 upgrade；dispose 关通道） */
+  connectorGateway: ConnectorWsGateway;
   /** 停止调度器、释放 embedding worker、关闭 DB、flush 日志 + metric。幂等。 */
   dispose(): Promise<void>;
 }
@@ -745,6 +751,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     verifyOwnerPassword: (password) => verifyOwnerPassword(ownerPassword, password),
     signSession: (identity) => sessionSigner.sign(identity, Date.now()),
   });
+
+  // ── F20261117cnnct（阶段 4 C1）：connector 通道与会话装配 ──
+  // repo（总闸唯一事实源）→ WSS 网关（upgrade 鉴权/协议 v1/先库后内存）→ 配对端点；
+  // 启动清扫：上一运行周期残留的 online 行落 offline/hub-restart（方案 §3 D2，await——
+  // 清扫完成前不接受新连接语义上更干净，且代价仅一行 UPDATE）。
+  const connectorRepo = new SqliteConnectorRegistryRepository(db);
+  const connectorGateway = new ConnectorWsGateway(connectorRepo, executionMachines, logger, {
+    makeMachineProjection: (deviceId, deviceName) => new ConnectorMachineProjection(deviceId, deviceName),
+  });
+  await connectorGateway.sweepStaleSessionsOnBoot().catch((err) => {
+    logger.warn("connector stale session sweep failed (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
+  });
+
   const app = buildHttpApp(
     controllers,
     logger,
@@ -759,6 +778,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         list: () => executionMachines.list(),
         currentId: () => executionMachines.currentMachineId(),
       },
+      connectorPair: new ConnectorPairController(connectorRepo, logger),
     },
   );
 
@@ -805,14 +825,17 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     usecases: uc, repos, agentGateway, agentInvoker, schedulerService,
     queryEmbedding, liveEmbedding, backfillEmbedding,
     embeddingService: liveEmbedding, modelPool, retryWorkerRef, postListenInit,
+    /** F20261117cnnct（阶段 4 C1）：connector WSS 网关（main 传给 listen 挂 upgrade；
+     *  dispose 链关通道——在途连接按 hub-restart 收尾） */
+    connectorGateway,
     get retryWorker() { return retryWorkerRef.current; },
     dispose: async () => {
       if (disposed) return;
       disposed = true;
       // F20260930roiv：停延迟 reconcile 定时器（防进程退出后回调炸）
       if (delayedReconcileTimer) clearTimeout(delayedReconcileTimer);
-      // F20261116actlg：关动作台账（WAL checkpoint 落盘）
-      try { actionLedger?.close(); } catch { /* best-effort */ }
+      // F20261116actlg：关动作台账（WAL checkpoint 落盘）；F20261117cnnct：关 connector WSS 网关（在途连接 hub-restart 收尾 + 停扫描定时器）
+      try { actionLedger?.close(); connectorGateway.dispose(); } catch { /* best-effort */ }
       // #460：停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
       feishuScan.disposeAll(); // F20260929fsqr：扫码线持有全部飞书 WS 句柄，dispose 时统一停（原 feishuStop 随静态线退役）
       // F20260829wxch（#213）：停微信长轮询通道——否则 SIGINT/SIGTERM 时

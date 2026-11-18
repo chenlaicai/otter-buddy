@@ -12,7 +12,7 @@ import {
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { ActionLedger } from "@usecases/ports/action-ledger";
 import type { ActionKind } from "@entities/execution/action-record";
-import { otterInvokeStorage } from "@frameworks/agent/model-runtime-registry";
+import { otterInvokeStorage } from "@entities/execution/otter-invoke-context";
 import { RecordingNodeExecutionEnv } from "./recording-node-execution-env";
 import { sha256 } from "./ledger/sqlite-action-ledger";
 

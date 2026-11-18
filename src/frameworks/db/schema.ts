@@ -67,6 +67,10 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createRestartPendingResumesTable(db);
     /** F20261015mjsg 三麻：牌局元数据 + 逐帧快照（断线恢复/复盘/哈希链）。新表走 #506 幂等补建 */
     createMahjongTables(db);
+    /** F20261117cnnct（#1868 阶段 4 C1）：connector 设备注册——devices（配对身份）+
+     *  online_sessions（执行授权会话，总闸唯一事实源；每 device 至多一 online 行的
+     *  partial unique index 库层兜底）+ pairing_codes（一次性配对码）。新表走 #506 幂等补建 */
+    createConnectorRegistryTables(db);
     /** F20261027hwl1：工作账本投影（work_items / work_item_traces / conversation_active_work）。
      *  独立工作 ≠ conversation 的成本归集单位——详见特性文档「核心数据结构」；
      *  新表走 #506 幂等补建模式（bootstrap 无条件 initSchema，老库自动补建）。 */
@@ -1222,6 +1226,46 @@ function createWorkLedgerTables(db: Database.Database): void {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (work_id) REFERENCES work_items(id) ON DELETE CASCADE,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+  `);
+}
+
+/** F20261117cnnct（#1868 阶段 4 C1）：connector 注册三表（配对身份/执行授权会话/一次性配对码） */
+function createConnectorRegistryTables(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS devices (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      pair_token TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS online_sessions (
+      id TEXT PRIMARY KEY,
+      device_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'online' CHECK(status IN ('online', 'offline')),
+      connected_at TEXT NOT NULL,
+      disconnected_at TEXT,
+      disconnect_reason TEXT CHECK(disconnect_reason IS NULL OR disconnect_reason IN ('device-offline', 'heartbeat-timeout', 'hub-restart', 'auth-failed')),
+      last_seen_at TEXT NOT NULL,
+      protocol_version INTEGER,
+      /* CASCADE：撤销设备 = 身份+token+会话史彻底清除（动作审计归 remote_action_requests，C2） */
+      FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+    );
+
+    /* 每 device 至多一 online 行——总闸库层兜底：顶替写必须先关旧行（repo 事务内做），
+     * 并发双上线撞索引即拒，不依赖应用层检查 */
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_online_sessions_device_online
+      ON online_sessions(device_id) WHERE status = 'online';
+
+    CREATE INDEX IF NOT EXISTS idx_online_sessions_status ON online_sessions(status);
+
+    CREATE TABLE IF NOT EXISTS pairing_codes (
+      code TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      redeemed_at TEXT
     );
   `);
 }

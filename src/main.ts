@@ -22,7 +22,7 @@ async function main(): Promise<void> {
   // 注意：相对路径（./data/logs 等）按进程 cwd 解析——alpha.sh 以数据根为 cwd 启动。
   const configPath = parseConfigPathArg(process.argv.slice(2));
   const built = await buildApp({ logger, configPath });
-  listen(built.app, built.config.server.port, logger);
+  listen(built.app, built.config.server.port, logger, (req, socket, head) => built.connectorGateway.handleUpgrade(req, socket, head, (code, reason) => { socket.write(`HTTP/1.1 ${code} ${reason}\r\nConnection: close\r\n\r\n`); socket.destroy(); }));
   // F20261026emct：listen 先行，重初始化（document sync + retry worker + 暗化迁移）
   // 异步补上——health 端点最先可用，不再被启动期全库同步堵 30s+（10-23 雪崩死循环根因之一）。
   // fire-and-forget：失败已内部 catch 落日志，不拖垮已就绪的 HTTP 服务。

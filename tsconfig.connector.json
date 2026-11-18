@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist/connector",
+    "noEmit": false
+  },
+  "include": ["src/connector/**/*", "src/entities/execution/connector-protocol.ts"]
+}

@@ -29,6 +29,7 @@ import type { ActivityController } from "./controllers/activity-controller";
 import type { MatterController } from "./controllers/matter-controller";
 import type { UnfurlController } from "./controllers/unfurl-controller";
 import type { MahjongController } from "./controllers/mahjong-controller";
+import type { ConnectorPairController } from "./controllers/connector-pair-controller";
 
 
 
@@ -43,6 +44,8 @@ export interface RouterPlumbingOptions {
     list: () => Array<{ id: string; name: string }>;
     currentId: () => string;
   };
+  /** F20261117cnnct（阶段 4 C1）：connector 配对端点（码即秘密，无登录态） */
+  connectorPair?: ConnectorPairController;
 }
 
 export interface Controllers {
@@ -85,6 +88,8 @@ export interface Controllers {
   unfurl: UnfurlController;
   /** F20261015mjsg：三麻将局 API（建房/入座/开局/动作/视图/复盘/SSE/恢复）——可选装配 */
   mahjong?: MahjongController;
+  /** F20261117cnnct（阶段 4 C1）：connector 配对端点（可选装配——测试不传则无此路由） */
+  connectorPair?: ConnectorPairController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
@@ -357,5 +362,10 @@ function registerPlumbingRoutes(app: Hono, plumbing?: RouterPlumbingOptions): vo
         currentMachineId: plumbing.executionMachines!.currentId(),
       });
     });
+  }
+
+  // F20261117cnnct（阶段 4 C1）：connector 配对——码即秘密，不要求登录态（connector 无浏览器）
+  if (plumbing?.connectorPair) {
+    app.post("/api/connector/pair", (ctx) => plumbing.connectorPair!.pair(ctx));
   }
 }
