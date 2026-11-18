@@ -137,11 +137,18 @@ export class DurableSession {
       session.extraTools = tools;
       session.registry.install(defineExtension({ name: "mcp-native", tools }));
     }
-    session.conversation = await session.harness.root(options.context, { agent: session.agentChange() });
-    // #1894（检视发现 1）：reopen 同一 durable 库时不再全量 configure——root({agent}) 只在 root
-    // conversation 首次创建时写入 agent；显式 configure 会整体替换 state.tools/modelTools，
-    // 把 tool_search 已持久化的 addTools 加载抹掉，冷启动重开后 deferred 工具再次 not available。
-    // MCP extraTools 已在本方法前段加载并安装进 registry。
+    const change = session.agentChange();
+    session.conversation = await session.harness.root(options.context, { agent: change });
+    // #1894（检视发现 1 + delta 发现 1）：harness.root 只在 root conversation 首次创建时应用 agent
+    // （重开直接返回）。因此重开时只 configure 会变字段（model/thinkingLevel/extensions/cwd），
+    // 不重置 tools/modelTools——全量 configure 会覆盖 tool_search 已持久化的 addTools 加载
+    // （冷启动重开后 deferred 工具 not available）。MCP extraTools 已在本方法前段加载并安装进 registry。
+    await session.conversation.configure({
+      model: change.model,
+      ...(change.thinkingLevel ? { thinkingLevel: change.thinkingLevel } : {}),
+      extensions: change.extensions,
+      cwd: change.cwd,
+    }, options.context);
     await session.recoverAfterReopen();
     return session;
   }
@@ -172,10 +179,11 @@ export class DurableSession {
 
   private toolRegistrations(): ToolRegistration[] {
     const tools = this.options.tools.customTools.map(toDurableTool);
-    if (this.deferredTools.length > 0 && !this.options.tools.readOnly) {
-      // #1894：tool_search 只检索 deferred 工具（与 SDK 版语义一致：candidates = agent.deferred），
-      // 而非全量 customTools——direct 工具已直接 offer，搜进 loaded 清单属“清单虚报”。
-      // 候选集含 deferred customTools + deferred MCP extraTools（后者 open() 阶段才就位，故用 getter 延迟求值）。
+    // #1894：tool_search 只检索 deferred 工具（与 SDK 版语义一致：candidates = agent.deferred），
+    // 而非全量 customTools——direct 工具已直接 offer，搜进 loaded 清单属“清单虚报”。
+    // 注册条件含 options.mcp：MCP 工具默认 deferred（DurableMcpBridge 非 direct exposure 均 deferred），
+    // 即使 customTools 无 deferred，MCP-only session 也需要 tool_search 作为检索入口（检视 delta 发现 2）。
+    if ((this.deferredTools.length > 0 || this.options.mcp !== undefined) && !this.options.tools.readOnly) {
       const deferredCandidates = () => [
         ...this.options.tools.customTools.filter(t => this.deferredTools.includes(t.name)),
         ...this.extraTools.filter(t => t.deferred === true).map(t => ({ name: t.name, description: t.description, parameters: t.parameters })),

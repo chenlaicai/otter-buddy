@@ -11,10 +11,10 @@ summary: "#1894：tool_search 返回 loaded 后实际调用报 not available（h
 tags: [tool-search, deferred, durable-session, bugfix, P2]
 intent:
   problem: "tool_search 的 loaded 清单与实际可调用状态脱钩：加载的 deferred 工具在下一 invoke 报 not available（跨 invoke 失效），direct 工具被误列进 loaded（清单虚报）。獭按 loaded 清单规划工作后撞墙，#1894 实证 manage_scheduled_task_pending 两次调用 not available，2 条 pending 定时任务最终靠机械释放兜底。"
-  expected_effect: "修复后：tool_search 命中 deferred 工具并 addTools 后，该工具在当前 invoke、后续 invoke、冷启动重开同一 durable 库后均可调用（不再被 open()/prompt() 的全量 configure 重置清掉）；loaded 清单只含 deferred 工具（direct 不虚报），且 deferred MCP 工具进入检索面。回归测试 tests/frameworks/agent/tool-search-deferred.test.ts 覆盖同 prompt、跨 prompt、冷启动重开、direct 排除、deferred MCP 五条路径。"
+  expected_effect: "修复后：tool_search 命中 deferred 工具并 addTools 后，该工具在当前 invoke、后续 invoke、冷启动重开同一 durable 库后均可调用（open()/prompt() 不再全量 configure，但重开时仍刷新 model/thinkingLevel/extensions/cwd，不重置 tools/modelTools）；loaded 清单只含 deferred 工具（direct 不虚报），deferred MCP 工具进入检索面（含 MCP-only session）。回归测试 tests/frameworks/agent/tool-search-deferred.test.ts 覆盖同 prompt、跨 prompt、冷启动重开、direct 排除、deferred MCP、MCP-only、model 重开刷新七条路径。"
   verify_by:
     type: behavior_check
-    note: "tests/frameworks/agent/tool-search-deferred.test.ts 5 用例：同 prompt 与跨 prompt 调用 deferred 工具均执行；冷启动重开不加 tool_unavailable；direct 不被搜进 loaded；deferred MCP 命中。全量 tests/frameworks/agent + tests/interface-adapters/agent-runtime 95 文件 951 用例全绿。"
+    note: "tests/frameworks/agent/tool-search-deferred.test.ts 7 用例：同 prompt 与跨 prompt 调用 deferred 工具均执行；冷启动重开不加 tool_unavailable；direct 不被搜进 loaded；deferred MCP 命中；MCP-only 也注册 tool_search；model 重开刷新。全量 tests/frameworks/agent + tests/interface-adapters/agent-runtime 95 文件 953 用例全绿。"
 capability_test: "n/a：纯代码 bugfix（会话层 configure 时序 + tool_search 候选集过滤），不新增/修改 prompt 指令与模型行为面，不需要 capability 回归。"
 ---
 
@@ -67,13 +67,17 @@ pi.tool-result          [error] Tool add_terminology is not available
 
 ## 修法（decision-tree ① narrow-fix，既有语义内修）
 
-1. **移除 open() 与 prompt() 的全量 configure**（`durable-session.ts`）：初始配置只由
-   `harness.root({agent})` 在 root conversation 首次创建时写入；session 生命周期内
-   model/thinkingLevel/extensions/tools 均不变（换模型走 restart 重建 session，cwd 走 setCwd），
-   prompt/identity 经 otterExtension section 的动态 render 即时生效。
+1. **open()/prompt() 不再全量 configure**（`durable-session.ts`）：初始 tools/modelTools 只由
+   `harness.root({agent})` 在 root conversation 首次创建时写入；prompt() 完全不再 configure。
+   open() 重开时只 configure 会变字段（`model/thinkingLevel/extensions/cwd`），不重置 tools/modelTools——
+   这样既保留 addTools 加载（冷启动重开不 not available），又让 restart/冷启动重新解析的新模型与新
+   工作区写入 AgentDoc（检视 delta 发现 1：模型切换/新 cwd 生效）。
 2. **DurableToolSearch 候选集改为 getter**：`durable-session.ts` 传 `() => [deferred customTools
    ∪ deferred MCP extraTools]`——MCP extraTools 在 open() 阶段才就位，构造时固定数组会漏掉它们；
    `durable-tool-search.ts` 构造签名从 `LegacyTool[]` 改为 `() => ReadonlyArray<ToolSearchCandidate>`。
+3. **tool_search 注册条件含 MCP**：`(deferredTools.length > 0 || options.mcp !== undefined)`——
+   MCP 工具默认 deferred（非 direct exposure 均 deferred），MCP-only session（无 custom deferred）
+   也需要检索入口（检视 delta 发现 2）。
 
 ## Verification
 
@@ -90,17 +94,19 @@ pi.tool-result [{"type":"text","text":"<harness>\n[error] Tool add_terminology i
 **修复后通过输出**：
 
 ```text
-✓ tests/frameworks/agent/tool-search-deferred.test.ts (5 tests)
+✓ tests/frameworks/agent/tool-search-deferred.test.ts (7 tests)
   同一 prompt 内 tool_search 加载后下一轮可调用 deferred 工具        ✓
   跨 prompt（下一 invoke）调用已加载 deferred 工具仍可执行          ✓
   冷启动重开同一 durable 库后已加载 deferred 工具仍可调用          ✓
   direct 工具不被搜进 loaded                                      ✓
   deferred MCP 工具在 tool_search 检索面内                         ✓
+  MCP-only session 也注册 tool_search 并可检索 deferred MCP        ✓
+  重开时 model 刷新生效，已加载 deferred 工具仍可调用              ✓
 ```
 
 **复现步骤**：`npx vitest run tests/frameworks/agent/tool-search-deferred.test.ts`——
 该文件用 fauxProvider 模拟模型调用（tool_search → deferred 工具），覆盖同 prompt/跨 prompt/
-冷启动重开/direct 排除/deferred MCP 五条路径。
+冷启动重开/direct 排除/deferred MCP/MCP-only/model 重开刷新七条路径。
 
-回归面：`tests/frameworks/agent` + `tests/interface-adapters/agent-runtime` 95 文件 951 用例全绿；
+回归面：`tests/frameworks/agent` + `tests/interface-adapters/agent-runtime` 95 文件 953 用例全绿；
 `npx eslint .` 与 `npx tsc --noEmit` 通过。
