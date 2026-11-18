@@ -31,6 +31,15 @@ node --env-file=./.env src/app.mjs
 
 默认仅回环监听；监听地址与端口由 `COLINK_BIND_HOST`/`COLINK_PORT` 决定（缺省 `127.0.0.1:8080`）。Otter API 默认是 `http://127.0.0.1:3000`。公网部署时由 nginx 终止 HTTPS 并反向代理到 App；不要公开 Otter API/Web 或 App 的实际端口。
 
+## 升级旧部署（0.15 → 0.28）
+
+老版本 bearer = `HMAC(COLINK_CREDENTIAL_KEY, 'colink-otter-mcp-v1:' + conversationId)`；新版本保留同一域分隔串，只换了密钥来源。因此有两条路：
+
+1. **无缝（推荐）**：把 `COLINK_MCP_SECRET` 设为**旧的 `COLINK_CREDENTIAL_KEY` 原值**（≥32 字符即可，旧值通常是 64 位十六进制）。派生结果逐字节相同，已落盘的 `workspaces/<conversationId>/mcp.json` 不会被判成换人。
+2. **换新密钥**：已绑定 Conversation 的旧 `mcp.json` 会与新 bearer 冲突（每次唤醒 409，不是只有第一次）。必须一次性清理：停 Otter 后删除这些 Conversation 的 `data/workspaces/<conversationId>/mcp.json`（下一轮由 Otter 重新写入），或改用新的 Conversation 绑定。
+
+另：0.28 起监听地址/端口读 `COLINK_BIND_HOST`/`COLINK_PORT`，`HOST`/`PORT` 不再生效；`COLINK_API_BASE` 已由 SDK 派生，不再需要。
+
 ## 配置
 
 见 `.env.example`。身份与连接（`COLINK_APP_ID`/`COLINK_APP_INSTANCE_ID`/`COLINK_CLIENT_ID`/`COLINK_CLIENT_SECRET`/`COLINK_SIGNING_SECRET`/`COLINK_ISSUER`）由 SDK 从环境读取并在创建运行时逐字段校验，错误码 `INVALID_APP_CONFIG`，不回显凭据。manifest 声明了 app 渲染视图，因此 `COLINK_APP_ORIGIN` 必填；宿主与主站不同源时再设 `COLINK_HOST_ORIGIN`。

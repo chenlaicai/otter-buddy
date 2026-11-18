@@ -289,3 +289,37 @@ test('enforces the 0.28 per-source pagination limits and rejects DM channel read
     await bridge.close();
   }
 });
+
+test('bearer derivation stays byte-identical to the pre-upgrade scheme so old mcp.json keeps working', async () => {
+  const { createHmac } = await import('node:crypto');
+  const legacySecret = 'a'.repeat(64); // 旧部署的 COLINK_CREDENTIAL_KEY
+  const bridge = new CoLinkToolBridge({ secret: legacySecret, port: 0 });
+  // 与 main 的 `HMAC(COLINK_CREDENTIAL_KEY, 'colink-otter-mcp-v1:' + conversationId)` 完全一致。
+  const legacy = createHmac('sha256', legacySecret).update('colink-otter-mcp-v1:otter-legacy').digest('base64url');
+  assert.equal(bridge.tokenFor('otter-legacy'), legacy);
+});
+
+test('a request that outlives its round is rejected before the response is written', async () => {
+  const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
+  await bridge.start();
+  try {
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const ctx = ctxFixture('channel');
+    const slowRead = ctx.source.listMessages;
+    ctx.source.listMessages = async args => { await gate; return slowRead(args); };
+    const config = [];
+    const firstRound = bridge.run({ otterConversationId: 'slow', ctx, register: async c => config.push(c) }, async () => {
+      const pending = rpc(bridge, tokenOf(config[0]), 'tools/call', { name: 'colink_read_topic', arguments: {} });
+      // 下一轮接管同一个 bearer（同一 Conversation），旧请求此时已不属于任何活动轮次。
+      await bridge.run({ otterConversationId: 'slow', ctx: ctxFixture('channel'), register: async () => {} }, async () => 'next');
+      release();
+      const response = await pending;
+      assert.equal(response.status, 401);
+      return 'slow';
+    });
+    assert.equal(await firstRound, 'slow');
+  } finally {
+    await bridge.close();
+  }
+});

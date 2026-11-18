@@ -279,8 +279,10 @@ test('re-registers byte-identical MCP config on the next round so Otter accepts 
   const realBridge = new CoLinkToolBridge({ secret: 'test-mcp-secret-0123456789abcdef0123456789', port: 0 });
   await realBridge.start();
   try {
-    toolBridge.run = async ({ otterConversationId, ctx }, execute) => realBridge.run({
-      otterConversationId, ctx, register: async config => registers.push(config),
+    // Why: 必须透传 OtterBridge 给的 register（它才执行 PUT）；否则 mock 的 409 分支永远不触发，
+    // 「配置相等」的断言就变成了自我证明。
+    toolBridge.run = async ({ otterConversationId, ctx, register }, execute) => realBridge.run({
+      otterConversationId, ctx, register: async config => { registers.push(config); return register(config); },
     }, execute);
     const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
     const ctx = {
@@ -297,4 +299,7 @@ test('re-registers byte-identical MCP config on the next round so Otter accepts 
   assert.equal(state.mcpConflicts ?? 0, 0);
   assert.equal(registers.length, 2);
   assert.deepEqual(registers[1], registers[0]);
+  // 两轮都真的走了 HTTP PUT，且都被 Otter 侧误配检查接受。
+  assert.equal(state.mcpConfigs.length, 2);
+  assert.deepEqual(state.mcpConfigs[1], state.mcpConfigs[0]);
 });

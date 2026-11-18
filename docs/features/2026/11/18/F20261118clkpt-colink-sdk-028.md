@@ -6,22 +6,13 @@ module: extensions
 change_type: feature
 status: active
 summary: |
-  CoLink 平台侧协议已从我们发现时锁定并 vendor 的 @colink/app-sdk 0.15.0 迭代到 0.28.0，
-  SDK 整体重构：createCoLinkApp→createCoLinkRuntime、serveCoLinkApp→serveCoLinkRuntime、
-  turn→ctx（数据统一收到 event.data）、事件 app.mentioned→app.user_message_received、
-  turn.topic.readPrivate/readPublic→ctx.source.listMessages（身份由事件 channelVisibility
-  快照固定）、turn.progress→ctx.sendProgress、interaction.setStatus→ctx.setDisplayStatus、
-  turn.colink 扁平业务客户端→ctx.colink.user/ctx.colink.app 双身份，openEncryptedStore/
-  validateIssuer/外部 store 全部取消（状态由 SDK 自管 state.enc + 自动密钥，配置走 COLINK_*）。
-  新 SDK 的用户消息回合不再提供 turn.tools（tools.list/call 只在 Agent 适配器 AgentTurn），
-  因此把「CoLink 历史读取包成 MCP 工具交给 Otter Agent」的工具面从 4 个重设计为 2 个：
-  colink_read_topic（ctx.source.listMessages，身份由平台按可见性固定）与
-  colink_read_channel（公共 ctx.colink.app / 私密 ctx.colink.user 的 channels.listMessages，
-  缺可见性快照时失败关闭）。另：MCP 代理 bearer 仍按 conversation 用 HMAC 派生（新增独立密钥
-  COLINK_MCP_SECRET），授权时效靠 active 映射保证——独立检视证明「每轮随机 token」会撞上 Otter
-  mcp-external 写入守卫（同 server 换 bearer 即 409，第二轮 Agent 不启动）；SDK 打包链路从「整目录 cp」改为
-  「CoLink distribution/build.mjs 构建 tgz → 解包 vendor + sdk-pin.json 记版本与完整性」，
-  vendor 入库以便 CI 直接跑契约测试；manifest 升 0.6.0 并全部改用 SDK 常量声明。
+  CoLink 协议从 vendor 的 @colink/app-sdk 0.15.0 迭代到 0.28.0 并整体重构：
+  createCoLinkApp→createCoLinkRuntime、turn→ctx、app.mentioned→app.user_message_received、
+  turn.topic.readPrivate/readPublic→ctx.source.listMessages（身份由 channelVisibility 快照
+  固定）、turn.colink→ctx.colink.user/app。用户消息回合不再提供 turn.tools，历史读取工具面由
+  4 个收敛为 2 个（公共走 App、私密走用户身份，缺快照失败关闭）。MCP bearer 仍按 Conversation
+  稳定派生（新密钥 COLINK_MCP_SECRET）；SDK 改为构建 tgz→解包 vendor + sdk-pin.json，vendor
+  入库让 CI 无需装依赖即可跑契约测试。
 intent:
   problem: "线上那版插件按 0.15.0 协议编写，而 CoLink 已换代（事件名、回合上下文、身份模型、清单校验白名单全变）：老代码在新平台上拿不到事件、读不了历史，清单里的旧协议字段也不再被识别；同时新 SDK 取消了 turn.tools，原四工具代理设计失去底层能力"
   expected_effect: "插件在新协议下行为等价：DM/频道消息仍映射到单獭 Otter Conversation，历史读取仍被限定在当前事件资源与平台固定身份内，回复仍以持久 entries/invokes 为准；差异是工具面收敛为 2 个只读工具、凭证模型收敛为每轮一次性 bearer、清单字段全部由 SDK 常量声明且随 SDK 升级可被测试捕获漂移"
@@ -73,6 +64,8 @@ capability_test: "extensions/colink-agent-app/test/colink-tools.test.mjs"
 
 Otter 的 `PUT /api/conversations/:id/workspace/mcp-external` 用 `isSameOwnedConfig` 校验：同一 server 名下的 `authorization` 必须与已落盘的 `mcp.json` 完全一致，不一致直接 `OTTER_MCP_CONFIG_CONFLICT`（409，`tests/interface-adapters/http/workspace-mcp-external.test.ts` 锁定该行为）。因此 bearer 一旦轮换，同一 Conversation 的第二轮在注册处就失败、Agent 根本不会启动。
 
+**升级旧部署（0.15 → 0.28）**：老版本 bearer = `HMAC(COLINK_CREDENTIAL_KEY, 'colink-otter-mcp-v1:' + conversationId)`。本实现保留同一域分隔串，因此把 `COLINK_MCP_SECRET` 设为**旧的 `COLINK_CREDENTIAL_KEY` 原值**时派生结果逐字节相同，已落盘的 `mcp.json` 不会被判成换人，老 Conversation 第一轮即可用（`test/colink-tools.test.mjs` 有等价性断言）。若操作者换用新密钥值，则每个已绑定 Conversation 的旧 `mcp.json` 都会与新 bearer 冲突（永久 409），必须一次性清理：停 Otter 服务后删除 `data/workspaces/<conversationId>/mcp.json`（该文件由 Otter 按本 App 注册写入，删后下一轮会重新写入），或改用新的 Conversation 绑定。
+
 结论：bearer 保持「按 Conversation 用 `COLINK_MCP_SECRET` HMAC 派生」的稳定形态，授权时效改由代理内部的 active 映射保证——token 稳定但只有当前轮在映射里，事件结束立即删除，旧 Agent 无法借新事件授权。`COLINK_MCP_SECRET`（≥32 字符）是本扩展自己的密钥，与平台凭据分开管理。
 
 ## 打包与 pin
@@ -88,8 +81,8 @@ Otter 的 `PUT /api/conversations/:id/workspace/mcp-external` 用 `isSameOwnedCo
 ## 验证
 
 ```bash
-cd extensions/colink-agent-app && npm run prepare:sdk && npm test   # 26/26
-cd <repo root> && npm run test:extensions                           # 26/26（CI 同款）
+cd extensions/colink-agent-app && npm run prepare:sdk && npm test   # 32/32
+cd <repo root> && npm run test:extensions                           # 32/32（CI 同款）
 ```
 
 冒烟（本地回环 + 假凭据）：`/healthz` 200、`/manifest.json` version `0.6.0`、`events.types=['app.user_message_received']`、`/embed.html` 200、`/page-config.json` 返回 hostOrigin/issuer。
@@ -100,6 +93,7 @@ cd <repo root> && npm run test:extensions                           # 26/26（CI
 - 工具分页上限按来源收紧到平台约束，并补边界断言。
 - `prepare:sdk` 改为事务性换位 + 记录构建 commit，删掉不再生成的 `vendor/SDK-SOURCE.json`。
 - 契约测试里 `dm.actions` 合法容器收紧为仅 `side_panel`；恢复真实 MCP Streamable HTTP 客户端互通测试；修正名不副实的 DM/频道断言。
+- 第二轮检视补充：连续两轮测试改为透传 `OtterBridge` 的真实 `register`（让 mock 的 409 分支真正执行）；新增 v1 派生等价性（旧 `mcp.json` 可用）与「请求跨轮后响应前 401」两条断言；F 文档 summary 压到 500 字内。
 - 清理过期引用：`package-lock.json` 去掉 `@colink/app-sdk` 依赖项，README 同步「vendor 入库」与 `COLINK_MCP_SECRET`。
 
 ## 未做与风险

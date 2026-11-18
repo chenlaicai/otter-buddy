@@ -193,7 +193,9 @@ export class CoLinkToolBridge {
   }
 
   tokenFor(otterConversationId) {
-    return createHmac('sha256', this.secret).update(`colink-otter-mcp-v2:${otterConversationId}`).digest('base64url');
+    // Why 域分隔串保持 v1：老部署把 COLINK_MCP_SECRET 设成旧的 COLINK_CREDENTIAL_KEY 值时，
+    // 派生结果与升级前逐字节相同，已落盘的 mcp.json 不会被守卫判成「换人」（见类注释迁移说明）。
+    return createHmac('sha256', this.secret).update(`colink-otter-mcp-v1:${otterConversationId}`).digest('base64url');
   }
 
   configFor(token) {

@@ -89,7 +89,8 @@ test('vendored SDK matches the pinned version and the manifest constants are not
   const pin = JSON.parse(readFileSync(pinPath, 'utf8'));
   assert.equal(pin.package, '@colink/app-sdk');
   assert.match(pin.version, /^\d+\.\d+\.\d+$/);
-  if (!existsSync(vendorPackage)) return;
+  // vendor 已入库（prepare:sdk 产出），缺失即是构建链坏了，不能静默跳过。
+  assert.ok(existsSync(vendorPackage), 'vendor/app-sdk 缺失：先跑 npm run prepare:sdk');
   const vendored = JSON.parse(readFileSync(vendorPackage, 'utf8'));
   assert.equal(vendored.version, pin.version);
 });
