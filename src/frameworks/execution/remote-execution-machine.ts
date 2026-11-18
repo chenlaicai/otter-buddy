@@ -42,6 +42,8 @@ export class RemoteExecutionMachine implements ExecutionMachine {
       hubBootEpoch: number;
       actionTimeoutMs?: number;
       now?: () => number;
+      /** 非致命异常观测（收尾失败等排障线索；缺省静默） */
+      warn?: (message: string, meta?: Record<string, unknown>) => void;
     },
   ) {
     this.name = name ?? id;
@@ -60,9 +62,15 @@ export class RemoteExecutionMachine implements ExecutionMachine {
       if (frame.data.status === "succeeded") waiter.resolve(frame.data.result);
       else waiter.reject(new Error(frame.data.error ?? `remote action ${frame.data.status}: ${frame.data.actionId}`));
     });
-    this.deps.channel.onSessionDown((sessionId, _deviceId) => {
+    this.deps.channel.onSessionDown((sessionId, deviceId) => {
+      // M1（检视）：网关下线事件是全局广播，本机器只收口**自己设备**的会话——
+      // 多设备同时在线时任一设备下线不得误杀其他设备的在途请求（孤儿化 requested 行）
+      if (deviceId !== this.id) return;
       // 会话下线：该会话在途等待全部收尾 unknown（registry 批量落；等待者 reject）
-      void this.deps.remoteActions.markSessionRequestsUnknown(sessionId, this.isoNow()).catch(() => {});
+      void this.deps.remoteActions.markSessionRequestsUnknown(sessionId, this.isoNow()).catch(err => {
+        // m2（检视）：批量收尾失败不能零日志——DB 行滞留 requested 会永久「在途」，排障需要线索
+        this.deps.warn?.("remote action session-down settle failed (rows stay requested)", { sessionId, error: String(err) });
+      });
       for (const [actionId, waiter] of [...this.pending.entries()]) {
         clearTimeout(waiter.timer);
         this.pending.delete(actionId);
@@ -74,6 +82,10 @@ export class RemoteExecutionMachine implements ExecutionMachine {
   createExecutionEnvironment(_cwd: string): ExecutionEnv {
     throw new Error(`remote machine does not host SDK execution environments (device: ${this.id})`);
   }
+
+  /** 单调帧序（m4：action.request 的 seq 对账用——协议规定 seq 不承担可靠性，
+   *  仅日志对账与乱序检测，故进程内单调即可） */
+  private frameSeq = 0;
 
   async run<K extends ExecutionActionType>(
     action: ExecutionAction<K>,
@@ -107,7 +119,7 @@ export class RemoteExecutionMachine implements ExecutionMachine {
     const sent = this.deps.channel.sendToDevice(this.id, {
       v: CONNECTOR_PROTOCOL_VERSION,
       type: "action.request",
-      seq: 0,
+      seq: (this.frameSeq += 1),
       sid: session.id,
       data: { actionId, action: { type: action.type, input: action.input as Record<string, unknown> } },
     } satisfies ConnectorFrame);
@@ -135,8 +147,8 @@ export class RemoteExecutionMachine implements ExecutionMachine {
     return this.deps.actionTimeoutMs ?? CONNECTOR_ACTION_TIMEOUT_MS;
   }
 
-  /** 六动作 input 均携带 conversationId（workspace.path 除外——返回路径无副作用，
-   *  无会话维度时 null，不影响登记） */
+  /** 六动作 input 均携带 conversationId（m7：workspace.path 也含——getWorkspacePath
+   *  按 conversation 解析；故六动作全落会话维度，非 path 动作才缺） */
   private conversationIdOf(input: unknown): string | null {
     const candidate = (input as { conversationId?: unknown } | undefined)?.conversationId;
     return typeof candidate === "string" ? candidate : null;

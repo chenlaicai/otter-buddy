@@ -166,6 +166,34 @@ otter-invoke-context 的 `OtterPromptConfig` import 拖 api-contract（src 外�
 | alpha 实启端到端 | 见 PR comment |
 | GitHub CI | PR 创建后运行 |
 
+## 检视处置记录（dspro 首轮：0 blocker / 1 major / 7 minor / 3 suggestion）
+
+- **M1 多设备串扰**（onSessionDown 未按 deviceId 收口）：已修——handler 顶部加设备守卫，
+  补双设备下线串扰回归测试（A 下线/B 回执不受影响/收尾隔离）。
+- **m1** recordRequest 全异常误报 duplicate：已修——仅 SQLITE_CONSTRAINT 返 false，
+  其他库故障重抛（错误归因不错位）。
+- **m2** markSessionRequestsUnknown 静默吞：已修——机器补可选 warn 依赖，装配接
+  logger.warn（rows stay requested 採障线索）。
+- **m3** connector 重连回执注释机制失真：已修——注释改为两窗口真实机制
+  （旧 sid 被丢 / 新 sid 通过但 waiter 已收尾无人认领）。
+- **m4** action.request seq 恒 0：已修——machine 维护单调 frameSeq。
+- **m5** write 快路径回执与活体不一致：已修——write 类快路径归一 null（活体
+  void 语义），delete 类保留 {deleted}；补测试两例。
+- **m6** ledger.open 静默吞：已修——失败落日志（stale running rows stay
+  unresolved）后 best-effort 继续。
+- **m7** conversationIdOf 注释失真：已修——workspace.path 也含 conversationId。
+
+### Suggestion 去向（显式记录，不在本 PR 处置）
+
+- **s1 hubBootEpoch=Date.now() 纪元语义弱**（唯一性由 uuid 承担，epoch 防碰撞实为
+  冗余）：去向——阶段 5 若引入 actionId 前缀去重/对账再议单调纪元（对齐 local 台账
+  boot_seq）。
+- **s2 remoteMachines 单例 Map 永不驱逐**（设备数量级极小当前无泄漏）：去向——
+  阶段 6 多设备分发时评估驱逐策略。
+- **s3 R2 摘要本机段（invoke 维度）与远程段（conversation 维度）粒度不对称**
+  （远程段可能含其他 invoke 的动作）：去向——阶段 5 开放工具路由后补
+  listByInvoke 收口远程段粒度（invoke_id 列已预留）。
+
 ## Rollback
 
 Revert 本 PR：remote_action_requests 为新增表（留存无害）；协议动作帧中枢侧

@@ -58,7 +58,9 @@ export class ConnectorActionDispatcher {
       const existing = await this.deps.ledger.getByActionId(actionId);
       if (existing?.status === "succeeded") {
         this.deps.log?.("action deduped (already succeeded)", { actionId, type: action.type });
-        this.sendResult(actionId, { status: "succeeded", result: this.parseSummary(existing.resultSummary) });
+        // m5（检视）：回执以活体语义为准——workspace.write 活体 result 为 null（void 类），
+        //  快路径不回 resultSummary（{bytes} 与活体不一致）；delete 的 {deleted} 与活体一致可透传
+        this.sendResult(actionId, { status: "succeeded", result: existing.kind === "workspace.write" ? null : this.parseSummary(existing.resultSummary) });
         return;
       }
     } catch (err) {

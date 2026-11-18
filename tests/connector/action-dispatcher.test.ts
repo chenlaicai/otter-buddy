@@ -58,14 +58,23 @@ describe("ConnectorActionDispatcher", () => {
     expect(sent[0]!.error).toContain("unsupported action type");
   });
 
-  it("幂等快路径：台账已 succeeded → 直接回记录结果，不重执行", async () => {
+  it("幂等快路径：台账已 succeeded → 不重执行；write 类回 null（活体 void 语义，m5）", async () => {
     const { dispatcher, sent, executorCalls } = makeDeps({
       existing: ledgerRow("succeeded", JSON.stringify({ bytes: 3 })),
     });
     await dispatcher.handleActionRequest(requestFrame("a-1", "workspace.write", { conversationId: "c1", relativePath: "b.txt", content: "xyz" }));
     expect(executorCalls).toHaveLength(0); // 未重执行
     expect(sent[0]!.status).toBe("succeeded");
-    expect(sent[0]!.result).toEqual({ bytes: 3 }); // 回已记录结果
+    expect(sent[0]!.result).toBeNull(); // write 活体 result 为 void → 快路径归一 null（不回 {bytes}）
+  });
+
+  it("幂等快路径：delete 类回记录的 {deleted}（与活体结果一致）", async () => {
+    const { dispatcher, sent } = makeDeps({
+      existing: { ...ledgerRow("succeeded", JSON.stringify({ deleted: "file" })), kind: "workspace.delete" },
+    });
+    await dispatcher.handleActionRequest(requestFrame("a-1", "workspace.delete", { conversationId: "c1", relativePath: "b.txt" }));
+    expect(sent[0]!.status).toBe("succeeded");
+    expect(sent[0]!.result).toEqual({ deleted: "file" });
   });
 
   it("台账无行 → 正常执行 → succeeded + 执行结果；actionId 透传 executor（台账记账锚）", async () => {

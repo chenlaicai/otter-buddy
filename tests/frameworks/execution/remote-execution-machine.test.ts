@@ -173,26 +173,72 @@ describe("RemoteExecutionMachine（C2 执行通道核心）", () => {
     expect(unknowns.every(r => r.error === "device offline before result")).toBe(true);
   });
 
+  it("M1（检视）：多设备串扰隔离——设备 A 下线不误杀设备 B 的在途请求", async () => {
+    // 广播语义 channel（对齐网关 sessionDownHandlers 全局广播）
+    const downHandlers: Array<(sessionId: string, deviceId: string) => void> = [];
+    const resultHandlers: Array<(frame: Extract<ConnectorFrame, { type: "action.result" }>) => void> = [];
+    const broadcastChannel: ConnectorActionChannel = {
+      sendToDevice: () => true,
+      onActionResult: handler => { resultHandlers.push(handler); },
+      onSessionDown: handler => { downHandlers.push(handler); },
+    };
+    const machineA = new RemoteExecutionMachine("conn-dev-1", "A", {
+      channel: broadcastChannel, remoteActions: h.remoteActions, connectorRegistry: h.connectorRepo, hubBootEpoch: 1000,
+    });
+    const machineB = new RemoteExecutionMachine("conn-dev-2", "B", {
+      channel: broadcastChannel, remoteActions: h.remoteActions, connectorRegistry: h.connectorRepo, hubBootEpoch: 1000,
+    });
+    machineA.wireChannel();
+    machineB.wireChannel();
+
+    // 双设备各自在线（同库不同 session 行）
+    await seedOnlineSession(h.connectorRepo, "sess-A");
+    const deviceB: Device = { id: "conn-dev-2", name: "B", pairToken: "tok-2", createdAt: new Date(T0).toISOString(), lastSeenAt: null };
+    await h.connectorRepo.createDevice(deviceB);
+    const sessionB: OnlineSession = {
+      id: "sess-B", deviceId: "conn-dev-2", status: "online",
+      connectedAt: new Date(T0).toISOString(), disconnectedAt: null, disconnectReason: null,
+      lastSeenAt: new Date(T0).toISOString(), protocolVersion: 1,
+    };
+    await h.connectorRepo.openOnlineSession(sessionB);
+
+    const pendingA = machineA.run({ type: "workspace.exists", input: { conversationId: "cA" } }, undefined, { actionId: "m1-a" });
+    const pendingB = machineB.run({ type: "workspace.exists", input: { conversationId: "cB" } }, undefined, { actionId: "m1-b" });
+    await new Promise(r => setTimeout(r, 0));
+
+    // 设备 A 会话下线（广播给所有 handler）——B 不受影响
+    for (const handler of downHandlers) handler("sess-A", "conn-dev-1");
+    await expect(pendingA).rejects.toThrow("device session down before result: sess-A");
+    // B 的在途动作仍可正常回执（未被误杀）
+    for (const handler of resultHandlers) handler({ v: 1, type: "action.result", seq: 1, sid: "sess-B", data: { actionId: "m1-b", status: "succeeded", result: true } });
+    await expect(pendingB).resolves.toBe(true);
+
+    // 收尾隔离：仅 sess-A 的行落 unknown，sess-B 的行落 succeeded
+    const unknowns = await h.remoteActions.listByStatuses(["unknown"]);
+    expect(unknowns.map(r => r.actionId)).toEqual(["m1-a"]);
+    expect((await h.remoteActions.listByStatuses(["succeeded"])).map(r => r.actionId)).toEqual(["m1-b"]);
+  });
+
   it("createExecutionEnvironment 不支持（远程无 SDK 执行环境——阶段 5/7 语义）", () => {
     expect(() => h.machine.createExecutionEnvironment("/tmp")).toThrow("does not host SDK execution environments");
   });
 });
 
 describe("SqliteRemoteActionRegistry（五态登记幂等）", () => {
+  function reqRow(actionId: string): import("@entities/execution/remote-action-request").RemoteActionRequest {
+    return {
+      actionId, onlineSessionId: "s1", deviceId: DEVICE_ID, actionType: "workspace.write",
+      status: "requested", error: null, result: null, createdAt: new Date(T0).toISOString(), settledAt: null,
+      conversationId: "c1", invokeId: "inv-1",
+    };
+  }
+
   it("settleRequest 幂等：先到真相保持，晚到回执不改写", async () => {
     const db = createTestDb();
     const registry = new SqliteRemoteActionRegistry(db);
-    expect(await registry.recordRequest({
-      actionId: "a-1", onlineSessionId: "s1", deviceId: DEVICE_ID, actionType: "workspace.write",
-      status: "requested", error: null, result: null, createdAt: new Date(T0).toISOString(), settledAt: null,
-      conversationId: "c1", invokeId: "inv-1",
-    })).toBe(true);
-    // 重复登记拒
-    expect(await registry.recordRequest({
-      actionId: "a-1", onlineSessionId: "s1", deviceId: DEVICE_ID, actionType: "workspace.write",
-      status: "requested", error: null, result: null, createdAt: new Date(T0).toISOString(), settledAt: null,
-      conversationId: "c1", invokeId: "inv-1",
-    })).toBe(false);
+    expect(await registry.recordRequest(reqRow("a-1"))).toBe(true);
+    // 重复登记拒（PK 冲突）
+    expect(await registry.recordRequest(reqRow("a-1"))).toBe(false);
 
     await registry.settleRequest("a-1", "succeeded", new Date(T0).toISOString(), { bytes: 3 });
     // 晚到 unknown 不覆盖 succeeded
@@ -206,5 +252,12 @@ describe("SqliteRemoteActionRegistry（五态登记幂等）", () => {
     expect(byConv).toHaveLength(1);
     expect(byConv[0]!.invokeId).toBe("inv-1");
     expect(await registry.listByConversation("c-other")).toHaveLength(0);
+  });
+
+  it("m1（检视）：非 PK 冲突的库故障重抛（错误归因不错位）——表不存在的场景", async () => {
+    const db = createTestDb();
+    const registry = new SqliteRemoteActionRegistry(db);
+    db.exec("DROP TABLE remote_action_requests");
+    await expect(registry.recordRequest(reqRow("a-x"))).rejects.toThrow();
   });
 });

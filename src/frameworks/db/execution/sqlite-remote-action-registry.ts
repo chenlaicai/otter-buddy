@@ -43,8 +43,12 @@ export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
         + "VALUES (?, ?, ?, ?, 'requested', NULL, NULL, ?, NULL, ?, ?)",
       ).run(req.actionId, req.onlineSessionId, req.deviceId, req.actionType, req.createdAt, req.conversationId, req.invokeId);
       return true;
-    } catch {
-      return false; // PK 冲突（重复 actionId）——调用方 fail-closed
+    } catch (err) {
+      // m1（检视）：仅 PK 冲突是「重复 actionId」语义（返 false 调用方 fail-closed）；
+      //  其他库故障（locked/磁盘满/语句错）重新抛出——错误归因不错位，排障有线索
+      const code = (err as { code?: string }).code ?? "";
+      if (code.includes("SQLITE_CONSTRAINT")) return false;
+      throw err;
     }
   }
 

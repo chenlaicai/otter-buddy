@@ -178,8 +178,11 @@ function registerSignalHandlersOnce(): void {
   process.on("SIGTERM", () => goOffline("SIGTERM"));
 }
 
-/** 回执发帧闭包：读当前连接（currentWs/currentSid）。执行期间重连 → 回执带新 sid，
- *  hub 旧 sid 校验丢弃（正确：旧会话动作对新会话回答无意义）；连接间隙 → 丢弃。 */
+/** 回执发帧闭包：读当前连接（currentWs/currentSid）。执行期间重连时的两个窗口（m3 检视
+ *  修订）：新 socket 已开但 hello.ack 未回 → 回执带旧 sid 被 hub 侧 stale-sid 校验丢弃；
+ *  hello.ack 已回 → 回执带新 sid 通过校验，但旧会话下线钩子已把等待者收尾（reject+删），
+ *  hub 侧 onActionResult 查不到 waiter 而忽略——端到端语义一致：旧会话动作对新会话
+ *  不产生落账。连接间隙（currentWs 为空）→ 丢弃并日志。 */
 function sendResultFrame(data: Extract<ConnectorFrame, { type: "action.result" }>["data"]): void {
   if (currentWs?.readyState === WebSocket.OPEN && currentSid) {
     seq += 1;
@@ -202,8 +205,12 @@ async function buildRuntime(identity: DeviceIdentity): Promise<ConnectorRuntime>
   const ledger = new SqliteActionLedger(path.join(dataRoot, "action-ledger.sqlite"), {
     deviceId: identity.deviceId, // 台账行归属设备（阶段 3 表结构预留的维度）
   });
-  // 开机清扫：旧纪元 running 行裁决（崩溃恢复语义——断线收尾的兑底面）
-  const sweep = await ledger.open().catch(() => null);
+  // 开机清扫：旧纪元 running 行裁决（崩溃恢复语义——断线收尾的兑底面）；
+  // m6（检视）：清扫失败不能零日志——残留 running 行永不裁决需排障线索（best-effort 继续）
+  const sweep = await ledger.open().catch((err: unknown) => {
+    log("ledger boot sweep failed (stale running rows stay unresolved)", { error: String(err) });
+    return null;
+  });
   if (sweep) log("ledger boot sweep", { ...sweep });
   const executor = new WorkspaceActionExecutor(new NodeWorkspaceGateway(dataRoot), ledger, (message, meta) => log(message, meta));
   const dispatcher = new ConnectorActionDispatcher({

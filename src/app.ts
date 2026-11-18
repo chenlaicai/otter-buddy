@@ -774,6 +774,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         remoteActions: remoteActionRegistry,
         connectorRegistry: connectorRepo,
         hubBootEpoch,
+        warn: (message, meta) => logger.warn(message, { deviceId, ...meta }), // m2：收尾失败等排障线索
       });
       machine.wireChannel();
       remoteMachines.set(deviceId, machine);
