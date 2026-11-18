@@ -47,3 +47,4 @@ modules:
 - 非 belief 条目 beliefFactor = 1.0，规则不触及（黄金走社地板不变）。
 - belief 提权**不依赖 layer=working**（内容类型判定），避免归档把整对话 working→historical 连坐后 belief 优先级集体蒸发（P1b 前瞻已知项）。
 - **叠加语义（与 P0 边降权）**：若 belief 条目同时被 supersede 边指向（P0 `supersededPenalty=0.3`）且 metadata.status=superseded（本刀 ×0.1），两因子**叠乘**——实际 = beliefBoost × 0.1 × 0.3 = 0.06；只标 status 未建边 = 0.2。两档均正确（建边=图语义，标 status=状态语义），但标定时勿把 0.06 误读为「状态因子失效」。叠乘也会放大误建边的后果（recorded 被误建边 → 2.0×0.6×0.3=0.36 跌破普通条目），建边路径（P1c 工具面）需同步保证只对新旧 belief 对建边。
+- **multiHit 聚合不触及 belief**：belief 写入 granularity=coarse（P1a），单条目不产生多 chunk 命中，故 `dedupAndBoostBySource` 的 multiHitCount 加分不参与 belief 排序（与 P0 文档「顺序说明」同口径）。
