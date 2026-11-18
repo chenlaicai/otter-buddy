@@ -3,6 +3,7 @@
 import type Database from "better-sqlite3";
 import type { MemoryEntry, MemoryWeight, MemoryLayer, MemoryContentType } from "@entities/memory/memory-entry";
 import type { MemoryEdge, EdgeType } from "@entities/memory/memory-edge";
+import type { BeliefStatus } from "@entities/memory/belief";
 import type {
   FTSHit,
   SearchFilters,
@@ -894,6 +895,42 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   /** F20261118stale P0：批量查候选条目里哪些被 supersede（旧→新映射）。 */
   async getSupersededBy(entryIds: string[]): Promise<Map<string, string>> {
     return getSupersededBy(this.db, entryIds);
+  }
+
+  /**
+   * P2b1：按状态 + 时间闭区间列 belief（夜间审视清单数据源）。
+   * 状态在 metadata JSON 内，用 json_extract 匹配；created_at 升序（现场时间先后）。
+   */
+  async listBeliefsByStatus(
+    status: BeliefStatus,
+    after: string,
+    through: string,
+  ): Promise<MemoryEntry[]> {
+    const rows = this.db.prepare(`
+      SELECT * FROM memory_entries
+      WHERE content_type = 'belief'
+        AND json_extract(metadata, '$.status') = ?
+        AND created_at >= ?
+        AND created_at <= ?
+      ORDER BY created_at ASC
+    `).all(status, after, through) as MemoryEntryRow[];
+    // fail-loud 防线（防静默丢审）：区间内 metadata 缺 status 的 belief 行会从所有状态查询
+    // 静默消失——当天信念“没人审”。这些行今天不可达（RecordBelief 唯一写者 + guard 给足 status），
+    // 但 StoreMemory 通用路径不拦 contentType='belief' 直写，用最小代价探针挡住未来的旁路写入。
+    const corrupt = this.db.prepare(`
+      SELECT id FROM memory_entries
+      WHERE content_type = 'belief'
+        AND created_at >= ?
+        AND created_at <= ?
+        AND (metadata IS NULL OR json_extract(metadata, '$.status') IS NULL)
+    `).all(after, through) as Array<{ id: string }>;
+    if (corrupt.length > 0) {
+      throw new Error(
+        `belief 行缺 status 元数据，夜间审视清单无法精确归类（区间 [${after}, ${through}]）: ` +
+        corrupt.map((r) => r.id).join(", "),
+      );
+    }
+    return rows.map(rowToMemoryEntry);
   }
 
   /** F20260813mren: 删除一条边（unlink_memory 用） */

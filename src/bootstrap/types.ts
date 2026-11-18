@@ -6,6 +6,7 @@ import type { MemoryReader } from "@usecases/memory/memory-reader";
 import type { MemoryWriter } from "@usecases/memory/memory-writer";
 import type { MemoryQueue } from "@usecases/memory/memory-queue";
 import type { SearchQueryLogRepository } from "@usecases/memory/search-query-log-repository";
+import type { ConsolidationStateRepository } from "@usecases/memory/consolidation-state-repository";
 import type { RecordSearchQuery } from "@usecases/memory/record-search-query";
 import type { TerminologyRepository } from "@usecases/memory/terminology-repository";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
@@ -34,6 +35,7 @@ import type { SearchMemory } from "@usecases/memory/search-memory";
 import type { RecordBelief } from "@usecases/memory/record-belief";
 import type { TransitionBelief } from "@usecases/memory/transition-belief";
 import type { SupersedeBelief } from "@usecases/memory/supersede-belief";
+import type { ManageConsolidationState } from "@usecases/memory/manage-consolidation-state";
 import type { CreateEdge } from "@usecases/memory/create-edge";
 import type { GetRelated } from "@usecases/memory/get-related";
 import type { DeleteEdge } from "@usecases/memory/delete-edge";
@@ -67,6 +69,8 @@ export interface Repositories {
   memoryQueue: MemoryQueue;
   /** F20260826rcmm Phase 0：检索埋点（评估基线数据源） */
   searchQueryLog: SearchQueryLogRepository;
+  /** P2b1：夜间审视治量状态（幂等键 + 失败区间 + 连败计数） */
+  consolidationState: ConsolidationStateRepository;
   terminology: TerminologyRepository;
   conversation: ConversationRepository;
   settings: SettingsRepository;
@@ -113,6 +117,8 @@ export interface UseCases {
   transitionBelief: TransitionBelief;
   /** F20261118bltls P1c：belief supersede（标记过期/新取代旧 + 建边 + TOCTOU 防护） */
   supersedeBelief: SupersedeBelief;
+  /** P2b1：夜间审视治量状态管理（claim/complete/recordFailure） */
+  manageConsolidationState: ManageConsolidationState;
   createEdge: CreateEdge;
   getRelated: GetRelated;
   deleteEdge: DeleteEdge;

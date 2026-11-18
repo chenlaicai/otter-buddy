@@ -5,6 +5,7 @@ import { SqliteOtterContextRepository } from "@frameworks/db/otter/sqlite-otter-
 import { SqliteMemoryRepository } from "@frameworks/db/memory/sqlite-memory-repository";
 import { SqliteSearchQueryLogRepository } from "@frameworks/db/memory/sqlite-search-query-log-repository";
 import { SqliteTerminologyRepository } from "@frameworks/db/memory/sqlite-terminology-repository";
+import { SqliteConsolidationStateRepository } from "@frameworks/db/memory/sqlite-consolidation-state-repository";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import { SqliteSettingsRepository } from "@frameworks/db/settings/sqlite-settings-repository";
 import { SqliteFeatureRepository } from "@frameworks/db/document/sqlite-feature-repository";
@@ -48,6 +49,8 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     memoryWriter: memoryRepo,
     memoryQueue: memoryRepo,
     searchQueryLog: new SqliteSearchQueryLogRepository(db),
+    /** P2b1：夜间审视治量状态（consolidation_state 表） */
+    consolidationState: new SqliteConsolidationStateRepository(db),
     terminology: new SqliteTerminologyRepository(db),
     conversation: new SqliteConversationRepository(db, logger),
     settings: new SqliteSettingsRepository(db),

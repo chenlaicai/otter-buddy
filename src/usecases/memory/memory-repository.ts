@@ -15,6 +15,7 @@ import type {
   MemoryContentType,
 } from "@entities/memory/memory-entry";
 import type { MemoryEdge, EdgeType } from "@entities/memory/memory-edge";
+import type { BeliefStatus } from "@entities/memory/belief";
 import type { EmbedModelMeta } from "./embedding-gateway";
 import type { SearchFilters, FTSHit, SnippetHit, VecHit, DarkEntry } from "./memory-types";
 
@@ -164,6 +165,15 @@ export interface MemoryRepository {
    * 检索端 stale 降权 + 标注用。
    */
   getSupersededBy(entryIds: string[]): Promise<Map<string, string>>;
+
+  /**
+   * P2b1：按状态 + 时间闭区间列 belief（镜像 MemoryReader 同款）。
+   */
+  listBeliefsByStatus(
+    status: BeliefStatus,
+    after: string,
+    through: string,
+  ): Promise<MemoryEntry[]>;
 
   /** 删除一条边（unlink_memory 纠错用） */
   deleteEdge(edgeId: string): Promise<void>;

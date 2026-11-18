@@ -22,6 +22,7 @@ import { RecordBelief } from "@usecases/memory/record-belief";
 import { TransitionBelief } from "@usecases/memory/transition-belief";
 import { SupersedeBelief } from "@usecases/memory/supersede-belief";
 import { StoreMemory } from "@usecases/memory/store-memory";
+import { ManageConsolidationState } from "@usecases/memory/manage-consolidation-state";
 import { QueryMessage } from "@usecases/conversation/query-message";
 import { RecordSearchQuery } from "@usecases/memory/record-search-query";
 import { ManageReadState } from "@usecases/conversation/manage-read-state";
@@ -67,7 +68,7 @@ export interface UseCaseDeps {
 export function initUseCases(deps: UseCaseDeps): UseCases {
   const { repos, entryRepo, invokeRepo, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway, otterConfigProvider, modelPool } = deps;
   const memoryUcs = buildMemoryUseCases(repos, embeddingService, appConfig, logger);
-  const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief } = memoryUcs;
+  const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief, manageConsolidationState } = memoryUcs;
   // F20260913ctlv 彻底切换：未读状态读 entries
   const queryMessage = new QueryMessage(repos.conversation, entryRepo);
   // F20260826rcmm Phase 0：检索埋点（评估基线数据源）
@@ -135,6 +136,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     webAssistantProvisioner,
     createEdge, getRelated, deleteEdge, getDocProvenance,
     recordBelief, transitionBelief, supersedeBelief,
+    manageConsolidationState,
     attachmentUpload,
     manageWorkspace,
     sendEntry,
@@ -233,7 +235,10 @@ function buildMemoryUseCases(
     getEntryById: (id) => repos.memoryReader.getById(id),
   }, transitionBelief);
 
-  return { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief };
+  // P2b1：夜间审视治量状态管理（P2b2 调度编排消费）
+  const manageConsolidationState = new ManageConsolidationState(repos.consolidationState);
+
+  return { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief, manageConsolidationState };
 }
 
 /** SendEntry 装配（拆出降 initUseCases 行数——max-lines-per-function 60） */
