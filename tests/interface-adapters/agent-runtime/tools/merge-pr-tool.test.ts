@@ -68,8 +68,20 @@ function findMergePr(ctx: ToolContext, logger?: Logger) {
 /** gh 调用编排：view 返回 {state,createdAt} JSON（#1431：checkPrMergeable 拉 state,createdAt 供时间窗校验）；merge 返回成功。
  *  DEFAULT_PR_CREATED_AT 早于 DEFAULT_USER_ENTRIES 全部消息时间——既有放行用例在时间窗下不回归。 */
 const DEFAULT_PR_CREATED_AT = '2026-09-22T02:00:00.000Z';
-function stubGh(state: string, prCreatedAt = DEFAULT_PR_CREATED_AT, mergeStdout = 'Merged PR #1095') {
+function stubGh(state: string, prCreatedAt = DEFAULT_PR_CREATED_AT, mergeStdout = 'Merged PR #1095', reviewClosureExit = 0) {
   execFileMock.mockImplementation((cmd: string, args: string[], _opts: unknown, cb: (e: Error | null, r?: { stdout: string; stderr: string }) => void) => {
+    // F20261118rvcls：检视闭环闸脚本调用（node scripts/check-pr-review-closure.mjs --pr-number <n>）
+    if (cmd === 'node' && String(args[0]).includes('check-pr-review-closure')) {
+      if (reviewClosureExit === 0) cb(null, { stdout: '✅ 检视闭环', stderr: '' });
+      else {
+        // 模拟真实 execFile：exit 非零时 error 对象带 stdout/stderr 属性
+        const err = new Error(`Command failed: exit ${reviewClosureExit}`) as Error & { stdout?: string; stderr?: string };
+        err.stdout = '';
+        err.stderr = '❌ 检视断环（status=head_not_covered）：\n   - 当前 head 无检视覆盖';
+        cb(err, { stdout: '', stderr: err.stderr });
+      }
+      return;
+    }
     if (args[1] === 'view') cb(null, { stdout: JSON.stringify({ state, createdAt: prCreatedAt }), stderr: '' });
     else if (args[1] === 'merge') cb(null, { stdout: `${mergeStdout}\n`, stderr: '' });
     else cb(new Error(`unexpected gh args: ${args.join(' ')}`));
@@ -144,6 +156,16 @@ describe('F20260922pmgd merge_pr 工具（PR 合入搭档授权闸）', () => {
     const tool = findMergePr(makeCtx());
     const bad = await tool.execute('t6', { prNumber: -1, partnerApproval: '合吧' });
     expect(JSON.stringify(bad)).toContain('正整数');
+  });
+
+  it('F20261118rvcls 检视闭环闸：判定器断环（exit 1）→ 拒绝合入不 merge', async () => {
+    stubGh('OPEN', DEFAULT_PR_CREATED_AT, 'Merged PR #1095', 1);
+    const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
+    const tool = findMergePr(makeCtx(linkMock));
+    const result = await tool.execute('t7', { prNumber: 1095, partnerApproval: '1095合入，你更新下', strategy: 'squash' });
+    expect(JSON.stringify(result)).toContain('检视闭环闸拒绝合入');
+    expect(JSON.stringify(result)).toContain('head_not_covered');
+    expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
   });
 });
 

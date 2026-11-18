@@ -1126,6 +1126,56 @@ function checkApprovalGates(
   return null;
 }
 
+/** F20261118rvcls：检视闭环闸——merge_pr 执行前 call scripts/check-pr-review-closure.mjs fail-closed。
+ *  断环（exit 1）与拒判（exit 2）均拒绝合入；脚本输出缺口描述回显供搭档/大獭补环。
+ *  与授权原话闸并列：授权闸保「人点头」，闭环闸保「当前版本被独立检视过」。 */
+async function checkReviewClosureOnPr(prNumber: number): Promise<{ terminal?: ReturnType<typeof errorResponse> }> {
+  try {
+    await execFileAsync(
+      "node",
+      ["scripts/check-pr-review-closure.mjs", "--pr-number", String(prNumber)],
+      { timeout: 60_000, maxBuffer: 1024 * 1024 },
+    );
+    return {}; // exit 0 = 闭环放行
+  } catch (err) {
+    const e = err as { code?: number | string; stdout?: string; stderr?: string };
+    const output = String(e.stderr || e.stdout || "").trim();
+    const brief = output.split("\n").slice(0, 6).join("\n");
+    return {
+      terminal: errorResponse(
+        `[错误] 检视闭环闸拒绝合入（fail-closed）：PR #${prNumber} 当前 head 未持有有效独立检视通过回执。` +
+        `请补 delta 复核（检视者覆盖当前 head 的通过回执）或搭档显式豁免后重试。\n${brief}`,
+      ),
+    };
+  }
+}
+
+/** 授权通过后的合入执行段（F20261118rvcls 抽出控 execute 复杂度）——检视闭环闸 → 审计 → merge。 */
+async function performMerge(
+  ctx: ToolContext,
+  logger: Logger | undefined,
+  info: {
+    prNumber: number;
+    strategy: string;
+    partnerApproval: string;
+    approvalAnchor: { id: string; sequenceNum: number; createdAt: string; body?: string };
+  },
+): Promise<ToolResponse> {
+  const { prNumber, strategy, partnerApproval, approvalAnchor } = info;
+  // F20261118rvcls：检视闭环闸（授权通过后、合入执行前）——当前 head 必须被独立检视回执覆盖。
+  const closureCheck = await checkReviewClosureOnPr(prNumber);
+  if (closureCheck.terminal) return closureCheck.terminal;
+  // 审计先落（执行失败也留有授权依据记录），再执行合入。
+  // 工具内部 exec 通道——不过 bash 守卫，与 halt_otter 等管理工具同型。
+  await writeMergeAudit(ctx, logger, { prNumber, strategy, partnerApproval, approvalAnchor });
+  try {
+    const { stdout } = await execFileAsync("gh", ["pr", "merge", String(prNumber), `--${strategy}`], { timeout: 60_000 });
+    return textResponse(`PR #${prNumber} 已合入（${strategy}）。${stdout.trim()}\n审计：授权原话已落 linked_resources（category=merge-authorization）+ 日志`);
+  } catch (err) {
+    return errorResponse(`[错误] 合入 PR #${prNumber} 失败：${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
   return {
     name: "merge_pr",
@@ -1177,15 +1227,13 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
         });
         return errorResponse(gateRejection.userMessage);
       }
-      // 审计先落（执行失败也留有授权依据记录），再执行合入。
-      // 工具内部 exec 通道——不过 bash 守卫，与 halt_otter 等管理工具同型。
-      await writeMergeAudit(ctx, logger, { prNumber, strategy, partnerApproval, approvalAnchor: approvalCheck.hit });
-      try {
-        const { stdout } = await execFileAsync("gh", ["pr", "merge", String(prNumber), `--${strategy}`], { timeout: 60_000 });
-        return textResponse(`PR #${prNumber} 已合入（${strategy}）。${stdout.trim()}\n审计：授权原话已落 linked_resources（category=merge-authorization）+ 日志`);
-      } catch (err) {
-        return errorResponse(`[错误] 合入 PR #${prNumber} 失败：${err instanceof Error ? err.message : String(err)}`);
-      }
+      // F20261118rvcls：检视闭环闸 → 审计 → merge（抽出控 execute 复杂度）。
+      return performMerge(ctx, logger, {
+        prNumber,
+        strategy,
+        partnerApproval,
+        approvalAnchor: approvalCheck.hit,
+      });
     },
   };
 }
