@@ -147,17 +147,36 @@ export class DurableSession {
     }
     const change = session.agentChange();
     session.conversation = await session.harness.root(options.context, { agent: change });
-    // harness.root 只在 root conversation 首次创建时应用 agent（重开直接返回）。因此重开时只 configure 会变字段
-    // （model/thinkingLevel/extensions/cwd），不重置 tools/modelTools——全量 configure 会覆盖 tool_search 已持久化的
-    // addTools 加载（冷启动重开后 deferred 工具 not available）。MCP extraTools 已在本方法前段加载并安装进 registry。
-    await session.conversation.configure({
+    await session.reconcileToolsAfterReopen(change, options.context);
+    await session.recoverAfterReopen();
+    return session;
+  }
+
+  // harness.root 只在 root conversation 首次创建时应用 agent（重开直接返回），因此重开必须自己在 configure 里
+  // 把 tools/modelTools 对账到当前配置：direct 白名单与 modelTools 基底随工作区 MCP 配置而变，只 configure 会变
+  // 字段会留下旧 state.tools/modelTools——同一个持久库从 direct-only MCP 变为 deferred MCP 时，重开得到
+  // offered/deferred 双双为空且没有 tool_search。
+  // 但不能无条件全量覆盖：上一 session 已通过 tool_search 加载的 deferred 工具名持久化在 state.tools 白名单里，
+  // 粗暴重置会让冷启动重开后这些工具重新 not available。对账规则：resolved agent 里「已 offer 且 deferred」
+  // 的工具 = 已加载且当前仍为 deferred 的工具，把它们并回当前 direct 白名单与 modelTools 基底——刷新配置面，
+  // 同时保留合法加载。prompt() 轮内不再 configure，该加载在会话内不会被任何 configure 抹掉。
+  private async reconcileToolsAfterReopen(change: AgentChange, context: Context): Promise<void> {
+    const before = await this.conversation.agent(context);
+    const loadedDeferred = before.tools.filter(tool => tool.deferred === true);
+    const tools = Array.isArray(change.tools) ? [...change.tools] : [];
+    const modelToolsAdd = change.modelTools && "add" in change.modelTools ? [...(change.modelTools.add ?? [])] : [];
+    for (const tool of loadedDeferred) {
+      if (!tools.some(t => t.name === tool.name)) tools.push(tool);
+      if (!modelToolsAdd.some(t => t.name === tool.name)) modelToolsAdd.push(tool);
+    }
+    await this.conversation.configure({
       model: change.model,
       ...(change.thinkingLevel ? { thinkingLevel: change.thinkingLevel } : {}),
       extensions: change.extensions,
+      tools,
+      modelTools: { add: modelToolsAdd },
       cwd: change.cwd,
-    }, options.context);
-    await session.recoverAfterReopen();
-    return session;
+    }, context);
   }
 
   private async ensureDir(): Promise<void> {

@@ -292,3 +292,55 @@ describe("#1894: tool_search deferred 加载与清单一致性", () => {
     await session.close(BACKGROUND_CONTEXT);
   });
 });
+
+describe("#1894: 同库 MCP 配置迁移重建", () => {
+  it("direct-only MCP 重开改为 deferred MCP 后 tool_search 与 deferred 面重建（检视 delta 3 严重发现回归）", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "otter-deferred-"));
+    const file = path.join(dir, "session.sqlite");
+    const directMcpTools: ToolRegistration[] = [defineTool<any>({
+      name: "mcp__fake__direct",
+      description: "[MCP fake] direct 工具",
+      parameters: { type: "object", properties: {} },
+      replay: "unsafe",
+      execute: async () => ({ output: [{ type: "text", text: "direct-ok" }] }),
+    })];
+    const first = await openSession({
+      file,
+      responses: [fauxAssistantMessage("idle")],
+      customTools: [],
+      toolExposure: {},
+      mcp: { registrations: async () => directMcpTools, instructions: () => "", close: async () => {} },
+    });
+    await first.session.close(BACKGROUND_CONTEXT);
+
+    const deferredMcpTools: ToolRegistration[] = [defineTool<any>({
+      name: "mcp__fake__echo",
+      description: "[MCP fake] echo 工具",
+      parameters: { type: "object", properties: { text: { type: "string" } } },
+      replay: "unsafe",
+      deferred: true,
+      execute: async () => ({ output: [{ type: "text", text: "echo-ok" }] }),
+    })];
+    const second = await openSession({
+      file,
+      responses: [
+        fauxAssistantMessage([fauxToolCall("tool_search", { query: "echo" }, { id: "search-1" })], { stopReason: "toolUse" }),
+        fauxAssistantMessage("done"),
+      ],
+      customTools: [],
+      toolExposure: {},
+      mcp: { registrations: async () => deferredMcpTools, instructions: () => "", close: async () => {} },
+    });
+    // 修复前：旧 state.tools/modelTools 残留 direct 白名单，重开后 offered/deferred 双双为空且无 tool_search，
+    // deferred MCP 无法被发现或调用。修复后：tool_search 重入 offered 面，旧 direct 工具被清出，deferred MCP 可检索。
+    const agent = await second.session.agentView(BACKGROUND_CONTEXT);
+    expect(agent.tools.some(t => t.name === "tool_search")).toBe(true);
+    expect(agent.tools.some(t => t.name === "mcp__fake__direct")).toBe(false);
+    await second.session.prompt("search echo", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
+    const ctx = await second.session.rawContext(BACKGROUND_CONTEXT);
+    const toolResult = ctx.entries.find(e => e.kind === "pi.tool-result");
+    const content = (toolResult as { model?: Array<{ content?: Array<{ type?: string; text?: string }> }> }).model?.[0]?.content?.[0]?.text ?? "";
+    expect(content).toContain("mcp__fake__echo");
+    await second.session.close(BACKGROUND_CONTEXT);
+  });
+});

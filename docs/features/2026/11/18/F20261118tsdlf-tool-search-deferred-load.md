@@ -7,14 +7,14 @@ created_in_conversation: a23f0f4a-612c-46e9-8d83-be648ced720e
 modules:
   - src/frameworks/agent/durable-session.ts
   - src/frameworks/agent/durable-tool-search.ts
-summary: "#1894：tool_search 返回 loaded 后实际调用报 not available（healing event 058d8ea2）。根因：open() 与 prompt() 都全量 configure(agentChange())，把 state.tools 重置为初始激活集、覆盖 addTools 加载的 deferred 工具（当 invoke toolsAdded、下 invoke/冷启动重开 toolsRemoved），调用报 tool_unavailable；且 DurableToolSearch 候选集只含 customTools 全集（含 direct）、漏 deferred MCP。修法 decision-tree ①：open()/prompt() 不再全量 configure（初始配置由 harness.root 首次创建时写入）；DurableToolSearch 候选集改 getter，收 deferred customTools + deferred MCP extraTools，对齐 SDK candidates=agent.deferred。"
+summary: "#1894：tool_search 返回 loaded 后实际调用报 not available（healing event 058d8ea2）。根因：open() 与 prompt() 全量 configure 覆盖 addTools 加载的 deferred 工具（当 invoke toolsAdded、下 invoke/冷启动重开 toolsRemoved）；DurableToolSearch 候选集漏 deferred MCP。修法：prompt() 不再每轮 configure；open() 重开 configure 会变字段并对 tools/modelTools 对账（重建 direct 白名单、保留仍 deferred 的已加载工具，同库 MCP direct→deferred 迁移不再落空）；候选集改 getter 收 deferred customTools + MCP。"
 tags: [tool-search, deferred, durable-session, bugfix, P2]
 intent:
   problem: "tool_search 的 loaded 清单与实际可调用状态脱钩：加载的 deferred 工具在下一 invoke 报 not available（跨 invoke 失效），direct 工具被误列进 loaded（清单虚报）。獭按 loaded 清单规划工作后撞墙，#1894 实证 manage_scheduled_task_pending 两次调用 not available，2 条 pending 定时任务最终靠机械释放兜底。"
-  expected_effect: "修复后：tool_search 命中 deferred 工具并 addTools 后，该工具在当前 invoke、后续 invoke、冷启动重开同一 durable 库后均可调用（open()/prompt() 不再全量 configure，但重开时仍刷新 model/thinkingLevel/extensions/cwd，不重置 tools/modelTools）；loaded 清单只含 deferred 工具（direct 不虚报），deferred MCP 工具进入检索面（含 MCP-only）；direct-only MCP 不注册空候选 tool_search。回归测试 tests/frameworks/agent/tool-search-deferred.test.ts 覆盖八条路径。"
+  expected_effect: "修复后：tool_search 命中 deferred 工具并 addTools 后，该工具在当前 invoke、后续 invoke、冷启动重开同一 durable 库后均可调用（prompt() 不再每轮 configure；open() 重开时刷新 model/thinkingLevel/extensions/cwd，并对 tools/modelTools 对账——重建 direct 白名单、保留仍为 deferred 的已加载工具，同库 MCP direct→deferred 迁移后 tool_search 重入 offered 面）；loaded 清单只含 deferred 工具（direct 不虚报），deferred MCP 工具进入检索面（含 MCP-only）；direct-only MCP 不注册空候选 tool_search。回归测试 tests/frameworks/agent/tool-search-deferred.test.ts 覆盖九条路径。"
   verify_by:
     type: behavior_check
-    note: "tests/frameworks/agent/tool-search-deferred.test.ts 8 用例：同 prompt 与跨 prompt 调用 deferred 工具均执行；冷启动重开不加 tool_unavailable；direct 不被搜进 loaded；deferred MCP 命中；MCP-only 也注册 tool_search；model/thinkingLevel/cwd 重开刷新；direct-only MCP 不注册 tool_search。全量 tests/frameworks/agent + tests/interface-adapters/agent-runtime 95 文件 954 用例全绿。"
+    note: "tests/frameworks/agent/tool-search-deferred.test.ts 9 用例：同 prompt 与跨 prompt 调用 deferred 工具均执行；冷启动重开不加 tool_unavailable；direct 不被搜进 loaded；deferred MCP 命中；MCP-only 也注册 tool_search；model/thinkingLevel/cwd 重开刷新；direct-only MCP 不注册 tool_search；同库 direct-only MCP 重开改为 deferred MCP 后 tool_search 与 deferred 面重建。全量 tests/frameworks/agent + tests/interface-adapters/agent-runtime 95 文件 955 用例全绿。"
 capability_test: "n/a：纯代码 bugfix（会话层 configure 时序 + tool_search 候选集过滤），不新增/修改 prompt 指令与模型行为面，不需要 capability 回归。"
 ---
 
@@ -67,11 +67,14 @@ pi.tool-result          [error] Tool add_terminology is not available
 
 ## 修法（decision-tree ① narrow-fix，既有语义内修）
 
-1. **open()/prompt() 不再全量 configure**（`durable-session.ts`）：初始 tools/modelTools 只由
+1. **open() 重开对账 + prompt() 不再 configure**（`durable-session.ts`）：初始 tools/modelTools 由
    `harness.root({agent})` 在 root conversation 首次创建时写入；prompt() 完全不再 configure。
-   open() 重开时只 configure 会变字段（`model/thinkingLevel/extensions/cwd`），不重置 tools/modelTools——
-   这样既保留 addTools 加载（冷启动重开不 not available），又让 restart/冷启动重新解析的新模型与新
-   工作区写入 AgentDoc（检视 delta 发现 1：模型切换/新 cwd 生效）。
+   open() 重开时先 configure 会变字段（`model/thinkingLevel/extensions/cwd`），再对 tools/modelTools
+   对账——从 resolved agent 取出「已 offer 且 deferred === true」的工具（= 已加载且当前仍为 deferred 的
+   合法加载），把它们并回当前 direct 白名单与 modelTools 基底。这样既保留 addTools 加载（冷启动重开不
+   not available），又让同库 MCP 配置从 direct-only 变为 deferred 后 tool_search 与 deferred 面重建
+   （旧 direct 白名单不再残留，检视 delta 严重发现）；restart/冷启动重新解析的新模型与新工作区也写入
+   AgentDoc（检视 delta 发现 1：模型切换/新 cwd 生效）。
 2. **DurableToolSearch 候选集改为 getter**：`durable-session.ts` 传 `() => [deferred customTools
    ∪ deferred MCP extraTools]`——MCP extraTools 在 open() 阶段才就位，构造时固定数组会漏掉它们；
    `durable-tool-search.ts` 构造签名从 `LegacyTool[]` 改为 `() => ReadonlyArray<ToolSearchCandidate>`。
@@ -96,7 +99,7 @@ pi.tool-result [{"type":"text","text":"<harness>\n[error] Tool add_terminology i
 **修复后通过输出**：
 
 ```text
-✓ tests/frameworks/agent/tool-search-deferred.test.ts (8 tests)
+✓ tests/frameworks/agent/tool-search-deferred.test.ts (9 tests)
   同一 prompt 内 tool_search 加载后下一轮可调用 deferred 工具        ✓
   跨 prompt（下一 invoke）调用已加载 deferred 工具仍可执行          ✓
   冷启动重开同一 durable 库后已加载 deferred 工具仍可调用          ✓
@@ -105,11 +108,13 @@ pi.tool-result [{"type":"text","text":"<harness>\n[error] Tool add_terminology i
   MCP-only session 也注册 tool_search 并可检索 deferred MCP        ✓
   重开时 model/thinkingLevel/cwd 刷新生效，已加载 deferred 仍可调  ✓
   direct-only MCP 不注册空候选 tool_search                         ✓
+  同库 direct-only MCP 重开改为 deferred MCP 后工具面重建           ✓
 ```
 
 **复现步骤**：`npx vitest run tests/frameworks/agent/tool-search-deferred.test.ts`——
 该文件用 fauxProvider 模拟模型调用（tool_search → deferred 工具），覆盖同 prompt/跨 prompt/
-冷启动重开/direct 排除/deferred MCP/MCP-only/model 重开刷新/direct-only 排除八条路径。
+冷启动重开/direct 排除/deferred MCP/MCP-only/model 重开刷新/direct-only 排除/MCP direct→deferred
+同库迁移九条路径。
 
-回归面：`tests/frameworks/agent` + `tests/interface-adapters/agent-runtime` 95 文件 953 用例全绿；
+回归面：`tests/frameworks/agent` + `tests/interface-adapters/agent-runtime` 95 文件 955 用例全绿；
 `npx eslint .` 与 `npx tsc --noEmit` 通过。
