@@ -286,3 +286,45 @@ describe("lint-skills 校验 9（F20260903 拆解后引用规范）", () => {
     }
   });
 });
+
+describe("lint-skills 校验 10（F20261118arbwp 禁用语节 ratchet）", () => {
+  /** 构造含「### 禁用语」节的 adversarial-review skill body。 */
+  function bannedBody(section: string): string {
+    return ["# Adversarial Review", "", "## 工作流", "", "1. 做事。", "", section].join("\n") + "\n";
+  }
+  const OK = [
+    "### 禁用语",
+    "",
+    '- "可以合入"、"LGTM"',
+    '- "不阻塞"、"均不阻塞"、"非阻塞"、"可接受"、"零成本"、"不构成合入建议"',
+    "",
+    "> **兜底原则——枚举仅为示例，不是完整清单**：凡暗示「是否合入」「是否阻塞」的定性措辞一律不得输出。",
+  ].join("\n");
+
+  it("合规：词项 + 兜底完整语义齐全 → 通过", () => {
+    const r = runLint({ "adversarial-review": { body: bannedBody(OK) } });
+    expect(r.exitCode).toBe(0);
+    expect(r.output).not.toContain("禁用语节");
+  });
+
+  it("发现 1 反例：删独立词项「不阻塞」（其余子串兑住）→ error", () => {
+    const section = OK.replace('"不阻塞"、', "");
+    const r = runLint({ "adversarial-review": { body: bannedBody(section) } });
+    expect(r.exitCode).toBe(1);
+    expect(r.output).toContain('禁用语节缺词项 "不阻塞"');
+  });
+
+  it("发现 1 反例：标题加后缀「### 禁用语（历史说明）」→ error", () => {
+    const section = OK.replace("### 禁用语", "### 禁用语（历史说明）");
+    const r = runLint({ "adversarial-review": { body: bannedBody(section) } });
+    expect(r.exitCode).toBe(1);
+    expect(r.output).toContain("未找到「### 禁用语」节");
+  });
+
+  it("发现 1 反例：兜底语义删减（只留标记字样）→ error", () => {
+    const section = OK.replace("不是完整清单", "");
+    const r = runLint({ "adversarial-review": { body: bannedBody(section) } });
+    expect(r.exitCode).toBe(1);
+    expect(r.output).toContain("兜底原则语义不完整");
+  });
+});
