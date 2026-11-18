@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { SearchEngine } from "@usecases/memory/search-engine";
-import type { SearchEngineConfig } from "@usecases/memory/search-engine";
+import {
+  SearchEngine,
+  normalizeRrfPool,
+  normalizeFrequency,
+  normalizeRerankWeights,
+} from "@usecases/memory/search-engine";
+import type { SearchEngineConfig, RrfHit } from "@usecases/memory/search-engine";
 import type { MemoryEntry, MemoryWeight } from "@entities/memory/memory-entry";
 import type { FTSHit, VecHit } from "@usecases/memory/memory-repository";
 
@@ -525,5 +530,131 @@ describe("F20260917cvid: 本对话来源加权（currentConversationBoost）", (
     const plain = engine.rerank(hits, new Map());
     expect(withUndef[0].finalScore).toBeCloseTo(plain[0].finalScore, 10);
     vi.useRealTimers();
+  });
+});
+
+describe("SearchEngine - Phase 1 段 1：归一化纯函数与加法融合路径", () => {
+  describe("normalizeRrfPool（池内 min-max）", () => {
+    it("空池返回空数组", () => {
+      expect(normalizeRrfPool([])).toEqual([]);
+    });
+
+    it("单候选池记 1.0", () => {
+      expect(normalizeRrfPool([0.42])).toEqual([1.0]);
+    });
+
+    it("全并列退化为常量 1.0（单调变换，排序与 raw RRF 一致）", () => {
+      expect(normalizeRrfPool([0.3, 0.3, 0.3])).toEqual([1.0, 1.0, 1.0]);
+    });
+
+    it("min-max 线性映射到 [0,1]，极值锚定 0/1", () => {
+      const norm = normalizeRrfPool([0.1, 0.5, 0.3]);
+      expect(norm[0]).toBe(0);
+      expect(norm[1]).toBe(1);
+      expect(norm[2]).toBeCloseTo(0.5, 12);
+    });
+  });
+
+  describe("normalizeFrequency（饱和截断 CAP=log(1+countCap)）", () => {
+    it("0 次检索归一为 0", () => {
+      expect(normalizeFrequency(0, 10)).toBe(0);
+    });
+
+    it("达到 countCap 时饱和为 1", () => {
+      expect(normalizeFrequency(10, 10)).toBeCloseTo(1, 12);
+    });
+
+    it("超过 countCap 截断为 1（不随检索数无界增长）", () => {
+      expect(normalizeFrequency(100, 10)).toBeCloseTo(1, 12);
+    });
+  });
+
+  describe("normalizeRerankWeights（连续权重和归一）", () => {
+    it("权重和已为 1 时不变", () => {
+      const w = normalizeRerankWeights({ wRrf: 0.6, wTime: 0.3, wFreq: 0.1, bUserFlag: 0.05, bConv: 0.05, freqCap: 10 });
+      expect(w.wRrf).toBeCloseTo(0.6, 12);
+      expect(w.wTime).toBeCloseTo(0.3, 12);
+      expect(w.wFreq).toBeCloseTo(0.1, 12);
+      expect(w.bUserFlag).toBe(0.05);
+      expect(w.bConv).toBe(0.05);
+    });
+
+    it("权重和≠1 时按比例归一（不静默采用坏配置）", () => {
+      const w = normalizeRerankWeights({ wRrf: 2, wTime: 1, wFreq: 1, bUserFlag: 0, bConv: 0, freqCap: 10 });
+      expect(w.wRrf).toBeCloseTo(0.5, 12);
+      expect(w.wTime).toBeCloseTo(0.25, 12);
+      expect(w.wFreq).toBeCloseTo(0.25, 12);
+    });
+
+    it("权重和为 0（纯偏置配置）时不做除法", () => {
+      const w = normalizeRerankWeights({ wRrf: 0, wTime: 0, wFreq: 0, bUserFlag: 0.1, bConv: 0.1, freqCap: 10 });
+      expect(w.wRrf).toBe(0);
+      expect(w.wTime).toBe(0);
+      expect(w.wFreq).toBe(0);
+      expect(w.bUserFlag).toBe(0.1);
+    });
+  });
+
+  describe("rerankAdditive（加法融合）", () => {
+    function makeRrfHit(id: string, rrfScore: number, conversationId: string | null): RrfHit {
+      return {
+        entryId: id,
+        rrfScore,
+        source: "fts",
+        entry: makeEntry({ id, conversationId, createdAt: "2026-09-20T00:00:00Z" }),
+      };
+    }
+
+    it("全中性化矩阵（w_rrf=1 其余 0）下，finalScore = norm(rrf)，排序与 raw RRF 一致", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-20T00:00:00Z"));
+      try {
+        const engine = new SearchEngine({
+          ...TEST_CONFIG,
+          rerankMode: "additive",
+          rerank: { wRrf: 1, wTime: 0, wFreq: 0, bUserFlag: 0, bConv: 0, freqCap: 10 },
+        });
+        const hits = new Map<string, RrfHit>([
+          ["low", makeRrfHit("low", 0.1, null)],
+          ["high", makeRrfHit("high", 0.5, null)],
+          ["mid", makeRrfHit("mid", 0.3, null)],
+        ]);
+        const result = engine.rerankAdditive(hits, new Map());
+        const scores = new Map(result.map(r => [r.entryId, r.finalScore]));
+        // 全中性：norm(rrf) = min-max(rrf)，排序与 raw rrf 一致
+        expect(scores.get("low")).toBe(0);
+        expect(scores.get("high")).toBe(1);
+        expect(scores.get("mid")).toBeCloseTo(0.5, 12);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("偏置项只做加法抬升：flag/同对话 +b，不参与连续权重", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-09-20T00:00:00Z"));
+      try {
+        const engine = new SearchEngine({
+          ...TEST_CONFIG,
+          rerankMode: "additive",
+          rerank: { wRrf: 1, wTime: 0, wFreq: 0, bUserFlag: 0.1, bConv: 0.2, freqCap: 10 },
+        });
+        const hits = new Map<string, RrfHit>([
+          ["plain", makeRrfHit("plain", 0.5, null)],
+          ["flagged", makeRrfHit("flagged", 0.5, null)],
+          ["conv", makeRrfHit("conv", 0.5, "conv-A")],
+        ]);
+        const weights = new Map<string, MemoryWeight>([
+          ["flagged", { memoryEntryId: "flagged", retrievalCount: 0, lastRetrievedAt: null, userFlagged: true }],
+        ]);
+        const result = engine.rerankAdditive(hits, weights, "conv-A");
+        const score = (id: string) => result.find(r => r.entryId === id)!.finalScore;
+        expect(score("plain")).toBeCloseTo(1, 10); // 三候选同分 → 全并列常量 1.0
+        expect(score("flagged")).toBeCloseTo(1 + 0.1, 10);
+        expect(score("conv")).toBeCloseTo(1 + 0.2, 10);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

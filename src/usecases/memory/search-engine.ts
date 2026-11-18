@@ -4,6 +4,51 @@ import type { RetrievalSource, FTSHit, VecHit } from "./memory-types";
 /** F20260902rcp1: document 层条目类型——半衰期分层与层配额共用此集合（导出供 search-memory debug 注入复用） */
 export const DOCUMENT_CONTENT_TYPES = new Set(["feature", "research", "feature_chunk", "research_chunk"]);
 
+/** F20261112rnkph Phase 1：rerank 融合模式。multiply=五信号连乘（现状），additive=归一化加法融合。 */
+export type RerankMode = "multiply" | "additive";
+
+/** F20261112rnkph Phase 1：加法融合系数与偏置（隐微权重和为 1，见 normalizeRerankWeights）。 */
+export interface RerankWeights {
+  wRrf: number;
+  wTime: number;
+  wFreq: number;
+  bUserFlag: number;
+  bConv: number;
+  /** frequency 饱和截断的检索次数上限，归一化口径 CAP=log(1+freqCap) */
+  freqCap: number;
+}
+
+/** F20261112rnkph 方案 1：RRF 候选池内 min-max 归一化。
+ *  单候选池与全并列退化为常量 1.0（单调变换，排序与 raw RRF 一致）。 */
+export function normalizeRrfPool(scores: number[]): number[] {
+  if (scores.length === 0) return [];
+  if (scores.length === 1) return [1.0];
+  const min = Math.min(...scores);
+  const max = Math.max(...scores);
+  if (max === min) return scores.map(() => 1.0);
+  return scores.map(x => (x - min) / (max - min));
+}
+
+/** F20261112rnkph 方案 1：frequency 饱和截断归一化——min(log(1+n), CAP)/CAP，CAP=log(1+countCap)。 */
+export function normalizeFrequency(retrievalCount: number, countCap = 10): number {
+  const cap = Math.log(1 + countCap);
+  return Math.min(Math.log(1 + retrievalCount), cap) / cap;
+}
+
+/** F20261112rnkph 方案 2：连续权重 w_rrf+w_time+w_freq 归一化为 1（比例归一，防坏配置静默采用）。
+ *  和为 0（纯偏置配置）时不做除法，原样返回。 */
+export function normalizeRerankWeights(weights: RerankWeights): RerankWeights {
+  const sum = weights.wRrf + weights.wTime + weights.wFreq;
+  if (sum <= 0) return weights;
+  const factor = 1 / sum;
+  return {
+    ...weights,
+    wRrf: weights.wRrf * factor,
+    wTime: weights.wTime * factor,
+    wFreq: weights.wFreq * factor,
+  };
+}
+
 export interface SearchEngineConfig {
   rrfK: number;
   /** Vec 权重（0-1），0=纯 FTS，1=纯 Vec，默认 0.4（偏信任 FTS） */
@@ -23,7 +68,21 @@ export interface SearchEngineConfig {
   weightHalfLifeDaysDocument: number;
   userFlagMultiplier: number;
   frequencyBoostFactor: number;
+  /** F20261112rnkph Phase 1：rerank 融合模式，缺省 multiply（段 1 零默认变更）。缺省在构造时回填。 */
+  rerankMode?: RerankMode;
+  /** F20261112rnkph Phase 1：加法融合系数（wRrf/wTime/wFreq 连续权重隐微和为 1，运行时在 rerankAdditive 内比例归一）。缺省在构造时回填。 */
+  rerank?: RerankWeights;
 }
+
+/** F20261112rnkph Phase 1：加法融合系数缺省（设计回填，段 1 不切默认；标定后段 3 再写回）。 */
+export const DEFAULT_RERANK_WEIGHTS: RerankWeights = {
+  wRrf: 0.6,
+  wTime: 0.3,
+  wFreq: 0.1,
+  bUserFlag: 0.05,
+  bConv: 0.05,
+  freqCap: 10,
+};
 
 export interface RrfHit {
   entryId: string;
@@ -54,7 +113,17 @@ export interface ScoredHit {
  *     × conversation_boost // F20260917cvid: 本对话来源条目 × currentConversationBoost（rerank 传 currentConversationId 时）
  */
 export class SearchEngine {
-  constructor(private readonly config: SearchEngineConfig) {}
+  private readonly config: SearchEngineConfig;
+
+  constructor(config: SearchEngineConfig = {} as SearchEngineConfig) {
+    // F20261112rnkph 段 1：构造时只回填缺省——rerankMode 缺省 multiply（零行为变更），系数缺省回填设计值；
+    // 连续权重的比例归一（normalizeRerankWeights）在 rerankAdditive 调用时执行，不在构造时。
+    this.config = {
+      ...config,
+      rerankMode: config.rerankMode ?? "multiply",
+      rerank: config.rerank ?? DEFAULT_RERANK_WEIGHTS,
+    };
+  }
 
   /** F20260902rcp1 审视修复：debug 注入需要按层取半衰期，暴露 config 读取（只读语义） */
   get configRef(): Readonly<SearchEngineConfig> {
@@ -196,6 +265,51 @@ export class SearchEngine {
         source: hit.source,
       });
     }
+    return result;
+  }
+
+  /** F20261112rnkph Phase 1 段 1：归一化加法融合路径（与 rerank() 并存，rerankMode=additive 时调用）。
+   *  score = w_rrf·norm(rrf) + w_time·timeDecay + w_freq·norm(freq) + b_flag·[flagged] + b_conv·[同对话]
+   *  连续权重隐微和为 1（normalizeRerankWeights 比例归一）；rrf 池内 min-max、freq 饱和截断。 */
+  rerankAdditive(
+    hits: Map<string, RrfHit>,
+    weights: Map<string, MemoryWeight>,
+    currentConversationId?: string,
+  ): ScoredHit[] {
+    const w = normalizeRerankWeights(this.config.rerank ?? DEFAULT_RERANK_WEIGHTS);
+    const hitList = Array.from(hits.values());
+    const rrfNorm = normalizeRrfPool(hitList.map(hit => hit.rrfScore));
+    const result: ScoredHit[] = [];
+    hitList.forEach((hit, i) => {
+      const weight = weights.get(hit.entryId) ?? {
+        memoryEntryId: hit.entryId,
+        retrievalCount: 0,
+        lastRetrievedAt: null,
+        userFlagged: false,
+      };
+      const halfLifeDays = DOCUMENT_CONTENT_TYPES.has(hit.entry.contentType)
+        ? this.config.weightHalfLifeDaysDocument
+        : this.config.weightHalfLifeDays;
+      const timeDecay = this.computeTimeDecay(hit.entry.createdAt, halfLifeDays);
+      const freqNorm = normalizeFrequency(weight.retrievalCount, w.freqCap);
+      const isFlagged = weight.userFlagged;
+      const isCurrentConversation = Boolean(
+        currentConversationId && hit.entry.conversationId === currentConversationId,
+      );
+      const finalScore =
+        w.wRrf * rrfNorm[i]
+        + w.wTime * timeDecay
+        + w.wFreq * freqNorm
+        + (isFlagged ? w.bUserFlag : 0)
+        + (isCurrentConversation ? w.bConv : 0);
+      result.push({
+        entryId: hit.entryId,
+        finalScore,
+        rrfScore: hit.rrfScore,
+        entry: hit.entry,
+        source: hit.source,
+      });
+    });
     return result;
   }
 

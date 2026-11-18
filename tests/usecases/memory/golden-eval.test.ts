@@ -40,6 +40,16 @@ const PROD_MEMORY_CONFIG = {
   weightHalfLifeDaysDocument: 90,
   userFlagMultiplier: 2,
   frequencyBoostFactor: 0.1,
+  // F20261112rnkph Phase 1 段 1：默认 multiply 零行为变更；加法系数按设计回填（段 1 不切默认）
+  rerankMode: "multiply" as const,
+  rerank: {
+    wRrf: 0.6,
+    wTime: 0.3,
+    wFreq: 0.1,
+    bUserFlag: 0.05,
+    bConv: 0.05,
+    freqCap: 10,
+  },
 };
 
 /** 首跑锁定基线（v2 扩充后重录，2026-10-08，本地 3 次复跑完全一致）。
@@ -188,6 +198,47 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     expect(ndcg5).toBeGreaterThanOrEqual(BASELINE.ndcg5);
     expect(ndcg10).toBeGreaterThanOrEqual(BASELINE.ndcg10);
     expect(mrrValue).toBeGreaterThanOrEqual(BASELINE.mrr);
+  });
+
+  it("additive 全中性化反事实复现 0.7998/0.8029/0.9364（段 1 加法路径语义验收，±0.001）", async () => {
+    // F20261112rnkph Phase 1 段 1：加法融合路径按设计矩阵全中性化（w_rrf=1 其余 0）→
+    // finalScore = norm(rrf)（池内 min-max 单调变换），排序与 raw RRF 一致 → 反事实数字复现。
+    // 证明 additive 路径不是摆设、段 1 的归一化口径与设计表 1 一致（验收锚点见特性文档）。
+    const additiveEngine = new SearchEngine({
+      ...PROD_MEMORY_CONFIG,
+      rerankMode: "additive",
+      rerank: { wRrf: 1, wTime: 0, wFreq: 0, bUserFlag: 0, bConv: 0, freqCap: 10 },
+    });
+    const additive = new SearchMemory(repo, repo, mockEmbeddingGateway(), additiveEngine, createTestLogger());
+
+    const ndcg5s: number[] = [];
+    const ndcg10s: number[] = [];
+    const rrs: number[] = [];
+    for (const q of GOLDEN_QUERIES) {
+      const result = await additive.search({
+        query: q.query,
+        limit: 10,
+        currentConversationId: q.currentConversationId,
+      });
+      const rankedIds = result.entries.map((e) => e.id);
+      const rel = new Map(Object.entries(q.expected));
+      ndcg5s.push(ndcgAtK(rankedIds, rel, 5));
+      ndcg10s.push(ndcgAtK(rankedIds, rel, 10));
+      rrs.push(reciprocalRank(rankedIds, rel));
+      resetWeights();
+    }
+
+    const ndcg5 = mean(ndcg5s);
+    const ndcg10 = mean(ndcg10s);
+    const mrrValue = mrr(rrs);
+
+    console.log(
+      `[golden-eval][additive-全中性] nDCG@5=${ndcg5.toFixed(4)} nDCG@10=${ndcg10.toFixed(4)} MRR=${mrrValue.toFixed(4)} (反事实锚点 0.7998/0.8029/0.9364)`,
+    );
+
+    expect(Math.abs(ndcg5 - 0.7998)).toBeLessThan(0.001);
+    expect(Math.abs(ndcg10 - 0.8029)).toBeLessThan(0.001);
+    expect(Math.abs(mrrValue - 0.9364)).toBeLessThan(0.001);
   });
 
   it("基线合理性：当前管线在种子集上非平凡（防地板=摆设）", async () => {

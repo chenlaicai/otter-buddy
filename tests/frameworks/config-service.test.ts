@@ -118,6 +118,14 @@ describe("loadConfig", () => {
     expect(cfg.server.port).toBe(3000);
     expect(cfg.db.path).toBe("./otter-buddy.db");
     expect(cfg.memory.rrfK).toBe(60);
+    // F20261112rnkph Phase 1 段 1：rerank 配置缺省——multiply（零行为变更）+ 设计系数回填
+    expect(cfg.memory.rerankMode).toBe("multiply");
+    expect(cfg.memory.rerank.wRrf).toBeCloseTo(0.6, 12);
+    expect(cfg.memory.rerank.wTime).toBeCloseTo(0.3, 12);
+    expect(cfg.memory.rerank.wFreq).toBeCloseTo(0.1, 12);
+    expect(cfg.memory.rerank.bUserFlag).toBeCloseTo(0.05, 12);
+    expect(cfg.memory.rerank.bConv).toBeCloseTo(0.05, 12);
+    expect(cfg.memory.rerank.freqCap).toBe(10);
     expect(cfg.embedding.dimensions).toBe(1024);
     expect(cfg.embedding.modelPath).toBe("Xenova/bge-m3");
     expect(cfg.embedding.localModelPath).toBeUndefined();
@@ -210,6 +218,23 @@ describe("loadConfig", () => {
     expect(cfg.embedding.dimensions).toBe(512);
     // maxToolCalls 已移除，验证该 YAML 配置项被静默忽略
     expect("maxToolCalls" in cfg.circuitBreaker).toBe(false);
+  });
+
+  it("F20261112rnkph：memory.rerank 段显式配置被读取（snake_case → camelCase）", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      MINIMAL_YAML
+      + "memory:\n  rerankMode: additive\n  rerank:\n    w_rrf: 0.7\n    w_time: 0.2\n    w_freq: 0.1\n    b_user_flag: 0.08\n    b_conv: 0.09\n    freq_cap: 20\n",
+    );
+
+    const cfg = loadConfig();
+    expect(cfg.memory.rerankMode).toBe("additive");
+    expect(cfg.memory.rerank.wRrf).toBeCloseTo(0.7, 12);
+    expect(cfg.memory.rerank.wTime).toBeCloseTo(0.2, 12);
+    expect(cfg.memory.rerank.wFreq).toBeCloseTo(0.1, 12);
+    expect(cfg.memory.rerank.bUserFlag).toBeCloseTo(0.08, 12);
+    expect(cfg.memory.rerank.bConv).toBeCloseTo(0.09, 12);
+    expect(cfg.memory.rerank.freqCap).toBe(20);
   });
 
   it("parses embedding.localModelPath when set", () => {

@@ -76,6 +76,17 @@ export interface AppConfig {
     weightHalfLifeDaysDocument: number;
     userFlagMultiplier: number;
     frequencyBoostFactor: number;
+    /** F20261112rnkph Phase 1：rerank 融合模式（multiply=现状连乘，additive=归一化加法）。 */
+    rerankMode: "multiply" | "additive";
+    /** F20261112rnkph Phase 1：加法融合系数与偏置。 */
+    rerank: {
+      wRrf: number;
+      wTime: number;
+      wFreq: number;
+      bUserFlag: number;
+      bConv: number;
+      freqCap: number;
+    };
   };
   embedding: {
     dimensions: number;
@@ -289,6 +300,17 @@ interface RawConfig {
     weightHalfLifeDaysDocument?: number;
     userFlagMultiplier?: number;
     frequencyBoostFactor?: number;
+    /** F20261112rnkph Phase 1：rerank 融合模式（multiply | additive）。 */
+    rerankMode?: "multiply" | "additive";
+    /** F20261112rnkph Phase 1：加法融合系数（snake_case，对应 AppConfig.memory.rerank）。 */
+    rerank?: {
+      w_rrf?: number;
+      w_time?: number;
+      w_freq?: number;
+      b_user_flag?: number;
+      b_conv?: number;
+      freq_cap?: number;
+    };
   };
   embedding?: {
     dimensions?: number;
@@ -545,6 +567,23 @@ function buildDbConfig(raw: RawConfig): AppConfig["db"] {
   };
 }
 
+function buildMemoryRerankConfig(raw: RawConfig): Pick<AppConfig["memory"], "rerankMode" | "rerank"> {
+  // F20261112rnkph Phase 1 段 1：默认 multiply（零默认行为变更），加法系数按设计回填
+  const memory = raw.memory;
+  const rawRerank = memory?.rerank;
+  return {
+    rerankMode: d(memory?.rerankMode, "multiply"),
+    rerank: {
+      wRrf: d(rawRerank?.w_rrf, 0.6),
+      wTime: d(rawRerank?.w_time, 0.3),
+      wFreq: d(rawRerank?.w_freq, 0.1),
+      bUserFlag: d(rawRerank?.b_user_flag, 0.05),
+      bConv: d(rawRerank?.b_conv, 0.05),
+      freqCap: d(rawRerank?.freq_cap, 10),
+    },
+  };
+}
+
 function buildMemoryConfig(raw: RawConfig): AppConfig["memory"] {
   return {
     rrfK: d(raw.memory?.rrfK, 60),
@@ -556,6 +595,7 @@ function buildMemoryConfig(raw: RawConfig): AppConfig["memory"] {
     weightHalfLifeDaysDocument: d(raw.memory?.weightHalfLifeDaysDocument, 90),
     userFlagMultiplier: d(raw.memory?.userFlagMultiplier, 2.0),
     frequencyBoostFactor: d(raw.memory?.frequencyBoostFactor, 0.1),
+    ...buildMemoryRerankConfig(raw),
   };
 }
 
