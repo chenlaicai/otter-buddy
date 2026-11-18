@@ -17,8 +17,8 @@ export const MAX_FORWARD_IMAGES_PER_TURN = 2;
 const SVG_FENCE_RE = /```(?:svg|xml)\s*\n([\s\S]*?)```/gi;
 // 没有围栏但整段直接给 <svg>...</svg> 的兜底（模型偶发不包围栏）。
 const BARE_SVG_RE = /<svg[\s\S]*?<\/svg>/gi;
-// 围栏内正文根元素必须确为 <svg>，否则（如普通 XML 示例）保持普通文本不吞。
-const SVG_ROOT_RE = /<svg[\s>]/i;
+// 围栏内正文根元素必须确为 <svg>（允许前导空白），否则（如普通 XML 或嵌套 svg 的 XML）保持普通文本不吞。
+const SVG_ROOT_RE = /^\s*<svg[\s>]/i;
 // 删除正文中的图片块时的整块匹配（含围栏或裸块），避免正则元字符注入。
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

@@ -60,3 +60,10 @@ test('extractSvgBlocks leaves a non-SVG xml fence untouched', () => {
   assert.deepEqual(svgs, []);
   assert.ok(text.includes('<root><value>1</value></root>'));
 });
+
+test('extractSvgBlocks leaves an xml fence with a nested (non-root) svg untouched', () => {
+  const xml = '```xml\n<root><svg xmlns="http://www.w3.org/2000/svg"/></root>\n```';
+  const { svgs, text } = extractSvgBlocks(`例子\n${xml}\n结束`);
+  assert.deepEqual(svgs, []);
+  assert.ok(text.includes('<root><svg'));
+});
