@@ -159,6 +159,12 @@ export interface MemoryRepository {
   /** 按 edge id 获取单条边（unlink_memory 用） */
   getEdgeById(edgeId: string): Promise<MemoryEdge | null>;
 
+  /**
+   * F20261118stale P0：批量查候选条目里哪些被 supersede（旧→新映射），
+   * 检索端 stale 降权 + 标注用。
+   */
+  getSupersededBy(entryIds: string[]): Promise<Map<string, string>>;
+
   /** 删除一条边（unlink_memory 纠错用） */
   deleteEdge(edgeId: string): Promise<void>;
 

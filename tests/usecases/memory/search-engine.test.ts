@@ -595,6 +595,75 @@ describe("SearchEngine - Phase 1 段 1：归一化纯函数与加法融合路径
     });
   });
 
+  describe("rerank supersede 降权（F20261118stale P0）", () => {
+    const NOW = "2026-09-20T00:00:00Z";
+    const engine = new SearchEngine(TEST_CONFIG);
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(NOW));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    function makeHit(id: string, rrfScore: number): RrfHit {
+      return {
+        entryId: id,
+        rrfScore,
+        source: "fts",
+        entry: makeEntry({ id, createdAt: NOW }),
+      };
+    }
+
+    it("被 supersede 指向的条目 finalScore ×supersededPenalty，且透出 supersededBy", () => {
+      const hits = new Map([
+        ["old", makeHit("old", 0.5)],
+        ["new", makeHit("new", 0.5)],
+        ["plain", makeHit("plain", 0.5)],
+      ]);
+      const superseded = new Map([["old", "new"]]);
+      const result = engine.rerank(hits, new Map(), undefined, superseded);
+
+      const score = (id: string) => result.find(r => r.entryId === id)!;
+      // old ×0.3，new/plain 不乘
+      expect(score("old").finalScore).toBeCloseTo(score("new").finalScore * 0.3, 10);
+      expect(score("plain").finalScore).toBeCloseTo(score("new").finalScore, 10);
+      expect(score("old").supersededBy).toBe("new");
+      expect(score("new").supersededBy).toBeUndefined();
+      expect(score("plain").supersededBy).toBeUndefined();
+    });
+
+    it("未传 supersededById 时行为零变化（与旧行为一致，无 supersededBy）", () => {
+      const hits = new Map([
+        ["a", makeHit("a", 0.5)],
+        ["b", makeHit("b", 0.4)],
+      ]);
+      const result = engine.rerank(hits, new Map());
+      expect(result.every(r => r.supersededBy === undefined)).toBe(true);
+      // 排序按 rrfScore：a > b（同 createdAt/timeDecay）
+      expect(result[0].entryId).toBe("a");
+      expect(result[1].entryId).toBe("b");
+    });
+
+    it("rerankAdditive 同样应用 supersede 降权并透出 supersededBy", () => {
+      const additiveEngine = new SearchEngine({ ...TEST_CONFIG, rerankMode: "additive" });
+      const hits = new Map([
+        ["old", makeHit("old", 0.5)],
+        ["new", makeHit("new", 0.5)],
+      ]);
+      const superseded = new Map([["old", "new"]]);
+      const result = additiveEngine.rerankAdditive(hits, new Map(), undefined, superseded);
+
+      const old = result.find(r => r.entryId === "old")!;
+      const fresh = result.find(r => r.entryId === "new")!;
+      expect(old.finalScore).toBeCloseTo(fresh.finalScore * 0.3, 10);
+      expect(old.supersededBy).toBe("new");
+      expect(fresh.supersededBy).toBeUndefined();
+    });
+  });
+
   describe("rerankAdditive（加法融合）", () => {
     function makeRrfHit(id: string, rrfScore: number, conversationId: string | null): RrfHit {
       return {

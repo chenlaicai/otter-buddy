@@ -112,6 +112,29 @@ export function getEdgeById(db: Database.Database, edgeId: string): MemoryEdge |
   return row ? rowToMemoryEdge(row) : null;
 }
 
+/**
+ * F20261118stale P0：批量查候选条目里哪些被 supersede。
+ * supersedes 边语义（F20260813mren，link_memory 工具描述）：from=取代者（新），to=被取代（旧）。
+ * 故对候选条目查「to 端命中」——候选在 to_entry_id 说明它被取代；返回 Map<旧条目 ID, 新条目 ID>。
+ * 多次更新会产生多条指向同一旧条目的边，取 created_at 最新的一条作为取代者
+ * （ASC 升序遍历 + Map.set 后写覆盖 = 最新一行最后写入胜出）。
+ */
+export function getSupersededBy(
+  db: Database.Database,
+  entryIds: string[],
+): Map<string, string> {
+  const result = new Map<string, string>();
+  if (entryIds.length === 0) return result;
+  const placeholders = entryIds.map(() => "?").join(",");
+  const rows = db.prepare(`
+    SELECT from_entry_id, to_entry_id FROM memory_edges
+    WHERE edge_type = 'supersedes' AND to_entry_id IN (${placeholders})
+    ORDER BY created_at ASC
+  `).all(...entryIds) as Array<{ from_entry_id: string; to_entry_id: string }>;
+  for (const row of rows) result.set(row.to_entry_id, row.from_entry_id);
+  return result;
+}
+
 /** 删除一条边（unlink_memory 用） */
 export function deleteEdge(db: Database.Database, edgeId: string): void {
   db.prepare(`DELETE FROM memory_edges WHERE id = ?`).run(edgeId);

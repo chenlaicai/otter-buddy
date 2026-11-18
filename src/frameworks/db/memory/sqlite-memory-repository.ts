@@ -30,6 +30,7 @@ import {
   createEdge,
   getEdgesByEntry,
   getEdgeById,
+  getSupersededBy,
   deleteEdge,
   deleteEdgesByEntryIds,
 } from "./memory-edge-queries";
@@ -888,6 +889,11 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   /** F20260813mren: 按 id 获取单条边 */
   async getEdgeById(edgeId: string): Promise<MemoryEdge | null> {
     return getEdgeById(this.db, edgeId);
+  }
+
+  /** F20261118stale P0：批量查候选条目里哪些被 supersede（旧→新映射）。 */
+  async getSupersededBy(entryIds: string[]): Promise<Map<string, string>> {
+    return getSupersededBy(this.db, entryIds);
   }
 
   /** F20260813mren: 删除一条边（unlink_memory 用） */

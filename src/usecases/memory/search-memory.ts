@@ -102,6 +102,8 @@ export interface RetrievalResultEntry extends MemoryEntry {
   snippet?: string;
   /** 用户标记（检索路径从 MemoryWeight 带出） */
   userFlagged?: boolean;
+  /** F20261118stale P0：被哪个条目取代（supersedes 边 from 端=取代者/新条目），有则说明此条已过期。 */
+  supersededBy?: string;
   /** F20260811mrpy Part 1：debug=true 时注入的中间分值 */
   debug?: RetrievalDebugInfo;
   /**
@@ -564,11 +566,13 @@ export class SearchMemory {
 
     const weights = await this.reader.getWeights(hitIds);
     const weightMap = new Map(weights.map((w) => [w.memoryEntryId, w]));
+    /** F20261118stale P0：查候选里哪些被 supersede，旧条目降权 + 标注。 */
+    const superseded = await this.reader.getSupersededBy(hitIds);
 
     // F20261112rnkph Phase 1 段 1：rerankMode 路由——缺省 multiply 零行为变更，additive 走加法融合
     const scored = this.searchEngine.configRef.rerankMode === "additive"
-      ? this.searchEngine.rerankAdditive(rrfHits, weightMap, currentConversationId)
-      : this.searchEngine.rerank(rrfHits, weightMap, currentConversationId);
+      ? this.searchEngine.rerankAdditive(rrfHits, weightMap, currentConversationId, superseded)
+      : this.searchEngine.rerank(rrfHits, weightMap, currentConversationId, superseded);
     /** F20260803chunk: 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分（dedupAndBoostBySource） */
     const deduped = dedup ? this.dedupAndBoostBySource(scored) : scored;
     deduped.sort((a, b) => b.finalScore - a.finalScore);
@@ -632,6 +636,7 @@ export class SearchMemory {
           score: h.finalScore,
           source: h.source,
           userFlagged: weightMap.get(h.entryId)?.userFlagged ?? false,
+          ...(h.supersededBy ? { supersededBy: h.supersededBy } : {}),
           ...(debugInfo ? { debug: debugInfo } : {}),
           ...(drillDown ? { drillDown } : {}),
           ...this.buildSnippet(h.entry, detailLevel, snippetMap),

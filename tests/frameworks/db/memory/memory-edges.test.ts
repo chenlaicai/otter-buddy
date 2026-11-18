@@ -293,3 +293,52 @@ describe("F20260813mren 审视二轮 P1-12: re-sync 边重定向", () => {
     expect(hits[0].entry.id).toBe("dirty-new");
   });
 });
+
+describe("F20261118stale P0: getSupersededBy 批量查询", () => {
+  it("返回 supersedes 边 from→to 映射，仅限候选集合且过滤非 supersedes 类型", async () => {
+    await insertEntry("old-a", "旧认识 A", { createdAt: "2026-09-01T00:00:00Z" });
+    await insertEntry("new-a", "新认识 A", { createdAt: "2026-09-02T00:00:00Z" });
+    await insertEntry("old-b", "旧认识 B", { createdAt: "2026-09-03T00:00:00Z" });
+    await insertEntry("new-b", "新认识 B", { createdAt: "2026-09-04T00:00:00Z" });
+    await insertEntry("ref-from", "引用者", { createdAt: "2026-09-05T00:00:00Z" });
+    await insertEntry("ref-to", "被引", { createdAt: "2026-09-06T00:00:00Z" });
+
+    // supersedes 边真实语义（link_memory 工具描述）：from=取代者（新），to=被取代（旧）
+    await createEdge.execute({ fromEntryId: "new-a", toEntryId: "old-a", edgeType: "supersedes" });
+    await createEdge.execute({ fromEntryId: "new-b", toEntryId: "old-b", edgeType: "supersedes" });
+    await createEdge.execute({ fromEntryId: "ref-from", toEntryId: "ref-to", edgeType: "references" });
+
+    // 只查部分候选：old-a 命中 → new-a；ref-from 是 references 不命中；不存在的条目无行
+    const partial = await repo.getSupersededBy(["old-a", "ref-from", "no-such-entry"]);
+    expect(partial.size).toBe(1);
+    expect(partial.get("old-a")).toBe("new-a");
+    expect(partial.has("ref-from")).toBe(false);
+
+    // 全量候选：两条 supersedes 都在，references 端点不在结果里
+    const all = await repo.getSupersededBy(["old-a", "old-b", "ref-from", "ref-to"]);
+    expect(all.size).toBe(2);
+    expect(all.get("old-a")).toBe("new-a");
+    expect(all.get("old-b")).toBe("new-b");
+    expect(all.has("ref-from")).toBe(false);
+    expect(all.has("ref-to")).toBe(false);
+
+    // 空集合不抛且返回空 Map
+    expect((await repo.getSupersededBy([])).size).toBe(0);
+  });
+
+  it("同一旧条目被多条 supersedes 边指向时取 created_at 最新（ASC+后写覆盖）", async () => {
+    await insertEntry("multi-old", "旧认识", { createdAt: "2026-09-01T00:00:00Z" });
+    await insertEntry("multi-new1", "新认识 v1", { createdAt: "2026-09-02T00:00:00Z" });
+    await insertEntry("multi-new2", "新认识 v2", { createdAt: "2026-09-03T00:00:00Z" });
+    // 手工插入两条边，created_at 显式错开——createEdge 用 datetime('now') 秒粒度会撞车导致非确定
+    db.prepare(`
+      INSERT INTO memory_edges (id, from_entry_id, to_entry_id, edge_type, metadata, created_at, created_by)
+      VALUES ('edge-multi-1', 'multi-new1', 'multi-old', 'supersedes', NULL, '2026-09-02T01:00:00Z', NULL),
+             ('edge-multi-2', 'multi-new2', 'multi-old', 'supersedes', NULL, '2026-09-03T01:00:00Z', NULL)
+    `).run();
+
+    const result = await repo.getSupersededBy(["multi-old"]);
+    expect(result.size).toBe(1);
+    expect(result.get("multi-old")).toBe("multi-new2");
+  });
+});
