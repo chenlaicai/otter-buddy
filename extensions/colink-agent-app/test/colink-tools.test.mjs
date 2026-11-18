@@ -188,8 +188,16 @@ test('DM wake reads only the current conversation through the event source（0.2
       const legacy = await rpc(bridge, token, 'tools/call', { name: 'colink_read_topic', arguments: { beforeId: 'dm-message-0' } });
       assert.equal(legacy.body.result.isError, true);
       assert.equal(legacy.body.result.structuredContent.error.code, 'COLINK_TOOL_ARG_NOT_ALLOWED:beforeId');
+      // 非末页：hasMore=true + 非空 nextCursor 也必须原样透传（末页 fixture 覆盖不到这条）。
+      ctx.source.listMessages = async args => {
+        ctx.sourceReads.push(args);
+        return { items: [], hasMore: true, nextCursor: 'next-dm-cursor' };
+      };
+      const nonFinal = await rpc(bridge, token, 'tools/call', { name: 'colink_read_topic', arguments: { limit: 5, cursor: 'dm-cursor-1' } });
+      assert.equal(nonFinal.body.result.structuredContent.hasMore, true);
+      assert.equal(nonFinal.body.result.structuredContent.nextCursor, 'next-dm-cursor');
     });
-    assert.deepEqual(ctx.sourceReads, [{ limit: 5, cursor: 'dm-cursor-1' }]);
+    assert.deepEqual(ctx.sourceReads, [{ limit: 5, cursor: 'dm-cursor-1' }, { limit: 5, cursor: 'dm-cursor-1' }]);
   } finally {
     await bridge.close();
   }
@@ -343,4 +351,17 @@ test('a request that outlives its round is rejected while the next round is acti
   } finally {
     await bridge.close();
   }
+});
+
+test('提示词与 schema 都讲明「游标绑定 limit」：续页要重复首页的 limit（否则平台判 INVALID_CURSOR）', async () => {
+  const dmPrompt = buildCoLinkPrompt(ctxFixture('dm'));
+  assert.match(dmPrompt, /续页重复同一个 limit/);
+  const channelPrompt = buildCoLinkPrompt(ctxFixture('channel'));
+  assert.match(channelPrompt, /续页重复同一个 limit/);
+  const [topicTool] = toolsFor(ctxFixture('dm'));
+  assert.match(topicTool.description, /游标与 limit 绑定/);
+  assert.match(topicTool.inputSchema.properties.cursor.description, /重复同一个 limit/);
+  const tools = toolsFor(ctxFixture('channel'));
+  const channelTool = tools.find(tool => tool.name === 'colink_read_channel');
+  assert.match(channelTool.description, /重复同一个 limit/);
 });

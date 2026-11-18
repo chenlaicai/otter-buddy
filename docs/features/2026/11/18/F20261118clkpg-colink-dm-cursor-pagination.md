@@ -20,8 +20,8 @@ intent:
   verify_by:
     type: behavior_check
     evidence:
-      - "extensions/colink-agent-app npm test：39/39 通过（含 DM 用 cursor 成功、hasMore/nextCursor 原样透传、beforeId/afterId 在工具层被拒、vendor 侧 SDK 契约断言）"
-      - "变异验证：工具层回退到 HEAD 旧白名单 → DM 用例 2 条红；vendor 的 turn.mjs 把 dm 白名单改回 beforeId/afterId → vendor 契约用例红；恢复后 39/39 全绿"
+      - "extensions/colink-agent-app npm test：40/40 通过（含 DM 用 cursor 成功、hasMore/nextCursor 原样透传、beforeId/afterId 在工具层被拒、vendor 侧 SDK 契约断言）"
+      - "变异验证：工具层回退到 HEAD 旧白名单 → DM 用例 2 条红；vendor 的 turn.mjs 把 dm 白名单改回 beforeId/afterId → vendor 契约用例红；删掉提示词里的「续页重复同一个 limit」→ 措辞用例红；恢复后 40/40 全绿"
       - "线上只读探针（ECS 用真实用户令牌，仅看参数校验，不读内容）：beforeId/afterId → 400 EXTENSION_INVALID_INPUT；cursor → 通过参数校验（返回 401 因该令牌已过期）"
       - "SDK 构建锚：colink@a2e4c18f0 的 dev/app-toolkit/distribution/build.mjs 产出 0.28.1，sdk-pin.json 记录 sha512 nbXyyW8qVDzjzcidKgv3UYmJnyS4xkRfjAEx1r15EXNi6L1HbxsdGLzVDtNipZkWOKCMlmMGHKr4A6OeRaCwAQ=="
 capability_test: "extensions/colink-agent-app/test/colink-tools.test.mjs"
@@ -52,10 +52,12 @@ capability_test: "extensions/colink-agent-app/test/colink-tools.test.mjs"
 2. **工具层统一**：`SOURCE_LIMITS.dm` 改为 `{limit:100, cursor:2048}`；`callTool` 不再按 `source.kind` 分叉白名单，两种来源统一 `['limit','cursor']`。
 3. **清单版本** 0.6.0 → **0.6.1**：本次要重新部署线上，版本号让「部署的是哪一版」可辨识。
 4. **工具 schema 与提示词**：删掉 `beforeId/afterId` 两个参数；`cursor` 描述改为「上一页返回的分页游标，原样传回；话题与私聊一致」；私聊提示词从「只传 limit/beforeId/afterId」改为「只传 limit/cursor（翻页用上一页返回的 nextCursor）」。
-5. **测试**：
+5. **「游标绑定 limit」讲清**：平台校验 `cursor.limit === limit`（`a2e4c18f0:app-message-reads.ts:159-176`），首页显式传 `limit:20` 后只传 `cursor` 会因默认值不同（私聊缺省 50）判 `INVALID_CURSOR`。工具描述、`cursor` 参数说明与系统提示词都补上「续页重复首页的 limit」，并用一条用例锁定这三处措辞。
+6. **测试**：
    - 私聊用 `cursor` 读通，且 `hasMore/nextCursor` 原样透传（工具层不得吞平台契约字段）；
    - `beforeId`/`afterId` 在**工具层**即被拒为 `COLINK_TOOL_ARG_NOT_ALLOWED:*`（不把注定 400 的请求发给平台）；
    - 私聊 cursor 超长（2049）→ `COLINK_TOOL_CURSOR_INVALID:cursor`；
+   - 非末页透传：`hasMore=true` + 非空 `nextCursor` 原样透传（原 fixture 只有末页，覆盖不到）；
    - **vendor 契约断言**：直接驱动 `vendor/app-sdk/src/events/turn.mjs`，私聊读只接受 `limit/cursor`、拒绝 `beforeId/afterId`，且身份固定为当前用户的 `messages:read-private`。这条是防「vendor 被静默回退」的缺口——工具层测试用打桩，看不出 pin 到的 SDK 到底放不放行 cursor。
 
 ## 为什么只升到 0.28.1，不直接追上游最新
@@ -66,4 +68,5 @@ capability_test: "extensions/colink-agent-app/test/colink-tools.test.mjs"
 
 - **未做**平台上其余统一项（默认 30 条、末页语义、Playground 夹具、升级说明）——那是平台侧的 issue 剩余验收项，不是 App 侧义务。
 - **未验证**真实私聊多页翻到底（需要真实多页私聊数据 + 有效授权）：本地用 fixture 与 vendor 契约断言覆盖参数与透传；真实数据库的多页行为由平台侧 MySQL spec 覆盖（`colink-api.mysql.spec.ts`）。
+- 上游 issue #3382 剩余方案里「续页省略 limit 时沿用游标中的值」是**尚未实现**的平台侧计划（当前平台是严格的 `cursor.limit === limit`）。所以我们现在只能靠提示词要求模型重复 limit；等平台放开后，这条约束可以去掉（届时由上游 issue 收口）。
 - **未做**向新读取/定位（`afterId` 语义能力）的替代接口：上游明确「App 与 App HTTP 的普通历史列表只向旧翻」，网页端定位另属网页能力面。
