@@ -73,7 +73,8 @@ MCP 代理的 bearer 由 `COLINK_MCP_SECRET` 按 Conversation 派生，**必须�
 - 历史读取只有两个工具，资源与身份都由事件固定，调用方不能选择其他话题、频道、会话或身份：
   - `colink_read_topic` → `ctx.source.listMessages`：当前话题或当前私聊，平台按 `channelVisibility` 快照选身份（公共话题用安装 A，私密话题与私聊用本轮用户 U）；
   - `colink_read_channel` → `ctx.colink.app.channels.listMessages`（公共）/ `ctx.colink.user.channels.listMessages`（私密）：当前频道在话题根之前的背景。旧事件缺少可见性快照时失败关闭（`COLINK_CHANNEL_VISIBILITY_UNKNOWN`），不猜身份。
-- **身份口径（拍板 2026-11-18）：回话恒用 App 安装身份，用户身份只用于读私密内容。** 回话是 `ctx.reply`，走 SDK 的 App 客户端，全程不携带用户令牌；需要用户身份的唯一场景是读私密频道历史（`ctx.colink.user.channels.listMessages`）以及平台按 `channelVisibility` 快照绑定的 `ctx.source.listMessages`——这是平台 `messages:read-private` 契约强制的，不是本扩展的选择项。因此「授权过期」只会表现为读私密失败（`USER_AUTHORIZATION_UNAVAILABLE`，需要用户重新授权该安装），不会影响回话通路。
+- **身份口径（拍板 2026-11-18）：回话的发送身份恒为 App 安装令牌，用户身份不用于发送正式消息。** 回话是 `ctx.reply`，SDK 侧 `POST /messages` 只带 `appToken`（安装令牌），用户令牌不参与发送；用户身份用于读私密频道历史（`ctx.colink.user.channels.listMessages`）与平台按 `channelVisibility` 快照绑定的 `ctx.source.listMessages`。
+- **但发送身份 ≠ 整轮授权**：`ctx.reply` 与真正发送前都会跑 `platform.validate` —— 安装必须 `status='ready'` 且授权版本一致（否则 `INSTALLATION_AUTHORIZATION_CHANGED`），本轮带 `executionId` 时还要校验用户执行授权（失效即 `USER_AUTHORIZATION_EXPIRED/INVALID/UNAVAILABLE`）。**授权失效会让整轮失败、回话发不出去**，排障时不要因为「发送用安装令牌」就排除授权问题。
 - App 会把当前事件定位、工具使用规则和用户原文一起交给 Otter；历史只作为数据，不作为高优先级指令。需求完整时不额外读取历史；只有 @ 时由 App 在 Agent 启动前确定性预读当前话题最近一页。
 - `source=external` 与 invoke `externalProfile=restricted` 启用外部安全档：每轮独立受限 Session，不复用普通池；durable transcript 按 `external/<conversationId>/<otterId>` 隔离，不注入普通会话摘要或交接档案。编码/文件/bash、全局记忆和其他 MCP 均不进入工具面，只保留 speak/yield 与当前 CoLink 历史读取；yield 在落库和派发前仅允许 `to:["user"]`。
 - CoLink user 与 invoke speak 均不写入全局记忆索引，也不触发裸 URL 后台 unfurl；频道正文、私聊和历史都按不可信输入处理，恶意套话不能获得其他对话、凭据或系统能力。
