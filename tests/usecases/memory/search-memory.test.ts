@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
@@ -1019,5 +1019,84 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       contentType: ["feature_chunk"],
     });
     expect(result.contextEntries).toBeUndefined();
+  });
+});
+
+describe("SearchMemory - Phase 1 段 2 debug 贡献分量", () => {
+  let db: Database.Database;
+  let repo: SqliteMemoryRepository;
+
+  const BASE_CONFIG = {
+    rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2,
+    currentConversationBoost: 1.5, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90,
+    userFlagMultiplier: 2, frequencyBoostFactor: 0.1,
+  } as const;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteMemoryRepository(db);
+    // FK 预置：conversation_id → conversations(id)
+    db.prepare("INSERT OR IGNORE INTO conversations (id, title, created_at) VALUES (?, ?, ?)")
+      .run("conv-A", "conv-A", "2026-07-16T00:00:00Z");
+    // 三条目 sourceId 各异 → dedup 分组互不吞并，finalScore 无 multi-hit boost，求和口径干净
+    storeEntry(db, { ...BASE_ENTRY, id: "a", sourceId: "src-a", conversationId: "conv-A", content: "记忆检索排序优化 Phase 1 加法融合" });
+    storeEntry(db, { ...BASE_ENTRY, id: "b", sourceId: "src-b", content: "排序 加法 融合 检索 重排" });
+    storeEntry(db, { ...BASE_ENTRY, id: "c", sourceId: "src-c", content: "完全无关 烹饪 食材" });
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("additive 模式：debug 含五项贡献分量，求和可手工复算 score", async () => {
+    const searchEngine = new SearchEngine({
+      ...BASE_CONFIG,
+      rerankMode: "additive",
+      rerank: { wRrf: 0.6, wTime: 0.3, wFreq: 0.1, bUserFlag: 0.05, bConv: 0.05, freqCap: 10 },
+    });
+    const sm = new SearchMemory(repo, repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
+    const result = await sm.search({ query: "排序", limit: 5, debug: true, currentConversationId: "conv-A" });
+
+    expect(result.entries.length).toBeGreaterThan(0);
+    for (const e of result.entries) {
+      const d = e.debug;
+      expect(d, `entry ${e.id} 应有 debug`).toBeDefined();
+      const sum = d!.contrib_rrf! + d!.contrib_time! + d!.contrib_freq! + d!.bias_flag! + d!.bias_conv!;
+      expect(sum, `entry ${e.id} 贡献分量之和应等于 score`).toBeCloseTo(e.score, 10);
+      expect(d!.contrib_rrf).toBeDefined();
+      expect(d!.contrib_time).toBeDefined();
+      expect(d!.contrib_freq).toBeDefined();
+      expect(d!.bias_flag).toBeDefined();
+      expect(d!.bias_conv).toBeDefined();
+    }
+    // 本对话来源条目应吃到 b_conv 偏置（0.05）；前置断言防条目掉出结果集时静默跳过
+    const convHit = result.entries.find(e => e.id === "a");
+    expect(convHit, "conv-A 条目应命中结果集").toBeDefined();
+    expect(convHit!.debug!.bias_conv).toBeCloseTo(0.05, 10);
+    expect(convHit!.debug!.contrib_time).toBeGreaterThan(0); // 同量纲 timeDecay 参与融合
+  });
+
+  it("multiply 模式：旧字段逐字节不变（field set 恰好六项），不注入 contrib 字段", async () => {
+    const searchEngine = new SearchEngine({
+      ...BASE_CONFIG,
+      rerankMode: "multiply",
+      rerank: { wRrf: 0.6, wTime: 0.3, wFreq: 0.1, bUserFlag: 0.05, bConv: 0.05, freqCap: 10 },
+    });
+    const sm = new SearchMemory(repo, repo, mockEmbeddingGateway(), searchEngine, createTestLogger());
+    const result = await sm.search({ query: "排序", limit: 5, debug: true });
+
+    expect(result.entries.length).toBeGreaterThan(0);
+    for (const e of result.entries) {
+      const d = e.debug;
+      expect(d).toBeDefined();
+      // 字段集恰好六项（旧字段一字未增），新增 contrib 字段不注入
+      expect(Object.keys(d!).sort()).toEqual(
+        ["conversationBoost", "finalScore", "frequencyBoost", "multiHitCount", "rrfScore", "timeDecay"].sort(),
+      );
+      expect(d!.rrfScore).toBeDefined();
+      expect(d!.finalScore).toBeDefined();
+      expect(d!.timeDecay).toBeDefined();
+      expect(d!.frequencyBoost).toBeDefined();
+    }
   });
 });
