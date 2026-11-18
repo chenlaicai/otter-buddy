@@ -53,20 +53,22 @@ function chainScansMainSignature(s: string): boolean {
   return tail.some(p => !isInvertedGrepSegment(p) && grepSegmentHasMainFeature(p));
 }
 
-/** 从 s 起始提取 $(…) / `…` 内容（平衡匹配）；非替换开头返回 null */
+/** 从 s 起始提取 $(…) / `…` 内容（平衡匹配）；非替换开头返回 null。
+ *  双引号 bash -c 载荷里的 \$() / \` 延后给内层 shell 执行——前导反斜杠剥除后同识别。 */
 function extractSubstitutionContent(s: string): string | null {
   const t = s.trimStart();
-  if (t.startsWith("$(")) {
+  const body = t.startsWith("\\") ? t.slice(1) : t; // \$() / \` → 内层 shell 执行面
+  if (body.startsWith("$(")) {
     let depth = 0;
-    for (let i = 1; i < t.length; i++) {
-      if (t[i] === "(") depth++;
-      else if (t[i] === ")") { depth--; if (depth === 0) return t.slice(2, i); }
+    for (let i = 1; i < body.length; i++) {
+      if (body[i] === "(") depth++;
+      else if (body[i] === ")") { depth--; if (depth === 0) return body.slice(2, i); }
     }
     return null;
   }
-  if (t.startsWith("`")) {
-    const end = t.indexOf("`", 1);
-    return end > 1 ? t.slice(1, end) : null;
+  if (body.startsWith("`")) {
+    const end = body.indexOf("`", 1);
+    return end > 1 ? body.slice(1, end) : null;
   }
   return null;
 }

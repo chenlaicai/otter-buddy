@@ -431,6 +431,21 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "echo xargs kill 无引号同理——真实 xargs kill 段按 start 偏移对齐不漏",
   },
+  // ── #1899 检视獭六轮探针（双引号 bash -c 载荷 \$() 延后替换）──
+  {
+    command: "bash -c \"for p in \\$(ps aux | grep 'dist/src/main.js' | awk '{print \\$2}'); do kill \\$p; done\"",
+    expect: "block",
+    source: "#1899 检视六轮：双引号 -c 载荷 \\$() 延后替换",
+    reasonContains: "按名匹配",
+    note: "双引号 bash -c 内 \\$() 剥反斜杠后是内层 shell 执行面，for 循环变量喂 kill",
+  },
+  {
+    command: "bash -c \"ps aux | grep 'dist/src/main.js' | grep -v grep | while read u p rest; do kill \\$p; done\"",
+    expect: "block",
+    source: "#1899 检视六轮：双引号 -c 载荷 while-read",
+    reasonContains: "按名匹配",
+    note: "双引号 bash -c 内 while read 变量喂 kill，输入链为 ps|grep 特征名扫描",
+  },
   {
     command: "cat ~/.ssh/id_rsa",
     expect: "block",

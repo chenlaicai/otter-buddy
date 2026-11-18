@@ -3,7 +3,7 @@ id: F20261118kills
 title: "kill 守卫第 4 确认通道：ps|grep 主进程特征名→kill 数据流（#1899 裸 bash 绕过面）"
 summary: "2026-11-16 stage3a 验证会话裸写 `for PID in $(ps aux | grep \"[d]ist/src/main.js\" | awk '{print $2}'); do kill $PID; done` 按名全局匹配杀死主服务（pid 45203）——pkill/killall 防线被 ps|grep|awk|kill 管线绕过，政策 A「能确认才拦」漏掉「按名扫描主进程特征再 kill」这一可确认形态。新增第 4 确认通道：ps→grep(主进程特征名)→…→kill 数据流等价 pkill 按名，恒拦（复用 self_kill_byname 规则族）；grep 反 self-match 括号变体 [d]ist 归一后命中特征名；非特征名（vitest 等）不构成确认，继续放行。"
 change_type: fix
-capability_test: "n/a: 守卫判定逻辑（纯函数），以 guard 回放回归库（126 用例，新增 5 mustBlock + 1 allow 负门）+ 全量 vitest 为验证载体"
+capability_test: "n/a: 守卫判定逻辑（纯函数），以 guard 回放回归库（145 用例，多轮检视对抗探针持续追钉）+ 全量 vitest 为验证载体"
 intent:
   problem: "#1899 事故：主服务与 worktree alpha 跑同一命令行 `node dist/src/main.js`，大獭清理 alpha 实例时裸写 ps|grep|awk|kill 按进程名匹配，把主进程连带杀死（全系统离线）。既有 self_kill_byname 只拦 pkill/killall 按名形态；政策 A 下「非字面量 kill（变量/命令替换/管道）确认不了就放行」——ps|grep 按名扫描主进程特征再 kill 恰是「能确认」（目标来源=主进程特征名匹配），却落进放行面，形成可复发的绕过缺口。"
   solution: "psGrepMainSignatureFeedsKill 作为政策 A 第 4 确认通道：识别 ps→grep(主进程特征名)→…→kill 数据流，命中即拦（PS_GREP_KILL_BLOCK_MSG，ruleId 复用 self_kill_byname，与 pkill 按名同族聚合）。覆盖四种喂 kill 形态：①for 循环变量（for VAR in $(scan…); do kill $VAR）②while read 变量（scan… | while read …; do kill $v）③xargs（scan… | xargs kill）④命令替换直给（kill $(scan…)）。grep 反 self-match 括号变体 [d]ist 归一后再对 PKILL_OTTER_PATTERNS 匹配；只认特征名——非特征名（vitest/自有 dev server）不构成确认，放行（对偶负门保留）。"
@@ -11,7 +11,7 @@ intent:
   verify_by:
     type: behavior_check
     assertions:
-      - "guard 回放 126/126 全绿：新增 5 条 mustBlock（事故凶器/无括号/while-read/xargs/命令替换直给）+ 1 条 allow 负门（for+vitest 非特征名）"
+      - "guard 回放 145/145 全绿：事故凶器及同族变体 mustBlock + 对抗探针负门 allow 全保留（六轮检视共追钉 5+4+3+4+2 组探针）"
       - "存量 allow 用例不受影响：ps|grep vitest while-read 批量清理、p=$(cat pids/backend.pid); kill $p 等政策 A 改向用例全放行"
       - "guard-intercept-classify 28/28：新文案含「按名匹配会命中主进程」锚词，classify 归因 self_kill_byname 连续"
       - "全量 vitest run 无回归；tsc --noEmit 与 eslint 对改动文件零告警"
