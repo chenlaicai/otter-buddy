@@ -310,6 +310,7 @@ export class SearchEngine {
       const halfLifeDays = DOCUMENT_CONTENT_TYPES.has(hit.entry.contentType)
         ? this.config.weightHalfLifeDaysDocument
         : this.config.weightHalfLifeDays;
+      const { factor: beliefFactor, status: beliefStatus } = this.beliefFactor(hit.entry);
       const finalScore =
         hit.rrfScore *
         this.computeTimeDecay(hit.entry.createdAt, halfLifeDays) *
@@ -319,9 +320,8 @@ export class SearchEngine {
           ? this.config.currentConversationBoost
           : 1.0) *
         this.supersededMultiplier(id, supersededById) *
-        this.beliefFactor(hit.entry).factor;
+        beliefFactor;
       const supersededBy = this.supersededLabel(id, supersededById);
-      const { status: beliefStatus } = this.beliefFactor(hit.entry);
       result.push({
         entryId: id,
         finalScore,
@@ -365,6 +365,7 @@ export class SearchEngine {
         currentConversationId && hit.entry.conversationId === currentConversationId,
       );
       const supersededBy = this.supersededLabel(hit.entryId, supersededById);
+      const { factor: beliefFactor, status: beliefStatus } = this.beliefFactor(hit.entry);
       const finalScore =
         (w.wRrf * rrfNorm[i]
           + w.wTime * timeDecay
@@ -372,8 +373,7 @@ export class SearchEngine {
           + (isFlagged ? w.bUserFlag : 0)
           + (isCurrentConversation ? w.bConv : 0)) *
         this.supersededMultiplier(hit.entryId, supersededById) *
-        this.beliefFactor(hit.entry).factor;
-      const { status: beliefStatus } = this.beliefFactor(hit.entry);
+        beliefFactor;
       // F20261112rnkph Phase 1 段 2：透出逐信号贡献分量，供 debug 通道采集（逐信号对比表不靠外部重算）
       const contribRrf = w.wRrf * rrfNorm[i];
       const contribTime = w.wTime * timeDecay;

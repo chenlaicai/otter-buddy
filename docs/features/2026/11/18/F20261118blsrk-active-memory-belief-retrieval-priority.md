@@ -12,7 +12,7 @@ intent:
   expected_effect: "检索重排时 belief 条目 ×beliefBoost（默认 2.0）高优先级，并按状态分层降权（verified 1.0 / recorded 0.6 / disputed 0.3 / superseded 0.1）；结果透出 beliefStatus 供 agent 标注 [未核实]/[已核实]/[存疑]；透出 supersededBy（P0 已合入，这里补进 search_memory 工具描述说明语义）。非 belief 条目因子恒 1.0，黄金走社零行为变更。"
   verify_by:
     type: behavior_check
-    note: "单测覆盖 multiply/additive 两路径的 belief 提权与状态分层、非 belief 不受影响；npm run check 全绿；检视獭核对声明 mechanism-addition 与 diff 一致。"
+    note: "单测覆盖 multiply/additive 两路径的 belief 提权与状态分层、畸形 metadata 回退 1.0、非 belief 不受影响；npm run check 全绿（含 golden-selftest 通过，非 belief 路径零行为变更不触碰走社地板）；检视獭核对声明 mechanism-addition 与 diff 一致。"
 capability_test: "n/a: 本刀是检索端算法配置与结果透出，不新增工具/写出路径；行为门禁为新增 search-engine belief 优先级单测（37 项中 4 项新增）。"
 created_at: 2026-11-18
 created_in_conversation: 82f71e1a-a8b0-4e0f-916e-5e219624483c
@@ -46,3 +46,4 @@ modules:
 - 最终分 = 原最终分 × beliefBoost × beliefStatusMultiplier(status)。
 - 非 belief 条目 beliefFactor = 1.0，规则不触及（黄金走社地板不变）。
 - belief 提权**不依赖 layer=working**（内容类型判定），避免归档把整对话 working→historical 连坐后 belief 优先级集体蒸发（P1b 前瞻已知项）。
+- **叠加语义（与 P0 边降权）**：若 belief 条目同时被 supersede 边指向（P0 `supersededPenalty=0.3`）且 metadata.status=superseded（本刀 ×0.1），两因子**叠乘**——实际 = beliefBoost × 0.1 × 0.3 = 0.06；只标 status 未建边 = 0.2。两档均正确（建边=图语义，标 status=状态语义），但标定时勿把 0.06 误读为「状态因子失效」。叠乘也会放大误建边的后果（recorded 被误建边 → 2.0×0.6×0.3=0.36 跌破普通条目），建边路径（P1c 工具面）需同步保证只对新旧 belief 对建边。

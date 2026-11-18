@@ -855,5 +855,37 @@ describe("rerank belief 优先级（F20261118blsrk P1b）", () => {
     expect(b.finalScore).toBeCloseTo(p.finalScore * 2.0, 10);
     expect(b.beliefStatus).toBe("verified");
   });
+
+  it("additive 路径同层叠加（recorded×0.6 / disputed×0.3 / superseded×0.1）", () => {
+    const additiveEngine = new SearchEngine({ ...TEST_CONFIG, rerankMode: "additive" });
+    const hits = new Map([
+      ["b-rec", makeHit("b-rec", 0.5, "belief", "recorded")],
+      ["b-dis", makeHit("b-dis", 0.5, "belief", "disputed")],
+      ["b-sup", makeHit("b-sup", 0.5, "belief", "superseded")],
+      ["b-ver", makeHit("b-ver", 0.5, "belief", "verified")],
+    ]);
+    const result = additiveEngine.rerankAdditive(hits, new Map());
+    const rec = result.find(r => r.entryId === "b-rec")!;
+    const dis = result.find(r => r.entryId === "b-dis")!;
+    const sup = result.find(r => r.entryId === "b-sup")!;
+    const ver = result.find(r => r.entryId === "b-ver")!;
+    expect(rec.finalScore).toBeCloseTo(ver.finalScore * 0.6, 10);
+    expect(dis.finalScore).toBeCloseTo(ver.finalScore * 0.3, 10);
+    expect(sup.finalScore).toBeCloseTo(ver.finalScore * 0.1, 10);
+  });
+
+  it("belief 但 metadata 畸形（非 belief 契约）时回退因子 1.0、不注入状态", () => {
+    const bad = makeHit("b-bad", 0.5, "belief");
+    (bad.entry as MemoryEntry).metadata = { kind: "state" }; // 缺 status/anchors，parseBeliefMetadata 拒收
+    const hits = new Map([
+      ["b-bad", bad],
+      ["plain", makeHit("plain", 0.5, "message")],
+    ]);
+    const result = engine.rerank(hits, new Map());
+    const b = result.find(r => r.entryId === "b-bad")!;
+    const p = result.find(r => r.entryId === "plain")!;
+    expect(b.finalScore).toBeCloseTo(p.finalScore, 10);
+    expect(b.beliefStatus).toBeUndefined();
+  });
 });
 
