@@ -7,12 +7,17 @@ import { CoLinkToolBridge } from './colink-tools.mjs';
 
 // Why: 0.28 起身份、连接、签名密钥由 SDK 从 COLINK_* 环境变量读取并在创建时报错，
 // 这里只校验本扩展自己的运行时配置，不复制 SDK 的凭据校验。
-for (const name of ['DATA_DIR', 'OTTER_BASE_URL']) {
+// Why: MCP bearer 由 COLINK_MCP_SECRET 派生且必须按 Conversation 稳定——Otter 的
+// mcp-external 守卫拒绝同一 server 换 bearer（见 colink-tools.mjs 类注释）。
+for (const name of ['DATA_DIR', 'OTTER_BASE_URL', 'COLINK_MCP_SECRET']) {
   if (!process.env[name]) throw new Error(`${name} is required`);
 }
 const dataDir = resolve(process.env.DATA_DIR);
 
-const toolBridge = new CoLinkToolBridge({ port: Number(process.env.COLINK_MCP_PORT ?? 31_131) });
+const toolBridge = new CoLinkToolBridge({
+  secret: process.env.COLINK_MCP_SECRET,
+  port: Number(process.env.COLINK_MCP_PORT ?? 31_131),
+});
 await toolBridge.start();
 const bridge = new OtterBridge({
   baseUrl: process.env.OTTER_BASE_URL,

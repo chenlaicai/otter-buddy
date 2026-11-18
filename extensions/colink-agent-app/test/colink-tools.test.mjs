@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { McpClient, StreamableHttpTransport } from '@earendil-works/pi-mcp';
 import { CoLinkToolBridge, buildCoLinkPrompt, isBareMention, toolsFor } from '../src/colink-tools.mjs';
+
+const SECRET = 'test-mcp-secret-0123456789abcdef0123456789';
 
 function ctxFixture(kind = 'channel', overrides = {}) {
   const dm = kind === 'dm';
@@ -59,7 +62,7 @@ test('exposes exactly two source-bound history tools for a channel event', () =>
 });
 
 test('registers a per-turn direct MCP config through Otter and serves topic reads from the event source', async () => {
-  const bridge = new CoLinkToolBridge({ port: 0 });
+  const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
   await bridge.start();
   try {
     const ctx = ctxFixture('channel');
@@ -86,29 +89,41 @@ test('registers a per-turn direct MCP config through Otter and serves topic read
   }
 });
 
-test('each wake gets a fresh bearer and the previous one stops working', async () => {
-  const bridge = new CoLinkToolBridge({ port: 0 });
+test('a conversation keeps one stable bearer across rounds so Otter can rewrite its own mcp.json', async () => {
+  const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
   await bridge.start();
   try {
-    const first = [];
-    await bridge.run({ otterConversationId: 'o', ctx: ctxFixture('channel'), register: async c => first.push(c) }, async () => 'one');
-    const oldToken = tokenOf(first[0]);
-    // 上一轮事件结束后 bearer 立即失效：不跨事件复用授权。
-    assert.equal((await rpc(bridge, oldToken, 'tools/list')).status, 401);
-    const second = [];
-    await bridge.run({ otterConversationId: 'o', ctx: ctxFixture('channel'), register: async c => second.push(c) }, async () => {
-      const newToken = tokenOf(second[0]);
-      assert.notEqual(tokenOf(second[0]), oldToken);
-      assert.equal((await rpc(bridge, newToken, 'tools/list')).status, 200);
+    const rounds = [];
+    const register = async config => rounds.push(config);
+    await bridge.run({ otterConversationId: 'o', ctx: ctxFixture('channel'), register }, async () => 'one');
+    const firstToken = tokenOf(rounds[0]);
+    // Why: Otter 的 mcp-external 守卫（manage-workspace.ts isSameOwnedConfig）要求同一 server 的
+    // bearer 与已落盘文件一致，不同即 409 且 Agent 不启动；因此第二轮必须注册同一 bearer 与同一配置。
+    await bridge.run({ otterConversationId: 'o', ctx: ctxFixture('channel'), register }, async () => {
+      assert.equal(tokenOf(rounds[1]), firstToken);
+      assert.deepEqual(rounds[1], rounds[0]);
+      // 授权时效靠 active 映射：token 稳定但只映射当前轮。
+      assert.equal((await rpc(bridge, firstToken, 'tools/list')).status, 200);
       return 'two';
     });
+    // 事件结束后同一个 bearer 不再可用。
+    assert.equal((await rpc(bridge, firstToken, 'tools/list')).status, 401);
+    // 不同 Conversation 派生不同 bearer（互不借用）。
+    const other = [];
+    await bridge.run({ otterConversationId: 'o-other', ctx: ctxFixture('channel'), register: async c => other.push(c) }, async () => 'x');
+    assert.notEqual(tokenOf(other[0]), firstToken);
   } finally {
     await bridge.close();
   }
 });
 
+test('the bridge refuses to start without a 32+ character derivation secret', () => {
+  assert.throws(() => new CoLinkToolBridge({ port: 0 }), /COLINK_MCP_SECRET_REQUIRED/);
+  assert.throws(() => new CoLinkToolBridge({ secret: 'short', port: 0 }), /COLINK_MCP_SECRET_REQUIRED/);
+});
+
 test('channel background read uses the identity fixed by the event visibility snapshot', async () => {
-  const bridge = new CoLinkToolBridge({ port: 0 });
+  const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
   await bridge.start();
   try {
     const publicCtx = ctxFixture('channel');
@@ -132,7 +147,7 @@ test('channel background read uses the identity fixed by the event visibility sn
 });
 
 test('fails closed when the channel visibility snapshot is missing, and rejects caller-chosen resources', async () => {
-  const bridge = new CoLinkToolBridge({ port: 0 });
+  const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
   await bridge.start();
   try {
     const ctx = ctxFixture('channel', { channelVisibility: undefined });
@@ -148,8 +163,6 @@ test('fails closed when the channel visibility snapshot is missing, and rejects 
       const crossChannel = await rpc(bridge, token, 'tools/call', { name: 'colink_read_channel', arguments: { channelId: 'other-channel' } });
       assert.equal(crossChannel.body.result.isError, true);
       assert.equal(crossChannel.body.result.structuredContent.error.code, 'COLINK_TOOL_ARG_NOT_ALLOWED:channelId');
-      const channelOnDm = await rpc(bridge, token, 'tools/call', { name: 'colink_read_channel', arguments: {} });
-      assert.equal(channelOnDm.body.result.isError, true);
     });
     assert.deepEqual(ctx.sourceReads, []);
     assert.deepEqual(ctx.channelReads, []);
@@ -159,7 +172,7 @@ test('fails closed when the channel visibility snapshot is missing, and rejects 
 });
 
 test('DM wake reads only the current conversation through the event source', async () => {
-  const bridge = new CoLinkToolBridge({ port: 0 });
+  const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
   await bridge.start();
   try {
     const ctx = ctxFixture('dm');
@@ -179,7 +192,7 @@ test('DM wake reads only the current conversation through the event source', asy
 });
 
 test('a bare mention pre-reads the current topic before the agent starts', async () => {
-  const bridge = new CoLinkToolBridge({ port: 0 });
+  const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
   await bridge.start();
   try {
     const ctx = ctxFixture('channel', { text: '@海獭' });
@@ -210,4 +223,69 @@ test('isBareMention only matches messages that carry nothing but the mention', (
   assert.equal(isBareMention('<@agent-1>'), true);
   assert.equal(isBareMention('@海獭 帮我总结'), false);
   assert.equal(isBareMention(''), false);
+});
+
+test('interoperates with the real MCP Streamable HTTP client', async () => {
+  const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
+  await bridge.start();
+  try {
+    const ctx = ctxFixture('channel');
+    const registrations = [];
+    await bridge.run({
+      otterConversationId: 'otter-http-client', ctx, register: async config => registrations.push(config),
+    }, async () => {
+      const server = registrations[0].mcpServers.colink_otter_history;
+      const client = new McpClient({ name: 'colink-app-contract-test', version: '1.0.0' });
+      await client.connect(new StreamableHttpTransport({ url: server.url, headers: server.headers }));
+      try {
+        assert.deepEqual((await client.listTools()).map(tool => tool.name), ['colink_read_topic', 'colink_read_channel']);
+        const result = await client.callTool('colink_read_topic', { limit: 10 });
+        assert.equal(result.structuredContent.items[0].text, '话题历史');
+        // 真实客户端也拿不到当前事件之外的资源（pi-mcp 把工具错误作为结果返回，不会抛）。
+        const denied = await client.callTool('colink_read_channel', { channelId: 'other-channel' });
+        assert.equal(denied.isError, true);
+        assert.equal(denied.structuredContent.error.code, 'COLINK_TOOL_ARG_NOT_ALLOWED:channelId');
+      } finally { await client.close(); }
+      return 'done';
+    });
+    assert.deepEqual(ctx.sourceReads, [{ limit: 10 }]);
+    assert.deepEqual(ctx.channelReads, []);
+  } finally {
+    await bridge.close();
+  }
+});
+
+test('enforces the 0.28 per-source pagination limits and rejects DM channel reads', async () => {
+  const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
+  await bridge.start();
+  try {
+    const channelCtx = ctxFixture('channel');
+    const config = [];
+    await bridge.run({ otterConversationId: 'limits', ctx: channelCtx, register: async c => config.push(c) }, async () => {
+      const token = tokenOf(config[0]);
+      const tooMany = await rpc(bridge, token, 'tools/call', { name: 'colink_read_channel', arguments: { limit: 51 } });
+      assert.equal(tooMany.body.result.structuredContent.error.code, 'COLINK_TOOL_LIMIT_INVALID');
+      const longCursor = await rpc(bridge, token, 'tools/call', { name: 'colink_read_channel', arguments: { cursor: 'c'.repeat(1025) } });
+      assert.equal(longCursor.body.result.structuredContent.error.code, 'COLINK_TOOL_CURSOR_INVALID:cursor');
+      const maxOk = await rpc(bridge, token, 'tools/call', { name: 'colink_read_channel', arguments: { limit: 50 } });
+      assert.equal(maxOk.body.result.isError, undefined);
+      return 'ok';
+    });
+
+    const dmCtx = ctxFixture('dm');
+    const dmConfig = [];
+    await bridge.run({ otterConversationId: 'limits-dm', ctx: dmCtx, register: async c => dmConfig.push(c) }, async () => {
+      const token = tokenOf(dmConfig[0]);
+      const longBefore = await rpc(bridge, token, 'tools/call', { name: 'colink_read_topic', arguments: { beforeId: 'm'.repeat(37) } });
+      assert.equal(longBefore.body.result.structuredContent.error.code, 'COLINK_TOOL_CURSOR_INVALID:beforeId');
+      // DM 事件没有频道上下文：频道工具即使不被列出也必须失败关闭。
+      const channelOnDm = await rpc(bridge, token, 'tools/call', { name: 'colink_read_channel', arguments: {} });
+      assert.equal(channelOnDm.body.result.isError, true);
+      assert.equal(channelOnDm.body.result.structuredContent.error.code, 'COLINK_CHANNEL_READ_UNAVAILABLE');
+      return 'ok';
+    });
+    assert.deepEqual(dmCtx.channelReads, []);
+  } finally {
+    await bridge.close();
+  }
 });

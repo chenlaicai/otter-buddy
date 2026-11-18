@@ -1,8 +1,14 @@
 import { createServer } from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 
 const SERVER_NAME = 'colink_otter_history';
-const MAX_PAGE = 100;
+
+/** 0.28 权威分页约束：话题 limit≤100/cursor≤2048，私聊 limit≤100/beforeId|afterId≤36，频道 limit≤50/cursor≤1024。 */
+const SOURCE_LIMITS = Object.freeze({
+  topic: { limit: 100, cursor: 2048 },
+  dm: { limit: 100, beforeId: 36, afterId: 36 },
+  channel: { limit: 50, cursor: 1024 },
+});
 
 function loopback(address) {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
@@ -47,19 +53,19 @@ export function isBareMention(text) {
 }
 
 /** 工具参数白名单：资源身份一律来自事件，调用方不能选择话题、频道、会话或身份。 */
-function readOptions(args, allowed) {
+function readOptions(args, allowed, limits) {
   const input = args ?? {};
   for (const key of Object.keys(input)) {
     if (!allowed.includes(key)) throw toolError(`COLINK_TOOL_ARG_NOT_ALLOWED:${key}`);
   }
   const options = {};
   if (input.limit !== undefined) {
-    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > MAX_PAGE) throw toolError('COLINK_TOOL_LIMIT_INVALID');
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > limits.limit) throw toolError('COLINK_TOOL_LIMIT_INVALID');
     options.limit = input.limit;
   }
   for (const key of allowed) {
     if (key === 'limit' || input[key] === undefined) continue;
-    if (typeof input[key] !== 'string' || !input[key] || input[key].length > 2048) throw toolError(`COLINK_TOOL_CURSOR_INVALID:${key}`);
+    if (typeof input[key] !== 'string' || !input[key] || input[key].length > limits[key]) throw toolError(`COLINK_TOOL_CURSOR_INVALID:${key}`);
     options[key] = input[key];
   }
   return options;
@@ -72,10 +78,10 @@ function topicTool() {
     inputSchema: {
       type: 'object',
       properties: {
-        limit: { type: 'integer', minimum: 1, maximum: MAX_PAGE, description: '每页条数，默认由平台决定' },
+        limit: { type: 'integer', minimum: 1, maximum: 100, description: '每页条数，默认由平台决定' },
         cursor: { type: 'string', minLength: 1, maxLength: 2048, description: '仅话题：上一页返回的分页游标，原样传回' },
-        beforeId: { type: 'string', minLength: 1, maxLength: 2048, description: '仅私聊：只读这条消息之前的消息' },
-        afterId: { type: 'string', minLength: 1, maxLength: 2048, description: '仅私聊：只读这条消息之后的消息' },
+        beforeId: { type: 'string', minLength: 1, maxLength: 36, description: '仅私聊：只读这条消息之前的消息' },
+        afterId: { type: 'string', minLength: 1, maxLength: 36, description: '仅私聊：只读这条消息之后的消息' },
       },
       additionalProperties: false,
     },
@@ -90,8 +96,8 @@ function channelTool() {
     inputSchema: {
       type: 'object',
       properties: {
-        limit: { type: 'integer', minimum: 1, maximum: MAX_PAGE, description: '每页条数，默认由平台决定' },
-        cursor: { type: 'string', minLength: 1, maxLength: 2048, description: '上一页返回的分页游标，原样传回' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, description: '每页条数，默认由平台决定' },
+        cursor: { type: 'string', minLength: 1, maxLength: 1024, description: '上一页返回的分页游标，原样传回' },
       },
       additionalProperties: false,
     },
@@ -149,10 +155,20 @@ export function buildCoLinkPrompt(ctx, preRead) {
   ].join('\n');
 }
 
-/** 每轮一次性 bearer 的 MCP 代理：CoLink 凭证只留在 SDK 的当轮回调里，从不写入代理或 MCP 配置。 */
+/**
+ * 按 Conversation 派生稳定 bearer 的 MCP 代理：CoLink 凭证只留在 SDK 的当轮回调里，从不写入代理或 MCP 配置。
+ *
+ * Why 不用每轮随机 token：Otter 的 mcp-external 写入守卫（manage-workspace.ts 的
+ * isSameOwnedConfig）要求同一 server 的 authorization 与已有文件完全一致，不同即 409
+ * （tests/interface-adapters/http/workspace-mcp-external.test.ts 锁定该行为）。轮换 bearer
+ * 会让同一 Conversation 的第二轮在注册处直接失败、Agent 不启动。授权时效由 active 映射
+ * 保证：token 稳定但只有当前轮在 active 里，事件结束后立即失效。
+ */
 export class CoLinkToolBridge {
-  constructor({ host = '127.0.0.1', port = 31_131 } = {}) {
+  constructor({ secret, host = '127.0.0.1', port = 31_131 } = {}) {
+    if (typeof secret !== 'string' || secret.length < 32) throw new Error('COLINK_MCP_SECRET_REQUIRED');
     if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error('COLINK_MCP_PORT_INVALID');
+    this.secret = secret;
     this.host = host;
     this.port = port;
     this.active = new Map();
@@ -174,6 +190,10 @@ export class CoLinkToolBridge {
         resolveStart();
       });
     });
+  }
+
+  tokenFor(otterConversationId) {
+    return createHmac('sha256', this.secret).update(`colink-otter-mcp-v2:${otterConversationId}`).digest('base64url');
   }
 
   configFor(token) {
@@ -199,8 +219,8 @@ export class CoLinkToolBridge {
   async run({ otterConversationId, ctx, register }, execute) {
     if (!this.origin) throw new Error('COLINK_TOOL_BRIDGE_NOT_STARTED');
     if (typeof register !== 'function') throw new Error('OTTER_MCP_REGISTRATION_REQUIRED');
-    // Why: 每次唤醒新签一枚随机 bearer；上一轮的 token 在事件结束后自然失效，不跨事件复用。
-    const token = randomBytes(32).toString('base64url');
+    // Why: bearer 按 Conversation 稳定（见类注释），跨事件的有效性由 active 映射控制。
+    const token = this.tokenFor(otterConversationId);
     // Why: bare mention 的上下文读取由 App 在 Agent 启动前完成，不依赖模型遵守提示词。
     const preRead = await this.preReadBareMention(ctx);
     // Why: 由 Otter 自己校验并落盘，App 不需要 Otter 数据目录的任何写权限。
@@ -216,13 +236,14 @@ export class CoLinkToolBridge {
   async callTool(ctx, name, args) {
     const data = eventData(ctx);
     if (name === 'colink_read_topic') {
-      const allowed = ctx.source.kind === 'dm' ? ['limit', 'beforeId', 'afterId'] : ['limit', 'cursor'];
-      return ctx.source.listMessages(readOptions(args, allowed));
+      const dm = ctx.source.kind === 'dm';
+      const allowed = dm ? ['limit', 'beforeId', 'afterId'] : ['limit', 'cursor'];
+      return ctx.source.listMessages(readOptions(args, allowed, dm ? SOURCE_LIMITS.dm : SOURCE_LIMITS.topic));
     }
     if (name === 'colink_read_channel') {
       if (isDm(ctx) || !data.channelId) throw toolError('COLINK_CHANNEL_READ_UNAVAILABLE');
       // Why: 先拒掉调用方自选资源，再判断可用性，避免用参数错误掩盖越权尝试。
-      const options = readOptions(args, ['limit', 'cursor']);
+      const options = readOptions(args, ['limit', 'cursor'], SOURCE_LIMITS.channel);
       const visibility = data.channelVisibility;
       // Why: 旧事件可能缺少可见性快照；此时无法确定该用 App 还是用户身份，只能失败关闭，不猜。
       if (visibility !== 'public' && visibility !== 'private') throw toolError('COLINK_CHANNEL_VISIBILITY_UNKNOWN', '该事件缺少频道可见性快照，无法确定读取身份；等新的完整事件再读');

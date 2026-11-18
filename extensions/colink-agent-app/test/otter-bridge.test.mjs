@@ -41,7 +41,17 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
       return Response.json({ id: 'otter-conversation-1', otterIds });
     }
     if (path.endsWith('/workspace/mcp-external')) {
-      state.mcpConfigs.push(JSON.parse(options.body));
+      const config = JSON.parse(options.body);
+      // Why: 复刻核心 manage-workspace 的 isSameOwnedConfig —— 同一 server 换 bearer 即 409，
+      // 否则「每轮随机 bearer」这类回归会在全绿单测里漏过去。
+      const bearer = config.mcpServers?.colink_otter_history?.headers?.authorization;
+      const previous = state.mcpConfigs.at(-1);
+      const previousBearer = previous?.mcpServers?.colink_otter_history?.headers?.authorization;
+      if (previous && previousBearer !== bearer) {
+        state.mcpConflicts = (state.mcpConflicts ?? 0) + 1;
+        return Response.json({ error: 'conflict' }, { status: 409 });
+      }
+      state.mcpConfigs.push(config);
       return Response.json({ ok: true });
     }
     if (/^\/api\/invokes\/[^/]+\/abort$/.test(path)) {
@@ -258,4 +268,33 @@ test('persists mappings with owner-only file permissions', () => {
   assert.equal(new ConversationStore(file).get('external'), 'otter-conversation');
   const content = readFileSync(file, 'utf8');
   assert.deepEqual(JSON.parse(content), { external: 'otter-conversation' });
+});
+
+test('re-registers byte-identical MCP config on the next round so Otter accepts the rewrite', async () => {
+  const { state, fetcher } = fixture();
+  const toolBridge = { run: async (_binding, execute) => execute(input.text) };
+  const registers = [];
+  // 用真实代理生成配置，验证与 Otter 守卫的契约（同 bearer、同全文）。
+  const { CoLinkToolBridge } = await import('../src/colink-tools.mjs');
+  const realBridge = new CoLinkToolBridge({ secret: 'test-mcp-secret-0123456789abcdef0123456789', port: 0 });
+  await realBridge.start();
+  try {
+    toolBridge.run = async ({ otterConversationId, ctx }, execute) => realBridge.run({
+      otterConversationId, ctx, register: async config => registers.push(config),
+    }, execute);
+    const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
+    const ctx = {
+      event: { data: { text: input.text, reason: 'dm_message', conversationId: 'dm-1', channelId: null, topicId: null, messageId: 'm-1', replyToMessageId: null } },
+      context: { userId: 'user-1', installationId: 'installation-1' },
+      source: { kind: 'dm', listMessages: async () => ({ items: [] }) },
+      colink: { user: {}, app: {} },
+    };
+    assert.equal(await bridge.reply({ ...input, ctx }), '最终回答');
+    assert.equal(await bridge.reply({ ...input, ctx, text: '第二轮' }), '最终回答');
+  } finally {
+    await realBridge.close();
+  }
+  assert.equal(state.mcpConflicts ?? 0, 0);
+  assert.equal(registers.length, 2);
+  assert.deepEqual(registers[1], registers[0]);
 });

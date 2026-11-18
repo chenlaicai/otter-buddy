@@ -34,7 +34,8 @@ test('manifest includes a passive otter avatar and both personal/project scopes'
   const containers = {
     [ExtensionPoint.AppHome]: [ViewContainer.SidePanel],
     [ExtensionPoint.NavigationModules]: [ViewContainer.PageContent],
-    [ExtensionPoint.DmActions]: [ViewContainer.SidePanel, ViewContainer.ModalDialog],
+    // 权威清单契约：dm.actions 只接受 side_panel（for-ai-manifest.md 扩展点表）。
+    [ExtensionPoint.DmActions]: [ViewContainer.SidePanel],
   };
   for (const entry of manifest.ui.entries) {
     assert.ok(Object.hasOwn(containers, entry.extensionPoint.id), `未知扩展点 ${entry.extensionPoint.id}`);
@@ -80,7 +81,7 @@ test('mention handler allows personal DM without a user allowlist and rejects un
   assert.deepEqual(replies, [{ text: '同事回答' }]);
 });
 
-/** vendor/ 不入库（见 .gitignore）；只有跑过 prepare:sdk 的本地工作副本才有实物可核对。 */
+/** vendor/ 入库（由 prepare:sdk 生成），CI 直接核对 pin 与实物版本一致。 */
 test('vendored SDK matches the pinned version and the manifest constants are not stale', async () => {
   const { readFileSync, existsSync } = await import('node:fs');
   const pinPath = new URL('../sdk-pin.json', import.meta.url);

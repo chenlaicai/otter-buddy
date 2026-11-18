@@ -11,7 +11,7 @@ Manifest 同时声明 `personal/project` 安装，并内联被动 SVG 海獭头�
 - 目标协议：`@colink/app-sdk` **0.28.0**（pin 见 `sdk-pin.json`，含构建产物完整性摘要）。
 - 事件入口：`app.user_message_received`（`app.mentioned` 在 0.28 已退役，私聊/话题/频道统一到这一个事件）。
 - 回合能力：`ctx.source.listMessages` / `ctx.reply` / `ctx.sendProgress` / `ctx.setDisplayStatus` / `ctx.assertActive` / `ctx.colink.user|app`。
-- 0.28 起 SDK 运行实现只有 `.mts` 源码，必须先构建再 vendor；`vendor/` 不入库，由 `npm run prepare:sdk` 生成。
+- 0.28 起 SDK 运行实现只有 `.mts` 源码，必须先构建再 vendor；`vendor/app-sdk` 由 `npm run prepare:sdk` 生成并**入库**（同时写 `sdk-pin.json` 记版本、sha512 与 CoLink 构建 commit），源码用相对路径导入，CI 无需先 `npm install` 即可跑契约测试。
 
 ## 运行前提
 
@@ -37,11 +37,13 @@ node --env-file=./.env src/app.mjs
 
 SDK 状态（安装、OAuth、持久输出账本）保存在 `COLINK_STATE_FILE`（缺省 `./.colink/state.enc`）与旁边的 `.key`；该目录需持久化、备份、仅服务账号可读，且单进程单副本独占。本扩展自己的 `DATA_DIR` 只存外部会话 → Otter Conversation 映射，写入采用同目录临时文件加原子重命名，文件权限 `0600`。
 
+`COLINK_MCP_SECRET`（>=32 字符）与上面的 CoLink 凭据分开管理：它是本扩展 MCP 代理的派生密钥，不参与平台鉴权。
+
 个人 DM 与项目频道均不维护额外用户白名单：可接入个人空间的用户和已安装项目范围内的成员均可触发，由 CoLink 安装授权与事件验签负责；私密历史读取仍要求触发者本人具备 `messages:read-private` 委托。多人输入统一使用 `externalProfile=restricted` 外部安全档，不获得普通 Otter 的对话、记忆或编排能力。
 
 App 通过回环管理接口 `PUT /api/conversations/:id/workspace/mcp-external` 让 **Otter 自己**写入对应 `workspaces/<conversationId>/mcp.json`，文件权限为 `0600`；App 不需要 Otter 数据目录的任何文件系统权限。该接口只接受任意名称的单个受限回环 HTTP server，拒绝 command、外部 URL、多个 server 和异常 bearer；已有其他 MCP 配置或全局同名配置时失败关闭，不覆盖。
 
-MCP 代理的 bearer 是**每轮唤醒新签的随机 token**，只在该轮事件回调存活期内映射到 `ctx`；事件结束后立即失效，不跨事件、不跨重启复用。代理默认监听 `127.0.0.1:31131`（`COLINK_MCP_PORT`），不得加入公网反向代理或安全组。Server 名为 `colink_otter_history`，若 Otter 全局配置已有同名项会失败关闭，避免被其他工具源遮蔽。
+MCP 代理的 bearer 由 `COLINK_MCP_SECRET` 按 Conversation 派生，**必须跨部署保持稳定**：Otter 的 `mcp-external` 写入守卫要求同一 server 的 `authorization` 与已落盘 `mcp.json` 完全一致，换 bearer 会让同一 Conversation 的第二轮直接 409、Agent 不启动（`src/usecases/conversation/manage-workspace.ts` 的 `isSameOwnedConfig`）。授权时效靠代理内的 active 映射：token 稳定，但只有当前轮在映射里，事件结束即失效，旧 Agent 无法借新事件授权。代理默认监听 `127.0.0.1:31131`（`COLINK_MCP_PORT`），不得加入公网反向代理或安全组。Server 名为 `colink_otter_history`，若 Otter 全局配置已有同名项会失败关闭，避免被其他工具源遮蔽。
 
 新唤醒激活 bearer 前必须确认对应 Otter Conversation 没有旧 invoke 或待交棒执行。发现旧 invoke 时先调用 Otter abort 并等待真实终态，当前 CoLink 事件随后失败关闭，可在下一轮重试。
 
@@ -76,4 +78,4 @@ npm test
 5. 让 App 总结当前话题，并追问话题根消息之前的频道背景；确认依次调用 `colink_read_topic`、`colink_read_channel`，回答与历史一致；
 6. 在 DM 中追问较早的私聊内容，确认 `colink_read_topic` 读的是当前私聊，传 `cursor`/资源参数被拒绝；
 7. 在频道只发 @，确认 App 先读取当前话题最近一页再启动 Agent，回复利用实际上下文而非凭空追问；
-8. App 配置和代码中没有模型供应商密钥或直接模型请求，MCP 配置中没有 CoLink 长期令牌，且上一轮的 bearer 已失效。
+8. App 配置和代码中没有模型供应商密钥或直接模型请求，MCP 配置中没有 CoLink 长期令牌；连续两轮（第二轮走同一 Conversation 的 `mcp.json` 重写）都能正常唤醒 Agent。
