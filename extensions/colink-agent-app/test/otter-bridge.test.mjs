@@ -303,6 +303,7 @@ test('degrades a failed attachment upload to a text-only message carrying the un
   assert.equal(state.attachmentUploads, undefined);
   assert.equal(state.messages[0].attachmentIds, undefined);
   assert.match(state.messages[0].body, /file-7/);
+  assert.match(state.messages[0].body, /注入附件库失败/);
 });
 
 test('re-registers byte-identical MCP config on the next round so Otter accepts the rewrite', async () => {

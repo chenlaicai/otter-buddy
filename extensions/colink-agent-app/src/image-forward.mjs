@@ -17,6 +17,12 @@ export const MAX_FORWARD_IMAGES_PER_TURN = 2;
 const SVG_FENCE_RE = /```(?:svg|xml)\s*\n([\s\S]*?)```/gi;
 // 没有围栏但整段直接给 <svg>...</svg> 的兜底（模型偶发不包围栏）。
 const BARE_SVG_RE = /<svg[\s\S]*?<\/svg>/gi;
+// 围栏内正文根元素必须确为 <svg>，否则（如普通 XML 示例）保持普通文本不吞。
+const SVG_ROOT_RE = /<svg[\s>]/i;
+// 删除正文中的图片块时的整块匹配（含围栏或裸块），避免正则元字符注入。
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 function uniqueNonEmpty(values) {
   const seen = new Set();
@@ -32,25 +38,28 @@ function uniqueNonEmpty(values) {
 
 /**
  * 从回复文本提取 SVG 图片块。
+ * 处理顺序：先摘除全部图片块（含超出发送上限的也要从正文删干净）→ 再对发送列表去重截断。
+ * 非 SVG 的 ```xml / ```svg 围栏内容（如普通 XML 示例）原样保留，不吞、不误判。
  * @returns {{ svgs: string[], text: string }} svgs 为最多 MAX_FORWARD_IMAGES_PER_TURN 个 SVG 文本，
- *          text 为移除这些块之后的剩余正文（用于 CoLink 消息正文）。
+ *          text 为移除全部图片块之后的剩余正文（用于 CoLink 消息正文）。
  */
 export function extractSvgBlocks(text) {
   const source = typeof text === 'string' ? text : '';
   const fenced = [];
-  // 先摘除全部 ```svg / ```xml 围栏，围栏内正文收集为 fenced。
   const withoutFences = source.replace(SVG_FENCE_RE, (_full, inner) => {
-    fenced.push(inner);
-    return '';
+    if (SVG_ROOT_RE.test(inner)) {
+      fenced.push(inner);
+      return '';
+    }
+    return _full;
   });
-  // 剩余文本里还直接写 <svg>...</svg> 的作为兕底。
   const bare = [...withoutFences.matchAll(BARE_SVG_RE)].map(match => match[0]);
-  const svgs = uniqueNonEmpty([...fenced, ...bare]).slice(0, MAX_FORWARD_IMAGES_PER_TURN);
+  const all = uniqueNonEmpty([...fenced, ...bare]);
   let remainder = withoutFences;
-  for (const svg of svgs) {
-    const escaped = svg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    remainder = remainder.replace(new RegExp(escaped, 'g'), '');
+  for (const svg of all) {
+    remainder = remainder.replace(new RegExp(escapeRegExp(svg), 'g'), '');
   }
+  const svgs = all.slice(0, MAX_FORWARD_IMAGES_PER_TURN);
   return { svgs, text: remainder.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim() };
 }
 

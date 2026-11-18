@@ -44,3 +44,19 @@ test('svgToPng renders an SVG to PNG bytes', async () => {
   // PNG magic number
   assert.deepEqual([...bytes.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 });
+
+test('extractSvgBlocks removes all bare SVGs from the text even beyond the send cap', () => {
+  const svgOf = fill => `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="${fill}"/></svg>`;
+  const source = `开头\n${svgOf('red')}\n${svgOf('blue')}\n${svgOf('green')}\n结尾`;
+  const { svgs, text } = extractSvgBlocks(source);
+  assert.equal(svgs.length, 2);
+  assert.equal(text, '开头\n\n结尾');
+  assert.doesNotMatch(text, /blue|green|red/);
+});
+
+test('extractSvgBlocks leaves a non-SVG xml fence untouched', () => {
+  const xml = '```xml\n<root><value>1</value></root>\n```';
+  const { svgs, text } = extractSvgBlocks(`例子\n${xml}\n结束`);
+  assert.deepEqual(svgs, []);
+  assert.ok(text.includes('<root><value>1</value></root>'));
+});

@@ -105,16 +105,24 @@ export class OtterBridge {
       // Why: 常驻 MCP bearer 指向当前 active turn；旧 Agent 未终态时重绑会借用新事件授权。
       await this.assertConversationIdle(otterConversationId, signal);
       // 图片预下载后先上传到海獭系统附件库，再随消息带 attachmentIds 注入（多模态 Phase 1 链路）。
-      // 上传失败逐张降级：图片缺席但不阻断文本消息。
+      // 上传失败逐张降级：图片缺席但不阻断文本消息，并把失败 id 记入提示避免模型误以为收到图。
       const attachmentIds = [];
+      const failedUploadIds = [];
       for (const image of images) {
         try {
           attachmentIds.push(await this.uploadAttachment(otterConversationId, image, signal));
-        } catch { /* 上传失败降级 */ }
+        } catch {
+          failedUploadIds.push(image.fileId ?? '未知');
+        }
       }
-      const imageNote = failedImageIds.length
-        ? `\n[附带图片] ${failedImageIds.length} 张图片未能读取（可能未授权 files:read）：${failedImageIds.join('、')}`
-        : '';
+      const imageNote = [
+        failedImageIds.length
+          ? `\n[附带图片] ${failedImageIds.length} 张图片未能读取（可能未授权 files:read）：${failedImageIds.join('、')}`
+          : '',
+        failedUploadIds.length
+          ? `\n[附带图片] ${failedUploadIds.length} 张图片注入附件库失败：${failedUploadIds.join('、')}`
+          : '',
+      ].filter(Boolean).join('');
       const execute = prompt => this.runTurn({
         otterConversationId, actorId, signal,
         text: `${prompt || '[图片]'}${imageNote}`,
