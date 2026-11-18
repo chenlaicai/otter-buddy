@@ -6,7 +6,8 @@
  */
 import { lex, type Token, type Word } from "./command-lexer";
 
-const MAIN_SIGNATURE = "dist/src/main.js";
+/** 模板签名模式白名单：归一后精确等值（includes 不能证明匹配——^ 锚点/后缀变体运行时不匹配主行）。 */
+const MAIN_SIGNATURES = new Set(["dist/src/main.js", "otter-buddy/dist/src/main.js"]);
 const CLAUSE_BOUNDARIES = new Set([";", "\n", "&", "&&", "||", "(", ")"]);
 
 function isRedirection(op: string): boolean {
@@ -42,7 +43,8 @@ function pipelineCommands(tokens: Token[]): PipeCommand[] | null {
   const pushCurrent = () => {
     if (current.length === 0) return;
     const stdinRedirect = current.some(t => t.type === "op" && /^[0-9]*<(?!&)/.test(t.op!));
-    const stdoutRedirect = current.some(t => t.type === "op" && /^([0-9]*>>?|&>>?)/.test(t.op!) && !/[>&]&\d+$/.test(t.op!));
+    // 仅 2>&1（stderr 并入 stdout）不断流；1>&2 把 stdout 改到 stderr，管道断
+    const stdoutRedirect = current.some(t => t.type === "op" && /^([0-9]*>>?|&>>?)/.test(t.op!) && t.op !== "2>&1");
     commands.push({ words: executableWords(current), stdinRedirect, stdoutRedirect });
     current = [];
   };
@@ -58,6 +60,11 @@ function pipelineCommands(tokens: Token[]): PipeCommand[] | null {
 /** [d]ist → dist：只归一单字符 self-match 类，不动真实多字符类。 */
 function unbracketSelfMatch(pattern: string): string {
   return pattern.replace(/\[([A-Za-z0-9])\]/g, "$1");
+}
+
+/** 剥除匹配集等价的 .* 通配前后缀（.*X ≡ 含 X 子串，* 可匹配空）；单点等其他元字符不剥。 */
+function stripEquivalentWildcards(pattern: string): string {
+  return pattern.replace(/^\.\*/, "").replace(/\.\*$/, "");
 }
 
 function basename(value: string): string {
@@ -92,9 +99,9 @@ function grepMatchesMain(words: Word[]): GrepMatch | "self" | null {
   if (words.length === 0 || basename(words[0].evaluated ?? "") !== "grep") return null;
   const parsed = parseTemplateGrep(words.slice(1).map(w => w.evaluated));
   if (!parsed) return null;
-  const normalized = unbracketSelfMatch(parsed.pattern);
+  const normalized = stripEquivalentWildcards(unbracketSelfMatch(parsed.pattern));
   if (parsed.inverted && normalized === "grep") return "self";
-  return { positive: normalized.includes(MAIN_SIGNATURE), inverted: parsed.inverted };
+  return { positive: MAIN_SIGNATURES.has(normalized), inverted: parsed.inverted };
 }
 
 /** 模板内 awk：单引号字面 script，或双引号全静态 script（非 lit part 只允许 \\$ 类
@@ -132,27 +139,33 @@ function grepTemplateStep(signed: boolean, command: PipeCommand): boolean | null
   return signed ? null : true; // 第二个正签名：模板外
 }
 
-/** 阶段机单命令流转；返回新 signed，null=链断裂（放行）。 */
-function templateStep(signed: boolean, command: PipeCommand): boolean | null {
+interface TemplateStage { started: boolean; signed: boolean }
+
+/** 阶段机单命令流转；返回新阶段，null=链断裂（放行）。ps 必须是链首命令
+ *  （ps 前的任何命令断模板）；第二个 ps 无论在正签名前后都断。 */
+function templateStep(stage: TemplateStage, command: PipeCommand): TemplateStage | null {
   const name = basename(command.words[0]?.evaluated ?? "");
-  if (name === "ps") return signed ? null : signed; // 第二个 ps：双 ps 结构不在模板
-  if (name === "grep") return grepTemplateStep(signed, command);
-  if (name === "awk" && signed && isTemplateAwk(command.words)) return signed;
-  return null; // ps 前的命令不关心；ps 后白名单外断
+  if (name === "ps") return stage.started ? null : { started: true, signed: false };
+  if (!stage.started) return null;
+  if (name === "grep") {
+    const signed = grepTemplateStep(stage.signed, command);
+    return signed === null ? null : { ...stage, signed };
+  }
+  if (name === "awk" && stage.signed && isTemplateAwk(command.words)) return stage;
+  return null; // ps 后白名单外断
 }
 
 export function tokensScanMainSignature(tokens: Token[]): boolean {
   const commands = pipelineCommands(tokens);
   if (!commands) return false;
-  let signed = false; // 是否已过唯一正签名 grep
+  let stage: TemplateStage | null = { started: false, signed: false };
   for (const command of commands) {
     if (command.stdinRedirect || command.stdoutRedirect) return false;
-    if (isChainTerminator(command)) return signed;
-    const next = templateStep(signed, command);
-    if (next === null) return false;
-    signed = next;
+    if (isChainTerminator(command)) return stage.signed;
+    stage = templateStep(stage, command);
+    if (stage === null) return false;
   }
-  return signed;
+  return stage.signed;
 }
 
 export function textScansMainSignature(text: string): boolean {

@@ -67,10 +67,12 @@ for PID in $(ps aux | grep "[d]ist/src/main.js" | awk '{print $2}'); do kill $PI
 四轮独立对抗复核（15+14+23+19 条双向错判）实证：通用 grep 旗标/wrapper/stdin 语义建模不可收敛——每扩一层就产生新的漏拦与误拦。按搭档拍板「bash 守卫是明确拦，不明确的必须放通」，通道收窄为**固定可证明模板**：
 
 **模板内（明确拦）**：`ps(任意 argv) → [grep -v grep]* → grep(签名) → [grep -v grep | awk 单script]* → kill 形态`。其中：
-- grep argv 白名单：`[grep 模式]` / `[grep -e 模式]` / `[grep --regexp=模式]` / `[grep -v 模式]`（`-v` 与上述形态组合）；模式含 `dist/src/main.js` → 正向扫描；`-v 签名` → 主进程已排除（放行）；`-v grep`/`[g]rep` → 自引用排除（透明）
-- awk 白名单：单引号字面 script（`awk '{print $2}'`），无选项无文件
+- **ps 必须是链首命令**：ps 前有任何命令断模板；第二个 ps（无论正签名前后）断模板
+- grep argv 白名单：`[grep 模式]` / `[grep -e 模式]` / `[grep --regexp=模式]` / `[grep -v 模式]`（`-v` 剥离后复用同一模式形态解析，`-v -e grep`/`-v --regexp=grep` 自引用透明）；**模式归一后精确等值** `dist/src/main.js` / `otter-buddy/dist/src/main.js`（`[d]ist` 单字符 self-match 类与匹配集等价的 `.*` 通配前后缀归一；includes 不能证明匹配——`^` 锚点/`.jsx` 后缀等变体运行时不匹配主行，一律模板外放行）；`-v 签名` → 主进程已排除（放行）
+- awk 白名单：单引号字面 script，或**双引号全静态 script**（非 lit part 只允许 `\$` 类 escape；未转义 `$N` 是 var 展开语义不同构，放行）——单引号 `-c` 载荷内物理写不了单引号，双引号转义是唯一朴素形态
+- **真实文件重定向断流**（`>`/`<` 目标）；fd 复制仅豁免 `2>&1`（stderr 并入 stdout）——`1>&2` 把 stdout 改到 stderr 管道断
 - kill 形态四种（数据流挂钩可证明）：①for 循环变量 ②while read 变量 ③xargs ④命令替换直给；字面量与扫描来源可混合（`kill 12345 $p`）
-- `[d]ist` 单字符 self-match 括号类归一；载荷（`bash -c '…'`）剥引号后仍按本模板匹配
+- 载荷（`bash -c '…'`）剥引号后仍按本模板匹配
 
 **模板外（不明确必须放通——已接受残余）**：wrapper 变体（`env -u FOO grep`、`sudo -u root grep`、`command/timeout/nohup` 包裹、赋值前缀）、非常见旗标（`-i/-m/-f/-q/-o/-n/--extended-regexp` 等）、stdin 占位与文件操作数组合（`grep 签名 -`）、`-v 非签名模式`（过滤效果确认不了）、双 ps 结构、双引号 awk script、非白名单中间命令（`sed/head/cat` 变体）。残余风险边界：模板公开后故意加 wrapper 可穿透——本通道保护对象是**事故型误杀**（失控会话顺手裸写，如 11-16 原案），非对抗型故意杀；字面量 PID 三查/pkill 按名/广播 kill 等既有防线不受影响；残余误杀经 healing 回路拿真实证据再扩模板。
 
