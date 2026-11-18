@@ -17,6 +17,11 @@ import { CreateEdge } from "@usecases/memory/create-edge";
 import { GetRelated } from "@usecases/memory/get-related";
 import { DeleteEdge } from "@usecases/memory/delete-edge";
 import { GetDocProvenance } from "@usecases/memory/get-doc-provenance";
+import { BeliefGuard } from "@usecases/memory/belief-guard";
+import { RecordBelief } from "@usecases/memory/record-belief";
+import { TransitionBelief } from "@usecases/memory/transition-belief";
+import { SupersedeBelief } from "@usecases/memory/supersede-belief";
+import { StoreMemory } from "@usecases/memory/store-memory";
 import { QueryMessage } from "@usecases/conversation/query-message";
 import { RecordSearchQuery } from "@usecases/memory/record-search-query";
 import { ManageReadState } from "@usecases/conversation/manage-read-state";
@@ -62,7 +67,7 @@ export interface UseCaseDeps {
 export function initUseCases(deps: UseCaseDeps): UseCases {
   const { repos, entryRepo, invokeRepo, agentGateway, embeddingService, memoryIndex, appConfig, logger, workspaceGateway, otterConfigProvider, modelPool } = deps;
   const memoryUcs = buildMemoryUseCases(repos, embeddingService, appConfig, logger);
-  const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries } = memoryUcs;
+  const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief } = memoryUcs;
   // F20260913ctlv 彻底切换：未读状态读 entries
   const queryMessage = new QueryMessage(repos.conversation, entryRepo);
   // F20260826rcmm Phase 0：检索埋点（评估基线数据源）
@@ -129,6 +134,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
     assistantSession,
     webAssistantProvisioner,
     createEdge, getRelated, deleteEdge, getDocProvenance,
+    recordBelief, transitionBelief, supersedeBelief,
     attachmentUpload,
     manageWorkspace,
     sendEntry,
@@ -201,7 +207,33 @@ function buildMemoryUseCases(
   const getRelated = new GetRelated(repos.memoryReader);
   const deleteEdge = new DeleteEdge(repos.memoryWriter);
   const getDocProvenance = new GetDocProvenance(repos.memoryReader, repos.feature, repos.research);
-  return { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries };
+
+  // F20261118bltls P1c：主动记忆层（belief）工具面装配
+  const storeMemory = new StoreMemory(repos.memoryWriter, repos.memoryQueue, embeddingService, logger);
+  const beliefGuard = new BeliefGuard({
+    getEntryById: (id) => repos.memoryReader.getById(id),
+    getMessageSender: async (messageEntryId) => {
+      const entry = await repos.memoryReader.getById(messageEntryId);
+      // message 投影 sourceTable 当前为 entries（#1191），历史为 messages——两代都识别
+      if (!entry || (entry.sourceTable !== "entries" && entry.sourceTable !== "messages")) return null;
+      const e = await repos.entry.getEntryById(entry.sourceId);
+      if (!e) return null;
+      return { senderType: e.senderType ?? null, senderId: e.senderId ?? null };
+    },
+  });
+  const recordBelief = new RecordBelief(beliefGuard, storeMemory);
+  const transitionBelief = new TransitionBelief({
+    getEntryById: (id) => repos.memoryReader.getById(id),
+    replaceEntry: (entry) => repos.memoryWriter.replaceEntryBySource(entry),
+  });
+  const supersedeBelief = new SupersedeBelief({
+    getSupersededBy: (ids) => repos.memoryReader.getSupersededBy(ids),
+    createEdge: ({ fromEntryId, toEntryId, edgeType, createdBy }) =>
+      repos.memoryWriter.createEdge({ fromEntryId, toEntryId, edgeType, createdBy }),
+    getEntryById: (id) => repos.memoryReader.getById(id),
+  }, transitionBelief);
+
+  return { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief };
 }
 
 /** SendEntry 装配（拆出降 initUseCases 行数——max-lines-per-function 60） */

@@ -126,6 +126,12 @@ export interface ToolContext {
   client: OtterToolClient;
   otterId: string;
   conversationId: string;
+  /**
+   * F20261118bltls P1c：本对话搭档（用户）id——belief preference 来源身份校验用。
+   * Web 端缺省 "user"（PartnerResolver 同口径：Web senderId 恒为 user）；
+   * IM 平台由装配层注入实际 owner id（open_id/ilink_user_id）。
+   */
+  partnerUserId?: string;
   /** F20260911pspl：getter 化（池化后跨 invoke 复用，invoke 入口重置寄存器）。
    *  读取时机 = 工具执行时（invoke 运行期内），寄存器必有值。 */
   readonly currentMessageId: string;

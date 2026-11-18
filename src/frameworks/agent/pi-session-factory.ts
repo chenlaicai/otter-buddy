@@ -271,6 +271,10 @@ export interface InvokeOptions {
   externalProfile?: 'restricted';
   /** F20260913ctlv：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
+  /** F20261118bltls P1c：本对话搭档（用户）id——belief preference 来源身份校验用。
+   *  Web 缺省走 tool-builder "user"；IM 平台由装配层经 PartnerResolver 解析后注入。
+   *  注：IM 注入（agent-invoker 填充本字段）为 P2 已知未接线项。 */
+  partnerUserId?: string;
 }
 
 /** 多模态 Phase 1：把 InvokeOptions 折叠成 SDK PromptOptions（images 缺省返回 undefined，保持纯文本路径行为等价） */
@@ -1532,7 +1536,7 @@ export class PiSessionFactory implements AgentGateway {
     // deferred 工具不声明给模型，由 tool_search 按需激活。readOnly（合成路径）
     // 不启用 tool_search——工具已白名单过滤，搜索能力只会扩大合成面。
     const toolExposure = readOnly || external ? undefined : loadToolExposureFromManifest(process.cwd(), this.logger);
-    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, rhiSignalRepo: this.cfg.rhiSignalRepo, matterRepo: this.cfg.matterRepo, workLedgerBinder: this.cfg.workLedgerBinder, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger, ...(toolExposure ? { toolExposure } : {}) });
+    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, partnerUserId: options?.partnerUserId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, rhiSignalRepo: this.cfg.rhiSignalRepo, matterRepo: this.cfg.matterRepo, workLedgerBinder: this.cfg.workLedgerBinder, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger, ...(toolExposure ? { toolExposure } : {}) });
     const codingTools = getCodingToolsForOtterType(otterType, options?.externalProfile);
     // F20260825hndf Phase 2：readOnly 模式只保留 read 工具，排除 write/edit/bash
     const filteredCodingTools = readOnly ? codingTools.filter(t => t === 'read') : codingTools;
