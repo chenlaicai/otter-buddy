@@ -1511,6 +1511,54 @@ function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
   };
 }
 
+/** F20261118bltls P1c：belief 工具面四件（record/verify/reject/supersede）。 */
+function createRecordBeliefTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "record_belief",
+    description: `现场记录一条主动记忆（belief）——搭档喜好（preference）或獭自己推断的当前认识（state）。必须带精确出处（anchors=消息/文档条目 ID），机器四维校验挡无源：空/ID 不存在/非搭档原话/无推断依据均拒收。新条目以 recorded 出生，检索标 [未核实]；发现旧认识错了可带 supersedes 提议即时降权（旧条目迁 superseded + 建边）。When: 干活中识别出搭档喜好（“我习惯用 X”）或旧认识需要纠正时。Not for: 长期规则/边界（走系统提示词，仅搭档显式确认才写，不能记成 belief）。`,
+    parameters: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["preference", "state"], description: "preference=搭档喜好（只能锚搭档原话）；state=獭推断的当前认识（必须给 inferredFrom 依据）" },
+        content: { type: "string", description: "belief 正文（≤500 字符，超长拒收）" },
+        anchors: { type: "array", items: { type: "string" }, description: "出处锚点：本 belief 依据的原始消息/文档条目 ID（非空；preference 必须搭档原话）" },
+        inferredFrom: { type: "array", items: { type: "string" }, description: "state 类必填：推断依据条目 ID" },
+        supersedes: { type: "string", description: "可选：被本 belief 取代的旧 belief 条目 ID（旧条目迁 superseded 并建边降权）" },
+      },
+      required: ["kind", "content", "anchors"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      try {
+        const result = await ctx.client.memory.recordBelief({
+          kind: params.kind as "preference" | "state",
+          content: params.content as string,
+          anchors: (params.anchors as string[]).map(String),
+          inferredFrom: params.inferredFrom as string[] | undefined,
+          supersedes: params.supersedes as string | undefined,
+          conversationId: ctx.conversationId,
+          partnerUserId: ctx.partnerUserId ?? "user", // Web 缺省 user；IM 由装配层注入 owner id
+          createdBy: ctx.otterId,
+        });
+        return textResponse(JSON.stringify(result));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // 带 supersedes 时：RecordBelief 已落库、markReplaced 失败 → 部分成功，披露防盲重试
+        const hint = params.supersedes
+          ? "（新 belief 可能已写入但取代关系未建立——重试前先 search_memory 查重，或用 link_memory 手工补 supersedes 边）"
+          : "";
+        return errorResponse(`belief 写入失败：${msg}${hint}`);
+      }
+    },
+  };
+}
+
+/** F20261118bltls P1c：belief 工具集（当前仅 record_belief；verify/reject/supersede 留待 P2 受限写者獭白名单单独注册） */
+function createBeliefTools(ctx: ToolContext): AgentTool[] {
+  return [
+    createRecordBeliefTool(ctx),
+  ];
+}
+
 /** F20260813mren Part 3: link_memory — LLM 声明两个记忆条目之间的关系 */
 function createLinkMemoryTool(ctx: ToolContext): AgentTool {
   return {
@@ -1842,8 +1890,8 @@ function appendScheduledTaskTools(tools: AgentTool[], ctx: ToolContext, deps?: S
   }
 }
 
+// eslint-disable-next-line max-lines-per-function -- 工具注册表天然长（belief 四件并入后超限）
 export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, actionRunner?: ActionRunner, scheduledTaskDeps?: ScheduledTaskToolDeps): AgentTool[] {
-  // F20260826mwrd C1：signal 仓库经 ToolContext.signalRepo 注入（避免参数继续膨胀）
   const signalRepo = ctx.signalRepo;
   // F20261006mtlp P1：matter 仓库经 ToolContext.matterRepo 注入（同 signalRepo 模式）
   const matterRepo = ctx.matterRepo;
@@ -1861,6 +1909,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createLinkMemoryTool(ctx),
     createGetRelatedTool(ctx),
     createUnlinkEdgeTool(ctx),
+    ...createBeliefTools(ctx),
     createSyncDocsTool(ctx),
     createGetMessageTool(ctx),
     createListMessagesTool(ctx),
@@ -1877,8 +1926,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createGetHtmlCardContractTool(),
     createQueryDispatchLedgerTool(ctx),
   ];
-  /** F20260811sktp 第五轮审视：manage_healing_events 此前未注册（pre-existing bug），
-   *  但本 PR SYSTEM.md R5 显式引用了它，必须确保运行时可用。 */
+  /** F20260811sktp 第五轮审视：manage_healing_events 此前未注册（pre-existing bug）——本 PR SYSTEM.md R5 显式引用了它，必须确保运行时可用 */
   if (healingRepo) {
     tools.push(createManageHealingEventsTool(ctx, healingRepo));
   }

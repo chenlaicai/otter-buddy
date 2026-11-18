@@ -60,6 +60,7 @@ export function buildMemoryClient(uc: UseCases) {
     getRelated: (params: { entryId: string; depth?: number; edgeTypes?: EdgeType[]; direction?: "out" | "in"; limit?: number }) =>
       uc.getRelated.execute(params),
     unlinkEdge: (edgeId: string) => uc.deleteEdge.execute(edgeId),
+    ...buildBeliefClientMethods(uc),
     getDocProvenance: async (entryId: string) => {
       const result = await uc.getDocProvenance.execute(entryId);
       return {
@@ -70,6 +71,39 @@ export function buildMemoryClient(uc: UseCases) {
         })),
       };
     },
+  };
+}
+
+/** F20261118bltls P1c：belief 工具面客户端方法（拆出降 buildMemoryClient 行数） */
+function buildBeliefClientMethods(uc: UseCases) {
+  return {
+    recordBelief: async (params: {
+      kind: "preference" | "state";
+      content: string;
+      anchors: string[];
+      inferredFrom?: string[];
+      supersedes?: string;
+      conversationId: string;
+      partnerUserId: string;
+      createdBy?: string;
+    }) => {
+      const { entryId } = await uc.recordBelief.execute({
+        kind: params.kind,
+        content: params.content,
+        anchors: params.anchors,
+        inferredFrom: params.inferredFrom,
+        supersedes: params.supersedes,
+        conversationId: params.conversationId,
+        partnerUserId: params.partnerUserId,
+      });
+      if (!params.supersedes) return { entryId };
+      // 带 supersedes 提议：同步建边 + 旧条目迁 superseded（TOCTOU 防护在建边 usecase 内）
+      const r = await uc.supersedeBelief.markReplaced(params.supersedes, entryId, params.createdBy);
+      return { entryId, edgeId: r.edgeId };
+    },
+    transitionBelief: async (params: { entryId: string; to: "verified" | "disputed" | "superseded" }) =>
+      uc.transitionBelief.execute({ entryId: params.entryId, to: params.to }),
+    markBeliefExpired: async (entryId: string) => uc.supersedeBelief.markExpired(entryId),
   };
 }
 

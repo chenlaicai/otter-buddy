@@ -76,6 +76,8 @@ export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, inv
 export interface BuildCustomToolsParams {
   otterId: string;
   conversationId: string;
+  /** F20261118bltls P1c：本对话搭档（用户）id；缺省 "user"（Web 口径） */
+  partnerUserId?: string;
   allowedNames: string[];
   /** F20260911pspl：invoke 级寄存器（getter 绑定的读取目标） */
   register: InvokeRegister;
@@ -126,7 +128,7 @@ export interface BuildCustomToolsResult {
  * onUpdate/ctx SDK 特有，Otter 工具不需要，忽略。
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
-  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, workLedgerBinder, isOtterRunning, logger, toolExposure } = params;
+  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, workLedgerBinder, isOtterRunning, logger, toolExposure, partnerUserId } = params;
   // F20260826mwrd C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
   // F20261006mtlp P1：matterRepo 同模式挂 ToolContext
 
@@ -137,6 +139,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     client: otterToolClient,
     otterId,
     conversationId,
+    partnerUserId: partnerUserId ?? "user",
     modelPool,
     otterConfigProvider,
     signalRepo,

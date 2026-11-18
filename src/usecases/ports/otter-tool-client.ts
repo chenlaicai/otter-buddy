@@ -136,6 +136,24 @@ export interface OtterToolClient {
     /** F20260813mren: 删除一条关系边（纠错用） */
     unlinkEdge(edgeId: string): Promise<void>;
     /**
+     * F20261118bltls P1c：现场记录 belief（kind/content/anchors/inferredFrom/supersedes）。
+     * supersedes 可选——带则同步建 supersedes 边 + 旧条目迁 superseded。
+     */
+    recordBelief(params: {
+      kind: "preference" | "state";
+      content: string;
+      anchors: string[];
+      inferredFrom?: string[];
+      supersedes?: string;
+      conversationId: string;
+      partnerUserId: string;
+      createdBy?: string;
+    }): Promise<{ entryId: string; edgeId?: string }>;
+    /** F20261118bltls P1c：belief 状态迁移（verify/reject/supersede 共用） */
+    transitionBelief(params: { entryId: string; to: "verified" | "disputed" | "superseded" }): Promise<{ entryId: string; from: string; to: string }>;
+    /** F20261118bltls P1c：belief 标记过期（无新条目，只迁 superseded） */
+    markBeliefExpired(entryId: string): Promise<{ entryId: string }>;
+    /**
      * F20260813mren Part 2: 查文档 provenance——该文档由哪段对话产出 + 该对话的消息。
      * 只对 feature/research 文档有效；非文档或无 provenance 返回 conversationId=null。
      */
