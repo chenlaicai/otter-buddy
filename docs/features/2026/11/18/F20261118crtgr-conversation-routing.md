@@ -8,9 +8,9 @@ summary: |
   落实 #1868 阶段 5 PR-A：对话级当前执行机（conversations.current_machine_id
   列，NULL=默认 local 存量零迁移）+ ConversationActionRouter（workspace 六动作
   工具按对话当前机路由——显式 target 优先；悬空目标 fail-closed 不静默回切）+
-  API 面（GET /api/execution-machines 增强 deviceStatus 在线 join + PUT
+  API 面（GET /api/execution-machines 全量设备列表含离线 + PUT
   /api/conversations/:id/execution-machine 对话切换，目标未注册 400）+ connector
-  repo listDevices。SDK 文件/bash 面保持 Registry 恒 local（协议 v1 只放六动作
+  repo listDeviceOnlineStatus。SDK 文件/bash 面保持 Registry 恒 local（协议 v1 只放六动作
   边界，阶段 7 对齐）。
 intent:
   problem: "阶段 4 后 workspace 六动作工具已全接 ActionRunner 路由链（协议位 targetMachineId 在），但缺选择层——对话永远落 local，无法『设备列表、当前设备选择、明确目标路由』"

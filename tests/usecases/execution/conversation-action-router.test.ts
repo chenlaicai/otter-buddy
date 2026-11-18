@@ -69,7 +69,7 @@ describe("ConversationActionRouter（阶段 5 PR-A）", () => {
     expect(local.calls).toHaveLength(0); // 没有静默落回 local
   });
 
-  it("M1（检视）：对话查询失败 → 抛错不落 local（fail-closed——无法读配置=不知道指向哪，\n      // 落 local 是危险方向的猜测「以为在 B 其实在 A」）", async () => {
+  it("M1（检视）：对话查询失败 → 抛错不落 local（fail-closed：落 local 是危险方向的猜测）", async () => {
     const local = fakeMachine("local");
     const registry = { resolve: (target?: string) => (target === undefined ? local : (() => { throw new Error("x"); })()) };
     const router = new ConversationActionRouter(registry, {
