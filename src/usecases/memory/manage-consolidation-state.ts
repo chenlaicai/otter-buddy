@@ -111,17 +111,21 @@ export class ManageConsolidationState {
     if (!isOrderedFailureRange(after, through)) {
       throw new DomainError(`失败区间非法或倒挂：after=${JSON.stringify(after)} through=${JSON.stringify(through)}`, "validation");
     }
+    // 统同一化到毫秒精度 canonical ISO：sameRange 用严格相等，但编排两次调用可能走不同精度来源
+    // （如“00Z” vs “00.000Z”）——同刻异精度不能误判成换区间（审视 D2）。
+    const nAfter = new Date(after).toISOString();
+    const nThrough = new Date(through).toISOString();
     const existing = await this.repo.getByKey(reviewKey);
     if (existing && existing.resultJson !== null) {
       throw new DomainError(`该档已 settle，拒绝迟到失败回报（reviewKey=${reviewKey}）`, "conflict");
     }
     const base = existing ?? newConsolidationState(reviewKey, nowIso());
-    const sameRange = base.failedAfter === after && base.failedThrough === through;
+    const sameRange = base.failedAfter === nAfter && base.failedThrough === nThrough;
     const failures = sameRange ? base.failures + 1 : 1;
     await this.repo.save({
       ...base,
-      failedAfter: after,
-      failedThrough: through,
+      failedAfter: nAfter,
+      failedThrough: nThrough,
       failures,
       updatedAt: nowIso(),
     });

@@ -123,4 +123,4 @@ listBeliefsByStatus(status: BeliefStatus, after: string, through: string): Promi
 
 - 单测共 31 项（实体 9 + usecase 12 + repo 4 + 读口 6），全部通过（在 worktree 内跑）。
 - `npx eslint`（改动文件）、`lint-schema-ddl`、`lint-tests`、`npx tsc --noEmit` 全绿。
-- `tests/frameworks/db/memory/` + `tests/usecases/memory/` 全量 343 项通过（无回归）。
+- `tests/frameworks/db/memory/` + `tests/usecases/memory/` 全量 349 项通过（无回归）。

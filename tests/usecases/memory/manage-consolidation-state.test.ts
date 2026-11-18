@@ -72,6 +72,14 @@ describe("ManageConsolidationState.recordFailure（F20261118nrcst P2b1）", () =
     expect(third.shouldSkip).toBe(true);
   });
 
+  it("同刻异精度仍判同区间（归一化后连败不误清）", async () => {
+    const { repo } = makeRepo();
+    const uc = new ManageConsolidationState(repo);
+    await uc.recordFailure(KEY, "2026-11-18T00:00:00Z", "2026-11-18T12:00:00Z");
+    const outcome = await uc.recordFailure(KEY, "2026-11-18T00:00:00.000Z", "2026-11-18T12:00:00.000Z");
+    expect(outcome.failures).toBe(2);
+  });
+
   it("异区间重置连败为 1（水位前移，旧连败不追新区间）", async () => {
     const { repo } = makeRepo();
     const uc = new ManageConsolidationState(repo);
@@ -88,7 +96,7 @@ describe("ManageConsolidationState.recordFailure（F20261118nrcst P2b1）", () =
     await uc.recordFailure(KEY, "2026-11-18T00:00:00Z", "2026-11-18T06:00:00Z");
     const claim = await uc.claim(KEY);
     expect(claim.settled).toBe(false);
-    expect(claim.failingRange).toEqual({ after: "2026-11-18T00:00:00Z", through: "2026-11-18T06:00:00Z" });
+    expect(claim.failingRange).toEqual({ after: "2026-11-18T00:00:00.000Z", through: "2026-11-18T06:00:00.000Z" });
     expect(claim.failures).toBe(1);
   });
 });

@@ -29,9 +29,10 @@ export function isValidInstant(s: string): boolean {
   return typeof s === "string" && ISO_INSTANT_RE.test(s);
 }
 
-/** 失败区间形态合法：两端都是 ISO instant 且 after <= through（ISO 字符串序即时间序）。 */
+/** 失败区间形态合法：两端都是 ISO instant 且 after <= through（数值序，不用于字符串序——同刻异精度如“00Z”vs“00.000Z”不会被误判倒挂）。 */
 export function isOrderedFailureRange(after: string, through: string): boolean {
-  return isValidInstant(after) && isValidInstant(through) && after <= through;
+  if (!isValidInstant(after) || !isValidInstant(through)) return false;
+  return Date.parse(after) <= Date.parse(through);
 }
 
 /** 幂等键前缀 */

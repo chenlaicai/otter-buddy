@@ -63,10 +63,12 @@ describe("isValidInstant / isOrderedFailureRange（F20261118nrcst P2b1）", () =
     expect(isValidInstant("yesterday")).toBe(false);
   });
 
-  it("区间要求两端合法且 after <= through（倒挂拒）", () => {
+  it("区间要求两端合法且 after <= through（倒挂拒；同刻异精度不算倒挂）", () => {
     expect(isOrderedFailureRange("2026-11-18T00:00:00.000Z", "2026-11-18T12:00:00.000Z")).toBe(true);
     expect(isOrderedFailureRange("2026-11-18T12:00:00.000Z", "2026-11-18T00:00:00.000Z")).toBe(false);
     expect(isOrderedFailureRange("", "2026-11-18T12:00:00.000Z")).toBe(false);
+    // D2：同刻异精度（'Z' vs '.000Z' 字符串序会把同刻误判成倒挂）——数值序正确判等
+    expect(isOrderedFailureRange("2026-11-18T00:00:00Z", "2026-11-18T00:00:00.000Z")).toBe(true);
   });
 });
 
