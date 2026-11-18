@@ -87,6 +87,8 @@ cd extensions/colink-agent-app && npm run prepare:sdk && npm test   # 32/32
 cd <repo root> && npm run test:extensions                           # 32/32（CI 同款）
 ```
 
+CI 门禁：`check`（含文档 frontmatter、测试改动声明、证据分层/Rollback）、`e2e`、`golden-selftest`、`guard-macos` 四项。
+
 冒烟（本地回环 + 假凭据）：`/healthz` 200、`/manifest.json` version `0.6.0`、`events.types=['app.user_message_received']`、`/embed.html` 200、`/page-config.json` 返回 hostOrigin/issuer。
 
 ## 独立检视修正（检视獭）
