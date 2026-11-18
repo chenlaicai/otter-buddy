@@ -3,7 +3,7 @@ id: F20261118kills
 title: "kill 守卫第 4 确认通道：ps|grep 主服务入口签名→kill 数据流（#1899 裸 bash 绕过面）"
 summary: "2026-11-16 stage3a 验证会话裸写 `for PID in $(ps aux | grep \"[d]ist/src/main.js\" | awk '{print $2}'); do kill $PID; done` 按名全局匹配杀死主服务（pid 45203）——pkill/killall 防线被 ps|grep|awk|kill 管线绕过。新政 A 第 4 确认通道：ps→grep(主服务入口签名 dist/src/main.js)→…→kill 数据流等价 pkill 按名，恒拦（复用 self_kill_byname 规则族）；只认精确签名——裸 node/main.js/otter-buddy 不构成确认（无法确认是主服务），宁漏勿误继续放行。"
 change_type: fix
-capability_test: "n/a: 守卫判定逻辑（纯函数），以 guard 回放回归库（147 用例，七轮检视对抗探针持续追钉）+ 全量 vitest 为验证载体"
+capability_test: "n/a: 守卫判定逻辑（纯函数），以 guard 回放回归库（128 用例，七轮检视+新世独立复核对抗探针持续追钉）+ 全量 vitest 为验证载体"
 intent:
   problem: "#1899 事故：主服务与 worktree alpha 跑同一命令行 `node dist/src/main.js`，大獭清理 alpha 实例时裸写 ps|grep|awk|kill 按进程名匹配，把主进程连带杀死（全系统离线）。既有 self_kill_byname 只拦 pkill/killall 按名形态；政策 A 下「非字面量 kill（变量/命令替换/管道）确认不了就放行」——ps|grep 按名扫描主进程特征再 kill 恰是「能确认」（目标来源=主进程特征名匹配），却落进放行面，形成可复发的绕过缺口。"
   solution: "psGrepMainSignatureFeedsKill 作为政策 A 第 4 确认通道：识别 ps→grep(主服务入口签名 dist/src/main.js)→…→kill 数据流，命中即拦（PS_GREP_KILL_BLOCK_MSG，ruleId 复用 self_kill_byname，与 pkill 按名同族聚合）。覆盖四种喂 kill 形态：①for 循环变量（for VAR in $(scan…); do kill $VAR）②while read 变量（scan… | while read …; do kill $v）③xargs（scan… | xargs kill）④命令替换直给（kill $(scan…)）。grep 反 self-match 括号变体 [d]ist 归一后再对 PS_GREP_MAIN_SIGNATURES（仅 dist/src/main.js）匹配；只认精确签名——裸 node/main.js/otter-buddy/vitest 无法确认是主服务，宁漏勿误放行（对偶负门保留）。"
@@ -11,7 +11,7 @@ intent:
   verify_by:
     type: behavior_check
     assertions:
-      - "guard 回放 147/147 全绿：事故凶器及同族变体 mustBlock + 对抗探针负门 allow 全保留（七轮检视共追钉 5+4+3+4+2+2 组探针）"
+      - "guard 回放 128/128 全绿：事故凶器及同族变体 mustBlock + 对抗探针负门 allow 全保留（七轮检视共追钉 5+4+3+4+2+2 组探针；新世独立复核追钉 15 条：6 漏拦+9 误拦，全部修复并钉入回归）"
       - "存量 allow 用例不受影响：ps|grep vitest while-read 批量清理、p=$(cat pids/backend.pid); kill $p 等政策 A 改向用例全放行"
       - "guard-intercept-classify 28/28：新文案含「按名匹配会命中主进程」锚词，classify 归因 self_kill_byname 连续"
       - "全量 vitest run 无回归；tsc --noEmit 与 eslint 对改动文件零告警"
@@ -50,18 +50,23 @@ for PID in $(ps aux | grep "[d]ist/src/main.js" | awk '{print $2}'); do kill $PI
 
 ## 变更
 
+`src/frameworks/agent/psgrep-token-scan.ts`（新世复核后新增）：词法级扫描层——复用 `command-lexer` 只消费可执行 token（comment/单引号字面量/转义展开不进入执行面），`||`/`&&`/`;` 作为独立语句边界不再串数据流；grep 旗标按真实语义解析（`-v`/`--invert-match` 反向、`-vE` 组合、显式 `-i` 才大小写折叠，默认敏感）。
+
+`src/frameworks/agent/psgrep-kill-scan.ts`：数据流判定层——枚举 kill 全部目标变量（非首变量）、for 列表全部 word 的 cmdsub（非首项）、kill 前最后一次重赋值优先、最内层同名循环绑定优先；双引号载荷在外层 lex 中是单 word，按覆盖段剥引号递归（保留 `\$` 延后语义）。
+
 `src/frameworks/agent/bash-safety-guard.ts`：
 
 - 新增 `PS_GREP_KILL_BLOCK_MSG`（ruleId `self_kill_byname`，layer `self_kill`——与 pkill 按名同族聚合，healing 归因连续）。
-- 新增 `psGrepMainSignatureFeedsKill(command, killSegment, killIdx)`：政策 A 第 4 确认通道，识别四种喂 kill 形态（for 循环变量 / while read 变量 / xargs / 命令替换直给）。
-- `checkKillSegments` 非字面量分支：`checkIndirectKillTarget` 确认不了后，追加第 4 通道判定，命中即拦。
+- 第 4 通道在字面量三查之后无条件追加（不再被「存在字面量 PID」短路——字面量与扫描来源可混合出现在同一 kill argv）。
+- `checkOneKillSegment` 拆出单段四查（complexity 分解）。
 
-`tests/guard/replay/cases-2026-10-29.ts`：新增 5 条 mustBlock + 1 条 allow 负门。
+`tests/guard/replay/cases-2026-10-29.ts`：#1899 区块 44 条（25 block + 19 allow）——含新世独立复核 15 条对抗钉（6 漏拦：混合字面量/全部变量/非首项/注释否决；9 误拦：注释/单引号/`||` 独立分支/`-vE`/大小写/重赋值遮蔽）。
 
 ## 判定语义（为何不误伤）
 
 - **只认精确签名**：grep 模式须含 `dist/src/main.js`（主服务与 worktree alpha 同命令行，按此签名扫描后 kill 时二者不可区分，属「能确认」）才拦截；`grep node`、`grep main.js`、`grep otter-buddy`、`grep vitest` 等无法确认是主服务，宁漏勿误放行。
 - **`grep -v` 是排除非扫描**：`grep -v 签名` / `--invert-match` 明确从结果里搬除主进程，不构成正面扫描；`ps | grep -v 'main' | grep vite | xargs kill`（只清 vite）放行。
 - **反 self-match 归一**：`[d]ist` 单字符括号变体先归一为 `dist` 再匹配——只剥离单字符类（self-match 惯用法），不动 `[0-9]`/`[a-z]` 等真实字符类。
-- **数据流挂钩**：扫描链与 kill 必须有变量绑定/管道/命令替换的真实喂送关系，非「同命令内恰好共现」；变量目标还要求 kill 落在对应循环体的 `do…done` 内（跨循环/重赋值不误关联），同名 kill 段按出现次序对齐（重复 `xargs kill` 不漏后一段）。
+- **数据流挂钩**：扫描链与 kill 必须有变量绑定/管道/命令替换的真实喂送关系，非「同命令内恰好共现」；变量目标取 kill 所在最内层同名循环绑定、kill 前最后一次重赋值优先（内层遮蔽/重赋值不再误关联外层扫描），同名 kill 段按出现次序对齐（重复 `xargs kill` 不漏后一段）。
+- **词法边界（新世复核后）**：只消费 command-lexer 可执行 token——`#` 注释与单引号字面量永不进入执行面（注释里的 `grep -v` 否决不了真实链，注释/单引号里的 `ps|grep` 也不构成扫描）；`||`/`&&`/`;` 两侧是独立数据流不串链；grep 默认大小写敏感，仅显式 `-i` 才折叠；`-vE`/`-ve` 等组合短旗标中的 `v` 就是反向匹配。
 - **转义字面量不当替换**：`\$()`/反引号是字面量非执行面（宁漏勿误），双引号 `-c` 载荷的延后替换属确认不了的面，放行——单引号等价载荷仍在拦截面。

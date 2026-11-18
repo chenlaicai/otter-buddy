@@ -293,31 +293,56 @@ function upstreamIsMainPidFile(command: string, segment: string): boolean {
     || /<\s*\S*\.otter-buddy\.pid/.test(upstream);
 }
 
+/** 单 kill 段检查上下文（参数打包，max-params）。 */
+interface KillCheckContext {
+  command: string;
+  killSegments: ReturnType<typeof findKillSegments>;
+  allowedServices: AllowedService[];
+  mainPid: number | null;
+  probe: ProcessProbe;
+}
+
+/** 单个 kill 段的四查：pkill 特征名 / 广播目标 / 字面量身份 / 非字面量间接来源；
+ *  再叠 #1899 ps|grep 签名数据流（字面量与扫描来源可混合）。返回 null=放行。 */
+function checkOneKillSegment(k: KillCheckContext["killSegments"][number], ctx: KillCheckContext): GuardBlock | null {
+  // pkill/killall 族：按名匹配
+  if (k.isPkill) {
+    return pkillTargetsOtter(k.segment) ? PKILL_OTTER_BLOCK_MSG : null; // 非特征名（如 pkill vitest）放行
+  }
+  // S2：广播/进程组目标保守拦（-1 广播必含主进程；ps 可获知 PGID 同拦）
+  if (broadcastKillTargetHit(k.segment)) return BROADCAST_KILL_BLOCK_MSG;
+  // kill 字面量：三查身份；无字面量则走非字面量分支
+  const literalBlock = checkLiteralKillTarget(k.segment, ctx.mainPid, ctx.probe);
+  if (literalBlock) return literalBlock;
+  if (extractLiteralPids(k.segment).length === 0) {
+    const indirectBlock = checkIndirectKillTarget(ctx.killSegments, ctx.command, k.segment, ctx.allowedServices, ctx.mainPid);
+    if (indirectBlock) return indirectBlock;
+  }
+  // #1899：字面量 PID 与扫描来源可混合出现在同一 kill argv；字面量三查后仍须检查其余目标。
+  const sourceCommand = k.payload ?? ctx.command;
+  const sourceStart = k.localStart ?? k.start;
+  return psGrepMainSignatureFeedsKill(sourceCommand, k.segment, sourceStart, k.payloadQuote === "double")
+    ? PS_GREP_KILL_BLOCK_MSG
+    : null;
+}
+
 /** kill 段循环判定（从 checkKillStation 拆出，complexity 分解） */
 function checkKillSegments(command: string, mainPid: number | null, probe: ProcessProbe, guardOptions: GuardOptions | undefined): GuardBlock | null {
   // kill 族粗筛（kill-segment-finder：命令位置/引号/$()嵌套/前缀包装）
   const killSegments = findKillSegments(command);
   if (killSegments.length === 0) return null;
 
-  const allowedServices = guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [];
+  const ctx: KillCheckContext = {
+    command,
+    killSegments,
+    allowedServices: guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [],
+    mainPid,
+    probe,
+  };
 
   for (const k of killSegments) {
-    // pkill/killall 族：按名匹配
-    if (k.isPkill) {
-      if (pkillTargetsOtter(k.segment)) return PKILL_OTTER_BLOCK_MSG;
-      continue; // 非特征名（如 pkill vitest）放行
-    }
-    // S2：广播/进程组目标保守拦（-1 广播必含主进程；ps 可获知 PGID 同拦）
-    if (broadcastKillTargetHit(k.segment)) return BROADCAST_KILL_BLOCK_MSG;
-    // kill 字面量：三查身份；无字面量则走非字面量分支
-    const literalBlock = checkLiteralKillTarget(k.segment, mainPid, probe);
-    if (literalBlock) return literalBlock;
-    if (extractLiteralPids(k.segment).length === 0) {
-      const indirectBlock = checkIndirectKillTarget(killSegments, command, k.segment, allowedServices, mainPid);
-      if (indirectBlock) return indirectBlock;
-      // #1899：ps|grep 主进程特征名→kill 数据流（政策 A 第 4 确认通道，等价 pkill 按名）
-      if (psGrepMainSignatureFeedsKill(command, k.segment, k.start)) return PS_GREP_KILL_BLOCK_MSG;
-    }
+    const block = checkOneKillSegment(k, ctx);
+    if (block) return block;
   }
   return null;
 }
