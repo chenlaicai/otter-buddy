@@ -85,8 +85,8 @@ describe('ExecutionMachineModal（阶段 5 PR-B）', () => {
   it('切换失败（400 目标未注册）显示错误不落选中态', async () => {
     const fetchMock = standardMock()
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (init?.method === 'PUT') return jsonResponse({ error: 'machine not registered: ghost（设备未上线或未配对——目标必须当前在册；离线设备重连后可切）' }, 400)
-      return Promise.resolve(standardMock()(url, init))
+      if (init?.method === 'PUT') return Promise.resolve(jsonResponse({ error: 'machine not registered: ghost（设备未上线或未配对——目标必须当前在册；离线设备重连后可切）' }, 400))
+      return standardMock()(url, init)
     })
     vi.stubGlobal('fetch', fetchMock)
     render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)
