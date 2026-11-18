@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Cpu, RefreshCw, CircleCheck, CircleX, CircleHelp, CirclePause, Clock } from 'lucide-react'
 import { Modal } from '../../components/Modal'
 import { fmtTime } from '../../lib/utils'
@@ -69,9 +69,19 @@ export function ExecutionMachineModal({ conversationId, onClose, onSwitched }: P
         fetch(`/api/conversations/${conversationId}/execution-machine`, { credentials: 'same-origin' }),
         fetch(`/api/conversations/${conversationId}/remote-actions?limit=30`, { credentials: 'same-origin' }),
       ])
+      // minor2（检视遗留处置）：非 OK 不再静默——区分鉴权失败与服务错误，避免 401 呈现误导性空态
+      if (mRes.status === 401 || cRes.status === 401 || aRes.status === 401) {
+        setError('登录已过期，请刷新页面重新登录（HTTP 401）')
+        return
+      }
+      const failures: string[] = []
       if (mRes.ok) setMachines(((await mRes.json()) as { machines: MachineEntry[] }).machines)
+      else failures.push(`设备列表 HTTP ${String(mRes.status)}`)
       if (cRes.ok) setCurrent(((await cRes.json()) as { machineId: string | null }).machineId)
+      else failures.push(`当前执行机 HTTP ${String(cRes.status)}`)
       if (aRes.ok) setActions(((await aRes.json()) as { actions: RemoteActionEntry[] }).actions)
+      else failures.push(`远程动作 HTTP ${String(aRes.status)}`)
+      if (failures.length > 0) setError(`部分数据加载失败：${failures.join('；')}——列表可能不完整`)
     } catch {
       setError('数据加载失败（网络或服务不可用）')
     } finally {
@@ -81,8 +91,14 @@ export function ExecutionMachineModal({ conversationId, onClose, onSwitched }: P
 
   useEffect(() => { void reload() }, [reload])
 
+  // s4（检视遗留处置）：in-flight ref 守卫——React 重渲染前的极窄双击窗口不再重复发 PUT
+  //（同目标幂等本无害，守卫彻底封死；state 式 disabled 保留供 UI 呈现）
+  const switchingRef = useRef<string | null | undefined>(undefined)
+
   async function switchTo(machineId: string | null) {
     if (machineId === current) return
+    if (switchingRef.current !== undefined) return
+    switchingRef.current = machineId
     setSwitching(machineId)
     setError(null)
     try {
@@ -102,6 +118,7 @@ export function ExecutionMachineModal({ conversationId, onClose, onSwitched }: P
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
+      switchingRef.current = undefined
       setSwitching(undefined)
     }
   }
@@ -175,7 +192,7 @@ export function ExecutionMachineModal({ conversationId, onClose, onSwitched }: P
           <h3 className="text-xs font-semibold text-stone-600 mb-2">远程动作（最近 30 条）</h3>
           {actions.length === 0 ? (
             <div className="text-xs text-stone-400 px-3 py-3 glass-card rounded-xl">
-              {loaded ? '本对话暂无远程动作记录（本机执行的动作不在此列）' : '加载中…'}
+              {error ? '加载失败，无法确认动作记录' : loaded ? '本对话暂无远程动作记录（本机执行的动作不在此列）' : '加载中…'}
             </div>
           ) : (
             <div className="max-h-56 overflow-y-auto space-y-1 pr-1">

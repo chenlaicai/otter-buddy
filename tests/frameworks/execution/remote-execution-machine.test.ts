@@ -276,6 +276,20 @@ describe("SqliteRemoteActionRegistry（五态登记幂等）", () => {
     expect(await registry.listByConversation("c-other")).toHaveLength(0);
   });
 
+  // s2（检视遗留处置）：同毫秒 created_at 定序——rowid tie-breaker 使 DESC LIMIT 边界确定
+  it("listByConversation 同毫秒 created_at：desc 后插入在前 / asc 先插入在前（rowid 定序）", async () => {
+    const db = createTestDb();
+    const registry = new SqliteRemoteActionRegistry(db);
+    await registry.recordRequest(reqRow("tie-1"));
+    await registry.recordRequest(reqRow("tie-2")); // 同 T0 毫秒、同 conversation
+    const desc = await registry.listByConversation("c1", 200, "desc");
+    expect(desc.map(r => r.actionId)).toEqual(["tie-2", "tie-1"]); // DESC：后插入（rowid 大）在前
+    const asc = await registry.listByConversation("c1", 200, "asc");
+    expect(asc.map(r => r.actionId)).toEqual(["tie-1", "tie-2"]); // ASC：先插入在前（恢复链语义）
+    // LIMIT 边界截断不再随机——desc limit=1 恒取最新插入
+    expect((await registry.listByConversation("c1", 1, "desc")).map(r => r.actionId)).toEqual(["tie-2"]);
+  });
+
   it("m1（检视）：非 PK 冲突的库故障重抛（错误归因不错位）——表不存在的场景", async () => {
     const db = createTestDb();
     const registry = new SqliteRemoteActionRegistry(db);

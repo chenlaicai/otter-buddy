@@ -46,6 +46,8 @@ export interface RouterPlumbingOptions {
     /** F20261118crtgr（阶段 5 PR-A）+ M2（检视）：已配对设备全量状态（含离线——
      *  人要看得见离线设备才能决定切回；缺省退化仅 local——旧装配/测试兼容） */
     deviceStatus?: () => Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
+    /** F20261118exstt（阶段 5 PR-B）：对话存在性校验（GET 404 口径对齐 PUT——不注入则不校验，测试桩兼容） */
+    conversationExists?: (conversationId: string) => Promise<boolean>;
     /** F20261118exstt（阶段 5 PR-B）：对话当前执行机读（选择器回显用） */
     getConversationMachine?: (conversationId: string) => Promise<string | null>;
     /** F20261118exstt（阶段 5 PR-B）：对话远程动作状态（执行状态展示） */
@@ -298,8 +300,8 @@ function registerMahjongRoutes(app: Hono, ctrl: Controllers): void {
   }
 }
 
-/** F20261118exstt（拆分降复杂度）：auth/connector 配对端点组 */
-function registerAuthAndPairRoutes(app: Hono, plumbing: RouterPlumbingOptions): void {
+/** F20261118exstt（拆分降复杂度）：auth 端点组（connector 配对端点在 registerPlumbingRoutes 尾部注册） */
+function registerAuthRoutes(app: Hono, plumbing: RouterPlumbingOptions): void {
   if (plumbing?.auth) {
     app.post("/api/auth/login", (ctx) => plumbing.auth!.controller.login(ctx));
     app.post("/api/auth/logout", (ctx) => plumbing.auth!.controller.logout(ctx));
@@ -322,18 +324,30 @@ function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptio
     });
   }
 
-  // F20261118exstt（阶段 5 PR-B）：对话当前执行机 + 远程动作状态（执行状态展示）
+  // F20261118exstt（阶段 5 PR-B）：对话当前执行机 + 远程动作状态（执行状态展示）。
+  //  minor1（检视遗留处置）：GET 404 口径对齐 PUT——不存在对话显式 404「conversation not found」。
   if (plumbing?.executionMachines?.getConversationMachine) {
     app.get("/api/conversations/:id/execution-machine", async (ctx) => {
-      const machineId = await plumbing.executionMachines!.getConversationMachine!(ctx.req.param("id"));
+      const conversationId = ctx.req.param("id");
+      if (plumbing.executionMachines!.conversationExists
+        && !(await plumbing.executionMachines!.conversationExists(conversationId))) {
+        return ctx.json({ error: "conversation not found" }, 404);
+      }
+      const machineId = await plumbing.executionMachines!.getConversationMachine!(conversationId);
       return ctx.json({ machineId });
     });
   }
   if (plumbing?.executionMachines?.listConversationRemoteActions) {
     app.get("/api/conversations/:id/remote-actions", async (ctx) => {
-      const limitParam = Number(new URL(ctx.req.url).searchParams.get("limit") ?? 50);
+      const conversationId = ctx.req.param("id");
+      if (plumbing.executionMachines!.conversationExists
+        && !(await plumbing.executionMachines!.conversationExists(conversationId))) {
+        return ctx.json({ error: "conversation not found" }, 404);
+      }
+      // s3（检视遗留处置）：ctx.req.query 地道用法（行为与 URL searchParams 等价）
+      const limitParam = Number(ctx.req.query("limit") ?? 50);
       const limit = Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 200 ? limitParam : 50;
-      const actions = await plumbing.executionMachines!.listConversationRemoteActions!(ctx.req.param("id"), limit);
+      const actions = await plumbing.executionMachines!.listConversationRemoteActions!(conversationId, limit);
       return ctx.json({ actions });
     });
   }
@@ -417,7 +431,7 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
 /** 统一接入 + 执行机投影端点（#1868 阶段 2）。拆出以守住 createRouter 行数预算。 */
 function registerPlumbingRoutes(app: Hono, plumbing?: RouterPlumbingOptions): void {
   // 登录/登出已在策略表置 public，session 走 authenticated。
-  if (plumbing) registerAuthAndPairRoutes(app, plumbing);
+  if (plumbing) registerAuthRoutes(app, plumbing);
 
   if (plumbing) registerExecutionMachineRoutes(app, plumbing);
 
