@@ -29,9 +29,11 @@ import { LocalExecutionMachine } from "@frameworks/execution/local-execution-mac
 import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-ledger";
 import { LOCAL_EXECUTION_MACHINE_ID } from "@usecases/ports/execution-machine";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
+import type { ExecutionMachine } from "@usecases/ports/execution-machine";
 import { SqliteConnectorRegistryRepository } from "@frameworks/db/execution/sqlite-connector-registry-repository";
 import { ConnectorWsGateway } from "@frameworks/execution/connector-ws-gateway";
-import { ConnectorMachineProjection } from "@frameworks/execution/connector-machine-projection";
+import { RemoteExecutionMachine } from "@frameworks/execution/remote-execution-machine";
+import { SqliteRemoteActionRegistry } from "@frameworks/db/execution/sqlite-remote-action-registry";
 import { ConnectorPairController } from "@interface-adapters/http/controllers/connector-pair-controller";
 import { resolveOwnerPassword, verifyOwnerPassword } from "@interface-adapters/http/auth/owner-password";
 import { createSessionSigner } from "@interface-adapters/http/auth/session-cookie";
@@ -752,13 +754,31 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     signSession: (identity) => sessionSigner.sign(identity, Date.now()),
   });
 
-  // ── F20261117cnnct（阶段 4 C1）：connector 通道与会话装配 ──
+  // ── F20261117cnnct（阶段 4 C1）+ F20261118remex（C2 执行通道）：connector 装配 ──
   // repo（总闸唯一事实源）→ WSS 网关（upgrade 鉴权/协议 v1/先库后内存）→ 配对端点；
   // 启动清扫：上一运行周期残留的 online 行落 offline/hub-restart（方案 §3 D2，await——
   // 清扫完成前不接受新连接语义上更干净，且代价仅一行 UPDATE）。
+  // C2：上线投影换真 RemoteExecutionMachine（总闸三道→登记→下发→等待/超时落 unknown）。
   const connectorRepo = new SqliteConnectorRegistryRepository(db);
+  const remoteActionRegistry = new SqliteRemoteActionRegistry(db); // R1 登记落点 + R2 摘要数据源
+  const hubBootEpoch = Date.now(); // actionId 前缀纪元（跨重启防碰撞）
+  /** 投影单例缓存（重连=同 device 新会话：同实例 replace 幂等；wireChannel 只接一次，
+   *  避免 gateway handler 数组随重连累积——空转 handler 也是泄漏） */
+  const remoteMachines = new Map<string, RemoteExecutionMachine>();
   const connectorGateway = new ConnectorWsGateway(connectorRepo, executionMachines, logger, {
-    makeMachineProjection: (deviceId, deviceName) => new ConnectorMachineProjection(deviceId, deviceName),
+    makeMachineProjection: (deviceId: string, deviceName: string): ExecutionMachine => {
+      const existing = remoteMachines.get(deviceId);
+      if (existing) return existing;
+      const machine = new RemoteExecutionMachine(deviceId, deviceName, {
+        channel: connectorGateway, // 闭包引用：回调仅在连接建立时调用（构造完成后，无 TDZ）
+        remoteActions: remoteActionRegistry,
+        connectorRegistry: connectorRepo,
+        hubBootEpoch,
+      });
+      machine.wireChannel();
+      remoteMachines.set(deviceId, machine);
+      return machine;
+    },
   });
   await connectorGateway.sweepStaleSessionsOnBoot().catch((err) => {
     logger.warn("connector stale session sweep failed (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
@@ -813,6 +833,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       logger,
       // F20261116actlg PR-B：恢复摘要数据源（本机动作台账只读面；台账缺席时恢复文案退回旧版）
       actionLedger: actionLedger ?? undefined,
+      // F20261118remex（C2/R2）：远程动作五态并入恢复摘要（remote_action_requests 只读面）
+      remoteActions: remoteActionRegistry,
     });
     resumeService.resume().catch((err) => {
       logger.error("Resume interrupted service failed", err instanceof Error ? err : new Error(String(err)));

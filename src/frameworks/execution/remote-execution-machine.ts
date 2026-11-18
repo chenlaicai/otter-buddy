@@ -8,6 +8,7 @@ import {
   type ExecutionMachine,
 } from "@usecases/ports/execution-machine";
 import { CONNECTOR_ACTION_TIMEOUT_MS, CONNECTOR_PROTOCOL_VERSION, type ConnectorFrame } from "@entities/execution/connector-protocol";
+import { otterInvokeStorage } from "@entities/execution/otter-invoke-context";
 import type { ConnectorActionChannel } from "./connector-ws-gateway";
 import type { RemoteActionRegistry } from "@usecases/ports/remote-action-registry";
 import type { ConnectorRegistryRepository } from "@usecases/ports/connector-registry-repository";
@@ -86,7 +87,7 @@ export class RemoteExecutionMachine implements ExecutionMachine {
       throw new Error(`connector device offline or unpaired: ${this.id}`);
     }
 
-    const actionId = options?.actionId ?? `${this.deps.hubBootEpoch}-${randomUUID()}`;
+    const actionId = options?.actionId ?? `${String(this.deps.hubBootEpoch)}-${randomUUID()}`;
     const recorded = await this.deps.remoteActions.recordRequest({
       actionId,
       onlineSessionId: session.id,
@@ -97,6 +98,9 @@ export class RemoteExecutionMachine implements ExecutionMachine {
       result: null,
       createdAt: this.isoNow(),
       settledAt: null,
+      // R2 关联维度：六动作 input 均携带 conversationId；invoke 归因取 hub 进程内上下文
+      conversationId: this.conversationIdOf(action.input),
+      invokeId: otterInvokeStorage.getStore()?.currentInvokeId ?? null,
     });
     if (!recorded) throw new Error(`duplicate remote actionId: ${actionId}`);
 
@@ -129,6 +133,13 @@ export class RemoteExecutionMachine implements ExecutionMachine {
 
   private get timeout(): number {
     return this.deps.actionTimeoutMs ?? CONNECTOR_ACTION_TIMEOUT_MS;
+  }
+
+  /** 六动作 input 均携带 conversationId（workspace.path 除外——返回路径无副作用，
+   *  无会话维度时 null，不影响登记） */
+  private conversationIdOf(input: unknown): string | null {
+    const candidate = (input as { conversationId?: unknown } | undefined)?.conversationId;
+    return typeof candidate === "string" ? candidate : null;
   }
 
   private async findOnlineSession(): Promise<{ id: string; status: string } | null> {

@@ -6,8 +6,8 @@ import type { Duplex } from "node:stream";
 import type { IncomingMessage } from "node:http";
 import { SqliteConnectorRegistryRepository } from "@frameworks/db/execution/sqlite-connector-registry-repository";
 import { ConnectorWsGateway } from "@frameworks/execution/connector-ws-gateway";
-import { ConnectorMachineProjection } from "@frameworks/execution/connector-machine-projection";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
+import type { ExecutionMachine } from "@usecases/ports/execution-machine";
 import { CONNECTOR_PROTOCOL_VERSION, type ConnectorFrame } from "@entities/execution/connector-protocol";
 import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
@@ -23,12 +23,22 @@ function deviceFixture(overrides: Partial<Device> = {}): Device {
   return { id: "connector-test", name: "测试机", pairToken: "tok-test", createdAt: T0, lastSeenAt: null, ...overrides };
 }
 
+/** 投影替身（ConnectorMachineProjection 占位类随 C2 退役——测试改 inline 最小 fake） */
+function fakeProjection(id: string, name?: string): ExecutionMachine {
+  return {
+    id,
+    name,
+    createExecutionEnvironment: () => { throw new Error(`not implemented (fake projection: ${id})`); },
+    run: async () => { throw new Error(`not implemented (fake projection: ${id})`); },
+  };
+}
+
 /** 测试 harness：真 http server + gateway upgrade 挂载（对齐 main.ts 装配形态） */
 async function startHub(db: Database.Database, now?: () => number) {
   const repo = new SqliteConnectorRegistryRepository(db);
   const machines = new ExecutionMachineRegistry();
   const gateway = new ConnectorWsGateway(repo, machines, createTestLogger(), {
-    makeMachineProjection: (id, name) => new ConnectorMachineProjection(id, name),
+    makeMachineProjection: (id, name) => fakeProjection(id, name),
     ...(now ? { now } : {}),
   });
   const server: Server = createServer();

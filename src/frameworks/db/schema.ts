@@ -1284,10 +1284,15 @@ function createRemoteActionRequestsTable(db: Database.Database): void {
       error TEXT,
       result TEXT,
       created_at TEXT NOT NULL,
-      settled_at TEXT
+      settled_at TEXT,
+      /* R2 关联维度（nullable——测试/内部调用可无 invoke 上下文）：恢复链按
+       * conversation 并入远程动作五态；invoke 精确归因（hub 进程内 invoke 上下文可得） */
+      conversation_id TEXT,
+      invoke_id TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_remote_action_requests_session ON remote_action_requests(online_session_id);
     CREATE INDEX IF NOT EXISTS idx_remote_action_requests_status ON remote_action_requests(status);
+    CREATE INDEX IF NOT EXISTS idx_remote_action_requests_conversation ON remote_action_requests(conversation_id, created_at);
   `);
 }

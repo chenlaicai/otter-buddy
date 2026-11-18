@@ -12,6 +12,8 @@ interface Row {
   result: string | null;
   created_at: string;
   settled_at: string | null;
+  conversation_id: string | null;
+  invoke_id: string | null;
 }
 
 function rowToReq(row: Row): RemoteActionRequest {
@@ -25,6 +27,8 @@ function rowToReq(row: Row): RemoteActionRequest {
     result: row.result,
     createdAt: row.created_at,
     settledAt: row.settled_at,
+    conversationId: row.conversation_id,
+    invokeId: row.invoke_id,
   };
 }
 
@@ -35,9 +39,9 @@ export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
   async recordRequest(req: RemoteActionRequest): Promise<boolean> {
     try {
       this.db.prepare(
-        "INSERT INTO remote_action_requests (action_id, online_session_id, device_id, action_type, status, error, result, created_at, settled_at) "
-        + "VALUES (?, ?, ?, ?, 'requested', NULL, NULL, ?, NULL)",
-      ).run(req.actionId, req.onlineSessionId, req.deviceId, req.actionType, req.createdAt);
+        "INSERT INTO remote_action_requests (action_id, online_session_id, device_id, action_type, status, error, result, created_at, settled_at, conversation_id, invoke_id) "
+        + "VALUES (?, ?, ?, ?, 'requested', NULL, NULL, ?, NULL, ?, ?)",
+      ).run(req.actionId, req.onlineSessionId, req.deviceId, req.actionType, req.createdAt, req.conversationId, req.invokeId);
       return true;
     } catch {
       return false; // PK 冲突（重复 actionId）——调用方 fail-closed
@@ -57,6 +61,13 @@ export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
     const rows = this.db.prepare(
       `SELECT * FROM remote_action_requests WHERE status IN (${placeholders}) ORDER BY created_at ASC LIMIT ?`,
     ).all(...statuses, limit) as Row[];
+    return rows.map(rowToReq);
+  }
+
+  async listByConversation(conversationId: string, limit = 200): Promise<RemoteActionRequest[]> {
+    const rows = this.db.prepare(
+      "SELECT * FROM remote_action_requests WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?",
+    ).all(conversationId, limit) as Row[];
     return rows.map(rowToReq);
   }
 

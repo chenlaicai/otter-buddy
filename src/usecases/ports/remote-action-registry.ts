@@ -9,8 +9,10 @@ export interface RemoteActionRegistry {
   recordRequest(req: RemoteActionRequest): Promise<boolean>;
   /** 回执/超时/断线收尾：落终态（幂等——已终态不覆盖，先到的真相保持） */
   settleRequest(actionId: string, status: Exclude<RemoteActionStatus, "requested">, settledAt: string, result?: unknown, error?: string): Promise<void>;
-  /** 按 invoke 维度查（恢复摘要数据源——R2 并入） */
+  /** 按状态查（对账/诊断面） */
   listByStatuses(statuses: RemoteActionStatus[], limit?: number): Promise<RemoteActionRequest[]>;
+  /** R2 恢复摘要数据源：按 conversation 查该会话的远程动作五态（含 requested 在途行） */
+  listByConversation(conversationId: string, limit?: number): Promise<RemoteActionRequest[]>;
   /** 断线收尾批量：某 onlineSession 的全部 requested 行落 unknown（先到真相幂等保护） */
   markSessionRequestsUnknown(onlineSessionId: string, settledAt: string): Promise<number>;
 }

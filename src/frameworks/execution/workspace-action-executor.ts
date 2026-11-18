@@ -9,15 +9,25 @@ import {
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { ActionLedger } from "@usecases/ports/action-ledger";
 import type { ActionKind } from "@entities/execution/action-record";
-import { otterInvokeStorage } from "@entities/execution/otter-invoke-context";
 import { sha256 } from "./ledger/sqlite-action-ledger";
 
 /**
  * F20261118remex（#1868 阶段 4 C2）：workspace 六动作执行器——自 LocalExecutionMachine
  * 抽出的公共实现（中枢 local 与 connector 远程共用同一执行语义与台账记账协议）。
- * 纯重构平移（B1 已把闭包障碍扫清：本模块依赖仅 node 内置 + usecases 端口 + entities +
- * ledger hash）。ledger=null 时等价裸执行（记账降级关闭）。
+ * 纯重构平移（B1 已把闭包障碍扫清：本模块依赖仅 node 内置 + usecases 端口 + entities
+ * + ledger hash）。ledger=null 时等价裸执行（记账降级关闭）。
+ *
+ * 归因注入（闭包收口）：invoke 归因读取り otterInvokeStorage（其类型拖 api-contract
+ * ——src 外文件进不了 connector 构建树）。改为注入 attribution 回调：中枢 local 装配
+ * 传真实 storage 读取；connector 进程无 invoke 上下文（归因属中枢数据，远程动作在中枢
+ * 侧 remote_action_requests 已登记），传 undefined /恒 undefined 回调——语义不变，
+ * 闭包不再拖 AsyncLocalStorage 全家桶。
  */
+export interface ActionAttribution {
+  invokeId?: string | null;
+  toolCallId?: string | null;
+}
+
 export class WorkspaceActionExecutor {
   /** 只读访问器（LocalExecutionMachine 的 Env 工厂/纪元读取用） */
   get ledgerRef(): ActionLedger | null { return this.ledger; }
@@ -31,6 +41,8 @@ export class WorkspaceActionExecutor {
     /** F20261116actlg：本机动作台账（null = 记录降级关闭，动作照常执行） */
     private readonly ledger: ActionLedger | null = null,
     private readonly warn?: (message: string, meta?: Record<string, unknown>) => void,
+    /** invoke 归因读取（中枢 local 传 otterInvokeStorage 读取；connector 恒 undefined） */
+    private readonly attribution: () => ActionAttribution | undefined = () => undefined,
   ) {}
 
   /** MAJOR-1：自铸 actionId 的 boot 纪元（台账侧读取；无台账时 0 无所谓） */
@@ -141,18 +153,16 @@ export class WorkspaceActionExecutor {
     actionId?: string;
   }): Promise<{ record: { actionId: string; resultSummary: string | null }; deduped: boolean } | null> {
     try {
-      const attribution = this.currentAttribution();
-      const seq = this.nextWorkspaceSeq();
-      const store = otterInvokeStorage.getStore();
+      const attribution = this.attribution();
       return await this.ledger!.start({
-        actionId: input.actionId ?? `${attribution}:ws:${this.bootEpoch}:${seq}`,
-        invokeId: store?.currentInvokeId ?? null,
+        actionId: input.actionId ?? this.mintWorkspaceActionId(attribution),
+        invokeId: attribution?.invokeId ?? null,
         conversationId: input.conversationId,
-        toolCallId: store?.currentToolCallId ?? null,
+        toolCallId: attribution?.toolCallId ?? null,
         source: "workspace",
         kind: input.kind,
         target: input.target,
-        contentHash: input.content !== undefined ? sha256(Buffer.from(input.content, "utf-8")) : null,
+        contentHash: this.hashContent(input.content),
         contentBytes: input.content !== undefined ? Buffer.byteLength(input.content, "utf-8") : null,
       });
     } catch (error) {
@@ -161,9 +171,13 @@ export class WorkspaceActionExecutor {
     }
   }
 
-  private currentAttribution(): string {
-    const store = otterInvokeStorage.getStore();
-    return store?.currentToolCallId ?? store?.currentInvokeId ?? "internal";
+  /** 自铸 actionId（MAJOR-1：含 boot 纪元防跨 boot 同序号碰撞错误去重） */
+  private mintWorkspaceActionId(attribution: ActionAttribution | undefined): string {
+    return `${attribution?.toolCallId ?? attribution?.invokeId ?? "internal"}:ws:${String(this.bootEpoch)}:${String(this.nextWorkspaceSeq())}`;
+  }
+
+  private hashContent(content: string | undefined): string | null {
+    return content !== undefined ? sha256(Buffer.from(content, "utf-8")) : null;
   }
 
   /** 单调全局序（dspro minor：不再按 attribution 分桶，防长跑无界增长） */

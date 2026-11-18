@@ -9,6 +9,7 @@ import {
 } from "@usecases/ports/execution-machine";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { ActionLedger } from "@usecases/ports/action-ledger";
+import { otterInvokeStorage } from "@entities/execution/otter-invoke-context";
 import { WorkspaceActionExecutor } from "./workspace-action-executor";
 import { RecordingNodeExecutionEnv } from "./recording-node-execution-env";
 
@@ -30,7 +31,12 @@ export class LocalExecutionMachine implements ExecutionMachine {
     ledger: ActionLedger | null = null,
     warn?: (message: string, meta?: Record<string, unknown>) => void,
   ) {
-    this.executor = new WorkspaceActionExecutor(workspaceGateway, ledger, warn);
+    // 归因注入（C2 闭包收口）：真实 invoke 上下文读取留在中枢 local 侧——
+    // WorkspaceActionExecutor 本体零 agent/contract 依赖（connector 可复用）
+    this.executor = new WorkspaceActionExecutor(workspaceGateway, ledger, warn, () => {
+      const store = otterInvokeStorage.getStore();
+      return store ? { invokeId: store.currentInvokeId ?? null, toolCallId: store.currentToolCallId ?? null } : undefined;
+    });
   }
 
   /** MAJOR-1：自铸 actionId 的 boot 纪元（台账侧读取；无台账时 0 无所谓） */

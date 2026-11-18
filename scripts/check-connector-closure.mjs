@@ -22,7 +22,10 @@ const FORBIDDEN = [
   /@frameworks\/db\/(conversation|otter|memory|im)/, // 主库领域 repo（中枢数据）
   /@earendil-works\/(pi-ai|pi-coding-agent|pi-agent-core|chord)/,
   /@interface-adapters/,
-  /@usecases\/(?!ports\/(logger|connector-registry-repository|execution-machine))/,
+  // C2 白名单（方案 v3 §5/§7）：执行机端口 + workspace 网关/动作台账端口 + logger
+  // + connector 注册仓——公共执行器（WorkspaceActionExecutor）与台账/网关实现的依赖面。
+  // 白名单外的一切 usecases 节点仍禁（防 agent/memory 等领域逻辑从 usecases 侧渗入）。
+  /@usecases\/(?!ports\/(logger|connector-registry-repository|execution-machine|workspace-gateway|action-ledger)$)/,
 ];
 
 function walk(dir) {

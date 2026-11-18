@@ -6,8 +6,9 @@ import type { DispatchChainEngine, InvokeFn } from "./dispatch-chain-engine";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { randomUUID } from "node:crypto";
-import { buildActionLedgerSummary } from "@usecases/execution/action-ledger-summary";
+import { buildActionLedgerSummary, buildRemoteActionSummary } from "@usecases/execution/action-ledger-summary";
 import type { ActionRecord } from "@entities/execution/action-record";
+import type { RemoteActionRequest } from "@entities/execution/remote-action-request";
 import {
   buildRestartResumeMsg,
   buildRestartResumeFailedInvokeMsg,
@@ -72,6 +73,9 @@ export class ResumeInterruptedService {
       rateLimitBaseDelayMs?: number;
       /** F20261116actlg PR-B：动作台账只读面（恢复摘要数据源；缺省无摘要——旧文案兼容） */
       actionLedger?: { listByInvoke(invokeId: string, limit?: number): Promise<ActionRecord[]> };
+      /** F20261118remex（C2）：远程动作登记只读面（R2——远程动作五态并入恢复摘要；
+       *  缺省无远程段——无 connector 场景旧文案兼容） */
+      remoteActions?: { listByConversation(conversationId: string, limit?: number): Promise<RemoteActionRequest[]> };
       /** F20261116actlg PR-B：本进程 boot 纪元（认领绑定；测试可注入固定值） */
       bootEpoch?: number;
       /** F20261117 检视轮 S3：旧持有者 pid 死活探针（重认领预检；测试可注入 fake，
@@ -325,7 +329,15 @@ export class ResumeInterruptedService {
   /** F20261116actlg PR-B：取中断 invoke 的台账摘要（机器真相；台账缺席/无行动作返回 null）。
    *  查询上限远大于默认 200——listByInvoke 默认升序 LIMIT 截断会把崩溃时刻的最新动作
    *  （最可能 unknown）先截掉，计数静默失真；真超限时显性标注不完整。〔检视 minor-2〕 */
-  private async buildLedgerSummary(invokeId: string): Promise<string | null> {
+  private async buildLedgerSummary(invokeId: string, conversationId: string): Promise<string | null> {
+    const [localBlock, remoteBlock] = await Promise.all([
+      this.buildLocalLedgerBlock(invokeId),
+      this.buildRemoteActionBlock(conversationId),
+    ]);
+    return [localBlock, remoteBlock].filter((block): block is string => block !== null).join("\n") || null;
+  }
+
+  private async buildLocalLedgerBlock(invokeId: string): Promise<string | null> {
     if (!this.deps.actionLedger) return null;
     try {
       const rows = await this.deps.actionLedger.listByInvoke(invokeId, ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT);
@@ -336,6 +348,18 @@ export class ResumeInterruptedService {
       return summary;
     } catch (err) {
       this.deps.logger.warn("resume ledger summary fetch failed (non-fatal)", { invokeId, error: err instanceof Error ? err.message : String(err) });
+      return null;
+    }
+  }
+
+  /** F20261118remex（C2/R2）：远程动作五态段（conversation 维度；registry 缺席/无行返回 null） */
+  private async buildRemoteActionBlock(conversationId: string): Promise<string | null> {
+    if (!this.deps.remoteActions) return null;
+    try {
+      const rows = await this.deps.remoteActions.listByConversation(conversationId, ResumeInterruptedService.LEDGER_SUMMARY_FETCH_LIMIT);
+      return buildRemoteActionSummary(rows);
+    } catch (err) {
+      this.deps.logger.warn("resume remote-action summary fetch failed (non-fatal)", { conversationId, error: err instanceof Error ? err.message : String(err) });
       return null;
     }
   }
@@ -398,7 +422,7 @@ export class ResumeInterruptedService {
         }
       };
       try {
-        const ledgerSummary = await this.buildLedgerSummary(item.invokeId);
+        const ledgerSummary = await this.buildLedgerSummary(item.invokeId, item.conversationId);
         await this.deps.dispatchChainEngine.executeChain({
           conversationId: item.conversationId,
           userMessageContent: buildRestartResumeMsg(ledgerSummary),

@@ -18,4 +18,9 @@ export interface RemoteActionRequest {
   result: string | null;
   createdAt: string;
   settledAt: string | null;
+  /** R2 关联维度（nullable）：conversation 取自六动作 input.conversationId；
+   * invokeId 取 hub 进程内 invoke 上下文（otterInvokeStorage——RemoteExecutionMachine
+   * 运行于中枢侧，调用发生在 agent invoke 上下文内时可得） */
+  conversationId: string | null;
+  invokeId: string | null;
 }
