@@ -29,7 +29,7 @@ capability_test: "tests/bootstrap/instance-lock.test.ts"
 
 | 文件 | 内容 |
 |---|---|
-| `src/bootstrap/instance-lock.ts`（新） | 单实例锁（TCP 端口互斥，两轮检视迭代定稿）：dbPath 确定性派生回环端口（FNV-1a → 20000-39999），listen 独占——内核仲裁无 TOCTOU、进程死端口自动释放无 stale；同进程重入拒绝；锁文件仅诊断（持锁 PID）非互斥依据 |
+| `src/bootstrap/instance-lock.ts`（新） | 单实例锁（TCP 端口互斥，三轮检视迭代定稿）：dbPath 确定性派生回环端口（FNV-1a → 20000-32767，避开临时端口段），listen 独占——内核仲裁无 TOCTOU、进程死端口自动释放无 stale；同进程重入拒绝；锁文件仅持锁成功后写诊断 PID（非互斥依据） |
 | `src/bootstrap/database.ts` | initDatabaseAndModels 开头 acquire（打开 DB 前）；dispose 链 release；`OTTER_EMBEDDING=off` 分支——跳过 ensureBgeM3Model + 不 fork 双 worker，注入 disabledEmbeddingServices（available=false + embed 恒拒） |
 | `src/interface-adapters/http/router.ts` | `GET /api/ping` → `{ok,pid,uptimeSec}`（零依赖：不碰库/不上游） |
 | `src/interface-adapters/http/identity-middleware.ts` | POLICY_TABLE public 段加 /api/ping |

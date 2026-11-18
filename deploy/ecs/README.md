@@ -7,7 +7,7 @@
 ## 目标拓扑
 
 ```
-[本机] deploy.sh ──rsync──▶ /opt/otter-buddy（代码）
+[本机] deploy.sh ──ssh 管道（.otter/deploy-keys/ecs-ssh.sh）──▶ /opt/otter-buddy（代码）
                             /etc/otter-buddy/config.yaml（配置）
                             /etc/otter-buddy.env（env 面：OTTER_EMBEDDING=off 等）
                             /var/lib/otter-buddy（数据持久卷——6b 迁移目标）
@@ -37,7 +37,7 @@
      ```
 3. **systemd 单元**：`sudo cp deploy/ecs/otter-buddy.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable otter-buddy`
 4. **TLS**：先装 nginx-otter.conf 的 80 段（或整文件）→ `sudo bash deploy/ecs/setup-tls.sh` → 确认证书路径 → reload nginx
-5. **代码部署**：本机仓库根 `bash deploy/ecs/deploy.sh`（build + rsync + 远端 npm ci + restart + 探活）
+5. **代码部署**：前置——本机仓 `.otter/deploy-keys/ecs-ssh.sh`（免密 helper，私钥同目录、已 gitignore）与远端 `/opt/node24` 就绪。然后本机仓库根 `bash deploy/ecs/deploy.sh`（build → tar+ssh 管道 → 远端 npm ci → restart → 探活；传输统一走 ecs-ssh.sh 单一身份 admin）
 6. **验证**：
    - `curl https://otter.60.205.214.148.sslip.io/api/ping` → `{"ok":true,...}`
    - 浏览器开 `https://otter.60.205.214.148.sslip.io/` 登录页

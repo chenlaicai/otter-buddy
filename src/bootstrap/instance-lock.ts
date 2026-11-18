@@ -31,9 +31,10 @@ export interface InstanceLock {
 }
 
 export const INSTANCE_LOCK_SUFFIX = ".otter-instance.lock";
-/** 端口段：20000-39999（避开常见服务与临时端口低端） */
+/** 端口段：20000-32767（三轮检视后收敛：避开 Linux 默认临时端口段 32768-60999，
+ *  消除 TIME_WAIT 误判 EADDRINUSE 的可能） */
 const PORT_RANGE_BASE = 20000;
-const PORT_RANGE_SPAN = 20000;
+const PORT_RANGE_SPAN = 12768;
 
 export function lockPathFor(dbPath: string): string {
   return `${dbPath}${INSTANCE_LOCK_SUFFIX}`;
@@ -74,13 +75,6 @@ export function acquireInstanceLock(dbPath: string): Promise<InstanceLock> {
   const lockPath = lockPathFor(dbPath);
   const port = lockPortFor(dbPath);
 
-  // 诊断文件先行写入（尽力而为；失败不影响互斥）
-  try {
-    fs.writeFileSync(lockPath, `${process.pid}\n`);
-  } catch {
-    // 诊断载体写不进（如只读目录）——互斥仍由端口保证
-  }
-
   const server = net.createServer();
   server.unref(); // 不阻止进程正常退出（锁随进程生命周期；显式 release 更早释放）
 
@@ -100,6 +94,13 @@ export function acquireInstanceLock(dbPath: string): Promise<InstanceLock> {
     server.once("error", fail);
     server.listen({ port, host: "127.0.0.1", exclusive: true }, () => {
       server.removeListener("error", fail);
+      // 诊断文件仅持锁成功后写入（三轮检视发现：写在 listen 前会被失败进程覆写，
+      // 报错对象变成自己——互斥不受影响但诊断关失真）
+      try {
+        fs.writeFileSync(lockPath, `${process.pid}\n`);
+      } catch {
+        // 诊断载体写不进（如只读目录）——互斥仍由端口保证
+      }
       resolve({
         lockPath,
         release: () => {

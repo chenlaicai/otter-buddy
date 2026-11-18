@@ -57,7 +57,7 @@ describe("acquireInstanceLock（阶段 6a 单实例锁，TCP 端口互斥）", (
   it("端口派生确定性：同 dbPath 同端口；不同 dbPath 大概率不同段", () => {
     const p = lockPortFor("/var/lib/otter-buddy/otter-buddy.db");
     expect(p).toBeGreaterThanOrEqual(20000);
-    expect(p).toBeLessThan(40000);
+    expect(p).toBeLessThan(32768);
     expect(lockPortFor("/var/lib/otter-buddy/otter-buddy.db")).toBe(p); // 确定性
     const other = lockPortFor("/var/lib/otter-buddy/other.db");
     expect(other).toBeGreaterThanOrEqual(20000); // 值域合法（碰撞允许，可诊断）
