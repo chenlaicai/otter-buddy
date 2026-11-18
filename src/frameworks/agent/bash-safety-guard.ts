@@ -294,7 +294,6 @@ function upstreamIsMainPidFile(command: string, segment: string): boolean {
 }
 
 /** kill 段循环判定（从 checkKillStation 拆出，complexity 分解） */
-// eslint-disable-next-line complexity -- 单循环四分支 + #1899 二段式（间接来源/psgrep 扫描），每分支对应一条已断言语义
 function checkKillSegments(command: string, mainPid: number | null, probe: ProcessProbe, guardOptions: GuardOptions | undefined): GuardBlock | null {
   // kill 族粗筛（kill-segment-finder：命令位置/引号/$()嵌套/前缀包装）
   const killSegments = findKillSegments(command);
@@ -302,7 +301,6 @@ function checkKillSegments(command: string, mainPid: number | null, probe: Proce
 
   const allowedServices = guardOptions?.projectRoot ? loadAllowedServicePorts(guardOptions.projectRoot) : [];
 
-  const seen = new Map<string, number>();
   for (const k of killSegments) {
     // pkill/killall 族：按名匹配
     if (k.isPkill) {
@@ -318,9 +316,7 @@ function checkKillSegments(command: string, mainPid: number | null, probe: Proce
       const indirectBlock = checkIndirectKillTarget(killSegments, command, k.segment, allowedServices, mainPid);
       if (indirectBlock) return indirectBlock;
       // #1899：ps|grep 主进程特征名→kill 数据流（政策 A 第 4 确认通道，等价 pkill 按名）
-      const occ = seen.get(k.segment) ?? 0;
-      seen.set(k.segment, occ + 1);
-      if (psGrepMainSignatureFeedsKill(command, k.segment, occ)) return PS_GREP_KILL_BLOCK_MSG;
+      if (psGrepMainSignatureFeedsKill(command, k.segment, k.start)) return PS_GREP_KILL_BLOCK_MSG;
     }
   }
   return null;

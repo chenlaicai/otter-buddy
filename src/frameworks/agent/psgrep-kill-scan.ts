@@ -108,16 +108,6 @@ function killDirectSubstitutionsScanMain(command: string, killIdx: number): bool
   return false;
 }
 
-/** 第 n 次出现的子串位置（kill 段文本可能重复，按出现次序对齐） */
-function nthIndexOf(haystack: string, needle: string, n: number): number {
-  let idx = -1;
-  for (let k = 0; k <= n; k++) {
-    idx = haystack.indexOf(needle, idx + 1);
-    if (idx < 0) return -1;
-  }
-  return idx;
-}
-
 /** idx 所在语句段（以 ; 换行 与非重定向 & 为边界——& 排除 >& <& 2>& 形态）的 [start, end) */
 function clauseBounds(command: string, idx: number): { start: number; end: number } {
   let end = command.length;
@@ -220,8 +210,7 @@ function whileReadFeedsMainScan(command: string, v: string, killIdx: number): bo
   return false;
 }
 
-export function psGrepMainSignatureFeedsKill(command: string, killSegment: string, occurrence: number): boolean {
-  const killIdx = nthIndexOf(command, killSegment, occurrence);
+export function psGrepMainSignatureFeedsKill(command: string, killSegment: string, killIdx: number): boolean {
   if (killIdx < 0) return false;
   // A. 命令替换直给：kill $(scan) / kill `scan`（多个逐个查，到顶层分隔符为止）
   if (killDirectSubstitutionsScanMain(command, killIdx)) return true;

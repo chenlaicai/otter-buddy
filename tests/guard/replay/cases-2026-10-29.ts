@@ -416,6 +416,21 @@ export const mustBlockCases: ReplayCase[] = [
     reasonContains: "按名匹配",
     note: "ps 后 2>&1 的 & 是重定向非语句边界，xargs kill 前仍为 ps|grep 特征名扫描",
   },
+  // ── #1899 检视獭五轮探针（echo 字面量占位不偏移真实 kill 段）──
+  {
+    command: "echo 'xargs kill'; ps aux | grep 'dist/src/main.js' | awk '{print $2}' | xargs kill",
+    expect: "block",
+    source: "#1899 检视五轮：echo 引号字面量不偏移真实段",
+    reasonContains: "按名匹配",
+    note: "echo 'xargs kill' 是数据非 kill 段，真实 xargs kill 段按 finder start 偏移对齐不漏",
+  },
+  {
+    command: "echo xargs kill; ps aux | grep 'dist/src/main.js' | awk '{print $2}' | xargs kill",
+    expect: "block",
+    source: "#1899 检视五轮：echo 裸字面量不偏移真实段",
+    reasonContains: "按名匹配",
+    note: "echo xargs kill 无引号同理——真实 xargs kill 段按 start 偏移对齐不漏",
+  },
   {
     command: "cat ~/.ssh/id_rsa",
     expect: "block",
