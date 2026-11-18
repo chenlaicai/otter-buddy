@@ -1,5 +1,5 @@
 /**
- * F20261118nrcst P2b1：consolidation_state 表 + SQLite 仓库单测。
+ * P2b1：consolidation_state 表 + SQLite 仓库单测。
  *
  * 覆盖：表建成（索引/CHECK 存在）、save upsert 幂等、getByKey 往返、
  * CHECK（半空失败区间写入被拒）。
@@ -10,7 +10,7 @@ import { initSchema } from "@frameworks/db/schema";
 import { SqliteConsolidationStateRepository } from "@frameworks/db/memory/sqlite-consolidation-state-repository";
 import { newConsolidationState } from "@entities/memory/consolidation-state";
 
-describe("SqliteConsolidationStateRepository（F20261118nrcst P2b1）", () => {
+describe("SqliteConsolidationStateRepository（P2b1）", () => {
   let db: Database.Database;
   let repo: SqliteConsolidationStateRepository;
 

@@ -338,7 +338,7 @@ describe("SearchMemory - vec-only snippet 降级（自带 mock，与主套件解
       deleteEdge: async () => {},
       deleteEdgesByEntryIds: async () => {},
       getEntriesByConversation: async () => [],
-      // F20261118nrcst P2b1：belief 状态区间查询（本测试不触达）
+      // P2b1：belief 状态区间查询（本测试不触达）
       listBeliefsByStatus: async () => [],
       // F20261110dsqy：chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
       findEntriesBySourceAndType: async () => [],
@@ -507,7 +507,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       deleteEdge: async () => {},
       deleteEdgesByEntryIds: async () => {},
       getEntriesByConversation: async () => [],
-      // F20261118nrcst P2b1：belief 状态区间查询（本测试不触达）
+      // P2b1：belief 状态区间查询（本测试不触达）
       listBeliefsByStatus: async () => [],
       // F20261110dsqy：chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
       findEntriesBySourceAndType: async () => [],
@@ -594,7 +594,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       deleteEdge: async () => {},
       deleteEdgesByEntryIds: async () => {},
       getEntriesByConversation: async () => [],
-      // F20261118nrcst P2b1：belief 状态区间查询（本测试不触达）
+      // P2b1：belief 状态区间查询（本测试不触达）
       listBeliefsByStatus: async () => [],
       // F20261110dsqy：chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
       findEntriesBySourceAndType: async () => [],

@@ -898,7 +898,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * F20261118nrcst P2b1：按状态 + 时间闭区间列 belief（夜间审视清单数据源）。
+   * P2b1：按状态 + 时间闭区间列 belief（夜间审视清单数据源）。
    * 状态在 metadata JSON 内，用 json_extract 匹配；created_at 升序（现场时间先后）。
    */
   async listBeliefsByStatus(

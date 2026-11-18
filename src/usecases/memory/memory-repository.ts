@@ -167,7 +167,7 @@ export interface MemoryRepository {
   getSupersededBy(entryIds: string[]): Promise<Map<string, string>>;
 
   /**
-   * F20261118nrcst P2b1：按状态 + 时间闭区间列 belief（镜像 MemoryReader 同款）。
+   * P2b1：按状态 + 时间闭区间列 belief（镜像 MemoryReader 同款）。
    */
   listBeliefsByStatus(
     status: BeliefStatus,

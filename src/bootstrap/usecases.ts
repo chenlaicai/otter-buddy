@@ -235,7 +235,7 @@ function buildMemoryUseCases(
     getEntryById: (id) => repos.memoryReader.getById(id),
   }, transitionBelief);
 
-  // F20261118nrcst P2b1：夜间审视治量状态管理（P2b2 调度编排消费）
+  // P2b1：夜间审视治量状态管理（P2b2 调度编排消费）
   const manageConsolidationState = new ManageConsolidationState(repos.consolidationState);
 
   return { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief, manageConsolidationState };

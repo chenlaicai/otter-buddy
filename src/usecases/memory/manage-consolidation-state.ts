@@ -1,5 +1,5 @@
 /**
- * F20261118nrcst P2b1：夜间审视治量状态管理 usecase。
+ * P2b1：夜间审视治量状态管理 usecase。
  *
  * 消费方是 P2b2 的夜间审视编排（scheduled-task 触发）。本 usecase 只回答三个问题：
  * 1. claim：这次审视是否已 settle（撞键返回原结果）？没 settle 的话，上次失败区间和连败数是什么？

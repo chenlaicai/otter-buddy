@@ -69,7 +69,7 @@ export interface Repositories {
   memoryQueue: MemoryQueue;
   /** F20260826rcmm Phase 0：检索埋点（评估基线数据源） */
   searchQueryLog: SearchQueryLogRepository;
-  /** F20261118nrcst P2b1：夜间审视治量状态（幂等键 + 失败区间 + 连败计数） */
+  /** P2b1：夜间审视治量状态（幂等键 + 失败区间 + 连败计数） */
   consolidationState: ConsolidationStateRepository;
   terminology: TerminologyRepository;
   conversation: ConversationRepository;
@@ -117,7 +117,7 @@ export interface UseCases {
   transitionBelief: TransitionBelief;
   /** F20261118bltls P1c：belief supersede（标记过期/新取代旧 + 建边 + TOCTOU 防护） */
   supersedeBelief: SupersedeBelief;
-  /** F20261118nrcst P2b1：夜间审视治量状态管理（claim/complete/recordFailure） */
+  /** P2b1：夜间审视治量状态管理（claim/complete/recordFailure） */
   manageConsolidationState: ManageConsolidationState;
   createEdge: CreateEdge;
   getRelated: GetRelated;

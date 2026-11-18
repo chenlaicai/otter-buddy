@@ -1,5 +1,5 @@
 /**
- * F20261118nrcst P2b1：consolidation_state 实体单测。
+ * P2b1：consolidation_state 实体单测。
  *
  * 覆盖：幂等键构造/回解的形态边界、空白状态、失败区间的形态一致性校验。
  */
@@ -13,7 +13,7 @@ import {
   isOrderedFailureRange,
 } from "@entities/memory/consolidation-state";
 
-describe("buildReviewKey（F20261118nrcst P2b1）", () => {
+describe("buildReviewKey（P2b1）", () => {
   it("合法 date + taskId 构造 review:{date}:{taskId}", () => {
     expect(buildReviewKey("2026-11-18", "task-7")).toBe("review:2026-11-18:task-7");
   });
@@ -30,7 +30,7 @@ describe("buildReviewKey（F20261118nrcst P2b1）", () => {
   });
 });
 
-describe("parseReviewKey（F20261118nrcst P2b1）", () => {
+describe("parseReviewKey（P2b1）", () => {
   it("从合法键回解 date 与 taskId（taskId 可含冒号）", () => {
     expect(parseReviewKey("review:2026-11-18:a:b")).toEqual({ date: "2026-11-18", taskId: "a:b" });
   });
@@ -43,7 +43,7 @@ describe("parseReviewKey（F20261118nrcst P2b1）", () => {
   });
 });
 
-describe("newConsolidationState（F20261118nrcst P2b1）", () => {
+describe("newConsolidationState（P2b1）", () => {
   it("空白状态：零失败、无区间、无结果", () => {
     const s = newConsolidationState("review:2026-11-18:t", "2026-11-18T09:00:00Z");
     expect(s.failures).toBe(0);
@@ -54,7 +54,7 @@ describe("newConsolidationState（F20261118nrcst P2b1）", () => {
   });
 });
 
-describe("isValidInstant / isOrderedFailureRange（F20261118nrcst P2b1）", () => {
+describe("isValidInstant / isOrderedFailureRange（P2b1）", () => {
   it("只认 ISO 8601 UTC（T + Z）", () => {
     expect(isValidInstant("2026-11-18T00:00:00.000Z")).toBe(true);
     expect(isValidInstant("2026-11-18T00:00:00Z")).toBe(true);
@@ -72,7 +72,7 @@ describe("isValidInstant / isOrderedFailureRange（F20261118nrcst P2b1）", () =
   });
 });
 
-describe("isValidReviewDate（F20261118nrcst P2b1）", () => {
+describe("isValidReviewDate（P2b1）", () => {
   it("只认 YYYY-MM-DD 字符串", () => {
     expect(isValidReviewDate("2026-11-18")).toBe(true);
     expect(isValidReviewDate("2026-1-18")).toBe(false);

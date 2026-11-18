@@ -1,5 +1,5 @@
 /**
- * F20261118nrcst P2b1：夜间审视治量状态管理 usecase 单测。
+ * P2b1：夜间审视治量状态管理 usecase 单测。
  *
  * 覆盖：claim 幂等撞键 / complete 写存档点清零 / recordFailure 同区间连败与异区间重置。
  */
@@ -24,7 +24,7 @@ function makeRepo() {
 
 const KEY = "review:2026-11-18:night-review-task";
 
-describe("ManageConsolidationState.claim（F20261118nrcst P2b1）", () => {
+describe("ManageConsolidationState.claim（P2b1）", () => {
   it("首次 claim 建档：未 settle、无失败区间、零连败", async () => {
     const { repo } = makeRepo();
     const uc = new ManageConsolidationState(repo);
@@ -57,7 +57,7 @@ describe("ManageConsolidationState.claim（F20261118nrcst P2b1）", () => {
   });
 });
 
-describe("ManageConsolidationState.recordFailure（F20261118nrcst P2b1）", () => {
+describe("ManageConsolidationState.recordFailure（P2b1）", () => {
   it("同区间连败递增，达阈值应跳过", async () => {
     const { repo } = makeRepo();
     const uc = new ManageConsolidationState(repo);
@@ -101,7 +101,7 @@ describe("ManageConsolidationState.recordFailure（F20261118nrcst P2b1）", () =
   });
 });
 
-describe("newConsolidationState 与 repo 协作（F20261118nrcst P2b1）", () => {
+describe("newConsolidationState 与 repo 协作（P2b1）", () => {
   it("claim 建档后 repo 中可读回该行", async () => {
     const { repo, rows } = makeRepo();
     const uc = new ManageConsolidationState(repo);
@@ -112,7 +112,7 @@ describe("newConsolidationState 与 repo 协作（F20261118nrcst P2b1）", () =>
   });
 });
 
-describe("ManageConsolidationState 防误用护栏（F20261118nrcst P2b1，审视 R2/R3/R5）", () => {
+describe("ManageConsolidationState 防误用护栏（P2b1，审视 R2/R3/R5）", () => {
   it("非法幂等键拒绝（空 taskId / 非 YYYY-MM-DD）", async () => {
     const { repo } = makeRepo();
     const uc = new ManageConsolidationState(repo);
