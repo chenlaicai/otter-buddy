@@ -3924,6 +3924,34 @@ describe('roster miss 自愈降级', () => {
     expect(healingRepo._events.some(e => String(e.description).includes('no-such-role-in-roster'))).toBe(true);
   });
 
+  it('持续 roster miss：同任务已有 pending（去重命中返回 false）不记 healing', async () => {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const healingRepo = makeObservableHealingRepo();
+    taskRepo._store.set('task-miss-dedup', makeTask({ id: 'task-miss-dedup' }));
+    convRepo._addConversation('conv-1', { status: 'active' });
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: createMockSendEntry() as unknown as SendEntry,
+      entryRepo: createMockEntryRepo() as unknown as EntryRepository,
+      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date()) as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+      otterRepo: { getById: async () => null },
+    });
+    // 真实 SqliteScheduledTaskPendingItemRepository.enqueue 用 INSERT OR IGNORE：
+    // 同任务已有 pending 时部分唯一索引去重命中返回 false——正常态非故障。
+    (service as unknown as { pendingItemRepo: unknown }).pendingItemRepo = {
+      hasExecutionInSlot: vi.fn(async () => false),
+      enqueue: vi.fn(async () => false),
+    };
+    await service.trigger('task-miss-dedup');
+    expect([...taskRepo._executions.values()][0]?.status).toBe('skipped');
+    expect(healingRepo._events).toHaveLength(0);
+  });
+
   it('once 任务 roster miss：有声系统通知代替 healing（任务即将删除，通知是唯一留痕）', async () => {
     const taskRepo = createMockTaskRepo();
     const convRepo = createMockConvRepo();

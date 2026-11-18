@@ -728,10 +728,14 @@ export class SchedulerService {
         return;
       }
     }
-    let enqueued = false;
-    if (this.pendingItemRepo) {
+    let channelFailed = false;
+    if (!this.pendingItemRepo) {
+      channelFailed = true;
+    } else {
       try {
-        enqueued = await this.pendingItemRepo.enqueue({
+        // 返回 false = 部分唯一索引去重命中（同任务已有 pending 在队）——自愈通道
+        // 已激活的正常态，不是通道故障；只有抛错或未注入 repo 才需要人工看。
+        await this.pendingItemRepo.enqueue({
           id: crypto.randomUUID(),
           taskId: task.id,
           conversationId: task.conversationId,
@@ -747,9 +751,10 @@ export class SchedulerService {
           taskId: task.id,
           error: err instanceof Error ? err.message : String(err),
         });
+        channelFailed = true;
       }
     }
-    if (!enqueued) await this.recordExecutorResolutionFailure(task);
+    if (channelFailed) await this.recordExecutorResolutionFailure(task);
   }
 
   /** #1449：挤占 skip 落 healing（low）——触发被拒即见，不等 2h 硬兜底。

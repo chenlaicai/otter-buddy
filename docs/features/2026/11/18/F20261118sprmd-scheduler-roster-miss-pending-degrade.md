@@ -46,7 +46,8 @@ roster miss（双路解析落空）
 ├─ once 任务：notifyOnceSkipUnavailable（有声系统通知；触发后任务行即删，通知是唯一留痕）
 │   └─ 通知抛错 → recordExecutorResolutionFailure（healing 兜底）
 └─ cron/interval 任务：pendingItemRepo.enqueue（部分唯一索引：同任务仅一条 pending 在队）
-    └─ 未注入 repo / enqueue 抛错 / 返回 false → recordExecutorResolutionFailure（healing 兜底）
+    └─ 未注入 repo / enqueue 抛错 → recordExecutorResolutionFailure（healing 兜底）；
+        返回 false = 去重命中（同任务已有 pending 在队）——正常态不记账
 ```
 
 - 执行者就位后由 `manage_scheduled_task_pending` 工具的 list/detail/ack 通道补执行销账（pending 机制既有语义，busy 分支同款）。
@@ -62,6 +63,13 @@ busy 与 roster miss 共用 once 有声通知通道，reasonClause 区分根因�
 - **不加 hasExecutionInSlot 前置检查**（busy 分支有）：roster-miss 分支的同槽位 running/completed 覆盖场景要求执行者曾在场，与 miss 事实矛盾；部分唯一索引已防同任务重复在队，detail 时 hasDirectCompletionInSlot 会判 covered 引导 ack。最小改动原则。
 - **skipped execution 记账保留**：触发事实留痕（#1208 口径），只改后置处理。
 - **logger.warn 保留**：日志面不降可见性，只去 healing 账本污染。
+
+## 设计取舍（mechanism-addition 机制四问）
+
+1. **谁需要这个机制**：scheduler triggerTask 的 roster-miss 路径（双路解析落空的所有时刻）；直接受益人是对话执行者（大獭）与 daily-review 人工处置者——前者不再丢当天轮次，后者不再看到同名 low event 刷屏。
+2. **失败后果**：降级通道故障（未注入 repo/enqueue 抛错/once 通知抛错）时回退 healing 记账，行为等同修复前（skipped + healing），不会更坏；若 healing 落账也失败，仅 logger.warn 留痕——与仓库其他 healing 写入的降级链一致。
+3. **后续机制及其失误面**：pending 项由执行者就位后经 manage_scheduled_task_pending（list/detail/ack）消费；失误面在「执行者长期不唤醒」——pending 项静默在队。发现通道：执行者任意后续唤醒即见提醒；真正永久无主的任务（executorRole 配错）会留一条 pending 不累积（部分唯一索引），由名册巡检/人工发现。此外去重命中（enqueue 返 false）不记账是正常态，若未来 pending 消费链路度章改变此语义，需同步重审本分支记账条件。
+4. **退役条件**：当「名册空窗不可能发生」（如名册持久化保证 + 解析永不过窗）或 pending 机制被更高阶重试机制取代时，本降级分支可整体移除（git revert 即可，无状态迁移）；监控信号：healing_events 中 reason=no-such-role-in-roster 的新增应归零于降级通道故障，若常态出现说明通道本身需要人看。
 
 ## 验证
 
