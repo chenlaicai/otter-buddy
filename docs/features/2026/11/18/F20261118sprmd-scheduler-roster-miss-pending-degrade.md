@@ -3,7 +3,7 @@ id: F20261118sprmd
 title: "scheduler roster miss 自愈降级：pending 队列兜底替代 healing 账本污染（#1913）"
 summary: "2026-11-16 误解散事故（F20261117dsgrd 背景）当天，大獭 session 空窗期内三个 cron 任务触发全部 no-such-role-in-roster skipped：当天任务直接丢轮（次日 cron 才补跑），且每轮白记一条 low healing event 污染账本。修复：roster miss 从「skipped + healing」改为自愈降级——cron 任务入 pending 队列（执行者就位后经 manage_scheduled_task_pending 提醒补执行，部分唯一索引保证同任务仅一条在队）；once 任务触发后即删（pending FK 悬空不能入队），改有声系统通知（原 busy 专用通道参数化复用）。healing 只在降级通道本身失败时记（fail-closed）。"
 change_type: fix
-capability_test: "n/a: 调度器降级路径（无独立可观测端点），以 scheduler-service.test.ts 单测（roster miss 降级 describe 4 用例：入队成功零 healing / 入队失败回退 healing / once 有声通知）+ 全量 vitest 为验证载体"
+capability_test: "n/a: 调度器降级路径（无独立可观测端点），以 scheduler-service.test.ts 单测（roster miss 降级 describe 4 用例：入队成功零 healing / enqueue 抛错回退 healing / 去重命中零 healing / once 有声通知）+ 全量 vitest 为验证载体"
 intent:
   problem: "resolveExecutorOtter 双路（名册角色解析 + talkingStone 旧实例 fallback）都落空时，triggerTask 直接 skipped + recordExecutorResolutionFailure 落 healing event。误解散事故窗口实证该路径的三个缺陷：①执行者暂时不可见≠任务该丢——当天三任务全部丢轮，次日 cron 才补跑，承诺静默迟到 24h；②暂时性 miss 记 low healing 是账本污染（daily-review 人工处置负担）；③once 任务触发后即删行，skipped + healing 之外零留痕，比 cron 更彻底的无声丢失。"
   solution: "degradeRosterMissToPending 私有方法接管 roster miss 后置处理：非 once 任务 enqueue pending（对齐 busy 分支同款兜底，id 用 crypto.randomUUID、triggeredAt 用本轮触发时刻）；once 任务走参数化后的 notifyOnceSkipUnavailable（原 notifyOnceBusySkip 泛化，reasonClause 区分「正忙」与「不在对话名册中」）。healing 记账条件收窄为降级通道故障（once 通知抛错 / pending 未注入 / enqueue 抛错）——enqueue 返回 false 是部分唯一索引去重命中（同任务已有 pending 在队）的自愈正常态，不记账。"
