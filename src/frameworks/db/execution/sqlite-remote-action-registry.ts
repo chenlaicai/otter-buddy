@@ -68,9 +68,9 @@ export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
     return rows.map(rowToReq);
   }
 
-  async listByConversation(conversationId: string, limit = 200): Promise<RemoteActionRequest[]> {
+  async listByConversation(conversationId: string, limit = 200, order: "asc" | "desc" = "asc"): Promise<RemoteActionRequest[]> {
     const rows = this.db.prepare(
-      "SELECT * FROM remote_action_requests WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?",
+      `SELECT * FROM remote_action_requests WHERE conversation_id = ? ORDER BY created_at ${order === "desc" ? "DESC" : "ASC"} LIMIT ?`,
     ).all(conversationId, limit) as Row[];
     return rows.map(rowToReq);
   }

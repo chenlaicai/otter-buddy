@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
-import { Archive, ShieldAlert, Activity, GripHorizontal } from 'lucide-react'
+import {Archive, ShieldAlert, Activity, GripHorizontal, Cpu} from 'lucide-react'
 import type { LocalConversation as Conversation, LocalOtter as Otter, LocalMessage as Message, LocalLinkedResource as LinkedResource } from '../../lib/mappers'
 import type { CardPreview } from './hooks/useCardBridge'
 import { MessageList } from './MessageList'
+import { ExecutionMachineModal } from './ExecutionMachineModal'
 import { MessageInput } from './MessageInput'
 import { useAttachmentStaging, type StagedAttachment } from './hooks/useAttachmentStaging'
 
@@ -104,6 +105,8 @@ function loadInputHeight(overlayEl: HTMLElement): number {
 export function ChatView(props: ChatViewProps) {
   const { conversation: c } = props
   const staging = useAttachmentStaging(props.conversationId || null)
+  // F20261118exstt（阶段 5 PR-B）：执行机选择器 + 远程动作状态
+  const [showMachineModal, setShowMachineModal] = useState(false)
   /** F20261016inbs：输入覆盖层容器 ref——ResizeObserver 观测目标（实高含分割条+附件行+玻璃框+
    *  底部提示行），实高变化时同步 bottomSpacerPx 给 MessageList 做等高衬垫。首帧 mount 前
    *  为 null（0px 兜底），mount 后立即触发（无内容时玻璃框实高 = inputHeight，衬垫即就位） */
@@ -243,6 +246,13 @@ export function ChatView(props: ChatViewProps) {
               </button>
             )}
             <button
+              onClick={() => setShowMachineModal(true)}
+              className="px-2.5 py-1 text-xs font-medium rounded-lg glass-card text-stone-600 hover:bg-white/50 transition flex items-center gap-1"
+              title="执行机与远程动作（对话级六动作路由 + 状态）"
+            >
+              <Cpu className="w-3 h-3" />
+            </button>
+            <button
               onClick={props.onArchive}
               disabled={c.status === 'archived'}
               className="px-2.5 py-1 text-xs font-medium rounded-lg glass-card text-stone-600 hover:bg-white/50 transition flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -366,6 +376,12 @@ export function ChatView(props: ChatViewProps) {
           onDismissUploadError={() => staging.setUploadError(null)}
         />
       </div>
+      {showMachineModal && (
+        <ExecutionMachineModal
+          conversationId={props.conversationId}
+          onClose={() => setShowMachineModal(false)}
+        />
+      )}
     </main>
   )
 }
