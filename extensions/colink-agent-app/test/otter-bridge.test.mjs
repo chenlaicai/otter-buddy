@@ -86,6 +86,13 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
         ...(state.includeTriggerHeader ? { 'x-otter-trigger-entry-id': triggerEntryId } : {}),
       } });
     }
+    if (path.endsWith('/attachments')) {
+      if (state.failAttachmentUpload) return Response.json({ error: 'upload failed' }, { status: 500 });
+      state.attachmentUploads = (state.attachmentUploads ?? 0) + 1;
+      state.lastAttachmentBodyIsFormData = options.body instanceof FormData;
+      return Response.json({ attachments: [{ id: `attachment-${state.attachmentUploads}`, kind: 'image',
+        mimeType: 'image/png', originalName: 'colink-image.png', sizeBytes: 70 }] }, { status: 201 });
+    }
     if (path.endsWith('/entries')) {
       state.polls++;
       if (autoComplete && state.completeAfterPolls > 0 && state.polls >= state.completeAfterPolls) finish();
@@ -268,6 +275,35 @@ test('persists mappings with owner-only file permissions', () => {
   assert.equal(new ConversationStore(file).get('external'), 'otter-conversation');
   const content = readFileSync(file, 'utf8');
   assert.deepEqual(JSON.parse(content), { external: 'otter-conversation' });
+});
+
+test('uploads downloaded images as attachments and sends their ids with the message', async () => {
+  const { state, fetcher } = fixture();
+  const toolBridge = { run: async (_binding, execute) => execute('看图') };
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
+  const ctx = { event: { data: { text: '看图' } } };
+  const images = [{ bytes: new Uint8Array([1, 2, 3]), mimeType: 'image/png', fileName: 'colink-image.png' }];
+  assert.equal(await bridge.reply({ ...input, text: '看图', images, ctx }), '最终回答');
+  assert.equal(state.attachmentUploads, 1);
+  assert.equal(state.lastAttachmentBodyIsFormData, true);
+  assert.equal(state.messages[0].attachmentIds.length, 1);
+  assert.equal(state.messages[0].attachmentIds[0], 'attachment-1');
+  assert.equal(state.messages[0].body, '看图');
+});
+
+test('degrades a failed attachment upload to a text-only message carrying the unread image note', async () => {
+  const { state, fetcher } = fixture();
+  state.failAttachmentUpload = true;
+  const toolBridge = { run: async (_binding, execute) => execute('看图') };
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, toolBridge });
+  const ctx = { event: { data: { text: '看图' } } };
+  const images = [{ bytes: new Uint8Array([1]), mimeType: 'image/png', fileName: 'colink-image.png' }];
+  const failedImageIds = ['file-7'];
+  assert.equal(await bridge.reply({ ...input, text: '看图', images, failedImageIds, ctx }), '最终回答');
+  assert.equal(state.attachmentUploads, undefined);
+  assert.equal(state.messages[0].attachmentIds, undefined);
+  assert.match(state.messages[0].body, /file-7/);
+  assert.match(state.messages[0].body, /注入附件库失败/);
 });
 
 test('re-registers byte-identical MCP config on the next round so Otter accepts the rewrite', async () => {

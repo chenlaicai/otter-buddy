@@ -93,7 +93,7 @@ export class OtterBridge {
     return conversation.id;
   }
 
-  async reply({ kind = 'dm', deploymentId, installationId, conversationId, actorId, text, ctx, signal }) {
+  async reply({ kind = 'dm', deploymentId, installationId, conversationId, actorId, text, images = [], failedImageIds = [], ctx, signal }) {
     if (!['dm', 'channel'].includes(kind)) throw new Error('OTTER_EXTERNAL_KIND_INVALID');
     // Why: 保留既有 DM 映射键；频道加命名空间，避免同 UUID 的 DM 与频道串会话。
     const externalId = kind === 'channel' ? `channel:${conversationId}` : conversationId;
@@ -104,7 +104,30 @@ export class OtterBridge {
       const otterConversationId = await this.ensureConversation(key, `CoLink ${label} ${conversationId.slice(0, 8)}`);
       // Why: 常驻 MCP bearer 指向当前 active turn；旧 Agent 未终态时重绑会借用新事件授权。
       await this.assertConversationIdle(otterConversationId, signal);
-      const execute = prompt => this.runTurn({ otterConversationId, actorId, text: prompt, signal });
+      // 图片预下载后先上传到海獭系统附件库，再随消息带 attachmentIds 注入（多模态 Phase 1 链路）。
+      // 上传失败逐张降级：图片缺席但不阻断文本消息，并把失败 id 记入提示避免模型误以为收到图。
+      const attachmentIds = [];
+      const failedUploadIds = [];
+      for (const image of images) {
+        try {
+          attachmentIds.push(await this.uploadAttachment(otterConversationId, image, signal));
+        } catch {
+          failedUploadIds.push(image.fileId ?? '未知');
+        }
+      }
+      const imageNote = [
+        failedImageIds.length
+          ? `\n[附带图片] ${failedImageIds.length} 张图片未能读取（可能未授权 files:read）：${failedImageIds.join('、')}`
+          : '',
+        failedUploadIds.length
+          ? `\n[附带图片] ${failedUploadIds.length} 张图片注入附件库失败：${failedUploadIds.join('、')}`
+          : '',
+      ].filter(Boolean).join('');
+      const execute = prompt => this.runTurn({
+        otterConversationId, actorId, signal,
+        text: `${prompt || '[图片]'}${imageNote}`,
+        ...(attachmentIds.length ? { attachmentIds } : {}),
+      });
       if (!this.toolBridge) return execute(text);
       if (!ctx) throw new Error('COLINK_EVENT_CONTEXT_REQUIRED_FOR_TOOLS');
       return this.toolBridge.run({
@@ -119,6 +142,32 @@ export class OtterBridge {
     try { return await current; } finally {
       if (this.lanes.get(key) === current) this.lanes.delete(key);
     }
+  }
+
+  /** 上传一张图片到海獭系统附件库（multipart/form-data），返回 attachmentId。 */
+  async uploadAttachment(otterConversationId, { bytes, mimeType, fileName }, signal) {
+    const form = new FormData();
+    form.append('file', new Blob([bytes], { type: mimeType }), fileName);
+    const response = await this.fetcher(
+      `${this.baseUrl}/api/conversations/${otterConversationId}/attachments?uploaderId=colink-agent-app`,
+      {
+        method: 'POST',
+        body: form,
+        headers: {
+          'X-Otter-User-Id': 'colink-agent-app',
+          'X-Otter-User-Role': 'admin',
+        },
+        signal,
+      },
+    );
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 500);
+      throw new Error(`OTTER_HTTP_${response.status}: ${detail}`);
+    }
+    const payload = await response.json();
+    const id = payload?.attachments?.[0]?.id;
+    if (typeof id !== 'string' || !id) throw new Error('OTTER_ATTACHMENT_MISSING_ID');
+    return id;
   }
 
   async listInvokes(otterConversationId, signal) {
@@ -165,11 +214,13 @@ export class OtterBridge {
     }
   }
 
-  async runTurnObserved({ otterConversationId, actorId, text, signal }) {
+  async runTurnObserved({ otterConversationId, actorId, text, attachmentIds, signal }) {
     const startedAt = Date.now();
+    const payload = { senderId: `external:${actorId}`, body: text, source: 'external' };
+    if (Array.isArray(attachmentIds) && attachmentIds.length) payload.attachmentIds = attachmentIds;
     const response = await this.request(`/api/conversations/${otterConversationId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ senderId: `external:${actorId}`, body: text, source: 'external' }),
+      body: JSON.stringify(payload),
     }, signal);
     // Why: POST SSE 只是通知且 30 秒会关闭；断开不会中止后台 Agent。
     // 主动取消通知流，最终答案只以持久 entries/invokes 为准，避免终态后仍白等 SSE。
