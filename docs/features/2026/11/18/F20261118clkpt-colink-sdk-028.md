@@ -15,12 +15,12 @@ summary: |
   入库让 CI 无需装依赖即可跑契约测试。
 intent:
   problem: "线上那版插件按 0.15.0 协议编写，而 CoLink 已换代（事件名、回合上下文、身份模型、清单校验白名单全变）：老代码在新平台上拿不到事件、读不了历史，清单里的旧协议字段也不再被识别；同时新 SDK 取消了 turn.tools，原四工具代理设计失去底层能力"
-  expected_effect: "插件在新协议下行为等价：DM/频道消息仍映射到单獭 Otter Conversation，历史读取仍被限定在当前事件资源与平台固定身份内，回复仍以持久 entries/invokes 为准；差异是工具面收敛为 2 个只读工具、凭证模型收敛为每轮一次性 bearer、清单字段全部由 SDK 常量声明且随 SDK 升级可被测试捕获漂移"
+  expected_effect: "插件在新协议下行为等价：DM/频道消息仍映射到单獭 Otter Conversation，历史读取仍被限定在当前事件资源与平台固定身份内，回复仍以持久 entries/invokes 为准；差异是工具面收敛为 2 个只读工具、MCP bearer 保持按 Conversation 稳定派生（授权时效靠 active 映射）、清单字段全部由 SDK 常量声明且随 SDK 升级可被测试捕获漂移"
   verify_by:
     type: behavior_check
     evidence:
-      - "extensions/colink-agent-app npm test：26/26 通过（含工具面、身份选择、跨资源拒绝、每轮 bearer 失效、manifest 契约与 SDK pin 一致性）"
-      - "仓库根 npm run test:extensions（CI 同款命令）：26/26 通过，无需先 npm install"
+      - "extensions/colink-agent-app npm test：32/32 通过（工具面、身份选择、跨资源拒绝、分页边界、稳定 bearer 与 409 回归、跨轮 401、manifest 契约与 SDK pin 一致性）"
+      - "仓库根 npm run test:extensions（CI 同款命令）：32/32 通过，无需先 npm install"
       - "冒烟：以 0.28.0 vendored SDK 启动 src/app.mjs，GET /healthz 200、/manifest.json 返回 version 0.6.0 与 events.types=[app.user_message_received]、/embed.html 200、/page-config.json 正常"
       - "SDK 构建锚：colink@a9525f46d 的 dev/app-toolkit/distribution/build.mjs 产出 0.28.0 包，sdk-pin.json 记录 sha512 完整性"
 capability_test: "extensions/colink-agent-app/test/colink-tools.test.mjs"
@@ -49,7 +49,7 @@ capability_test: "extensions/colink-agent-app/test/colink-tools.test.mjs"
 | `turn.colink: BusinessClient`（扁平） | `ctx.colink.user` / `ctx.colink.app` | 按可见性选身份，不提供切换入口 |
 | `turn.progress` / `interaction.setStatus` | `ctx.sendProgress` / `ctx.setDisplayStatus` | 本期不启用阶段输出，保持等价行为 |
 | `openEncryptedStore` / `validateIssuer` / 外部 `store` | 取消，SDK 自管 | 删除 `COLINK_CREDENTIAL_KEY` 的 AAD 用途 |
-| — | 每轮随机 bearer 更贴合「不跨事件复用授权」 | MCP 代理改用 `randomBytes` 一次性 token |
+| bearer 派生密钥 = `COLINK_CREDENTIAL_KEY`（旧 SDK 的 store 密钥） | 密钥来源独立为 `COLINK_MCP_SECRET`，域分隔串保持 v1 | 派生结果可与旧部署逐字节一致（见「凭证」节迁移说明） |
 
 ## 工具面重设计
 
@@ -66,7 +66,9 @@ Otter 的 `PUT /api/conversations/:id/workspace/mcp-external` 用 `isSameOwnedCo
 
 **升级旧部署（0.15 → 0.28）**：老版本 bearer = `HMAC(COLINK_CREDENTIAL_KEY, 'colink-otter-mcp-v1:' + conversationId)`。本实现保留同一域分隔串，因此把 `COLINK_MCP_SECRET` 设为**旧的 `COLINK_CREDENTIAL_KEY` 原值**时派生结果逐字节相同，已落盘的 `mcp.json` 不会被判成换人，老 Conversation 第一轮即可用（`test/colink-tools.test.mjs` 有等价性断言）。若操作者换用新密钥值，则每个已绑定 Conversation 的旧 `mcp.json` 都会与新 bearer 冲突（永久 409），必须一次性清理：停 Otter 服务后删除 `data/workspaces/<conversationId>/mcp.json`（该文件由 Otter 按本 App 注册写入，删后下一轮会重新写入），或改用新的 Conversation 绑定。
 
-结论：bearer 保持「按 Conversation 用 `COLINK_MCP_SECRET` HMAC 派生」的稳定形态，授权时效改由代理内部的 active 映射保证——token 稳定但只有当前轮在映射里，事件结束立即删除，旧 Agent 无法借新事件授权。`COLINK_MCP_SECRET`（≥32 字符）是本扩展自己的密钥，与平台凭据分开管理。
+结论：bearer 保持「按 Conversation 用 `COLINK_MCP_SECRET` HMAC 派生」的稳定形态，授权时效改由代理内部的 active 映射保证——token 稳定但只有当前轮在映射里，事件结束立即删除。`COLINK_MCP_SECRET`（≥32 字符）是本扩展自己的密钥，与平台凭据分开管理。
+
+**已知余量**：稳定 bearer 不等价于密码学层面的轮次隔离——它依赖 lane 串行、旧 invoke 已终态、不存在迟到请求这几个前提；若旧 bearer 被窃取且攻击者在未来轮次 active 时发起请求，会命中新轮 ctx（实现有响应前 ctx 二次校验，但旧请求若跨越 active 切换会在写响应前 401，而非从根上不可用）。要「被盗 bearer 永远不能用于未来事件」，需要受控轮换 + 修改 Otter `mcp-external` 守卫契约，属另一项工作。
 
 ## 打包与 pin
 

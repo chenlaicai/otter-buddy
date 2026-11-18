@@ -299,24 +299,39 @@ test('bearer derivation stays byte-identical to the pre-upgrade scheme so old mc
   assert.equal(bridge.tokenFor('otter-legacy'), legacy);
 });
 
-test('a request that outlives its round is rejected before the response is written', async () => {
+test('a request that outlives its round is rejected while the next round is active', async () => {
   const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
   await bridge.start();
   try {
     let release;
     const gate = new Promise(resolve => { release = resolve; });
-    const ctx = ctxFixture('channel');
-    const slowRead = ctx.source.listMessages;
-    ctx.source.listMessages = async args => { await gate; return slowRead(args); };
+    let reached;
+    const hit = new Promise(resolve => { reached = resolve; });
+    const firstCtx = ctxFixture('channel');
+    const slowRead = firstCtx.source.listMessages;
+    // 让「服务器已收到旧请求」成为确定性事件，不靠 sleep 抢时序。
+    firstCtx.source.listMessages = async args => { reached(); await gate; return slowRead(args); };
     const config = [];
-    const firstRound = bridge.run({ otterConversationId: 'slow', ctx, register: async c => config.push(c) }, async () => {
-      const pending = rpc(bridge, tokenOf(config[0]), 'tools/call', { name: 'colink_read_topic', arguments: {} });
-      // 下一轮接管同一个 bearer（同一 Conversation），旧请求此时已不属于任何活动轮次。
-      await bridge.run({ otterConversationId: 'slow', ctx: ctxFixture('channel'), register: async () => {} }, async () => 'next');
+    let pending;
+    let pendingUrl;
+    const firstRound = bridge.run({ otterConversationId: 'slow', ctx: firstCtx, register: async c => config.push(c) }, async () => {
+      // 旧轮的读取一直挂着，直到下一轮 active 建立后才放行。
+      pendingUrl = new URL('/mcp', bridge.origin);
+      pending = rpc(bridge, tokenOf(config[0]), 'tools/call', { name: 'colink_read_topic', arguments: {} });
+      await pending.catch(() => {});
+      return 'slow';
+    });
+    // 等旧请求确实已经进到代理、正挂在读取上。
+    await hit;
+    // 第二轮在上面这一轮仍挂起时接管同一个 bearer（同一 Conversation）。
+    const secondCtx = ctxFixture('channel');
+    await bridge.run({ otterConversationId: 'slow', ctx: secondCtx, register: async () => {} }, async () => {
+      assert.ok(pendingUrl);
       release();
       const response = await pending;
+      // 第二轮仍 active、Map 里已是新 ctx：旧请求必须在写响应前被拒。
       assert.equal(response.status, 401);
-      return 'slow';
+      return 'next';
     });
     assert.equal(await firstRound, 'slow');
   } finally {
