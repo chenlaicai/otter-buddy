@@ -88,11 +88,13 @@ End-to-end verification failure must be reported as a 严重发现 in the review
 
 ### B10. 注释编号禁绝
 
-非特性文档的代码注释里不允许出现任何编号——特性编号（字母+日期形态）、检视轮次序号（单字母序号 / 中文动作词+序号）、issue 号（井号+数字）。注释 why 用文字写清，不挂编号。
+非特性文档的代码注释里不允许出现任何编号——特性编号（字母+日期形态）、检视轮次序号（round/第 N 轮/检视轮次 N 形态、中文动作词+序号、单字母序号仅在处置语境）、issue 号（井号+数字）。注释 why 用文字写清，不挂编号。
+
+> 技术词不是轮次编号：M1/M2 芯片、S3 存储、A4 纸这类裸字母+数字无语境，不算编号，不误杀。
 
 - 实际运行机械闸验证：`cd <主仓> && node scripts/check-pr-anchor-discipline.mjs --base origin/main`，贴输出（违规则列 文件:行 + 编号类型）
 - 命中违规 = 严重发现（标明 B10 来源）：作者剥编号保 why 结论即可，无需删除整条注释
-- 特性文档（docs/features/）不受此限——编号是特性文档的家
+- 判定范畴：特性文档（docs/features/）不受此限（编号是特性文档的家）；生成产物（dist/锁文件）、纯 JSON、markdown 不在闸的判定面内
 
 ### B9. Evidence Package & Reproduction Evidence
 改系统状态的交付必须有可下钻的证据包；纯 `docs/` 交付豁免。机械闸只查结构，真实性、判别力由本维度核对。
