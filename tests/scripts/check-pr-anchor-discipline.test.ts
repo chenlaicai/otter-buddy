@@ -1,9 +1,9 @@
 /**
  * check-pr-anchor-discipline 机械闸测试（注释编号禁绝）。
  *
- * 覆盖：词法状态机（字符串/模板/块注释边界）、跨行块注释、轮次判据（孤立序号命中 +
- * 技术词豁免）、issue 色值豁免、quoted path、纯删除、读文件失败 fail-closed、CSS 覆盖。
- * 自噬防御：测试数据里「注释导引符 + 编号」连续形态全部运行时拼接，源码不出现完整序列。
+ * 覆盖：TS 编译器级词法（模板/跨行块注释）、轮次判据（孤立序号命中 + 技术词豁免）、
+ * issue 全拦截（色值不豁免）、Hash 语言各自注释规则、CSS/SCSS、quoted path、纯删除、
+ * 读文件失败 fail-closed。自噬防御：测试数据「注释导引符 + 编号」连续形态运行时拼接。
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -11,8 +11,6 @@ import {
   isSupportedCodePath,
   isCssLikeLang,
   collectAnchorViolations,
-  scanTsLine,
-  scanHashLine,
   annotateFile,
   decodeCQuotedPath,
   parseDiffAddedLines,
@@ -36,7 +34,7 @@ describe("isExcludedPath / isSupportedCodePath", () => {
     expect(isSupportedCodePath(".github/workflows/ci.yml")).toBe(true);
     expect(isSupportedCodePath("web/index.html")).toBe(true);
     expect(isSupportedCodePath("web/styles/globals.css")).toBe(true);
-    expect(isCssLikeLang("web/styles/globals.css")).toBe(true);
+    expect(isCssLikeLang("web/styles/globals.scss")).toBe(true);
     expect(isSupportedCodePath("src/foo.json")).toBe(false);
   });
 });
@@ -49,12 +47,12 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(tokens).toContain(rFid());
   });
 
-  it("issue 编号命中；hex 色值（字母与纯数字）豁免", () => {
+  it("issue 编号全拦截：长短号与 hex 形态均算，region 折叠指令豁免", () => {
     expect(collectAnchorViolations(`见 ${hash()}1911 与 ${hash()}2`).some((x) => x.kind === "issue 编号")).toBe(true);
-    expect(collectAnchorViolations("色值 #fff").some((x) => x.kind === "issue 编号")).toBe(false);
-    expect(collectAnchorViolations("色值 #123").some((x) => x.kind === "issue 编号")).toBe(false);
-    expect(collectAnchorViolations("色值 #123456").some((x) => x.kind === "issue 编号")).toBe(false);
-    expect(collectAnchorViolations("region 分组").some((x) => x.kind === "issue 编号")).toBe(false);
+    expect(collectAnchorViolations(`修复见 ${hash()}123`).some((x) => x.kind === "issue 编号")).toBe(true);
+    expect(collectAnchorViolations(`修复见 ${hash()}123456`).some((x) => x.kind === "issue 编号")).toBe(true);
+    expect(collectAnchorViolations(`// ${hash()}region 分组`).some((x) => x.kind === "issue 编号")).toBe(false);
+    expect(collectAnchorViolations(`// ${hash()}endregion`).some((x) => x.kind === "issue 编号")).toBe(false);
   });
 
   it("轮次编号：中文动作词 / round / 第N轮 / 孤立单字母序号命中", () => {
@@ -74,59 +72,81 @@ describe("collectAnchorViolations 三类编号", () => {
   });
 });
 
-describe("scanTsLine 词法状态机", () => {
-  it("字符串里的 // 与 URL 不是注释", () => {
-    expect(scanTsLine(`const u = "https://example.test/x";`).comment).toBeNull();
-    expect(scanTsLine(`const u = 'a // b';`).comment).toBeNull();
+describe("annotateFile TS 编译器级词法", () => {
+  it("模板字符串跨行内容不是注释，模板后行注释是注释", () => {
+    const src = ["const s = `", `${sl()} ${fid()}`, "`;", `const t = \`x\`; ${sl()} ${hash()}1937`].join("\n");
+    const ann = annotateFile(src, "src/a.ts");
+    expect(ann[0]).toBeNull();
+    expect(ann[1]).toBeNull(); // 模板正文第二行非注释
+    expect(ann[2]).toBeNull();
+    expect(ann[3]).toContain(hash()); // 模板后真行注释
   });
 
-  it("模板字符串内容不是注释，表达式结束后的行注释是注释", () => {
-    expect(scanTsLine(`const s = \`\${name} // ${fid()}\`;`).comment).toBeNull();
-    expect(scanTsLine(`const s = \`\${name}\`; ${sl()} 注释`).comment).toBe(`${sl()} 注释`);
+  it("多行块注释闭合行后的字符串不误伤", () => {
+    const src = ["/*", "*/", `const design = "${fid()}";`].join("\n");
+    const ann = annotateFile(src, "src/a.ts");
+    expect(ann[0]).toContain("/*");
+    expect(ann[1]).toContain("*/");
+    expect(ann[2]).toBeNull(); // 闭合行后的字符串
   });
 
-  it("单行块注释只取到 */ 为止，其后字符串不纳入", () => {
-    const r = scanTsLine(`/* clean */ const design = "${fid()}";`);
-    expect(r.comment).toBe("/* clean */");
+  it("单行块注释只取闭合标记，其后字符串不纳入", () => {
+    const ann = annotateFile(`/* clean */ const design = "${fid()}";`, "src/a.ts");
+    expect(ann[0]).toBe("/* clean */");
   });
 
-  it("行注释与块注释正确识别", () => {
-    expect(scanTsLine(`const x = 1; ${sl()} 注释`).comment).toBe(`${sl()} 注释`);
-    expect(scanTsLine(`/* 块注释开`).comment).toBe(`/* 块注释开`);
-    expect(scanTsLine(`/* 块注释开`).opensBlock).toBe(true);
-  });
-});
-
-describe("scanHashLine 词法", () => {
-  it("引号内 # 与裸 URL 中 # 不是注释，行首/空白后 # 是注释", () => {
-    expect(scanHashLine(`url: "https://x.test/${hash()}1937"`).comment).toBeNull();
-    expect(scanHashLine(`url: https://x.test/${hash()}1937`).comment).toBeNull();
-    expect(scanHashLine(`key: value ${hash()} 注释`).comment).toBe(`${hash()} 注释`);
-    expect(scanHashLine(`${hash()} 行首注释`).comment).toBe(`${hash()} 行首注释`);
+  it("字符串字面量里的 URL 不是注释", () => {
+    const ann = annotateFile(`const u = "https://example.test/${fid()}";`, "src/a.ts");
+    expect(ann[0]).toBeNull();
   });
 });
 
-describe("annotateFile 全文标注", () => {
-  it("跨行块注释（无星号正文行）标为注释", () => {
-    const lines = ["/*", `  无星号正文引用 ${fid()}`, "*/", "const ok = 1;"].join("\n");
-    const ann = annotateFile(lines, "src/a.ts");
-    expect(ann[1]).toContain("无星号正文引用");
-    expect(ann[3]).toBeNull();
+describe("annotateFile Hash 语言各自规则", () => {
+  it("YAML：空白后 # 是注释，裸 URL 内 # 不是", () => {
+    expect(annotateFile(`url: https://x.test/${hash()}1937`, "a.yml")[0]).toBeNull();
+    expect(annotateFile(`key: value ${hash()} 注释`, "a.yml")[0]).toBe(`${hash()} 注释`);
   });
 
-  it("Python 三引号字符串跨行正文不标为注释", () => {
-    const lines = [`text = """`, `${hash()}1937`, `"""`].join("\n");
-    const ann = annotateFile(lines, "src/a.py");
+  it("Python：行内 # 是注释（无需空白），三引号正文跳过，注释里三引号不破坏状态", () => {
+    expect(annotateFile(`x=1${hash()}1937`, "a.py")[0]).toBe(`${hash()}1937`);
+    // 三引号字符串正文非注释；闭合后注释仍识别
+    const src = [`text = """`, `${hash()}1937`, `"""`, `x=1${hash()}9`].join("\n");
+    const ann = annotateFile(src, "a.py");
     expect(ann[0]).toBeNull();
     expect(ann[1]).toBeNull();
     expect(ann[2]).toBeNull();
+    expect(ann[3]).toBe(`${hash()}9`);
+    // 注释里的三引号只是文本，不应触发字符串状态
+    const src2 = [`${hash()} 三引号 """ 写法`, `${hash()}1937`].join("\n");
+    const ann2 = annotateFile(src2, "a.py");
+    expect(ann2[0]).toContain(`"""`);
+    expect(ann2[1]).toBe(`${hash()}1937`);
   });
 
-  it("CSS 块注释标为注释", () => {
-    const lines = [`/* 见 ${fid()} */`, "body { color: red; }"].join("\n");
-    const ann = annotateFile(lines, "web/a.css");
-    expect(ann[0]).toContain("/*");
-    expect(ann[1]).toBeNull();
+  it("Shell：控制运算符后的 # 是注释", () => {
+    expect(annotateFile(`echo ok;${hash()}1937`, "a.sh")[0]).toBe(`${hash()}1937`);
+  });
+
+  it("TOML：行内 # 是注释", () => {
+    expect(annotateFile(`x=1${hash()}1937`, "a.toml")[0]).toBe(`${hash()}1937`);
+  });
+});
+
+describe("annotateFile CSS/SCSS/HTML", () => {
+  it("CSS：块注释命中、字符串里块注释标记不误伤", () => {
+    expect(annotateFile(`/* 见 ${fid()} */`, "a.css")[0]).toContain("/*");
+    expect(annotateFile(`.x { content: "/* ${fid()} */"; }`, "a.css")[0]).toBeNull();
+  });
+
+  it("SCSS：行注释命中", () => {
+    expect(annotateFile(`${sl()} ${fid()}`, "a.scss")[0]).toBe(`${sl()} ${fid()}`);
+  });
+
+  it("HTML：注释跨行命中", () => {
+    const ann = annotateFile([`<!--`, `${fid()}`, `-->`].join("\n"), "a.html");
+    expect(ann[0]).toContain("<!--");
+    expect(ann[1]).toContain(fid());
+    expect(ann[2]).toContain("-->");
   });
 });
 
@@ -167,26 +187,45 @@ describe("parseDiffAddedLines", () => {
 });
 
 describe("checkDiff 集成（readFileFn 注入）", () => {
-  const mk = (files: Record<string, string>) => (p: string) => files[p] ?? "";
+  const mk = (files: Record<string, string>) => (p: string) => {
+    if (!(p in files)) throw new Error(`mock 文件不存在: ${p}`);
+    return files[p];
+  };
 
-  it("字符串字面量里的 URL 与井号不误判", () => {
+  it("字符串字面量里的 URL 与模板正文不误判", () => {
     const content = [
       `const design = "https://example.test/${fid()}";`,
-      `const issueURL = "https://example.test/${hash()}1937";`,
+      "const s = `",
+      `${sl()} ${fid()}`,
+      "`;",
     ].join("\n");
     const diff = [
       "diff --git a/src/normal.ts b/src/normal.ts",
       "--- a/src/normal.ts",
       "+++ b/src/normal.ts",
-      "@@ -0,0 +1,2 @@",
-      `+${content.split("\n")[0]}`,
-      `+${content.split("\n")[1]}`,
+      "@@ -0,0 +1,4 @@",
+      ...content.split("\n").map((l) => `+${l}`),
     ].join("\n");
     const { violations } = checkDiff(diff, mk({ "src/normal.ts": content }));
     expect(violations).toEqual([]);
   });
 
-  it("无星号块注释正文仍命中", () => {
+  it("模板后真行注释命中", () => {
+    const content = ["const t = `x`;", `${sl()} ${hash()}1937`].join("\n");
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -0,0 +1,2 @@",
+      `+${content.split("\n")[0]}`,
+      `+${content.split("\n")[1]}`,
+    ].join("\n");
+    const { violations } = checkDiff(diff, mk({ "src/a.ts": content }));
+    expect(violations).toHaveLength(1);
+    expect(violations[0].kind).toBe("issue 编号");
+  });
+
+  it("无星号块注释正文仍命中（跨行块注释）", () => {
     const content = ["/*", `  无星号正文引用 ${fid()}`, "*/"].join("\n");
     const diff = [
       "diff --git a/src/a.ts b/src/a.ts",
@@ -200,22 +239,23 @@ describe("checkDiff 集成（readFileFn 注入）", () => {
     expect(violations[0].kind).toBe("特性编号");
   });
 
-  it("模板字符串内容不误报、模板后行注释命中", () => {
+  it("issue 全拦截（短号/hex 形态），region 豁免", () => {
     const content = [
-      `const s = \`\${name} // ${fid()}\`;`,
-      `const t = \`\${name}\`; ${sl()} ${hash()}1937`,
+      `${sl()} 修复见 ${hash()}123`,
+      `${sl()} ${hash()}region 分组`,
+      `${sl()} ${hash()}fff`,
     ].join("\n");
     const diff = [
       "diff --git a/src/a.ts b/src/a.ts",
       "--- a/src/a.ts",
       "+++ b/src/a.ts",
-      "@@ -0,0 +1,2 @@",
-      `+${content.split("\n")[0]}`,
-      `+${content.split("\n")[1]}`,
+      "@@ -0,0 +1,3 @@",
+      `+${sl()} 修复见 ${hash()}123`,
+      `+${sl()} ${hash()}region 分组`,
+      `+${sl()} ${hash()}fff`,
     ].join("\n");
     const { violations } = checkDiff(diff, mk({ "src/a.ts": content }));
-    expect(violations).toHaveLength(1);
-    expect(violations[0].kind).toBe("issue 编号");
+    expect(violations).toHaveLength(2);
   });
 
   it("M1/S3 技术词豁免、孤立 S1 命中、round 形态命中", () => {
@@ -267,16 +307,38 @@ describe("checkDiff 集成（readFileFn 注入）", () => {
     expect(violations.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("CSS 块注释命中", () => {
-    const content = [`/* 见 ${fid()} */`].join("\n");
-    const diff = [
+  it("CSS 块注释命中、CSS 字符串里块注释标记不误伤", () => {
+    const c1 = [`/* 见 ${fid()} */`].join("\n");
+    const d1 = [
       "diff --git a/web/a.css b/web/a.css",
       "--- a/web/a.css",
       "+++ b/web/a.css",
       "@@ -0,0 +1,1 @@",
       `+/* 见 ${fid()} */`,
     ].join("\n");
-    const { violations } = checkDiff(diff, mk({ "web/a.css": content }));
+    expect(checkDiff(d1, mk({ "web/a.css": c1 })).violations).toHaveLength(1);
+
+    const c2 = [`.x { content: "/* ${fid()} */"; }`].join("\n");
+    const d2 = [
+      "diff --git a/web/a.css b/web/a.css",
+      "--- a/web/a.css",
+      "+++ b/web/a.css",
+      "@@ -0,0 +1,1 @@",
+      `+.x { content: "/* ${fid()} */"; }`,
+    ].join("\n");
+    expect(checkDiff(d2, mk({ "web/a.css": c2 })).violations).toEqual([]);
+  });
+
+  it("SCSS 行注释命中", () => {
+    const content = [`${sl()} ${fid()}`].join("\n");
+    const diff = [
+      "diff --git a/web/a.scss b/web/a.scss",
+      "--- a/web/a.scss",
+      "+++ b/web/a.scss",
+      "@@ -0,0 +1,1 @@",
+      `+${sl()} ${fid()}`,
+    ].join("\n");
+    const { violations } = checkDiff(diff, mk({ "web/a.scss": content }));
     expect(violations).toHaveLength(1);
   });
 
@@ -292,7 +354,7 @@ describe("checkDiff 集成（readFileFn 注入）", () => {
   });
 
   it("空 diff 无变更 → diffNonEmpty false", () => {
-    const { diffNonEmpty } = checkDiff("", mk({}));
+    const { diffNonEmpty } = checkDiff("", () => "");
     expect(diffNonEmpty).toBe(false);
   });
 });

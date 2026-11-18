@@ -6,9 +6,6 @@ export declare function isHtmlLang(p: string): boolean;
 export declare function isCssLikeLang(p: string): boolean;
 export declare function isSupportedCodePath(p: string): boolean;
 export declare function collectAnchorViolations(commentText: string): Array<{ token: string; kind: string }>;
-export declare function scanTsLine(line: string): { comment: string | null; opensBlock: boolean };
-export declare function scanHashLine(line: string): { comment: string | null };
-export declare function scanCssLine(line: string): { comment: string | null; opensBlock: boolean };
 export declare function annotateFile(content: string, path: string): Array<string | null>;
 export declare function decodeCQuotedPath(s: string): string;
 export declare function parseDiffAddedLines(diffText: string): {

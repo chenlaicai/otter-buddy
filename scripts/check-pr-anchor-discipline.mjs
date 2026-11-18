@@ -3,17 +3,21 @@
  * 注释编号禁绝闸：非特性文档的代码注释里不允许出现任何编号。
  *
  * 规则（搭档拍板）：特性编号（字母+8位日期+后缀形态）、检视轮次编号（中文动作词短语 /
- * round/轮形态 / 单字母序号）、issue 编号（井号+数字）一律禁止。
+ * round/轮形态 / 单字母序号）、issue 编号（井号+字母数字，色值不豁免）一律禁止。
  * 判据一句话——注释 why 用文字直接写清楚，编号是「跳去别处」的指针，没必要。
  *
  * 检测口径：PR 新增行 only（防复发）；存量分批整改由本特性链逐批清理。
  * 排除：特性文档目录（编号的家）、dist 产物、生成文件、纯 JSON、markdown。
  *
- * 注释识别（词法状态机，跳过字符串字面量）：TS/JS 系（行注释、块注释含跨行、模板字符串
- * 与表达式）、YAML/Shell/Python/Toml（井号注释：仅行首或空白后的 #；Python 三引号字符串
- * 跨行跳过）、HTML（<!-- --> 跨行）、CSS/SCSS（块注释符号，跨行）。
+ * 注释识别（语言专用扫描器，全文持续状态）：
+ *   - TS/JS 系：TypeScript createScanner——模板字符串/表达式、跨行块注释、正则、字符串全部
+ *     由编译器级词法保证，不重复实现语法
+ *   - YAML：# 仅在行首或空白后作注释（裸 URL 内的井号不误伤）
+ *   - Shell：# 仅在词首或控制运算符后作注释
+ *   - Python/TOML：# 行内即注释（引号外），三引号字符串跨行跳过（仅正常代码位置触发）
+ *   - HTML：<!-- --> 跨行；CSS：斜杠星块注释跨行；SCSS/SASS/LESS：另加 // 行注释；均跳过字符串
  *
- * 行号定位：diff 新增行按新文件行号回查「全文词法标注」——跨 hunk 的块注释体内行也能判。
+ * 行号定位：diff 新增行按新文件行号回查「全文词法标注」。
  * 读取失败 fail-closed：受支持的代码文件读不到即拒判，绝不静默放行。
  * 退出码：0 无违规（含纯删除变更）/ 1 违规 / 2 拒判（diff 完全为空或读取失败）。
  * 用法：node scripts/check-pr-anchor-discipline.mjs --base <ref> [--diff-file <path>]
@@ -22,6 +26,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 /** 排除路径。 */
 export function isExcludedPath(p) {
@@ -43,7 +48,7 @@ export function isHtmlLang(p) {
   return /\.html?$/.test(p);
 }
 
-/** CSS 系语言（斜杠星块注释，无行注释）。 */
+/** CSS 系语言（块注释；scss/sass/less 另有 // 行注释）。 */
 export function isCssLikeLang(p) {
   return /\.(css|scss|sass|less)$/.test(p);
 }
@@ -57,8 +62,9 @@ export function isSupportedCodePath(p) {
 /** 特性编号：[FR] + 8 位日期 +（可选连字符）+ 4-10 位字母数字后缀。 */
 export const FID_RE = /[FR]\d{8}-?[a-z0-9]{4,10}/g;
 
-/** issue 编号：井号+十六进制字符序列；3/6/8 位视为十六进制色值豁免，其余为 issue 编号。 */
-const ISSUE_CAND_RE = /\B#([0-9a-fA-F]+)\b/g;
+/** issue 编号：井号+字母数字。色值不豁免——注释里写色值改用文字表述。 */
+const ISSUE_CAND_RE = /\B#([0-9a-zA-Z]+)\b/g;
+const REGION_DIRECTIVE_RE = /^(?:end)?region$/i;
 
 /** 技术词豁免表：单字母+数字中的高置信技术词（芯片代际 / 存储桶 / 纸张规格）。 */
 const TECH_TOKEN_RE = /\b(?:M[0-9]{1,2}|S3|A[1-4])\b/;
@@ -86,11 +92,10 @@ export function collectAnchorViolations(commentText) {
 
   for (const m of commentText.matchAll(FID_RE)) push(m[0], "特性编号");
 
-  // issue 编号：色值（3/6/8 位 hex）豁免
+  // issue 编号：井号+字母数字，排除 region/endregion 折叠指令
   ISSUE_CAND_RE.lastIndex = 0;
   for (const m of commentText.matchAll(ISSUE_CAND_RE)) {
-    const hex = m[1];
-    if (hex.length === 3 || hex.length === 6 || hex.length === 8) continue;
+    if (REGION_DIRECTIVE_RE.test(m[1])) continue;
     push(m[0], "issue 编号");
   }
 
@@ -104,7 +109,6 @@ export function collectAnchorViolations(commentText) {
   const singleRe = /\b[SMNAR][0-9]{1,2}\b/g;
   for (const m of commentText.matchAll(singleRe)) {
     if (TECH_TOKEN_RE.test(m[0])) continue;
-    // 去重：已由处置语境正则收录的，避免重复
     if (out.some((v) => v.kind === "轮次编号" && v.token === m[0])) continue;
     push(m[0], "轮次编号");
   }
@@ -112,182 +116,215 @@ export function collectAnchorViolations(commentText) {
   return out;
 }
 
-/**
- * TS/JS 系行内扫描：返回 { comment, opensBlock }。comment 为行内所有注释片段拼接。
- * 状态机处理：单双引号、模板字符串及其 ${expr} 表达式（brace 深度）、行注释、单行块注释
- * （只取到闭合标记为止，其后的代码继续按状态扫描）。
- */
-export function scanTsLine(line) {
-  const comments = [];
-  let state = "normal";
-  let depth = 0;
-  let i = 0;
-  while (i < line.length) {
-    const ch = line[i];
-    const next = line[i + 1];
-    if (state === "normal") {
-      if (ch === "'") state = "single";
-      else if (ch === '"') state = "double";
-      else if (ch === "`") state = "template";
-      else if (ch === "/" && next === "/") {
-        comments.push(line.slice(i));
-        break;
-      } else if (ch === "/" && next === "*") {
-        const end = line.indexOf("*/", i + 2);
-        if (end < 0) {
-          comments.push(line.slice(i));
-          return { comment: comments.join(" "), opensBlock: true };
+function countLines(content, pos) {
+  return content.slice(0, pos).split("\n").length;
+}
+
+/** TS/JS 系：TypeScript 编译器级词法扫描，返回每行注释文本（1 基）。 */
+function annotateTs(content) {
+  const out = new Array(content.split("\n").length).fill(null);
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, /* skipTrivia */ false, ts.ScriptKind.TSX, content);
+  let token;
+  while ((token = scanner.scan()) !== ts.SyntaxKind.EndOfFileToken) {
+    if (token === ts.SyntaxKind.SingleLineCommentTrivia || token === ts.SyntaxKind.MultiLineCommentTrivia) {
+      const pos = scanner.getTokenPos();
+      const text = scanner.getTokenText();
+      const startLine = countLines(content, pos);
+      const parts = text.split("\n");
+      for (let i = 0; i < parts.length; i++) {
+        out[startLine - 1 + i] = parts[i];
+      }
+    }
+  }
+  return out;
+}
+
+/** YAML：# 仅在行首或空白后作注释（裸 URL 内井号不误伤）。 */
+function annotateYaml(content) {
+  const lines = content.split("\n");
+  const out = new Array(lines.length).fill(null);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    let state = "normal";
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j];
+      if (state === "normal") {
+        if (ch === "'") state = "single";
+        else if (ch === '"') state = "double";
+        else if (ch === "#") {
+          const prev = j === 0 ? " " : line[j - 1];
+          if (prev === " " || prev === "\t") {
+            out[i] = line.slice(j);
+            break;
+          }
         }
-        comments.push(line.slice(i, end + 2));
-        i = end + 1;
+      } else if (state === "single") {
+        if (ch === "'") {
+          if (line[j + 1] === "'") j += 1;
+          else state = "normal";
+        }
+      } else if (state === "double") {
+        if (ch === "\\") j += 1;
+        else if (ch === '"') state = "normal";
       }
-    } else if (state === "single") {
-      if (ch === "\\") i += 1;
-      else if (ch === "'") state = "normal";
-    } else if (state === "double") {
-      if (ch === "\\") i += 1;
-      else if (ch === '"') state = "normal";
-    } else if (state === "template") {
-      if (ch === "\\") i += 1;
-      else if (ch === "`") state = "normal";
-      else if (ch === "$" && next === "{") { state = "expr"; depth = 0; i += 1; }
-    } else if (state === "expr") {
-      if (ch === "'") state = "exprSingle";
-      else if (ch === '"') state = "exprDouble";
-      else if (ch === "`") state = "exprTemplate";
-      else if (ch === "{") depth += 1;
-      else if (ch === "}") { if (depth === 0) state = "template"; else depth -= 1; }
-    } else if (state === "exprSingle") {
-      if (ch === "\\") i += 1;
-      else if (ch === "'") state = "expr";
-    } else if (state === "exprDouble") {
-      if (ch === "\\") i += 1;
-      else if (ch === '"') state = "expr";
-    } else if (state === "exprTemplate") {
-      if (ch === "\\") i += 1;
-      else if (ch === "`") state = "expr";
     }
-    i += 1;
   }
-  return { comment: comments.length ? comments.join(" ") : null, opensBlock: false };
+  return out;
 }
 
-/** Hash 语言行内扫描：跳过引号字符串后找 #（仅行首或空白后的 # 才作注释，避免裸 URL 误伤）。 */
-export function scanHashLine(line) {
-  let state = "normal";
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (state === "normal") {
-      if (ch === "'") state = "single";
-      else if (ch === '"') state = "double";
-      else if (ch === "#") {
-        const prev = i === 0 ? " " : line[i - 1];
-        if (prev === " " || prev === "\t") return { comment: line.slice(i) };
+/** Shell：# 仅在词首或控制运算符后作注释。 */
+function annotateSh(content) {
+  const lines = content.split("\n");
+  const out = new Array(lines.length).fill(null);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    let state = "normal";
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j];
+      if (state === "normal") {
+        if (ch === "'") state = "single";
+        else if (ch === '"') state = "double";
+        else if (ch === "#") {
+          const prev = j === 0 ? "" : line[j - 1];
+          if (j === 0 || /\s|;|&|\||\(|\)/.test(prev)) {
+            out[i] = line.slice(j);
+            break;
+          }
+        }
+      } else if (state === "single") {
+        if (ch === "'") state = "normal";
+      } else if (state === "double") {
+        if (ch === "\\") j += 1;
+        else if (ch === '"') state = "normal";
       }
-    } else if (state === "single") {
-      if (ch === "\\") i += 1;
-      else if (ch === "'") state = "normal";
-    } else if (state === "double") {
-      if (ch === "\\") i += 1;
-      else if (ch === '"') state = "normal";
     }
   }
-  return { comment: null };
+  return out;
 }
 
-/** CSS 系行内扫描：仅块注释。 */
-export function scanCssLine(line) {
-  const comments = [];
-  let i = 0;
-  while (i < line.length) {
-    const open = line.indexOf("/*", i);
-    if (open < 0) break;
-    const end = line.indexOf("*/", open + 2);
-    if (end < 0) {
-      comments.push(line.slice(open));
-      return { comment: comments.join(" "), opensBlock: true };
+/** Python/TOML：# 行内即注释（引号外）；三引号字符串跨行跳过（仅正常代码位置触发）。 */
+function annotatePyOrToml(content) {
+  const lines = content.split("\n");
+  const out = new Array(lines.length).fill(null);
+  let inTriple = null; // 三引号定界符（""" 或 '''）
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    let j = 0;
+    if (inTriple) {
+      const close = line.indexOf(inTriple);
+      if (close < 0) continue; // 整行在三引号字符串内
+      j = close + 3;
+      inTriple = null;
     }
-    comments.push(line.slice(open, end + 2));
-    i = end + 2;
+    let state = "normal";
+    for (; j < line.length; j++) {
+      const ch = line[j];
+      if (state === "normal") {
+        if ((ch === '"' || ch === "'") && line.startsWith(ch + ch + ch, j)) {
+          const triple = ch + ch + ch;
+          const rest = line.slice(j + 3);
+          const closeInLine = rest.indexOf(triple);
+          if (closeInLine >= 0) {
+            j = j + 3 + closeInLine + 2; // 跳到闭合后
+          } else {
+            inTriple = triple;
+            break; // 三引号 opener 之前无注释
+          }
+        } else if (ch === '"') state = "double";
+        else if (ch === "'") state = "single";
+        else if (ch === "#") {
+          out[i] = line.slice(j);
+          break;
+        }
+      } else if (state === "double") {
+        if (ch === "\\") j += 1;
+        else if (ch === '"') state = "normal";
+      } else if (state === "single") {
+        if (ch === "\\") j += 1;
+        else if (ch === "'") state = "normal";
+      }
+    }
   }
-  return { comment: comments.length ? comments.join(" ") : null, opensBlock: false };
+  return out;
+}
+
+/** HTML：<!-- --> 跨行。 */
+function annotateHtml(content) {
+  const lines = content.split("\n");
+  const out = new Array(lines.length).fill(null);
+  let inComment = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (inComment) {
+      out[i] = line;
+      if (line.indexOf("-->") >= 0) inComment = false;
+      continue;
+    }
+    const open = line.indexOf("<!--");
+    if (open >= 0) {
+      out[i] = line.slice(open);
+      if (line.indexOf("-->", open + 4) < 0) inComment = true;
+    }
+  }
+  return out;
+}
+
+/** CSS 系：斜杠星块注释跨行 + 引号字符串跳过；scss/sass/less 另加 // 行注释。 */
+function annotateCss(content, allowLineComment) {
+  const lines = content.split("\n");
+  const out = new Array(lines.length).fill(null);
+  let inBlock = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (inBlock) {
+      out[i] = line;
+      if (line.indexOf("*/") >= 0) inBlock = false;
+      continue;
+    }
+    let state = "normal";
+    const comments = [];
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j];
+      const next = line[j + 1];
+      if (state === "normal") {
+        if (ch === "'") state = "single";
+        else if (ch === '"') state = "double";
+        else if (ch === "/" && next === "*") {
+          const end = line.indexOf("*/", j + 2);
+          if (end < 0) {
+            comments.push(line.slice(j));
+            inBlock = true;
+            break;
+          }
+          comments.push(line.slice(j, end + 2));
+          j = end + 1;
+        } else if (allowLineComment && ch === "/" && next === "/") {
+          comments.push(line.slice(j));
+          break;
+        }
+      } else if (state === "single") {
+        if (ch === "\\") j += 1;
+        else if (ch === "'") state = "normal";
+      } else if (state === "double") {
+        if (ch === "\\") j += 1;
+        else if (ch === '"') state = "normal";
+      }
+    }
+    if (comments.length) out[i] = comments.join(" ");
+  }
+  return out;
 }
 
 /** 全文词法标注：返回行号(1 基) → 该行注释文本（跨行块注释体内行也标为注释）。 */
 export function annotateFile(content, path) {
-  const lines = content.split("\n");
-  const out = new Array(lines.length).fill(null);
-  const isHtml = isHtmlLang(path);
-  const isHash = isHashCommentLang(path);
-  const isCss = isCssLikeLang(path);
-
-  let inBlock = false;
-  let blockKind = null; // "ts" | "html" | "css" | "pyTriple"
-  let pyTripleQuote = null; // """ or '''
-
-  for (let li = 0; li < lines.length; li++) {
-    const line = lines[li];
-    if (inBlock) {
-      out[li] = line;
-      if (blockKind === "ts" || blockKind === "css") {
-        if (line.indexOf("*/") >= 0) inBlock = false;
-      } else if (blockKind === "html") {
-        if (line.indexOf("-->") >= 0) inBlock = false;
-      } else if (blockKind === "pyTriple") {
-        if (line.indexOf(pyTripleQuote) >= 0) inBlock = false;
-      }
-      continue;
-    }
-    if (isHtml) {
-      const open = line.indexOf("<!--");
-      if (open >= 0) {
-        out[li] = line.slice(open);
-        if (line.indexOf("-->", open + 4) < 0) { inBlock = true; blockKind = "html"; }
-      }
-      continue;
-    }
-    if (isCss) {
-      const { comment, opensBlock } = scanCssLine(line);
-      if (comment) out[li] = comment;
-      if (opensBlock) { inBlock = true; blockKind = "css"; }
-      continue;
-    }
-    if (isHash) {
-      // Python 三引号字符串跨行：正文非注释；闭合后继续扫
-      if (pyTripleQuote) {
-        const endIdx = line.indexOf(pyTripleQuote);
-        if (endIdx >= 0) {
-          const { comment } = scanHashLine(line.slice(endIdx + 3));
-          if (comment) out[li] = comment;
-          pyTripleQuote = null;
-        }
-        continue;
-      }
-      const tripleMatch = line.match(/"""|'''/);
-      if (tripleMatch) {
-        const q = tripleMatch[1] ?? tripleMatch[0];
-        const after = line.slice((tripleMatch.index ?? 0) + 3);
-        if (after.includes(q)) {
-          const closeIdx = after.indexOf(q) + 3;
-          const { comment } = scanHashLine(line.slice((tripleMatch.index ?? 0) + 3 + closeIdx));
-          if (comment) out[li] = comment;
-        } else {
-          pyTripleQuote = q;
-          const { comment } = scanHashLine(line.slice(0, tripleMatch.index ?? 0));
-          if (comment) out[li] = comment;
-        }
-        continue;
-      }
-      const { comment } = scanHashLine(line);
-      if (comment) out[li] = comment;
-      continue;
-    }
-    // TS/JS 系
-    const { comment, opensBlock } = scanTsLine(line);
-    if (comment) out[li] = comment;
-    if (opensBlock) { inBlock = true; blockKind = "ts"; }
+  if (isHtmlLang(path)) return annotateHtml(content);
+  if (isCssLikeLang(path)) return annotateCss(content, /\.(scss|sass|less)$/.test(path));
+  if (isHashCommentLang(path)) {
+    if (/\.ya?ml$/.test(path)) return annotateYaml(content);
+    if (/\.sh$/.test(path)) return annotateSh(content);
+    return annotatePyOrToml(content);
   }
-  return out;
+  return annotateTs(content);
 }
 
 /** 解码 Git C 风格引号路径（\ooo 八进制字节序列按 UTF-8 还原）。失败抛错。 */
