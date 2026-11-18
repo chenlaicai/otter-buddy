@@ -171,7 +171,7 @@ test('fails closed when the channel visibility snapshot is missing, and rejects 
   }
 });
 
-test('DM wake reads only the current conversation through the event source', async () => {
+test('DM wake reads only the current conversation through the event source（0.28.1 起与话题同款 limit/cursor）', async () => {
   const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
   await bridge.start();
   try {
@@ -179,13 +179,17 @@ test('DM wake reads only the current conversation through the event source', asy
     const config = [];
     await bridge.run({ otterConversationId: 'o', ctx, register: async c => config.push(c) }, async () => {
       const token = tokenOf(config[0]);
-      const called = await rpc(bridge, token, 'tools/call', { name: 'colink_read_topic', arguments: { limit: 5, beforeId: 'dm-message-0' } });
+      const called = await rpc(bridge, token, 'tools/call', { name: 'colink_read_topic', arguments: { limit: 5, cursor: 'dm-cursor-1' } });
       assert.equal(called.body.result.structuredContent.items[0].text, '私聊历史');
-      const cursor = await rpc(bridge, token, 'tools/call', { name: 'colink_read_topic', arguments: { cursor: 'next' } });
-      assert.equal(cursor.body.result.isError, true);
-      assert.equal(cursor.body.result.structuredContent.error.code, 'COLINK_TOOL_ARG_NOT_ALLOWED:cursor');
+      // 分页结果原样透传（hasMore/nextCursor 是平台契约的一部分，不能被工具层吞掉）
+      assert.equal(called.body.result.structuredContent.hasMore, false);
+      assert.equal(called.body.result.structuredContent.nextCursor, null);
+      // 旧参数在平台已被删除且无兼容层：必须在工具层就按非法参数拒绝，不发出去再吃 400。
+      const legacy = await rpc(bridge, token, 'tools/call', { name: 'colink_read_topic', arguments: { beforeId: 'dm-message-0' } });
+      assert.equal(legacy.body.result.isError, true);
+      assert.equal(legacy.body.result.structuredContent.error.code, 'COLINK_TOOL_ARG_NOT_ALLOWED:beforeId');
     });
-    assert.deepEqual(ctx.sourceReads, [{ limit: 5, beforeId: 'dm-message-0' }]);
+    assert.deepEqual(ctx.sourceReads, [{ limit: 5, cursor: 'dm-cursor-1' }]);
   } finally {
     await bridge.close();
   }
@@ -255,7 +259,7 @@ test('interoperates with the real MCP Streamable HTTP client', async () => {
   }
 });
 
-test('enforces the 0.28 per-source pagination limits and rejects DM channel reads', async () => {
+test('enforces the 0.28.1 pagination limits (话题/私聊共用 limit+cursor) and rejects DM channel reads', async () => {
   const bridge = new CoLinkToolBridge({ secret: SECRET, port: 0 });
   await bridge.start();
   try {
@@ -276,8 +280,10 @@ test('enforces the 0.28 per-source pagination limits and rejects DM channel read
     const dmConfig = [];
     await bridge.run({ otterConversationId: 'limits-dm', ctx: dmCtx, register: async c => dmConfig.push(c) }, async () => {
       const token = tokenOf(dmConfig[0]);
-      const longBefore = await rpc(bridge, token, 'tools/call', { name: 'colink_read_topic', arguments: { beforeId: 'm'.repeat(37) } });
-      assert.equal(longBefore.body.result.structuredContent.error.code, 'COLINK_TOOL_CURSOR_INVALID:beforeId');
+      const longCursorDm = await rpc(bridge, token, 'tools/call', { name: 'colink_read_topic', arguments: { cursor: 'm'.repeat(2049) } });
+      assert.equal(longCursorDm.body.result.structuredContent.error.code, 'COLINK_TOOL_CURSOR_INVALID:cursor');
+      const legacyArg = await rpc(bridge, token, 'tools/call', { name: 'colink_read_topic', arguments: { afterId: 'm'.repeat(36) } });
+      assert.equal(legacyArg.body.result.structuredContent.error.code, 'COLINK_TOOL_ARG_NOT_ALLOWED:afterId');
       // DM 事件没有频道上下文：频道工具即使不被列出也必须失败关闭。
       const channelOnDm = await rpc(bridge, token, 'tools/call', { name: 'colink_read_channel', arguments: {} });
       assert.equal(channelOnDm.body.result.isError, true);
