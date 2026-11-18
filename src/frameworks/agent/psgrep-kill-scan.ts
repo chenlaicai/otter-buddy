@@ -195,12 +195,16 @@ function segmentTokens(tokens: Token[], start: number, end: number): Token[] {
 
 function directExpansionFeedsKill(tokens: Token[], kill: number, clauseEnd: number): boolean {
   // 直接目标只在当前命令内：遇 | 即止——下游命令的 cmdsub 不是 kill argv（二轮 D）。
-  let end = clauseEnd;
-  for (let i = kill + 1; i < clauseEnd; i++) {
-    if (tokens[i].type === "op" && tokens[i].op === "|") { end = i; break; }
-  }
-  const targets = tokens.slice(kill + 1, end);
+  const targets = tokens.slice(kill + 1, commandArgEnd(tokens, kill, clauseEnd));
   return executableWords(targets).some(wordExpansionScansMain);
+}
+
+/** kill 当前命令的 argv 终点：clause 内首个 | / 语句边界（下游命令不是本 kill 的目标）。 */
+function commandArgEnd(tokens: Token[], kill: number, clauseEnd: number): number {
+  for (let i = kill + 1; i < clauseEnd; i++) {
+    if (tokens[i].type === "op" && (tokens[i].op === "|" || BOUNDARIES.has(tokens[i].op!))) return i;
+  }
+  return clauseEnd;
 }
 
 function xargsFeedsKill(tokens: Token[], segment: Token[], kill: number): boolean {
@@ -243,17 +247,16 @@ function payloadFeedsKill(payload: string, delayed: boolean): boolean {
   return false;
 }
 
-/** cmdsub 内 kill 的目标变量：$(kill $p) 的 $p 引用外层绑定，取 cmdsub 内全部 var 词。
- *  kill 词自身无 var parts，多命令/多目标 cmdsub 一并枚举（查不到绑定自然 false）。 */
-function cmdsubKillVariables(word: Word, delayedPayload: boolean): string[] {
-  const names: string[] = [];
-  for (const part of word.parts) {
-    if (part.type !== "cmdsub") continue;
-    const inner = lex(part.text);
-    if (!inner.parseOk) continue;
-    names.push(...executableWords(inner.tokens).flatMap(w => variableNames(w, delayedPayload)));
-  }
-  return names;
+/** cmdsub 内 kill 的目标变量：$(kill $p) 的 $p 引用外层绑定；只取 kill 段 argv
+ *  内的变量（遇 | / 语句边界即止，三轮 E2）——非 kill 命令的变量不挂 kill。 */
+function cmdsubKillArgVariables(payload: string, seg: { segment: string; start: number }): string[] {
+  const parsed = lex(payload);
+  if (!parsed.parseOk) return [];
+  const tokens = parsed.tokens;
+  const kill = killTokenIndex(tokens, seg.start, seg.start + seg.segment.length);
+  if (kill < 0) return [];
+  return executableWords(tokens.slice(kill + 1, commandArgEnd(tokens, kill, tokens.length)))
+    .flatMap(word => variableNames(word, false));
 }
 
 /** kill 段落在引号载荷/cmdsub word 内的判定（顶层无 kill token 时）：
@@ -267,20 +270,25 @@ function coveringWordFeedsKill(command: string, tokens: Token[], killIdx: number
     if (token.span.end <= killIdx || token.span.start >= segmentEnd) continue;
     const dashC = coveringDashCPayload(command, tokens, i);
     if (dashC && payloadFeedsKill(dashC.payload, dashC.delayed || delayedPayload)) return true;
-    if (cmdsubWordFeedsKill(tokens, i, delayedPayload)) return true;
+    if (cmdsubWordFeedsKill(tokens, i)) return true;
   }
   return false;
 }
 
-/** word 的 cmdsub part 含 kill 执行面时，用 cmdsub 内变量对外层循环绑定做数据流判定。 */
-function cmdsubWordFeedsKill(tokens: Token[], tokenIndex: number, delayedPayload: boolean): boolean {
-  const word = tokens[tokenIndex].word!;
-  const hasCmdsubKill = word.parts.some(
-    part => part.type === "cmdsub" && findKillSegments(part.text).length > 0);
-  if (!hasCmdsubKill) return false;
-  const loops = loopBindings(tokens);
-  const variables = cmdsubKillVariables(word, delayedPayload);
-  return variables.some(variable => variableFeedsMain(tokens, loops, tokenIndex, variable));
+/** word 的 cmdsub part 含 kill 执行面时：先跑载荷自包含数据流（direct/xargs/内层
+ *  循环全在 cmdsub 文本内，三轮 E1），再对引用外层变量的 kill 段只取该 kill 段
+ *  argv 的变量回查外层绑定（三轮 E2）。 */
+function cmdsubWordFeedsKill(tokens: Token[], tokenIndex: number): boolean {
+  for (const part of tokens[tokenIndex].word!.parts) {
+    if (part.type !== "cmdsub") continue;
+    const segs = findKillSegments(part.text);
+    if (segs.length === 0) continue;
+    if (segs.some(seg => psGrepMainSignatureFeedsKill(part.text, seg.segment, seg.start, false))) return true;
+    const loops = loopBindings(tokens);
+    const variables = segs.flatMap(seg => cmdsubKillArgVariables(part.text, seg));
+    if (variables.some(variable => variableFeedsMain(tokens, loops, tokenIndex, variable))) return true;
+  }
+  return false;
 }
 
 /** @param delayedPayload 双引号 bash -c 原始载荷；只放宽变量识别，不把 \$() 当执行面。 */
@@ -302,7 +310,7 @@ export function psGrepMainSignatureFeedsKill(
   const segment = segmentTokens(tokens, killIdx, segmentEnd);
   if (xargsFeedsKill(tokens, segment, kill)) return true;
   const loops = loopBindings(tokens);
-  const variables = executableWords(tokens.slice(kill + 1, clause.end))
+  const variables = executableWords(tokens.slice(kill + 1, commandArgEnd(tokens, kill, clause.end)))
     .flatMap(word => variableNames(word, delayedPayload));
   return variables.some(variable => variableFeedsMain(tokens, loops, kill, variable));
 }

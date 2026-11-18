@@ -29,49 +29,80 @@ export function executableWords(tokens: Token[]): Word[] {
   return words;
 }
 
-/** 仅接受单一管道链；||/;/& 两侧是独立执行面，调用方必须先切 clause。 */
+/** 仅接受单一管道链；||/;/& 两侧是独立执行面，调用方必须先切 clause。
+ *  尾随 | （如 slice 到 while 前的边界）产生的空段跳过——不是命令。 */
 function pipelineCommands(tokens: Token[]): Word[][] | null {
   const commands: Word[][] = [];
   let current: Token[] = [];
   for (const token of tokens) {
     if (token.type === "op" && token.op === "|") {
-      commands.push(executableWords(current));
+      if (current.length > 0) commands.push(executableWords(current));
       current = [];
       continue;
     }
     if (token.type === "op" && CLAUSE_BOUNDARIES.has(token.op!)) return null;
     current.push(token);
   }
-  commands.push(executableWords(current));
+  if (current.length > 0) commands.push(executableWords(current));
   return commands;
 }
 
-/** 受限命令前缀词（与 kill-segment-finder 的 wrapper 语义对齐）：语义是「执行后面的命令」。 */
-const COMMAND_PREFIXES = new Set(["sudo", "env", "nohup", "command", "xargs", "nice", "watch", "exec", "time", "timeout"]);
-/** 前缀词的参数（timeout 5 / nice -n3 / xargs -n1 等） */
-const WRAPPER_ARG = /^(?:-\S+|\d+)$/;
-/** 赋值前缀词（FOO=1 grep）任意位置可剥 */
+/** 赋值前缀词（FOO=1 grep）任意位置可剥。 */
 const ASSIGNMENT_PREFIX = /^[A-Za-z_]\w*=\S+$/;
+/** env/sudo 中消费下一词的选项（-u FOO / --user root）。 */
+const OPTION_WITH_ARG = /^--?(?:u|user|unset)$/;
+/** timeout/nice 的数值参数（5 / 5s）。 */
+const NUMERIC_ARG = /^\d+(\.\d+)?[smhd]?$/;
+/** 简单 wrapper（其后可跟数值/选项参数，参数后即真实命令）。 */
+const TIMED_WRAPPERS = new Set(["timeout", "nice", "nohup", "watch", "exec", "time"]);
 
-/** 剥除 argv 前缀的 wrapper 词/参数/赋值；遇到第一个非 wrapper 词即止（后续是要执行的命令）。
- *  eval 不了的词不剥（确认不了按原 argv 判定，宁漏勿误）。 */
+/** 剥 env/sudo 及其选项与赋值参数；返回指向真实命令的索引。 */
+function stripEnvSudo(words: Word[], start: number): number {
+  let i = start;
+  while (i < words.length) {
+    const value = words[i].evaluated;
+    if (value === null) break;
+    if (ASSIGNMENT_PREFIX.test(value)) { i++; continue; }
+    if (OPTION_WITH_ARG.test(value)) { i += 2; continue; }
+    if (value === "-i" || value === "--ignore-environment") { i++; continue; }
+    if (value.startsWith("-") && value !== "-") { i++; continue; }
+    break;
+  }
+  return i;
+}
+
+/** 剥简单 wrapper 及其数值/优先级/选项参数。 */
+function stripTimedWrapper(words: Word[], start: number): number {
+  let i = start;
+  while (i < words.length) {
+    const value = words[i].evaluated;
+    if (value === null) break;
+    if (NUMERIC_ARG.test(value)) { i++; continue; }
+    if (value === "-n") { i += 2; continue; }
+    if (value.startsWith("-") && value !== "-") { i++; continue; }
+    break;
+  }
+  return i;
+}
+
+/** 剥除 argv 前缀的 wrapper 词（按各自 option arity）。xargs 不剥——xargs grep 的
+ *  stdin 语义与 grep 过滤不同。command/builtin 只允许 -p：-v/-V 是查询非执行，
+ *  停在原地让后续判定认不出目标命令。eval 不了的词不剥（宁漏勿误）。 */
 function stripWrappers(words: Word[]): Word[] {
   let i = 0;
   while (i < words.length) {
     const value = words[i].evaluated;
     if (value === null) break;
-    if (COMMAND_PREFIXES.has(value) || ASSIGNMENT_PREFIX.test(value)) { i++; continue; }
-    if (WRAPPER_ARG.test(value) && i > 0) { i++; continue; }
+    if (ASSIGNMENT_PREFIX.test(value)) { i++; continue; }
+    if (value === "env" || value === "sudo") { i = stripEnvSudo(words, i + 1); continue; }
+    if (value === "command" || value === "builtin") {
+      i = words[i + 1]?.evaluated === "-p" ? i + 2 : i + 1;
+      continue;
+    }
+    if (TIMED_WRAPPERS.has(value)) { i = stripTimedWrapper(words, i + 1); continue; }
     break;
   }
   return words.slice(i);
-}
-
-function commandName(words: Word[]): string | null {
-  const stripped = stripWrappers(words);
-  const value = stripped[0]?.evaluated;
-  if (!value) return null;
-  return value.split("/").pop() ?? value;
 }
 
 /** [d]ist → dist：只归一单字符 self-match 类，不动真实多字符类。 */
@@ -79,30 +110,133 @@ function unbracketSelfMatch(pattern: string): string {
   return pattern.replace(/\[([A-Za-z0-9])\]/g, "$1");
 }
 
-interface GrepMatch { positive: boolean; inverted: boolean }
+export interface GrepMatch { positive: boolean; inverted: boolean; patterns: string[] }
 
-interface GrepArgs { patterns: string[]; files: string[]; inverted: boolean; ignoreCase: boolean; readsStdin: boolean; positionalPatternTaken: boolean }
+interface GrepArgs {
+  patterns: string[];            // 显式模式（-e/位置首个）
+  dataFiles: string[];           // 数据文件操作数（stdin 占位 '-' 不入列）
+  positionalPatternTaken: boolean;
+  inverted: boolean;
+  ignoreCase: boolean;
+  quiet: boolean;                // -q/-s：无 stdout
+  matchesOnly: boolean;          // -o：只输出匹配文本
+  noOriginalLines: boolean;      // -l/-L/-c：输出文件名/计数非原行
+}
 
-type FlagAction = { consumeNext?: "pattern" | "file" };
+type FlagAction = { consumeNext?: "pattern" | "ignore" };
 
-/** 位置性参数形态判定（-- 之后或非旗标形态；- 是 stdin 占位也算模式位）。 */
+/** 位置性参数形态判定（-- 之后或非旗标形态；- 是 stdin 占位）。 */
 function patternPosition(options: boolean, arg: string): "dashdash" | "operand" | "flag" {
   if (options && arg === "--") return "dashdash";
   if (!options || arg === "-" || !arg.startsWith("-")) return "operand";
   return "flag";
 }
 
-/** 位置参数归位：首参是模式，其余是被搜索文件（grep 文法）。 */
-function applyOperand(parsed: GrepArgs, arg: string): void {
-  if (parsed.positionalPatternTaken) parsed.files.push(arg);
-  else { parsed.patterns.push(arg); parsed.positionalPatternTaken = true; }
+/** 不改变行输出语义的长选项白名单。 */
+const LONG_NOARG = new Set([
+  "--extended-regexp", "--fixed-strings", "--basic-regexp", "--perl-regexp",
+  "--line-buffered", "--text", "--line-number", "--no-messages", "--word-regexp",
+  "--with-filename", "--no-filename", "--invert-match", "--ignore-case",
+  "--quiet", "--silent", "--only-matching",
+  "--files-with-matches", "--files-without-match", "--count",
+]);
+/** 带数值参数的长选项（参数丢弃，不影响行输出语义）。 */
+const LONG_NUMERIC = new Set(["--max-count", "--before-context", "--after-context", "--context", "--threads", "--file"]);
+
+/** 长选项归位；返回 undefined=解析不了，string=内联模式，object=旗标动作。 */
+function longGrepFlag(arg: string, parsed: GrepArgs): undefined | string | FlagAction {
+  if (arg === "--regexp") return { consumeNext: "pattern" };
+  if (arg.startsWith("--regexp=")) return arg.slice("--regexp=".length);
+  if (LONG_NUMERIC.has(arg)) return { consumeNext: "ignore" };
+  if ([...LONG_NUMERIC].some(k => arg.startsWith(`${k}=`))) return {};
+  if (LONG_NOARG.has(arg)) return applyLongNoArg(arg, parsed);
+  return undefined;
 }
 
-/** 解析 grep argv：区分 pattern 与 file operands（GNU 文法：无 -e 时首个位置参数是模式，
- *  其余位置参数都是被搜索文件；有文件操作数时 grep 不读 stdin，ps→grep 数据流断开）。
- *  解析不了即确认不了（返回 null）。 */
+/** 无参长选项的输出语义副作用。 */
+function applyLongNoArg(arg: string, parsed: GrepArgs): FlagAction {
+  if (arg === "--invert-match") parsed.inverted = true;
+  else if (arg === "--ignore-case") parsed.ignoreCase = true;
+  else if (arg === "--quiet" || arg === "--silent") parsed.quiet = true;
+  else if (arg === "--only-matching") parsed.matchesOnly = true;
+  else if (arg === "--files-with-matches" || arg === "--files-without-match" || arg === "--count") parsed.noOriginalLines = true;
+  return {};
+}
+
+/** 输出语义字母的动作表（e/f/m 带参，另行特判）。 */
+const CLUSTER_LETTERS: Record<string, (p: GrepArgs) => void> = {
+  v: p => { p.inverted = true; },
+  i: p => { p.ignoreCase = true; },
+  q: p => { p.quiet = true; },
+  s: p => { p.quiet = true; },
+  o: p => { p.matchesOnly = true; },
+  l: p => { p.noOriginalLines = true; },
+  L: p => { p.noOriginalLines = true; },
+  c: p => { p.noOriginalLines = true; },
+};
+
+/** 组合短旗标簇顺序解析：带参字母（e/f/m）后的余文是该选项参数，其后字母不再当旗标；
+ *  数字只出现在带参字母的余文中（-m1）。 */
+function shortClusterFlag(arg: string, parsed: GrepArgs): string | FlagAction {
+  for (let i = 1; i < arg.length; i++) {
+    const c = arg[i];
+    if (c === "e") return arg.slice(i + 1) || { consumeNext: "pattern" };
+    if (c === "f" || c === "m") return attachedOrIgnore(arg.slice(i + 1));
+    CLUSTER_LETTERS[c]?.(parsed);
+    // 其余字母（E/F/P/a/n/w 等）与数字不改变行输出语义，跳过
+  }
+  return {};
+}
+
+/** 簇内带参字母的余文处理：有余文即参数已附着，无余文消费下一参数。 */
+function attachedOrIgnore(attached: string): FlagAction {
+  return attached ? {} : { consumeNext: "ignore" };
+}
+
+/** 短旗标归位。 */
+function shortGrepFlag(arg: string, parsed: GrepArgs): undefined | string | FlagAction {
+  if (arg === "-e") return { consumeNext: "pattern" };
+  if (arg === "-f" || arg === "-m") return { consumeNext: "ignore" };
+  if (arg.startsWith("--")) return longGrepFlag(arg, parsed);
+  if (!/^-[A-Za-z][A-Za-z0-9]*$/.test(arg)) return undefined;
+  return shortClusterFlag(arg, parsed);
+}
+
+/** 位置参数归位：首参是模式，其余是被搜索文件（'-' 是 stdin 占位不入列）。 */
+function applyOperand(parsed: GrepArgs, arg: string): void {
+  if (!parsed.positionalPatternTaken) {
+    parsed.patterns.push(arg);
+    parsed.positionalPatternTaken = true;
+    return;
+  }
+  if (arg !== "-") parsed.dataFiles.push(arg);
+}
+
+/** 应用一个旗标；返回处理后的索引（消费下一参数时 +1），解析不了返回 null。 */
+function applyGrepFlag(parsed: GrepArgs, args: Word[], i: number): number | null {
+  const flag = shortGrepFlag(args[i].evaluated!, parsed);
+  if (flag === undefined) return null;
+  if (typeof flag === "string") {
+    parsed.patterns.push(flag);
+    parsed.positionalPatternTaken = true;
+    return i;
+  }
+  if (!flag.consumeNext) return i;
+  const value = args[i + 1]?.evaluated;
+  if (value == null) return null;
+  if (flag.consumeNext === "pattern") {
+    parsed.patterns.push(value);
+    parsed.positionalPatternTaken = true;
+  }
+  return i + 1;
+}
+
+/** 解析 grep argv（GNU 文法）；解析不了即确认不了（返回 null）。 */
 function parseGrepArgs(args: Word[]): GrepArgs | null {
-  const parsed: GrepArgs = { patterns: [], files: [], inverted: false, ignoreCase: false, readsStdin: true, positionalPatternTaken: false };
+  const parsed: GrepArgs = {
+    patterns: [], dataFiles: [], positionalPatternTaken: false,
+    inverted: false, ignoreCase: false, quiet: false, matchesOnly: false, noOriginalLines: false,
+  };
   let options = true;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i].evaluated;
@@ -114,102 +248,93 @@ function parseGrepArgs(args: Word[]): GrepArgs | null {
     if (next === null) return null;
     i = next;
   }
-  parsed.readsStdin = parsed.files.length === 0;
   return parsed;
 }
 
-/** 应用一个旗标参数；返回处理后的索引（消费下一参数时 +1），解析不了返回 null。 */
-function applyGrepFlag(parsed: GrepArgs, args: Word[], i: number): number | null {
-  const flag = shortGrepFlag(args[i].evaluated!, parsed);
-  if (flag === undefined) return null;
-  if (typeof flag === "string") { parsed.patterns.push(flag); parsed.positionalPatternTaken = true; return i; }
-  if (!flag.consumeNext) return i;
-  const value = args[i + 1]?.evaluated;
-  if (value == null) return null;
-  if (flag.consumeNext === "pattern") { parsed.patterns.push(value); parsed.positionalPatternTaken = true; }
-  else parsed.files.push(value);
-  return i + 1;
-}
-
-/** 长选项归位（--invert-match / --regexp[=pat] / --file[=f]）。 */
-function longGrepFlag(arg: string, parsed: GrepArgs): undefined | string | FlagAction {
-  if (arg === "--invert-match") { parsed.inverted = true; return {}; }
-  if (arg === "--ignore-case") { parsed.ignoreCase = true; return {}; }
-  if (arg.startsWith("--regexp=")) return arg.slice("--regexp=".length);
-  if (arg === "--regexp") return { consumeNext: "pattern" };
-  if (arg.startsWith("--file=")) return fileAction(arg.slice("--file=".length), parsed);
-  if (arg === "--file") return { consumeNext: "file" };
-  return undefined;
-}
-
-/** 组合短旗标簇顺序解析：e/f 后的余文是该选项的参数，其后字母不再当旗标。 */
-function shortClusterFlag(arg: string, parsed: GrepArgs): string | FlagAction {
-  for (let i = 1; i < arg.length; i++) {
-    const c = arg[i];
-    if (c === "v") parsed.inverted = true;
-    else if (c === "i") parsed.ignoreCase = true;
-    else if (c === "e" || c === "f") {
-      const attached = arg.slice(i + 1);
-      return attached
-        ? fileOrPattern(c === "e", attached, parsed)
-        : { consumeNext: c === "e" ? "pattern" : "file" };
-    }
-  }
-  return {};
-}
-
-/** 短旗标簇顺序归位；返回 undefined=解析不了，string=内联模式，object=旗标动作。 */
-function shortGrepFlag(arg: string, parsed: GrepArgs): undefined | string | FlagAction {
-  if (arg === "-e") return { consumeNext: "pattern" };
-  if (arg === "-f") return { consumeNext: "file" };
-  if (arg.startsWith("--")) return longGrepFlag(arg, parsed);
-  if (!/^-[A-Za-z]+$/.test(arg)) return undefined;
-  return shortClusterFlag(arg, parsed);
-}
-
-/** e=内联模式 / f=模式文件名（文件内容不可静态确认，不作为模式）。 */
-function fileOrPattern(isPattern: boolean, attached: string, parsed: GrepArgs): string | FlagAction {
-  return isPattern ? attached : fileAction(attached, parsed);
-}
-
-/** -f 的内联值进 files（数据流不来自 stdin；文件内容确认不了）。返回 {}=已消化非模式。 */
-function fileAction(value: string, parsed: GrepArgs): FlagAction {
-  parsed.files.push(value);
-  return {};
-}
-
-/** 签名模式匹配判定；不读 stdin 的 grep（有文件操作数）不构成 ps→grep 数据流。
- *  argv 先剥 wrapper（command grep …）再取参数。 */
+/** 签名模式匹配判定；输出语义不携带原行（q/o/l/L/c）或读数据文件（非 '-'）时
+ *  ps→grep→…→kill 数据流断开，返回 null。 */
 function grepMatchesMain(words: Word[]): GrepMatch | null {
-  const args = stripWrappers(words).slice(1);
-  const parsed = parseGrepArgs(args);
-  if (!parsed || !parsed.readsStdin) return null;
+  const parsed = parseGrepArgs(stripWrappers(words).slice(1));
+  if (!parsed) return null;
+  if (parsed.quiet || parsed.matchesOnly || parsed.noOriginalLines || parsed.dataFiles.length > 0) return null;
   const expected = parsed.ignoreCase ? MAIN_SIGNATURE.toLowerCase() : MAIN_SIGNATURE;
   const positive = parsed.patterns.some(pattern => {
     const normalized = unbracketSelfMatch(pattern);
     const actual = parsed.ignoreCase ? normalized.toLowerCase() : normalized;
     return actual.includes(expected);
   });
-  return { positive, inverted: parsed.inverted };
+  return { positive, inverted: parsed.inverted, patterns: parsed.patterns };
 }
 
-/** ps→grep(精确签名) 管道数据流状态机：新 ps 重置数据源（忽略上游重新输出全量），
- *  同一数据源内 grep -v 精确签名即已排除主服务；正向签名选择后流仍含主进程才确认。 */
+/** grep -v grep / [g]rep：排除 grep 自身进程的惯用法，对主进程流透明。 */
+function isSelfGrepExclusion(match: GrepMatch): boolean {
+  return match.inverted && match.patterns.length > 0
+    && match.patterns.every(p => unbracketSelfMatch(p) === "grep");
+}
+
+/** 位置参数可能是数据文件的常见工具。 */
+const FILE_OPERAND_TOOLS = new Set(["head", "tail", "sort", "uniq", "cut", "wc"]);
+
+function hasFileOperand(stripped: Word[]): boolean {
+  return stripped.slice(1).some(w => w.evaluated !== null && !w.evaluated!.startsWith("-"));
+}
+
+/** xargs 的 stdin 语义取决于内层命令：kill/pkill 继续 PID 数据流，其他不可确认。 */
+function xargsEffect(stripped: Word[]): "transparent" | "unknown" {
+  const inner = stripped.slice(1).find(w => w.evaluated !== null && !w.evaluated!.startsWith("-"));
+  const name = inner?.evaluated?.split("/").pop();
+  return name === "kill" || name === "pkill" ? "transparent" : "unknown";
+}
+
+/** 常见工具的 stdin 语义特判（ps/grep 由状态机特判，不在此表）。 */
+function simpleStdinEffect(base: string, stripped: Word[]): "transparent" | "replaces" | "unknown" | null {
+  if (base === "tr") return "transparent";
+  if (base === "cat") return stripped.length > 1 ? "replaces" : "transparent";
+  if (base === "echo" || base === "printf") return "replaces";
+  if (base === "awk" || base === "sed") return stripped.length > 2 ? "replaces" : "transparent";
+  if (base === "xargs") return xargsEffect(stripped);
+  if (FILE_OPERAND_TOOLS.has(base)) return hasFileOperand(stripped) ? "replaces" : "transparent";
+  return null;
+}
+
+/** 管道中间命令的 stdin 语义：transparent=过滤 stdin；replaces=忽略 stdin 自有来源；
+ *  unknown=确认不了；ps/grep 由状态机特判。 */
+function stdinEffect(words: Word[]): "ps" | "grep" | "transparent" | "replaces" | "unknown" {
+  const stripped = stripWrappers(words);
+  const name = stripped[0]?.evaluated;
+  if (!name) return "unknown";
+  const base = name.split("/").pop() ?? name;
+  if (base === "ps") return "ps";
+  if (base === "grep") return "grep";
+  return simpleStdinEffect(base, stripped) ?? "unknown";
+}
+
+interface FlowState { hasMain: boolean | null; scanned: boolean }
+
+/** grep 流转：自引用排除透明；反向签名排除主进程；正向签名记扫描；确认不了断流。 */
+function applyGrepToFlow(state: FlowState, match: GrepMatch | null): void {
+  if (match === null) { state.hasMain = null; return; }
+  if (isSelfGrepExclusion(match)) return;
+  if (match.inverted) { state.hasMain = false; return; }
+  if (match.positive) { state.scanned = true; return; }
+  state.hasMain = null;
+}
+
+function applyCommandToFlow(state: FlowState, command: Word[]): void {
+  const effect = stdinEffect(command);
+  if (effect === "ps") { state.hasMain = true; state.scanned = false; return; }
+  if (effect === "grep") { applyGrepToFlow(state, grepMatchesMain(command)); return; }
+  if (effect === "replaces" || effect === "unknown") { state.hasMain = null; state.scanned = false; }
+}
+
+/** ps→grep(精确签名) 管道数据流状态机：新 ps 重置数据源；grep -v 签名即排除主进程；
+ *  忽略 stdin 的中间命令（cat file/echo/带数据文件）替换数据流；确认不了一律放行。 */
 export function tokensScanMainSignature(tokens: Token[]): boolean {
   const commands = pipelineCommands(tokens);
   if (!commands) return false;
-  let flowHasMain: boolean | null = null; // null=未见 ps；true=当前数据流含主进程
-  let scanned = false;                    // 当前数据源上是否发生精确签名正向扫描
-  for (const command of commands) {
-    const name = commandName(command);
-    if (name === "ps") { flowHasMain = true; scanned = false; continue; }
-    if (flowHasMain !== true || name !== "grep") continue;
-    const match = grepMatchesMain(command);
-    if (!match?.positive) continue;
-    if (match.inverted) { flowHasMain = false; continue; } // 反向签名：主进程已被排除
-    scanned = true;
-  }
-  return flowHasMain === true && scanned;
+  const state: FlowState = { hasMain: null, scanned: false };
+  for (const command of commands) applyCommandToFlow(state, command);
+  return state.hasMain === true && state.scanned;
 }
 
 export function textScansMainSignature(text: string): boolean {
