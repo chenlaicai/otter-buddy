@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ExecutionMachineModal } from './ExecutionMachineModal'
 
 /**
- * F20261118exstt（#1868 阶段 5 PR-B）：执行机选择器 + 远程动作状态组件测试。
+ * 执行机选择器 + 远程动作状态组件测试。
  */
 
 function jsonResponse(data: unknown, status = 200): Response {

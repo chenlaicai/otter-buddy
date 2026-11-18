@@ -46,11 +46,11 @@ export interface RouterPlumbingOptions {
     /** F20261118crtgr（阶段 5 PR-A）+ M2（检视）：已配对设备全量状态（含离线——
      *  人要看得见离线设备才能决定切回；缺省退化仅 local——旧装配/测试兼容） */
     deviceStatus?: () => Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
-    /** F20261118exstt（阶段 5 PR-B）：对话存在性校验（GET 404 口径对齐 PUT——不注入则不校验，测试桩兼容） */
+    /** 对话存在性校验（GET 404 口径对齐 PUT——不注入则不校验，测试桩兼容） */
     conversationExists?: (conversationId: string) => Promise<boolean>;
-    /** F20261118exstt（阶段 5 PR-B）：对话当前执行机读（选择器回显用） */
+    /** 对话当前执行机读（选择器回显用） */
     getConversationMachine?: (conversationId: string) => Promise<string | null>;
-    /** F20261118exstt（阶段 5 PR-B）：对话远程动作状态（执行状态展示） */
+    /** 对话远程动作状态（执行状态展示） */
     listConversationRemoteActions?: (conversationId: string, limit?: number) => Promise<Array<{ actionId: string; deviceId: string; actionType: string; status: string; error: string | null; createdAt: string; settledAt: string | null }>>;
     /** F20261118crtgr（阶段 5 PR-A）：对话级切换（目标校验+写列；缺省 501） */
     setConversationMachine?: (conversationId: string, machineId: string | null) => Promise<{ ok: true } | { ok: false; status: 400 | 404; error: string }>;
@@ -282,7 +282,7 @@ function registerWorkspaceRoutes(app: Hono, c: Controllers): void {
 /** 创建 Hono 路由并挂载所有 Controller 端点（端点域拆分注册函数，见各 register*Routes） */
 
 
-/** F20261118exstt（拆分降复杂度）：麻将房间端点组 */
+/** 麻将房间端点组（拆分降复杂度） */
 function registerMahjongRoutes(app: Hono, ctrl: Controllers): void {
   if (ctrl.mahjong) {
     const m = ctrl.mahjong;
@@ -300,7 +300,7 @@ function registerMahjongRoutes(app: Hono, ctrl: Controllers): void {
   }
 }
 
-/** F20261118exstt（拆分降复杂度）：auth 端点组（connector 配对端点在 registerPlumbingRoutes 尾部注册） */
+/** auth 端点组（拆分降复杂度；connector 配对端点在 registerPlumbingRoutes 尾部注册） */
 function registerAuthRoutes(app: Hono, plumbing: RouterPlumbingOptions): void {
   if (plumbing?.auth) {
     app.post("/api/auth/login", (ctx) => plumbing.auth!.controller.login(ctx));
@@ -309,7 +309,7 @@ function registerAuthRoutes(app: Hono, plumbing: RouterPlumbingOptions): void {
   }
 }
 
-/** F20261118crtgr/exstt（#1868 阶段 5）：执行机端点组（拆出降 registerPlumbingRoutes 复杂度） */
+/** 执行机端点组（拆出降 registerPlumbingRoutes 复杂度） */
 function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptions): void {
   // Web 执行机列表：local（Registry 恒在）+ 已配对设备全量（M2：含离线——Registry
   // 投影下线即注销，离线设备只有 devices 表可见；方案 §2.4「已配对设备含在线状态点」）。
@@ -324,7 +324,7 @@ function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptio
     });
   }
 
-  // F20261118exstt（阶段 5 PR-B）：对话当前执行机 + 远程动作状态（执行状态展示）。
+  // 对话当前执行机 + 远程动作状态（执行状态展示）。
   //  minor1（检视遗留处置）：GET 404 口径对齐 PUT——不存在对话显式 404「conversation not found」。
   if (plumbing?.executionMachines?.getConversationMachine) {
     app.get("/api/conversations/:id/execution-machine", async (ctx) => {
@@ -352,7 +352,7 @@ function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptio
     });
   }
 
-  // F20261118crtgr（阶段 5 PR-A）：对话级当前执行机切换（owner session）
+  // 对话级当前执行机切换（owner session）
   if (plumbing?.executionMachines?.setConversationMachine) {
     app.put("/api/conversations/:id/execution-machine", async (ctx) => {
       const machineId = (await ctx.req.json().catch(() => null) as { machineId?: unknown } | null)?.machineId;

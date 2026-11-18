@@ -11,7 +11,7 @@ export interface RemoteActionRegistry {
   settleRequest(actionId: string, status: Exclude<RemoteActionStatus, "requested">, settledAt: string, result?: unknown, error?: string): Promise<void>;
   /** 按状态查（对账/诊断面） */
   listByStatuses(statuses: RemoteActionStatus[], limit?: number): Promise<RemoteActionRequest[]>;
-  /** R2 恢复摘要数据源：按 conversation 查该会话的远程动作五态（含 requested 在途行）。
+  /** 恢复摘要数据源：按 conversation 查该会话的远程动作五态（含 requested 在途行）。
    *  order 缺省 asc（恢复链既有语义）；desc=最近优先（PR-B 展示面——避免 ASC LIMIT 丢最新） */
   listByConversation(conversationId: string, limit?: number, order?: "asc" | "desc"): Promise<RemoteActionRequest[]>;
   /** 断线收尾批量：某 onlineSession 的全部 requested 行落指定终态（C3 分流：

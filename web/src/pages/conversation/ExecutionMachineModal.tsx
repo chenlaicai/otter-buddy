@@ -4,7 +4,7 @@ import { Modal } from '../../components/Modal'
 import { fmtTime } from '../../lib/utils'
 
 /**
- * F20261118exstt（#1868 阶段 5 PR-B）：执行机选择器 + 远程动作状态。
+ * 执行机选择器 + 远程动作状态。
  *
  * - 选择器：全量设备列表（含离线——人要看得见才能决定切回）+ 当前对话机回显/切换
  *   （PUT；离线设备置灰不可选——重连后可切）

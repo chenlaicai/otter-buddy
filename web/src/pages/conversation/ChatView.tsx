@@ -105,7 +105,7 @@ function loadInputHeight(overlayEl: HTMLElement): number {
 export function ChatView(props: ChatViewProps) {
   const { conversation: c } = props
   const staging = useAttachmentStaging(props.conversationId || null)
-  // F20261118exstt（阶段 5 PR-B）：执行机选择器 + 远程动作状态
+  // 执行机选择器 + 远程动作状态
   const [showMachineModal, setShowMachineModal] = useState(false)
   /** F20261016inbs：输入覆盖层容器 ref——ResizeObserver 观测目标（实高含分割条+附件行+玻璃框+
    *  底部提示行），实高变化时同步 bottomSpacerPx 给 MessageList 做等高衬垫。首帧 mount 前
