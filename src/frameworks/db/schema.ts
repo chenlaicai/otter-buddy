@@ -71,6 +71,8 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
      *  online_sessions（执行授权会话，总闸唯一事实源；每 device 至多一 online 行的
      *  partial unique index 库层兜底）+ pairing_codes（一次性配对码）。新表走 #506 幂等补建 */
     createConnectorRegistryTables(db);
+    /** F20261118remex（阶段 4 C2）：中枢侧远程动作请求登记（五态投影，恢复摘要数据源） */
+    createRemoteActionRequestsTable(db);
     /** F20261027hwl1：工作账本投影（work_items / work_item_traces / conversation_active_work）。
      *  独立工作 ≠ conversation 的成本归集单位——详见特性文档「核心数据结构」；
      *  新表走 #506 幂等补建模式（bootstrap 无条件 initSchema，老库自动补建）。 */
@@ -1267,5 +1269,25 @@ function createConnectorRegistryTables(db: Database.Database): void {
       expires_at TEXT NOT NULL,
       redeemed_at TEXT
     );
+  `);
+}
+
+/** F20261118remex（#1868 阶段 4 C2）：远程动作请求登记表（R1 落点 + R2 恢复摘要并入） */
+function createRemoteActionRequestsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS remote_action_requests (
+      action_id TEXT PRIMARY KEY,
+      online_session_id TEXT NOT NULL,
+      device_id TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'requested' CHECK(status IN ('requested', 'succeeded', 'failed', 'interrupted', 'unknown')),
+      error TEXT,
+      result TEXT,
+      created_at TEXT NOT NULL,
+      settled_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_remote_action_requests_session ON remote_action_requests(online_session_id);
+    CREATE INDEX IF NOT EXISTS idx_remote_action_requests_status ON remote_action_requests(status);
   `);
 }

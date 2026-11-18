@@ -12,6 +12,16 @@ import {
   CONNECTOR_PROTOCOL_VERSION,
   type ConnectorFrame,
 } from "@entities/execution/connector-protocol";
+
+/** F20261118remex（C2）：动作通道面——RemoteExecutionMachine 依赖的网关能力子集（测试可 fake） */
+export interface ConnectorActionChannel {
+  /** 向设备在线连接发帧；离线/无连接返回 false */
+  sendToDevice(deviceId: string, frame: ConnectorFrame): boolean;
+  /** action.result 帧回调注册（中枢侧等待者分发） */
+  onActionResult(handler: (frame: Extract<ConnectorFrame, { type: "action.result" }>) => void): void;
+  /** 会话下线通知（每一次 online → offline）——等待者收尾钩子 */
+  onSessionDown(handler: (sessionId: string, deviceId: string) => void): void;
+}
 import type { OnlineSession } from "@entities/execution/online-session";
 
 interface LiveConnection {
@@ -35,6 +45,10 @@ interface LiveConnection {
 export class ConnectorWsGateway {
   private readonly wss: WebSocketServer;
   private readonly connections = new Map<string, LiveConnection>(); // key: sessionId
+  /** deviceId → sessionId 反查（动作帧路由用；顶替上线时刷新） */
+  private readonly deviceIndex = new Map<string, string>();
+  private readonly actionResultHandlers: Array<(frame: Extract<ConnectorFrame, { type: "action.result" }>) => void> = [];
+  private readonly sessionDownHandlers: Array<(sessionId: string, deviceId: string) => void> = [];
   private sweepTimer: NodeJS.Timeout | null = null;
   /** 旧 sid 帧丢弃计数（观测模块 C 红线命中情况） */
   private staleFrameDrops = 0;
@@ -99,6 +113,10 @@ export class ConnectorWsGateway {
             return;
           }
           live.lastSeenAt = this.now();
+          if (frame.type === "action.result") {
+            for (const handler of this.actionResultHandlers) handler(frame);
+            return;
+          }
           switch (frame.type) {
             case "heartbeat":
               await this.repo.touchOnlineSession(live.sessionId, new Date(this.now()).toISOString());
@@ -170,6 +188,7 @@ export class ConnectorWsGateway {
 
     const live: LiveConnection = { socket, deviceId: device.id, sessionId: session.id, lastSeenAt: now };
     this.connections.set(session.id, live);
+    this.deviceIndex.set(device.id, session.id);
     this.ensureSweepTimer();
     this.logger.info("connector device online", { deviceId: device.id, sessionId: session.id, protocolVersion: version });
     this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "hello.ack", seq: frame.seq, sid: session.id, data: { version } });
@@ -180,6 +199,8 @@ export class ConnectorWsGateway {
    *  queued/running 动作收尾与晚到回执丢弃随 C2 remote_action_requests 落地。 */
   private async shutdown(live: LiveConnection, reason: "device-offline" | "heartbeat-timeout" | "hub-restart", code: number, message: string): Promise<void> {
     this.connections.delete(live.sessionId);
+    if (this.deviceIndex.get(live.deviceId) === live.sessionId) this.deviceIndex.delete(live.deviceId);
+    for (const handler of this.sessionDownHandlers) handler(live.sessionId, live.deviceId);
     try {
       await this.repo.closeOnlineSession(live.sessionId, reason, new Date(this.now()).toISOString());
     } catch (err) {
@@ -222,6 +243,24 @@ export class ConnectorWsGateway {
 
   get staleDropCount(): number {
     return this.staleFrameDrops;
+  }
+
+  /** F20261118remex（C2）：动作通道面实现（ConnectorActionChannel） */
+  sendToDevice(deviceId: string, frame: ConnectorFrame): boolean {
+    const sessionId = this.deviceIndex.get(deviceId);
+    if (!sessionId) return false;
+    const live = this.connections.get(sessionId);
+    if (!live || live.socket.readyState !== live.socket.OPEN) return false;
+    this.send(live.socket, frame);
+    return true;
+  }
+
+  onActionResult(handler: (frame: Extract<ConnectorFrame, { type: "action.result" }>) => void): void {
+    this.actionResultHandlers.push(handler);
+  }
+
+  onSessionDown(handler: (sessionId: string, deviceId: string) => void): void {
+    this.sessionDownHandlers.push(handler);
   }
 
   dispose(): void {

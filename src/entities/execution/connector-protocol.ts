@@ -2,7 +2,7 @@
  * F20261117cnnct（#1868 阶段 4 C1）：connector WSS 协议 v1 帧类型。
  * 方案 v3 §4：JSON 单帧 { v, type, seq, sid, data }；sid=会话代际（hello.ack 下发，
  * 此后所有帧必带——中枢收帧先核 sid，旧 sid 一律丢弃+计数日志，模块 C 红线实现依据）。
- * 协议演进：v1 只承载通道与会话；动作帧（action.request/result）C2 落地。
+ * 协议演进：v1 含通道与会话（C1）+ 动作帧（C2 action.request/result）。
  */
 
 export const CONNECTOR_PROTOCOL_VERSION = 1;
@@ -22,7 +22,21 @@ export type ConnectorFrame =
   | { v: number; type: "heartbeat"; seq: number; sid: string; data: Record<string, never> }
   | { v: number; type: "heartbeat.ack"; seq: number; sid: string; data: Record<string, never> }
   | { v: number; type: "offline"; seq: number; sid: string; data: Record<string, never> }
-  | { v: number; type: "error"; seq: number; sid?: string; data: { code: ConnectorErrorCode; message: string } };
+  | { v: number; type: "error"; seq: number; sid?: string; data: { code: ConnectorErrorCode; message: string } }
+  /** F20261118remex（C2）：中枢 → connector 的动作执行请求（requestId=actionId 幂等锚） */
+  | { v: number; type: "action.request"; seq: number; sid: string; data: {
+      actionId: string;
+      action: { type: string; input: Record<string, unknown> };
+    } }
+  /** F20261118remex（C2）：connector → 中枢的动作回执（回带原 actionId 请求-响应关联；
+   *  五态语义：succeeded/failed 为执行结论，interrupted/unknown 为收尾裁决——
+   *  中枢侧 remote_action_requests 落同态） */
+  | { v: number; type: "action.result"; seq: number; sid: string; data: {
+      actionId: string;
+      status: "succeeded" | "failed" | "interrupted" | "unknown";
+      result?: unknown;
+      error?: string;
+    } };
 
 export type ConnectorErrorCode =
   | "unpaired"        // 未配对设备（upgrade 鉴权前就拒——此码仅用于误连诊断回执）
@@ -34,3 +48,7 @@ export type ConnectorErrorCode =
 /** 心跳参数（方案 v3 §4）：15s 间隔；中枢 90s 无心跳判断开（容忍 3 间隔+抖动） */
 export const CONNECTOR_HEARTBEAT_INTERVAL_MS = 15_000;
 export const CONNECTOR_HEARTBEAT_TIMEOUT_MS = 90_000;
+
+/** F20261118remex（C2）：动作执行回执等待上限——超时中枢侧落 unknown（不盲重试，五态纪律）。
+ *  文件动作量级秒级，30s 覆盖慢盘；无进度流（bash 流式属阶段 7）。 */
+export const CONNECTOR_ACTION_TIMEOUT_MS = 30_000;
