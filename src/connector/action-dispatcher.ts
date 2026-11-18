@@ -24,8 +24,11 @@ export interface ActionExecutorLike {
 
 export interface ConnectorActionDispatcherDeps {
   executor: ActionExecutorLike;
-  /** 本地台账只读面（幂等快路径） */
-  ledger: { getByActionId(actionId: string): Promise<ActionRecord | null> };
+  /** 本地台账只读面（幂等快路径）+ 收尾面（M1 自杀收尾落 interrupted） */
+  ledger: {
+    getByActionId(actionId: string): Promise<ActionRecord | null>;
+    settle(actionId: string, verdict: { status: "interrupted"; error?: string }): Promise<void>;
+  };
   /** 回执发帧（会话层闭包封装完整帧：v/type/seq/sid——本层不管会话封装字段） */
   send: (data: Extract<ConnectorFrame, { type: "action.result" }>['data']) => void;
   log?: (message: string, meta?: Record<string, unknown>) => void;
@@ -42,7 +45,24 @@ const SUPPORTED_ACTION_TYPES = new Set<string>([
 ]);
 
 export class ConnectorActionDispatcher {
+  /** 在途执行追踪（C3/M1：SIGTERM 自杀收尾——在途 actionId 立即落 interrupted，
+ *  不等完成；方案 §6 第4步「取消本进程 running，台账落 interrupted」语义） */
+  private readonly inflight = new Map<string, true>();
+  get inflightCount(): number { return this.inflight.size; }
+
   constructor(private readonly deps: ConnectorActionDispatcherDeps) {}
+
+  /** M1（检视）：自杀收尾——在途动作立即对台账落 interrupted（不等 fs 完成；
+ *  完成后 executor 的 settle succeeded 被幂等拦住——调用方视角动作已取消，
+ *  两侧（中枢/端上）一致 interrupted，消除两面裁决冲突） */
+  async markInflightInterrupted(): Promise<void> {
+    const actionIds = [...this.inflight.keys()];
+    await Promise.all(actionIds.map(async actionId => {
+      try {
+        await this.deps.ledger.settle(actionId, { status: "interrupted", error: "connector shutting down (graceful offline)" });
+      } catch { /* 台账缺席/失败：开机清扫兑底 */ }
+    }));
+  }
 
   /** 处理一帧 action.request（sid 已由会话层校验过——本层只管执行与回执） */
   async handleActionRequest(frame: Extract<ConnectorFrame, { type: "action.request" }>): Promise<void> {
@@ -69,6 +89,7 @@ export class ConnectorActionDispatcher {
     }
 
     try {
+      this.inflight.set(actionId, true);
       const result = await this.deps.executor.run(
         { type: action.type, input: action.input } as AnyExecutionAction,
         { actionId },
@@ -77,6 +98,8 @@ export class ConnectorActionDispatcher {
     } catch (err) {
       // executor 内部已 settle failed（台账在场时）；此处只负责回执
       this.sendResult(actionId, { status: "failed", error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      this.inflight.delete(actionId);
     }
   }
 

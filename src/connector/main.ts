@@ -164,15 +164,24 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
  */
 let currentWs: WebSocket | null = null;
 let currentSid: string | null = null;
+/** m2（检视）：优雅退出中——重连循环见此标志不再起新连接 */
+let exiting = false;
 
-function registerSignalHandlersOnce(): void {
+function registerSignalHandlersOnce(shutdown: () => Promise<void>): void {
+  let shuttingDown = false;
   const goOffline = (signal: string): void => {
+    if (shuttingDown) return; // s1（检视）：双信号幂等——重复 offline 帧不叠退出链
+    shuttingDown = true;
+    exiting = true;
     if (currentWs?.readyState === WebSocket.OPEN && currentSid) {
       seq += 1;
       currentWs.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "offline", seq, sid: currentSid, data: {} }));
       log("offline requested", { signal });
     }
-    setTimeout(() => process.exit(0), 100); // 一拍发送窗口后退出
+    // M1（检视，回方案 §6 第4步原设计）：自杀收尾——不等在途 fs 完成，在途动作立即
+    // 落 interrupted（与中枢侧 offline→interrupted 同裁决）；短窗后退出。
+    // m2（检视）：shuttingDown 后重连循环不再起新连接（防优雅下线后顶替重连再死）。
+    void shutdown().finally(() => setTimeout(() => process.exit(0), 150)); // 一拍发送窗口后退出
   };
   process.on("SIGINT", () => goOffline("SIGINT"));
   process.on("SIGTERM", () => goOffline("SIGTERM"));
@@ -263,14 +272,19 @@ async function main(): Promise<void> {
   }
 
   // 断线自动重连（检视 s1）：指数退避，重连=新会话（hub 侧 sid 代际隔离跨会话重放）
-  registerSignalHandlersOnce(); // minor-1：信号处理注册一次（循环外），读 currentWs/currentSid
   const runtime = await buildRuntime(identity); // C2：执行栈（台账清扫后才开始执行动作）
+  // C3/M1：信号处理注册一次（runtime 后——自杀收尾读 dispatcher 在途集）
+  registerSignalHandlersOnce(() => runtime.dispatcher.markInflightInterrupted());
   let backoff = RECONNECT_BASE_MS;
   for (;;) {
     const outcome = await connectOnce(args.hub, identity, runtime);
     if (outcome === "fatal") {
       process.stderr.write("protocol version incompatible with hub — upgrade connector (reconnect pointless)\n");
       process.exit(3);
+    }
+    if (exiting) { // m2（检视）：优雅退出中不顶替重连（防新会话被退出再带走）
+      log("exit before reconnect", {});
+      return;
     }
     log("reconnecting", { inMs: backoff });
     await new Promise(r => setTimeout(r, backoff));

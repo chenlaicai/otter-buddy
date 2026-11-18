@@ -13,14 +13,19 @@ import {
   type ConnectorFrame,
 } from "@entities/execution/connector-protocol";
 
+/** 下线原因（收尾语义分流的依据）：device-offline=主动优雅下线（在途可确定性裁决
+ *  interrupted——方案 §6 第4步）；heartbeat-timeout/hub-restart=意外断开（在途真相
+ *  不明落 unknown，S2 不对称边界） */
+export type ConnectorSessionDownReason = "device-offline" | "heartbeat-timeout" | "hub-restart";
+
 /** F20261118remex（C2）：动作通道面——RemoteExecutionMachine 依赖的网关能力子集（测试可 fake） */
 export interface ConnectorActionChannel {
   /** 向设备在线连接发帧；离线/无连接返回 false */
   sendToDevice(deviceId: string, frame: ConnectorFrame): boolean;
   /** action.result 帧回调注册（中枢侧等待者分发） */
   onActionResult(handler: (frame: Extract<ConnectorFrame, { type: "action.result" }>) => void): void;
-  /** 会话下线通知（每一次 online → offline）——等待者收尾钩子 */
-  onSessionDown(handler: (sessionId: string, deviceId: string) => void): void;
+  /** 会话下线通知（每一次 online → offline，含原因）——等待者收尾钩子 */
+  onSessionDown(handler: (sessionId: string, deviceId: string, reason: ConnectorSessionDownReason) => void): void;
 }
 import type { OnlineSession } from "@entities/execution/online-session";
 
@@ -48,7 +53,7 @@ export class ConnectorWsGateway {
   /** deviceId → sessionId 反查（动作帧路由用；顶替上线时刷新） */
   private readonly deviceIndex = new Map<string, string>();
   private readonly actionResultHandlers: Array<(frame: Extract<ConnectorFrame, { type: "action.result" }>) => void> = [];
-  private readonly sessionDownHandlers: Array<(sessionId: string, deviceId: string) => void> = [];
+  private readonly sessionDownHandlers: Array<(sessionId: string, deviceId: string, reason: ConnectorSessionDownReason) => void> = [];
   private sweepTimer: NodeJS.Timeout | null = null;
   /** 旧 sid 帧丢弃计数（观测模块 C 红线命中情况） */
   private staleFrameDrops = 0;
@@ -197,10 +202,10 @@ export class ConnectorWsGateway {
 
   /** 下线五步的通道侧（C1）：库表 offline（幂等）→ Registry 注销投影 → 关通道。
    *  queued/running 动作收尾与晚到回执丢弃随 C2 remote_action_requests 落地。 */
-  private async shutdown(live: LiveConnection, reason: "device-offline" | "heartbeat-timeout" | "hub-restart", code: number, message: string): Promise<void> {
+  private async shutdown(live: LiveConnection, reason: ConnectorSessionDownReason, code: number, message: string): Promise<void> {
     this.connections.delete(live.sessionId);
     if (this.deviceIndex.get(live.deviceId) === live.sessionId) this.deviceIndex.delete(live.deviceId);
-    for (const handler of this.sessionDownHandlers) handler(live.sessionId, live.deviceId);
+    for (const handler of this.sessionDownHandlers) handler(live.sessionId, live.deviceId, reason);
     try {
       await this.repo.closeOnlineSession(live.sessionId, reason, new Date(this.now()).toISOString());
     } catch (err) {
@@ -259,7 +264,7 @@ export class ConnectorWsGateway {
     this.actionResultHandlers.push(handler);
   }
 
-  onSessionDown(handler: (sessionId: string, deviceId: string) => void): void {
+  onSessionDown(handler: (sessionId: string, deviceId: string, reason: ConnectorSessionDownReason) => void): void {
     this.sessionDownHandlers.push(handler);
   }
 
