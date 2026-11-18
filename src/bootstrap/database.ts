@@ -12,6 +12,7 @@ import { ModelPool } from "@frameworks/llm/model-pool";
 import { initEmbeddingService } from "@frameworks/embedding/embedding-init";
 import type { EmbeddingGateway, EmbedModelMeta } from "@usecases/memory/embedding-gateway";
 import { ensureBgeM3Model } from "@frameworks/embedding/ensure-model";
+import { acquireInstanceLock } from "./instance-lock";
 import { migrateDatabase, migrateExistingData, migrateFeatureBodyToChunks, migrateMessageSegments } from "@frameworks/db/migration";
 import { SqliteOtterConfigProvider } from "@frameworks/db/otter/sqlite-otter-config-provider";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
@@ -50,6 +51,12 @@ export async function initDatabaseAndModels(
   modelsOverride?: { model: Model<Api>; modelPool?: ModelPool },
 ): Promise<DatabaseBootstrapResult> {
   const dbPath = appConfig.db.path;
+  // 单实例锁（阶段 6a）：打开数据库前先拿进程互斥锁——双进程共写同一 SQLite 是阶段 6 红线。
+  // 首启目录预建：云部署数据卷（如 /var/lib/otter-buddy）首次可能不存在，
+  // 否则锁文件创建直接 ENOENT fail-closed（首启检视发现）。
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const instanceLock = await acquireInstanceLock(dbPath);
+  logger.info("Instance lock acquired", { lockPath: instanceLock.lockPath, pid: process.pid });
   const isNewDb = !fs.existsSync(dbPath);
   const db = initDatabase(appConfig.db, logger);
 
@@ -65,7 +72,15 @@ export async function initDatabaseAndModels(
   migrateMessageSegments(db, logger);
 
   const otterConfigProvider = new SqliteOtterConfigProvider(db);
-  ensureBgeM3Model(appConfig.embedding, logger);
+  // 嵌入开关（阶段 6a）：OTTER_EMBEDDING=off 显式禁用嵌入——不 fork 双 worker、
+  // 不加载/下载模型（云端小内存机降级 FTS-only 检索；语义召回缺失向消费方暴露）。
+  // 消费侧降级已内建：searchVec 的 embed 抛错即回落 FTS5，无需改动检索链。
+  const embeddingOff = process.env.OTTER_EMBEDDING === "off";
+  if (!embeddingOff) {
+    ensureBgeM3Model(appConfig.embedding, logger);
+  } else {
+    logger.warn("Embedding disabled via OTTER_EMBEDDING=off — memory search degrades to FTS-only");
+  }
   const { model, modelPool } = modelsOverride
     ? { model: modelsOverride.model, modelPool: modelsOverride.modelPool ?? synthesizePool(modelsOverride.model, appConfig.llm) }
     : await initModels(appConfig.llm, logger);
@@ -73,7 +88,9 @@ export async function initDatabaseAndModels(
     liveService: liveEmbedding,
     backfillService: backfillEmbedding,
     dispose: disposeEmbedding,
-  } = await initEmbeddingService(appConfig.embedding, logger);
+  } = embeddingOff
+    ? disabledEmbeddingServices()
+    : await initEmbeddingService(appConfig.embedding, logger);
 
   if (isNewDb) {
     migrateExistingData(db, otterConfigProvider, logger);
@@ -82,8 +99,24 @@ export async function initDatabaseAndModels(
   return {
     db, otterConfigProvider, model, modelPool,
     queryEmbedding: liveEmbedding, liveEmbedding, backfillEmbedding,
-    dispose: disposeEmbedding,
+    dispose: () => {
+      disposeEmbedding();
+      instanceLock.release();
+    },
   };
+}
+
+/** 禁用态嵌入服务（导出供单测/诊断）：available=false + embed 恒拒——检索侧 catch 后自动 FTS-only（D22 降级链） */
+export function disabledEmbeddingServices(): {
+  liveService: EmbeddingGateway;
+  backfillService: EmbeddingGateway;
+  dispose: () => void;
+} {
+  const makeDisabled = (): EmbeddingGateway => ({
+    available: false,
+    embed: () => Promise.reject(new Error("embedding disabled (OTTER_EMBEDDING=off)")),
+  });
+  return { liveService: makeDisabled(), backfillService: makeDisabled(), dispose: () => {} };
 }
 
 export function initRepositoriesWithDb(db: Database.Database, logger?: Logger): Repositories {
@@ -288,6 +321,17 @@ export async function verifyEmbeddingVersion(
   repos: Repositories,
   logger: Logger,
 ): Promise<{ vecEnabled: boolean; reason?: string }> {
+  // 显式禁用（阶段 6a）：OTTER_EMBEDDING=off 时无 worker 可校——直接降级
+  // vec 路径（vecCoverage 如实报 disabled，storeEmbedding 跳过），
+  // 不走 getMeta（禁用服务无该方法，且 waitForReady 会永久挂起）。
+  if (process.env.OTTER_EMBEDDING === "off") {
+    const sqliteMemoryRepo = repos.memory as { disableVec?: () => void };
+    if (typeof sqliteMemoryRepo.disableVec === "function") {
+      sqliteMemoryRepo.disableVec();
+    }
+    logger.warn("Embedding disabled via OTTER_EMBEDDING=off — vec path degraded, memory search is FTS-only");
+    return { vecEnabled: false, reason: "OTTER_EMBEDDING=off" };
+  }
   // 兼容老接口（无 getMeta）：跳过校验，保持原有行为。
   // 注意不能用 available 判断——它是 worker ready 的时序快照，bootstrap 时恒为 false，
   // 会让校验永远走不到（F20260821evaf 根因）。getMeta 内部会 waitForReady，直接调用即可。

@@ -104,7 +104,13 @@ export interface Controllers {
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
 
+/** 启动时刻（供 /api/ping 探活返回 uptime） */
+const PROCESS_START_TIME = Date.now();
+
 function registerConvRoutes(app: Hono, c: Controllers): void {
+  // 探活端点（阶段 6a）：无鉴权、零依赖（不碰库/不上游）——systemd ExecStartPost、
+  // nginx/部署脚本健康检查、云监控专用；身份策略表置 public（不进会话/业务面）。
+  app.get("/api/ping", (ctx) => ctx.json({ ok: true, pid: process.pid, uptimeSec: Math.floor((Date.now() - PROCESS_START_TIME) / 1000) }));
   app.get("/api/conversations", (ctx) => c.conversation.list(ctx));
   app.post("/api/conversations", (ctx) => c.conversation.create(ctx));
   app.get("/api/conversations/:id", (ctx) => c.conversation.getById(ctx));

@@ -26,6 +26,7 @@ describe("resolvePolicy：路由策略表矩阵", () => {
   it("显式档位（public / admin / 族内例外先于族规则）", () => {
     const cases: Array<[string, string, string]> = [
       // public
+      ["GET", "/api/ping", "public"],
       ["POST", "/api/inbound/events", "public"],
       ["OPTIONS", "/api/inbound/events", "public"],
       ["GET", "/api/inbound/status", "public"],
@@ -236,5 +237,14 @@ describe("真实 createRouter 裸 app：门禁在装配层生效", () => {
 
   it("inbound 公开：平台回调无身份可达", async () => {
     expect((await app.request("/api/inbound/events", { method: "POST", body: "{}" })).status).toBe(200);
+  });
+
+  it("探活端点公开（阶段 6a）：无身份 /api/ping → 200 {ok:true,pid,uptimeSec}", async () => {
+    const res = await app.request("/api/ping");
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean; pid: number; uptimeSec: number };
+    expect(body.ok).toBe(true);
+    expect(body.pid).toBe(process.pid);
+    expect(typeof body.uptimeSec).toBe("number");
   });
 });
