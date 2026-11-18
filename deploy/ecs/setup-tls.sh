@@ -1,24 +1,36 @@
 #!/usr/bin/env bash
-# TLS 证书一次性签发（阶段 6a）——Certbot webroot 模式（nginx 已装且 80 端口在听）
+# TLS 证书一次性签发（阶段 6a）——Certbot webroot 模式。
 # 用法：在 ECS 上 sudo bash setup-tls.sh
+# 两阶段（避免 chicken-and-egg：443 块引用的证书签发前不存在，整配置装上 nginx -t 会挂）：
+#   阶段一：仅装 80 段（HTTP→ACME）→ reload → certbot 签发
+#   阶段二：装完整配置（80+443）→ reload
 set -euo pipefail
 
 DOMAIN="otter.60.205.214.148.sslip.io"
 WEBROOT="/var/www/certbot"
-
-# 前置：80 端口的 server 块必须已就位（nginx-otter.conf 的第一个 server），否则 HTTP-01 挑战失败
-if ! nginx -t 2>/dev/null; then
-  echo "nginx config invalid — install nginx-otter.conf first" >&2
-  exit 1
-fi
+CONF_DST="/etc/nginx/conf.d/otter-buddy.conf"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mkdir -p "$WEBROOT"
-systemctl reload nginx
 
 if [ ! -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
+  # 阶段一：80-only（ACME 挑战 + 重定向；无证书引用）
+  cat > "$CONF_DST" <<EOF
+server {
+    server_name ${DOMAIN};
+    listen 80;
+    listen [::]:80;
+    location /.well-known/acme-challenge/ { root ${WEBROOT}; }
+    location / { return 301 https://\$host\$request_uri; }
+}
+EOF
+  nginx -t && systemctl reload nginx
   certbot certonly --webroot -w "$WEBROOT" -d "$DOMAIN" --non-interactive --agree-tos --keep-until-expiring
 else
-  echo "certificate already exists at /etc/letsencrypt/live/${DOMAIN}/ — renewals handled by certbot.timer"
+  echo "certificate already exists — skipping issuance"
 fi
 
-echo "next: verify nginx-otter.conf 443 block certificate paths, then systemctl reload nginx"
+# 阶段二：完整配置（80 + 443 TLS）
+cp "${SCRIPT_DIR}/nginx-otter.conf" "$CONF_DST"
+nginx -t && systemctl reload nginx
+echo "TLS ready: https://${DOMAIN}/"

@@ -52,7 +52,9 @@ export async function initDatabaseAndModels(
 ): Promise<DatabaseBootstrapResult> {
   const dbPath = appConfig.db.path;
   // 单实例锁（阶段 6a）：打开数据库前先拿进程互斥锁——双进程共写同一 SQLite 是阶段 6 红线。
-  // 测试注入 dbPath 时锁跟随（隔离目录各自有锁，互不干扰）。
+  // 首启目录预建：云部署数据卷（如 /var/lib/otter-buddy）首次可能不存在，
+  // 否则锁文件创建直接 ENOENT fail-closed（首启检视发现）。
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const instanceLock = acquireInstanceLock(dbPath);
   logger.info("Instance lock acquired", { lockPath: instanceLock.lockPath, pid: process.pid });
   const isNewDb = !fs.existsSync(dbPath);
@@ -319,6 +321,17 @@ export async function verifyEmbeddingVersion(
   repos: Repositories,
   logger: Logger,
 ): Promise<{ vecEnabled: boolean; reason?: string }> {
+  // 显式禁用（阶段 6a）：OTTER_EMBEDDING=off 时无 worker 可校——直接降级
+  // vec 路径（vecCoverage 如实报 disabled，storeEmbedding 跳过），
+  // 不走 getMeta（禁用服务无该方法，且 waitForReady 会永久挂起）。
+  if (process.env.OTTER_EMBEDDING === "off") {
+    const sqliteMemoryRepo = repos.memory as { disableVec?: () => void };
+    if (typeof sqliteMemoryRepo.disableVec === "function") {
+      sqliteMemoryRepo.disableVec();
+    }
+    logger.warn("Embedding disabled via OTTER_EMBEDDING=off — vec path degraded, memory search is FTS-only");
+    return { vecEnabled: false, reason: "OTTER_EMBEDDING=off" };
+  }
   // 兼容老接口（无 getMeta）：跳过校验，保持原有行为。
   // 注意不能用 available 判断——它是 worker ready 的时序快照，bootstrap 时恒为 false，
   // 会让校验永远走不到（F20260821evaf 根因）。getMeta 内部会 waitForReady，直接调用即可。

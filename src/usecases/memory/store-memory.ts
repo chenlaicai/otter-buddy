@@ -51,6 +51,8 @@ export class StoreMemory {
     private readonly queue: MemoryQueue,
     private readonly embeddingGateway: EmbeddingGateway,
     private readonly logger: Logger,
+    /** 显式禁用（阶段 6a）：OTTER_EMBEDDING=off 时构造期解析一次——写入路径不入向量队 */
+    private readonly embeddingExplicitlyDisabled: boolean = process.env.OTTER_EMBEDDING === "off",
   ) {}
 
   /** F20260803fbit: 截断 content 防 embedding worker OOM。FTS 灌全量不受影响 */
@@ -129,6 +131,11 @@ export class StoreMemory {
    * 合法的批量等待入口，每次最多挂 1 条文本（实时消息粒度）。
    */
   private fireAndForgetEmbed(entryId: string, content: string, priority: number = EMBED_TASK_PRIORITY.normal): void {
+    // 显式禁用（阶段 6a）：off 时无 worker 可等——条目照存（FTS 可检索）不入队，
+    // 避免每条写入积一条永不消费的 retry 任务。注意判据是显式 env 而非
+    // gateway.available——后者是 worker ready 的时序快照（启动窗口恒 false），
+    // 会被误判为禁用导致正常模式下启动期消息丢向量。
+    if (this.embeddingExplicitlyDisabled) return;
     this.embeddingGateway
       .embed(this.truncateForEmbed(content), {
         waitSlot: true,
