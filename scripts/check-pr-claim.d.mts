@@ -29,5 +29,6 @@ export interface ClaimResult {
 
 export function featureId(text: string | null | undefined): string | null;
 export function extractIssueNumbers(title: string, body?: string): number[];
+export function extractCommitIssueNumbers(message: string): number[];
 export function parseClaims(comments: ClaimComment[]): ClaimEntry[];
 export function checkClaim(pr: PrForClaim, issuesComments: Record<number, ClaimComment[]>): ClaimResult;

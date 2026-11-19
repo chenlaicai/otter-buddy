@@ -77,6 +77,18 @@ describe("checkClaim 认领谓词", () => {
     expect(r.status).toBe("exempt_docs_only");
   });
 
+  it("纯 AGENTS.md 变更不属 docs-only 豁免（与相邻闸同源，kimi检视獭-1954 MINOR-3）", () => {
+    const r = checkClaim(PR({ files: [{ path: "AGENTS.md" }] }), {});
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe("claim_missing_or_mismatch");
+  });
+
+  it("仓根 SECURITY.md 仍在豁免集（与 check-pr-evidence 同源）", () => {
+    const r = checkClaim(PR({ files: [{ path: "SECURITY.md" }] }), {});
+    expect(r.ok).toBe(true);
+    expect(r.status).toBe("exempt_docs_only");
+  });
+
   it("非 OPEN → 跳过", () => {
     const r = checkClaim(PR({ state: "MERGED" }), {});
     expect(r.ok).toBe(true);
@@ -90,8 +102,28 @@ describe("checkClaim 认领谓词", () => {
 });
 
 describe("辅助函数", () => {
-  it("extractIssueNumbers：closes 族与裸引用都提取", () => {
-    expect(extractIssueNumbers("修复 #1", "Closes #2 fixes #3")).toEqual([1, 2, 3]);
+  it("extractIssueNumbers：closes 族优先时裸引用不计为工作对象（本 PR 实证形态回归）", () => {
+    // 概述段叙述历史事故 #1899，尾部 Closes #1951 声明工作对象——裸 #1899 不得误拦（kimi检视獭-1954 BLOCK-1a）
+    const body = "昨日 #1899 双呈爆雷的根因修复。\n\nCloses #1951";
+    expect(extractIssueNumbers("认领闸测试 PR", body)).toEqual([1951]);
+  });
+
+  it("extractIssueNumbers：closing issue URL 形态同样提取（BLOCK-1b 回归）", () => {
+    expect(extractIssueNumbers("修复认领闸", "Closes https://github.com/chenlaicai/otter-buddy/issues/1951")).toEqual([1951]);
+    expect(extractIssueNumbers("修复认领闸", "fixes: https://github.com/foo/bar/issues/42 关闭引用")).toEqual([42]);
+  });
+
+  it("extractIssueNumbers：无 closes 族时裸 #N 全部兜底（「修复 #N」惯用形态）", () => {
+    expect(extractIssueNumbers("修复 #1", "关联 #2 与 #3")).toEqual([1, 2, 3]);
+  });
+
+  it("extractIssueNumbers：closes 动词变体与词边界（disclose 不误配）", () => {
+    expect(extractIssueNumbers("", "closed #7 Resolves: #8 FIXING #9")).toEqual([7, 8, 9]);
+    expect(extractIssueNumbers("", "disclose #10 未关问 bug")).toEqual([10]); // 裸兑底——disclose 不是 closes 动词，#10 走兑底计为工作对象属已接受残余
+  });
+
+  it("extractIssueNumbers：裸 issue URL（无 closes 动词）不计为工作对象——双闸一致", () => {
+    expect(extractIssueNumbers("研究", "参考 https://github.com/chenlaicai/otter-buddy/issues/1899 复盘")).toEqual([]);
   });
 
   it("featureId：F+日期+5 位小写字母", () => {

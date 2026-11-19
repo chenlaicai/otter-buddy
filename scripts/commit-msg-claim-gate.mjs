@@ -4,25 +4,35 @@
  * 的 otter-claim 认领——本 worktree 已认领才放行；未认领拒绝并提示认领命令。
  *
  * 设计取舍：
- *  - 只在每 issue 首次触发时联网检查（$GIT_DIR/otter-claim-ok-<N> 标记缓存），
- *    后续 commit 零开销——协议顺序本就是「认领 → worktree → commit」，首 commit
- *    即第一个强制点
- *  - 网络/查询失败 fail-open（本地开发不被 GitHub 故障卡死），CI 闸（check-pr-claim）
- *    兜底拦截
+ *  - 只在每 issue × 每分支首次触发时联网检查（worktree 私有 git-dir 内
+ *    otter-claim-ok-<N>-<分支> 标记缓存），后续 commit 零开销——协议顺序本就是
+ *    「认领 → worktree → commit」，首 commit 即第一个强制点。marker 绑分支：同
+ *    worktree 切到另一 F-ID 分支后不命中旧缓存（重新核验即拒）；release/他线接管
+ *    后同分支仍命中——已接受残余，CI 闸（check-pr-claim）每次真查兜底
+ *    （kimi检视獭-1954 MINOR-1）。
+ *  - marker 必须落在 git rev-parse --absolute-git-dir（worktree 私有 git-dir），
+ *    不可取其父目录——.git/worktrees/ 是全部 linked worktree 共享目录，父目录级
+ *    marker 会让他线静默继承核验结果（kimi检视獭-1954 BLOCK-2 实盘复现）。
+ *  - issue 提取用 commit 侧语义（首行尾注 + closes 族，body 裸 #N 叙述不计）——
+ *    与 CI 闸同正则源（check-pr-claim.mjs 单一真相源）。
+ *  - 网络/查询失败 fail-open（本地开发不被 GitHub 故障卡死），CI 闸兜底拦截。
  *  - 无 issue 引用的 commit 不查（非 issue 驱动改动不适用认领协议）
  * 用法：.githooks/commit-msg <message-file>
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, writeFileSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { extractCommitIssueNumbers } from "./check-pr-claim.mjs";
 
 const msgFile = process.argv[2];
 if (!msgFile) process.exit(0);
 const message = readFileSync(msgFile, "utf8");
-const nums = [...new Set([...message.matchAll(/#(\d+)/g)].map(m => Number(m[1])))];
+const nums = extractCommitIssueNumbers(message);
 if (nums.length === 0) process.exit(0);
 
-const gitDir = dirname(execFileSync("git", ["rev-parse", "--git-dir"], { encoding: "utf8" }).trim());
+// marker 目录：worktree 私有 git-dir（--absolute-git-dir 主仓=.git、linked worktree=.git/worktrees/<名>）
+const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], { encoding: "utf8" }).trim();
+const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();
+const markerStem = branch.replace(/[^A-Za-z0-9._-]/g, "_");
 let worktreeName = null;
 try {
   const topLevel = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
@@ -30,7 +40,7 @@ try {
 } catch { /* 主仓提交无 worktree 名，按分支 F-ID 匹配 */ }
 
 for (const n of nums) {
-  const okMarker = `${gitDir}/otter-claim-ok-${n}`;
+  const okMarker = `${gitDir}/otter-claim-ok-${n}-${markerStem}`;
   if (existsSync(okMarker)) continue;
   let comments;
   try {
@@ -60,7 +70,7 @@ for (const n of nums) {
     process.exit(1);
   }
   const fidRe = /F\d{8}[a-z][a-z0-9]{4}/;
-  const branchFid = fidRe.exec(execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim())?.[0] ?? null;
+  const branchFid = fidRe.exec(branch)?.[0] ?? null;
   const wtFid = worktreeName ? fidRe.exec(worktreeName)?.[0] ?? null : branchFid;
   const target = wtFid ?? branchFid;
   const mine = claims.some(c => target && fidRe.exec(c.worktree)?.[0] === target);

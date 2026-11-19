@@ -9,9 +9,10 @@
  * 同模式（机械闸判结构不判真实，证书真实性由认领评论的对话签名 + 审视兜底）。
  *
  * 判定（pull_request 事件）：
- *   1. 提取 issue 号：PR body/title 中的 #N（closes/fixes/resolves 或裸引用）
+ *   1. 提取工作对象 issue 号：closes 族（含 issue URL 形态）优先，无 closes 族时
+ *      裸 #N 兜底（提取语义详见 extractIssueNumbers）
  *   2. 无 issue 引用 → 放行（非 issue 驱动的改动不适用认领协议）
- *   3. docs-only PR → 放行（与 review-closure 闸豁免集合同源）
+ *   3. docs-only PR → 放行（豁免集合 import check-pr-evidence 单一真相源，三闸同源）
  *   4. issue 评论搜 otter-claim 注释（otter-claim-release 撤销）：
  *      - 零有效认领 → 红（提示先发认领评论）
  *      - 有效认领存在但 worktree 字段的 F-ID ≠ PR 分支 F-ID → 红（他线认领）
@@ -23,9 +24,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-
-/** docs-only 豁免集合（与 check-pr-review-closure 同源）。 */
-const DOCS_EXEMPT = [/^docs\//, /^README\.md$/, /^CHANGELOG\.md$/, /^CONTRIBUTING\.md$/, /^AGENTS\.md$/];
+import { isDocOnlyPath } from "./check-pr-evidence.mjs";
 
 /** 分支名/worktree 名中的 F-ID（F + 日期 + 5 位小写字母数字（首位字母））。 */
 export function featureId(text) {
@@ -33,11 +32,42 @@ export function featureId(text) {
   return m ? m[0] : null;
 }
 
-/** 从 PR body/title 提取引用的 issue 号（closes 族优先，裸 #N 兜底）。 */
+/**
+ * 从 PR title/body 提取「本 PR 工作对象」issue 号（两级语义）。
+ *
+ * 1. closes 族优先：close(s|d)/closing/fix(e[sd]|ing)/resolve(s|d)/resolving
+ *    + `#N` 或完整 issue URL（GitHub 平台支持的两种关闭引用形态）。存在 closes 族
+ *    时工作对象 = closes 族集合——其余裸 #N 是叙述性引用（历史事故复盘、关联工作
+ *    交叉引用），不计为必须认领的对象（本 PR 自身「概述引 #1899 + Closes #1951」
+ *    实证：历史事故引用被误当工作对象误拦，kimi检视獭-1954 BLOCK-1a）。
+ * 2. 无 closes 族时裸 #N 全部兜底计为工作对象（覆盖「修复 #N」不写 closes 的惯用
+ *    形态）。此时叙述性 #N 无法与工作对象机械区分，属已接受残余（解法：工作对象
+ *    用 closes 族显式声明）。URL 形态若不加 closes 动词同样不计（kimi检视獭-1954
+ *    BLOCK-1b：裸 URL 引用视为叙述，双闸一致）。
+ */
+const CLOSES_RE =
+  /\b(?:close[sd]?|closing|fix(?:e[sd]|ing)?|resolve[sd]?|resolving)\s*:?\s*(?:#(\d+)|https?:\/\/(?:www\.)?github\.com\/[^/\s]+\/[^/\s]+\/issues\/(\d+))/gi;
+
 export function extractIssueNumbers(title, body) {
-  const nums = new Set();
-  for (const m of `${title}\n${body ?? ""}`.matchAll(/#(\d+)/g)) nums.add(Number(m[1]));
-  return [...nums];
+  const text = `${title}\n${body ?? ""}`;
+  const closing = new Set();
+  for (const m of text.matchAll(CLOSES_RE)) closing.add(Number(m[1] ?? m[2]));
+  if (closing.size > 0) return [...closing].sort((a, b) => a - b);
+  const bare = new Set();
+  for (const m of text.matchAll(/#(\d+)/g)) bare.add(Number(m[1]));
+  return [...bare].sort((a, b) => a - b);
+}
+
+/**
+ * commit 侧工作对象提取：首行 #N（尾注惯例 `（#N）`/`(#N)`）+ 全文 closes 族；
+ * body 裸 #N 不计（检视修复说明等叙述性引用——本 PR 首轮修复 commit 自身实证：
+ * body 写「叙述 #1899 被误当工作对象」被兜底全提误拦）。与 CI 闸同文件同正则源。
+ */
+export function extractCommitIssueNumbers(message) {
+  const firstLine = String(message).split("\n")[0] ?? "";
+  const nums = new Set(extractIssueNumbers(firstLine, ""));
+  for (const m of String(message).matchAll(CLOSES_RE)) nums.add(Number(m[1] ?? m[2]));
+  return [...nums].sort((a, b) => a - b);
 }
 
 /** 解析 issue 评论里的 otter-claim / otter-claim-release 注释（release 撤销同对话认领）。 */
@@ -61,7 +91,7 @@ export function parseClaims(comments) {
 export function checkClaim(pr, issuesComments) {
   const reasons = [];
   if ((pr.state ?? "OPEN") !== "OPEN") return { ok: true, status: "skipped_not_open", reasons: [] };
-  const nonDocs = (pr.files ?? []).filter(f => !DOCS_EXEMPT.some(re => re.test(f.path)));
+  const nonDocs = (pr.files ?? []).filter(f => !isDocOnlyPath(f.path));
   if (nonDocs.length === 0) return { ok: true, status: "exempt_docs_only", reasons: [] };
   const issueNums = extractIssueNumbers(pr.title, pr.body);
   if (issueNums.length === 0) return { ok: true, status: "no_issue_reference", reasons: [] };

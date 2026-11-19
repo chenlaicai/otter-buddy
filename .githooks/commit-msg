@@ -88,6 +88,15 @@ fi
 # F20260914prdb: 偏差降为警告（--warn-on-drift）——squash 合入模型下 PR 内中间
 # commit 标题会被抹掉，只有 PR 标题进 main 历史，阻断是纯摩擦（#789 处置被误拦实证）；
 # bad_date（非法日期）仍硬拦，凭印象编日期的笔误仍会被拦下。
+
+# F20261119claim: issue 认领 commit 闸——message 引用 #N 时核验 otter-claim
+# （协议顺序：认领 → worktree → commit；网络失败 fail-open，CI 闸兜底）。
+# 置于下方 F/R 分流之前：认领协议不区分 F/R，R 类提交引用 #N 同样核验——
+# 分流后的提前 exit 曾让 R 类绕过本闸（kimi检视獭-1954 MINOR-2）。
+# 「|| exit 1」必须保留：sh 无 set -e，中间命令退出码会被后续命令覆盖
+# （曾实证：闸 exit 1 但 hook 继续跑完 exit 0 → 拒 commit 失效、commit 照常落地）。
+node scripts/commit-msg-claim-gate.mjs "$1" || exit 1
+
 if ! echo "$first_line" | grep -q '^\[F'; then
   exit 0
 fi
@@ -121,7 +130,3 @@ if [ -n "$modclass_line" ]; then
       ;;
   esac
 fi
-
-# F20261119cimp2: issue 认领 commit 闸——message 引用 #N 时核验 otter-claim
-# （协议顺序：认领 → worktree → commit；网络失败 fail-open，CI 闸兜底）
-node scripts/commit-msg-claim-gate.mjs "$1"
