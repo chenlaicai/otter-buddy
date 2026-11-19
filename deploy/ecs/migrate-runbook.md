@@ -1,6 +1,6 @@
-# 数据迁移与回退 runbook（阶段 6b）
+# 数据迁移与回退 runbook
 
-> 特性：F20261119mgrr（#1868 阶段 6 切片 6b）。
+> 特性：F20261119mgrr（#1868）。
 > 工具：`scripts/migrate-export.mjs` / `migrate-restore.mjs` / `migrate-verify.mjs`。
 > 原则：**停源导出、三级校验、回退保底、云端验证期不承诺双活**。
 
@@ -24,7 +24,7 @@
    node scripts/migrate-restore.mjs --tar migrate-<ts>.tar.gz --data-dir <目标>
    # 默认拒非空目录（防误覆盖）；内置三级校验：文件 sha256 全量 + sqlite 表行数逐库逐表 + 多余文件检测
    ```
-5. **起云**：`systemctl start otter-buddy`（6a 单元：探活就绪 + 单实例锁护数据域）。
+5. **起云**：`systemctl start otter-buddy`（探活就绪 + 单实例锁护数据域）。
 6. **入口切换**：web 用 `https://otter.60.205.214.148.sslip.io/`；connector 换 `wss://…/connector-ws`。
 7. **验证期巡检**：`node scripts/migrate-verify.mjs --data-dir <目标> --manifest <manifest>` 幂等重跑 + 内存曲线观察（`systemctl status`）。
 
@@ -36,7 +36,7 @@
 4. **语义边界（如实）**：云端验证期新写的数据（对话/记忆/会话）随回退**丢弃**——验证窗口压短（当天切当天定）可把损失面压到最低。
 5. 云端数据留档不删（诊断/补捞价值），下次切换重新走 1-7。
 
-## 演练（6c 前置，本机零风险空跑）
+## 演练（本机零风险空跑）
 
 ```
 node scripts/migrate-export.mjs --data-dir <本机data> --out /tmp/mig-drill --skip-liveness
@@ -47,5 +47,5 @@ node scripts/migrate-verify.mjs --data-dir /tmp/mig-drill/restored --manifest /t
 
 ## 红线回顾
 
-- **禁止双进程共写**：导出前停源 + 云端单实例锁（6a）双保险。
+- **禁止双进程共写**：导出前停源 + 云端单实例锁双保险。
 - **不留不可用中间态**：restore 校验不过即停（现场保留诊断），本机数据从未被破坏——任意时刻本机可重启。

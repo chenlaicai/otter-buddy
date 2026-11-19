@@ -14,7 +14,7 @@ export const CONNECTOR_PROTOCOL_VERSION = 1;
 export const CONNECTOR_WS_SUBPROTOCOL = "otter-connector.v1";
 
 /**
- * seq 帧字段契约（检视 s5 澄清）：单调递增，仅用于日志对账与乱序观测——
+ * seq 帧字段契约：单调递增，仅用于日志对账与乱序观测——
  * **不承担可靠性/重放防护**（重放防护由 actionId 幂等协议承担，落地；
  * sid 代际已天然隔离跨会话重放）。消费方不得以 seq 做正确性判断。
  */
@@ -56,5 +56,5 @@ export const CONNECTOR_HEARTBEAT_INTERVAL_MS = 15_000;
 export const CONNECTOR_HEARTBEAT_TIMEOUT_MS = 90_000;
 
 /** 动作执行回执等待上限——超时中枢侧落 unknown（不盲重试，五态纪律）。
- * 文件动作量级秒级，30s 覆盖慢盘；无进度流（bash 流式属）。 */
+ * 文件动作量级秒级，30s 覆盖慢盘；无进度流。 */
 export const CONNECTOR_ACTION_TIMEOUT_MS = 30_000;

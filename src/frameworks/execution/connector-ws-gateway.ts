@@ -42,7 +42,7 @@ interface LiveConnection {
  *  + Bearer token 三查）+ 协议 v1
  * （hello/heartbeat/offline + sid 会话代际）+ 总闸库层状态机。
  *
- * 事实源纪律（/）：online_sessions 表是唯一事实源——上线/下线先落库，
+ * 事实源纪律：online_sessions 表是唯一事实源——上线/下线先落库，
  * Registry 内存投影随后（先库后内存；库写失败 fail-closed 关通道，宁误下线不误放行）。
  * 旧 sid 帧一律静默丢弃 + 计数日志（模块 C 红线：重连≠恢复）。
  *
@@ -83,7 +83,7 @@ export class ConnectorWsGateway {
     this.wss.on("connection", (socket, request) => this.onConnection(socket, request));
   }
 
-  /** 宿主 server upgrade 路由挂载点：升级请求双查（6c：子协议 pin + Origin 白名单）
+  /** 宿主 server upgrade 路由挂载点：升级请求双查（子协议 pin + Origin 白名单）
    *  + Bearer token 校验（fail-closed 拒升级）。非 connector 路径直接返回 false（交还
    *  宿主处理）；鉴权失败返回 true + reject 回执（子协议/Origin 查先于 token——扫描器
    *  与通用 WS 客户端在指纹层即拒，不进 token 查询路径）。 */
@@ -107,7 +107,7 @@ export class ConnectorWsGateway {
     return true;
   }
 
-  /** （6c）升级指纹双查：①子协议 pin（必须声明 otter-connector.v1——通用客户端/扫描器
+  /** 升级指纹双查：①子协议 pin（必须声明 otter-connector.v1——通用客户端/扫描器
    *  挡在指纹层，不进 token 查询路径）②Origin 白名单（无 Origin 放行；带 Origin 必须
    *  命中，白名单空 = fail-closed 拒所有带 Origin 请求——浏览器 CSWSH 纵深防御）。
    *  返回 [code, reason] = 拒；null = 过。*/
@@ -264,7 +264,7 @@ export class ConnectorWsGateway {
     }, CONNECTOR_HEARTBEAT_TIMEOUT_MS / 3);
   }
 
-  /** 中枢启动清扫：所有 online 行落 offline/hub-restart（；幂等） */
+  /** 中枢启动清扫：所有 online 行落 offline/hub-restart（幂等） */
   async sweepStaleSessionsOnBoot(): Promise<number> {
     const swept = await this.repo.sweepStaleOnlineSessions(new Date(this.now()).toISOString());
     if (swept > 0) this.logger.info("swept stale online sessions on boot", { swept });

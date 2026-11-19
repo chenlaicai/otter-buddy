@@ -2,7 +2,7 @@
  * 獭间信号老化扫描（流程层）。
  *
  * 现场事故：blocked 信号悬置 6 天无人裁决——signal 对账段挂在 daily review 调度链上，
- * 9/10-9/13 调度器断档（/）期间唯一消费方停摆，违规漏网。
+ * 9/10-9/13 调度器断档期间唯一消费方停摆，违规漏网。
  *
  * 本 worker 独立于 daily review：app 级 1h setInterval（unref，不阻退出），
  * 扫 signal_events 中 pending 态 objection/blocked（halt 不扫——halt 无待裁决事项，

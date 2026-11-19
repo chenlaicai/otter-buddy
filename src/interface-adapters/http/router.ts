@@ -350,7 +350,7 @@ function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptio
         && !(await plumbing.executionMachines!.conversationExists(conversationId))) {
         return ctx.json({ error: "conversation not found" }, 404);
       }
-      // s3（检视遗留处置）：ctx.req.query 地道用法（行为与 URL searchParams 等价）
+      // ctx.req.query 地道用法（行为与 URL searchParams 等价）
       const limitParam = Number(ctx.req.query("limit") ?? 50);
       const limit = Number.isInteger(limitParam) && limitParam > 0 && limitParam <= 200 ? limitParam : 50;
       const actions = await plumbing.executionMachines!.listConversationRemoteActions!(conversationId, limit);

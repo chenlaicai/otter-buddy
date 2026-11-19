@@ -1,5 +1,5 @@
 /**
- * SignalRepository: signals 表读写（/）
+ * SignalRepository: signals 表读写
  *
  * 信号状态机：open → (acknowledged) → resolved/dismissed。
  * 相同 signal_type + feature_id/file_path 的重复触发做 occurrences 累加

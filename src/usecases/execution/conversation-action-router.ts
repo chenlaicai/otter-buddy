@@ -37,7 +37,7 @@ export class ConversationActionRouter implements ActionRunner {
       ?? await this.conversationMachineOf(action.input as { conversationId?: unknown })
       ?? undefined;
     const machine = this.registry.resolve(target);
-    return machine.run(action, undefined, options); // s1（检视）：对齐 Registry 转发语义（机器自身忽略 target）
+    return machine.run(action, undefined, options); // 对齐 Registry 转发语义（机器自身忽略 target）
   }
 
   /** 六动作 input 提取 conversationId → 查对话当前机（无配置/无 conversationId 返回 null

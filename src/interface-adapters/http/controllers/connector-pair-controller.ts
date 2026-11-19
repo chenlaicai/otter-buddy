@@ -27,7 +27,7 @@ export class ConnectorPairController {
     }
 
     const now = new Date().toISOString();
-    // 原子核销+建设备（s6：事务内一气呵成，码烧空耗窗口消除）；
+    // 原子核销+建设备（事务内一气呵成，码烧空耗窗口消除）；
     // 过期/重放/不存在统一 403（不区分，防探测）
     const device: Device = {
       id: `connector-${randomUUID().slice(0, 8)}`,

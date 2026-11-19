@@ -71,7 +71,7 @@ export class SqliteConnectorRegistryRepository implements ConnectorRegistryRepos
   }
 
   async redeemAndCreateDevice(code: string, device: Device, now: string): Promise<boolean> {
-    // 检视 s6：事务原子化——核销失败不建设备（消除「码已烧但设备未建」窗口）
+    // 事务原子化——核销失败不建设备（消除「码已烧但设备未建」窗口）
     const runAll = this.db.transaction((): boolean => {
       const redeemed = this.db.prepare(
         "UPDATE pairing_codes SET redeemed_at = ? WHERE code = ? AND redeemed_at IS NULL AND expires_at > ?",

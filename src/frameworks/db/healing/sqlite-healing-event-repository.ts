@@ -86,7 +86,7 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     // 缺陷③：单条 dismiss 落 resolution——终态记录不再只有 status+resolved_at 两列，
     // 「为何 dismiss」可考（2026-10-19 事件：298 条空 resolution 只能靠代码阅读反推）。
     // WHERE 带 status='open'：dismiss 已终态事件属语义错配（重复处置），fail-closed 抛错
-    // 对齐 assertUpdated 口径（/）。
+    // 对齐 assertUpdated 口径。
     const result = this.db.prepare(
       "UPDATE healing_events SET status = 'dismissed', resolution = ?, resolved_at = ? WHERE id = ? AND status = 'open'",
     ).run(JSON.stringify(resolution), now, id);

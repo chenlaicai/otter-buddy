@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- 显式序列化（serializeSignal + metricKeyToCamel）后有效行 458>450；
    controller 是 /api/health/* 全端点聚合点，拆分待视图稳定后另立 issue */
 /**
- * RhiController: /api/health/* 端点（/）
+ * RhiController: /api/health/* 端点
  *
  * 三个读端点 + 一个手动扫描端点，数据全部来自 /1 的现成结构：
  * - overview: health_snapshots 最新快照 + open 信号计数（含 critical 数）

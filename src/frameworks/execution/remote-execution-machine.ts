@@ -16,7 +16,7 @@ import type { ConnectorRegistryRepository } from "@usecases/ports/connector-regi
 /**
  * 远程执行机——动作经 WSS 通道下发 connector 执行。
  *
- * 总闸三道（/）：① online_sessions 表 status=online（唯一事实源直查）
+ * 总闸三道：① online_sessions 表 status=online（唯一事实源直查）
  * + ② Registry 投影可达（本机实例注册即达） + ③ 通道已连接（sendToDevice）。
  * 每次下发：actionId（调用方透传或 `<中枢bootEpoch>-<uuid>` 自铸）先登记
  * remote_action_requests（requested）→ action.request → 等 action.result；
