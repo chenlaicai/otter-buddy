@@ -174,6 +174,11 @@ export interface ToolContext {
   /** F20260909smsp→F20260913ctlv：当前打开的 speak entry ID（speak/yield 检测本轮已发言用）。
    *  F20260911pspl 池化合流：getter 化穿透寄存器（invoke 入口重置） */
   lastSpeakMessageId?: string;
+  /** PR 卡片闸事故 PR 呈递拍板机械闸：本回合 speak body 累计（yield 主闸的判定面——防拆条规避：
+   *  先说「#1960 检视完了」再说「可以合入了」单条不共现，累计才能拼出呈递形态）。
+   *  invoke 级生命周期（与 lastSpeakMessageId 同步重置；重启归零后 yield 先被「尚未落账 speak」拦，
+   *  补 speak 即重新累计，两闸自洽）。 */
+  speakBodiesThisTurn?: string[];
   /** F20260913ctlv：当前 invoke ID（invoke 级上下文）。F20260911pspl 合流：getter 化穿透寄存器 */
   currentInvokeId?: string;
   /** F20260913ctlv：SSE 发射通道（工具层发 entry.yield 等事件用）。寄存器穿透 */
