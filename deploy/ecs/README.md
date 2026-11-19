@@ -58,7 +58,7 @@
    - `curl https://otter.60.205.214.148.sslip.io/api/ping` → `{"ok":true,...}`
    - 浏览器开 `https://otter.60.205.214.148.sslip.io/` 登录页
    - `systemctl status otter-buddy`（active + Memory 曲线）
-   - connector 改连 `wss://otter.60.205.214.148.sslip.io/connector-ws`（6c 强化前的过渡面）
+   - connector 升级新包后改连 `wss://otter.60.205.214.148.sslip.io/connector-ws`（安装：`npm i -g otter-buddy-connector-<ver>.tgz`，命令 `otter-connector --hub https://otter...`——升级子协议 pin 生效后旧版客户端（仓内直跑形态）会被 400 拒，装包即解，配对身份不变）
 
 ## 单实例语义（阶段 6 红线）
 
@@ -78,4 +78,4 @@
 - **终态进程拓扑（搭档定稿）**：这台机只有一个海獭系统——主中枢进程（含全部模块能力）；
   PoC 中枢（263M）退役让位，colink-agent-app（~几十 M，CoLink 通道适配）过渡保留至
   能力并入；内存账：系统服务 ~500M + 主中枢（关 bge）400-700M + swap 6G 兜底，余量健康
-- 阶段 6c 将加 connector WSS 升级鉴权强化与 packages 化，当前 wss 面靠 Bearer token（阶段 4 配对码产物）
+- connector WSS 升级鉴权强化与 packages 化已随 6c 落地：升级层三查（子协议 pin → Origin 白名单 → Bearer token，见 F20261119cwssp）；Origin 白名单 `OTTER_WS_ALLOWED_ORIGINS` 当前保持空（fail-closed 拒带 Origin 请求，connector node 客户端不受影响）

@@ -251,21 +251,28 @@ describe("ConnectorWsGateway 升级请求双查（6c：子协议 pin + Origin �
     db.close();
   });
 
-  /** 拒绝断言：升级被 hub 拒（4xx）→ 客户端 error 事件，连接不开 */
-  async function expectRejected(url: string, opts: ConnectOpts, token: string | null): Promise<void> {
+  /** 拒绝断言：升级被 hub 拒（4xx）→ 客户端 error 事件（钉住具体状态码，不断言笼统 toThrow）
+   *  + 连接不开 */
+  async function expectRejected(url: string, opts: ConnectOpts, token: string | null, expectedStatus: number): Promise<void> {
     await expect(new Promise((_, reject) => {
       const ws = wsConnect(url, token, opts);
       ws.on("error", err => { reject(err); ws.terminate(); });
       ws.on("open", () => { ws.terminate(); reject(new Error("connection unexpectedly opened")); });
-    })).rejects.toThrow();
+    })).rejects.toThrow(new RegExp(`Unexpected server response: ${String(expectedStatus)}`));
   }
 
   it("① 子协议 pin：缺声明的升级请求拒（400，扫描器/通用客户端挡在指纹层）", async () => {
     const hub = await startHub(db);
     try {
-      await expectRejected(hub.url, { subprotocol: null }, "tok-test");
+      await expectRejected(hub.url, { subprotocol: null }, "tok-test", 400);
       // 错误子协议同样拒
-      await expectRejected(hub.url, { subprotocol: ["some-other-protocol"] }, "tok-test");
+      await expectRejected(hub.url, { subprotocol: ["some-other-protocol"] }, "tok-test", 400);
+      // 混合列表含 pin 值 → 命中放行（多协议声明是合法形态，hub 取 pin 回显）
+      const ws = wsConnect(hub.url, "tok-test", { subprotocol: ["chat-v1", CONNECTOR_WS_SUBPROTOCOL] });
+      await new Promise<void>(r => ws.on("open", () => r()));
+      expect(ws.protocol).toBe(CONNECTOR_WS_SUBPROTOCOL); // hub 回显 pin 值非首个声明
+      ws.close();
+      await waitClosed(ws);
     } finally {
       hub.gateway.dispose();
       await new Promise<void>(resolve => hub.server.close(() => resolve()));
@@ -276,10 +283,11 @@ describe("ConnectorWsGateway 升级请求双查（6c：子协议 pin + Origin �
     const hub = await startHub(db); // 默认空白名单
     try {
       // 带 Origin 且白名单空 → 403 拒（即使 token 正确）
-      await expectRejected(hub.url, { origin: "https://evil.example.com" }, "tok-test");
+      await expectRejected(hub.url, { origin: "https://evil.example.com" }, "tok-test", 403);
       // 无 Origin（node 客户端）→ 放行，hello 流程通
       const ws = wsConnect(hub.url, "tok-test");
       await new Promise<void>(r => ws.on("open", () => r()));
+      expect(ws.protocol).toBe(CONNECTOR_WS_SUBPROTOCOL); // 单协议声明同样回显 pin
       ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq: 1, data: { supportedVersions: [CONNECTOR_PROTOCOL_VERSION] } }));
       const ack = await nextFrame(ws);
       expect(ack.type).toBe("hello.ack");
@@ -297,14 +305,15 @@ describe("ConnectorWsGateway 升级请求双查（6c：子协议 pin + Origin �
       // 命中白名单 → 放行（token 正确前提下 hello 通）
       const ws = wsConnect(hub.url, "tok-test", { origin: "https://otter.example.com" });
       await new Promise<void>(r => ws.on("open", () => r()));
+      expect(ws.protocol).toBe(CONNECTOR_WS_SUBPROTOCOL); // 白名单命中路径的握手回显
       ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq: 1, data: { supportedVersions: [CONNECTOR_PROTOCOL_VERSION] } }));
       const ack = await nextFrame(ws);
       expect(ack.type).toBe("hello.ack");
       ws.close();
       await waitClosed(ws);
       // 未命中（含子串仿冒——exact match 不吃 https://otter.example.com.evil.com）→ 拒
-      await expectRejected(hub.url, { origin: "https://evil.example.com" }, "tok-test");
-      await expectRejected(hub.url, { origin: "https://otter.example.com.evil.com" }, "tok-test");
+      await expectRejected(hub.url, { origin: "https://evil.example.com" }, "tok-test", 403);
+      await expectRejected(hub.url, { origin: "https://otter.example.com.evil.com" }, "tok-test", 403);
     } finally {
       hub.gateway.dispose();
       await new Promise<void>(resolve => hub.server.close(() => resolve()));
@@ -315,9 +324,9 @@ describe("ConnectorWsGateway 升级请求双查（6c：子协议 pin + Origin �
     const hub = await startHub(db, undefined, ["https://otter.example.com"]);
     try {
       // 子协议缺失 + token 也错 → 同样拒（不因 token 错误回不同信息——统一拒升级）
-      await expectRejected(hub.url, { subprotocol: null }, "tok-wrong");
+      await expectRejected(hub.url, { subprotocol: null }, "tok-wrong", 400);
       // 子协议对 + Origin 不在白名单 + token 正确 → 403 拒（Origin 查不因 token 有效而豁免）
-      await expectRejected(hub.url, { origin: "https://evil.example.com" }, "tok-test");
+      await expectRejected(hub.url, { origin: "https://evil.example.com" }, "tok-test", 403);
     } finally {
       hub.gateway.dispose();
       await new Promise<void>(resolve => hub.server.close(() => resolve()));
