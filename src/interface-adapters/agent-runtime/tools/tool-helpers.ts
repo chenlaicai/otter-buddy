@@ -157,6 +157,13 @@ export function hasCardFences(body: string): boolean {
   return countCardFences(body) > 0;
 }
 
+/** PR 呈递拍板机械闸（PR 卡片闸事故）：收集 body 中所有 html-card 围栏的源码内容（含活类，排除回执），
+ *  供 otterCard.submit 授权按钮在坊判定（围栏内有 submit 调用 = 决策卡在场）。
+ *  与 countCardFences/体积测量同源（collectCardFenceNodes），嵌套围栏口径一致。 */
+export function cardFenceValues(body: string): string[] {
+  return collectCardFenceNodes(body).map((node) => node.value ?? "");
+}
+
 /** 活类卡（html-card-play）登记摘要提取（tool-factory autoRegisterPlayableCards 使用）。
  *  修复：先剥 <script>/<style> 整块再删标签——script 内容是 JS 源码不是文案，
  *  只删标签会把源码漏进摘要（实证：quest RPG 卡摘要成了 "(function(){ var S = …"）。

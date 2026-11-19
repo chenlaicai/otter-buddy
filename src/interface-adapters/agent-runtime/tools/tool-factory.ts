@@ -6,7 +6,8 @@ import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool } from "./message-tools";
 /** 前后端共享常量，单一真相源在 @contract/api/html-card */
 import { CARD_SCHEMA_VERSION } from "@contract/api/html-card";
-import { validateSpeakBody, hasCardFences, extractPlayableCardSummary, stripToolCallSerializationLeak } from "./tool-helpers";
+import { validateSpeakBody, hasCardFences, cardFenceValues, extractPlayableCardSummary, stripToolCallSerializationLeak } from "./tool-helpers";
+import { recordTurnPrUrls, verifyTurnPrsOnYield, recordRegisteredPr, factPrUrlHint } from "./speak-pr-remind";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIRED_TYPES, GROUP_ID_REQUIRED_MESSAGE_PREFIX } from "@usecases/conversation/manage-key-info";
@@ -37,6 +38,8 @@ import { stripHtmlCardFences } from "@entities/conversation/message-body-project
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
 // 领域规则下沉到 usecases 层
 import { validateAndResolve } from "@usecases/conversation/talking-stone";
+// PR 卡片闸事故 PR 呈递拍板机械闸：双闸判定核心（辅闸 speak 落库前 / 主闸 yield to user 前）
+import { checkSpeakGate, checkYieldGate } from "@usecases/conversation/pr-card-gate";
 
 
  
@@ -58,13 +61,25 @@ function validateAndPersistSpeakParams(
   return null;
 }
 
+/** PR 卡片闸事故 speak 侧内容校验组合（空 body/卡片外写 + PR 呈递拍板辅闸）——
+ *  拆出控 execute 复杂度；返回首个错误文本，null 放行。辅闸判定点在 strip/validate 之后：
+ *  非法 body 优先报原错，闸只拦可发言的呈递形态（纯请求措辞表不含「可以合入」——
+ *  检视报告常态无卡，收进来误拦非呈递方）。 */
+function runSpeakBodyChecks(turnAssistantText: string | undefined, cleanBody: string): string | null {
+  /** 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
+  const bodyError = validateSpeakBody(turnAssistantText, cleanBody);
+  if (bodyError) return bodyError;
+  const prCardGateError = checkSpeakGate(cleanBody, hasCardFences);
+  return prCardGateError;
+}
+
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
     // 判断标准归位（原设计 L81，在 description 压缩中失传）。
     // 勿再移出：行为触发类引导必须在工具 description（每请求随 tools 参数注入，pi-ai
     // anthropic-messages.js convertTools），references 指针对「要不要用」的决策无效。
-    description: "发言工具——你在聊天室里唯一的发言通道：普通文本输出其他人不可见，只有 speak(body) 的内容会被所有人看到；进展/结论/提问/汇报一律 speak. 纯内容输出不移交行动权，调用后 agent loop 继续，可连续多次 speak（body 按顺序拼接）. TIP: 形态选择（六形态平权，什么场景选什么形态）——短问答/代码片段/简单列表等纯对话用 md 言语直答；方案对比/设计思路/排查结论/结构化数据正文先写 1-2 句结论、html-card 卡片放详情（每条都出卡等于没出卡）；可交互演示/游戏/小工具用 html-card-play 围栏（默认展开运行，自动登记产物）；外部链接/PR 呈递把 URL 裸写独占一段（勿 [label](url)、勿句中夹带——独占一段才自动 unfurl 预览卡；编排者动作）；PR/文档/报告等产物用 create_linked_resource 登记（摘要卡自动混排进时间轴）；图类暂无我方发图通道（lightbox 只管消息附件）；形态选对 ≠ 内容讲清——内容纪律仍由 SYSTEM.md 兑住. GOTCHA: speak≠交棒——说完还需 yield 回合才结束；HTML 卡片（```html-card 围栏）必须完整写在 body 内（写在外面系统会拒绝并指导重试），一条消息最多 2 张、单卡体积限制等具体数值以 get_html_card_contract 返回的契约为准；写卡前必调该工具. 议题汇报卡（L2 拍板）用 importance=\"high\" 默认展开——写进 meta 属性（如 ```html-card title=\"议题\" importance=\"high\"），不豁免单消息卡片预算；折叠态摘要行取卡内首个有效文本行（≤120 字符），关键结论放可见文本靠前位置. 搭档回复中的 ```html-card-reply 围栏是卡片回执（内嵌 JSON 可解析）. 系统自愈：遇系统问题（工具故障/检索缺失/格式异常/工具难用等）用 healing 参数上报——数组，每条 {type, severity, description, suggestion}；type 选 tool_failure/missing_context/wrong_tool/format_violation/knowledge_gap/performance/other/tool_use_feedback/runtime_status_mismatch，severity 缺省 low。禁止在 body 文本里写 <healing> 标签——body 原样展示给搭档，不再解析剥离。工具难用报 type=tool_use_feedback，description 以 [tool:工具名] 开头写清痛点与建议；该报的时机：调用失败且自行绕路解决/同一意图连试多个工具/参数语义反直觉/疑似与相邻工具职责重叠. 獭间信号：对派工的事实性异议/卡住升级用 signal 参数上报（objection/blocked，每条 {type, severity, payload}）；禁止在 body 文本写 <signal> 标签——body 原样展示，不再解析剥离；halt 只能大獭经 halt_otter 工具发出。",
+    description: "发言工具——你在聊天室里唯一的发言通道：普通文本输出其他人不可见，只有 speak(body) 的内容会被所有人看到；进展/结论/提问/汇报一律 speak. 纯内容输出不移交行动权，调用后 agent loop 继续，可连续多次 speak（body 按顺序拼接）. TIP: 形态选择（六形态平权，什么场景选什么形态）——短问答/代码片段/简单列表等纯对话用 md 言语直答；方案对比/设计思路/排查结论/结构化数据正文先写 1-2 句结论、html-card 卡片放详情（每条都出卡等于没出卡）；可交互演示/游戏/小工具用 html-card-play 围栏（默认展开运行，自动登记产物）；外部链接/PR 呈递把 URL 裸写独占一段（勿 [label](url)、勿句中夹带——独占一段才自动 unfurl 预览卡；编排者动作）；PR/文档/报告等产物用 create_linked_resource 登记（摘要卡自动混排进时间轴）；图类暂无我方发图通道（lightbox 只管消息附件）；形态选对 ≠ 内容讲清——内容纪律仍由 SYSTEM.md 兑住. GOTCHA: speak≠交棒——说完还需 yield 回合才结束；HTML 卡片（```html-card 围栏）必须完整写在 body 内（写在外面系统会拒绝并指导重试），一条消息最多 2 张、单卡体积限制等具体数值以 get_html_card_contract 返回的契约为准；写卡前必调该工具. 议题汇报卡（L2 拍板）用 importance=\"high\" 默认展开——写进 meta 属性（如 ```html-card title=\"议题\" importance=\"high\"），不豁免单消息卡片预算；折叠态摘要行取卡内首个有效文本行（≤120 字符），关键结论放可见文本靠前位置. 呈递 PR 请拍板时必出一张带授权按钮的决策卡（脚本内 otterCard.submit({ summary: '<PR号>合入' })，搭档点按即合法授权源）——这是机械闸校验项，缺卡 speak/yield 会被拒. 搭档回复中的 ```html-card-reply 围栏是卡片回执（内嵌 JSON 可解析）. 系统自愈：遇系统问题（工具故障/检索缺失/格式异常/工具难用等）用 healing 参数上报——数组，每条 {type, severity, description, suggestion}；type 选 tool_failure/missing_context/wrong_tool/format_violation/knowledge_gap/performance/other/tool_use_feedback/runtime_status_mismatch，severity 缺省 low。禁止在 body 文本里写 <healing> 标签——body 原样展示给搭档，不再解析剥离。工具难用报 type=tool_use_feedback，description 以 [tool:工具名] 开头写清痛点与建议；该报的时机：调用失败且自行绕路解决/同一意图连试多个工具/参数语义反直觉/疑似与相邻工具职责重叠. 獭间信号：对派工的事实性异议/卡住升级用 signal 参数上报（objection/blocked，每条 {type, severity, payload}）；禁止在 body 文本写 <signal> 标签——body 原样展示，不再解析剥离；halt 只能大獭经 halt_otter 工具发出。",
     parameters: {
       type: "object",
       properties: {
@@ -75,6 +90,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       required: ["body"],
     },
      
+    // eslint-disable-next-line complexity -- speak execute 含 params 校验/泄漏剥离/PR 记录多防线
     execute: async (_id: string, params: Record<string, unknown>) => {
       if (!ctx.currentInvokeId) return errorResponse("[错误] 系统错误：当前 invoke ID 未设置，无法发言。");
 
@@ -89,8 +105,8 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       const { body: cleanBody, leaked } = stripToolCallSerializationLeak(rawBody);
       if (leaked) logger?.warn?.(`[speak] 工具调用序列化泄漏已剥离（invoke=${ctx.currentInvokeId}）`);
 
-      /** 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
-      const bodyError = validateSpeakBody(ctx.getTurnAssistantText?.(), cleanBody);
+      // PR 卡片闸事故：空 body/卡片外写 + PR 呈递拍板辅闸（单条命中 [PR 引用 + 纯请求措辞] 且无卡 → 拒落库指导补卡）
+      const bodyError = runSpeakBodyChecks(ctx.getTurnAssistantText?.(), cleanBody);
       if (bodyError) return errorResponse(bodyError);
 
       try {
@@ -108,12 +124,26 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         // 复用 lastSpeakMessageId 字段存 entry id。
         ctx.lastSpeakMessageId = speakEntry.id;
 
+        // PR 卡片闸事故：本回合 speak body 累计（yield 主闸判定面）。fail-open：装配未注入字段时
+        // 静默跳过（宁漏勿误——闸失效不能反过来阻断发言）。
+        if (ctx.speakBodiesThisTurn) ctx.speakBodiesThisTurn.push(cleanBody);
+
         // 活类产物登记挂钩：宪法「产物=主体×时刻×形态」——活类卡是产物就该进
         // 时间轴混排体系（已铺好）。best-effort：登记失败不阻断发言（卡片本身已落库，
         // 只是少一张摘要卡）；title 取围栏 title 属性，content 提供可检索摘要
         await autoRegisterPlayableCards(ctx, cleanBody, speakEntry.id).catch((err) =>
           logger?.warn?.(`playable-card register failed: ${err instanceof Error ? err.message : String(err)}`),
         );
+
+        // PR 呈递三件套守卫（回合记录侧）：记录本回合出现的 PR URL（强=独占段
+        // unfurl 口径 / 弱=句中形态），yield 边界统一复核台账——speak 时刻登记
+        // 必然尚未发生（正确顺序 speak→登记→yield），此处提醒必误报，故只记录。
+        // best-effort：提取失败不阻断发言。
+        try {
+          recordTurnPrUrls(ctx, cleanBody);
+        } catch (err) {
+          logger?.warn?.(`[speak] pr-remind 记录失败（不阻断）: ${err instanceof Error ? err.message : String(err)}`);
+        }
 
         return {
           ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
@@ -284,7 +314,50 @@ async function emitYieldEvent(
   });
 }
 
-function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository): AgentTool {
+/** PR 卡片闸事故 yield 主闸：yield 给搭档且本回合呈递面（speak 累计 + reason）命中 [PR 引用 + 宽表请求措辞]
+ *  但无带 otterCard.submit 的决策卡 → 拒绝交棒指导补卡。拆出控 execute 复杂度。
+ *  yield to user 是「请搭档行动」的结构信号，与请求措辞共现才拦——检视獭 yield 回大獭不触发；
+ *  判定面用累计而非单条（防拆条规避）。fail-open：speakBodies 未注入时视为空。 */
+function runYieldPrCardGate(ctx: ToolContext, params: Record<string, unknown>): string | null {
+  if (!(params.to as string[] | undefined)?.includes("user")) return null;
+  return checkYieldGate(ctx.speakBodiesThisTurn ?? [], params.reason as string | undefined, cardFenceValues);
+}
+
+/** yield 成功路径的后置动作（检视轮次记账/派工台账/L2 matter 登记/重置发言标记）——
+ *  拆出控 createYieldTool 行数；返回附在交棒回执后的待办注记（空串 = 无登记）。 */
+async function finalizeYieldSideEffects(
+  ctx: ToolContext,
+  params: Record<string, unknown>,
+  resolvedIds: string[],
+  yieldResult: { invoke?: { metadata?: Record<string, unknown> | null }; yieldEntry: { id: string } },
+): Promise<string> {
+  await recordCompletedReviewRoundOnYield(ctx, yieldResult.invoke?.metadata, resolvedIds);
+  ctx.lastSpeakMessageId = undefined;
+  // （改造）：yield 成功后记账派工——
+  // markDispatched 只刷 created 状态行（首次派工时间戳不被后续多轮交棒刷新）
+  await updateDispatchLedgerOnYield(ctx, resolvedIds);
+  // L2 显式拍板项打标自动登记 matter（准入路径 1）
+  return registerMatterOnTaggedYield(ctx, params, resolvedIds, yieldResult.yieldEntry.id);
+}
+
+/** PR 呈递三件套守卫（yield 复核拆出，控 execute 行数）：拒绝顶回返回 reject；
+ *  零进展放行返回 graceNote（调用方附在交棒回执留声，不静默吞掉仍存缺口）。
+ *  复核失败不阻断交棒（best-effort）。 */
+async function runYieldPrRemindGate(
+  ctx: ToolContext,
+  logger?: Logger,
+): Promise<{ reject?: string; graceNote?: string }> {
+  try {
+    const verdict = await verifyTurnPrsOnYield(ctx);
+    if (!verdict.pass) return { reject: verdict.remind };
+    return { graceNote: verdict.remind };
+  } catch (err) {
+    logger?.warn?.(`[yield] pr-remind 复核失败（不阻断交棒）: ${err instanceof Error ? err.message : String(err)}`);
+    return {};
+  }
+}
+
+function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "yield",
     description: "交棒工具——结束本轮行动，把行动权交给指定参与者（对方立即被唤醒）。先 speak 再 yield（yield 不携带内容）；若 yield 被拒「尚未落账 speak」，直接补一次 speak 再 yield，勿排查工具。yield 必须单独调用（同批 terminate 不生效）。路由：子任务完成传回召唤者或流程下一步执行者；终审才传 'user'；不确定在场成员先调 get_active_participants。yield 给自己=任务锚点入箱下轮续跑（合法但受梯度护栏保护，禁止长期占用不产出）。⚠️ yield to 'user' 前先想：为什么需要用户介入？自己能处理或该先找其他獭就别传，用 reason 说明理由。",
@@ -312,12 +385,19 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       required: ["to"],
     },
 
+    // eslint-disable-next-line complexity -- yield execute 含内容校验/PR 复核/收发双方校验多防线
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // 消息非空校验（有 speak entry 才能交棒）
+      // 消息非空校验（有 speak entry 才能交棒）+ PR 卡片闸事故 PR 呈递拍板主闸（拆出控复杂度）
       const msgError = await validateMessageHasContent(ctx);
       if (msgError) return errorResponse(msgError);
+      const prCardGateError = runYieldPrCardGate(ctx, params);
+      if (prCardGateError) return errorResponse(prCardGateError);
       const paramsError = validateYieldParams(params);
       if (paramsError) return paramsError; const recipients = params.to as string[];
+
+      // PR 呈递三件套守卫（yield 复核侧）：缺席拒绝顶回；零进展放行留声（拆出控行数，best-effort）
+      const prRemind = await runYieldPrRemindGate(ctx, logger);
+      if (prRemind.reject) return errorResponse(prRemind.reject);
 
       const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
       const { resolvedIds, error } = validateAndResolve(recipients, active);
@@ -334,21 +414,11 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
           assignmentRole: params.assignmentRole === "reviewer" ? "reviewer" : undefined,
         });
 
-        await recordCompletedReviewRoundOnYield(ctx, yieldResult.invoke?.metadata, resolvedIds);
-        ctx.lastSpeakMessageId = undefined;
-
-        // （改造）：yield 成功后记账派工——
-        // markDispatched 只刷 created 状态行（首次派工时间戳不被后续多轮交棒刷新）
-        await updateDispatchLedgerOnYield(ctx, resolvedIds);
-
-        // L2 显式拍板项打标自动登记 matter（准入路径 1）
-        const matterNote = await registerMatterOnTaggedYield(
-          ctx, params, resolvedIds, yieldResult.yieldEntry.id,
-        );
+        const matterNote = await finalizeYieldSideEffects(ctx, params, resolvedIds, yieldResult);
 
         await emitYieldEvent(ctx, yieldResult, resolvedIds);
 
-        return { ...textResponse(`[系统控制信号] 交棒成功，回合结束。${matterNote}`), terminate: true };
+        return { ...textResponse(`[系统控制信号] 交棒成功，回合结束。${matterNote}${prRemind.graceNote ? ` ${prRemind.graceNote}` : ""}`), terminate: true };
       } catch (err) {
         if (err instanceof DomainError && err.kind === "conflict") {
           return { ...textResponse("[系统控制信号] 本回合行动已交棒，无需重复调用 yield。请停止调用任何工具。"), terminate: true };
@@ -1434,6 +1504,22 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
   };
 }
 
+/** PR 呈递三件套守卫（登记侧）：pr 登记记入回合寄存器（确认呈递信号——yield
+ *  不变量二据此核「裸链独占段」）；fact 含 PR URL 引导改 pr 类型（原事故
+ *  「仅摘要卡」形态的登记侧入口）。回执提醒不阻断登记（引导式，非拒绝）。 */
+function prRemindGuardNoteOnLink(ctx: ToolContext, resourceType: string, params: Record<string, unknown>): string {
+  try {
+    if (resourceType === "pr" && params.url) recordRegisteredPr(ctx, params.url as string);
+    if (resourceType === "fact") {
+      const hint = factPrUrlHint(params);
+      if (hint) return `\n${hint}`;
+    }
+  } catch {
+    // best-effort：守卫记录失败不影响登记主路径
+  }
+  return "";
+}
+
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
@@ -1484,7 +1570,10 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
         resourceType,
         groupId: params.groupId as string | undefined,
       });
-      return textResponse(`Linked resource created: ${resource.id} (type=${resource.resourceType}, status=${resource.status}, group=${resource.groupId})`);
+      const guardNote = prRemindGuardNoteOnLink(ctx, resourceType, params);
+      return textResponse(
+        `Linked resource created: ${resource.id} (type=${resource.resourceType}, status=${resource.status}, group=${resource.groupId})${guardNote}`,
+      );
     },
   };
 }
@@ -1969,7 +2058,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   const matterRepo = ctx.matterRepo;
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
-    createYieldTool(ctx, healingRepo),
+    createYieldTool(ctx, healingRepo, logger),
     createWaitTool(),
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx, healingRepo),
