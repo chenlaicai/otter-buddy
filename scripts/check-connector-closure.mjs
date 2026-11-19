@@ -12,7 +12,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
-const distRoot = path.resolve("dist/connector");
+const distRoot = path.resolve("packages/connector/dist");
 
 const FORBIDDEN = [
   /@frameworks\/agent/,
