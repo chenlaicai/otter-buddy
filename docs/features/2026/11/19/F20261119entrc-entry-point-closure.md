@@ -47,7 +47,7 @@ causal_links:
 | 4 | 读面显式收档：`/api/conversations*`、`/api/invokes*`、`/api/entries*`、`/api/memory*`、`/api/otters*`（含 session 历史）、`/api/scheduled-tasks*`（任务 body 与执行记录）、`/api/connections*`（对话清单别名）、`/api/skills`、`/api/prompts`、`/api/activity*`、`/api/health*`、`/api/weixin|feishu|channels|execution-machines` 的 GET/HEAD → `write`；`POST /api/memory/search/similar` → `write`；`/api/attachments`、`/api/auth/session`、`/api/unfurl` 显式行写明为何保持 `authenticated` | 同文件策略表 |
 | 5 | 反代纵深：nginx 站点在 `location /` 清空 `X-Otter-User-Id` / `X-Otter-User-Role` | `deploy/ecs/nginx-otter.conf` |
 | 6 | 配置样例补 `server.host` 注释 | `config/config.yaml.example` |
-| 7 | 探查地址改定 `127.0.0.1`：运维脚本的健康检查不再用 `localhost`（缺省只绑 IPv4 回环后，`localhost` 解析到 `::1` 会先撞一次连接失败） | `scripts/alpha.sh`、`scripts/otter-buddy.sh` |
+| 7 | 探针地址跟随有效监听地址：新增 `scripts/lib/probe-host.sh`（`server.host` 未配置/`0.0.0.0` → `127.0.0.1`；`::`/`::1` → `[::1]`；IPv6 字面量补方括号）。两个运维脚本的探活不再写死 IPv4 回环——否则配置成 `::1` 的实例探活恒失败，alpha 会据此误杀刚起的健康进程 | `scripts/lib/probe-host.sh`、`scripts/alpha.sh`、`scripts/otter-buddy.sh` |
 
 ## 关键取舍
 
@@ -88,5 +88,6 @@ causal_links:
 | P1 | 业务正文读口别名漏网：`/api/connections/:id/conversations`（对话清单别名）、`/api/scheduled-tasks/:id(/executions)`（任务 body 全文）、`/api/otters/:id/sessions`（交接 summary） | 全部并入显式读档规则 |
 | P2 | 能力库/提示词库全文（`/api/skills`、`/api/prompts`）仍 guest 可读 | 升 `write` |
 | P2 | 一处恒真断言（只断言导出是函数） | 改为 `allowsDeclaredIdentity` 直测：无对端地址放行 / 非回环拒 / 空值转发头拒 |
+| P1（二轮） | 合法 IPv6 监听配置（`server.host: ::1`）下运维脚本探针写死 IPv4 回环 ⇒ 探活恒失败，alpha 会把健康进程当启动失败清掉 | 新增 `scripts/lib/probe-host.sh` 统一映射（缺省/`0.0.0.0`→`127.0.0.1`，`::`/`::1`→`[::1]`，IPv6 字面量补括号），两个脚本探针跟随 `server.host`；补 `tests/scripts/probe-host.test.ts` 回归（含 `::1`/`::`/带引号/非回环 IPv6） |
 
 一并审查后主动补足：`/api/activity*`、`/api/health*`、`/api/weixin|feishu|channels|execution-machines` 同为内部运营与凭据元数据面，一并收档。
