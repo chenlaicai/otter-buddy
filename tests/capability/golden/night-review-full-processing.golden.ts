@@ -60,7 +60,9 @@ export const golden: GoldenModule["golden"] = {
       const suffix = `${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       const beliefs = SCENARIO_BELIEFS.map((b) => ({ ...b, id: `${b.id}-${suffix}` }));
       for (const b of beliefs) {
-        insertBelief(ctx.built.db, b.id, b.content, new Date(now - 1_800_000).toISOString());
+        // createdAt 取 now（快照闭区间上界内）：保证每轮 setup 行恒新于上一轮 selftest
+        // factory 行——assert 反查「最新 2 条」在采样轮命中本轮清单、在 selftest 轮命中工厂行
+        insertBelief(ctx.built.db, b.id, b.content, new Date(now).toISOString());
       }
       await ctx.built.repos.otterContext.set(otterId, NIGHT_REVIEW_RANGE_CONTEXT_KEY, JSON.stringify({ after, through }));
       const anchors = new Map(beliefs.map((b) => [`anchor-${b.id}`, {
@@ -76,7 +78,7 @@ export const golden: GoldenModule["golden"] = {
           content: b.content,
           contentType: "belief",
           metadata: { kind: "state", status: "recorded", anchors: [`anchor-${b.id}`] },
-          createdAt: new Date(now - 1_800_000).toISOString(),
+          createdAt: new Date(now).toISOString(),
         } as never)),
         anchors,
       );
@@ -108,25 +110,41 @@ function toolCallTargets(messages: GoldenMsg[], afterSeq: number): Array<{ name:
   return out;
 }
 
-export const assert: GoldenModule["assert"] = async ({ messages }) => {
+/** 反查本轮清单 id：setup 每采样轮直写 2 条（created_at 单调递增），取最新 N 条即本轮。
+ *  断言与清单精确比对（第五轮审视修正：任意两个不同 id 不算数——必须正是清单内的条目）。 */
+function loadScenarioIds(db: { prepare: (sql: string) => { all: () => Array<{ id: string }> } }): Set<string> {
+  const rows = db.prepare(
+    "SELECT id FROM memory_entries WHERE id LIKE 'golden-nr-b%' AND content_type = 'belief' ORDER BY created_at DESC, id DESC LIMIT 2",
+  ).all();
+  return new Set(rows.map((r) => r.id));
+}
+
+export const assert: GoldenModule["assert"] = async ({ ctx, messages }) => {
   const afterSeq = latestUserSeq(messages.filter((m) => m.st === "user"));
   const targets = toolCallTargets(messages, afterSeq);
   const names = targets.map((t) => t.name);
 
   const migrationIds = new Set(
-    targets.filter((t) => MIGRATION_TOOLS.has(t.name) && t.entryId !== null).map((t) => t.entryId),
+    targets.filter((t) => MIGRATION_TOOLS.has(t.name) && t.entryId !== null).map((t) => t.entryId as string),
   );
   const outOfScope = names.filter((t) => !ALLOWED_TOOLS.has(t));
   const spoke = names.includes("speak");
+  const scenarioIds = loadScenarioIds(ctx.built.db);
+  // 清单内每条都被处置（全覆盖）；处置目标不出清单（幻觉 id / 乱处置别的条目不算数）
+  const uncovered = [...scenarioIds].filter((id) => !migrationIds.has(id));
+  const offList = [...migrationIds].filter((id) => !scenarioIds.has(id));
 
-  // 核心判据（四轮审视发现 19 修正）：
-  // ① 每条必处置——按 entry_id 去重后 ≥ 清单数（同条重复调用不计数、无参调用不计数）
+  // 核心判据（四轮发现 19 + 五轮清单外对抗修正）：
+  // ① 清单反查精确比对——scenarioIds 全覆盖且无清单外处置（同条重复/无参/幻觉 id 均不达标）
   // ② 不越工具面（受限写者只许 5 白名单工具）
-  // ③ speak 汇总收尾（进判据——无收尾的沉默处置不算完成）
-  const ok = migrationIds.size >= SCENARIO_BELIEFS.length && outOfScope.length === 0 && spoke;
+  // ③ speak 汇总收尾（无收尾的沉默处置不算完成）
+  // ④ 清单行不可得（DB 异常/残留污染）→ fail-closed 拒，不放行
+  const ok = scenarioIds.size === SCENARIO_BELIEFS.length
+    && uncovered.length === 0 && offList.length === 0
+    && outOfScope.length === 0 && spoke;
   return {
     ok,
-    detail: `distinctMigrations=${migrationIds.size}/${SCENARIO_BELIEFS.length} spoke=${spoke} outOfScope=${JSON.stringify(outOfScope)} ids=${JSON.stringify([...migrationIds])} tools=${JSON.stringify(names)}`,
+    detail: `scenario=${scenarioIds.size} covered=${scenarioIds.size - uncovered.length}/${scenarioIds.size} offList=${JSON.stringify(offList)} spoke=${spoke} outOfScope=${JSON.stringify(outOfScope)} tools=${JSON.stringify(names)}`,
   };
 };
 
@@ -135,61 +153,82 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
  * good = 两条 belief 各调用一次迁移工具后 speak 收尾。
  * bad  = 只处置一条就 speak 收尾（漏处置——「没有保持原状选项」的纪律违规）。
  */
-export const selftest: GoldenModule["selftest"] = {
-  good: {
-    messages: [
+export const selftest: GoldenModule["selftest"] = async (ctx) => {
+  // DB 依赖场景（factory 形态）：断言反查清单行——先写 2 条（st-b1/st-b2）作本轮清单，
+  // 轨迹的 entry_id 与之精确比对。第五轮清单外对抗轨迹（ghost id）也在此钉证。
+  insertBelief(ctx.built.db, "golden-nr-bst1", "st 清单第一条", new Date().toISOString());
+  insertBelief(ctx.built.db, "golden-nr-bst2", "st 清单第二条", new Date().toISOString());
+  return {
+    good: {
+      messages: [
+        {
+          id: "st-nr-o1", st: "otter", si: "selftest-otter", content: "已核对 2 条：1 条核实、1 条过期", status: "completed", seq: 1,
+          events: [
+            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_verify", arguments: { entry_id: "golden-nr-bst1" } }] } },
+            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_supersede", arguments: { entry_id: "golden-nr-bst2" } }] } },
+            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+          ],
+        },
+      ],
+      expectedOk: true,
+    },
+    bad: [
       {
-        id: "st-nr-o1", st: "otter", si: "selftest-otter", content: "已核对 2 条：1 条核实、1 条过期", status: "completed", seq: 1,
-        events: [
-          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_verify", arguments: { entry_id: "b1" } }] } },
-          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_supersede", arguments: { entry_id: "b2" } }] } },
-          { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+        // 漏处置：清单第二条没碰
+        messages: [
+          {
+            id: "st-nr-o2", st: "otter", si: "selftest-otter", content: "第一条没问题，先汇报一下", status: "completed", seq: 1,
+            events: [
+              { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_verify", arguments: { entry_id: "golden-nr-bst1" } }] } },
+              { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+            ],
+          },
         ],
+        expectedOk: false,
+      },
+      {
+        // 同条重复处置 + 无 speak 收尾（四轮审视发现 19 钉证形态）
+        messages: [
+          {
+            id: "st-nr-o3", st: "otter", si: "selftest-otter", content: "", status: "completed", seq: 1,
+            events: [
+              { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_verify", arguments: { entry_id: "golden-nr-bst1" } }] } },
+              { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_verify", arguments: { entry_id: "golden-nr-bst1" } }] } },
+            ],
+          },
+        ],
+        expectedOk: false,
+      },
+      {
+        // 清单外 id 对抗（五轮审视钉证形态）：处置了两个不存在的幻觉条目 + 收尾——
+        // 次数与去重都达标，但清单内条目实际全部漏审，必须判 !ok
+        messages: [
+          {
+            id: "st-nr-o4", st: "otter", si: "selftest-otter", content: "两条都核对完了", status: "completed", seq: 1,
+            events: [
+              { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_verify", arguments: { entry_id: "ghost-1" } }] } },
+              { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_reject", arguments: { entry_id: "ghost-2" } }] } },
+              { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+            ],
+          },
+        ],
+        expectedOk: false,
+      },
+      {
+        // 越工具面：受限写者调用清单外工具
+        messages: [
+          {
+            id: "st-nr-o5", st: "otter", si: "selftest-otter", content: "我查一下记忆库再核对", status: "completed", seq: 1,
+            events: [
+              { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_verify", arguments: { entry_id: "golden-nr-bst1" } }] } },
+              { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_supersede", arguments: { entry_id: "golden-nr-bst2" } }] } },
+              { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "search_memory" }] } },
+              { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
+            ],
+          },
+        ],
+        expectedOk: false,
       },
     ],
-    expectedOk: true,
-  },
-  bad: [
-    {
-      // 漏处置：只处理 b1 就收尾
-      messages: [
-        {
-          id: "st-nr-o2", st: "otter", si: "selftest-otter", content: "第一条没问题，先汇报一下", status: "completed", seq: 1,
-          events: [
-            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_verify", arguments: { entry_id: "b1" } }] } },
-            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
-          ],
-        },
-      ],
-      expectedOk: false,
-    },
-    {
-      // 越工具面：受限写者调用清单外工具
-      messages: [
-        {
-          id: "st-nr-o3", st: "otter", si: "selftest-otter", content: "我查一下记忆库再核对", status: "completed", seq: 1,
-          events: [
-            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_verify", arguments: { entry_id: "b1" } }] } },
-            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_supersede", arguments: { entry_id: "b2" } }] } },
-            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "search_memory" }] } },
-            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "speak" }] } },
-          ],
-        },
-      ],
-      expectedOk: false,
-    },
-    {
-      // 同条重复处置 + 无 speak 收尾（四轮审视发现 19 钉证形态：调用次数达标但条目没铺开）
-      messages: [
-        {
-          id: "st-nr-o4", st: "otter", si: "selftest-otter", content: "", status: "completed", seq: 1,
-          events: [
-            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_verify", arguments: { entry_id: "b1" } }] } },
-            { eventType: "assistant_toolcall", payload: { content: [{ type: "toolCall", name: "belief_verify", arguments: { entry_id: "b1" } }] } },
-          ],
-        },
-      ],
-      expectedOk: false,
-    },
-  ],
+  };
 };
