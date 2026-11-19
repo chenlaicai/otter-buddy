@@ -34,6 +34,8 @@ modules:
   - src/interface-adapters/agent-runtime/tools/tool-factory.ts
   - src/bootstrap/platforms.ts
   - src/bootstrap/clients.ts
+  - tests/capability/golden/golden.runner.ts
+  - tests/capability/golden/night-review-full-processing.golden.ts
 ---
 
 # 夜间审视编排（F20261118nrorc）
@@ -175,9 +177,13 @@ small 不可见/night-reviewer 不含，不给核实权）。空变更集不挂�
 
 12. **补审计路径失败治理缺口**：pending=0 的 settle 原在 try 之外（补发再失败直上抛
     熔断任务）——统一进 try/catch（recordFailureOrSkip 治理覆盖两条路径）+ 用例钉证。
-13. **Golden Gate**：豁免类型分歧呈搭档裁决（夜审 prompt 行为失效的失败模式已被编排
-    硬代码封死——漏处置不 settle、越界被拒、连败 healing 可见；保真 golden 场景需
-    runner 支持受限獭会话的基建扩展，独立一刀）。PR body 豁免声明保留。
+13. **Golden Gate**：搭档裁决（2026-11-19）——不豁免，本 PR 直接扩展 golden 框架支持
+    受限档案獭测试：runner 新增 `restricted` 场景通道（按指定 otterType/systemPrompt
+    建獭 + setup 钩子注入场景数据 + 直接 invoke 该獭，而非只测对话大獭）；新增首场景
+    `night-review-full-processing`（直写 2 条 recorded belief + 快照范围写 context，
+    断言每条必处置 + 不越受限工具面）；selftest 判别力通过（good ok / 双 bad 拒），
+    真 LLM 采样 3/3 通过（glm-flash 端点；mimo 测试端点当日配额耗尽），记录已落
+    data/metrics/golden-results.jsonl。
 14. **文档主方案与代码同步**：主流程节改四状态全集 + fyi 先于 complete + 统一失败
     治理 + dispute 执行体；verify_by note 与验证计数同步。
 15. **CI up-to-date 闸**：rebase 最新 main 重跑（流程收尾）。
