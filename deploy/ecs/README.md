@@ -41,10 +41,17 @@
 3. **systemd 单元**：`sudo cp deploy/ecs/otter-buddy.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable otter-buddy`
 4. **TLS**：先装 nginx-otter.conf 的 80 段（或整文件）→ `sudo bash deploy/ecs/setup-tls.sh` → 确认证书路径 → reload nginx
 5. **代码部署**：前置——本机仓 `.otter/deploy-keys/ecs-ssh.sh`（免密 helper，私钥同目录、已 gitignore）与远端 `/opt/node24` 就绪。然后本机仓库根 `bash deploy/ecs/deploy.sh`（build → tar+ssh 管道 → 远端 npm ci → restart → 探活 → App unit 同步与版本核对；传输统一走 ecs-ssh.sh 单一身份 admin）
-   - **一次部署覆盖两个 unit**（2026-11-19 起）：`otter-buddy`（中枢，`/opt/otter-buddy`）与 `colink-agent-app`（CoLink App 扩展，`/opt/colink-agent-app`）。脚本第二段把中枢里的 `extensions/colink-agent-app/` 同步到独立 unit 目录、留备份、重启，并核对 `manifest.json` 的 `version` 与源清单一致——不再接受「部署成功但 App 还是旧版」。
+   - **一次部署覆盖两个 unit**（2026-11-19 起）：`otter-buddy`（中枢，`/opt/otter-buddy`）与 `colink-agent-app`（CoLink App 扩展，`/opt/colink-agent-app`）。脚本第二段把中枢里的 `extensions/colink-agent-app/` 同步到独立 unit 目录、留备份、重启，并核对 `manifest.json` 的 `version` 与源清单一致——不再接受「脚本说成功、App 版本却没跟上」。
    - 打包排除 macOS resource fork（`._*`）与 `.DS_Store`：这类文件不是内容，带上线会让文档同步整片报 `Missing frontmatter`（2026-11-19 实证 7914 个）。
-   - **两段的成功判据都是「实际服务的版本 == 源清单版本」**，不是命令 exit 0：中枢看 `/api/ping`，App 看内部端口 `manifest.json` 的 `version` 字段（JSON 解析，不用行内正则——一行 JSON 里还有 extensionPoint 的 1.0.0）。
-   - **半部署语义**：第一段成功、第二段失败时，中枢已换装而 App 仍是旧版。此时按上面「回退」节先恢复 App，再排查；不要只看脚本最后一行判断整体成败。
+   - **两段的成功判据不同，但都不是「命令 exit 0」**：中枢看 `/api/ping` 存活（该端点只返回 ok/pid/uptime，**不含版本**，所以它判的是「起来了」而非「版本对」）；App 看内部端口 `manifest.json` 的 `version` 字段是否等于源清单（JSON 解析，不用行内正则——一行 JSON 里还有 extensionPoint 的 1.0.0）。
+   - **半部署语义（四种状态，失败时现场可能只变了一半）**：
+     | 状态 | 现场 | 处置 |
+     | --- | --- | --- |
+     | 中枢磁盘已换装、进程未重启 | `/api/ping` 探活超时，但 `/opt/otter-buddy` 已是新树 | `systemctl restart otter-buddy`；仍起不来按「回退」节检上一版重跑 |
+     | 中枢已重启、依赖残缺 | 进程反复 `ERR_MODULE_NOT_FOUND` | 依赖闭包校验会先拦；漏网时按 lock 就地安装后重启 |
+     | App 磁盘已同步、进程未更新 | 内部端口 `manifest.json` 版本与源清单不符 | `systemctl restart colink-agent-app`，或回灌备份目录 |
+     | App 重启失败 | unit activating/failed、端口不通 | `journalctl -u colink-agent-app` 看首行错误；回灌备份 |
+     判据只看「实际对外声明的版本 / 存活」，因为「磁盘更新了」不等于「进程在用新代码」，只有后者对线上行为有意义。
    - **App 目录同步排除 `node_modules`**，依赖由独立安装步骤管（扩展有 sharp 这类自有生产依赖）。装完脚本会做依赖闭包校验：清单里每个 dependency 必须在 `node_modules` 有目录——缺包不会让探活失败，只会在用到该能力时炸。
    - **中枢 `npm ci` 失败时的回退**：这台机 `onnxruntime-node` 安装脚本要下载二进制、源不可达（云端 `OTTER_EMBEDDING=off`）。脚本先试 `npm ci`，失败退回「按 lock 就地安装 + 跳过安装脚本」，随后仍做依赖闭包校验 + `/api/ping` 探活。
 6. **验证**：
