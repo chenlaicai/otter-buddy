@@ -41,7 +41,7 @@ export interface InvokeRegister {
    *  新 invoke 重置为 undefined） */
   lastSpeakEntryId?: string;
   /** PR 呈递三件套守卫：本回合 speak 出现的 PR URL（强/弱信号分层） */
-  turnPrUrls?: { strong: string[]; weak: string[] };
+  turnPrUrls?: { strong: string[]; weak: string[]; registered: string[] };
   /** yield 边界 PR 守卫拒绝计数（同回合≥1 放行防死循环；恒有值，创建即 0） */
   turnYieldPrRemindCount: number;
 }
@@ -170,7 +170,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     get lastSpeakMessageId() { return register.lastSpeakEntryId; },
     set lastSpeakMessageId(v: string | undefined) { register.lastSpeakEntryId = v; },
     get turnPrUrls() { return register.turnPrUrls; },
-    set turnPrUrls(v: { strong: string[]; weak: string[] } | undefined) { register.turnPrUrls = v; },
+    set turnPrUrls(v: { strong: string[]; weak: string[]; registered: string[] } | undefined) { register.turnPrUrls = v; },
     get turnYieldPrRemindCount() { return register.turnYieldPrRemindCount; },
     set turnYieldPrRemindCount(v: number) { register.turnYieldPrRemindCount = v; },
     isOtterRunning,

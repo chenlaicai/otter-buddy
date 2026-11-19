@@ -7,7 +7,7 @@ import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool 
 /** 前后端共享常量，单一真相源在 @contract/api/html-card */
 import { CARD_SCHEMA_VERSION } from "@contract/api/html-card";
 import { validateSpeakBody, hasCardFences, extractPlayableCardSummary, stripToolCallSerializationLeak } from "./tool-helpers";
-import { recordTurnPrUrls, verifyTurnPrsOnYield } from "./speak-pr-remind";
+import { recordTurnPrUrls, verifyTurnPrsOnYield, recordRegisteredPr, factPrUrlHint } from "./speak-pr-remind";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIRED_TYPES, GROUP_ID_REQUIRED_MESSAGE_PREFIX } from "@usecases/conversation/manage-key-info";
@@ -1458,6 +1458,22 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
   };
 }
 
+/** PR 呈递三件套守卫（登记侧）：pr 登记记入回合寄存器（确认呈递信号——yield
+ *  不变量二据此核「裸链独占段」）；fact 含 PR URL 引导改 pr 类型（原事故
+ *  「仅摘要卡」形态的登记侧入口）。回执提醒不阻断登记（引导式，非拒绝）。 */
+function prRemindGuardNoteOnLink(ctx: ToolContext, resourceType: string, params: Record<string, unknown>): string {
+  try {
+    if (resourceType === "pr" && params.url) recordRegisteredPr(ctx, params.url as string);
+    if (resourceType === "fact") {
+      const hint = factPrUrlHint(params);
+      if (hint) return `\n${hint}`;
+    }
+  } catch {
+    // best-effort：守卫记录失败不影响登记主路径
+  }
+  return "";
+}
+
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
@@ -1508,7 +1524,10 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
         resourceType,
         groupId: params.groupId as string | undefined,
       });
-      return textResponse(`Linked resource created: ${resource.id} (type=${resource.resourceType}, status=${resource.status}, group=${resource.groupId})`);
+      const guardNote = prRemindGuardNoteOnLink(ctx, resourceType, params);
+      return textResponse(
+        `Linked resource created: ${resource.id} (type=${resource.resourceType}, status=${resource.status}, group=${resource.groupId})${guardNote}`,
+      );
     },
   };
 }

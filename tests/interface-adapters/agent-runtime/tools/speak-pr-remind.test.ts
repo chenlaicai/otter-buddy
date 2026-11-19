@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createTools } from '@interface-adapters/agent-runtime/tools/tool-factory';
-import { extractPrUrls, recordTurnPrUrls, verifyTurnPrsOnYield } from '@interface-adapters/agent-runtime/tools/speak-pr-remind';
+import { extractPrUrls, recordTurnPrUrls, verifyTurnPrsOnYield, recordRegisteredPr, factPrUrlHint } from '@interface-adapters/agent-runtime/tools/speak-pr-remind';
 import type { ToolContext } from '@usecases/ports/agent-tools';
 
 const PR_URL = 'https://github.com/chenlaicai/otter-buddy/pull/1947';
@@ -97,7 +97,7 @@ describe('纯函数：recordTurnPrUrls / verifyTurnPrsOnYield', () => {
     const ctx = makeCtx();
     recordTurnPrUrls(ctx, `提及 ${PR_URL}`);
     recordTurnPrUrls(ctx, `呈递：\n${PR_URL}`);
-    expect(ctx.turnPrUrls).toEqual({ strong: [PR_URL], weak: [] });
+    expect(ctx.turnPrUrls).toEqual({ strong: [PR_URL], weak: [], registered: [] });
   });
 
   it('跨仓库同号不吞提醒（完整路径归一比对）', async () => {
@@ -142,16 +142,45 @@ describe('挂接层端到端：speak 记录 → yield 复核', () => {
     expect(pass.isError).toBeFalsy();
   });
 
-  it('原事故形态（句中夹带弱信号）：yield 拒绝不再沉默；确认仅提及后二次放行', async () => {
+  it('原事故形态（句中夹带弱信号，未登记）：yield 拒绝不再沉默；确认仅提及后二次放行', async () => {
     const ctx = makeCtx();
     await speak(ctx, `PR 已交付：${PR_URL} 请审阅`);
     const rejected = await yieldTo(ctx);
     expect(rejected.isError).toBe(true);
     const text = String((rejected as { content: Array<{ text: string }> }).content[0].text);
-    expect(text).toContain('非独占段');
+    expect(text).toContain('非独占段形态');
     expect(text).toContain('重新 yield');
     const pass = await yieldTo(ctx);
     expect(pass.isError).toBeFalsy();
+  });
+
+  it('原事故形态一（句中夹带 + 台账已登记）：不变量二拒绝——无裸链独占段则无 unfurl 卡', async () => {
+    const ctx = makeCtx({ registeredPrUrls: [PR_URL] });
+    await speak(ctx, `PR 已交付：${PR_URL} 请审阅`);
+    const rejected = await yieldTo(ctx);
+    expect(rejected.isError).toBe(true);
+    const text = String((rejected as { content: Array<{ text: string }> }).content[0].text);
+    expect(text).toContain('呈递形态不合规');
+    expect(text).toContain('裸写独占一段');
+    const pass = await yieldTo(ctx);
+    expect(pass.isError).toBeFalsy();
+  });
+
+  it('原事故形态二（本回合 pr 登记 + 正文无裸链）：不变量二拒绝补裸链', async () => {
+    const ctx = makeCtx();
+    await speak(ctx, 'PR 已交付，摘要卡已登记。');
+    recordRegisteredPr(ctx, PR_URL); // 登记侧挂接（本回合 create_linked_resource pr）
+    const rejected = await yieldTo(ctx);
+    expect(rejected.isError).toBe(true);
+    const text = String((rejected as { content: Array<{ text: string }> }).content[0].text);
+    expect(text).toContain('呈递形态不合规');
+    expect(text).toContain('unfurl');
+  });
+
+  it('登记引导（fact 含 PR URL）：回执提示改 pr 类型但不阻断 fact 创建', () => {
+    const hint = factPrUrlHint({ content: `PR ${PR_URL} 已交付` });
+    expect(hint).toContain('resourceType=pr');
+    expect(factPrUrlHint({ content: '普通事实记录' })).toBeNull();
   });
 
   it('普通发言回合（无 PR URL）：yield 直接放行，台账零查询', async () => {

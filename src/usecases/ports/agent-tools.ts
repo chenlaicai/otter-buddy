@@ -178,7 +178,7 @@ export interface ToolContext {
   /** PR 呈递三件套守卫（回合寄存器）：本回合 speak 中出现过的 GitHub PR URL，
    *  分强信号（独占段，unfurl 口径）/弱信号（句中等形态）——yield 边界复核台账，
    *  缺席首次拒绝顶回。invoke 入口重置。 */
-  turnPrUrls?: { strong: string[]; weak: string[] };
+  turnPrUrls?: { strong: string[]; weak: string[]; registered: string[] };
   /** yield 边界 PR 守卫的拒绝计数（同回合≥1 后放行防提及场景死循环）。invoke 入口重置。 */
   turnYieldPrRemindCount?: number;
   /** F20260913ctlv：当前 invoke ID（invoke 级上下文）。F20260911pspl 合流：getter 化穿透寄存器 */

@@ -283,6 +283,8 @@ describe("InvokeRegister 寄存器（getter 穿透的守护）", () => {
     reg.dispatchWarningShown = true;
     reg.orchestrationWarningShown = true;
     reg.pendingRestart = { summary: "x" };
+    reg.turnPrUrls = { strong: ["https://github.com/a/b/pull/1"], weak: [], registered: ["https://github.com/a/b/pull/2"] };
+    reg.turnYieldPrRemindCount = 1;
 
     resetInvokeRegister(reg, "new-msg");
 
@@ -292,6 +294,8 @@ describe("InvokeRegister 寄存器（getter 穿透的守护）", () => {
     expect(reg.dispatchWarningShown).toBe(false);
     expect(reg.orchestrationWarningShown).toBe(false);
     expect(reg.pendingRestart).toBeUndefined();
+    expect(reg.turnPrUrls).toBeUndefined();
+    expect(reg.turnYieldPrRemindCount).toBe(0);
   });
 
   it("resetInvokeRegister 无 messageId 时清空（合成/readOnly 场景）", () => {
