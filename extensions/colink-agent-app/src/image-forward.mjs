@@ -13,6 +13,8 @@
 
 /** 每轮发送图片上限（与接收方向对齐，避免单条消息塞满附件）。 */
 export const MAX_FORWARD_IMAGES_PER_TURN = 2;
+export const MAX_SVG_DIMENSION = 2000;
+export const MAX_SVG_ELEMENTS = 2000;
 
 const SVG_FENCE_RE = /```(?:svg|xml)\s*\n([\s\S]*?)```/gi;
 // 没有围栏但整段直接给 <svg>...</svg> 的兜底（模型偶发不包围栏）。
@@ -75,12 +77,69 @@ export function extractSvgBlocks(text) {
   return { svgs, text: remainder.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim() };
 }
 
+/** XML 数值/基础字符实体解码后再做协议检查，防止用字符实体拼出协议名绕过黑名单。 */
+function decodeXmlEntities(value) {
+  return value.replace(/&(#x[0-9a-f]+|#[0-9]+|quot|apos|lt|gt|amp);/gi, (entity, code) => {
+    const lower = code.toLowerCase();
+    if (lower.startsWith('#x')) return String.fromCodePoint(Number.parseInt(lower.slice(2), 16));
+    if (lower.startsWith('#')) return String.fromCodePoint(Number.parseInt(lower.slice(1), 10));
+    return { quot: '"', apos: "'", lt: '<', gt: '>', amp: '&' }[lower];
+  });
+}
+
+function svgDimensionInPixels(rawValue, attribute) {
+  const match = String(rawValue).match(/^\s*(\d+(?:\.\d+)?)\s*(px|pt|pc|in|cm|mm)?\s*$/i);
+  if (!match) throw new Error(`SVG_UNSAFE_DIMENSION:${attribute}`);
+  const scales = { px: 1, pt: 96 / 72, pc: 16, in: 96, cm: 96 / 2.54, mm: 96 / 25.4 };
+  const pixels = Number(match[1]) * (scales[(match[2] ?? 'px').toLowerCase()]);
+  if (!Number.isFinite(pixels) || pixels > MAX_SVG_DIMENSION) throw new Error(`SVG_DIMENSION_LIMIT:${attribute}`);
+}
+
+/**
+ * 模型可控 SVG 的渲染前白名单闸。任何可疑输入都拒绝而非交给 libxml/sharp 尝试解析。
+ * xmlns 的 URI 只是命名空间标识、不会发起读取，是唯一豁免的 http(s) 字符串。
+ */
+export function assertSafeSvg(svgText) {
+  const source = typeof svgText === 'string' ? svgText : '';
+  const decoded = decodeXmlEntities(source);
+  if (/<!\s*(?:DOCTYPE|ENTITY)\b/i.test(decoded)) throw new Error('SVG_UNSAFE_DECLARATION');
+  if (/<\s*(?:script|foreignObject|image)\b/i.test(decoded)) throw new Error('SVG_UNSAFE_ELEMENT');
+  if (/\son[a-z]+\s*=/i.test(decoded)) throw new Error('SVG_UNSAFE_EVENT_HANDLER');
+  const withoutNamespaces = decoded.replace(/\sxmlns(?::[a-z_][\w.-]*)?\s*=\s*(["'])https?:\/\/[^"']*\1/gi, '');
+  if (/(?:file|https?):\/\//i.test(withoutNamespaces)) throw new Error('SVG_EXTERNAL_REFERENCE');
+
+  const useTags = decoded.match(/<\s*use\b[^>]*>/gi) ?? [];
+  for (const tag of useTags) {
+    const hrefs = [...tag.matchAll(/\b(?:xlink:)?href\s*=\s*(["'])(.*?)\1/gi)];
+    if (hrefs.some(match => !/^#[^\s"'<>]+$/.test(match[2].trim()))) throw new Error('SVG_UNSAFE_USE_REFERENCE');
+  }
+  const elementCount = decoded.match(/<\s*[a-z_][\w:.-]*\b/gi)?.length ?? 0;
+  if (elementCount > MAX_SVG_ELEMENTS) throw new Error('SVG_ELEMENT_LIMIT');
+
+  const root = decoded.match(/<\s*svg\b[^>]*>/i)?.[0];
+  if (!root) throw new Error('SVG_ROOT_REQUIRED');
+  const attributes = new Map([...root.matchAll(/\b([a-z_:][\w:.-]*)\s*=\s*(["'])(.*?)\2/gi)]
+    .map(match => [match[1].toLowerCase(), match[3]]));
+  for (const name of ['width', 'height']) {
+    if (attributes.has(name)) svgDimensionInPixels(attributes.get(name), name);
+  }
+  // 缺省尺寸时 viewBox 可能成为 libsvg 的固有画布尺寸，同样要封顶上界。
+  if ((!attributes.has('width') || !attributes.has('height')) && attributes.has('viewbox')) {
+    const parts = attributes.get('viewbox').trim().split(/[\s,]+/).map(Number);
+    if (parts.length !== 4 || parts.some(value => !Number.isFinite(value))) throw new Error('SVG_UNSAFE_VIEWBOX');
+    if (!attributes.has('width')) svgDimensionInPixels(parts[2], 'viewBox-width');
+    if (!attributes.has('height')) svgDimensionInPixels(parts[3], 'viewBox-height');
+  }
+}
+
 /**
  * SVG 文本渲染成 PNG 字节。渲染失败抛错，调用方降级为纯文本消息。
- * 限制输出尺寸，防止模型声明超大画布把内存打爆。
+ * 限制输入画布与输出尺寸，防止模型声明超大画布把内存打爆。
+ * loadSharp 仅用于测试证明危险输入在加载渲染器之前已被拒绝。
  */
-export async function svgToPng(svgText) {
-  const { default: sharp } = await import('sharp');
+export async function svgToPng(svgText, loadSharp = () => import('sharp')) {
+  assertSafeSvg(svgText);
+  const { default: sharp } = await loadSharp();
   const buffer = await sharp(Buffer.from(svgText, 'utf8'), { density: 150 })
     .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
     .flatten({ background: '#ffffff' })

@@ -12,7 +12,7 @@ export type ConversationStatus = "active" | "archived";
  * satisfies 子集锁的两个方向中防 有害方向的那个）。其余消费点
  *  （db mapper 白名单 / controller query 解析 / repo filter / api-contract /
  * 前端 mapper）均从本源派生或经守卫过滤——同型 bug 成因模式消除。 */
-export const CONVERSATION_KINDS = ["normal", "assistant", "web-assistant"] as const;
+export const CONVERSATION_KINDS = ["normal", "assistant", "web-assistant", "external"] as const;
 export type ConversationKind = (typeof CONVERSATION_KINDS)[number];
 
 /** 类型守卫：v 是否 ConversationKind 合法值（db mapper 白名单 / query 解析用） */

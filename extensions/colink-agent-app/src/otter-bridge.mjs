@@ -2,6 +2,22 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const TERMINAL = new Set(['completed', 'failed', 'aborted']);
+export const EXTERNAL_TOKEN_BUDGET_ERROR_CODE = 'EXTERNAL_TOKEN_BUDGET_EXCEEDED';
+const EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX = `${EXTERNAL_TOKEN_BUDGET_ERROR_CODE}:`;
+
+export class ExternalTokenBudgetError extends Error {
+  constructor(userMessage) {
+    super(`${EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX}${userMessage}`);
+    this.userMessage = userMessage;
+  }
+}
+
+/** 兼容 HTTP 文本与持久化系统条目的错误形状；正常路径优先使用 Error.userMessage。 */
+export function externalTokenBudgetMessage(error) {
+  if (typeof error?.userMessage === 'string') return error.userMessage;
+  const match = String(error?.message ?? error).match(/EXTERNAL_TOKEN_BUDGET_EXCEEDED:([^\n"]+)/);
+  return match?.[1] ?? null;
+}
 
 function publicText(body) {
   return String(body ?? '')
@@ -73,17 +89,45 @@ export class OtterBridge {
     });
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 500);
+      try {
+        const payload = JSON.parse(detail);
+        if (payload.code === EXTERNAL_TOKEN_BUDGET_ERROR_CODE && typeof payload.error === 'string') {
+          throw new ExternalTokenBudgetError(payload.error.slice(EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX.length));
+        }
+      } catch (error) {
+        if (error instanceof ExternalTokenBudgetError) throw error;
+      }
       throw new Error(`OTTER_HTTP_${response.status}: ${detail}`);
     }
     return response;
   }
 
+  /**
+   * 存量绑定的懒升档：上线前建立的 CoLink 对话仍是 kind='normal'，
+   * 只声明新建不足以覆盖它们——搭档从 web 在这些旧对话发言就绕开了对话级受限档。
+   * 升档失败即抛错（fail-closed）：宁可不服务本轮，也不让外部对话按全权档跑。
+   */
+  async ensureExternalKind(otterConversationId) {
+    const response = await this.request(`/api/conversations/${otterConversationId}`);
+    const conversation = await response.json();
+    if (conversation?.kind === 'external') return;
+    await this.request(`/api/conversations/${otterConversationId}/kind`, {
+      method: 'PATCH',
+      body: JSON.stringify({ kind: 'external' }),
+    });
+  }
+
   async ensureConversation(externalKey, title) {
     const existing = this.store.get(externalKey);
-    if (existing) return existing;
+    if (existing) {
+      await this.ensureExternalKind(existing);
+      return existing;
+    }
     const response = await this.request('/api/conversations', {
       method: 'POST',
-      body: JSON.stringify({ title }),
+      // Why：声明 kind=external——中枢据此把**该对话的一切 invoke**（含搭档本人
+      // 从 web UI 的发言、后续所有 hop）钉在受限档，不再只依赖单条消息的 source。
+      body: JSON.stringify({ title, kind: 'external' }),
     });
     const conversation = await response.json();
     if (!conversation.id || !Array.isArray(conversation.otterIds) || conversation.otterIds.length !== 1) {
@@ -110,7 +154,7 @@ export class OtterBridge {
       const failedUploadIds = [];
       for (const image of images) {
         try {
-          attachmentIds.push(await this.uploadAttachment(otterConversationId, image, signal));
+          attachmentIds.push(await this.uploadAttachment(otterConversationId, image, signal, { installationId, externalId }));
         } catch {
           failedUploadIds.push(image.fileId ?? '未知');
         }
@@ -145,11 +189,13 @@ export class OtterBridge {
   }
 
   /** 上传一张图片到海獭系统附件库（multipart/form-data），返回 attachmentId。 */
-  async uploadAttachment(otterConversationId, { bytes, mimeType, fileName }, signal) {
+  async uploadAttachment(otterConversationId, { bytes, mimeType, fileName }, signal, { installationId, externalId }) {
     const form = new FormData();
     form.append('file', new Blob([bytes], { type: mimeType }), fileName);
+    // 去重键=(sha256,uploader_id)：把上传域收窄到安装实例+DM/频道，杜绝字节相同跨域命中他人文件名。
+    const uploaderId = `colink-agent-app:${installationId}:${externalId}`;
     const response = await this.fetcher(
-      `${this.baseUrl}/api/conversations/${otterConversationId}/attachments?uploaderId=colink-agent-app`,
+      `${this.baseUrl}/api/conversations/${otterConversationId}/attachments?uploaderId=${encodeURIComponent(uploaderId)}`,
       {
         method: 'POST',
         body: form,
@@ -243,6 +289,12 @@ export class OtterBridge {
         throw new Error('OTTER_TRIGGER_ENTRY_MISMATCH');
       }
       if (trigger) {
+        // 额度闸在 invoke 创建前拒绝，因此没有 failed invoke 可轮询；只认本轮之后由 core 写入的系统错误条目。
+        const budgetEntry = entries.find(entry => entry.entryType === 'system'
+          && entry.sequenceNum > trigger.sequenceNum
+          && typeof entry.body === 'string'
+          && entry.body.startsWith(EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX));
+        if (budgetEntry) throw new ExternalTokenBudgetError(budgetEntry.body.slice(EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX.length));
         // 轮次身份只认 POST 返回的 entry id 与持久化 invoke.triggerEntryId；相同正文/相近时间不构成身份。
         const chainInvokes = invokes.filter(invoke => invoke.triggerEntryId === trigger.id);
         const chainInvokeIds = new Set(chainInvokes.map(invoke => invoke.id));

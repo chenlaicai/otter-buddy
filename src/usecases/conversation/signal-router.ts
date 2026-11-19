@@ -22,6 +22,11 @@ import type { DispatchChainEngine } from "./dispatch-chain-engine";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
+import {
+  NEUTRAL_EXTERNAL_USER_LABEL,
+  externalSenderLabel,
+  isExternalSenderId,
+} from "./external-identity";
 import type { HealingErrorType, HealingEventStatus, HealingEvent, HealingSeverity } from "@entities/healing/healing-event";
 
 /**
@@ -30,12 +35,41 @@ import type { HealingErrorType, HealingEventStatus, HealingEvent, HealingSeverit
  * （partnerLabel 快照路径）不一致；降级语义对齐 dispatch-chain resolveUnreadSenderLabel 的
  * 回退约定（当前 sender 无快照 → partnerLabel）。
  */
+/** 信号发送者标签。外部接入（senderId = `external:<actorId>`）绝不能回退到
+ *  全局搭档显示名——否则受限档把外部发言标成「搭档」，诱使模型把外部内容当搭档指令；
+ *  外部来源一律中性标签（有 senderName 用 senderName，否则「外部用户 <尾4>」）。 */
 export function resolveSignalSenderLabel(
   senderName: string | null | undefined,
   senderId: string,
   partnerLabel?: string,
 ): string {
+  if (isExternalSenderId(senderId)) return externalSenderLabel(senderId, senderName);
   return senderName?.trim() || partnerLabel?.trim() || senderId;
+}
+
+/**
+ * （复核补）：对话级外部档位判定。
+ * Why：entryToSignalView 只按 `source === 'external'` 出档——网页发言 source='web'，
+ * 在 kind=external 对话里既会走热旁路（steer/followUp）又会被拼上搭档真名。
+ * 路由层必须与 agent-invoker 同口径以对话类别为准，而非消息来源。
+ * fail-closed：回读异常按外部处理（宁可降档一轮，不可泄漏身份）。
+ */
+export async function resolveExternalConversationProfile(
+  repo: Pick<ConversationRepository, "getById"> | undefined,
+  conversationId: string,
+  logger?: Logger,
+): Promise<"restricted" | undefined> {
+  const getById = (repo as { getById?: (id: string) => Promise<{ kind?: string | null } | null> } | undefined)?.getById;
+  if (typeof getById !== "function") return undefined;
+  try {
+    return (await getById.call(repo, conversationId))?.kind === "external" ? "restricted" : undefined;
+  } catch (err) {
+    logger?.warn("[signal-router] 对话类别回读失败，按外部档处理（fail-closed）", {
+      conversationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return "restricted";
+  }
 }
 
 /** invoke 函数签名（与 AgentInvoker.invokeConversation 对齐的最小面；装配处闭包捕获 agentInvoker） */
@@ -221,8 +255,14 @@ export class SignalRouter {
       return "skipped_inactive";
     }
 
+    // 对话级档位（覆盖消息级）——外部接入对话里的网页发言也算外部，
+    // 既不得走热旁路 steer（绕过 invoke 级档位），也不得在注入文本里带搭档真名。
+    const externalProfile = signal.externalProfile
+      ?? await resolveExternalConversationProfile(this.deps.conversationRepo, conversationId, this.deps.logger);
+    const externalLabel = externalProfile === "restricted";
+
     // 2. 目标是否在热池且运行中
-    if (!signal.externalProfile && this.deps.factory.isRunning(targetId)) {
+    if (!externalProfile && this.deps.factory.isRunning(targetId)) {
       // 实测修复：followUp/steer 注入成功后必须销账（consumed 标记）——
       // 否则 resume 补扫与历史扫描会把已注入的信号当成「待处理」再次点火（09-09 实测三句回复根因）。
       // 销账动作与注入动作同事务语义：注入成功即写 consumed，失败则不写（下次重试）。
@@ -231,14 +271,14 @@ export class SignalRouter {
        *  当前生成）；用户显式选 followUp（副按钮「排队」）时排队等当前轮说完再接。
        *  mode 来自 entry.metadata.injectionMode（sendMessage 请求体透传落库） */
       if (signal.injectionMode === "followUp") {
-        const followed = await this.deps.factory.followUp(targetId, await this.buildSignalText(signal));
+        const followed = await this.deps.factory.followUp(targetId, await this.buildSignalText(signal, externalLabel));
         if (followed) {
           this.deps.logger.info("[signal-router] followUp 注入成功（用户显式排队）", { conversationId, messageId: signal.id, targetId });
           return "followed_up";
         }
         this.deps.logger.info("[signal-router] followUp 不可达，降级 invoke", { conversationId, messageId: signal.id, targetId });
       } else {
-        const steered = await this.deps.factory.steerSession(targetId, await this.buildSteerText(signal));
+        const steered = await this.deps.factory.steerSession(targetId, await this.buildSteerText(signal, externalLabel));
         if (steered) {
           this.deps.logger.info("[signal-router] steer 注入成功", { conversationId, messageId: signal.id, targetId });
           return "steered";
@@ -249,7 +289,7 @@ export class SignalRouter {
     }
 
     // 3. 空闲/不在池 → invokeFn 点火
-    return this.invokeTarget(conversationId, targetId, signal);
+    return this.invokeTarget(conversationId, targetId, signal, externalProfile);
   }
 
   /**
@@ -314,16 +354,30 @@ export class SignalRouter {
   }
 
   /** 构建信号注入文本（followUp 路径：常规排队） */
-  private async buildSignalText(signal: SignalView): Promise<string> {
-    const sender = resolveSignalSenderLabel(signal.senderName, signal.senderId, await this.getPartnerLabel());
+  private async buildSignalText(signal: SignalView, externalConversation = false): Promise<string> {
+    const sender = await this.resolveSignalLabel(signal, externalConversation);
     const content = this.extractContent(signal);
     return `[${sender}] ${content}`;
   }
 
   /** 构建 steer 文本（急讯路径：下一思考点注入） */
-  private async buildSteerText(signal: SignalView): Promise<string> {
-    const sender = resolveSignalSenderLabel(signal.senderName, signal.senderId, await this.getPartnerLabel());
+  private async buildSteerText(signal: SignalView, externalConversation = false): Promise<string> {
+    const sender = await this.resolveSignalLabel(signal, externalConversation);
     return `【急讯 msg:${signal.id}】来自 ${sender}：${this.extractContent(signal)}`;
+  }
+
+  /**
+   * 注入文本里的发送者标签（复核）：
+   * 外部对话里**任何**发言者都不读全局显示名——外部 sender 走「外部用户 <尾4>」，
+   * 网页发言走中性称呼，避免在真实入口处把搭档真名拼进上下文。
+   */
+  private async resolveSignalLabel(signal: SignalView, externalConversation: boolean): Promise<string> {
+    if (externalConversation) {
+      return isExternalSenderId(signal.senderId)
+        ? externalSenderLabel(signal.senderId, signal.senderName)
+        : NEUTRAL_EXTERNAL_USER_LABEL;
+    }
+    return resolveSignalSenderLabel(signal.senderName, signal.senderId, await this.getPartnerLabel());
   }
 
   /** 配置显示名读取（缺失/异常降级 undefined → 继续回退 senderId） */
@@ -349,8 +403,9 @@ export class SignalRouter {
     conversationId: string,
     otterId: string,
     signal: SignalView,
+    externalProfile: "restricted" | undefined = signal.externalProfile,
   ): Promise<"invoked"> {
-    const userMessageContent = await this.buildSignalText(signal);
+    const userMessageContent = await this.buildSignalText(signal, externalProfile === "restricted");
     // fire-and-forget
     void (async () => {
       try {
@@ -358,7 +413,7 @@ export class SignalRouter {
           conversationId,
           userMessageContent,
           senderId: signal.senderId,
-          ...(signal.externalProfile && { externalProfile: signal.externalProfile }),
+          ...(externalProfile && { externalProfile }),
           initialTargets: [otterId],
           invokeFn: (params) => this.deps.invokeFn(params),
           triggerMessageId: signal.id,

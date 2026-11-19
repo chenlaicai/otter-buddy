@@ -20,7 +20,7 @@ import {
 describe("#1224 ConversationKind 单源", () => {
   it("单源锁：数组与派生类型是同一实体（typeof[number]），镜像断言无重复无遗漏", () => {
     // 编译期由 typeof[number] 派生保证（同一实体不可分叉）；运行时镜像锁数组无重复、无遗漏
-    expect([...CONVERSATION_KINDS]).toEqual(["normal", "assistant", "web-assistant"]);
+    expect([...CONVERSATION_KINDS]).toEqual(["normal", "assistant", "web-assistant", "external"]);
     expect(new Set(CONVERSATION_KINDS).size).toBe(CONVERSATION_KINDS.length);
   });
 

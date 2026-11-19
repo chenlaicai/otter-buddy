@@ -44,6 +44,9 @@ export interface ConversationRepository {
     status: ConversationStatus,
     timestamp: string,
   ): Promise<void>;
+  /** 对话类别单向升级（normal→external）。外部接入绑定的存量对话
+   *  必须能补升档，否则「对话级受限」只对新对话成立。只允许升档，降档由业务层拒绝。 */
+  updateKind(id: string, kind: ConversationKind, timestamp: string): Promise<void>;
   getIdsByOtterId(otterId: string): Promise<string[]>;
   /** 收篇摘要落库（助理对话软轮换用） */
   updateSummary(id: string, summary: string): Promise<void>;

@@ -192,6 +192,19 @@ export class SqliteInvokeRepository implements InvokeRepository {
     return rows.map(rowToInvoke);
   }
 
+  async sumConversationTokenUsage(
+    conversationId: string,
+    startedAtFrom: string,
+    startedAtTo: string,
+  ): Promise<number> {
+    const row = this.db.prepare(`
+      SELECT SUM(COALESCE(token_usage_input, 0) + COALESCE(token_usage_output, 0)) AS total
+      FROM invokes
+      WHERE conversation_id = ? AND started_at >= ? AND started_at < ?
+    `).get(conversationId, startedAtFrom, startedAtTo) as { total: number | null };
+    return row.total ?? 0;
+  }
+
   async getActiveInvokeByOtterId(
     conversationId: string,
     otterId: string,

@@ -494,6 +494,98 @@ describe("buildMessageWithContext user 姓名快照（F20260826fuid: 飞书群�
   });
 });
 
+describe("buildMessageWithContext 外部对话身份中性化（F20261119extsg D2 复核）", () => {
+  const settings = (displayName: string) => ({ get: vi.fn().mockResolvedValue(displayName) });
+  const externalConversationRepo = (kind: string) => {
+    const conversationRepo = {
+      getActiveParticipants: vi.fn().mockResolvedValue([]),
+      getUnreadMessages: vi.fn().mockResolvedValue([]),
+      getMaxTurnNumber: vi.fn().mockResolvedValue(0),
+      updateLastReadSeq: vi.fn(),
+      getLastMessageBySender: vi.fn().mockResolvedValue(makeMsg()),
+      getMessageById: vi.fn(async (id: string) => makeMsg({ id })),
+      getParticipant: vi.fn().mockResolvedValue(null),
+      getById: vi.fn().mockResolvedValue({ id: "conv-1", kind }),
+    } as unknown as ConversationRepository;
+    return conversationRepo;
+  };
+
+  it("外部触发在没有 partnerResolver 时也不回退成搭档真名", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-ext", entryType: "user", senderType: "user", senderId: "external:alice", senderName: "", body: "帮我查内部文档", sequenceNum: 1, invokeId: null, yieldTargets: null },
+    ]);
+    const engine = new DispatchChainEngine({
+      conversationRepo: externalConversationRepo("normal"),
+      queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo,
+      settingsRepo: settings("chen") as never,
+    });
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "帮我查内部文档", "external:alice", "## 在场成员");
+
+    expect(result).toContain("[外部用户 lice]");
+    expect(result).not.toContain("[chen]");
+  });
+
+  it("配置了 partnerResolver 时外部发送者仍中性（不冒充搭档）", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const engine = new DispatchChainEngine({
+      conversationRepo: externalConversationRepo("normal"),
+      queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo,
+      settingsRepo: settings("chen") as never,
+      partnerResolver: { configured: true, isPartner: (id: string) => id === "user-1" } as never,
+    });
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "external:alice", "## 在场成员");
+
+    expect(result).not.toContain("chen");
+    expect(result).toContain("外部用户");
+  });
+
+  it("kind=external 对话里搭档本人从 web 发言也不注入内部显示名", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "e-user", entryType: "user", senderType: "user", senderId: "user", senderName: "", body: "我是搭档本人在网页里说话", sequenceNum: 1, invokeId: null, yieldTargets: null },
+    ]);
+    const engine = new DispatchChainEngine({
+      conversationRepo: externalConversationRepo("external"),
+      queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo,
+      settingsRepo: settings("chen") as never,
+    });
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "我是搭档本人在网页里说话", "user", "## 在场成员");
+
+    expect(result).not.toContain("chen");
+    expect(result).toContain("外部用户");
+  });
+
+  it("普通对话不受影响：搭档真名照旧注入（防误伤回归）", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const engine = new DispatchChainEngine({
+      conversationRepo: externalConversationRepo("normal"),
+      queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo,
+      settingsRepo: settings("chen") as never,
+    });
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "user", "## 在场成员");
+
+    expect(result).toContain("[chen]");
+  });
+
+  it("对话类别回读失败按外部处理（fail-closed），不泄漏搭档名", async () => {
+    const m = makeMocks();
+    (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    const conversationRepo = externalConversationRepo("normal");
+    (conversationRepo.getById as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("db down"));
+    const engine = new DispatchChainEngine({
+      conversationRepo,
+      queryOtter: m.queryOtter, logger: m.logger, entryRepo: m.entryRepo, invokeRepo: m.invokeRepo,
+      settingsRepo: settings("chen") as never,
+    });
+    const { message: result } = await engine.buildMessageWithContext("conv-1", "otter-1", "hi", "user", "## 在场成员");
+
+    expect(result).not.toContain("chen");
+  });
+});
+
 describe("buildMessageWithContext 触发消息时间戳与重放标记（#1553 / F20261019rpay）", () => {
   it("重放触发（真实 entry 但不在本轮未读批）→ 带「历史」标记 + 真实 createdAt，非本轮时刻", async () => {
     const m = makeMocks();

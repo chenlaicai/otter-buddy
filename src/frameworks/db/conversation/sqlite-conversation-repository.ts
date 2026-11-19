@@ -3,6 +3,7 @@ import { assertUpdated } from "../assert-updated";
 import type {
   ArtifactStatus,
   Conversation,
+  ConversationKind,
   ConversationParticipant,
   ConversationStatus,
   LinkedResource,
@@ -124,6 +125,19 @@ export class SqliteConversationRepository implements ConversationRepository {
     } else {
       throw new Error(`Unsupported status transition: ${status}`);
     }
+  }
+
+  /** 类别单向升级（normal→external）。WHERE 带 kind='normal' 保证幂等且
+   *  绝不降档；changes=0 时区分「已是目标类别」（幂等 OK）与「其他类别」（fail-closed 抛错）。 */
+  async updateKind(id: string, kind: ConversationKind, timestamp: string): Promise<void> {
+    if (kind !== "external") throw new Error(`Unsupported kind promotion: ${kind}`);
+    const result = this.db
+      .prepare(`UPDATE conversations SET kind = ?, updated_at = ? WHERE id = ? AND kind = 'normal'`)
+      .run(kind, timestamp, id);
+    if (result.changes > 0) return;
+    const row = this.db.prepare(`SELECT kind FROM conversations WHERE id = ?`).get(id) as { kind?: string } | undefined;
+    if (row?.kind === kind) return;
+    assertUpdated(result, 'conversation', id);
   }
 
   async getIdsByOtterId(otterId: string): Promise<string[]> {

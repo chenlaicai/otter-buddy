@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import type { DomainErrorKind } from "@entities/errors";
 import { DomainError } from "@entities/errors";
 import type { Logger } from "@usecases/ports/logger";
+import { EXTERNAL_TOKEN_BUDGET_ERROR_CODE, EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX } from "@usecases/conversation/external-token-budget";
 
 /** HTTP 错误类：携带状态码，避免字符串匹配不可靠 */
 export class HttpError extends Error {
@@ -42,7 +43,11 @@ export function handleError(c: Context, err: unknown, logger?: Logger): Response
 
   if (err instanceof DomainError) {
     const status = DOMAIN_ERROR_STATUS[err.kind];
-    return c.json({ error: err.message }, status as 400 | 404 | 409 | 500);
+    const budgetExceeded = err.message.startsWith(EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX);
+    return c.json({
+      error: err.message,
+      ...(budgetExceeded && { code: EXTERNAL_TOKEN_BUDGET_ERROR_CODE }),
+    }, status as 400 | 404 | 409 | 500);
   }
   if (err instanceof HttpError) {
     return c.json({ error: err.message }, err.status as 400 | 404 | 500);

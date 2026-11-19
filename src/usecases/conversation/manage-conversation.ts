@@ -1,4 +1,4 @@
-import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
+import type { Conversation, ConversationParticipant, ConversationKind } from "@entities/conversation/conversation";
 import {
   canArchiveConversation,
 } from "@entities/conversation/conversation";
@@ -16,8 +16,10 @@ export interface CreateConversationInput {
   /** 新建对话时大獭的模型自选（透传给 CreateOtter，缺省 = 默认模型） */
   modelAlias?: string;
   /** 对话类别（assistant = IM 助理自动开户；缺省 normal）。
-   * web-assistant = web 浮动獭全局唯一对话（首唤开户，HTTP create 链） */
-  kind?: "normal" | "assistant" | "web-assistant";
+   * web-assistant = web 浮动獭全局唯一对话（首唤开户，HTTP create 链）；
+   * external = 外部接入对话（外部平台经扩展适配器建立）——该类别下**任何来源**的
+   * invoke 都强制 restricts 受限档（见 agent-invoker 演算闸） */
+  kind?: ConversationKind;
 }
 
 export class ManageConversation {
@@ -87,6 +89,23 @@ export class ManageConversation {
 
   async getById(id: string): Promise<Conversation | null> {
     return this.repo.getById(id);
+  }
+
+  /**
+   * 把存量对话单向升档为 external（外部接入适配器的懒迁移入口）。
+   * Why：适配器只在「新建」时声明 kind；上线前已存在的存量外部绑定仍是 normal，
+   * 搭档从 web 在这些旧外部对话发言时不会获得对话级受限保护。
+   * 只允许 normal→external（升档），其他类别 fail-closed 拒绝——降档会静默撤销隔离。
+   */
+  async promoteToExternal(id: string): Promise<Conversation> {
+    const conv = await this.repo.getById(id);
+    if (!conv) throw new DomainError(`Conversation not found: ${id}`, "not_found");
+    if (conv.kind === "external") return conv;
+    if (conv.kind !== "normal") {
+      throw new DomainError(`Cannot promote conversation of kind=${conv.kind} to external`, "validation");
+    }
+    await this.repo.updateKind(id, "external", new Date().toISOString());
+    return (await this.repo.getById(id)) ?? { ...conv, kind: "external" };
   }
 
   async archive(id: string): Promise<void> {

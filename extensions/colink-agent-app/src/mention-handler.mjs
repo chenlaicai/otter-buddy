@@ -1,4 +1,5 @@
 import { extractSvgBlocks, svgToPng } from './image-forward.mjs';
+import { externalTokenBudgetMessage } from './otter-bridge.mjs';
 
 /** 每轮注入海獭系统的图片上限（对齐海獭系统 dispatch-chain 的 vision 注入硬限制：每轮 ≤2 图）。 */
 const MAX_IMAGES_PER_TURN = 2;
@@ -111,18 +112,27 @@ export function createMentionHandler({ bridge }) {
     // Why: 没有文本也没有可注入的图片时，这次唤醒没有可处理的内容，保持旧行为直接失败。
     if (!text && images.length === 0) throw new Error('EMPTY_MESSAGE_TEXT');
 
-    const answer = await bridge.reply({
-      kind,
-      deploymentId: ctx.event.deploymentId,
-      installationId: ctx.context.installationId,
-      conversationId: externalId,
-      actorId: ctx.context.userId,
-      text,
-      images,
-      failedImageIds,
-      ctx,
-      signal: ctx.signal,
-    });
+    let answer;
+    try {
+      answer = await bridge.reply({
+        kind,
+        deploymentId: ctx.event.deploymentId,
+        installationId: ctx.context.installationId,
+        conversationId: externalId,
+        actorId: ctx.context.userId,
+        text,
+        images,
+        failedImageIds,
+        ctx,
+        signal: ctx.signal,
+      });
+    } catch (error) {
+      const budgetMessage = externalTokenBudgetMessage(error);
+      if (!budgetMessage) throw error;
+      // 额度是终态业务拒绝：正常回复后吞掉错误，SDK 不得重放整轮（重放只会再次超额）。
+      await ctx.reply({ text: budgetMessage });
+      return;
+    }
     await forwardAnswer(ctx, kind, answer);
   };
 }

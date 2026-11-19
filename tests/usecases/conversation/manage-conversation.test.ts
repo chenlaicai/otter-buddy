@@ -162,4 +162,44 @@ describe("ManageConversation（真 sqlite）", () => {
       );
     });
   });
+
+  describe("promoteToExternal（F20261119extsg：存量外部绑定懒升档）", () => {
+    it("normal -> external：落库并回读新类别", async () => {
+      await seedConversation("conv-1", "active");
+
+      const conv = await mc.promoteToExternal("conv-1");
+
+      expect(conv.kind).toBe("external");
+      expect((await repo.getById("conv-1"))?.kind).toBe("external");
+    });
+
+    it("已是 external -> 幂等（不报错、类别不变）", async () => {
+      await seedConversation("conv-1", "active");
+      await mc.promoteToExternal("conv-1");
+
+      const again = await mc.promoteToExternal("conv-1");
+
+      expect(again.kind).toBe("external");
+    });
+
+    it("不存在的对话 -> not_found", async () => {
+      await expect(mc.promoteToExternal("nonexistent")).rejects.toSatisfy(
+        (err: DomainError) => err.kind === "not_found",
+      );
+    });
+
+    it("非 normal 类别 -> 拒绝（降档/跨类别一律 fail-closed）", async () => {
+      await repo.create({
+        id: "conv-assistant", title: "IM 助理", status: "active", summary: null, pinned: false,
+        kind: "assistant", workspaceDir: null,
+        createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+        completedAt: null, archivedAt: null,
+      });
+
+      await expect(mc.promoteToExternal("conv-assistant")).rejects.toSatisfy(
+        (err: DomainError) => err.kind === "validation",
+      );
+      expect((await repo.getById("conv-assistant"))?.kind).toBe("assistant");
+    });
+  });
 });

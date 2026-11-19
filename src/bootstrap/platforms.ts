@@ -278,6 +278,7 @@ function buildAgentInvoker(o: {
     o.repos.matter,
     o.repos.scheduledTaskPending,
     o.modelPool,
+    o.appConfig?.external,
   );
 }
 

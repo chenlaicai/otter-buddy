@@ -7,6 +7,11 @@ import type { Logger } from "@usecases/ports/logger";
   /* eslint-disable max-lines -- 注入降级备注后 461>450；护栏 +11 行；拆文件会切断 hop 取源与记账的紧耦合内聚 */
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
+import {
+  NEUTRAL_EXTERNAL_USER_LABEL,
+  externalSenderLabel,
+  isExternalSenderId,
+} from "./external-identity";
 import { runWithTrace, newTraceId } from "@usecases/ports/trace-context";
 import type { AgentMetricsPort } from "@usecases/ports/agent-metrics-port";
 import type { PartnerResolver } from "@usecases/im/partner-resolver";
@@ -807,6 +812,39 @@ export class DispatchChainEngine {
     };
   }
 
+  /**
+   * 对话级外部判定（与 agent-invoker 的档位单源同口径）。
+   * Why：外部接入对话（kind=external）的上下文里有攻击者可控文本，连搭档本人的 web 发言
+   * 也不得把内部身份（显示名/仓库/邮箱）带进同一 prompt。
+   * fail-closed：回读异常按外部处理——宁可少注入一个名字，不可在异常时默认泄漏。
+   */
+  private async isExternalConversation(conversationId: string): Promise<boolean> {
+    const repo = this.deps.conversationRepo as unknown as {
+      getById?: (id: string) => Promise<{ kind?: string | null } | null>;
+    };
+    if (typeof repo?.getById !== "function") return false;
+    try {
+      return (await repo.getById(conversationId))?.kind === "external";
+    } catch (err) {
+      this.deps.logger.warn("[external-isolation] 对话类别回读失败，按外部对话处理（fail-closed）", {
+        conversationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return true;
+    }
+  }
+
+  /**
+   * 搭档显示名：外部接入对话一律中性称呼，不读全局 settings。
+   * Why（复核）：外部对话上下文里有攻击者可控文本，标签回退成真名即等同泄漏身份。
+   */
+  private async resolvePartnerLabel(conversationId: string): Promise<string> {
+    if (await this.isExternalConversation(conversationId)) return NEUTRAL_EXTERNAL_USER_LABEL;
+    return this.deps.settingsRepo
+      ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档')
+      : '搭档';
+  }
+
   /** 在场成员名册：name 映射注入，speak 决策时免费在场（去 otterId，speak 改用名字）
    * senderId 透传——飞书非搭档触发时追加访客提示，海獭知道「当前说话者不是我的搭档」 */
   async buildRoster(conversationId: string, senderId?: string): Promise<string> {
@@ -815,7 +853,16 @@ export class DispatchChainEngine {
       const otter = await this.deps.queryOtter.getById(p.otterId);
       return `- ${otter?.name ?? p.otterId}`;
     }));
-    const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
+    // 外部接入触发（senderId = `external:<actorId>`）不注入搭档显示名——
+    // 名册是每 hop 都会进 user message 的注入面，泄漏名字/暗示“搭档在场”就等同上一条的口子。
+    // （复核补）：senderId 前缀只覆盖外部事件触发；搭档本人从 web 在
+    // kind=external 对话里发言时 sender 是 'user'，同样不得注入搭档显示名。
+    const external = isExternalSenderId(senderId) || await this.isExternalConversation(conversationId);
+    if (external) {
+      lines.push("- 外部用户（传 'user' 即结束本轮并交回行动权）");
+      return `## 在场成员\n${lines.join('\n')}`;
+    }
+    const partnerLabel = await this.resolvePartnerLabel(conversationId);
     lines.push(`- ${partnerLabel}（传 'user' 即交还行动权给搭档）`);
     // 静态绑定后，非搭档的飞书发言者（访客）触发时明示身份——
     // 避免海獭把「当前说话的人」误当成搭档（动态推断时代的旧病）
@@ -1031,7 +1078,7 @@ export class DispatchChainEngine {
 
     // partnerLabel/staticResolver 计算上移（原在非空分支）——
     // 触发消息标签两条 return 路径都要用；纯读无副作用，时机前移逻辑等价
-    const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
+    const partnerLabel = await this.resolvePartnerLabel(conversationId);
     const resolver = this.deps.partnerResolver;
     // 三元式收窄（staticResolver 非 undefined ⟹ resolver 非空，回调内自动收窄）
     const staticResolver = resolver?.configured ? resolver : undefined;
@@ -1122,6 +1169,9 @@ export class DispatchChainEngine {
     partnerLabel: string,
     staticResolver: { isPartner: (id: string) => boolean } | undefined,
   ): string {
+    // 外部发送者必须先于 resolver 判定中性化——未配置 partnerOpenId 时下面的
+    // 降级分支会把它当「当前 sender」回退成 partnerLabel（实证：外部 trigger 渲染成搭档真名）。
+    if (isExternalSenderId(entrySenderId)) return externalSenderLabel(entrySenderId, m.senderName);
     if (staticResolver) {
       if (staticResolver.isPartner(entrySenderId)) {
         const sn = m.senderName?.trim();

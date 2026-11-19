@@ -47,6 +47,8 @@ function createEntry(overrides: Partial<Entry> = {}): Entry {
 function makeDeps(overrides?: {
   entryRepo?: Partial<EntryRepository>;
   factory?: Partial<SignalRouterSessionFactory>;
+  conversationRepo?: Partial<ConversationRepository>;
+  settingsRepo?: { get: (key: string) => Promise<string | null> };
 }) {
   const entryUpdates: Array<{ entryId: string; metadata: EntryMetadata }> = [];
   const entryRepo = {
@@ -58,14 +60,20 @@ function makeDeps(overrides?: {
   } as unknown as EntryRepository;
   const conversationRepo = {
     updateMessageSignalMeta: vi.fn(async () => {}),
+    ...overrides?.conversationRepo,
   } as unknown as ConversationRepository;
   const queryOtter = {
     getById: vi.fn(async (id: string) => ({ id, status: "active" })),
   } as unknown as QueryOtter;
-  const chainCalls: Array<{ initialTargets: string[]; triggerMessageId?: string; externalProfile?: "restricted" }> = [];
+  const chainCalls: Array<{ initialTargets: string[]; triggerMessageId?: string; externalProfile?: "restricted"; userMessageContent?: string }> = [];
   const dispatchChainEngine = {
-    executeChain: vi.fn(async (params: { initialTargets: string[]; triggerMessageId?: string; externalProfile?: "restricted" }) => {
-      chainCalls.push({ initialTargets: params.initialTargets, triggerMessageId: params.triggerMessageId, externalProfile: params.externalProfile });
+    executeChain: vi.fn(async (params: { initialTargets: string[]; triggerMessageId?: string; externalProfile?: "restricted"; userMessageContent?: string }) => {
+      chainCalls.push({
+        initialTargets: params.initialTargets,
+        triggerMessageId: params.triggerMessageId,
+        externalProfile: params.externalProfile,
+        userMessageContent: params.userMessageContent,
+      });
       return {};
     }),
   } as unknown as DispatchChainEngine;
@@ -79,6 +87,9 @@ function makeDeps(overrides?: {
   };
   const router = new SignalRouter({
     conversationRepo, entryRepo, queryOtter, dispatchChainEngine, invokeFn, logger, factory,
+    ...(overrides?.settingsRepo
+      ? { settingsRepo: { get: overrides.settingsRepo.get, set: async () => {} } as never }
+      : {}),
   });
   return { router, entryRepo, chainCalls, entryUpdates, invokeFn, logger };
 }
@@ -114,6 +125,101 @@ describe("SignalRouter 数据源（F20260913ctlv 彻底切换补漏）", () => {
     expect(results[0]!.action).toBe("invoked");
     expect(chainCalls[0]!.externalProfile).toBe("restricted");
     expect(steerSession).not.toHaveBeenCalled();
+  });
+
+  describe("F20261119extsg D3：kind=external 对话的网页发言（真实入口链路）", () => {
+    const convRepo = (kind: string) => ({
+      getById: vi.fn(async () => ({ id: "conv-1", kind })),
+    }) as unknown as Partial<ConversationRepository>;
+    const externalConv = convRepo("external");
+    const normalConv = convRepo("normal");
+    const settingsRepo = { get: vi.fn(async () => "chen") };
+
+    it("冷启动路径：注入正文不含搭档真名，且按受限档点火", async () => {
+      const entry = createEntry({ senderId: "user", source: "web", yieldTargets: ["otter-big"], body: "网页补充" });
+      const { router, chainCalls } = makeDeps({
+        entryRepo: { getEntryById: vi.fn(async () => entry) },
+        conversationRepo: externalConv,
+        settingsRepo,
+      });
+
+      const results = await router.routeSignals("conv-1", { triggerMessageId: "entry-u1" });
+
+      expect(results[0]!.action).toBe("invoked");
+      expect(chainCalls[0]!.externalProfile).toBe("restricted");
+      expect(chainCalls[0]!.userMessageContent).not.toContain("chen");
+      expect(chainCalls[0]!.userMessageContent).toContain("外部用户");
+      expect(chainCalls[0]!.userMessageContent).toContain("网页补充");
+    });
+
+    it("热路径（steer）：外部对话不走旁路，改走受限档点火", async () => {
+      const entry = createEntry({ senderId: "user", source: "web", yieldTargets: ["otter-big"], body: "紧急性补充" });
+      const steerSession = vi.fn(async () => true);
+      const { router, chainCalls } = makeDeps({
+        entryRepo: { getEntryById: vi.fn(async () => entry) },
+        conversationRepo: externalConv,
+        settingsRepo,
+        factory: { isRunning: () => true, steerSession },
+      });
+
+      const results = await router.routeSignals("conv-1", { triggerMessageId: "entry-u1" });
+
+      expect(steerSession).not.toHaveBeenCalled();
+      expect(results[0]!.action).toBe("invoked");
+      expect(chainCalls[0]!.userMessageContent).not.toContain("chen");
+    });
+
+    it("热路径（followUp 排队）：外部对话同样按受限档点火，注入文本中性", async () => {
+      const entry = createEntry({
+        senderId: "user", source: "web", yieldTargets: ["otter-big"], body: "排队补充",
+        metadata: { injectionMode: "followUp" },
+      });
+      const followUp = vi.fn(async () => true);
+      const { router, chainCalls } = makeDeps({
+        entryRepo: { getEntryById: vi.fn(async () => entry) },
+        conversationRepo: externalConv,
+        settingsRepo,
+        factory: { isRunning: () => true, followUp },
+      });
+
+      const results = await router.routeSignals("conv-1", { triggerMessageId: "entry-u1" });
+
+      expect(followUp).not.toHaveBeenCalled();
+      expect(results[0]!.action).toBe("invoked");
+      expect(chainCalls[0]!.userMessageContent).not.toContain("chen");
+    });
+
+    it("普通对话不误伤：网页发言仍带显示名并保留 steer", async () => {
+      const entry = createEntry({ senderId: "user", source: "web", yieldTargets: ["otter-big"], body: "常规补充" });
+      const steerSession = vi.fn(async () => true);
+      const { router } = makeDeps({
+        entryRepo: { getEntryById: vi.fn(async () => entry) },
+        conversationRepo: normalConv,
+        settingsRepo,
+        factory: { isRunning: () => true, steerSession },
+      });
+
+      const results = await router.routeSignals("conv-1", { triggerMessageId: "entry-u1" });
+
+      expect(results[0]!.action).toBe("steered");
+      // steerSession 首参是 targetId，注入文本是第二参
+      const steerText = (steerSession.mock.calls[0] as unknown as [string, string])[1];
+      expect(steerText).toContain("chen");
+    });
+
+    it("类别回读失败按外部档处理（fail-closed），不泄漏显示名", async () => {
+      const entry = createEntry({ senderId: "user", source: "web", yieldTargets: ["otter-big"], body: "异常路径" });
+      const { router, chainCalls } = makeDeps({
+        entryRepo: { getEntryById: vi.fn(async () => entry) },
+        conversationRepo: { getById: vi.fn(async () => { throw new Error("db down"); }) } as unknown as Partial<ConversationRepository>,
+        settingsRepo,
+      });
+
+      await router.routeSignals("conv-1", { triggerMessageId: "entry-u1" });
+
+      expect(chainCalls[0]!.externalProfile).toBe("restricted");
+      expect(chainCalls[0]!.userMessageContent).not.toContain("chen");
+    });
   });
 
   it("system entry 信号（scheduler 内部信号，收尾批2 切 entries）：yieldTargets → 点火", async () => {

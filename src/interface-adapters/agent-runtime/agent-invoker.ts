@@ -168,6 +168,12 @@ import { buildContentFilterRetryMsg, buildContentFilterTerminalMsg } from "@usec
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-port";
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
+import { externalTokenBudgetExceeded, shanghaiDayRange } from "@usecases/conversation/external-token-budget";
+
+export interface ExternalTokenBudgetConfig {
+  dailyTokenBudgetPerConversation: number;
+  budgetExceededMessage: string;
+}
 
 // buildAutoHandoffOptions / buildManualHandoffOptions 退役——
 // 红线重审后推翻原判：影子通道改变了 当年的技术形态（合成者是干净的
@@ -239,6 +245,10 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly scheduledTaskPendingRepo?: ScheduledTaskPendingItemRepository,
     /** content_filter 首次失败时选择不同模型的备用条目。 */
     private readonly modelPool?: ModelPoolLike,
+    /** 外部对话每日 token 额度；未注入时保持旧装配/测试行为。 */
+    private readonly externalTokenBudget?: ExternalTokenBudgetConfig,
+    /** 日界计算时钟（测试可注入），生产缺省当前时间。 */
+    private readonly now: () => Date = () => new Date(),
   ) {
     this.agentDispatchService = agentDispatchService;
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
@@ -379,6 +389,49 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
    
+  /**
+   * 外部接入对话的档位来源（对话级单源）。
+   * Why：消息级 source=external 只覆盖外部事件；搭档本人从 web UI 在外部对话里发言、
+   * 或任何后续 hop，都必须继续受限（否则攻击者文本与全工具档同处一个上下文面）。
+   * fail-closed：读不到对话类别时抛错拒绝执行——不得默认降级为全权档。
+   */
+  private async externalProfileForConversationKind(conversationId: string): Promise<'restricted' | undefined> {
+    if (!conversationId || !this.conversationRepo) return undefined;
+    // 装配降级面：受限注入成部分桩（测试/旧装配）时无 getById——按「无对话级档位」处理，
+    // 实际外部事件的档位仍由消息入口的 source=external 强制（双层保险不互相依赖）。
+    const getById = this.conversationRepo.getById as unknown;
+    if (typeof getById !== 'function') return undefined;
+    let kind: string | undefined;
+    try {
+      kind = (await this.conversationRepo.getById(conversationId))?.kind;
+    } catch (err) {
+      throw new DomainError(`conversation profile lookup failed: ${err instanceof Error ? err.message : String(err)}`, 'validation');
+    }
+    return kind === 'external' ? 'restricted' : undefined;
+  }
+
+  /** 在 invoke/模型调用发生前执行外部对话日额度闸。超额只留可识别的系统错误条目供轮询适配器消费。 */
+  private async assertExternalTokenBudget(conversationId: string): Promise<void> {
+    const budget = this.externalTokenBudget?.dailyTokenBudgetPerConversation;
+    if (budget === undefined || budget === 0) return;
+    const sumUsage = this.invokeRepo?.sumConversationTokenUsage;
+    if (typeof sumUsage !== 'function') {
+      throw new DomainError('external token budget usage lookup is unavailable', 'validation');
+    }
+    const { start, end } = shanghaiDayRange(this.now());
+    const used = await sumUsage.call(this.invokeRepo, conversationId, start, end);
+    if (used < budget) return;
+    const error = externalTokenBudgetExceeded(this.externalTokenBudget!.budgetExceededMessage);
+    try {
+      await this.sendEntry?.createSystemEntry({ conversationId, body: error.message });
+    } catch (entryError) {
+      this.logger.warn('[external-budget] rejection marker entry failed', {
+        conversationId, error: entryError instanceof Error ? entryError.message : String(entryError),
+      });
+    }
+    throw error;
+  }
+
   // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- 双路径迁移期；轮边界水位触发器 +3 语句（时机权回收应用层）；+invoke.start 身份透传 1 分支；水位写回 +2 语句（max-statements 覆盖已与 main 对齐）
   private async invokeConversationInner(params: {
     otterId: string;
@@ -394,11 +447,16 @@ export class AgentInvoker implements AgentTurnPort {
     triggerMessageId?: string;
     assignmentRole?: "reviewer";
   }): Promise<AgentTurnResult> {
-    const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId, externalProfile } = params;
+    const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId, externalProfile: requestedProfile } = params;
+    // （口径①）：对话级档位高于消息级——外部接入对话（kind=external）的
+    // 任何 invoke 一律 restricted，不得被单条消息的 source（如搭档从 web UI 发言的 web 档）抬升。
+    // 外层消息入口的 source 判定只覆盖“外部事件”，本闸覆盖“同一对话里的人类发言”与所有后续 hop。
+    const externalProfile = requestedProfile ?? await this.externalProfileForConversationKind(conversationId);
     // fail-closed：外部身份命名不能替代持久化 source → profile 契约，失配时拒绝而非降级全工具。
     if (!externalProfile && params.senderId.startsWith('external:')) {
       throw new DomainError('external sender requires a persisted external source and restricted profile', 'validation');
     }
+    if (externalProfile) await this.assertExternalTokenBudget(conversationId);
     const startTime = Date.now();
 
     // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent

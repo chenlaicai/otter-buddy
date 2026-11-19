@@ -124,6 +124,9 @@ export class ConversationController {
       const input: CreateConversationInput = {
         title: body.title,
         modelAlias: body.modelAlias,
+        // 外部接入适配器建对话时声明 kind=external——
+        // 该类别对话的一切 invoke 一律走受限档（含搭档本人从 web 发言），不可被单条消息 source 抬升。
+        ...(body.kind === "external" ? { kind: "external" as const } : {}),
       };
       const conv = await this.manageConversation.create(input);
       const participantsWithOtter = await this.manageParticipant.getActiveParticipants(conv.id);
@@ -141,6 +144,24 @@ export class ConversationController {
       if (!conv) {
         return c.json({ error: "Conversation not found" }, 404);
       }
+      return c.json(toConversationDTO(conv));
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
+  /**
+   * PATCH /api/conversations/:id/kind —— 外部接入绑定的存量对话懒升档。
+   * 只接受 `{ kind: 'external' }` 单向升档；其他值 400（降档会静默撤销隔离，永久拒绝）。
+   */
+  async promoteKind(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      const body = await safeJsonBody<{ kind?: string }>(c);
+      if (body.kind !== "external") {
+        throw new DomainError("只支持 kind='external' 单向升档", "validation");
+      }
+      const conv = await this.manageConversation.promoteToExternal(id);
       return c.json(toConversationDTO(conv));
     } catch (err) {
       return handleError(c, err, this.logger);

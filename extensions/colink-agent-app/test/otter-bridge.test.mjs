@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ConversationStore, OtterBridge } from '../src/otter-bridge.mjs';
+import { ConversationStore, ExternalTokenBudgetError, OtterBridge } from '../src/otter-bridge.mjs';
 
 function memoryStore() {
   const values = new Map();
@@ -38,7 +38,23 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
     const path = new URL(url).pathname;
     if (path === '/api/conversations') {
       state.creates++;
+      // 新建即外部对话——与真实中枢一致，随后的懒升档 GET 应看到 external。
+      state.createdKind = JSON.parse(options.body ?? '{}').kind ?? 'normal';
+      state.conversationKind = state.createdKind;
       return Response.json({ id: 'otter-conversation-1', otterIds });
+    }
+    if (/^\/api\/conversations\/[^/]+$/.test(path)) {
+      // 懒升档读取：返回当前类别（缺省 normal，复刻 DTO 对 normal 不下发 kind 的形态）。
+      state.kindReads = (state.kindReads ?? 0) + 1;
+      const kind = state.conversationKind;
+      return Response.json({ id: 'otter-conversation-1', ...(kind && kind !== 'normal' ? { kind } : {}) });
+    }
+    if (/^\/api\/conversations\/[^/]+\/kind$/.test(path)) {
+      const body = JSON.parse(options.body ?? '{}');
+      if (body.kind !== 'external') return Response.json({ error: 'only external' }, { status: 400 });
+      state.kindPromotions = (state.kindPromotions ?? 0) + 1;
+      state.conversationKind = 'external';
+      return Response.json({ id: 'otter-conversation-1', kind: 'external' });
     }
     if (path.endsWith('/workspace/mcp-external')) {
       const config = JSON.parse(options.body);
@@ -89,6 +105,7 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
     if (path.endsWith('/attachments')) {
       if (state.failAttachmentUpload) return Response.json({ error: 'upload failed' }, { status: 500 });
       state.attachmentUploads = (state.attachmentUploads ?? 0) + 1;
+      state.attachmentUploaderIds = [...(state.attachmentUploaderIds ?? []), new URL(url).searchParams.get('uploaderId')];
       state.lastAttachmentBodyIsFormData = options.body instanceof FormData;
       return Response.json({ attachments: [{ id: `attachment-${state.attachmentUploads}`, kind: 'image',
         mimeType: 'image/png', originalName: 'colink-image.png', sizeBytes: 70 }] }, { status: 201 });
@@ -200,6 +217,43 @@ test('isolates deployment, installation, and DM conversation mappings', async ()
   assert.equal(store.values.size, 4);
 });
 
+test('声明 kind=external 建对话，已存在绑定也不再停留在 normal（懒升档）', async () => {
+  const { state, fetcher } = fixture();
+  const store = memoryStore();
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store, fetcher, pollMs: 1 });
+  await bridge.reply(input);
+  assert.equal(state.createdKind, 'external', '新建对话必须声明外部类别');
+
+  // 复刻上线前建立的旧绑定：映射已在、对话类别仍是 normal。
+  state.conversationKind = 'normal';
+  state.kindPromotions = 0;
+  await bridge.reply({ ...input, text: '旧绑定上的下一个事件' });
+  assert.equal(state.kindPromotions, 1, '旧绑定必须在事件处理前补升档');
+  assert.equal(state.conversationKind, 'external');
+
+  // 已升档后不再重复 PATCH（每轮只读一次类别）。
+  const promotionsAfterFirst = state.kindPromotions;
+  await bridge.reply({ ...input, text: '再下一个事件' });
+  assert.equal(state.kindPromotions, promotionsAfterFirst);
+  assert.equal(state.creates, 1, '升档不新建对话');
+});
+
+test('升档接口失败时 fail-closed：不进入本轮处理', async () => {
+  const { state, fetcher } = fixture();
+  const store = memoryStore();
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store, fetcher, pollMs: 1 });
+  await bridge.reply(input);
+  const messagesBefore = state.messages.length;
+  state.conversationKind = 'normal';
+  const failing = async (url, options = {}) => {
+    if (/\/kind$/.test(new URL(url).pathname)) return Response.json({ error: 'boom' }, { status: 500 });
+    return fetcher(url, options);
+  };
+  const guarded = new OtterBridge({ baseUrl: 'http://otter.test', store, fetcher: failing, pollMs: 1 });
+  await assert.rejects(guarded.reply({ ...input, text: '升档失败的事件' }), /OTTER_HTTP_500/);
+  assert.equal(state.messages.length, messagesBefore, '升档失败不得把消息投进中枢');
+});
+
 test('uses separate namespaces for a DM and a channel with the same external UUID', async () => {
   const { state, fetcher } = fixture();
   const store = memoryStore();
@@ -261,6 +315,24 @@ test('fails closed when execution fails or terminal chain has no final speak', a
   await assert.rejects(pending, /OTTER_FINAL_SPEAK_MISSING/);
 });
 
+test('surfaces the daily budget rejection even though no invoke was created', async () => {
+  const { state, fetcher } = fixture();
+  state.pauseInvokeCreation = true;
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1 });
+  const pending = bridge.reply(input);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  state.entries.push({
+    id: 'budget-rejected', entryType: 'system', sequenceNum: 2,
+    body: 'EXTERNAL_TOKEN_BUDGET_EXCEEDED:今天的对话额度已用完，请明天再试。',
+  });
+  await assert.rejects(pending, error => {
+    assert.ok(error instanceof ExternalTokenBudgetError);
+    assert.equal(error.userMessage, '今天的对话额度已用完，请明天再试。');
+    return true;
+  });
+  assert.equal(state.invokes.length, 0);
+});
+
 test('requires exactly one otter when creating the mapped conversation', async () => {
   const { fetcher } = fixture({ otterIds: ['one', 'two'] });
   const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher });
@@ -289,6 +361,21 @@ test('uploads downloaded images as attachments and sends their ids with the mess
   assert.equal(state.messages[0].attachmentIds.length, 1);
   assert.equal(state.messages[0].attachmentIds[0], 'attachment-1');
   assert.equal(state.messages[0].body, '看图');
+});
+
+test('scopes attachment deduplication by installation and DM/channel visibility domain', async () => {
+  const { state, fetcher } = fixture();
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1 });
+  const images = [{ bytes: new Uint8Array([1, 2, 3]), mimeType: 'image/png', fileName: 'same.png' }];
+  await bridge.reply({ ...input, images });
+  await bridge.reply({ ...input, kind: 'channel', conversationId: 'dm-1', images });
+  await bridge.reply({ ...input, installationId: 'installation-2', images });
+  assert.deepEqual(state.attachmentUploaderIds, [
+    'colink-agent-app:installation-1:dm-1',
+    'colink-agent-app:installation-1:channel:dm-1',
+    'colink-agent-app:installation-2:dm-1',
+  ]);
+  assert.equal(new Set(state.attachmentUploaderIds).size, 3);
 });
 
 test('degrades a failed attachment upload to a text-only message carrying the unread image note', async () => {

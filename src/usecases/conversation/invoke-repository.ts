@@ -53,6 +53,12 @@ export interface InvokeRepository {
     conversationId: string,
     options?: GetInvokesOptions,
   ): Promise<Invoke[]>;
+  /** 外部对话日额度：仅累计真实 input+output；缓存重发账目不得放大额度消耗。 */
+  sumConversationTokenUsage(
+    conversationId: string,
+    startedAtFrom: string,
+    startedAtTo: string,
+  ): Promise<number>;
   getActiveInvokeByOtterId(
     conversationId: string,
     otterId: string,

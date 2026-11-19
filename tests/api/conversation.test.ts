@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestApp, json, createMockDeps, makeConversation, makeParticipant } from "./helpers";
 import type { TestDeps } from "./helpers";
 import { DomainError } from "../../src/entities/errors";
@@ -232,6 +232,37 @@ describe("Conversation API", () => {
       });
 
       expect(res.status).toBe(400);
+    });
+  });
+
+  // ─── PATCH /api/conversations/:id/kind（存量外部绑定懒升档） ───
+
+  describe("PATCH /api/conversations/:id/kind", () => {
+    it("kind=external 升档：调用 usecase 并回传新类别", async () => {
+      deps.manageConversation.promoteToExternal = vi.fn().mockResolvedValue(makeConversation({ kind: "external" }));
+
+      const res = await app.request("/api/conversations/conv-1/kind", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "external" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(deps.manageConversation.promoteToExternal).toHaveBeenCalledWith("conv-1");
+      expect((await json(res)).kind).toBe("external");
+    });
+
+    it("非 external 的 kind 一律 400（降档会静默撤销隔离）", async () => {
+      deps.manageConversation.promoteToExternal = vi.fn();
+
+      const res = await app.request("/api/conversations/conv-1/kind", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "normal" }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(deps.manageConversation.promoteToExternal).not.toHaveBeenCalled();
     });
   });
 
