@@ -207,3 +207,77 @@ describe("对抗检视回归：fail-open 口径（仅 speak 累计维度）", ()
     expect(checkYieldGate([], "收尾汇报，无拍板项", cardFenceValues)).toBeNull();
   });
 });
+
+describe("二轮检视回归：空壳卡五形态全闭环", () => {
+  const fake = (inner: string) => [
+    "#1964 可以合入了",
+    "```html-card title=\"PR 1964\"",
+    inner,
+    "```",
+  ].join("\n");
+
+  it("缩进行注释（空格/Tab）不算", () => {
+    expect(decisionCardPresent([fake("  // otterCard.submit({ summary: '1964合入' })")], cardFenceValues)).toBe(false);
+    expect(decisionCardPresent([fake("\t// otterCard.submit({})")], cardFenceValues)).toBe(false);
+  });
+  it("JS 字符串里的伪调用不算；真实调用同卡仍算", () => {
+    expect(decisionCardPresent([fake("<script>const example = \"otterCard.submit({})\";</script>")], cardFenceValues)).toBe(false);
+    expect(decisionCardPresent([fake("<script>const x = 'btn'; x.onclick = () => otterCard.submit({ summary: '1964合入' });</script>")], cardFenceValues)).toBe(true);
+  });
+  it("textarea 展示与 data-* 属性不算；onclick 事件属性算", () => {
+    expect(decisionCardPresent([fake("<textarea>otterCard.submit({})</textarea>")], cardFenceValues)).toBe(false);
+    expect(decisionCardPresent([fake("<button data-example=\"otterCard.submit({})\">合入</button>")], cardFenceValues)).toBe(false);
+    expect(decisionCardPresent([fake("<button onclick=\"otterCard.submit({ summary: '1964合入' })\">合入</button>")], cardFenceValues)).toBe(true);
+  });
+});
+
+describe("二轮检视回归：否定前缀扩充与语气词组保护", () => {
+  it("不用/不需要/没必要/无须/不再 均不再误拦", () => {
+    for (const s of [
+      "PR #1964 不用等你拍板，我继续收尾。",
+      "PR #1964 不需要等你拍板，我继续收尾。",
+      "PR #1964 没必要请你拍板，我继续收尾。",
+      "PR #1964 无须等你拍板，我继续收尾。",
+      "PR #1964 不再等你拍板，我继续收尾。",
+    ]) {
+      expect(hasDecisionRequestNarrow(s), s).toBe(false);
+      expect(hasDecisionRequestWide(s), s).toBe(false);
+    }
+  });
+  it("不要批准合入/不要拍板吧 不再误拦", () => {
+    expect(hasDecisionRequestWide("PR #1964 不要批准合入。")).toBe(false);
+    expect(hasDecisionRequestNarrow("PR #1964 不要拍板吧。")).toBe(false);
+    expect(hasDecisionRequestWide("PR #1964 不要拍板吧。")).toBe(false);
+  });
+  it("「要不请你拍板/要不请你授权」建议语气命中（不再被误剔）", () => {
+    expect(hasDecisionRequestWide("PR #1964 CI 全绿，要不请你拍板。")).toBe(true);
+    expect(hasDecisionRequestWide("PR #1964 CI 全绿，要不请你授权。")).toBe(true);
+    expect(hasDecisionRequestNarrow("PR #1964 CI 全绿，要不请你拍板。")).toBe(true);
+  });
+  it("「要不要合入/要不要合并」疑问请求仍命中（「不要X」前缀不误剔词组）", () => {
+    expect(hasDecisionRequestWide("PR #1964 要不要合入？")).toBe(true);
+    expect(hasDecisionRequestWide("PR #1964 要不要合并？")).toBe(true);
+  });
+});
+
+describe("二轮检视回归：指代判据引号豁免", () => {
+  it("引用反模式字面量的修复通报/测试说明放行", () => {
+    expect(hasDeferredCardReference("PR #1964 已修复『卡片在上一条』的漏报，回归测试通过。")).toBe(false);
+    expect(hasDeferredCardReference("PR #1964 的测试确保「卡片在上一条」会触发拦截。")).toBe(false);
+    expect(checkSpeakGate("PR #1964 已修复『卡片在上一条』的漏报，回归测试通过。", hasCardFences)).toBeNull();
+  });
+  it("真实指代（无引号）仍拦；「卡片见前文」同义形态覆盖", () => {
+    expect(hasDeferredCardReference("#1941 现在真的可以合了（卡片在上一条，这里补最终状态）")).toBe(true);
+    expect(hasDeferredCardReference("#1941 状态卡片见前文")).toBe(true);
+  });
+});
+
+describe("二轮检视回归：指代判据决策语境门槛", () => {
+  it("无引号纯讨论（修复通报无请求词）放行", () => {
+    expect(checkSpeakGate("PR #1964 已修复卡片在上一条的漏报，回归测试通过", hasCardFences)).toBeNull();
+  });
+  it("决策节点指代（宽表措辞共现）仍拦——2725 原始形态", () => {
+    const err = checkSpeakGate("#1941 现在真的可以合了（卡片在上一条，这里补最终状态）", hasCardFences);
+    expect(err).not.toBeNull();
+  });
+});
