@@ -87,6 +87,11 @@
   --chrome-bg: linear-gradient(180deg, rgb(255 255 255 / calc(50% * var(--glass-t))), rgb(255 255 255 / calc(32% * var(--glass-t))));
   --chrome-blur: none;
 
+  /* 一级导航专用真玻璃：低白纱覆盖 + 适度采样，保留背景色相与边缘折光。
+     与常驻大面 chrome 分离，避免为了导航观感把其他顶栏一起变透。 */
+  --nav-glass-bg: linear-gradient(115deg, rgb(255 255 255 / calc(34% * var(--glass-t))), rgb(255 255 255 / calc(12% * var(--glass-t))) 46%, rgb(255 255 255 / calc(22% * var(--glass-t))));
+  --nav-glass-blur: blur(14px) saturate(190%) contrast(105%);
+
   /* L1 浮起面板（侧栏、输入框）：稍实 + 高投影（v3.0 --panel-blur 置 none，原 blur(24px) saturate(200%)） */
   --panel-bg: linear-gradient(165deg, rgb(255 255 255 / calc(58% * var(--glass-t))), rgb(255 255 255 / calc(38% * var(--glass-t))));
   --panel-blur: none;
@@ -147,6 +152,7 @@
 @media (prefers-reduced-transparency: reduce) {
   :root {
     --chrome-bg: #F7F2EA;  --chrome-blur: none;
+    --nav-glass-bg: #F7F2EA; --nav-glass-blur: none;
     --panel-bg: #FAF6EF;   --panel-blur: none;
     --card-bg: #FFFDF9;    --card-blur: none;
     --bubble-blur: none;
@@ -216,18 +222,49 @@ body {
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
 }
 
-/* 一级主导航：小面积悬浮真玻璃。整条顶栏不再铺材质，仅菜单容器采样。 */
+/* 一级主导航：小面积悬浮真玻璃。低覆盖主体 + 镜面高光 + 双色折射边。 */
 .glass-nav {
-  background: var(--chrome-bg);
-  backdrop-filter: var(--overlay-blur);
-  -webkit-backdrop-filter: var(--overlay-blur);
-  border: 1px solid var(--hairline);
-  box-shadow: var(--panel-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
+  position: relative;
+  background: var(--nav-glass-bg);
+  backdrop-filter: var(--nav-glass-blur);
+  -webkit-backdrop-filter: var(--nav-glass-blur);
+  border: 1px solid rgba(255,255,255,0.58);
+  box-shadow:
+    0 12px 30px rgba(42,32,20,0.14),
+    0 2px 6px rgba(42,32,20,0.08),
+    inset 0 1px 1px rgba(255,255,255,0.90),
+    inset 0 -1px 1px rgba(82,58,35,0.20),
+    inset 1px 0 1px rgba(255,255,255,0.42),
+    inset -1px 0 1px rgba(82,58,35,0.10);
   scrollbar-width: none;
+}
+/* 顶部斜向镜面高光：只表现表面反射，不再给整块菜单盖白纱。 */
+.glass-nav::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(105deg, rgba(255,255,255,0.42), rgba(255,255,255,0.08) 28%, transparent 52%, rgba(255,255,255,0.16) 82%, rgba(255,255,255,0.30));
+}
+/* 渐变折射边：亮边与暖色接触边交替，建立玻璃厚度而非平面描边。 */
+.glass-nav::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(115deg, rgba(255,255,255,0.96), rgba(255,255,255,0.18) 35%, rgba(104,79,50,0.24) 68%, rgba(255,255,255,0.68));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
 }
 .glass-nav::-webkit-scrollbar { display: none; }
 @media (prefers-reduced-transparency: reduce) {
   .glass-nav { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .glass-nav::before, .glass-nav::after { display: none; }
 }
 
 /* L1 浮起面板：侧栏 */
