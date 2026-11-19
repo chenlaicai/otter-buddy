@@ -136,7 +136,7 @@ export class OtterBridge {
       const failedUploadIds = [];
       for (const image of images) {
         try {
-          attachmentIds.push(await this.uploadAttachment(otterConversationId, image, signal));
+          attachmentIds.push(await this.uploadAttachment(otterConversationId, image, signal, { installationId, externalId }));
         } catch {
           failedUploadIds.push(image.fileId ?? '未知');
         }
@@ -171,11 +171,13 @@ export class OtterBridge {
   }
 
   /** 上传一张图片到海獭系统附件库（multipart/form-data），返回 attachmentId。 */
-  async uploadAttachment(otterConversationId, { bytes, mimeType, fileName }, signal) {
+  async uploadAttachment(otterConversationId, { bytes, mimeType, fileName }, signal, { installationId, externalId }) {
     const form = new FormData();
     form.append('file', new Blob([bytes], { type: mimeType }), fileName);
+    // 去重键=(sha256,uploader_id)：把上传域收窄到安装实例+DM/频道，杜绝字节相同跨域命中他人文件名。
+    const uploaderId = `colink-agent-app:${installationId}:${externalId}`;
     const response = await this.fetcher(
-      `${this.baseUrl}/api/conversations/${otterConversationId}/attachments?uploaderId=colink-agent-app`,
+      `${this.baseUrl}/api/conversations/${otterConversationId}/attachments?uploaderId=${encodeURIComponent(uploaderId)}`,
       {
         method: 'POST',
         body: form,

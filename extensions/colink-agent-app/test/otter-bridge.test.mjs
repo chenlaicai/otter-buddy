@@ -89,6 +89,7 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
     if (path.endsWith('/attachments')) {
       if (state.failAttachmentUpload) return Response.json({ error: 'upload failed' }, { status: 500 });
       state.attachmentUploads = (state.attachmentUploads ?? 0) + 1;
+      state.attachmentUploaderIds = [...(state.attachmentUploaderIds ?? []), new URL(url).searchParams.get('uploaderId')];
       state.lastAttachmentBodyIsFormData = options.body instanceof FormData;
       return Response.json({ attachments: [{ id: `attachment-${state.attachmentUploads}`, kind: 'image',
         mimeType: 'image/png', originalName: 'colink-image.png', sizeBytes: 70 }] }, { status: 201 });
@@ -307,6 +308,21 @@ test('uploads downloaded images as attachments and sends their ids with the mess
   assert.equal(state.messages[0].attachmentIds.length, 1);
   assert.equal(state.messages[0].attachmentIds[0], 'attachment-1');
   assert.equal(state.messages[0].body, '看图');
+});
+
+test('scopes attachment deduplication by installation and DM/channel visibility domain', async () => {
+  const { state, fetcher } = fixture();
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1 });
+  const images = [{ bytes: new Uint8Array([1, 2, 3]), mimeType: 'image/png', fileName: 'same.png' }];
+  await bridge.reply({ ...input, images });
+  await bridge.reply({ ...input, kind: 'channel', conversationId: 'dm-1', images });
+  await bridge.reply({ ...input, installationId: 'installation-2', images });
+  assert.deepEqual(state.attachmentUploaderIds, [
+    'colink-agent-app:installation-1:dm-1',
+    'colink-agent-app:installation-1:channel:dm-1',
+    'colink-agent-app:installation-2:dm-1',
+  ]);
+  assert.equal(new Set(state.attachmentUploaderIds).size, 3);
 });
 
 test('degrades a failed attachment upload to a text-only message carrying the unread image note', async () => {

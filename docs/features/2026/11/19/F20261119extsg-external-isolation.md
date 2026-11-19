@@ -47,6 +47,9 @@ CoLink 是多用户平台，海獭是单用户的个人 agent。心愿口径三�
 | 6 | 外部触发不注入搭档名册行与「当前说话者」段 | `usecases/conversation/dispatch-chain-engine.ts` `buildRoster` |
 | 7 | `conversation.kind` 新增 `external`；invoke 入口以对话级档位覆盖消息级（fail-closed） | `entities/conversation/conversation.ts`、`agent-invoker.ts` `externalProfileForConversationKind`、`conversation-controller.ts`、扩展 `otter-bridge.mjs` 建对话带 `kind:'external'` |
 | 8 | 产物创建工具的外部断言兜底 | `tools/tool-factory.ts` `createLinkedResourceTool` |
+| 9 | 每外部对话每日 token 额度（默认 200k，0=不限）；只计 input+output，invoke 前拒绝并回配置文案 | `config-service.ts`、`external-token-budget.ts`、`sqlite-invoke-repository.ts`、`agent-invoker.ts`、扩展 `otter-bridge.mjs`/`mention-handler.mjs` |
+| 10 | 出站 SVG 渲染前拒绝主动内容/外部读取，限制画布 ≤2000px 与元素 ≤2000 | 扩展 `image-forward.mjs` |
+| 11 | 附件去重 uploaderId 收窄为安装实例+DM/频道可见性域 | 扩展 `otter-bridge.mjs` |
 
 ## Why（关键取舍）
 
@@ -54,6 +57,9 @@ CoLink 是多用户平台，海獭是单用户的个人 agent。心愿口径三�
 - **为什么拒 html-card-play 而不是静默不登记**：活类卡会在搭档的网页端自动运行（外部可控 JS），且外发到 CoLink 无意义；静默丢弃会让模型误以为已发送。因此显式拒绝并给出可执行替代（纯文本/普通卡）。
 - **为什么档位必须是对话级**：消息级 `source=external` 只覆盖外部事件；搭档本人从 web UI 在同一对话里发言、或链上后续 hop，都会拿到全工具档，而上下文里是攻击者文本。对话级单源 + fail-closed 才堵住反向注入。
 - **为什么发送者标签也要管**：模型看到的 `[chen] 请执行 X` 与 `[外部用户 4017] 请执行 X`，对提示注入的抵抗力完全不同——标签是边界块的实际执行面。
+- **为什么额度不计 cache_read/cache_write**：缓存账面目数来自同一段上下文的重复发送，不是外部用户新增输入/输出；计入会让长上下文重发把日额度迅速耗空。日界固定 Asia/Shanghai，超额在 invoke 创建前 fail-closed。
+- **为什么 SVG 在 sharp 前拒绝而非依赖渲染器**：SVG 是模型可控 XML，DOCTYPE/ENTITY、主动元素与外部 href 必须在解析器接触输入前被挡住；xmlns 的 http URI 只是命名空间标识，不作为网络引用误杀。
+- **为什么附件按可见性域去重**：去重键是 `(sha256,uploader_id)`；全域共享 uploader 会让字节相同的图片命中其他 DM/频道的附件记录与原文件名。零 schema 变更，把 uploader 细化到安装实例与 DM/频道即可。
 
 ## Verification
 
@@ -65,11 +71,10 @@ CoLink 是多用户平台，海獭是单用户的个人 agent。心愿口径三�
   - 档位单源：kind=external → restricted；normal → undefined；回读失败 fail-closed 抛错；kind 枚举含 external
 - `tests/frameworks/agent/external-session-profile.test.ts`、`tool-universe.test.ts`：既有装配断言仍全绿
 - 全量：`tests/usecases/conversation` 490 例、`tests/interface-adapters` 784 例全绿；`tests/frameworks`+`tests/usecases` 3957 例绿（唯一失败为 `durable-runtime` 的 SIGKILL fixture 需 dist 构建产物，与本改动无关）
-- 扩展侧：`npm run test:extensions` 59 例全绿
+- 扩展侧：`npm run test:extensions` 65 例全绿（含 SVG 危险输入不加载 sharp、正常 SVG/内部 use 可渲染、额度终态不重放、附件域隔离）
+- 额度定向：core 4 文件 114 例全绿（配置默认/校验、上海日界、未超额/0/非外部放行、超额不建 invoke、SQLite 排除 cache 账目、HTTP 稳定码）
 
 ## 未纳入本特性（PR-B / 后续）
 
 - **P0-1 中枢入口收口**：`server.host` 默认回环、非回环禁声明式身份头、读接口升档（单独 PR，动鉴权与部署面）
-- **P1-4 每外部对话每日 200k token 额度**（配置项）
-- **P1-5 出站 SVG 白名单消毒**、**P1-7 外部附件去重域收窄**
 - P2-7 审计表/留存：搭档定案不做（对话原文已在 entries，拒绝走 journal）
