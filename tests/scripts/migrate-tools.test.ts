@@ -52,9 +52,18 @@ beforeAll(() => {
   mkdirSync(path.join(dataDir, "logs"), { recursive: true });
   writeFileSync(path.join(dataDir, "logs/otter-buddy.log"), "logs");
   writeFileSync(path.join(dataDir, "otter-buddy-rehearsal-old.db"), "legacy db");
-  // 用户数据目录（检视收敛后保留迁移）：weixin 通道凭据
+  // 用户数据目录（检视收敛后保留迁移）：weixin 通道凭据 / backgrounds 用户背景图
   mkdirSync(path.join(dataDir, "weixin"), { recursive: true });
   writeFileSync(path.join(dataDir, "weixin/state.json"), "{}");
+  mkdirSync(path.join(dataDir, "backgrounds"), { recursive: true });
+  writeFileSync(path.join(dataDir, "backgrounds/bg.png"), "png");
+  // 不迁目录（检视 D 轮补 fixture——负向断言要有实体才钉得住：目录建了也不该被收）
+  mkdirSync(path.join(dataDir, "terminology"), { recursive: true });
+  writeFileSync(path.join(dataDir, "terminology/seed-terminology.json"), "[]");
+  mkdirSync(path.join(dataDir, "execution-machines"), { recursive: true });
+  writeFileSync(path.join(dataDir, "execution-machines/actions.db"), "x");
+  mkdirSync(path.join(dataDir, "quota-browser"), { recursive: true });
+  writeFileSync(path.join(dataDir, "quota-browser/cache.db"), "x");
 });
 
 afterAll(() => {
@@ -69,9 +78,10 @@ describe("migrate-lib（阶段 6b 纯函数）", () => {
     expect(files).toContain("workspaces/c-1/file.txt");
     expect(files).toContain("owner-password");
     expect(files.some((f) => f.startsWith("weixin/"))).toBe(true); // 检视收敛：通道凭据（用户数据）
-    expect(files.some((f) => f.startsWith("terminology/"))).toBe(false); // 种子随 dist 部署，不迁
-    expect(files.some((f) => f.startsWith("execution-machines/"))).toBe(false); // 执行机本地真相不迁
-    expect(files.some((f) => f.startsWith("quota-browser/"))).toBe(false); // 运行时 cache 不迁
+    expect(files.some((f) => f.startsWith("backgrounds/"))).toBe(true); // 用户背景图（用户数据）
+    expect(files.some((f) => f.startsWith("terminology/"))).toBe(false); // 种子随 dist 部署，不迁（fixture 实体在）
+    expect(files.some((f) => f.startsWith("execution-machines/"))).toBe(false); // 执行机本地真相不迁（fixture 实体在）
+    expect(files.some((f) => f.startsWith("quota-browser/"))).toBe(false); // 运行时 cache 不迁（fixture 实体在）
     expect(files.some((f) => f.startsWith("backups/"))).toBe(false);
     expect(files.some((f) => f.startsWith("logs/"))).toBe(false);
     expect(files.some((f) => f.includes("rehearsal"))).toBe(false);

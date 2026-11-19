@@ -10,7 +10,7 @@
 [本机] deploy.sh ──ssh 管道（.otter/deploy-keys/ecs-ssh.sh）──▶ /opt/otter-buddy（代码）
                             /etc/otter-buddy/config.yaml（配置）
                             /etc/otter-buddy.env（env 面：OTTER_EMBEDDING=off 等）
-                            /var/lib/otter-buddy（数据持久卷——迁移目标）
+                            /var/lib/otter-buddy/data（数据物理根——6b 迁移 restore 目标；代码根 /opt/otter-buddy/data 为指向此处的 symlink，deploy.sh 创建）
 [ECS]
   nginx(443, otter.60.205.214.148.sslip.io) ──▶ 127.0.0.1:3000
                                                   ├─ /            中枢 HTTP（web UI + API）
@@ -32,7 +32,7 @@
    过渡期保留（CoLink 对接不能断），待 CoLink 能力并入主中枢进程后退役；
    其 `Requires=otter-buddy.service` 在新单元安装后自然满足
 2. **配置面**：
-   - `/etc/otter-buddy/config.yaml`：沿 PoC 版（server.port 3000 / database.path `/var/lib/otter-buddy/otter-buddy.db` / llm models 走本机 apig 回环或真实 key——**从本机主中枢 config.yaml 拷贝 llm 段，勿用 PoC 占位 key**）
+   - `/etc/otter-buddy/config.yaml`：沿 PoC 版（server.port 3000 / database.path `./data/otter-buddy.db`（相对 WorkingDirectory=/opt/otter-buddy，经 data symlink 落 /var/lib/otter-buddy/data 物理数据根）/ llm models 走本机 apig 回环或真实 key——**从本机主中枢 config.yaml 拷贝 llm 段，勿用 PoC 占位 key**）。数据迁移（6b 工具）restore 目标 = `/var/lib/otter-buddy/data`（物理根，与 symlink 布局对齐）
    - `/etc/otter-buddy.env`：
      ```
      OTTER_EMBEDDING=off

@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import type { TerminologyEntry } from "@entities/memory/terminology-entry";
 import { SqliteTerminologyRepository } from "./sqlite-terminology-repository";
 import type { Logger } from "@usecases/ports/logger";
-import seedTermData from "./seed-terminology.json";
+import seedTermData from "./seed-terminology.json" with { type: "json" };
 
 interface SeedTermData {
   id: string;

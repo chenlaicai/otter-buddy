@@ -64,7 +64,9 @@ tar --exclude='./.git' --exclude='./node_modules' --exclude='./data' --exclude='
       && sudo mkdir -p ${REMOTE_CODE}.new \
       && sudo tar -xzf /tmp/otter-deploy.tgz -C ${REMOTE_CODE}.new \
       && sudo rsync -a --delete --exclude node_modules --exclude data ${REMOTE_CODE}.new/ ${REMOTE_CODE}/ \
-      && sudo rm -rf ${REMOTE_CODE}.new /tmp/otter-deploy.tgz"
+      && sudo rm -rf ${REMOTE_CODE}.new /tmp/otter-deploy.tgz \
+      && sudo mkdir -p /var/lib/otter-buddy/data \
+      && sudo ln -sfn /var/lib/otter-buddy/data ${REMOTE_CODE}/data"
 
 # 远端：装生产依赖 → 依赖闭包校验 → 重启 → 探活。
 # npm ci 在这台机的 onnxruntime-node 安装脚本上会因二进制源不可达而失败（云端本就关闭嵌入），

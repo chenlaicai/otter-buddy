@@ -31,9 +31,9 @@ guard-replay 归档（历史存档，云端不重放）。
    ```
    一致性：sqlite 走 better-sqlite3 backup API（WAL 合并）；普通文件 clonefile 拷贝。
 3. **传输**：`scp` / `rsync` 产物到 ECS（`sh .otter/deploy-keys/ecs-ssh.sh` 通道）。
-4. **还原**（ECS，目标数据目录即 systemd 配置的 `/var/lib/otter-buddy` 下 data 布局）：
+4. **还原**（ECS，物理数据根 `/var/lib/otter-buddy/data`——代码根 /opt/otter-buddy/data 为 deploy.sh 建的指向此处的 symlink，restore 落物理根）：
    ```
-   node scripts/migrate-restore.mjs --tar migrate-<ts>.tar.gz --data-dir <目标>
+   node scripts/migrate-restore.mjs --tar migrate-<ts>.tar.gz --data-dir /var/lib/otter-buddy/data
    # 默认拒非空目录（防误覆盖）；内置三级校验：文件 sha256 全量 + sqlite 表行数逐库逐表 + 多余文件检测
    ```
 5. **起云**：`systemctl start otter-buddy`（探活就绪 + 单实例锁护数据域）。
