@@ -48,7 +48,7 @@ const RESET_HINT_PATTERNS: readonly RegExp[] = [
 
 /** rate_limit 识别结果 */
 export interface RateLimitMatch {
-  /** true=配额耗尽（终态，重试无意义，severity:high）；false=瞬时限流（SDK 重试耗尽，severity:medium） */
+  /** true=配额耗尽（终态，重试无意义；F20261119hqil 按搭档边界拍板降级 severity:low，不入 C3 告警）；false=瞬时限流（SDK 重试耗尽，severity:medium） */
   exhausted: boolean;
   /** 重置时间提示（尽力提取；undefined=错误正文未携带，落观察时间戳） */
   resetHint?: string;

@@ -9,8 +9,9 @@
  * - guard bounce（bash_safety 二拦）：回发重试（计数上限由 healing_events 记录）
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
+import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import type { SdkInvokePort } from "@usecases/ports/sdk-invoke-port";
 import type { QueryMessage } from "@usecases/conversation/query-message";
 import type { ManageSession } from "@usecases/otter/manage-session";
@@ -168,9 +169,12 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
     expect(sendEntry.store.systemBodies.some(b => b.includes("熔断上限"))).toBe(true);
   });
 
-  it("rate_limit（配额耗尽）：healing 落账 + 系统告警 + invoke failed", async () => {
+  it("rate_limit（配额耗尽）：healing 落账 severity:low + 系统告警 + invoke failed + 不入 C3", async () => {
     const sendEntry = mockSendEntry();
     const healing = mockHealingRepo();
+    // F20261119hqil（#1963，搭档 11-19 边界拍板）：配额耗终态降级 low、不入 C3 高警队列
+    const c3Spy = vi.spyOn(healingAlertRegistry, "enqueue");
+    try {
     const sdk = {
       invoke: async () => { throw Object.assign(new Error("429 Too Many Requests. quota exhausted, resets at 2026-09-11T00:00:00Z"), {}); },
       abort: () => {}, getInternalAbortReason: () => undefined,
@@ -184,7 +188,14 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
     const invoke = [...sendEntry.store.invokes.values()][0]!;
     expect(invoke.status).toBe("failed");
     expect(healing.events.some(e => e.errorType === "rate_limit")).toBe(true);
+    const rlEvents = healing.events.filter(e => e.errorType === "rate_limit");
+    expect(rlEvents.length).toBeGreaterThan(0);
+    expect(rlEvents.every(e => e.severity === "low"), "配额耗终态应降级 low（不再进 high 通道）").toBe(true);
     expect(sendEntry.store.systemBodies.some(b => b.includes("限流") || b.includes("配额"))).toBe(true);
+    expect(c3Spy, "配额耗尽不入 C3 高警队列（大獭告警通道不消费）").not.toHaveBeenCalled();
+    } finally {
+      c3Spy.mockRestore();
+    }
   });
 
   it("content_filter 首次失败：落 high 事件并换备用模型续跑一次", async () => {
