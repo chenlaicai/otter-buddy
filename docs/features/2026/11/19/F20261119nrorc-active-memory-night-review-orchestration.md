@@ -1,5 +1,5 @@
 ---
-id: F20261118nrorc
+id: F20261119nrorc
 title: 夜间审视编排（P2b2：scheduled-task 调度 + 夜审獭召唤 + fyi 否决锚）
 doc_type: feature
 summary: |
@@ -19,7 +19,7 @@ intent:
     type: behavior_check
     note: "单测钉住：编排 22 项（幂等/水位/失败重跑/连败 skip/空集/成功链路/审计全集/补审计失败治理/召唤生命周期三态/超时常量同源/Shanghai 日界/损坏档案降级，含两轮审视修复场景钉证）+ 工具快照校验与 dispute 13 项 + 白名单矩阵 2 项 + seed 幂等 3 项 + repo listByTaskId 1 项。"
 capability_test: "tests/capability/golden/night-review-full-processing.golden.ts"
-created_at: 2026-11-18
+created_at: 2026-11-19
 created_in_conversation: 82f71e1a-a8b0-4e0f-916e-5e219624483c
 causal_links:
   from: [F20261118nrcst, F20261118nrwht]
@@ -38,7 +38,7 @@ modules:
   - tests/capability/golden/night-review-full-processing.golden.ts
 ---
 
-# 夜间审视编排（F20261118nrorc）
+# 夜间审视编排（F20261119nrorc）
 
 > **定位**：P2「夜间审视」收官刀。P2a（F20261118nrwht）给了夜审獭身份，P2b1（F20261118nrcst）
 > 给了治量结构——本刀把它们编排成每日自动运转的流程，消费全部前置接口，v4 §4.2-4.5 落地。
