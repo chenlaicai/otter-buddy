@@ -115,6 +115,19 @@ describe("collectAnchorViolations 三类编号", () => {
     }
   });
 
+  it("行注释引导符 // 不作为 P/m 斜杠列表分隔符——行首编号照删，列表豁免保留", () => {
+    // 真实注释形态命中（// 后首个 P/m 不再是“列表后项”）
+    expect(collectAnchorViolations("// P2b2：夜审").some((x) => x.kind === "文档编号" && x.token === "P2b2")).toBe(true);
+    expect(collectAnchorViolations("// P1：信号路由器").some((x) => x.kind === "文档编号" && x.token === "P1")).toBe(true);
+    expect(collectAnchorViolations("// m1 修复").some((x) => x.kind === "文档编号" && x.token === "m1")).toBe(true);
+    // 块注释对照：同样不豁免
+    expect(collectAnchorViolations("/* P1：信号路由器 */").some((x) => x.kind === "文档编号" && x.token === "P1")).toBe(true);
+    expect(collectAnchorViolations("/* m1 修复 */").some((x) => x.kind === "文档编号" && x.token === "m1")).toBe(true);
+    // 真实斜杠列表豁免保留
+    expect(collectAnchorViolations("// P0/P1/P2").some((x) => x.kind === "文档编号" && x.token === "P1")).toBe(false);
+    expect(collectAnchorViolations("// m2/m3 测试数据").some((x) => x.kind === "文档编号" && x.token === "m3")).toBe(false);
+  });
+
   it("BC 纸/信封规格不误删，检查项号删除", () => {
     expect(collectAnchorViolations("B4 纸张与 B5 纸，C4 纸与 C5 信封")).toEqual([]);
     expect(collectAnchorViolations("B9 抽样，C4：UI 徽章数据源").map((x) => x.token).sort()).toEqual(["B9", "C4"]);

@@ -92,6 +92,14 @@ describe("cleanCommentText 文档结构编号", () => {
     expect(cleanCommentText("诞生于 m1 后").text).toBe("诞生于 m1 后");
   });
 
+  it("行首 // 后的 P/m 编号照删（引导符不是列表分隔符），真实斜杠列表保留", () => {
+    expect(cleanCommentText("// P1：信号路由器").text).toBe("// 信号路由器");
+    expect(cleanCommentText("// m1 修复").text).toBe("// 修复");
+    expect(cleanCommentText("/* m1 修复 */").text).toBe("/* 修复 */");
+    expect(cleanCommentText("// P0/P1/P2").text).toBe("// P0/P1/P2");
+    expect(cleanCommentText("// m2/m3 测试数据").text).toBe("// m2/m3 测试数据");
+  });
+
   it("阶段缩写号删除，优先级豁免", () => {
     expect(cleanCommentText("P1：信号路由器").text).toBe("信号路由器");
     expect(cleanCommentText("priority 必有且仅 1 个：P0 / P1 / P2").text).toContain("P0");

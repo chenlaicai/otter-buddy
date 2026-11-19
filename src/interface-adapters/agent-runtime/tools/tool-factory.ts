@@ -162,7 +162,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
 }
 
 /** 活类卡自动产物登记。宪法「产物=主体×时刻×形态」——活类卡
- * （html-card-play 围栏）是产物，自动登记为 fact 类 linked_resource，进 的时间轴
+ * （html-card-play 围栏）是产物，自动登记为 fact 类 linked_resource，进时间轴
  *  混排体系（不登记则「现场有这东西但链上查无此人」）。content 放可检索摘要（title +
  *  围栏内文本片段），url 留空（活类本体在消息原文里，get_message 可回看）。
  * markdown 解析口径（remark parse mdast 遍历，与前端 collectCodeNodes 同构）
@@ -257,7 +257,7 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
  
 /**
  * 准入路径 1——L2 显式拍板项的 yield to user 打标即登记。
- * 不打标不登记（防泛滥=机械）；默认通过模式不打标（与 互斥不登记，硬边界）。
+ * 不打标不登记（防泛滥=机械）；默认通过模式不打标（默认通过不登记，硬边界）。
  * matterRepo 未注入（旧装配）时静默跳过——登记是增强不是 yield 前置条件。
  * 返回附在交棒回执后的待办注记（空串 = 无登记）。
  */
@@ -543,7 +543,7 @@ async function checkModelQuotaHint(
   }
 }
 
-/** + + create_otter 前置校验链（modelAlias 合法性 → 注入预算 → 配额提示）。
+/** create_otter 前置校验链（modelAlias 合法性 → 注入预算 → 配额提示）。
  *  拆出 execute 主体以控 createCreateOtterTool 行数（max-lines-per-function）；
  *  返回 errorResponse 文本则硬拦，quotaHint 为提示性尾注（不拦）。 */
 async function validateCreateOtterParams(
@@ -583,7 +583,7 @@ async function validateCreateOtterParams(
  *    首请求 = 工具定义 + 身份段 + systemPrompt + 首条 user 消息，前两者是常量占大头
  *  - 安全比 WINDOW_SAFETY_RATIO = 0.8：留输出 token 空间（窗口含输入+输出）
  *  Why 硬拦而非提示：与配额不同，注入体积是确定事实（prompt 长度可测），不随时间恢复；
- * 首请求必死与配额「可能已恢复」语义不同。估算器路线已被 三度返工否定，
+ * 首请求必死与配额「可能已恢复」语义不同。估算器路线已经三度返工否定，
  *  但那是「对话切片预算弹性」场景；此处是创建时点一次性粗测（只需保守上界，不需精确预算），
  *  密度上限取整 + 固定底线正是「可测的精确测、不可测的用保守值」哲学。
  *  Why fail-soft：窗口未配置（getContextWindow undefined）时跳过——不硬依赖装配完整，
@@ -625,7 +625,7 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
       required: ["name", "systemPrompt"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // + 前置校验链（别名合法性 → 注入预算 → 配额提示）拆入独立函数控行数
+      // 前置校验链（别名合法性 → 注入预算 → 配额提示）拆入独立函数控行数
       const { hardError, quotaHint, explicitAlias } = await validateCreateOtterParams(ctx, healingRepo, params);
       if (hardError) return errorResponse(hardError);
 
@@ -687,7 +687,7 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
 }
 
 /** merge_pr 工具——PR 合入搭档授权闸。
- * 事故锚：2026-09-22 大獭在搭档未显式授权时自行 gh pr merge 合入 （流水线惯性）。
+ * 事故锚：2026-09-22 大獭在搭档未显式授权时自行 gh pr merge 合入（流水线惯性）。
  *  定位：v1 提醒 + 审计 → v2 升级物理闸——partnerApproval 必须逐字命中
  *  搭档 user 历史消息（规范化容忍空白/引号形态；短引用<4实义字须整条等值；卡片回执
  *  data JSON 围栏不作授权源），未命中拒绝执行；授权原话落 linked_resources + warn 日志双通道。 */
@@ -699,7 +699,7 @@ const execFileAsync = promisify(execFile);
 
 /** wait 参数边界（方案）：per-event 熔断 maxPerEventTimeMs 默认 600s——
  *  seconds 上限对齐 600（不豁免计时，防 wait 成熔断逃逸通道）；带 until 时 ≤560
- * （预算闭合留 ε 裕量：seconds + until 30s + ε ≤ 600，/——570+30 压线 race）。 */
+ * （预算闭合留 ε 裕量：seconds + until 30s + ε ≤ 600——570+30 压线 race）。 */
 const WAIT_SECONDS_MIN = 5;
 const WAIT_SECONDS_MAX = 600;
 const WAIT_SECONDS_MAX_WITH_UNTIL = 560;
@@ -2202,7 +2202,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   }
   // 獭侧 matter 工具（待办板查/迁——空窗期通道 A 的执行载体）。
   // register_matter 补上「+」登记入口（准入路径 2）的执行载体——
-  // P1 只把 RegisterMatter 接在 yield 打标（路径 1），板上登记回执无工具可达=死链（严重1）。
+  // 只把 RegisterMatter 接在 yield 打标（路径 1），板上登记回执无工具可达=死链（严重1）。
   // small/big 型均可用：list/register/transition 的权限由 usecase 守卫兜住
   // （register 只产 OPEN；transition 的 L2 闭环必须搭档确认）。注册条件 = matterRepo 注入。
   if (matterRepo) {

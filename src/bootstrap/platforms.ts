@@ -786,7 +786,7 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
   if (gates.selfHealing) {
     healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendEntry: uc.sendEntry, logger })
       .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
-      // P2b2：夜审任务挂 healing 主对话（fyi 汇总与系统报告同处；幂等 seed，手动 disable 不复活）
+      // 夜审任务挂 healing 主对话（fyi 汇总与系统报告同处；幂等 seed，手动 disable 不复活）
       .then(() => repos.settings.get(HEALING_CONVERSATION_KEY))
       .then(healingConversationId => healingConversationId
         ? ensureNightReviewTask({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, conversationId: healingConversationId })

@@ -144,7 +144,7 @@ function isExemptDocNumber(commentText, m, kind) {
     // bge-m3 模型名（前是连字符）、麻将牌索引 m0-8（后是连字符+数字）、m5.large 实例（后是点）
     if (/-$/.test(before) || /^-\d/.test(after) || /^\./.test(after)) return true;
     // 测试数据/窗口边界：m1/m2/m3 斜杠列表 或「m1 之前/之后」时间窗口语（非审视项号）
-    if (/\/\s*$/.test(before) || /^\s*\//.test(after)) return true;
+    if (/[^/]\s*\/\s*$/.test(before) || /^\s*\//.test(after)) return true;
     if (/^\s*(?:之前|之后|前|后)(?=$|[^0-9])/.test(after)) return true;
   }
   if (kind === "R编号") {
@@ -175,7 +175,7 @@ function isExemptDocNumber(commentText, m, kind) {
       /^→/.test(after) ||
       /→$/.test(before) ||
       /^\s*\//.test(after) || // 斜杠列表（P0/P1 或 P0 / P1）
-      /\s*\/\s*$/.test(before) || // 列表后项（前是「/」或「 / 」）
+      /[^/]\s*\/\s*$/.test(before) || // 列表后项（前是「/」或「 /」，排除注释引导符 // 自身）
       /^-[a-z0-9]/i.test(after) ||
       /priority/i.test(before) ||
       token === "P99"
