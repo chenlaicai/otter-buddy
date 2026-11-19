@@ -12,10 +12,10 @@
  * 不同（1.63.0 / 1.65.0），谁生效取决于 npm 的解析心情。
  *
  * 两条断言（都要过）：
- *   1. 分区互斥——同一包名不得出现在两个及以上分区（dependencies / devDependencies /
- *      optionalDependencies / peerDependencies）。
- *   2. 生产可安装——dependencies 里每个包在 package-lock.json 中不得带 `dev: true`
- *      （带 dev 标记 = omit=dev 时被跳过，运行时 import 必炸）。
+ *   1. 分区互斥——同一包名不得同时出现在 dependencies / devDependencies /
+ *      optionalDependencies 中（peerDependencies 是合法叠加，不参与）。
+ *   2. 生产可安装提示——dependencies 的包在 package-lock.json 中带 `dev: true` 时给
+ *      **警告**（不是错误）：这一层是启发式，遇到手改过的 lock 会误报；真正的红由断言 1 出。
  *
  * 退出码：0 通过 / 1 违规 / 2 读文件失败（fail-closed）。
  * 用法：node scripts/check-dependency-sections.mjs [--package package.json] [--lock package-lock.json]
@@ -25,13 +25,21 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-/** 参与互斥判定的分区（按 npm 安装语义排列）。 */
+/**
+ * 参与互斥判定的分区。
+ *
+ * peerDependencies 刻意不在其中：npm 明确允许同一个包同时出现在 peerDependencies 与
+ * devDependencies（「我既是别人的 peer，也自己开发时要装」是合法且常见的写法），
+ * 把它算进互斥会误伤真实仓库。
+ */
 export const DEPENDENCY_SECTIONS = [
   "dependencies",
   "devDependencies",
   "optionalDependencies",
-  "peerDependencies",
 ];
+
+/** 声明了但仍单独提示的区（不参与互斥，仅用于报告里区分「合法叠加」与「真冲突」）。 */
+export const NON_CONFLICTING_SECTION = "peerDependencies";
 
 /**
  * 断言 1：分区互斥。
@@ -87,7 +95,8 @@ export function findDevFlaggedRuntimeDeps(pkg, lock) {
 export function checkDependencySections(pkg, lock) {
   const duplicates = findSectionDuplicates(pkg);
   const devFlagged = findDevFlaggedRuntimeDeps(pkg, lock);
-  return { ok: duplicates.length === 0 && devFlagged.length === 0, duplicates, devFlagged };
+  // 只有断言 1 决定成败；devFlagged 是启发式提示（lock 手改/历史遗留会误报，不阻断）
+  return { ok: duplicates.length === 0, duplicates, devFlagged };
 }
 
 /** 把违规列表渲染成人读的报错文本（CI 日志直接可见）。 */
@@ -96,13 +105,12 @@ export function formatViolations({ duplicates, devFlagged }) {
   if (duplicates.length > 0) {
     lines.push("❌ 同一包出现在多个依赖分区（npm 只保留一份解析结果，omit=dev 会静默跳过它）：");
     for (const v of duplicates) lines.push(`   - ${v.name} → ${v.sections.join(" + ")}`);
+    lines.push("   修法：运行时依赖只留 dependencies；纯开发工具只留 devDependencies，两边不许都写。");
   }
   if (devFlagged.length > 0) {
-    lines.push("❌ 运行时依赖在 package-lock 中被标记为 dev（npm ci --omit=dev 不装它，生产 import 必炸）：");
+    lines.push("⚠ 提示（不阻断）：dependencies 的包在 package-lock 中带 dev 标记，生产安装可能跳过它——");
     for (const v of devFlagged) lines.push(`   - ${v.name}${v.version ? `@${v.version}` : ""}（${v.entry}: dev=true）`);
-  }
-  if (lines.length > 0) {
-    lines.push("   修法：运行时依赖只留 dependencies；纯开发工具只留 devDependencies，两边不许都写。");
+    lines.push("   建议重跑 npm install --package-lock-only 让 lock 与实际分区一致。");
   }
   return lines.join("\n");
 }
@@ -154,9 +162,13 @@ function main() {
     console.error(formatViolations(result));
     return 1;
   }
+  if (result.devFlagged.length > 0) console.warn(formatViolations(result));
   const depCount = Object.keys(pkg?.dependencies ?? {}).length;
   const devCount = Object.keys(pkg?.devDependencies ?? {}).length;
-  console.log(`✅ 依赖分区唯一：dependencies ${depCount} 个、devDependencies ${devCount} 个、零重叠、运行时依赖无 dev 标记`);
+  const optCount = Object.keys(pkg?.optionalDependencies ?? {}).length;
+  console.log(
+    `✅ 依赖分区唯一：dependencies ${depCount} 个、devDependencies ${devCount} 个、optional ${optCount} 个，三区零重叠（peer 可合法叠加）`,
+  );
   return 0;
 }
 

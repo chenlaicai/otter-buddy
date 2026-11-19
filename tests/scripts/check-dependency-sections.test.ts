@@ -12,7 +12,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
   DEPENDENCY_SECTIONS,
   findSectionDuplicates,
@@ -34,18 +34,12 @@ function fixture(pkg: PackageJsonLike, lock: PackageLockLike) {
   return { pkgPath, lockPath };
 }
 
-/** 跑脚本，返回 {code, stdout, stderr}。 */
+/** 跑脚本，返回 {code, stdout, stderr}（成功路径也保留 stderr——提示走 stderr）。 */
 function run(pkgPath: string, lockPath: string) {
-  try {
-    const stdout = execFileSync(process.execPath, [SCRIPT, "--package", pkgPath, "--lock", lockPath], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    return { code: 0, stdout, stderr: "" };
-  } catch (err) {
-    const failure = err as { status?: number; stdout?: string; stderr?: string };
-    return { code: failure.status ?? 1, stdout: failure.stdout ?? "", stderr: failure.stderr ?? "" };
-  }
+  const result = spawnSync(process.execPath, [SCRIPT, "--package", pkgPath, "--lock", lockPath], {
+    encoding: "utf8",
+  });
+  return { code: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
 
 describe("分区互斥", () => {
@@ -70,11 +64,27 @@ describe("分区互斥", () => {
     const pkg = {
       dependencies: { dup: "1.0.0" },
       devDependencies: { dup: "1.0.0" },
-      peerDependencies: { dup: "1.0.0" },
+      optionalDependencies: { dup: "1.0.0" },
     };
     expect(findSectionDuplicates(pkg)).toEqual([
-      { name: "dup", sections: ["dependencies", "devDependencies", "peerDependencies"] },
+      { name: "dup", sections: ["dependencies", "devDependencies", "optionalDependencies"] },
     ]);
+  });
+
+  it("peerDependencies 与 devDependencies 同时声明是合法写法，不报", () => {
+    const pkg = {
+      devDependencies: { hono: "^4.13.18" },
+      peerDependencies: { hono: "^4.13.18" },
+    };
+    expect(findSectionDuplicates(pkg)).toEqual([]);
+  });
+
+  it("peerDependencies 与 dependencies 同时声明也是合法写法（peer 是另一根轴），不报", () => {
+    const pkg = {
+      dependencies: { hono: "^4.13.18" },
+      peerDependencies: { hono: "^4.13.18" },
+    };
+    expect(findSectionDuplicates(pkg)).toEqual([]);
   });
 
   it("分区表缺失或非对象不抛异常（存量仓结构差异容错）", () => {
@@ -82,13 +92,8 @@ describe("分区互斥", () => {
     expect(findSectionDuplicates({ dependencies: null as unknown as Record<string, string> })).toEqual([]);
   });
 
-  it("参与判定的分区集合固定为四个", () => {
-    expect(DEPENDENCY_SECTIONS).toEqual([
-      "dependencies",
-      "devDependencies",
-      "optionalDependencies",
-      "peerDependencies",
-    ]);
+  it("参与互斥的分区集合固定为三个（peer 不在其中，避免误伤合法叠加）", () => {
+    expect(DEPENDENCY_SECTIONS).toEqual(["dependencies", "devDependencies", "optionalDependencies"]);
   });
 });
 
@@ -126,7 +131,7 @@ describe("checkDependencySections 汇总", () => {
     expect(checkDependencySections(pkg, lock)).toEqual({ ok: true, duplicates: [], devFlagged: [] });
   });
 
-  it("任一条失败 → 不 ok（并同时返回两类违规，便于一次修完）", () => {
+  it("分区重复 → 不 ok，同时仍返回 lock 提示（便于一次修完）", () => {
     const pkg = {
       dependencies: { hono: "^4.13.18", yaml: "^2.0.0" },
       devDependencies: { hono: "^4.13.18" },
@@ -135,6 +140,14 @@ describe("checkDependencySections 汇总", () => {
     const result = checkDependencySections(pkg, lock);
     expect(result.ok).toBe(false);
     expect(result.duplicates.map((d) => d.name)).toEqual(["hono"]);
+    expect(result.devFlagged.map((d) => d.name)).toEqual(["yaml"]);
+  });
+
+  it("只有 lock dev 标记（分区合法）→ ok 仍为 true，提示不阻断", () => {
+    const pkg = { dependencies: { yaml: "^2.0.0" } };
+    const lock = { packages: { "node_modules/yaml": { version: "2.0.0", dev: true } } };
+    const result = checkDependencySections(pkg, lock);
+    expect(result.ok).toBe(true);
     expect(result.devFlagged.map((d) => d.name)).toEqual(["yaml"]);
   });
 });
@@ -159,6 +172,15 @@ describe("CLI 行为", () => {
     const result = run(pkgPath, lockPath);
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("hono → dependencies + devDependencies");
+  });
+
+  it("只有 lock 提示时 exit 0，并把提示打到 stderr（不阻断）", () => {
+    const pkg = { dependencies: { yaml: "^2.0.0" } };
+    const lock = { packages: { "node_modules/yaml": { version: "2.0.0", dev: true } } };
+    const { pkgPath, lockPath } = fixture(pkg, lock);
+    const result = run(pkgPath, lockPath);
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("不阻断");
   });
 
   it("package.json 不存在 → exit 2（fail-closed，不静默放行）", () => {

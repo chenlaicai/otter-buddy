@@ -43,6 +43,10 @@
 5. **代码部署**：前置——本机仓 `.otter/deploy-keys/ecs-ssh.sh`（免密 helper，私钥同目录、已 gitignore）与远端 `/opt/node24` 就绪。然后本机仓库根 `bash deploy/ecs/deploy.sh`（build → tar+ssh 管道 → 远端 npm ci → restart → 探活 → App unit 同步与版本核对；传输统一走 ecs-ssh.sh 单一身份 admin）
    - **一次部署覆盖两个 unit**（2026-11-19 起）：`otter-buddy`（中枢，`/opt/otter-buddy`）与 `colink-agent-app`（CoLink App 扩展，`/opt/colink-agent-app`）。脚本第二段把中枢里的 `extensions/colink-agent-app/` 同步到独立 unit 目录、留备份、重启，并核对 `manifest.json` 的 `version` 与源清单一致——不再接受「部署成功但 App 还是旧版」。
    - 打包排除 macOS resource fork（`._*`）与 `.DS_Store`：这类文件不是内容，带上线会让文档同步整片报 `Missing frontmatter`（2026-11-19 实证 7914 个）。
+   - **两段的成功判据都是「实际服务的版本 == 源清单版本」**，不是命令 exit 0：中枢看 `/api/ping`，App 看内部端口 `manifest.json` 的 `version` 字段（JSON 解析，不用行内正则——一行 JSON 里还有 extensionPoint 的 1.0.0）。
+   - **半部署语义**：第一段成功、第二段失败时，中枢已换装而 App 仍是旧版。此时按上面「回退」节先恢复 App，再排查；不要只看脚本最后一行判断整体成败。
+   - **App 目录同步排除 `node_modules`**，依赖由独立安装步骤管（扩展有 sharp 这类自有生产依赖）。装完脚本会做依赖闭包校验：清单里每个 dependency 必须在 `node_modules` 有目录——缺包不会让探活失败，只会在用到该能力时炸。
+   - **中枢 `npm ci` 失败时的回退**：这台机 `onnxruntime-node` 安装脚本要下载二进制、源不可达（云端 `OTTER_EMBEDDING=off`）。脚本先试 `npm ci`，失败退回「按 lock 就地安装 + 跳过安装脚本」，随后仍做依赖闭包校验 + `/api/ping` 探活。
 6. **验证**：
    - `curl https://otter.60.205.214.148.sslip.io/api/ping` → `{"ok":true,...}`
    - 浏览器开 `https://otter.60.205.214.148.sslip.io/` 登录页

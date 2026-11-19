@@ -26,6 +26,8 @@ intent:
       - "package-lock.json 由 npm --package-lock-only 重算：hono / @hono/node-server 的 \"dev\": true 标记消失（omit=dev 会装上），playwright 1.63.0 从 dependencies 移除"
       - "线上实证（2026-11-19 ECS）：修前 npm ci --omit=dev 后启动报 Cannot find package 'hono'；补包装上后 /api/ping 200；本次脚本第二段上线后 /opt/colink-agent-app 由 0.6.0 变 0.6.1，公网 manifest 亦为 0.6.1"
       - "deploy.sh 语法自检 bash -n 通过；备份保留最近 3 份（ls -1dt | tail -n +4 | xargs rm -rf）"
+      - "端到端实跑（2026-11-19 ECS）：`bash deploy/ecs/deploy.sh` → 中枢 npm ci 失败自动回退就地安装 → 「中枢依赖闭包完整」→ /api/ping `{\"ok\":true}` → App 备份 /opt/colink-agent-app.bak-20261119103358 → 「App 依赖闭包完整」→ 「App 就绪：manifest 0.6.1」→ deploy done"
+      - "检视现场实证（首版被推翻的两点）：源清单 sed 宽松正则会连带 extensionPoint 的 1.0.0；探活侧行内贪婪正则会把同一份 JSON 里的 extensionPoint.version 当 App 版本——两处都已改为锚定/JSON 解析"
 capability_test: "tests/scripts/check-dependency-sections.test.ts"
 tags: [deploy, dependency-hygiene, ci-gate, systemd, packaging]
 modules:
@@ -70,8 +72,8 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'hono' imported from
 | 面 | 改动 |
 | --- | --- |
 | 依赖声明 | `hono` / `@hono/node-server` 只留 `dependencies`；`playwright` 只留 `devDependencies`（实证：全仓唯一引用在 `scripts/game/*.mjs`，纯开发工具；版本冲突 1.63.0 vs 1.65.0 一并消除） |
-| 机械闸 | 新增 `scripts/check-dependency-sections.mjs`：① 分区互斥（四区两两不得重叠）② `dependencies` 的包在 lock 中不得带 `dev: true`。挂进 CI `check` 段（该 job 是分支保护 required 上下文） |
-| 部署 | `deploy.sh` 扩成两段式：第一段中枢（原样 + 打包排除 `._*`/`.DS_Store`），第二段把中枢里的扩展目录同步到 `/opt/colink-agent-app`、留备份（保留最近 3 份）、重启 `colink-agent-app`，并**用源清单版本核对实际服务的 manifest 版本**作为成功判据 |
+| 机械闸 | 新增 `scripts/check-dependency-sections.mjs`：① 分区互斥——`dependencies` / `devDependencies` / `optionalDependencies` 三者不得重叠（`peerDependencies` 刻意排除：npm 明确允许 peer + dev 同时声明，算进去会误伤真实仓库）② `dependencies` 的包在 lock 中带 `dev: true` 时给**警告**（启发式，不阻断；真正的红由断言 ① 出）。挂进 CI `check` 段（分支保护 required 上下文） |
+| 部署 | `deploy.sh` 扩成两段式：第一段中枢（原逻辑 + 打包排除 `._*`/`.DS_Store` + 依赖闭包校验 + `npm ci` 失败时按 lock 就地安装兜底），第二段把中枢里的扩展目录同步到 `/opt/colink-agent-app`（**排除 node_modules**）、留备份（保留最近 3 份）、就地装生产依赖、校验依赖闭包、重启 `colink-agent-app`，并用**JSON 解析出的 manifest 版本 == 源清单版本**作为成功判据 |
 | 文档 | `deploy/ecs/README.md` 补双 unit 部署、备份回滚、依赖分区红线 |
 
 ## 设计取舍
@@ -82,7 +84,18 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'hono' imported from
   npm 的实际判定依据（本次 hono 在 lock 里正是 `dev: true`）。断言放在 lock 层，等价于断言
   「生产安装会不会装到它」。
 - **为什么部署判据用「服务的 manifest 版本 == 源清单版本」**：不关心进程怎么起、日志说什么，
-  只认实际对外声明的版本。这一条把「我以为发上去了」变成可观测事实。
+  只认实际对外声明的版本。这一条把「我以为发上去了」变成可观测事实。解析必须走 JSON——
+  manifest 是一行 JSON，行内贪婪正则会把 `extensionPoint.version`（1.0.0）当成 App 版本，
+  探活于是永远等不到（首版实现踩过，被检视当场抓出）。
+- **为什么 App 目录同步要排除 node_modules**：扩展有自己的生产依赖（SVG 转图用 sharp）。
+  `rsync --delete` 会把已装依赖一起删掉，而服务仍能起来、manifest 探活也照过——故障要等到
+  真正用图像能力才炸。所以「同步代码」与「装依赖」必须分开，且装完要有**依赖闭包校验**
+  （清单声明的每个 dependency 在 node_modules 里存在；判据取目录存在而非 `require.resolve`——
+  ESM-only 包在后者下会假报缺失）。
+- **为什么第一段依赖装不上还能继续**：这台机的 `onnxruntime-node` 安装脚本要下载二进制，
+  源在该网络下 302 失败（云端本就走 `OTTER_EMBEDDING=off`）。脚本先试 `npm ci`（可复现），
+  失败时退回「按 lock 就地安装 + 跳过安装脚本」——就地安装不重建已装的 native 模块
+  （better-sqlite3 等），比让 `npm ci` 半途留下残缺 node_modules 安全。
 - **不做的事**：不改 `npm ci` 为 `npm install`（后者会重算依赖树，破坏可复现性）；不为
   `onnxruntime-node` 的 postinstall 网络失败加绕过（本次已用 `--ignore-scripts` 现场脱困，
   但那是部署环境网络问题，另案跟踪）。
