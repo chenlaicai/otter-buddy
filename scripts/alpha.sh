@@ -202,7 +202,7 @@ wait_for_health_or_exit() {
   local waited=0
   echo "Waiting for API on port $port ..." >&2
   while [ "$waited" -lt "$max_wait" ]; do
-    if curl -sf -H 'X-Otter-User-Id: script:alpha.sh' -H 'X-Otter-User-Role: admin' "http://localhost:$port$HEALTH_PATH" >/dev/null 2>&1; then
+    if curl -sf -H 'X-Otter-User-Id: script:alpha.sh' -H 'X-Otter-User-Role: admin' "http://127.0.0.1:$port$HEALTH_PATH" >/dev/null 2>&1; then
       return 0
     fi
     if ! is_pid_alive "$pid"; then

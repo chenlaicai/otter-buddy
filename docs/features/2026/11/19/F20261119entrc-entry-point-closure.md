@@ -47,6 +47,7 @@ causal_links:
 | 4 | 读面显式收档：`/api/conversations*`、`/api/invokes*`、`/api/entries*`、`/api/memory*`、`/api/otters*`（含 session 历史）、`/api/scheduled-tasks*`（任务 body 与执行记录）、`/api/connections*`（对话清单别名）、`/api/skills`、`/api/prompts`、`/api/activity*`、`/api/health*`、`/api/weixin|feishu|channels|execution-machines` 的 GET/HEAD → `write`；`POST /api/memory/search/similar` → `write`；`/api/attachments`、`/api/auth/session`、`/api/unfurl` 显式行写明为何保持 `authenticated` | 同文件策略表 |
 | 5 | 反代纵深：nginx 站点在 `location /` 清空 `X-Otter-User-Id` / `X-Otter-User-Role` | `deploy/ecs/nginx-otter.conf` |
 | 6 | 配置样例补 `server.host` 注释 | `config/config.yaml.example` |
+| 7 | 探查地址改定 `127.0.0.1`：运维脚本的健康检查不再用 `localhost`（缺省只绑 IPv4 回环后，`localhost` 解析到 `::1` 会先撞一次连接失败） | `scripts/alpha.sh`、`scripts/otter-buddy.sh` |
 
 ## 关键取舍
 
