@@ -40,6 +40,8 @@ export interface InvokeRegister {
   /** 当前打开的 speak entry ID（speak/yield 检测「本轮已发言」用；
    *  新 invoke 重置为 undefined） */
   lastSpeakEntryId?: string;
+  /** PR 卡片闸事故 PR 呈递拍板机械闸：本回合 speak body 累计（yield 主闸判定面；invoke 入口重置） */
+  speakBodies: string[];
 }
 
 export function createInvokeRegister(): InvokeRegister {
@@ -53,6 +55,7 @@ export function createInvokeRegister(): InvokeRegister {
     currentInvokeId: undefined,
     emitEvent: undefined,
     lastSpeakEntryId: undefined,
+    speakBodies: [],
   };
 }
 
@@ -70,6 +73,7 @@ export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, inv
   reg.currentInvokeId = invokeDeps?.currentInvokeId;
   reg.emitEvent = invokeDeps?.emitEvent;
   reg.lastSpeakEntryId = undefined;
+  reg.speakBodies = [];
 }
 
 /** buildCustomTools 所需的参数类型 */
@@ -161,6 +165,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     get emitEvent() { return register.emitEvent; },
     get lastSpeakMessageId() { return register.lastSpeakEntryId; },
     set lastSpeakMessageId(v: string | undefined) { register.lastSpeakEntryId = v; },
+    get speakBodiesThisTurn() { return register.speakBodies; },
     isOtterRunning,
   };
   const otterTools = createTools(toolContext, healingRepo, logger);
