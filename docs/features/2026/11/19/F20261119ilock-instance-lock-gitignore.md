@@ -19,7 +19,7 @@ intent:
   verify_by:
     type: behavior_check
     evidence:
-      - "git check-ignore -v data/otter-buddy.db.otter-instance.lock → 命中 .gitignore:132 *.otter-instance.lock（data/foo.db.otter-instance.lock 等任意 db 名变体同样命中，已实测）"
+      - "git check-ignore -v data/otter-buddy.db.otter-instance.lock → 命中 .gitignore:133 *.otter-instance.lock（data/foo.db.otter-instance.lock 等任意 db 名变体同样命中，已实测；行号以当前 head 为准）"
       - "补录后主仓 git status --short 输出为空（此前显示 `?? data/otter-buddy.db.otter-instance.lock`）"
 ---
 
