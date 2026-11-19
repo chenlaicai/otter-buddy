@@ -63,6 +63,17 @@ describe("validate", () => {
     ).toThrow("server.port");
   });
 
+  it("throws when server.host is not a string / 带协议或路径", () => {
+    const models = [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }];
+    expect(() => validate({ llm: { models }, server: { host: 123 as unknown as string } })).toThrow("server.host");
+    expect(() => validate({ llm: { models }, server: { host: "   " } })).toThrow("server.host");
+    expect(() => validate({ llm: { models }, server: { host: "http://127.0.0.1" } })).toThrow("server.host");
+    // 合法形态（含 IPv6 回环与全接口）不拦
+    expect(() => validate({ llm: { models }, server: { host: "127.0.0.1" } })).not.toThrow();
+    expect(() => validate({ llm: { models }, server: { host: "::1" } })).not.toThrow();
+    expect(() => validate({ llm: { models }, server: { host: "0.0.0.0" } })).not.toThrow();
+  });
+
   it("throws when auth.ownerPassword is not a string (YAML 裸数字)", () => {
     expect(() =>
       validate({
@@ -116,6 +127,8 @@ describe("loadConfig", () => {
     expect(cfg.llm.models[0].provider).toBe("openai");
     expect(cfg.llm.models[0].model).toBe("gpt-4o");
     expect(cfg.server.port).toBe(3000);
+    // 监听地址缺省回环：绑全部接口应是显式选择，不是默认值
+    expect(cfg.server.host).toBe("127.0.0.1");
     expect(cfg.db.path).toBe("./otter-buddy.db");
     expect(cfg.memory.rrfK).toBe(60);
     expect(cfg.external.dailyTokenBudgetPerConversation).toBe(200_000);
@@ -187,6 +200,18 @@ describe("loadConfig", () => {
     expect(cfg.llm.default).toBe("active");
     expect(cfg.llm.models.map(m => m.alias)).toEqual(["active"]);
     expect(cfg.llm.models[0]).not.toHaveProperty("enabled");
+  });
+
+  it("server.host 显式配置生效；空白/带引号字符串归一化后可用", () => {
+    mockExistsSync.mockReturnValue(true);
+    const base = "llm:\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n      handoffThresholdTokens: 40000\n";
+    mockReadFileSync.mockReturnValue(`${base}server:\n  port: 3000\n  host: 0.0.0.0\n`);
+    expect(loadConfig().server.host).toBe("0.0.0.0");
+    mockReadFileSync.mockReturnValue(`${base}server:\n  host: "::1"\n`);
+    expect(loadConfig().server.host).toBe("::1");
+    // 显式空白=配置写错，fail-fast（而非静默回落——写了一个空地址却没生效很难查）
+    mockReadFileSync.mockReturnValue(`${base}server:\n  host: "  "\n`);
+    expect(() => loadConfig()).toThrow("server.host");
   });
 
   it("loads config with custom values", () => {

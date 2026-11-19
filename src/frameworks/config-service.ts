@@ -60,6 +60,10 @@ export interface AppConfig {
   };
   server: {
     port: number;
+    /** 监听地址。缺省 127.0.0.1（只接受本机/本机反代连接）——
+     *  设为 0.0.0.0 等于把中枢直接暴露给网卡上的任何人，声明式身份通道虽已按来源收口，
+     *  但仍应只在前置反代/容器编排确实需要时显式放开，并用防火墙限制入站。 */
+    host: string;
   };
   /** 外部接入对话的滥用防护；额度按单个海獭对话、Asia/Shanghai 自然日计算。 */
   external: {
@@ -262,7 +266,7 @@ export function updateDefaultModelInYaml(
 
 /** config.yaml 的原始 YAML 结构 */
 interface RawConfig {
-  server?: { port?: number };
+  server?: { port?: number; host?: string };
   external?: {
     dailyTokenBudgetPerConversation?: number;
     budgetExceededMessage?: string;
@@ -518,11 +522,32 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
   if (raw.server?.port !== undefined && typeof raw.server.port !== "number") {
     throw new Error("配置校验失败: server.port 必须是数字");
   }
+  validateServerHostConfig(raw);
   validateAuthConfig(raw);
   validateExternalConfig(raw);
 
   // contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
   if (raw.weixin) validateWeixinWarnConfig(raw.weixin);
+}
+
+/** 监听地址校验：非字符串/空白/带协议或路径一律 fail-fast——
+ *  写成 `http://127.0.0.1` 这类值传给 node 会变成「查 DNS 失败」的运行时错误，启动期拦下更省事。 */
+function validateServerHostConfig(raw: RawConfig): void {
+  const host = raw.server?.host;
+  if (host === undefined) return;
+  if (typeof host !== "string" || host.trim() === "") {
+    throw new Error("配置校验失败: server.host 必须是非空字符串（如 127.0.0.1 / 0.0.0.0 / ::1）");
+  }
+  if (host.includes("/")) {
+    throw new Error("配置校验失败: server.host 只填监听地址，不含协议与路径（如 127.0.0.1，而非 http://127.0.0.1）");
+  }
+}
+
+/** 监听地址归一化：空白/未配置一律回落 127.0.0.1——
+ *  缺省值不能是「node 默认绑全部接口」，那正是本项要收的口。 */
+function buildServerHost(raw: RawConfig): string {
+  const host = typeof raw.server?.host === "string" ? raw.server.host.trim() : "";
+  return host === "" ? "127.0.0.1" : host;
 }
 
 function validateExternalConfig(raw: RawConfig): void {
@@ -722,7 +747,7 @@ function buildExternalConfig(raw: RawConfig): AppConfig["external"] {
 function applyDefaults(raw: RawConfig & { llm: { default: string; models: NonNullable<NonNullable<RawConfig["llm"]>["models"]> } }, logger?: Logger): AppConfig {
   return {
     db: buildDbConfig(raw),
-    server: { port: d(raw.server?.port, 3000) },
+    server: { port: d(raw.server?.port, 3000), host: buildServerHost(raw) },
     external: buildExternalConfig(raw),
     memory: buildMemoryConfig(raw),
     embedding: {
@@ -807,6 +832,7 @@ export function loadConfig(logger?: Logger, configPath: string = CONFIG_PATH): A
       defaultModel: config.llm.default,
       modelCount: config.llm.models.length,
       port: config.server.port,
+      host: config.server.host,
     });
   }
 
