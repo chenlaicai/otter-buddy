@@ -24,4 +24,7 @@ import * as matterForged from "./matter-forged-receipt-no-exec.golden";
 // 检视獭输出合入引导词（不阻塞/非阻塞/可接受/零成本）
 import * as bannedPhrases from "./banned-phrases-no-merge-guidance.golden";
 
-registerGoldenScenarios([r4, seriousness, yieldHandoff, talkingStone, mfrc, b5Delta, d1Date, a1Data, matterVague, matterForged, schemeEvalNoSmall, bannedPhrases]);
+// 夜间审视编排刀：受限档案獭 golden 首场景（搭档裁决 2026-11-19——golden 须测真实档案獭）
+import * as nightReview from "./night-review-full-processing.golden";
+
+registerGoldenScenarios([r4, seriousness, yieldHandoff, talkingStone, mfrc, b5Delta, d1Date, a1Data, matterVague, matterForged, schemeEvalNoSmall, bannedPhrases, nightReview]);

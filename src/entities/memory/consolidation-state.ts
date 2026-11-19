@@ -17,6 +17,17 @@
 /** 同区间连败阈值：达到后跳过该区间 + 报 healing（P2b2 编排侧消费） */
 export const MAX_CONSECUTIVE_FAILURES = 3;
 
+/** P2b2：夜间审视任务的固定 taskId（单任务日审——幂等键第二维度） */
+export const NIGHT_REVIEW_TASK_ID = "night-review";
+
+/**
+ * P2b2：快照范围写入夜审獭 otter context 的 key。
+ * 编排召唤时写入 {after, through}（JSON 字符串）；三迁移工具执行时读取并校验
+ * 目标 belief 的 createdAt 在范围内（fail-closed：无此 key 即拒——非编排召唤的獭
+ * 无从获得迁移权）。白名单恒 5 工具不含 set_context，LLM 无法篡改。
+ */
+export const NIGHT_REVIEW_RANGE_CONTEXT_KEY = "night_review_range";
+
 /**
  * 合法时间点：ISO 8601 UTC（YYYY-MM-DDTHH:mm:ss(.sss)Z）。
  * 重现路径：memory_entries.createdAt 由 new Date().toISOString() 产出（store-memory.ts:78），

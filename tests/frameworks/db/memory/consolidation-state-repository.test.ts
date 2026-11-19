@@ -64,4 +64,27 @@ describe("SqliteConsolidationStateRepository（P2b1）", () => {
     };
     await expect(repo.save(halfOpen)).rejects.toThrow();
   });
+
+  it("listByTaskId（P2b2）：只列同 taskId 的档且日期升序，含 settle 与在途", async () => {
+    await repo.save(newConsolidationState("review:2026-11-17:night-review", "2026-11-17T20:00:01.000Z"));
+    await repo.save({
+      ...newConsolidationState("review:2026-11-18:night-review", "2026-11-18T21:00:00.000Z"),
+      failedAfter: "2026-11-18T02:00:00Z",
+      failedThrough: "2026-11-18T03:00:00Z",
+      failures: 1,
+    });
+    await repo.save(newConsolidationState("review:2026-11-18:other-task", "2026-11-18T22:00:00.000Z"));
+    await repo.save(newConsolidationState("review:2026-11-16:night-review", "2026-11-16T20:00:01.000Z"));
+
+    const listed = await repo.listByTaskId("night-review");
+    expect(listed.map((s) => s.reviewKey)).toEqual([
+      "review:2026-11-16:night-review",
+      "review:2026-11-17:night-review",
+      "review:2026-11-18:night-review",
+    ]);
+    // 含在途失败档（未 settle）
+    expect(listed[2].failedAfter).toBe("2026-11-18T02:00:00Z");
+    // 无档 taskId 返回空数组
+    expect(await repo.listByTaskId("absent")).toEqual([]);
+  });
 });

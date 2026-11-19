@@ -29,6 +29,7 @@ import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-schedu
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
+import type { AgentTurnPort } from "@usecases/ports/agent-turn-port";
 import type { AssistantSessionManager } from "@usecases/im/assistant-session";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
@@ -67,6 +68,10 @@ import { WeixinMessageProcessor } from "@interface-adapters/weixin/message-proce
 import { ensureHealingConversation } from "@usecases/healing/ensure-healing-conversation";
 import { ensureHealingScheduler } from "@usecases/healing/ensure-healing-scheduler";
 import { HEALING_CONVERSATION_KEY } from "@usecases/healing/constants";
+import { FunctionRegistry } from "@usecases/scheduler/function-registry";
+import { NightReviewOrchestrator } from "@usecases/scheduler/night-review-orchestrator";
+import { ensureNightReviewTask } from "@usecases/scheduler/ensure-night-review-task";
+import { RegisterMatter } from "@usecases/matter/register-matter";
 import { ProcessInboundRecruit } from "@usecases/recruiting/process-inbound-recruit";
 import { GetBridgeStatus } from "@usecases/recruiting/get-bridge-status";
 import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recruiting-conversation";
@@ -306,6 +311,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   });
 
   const cronParser = new SimpleCronParser();
+  const functionRegistry = buildNightReviewFunctionRegistry({ repos, uc, agentInvoker, logger });
   const schedulerService = new SchedulerService(
     // F20260913ctlv 收尾批2：内部信号唯一落点 = entries（system entry + entry.system 广播）
     buildSchedulerServiceOptions({
@@ -337,10 +343,44 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
       isOtterRunning: (otterId: string) => agentInvoker.isRunning?.(otterId) ?? false,
       otterRepo: repos.otter,
       pendingItemRepo: repos.scheduledTaskPending,
+      functionRegistry,
     }),
   );
 
   return { agentInvoker, cronParser, schedulerService };
+}
+
+/** P2b2：夜间审视编排装配——function executor 通道（治量进代码：幂等/水位/召唤/校验/fyi 全在纯代码层）。
+ *  独立函数控 initAgentAndScheduler 行数；任务 body（JSON params）携带 conversationId。 */
+function buildNightReviewFunctionRegistry(o: {
+  repos: Repositories;
+  uc: UseCases;
+  agentInvoker: AgentTurnPort;
+  logger: Logger;
+}): FunctionRegistry {
+  const orchestrator = new NightReviewOrchestrator({
+    manageConsolidationState: o.uc.manageConsolidationState,
+    consolidationRepo: o.repos.consolidationState,
+    memoryReader: o.repos.memoryReader,
+    createOtter: o.uc.createOtter,
+    dissolveOtter: o.uc.dissolveOtter,
+    otterContextRepo: o.repos.otterContext,
+    agentTurnPort: o.agentInvoker,
+    registerMatter: new RegisterMatter(o.repos.matter),
+    matterRepo: o.repos.matter,
+    healingRepo: o.repos.healingEvent,
+    sendEntry: o.uc.sendEntry,
+    logger: o.logger,
+  });
+  const registry = new FunctionRegistry();
+  registry.register("night-review-orchestrator", async (params) => {
+    const outcome = await orchestrator.execute({
+      conversationId: String(params.conversationId ?? ""),
+      senderId: typeof params.senderId === "string" ? params.senderId : undefined,
+    });
+    return JSON.parse(JSON.stringify(outcome)) as Record<string, unknown>;
+  });
+  return registry;
 }
 
 /** 控 max-lines-per-function：SchedulerServiceOptions 透传（initAgentAndScheduler 拆行） */
@@ -746,6 +786,11 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
   if (gates.selfHealing) {
     healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendEntry: uc.sendEntry, logger })
       .then(({ conversationId, bigOtterId }) => ensureHealingScheduler({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, healingConversationId: conversationId, bigOtterId }))
+      // P2b2：夜审任务挂 healing 主对话（fyi 汇总与系统报告同处；幂等 seed，手动 disable 不复活）
+      .then(() => repos.settings.get(HEALING_CONVERSATION_KEY))
+      .then(healingConversationId => healingConversationId
+        ? ensureNightReviewTask({ manageScheduledTask: uc.manageScheduledTask, scheduledTaskRepo: repos.scheduledTask, conversationId: healingConversationId })
+        : undefined)
       .then(() => undefined)
       .catch(err => logger.warn("Self-Healing init failed", { error: err instanceof Error ? err.message : String(err) }));
   }

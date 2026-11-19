@@ -218,6 +218,20 @@ describe("getOtterToolNamesForType", () => {
       ]);
     });
 
+    it("夜审编排阶段：belief_dispute（搭档否决打回）不在 night-reviewer 白名单（它有 belief_reject）", () => {
+      expect(getOtterToolNamesForType("night-reviewer")).not.toContain("belief_dispute");
+    });
+
+    it("夜审编排阶段：belief_dispute 对 big 可见（打回执行体）/对 small 不可见（memory 组未列入）", () => {
+      const universe = ["speak", "belief_dispute", "record_belief"];
+      const bigTools = getOtterToolNamesForType("big", universe);
+      expect(bigTools).toContain("belief_dispute"); // 不在排除集，big 的 universe 过滤后保留
+      const projectRoot = join(import.meta.dirname, "../../../");
+      const manifestSmall = getOtterToolNamesForType("small", undefined, projectRoot);
+      expect(manifestSmall).not.toContain("belief_dispute"); // manifest memory 组未列入
+      expect(manifestSmall).toContain("record_belief");
+    });
+
     it("fallback 路径：big 白名单不含三迁移工具（registered universe 含它们也被剔除）", () => {
       const universe = ["speak", "yield", "search_memory", "belief_verify", "belief_reject", "belief_supersede"];
       const tools = getOtterToolNamesForType("big", universe);
