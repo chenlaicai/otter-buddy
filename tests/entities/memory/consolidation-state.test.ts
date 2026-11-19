@@ -1,5 +1,5 @@
 /**
- * P2b1：consolidation_state 实体单测。
+ * consolidation_state 实体单测。
  *
  * 覆盖：幂等键构造/回解的形态边界、空白状态、失败区间的形态一致性校验。
  */

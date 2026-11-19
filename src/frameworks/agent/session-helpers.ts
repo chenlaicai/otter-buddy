@@ -10,9 +10,9 @@ import { SessionLockConflictError } from "@entities/errors";
 import { loadToolManifest, getToolNamesFromManifest } from "../config/tool-manifest-loader";
 
 /**
- * P2a：belief 迁移三工具（verify/reject/supersede）仅 night-reviewer 受限写者獭可见。
+ * belief 迁移三工具（verify/reject/supersede）仅 night-reviewer 受限写者獭可见。
  * big（"*" 展开全量注册集）与 small（memory 组）都不得持有——迁移权只属于夜间审视獭；
- * 任何普通 agent 可自我核实会掏空独立核实信任模型（P1c k3 审视结论）。
+ * 任何普通 agent 可自我核实会掏空独立核实信任模型（k3 审视结论）。
  */
 export const BELIEF_MIGRATION_TOOLS = ["belief_verify", "belief_reject", "belief_supersede"] as const;
 
@@ -34,7 +34,7 @@ function stripBeliefMigrationTools(names: string[]): string[] {
  */
 export function getCodingToolsForOtterType(otterType: string | undefined, externalProfile?: 'restricted'): string[] {
   if (externalProfile === 'restricted') return [];
-  // P2a：night-reviewer 受限写者獭只审不写码，不持 read/write/edit/bash 等编码工具。
+  // night-reviewer 受限写者獭只审不写码，不持 read/write/edit/bash 等编码工具。
   if (otterType === 'night-reviewer') return [];
   // big 和 small otter 均启用全部编码工具（含搜索/浏览专用工具）
   return ["read", "write", "edit", "bash", "grep", "find", "ls"];
@@ -60,7 +60,7 @@ export function getOtterToolNamesForType(
   externalProfile?: 'restricted',
 ): string[] {
   if (externalProfile === 'restricted') return ['speak', 'yield'];
-  // P2a：night-reviewer 受限写者獭恒 5 工具（speak/yield + 三迁移）。
+  // night-reviewer 受限写者獭恒 5 工具（speak/yield + 三迁移）。
   // 不依赖 manifest defaultType fallback——manifest 缺 night-reviewer 类型时
   // getToolNamesFromManifest 会退到 defaultType='big' 的 "*" 全集（fail-open 风险）。
   if (otterType === 'night-reviewer') {

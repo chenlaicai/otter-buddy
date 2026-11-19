@@ -45,7 +45,7 @@ export class EmbeddingRetryWorker {
    * 原 20 轮/10min 预算是 tick 内联阻塞时代的约束（防 tick 挂死饿死 patrol），
    * drain 后台化后照抄成了「正常积压推回小时巡检」的脉冲边界——按实测
    * 1.13 条/s，600s 只够 ~678 条，生产 1000 条积压首轮即被截断，剩余空等
-   * ~50min 到下个 patrol tick（验证盲区恰好覆盖：alpha 60/40 条、P3b 120 条
+   * ~50min 到下个 patrol tick（验证盲区恰好覆盖：alpha 60/40 条、120 条
    * 均低于 678 边界）。根治：drain 自续跑直到队列清空（见 runBackgroundDrain
    * 终止条件），退避感知 retrigger 补上「全部在退避」的空窗。
    */

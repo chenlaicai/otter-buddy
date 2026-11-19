@@ -63,7 +63,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     logger.info('Added model_alias column to otter_configs table');
   }
 
-  /** P2a：otter_configs.otter_type CHECK 扩展 'night-reviewer'（存量库迁移）。 */
+  /** otter_configs.otter_type CHECK 扩展 'night-reviewer'（存量库迁移）。 */
   rebuildOtterConfigsTypeCheck(db, logger);
 
   // otter_sessions 加 model_alias 列（该世生效的模型 alias 快照）

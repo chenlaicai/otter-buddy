@@ -49,7 +49,7 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     memoryWriter: memoryRepo,
     memoryQueue: memoryRepo,
     searchQueryLog: new SqliteSearchQueryLogRepository(db),
-    /** P2b1：夜间审视治量状态（consolidation_state 表） */
+    /** 夜间审视治量状态（consolidation_state 表） */
     consolidationState: new SqliteConsolidationStateRepository(db),
     terminology: new SqliteTerminologyRepository(db),
     conversation: new SqliteConversationRepository(db, logger),

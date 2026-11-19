@@ -1,7 +1,7 @@
 /**
  * SqliteConsolidationStateRepository：夜间审视治量状态仓库实现。
  *
- * P2b1。表结构见 schema.ts consolidation_state。
+ * 表结构见 schema.ts consolidation_state。
  * 表形态是幂等键一行一档；save 走 INSERT OR REPLACE 全量 upsert。
  */
 

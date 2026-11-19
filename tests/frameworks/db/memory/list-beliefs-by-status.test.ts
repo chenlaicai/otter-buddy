@@ -1,5 +1,5 @@
 /**
- * P2b1：MemoryReader.listBeliefsByStatus 集成测试。
+ * MemoryReader.listBeliefsByStatus 集成测试。
  *
  * 覆盖：状态过滤（json_extract metadata.status）、时间闭区间 [after, through]、
  *       created_at 升序、无误命中其他 content_type 或可见性无关的状态。

@@ -1,5 +1,5 @@
 /**
- * P1a：主动记忆层（belief）实体。
+ * 主动记忆层（belief）实体。
  *
  * belief = 「现在什么是真的」的蒸馏层，区别于沉淀物（发生过什么，永不变）。
  * 物理形态：memory_entries 之上的分区——content_type 新增 "belief"（不建平行新库），

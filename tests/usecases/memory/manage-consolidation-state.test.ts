@@ -1,5 +1,5 @@
 /**
- * P2b1：夜间审视治量状态管理 usecase 单测。
+ * 夜间审视治量状态管理 usecase 单测。
  *
  * 覆盖：claim 幂等撞键 / complete 写存档点清零 / recordFailure 同区间连败与异区间重置。
  */

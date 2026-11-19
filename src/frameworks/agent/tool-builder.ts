@@ -76,7 +76,7 @@ export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, inv
 export interface BuildCustomToolsParams {
   otterId: string;
   conversationId: string;
-  /** P1c：本对话搭档（用户）id；缺省 "user"（Web 口径） */
+  /** 本对话搭档（用户）id；缺省 "user"（Web 口径） */
   partnerUserId?: string;
   allowedNames: string[];
   /** invoke 级寄存器（getter 绑定的读取目标） */

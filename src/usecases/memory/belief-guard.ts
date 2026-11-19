@@ -1,5 +1,5 @@
 /**
- * P1a：主动记忆层（belief）写入守卫。
+ * 主动记忆层（belief）写入守卫。
  *
  * 四维出处校验（otter-memory-design v4）+ 状态机迁移守卫+ 防环。
  * 机器校验挡「无源之水」：空出处 / ID 不存在 / 来源身份不符 = 拒收（视为编造）。
@@ -51,7 +51,7 @@ export type BeliefGuardResult =
   | { ok: false; errors: BeliefGuardError[] };
 
 /**
- * P1a: 合法状态机迁移矩阵。
+ * 合法状态机迁移矩阵。
  * - recorded → verified：夜间核实通过
  * - recorded → disputed：夜间打回 / 搭档否决
  * - recorded → superseded：现场即时纠正（尚未核实即被取代）

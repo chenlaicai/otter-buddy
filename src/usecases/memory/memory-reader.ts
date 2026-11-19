@@ -114,7 +114,7 @@ export interface MemoryReader {
   getSupersededBy(entryIds: string[]): Promise<Map<string, string>>;
 
   /**
-   * P2b1：按生命周期状态 + 创建时间区间列出 belief 条目（夜间审视清单数据源）。
+   * 按生命周期状态 + 创建时间区间列出 belief 条目（夜间审视清单数据源）。
    * 区间为闭区间 [after, through]，createdAt 升序（按现场时间先后审视）。
    * status 用 json_extract(metadata, '$.status') 匹配。
    */

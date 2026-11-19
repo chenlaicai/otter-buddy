@@ -60,17 +60,19 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(collectAnchorViolations("round-2 修复").some((x) => x.kind === "轮次编号")).toBe(true);
     expect(collectAnchorViolations("第 2 轮复审").some((x) => x.kind === "轮次编号")).toBe(true);
     expect(collectAnchorViolations("检视轮次 2").some((x) => x.kind === "轮次编号")).toBe(true);
-    expect(collectAnchorViolations("S1 修复").some((x) => x.kind === "轮次编号")).toBe(true);
+    expect(collectAnchorViolations("S1 修复").some((x) => x.kind === "文档编号" && x.token === "S1")).toBe(true);
     expect(collectAnchorViolations("r2 处置后").some((x) => x.kind === "轮次编号")).toBe(true);
-    expect(collectAnchorViolations("S1").some((x) => x.kind === "轮次编号" && x.token === "S1")).toBe(true);
-    expect(collectAnchorViolations("R10").some((x) => x.kind === "轮次编号" && x.token === "R10")).toBe(true);
+    expect(collectAnchorViolations("S1").some((x) => x.kind === "文档编号" && x.token === "S1")).toBe(true);
+    expect(collectAnchorViolations("R10").some((x) => x.kind === "文档编号" && x.token === "R10")).toBe(true);
     expect(collectAnchorViolations("delta 发现 8 的现场").some((x) => x.kind === "轮次编号")).toBe(true);
-    expect(collectAnchorViolations("S2a").some((x) => x.kind === "轮次编号" && x.token === "S2a")).toBe(true);
+    expect(collectAnchorViolations("S2a").some((x) => x.kind === "文档编号" && x.token === "S2a")).toBe(true);
   });
 
-  it("技术词豁免：M1/M2 芯片、S3 存储、A4 纸；流程描述不误伤", () => {
-    const v = collectAnchorViolations("M1 与 M2 芯片均兼容，对象存入 S3 后异步处理，A4 纸张，发现 3 处差异，建议采用");
+  it("技术词豁免：M1 芯片、S3 存储、A4 纸；流程描述不误伤；审视项号删除", () => {
+    const v = collectAnchorViolations("M1 芯片与 S3 存储均兼容，A4 纸规格，发现 3 处差异，建议采用");
     expect(v).toEqual([]);
+    const d = collectAnchorViolations("M2 审视、S3 检视轮、A1 审视");
+    expect(d.map((x) => x.token).sort()).toEqual(["A1", "M2", "S3"]);
   });
 });
 
@@ -295,7 +297,7 @@ describe("checkDiff 集成（readFileFn 注入）", () => {
 
   it("M1/S3 技术词豁免、孤立 S1 命中、round 形态命中", () => {
     const content = [
-      `${sl()} M1 与 S3 存储兼容`,
+      `${sl()} M1 芯片与 S3 存储兼容`,
       `${sl()} round-2 修复后保留终态`,
       `${sl()} S1`,
     ].join("\n");
@@ -304,7 +306,7 @@ describe("checkDiff 集成（readFileFn 注入）", () => {
       "--- a/src/a.ts",
       "+++ b/src/a.ts",
       "@@ -0,0 +1,3 @@",
-      `+${sl()} M1 与 S3 存储兼容`,
+      `+${sl()} M1 芯片与 S3 存储兼容`,
       `+${sl()} round-2 修复后保留终态`,
       `+${sl()} S1`,
     ].join("\n");

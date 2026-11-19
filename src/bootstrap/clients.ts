@@ -74,7 +74,7 @@ export function buildMemoryClient(uc: UseCases) {
   };
 }
 
-/** P1c：belief 工具面客户端方法（拆出降 buildMemoryClient 行数） */
+/** belief 工具面客户端方法（拆出降 buildMemoryClient 行数） */
 function buildBeliefClientMethods(uc: UseCases) {
   return {
     recordBelief: async (params: {

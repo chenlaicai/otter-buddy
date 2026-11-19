@@ -1,12 +1,12 @@
 /**
- * P1c：belief supersede usecase（标记过期 / 新 belief 取代旧 belief）。
+ * belief supersede usecase（标记过期 / 新 belief 取代旧 belief）。
  *
  * 两条路径：
  * - markExpired(oldId)：夜间审视獭「标记过期」——旧条目迁 superseded，不建边（无新条目）。
  * - markReplaced(oldId, newId)：现场「写入带 supersedes 提议」——旧条目迁 superseded，
  * 并建 supersedes 边（from=new 取代者，to=old 被取代；检索端据此降权 + get_related 可拼链）。
  *
- * TOCTOU 防护（P1c 前瞻已知项）：markReplaced 建边前先查 old 是否已有入边 supersedes
+ * TOCTOU 防护（前瞻已知项）：markReplaced 建边前先查 old 是否已有入边 supersedes
  * （getSupersededBy 命中=已被取代）——已取代则跳过建边与迁移（幂等），防并发双写把
  * 两个新条目都建边指向同一旧条目（A→B、C→B 双取代者并存）。
  */

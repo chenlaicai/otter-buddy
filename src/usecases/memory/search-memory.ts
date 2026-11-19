@@ -105,7 +105,7 @@ export interface RetrievalResultEntry extends MemoryEntry {
   userFlagged?: boolean;
   /** 被哪个条目取代（supersedes 边 from 端=取代者/新条目），有则说明此条已过期。 */
   supersededBy?: string;
-  /** P1b：belief 生命周期状态（recorded=[未核实]、verified=[已核实]、disputed=[存疑]、superseded=[已取代]）。 */
+  /** belief 生命周期状态（recorded=[未核实]、verified=[已核实]、disputed=[存疑]、superseded=[已取代]）。 */
   beliefStatus?: BeliefStatus;
   /** debug=true 时注入的中间分值 */
   debug?: RetrievalDebugInfo;

@@ -136,7 +136,7 @@ export interface OtterToolClient {
     /** 删除一条关系边（纠错用） */
     unlinkEdge(edgeId: string): Promise<void>;
     /**
-     * P1c：现场记录 belief（kind/content/anchors/inferredFrom/supersedes）。
+     * 现场记录 belief（kind/content/anchors/inferredFrom/supersedes）。
      * supersedes 可选——带则同步建 supersedes 边 + 旧条目迁 superseded。
      */
     recordBelief(params: {
@@ -149,9 +149,9 @@ export interface OtterToolClient {
       partnerUserId: string;
       createdBy?: string;
     }): Promise<{ entryId: string; edgeId?: string }>;
-    /** P1c：belief 状态迁移（verify/reject/supersede 共用） */
+    /** belief 状态迁移（verify/reject/supersede 共用） */
     transitionBelief(params: { entryId: string; to: "verified" | "disputed" | "superseded" }): Promise<{ entryId: string; from: string; to: string }>;
-    /** P1c：belief 标记过期（无新条目，只迁 superseded） */
+    /** belief 标记过期（无新条目，只迁 superseded） */
     markBeliefExpired(entryId: string): Promise<{ entryId: string }>;
     /**
      * 查文档 provenance——该文档由哪段对话产出 + 该对话的消息。

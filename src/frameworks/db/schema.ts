@@ -33,7 +33,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
   try {
     createConversationTables(db);
     createMemoryTables(db);
-    /** P2b1：夜间审视治量结构（幂等键 + 失败区间 + 连败计数）。
+    /** 夜间审视治量结构（幂等键 + 失败区间 + 连败计数）。
      *  新表只写 schema.ts 一处（bootstrap 无条件幂等 initSchema，老库自动补建）。 */
     createConsolidationStateTable(db);
     createTerminologyTables(db);
@@ -164,7 +164,7 @@ function createConversationTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
   `);
-  // （m3a 检视归位）：存量库迁移——conversations.current_machine_id 列
+  // （检视归位）：存量库迁移——conversations.current_machine_id 列
   // （幂等 ALTER：新库 CREATE TABLE 已含，旧库补列；同 introduced_by_pr 模式但归 conversations 建表函数）
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN current_machine_id TEXT`);
@@ -325,7 +325,7 @@ function createMemoryTables(db: Database.Database): void {
   `);
 }
 
-/** P2b1：夜间审视治量结构（otter-memory-design v4）。
+/** 夜间审视治量结构（otter-memory-design v4）。
  *  幂等键 review:{date}:{taskId} 一行一档；failed_range=[failed_after, failed_through] 区间不是点，
  *  连败计数绑定该区间；result_json 非空 = 已 settle（撞键直接返回原结果）。 */
 function createConsolidationStateTable(db: Database.Database): void {

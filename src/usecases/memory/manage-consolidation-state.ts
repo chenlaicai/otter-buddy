@@ -1,7 +1,7 @@
 /**
- * P2b1：夜间审视治量状态管理 usecase。
+ * 夜间审视治量状态管理 usecase。
  *
- * 消费方是 P2b2 的夜间审视编排（scheduled-task 触发）。本 usecase 只回答三个问题：
+ * 消费方是 的夜间审视编排（scheduled-task 触发）。本 usecase 只回答三个问题：
  * 1. claim：这次审视是否已 settle（撞键返回原结果）？没 settle 的话，上次失败区间和连败数是什么？
  * 2. complete：成功后把变更集写进存档点，清零失败区间。
  * 3. recordFailure：失败后登记——同区间连败 +1（异区间重置），并返回是否该跳过。

@@ -210,7 +210,7 @@ function buildMemoryUseCases(
   const deleteEdge = new DeleteEdge(repos.memoryWriter);
   const getDocProvenance = new GetDocProvenance(repos.memoryReader, repos.feature, repos.research);
 
-  // P1c：主动记忆层（belief）工具面装配
+  // 主动记忆层（belief）工具面装配
   const storeMemory = new StoreMemory(repos.memoryWriter, repos.memoryQueue, embeddingService, logger);
   const beliefGuard = new BeliefGuard({
     getEntryById: (id) => repos.memoryReader.getById(id),
@@ -235,7 +235,7 @@ function buildMemoryUseCases(
     getEntryById: (id) => repos.memoryReader.getById(id),
   }, transitionBelief);
 
-  // P2b1：夜间审视治量状态管理（P2b2 调度编排消费）
+  // 夜间审视治量状态管理（调度编排消费）
   const manageConsolidationState = new ManageConsolidationState(repos.consolidationState);
 
   return { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief, manageConsolidationState };

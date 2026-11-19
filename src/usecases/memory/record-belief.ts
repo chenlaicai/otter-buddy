@@ -1,10 +1,10 @@
 /**
- * P1a：主动记忆层（belief）写入路径。
+ * 主动记忆层（belief）写入路径。
  *
  * 现场记录的主要入口（otter-memory-design v4）：
  * 1. BeliefGuard 四维出处校验（空/不存在/身份不符 = 拒收）；
  * 2. 通过后走 StoreMemory.execute 复用现有防线（污染拦截 + 嵌入 + FTS）。
- * 新条目一律以 status=recorded 出生（初态 [未核实]，权重低于 verified——见 P1b 检索端）。
+ * 新条目一律以 status=recorded 出生（初态 [未核实]，权重低于 verified——见 检索端）。
  */
 import type { BeliefKind } from "@entities/memory/belief";
 import { DomainError } from "@entities/errors";

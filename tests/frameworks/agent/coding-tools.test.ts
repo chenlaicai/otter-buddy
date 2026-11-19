@@ -59,7 +59,7 @@ describe("getCodingToolsForOtterType", () => {
     expect(tools).toHaveLength(7);
   });
 
-  // P2a：night-reviewer 受限写者獭只审不写码
+  // night-reviewer 受限写者獭只审不写码
   it("night-reviewer otter 不持任何编码工具（只审不写码）", () => {
     expect(getCodingToolsForOtterType("night-reviewer")).toEqual([]);
   });
@@ -210,7 +210,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toHaveLength(40); // +restart_service（39→40）
   });
 
-  // P2a：belief 迁移三工具仅 night-reviewer 可见
+  // belief 迁移三工具仅 night-reviewer 可见
   describe("night-reviewer 受限写者獭白名单（P2a）", () => {
     it("fallback 路径：night-reviewer 有且仅有 speak/yield + 三迁移工具", () => {
       expect(getOtterToolNamesForType("night-reviewer")).toEqual([

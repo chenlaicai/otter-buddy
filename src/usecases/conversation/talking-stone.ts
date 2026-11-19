@@ -45,7 +45,7 @@ export function validateAndResolve(
 ): { resolvedIds: string[]; error?: string } {
   if (!recipients || recipients.length === 0) return { resolvedIds: [], error: "[错误] 行动权目标不能为空数组。请指定下一个应该行动的参与者名字。" };
   const { resolvedIds, invalid } = resolveTalkingStoneTargets(recipients, active);
-  // ②（P3a 批次 2）：拆除自交禁令（含 selfOtterId 参数）——yield 给自己 = 任务锚点入箱
+  // ②（批次 2）：拆除自交禁令（含 selfOtterId 参数）——yield 给自己 = 任务锚点入箱
   // （「任务未完成，下轮继续」），实现打断≠丢弃的对称恢复。
   // 消化路径唯一 = 链引擎护栏门控的链续跑（dispatch-chain-engine resolveHopOutcomes：
   // 护栏计数 <5 放行 self 进下一跳；≥3 附 steer 警示；≥5 拒入 + abort + healing）；

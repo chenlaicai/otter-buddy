@@ -809,7 +809,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       executionMachines: {
         list: () => executionMachines.list(),
         currentId: () => executionMachines.currentMachineId(),
-        // + /m3b（检视）：设备全量状态收口 repo（含离线设备）
+        // + /（检视）：设备全量状态收口 repo（含离线设备）
         deviceStatus: async () => connectorRepo.listDeviceOnlineStatus(),
         // minor1（检视遗留处置）：GET 404 口径对齐 PUT（不存在对话显式 404，不再混作「默认 local」）
         conversationExists: async (conversationId) => (await repos.conversation.getById(conversationId)) !== null,
@@ -824,7 +824,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
           }));
         },
         setConversationMachine: async (conversationId, machineId) => {
-          // m1b（检视）："local" 归一化为 null（列语义唯一——默认只有 NULL 一种表示）
+          // （检视）："local" 归一化为 null（列语义唯一——默认只有 NULL 一种表示）
           const normalized = machineId === executionMachines.currentMachineId() ? null : machineId;
           if (normalized !== null && !executionMachines.list().some(m => m.id === normalized)) {
             return { ok: false as const, status: 400 as const, error: `machine not registered: ${String(normalized)}（设备未上线或未配对——目标必须当前在册；离线设备重连后可切）` };

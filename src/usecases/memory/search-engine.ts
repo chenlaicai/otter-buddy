@@ -51,7 +51,7 @@ export function normalizeRerankWeights(weights: RerankWeights): RerankWeights {
   };
 }
 
-/** P1b：belief 状态相对权重（应用于 beliefBoost 之上）。
+/** belief 状态相对权重（应用于 beliefBoost 之上）。
  *  verified=1.0（全加成）；recorded=0.6（可用但 [未核实] 不当权威）；
  *  disputed=0.3（打回重新入审，存疑）；superseded=0.1（已被取代，可检索但深埋）。 */
 export function beliefStatusMultiplier(status: BeliefStatus): number {
@@ -88,7 +88,7 @@ export interface SearchEngineConfig {
   rerank?: RerankWeights;
   /** 被 supersedes 边指向的旧条目的降权因子（finalScore × 此值）。可选，构造时回填默认 0.3。 */
   supersededPenalty?: number;
-  /** P1b：主动记忆层（belief）排序加成系数，默认 2.0——检索最高优先级（v4）。缺省在构造时回填。 */
+  /** 主动记忆层（belief）排序加成系数，默认 2.0——检索最高优先级（v4）。缺省在构造时回填。 */
   beliefBoost?: number;
 }
 
@@ -126,7 +126,7 @@ export interface ScoredHit {
   biasConv?: number;
   /** 被哪个条目取代（supersedes 边的 from 端=取代者/新条目），有则说明此条已过期，检索端标注并降权。 */
   supersededBy?: string;
-  /** P1b：belief 生命周期状态（供结果标注 [未核实]/[已核实]/[存疑]）。 */
+  /** belief 生命周期状态（供结果标注 [未核实]/[已核实]/[存疑]）。 */
   beliefStatus?: BeliefStatus;
 }
 
@@ -276,7 +276,7 @@ export class SearchEngine {
     return supersededById?.get(entryId);
   }
 
-  /** P1b：belief 条目排序因子与状态（非 belief 返回因子 1、无状态）。 */
+  /** belief 条目排序因子与状态（非 belief 返回因子 1、无状态）。 */
   private beliefFactor(entry: MemoryEntry): { factor: number; status: BeliefStatus | undefined } {
     if (entry.contentType !== "belief") return { factor: 1.0, status: undefined };
     const belief = parseBeliefMetadata(entry);

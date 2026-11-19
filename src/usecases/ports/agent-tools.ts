@@ -127,7 +127,7 @@ export interface ToolContext {
   otterId: string;
   conversationId: string;
   /**
-   * P1c：本对话搭档（用户）id——belief preference 来源身份校验用。
+   * 本对话搭档（用户）id——belief preference 来源身份校验用。
    * Web 端缺省 "user"（PartnerResolver 同口径：Web senderId 恒为 user）；
    * IM 平台由装配层注入实际 owner id（open_id/ilink_user_id）。
    */

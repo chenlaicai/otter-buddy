@@ -30,7 +30,7 @@ export interface ChainHopResult {
   steerText?: string;
 }
 
-/** ②（P3a 批次 2）：单目标 hop 产出判定——护栏决策单点化的载体。
+/** ②（批次 2）：单目标 hop 产出判定——护栏决策单点化的载体。
  *  settle 记账（chainSource 回填）与路由（nextTargets）共享同一实例，两处不再各滤各的。 */
 export interface HopOutcome {
   /** 彻底切换：行级取数 = invoke 行（含 talkingStonePassedTo 终值）；查库失败/degraded 时 null */
