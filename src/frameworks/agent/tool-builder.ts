@@ -47,6 +47,8 @@ export interface InvokeRegister {
   /** yield 边界 PR 守卫缺口快照（上次拒绝时的缺口序列化；与当前相同 = 零进展放行；
    *  invoke 入口重置） */
   turnYieldPrGapSnapshot: string | null;
+  /** PR 卡片闸事故 PR 呈递拍板机械闸：本回合 speak body 累计（yield 主闸判定面；invoke 入口重置） */
+  speakBodies: string[];
 }
 
 export function createInvokeRegister(): InvokeRegister {
@@ -63,6 +65,7 @@ export function createInvokeRegister(): InvokeRegister {
     turnPrUrls: undefined,
     turnYieldPrRemindCount: 0,
     turnYieldPrGapSnapshot: null,
+    speakBodies: [],
   };
 }
 
@@ -83,6 +86,7 @@ export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, inv
   reg.turnPrUrls = undefined;
   reg.turnYieldPrRemindCount = 0;
   reg.turnYieldPrGapSnapshot = null;
+  reg.speakBodies = [];
 }
 
 /** buildCustomTools 所需的参数类型 */
@@ -188,6 +192,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     get lastSpeakMessageId() { return register.lastSpeakEntryId; },
     set lastSpeakMessageId(v: string | undefined) { register.lastSpeakEntryId = v; },
     ...prGuardAccessors(register),
+    get speakBodiesThisTurn() { return register.speakBodies; },
     isOtterRunning,
   };
   const otterTools = createTools(toolContext, healingRepo, logger);
