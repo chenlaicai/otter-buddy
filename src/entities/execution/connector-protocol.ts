@@ -7,6 +7,12 @@
 
 export const CONNECTOR_PROTOCOL_VERSION = 1;
 
+/** （阶段 6c）WSS 升级子协议 pin：connector 连接必须在 Sec-WebSocket-Protocol 声明
+ *  该值，hub 侧升级层校验声明 + 回显选中（handleProtocols）。作用：公网暴露面上
+ *  通用 WS 客户端/扫描器不声明子协议，在升级握手层即拒（不进协议状态机）；
+ *  协议大版本演进时（v2）追加新值做升级期双协议共存窗口。 */
+export const CONNECTOR_WS_SUBPROTOCOL = "otter-connector.v1";
+
 /**
  * seq 帧字段契约（检视 s5 澄清）：单调递增，仅用于日志对账与乱序观测——
  * **不承担可靠性/重放防护**（重放防护由 actionId 幂等协议承担，C2 落地；

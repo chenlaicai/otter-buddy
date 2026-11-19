@@ -17,7 +17,7 @@ import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gat
 import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-ledger";
 import { WorkspaceActionExecutor } from "@frameworks/execution/workspace-action-executor";
 import { ConnectorActionDispatcher } from "../../../src/connector/action-dispatcher";
-import { CONNECTOR_PROTOCOL_VERSION, type ConnectorFrame } from "@entities/execution/connector-protocol";
+import { CONNECTOR_PROTOCOL_VERSION, CONNECTOR_WS_SUBPROTOCOL, type ConnectorFrame } from "@entities/execution/connector-protocol";
 import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
 import type { Device } from "@entities/execution/device";
@@ -87,7 +87,8 @@ async function startE2E(db: Database.Database, opts: { actionTimeoutMs?: number 
 
 /** connector 侧 ws 客户端（真执行栈接线：action.request → dispatcher → 回帧） */
 async function connectConnector(url: string, runtime: Awaited<ReturnType<typeof buildConnectorRuntime>>): Promise<{ ws: WebSocket; sid: string }> {
-  const ws = new WebSocket(url, { headers: { authorization: "Bearer tok-e2e" } });
+  // 6c：升级子协议 pin（对齐 connector/main.ts 真实客户端行为）
+  const ws = new WebSocket(url, [CONNECTOR_WS_SUBPROTOCOL], { headers: { authorization: "Bearer tok-e2e" } });
   const sid = await new Promise<string>((resolve, reject) => {
     ws.once("open", () => {
       ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq: 1, data: { supportedVersions: [CONNECTOR_PROTOCOL_VERSION] } }));
