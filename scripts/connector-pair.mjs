@@ -65,7 +65,7 @@ function main() {
   const expiresAt = new Date(Date.now() + TTL_MINUTES * 60_000).toISOString();
   db.prepare("INSERT INTO pairing_codes (code, created_at, expires_at, redeemed_at) VALUES (?, ?, ?, NULL)")
     .run(code, new Date().toISOString(), expiresAt);
-  process.stdout.write(`配对码: ${code}\n有效期: ${TTL_MINUTES} 分钟（至 ${expiresAt}），单次核销\nconnector 侧使用: node dist/connector/connector/main.js --hub http://localhost:3000 --pair ${code} --name <设备名>\n`);
+  process.stdout.write(`配对码: ${code}\n有效期: ${TTL_MINUTES} 分钟（至 ${expiresAt}），单次核销\nconnector 侧使用: otter-connector --hub <中枢URL> --pair ${code} --name <设备名>\n  （仓内直跑: node packages/connector/dist/connector/main.js ...；设备侧先装 packages/connector 打出的 tarball）\n`);
   db.close();
 }
 

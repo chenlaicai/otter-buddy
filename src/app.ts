@@ -767,10 +767,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const connectorRepo = new SqliteConnectorRegistryRepository(db);
   const remoteActionRegistry = new SqliteRemoteActionRegistry(db); // 登记落点 + 摘要数据源
   const hubBootEpoch = Date.now(); // actionId 前缀纪元（跨重启防碰撞）
+  // （6c）Origin 白名单：OTTER_WS_ALLOWED_ORIGINS 逗号分隔 exact match；未配置=空
+  // （fail-closed 拒所有带 Origin 请求——connector node 客户端不发 Origin 不受影响）。
+  // 公网部署后若引入浏览器 WS 客户端，将页面 origin 列入即可。
+  const wsAllowedOrigins = (process.env.OTTER_WS_ALLOWED_ORIGINS ?? "")
+    .split(",").map(s => s.trim()).filter(Boolean);
   /** 投影单例缓存（重连=同 device 新会话：同实例 replace 幂等；wireChannel 只接一次，
    *  避免 gateway handler 数组随重连累积——空转 handler 也是泄漏） */
   const remoteMachines = new Map<string, RemoteExecutionMachine>();
   const connectorGateway = new ConnectorWsGateway(connectorRepo, executionMachines, logger, {
+    allowedOrigins: wsAllowedOrigins,
     makeMachineProjection: (deviceId: string, deviceName: string): ExecutionMachine => {
       const existing = remoteMachines.get(deviceId);
       if (existing) return existing;

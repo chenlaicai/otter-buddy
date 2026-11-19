@@ -1,6 +1,10 @@
+#!/usr/bin/env node
 /**
- * + （执行通道）：connector
- * 独立进程入口（客户端侧）。
+ * （执行通道）：connector
+ * 独立进程入口（客户端侧）。packages/connector 独立分发。
+ *
+ * shebang：packages/connector 打包后经 bin（otter-connector）直接执行；
+ * 主构建（dist/src/connector/）同样保留——无碍（不被当模块加载）。
  *
  * 轻量铁律（/）：本进程不加载模型、embedding、主记忆——
  * 依赖闭包仅 ws + better-sqlite3 + node 内置 + 执行器/台账/网关（构建后闭包断言）。
@@ -14,9 +18,10 @@
  * 语义与记账协议）→ action.result 回执。数据目录 ~/.otter/connector/<deviceId>/；
  * 台账开机清扫旧纪元 running 行（崩溃恢复兑底）后才执行动作。
  *
- * 用法：
- *   node dist/connector/connector/main.js --hub http://localhost:3000 --pair <码> --name <设备名>   # 首启配对
- *   node dist/connector/connector/main.js --hub http://localhost:3000                              # 凭已存身份连接
+ * 用法（packages/connector 打包分发后）：
+ *   otter-connector --hub https://otter.example.com --pair <码> --name <设备名>   # 首启配对
+ *   otter-connector --hub https://otter.example.com                              # 凭已存身份连接
+ * （仓内直跑构建产物：node packages/connector/dist/connector/main.js ...）
  * 身份落 ~/.otter/connector/device.json（deviceId + pairToken）。
  */
 
@@ -27,6 +32,7 @@ import os from "node:os";
 import {
   CONNECTOR_HEARTBEAT_INTERVAL_MS,
   CONNECTOR_PROTOCOL_VERSION,
+  CONNECTOR_WS_SUBPROTOCOL,
   type ConnectorFrame,
 } from "@entities/execution/connector-protocol";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
@@ -235,7 +241,9 @@ async function buildRuntime(identity: DeviceIdentity): Promise<ConnectorRuntime>
 function connectOnce(hub: string, identity: DeviceIdentity, runtime: ConnectorRuntime): Promise<"closed" | "fatal"> {
   return new Promise(resolve => {
     const wsUrl = new URL("/connector-ws", hub.replace(/^http/, "ws"));
-    const ws = new WebSocket(wsUrl, { headers: { authorization: `Bearer ${identity.pairToken}` } });
+    // 6c：子协议 pin 声明（hub 升级层校验；缺声明的旧版客户端会被 hub 拒——升级
+    // connector 包即可，配对身份/协议状态机不变）
+    const ws = new WebSocket(wsUrl, [CONNECTOR_WS_SUBPROTOCOL], { headers: { authorization: `Bearer ${identity.pairToken}` } });
     const state: ConnState = { sessionId: null, heartbeat: null, ackWatch: null, lastAckAt: 0, settled: false };
     const settle = (outcome: "closed" | "fatal"): void => {
       if (state.settled) return;

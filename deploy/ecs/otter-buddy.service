@@ -17,6 +17,9 @@ WorkingDirectory=/opt/otter-buddy
 Environment=PATH=/opt/node24/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=/var/lib/otter-buddy/home
 EnvironmentFile=/etc/otter-buddy.env
+# connector WSS 升级鉴权白名单（阶段 6c）：浏览器 Origin 需命中才放行升级；
+# connector node 客户端不发 Origin 不受影响。当前无浏览器 WS 客户端，保持空（fail-closed）。
+# 引入浏览器客户端时在 /etc/otter-buddy.env 加：OTTER_WS_ALLOWED_ORIGINS=https://otter.60.205.214.148.sslip.io
 ExecStart=/opt/node24/bin/node /opt/otter-buddy/dist/src/main.js --config /etc/otter-buddy/config.yaml
 # 探活：起服后连探 60s，/api/ping 通了才算就绪（失败算启动失败触发重启）
 ExecStartPost=/bin/bash -c 'for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3000/api/ping >/dev/null 2>&1 && exit 0; sleep 2; done; echo "health check failed: /api/ping not ready in 60s" >&2; exit 1'

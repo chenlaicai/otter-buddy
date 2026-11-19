@@ -2,8 +2,11 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist/connector",
-    "noEmit": false
+    "outDir": "packages/connector/dist",
+    "noEmit": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
   },
   "include": ["src/connector/**/*", "src/entities/execution/connector-protocol.ts"]
 }
