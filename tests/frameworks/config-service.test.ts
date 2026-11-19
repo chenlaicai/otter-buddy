@@ -120,8 +120,8 @@ describe("loadConfig", () => {
     expect(cfg.memory.rrfK).toBe(60);
     expect(cfg.external.dailyTokenBudgetPerConversation).toBe(200_000);
     expect(cfg.external.budgetExceededMessage).toBe("今天的对话额度已用完，请明天再试。");
-    // 段 1：rerank 配置缺省——multiply（零行为变更）+ 设计系数回填
-    expect(cfg.memory.rerankMode).toBe("multiply");
+    // 真实查询双路径验收后缺省 additive；显式 multiply 的回退兼容在下方覆盖。
+    expect(cfg.memory.rerankMode).toBe("additive");
     expect(cfg.memory.rerank.wRrf).toBeCloseTo(0.6, 12);
     expect(cfg.memory.rerank.wTime).toBeCloseTo(0.3, 12);
     expect(cfg.memory.rerank.wFreq).toBeCloseTo(0.1, 12);
@@ -254,6 +254,12 @@ describe("loadConfig", () => {
     expect(cfg.memory.rerank.bUserFlag).toBeCloseTo(0.08, 12);
     expect(cfg.memory.rerank.bConv).toBeCloseTo(0.09, 12);
     expect(cfg.memory.rerank.freqCap).toBe(20);
+  });
+
+  it("memory.rerankMode 显式 multiply 保留旧算法回退", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "memory:\n  rerankMode: multiply\n");
+    expect(loadConfig().memory.rerankMode).toBe("multiply");
   });
 
   it("parses embedding.localModelPath when set", () => {

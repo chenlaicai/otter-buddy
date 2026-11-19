@@ -591,11 +591,11 @@ function buildDbConfig(raw: RawConfig): AppConfig["db"] {
 }
 
 function buildMemoryRerankConfig(raw: RawConfig): Pick<AppConfig["memory"], "rerankMode" | "rerank"> {
-  // 段 1：默认 multiply（零默认行为变更），加法系数按设计回填
+  // 真实查询双路径验收后默认 additive；multiply 保留为显式回退配置。
   const memory = raw.memory;
   const rawRerank = memory?.rerank;
   return {
-    rerankMode: d(memory?.rerankMode, "multiply"),
+    rerankMode: d(memory?.rerankMode, "additive"),
     rerank: {
       wRrf: d(rawRerank?.w_rrf, 0.6),
       wTime: d(rawRerank?.w_time, 0.3),

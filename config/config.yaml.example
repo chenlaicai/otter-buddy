@@ -100,11 +100,11 @@ memory:
   # 检索频次加成系数（默认 0.1）
   # 每次记忆被检索，其分数增加此值，实现"越用越强"的效果
   frequencyBoostFactor: 0.1
-  # F20261112rnkph Phase 1：rerank 融合模式（multiply=五信号连乘现状，additive=归一化加法）
-  # 缺省 multiply（段 1 零默认行为变更；段 4 标定后才切 additive）
+  # rerank 融合模式：multiply=五信号连乘，additive=归一化加法
+  # 缺省 additive（真实查询双路径验收后切换）；显式 multiply 可回退旧算法
   # rerankMode: multiply
-  # F20261112rnkph Phase 1：加法融合系数（w_rrf+w_time+w_freq 隐微和为 1，运行时比例归一）
-  # 段 1 默认不启用 additive，以下仅为设计回填示例；标定后的候选系数段 3 再写回
+  # 加法融合系数（w_rrf+w_time+w_freq 隐微和为 1，运行时比例归一）
+  # 以下为生产默认值，可按需显式覆盖
   # rerank:
   #   w_rrf: 0.6
   #   w_time: 0.3
