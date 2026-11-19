@@ -107,14 +107,13 @@ export function createPlatform({ config, store, installations, users, fetcher = 
                 throw fail('DM_MESSAGES_UNREADABLE', 403);
             const result = row.event.data.conversationId
                 ? await readClientDm(client(row), { conversationId: row.event.data.conversationId,
-                    ...(options.limit === undefined ? {} : { limit: options.limit }),
-                    ...(options.beforeId === undefined ? {} : { beforeId: options.beforeId }), ...(options.afterId === undefined ? {} : { afterId: options.afterId }) })
+                    ...(options.limit === undefined ? {} : { limit: options.limit }), ...(options.cursor === undefined ? {} : { cursor: options.cursor }) })
                 : await readClientTopic(client(row), capability.identity, {
                     topicId: row.event.data.topicId, ...(options.limit === undefined ? {} : { limit: options.limit }), ...(options.cursor === undefined ? {} : { cursor: options.cursor })
                 });
-            if (!isRecord(result) || !Array.isArray(result.items) || (row.event.data.conversationId
-                ? result.items.some(item => typeof item.id !== 'string' || typeof item.text !== 'string')
-                : typeof result.hasMore !== 'boolean' || !(result.nextCursor === null || typeof result.nextCursor === 'string')))
+            if (!isRecord(result) || !Array.isArray(result.items) ||
+                result.items.some(item => typeof item.id !== 'string' || typeof item.text !== 'string') ||
+                typeof result.hasMore !== 'boolean' || !(result.nextCursor === null || typeof result.nextCursor === 'string'))
                 throw fail('MESSAGES_RESPONSE_INVALID', 502);
             return result;
         },

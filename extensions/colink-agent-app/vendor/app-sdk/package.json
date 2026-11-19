@@ -1,6 +1,6 @@
 {
   "name": "@colink/app-sdk",
-  "version": "0.28.0",
+  "version": "0.28.1",
   "type": "module",
   "colink": {
     "manifestProtocol": "./manifest-protocol.json"

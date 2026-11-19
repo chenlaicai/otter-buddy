@@ -1,19 +1,19 @@
 /** business: declarations for the matching SDK reference book. */
-export interface DirectMessagePage {
-    items: Array<{
-        id: string;
-        conversationId: string;
-        senderId: string;
-        senderKind: 'human' | 'agent';
-        text: string;
-        attachments: Array<{
-            artifactId: string;
-            fileName: string;
-            sizeBytes?: number;
-        }>;
-        createdAt: string;
-        recalledAt: string | null;
+export interface DirectMessageItem {
+    id: string;
+    conversationId: string;
+    senderId: string;
+    senderKind: 'human' | 'agent';
+    text: string;
+    attachments: Array<{
+        artifactId: string;
+        fileName: string;
+        sizeBytes?: number;
     }>;
+    createdAt: string;
+    recalledAt: string | null;
+}
+export interface DirectMessagePage extends PageResult<DirectMessageItem> {
 }
 export interface MessagePage {
     items: Array<{
@@ -715,8 +715,7 @@ export interface BusinessMethods {
         list(options: {
             conversationId: string;
             limit?: number;
-            beforeId?: string;
-            afterId?: string;
+            cursor?: string;
         }): Promise<DirectMessagePage>;
         /** @sdkFailure read
          * @throws Promise 拒绝：参数形状错误为 INVALID_ARGUMENT；路径 ID 不合法为 INVALID_RESOURCE；所选身份不可用或缺少权限为 CLIENT_IDENTITY_UNAVAILABLE / SCOPE_MISSING。平台传输失败为 PLATFORM_NETWORK_UNAVAILABLE，受校验的响应结构不合法为 PLATFORM_RESPONSE_INVALID。浏览器还可能返回 PAGE_LOGIN_REQUIRED / PAGE_CLOSED。
