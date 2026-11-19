@@ -28,17 +28,14 @@
 const PR_REFERENCE_RE = /#\d{3,}|github\.com\/[^\s)]+\/pull\/\d+/;
 
 /** 中文否定前缀：与请求措辞就近组合出现时该请求词不算请求。
- *  架构收窄（三轮对抗实证，同族先例：通用语义建模不可收敛则收窄为可证明模板）：
- *  - 只收**双字及以上否定词**——「不」单字删除：它是全部语气歧义的根源
- *    （要不/何不/不得不/不能不 X 都是真实请求，「若不需要/或不用」又是否定），
- *    语气断言特例打不收敛（三轮实证）；删它之后这些形态全部自然正确。
- *    代价：「不可以合入/不要拍板吧」类单字否定漏拦——按宁漏勿误接受（yield 语境下
- *    补一张阻塞说明卡也是合理呈递形态，见特性文档已知边界）。
- *  - 请求词与否定词之间允许 0-2 字封闭集副词（再/先/都/也/就/还/且/而）——
- *    「无需再等你拍板」「没必要先请你拍板」等副词间隙形态。
- *  - 隔实义字（「不阻塞，可以合入」）不构成否定——肯定语义保留。 */
+ *  **错误代价结构分层（终态，四轮实证）**：辅闸误拦 = 正常发言说不出话（最高代价）
+ *  → 扩展表（含单字「不」，宁多剔，漏拦由主闸兜底）；主闸误拦仅要求补卡（低代价）
+ *  → 基础表（无单字「不」——它是语气歧义根源：要不/何不/不得不 X 是真实请求，
+ *  若不需要/或不用又是否定，断言特例三轮实证打不收敛）。
+ *  请求词与否定词之间允许 0-2 字封闭集副词窗（再/先/都/也/就/还/且/而——
+ *  「无需再等你拍板」）；隔实义字（「不阻塞，可以合入」）不构成否定，肯定语义保留。 */
 const NEGATION_PREFIXES_BASE = [
-  "不是", "并非", "没有", "无需", "无须", "不用", "不需要", "没必要", "暂无", "暂不", "不再", "不要", "不予", "并不", "毫不",
+  "不是", "并非", "没有", "无需", "无须", "不用", "不需要", "没必要", "不建议", "不能", "不许", "不应", "不得", "不必", "暂无", "暂不", "不再", "不要", "不予", "并不", "毫不",
   "无", "非", "没", "别", "勿", "莫",
 ];
 /** 辅闸（speak 落库前）专用：追加单字「不」。错误代价结构不对称——辅闸误拦 = 正常
@@ -127,6 +124,15 @@ export function hasDecisionRequestNarrow(text: string): boolean {
   return SPEAK_REQUEST_PHRASES.some((p) => cleaned.includes(p));
 }
 
+/** 辅闸指代分支的决策语境门槛：**宽表请求词面 + 辅闸否定表**——词面取宽（覆盖「可以合了」
+ *  等评价措辞的事故形态），否定剔除必须与辅闸主分支同表（扩展表含单字「不」）。
+ *  对抗实证（五轮）：门槛暗换主闸基础否定表会让窄表已正确剔除的否定句在指代分支
+ *  被另一张表拦回（「不批准合入；卡片在上一条」被辅闸拒绝，违背分层原则）。 */
+function hasDecisionContextNarrowNegation(text: string): boolean {
+  const cleaned = stripNegations(text, YIELD_REQUEST_PHRASES, NEGATION_PREFIXES_NARROW);
+  return YIELD_REQUEST_PHRASES.some((p) => cleaned.includes(p));
+}
+
 /** 指代自足缺位判定：本条用指代语引卡（「卡片在上一条」形态）。
  *  引号豁免：先剔引号内文本再匹配——讨论/引用反模式字面量不算真实指代。 */
 export function hasDeferredCardReference(text: string): boolean {
@@ -175,7 +181,7 @@ export function checkSpeakGate(body: string, hasCardFences: (body: string) => bo
   if (!hasPrReference(body)) return null;
   if (hasCardFences(body)) return null;
   const requestHit = hasDecisionRequestNarrow(body);
-  const deferredMissing = hasDeferredCardReference(body) && hasDecisionRequestWide(body);
+  const deferredMissing = hasDeferredCardReference(body) && hasDecisionContextNarrowNegation(body);
   if (!requestHit && !deferredMissing) return null;
   return deferredMissing && !requestHit
     ? DEFERRED_CARD_REJECTION

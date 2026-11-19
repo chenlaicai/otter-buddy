@@ -336,9 +336,9 @@ describe("四轮检视回归：单字否定的双表分层（辅闸恢复剔除�
     // 出一张「为什么不能合」的阻塞说明卡是合理呈递形态（非伤害性误拦），
     // 显式记录为收窄代价（不静默回归——首轮 R2 的完整否定样本已双表过闸）。
     expect(hasDecisionRequestWide("PR #1964 不批准合入，仍有阻塞项。")).toBe(true);
-    // 「不予」双字无语气歧义，入基础否定表——主闸也正确剔除
+    // 「不予」「不建议」双字/三字无语气歧义，入基础否定表——主闸也正确剔除
     expect(hasDecisionRequestWide("PR #1964 不予批准合入，仍有阻塞项。")).toBe(false);
-    expect(hasDecisionRequestWide("PR #1964 不建议批准合入，仍有阻塞项。")).toBe(true);
+    expect(hasDecisionRequestWide("PR #1964 不建议批准合入，仍有阻塞项。")).toBe(false);
     expect(hasDecisionRequestNarrow("PR #1964 不批准合入，仍有阻塞项。")).toBe(false);
   });
   it("「暂不等你拍板」双字「暂不」入基础否定表（双表都剔）", () => {
@@ -352,5 +352,39 @@ describe("四轮检视回归：纯文本 submit 字样放行（弱信号最简�
     const btn = ["#1964 可以合入了", "```html-card", "<button>otterCard.submit</button>", "```"].join("\n");
     expect(decisionCardPresent([div], cardFenceValues)).toBe(true);
     expect(decisionCardPresent([btn], cardFenceValues)).toBe(true);
+  });
+});
+
+describe("五轮检视回归：指代门槛与辅闸否定表统一（不暗换）", () => {
+  it("否定句 + 指代组合：窄表正确剔除后不被指代分支的宽表拦回", () => {
+    for (const s of [
+      "PR #1964 我不等你拍板；卡片在上一条，先继续收尾。",
+      "PR #1964 不请你拍板；卡片见上文。",
+      "PR #1964 不批准合入；卡片在上一条。",
+      "PR #1964 不建议批准合入；卡片在上一条。",
+    ]) {
+      expect(checkSpeakGate(s, hasCardFences), s).toBeNull();
+    }
+  });
+  it("2725 事故形态保持拦截：评价措辞 + 无引号指代 + 无卡", () => {
+    const err = checkSpeakGate("#1941 现在真的可以合了（卡片在上一条，这里补最终状态）", hasCardFences);
+    expect(err).not.toBeNull();
+    expect(err).toContain("不复述载体");
+  });
+});
+
+describe("五轮检视回归：情态否定词补表", () => {
+  it("不建议/不能/不许 X 不再误拦辅闸", () => {
+    for (const s of [
+      "PR #1964 不建议等你拍板，我继续收尾。",
+      "PR #1964 我不能等你拍板，我继续收尾。",
+      "PR #1964 不许等你拍板。",
+    ]) {
+      expect(hasDecisionRequestNarrow(s), s).toBe(false);
+    }
+  });
+  it("「不能不请你授权」双重否定在辅闸漏拦（宁多剔）、主闸拦住", () => {
+    expect(hasDecisionRequestNarrow("PR #1964 不能不请你授权。")).toBe(false);
+    expect(hasDecisionRequestWide("PR #1964 不能不请你授权。")).toBe(true);
   });
 });
