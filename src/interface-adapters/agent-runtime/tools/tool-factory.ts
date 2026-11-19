@@ -528,7 +528,13 @@ async function checkModelQuotaHint(
 ): Promise<string> {
   if (!healingRepo || !targetAlias) return '';
   try {
-    const events = await healingRepo.findAll('open', 50);
+    // 配额耗尽事件落地即 resolved（搭档边界拍板免处置），改打 open+resolved 两态；
+    // 24h 窗口仍是真过滤（配额恢复是外部事实，open/resolved 不携带恢复语义）
+    const [openEvents, resolvedEvents] = await Promise.all([
+      healingRepo.findAll('open', 50),
+      healingRepo.findAll('resolved', 50),
+    ]);
+    const events = [...openEvents, ...resolvedEvents];
     const windowMs = 24 * 3600 * 1000;
     const hit = events.find(e => {
       if (e.errorType !== 'rate_limit') return false;
