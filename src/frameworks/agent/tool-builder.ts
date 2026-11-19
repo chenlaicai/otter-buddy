@@ -40,6 +40,10 @@ export interface InvokeRegister {
   /** 当前打开的 speak entry ID（speak/yield 检测「本轮已发言」用；
    *  新 invoke 重置为 undefined） */
   lastSpeakEntryId?: string;
+  /** PR 呈递三件套守卫：本回合 speak 出现的 PR URL（强/弱信号分层） */
+  turnPrUrls?: { strong: string[]; weak: string[] };
+  /** yield 边界 PR 守卫拒绝计数（同回合≥1 放行防死循环；恒有值，创建即 0） */
+  turnYieldPrRemindCount: number;
 }
 
 export function createInvokeRegister(): InvokeRegister {
@@ -53,6 +57,8 @@ export function createInvokeRegister(): InvokeRegister {
     currentInvokeId: undefined,
     emitEvent: undefined,
     lastSpeakEntryId: undefined,
+    turnPrUrls: undefined,
+    turnYieldPrRemindCount: 0,
   };
 }
 
@@ -70,6 +76,8 @@ export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, inv
   reg.currentInvokeId = invokeDeps?.currentInvokeId;
   reg.emitEvent = invokeDeps?.emitEvent;
   reg.lastSpeakEntryId = undefined;
+  reg.turnPrUrls = undefined;
+  reg.turnYieldPrRemindCount = 0;
 }
 
 /** buildCustomTools 所需的参数类型 */
@@ -161,6 +169,10 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     get emitEvent() { return register.emitEvent; },
     get lastSpeakMessageId() { return register.lastSpeakEntryId; },
     set lastSpeakMessageId(v: string | undefined) { register.lastSpeakEntryId = v; },
+    get turnPrUrls() { return register.turnPrUrls; },
+    set turnPrUrls(v: { strong: string[]; weak: string[] } | undefined) { register.turnPrUrls = v; },
+    get turnYieldPrRemindCount() { return register.turnYieldPrRemindCount; },
+    set turnYieldPrRemindCount(v: number) { register.turnYieldPrRemindCount = v; },
     isOtterRunning,
   };
   const otterTools = createTools(toolContext, healingRepo, logger);

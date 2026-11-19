@@ -219,6 +219,8 @@ const EMPTY_TOOL_CONTEXT_BASE: ToolContext = {
   conversationId: "",
   currentMessageId: "",
   lastSpeakMessageId: undefined,
+  turnPrUrls: undefined,
+  turnYieldPrRemindCount: 0,
 };
 
 /** Agent 执行结果 */
