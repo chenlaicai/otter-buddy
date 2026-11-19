@@ -91,6 +91,23 @@ export class ManageConversation {
     return this.repo.getById(id);
   }
 
+  /**
+   * F20261119extsg：把存量对话单向升档为 external（外部接入适配器的懒迁移入口）。
+   * Why：适配器只在「新建」时声明 kind；上线前已存在的 CoLink 绑定仍是 normal，
+   * 搭档从 web 在这些旧外部对话发言时不会获得对话级受限保护。
+   * 只允许 normal→external（升档），其他类别 fail-closed 拒绝——降档会静默撤销隔离。
+   */
+  async promoteToExternal(id: string): Promise<Conversation> {
+    const conv = await this.repo.getById(id);
+    if (!conv) throw new DomainError(`Conversation not found: ${id}`, "not_found");
+    if (conv.kind === "external") return conv;
+    if (conv.kind !== "normal") {
+      throw new DomainError(`Cannot promote conversation of kind=${conv.kind} to external`, "validation");
+    }
+    await this.repo.updateKind(id, "external", new Date().toISOString());
+    return (await this.repo.getById(id)) ?? { ...conv, kind: "external" };
+  }
+
   async archive(id: string): Promise<void> {
     const conv = await this.repo.getById(id);
     if (!conv) {

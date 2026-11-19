@@ -38,7 +38,23 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
     const path = new URL(url).pathname;
     if (path === '/api/conversations') {
       state.creates++;
+      // F20261119extsg：新建即外部对话——与真实中枢一致，随后的懒升档 GET 应看到 external。
+      state.createdKind = JSON.parse(options.body ?? '{}').kind ?? 'normal';
+      state.conversationKind = state.createdKind;
       return Response.json({ id: 'otter-conversation-1', otterIds });
+    }
+    if (/^\/api\/conversations\/[^/]+$/.test(path)) {
+      // 懒升档读取：返回当前类别（缺省 normal，复刻 DTO 对 normal 不下发 kind 的形态）。
+      state.kindReads = (state.kindReads ?? 0) + 1;
+      const kind = state.conversationKind;
+      return Response.json({ id: 'otter-conversation-1', ...(kind && kind !== 'normal' ? { kind } : {}) });
+    }
+    if (/^\/api\/conversations\/[^/]+\/kind$/.test(path)) {
+      const body = JSON.parse(options.body ?? '{}');
+      if (body.kind !== 'external') return Response.json({ error: 'only external' }, { status: 400 });
+      state.kindPromotions = (state.kindPromotions ?? 0) + 1;
+      state.conversationKind = 'external';
+      return Response.json({ id: 'otter-conversation-1', kind: 'external' });
     }
     if (path.endsWith('/workspace/mcp-external')) {
       const config = JSON.parse(options.body);
@@ -199,6 +215,43 @@ test('isolates deployment, installation, and DM conversation mappings', async ()
   await bridge.reply({ ...input, conversationId: 'dm-2' });
   assert.equal(state.creates, 4);
   assert.equal(store.values.size, 4);
+});
+
+test('声明 kind=external 建对话，已存在绑定也不再停留在 normal（懒升档）', async () => {
+  const { state, fetcher } = fixture();
+  const store = memoryStore();
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store, fetcher, pollMs: 1 });
+  await bridge.reply(input);
+  assert.equal(state.createdKind, 'external', '新建对话必须声明外部类别');
+
+  // 复刻上线前建立的旧绑定：映射已在、对话类别仍是 normal。
+  state.conversationKind = 'normal';
+  state.kindPromotions = 0;
+  await bridge.reply({ ...input, text: '旧绑定上的下一个事件' });
+  assert.equal(state.kindPromotions, 1, '旧绑定必须在事件处理前补升档');
+  assert.equal(state.conversationKind, 'external');
+
+  // 已升档后不再重复 PATCH（每轮只读一次类别）。
+  const promotionsAfterFirst = state.kindPromotions;
+  await bridge.reply({ ...input, text: '再下一个事件' });
+  assert.equal(state.kindPromotions, promotionsAfterFirst);
+  assert.equal(state.creates, 1, '升档不新建对话');
+});
+
+test('升档接口失败时 fail-closed：不进入本轮处理', async () => {
+  const { state, fetcher } = fixture();
+  const store = memoryStore();
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store, fetcher, pollMs: 1 });
+  await bridge.reply(input);
+  const messagesBefore = state.messages.length;
+  state.conversationKind = 'normal';
+  const failing = async (url, options = {}) => {
+    if (/\/kind$/.test(new URL(url).pathname)) return Response.json({ error: 'boom' }, { status: 500 });
+    return fetcher(url, options);
+  };
+  const guarded = new OtterBridge({ baseUrl: 'http://otter.test', store, fetcher: failing, pollMs: 1 });
+  await assert.rejects(guarded.reply({ ...input, text: '升档失败的事件' }), /OTTER_HTTP_500/);
+  assert.equal(state.messages.length, messagesBefore, '升档失败不得把消息投进中枢');
 });
 
 test('uses separate namespaces for a DM and a channel with the same external UUID', async () => {

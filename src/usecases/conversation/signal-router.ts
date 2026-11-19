@@ -22,6 +22,7 @@ import type { DispatchChainEngine } from "./dispatch-chain-engine";
 import type { Logger } from "@usecases/ports/logger";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
+import { externalSenderLabel, isExternalSenderId } from "./external-identity";
 import type { HealingErrorType, HealingEventStatus, HealingEvent, HealingSeverity } from "@entities/healing/healing-event";
 
 /**
@@ -32,18 +33,13 @@ import type { HealingErrorType, HealingEventStatus, HealingEvent, HealingSeverit
  */
 /** 信号发送者标签。F20261119extsg：外部接入（senderId = `external:<actorId>`）绝不能回退到
  *  全局搭档显示名——否则受限档把外部发言标成「搭档」，诱使模型把外部内容当搭档指令；
- *  外部来源一律中性标签（有 senderName 用 senderName，否则「CoLink 用户 <尾4>」）。 */
+ *  外部来源一律中性标签（有 senderName 用 senderName，否则「外部用户 <尾4>」）。 */
 export function resolveSignalSenderLabel(
   senderName: string | null | undefined,
   senderId: string,
   partnerLabel?: string,
 ): string {
-  if (senderId.startsWith("external:")) {
-    const name = senderName?.trim();
-    if (name) return name;
-    const tail = senderId.slice("external:".length).replace(/[^\w]/g, "").slice(-4);
-    return tail ? `外部用户 ${tail}` : "外部用户";
-  }
+  if (isExternalSenderId(senderId)) return externalSenderLabel(senderId, senderName);
   return senderName?.trim() || partnerLabel?.trim() || senderId;
 }
 

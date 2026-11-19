@@ -102,9 +102,27 @@ export class OtterBridge {
     return response;
   }
 
+  /**
+   * 存量绑定的懒升档（F20261119extsg P1）：上线前建立的 CoLink 对话仍是 kind='normal'，
+   * 只声明新建不足以覆盖它们——搭档从 web 在这些旧对话发言就绕开了对话级受限档。
+   * 升档失败即抛错（fail-closed）：宁可不服务本轮，也不让外部对话按全权档跑。
+   */
+  async ensureExternalKind(otterConversationId) {
+    const response = await this.request(`/api/conversations/${otterConversationId}`);
+    const conversation = await response.json();
+    if (conversation?.kind === 'external') return;
+    await this.request(`/api/conversations/${otterConversationId}/kind`, {
+      method: 'PATCH',
+      body: JSON.stringify({ kind: 'external' }),
+    });
+  }
+
   async ensureConversation(externalKey, title) {
     const existing = this.store.get(externalKey);
-    if (existing) return existing;
+    if (existing) {
+      await this.ensureExternalKind(existing);
+      return existing;
+    }
     const response = await this.request('/api/conversations', {
       method: 'POST',
       // Why（F20261119extsg）：声明 kind=external——中枢据此把**该对话的一切 invoke**（含搭档本人

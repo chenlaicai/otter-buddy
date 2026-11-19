@@ -50,6 +50,8 @@ CoLink 是多用户平台，海獭是单用户的个人 agent。心愿口径三�
 | 9 | 每外部对话每日 token 额度（默认 200k，0=不限）；只计 input+output，invoke 前拒绝并回配置文案 | `config-service.ts`、`external-token-budget.ts`、`sqlite-invoke-repository.ts`、`agent-invoker.ts`、扩展 `otter-bridge.mjs`/`mention-handler.mjs` |
 | 10 | 出站 SVG 渲染前拒绝主动内容/外部读取，限制画布 ≤2000px 与元素 ≤2000 | 扩展 `image-forward.mjs` |
 | 11 | 附件去重 uploaderId 收窄为安装实例+DM/频道可见性域 | 扩展 `otter-bridge.mjs` |
+| 12 | 最终消息组装（第三条标签路径）对外部发送者中性化，且外部对话不读全局搭档显示名 | `dispatch-chain-engine.ts` `resolveUserEntryLabel`/`resolvePartnerLabel`/`isExternalConversation`、`external-identity.ts` |
+| 13 | 存量外部绑定的懒升档：`PATCH /api/conversations/:id/kind` 单向 normal→external，适配器每轮事件前 ensure | `conversation-repository.ts` `updateKind`、`manage-conversation.ts` `promoteToExternal`、`conversation-controller.ts`、`router.ts`、扩展 `otter-bridge.mjs` `ensureExternalKind` |
 
 ## Why（关键取舍）
 
@@ -73,6 +75,18 @@ CoLink 是多用户平台，海獭是单用户的个人 agent。心愿口径三�
 - 全量：`tests/usecases/conversation` 490 例、`tests/interface-adapters` 784 例全绿；`tests/frameworks`+`tests/usecases` 3957 例绿（唯一失败为 `durable-runtime` 的 SIGKILL fixture 需 dist 构建产物，与本改动无关）
 - 扩展侧：`npm run test:extensions` 65 例全绿（含 SVG 危险输入不加载 sharp、正常 SVG/内部 use 可渲染、额度终态不重放、附件域隔离）
 - 额度定向：core 4 文件 114 例全绿（配置默认/校验、上海日界、未超额/0/非外部放行、超额不建 invoke、SQLite 排除 cache 账目、HTTP 稳定码）
+- D2 补测：`dispatch-chain-engine.test.ts` 外部标签 5 例（未配 resolver 不回退真名 / 配 resolver 仍中性 / kind=external 的 web 发言不注入显示名 / 普通对话不误伤 / 回读失败 fail-closed）；`manage-conversation.test.ts` 升档 4 例；`sqlite-conversation-repository.test.ts` `updateKind` 5 例；`tests/api/conversation.test.ts` PATCH kind 2 例；扩展 `otter-bridge.test.mjs` 懒升档 2 例
+
+## 独立复核处置（D2）
+
+独立检视（审计獭-external 对 head `a9909b05`）打回两点，均在本 PR 内闭环：
+
+| 发现 | 性质 | 处置 |
+| --- | --- | --- |
+| `dispatch-chain-engine` 最终消息组装仍无条件读全局 `user.displayName`，未配置 `partnerResolver` 时回退 `partnerLabel`——外部触发渲染成搭档真名 | P0（#5/#6 只覆盖了信号路由与名册两个面，第三条面漏了） | 新增 `external-identity.ts` 单一实现（前缀判定 + 「外部用户 <尾4>」），`resolveUserEntryLabel` 在 resolver 判定**之前**中性化；新增 `resolvePartnerLabel`——kind=external 对话不读 settings，web 人类发言同样拿中性称呼；`isExternalConversation` 回读失败按外部处理（fail-closed） |
+| 适配器只在新建时传 `kind:'external'`，上线前已存在的绑定仍 normal，「对话级受限」只对新对话成立 | P1（P1-6 口径①的迁移缺口） | 仓储 `updateKind`（`WHERE kind='normal'` 单向升档、拒绝降档）、用例 `promoteToExternal`（跨类别 fail-closed）、`PATCH /api/conversations/:id/kind` 只接受 `external`、适配器 `ensureExternalKind` 在每轮事件前 GET 类别并按需 PATCH（失败即抛，不降级放行） |
+
+复核同时确认无需处置：SVG `feImage` 绝对/协议相对 URL 在黑名单下会被 sharp 渲染为空白且回环请求数为 0（未实证外读），后续可按元素白名单继续收紧。
 
 ## 未纳入本特性（PR-B / 后续）
 

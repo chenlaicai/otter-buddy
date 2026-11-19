@@ -150,6 +150,24 @@ export class ConversationController {
     }
   }
 
+  /**
+   * PATCH /api/conversations/:id/kind —— 外部接入绑定的存量对话懒升档（F20261119extsg）。
+   * 只接受 `{ kind: 'external' }` 单向升档；其他值 400（降档会静默撤销隔离，永久拒绝）。
+   */
+  async promoteKind(c: Context): Promise<Response> {
+    try {
+      const id = param(c, "id");
+      const body = await safeJsonBody<{ kind?: string }>(c);
+      if (body.kind !== "external") {
+        throw new DomainError("只支持 kind='external' 单向升档", "validation");
+      }
+      const conv = await this.manageConversation.promoteToExternal(id);
+      return c.json(toConversationDTO(conv));
+    } catch (err) {
+      return handleError(c, err, this.logger);
+    }
+  }
+
   async archive(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");

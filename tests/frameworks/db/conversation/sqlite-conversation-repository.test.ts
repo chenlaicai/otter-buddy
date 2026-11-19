@@ -562,3 +562,46 @@ describe("SqliteConversationRepository - listConversationsWithMeta pinned 过滤
     expect(total).toBe(3);
   });
 });
+
+describe("updateKind（F20261119extsg：外部接入存量绑定单向升档）", () => {
+  let db: Database.Database;
+  let repo: SqliteConversationRepository;
+
+  beforeEach(() => {
+    db = createTestDb();
+    repo = new SqliteConversationRepository(db);
+  });
+
+  afterEach(() => db.close());
+
+  async function seed(id: string, kind: Conversation["kind"]): Promise<void> {
+    await repo.create(conversationFixture({ id, kind }));
+  }
+
+  it("normal -> external 落库", async () => {
+    await seed("conv-1", "normal");
+    await repo.updateKind("conv-1", "external", "2026-11-19T00:00:00Z");
+    expect((await repo.getById("conv-1"))?.kind).toBe("external");
+  });
+
+  it("已是 external 幂等（不抛错）", async () => {
+    await seed("conv-1", "external");
+    await expect(repo.updateKind("conv-1", "external", "2026-11-19T00:00:00Z")).resolves.toBeUndefined();
+  });
+
+  it("拒绝降档目标（kind != external 直接抛错）", async () => {
+    await seed("conv-1", "external");
+    await expect(repo.updateKind("conv-1", "normal" as never, "2026-11-19T00:00:00Z")).rejects.toThrow(/Unsupported kind promotion/);
+    expect((await repo.getById("conv-1"))?.kind).toBe("external");
+  });
+
+  it("对话不存在 -> fail-closed 抛错", async () => {
+    await expect(repo.updateKind("nonexistent", "external", "2026-11-19T00:00:00Z")).rejects.toThrow();
+  });
+
+  it("其他类别不会被静默改写", async () => {
+    await seed("conv-1", "assistant");
+    await expect(repo.updateKind("conv-1", "external", "2026-11-19T00:00:00Z")).rejects.toThrow();
+    expect((await repo.getById("conv-1"))?.kind).toBe("assistant");
+  });
+});
