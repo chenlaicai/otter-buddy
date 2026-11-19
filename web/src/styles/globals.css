@@ -52,8 +52,8 @@
    层级：画布(极光/自定义图+Mica薄纱) → 面板(.glass-strong/.glass/
    .glass-input) → 内容(.glass-card 与 .bubble-* 系、.form-input)
    全部实色半透、无 backdrop-filter（R=0，运行中像素变化不再引发
-   重采样闪动）；真玻璃仅存瞬态层(.glass-overlay 弹层菜单/浮动助手)
-   与弹窗遮罩(.scrim 六轮终局 )。
+   重采样闪动）；真玻璃仅存瞬态层(.glass-overlay 弹层菜单/浮动助手)、
+   小面积一级导航(.glass-nav 明确例外)与弹窗遮罩(.scrim 六轮终局 )。
    层级靠【透明度梯度 + 投影高度】区分；嵌套激活态(.conv-active/
    .nav-pill-active)退化为半透纯色，不叠玻璃。
    性能预算：常驻层零 backdrop-filter（微软明示 GPU 密集）；瞬态
@@ -209,11 +209,25 @@ body {
     var(--blob-1), var(--blob-2), var(--blob-3), var(--blob-4), var(--band);
 }
 
-/* L0 chrome：顶栏（浮起圆角玻璃条，与全局面板统一） */
+/* L0 chrome：其他常驻顶栏表面（大面积，不采样） */
 .glass-strong {
   background: var(--chrome-bg);
   border: 1px solid var(--hairline);
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
+}
+
+/* 一级主导航：小面积悬浮真玻璃。整条顶栏不再铺材质，仅菜单容器采样。 */
+.glass-nav {
+  background: var(--chrome-bg);
+  backdrop-filter: var(--overlay-blur);
+  -webkit-backdrop-filter: var(--overlay-blur);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--panel-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
+  scrollbar-width: none;
+}
+.glass-nav::-webkit-scrollbar { display: none; }
+@media (prefers-reduced-transparency: reduce) {
+  .glass-nav { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 
 /* L1 浮起面板：侧栏 */
