@@ -202,7 +202,7 @@ function formatStateInventoryForPrompt(
   inventory?: StateInventory,
   fallbackText?: string,
 ): string {
-  // F20260901mbfx：优先全量 B1-B6 渲染文本（件④一次聚合两用，与给新 session 的
+  // 优先全量 渲染文本（件④一次聚合两用，与给新 session 的
   // otter_context 注入同源——同一份数据两处消费，无竞态窗口）。
   // 裁掉首行标题（含时间戳，meta 行已有）保持 §⑤ 紧凑。
   // 仅滤标题行与首尾空行（boundary 审视发现：全量空行过滤会在未来

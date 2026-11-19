@@ -97,9 +97,9 @@ describe("RhiScanWorker 环比骤变（Issue #645）", () => {
     const shift = pipeline.listOpen().find(s => s.signal_type === "snapshot_shift");
     expect(shift).toBeDefined();
     expect(shift!.evidence).toContain(`${yesterday}→${today}`);
-    expect(shift!.evidence).toContain("质量成本 80→100"); // D1 维度名 + 前后值（今日无 bugfix → D1 满分）
-    expect(shift!.evidence).toContain("流程合规 80→100"); // D4 维度名 + 前后值（1/1 合规 → D4 满分）——两维度断言各自独立锁，
-    // 避免审视 A1 指出的「双触发碰巧通过」：任一维度的计算回归都会被各自断言捕获
+    expect(shift!.evidence).toContain("质量成本 80→100"); // 维度名 + 前后值（今日无 bugfix → 满分）
+    expect(shift!.evidence).toContain("流程合规 80→100"); // 维度名 + 前后值（1/1 合规 → 满分）——两维度断言各自独立锁，
+    // 避免审视 指出的「双触发碰巧通过」：任一维度的计算回归都会被各自断言捕获
     expect(shift!.severity).toBe("warning");
     expect(shift!.suggested_action).toContain("深挖"); // SignalRecord 是 snake_case
   });

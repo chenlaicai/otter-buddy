@@ -88,7 +88,7 @@ export class SyncDocuments {
       archiveGuarded: 0,
     };
 
-    /** F20261110dsqci（#1818）：归档只在 canonical rootDir（服务主仓）视角下生效。
+    /** 归档只在 canonical rootDir（服务主仓）视角下生效。
      * 案发：sync_docs(rootDir=worktree) 时 worktree 检出比主仓少文档是常态，
      * archiveDeletedDocuments 见「该 rootDir 下无此文件」即归档，主仓独有文档被批量
      * 误归档（实测 1133/1137 archived）；下轮主仓 sync 因 fingerprint 含 status 全量
@@ -107,7 +107,7 @@ export class SyncDocuments {
 
     await this.syncDirectory(rootDir, "docs/features", "feature", result);
     await this.syncDirectory(rootDir, "docs/research", "research", result);
-    /** F20260803mval: 正向对账在归档前，避免归档操作干扰 gap 判定 */
+    /** 正向对账在归档前，避免归档操作干扰 gap 判定 */
     await this.reconcileSync(rootDir, result);
     await this.archiveDeletedDocuments(rootDir, result, archiveEnabled);
 
@@ -121,7 +121,7 @@ export class SyncDocuments {
       archiveGuarded: result.archiveGuarded,
       duration, action: 'sync_complete',
     });
-    // F20260804jsyn: 把 errors/warnings/reconcileGaps/supersedesDangling 的具体内容
+    // 把 errors/warnings/reconcileGaps/supersedesDangling 的具体内容
     // 也打到日志——之前只打 count，导致 gap 根因只能反推（违反"运行时可观测"原则）
     if (result.errors.length > 0) {
       this.logger.error('Sync errors detail', undefined, {
@@ -166,7 +166,7 @@ export class SyncDocuments {
   ): Promise<void> {
     const relativePath = path.relative(rootDir, file);
     const content = await this.fs.readFile(file);
-    // F20260803fbit: 接住 body（parseFrontmatterFromContent 已返回，原调用方丢弃）
+    // 接住 body（parseFrontmatterFromContent 已返回，原调用方丢弃）
     const { frontmatter, content: rawBody } = parseFrontmatterFromContent(content);
 
     const validation =
@@ -184,8 +184,8 @@ export class SyncDocuments {
       for (const w of validation.warnings) result.warnings.push(`${id}: ${w}`);
     }
 
-    // F20260803fbit: 清理 markdown 噪声（代码围栏/标题井号/列表符号等）防 trigram 索引污染
-    // F20260803chunk B1: 同时保留 rawBody（给 chunkMarkdown 切分）和 cleanedBody（给 computeBodyHash）
+    // 清理 markdown 噪声（代码围栏/标题井号/列表符号等）防 trigram 索引污染
+    // 同时保留 rawBody（给 chunkMarkdown 切分）和 cleanedBody（给 computeBodyHash）
     const cleanedBody = cleanMarkdownForFts(rawBody);
 
     if (type === "feature") {
@@ -195,14 +195,14 @@ export class SyncDocuments {
     }
   }
 
-  /** F20260901dsyn: id 漂移诊断——磁盘文档 id 与同 file_path 的 DB 记录 id 不一致。
+  /** id 漂移诊断——磁盘文档 id 与同 file_path 的 DB 记录 id 不一致。
    *
-   * 历史案例（#637）：F20260731mmr0（文档）vs F20260731mmr（DB，同 file_path），
+   * 历史案例：（文档）vs F20260731mmr（DB，同 file_path），
    * insert 撞 file_path 唯一索引，报裸 SQLite 文本「UNIQUE constraint failed」，
    * 根因只能反推。此函数把漂移对查出来，报结构化错误（含修复指引）。
    *
    * 注意：只诊断不自动修复——改 DB id 涉及 memory_entries.source_id 迁移，
-   * 是策略决策不是 sync 的职责（详见 F20260901dsyn 特性文档「非目标」）。 */
+   * 是策略决策不是 sync 的职责（详见 特性文档「非目标」）。 */
   private buildIdDriftError(
     diskId: string,
     dbId: string,
@@ -230,7 +230,7 @@ export class SyncDocuments {
       modules: doc.modules, from: doc.causalLinksFrom, supersedes: doc.supersedes,
     };
     if (!existing) {
-      /** F20260901dsyn: insert 前查同 file_path 记录，提前识别 id 漂移，
+      /** insert 前查同 file_path 记录，提前识别 id 漂移，
        * 避免裸 UNIQUE 报错（sync 对 id 漂移无自愈，至少要让根因可读） */
       const byPath = await this.featureRepo.findByFilePath(doc.filePath);
       if (byPath && byPath.id !== doc.id) {
@@ -272,7 +272,7 @@ export class SyncDocuments {
       conclusion: doc.conclusion, from: doc.causalLinksFrom, supersedes: doc.supersedes,
     };
     if (!existing) {
-      /** F20260901dsyn: 同 syncFeatureDoc 的 id 漂移诊断 */
+      /** 同 syncFeatureDoc 的 id 漂移诊断 */
       const byPath = await this.researchRepo.findByFilePath(doc.filePath);
       if (byPath && byPath.id !== doc.id) {
         result.errors.push({
@@ -300,7 +300,7 @@ export class SyncDocuments {
   }
 
   /**
-   * F20260803mval: 正向对账。
+   * 正向对账。
    * 检测：磁盘有 DB 无（同步失败）、supersedes 悬空引用（因果链断裂）。
    * 与 archiveDeletedDocuments 互补：后者检测 DB 有磁盘无（归档）。
    */
@@ -332,7 +332,7 @@ export class SyncDocuments {
     const diskIds = new Set(diskIdMap.keys());
     const dbDocs = await repo.findAll();
     const dbIds = new Set(dbDocs.filter(d => d.status !== "archived").map(d => d.id));
-    // F20260803mval: supersedes 引用检查用全量 ID（含 archived），归档文档作为引用目标仍合法（B5）
+    // supersedes 引用检查用全量 ID（含 archived），归档文档作为引用目标仍合法
     const allDbIds = new Set(dbDocs.map(d => d.id));
     for (const id of diskIds) {
       if (!dbIds.has(id)) result.reconcileGaps.push(id);
@@ -347,7 +347,7 @@ export class SyncDocuments {
   }
 
   private async archiveDeletedDocuments(rootDir: string, result: SyncResult, archiveEnabled: boolean): Promise<void> {
-    /** F20261110dsqci（#1818）：归档守卫——rootDir 非主仓时（worktree 部分检出/验证目录），
+    /** 归档守卫——rootDir 非主仓时（worktree 部分检出/验证目录），
      * 「该 rootDir 下无此文件」不等于「文档已删除」。跳过归档并计数（archiveGuarded），
      * 下一轮主仓 sync 会给出权威判定。 */
     if (!archiveEnabled) {
@@ -380,7 +380,7 @@ export class SyncDocuments {
     }
   }
 
-  /** F20261110dsqci：归档守卫计数——DB 中非 archived 且在 rootDir 磁盘不存在的文档数（feature+research） */
+  /** 归档守卫计数——DB 中非 archived 且在 rootDir 磁盘不存在的文档数（feature+research） */
   private async countAbsentDocs(rootDir: string): Promise<number> {
     let guarded = 0;
     for (const doc of await this.featureRepo.findAll()) {
@@ -417,7 +417,7 @@ export class SyncDocuments {
     body: string
   ): FeatureDocument {
     const causalLinks = fm.causal_links as Record<string, unknown> | undefined;
-    // F20260803mval: 未知枚举值 fallback 到默认，防 as 强转使类型安全形同虚设
+    // 未知枚举值 fallback 到默认，防 as 强转使类型安全形同虚设
     const ct = (fm.change_type as string) || "feature";
     const st = (fm.status as string) || "draft";
     return {
@@ -425,7 +425,7 @@ export class SyncDocuments {
       title: fm.title as string,
       summary: (fm.summary as string).trim(),
       bodyHash: computeBodyHash(body),
-      // F20261031ctuny（#1718）：归一值落库（' fix '/'bugfix' 判合法后存规范值，DB 不进脏值）
+      // 归一值落库（' fix '/'bugfix' 判合法后存规范值，DB 不进脏值）
       changeType: (isKnownChangeType(ct) ? normalizeChangeType(ct) : "feature") as ChangeType,
       status: (isKnownFeatureStatus(st) ? st : "draft") as FeatureStatus,
       tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],

@@ -100,7 +100,7 @@ export function createPlatform({ config, store, installations, users, fetcher = 
                 throw fail('USER_AUTHORIZATION_REQUIRED', 403);
             if (capability.identity === 'user' && !row.scopes.includes(capability.scope))
                 throw fail('SCOPE_MISSING', 403);
-            // DM 唤醒（F20261102dmagent）：conversationId 仅用户身份可读；channelId/topicId 与 conversationId 互斥
+            // DM 唤醒：conversationId 仅用户身份可读；channelId/topicId 与 conversationId 互斥
             if (row.event.data.conversationId && capability.identity !== 'user')
                 throw fail('DM_MESSAGES_UNREADABLE', 403);
             if (!row.event.data.conversationId && row.event.data.channelId === null)

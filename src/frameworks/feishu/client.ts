@@ -115,7 +115,7 @@ export class FeishuClient implements FeishuGateway {
     }
   }
 
-  /** #902 媒体出站：图片真实投递。读本地文件 → FormData 上传（im/v1/images，
+  /** 媒体出站：图片真实投递。读本地文件 → FormData 上传（im/v1/images，
    *  image_type=message）拿 image_key → 发 msg_type=image 消息。
    *  失败抛错由调用方降级（占位投影已在文本里可见，不阻塞）；
    *  image_key 格式校验：飞书正常返回非空字符串，空/缺失视为失败 */
@@ -137,7 +137,7 @@ export class FeishuClient implements FeishuGateway {
       },
       body: form,
     });
-    // r1-A4：网络层失败（非 2xx）先挡——json() 解析失败会抛不可诊断的 SyntaxError
+    // -网络层失败（非 2xx）先挡——json() 解析失败会抛不可诊断的 SyntaxError
     if (!uploadRes.ok) {
       throw new Error(`Feishu image upload HTTP ${uploadRes.status}: ${await uploadRes.text().catch(() => "<no body>")}`);
     }
@@ -164,7 +164,7 @@ export class FeishuClient implements FeishuGateway {
         content: JSON.stringify({ image_key: imageKey }),
       }),
     });
-    // r1-A4：同上传侧——非 2xx 先挡再解析
+    // -同上传侧——非 2xx 先挡再解析
     if (!response.ok) {
       throw new Error(`Feishu image message HTTP ${response.status}: ${await response.text().catch(() => "<no body>")}`);
     }

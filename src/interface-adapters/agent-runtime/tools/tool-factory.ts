@@ -218,7 +218,7 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
   if (ctx.getTurnAssistantText?.().trim()) {
     return "[错误] 你刚才输出的是普通文本草稿，只有你自己能看到，搭档和其他海獭看不到。请把结论通过 speak(body) 工具正式重发，再调用 yield 交棒。";
   }
-  // #1871：跨世重启/自动重试后模型常把「历史里说过」误当本轮已发言，直接 yield 被拒后
+  // 跨世重启/自动重试后模型常把「历史里说过」误当本轮已发言，直接 yield 被拒后
   // 又去排查工具而非补一句 speak——此处把语义戳破：计数按 invoke 归零，补 speak 即可，勿排查。
   return "[错误] 本轮 invoke 尚未落账 speak，拒绝交棒。speak 计数在每次 invoke（含服务重启/自动重试）都会归零——即使你记得刚才说过，也请在本轮再调用一次 speak(body) 输出结论，然后立刻再 yield；不要排查工具、不要重复空 yield。";
 }
@@ -251,7 +251,7 @@ async function registerMatterOnTaggedYield(
       initialState: 'WAITING_PARTNER',
       waitingOn: 'partner',
       waitingFor: reason ?? '拍板',
-      // 简报内容单源（§1）：payload 存 reason 全文——板上详情/ P2 简报卡渲染的数据源
+      // 简报内容单源：payload 存 reason 全文——板上详情/ P2 简报卡渲染的数据源
       payload: reason ? JSON.stringify({ brief: reason }) : null,
     });
     return `\n[待办] 已登记 ${matterShortAnchor(matter.id)}（state=WAITING_PARTNER，板上待你裁决）。`;
@@ -275,7 +275,7 @@ async function emitYieldEvent(
       invokeId: ctx.currentInvokeId!,
       otterId: ctx.otterId,
       otterName: yieldOtter?.name ?? ctx.otterId,
-      // F20260921otcl：实体在手直透出生色（大獭 color=null，前端 type 判定品牌棕）
+      // 实体在手直透出生色（大獭 color=null，前端 type 判定品牌棕）
       otterType: yieldOtter?.type,
       otterColor: yieldOtter?.color ?? null,
       yieldTargets: resolvedIds,
@@ -324,7 +324,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       if (error) return errorResponse(error);
 
       try {
-        // F20260913ctlv 彻底切换：唯一路径——yield entry + invoke_end entry + invoke 置 completed。
+        // 彻底切换：唯一路径——yield entry + invoke_end entry + invoke 置 completed。
         // speak entry 创建即 completed，无需完结动作。旧 startSpeaking 路径已删除。
         const yieldResult = await ctx.client.conversation.entry.createYieldEntry({
           conversationId: ctx.conversationId,
@@ -337,11 +337,11 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
         await recordCompletedReviewRoundOnYield(ctx, yieldResult.invoke?.metadata, resolvedIds);
         ctx.lastSpeakMessageId = undefined;
 
-        // F20260821i336（F20260912avlb 改造）：yield 成功后记账派工——
+        // （改造）：yield 成功后记账派工——
         // markDispatched 只刷 created 状态行（首次派工时间戳不被后续多轮交棒刷新）
         await updateDispatchLedgerOnYield(ctx, resolvedIds);
 
-        // F20261006mtlp P1：L2 显式拍板项打标自动登记 matter（准入路径 1）
+        // L2 显式拍板项打标自动登记 matter（准入路径 1）
         const matterNote = await registerMatterOnTaggedYield(
           ctx, params, resolvedIds, yieldResult.yieldEntry.id,
         );
@@ -409,10 +409,10 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
         params.created_after as string | undefined,
         contentType,
         params.expand_context as boolean | undefined,
-        // F20260917cvid: 自动注入当前对话 ID——本对话来源记忆排序加成（搭档「本对话历史权重更高」）
+        // 自动注入当前对话 ID——本对话来源记忆排序加成（搭档「本对话历史权重更高」）
         ctx.conversationId,
       );
-      // F20260826rcmm Phase 0：检索埋点（fire-and-forget，失败不影响工具返回）。
+      // 检索埋点（fire-and-forget，失败不影响工具返回）。
       // 挂在 tool 层而非 client 层：此处才有 per-request 的 conversationId/otterId。
       // total 用检索系统真值（非 entries.length）：区分「只找到 N 条」和「命中很多但返回 top-k」。
       // beforeMessageId = ctx.currentMessageId：上下文快照排除检索动作自身的消息（防自问自答污染标注）。
@@ -432,8 +432,8 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
       } catch {
         // 埋点任何形态的失败（含同步抛错）都不影响检索可用性
       }
-      // F20260812mrcq Part 2: 透传 contextEntries 给 agent（不混入 entries，避免评分断层）
-      // F20260821evaf 二轮审视: 透传 vecCoverage——兑现 description 承诺，agent 感知降级/暗化
+      // 透传 contextEntries 给 agent（不混入 entries，避免评分断层）
+      // 二轮审视: 透传 vecCoverage——兑现 description 承诺，agent 感知降级/暗化
       return textResponse(JSON.stringify({
         entries,
         ...(contextEntries && contextEntries.length > 0 ? { contextEntries } : {}),
@@ -486,13 +486,13 @@ async function validateCreateOtterParams(
     return { hardError: `[错误] 未知的模型别名「${modelAlias}」。可用模型：${available}`, quotaHint: '' };
   }
 
-  /** #543：目标模型近 24h 配额耗尽提示（显式 alias 用显式的，未传用默认模型；
+  /** 目标模型近 24h 配额耗尽提示（显式 alias 用显式的，未传用默认模型；
    *  getDefaultAlias 缺失（mock/旧装配）时跳过默认模型检查——提示性功能不硬依赖） */
   const pool = ctx.modelPool as (ToolModelPool & { getDefaultAlias?: () => string }) | undefined;
   const targetAlias = modelAlias?.trim() || pool?.getDefaultAlias?.();
   const quotaHint = await checkModelQuotaHint(healingRepo, targetAlias);
 
-  /** #1247：注入体积预算硬拦（在创建前——不产生僵尸参与者记录）。
+  /** 注入体积预算硬拦（在创建前——不产生僵尸参与者记录）。
    *  pool 窄接口未带 getContextWindow 时跳过（旧装配 fail-soft） */
   const ctxBudgetError = buildCtxOverflowBudgetError({
     systemPrompt: params.systemPrompt as string,
@@ -554,7 +554,7 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
       required: ["name", "systemPrompt"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // #1247 + #543：前置校验链（别名合法性 → 注入预算 → 配额提示）拆入独立函数控行数
+      // + 前置校验链（别名合法性 → 注入预算 → 配额提示）拆入独立函数控行数
       const { hardError, quotaHint, explicitAlias } = await validateCreateOtterParams(ctx, healingRepo, params);
       if (hardError) return errorResponse(hardError);
 
@@ -570,22 +570,22 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
         systemPrompt: params.systemPrompt as string,
         parentOtterId: ctx.otterId,
         modelAlias: explicitAlias || undefined,
-        // F20260921otcl：出生挑色域——工具链创建即在当前对话内
+        // 出生挑色域——工具链创建即在当前对话内
         conversationId: ctx.conversationId,
       });
       /** 创建后自动加入当前对话参与者 */
 
       const joined = await ctx.client.conversation.participant.join(ctx.conversationId, otter.id);
-      /** F20260813actk C9：注册待派工票据，供 speak 软守卫检测 */
+      /** 注册待派工票据，供 speak 软守卫检测 */
       ctx.pendingDispatches?.set(otter.id, otter.name);
-      /** F20260821i336（F20260912avlb）：创建派工台账记录（created：獭就位待命） */
+      /** 创建派工台账记录（created：獭就位待命） */
       await ctx.client.dispatch.createRecord({
         conversationId: ctx.conversationId,
         otterId: otter.id,
         otterName: otter.name,
         task: (params.systemPrompt as string).substring(0, 200), // 截取前 200 字符作为任务摘要
       });
-      /** F20260913ctlv：进场 system entry 广播（前端时间线居中系统条目实时可见）。
+      /** 进场 system entry 广播（前端时间线居中系统条目实时可见）。
        *  joined 可能为 void（旧 mock/降级装配）——广播是增强，不阻断创建流程 */
       if (joined?.systemEntry) {
         ctx.emitEvent?.({
@@ -593,18 +593,18 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
           data: { entryId: joined.systemEntry.id, content: joined.systemEntry.body ?? '', sequenceNum: joined.systemEntry.sequenceNum, createdAt: joined.systemEntry.createdAt },
         });
       }
-      /** F20260824aibd: 回包含模型信息，让大獭对模型分配有即时反馈 */
+      /** 回包含模型信息，让大獭对模型分配有即时反馈 */
       const config = ctx.otterConfigProvider?.getConfig(otter.id);
       const modelLabel = config?.modelAlias ? `，模型：${config.modelAlias}` : '';
-      /** F20261008gfrc（三步走③·元规则预告）：创建时点告知变体重试计数升级规则——
-       *  小獭被守卫拦后变体重试，6h 内 ≥3 次自动升 high 落账（#844 guard-intercept-escalation），
+      /** （三步走③·元规则预告）：创建时点告知变体重试计数升级规则——
+       * 小獭被守卫拦后变体重试，6h 内 ≥3 次自动升 high 落账（guard-intercept-escalation），
        *  高频被拦大概率是误拦或正当诉求无出路。预告让大獭在派工阶段就把「被拦报 blocked、
        *  勿变体重试」写进 systemPrompt，从源头减少升级事件而非事后处置。 */
       const retryEscalationHint =
         '\n⚠️ 元规则预告：小獭被 bash 守卫拦截后若变体重试，6h 内 ≥3 次将自动升级 high 事件落账' +
         '（大概率误拦或正当诉求无出路）。建议派工 systemPrompt 里写明：被拦勿变体绕试，' +
         '带上命中详情用 speak 的 signal 参数（type=blocked）升级报告。';
-      /** F20260813actk C3：回包提示就位待命状态（串行场景教育）；#543：附配额提示 */
+      /** 回包提示就位待命状态（串行场景教育）；附配额提示 */
       return textResponse(
         `Otter created: ${otter.id} (${otter.name}${modelLabel}). 已就位待命，但尚未开工——` +
         `你需要在随后的 yield 里把行动权（to=["${otter.name}"]）传给它，它才会执行。` +
@@ -775,7 +775,7 @@ async function runUntilPolling(
       const elapsedSeconds = seconds - Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
       return `\nuntil 条件通过（第 ${attempts} 次探测，已等待 ${elapsedSeconds} 秒）。\n苏醒检查（${cmd}）${probe.text}`;
     }
-    // #1623 返修：仅 gh pr checks 的真实业务应答（stderr 空 + stdout 有 bucket 表格）
+    // 返修：仅 gh pr checks 的真实业务应答（stderr 空 + stdout 有 bucket 表格）
     // 判终态失败立即终止；exit 1 的其他形态（test/grep 未就绪、gh transport 错误、NONE、
     // GraphQL 错误）语义可恢复或未知，一律保留预算内重试（Review-1640 反例实证）。
     if (isGhPrChecksTerminalFailure(untilArgv, probe)) {
@@ -864,7 +864,7 @@ function createWaitTool(): AgentTool {
       const reason = (params.reason as string | undefined)?.trim();
       const until = params.until as string | undefined;
 
-      // 1. 参数校验：seconds ∈ [5,600]；带 until 时 ≤ 560（预算闭合留裕量，D3/D6）
+      // 1. 参数校验：seconds ∈ [5,600]；带 until 时 ≤ 560（预算闭合留裕量）
       if (typeof seconds !== "number" || Number.isNaN(seconds) || seconds < WAIT_SECONDS_MIN || seconds > WAIT_SECONDS_MAX) {
         return errorResponse(`[错误] seconds 必须是 ${WAIT_SECONDS_MIN}-${WAIT_SECONDS_MAX} 的数字。<5 的等待搭档无感，请直接 bash sleep；>600 超过 per-event 熔断窗（10 分钟），请拆多次轮询（带 until 的 wait 循环）或改用 create_scheduled_task 定时任务。`);
       }
@@ -993,7 +993,7 @@ async function verifyPartnerApproval(
   }
   // 匹配面：卡片回执的人类可读摘要可作授权源；html-card-reply 围栏内 data JSON 是
   // agent 构造的交互载荷（摘要文本由 agent 撰写、data 由 agent 塞）——围栏整体剔除，
-  // 防 agent 借自构 JSON 文本自我授权（M3）。
+  // 防 agent 借自构 JSON 文本自我授权。
   const hit = (entries as Array<{ id: string; sequenceNum: number; createdAt: string; body: string | null }>).find(e => {
     const stripped = stripHtmlCardFences(e.body ?? '');
     const hay = normalizeApprovalText(stripped);
@@ -1069,7 +1069,7 @@ function buildMergeAuditRecord(
   const anchorDesc = approvalAnchor
     ? `，命中锚点 entryId=${approvalAnchor.id} seq=${approvalAnchor.sequenceNum} createdAt=${approvalAnchor.createdAt} ${hitExcerpt}`.trimEnd()
     : "（原话校验锚点缺失——子形态见拒绝理由：未命中 / 查询 fail-closed / 无实义）";
-  // S1（#1440 审视）：fact content ≤500 硬校验（manage-key-info validateInput），原话无界长会
+  // （审视）：fact content ≤500 硬校验（manage-key-info validateInput），原话无界长会
   // 让校验抛错被 non-fatal catch 吞掉——拒绝审计整体静默丢失（恰是本特性要保的可回查面）。
   // 截断策略：原话保头 100 字 + 截断计量标注；整串 480 封顶再兜一层（尾部截断保首部
   // AUTHORIZATION_REJECTED token / 拒绝码 / 锚点——这些在模板前部，天然保留）。
@@ -1115,7 +1115,7 @@ function checkApprovalGates(
       userMessage: `[错误] 无法确认授权原话时间（${approvalAt}）严格晚于 PR 创建时间（${prCreatedAt}）——疑似针对其他 PR 的过期授权或时间数据异常，拒绝合入（未执行）。请搭档针对本 PR 显式确认（带 PR 号，如「${prNumber}合入」）后重试。`,
     };
   }
-  // 含号判定用数字边界匹配：「1437合」不算命中目标 #437（数字子串方向 fail-close）
+  // 含号判定用数字边界匹配：「1437合」不算命中目标 （数字子串方向 fail-close）
   const hasPrecisePrRef = new RegExp(`(?<!\\d)${prNumber}(?!\\d)`).test(partnerApproval);
   if (countSubstantive(partnerApproval) < 6 && !hasPrecisePrRef) {
     logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED vague_short_approval prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
@@ -1209,16 +1209,16 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
       const gate = await checkPrMergeable(prNumber);
       if ("terminal" in gate) return gate.terminal;
       // 原话校验闸（物理闸）——逐字命中搭档历史消息才放行，否则拒绝；
-      // 位于 PR 状态门之后、审计/执行之前——未命中不执行 merge；#1440 起拒绝也落审计（REJECTED approval_not_found）+ warn 日志。
+      // 位于 PR 状态门之后、审计/执行之前——未命中不执行 merge；起拒绝也落审计（REJECTED approval_not_found）+ warn 日志。
       const approvalCheck = await verifyPartnerApproval(ctx, partnerApproval);
       if ("error" in approvalCheck) {
         logger?.warn(`[merge_pr] AUTHORIZATION_REJECTED approval_not_found prNumber=${prNumber} otter=${ctx.otterId} partnerApproval=${JSON.stringify(partnerApproval)}`);
-        // F20261031mrajd（#1440）：拒绝补审计（判定不变）；子形态由 userMessage 区分，审计码统一
+        // 拒绝补审计（判定不变）；子形态由 userMessage 区分，审计码统一
         const notFoundBrief = "引用文本未逐字命中搭档历史消息（含查询 fail-closed / 无实义内容形态）";
         await writeMergeAudit(ctx, logger, { prNumber, strategy, partnerApproval, rejected: { reasonCode: "approval_not_found", reasonBrief: notFoundBrief } });
         return approvalCheck.error;
       }
-      // #1431 时间维度闸 + 通用短话术闸（方案 A + C）：过期授权/短话术误配一律拒绝（细节见 checkApprovalGates）。
+      // 时间维度闸 + 通用短话术闸（方案 A + C）：过期授权/短话术误配一律拒绝（细节见 checkApprovalGates）。
       const gateRejection = checkApprovalGates(ctx, logger, {
         prNumber,
         partnerApproval,
@@ -1226,7 +1226,7 @@ function createMergePrTool(ctx: ToolContext, logger?: Logger): AgentTool {
         prCreatedAt: gate.createdAt,
       });
       if (gateRejection) {
-        // F20261031mrajd（#1440）：闸拒绝落审计（含命中锚点——过期授权重放最需证据面）
+        // 闸拒绝落审计（含命中锚点——过期授权重放最需证据面）
         await writeMergeAudit(ctx, logger, {
           prNumber, strategy, partnerApproval,
           approvalAnchor: approvalCheck.hit,
@@ -1261,7 +1261,7 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
       if (targetOtterId === ctx.otterId) {
         return errorResponse("[错误] 不能解散自己。Otter 无法自我溶解。");
       }
-      // F20261117dsgrd：同对话范围守卫——只允许解散当前对话的在场参与者，
+      // 同对话范围守卫——只允许解散当前对话的在场参与者，
       // 防跨对话误杀（2026-11-16 端云大獭误解散三省吾身大獭事故）。
       // big 獭的拒绝在 use case 层（DissolveOtter.execute），此处只管小獭的对话归属。
       const participants = await ctx.client.conversation.participant.getActive(ctx.conversationId);
@@ -1270,7 +1270,7 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
         return errorResponse(`[错误] 目标獭 ${targetOtterId} 不在当前对话在场名单，拒绝跨对话解散。`);
       }
       // use case 层的 DomainError（big 獭不可解散 / 已解散 / 不存在）转干净 errorResponse，
-      // 不向上抛成未处理异常（检视建议 #4：big 守卫在 use case 层，现网不可达但须可读兜底）。
+      // 不向上抛成未处理异常（检视建议 big 守卫在 use case 层，现网不可达但须可读兜底）。
       try {
         await ctx.client.otter.dissolve(targetOtterId);
       } catch (err) {
@@ -1279,7 +1279,7 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
         }
         throw err;
       }
-      /** F20260803trrf: 顺带更新 participant status。leave 失败不阻断 dissolve（otter 已销毁不可逆），仅附警告。 */
+      /** 顺带更新 participant status。leave 失败不阻断 dissolve（otter 已销毁不可逆），仅附警告。 */
       let warning = "";
       try {
         await ctx.client.conversation.participant.leave(ctx.conversationId, targetOtterId);
@@ -1310,11 +1310,11 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
     return ectx?.newSessionId === activeSession.id;
   });
   if (!selfRestartCreated) return false;
-  // F20261005srst（#1203）：时间衰减豁免——防循环只需防「紧邻连环」（分钟级），
+  // 时间衰减豁免——防循环只需防「紧邻连环」（分钟级），
   // 2h 后仍在工作的 session 不是循环。兕住判据失效类故障（9/28 现场：5h 前的自重启产物被拦）。
   const sessionAgeMs = Date.now() - Date.parse(activeSession.startedAt);
   if (sessionAgeMs > SELF_RESTART_LOOP_WINDOW_MS) return false;
-  // F20260906srst（#811）：用户介入检测——复用 invoker 层共享判据（#1288 收敛，重试一次 +
+  // 用户介入检测——复用 invoker 层共享判据（收敛，重试一次 +
   // 重试后仍失败降级为无介入（维持拦截，保守）+ 降级事件落 healing 台账，不再静默）。
   const intervened = await hasUserMessageSince(
     async () => {
@@ -1323,7 +1323,7 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
     },
     activeSession.startedAt,
     {
-      // #1203：降级可观测——重试后仍失败，落 healing event（判据失效不再静默）。
+      // 降级可观测——重试后仍失败，落 healing event（判据失效不再静默）。
       // 与 invoker 层降级语义同源，仅 context.layer 标记防织层归属。
       onDegrade: async (err, isFinal) => {
         if (!isFinal) return;
@@ -1377,12 +1377,12 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
       },
       required: [],
     },
-    // eslint-disable-next-line complexity -- F20260908efmd: +modelAlias 校验 + hasModel 前置检查
+    // eslint-disable-next-line complexity -- +modelAlias 校验 + hasModel 前置检查
     execute: async (_id: string, params: Record<string, unknown>) => {
       const targetOtterId = (params.otterId as string) || ctx.otterId;
       const summary = params.summary as string | undefined;
       const modelAlias = params.modelAlias as string | undefined;
-      // F20260930hsfx 层积岩清理：默认值收敛 HANDOFF_SYNTHESIZE_PAST_DEFAULT 单点。
+      // 层积岩清理：默认值收敛 HANDOFF_SYNTHESIZE_PAST_DEFAULT 单点。
       //  显式 boolean 收窄：params 是 Record<string, unknown>，boolean schema 已校验，cast 安全。
       const synthesizePast = (params.synthesizePast as boolean | undefined) ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT;
 
@@ -1401,20 +1401,20 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
         return errorResponse(`[错误] 目标 Otter ${targetOtterId} 不存在或已解散。`);
       }
 
-      // F20260908efmd: 校验 modelAlias 合法性
+      // 校验 modelAlias 合法性
       if (modelAlias && modelAlias.trim().length > 0 && ctx.modelPool && !ctx.modelPool.hasModel(modelAlias)) {
         const available = ctx.modelPool.describeModels().map(m => m.alias).join(", ");
         return errorResponse(`[错误] 未知的模型别名「${modelAlias}」。可用模型：${available}`);
       }
 
-      // F20260824srst: 自重启循环防护（第一道防线）。
+      // 自重启循环防护（第一道防线）。
       // Why 在 tool 层拦截而非 agent-invoker 层：LLM 调用 restart_otter(self) 时立即返回错误，
       // 避免设置 pendingRestart 后再由 invoker 层拦截——tool 层拦截更早、更省 token。
       if (targetOtterId === ctx.otterId && await isSelfRestartLoop(ctx, healingRepo)) {
         return errorResponse('[系统保护] 当前 session 已由自重启创建且未检测到新的用户指令（距上次自重启不足 2h），不允许连续自重启。如确需重启：请搭档从 UI 手动重启，或新开对话重派任务。');
       }
 
-      // F20260815rstrt: 自重启时延迟执行——session.prompt() 是原子的，
+      // 自重启时延迟执行——session.prompt() 是原子的，
       // 中途 restart 会打断 LLM 生成。标记 pending，prompt 完成后由 PiSessionFactory 执行。
       if (targetOtterId === ctx.otterId) {
         ctx.pendingRestart = { summary, modelAlias, synthesizePast };
@@ -1427,7 +1427,7 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
       }
 
       // 重启别人：直接执行（不涉及自身 session）
-      // F20260920uhuc：synthesizePast 透传统一交接管线（otter client → manageSession.restartSession 域层 reason）
+      // synthesizePast 透传统一交接管线（otter client → manageSession.restartSession 域层 reason）
       const session = await ctx.client.otter.restart(targetOtterId, summary, modelAlias, synthesizePast);
       return textResponse(`Otter ${targetOtterId} 已重启獭生。新 Session ID: ${session.id}` + (modelAlias ? `，模型切换至：${modelAlias}` : ''));
     },
@@ -1465,7 +1465,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
           return errorResponse(`[错误] resourceType 为 '${resourceType}' 时，url 不能为空。请提供资源 URL 或路径。`);
         }
       }
-      // F20260829gvid（#580）：pr/worktree/branch 是特性交付产物，漏传 groupId 会让 list_artifacts
+      // pr/worktree/branch 是特性交付产物，漏传 groupId 会让 list_artifacts
       // 按组检索落空（gssf/ptun 两次检视才补的案例）。与 domain 层 validateGroupIdRequired
       // 同口径（双层校验先例：fact 长度）。纯空白视为漏传。
       if (GROUP_ID_REQUIRED_TYPES.has(resourceType)) {
@@ -1701,7 +1701,7 @@ function createGetRelatedTool(ctx: ToolContext): AgentTool {
         direction: params.direction as "out" | "in" | undefined,
         limit: params.limit as number | undefined,
       });
-      // F20260813mren Part 2: 若起点是 feature/research 文档，附带 provenance（催生它的对话消息）
+      // 若起点是 feature/research 文档，附带 provenance（催生它的对话消息）
       // 审视二轮：输出 schema 统一为 { related, provenance? }——消二态，LLM 不用面对两种结构
       const provenance = await ctx.client.memory.getDocProvenance(params.entry_id as string);
       return textResponse(JSON.stringify({
@@ -1892,8 +1892,8 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
     },
     execute: async (_id: string, _params: Record<string, unknown>) => {
       const participants = await ctx.client.conversation.participant.getActive(ctx.conversationId);
-      // F20260824aibd: modelAlias 由 usecase 批量预取后经 HTTP DTO 透传（#446 后不再在 tool 层二次查询，
-      // 原循环内逐个 getConfig 是 PR #445 填充 DTO 前的旧路径，已冗余）
+      // modelAlias 由 usecase 批量预取后经 HTTP DTO 透传（后不再在 tool 层二次查询，
+      // 原循环内逐个 getConfig 是 填充 DTO 前的旧路径，已冗余）
       const result = participants.map(p => ({
         otterId: p.otterId,
         otterName: p.otterName,
@@ -1934,7 +1934,7 @@ function createQueryDispatchLedgerTool(ctx: ToolContext): AgentTool {
     execute: async (_id: string, params: Record<string, unknown>) => {
       const records = await ctx.client.dispatch.queryRecords({
         // 缺省 undefined = 全表（repo findByFilter 语义）；不兑底当前对话——
-        // 与 web 端 controller 口径一致，大獭跨对话巡检能力对齐（delta 复审建议 1）
+        // 与 web 端 controller 口径一致，大獭跨对话巡检能力对齐（delta）
         conversationId: params.conversationId as string | undefined,
         status: params.status as "created" | "dispatched" | "dissolved" | undefined,
         otterId: params.otterId as string | undefined,
@@ -1965,7 +1965,7 @@ function appendScheduledTaskTools(tools: AgentTool[], ctx: ToolContext, deps?: S
 // eslint-disable-next-line max-lines-per-function -- 工具注册表天然长（belief 四件并入后超限）
 export function createTools(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger, actionRunner?: ActionRunner, scheduledTaskDeps?: ScheduledTaskToolDeps): AgentTool[] {
   const signalRepo = ctx.signalRepo;
-  // F20261006mtlp P1：matter 仓库经 ToolContext.matterRepo 注入（同 signalRepo 模式）
+  // matter 仓库经 ToolContext.matterRepo 注入（同 signalRepo 模式）
   const matterRepo = ctx.matterRepo;
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
@@ -1998,32 +1998,32 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     createGetHtmlCardContractTool(),
     createQueryDispatchLedgerTool(ctx),
   ];
-  /** F20260811sktp 第五轮审视：manage_healing_events 此前未注册（pre-existing bug）——本 PR SYSTEM.md R5 显式引用了它，必须确保运行时可用 */
+  /** 第五轮审视：manage_healing_events 此前未注册（pre-existing bug）——本 PR SYSTEM.md 显式引用了它，必须确保运行时可用 */
   if (healingRepo) {
     tools.push(createManageHealingEventsTool(ctx, healingRepo));
   }
   appendWorkspaceTools(tools, ctx, actionRunner);
   appendScheduledTaskTools(tools, ctx, scheduledTaskDeps);
-  // F20260920stkx：stock_data / paper_trade 工具随能力整体移除（实验结论文档 R20260920stkx）
-  // F20260826mwrd C1：halt 工具（仅 signalRepo 注入时注册；编排大獭用——
+  // stock_data / paper_trade 工具随能力整体移除（实验结论文档）
+  // halt 工具（仅 signalRepo 注入时注册；编排大獭用——
   // small 型 whitelist 不含 halt_otter，天然隔离；query_signals 两型均可用）
-  // #927：unhalt_otter 解除工具（仅 big 型，同 halt_otter 编排域）
+  // unhalt_otter 解除工具（仅 big 型，同 halt_otter 编排域）
   if (signalRepo) {
     tools.push(createHaltOtterTool(ctx, signalRepo, logger));
     tools.push(createUnhaltOtterTool(ctx, signalRepo, logger));
     tools.push(createQuerySignalsTool(ctx, signalRepo));
-    // F20260826mwrd C2：裁决写路径——resolve_signal 仅 big 型（裁决权在大獭，
-    // 方案 Part 2「程序化裁决义务」的代码落点）
+    // 裁决写路径——resolve_signal 仅 big 型（裁决权在大獭，
+    // 「程序化裁决义务」的代码落点）
     tools.push(createResolveSignalTool(ctx, signalRepo));
   }
-  // F20260917trig：RHI 信号处置工具（signals 表——triage_signal/list_rhi_signals）。
+  // RHI 信号处置工具（signals 表——triage_signal/list_rhi_signals）。
   // 注册条件 = rhiSignalRepo 注入；small/big 型均可用（日报獭处置段 + 面板后端都要调）。
   if (ctx.rhiSignalRepo) {
     tools.push(createTriageSignalTool(ctx, ctx.rhiSignalRepo));
     tools.push(createListRhiSignalsTool(ctx, ctx.rhiSignalRepo));
   }
-  // F20261006mtlp P1：獭侧 matter 工具（待办板查/迁——空窗期通道 A 的执行载体）。
-  // F20261006mlp2 P2：register_matter 补上「+」登记入口（准入路径 2）的执行载体——
+  // 獭侧 matter 工具（待办板查/迁——空窗期通道 A 的执行载体）。
+  // register_matter 补上「+」登记入口（准入路径 2）的执行载体——
   // P1 只把 RegisterMatter 接在 yield 打标（路径 1），板上登记回执无工具可达=死链（严重1）。
   // small/big 型均可用：list/register/transition 的权限由 usecase 守卫兜住
   // （register 只产 OPEN；transition 的 L2 闭环必须搭档确认）。注册条件 = matterRepo 注入。
@@ -2031,7 +2031,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
     tools.push(createListMattersTool(ctx, matterRepo));
     tools.push(createRegisterMatterTool(ctx, matterRepo));
     tools.push(createTransitionMatterTool(ctx, matterRepo));
-    // F20261008mlp3 P3：matter_sweep 跨对话停滞扫描——未闭环扫描升格的确定性数据源。
+    // matter_sweep 跨对话停滞扫描——未闭环扫描升格的确定性数据源。
     // 仅 big 型注册（session-helpers getOtterToolNamesForType 白名单控制），small 型不持有——
     // 跨对话查询权与编排权对齐（扫描跑在三省吾身对话，matter 工具按对话隔离）。
     tools.push(createMatterSweepTool(ctx, matterRepo));

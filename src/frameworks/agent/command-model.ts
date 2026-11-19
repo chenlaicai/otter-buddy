@@ -323,7 +323,7 @@ function collectPayloads(tokens: Token[], text: string, depth: number, tokenSegm
           }
         } else {
           // 裸定界 + 体无展开特征 = 纯数据（V1 stripHeredocPayloads 剥离放行——
-          // kill 独立成行等数据行不递归判定，#1171 白名单完整落实）
+          // kill 独立成行等数据行不递归判定，白名单完整落实）
           payloads.push(owned(t, { raw: body, model: null, kind: "heredoc-quoted", depth }));
         }
       } else {
@@ -380,7 +380,7 @@ export function parseOnce(text: string, depth = 0): CommandModel {
   if (!collected.parseOk) parseOk = false;
   issues.push(...collected.payloads.filter(p => p.model === null && p.kind !== "heredoc-quoted").map(p => `payload-unparseable:${p.kind}`));
 
-  // bash -c / 脚本解释器载荷：段级补充递归（全部载荷——#1154 S2 逐载荷语义）
+  // bash -c / 脚本解释器载荷：段级补充递归（全部载荷——逐载荷语义）
   const payloads = [...collected.payloads, ...subshellPayloads];
   for (const [segmentIndex, seg] of segments.entries()) {
     const interps = matchInterpreterPayloads(seg);

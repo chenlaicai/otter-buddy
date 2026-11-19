@@ -128,7 +128,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * F20260814qswp：按 entry id 级联删除卫星数据（fts_jieba + vec? + weights +
+   * 按 entry id 级联删除卫星数据（fts_jieba + vec? + weights +
    * embedding_tasks + edges，不含 memory_entries 本行——由调用方按 id 或按 source 删除）。
    * 此前在 deleteBySource / replaceEntryBySource / replaceEntriesBySource /
    * deleteBySourceAndType 四处逐字重复（历史上已被迫加过 3 次"联动清理"补丁）。
@@ -136,28 +136,28 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
    */
   private cascadeDeleteSatellites(rowId: string): void {
     this.db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(rowId);
-    // F20260803mval: memory_vec 是 vec0 虚拟表，sqlite-vec 扩展不可用时表不存在（D22 降级），删除前检查
+    // memory_vec 是 vec0 虚拟表，sqlite-vec 扩展不可用时表不存在（降级），删除前检查
     if (this.vecTableExists) {
       this.db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(rowId);
     }
     this.db.prepare("DELETE FROM memory_weights WHERE memory_entry_id = ?").run(rowId);
-    // F20260812mrcq Part 1：联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
+    // 联动清理 embedding_tasks（不依赖 FK CASCADE，与现有模式一致）
     this.db.prepare("DELETE FROM embedding_tasks WHERE entry_id = ?").run(rowId);
-    // F20260813mren: 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
+    // 联动清理 memory_edges（同模式，不依赖 FK CASCADE）
     this.db.prepare("DELETE FROM memory_edges WHERE from_entry_id = ? OR to_entry_id = ?").run(rowId, rowId);
   }
 
   /**
-   * F20260814qswp：jieba FTS 检索的共享 SQL（searchFTS 与 searchFTSWithHighlight
+   * jieba FTS 检索的共享 SQL（searchFTS 与 searchFTSWithHighlight
    * 此前的语句逐字相同，仅 SELECT 列消费方式不同——me.* 本就含 content，统一返回行）。
    *
-   * #1115 读放大降级：分词后 OR 连接的宽查询对全命中集 bm25 打分（实测 5 词 OR 命中
+   * 读放大降级：分词后 OR 连接的宽查询对全命中集 bm25 打分（实测 5 词 OR 命中
    * 11k 行/次耗 13.7ms，主线程同步阻塞）；两段式改为「多词 AND 优先（交集收敛，实测
    * 同 5 词 AND 命中 23 行耗 2.9ms）→ 空结果再回落 OR（保召回——短查询/停用词过滤后
    * 单词形态两者等价无额外成本）」。单词条与多词同现场景性能不退化；召回面 OR 段兑底。
    */
   private searchFtsJiebaRows(query: string, filters: SearchFilters): FtsHighlightRow[] {
-    // F20260805hybrid: 使用 jieba 分词表支持中文短查询
+    // 使用 jieba 分词表支持中文短查询
     const tokenizedQuery = tokenizeQuery(query);
     if (tokenizedQuery.length === 0) return [];
 
@@ -187,7 +187,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
       ) as FtsHighlightRow[];
     };
 
-    // #1115 两段式：多词 AND 优先（交集收敛降读放大）；空结果/单词形回落 OR（保召回）
+    // 两段式：多词 AND 优先（交集收敛降读放大）；空结果/单词形回落 OR（保召回）
     if (tokenizedQuery.length >= 2) {
       const andRows = runFts(" AND ");
       if (andRows.length > 0) return andRows;
@@ -200,13 +200,13 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return this.vecTableExists;
   }
 
-  /** F20260812mrcq Part 0：vec 路径当前是否运行时启用 */
+  /** vec 路径当前是否运行时启用 */
   isVecEnabled(): boolean {
     return this.hasVec;
   }
 
   /**
-   * F20260811mrpy Part 3 + F20260812mrcq Part 0：
+   * + 
    * bootstrap 校验 embedding 版本不一致时调用，禁用 vec 路径。
    * - hasVec=false：searchVec / storeEmbedding 跳过，召回降级为纯 FTS
    * - 同步清空 memory_vec 表（vecTableExists 守卫），消除旧向量沉睡导致的混跑风险
@@ -231,7 +231,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     });
   }
 
-  /** F20260803mval: 按 source 删除记忆条目（entries + fts + vec + weights 联动删除） */
+  /** 按 source 删除记忆条目（entries + fts + vec + weights 联动删除） */
   async deleteBySource(sourceTable: string, sourceId: string): Promise<void> {
     this.runInTx(() => {
       const rows = this.db
@@ -246,13 +246,13 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     });
   }
 
-  /** F20260803mval: 按 source 原子替换（单事务删旧+插新），B2 修复 */
-  /** F20260803fbit: DELETE/SELECT WHERE 加 content_type 过滤，防 summary entry 和 body entry 互相删除 */
-  /** F20260813mren：1:1 summary entry 的边做重定向（旧 id→新 id），不再静默删边。
+  /** 按 source 原子替换（单事务删旧+插新），修复 */
+  /** DELETE/SELECT WHERE 加 content_type 过滤，防 summary entry 和 body entry 互相删除 */
+  /** 1:1 summary entry 的边做重定向（旧 id→新 id），不再静默删边。
    *  顺序：插新行 → 重定向边 → 按旧 id 删旧行（不能用 source 删，会误删新行）。
-   *  chunk 的 N:M replaceEntriesBySource 无法重定向，维持禁边（D3）。 */
+   * chunk 的 N:M replaceEntriesBySource 无法重定向，维持禁边。 */
   async replaceEntryBySource(entry: MemoryEntry): Promise<{ embeddingKept: boolean }> {
-    /** F20261110dsqci（检视鬾5）：同 id 快路径下 content 未变且 vec 存在时保留 vec——
+    /** （检视鬾5）：同 id 快路径下 content 未变且 vec 存在时保留 vec——
      *  归档-复活恢复轮 ~1100 篇 summary 的 content 未变，重 embed 是纯浪费且挤占 live 通道 */
     let embeddingKept = false;
     this.runInTx(() => {
@@ -260,7 +260,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
         .prepare("SELECT id, content FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
         .all(entry.sourceTable, entry.sourceId, entry.contentType) as Array<{ id: string; content: string }>;
 
-      // F20260915midu（#942）：ID 统一后旧行 id = source_id = 新行 id，
+      // ID 统一后旧行 id = source_id = 新行 id，
       // 先插新行会撞 UNIQUE 主键（迁移前“新 id 是全新 UUID 不可能冲突”的假设失效）。
       // 同 id 重入走快路径：UPDATE 本行（不删行——边 FK immediate 约束下删被引用行会炸，
       // 且边 remap 本就是 no-op 应保留）+ 刷新 fts/vec 卫星 + weights 不动。
@@ -290,7 +290,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
           "INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)",
         ).run(entry.id, tokenizeWithJieba(ftsText, { doubleWrite: true }));
         if (this.vecTableExists) {
-          // F20261110dsqci：content 未变且 vec 行存在 → 保留 vec（embeddingKept）
+          // content 未变且 vec 行存在 → 保留 vec（embeddingKept）
           const hasVec = (this.db
             .prepare("SELECT 1 FROM memory_vec WHERE memory_entry_id = ? LIMIT 1")
             .get(entry.id)) != null;
@@ -328,14 +328,14 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * F20260803chunk: 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条）。
+   * 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条）。
    * 用于 chunk 索引：文档 reindex 时删旧全部 chunk + 插新 N 个 chunk。
-   * M1：所有 entries 必须同 (sourceTable, sourceId, contentType)，不一致抛异常。
+   * 所有 entries 必须同 (sourceTable, sourceId, contentType)，不一致抛异常。
    *
-   * F20261110dsqci（#1818）：opts.reuseEntryIds——复用集内的 entry 跳过删除重建
+   * opts.reuseEntryIds——复用集内的 entry 跳过删除重建
    * （向量/fts/weights 卫星数据全保留，仅 UPDATE metadata）。
    * 动机：归档-复活振荡下每轮全量 reindex 删旧插新，worker 已算好的向量被级联删
-   * 白算 ~6200 条/轮，回填队列永不收敛（#1818 案发实测 pending 6301 且涨）。
+   * 白算 ~6200 条/轮，回填队列永不收敛（案发实测 pending 6301 且涨）。
    *
    * 并发正确性（检视鬾1）：复用集在事务内与现存行核实交集（stale id——并发
    * reindex 中已被另一次替换删掉的——降级为 INSERT 该 entry，entries 携带完整数据），
@@ -345,7 +345,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   async replaceEntriesBySource(entries: MemoryEntry[], opts?: { reuseEntryIds?: ReadonlySet<string> }): Promise<{ reusedEntryIds: Set<string> }> {
     if (entries.length === 0) return { reusedEntryIds: new Set() };
     const { sourceTable, sourceId, contentType } = entries[0];
-    // M1 校验：所有 entries 必须同 source
+    // 校验：所有 entries 必须同 source
     for (const e of entries) {
       if (e.sourceTable !== sourceTable || e.sourceId !== sourceId || e.contentType !== contentType) {
         throw new Error(
@@ -357,7 +357,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     const effectiveReuse = new Set<string>();
 
     const reused = this.runInTx(() => {
-      // 删旧（同 source + 同 contentType 的全部 entry；F20261110dsqci：实际复用集除外）
+      // 删旧（同 source + 同 contentType 的全部 entry；实际复用集除外）
       const oldRows = this.db
         .prepare("SELECT id FROM memory_entries WHERE source_table = ? AND source_id = ? AND content_type = ?")
         .all(sourceTable, sourceId, contentType) as Array<{ id: string }>;
@@ -396,7 +396,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * F20261110dsqci（#1818）：读同 source+contentType 的现存 entries——chunk 复用对齐用。
+   * 读同 source+contentType 的现存 entries——chunk 复用对齐用。
    * 返回全部字段（调用方按 content 比对），含 metadata（heading_path/char_count 复用判据）。
    */
   async findEntriesBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<MemoryEntry[]> {
@@ -425,7 +425,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   async storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void> {
-    // F20260803mval: vec 扩展不可用时 memory_vec 表不存在，跳过（与 deleteBySource/replaceEntryBySource 一致，S3）
+    // vec 扩展不可用时 memory_vec 表不存在，跳过（与 deleteBySource/replaceEntryBySource 一致）
     if (!this.hasVec) return;
     /** vec0 不支持 INSERT OR REPLACE，先删除再插入 */
     this.runInTx(() => {
@@ -444,7 +444,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return row ? rowToMemoryEntry(row) : null;
   }
 
-  /** #576（F20260901emps）：最近记忆（记忆搜索页初始态）——排除 chunk 分段碎片。
+  /** 最近记忆（记忆搜索页初始态）——排除 chunk 分段碎片。
    *  不用 NOT LIKE '_chunk'（无 ESCAPE）：_ 在 LIKE 里是单字符通配，会误排除 xchunk 类 */
   async listRecent(limit: number): Promise<MemoryEntry[]> {
     const rows = this.db.prepare(
@@ -456,7 +456,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * F20260812mrcq Part 3：按 source_id + 可选 contentType 主键直查（anchor 短路用）。
+   * 按 source_id + 可选 contentType 主键直查（anchor 短路用）。
    * 多条命中时取最新（created_at DESC）。
    */
   async getBySourceId(sourceId: string, contentType?: MemoryContentType): Promise<MemoryEntry | null> {
@@ -470,9 +470,9 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * F20260812mrcq Part 2：按 source + chunk_index 查邻域（±1）。
+   * 按 source + chunk_index 查邻域（±1）。
    * chunk_index 存在 metadata JSON 中，用 json_extract 查询。
-   * 性能：当前文档总量约 500 条，全表扫可接受（P0 简化方案，性能优化留 follow-up）。
+   * 性能：当前文档总量约 500 条，全表扫可接受（简化方案，性能优化留 follow-up）。
    */
   async findNeighborsByChunkIndex(
     sourceTable: string,
@@ -491,7 +491,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * F20260812mrcq Part 2：按 conversation + createdAt 查前后各一条 message。
+   * 按 conversation + createdAt 查前后各一条 message。
    * 返回最多 2 条（前一条 + 后一条），按 createdAt ASC 排序。
    */
   async findNeighborsByTime(
@@ -559,13 +559,13 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   async searchFTSWithHighlight(query: string, filters: SearchFilters): Promise<SnippetHit[]> {
-    // F20260805hybrid: 搜索走 jieba 表，高亮走原始内容（避免分词碎片化）
+    // 搜索走 jieba 表，高亮走原始内容（避免分词碎片化）
     const tokenizedQuery = tokenizeQuery(query);
     if (tokenizedQuery.length === 0) return [];
     const rows = this.searchFtsJiebaRows(query, filters);
 
-    // F20260811mrpy Part 2: 应用层 extractSnippet；#740: 文档类条目锚点命中时
-    // 锚点词只注入 FTS 索引（F20260902rcq3）不在 content 本体，extractSnippet 找不到
+    // 应用层 extractSnippet；文档类条目锚点命中时
+    // 锚点词只注入 FTS 索引不在 content 本体，extractSnippet 找不到
     // token 会走「前 200 字符」fallback——snippet 与命中原因脱节。传 sourceIdPrefix
     // 让 fallback 带上文档标识，用户看到「为何命中」。
     return rows.map(row => {
@@ -581,7 +581,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * F20260811mrpy Part 2: 应用层后处理高亮。
+   * 应用层后处理高亮。
    * 拿 jieba 分词结果在 content 里 indexOf 定位匹配 token,截窗口（前后各 100 字符）。
    * 性能保护：tokens.slice(0, 10) 限制扫描 token 数防 O(n*m) 爆炸。
    * fallback：全部 token 未匹配上时,返回前 200 字符。
@@ -594,7 +594,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
       if (idx >= 0) { firstMatchPos = idx; break; }
     }
     if (firstMatchPos < 0) {
-      // #740: token 全未命中（锚点命中的典型形态：锚点词只在 FTS 索引前缀里）——
+      // token 全未命中（锚点命中的典型形态：锚点词只在 FTS 索引前缀里）——
       // fallback 带 sourceId 前缀回退，snippet 至少指回命中文档；无 sourceId 时维持原行为
       const fallbackBody = content.slice(0, 200);
       return sourceIdPrefix ? `[${sourceIdPrefix}] ${fallbackBody}` : fallbackBody;
@@ -640,7 +640,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     }));
   }
 
-  /** F20260803fbit: 构造 contentType IN (...) 过滤子句（数组多选） */
+  /** 构造 contentType IN (...) 过滤子句（数组多选） */
   private buildContentTypeClause(filters: SearchFilters): { clause: string; params: unknown[] } {
     if (!filters.contentType?.length) return { clause: "", params: [] };
     const placeholders = filters.contentType.map(() => "?").join(",");
@@ -678,7 +678,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     `).run(to, conversationId, from);
   }
 
-  /** F20260811mrpy Part 3：读取存储的 embedding 元信息（key-value 表） */
+  /** 读取存储的 embedding 元信息（key-value 表） */
   async getEmbeddingMeta(): Promise<Partial<EmbedModelMeta>> {
     const rows = this.db.prepare(
       "SELECT key, value FROM embedding_meta",
@@ -692,7 +692,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return meta;
   }
 
-  /** F20260811mrpy Part 3：写入/更新 embedding 元信息（事务内全量覆盖） */
+  /** 写入/更新 embedding 元信息（事务内全量覆盖） */
   async setEmbeddingMeta(meta: EmbedModelMeta): Promise<void> {
     const now = new Date().toISOString();
     this.runInTx(() => {
@@ -706,10 +706,10 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * F20260811mrpy Part 1 + F20260812mrcq Part 0：扫描无 vec 索引的暗化条目。
+   * + 扫描无 vec 索引的暗化条目。
    * 用 NOT EXISTS 子查询规避 vec0 虚拟表 anti-join 限制。
    *
-   * F20260812mrcq Part 0 关键修复：用 vecTableExists 守卫（而非 hasVec），
+   * 关键修复：用 vecTableExists 守卫（而非 hasVec），
    * 使 disableVec 后仍能检测全表暗化（之前因 hasVec=false 直接返回空，检测能力丧失）。
    *
    * 返回值语义：
@@ -722,8 +722,8 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
       return { entries: [], total: 0, vecDisabled: true };
     }
     try {
-      // F20260812mrcq Part 1：默认排除 status='dead' 的 dead-letter，防报告噪音。
-      // F20261026emct：排除 entry 已被删除的任务（JOIN 不到 memory_entries）——
+      // 默认排除 status='dead' 的 dead-letter，防报告噪音。
+      // 排除 entry 已被删除的任务（JOIN 不到 memory_entries）——
       // 这类任务的 entry 永远不会回来（cascadeDeleteSatellites 已删 entry 行），
       // 迁移入队只会产生 claim 空转的幽灵任务（2026-10-23 实锤 1646 条
       // last_error='entry deleted'）。真缺 vec 的（entry 存在）才值得迁移。
@@ -763,10 +763,10 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
   }
 
   /**
-   * F20260811mrpy Part 1 + F20260812mrcq Part 0：批量查询 entry 是否有 vec 索引。
+   * + 批量查询 entry 是否有 vec 索引。
    * 返回 Map<entryId, hasVec>。
    *
-   * F20260812mrcq Part 0：用 vecTableExists 守卫——表存在但清空（disableVec 后）时
+   * 用 vecTableExists 守卫——表存在但清空（disableVec 后）时
    * IN 查询返回空，Map 全 false，正确反映"这些 entry 当前没 vec"。
    */
   async hasEmbeddings(entryIds: string[]): Promise<Map<string, boolean>> {
@@ -786,22 +786,22 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return result;
   }
 
-  /** F20260812mrcq Part 1：embedding 失败入队重试（F20260814qswp 拆至 embedding-task-queue） */
+  /** embedding 失败入队重试（拆至 embedding-task-queue） */
   async enqueueRetry(entryId: string, error: unknown, priority?: number): Promise<void> {
     enqueueRetry(this.db, entryId, error, priority);
   }
 
-  /** F20261026emct：一次性出清幽灵死信（清理脚本专用，运行时不调） */
+  /** 一次性出清幽灵死信（清理脚本专用，运行时不调） */
   async purgeGhostTasks(): Promise<number> {
     return purgeGhostTasks(this.db);
   }
 
-  /** F20261026emct：统计幽灵死信规模（dry-run 报告用） */
+  /** 统计幽灵死信规模（dry-run 报告用） */
   async countGhostTasks(): Promise<number> {
     return countGhostTasks(this.db);
   }
 
-  /** F20260812mrcq Part 1：原子认领 pending 任务（F20260814qswp 拆至 embedding-task-queue） */
+  /** 原子认领 pending 任务（拆至 embedding-task-queue） */
   async claimPendingTasks(
     limit: number,
     tokenBudget?: number,
@@ -809,13 +809,13 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return claimPendingTasks(this.db, limit, tokenBudget);
   }
 
-  /** F20261105embqg S3：当前 pending 任务总数（生产端水位闸门判据） */
+  /** 当前 pending 任务总数（生产端水位闸门判据） */
   async pendingTaskCount(): Promise<number> {
     return pendingTaskCount(this.db);
   }
 
-  /** F20261109epqst：队列健康快照（最老任务年龄/优先级分布/最早可领取时间——
-   *  持续出队验收抓手 + drain 续跑延迟计算依据（检视处置建议 2/严重 1 配套）） */
+  /** 队列健康快照（最老任务年龄/优先级分布/最早可领取时间——
+   * 持续出队验收抓手 + drain 续跑延迟计算依据（检视处置建议 2）） */
   async pendingTaskStats(): Promise<{
     pending: number;
     oldestAgeSeconds: number | null;
@@ -827,24 +827,24 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return pendingTaskStats(this.db);
   }
 
-  /** F20260812mrcq Part 1：task 成功，删除 task 行 */
+  /** task 成功，删除 task 行 */
   async markTaskDone(entryId: string): Promise<void> {
     markTaskDone(this.db, entryId);
   }
 
-  /** F20260812mrcq Part 1：task 失败；attempts 耗尽转 dead */
+  /** task 失败；attempts 耗尽转 dead */
   async markTaskAttemptFailed(entryId: string, error: unknown, maxAttempts: number): Promise<void> {
     markTaskAttemptFailed(this.db, entryId, error, maxAttempts);
   }
 
-  /** F20261020slvg：启动迁移——pending 任务 attempts 归零（历史积压防永久占用熔断计数） */
+  /** 启动迁移——pending 任务 attempts 归零（历史积压防永久占用熔断计数） */
   async resetPendingAttempts(): Promise<number> {
     return resetPendingAttempts(this.db);
   }
 
-  // ---- F20260813mren: 记忆关系层 ----
+  // ---- 记忆关系层 ----
 
-  /** F20260813mren Part 2: 按 conversationId 获取消息条目（provenance 读路径） */
+  /** 按 conversationId 获取消息条目（provenance 读路径） */
   async getEntriesByConversation(
     conversationId: string,
     opts?: { contentType?: MemoryContentType[]; limit?: number },
@@ -868,7 +868,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return rows.map(rowToMemoryEntry);
   }
 
-  /** F20260813mren: 创建关系边（F20260814qswp 拆至 memory-edge-queries） */
+  /** 创建关系边（拆至 memory-edge-queries） */
   async createEdge(input: {
     fromEntryId: string;
     toEntryId: string;
@@ -879,7 +879,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return createEdge(this.db, input);
   }
 
-  /** F20260813mren: 1 跳邻居查询（D4 方向语义见 memory-edge-queries） */
+  /** 1 跳邻居查询（方向语义见 memory-edge-queries） */
   async getEdgesByEntry(entryId: string, opts?: {
     edgeTypes?: EdgeType[];
     direction?: "out" | "in";
@@ -887,18 +887,18 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return getEdgesByEntry(this.db, entryId, opts);
   }
 
-  /** F20260813mren: 按 id 获取单条边 */
+  /** 按 id 获取单条边 */
   async getEdgeById(edgeId: string): Promise<MemoryEdge | null> {
     return getEdgeById(this.db, edgeId);
   }
 
-  /** F20261118stale P0：批量查候选条目里哪些被 supersede（旧→新映射）。 */
+  /** 批量查候选条目里哪些被 supersede（旧→新映射）。 */
   async getSupersededBy(entryIds: string[]): Promise<Map<string, string>> {
     return getSupersededBy(this.db, entryIds);
   }
 
   /**
-   * P2b1：按状态 + 时间闭区间列 belief（夜间审视清单数据源）。
+   * 按状态 + 时间闭区间列 belief（夜间审视清单数据源）。
    * 状态在 metadata JSON 内，用 json_extract 匹配；created_at 升序（现场时间先后）。
    */
   async listBeliefsByStatus(
@@ -933,12 +933,12 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     return rows.map(rowToMemoryEntry);
   }
 
-  /** F20260813mren: 删除一条边（unlink_memory 用） */
+  /** 删除一条边（unlink_memory 用） */
   async deleteEdge(edgeId: string): Promise<void> {
     deleteEdge(this.db, edgeId);
   }
 
-  /** F20260813mren D7: 按 entry id 批量清理关联边（delete 路径联动） */
+  /** 按 entry id 批量清理关联边（delete 路径联动） */
   async deleteEdgesByEntryIds(entryIds: string[]): Promise<void> {
     deleteEdgesByEntryIds(this.db, entryIds);
   }

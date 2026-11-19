@@ -112,7 +112,7 @@ export class ManageConsolidationState {
       throw new DomainError(`失败区间非法或倒挂：after=${JSON.stringify(after)} through=${JSON.stringify(through)}`, "validation");
     }
     // 统同一化到毫秒精度 canonical ISO：sameRange 用严格相等，但编排两次调用可能走不同精度来源
-    // （如“00Z” vs “00.000Z”）——同刻异精度不能误判成换区间（审视 D2）。
+    // （如“00Z” vs “00.000Z”）——同刻异精度不能误判成换区间（审视）。
     const nAfter = new Date(after).toISOString();
     const nThrough = new Date(through).toISOString();
     const existing = await this.repo.getByKey(reviewKey);

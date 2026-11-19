@@ -128,11 +128,11 @@ export class AgentDispatchService {
   }
 
   /** resolveFirstTurnTargets：读库最新 user 消息的 talkingStonePassedTo 定目标（旧路径，路由器未注入时降级）。
-   *  F20260901sgpv P1 已知竞态（四入口勘测硬约束 1）：并发两条 user 消息时可能读到错误目标——
-   *  信号路由路径（消息自带目标）不受此影响；旧路径随 P2 链驱动替换一并退役 */
-  /** F20260913ctlv：IM 显式目标直连链（fire-and-forget，与 invokeTarget 同款语义）。
-   *  F20261012swsg：来源由 dispatch() 调用方声明——IM 用户消息 user / 合成文本 system，
-   *  不在此处硬编码（共享入口，合成文本曾被当用户消息扫描——#1430 首轮严重1）。 */
+   * 已知竞态（四入口勘测硬约束 1）：并发两条 user 消息时可能读到错误目标——
+   * 信号路由路径（消息自带目标）不受此影响；旧路径随 链驱动替换一并退役 */
+  /** IM 显式目标直连链（fire-and-forget，与 invokeTarget 同款语义）。
+   * 来源由 dispatch() 调用方声明——IM 用户消息 user / 合成文本 system，
+   * 不在此处硬编码（共享入口，合成文本曾被当用户消息扫描——首轮严重1）。 */
   private fireDirectChain(
     conversationId: string,
     userMessageContent: string,
@@ -148,7 +148,7 @@ export class AgentDispatchService {
           userMessageContent,
           senderId,
           initialTargets: targets,
-          // F20261012swsg（#1430）：来源由 dispatch() 调用方声明透传
+          // 来源由 dispatch() 调用方声明透传
           triggerSenderType,
           ...(injection?.images && { images: injection.images }),
           invokeFn: (params) => this.deps.agentInvokePort.invokeConversation({
@@ -157,7 +157,7 @@ export class AgentDispatchService {
             userMessageContent: params.userMessageContent,
             senderId: params.senderId,
             ...(params.images && { images: params.images }),
-            // F20260922ctxi 检视修复：batchMaxSeq 透传（IM direct 路径同款漏传）
+            // 检视修复：batchMaxSeq 透传（IM direct 路径同款漏传）
             batchMaxSeq: params.batchMaxSeq,
             assignmentRole: params.assignmentRole,
           }).then(r => ({ messageId: r.messageId })),
@@ -171,7 +171,7 @@ export class AgentDispatchService {
   }
 
   private async resolveFirstTurnTargets(conversationId: string): Promise<string[]> {
-    // 获取最新 user entry 的 yieldTargets（F20260913ctlv：发言石目标 = entry.yieldTargets）
+    // 获取最新 user entry 的 yieldTargets（发言石目标 = entry.yieldTargets）
     const entries = await this.deps.entryRepo.getEntries(conversationId, { entryType: "user", limit: 1 });
     if (entries.length === 0) return [];
 

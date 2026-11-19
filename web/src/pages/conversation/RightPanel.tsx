@@ -278,7 +278,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
               {/* 世数时间改「from」格式（搭档拍板）；大獭必然在场，「大獭 · 持久」前缀移除 */}
               {isBig ? '' : (o.role?.name || '小獭')}{activeS ? ` · 第${activeGen}世 from ${fmtTime(activeS.startedAt)}` : ''}
             </div>
-            {/* F20260914rtsp：invoke 实时状态行（行动中：状态+走秒+工具数+ctx；休息中：ctx 兜底）。
+            {/* invoke 实时状态行（行动中：状态+走秒+工具数+ctx；休息中：ctx 兜底）。
  *  走秒由容器 tickNow 驱动重渲染；ctx 缺数据时显 '—'（tick 未发射过/刷新无 ctx_tokens）。
  *  无 invoke 记录但有世时也显示休息中行——ctx 表示「当前 session 上下文占用」，休息中占用不变，
  *  属准确数据；从未握过（新建无数据）则显 '—'。 */}
@@ -341,8 +341,8 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
               解散
             </span>
           )}
-          {/* F20260920srbtn：重启獭生对小獭开放（与 agent 侧 restart_otter 大獭可重启小獭对齐）；
-              F20260920uhuc：忙碌置灰（running invoke 时禁用） */}
+          {/* 重启獭生对小獭开放（与 agent 侧 restart_otter 大獭可重启小獭对齐）；
+              忙碌置灰（running invoke 时禁用） */}
           <button
             onClick={e => { e.stopPropagation(); if (!invokeStateBusy) onRestart(o.id) }}
             disabled={invokeStateBusy}
@@ -353,7 +353,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
           </button>
         </div>
       </div>
-      {/* hover 快览卡：F20260826pfix 改 Portal + fixed 按 trigger 坐标定位。
+      {/* hover 快览卡：改 Portal + fixed 按 trigger 坐标定位。
        *  Why: 原 absolute right-full bottom-0 在 aside overflow-y-auto 内，列表长时
        *  （卡片滚到 panel 底部）快览卡向上延伸被 panel 顶缘剪裁/视觉贴屏顶。
        *  Portal 脱离 aside 的 overflow 上下文，坐标按 trigger rect 实时计算并 clamp。 */}

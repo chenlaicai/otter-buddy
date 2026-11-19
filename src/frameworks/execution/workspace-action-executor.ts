@@ -92,7 +92,7 @@ export class WorkspaceActionExecutor {
     }
   }
 
-  /** F20261116actlg：workspace 写入入账（content hash 先记后写——崩溃后 hash 核对的基础）。 */
+  /** workspace 写入入账（content hash 先记后写——崩溃后 hash 核对的基础）。 */
   private async recordedWorkspaceWrite(conversationId: string, relativePath: string, content: string, options?: ActionRunOptions): Promise<void> {
     if (!this.ledger) {
       await this.workspaceGateway.writeFile(conversationId, relativePath, content);
@@ -115,7 +115,7 @@ export class WorkspaceActionExecutor {
     }
   }
 
-  /** F20261116actlg：workspace 删除入账（幂等可重做类）。 */
+  /** workspace 删除入账（幂等可重做类）。 */
   private async recordedWorkspaceDelete(
     conversationId: string,
     relativePath: string,

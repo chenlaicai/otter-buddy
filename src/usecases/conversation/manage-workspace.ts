@@ -55,7 +55,7 @@ export class ManageWorkspace {
    * @param conversationId 对话 ID
    * @param relativePath 相对于工作区根目录的文件路径
    * @returns 文件内容（可能截断）。图片类扩展名返回 base64 编码（encoding: 'base64'），
-   *          其余返回 utf-8 文本；truncated 逻辑只适用文本路径（F20261014pvmd）
+   * 其余返回 utf-8 文本；truncated 逻辑只适用文本路径
    */
   async readFile(conversationId: string, relativePath: string): Promise<WorkspaceFileContent> {
     // 检查工作区是否存在
@@ -64,7 +64,7 @@ export class ManageWorkspace {
       throw new DomainError('工作区不存在', 'not_found');
     }
 
-    // 扩展名提取要求存在点且不在首位（避免「名为 png 的无扩展名文本文件」误路由，F20261014pvmd）
+    // 扩展名提取要求存在点且不在首位（避免「名为 png 的无扩展名文本文件」误路由）
     const base = relativePath.split('/').pop() ?? '';
     const dotIdx = base.lastIndexOf('.');
     const ext = dotIdx > 0 ? base.slice(dotIdx + 1).toLowerCase() : '';
@@ -170,7 +170,7 @@ export class ManageWorkspace {
     return this.workspaceGateway.getWorkspacePath(conversationId);
   }
 
-  /** F20261111clota：由 Otter 自己落 External 每会话 MCP 配置，App 无需任何数据目录写权限。
+  /** 由 Otter 自己落 External 每会话 MCP 配置，App 无需任何数据目录写权限。
    * 只接受专属回环 HTTP server；不接受 command/args、外部 URL 或其他 server，避免管理端点变成任意执行入口。 */
   async writeExternalMcpConfig(conversationId: string, raw: unknown): Promise<void> {
     const config = validateExternalMcpConfig(raw);

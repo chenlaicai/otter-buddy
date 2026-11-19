@@ -101,12 +101,12 @@ export function listConversations(options?: {
   limit?: number
   offset?: number
   search?: string
-  /** F20260922cgrp：按状态过滤（active | archived）；缺省 = 仅 active */
+  /** 按状态过滤（active | archived）；缺省 = 仅 active */
   status?: 'active' | 'archived'
-  /** F20260922cgrp：按类别过滤（assistant = IM 助理；normal = 普通对话）。
-   *  #1224：联合从契约单源派生（原双值硬编码已落后缺 web-assistant，收敛后自动补齐） */
+  /** 按类别过滤（assistant = IM 助理；normal = 普通对话）。
+   * 联合从契约单源派生（原双值硬编码已落后缺 web-assistant，收敛后自动补齐） */
   kind?: ConversationListItemDTO['kind'] | 'normal'
-  /** F20260922cgrp delta：置顶过滤（false = 仅非置顶——普通区分页用，计数口径对齐） */
+  /** delta：置顶过滤（false = 仅非置顶——普通区分页用，计数口径对齐） */
   pinned?: boolean
 }): Promise<ConversationListResponseDTO> {
   const qs = new URLSearchParams();
@@ -308,7 +308,7 @@ export function searchMemory(params: {
   conversationId?: string;
   detail_level?: 'summary' | 'snippet' | 'full';
   library?: string;
-  /** F20260929mrui：多条件查询补齐（后端 F20260803fbit/F20260805rbrg/F20260812mrcq 已支持，UI 本次暴露） */
+  /** 多条件查询补齐（后端 //已支持，UI 本次暴露） */
   content_type?: string[];
   created_after?: string;
   expand_context?: boolean;
@@ -353,7 +353,7 @@ export interface MemoryHealthDTO {
   documentsOnDisk: number
   documentsInDb: number
   reconcileGaps: string[]
-  /** F20260804dcnv: 每个 gap 文档的 validator 失败原因，让 banner 直接显示根因 */
+  /** 每个 gap 文档的 validator 失败原因，让 banner 直接显示根因 */
   gapReasons?: MemoryGapReason[]
   embeddingAvailable: boolean
   embeddingModel: string
@@ -392,7 +392,7 @@ export interface CreateScheduledTaskRequestDTO {
   triggerAt?: string
   timezone?: string
   body: string
-  /** F20260915desc: 人类可读任务描述（可选） */
+  /** 人类可读任务描述（可选） */
   description?: string | null
   executorRole?: string
   talkingStonePassedTo?: string[]
@@ -406,9 +406,9 @@ export interface UpdateScheduledTaskRequestDTO {
   cron?: string
   timezone?: string
   body?: string
-  /** F20260915desc: 任务描述。传 null 清除 */
+  /** 任务描述。传 null 清除 */
   description?: string | null
-  /** #610: watchlist-only patch——只替换 body JSON 中的 watchlist 字段，无需携带 prompt 全文。与 body 互斥。 */
+  /** watchlist-only patch——只替换 body JSON 中的 watchlist 字段，无需携带 prompt 全文。与 body 互斥。 */
   watchlist?: string[]
   executorRole?: string
   talkingStonePassedTo?: string[]
@@ -426,7 +426,7 @@ export interface ScheduledTaskDTO {
   triggerAt: string | null
   timezone: string
   body: string
-  /** F20260915desc: 人类可读任务描述（未设置为 null，前端回退渲染 body） */
+  /** 人类可读任务描述（未设置为 null，前端回退渲染 body） */
   description: string | null
   talkingStonePassedTo: string[]
   senderId: string
@@ -549,9 +549,9 @@ export interface WeixinAccountDTO {
   ilinkUserId?: string
   addedAt: string
   hasToken: boolean
-  /** F20260921imux：助理线投影（账号→活跃对话绑定；后端真相源，取代前端 title 启发式） */
+  /** 助理线投影（账号→活跃对话绑定；后端真相源，取代前端 title 启发式） */
   assistantLine?: { conversationId: string }
-  /** F20260928wxid：扫码人自报称呼（connection.metadata.userName 投影；存量线未设置时 undefined） */
+  /** 扫码人自报称呼（connection.metadata.userName 投影；存量线未设置时 undefined） */
   userName?: string
 }
 
@@ -828,11 +828,11 @@ export interface WorkDetailDTO {
     tokens: WorkTokenSummaryDTO
     hasUsage: boolean
   }>
-  /** 复审 A5：证据截断数（超 evidenceLimit 未显示的条数；0 = 无截断） */
+  /** 复审 证据截断数（超 evidenceLimit 未显示的条数；0 = 无截断） */
   truncatedCount: number
-  /** 复审 S1：全部 invoke 数（与列表口径同源） */
+  /** 复审 全部 invoke 数（与列表口径同源） */
   totalInvokeCount: number
-  /** 复审 A5：per-work usage 缺口数（四分量全 null——与真实零区分） */
+  /** 复审 per-work usage 缺口数（四分量全 null——与真实零区分） */
   usageGapCount: number
   pricingAvailable: boolean
 }
@@ -915,11 +915,11 @@ export interface ChannelStatusDTO {
     errorMsg?: string;
     nextRetryAt?: number;
     reason?: string;
-    /** #663：连续重连次数（飞书长连接 error_backoff 时携带，成功归零） */
+    /** 连续重连次数（飞书长连接 error_backoff 时携带，成功归零） */
     reconnectAttempts?: number;
   };
   account?: { id: string; nickname?: string };
-  /** #663：掩码后的飞书 app_id（凭证确认用，形如 cli_a****z9k2） */
+  /** 掩码后的飞书 app_id（凭证确认用，形如 cli_a****z9k2） */
   appIdMasked?: string;
 }
 

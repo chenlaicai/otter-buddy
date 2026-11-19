@@ -119,7 +119,7 @@ function isNewEnoughFor(fm, enforceDate) {
   const m = fm.created_at.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (!m) return false;
   const normalized = `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  // F20261030ctalg 检视 r1 建议 3：语义非法日期（13 月/32 日/2-31）Date.parse 为 NaN，
+  // 语义非法日期（13 月/32 日/2-31）Date.parse 为 NaN，
   // 与不可解析格式同口径按存量宽容（不追诉）。
   if (Number.isNaN(Date.parse(normalized))) return false;
   return normalized >= enforceDate;
@@ -134,7 +134,7 @@ function isNewEnough(fm) {
  */
 async function computeDeclarationStats(files, root) {
   // 获取本次 PR 修改/新增的文件列表（diff 仅含 tracked 修改，untracked 新文档单独列）
-  // #1067 分母修复（2026-10-05）：diff 三种形态只取新增/改名（A/R）——纯删除（D）与纯内容
+  // 分母修复（2026-10-05）：diff 三种形态只取新增/改名（A/R）——纯删除（D）与纯内容
   // 修改（M）不算「本期新声明判定」的分母（main 上跑会把全量历史删除/修改文档算进去，
   // 出现「本期判定 1/246 = 0%」的分母爆炸假象；在 PR 分支上跑时 diff 基线是分支点，
   // 本形态不受影响——防御的是 main 本地跑的场景）
@@ -213,18 +213,18 @@ function validateIntent(fm, exemptKey) {
   const errors = [];
   const warnings = [];
 
-  // F20261005imfg 审视处置（建议①）：豁免键 = 文件相对路径（docs/ 起算），非 fm.id。
-  // 原因：历史上存在重复 ID（#1274 治理前 F20260824ax376/F20260903gh698 各 2 篇），id 键下新文档可抄
+  // 审视处置（建议①）：豁免键 = 文件相对路径（docs/ 起算），非 fm.id。
+  // 原因：历史上存在重复 ID（治理前 /各 2 篇），id 键下新文档可抄
   // 豁免清单内 ID 继承豁免（检视探针实证）；路径键下抄 ID 无效（新文件路径必不在清单），
   // 改名则 fail-closed（脱离清单变 error，diff 显形）。存量重复 ID 不再影响本 gate。
   // exemptKey 缺失（如测试直调纯函数）时不在豁免名单内，按新口径判定。
   const isExempt = exemptKey !== undefined && EXEMPT_IDS.has(exemptKey);
-  // F20261005imfg 审视处置（检视獭-1283 严重 2 + delta 轮新发现 2）：
+  // 审视处置（检视獭-1283 严重 2 + delta 轮新发现 2）：
   // YAML 空值（`change_type:`）解析为 null、空串解析为 ''，均属「缺失」语义，
   // `??` 只兜 undefined 会漏掉（实测静默旁路）；truthy 非字符串（`[feature]`/`123`/
   // `true`）同样是绕过形态。typeof 门前置：非字符串一律按缺失口径（feature 必填）。
   // 全线统一引用 effectiveChangeType，不再单独读 fm.change_type。
-  // F20261031cttrm（#1293）：空白串 trim 后为空按缺失处理（与 intent.problem 的
+  // 空白串 trim 后为空按缺失处理（与 intent.problem 的
   // .trim().length===0 判空同口径，不再依赖 lint:docs Unknown warning + baseline
   // 满载的巧合拦截）；带空格值 trim 归位参与分类，消息用 trim 后值。
   const trimmedChangeType =
@@ -233,14 +233,14 @@ function validateIntent(fm, exemptKey) {
   const effectiveChangeType = isStringChangeType
     ? trimmedChangeType
     : FALLBACK_CHANGE_TYPE;
-  // F20261030ctalg（#1295）：分类判定用归一化值（历史拼写 → 规范值），文案用 effectiveChangeType 原拼写
+  // 分类判定用归一化值（历史拼写 → 规范值），文案用 effectiveChangeType 原拼写
   const canonicalChangeType =
     LEGACY_CHANGE_TYPE_ALIAS.get(effectiveChangeType) ?? effectiveChangeType;
   // 非字符串（undefined/null/''/数组/数字/布尔）统一按「缺失」出文案
   const changeTypeMissing = !isStringChangeType;
 
   // 检查 intent 字段是否存在
-  // F20260924vbsu：verify_by 位置统一收口——唯一合法位置是 intent 块内嵌套式。
+  // verify_by 位置统一收口——唯一合法位置是 intent 块内嵌套式。
   // 顶层式（frontmatter 顶层 verify_by）是 2026-09-17 后 3 个文档（mfrc/somf/icus）自创旁支，
   // 旁路了本校验的全部规则（类型枚举/expected_effect 联动/golden 核对），一律 error 指回嵌套式。
   if (fm.verify_by !== undefined) {
@@ -249,7 +249,7 @@ function validateIntent(fm, exemptKey) {
     );
   }
   if (!fm.intent || typeof fm.intent !== "object") {
-    // 根据 change_type 决定是错误还是警告（F20261005imfg: 缺 intent 块收口）
+    // 根据 change_type 决定是错误还是警告（缺 intent 块收口）
     // 审视处置（严重 2）：effectiveChangeType 已把 undefined/null/'' 全部归入 feature（必填），
     // 此处不再需要 `|| changeType === undefined` 旁支——空值形态与键缺失同口径拦截
     if (INTENT_REQUIRED_CHANGE_TYPES.has(canonicalChangeType)) {
@@ -266,14 +266,14 @@ function validateIntent(fm, exemptKey) {
         );
       }
     } else if (isSoftCodeChange(fm) && isNewEnough(fm) && !isExempt) {
-      // F20261030iprio（#1238）：软代码收口语义覆盖「声明缺失」全形态——软代码新文档
+      // 软代码收口语义覆盖「声明缺失」全形态——软代码新文档
       // 缺整个 intent 块不轻于缺 verify_by 的 error（惩罚梯度倒置修复：bugfix/refactor
       // 此前缺块只 warning，比缺 verify_by 的 error 更轻，缺得越彻底罚得越轻）。
       errors.push(
         `Missing intent block for soft-code change (modules 含 prompts/ 或 .pi/, created_at ≥ ${SOFT_CODE_ENFORCE_DATE})——请在 frontmatter 补 intent 块（problem/expected_effect/verify_by）（#1238）`,
       );
     } else if (isNewEnoughFor(fm, ALL_DOMAIN_ENFORCE_DATE) && !isExempt) {
-      // F20261103itald（#1740，搭档拍板）：全域缺块收口——created_at ≥ 2026-11-03 的新文档
+      // （搭档拍板）：全域缺块收口——created_at ≥ 2026-11-03 的新文档
       // 不论 change_type（硬代码 fix/refactor 等）缺 intent 块均 error，消除 lint 判定域
       // 与 P0-c 统计口径（全量分母）的分裂。存量与 created_at 缺失文档不在此列（宽容口径
       // 与软代码域一致）。注意与 REQUIRED 分支的分工：feature/prompt/缺失在首个 if 已 error。
@@ -287,12 +287,12 @@ function validateIntent(fm, exemptKey) {
   }
 
   const intent = fm.intent;
-  // F20261103itald（审视 r1 A1）：字段级校验随全域门同步收口——残块/空块（intent: {}
+  // （审视）：字段级校验随全域门同步收口——残块/空块（intent: {}
   // 或仅缺字段）不再比整块缺失罚得更轻（梯度倒置：缺得越彻底罚得越轻）。仅对
   // created_at ≥ 2026-11-03 的新文档生效，存量口径不变。
   const isAllDomainNew = isNewEnoughFor(fm, ALL_DOMAIN_ENFORCE_DATE) && !isExempt;
 
-  // 检查 problem 字段（F20261005imfg: effectiveChangeType 统一口径，change_type 缺失按 feature 判必填；
+  // 检查 problem 字段（effectiveChangeType 统一口径，change_type 缺失按 feature 判必填；
   // 存量豁免同口径降级：2026-09-15 goal/why 自创 schema 的 5 篇在此分支触发，冻结豁免）
   if (!intent.problem || typeof intent.problem !== "string") {
     if (INTENT_REQUIRED_CHANGE_TYPES.has(canonicalChangeType)) {
@@ -302,7 +302,7 @@ function validateIntent(fm, exemptKey) {
         errors.push("Missing intent.problem field");
       }
     } else if (isAllDomainNew) {
-      // F20261103itald A1：全域门字段级同步收口——新文档 problem 必填（残块绕过修复）
+      // 全域门字段级同步收口——新文档 problem 必填（残块绕过修复）
       errors.push("Missing intent.problem field");
     } else if (INTENT_RECOMMENDED_CHANGE_TYPES.has(canonicalChangeType)) {
       warnings.push(`Recommended intent.problem field for ${effectiveChangeType}`);
@@ -323,7 +323,7 @@ function validateIntent(fm, exemptKey) {
         errors.push("Missing intent.expected_effect field");
       }
     }
-    // bugfix/refactor 存量可不填；全域新文档必填（F20261103itald A1 残块收口）
+    // bugfix/refactor 存量可不填；全域新文档必填（残块收口）
     if (isAllDomainNew) {
       errors.push("Missing intent.expected_effect field");
     }
@@ -345,7 +345,7 @@ function validateIntent(fm, exemptKey) {
       if (!intent.verify_by.type || !VALID_VERIFY_BY_TYPES.has(intent.verify_by.type)) {
         errors.push(`Invalid intent.verify_by.type: ${intent.verify_by.type}. Must be one of: ${Array.from(VALID_VERIFY_BY_TYPES).join(", ")}`);
       } else if (SOFT_CODE_SAMPLE_TYPES.has(intent.verify_by.type)) {
-        // F20260825evgl 联动规则：capability_test/golden_replay 要求 expected_effect 可判定——
+        // 联动规则：capability_test/golden_replay 要求 expected_effect 可判定——
         // 采样断言的门禁是"评分布移动"翻译成可判定形式，模糊词在这里不是警告是错误。
         const fuzzyWords = ["提升", "优化", "改善", "更好", "更优", "增强"];
         const effect = typeof intent.expected_effect === "string" ? intent.expected_effect : "";
@@ -356,8 +356,8 @@ function validateIntent(fm, exemptKey) {
     }
   } else {
     // verify_by 缺失：软代码改动（modules 含 prompts/ 或 .pi/）提示必须显式声明。
-    // F20260824ax376 存量宽容：2026-09-17 之前的文档统一 warning 不阻断。
-    // F20260917sdpl 收口：created_at ≥ ENFORCE_DATE 的新软代码文档缺 verify_by → error
+    // 存量宽容：2026-09-17 之前的文档统一 warning 不阻断。
+    // 收口：created_at ≥ ENFORCE_DATE 的新软代码文档缺 verify_by → error
     // （时间界增量收口：新规则管新文档，不追诉存量）。
     const changeType = canonicalChangeType;
     if (isSoftCodeChange(fm)) {
@@ -373,11 +373,11 @@ function validateIntent(fm, exemptKey) {
     }
   }
 
-  // F20260917sdpl 改动 2：golden_replay 声明的执行核对（弱机械核对，分环境）。
+  // 改动 2：golden_replay 声明的执行核对（弱机械核对，分环境）。
   // 文件存在（本地）：无 ts ≥ created_at 记录 → error；文件不存在（CI 干净环境）→ warning
   // 提示不阻断（真实闸门在本地 lint 时机，CI 只兜底提醒——假红与假绿同为伪门禁）。
   // created_at 缺失的文档（存量无此字段）无时间界锚点，跳过核对——与声明收口的
-  // 「missing created_at 按存量宽容」同口径，不追诉（实测：F20260902gact/F20260917asgv
+  // 「missing created_at 按存量宽容」同口径，不追诉（实测：/
   // 声明 golden_replay 但无 created_at，不跳过会在主仓本地必误伤）。
   if (intent.verify_by && typeof intent.verify_by === "object" &&
       intent.verify_by.type === "golden_replay" && isSoftCodeChange(fm) &&
@@ -453,7 +453,7 @@ async function main() {
   let warnings = 0;
   const files = walk(path.join(root, "docs/features"));
 
-  // F20261005imfg: 过期豁免条目检测——已补齐 intent 的文档若 ID 仍在豁免清单，提示移除
+  // 过期豁免条目检测——已补齐 intent 的文档若 ID 仍在豁免清单，提示移除
   // （ratchet 只减不增的机械推动力；不阻断，但提示要定期清理）。
   // 审视处置（检视獭-1283 严重 1）：判据从「intent 块存在」改为 isIntentComplete()
   // （非豁免身份重跑无 "Missing intent" 类 error）——与豁免触发条件完全对偶，
@@ -486,7 +486,7 @@ async function main() {
     }
   }
 
-  // F20261005imfg: ratchet 上限核对——豁免清单膨胀（>EXEMPT_MAX）阻断；
+  // ratchet 上限核对——豁免清单膨胀（>EXEMPT_MAX）阻断；
   // 收缩时提示同步下调 EXEMPT_MAX（审视处置·建议②：原注释声称提示但代码未实现，
   // 已补齐——收缩后若不同步下调，超出实际规模的余量就是回涨空间，与「只减不增」背道而驰）
   const exemptCount = EXEMPT_IDS.size;

@@ -99,7 +99,7 @@ function serializeSignal(s: SignalRecord): RhiSignalDTO {
     // safeParseJson 返回 unknown：解析成功时结构由写入侧（worker evidenceDetail 序列化）保证
     evidenceDetail: (s.evidence_detail ? safeParseJson(s.evidence_detail) : null) as RhiSignalDTO["evidenceDetail"],
     confidence: s.confidence,
-    // F20260917trig：处置状态机四字段（面板处置队列数据源）
+    // 处置状态机四字段（面板处置队列数据源）
     triageStatus: s.triage_status,
     issueNumber: s.issue_number,
     triagedAt: s.triaged_at,
@@ -123,7 +123,7 @@ function aggregateTrendSeries(rows: Array<{ snapshot_date: string; metric_key: s
   for (const row of rows) {
     if (!TREND_KEYS.includes(row.metric_key as (typeof TREND_KEYS)[number])) continue;
     const point = byDate.get(row.snapshot_date) ?? {};
-    // Issue #448：点位键 camelCase 投影（比率键仍按 DB 键判定）
+    // 点位键 camelCase 投影（比率键仍按 DB 键判定）
     point[metricKeyToCamel(row.metric_key)] = RATIO_KEYS.has(row.metric_key)
       ? Number((row.metric_value * 100).toFixed(2))
       : row.metric_value;
@@ -144,7 +144,7 @@ function parseLatestDistributions(
   for (const r of rows) {
     if (r.metric_type !== "distribution" || r.snapshot_date !== latestDate) continue;
     try {
-      // Issue #448：distribution 键 camelCase 投影（change_types→changeTypes 等）
+      // distribution 键 camelCase 投影（change_types→changeTypes 等）
       out[metricKeyToCamel(r.metric_key)] = r.metadata ? JSON.parse(r.metadata) : null;
     } catch {
       out[metricKeyToCamel(r.metric_key)] = null;
@@ -329,13 +329,13 @@ export class RhiController {
       const metrics: Record<string, number> = {};
       for (const key of OVERVIEW_KEYS) {
         const snap = this.snapshotRepo.findLatestByMetricKey(key);
-        // Issue #448：响应键 camelCase 投影（查询仍用 DB 存储键）
+        // 响应键 camelCase 投影（查询仍用 DB 存储键）
         if (snap) metrics[metricKeyToCamel(key)] = snap.metric_value;
       }
 
       const openSignals = this.signalRepo.findOpen();
-      // Issue #652 方案甲：low 不进 severity 计数（数字与视觉折叠一致），单列
-      // byConfidence 供低置信抽屉——口径单一真相源 signal-counts.ts（worker D5 同源）
+      // 方案甲：low 不进 severity 计数（数字与视觉折叠一致），单列
+      // byConfidence 供低置信抽屉——口径单一真相源 signal-counts.ts（worker 同源）
       const { bySeverity, byConfidence } = aggregateOpenSignalCounts(openSignals);
 
       const latestSnapshotDate = this.snapshotRepo.findLatestByMetricKey("total_commits")?.snapshot_date ?? null;
@@ -352,7 +352,7 @@ export class RhiController {
     }
   }
 
-  /** GET /api/health/signals?status=open — 信号列表（含结构化证据与置信度，Issue #644） */
+  /** GET /api/health/signals?status=open — 信号列表（含结构化证据与置信度） */
   async signals(c: Context): Promise<Response> {
     try {
       const status = c.req.query("status") ?? "open";
@@ -360,7 +360,7 @@ export class RhiController {
         ? [...this.signalRepo.findOpen(), ...this.signalRepo.findByStatus("resolved"), ...this.signalRepo.findByStatus("dismissed")]
         : this.signalRepo.findByStatus(status);
       return c.json({
-        // Issue #448：显式序列化 camelCase（契约 RhiSignalDTO），不再展开透传 DB 行
+        // 显式序列化 camelCase（契约 RhiSignalDTO），不再展开透传 DB 行
         signals: rows.map(serializeSignal),
         count: rows.length,
       });
@@ -390,7 +390,7 @@ export class RhiController {
           docTitle: ch.doc?.title ?? null,
           signals: ch.signals.map(s => ({ id: s.id, evidence: s.evidence })),
           stateReason: buildChainStateReason(ch),
-          // Issue #649 PR3：泳道 x 轴数据源——轻量 commit 序列（sha8+date+changeType，
+          // PR3：泳道 x 轴数据源——轻量 commit 序列（sha8+date+changeType，
           // 不带 message/filesChanged 控 payload；全量走 chainDetail 供抽屉）。
           // 单请求无瀑布：329 链 × 均几条 ≈ 60KB 可接受，虚拟化渲染照常。
           commits: ch.commits.map(cm => ({
@@ -401,7 +401,7 @@ export class RhiController {
         })),
         stateCounts,
         total: chains.length,
-        // Issue #647：高扇入排除清单常驻可见（验收项：不黑箱）——
+        // 高扇入排除清单常驻可见（验收项：不黑箱）——
         // 与 post_merge_fix_density 信号同源同阈值，见 post-merge-fix-density.ts
         fanInExcludedFiles: computeFanInExclusions(chains),
       });
@@ -410,7 +410,7 @@ export class RhiController {
     }
   }
 
-  /** GET /api/health/chains/:featureId — 链详情（Issue #644：泳道时间线/复发卡的数据源）。
+  /** GET /api/health/chains:featureId — 链详情（泳道时间线/复发卡的数据源）。
    *  commits 数组为全类型序列（时间升序），供 PR3 泳道 SVG 与链详情抽屉消费。 */
   async chainDetail(c: Context): Promise<Response> {
     try {
@@ -429,7 +429,7 @@ export class RhiController {
           daysSinceLastCommit: ch.daysSinceLastCommit,
           firstSeenAt: ch.firstSeenAt,
           lastCommitAt: ch.lastCommitAt,
-          docStatus: ch.doc?.status ?? null, // deprecated：健康链路不再消费（F20260902sigm），存量兼容保留
+          docStatus: ch.doc?.status ?? null, // deprecated：健康链路不再消费，存量兼容保留
           docTitle: ch.doc?.title ?? null,
           signals: ch.signals.map(s => ({ id: s.id, evidence: s.evidence })),
           stateReason: buildChainStateReason(ch),
@@ -448,7 +448,7 @@ export class RhiController {
     }
   }
 
-  /** GET /api/health/trends?days=30 — 历史趋势序列（F20260829hviz）
+  /** GET /api/health/trends?days=30 — 历史趋势序列
    *  从 health_snapshots 按日期范围拉取趋势指标 + 最新一天的 distribution 行
    *  （change_types / modules / chain_states，供环形图/堆叠条/条形图）。 */
   async trends(c: Context): Promise<Response> {
@@ -473,7 +473,7 @@ export class RhiController {
     }
   }
 
-  /** GET /api/health/score — 健康指标（issue #595 PR1）：最新维度分 + 状态 + 走向 + 拖累归因
+  /** GET /api/health/score — 健康指标（PR1）：最新维度分 + 状态 + 走向 + 拖累归因
    *  数据源 health_index 行（worker 旁路写入）；未上线路径返回空态（面板显示「—」）。 */
   async score(c: Context): Promise<Response> {
     try {
@@ -503,12 +503,12 @@ export class RhiController {
     }
   }
 
-  /** GET /api/health/cost-output?days=30&includeAllOtters=false — 用量/效率趋势序列（#583 → F20260914usgm 改版）
+  /** GET /api/health/cost-output?days=30&includeAllOtters=false — 用量/效率趋势序列（改版）
    *  从 health_snapshots 按日期范围拉取 cost_output 指标，聚合出：
    *  - per-date 趋势（总 token / 调用数 / 失败数 / 缓存命中率），camelCase 统一响应格式
    *  - models：per-model 汇总（token 四分类/调用数/失败数/缓存命中率，区间累计）
    *  - invokeStats：单次问答均值（per-model + _total，最新快照日）
-   *  - per-otter 明细（保留，低优先展示；F20260914usgm 搭档决策：獭非统计主维度）
+   * - per-otter 明细（保留，低优先展示；搭档决策：獭非统计主维度）
    *  成本展示已撤（搭档决策 2026-09-14：单价不可靠且多为 plan 无单价，只看用量）。
    *  成本/产出只作信号不作 KPI（Goodhart 防线）。 */
   async costOutput(c: Context): Promise<Response> {
@@ -528,7 +528,7 @@ export class RhiController {
         : null;
       let otters = latestDate ? buildCostOtterBreakdown(costRows.filter(r => r.snapshot_date === latestDate)) : [];
 
-      // 默认只展示 active 獭，includeAllOtters=true 展示全部（#583 建议3）
+      // 默认只展示 active 獭，includeAllOtters=true 展示全部（建议3）
       if (!includeAllOtters) {
         const activeIds = new Set(this.snapshotRepo.findActiveOtterIds());
         otters = otters.filter(o => activeIds.has(o.otterId));
@@ -550,7 +550,7 @@ export class RhiController {
   }
 
   /** POST /api/health/scan — 手动触发一轮扫描（调试/演示；worker 每小时自动跑）。
-   *  #581：失败改经 handleError 返回 500——「ok 状态在 body」的守门人语义一并废除
+   * 失败改经 handleError 返回 500——「ok 状态在 body」的守门人语义一并废除
    *  （HTTP 200 即成功，失败即 5xx，状态由状态码携带）。 */
   async scan(c: Context): Promise<Response> {
     try {
@@ -561,9 +561,9 @@ export class RhiController {
     }
   }
 
-  /** POST /api/health/signals/:id/triage — 面板处置队列写路径（F20260917trig §4）。
-   *  与 agent 工具 triage_signal 共享 SignalRepository.triage() 单一方法（§2 架构约束 F3），
-   *  任何入口不得各自实现 SQL。本机信任域同既有 POST /api/health/scan 先例，不引入鉴权（§4 R3）。
+  /** POST /api/health/signals:id/triage — 面板处置队列写路径。
+   * 与 agent 工具 triage_signal 共享 SignalRepository.triage() 单一方法（架构约束 F3），
+   * 任何入口不得各自实现 SQL。本机信任域同既有 POST /api/health/scan 先例，不引入鉴权。
    *  body: { action: 'bind_issue'|'in_progress'|'dismiss', issueNumber?, note? } */
   async triageSignal(c: Context): Promise<Response> {
     try {
@@ -587,7 +587,7 @@ export class RhiController {
       if (!result.ok) {
         return c.json({ error: result.reason }, 422);
       }
-      // Issue #448：record 与 signals 端点同构序列化（原直传 DB 行，与 client.ts 声明的 DTO 不符）。
+      // record 与 signals 端点同构序列化（原直传 DB 行，与 client.ts 声明的 DTO 不符）。
       // record 为可选字段但 ok=true 时每个分支必返回（triage 实现不变式）
       return c.json({ ok: true, record: serializeSignal(result.record!) });
     } catch (err) {

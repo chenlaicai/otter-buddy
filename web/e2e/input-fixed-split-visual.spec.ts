@@ -228,7 +228,7 @@ test.describe('F20261016inbs 输入框固定边界（vite 隔离实例）', () =
         overlayAnchoredToMain: Math.abs(overlay.getBoundingClientRect().bottom - mainInnerBottom) <= 1,
       }
     })
-    // 结构断言（环境无关，R1 锚定后 dev/prod 一致）：overlay 底 == main 内盒底。
+    // 结构断言（环境无关，锚定后 dev/prod 一致）：overlay 底 == main 内盒底。
     // 旧 bug（检视獭发现，CI 实测 38px）：build 压缩丢标准 backdrop-filter → 覆盖层
     // 漂到外层 wrapper（探出 main 13px）；main 显式 relative 后两环境都锚 main 内盒
     expect(m.overlayAnchoredToMain, '覆盖层必须锚定 main 内盒底（dev/prod 一致，不依赖 backdrop-filter 副作用）').toBe(true)
@@ -489,15 +489,15 @@ test.describe('F20261019ovmh-R2 卡片态输入让步（检视獭-1552 严重 1 
     expect(m.inputH).toBeGreaterThanOrEqual(64)
     // 卡片地板：按钮行所在的卡不塌没
     expect(m.cardH, '卡片 ≥ 地板 68').toBeGreaterThanOrEqual(66)
-    // 发送按钮在 main 内且真命中（hit-test，#1535 核心承诺在拖高档保住）
+    // 发送按钮在 main 内且真命中（hit-test，核心承诺在拖高档保住）
     expect(m.sendVisible).toBe(true)
     expect(m.sendHit).toBe(true)
-    // 输入盒（hint 行在内）不出 main 底（检视 P2 出界态修复）
+    // 输入盒（hint 行在内）不出 main 底（检视 出界态修复）
     expect(m.inputBoxBottomInMain).toBe(true)
     // overlay 恰装满封顶（零和验证）：|overlay - cap| ≤ 2
     expect(Math.abs(m.overlayH - m.cap), `overlay=${m.overlayH} ≈ cap=${m.cap}`).toBeLessThanOrEqual(2)
     await page.screenshot({ path: 'test-results/ovmh-10a-maxed.png' })
-    // 拖回 120：恢复正常（自愈路径，检视 P5 拖 160 态同被 clamp 覆盖于上）
+    // 拖回 120：恢复正常（自愈路径，检视 拖 160 态同被 clamp 覆盖于上）
     await dragTo(page, 120)
     const m2 = await measureR2(page)
     expect(m2.inputH).toBe(120)
@@ -519,7 +519,7 @@ test.describe('F20261019ovmh-R2 卡片态输入让步（检视獭-1552 严重 1 
 
 test.describe('F20261019ovmh 覆盖层总高封顶（vite 隔离实例）', () => {
   test('9: 短视口+大卡片 → overlay 封顶 60% + 卡片内部滚动 + 按钮恒可见 + 衬垫按封顶实高', async ({ page }) => {
-    // 短视口复现 #1538 案发条件：矮屏幕 + 预览卡数据区展开
+    // 短视口复现 案发条件：矮屏幕 + 预览卡数据区展开
     await page.setViewportSize({ width: 640, height: 480 })
     await openConversation(page, { cardBody: CARD_BODY })
     const frame = page.frameLocator('[data-card-id] iframe')
@@ -557,11 +557,11 @@ test.describe('F20261019ovmh 覆盖层总高封顶（vite 隔离实例）', () =
     })
     // 封顶生效：overlay ≤ main 60%（+1px 取整容差）
     expect(m.overlayH, `overlay ${m.overlayH} 应封顶 ≤ main ${m.mainH} 的 60%`).toBeLessThanOrEqual(m.mainH * 0.6 + 1)
-    // 消息区恒留 ≥40%（-1px 容差）——#1538 的修复目标本尊
+    // 消息区恒留 ≥40%（-1px 容差）——的修复目标本尊
     expect(m.mainH - m.overlayH, `消息可见区应 ≥ main 的 39%`).toBeGreaterThanOrEqual(m.mainH * 0.39)
     // 溢出走卡片内部滚动（内容被收进滚动区而非撑破封顶）
     expect(m.scrollScrollH, '滚动区内容应溢出（scrollHeight > clientHeight）').toBeGreaterThan(m.scrollClientH)
-    // 按钮行恒可见可点（#1535 成果不被封顶回退）
+    // 按钮行恒可见可点（成果不被封顶回退）
     expect(m.btnVisibleInViewport, '发送按钮应在视口内').toBe(true)
     expect(m.btnHit, '发送按钮应可命中').toBe(true)
     // 衬垫按封顶后实高同步（RO 观测的是 clamp 后的实高——无「衬垫按自然高度算」的错位）

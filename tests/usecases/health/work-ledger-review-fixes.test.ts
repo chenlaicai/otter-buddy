@@ -74,7 +74,7 @@ describe("S1 回归：5000+ invoke 全量守恒（无截断偏置）", () => {
     const grandTotal = 5300 * 17 + 100 * 17 + 100 * 10;
     expect(item.tokens.totalTokens + report.unassigned.tokens.totalTokens).toBe(grandTotal);
 
-    // 详情与列表同源同口径（复审 S1：两处数字不再打架）
+    // 详情与列表同源同口径（复审 两处数字不再打架）
     const detail = (await new WorkDetailReportBuilder(repo).build(w.id))!;
     expect(detail.tokens.totalTokens).toBe(item.tokens.totalTokens);
     expect(detail.totalInvokeCount).toBe(5300);

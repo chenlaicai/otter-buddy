@@ -65,7 +65,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   };
   const { circuitBreaker, unregisterToolCall, clearEventTimer } = attachCircuitBreaker(session, otterId, circuitBreakerConfig, logger, { abortOverride: wrappedAbort, orchestrationCheck: params.orchestrationCheck, loopBlockedTools: params.loopBlockedTools });
   timerRef.clear = clearEventTimer;
-  /** F20260804dglp：outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
+  /** outputGuard 配置含 detector 参数与首字节超时；显式过滤 undefined 防覆盖默认值 */
   const cb = getConfig().circuitBreaker;
   const cfg: Partial<OutputGuardConfig> = {
     ...cb?.outputGuard,
@@ -109,7 +109,7 @@ export interface BuildInvokeResultResult {
   _selfRestart?: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean };
   /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
   directText?: string;
-  /** 末条 assistant 消息的 stopReason（F20260903lngth：length=生成被 token 上限截断）。
+  /** 末条 assistant 消息的 stopReason（length=生成被 token 上限截断）。
    *  Pi SDK 对 length-stop 摘要 fail-closed（compaction.js getSummarizationFailure），
    *  本字段把截断信号带上结果边界，供合成链路做同样的完整性校验 */
   lastStopReason?: string;
@@ -119,11 +119,11 @@ export interface BuildInvokeResultResult {
 export function buildInvokeResult(params: BuildInvokeResultParams): BuildInvokeResultResult {
   const { otterId, session, circuitBreaker, modelPool, otterConfigProvider, model, getModelAliasForLog, tokenUsageBefore } = params;
   const stats = session.getSessionStats();
-  /** F20260923icus（#1149）：cache token 随快照透传——SDK SessionStats.tokens 本含四字段，
+  /** cache token 随快照透传——SDK SessionStats.tokens 本含四字段，
    *  此前只取 input/output 致 cache 数据在 invoke 落库链上丢失（健康面板 invoke 均值口径缺 cache）。 */
   const tokenUsage = { input: stats.tokens.input, output: stats.tokens.output, cacheRead: stats.tokens.cacheRead, cacheWrite: stats.tokens.cacheWrite };
 
-  /** F20260808ctxw：上下文窗口占用 = 末次有效 assistant 消息的 usage（input+output+cacheRead+cacheWrite），
+  /** 上下文窗口占用 = 末次有效 assistant 消息的 usage（input+output+cacheRead+cacheWrite），
    * 与 SDK compaction 判定同公式、同 compaction 边界语义；session 重建/compaction 后自然回落，不会虚增 */
   const ctxTokens = getContextWindowTokens(session.sessionManager.getBranch());
 
@@ -137,9 +137,9 @@ export function buildInvokeResult(params: BuildInvokeResultParams): BuildInvokeR
   }
   const result: BuildInvokeResultResult = buildResult("", tokenUsage, circuitBreaker, ctxMax, ctxTokens);
   if (tokenUsageBefore) result.tokenUsageDelta = diffTokenUsage(tokenUsageBefore, tokenUsage);
-  /** F20260814mtrc：模型别名随结果透传（metrics model label 数据源） */
+  /** 模型别名随结果透传（metrics model label 数据源） */
   result.modelAlias = getModelAliasForLog(otterId);
-  /** F20260903lngth：截断信号透传——length-stop 不抛错，不带上边界则下游无法感知 */
+  /** 截断信号透传——length-stop 不抛错，不带上边界则下游无法感知 */
   result.lastStopReason = getLastStopReason(session.sessionManager.getBranch());
   return result;
 }
@@ -211,7 +211,7 @@ function getEventTimeoutMs(toolName: string, args: unknown, maxPerEventMs: numbe
   const timeoutSeconds = typeof rawTimeout === "string" ? Number(rawTimeout) : rawTimeout;
   if (typeof timeoutSeconds !== "number" || !Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) return maxPerEventMs;
 
-  // Why: F20261111tdead——事件先于 SDK 参数 coerce 发送，数字字符串与数字须获得同预算；
+  // Why: ——事件先于 SDK 参数 coerce 发送，数字字符串与数字须获得同预算；
   // 工具自身 timeout 需要先返回结果并发出 end，外层不能同刻抢 abort；总硬上限防无限绕过。
   const requestedBudgetMs = timeoutSeconds * 1000 + TOOL_COMPLETION_GRACE_MS;
   return Math.min(
@@ -233,7 +233,7 @@ export function attachCircuitBreaker(
   const doAbort = options?.abortOverride ?? (() => { session.abort(); });
 
   // per-event 超时：只计单次工具执行时间（start → end），不覆盖工具间的 LLM 思考时间
-  // 按 toolCallId 分别跟踪计时器，支持并行工具调用（issue #140）
+  // 按 toolCallId 分别跟踪计时器，支持并行工具调用
   const eventTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const maxPerEventMs = circuitBreakerConfig.maxPerEventTimeMs;
   const clearEventTimer = (toolCallId?: string) => {
@@ -268,14 +268,14 @@ export function attachCircuitBreaker(
       }
 
       const result = circuitBreaker.check(toolName, e.args);
-      // F20261020hlbk → F20261027cbfp：黑名单写入两条件（或）——
+      // 黑名单写入两条件（或）——
       // ① terminate：strike 涨满，写入 + abort；
       // ② repeatOffender：同签名第 2 次 steer（复犯，首次警告未生效）——仅写不 abort（本次仍
       //   steer 提醒，后续同签名由门物理拦截）。
-      // 原 #1566 实现 steer 首次即写：滑窗误报一次 → 签名永久拉黑 → 一次误判放大为会话级
-      // 持续瘫痪（#1653 案发：239 次门拦截重灾）。实证：仅 terminate 写入时，
+      // 原 实现 steer 首次即写：滑窗误报一次 → 签名永久拉黑 → 一次误判放大为会话级
+      // 持续瘫痪（案发：239 次门拦截重灾）。实证：仅 terminate 写入时，
       // B-3 连发+变调穿插类复犯可借穿插 allow 洗掉 strike、滑窗多重集永不命中，terminate
-      // 数学上不可达（780 次 0 terminate）——复犯标记补回 #1556「复又发作」防线。
+      // 数学上不可达（780 次 0 terminate）——复犯标记补回 「复又发作」防线。
       // 首次 steer 不写（纯警告，误伤优先）；speak/yield 豁免（报告+交棒是唯一逃生口）。
       const shouldBlacklist =
         toolName !== "speak" && toolName !== "yield" &&
@@ -290,11 +290,11 @@ export function attachCircuitBreaker(
         return;
       }
       if (result.action === "steer") {
-        if (toolName !== "speak") steerGuardHint(session, result.reason ?? "Stop calling tools. Call speak now.", "circuit-breaker", otterId, logger); // F20260806cbsx: speak 是回合出口，对其 steer 有害无益
+        if (toolName !== "speak") steerGuardHint(session, result.reason ?? "Stop calling tools. Call speak now.", "circuit-breaker", otterId, logger); // speak 是回合出口，对其 steer 有害无益
         return;
       }
 
-      // F20260821i336：编排对话软守卫——熔断器检查通过后，检查编排守卫条件
+      // 编排对话软守卫——熔断器检查通过后，检查编排守卫条件
       if (options?.orchestrationCheck && toolName !== "speak") {
         const orchestrationWarning = options.orchestrationCheck(toolName, e.args);
         if (orchestrationWarning) {

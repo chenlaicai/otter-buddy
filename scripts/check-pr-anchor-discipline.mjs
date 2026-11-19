@@ -59,6 +59,11 @@ export function isSupportedCodePath(p) {
   return /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(p);
 }
 
+/** 工具脚本自身：注释里的编号 token 是规则说明（元语言），不参与存量子清理与新增行拦截。 */
+export function isToolScriptPath(p) {
+  return p === "scripts/clean-comment-anchors.mjs" || p === "scripts/check-pr-anchor-discipline.mjs";
+}
+
 /** 特性编号：[FR] + 8 位日期 +（可选连字符）+ 4-10 位字母数字后缀。 */
 export const FID_RE = /[FR]\d{8}-?[a-z0-9]{4,10}/g;
 
@@ -78,7 +83,7 @@ export const DOC_STRUCTURE_RES = [
   /方案\s*§\s*[0-9]+(?:\.[0-9]+)?/g, // 方案+章节号（整体删，不留「方案」残渣）
   /方案\s*Part\s*[0-9]+(?:\.[0-9]+)?/gi, // 方案+分节号
   /\bPR-[A-Z][0-9]?\b/g, // PR 代号（拉请求分片号）
-  /\bD[0-9]+(?:-[A-Z][0-9]+)*/g, // D 实现记录号（含区间）
+  /\bD[0-9]+(?:-[A-Z]?[0-9]+)*/g, // D 实现记录号（含区间与数字子项 D1-1）
   /阶段\s*[0-9]+[a-z]?/g, // 阶段号（含字母后缀）
   /\bPhase\s*[0-9]+/g, // Phase 号（仅大写，不误伤 phase1 文件名）
   /§\s*[0-9]+(?:\.[0-9]+)?/g, // 章节号（含小数点变体）
@@ -107,6 +112,8 @@ export const DISPOSITION_RES = [
   /(?:发现|建议|严重)\s*[0-9]+\s*(?:处置|修复|配套|建议)/g,
   /** delta 轮：delta 发现/建议/修复/处置 N */
   /\bdelta\s*(?:发现|修复|建议|处置|复核|审视|确认|配套)\s*[0-9]+/gi,
+  /** delta 轮简写：delta-r3 / delta D1 / delta2 / delta-3（字母可选） */
+  /\bdelta[- ]?[A-Za-z]?[0-9]+/g,
 ];
 
 /** 文档结构编号的语义豁免：日常词/时间/复合名不走「文档编号」删除。 */
@@ -125,6 +132,17 @@ function isExemptDocNumber(commentText, m, kind) {
   if (kind === "m编号") {
     // bge-m3 模型名（前是连字符）、麻将牌索引 m0-8（后是连字符+数字）、m5.large 实例（后是点）
     if (/-$/.test(before) || /^-\d/.test(after) || /^\./.test(after)) return true;
+  }
+  if (kind === "R编号") {
+    // git rename 相似度分数（R100/R096/R50% 等）——diff --name-status 的 R 分，不是规则号
+    // （规则号在本仓实际只到 R12；R50+ 的三位数 R 均出现在 lint-historical-docs 的 git 语境）
+    const n = Number(token.slice(1));
+    return Number.isInteger(n) && n >= 50;
+  }
+  if (kind === "Phase") {
+    // 英文步骤标签（Phase 1: Stream ...）是代码步骤描述，不是文档分节指针；
+    // 中文描述（多模态 Phase 1：附件 repo）仍是文档阶段号照删
+    return /^:\s*[A-Za-z]/.test(after);
   }
   if (kind === "S编号" || kind === "M编号" || kind === "A编号" || kind === "m编号") {
     // 明确审视语境（前后紧跟审视/检视/轮/锚点/(检视)）→ 编号，不豁免（删）
@@ -217,8 +235,26 @@ function annotateTs(content, path, segs = null) {
       : ts.ScriptKind.TS;
   const sourceFile = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, /* setParentNodes */ true, scriptKind);
   const seen = new Set();
+  // JSX 文本（<div>这里的内容</div>）不是注释：其中出现的 // 或 /* 不能被文本级
+  // getLeadingCommentRanges/getTrailingCommentRanges 误判为注释。先收集全部 JsxText
+  // 区间，record 时落在区间内的范围直接跳过。
+  const jsxTextSpans = [];
+  const collectJsxText = (node) => {
+    if (node.kind === ts.SyntaxKind.JsxText) {
+      jsxTextSpans.push({ pos: node.getStart(sourceFile), end: node.getEnd() });
+    }
+    ts.forEachChild(node, collectJsxText);
+  };
+  collectJsxText(sourceFile);
+  const inJsxText = (pos, end) => {
+    for (const s of jsxTextSpans) {
+      if (pos < s.end && end > s.pos) return true;
+    }
+    return false;
+  };
   const record = (pos, end) => {
     if (pos < 0 || end > content.length || pos >= end) return;
+    if (inJsxText(pos, end)) return;
     const key = `${pos}:${end}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -236,13 +272,16 @@ function annotateTs(content, path, segs = null) {
       if (segs) segs.push({ line: idx, start, end: endCol, text: parts[i] });
     }
   };
-  const collectRanges = (pos, end) => {
-    ts.forEachLeadingCommentRange(content, pos, (lpos, lend) => record(lpos, lend));
-    const trailing = ts.getTrailingCommentRanges(content, end);
+  const visit = (node) => {
+    // leading 注释（节点首 token 上方各行）+ trailing 注释（节点末 token 同行尾部）
+    ts.forEachLeadingCommentRange(content, node.pos, (lpos, lend) => record(lpos, lend));
+    const trailing = ts.getTrailingCommentRanges(content, node.end);
     if (trailing) for (const r of trailing) record(r.pos, r.end);
+    // 用 getChildren（而非 forEachChild）递归：把标点 token 也纳入，
+    // 否则 `{ // 注释`、`foo(a, // 注释` 这类开括号/逗号后的 trailing 注释会漏扫。
+    for (const child of node.getChildren(sourceFile)) visit(child);
   };
-  ts.forEachChild(sourceFile, (node) => collectRanges(node.pos, node.end));
-  collectRanges(sourceFile.pos, sourceFile.end);
+  visit(sourceFile);
   return out;
 }
 
@@ -643,7 +682,7 @@ export function checkDiff(diffText, readFileFn = readHeadFile) {
 
   const violations = [];
   for (const { path, line, content } of added) {
-    if (isExcludedPath(path) || !isSupportedCodePath(path)) continue;
+    if (isExcludedPath(path) || isToolScriptPath(path) || !isSupportedCodePath(path)) continue;
     const ann = annotate(path);
     const commentText = ann[line - 1] ?? null;
     if (!commentText) continue;

@@ -75,7 +75,7 @@ export const selftest: GoldenModule["selftest"] = {
   },
   bad: [
     {
-      // bad[0]: 直接 speak 无 bash（凭记忆报告——A1 核心伤疤）
+      // bad[0]: 直接 speak 无 bash（凭记忆报告——核心伤疤）
       messages: [
         { id: "st-u2", st: "user", si: "selftest-user", content: "查一下昨天的 healing 事件", status: "completed", seq: 1 },
         {

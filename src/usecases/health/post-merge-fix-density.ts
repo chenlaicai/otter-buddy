@@ -138,12 +138,12 @@ function detectChainFixDensity(ctx: {
   const chainFiles = new Set([...chain.touchFiles].filter(f => !excludedSet.has(f)));
   const bugfixHits = countBugfixHits(inWindow, chainFiles);
 
-  // 双门 AND（#1051 方案 1）：两道门都要过。原「或门」让次数门在大分母下失守——
+  // 双门 AND（方案 1）：两道门都要过。原「或门」让次数门在大分母下失守——
   // 月产 200+ commit 的仓库里，合入 30 天内的特性几乎必然凑够 3 条 bugfix。
   // 占比直接按实算，不再设最小分母下限：原设计的「分母 <5 占比失真」顾虑（合入后
   // 仅 1 条 bugfix → 100% 触发是荒谬的）在 AND 语义下已由次数门接管——占比只在
   // 次数 ≥3 时才可能过关，1 条 bugfix 无论如何过不了。而保留下限会造成**非单调悬崖**
-  //（PR #1560 检视建议 4）：3 bugfix/4 commit=75% 双门皆过却被拦，3/5=60% 反而触发。
+  //3 bugfix/4 commit=75% 双门皆过却被拦，3/5=60% 反而触发。
   const ratio = inWindow.length > 0 ? bugfixHits / inWindow.length : 0;
   if (bugfixHits < FIX_COUNT_THRESHOLD || ratio < FIX_RATIO_THRESHOLD) return null;
 

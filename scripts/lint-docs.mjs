@@ -163,7 +163,7 @@ async function main() {
     process.exit(1);
   }
 
-  // #1400 / F20261022frsh: dist 新鲜度闸——在 import 前把关，陈旧 dist 即拒绝运行
+  //  dist 新鲜度闸——在 import 前把关，陈旧 dist 即拒绝运行
   // （假绿防线：旧 validator 不含新规则 → 绿是假绿，误导预检）。覆盖面 = validator
   // 与 parser 的源目录（目录级；目录内新增 import 自动入列，跨目录依赖出现时需
   // 同步扩列——当前无此形态）。
@@ -196,7 +196,7 @@ async function main() {
     ...walk(path.join(root, "docs/research")),
   ];
 
-  // F20261027fidr：只对 origin/main 不存在的文档启用固定 5 字母新写门；
+  // 只对 origin/main 不存在的文档启用固定 5 字母新写门；
   // 历史文档走 read 契约。基线不可达时 fail-open 仅沿用既有 validator，
   // commit/CI 标题门仍硬拦，不因 lint 基线获取失败放宽新 ID 总契约。
   let addedDocPaths = null;
@@ -209,8 +209,8 @@ async function main() {
     console.warn("[lint:docs] 无法获取 origin/main，新增文档 5 字母增量门未启用；commit/CI 标题门仍有效。");
   }
 
-  const idEntries = []; // #1274: 收集 { rel, id } 供唯一性检查
-  const backlinkEntries = []; // #1294: 收集 { rel, id, from, fromMalformed } 供 from 链存在性检查
+  const idEntries = []; // 收集 { rel, id } 供唯一性检查
+  const backlinkEntries = []; // 收集 { rel, id, from, fromMalformed } 供 from 链存在性检查
   for (const file of files) {
     const rel = path.relative(root, file);
     const txt = fs.readFileSync(file, "utf8");
@@ -228,7 +228,7 @@ async function main() {
       rel,
       id: frontmatter.id,
       from: Array.isArray(fmFrom) ? fmFrom : [],
-      fromMalformed: fmFrom !== undefined && fmFrom !== null && fmFrom !== "" && !Array.isArray(fmFrom), // r1 建议 5：null（YAML 空值）与 ""（显式空串）统一归省略——静默归零防的是「有内容但形态错」，空值无内容无损失
+      fromMalformed: fmFrom !== undefined && fmFrom !== null && fmFrom !== "" && !Array.isArray(fmFrom), // 建议 5：null（YAML 空值）与 ""（显式空串）统一归省略——静默归零防的是「有内容但形态错」，空值无内容无损失
     });
     const type = rel.includes("/features/") ? "feature" : "research";
     const v = type === "feature"
@@ -243,7 +243,7 @@ async function main() {
     }
   }
 
-  // #1274 / F20261009fdid: id 唯一性检查——重复 id 一律 error（防复发锁定）
+  //  id 唯一性检查——重复 id 一律 error（防复发锁定）
   const dupes = findDuplicateIds(idEntries);
   for (const [id, dupeFiles] of dupes) {
     errors++;
@@ -251,7 +251,7 @@ async function main() {
     console.error(`    id 是 sync_docs 入库的主键性质标识（重复 = 后同步覆盖前同步，#1274）——重复方应换新 id（F + 当日日期 + 4 随机后缀，先查重）+ git mv 同步文件名`);
   }
 
-  // #1294 / F20261103blnkr: from 链存在性检查——断链/自指/形态违规。
+  //  from 链存在性检查——断链/自指/形态违规。
   // 存量断链 ratchet（31 处，7-8 月历史 from 指向从未存在/已改名的 id）只减不增；
   // 反向关系不校验不物化（append-only 定案），读旧文档知被订正走 computeReverseIndex。
   const brokenBacklinks = findBrokenBacklinks(backlinkEntries);
@@ -272,9 +272,9 @@ async function main() {
     console.error(`✗ [backlink] 正向断链数 ${danglingForwardCount} 超存量基线 ${BACKLINK_DANGLING_BASELINE}（ratchet：新文档 from 必须指向存在的 id，#1294）`);
   }
 
-  /** Ratchet（#470，#455）: 警告数只许减不许增——与 lint:capability 的 MAX_WARNINGS 同模式。
-   *  当前基线构成（#1257 清存量后）：仅剩 3 条 filename 缺 slug——
-   *  F20260716i5n2 / F20260826mwrd / F20260826sgpa 被其他历史文档正文以相对链接引用
+  /** Ratchet: 警告数只许减不许增——与 lint:capability 的 MAX_WARNINGS 同模式。
+   * 当前基线构成（清存量后）：仅剩 3 条 filename 缺 slug——
+   *   被其他历史文档正文以相对链接引用
    *  （如 c2sg/c3hr/c4sg 的「父方案」链接），rename 会断链，而修链接=改历史正文，
    *  被 lint:historical-docs 禁止——三者长期豁免，此值即地板。 */
   const MAX_WARNINGS = 3;

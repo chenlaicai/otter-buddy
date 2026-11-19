@@ -127,7 +127,7 @@ test.describe('F20261020wcsr 微信式重构 e2e 护栏', () => {
     await page.evaluate(() => { const e2 = (window as unknown as { __findScroller(): HTMLElement }).__findScroller(); e2.scrollTop = 0 })
     await page.waitForTimeout(8000) // 等连拉窗口
     const msgsAfterChain = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().querySelectorAll('[data-message-id]').length)
-    const batches = Math.round((msgsAfterChain - msgsAtStart) / 50) // 每批 50 条（wcsr T4）
+    const batches = Math.round((msgsAfterChain - msgsAtStart) / 50) // 每批 50 条（wcsr）
     console.log(`[锚4] 连拉 msgs ${msgsAtStart} → ${msgsAfterChain}（≈${batches} 批）`)
     expect(msgsAfterChain, '停在顶部应自动连拉').toBeGreaterThan(msgsAtStart)
     expect(batches, '连拉限幅 ≤3 批').toBeLessThanOrEqual(3)

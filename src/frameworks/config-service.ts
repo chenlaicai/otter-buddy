@@ -417,11 +417,11 @@ function validateEnabledModel(m: RawModelConfig): void {
   if (m.apiFormat !== undefined && !m.apiBaseUrl && !m.apiKey) {
     throw new Error(`配置校验失败: llm.models["${m.alias}"].apiFormat 仅在配置 apiBaseUrl 或 apiKey 的自定义 OpenAI provider 中生效`);
   }
-  // F20260909mthl：thinkingLevel 枚举校验（档位→模型的实际映射交给 SDK thinkingLevelMap clamp，配置层只挡非法词）
+  // thinkingLevel 枚举校验（档位→模型的实际映射交给 SDK thinkingLevelMap clamp，配置层只挡非法词）
   if (m.thinkingLevel !== undefined && !VALID_THINKING_LEVELS.includes(m.thinkingLevel)) {
     throw new Error(`配置校验失败: llm.models["${m.alias}"].thinkingLevel 必须是 ${VALID_THINKING_LEVELS.join(" / ")}，当前值: ${m.thinkingLevel}`);
   }
-  // F20260920uhuc 需求变更（2026-09-20）：交接阈值按模型必填（已用 token 绝对值）。
+  // 需求变更（2026-09-20）：交接阈值按模型必填（已用 token 绝对值）。
   // 每模型单独水位线——不同模型窗口差异大（128K 与 1M 不共享一条线），不设全局缺省
   if (typeof m.handoffThresholdTokens !== "number" || !Number.isFinite(m.handoffThresholdTokens) || m.handoffThresholdTokens <= 0) {
     throw new Error(
@@ -484,7 +484,7 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
   if (!raw.llm?.models || raw.llm.models.length === 0) {
     throw new Error("配置校验失败: llm.models[] 为必填字段（至少一个模型条目，单模型配置也请写为一条 models[] 条目）");
   }
-  // F20260920uhuc 需求变更（2026-09-20）：compactionReserveTokens 退役 fail-closed——
+  // 需求变更（2026-09-20）：compactionReserveTokens 退役 fail-closed——
   // 残留旧键直接报错引导迁移（静默忽略会让用户以为全局水位线还在生效）
   if ((raw.contextQuality as Record<string, unknown> | undefined)?.compactionReserveTokens !== undefined) {
     throw new Error(
@@ -493,7 +493,7 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
       "迁移公式：handoffThresholdTokens = 模型 contextWindow − 旧 compactionReserveTokens",
     );
   }
-  // F20261109bexfz：bashGuard.allowedEgressDomains 已随 B 类外发判定退役——残留键报错引导删除
+  // bashGuard.allowedEgressDomains 已随 B 类外发判定退役——残留键报错引导删除
   // （静默忽略会让搭档以为白名单还在生效，与 compactionReserveTokens 同一理）
   if ((raw as Record<string, unknown>).bashGuard !== undefined) {
     throw new Error(
@@ -509,7 +509,7 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
   }
   validateAuthConfig(raw);
 
-  // F20260901wxnt：contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
+  // contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
   if (raw.weixin) validateWeixinWarnConfig(raw.weixin);
 }
 
@@ -568,7 +568,7 @@ function buildDbConfig(raw: RawConfig): AppConfig["db"] {
 }
 
 function buildMemoryRerankConfig(raw: RawConfig): Pick<AppConfig["memory"], "rerankMode" | "rerank"> {
-  // F20261112rnkph Phase 1 段 1：默认 multiply（零默认行为变更），加法系数按设计回填
+  // 段 1：默认 multiply（零默认行为变更），加法系数按设计回填
   const memory = raw.memory;
   const rawRerank = memory?.rerank;
   return {
@@ -671,7 +671,7 @@ function buildInboundConfig(raw: RawConfig): AppConfig["inbound"] {
 
 function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   if (!raw.web?.baseUrl) return undefined;
-  // 协议白名单(审视 F20260812fmdr R5):防止 javascript:/data: 等危险协议被注入到
+  // 协议白名单(审视):防止 javascript:/data: 等危险协议被注入到
   // 飞书侧 html-card 占位符的跳转链接里。配置异常时抛错阻止启动(快失败)
   if (!/^https?:\/\//i.test(raw.web.baseUrl)) {
     throw new Error(

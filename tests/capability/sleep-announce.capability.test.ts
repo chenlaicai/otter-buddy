@@ -110,7 +110,7 @@ describe("sleep 工具化：先 speak 再 wait（真系统 + 真 LLM）", () => 
       const convId = await createConversation(ctx, `等待采样${i + 1}`);
       /** 场景：只给獭一个「等 20 秒再回复」的任务，观察其等待方式。
        *  不设限措辞，只断言行为不变量：wait 被采纳 + speak 先行。
-       *  #1210 检视 S1：原 5s 场景存在逃逸口——bash sleep 3×2 合规等满 5s 不触发守卫
+       * 检视 原 5s 场景存在逃逸口——bash sleep 3×2 合规等满 5s 不触发守卫
        *  （<5s 微 sleep 不在拦截面），wait 采纳率 ~2/3 在门槛边缘 flaky。改 20s 后守卫走
        *  「弹回漏斗」：单段 sleep ≥5s 被拦并弹回引导文案（sleep-command-guard.ts 指向 wait），
        *  拆分路径（sleep 4×N 逐段 <5s）技术上仍放行（守卫逐段判定不累加）但行为学上罕见
@@ -146,7 +146,7 @@ describe("sleep 工具化：先 speak 再 wait（真系统 + 真 LLM）", () => 
       }
 
       const calledWait = toolNames.includes("wait");
-      /** #1198：时序锚改事件流（wait 回合内 speak 调用先于 wait 调用）；
+      /** 时序锚改事件流（wait 回合内 speak 调用先于 wait 调用）；
        *  speak 落在更早回合的形态走跨 invoke 分支（entries seq 比较对跨回合成立）。 */
       let timingOk = false;
       let timingDetail = "not-converged";
@@ -168,6 +168,6 @@ describe("sleep 工具化：先 speak 再 wait（真系统 + 真 LLM）", () => 
         ok: converged && calledWait && timingOk,
         detail: `converged=${converged} wait=${calledWait} ${timingDetail} tools=${JSON.stringify(toolNames)}`,
       };
-    }, { budgetMs: 810_000, sampleWorstMs: 270_000 }); // #1187 预算护栏（240s deadline + 轮询余量；#1195 修正：原 480/600 违反 n×worst≤budget 契约致慢端点 SKIP 假红）
+    }, { budgetMs: 810_000, sampleWorstMs: 270_000 }); // 预算护栏（240s deadline + 轮询余量；修正：原 480/600 违反 n×worst≤budget 契约致慢端点 SKIP 假红）
   }, 930_000);
 });

@@ -352,7 +352,7 @@ export class ResumeInterruptedService {
     }
   }
 
-  /** F20261118remex（C2/R2）：远程动作五态段（conversation 维度；registry 缺席/无行返回 null） */
+  /** 远程动作五态段（conversation 维度；registry 缺席/无行返回 null） */
   private async buildRemoteActionBlock(conversationId: string): Promise<string | null> {
     if (!this.deps.remoteActions) return null;
     try {
@@ -365,7 +365,7 @@ export class ResumeInterruptedService {
   }
 
   /** 跳过判据合并（participant 失效 → exhausted 静默；「獭已恢复」→ exhausted 静默）。
-   *  「獭已恢复」（F20260917rscr 三点裁决③）：中断时刻之后该獭已有新 invoke
+   * 「獭已恢复」（三点裁决③）：中断时刻之后该獭已有新 invoke
    *  （用户手动接上 / cron 重触发 / 其他恢复路径）→ 已在跑，系统不再碰。 */
   private async resolveSkipReason(item: ResumeQueueItem, claimToken: string): Promise<"skipped" | null> {
     const participant = await this.deps.conversationRepo.getParticipant(item.conversationId, item.otterId);
@@ -380,8 +380,8 @@ export class ResumeInterruptedService {
     return null;
   }
 
-  /** F20261116actlg PR-B：恢复轮 invoke 审计链追加（best-effort，失败仅日志）。
-   *  F20261117 检视轮 S2：改追加式——多次恢复全历史不丢（单槽覆盖消除）。 */
+  /** 恢复轮 invoke 审计链追加（best-effort，失败仅日志）。
+   * F20261117 检视轮 改追加式——多次恢复全历史不丢（单槽覆盖消除）。 */
   private async appendRecoveryInvokeSafe(item: ResumeQueueItem, capture: { invokeId?: string }): Promise<void> {
     if (!capture.invokeId) return;
     try {
@@ -429,11 +429,11 @@ export class ResumeInterruptedService {
           senderId: "",
           initialTargets: [item.otterId],
           triggerMessageId: item.invokeId,
-          // F20261012swsg（#1430）：重启续跑指令是合成文本——不进安全词扫描
+          // 重启续跑指令是合成文本——不进安全词扫描
           triggerSenderType: "system",
           invokeFn: captureInvokeFn,
         });
-        // F20261116actlg PR-B：恢复轮 invoke 审计链追加（best-effort；S2 改追加式）
+        // 恢复轮 invoke 审计链追加（best-effort；改追加式）
         await this.appendRecoveryInvokeSafe(item, capture);
       } catch (chainErr) {
         // executeChain 自身抛错（链前置失败等）= 恢复失败；可重试错误上抛交退避层
@@ -454,7 +454,7 @@ export class ResumeInterruptedService {
     }
   }
 
-  /** 链抛不可重试异常的终态收尾（F202609048840 F4 移植：标 failed 可手动重试） */
+  /** 链抛不可重试异常的终态收尾（F4 移植：标 failed 可手动重试） */
   private async settleChainError(item: ResumeQueueItem, claimToken: string, chainErr: unknown): Promise<"failed"> {
     this.deps.logger.error("Resume chain failed (invoke error)", chainErr instanceof Error ? chainErr : new Error(String(chainErr)), {
       invokeId: item.invokeId, conversationId: item.conversationId, otterId: item.otterId,
@@ -502,7 +502,7 @@ export class ResumeInterruptedService {
     return "done";
   }
 
-  /** 「獭已恢复」判据（F20260917rscr 三点裁决③）：中断时刻之后该獭已有新 invoke
+  /** 「獭已恢复」判据（三点裁决③）：中断时刻之后该獭已有新 invoke
    *  → 已被其他路径（用户手动接上 / cron 重触发 / 恢复链自身）接上，跳过。
    *  中断时刻 = 队列行 created_at（reconcile 标 failed 并入队的同一时刻）。
    *  查库失败按未恢复处理（保守点火——恢复是兜底，宁多恢复一次不漏）。 */

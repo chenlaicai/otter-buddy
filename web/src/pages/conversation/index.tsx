@@ -666,7 +666,7 @@ export default function ConversationPage() {
         showToast(`Agent 错误: ${d.message}`, 'error')
       },
       // ── invoke 生命周期（右栏状态面板数据源；同时驱动时间线居中条目与 speak 气泡终态）──
-      // F20260914evdz：invoke 过程事件实时通道——仅 Session 弹窗消费。事件进 buffer +
+      // invoke 过程事件实时通道——仅 Session 弹窗消费。事件进 buffer +
       // 通知已挂载的弹窗；主界面零 setState（弹窗关着时只有 ref push，无 re-render）
       'invoke.event': (data) => {
         const d = data as { invokeId: string; otterId: string; event: { id: string; eventType: SessionLiveItem['ev'] extends infer T ? T extends { eventType: infer E } ? E : never : never; payload: Record<string, unknown>; sequenceNum: number; createdAt: string } }
@@ -677,14 +677,14 @@ export default function ConversationPage() {
         sessionLiveEvents.current.push(item)
         if (sessionLiveEvents.current.length > 400) sessionLiveEvents.current.splice(0, sessionLiveEvents.current.length - 400)
         for (const fn of sessionLiveListeners.current) fn(item)
-        /** F20260922rprf：参与者变更工具（dissolve/create/restart）实时刷新右栏。
-         *  F20260913ctlv 后 tool.result 不再广播 SSE，invoke.event 是唯一实时通道。 */
+        /** 参与者变更工具（dissolve/create/restart）实时刷新右栏。
+         * 后 tool.result 不再广播 SSE，invoke.event 是唯一实时通道。 */
         if (d.event.eventType === 'tool_result') {
           const toolName = (d.event.payload as { name?: string }).name
           if (toolName) {
             refreshParticipantsAfterDissolve(toolName)
           } else {
-            // F20260922rprf 检视发现 5：payload.name 理论可空（SDK 字段变更时静默失效），留日志便于排查
+            // payload.name 理论可空（SDK 字段变更时静默失效），留日志便于排查
             console.warn('[invoke.event] tool_result payload missing name:', d.event.payload)
           }
         }
@@ -696,7 +696,7 @@ export default function ConversationPage() {
           invokeId: d.invokeId, otterId: d.otterId, otterName: d.otterName || '',
           conversationId: activeId, startedAt: startTs,
         }))
-        /** F20260913ctlv 收尾：invoke_start 居中条目（DB 已落，前端实时插入——id 锚 triggerEntryId）。
+        /** 收尾：invoke_start 居中条目（DB 已落，前端实时插入——id 锚 triggerEntryId）。
          *  entry.body（如「🦦 大獭开始行动～」）不在事件载荷里，前端用约定文案回退，
          *  刷新后走 entries 历史接口拿到真实 body */
         const triggerEntryId = d.triggerEntryId
@@ -710,13 +710,13 @@ export default function ConversationPage() {
         }
         /** 獭可能在 chain 中新建，保证右栏参与者列表能见 */
         if (d.otterId) upsertOtterIfAbsent(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
-        /** F20260914evdz：Session 弹窗——新行动开始信号（列表自动冒行 + 自动展开） */
+        /** Session 弹窗——新行动开始信号（列表自动冒行 + 自动展开） */
         const startItem: SessionLiveItem = { invokeId: d.invokeId, otterId: d.otterId, ev: null, start: true }
         sessionLiveEvents.current.push(startItem)
         if (sessionLiveEvents.current.length > 400) sessionLiveEvents.current.splice(0, sessionLiveEvents.current.length - 400)
         for (const fn of sessionLiveListeners.current) fn(startItem)
       },
-      // F20260914rtsp：invoke 过程心跳——ctx 窗口占用 + 工具计数实时化（右栏 xx/xx 数据源）
+      // invoke 过程心跳——ctx 窗口占用 + 工具计数实时化（右栏 xx/xx 数据源）
       'invoke.tick': (data) => {
         const d = data as { invokeId: string; otterId: string; conversationId?: string; ctxWindowUsed: number; ctxMax: number; toolCallCount?: number }
         syncInvokeState(prev => applyInvokeTick(prev, {
@@ -729,21 +729,21 @@ export default function ConversationPage() {
       'invoke.end': (data) => {
         const d = data as { invokeId: string; otterId?: string; status: 'completed' | 'failed' | 'aborted'; endedAt?: string; invokeEndEntryId?: string; endBody?: string; otterName?: string; otterType?: string; otterColor?: string | null }
         const otterId = d.otterId
-        /** F20260914evdz：invoke 终态即 flush 实时通道（弹窗收到 ev:null 信号后全量拉取收敛，防乱序丢帧） */
+        /** invoke 终态即 flush 实时通道（弹窗收到 ev:null 信号后全量拉取收敛，防乱序丢帧） */
         for (const fn of sessionLiveListeners.current) fn({ invokeId: d.invokeId, otterId: otterId || '', ev: null as never })
         if (!otterId) return
         const endedAt = d.endedAt || nowTs()
         syncInvokeState(prevStates => applyInvokeEnd(prevStates, {
           invokeId: d.invokeId, otterId, status: d.status, endedAt,
         }))
-        /** F20260913ctlv 收尾（问题 3 根因）：invoke 结束 = 该 invoke 名下 speak 气泡终态收敛。
+        /** 收尾（问题 3 根因）：invoke 结束 = 该 invoke 名下 speak 气泡终态收敛。
          *  后端无 entry.complete 发射点（speak entry 落库即 completed）——此前气泡 status
          *  停留 streaming，「停止生成」按钮永久残留。invokeId 驱动批量收敛（非 entryId 逐条）。 */
         batchUpdateMessages(activeId!, (list) => list.map(m =>
           m.invokeId === d.invokeId && isInFlight(m)
             ? { ...m, status: d.status === 'completed' ? 'completed' as const : d.status === 'aborted' ? 'aborted' as const : 'failed' as const, content: m.content || (d.status === 'completed' ? '' : d.status === 'aborted' ? '[中断]' : '[未完成]') }
             : m))
-        /** F20260913ctlv test17：fail/abort 终态的 invoke_end 居中条目（正常 yield 路径由
+        /** test17：fail/abort 终态的 invoke_end 居中条目（正常 yield 路径由
          *  entry.yield 顺带插入）。endBody = invoke_end entry 真实 body（如「[搭档中断]…」），
          *  实时渲染与历史渲染同源同文案 */
         if (d.invokeEndEntryId && d.status !== 'completed') {
@@ -767,7 +767,7 @@ export default function ConversationPage() {
             content: '', ts: nowTs(), dur: null,
             entryType: 'yield', invokeId: d.invokeId, yieldTargets: targets,
           })
-          /** F20260913ctlv：yield 与 invoke_end 同批原子创建——entry.yield 顺带 invokeEndEntryId，
+          /** yield 与 invoke_end 同批原子创建——entry.yield 顺带 invokeEndEntryId，
            *  此处同插「休息」居中条目（实时可见，刷新后由 entries 历史接口接管真实 body）。 */
           if (d.invokeEndEntryId) {
             next = insertCenteredByTs(next, {
@@ -781,8 +781,8 @@ export default function ConversationPage() {
         })
       },
       'entry.system': (data) => {
-        // F20260921urdo 契约收口：字段统一 sequenceNum（与 entry.user/entry.speak 一致）+ createdAt
-        // F20261104ssfde：senderName 透传（scheduler:<任务名>）——定时任务触发消息折叠识别依据
+        // 契约收口：字段统一 sequenceNum（与 entry.user/entry.speak 一致）+ createdAt
+        // senderName 透传（scheduler:<任务名>）——定时任务触发消息折叠识别依据
         const d = data as { entryId: string; content: string; sequenceNum?: number; createdAt?: string; senderName?: string }
         const sysMsg: LocalMessage = {
           id: d.entryId, st: 'system', si: 'system', content: d.content,
@@ -800,15 +800,15 @@ export default function ConversationPage() {
     let reconnectDelay = 1000
     const maxDelay = 30000
     let disposed = false
-    /** F20260922rprf 检视发现 2 修复：补偿拉取只在「重连后首次 onprogress」触发——
+    /** 补偿拉取只在「重连后首次 onprogress」触发——
      *  断连窗口是唯一会丢 invoke.end 的时段；正常心跳期无事件丢失风险，不重复请求。 */
     let needsSyncAfterReconnect = false
-    // F20260924ircc：首连不补偿——初始恢复归 loadConversationDetail 内联拉取+重试链全权负责；
+    // 首连不补偿——初始恢复归 loadConversationDetail 内联拉取+重试链全权负责；
     // 初值 true 会让首连 onprogress 与内联拉取并发双拉。仅断连后的重连才置 true（scheduleReconnect）。
 
-    /** F20260923sswd：活性看门狗——XHR 流式读取在网络闪断下会「静默半截」：TCP 已死
+    /** 活性看门狗——XHR 流式读取在网络闪断下会「静默半截」：TCP 已死
      *  但浏览器不触发 onerror/onload（readyState=3 悬挂），onprogress 永久停止，
-     *  scheduleReconnect 与 needsSyncAfterReconnect 补偿链永不激活（issue #1134 入口 B）。
+     * scheduleReconnect 与 needsSyncAfterReconnect 补偿链永不激活（入口 B）。
      *  服务端有 15s keep-alive，正常连接下 onprogress ≤15s 必触发一次——
      *  哨兵超 40s 未见回调即认定连接静默死亡，主动 abort 走既有重连+补偿链路。 */
     const SSE_LIVENESS_TIMEOUT_MS = 40_000
@@ -838,19 +838,19 @@ export default function ConversationPage() {
       }
       xhr = new XMLHttpRequest()
       xhr.open('GET', `/api/conversations/${activeId}/subscribe`)
-      // #1868 阶段 2：SSE 订阅身份随会话 cookie（同源 XHR 自动携带），不再发声明式身份头
+      // SSE 订阅身份随会话 cookie（同源 XHR 自动携带），不再发声明式身份头
       let buffer = ''
       let currentEvent = ''
       let currentData = ''
       /** 已消费的 responseText 字节数。responseText 是累积全量，而 buffer 处理完行后会
        *  变短——若用 buffer.length 做偏移，每次 onprogress（含 15s keep-alive 心跳）都会
-       *  从头重放整个流，追加型 handler（speak.intermediate 累积）每跳一次翻一倍（F20260819spyd）。
+       * 从头重放整个流，追加型 handler（speak.intermediate 累积）每跳一次翻一倍。
        *  cursor 只增不减，buffer 仅承载跨 chunk 的不完整尾行。 */
       let processedLen = 0
 
       xhr.onprogress = () => {
         if (!xhr) return
-        // F20260923sswd：活性看门狗心跳记账——每次 onprogress（含 15s keep-alive 注释行）刷新时间戳
+        // 活性看门狗心跳记账——每次 onprogress（含 15s keep-alive 注释行）刷新时间戳
         lastProgressAt = Date.now()
         if (xhr.responseText.length <= processedLen) return
         buffer += xhr.responseText.slice(processedLen)
@@ -878,7 +878,7 @@ export default function ConversationPage() {
         if (activeId && needsSyncAfterReconnect) {
           needsSyncAfterReconnect = false
           void syncInvokeStatesFromServer(activeId)
-          /** F20261005vsyc（实时渲染丢失现场）：断连窗口不仅丢 invoke 终态，也丢
+          /** （实时渲染丢失现场）：断连窗口不仅丢 invoke 终态，也丢
            *  entry.speak/entry.user 消息事件（SSE 无回放）——补偿链只对账右栏状态
            *  不补消息列表，后台 tab 冻结/连接假死恢复后历史发言永远缺失，直到手动刷新。
            *  重连成功即增量拉取（refreshMessages 内部按本地最新 seq 游标，无新条目零写入）。 */
@@ -889,7 +889,7 @@ export default function ConversationPage() {
       xhr.onerror = () => { notifyConn(false); scheduleReconnect() }
       xhr.onload = () => { if (!disposed) { notifyConn(false); scheduleReconnect() } }
 
-      // F20260923sswd 检视发现 2：send 时重置时间戳——剔除 effect 安装到连接建立之间的耗时，
+      // send 时重置时间戳——剔除 effect 安装到连接建立之间的耗时，
       // 防首个事件超 40s 的极端慢连接被看门狗误报
       lastProgressAt = Date.now()
       xhr.send()
@@ -906,24 +906,24 @@ export default function ConversationPage() {
 
     connect()
 
-    /** F20260928icmm 阶段2：running 存在期间的周期静默对账（60s）。
+    /** running 存在期间的周期静默对账（60s）。
      *  兑底「页面一直开着不动」的长尾：tab 休眠/后台节流导致 onprogress 停滞但看门狗
      *  未触发（或事件丢失且无任何读点时机）时，右栏错误最多存活一个周期。
      *  门条件：invokeStates 全局存在 running（键为 otterId，无会话维度、无清空点——
      *  切走会话的陈旧 running 条目也会触发对当前会话的一次拉取；merge 幂等，无正确性
      *  损害，仅为极低频的冗余请求）；activeIdRef 守卫防 effect 换会话后旧 interval 触发
-     *  陈旧会话的拉取。机制四问见 F20260928audt。 */
+     * 陈旧会话的拉取。机制四问见 */
     const PERIODIC_AUDIT_INTERVAL_MS = 60_000
     const auditTimer = setInterval(() => {
       if (disposed) return
       if (activeIdRef.current !== activeId) return
-      // 检视建议 1（PR #1190）：空态也拉——初始拉取全败（含 600ms 重试）且用户不动时，
+      // 空态也拉——初始拉取全败（含 600ms 重试）且用户不动时，
       // 状态为空、右栏裸奔；「有 running 才拉」的门在此场景不可达（无事件可种 running）。
       // 空态判定为全量拉（频率 60s 一次单请求，成本可忽略）；非空且无 running 才零开销。
       const hasRunning = Object.values(invokeStatesRef.current).some(s => s.status === 'running')
       const isEmpty = Object.keys(invokeStatesRef.current).length === 0
       if (hasRunning || isEmpty) void syncInvokeStatesFromServer(activeId)
-      /** F20261005vsyc（检视处置严重 1+3）：消息对账也进周期审计——本案形态（连接健在、
+      /** （检视处置严重 1+3）：消息对账也进周期审计——本案形态（连接健在、
        *  事件在渲染链路真丢）下 needsSyncAfterReconnect 永不触发，重连补偿链兜不住；
        *  周期审计在后台 tab 被 timer 节流但回前台即恢复，最迟一个周期内补齐消息列表。
        *  refreshMessages 已改尾页快照 + 幂等合并，无丢失时零写入，成本一单请求。 */
@@ -934,7 +934,7 @@ export default function ConversationPage() {
       disposed = true
       if (reconnectTimer) clearTimeout(reconnectTimer)
       clearInterval(auditTimer)
-      // F20260923sswd：清理活性看门狗定时器
+      // 清理活性看门狗定时器
       if (livenessTimer) { clearInterval(livenessTimer); livenessTimer = null }
       if (xhr) xhr.abort()
     }
@@ -955,7 +955,7 @@ export default function ConversationPage() {
   const activeLinkedRes = useMemo(() => activeId ? (allLinkedRes[activeId] || []) : [], [activeId, allLinkedRes])
   const activeOtters: LocalOtter[] = useMemo(() => activeId ? (allOtters[activeId] || []) : [], [activeId, allOtters])
 
-  /** F20260921urdo 判定换轨：聚焦期间新消息到达即 ack——消息数变化（SSE 常驻通道/
+  /** 判定换轨：聚焦期间新消息到达即 ack——消息数变化（SSE 常驻通道/
    *  POST 流/重试流统一经 setAllMessages 收拢）且窗口可见聚焦时推进已读游标。
    *  后台 tab 不 ack（红点保留，切回时 focus 监听消散）。 */
   useEffect(() => {
@@ -966,16 +966,16 @@ export default function ConversationPage() {
 
   const handleSend = useCallback(async (text: string, mentionOtterIds?: string[], attachments?: import('./hooks/useAttachmentStaging').StagedAttachment[], mode?: 'steer' | 'followUp') => {
     if (!activeId) return
-    /** F20260904smsj：发言 = 已看完全部（聊天通用语义）——立即 ack 到当前最新 +
+    /** 发言 = 已看完全部（聊天通用语义）——立即 ack 到当前最新 +
      *  强制回底部 + 清未读分隔线，消除「分隔线定位 × 自动滚底门控」竞争导致的视口上跳。
-     *  F20260921urdo：markRead 内联块收拢为 ackActiveRead 统一入口。 */
-    pinRef.current = true // F20261008scpg：发言 = 回底跟随（后续新消息经 content observer 贴底）
+     * markRead 内联块收拢为 ackActiveRead 统一入口。 */
+    pinRef.current = true // 发言 = 回底跟随（后续新消息经 content observer 贴底）
     setNewMessagesCount(0)
     setUnreadSeparatorSeq(null)
     ackActiveRead(activeId)
     /** 有 @ 则指定目标；无 @ 传空数组，由后端按规则解析（回复最后发言者，兜底大獭） */
     const targetOtterIds = mentionOtterIds ?? []
-    /** 多模态 Phase 1：附件从 ChatView 中转区传入（上传已完成，此处只带服务端 id 引用） */
+    /** 多模态 附件从 ChatView 中转区传入（上传已完成，此处只带服务端 id 引用） */
     const attachmentIds = attachments?.map(a => a.id)
 
     const userMsg: LocalMessage = {
@@ -999,11 +999,11 @@ export default function ConversationPage() {
         ...(mode && { mode }),
         ...(attachmentIds && attachmentIds.length > 0 && { attachmentIds }),
       })
-      /** F20260916sgcl S1 修复：失败 rethrow 给调用方（ChatView）——此前失败只 toast 不抛出，
+      /** 修复：失败 rethrow 给调用方（ChatView）——此前失败只 toast 不抛出，
        *  ChatView 的 clearAll 无法区分成败，会在失败时也清空中转区、附件 blob 被 revoke、用户无法重试。 */
       if (!response.ok) { removeTmpMsg(); showToast('发送失败', 'error'); throw new Error('sendMessage failed') }
 
-      // F20260913ctlv test12：Magic Word「停下」全场急停——后端 202 { status: 'halted', halted }
+      // test12：Magic Word「停下」全场急停——后端 202 { status: 'halted', halted }
       //（不落库不点火）；前端移除 tmp 气泡 + 提示，被停 invoke 的终态条目经常驻通道到达
       if (response.status === 202) {
         removeTmpMsg()
@@ -1014,12 +1014,12 @@ export default function ConversationPage() {
         return
       }
 
-      // F20260913ctlv 彻底切换：POST 发送流——单通道（entry.* / invoke.*；与常驻通道共用 handler 逻辑）
+      // 彻底切换：POST 发送流——单通道（entry.* / invoke.*；与常驻通道共用 handler 逻辑）
       // tmp 乐观消息由 entry.user 事件替换（同 id 幂等由后端保证——entryId 与 tmp id 不同，
       // 用户气泡以 tmp 呈现直到刷新；invoke 过程气泡走 entry.speak）
       const postHandlers: Record<string, (data: Record<string, unknown>) => void> = {
         'entry.user': (data) => {
-          // F20260913ctlv 补漏：POST 流收到的 entry.user = 后端确认落库——替换 tmp 气泡
+          // 补漏：POST 流收到的 entry.user = 后端确认落库——替换 tmp 气泡
           //（真实 entryId + seq 接管排序；常驻通道同款去重逻辑幂等）
           const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string; yieldTargets?: string[]; senderName?: string; attachments?: LocalAttachment[] }
           batchUpdateMessages(activeId!, (current) => {
@@ -1027,7 +1027,7 @@ export default function ConversationPage() {
             const realMsg: LocalMessage = {
               id: d.entryId, st: 'user', si: d.senderId || 'user',
               content: d.body ?? '', status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
-              // F20260913ctlv 收尾：yieldTargets = 发言石目标（user 气泡「→ 目标」传递行）
+              // 收尾：yieldTargets = 发言石目标（user 气泡「→ 目标」传递行）
               yieldTargets: d.yieldTargets ?? null,
               // 终审修复：载荷可能不带 attachments（发送时未带附件）——保留 tmp 已有 atts，
               // 服务端带回则覆盖（tmp 本地预览字段被剥离前先合并服务端投影）
@@ -1049,7 +1049,7 @@ export default function ConversationPage() {
         },
         'entry.speak': (data) => {
           /** 同常驻通道：entry.speak 自包含（entry.start 已退役）——不存在则插入 completed 完整气泡。
-           *  F20260921urdo 契约收口：sequenceNum/createdAt 必接 */
+           * 契约收口：sequenceNum/createdAt 必接 */
           const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number; otterType?: string; otterColor?: string | null }
           if (!d.body) return
           const body = d.body
@@ -1069,7 +1069,7 @@ export default function ConversationPage() {
             upsertOtterIfAbsent(d.otterId, d.otterName, activeId, { type: d.otterType, color: d.otterColor })
           }
         },
-        // F20260913ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
+        // 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
         'invoke.start': (data) => {
           const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string; otterType?: string; otterColor?: string | null }
           const startTs = d.startedAt || nowTs()
@@ -1150,8 +1150,8 @@ export default function ConversationPage() {
           showToast(`Agent 错误: ${d.message}`, 'error')
         },
         'entry.system': (data) => {
-          // F20260921urdo 契约收口：字段统一 sequenceNum + createdAt
-          // F20261104ssfde：senderName 透传（scheduler:<任务名>）——定时任务触发消息折叠识别依据
+          // 契约收口：字段统一 sequenceNum + createdAt
+          // senderName 透传（scheduler:<任务名>）——定时任务触发消息折叠识别依据
           const d = data as { entryId: string; content: string; sequenceNum?: number; createdAt?: string; senderName?: string }
           const sysMsg: LocalMessage = {
             id: d.entryId, st: 'system', si: 'system', content: d.content,
@@ -1172,16 +1172,16 @@ export default function ConversationPage() {
         /** SSE 中断不代表发言停止（刷新≠停止）：拉取快照播种进行中消息，让轮询续看接管 */
         if (activeId) refreshMessages(activeId)
       }, onDone: () => {
-        /** 流结束后刷新参与者列表（agent 可能创建/解散了小獭）。#502 浅比较保引用。
-   *  历史：F20260827scrf2 曾延迟到关窗 flush（防 scrim 采样闪烁）；F20260929fcln
-   *  拆冻结链后恢复直行（模糊语义已换轨为内容自模糊，F20260909srf6） */
+        /** 流结束后刷新参与者列表（agent 可能创建/解散了小獭）。浅比较保引用。
+   * 历史：曾延迟到关窗 flush（防 scrim 采样闪烁）；
+   * 拆冻结链后恢复直行（模糊语义已换轨为内容自模糊） */
         if (activeId) {
           api.getParticipants(activeId).then(participants => {
             const apply = (prev: Record<string, LocalOtter[]>) =>
               mergeOttersIfChanged(prev, activeId, participants.map(p => mapParticipantDTO(p)))
             setAllOtters(apply)
           }).catch(() => {})
-          /** F20260928icmm 阶段1：POST 流结束时对账右栏 invoke 状态——POST 流不驱动
+          /** POST 流结束时对账右栏 invoke 状态——POST 流不驱动
            *  invokeStates（通道分工：右栏单一时钟 = GET 订阅事件 + 拉取对账），
            *  流内触发的 invoke 终态若 GET 通道未投递，在此用权威数据拉齐（无门控对账）。 */
           void syncInvokeStatesFromServer(activeId)
@@ -1191,7 +1191,7 @@ export default function ConversationPage() {
       console.error('Failed to send message:', err)
       removeTmpMsg()
       showToast('发送失败', 'error')
-      throw err // F20260916sgcl S1：失败信号传出，ChatView 据此跳过 clearAll、保留附件供重试
+      throw err // 失败信号传出，ChatView 据此跳过 clearAll、保留附件供重试
     }
   }, [activeId, ackActiveRead, refreshMessages, batchUpdateMessages, upsertOtterIfAbsent, syncInvokeStatesFromServer])
 
@@ -1202,7 +1202,7 @@ export default function ConversationPage() {
     onSendReply: (body, authorId) => { handleSend(body, authorId ? [authorId] : undefined) },
   })
 
-  /** F20260913ctlv 彻底切换：停止按钮——abort invoke（invokeId 锚）。
+  /** 彻底切换：停止按钮——abort invoke（invokeId 锚）。
    *  流式中的 speak 气泡保留（发言有效）；invoke 置 aborted 后右栏收敛。 */
   const stopStream = useCallback((messageId: string) => {
     if (!activeId) return
@@ -1221,7 +1221,7 @@ export default function ConversationPage() {
         ? { ...m, status: 'aborted' as const, content: m.content || '[中断]' }
         : m) }
     })
-    /** 乐观快照：abort 请求前 in-flight 气泡引用（delta 发现 1：非 409 失败按快照精确回滚，
+    /** 乐观快照：abort 请求前 in-flight 气泡引用（非 409 失败按快照精确回滚，
      *  旧实现 status==='aborted' 匹配误伤同 invokeId 历史真实终态气泡） */
     const before = (allMessagesRef.current[activeId] || []).filter(m => m.invokeId === invokeId && isInFlight(m))
     api.abortInvoke(invokeId, target?.si || '')
@@ -1230,9 +1230,9 @@ export default function ConversationPage() {
       })
       .catch((err) => {
         console.error('Failed to abort invoke:', err)
-        // F20260930s1x0 delta（PR #1268 审视发现 1）：旧实现无差别回滚 streaming + 清空 content，
+        // delta：旧实现无差别回滚 streaming + 清空 content，
         // 但 409 场景无未来 invoke.end（已终态不再发），气泡永久假 streaming——复刻 issue 症状。
-        // delta2（复核发现死链）：入口已在发请求前乐观置 'aborted'，settle 必须按快照匹配
+        // （复核发现死链）：入口已在发请求前乐观置 'aborted'，settle 必须按快照匹配
         // （并集当前 in-flight），否则 409 回来时零匹配、服务端真实终态被静默丢弃。
         // 分流：409 按服务端真实终态收敛（等效补发错失的 invoke.end）；
         // 非 409 回滚乐观态（invoke 仍在跑，后续 entry.*/end 事件会接管收敛）且保留 content
@@ -1256,7 +1256,7 @@ export default function ConversationPage() {
       })
   }, [activeId])
 
-  /** F20260913ctlv：右栏中断按钮——invokeId 直锚（无气泡依赖），乐观收敛该 invoke 名下
+  /** 右栏中断按钮——invokeId 直锚（无气泡依赖），乐观收敛该 invoke 名下
    *  in-flight 气泡，服务端 invoke.end aborted 事件会接管终态 + 中断条目实时到达 */
   const handleAbortInvoke = useCallback((otterId: string, invokeId: string) => {
     if (!activeId) return
@@ -1267,14 +1267,14 @@ export default function ConversationPage() {
         ? { ...m, status: 'aborted' as const, content: m.content || '[中断]' }
         : m) }
     })
-    /** 乐观快照：同 stopStream（delta 发现 1：非 409 失败按快照精确回滚） */
+    /** 乐观快照：同 stopStream（非 409 失败按快照精确回滚） */
     const before = (allMessagesRef.current[activeId] || []).filter(m => m.invokeId === invokeId && isInFlight(m))
     api.abortInvoke(invokeId, otterId)
       .then(() => showToast('已中断该獭当前行动', 'info'))
       .catch((err) => {
         console.error('Failed to abort invoke:', err)
-        // F20260930s1x0 delta（PR #1268 审视发现 1）：同 stopStream 分流——409 按服务端真实终态
-        // 收敛（delta2：快照匹配，乐观置位后的气泡也收敛）/ 非 409 快照回滚
+        // delta：同 stopStream 分流——409 按服务端真实终态
+        // 收敛（快照匹配，乐观置位后的气泡也收敛）/ 非 409 快照回滚
         if (!activeId) return
         if (err instanceof InvokeAbortError && err.code === 'invoke_not_running') {
           const terminal = err.invokeStatus === 'failed' || err.invokeStatus === 'completed' ? err.invokeStatus : 'aborted'
@@ -1295,10 +1295,10 @@ export default function ConversationPage() {
       })
   }, [activeId])
 
-  /** F20260913ctlv：右栏重试按钮——复用 retry 端点，重试流事件经 broadcaster 到达
+  /** 右栏重试按钮——复用 retry 端点，重试流事件经 broadcaster 到达
    *  常驻通道（retryHandlers 逻辑同型，右栏入口不接 POST 流——新 invoke 事件由
    *  常驻 SSE 订阅处理，切页/断连由轮询兑底） */
-  /** F20260913ctlv test17（搭档拍板）：右栏重试改獭锚——重试的是獭的 session（上下文载体），
+  /** test17（搭档拍板）：右栏重试改獭锚——重试的是獭的 session（上下文载体），
    *  无需 invokeId（天然避开 otterId/invokeId 双参错位坑）。RightPanel prop 简化为单参 otterId。 */
   const handleRetryInvoke = useCallback(async (otterId: string) => {
     if (!activeId) return
@@ -1312,17 +1312,17 @@ export default function ConversationPage() {
     }
   }, [activeId])
 
-  /** F20260921urdo 判定换轨退役：「滚到底标记已读」handleMarkRead + markReadDebounceRef
+  /** 判定换轨退役：「滚到底标记已读」handleMarkRead + markReadDebounceRef
    *  删除——已读判定不再依赖滚动几何（打开/聚焦/新消息到达三接法接管），
    *  MessageList 的 onReachBottom prop 同步退役。 */
 
-  /** F20260913ctlv 彻底切换：手动重试——invoke retry（invokeId 锚）。
+  /** 彻底切换：手动重试——invoke retry（invokeId 锚）。
    *  重试产生全新 invoke（新时间线），流内 entry.* 事件插入新气泡。 */
   const handleRetryMessage = useCallback(async (messageId: string) => {
     if (!activeId) return
     const msgs = allMessagesRef.current[activeId] || []
     const target = msgs.find(m => m.id === messageId)
-    // F20260913ctlv test17（搭档拍板）：气泡重试改獭锚——si=otterId，重试该獭 session（无需 invokeId）
+    // test17（搭档拍板）：气泡重试改獭锚——si=otterId，重试该獭 session（无需 invokeId）
     const otterId = target?.si
     if (!otterId) {
       showToast('找不到对应的獭，无法重试', 'error')
@@ -1336,7 +1336,7 @@ export default function ConversationPage() {
       const retryHandlers: Record<string, (data: Record<string, unknown>) => void> = {
         'entry.speak': (data) => {
           /** 同常驻通道：entry.speak 自包含（entry.start 已退役）——不存在则插入 completed 完整气泡。
-           *  F20260921urdo 契约收口：sequenceNum/createdAt 必接 */
+           * 契约收口：sequenceNum/createdAt 必接 */
           const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number; otterType?: string; otterColor?: string | null }
           if (!d.body) return
           const body = d.body
@@ -1353,7 +1353,7 @@ export default function ConversationPage() {
             return list.map(m => m.id === d.entryId ? { ...m, content: d.body ?? m.content, status: 'completed' as const, sn: m.sn || d.otterName || '' } : m)
           })
         },
-        // F20260913ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
+        // 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
         'invoke.start': (data) => {
           const d = data as { invokeId: string; otterId: string; otterName?: string; triggerEntryId?: string; startedAt?: string; otterType?: string; otterColor?: string | null }
           const startTs = d.startedAt || nowTs()
@@ -1421,7 +1421,7 @@ export default function ConversationPage() {
           showToast((data as { message?: string }).message || '重试出错', 'error')
         },
       }
-      // 检视建议 2（PR #1179）：retry 流结束对账读点——与 handleSend onDone 同款。
+      // retry 流结束对账读点——与 handleSend onDone 同款。
       // 重试按钮是右栏本职入口，流结束即「本地确知 invoke 结束」的强信号；若 GET 通道
       // 恰丢 invoke.end，右栏要等下一次 focus/导航/看门狗才纠正。幂等拉取，无副作用。
       consumeSSE(response, retryHandlers, { onDone: () => {
@@ -1460,7 +1460,7 @@ export default function ConversationPage() {
     } catch { showToast('创建对话失败', 'error') }
   }
 
-  // F20260922cgrp delta（检视建议 4）：归档对象取 modal.cid 而非 activeId——
+  // delta：归档对象取 modal.cid 而非 activeId——
   // 右键非当前对话归档的应是该对话；仅当归档的恰是当前对话时才需跳转兑底
   async function confirmArchive(cid: string) {
     try {
@@ -1480,30 +1480,30 @@ export default function ConversationPage() {
     } catch { showToast('操作失败', 'error') }
   }
 
-  /** F20260827ucrt：创建小獭重写——重名前端预检 + 模型/头像自选 + 血缘交服务端诚实落 null */
+  /** 创建小獭重写——重名前端预检 + 模型/头像自选 + 血缘交服务端诚实落 null */
   async function confirmCreateOtter(form: CreateOtterFormValue) {
     if (!activeId) return
     try {
-      // T5：提交前预检在场同名（同名在场 toast 阻断，不发 POST；服务端无兜底，直接 API 调用不属目标场景）
+      // 提交前预检在场同名（同名在场 toast 阻断，不发 POST；服务端无兜底，直接 API 调用不属目标场景）
       const participants = await api.getParticipants(activeId)
       const dup = participants.find(p => p.otterName === form.name)
       if (dup) {
         showToast(`在场已有同名小獭「${form.name}」，请换一个名字`, 'error')
         return
       }
-      // T1：modelAlias 自选（空串 = 默认模型，不下发字段）；T4：不传 parentOtterId——
+      // modelAlias 自选（空串 = 默认模型，不下发字段）；不传 parentOtterId——
       // UI 创建的小獭没有獭召唤者，服务端血缘诚实落 null，前端不再猜测
       const dto = await api.createOtter({
         name: form.name,
         type: 'small',
-        // F20260921otcl：出生挑色域（query 注入当前对话）
+        // 出生挑色域（query 注入当前对话）
         role: form.roleName || form.responsibilities.length > 0
           ? { name: form.roleName, responsibilities: form.responsibilities }
           : undefined,
         modelAlias: form.modelAlias || undefined,
         systemPrompt: form.systemPrompt,
       }, activeId)
-      // T2（前端版）：自选头像写 localStorage override（随机 = 不写，走 hash 池）
+      // （前端版）：自选头像写 localStorage override（随机 = 不写，走 hash 池）
       if (form.avatarName) setOtterAvatarOverride(dto.id, form.avatarName)
       const otter = mapOtterDTO(dto)
       setAllOtters(prev => ({ ...prev, [activeId]: [...(prev[activeId] || []), otter] }))
@@ -1527,7 +1527,7 @@ export default function ConversationPage() {
     } catch { showToast('解散失败', 'error') }
   }
 
-  /** F20260924uxrc：确认即转后台交接。原实现 await api.restartOtter 完才关弹窗——
+  /** 确认即转后台交接。原实现 await api.restartOtter 完才关弹窗——
    *  合成前世档案 5-15s（最长约 1 分钟）期间 scrim 全屏锁定 = 搭档实证「停留在弹窗啥也干不了」。
    *  新语义：提交即关弹窗 + 即时 toast（告知后台进行中），API 在异步 task 中跑；
    *  成功/失败再各弹一次 toast，会话链数据不变（成功后照旧重拉 session 链）。 */
@@ -1535,14 +1535,14 @@ export default function ConversationPage() {
     if (modal.type !== 'restart') return
     const otterId = modal.otterId
     const otterName = allOtters[activeId || '']?.find(o => o.id === otterId)?.name
-    // F20260920uhuc：统一交接管线——synthesizePast 透传（undefined=缺省 true）；
+    // 统一交接管线——synthesizePast 透传（undefined=缺省 true）；
     // 档案=引擎叙事（按勾选）+意图书（如填）+机械供料，前世记录完整保留
     const isSynth = synthesizePast !== false
     setModal({ type: 'none' })
     showToast(`正在为 ${otterName ?? '海獭'} ${isSynth ? '封装前世档案（预计 5-15s，最长约 1 分钟）…' : '重启…（秒级）'}`, 'info')
     void api.restartOtter(otterId, summary.trim() || undefined, modelAlias, synthesizePast)
       .then(async () => {
-        /** F20260805rsto：重启后重拉 session 链——加载 effect 有 `!sessions[id]` 守卫，
+        /** 重启后重拉 session 链——加载 effect 有 `!sessions[id]` 守卫，
          *  不主动重拉的话弹窗/卡片一直显示旧数据直到刷新页面 */
         try {
           const dtos = await api.getSessionHistory(otterId)
@@ -1551,13 +1551,13 @@ export default function ConversationPage() {
         showToast(synthesizePast === false ? '前世已封存（机械档案），新一世獭生已开始' : '前世已封存，新一世携带完整前世档案开始', 'success')
       })
       .catch(err => {
-        // F20260920uhuc：忙碌 409 → 明确提示（弹窗已关，toast 承接反馈）
+        // 忙碌 409 → 明确提示（弹窗已关，toast 承接反馈）
         const isBusy = err instanceof Error && err.message.includes('忙碌')
         showToast(isBusy ? '该獭正在执行任务，忙碌中不允许重启，请稍后再试' : '重启失败，请重试', 'error')
       })
   }
 
-  /* F20261009csf3：confirmLinkResource/addFact/toggleResourceFlag/deleteLinkedResource 四个管理函数
+  /* confirmLinkResource/addFact/toggleResourceFlag/deleteLinkedResource 四个管理函数
    *  随关键资源 tab 退役移除（无 UI 调用方）——操作改走对话通道。链接弹窗同步移除 */
 
   async function ctxAction(action: string, cid: string) {
@@ -1594,7 +1594,7 @@ export default function ConversationPage() {
     }
   }
 
-  // F20260922cgrp delta（右键归档组修复）：归档对话不在父组件 conversations（active-only）中——
+  // delta（右键归档组修复）：归档对话不在父组件 conversations（active-only）中——
   // find 落空时按 status='archived' 合成最小对象，菜单对归档项只提供「归档对话」（禁用态）
   const activeConvForMenu = ctxMenu
     ? (conversations.find(c => c.id === ctxMenu.cid) ?? {
@@ -1618,7 +1618,7 @@ export default function ConversationPage() {
 
   return (
     <>
-      {/* #500：三栏布局响应式降级——外层 relative 为窄屏抽屉提供定位上下文。
+      {/* 三栏布局响应式降级——外层 relative 为窄屏抽屉提供定位上下文。
           断点策略（Tailwind 默认）：≥lg(1024px) 三栏全开；md(768px)~lg 右栏折叠为悬浮抽屉；
           <md 左右栏均抽屉化，聊天区独占。面板组件保持挂载（状态不丢），仅容器显隐。 */}
       <div className="relative flex flex-1 overflow-hidden p-3 gap-3">
@@ -1744,7 +1744,7 @@ export default function ConversationPage() {
         />
       )}
 
-      {/* F20260913ctlv：Session 弹窗（獭 invoke 历史 + 流式过程） */}
+      {/* Session 弹窗（獭 invoke 历史 + 流式过程） */}
       {sessionModalOtter && (
         <SessionModal
           otter={sessionModalOtter}

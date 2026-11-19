@@ -128,7 +128,7 @@ export function checkReviewClosure(pr) {
     return { ok: false, status: "no_disposition", reasons };
   }
 
-  // 4. 审查者署名：挡住「无署名」的 self-PASS（字符串在场是脚本能判的最硬代理，真实性由 B9 兜底）
+  // 4. 审查者署名：挡住「无署名」的 self-PASS（字符串在场是脚本能判的最硬代理，真实性由 兜底）
   if (!REVIEWER_RE.test(body)) {
     reasons.push("覆盖 head 的回执无审查者署名（## 审查者 / reviewer- 名号）——无署名回执不构成独立检视");
     return { ok: false, status: "no_reviewer", reasons };

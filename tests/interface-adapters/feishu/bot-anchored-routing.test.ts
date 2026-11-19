@@ -68,7 +68,7 @@ describe("F20260920imax 增量五：飞书 bot 锚定路由（一 bot 一对话�
 
     // 两人的消息都进同一对话
     expect(ctx.sentEntries.map(e => e.conversationId)).toEqual(["conv-bot-line", "conv-bot-line"]);
-    // F20261010fspm：消息体不再拼发送者前缀——名字只走 sender_name 快照（气泡上方）；
+    // 消息体不再拼发送者前缀——名字只走 sender_name 快照（气泡上方）；
     // 正文永远是纯文本，解析失败也不再退化出 [b2d82e] 这类污染
     expect(ctx.sentEntries[0].body).toBe("你好");
     expect(ctx.sentEntries[1].body).toBe("晚饭吃啥");

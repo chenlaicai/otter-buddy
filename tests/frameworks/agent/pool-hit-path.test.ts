@@ -231,14 +231,14 @@ describe("F20260911pspl 池命中路径（_acquirePooled）", () => {
     expect(cwdA).toContain(path.join("workspaces", "conv-A"));
 
     // 池命中切对话：_cwd 更新为 conv-B 工作区，且 _buildRuntime 在调用时读到新 cwd
-    //（S7 回归锁——round-1「先 build 后赋」使 build 捕获旧 cwdA，成功路径必坏）
+    //（回归锁——「先 build 后赋」使 build 捕获旧 cwdA，成功路径必坏）
     const second = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2", conversationId: "conv-B" }));
     expect(second.isPooled).toBe(true);
     expect(session._cwd).toContain(path.join("workspaces", "conv-B"));
     expect(session.builtWithCwd.length).toBe(1);
     expect(session.builtWithCwd[0]).toBe(session._cwd); // build 调用时 _cwd 已是新值
 
-    // 失败回滚（S6 语义保持）：build 抛错 → _cwd 恢复旧值 → 下次命中重试
+    // 失败回滚（语义保持）：build 抛错 → _cwd 恢复旧值 → 下次命中重试
     const cwdB = session._cwd;
     session.setCwd = async () => { throw new Error("boom"); };
     await expect(

@@ -372,12 +372,12 @@ export class MessageController {
     push: (event: SSEEvent) => void,
     mentionFeedback?: string,
   ): (() => void) | undefined {
-    // F20260820i333: 发送 @提及解析 feedback 给用户
+    // 发送 @提及解析 feedback 给用户
     if (mentionFeedback) {
       push({ event: 'mention.feedback', data: { feedback: mentionFeedback } });
     }
     if (!this.messageBroadcaster) return undefined;
-    // F20260913ctlv：消息回调链路死面删除——POST SSE 流只订阅事件流
+    // 消息回调链路死面删除——POST SSE 流只订阅事件流
     // （当前请求触发的 agent 事件；其他消息通过 GET SSE 订阅接收，避免重复推送）
     return this.messageBroadcaster.subscribeEvents(
       conversationId,
@@ -399,9 +399,9 @@ export class MessageController {
       senderId,
       ...(externalProfile && { externalProfile }),
       initialTargets: targets,
-      // F20260902sgp2 S1：触发消息 ID（首 hop 派发记账）
+      // 触发消息 ID（首 hop 派发记账）
       triggerMessageId,
-      // F20261012swsg（#1430）：触发消息恒为 user entry（sendMessage 主入口）——安全词扫描闸放行，
+      // 触发消息恒为 user entry（sendMessage 主入口）——安全词扫描闸放行，
       // seq 透传作证据锚点
       triggerSenderType: "user",
       triggerSequenceNum,
@@ -416,7 +416,7 @@ export class MessageController {
           ...(params.externalProfile && { externalProfile: params.externalProfile }),
           ...(params.triggerMessageId && { triggerMessageId: params.triggerMessageId }),
           ...(params.images && { images: params.images }),
-          // F20260922ctxi：batchMaxSeq 透传（同 invoke-controller 修复——闭包重组漏传致游标不推进）
+          // batchMaxSeq 透传（同 invoke-controller 修复——闭包重组漏传致游标不推进）
           batchMaxSeq: params.batchMaxSeq,
           assignmentRole: params.assignmentRole,
         });

@@ -584,7 +584,7 @@ function migrateDispatchRecordsFromContext(db: Database.Database, logger: Logger
  *  幂等：症状命中才 UPDATE；重跑无命中即无写入。 */
 function backfillGhostSenders(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -678,11 +678,11 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
 
   logger.info('Rebuilding attachments table to widen kind CHECK constraint (add audio/video)');
   // 与 rebuildDocumentTablesDropCheck 同模式：DROP+RENAME 必须事务内完成——
-  // 裸 exec 在 DROP 成功后、RENAME 前进程中断会永久丢失 attachments 表（检视发现 1）。
+  // 裸 exec 在 DROP 成功后、RENAME 前进程中断会永久丢失 attachments 表。
   // FK 修复：message_attachments.attachment_id 引用 attachments(id)，存量有数据时
   // DROP TABLE attachments 触发 FOREIGN KEY constraint failed。
   // PRAGMA foreign_keys 不能在事务内切换，须在事务外关闭、事务后恢复。
-  // #805：补 try/finally——事务抛异常时 foreign_keys 也能恢复 ON（对齐 #792 P2 模式）。
+  // 补 try/finally——事务抛异常时 foreign_keys 也能恢复 ON（对齐 模式）。
   db.pragma("foreign_keys = OFF");
   try {
     db.transaction(() => {
@@ -721,7 +721,7 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
  *  幂等：新库 schema 无 turn_id 列（PRAGMA 检测不到直接返回）。
  *  FK 事务模式与 rebuildAttachmentsKindCheck 同款（PRAGMA foreign_keys 事务外关、事务后恢复）。 */
 function retireTurnSystem(db: Database.Database, logger: Logger): void {
-  // D2（复检 delta）：各子函数独立幂等判存——曾运行中间版本的库（如 entries 已迁
+  // （复检 delta）：各子函数独立幂等判存——曾运行中间版本的库（如 entries 已迁
   // 但 executions 未迁）再次启动时各自自愈，不依赖 entries.turn_id 作整体闸门。
   // 幂等判据各自 PRAGMA 检测目标列/表；全干净时整体零副作用。
   const needsWork =
@@ -960,7 +960,7 @@ function addBodyHashColumns(db: Database.Database, logger: Logger): void {
 /** messages.metadata TEXT 列存外部 ID 等查重信息。PRAGMA 探测幂等。 */
 function addMessagesMetadataColumn(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -1029,7 +1029,7 @@ function addDocProvenanceColumns(db: Database.Database, logger: Logger): void {
  */
 function rebuildMessagesFtsStripped(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -1039,7 +1039,7 @@ function rebuildMessagesFtsStripped(db: Database.Database, logger: Logger): void
 
   const rebuild = db.transaction(() => {
     db.prepare("DELETE FROM messages_fts").run();
-    // F20260818segs: 优先从 message_segments 聚合 body；降级读 messages.body（旧库）
+    // 优先从 message_segments 聚合 body；降级读 messages.body（旧库）
     const hasSegments = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='message_segments'").get());
     const insert = db.prepare("INSERT INTO messages_fts (message_id, body) VALUES (?, ?)");
     if (hasSegments) {
@@ -1071,7 +1071,7 @@ function rebuildMessagesFtsStripped(db: Database.Database, logger: Logger): void
 function rebuildMemoryFtsJiebaDoubleWrite(db: Database.Database, logger: Logger): void {
   const done = db.prepare("SELECT value FROM settings WHERE key = 'fts_jieba_double_write'")
     .get() as { value: string } | undefined;
-  // F20260902rcq3: 版本号 v2（doc ID 锚点注入）——已跑过 v1 的库需重跑补锚点
+  // 版本号 v2（doc ID 锚点注入）——已跑过 v1 的库需重跑补锚点
   if (done?.value === 'v2') return;
 
   const rebuild = db.transaction(() => {
@@ -1079,7 +1079,7 @@ function rebuildMemoryFtsJiebaDoubleWrite(db: Database.Database, logger: Logger)
     const rows = db.prepare("SELECT id, content, source_table, source_id FROM memory_entries").all() as Array<{ id: string; content: string; source_table: string; source_id: string }>;
     const insert = db.prepare("INSERT INTO memory_fts_jieba (memory_entry_id, content) VALUES (?, ?)");
     for (const row of rows) {
-      // F20260902rcq3: 文档类条目注入 sourceId 前缀（与 insertEntryRow 同逻辑）——
+      // 文档类条目注入 sourceId 前缀（与 insertEntryRow 同逻辑）——
       // 文档正文不含自身编号，ID 直查时确定性最强的目标反而 miss
       // 审视修复：正则改用 fid-format 真相源（{4,10}）
       const ftsText = (row.source_table === "features" || row.source_table === "research")
@@ -1107,7 +1107,7 @@ function rows_count_hint(db: Database.Database): number {
  */
 function dropMessagesAttachmentsColumn(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -1264,7 +1264,7 @@ function addDescriptionColumn(db: Database.Database, logger: Logger): void {
     logger.info('Added description column to scheduled_tasks table');
   }
 
-  // F20260920stkx：paper-trading 能力移除——原 backfill 的两个 seed 任务描述随能力退役，
+  // paper-trading 能力移除——原 backfill 的两个 seed 任务描述随能力退役，
   // 已回填到存量 DB 的描述保留（历史数据不动）。无官方 seed 任务，回填清单置空。
 }
 
@@ -1318,7 +1318,7 @@ export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger
     .get() as { value: string } | undefined;
   if (done?.value === 'done') return;
 
-  // PR审视 B7：不用 syncErrors==0 作 guard——文档 frontmatter 错误是永久性的，
+  // PR审视 不用 syncErrors==0 作 guard——文档 frontmatter 错误是永久性的，
   // 会导致迁移永远不执行（死锁）。sync 成功的文档已有新 chunk；sync 失败的文档
   // 旧 feature_body 删了无妨（下次 sync 成功会生成 chunk）。
   if (syncErrors > 0) {
@@ -1330,11 +1330,11 @@ export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger
     for (const ct of types) {
       const rows = db.prepare("SELECT id FROM memory_entries WHERE content_type = ?").all(ct) as Array<{ id: string }>;
       for (const row of rows) {
-        // 注意（F20260817mrp2 二轮审视）：这里是级联删除卫星表的【第二份实现】（rebuild 迁移路径，
+        // 注意（二轮审视）：这里是级联删除卫星表的【第二份实现】（rebuild 迁移路径，
         // 历史 copy）——运行时唯一实现在 sqlite-memory-repository.ts 的 cascadeDeleteSatellites。
         // 新增/修改卫星表时两处都要同步（迁移是一次性补丁，不 import repo 运行时代码）。
         db.prepare("DELETE FROM memory_fts_jieba WHERE memory_entry_id = ?").run(row.id);
-        // S10：vec 删除 try-catch 加 log warn（vec0 表可能不存在，D22 降级）
+        // vec 删除 try-catch 加 log warn（vec0 表可能不存在，降级）
         try {
           db.prepare("DELETE FROM memory_vec WHERE memory_entry_id = ?").run(row.id);
         } catch (e) {
@@ -1371,7 +1371,7 @@ function ensureHealingEventsIntroducedByPrColumn(db: Database.Database, logger: 
  *  存量行 NULL = 无信号语义（向后兼容）。PRAGMA 探测幂等。 */
 function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -1384,8 +1384,8 @@ function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): voi
     db.prepare("ALTER TABLE messages ADD COLUMN signal_meta TEXT").run();
     logger.info('Added signal_meta column to messages table');
   }
-  // F20260901sgp0 P0: 索引在列之后幂等建——存量库 initSchema 先于 migrateDatabase，
-  // 列不存在时 CREATE INDEX 会抛 no such column（PR #386 前科）。
+  // 索引在列之后幂等建——存量库 initSchema 先于 migrateDatabase，
+  // 列不存在时 CREATE INDEX 会抛 no such column（前科）。
   // 新库列已在 initSchema 时存在，此处 CREATE IF NOT EXISTS 为 no-op。
   const indexes = db.prepare("PRAGMA index_list(messages)").all() as Array<{ name: string }>;
   if (!indexes.some(idx => idx.name === 'idx_messages_signal_level')) {
@@ -1402,7 +1402,7 @@ function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): voi
  */
 export function migrateMessageSegments(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -1410,7 +1410,7 @@ export function migrateMessageSegments(db: Database.Database, logger: Logger): v
   if (done?.value === 'done') return;
 
   const migrate = db.transaction(() => {
-    // 1. 建表职责已移交 initSchema（#506），此处不重复 CREATE
+    // 1. 建表职责已移交 initSchema，此处不重复 CREATE
 
     // 2. 存量迁移：messages.body → message_segments
     const hasBody = (db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>).some(c => c.name === 'body');
@@ -1457,7 +1457,7 @@ function ensureAgentSessionFileColumn(db: Database.Database, logger: Logger): vo
  * sender_name 为 发送者显示名快照） */
 function ensureMessagesSourceAndSenderNameColumns(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
-    // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
+    // 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
     return;
   }
 
@@ -1486,9 +1486,9 @@ function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): vo
   if (!schemaRow?.sql || schemaRow.sql.includes("'skipped'")) return;
 
   logger.info('Rebuilding scheduled_task_executions table to add skipped status (#654)');
-  // #805：补 FK 防护——本表含 3 个 FK（scheduled_tasks/messages/turns），同文件先例
-  // （#608/#792 P2/#812 F4）重建时均关 foreign_keys 防 DROP 被引用表时 constraint failed；
-  // PRAGMA 不能在事务内切换，须事务外关闭；try/finally 保证异常时也恢复 ON（#792 P2 模式）。
+  // 补 FK 防护——本表含 3 个 FK（scheduled_tasks/messages/turns），同文件先例
+  // （P2F4）重建时均关 foreign_keys 防 DROP 被引用表时 constraint failed；
+  // PRAGMA 不能在事务内切换，须事务外关闭；try/finally 保证异常时也恢复 ON（模式）。
   db.pragma("foreign_keys = OFF");
   try {
     db.transaction(() => {
@@ -1785,7 +1785,7 @@ function makeConversationMigrator(deps: {
     let renumbered: { conversationId: string; from: number; to: number } | undefined;
     if (existingInConv.length === 0) {
       insertNoOverlap(pendingRows, writers);
-      // F20260914rmap：无重叠路径同样重映射读游标——重排 1..N 后旧游标的
+      // 无重叠路径同样重映射读游标——重排 1..N 后旧游标的
       // seq 值已指向错误位置（yield 合成行会右移后续 seq），不映射则已读前缀
       // 之后的存量条目全部被误判未读（生产实例：151 对话 2052 条虚假未读）
       remapReadCursorsNoOverlap(db, conversationId, msgs);
@@ -1795,7 +1795,7 @@ function makeConversationMigrator(deps: {
       renumbered = { conversationId, from: existingInConv.length, to: mergedCount };
     }
 
-    // F20260913ctlv 批4c：message_attachments 可能已 drop（防御守卫）
+    // 批4c：message_attachments 可能已 drop（防御守卫）
     const hasMsgAtt = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='message_attachments'").get();
     if (hasMsgAtt) {
       const attRows = db.prepare(
@@ -2140,7 +2140,7 @@ function backfillOtterColors(db: Database.Database, logger: Logger): void {
  *   渐进补齐（bge-m3 worker 串行，3837 条按历史速率 ~2-3 分钟量级）
  */
 function backfillEntryMemoryIndex(db: Database.Database, logger: Logger): void {
-  // #1191 one-shot：存量回填一次性完成即标记，后续启动零扫描（settings 惯例同
+  // one-shot：存量回填一次性完成即标记，后续启动零扫描（settings 惯例同
   // messages_to_entries_migrated）——首次启动回填存量，之后只在增量路径写入
   const done = db.prepare("SELECT value FROM settings WHERE key = 'entry_memory_index_backfilled'").get() as { value: string } | undefined;
   if (done?.value === 'done') return;
@@ -2234,7 +2234,7 @@ function ensureEntriesConversationSeqUnique(db: Database.Database, logger: Logge
 
   // 防御双保险：重复 (conversation_id, sequence_num) 下 CREATE UNIQUE INDEX 会抛错。
   // 生产库已验证 0 重复（2026-09-30），此处是兜底：发现重复则告警跳过，保留旧行为不阻断启动。
-  // 重复检查与索引重建同事务（r1 审视发现①）：写锁下原子化，消除「检查过但建时已有重复」的 TOCTOU 窗口。
+  // 重复检查与索引重建同事务（审视发现①）：写锁下原子化，消除「检查过但建时已有重复」的 TOCTOU 窗口。
   const skipped = db.transaction(() => {
     const duplicates = db.prepare(
       "SELECT conversation_id, sequence_num, COUNT(*) AS c FROM entries GROUP BY conversation_id, sequence_num HAVING COUNT(*) > 1 LIMIT 1"

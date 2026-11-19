@@ -180,7 +180,7 @@ function dimensionD1(input: HealthScoreInput): DimensionScore {
 }
 
 function dimensionD2(input: HealthScoreInput): DimensionScore {
-  // 搭档裁决：D2 从「修改集中度」换为「bugfix 返工率」——直接测「补丁失效」
+  // 搭档裁决：从「修改集中度」换为「bugfix 返工率」——直接测「补丁失效」
   const reworkRate = input.bugfixReworkRate;
   const imbalance = isImbalanceTriggered(input.changeTypes);
   const score = scoreD2(reworkRate, imbalance);

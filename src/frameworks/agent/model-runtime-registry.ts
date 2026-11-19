@@ -365,8 +365,8 @@ export function loopBlockGuard(
   const sig = buildToolSignature(toolName, input);
   const reason = map.get(sig);
   if (reason === undefined) return undefined;
-  // F20261027lbos（#1656）：拦截落账（同签名去重，只记首次）——loop_tool_block 事件
-  // 是 b2 残余误伤面（#1653）的唯一观测源，缺失则体检失明。
+  // 拦截落账（同签名去重，只记首次）——loop_tool_block 事件
+  // 是 b2 残余误伤面的唯一观测源，缺失则体检失明。
   // 懒初始化去重集（与 loopBlockedTools 同生命周期）；fail-open：钩子缺失/抛错不阻断拦截。
   if (!store.loopBlockLoggedSignatures) store.loopBlockLoggedSignatures = new Set();
   if (!store.loopBlockLoggedSignatures.has(sig)) {
@@ -417,7 +417,7 @@ export function bashGuardGate(
   if (!rawBlock) return undefined;
   const reasonText = stripSleepMarkerIfPresent(rawBlock.text);
   // 拦截落 healing——守卫行为以真实使用为准（回放库语料来源）。
-  // F20261102grfix：ruleId/layer 随拦截块直标传入，落账归因不再事后文案反查
+  // ruleId/layer 随拦截块直标传入，落账归因不再事后文案反查
   store?.guardOnIntercept?.({ command, reason: reasonText, ruleId: rawBlock.ruleId, ruleLayer: rawBlock.layer });
   return {
     block: true,

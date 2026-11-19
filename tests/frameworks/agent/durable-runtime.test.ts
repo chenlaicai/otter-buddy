@@ -325,7 +325,7 @@ describe("durable-native runtime", () => {
       throw new Error(`durable store did not recover after process death: lock=${lock ? lock.mtime.toISOString() : "none"}`);
     }
     const calls = await (await import("node:fs/promises")).readFile(`${file}.calls`, "utf8");
-    // 检视处置（PR #1783 严亟 2）：原 split("\\n")（字面反斜杠+n）对 1/2 次执行均返回长度 1，
+    // 检视处置（严亟 2）：原 split("\\n")（字面反斜杠+n）对 1/2 次执行均返回长度 1，
     // 断言零判别力——改为按非空行计数，若 unsafe 工具真被重放则必红。
     expect(calls.split("\n").filter(line => line.trim().length > 0)).toHaveLength(1);
     expect((await reopened.session.rawContext(BACKGROUND_CONTEXT)).entries.length).toBeGreaterThan(0);
@@ -406,7 +406,7 @@ describe("durable-native runtime 压缩感知（迁移不兼容修复回归守�
     ]);
     await session.prompt("warm up", undefined, new DurableEventStream(), BACKGROUND_CONTEXT);
 
-    // delta #4 修复后：compaction 事件双通道（总线喂 outputGuard + invoke stream 喂 handleStreamEvent）
+    // delta 修复后：compaction 事件双通道（总线喂 outputGuard + invoke stream 喂 handleStreamEvent）
     const events: string[] = [];
     const unsub = session.subscribe((e: unknown) => { const t = (e as { type?: string })?.type; if (t?.startsWith("compaction")) events.push(t); });
     const streamEvents: string[] = [];
@@ -422,7 +422,7 @@ describe("durable-native runtime 压缩感知（迁移不兼容修复回归守�
 
     expect(events).toContain("compaction_start");
     expect(events).toContain("compaction_end");
-    // invoke stream 侧（handleStreamEvent 同链）也必须收到——delta #4 严重发现的回归点
+    // invoke stream 侧（handleStreamEvent 同链）也必须收到——delta 严重发现的回归点
     expect(streamEvents).toContain("compaction_start");
     expect(streamEvents).toContain("compaction_end");
     unsub();
@@ -441,7 +441,7 @@ describe("durable-native runtime 压缩感知（迁移不兼容修复回归守�
     }
     const failures: string[] = [];
     const streamFailures: string[] = [];
-    // delta #4：断言真正的消费者——invoke stream（handleStreamEvent 链）收到 errorMessage
+    // delta 断言真正的消费者——invoke stream（handleStreamEvent 链）收到 errorMessage
     const invokeStream = new DurableEventStream((e: unknown) => {
       const ev = e as { type?: string; errorMessage?: string };
       if (ev?.type === "compaction_end" && ev.errorMessage) streamFailures.push(ev.errorMessage);
@@ -494,7 +494,7 @@ describe("durable-native runtime auto_retry 感知（第二次误判修正的回
     // 退避（base 1s）+ 恢复后 start/end 都应出现（fast path：事件在 prompt 返回前已发）
     expect(busEvents).toContain("auto_retry_start");
     expect(streamEvents).toContain("auto_retry_start");
-    // 对称路径（delta #6 小建议采纳）：恢复后 retry 消失 → auto_retry_end（退避后 prompt 返回，边沿已翻转）
+    // 对称路径（delta 小建议采纳）：恢复后 retry 消失 → auto_retry_end（退避后 prompt 返回，边沿已翻转）
     expect(busEvents).toContain("auto_retry_end");
     unsub();
     await session.close(BACKGROUND_CONTEXT);

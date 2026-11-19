@@ -320,7 +320,7 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     return seg.text;
   }
 
-  /** F20260829fpst：post content → 按段落顺序的媒体项（img→image / media→file）。
+  /** post content → 按段落顺序的媒体项（img→image / media→file）。
    *  img 段 {tag:"img", image_key}；media 段 {tag:"media", file_key, file_name?}。
    *  a/at 段无媒体语义跳过；段缺失 key 跳过（不整条丢弃——其余段照常处理）。 */
   private extractPostMediaItems(content: unknown): FeishuPostMediaItem[] {

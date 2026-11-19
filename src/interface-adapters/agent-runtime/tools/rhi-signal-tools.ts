@@ -170,7 +170,7 @@ export function createTriageSignalTool(ctx: ToolContext, signalRepo: SignalRepos
         filterIssueNumber: { type: "number", description: "[batch_dismiss] 只收尾归口到此 issue 的 open 信号" },
         dryRun: { type: "boolean", description: "[批量] true 时只返回匹配数，不执行写入" },
       },
-      // Why: signalId 不进 required——batch_bind 批量路径无 signalId（#1052）；
+      // Why: signalId 不进 required——batch_bind 批量路径无 signalId；
       // 单条动作的 signalId 缺失由 validateTriageParams 报错引导（healing 工具同模式）
       required: ["action"],
     },

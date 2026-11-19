@@ -120,7 +120,7 @@ function RecurrenceTimeline({ card }: { card: RecurrenceCard }) {
 /** 复发卡列表（首屏主角）：频次优先、其次最近复发（观澜 3.1）；无模式时给确定感空态 */
 export function RecurrenceSection({ signals }: { signals: RhiSignalDTO[] }) {
   const cards = signals.map(toRecurrenceCard).filter((c): c is RecurrenceCard => c !== null)
-  // 排序在前端做（检视建议 2）：接口返回顺序与频次无关，首屏卡序必须频次优先
+  // 排序在前端做：接口返回顺序与频次无关，首屏卡序必须频次优先
   cards.sort((a, b) => b.commitCount - a.commitCount || b.commits[b.commits.length - 1]!.date.localeCompare(a.commits[a.commits.length - 1]!.date))
   if (cards.length === 0) {
     return (

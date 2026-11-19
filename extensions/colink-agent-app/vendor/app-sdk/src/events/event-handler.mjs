@@ -107,8 +107,8 @@ export function validateUserMessage(event, config, store) {
         !d || !['mention', 'reply', 'dm_message'].includes(typeof d.reason === 'string' ? d.reason : '') ||
         !resource(d.messageId) ||
         !(d.replyToMessageId === null || resource(d.replyToMessageId)) ||
-        // DM 唤醒（F20261102dmagent）：channelId 为 null 且 conversationId 有值；主时间线唤醒
-        // topicId=null，话题唤醒 topicId=话题根（F20261110dmagent）。频道唤醒：channelId 必填
+        // DM 唤醒：channelId 为 null 且 conversationId 有值；主时间线唤醒
+        // topicId=null，话题唤醒 topicId=话题根。频道唤醒：channelId 必填
         //（topicId 可空），无 conversationId。两者互斥，必居其一。
         !((resource(d.channelId) && resource(d.topicId) && (d.conversationId ?? null) === null) ||
             (d.channelId === null && (d.topicId === null || resource(d.topicId)) && resource(d.conversationId) && d.replyToMessageId === null)) ||

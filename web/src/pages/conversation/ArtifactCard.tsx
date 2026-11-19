@@ -114,7 +114,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
           <Icon className="w-3 h-3" />
           {badge.label}
         </span>
-        {/* T2：PR 状态徽章（unfurl join 投影 state 字段——检视发现 1：曾退用
+        {/* PR 状态徽章（unfurl join 投影 state 字段——曾退用
             title.includes 猜状态，closed/draft 误显「开放中」；与 UnfurlCard 徽章同口径） */}
         {resource.type === 'pr' && unfurl?.source === 'github-api' && unfurl.state && (
           <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
@@ -141,14 +141,14 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
         </button>
       </div>
       {body}
-      {/* F20261021gmbe：game 展开态——宿主内嵌游戏面板（白名单内同源 iframe；收起即卸载断 SSE；
+      {/* game 展开态——宿主内嵌游戏面板（白名单内同源 iframe；收起即卸载断 SSE；
           放大态时内联位让位 modal（单实例，避免双 iframe 双 SSE）） */}
       {gameExpanded && !enlarged && (
         <div className="mt-2">
           <GameEmbedPanel url={resource.url} title={resource.title} />
         </div>
       )}
-      {/* T2：PR 卡 diff stat（unfurl join 投影——additions/deletions 仅 github-api PR 记录携带） */}
+      {/* PR 卡 diff stat（unfurl join 投影——additions/deletions 仅 github-api PR 记录携带） */}
       {resource.type === 'pr' && unfurl?.additions != null && unfurl?.deletions != null && (
         <p className="text-[11px] mt-1">
           <span className="text-teal-600">+{unfurl.additions}</span>
@@ -157,7 +157,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
           <span className="text-stone-400"> · 来自 gh 结构化取数</span>
         </p>
       )}
-      {/* T2：join 落空（历史 PR/未抓取）——显式「未抓取」态，不静默缺失 */}
+      {/* join 落空（历史 PR/未抓取）——显式「未抓取」态，不静默缺失 */}
       {resource.type === 'pr' && resource.url && !unfurl && (
         <p className="text-[11px] text-stone-400 mt-1">未抓取（将自动补抓）</p>
       )}
@@ -207,7 +207,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
         )}
         {resource.auto && <span>自动登记</span>}
       </div>
-      {/* F20261021gmbe：放大 modal（90vw，牌桌完整体验）——收起/关闭即卸载 */}
+      {/* 放大 modal（90vw，牌桌完整体验）——收起/关闭即卸载 */}
       {gameExpanded && enlarged && (
         <GameEnlargeModal
           url={resource.url}

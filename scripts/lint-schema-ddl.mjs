@@ -84,7 +84,7 @@ for (const rel of TARGETS) {
     const hasCreate = /CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS/i.test(block);
     if (block.includes(ALLOW_MARK)) continue;
 
-    // 收集块内全部 CREATE [UNIQUE] INDEX 语句（D1 处置：IF NOT EXISTS 改可选——
+    // 收集块内全部 CREATE [UNIQUE] INDEX 语句（处置：IF NOT EXISTS 改可选——
     // 硬要求会放过无 IF NOT EXISTS 的裸索引（:2088/:1235 形态），抓取≠检测）
     const idxStmts = [...block.matchAll(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?\w+\s+ON\s+(\w+)\s*\(([^)]+)\)/gi)];
     if (idxStmts.length === 0) continue;
@@ -101,7 +101,7 @@ for (const rel of TARGETS) {
         if (colInCreate) continue;
 
         // 路径 B：同文件存在更早的 CREATE TABLE 定义了该列（独立索引块引用已建表）。
-        // D3 修复：括号计数器限定在该表自己的定义体内——[\s\S]*? 会跨表吞并
+        // 修复：括号计数器限定在该表自己的定义体内——[\s\S]*? 会跨表吞并
         // （messages 前缀一路吞到 messages_meta 的同名列 → 假放行），\b 挡不住惰性跨段
         const before = src.slice(0, blockStart);
         const tableDefRe = new RegExp(`CREATE\\s+TABLE\\s+IF\\s+NOT\\s+EXISTS\\s+${table}\\b\\s*\\(`, "gi");

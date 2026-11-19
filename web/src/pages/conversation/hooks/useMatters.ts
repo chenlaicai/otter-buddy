@@ -72,7 +72,7 @@ export function buildMatterRegisterBody(title: string): string {
 export interface UseMattersResult {
   matters: MatterDTO[]
   loading: boolean
-  /** 近期闭环（closed 清单——折叠「近期闭环」区 = 翻案入口，P2）；created_at DESC 前 N 条 */
+  /** 近期闭环（closed 清单——折叠「近期闭环」区 = 翻案入口）；created_at DESC 前 N 条 */
   recentClosed: MatterDTO[]
   /** 正在发送回执的 matter id（按钮 pending/防重——建议1，一个 matter 同时只发一条裁决） */
   pending: Record<string, boolean>
@@ -87,7 +87,7 @@ const RECENT_CLOSED_LIMIT = 10
 
 export function useMatters(
   conversationId: string | null,
-  /** P2：回执路由通道（handleSend 的 mention 路由封装；owner 为空时传 undefined = 默认派发） */
+  /** 回执路由通道（handleSend 的 mention 路由封装；owner 为空时传 undefined = 默认派发） */
   onRouteToOtter?: (body: string, ownerOtterId: string | null) => void,
 ): UseMattersResult {
   const [matters, setMatters] = useState<MatterDTO[]>([])
@@ -128,17 +128,17 @@ export function useMatters(
   }, [conversationId, fetchAll])
 
   /**
-   * P2 板上裁决（通道 B 回执代执行）。
+   * 板上裁决（通道 B 回执代执行）。
    *
    * 架构纪律（「按钮挂点架构定案」）：按钮不乐观改状态——状态真相只在
    * matters 表，迁移由 owner 獭收到回执后 transition_matter 代执行，板上提前渲染一个
    * 还没发生的迁移 = 双写分裂（板上说已迁、表里还没迁）。这里只合成回执发出去，
-   * 真实状态变化经 30s 轮询反映（P1 同款节奏）。
+   * 真实状态变化经 30s 轮询反映（同款节奏）。
    *
    * 失败处理（/教训——失败分支不许静默）：回执路由函数抛错时
    * toast 报错让搭档可重试；发送成功也只表「搭档已表达意图」，不表「已迁移」。
    *
-   * P2 处置建议1：act 改 async、接路由真实结果再 toast——此前先弹成功
+   * 处置建议1：act 改 async、接路由真实结果再 toast——此前先弹成功
    * toast 再 fire-and-forget 发回执，发送失败时搭档已看到成功假象。现在 await 路由：
    * resolve 才弹「已发送请求」，reject 弹「发送失败」。按钮防重由 disabled 态兜（MattersPanel）。
    */
@@ -162,9 +162,9 @@ export function useMatters(
     }
   }, [pending])
 
-  /** P2 「+」登记（准入路径 2）：合成登记回执走默认派发（无显式 owner——登记无需 owner）
-   *  F20261006mlp2 P2 处置严重1：回执让獭用 register_matter 工具登记（工具已补）；
-   *  act/register 均 async 接真实发送结果再 toast（此前先弹成功=假象，#1268 同向）。 */
+  /** 「+」登记（准入路径 2）：合成登记回执走默认派发（无显式 owner——登记无需 owner）
+   * 处置严重1：回执让獭用 register_matter 工具登记（工具已补）；
+   * act/register 均 async 接真实发送结果再 toast（此前先弹成功=假象，同向）。 */
   const register = useCallback(async (title: string): Promise<void> => {
     const trimmed = title.trim()
     if (!trimmed) return

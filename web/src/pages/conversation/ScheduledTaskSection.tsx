@@ -132,7 +132,7 @@ export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrig
             </div>
           )}
 
-          {/* 消息内容预览：优先 description，未填则回退 body 提取。F20260915desc */}
+          {/* 消息内容预览：优先 description，未填则回退 body 提取。*/}
           {(() => {
             const preview = resolveTaskPreview(task)
             if (!preview) {

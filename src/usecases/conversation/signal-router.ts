@@ -326,7 +326,7 @@ export class SignalRouter {
     return `【急讯 msg:${signal.id}】来自 ${sender}：${this.extractContent(signal)}`;
   }
 
-  /** F20260922ctxi：配置显示名读取（缺失/异常降级 undefined → 继续回退 senderId） */
+  /** 配置显示名读取（缺失/异常降级 undefined → 继续回退 senderId） */
   private async getPartnerLabel(): Promise<string | undefined> {
     if (!this.deps.settingsRepo) return undefined;
     try {
@@ -362,7 +362,7 @@ export class SignalRouter {
           initialTargets: [otterId],
           invokeFn: (params) => this.deps.invokeFn(params),
           triggerMessageId: signal.id,
-          // F20261012swsg（#1430）：信号触发消息来源透传——安全词扫描闸只放行 user 信号，
+          // 信号触发消息来源透传——安全词扫描闸只放行 user 信号，
           // system 合成消息/scheduler 锚点不进扫描。注意 11:57 二次复现实际走的是 dispatch()
           // 直连链（首哑告警，见 agent-invoker），非本路径——两条路径均已按来源封闸。
           triggerSenderType: signal.senderType as SenderType,

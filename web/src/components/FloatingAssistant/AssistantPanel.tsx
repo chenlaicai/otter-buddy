@@ -132,7 +132,7 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
             return [...prev, { id: key, st: 'system' as const, content: d.endBody || `🦦 ${d.otterName || '大獭'}${tail}～`, ts: nowTs() }]
           })
         },
-        // F20260929wap1 S1：invoke_end entry 投影（失败/中止的 entry 面）——与 invoke.end 同形态居中条。
+        // invoke_end entry 投影（失败/中止的 entry 面）——与 invoke.end 同形态居中条。
         //  DS1：已收尾的 invoke 跳过（invoke.end 已渲染过，同帧双发防双条）
         'entry.failed': data => {
           const d = data as { entryId: string; invokeId?: string; body?: string; otterName?: string }

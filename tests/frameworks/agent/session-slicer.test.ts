@@ -208,7 +208,7 @@ describe("F20260929kws1 保留段简化：最近 4 条 speak", () => {
       entries.push(makeAssistantEntry([textBlock(`speak ${i}`)]));
     }
     const slice = sliceSessionEntries(entries)!;
-    // F20260930hsfx 新口径：原料 = 「保留段（最近 4 条 speak）之外的全量消息」。最近 4 条 speak =
+    // 新口径：原料 = 「保留段（最近 4 条 speak）之外的全量消息」。最近 4 条 speak =
     //  speak 4..7（index 9,11,13,15），原料 = index 0..8 共 9 条（user 0-3 + speak 0-3 + user 4）——
     //  与旧「第 4 条 speak 之前」数值相同，但语义改为「保留段之外」（无 speak 时取全量，
     //  不再拦腰切断 gap 消息、不与保留段陈旧倒挂）。

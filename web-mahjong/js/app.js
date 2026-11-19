@@ -327,7 +327,7 @@ function settleHtml(s) {
 
 function render() {
   document.getElementById("app").dataset.state = state.screen;
-  // #1532：聊天条只在牌局页且入座后可见（观战/大厅隐藏——发言必须有合法 seat）
+  // 聊天条只在牌局页且入座后可见（观战/大厅隐藏——发言必须有合法 seat）
   const chatBar = document.getElementById("chatBar");
   if (chatBar) chatBar.hidden = state.screen !== "room" || state.seat === null;
   if (state.screen === "room" && state.view) {
@@ -403,7 +403,7 @@ function renderOverlay() {
       </div>`;
     return;
   }
-  // F20261022mjls：等待房遮罩——座位就绪况 + 「开始」按钮 + 换獭入口（开始前可自定义陪打獭）
+  // 等待房遮罩——座位就绪况 + 「开始」按钮 + 换獭入口（开始前可自定义陪打獭）
   if (state.overlay === "waiting") {
     const lobby = state.view?.lobby;
     const seatRow = (p, i) => `
@@ -590,10 +590,10 @@ async function enterRoom(seat, opts = {}) {
     // 方案模块四流程：join 入座（拿该座私有视图）→ start 幂等开局确认
     const entered = state.seat === null ? await api.view(state.roomId, null) : await api.join(state.roomId, state.seat);
     state.view = entered.view ?? entered;
-    // F20261022mjls：不再自动 start——建房只开等待房，搭档点「开始」才开局（api.start 调用移至等待遮罩按钮）
+    // 不再自动 start——建房只开等待房，搭档点「开始」才开局（api.start 调用移至等待遮罩按钮）
     state.screen = "room";
     state.streamSettle = null;
-    // F20261022mjls：waiting 房停在等待遮罩（开始按钮）；playing 直进牌桌；created 旧遮罩废弃
+    // waiting 房停在等待遮罩（开始按钮）；playing 直进牌桌；created 旧遮罩废弃
     const status = state.view?.status ?? "playing";
     // waiting 房：优先等待遮罩（开始按钮）——入座选择退后（start 前 seat 概念尚不生效）
     state.overlay = status === "waiting" ? "waiting" : opts.join ? "join" : null;
@@ -628,7 +628,7 @@ function bindEvents() {
     if (el) onHandClick(el.dataset.code);
   });
 
-  // 结算停驻的「继续」按钮已随结算面板迁至桌心（#settlePanel 在 #felt 内，故绑在台面上）
+  // 结算停驻的「继续」按钮已随结算面板迁至桌心（在 内，故绑在台面上）
   $("felt").addEventListener("click", async (e) => {
     const el = e.target.closest('[data-do="settle-continue"]');
     if (!el) return;
@@ -639,7 +639,7 @@ function bindEvents() {
     }
   });
 
-  // #1564-6：停局按钮（场况栏）——confirm 后 POST /stop，成功回大厅
+  // 停局按钮（场况栏）——confirm 后 POST /stop，成功回大厅
   $("field").addEventListener("click", async (e) => {
     const el = e.target.closest('[data-do="stop"]');
     if (!el) return;
@@ -726,8 +726,8 @@ function bindEvents() {
     }
   });
 
-  // #1532：聊天发送（回显靠 SSE chat 帧，不本地假回显——断线时不会自己骗自己）
-  // 在途防抖（检视发现5）：首请求未返回前再触发直接丢弃——双击 Enter/按钮不会发重复消息
+  // 聊天发送（回显靠 SSE chat 帧，不本地假回显——断线时不会自己骗自己）
+  // 在途防抖：首请求未返回前再触发直接丢弃——双击 Enter/按钮不会发重复消息
   let chatSending = false;
   const sendChat = async () => {
     if (chatSending) return;
@@ -788,7 +788,7 @@ async function onStartGame() {
   try {
     const res = await api.start(state.roomId, needOverride ? { players } : undefined);
     const view = res.view;
-    // PR#1609 delta（检视建议 3）：房已被清理（终局驱逐/等待超时）时后端回 view:null + status:"gone"——
+    // PR#1609 delta：房已被清理（终局驱逐/等待超时）时后端回 view:null + status:"gone"——
     // 不渲染空桌，提示回大厅重开
     if (!view) {
       toast("房间已不在（终局驱逐或等待超时）——请回大厅重新建房");
@@ -885,13 +885,13 @@ function handleStreamEvent(ev) {
     if (settle) state.streamSettle = settle;
     else if (engineEvents.some((e) => e.type === "deal")) state.streamSettle = null;
     if (ev.wake?.speech) pushLog(`${ev.wake.via}：${ev.wake.speech}`, "is-wake");
-    // #1564-1：内部降级细节（fallbackReason）不进对局日志——只给中性「代打」标签
+    // 内部降级细节（fallbackReason）不进对局日志——只给中性「代打」标签
     else if (ev.wake && (ev.wake.via === "fallback" || ev.wake.via === "timeout-fallback")) pushLog("（代打）");
     safeRefresh();
     return;
   }
   if (ev.type === "chat") {
-    // #1532：chat 帧回显（自己/他者/獭回应同流）——聊天不改视图，直接重渲染日志
+    // chat 帧回显（自己/他者/獭回应同流）——聊天不改视图，直接重渲染日志
     pushLog(formatChatLine(ev, state.seat), "is-chat");
     render();
     return;

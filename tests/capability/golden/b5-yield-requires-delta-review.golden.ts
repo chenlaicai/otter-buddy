@@ -113,7 +113,7 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
   }
 
   /** 核心判据：处置收尾 yield 必须指向检视獭（delta 复核）且不含 'user'——
-   *  tsp 含 user = 越级找搭档（B5 伤疤本体）；tsp 指召唤者/自己 = 跳过复核；混合路由 = 否 */
+   * tsp 含 user = 越级找搭档（伤疤本体）；tsp 指召唤者/自己 = 跳过复核；混合路由 = 否 */
   const tsp = disposal.tsp ?? [];
   const passedToReviewer = tsp.includes(reviewer.id);
   const passedToUser = tsp.includes("user");

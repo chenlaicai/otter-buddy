@@ -106,7 +106,7 @@ function SwimRow({ ch, y, xOf, now, onOpen }: { ch: RhiChainDTO; y: number; xOf:
     >
       <rect x={0} y={1} width={ROW_W} height={ROW_H - 2} fill="transparent" />
       <title>{`${CHAIN_STATE_META[ch.state]?.label ?? ch.state} · ${ch.featureId} · ${ch.commitCount} commits${ch.daysSinceLastCommit !== null ? ` · 距上次 ${ch.daysSinceLastCommit} 天` : ''}`}</title>
-      {/* 左缘截断标注：窗口外老链，起点贴左缘（§3.2 共享 x 轴约定） */}
+      {/* 左缘截断标注：窗口外老链，起点贴左缘（共享 x 轴约定） */}
       {geo.clippedStart && (
         <g className="swim-clipped-mark">
           <line x1={LANE_X0 - 6} y1={ROW_H / 2 - 6} x2={LANE_X0 - 6} y2={ROW_H / 2 + 6} stroke={OTTER[400]} strokeWidth={2} />
@@ -123,7 +123,7 @@ function SwimRow({ ch, y, xOf, now, onOpen }: { ch: RhiChainDTO; y: number; xOf:
           stroke={lineColor} strokeWidth={2}
         />
       )}
-      {/* orphan：悬空空心起点（无入边连接，§3.2 lavender-400） */}
+      {/* orphan：悬空空心起点（无入边连接，lavender-400） */}
       {ch.state === 'orphan' && (
         <circle className="swim-orphan-start" data-orphan-start="1" cx={hasCommits ? geo.firstX : LANE_X0 + 6} cy={ROW_H / 2} r={4.5} fill="none" stroke={LAVENDER[400]} strokeWidth={2} />
       )}
@@ -198,7 +198,7 @@ function XAxis({ now }: { now: Date }) {
   const end = now.getTime()
   const ticks = Array.from({ length: 7 }, (_, i) => {
     const t = end - (WINDOW_DAYS - i * 10) * DAY_MS
-    // A1 修复（F20260920tdun）：epoch ms 先转本地 ISO 再格式化——旧实现 toISOString() 直接切 UTC 日期，
+    // 修复：epoch ms 先转本地 ISO 再格式化——旧实现 toISOString() 直接切 UTC 日期，
     // CST 0:00-8:00 期间标签显示前一天；现在用 fmtTimeShort 走本地时区，MM-DD 与页面其他域一致
     return { x: LANE_X0 + (i * 10 / WINDOW_DAYS) * (LANE_X1 - LANE_X0), label: fmtTimeShort(new Date(t).toISOString()).slice(0, 5) }
   })
@@ -303,7 +303,7 @@ export function ChainFilterChips({ counts, total, active, onPick }: {
           </button>
         )
       })}
-      {/* 活跃 chip：描边灰显（§3.2 视觉反转——常态在筛选语法里降级） */}
+      {/* 活跃 chip：描边灰显（视觉反转——常态在筛选语法里降级） */}
       <button
         className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
           active === 'active'

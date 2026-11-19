@@ -165,7 +165,7 @@ export class AttachmentUploadService {
       kind: detected.kind,
       sizeBytes: finalSize,
       width, height,
-      caption: null, // Phase 2 异步 worker 回填
+      caption: null, // 异步 worker 回填
       uploaderId,
       createdAt: new Date().toISOString(),
     };

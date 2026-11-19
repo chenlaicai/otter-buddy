@@ -92,8 +92,8 @@ export function parseCommit(sha: string, message: string): ParsedCommit {
     return createCompliantResult(sha, message, standardMatch, firstLine);
   }
 
-  // 三段结构完整但类型未识别（#425 发现 7）：与纯格式不合规区分，
-  // 如 [Feature]/[Enhancement]/[Tests]（Feature 是历史别名，#432 起不再收录）
+  // 三段结构完整但类型未识别（发现 7）：与纯格式不合规区分，
+  // 如 [Feature]/[Enhancement]/[Tests]（Feature 是历史别名，起不再收录）
   const structuredTypeMatch = firstLine.match(STRUCTURED_TYPE_SEGMENT_REGEX);
   if (structuredTypeMatch) {
     return createFPrefixResult(sha, message, structuredTypeMatch, firstLine, { skipReason: 'unrecognized_change_type', module: structuredTypeMatch[2] });

@@ -152,7 +152,7 @@ describe("牌局页浏览器真机渲染", () => {
     });
     expect(grid, "对手牌河应为 6 列网格").toBe(6);
 
-    // ⑤ v3 场况分工：角标只留宝牌/连接/停局，局数·本场·供托·余牌归中央信息盘（D3 不同屏双显）
+    // ⑤ v3 场况分工：角标只留宝牌/连接/停局，局数·本场·供托·余牌归中央信息盘（不同屏双显）
     const fieldText = (await page.locator("#field").innerText()).replace(/\s+/g, " ");
     expect(await page.locator("#field .f-dora .tile").count()).toBeGreaterThan(0);
     expect(fieldText, "角标不该再重复局数（双显 = 同一状态两个渲染点）").not.toContain("東一局");
@@ -205,7 +205,7 @@ describe("牌局页浏览器真机渲染", () => {
     expect(Math.abs(geom.topRiver.cx - geom.felt.cx), `上家河应水平居中（偏 ${geom.topRiver.cx - geom.felt.cx}px）`).toBeLessThan(8);
     expect(geom.chatbar.top, "聊天通栏应在台面之外（不与玩家条挤）").toBeGreaterThanOrEqual(geom.felt.bottom);
 
-    // ⑥-c 计时器渲染位随迁（回归风险项）：awaitingHuman.deadline → #actionbar[data-deadline]，
+    // ⑥-c 计时器渲染位随迁（回归风险项）：awaitingHuman.deadline → [data-deadline]，
     //      文本由 tickTimer 回填（首次渲染为空串，能读到「倒计时 Ns」即证明 300ms tick 未断）
     const timerCount = await page.locator("#actionbar .timer[data-deadline]").count();
     expect(timerCount, "动作栏应保留 timer 渲染位（awaitingHuman 停驻自己）").toBe(1);
@@ -256,7 +256,7 @@ describe("牌局页浏览器真机渲染", () => {
     await page.fill("#chatInput", "第一句测试发言");
     await page.press("#chatInput", "Enter");
 
-    // 自己的话经 SSE chat 帧回显进对局日志（修复前无 #chatBar/无消费分支 → 本选择器必挂）
+    // 自己的话经 SSE chat 帧回显进对局日志（修复前无 /无消费分支 → 本选择器必挂）
     await page.waitForSelector("#log li.is-chat", { timeout: 5_000 });
     const line = await page.locator("#log li.is-chat").first().textContent();
     expect(String(line)).toContain("第一句测试发言");
@@ -430,7 +430,7 @@ describe("牌局页浏览器真机渲染", () => {
     await page.close();
   });
 
-  // F20261022mjls：建房≠开局——waiting 遮罩真机验证（开始按钮可见可点、座位就绪况、换獭入口）
+  // 建房≠开局——waiting 遮罩真机验证（开始按钮可见可点、座位就绪况、换獭入口）
   it("F20261022mjls 等待遮罩：开始按钮 + 座位就绪 + 换獭入口，点击后发牌进牌桌", { timeout: 120_000 }, async () => {
     const errors: string[] = [];
     const page = await browser.newPage({ viewport: { width: 1280, height: 940 } });

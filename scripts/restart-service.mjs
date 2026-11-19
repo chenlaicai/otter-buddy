@@ -124,9 +124,9 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowed
     return { ok: false, error: "--add 必须同时给 --project /abs/path（声明该端口归属的项目目录）" };
   }
 
-  // 检视处置 S1：--add 授权面收窄——projectDir 必须在 allowedRoots（工作根）之下、
+  // 检视处置 --add 授权面收窄——projectDir 必须在 allowedRoots（工作根）之下、
   // 不得是根本身、必须真实存在且是目录。范围外终止诉求走搭档手动授权（原语义）。
-  // A2（delta 建议）：roots 与 projectDir 都 realpath 归一后再判边界——与主流程 cwd 校验
+  // （delta 建议）：roots 与 projectDir 都 realpath 归一后再判边界——与主流程 cwd 校验
   // 同口径，消「进程经 symlink 启动」的词法/真实路径不一致边角（macOS /var→/private/var 等）
   const roots = (allowedRoots ?? []).map((r) => { try { return fs.realpathSync(r); } catch { return path.resolve(r); } });
   if (roots.length === 0) {
@@ -136,7 +136,7 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowed
   try {
     realProjectDir = fs.realpathSync(projectDir);
   } catch { /* 不存在/不可达——在下方存在性检查拦截 */ }
-  // 存在性先行：不存在/不是目录的路径直接拒（A2 realpath 改序后仍保持原语义优先级）
+  // 存在性先行：不存在/不是目录的路径直接拒（realpath 改序后仍保持原语义优先级）
   let isDir = false;
   try {
     isDir = fs.statSync(projectDir).isDirectory();
@@ -156,7 +156,7 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowed
   }
   // 写回的 projectDir 用原始声明值（搭档可读），真实路径归一只用于边界判定
 
-  // 检视处置 M1：写回加锁（串行化并发 --add，锁内 re-read 消丢更新）+ temp+rename 原子替换
+  // 检视处置 写回加锁（串行化并发 --add，锁内 re-read 消丢更新）+ temp+rename 原子替换
   // （磁盘满/中断不留半截文件）。锁陈旧（>5s）强占防死锁。
   fs.mkdirSync(path.dirname(whitelistPath), { recursive: true }); // 锁文件也要落在已存在的目录
   return withLock(whitelistPath + ".lock", () => {
@@ -273,7 +273,7 @@ if (isMain) {
   // ── 参数解析 ──
   const args = process.argv.slice(2);
 
-  // F20261008hcpa（#1356 层2 疏通）：kill-by-pid 子命令——指定 PID 受控终止。
+  // （层2 疏通）：kill-by-pid 子命令——指定 PID 受控终止。
   // 场景：僵尸进程/测试残留进程按 PID 精确终止（端口路由不适用时）。
   // 安全不变式与端口路径同构：②主进程拒绝 ③cwd 归属校验，只是换了个寻址方式。
   if (args[0] === "kill-by-pid") {
@@ -284,7 +284,7 @@ if (isMain) {
       console.error("  --project: 项目目录（必填——kill-by-pid 无白名单声明语义，须现场给出归属目录）");
       process.exit(1);
     }
-    // 剩余 lsof 探测（进程存在性/cwd 归属）留在本流程（#844 原口径：手工冒烟覆盖）
+    // 剩余 lsof 探测（进程存在性/cwd 归属）留在本流程（原口径：手工冒烟覆盖）
     let kbProjectDir = null;
     for (let i = 2; i < args.length; i++) {
       if (args[i] === "--project" && args[i + 1]) { kbProjectDir = path.resolve(args[i + 1]); i++; }
@@ -299,7 +299,7 @@ if (isMain) {
       mainPid: kbMainPid,
       selfPid: process.pid,
       selfPpid: process.ppid,
-      // #1580：合法根双根——otter 工作根 + alpha 规范数据根（alpha.sh alpha_root_dir）
+      // 合法根双根——otter 工作根 + alpha 规范数据根（alpha.sh alpha_root_dir）
       allowedRoots: killByPidAllowedRoots(otterRoot),
     });
     if (!kbCheck.ok) die(kbCheck.error, { action: "kill-by-pid", pid, projectDir: kbProjectDir });
@@ -340,7 +340,7 @@ if (isMain) {
     else if (args[i] === "--add") { add = true; }
   }
 
-  // ── 校验 ①：端口白名单（含 --add 声明写回，#1069；allowedRoots=otter 工作根=otterRoot 上级）──
+  // ── 校验 ①：端口白名单（含 --add 声明写回，；allowedRoots=otter 工作根=otterRoot 上级）──
   const resolved = resolvePortEntry({
     port,
     projectDir,

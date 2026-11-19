@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import CapabilitySkipReporter from "./capability/helpers/skip-reporter";
 
 /**
- * skip-reporter 计数语义固化测试（delta-2 审视处置，2026-09-28）。
+ * skip-reporter 计数语义固化测试（审视处置，2026-09-28）。
  *
  * 语义锚点来自检视獭在 vitest 5.0.1 下的全域探针实测（5 类用例）。本测试驱动生产类直接断言，
  * 锁定的是本仓库计数语义（合成输入为固定字段组合，不能替代上游真实运行时——上游升级若改语义，

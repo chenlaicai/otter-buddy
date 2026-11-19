@@ -490,7 +490,7 @@ describe("Issue #660：behavior_defect 窗口边界覆盖增强", () => {
 
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    expect(rec!.evidence).toContain("3 个不同修复事件"); // 计数不被 healing 事件抬高（#1214 口径：独立 PR 数）
+    expect(rec!.evidence).toContain("3 个不同修复事件"); // 计数不被 healing 事件抬高（口径：独立 PR 数）
     const stall = signals.find(s => s.type === "chain_stall");
     expect(stall).toBeDefined();
     expect(stall!.featureId).toBe("F20260801mx66"); // 判定不被 healing/commit 混入干扰
@@ -549,11 +549,11 @@ describe("Issue #660：behavior_defect 窗口边界覆盖增强", () => {
 });
 
 describe("detectSignals #1214 口径修订（bug_recurrence 同 PR 去重 + 载体排除）", () => {
-  // ── #1214 口径修订：同 PR 去重 / 非逻辑载体排除 / occurrences 语义 ──
+  // ── 口径修订：同 PR 去重 / 非逻辑载体排除 / occurrences 语义 ──
 
   it("#1214 同 PR 去重：同 PR 多 commit 只计 1 个修复事件，不再触发（系统性修复不连锁报 7-9 条）", () => {
     const commits = [
-      // 同 PR #500 的 3 次链式修复（squash 前多 commit）——旧口径 3 次→触发，新口径 1 事件→不触发
+      // 同 的 3 次链式修复（squash 前多 commit）——旧口径 3 次→触发，新口径 1 事件→不触发
       commit("c1", 3, "[F20260801tstw][agent][BugFix] 1 (#500)", ["src/invoker.ts"]),
       commit("c2", 5, "[F20260801tstw][agent][BugFix] 2 (#500)", ["src/invoker.ts"]),
       commit("c3", 7, "[F20260801tstw][agent][BugFix] 3 (#500)", ["src/invoker.ts"]),
@@ -572,7 +572,7 @@ describe("detectSignals #1214 口径修订（bug_recurrence 同 PR 去重 + 载�
     const signals = detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    expect(rec!.evidence).toContain("3 个不同修复事件"); // #501+#502+#503（c2/c3 去重后）
+    expect(rec!.evidence).toContain("3 个不同修复事件"); // ++（c2/c3 去重后）
     expect(rec!.evidence).toContain("#501");
     expect(rec!.evidence).toContain("首末修复");
   });
@@ -586,7 +586,7 @@ describe("detectSignals #1214 口径修订（bug_recurrence 同 PR 去重 + 载�
     const signals = detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    // 检视发现 3：纯无 PR 形态文案不冗余（单短语，不是「无 PR 号 commit + N 个无 PR 号 commit」）
+    // 纯无 PR 形态文案不冗余（单短语，不是「无 PR 号 commit + N 个无 PR 号 commit」）
     expect(rec!.evidence).toContain("3 个无 PR 号 commit");
     expect(rec!.evidence).not.toContain("无 PR 号 commit +");
   });
@@ -658,7 +658,7 @@ describe("detectSignals #1214 口径修订（bug_recurrence 同 PR 去重 + 载�
   });
 
   it("#1214 非逻辑载体排除：组装文件 / 测试文件不计复发；src 根 types.ts 属装配类型同排除", () => {
-    // 注（检视发现 4 处置）：types 规则收窄为「src 根 + bootstrap/」——深层域类型文件
+    // 注：types 规则收窄为「src 根 + bootstrap/」——深层域类型文件
     // （如 agent-turn-orchestrator/types.ts 纯类型、weixin/types.ts runtime 载体）不再
     // 全排除：纯类型域文件不达阈无信号（无害），runtime 载体达阈报警（正确，见 weixin 回归锚）
     const commits = [
@@ -694,7 +694,7 @@ describe("detectSignals #1214 口径修订（bug_recurrence 同 PR 去重 + 载�
 describe("detectSignals #1012 修法 c（系列归因分级 + 载体排除补全）", () => {
   // ── 系列归因分级（delta 纠错：锚点从 featureId 换 issue 引用——
   //    本仓 FID↔PR 严格 1:1（全历史实测），FID 判据 critical 分支生产不可达；
-  //    issue 引用聚类（#1160 五连 / #1207 集群）是归因报告原案锚点且生产实测存在）──
+  // issue 引用聚类（五连 / 集群）是归因报告原案锚点且生产实测存在）──
 
   it("系列归因：同一 issue 反复修 ≥3 次 → critical（#1160 五连形态，真腐烂）", () => {
     const commits = [
@@ -742,7 +742,7 @@ describe("detectSignals #1012 修法 c（系列归因分级 + 载体排除补全
     const signals = detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    // 主体 #1160 计数 2 严格过半（2*2 > 3）→ 同一根因修复系列成立 → critical；
+    // 主体 计数 2 严格过半（2*2 > 3）→ 同一根因修复系列成立 → critical；
     // 剩余 1 个独立修是系列内噪声，不拖成 warning（判据设计：主体占优即按真腐烂报）
     expect(rec!.severity).toBe("critical");
   });
@@ -783,14 +783,14 @@ describe("detectSignals #1012 修法 c（系列归因分级 + 载体排除补全
 });
 
 describe("detectSignals 存量信号回放（delta r1 D1 处置：真实生产 message 做测试数据）", () => {
-  // 背景：delta r1 发现「测试构造形态 ≠ 生产形态」连续两轮存在——手工构造的理想形态
+  // 背景：发现「测试构造形态 ≠ 生产形态」连续两轮存在——手工构造的理想形态
   // （3 修全引同一 issue）过线，真实数据（集群爆发、每次开新 issue 号）全降 warning。
   // 本组用例把生产真实 message 固化为回归锥，确保判据行为与声明的能力边界一致。
-  // 裁决：b 路线——机械判据对集群爆发形态判 warning，靠专项 issue 兜底（#1260 宪法在途），
+  // 裁决：b 路线——机械判据对集群爆发形态判 warning，靠专项 issue 兜底（宪法在途），
   // 知情声明落在特性文档 intent 与 PR body。
 
   it("【回放】bash 守卫集群爆发形态（21 修 28 个号全计数 1）→ warning（能力边界如实）", () => {
-    // 生产真实形态捕样：bash-safety-guard.ts 30 天窗 21 修，issue/PR 号各不相同（#777→#850→#984→#1120→…）
+    // 生产真实形态捕样：bash-safety-guard.ts 30 天窗 21 修，issue/PR 号各不相同（…）
     // 抽 3 条代表性 message（最小可判样本）：每次修复开新 issue 号 + 各自 PR 号，主体计数全 1
     const commits = [
       commit("rb1", 3, "[F20260916xxxx][guard][BugFix] 守卫修 1：误拦收口 (#777) (#990)", ["src/frameworks/agent/bash-safety-guard.ts"]),
@@ -801,12 +801,12 @@ describe("detectSignals 存量信号回放（delta r1 D1 处置：真实生产 m
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
     // 每号计数 1，主体不过半（1*2 > 3 不成立）→ warning。这是声明的能力边界：
-    // 集群爆发形态（真腐烂）靠专项 issue 兜底（#1260 守卫宪法），机械判据不试图覆盖
+    // 集群爆发形态（真腐烂）靠专项 issue 兜底（守卫宪法），机械判据不试图覆盖
     expect(rec!.severity).toBe("warning");
   });
 
   it("【单元】#1160 系列目标形态（正文引用同 issue 严格过半）→ critical（判据单元验证）", () => {
-    // 判据目标形态的单元验证（非生产全量——生产 index.tsx 30 天窗 12 BugFix、#1160 计 3、
+    // 判据目标形态的单元验证（非生产全量——生产 index.tsx 30 天窗 12 BugFix、计 3、
     // 6≤12 不过半判 warning，见下一用例【回放】稀释形态）。此处验证判据在过半时的行为
     const commits = [
       commit("rc1", 3, "[F20260921aaaa][web][BugFix] 右栏根治（#1160） (#1161)", ["web/src/pages/home/index.tsx"]),
@@ -822,7 +822,7 @@ describe("detectSignals 存量信号回放（delta r1 D1 处置：真实生产 m
   it("【单元】混合形态：主体 #1160 计 3/4 修（严格过半）→ critical（判据单元验证）", () => {
     // 判据目标形态的单元验证：3×2>4 严格过半 → critical。
     // ⚠ 原注释「index.tsx 10 修计 3 主体占优仍过线」与生产判定相反（6≤10 判 warning）——
-    // 检视 r3 严重 1 指出集合截断致判定翻转，生产全量断言见下一用例
+    // 检视 严重 1 指出集合截断致判定翻转，生产全量断言见下一用例
     const commits = [
       commit("rh1", 3, "[F20260921aaaa][web][BugFix] 右栏根治（#1160） (#1161)", ["web/src/pages/conversation/index.tsx"]),
       commit("rh2", 5, "[F20260923bbbb][web][BugFix] 右栏看门狗（#1160 阶段2） (#1179)", ["web/src/pages/conversation/index.tsx"]),
@@ -837,9 +837,9 @@ describe("detectSignals 存量信号回放（delta r1 D1 处置：真实生产 m
   });
 
   it("【回放】index.tsx 全量稀释形态（30 天窗 12 BugFix、#1160 计 3、6≤12 不过半）→ warning（能力边界如实）", () => {
-    // 生产全量回放（检视 r3 严重 1 处置）：活跃热点文件的真系列被同期其他修复稀释——
-    // git log 实测 12 个 BugFix 唯一 PR 号（#1292/#1268/#1251/#1185/#1179/#1161/#1095/#1076/#1072/#993/#963/#922 等），
-    // #1160 正文引用计 3，3*2=6 ≤ 12 不过半 → warning。
+    // 生产全量回放（检视）：活跃热点文件的真系列被同期其他修复稀释——
+    // git log 实测 12 个 BugFix 唯一 PR 号（等），
+    // 正文引用计 3，3*2=6 ≤ 12 不过半 → warning。
     // 这是能力边界的第二种失效机制（第一种：集群爆发全计数 1）——严格过半线在活跃文件上不可达
     const prMessages: Array<[string, string]> = [
       ["d1", "[F20260924ircc][web][BugFix] 右栏状态回归根治：分离防双拉门控与断连重连补偿语义（#1160） (#1161)"],
@@ -859,8 +859,8 @@ describe("detectSignals 存量信号回放（delta r1 D1 处置：真实生产 m
     const signals = detectSignals(commits, [], [], { now: NOW });
     const rec = signals.find(s => s.type === "bug_recurrence");
     expect(rec).toBeDefined();
-    // 全量集合下 #1160 计 3、events=12，3*2=6 ≤ 12 → warning：真系列被稀释，
-    // 与生产判定一致（r1 id 5 / r3 独立复算双源）
+    // 全量集合下 计 3、events=12，3*2=6 ≤ 12 → warning：真系列被稀释，
+    // 与生产判定一致（id 5 / 独立复算双源）
     expect(rec!.severity).toBe("warning");
   });
 });

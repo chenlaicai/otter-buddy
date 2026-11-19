@@ -231,7 +231,7 @@ function classifySignals(chain: FeatureChain, ctx: ChainCtx): ChainSignal[] {
   }
 
   // regressed：最新 commit 是 BugFix 且触碰链内更早 commit 引入的文件（窄门：文件交集即证据）
-  // F20260902sigm T4：删除 inFlight 前提——合入后修 bug 恰是最常见的回退场景，不再漏报
+  // 删除 inFlight 前提——合入后修 bug 恰是最常见的回退场景，不再漏报
   const regressed = findRegressed(chain);
   if (regressed) {
     signals.push({

@@ -210,7 +210,7 @@ export class RhiSignalAgingWorker {
     });
   }
 
-  /** 孤儿 healing 清理（S3）：终态化信号对应的 aging healing 自动销号 */
+  /** 孤儿 healing 清理：终态化信号对应的 aging healing 自动销号 */
   private async resolveOrphanHealings(
     signalRepo: SignalRepository,
     healingRepo: HealingEventRepository,

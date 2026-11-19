@@ -61,7 +61,7 @@ export class WeixinGatewayAdapter implements WeixinGateway {
     await this.replyText(toUserId, text);
   }
 
-  /** 媒体出站（issue #567）：读本地文件 → CDN 上传（AES-ECB）→ 按 MIME 路由 item 发送。
+  /** 媒体出站：读本地文件 → CDN 上传（AES-ECB）→ 按 MIME 路由 item 发送。
    *  平移自 openclaw-weixin send-media.ts 的路由语义：image/* → IMAGE，video/* → VIDEO，
    *  其余 → FILE。caption 非空时先发文本 item 再发媒体 item（逐 item 独立请求）。 */
   async replyMedia(toUserId: string, params: { filePath: string; fileName: string; mimeType: string; caption?: string }): Promise<void> {
@@ -109,7 +109,7 @@ export class WeixinGatewayAdapter implements WeixinGateway {
     return md
       // 链接 [text](url) → text（url 对纯文本用户是噪音）
       .replace(/\[([^\]]*)\]\(([^)]*)\)/g, "$1")
-      // 尖括号 autolink <url> → url（F20260920alnk 投影层产出形态，微信纯文本可点）
+      // 尖括号 autolink <url> → url（投影层产出形态，微信纯文本可点）
       .replace(/<(https?:\/\/[^>\s]+)>/g, "$1")
       // 加粗/斜体
       .replace(/\*\*([^*]+)\*\*/g, "$1")

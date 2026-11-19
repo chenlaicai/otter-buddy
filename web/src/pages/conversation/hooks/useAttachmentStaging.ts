@@ -117,7 +117,7 @@ export function useAttachmentStaging(conversationId: string | null) {
     setUploadError(null)
   }, [])
 
-  /** 会话切换即清空（发现 1 修复）：ref 比较只在 id 真变化时触发（挂载不清空，
+  /** 会话切换即清空：ref 比较只在 id 真变化时触发（挂载不清空，
    *  避免无谓 rerender）；ChatView 不重挂载，靠本 effect 隔离会话 A/B 的中转状态。
    *  进行中的上传完成回调（DTO 替换遍历 uploading 条目）在清空后的空列表上空转，不会复活条目。 */
   const prevConversationIdRef = useRef(conversationId)

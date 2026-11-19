@@ -401,9 +401,9 @@ export function collectOtterOutput(
 ): OtterOutputRecord[] {
   const since = options?.since ?? new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  // F20260913ctlv 批4c：数据源切 entries（speak = 獭气泡产出；messages 表已 drop）
-  // F20261105tzwfx：日界统一 Asia/Shanghai（与 consumeLine/countToolCallsInFile 同轨）。
-  // hwl1 复审 A4 改了 toolCallCounts 的日键（shanghaiDateKey）但此处 SQL DATE() 仍是
+  // 批4c：数据源切 entries（speak = 獭气泡产出；messages 表已 drop）
+  // 日界统一 Asia/Shanghai（与 consumeLine/countToolCallsInFile 同轨）。
+  // hwl1 复审 改了 toolCallCounts 的日键（shanghaiDateKey）但此处 SQL DATE() 仍是
   // UTC 日界——上海 0-8 点窗口：(a) messageCount 归 UTC 日与 toolCallCounts 的上海日
   // 键错配，toolCallCounts.get(r.date) 查不到、toolCallCount 静默归零；(b) cost 行与
   // output 行跨日分裂。SQLite 无时区支持，用 datetime(+8h) 后取 DATE 等价上海日。
@@ -453,7 +453,7 @@ async function countToolCallsInFile(
     const msg = obj as unknown as SessionMessageLine;
     if (msg.message.role !== "assistant") continue;
 
-    // F20261027hwl1 复审 A4：工具调用计数日界同步 Asia/Shanghai（与 consumeLine 的 token 记录同轨，
+    // 复审 工具调用计数日界同步 Asia/Shanghai（与 consumeLine 的 token 记录同轨，
     // 消灭同采集器内 UTC/Shanghai 口径分裂——北京时间 0-8 点窗口同一调用曾落到不同日期）
     const date = shanghaiDateKey(msg.timestamp);
     if (sinceDate && date < sinceDate) continue;

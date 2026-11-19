@@ -162,7 +162,7 @@ function buildTransitionPatch(
     waitingFor: input.waitingFor ?? matter.waitingFor,
     payload: input.payload ?? matter.payload,
     resolution: input.resolution ?? matter.resolution,
-    // F20261019fckd：补标留痕（closure_kind 列持久化）；未传不动存量值
+    // 补标留痕（closure_kind 列持久化）；未传不动存量值
     closureKind: input.closureKind !== undefined ? input.closureKind : matter.closureKind,
     // resolvedBy 统一记实际执行獭（审计谁动了表）——被代理者身份经 resolution「代搭档执行：<原话>」留痕
     resolvedBy: normalizedActor(input.actor),

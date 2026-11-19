@@ -105,8 +105,8 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
     expect(firstSession, "F20260805rsto 不变量：有对话即有 active domain session").not.toBeNull();
 
     // 1b. 种子前置：为该对话写入 working 记忆（restart 管线「工作记忆转历史」的输入）。
-    // F20260928cl1a：原断言隐式依赖「对话消息自动写入 working 记忆」——该链路已被 #886
-    // （F20260913ctlv，messages 表族退役）删除 indexMessage 后中断（生产库 9/13 后 message 类
+    // 原断言隐式依赖「对话消息自动写入 working 记忆」——该链路已被 
+    // （messages 表族退役）删除 indexMessage 后中断（生产库 9/13 后 message 类
     // 记忆零新增，另立 issue 跟踪产品侧恢复）。本用例改为显式构造前置数据：经真实装配的
     // memoryWriter 写入，验证 restart 管线自身的转换职责（archiveSession 第 5 步 updateLayer）。
     await ctx.built.repos.memoryWriter.storeEntry({
@@ -122,7 +122,7 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
       createdAt: new Date().toISOString(),
     });
 
-    // 2. 重启獭生（携带手工 summary——F20260917rsta 搭档语义：填了就按你的）
+    // 2. 重启獭生（携带手工 summary——搭档语义：填了就按你的）
     const restartRes = await ctx.built.app.request(`/api/otters/${otterId}/restart`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -132,11 +132,11 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
     const restartBody = await restartRes.json() as { id: string };
 
     // 3. 账本断言（确定性，严格）：旧行封存 + 新行建链。
-    // F20260928cl1a 断言语义更新（对齐 #1146/F20260920uhuc 统一交接管线的有意变更，非回归）：
+    // 断言语义更新（对齐 /统一交接管线的有意变更，非回归）：
     // 生产装配（OtterController 带 agentInvoker）下 restart 恒走 restartWithUnifiedHandoff，
     // summary 字段落账的是「叠加式档案」全文（narrative-synthesis-engine assembleHandoffArchive /
     // buildMechanicalArchive 组装），手工 selfSummary 以 ① 交接意图书 原话层嵌在档案内——
-    // 这正是 F20260917rsta 搭档语义的实现形态（「填了就按我的」= 原话独立保留在 ① 层，
+    // 这正是 搭档语义的实现形态（「填了就按我的」= 原话独立保留在 ① 层，
     // 不被叙事合成转述吞掉）。真跑环境合成模型不可用/降级时档案为机械转储形态，
     // ① 层结构不变，断言对两种形态都成立。
     const history = await ctx.built.repos.otter.getSessionHistory(otterId);
@@ -146,7 +146,7 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
     expect(oldRow.archiveReason).toBe("restart");
     /** 档案断言（形式不变量 + 层位全等，不锁档案全文——合成内容非确定）：
      *  ① 是档案（叠加式结构头）而非裸透传；② ① 交接意图书 层存在；
-     *  ③ 层内内容恰为手工 summary 原话（检视獭-1192 发现 2 修复：锁归属与完整性，
+     * ③ 层内内容恰为手工 summary 原话（检视獭-1192 锁归属与完整性，
      *  防原话被转述进 ② 层或层内被追加篡改而 toContain 全绿的漏检） */
     expect(oldRow.summary, "旧行 summary 应为叠加式档案（unified handoff 管线写入）").toContain("前世档案");
     expect(oldRow.summary, "手工 summary 应以 ① 交接意图书 层原话保留").toContain("### ① 交接意图书");
@@ -157,7 +157,7 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
     const newRow = history.find((s) => s.id !== firstSession!.id)!;
     expect(newRow.status).toBe("active");
     expect(newRow.previousSessionId).toBe(firstSession!.id);
-    /** 双写不变量保留（F20260805rsto）：新旧行 summary 同源（同一次 restartSession(archive) 写入） */
+    /** 双写不变量保留：新旧行 summary 同源（同一次 restartSession(archive) 写入） */
     expect(newRow.summary).toBe(oldRow.summary);
     expect(restartBody.id).toBe(newRow.id);
 
@@ -188,16 +188,16 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
 
     // ── 断言面 A：行为证据——身份注入有效性的开放提问验证（提示词不泄漏答案）──
     // 大獭的身份（BIG_OTTER.md「你是大獭 🦦，海獭团队的头儿」）经 system role 注入
-    // （F20260810piab S1：before_agent_start handler 注入 system prompt，不持久化到
+    // （before_agent_start handler 注入 system prompt，不持久化到
     // session jsonl、也不拼在 user message——session 文件里抓不到，行为是第一等证据面）。
     // 鉴别力：提问不含任何身份 token，动态上下文只泄漏獭名（「大獭」）不泄漏称谓——
-    // 模型自称「海獭团队」/「头儿」只能来自 system 注入的身份行（检视獭-1192 发现 1 修复：
+    // 模型自称「海獭团队」/「头儿」只能来自 system 注入的身份行（检视獭-1192 
     // 旧版引导模型逐字复述标记词是断言空转，对注入失效零鉴别力）。
     expectIdentitySelfClaim(round1.content, "第一轮：大獭应能自称身份（system 身份注入生效的行为证据）");
 
     // ── 断言面 B：架构不变量——用户消息不携带身份前缀 ──
-    // S1 迁移后 user message 只含动态上下文（工作区/在场成员/对话历史）+ 用户输入，
-    // 身份持久化进 user message 是 F20260810piab 之前的旧架构（会随 session 历史膨胀）。
+    // 迁移后 user message 只含动态上下文（工作区/在场成员/对话历史）+ 用户输入，
+    // 身份持久化进 user message 是 之前的旧架构（会随 session 历史膨胀）。
     // 提问原文不含身份 token（断言面 A 同源设计），无回声需剔除——直接断言不含完整称谓。
     const sessionFile = getSessionFile(ctx.built.db, otterId);
     expect(sessionFile, "agent_sessions 应有 session_file").toBeTruthy();
@@ -258,7 +258,7 @@ describe("獭生命周期：重启獭生 + 身份注入 + speak 协议（真系�
   it("speak 协议合规：3 次采样 ≥1 次合规（统计断言，F20260805mspk）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
-    /** #1195：收编到 expectSampledBehavior（原先手写循环绕过 #1187 预算护栏）。
+    /** 收编到 expectSampledBehavior（原先手写循环绕过 预算护栏）。
      *  采样内 expectSpeakCompliance 的 throw 由 helper catch 记 FAIL 样本——与原
      *  try/catch 记 ok=false 语义对齐。规格同 memory-recall（120s 窗 + 轮询余量 →
      *  worst 240s；3×240+120 → 帽 840s）。 */

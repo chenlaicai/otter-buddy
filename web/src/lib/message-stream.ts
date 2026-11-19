@@ -43,7 +43,7 @@ export function insertBySeq(list: LocalMessage[], msg: LocalMessage): LocalMessa
   return [...list.slice(0, pos), msg, ...list.slice(pos)]
 }
 
-/** delta2（delta 复核发现：初版修复死链）：abort 409（假行动中）按服务端
+/** （delta 复核发现：初版修复死链）：abort 409（假行动中）按服务端
  *  真实终态收敛。匹配集 = 快照 ∪ 当前 in-flight：
  *  - 快照命中（请求前 in-flight）——覆盖已被乐观置为 'aborted' 的气泡。初版只匹配
  *    isInFlight(current)，而入口在发请求前已乐观置终态，409 回来时恒零匹配，
@@ -73,7 +73,7 @@ export function settleInvokeToTerminal(
 /** delta（）：abort 失败（非 409）回滚乐观 aborted——
  *  仅回滚本次乐观置位的气泡：旧实现 status==='aborted' 误伤同 invokeId 的历史真实
  *  aborted 气泡，快照精确匹配本次乐观产物；回滚保留 content（乐观置时 m.content || '[中断]' 保留原内容，
- *  清空会丢弃已流出内容——不对称）。delta2（复核建议 3）：状态恢复快照原值
+ * 清空会丢弃已流出内容——不对称）。（复核建议 3）：状态恢复快照原值
  *  （streaming/speaking 都还原，不再硬编码 streaming——丢 speaking 快照态）。 */
 export function rollbackOptimisticAbort(
   list: LocalMessage[],

@@ -151,7 +151,7 @@ export class AttachmentInjectionService {
     docLines.push(`[文件: ${a.originalName}]\n${this.truncateDocumentBytes(raw)}`);
   }
 
-  /** 读盘（async，审视修复 R12：不阻塞事件循环；失败降级 null：占位投影仍在，真图/真文本缺席——warn 留痕） */
+  /** 读盘（async，审视修复 不阻塞事件循环；失败降级 null：占位投影仍在，真图/真文本缺席——warn 留痕） */
   private async readAttachmentFile(filePath: string): Promise<Buffer | null> {
     const abs = path.join(this.deps.storageRoot ?? "./data/attachments", filePath);
     try {
@@ -165,7 +165,7 @@ export class AttachmentInjectionService {
     }
   }
 
-  /** 16KB/文件截断（UTF-8 字节级，不切断多字节字符；方案 §3.4①） */
+  /** 16KB/文件截断（UTF-8 字节级，不切断多字节字符；①） */
   private truncateDocumentBytes(raw: Buffer): string {
     if (raw.length <= DOCUMENT_MAX_BYTES) return raw.toString("utf8");
     let end = DOCUMENT_MAX_BYTES;

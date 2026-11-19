@@ -60,7 +60,7 @@ for (const file of walk(path.join(root, "docs/features"))) {
 
   const testPath = capTest.replace(/^["']|["']$/g, "");
   if (!fs.existsSync(path.join(root, testPath))) {
-    // F20260913ctlv 终审修正：悬空指针 error → warning——功能退役删测试后，存量
+    // 终审修正：悬空指针 error → warning——功能退役删测试后，存量
     // 文档快照的指针必然悬空（快照原则禁止回改），这是结构性存量债务而非新增违规。
     // 归 ratchet 管辖（警告数只减不增）：新增文档指错路径同样推高警告数受上限约束。
     // 原 error 语义的盲区：退役功能的 PR 被迫在「改历史快照」与「CI 红」间二选一。

@@ -474,7 +474,7 @@ export function lex(text: string): LexResult {
       const after = text[j] ?? "";
       if ((after === ">" || after === "<") && j > i) {
         i = j;
-        // #1686 r1 严重 1（检视獭-1686）：fd 前缀形态完整识别（bash 同构）——`0<<<` 是
+        // 严重 1（检视獭-1686）：fd 前缀形态完整识别（bash 同构）——`0<<<` 是
         // here-string、`0<<`/`0<<-` 是 heredoc。旧分支只认单字符 `<`，把 `0<<<x` 拆成
         // `0<`+`<<` 假 heredoc（here-string 馈体蒸发）、`0<<EOF` 拆段喂不进载荷判读
         // ——「换形态即绕过」同族。与无 fd 形态走同一扫描语义。
@@ -550,7 +550,7 @@ export function lex(text: string): LexResult {
       continue;
     }
     if (c === "(" || c === ")" || c === "|" || c === "&" || c === ";" || c === "<" || c === ">" || /[0-9]/.test(c)) {
-      // ( 前邻接 word → 函数定义形态（name() { … }）——排除区，fail-closed（D2/r1-S1）
+      // ( 前邻接 word → 函数定义形态（name() { … }）——排除区，fail-closed
       if (c === "(" && isWordStart(tokens) === false) {
         fail(`function-definition paren @${i}`);
       }

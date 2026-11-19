@@ -106,7 +106,7 @@ describe("#906 entries (conversation_id, sequence_num) UNIQUE 索引迁移", () 
     downgradeIndexToPlain(db);
     seedConversation(db, "conv-r");
     seedEntry(db, "conv-r", 1);
-    // 普通索引下重复 seq 可写入（正是 #906 指出的防线缺口）
+    // 普通索引下重复 seq 可写入（正是 指出的防线缺口）
     db.prepare(`
       INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_name)
       VALUES ('entry-dup', 'conv-r', 1, 'system', 'test')

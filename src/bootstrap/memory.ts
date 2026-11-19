@@ -238,7 +238,7 @@ export async function createAndStartRetryWorker(
       logger.info(`Migrating ${existing.total} existing dark entries to retry queue`);
       const ENQUEUE_BATCH_SIZE = 100;
       for (const entry of existing.entries) {
-        // F20261105embqg S2b：启动暗扫是全量重算生产者，bulk 优先级（2）——
+        // 启动暗扫是全量重算生产者，bulk 优先级（2）——
         // 已在队/live 后续入队的任务优先消费，防暗扫淹没活路径
         await repos.memoryQueue.enqueueRetry(entry.entryId, new Error("migrated from existing dark entries"), EMBED_TASK_PRIORITY.bulk);
         migratedCount++;
@@ -261,7 +261,7 @@ export async function createAndStartRetryWorker(
     resolveBatchTokenBudget(),
   );
   worker.start();
-  // F20261109epqst：启动即消费存量——自跑首轮 tickNow（fire-and-forget，不阻塞启动）。
+  // 启动即消费存量——自跑首轮 tickNow（fire-and-forget，不阻塞启动）。
   // 根因：PatrolWorker.start() 在 buildApp 内同步跑首轮 tick，此时 postListenInit
   // 尚未创建本 worker（duty 跳过），存量任务要等下一个 1h tick——“重启接着处理已有
   // 任务”的验收要求不允许（生产 09:14 启动能 09:16 消费纯属启动慢的巧合）。
@@ -269,7 +269,7 @@ export async function createAndStartRetryWorker(
   void worker.tickNow().catch((err) =>
     logger.error("EmbeddingRetryWorker startup tick failed", err instanceof Error ? err : new Error(String(err))),
   );
-  // #949：周期 tick 由 PatrolWorker 每 1h 驱动（start() 不再自持定时器）——日志不再打印 intervalMs（原 30_000 为 #948 降频前的残留误导）
+  // 周期 tick 由 PatrolWorker 每 1h 驱动（start() 不再自持定时器）——日志不再打印 intervalMs（原 30_000 为 降频前的残留误导）
   logger.info("EmbeddingRetryWorker started", {
     driver: "patrol-worker",
     migratedExisting: migratedCount,

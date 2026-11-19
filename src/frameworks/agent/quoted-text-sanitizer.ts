@@ -147,7 +147,7 @@ function blankHeredocBody(command: string): string {
   while ((m = HEREDOC_OPEN.exec(command)) !== null) {
     const openLineEnd = command.indexOf("\n", m.index);
     if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无需剥
-    // #1207：closer 与 bash 对齐——定界符独占一行（行首无空白、行尾无任何
+    // closer 与 bash 对齐——定界符独占一行（行首无空白、行尾无任何
     // 字符，`EOF   ` 不闭合）。宽版 `[ \\t]*` 被利用（体首 `EOF = 0` + 尾段
     // 真实写入端到端 ALLOW）；剥体到不了的位置体文本留在扫描面 → 保守侧。
     // <<- 变体允许行首 TAB（bash 只剥 tab 不剥空格）

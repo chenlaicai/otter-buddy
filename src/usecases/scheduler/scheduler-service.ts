@@ -305,9 +305,9 @@ export class SchedulerService {
       this.logger.warn('启动对账失败（不阻塞启动）', { error: err instanceof Error ? err.message : String(err) });
     }
     const tasks = await this.getAllActiveTasks();
-    // #784：prompt 启动对账（见 reconcilePromptBodies）
+    // prompt 启动对账（见 reconcilePromptBodies）
     await this.reconcilePromptBodies();
-    // #814：调度完整性对账——active cron 任务的 last_triggered_at 落后于 cron 应触发时间时，
+    // 调度完整性对账——active cron 任务的 last_triggered_at 落后于 cron 应触发时间时，
     // 落 healing event（errorType='other'，severity='low'）让静默日在台账可见。
     // 服务停机期间无进程可写，重启后对账是唯一可见性窗口；对账失败不阻塞启动。
     if (this.healingRepo && this.cronParser.getPrevTime) {
@@ -327,11 +327,11 @@ export class SchedulerService {
     for (const task of tasks) {
       this.scheduleNext(task);
     }
-    // #640: 启动轮询定时器（quartz/celery beat 模式）
+    // 启动轮询定时器（quartz/celery beat 模式）
     this.startPolling();
   }
 
-  /** #784：prompt 启动对账——prompts/scheduled/*.md（git 真相源）与 DB body 漂移即同步。
+  /** prompt 启动对账——prompts/scheduled/*.md（git 真相源）与 DB body 漂移即同步。
    *  覆盖全量任务（含 disabled）；dynamic 模板、无模板任务天然豁免。失败不阻塞启动（仅日志）。 */
   private async reconcilePromptBodies(): Promise<void> {
     try {
@@ -349,16 +349,16 @@ export class SchedulerService {
       clearTimeout(timer);
     }
     this.timers.clear();
-    // #640: 停止轮询定时器
+    // 停止轮询定时器
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = undefined;
     }
-    // #640: 清理轮询缓存
+    // 清理轮询缓存
     this.nextExpectedTrigger.clear();
   }
 
-  /** #640: 启动轮询定时器。每 POLL_INTERVAL_MS 扫描一次 active 任务，
+  /** 启动轮询定时器。每 POLL_INTERVAL_MS 扫描一次 active 任务，
    *  比对 last_triggered_at 与 cron 应触发点，越过即触发（迟到即补跑）。
    *  Why 不依赖 setTimeout：macOS 长延迟 setTimeout 会漂移（App Nap/冻结窗口），
    *  轮询模式用 setInterval + 墙钟比对，迟到即补，不丢触发。 */
@@ -371,7 +371,7 @@ export class SchedulerService {
         this.logger.error('Polling tick failed', error as Error);
       }
     }, POLL_INTERVAL_MS);
-    // #460：轮询 timer unref，不阻止进程自然退出（僵尸进程根因之二）。
+    // 轮询 timer unref，不阻止进程自然退出（僵尸进程根因之二）。
     // unref 只影响"进程能否自然退出"，不影响 tick 触发——主进程生命周期由 HTTP 监听持有。
     this.pollTimer?.unref?.();
     // 立即执行一次 tick，捕获进程重启后的迟到任务（catch 防 unhandled rejection）
@@ -380,7 +380,7 @@ export class SchedulerService {
     });
   }
 
-  /** #1449：孤儿 running 执行扫描——轮询级兜底（启动对账 failAllRunningExecutions 只清
+  /** 孤儿 running 执行扫描——轮询级兜底（启动对账 failAllRunningExecutions 只清
    *  重启现场，本扫描清「进程活着但执行假死」现场：闸门冻结/网关断连/进程 hang）。
    *  判定：running 且 triggeredAt 超 RUNNING_STUCK_THRESHOLD_MS 且目标獭无存活 session
    *  → execution 置 failed → 落 healing（high）。
@@ -443,7 +443,7 @@ export class SchedulerService {
     return preserve;
   }
 
-  /** #1510 对账分级：先识别「已收尾但账面滞留 running」的执行（invoke_end 已落账但
+  /** 对账分级：先识别「已收尾但账面滞留 running」的执行（invoke_end 已落账但
    *  completeExecution 因进程重启未跑）——按 completed 翻篇，而非误标「执行被中断」；
    *  再对无近期产出证据的剩余 running 单次 UPDATE 翻篇为 failed。 */
   private async reconcileRunningExecutionsOnStartup(): Promise<void> {
@@ -467,7 +467,7 @@ export class SchedulerService {
     }
   }
 
-  /** #1510：历史修复——扫描「执行被中断」failed 行，invoke 已收尾（invoke_end 已落账）者按
+  /** 历史修复——扫描「执行被中断」failed 行，invoke 已收尾（invoke_end 已落账）者按
    *  completed 回补（completedAt 取 invoke_end entry 时间，messageId 回写锚点）。真实中断行不回补。 */
   private async repairCompletedFailedExecutions(): Promise<number> {
     const failed = await this.taskRepo.getReconciliationFailedExecutions();
@@ -489,7 +489,7 @@ export class SchedulerService {
     return repaired;
   }
 
-  /** #1510：找出「invoke 已收尾但账面仍 running」的执行——进程在 invoke_end 与 completeExecution
+  /** 找出「invoke 已收尾但账面仍 running」的执行——进程在 invoke_end 与 completeExecution
    *  之间重启时，执行侧证据（invoke_end entry）已落账而 DB 行未翻篇；启动对账按 completed 翻篇
    *  而非误标「执行被中断」。锚点优先用 execution.messageId；旧代码触发未写锚点（空 messageId）时
    *  按触发时间回找同任务的 scheduler 系统锚点。 */
@@ -511,7 +511,7 @@ export class SchedulerService {
   private async resolveExecutionAnchor(execution: ScheduledTaskExecution, task: ScheduledTask): Promise<string | null> {
     if (execution.messageId) return execution.messageId;
     try {
-      // #1510：按 senderName 取触发时间后最早一条 system entry（不设“最近 N 条”窗口——旧执行锚点
+      // 按 senderName 取触发时间后最早一条 system entry（不设“最近 N 条”窗口——旧执行锚点
       // 可能远早于窗口；ASC 取最早 = 本次触发锚点，避免短窗双触发串锚）。
       const anchor = await this.entryRepo.getFirstSystemEntrySince(
         task.conversationId,
@@ -559,7 +559,7 @@ export class SchedulerService {
     return !execution.messageId;
   }
 
-  /** #1449：单任务孤儿清理（reapStaleRunningExecutions 抽取，控复杂度）。 */
+  /** 单任务孤儿清理（reapStaleRunningExecutions 抽取，控复杂度）。 */
   private async reapStaleRunningExecutionsForTask(task: ScheduledTask, cutoff: number): Promise<void> {
     const executions = await this.taskRepo.getRunningExecutions(task.id);
     for (const exec of executions) {
@@ -581,7 +581,7 @@ export class SchedulerService {
     }
   }
 
-  /** #1449：孤儿清理落 healing（high——日报缺失级事故，值得被看见）。失败仅日志。 */
+  /** 孤儿清理落 healing（high——日报缺失级事故，值得被看见）。失败仅日志。 */
   private async recordReapHealing(task: ScheduledTask, executionId: string): Promise<void> {
     if (!this.healingRepo) return;
     try {
@@ -613,7 +613,7 @@ export class SchedulerService {
     }
   }
 
-  /** F20261021sprx：角色解析后的当前执行实例；旧字段只在名册解析失败时兜底。 */
+  /** 角色解析后的当前执行实例；旧字段只在名册解析失败时兜底。 */
   private async resolveExecutorOtterId(task: ScheduledTask): Promise<string | undefined> {
     const resolution = await resolveExecutorOtter(task, { convRepo: this.convRepo, otterRepo: this.otterRepo });
     return resolution.otter?.id;
@@ -757,10 +757,10 @@ export class SchedulerService {
     if (channelFailed) await this.recordExecutorResolutionFailure(task);
   }
 
-  /** #1449：挤占 skip 落 healing（low）——触发被拒即见，不等 2h 硬兜底。
+  /** 挤占 skip 落 healing（low）——触发被拒即见，不等 2h 硬兜底。
    *  同任务 1h 节流防刷屏；失败不阻塞（skip 行已落 DB，本通道是可见性增强）。
    *  @param reason 跳过根因：'挤占'=claim 锁被同任务 running 执行拒绝；
-   *    '互斥保护'=#1471 守卫为保护他任务在途执行主动放弃本轮（restartBeforeInvoke 路径）。 */
+   * '互斥保护'=守卫为保护他任务在途执行主动放弃本轮（restartBeforeInvoke 路径）。 */
   private async recordPreemptionSkipHealing(task: ScheduledTask, reason: '挤占' | '互斥保护' = '挤占'): Promise<void> {
     if (!this.healingRepo) return;
     const last = this.preemptionSkipHealingAt.get(task.id) ?? 0;
@@ -793,9 +793,9 @@ export class SchedulerService {
     }
   }
 
-  /** #640: 轮询 tick——扫描所有 active 任务，比对预期触发时间与墙钟，
+  /** 轮询 tick——扫描所有 active 任务，比对预期触发时间与墙钟，
    *  越过即触发（迟到即补跑），记录 drift 值用于可观测性。 */
-  /** #823 可注入 tick（测试替换为 noop，隔离轮询补触发干扰，专注对账定时器验证） */
+  /** 可注入 tick（测试替换为 noop，隔离轮询补触发干扰，专注对账定时器验证） */
   private tickImpl: () => Promise<void> = this.tickReal.bind(this);
 
   private async tick(): Promise<void> {
@@ -803,12 +803,12 @@ export class SchedulerService {
   }
 
   private async tickReal(): Promise<void> {
-    // #1449：孤儿 running 执行扫描先于任务扫描——上轮 tick 注入的任务若已滞留，
+    // 孤儿 running 执行扫描先于任务扫描——上轮 tick 注入的任务若已滞留，
     // 本轮先释放其执行位，避免本轮 catch-up 被自己上一轮的僵尸挡住。
     await this.reapStaleRunningExecutions();
     const tasks = await this.getAllActiveTasks();
     const now = Date.now();
-    // #1272：catch-up 配额闸门——停机/冻结恢复后首轮 tick 会扫到全部 overdue 任务，
+    // catch-up 配额闸门——停机/冻结恢复后首轮 tick 会扫到全部 overdue 任务，
     // 无配额则同轮全部 fire-and-forget（10/1 现场：9 任务同秒注入同一对话 → 上下文爆炸 +
     // 循环守卫熔断）。配额双重：每轮全局 CATCHUP_GLOBAL_QUOTA（跨对话总量），每轮同对话
     // CATCHUP_CONV_QUOTA（防单对话堆积——风暴危害主要是同对话注入，跨对话只是资源压力）。
@@ -828,14 +828,14 @@ export class SchedulerService {
         this.nextExpectedTrigger.set(task.id, expected);
       }
 
-      // #823 根修之二：expected 已过但 lastTriggeredAt 已被刷新（无对应 execution 的
+      // 根修之二：expected 已过但 lastTriggeredAt 已被刷新（无对应 execution 的
       // trigger——如 claim 后被 skip/前置炸）→ 旧 expected 已失效，必须重算（getNextTime(now)）。
       expected = this.refreshStaleExpected(task, expected, now);
 
       // 比对墙钟：预期触发时间已过 → 迟到，补触发
-      // #640 防重复：lastTriggeredAt 在 POLL_INTERVAL_MS 内 → 已被 setTimeout 快路径触发，跳过
+      // 防重复：lastTriggeredAt 在 POLL_INTERVAL_MS 内 → 已被 setTimeout 快路径触发，跳过
       if (expected.getTime() <= now && (!task.lastTriggeredAt || now - new Date(task.lastTriggeredAt).getTime() > POLL_INTERVAL_MS)) {
-        // #1272：配额闸门——超额任务不丢，留到下轮 tick 自然错峰（迟到≠立即）
+        // 配额闸门——超额任务不丢，留到下轮 tick 自然错峰（迟到≠立即）
         if (!this.tryConsumeCatchupQuota(task, globalQuotaLeft, convQuotaLeft)) continue;
         globalQuotaLeft = this.consumeGlobalQuota(globalQuotaLeft);
         const driftMs = now - expected.getTime();
@@ -853,7 +853,7 @@ export class SchedulerService {
     }
   }
 
-  /** #823 根修之二（tickReal 抽取）：expected 已过但 lastTriggeredAt 已被刷新
+  /** 根修之二（tickReal 抽取）：expected 已过但 lastTriggeredAt 已被刷新
    *  （无对应 execution 的 trigger——如 claim 后被 skip/前置炸）→ 旧 expected 已失效，
    *  必须重算（getNextTime(now)），否则本 tick 静默放过、而 expected 缓存永不更新
    *  = 任务永久饿死（9/6 现场主根因）。 */
@@ -873,7 +873,7 @@ export class SchedulerService {
     return expected;
   }
 
-  /** #1272：配额检查与消耗（tickReal 抽取，控 complexity）。
+  /** 配额检查与消耗（tickReal 抽取，控 complexity）。
    *  返回 false = 配额已尽应跳过（缓存保持 overdue 留到下轮）；true = 已消耗额度放行。
    *  Why 仅消耗同对话额度：globalQuotaLeft 是 tickReal 局部变量（每轮重置），
    *  内联减比传引用/返回 tuple 更直白，故拆两步。 */
@@ -892,12 +892,12 @@ export class SchedulerService {
     return true;
   }
 
-  /** #1272：全局配额递减（tickReal 抽取，语义显式化） */
+  /** 全局配额递减（tickReal 抽取，语义显式化） */
   private consumeGlobalQuota(current: number): number {
     return current - 1;
   }
 
-  /** #1272：fire-and-forget 补触发 + 触发后重算缓存与 setTimeout 快路径（tickReal 抽取）。 */
+  /** fire-and-forget 补触发 + 触发后重算缓存与 setTimeout 快路径（tickReal 抽取）。 */
   private fireCatchup(task: ScheduledTask): void {
     void this.triggerTask(task).catch(error => {
       this.logger.error(`Polling: catch-up trigger failed for task ${task.id}`, error as Error);
@@ -941,18 +941,18 @@ export class SchedulerService {
     }
 
     const nextTrigger = this.cronParser.getNextTime(task.cron, task.timezone);
-    // #640: 更新轮询缓存（下次预期触发时间）
+    // 更新轮询缓存（下次预期触发时间）
     this.nextExpectedTrigger.set(task.id, nextTrigger);
     const delay = nextTrigger.getTime() - Date.now();
 
     // 如果延迟超过 24 小时，使用 24 小时后重新计算
     const maxDelay = 24 * 60 * 60 * 1000;
     const actualDelay = Math.min(delay, maxDelay);
-    // #247: 标记是否被截断到 24h
+    // 标记是否被截断到 24h
     const wasCapped = delay > maxDelay;
 
     const timer = setTimeout(async () => {
-      // #1272：冻结唤醒 drift 检查。mac 睡眠期间 setTimeout 全部冻结，唤醒瞬间
+      // 冻结唤醒 drift 检查。mac 睡眠期间 setTimeout 全部冻结，唤醒瞬间
       // 同批多个任务的 timer 同秒到期 fire——若真实触发时刻落后预期超过一个轮询周期
       // （POLL_INTERVAL_MS），说明这是冻结后补偿而非准时触发：放弃直发（直发 = 同轮
       // 9 任务风暴注入同一对话，10/1 现场 12:04:07 同秒 9 execution 实证），
@@ -971,7 +971,7 @@ export class SchedulerService {
         return;
       }
       if (wasCapped) {
-        // #247: 24h 截断后只重新调度，不触发任务。
+        // 24h 截断后只重新调度，不触发任务。
         // 原代码在此处调用 triggerTask 会导致月级/周级 cron 任务
         // 在中间每 24h 都被真实触发一次，浪费 LLM token 且打扰用户。
         const updatedTask = await this.taskRepo.getById(task.id);
@@ -988,7 +988,7 @@ export class SchedulerService {
         const updatedTask = await this.taskRepo.getById(task.id);
         if (updatedTask?.status === 'active') {
           this.scheduleNext(updatedTask);
-          // #640: 触发后更新轮询缓存
+          // 触发后更新轮询缓存
           const newNextTrigger = this.cronParser.getNextTime(updatedTask.cron, updatedTask.timezone);
           this.nextExpectedTrigger.set(updatedTask.id, newNextTrigger);
         }
@@ -1027,7 +1027,7 @@ export class SchedulerService {
       } catch (error) {
         this.logger.error(`Failed to trigger once task ${task.id}, starting retry`, error as Error);
         // 触发失败，走 once 专用重试
-        // #1394：本处位于 catch 块内 await——若重试链内部抛错（如 #1391
+        // 本处位于 catch 块内 await——若重试链内部抛错（如 
         // fail-closed「scheduled task 不存在」、getById DB 错误），会从本 async
         // setTimeout 回调逃逸成 unhandledRejection → main.ts 全局处理器 process.exit(1)
         // 杀掉整个进程。重试链自身故障仅落日志告警，不杀进程。
@@ -1040,7 +1040,7 @@ export class SchedulerService {
     this.timers.set(task.id, timer);
   }
 
-  /** #814：单任务错过窗口落账（best-effort，失败仅日志） */
+  /** 单任务错过窗口落账（best-effort，失败仅日志） */
   private async recordMissedWindow(task: ScheduledTask, prevDue: Date, now: Date): Promise<void> {
     try {
       await this.healingRepo!.create({
@@ -1075,21 +1075,21 @@ export class SchedulerService {
     }
   }
 
-  /** #949：巡检职责入口——运行时对账单轮（PatrolWorker 每小时调用）。
-   *  原 #823 独立 1h 定时器已并入 PatrolWorker（四个扫台账循环合并，8→5）。 */
+  /** 巡检职责入口——运行时对账单轮（PatrolWorker 每小时调用）。
+   * 原 独立 1h 定时器已并入 PatrolWorker（四个扫台账循环合并，8→5）。 */
   async reconcileMissedWindowsNow(): Promise<void> {
     const tasks = await this.getAllActiveTasks();
     await this.reconcileMissedWindows(tasks);
   }
 
-  /** #814：调度完整性对账——active cron 任务的 lastTriggeredAt 落后于应触发时间 → 落 healing。
+  /** 调度完整性对账——active cron 任务的 lastTriggeredAt 落后于应触发时间 → 落 healing。
    *  判定：getPrevTime(cron, tz, now) 为 now 之前最近一次应触发时间；若参照点（lastTriggeredAt
    *  ?? createdAt）早于该时间，则该窗口被错过。
    *  每个任务只报最近一次错过窗口（服务停机可能跨多个窗口，逐窗口报会刷屏；最近一次已含
    *  「有静默」的全部信息，更早窗口在日报对账时由 cron 表人工/LLM 核对）。 */
   private async reconcileMissedWindows(tasks: ScheduledTask[]): Promise<void> {
     const now = new Date();
-    // #853：去重——同一错过窗口重复重启不得重复落账。一次性取 open 的 other
+    // 去重——同一错过窗口重复重启不得重复落账。一次性取 open 的 other
     // 事件，按 (taskId, missedWindowAt) 建集合；落账前查重。错过窗口的 lastTriggeredAt
     // 不会因对账而更新（对账不触发任务），不去重则每次重启都重落同一窗口事件。
     let existingKeys: Set<string>;
@@ -1113,8 +1113,8 @@ export class SchedulerService {
       const reference = task.lastTriggeredAt ? new Date(task.lastTriggeredAt)
         : task.createdAt ? new Date(task.createdAt) : null;
       // 已触发过且 reference >= prevDue - 容差 → 无错过；从未触发但 createdAt >= prevDue - 容差 → 未到首个窗口。
-      // #929：容差 5s 覆盖准时触发的调度抖动（现场 5 条误报 lastTriggeredAt 仅比窗口
-      // 早 0.3-1.6s，毫秒级比较把正常抖动判成「错过」，狼来了效应淹没真实信号 #823）
+      // 容差 5s 覆盖准时触发的调度抖动（现场 5 条误报 lastTriggeredAt 仅比窗口
+      // 早 0.3-1.6s，毫秒级比较把正常抖动判成「错过」，狼来了效应淹没真实信号）
       const MISSED_WINDOW_TOLERANCE_MS = 5_000;
       if (!reference || reference.getTime() >= prevDue.getTime() - MISSED_WINDOW_TOLERANCE_MS) continue;
       const dedupKey = `${task.id}\0${prevDue.toISOString()}`;
@@ -1129,7 +1129,7 @@ export class SchedulerService {
     if (retriesLeft <= 0) {
       this.logger.error(`Once task ${task.id} exhausted all retries, marking as error`);
       await this.taskRepo.updateStatus(task.id, 'error', new Date().toISOString());
-      // #516: once 任务重试耗尽同样落通知，消灭静默死亡
+      // once 任务重试耗尽同样落通知，消灭静默死亡
       await this.notifyTaskErrored(task.id, ONCE_MAX_RETRIES + 1, 'once task exhausted all retries');
       return;
     }
@@ -1145,7 +1145,7 @@ export class SchedulerService {
     }
 
     try {
-      // #246: once 任务重试时跳过 handleExecutionFailure 的 consecutiveFailures 追踪，
+      // once 任务重试时跳过 handleExecutionFailure 的 consecutiveFailures 追踪，
       // 让 triggerOnceWithRetry 独立控制重试/error 语义。
       await this.triggerTask(task, { skipConsecutiveFailureTracking: true });
       // Why: 一次性任务重试成功后直接删除，不保留历史
@@ -1157,9 +1157,9 @@ export class SchedulerService {
   }
 
   /** 触发单个任务。
-   *  @param options.skipConsecutiveFailureTracking - #246: once 任务重试时跳过 consecutiveFailures 追踪，
+   * @param options.skipConsecutiveFailureTracking - once 任务重试时跳过 consecutiveFailures 追踪，
    *    由 triggerOnceWithRetry 独立控制重试/error 语义，避免两层机制冲突。 */
-  // eslint-disable-next-line max-statements, complexity, max-lines-per-function -- restartBeforeInvoke + #246 skipConsecutiveFailureTracking + PR4 function executor
+  // eslint-disable-next-line max-statements, complexity, max-lines-per-function -- restartBeforeInvoke + skipConsecutiveFailureTracking + PR4 function executor
   private async triggerTask(task: ScheduledTask, options?: { skipConsecutiveFailureTracking?: boolean }): Promise<{ executionId: string }> {
     const now = new Date().toISOString();
     // Why 默认 'failed'：任何路径抛错（resolveEffectiveBody/createExecution DB 错等）
@@ -1170,22 +1170,22 @@ export class SchedulerService {
     //   不含 claim/resolve/createExecution 前置操作（更准确反映 agent 执行耗时）。
     let executionStartMs = 0;
 
-    // #913：claim 成功后、execution 行建立前的失败窗口标记。
+    // claim 成功后、execution 行建立前的失败窗口标记。
     // Why：前置阶段（resolveEffectiveBody/createExecution）炸时 execution 行不存在，
     // 无法走 handleTaskExecutionFailure（它要 update execution 状态）——此前这段
     // 失败完全静默（外层 try 无 catch，异常直抛调用方只 logger.error），2026-09-14
     // 生产现场 4 任务 catch-up 连炸零痕迹（搭档体感「对话几天没跑」但无告警）。
     // 修复：窗口内炸点落 healing event 后 rethrow，self-healing 分析至少能现形。
     // Why 不计入 consecutiveFailures：前置炸点未产生 execution，失败计数器挂在
-    // execution 生命周期上；且 #912 已修 FK 主因，此处是兑底可见性不是重试治理。
+    // execution 生命周期上；且 已修 FK 主因，此处是兑底可见性不是重试治理。
     let executionEstablished = false;
-    // #1068: quota-exhausted 降级重试预算（每次触发 1 次，函数内可变状态）
+    // quota-exhausted 降级重试预算（每次触发 1 次，函数内可变状态）
     let quotaFallbackAttempts = 0;
 
-    // #1208：executionId 提前生成——动态 skip / claim 被拒也要落 skipped execution 行。
+    // executionId 提前生成——动态 skip / claim 被拒也要落 skipped execution 行。
     // Why：9/18–9/29 生产现场 regression-verify 每天 11:00 触发→resolveEffectiveBody 返 null
     //   （上游无断言段 issue / gh 故障）→ skip 不落 execution、不刷 last_triggered_at
-    //   → last_triggered_at 永远 NULL → #814 调度对账误报「错过触发窗口」5+ 条，
+    // → last_triggered_at 永远 NULL → 调度对账误报「错过触发窗口」5+ 条，
     //   prompt-discipline skipped-24h-ratio 指标全盲——「任务死了」与「没事干」不可区分。
     //   修复：任何 skip 路径都落 skipped execution 行（含触发时间与跳过原因），并刷新
     //   last_triggered_at（reconcile 的 reference 点），把静默空转变成可见的 skipped 记录。
@@ -1194,13 +1194,13 @@ export class SchedulerService {
     const executionId = crypto.randomUUID();
 
     try {
-      // #823 根修之一：resolveEffectiveBody 先于 claim——动态跳过（如 self-healing-analysis
+      // 根修之一：resolveEffectiveBody 先于 claim——动态跳过（如 self-healing-analysis
       // 无 open events）不再消耗 claim。9/6 现场：skip 吞掉 claim 但不建 execution、不更新
       // lastTriggeredAt 之外的任何记录 → Polling 下个 tick 看 expected 已过 + lastTriggeredAt
-      // 已新 → 不重算 expected → 永不补触发，任务静默饿死（详见特性文档 F20260915n84u）。
+      // 已新 → 不重算 expected → 永不补触发，任务静默饿死（详见特性文档）。
       const effectiveBody = await this.resolveEffectiveBody(task);
       if (effectiveBody === null) {
-        // #1208：claim 占位（刷 last_triggered_at，让 reconcile 知道本轮已跑过）。
+        // claim 占位（刷 last_triggered_at，让 reconcile 知道本轮已跑过）。
         //   占位被拒（如 running execution 冲突）也照常落 skipped 行——记录本轮触发事实。
         //   例外：对话不存在/非 active → 任务已被 disable（conversationDisabledInClaim 置位），
         //   skip 落账无意义（任务已停），不落行（与「对话校验」测试锁定的排除语义一致）。
@@ -1213,14 +1213,14 @@ export class SchedulerService {
         const conversationDisabled = this.conversationDisabledInClaim;
         this.conversationDisabledInClaim = false;
         if (!conversationDisabled) {
-          // #1208：claim 被拒（如 running execution 前置拦截）时 last_triggered_at
+          // claim 被拒（如 running execution 前置拦截）时 last_triggered_at
           //   未刷新——显式幂等补刷，让 reconcile 知道本轮已跑过（与外层 catch 同型兜底）。
           await this.taskRepo.claimTask(task.id, now, now).catch(() => { /* 幂等兜底 */ });
           status = 'skipped';
           await this.createExecution(executionId, task.id, now);
           executionEstablished = true;
           await this.handleExecutionSkipped(executionId, new Error(skipReason));
-          // #1208 ②：regression-verify 专属心跳——「活着但没活干」可见（#751 写入即 resolved 先例）。
+          // ②：regression-verify 专属心跳——「活着但没活干」可见（写入即 resolved 先例）。
           if (isRegression) {
             await buildRegressionVerifyHeartbeat(task, this.healingRepo, this.lastRegressionSkipReason === 'gh-cli-failure' ? 'gh-cli-failure' : 'no-due-assertions');
           }
@@ -1337,7 +1337,7 @@ export class SchedulerService {
       await this.createExecution(executionId, task.id, now);
       executionEstablished = true;
 
-      // F20260815rstrt: 仅确认执行獭空闲后才允许触发前重启，避免焚毁在途上下文。
+      // 仅确认执行獭空闲后才允许触发前重启，避免焚毁在途上下文。
       if (task.restartBeforeInvoke) {
         if (!this.manageSession) {
           this.logger.warn('restartBeforeInvoke skipped: manageSession not injected', { taskId: task.id, otterId: executorOtterId });
@@ -1357,16 +1357,16 @@ export class SchedulerService {
       try {
         const anchor = await this.createSystemSignalEntry(task, effectiveBody, executorOtterId);
         await this.attachExecutionAnchor(executionId, anchor.id);
-        // Why 传入锚点 entry id：链看门狗用它探测链活性（#516），记账校验用它圈定执行窗口（#517）
+        // Why 传入锚点 entry id：链看门狗用它探测链活性，记账校验用它圈定执行窗口
         await this.invokeAgentWithTimeout(task, effectiveBody, anchor.id, executorOtterId);
-        // #517: invoke 正常 resolve 不代表 agent 成功——orchestrator 的 failTerminal/abortTerminal
+        // invoke 正常 resolve 不代表 agent 成功——orchestrator 的 failTerminal/abortTerminal
         // 将 invoke 置 failed 后正常返回 TurnResult，链引擎 allSettled 消化 rejection，
         // 锁超时/agent 异常无法经由 reject 传递到 scheduler 层。
         // 以最终 invoke 状态为唯一事实源：锚点后出现 failed 的 otter 产出 → 抛错走 failure 记账，
         // 不再盲目记 completed。
         await this.assertNoFailedInvokes(task.conversationId, anchor.id);
         await this.completeExecution(executionId, task.conversationId, anchor.id);
-        // #251: resetConsecutiveFailures 在 completeExecution 之后执行，
+        // resetConsecutiveFailures 在 completeExecution 之后执行，
         // 如果抛 DB 错不应覆写已 completed 的 execution record。
         // 吞掉错误，记录 warning 而不 throw。
         try {
@@ -1380,7 +1380,7 @@ export class SchedulerService {
         status = 'completed';
         return { executionId };
       } catch (error) {
-        // #1068: quota-exhausted 终态降级——执行獭模型配额耗尽时 restart 换 fallback 模型重试一次。
+        // quota-exhausted 终态降级——执行獭模型配额耗尽时 restart 换 fallback 模型重试一次。
         // 判据用 matchRateLimitError 同族正则（orchestrator 侧 429 整改单一真相源），
         // exhausted=true 才降级（瞬时限流可能自愈，换模型是过激反应）。
         const quotaFallback = await this.tryQuotaExhaustedFallback(task, error, quotaFallbackAttempts);
@@ -1398,13 +1398,13 @@ export class SchedulerService {
           } catch (retryError) {
             // 降级重试失败（含 fallback 模型同池耗尽）——走原失败路径，error 换为重试错误（更接近现场）
             this.logger.error('Quota-exhausted fallback retry failed', retryError as Error, { taskId: task.id });
-            // #1048：fallback 重试同样可能被看门狗放弃——与主路径同账（skipped 不计熔断），
-            // 否则放弃经由重试路径会重新耦合进 3 连败熔断（#516 二阶伤害从后门回流）。
+            // fallback 重试同样可能被看门狗放弃——与主路径同账（skipped 不计熔断），
+            // 否则放弃经由重试路径会重新耦合进 3 连败熔断（二阶伤害从后门回流）。
             status = await this.finishFallbackRetry(executionId, task.id, retryError, options?.skipConsecutiveFailureTracking);
             throw retryError;
           }
         }
-        // #654: session 锁冲突 = 并发冲突（目标会话被活跃方持有，如人工调查/并行任务），
+        // session 锁冲突 = 并发冲突（目标会话被活跃方持有，如人工调查/并行任务），
         // 非任务本身失败——execution 记 skipped、不 increment consecutiveFailures、不触发 3 连败熔断。
         // 判据：锁超时错误从 agent 调用链抛出（非链路径 rethrow，或锁链路径经 assertNoFailedMessages
         // 从 failed 消息反推，两者 message 均含锁超时前缀）。
@@ -1414,7 +1414,7 @@ export class SchedulerService {
           await this.handleExecutionSkipped(executionId, error);
           throw error;
         }
-        // #775 S4a：调度闸门拦截（用户 halt / 限流熔断）——与锁冲突同类的「环境冲突
+        // 调度闸门拦截（用户 halt / 限流熔断）——与锁冲突同类的「环境冲突
         // 非任务失败」：execution 记 skipped、不 increment consecutiveFailures、不触发熔断；
         // 信号已由路由器保留在台账，恢复窗口由补扫消化。Why 仍 rethrow：手动触发者需感知。
         if (error instanceof DirectChainGatedError) {
@@ -1422,7 +1422,7 @@ export class SchedulerService {
           await this.handleExecutionSkipped(executionId, error);
           throw error;
         }
-        // #1048：看门狗主动放弃（静默判死/超放弃窗口）=「停止等待」而非「任务失败」——
+        // 看门狗主动放弃（静默判死/超放弃窗口）=「停止等待」而非「任务失败」——
         // 与锁冲突/闸门拦截同族的「非任务失败」：记 skipped、不计 consecutiveFailures、
         // 不触发 3 连败熔断。Why 仍 rethrow：调用方需感知本轮没等到终态。
         if (error instanceof WatchdogAbandonedError) {
@@ -1434,12 +1434,12 @@ export class SchedulerService {
         throw error;
       }
     } catch (error) {
-      // #913：claim 成功后、execution 行建立前的前置炸点（见 executionEstablished 声明处注释）。
-      // claim 被拒（status='skipped'）也要落 skipped execution 行（#1208：触发事实可见）。
+      // claim 成功后、execution 行建立前的前置炸点（见 executionEstablished 声明处注释）。
+      // claim 被拒（status='skipped'）也要落 skipped execution 行（触发事实可见）。
       // resolveEffectiveBody 返 null 已在上方提前 return 并落账，此处只补 claim 被拒路径。
       // 例外：对话不存在/非 active → 任务被 disable，skip 落账无意义（任务已停），不落。
       if (!executionEstablished && status === 'skipped' && !this.conversationDisabledInClaim) {
-        // #1208：claim 被拒时 claimTask 未必执行（如 running execution 检查在前置拦截），
+        // claim 被拒时 claimTask 未必执行（如 running execution 检查在前置拦截），
         //   last_triggered_at 可能未刷新——显式补刷，让 reconcile 知道本轮已跑过。
         await this.taskRepo.claimTask(task.id, now, now).catch(() => { /* 已拒过，幂等兜底 */ });
         await this.createExecution(executionId, task.id, now);
@@ -1463,9 +1463,9 @@ export class SchedulerService {
     }
   }
 
-  /** #1545：超龄 unbound high 识别 + 提醒推送（不处置）。
-   *  F20261008hcpa（#1356 层3）原实现的 age-out 会把超龄 high 置 dismissed——#1545
-   *  判定为与设计意图相悖（high 不被时间静默/bind≠resolve/#1361 层3 硬规则），收窄为：
+  /** 超龄 unbound high 识别 + 提醒推送（不处置）。
+   * （层3）原实现的 age-out 会把超龄 high 置 dismissed——
+   * 判定为与设计意图相悖（high 不被时间静默/bind≠resolve层3 硬规则），收窄为：
    *  findAgedUnboundHigh 只读识别 → 推 alert-registry 引导 bind_issue 归口 → 事件保持
    *  open。resolver 解析前置保留（提醒通道仍是前置条件）；enqueueBatchAggregated 保留
    *  （A/B 判据语义仍成立，只是「先 dismiss 后提醒」改为「只提醒不 dismiss」）。 */
@@ -1499,7 +1499,7 @@ export class SchedulerService {
   }
 
   /** 解析任务实际触发的 body：含 [self-healing-analysis] 占位符时动态替换为 healing 分析 prompt。
-   *  含 [regression-verify] 占位符时替换为验证断言回查 prompt（#1004）。
+   * 含 [regression-verify] 占位符时替换为验证断言回查 prompt。
    *  返回 null 表示跳过本次触发（无待处理项）。 */
   private async resolveEffectiveBody(task: ScheduledTask): Promise<string | null> {
     if (task.body.includes('[regression-verify]')) {
@@ -1507,12 +1507,12 @@ export class SchedulerService {
       if (body === REGRESSION_GH_FAILED) {
         // gh 故障——记 warn（区别于「无到期断言」的正常跳过），本轮跳过但不静默
         this.logger.warn('Regression verify skipped: gh CLI failure (auth/network)——回归验证管道失效，需人工检查 gh 状态');
-        this.lastRegressionSkipReason = 'gh-cli-failure'; // #1208：供 skip 落账 + 心跳分类
+        this.lastRegressionSkipReason = 'gh-cli-failure'; // 供 skip 落账 + 心跳分类
         return null;
       }
       if (body === null) {
         this.logger.info('Regression verify skipped: no due assertions');
-        this.lastRegressionSkipReason = 'no-due-assertions'; // #1208：供 skip 落账 + 心跳分类
+        this.lastRegressionSkipReason = 'no-due-assertions'; // 供 skip 落账 + 心跳分类
       }
       return body;
     }
@@ -1520,7 +1520,7 @@ export class SchedulerService {
       return task.body;
     }
     try {
-      // #1545：autoStaleDismiss 排除 high（low/medium 可时间静默）不变；high 超龄走
+      // autoStaleDismiss 排除 high（low/medium 可时间静默）不变；high 超龄走
       // 独立识别通道——findAgedUnboundHigh(2) 只读取回后推 healing-alert-registry，提醒
       // 大獭「该事件超龄 48h 未归口，请 bind_issue 跟进」，事件保持 open（不再 dismiss）。
       // 推送目的地固定 healing 主对话（定时任务对话结束后该对话仍是大獭在场的主通道）。
@@ -1537,10 +1537,10 @@ export class SchedulerService {
   }
 
   private async claimAndValidateTask(task: ScheduledTask, now: string): Promise<void> {
-    // #641: 检查是否存在未超时的 running execution，避免重复触发竞态
+    // 检查是否存在未超时的 running execution，避免重复触发竞态
     // 同 task 存在 running execution → 拒绝 claim，记 skipped（非 failed）
     const stuckExecutions = await this.taskRepo.getRunningExecutions(task.id);
-    // #1449：僵尸判定阈值从 24h（MAX_CHAIN_TIMEOUT_MS）收紧到 2h（RUNNING_STUCK_THRESHOLD_MS）——
+    // 僵尸判定阈值从 24h（MAX_CHAIN_TIMEOUT_MS）收紧到 2h（RUNNING_STUCK_THRESHOLD_MS）——
     //   轮询扫描（reapStaleRunningExecutions）每 5min 会在 2h 阈值机械清理滞留执行体，
     //   此处 2h 未清理即视为「扫描未及」的僵尸直接放行（阈值倒挂消除：防僵尸窗 ≤ 清理窗）。
     //   双轨执行（触发内 24h 看门狗 + 轮询 2h 清理）让「真卡住」与「假卡住」窗口相差 12 倍，
@@ -1566,13 +1566,13 @@ export class SchedulerService {
 
     const conversation = await this.convRepo.getById(task.conversationId);
     if (!conversation || conversation.status !== 'active') {
-      this.conversationDisabledInClaim = true; // #1208：告知 catch 块本任务已 disable，skip 落账无意义
+      this.conversationDisabledInClaim = true; // 告知 catch 块本任务已 disable，skip 落账无意义
       await this.taskRepo.updateStatus(task.id, 'disabled', now);
       throw new DomainError('Conversation is not active', 'validation');
     }
   }
 
-  /** #1449：挤占触发点即时清理（claimAndValidateTask 抽取）。
+  /** 挤占触发点即时清理（claimAndValidateTask 抽取）。
    *  与轮询扫描同判据 + 一道额外保险：已被 halt 打标的执行方直接判死（halt=已发停手令，
    *  isRunning 残留的 streaming session 只是未收尾的尸身）。
    *  用户停机/限流冻结场景 isRunning=true 且未 halt → 不动它（信号保留语义由补扫消化）。 */
@@ -1617,7 +1617,7 @@ export class SchedulerService {
     });
   }
 
-  /** F20260913ctlv 收尾批2：内部信号落 entries（system entry，yieldTargets 即目标）。
+  /** 收尾批2：内部信号落 entries（system entry，yieldTargets 即目标）。
    *  原 createSystemMessage 写 messages（senderType='system'）已退役。
    *  广播 entry.system SSE（前端时间线居中系统条目实时可见；无 broadcaster 时静默降级）。
    *  scheduled_tasks.sender_id 保留原值不动——它是「任务归谁」的业务字段，不是信号发出者。 */
@@ -1633,8 +1633,8 @@ export class SchedulerService {
     try {
       this.messageBroadcaster?.broadcastEvent(task.conversationId, {
         event: "entry.system",
-        // F20260921urdo 契约收口：字段名统一 sequenceNum（与 entry.user/entry.speak 一致）
-        // F20261104ssfde：senderName 随广播透出（scheduler:<任务名>）——前端据此把定时任务触发消息
+        // 契约收口：字段名统一 sequenceNum（与 entry.user/entry.speak 一致）
+        // senderName 随广播透出（scheduler:<任务名>）——前端据此把定时任务触发消息
         // 识别为可折叠长消息（默认收起一行，点开看全文）。历史接口（entry-controller DTO）本就透传，
         // 此处只补 SSE 实时链路，避免实时/刷新后渲染形态漂移。
         data: { entryId: entry.id, content: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt, senderName: entry.senderName },
@@ -1644,19 +1644,19 @@ export class SchedulerService {
   }
 
   private async invokeAgentWithTimeout(task: ScheduledTask, body: string | undefined, anchorMessageId: string | undefined, executorOtterId: string): Promise<void> {
-    // #775 S4a 换轨（最优先分支）：注入路由器时投信号 → 路由器点火。
+    // 换轨（最优先分支）：注入路由器时投信号 → 路由器点火。
     // - 闸门生效：用户停机/限流熔断期间信号保留（skipped_halted/skipped_rate_limited），
     //   等用户显式恢复/窗口过后补扫点燃——不再绕过闸门（09-03 ihlt 同形态盲区封死）。
     // - 记账即销账：路由器点火即写 attempt（in_progress），与全系统唯一账本对齐；
     //   判据清零后本条 system 消息（带 tsp）本身就在路由器 pending 判据内，投信号后
-    //   补扫也能兜底——双跑被幂等记账+阻尼挡住（F20260903damp）。
-    // - 看门狗：#516 静默窗判死会误杀「被闸门冻结等待恢复」的信号，改为执行级
+    // 补扫也能兜底——双跑被幂等记账+阻尼挡住。
+    // - 看门狗：静默窗判死会误杀「被闸门冻结等待恢复」的信号，改为执行级
     //   台账判活轮询（in_progress 即活），闸门冻结期不判死（闸门拦截在直投处抛
     //   DirectChainGatedError 记 skipped，不会进入等待循环）。
     // 回滚面：摘除 platforms.ts 的 signalRouter 注入即回直连链（降级基线不变）。
     if (this.signalRouter) {
       if (anchorMessageId) {
-        // #775 S4a：直投通道（原点独占点火权）。Why 不用 routePendingSignals：
+        // 直投通道（原点独占点火权）。Why 不用 routePendingSignals：
         // ① 整会话扫描会把任务锚点外的历史 pending 也点爁（触发面失控）；
         // ② 闸门拦截时静默保留信号会让本方法空转轮询到硬上限（执行假死一天）——
         //    直投被闸门拒时抛 DirectChainGatedError，调用方记 skipped（非 failed），
@@ -1669,11 +1669,11 @@ export class SchedulerService {
       // 防御：无锚点/无目标（不应发生——createSystemMessage 必有 id，tsp 创建时必填）回退直连链路径
       this.logger.warn('scheduler 换轨路径缺少锚点或目标，回退直连链', { taskId: task.id, anchorMessageId: anchorMessageId ?? 'none' });
     }
-    // Why: 有 dispatchChainEngine 时走链引擎续跑发言链（#332；F20260904schf 起
+    // Why: 有 dispatchChainEngine 时走链引擎续跑发言链（；起
     // 链引擎读行级 tsp，不再消费 turn 级 aggregatedTargets），
     // 否则降级为直接 invoke（兼容未注入的旧装配）。超时语义分路径：
-    // - 链路径（#516）：静默容忍窗 + 硬上限。窗口内链无新消息才判死；有新消息即续期。
-    //   任务级 timeoutMinutes 覆盖静默窗（默认 15 分钟）；硬上限 #1048 收口为
+    // - 链路径：静默容忍窗 + 硬上限。窗口内链无新消息才判死；有新消息即续期。
+    // 任务级 timeoutMinutes 覆盖静默窗（默认 15 分钟）；硬上限 收口为
     //   max(2h, 2×静默窗)。判死/超上限 = 放弃等待（skipped 落账），非任务失败。
     //   链 settle 即返回，不与链竞速——短任务不被拖到静默窗满。
     // - 非链路径：单次 invoke 5 分钟一刀切（旧语义保留，无链可观测）。
@@ -1684,10 +1684,10 @@ export class SchedulerService {
         userMessageContent: body ?? task.body,
         senderId: task.senderId,
         initialTargets: [executorOtterId],
-        // F20261012swsg（#1430）：定时任务 prompt 是 scheduler 合成文本（senderType='system'）——
+        // 定时任务 prompt 是 scheduler 合成文本（senderType='system'）——
         // 不进安全词扫描（案发源头：雷达 prompt 自带「停下，」被误扫）。此路径永不触发 L2 急停提醒。
         triggerSenderType: "system",
-        // F20260902sgp2 S1：定时任务链记账——trigger 为任务锚点消息（anchorMessageId
+        // 定时任务链记账——trigger 为任务锚点消息（anchorMessageId
         // 由调用方注入；无锚时首 hop 不记账，仅 hop 2+ 按 yield 出处记，不阻断）
         triggerMessageId: anchorMessageId,
         invokeFn: async (params) => this.agentInvokePort.invokeConversation(params),
@@ -1698,7 +1698,7 @@ export class SchedulerService {
 
     let timer: NodeJS.Timeout | undefined;
     try {
-      // F20261014czgd：直连兜底补游标推进——此前不传 batchMaxSeq → pushCursorOnStartup 永不触发，
+      // 直连兜底补游标推进——此前不传 batchMaxSeq → pushCursorOnStartup 永不触发，
       // 定时任务消息反复当未读重注入。点火前算一次本批未读最大 seq（含锚点消息自身）。
       // 降级：entryRepo 无 getUnreadEntries（旧装配/测试 mock 最小面）时不推进，行为与修复前持平。
       // 语义变化声明：invoke 启动成功（首事件到达）即推游标——若 invoke 中途失败，
@@ -1725,34 +1725,34 @@ export class SchedulerService {
     }
   }
 
-  /** #516: 链活跃看门狗。与链 promise 竞速：链 settle（成功/失败）→ 透传返回/抛错；
+  /** 链活跃看门狗。与链 promise 竞速：链 settle（成功/失败）→ 透传返回/抛错；
    *  静默窗（silenceMs）到 → 探测锚点消息之后是否有新消息（任一状态都算链活跃）：
    *  - 有 → 链活跃，续期等待下一个静默窗口
-   *  - 无（含探测失败）→ 判死，抛 WatchdogAbandonedError（#1048：放弃≠失败）
+   * - 无（含探测失败）→ 判死，抛 WatchdogAbandonedError（放弃≠失败）
    *  总时长恒受 resolveAbandonWindowMs(silenceMs) 放弃窗口约束，防真死循环占住调度器。
    *  Why 含探测失败判死：链消息流不可读（DB 故障等）时链产出无从验证，继续等待只会永远占位。 */
-  /** #775 S4a：执行级台账判活看门狗（换轨路径专用）。
-  /** #1048 克制化：换轨执行看门狗——判活靠消息终态，放弃靠静默窗。
+  /** 执行级台账判活看门狗（换轨路径专用）。
+  /** 克制化：换轨执行看门狗——判活靠消息终态，放弃靠静默窗。
    *  与 watchChainWithActivity（静默窗判死）的本质区别：链路径握着 chainPromise 能等 settle；
    *  换轨后点火是路由器 fire-and-forget，无法握 promise——判活只能靠消息终态：
    *  - 锚点目标全部有终态消息 → 执行收工
    *  - 仍有产出（任一状态）→ 活着，续期
    *  - 静默窗零产出 → 放弃等待（原「保守等下一轮、24h 硬上限兜底」退役） */
   private async watchExecutionByLedger(task: ScheduledTask, anchorMessageId: string): Promise<void> {
-    // #1048：静默窗判死 + 放弃窗口收口（原「无产出保守等到 24h 硬上限」是 issue 根因签名：
+    // 静默窗判死 + 放弃窗口收口（原「无产出保守等到 24h 硬上限」是 issue 根因签名：
     // 10-12 三条 execution 各等满 24h+12s 才落账）。放弃 ≠ 失败：超窗即停等，落 skipped。
     const silenceMs = this.resolveChainSilenceMs(task);
     const deadline = this.now() + resolveAbandonWindowMs(silenceMs);
     let lastProgressAt = this.now();
     while (this.now() < deadline) {
       await new Promise(r => setTimeout(r, LEDGER_WATCH_POLL_MS));
-      // F20260908rlcp：从 dispatch_attempts 台账改为消息终态判定
+      // 从 dispatch_attempts 台账改为消息终态判定
       const settled = await this.isMessageSettled(task.conversationId, anchorMessageId);
       if (settled) return;
-      // #1048 静默窗：锚点后有新产出 = 链仍有进展（与 isChainStillActive「任一状态都算链
+      // 静默窗：锚点后有新产出 = 链仍有进展（与 isChainStillActive「任一状态都算链
       // 活跃」同语义）；静默窗内零产出（含探测失败——判不出活按死处理，同「机械清理比
       // 等 24h 安全」的判断）→ 放弃等待。闸门冻结保留的信号由补扫点燃兜住，不靠本看门狗
-      // 硬等（原 #775 注释的「保守等」被搭档克制原则取代：漏一次可接受）。
+      // 硬等（原 注释的「保守等」被搭档克制原则取代：漏一次可接受）。
       const progressed = await this.hasFreshOutputAfter(anchorMessageId, silenceMs);
       if (progressed) {
         lastProgressAt = this.now();
@@ -1767,7 +1767,7 @@ export class SchedulerService {
     );
   }
 
-  /** F20260908rlcp：信号终态判定（F20260913ctlv 批2 切 entries）——锚点目标是否全部有终态产出。
+  /** 信号终态判定（批2 切 entries）——锚点目标是否全部有终态产出。
    *  新模型判据：锚点后每个目标獭的产出 = invoke_end entry（invokeId 关联）或 speak entry。
    *  invoke 终态真相源在 invokes 表，这里用「锚点后有该目标任一产出 entry」近似——
    *  精确终态由 watchExecutionByLedger 外层轮询兜底。 */
@@ -1793,7 +1793,7 @@ export class SchedulerService {
     }
   }
 
-  /** #1048：锚点后最近产出是否落在静默窗内（进展探测）。
+  /** 锚点后最近产出是否落在静默窗内（进展探测）。
    *  与 isChainStillActive「任一状态都算链活跃」同语义；查询失败按无进展处理（判不出活按死）。
    *  Why cutoff 用 Date.now()（墙钟）：entry.createdAt 是墙钟时间戳，比较必须墙钟对墙钟——
    *  this.now() 是单调钟（performance.now，进程启动起算，供看门狗窗口计时防墙钟跳变），
@@ -1834,10 +1834,10 @@ export class SchedulerService {
 
     const silenceMs = this.resolveChainSilenceMs(task);
     const deadline = Date.now() + resolveAbandonWindowMs(silenceMs);
-    // #642: 429 重试计数器——连续 429 超过 MAX_429_RETRIES 次即判死
+    // 429 重试计数器——连续 429 超过 MAX_429_RETRIES 次即判死
     let consecutive429Count = 0;
     while (Date.now() < deadline) {
-      // #642: 检查链是否 settle（成功/失败）
+      // 检查链是否 settle（成功/失败）
       if (this.settleOutcome(chainSettled)) return;
 
       // 静默窗等待：链 settle 或静默窗到
@@ -1847,16 +1847,16 @@ export class SchedulerService {
         return;
       }
 
-      // 静默窗到：探测链活性（F20260902sgp2 S4b：台账终态优先，回退消息存在性）
+      // 静默窗到：探测链活性（台账终态优先，回退消息存在性）
       const alive = await this.isChainAliveByLedger(anchorMessageId)
         ?? await this.isChainStillActive(anchorMessageId);
       if (!alive) {
         if (this.settleOutcome(chainSettled)) return;
-        // #1048：判死即放弃（放弃≠失败——#516 教训：误杀被 3 连败熔断放大成静默停跑）
+        // 判死即放弃（放弃≠失败——教训：误杀被 3 连败熔断放大成静默停跑）
         throw new WatchdogAbandonedError('看门狗放弃：静默窗内锚点后无新产出，停止等待（非任务失败；下次调度可补跑）');
       }
 
-      // #642: 检测链是否卡在 429 重试循环
+      // 检测链是否卡在 429 重试循环
       consecutive429Count = await this.check429Retry(
         anchorMessageId, task.id, consecutive429Count,
       );
@@ -1866,7 +1866,7 @@ export class SchedulerService {
     );
   }
 
-  /** #642: 等待静默窗或链 settle。提取为 helper 减少 watchChainWithActivity 语句数。 */
+  /** 等待静默窗或链 settle。提取为 helper 减少 watchChainWithActivity 语句数。 */
   private async waitForSilenceOrSettle(
     settled: Promise<void>,
     silenceMs: number,
@@ -1880,7 +1880,7 @@ export class SchedulerService {
     return winner;
   }
 
-  /** #642: 检测链是否卡在 429 重试循环。提取为 helper 减少 watchChainWithActivity 语句数。 */
+  /** 检测链是否卡在 429 重试循环。提取为 helper 减少 watchChainWithActivity 语句数。 */
   private async check429Retry(
     anchorMessageId: string,
     taskId: string,
@@ -1910,15 +1910,15 @@ export class SchedulerService {
     return true;
   }
 
-  /** #516: 链活性探测——锚点之后有任意新消息（任何状态）即活跃。
+  /** 链活性探测——锚点之后有任意新消息（任何状态）即活跃。
    *  探测失败（DB 异常）视为死亡：链产出无从验证，继续等待只会永远占位。 */
-  /** F20260902sgp2 S4b：台账终态判活（看门狗）。
+  /** 台账终态判活（看门狗）。
    *  @returns true=锚点 attempt 全终态（收工→alive=false 语义由调用方取反——注意本方法返回
    *           「链活跃与否」：true=有 in_progress 活跃；false=全终态收工；undefined=回退） */
   private async isChainAliveByLedger(anchorMessageId: string | undefined): Promise<boolean | undefined> {
     if (!anchorMessageId) return undefined;
     try {
-      // F20260913ctlv 批2：entries 存在性判定（锚点后有产出 entry 即活）
+      // 批2：entries 存在性判定（锚点后有产出 entry 即活）
       const after = await this.entryRepo.getEntriesAfter(anchorMessageId, 5);
       return Array.isArray(after) && after.length > 0;
     } catch {
@@ -1935,10 +1935,10 @@ export class SchedulerService {
     }
   }
 
-  /** #642: 检测链是否卡在 429 重试循环。
+  /** 检测链是否卡在 429 重试循环。
    *  429/rate_limit 类错误的特征：错误文本包含429/status_code/配额/limit 等关键词。
    *  链活跃但最近产出全是 429 重试 → 返回 true（应判死）；否则返回 false（真活跃）。
-   *  F20260913ctlv 批2 切 entries：判据 = 锚点后最近 entries 的 body（speak/invoke_end
+   * 批2 切 entries：判据 = 锚点后最近 entries 的 body（speak/invoke_end
    *  的错误文本均落在 body）；最近全部含 429 特征 → 卡死。 */
   private async isChainStuckOn429(anchorMessageId: string): Promise<boolean> {
     try {
@@ -1968,12 +1968,12 @@ export class SchedulerService {
     }
   }
 
-  /** #516: 任务级静默窗取值——timeoutMinutes 配置优先，缺省 15 分钟 */
+  /** 任务级静默窗取值——timeoutMinutes 配置优先，缺省 15 分钟 */
   private resolveChainSilenceMs(task: ScheduledTask): number {
     return (task.timeoutMinutes ?? 15) * 60 * 1000;
   }
 
-  /** #517: 执行窗口记账校验（F20260913ctlv 批2 切 entries）。
+  /** 执行窗口记账校验（批2 切 entries）。
    *  锚点 entry 之后存在 failed 的 invoke（invoke_end entry 带 metadata.invokeStatus='failed'，
    *  或链路写入的失败 system entry）时抛错，将「agent 真失败但 execution 记 completed」
    *  的记账错位纠正为 failed。
@@ -2097,7 +2097,7 @@ export class SchedulerService {
     const now = new Date().toISOString();
     const body = `[定时任务错误] 「${task.name}」连续 ${failures} 次执行失败，已自动停跑（status=error）。最近错误：${errorMessage}。请检查任务配置或手动恢复（update status='active'）后重试。`;
 
-    // 1) 系统条目注入任务所属对话（F20260913ctlv 批2：entries 唯一落点；错误通知无目标，居中系统条目）
+    // 1) 系统条目注入任务所属对话（批2：entries 唯一落点；错误通知无目标，居中系统条目）
     try {
       const { entry } = await this.sendEntry.createSystemEntry({
         conversationId: task.conversationId,
@@ -2105,7 +2105,7 @@ export class SchedulerService {
       });
       this.messageBroadcaster?.broadcastEvent(task.conversationId, {
         event: "entry.system",
-        // F20260921urdo 契约收口：字段名统一 sequenceNum
+        // 契约收口：字段名统一 sequenceNum
         data: { entryId: entry.id, content: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt },
       });
     } catch (err) {
@@ -2142,10 +2142,10 @@ export class SchedulerService {
     }
   }
 
-  /** #754：单次执行失败落 healing 台账（medium）。#847 扩展：once 重试路径
+  /** 单次执行失败落 healing 台账（medium）。扩展：once 重试路径
    *  （skipConsecutiveFailureTracking 分支）同样调用——重试中间失败也值得台账可见。
-   *  errorMessage 截断 2000 字符防御（#847：context JSON 无大小限制）。 */
-  /** #913：claim 成功后、execution 建立前的前置炸点落 healing（与 recordSingleFailureHealing
+   * errorMessage 截断 2000 字符防御（context JSON 无大小限制）。 */
+  /** claim 成功后、execution 建立前的前置炸点落 healing（与 recordSingleFailureHealing
    *  同语义但不依赖 executionId——前置失败时 execution 行不存在）。best-effort：落账失败不阻断 rethrow。 */
   private async recordPreExecutionFailureHealing(task: ScheduledTask, error: unknown): Promise<void> {
     if (!this.healingRepo) return;
@@ -2203,7 +2203,7 @@ export class SchedulerService {
     }
   }
 
-  /** #246: 统一执行失败处理入口，根据 skipConsecutiveFailureTracking 选择路径。
+  /** 统一执行失败处理入口，根据 skipConsecutiveFailureTracking 选择路径。
    *  once 任务重试时只更新 execution record，不走 consecutiveFailures/status 标记，
    *  让 triggerOnceWithRetry 独立控制重试/error 语义。 */
   private async handleTaskExecutionFailure(
@@ -2226,14 +2226,14 @@ export class SchedulerService {
           error: updateErr instanceof Error ? updateErr.message : String(updateErr),
         });
       }
-      // #847：once 重试中间失败同样落 healing 台账（与单次失败同语义）
+      // once 重试中间失败同样落 healing 台账（与单次失败同语义）
       await this.recordSingleFailureHealing(taskId, executionId, errorMessage, new Date().toISOString());
     } else {
       await this.handleExecutionFailure(executionId, taskId, error);
     }
   }
 
-  /** #1068: 降级 restart 后的重试 invoke 完整路径（提取为 helper 控制 executeTask 嵌套深度）。
+  /** 降级 restart 后的重试 invoke 完整路径（提取为 helper 控制 executeTask 嵌套深度）。
    *  与主路径同语义：锚点 entry → invoke → 记账校验 → completeExecution → resetConsecutiveFailures。 */
   private async retryInvokeAfterQuotaFallback(
     task: ScheduledTask,
@@ -2263,7 +2263,7 @@ export class SchedulerService {
     return this.taskRepo.getAllActive();
   }
 
-  /** #1068: quota-exhausted 终态降级——执行獭模型配额耗尽时，restart 换 fallback 模型。
+  /** quota-exhausted 终态降级——执行獭模型配额耗尽时，restart 换 fallback 模型。
    *  返回 { retried: true, fallbackModel } 表示已 restart 可重试；否则 retried=false 走原失败路径。
    *
    *  触发条件（全部满足才降级，任一不满足即跳过）：
@@ -2572,7 +2572,7 @@ function buildHealingDataSection(
   openEvents: Array<{ id: string; messageId: string; errorType: string; severity: string; description: string; suggestion: string | null }>,
   byClass: HealingClassCounts & { envList: string; fbList: string },
 ): string {
-  // header 序列化 top-N 截断（#1731）：byType/bySeverity 是 JSON 全量序列化，
+  // header 序列化 top-N 截断：byType/bySeverity 是 JSON 全量序列化，
   // 错误类型理论上无上限——300 类时 header 就 6K+，预算硬顶整体失效且 MAX_PROMPT_LENGTH
   // 截断会吃掉后续静态段（含下钻指引）。top-8 + +N 溢出标记，保 header 可预测地有界。
   const topEntries = (obj: Record<string, number>, max = 8): Record<string, number> => {
@@ -2639,7 +2639,7 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
     return null;
   }
 
-  // #998：二维分账（环境/系统 vs 獭能力）——混排会让分析任务把工具故障误读成獭不行。
+  // 二维分账（环境/系统 vs 獭能力）——混排会让分析任务把工具故障误读成獭不行。
   // tool_use_feedback 返回 null 不入分账（主动反馈信号，独立计数）；口径文案从实体清单拼接防漂移
   const byClass = openEvents.reduce(
     (acc, e) => {
@@ -2662,7 +2662,7 @@ async function buildHealingAnalysisBody(healingRepo: HealingEventRepository): Pr
   } else {
     // 回退：模板缺失或无占位符时用内置文案（与模板内容保持一致，守卫测试锁定同步）。
     //  Why 留痕：静默回退会让「模板丢了」无人知晓，git 化目标落空——warn 日志是最低成本的可观测性。
-    // #416：cwd 非项目根时模板会读不到，这条日志是定位线索。
+    // cwd 非项目根时模板会读不到，这条日志是定位线索。
     const path = resolve(getRepoRoot(), HEALING_ANALYSIS_TEMPLATE_PATH);
     // eslint-disable-next-line no-console -- logger 在类实例上，此处是模块级函数；console.warn 与脚本输出风格一致
     console.warn(`[healing-template] 模板缺失或无占位符（${path}），回退内置文案——若非预期请检查 cwd/部署路径`);

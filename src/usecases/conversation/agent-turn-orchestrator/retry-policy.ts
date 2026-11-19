@@ -220,7 +220,7 @@ export function buildGuardAbortBody(guardReason: string | undefined): string {
     return '[系统保护] 检测到工具调用异常循环，已自动中断。';
   }
   if (guardReason?.startsWith('bash_safety:')) return '[系统保护] 检测到针对主进程的不允许命令（主进程是海獭运行环境，任何情况下不得终止），已自动中断。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。';
-  // F20260928slan：sleep 拦截终态文案——感知问题非安全问题，引导 wait 工具 + speak 先行
+  // sleep 拦截终态文案——感知问题非安全问题，引导 wait 工具 + speak 先行
   if (guardReason?.startsWith('bash_sleep:')) return '[系统保护] 检测到长时间静默等待（sleep），已自动中断。等待请用 wait 工具并先向搭档说明理由（speak 说明等什么、为什么是这个时长）。';
   return '[系统保护] 输出异常，已自动中断。';
 }

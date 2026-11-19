@@ -84,11 +84,11 @@ export function DimensionRows({ score, trends, overview, untriagedCount }: {
   score: RhiScoreDTO | null
   trends: RhiTrendsDTO | null
   overview: RhiOverviewDTO | null
-  /** 「警报」页未接单信号数（D5 证据 + 建议动作链路，F20260917trig triage 字段） */
+  /** 「警报」页未接单信号数（证据 + 建议动作链路，triage 字段） */
   untriagedCount: number
 }) {
   // 默认展开红/黄中最差的分（原型：「点红色的看原因」——不用自己找）。
-  // 注意按分数而非状态取：状态只分三档（D2=40 与 D1=4 同红，但 D1 才是主拖累）。
+  // 注意按分数而非状态取：状态只分三档（=40 与 =4 同红，但 才是主拖累）。
   // score 是异步拉取的——首渲染为 null 时 initializer 会固化成 null（React 惰性初始化
   // 只跑一次），所以用 effect 在数据到位后设置一次初始值，不依赖 initializer 看到真数据
   const [openDim, setOpenDim] = useState<DimensionId | null>(null)
@@ -284,7 +284,7 @@ function BugfixRatioSparkline({ points }: { points: Array<{ date: string; bugfix
 }
 
 function statePlainLabel(state: string): string {
-  // 单一真相源：CHAIN_STATE_PROGRESS（chain-state-meta.ts）——检视 S2 修复，不再手写副本
+  // 单一真相源：CHAIN_STATE_PROGRESS（chain-state-meta.ts）——检视 修复，不再手写副本
   return CHAIN_STATE_PROGRESS[state as ChainState]?.label ?? state
 }
 

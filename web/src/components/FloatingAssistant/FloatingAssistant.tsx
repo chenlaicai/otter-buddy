@@ -48,7 +48,7 @@ export function FloatingAssistant(props: FloatingAssistantProps) {
   )
 
   /** 首唤开户（幂等——后端 ensure 收敛；双 tab 并发由后端最早创建规则兜底）。
-   * delta K9：契约 title 保持必填，调用传占位（后端 web-assistant 分支忽略 title 用固定标题）；
+   * 契约 title 保持必填，调用传占位（后端 web-assistant 分支忽略 title 用固定标题）；
    *  响应为列表项 DTO（api client 已显式类型）——不再 cast */
   const ensureConversation = useCallback(async () => {
     if (webConvId || ensuring) return

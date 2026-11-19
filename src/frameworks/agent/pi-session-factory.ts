@@ -96,7 +96,7 @@ export function buildGuardInterceptContext(
   priorCount: number,
   directRule?: { ruleId: string; layer: string },
 ): Record<string, unknown> {
-  // F20261102grfix（B 治本·拦截点直标）：直标优先（拦截块自带归因键），
+  // （B 治本·拦截点直标）：直标优先（拦截块自带归因键），
   // classify 文案反查降级为存量回溯/旧路径兜底——文案可随意润色，ruleId 不再受其牵连。
   // assurance:"direct" 标记归因来源，直标 vs 反查的归因质量可聚合对比。
   const rule = directRule ?? classifyGuardInterceptReason(reason);
@@ -228,21 +228,21 @@ export interface AgentRunResult {
   queued?: boolean;
   /** session 累计 token 消耗（成本口径，仅日志用；不代表上下文窗口占用） */
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
-  /** 上下文窗口占用：末次 LLM 调用的 input+output+cacheRead+cacheWrite（F20260808ctxw） */
+  /** 上下文窗口占用：末次 LLM 调用的 input+output+cacheRead+cacheWrite */
   ctxTokens?: number;
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number; timeoutElapsedMs?: number; suspectedFreeze?: boolean };
-  /** 本次 invoke 实际使用的模型别名（F20260814mtrc：metrics model label 数据源） */
+  /** 本次 invoke 实际使用的模型别名（metrics model label 数据源） */
   modelAlias?: string;
   /** 直出旁白文本（durable watch 映射） */
   directText?: string;
-  /** 本次 invoke 重建了全新 session（文件丢失/损坏/重启；F20260814mtrc） */
+  /** 本次 invoke 重建了全新 session（文件丢失/损坏/重启；） */
   sessionRebuilt?: boolean;
-  /** F20260819rscn: LLM 调用 restart_otter(self) 时标记，由 agent-invoker 执行 restart + 全新 invoke。
-   *  F20260920uhuc：synthesizePast 透传（工具参数→统一交接管线） */
+  /** LLM 调用 restart_otter(self) 时标记，由 agent-invoker 执行 restart + 全新 invoke。
+   * synthesizePast 透传（工具参数→统一交接管线） */
   _selfRestart?: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean };
-  /** 末条 assistant 消息的 stopReason（F20260903lngth：length=生成被 token 上限截断） */
+  /** 末条 assistant 消息的 stopReason（length=生成被 token 上限截断） */
   lastStopReason?: string;
 }
 
@@ -258,22 +258,22 @@ export interface InvokeOptions {
   messageId?: string;
   /** 首次 invoke 标志（内部使用，注入身份信息） */
   isFirstInvoke?: boolean;
-  /** 多模态 Phase 1：当前任务消息携带的图片，透传给 session.prompt(text, { images })。
+  /** 多模态 当前任务消息携带的图片，透传给 session.prompt(text, { images })。
    *  模型不支持 vision 时 SDK downgradeUnsupportedImages 自动降级（otter 层不自判）。 */
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
-  /** F20260825hndf Phase 2：只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。 */
+  /** 只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。 */
   readOnly?: boolean;
-  /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
+  /** 本批未读消息的最大 sequence_num（启动成功后推进游标用） */
   batchMaxSeq?: number;
-  /** F20260913ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
+  /** 当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
   currentInvokeId?: string;
   /** 受限外部会话：受限工具、独立 Session 与工作区 MCP，禁止普通池和其他工具面。 */
   externalProfile?: 'restricted';
-  /** F20260913ctlv：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
+  /** SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
-  /** F20261118bltls P1c：本对话搭档（用户）id——belief preference 来源身份校验用。
+  /** 本对话搭档（用户）id——belief preference 来源身份校验用。
    *  Web 缺省走 tool-builder "user"；IM 平台由装配层经 PartnerResolver 解析后注入。
-   *  注：IM 注入（agent-invoker 填充本字段）为 P2 已知未接线项。 */
+   * 注：IM 注入（agent-invoker 填充本字段）为 已知未接线项。 */
   partnerUserId?: string;
 }
 
@@ -300,15 +300,15 @@ export interface AgentSessionFactoryConfig {
   executionMachines: ExecutionMachineResolver;
   /** Healing event 仓库（可选，由 Composition Root 注入） */
   healingRepo?: HealingEventRepository;
-  /** F20260826mwrd C1：signal_events 仓库（halt 落账） */
+  /** signal_events 仓库（halt 落账） */
   signalRepo?: SignalEventRepository;
-  /** F20260917trig：RHI 健康信号仓库（signals 表——triage_signal/list_rhi_signals 注册条件） */
+  /** RHI 健康信号仓库（signals 表——triage_signal/list_rhi_signals 注册条件） */
   rhiSignalRepo?: SignalRepository;
-  /** F20261006mtlp P1：matters 仓库（list_matters/transition_matter 注册条件） */
+  /** matters 仓库（list_matters/transition_matter 注册条件） */
   matterRepo?: MatterRepository;
-  /** F20261027hwl1：工作账本 binder（track_work 工具注册条件） */
+  /** 工作账本 binder（track_work 工具注册条件） */
   workLedgerBinder?: WorkLedgerBinder;
-  /** F20260826mwrd C1：halt 首次注入回调（进程级 ModelRuntimeRegistry 单次注册） */
+  /** halt 首次注入回调（进程级 ModelRuntimeRegistry 单次注册） */
   onHaltFirstBlock?: (directive: HaltDirective) => void;
   /** Otter 配置持久化（由 Composition Root 注入） */
   otterConfigProvider: OtterConfigProvider;
@@ -316,11 +316,11 @@ export interface AgentSessionFactoryConfig {
   otterRepo: OtterRepository;
   /** Settings 仓库（读取用户显示名，可选） */
   settingsRepo?: SettingsRepository;
-  /** F20261111synth F3：叙事合成兑底模型别名（传输类失败重试一次；缺省 'glm'） */
+  /** F3：叙事合成兑底模型别名（传输类失败重试一次；缺省 'glm'） */
   synthesisFallbackAlias?: string;
-  /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
+  /** 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
   dataDir?: string;
-  /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
+  /** 对话仓库（可选）——身份注入读对话标题用 */
   conversationRepo?: ConversationRepository;
 }
 
@@ -343,11 +343,11 @@ export function shouldPushCursorOnStartup(batchMaxSeq: number): boolean {
 
 export class PiSessionFactory implements AgentGateway {
   private readonly sessionStore: AgentSessionStore;
-  // F20261008pi11：pi 1.x steer()/followUp() 返回 QueuedInputDisposition（"handled"|"queued"，未从包根导出）。
+  // pi 1.x steer()/followUp() 返回 QueuedInputDisposition（"handled"|"queued"，未从包根导出）。
   // 消费端 steerSession 只 catch 不读值 → 放宽为 Promise<unknown>（结构兼容 + 免硬编码 SDK 内部联合类型）。
-  // F20261009epoc：条目携带铸造它的 invoke 的 epoch（S4）——finally delete 只在 epoch 引用
+  // 条目携带铸造它的 invoke 的 epoch——finally delete 只在 epoch 引用
   // 匹配时执行（stale steal 后旧 invoke 苏醒不得删新 invoke 的条目）。epoch 缺失 = 铸造点
-  // 未执行（真 bug），set 侧拒绝注册 + warn（D3 fail-loud）。
+  // 未执行（真 bug），set 侧拒绝注册 + warn（fail-loud）。
   private readonly activeSessions = new Map<string, { abort: () => Promise<void>; steer?: (text: string) => Promise<unknown>; toolCallCount: number; guardAbortReason?: string; epoch?: InvokeEpoch }>();
   private readonly circuitBreakerConfig: CircuitBreakerConfig;
   private readonly lockManager: SimpleLockManager;
@@ -358,11 +358,11 @@ export class PiSessionFactory implements AgentGateway {
   private readonly pendingIdentity = new Set<string>();
   private otterToolClient: OtterToolClient | null;
 
-  /** F20260911pspl：池化后的 session 持有（session + invoke 级寄存器 + 工具上下文）。
-   *  F20260913ctlv 整合（PR #886 merge main）：rlcp 热池退役，本池为唯一基座。 */
+  /** 池化后的 session 持有（session + invoke 级寄存器 + 工具上下文）。
+   * 整合（merge main）：rlcp 热池退役，本池为唯一基座。 */
   private readonly pool: PiSessionPool;
-  /** F20261009epoc（D5）：池条目记录归属 epoch——冷启动铸造它的 invoke 的 epoch；
-   *  池命中时转移到命中它的 invoke（合法复用 = 所有权转移，#904 语义保持：
+  /** 池条目记录归属 epoch——冷启动铸造它的 invoke 的 epoch；
+   * 池命中时转移到命中它的 invoke（合法复用 = 所有权转移，语义保持：
    *  现役合法持有者可逐，stale 旧 invoke 不可）。 */
   private readonly poolMeta = new Map<string, {
     session: DurableSession;
@@ -388,21 +388,21 @@ export class PiSessionFactory implements AgentGateway {
       healingRepo?: HealingEventRepository;
       signalRepo?: SignalEventRepository;
       rhiSignalRepo?: SignalRepository;
-      /** F20261006mtlp P1：matters 仓库（list_matters/transition_matter 注册条件） */
+      /** matters 仓库（list_matters/transition_matter 注册条件） */
       matterRepo?: MatterRepository;
-      /** F20261027hwl1：工作账本 binder（track_work 工具注册条件） */
+      /** 工作账本 binder（track_work 工具注册条件） */
       workLedgerBinder?: WorkLedgerBinder;
       onHaltFirstBlock?: (directive: HaltDirective) => void;
       resourceLoader?: ResourceLoader;
       otterConfigProvider: OtterConfigProvider;
       otterRepo: OtterRepository;
       settingsRepo?: SettingsRepository;
-      /** F20261111synth F3：叙事合成兑底模型别名（传输类失败重试一次；缺省 'glm'，
+      /** F3：叙事合成兑底模型别名（传输类失败重试一次；缺省 'glm'，
        *  池中不存在则跳过重试）。可选注入（测试/bootstrap），不进 config schema。 */
       synthesisFallbackAlias?: string;
-      /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
+      /** 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
       dataDir?: string;
-      /** F20260917cvid: 对话仓库（可选）——身份注入读对话标题用 */
+      /** 对话仓库（可选）——身份注入读对话标题用 */
       conversationRepo?: ConversationRepository;
     },
     private readonly logger: Logger,
@@ -416,17 +416,17 @@ export class PiSessionFactory implements AgentGateway {
       ...DEFAULT_CIRCUIT_BREAKER_CONFIG,
       ...getConfig().circuitBreaker,
     };
-    // Why(#423 方案1): 注入 logger，锁获取超时时落结构化诊断日志（持有者、持有时长、队列深度）
+    // Why(方案1): 注入 logger，锁获取超时时落结构化诊断日志（持有者、持有时长、队列深度）
     this.lockManager = new SimpleLockManager(undefined, logger, 300_000, (key, holderEpoch) => {
       const otterId = key.startsWith('session:') ? key.slice('session:'.length) : key;
       return {
         invokeStatus: this.readHolderInvokeStatus(otterId, holderEpoch),
-        // D4 的事实源就是 factory.isRunning：池内 drain + activeSessions 缺一不可。
+        // 的事实源就是 factory.isRunning：池内 drain + activeSessions 缺一不可。
         sdkRunning: this.isRunning(otterId),
       };
     });
-    // F20260911pspl：session 池（running 豁免用 SDK isStreaming；TTL 默认 10min）。
-    // F20260913ctlv 整合（PR #886 merge main）：rlcp 池退役，以 #894 PiSessionPool 为基座；
+    // session 池（running 豁免用 SDK isStreaming；TTL 默认 10min）。
+    // 整合（merge main）：rlcp 池退役，以 PiSessionPool 为基座；
     // ctlv 的 invoke 级语义（currentInvokeId/emitEvent/lastSpeakEntryId）移植进寄存器。
     this.pool = new PiSessionPool(async () => { throw new Error("pool factory must not be called directly"); });
     this.pool.onEvict = (key) => { this.clearDelegation(key); this.poolMeta.delete(key); };
@@ -438,7 +438,7 @@ export class PiSessionFactory implements AgentGateway {
     this.otterToolClient = client;
   }
 
-  // F20260920uhuc：setCompactionSynthesis 退役（session_before_compact 钩子随时机权
+  // setCompactionSynthesis 退役（session_before_compact 钩子随时机权
   //  回收而退役，压缩时机改由应用层轮边界水位接管）。
 
   /** 预加载 pi-coding-agent SDK + ResourceLoader + ModelRuntime，避免首次对话冷启动阻塞 */
@@ -490,7 +490,7 @@ export class PiSessionFactory implements AgentGateway {
    */
   private _createSessionAndPersist(otterId: string, config: AgentConfig, allowOverwrite: boolean): void {
     if (this.sessionStore.get(otterId) && !allowOverwrite) throw new Error(`Agent already exists for otter: ${otterId}`);
-    // alpha 实测回归（PR #1783 验证发现）：main 的 session-restore.createSessionAndPersist 在建
+    // alpha 实测回归（验证发现）：main 的 session-restore.createSessionAndPersist 在建
     // session 时同事务写 otter_configs（session-restore.ts:165-173）；迁移版只注册 durable store
     // 映射、丢 setConfig → 新獭首次 invoke 必炸「Otter config not found」。此处还原同构事务：
     // config 写入与 store 映射要么都在、要么都不在（半写状态会让 acquire 的 getConfig 判空路径分裂）。
@@ -515,7 +515,7 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   private async _destroyInternal(otterId: string): Promise<void> {
-    // F20260911pspl：先驱逐池内 session（池外无引用则 dispose），再处理其余。
+    // 先驱逐池内 session（池外无引用则 dispose），再处理其余。
     this.pool.evict(otterId);
     this.poolMeta.delete(otterId);
     // 中止所有相关的活跃 session（先复制 key 列表，避免迭代时修改 Map）
@@ -527,15 +527,15 @@ export class PiSessionFactory implements AgentGateway {
     // 删除持久化数据（不删除 session 文件，保留用于审计）
     this.cfg.db.transaction(() => { this.sessionStore.delete(otterId); this.cfg.otterConfigProvider.deleteConfig(otterId); })();
     this.pendingIdentity.delete(otterId);
-    // F20260911pspl：驱逐池内 session（池外无引用则 dispose）
+    // 驱逐池内 session（池外无引用则 dispose）
     this.pool.evict(otterId);
     this.poolMeta.delete(otterId);
   }
 
   async reset(otterId: string, context?: AgentContext, channel?: 'normal' | 'handoff'): Promise<void> {
-    // F20260923hspx：handoff 渠道 = 交接冻结锁已由调用方持有，走锁旁路（隔离换世通道），
+    // handoff 渠道 = 交接冻结锁已由调用方持有，走锁旁路（隔离换世通道），
     //  避免与交接锁自死锁（9/23 实证 4 獭连续「Lock acquire timeout」——等的是自己）。
-    //  resetForHandoff 未实现时降级走正常路径（旧行为，兼容 mock）——F20260923hspx：
+    // resetForHandoff 未实现时降级走正常路径（旧行为，兼容 mock）——
     //  静默降级加观测，生产装配若意外走到降级路径立即现形。
     if (channel === 'handoff') {
       if (this.resetForHandoff) {
@@ -551,29 +551,29 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
-  /** F20260923hspx：交接换世隔离通道——reset 的锁旁路变体。
+  /** 交接换世隔离通道——reset 的锁旁路变体。
    *  Why（根本设计修复，不再打锁时序补丁）：统一交接管线已持交接冻结锁（acquireSessionLock），
    *  换世再走 reset() 会二次取同一把 per-otter 锁 → 排队在自己后面 → 等满 waiter 超时必死
    *  （9/23 实证 4 獭连续「Lock acquire timeout」，holderHeldForMs 恂 ≈120s、queueLength=0，
    *  等的就是自己）。此前修法（heldAt 纪元/hopeless 预检）都是锁时序补丁——本通道从根上拆掉
    *  「交接换世复用 invoke 池复用锁路径」这个双目的锁模型：per-otter 锁退回单目的
    *  （invoke 池复用，毫秒级短临界区）。
-   *  安全性（D1 定稿）：主锁是同獭 invoke 的串行一致性防线，真实临界区覆盖整个模型轮；
+   * 安全性（定稿）：主锁是同獭 invoke 的串行一致性防线，真实临界区覆盖整个模型轮；
    *  并非「毫秒级短临界区」。交接锁的冻结窗口提供互斥前提，换世不走主锁排队注入旧世。
    *  且 reset 换世期间池内旧 session 由 _resetInternal 的 evict 出池（不 dispose，
-   *  旧 invoke 若仍活着由 GC 兑底——与 markStale 同语义，F20260912nlb896 已验证）。
+   * 旧 invoke 若仍活着由 GC 兑底——与 markStale 同语义，已验证）。
    *  Precondition: 调用方已持交接冻结锁（acquireSessionLock），否则与 reset() 等价但与并发 invoke 竞态。 */
   async resetForHandoff(otterId: string, context?: AgentContext): Promise<void> {
     // M-9af49d4a 审视修复（严重 1）：不再预清池——poolMeta 预删会让 _resetInternal 的
     //  活句柄优先与流中守护在 handoff 主通道恒失效（pooled 恒 undefined → 永远双开库，
-    //  且冷开 recoverAfterReopen 会 abort 未完任务，与下方 D1 注释「不撕裂旧 invoke」相反）。
+    // 且冷开 recoverAfterReopen 会 abort 未完任务，与下方 注释「不撕裂旧 invoke」相反）。
     //  池的守护/出池/活句柄取用全部内聚到 _resetInternal 单点（出池语义仍为 markStale 不 dispose）。
     await this._resetInternal(otterId, context);
   }
 
   private async _resetInternal(otterId: string, context?: AgentContext): Promise<void> {
     // M-9af49d4a 根因修复：世代物化为同库 reset 边界，账本恒指 plain 库。
-    // #1783 失配回顾：此前换世登记 ${otterId}-${uuid}.sqlite 世代文件，而打开路径
+    // 失配回顾：此前换世登记 ${otterId}-${uuid}.sqlite 世代文件，而打开路径
     // （_createSessionWithTools 恒用 durableFile(otterId)=plain）从不看账本——换世只翻
     // 账本不换 transcript：水位循环（上下文不降反复触发交接）、幽灵账本（世代文件从未创建）、
     // 前世档案恒机械转储（读取前世文件失败）三连伤。修复后世代边界 = 库内 pi.reset entry
@@ -1091,7 +1091,7 @@ export class PiSessionFactory implements AgentGateway {
         resetInvokeRegister(existing.register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
         const turnText = existing.register.turnText;
         const sessionKey = options?.messageId ? `${otterId}:${options.messageId}` : otterId;
-        // F20261014cwsp：池命中时重置 cwd 到当前对话工作区（U1：invoke 入口重置，不动池结构）
+        // 池命中时重置 cwd 到当前对话工作区（U1：invoke 入口重置，不动池结构）
         await this._resetSessionCwd(existing.session, options?.conversationId ?? "");
         existing.session.updateOptions({ currentInvokeId: options?.currentInvokeId, prompt: buildOtterPrompt(this.cfg.otterConfigProvider.getConfig(otterId)?.systemPrompt) });
         this._transferPoolOwnership(existing, otterId);
@@ -1112,7 +1112,7 @@ export class PiSessionFactory implements AgentGateway {
     const { session, sessionKey, toolContext } = await this._createSessionWithTools(
       otterId, otterConfig.otterType, options, register, options?.readOnly,
     );
-    // F20261009epoc（D3 fail-loud）：池条目必须携带 epoch——epoch 缺失 = 铸造点未执行
+    // （fail-loud）：池条目必须携带 epoch——epoch 缺失 = 铸造点未执行
     // （真 bug），拒绝入池 + warn（不入池的后果：session 用完即弃不复用，bug 现形
     // 而非静默带病入池）。与 markStale 同为池层归属判定的数据基座。
     const coldEpoch = invokeEpochStorage.getStore();
@@ -1133,7 +1133,7 @@ export class PiSessionFactory implements AgentGateway {
     const stored = this.sessionStore.getWithFile(otterId);
     if (!stored || !this.cfg.otterConfigProvider.getConfig(otterId)) throw new Error(`Otter config not found: ${otterId}. Call create() first.`);
     const sessionFile = stored.sessionFile;
-    // 检视处置（PR #1783 建议 2）：原恒假分支（sessionFile 取自 stored.sessionFile 后再比对自身）
+    // 检视处置（建议 2）：原恒假分支（sessionFile 取自 stored.sessionFile 后再比对自身）
     // 已删——registerDurableSession 在 create() 时已写，恢复路径无需重注册。
     return { createdNew: !fs.existsSync(sessionFile) };
   }
@@ -1146,7 +1146,7 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /**
-   * F20261027lbos（#1656）：循环硬熔断门拦截落 healing_events（loop_tool_block，medium）。
+   * 循环硬熔断门拦截落 healing_events（loop_tool_block，medium）。
    * fire-and-forget；签名截头 120 字符，去重由 loopBlockGuard 内签名级集合负责。
    * healingRepo 缺失时返回 undefined（拦截照常，观测降级）；委托导出函数供 payload 单测。
    */
@@ -1158,7 +1158,7 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /**
-   * F20260831aksp T3：bash 守卫拦截落 healing_events（框架层 medium 样本）。
+   * bash 守卫拦截落 healing_events（框架层 medium 样本）。
    * fire-and-forget：失败仅记日志，不阻断拦截本身；healingRepo 缺失时返回 undefined。
    */
   private buildGuardInterceptHook(
@@ -1168,14 +1168,14 @@ export class PiSessionFactory implements AgentGateway {
     const healingRepo = this.cfg.healingRepo;
     if (!healingRepo) return undefined;
     return ({ command, reason, ruleId, ruleLayer }) => {
-      // #844（F20260914dsrv）方案 C：同一 otter 近 6h 内 guard_intercept ≥3 次 → 升级 high
+      // 方案 C：同一 otter 近 6h 内 guard_intercept ≥3 次 → 升级 high
       // + 建议文本换为「优先排查误拦/升级搭档」——不让高频拦截静默淹没在 medium 池里。
       // fire-and-forget：查询/落账失败不影响拦截本身。
       healingRepo.findRecentByOtter(otterId, "guard_intercept", 20).then(recent => {
         const { repeated, priorCount } = classifyGuardIntercept(recent);
-        // F20260930gslog：拦截事件结构化——ruleId（指纹分类）+ commandHead（脱敏截短）+
-        // hasWorktreePath（#1207 类误报的可聚合特征：命令含 worktree 路径却被判主仓写）。
-        // 误报治理从「翻台账数数」升级为 SQL 聚合（#1207 关闭验证自动化）。
+        // 拦截事件结构化——ruleId（指纹分类）+ commandHead（脱敏截短）+
+        // hasWorktreePath（类误报的可聚合特征：命令含 worktree 路径却被判主仓写）。
+        // 误报治理从「翻台账数数」升级为 SQL 聚合（关闭验证自动化）。
         const context = buildGuardInterceptContext(command, reason, repeated, priorCount,
           ruleId && ruleLayer ? { ruleId, layer: ruleLayer } : undefined);
         return healingRepo.create({
@@ -1200,16 +1200,16 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /**
-   * F20261010gshw：写落点求值器影子接线回调（观察模式）——旧链判定后无论拦否
+   * 写落点求值器影子接线回调（观察模式）——旧链判定后无论拦否
    * 双向对照落 healing_events（真误拦候选 / EVAL_GAIN）。只记录不干预；
    * healingRepo 缺失时无回调（影子静默关）。projectRoot 与拦截钩子同源（process.cwd()）。
    */
-  /** F20261019gses P0 影子下线：buildShadowEvalHook（观察期对照构造）已删——主判定切
+  /** 影子下线：buildShadowEvalHook（观察期对照构造）已删——主判定切
    *  evaluateWriteVerdict 后无「旧链 vs 新链」对照面，shadow-eval-recorder 模块整体移除。 */
 
-  /** 使用 session 执行 invoke（F20260911pspl：session 由 _acquirePooled 获取，本方法不再创建；
-   *  F20260913ctlv：wrappedHandler 启动游标推进 + pushCursorOnStartup 在此） */
-  // eslint-disable-next-line max-params, max-lines-per-function -- F20260911pspl：池化后 session/sessionKey/toolContext/turnText 由 acquire 产出透传（拆对象会切断参数与 acquire 返回值的对应关系）；F20260913ctlv：wrappedHandler 启动游标 + ctlv 合流面
+  /** 使用 session 执行 invoke（session 由 _acquirePooled 获取，本方法不再创建；
+   * wrappedHandler 启动游标推进 + pushCursorOnStartup 在此） */
+  // eslint-disable-next-line max-params, max-lines-per-function -- 池化后 session/sessionKey/toolContext/turnText 由 acquire 产出透传（拆对象会切断参数与 acquire 返回值的对应关系）；wrappedHandler 启动游标 + ctlv 合流面
   private async _executeWithSession(
     otterId: string,
     message: string,
@@ -1223,46 +1223,46 @@ export class PiSessionFactory implements AgentGateway {
     const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId)!;
     const otterType = otterConfig.otterType; const otterPromptConfig = otterConfig.systemPrompt;
 
-    // S1（R20260810piab）：身份前缀在 ALS scope 外构建（含 DB 查询）。
+    // 身份前缀在 ALS scope 外构建（含 DB 查询）。
     // system prompt 不被 session history 持久化，每次 invoke 重建 session 时
     // system role 是空的。身份信息必须每次都注入，否则 invoke 2+ 起的 LLM 不知道自己的身份。
     // （旧代码拼在 user message 里被持久化，但 system role 方案不持久化——改为每次都构建）
     const conversationId = options?.conversationId ?? "";
-    // F20260824aibd: 传递 raw config 的 modelAlias（可能 undefined）给身份构建，
+    // 传递 raw config 的 modelAlias（可能 undefined）给身份构建，
     // 让 buildModelIdentity 正确判定 isDefault（未显式指定 = 默认）。
     // getModelAliasForLog 返回解析后的非空值，此处用 config 裸值。
     const rawConfig = this.cfg.otterConfigProvider?.getConfig(otterId);
     const rawModelAlias = rawConfig?.modelAlias;
     const identityPrefix = await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId, rawModelAlias);
-    // F20260903cmpk（#770）：压缩钩子合成 prompt 的 meta 行要显示名而非 UUID。
+    // 压缩钩子合成 prompt 的 meta 行要显示名而非 UUID。
     // 查询失败不影响链路（catch 降级 undefined，钩子用"海獭"兜底）。
     const displayName = await this.identityBuilder.getOtterName(otterId).catch(() => undefined);
 
-    // S1：整个 createAgentSession + prompt 包在 ALS scope 内，
+    // 整个 createAgentSession + prompt 包在 ALS scope 内，
     // extension 的 before_agent_start handler 从 store 读 otterPromptConfig + identityPrefix。
-    // F20261020hlbk（#1556）：loopBlockedTools 入 store（tool_call 门读）+ 传 attachGuards（检测器写）。
+    // loopBlockedTools 入 store（tool_call 门读）+ 传 attachGuards（检测器写）。
     const loopBlockedTools = new Map<string, string>();
-    // F20261026gobs（M-2bf6e98c）：守卫参数提为单一真相源——store（tool_call 门）与
+    // （M-2bf6e98c）：守卫参数提为单一真相源——store（tool_call 门）与
     // attachGuards（abort 兜底链）同点求值，防门与 abort 判定分歧（R-2b）。
     const guardProjectRoot = getRepoRoot();
     const guardSessionCwd = resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data");
-    // F20261109bexfz：B 类外发域名表（bashGuard.allowedEgressDomains）已随判定退役删除，
+    // B 类外发域名表（bashGuard.allowedEgressDomains）已随判定退役删除，
     // config 不再注入（guardAllowedEgressDomains 字段仅为兼容存量 store 类型保留，恒 undefined）。
     const guardOnIntercept = this.buildGuardInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
-    // F20261027lbos（#1656）：循环硬熔断门拦截落 healing（loop_tool_block）——b2 残余
-    // 误伤面（#1653 D1-1）的唯一观测源。与 guardOnIntercept 同模式：fire-and-forget，
+    // 循环硬熔断门拦截落 healing（loop_tool_block）——b2 残余
+    // 误伤面的唯一观测源。与 guardOnIntercept 同模式：fire-and-forget，
     // healingRepo 缺失时 undefined（拦截照常，观测降级）。
     const loopBlockOnIntercept = this.buildLoopBlockInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     return await otterInvokeStorage.run(
-      // F20260826mwrd C1：otterId 进 store——tool_call handler 查 halt 标用
+      // otterId 进 store——tool_call handler 查 halt 标用
       { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardOnIntercept },
-      // eslint-disable-next-line max-statements, complexity -- F20260908rlcp: pool hit/miss 两条路径 + startup cursor push；F20260815rstrt pendingRestart 检查增加语句数；F20260831aksp 守卫拦截 hook 增加分支
+      // eslint-disable-next-line max-statements, complexity -- pool hit/miss 两条路径 + startup cursor push；pendingRestart 检查增加语句数；守卫拦截 hook 增加分支
       async () => {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）
         this.logger.debug('[execute] Using pooled session', { otterId, sessionKey });
 
-        // 2. 熔断器 + 输出退化检测 + 编排守卫（F20260821i336）+ 循环熔断拦截 healing（F20261020hlbk）。
-        //    F20261030gblkv（guard-v4）：bash 守卫已迁 tool_call 门（model-runtime-registry
+        // 2. 熔断器 + 输出退化检测 + 编排守卫+ 循环熔断拦截 healing。
+        // （guard-v4）：bash 守卫已迁 tool_call 门（model-runtime-registry
         //    bashGuardGate 直读 store 的 guard* 参数），不再经本链传参。
         const { activeEntry, circuitBreaker, unregisterToolCall, outputGuard, cleanupOutputGuard, armFirstByte } = attachGuards({ session, sessionKey, otterId, activeSessions: this.activeSessions, circuitBreakerConfig: this.circuitBreakerConfig, logger: this.logger, orchestrationCheck: (toolName: string, _args?: unknown) => checkOrchestrationGuard(toolContext, toolName), loopBlockedTools });
 
@@ -1270,7 +1270,7 @@ export class PiSessionFactory implements AgentGateway {
         const fullMessage = buildMessageWithContext("", message, options?.dynamicContext);
         this.logger.info('LLM request', { otterId, conversationId: options?.conversationId, modelAlias: this.getModelAliasForLog(otterId), messageLength: fullMessage.length, messagePreview: fullMessage.substring(0, 300) });
 
-        // F20260908rlcp→F20260913ctlv：包装事件处理器——首次事件时推进游标（启动成功语义）。
+        // 包装事件处理器——首次事件时推进游标（启动成功语义）。
         // pushCursorOnStartup 第 4 参为 invokeId（批4a 键控语义，getTurnNumberByInvokeId 新模型链）
         let startupCursorPushed = false;
         const batchMaxSeq = options?.batchMaxSeq;
@@ -1278,15 +1278,15 @@ export class PiSessionFactory implements AgentGateway {
         const wrappedHandler = (event: { type: string }) => {
           if (!startupCursorPushed && batchMaxSeq !== undefined && event.type !== 'queue_update') {
             startupCursorPushed = true;
-            this.pushCursorOnStartup(conversationId, otterId, batchMaxSeq); // F20260920trrt：invokeId 参数随 turn 活跃度迁移退役而删除
+            this.pushCursorOnStartup(conversationId, otterId, batchMaxSeq); // invokeId 参数随 turn 活跃度迁移退役而删除
           }
           baseHandler(event as never);
         };
         const durableStream = new DurableEventStream(wrappedHandler);
         try {
-          /** F20260804dglp：prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
+          /** prompt 前 arm 首字节超时（覆盖排队+prefill 静默，此前区间无任何兜底） */
           armFirstByte();
-          /** 多模态 Phase 1：images 透传（机制层不做策略；SDK 按模型 input 自动降级）。
+          /** 多模态 images 透传（机制层不做策略；SDK 按模型 input 自动降级）。
    *  空对象省略：undefined 与 {images:[]} 等价走纯文本路径 */
           await session.prompt(fullMessage, buildPromptOptions(options), durableStream, BACKGROUND_CONTEXT);
           const result: AgentRunResult = buildResult(session.turnText, session.tokenUsage, circuitBreaker, session.contextWindow, session.ctxTokens);
@@ -1294,12 +1294,12 @@ export class PiSessionFactory implements AgentGateway {
           result.outputGuardMetadata = outputGuard.getMetadata();
           result.modelAlias = this.getModelAliasForLog(otterId);
 
-          // F20260821spcm: 携带 LLM 直出文本（旁白流失检测用）
+          // 携带 LLM 直出文本（旁白流失检测用）
           if (turnText.text.trim()) {
             result.directText = turnText.text;
           }
 
-          // F20260819rscn: session.prompt() 完成后检查自重启。
+          // session.prompt() 完成后检查自重启。
           // Why 不在此处执行 restart：自重启后需要自动 re-invoke（獭继续工作），
           // 这需要 agent-invoker 层递归调用 invokeConversationInner。
           // Why 在 try 内、return 前：finally 的 dispose 清理当前 session，
@@ -1311,7 +1311,7 @@ export class PiSessionFactory implements AgentGateway {
           return result;
         } catch (err) {
           const e = err as Error & { _toolCallCount?: number; _guardAbortReason?: string; _outputGuardMetadata?: unknown; _modelAlias?: string; _tokenUsageDelta?: TokenUsage };
-          // #763：计数快照必须取自 activeEntry 闭包引用（attachGuards 时已捕获），
+          // 计数快照必须取自 activeEntry 闭包引用（attachGuards 时已捕获），
           // 不能经 activeSessions.get() 重查——真实竞态是**跨帧删除**先于 catch 读取：
           // (a) destroy() 在 invoke 挂起时外部 abort→delete 条目（pi-session-factory
           //     _destroyInternal），abort 先 resolve 的窗口内 prompt reject 的 catch 在
@@ -1323,35 +1323,35 @@ export class PiSessionFactory implements AgentGateway {
           // 该窗口被删则 activeEntry=undefined 整轮不计数——修复与旧代码同丢，见 F 文档。
           e._toolCallCount = activeEntry?.toolCallCount ?? this.activeSessions.get(sessionKey)?.toolCallCount ?? 0;
           e._guardAbortReason = activeEntry?.guardAbortReason;
-          /** F20260814mtrc：guard abort 路径的首字节样本不随 abort 丢弃（超时样本恰是最关心的） */
+          /** guard abort 路径的首字节样本不随 abort 丢弃（超时样本恰是最关心的） */
           e._outputGuardMetadata = outputGuard.getMetadata();
-          /** F20260814mtrc：err 路径 result 不可达，model 随 error 透传（防 guard_abort 样本 model=unknown） */
+          /** err 路径 result 不可达，model 随 error 透传（防 guard_abort 样本 model=unknown） */
           e._modelAlias = this.getModelAliasForLog(otterId);
           // 已发生的消耗不因 prompt reject 消失；orchestrator 在 rejected attempt 只合并一次。
           e._tokenUsageDelta = session.tokenUsage;
           throw err;
         } finally {
           unregisterToolCall?.(); cleanupOutputGuard();
-          // F20261009epoc（裸露面收口）：finally delete 只在「条目 epoch === 本 invoke
+          // （裸露面收口）：finally delete 只在「条目 epoch === 本 invoke
           // epoch」（对象引用相等）时执行——stale steal 后旧 invoke 苏醒不再删掉新 invoke
           // 的条目（原无条件 delete 是方案识别的第 5 处裸露面，比防御点 1-3 更危险）。
-          // 同键嵌套共享 epoch（D5）→ 仍会删（known-boundary，与旧行为持平，见特性文档）。
+          // 同键嵌套共享 epoch→ 仍会删（known-boundary，与旧行为持平，见特性文档）。
           this._deleteActiveSessionIfOwned(sessionKey);
-          // F20260826mwrd C1：invoke 生命周期结束，清理 halt 持续 block 状态——
+          // invoke 生命周期结束，清理 halt 持续 block 状态——
           // 改派后新 invoke 不受旧 halt 影响（halt 指令已随本 invoke 的 block 注入达成使命）
           haltRegistry.endInvoke(otterId);
-          // F20260911pspl：不再 dispose——session 归还池，等待驱逐或下次 invoke。
+          // 不再 dispose——session 归还池，等待驱逐或下次 invoke。
           // pendingRestart 的消费（result._selfRestart 已设置）与 restart 后的重建由
           // agent-invoker 层递归 invoke 完成：那时池里还是旧 session——restart 语义
-          // 要求「下轮新 session」，故在消费点同步 evict（#904 归属校验防 stale 双活误逐）。
+          // 要求「下轮新 session」，故在消费点同步 evict（归属校验防 stale 双活误逐）。
           if (toolContext.pendingRestart) {
             this._evictPooledIfOwned(otterId);
           }
 
-          // #904：pendingRestart 消费点的归属校验见 _evictPooledIfOwned 方法注释
-          // F20260913ctlv 整合移植：readOnly session 不入池（_acquirePooled 守卫，
+          // pendingRestart 消费点的归属校验见 _evictPooledIfOwned 方法注释
+          // 整合移植：readOnly session 不入池（_acquirePooled 守卫，
           // 独立冷启动路径，不是池内 session），此处 dispose 释放资源——
-          // 不涉及外层 streaming session（#897 语义由 _acquirePooled 的嵌套抛错保护）
+          // 不涉及外层 streaming session（语义由 _acquirePooled 的嵌套抛错保护）
           if (options?.readOnly || options?.externalProfile === 'restricted') {
             session.dispose();
           }
@@ -1362,14 +1362,14 @@ export class PiSessionFactory implements AgentGateway {
 
 
 
-  /** #904：pendingRestart 消费点的归属校验 evict。
-   *  三条件叠加的误逐场景（issue #904）：旧 invoke 卡死超 300s → stale steal（#599）放行
+  /** pendingRestart 消费点的归属校验 evict。
+   * 三条件叠加的误逐场景：旧 invoke 卡死超 300s → stale steal放行
    *  新 invoke 冷启动新 session 入池 → 旧 invoke 苏醒收尾时 pendingRestart 已置位 →
    *  按 otterId 无条件 evict 会逐出新 invoke 的新 session。
-   *  F20261009epoc：归属判定换 epoch（原 toolContext 引用比对）——判定语义不变
+   * 归属判定换 epoch（原 toolContext 引用比对）——判定语义不变
    *  （只逐自己的），判定来源统一到 epoch 对象身份（池命中时 epoch 随所有权转移，
    *  stale steal 后池内只会是新 invoke 的 epoch）。不匹配则跳过——旧孤儿 session
-   *  由旧 invoke 生命周期托管。epoch 缺失走 D3 fail-loud（拒绝 evict + warn）。 */
+   * 由旧 invoke 生命周期托管。epoch 缺失走 fail-loud（拒绝 evict + warn）。 */
   private _evictPooledIfOwned(otterId: string): void {
     const epoch = invokeEpochStorage.getStore();
     if (!epoch) {
@@ -1377,7 +1377,7 @@ export class PiSessionFactory implements AgentGateway {
       return;
     }
     if (this.poolMeta.get(otterId)?.epoch !== epoch) {
-      // #904 可观测性：归属拦截本身留 debug 信号（stale steal 入口已有 warn，此处非异常）
+      // 可观测性：归属拦截本身留 debug 信号（stale steal 入口已有 warn，此处非异常）
       this.logger.debug('pendingRestart evict skipped: pooled entry owned by newer invoke', { otterId });
       return;
     }
@@ -1385,22 +1385,22 @@ export class PiSessionFactory implements AgentGateway {
     this.poolMeta.delete(otterId);
   }
 
-  /** F20261009epoc：池命中时所有权转移到命中它的 invoke（#904 语义保持：
+  /** 池命中时所有权转移到命中它的 invoke（语义保持：
    *  现役合法持有者可逐自己条目，stale 旧 invoke 不可）。hitEpoch 缺失时所有权冻结
-   *  + warn（D3 fail-loud 对齐，不静默）。行为面安全方向：条目 epoch 保持原值
+   * + warn（fail-loud 对齐，不静默）。行为面安全方向：条目 epoch 保持原值
    *  （铸造它的更早 invoke），后续 _evictPooledIfOwned 会因 epoch 不匹配而跳过，
    *  **不误逐新 invoke 的条目**（delta 附注①：并非「绝不被逐出」——铸造者自己的
    *  zombie 清理若携原 epoch 仍会命中，与旧代码持平非回归）；拒绝池命中本身
    *  不可取（每次冷启动是行为大变），降级面止于 warn。 */
-  /** F20261014cwsp：池命中时重置 session cwd 到当前对话工作区。
+  /** 池命中时重置 session cwd 到当前对话工作区。
    *  SDK _buildRuntime 每次用 this._cwd 重建全部工具定义（agent-session.js:2910），
    *  invoke 入口重置后 cwd 跟随当前对话。池键维持 otterId 不变。
    *  mock session（测试）可能无 _buildRuntime——检查方法存在再调。 */
-  /** F20261014cwsp：池命中时重置 session cwd 到当前对话工作区。
+  /** 池命中时重置 session cwd 到当前对话工作区。
    *  先赋 _cwd 后 build——SDK `_buildRuntime`（agent-session.js:2910）按调用时的
    * `this._cwd` 重建全部工具定义（bash execute 用创建时闭包值），顺序反了则重建的
    *  工具仍绑上一个对话的工作区（初版修复方向反了、后纠正——完整过程见 F 文档处置记录）。
-   *  build 失败回滚 _cwd——保早退条件成立，下次池命中重试（S6 语义保持）。 */
+   * build 失败回滚 _cwd——保早退条件成立，下次池命中重试（语义保持）。 */
   private async _resetSessionCwd(session: DurableSession, conversationId: string): Promise<void> {
     await session.setCwd(resolveSessionCwd(conversationId, this.cfg.dataDir ?? "./data"), BACKGROUND_CONTEXT);
   }
@@ -1414,11 +1414,11 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
-  /** F20261009epoc（S4）：寄存器注册——条目携带铸造它的 invoke 的 epoch。
-   *  epoch 缺失 = 铸造点未执行（D3 fail-loud）：拒绝注册 + warn 计数打点。
+  /** 寄存器注册——条目携带铸造它的 invoke 的 epoch。
+   * epoch 缺失 = 铸造点未执行（fail-loud）：拒绝注册 + warn 计数打点。
    *  有意取舍：拒绝注册意味着该 invoke 运行期 abort/steer 入口缺失（行为不同于
    *  旧代码的无条件 set）——「双轨并存 = 根因复制」的优先级高于降级面完全等价
-   *  （方案 D3），降级发生 = epoch 关键路径失效信号，不允许静默。 */
+   * （方案），降级发生 = epoch 关键路径失效信号，不允许静默。 */
   private _registerActiveSession(sessionKey: string, session: DurableSession): void {
     const epoch = invokeEpochStorage.getStore();
     if (!epoch) {
@@ -1433,10 +1433,10 @@ export class PiSessionFactory implements AgentGateway {
     });
   }
 
-  /** F20261009epoc（裸露面收口）：finally delete 仅在「条目 epoch === 本 invoke epoch」
+  /** （裸露面收口）：finally delete 仅在「条目 epoch === 本 invoke epoch」
    *  （对象引用相等）时执行。stale steal 后旧 invoke 苏醒不删新 invoke 条目（原
-   *  :991 无条件 delete 是方案识别的第 5 处裸露面）。同键嵌套共享外层 epoch（D5）
-   *  → 仍会删（known-boundary：与旧行为持平，裸 otterId 共键场景，见特性文档 D5）。 */
+   * 991 无条件 delete 是方案识别的第 5 处裸露面）。同键嵌套共享外层 epoch
+   * → 仍会删（known-boundary：与旧行为持平，裸 otterId 共键场景，见特性文档）。 */
   private _deleteActiveSessionIfOwned(sessionKey: string): void {
     const entry = this.activeSessions.get(sessionKey);
     if (!entry) return;
@@ -1452,7 +1452,7 @@ export class PiSessionFactory implements AgentGateway {
     this.activeSessions.delete(sessionKey);
   }
 
-  /** F20261009epoc（D3 降级观测）：epoch 缺失的 warn 计数打点（:1024 同模式）。
+  /** （降级观测）：epoch 缺失的 warn 计数打点（:1024 同模式）。
    *  降级发生 = epoch 关键路径失效信号（铸造点错位/ALS 断裂），不允许静默；
    *  同 site 限频 1 次/分钟防热路径日志洪水，每站点首次必打。 */
   private readonly epochWarnAt = new Map<string, number>();
@@ -1468,9 +1468,9 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /**
-   * F20260908rlcp：启动成功游标推进——prompt 发出且 SDK 订阅建立（首次事件到达）后调用。
+   * 启动成功游标推进——prompt 发出且 SDK 订阅建立（首次事件到达）后调用。
    * 推进 lastReadSeq 到本批未读最大 seq。启动失败不推进（消息保持未读，下轮自然重注入）。
-   * F20260920trrt：lastActiveTurnNumber 同点迁移退役——turn 刻度活跃度已被
+   * lastActiveTurnNumber 同点迁移退役——turn 刻度活跃度已被
    * 闲置预警新口径（发言 seq 差 + invokes 时间护栏，读时聚合）取代，不再写列。
    */
   private pushCursorOnStartup(
@@ -1478,11 +1478,11 @@ export class PiSessionFactory implements AgentGateway {
     otterId: string,
     batchMaxSeq: number,
   ): void {
-    // F20261014czgd：batchMaxSeq=0 是「无新读」哨兵（上游已修为取对话 max(seq)，此处双保险），
+    // batchMaxSeq=0 是「无新读」哨兵（上游已修为取对话 max(seq)，此处双保险），
     // 不推进——0 写入会把游标归零，下一轮全历史当未读注入（10-13 三起同型爆窗事故）。
     if (!shouldPushCursorOnStartup(batchMaxSeq)) return;
     try {
-      // F20261014czgd：观测补齐——游标推进打 debug 日志（prev→new），零日志曾致同类事故全靠推断定位
+      // 观测补齐——游标推进打 debug 日志（prev→new），零日志曾致同类事故全靠推断定位
       const prev = this.cfg.db.prepare(
         "SELECT last_read_seq FROM conversation_participants WHERE conversation_id = ? AND otter_id = ?"
       ).get(conversationId, otterId) as { last_read_seq: number | null } | undefined;
@@ -1493,7 +1493,7 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
-  /** F20260831tumv：计算某 otter 类型的自定义工具白名单（manifest 展开以注册全集为 universe） */
+  /** 计算某 otter 类型的自定义工具白名单（manifest 展开以注册全集为 universe） */
   private buildOtterToolWhitelist(otterType: string): string[] {
     // 注册工具全集先于白名单计算——manifest "*" 展开以此为全集，
     // 保证 tool-factory 新注册的工具自动进入 big 型白名单。
@@ -1508,7 +1508,7 @@ export class PiSessionFactory implements AgentGateway {
       signalRepo: this.cfg.signalRepo,
       rhiSignalRepo: this.cfg.rhiSignalRepo,
       matterRepo: this.cfg.matterRepo,
-      workLedgerBinder: this.cfg.workLedgerBinder, // F20261027hwl1：track_work 注册条件（缺此占位 → 白名单漏工具，同前述）
+      workLedgerBinder: this.cfg.workLedgerBinder, // track_work 注册条件（缺此占位 → 白名单漏工具，同前述）
     };
     const registeredTools = this.cfg.createTools(ctx, this.cfg.healingRepo, this.logger);
     return getOtterToolNamesForType(otterType, registeredTools.map(t => t.name), process.cwd(), this.logger);
@@ -1525,22 +1525,22 @@ export class PiSessionFactory implements AgentGateway {
     return { resolvedModel, resolvedAlias };
   }
 
-  /** 创建带工具配置的 AgentSession（F20260911pspl：invoke 级字段走寄存器，不再按 invoke 新建） */
-  // eslint-disable-next-line complexity -- Phase 2: readOnly 参数增加工具过滤；F20260904cg77 描述覆写接线（覆写本体在 tool-description-overrides.ts，此处仅组装）；F20261008tecn exposure 接线（manifest 读取 + 激活集重建，机制注释见 _activateDeferredToolSearch）
+  /** 创建带工具配置的 AgentSession（invoke 级字段走寄存器，不再按 invoke 新建） */
+  // eslint-disable-next-line complexity -- Phase 2: readOnly 参数增加工具过滤；描述覆写接线（覆写本体在 tool-description-overrides.ts，此处仅组装）；exposure 接线（manifest 读取 + 激活集重建，机制注释见 _activateDeferredToolSearch）
   private async _createSessionWithTools(otterId: string, otterType: string, options: InvokeOptions | undefined, register: InvokeRegister, readOnly?: boolean) {
     const conversationId = options?.conversationId ?? "";
     const external = options?.externalProfile === 'restricted';
     const registeredOtterToolNames = this.buildOtterToolWhitelist(otterType);
     const otterToolNames = getOtterToolNamesForType(otterType, registeredOtterToolNames, process.cwd(), this.logger, options?.externalProfile);
-    // F20261008tecn（EazoTack 工具瘦身 v1）：从 manifest 读取 toolExposure 段，
+    // （EazoTack 工具瘦身 v1）：从 manifest 读取 toolExposure 段，
     // deferred 工具不声明给模型，由 tool_search 按需激活。readOnly（合成路径）
     // 不启用 tool_search——工具已白名单过滤，搜索能力只会扩大合成面。
     const toolExposure = readOnly || external ? undefined : loadToolExposureFromManifest(process.cwd(), this.logger);
     const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, partnerUserId: options?.partnerUserId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, rhiSignalRepo: this.cfg.rhiSignalRepo, matterRepo: this.cfg.matterRepo, workLedgerBinder: this.cfg.workLedgerBinder, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger, ...(toolExposure ? { toolExposure } : {}) });
     const codingTools = getCodingToolsForOtterType(otterType, options?.externalProfile);
-    // F20260825hndf Phase 2：readOnly 模式只保留 read 工具，排除 write/edit/bash
+    // readOnly 模式只保留 read 工具，排除 write/edit/bash
     const filteredCodingTools = readOnly ? codingTools.filter(t => t === 'read') : codingTools;
-    // F20260901mbfx（审计 F5）：readOnly 模式的自定义工具同样走白名单过滤。
+    // （审计 F5）：readOnly 模式的自定义工具同样走白名单过滤。
     // 此前只滤 coding 工具，speak/yield/写库类自定义工具原样进 session——合成獭
     // 理论上可在摘要生成路径越权发言/交棒/写产物。白名单与 otterType manifest 的
     // allowedNames 双重求交（本过滤发生在 allowedNames 之后），新注册工具默认不进。
@@ -1595,7 +1595,7 @@ export class PiSessionFactory implements AgentGateway {
 
 
   /** 中断指定 Otter 的 Agent 生成。
-   *  F20260911pspl：池化后 session 常驻——activeSessions 在 invoke 期间有值，
+   * 池化后 session 常驻——activeSessions 在 invoke 期间有值，
    *  invoke 结束后 session 在池里仍可直接 abort（idle session 的 abort 是 no-op）。 */
   abort(otterId: string, messageId?: string): void {
     const sessionKey = messageId ? `${otterId}:${messageId}` : otterId;
@@ -1606,7 +1606,7 @@ export class PiSessionFactory implements AgentGateway {
       });
       return;
     }
-    // F20260911pspl：invoke 间隙的 abort——池内 session 仍持有，直接调。
+    // invoke 间隙的 abort——池内 session 仍持有，直接调。
     const pooled = this.poolMeta.get(otterId);
     if (pooled) {
       this.logger.info(`[abort] session idle in pool, abort via pooled session otter=${otterId}`);
@@ -1618,7 +1618,7 @@ export class PiSessionFactory implements AgentGateway {
 
   getInternalAbortReason(messageId: string): string | undefined { const s = `:${messageId}`; for (const [k, e] of this.activeSessions) { if (e.guardAbortReason && k.endsWith(s) && k.length > s.length) { const r = e.guardAbortReason; e.guardAbortReason = undefined; return r; } } return undefined; }
 
-  /** F20260908rlcp→F20260911pspl 合流：检查 otter 是否有 session 正在运行（isStreaming）。
+  /** 合流：检查 otter 是否有 session 正在运行（isStreaming）。
    *  Part A signal-router 依赖。查 activeSessions（invoke 运行期）+ poolMeta（invoke 间隙
    *  的 streaming 残留——stale steal 场景），两处覆盖原 rlcp 池的 isRunning 语义。 */
   isRunning(otterId: string): boolean {
@@ -1629,21 +1629,21 @@ export class PiSessionFactory implements AgentGateway {
     return false;
   }
 
-  /** F20260908rlcp→F20260911pspl 合流：向运行中的 session 队列追加 followUp 消息。
+  /** 合流：向运行中的 session 队列追加 followUp 消息。
    *  Part A signal-router 依赖（followUp 注入语义）。
-   *  双路径设计（终审 B4）：本方法从 poolMeta 取池级 session（idle 期队列追加，
+   * 双路径设计（终审）：本方法从 poolMeta 取池级 session（idle 期队列追加，
    *  SDK 原生排队）；steerSession 走 activeSessions 前缀扫描（invoke 运行期实时
    *  打断）——两条注入路径的 session 取源不同是设计意图，非遗漏 */
   followUp(otterId: string, text: string): Promise<boolean>;
   followUp(otterId: string, text: string, options: { delegated: true; reason?: 'chain' | 'lock-timeout'; delegatedOptions?: InvokeOptions }): Promise<boolean>;
   followUp(otterId: string, text: string, options?: { delegated?: boolean; reason?: 'chain' | 'lock-timeout'; delegatedOptions?: InvokeOptions }): Promise<boolean> {
     if (!options?.delegated) return this.enqueueUserFollowUp(otterId, text);
-    // D2 也不向交接旧世排队；false 让链回退锁等待，由 D3 统一处理超时。
+    // 也不向交接旧世排队；false 让链回退锁等待，由 统一处理超时。
     if (this.lockManager.isHandoffMode(`session:${otterId}`)) return Promise.resolve(false);
     return this.enqueueDelegatedFollowUp(otterId, text, options);
   }
 
-  /** D2/D3 的可靠投递变体：await SDK disposition，失败不冒充 queued。 */
+  /** 的可靠投递变体：await SDK disposition，失败不冒充 queued。 */
   private async enqueueDelegatedFollowUp(otterId: string, text: string, options: { reason?: 'chain' | 'lock-timeout'; delegatedOptions?: InvokeOptions }): Promise<boolean> {
     const pooled = this.poolMeta.get(otterId);
     if (!pooled || !pooled.session.isStreaming) return false;
@@ -1671,7 +1671,7 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
-  /** D2 归 holder、D3 归等待 invoke；healing 只在 SDK queued 后写入。 */
+  /** 归 holder、归等待 invoke；healing 只在 SDK queued 后写入。 */
   private async recordDelegatedFollowUp(
     otterId: string,
     pooled: { toolContext: ToolContext; register: InvokeRegister },
@@ -1714,7 +1714,7 @@ export class PiSessionFactory implements AgentGateway {
   }
 
 
-  /** #530 / #1788：只有 durable 原子 admission 成功才允许路由销账。
+  /**  只有 durable 原子 admission 成功才允许路由销账。
    *  activeSessions 可能短暂保留已 idle 的 entry；whenIdle=reject 让该竞态回退新 invoke，
    *  不再把 fire-and-forget 请求误记为 steered。 */
   async steerSession(otterId: string, text: string): Promise<boolean> {

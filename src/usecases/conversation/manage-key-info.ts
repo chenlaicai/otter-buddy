@@ -192,7 +192,7 @@ export class ManageKeyInfo {
   }
 
   /**
-   * 受控对账归档（#1835）：跨对话机械终态归档的唯一合法入口。
+   * 受控对账归档：跨对话机械终态归档的唯一合法入口。
    *
    * 与普通 update_artifact_status 的关键差异：
    * 1. 不需 conversation 归属——按资源 ID 全局定位（resolve 目标是别的对话的产物）；

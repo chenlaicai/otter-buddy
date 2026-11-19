@@ -318,7 +318,7 @@ export class SignalRepository {
     if (existing.triage_status === "in_progress") {
       return { ok: true, reason: "幂等：已是 in_progress", record: existing };
     }
-    // 前置：须已 bind_issue（§2 参数约束）
+    // 前置：须已 bind_issue（参数约束）
     if (existing.triage_status !== "triaged" || !existing.issue_number) {
       return { ok: false, reason: "in_progress 前置：须先 bind_issue 归口" };
     }
@@ -345,7 +345,7 @@ export class SignalRepository {
     return { ok: true, record: this.findById(id) };
   }
 
-  /** #1761：同族信号的同一收尾判断只执行一次，不被迫逐条撞循环守卫。
+  /** 同族信号的同一收尾判断只执行一次，不被迫逐条撞循环守卫。
    *  issueNumber 可精确收尾已归口/修复中的信号；signalType 支持同类型未接单批量忽略。
    *  severity 只能叠加细化，不能单独成为全库忽略范围。
    */
@@ -387,7 +387,7 @@ export class SignalRepository {
     })();
   }
 
-  /** #1052：未接单信号批量归口——150 条逐条 triage_signal 被「连续同构调用」守卫阻断的根治。
+  /** 未接单信号批量归口——150 条逐条 triage_signal 被「连续同构调用」守卫阻断的根治。
    *  照 healing batchResolveByFilter 成熟模式：单事务 count+match+update 原子执行、
    *  LIMIT 100 单批、truncated 标志、dryRun 预览。
    *  语义边界（与单条 bind_issue 的差异，设计取舍见特性文档）：
@@ -452,7 +452,7 @@ export class SignalRepository {
     })();
   }
 
-  /** F20260917trig：按处置状态查询（list_rhi_signals 工具的 triageStatus 过滤数据源）。
+  /** 按处置状态查询（list_rhi_signals 工具的 triageStatus 过滤数据源）。
    *  triageStatus='null' 或 'open' 时查未接单（triage_status IS NULL）。 */
   findByTriageStatus(triageStatus: string | null, status = "open"): SignalRecord[] {
     if (triageStatus === null || triageStatus === "open" || triageStatus === "null") {

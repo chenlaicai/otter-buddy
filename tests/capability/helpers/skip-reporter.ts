@@ -47,7 +47,7 @@ export default class CapabilitySkipReporter {
          *  - 声明期 skip（it.skip/describe.skip）：task.mode=options.mode="skip"
          *  - 运行期 ctx.skip()：task.mode="skip"，options.mode 仍 "run"，state="skipped"
          *  - it.todo：mode="todo"，state 也是 "skipped"——须排除，否则 todo 被误计为 skip
-         *  - state 无 "skip" 值（只有 "skipped"），旧 === "skip" 分支是死代码（delta-2 已修）
+         * - state 无 "skip" 值（只有 "skipped"），旧 === "skip" 分支是死代码（已修）
          *  v6 安全网：若 .task 被收掉，声明期 skip 由 options.mode 兑住、运行期由 state="skipped" 兑住 */
         const mode = testCase.task?.mode ?? testCase.options?.mode;
         const rawResult = testCase.result;

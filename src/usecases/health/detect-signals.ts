@@ -227,12 +227,12 @@ function detectBugRecurrence(
   // key: module + file -> bugfix PR 记录（窗口内，同 PR 去重 + 系列归因数据源）
   const byModuleFile = collectBugfixByFile(commits, now, windowDays);
 
-  // 第二遍（Issue #644）：为触发文件收集窗口内全类型 commit，见 collectDetailCommits
+  // 第二遍：为触发文件收集窗口内全类型 commit，见 collectDetailCommits
   collectDetailCommits(commits, byModuleFile, new Date(now.getTime() - windowDays * DAY_MS));
 
   const signals: DetectedSignal[] = [];
   for (const entry of byModuleFile.values()) {
-    // #1012 修法 c：分级判据——同系列达阈 critical，分散达阈 warning，未达阈不出信号
+    // 修法 c：分级判据——同系列达阈 critical，分散达阈 warning，未达阈不出信号
     const severity = classifyRecurrenceSeverity(entry, entry.issueRefCounts, threshold);
     if (severity !== null) {
       signals.push({
@@ -259,10 +259,10 @@ function detectBugRecurrence(
 interface BugfixFileEntry {
   module: string;
   file: string;
-  prs: Set<number>;              // #1214：去重后的独立 PR 集（触发判据之一）
+  prs: Set<number>;              // 去重后的独立 PR 集（触发判据之一）
   noPrShas: Set<string>;         // 无 PR 号的 commit（squash 前本地修复），按 sha 去重计 1 次/事件
-  /** #1012 修法 c：窗口内 bugfix commit 的 issue 引用计数（系列归因数据源）。
-   *  「主体同一 issue」= 同一根因修复系列（真腐烂——#1160 五连、#1207 集群实测形态）；
+  /** 修法 c：窗口内 bugfix commit 的 issue 引用计数（系列归因数据源）。
+   * 「主体同一 issue」= 同一根因修复系列（真腐烂——五连、集群实测形态）；
    *  跨 issue 分散修复是高迭代热点。
    *  Why 计数而非 Set：同一系列的 commit 各有不同 PR 号（squash 1:1），Set 口径会把
    *  同系列误判成分散；计数 + 主体占比判据才能区分。Why 不用 featureId（delta 纠错）：
@@ -270,7 +270,7 @@ interface BugfixFileEntry {
   issueRefCounts: Map<number, number>;
   shas: string[];
   dates: Date[];
-  /** 窗口内触碰该文件的全类型 commit（bug●→fix● 交替时间轴数据源，Issue #644） */
+  /** 窗口内触碰该文件的全类型 commit（bug●→fix● 交替时间轴数据源） */
   allCommits: SignalDetailCommit[];
 }
 
@@ -289,7 +289,7 @@ function collectBugfixByFile(
     // Set 防御（审视建议发现 4）：同 commit 的 filesChanged 若含重复文件名，
     // 不去重会双计 shas 抬高触发次数——当前 git --name-only 不重复，纯防御性收口
     for (const file of new Set(c.filesChanged)) {
-      // #1214：非逻辑载体不参与复发计数（types/组装/测试——被动触碰非根因载体）
+      // 非逻辑载体不参与复发计数（types/组装/测试——被动触碰非根因载体）
       if (isNonLogicCarrier(file)) continue;
       const key = `${c.parsed.module}\u0000${file}`;
       let entry = byModuleFile.get(key);
@@ -299,10 +299,10 @@ function collectBugfixByFile(
       }
       entry.shas.push(c.sha.slice(0, 8));
       entry.dates.push(date);
-      // #1214：同 PR 去重——squash 前链式修复算 1 个 PR 复发事件；无 PR 号的按 sha 计
+      // 同 PR 去重——squash 前链式修复算 1 个 PR 复发事件；无 PR 号的按 sha 计
       if (c.parsed.prNumber !== null) entry.prs.add(c.parsed.prNumber);
       else entry.noPrShas.add(c.sha);
-      // #1012 修法 c：系列归因数据源——message 内 issue 引用计数（#1160 五连形态）
+      // 修法 c：系列归因数据源——message 内 issue 引用计数（五连形态）
       for (const m of c.message.matchAll(/#(\d+)/g)) {
         const n = Number(m[1]);
         entry.issueRefCounts.set(n, (entry.issueRefCounts.get(n) ?? 0) + 1);
@@ -452,7 +452,7 @@ function detectBehaviorDefect(
   const byType = new Map<string, CollectedHealingEvent[]>();
   for (const e of healingEvents) {
     const createdAt = new Date(e.createdAt);
-    // 审视 A2：Invalid Date 的 valueOf()=NaN，NaN < x 恒 false——直接比较拦不住非法时间，
+    // 审视 Invalid Date 的 valueOf()=NaN，NaN < x 恒 false——直接比较拦不住非法时间，
     // 必须显式 Number.isFinite 拦截（非法时间事件不进窗口，否则排序 comparator 返回 NaN 顺序不定）
     const t = createdAt.getTime();
     if (!Number.isFinite(t) || t < windowStart.getTime()) continue; // 窗口外/非法时间不参与

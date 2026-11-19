@@ -250,11 +250,11 @@ for (const s of skills) {
     error(`${rel}: category="${s.fm.category}" 不合法（应为 technique / pattern / reference）`);
   }
 
-  // 校验 10（F20261118arbwp，#1896）：adversarial-review 禁用语节完整性 ratchet——
+  // 校验 10：adversarial-review 禁用语节完整性 ratchet——
   // 兜底原则句与关键中文变体词族不得删减（防回退到「仅枚举匹配」的缺口态）。
   // 语义：禁语判定必须按原则泛化，不是字面命中清单。
   // 只校验「### 禁用语」节（标题精确匹配 + 到下一 `## ` 前），避免 body 别处合法用例
-  // （如 B2 说明里的「不可降级为『可接受』或『完整』」）把 ratchet 榨空成永远真。
+  // （如 说明里的「不可降级为『可接受』或『完整』」）把 ratchet 榨空成永远真。
   if (s.name === "adversarial-review") {
     const bannedSection = extractBannedSection(s.body);
     if (!bannedSection) {
@@ -318,7 +318,7 @@ for (const refs of skillWorkflowRefs.values()) {
   const rel = refs.rel;
   for (const refAbs of refs.allRefs) {
     if (refs.wfRefs.has(refAbs)) continue; // 本 skill 工作流已内联
-    if (path.basename(refAbs) === "SKILL.md") continue; // #773：skill 入口文件豁免
+    if (path.basename(refAbs) === "SKILL.md") continue; // skill 入口文件豁免
     const refRel = path.relative(refs.dir, refAbs).startsWith("..")
       ? path.relative(SKILLS_DIR, refAbs)
       : path.relative(refs.dir, refAbs);

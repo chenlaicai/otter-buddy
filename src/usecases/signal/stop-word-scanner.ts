@@ -91,7 +91,7 @@ function buildEvidenceAnchor(evidence?: StopWordScanEvidence): string {
 /** reminder 文本（SYSTEM.md Magic Words「停下」条目的执行引导） */
 function buildReminder(matched: string[], evidence?: StopWordScanEvidence): string {
   const source = resolveTriggerSource(evidence?.senderType, evidence?.senderHint);
-  // #1430 假急停根因之一：reminder 固定声称「用户消息」误导下游归因。来源措辞如实：
+  // 假急停根因之一：reminder 固定声称「用户消息」误导下游归因。来源措辞如实：
   // user 保持既有措辞（行为面零变化）；其他来源显式标注，下游 LLM 能正确归因。
   const sourceDesc = source === "user" ? "用户消息" : `触发消息（来源：${source}）`;
   return `[L2 安全词检测] ${sourceDesc}命中安全词「${matched.join('」「')}」（形态：后侧为硬边界）。`

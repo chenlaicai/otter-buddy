@@ -166,7 +166,7 @@ const eventLogComponents: Components = { code: CardAwareCode, pre: CardAwarePre,
 
 const REMARK_PLUGINS: NonNullable<ComponentProps<typeof ReactMarkdown>['remarkPlugins']> = [
   [remarkGfm, { singleTilde: false }],
-  // F20261020wabt：autolink 全角尾巴修剪须在 remarkBareLink 之前——裸链判定依赖
+  // autolink 全角尾巴修剪须在 remarkBareLink 之前——裸链判定依赖
   // 修剪后的 url===text，顺序反了带尾巴的裸链 url 与 text 同步修剪仍一致，但
   // 防御顺序敏感（后续插件读的是本插件修过的 url），固定放前。
   remarkAutolinkTrim,
@@ -180,7 +180,7 @@ function MarkdownContent({ children, variant = 'otter-body', messageId = '', aut
   variant?: MarkdownVariant
   messageId?: string
   authorId?: string
-  /** F20260916hcel：html-card schema版本（保留字段，供未来默认状态变化用；当前所有卡默认折叠） */
+  /** html-card schema版本（保留字段，供未来默认状态变化用；当前所有卡默认折叠） */
   cardSchemaVersion?: number
 }) {
   const ctx = useMemo<CardRenderCtx>(() => ({ variant, messageId, authorId, cardSchemaVersion }), [variant, messageId, authorId, cardSchemaVersion])
@@ -234,39 +234,39 @@ interface MessageListProps {
   otters: Otter[]
   /** 会话 ID（用于 key，切换会话强制 remount） */
   conversationId: string
-  /** F20261008scpg：是否贴底跟随的单一事实源（true=pinned）。语义从旧 isAtBottomRef 的
+  /** 是否贴底跟随的单一事实源（true=pinned）。语义从旧 isAtBottomRef 的
    *  几何快照升级为意图驱动状态机——共享 ref 透传形状不变（index 新消息计数/发言回底直读写） */
   pinRef: RefObject<boolean>
   newMessagesCount?: number
-  /** F20261016inbs：底部衬垫高度（px）——输入覆盖层实高，由 ChatView ResizeObserver 实测。
+  /** 底部衬垫高度（px）——输入覆盖层实高，由 ChatView ResizeObserver 实测。
    *  旧方案是视口 paddingBottom 写死 170px（单行输入实高 ~72px → 滚到底时最后一条消息
    *  悬在输入框上方 ~98px 死区；附件/错误行超高时反向压住消息底部）。新方案：视口零 padding
-   *  （F20261015inpd 视口恒定成果保持），预留搬到滚动内容末尾等高衬垫——衬垫随覆盖层实高
+   * （视口恒定成果保持），预留搬到滚动内容末尾等高衬垫——衬垫随覆盖层实高
    *  动态变化，pinned 用户由既有贴底补偿保持齐平（衬垫长高也是内容长高，contentObserver
    *  兑底），floating 用户不打扰 */
   bottomSpacerPx?: number
-  /** F20261027nmbf：回锚清零回调——floating→pinned 转换时清 newMessagesCount。
+  /** 回锚清零回调——floating→pinned 转换时清 newMessagesCount。
    *  背景：浮窗计数此前只有「点浮窗/发言」两个清零入口，均要求按钮可点；输入覆盖层
-   *  （F20261015inpd）遮挡按钮后清零路径全断，计数僵死（左栏红点已被聚焦 ack 消掉，
+   * 遮挡按钮后清零路径全断，计数僵死（左栏红点已被聚焦 ack 消掉，
    *  浮窗仍挂“新消息1条”）。回锚=用户已看到底部全部消息，语义上等同已读。
-   *  F20261029repin：转换时机只剩「新消息+视觉贴底恢复跟随」与显式动作（跳底/发言）——
+   * 转换时机只剩「新消息+视觉贴底恢复跟随」与显式动作（跳底/发言）——
    *  旧「滚回底部即回锚」路径已随「到底即回锚」机制整体移除 */
   onPinnedToBottom?: () => void
   /** 跳底按钮回调：滚动与置 pin 在本组件内完成，回调只承担计数清零等业务侧处理 */
   onJumpToBottom?: () => void
   onLoadMore?: () => void
   loadingMore?: boolean
-  /** F20261021lmfe：加载历史失败态——true 时加载入口进入错误态（用户可见反馈 + 重试入口） */
+  /** 加载历史失败态——true 时加载入口进入错误态（用户可见反馈 + 重试入口） */
   loadMoreError?: boolean
-  /** F20261020lmld：是否还有更早历史——控制顶部可见入口渲染（false/缺省不渲染，防假入口） */
+  /** 是否还有更早历史——控制顶部可见入口渲染（false/缺省不渲染，防假入口） */
   hasMoreBefore?: boolean
   unreadSeparatorSeq?: number | null
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼，用于消息气泡旁的名称显示 */
   userName?: string
-  /** F20261008csf1 P1：混排产物数据源（linked_resources，pr/file/fact/game 类型混排进时间轴；F20261021gmbe 接入 game） */
+  /** 混排产物数据源（linked_resources，pr/file/fact/game 类型混排进时间轴；接入 game） */
   linkedResources?: LocalLinkedResource[]
-  /** 信号轨迹（F20260902u5tr）：服务端推导的投石信号投递状态（可选，未加载时不渲染轨迹） */
+  /** 信号轨迹：服务端推导的投石信号投递状态（可选，未加载时不渲染轨迹） */
 }
 
 export function MessageList({
@@ -276,7 +276,7 @@ export function MessageList({
   unreadSeparatorSeq, highlightMessageId,
   userName, linkedResources,
 }: MessageListProps) {
-  /** F20261008csf1 P1：产物卡「钉住」逃生口——前端 UI 状态不落持久化（宪法 P1 允许，
+  /** 产物卡「钉住」逃生口——前端 UI 状态不落持久化（宪法 允许，
    *  取舍见特性文档）：钉住的卡在「贴时间轴插入」的同时保持在视口底部附近可及——
    *  实现取最简语义：钉住的卡渲染两份会违反时间轴纯净性，故钉住的卡从时间原位
    *  高亮为「已钉住」状态即可（视觉标识 + 取消入口），不做空间位移 */
@@ -288,7 +288,7 @@ export function MessageList({
       return next
     })
   }, [])
-  /** F20261104ssfde：scheduler 来源长系统消息的展开态（entry id 集，默认折叠）。
+  /** scheduler 来源长系统消息的展开态（entry id 集，默认折叠）。
   *  会话内本地状态（不持久化）——刷新回默认折叠，与「人不常看全文」的预期一致。 */
   const [expandedSchedulerMsgs, setExpandedSchedulerMsgs] = useState<Set<string>>(new Set())
   const toggleSchedulerMsg = useCallback((id: string) => {
@@ -299,13 +299,13 @@ export function MessageList({
     })
   }, [])
   /** 混排时间线：消息 + 产物卡（文类）按时间序插到其登记位置（宪法：产物在其诞生位置插入）。
-   *  定位口径：linkedResource 无 entry 外键（P1 不加列——避免 DB 迁移），用 createdAt 与
+   * 定位口径：linkedResource 无 entry 外键（不加列——避免 DB 迁移），用 createdAt 与
    *  消息 ts 对比找首个不早于登记时间的消息插在其前；晚于全部消息则附末尾（=「最新消息位」）。
    *  排序稳定性：message.seq 单调，资源 createdAt 兜底——同刻并列时资源在前（先登记后说话）。 */
   const timeline = useMemo(() => {
     const items: TimelineItem[] = messages.map(m => ({ kind: 'message', ts: m.ts, seq: m.seq ?? 0, message: m }))
     // 窗口下界：消息分页拉取（首拉 50、上翻 20）而 linkedResources 一次全量——
-    // 不设下界时，早于窗口最早消息的产物会聚集在时间轴顶部（检视发现 2：上翻到老区间
+    // 不设下界时，早于窗口最早消息的产物会聚集在时间轴顶部（上翻到老区间
     // 后视口内无诞生位置的卡，顶部悬浮一排旧卡冒充「最早」）。与消息分页语义对齐：
     // 窗口外产物不显示，上翻加载到覆盖其诞生时刻时自然出现
     const windowFloor = messages.length ? messages[0].ts : ''
@@ -323,58 +323,58 @@ export function MessageList({
     }
     return items
   }, [messages, linkedResources])
-  /** F20260814qswp：全部 hooks 前置于任何条件 return——旧实现 no-llm/loading/empty 分支
+  /** 全部 hooks 前置于任何条件 return——旧实现 no-llm/loading/empty 分支
    *  的早退位于 hooks 声明之前，同一挂载实例上 state 切换会导致 hooks 数量变化而崩溃 */
   const scrollRef = useRef<HTMLDivElement>(null)
-  /** F20260907sgpt：内容包裹 div 的 ref——ResizeObserver 观测目标。
+  /** 内容包裹 div 的 ref——ResizeObserver 观测目标。
    * 不可观测滚动容器本身：容器的 contentRect.height 是视口布局高度（flex-1 决定），
-   * 内容变化不触发回调（检视发现 1，mimo）；包裹 div 是普通 block，高度随内容真实变化 */
+   * 内容变化不触发回调（mimo）；包裹 div 是普通 block，高度随内容真实变化 */
   const contentRef = useRef<HTMLDivElement>(null)
-  /** F20261020wcsr：顶部哨兵 ref——IntersectionObserver 观测目标（哨兵分页） */
+  /** 顶部哨兵 ref——IntersectionObserver 观测目标（哨兵分页） */
   const sentinelRef = useRef<HTMLDivElement>(null)
-  /** F20261020wcsr：连拉计数——停在顶部自动连拉批次，达 AUTO_CHAIN_MAX_BATCHES 冷却 */
+  /** 连拉计数——停在顶部自动连拉批次，达 AUTO_CHAIN_MAX_BATCHES 冷却 */
   const autoChainCountRef = useRef(0)
   /** 头部消息 id 采样：区分「头部追加（上翻加载）」与「尾部追加（新消息）」 */
   const lastFirstIdRef = useRef<string | null>(null)
-  /** F20261020wcsr scrollTop=0 兜底采样基线（规范 §2.1 边界：锚点不选「未离开原点」的容器，
+  /** scrollTop=0 兜底采样基线（规范 边界：锚点不选「未离开原点」的容器，
    *  绝对顶部 prepend 浏览器锚定不工作，需极简手写补偿）。采样点与 lastScrollTopRef 同处
    *  （handleScroll 末尾）；conversationId 采样供「同会话」守卫（key remount 下 scrollTop=0
    *  语义从「用户在顶部」漂移为「新容器刚 mount」，跨容器采样=垃圾写入——镜澜严重发现 2） */
   const prevScrollTopAtCommitRef = useRef(0)
   const prevScrollHeightAtCommitRef = useRef(0)
   const fallbackConvIdRef = useRef(conversationId)
-  /** F20260907sgpt：上次采样的内容高度（contentObserver 记录）。
-   *  F20261010vwst：视口高度采样基线（prevViewportHeightRef）随 viewportObserver 一并删除 */
+  /** 上次采样的内容高度（contentObserver 记录）。
+   * 视口高度采样基线（prevViewportHeightRef）随 viewportObserver 一并删除 */
   const prevContentHeightRef = useRef(0)
-  /** F20261008scpg scroll-pin 状态机——pinRef（true=pinned）是「是否贴底跟随」的单一事实源。
+  /** scroll-pin 状态机——pinRef（true=pinned）是「是否贴底跟随」的单一事实源。
    * 语义：意图驱动——
    * - 脱锚（pinned→floating）：仅用户意图——wheel 上滚 / touch 上翻 / 键盘上翻 /
    *   向上位移（滚动条上拖无专门事件，位移方向是其唯一可观测签名）
-   * - 回锚（floating→pinned）：F20261029repin 起仅两条路径——①新消息 append 且用户视觉
+   * - 回锚（floating→pinned）：起仅两条路径——①新消息 append 且用户视觉
    *   贴底（≤8px，见下方 re-pin effect）②显式动作（跳底按钮点按/用户发言）。
    *   「scroll 事件到底即回锚」机制已整体移除（搭档 10/29 裁决：不认可位置推断意图，
-   *   自动回底只能由新消息触发——归因见 F20261029repin 演化链）
+   * 自动回底只能由新消息触发——归因见 演化链）
    * - 高度变化：不改状态；pinned → 统一贴底补偿，floating → 不打扰
-   * F20261020wcsr：write ledger 账本退役——向上位移脱锚规则（F20261016inbs）使程序写入
+   * write ledger 账本退役——向上位移脱锚规则使程序写入
    * （pin/兜底均构造性向下）几何上不可能命中脱锚分支，误判通道被方向封闭（论证见特性文档） */
   const rafPinIdRef = useRef(0)
   const lastScrollTopRef = useRef(0)
-  /** F20261016inbs：上次采样的 scrollHeight——内容收缩判定基线（handleScroll 内比对），
+  /** 上次采样的 scrollHeight——内容收缩判定基线（handleScroll 内比对），
    *  采样点与 lastScrollTopRef 同一处（handleScroll 末尾），中间无观测缺口 */
   const lastScrollHeightRef = useRef(0)
   const touchStartYRef = useRef<number | null>(null)
 
-  /** F20261029repin 新消息恢复跟随探测：尾部消息 id 采样 + 归属会话（append 判定，见 re-pin effect） */
+  /** 新消息恢复跟随探测：尾部消息 id 采样 + 归属会话（append 判定，见 re-pin effect） */
   const lastTailIdRef = useRef<string | null>(null)
   const lastTailConvRef = useRef<string | null>(null)
-  /** F20261029repin：距底距离采样（px）——「用户视觉贴底」的追加前几何快照。刷新点三处：
+  /** 距底距离采样（px）——「用户视觉贴底」的追加前几何快照。刷新点三处：
    *  handleScroll（任何滚动）、contentObserver（异步内容撑高）、re-pin effect 末尾（React
    *  commit）。判定必须读本 ref 而非实时 DOM：新消息入 DOM 后 scrollHeight 已含追加量，
    *  实时距底=追加前距离+新消息高，会把贴底用户误判成离底（漏恢复跟随，主场景：上拉阅读
    *  后滑回底部停住，新消息到达时应回底跟随） */
   const distToBottomRef = useRef(0)
 
-  /** 程序性滚动统一入口（F20261020wcsr：账本删除后语义收窄为「写入点收敛」——
+  /** 程序性滚动统一入口（账本删除后语义收窄为「写入点收敛」——
    *  所有代码发起的 scrollTop 写入走这里，便于审计写入方向不变量：全部写入构造性向下） */
   const programScroll = useCallback((el: HTMLElement, target: number, behavior: ScrollBehavior = 'auto') => {
     if (behavior === 'auto') el.scrollTop = target
@@ -386,7 +386,7 @@ export function MessageList({
     pinRef.current = false
   }, [pinRef])
 
-  /** F20261020wcsr 加载触发（哨兵/按钮共用）。重入口径沿用 F20261020lmld 检视 A2 修正：
+  /** 加载触发（哨兵/按钮共用）。重入口径沿用 检视 修正：
    *  loadingMore prop 拦事件级重复；同步硬闸在父层 loadingMoreRef（index.tsx loadMoreBefore
    *  入口）——prop 回传有事件→setState→prop 间隙，极端连击下靠父层同步 ref 兜底。
    *  位置保持（距顶恢复链）已退役——prepend 由浏览器 scroll anchoring 保持；scrollTop=0
@@ -396,8 +396,8 @@ export function MessageList({
     onLoadMore()
   }, [onLoadMore, loadingMore])
 
-  /** F20261008f1fx 零间隙贴底（H1 修复）：DOM commit 后、浏览器绘制前同步写入底部（useLayoutEffect 同步语义，
-   *  非 useEffect——后者在绘制后，间隙仍在）。第一轮（F20261008scpg）的 RO→rAF 链存在
+  /** 零间隙贴底（H1 修复）：DOM commit 后、浏览器绘制前同步写入底部（useLayoutEffect 同步语义，
+   * 非 useEffect——后者在绘制后，间隙仍在）。第一轮的 RO→rAF 链存在
    *  结构性 1-2 帧间隙：内容突变那帧贴底用户滚动条比例骤降（视觉=跳到中间），下一帧才
    *  补偿回来——大量级突变（卡片撑高数百 px）时肉眼可见。useLayoutEffect 在绘制前同步写，
    *  间隙帧归零。
@@ -410,8 +410,8 @@ export function MessageList({
    *  防误修：与 RO 链对同一高度变化可能「双写」（f1fx commit 写一次 + RO 回调再写一次）——
    *  幂等无害（两次都写 scrollHeight），不要为「去重」拆任一条链。
    *
-   *  F20261020wcsr：prepend 位置保持主力移交浏览器 scroll anchoring（overflow-anchor 默认开）。
-   *  本 effect 内的 scrollTop=0 兜底只覆盖规范 §2.1 边界：锚点不选「未离开原点」的容器——
+   * prepend 位置保持主力移交浏览器 scroll anchoring（overflow-anchor 默认开）。
+   * 本 effect 内的 scrollTop=0 兜底只覆盖规范 边界：锚点不选「未离开原点」的容器——
    *  用户在绝对顶部触发加载时浏览器无锚可用，prepend 会把视口顶下去，需极简手写补偿。
    *  兜底三条件（全真才触发，镜澜审视修订）：
    *  ①conversationId 未变（key remount 下 scrollTop=0 语义从「用户在顶部」漂移为
@@ -419,7 +419,7 @@ export function MessageList({
    *  ③头部消息 id 变化（确认为 prepend 而非其他消息流变化）。
    *  写入约束：位移增量式 max(scrollTop + delta, 0)——增量非负由 max 构造保证
    *  （delta<0 同帧收缩时钳零原地不动），方向构造性封闭，不产生向上位移→不命中脱锚。
-   *  弱前提（镜澜 delta-D1）：条件②采样一致性依赖 scroll 事件与 React commit 的任务排序，
+   * 弱前提（镜澜）：条件②采样一致性依赖 scroll 事件与 React commit 的任务排序，
    *  破坏后果为幂等抢跑一次锚定本可完成的调整（位移仍向下），无位置错乱。 */
   useLayoutEffect(() => {
     const el = scrollRef.current
@@ -443,7 +443,7 @@ export function MessageList({
     const headChanged = messages.length > 0 && prevFirstId !== null && prevFirstId !== messages[0]?.id
     if (messages.length > 0) lastFirstIdRef.current = messages[0]?.id ?? null
     if (sameConv && prevTop === 0 && prevSh > 0 && headChanged) {
-      // 绝对顶部 prepend 兜底（规范 §2.1 不选锚边界）：位移增量式写入，方向构造性封闭
+      // 绝对顶部 prepend 兜底（规范 不选锚边界）：位移增量式写入，方向构造性封闭
       const delta = el.scrollHeight - prevSh
       if (delta > 0) programScroll(el, el.scrollTop + delta)
     }
@@ -451,29 +451,29 @@ export function MessageList({
     programScroll(el, el.scrollHeight)
   })
 
-  /** F20260907sgpt 高度贴底补偿 + F20261010vwst 视口稳定优先（单 observer 化）。
+  /** 高度贴底补偿 + 视口稳定优先（单 observer 化）。
    *
-   * 背景：自 virtuoso→原生滚动迁移（F20260813scrl）起曾设 overflowAnchor:'none'（原生滚动
-   * 锚定关闭，F20261020wcsr 已重新启用——专项研究：关锚定后枚举高度源补丁路线不可持续，
-   * F20261010vwst 判死刑；浏览器锚定是规范为此设计的原生机制），且「messages.length effect」
+   * 背景：自 virtuoso→原生滚动迁移起曾设 overflowAnchor:'none'（原生滚动
+   * 锚定关闭，已重新启用——专项研究：关锚定后枚举高度源补丁路线不可持续，
+   * 判死刑；浏览器锚定是规范为此设计的原生机制），且「messages.length effect」
    * 只对条数变化补偿——而信号轨迹 chip（trailItems 2s 轮询异步到达）、信号徽标（SSE 终态
    * 替换 tmp- 消息，条数不变）等都只在视口内增减内容高度，条数不变 → 无补偿 → 用户在底部
-   * 时视口周期性上跳（#790 只修了发言时刻未读分隔线那一条路）。
+   * 时视口周期性上跳（只修了发言时刻未读分隔线那一条路）。
    *
    * 修法：contentObserver 观测内容包裹 div（contentRef）：contentRect.height = 内容总
    *   高度，chip 弹出/徽标出现/流式增长时真实变化。内容高度增大且 pinned → 贴底。
    *   （不可观测滚动容器：容器 contentRect.height 是视口布局高度，内容变化不触发——
    *   首版实现踩过的坑，jsdom 测试手动 fire 回调掩盖了这一点）
    *
-   * F20261010vwst 删除 viewportObserver（稳定性设计原则落地）：视口高度变化时浏览器对
+   * 删除 viewportObserver（稳定性设计原则落地）：视口高度变化时浏览器对
    * scrollTop 的 clamp 语义天然保证内容稳定，程序补偿反而制造跳动（输入框 autoResize 顶起
-   * 事故，滚动治理第 9 轮）。删除后行为变化与取舍详见特性文档 F20261010vwst。
+   * 事故，滚动治理）。删除后行为变化与取舍详见特性文档 
    *
    * 边界处理：
    * - 内容高度减小（流式面板折叠等）：scrollHeight 缩短自然把视口推近底部，无需补偿
    * - requestAnimationFrame 合帧：高频 resize（流式渲染）下每帧至多补偿一次
-   * - floating 用户（F20261008scpg 意图状态机）：任何高度变化都不打扰——floating 态的
-   *   视觉稳定由浏览器 scroll anchoring 承担（F20261020wcsr），不再枚举补偿
+   * - floating 用户（意图状态机）：任何高度变化都不打扰——floating 态的
+   * 视觉稳定由浏览器 scroll anchoring 承担，不再枚举补偿
    * - 依赖 [conversationId]：滚动容器带 key={conversationId}，切会话时容器重建，
    *   mount-only 会观测已卸载元素而失效——切会话时重挂 observer 并重置采样基线 */
   useEffect(() => {
@@ -484,7 +484,7 @@ export function MessageList({
       cancelAnimationFrame(rafPinIdRef.current) // 合帧：高频 resize 下每帧至多补偿一次
       rafPinIdRef.current = requestAnimationFrame(() => {
         const sc = scrollRef.current
-        // F20261008scpg：执行时重读 pin——rAF 排队期间用户接管则放弃写入（防「抢滚动条」）
+        // 执行时重读 pin——rAF 排队期间用户接管则放弃写入（防「抢滚动条」）
         if (sc && pinRef.current) programScroll(sc, sc.scrollHeight)
       })
     }
@@ -493,26 +493,26 @@ export function MessageList({
       const h = entry?.contentRect?.height ?? 0
       if (h === prevContentHeightRef.current) return // 高度没变（width-only 等）
       const sc = scrollRef.current
-      if (sc) distToBottomRef.current = Math.max(0, sc.scrollHeight - sc.scrollTop - sc.clientHeight) // F20261029repin 距底采样（异步撑高）
+      if (sc) distToBottomRef.current = Math.max(0, sc.scrollHeight - sc.scrollTop - sc.clientHeight) // 距底采样（异步撑高）
       const grew = h > prevContentHeightRef.current
       prevContentHeightRef.current = h
       if (!grew) return // 内容缩短：scrollHeight 缩短自然贴底，不补
-      if (!pinRef.current) return // F20261008scpg：用户 floating（自由阅读）：任何高度变化都不打扰
+      if (!pinRef.current) return // 用户 floating（自由阅读）：任何高度变化都不打扰
       rafPinToBottom()
     })
     contentObserver.observe(content)
     return () => { contentObserver.disconnect(); cancelAnimationFrame(rafPinIdRef.current) }
     // Why: 依赖 conversationId——容器带 key 切会话时重建，需重挂 observer；state 入 deps——
     // loading/no-llm 分支不渲染滚动容器（ref 为 null 提前返回），回 normal 时需重挂；
-    // hasMessages 入 deps（F20261008f1fx 检视发现 5）：冷启动/首次打开会话首渲染 messages=[]
+    // hasMessages 入 deps：冷启动/首次打开会话首渲染 messages=[]
     // 走空态分支（不渲染滚动容器），effect 挂载时 refs=null 早退；随后消息到达 deps 无变化
-    // 永不重跑——RO 链自 F20260907sgpt 起在冷启动会话从未挂载（插桩实锤：组件 RO 零 fire，
+    // 永不重跑——RO 链自 起在冷启动会话从未挂载（插桩实锤：组件 RO 零 fire，
     // 同页对照 RO fire 3 次）。布尔翻转 0→1 恰好触发重挂，重挂时基线重置已由上方
     // prevContentHeightRef = 0 处理；其余状态经 ref 读取，无需重订阅
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, state, messages.length > 0])
 
-  /** F20261020wcsr 哨兵分页：顶部 IntersectionObserver 替代 F20261020lmld 手写多通道触发
+  /** 哨兵分页：顶部 IntersectionObserver 替代 手写多通道触发
    * （scroll 近顶带/wheel/touch/keyDown 四通道退役；可见按钮保留为手动通道）。
    * 结构性免疫 lmld 死锁：IO 不依赖滚动事件——到顶静止后哨兵 intersecting 状态变化
    * 仍触发回调（lmld 死锁根因=零位移无 scroll 事件，对 IO 不构成问题）。
@@ -528,7 +528,7 @@ export function MessageList({
       const entry = entries[entries.length - 1]
       if (!entry?.isIntersecting) return
       if (loadingMore || !hasMoreBefore) return
-      /** F20261021lmfe（issue #1581）：失败态阻断自动通道——哨兵重挂后 IO 初始回调必 fire 一次，
+      /** 失败态阻断自动通道——哨兵重挂后 IO 初始回调必 fire 一次，
        *  不阻断则失败→loadingMore 翻转→effect 重跑→IO 重挂→再拉，成隐性重试风暴；
        *  错误解除只走手动按钮（fireLoadMore 不拦，重试语义由父层 loadMoreBefore 清错实现） */
       if (loadMoreError) return
@@ -542,27 +542,27 @@ export function MessageList({
     // effect 清理；loadingMore 完成后再 intersecting 需重新判定连拉；loadMoreError 阻断自动通道）；fireLoadMore 随 props 重绑
   }, [conversationId, state, hasMoreBefore, loadingMore, loadMoreError, fireLoadMore])
 
-  /** F20261008scpg 滚动事件处理（F20261020wcsr 账本退役简化版）：位移方向分类 + 连拉冷却解除。
-   * F20261029repin：scroll 事件不再承担回锚——「到底即回锚」机制整体移除后本 handler 只剩两
+  /** 滚动事件处理（账本退役简化版）：位移方向分类 + 连拉冷却解除。
+   * scroll 事件不再承担回锚——「到底即回锚」机制整体移除后本 handler 只剩两
    * 件事：向上位移脱锚归因、向下位移解除连拉冷却。clamp 落底/用户滚到底一律不改 pin 状态
    * （floating 用户拖到底部保持 floating——到底停留不代表放弃阅读上文）。
-   * 向上位移脱锚 F20261016inbs 起不受 100px nearBottom 阈值限制（见下方内联注释）。
-   * 账本退役论证（特性文档 F20261020wcsr）：本特性落地后全部程序写入（pin 贴底/scrollTop=0
+   * 向上位移脱锚 起不受 100px nearBottom 阈值限制（见下方内联注释）。
+   * 账本退役论证（特性文档）：本特性落地后全部程序写入（pin 贴底/scrollTop=0
    * 兜底增量写入）方向构造性向下或钳零，几何上不可能命中 movedUp 分支——「程序写入污染
    * 用户意图」通道被方向封闭，账本自证机制成为冗余。
-   * F20260921urdo 判定换轨退役：到底标记已读回调（onReachBottom）已删除（打开路径已 ack） */
+   * 判定换轨退役：到底标记已读回调（onReachBottom）已删除（打开路径已 ack） */
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
     /** 向上位移：用户接管——滚动条上拖/键盘上翻的无事件兑底签名。程序写入永远向底部
-     *  （不会向上移），向上位移必然是用户行为（F20261020wcsr：该不变量由写入方向构造保证，
+     * （不会向上移），向上位移必然是用户行为（该不变量由写入方向构造保证，
      *  不再依赖账本自证）。
-     *  F20261016inbs 弹回修复：账本未归因的向上位移一律脱锚，不受 nearBottom 阈值限制。
+     * 弹回修复：账本未归因的向上位移一律脱锚，不受 nearBottom 阈值限制。
      *  唯一例外：scrollHeight 缩小时浏览器 clamp 引发的向上位移是被动几何调整（内容收缩
      *  把 scrollTop 压低），不是用户意图——收缩期间不脱锚，pinned 用户保持 pinned */
     const movedUp = el.scrollTop < lastScrollTopRef.current - 1
     const shrank = el.scrollHeight < lastScrollHeightRef.current - 1
-    // F20261029repin：「到底即回锚」分支整体移除——scroll 事件不再改变 pin 状态（脱锚
+    // 「到底即回锚」分支整体移除——scroll 事件不再改变 pin 状态（脱锚
     // 除外）。旧机制下轻拉两三行的用户会被回弹/锚定微调等非用户位移源误判「滚回底部」
     // → 重渲染贴底 → 跳底（三轮同族问题根源）；回底跟随改为仅新消息触发（re-pin effect）
     // 与显式动作（跳底按钮/发言）。pinned 用户自然滑到底部全程 pinned（无转换发生），
@@ -570,16 +570,16 @@ export function MessageList({
     if (movedUp && !shrank) {
       takeUserControl()
     }
-    // F20261020wcsr：向下位移 = 用户离开顶部 → 解除哨兵连拉冷却（恢复自动加载资格）
+    // 向下位移 = 用户离开顶部 → 解除哨兵连拉冷却（恢复自动加载资格）
     if (el.scrollTop > lastScrollTopRef.current && autoChainCountRef.current > 0) {
       autoChainCountRef.current = 0
     }
     lastScrollTopRef.current = el.scrollTop
     lastScrollHeightRef.current = el.scrollHeight
-    distToBottomRef.current = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight) // F20261029repin 距底采样
+    distToBottomRef.current = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight) // 距底采样
   }, [takeUserControl])
 
-  /** 首次渲染滚到底部（R0：mount 即 pinned——容器带 key，切会话 remount 时同样经此贴底） */
+  /** 首次渲染滚到底部（mount 即 pinned——容器带 key，切会话 remount 时同样经此贴底） */
   useEffect(() => {
     if (messages.length > 0) {
       requestAnimationFrame(() => {
@@ -587,28 +587,28 @@ export function MessageList({
         if (el) programScroll(el, el.scrollHeight)
       })
     }
-    // Why: mount-only（同旧 W5 语义）。增量贴底由 content observer 统一负责（F20261008scpg 删 W2 双写）。
+    // Why: mount-only（同旧 W5 语义）。增量贴底由 content observer 统一负责（删 W2 双写）。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** 切换会话时重置状态（R0：新会话 pinned 起步；采样基线/连拉计数一并清空）
-   *  F20261020wcsr：pendingScrollRestoreRef 随恢复链退役删除；autoChainCountRef 重置
+  /** 切换会话时重置状态（新会话 pinned 起步；采样基线/连拉计数一并清空）
+   * pendingScrollRestoreRef 随恢复链退役删除；autoChainCountRef 重置
    *  （新会话重新获得连拉额度） */
   useEffect(() => {
     pinRef.current = true
     lastScrollTopRef.current = 0
     lastScrollHeightRef.current = 0
-    distToBottomRef.current = 0 // F20261029repin 新会话贴底起步（R0 mount 贴底）
+    distToBottomRef.current = 0 // 新会话贴底起步（mount 贴底）
     autoChainCountRef.current = 0
     cancelAnimationFrame(rafPinIdRef.current)
   }, [conversationId, pinRef])
 
-  /** F20261029repin 新消息恢复跟随（回底跟随的唯一自动触发）：尾部 append 且用户视觉贴底
+  /** 新消息恢复跟随（回底跟随的唯一自动触发）：尾部 append 且用户视觉贴底
    *  （≤8px）→ 回锚 pinned + 贴底 + 清浮窗计数。
    *  语义裁决（搭档 10/29）：「到底即回锚」移除后，自动回底仅由新消息触发——
    *  用户停在哪都不被滚动事件打扰；只有新消息到来且人恰在底部，跟随才恢复。
    *  阈值 8px：视觉贴底（亚像素余量），任何可感知的上拉距离都远大于此；不用 100px
-   *  近底宽带（旧设计「宽松回锚=善意」假设已作废，归因见 F20261029repin §3）。
+   * 近底宽带（旧设计「宽松回锚=善意」假设已作废，归因见）。
    *  距底判定读 distToBottomRef（追加前几何快照）而非实时 DOM：useLayoutEffect 运行时
    *  新消息已入 DOM（React 先变异后跑 layout effect，与 paint 无关），实时距底已含追加
    *  量，会把贴底用户误判离底漏恢复跟随。
@@ -634,12 +634,12 @@ export function MessageList({
     if (distBeforeAppend > NEWMSG_REPIN_PX) return // 追加前不在底部 → 不抢（浮窗计数由父层 +1）
     pinRef.current = true
     programScroll(el, el.scrollHeight) // 回锚即贴底（同一 commit 内同步对齐）
-    onPinnedToBottom?.() // F20261027nmbf 语义保留：回底即新消息已在眼前，清计数
+    onPinnedToBottom?.() // 语义保留：回底即新消息已在眼前，清计数
   })
 
-  /** F20261008scpg 意图事件监听：wheel/touch/键盘上滚 = 用户意图脱锚（capture+passive，不拦截不感知几何）。
+  /** 意图事件监听：wheel/touch/键盘上滚 = 用户意图脱锚（capture+passive，不拦截不感知几何）。
    * 这三条是「有专门事件」的输入通道；滚动条拖动等无事件手势由 handleScroll 的位移归因兑底覆盖。
-   * F20261020wcsr：三通道内的「近顶带触发加载」随哨兵分页退役——加载触发统一走
+   * 三通道内的「近顶带触发加载」随哨兵分页退役——加载触发统一走
    * IntersectionObserver 哨兵（到顶零位移无 scroll 事件的死锁形态对 IO 不构成问题）；
    * 本 effect 只剩脱锚语义。 */
   useEffect(() => {
@@ -661,7 +661,7 @@ export function MessageList({
       // 不劫持输入框光标移动（V9）：目标为输入元素时上翻键属于文本编辑语义
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
-      // 防御性过滤（代码审视建议 1，前提经核实不成立：iframe 内键盘事件受同源文档隔离，
+      // 防御性过滤（代码前提经核实不成立：iframe 内键盘事件受同源文档隔离，
       // 不会传播到宿主 window——card-bridge.ts 仅监听 load，无键盘转发）。保留作为未来
       // 事件桥接引入时的护栏：目标属于其他文档（iframe）时忽略；window 目标（无
       // ownerDocument）仍处理——测试与辅助技术依赖 window 级分发
@@ -681,7 +681,7 @@ export function MessageList({
     // Why: conversationId（容器 key 重建）+ state（loading 分支无容器）时重建监听
   }, [conversationId, state, takeUserControl])
 
-  // —— 条件渲染分支（hooks 全部执行完毕后才能 return，见文件内 F20260814qswp 注释）——
+  // —— 条件渲染分支（hooks 全部执行完毕后才能 return，见文件内 注释）——
   if (state === 'no-llm') {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3.5">
@@ -721,8 +721,8 @@ export function MessageList({
   }
 
   return (
-    // F20261016inbs：视口 paddingBottom 写死 170px 已删——预留搬到滚动内容末尾等高衬垫
-    // （下方 bottomSpacer div）。视口 clientHeight 恒定（F20261015inpd 根治成果）不可回退：
+    // 视口 paddingBottom 写死 170px 已删——预留搬到滚动内容末尾等高衬垫
+    // （下方 bottomSpacer div）。视口 clientHeight 恒定（根治成果）不可回退：
     // 任何「改视口高度」的补偿路径都会重新引入 clamp 跳动机制链
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative">
       {loadingMore && (
@@ -734,14 +734,14 @@ export function MessageList({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto"
       >
-        {/* F20260907sgpt 检视发现 1：内容包裹 div——ResizeObserver 观测目标。
+        {/* 内容包裹 div——ResizeObserver 观测目标。
             不可直接观测滚动容器（其 contentRect.height 是视口布局高度，内容变化不触发）。
             普通 block div 高度随内容真实变化；包一层对布局无影响（block 默认占满宽度） */}
         <div ref={contentRef}>
-        {/* F20261020wcsr：顶部哨兵——IntersectionObserver 观测目标（哨兵分页主力通道）。
+        {/* 顶部哨兵——IntersectionObserver 观测目标（哨兵分页主力通道）。
             hasMoreBefore=false 不渲染（与可见按钮「防假入口」对称；哨兵卸载即自动通道关闭） */}
         {hasMoreBefore && <div ref={sentinelRef} aria-hidden="true" data-testid="load-sentinel" style={{ height: 1 }} />}
-        {/* F20261020lmld：可见加载入口（F20261020wcsr 保留为手动通道——哨兵自动加载的
+        {/* 可见加载入口（保留为手动通道——哨兵自动加载的
             可发现性补充 + 连拉冷却中的不受限出口） */}
         {hasMoreBefore && (
           <div className="flex justify-center py-2">
@@ -756,9 +756,9 @@ export function MessageList({
             </button>
           </div>
         )}
-        {/* F20260913ctlv：活动段分组（「新一轮」分隔线）已退役——彻底切换后无轮次概念，
+        {/* 活动段分组（「新一轮」分隔线）已退役——彻底切换后无轮次概念，
             时间线就是 entries 按序流，invoke 边界由居中条目（⚡/🌙/→）表达 */}
-        {/* F20261008csf1 P1：混排渲染——产物摘要卡（文类）插在其登记时间对应的消息位置 */}
+        {/* 混排渲染——产物摘要卡（文类）插在其登记时间对应的消息位置 */}
         {timeline.map(item => item.kind === 'artifact' ? (
           <div key={`artifact-${item.resource.id}`} className="flex justify-center my-2 animate-slideIn">
             <ArtifactCard resource={item.resource} pinned={pinnedIds.has(item.resource.id)} onTogglePin={togglePin} />
@@ -775,7 +775,7 @@ export function MessageList({
             <MessageItem message={item.message} otters={otters} onStopStream={onStopStream} onRetryMessage={onRetryMessage} highlighted={highlightMessageId === item.message.id} userName={userName} schedulerFold={{ expanded: expandedSchedulerMsgs, toggle: toggleSchedulerMsg }} />
           </div>
         ))}
-        {/* F20261016inbs：底部衬垫——高度 = 输入覆盖层实高（bottomSpacerPx，ChatView
+        {/* 底部衬垫——高度 = 输入覆盖层实高（bottomSpacerPx，ChatView
             ResizeObserver 实测后透传）。渲染在 contentRef（内容包裹 div）末尾：衬垫是滚动
             内容的一部分，contentObserver 能观测其长高/缩短，pinned 用户由既有贴底补偿保持
             齐平（与消息长高同一路径），floating 用户不被打扰。aria-hidden：无语义内容 */}
@@ -785,7 +785,7 @@ export function MessageList({
       {newMessagesCount > 0 && onJumpToBottom && (
         <button
           onClick={() => {
-            // F20261008scpg W6 修复：滚动与置 pin 在组件内完成（ref 直连滚动容器）；
+            // W6 修复：滚动与置 pin 在组件内完成（ref 直连滚动容器）；
             // onJumpToBottom 回调只承担计数清零等业务侧处理。旧版 index.tsx 用
             // querySelector('[data-message-list]') 找容器，该属性渲染端不存在（死按钮）
             const sc = scrollRef.current
@@ -795,9 +795,9 @@ export function MessageList({
             }
             onJumpToBottom()
           }}
-          // F20261027nmbf 几何修复：bottom-4 → bottomSpacerPx+16 内联（浮窗抬到输入覆盖层
+          // 几何修复：bottom-4 → bottomSpacerPx+16 内联（浮窗抬到输入覆盖层
           // 上方，与底部衬垫联动——覆盖层实高即 bottomSpacerPx）；z-10 → z-20（脱离
-          // 覆盖层的 z-10 同层后来居上遮挡——#1535 同族问题：覆盖层透明区域照吃命中测试）。
+          // 覆盖层的 z-10 同层后来居上遮挡——同族问题：覆盖层透明区域照吃命中测试）。
           // 抬升后浮窗悬于输入框上方 16px（微信/Telegram 风格），覆盖层长高（卡片预览展开）
           // 时随衬垫同步上移；CSS clamp 在矮视口优先保留 8px 顶边距，不让顶部被裁切。
           // 常量 44px = 按钮高 36px（py-2×2 + text-sm 行高 20）+ 顶边距 8px，无需新增 observer/状态
@@ -876,7 +876,7 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
   const images = atts.filter(a => a.kind === 'image')
   const audios = atts.filter(a => a.kind === 'audio')
-  // document + video 均为文件卡下载样式（检视建议 4：显式命名，未来 video 需特殊渲染时从此处拆出）
+  // document + video 均为文件卡下载样式（显式命名，未来 video 需特殊渲染时从此处拆出）
   const documentsAndVideos = atts.filter(a => a.kind !== 'image' && a.kind !== 'audio')
   return (
     <div className="mt-2 space-y-2">
@@ -928,7 +928,7 @@ function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: bo
 }
 
 function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlighted, userName, schedulerFold }: { message: Message; otters: Otter[]; onStopStream: (messageId: string) => void; onRetryMessage: (messageId: string) => void; highlighted?: boolean; userName?: string; schedulerFold?: { expanded: Set<string>; toggle: (id: string) => void } }) {
-  // F20260913ctlv：invoke 边界/yield 居中条目（无气泡，图标+文字；与 system 同层但更轻量）
+  // invoke 边界/yield 居中条目（无气泡，图标+文字；与 system 同层但更轻量）
   const entryKind = deriveEntryType(m)
   if (entryKind === 'invoke_start' || entryKind === 'invoke_end' || entryKind === 'yield') {
     const isYield = entryKind === 'yield'
@@ -936,7 +936,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
     // 实时路径已由 index.tsx 映射，双重 map 幂等（名字不是 otterId 时原样返回）
     const mappedTargets = m.yieldTargets?.map(t => otters.find(o => o.id === t)?.name || t)
     const text = centeredEntryText(mappedTargets ? { ...m, yieldTargets: mappedTargets } : m)
-    // F20261013csv3 T5：过程明细（foldedEvents 携带时渲染——开关打开 + 后端投影返回）
+    // 过程明细（foldedEvents 携带时渲染——开关打开 + 后端投影返回）
     const steps = m.foldedEvents
     return (
       <div className="flex flex-col items-center my-1.5 animate-slideIn">
@@ -951,7 +951,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           <span className="truncate" title={text}>{text}</span>
           <span className="msg-meta text-[10px] flex-shrink-0">{fmtTime(m.ts)}</span>
         </div>
-        {/* T5：工具调用过程明细（折叠步——call/think/speak/error/user 五形） */}
+        {/* 工具调用过程明细（折叠步——call/think/speak/error/user 五形） */}
         {steps && steps.length > 0 && (
           <div className="mt-1.5 w-full max-w-md rounded-xl border border-stone-200/50 bg-stone-50/40 px-3 py-2 space-y-1">
             <div className="text-[10px] text-stone-400 mb-1">过程明细（{steps.length} 步）</div>
@@ -963,10 +963,10 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   }
 
   // System 消息：居中显示，特殊样式，支持 markdown 渲染
-  // F20261104ssfde：scheduler 来源的长任务触发消息默认折叠——body 是给 LLM 的完整任务指令
+  // scheduler 来源的长任务触发消息默认折叠——body 是给 LLM 的完整任务指令
   // （重启补扫依赖全文，后端不能截断），人只需要一行「⏰ 任务名 · 时间」；点开可看全文。
   // 识别依据：senderName 以 scheduler: 开头（写入点 scheduler-service createSystemSignalEntry，
-  // 历史 DTO 与 F20261104ssfde 后的 SSE 实时链路均透传）。短消息（≤ 阈值）仍全文展示，避免
+  // 历史 DTO 与 后的 SSE 实时链路均透传）。短消息（≤ 阈值）仍全文展示，避免
   // 琐碎系统消息也套一层点击成本。旧数据无 senderName → 不折叠（历史兼容零迁移）。
   if (m.st === 'system') {
     const schedulerTaskName = m.sn?.startsWith('scheduler:') ? m.sn.slice('scheduler:'.length) : null
@@ -1014,14 +1014,14 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
   const isUser = m.st === 'user'
   const inFlight = m.status === 'streaming' || m.status === 'speaking'
   const userDisplayName = userName?.trim() || '我'
-  // F20260826fuid：user 消息优先用快照名（飞书群聊多人识别），无快照回退全局名（单聊不变）
-  // F20260826fpbd：远程消息（飞书等）无快照时显示中性标签，不回退全局名——避免快照缺失时把访客冒充成搭档
-  // F20260913ctlv test17：web 来源不算「外部」——remoteFallbackName 只对明确的外部 IM 来源生效，
+  // user 消息优先用快照名（飞书群聊多人识别），无快照回退全局名（单聊不变）
+  // 远程消息（飞书等）无快照时显示中性标签，不回退全局名——避免快照缺失时把访客冒充成搭档
+  // test17：web 来源不算「外部」——remoteFallbackName 只对明确的外部 IM 来源生效，
   // web/空 source 回退全局名（「我」）
   const snapshotName = isUser ? (m.sn || '').trim() : ''
   const remoteFallbackName = m.src === 'feishu' ? '飞书成员' : ''
   const name = isUser ? (snapshotName || remoteFallbackName || userDisplayName) : resolveDisplayName(m, otters)
-  // F20261021sprx：entries 自带 type 优先；名册只补缺失，名册外历史大獭不再按 small 渲染。
+  // entries 自带 type 优先；名册只补缺失，名册外历史大獭不再按 small 渲染。
   const otterInfo = otters.find(o => o.id === m.si)
   const resolvedType = m.stype ?? otterInfo?.type
   const { color } = isUser ? { color: null } : resolveOtterVisual(m.si, {
@@ -1058,7 +1058,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
             </span>
           )}
           <span className="text-[11px] msg-meta">{inFlight ? `${fmtTime(m.ts)} · 正在回复...` : `${fmtTime(m.ts)}${dur}`}</span>
-          {/* token 条在主流程位置（#88），但 ctx 缺失（进行中/历史未持久化）时不渲染（M3） */}
+          {/* token 条在主流程位置，但 ctx 缺失（进行中/历史未持久化）时不渲染 */}
           {!isUser && m.ctx != null && (
             <span className="flex items-center gap-1.5 text-[10px] msg-meta ml-1">
               <span>{fmtTokens(m.ctx)} / {fmtTokens(m.ctxMax || 200000)}</span>
@@ -1077,10 +1077,10 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
           } ${!isUser && inFlight ? 'bubble-live' : ''} ${highlighted ? 'highlight-message' : ''}`}
           style={sideBar}
         >
-          {/* F20260913ctlv 切换清扫：StreamingProcess 气泡内流式折叠区已退役——
+          {/* 切换清扫：StreamingProcess 气泡内流式折叠区已退役——
               流式过程不再嵌在消息气泡，统一在 Session 弹窗（点獭头像）展示。
               后端已停发流式 SSE（1970b43b），历史 messages.events 不再渲染。 */}
-          {/* F20260826mwrd C4: 獭间信号徽章（消息原位渲染，<signal> 块剥离后的视觉表达） */}
+          {/* 獭间信号徽章（消息原位渲染，<signal> 块剥离后的视觉表达） */}
           {!isUser && m.signals && m.signals.length > 0 && (
             <div className="mb-1.5">
               {m.signals.map(sig => (
@@ -1118,7 +1118,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
               </div>
             </div>
           )}
-          {/* 多模态 Phase 1：附件块（图片网格 + 文件卡），正文后渲染 */}
+          {/* 多模态 附件块（图片网格 + 文件卡），正文后渲染 */}
           {m.atts && m.atts.length > 0 && <AttachmentBlock atts={m.atts} isUser={isUser} />}
           {/* 进行中的消息（实时或刷新后重新进入）保留停止能力 */}
           {inFlight && (
@@ -1144,7 +1144,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
             </div>
           )}
         </div>
-        {/* F20260913ctlv 收尾：user 气泡传递行在气泡外（下方一行小字）——气泡内只放说话内容。
+        {/* 收尾：user 气泡传递行在气泡外（下方一行小字）——气泡内只放说话内容。
              yieldTargets = 发言石目标（实时路径 SSE entry.user 携带 / 历史路径 EntryDTO 透出，
              otterId 在此映射显示名） */}
         {isUser && m.yieldTargets && m.yieldTargets.length > 0 && (

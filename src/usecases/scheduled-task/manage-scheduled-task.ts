@@ -294,7 +294,7 @@ export class ManageScheduledTask {
       throw new DomainError('executorRole must be non-empty', 'validation');
     }
 
-    // #610: watchlist patch 格式校验——通用通道不做 A 股代码格式假设，只保证结构。
+    // watchlist patch 格式校验——通用通道不做 A 股代码格式假设，只保证结构。
     // Why 空数组合法：操盘 prompt 对空自选池有明确行为（报告搭档），清空自选池是合法操作。
     if (input.watchlist !== undefined) {
       if (
@@ -320,7 +320,7 @@ export class ManageScheduledTask {
       throw new DomainError(`Invalid timezone: ${input.timezone}`, 'validation');
     }
 
-    // #516: 任务级超时配置校验（null 表示清除配置，合法）
+    // 任务级超时配置校验（null 表示清除配置，合法）
     const timeoutError = validateTimeoutMinutes(input.timeoutMinutes);
     if (timeoutError) {
       throw new DomainError(timeoutError, 'validation');

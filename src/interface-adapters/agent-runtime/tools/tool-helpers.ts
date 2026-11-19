@@ -125,7 +125,7 @@ export function stripToolCallSerializationLeak(body: string): { body: string; le
 export function validateSpeakBody(turnAssistantText: string | undefined, cleanBody: string): string | null {
   if (!cleanBody || cleanBody.trim().length === 0) return "[错误] body 不能为空。请提供你的最终答复内容，然后重新调用 speak。";
 
-  /** F20261022cfme：一次 remark 解析派生计数与体积，避免重复解析 */
+  /** 一次 remark 解析派生计数与体积，避免重复解析 */
   const cardNodes = collectCardFenceNodes(cleanBody);
   const cardCount = cardNodes.length;
 
@@ -134,7 +134,7 @@ export function validateSpeakBody(turnAssistantText: string | undefined, cleanBo
     return `[错误] 检测到 ${cardCount} 张 html-card 卡片，但单消息最多支持 ${CARD_MAX_PER_MESSAGE} 张（第 3 张起用户会看到降级的源码块，不可读）。请将内容合并为 ${CARD_MAX_PER_MESSAGE} 张卡片，或分多次 speak 输出。`;
   }
 
-  /** F20260916hcel：校验单卡体积（只量围栏内 HTML，不量正文散文） */
+  /** 校验单卡体积（只量围栏内 HTML，不量正文散文） */
   const cardSizes = cardNodes.map((n) => new TextEncoder().encode(n.value ?? "").length);
   for (let i = 0; i < cardSizes.length; i++) {
     if (cardSizes[i] > CARD_MAX_BYTES) {
@@ -144,7 +144,7 @@ export function validateSpeakBody(turnAssistantText: string | undefined, cleanBo
     }
   }
 
-  /** F20260804hcob + F20261022cfme：「卡片写在 speak 外」检测改 hasCardFences（remark 口径），
+  /** + 「卡片写在 speak 外」检测改 hasCardFences（remark 口径），
    *  与计数/体积同源；body 侧复用 cardCount === 0，避免对 cleanBody 二次解析。 */
   if (turnAssistantText !== undefined && hasCardFences(turnAssistantText) && cardCount === 0) {
     return "[错误] 检测到你把 ```html-card 卡片写在了 speak 之外的文本里——那段文本不会进入消息，搭档根本看不到卡片。请把完整的 ```html-card 围栏（含全部 HTML）原样移入本次 speak 的 body 参数，重新调用 speak。";

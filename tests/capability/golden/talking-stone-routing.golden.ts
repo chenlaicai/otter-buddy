@@ -114,7 +114,7 @@ export const selftest: GoldenModule["selftest"] = async (ctx: CapabilityContext)
 
   // 关联到会话（跟随 assert 表路径修正：join 生产链路写 conversation_participants，
   // 构造路径与生产路径同表——原插 conversation_otters 是构造/生产分叉根源。
-  // F20260920trrt：turn 族列已随 turn 系统退役，participants 直插核心列）
+  // turn 族列已随 turn 系统退役，participants 直插核心列）
   const now = new Date().toISOString();
   ctx.built.db
     .prepare(`INSERT OR REPLACE INTO conversation_participants

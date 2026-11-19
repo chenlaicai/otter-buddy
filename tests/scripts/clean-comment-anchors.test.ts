@@ -95,6 +95,25 @@ describe("cleanCommentText 文档结构编号", () => {
     expect(cleanCommentText("// （阶段 5 PR-A）：工具面路由").text).toContain("工具面路由");
     expect(cleanCommentText("多模态 Phase 1；终审修复").text).toBe("多模态；终审修复");
   });
+
+  it("嵌套组合编号删除 + 孤立分隔符/空括号收敛", () => {
+    expect(cleanCommentText(`/** ${fid()}（C2/R2）：远程动作五态段 */`).text).toBe("/** 远程动作五态段 */");
+    expect(cleanCommentText("（预算闭合留裕量，D3/D6）").text).toBe("（预算闭合留裕量）");
+    expect(cleanCommentText("（更新面与探测面对称，r1-S1）：").text).toBe("（更新面与探测面对称）：");
+    expect(cleanCommentText(`fail-closed（D2/r1-S1）`).text).toBe("fail-closed");
+  });
+
+  it("git R 相似度不误删；D 子项与 issue 子项整体删", () => {
+    expect(cleanCommentText("非 R100 rename 时 git plain 查询漏判").text).toContain("R100");
+    expect(cleanCommentText("相似度>R50%，rename 检测存活").text).toContain("R50%");
+    expect(cleanCommentText(`误伤面（${hash()}1653 D1-1）的唯一观测源`).text).toBe("误伤面的唯一观测源");
+    expect(cleanCommentText(`只能荣和或过（${hash()}1564-2）`).text).toBe("只能荣和或过");
+  });
+
+  it("delta 简写形态整体删除不留残渣", () => {
+    expect(cleanCommentText("// delta-r3：链内再按 | 拆管道段").text).toBe("// 链内再按 | 拆管道段");
+    expect(cleanCommentText("D4（检视 delta-r3）：段首 fetcher").text).toBe("（检视）：段首 fetcher");
+  });
 });
 
   it("仅 import 模块不产生写副作用", async () => {

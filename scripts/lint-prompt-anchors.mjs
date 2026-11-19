@@ -127,7 +127,7 @@ for (const file of targets) {
     }
     const hits = line.match(ANCHOR_RE);
     if (hits) {
-      // #1089：滤掉带 CSS 语境的 hex 色值命中（F 编号不受影响——它无色值同形问题）
+      // 滤掉带 CSS 语境的 hex 色值命中（F 编号不受影响——它无色值同形问题）
       const anchorHits = hits.filter((h) => h.startsWith("F20") || !isHexColorHit(line, h));
       if (anchorHits.length === 0) continue;
       const m = matchWhitelist(whitelist, file, i + 1, line);

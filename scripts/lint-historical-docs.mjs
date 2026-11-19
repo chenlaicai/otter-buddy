@@ -145,17 +145,17 @@ function commitCtx(sha, parent, baseSha) {
  *  的父；--base 逐 commit 模式传 <commit>^，精确重放同一时点语义）。
  */
 function isAddedOnBranch(file, ref, oldPath, head = "HEAD") {
-  // #1300（moving-base）：「分支内新建」豁免前置一票否决——路径在 base ref 树上已存在 → 历史文档，
+  // （moving-base）：「分支内新建」豁免前置一票否决——路径在 base ref 树上已存在 → 历史文档，
   // 无论窗口 ref..head 内有什么 Add 记录（攻击者删了重加的自造 Add、moving-base 场景混入窗口的
   // main 侧 squash Add）都不豁免，改走 .doc-fix 显式通道。
-  // 根因（#1290 实证）：原判据只查窗口内 --diff-filter=A 记录，从未回答「该文档是否已在 main 存在」
+  // 根因（实证）：原判据只查窗口内 --diff-filter=A 记录，从未回答「该文档是否已在 main 存在」
   //——豁免语义是「本分支新建文档的迭代载体」，分支新建文档的 Add 必然只存在于分支侧 commit、
   // 路径不在 base 树上；cat-file 存在性正是对「已在 main」的直接判定（issue probe：
   // git cat-file -e origin/main:<path> 存在 → 直接判历史文档）。
   // 边界声明：本地 origin/main 引用过期（如仅 fetch origin main 更新 FETCH_HEAD）时 cat-file miss、
   // 窗口混入 main 侧 Add——本地视图信息论上无法区分「main 侧 squash」与「分支侧 commit」，
   // pre-commit 不在此扩边界（伪造判据比声明缺口更糟）；兜底 = CI --base 模式（CI ref 新鲜）
-  // + worktree-isolation fetch 纪律，详见 F20261102mvbsk。
+  // + worktree-isolation fetch 纪律，详见 
   if (pathExistsOnRef(file, ref)) return false;
   const hasAdd = (p) => {
     try {
@@ -167,7 +167,7 @@ function isAddedOnBranch(file, ref, oldPath, head = "HEAD") {
       return false;
     }
   };
-  // delta-3（链上 rename 豁免，全检獭 probeChain 实证）：R 形态先做 rename 血统判定——
+  // （链上 rename 豁免，全检獭 probeChain 实证）：R 形态先做 rename 血统判定——
   // 沿 oldPath 的 --follow 链找 R 记录，任一 rename 源路径在 base 上存在 → 血统必为历史文档，
   // 无论分支内有没有自造 Add 记录都不豁免。
   // 盲区机制：分支内 commit1 对历史文档做非 R100 rename（补内容）时，git plain（非 --follow）
@@ -208,7 +208,7 @@ function hasDocsTreeAncestry(p) {
  *  给新路径造出了「分支内 Add」记录，isAddedOnBranch 被这条自造记录骗过 → 豁免删除。
  *  解法：看链的最早新增落在哪——早于 base = 渊源是历史文档，删除无条件违规；
  *  落在本分支 = 分支内新建后删除的正常迭代，照常豁免。
- *  delta-3 起兼供 isAddedOnBranch 的 R 分支做链根血统判定（同一盲区：自造 Add 骗过 plain 查询）。 */
+ * 起兼供 isAddedOnBranch 的 R 分支做链根血统判定（同一盲区：自造 Add 骗过 plain 查询）。 */
 function hasHistoricalAncestry(p, ref) {
   try {
     const adds = git(["log", "--follow", "--diff-filter=A", "--format=%H", "--", p])
@@ -243,7 +243,7 @@ function pathExistsOnRef(p, ref) {
 }
 
 /** rename 血统判定：oldPath 自身在 base 存在，或其 --follow 链上任一 R 记录的源路径在 base 存在。
- * delta-3（probeChain 实证）：封「链上 rename 自造 Add 豁免」——分支内非 rename 的
+ * （probeChain 实证）：封「链上 rename 自造 Add 豁免」——分支内非 rename 的
  * 目标被 plain 查询记为分支内 Add，后续 的 oldPath 命中它即被误豁免；rename 源在 base 的
  *  存在性是攻击链伪造不了的。C 记录（copy 派生）不算 rename 血统——cp 派生是分支内新文档（rntc）。
  *  查询异常宁拦（返回 true 交后续边界校验拦截）。 */
@@ -302,7 +302,7 @@ export function findViolations(ctx = stagedCtx()) {
   try {
     staged = ctx.nameStatus();
   } catch (error) {
-    // F20261118lhist 阻断 1：stderr 收进 pipe 后，「环境异常」不能再是静默的 exit 0——
+    // 阻断 1：stderr 收进 pipe 后，「环境异常」不能再是静默的 exit 0——
     // 降级放行可以保留（语义不变），但必须留下脚本自己的诊断行，否则本门禁从
     // 「有诊断的宽松放行」退化成「完全静默的成功」，等于给非预期故障发绿灯。
     return { errors: [], degraded: true, degradedReason: briefGitFailure(error) };
@@ -313,7 +313,7 @@ export function findViolations(ctx = stagedCtx()) {
     .split("\n")
     .filter(Boolean)
     .map(parseStatusLine)
-    // #1273 delta（严重 2）第二轮：rename 配对的旧路径也要测（r1 修法）；
+    // delta（严重 2）第二轮：rename 配对的旧路径也要测（修法）；
     // 另对「删除树外文件」补渊源入册——两步逃逸链的 step2 会以「删除树外残留」形态出现，
     // 该文件 --follow 链上有 docs 树内路径（源自历史文档）时纳入管辖；
     // 删除真树外文件（tmp/笔记等，链上无 docs 路径）不受影响
@@ -361,7 +361,7 @@ export function findViolations(ctx = stagedCtx()) {
 function differsOnlyInLinkPaths(oldLine, newLine) {
   const LINK_RE = /\]\(([^)#\s]+?)(#[^)]*)?\)/g;
   const TOKEN_RE = /`([A-Za-z0-9_\-/]+\.md)`/g;
-  // J2 修复（F20261022j2j3）：双 RE 各扫一遍的顺序剥离会把「token 先于链接」的同行
+  // J2 修复：双 RE 各扫一遍的顺序剥离会把「token 先于链接」的同行
   // 形态骨架切坏（第二趟从 token 位再切，中间段丢失）导致合法 rename 同步订正误拒。
   // 改为两 RE 的 match 按位置统一排序单趟扫——剥离与收集共用同一份位置序，两函数
   // 语义天然一致（collect 此前各 RE 拼接的顺序与 stripAll 剥离顺序本就可能不一致，
@@ -491,7 +491,7 @@ function main() {
   const { errors, entries, degraded, degradedReason } = findViolations();
   const ctx = stagedCtx();
   if (degraded) {
-    // 语义不变（仍 exit 0 宽松放行），但绝不静默：留下可搜的诊断行（F20261118lhist 阻断 1）。
+    // 语义不变（仍 exit 0 宽松放行），但绝不静默：留下可搜的诊断行（阻断 1）。
     console.warn(
       `[lint:historical-docs] 无法读取 staged diff，本次校验宽松放行（未校验）；诊断：${degradedReason || "unknown"}`
     );
@@ -510,7 +510,7 @@ function main() {
       console.warn(`  提示：.doc-fix 为一次性声明文件，提交后请删除（git rm .doc-fix；忘删 fail-closed 不构成绕过）。`);
       process.exit(0);
     }
-    // F20261019f714（M-f7148deb 第 2 条）：第二开口——链接订正（.doc-fix 声明 + 全部变更行
+    // （M-f7148deb 第 2 条）：第二开口——链接订正（.doc-fix 声明 + 全部变更行
     // 是成对纯链接路径替换）。语义：链接路径是「指向哪」的机械事实（rename 同步订正），
     // 与 frontmatter 元数据订正同性质；正文观点/非链接字节变更仍拦。
     // 输入集 = scope.outOfScope（第一开口未消化的部分——R100 纯 rename 已被 rename 通道
@@ -624,7 +624,7 @@ function runBaseMode(baseRefArg) {
         console.warn(`  声明理由：${sanitize(declaration.reason)}`);
         continue;
       }
-      // S2 修复（与 main() 同构的第二开口路由）：链接订正通道在 CI per-commit 回放同样生效
+      // 修复（与 main() 同构的第二开口路由）：链接订正通道在 CI per-commit 回放同样生效
       //——否则 rename+引用同步的合法 commit 只在工作区模式放行、CI 必红（通道与代码不符面）
       const linkScope = checkLinkFixScope(scope.outOfScope, r.entries, ctx);
       if (linkScope.ok) {
@@ -725,7 +725,7 @@ function hunksWithinBounds(diffText, oldFmLastLine, newFmLastLine) {
     let newLine = Number(hm[3]);
     for (const raw of body.split("\n")) {
       if (raw.startsWith("+")) {
-        // delta-5（空行记账）：空行同样移动边界，fmDelta 计数含空行；
+        // （空行记账）：空行同样移动边界，fmDelta 计数含空行；
         // bounds 拦截面保持只拒非空行（空行在界外不构成正文篡改信号，但边界位移必须能解释它）
         if (newLine <= newFmLastLine) fmDelta++; // 界内插入（含空行）：计入 fm 净增
         else if (raw.slice(1).trim() !== "") return { ok: false, fmDelta };
@@ -786,7 +786,7 @@ function checkRenameScope(oldPath, newPath, outOfScope, ctx = stagedCtx()) {
   }
   const section = seg[0];
   const inDocsTree = (p) => /^docs\/(features|research)\//.test(p);
-  // #1273 delta 第二轮（严重 2，r1 建议的双侧校验）：R 配对任一侧不在 docs 管辖树内即拒——
+  // delta 第二轮（严重 2，建议的双侧校验）：R 配对任一侧不在 docs 管辖树内即拒——
   // 「树内→树外」的移出语义=删除历史文档（step1），「树外→树内」的移入语义=来源不明（step2 回迁），
   // 都不是「文件名级元数据订正」；只查 oldPath 会漏掉移出方向（delta 复核 probeD 实测坐实）
   if (!inDocsTree(oldPath) || !inDocsTree(newPath)) {
@@ -795,14 +795,14 @@ function checkRenameScope(oldPath, newPath, outOfScope, ctx = stagedCtx()) {
   }
   const hunks = [...section.matchAll(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/g)];
   if (hunks.length === 0) {
-    // #1273 delta 修复（严重 1）：零 hunk ≠ 内容零变化。git 对含 NUL 字节的文件输出
+    // delta 修复（严重 1）：零 hunk ≠ 内容零变化。git 对含 NUL 字节的文件输出
     // "Binary files ... differ"（零 hunk），二进制渲染绕过会把整段正文重写伪装成纯 rename。
     // 放行必须同时满足：显式 similarity index 100% + 无 Binary 标记 + 零 hunk。
     if (/^similarity index 100%$/m.test(section) && !/^Binary files /m.test(section)) return;
     outOfScope.push(newPath);
     return;
   }
-  // F20261009hcig：ref 侧由 ctx 提供（pre-commit: HEAD:/index:；--base: commit^:/commit:）
+  // ref 侧由 ctx 提供（pre-commit: HEAD:/index:；--base: commit^:/commit:）
   const oldFmLastLine = frontmatterLastLineOf(ctx.oldRef(oldPath));
   const newFmLastLine = frontmatterLastLineOf(ctx.newRef(newPath));
   if (oldFmLastLine === -1 || newFmLastLine === -1) {

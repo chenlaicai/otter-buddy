@@ -104,7 +104,7 @@ export class OtterBridge {
       const otterConversationId = await this.ensureConversation(key, `CoLink ${label} ${conversationId.slice(0, 8)}`);
       // Why: 常驻 MCP bearer 指向当前 active turn；旧 Agent 未终态时重绑会借用新事件授权。
       await this.assertConversationIdle(otterConversationId, signal);
-      // 图片预下载后先上传到海獭系统附件库，再随消息带 attachmentIds 注入（多模态 Phase 1 链路）。
+      // 图片预下载后先上传到海獭系统附件库，再随消息带 attachmentIds 注入（多模态 链路）。
       // 上传失败逐张降级：图片缺席但不阻断文本消息，并把失败 id 记入提示避免模型误以为收到图。
       const attachmentIds = [];
       const failedUploadIds = [];

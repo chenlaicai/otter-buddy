@@ -485,7 +485,7 @@ export class EmbeddingRetryWorker {
           await this.queue.markTaskDone(slice[i].entryId);
           successCount++;
         } catch (err) {
-          // F20261109epqst 检视处置追修（P5 CI 慢机暴露）：写库失败**不走 enqueueRetry**。
+          // 检视处置追修（CI 慢机暴露）：写库失败**不走 enqueueRetry**。
           // 任务行仍在（claim 不删行），claim 已按 attempts 推 next_retry_at 到退避未来
           // ——「回队」由退避自然实现。若 enqueueRetry 会把 next_retry_at 重置为 now，
           // drain 无界续跑下同轮立即重领、attempts 快速到 3 → 真实活锁成 dead-letter
@@ -576,9 +576,9 @@ export class EmbeddingRetryWorker {
   }
 
   /**
-   * F20261020slvg：单条任务的 embed——waitSlot 软限流 + salvage 双轨。
+   * 单条任务的 embed——waitSlot 软限流 + salvage 双轨。
    * salvage 里 service 已包裹吞错；此处再兜一层：失败留 pending，下个 tick 重来。
-   * F20261109epqst：等待上界由 service 默认（60s）承担——超时 reject
+   * 等待上界由 service 默认（60s）承担——超时 reject
    * EmbedSlotTimeoutError（transient 类，不计 attempts）。
    */
   private async embedWithSalvage(task: EmbeddingTask): Promise<Float32Array> {
@@ -609,28 +609,28 @@ export class EmbeddingRetryWorker {
     task: EmbeddingTask,
     err: unknown,
   ): Promise<"busy" | "timeout" | "transient" | "hard"> {
-    // F20261020slvg：背压——「现在忙」不是「这条坏了」，不计 attempts。
+    // 背压——「现在忙」不是「这条坏了」，不计 attempts。
     if (err instanceof EmbedBackpressureError) {
       this.logger.warn(
         `Embedding retry lane busy for ${task.entryId} (not counted, stopping this round): ${err}`,
       );
       return "busy";
     }
-    // F20261109epqst：槽位等待超时同背压待遇——lane 饱和，终止本轮
+    // 槽位等待超时同背压待遇——lane 饱和，终止本轮
     if (err instanceof Error && err.name === "EmbedSlotTimeoutError") {
       this.logger.warn(
         `Embedding retry slot wait timeout for ${task.entryId} (not counted, stopping this round): ${err}`,
       );
       return "busy";
     }
-    // F20261016ebrt：超时 ≠ 坏条目——不计入 maxAttempts，不 dead-letter。
+    // 超时 ≠ 坏条目——不计入 maxAttempts，不 dead-letter。
     if (err instanceof EmbedTimeoutError) {
       this.logger.warn(
         `Embedding retry timeout for ${task.entryId} (not counted toward dead-letter, salvage may still land it): ${err}`,
       );
       return "timeout";
     }
-    // F20261020slvg 对抗审视洞 2：瞬态错误（worker 重建/崩溃/熔断/send 失败）不计
+    // 对抗审视洞 2：瞬态错误（worker 重建/崩溃/熔断/send 失败）不计
     // attempts——claim 即 attempts+1 已被超时循环撑大，瞬态错误再计数会成批 dead-letter
     if (err instanceof EmbedTransientError) {
       this.logger.warn(
@@ -652,7 +652,7 @@ export class EmbeddingRetryWorker {
   }
 
   /**
-   * F20261105embqg S3（对抗审视发现 3）：空闲回填——S3 闸门跳过的暗条目的
+   * （对抗）：空闲回填——闸门跳过的暗条目的
    * 运行时恢复路径。仅在队列完全清空时触发（不挤兑任何待消费任务），
    * 每 tick 上限 IDLE_BACKFILL_LIMIT 条、bulk 优先级（2）。与启动暗扫的
    * 区别：那里是一次性全量，这里是有界增量，队列再次升高时自然停手

@@ -39,8 +39,8 @@ describe("commit-msg Modification-Class 词表闸（F20261106gtagl）", () => {
     "Modification-Class: docs-config",
     "Modification-Class: narrow-fix + deletion",
     "modification-class: narrow-fix",
-    "MODIFICATION-CLASS: narrow-fix", // 键全大写：grep -i 接收 + 解析阶段大小写统一（r1 建议7 回归）
-    // 非标准形态（冒号前空格）grep 不命中 → 不触发闸、放行——存在性/一致性归 B4 异体审，
+    "MODIFICATION-CLASS: narrow-fix", // 键全大写：grep -i 接收 + 解析阶段大小写统一（建议7 回归）
+    // 非标准形态（冒号前空格）grep 不命中 → 不触发闸、放行——存在性/一致性归 异体审，
     // 本闸只拦「写了声明但值非法」的形态，fail-open 是设计选择（误拦成本 > 漏拦成本，见特性文档设计取舍）
   ])("接受：%s", (body) => {
     const result = runHook(body);
@@ -48,7 +48,7 @@ describe("commit-msg Modification-Class 词表闸（F20261106gtagl）", () => {
   });
 
   it.each([
-    "Modification-Class: bugfix", // #1782 实证形态
+    "Modification-Class: bugfix", // 实证形态
     "Modification-Class: test-only",
     "Modification-Class: docs-only",
     "Modification-Class: refactor",

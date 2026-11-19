@@ -88,7 +88,7 @@ describe("command-lexer golden token 流", () => {
       expect(r.tokens[1].word!.evaluated).toBe('a"b');
     });
     it("hex 转义：引号外 hex part 不求值；单引号内字面量", () => {
-      // 引号外（bash 词内 \x 字面双字符）：hex part，不可静态求值（D5 矩阵 #2）
+      // 引号外（bash 词内 \x 字面双字符）：hex part，不可静态求值（矩阵）
       const r1 = lex("printf \\x6b\\x69");
       expect(r1.tokens[1].word!.evaluated).toBeNull();
       expect(r1.tokens[1].word!.parts.every(p => p.type === "hex")).toBe(true);

@@ -22,7 +22,7 @@ function formatEntryHistory(entries: Array<{ senderType: string | null; body: st
 export class CommandDispatcher {
   constructor(
     private readonly manageConnection: ManageConnection,
-    /** F20260913ctlv 批4a：/history 切 entries（messages 停写，与微信同构） */
+    /** 批4a：/history 切 entries（messages 停写，与微信同构） */
     private readonly entryRepo: EntryRepository,
     private readonly feishuGateway: FeishuGateway,
     private readonly logger: Logger,
@@ -61,7 +61,7 @@ export class CommandDispatcher {
           await this.feishuGateway.replyText(chatId, "当前未进入任何对话，请先使用 /in <对话ID> 进入对话");
           return;
         }
-        // F20260913ctlv 批4a：/history 切 entries（speak+user 合并按 seq 倒取 20 条）
+        // 批4a：/history 切 entries（speak+user 合并按 seq 倒取 20 条）
         const [speaks, users] = await Promise.all([
           this.entryRepo.getEntries(conversation.id, { entryType: "speak", limit: 20 }),
           this.entryRepo.getEntries(conversation.id, { entryType: "user", limit: 20 }),

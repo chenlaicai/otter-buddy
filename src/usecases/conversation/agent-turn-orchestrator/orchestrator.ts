@@ -392,7 +392,7 @@ export class AgentTurnOrchestrator {
   }
 
   /**
-   * F20260916fst4：首哑判定——新建小獭首次 invoke 即配额型 429 终态。
+   * 首哑判定——新建小獭首次 invoke 即配额型 429 终态。
    * 口径：getInvokeCount(conversationId, otterId) === 1（当前 failed invoke 已入库，
    * count==1 即首次；retry 走同 invoke 不增 count，天然幂等）+ otter type === 'small'
    * （undefined 视为非 small 不命中）。判定失败不抛错——回到现状（静默终链）。
@@ -417,9 +417,9 @@ export class AgentTurnOrchestrator {
     };
   }
 
-  /** #543：rate_limit healing 落账（severity 按配额耗尽/瞬时分级）。
-   *  high 级（配额耗尽）落账成功后同步入 C3 高警队列——
-   *  sendSystem 只达当前在场者，大獭不在场即错过；C3 队列保证下次 invoke 补送达。 */
+  /** rate_limit healing 落账（severity 按配额耗尽/瞬时分级）。
+   * high 级（配额耗尽）落账成功后同步入 高警队列——
+   * sendSystem 只达当前在场者，大獭不在场即错过；队列保证下次 invoke 补送达。 */
   private async recordRateLimitHealingEvent(
     ctx: RouteContext,
     match: NonNullable<ReturnType<typeof matchRateLimitError>>,
@@ -445,7 +445,7 @@ export class AgentTurnOrchestrator {
           errorMessage: reason.errorMessage.slice(0, 500),
         },
       });
-      // C3 高警入队：仅 high（配额耗尽）入；eventId 先行生成、与台账 create 同源双写
+      // 高警入队：仅 high（配额耗尽）入；eventId 先行生成、与台账 create 同源双写
       // 各自失败不阻塞对方（persistHealingIssues 同款语义，审计面以 healing_events 为准）
       if (match.exhausted) {
         healingAlertRegistry.enqueue(ctx.input.conversationId, {
@@ -465,7 +465,7 @@ export class AgentTurnOrchestrator {
     }
   }
 
-  /** #543：会话内告警（sendSystem + SSE）——检视席空转黑盒的主出口 */
+  /** 会话内告警（sendSystem + SSE）——检视席空转黑盒的主出口 */
   private async notifyRateLimit(
     ctx: RouteContext,
     match: NonNullable<ReturnType<typeof matchRateLimitError>>,
@@ -481,8 +481,8 @@ export class AgentTurnOrchestrator {
     await ctx.callbacks.sendSystem(ctx.input.conversationId, msg);
   }
 
-  /** #1247：context_overflow healing 落账（注入超窗是体积问题，重试无意义 → severity:high）。
-   *  同 #543：high 级落账成功后入 C3 高警队列，大獭不在场时补送达 */
+  /** context_overflow healing 落账（注入超窗是体积问题，重试无意义 → severity:high）。
+   * 同 high 级落账成功后入 高警队列，大獭不在场时补送达 */
   private async recordContextOverflowHealingEvent(
     ctx: RouteContext,
     match: NonNullable<ReturnType<typeof matchContextOverflowError>>,
@@ -506,7 +506,7 @@ export class AgentTurnOrchestrator {
           errorMessage: reason.errorMessage.slice(0, 500),
         },
       });
-      // C3 高警入队：体积超窗是终态（重试无意义），与配额耗尽同级处置
+      // 高警入队：体积超窗是终态（重试无意义），与配额耗尽同级处置
       healingAlertRegistry.enqueue(ctx.input.conversationId, {
         eventId: crypto.randomUUID(),
         conversationId: ctx.input.conversationId,
@@ -523,7 +523,7 @@ export class AgentTurnOrchestrator {
     }
   }
 
-  /** #1247：会话内告警（sendSystem + SSE）——注入超窗黑盒的主出口 */
+  /** 会话内告警（sendSystem + SSE）——注入超窗黑盒的主出口 */
   private async notifyContextOverflow(
     ctx: RouteContext,
     match: NonNullable<ReturnType<typeof matchContextOverflowError>>,
@@ -538,7 +538,7 @@ export class AgentTurnOrchestrator {
     await ctx.callbacks.sendSystem(ctx.input.conversationId, msg);
   }
 
-  /** #543：模型标识解析——err 路径由 executeTurn catch 块保留在 result.modelAlias */
+  /** 模型标识解析——err 路径由 executeTurn catch 块保留在 result.modelAlias */
   private resolveModelAlias(ctx: RouteContext): string {
     return ctx.result?.modelAlias ?? 'unknown';
   }
@@ -568,12 +568,12 @@ export class AgentTurnOrchestrator {
       await this.recordDegenerateHealingEvent(ctx);
     }
 
-    // F20261111slfrz：超时类 guard 疑似睡眠冻结 → healing 落痕迹（M-a8f8f080 定案：睡眠是正常场景，
+    // 超时类 guard 疑似睡眠冻结 → healing 落痕迹（M-a8f8f080 定案：睡眠是正常场景，
     // 恢复闭环（guard→abort→auto-retry）已存在且工作；痕迹仅让「环境冻结」与「真挂起」可区分，
     // 不告警不升级）
     const freezeNote = await this.traceSleepFreeze(reason, ctx);
 
-    // F20260831dgrt：首次退化直接熔断（跳过无效重试，自愈更快更省）
+    // 首次退化直接熔断（跳过无效重试，自愈更快更省）
     // 例外：session 由熔断创建且在 2h 窗口内——直接熔断会撞上限走 abort，保留重试作为唯一自愈机会
     if (guardReason === 'degenerate_output' && retryCount === 0) {
       let isCircuitBreakSession = false;
@@ -598,7 +598,7 @@ export class AgentTurnOrchestrator {
       return this.handleCircuitBreak(ctx);
     }
 
-    // F20260818cbkr：带污重试再次退化 → 熔断重启（上限判定在 handleCircuitBreak）
+    // 带污重试再次退化 → 熔断重启（上限判定在 handleCircuitBreak）
     if (guardReason === 'degenerate_output' && retryCount > 0) {
       return this.handleCircuitBreak(ctx);
     }
@@ -612,15 +612,15 @@ export class AgentTurnOrchestrator {
       return this.handleAutoRetry(ctx, guardReason, freezeNote);
     }
 
-    // #731：bash 守卫二拦终态自动回发——拦截是反馈信号不是断头台（事故 C：终态后行动权悬空只能等用户手动拉起）
+    // bash 守卫二拦终态自动回发——拦截是反馈信号不是断头台（事故 C：终态后行动权悬空只能等用户手动拉起）
     if (this.shouldGuardBounce(guardReason, retryCount)) {
       return this.handleGuardBounce(reason, ctx);
     }
     return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason });
   }
 
-  /** 从 ExitReason 判断是否应走 #731 guard bounce（终态前最后一道判定，独立降复杂度）
-   *  F20260928slan：`bash_sleep:` 纳入 bounce 全链（与 kill 域同纪律——拦截是反馈信号
+  /** 从 ExitReason 判断是否应走 guard bounce（终态前最后一道判定，独立降复杂度）
+   * `bash_sleep:` 纳入 bounce 全链（与 kill 域同纪律——拦截是反馈信号
    *  不是断头台，顽固裸 sleep 也应见人；多类命令共享同一额度，混类共用 GUARD_BOUNCE_MAX）。 */
   private shouldGuardBounce(guardReason: string, retryCount: number): boolean {
     return (guardReason.startsWith('bash_safety:') || guardReason.startsWith('bash_sleep:'))
@@ -629,7 +629,7 @@ export class AgentTurnOrchestrator {
   }
 
 
-  /** F20261111slfrz：睡眠冻结痕迹——判定+落账+返回重试提醒附注（独立方法控 routeGuardAbort 复杂度）。
+  /** 睡眠冻结痕迹——判定+落账+返回重试提醒附注（独立方法控 routeGuardAbort 复杂度）。
  *  判定：guardSuspectedFreeze 且 guardReason 属超时类（degenerate 等其他 guard 无 timeout 语义） */
   private async traceSleepFreeze(
     reason: ExitReason & { kind: 'guard_abort' },
@@ -637,12 +637,12 @@ export class AgentTurnOrchestrator {
   ): Promise<string | undefined> {
     if (!reason.guardSuspectedFreeze || !isTimeoutGuardReason(reason.guardReason)) return undefined;
     await this.recordSleepFreezeHealingEvent(ctx, reason.guardReason, reason.guardTimeoutElapsedMs);
-    // 检视 P2：文案只写确证事实（空窗+熔断接管），不断言「已恢复」——重试耗尽路径同样成立，
+    // 检视 文案只写确证事实（空窗+熔断接管），不断言「已恢复」——重试耗尽路径同样成立，
     // 避免恢复失败时 healing 留下错误事实
     return `检测到约 ${Math.round((reason.guardTimeoutElapsedMs ?? 0) / 60000)} 分钟事件空窗（疑似系统睡眠冻结），已由超时熔断接管（guard→abort→自动重试）`;
   }
 
-  /** F20261111slfrz：睡眠冻结痕迹落 healing（与 recordDegenerateHealingEvent 同模式）——
+  /** 睡眠冻结痕迹落 healing（与 recordDegenerateHealingEvent 同模式）——
    *  errorType=sleep_freeze、low：睡眠是正常生活场景（搭档 2026-11-11 裁决 fact 8cfbbb82），
    *  不告警不自动处置，痕迹仅用于区分「环境冻结」与「真挂起」，替代人工挖两小时日志 */
   private async recordSleepFreezeHealingEvent(ctx: RouteContext, guardReason: string, elapsedMs?: number): Promise<void> {
@@ -674,7 +674,7 @@ export class AgentTurnOrchestrator {
     }
   }
 
-  /** F20260818cbkr：degenerate guard 每次触发都落 healing_events（二级触发与观测的数据源，非致命） */
+  /** degenerate guard 每次触发都落 healing_events（二级触发与观测的数据源，非致命） */
   private async recordDegenerateHealingEvent(ctx: RouteContext): Promise<void> {
     try {
       await ctx.callbacks.recordHealingEvent({
@@ -691,7 +691,7 @@ export class AgentTurnOrchestrator {
         },
       });
     } catch (err) {
-      // F20260827he2f: error 级别 + 完整上下文——让健康检查链路可观测
+      // error 级别 + 完整上下文——让健康检查链路可观测
       ctx.callbacks.logger.error('degenerate healing_event write FAILED — circuit breaker data source degraded',
         err instanceof Error ? err : new Error(String(err)),
         {
@@ -707,7 +707,7 @@ export class AgentTurnOrchestrator {
   }
 
   /**
-   * F20260818cbkr 一级熔断：degenerate retry 本身再次退化。
+   * 一级熔断：degenerate retry 本身再次退化。
    * 当前 invoke 收尾为 failed + 熔断说明；熔断信号跨层上抛（executeTurn 不消费），
    * 由 agent-invoker 执行 restartSession + 写 circuit_break 事件 + 全新 invoke。
    */
@@ -739,7 +739,7 @@ export class AgentTurnOrchestrator {
         invokeId: ctx.input.invokeId,
         otterId: ctx.input.otterId,
       });
-      // F20260831cbkw：上限命中时发系统消息通知搭档（现状是静默死，搭档 8 小时后才发现）
+      // 上限命中时发系统消息通知搭档（现状是静默死，搭档 8 小时后才发现）
       try {
         await ctx.callbacks.sendSystem(
           ctx.input.conversationId,
@@ -781,7 +781,7 @@ export class AgentTurnOrchestrator {
     };
   }
 
-  /** F20260913ctlv：invoke 终态化 failed（invoke_end entry + 行状态 + SSE）——熔断/degenerate 路径共用 */
+  /** invoke 终态化 failed（invoke_end entry + 行状态 + SSE）——熔断/degenerate 路径共用 */
   private async finalizeInvokeFailed(
     input: TurnInput,
     failBody: string,
@@ -793,16 +793,16 @@ export class AgentTurnOrchestrator {
     try {
       await callbacks.updateInvokeStatus(input.invokeId, 'failed');
       const endEntry = await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
-      // F20260921otcl：终态事件补 otter 身份
+      // 终态事件补 otter 身份
       const endOtter = await callbacks.getOtterById(input.otterId);
       callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { toolCallCount: 0, invokeEndEntryId: endEntry?.entryId, endBody: endEntry?.body, otterName: endOtter?.name, otterType: endOtter?.type, otterColor: endOtter?.color ?? null });
     } catch { /* already terminal */ }
   }
 
   /** Handle auto-retry: fail 过渡 + 系统提醒 + 同 invoke 重试
-   *  F20260913ctlv：不再 failMessage/prepareForRetry（messages 状态机已退役）——
+   * 不再 failMessage/prepareForRetry（messages 状态机已退役）——
    *  发系统提醒 entry + 返回 null 让主循环重试
-   *  F20261111slfrz：freezeNote（睡眠冻结空窗说明）非空时附在系统提醒末尾——
+   * freezeNote（睡眠冻结空窗说明）非空时附在系统提醒末尾——
    *  搭档/后续诊断一眼看出空窗是环境冻结而非挂起 */
   private async handleAutoRetry(ctx: RouteContext, reason: string, freezeNote?: string): Promise<TurnResult | null> {
     const failBody = `[系统] ${buildRetryFailBody(reason)}${freezeNote ? `。${freezeNote}` : ''}, 正在自动重试`;
@@ -901,7 +901,7 @@ export class AgentTurnOrchestrator {
   }
 
   /**
-   * F20261008gduc P0-2：判定滑窗内拦截是否全部命中与本轮同一 ruleId（疑似误拦）。
+   * P0-2：判定滑窗内拦截是否全部命中与本轮同一 ruleId（疑似误拦）。
    * 数据源 getRecentGuardBounceEvents（拦截结构化事件——每条对应一轮拦截，含
    * ruleId/ruleLayer/commandHead；含首轮首拦，比 bounce 计数多一轮，判定语义更严）。
    * 不可用/查询失败返回 null（fail-closed 回 abort 升级，不误判误拦放行真违规）。
@@ -923,12 +923,12 @@ export class AgentTurnOrchestrator {
     }
     if (events.length === 0) return null;
     // currentRuleId 由 agent-invoker 侧分类（classifyGuardInterceptReason 在 frameworks 层，
-    // usecases 禁直 import——D39 分层约束，分类动作在回调实现内完成，orchestrator 只消费结果）
+    // usecases 禁直 import——分层约束，分类动作在回调实现内完成，orchestrator 只消费结果）
     const currentRule = events[0].currentRuleId;
     if (!currentRule || currentRule === "unknown") return null; // 本轮规则不可归类 → 无法判同，保守走 abort
     const sameRuleId = events.every(e => e.ruleId === currentRule);
     if (!sameRuleId) return null;
-    // PR #1360 §3.2：events 是 DESC 序（最新在前，sqlite-healing-event-repository
+    // events 是 DESC 序（最新在前，sqlite-healing-event-repository
     // ORDER BY created_at DESC）——commandHead 取 events[0]（最新一次被拦命令），非 events 末尾（最旧）。
     const latest = events[0];
     return {
@@ -939,7 +939,7 @@ export class AgentTurnOrchestrator {
   }
 
   /**
-   * F20261008gduc P0-2：疑似误拦降级通道——中断自动重试循环（本轮不再回发），
+   * P0-2：疑似误拦降级通道——中断自动重试循环（本轮不再回发），
    * 搭档侧发「疑似误拦」通知（含命令摘要+命中规则+重试次数，请人工核实/临时放行），
    * 会话内给獭降级提示（下一轮 invoke context，引导换写法/报告搭档而非继续撞同一规则）。
    * 不 abort 终态：invoke 保持 failed（可手动重试），区别于 escalateGuardBounce 的 aborted。
@@ -967,7 +967,7 @@ export class AgentTurnOrchestrator {
     // ② invoke 终态化 failed（非 aborted——保留手动重试空间，且与真违规 abort 语义区分）
     await this.finalizeInvokeFailed(ctx.input, buildGuardBounceSuspectedFpRetryMsg(sameRule.ruleId, sameRule.ruleLayer), ctx.callbacks, ctx.startTime);
     // ③ 落账 suspected_false_positive 事件（severity high——疑似误拦是守卫可信度问题，需人工跟进）
-    // F20261102grfix（A 口径拆分）：降级处置记录归 guard_bounce_flow 流程族（非规则拦截本体），
+    // （A 口径拆分）：降级处置记录归 guard_bounce_flow 流程族（非规则拦截本体），
     // 防被 recentGuardBounceEvents 当拦截结构化事件收编（处置记录≠拦截记录）
     try {
       await ctx.callbacks.recordHealingEvent({
@@ -987,7 +987,7 @@ export class AgentTurnOrchestrator {
     };
   }
 
-  /** #731：bounce 超限升级——停止自动回发，abort 终态 + 会话内用户可见通知 */
+  /** bounce 超限升级——停止自动回发，abort 终态 + 会话内用户可见通知 */
   private async escalateGuardBounce(
     ctx: RouteContext,
     guardReason: string,
@@ -1007,7 +1007,7 @@ export class AgentTurnOrchestrator {
     return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason });
   }
 
-  /** #731：执行回发——sendSystem 写入对话流 + 同 invoke 重试（与 degenerate retry 同构） */
+  /** 执行回发——sendSystem 写入对话流 + 同 invoke 重试（与 degenerate retry 同构） */
   private async executeGuardBounce(
     ctx: RouteContext,
     guardReason: string,
@@ -1027,7 +1027,7 @@ export class AgentTurnOrchestrator {
       return this.abortTerminal({ input: ctx.input, toolCallCount: ctx.toolCallCount, callbacks: ctx.callbacks, startTime: ctx.startTime, kind: 'guard', guardReason });
     }
 
-    // F20260913ctlv：entry.retry SSE + 返回 null 主循环同 invoke 重试
+    // entry.retry SSE + 返回 null 主循环同 invoke 重试
     this.safeEmitEvent(ctx.callbacks, {
       event: 'entry.retry',
       data: { entryId: ctx.input.invokeId, invokeId: ctx.input.invokeId, otterId: ctx.input.otterId, otterName, reason: buildGuardBounceFailBody(guardReason), attempt },
@@ -1049,7 +1049,7 @@ export class AgentTurnOrchestrator {
       return null;
     }
 
-    // F20260922wbfx：失败文案带真实死因——lastStopReason=length 时写明「输出被 token 上限截断」，
+    // 失败文案带真实死因——lastStopReason=length 时写明「输出被 token 上限截断」，
     // 不再用误导性的「未调用 yield」（9/22 事故：开口即截断的 no_yield 死循环，文案完全误导排查方向）
     const truncated = ctx.result.lastStopReason === 'length';
     const failBody = truncated
@@ -1065,7 +1065,7 @@ export class AgentTurnOrchestrator {
 
     // 发言石回传触发者（终态时无 yield 目标）
     await this.finalizeInvokeFailedWithTsp(ctx.input, failBody, [ctx.input.senderId], ctx.callbacks, ctx.startTime);
-    // F20260921otcl：entry.failed 补 otter 身份（前端 failed 气泡 upsert 占位用）
+    // entry.failed 补 otter 身份（前端 failed 气泡 upsert 占位用）
     const failOtter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     this.safeEmitEvent(ctx.callbacks, {
       event: 'entry.failed',
@@ -1080,7 +1080,7 @@ export class AgentTurnOrchestrator {
     };
   }
 
-  /** F20260913ctlv：invoke 终态化 failed + 发言石回传（no_yield 耗尽路径） */
+  /** invoke 终态化 failed + 发言石回传（no_yield 耗尽路径） */
   private async finalizeInvokeFailedWithTsp(
     input: TurnInput,
     failBody: string,
@@ -1094,7 +1094,7 @@ export class AgentTurnOrchestrator {
       await callbacks.updateInvokeStatus(input.invokeId, 'failed');
       await callbacks.updateInvokeTalkingStonePassedTo?.(input.invokeId, talkingStonePassedTo);
       const endEntry = await callbacks.createInvokeEndEntry(input.invokeId, 'failed', failBody);
-      // F20260921otcl：终态事件补 otter 身份
+      // 终态事件补 otter 身份
       const endOtter = await callbacks.getOtterById(input.otterId);
       callbacks.emitInvokeEnd(input.invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId: endEntry?.entryId, endBody: endEntry?.body, otterName: endOtter?.name, otterType: endOtter?.type, otterColor: endOtter?.color ?? null });
     } catch { /* already terminal */ }
@@ -1110,7 +1110,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** Abort terminal: invoke 终态化 aborted + invoke_end entry + SSE */
-  // eslint-disable-next-line complexity -- F20260921otcl：+终态事件 otter 身份查询分支（guard bounce 判定/终态化/观测写入同内聚）
+  // eslint-disable-next-line complexity -- +终态事件 otter 身份查询分支（guard bounce 判定/终态化/观测写入同内聚）
    private async abortTerminal(ctx: TerminalContext): Promise<TurnResult> {
     const { invokeId, otterId } = ctx.input;
 
@@ -1120,12 +1120,12 @@ export class AgentTurnOrchestrator {
 
     this.terminalInvokes.add(invokeId);
 
-    // F20260831aksp T3：编排层 high——同 invoke 二拦终态（retry>0）＝ LLM 无视首次引导自纠失败的前兆（事故 C 形态）
+    // 编排层 high——同 invoke 二拦终态（retry>0）＝ LLM 无视首次引导自纠失败的前兆（事故 C 形态）
     if (this.isGuardBounceTerminal(ctx)) {
       this.recordGuardBounceTerminal(invokeId, otterId, ctx);
     }
 
-    // F20260922txes：超时类自动重试耗尽终态 → L3 升级上报（healing 落账 + 会话内可见提示）
+    // 超时类自动重试耗尽终态 → L3 升级上报（healing 落账 + 会话内可见提示）
     // 梯度对齐：L1 自动重试（软提示）→ L2 硬中断 → L3 上报；此前 L3 缺失，用户只见中断不知是重试失败终态
     if (this.isTimeoutRetryExhaustedTerminal(ctx)) {
       await this.escalateTimeoutRetryExhausted(ctx);
@@ -1144,15 +1144,15 @@ export class AgentTurnOrchestrator {
       endBody = endEntry?.body;
     } catch { /* ignore */ }
 
-    // F20260921otcl：终态事件补 otter 身份（前端 aborted 气泡 upsert 占位用）
+    // 终态事件补 otter 身份（前端 aborted 气泡 upsert 占位用）
     const abortOtter = await ctx.callbacks.getOtterById(otterId);
     ctx.callbacks.emitInvokeEnd(invokeId, 'aborted', Date.now() - ctx.startTime, { toolCallCount: actualToolCallCount, invokeEndEntryId, endBody, otterName: abortOtter?.name, otterType: abortOtter?.type, otterColor: abortOtter?.color ?? null });
 
     return { invokeId, duration: Date.now() - ctx.startTime };
   }
 
-  /** F20260831aksp T3：bash 守卫二拦终态判定（自 abortTerminal 拆出控复杂度）。
-   *  F20260928slan：`bash_sleep:` 同列——sleep 二拦终态归类不漂移。 */
+  /** bash 守卫二拦终态判定（自 abortTerminal 拆出控复杂度）。
+   * `bash_sleep:` 同列——sleep 二拦终态归类不漂移。 */
   private isGuardBounceTerminal(ctx: TerminalContext): boolean {
     return ctx.kind === 'guard'
       && !!ctx.guardReason
@@ -1160,9 +1160,9 @@ export class AgentTurnOrchestrator {
       && ctx.input.retryCount > 0;
   }
 
-  /** F20260922txes：超时类重试耗尽终态判定——三个确证超时的 guard 原因 + retryCount>0 + 非手动重试，
+  /** 超时类重试耗尽终态判定——三个确证超时的 guard 原因 + retryCount>0 + 非手动重试，
    *  即 L1 自动重试确已发生仍失败、走到 L2 硬中断。排除项：
-   *  - bash_safety：走 #731 bounce 升级，不在此列；
+   * - bash_safety：走 bounce 升级，不在此列；
    *  - degenerate：isRetryableGuardAbort=false，不在超时枚举内；
    *  - circuit_break:ignored_steer 等非超时 trigger（tool-call-circuit-breaker.ts:259）：非超时不进新枚举；
    *  - manualRetry（invoke-controller.ts:166 retryCount:1+manualRetry:true）：该 invoke 内从未发生 L1 自动重试，
@@ -1175,7 +1175,7 @@ export class AgentTurnOrchestrator {
       && !ctx.input.manualRetry;
   }
 
-  /** F20260922txes：超时重试耗尽 L3 升级——healing medium 落账 + 会话内用户可见提示（均非致命，不阻断终态） */
+  /** 超时重试耗尽 L3 升级——healing medium 落账 + 会话内用户可见提示（均非致命，不阻断终态） */
   private async escalateTimeoutRetryExhausted(ctx: TerminalContext): Promise<void> {
     const guardReason = ctx.guardReason ?? 'unknown';
     ctx.callbacks.recordHealingEvent({
@@ -1211,8 +1211,8 @@ export class AgentTurnOrchestrator {
     return buildUserAbortBody(actualToolCallCount, await ctx.callbacks.getPartnerLabel(), ctx.underlyingError);
   }
 
-  /** F20260831aksp T3：bash 守卫二拦终态观测写入（自 abortTerminal 拆出控复杂度；非致命）。
-   *  F20261102grfix（A 口径拆分）：guard_bounce_flow 独立类型（流程动作非规则拦截） */
+  /** bash 守卫二拦终态观测写入（自 abortTerminal 拆出控复杂度；非致命）。
+   * （A 口径拆分）：guard_bounce_flow 独立类型（流程动作非规则拦截） */
   private recordGuardBounceTerminal(invokeId: string, otterId: string, ctx: TerminalContext): void {
     ctx.callbacks.recordHealingEvent({
       invokeId,
@@ -1250,11 +1250,11 @@ export class AgentTurnOrchestrator {
       endBody = endEntry?.body;
     } catch { /* ignore */ }
 
-    // F20260921otcl：终态事件补 otter 身份（前端 failed 气泡 upsert 占位用）
+    // 终态事件补 otter 身份（前端 failed 气泡 upsert 占位用）
     const endOtter = await callbacks.getOtterById(otterId);
     callbacks.emitInvokeEnd(invokeId, 'failed', Date.now() - startTime, { invokeEndEntryId, endBody, otterName: endOtter?.name, otterType: endOtter?.type, otterColor: endOtter?.color ?? null });
 
-    // F20261020ided：error 事件仅在 invoke_end 落账失败时作兜底发射——正常路径下
+    // error 事件仅在 invoke_end 落账失败时作兜底发射——正常路径下
     // invoke_end 居中条已承载错误文案（实时/历史同源同文案），error 事件再发会让
     // 前端「error 处理器」额外造一条 otter 气泡（DB 无对应 entry，刷新后气泡消失，
     // 表现为「实时渲染与历史渲染不一致」）。invokeEndEntryId 存在 = 错误已被 invoke_end
@@ -1269,7 +1269,7 @@ export class AgentTurnOrchestrator {
     return { invokeId, duration: Date.now() - startTime };
   }
 
-  /** F20260814mtrc：流事件埋点 - metrics 由 invoker 层 recordStreamEventMetrics 统一处理 */
+  /** 流事件埋点 - metrics 由 invoker 层 recordStreamEventMetrics 统一处理 */
   private recordStreamEventMetrics(_e: AgentStreamEvent): void {
     // Metrics recording is handled by the invoker's onEvent callback.
     // This method is intentionally a no-op to avoid double-counting.
@@ -1288,8 +1288,8 @@ export class AgentTurnOrchestrator {
     return `${invokeId}:${retryCount}`;
   }
 
-  /** F20260914usgm：model 归属落 invoke metadata（fire-and-forget，失败仅日志）。
-   *  err 路径 result 可能为空壳（#543），model 从 errMeta._modelAlias 取；无则不写（归 unknown 桶） */
+  /** model 归属落 invoke metadata（fire-and-forget，失败仅日志）。
+   * err 路径 result 可能为空壳，model 从 errMeta._modelAlias 取；无则不写（归 unknown 桶） */
   private recordInvokeModelSafe(callbacks: TurnCallbacks, invokeId: string, model: string | undefined): void {
     if (!model || !callbacks.updateInvokeModel) return;
     callbacks.updateInvokeModel(invokeId, model).catch(err => {
@@ -1431,13 +1431,13 @@ export class AgentTurnOrchestrator {
     }
     if (reason.kind !== 'guard_abort') return;
     if (reason.guardReason === 'degenerate_output') {
-      // F20260831dgrt：新路由下首次退化直接熔断（不重试），此处记录的是"退化检测"而非"实际重试"
+      // 新路由下首次退化直接熔断（不重试），此处记录的是"退化检测"而非"实际重试"
       // 改用 degenerate_detected 以保持 retries 指标的语义清晰——只计真正的重试意图
       recordRetrySafe("degenerate_detected");
       return;
     }
     if (isRetryableGuardAbort(reason.guardReason)) {
-      // F20260928slan：`bash_sleep:` 补记账分支——否则落 else 把整段拦截文案当指标标签
+      // `bash_sleep:` 补记账分支——否则落 else 把整段拦截文案当指标标签
       const kind = reason.guardReason.startsWith('circuit_break:')
         ? 'circuit_break'
         : reason.guardReason.startsWith('bash_safety:')
@@ -1449,14 +1449,14 @@ export class AgentTurnOrchestrator {
     }
   }
 
-  /** F20260821spcm: 旁白流失检测——LLM 输出了直出文本但未调 speak */
+  /** 旁白流失检测——LLM 输出了直出文本但未调 speak */
   private detectOrphanText(reason: ExitReason, result: InvokeResultShape): boolean {
     return reason.kind === 'no_yield'
       && !!result.directText?.trim()
       && result.directText.trim().length >= 20;
   }
 
-  /** F20260821spcm: 旁白流失 metrics——LLM 输出了直出文本但未调 speak */
+  /** 旁白流失 metrics——LLM 输出了直出文本但未调 speak */
   private recordNoYieldWithOrphanText(
     otterId: string,
     input: TurnInput,

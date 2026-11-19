@@ -126,7 +126,7 @@ export class RoomService {
     return { gameId };
   }
 
-  /** F20261022mjls：waiting→playing 发牌起跑（牌桌「开始」按钮）——实现在 room-lobby.ts startLobbyRoom */
+  /** waiting→playing 发牌起跑（牌桌「开始」按钮）——实现在 room-lobby.ts startLobbyRoom */
   async startRoom(
     roomId: string,
     playersOverride?: ReadonlyArray<{ kind: string; name: string; otterId?: string }>,
@@ -184,12 +184,12 @@ export class RoomService {
     this.rooms.set(roomId, room);
     if (engine.state.status !== "playing") {
       if (engine.state.status === "waiting") {
-        // F20261022mjls：恢复到 lobby 等待房——不进推进链，重挂 TTL（搭档可继续点开始）
+        // 恢复到 lobby 等待房——不进推进链，重挂 TTL（搭档可继续点开始）
         this.scheduleLobby(room);
         return { gameId: game.id };
       }
       // 恢复到已终局：不进推进链且 reportedOver 置位（战报不重复 fire）；status 幂等补写——
-      // 覆盖「终局后进程即崩、updateGameStatus 未及落库」的窗口（检视发现3）
+      // 覆盖「终局后进程即崩、updateGameStatus 未及落库」的窗口
       room.reportedOver = true;
       try {
         this.deps.store.updateGameStatus(game.id, "finished");
@@ -220,12 +220,12 @@ export class RoomService {
     this.rooms.delete(roomId);
   }
 
-  /** #1564-5：结算停驻推进——真人点「继续」或超时到期后进下局 */
+  /** 结算停驻推进——真人点「继续」或超时到期后进下局 */
   continueRound(roomId: string): LifecycleResult {
     return continueSettlement(this.rooms.get(roomId), () => this.kick(roomId));
   }
 
-  /** #1564-6：停局/删房——终局/进行中均可停（防 runaway 止血阀）；广播通知后出 Map */
+  /** 停局/删房——终局/进行中均可停（防 runaway 止血阀）；广播通知后出 Map */
   stopRoom(roomId: string): LifecycleResult {
     return stopRoomFlow(this.rooms.get(roomId), () => {
       this.deps.bus.publish(roomId, { type: "error", roomId, message: "牌局已停（主动停局）" });
@@ -248,7 +248,7 @@ export class RoomService {
   }
 
   /**
-   * D2 精确谓词：该 otter 当前入座于**进行中**的牌局（终局房间不算——对局已了不再防护）。
+   * 精确谓词：该 otter 当前入座于**进行中**的牌局（终局房间不算——对局已了不再防护）。
    * 对话派发点据此自动应答「打牌中」，不进 LLM 推理（不触发水位换世）。
    */
   isSeated(otterId: string): boolean {
@@ -261,7 +261,7 @@ export class RoomService {
     return false;
   }
 
-  /** F20261022mjls：该 otter 是否在 waiting 房座位上（对话侧可提示「在等你点开始」） */
+  /** 该 otter 是否在 waiting 房座位上（对话侧可提示「在等你点开始」） */
   isWaitingSeat(otterId: string): boolean {
     for (const room of this.rooms.values()) {
       if (room.engine.state.status !== "waiting") continue;
@@ -310,11 +310,11 @@ export class RoomService {
     clearTimeout(room.awaiting.deadlineTimer);
     clearTimeout(room.awaiting.forceTimer);
     room.awaiting = null;
-    room.humanIdleStrikes = 0; // #1564-6：真人回场清零离桌计数
+    room.humanIdleStrikes = 0; // 真人回场清零离桌计数
     try {
       this.step(room, seat, action, "human");
     } catch (e) {
-      // 检视发现2：异常路径曾冻结（awaiting 已清、无人续推，非法动作永久死房）——
+      // 异常路径曾冻结（awaiting 已清、无人续推，非法动作永久死房）——
       // 重挂推进链让 loop 重新 park。安全前提：engine.apply 合法性检查先于一切状态变更
       //（IllegalActionError 在 submit/do* 之前抛），引擎状态未动，同一决策位重新开窗；
       // 若抛错来自落帧等已变更之后的环节，kick 同样能续推（loop 按当前状态重新 park/推进）。
@@ -331,7 +331,7 @@ export class RoomService {
     const room = this.rooms.get(roomId);
     if (!room) return null;
     const { engine } = room;
-    // F20261022mjls：lobby 等待态——座位就绪况 + 可开始（未发牌，无牌面字段）
+    // lobby 等待态——座位就绪况 + 可开始（未发牌，无牌面字段）
     if (engine.state.status === "waiting") return buildLobbyView(roomId, room.gameId, engine);
     const r = engine.state.round;
     if (!r) return null;
@@ -409,7 +409,7 @@ export class RoomService {
       guard += 1;
       if (guard > 10_000) throw new Error("advance loop exceeded step guard");
       const engine = room.engine;
-      // F20261022mjls：非 playing 分流——waiting 是停驻态（等「开始」不出循环）；finished 走终局上报
+      // 非 playing 分流——waiting 是停驻态（等「开始」不出循环）；finished 走终局上报
       if (engine.state.status !== "playing") {
         if (engine.state.status === "waiting") return;
         await this.fireGameover(room);
@@ -417,7 +417,7 @@ export class RoomService {
       }
       const dp = engine.decisionPoint();
       if (!dp) {
-        // #1564-5：有真人的房局终结算停驻（等「继续」或超时自动继续）；纯獭/代理房直推
+        // 有真人的房局终结算停驻（等「继续」或超时自动继续）；纯獭/代理房直推
         if (settleRoundEndFlow(room, this.deps.settleHoldMs ?? 30_000, () => this.kick(room.roomId)) === "parked") return;
         await this.advanceRound(room);
         continue;
@@ -495,7 +495,7 @@ export class RoomService {
     const forceTimer = setTimeout(() => {
       if (!room.awaiting) return;
       room.awaiting = null;
-      // #1564-6：真人离桌 runaway 界——到限通知并停局（真人注入动作清零计数）
+      // 真人离桌 runaway 界——到限通知并停局（真人注入动作清零计数）
       const stopNotice = (): void => {
         this.deps.bus.publish(room.roomId, { type: "error", roomId: room.roomId, message: "真人长时间未操作，已自动停局（可在大厅重新建房）" });
         this.close(room.roomId);
@@ -568,7 +568,7 @@ export class RoomService {
   }
 
   /** 下局开局聊天注入：各 otter 并行直调（per-otter 锁由端口自带）；成功清队、失败留次局重试 */
-  /** 终局房宽限驱逐（检视发现3）：到期出 Map；代际校验（gameId）防误删同 roomId 重开的新局 */
+  /** 终局房宽限驱逐：到期出 Map；代际校验（gameId）防误删同 roomId 重开的新局 */
   private scheduleEvict(room: RoomInternal): void {
     if (room.evictTimer) clearTimeout(room.evictTimer);
     const ms = this.evictFinishedMs;
@@ -584,7 +584,7 @@ export class RoomService {
     room.evictTimer = timer;
   }
 
-  /** F20261022mjls：lobby TTL 驱逐接线（scheduleLobbyEvict 适配 room 内部态） */
+  /** lobby TTL 驱逐接线（scheduleLobbyEvict 适配 room 内部态） */
   private scheduleLobby(room: RoomInternal): void {
     scheduleLobbyEvict(room, this.lobbyTtlMs, (notice) => {
       const cur = this.rooms.get(room.roomId);
@@ -598,7 +598,7 @@ export class RoomService {
   private async fireGameover(room: RoomInternal): Promise<void> {
     if (room.reportedOver) return;
     room.reportedOver = true;
-    // 检视发现3/6：状态落库（updateGameStatus 死代码复活——findGameByRoom 优先 playing 的语义钥匙，
+    // /6：状态落库（updateGameStatus 死代码复活——findGameByRoom 优先 playing 的语义钥匙，
     // 同 roomId 重开后恢复优先选活局）+ 宽限驱逐（防 rooms Map 无界）；与战报回调解耦（无 onGameover 也治理）
     try {
       this.deps.store.updateGameStatus(room.gameId, "finished");

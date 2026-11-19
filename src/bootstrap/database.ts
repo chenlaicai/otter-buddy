@@ -321,7 +321,7 @@ export async function verifyEmbeddingVersion(
   repos: Repositories,
   logger: Logger,
 ): Promise<{ vecEnabled: boolean; reason?: string }> {
-  // 显式禁用（阶段 6a）：OTTER_EMBEDDING=off 时无 worker 可校——直接降级
+  // 显式禁用：OTTER_EMBEDDING=off 时无 worker 可校——直接降级
   // vec 路径（vecCoverage 如实报 disabled，storeEmbedding 跳过），
   // 不走 getMeta（禁用服务无该方法，且 waitForReady 会永久挂起）。
   if (process.env.OTTER_EMBEDDING === "off") {
@@ -334,7 +334,7 @@ export async function verifyEmbeddingVersion(
   }
   // 兼容老接口（无 getMeta）：跳过校验，保持原有行为。
   // 注意不能用 available 判断——它是 worker ready 的时序快照，bootstrap 时恒为 false，
-  // 会让校验永远走不到（F20260821evaf 根因）。getMeta 内部会 waitForReady，直接调用即可。
+  // 会让校验永远走不到（根因）。getMeta 内部会 waitForReady，直接调用即可。
   if (typeof embeddingGateway.getMeta !== "function") {
     return { vecEnabled: true };
   }

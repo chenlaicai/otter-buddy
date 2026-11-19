@@ -60,7 +60,7 @@ export class CreateEdge {
       );
     }
 
-    // F20260821scrt: metadata 含 link_memory 的 note（LLM 自由文本），落库前脱敏
+    // metadata 含 link_memory 的 note（LLM 自由文本），落库前脱敏
     const edgeId = await this.writer.createEdge({
       ...input,
       metadata: input.metadata ? redactMetadataSecrets(input.metadata) : undefined,

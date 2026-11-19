@@ -134,8 +134,8 @@ describe("F20261027cbfp S1 补防：glue 层接线（repeatOffender → 写 Map 
     expect(loopBlockedTools.size).toBe(0); // 首次 steer 免拉黑（警告可自由纠正）
 
     // 穿插变调工具（洗 strike 的逃逸形态）。注意工具选择：带路径参数的 read 签名含
-    // path 区分度；若用名称兑底工具（search_memory 等，#1399 残余口子）签名全同，
-    // 变调本身会触发 B-3 复犯拉黑——那正是检视 D1-1 实测的残余误伤面，不属本用例验证目标。
+    // path 区分度；若用名称兑底工具（search_memory 等，残余口子）签名全同，
+    // 变调本身会触发 B-3 复犯拉黑——那正是检视 实测的残余误伤面，不属本用例验证目标。
     for (let i = 0; i < 7; i++) session.emit(sdkToolStart("read", { path: `/var/escape-probe-${i}.ts` }));
     expect(loopBlockedTools.size).toBe(0); // 有区分度的变调不触发拉黑
 
@@ -151,7 +151,7 @@ describe("F20261027cbfp S1 补防：glue 层接线（repeatOffender → 写 Map 
     // 其他工具不受影响
     expect(loopBlockGuard(store, "search_memory", { query: "x" })).toBeUndefined();
 
-    // 生产语义固化（D1-2）：门拦截后同签名调用到不了 breaker → strike 不再增长
+    // 生产语义固化：门拦截后同签名调用到不了 breaker → strike 不再增长
     // → terminate/abort 在此形态下不触发——「拦工具不杀 invoke」。
     // （本测试直驱 tool_execution_start 绕门，但 strike 只到 2 << maxRepeatAfterWarning=5）
     expect(abortOverride).not.toHaveBeenCalled();
@@ -171,8 +171,8 @@ describe("检测器报警 → 粘滞标记 → 门物理截断（集成，直攻
       { loopBlockedTools, abortOverride },
     );
 
-    // 连发 6 次触发 consecutive steer（警告，不写 Map——#1653 P0-2）；
-    // 继续无视 → strike 涨满 3 → terminate → 写入粘滞 Map（#1556 事故场景仍被兑住）
+    // 连发 6 次触发 consecutive steer（警告，不写 Map——P0-2）；
+    // 继续无视 → strike 涨满 3 → terminate → 写入粘滞 Map（事故场景仍被兑住）
     for (let i = 0; i < 6 + 3; i++) {
       session.emit(sdkToolStart("create_linked_resource", { content: `垃圾${i}` }));
     }
@@ -202,7 +202,7 @@ describe("检测器报警 → 粘滞标记 → 门物理截断（集成，直攻
       { loopBlockedTools },
     );
 
-    // 6 连发触发 steer（旧版这里就写 Map → 误判放大为持续拦截，#1653 案发面 239 次）
+    // 6 连发触发 steer（旧版这里就写 Map → 误判放大为持续拦截，案发面 239 次）
     for (let i = 0; i < 6; i++) {
       session.emit(sdkToolStart("create_linked_resource", { content: `垃圾${i}` }));
     }

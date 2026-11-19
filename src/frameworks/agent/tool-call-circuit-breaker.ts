@@ -264,7 +264,7 @@ function registerMatterSignature(a: Record<string, unknown>): string {
 }
 
 function updateArtifactStatusSignature(a: Record<string, unknown>): string {
-  // #1761：不同产物/目标状态是不同操作；残参异常调用仍退化工具名。
+  // 不同产物/目标状态是不同操作；残参异常调用仍退化工具名。
   const artifactId = strOrEmpty(a.artifactId);
   const status = strOrEmpty(a.status);
   return artifactId && status ? `update_artifact_status: ${artifactId}:${status}` : "update_artifact_status";
@@ -297,7 +297,7 @@ function managementToolSignature(toolName: string, a: Record<string, unknown>): 
       return healingEventsSignature(a);
     case "register_matter":
       return registerMatterSignature(a);
-    // #1399：残余口子收口（续接下方 residualToolSignature，控制单函数复杂度）
+    // 残余口子收口（续接下方 residualToolSignature，控制单函数复杂度）
     default:
       return residualToolSignature(toolName, a);
   }
@@ -420,17 +420,17 @@ function triageSignalSignature(toolName: string, a: Record<string, unknown>): st
 function dispatchToolSignature(toolName: string, a: Record<string, unknown>): string | null {
   if (toolName === "bash") return bashSignature(a);
   if (isFileOrWorkspaceTool(toolName)) return fileOrWorkspaceSignature(toolName, a);
-  // F20260820d338：speak 签名含 body 内容指纹，区分不同输出与同一输出重试
+  // speak 签名含 body 内容指纹，区分不同输出与同一输出重试
   if (toolName === "speak" && typeof a.body === "string") {
     return `speak#${contentDigest(a.body)}`;
   }
-  // F20260826d464：otter 管理工具签名含实体标识——批量解散/重启不同 otter 不算重复
+  // otter 管理工具签名含实体标识——批量解散/重启不同 otter 不算重复
   const otterSig = otterToolSignature(toolName, a);
   if (otterSig !== null) return otterSig;
-  // #1895 同族收口：简单实体工具（表驱动）——异实体批量不算重复
+  // 同族收口：简单实体工具（表驱动）——异实体批量不算重复
   const entityKeyedSig = entityKeyedToolSignature(toolName, a);
   if (entityKeyedSig !== null) return entityKeyedSig;
-  // #475 + #1399：带实体参数的管理工具签名——批量管理操作不同实体不算重复
+  // + 带实体参数的管理工具签名——批量管理操作不同实体不算重复
   return managementToolSignature(toolName, a);
 }
 
@@ -497,14 +497,14 @@ export class ToolCallCircuitBreaker {
   /** 自上次 allow 以来连续 steer 的次数；allow 即清零（行为纠正即解除警告） */
   private steerStrikes = 0;
   /**
-   * F20261027cbfp（#1653）：滑窗 steer 清窗后的「未成熟期」。
+   * 滑窗 steer 清窗后的「未成熟期」。
    * 置位期间：滑窗判定暂停（窗口从零重灌）；allow 不清零 steerStrikes——防止真循环
    * 借重灌期的 allow 洗掉警告记录（重灌期恰好无滑窗命中、全产生 allow）。
    * 窗口重新积累满 windowSize*repeat 条时自动成熟，恢复正常判定与 strike 重置。
    */
   private windowImmature = false;
   /**
-   * S1 补防（#1653）：已触发过 steer 的签名集合。同签名第 2 次 steer = 复犯
+   * 补防：已触发过 steer 的签名集合。同签名第 2 次 steer = 复犯
    * （上次警告未生效）→ repeatOffender 标记，调用方写入粘滞黑名单物理拦截。
    * 修复 B-3+变调穿插类逃逸：穿插 allow 洗掉全局 strike、滑窗多重集永不命中，
    * terminate 数学上不可达（检视实证 780 次调用 0 terminate）。
@@ -549,7 +549,7 @@ export class ToolCallCircuitBreaker {
 
   /** 按优先级评估规则；steer 触发满 maxRepeatAfterWarning 次升级为 terminate */
   private evaluate(signature: string): CheckResult {
-    // F20261027cbfp：重灌满 windowSize*repeat 条即成熟——本次调用起恢复滑窗判定与 strike 重置。
+    // 重灌满 windowSize*repeat 条即成熟——本次调用起恢复滑窗判定与 strike 重置。
     // 真循环重灌满时恰好模式完成，本次判定即命中（strike 继续涨）；纠正后的新序列到 18 条时
     // 无模式命中，后续 allow 正常清零 strike（警告解除）。
     if (this.windowImmature && this.callHistory.length >= this.config.slidingWindowSize * this.config.slidingWindowRepeat) {
@@ -561,16 +561,16 @@ export class ToolCallCircuitBreaker {
       ?? { blocked: false, action: "allow" as const };
 
     if (result.action === "allow") {
-      // F20261027cbfp：未成熟期的 allow 不清零 strike——重灌期恰好无滑窗命中、全产生 allow，
+      // 未成熟期的 allow 不清零 strike——重灌期恰好无滑窗命中、全产生 allow，
       // 若照旧清零则真循环每轮重灌都会洗掉 strike，永不 terminate（防护弱化）。
       // 成熟后的 allow = 真正度过了完整窗口周期未复发，才解除警告。
       if (!this.windowImmature) this.steerStrikes = 0;
       return result;
     }
     if (result.action === "steer") {
-      // S1 补防：同签名第 2 次 steer = 复犯（首次警告未生效）。首次 steer 只记集合
+      // 补防：同签名第 2 次 steer = 复犯（首次警告未生效）。首次 steer 只记集合
       // 不标记（误伤优先——单次误报仍可自由纠正）；复犯标记 repeatOffender 交由
-      // 调用方写粘滞黑名单物理拦截，补回 #1556「复又发作」防线被穿插 allow 洗掉的口子。
+      // 调用方写粘滞黑名单物理拦截，补回 「复又发作」防线被穿插 allow 洗掉的口子。
       if (this.steeredSignatures.has(signature)) {
         result.repeatOffender = true;
       } else {
@@ -586,7 +586,7 @@ export class ToolCallCircuitBreaker {
           trigger: "ignored_steer",
         };
       }
-      // F20261027cbfp（#1653 P0-1）：滑窗 steer 时清空窗口历史并进入未成熟期。
+      // （P0-1）：滑窗 steer 时清空窗口历史并进入未成熟期。
       // 旧行为：旧模式残留窗口 → 后续每次 check 继续命中 → strike 只能靠 allow 清零但窗口
       // 持续命中期间永无 allow → 响应警告也注定 terminate（死刑链，近 7 天 54 次中断/239 次
       // 门拦截根因一）。清窗后：改换新序列 → 重灌无命中 → 成熟后 allow → strike 清零恢复
@@ -608,7 +608,7 @@ export class ToolCallCircuitBreaker {
 
   /** B-3b: 滑动窗口跨工具交替循环检查 */
   private checkSlidingWindow(): CheckResult | null {
-    // F20261027cbfp：未成熟期（滑窗 steer 清窗后的重灌阶段）不判定——窗口尚在积累。
+    // 未成熟期（滑窗 steer 清窗后的重灌阶段）不判定——窗口尚在积累。
     // B-3 连续同签名检查不受未成熟期影响（真卡壳在重灌期也要抓得住）。
     if (this.windowImmature) return null;
     if (!detectSlidingWindowRepeat(this.callHistory, this.config.slidingWindowSize, this.config.slidingWindowRepeat)) return null;

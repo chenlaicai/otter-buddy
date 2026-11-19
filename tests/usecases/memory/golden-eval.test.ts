@@ -201,7 +201,7 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
   });
 
   it("additive 全中性化反事实复现 0.7998/0.8029/0.9364（段 1 加法路径语义验收，±0.001）", async () => {
-    // F20261112rnkph Phase 1 段 1：加法融合路径按设计矩阵全中性化（w_rrf=1 其余 0）→
+    // 段 1：加法融合路径按设计矩阵全中性化（w_rrf=1 其余 0）→
     // finalScore = norm(rrf)（池内 min-max 单调变换），排序与 raw RRF 一致 → 反事实数字复现。
     // 证明 additive 路径不是摆设、段 1 的归一化口径与设计表 1 一致（验收锚点见特性文档）。
     const additiveEngine = new SearchEngine({

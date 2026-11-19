@@ -106,7 +106,7 @@ export function stripHtmlCardFences(body: string, options?: StripHtmlCardOptions
   const stripReplies = options?.stripReplies ?? true;
   const markPlaceholders = options?.markPlaceholders ?? false;
   if (!body.includes("html-card")) return body;
-  /** micromark 在剥离 BOM 后的值上计算 offset，切片落在原串会整体偏移一字符（R9）：先剥 BOM（投影文本无需保留） */
+  /** micromark 在剥离 BOM 后的值上计算 offset，切片落在原串会整体偏移一字符：先剥 BOM（投影文本无需保留） */
   const src = body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
   const replacements = collectFenceReplacements(parser().parse(src), stripReplies, markPlaceholders);
   /** 从后往前替换，先替换不影响前面区间的 offset */
@@ -149,7 +149,7 @@ export interface ProjectForChannelOptions {
   maxBytes?: number;
   /** 截断时追加的提示文本。缺省 `…(已截断,完整内容见 Web 端)` */
   truncationHint?: string;
-  /** 多模态 Phase 1：消息携带的附件（占位投影在 truncate 之前注入，跨通道不丢） */
+  /** 多模态 消息携带的附件（占位投影在 truncate 之前注入，跨通道不丢） */
   attachments?: AttachmentRef[];
 }
 
@@ -303,15 +303,15 @@ export function projectForChannel(body: string, options: ProjectForChannelOption
   // stripHtmlCardFences 仅在含 "html-card" 时剥 BOM(短路路径保留 BOM);
   // 飞书侧输出对终端用户可见,BOM 会渲染为怪字符,这里统一主动剥
   const bomStripped = body.charCodeAt(0) === 0xfeff ? body.slice(1) : body;
-  // markPlaceholders:true 让占位符带零宽前缀,避免误匹配 body 原文里 LLM 手写字面量(审视 R5)
+  // markPlaceholders:true 让占位符带零宽前缀,避免误匹配 body 原文里 LLM 手写字面量(审视)
   const stripped = stripHtmlCardFences(bomStripped, { markPlaceholders: true });
   const humanized = humanizePlaceholders(stripped, options);
-  // F20260920alnk：裸 URL 后紧跟全角标点/中文时，GFM autolink 会把它们吸进 URL
+  // 裸 URL 后紧跟全角标点/中文时，GFM autolink 会把它们吸进 URL
   // （IM 渲染器按 GFM 解析 → 链接尾巴带「）。本地偶发的」点不开，搭档多次实证）。
   // IM 出站前统一截尾：URL 尾部只保留 RFC 3986 合法尾字符，剥离串原样保留在文本中。
   const autolinkTrimmed = trimAutolinkTrailing(humanized);
 
-  // 多模态 Phase 1：附件块在截断前注入流水线；预算权收投影层——
+  // 多模态 附件块在截断前注入流水线；预算权收投影层——
   // 附件块预留后正文按剩余预算截断，附件块在截断后仍存活（跨通道不丢）
   const attachmentBlock = humanizeAttachmentPlaceholders(options);
   if (!attachmentBlock) {

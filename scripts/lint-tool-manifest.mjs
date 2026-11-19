@@ -124,7 +124,7 @@ function validateManifest(manifest) {
       error(`types.${typeName}.tools 必须为 "*" 或数组`);
     }
 
-    // F20260821kgts: wildcard 是全放行语义，仅 allowlist 内类型可用
+    // wildcard 是全放行语义，仅 allowlist 内类型可用
     if (typeConfig.tools === "*" && !WILDCARD_ALLOWED_TYPES.has(typeName)) {
       error(`types.${typeName}.tools 使用了 "*"（全放行）但不在 WILDCARD_ALLOWED_TYPES 白名单中——新类型请显式枚举工具，或显式修改 lint 脚本白名单`);
     }

@@ -223,7 +223,7 @@ export function renderStateInventory(inv: StateInventory, timestamp?: string): s
     parts.push('- 发言石：无');
   }
 
-  // B2: 调度任务
+  // 调度任务
   if (inv.scheduledTasks.length > 0) {
     const taskStrs = inv.scheduledTasks.map(t =>
       `"${t.name}" ${t.schedule}${t.nextTrigger ? ` 下次 ${t.nextTrigger}` : ''}`
@@ -233,21 +233,21 @@ export function renderStateInventory(inv: StateInventory, timestamp?: string): s
     parts.push('- 调度任务：无');
   }
 
-  // B3: 工作区
+  // 工作区
   if (inv.workspaceFiles.length > 0) {
     parts.push(`- 工作区：${inv.workspaceFiles.length} 个文件——${inv.workspaceFiles.join(', ')}`);
   } else {
     parts.push('- 工作区：空');
   }
 
-  // B4: 产物
+  // 产物
   const artParts = [`${inv.artifacts.active} active`];
   if (inv.artifacts.flagged > 0) artParts.push(`${inv.artifacts.flagged} flagged`);
   let artLine = `- 产物：${artParts.join('（')}）`;
   if (inv.artifacts.latestTitle) artLine += `｜ 最近：${inv.artifacts.latestTitle}`;
   parts.push(artLine);
 
-  // B5: Healing
+  // Healing
   if (inv.healingOpen.count > 0) {
     let healLine = `- Healing：${inv.healingOpen.count} open`;
     if (inv.healingOpen.latestDesc) healLine += `｜ 最近：${inv.healingOpen.latestDesc}`;
@@ -256,7 +256,7 @@ export function renderStateInventory(inv: StateInventory, timestamp?: string): s
     parts.push('- Healing：无 open');
   }
 
-  // B6: 进行中
+  // 进行中
   if (inv.activity.status !== 'idle' && inv.activity.status !== 'unknown') {
     let actLine = `- 进行中：${inv.activity.status}`;
     if (inv.activity.waitingFor) actLine += `，等待 ${inv.activity.waitingFor}`;

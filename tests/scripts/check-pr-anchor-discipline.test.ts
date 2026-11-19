@@ -79,6 +79,19 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(d.map((x) => x.token).sort()).toEqual(["A1", "M2", "S3"]);
   });
 
+  it("git rename 相似度分数 R100/R50 豁免，规则号 R1-R12 命中", () => {
+    expect(collectAnchorViolations("非 R100 rename 时 git plain 查询漏判").some((x) => x.token === "R100")).toBe(false);
+    expect(collectAnchorViolations("相似度>R50%，rename 检测存活").some((x) => x.token === "R50")).toBe(false);
+    expect(collectAnchorViolations("R12 修复").some((x) => x.kind === "文档编号" && x.token === "R12")).toBe(true);
+    expect(collectAnchorViolations("R1 处置").some((x) => x.kind === "文档编号" && x.token === "R1")).toBe(true);
+  });
+
+  it("delta 轮简写形态命中：delta-r3 / delta2 / delta D1", () => {
+    expect(collectAnchorViolations("delta-r3：链内按 | 拆段").some((x) => x.kind === "轮次编号" && x.token === "delta-r3")).toBe(true);
+    expect(collectAnchorViolations("delta2 复核建议").some((x) => x.kind === "轮次编号" && x.token === "delta2")).toBe(true);
+    expect(collectAnchorViolations("delta D1 回归锚").some((x) => x.kind === "轮次编号" && x.token === "delta D1")).toBe(true);
+  });
+
   it("BC 纸/信封规格不误删，检查项号删除", () => {
     expect(collectAnchorViolations("B4 纸张与 B5 纸，C4 纸与 C5 信封")).toEqual([]);
     expect(collectAnchorViolations("B9 抽样，C4：UI 徽章数据源").map((x) => x.token).sort()).toEqual(["B9", "C4"]);
@@ -102,6 +115,34 @@ describe("annotateFile TS 编译器级词法", () => {
     expect(nested[0]).toContain(hash());
     const jsxText = annotateFile(`const x = <div>text ${sl()} ${hash()}1937</div>;`, "src/a.jsx");
     expect(jsxText[0] ?? "").not.toContain(hash());
+  });
+
+  it("嵌套作用域注释全覆盖：函数体/箭头/条件块/类方法/对象与接口属性", () => {
+    const fnBody = annotateFile([`function f() {`, `  ${sl()} ${hash()}1937`, `  return 1;`, `}`].join("\n"), "src/a.ts");
+    expect(fnBody[1]).toContain(hash());
+    const arrow = annotateFile([`const g = () => {`, `  ${sl()} ${hash()}1937`, `  return 2;`, `};`].join("\n"), "src/a.ts");
+    expect(arrow[1]).toContain(hash());
+    const ifBody = annotateFile([`if (a) {`, `  ${sl()} ${hash()}1937`, `  b();`, `}`].join("\n"), "src/a.ts");
+    expect(ifBody[1]).toContain(hash());
+    const cls = annotateFile([`class C {`, `  m() {`, `    ${sl()} ${hash()}1937`, `    return 1;`, `  }`, `}`].join("\n"), "src/a.ts");
+    expect(cls[2]).toContain(hash());
+    const obj = annotateFile([`const o = {`, `  /** ${hash()}1937 */`, `  k: 1,`, `};`].join("\n"), "src/a.ts");
+    expect(obj[1]).toContain(hash());
+    const iface = annotateFile([`interface I {`, `  /** ${hash()}1937 */`, `  a: number;`, `}`].join("\n"), "src/a.ts");
+    expect(iface[1]).toContain(hash());
+  });
+
+  it("开括号/逗号后的 trailing 注释不遗漏", () => {
+    const brace = annotateFile([`if (a) { ${sl()} ${hash()}1937`, `  b();`, `}`].join("\n"), "src/a.ts");
+    expect(brace[0]).toContain(hash());
+    const comma = annotateFile([`foo(a, ${sl()} ${hash()}1937`, `  b);`].join("\n"), "src/a.ts");
+    expect(comma[0]).toContain(hash());
+  });
+
+  it("JSX 嵌套注释命中，JSX 文本（含嵌套与文首 //）不误报", () => {
+    expect(annotateFile(`const x = <div>{a && <b>{/* ${hash()}1937 */}</b>}</div>;`, "src/a.tsx")[0]).toContain(hash());
+    expect(annotateFile(`const x = <div>{a && <b>${sl()} ${hash()}1937</b>}</div>;`, "src/a.tsx")[0] ?? "").not.toContain(hash());
+    expect(annotateFile(`const x = <div>${sl()} ${hash()}1937</div>;`, "src/a.tsx")[0] ?? "").not.toContain(hash());
   });
 
   it("多行块注释闭合行后的字符串不误伤", () => {

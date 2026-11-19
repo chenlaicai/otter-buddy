@@ -144,7 +144,7 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
     } else if (frame.type === "heartbeat.ack") {
       state.lastAckAt = Date.now();
     } else if (frame.type === "action.request") {
-      // C2 动作执行：fire-and-forget（回执经 sendResultFrame 读当前连接——执行期间重连
+      // 动作执行：fire-and-forget（回执经 sendResultFrame 读当前连接——执行期间重连
       // 则带新 sid 被 hub 旧 sid 校验丢弃，语义正确：旧会话动作对新会话回答无意义）
       void runtime.dispatcher.handleActionRequest(frame).catch(err => {
         log("action dispatch failed", { actionId: frame.data.actionId, error: String(err) });
@@ -178,9 +178,9 @@ function registerSignalHandlersOnce(shutdown: () => Promise<void>): void {
       currentWs.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "offline", seq, sid: currentSid, data: {} }));
       log("offline requested", { signal });
     }
-    // M1（检视，回方案 §6 第4步原设计）：自杀收尾——不等在途 fs 完成，在途动作立即
+    // （检视，回第4步原设计）：自杀收尾——不等在途 fs 完成，在途动作立即
     // 落 interrupted（与中枢侧 offline→interrupted 同裁决）；短窗后退出。
-    // m2（检视）：shuttingDown 后重连循环不再起新连接（防优雅下线后顶替重连再死）。
+    // （检视）：shuttingDown 后重连循环不再起新连接（防优雅下线后顶替重连再死）。
     void shutdown().finally(() => setTimeout(() => process.exit(0), 150)); // 一拍发送窗口后退出
   };
   process.on("SIGINT", () => goOffline("SIGINT"));
@@ -212,10 +212,10 @@ async function buildRuntime(identity: DeviceIdentity): Promise<ConnectorRuntime>
   const dataRoot = path.join(os.homedir(), ".otter", "connector", identity.deviceId);
   await mkdir(dataRoot, { recursive: true });
   const ledger = new SqliteActionLedger(path.join(dataRoot, "action-ledger.sqlite"), {
-    deviceId: identity.deviceId, // 台账行归属设备（阶段 3 表结构预留的维度）
+    deviceId: identity.deviceId, // 台账行归属设备（表结构预留的维度）
   });
   // 开机清扫：旧纪元 running 行裁决（崩溃恢复语义——断线收尾的兑底面）；
-  // m6（检视）：清扫失败不能零日志——残留 running 行永不裁决需排障线索（best-effort 继续）
+  // （检视）：清扫失败不能零日志——残留 running 行永不裁决需排障线索（best-effort 继续）
   const sweep = await ledger.open().catch((err: unknown) => {
     log("ledger boot sweep failed (stale running rows stay unresolved)", { error: String(err) });
     return null;
@@ -272,8 +272,8 @@ async function main(): Promise<void> {
   }
 
   // 断线自动重连（检视 s1）：指数退避，重连=新会话（hub 侧 sid 代际隔离跨会话重放）
-  const runtime = await buildRuntime(identity); // C2：执行栈（台账清扫后才开始执行动作）
-  // C3/M1：信号处理注册一次（runtime 后——自杀收尾读 dispatcher 在途集）
+  const runtime = await buildRuntime(identity); // 执行栈（台账清扫后才开始执行动作）
+  // 信号处理注册一次（runtime 后——自杀收尾读 dispatcher 在途集）
   registerSignalHandlersOnce(() => runtime.dispatcher.markInflightInterrupted());
   let backoff = RECONNECT_BASE_MS;
   for (;;) {
@@ -282,7 +282,7 @@ async function main(): Promise<void> {
       process.stderr.write("protocol version incompatible with hub — upgrade connector (reconnect pointless)\n");
       process.exit(3);
     }
-    if (exiting) { // m2（检视）：优雅退出中不顶替重连（防新会话被退出再带走）
+    if (exiting) { // （检视）：优雅退出中不顶替重连（防新会话被退出再带走）
       log("exit before reconnect", {});
       return;
     }

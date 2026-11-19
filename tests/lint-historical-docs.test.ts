@@ -305,7 +305,7 @@ describe("lint-historical-docs: 历史文档不可变", () => {
     const r = runLint(repo);
     expect(r.status).toBe(0);
     // 收尾（与上一用例同序列）：reset → 恢复 HEAD 内容 → add → mv 回 → reset
-    // 隐式假设（检视建议 2 注记）：恢复内容 = trim + 单 "\n"（git() helper 对输出 trim），
+    // 隐式假设（注记）：恢复内容 = trim + 单 "\n"（git() helper 对输出 trim），
     // 仅对「单换行结尾」的 fixture 精确——若 fixture 改为无换行/多换行结尾，恢复会静默漂移
     git(repo, ["reset", "-q", "--", "."]);
     fs.writeFileSync(path.join(repo, renamed), git(repo, ["show", `HEAD:${NEW_DOC}`]) + "\n");

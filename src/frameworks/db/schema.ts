@@ -157,7 +157,7 @@ function createConversationTables(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       archived_at TEXT,
-      /* （阶段 5 PR-A）：对话级当前执行机——NULL=默认 local
+      /* 对话级当前执行机——NULL=默认 local
        * （存量对话零迁移行为不变）；显式切换不自动漂移（设备下线不回切，fail-closed） */
       current_machine_id TEXT
     );
@@ -1136,7 +1136,7 @@ function createRestartPendingResumesTable(db: Database.Database): void {
       attempts INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       settled_at TEXT,
-      /* PR-B：认领绑定 claim token/boot epoch（恢复者自身崩溃不留死锁，
+      /* 认领绑定 claim token/boot epoch（恢复者自身崩溃不留死锁，
        *  旧纪元残留可被新开机重认领——重认领前判旧持有者 pid 死活防双跑）
        *  + 恢复轮 invoke 审计链（追加式，多次恢复全历史） */
       claim_token TEXT,
@@ -1286,7 +1286,7 @@ function createConnectorRegistryTables(db: Database.Database): void {
       disconnect_reason TEXT CHECK(disconnect_reason IS NULL OR disconnect_reason IN ('device-offline', 'heartbeat-timeout', 'hub-restart', 'auth-failed')),
       last_seen_at TEXT NOT NULL,
       protocol_version INTEGER,
-      /* CASCADE：撤销设备 = 身份+token+会话史彻底清除（动作审计归 remote_action_requests，C2） */
+      /* CASCADE：撤销设备 = 身份+token+会话史彻底清除（动作审计归 remote_action_requests） */
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 

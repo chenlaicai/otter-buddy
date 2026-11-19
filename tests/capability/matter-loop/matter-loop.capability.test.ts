@@ -155,7 +155,7 @@ describe("matter loop：L2 拍板登记 + 重启机械供料（真系统 + 真 L
         `).run(matterId, convId, "配色拍板事项", ownerId, "选薄荷绿还是琥珀橙", now, now);
         const anchor = `M-${matterId.slice(0, 8)}`;
 
-        // 3. 模拟板上「批准」按钮的合成回执（F20261006mlp2 回执代执行通道 B），
+        // 3. 模拟板上「批准」按钮的合成回执（回执代执行通道 B），
         //    显式路由 owner 獭——断言獭读懂 html-matter-action 意图并代执行迁移
         await sendUserMessage(
           ctx,

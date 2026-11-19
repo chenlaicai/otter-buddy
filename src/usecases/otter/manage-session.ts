@@ -75,9 +75,9 @@ export class ManageSession {
     const history = await this.repo.getSessionHistory(otterId);
     const previousSessionId = history.length > 0 ? history[0].id : null;
 
-    // F20260908efmd: 解析有效模型作为 session 快照
+    // 解析有效模型作为 session 快照
     const resolvedModel = this.resolveModelForSession(otterId);
-    // F20260821scrt: 前情摘要是 LLM 自由文本（restart_session 工具），写入前脱敏
+    // 前情摘要是 LLM 自由文本（restart_session 工具），写入前脱敏
     const session = buildNewSession(otterId, previousSessionId, params?.summary ? redactSecrets(params.summary) : null, resolvedModel);
 
     await this.repo.createSession(session);
@@ -97,7 +97,7 @@ export class ManageSession {
     return this.repo.getActiveSession(otterId);
   }
 
-  /** 更新 session 摘要（F20260805rsto：restart 竞态认领既有新行时补写前情；F20260821scrt：写入前脱敏） */
+  /** 更新 session 摘要（restart 竞态认领既有新行时补写前情；写入前脱敏） */
   async setSessionSummary(sessionId: string, summary: string): Promise<void> {
     await this.repo.setSessionSummary(sessionId, redactSecrets(summary));
   }
@@ -110,12 +110,12 @@ export class ManageSession {
   async archiveSession(
     sessionId: string,
     params: ArchiveSessionInput,
-    /** F20260923hspx：Agent reset 渠道——handoff=交接冻结锁已由调用方持有（走锁旁路，
+    /** Agent reset 渠道——handoff=交接冻结锁已由调用方持有（走锁旁路，
      *  避免与交接锁自死锁：9/23 实证 4 獭连续「Lock acquire timeout」，等的是自己）。
      *  缺省 normal=常规 invoke 池复用锁路径。 */
     channel?: 'normal' | 'handoff',
   ): Promise<OtterSession> {
-    // F20260821scrt 二轮审视#4：repo.archiveSession 会把 params.summary 写入旧行
+    // 二轮审视repo.archiveSession 会把 params.summary 写入旧行
     // otter_sessions.summary（restart/dissolve 传 LLM 原文），入口统一脱敏
     const safeParams: ArchiveSessionInput = params.summary
       ? { ...params, summary: redactSecrets(params.summary) }
@@ -170,14 +170,14 @@ export class ManageSession {
     /** 保存归档前状态（用于回滚） */
     const originalStatus = session.status;
 
-    /** 3. 计算目标状态（B3/B4 回归守护） */
+    /** 3. 计算目标状态（回归守护） */
     const targetStatus = archiveReasonToSessionStatus(params.reason);
     const archivedAt = new Date().toISOString();
 
     /** 4. 更新 session 状态 */
     await this.repo.archiveSession(sessionId, targetStatus, params, archivedAt);
 
-    /** 5. 工作记忆转历史（B10） */
+    /** 5. 工作记忆转历史 */
     const conversationIds = await this.conversationQuery.getIdsByOtterId(
       session.otterId,
     );
@@ -205,22 +205,22 @@ export class ManageSession {
    * 窗口内新 invoke 的兜底可能已建新行。此时 archive+reset 已真实执行，
    * 撞 conflict 不是用户错误——认领既有新行、补写 summary，按成功处理。
    *
-   * F20260810rstart: 从 controller 提取，供 agent tool 和 HTTP API 共用。
-   * F20260920uhuc: 增可选 reason 参数——'compaction'（水位交接）与 'restart'（手动/自重启/熔断）
+   * 从 controller 提取，供 agent tool 和 HTTP API 共用。
+   * 增可选 reason 参数——'compaction'（水位交接）与 'restart'（手动/自重启/熔断）
    * 在域层区分世代成因（UI Session Chain / 统计可按 reason 区分）；缺省 'restart' 兼容全部既有调用方。
    * 硬约束：archive 成功后 → 写 config → createSession，顺序不可调换。
    */
-  // eslint-disable-next-line complexity -- F20260908efmd config 写回 + F20260920uhuc reason 参数（硬约束顺序内聚，拆分降低可读性）
+  // eslint-disable-next-line complexity -- config 写回 + reason 参数（硬约束顺序内聚，拆分降低可读性）
   async restartSession(
     otterId: string,
     summary?: string,
     modelAlias?: string,
     reason: 'restart' | 'compaction' = 'restart',
-    /** F20260923hspx：Agent reset 渠道——handoff=交接冻结锁已由调用方持有（锁旁路）。缺省 normal。 */
+    /** Agent reset 渠道——handoff=交接冻结锁已由调用方持有（锁旁路）。缺省 normal。 */
     channel?: 'normal' | 'handoff',
   ): Promise<OtterSession> {
     // 1. 归档当前 active session（含 agent session reset，确保旧 agent 会话被清理）
-    // F20260821scrt：summary 是 LLM 自由文本，入口统一脱敏（archive/create/adopt 各路径与返回值一致）
+    // summary 是 LLM 自由文本，入口统一脱敏（archive/create/adopt 各路径与返回值一致）
     const safeSummary = summary ? redactSecrets(summary) : undefined;
     const active = await this.repo.getActiveSession(otterId);
     if (active) {
@@ -237,7 +237,7 @@ export class ManageSession {
       await this.agentGateway.reset(otterId, undefined, channel ?? 'normal');
     }
 
-    // 2. F20260908efmd 硬约束：archive 成功后 → 写 config → createSession
+    // 2. 硬约束：archive 成功后 → 写 config → createSession
     // 写回 config 必须在 archive 成功之后，否则 archive 失败会导致当前世下一次 invoke 偷换模型
     if (modelAlias && this.otterConfigProvider) {
       const existingConfig = this.otterConfigProvider.getConfig(otterId);
@@ -278,7 +278,7 @@ export class ManageSession {
   }
 
   /**
-   * F20260908efmd: 解析 otter 的有效模型用于 session 快照。
+   * 解析 otter 的有效模型用于 session 快照。
    * 未注入依赖时返回 null（不写入快照）。
    */
   private resolveModelForSession(otterId: string): string | null {

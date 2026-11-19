@@ -95,7 +95,7 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
     return fs.readFile(fullPath, "utf-8");
   }
 
-  /** Why: readFile 强制 utf-8，二进制（图片）读出乱码——图片预览需要原始字节（F20261014pvmd） */
+  /** Why: readFile 强制 utf-8，二进制（图片）读出乱码——图片预览需要原始字节 */
   async readFileBuffer(conversationId: string, relativePath: string): Promise<Buffer> {
     const fullPath = await this.resolveSafe(conversationId, relativePath);
     const stat = await fs.stat(fullPath);
@@ -112,7 +112,7 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
     }
     const fullPath = await this.resolveSafe(conversationId, relativePath);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    // F20261116actlg（#1868 阶段 3）：原子写——同目录临时文件 → rename 原子落位，
+    // 原子写——同目录临时文件 → rename 原子落位，
     // 崩溃不留半截文件；已存在目标保留 mode；symlink 跟随写真实文件不替换链接；
     // broken symlink 回退 SDK 语义（穿透创建 referent），对齐 env 基线。
     let target = fullPath;
@@ -178,7 +178,7 @@ export class NodeWorkspaceGateway implements WorkspaceGateway {
   }
 
   /**
-   * 删除文件或目录（#1484）。安全口径与读写同构 + 根保护：
+   * 删除文件或目录。安全口径与读写同构 + 根保护：
    * - resolveSafe 拒绝路径穿越与 symlink 逃逸（与 readFile/writeFile 同一入口）
    * - 拒绝删除工作区根（relativePath 为空/. 时 resolved === root；整区回收是 removeWorkspace 的事，不走这里）
    * - lstat 口径判类型：symlink 按链接本身删除，不跟随目标

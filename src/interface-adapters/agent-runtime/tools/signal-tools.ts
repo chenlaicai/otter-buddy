@@ -367,7 +367,7 @@ export function persistSignalEvents(signals: SignalParamItem[], ctx: ToolContext
     };
     repo.create(event)
       .then(() => {
-        // #1227 M1：落账即登记提醒——大獭下一轮 invoke 头部可见「N 条 pending 待裁决」。
+        // 落账即登记提醒——大獭下一轮 invoke 头部可见「N 条 pending 待裁决」。
         // 落库失败不登记（台账没有的信号不提醒）。
         signalAlertRegistry.register({
           signalId: event.id,
@@ -458,7 +458,7 @@ export function createResolveSignalTool(ctx: ToolContext, signalRepo: SignalEven
     if (!updated) {
       return errorResponse(`[错误] 裁决落库失败（信号 ${resolved.id}）。请重试或查日志。`);
     }
-    // #1227 M1：裁决成功即注销提醒——提醒队列与台账状态联动，已裁决信号不再出现在下一轮注入
+    // 裁决成功即注销提醒——提醒队列与台账状态联动，已裁决信号不再出现在下一轮注入
     signalAlertRegistry.dismiss(resolved.id);
     return textResponse(
       `[裁决完成] 信号 ${resolved.id}（${verdict.event.type}）→ ${status}。理由：${resolution.trim()}`,

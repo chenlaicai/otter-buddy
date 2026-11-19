@@ -60,7 +60,7 @@ async function scanRec(
     if (!entry.name.endsWith(".md")) continue;
     const id = await extractId(fs, full, entry.name, logger);
     if (id) {
-      // F20260804dcnv: 同 ID 冲突（两份文件 frontmatter 都损坏、文件名 ID 相同）
+      // 同 ID 冲突（两份文件 frontmatter 都损坏、文件名 ID 相同）
       // 静默覆盖会让被覆盖的文件双重消失--和本 PR 要修的 bug 同类。走 Logger
       // 让 operator 能发现命名冲突（不直接 console.warn，保持 use case 层纯净）。
       const existing = ids.get(id);

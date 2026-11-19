@@ -54,11 +54,11 @@ export class WeixinMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
-      /** F20260918imas / F20260920imax：助理会话管理（自动开户；对话永续 + 8h 静默换 session）。未注入时回退旧拒聊行为 */
+      /**  助理会话管理（自动开户；对话永续 + 8h 静默换 session）。未注入时回退旧拒聊行为 */
       assistantSession?: AssistantSessionManager;
-      /** F20260920imax：助理线模型（自动开户大獭用；缺省全局 default） */
+      /** 助理线模型（自动开户大獭用；缺省全局 default） */
       assistantModelAlias?: string;
-      /** F20260913ctlv 收尾批2：微信消息唯一落点 = entries（messages 表停写，与飞书同构） */
+      /** 收尾批2：微信消息唯一落点 = entries（messages 表停写，与飞书同构） */
       sendEntry: SendEntry;
       entryRepo: EntryRepository;
       weixinGateway: WeixinGateway;
@@ -66,14 +66,14 @@ export class WeixinMessageProcessor {
       agentDispatchService: AgentDispatchService;
       messageBroadcaster: MessageBroadcaster;
       logger: Logger;
-      /** F20260921wxba：bot 账号锚（bot=对话模型，与扫码建线 provisionWeixinAssistantLine
+      /** bot 账号锚（bot=对话模型，与扫码建线 provisionWeixinAssistantLine
        *  的 ensureConnection(accountId,...) 同键）。缺省回退 fromUserId 旧锚（未过装配的
        *  遗留路径，仅测试/降级兼容——线上恒由 platforms.ts 传入 account.id） */
       botAccountId?: string;
-      /** F20260928wxid：建线人（扫码人）的 ilinkUserId——owner 鉴定用（检视发现 1）：
+      /** 建线人（扫码人）的 ilinkUserId——owner 鉴定用：
        *  仅 fromUserId = owner 时才用 metadata.userName 盖称呼，防访客被盖主人称呼 */
       ownerIlinkUserId?: string;
-      /** 媒体支持（issue #567）：媒体下载网关 + 附件上传管线 + 注入服务。未注入时媒体降级为提示文本 */
+      /** 媒体支持：媒体下载网关 + 附件上传管线 + 注入服务。未注入时媒体降级为提示文本 */
       mediaGateway?: WeixinMediaGateway;
       attachmentUpload?: AttachmentUploadService;
       attachmentInjection?: AttachmentInjectionService;
@@ -89,7 +89,7 @@ export class WeixinMessageProcessor {
       textLength: body.length,
     });
 
-    // F20260921wxba：入站路由锚 = bot 账号（bot=对话，搭档统一模型，与飞书 feishu-bot:<appId>
+    // 入站路由锚 = bot 账号（bot=对话，搭档统一模型，与飞书 feishu-bot:<appId>
     // 同构）。曾按 fromUserId 开户 → 建线锚(accountId)与消息锚(发送者 id)永久分裂：
     // 新建助理线收不到消息，旧时代按人建的线继续吸走消息（用户实锤：移除重扫后
     // 消息仍进旧对话）。修后：消息恒走扫码建线的同一 connection → 同一助理对话；
@@ -101,7 +101,7 @@ export class WeixinMessageProcessor {
     const anchor = this.deps.botAccountId ?? fromUserId;
     const connection = await this.deps.manageConnection.ensureConnection(anchor, anchor, "weixin");
 
-    // F20260922wxeg：出站目标随入站刷新（与飞书 noteChatId 同构）——bot 锚定后
+    // 出站目标随入站刷新（与飞书 noteChatId 同构）——bot 锚定后
     // connection.externalId 是 bot 账号 id（路由锚）而非收信人，真实收信人
     // （fromUserId=ilinkUserId，微信侧稳定身份）记到 metadata.lastChatId，
     // 出站经 resolveReplyTarget 取回。账号被删重扫换新 accountId 后，新 connection
@@ -125,14 +125,14 @@ export class WeixinMessageProcessor {
       return false;
     }
 
-    // F20260920imax：已建线（扫码时必填名创建）→ 消息直接进；未建线 → 提示去 IM 页建线
+    // 已建线（扫码时必填名创建）→ 消息直接进；未建线 → 提示去 IM 页建线
     const conversation = await this.resolveConversation(fromUserId, connectionId);
     if (!conversation) {
       await this.replyNoConversation(fromUserId, msg.raw?.item_list ?? []);
       return false;
     }
 
-    // 媒体消息（issue #567 → #608）：四类全量入库（sniffType 白名单已扩 audio/video/pdf）；
+    // 媒体消息：四类全量入库（sniffType 白名单已扩 audio/video/pdf）；
     // 语音 ASR 转写已在 body，音视频文件同时入库供回放
     const outcome = await this.composeMediaOutcome(msg.raw?.item_list ?? [], fromUserId);
 
@@ -140,9 +140,9 @@ export class WeixinMessageProcessor {
     if (outcome.degradeNote) bodyText = bodyText ? `${bodyText}\n${outcome.degradeNote}` : outcome.degradeNote;
     if (outcome.attachmentIds.length === 0 && !bodyText.trim()) bodyText = "[媒体消息处理失败]";
 
-    // F20260913ctlv 收尾批2：微信 user 消息唯一落点 = entries（与飞书同构——
+    // 收尾批2：微信 user 消息唯一落点 = entries（与飞书同构——
     // sendUserEntry 落库 + 目标解析；messages 表停写 UI 消息）
-    // F20260928wxid：senderName 快照——仅当发送者 = 建线人（owner 鉴定，检视发现 1）时取
+    // senderName 快照——仅当发送者 = 建线人（owner 鉴定）时取
     // connection metadata.userName（扫码自报称呼）；访客消息不盖 owner 称呼（张冠李戴会
     // 与同帧「访客」标注自相矛盾）。微信协议无查名 API，飞书靠 getUserName，微信靠自报。
     const senderLabel = await this.resolveSelfUserName(connectionId, fromUserId);
@@ -162,15 +162,15 @@ export class WeixinMessageProcessor {
       data: this.buildUserEntryPayload(userEntry, fromUserId, bodyText, talkingStonePassedTo, "weixin"),
     });
 
-    // Agent 派发用原始 body（不含降级提示——运维文本不进 agent 上下文，检视建议 1；
+    // Agent 派发用原始 body（不含降级提示——运维文本不进 agent 上下文，；
     // 飞书同位置存在同样问题，独立 issue 跟踪）
-    // F20260913ctlv：直连链点火（entries 目标显式传）——与飞书同构
+    // 直连链点火（entries 目标显式传）——与飞书同构
     await this.dispatchAgent(conversation.id, body.trim(), fromUserId, { messageId: userEntry.id, resolvedTargets: talkingStonePassedTo, injection: outcome.injection });
     return true;
   }
 
   /**
-   * F20260928wxid：扫码人自报称呼解析（检视发现 1 加 owner 鉴定）——仅发送者 = 建线人
+   * 扫码人自报称呼解析（加 owner 鉴定）——仅发送者 = 建线人
    * （bot 账号的 ilinkUserId）时才读 connection metadata.userName；访客返回空串。
    * 解析失败/无称呼/无 owner 注入均降级空串（senderDisplayName 空串，维持裸 ID，不阻断主链）。
    */
@@ -185,15 +185,15 @@ export class WeixinMessageProcessor {
     }
   }
 
-  /** F20260918imas / F20260920imax：会话解析（复杂度拆出）——已绑定直用（永续）；未绑定且注入助理管理器时自动开户 */
+  /**  会话解析（复杂度拆出）——已绑定直用（永续）；未绑定且注入助理管理器时自动开户 */
   private async resolveConversation(fromUserId: string, connectionId: string): Promise<{ id: string; title: string } | null> {
     void fromUserId;
-    // F20260920imax：开户时机已提前到扫码登录时（必填名建线）；ingress 不再
+    // 开户时机已提前到扫码登录时（必填名建线）；ingress 不再
     // 自动开户——未建线返回 null，调用方提示去 Web IM 页扫码建线
     return this.deps.manageConnection.getCurrentConversation(connectionId);
   }
 
-  /** 未绑会话提示（媒体消息加「链接有时效」提醒——检视建议 2） */
+  /** 未绑会话提示（媒体消息加「链接有时效」提醒——） */
   private async replyNoConversation(fromUserId: string, items: WeixinMediaGatewayItem[]): Promise<void> {
     const hasMedia = items.some(i => (i.type ?? 0) >= 2 && (i.type ?? 0) <= 5);
     await this.deps.weixinGateway.replyText(
@@ -237,7 +237,7 @@ export class WeixinMessageProcessor {
         if (!conversation) {
           return "当前未进入任何对话，请先使用 /in <对话ID> 进入对话";
         }
-        // F20260913ctlv 收尾批2：/history 切 entries（时间线唯一真相源；取对话类条目）
+        // 收尾批2：/history 切 entries（时间线唯一真相源；取对话类条目）
         const [speaks, users] = await Promise.all([
           this.deps.entryRepo.getEntries(conversation.id, { entryType: "speak", limit: 20 }),
           this.deps.entryRepo.getEntries(conversation.id, { entryType: "user", limit: 20 }),
@@ -260,7 +260,7 @@ export class WeixinMessageProcessor {
     }
   }
 
-  /** F20260913ctlv 收尾批2：触发锚（entry id + entries 目标解析结果，直连链点火） */
+  /** 收尾批2：触发锚（entry id + entries 目标解析结果，直连链点火） */
   private async dispatchAgent(
     conversationId: string,
     bodyText: string,
@@ -274,7 +274,7 @@ export class WeixinMessageProcessor {
       ...(anchor.injection && { injection: anchor.injection }),
       messageId: anchor.messageId,
       ...(anchor.resolvedTargets && { resolvedTargets: anchor.resolvedTargets }),
-      // F20261012swsg（#1430）：IM 用户消息显式声明来源——安全词扫描闸放行
+      // IM 用户消息显式声明来源——安全词扫描闸放行
       triggerSenderType: "user",
     });
     if (result.error) {
@@ -282,10 +282,10 @@ export class WeixinMessageProcessor {
     }
   }
 
-  // ── 媒体支持（issue #567，照飞书 processMedia 语义）──
+  // ── 媒体支持（照飞书 processMedia 语义）──
 
   /** 从入站消息提取媒体项（image/voice/file/video），无媒体返回空数组 */
-  /** 媒体段编排：逐项走下载入库管线，单项失败单项降级（与飞书 processMedia 同语义，#608 恢复四类） */
+  /** 媒体段编排：逐项走下载入库管线，单项失败单项降级（与飞书 processMedia 同语义，恢复四类） */
   private async composeMediaOutcome(items: WeixinMediaGatewayItem[], senderId: string): Promise<WeixinMediaOutcome> {
     const mediaItems = this.extractMediaItems(items);
     if (mediaItems.length === 0) return { attachmentIds: [], degradeNote: null };
@@ -303,7 +303,7 @@ export class WeixinMessageProcessor {
     return out;
   }
 
-  /** 媒体处理主流程：下载网关 → 附件管线 → id + 注入载荷。单项失败单项降级（#608 四类全量） */
+  /** 媒体处理主流程：下载网关 → 附件管线 → id + 注入载荷。单项失败单项降级（四类全量） */
   private async processMedia(mediaItems: WeixinMediaItemEntry[], senderId: string): Promise<WeixinMediaOutcome> {
     // 管线未装配（旧部署未配 attachments / mediaGateway）：降级提示
     if (!this.deps.mediaGateway || !this.deps.attachmentUpload || !this.deps.attachmentInjection) {
@@ -352,7 +352,7 @@ export class WeixinMessageProcessor {
     return all.length > 0 ? all.join("\n") : null;
   }
 
-  /** F20260913ctlv 终审修复：entry.user 载荷组装（身份链 + 附件投影；飞书/微信同构） */
+  /** 终审修复：entry.user 载荷组装（身份链 + 附件投影；飞书/微信同构） */
   private buildUserEntryPayload(
     entry: { id: string; sequenceNum: number; createdAt: string; senderName: string; attachments?: Array<{ id: string }> | null },
     senderId: string,

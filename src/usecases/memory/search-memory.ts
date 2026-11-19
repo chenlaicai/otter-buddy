@@ -375,8 +375,8 @@ export class SearchMemory {
         snippet,
       };
     });
-    // F20260811mrpy Part 1：术语库不索引 vec。
-    // F20260821evaf 三轮审视：total 报 0（而非 entries.length）——术语条目恒无 vec，
+    // 术语库不索引 vec。
+    // 三轮审视：total 报 0（而非 entries.length）——术语条目恒无 vec，
     // 报实际数量会把 ratio 算成 0.0，误导消费方"全部暗化"。total=0 约定 = 本路由不参与 vec 统计。
     return { entries, total: entries.length, vecCoverage: this.buildVecCoverage(0, 0) };
   }
@@ -421,8 +421,8 @@ export class SearchMemory {
       return e;
     });
 
-    // F20260811mrpy Part 1：vecCoverage 只统计 vec 索引库（对话库）。
-    // F20260821evaf 三轮审视修正：原用混排后 entries.length（含术语条目）作分母、
+    // vecCoverage 只统计 vec 索引库（对话库）。
+    // 三轮审视修正：原用混排后 entries.length（含术语条目）作分母、
     // 对话库混排前 withVec 作分子，口径错位会把 ratio 系统性稀释甚至算成 0.0。
     // 直接透传对话库自身口径（分子分母同源），术语库不参与统计。
     return { entries, total: entries.length, vecCoverage: convResult.vecCoverage };
@@ -490,10 +490,10 @@ export class SearchMemory {
 
     if (useHighlight) {
       const ftsHits = await this.reader.searchFTSWithHighlight(query.query, filters);
-      // F20260803chunk M6: FTS 预聚合，每 source 最多保留 top-3 chunk 防 long doc 霸占 limit
+      // FTS 预聚合，每 source 最多保留 top-3 chunk 防 long doc 霸占 limit
       const aggregatedFts = this.preAggregateFtsBySource(ftsHits);
       snippetMap = new Map(aggregatedFts.map((h) => [h.entryId, h.snippet]));
-      // PR审视 B10: vec 预聚合同样限制每 source top-3，防长文档 chunk 霸占 RRF
+      // PR审视 vec 预聚合同样限制每 source top-3，防长文档 chunk 霸占 RRF
       const vecHits = this.preAggregateVecBySource(await this.searchVec(query.query, filters, query.limit));
       rrfHits = this.searchEngine.rrfFusion(
         aggregatedFts.map((h) => ({ entryId: h.entryId, ftsRank: h.ftsRank, entry: h.entry })),
@@ -529,7 +529,7 @@ export class SearchMemory {
     return this.rerankAndReturn(rrfHits, limit, undefined, undefined, false);
   }
 
-  /** vec0 搜索（含降级逻辑，D22） */
+  /** vec0 搜索（含降级逻辑） */
   private async searchVec(
     query: string,
     filters: SearchFilters,
@@ -547,19 +547,19 @@ export class SearchMemory {
 
   /**
    * RRF 融合后的结果重排 + 批量递增计数 + 组装返回值。
-   * F20260811mrpy：扩展含 vecCoverage/debug/drillDown，参数数与复杂度合理增加。
+   * 扩展含 vecCoverage/debug/drillDown，参数数与复杂度合理增加。
    */
-  // eslint-disable-next-line max-params, max-lines-per-function -- F20260811mrpy 三 Part 扩展 + F20260917cvid 对话加权必要
+  // eslint-disable-next-line max-params, max-lines-per-function -- 三 Part 扩展 + 对话加权必要
   private async rerankAndReturn(
     rrfHits: Map<string, RrfHit>,
     limit: number,
     detailLevel?: DetailLevel,
     snippetMap?: Map<string, string | undefined>,
-    /** F20260803fbit: searchSimilar 路径不需要按 sourceId 去重（语义是"找相似条目"，同源多 entry 是合法结果） */
+    /** searchSimilar 路径不需要按 sourceId 去重（语义是"找相似条目"，同源多 entry 是合法结果） */
     dedup = true,
-    /** F20260811mrpy Part 1：debug=true 时注入中间分值 */
+    /** debug=true 时注入中间分值 */
     debug = false,
-    /** F20260917cvid: 当前对话 ID（本对话加权），searchSimilar 路径不传 */
+    /** 当前对话 ID（本对话加权），searchSimilar 路径不传 */
     currentConversationId?: string,
   ): Promise<RetrievalResult> {
     const hitIds = Array.from(rrfHits.keys());
@@ -569,46 +569,46 @@ export class SearchMemory {
 
     const weights = await this.reader.getWeights(hitIds);
     const weightMap = new Map(weights.map((w) => [w.memoryEntryId, w]));
-    /** F20261118stale P0：查候选里哪些被 supersede，旧条目降权 + 标注。 */
+    /** 查候选里哪些被 supersede，旧条目降权 + 标注。 */
     const superseded = await this.reader.getSupersededBy(hitIds);
 
-    // F20261112rnkph Phase 1 段 1：rerankMode 路由——缺省 multiply 零行为变更，additive 走加法融合
+    // 段 1：rerankMode 路由——缺省 multiply 零行为变更，additive 走加法融合
     const scored = this.searchEngine.configRef.rerankMode === "additive"
       ? this.searchEngine.rerankAdditive(rrfHits, weightMap, currentConversationId, superseded)
       : this.searchEngine.rerank(rrfHits, weightMap, currentConversationId, superseded);
-    /** F20260803chunk: 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分（dedupAndBoostBySource） */
+    /** 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分（dedupAndBoostBySource） */
     const deduped = dedup ? this.dedupAndBoostBySource(scored) : scored;
     deduped.sort((a, b) => b.finalScore - a.finalScore);
-    /** F20260902rcp1: 层配额——doc summary 在 top-N 保底。
-     *  #965 修复：候选从 dedup 前的 scored 取——dedup 的 chunk-priority 会把同源 summary 丢掉，
+    /** 层配额——doc summary 在 top-N 保底。
+     * 修复：候选从 dedup 前的 scored 取——dedup 的 chunk-priority 会把同源 summary 丢掉，
      *  从 deduped 取候选永远为空，配额形同虚设（9/2 合入至 9/16 从未触发，实测候选为空 5/10）。 */
     const top = this.applyLayerQuota(deduped, limit, scored).slice(0, limit);
 
-    /** S15: 批量递增检索计数 */
+    /** 批量递增检索计数 */
     await this.writer.incrementRetrievalCounts(top.map((h) => h.entryId));
 
-    /** F20260811mrpy Part 1：计算 vecCoverage（默认返回） */
+    /** 计算 vecCoverage（默认返回） */
     const topIds = top.map(h => h.entryId);
     const hasVecMap = await this.reader.hasEmbeddings(topIds);
     const withVecCount = Array.from(hasVecMap.values()).filter(Boolean).length;
     const vecCoverage: VecCoverage = this.buildVecCoverage(top.length, withVecCount);
 
     return {
-      // eslint-disable-next-line complexity -- F20260811mrpy debug/drillDown 注入增加分支
+      // eslint-disable-next-line complexity -- debug/drillDown 注入增加分支
       entries: top.map((h) => {
-        // M12: multi_hit_count 仅 >1 时注入 metadata（searchSimilar 路径无此字段不变）
+        // multi_hit_count 仅 >1 时注入 metadata（searchSimilar 路径无此字段不变）
         const meta = h.multiHitCount && h.multiHitCount > 1
           ? { ...(h.entry.metadata ?? {}), multi_hit_count: h.multiHitCount }
           : h.entry.metadata;
-        // #542：非 full 模式 content 由 buildSnippet 投影（summary=原文首句 / snippet=匹配窗口），
+        // 非 full 模式 content 由 buildSnippet 投影（summary=原文首句 / snippet=匹配窗口），
         // 不再置空——空 content 会摧毁 summary 模式的信息价值（渐进式披露的裁剪在 buildSnippet）
         const base = detailLevel === "full" ? h.entry : { ...h.entry };
-        /** F20260811mrpy Part 2：detail_level != "full" 时填充 drillDown hint（#1398：参数形态与 get_memory_detail schema 对齐——ids 数组） */
+        /** detail_level != "full" 时填充 drillDown hint（参数形态与 get_memory_detail schema 对齐——ids 数组） */
         const drillDown = detailLevel && detailLevel !== "full"
           ? { tool: "get_memory_detail", params: { ids: [h.entryId] } }
           : undefined;
-        /** F20260811mrpy Part 1：debug=true 时注入中间分值
-         *  F20260902rcp1 审视修复：timeDecay 按层传半衰期——document 层用 90 天，
+        /** debug=true 时注入中间分值
+         * 审视修复：timeDecay 按层传半衰期——document 层用 90 天，
          *  否则 debug 显示 7 天值与 finalScore 实际计算脱节（30 天文档偏差 15.5x） */
         const debugInfo = debug ? {
           rrfScore: h.rrfScore,
@@ -624,7 +624,7 @@ export class SearchMemory {
             ? this.searchEngine.configRef.currentConversationBoost
             : 1.0,
           multiHitCount: h.multiHitCount,
-          // F20261112rnkph Phase 1 段 2：additive 贡献分量，仅 additive 路径命中时注入（multiply 旧字段逐字节不变）
+          // 段 2：additive 贡献分量，仅 additive 路径命中时注入（multiply 旧字段逐字节不变）
           ...(h.contribRrf !== undefined ? {
             contrib_rrf: h.contribRrf,
             contrib_time: h.contribTime,
@@ -652,14 +652,14 @@ export class SearchMemory {
   }
 
   /**
-   * F20260803chunk: 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分。
+   * 按 (sourceTable, sourceId) 去重 + 多 chunk 命中加分。
    * 同源多 chunk 命中是正信号（文档多处匹配），取最高分 chunk 作代表，
-   * 加 additive boost（0.01/hit，封顶 5 hits=0.05，决策 D5+S2）。
-   * M15: 创建新对象而非原地修改 finalScore（避免 mutation 风险）。
-   * S8: tie-breaker 按 chunk_index 保证确定性。
+   * 加 additive boost（0.01/hit，封顶 5 hits=0.05，决策 +）。
+   * 创建新对象而非原地修改 finalScore（避免 mutation 风险）。
+   * tie-breaker 按 chunk_index 保证确定性。
    */
   /**
-   * F20260902rcp1: 层配额——doc summary（feature/research doc-level）在 top-N 保底。
+   * 层配额——doc summary（feature/research doc-level）在 top-N 保底。
    * 触发：top-N 中 doc summary 数量 < 配额 且命中集中存在该层条目（去重豁免：doc summary
    * 即使同源 chunk 已在结果中也插入——概览与正文并列是预期行为，配额条目不参与
    * dedupAndBoostBySource 的 chunk-priority 代表选择）。
@@ -675,12 +675,12 @@ export class SearchMemory {
     const docCount = inTop.filter(isDocSummary).length;
     if (docCount >= quota) return sorted;
 
-    // #965：候选从 dedup 前的 scored 取（含被 chunk-priority 吃掉的同源 summary）——
+    // 候选从 dedup 前的 scored 取（含被 chunk-priority 吃掉的同源 summary）——
     // 去重豁免：doc summary 与 chunk 并列返回是预期行为（概览+正文）。
     // 排除已在 inTop 的条目（防重复）。
     const inTopIds = new Set(inTop.map(h => h.entryId));
     const candidatePool = preDedupScored ?? sorted;
-    // #965 审视修复：preDedupScored 未排序（rerank 不保证顺序）——候选按 finalScore 降序取最优
+    // 审视修复：preDedupScored 未排序（rerank 不保证顺序）——候选按 finalScore 降序取最优
     const candidates = candidatePool
       .filter(h => isDocSummary(h) && !inTopIds.has(h.entryId))
       .sort((a, b) => b.finalScore - a.finalScore);
@@ -715,22 +715,22 @@ export class SearchMemory {
 
     const result: ScoredHit[] = [];
     for (const group of groups.values()) {
-      // PR审视 M5：优先选 chunk 作代表（如 group 含 chunk 命中）——用户搜正文时应返回匹配的
+      // PR审视 优先选 chunk 作代表（如 group 含 chunk 命中）——用户搜正文时应返回匹配的
       // 正文片段而非 summary 概述。无 chunk 命中时 fallback 到全部 group（summary-only 场景）。
       const CHUNK_TYPES = new Set(["feature_chunk", "research_chunk"]);
       const chunkHits = group.filter(h => CHUNK_TYPES.has(h.entry.contentType));
       const candidates = chunkHits.length > 0 ? chunkHits : group;
-      // S8：tie-breaker 按 chunk_index 保证确定性（finalScore 相同时）
+      // tie-breaker 按 chunk_index 保证确定性（finalScore 相同时）
       candidates.sort((a, b) =>
         b.finalScore !== a.finalScore
           ? b.finalScore - a.finalScore
           : Number(a.entry.metadata?.chunk_index ?? 0) - Number(b.entry.metadata?.chunk_index ?? 0),
       );
       const best = candidates[0];
-      // PR审视 B8/M4：multi_hit_count 只统计 chunk 命中（M6：用显式集合而非 includes 防误匹配）
+      // PR审视 /multi_hit_count 只统计 chunk 命中（用显式集合而非 includes 防误匹配）
       const chunkHitCount = chunkHits.length;
       const extraHits = Math.min(Math.max(chunkHitCount - 1, 0), MAX_MULTI_HIT_BOOST_COUNT);
-      // M15：创建新对象而非原地修改
+      // 创建新对象而非原地修改
       result.push({
         ...best,
         finalScore: best.finalScore + MULTI_HIT_BOOST * extraHits,
@@ -741,9 +741,9 @@ export class SearchMemory {
   }
 
   /**
-   * F20260803chunk M6: FTS 预聚合，每 (sourceTable, sourceId, contentType) 最多保留 top-3。
-   * 防 long doc（53K 字符 × 19 chunk）占满 DEFAULT_FTS_LIMIT 挤掉其他文档（决策 D8）。
-   * ftsRank 越小越好（BM25 rank）。B6: key 含 contentType 防 summary 被 chunk 挤掉。
+   * FTS 预聚合，每 (sourceTable, sourceId, contentType) 最多保留 top-3。
+   * 防 long doc（53K 字符 × 19 chunk）占满 DEFAULT_FTS_LIMIT 挤掉其他文档（决策）。
+   * ftsRank 越小越好（BM25 rank）。key 含 contentType 防 summary 被 chunk 挤掉。
    */
   private preAggregateFtsBySource<T extends { entryId: string; ftsRank: number; entry: MemoryEntry }>(hits: T[]): T[] {
     const groups = new Map<string, T[]>();
@@ -761,7 +761,7 @@ export class SearchMemory {
     return result;
   }
 
-  /** PR审视 B10: vec 预聚合，每 (source, contentType) 最多 top-3，防长文档 chunk 霸占 RRF。distance 越小越好。 */
+  /** PR审视 vec 预聚合，每 (source, contentType) 最多 top-3，防长文档 chunk 霸占 RRF。distance 越小越好。 */
   private preAggregateVecBySource(hits: VecHit[]): VecHit[] {
     const groups = new Map<string, VecHit[]>();
     for (const hit of hits) {
@@ -779,7 +779,7 @@ export class SearchMemory {
   }
 
   /**
-   * F20260812mrcq Part 2（审视 m5）：统一构造 VecCoverage，自动填充 vecDisabled。
+   * （审视）：统一构造 VecCoverage，自动填充 vecDisabled。
    * vecDisabled 让消费方区分"无结果"vs"vec 路径运行时禁用"。
    */
   private buildVecCoverage(total: number, withVec: number): VecCoverage {
@@ -792,7 +792,7 @@ export class SearchMemory {
   }
 
   /**
-   * #542：summary 投影 content——原文首句（数字感知正则）。
+   * summary 投影 content——原文首句（数字感知正则）。
    * 前导空白剥离（条目以空行/缩进开头时取首个实际内容行），行尾换行清理，
    * 超长截断到 SNIPPET_FALLBACK_LENGTH。由 buildSnippet / buildAnchorEntry /
    * expandContextForEntries 共用，保证三处投影点 summary 契约一致。
@@ -810,7 +810,7 @@ export class SearchMemory {
    * 返回 { content } 用于覆盖 entry.content（渐进式披露核心：非 full 时裁剪），
    * 返回 { snippet } 用于 HTTP 端点高亮渲染。
    *
-   * #542 修复：content 与 snippet 语义分离——
+   * 修复：content 与 snippet 语义分离——
    * - summary：content = 从 entry.content 原文开头提取的首句（与匹配位置无关，恒有意义）；
    *   snippet = FTS 匹配窗口（匹配上下文）。
    *   此前首句从 FTS 窗口提取：窗口起点在匹配词前 100 字符处，深匹配时带 `...` 前缀或
@@ -837,7 +837,7 @@ export class SearchMemory {
 
     if (detailLevel === "summary") {
       /**
-       * summary：content = 原文首句（#542：提取源从 FTS 窗口改为 entry.content，
+       * summary：content = 原文首句（提取源从 FTS 窗口改为 entry.content，
        * 与匹配位置解耦——深匹配条目不再投影为空）。
        * 首句正则数字感知：句末标点后紧跟数字/拉丁字母时不是句末（`2.2 方案`、
        * `v1.2`、`e.g.`），编号标题行（`2.2 方案\n`）整行成首句而非截断为 `2.`。
