@@ -32,7 +32,7 @@ export interface MemoryEdge {
  * LLM 拿到后能理解 "A 指向 B，B 指向 C" 的链式关系，而非平铺列表。
  */
 export interface RelatedEntryItem {
-  /** 邻居 entry（完整 MemoryEntry，PR 审视 P1-5：复用类型防退化） */
+  /** 邻居 entry（完整 MemoryEntry，复用类型防退化） */
   entry: MemoryEntry;
   /** 这条边的类型 */
   edgeType: EdgeType;

@@ -119,6 +119,12 @@ export const DISPOSITION_RES = [
   /\bdelta\s*(?:发现|修复|建议|处置|复核|审视|确认|配套)\s*[0-9]+/gi,
   /** delta 轮简写：delta-r3 / delta D1 / delta2 / delta-3（字母可选，大小写不敏感——Delta2 / DeltaR3 / DELTA-r3 同判） */
   /\bdelta[- ]?[A-Za-z]?[0-9]+/gi,
+  /** 检视/审视/复审语境 + 小写 sN（不全局禁 sN——变量名/麻将区间不误伤） */
+  /(?:检视|审视|复审|评审|快审|终核)\s*\bs[0-9]+[a-z]?\b/g,
+  /** sN / minorN 后紧跟（检视/审视/复审…）形态 */
+  /\b(?:s|minor)[0-9]+[a-z]?(?=\s*[（(](?:检视|审视|复审|评审))/g,
+  /** 日期型检视轮指针：F+8 位日期 + 检视轮 */
+  /F\d{8}\s*检视轮/g,
 ];
 
 /** 文档结构编号的语义豁免：日常词/时间/复合名不走「文档编号」删除。 */
@@ -137,6 +143,9 @@ function isExemptDocNumber(commentText, m, kind) {
   if (kind === "m编号") {
     // bge-m3 模型名（前是连字符）、麻将牌索引 m0-8（后是连字符+数字）、m5.large 实例（后是点）
     if (/-$/.test(before) || /^-\d/.test(after) || /^\./.test(after)) return true;
+    // 测试数据/窗口边界：m1/m2/m3 斜杠列表 或「m1 之前/之后」时间窗口语（非审视项号）
+    if (/\/\s*$/.test(before) || /^\s*\//.test(after)) return true;
+    if (/^\s*(?:之前|之后|前|后)[^0-9]/.test(after)) return true;
   }
   if (kind === "R编号") {
     // git rename 相似度分数（R100/R096/R50% 等）——diff --name-status 的 R 分，不是规则号

@@ -69,7 +69,7 @@ export function ExecutionMachineModal({ conversationId, onClose, onSwitched }: P
         fetch(`/api/conversations/${conversationId}/execution-machine`, { credentials: 'same-origin' }),
         fetch(`/api/conversations/${conversationId}/remote-actions?limit=30`, { credentials: 'same-origin' }),
       ])
-      // minor2（检视遗留处置）：非 OK 不再静默——区分鉴权失败与服务错误，避免 401 呈现误导性空态
+      // 非 OK 不再静默——区分鉴权失败与服务错误，避免 401 呈现误导性空态
       if (mRes.status === 401 || cRes.status === 401 || aRes.status === 401) {
         setError('登录已过期，请刷新页面重新登录（HTTP 401）')
         return
@@ -91,7 +91,7 @@ export function ExecutionMachineModal({ conversationId, onClose, onSwitched }: P
 
   useEffect(() => { void reload() }, [reload])
 
-  // s4（检视遗留处置）：in-flight ref 守卫——React 重渲染前的极窄双击窗口不再重复发 PUT
+  // in-flight ref 守卫——React 重渲染前的极窄双击窗口不再重复发 PUT
   //（同目标幂等本无害，守卫彻底封死；state 式 disabled 保留供 UI 呈现）
   const switchingRef = useRef<string | null | undefined>(undefined)
 

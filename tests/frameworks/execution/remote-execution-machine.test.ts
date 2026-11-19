@@ -276,7 +276,7 @@ describe("SqliteRemoteActionRegistry（五态登记幂等）", () => {
     expect(await registry.listByConversation("c-other")).toHaveLength(0);
   });
 
-  // s2（检视遗留处置）：同毫秒 created_at 定序——rowid tie-breaker 使 DESC LIMIT 边界确定
+  // 同毫秒 created_at 定序——rowid tie-breaker 使 DESC LIMIT 边界确定
   it("listByConversation 同毫秒 created_at：desc 后插入在前 / asc 先插入在前（rowid 定序）", async () => {
     const db = createTestDb();
     const registry = new SqliteRemoteActionRegistry(db);

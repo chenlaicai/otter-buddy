@@ -12,7 +12,7 @@ import { loadToolManifest, getToolNamesFromManifest } from "../config/tool-manif
 /**
  * belief 迁移三工具（verify/reject/supersede）仅 night-reviewer 受限写者獭可见。
  * big（"*" 展开全量注册集）与 small（memory 组）都不得持有——迁移权只属于夜间审视獭；
- * 任何普通 agent 可自我核实会掏空独立核实信任模型（k3 审视结论）。
+ * 任何普通 agent 可自我核实会掏空独立核实信任模型。
  */
 export const BELIEF_MIGRATION_TOOLS = ["belief_verify", "belief_reject", "belief_supersede"] as const;
 

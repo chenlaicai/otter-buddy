@@ -4,7 +4,7 @@ import type { MatterRepository } from '@usecases/matter/matter-repository';
 import type { MatterSweepStall, MatterSweepStalledRow } from '@usecases/matter/matter-sweep';
 
 /**
- * Matters 的 SQLite 实现（；扫描升格扩展）。
+ * Matters 的 SQLite 实现（扫描升格扩展）。
  * 表结构在 schema.ts createMattersTable 创建（幂等 CREATE IF NOT EXISTS）。
  */
 

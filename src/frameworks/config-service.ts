@@ -352,7 +352,7 @@ interface RawConfig {
     stateDir?: string;
     /** 搭档的微信 ilink_user_id（命令门禁） */
     partnerUserId?: string;
-    /** 静默多久（分钟）后发 context_token 预警（；同一静默期只提醒一次，cooldown 键退役） */
+    /** 静默多久（分钟）后发 context_token 预警（同一静默期只提醒一次，cooldown 键退役） */
     contextTokenWarnMinutes?: number;
   };
   im?: {

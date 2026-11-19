@@ -278,7 +278,7 @@ describe("执行状态端点（GET execution-machine / remote-actions）", () =>
     expect((await app.request("/api/conversations/c-1/remote-actions")).status).toBe(401);
   });
 
-  // minor1（检视遗留处置）：GET 404 口径对齐 PUT——不存在对话不再混作「默认 local」
+  // GET 404 口径对齐 PUT——不存在对话不再混作「默认 local」
   it("GET 两端点：不存在对话 → 404 conversation not found（对齐 PUT 口径）", async () => {
     const app = statusApp(null, [], async () => false);
     const cookie = await cookieOfApp(app);

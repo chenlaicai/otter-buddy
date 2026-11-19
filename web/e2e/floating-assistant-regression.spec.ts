@@ -56,7 +56,7 @@ test.describe('浮动獭交互回归（F20260928waf1）', () => {
   })
 
   test('P3：侧栏无「创建 web 助理对话」按钮（mock 空列表——防用例间首唤开户污染共享库）', async ({ page }) => {
-    // regex 而非 glob（检视 DS1）：Playwright glob 以 $ 锚定收尾，而 listConversations 实际流量
+    // regex 而非 glob：Playwright glob 以 $ 锚定收尾，而 listConversations 实际流量
     // 全带 query（有参 ?limit=500、无参也拼裸 ?），glob **/api/conversations 拦不到任何请求。
     // regex 覆盖零 query/带 query/裸 ?，同时排除 /:id/entries 子路径
     await page.route(/\/api\/conversations(\?.*)?$/, async route => {

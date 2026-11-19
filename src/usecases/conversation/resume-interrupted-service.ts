@@ -78,10 +78,10 @@ export class ResumeInterruptedService {
       remoteActions?: { listByConversation(conversationId: string, limit?: number): Promise<RemoteActionRequest[]> };
       /** 本进程 boot 纪元（认领绑定；测试可注入固定值） */
       bootEpoch?: number;
-      /** F20261117 检视轮 旧持有者 pid 死活探针（重认领预检；测试可注入 fake，
+      /** 旧持有者 pid 死活探针（重认领预检；测试可注入 fake，
        *  缺省 process.kill(pid, 0) 试探——ESRCH=死，EPERM=活着但权限不足） */
       isPidAlive?: (pid: number) => boolean;
-      /** F20261117 检视轮 认领进程 pid（写 claim_pid 供重认领预检；测试可注入） */
+      /** 认领进程 pid（写 claim_pid 供重认领预检；测试可注入） */
       pid?: number;
     },
   ) {
@@ -151,7 +151,7 @@ export class ResumeInterruptedService {
   /**
    * 单条 resume 的安全包装——捕获所有异常确保不崩循环。
    * 移植旧 resumeItemSafe 三分类语义（done/skipped/failed）。
-   * F20261117 检视轮 认领 token 在此生成并全程传递（并行恢复下不能走实例字段），
+   * 认领 token 在此生成并全程传递（并行恢复下不能走实例字段），
    * 持有者终态收口用 settleResumeHeld（token 校验）。
    */
   private async resumeItemSafe(item: ResumeQueueItem): Promise<"done" | "skipped" | "failed"> {
@@ -173,7 +173,7 @@ export class ResumeInterruptedService {
     }
   }
 
-  /** 持有校验 settle（F20261117 检视轮）：行被他人接管时 changes=0 不覆盖（交接管者
+  /** 持有校验 settle：行被他人接管时 changes=0 不覆盖（交接管者
    *  负责闭环）；写库失败仅日志（收尾异常不逃逸纪律）。 */
   private async settleHeld(invokeId: string, claimToken: string, status: "done" | "failed" | "exhausted"): Promise<void> {
     try {
@@ -186,7 +186,7 @@ export class ResumeInterruptedService {
     }
   }
 
-  /** F20261117 检视轮 pid 死活探针（缺省 process.kill(pid, 0) 试探）。 */
+  /** pid 死活探针（缺省 process.kill(pid, 0) 试探）。 */
   private checkPidAlive(pid: number): boolean {
     if (this.deps.isPidAlive) return this.deps.isPidAlive(pid);
     try {
@@ -217,7 +217,7 @@ export class ResumeInterruptedService {
     }
   }
 
-  /** F20261117 检视轮 旧持有者死活预检——旧纪元持有进程仍存活时不抢（防双跑）。
+  /** 旧持有者死活预检——旧纪元持有进程仍存活时不抢（防双跑）。
    *  CAS 互斥仍由 claimPendingResume 的 UPDATE 原子保证（预检只收紧旧纪元重认领准入）。 */
   private async isStaleHolderAlive(invokeId: string): Promise<boolean> {
     const holder = await this.deps.resumePendingRepo.getByInvokeId(invokeId).catch(() => null);
@@ -239,7 +239,7 @@ export class ResumeInterruptedService {
     // 与跨重启守卫撞车（「429 重试耗尽」用例 4 次调用只走了 3 次）。
     // 认领绑定 claim token + 本进程 boot 纪元——同 boot 内拒重认领，
     // 恢复者自身崩溃的旧纪元残留可被新开机重认领（attempts 继续累加，上限不放松）；
-    // F20261117 认领同时写 pid（供后续开机做死活预检）。
+    // 认领同时写 pid（供后续开机做死活预检）。
     const claimed = await this.deps.resumePendingRepo.claimPendingResume(item.invokeId, {
       token: claimToken,
       bootEpoch: this.bootEpoch,
@@ -259,7 +259,7 @@ export class ResumeInterruptedService {
       if (!sameBootClaimed) {
         await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
       } else {
-        // F20261117 检视轮 claim_token 值消费——跳过时记录持有者令牌前缀（可观测：排查谁持有）
+        // claim_token 值消费——跳过时记录持有者令牌前缀（可观测：排查谁持有）
         this.deps.logger.warn("claim rejected: same-boot holder exists", {
           invokeId: item.invokeId, holderTokenPrefix: row.claimToken?.slice(0, 8), holderBootEpoch: row.bootEpoch,
         });
@@ -381,7 +381,7 @@ export class ResumeInterruptedService {
   }
 
   /** 恢复轮 invoke 审计链追加（best-effort，失败仅日志）。
-   * F20261117 检视轮 改追加式——多次恢复全历史不丢（单槽覆盖消除）。 */
+   * 改追加式——多次恢复全历史不丢（单槽覆盖消除）。 */
   private async appendRecoveryInvokeSafe(item: ResumeQueueItem, capture: { invokeId?: string }): Promise<void> {
     if (!capture.invokeId) return;
     try {

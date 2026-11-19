@@ -487,7 +487,7 @@ it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢�
     expect(h.queueStatus(invokeId)).toBe("done");
   });
 
-  // ─── （/）：远程动作五态并入恢复摘要 ───
+  // ─── 远程动作五态并入恢复摘要 ───
 
   it("台账缺席 → 旧版文案（无摘要块）；认领绑定注入的 bootEpoch", async () => {
     const invokeId = await h.seedInterrupted();
@@ -505,7 +505,7 @@ it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢�
 
 });
 
-// ─── F20261117 检视轮修复（review minor-1/minor-2 + 未覆盖点）───
+// ─── 修复与未覆盖点 ───
 describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持 pending / 摘要超限显性标注 / 台账查询失败退化）", () => {
   let h: Harness;
 
@@ -571,7 +571,7 @@ describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持
   });
 });
 
-// ─── F20261117 检视轮可优化项 //（搭档裁决：可优化项做完整）───
+// ─── 可优化项（搭档裁决：做完整）───
 describe("ResumeInterruptedService 可优化项完整落地（S1 持有收口/S2 审计链追加/S3 旧持有者死活预检）", () => {
   let h: Harness;
 
@@ -657,7 +657,7 @@ describe("ResumeInterruptedService 可优化项完整落地（S1 持有收口/S2
   });
 });
 
-// ─── （/）：远程动作五态并入恢复摘要 ───
+// ─── 远程动作五态并入恢复摘要 ───
 describe("ResumeInterruptedService 远程动作摘要并入（C2/R2）", () => {
   let h: Harness;
 

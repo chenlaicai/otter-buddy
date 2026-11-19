@@ -103,11 +103,11 @@ export interface RhiScanResult {
   memoryIndexed: number;
   wakeupsTriggered: number;
   errors: string[];
-  /** 写入 health_snapshots 的指标行数（；未注入 sink 时为 0） */
+  /** 写入 health_snapshots 的指标行数（未注入 sink 时为 0） */
   metricsStored: number;
-  /** 写入 health_snapshots 的成本/产出行数（；未注入 costOutputSink 时为 0） */
+  /** 写入 health_snapshots 的成本/产出行数（未注入 costOutputSink 时为 0） */
   costOutputStored: number;
-  /** snapshot_shift 环比骤变信号数（；prevDayHealthIndexSource 未注入时恒为 0） */
+  /** snapshot_shift 环比骤变信号数（prevDayHealthIndexSource 未注入时恒为 0） */
   snapshotShiftCount: number;
 }
 

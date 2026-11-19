@@ -34,7 +34,7 @@ function fakeProjection(id: string, name?: string): ExecutionMachine {
 }
 
 /** 测试 harness：真 http server + gateway upgrade 挂载（对齐 main.ts 装配形态）。
- *  allowedOrigins：（6c）Origin 白名单注入——不传=空（fail-closed，对齐 app.ts 默认装配）。 */
+ *  allowedOrigins：Origin 白名单注入——不传=空（fail-closed，对齐 app.ts 默认装配）。 */
 async function startHub(db: Database.Database, now?: () => number, allowedOrigins?: string[]) {
   const repo = new SqliteConnectorRegistryRepository(db);
   const machines = new ExecutionMachineRegistry();

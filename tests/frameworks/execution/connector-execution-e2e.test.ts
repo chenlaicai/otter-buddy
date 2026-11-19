@@ -87,7 +87,7 @@ async function startE2E(db: Database.Database, opts: { actionTimeoutMs?: number 
 
 /** connector 侧 ws 客户端（真执行栈接线：action.request → dispatcher → 回帧） */
 async function connectConnector(url: string, runtime: Awaited<ReturnType<typeof buildConnectorRuntime>>): Promise<{ ws: WebSocket; sid: string }> {
-  // 6c：升级子协议 pin（对齐 connector/main.ts 真实客户端行为）
+  // 升级子协议 pin（对齐 connector/main.ts 真实客户端行为）
   const ws = new WebSocket(url, [CONNECTOR_WS_SUBPROTOCOL], { headers: { authorization: "Bearer tok-e2e" } });
   const sid = await new Promise<string>((resolve, reject) => {
     ws.once("open", () => {
@@ -275,7 +275,7 @@ describe("C2 执行通道端到端（六动作/幂等/断线收尾）", () => {
     hub.server.close();
   });
 
-  // ─── （/）：主动下线五步 + 旧 sid 晚到回执 + 总闸验收 ───
+  // ─── 主动下线五步 + 旧 sid 晚到回执 + 总闸验收 ───
 
   it("C3：主动优雅下线（offline 帧）在途落 interrupted + 下线后旧会话不能执行（issue 验收②）", async () => {
     const hub = await startE2E(db);

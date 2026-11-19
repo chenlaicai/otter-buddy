@@ -23,7 +23,7 @@ import { readFileSync, existsSync } from "node:fs";
 
 const ANCHOR_RE = /F20\d{6}[a-z0-9]{4}|#\d{3,}\b/g; // F+8位日期+4随机缀；issue 号不限位数（防年份到期静默失效）
 
-/** hex 色值假阳性修复——色值（/）与 issue 号（/）结构同形，
+/** hex 色值假阳性修复——色值与 issue 号结构同形，
  * 只能靠上下文判别：色值总伴随 CSS 语境词出现在匹配点之前（solid / 底 / 色块 ）。
  * 判别器宁漏放不误拦：漏放（真 issue 号恰好前文有 CSS 词）由白名单兑底，误拦（合法色值被拦）
  * 直接阻塞合法 commit（提交现场：词典色值 被拦三道）。 */

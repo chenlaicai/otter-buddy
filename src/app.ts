@@ -817,7 +817,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         currentId: () => executionMachines.currentMachineId(),
         // + /（检视）：设备全量状态收口 repo（含离线设备）
         deviceStatus: async () => connectorRepo.listDeviceOnlineStatus(),
-        // minor1（检视遗留处置）：GET 404 口径对齐 PUT（不存在对话显式 404，不再混作「默认 local」）
+        // GET 404 口径对齐 PUT（不存在对话显式 404，不再混作「默认 local」）
         conversationExists: async (conversationId) => (await repos.conversation.getById(conversationId)) !== null,
         // 对话当前机 + 远程动作状态
         getConversationMachine: (conversationId) => repos.conversation.getExecutionMachineId(conversationId),

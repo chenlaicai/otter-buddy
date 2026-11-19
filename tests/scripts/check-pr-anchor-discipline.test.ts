@@ -99,6 +99,16 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(collectAnchorViolations("Delta D1 回归锚").some((x) => x.kind === "轮次编号" && x.token === "Delta D1")).toBe(true);
   });
 
+  it("检视语境的小写 sN / minorN / 日期型检视轮命中，变量名与索牌区间不误伤", () => {
+    expect(collectAnchorViolations("检视 s2 处置").some((x) => x.kind === "轮次编号" && x.token === "检视 s2")).toBe(true);
+    expect(collectAnchorViolations("s2（检视遗留处置）").some((x) => x.kind === "轮次编号" && x.token === "s2")).toBe(true);
+    expect(collectAnchorViolations("minor1（检视遗留处置）").some((x) => x.kind === "轮次编号" && x.token === "minor1")).toBe(true);
+    expect(collectAnchorViolations("F20261117 检视轮 补 pid").some((x) => x.kind === "轮次编号" && x.token === "F20261117 检视轮")).toBe(true);
+    expect(collectAnchorViolations("s1 已归口，s2 修复中").some((x) => x.token === "s1")).toBe(false);
+    expect(collectAnchorViolations("字牌花色数；34 种类索引：m0-8 p9-17 s18-26 z27-33").some((x) => x.token === "s18")).toBe(false);
+    expect(collectAnchorViolations("首拉最新 2 条（m2/m3），r-old 诞生于 m1 之前（窗口外）").some((x) => x.kind === "文档编号" && x.token === "m1")).toBe(false);
+  });
+
   it("BC 纸/信封规格不误删，检查项号删除", () => {
     expect(collectAnchorViolations("B4 纸张与 B5 纸，C4 纸与 C5 信封")).toEqual([]);
     expect(collectAnchorViolations("B9 抽样，C4：UI 徽章数据源").map((x) => x.token).sort()).toEqual(["B9", "C4"]);

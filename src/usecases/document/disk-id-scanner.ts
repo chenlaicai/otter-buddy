@@ -18,7 +18,7 @@ import { parseFrontmatterFromContent } from "@usecases/document/frontmatter-pars
 import { FID_DATE_SEGMENT, FID_READ_SUFFIX_SEGMENT } from "@entities/document/fid-format";
 
 /** 文件名提 ID：-xxx.md / -xxx.md / .md
- * ID 段口径同 fid-format.ts 单一真相源（；旧副本 {3,8} 比契约窄，已对齐；
+ * ID 段口径同 fid-format.ts 单一真相源（旧副本 {3,8} 比契约窄，已对齐；
  *  下限 4 系实查最短后缀，见真相源头注释）*/
 const ID_FROM_FILENAME = new RegExp(`^([FR]${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT})(?:[-.]|$)`);
 

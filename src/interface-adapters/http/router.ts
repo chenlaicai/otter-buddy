@@ -331,7 +331,7 @@ function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptio
   }
 
   // 对话当前执行机 + 远程动作状态（执行状态展示）。
-  //  minor1（检视遗留处置）：GET 404 口径对齐 PUT——不存在对话显式 404「conversation not found」。
+  //  GET 404 口径对齐 PUT——不存在对话显式 404「conversation not found」。
   if (plumbing?.executionMachines?.getConversationMachine) {
     app.get("/api/conversations/:id/execution-machine", async (ctx) => {
       const conversationId = ctx.req.param("id");

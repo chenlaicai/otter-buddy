@@ -245,7 +245,7 @@ export class WeixinPollingChannel {
   }
 
   /**
-   * context_token 过期预警检查（；改为每静默期一次）。
+   * context_token 过期预警检查（改为每静默期一次）。
    * 逐用户独立 try/catch：一个用户失败不阻断其他用户。
    * 发送失败记 error 日志 + warnedAt 止损不重试（ret=-2 = token 已死，重试必败）。
    */

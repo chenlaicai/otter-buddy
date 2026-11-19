@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-# F1 修复（检视獭-boot 对抗审视）：fail-close 防线。
+# fail-close 防线。
 # vitest.config.ts 的 passWithNoTests: true 使硬编码测试路径被移动/改名/删除时
 # vitest 静默返回 EXIT=0（冒烟门 fail-open 失效）——门槛自身必须有失效检测。
 SMOKE_TEST="tests/app/build-app.test.ts"

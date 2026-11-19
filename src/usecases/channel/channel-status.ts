@@ -40,7 +40,7 @@ export interface ChannelStatusEntry {
   kind: ChannelKind;
   state: ChannelRuntimeState;
   account?: { id: string; nickname?: string };
-  /** 掩码后的飞书 app_id（；形如 cli_a****z9k2，仅展示用） */
+  /** 掩码后的飞书 app_id（形如 cli_a****z9k2，仅展示用） */
   appIdMasked?: string;
   /** 飞书自建应用 applink 分享链（扫码/点击直达机器人会话；
    *  已添加好友则直接打开对话，未添加则展示添加卡片——“扫码即用”体验） */
