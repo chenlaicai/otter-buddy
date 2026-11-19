@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * issue 认领 commit 闸（F20261119claim）：commit message 引用 #N 时，检查 issue #N
+ * issue 认领 commit 闸（本特性，文档见 docs/features/2026/11/19/）：commit message
+ * 引用 issue 号时核验其 otter-claim 认领
  * 的 otter-claim 认领——本 worktree 已认领才放行；未认领拒绝并提示认领命令。
  *
  * 设计取舍：
@@ -13,7 +14,7 @@
  *  - marker 必须落在 git rev-parse --absolute-git-dir（worktree 私有 git-dir），
  *    不可取其父目录——.git/worktrees/ 是全部 linked worktree 共享目录，父目录级
  *    marker 会让他线静默继承核验结果（kimi检视獭-1954 BLOCK-2 实盘复现）。
- *  - issue 提取用 commit 侧语义（首行尾注 + closes 族，body 裸 #N 叙述不计）——
+ *  - issue 提取用 commit 侧语义（首行尾注 + closes 族，body 裸井号引用叙述不计）——
  *    与 CI 闸同正则源（check-pr-claim.mjs 单一真相源）。
  *  - 网络/查询失败 fail-open（本地开发不被 GitHub 故障卡死），CI 闸兜底拦截。
  *  - 无 issue 引用的 commit 不查（非 issue 驱动改动不适用认领协议）

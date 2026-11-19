@@ -3,7 +3,7 @@
  *
  * 覆盖谓词正反路径：无 issue 引用放行 / docs-only 豁免 / 无认领红 / 认领匹配绿 /
  * 他线认领（F-ID 不匹配）红 / release 撤销后无认领红 / 非 OPEN 跳过——以及
- * #1899 双呈实证形态（引用了 issue 但全程零认领评论 → 必须红）的回归。
+ * 跨对话双呈实证形态（引用了 issue 但全程零认领评论 → 必须红）的回归。
  */
 import { describe, it, expect } from "vitest";
 import { checkClaim, extractIssueNumbers, featureId, parseClaims } from "../../scripts/check-pr-claim.mjs";

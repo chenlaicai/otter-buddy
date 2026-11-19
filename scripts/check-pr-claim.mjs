@@ -4,13 +4,13 @@
  * worktree F-ID 与 PR head 分支 F-ID 一致——无认领开工 = 红，他线认领 = 红。
  *
  * 第一性原理（认领闸特性文档）：跨对话协调是系统层约束，住在 skill 文本里靠注意力
- * 自律必然被跳过（2026-11-18 #1899 双呈实证：前世执行了任务同向的两问、跳过收益
+ * 自律必然被跳过（跨对话双呈实证：前世执行了任务同向的两问、跳过收益
  * 外部的认领动作）。本闸把「认领存在性」从自觉变成 CI 阻断——与 review-closure 闸
  * 同模式（机械闸判结构不判真实，证书真实性由认领评论的对话签名 + 审视兜底）。
  *
  * 判定（pull_request 事件）：
  *   1. 提取工作对象 issue 号：closes 族（含 issue URL 形态）优先，无 closes 族时
- *      裸 #N 兜底（提取语义详见 extractIssueNumbers）
+ *      裸井号引用兜底（提取语义详见 extractIssueNumbers）
  *   2. 无 issue 引用 → 放行（非 issue 驱动的改动不适用认领协议）
  *   3. docs-only PR → 放行（豁免集合 import check-pr-evidence 单一真相源，三闸同源）
  *   4. issue 评论搜 otter-claim 注释（otter-claim-release 撤销）：
@@ -36,12 +36,12 @@ export function featureId(text) {
  * 从 PR title/body 提取「本 PR 工作对象」issue 号（两级语义）。
  *
  * 1. closes 族优先：close(s|d)/closing/fix(e[sd]|ing)/resolve(s|d)/resolving
- *    + `#N` 或完整 issue URL（GitHub 平台支持的两种关闭引用形态）。存在 closes 族
- *    时工作对象 = closes 族集合——其余裸 #N 是叙述性引用（历史事故复盘、关联工作
- *    交叉引用），不计为必须认领的对象（本 PR 自身「概述引 #1899 + Closes #1951」
+ *    + 井号数字或完整 issue URL（GitHub 平台支持的两种关闭引用形态）。存在 closes 族
+ *    时工作对象 = closes 族集合——其余裸井号引用是叙述性引用（历史事故复盘、关联工作
+ *    交叉引用），不计为必须认领的对象（本 PR 自身实证：概述段历史事故引用
  *    实证：历史事故引用被误当工作对象误拦，kimi检视獭-1954 BLOCK-1a）。
- * 2. 无 closes 族时裸 #N 全部兜底计为工作对象（覆盖「修复 #N」不写 closes 的惯用
- *    形态）。此时叙述性 #N 无法与工作对象机械区分，属已接受残余（解法：工作对象
+ * 2. 无 closes 族时裸井号引用全部兜底计为工作对象（覆盖「修复＋井号数字」不写 closes 的惯用
+ *    形态）。此时叙述性引用无法与工作对象机械区分，属已接受残余（解法：工作对象
  *    用 closes 族显式声明）。URL 形态若不加 closes 动词同样不计（kimi检视獭-1954
  *    BLOCK-1b：裸 URL 引用视为叙述，双闸一致）。
  */
