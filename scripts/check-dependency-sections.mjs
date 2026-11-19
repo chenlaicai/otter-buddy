@@ -12,8 +12,8 @@
  * 不同（1.63.0 / 1.65.0），谁生效取决于 npm 的解析心情。
  *
  * 两条断言（都要过）：
- *   1. 分区互斥——同一包名不得同时出现在 dependencies / devDependencies /
- *      optionalDependencies 中（peerDependencies 是合法叠加，不参与）。
+ *   1. 分区互斥——同一包名不得同时出现在 dependencies 与 devDependencies
+ *      （optionalDependencies / peerDependencies 的叠加是 npm 认可的合法写法，不参与）。
  *   2. 生产可安装提示——dependencies 的包在 package-lock.json 中带 `dev: true` 时给
  *      **警告**（不是错误）：这一层是启发式，遇到手改过的 lock 会误报；真正的红由断言 1 出。
  *
@@ -26,20 +26,17 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /**
- * 参与互斥判定的分区。
+ * 参与互斥判定的分区——只有这两个。
  *
- * peerDependencies 刻意不在其中：npm 明确允许同一个包同时出现在 peerDependencies 与
- * devDependencies（「我既是别人的 peer，也自己开发时要装」是合法且常见的写法），
- * 把它算进互斥会误伤真实仓库。
+ * 互斥的判据不是「同一个包出现两次」而是「出现两次会不会让生产安装少装东西」：
+ *   - dependencies + devDependencies：**会**。npm 以 dev 那份为准，`--omit=dev` 直接跳过，
+ *     而代码照样 import → 生产启动崩。这是本闸要防的唯一一类真故障。
+ *   - dependencies + optionalDependencies：不会。npm 认可这种「优先按可选装」的写法，
+ *     包仍会被安装，装不上也只是降级；不算冲突。
+ *   - peerDependencies 参与任何叠加：不会。peer 是「对宿主环境的期望」这根独立的轴，
+ *     peer + dev 是常见合法写法。
  */
-export const DEPENDENCY_SECTIONS = [
-  "dependencies",
-  "devDependencies",
-  "optionalDependencies",
-];
-
-/** 声明了但仍单独提示的区（不参与互斥，仅用于报告里区分「合法叠加」与「真冲突」）。 */
-export const NON_CONFLICTING_SECTION = "peerDependencies";
+export const DEPENDENCY_SECTIONS = ["dependencies", "devDependencies"];
 
 /**
  * 断言 1：分区互斥。
@@ -165,9 +162,8 @@ function main() {
   if (result.devFlagged.length > 0) console.warn(formatViolations(result));
   const depCount = Object.keys(pkg?.dependencies ?? {}).length;
   const devCount = Object.keys(pkg?.devDependencies ?? {}).length;
-  const optCount = Object.keys(pkg?.optionalDependencies ?? {}).length;
   console.log(
-    `✅ 依赖分区唯一：dependencies ${depCount} 个、devDependencies ${devCount} 个、optional ${optCount} 个，三区零重叠（peer 可合法叠加）`,
+    `✅ 依赖分区唯一：dependencies ${depCount} 个、devDependencies ${devCount} 个，两区零重叠（optional / peer 的叠加是 npm 合法写法）`,
   );
   return 0;
 }

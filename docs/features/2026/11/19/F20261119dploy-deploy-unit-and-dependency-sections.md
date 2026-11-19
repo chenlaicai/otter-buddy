@@ -22,7 +22,7 @@ intent:
     type: behavior_check
     evidence:
       - "反向验证：把 hono 加回 devDependencies → `node scripts/check-dependency-sections.mjs` exit 1 并报「hono → dependencies + devDependencies」；复原 exit 0"
-      - "单测 tests/scripts/check-dependency-sections.test.ts 14 条全绿（分区互斥、三区同列、缺失分区容错、lock dev 标记、devDependencies 带 dev 标记不误报、CLI exit 0/1/2）"
+      - "单测 tests/scripts/check-dependency-sections.test.ts 19 条全绿（分区互斥、真冲突两区、optional / peer 叠加豁免、缺失分区容错、lock dev 标记降级为警告、CLI exit 0/1/2、提示走 stderr）"
       - "package-lock.json 由 npm --package-lock-only 重算：hono / @hono/node-server 的 \"dev\": true 标记消失（omit=dev 会装上），playwright 1.63.0 从 dependencies 移除"
       - "线上实证（2026-11-19 ECS）：修前 npm ci --omit=dev 后启动报 Cannot find package 'hono'；补包装上后 /api/ping 200；本次脚本第二段上线后 /opt/colink-agent-app 由 0.6.0 变 0.6.1，公网 manifest 亦为 0.6.1"
       - "deploy.sh 语法自检 bash -n 通过；备份保留最近 3 份（ls -1dt | tail -n +4 | xargs rm -rf）"
@@ -71,8 +71,8 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'hono' imported from
 
 | 面 | 改动 |
 | --- | --- |
-| 依赖声明 | `hono` / `@hono/node-server` 只留 `dependencies`；`playwright` 只留 `devDependencies`（实证：全仓唯一引用在 `scripts/game/*.mjs`，纯开发工具；版本冲突 1.63.0 vs 1.65.0 一并消除） |
-| 机械闸 | 新增 `scripts/check-dependency-sections.mjs`：① 分区互斥——`dependencies` / `devDependencies` / `optionalDependencies` 三者不得重叠（`peerDependencies` 刻意排除：npm 明确允许 peer + dev 同时声明，算进去会误伤真实仓库）② `dependencies` 的包在 lock 中带 `dev: true` 时给**警告**（启发式，不阻断；真正的红由断言 ① 出）。挂进 CI `check` 段（分支保护 required 上下文） |
+| 依赖声明 | `hono` / `@hono/node-server` 只留 `dependencies`；`playwright` 只留 `devDependencies`（`src/` 零引用；引用点全在开发侧：`scripts/game/*.mjs` 截图工具、`tests/web-mahjong/*`、`web/e2e/*`；顺带消除 1.63.0 vs 1.65.0 的版本冲突） |
+| 机械闸 | 新增 `scripts/check-dependency-sections.mjs`：① 分区互斥——**只有** `dependencies` 与 `devDependencies` 不得重叠（判据是「叠加会不会让生产少装东西」：`optionalDependencies` 叠加是 npm 认可的「优先按可选装」，包仍会装；`peerDependencies` 是独立的期望轴，两种叠加都不算冲突）② `dependencies` 的包在 lock 里带 `dev: true` 时给**警告**（启发式，不阻断；红只由断言 ① 出）。挂进 CI `check` 段（分支保护 required 上下文） |
 | 部署 | `deploy.sh` 扩成两段式：第一段中枢（原逻辑 + 打包排除 `._*`/`.DS_Store` + 依赖闭包校验 + `npm ci` 失败时按 lock 就地安装兜底），第二段把中枢里的扩展目录同步到 `/opt/colink-agent-app`（**排除 node_modules**）、留备份（保留最近 3 份）、就地装生产依赖、校验依赖闭包、重启 `colink-agent-app`，并用**JSON 解析出的 manifest 版本 == 源清单版本**作为成功判据 |
 | 文档 | `deploy/ecs/README.md` 补双 unit 部署、备份回滚、依赖分区红线 |
 
@@ -80,9 +80,10 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'hono' imported from
 
 - **为什么用「分区互斥」而不是「显式白名单」**：白名单会随依赖变化腐化，且拦不住新引入的
   重复声明；互斥是结构不变量，零维护。
-- **为什么第二道断言要读 lock**：光看 `package.json` 不够——lock 里的 `dev: true` 才是
-  npm 的实际判定依据（本次 hono 在 lock 里正是 `dev: true`）。断言放在 lock 层，等价于断言
-  「生产安装会不会装到它」。
+- **为什么 lock 的 `dev: true` 只做警告**：它能提示「生产安装可能跳过这个包」（本次 hono 在
+  lock 里正是 `dev: true`），但它是启发式——手改过的 lock、历史遗留标记会误报，最小 fixture 里
+  出现过「闸报错而 `npm ci --omit=dev` 实际装得上」的反例。红必须由结构不变量（分区互斥）来出，
+  启发式只提示，交给看日志的人判断。
 - **为什么部署判据用「服务的 manifest 版本 == 源清单版本」**：不关心进程怎么起、日志说什么，
   只认实际对外声明的版本。这一条把「我以为发上去了」变成可观测事实。解析必须走 JSON——
   manifest 是一行 JSON，行内贪婪正则会把 `extensionPoint.version`（1.0.0）当成 App 版本，
@@ -96,9 +97,25 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'hono' imported from
   源在该网络下 302 失败（云端本就走 `OTTER_EMBEDDING=off`）。脚本先试 `npm ci`（可复现），
   失败时退回「按 lock 就地安装 + 跳过安装脚本」——就地安装不重建已装的 native 模块
   （better-sqlite3 等），比让 `npm ci` 半途留下残缺 node_modules 安全。
-- **不做的事**：不改 `npm ci` 为 `npm install`（后者会重算依赖树，破坏可复现性）；不为
-  `onnxruntime-node` 的 postinstall 网络失败加绕过（本次已用 `--ignore-scripts` 现场脱困，
-  但那是部署环境网络问题，另案跟踪）。
+- **不做的事**：不把 `npm ci` 整体换成 `npm install`（后者会重算依赖树、破坏可复现性）——
+  只在 `npm ci` 失败时**回退**到「按 lock 就地安装 + 跳过安装脚本」。这是有意为之的兜底：
+  这台机的 `onnxruntime-node` postinstall 要下载二进制且源不可达，若让部署卡在这一步，
+  整条发布通道就断了；就地安装不重建已装 native 模块，风险面小于让 `npm ci` 半途留下残缺
+  node_modules。可复现性缺口记在遗留里，不当作已解决。
+
+## 半部署语义（两段式部署的失败面）
+
+两段之间有四种状态，脚本只把「两段判据都过」当成功，其余都算失败，但**失败时现场可能已经变了一半**：
+
+| 状态 | 现象 | 处置 |
+| --- | --- | --- |
+| 中枢磁盘已换装、进程未重启 | `/api/ping` 探活超时，但 `/opt/otter-buddy` 内容已是新树 | 手工 `systemctl restart otter-buddy`；仍起不来按 Rollback 检上一版重跑 |
+| 中枢已重启、依赖残缺 | 进程反复 `ERR_MODULE_NOT_FOUND`（本轮真实故障） | 依赖闭包校验会先拦住；漏网时按 lock 就地安装后重启 |
+| App 磁盘已同步、进程仍是旧版 | `manifest.json` 版本与源清单不符 | 备份目录可直接回灌；或 `systemctl restart colink-agent-app` |
+| App 重启失败 | unit 处于 activating/failed，端口不通 | `journalctl -u colink-agent-app` 看首行错误；按 Rollback 回灌备份 |
+
+判据的位置选择：**只看「实际对外声明的版本」**，不看日志叙事——因为「磁盘更新了」不等于
+「进程在用新代码」，而只有后者对线上行为有意义。
 
 ## 遗留（不在本 PR 范围）
 

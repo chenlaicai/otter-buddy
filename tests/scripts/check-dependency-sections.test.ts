@@ -60,14 +60,22 @@ describe("分区互斥", () => {
     expect(findSectionDuplicates(pkg)).toEqual([]);
   });
 
-  it("三区同列只报一条、区序稳定", () => {
+  it("dependencies + optionalDependencies 是 npm 合法写法（包仍会装），不报", () => {
+    const pkg = {
+      dependencies: { hono: "^4.13.18" },
+      optionalDependencies: { hono: "^4.13.18" },
+    };
+    expect(findSectionDuplicates(pkg)).toEqual([]);
+  });
+
+  it("dependencies + devDependencies + optional 同列 → 只报真正的冲突两区", () => {
     const pkg = {
       dependencies: { dup: "1.0.0" },
       devDependencies: { dup: "1.0.0" },
       optionalDependencies: { dup: "1.0.0" },
     };
     expect(findSectionDuplicates(pkg)).toEqual([
-      { name: "dup", sections: ["dependencies", "devDependencies", "optionalDependencies"] },
+      { name: "dup", sections: ["dependencies", "devDependencies"] },
     ]);
   });
 
@@ -92,8 +100,8 @@ describe("分区互斥", () => {
     expect(findSectionDuplicates({ dependencies: null as unknown as Record<string, string> })).toEqual([]);
   });
 
-  it("参与互斥的分区集合固定为三个（peer 不在其中，避免误伤合法叠加）", () => {
-    expect(DEPENDENCY_SECTIONS).toEqual(["dependencies", "devDependencies", "optionalDependencies"]);
+  it("参与互斥的分区集合固定为两个（只有 dev 会吞掉生产安装）", () => {
+    expect(DEPENDENCY_SECTIONS).toEqual(["dependencies", "devDependencies"]);
   });
 });
 
