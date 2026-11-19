@@ -29,6 +29,7 @@ category: technique
 
 1. **验证环境**：`git rev-parse --show-toplevel` + `pwd`，确认是否已在 `.otter/worktrees/` 下。已在则跳到 step 2。
 2. **认领协议（防跨对话撞车）**：任务对应 GitHub issue 编号时，创建 worktree 前必须执行——多条对话线（定时任务/手动对话/派工）可能同时盯上同一 issue（撞车实证）。
+   **双机械闸兜底（认领闸，本 skill 不再单独担约束）**：commit-msg 侧闸（`scripts/commit-msg-claim-gate.mjs`，message 引用 #N 时核验认领，未认领拒绝 commit）+ CI 前闸（`scripts/check-pr-claim.mjs`，PR 引用 issue 须有认领且 worktree F-ID 与分支 F-ID 一致）——跳过认领会被物理拦截（纯文本协议对协调类弱约束必然被跳过——注意力按任务相关性排序是模型固有属性，双对话重复呈报事故实证）。本步骤文本提供引导与仲裁规则：认领评论的 `worktree=` 字段必须含 F-ID（与分支一致，闸的核验对象）；回读退场、双 PR 仲裁、接手预检、接管协议仍按本文本执行。
    - **开工三问**（按序检查，任一命中即停手核实）：
      1. 认领检查：`gh issue view <N> --json comments` 搜 `otter-claim` 标记——已有他人认领且无 release → 换目标，不抢
      2. 在途 PR：`gh pr list --state open --search "<N>"`——已有 open PR 引用该 issue → 换目标
