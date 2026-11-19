@@ -84,23 +84,30 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
   const afterOrphan = orphanStart >= 0 ? content.slice(orphanStart) : "";
   const sectionEndMatch = afterOrphan.match(/\n#{1,3}\s|\n\*\*[^*]*清单|\n今日勾选清单/);
   const orphanSection = sectionEndMatch ? afterOrphan.slice(0, sectionEndMatch.index) : afterOrphan;
+  const beforeOrphan = orphanStart >= 0 ? content.slice(0, orphanStart) : content;
+  // 段外正文（普通清单所在面）：孤儿段之前 + 段结束之后
+  const outsideOrphan = beforeOrphan + (sectionEndMatch ? afterOrphan.slice(sectionEndMatch.index) : "");
   const orphan1 = orphanSection.includes("#1801");
   const orphan2 = orphanSection.includes("#1802");
   const orphanIdx = orphanStart;
   const firstChecklistIdx = Math.min(
-    ...[content.indexOf("#1806"), content.indexOf("#1807")].filter((i) => i >= 0),
+    ...[outsideOrphan.indexOf("#1806"), outsideOrphan.indexOf("#1807")].filter((i) => i >= 0),
   );
   const orphanFirst = orphanIdx !== -1 && Number.isFinite(firstChecklistIdx) && orphanIdx < firstChecklistIdx;
-  // 在途/搁置判据：清单行（管道分隔「#N 标题 | 分类 | 建议」格式）不得含在途/搁置编号。
-  // 终核发现假阳性：旧实现整行剥离「在途…忽略」行——编号若借该行进正文即漏检；
-  // 改为直接判管道清单行（清单格式是 prompt 写死的），叙述性提及不算违规。
-  const checklistLines = content.split("\n").filter((l) => l.includes("|"));
-  const noInflight = !checklistLines.some((l) => l.includes("#1803") || l.includes("#1804"));
+  // 在途/搁置判据（终核二轮）：逐出现行判——含在途编号的每行都必须自证合法身份
+  // （同行同时含「在途」与「忽略」），含搁置编号的每行必须含「拍板搁置/别管」。
+  // 不再依赖管道格式——无「|」的清单条目同样受判（终核实证：管道判据被无管道形态绕过）。
+  const lines = content.split("\n");
+  const noInflight = !lines.some(
+    (l) => (l.includes("#1803") || l.includes("#1804")) && !(/在途/.test(l) && /忽略/.test(l)),
+  );
   const hasInflightTail = /在途\s*\d+\s*条（忽略）|在途[^\n]*忽略/.test(content);
-  const noShelved = !checklistLines.some((l) => l.includes("#1805"));
+  const noShelved = !lines.some((l) => l.includes("#1805") && !/拍板搁置|别管/.test(l));
   const hasShelvedCount = /拍板搁置/.test(content);
-  const hasWaiting = content.includes("#1806") && /等输入/.test(content);
-  const hasFresh = content.includes("#1807");
+  // #1806/#1807 必须在段外普通清单（终核二轮实证：#1806 只错列孤儿段曾蒙混）
+  const waitingLine = outsideOrphan.split("\n").find((l) => l.includes("#1806"));
+  const hasWaiting = waitingLine !== undefined && /等输入/.test(waitingLine);
+  const hasFresh = outsideOrphan.includes("#1807");
 
   const ok =
     hasOrphanSection && orphan1 && orphan2 && orphanFirst &&
@@ -186,6 +193,35 @@ const BAD_INFLIGHT_WITH_TAIL = `净增熔断：open 7 | 昨日新增 1 / 关闭 
 在途 2 条（忽略）
 拍板搁置 1 条`;
 
+const BAD_NOPIPE_INFLIGHT = `净增熔断：open 7 | 昨日新增 1 / 关闭 0 | 状态：正常
+
+## 孤儿检出（第一职责）
+- #1801 [scheduler] 定时任务重复触发 | 挂龄 9 天 | 已认领 | 停滞——建议拍去留
+- #1802 [memory] 检索偶发空结果 | 挂龄 11 天 | 无认领——建议拍去留
+
+## 今日勾选清单
+- #1803 [ui] 卡片闪烁——明确闪烁回归，建议今日开工
+- #1804 [db] 迁移脚本幂等——小件，建议今日开工
+- #1805 [eval] 评测机制去留——挂龄 12 天，建议本周处理
+- #1806 [memory] 排序口径确认 | 等输入 | 等搭档回复
+- #1807 [healing] guard 拦截异常率升高 | actionable | 建议今日开工
+
+在途 2 条（忽略）
+拍板搁置 1 条`;
+
+const BAD_WAITING_IN_ORPHAN_SECTION = `净增熔断：open 7 | 昨日新增 1 / 关闭 0 | 状态：正常
+
+## 孤儿检出（第一职责）
+- #1801 [scheduler] 定时任务重复触发 | 挂龄 9 天 | 已认领 | 停滞——建议拍去留
+- #1802 [memory] 检索偶发空结果 | 挂龄 11 天 | 无认领——建议拍去留
+- #1806 [memory] 排序口径确认 | 挂龄 6 天 | 等输入——误判孤儿，建议拍去留
+
+## 今日勾选清单
+- #1807 [healing] guard 拦截异常率升高 | actionable | 建议今日开工
+
+在途 2 条（忽略）
+拍板搁置 1 条`;
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -225,6 +261,22 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u5", 1, FIXTURE_INPUT, "user"),
         msg("st-o5", 2, BAD_INFLIGHT_WITH_TAIL),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 5（终核二轮实证）：无「|」的清单条目列在途/搁置单——管道格式判据被绕过
+      messages: [
+        msg("st-u6", 1, FIXTURE_INPUT, "user"),
+        msg("st-o6", 2, BAD_NOPIPE_INFLIGHT),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 6（终核二轮实证）：#1806 被误列孤儿段、普通清单缺席——等输入类判孤儿失守
+      messages: [
+        msg("st-u7", 1, FIXTURE_INPUT, "user"),
+        msg("st-o7", 2, BAD_WAITING_IN_ORPHAN_SECTION),
       ],
       expectedOk: false,
     },

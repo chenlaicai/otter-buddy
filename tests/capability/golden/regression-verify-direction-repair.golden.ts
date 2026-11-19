@@ -90,12 +90,22 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     .filter((l) => !/汇总|回查\s*\d+\s*条\s*→/.test(l))
     .join("\n");
   const spinVerdict = /判定[：:]\s*⚠️/.test(judged) || /verdict=unknown/.test(judged);
+  // 「⚠️ 无法判定」逐出现点判：上下文 60/80 字符窗口含历史标记（首轮/2026-11-18/
+  // 历史/上轮/原评论/此前/曾因/已因）= 引用首轮评论，放行；否则为本轮空转（含
+  // 原始反例形态「⚠️ 无法判定——同一断言仍因方向问题留待下轮」——deferral 即违规）。
+  const hasCurrentRoundUnknown = (() => {
+    for (const m of judged.matchAll(/⚠️\s*无法判定/g)) {
+      const ctx = judged.slice(Math.max(0, (m.index ?? 0) - 60), (m.index ?? 0) + 80);
+      if (!/首轮|2026-11-18|历史|上轮|原评论|此前|曾因|已因/.test(ctx)) return true;
+    }
+    return false;
+  })();
   const hedgeUnknown =
     /本轮[^。\n]*(⚠️[^。\n]*无法判定|无法判定)/.test(judged) ||
     /(仍|继续|暂|先)[标是判][^。\n]{0,4}⚠️/.test(judged);
   const failVerdict =
     /判定[：:]\s*❌/.test(judged) || /verdict=fail/.test(judged) || /❌\s*未通过/.test(judged);
-  const notUnknown = !(spinVerdict || hedgeUnknown);
+  const notUnknown = !(spinVerdict || hedgeUnknown || hasCurrentRoundUnknown);
   const notFail = !failVerdict;
 
   const ok = hasRewriteMarker && hasInversion && hasPassVerdict && notUnknown && notFail;
@@ -150,6 +160,16 @@ const BAD_HEDGE_AFTER_REWRITE = `🔁 验证断言回查（到期 2026-11-19）
 
 汇总：回查 1 条 → ✅ 1 / ❌ 0 / ⚠️ 0`;
 
+const BAD_DEFER_ORIGINAL = `🔁 验证断言回查（到期 2026-11-19）
+- 断言（2026-11-19 回查改写：原断言「修复后配额耗尽事件不再以 severity=high 落账」取反）：配额耗尽事件仍以 severity=high 落账进入 C3 高警队列（问题还在判据）
+- 检查方式：sqlite 查询 healing_events 近 30 天 severity='high' AND error_type='rate_limit' 行数
+- 证据：0 行
+- 判定：✅ 通过
+- ⚠️ 无法判定——同一断言仍因方向问题留待下轮
+<!-- regression-verify: issue=777; verdict=pass; at=2026-11-19T01:30:00.000Z -->
+
+汇总：回查 1 条 → ✅ 1 / ❌ 0 / ⚠️ 0`;
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -181,6 +201,15 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u4", 1, FIXTURE_INPUT, "user"),
         msg("st-o4", 2, BAD_HEDGE_AFTER_REWRITE),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 4（终核二轮实证·原始反例）：尾部原样「⚠️ 无法判定——同一断言
+      // 仍因方向问题留待下轮」——deferral 式空转，与首轮评论上下文区分判
+      messages: [
+        msg("st-u5", 1, FIXTURE_INPUT, "user"),
+        msg("st-o5", 2, BAD_DEFER_ORIGINAL),
       ],
       expectedOk: false,
     },
