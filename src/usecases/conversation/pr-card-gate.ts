@@ -28,18 +28,22 @@
 const PR_REFERENCE_RE = /#\d{3,}|github\.com\/[^\s)]+\/pull\/\d+/;
 
 /** 中文否定前缀：与请求措辞就近组合出现时该请求词不算请求。
- *  双字/多字否定词（不是/不用/不需要……）整词入表；含「不」的前缀统一加后行断言
- *  (?<![要若或])——「要不X」「要不要X」「若不X」「或不X」是建议/疑问语气词组不是否定
- *  （「要不请你拍板」是真实请求，两轮对抗实证双向边界：穷举短语不可收敛，
- *  收敛的是前缀词表 + 语气词组保护）。请求词与否定词之间隔实义字
- *  （「不阻塞，可以合入」）不构成否定——肯定语义保留。 */
+ *  架构收窄（三轮对抗实证，同族先例：通用语义建模不可收敛则收窄为可证明模板）：
+ *  - 只收**双字及以上否定词**——「不」单字删除：它是全部语气歧义的根源
+ *    （要不/何不/不得不/不能不 X 都是真实请求，「若不需要/或不用」又是否定），
+ *    语气断言特例打不收敛（三轮实证）；删它之后这些形态全部自然正确。
+ *    代价：「不可以合入/不要拍板吧」类单字否定漏拦——按宁漏勿误接受（yield 语境下
+ *    补一张阻塞说明卡也是合理呈递形态，见特性文档已知边界）。
+ *  - 请求词与否定词之间允许 0-2 字封闭集副词（再/先/都/也/就/还/且/而）——
+ *    「无需再等你拍板」「没必要先请你拍板」等副词间隙形态。
+ *  - 隔实义字（「不阻塞，可以合入」）不构成否定——肯定语义保留。 */
 const NEGATION_PREFIXES = [
   "不是", "并非", "没有", "无需", "无须", "不用", "不需要", "没必要", "暂无", "不再", "不要", "并不", "毫不",
-  "不", "无", "非", "没", "别", "勿", "莫",
+  "无", "非", "没", "别", "勿", "莫",
 ];
 
-/** 「不」系前缀的语气词组保护断言（要不/要不要/若不/或不 X = 建议语气非否定）。 */
-const MOOD_GUARD = "(?<![要若或])";
+/** 否定词与请求词之间的封闭集副词窗（0-2 字）。 */
+const ADVERB_WINDOW = "[再先都也就还且而]{0,2}";
 
 /** 过去式/完成态剔除：已发生的合入与授权陈述不是请求。 */
 const COMPLETED_PATTERNS: RegExp[] = [
@@ -77,24 +81,23 @@ const SPEAK_REQUEST_PHRASES: string[] = [
  *  说明），不是真实指代——匹配前先剔引号内文本（对抗检视实证：讨论该判据自身的发言被误拦）。 */
 const DEFERRED_CARD_RE = /(卡片?|决策卡)\s*(在|见)\s*(上|前一?条|前文|文|面|前面)/;
 
-/** 引号包裹文本（中文单双书名引号 + 英文引号）——指代判据的引用豁免用。 */
-const QUOTED_SPAN_RE = /[『「"'“][^』」"”]*[』」"”]/g;
+/** 引号包裹文本（中文单双书名引号/弯单引号 + 英文单双引号 + 反引号）——指代判据的引用豁免用。
+ *  三轮对抗实证：反引号 `…`（行内代码）与技术通报的 ‘…’/'…' 形态漏豁免。 */
+const QUOTED_SPAN_RE = /[\u300E\u300C\u201C\u2018'"`][^\u300F\u300D\u201D\u2019'"`]*[\u300F\u300D\u201D\u2019'"`]/g;
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** 剔除否定组合与完成态：返回干净文本（词匹配的前提）。
- *  否定剔除按「否定前缀 + 请求词」组合删片段，不按整句——同回合多 PR 多状态混排
- *  天然支持（「A 已合入，B 可以合入」剔除后 B 的请求仍在）。
- *  含「不」的前缀带语气词组保护断言（见 NEGATION_PREFIXES 注释）。 */
+ *  否定剔除按「否定前缀 + 副词窗 + 请求词」组合删片段，不按整句——同回合多 PR 多状态
+ *  混排天然支持（「A 已合入，B 可以合入」剔除后 B 的请求仍在）。 */
 function stripNegations(text: string, phrases: string[]): string {
   let cleaned = text;
   for (const phrase of phrases) {
     const escaped = escapeRegExp(phrase);
     for (const neg of NEGATION_PREFIXES) {
-      const guard = neg.includes("不") ? MOOD_GUARD : "";
-      cleaned = cleaned.replace(new RegExp(`${guard}${escapeRegExp(neg)}\\s*${escaped}`, "g"), "");
+      cleaned = cleaned.replace(new RegExp(`${escapeRegExp(neg)}\\s*${ADVERB_WINDOW}\\s*${escaped}`, "g"), "");
     }
   }
   for (const re of COMPLETED_PATTERNS) {
@@ -127,37 +130,25 @@ export function hasDeferredCardReference(text: string): boolean {
 }
 
 /** script 块内清 JS 不可执行区：块注释 → 字符串（单双引号/模板串）→ 行注释。
- *  顺序保证：字符串里的 // 与 /* 不被行/块注释规则误截（字符串整段先走）。
- *  行注释 // 前非冒号即可（https:// 的冒号排除；空格/Tab 缩进属于命中——
- *  缩进行注释漏剔是对抗实证的绕过形态）。 */
-function cleanScriptBlock(js: string): string {
-  return js
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/'[^'\n]*'|"[^"\n]*"|`[^`]*`/g, "")
-    .replace(/(^|[^:])\/\/[^\n]*/gm, "$1");
-}
-
-/** 事件处理器属性里的提交调用（onclick/oninput 等 on* 属性是 HTML 唯一合法的内联执行点；
- *  data-* 等非事件属性、文本节点裸字符串不是执行路径——对抗实证的绕过形态）。 */
-const EVENT_ATTR_SUBMIT_RE = /on\w+\s*=\s*["'][^"']*otterCard\.submit\s*\(/i;
-
-/** script 块提取（含 type 属性等形态）。 */
-const SCRIPT_BLOCK_RE = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
-
-/** 结构化可执行提交路径判定：script 块内（清注释/字符串后）的调用，或事件属性里的调用。
- *  全区先剔除 HTML 注释与 code/pre/textarea 展示块。 */
+/** 决策卡提交按钮在场判定（弱信号，架构收窄终态）：
+ *  剔除**语法稳定无嵌套歧义**的展示区（HTML 注释 / code / pre / textarea 块）后，
+ *  围栏内含 otterCard.submit 字样。
+ *
+ *  为什么不做 JS 语义级判定（script 块解析/注释字符串清理/on* 事件白名单）：
+ *  三轮对抗实证不可收敛——缩进注释/转义引号/非 JS script/伪事件属性/注释内 onclick
+ *  每轮修完又冒新语法上下文反例，且真实写法（submit 与括号间空白/字符串内标记截断）
+ *  反被误拒。用正则重写 HTML+JS parser 的路走不通（同族先例：通用 shell 语义建模
+ *  四轮实证后收窄为固定模板）。按守卫总则（明确拦不明确放通）：「有卡但按钮是假的」
+ *  的空壳形态机械不可证明，放通记边界——本闸的主目标是拦「卡片整体缺位」（事故
+ *  本形态），卡片质量（按钮真实可按）由 get_html_card_contract 模板纪律与独立检视
+ *  兜底，运行时真相由卡片回执（html-card-reply）事后可证。 */
 function hasExecutableSubmit(fenceHtml: string): boolean {
-  const displayStripped = fenceHtml
+  return fenceHtml
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<code[\s\S]*?<\/code>/gi, "")
     .replace(/<pre[\s\S]*?<\/pre>/gi, "")
-    .replace(/<textarea[\s\S]*?<\/textarea>/gi, "");
-  if (EVENT_ATTR_SUBMIT_RE.test(displayStripped)) return true;
-  SCRIPT_BLOCK_RE.lastIndex = 0;
-  for (let m = SCRIPT_BLOCK_RE.exec(displayStripped); m !== null; m = SCRIPT_BLOCK_RE.exec(displayStripped)) {
-    if (cleanScriptBlock(m[1]).includes("otterCard.submit(")) return true;
-  }
-  return false;
+    .replace(/<textarea[\s\S]*?<\/textarea>/gi, "")
+    .includes("otterCard.submit");
 }
 
 /**

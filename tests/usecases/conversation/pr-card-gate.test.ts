@@ -131,10 +131,26 @@ describe("对抗检视回归：否定与无待办表述不误拦", () => {
     expect(hasDecisionRequestWide("PR #1964 不是待拍板，只是同步进展。")).toBe(false);
     expect(hasDecisionRequestWide("PR #1964 已合入，无待拍板事项。")).toBe(false);
   });
-  it("宽表否定：不可以合入/不批准合入/不建议合并不再命中", () => {
-    expect(hasDecisionRequestWide("PR #1964 不可以合入，仍有阻塞项。")).toBe(false);
-    expect(hasDecisionRequestWide("PR #1964 不批准合入，仍有阻塞项。")).toBe(false);
-    expect(hasDecisionRequestWide("检视未过，不建议合并")).toBe(false);
+  it("宽表否定边界记录：单字「不」删除后「不可以合入」类仍命中（收窄决策——yield 语境下出阻塞说明卡也是合理呈递；speak 辅闸不拦）", () => {
+    // 架构收窄终态：单字否定与语气断言不可收敛（三轮实证），删单字「不」后
+    // 「要不/何不/不得不 X」全部自然正确，代价是「不可以合入」类单字否定形态
+    // 在宽表命中——按宁漏勿误反向边界接受（yield to user 语境下被要求补一张
+    // 阻塞说明卡不是伤害；窄表不含评价措辞故 speak 不拦）。
+    expect(hasDecisionRequestWide("PR #1964 不可以合入，仍有阻塞项。")).toBe(true);
+    expect(hasDecisionRequestNarrow("PR #1964 不可以合入，仍有阻塞项。")).toBe(false);
+    expect(hasDecisionRequestWide("不建议合并")).toBe(false);
+  });
+  it("双字否定 + 副词窗：无需再/没必要再等副词间隙形态不再误拦", () => {
+    expect(hasDecisionRequestWide("PR #1964 无需再等你拍板，我继续收尾。")).toBe(false);
+    expect(hasDecisionRequestWide("PR #1964 没必要再请你拍板，我继续收尾。")).toBe(false);
+    expect(hasDecisionRequestNarrow("PR #1964 若不需要等你拍板，我继续收尾。")).toBe(false);
+    expect(hasDecisionRequestNarrow("PR #1964 或不用等你拍板，我继续收尾。")).toBe(false);
+  });
+  it("建议/双重否定语气自然正确：何不/不得不/不能不 X 命中请求词（单字「不」删除后无需断言特例）", () => {
+    expect(hasDecisionRequestWide("PR #1964 CI 全绿，何不请你拍板。")).toBe(true);
+    expect(hasDecisionRequestWide("PR #1964 CI 全绿，不得不请你拍板。")).toBe(true);
+    expect(hasDecisionRequestWide("PR #1964 CI 全绿，不能不请你授权。")).toBe(true);
+    expect(hasDecisionRequestWide("PR #1964 CI 全绿，要不请你拍板。")).toBe(true);
   });
   it("否定不误伤肯定语义：否定词与请求词隔实义字时请求保留", () => {
     expect(hasDecisionRequestWide("这条不阻塞，#1964 可以合入")).toBe(true);
@@ -155,32 +171,14 @@ describe("对抗检视回归：词表直接变体", () => {
   });
 });
 
-describe("对抗检视回归：空壳卡不算决策卡", () => {
-  it("注释掉的 submit 不算", () => {
-    const body = [
-      "#1964 可以合入了",
-      "```html-card title=\"PR 1964\"",
-      "<button>合入</button><script>// otterCard.submit({ summary: '1964合入' })</script>",
-      "```",
-    ].join("\n");
-    expect(decisionCardPresent([body], cardFenceValues)).toBe(false);
-    expect(checkYieldGate([body], undefined, cardFenceValues)).not.toBeNull();
-  });
-  it("code 展示的示例 submit 不算", () => {
-    const body = [
-      "#1964 可以合入了",
-      "```html-card title=\"PR 1964\"",
-      "<div>授权按钮写法：<code>otterCard.submit({ summary: '1964合入' })</code></div>",
-      "```",
-    ].join("\n");
-    expect(decisionCardPresent([body], cardFenceValues)).toBe(false);
-    expect(checkYieldGate([body], undefined, cardFenceValues)).not.toBeNull();
-  });
-  it("HTML 注释与块注释里的 submit 不算；真实可执行调用仍算", () => {
+describe("对抗检视回归：稳定清理区（语法无嵌套歧义的展示区）不算决策卡", () => {
+  it("HTML 注释 / code / pre / textarea 展示的 submit 不算", () => {
     const htmlComment = ["```html-card", "<!-- otterCard.submit({}) -->", "<div>详情</div>", "```"].join("\n");
-    const blockComment = ["```html-card", "<script>/* otterCard.submit({}) */</script>", "```"].join("\n");
+    const codeBlock = ["#1964 可以合入了", "```html-card", "<div>写法：<code>otterCard.submit({})</code></div>", "```"].join("\n");
     expect(decisionCardPresent([htmlComment], cardFenceValues)).toBe(false);
-    expect(decisionCardPresent([blockComment], cardFenceValues)).toBe(false);
+    expect(decisionCardPresent([codeBlock], cardFenceValues)).toBe(false);
+  });
+  it("真实可执行调用命中（onclick 事件属性）", () => {
     const real = ["```html-card", "<button onclick=\"otterCard.submit({ summary: '1964合入' })\">合入</button>", "```"].join("\n");
     expect(decisionCardPresent([real], cardFenceValues)).toBe(true);
   });
@@ -208,7 +206,7 @@ describe("对抗检视回归：fail-open 口径（仅 speak 累计维度）", ()
   });
 });
 
-describe("二轮检视回归：空壳卡五形态全闭环", () => {
+describe("二轮检视回归：空壳卡边界终态（架构收窄记录）", () => {
   const fake = (inner: string) => [
     "#1964 可以合入了",
     "```html-card title=\"PR 1964\"",
@@ -216,17 +214,18 @@ describe("二轮检视回归：空壳卡五形态全闭环", () => {
     "```",
   ].join("\n");
 
-  it("缩进行注释（空格/Tab）不算", () => {
-    expect(decisionCardPresent([fake("  // otterCard.submit({ summary: '1964合入' })")], cardFenceValues)).toBe(false);
-    expect(decisionCardPresent([fake("\t// otterCard.submit({})")], cardFenceValues)).toBe(false);
-  });
-  it("JS 字符串里的伪调用不算；真实调用同卡仍算", () => {
-    expect(decisionCardPresent([fake("<script>const example = \"otterCard.submit({})\";</script>")], cardFenceValues)).toBe(false);
-    expect(decisionCardPresent([fake("<script>const x = 'btn'; x.onclick = () => otterCard.submit({ summary: '1964合入' });</script>")], cardFenceValues)).toBe(true);
-  });
-  it("textarea 展示与 data-* 属性不算；onclick 事件属性算", () => {
+  it("稳定清理区：textarea 展示不算", () => {
     expect(decisionCardPresent([fake("<textarea>otterCard.submit({})</textarea>")], cardFenceValues)).toBe(false);
-    expect(decisionCardPresent([fake("<button data-example=\"otterCard.submit({})\">合入</button>")], cardFenceValues)).toBe(false);
+  });
+  it("边界记录：JS 内嵌伪调用（缩进注释/字符串/data-* 属性/text-plain script）在弱信号下放行——机械不可证明，记已知边界", () => {
+    // 收窄决策（三轮实证）：script 内注释/字符串语义判定不可收敛，弱信号只保
+    // 「卡片整体缺位」拦截主目标；空壳卡由模板纪律+检视兜底（见特性文档边界节）。
+    expect(decisionCardPresent([fake("  // otterCard.submit({ summary: '1964合入' })")], cardFenceValues)).toBe(true);
+    expect(decisionCardPresent([fake("<script>const example = \"otterCard.submit({})\";</script>")], cardFenceValues)).toBe(true);
+    expect(decisionCardPresent([fake("<button data-example=\"otterCard.submit({})\">合入</button>")], cardFenceValues)).toBe(true);
+  });
+  it("真实调用命中：script 直接调用与赋值回调", () => {
+    expect(decisionCardPresent([fake("<script>const x = 'btn'; x.onclick = () => otterCard.submit({ summary: '1964合入' });</script>")], cardFenceValues)).toBe(true);
     expect(decisionCardPresent([fake("<button onclick=\"otterCard.submit({ summary: '1964合入' })\">合入</button>")], cardFenceValues)).toBe(true);
   });
 });
@@ -279,5 +278,44 @@ describe("二轮检视回归：指代判据决策语境门槛", () => {
   it("决策节点指代（宽表措辞共现）仍拦——2725 原始形态", () => {
     const err = checkSpeakGate("#1941 现在真的可以合了（卡片在上一条，这里补最终状态）", hasCardFences);
     expect(err).not.toBeNull();
+  });
+});
+
+describe("三轮检视回归：弱信号判定的边界记录与真实写法正确性", () => {
+  const card = (inner: string) => [
+    "#1964 可以合入了",
+    "```html-card title=\"PR 1964\"",
+    inner,
+    "```",
+  ].join("\n");
+
+  it("真实写法全部命中（弱信号不误拒——submit 与括号间空白/字符串标记截断形态）", () => {
+    expect(decisionCardPresent([card("<script>otterCard.submit ({ summary: '1964合入' })</script>")], cardFenceValues)).toBe(true);
+    expect(decisionCardPresent([card("<button onclick=\"const label='x'; otterCard.submit({})\">")], cardFenceValues)).toBe(true);
+    expect(decisionCardPresent([card("<script>const a = '/*'; otterCard.submit({}); const b = '*/';</script>")], cardFenceValues)).toBe(true);
+  });
+  it("边界记录：JS 内嵌伪调用（注释/字符串内的 submit）在弱信号下放行——机械不可证明，模板纪律与检视兜底", () => {
+    // 架构收窄终态（同族先例：通用语义建模不可收敛则收窄为可证明模板）：
+    // script 内注释/字符串中的伪 otterCard.submit 字样无法用正则可靠区分（三轮
+    // 实证：缩进注释/转义引号/非 JS script/伪事件属性每轮修完又冒新语法上下文
+    // 反例，真实写法反被误拒）。空壳卡风险按已知边界接受，由 get_html_card_contract
+    // 模板纪律 + 独立检视兜底；运行时真相由卡片回执事后可证。
+    expect(decisionCardPresent([card("<script>// otterCard.submit({})</script>")], cardFenceValues)).toBe(true);
+    expect(decisionCardPresent([card("<script>const s = \"otterCard.submit({})\";</script>")], cardFenceValues)).toBe(true);
+    expect(decisionCardPresent([card("<script type=\"text/plain\">otterCard.submit({})</script>")], cardFenceValues)).toBe(true);
+  });
+  it("稳定清理区仍有效：HTML 注释/code/pre/textarea 展示不算", () => {
+    expect(decisionCardPresent([card("<!-- otterCard.submit({}) --><div>x</div>")], cardFenceValues)).toBe(false);
+    expect(decisionCardPresent([card("<code>otterCard.submit({})</code>")], cardFenceValues)).toBe(false);
+    expect(decisionCardPresent([card("<textarea>otterCard.submit({})</textarea>")], cardFenceValues)).toBe(false);
+  });
+});
+
+describe("三轮检视回归：指代豁免引号形态补全", () => {
+  it("反引号/弯单引号/ASCII 单引号包裹的反模式字面量放行", () => {
+    expect(hasDeferredCardReference("PR #1964 可以合了；回归用例 `卡片在上一条` 已固化。")).toBe(false);
+    expect(hasDeferredCardReference("PR #1964 可以合了；回归用例 ‘卡片在上一条’ 已固化。")).toBe(false);
+    expect(hasDeferredCardReference("PR #1964 可以合了；回归用例 '卡片在上一条' 已固化。")).toBe(false);
+    expect(checkSpeakGate("PR #1964 可以合了；回归用例 `卡片在上一条` 已固化。", hasCardFences)).toBeNull();
   });
 });
