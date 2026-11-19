@@ -126,3 +126,7 @@ data/guard-shadow-report-*
 # Guard replay 固化候选样本（F20261008gdcc 引入的守卫拦截 replay 自动化——
 # 每日任务链从 healing_events 提取当日拦截样本供 replay 固化，运行时产物不进 git）
 data/guard-replay-candidates-*
+# 单实例锁运行时产物（F20261118cldep #1945 / src/bootstrap/instance-lock.ts ——
+# <db-path>.otter-instance.lock 内容=持锁进程 PID，随应用启停生灭，不进 git；
+# 名字跟 db 文件走，故用全局通配而非锚定 data/ 路径）
+*.otter-instance.lock
