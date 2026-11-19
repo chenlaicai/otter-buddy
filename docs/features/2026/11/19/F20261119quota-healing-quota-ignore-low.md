@@ -19,6 +19,9 @@ tags: [healing, rate-limit, quota, partner-decision, noise-reduction, orchestrat
 modules:
   - src/usecases/conversation/agent-turn-orchestrator/orchestrator.ts
   - src/usecases/conversation/agent-turn-orchestrator/rate-limit-error.ts
+  - src/usecases/conversation/agent-turn-orchestrator/types.ts
+  - src/interface-adapters/agent-runtime/circuit-break-support.ts
+  - src/interface-adapters/agent-runtime/tools/tool-factory.ts
   - tests/interface-adapters/agent-invoker-circuit-retry.test.ts
 ---
 
