@@ -12,6 +12,7 @@ import {
   hasPrReference,
   hasDecisionRequestWide,
   hasDecisionRequestNarrow,
+  hasDeferredCardReference,
   decisionCardPresent,
   checkSpeakGate,
   checkYieldGate,
@@ -118,5 +119,91 @@ describe("#1952 主闸 checkYieldGate", () => {
   it("fail-open：speakBodies 缺失时视为空（宁漏勿误）", () => {
     // 缺字段时不应抛异常——装配不完整的旧路径闸失效而非阻断
     expect(() => checkYieldGate([], undefined, cardFenceValues)).not.toThrow();
+  });
+});
+
+describe("对抗检视回归：否定与无待办表述不误拦", () => {
+  it("「无需/不是/无 + 请求词」组合剔除：speak 与 yield 双闸均放行", () => {
+    expect(hasDecisionRequestNarrow("PR #1964 无需等你拍板，我继续收尾。")).toBe(false);
+    expect(hasDecisionRequestNarrow("PR #1964 不是待拍板，只是同步进展。")).toBe(false);
+    expect(hasDecisionRequestNarrow("PR #1964 已合入，无待拍板事项。")).toBe(false);
+    expect(hasDecisionRequestWide("PR #1964 无需等你拍板，我继续收尾。")).toBe(false);
+    expect(hasDecisionRequestWide("PR #1964 不是待拍板，只是同步进展。")).toBe(false);
+    expect(hasDecisionRequestWide("PR #1964 已合入，无待拍板事项。")).toBe(false);
+  });
+  it("宽表否定：不可以合入/不批准合入/不建议合并不再命中", () => {
+    expect(hasDecisionRequestWide("PR #1964 不可以合入，仍有阻塞项。")).toBe(false);
+    expect(hasDecisionRequestWide("PR #1964 不批准合入，仍有阻塞项。")).toBe(false);
+    expect(hasDecisionRequestWide("检视未过，不建议合并")).toBe(false);
+  });
+  it("否定不误伤肯定语义：否定词与请求词隔实义字时请求保留", () => {
+    expect(hasDecisionRequestWide("这条不阻塞，#1964 可以合入")).toBe(true);
+    expect(hasDecisionRequestWide("A 已合入，B 可以合入")).toBe(true);
+  });
+});
+
+describe("对抗检视回归：词表直接变体", () => {
+  it("请你拍板/请你授权/可以合并了均命中宽表", () => {
+    expect(hasDecisionRequestWide("PR #1964 CI 全绿，请你拍板。")).toBe(true);
+    expect(hasDecisionRequestWide("PR #1964 CI 全绿，请你授权合入。")).toBe(true);
+    expect(hasDecisionRequestWide("PR #1964 CI 全绿，可以合并了。")).toBe(true);
+  });
+  it("请你拍板/请你授权命中窄表；评价措辞仍不在窄表", () => {
+    expect(hasDecisionRequestNarrow("PR #1964 请你拍板")).toBe(true);
+    expect(hasDecisionRequestNarrow("PR #1964 请你授权")).toBe(true);
+    expect(hasDecisionRequestNarrow("检视 #1959 通过，可以合并")).toBe(false);
+  });
+});
+
+describe("对抗检视回归：空壳卡不算决策卡", () => {
+  it("注释掉的 submit 不算", () => {
+    const body = [
+      "#1964 可以合入了",
+      "```html-card title=\"PR 1964\"",
+      "<button>合入</button><script>// otterCard.submit({ summary: '1964合入' })</script>",
+      "```",
+    ].join("\n");
+    expect(decisionCardPresent([body], cardFenceValues)).toBe(false);
+    expect(checkYieldGate([body], undefined, cardFenceValues)).not.toBeNull();
+  });
+  it("code 展示的示例 submit 不算", () => {
+    const body = [
+      "#1964 可以合入了",
+      "```html-card title=\"PR 1964\"",
+      "<div>授权按钮写法：<code>otterCard.submit({ summary: '1964合入' })</code></div>",
+      "```",
+    ].join("\n");
+    expect(decisionCardPresent([body], cardFenceValues)).toBe(false);
+    expect(checkYieldGate([body], undefined, cardFenceValues)).not.toBeNull();
+  });
+  it("HTML 注释与块注释里的 submit 不算；真实可执行调用仍算", () => {
+    const htmlComment = ["```html-card", "<!-- otterCard.submit({}) -->", "<div>详情</div>", "```"].join("\n");
+    const blockComment = ["```html-card", "<script>/* otterCard.submit({}) */</script>", "```"].join("\n");
+    expect(decisionCardPresent([htmlComment], cardFenceValues)).toBe(false);
+    expect(decisionCardPresent([blockComment], cardFenceValues)).toBe(false);
+    const real = ["```html-card", "<button onclick=\"otterCard.submit({ summary: '1964合入' })\">合入</button>", "```"].join("\n");
+    expect(decisionCardPresent([real], cardFenceValues)).toBe(true);
+  });
+});
+
+describe("对抗检视回归：指代自足缺位（issue 补充现场样本）", () => {
+  it("「卡片在上一条」+ PR 引用 + 无卡 → 辅闸拦", () => {
+    expect(hasDeferredCardReference("#1941 现在真的可以合了（卡片在上一条，这里补最终状态）")).toBe(true);
+    const err = checkSpeakGate("#1941 现在真的可以合了（卡片在上一条，这里补最终状态）", hasCardFences);
+    expect(err).toContain("不复述载体");
+  });
+  it("指代语但本条有卡 → 放行（载体已复述）", () => {
+    const body = ["#1941 可以合了（卡片在上一条）", "```html-card title=\"x\"", "<div>y</div>", "```"].join("\n");
+    expect(checkSpeakGate(body, hasCardFences)).toBeNull();
+  });
+  it("无 PR 引用的日常指代（「见上面的分析」）→ 放行", () => {
+    expect(checkSpeakGate("结论见上面，我们继续", hasCardFences)).toBeNull();
+  });
+});
+
+describe("对抗检视回归：fail-open 口径（仅 speak 累计维度）", () => {
+  it("speakBodies 缺失但 reason 带呈递形态 → reason 面仍拦（不 fail-open）", () => {
+    expect(checkYieldGate([], "PR #1960 待拍板", cardFenceValues)).not.toBeNull();
+    expect(checkYieldGate([], "收尾汇报，无拍板项", cardFenceValues)).toBeNull();
   });
 });
