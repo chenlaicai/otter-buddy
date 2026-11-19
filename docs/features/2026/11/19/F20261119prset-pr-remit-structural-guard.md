@@ -3,7 +3,7 @@ id: F20261119prset
 title: "PR 呈递三件套结构化守卫：执行层机械检测 + 反馈层检视判据（#1907 完整重做）"
 summary: "第一版修复（往 BIG_OTTER.md 六形态段追加日期+原话回退案例）被搭档裁决为症状层打补丁——呈递回退期间规则双层在场（身份提示词+每轮注入的工具描述），失效根本不在规则层。完整重做三层：执行层新增 yield 边界机械复核（speak/登记双侧记录本回合 PR URL——强信号=unfurl 独占段口径/弱信号=句中形态覆盖原事故现场；yield 时按两不变量复核，拒绝与放行按缺口快照比对：零进展即确认仅提及时放行留声防死循环、部分修复继续拒绝直至清零，把「漏了靠检视獭碰巧查台账」变成「回合边界被结构性拦下」）；反馈层 adversarial-review B2.5 补失效层定位三问与症状层形态清单（未定位就改规则层=打补丁默认质疑）；规则层不加码（既有 42 行规则保持，撤回一版案例段）。"
 change_type: fix
-capability_test: "n/a: 执行层检测以 speak-pr-remind.test.ts 19 用例（纯函数强弱信号分层/归并/跨仓库比对 + 挂接层端到端 speak→登记→yield 矩阵：正确流程静默/单 PR 两类原事故拒绝/多 PR 混合缺口完整回执/部分修复继续拒绝/零进展放行留声/新违反再拒；登记侧两用例走 create_linked_resource 真实工具路径）+ 全量 vitest 为验证载体；负对照两口径（均可复现）：回退四挂接文件至 origin/main = 8 failed / 11 passed；仅断开登记侧挂接（prRemindGuardNoteOnLink 提前 return）= 2 failed（登记路径两用例红）"
+capability_test: "n/a: 执行层检测以 speak-pr-remind.test.ts 19 用例（纯函数强弱信号分层/归并/跨仓库比对 + 挂接层端到端 speak→登记→yield 矩阵：正确流程静默/单 PR 两类原事故拒绝/多 PR 混合缺口完整回执/部分修复继续拒绝/零进展放行留声/新违反再拒；登记侧两用例走 create_linked_resource 真实工具路径）+ 全量 vitest 为验证载体；负对照三口径（均可复现）：回退四挂接文件至 origin/main = 9 failed / 10 passed；仅断开登记侧挂接（prRemindGuardNoteOnLink 提前 return）= 2 failed；仅断开 speak 记录挂接 = 7 failed / 12 passed"
 intent:
   problem: "PR 呈递三件套（结论 1-2 句 → URL 裸写独占一段 → create_linked_resource 登记）的第三步与第二步是两个分离的工具调用，中间无结构化耦合——交付时刻高负荷上下文里第三步靠「记得」，漏掉无即时反馈（unfurl 卡缺席要搭档自己发现；登记缺席要检视獭主动查台账才暴露，而查台账不是规程要求是运气）。第一版修复误诊为「抽象表述失效」往规则层加案例（日期+原话进 skill），被搭档裁决打补丁：一次性历史事实塞进跨时间行为规则层零增益，且失效期间规则双层在场证明失效不在规则层。"
   solution: "失效层定位：执行层缺结构化耦合 + 反馈层缺机械检测。三层修复——①执行层（核心）：检测点锚 yield 边界（回合自然完成点——正确顺序 speak→登记→yield 下 speak 时刻提醒必误报）：speak 侧只记录（强=unfurl 独占段口径复用 scanBareUrls/弱=句中形态覆盖原事故现场，同 URL 归强）；登记侧记录 pr 登记（确认呈递信号）并对 fact 含 PR URL 回执引导改 pr 类型（原事故「仅摘要卡」形态的登记侧入口）；yield 侧按两不变量复核——一：强信号必须已登记（第三步）；二：确认呈递的 PR（本回合登记过/弱信号已在台账）speak 必须有裸链独占段（第二步——封堵「补登记后放行但无 unfurl」假闭环）。缺席拒绝顶回并附完整缺口回执（多 PR × 两不变量逐类全列，不吞类），拒绝/放行按缺口快照比对——与上次拒绝时缺口完全相同（零进展=确认仅提及）才放行留声，部分修复继续拒绝直至清零；best-effort 双侧 catch 不阻断主路径。②反馈层：B2.5 从断言式判据（一版检视给断言通过的失效根因：无可执行步骤）升级为操作程序——失效层定位三问 + 症状层形态清单；判据生效验证是前瞻观察（合入后首个无外部批评背景的软代码 PR 检视轮次），不以本 PR 首轮检视为因果证据（该轮质量提升由搭档批评+派工上下文驱动，skill 尚未合入运行）。③规则层：不加码——既有六形态段保持原样，一版案例段已随 PR 关闭撤回。"
@@ -12,7 +12,7 @@ intent:
     type: human_judge
     assertions:
       - "speak-pr-remind.test.ts 19/19：纯函数（强弱信号分层/同 URL 归强/跨仓库完整路径比对不吞/大小写归一不误报）+ 挂接层端到端矩阵（正确流程静默放行/单 PR 两类原事故拒绝与补齐放行/多 PR 混合缺口回执完整不吞类/部分修复继续拒绝/零进展放行留声/新违反再拒/无 PR 零查询）"
-      - "负对照（两个可复现口径）：①回退四挂接文件（git checkout origin/main -- tool-factory.ts tool-builder.ts pi-session-factory.ts agent-tools.ts）= 8 failed / 11 passed（依赖挂接的拒绝/留声用例全红）；②仅断开登记侧挂接（prRemindGuardNoteOnLink 函数体首行直接 return 空串）= 2 failed（create_linked_resource 工具路径两用例红——登记侧判别力锚）"
+      - "负对照（三个可复现口径）：①回退四挂接文件（git checkout origin/main -- tool-factory.ts tool-builder.ts pi-session-factory.ts agent-tools.ts）= 9 failed / 10 passed（依赖挂接的拒绝/留声/引导用例全红，含 fact 真实工具路径用例）；②仅断开登记侧挂接（prRemindGuardNoteOnLink 函数体首行直接 return 空串）= 2 failed（登记侧判别力锚）；③仅断开 speak 记录挂接 = 7 failed / 12 passed（speak 侧判别力锚，未被四文件联合回退掩盖）"
       - "挂接 best-effort：speak 记录与 yield 复核异常均不阻断（catch + warn）"
       - "B2.5 判据更新后 lint:skills 通过（manifest 与 SKILL.md 一致性）"
 created_in_conversation: a23f0f4a-612c-46e9-8d83-be648ced720e
@@ -82,7 +82,7 @@ BIG_OTTER.md 既有六形态段保持原样——规则已足，失效不在这�
 
 - `speak-pr-remind.test.ts` 19/19（纯函数 7 + 挂接端到端 12：正确流程静默/漏登记拒绝+补登记放行/句中未登记拒绝+零进展放行/句中已登记形态不合规拒绝（原事故一）/**create_linked_resource pr 登记无裸链拒绝（原事故二，真实工具路径）**/**fact 含 PR URL 回执引导（真实工具路径+无 URL 对照）**/无 PR 零查询 + delta 2 组合矩阵 5：混合缺口回执完整不吞类/部分修复继续拒绝且回执只剩剩余缺口/完全修复放行/零进展放行留声/新违反再拒）
 - `pool-hit-path.test.ts` 重置测试覆盖 turnPrUrls/turnYieldPrRemindCount/turnYieldPrGapSnapshot 三字段（快照跨 invoke 残留会使新回合首次拒绝被误判零进展放行）
-- 负对照两口径（可复现命令在 PR body 修复前失败证据节）：①回退四挂接文件 = 8 failed / 11 passed；②仅断开登记侧挂接 = 2 failed / 17 passed（登记侧两用例走 create_linked_resource 真实工具路径，delta 3 前直调 helper 绕过挂接无判别力）；相关回归 tools 目录 28 文件 243 用例全绿；tsc/eslint 零告警；lint:skills 通过
+- 负对照三口径（可复现命令在 PR body 修复前失败证据节）：①回退四挂接文件 = 9 failed / 10 passed（fact 引导改真实工具路径后多一红——判别力增强后的正常变化）；②仅断开登记侧挂接 = 2 failed / 17 passed；③仅断开 speak 记录挂接 = 7 failed / 12 passed（检视獭 delta 4 独立复验）；相关回归 tools 目录 28 文件 243 用例全绿；tsc/eslint 零告警；lint:skills 通过
 - 本 PR 呈递三件套执行：回执与产物台账双通道复核（观察锚）
 
 ## Rollback
