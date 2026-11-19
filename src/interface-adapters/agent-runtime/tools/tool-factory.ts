@@ -334,11 +334,14 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       if (paramsError) return paramsError; const recipients = params.to as string[];
 
       // PR 呈递三件套守卫（yield 复核侧）：回合自然完成点——正确流程（speak→登记
-      // →yield）台账已齐静默放行；缺席首次拒绝顶回（补登记或确认仅提及后再
-      // yield，同回合二次放行防死循环）。复核失败不阻断交棒（best-effort）。
+      // →yield）台账已齐静默放行；缺席拒绝顶回（附完整缺口回执，缺口快照比对：
+      // 零进展即确认仅提及时放行留声防死循环，部分修复继续拒绝）。复核失败不阻断
+      // 交棒（best-effort）。
+      let prGraceNote: string | undefined;
       try {
         const verdict = await verifyTurnPrsOnYield(ctx);
         if (!verdict.pass) return errorResponse(verdict.remind);
+        prGraceNote = verdict.remind; // 零进展放行留声：缺口仍在但 agent 确认仅提及，不静默吞掉
       } catch (err) {
         logger?.warn?.(`[yield] pr-remind 复核失败（不阻断交棒）: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -372,7 +375,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
 
         await emitYieldEvent(ctx, yieldResult, resolvedIds);
 
-        return { ...textResponse(`[系统控制信号] 交棒成功，回合结束。${matterNote}`), terminate: true };
+        return { ...textResponse(`[系统控制信号] 交棒成功，回合结束。${matterNote}${prGraceNote ? ` ${prGraceNote}` : ""}`), terminate: true };
       } catch (err) {
         if (err instanceof DomainError && err.kind === "conflict") {
           return { ...textResponse("[系统控制信号] 本回合行动已交棒，无需重复调用 yield。请停止调用任何工具。"), terminate: true };

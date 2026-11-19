@@ -8,8 +8,9 @@ import { scanBareUrls } from "@usecases/conversation/send-entry-unfurl-scan";
  * 失效不在规则层——speak（第二步）与 create_linked_resource（第三步）是分离
  * 工具调用，漏登记无即时反馈。守卫把检测锚在 **yield 边界**（回合自然完成点）：
  * speak 时记录本回合出现过的 PR URL（任意形态），yield 时复核台账——正确流程
- * （speak→登记→yield）静默放行；漏登记首次拒绝顶回（agent 补登记或确认仅提及
- * 后再 yield，同回合二次放行防死循环）。
+ * （speak→登记→yield）静默放行；缺席拒绝顶回。拒绝/放行按缺口快照比对：
+ * 缺口与上次拒绝时完全相同（零进展 = 确认仅提及的刻意出口）才放行，防死循环；
+ * 部分修复（缺口减少）继续拒绝直至清零，封堵多 PR 混合缺口的假闭环。
  *
  * 检测口径两层：强信号 = 独占段 PR URL（复用 unfurl 真扫描器 scanBareUrls，
  * 口径天然一致）；弱信号 = 句中/markdown 链接形态（原事故现场——只覆盖独占段
@@ -96,26 +97,47 @@ export async function registeredPrIdentities(ctx: ToolContext): Promise<Set<stri
   );
 }
 
-/** yield 复核判定：放行（无记录/已齐/同回合已拒绝过）或首次拒绝顶回（含提醒话术）。 */
-export type YieldPrVerdict = { pass: true; remind?: undefined } | { pass: false; remind: string };
+/** yield 复核判定：拒绝顶回（附完整缺口回执）；放行时 remind 非空 = 零进展留声
+ *  （缺口与上次拒绝完全相同仍放行的刻意出口，防死循环但不静默）。 */
+export type YieldPrVerdict = { pass: true; remind?: string } | { pass: false; remind: string };
 
 /**
- * yield 边界复核：回合寄存器中的 PR URL 是否全部已登记。
- * 首次缺席 → 拒绝（强信号=独占段呈递，话术直指第三步；弱信号=可能只是提及，
- * 话术允许「确认仅提及后重新 yield」）。同回合已拒绝过一次
- * （turnYieldPrRemindCount ≥ 1）→ 放行（防死循环：提及场景 agent 无从补登记）。
+ * yield 边界复核：回合寄存器中的 PR URL 按两不变量复核。
+ * 拒绝/放行按 **缺口快照比对** 判定（delta 2：替代「同回合二次无条件放行」——
+ * 多 PR 混合缺口按回执部分修复后，剩余缺口会被无条件放行构成假闭环）：
+ * - 缺口空 → 放行；
+ * - 缺口与上次拒绝时完全相同（零进展：agent 收到完整回执后未做任何修复，
+ *   即「确认仅提及」的刻意出口，防死循环）→ 放行但留声（remind 附缺口清单）；
+ * - 其余（首次 / 缺口有增减 = agent 在响应回执或制造新违反）→ 拒绝并附
+ *   **完整**缺口回执（多 PR × 两不变量全列，不因一类存在而吞掉另一类）。
  */
 export async function verifyTurnPrsOnYield(ctx: ToolContext): Promise<YieldPrVerdict> {
   const recorded = ctx.turnPrUrls ?? { strong: [], weak: [], registered: [] };
   if (recorded.strong.length === 0 && recorded.weak.length === 0 && recorded.registered.length === 0) {
     return { pass: true };
   }
-  if ((ctx.turnYieldPrRemindCount ?? 0) >= 1) return { pass: true };
   const registeredDb = await registeredPrIdentities(ctx);
   const gaps = collectInvariantGaps(recorded, registeredDb);
   if (gaps === null) return { pass: true };
+  const snapshot = serializeInvariantGaps(gaps);
+  if ((ctx.turnYieldPrGapSnapshot ?? null) === snapshot) {
+    return { pass: true, remind: buildRemindText(gaps, { zeroProgressPass: true }) };
+  }
+  ctx.turnYieldPrGapSnapshot = snapshot;
   ctx.turnYieldPrRemindCount = (ctx.turnYieldPrRemindCount ?? 0) + 1;
   return { pass: false, remind: buildRemindText(gaps) };
+}
+
+/** 缺口集合序列化（identity 排序后拼接）：回合内快照比对用——比较「缺口集合是否
+ *  变化」而非拒绝计数：修复使缺口减少、新 speak/登记使缺口增加都算变化，
+ *  部分修复不再被无条件放行吞掉剩余缺口。 */
+function serializeInvariantGaps(gaps: {
+  missingRegistration: string[];
+  presentedWithoutBareUrl: string[];
+  weakUnregistered: string[];
+}): string {
+  const join = (us: string[]) => us.map((u) => prIdentity(u)).sort().join(",");
+  return `m:${join(gaps.missingRegistration)}|p:${join(gaps.presentedWithoutBareUrl)}|w:${join(gaps.weakUnregistered)}`;
 }
 
 /** 两不变量的缺口收集（纯函数）：违反任一返回缺口三元组，全满足返回 null。 */
@@ -144,33 +166,47 @@ function dedupByIdentity(): (u: string, i: number, arr: string[]) => boolean {
   return (u, i, arr) => arr.findIndex((x) => prIdentity(x) === prIdentity(u)) === i;
 }
 
-/** 拒绝话术：不变量一缺失=第三步缺席（强信号直指）；不变量二缺失=已确认呈递但无裸链
- *  独占段（搭档看不到 unfurl 卡）——两条出路：补一条裸链独占段 speak，或确认非呈递再 yield。 */
-function buildRemindText(gaps: {
-  missingRegistration: string[];
-  presentedWithoutBareUrl: string[];
-  weakUnregistered: string[];
-}): string {
+/** 回执话术：**完整列出全部缺口**（多 PR × 两不变量逐类成段，不因一类存在而
+ *  early-return 吞掉另一类——delta 2 发现：混合缺口只报第一类，agent 按回执修复
+ *  后另一类被二次放行静默吞掉）。零进展放行变体开头声明「视为确认放行」并留声。 */
+function buildRemindText(
+  gaps: {
+    missingRegistration: string[];
+    presentedWithoutBareUrl: string[];
+    weakUnregistered: string[];
+  },
+  opts: { zeroProgressPass?: boolean } = {},
+): string {
   const { missingRegistration, presentedWithoutBareUrl, weakUnregistered } = gaps;
   const label = (u: string) => u.replace(/^https?:\/\/github\.com\//, "");
+  const sections: string[] = [];
   if (missingRegistration.length > 0) {
-    return (
-      `[呈递三件套未齐] 本回合 speak 含 PR 独占段（${missingRegistration.map(label).join("、")}）但产物台账无对应 pr 登记——` +
-      `第三步缺席。请补 create_linked_resource（resourceType=pr，须带 groupId=特性文档编号）后重新 yield；` +
-      `若确认本段不是呈递，直接重新 yield 一次即放行。`
+    sections.push(
+      `[第三步缺席] PR 独占段（${missingRegistration.map(label).join("、")}）在产物台账无对应 pr 登记——` +
+      `请补 create_linked_resource（resourceType=pr，须带 groupId=特性文档编号）。`,
     );
   }
   if (presentedWithoutBareUrl.length > 0) {
+    sections.push(
+      `[无裸链独占段] 已确认呈递的 PR（${presentedWithoutBareUrl.map(label).join("、")}）在本回合 speak 中无裸链独占段——` +
+      `句中夹带或仅登记都不触发 unfurl 预览卡，搭档看不到 PR 卡片；` +
+      `请以 URL 裸写独占一段补一条 speak 呈递。`,
+    );
+  }
+  if (weakUnregistered.length > 0) {
+    sections.push(
+      `[呈递/提及不明] PR 链接（${weakUnregistered.map(label).join("、")}，非独占段形态）且台账无 pr 登记——` +
+      `若为呈递请补齐独占段 speak + pr 登记；若只是提及可放行。`,
+    );
+  }
+  if (opts.zeroProgressPass) {
     return (
-      `[呈递形态不合规] 已确认呈递的 PR（${presentedWithoutBareUrl.map(label).join("、")}）在本回合 speak 中无裸链独占段——` +
-      `句中夹带或仅登记都不触发 unfurl 预览卡，搭档在时间轴看不到 PR 卡片。` +
-      `请以 URL 裸写独占一段补一条 speak 呈递后重新 yield；` +
-      `若刚才是误登记或确认不构成呈递，直接重新 yield 一次即放行。`
+      `[呈递三件套] 与上次 yield 时缺口完全相同，视为确认放行（仅提及/不修复）。仍存缺口供知悉：` +
+      sections.join(" ")
     );
   }
   return (
-    `[呈递三件套核查] 本回合 speak 出现 PR 链接（${weakUnregistered.map(label).join("、")}，非独占段形态）且台账无对应 pr 登记。` +
-    `若这是 PR 呈递：呈递规范是 URL 裸写独占一段 + create_linked_resource 登记，请补齐后重新 yield；` +
-    `若只是提及/引用：直接重新 yield 一次即放行。`
+    `[呈递三件套未齐] ${sections.join(" ")}请补齐后重新 yield；` +
+    `若确认不构成呈递，直接重新 yield 一次即放行。`
   );
 }

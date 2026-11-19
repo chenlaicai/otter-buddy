@@ -160,7 +160,7 @@ describe('挂接层端到端：speak 记录 → yield 复核', () => {
     const rejected = await yieldTo(ctx);
     expect(rejected.isError).toBe(true);
     const text = String((rejected as { content: Array<{ text: string }> }).content[0].text);
-    expect(text).toContain('呈递形态不合规');
+    expect(text).toContain('无裸链独占段');
     expect(text).toContain('裸写独占一段');
     const pass = await yieldTo(ctx);
     expect(pass.isError).toBeFalsy();
@@ -173,7 +173,7 @@ describe('挂接层端到端：speak 记录 → yield 复核', () => {
     const rejected = await yieldTo(ctx);
     expect(rejected.isError).toBe(true);
     const text = String((rejected as { content: Array<{ text: string }> }).content[0].text);
-    expect(text).toContain('呈递形态不合规');
+    expect(text).toContain('无裸链独占段');
     expect(text).toContain('unfurl');
   });
 
@@ -189,5 +189,84 @@ describe('挂接层端到端：speak 记录 → yield 复核', () => {
     const y = await yieldTo(ctx);
     expect(y.isError).toBeFalsy();
     expect((ctx.client.resource.list as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+  });
+});
+
+describe('delta 2：多 PR 混合缺口与部分修复（缺口快照比对）', () => {
+  const URL_A = 'https://github.com/chenlaicai/otter-buddy/pull/1962';
+  const URL_B = 'https://github.com/chenlaicai/otter-buddy/pull/1964';
+
+  function mockRegistered(ctx: ToolContext, urls: string[]) {
+    (ctx.client.resource.list as ReturnType<typeof vi.fn>).mockImplementation(async () =>
+      urls.map((url, i) => ({
+        id: `res-${i}`, conversationId: 'conv', resourceType: 'pr', url,
+        title: null, content: null, category: null, linkedBy: 'big',
+        createdAt: '2026-11-19T00:00:00Z', status: 'active',
+      })),
+    );
+  }
+
+  it('混合缺口首次拒绝：回执同时列出 A 登记缺口与 B 裸链缺口（不吞类）', async () => {
+    const ctx = makeCtx({ registeredPrUrls: [URL_B] });
+    await speak(ctx, `修复 A：\n${URL_A}`);         // A 强信号未登记 → 不变量一
+    await speak(ctx, `另 B 已交付：${URL_B} 请审阅`); // B 弱信号已登记 → 不变量二
+    const rejected = await yieldTo(ctx);
+    expect(rejected.isError).toBe(true);
+    const text = String((rejected as { content: Array<{ text: string }> }).content[0].text);
+    expect(text).toContain('第三步缺席');
+    expect(text).toContain('无裸链独占段');
+    expect(text).toContain('otter-buddy/pull/1962');
+    expect(text).toContain('otter-buddy/pull/1964');
+  });
+
+  it('部分修复不再假闭环：补 A 登记后二次 yield 仍拒绝，回执只剩 B 裸链缺口', async () => {
+    const ctx = makeCtx({ registeredPrUrls: [URL_B] });
+    await speak(ctx, `修复 A：\n${URL_A}`);
+    await speak(ctx, `另 B 已交付：${URL_B} 请审阅`);
+    const first = await yieldTo(ctx);
+    expect(first.isError).toBe(true);
+    mockRegistered(ctx, [URL_A, URL_B]); // 按回执补 A 登记（台账出现）
+    const second = await yieldTo(ctx);
+    expect(second.isError).toBe(true); // 缺口减少 ≠ 零进展 → 继续拒绝
+    const text = String((second as { content: Array<{ text: string }> }).content[0].text);
+    expect(text).not.toContain('第三步缺席');
+    expect(text).toContain('无裸链独占段');
+    expect(text).toContain('otter-buddy/pull/1964');
+  });
+
+  it('完全修复放行：补 A 登记 + B 补裸链独占段 → yield 通过', async () => {
+    const ctx = makeCtx({ registeredPrUrls: [URL_B] });
+    await speak(ctx, `修复 A：\n${URL_A}`);
+    await speak(ctx, `另 B：${URL_B}`);
+    await yieldTo(ctx); // 首次拒绝（快照 m:[A] p:[B]）
+    mockRegistered(ctx, [URL_A, URL_B]); // 补 A 登记
+    await speak(ctx, `呈递 B：\n${URL_B}`); // B 升强信号（裸链独占段）
+    const pass = await yieldTo(ctx);
+    expect(pass.isError).toBeFalsy();
+  });
+
+  it('零进展二次 yield 放行（防死循环出口保留）且交棒回执留声', async () => {
+    const ctx = makeCtx();
+    await speak(ctx, `修复完成：\n${PR_URL}`);
+    const first = await yieldTo(ctx);
+    expect(first.isError).toBe(true);
+    const pass = await yieldTo(ctx); // 未做任何修复 → 缺口与快照相同
+    expect(pass.isError).toBeFalsy();
+    const text = String((pass as { content: Array<{ text: string }> }).content[0].text);
+    expect(text).toContain('交棒成功');
+    expect(text).toContain('视为确认放行');
+    expect(text).toContain('第三步缺席');
+  });
+
+  it('新违反再拒：首次拒绝后 speak 新增未登记独占段 → 二次 yield 拒绝', async () => {
+    const ctx = makeCtx();
+    await speak(ctx, `提及 ${PR_URL}`);
+    await yieldTo(ctx); // 首次拒绝（快照 w:[1947]）
+    await speak(ctx, '新呈递：\nhttps://github.com/chenlaicai/otter-buddy/pull/1990');
+    const second = await yieldTo(ctx); // 缺口新增 m:[1990] ≠ 快照 → 再拒
+    expect(second.isError).toBe(true);
+    const text = String((second as { content: Array<{ text: string }> }).content[0].text);
+    expect(text).toContain('第三步缺席');
+    expect(text).toContain('pull/1990');
   });
 });
