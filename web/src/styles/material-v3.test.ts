@@ -108,13 +108,17 @@ describe('材质 v3.0 契约：瞬态/遮罩层真玻璃保留（白名单闭合
 })
 
 describe('材质 v3.0 契约：小面积一级导航真玻璃例外', () => {
-  it('只给菜单容器采样，减少透明度时关闭采样并复用实色 chrome token', () => {
+  it('低白纱主体 + 适度采样 + 高光折射边，减少透明度时整体退化实色', () => {
     const nav = css.match(/\.glass-nav\s*\{[^}]*\}/)
     expect(nav, '.glass-nav 规则块应存在').toBeTruthy()
-    expect(nav![0]).toMatch(/background:\s*var\(--chrome-bg\)/)
-    expect(nav![0]).toMatch(/backdrop-filter:\s*var\(--overlay-blur\)/)
-    expect(nav![0]).toMatch(/-webkit-backdrop-filter:\s*var\(--overlay-blur\)/)
-    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)\s*\{\s*\.glass-nav\s*\{\s*backdrop-filter:\s*none;\s*-webkit-backdrop-filter:\s*none;\s*\}\s*\}/)
+    expect(nav![0]).toMatch(/background:\s*var\(--nav-glass-bg\)/)
+    expect(nav![0]).toMatch(/backdrop-filter:\s*var\(--nav-glass-blur\)/)
+    expect(nav![0]).toMatch(/-webkit-backdrop-filter:\s*var\(--nav-glass-blur\)/)
+    expect(css).toMatch(/--nav-glass-blur:\s*blur\(14px\)\s*saturate\(190%\)\s*contrast\(105%\)/)
+    expect(css).toMatch(/--nav-glass-bg:\s*#F7F2EA;\s*--nav-glass-blur:\s*none/)
+    expect(css).toMatch(/\.glass-nav::before\s*\{[^}]*background:/)
+    expect(css).toMatch(/\.glass-nav::after\s*\{[^}]*mask-composite:\s*exclude/)
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)\s*\{\s*\.glass-nav\s*\{\s*backdrop-filter:\s*none;\s*-webkit-backdrop-filter:\s*none;\s*\}\s*\.glass-nav::before,\s*\.glass-nav::after\s*\{\s*display:\s*none;\s*\}\s*\}/)
   })
 })
 
