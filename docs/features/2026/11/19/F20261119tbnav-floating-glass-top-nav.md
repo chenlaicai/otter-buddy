@@ -13,7 +13,7 @@ intent:
     assertions:
       - "TopBar.test.tsx 3/3：独立玻璃导航、仅图标、无执行机 badge/请求、激活态与七个路由入口保持"
       - "material-v3.test.ts 12/12：玻璃只加在小面积 .glass-nav，prefers-reduced-transparency 下关闭采样并复用实色 token"
-      - "Playwright 1440×900 与 1024×768：菜单中心偏差均为 0px，无页面错误、无导航溢出、backdrop-filter 为 blur(40px) saturate(1.8)"
+      - "Playwright 1440×900 与 1024×768：菜单中心偏差均为 0px，无页面错误、无导航溢出、backdrop-filter 为 blur(14px) saturate(1.9) contrast(1.05)"
 created_in_conversation: 3995c48d-499a-4c2d-b04f-e3581a3d3e28
 tags: [web, ui, topbar, glass, navigation, responsive]
 modules:
@@ -35,7 +35,7 @@ causal_links:
 
 - **透明 header，不再通长铺材质**：`header` 只负责 48px 高的布局与层级，无背景、边框或阴影。
 - **左侧只留图标**：移除文字品牌，保留 `alt="Otter Buddy"`；图标绝对定位，避免其宽度影响菜单的真实视口居中。
-- **中央菜单独立玻璃**：新增 `.glass-nav`，复用 `--chrome-bg`、`--overlay-blur`、既有高光/接触线和面板投影，不引入新色板或依赖。选中项继续使用 `.nav-pill-active`，不嵌套第二层模糊。
+- **中央菜单独立玻璃**：新增 `.glass-nav`，使用专用 `--nav-glass-bg` 低白纱渐变与 `--nav-glass-blur`（14px + 190% 饱和 + 105% 对比），叠加斜向镜面高光、双色渐变折射边和内外接触阴影；复用全局 `--glass-t`，不引入新色板或依赖。选中项继续使用 `.nav-pill-active`，不嵌套第二层模糊。
 - **小面积常驻例外**：材质 v3 的“常驻大面零采样”原则不变；本次只给约 604×40px 的一级菜单开放真玻璃，是搭档指定的明确例外。`prefers-reduced-transparency` 下关闭 blur，并随 `--chrome-bg` 一起退化实色。
 - **执行机退出系统顶栏**：删除 TopBar 的 badge、状态、DTO 和 `/api/execution-machines` 请求。后端投影端点及对话页 `ExecutionMachineModal` 的列表/切换能力完全保留。
 - **窄宽度兜底**：菜单设置视口最大宽度与横向滚动，隐藏滚动条；在本应用声明的 1024px 最小宽度下七项完整展示，无溢出。
@@ -64,6 +64,12 @@ causal_links:
 | 桌面视觉 | Playwright 1440×900 打开 `/conversation` | 菜单中心偏差 0px；header 透明；菜单 604.25×40px；无页面错误 |
 | 最小宽度 | Playwright 1024×768 打开 `/conversation` | 菜单中心偏差 0px；`scrollWidth == clientWidth == 602`；七项完整展示 |
 | 执行机功能边界 | 检索 `ExecutionMachineModal` 与 API | 对话级列表/切换文件未改，TopBar 无执行机请求 |
+
+## 真实实例反馈后的材质修正
+
+首版使用 `--chrome-bg` + `blur(40px)`，搭档在真实实例中指出「这明显不是玻璃啊，只是薄纱而已」。问题成立：高白纱覆盖与过度模糊抹掉背景色相，只有透明度、缺少玻璃厚度。
+
+第二版把主体白纱覆盖降低、blur 降至 14px，并用 `::before` 增加斜向镜面高光、`::after` 增加亮边/暖色接触边交替的渐变折射边。玻璃感来自“背景透出 + 表面反射 + 边缘厚度”三者共同存在，而非继续加白。减少透明度时专用背景变量退化实色、blur 与两个装饰伪元素全部关闭。
 
 ## 验证证据
 
