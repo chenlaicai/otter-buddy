@@ -92,6 +92,13 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(collectAnchorViolations("delta D1 回归锚").some((x) => x.kind === "轮次编号" && x.token === "delta D1")).toBe(true);
   });
 
+  it("delta 轮简写大小写不敏感：Delta2 / DeltaR3 / DELTA-r3 / Delta D1 整体命中", () => {
+    expect(collectAnchorViolations("Delta2 复核建议").some((x) => x.kind === "轮次编号" && x.token === "Delta2")).toBe(true);
+    expect(collectAnchorViolations("DeltaR3 处置").some((x) => x.kind === "轮次编号" && x.token === "DeltaR3")).toBe(true);
+    expect(collectAnchorViolations("DELTA-r3：链内再拆").some((x) => x.kind === "轮次编号" && x.token === "DELTA-r3")).toBe(true);
+    expect(collectAnchorViolations("Delta D1 回归锚").some((x) => x.kind === "轮次编号" && x.token === "Delta D1")).toBe(true);
+  });
+
   it("BC 纸/信封规格不误删，检查项号删除", () => {
     expect(collectAnchorViolations("B4 纸张与 B5 纸，C4 纸与 C5 信封")).toEqual([]);
     expect(collectAnchorViolations("B9 抽样，C4：UI 徽章数据源").map((x) => x.token).sort()).toEqual(["B9", "C4"]);

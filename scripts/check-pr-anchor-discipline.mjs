@@ -117,8 +117,8 @@ export const DISPOSITION_RES = [
   /(?:发现|建议|严重)\s*[0-9]+\s*(?:处置|修复|配套|建议)/g,
   /** delta 轮：delta 发现/建议/修复/处置 N */
   /\bdelta\s*(?:发现|修复|建议|处置|复核|审视|确认|配套)\s*[0-9]+/gi,
-  /** delta 轮简写：delta-r3 / delta D1 / delta2 / delta-3（字母可选） */
-  /\bdelta[- ]?[A-Za-z]?[0-9]+/g,
+  /** delta 轮简写：delta-r3 / delta D1 / delta2 / delta-3（字母可选，大小写不敏感——Delta2 / DeltaR3 / DELTA-r3 同判） */
+  /\bdelta[- ]?[A-Za-z]?[0-9]+/gi,
 ];
 
 /** 文档结构编号的语义豁免：日常词/时间/复合名不走「文档编号」删除。 */

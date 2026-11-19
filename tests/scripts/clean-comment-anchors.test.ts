@@ -114,6 +114,13 @@ describe("cleanCommentText 文档结构编号", () => {
     expect(cleanCommentText("// delta-r3：链内再按 | 拆管道段").text).toBe("// 链内再按 | 拆管道段");
     expect(cleanCommentText("D4（检视 delta-r3）：段首 fetcher").text).toBe("（检视）：段首 fetcher");
   });
+
+  it("delta 简写大小写变体整体删除不留前缀", () => {
+    expect(cleanCommentText("// Delta2：复核建议").text).toBe("// 复核建议");
+    expect(cleanCommentText("// DeltaR3 处置后").text).toBe("// 处置后");
+    expect(cleanCommentText("// DELTA-r3：链内再拆").text).toBe("// 链内再拆");
+    expect(cleanCommentText("// Delta D1 回归锚").text).toBe("// 回归锚");
+  });
 });
 
   it("仅 import 模块不产生写副作用", async () => {
