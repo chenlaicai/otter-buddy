@@ -118,7 +118,7 @@ describe("migrate CLI 端到端（export → restore → verify）", () => {
 
     execFileSync("node", [
       path.join(repoRoot, "scripts/migrate-restore.mjs"),
-      "--tar", path.join(outDir, tarName!), "--data-dir", restoreDir, "--require-empty",
+      "--tar", path.join(outDir, tarName!), "--data-dir", restoreDir,
     ], { stdio: "pipe", cwd: repoRoot });
 
     // 还原结果：内容在 + 独立 verify 可重跑（不抛即 exit 0=校验通过）+ 报告落盘
@@ -130,5 +130,26 @@ describe("migrate CLI 端到端（export → restore → verify）", () => {
       "--report", verifyReport,
     ], { stdio: "pipe", cwd: repoRoot });
     expect(existsSync(verifyReport)).toBe(true);
+  }, 60_000);
+
+  it("restore 默认拒非空目录（防误覆盖），--allow-overwrite 显式解锁", () => {
+    const outDir2 = path.join(fixtureRoot, "out2");
+    const nonEmptyDir = path.join(fixtureRoot, "nonempty");
+    mkdirSync(nonEmptyDir, { recursive: true });
+    writeFileSync(path.join(nonEmptyDir, "existing.txt"), "precious");
+    execFileSync("node", [
+      path.join(repoRoot, "scripts/migrate-export.mjs"),
+      "--data-dir", dataDir, "--out", outDir2, "--skip-liveness",
+    ], { stdio: "pipe", cwd: repoRoot });
+    const tarName = readdirSync(outDir2).find((f) => f.endsWith(".tar.gz"))!;
+    let failed = false;
+    try {
+      execFileSync("node", [
+        path.join(repoRoot, "scripts/migrate-restore.mjs"),
+        "--tar", path.join(outDir2, tarName), "--data-dir", nonEmptyDir,
+      ], { stdio: "pipe", cwd: repoRoot });
+    } catch { failed = true; }
+    expect(failed).toBe(true); // 非空拒绝（exit 1）
+    expect(existsSync(path.join(nonEmptyDir, "existing.txt"))).toBe(true); // 既有数据未被动
   }, 60_000);
 });

@@ -95,8 +95,8 @@ async function main() {
       copyDirExcluding(srcAbs, dstAbs, (rel) => isSqliteFile(`${name}/${rel}`) || `${name}/${rel}`.endsWith(".sqlite-shm") || `${name}/${rel}`.endsWith(".sqlite-wal"));
     } else if (lstat.isSymbolicLink()) {
       fs.symlinkSync(fs.readlinkSync(srcAbs), dstAbs);
-    } else {
-      fs.copyFileSync(srcAbs, dstAbs);
+    } else if (!isSqliteFile(name)) {
+      fs.copyFileSync(srcAbs, dstAbs); // 顶层 sqlite 主库跳过——由下方 backup 段一致性处理（防双拷）
     }
   }
   // sqlite 逐库 backup（一致性；目标目录 sqliteBackup 自建）

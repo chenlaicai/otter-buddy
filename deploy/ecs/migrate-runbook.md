@@ -21,8 +21,8 @@
 3. **传输**：`scp` / `rsync` 产物到 ECS（`sh .otter/deploy-keys/ecs-ssh.sh` 通道）。
 4. **还原**（ECS，目标数据目录即 systemd 配置的 `/var/lib/otter-buddy` 下 data 布局）：
    ```
-   node scripts/migrate-restore.mjs --tar migrate-<ts>.tar.gz --data-dir <目标> --require-empty
-   # 内置三级校验：文件 sha256 全量 + sqlite 表行数逐库逐表 + 多余文件检测
+   node scripts/migrate-restore.mjs --tar migrate-<ts>.tar.gz --data-dir <目标>
+   # 默认拒非空目录（防误覆盖）；内置三级校验：文件 sha256 全量 + sqlite 表行数逐库逐表 + 多余文件检测
    ```
 5. **起云**：`systemctl start otter-buddy`（6a 单元：探活就绪 + 单实例锁护数据域）。
 6. **入口切换**：web 用 `https://otter.60.205.214.148.sslip.io/`；connector 换 `wss://…/connector-ws`。
@@ -40,7 +40,7 @@
 
 ```
 node scripts/migrate-export.mjs --data-dir <本机data> --out /tmp/mig-drill --skip-liveness
-node scripts/migrate-restore.mjs --tar /tmp/mig-drill/migrate-<ts>.tar.gz --data-dir /tmp/mig-drill/restored --require-empty
+node scripts/migrate-restore.mjs --tar /tmp/mig-drill/migrate-<ts>.tar.gz --data-dir /tmp/mig-drill/restored
 node scripts/migrate-verify.mjs --data-dir /tmp/mig-drill/restored --manifest /tmp/mig-drill/migrate-<ts>.manifest.json
 ```
 全绿即工具链就绪。vitest 端到端（tests/scripts/migrate-tools.test.ts）是小数据集同构回归。
