@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 迁移校验（阶段 6b）：对已还原（或已运行）的数据目录独立重跑三级校验。
+ * 迁移校验：对已还原（或已运行）的数据目录独立重跑三级校验。
  *
  * 用法：
  *   node scripts/migrate-verify.mjs --data-dir <目录> --manifest <manifest.json> [--report <out.json>]

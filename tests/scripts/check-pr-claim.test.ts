@@ -103,7 +103,7 @@ describe("checkClaim 认领谓词", () => {
 
 describe("辅助函数", () => {
   it("extractIssueNumbers：closes 族优先时裸引用不计为工作对象（本 PR 实证形态回归）", () => {
-    // 概述段叙述历史事故 #1899，尾部 Closes #1951 声明工作对象——裸 #1899 不得误拦（kimi检视獭-1954 BLOCK-1a）
+    // 概述段叙述历史事故引用，尾部 Closes 族声明工作对象——裸井号引用不得误拦（kimi检视獭-1954 BLOCK-1a）
     const body = "昨日 #1899 双呈爆雷的根因修复。\n\nCloses #1951";
     expect(extractIssueNumbers("认领闸测试 PR", body)).toEqual([1951]);
   });
@@ -119,7 +119,7 @@ describe("辅助函数", () => {
 
   it("extractIssueNumbers：closes 动词变体与词边界（disclose 不误配）", () => {
     expect(extractIssueNumbers("", "closed #7 Resolves: #8 FIXING #9")).toEqual([7, 8, 9]);
-    expect(extractIssueNumbers("", "disclose #10 未关问 bug")).toEqual([10]); // 裸兑底——disclose 不是 closes 动词，#10 走兑底计为工作对象属已接受残余
+    expect(extractIssueNumbers("", "disclose #10 未关问 bug")).toEqual([10]); // 裸兑底——disclose 不是 closes 动词，走兑底计为工作对象属已接受残余
   });
 
   it("extractIssueNumbers：裸 issue URL（无 closes 动词）不计为工作对象——双闸一致", () => {

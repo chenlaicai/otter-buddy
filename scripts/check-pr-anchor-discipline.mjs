@@ -61,7 +61,12 @@ export function isSupportedCodePath(p) {
 
 /** 工具脚本自身：注释里的编号 token 是规则说明（元语言），不参与存量子清理与新增行拦截。 */
 export function isToolScriptPath(p) {
-  return p === "scripts/clean-comment-anchors.mjs" || p === "scripts/check-pr-anchor-discipline.mjs";
+  return (
+    p === "scripts/clean-comment-anchors.mjs" ||
+    p === "scripts/check-pr-anchor-discipline.mjs" ||
+    p === "scripts/check-pr-claim.mjs" ||
+    p === "scripts/commit-msg-claim-gate.mjs"
+  );
 }
 
 /** 特性编号：[FR] + 8 位日期 +（可选连字符）+ 4-10 位字母数字后缀。 */

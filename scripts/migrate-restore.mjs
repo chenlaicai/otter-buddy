@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 迁移还原（阶段 6b）：解包 tar 产物到目标数据目录 → 内置三级校验。
+ * 迁移还原：解包 tar 产物到目标数据目录 → 内置三级校验。
  *
  * 用法（云端 ECS 或本机演练目标目录）：
  *   node scripts/migrate-restore.mjs --tar <migrate-*.tar.gz> --data-dir <目标data目录> [--allow-overwrite]
