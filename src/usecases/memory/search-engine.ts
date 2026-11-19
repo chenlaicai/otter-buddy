@@ -82,7 +82,7 @@ export interface SearchEngineConfig {
   weightHalfLifeDaysDocument: number;
   userFlagMultiplier: number;
   frequencyBoostFactor: number;
-  /** rerank 融合模式，缺省 multiply（段 1 零默认变更）。缺省在构造时回填。 */
+  /** rerank 融合模式；缺省 additive，显式 multiply 可回退旧连乘。 */
   rerankMode?: RerankMode;
   /** 加法融合系数（wRrf/wTime/wFreq 连续权重隐微和为 1，运行时在 rerankAdditive 内比例归一）。缺省在构造时回填。 */
   rerank?: RerankWeights;
@@ -145,11 +145,11 @@ export class SearchEngine {
   private readonly config: SearchEngineConfig;
 
   constructor(config: SearchEngineConfig = {} as SearchEngineConfig) {
-    // 段 1：构造时只回填缺省——rerankMode 缺省 multiply（零行为变更），系数缺省回填设计值；
+    // 引擎与应用配置缺省同为 additive，避免直接构造时落入另一套排序。
     // 连续权重的比例归一（normalizeRerankWeights）在 rerankAdditive 调用时执行，不在构造时。
     this.config = {
       ...config,
-      rerankMode: config.rerankMode ?? "multiply",
+      rerankMode: config.rerankMode ?? "additive",
       rerank: config.rerank ?? DEFAULT_RERANK_WEIGHTS,
       supersededPenalty: config.supersededPenalty ?? 0.3,
       beliefBoost: config.beliefBoost ?? 2.0,

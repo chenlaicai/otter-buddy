@@ -52,6 +52,13 @@ function makeVecHit(
   return { entryId, distance, entry };
 }
 
+describe("SearchEngine rerank 缺省契约", () => {
+  it("缺省 additive，显式 multiply 保留回退", () => {
+    expect(new SearchEngine(TEST_CONFIG).configRef.rerankMode).toBe("additive");
+    expect(new SearchEngine({ ...TEST_CONFIG, rerankMode: "multiply" }).configRef.rerankMode).toBe("multiply");
+  });
+});
+
 describe("SearchEngine - RRF 融合与单源构建", () => {
   let engine: SearchEngine;
 

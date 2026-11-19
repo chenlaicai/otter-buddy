@@ -20,6 +20,8 @@ causal_links:
 tags: [memory, retrieval, ranking, rerank, real-evaluation, blind-labeling, additive]
 modules:
   - src/frameworks/config-service.ts
+  - src/usecases/memory/search-engine.ts
+  - src/usecases/memory/search-memory.ts
   - config/config.yaml.example
   - tests/frameworks/config-service.test.ts
   - tests/usecases/memory/golden-eval.test.ts
@@ -78,7 +80,7 @@ modules:
 - `golden-eval.test.ts`：生产默认配置改 additive，地板重锁为 0.776/0.790/0.908；新增显式 multiply 回退用例，精确锁旧值 0.6732/0.7079/0.8114；全中性化反事实不变。
 - `real-rerank.eval.ts` + 独立 vitest config + `npm run eval:real`：提供抽样、盲标池导出、同查询混合召回重跑、标签结构校验和三项指标复算。它不是默认测试套件成员，也不读取或写入在线生产库。
 
-底层 `SearchEngine` 的缺省兼容回退仍保留旧路径；应用统一经 `config-service` 注入新默认，避免无配置的直接构造在本段产生额外行为扩散。
+底层 `SearchEngine` 与 `config-service` 的缺省统一切为 additive，避免直接构造与应用配置分叉；两条路径均保留显式 `multiply` 回退。
 
 ## 5. 设计取舍与失效处置
 
@@ -91,7 +93,7 @@ modules:
 
 - 真实集 FTS-only 与混合召回指标见 §3；标签机械校验分别为 268/268、263/263，20 个 queryId 唯一且键集完整。
 - `npm run eval:golden`：9/9；默认 additive 实测 0.7769/0.7906/0.9085，全中性化反事实 0.7998/0.8029/0.9364，显式 multiply 旧值不变。
-- memory/config 目标测试 137/137；TypeScript 与目标 ESLint 通过。
+- memory/config 目标测试 138/138；TypeScript 与目标 ESLint 通过。
 - 无 schema 迁移、无在线 DB 写入、无一次性脚本。代码回滚用 `git revert <merge-commit>`；运行时回退只需配置 `memory.rerankMode: multiply`。
 
 🤖 Generated with [Otter Buddy](https://github.com/chenlaicai/otter-buddy) by 大獭
