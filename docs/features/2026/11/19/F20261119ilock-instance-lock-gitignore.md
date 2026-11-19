@@ -7,14 +7,15 @@ change_type: fix
 status: active
 summary: |
   F20261118cldep（#1945）引入的单实例锁会在 <db-path> 旁创建
-  `<db-path>.otter-instance.lock`（内容=持锁进程 PID，随应用启停生灭）。该运行时产物
+  `<db-path>.otter-instance.lock`（内容=持锁进程 PID，仅诊断展示不参与互斥；启动时覆写、
+  停止后残留——release() 只关端口不删文件）。该运行时产物
   没进 .gitignore（既有 `*.pid.lock` 不匹配此命名），导致应用每次启动后 git status 都挂
   一条 untracked——既污染主仓状态信号（今日排查主仓 changes 时即被它干扰），也存在
   被顺手 `git add .` 误提交的风险。补全局通配 `*.otter-instance.lock`（名字跟 db 文件
   走，不锚定 data/ 路径）。
 intent:
   problem: "#1945 合入单实例锁后，应用启动即在工作目录留下 otter-buddy.db.otter-instance.lock，.gitignore 无对应条目，git status 永久挂一条 untracked（2026-11-19 08:41 实证）；运行时产物混进 status 会钝化「主仓该是干净」的信号——本次主仓污染排查（两份脚本草稿）中它正是背景噪音之一"
-  expected_effect: "git status 对锁文件静默（无论 db 叫什么名字、放在哪），主仓在无真实改动时回到全净状态；误提交风险消除。不改锁的创建/删除行为，纯 ignore 声明"
+  expected_effect: "git status 对锁文件静默（无论 db 叫什么名字、放在哪），主仓在无真实改动时回到全净状态；误提交风险消除。不改锁的创建/写入/释放行为（互斥载体是端口 bind），纯 ignore 声明"
   verify_by:
     type: behavior_check
     evidence:
@@ -44,9 +45,10 @@ git status 从此永久挂着一条 untracked。
 .gitignore 追加一条（复用本仓「运行时产物 ignore 必须带中文说明 + 特性溯源」的既有风格）：
 
 ```gitignore
-# 单实例锁运行时产物（F20261118cldep #1945 / src/bootstrap/instance-lock.ts ——
-# <db-path>.otter-instance.lock 内容=持锁进程 PID，随应用启停生灭，不进 git；
-# 名字跟 db 文件走，故用全局通配而非锚定 data/ 路径）
+# 单实例锁诊断文件（F20261118cldep #1945 / src/bootstrap/instance-lock.ts ——
+# <db-path>.otter-instance.lock 内容=持锁进程 PID，仅诊断展示不参与互斥；启动时
+# 覆写、停止后残留（release 只关端口不删文件），运行时产物不进 git；名字跟
+# db 文件走，故用全局通配而非锚定 data/ 路径）
 *.otter-instance.lock
 ```
 
@@ -56,6 +58,6 @@ git status 从此永久挂着一条 untracked。
 
 ## 影响面与边界
 
-- 纯 ignore 声明：不改锁的创建/删除/探测行为，不影响 #1945 的单实例互斥语义。
+- 纯 ignore 声明：不改锁的创建/写入/释放行为（release 只关端口，文件停止后残留是 #1945 既有语义），不影响单实例互斥（互斥载体是端口 bind，文件仅诊断）。
 - 不追溯已提交的锁文件（核查过 git 历史无此文件，无需 `git rm --cached`）。
 - 若未来锁命名规则变化（如换 suffix），此条自然失效，由当次改动同步维护。
