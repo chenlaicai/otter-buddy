@@ -1,7 +1,7 @@
 ---
 id: F20261119reapk
 title: "scheduler 机械释放补 pending 入列：「恢复后由补扫消化」的载体保证（#1893）"
-summary: "定时任务执行体滞留超 2h 机械释放（翻篇 failed + healing）后，当轮工作失去全部载体——注入消息悬空、无 pending 兜底，11-13 健康检查当日 daily-review 缺失实证。根因是双触发抑制链：首触发 running 滞留（冻结未消费），二次触发被同槽 running 抑制成不入列的账面 completed（message_id=NULL），机械释放只回收账面不管消化载体，「恢复后由补扫消化」停在注释口号。修法：两释放点（轮询+挤占）翻篇后补 kindleReapPending——同槽无其他 running 且无真直发 completed（抑制型不算覆盖）则 enqueue pending（保原槽位，恢复后经既有提醒通道补做/弃做留痕）；once 不入列；索引去重静默；healing context 带 pendingKindled。KeepAlive 探针为长期项不进本 PR。"
+summary: "定时任务执行体滞留超 2h 机械释放后，当轮工作失去全部载体——11-13 健康检查当日 daily-review 缺失实证（双触发抑制链：首触发 running 滞留，二次触发被同槽 running 抑制成不入列的账面 completed，机械释放只翻篇不管消化载体）。修法：仅轮询释放路径补 kindleReapPending（挤占触发点不 kindle——翻篇后本轮立即放行新触发，新执行即当轮载体；此时入列会赶在新行建立前完成，同槽双载体并发且消费链覆盖重查只认 completed，running 窗口拦不住补做）；仅 agent 型入列（function 无 pending 角色通道）；同槽无其他 running 且无真直发 completed（抑制型不算覆盖）则 enqueue（保原槽位，恢复后经既有提醒通道补做/弃做留痕）；once 不入列；索引去重静默；入列结果以状态枚举落 healing（kindled/covered/deduped/skipped/error 可区分，异常不再与去重同形）。KeepAlive 探针为长期项不进本 PR。"
 change_type: bugfix
 capability_test: "n/a: 纯代码逻辑修复非 LLM 行为采样面——入列判定矩阵由 6 例单测覆盖（tests/usecases/scheduler/scheduler-service.test.ts F20261119reapk describe 块：实证场景/同槽 running/真直发覆盖/索引去重/挤占路径/once 守卫）；现场维度的验证载体是后续 healing 落账 context.pendingKindled 与 pending 项消费留痕"
 intent:
@@ -45,22 +45,26 @@ causal_links:
 2. 机械释放把它翻篇 failed → covered 依据消失，但已没有人再看一眼是否需要补 pending
 3. 「恢复后由补扫消化」的注释假设信号保留语义兜住——但信号保留只保证「消息还在」，不保证「有人回头消费」（冻结恢复后无重燃点）
 
-## 修法：kindleReapPending（机械释放与消化载体绑定）
+## 修法：kindleReapPending（机械释放与消化载体绑定，仅轮询路径）
 
 ```ts
-// 两个释放点翻篇后：
-const kindled = await this.kindleReapPending(task, exec);
-await this.recordReapHealing(task, exec.id, kindled);
+// 仅轮询释放路径（reapStaleRunningExecutionsForTask）翻篇后：
+const kindleState = await this.kindleReapPending(task, exec); // kindled/covered/deduped/skipped/error
+await this.recordReapHealing(task, exec.id, kindleState);
+// 挤占触发点（reapPreemptingExecutions）不 kindle——翻篇后本轮立即放行新触发，
+// 新执行即当轮载体；此时入列会赶在新行建立前完成，同槽双载体并发。
 ```
 
 判定链（全部复用既有原语，零新表零新索引）：
 
-1. **守卫短路**：pendingItemRepo 未注入（降级装配）/ once 任务（行触发后即删，pending FK 悬空）→ 不入列
-2. **同槽另有 running** → 不入列（防双跑重复——挤占触发点释放后新触发在跑的场景）
-3. **同槽有真直发 completed**（hasDirectCompletionInSlot：completed 且 message_id 非空）→ 已覆盖不入列
+1. **守卫短路**：pendingItemRepo 未注入（降级装配）/ once 任务（行触发后即删，pending FK 悬空）/ **function 型任务**（无 pending 角色通道，入列只会让獭把函数 body 当任务展开）→ skipped 不入列
+2. **同槽另有 running** → covered 不入列（防双跑重复——同槽即时重试场景）
+3. **同槽有真直发 completed**（hasDirectCompletionInSlot：completed 且 message_id 非空）→ covered 已覆盖不入列
 4. **抑制型 completed（message_id=NULL）不算覆盖**——正是 11-13 事故形态：账面完成≠工作有人干
-5. **enqueue**：triggeredAt 用原 execution 槽位（次日消费按同 cron 槽对账）；部分唯一索引去重（同任务已有 pending=已有载体，返回 false 静默）
-6. **healing context.pendingKindled** 落账，suggestion 分叉（入列→「已补 pending 入列，恢复后经 pending 通道重燃补做」；未入列→「同槽已覆盖/去重/once，次日 cron 自然覆盖」）
+5. **enqueue**：triggeredAt 用原 execution 槽位（次日消费按同 cron 槽对账）；部分唯一索引去重（同任务已有 pending=已有载体，返回 false 静默 → deduped）
+6. **healing context.pendingKindleState** 状态枚举落账（kindled/covered/deduped/skipped/error），suggestion 按状态分叉——入列异常与正常去重/覆盖必须可区分（error 态明示需人工核查 pending 队列），否则归因错误
+
+**挤占路径不 kindle 的完整闭环论证**：翻篇后新触发的所有分支都有载体——直发成功 → completed 载体；新执行滞留 → 2h 轮询释放时 kindle；新触发被忙判 skip → 既有 pending 兜失败重试路径；新触发 skip 后下轮 catch-up 再触发。唯一需要 kindle 的窗口是「没有新触发在途」的轮询释放，两个路径职责不重叠。
 
 失败仅日志不阻塞释放本体——释放是主语义（回收执行位），入列是消化增强。
 
@@ -72,12 +76,22 @@ await this.recordReapHealing(task, exec.id, kindled);
 
 ## 验证
 
-- 单测 6 例（tests/usecases/scheduler/scheduler-service.test.ts，F20261119reapk describe）：
-  1. 11-13 实证场景：轮询翻篇 + 同槽仅抑制型 completed → 入列（槽位/任务/角色/对话四字段断言 + pendingKindled=true）
+- 单测 9 例（tests/usecases/scheduler/scheduler-service.test.ts，F20261119reapk describe）：
+  1. 11-13 实证场景：轮询翻篇 + 同槽仅抑制型 completed → 入列（槽位/任务/角色/对话四字段断言 + pendingKindleState=kindled）
   2. 同槽另有 running → 不重复入列
   3. 同槽真直发 completed → 已覆盖不入列
-  4. 索引去重（enqueue 返回 false）→ 静默、pendingKindled=false
-  5. 挤占触发点路径同样入列 + 新触发放行不冲突
-  6. once 守卫不入列
-- 全量 scheduler-service 123 例绿；tsc/eslint 绿
-- 现场观察项（后续 healing 落账）：机械释放事件的 context.pendingKindled 分布与 pending 项消费 resolution 留痕
+  4. 索引去重（enqueue 返回 false）→ 静默、pendingKindleState=deduped
+  5. 挤占触发点不 kindle：翻篇即放行新触发（新执行即载体），同槽无双载体窗口，healing 不带 kindle 态
+  6. function executor 不入列（pendingKindleState=skipped）
+  7. enqueue/槽位查询抛异常 → error 态落账（suggestion 明示需人工核查），释放本体不受阻
+  8. once 守卫不入列
+  9. 真实 SQLite 集成两例：11-13 形态（抑制型 completed 真库判定放行+真库入列断言）与同槽即时重试（真库 running 判 covered 不入列）——判定链在真实槽位 SQL 下端到端验证
+- 全量 scheduler-service 127 例绿；tsc/eslint 绿
+- 现场观察项（后续 healing 落账）：机械释放事件的 context.pendingKindleState 分布与 pending 项消费 resolution 留痕
+
+## 对抗检视处置（首轮 BLOCK 两条必修+两条建议全采纳）
+
+- 🔴 挤占路径 kindle 断双跑链（kimi 发现：挤占点先 kindle 后建新 running，pending 会在新直发 invoke 中被提醒，消费重查只认 completed，运行中窗口仍可展开补做）→ 采纳修法：挤占路径不 kindle（新执行即当轮载体，完整闭环论证见修法节）
+- 🔴 function executor 误入 agent pending 通道（无消费者，獭会把函数 body 当任务展开）→ 采纳：kindle 守卫加 executorType!=='agent' 短路
+- 🟡 pendingKindled=false 三态混一（异常/去重/覆盖同形，归因错误）→ 采纳：状态枚举 pendingKindleState（kindled/covered/deduped/skipped/error）+ suggestion 分叉，error 态明示需人工核查
+- 🟡 判定矩阵未触达真实 SQL 语义 → 采纳：补两条真实 SQLite 集成测试（11-13 形态 + 同槽即时重试）+ enqueue 抛错与 function 守卫用例

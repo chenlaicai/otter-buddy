@@ -577,22 +577,30 @@ export class SchedulerService {
       this.logger.warn('孤儿扫描: running 执行已机械释放', {
         taskId: task.id, executionId: exec.id, triggeredAt: exec.triggeredAt, targetOtter,
       });
-      const kindled = await this.kindleReapPending(task, exec);
-      await this.recordReapHealing(task, exec.id, kindled);
+      const kindleState = await this.kindleReapPending(task, exec);
+      await this.recordReapHealing(task, exec.id, kindleState);
     }
   }
 
-  /** F20261119reapk：机械释放补 pending 入列——「恢复后由补扫消化」的载体保证。
-   *  现场（11-13 健康检查实证）：首触发 running 滞留（执行方冻结未消费注入消息），
+  /** F20261119reapk：轮询机械释放补 pending 入列——「恢复后由补扫消化」的载体保证。
+   *  仅轮询路径调用：挤占触发点翻篇后本轮立即放行新触发（新执行即当轮载体），
+   *  此时 kindle 会赶在新行建立前入列，同槽「直发中 + pending 可消费」双载体并发
+   *  （消费链覆盖重查只认 completed，running 窗口拦不住补做）——防双跑链断开，故不 kindle。
+   *  现场（11-13 健康检查实证）：首触发 running 滞留（执行方冻结未消费注入），
    *  二次触发被同槽 running 抑制成不入列的账面 completed（message_id=NULL），
-   *  机械释放翻篇后当轮工作失去全部载体，当日任务目标丢失。
-   *  判定：同槽无其他 running 且无真直发 completed（抑制型 completed 不算覆盖）→ 入列，
-   *  恢复后经 pending 提醒通道补做/弃做均留痕。once 行触发后即删（pending FK 悬空）不入列。 */
-  private async kindleReapPending(task: ScheduledTask, execution: ScheduledTaskExecution): Promise<boolean> {
-    if (!this.pendingItemRepo || task.scheduleType === 'once') return false;
+   *  轮询机械释放翻篇后当轮工作失去全部载体，当日任务目标丢失。
+   *  判定：仅 agent 型（function 无 pending 角色通道，入列只会让獭把函数 body
+   *  当任务展开）；同槽无其他 running 且无真直发 completed（抑制型不算覆盖）→ 入列；
+   *  once 行触发后即删（FK 悬空）不入列；入列结果以状态枚举落 healing（可观测性：
+   *  入列异常与正常去重/覆盖必须可区分，否则归因错误）。 */
+  private async kindleReapPending(
+    task: ScheduledTask,
+    execution: ScheduledTaskExecution,
+  ): Promise<'kindled' | 'covered' | 'deduped' | 'skipped' | 'error'> {
+    if (!this.pendingItemRepo || task.scheduleType === 'once' || task.executorType !== 'agent') return 'skipped';
     try {
-      if (await this.pendingItemRepo.hasExecutionInSlot(task.id, execution.triggeredAt, ['running'], execution.id)) return false;
-      if (await this.pendingItemRepo.hasDirectCompletionInSlot(task.id, execution.triggeredAt)) return false;
+      if (await this.pendingItemRepo.hasExecutionInSlot(task.id, execution.triggeredAt, ['running'], execution.id)) return 'covered';
+      if (await this.pendingItemRepo.hasDirectCompletionInSlot(task.id, execution.triggeredAt)) return 'covered';
       const enqueued = await this.pendingItemRepo.enqueue({
         id: crypto.randomUUID(),
         taskId: task.id,
@@ -608,20 +616,26 @@ export class SchedulerService {
         this.logger.info('机械释放补 pending 入列：恢复后经 pending 通道重燃', {
           taskId: task.id, executionId: execution.id, slotTriggeredAt: execution.triggeredAt,
         });
+        return 'kindled';
       }
-      return enqueued;
+      return 'deduped';
     } catch (err) {
       this.logger.warn('机械释放补 pending 入列失败（不阻塞释放本体）', {
         taskId: task.id, executionId: execution.id,
         error: err instanceof Error ? err.message : String(err),
       });
-      return false;
+      return 'error';
     }
   }
 
   /** #1449：孤儿清理落 healing（high——日报缺失级事故，值得被看见）。失败仅日志。
-   *  F20261119reapk：context 带 pendingKindled，suggestion 分叉由入列结果驱动。 */
-  private async recordReapHealing(task: ScheduledTask, executionId: string, pendingKindled = false): Promise<void> {
+   *  F20261119reapk：kindleState 仅轮询路径传入（挤占路径不 kindle——新触发即载体），
+   *  入列异常与正常去重/覆盖以状态枚举区分，suggestion 分叉由状态驱动。 */
+  private async recordReapHealing(
+    task: ScheduledTask,
+    executionId: string,
+    kindleState?: 'kindled' | 'covered' | 'deduped' | 'skipped' | 'error',
+  ): Promise<void> {
     if (!this.healingRepo) return;
     try {
       await this.healingRepo.create({
@@ -632,15 +646,18 @@ export class SchedulerService {
         errorType: 'other',
         severity: 'high',
         description: `定时任务「${task.name}」running 执行体滞留超 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h，轮询扫描机械释放`,
-        suggestion: pendingKindled
-          ? '核查该时段是否用户停机/限流冻结或网关断连；已补 pending 入列，执行方恢复后经 pending 通道重燃补做'
-          : '核查该时段是否用户停机/限流冻结或网关断连；未入列（同槽已覆盖/去重/once），次日 cron 自然覆盖',
+        suggestion: (() => {
+          if (kindleState === 'kindled') return '已补 pending 入列，执行方恢复后经 pending 通道重燃补做；核查该时段是否用户停机/限流冻结';
+          if (kindleState === 'error') return '补 pending 入列失败（enqueue/槽位查询异常），需人工核查 pending 队列；核查该时段是否用户停机/限流冻结';
+          if (kindleState === 'covered' || kindleState === 'deduped' || kindleState === 'skipped') return '未入列（同槽已覆盖/索引去重/边界跳过），次日 cron 自然覆盖；核查该时段是否用户停机/限流冻结';
+          return '翻篇即放行新触发，当轮载体由新执行承担；若新执行滞留，轮询释放时补 pending 入列';
+        })(),
         context: {
           taskId: task.id,
           executionId,
           thresholdMs: RUNNING_STUCK_THRESHOLD_MS,
           reapedAt: new Date().toISOString(),
-          pendingKindled,
+          ...(kindleState ? { pendingKindleState: kindleState } : {}),
         },
         status: 'open',
         resolution: null,
@@ -1638,8 +1655,10 @@ export class SchedulerService {
       this.logger.warn('挤占触发点：孤儿 running 执行已即时释放', {
         taskId: task.id, executionId: exec.id, triggeredAt: exec.triggeredAt, targetOtter, halted,
       });
-      const kindled = await this.kindleReapPending(task, exec);
-      await this.recordReapHealing(task, exec.id, kindled);
+      // F20261119reapk：挤占路径不 kindle——翻篇后本轮立即放行新触发（新执行即当轮载体）；
+      // 此处入列会赶在新行建立前完成，同槽「直发中 + pending 可消费」双载体并发（消费链
+      // 覆盖重查只认 completed，running 窗口拦不住补做）。若新执行再滞留，2h 轮询释放时补列。
+      await this.recordReapHealing(task, exec.id);
     }
   }
 
