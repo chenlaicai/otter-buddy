@@ -3,7 +3,7 @@ id: F20261119prcrn
 title: "PR 呈递三件套回退案例沉淀：BIG_OTTER.md 六形态段标注 #1907 回退现场（#1907）"
 summary: "2026-11-16~17 大獭连续四个 PR 呈递回退（只走摘要卡或句中夹带 URL，无裸链独占段），搭档体感「你都不咋给我主动展示 pr 卡片」——六形态规则已在 BIG_OTTER.md 但纯正向表述挡不住回退。按 issue 指引「已有该条则标注最近回退案例」：在既有六形态条目下追加回退案例段，把三件套（结论 1-2 句 → URL 裸写独占一段 → create_linked_resource 登记）从「可选风格」升格为「固定动作 + 交付自查」，用具体事故锚替代抽象规则记忆。"
 change_type: prompt
-capability_test: "n/a: 提示词回退案例标注（无机械可断言端点），以 prompt-anchors lint + 后续 PR 呈递三件套执行率（对话 speak 记录观察项）为验证载体"
+capability_test: "n/a: 提示词回退案例标注（无机械可断言端点），以 prompt-anchors lint + 本 PR 呈递三件套真实执行（linked resource 产物 23cd02da）+ 后续 PR 呈递执行率观察项为验证载体"
 intent:
   problem: "六形态规则（含「呈递 PR 时贴裸链独占一段」）已存在于 BIG_OTTER.md，但纯正向的「最常见的纠偏」表述在大獭长上下文中不足以对抗回退——回退期间规则一直在场却没被执行，说明抽象规则记忆弱于具体案例记忆。#1907 现场实证：连续四个 PR（#1890/#1901/#1903/#1906）全部缺席裸链独占段，搭档决策体验退化（时间轴看不到 PR unfurl 卡）。"
   solution: "在 BIG_OTTER.md 六形态段既有条目下追加回退案例：引搭档原话「你都不咋给我主动展示 pr 卡片」锚定体感后果，把三件套明确为固定动作（①结论 1-2 句 ②URL 裸写独占一段 ③create_linked_resource 登记），并加交付自查句「任何一步缺席都是回退；交付 PR 时自查三步齐」。负向案例 + 具体步骤 + 自查触发词三要素齐备，与文件内其他回退标注（如「我把汇报了进展等同于任务完成了」）同构。"
@@ -12,7 +12,8 @@ intent:
     type: behavior_check
     assertions:
       - "prompt-anchors lint 通过（BIG_OTTER.md 锚点纪律）"
-      - "本 PR 呈递自身执行三件套（可作为首个示范锚）"
+      - "本 PR 呈递三件套真实执行留痕：首轮呈递漏第三步（检视发现实证——恰为本特性要修的回退形态），delta 即补 create_linked_resource（产物 23cd02da）；回退-纠偏全过程构成比一次性完美执行更真实的 capability 记录"
+      - "Golden Gate: n/a——三件套是真实工作流编排动作，golden harness 冷启动单任务模拟的保真度低于真实 PR 交付语境；狗食验证第一现场即本 PR 自身呈递（裸链独占段 + 产物登记）"
       - "后续 PR 呈递（对话 speak 记录）含裸链独占段——观察项，非机械断言"
 created_in_conversation: a23f0f4a-612c-46e9-8d83-be648ced720e
 tags: [prompt, pr-card, unfurl, regression-note, presentation-discipline]
