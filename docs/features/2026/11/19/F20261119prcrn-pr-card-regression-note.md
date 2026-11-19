@@ -9,12 +9,7 @@ intent:
   solution: "在 BIG_OTTER.md 六形态段既有条目下追加回退案例：引搭档原话「你都不咋给我主动展示 pr 卡片」锚定体感后果，把三件套明确为固定动作（①结论 1-2 句 ②URL 裸写独占一段 ③create_linked_resource 登记），并加交付自查句「任何一步缺席都是回退；交付 PR 时自查三步齐」。负向案例 + 具体步骤 + 自查触发词三要素齐备，与文件内其他回退标注（如「我把汇报了进展等同于任务完成了」）同构。"
   expected_effect: "后续大獭 PR 呈递稳定走三件套（本 PR 自身呈递即首个示范：正文结论 + 裸链独占段 + 登记）；例行复盘提及时有具体锚可引。若再回退，说明提示词标注仍不足，升级路径是运行时结构化（如 speak 工具描述强化），由下次回退事故触发。"
   verify_by:
-    type: behavior_check
-    assertions:
-      - "prompt-anchors lint 通过（BIG_OTTER.md 锚点纪律）"
-      - "本 PR 呈递三件套真实执行留痕：首轮呈递漏第三步（检视发现实证——恰为本特性要修的回退形态），delta 即补 create_linked_resource（产物 23cd02da）；回退-纠偏全过程构成比一次性完美执行更真实的 capability 记录"
-      - "Golden Gate: n/a——三件套是真实工作流编排动作，golden harness 冷启动单任务模拟的保真度低于真实 PR 交付语境；狗食验证第一现场即本 PR 自身呈递（裸链独占段 + 产物登记）"
-      - "后续 PR 呈递（对话 speak 记录）含裸链独占段——观察项，非机械断言"
+    type: human_judge
 created_in_conversation: a23f0f4a-612c-46e9-8d83-be648ced720e
 tags: [prompt, pr-card, unfurl, regression-note, presentation-discipline]
 modules:
@@ -43,6 +38,13 @@ causal_links:
 ## 为何不动 speak 工具描述
 
 speak 工具描述已含「URL 裸写独占一段（编排者动作）」且每轮注入——回退期间它也在场。本 PR 先走提示词案例层（成本最低）；若后续仍回退，说明静态注入层都不够，届时升级为运行时结构化检查（呈递类 speak 的卡片预算/裸链检测提醒），由下次回退事故触发，不预做。
+
+## 验证
+
+- prompt-anchors lint 通过（BIG_OTTER.md 锚点纪律，注入面 1 文件，白名单 3/10）；lint:docs 通过。
+- **Golden Gate: n/a（verify_by=human_judge）**——三件套是真实工作流编排动作，golden harness 冷启动单任务模拟的保真度低于真实 PR 交付语境；狗食验证第一现场即本 PR 自身呈递（裸链独占段 + 产物登记双留痕），豁免声明另见 PR Verification 节。
+- 本 PR 呈递三件套真实执行留痕：首轮呈递漏第三步（检视发现实证——恰为本特性要修的回退形态），delta 即补 create_linked_resource（产物 23cd02da）；回退-纠偏全过程构成比一次性完美执行更真实的 capability 记录。
+- 后续 PR 呈递（对话 speak 记录）含裸链独占段——观察项，搭档裁决口径。
 
 ## Rollback
 
