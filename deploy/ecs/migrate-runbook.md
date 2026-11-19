@@ -6,8 +6,20 @@
 
 ## 迁移数据域（白名单，代码内 MIGRATE_INCLUDES 单源）
 
-主库 `otter-buddy.db` + `durable-sessions/`（每会话一库）+ `workspaces/` + `sessions/` + `attachments/` + `feishu/` + `metrics/` + `owner-password`。
-**不含**：models（关 bge 定稿）、backups、logs、rehearsal 旧库（云端新起）。
+主库 `otter-buddy.db` + `durable-sessions/`（每会话一库）+ `workspaces/` + `sessions/` + `attachments/` + `feishu/` + `metrics/` + `owner-password` + `backgrounds/`（用户背景图）+ `weixin/`（通道凭据）。
+**不含**：models（关 bge 定稿）、backups、logs、rehearsal 旧库（云端新起）、
+terminology（种子随 dist 部署，编译期 import）、execution-machines（执行机本地
+真相，不迁移不备份——特性文档语义）、quota-browser（运行时 cache）、patches/
+guard-replay 归档（历史存档，云端不重放）。
+
+## 演练实证注记（2026-11-19 ECS 验证轮）
+
+- 全链路耗时：在线导出 17min（12.2G→5.1G）→传输 ~1h（上行带宽硬顶）→restore 6min
+  →verify 4min→起服首扫 22min（2 核；重启热缓存后快）
+- 真切架构：**预热全量 + 停服窗口内 rsync 增量**（窗口分钟级，不陪 1h 传输）
+- 双实例并存=定时任务双跑：真切序列本机停服后才起云端；验证实例验证完即停
+- 布局约定：WorkingDirectory=数据根父（/var/lib/otter-buddy），./data/* 相对引用统一
+- 磁盘纪律：restore 验证过后删 tar（峰值 92%→79%）
 
 ## 切换操作序列（真切）
 

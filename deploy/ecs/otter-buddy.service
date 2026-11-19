@@ -2,6 +2,10 @@
 # 安装：sudo cp otter-buddy.service /etc/systemd/system/ && sudo systemctl daemon-reload
 # 数据根：/var/lib/otter-buddy（持久卷，迁移/备份都围绕它）
 # 代码根：/opt/otter-buddy（deploy.sh rsync 更新）
+# 布局约定（演练轮实证收口）：WorkingDirectory=数据根父目录——程序内 ./data/* 相对
+# 引用（主库/术语已入库/背景图/微信凭据等）统一从 /var/lib/otter-buddy/data 解析；
+# 术语种子随 dist 部署（编译期 import，不依赖本目录）。config 的 database.path 用
+# ./data/otter-buddy.db（相对 cwd）。
 # 注意：替换 colink PoC 实例时先 systemctl disable --now otter-buddy（旧 PoC）再装本单元
 
 [Unit]
@@ -13,7 +17,7 @@ Wants=network-online.target
 Type=simple
 User=otter
 Group=otter
-WorkingDirectory=/opt/otter-buddy
+WorkingDirectory=/var/lib/otter-buddy
 Environment=PATH=/opt/node24/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=/var/lib/otter-buddy/home
 EnvironmentFile=/etc/otter-buddy.env
