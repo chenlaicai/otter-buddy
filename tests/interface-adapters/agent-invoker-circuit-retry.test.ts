@@ -172,7 +172,7 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
   it("rate_limit（配额耗尽）：healing 落账 severity:low + 系统告警 + invoke failed + 不入 C3", async () => {
     const sendEntry = mockSendEntry();
     const healing = mockHealingRepo();
-    // F20261119hqil（#1963，搭档 11-19 边界拍板）：配额耗终态降级 low、不入 C3 高警队列
+    // 搭档 11-19 边界拍板：配额耗终态降级 low、落地即 resolved、不入 C3 高警队列
     const c3Spy = vi.spyOn(healingAlertRegistry, "enqueue");
     try {
     const sdk = {
