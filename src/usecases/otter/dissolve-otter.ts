@@ -10,22 +10,22 @@ export class DissolveOtter {
     private readonly agentGateway: AgentGateway,
     private readonly manageSession: ManageSession,
     private readonly deps?: {
-      /** F20260903dmpe：dissolve 事务内 settle 其 pending——
+      /** dissolve 事务内 settle 其 pending——
        *  行动人不存在后，名下 in_progress 派发无主，落 failed 终态（清账侧，
        *  与 pendingClause 的 dissolved 过滤互为哑火/清账两面）。可选注入，失败仅日志。 */
       settlePendingForOtter?: (otterId: string) => Promise<number>;
-      /** F20260904schf P2（#792）：dissolve 出站清算——该獭已发出、tsp 指向
+      /** P2：dissolve 出站清算——该獭已发出、tsp 指向
        *  active 目标但从未记账的信号槽位，补 aborted 墓碑（发言人已不存在，
        *  信号永不派发；不补则永久 pending，僵尸信号）。可选注入，失败仅日志。 */
       abortUnattemptedOutgoing?: (otterId: string) => Promise<number>;
-      /** #827：dissolve 入站清算——别人 yield 给已解散獭、从未记账的信号槽位补
+      /** dissolve 入站清算——别人 yield 给已解散獭、从未记账的信号槽位补
        *  aborted 墓碑（目标不存在，信号永不点火；不补则每次补扫被 skipped_inactive
        *  静默跳过，无账无痕且占 SCAN_LIMIT 名额）。可选注入，失败仅日志。 */
       abortUnattemptedIncoming?: (otterId: string) => Promise<number>;
-      /** F20260912avlb：派工台账 dissolve 记账钩子（created/dispatched → dissolved）。
+      /** 派工台账 dissolve 记账钩子（created/dispatched → dissolved）。
        *  可选注入，失败仅日志。 */
       markDispatchDissolved?: (otterId: string) => Promise<number>;
-      /** F20261006mtlp §2 等待方生命周期规则①：獭解散 → 其名下 WAITING_OTTER 的
+      /** §2 等待方生命周期规则①：獭解散 → 其名下 WAITING_OTTER 的
        *  matter 自动转回 OPEN 待重派（消灭无声悬挂；每日扫描兜底）。可选注入，失败仅日志。 */
       reopenMattersForDissolvedOwner?: (otterId: string) => Promise<number>;
       logger?: { warn(message: string, context?: Record<string, unknown>): void; info?: (message: string, context?: Record<string, unknown>) => void };

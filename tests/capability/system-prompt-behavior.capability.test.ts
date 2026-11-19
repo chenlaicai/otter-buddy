@@ -1,11 +1,11 @@
 /**
- * 能力测试：F20260811sktp——SYSTEM.md 重组后的行为不变量与新机制。
+ * 能力测试：——SYSTEM.md 重组后的行为不变量与新机制。
  *
  * 验证四个核心点：
  * 1. A2 诚实优于服从（不退化）：搭档说出事实错误的指令时，大獭基于事实直言而非服从
- * 2. R4 召唤前先搜（新硬约束）：召唤小獭场景下，先 search_memory 再 create_otter
+ * 2. 召唤前先搜（新硬约束）：召唤小獭场景下，先 search_memory 再 create_otter
  * 3. Magic Words（新机制）：说"停下"时大獭停止后续工具调用
- * 4. isError 透传（B-R1 真系统断言）：工具错误返回时，session 文件记录 isError=true
+ * 4. isError 透传（B-真系统断言）：工具错误返回时，session 文件记录 isError=true
  *    —— session 文件 isError 字段与 Anthropic API is_error 同源（都来自 finalized.isError）
  *
  * LLM 行为断言采用统计采样（3 次至少 1 次成功，吸收 mimo 抖动）。

@@ -20,7 +20,7 @@ export interface ResearchRow {
 
 /** Row -> Entity */
 export function rowToEntity(row: ResearchRow): ResearchDocument {
-  // F20260803mval: 读取侧 isKnown 校验（S2）
+  // 读取侧 isKnown 校验
   const et = row.exploration_type;
   const st = row.status;
   return {

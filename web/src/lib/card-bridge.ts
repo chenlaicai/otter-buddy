@@ -24,7 +24,7 @@ const CARD_RESIZE_SCRIPT = `(function () {
 })();`
 
 /** submit 段：仅在 cardId 格式合法时注入（fail-closed）
- *  F20260929ahgt：移除 otterCard.resize——agent 不再管高度，ResizeObserver 自动上报是唯一高度来源 */
+ * 移除 otterCard.resize——agent 不再管高度，ResizeObserver 自动上报是唯一高度来源 */
 const CARD_SUBMIT_SCRIPT = `(function () {
   var CARD_ID = "__OTTER_CARD_ID__";
   window.otterCard = {

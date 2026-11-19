@@ -1,12 +1,12 @@
 /**
- * SILK 语音解码（issue #608 恢复，平移自 openclaw-weixin media/silk-transcode.ts，MIT）。
+ * SILK 语音解码（恢复，平移自 openclaw-weixin media/silk-transcode.ts，MIT）。
  *
  * 微信语音入站为 SILK 编码（voice_item.encode_type=6）。多模态管线侧消费
  * WAV/音频文件，故解码为 PCM 后包 WAV 容器。silk-wasm 动态 import：
  * 未安装/解码失败返回 null，调用方降级存原始 SILK（文本转写仍可用）。
  *
- * 历史：PR #603 首 commit 已实现（#567），随「入站收敛仅图片」一并移除；
- * 本期 kind 白名单扩展后恢复（#608）。
+ * 历史：首 commit 已实现，随「入站收敛仅图片」一并移除；
+ * 本期 kind 白名单扩展后恢复。
  */
 
 const SILK_SAMPLE_RATE = 24_000;

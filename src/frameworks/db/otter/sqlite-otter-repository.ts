@@ -42,7 +42,7 @@ export class SqliteOtterRepository implements OtterRepository {
   }
 
   /**
-   * #446: 单条 IN 查询批量取，消除循环内逐个 getById 的 N+1（存量行为，issue 建议顺手治）。
+   * 单条 IN 查询批量取，消除循环内逐个 getById 的 N+1（存量行为，issue 建议顺手治）。
    * 空数组直接返回空 Map（避免 `IN ()` 语法错）；重复 id 自动去重。
    */
   async getByIds(ids: string[]): Promise<Map<string, Otter>> {

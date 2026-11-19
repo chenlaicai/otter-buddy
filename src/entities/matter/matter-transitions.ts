@@ -1,5 +1,5 @@
 /**
- * Matter 状态机迁移矩阵（F20261006mtlp §2）。
+ * Matter 状态机迁移矩阵（§2）。
  *
  * 合法迁移矩阵的唯一真相源：未列入矩阵的迁移一律非法，
  * TransitionMatter usecase 单入口据此拒绝（验证节锁定「非法迁移拒绝」）。
@@ -77,7 +77,7 @@ const TRANSITIONS: ReadonlyMap<string, MatterTransition> = new Map([
     allowed: ['partner'],
     note: '裁决为「打回/再改」时',
   }],
-  // DONE_PENDING_CONFIRM → CLOSED：见宣告权表——L1=獭自关；L2 分流（F20261019fckd）：
+  // DONE_PENDING_CONFIRM → CLOSED：见宣告权表——L1=獭自关；L2 分流：
   // decision/null=必须搭档确认；fact=owner 可携机器证据直关（守卫见 transition-matter）
   ['DONE_PENDING_CONFIRM->CLOSED', {
     from: 'DONE_PENDING_CONFIRM', to: 'CLOSED',
@@ -138,8 +138,8 @@ const TRANSITIONS: ReadonlyMap<string, MatterTransition> = new Map([
     allowed: ['partner'],
     note: '搭档明确不做',
   }],
-  // ABANDONED → OPEN：误杀恢复（F20261006mlp2 严重2——否决/误判永久杀事项的死路收口）。
-  // 与 CLOSED→OPEN 翻案对称：搭档可推翻「不做」决定重开。issue #1321。
+  // ABANDONED → OPEN：误杀恢复（严重2——否决/误判永久杀事项的死路收口）。
+  // 与 CLOSED→OPEN 翻案对称：搭档可推翻「不做」决定重开。
   ['ABANDONED->OPEN', {
     from: 'ABANDONED', to: 'OPEN',
     allowed: ['partner'],

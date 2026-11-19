@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * F20260824ax376: PR 评估体系 - intent 字段校验脚本（commit-time gate）。
- * F20260825evgl: 扩展软代码域三值 + 联动可判定检查；validateIntent 导出供测试 import 真实现
- *               （检视发现 1：测试副本与实现分叉导致假阳性，改为单一真相源）。
- * F20260917sdpl: 软代码 verify_by 声明时间界收口（≥2026-09-17 error）+ golden_replay 执行
+ * PR 评估体系 - intent 字段校验脚本（commit-time gate）。
+ * 扩展软代码域三值 + 联动可判定检查；validateIntent 导出供测试 import 真实现
+ * （测试副本与实现分叉导致假阳性，改为单一真相源）。
+ * 软代码 verify_by 声明时间界收口（≥2026-09-17 error）+ golden_replay 执行
  *               记录弱核对（分环境：本地 error / CI 缺文件降 warning）。
- * F20261005imfg: 缺字段文档静默跳过的灰色绕过窗口收口（#839）——
+ * 缺字段文档静默跳过的灰色绕过窗口收口——
  *               change_type ∈ {feature, prompt, 缺失} 且无 intent 块 → error（非豁免清单内文档）；
  *               存量豁免清单 scripts/intent-exempt-list.txt（ratchet 地板，只减不增）。
  *
@@ -20,7 +20,7 @@ import { execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const root = process.cwd();
-// F20260917sdpl：golden_replay 执行核对读此路径。测试通过临时切 cwd 覆盖。
+// golden_replay 执行核对读此路径。测试通过临时切 cwd 覆盖。
 // 注：root 在模块加载时求值；validateIntent 内用 getter 重新读 process.cwd()，
 // 使测试的 withTempCwd 切目录生效（脚本主流程仍用上面的 root，行为不变）。
 const goldenResultsPath = () => path.join(process.cwd(), "data", "metrics", "golden-results.jsonl");
@@ -40,25 +40,25 @@ function walk(dir) {
 }
 
 // Intent 字段校验规则
-// F20261005imfg: prompt 纳入必填（issue #839 拍板方案 1：change_type=feature/prompt 但无
+// prompt 纳入必填（拍板方案 1：change_type=feature/prompt 但无
 // intent 块 → error）。prompt 是软代码主力 change_type，缺 intent 时的静默通过是最宽绕过面。
 const INTENT_REQUIRED_CHANGE_TYPES = new Set(["feature", "prompt"]);
-// F20261030ctalg（#1295）：RECOMMENDED 与 known-values.ts 真相源对齐（fix/feature-update
+// RECOMMENDED 与 known-values.ts 真相源对齐（fix/feature-update
 // 此前不在任何集合，缺块完全静默）；bugfix/feature_update 历史拼写经 LEGACY_CHANGE_TYPE_ALIAS
 // 归一到规范值分类（文案保留原拼写）；tests（test-only 文档）不需要 intent 声明，不分类。
 const INTENT_RECOMMENDED_CHANGE_TYPES = new Set(["fix", "refactor", "feature-update"]);
 /** 历史拼写 → 规范值（分类用规范值，消息用原拼写，作者对照不迷路） */
-// F20261031ctuny（#1718 检视建议1）：导出供跨表一致性断言（tests 断言与 known-values
+// （）：导出供跨表一致性断言（tests 断言与 known-values
 // 的 normalizeChangeType 别名面一致——单源守卫，漂移即红）；表本体仍在本模块使用
 export const LEGACY_CHANGE_TYPE_ALIAS = new Map([
   ["bugfix", "fix"],
   ["feature_update", "feature-update"],
 ]);
-// F20261005imfg: change_type 缺失时视同最严类 feature（L0 定夺，理由见特性文档 F20261005imfg）：
-// lint:docs 对 change_type 缺失零检查正是 #839 暴露的缺口本身，若缺失仍静默则灰色窗口不闭环。
+// change_type 缺失时视同最严类 feature（L0 定夺，理由见特性文档 ）：
+// lint:docs 对 change_type 缺失零检查正是 暴露的缺口本身，若缺失仍静默则灰色窗口不闭环。
 const FALLBACK_CHANGE_TYPE = "feature";
 
-// F20261005imfg（#839）: 存量豁免清单（ratchet 地板，只减不增）。
+// 存量豁免清单（ratchet 地板，只减不增）。
 // 收录 2026-10-05 基线上触发缺字段规则的全部文档：change_type ∈ {feature, prompt, 缺失} 且
 // a) 无 intent 块，或 b) intent 块缺 problem/expected_effect（2026-09-15 goal/why 自创 schema）。
 // 清单外文档触发缺字段规则 → error；清单内 → warning（存量豁免）。
@@ -75,7 +75,7 @@ function loadExemptSet() {
   return new Set(ids);
 }
 const EXEMPT_IDS = loadExemptSet();
-// F20260825evgl：扩展软代码域三值。behavior_check 语义保持"人工行为检查"（对齐
+// 扩展软代码域三值。behavior_check 语义保持"人工行为检查"（对齐
 // metric_probe/human_judge 的人工语义），capability_test/golden_replay 是自动采样断言设施，
 // static_only 是纯文字润色的静态守护——分开声明避免混淆两类不同验证设施。
 const VALID_VERIFY_BY_TYPES = new Set([
@@ -97,22 +97,22 @@ function isSoftCodeChange(fm) {
   return modules.some((m) => typeof m === "string" && (m.startsWith("prompts/") || m.startsWith(".pi/")));
 }
 
-// F20260917sdpl：软代码 verify_by 声明收口时间界——created_at ≥ 此日期的新文档缺声明是 error。
+// 软代码 verify_by 声明收口时间界——created_at ≥ 此日期的新文档缺声明是 error。
 // 可伪造性：lint 不防（回填旧日期可降回 warning），由检视獭按 git 首提交时间对照打回（PR 核对点④）。
 const SOFT_CODE_ENFORCE_DATE = "2026-09-17";
-// F20261103itald（#1740，搭档 2026-11-03 拍板）：intent 声明域扩至全部 change_type。
-// 此前仅软代码域（modules 含 prompts//.pi/，#1238）与 feature/prompt（#839）缺块 error，
-// 硬代码 fix/refactor 缺块仅 warning——与 P0-c 统计口径（全量分母，#1740 触发链）分裂，
+// （搭档 2026-11-03 拍板）：intent 声明域扩至全部 change_type。
+// 此前仅软代码域（modules 含 prompts//.pi/，）与 feature/prompt缺块 error，
+// 硬代码 fix/refactor 缺块仅 warning——与 P0-c 统计口径（全量分母，触发链）分裂，
 // 11-01/11-02 批次连续漏 5 篇均为此放行面。时间界增量收口：created_at ≥ 此日期的
 // 新文档（任何 change_type）缺 intent 块 → error；存量（< 此日期或 created_at 缺失）
 // 不追诉，warning 照旧——与 SOFT_CODE_ENFORCE_DATE 同构，不另起机制。
 const ALL_DOMAIN_ENFORCE_DATE = "2026-11-03";
 
 /** 时间界判定：文档 created_at ≥ 收口日期（created_at 缺失/不可解析按存量处理，不追诉）。
- *  F20261030ctalg（#1295）：无前导零日期（如 2026-9-1）字符串比较会误判为新（'9'>'0'），
+ * ：无前导零日期（如 2026-9-1）字符串比较会误判为新（'9'>'0'），
  *  先归一化零填充再比；非 `\d{4}-\d{1,2}-\d{1,2}` 前缀的不可解析格式按存量宽容（
  *  收口语义只追诉可证实的新文档，格式错误归 lint:docs 诊断）。
- *  F20261103itald（#1740）：归一化逻辑参数化为 isNewEnoughFor(fm, enforceDate)——
+ * ：归一化逻辑参数化为 isNewEnoughFor(fm, enforceDate)——
  *  软代码域与全域两个时间界共用同一归一化实现，防双实现口径漂移。 */
 function isNewEnoughFor(fm, enforceDate) {
   if (typeof fm.created_at !== "string") return false;

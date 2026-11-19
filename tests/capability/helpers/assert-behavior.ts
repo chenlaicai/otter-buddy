@@ -6,7 +6,7 @@ import { expect } from "vitest";
 import type { CapabilityContext } from "./boot";
 
 /** GET /messages 返回的消息 DTO（短键名是既有 API 契约）
- *  #984：GET /messages 已随 F20260913ctlv（#886）退役——本 DTO 是测试侧视图模型，
+ * GET /messages 已随 退役——本 DTO 是测试侧视图模型，
  *  由 listMessages 从 GET /entries + invoke_events 桥接组装（见下），字段语义保持不变。 */
 export interface MessageDto {
   id: string;
@@ -331,19 +331,19 @@ export interface SampleResult {
 }
 
 /**
- * LLM 行为统计采样（F20260805mspk：mimo 行为不稳定，单次断言会把套件打成长红）。
+ * LLM 行为统计采样（mimo 行为不稳定，单次断言会把套件打成长红）。
  * 跑 samples 次，打印全部明细，断言至少 minSuccess 次成功。
  *
- * #1187：墙钟预算 opts.budgetMs——采样循环只数次数不看钟时，慢端点下总耗时撞破 it 超时帽；
+ * 墙钟预算 opts.budgetMs——采样循环只数次数不看钟时，慢端点下总耗时撞破 it 超时帽；
  * vitest 超时只 reject Promise 不取消测试函数（@vitest/runner withTimeout；超时回调会
  * abort context.signal，但采样循环不消费 signal——僵尸残留），文件级 afterAll cleanup 已
  * dispose 关 DB，僵尸醒来继续采样 → HTTP 500 "database connection is not open" 级联假象
- * （9/25 round1 实证：bod AT-1 5×11min=55min>50min 帽、AT-2 7×14min=98min>70min 帽）。
+ * （9/25 实证：bod AT-1 5×11min=55min>50min 帽、AT-2 7×14min=98min>70min 帽）。
  *
  * 预算语义（delta 严重 1 修正）：检查在采样起跑前且必须前瞻——单次采样最坏耗时
  * opts.sampleWorstMs（采样内各段等待窗之和）。elapsed + sampleWorstMs > budgetMs 则 SKIP：
- * 只挡起跑点不前瞻的话，在途采样仍可越过 it 帽（AT-1 算术：4×11min 后 #5 起跑时
- * elapsed<预算，但 #5 最坏 11min 会把总时长推到 55min>50min 帽）。
+ * 只挡起跑点不前瞻的话，在途采样仍可越过 it 帽（AT-1 算术：4×11min 后 起跑时
+ * elapsed<预算，但 最坏 11min 会把总时长推到 55min>50min 帽）。
  * SKIP 不计入分母（避免误读采样质量），断言 successes ≥ minSuccess 不变。
  * 调用点约定：sampleWorstMs ≥ 采样内各段等待窗之和（含隐式默认等待；高报安全=前瞻更早触发，
  * 低报禁止=在途越帽）；budgetMs = it 帽 − 60~150s teardown

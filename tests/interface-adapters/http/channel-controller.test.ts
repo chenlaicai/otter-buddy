@@ -1,5 +1,5 @@
 /**
- * ChannelController 聚合端点测试（F20260901chun 测试设计承诺）
+ * ChannelController 聚合端点测试（测试设计承诺）
  *
  * 断言 leftJoin 合并逻辑：有 registry 条目用运行态、无条目显示 not_started、
  * 飞书通道仅在有 registry 条目时出现。

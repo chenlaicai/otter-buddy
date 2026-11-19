@@ -30,7 +30,7 @@ async function open(file: string, responses: Parameters<ReturnType<typeof fauxPr
   return { session, faux };
 }
 
-// eslint-disable-next-line max-lines-per-function -- #1788 terminate/steer 生命周期回归共享同一真实 Harness fixture
+// eslint-disable-next-line max-lines-per-function -- terminate/steer 生命周期回归共享同一真实 Harness fixture
 describe("durable-native runtime", () => {
   it("runs real custom tools and maps terminal text/usage through public watch", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "otter-durable-"));

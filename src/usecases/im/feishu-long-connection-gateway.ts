@@ -4,7 +4,7 @@ export interface FeishuLongConnectionGateway {
   onMessage(handler: (msg: FeishuLongConnectionMessage) => void): void;
 }
 
-/** F20260829fpst：飞书 post 富文本消息里的单个媒体段（img→image / media→file） */
+/** 飞书 post 富文本消息里的单个媒体段（img→image / media→file） */
 export interface FeishuPostMediaItem {
   kind: "image" | "file";
   /** image 段为 image_key；file 段为 file_key */
@@ -14,7 +14,7 @@ export interface FeishuPostMediaItem {
 }
 
 /** 多模态 Phase 2：飞书 image/file 消息的结构化载荷（frameworks 层解析后透传）。
- *  F20260829fpst：post 富文本混排消息以 type="post" 携带段落内媒体项列表 */
+ * post 富文本混排消息以 type="post" 携带段落内媒体项列表 */
 export interface FeishuMediaPayload {
   type: "image" | "file" | "post";
   /** image 消息的 image_key */
@@ -34,7 +34,7 @@ export interface FeishuLongConnectionMessage {
   senderId: string;
   senderType: string;
   messageType: string;
-  /** F20260918imas：p2p/group 分流依据（助理态仅 p2p 自动开户；群聊维持显式绑定） */
+  /** p2p/group 分流依据（助理态仅 p2p 自动开户；群聊维持显式绑定） */
   chatType?: "p2p" | "group";
   /** 多模态 Phase 2：image/file 消息携带（text 消息无此字段） */
   media?: FeishuMediaPayload;

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { WebAssistantProvisioner, WEB_ASSISTANT_TITLE } from "@usecases/conversation/web-assistant-provisioner";
 
 /**
- * F20260924wast：web 助理开户测试。
+ * web 助理开户测试。
  * 覆盖：首唤创建（kind=web-assistant + systemPrompt 注入 + participants）、
  * 幂等复用（已存在不重复建）、并发收敛（多条取最早创建）。
  */

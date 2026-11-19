@@ -17,27 +17,27 @@
   --color-teal-500: #3A8B8B;
   --color-teal-600: #2A7B7B;
 
-  --color-caramel-50: #FBF7F4; /* 浅底档（HSL 29°,47%,97% 由 300 阶反向外推，#691） */
+  --color-caramel-50: #FBF7F4; /* 浅底档（HSL 29°,47%,97% 由 300 阶反向外推，） */
   --color-caramel-100: #F7EDE3; /* 浅底档（HSL 30°,54%,93% 同上，配 text-caramel-700 对比度实测 6.98:1） */
   --color-caramel-300: #E8B98E;
   --color-caramel-400: #D9A57B;
   --color-caramel-500: #C9956B;
   --color-caramel-600: #8F6234;
-  --color-caramel-700: #6B4924; /* 严重/回退深阶（观澜 §3.4，#691） */
+  --color-caramel-700: #6B4924; /* 严重/回退深阶（观澜 §3.4，） */
 
   --color-lavender-300: #B5A8D8;
   --color-lavender-400: #9B8AC8;
   --color-lavender-500: #8B7AB8;
   --color-lavender-600: #6B5A98;
 
-  /* F20260921otcl：色板新增阶（sage/plum——小獭出生色 nameClass 消费，
+  /* 色板新增阶（sage/plum——小獭出生色 nameClass 消费，
      与 otter-visual.ts PALETTE_VISUALS 的 hex 主色同源） */
   --color-sage-500: #8FAF8F;
   --color-sage-600: #6F8F6F;
   --color-plum-500: #9C6B9C;
   --color-plum-600: #7A4F7A;
 
-  /* F20260827abcd: 玻璃色/状态色/骨架色 token（@theme 生成 bg-* utility） */
+  /* 玻璃色/状态色/骨架色 token（@theme 生成 bg-* utility） */
   --color-glass-surface: rgba(245, 245, 244, 0.5); /* stone-50/50 */
   --color-status-success: rgba(220, 252, 231, 1); /* green-100 */
   --color-status-error: rgba(254, 226, 226, 1); /* red-100 */
@@ -47,13 +47,13 @@
 }
 
 /* ============================================================
-   材质体系 v3.0（F20261102glmtr）：分层材质学说——按「采样源是否
-   静止 × 表面是否常驻大面」分配材质（学说出处 R20261102glass）。
+   材质体系 v3.0：分层材质学说——按「采样源是否
+   静止 × 表面是否常驻大面」分配材质（学说出处 ）。
    层级：画布(极光/自定义图+Mica薄纱) → 面板(.glass-strong/.glass/
    .glass-input) → 内容(.glass-card 与 .bubble-* 系、.form-input)
    全部实色半透、无 backdrop-filter（R=0，运行中像素变化不再引发
    重采样闪动）；真玻璃仅存瞬态层(.glass-overlay 弹层菜单/浮动助手)
-   与弹窗遮罩(.scrim 六轮终局 F20260909scrf6)。
+   与弹窗遮罩(.scrim 六轮终局 )。
    层级靠【透明度梯度 + 投影高度】区分；嵌套激活态(.conv-active/
    .nav-pill-active)退化为半透纯色，不叠玻璃。
    性能预算：常驻层零 backdrop-filter（微软明示 GPU 密集）；瞬态
@@ -67,7 +67,7 @@
 :root {
   --bg-base: #E7DDCF;
 
-  /* F20260827abcd: 滚动上限 token（用 max-h-[var(...)] 任意值语法引用） */
+  /* 滚动上限 token（用 max-h-[var(...)] 任意值语法引用） */
   --modal-scroll-max-h: 80vh;
   --modal-content-max-h: calc(80vh - 120px);
   --section-scroll-max-h: 10rem;
@@ -77,7 +77,7 @@
   /* 玻璃不透明度全局系数（设置页滑杆可调 0.45~1.0，越低越透；
      各层 token 用 calc 按系数缩放，reduced-transparency 兜底直接
      覆盖为实色、不受系数影响。
-     例外：L3 --overlay-bg 不随系数缩放（F20260805dmux）——弹层承载
+     例外：L3 --overlay-bg 不随系数缩放——弹层承载
      正文阅读，不透明度须保底对比度，见下方 L3 注释） */
   --glass-t: 0.85;
 
@@ -102,7 +102,7 @@
   --scrim: rgba(28,22,16,0.30);
   --scrim-blur: blur(6px);
   /* 弹层是最高层级且承载正文阅读，不透明度需保证文字对比度（不与 glass-t 联动降透） */
-  /* 瞬态层专用（v3.0 保留真玻璃：小面+瞬态是采样材质最佳位，R20261102glass §4） */
+  /* 瞬态层专用（v3.0 保留真玻璃：小面+瞬态是采样材质最佳位，§4） */
   --overlay-bg: linear-gradient(165deg, rgb(255 253 249 / 96%), rgb(255 251 244 / 93%));
   --overlay-blur: blur(40px) saturate(180%);
   --overlay-shadow: 0 24px 64px rgba(42,32,20,0.22), 0 4px 16px rgba(42,32,20,0.10);
@@ -182,11 +182,11 @@ body {
   isolation: isolate;
 }
 
-/* F20261027cbgix：图片画布独立于 .bg-spring，减少透明效果时只退化玻璃，不删用户图片。
-   F20261102glmtr v3.0：叠加 Mica 式主色薄纱（静态纯色合成，R=0 永不重采样）——
+/* 图片画布独立于 .bg-spring，减少透明效果时只退化玻璃，不删用户图片。
+   v3.0：叠加 Mica 式主色薄纱（静态纯色合成，R=0 永不重采样）——
    主色由 background-preference.ts 离屏 canvas 提取（--canvas-tint-rgb），
    提取前/失败用中性纱 fallback；var 必带 fallback（否则未定义期整条多层
-   background 声明 invalid，用户图片整体消失，破 F20261027cbgix 红线）。 */
+   background 声明 invalid，用户图片整体消失，破 红线）。 */
 :root[data-custom-bg='true'] body::before {
   content: '';
   position: fixed;
@@ -252,7 +252,7 @@ body {
   box-shadow: var(--overlay-shadow), var(--edge-hi);
 }
 
-/* F20261102glmtr：窄屏常驻抽屉开关钮（<lg fixed 常驻面）——实色无采样。
+/* 窄屏常驻抽屉开关钮（<lg fixed 常驻面）——实色无采样。
    v2.3 曾用 .glass-overlay（blur(40px) 持续采样流式中栏，违反 T1 常驻层无采样）；
    观感用 --overlay-bg 同款渐变（96%/93% 实色感），仅去 blur */
 .drawer-fab {
@@ -268,7 +268,7 @@ body {
   -webkit-backdrop-filter: var(--scrim-blur);
 }
 
-/* F20260909scrf6：弹窗期模糊语义切换——从「scrim 实时采样下层位图」改为「内容自模糊」。
+/* 弹窗期模糊语义切换——从「scrim 实时采样下层位图」改为「内容自模糊」。
  *  backdrop-filter 的采样是每帧实时的：下层任何像素变化（流式计时器 100ms 跳字、
  *  animate-dot、未来的新动画源）都会使采样失效，产生「清晰帧↔模糊帧」高频交替——
  *  视觉刺眼的元凶是跳变而非模糊本身（白名单冻结已补 5 轮仍漏网，结构性不治本）。
@@ -421,7 +421,7 @@ body.modal-open .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; }
   .modal-fs-mobile {
     width: 100vw;
     height: 100dvh;
-    /* F20260826pfix 审视发现1：!important 压过 inline style 的 80vh 兑底。
+    /* !important 压过 inline style 的 80vh 兑底。
        Modal.tsx 现在桌面上限恒给 80vh（修展开无滚动 bug），
        但 inline 优先级高于 class，窄屏全屏 100dvh 必须用 !important 才能生效 */
     max-height: 100dvh !important;
@@ -437,7 +437,7 @@ body.modal-open .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; }
   }
 }
 
-/* ── F20260924wast：浮动獭三态动画（只加装饰不动脸——呼吸/探头/轻跳/zZ/弹出） ── */
+/* ── 浮动獭三态动画（只加装饰不动脸——呼吸/探头/轻跳/zZ/弹出） ── */
 @keyframes otterBreathe {
   0%, 100% { transform: scale(1) }
   50% { transform: scale(1.03) }

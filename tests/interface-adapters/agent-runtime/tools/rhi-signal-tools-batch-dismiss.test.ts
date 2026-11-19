@@ -1,4 +1,4 @@
-/** #1761：triage_signal batch_dismiss 工具分流与真 sqlite 状态验证。 */
+/** triage_signal batch_dismiss 工具分流与真 sqlite 状态验证。 */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type Database from "better-sqlite3";
 import { createTestDb } from "../../../helpers/db";

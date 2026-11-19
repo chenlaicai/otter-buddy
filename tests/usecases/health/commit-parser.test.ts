@@ -170,7 +170,7 @@ describe("CommitParser", () => {
       expect(result.featureId).toBe(fid);
     });
 
-    // #671 / #425 发现 7：三段结构完整但类型未识别 → unrecognized_change_type（非 non_standard_format）
+    //  发现 7：三段结构完整但类型未识别 → unrecognized_change_type（非 non_standard_format）
     it.each([
       ["[F20260901dstat][health][Feature] 文档状态自动推进 (#659)"],
       ["[F20260828c4sg][agent][Enhancement] halt 断言改轮询 (#562)"],
@@ -185,7 +185,7 @@ describe("CommitParser", () => {
       expect(result.skipReason).toBe("unrecognized_change_type");
     });
 
-    // 缺类型段的格式不合规仍归 non_standard_format，与新 skipReason 区分（#425 发现 7）
+    // 缺类型段的格式不合规仍归 non_standard_format，与新 skipReason 区分（发现 7）
     it("缺类型段的非标格式仍报 non_standard_format", () => {
       const result = parseCommit("vwx333", "[F20260824abcd] 简单标题 (#412)");
 
@@ -193,7 +193,7 @@ describe("CommitParser", () => {
       expect(result.skipReason).toBe("non_standard_format");
     });
 
-    // #425 建议 2：FeatureUpdate 无空格笔误归一化为 Feature Update
+    // 建议 2：FeatureUpdate 无空格笔误归一化为 Feature Update
     it("FeatureUpdate 笔误归一化为 Feature Update 且合规", () => {
       const result = parseCommit(
         "yzc444",
@@ -214,7 +214,7 @@ describe("CommitParser", () => {
       expect(result.skipReason).toBe("unrecognized_change_type");
     });
 
-    // #667 回归：后缀含 0/1/l/o 的存量真实 ID 曾被旧字母表正则漏判 no_f_prefix
+    // 回归：后缀含 0/1/l/o 的存量真实 ID 曾被旧字母表正则漏判 no_f_prefix
     it.each([
       ["F20260827mtbl", "[F20260827mtbl][db][BugFix] 存量库补建 (#548)"],
       ["F20260826scl1", "[F20260826scl1][scripts][New Feature] PR1: 股票数据桥 (#465)"],
@@ -257,11 +257,11 @@ describe("CommitParser", () => {
     });
   });
 
-  // #788 检视发现 2：hook→parser 方向无测试拦截（此前仅 parser 白名单单测自锁，
+  // hook→parser 方向无测试拦截（此前仅 parser 白名单单测自锁，
   // 三方一致性是单向锁定）。照 fid-format.test.ts 元测试模式，从 hook 源码提取
   // types 变量与 parser 导出的 CHANGE_TYPE_WHITELIST 交叉断言——任意一侧单独
   // 改动都会在此变红，CI 即校验（hook 是 shell 内嵌 node -e 无法 import ts，
-  // 只能字符级比对，与 #670 的 ID 段元测试同理）。
+  // 只能字符级比对，与 的 ID 段元测试同理）。
   describe("真相源锁死元测试（hook types ↔ parser 白名单双向锁定）", () => {
     const repoRoot = path.resolve(__dirname, "../../..");
     const hookSource = fs.readFileSync(path.join(repoRoot, ".githooks/commit-msg"), "utf-8");
@@ -288,7 +288,7 @@ describe("CommitParser", () => {
   });
 });
 
-// ── #1214 检视发现 2：PR 号取行尾最后一个（squash 追加位），首匹配会错认标题内 issue 引用 ──
+// ── PR 号取行尾最后一个（squash 追加位），首匹配会错认标题内 issue 引用 ──
 describe("PR 号行尾提取（#1214 检视处置）", () => {
   it("双号形态：(#776) (#786) 取 786（首匹配错认 776 已修）", () => {
     const r = parseCommit("abc123", "[F20260916evdb][prompt][Feature Update] 数据核查防再发（#791 复盘） (#791) (#806)\n\nbody");

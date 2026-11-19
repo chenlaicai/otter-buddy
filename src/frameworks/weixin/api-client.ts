@@ -29,7 +29,7 @@ export class WeixinApiClient {
 
   private readonly baseUrl: string;
   private readonly token?: string;
-  /** F20260914wxeg（原 F20260904wxeg，定稿改名）：出站观测依赖（可选——不影响既有调用方，无 logger 时静默降级） */
+  /** （原 定稿改名）：出站观测依赖（可选——不影响既有调用方，无 logger 时静默降级） */
   private readonly logger?: { info: (msg: string, ctx?: Record<string, unknown>) => void; error: (msg: string, err?: Error, ctx?: Record<string, unknown>) => void };
 
   constructor(options: { baseUrl: string; token?: string; logger?: WeixinApiClient["logger"] }) {
@@ -45,7 +45,7 @@ export class WeixinApiClient {
   }
 
   /**
-   * #571 网关切换白名单：扫码重定向只允许微信官方域。
+   * 网关切换白名单：扫码重定向只允许微信官方域。
    * 服务端下发的 redirect_host 未审计——盲跳会把扫码轮询（含 qrcode/verify_code）
    * 打到任意域名。白名单兜底 + 日志告警，非官方域拒绝切换。
    */
@@ -66,7 +66,7 @@ export class WeixinApiClient {
   }
 
   /**
-   * GET 请求公共头（#624，对齐参考实现 buildCommonHeaders()）：
+   * GET 请求公共头（对齐参考实现 buildCommonHeaders()）：
    * 鉴权/自声明字段，**无 Content-Type**（GET 无 body）。
    * 注意每次调用生成新 X-WECHAT-UIN（与参考实现同构，非每实例固定）。
    */

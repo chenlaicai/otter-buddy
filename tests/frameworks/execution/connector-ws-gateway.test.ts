@@ -13,7 +13,7 @@ import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
 import type { Device } from "@entities/execution/device";
 
-/** F20261117cnnct（#1868 阶段 4 C1）：WSS 网关协议状态机端到端（真 http server + ws 客户端）。
+/** （阶段 4 C1）：WSS 网关协议状态机端到端（真 http server + ws 客户端）。
  *  C1 验收路径：upgrade 鉴权（拒/过）→ hello 版本协商 → 上线（库+Registry 投影）→
  *  心跳 → 旧 sid 丢弃 → 主动下线（先库后内存 + 通道关）。 */
 

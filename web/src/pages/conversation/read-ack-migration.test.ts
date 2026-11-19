@@ -1,5 +1,5 @@
 /**
- * F20260921urdo 判定换轨回归：已读触发点退役清单锁——
+ * 判定换轨回归：已读触发点退役清单锁——
  * 旧「滚动几何判定」机制（scheduleMarkReadIfAtBottom / handleMarkRead /
  * markReadTimerMapRef / markReadDebounceRef / onReachBottom prop）不得复活。
  * 若本测试红，说明有人把滚动几何判定加回来了（修补闭环复发）。

@@ -121,7 +121,7 @@ describe("ManageConnection", () => {
         .rejects.toThrow("already exists");
     });
 
-    // F20260831xtrt：externalType 可声明，缺省 feishu 保持兼容
+    // externalType 可声明，缺省 feishu 保持兼容
     it("不传 externalType 时缺省 feishu（既有行为兼容）", async () => {
       const result = await manageConnection.createConnection("测试群", "chat-123");
 
@@ -155,7 +155,7 @@ describe("ManageConnection", () => {
       expect(connRepo.create).toHaveBeenCalled();
     });
 
-    // F20260831xtrt：ensureConnection 透传 externalType（返回值体现）
+    // ensureConnection 透传 externalType（返回值体现）
     it("ensureConnection 透传 externalType=weixin", async () => {
       vi.mocked(connRepo.getByExternalId).mockResolvedValue(null);
 

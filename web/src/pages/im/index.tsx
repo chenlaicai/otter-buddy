@@ -8,13 +8,13 @@ import type { ChannelStatusDTO, WeixinAccountDTO, FeishuAppDTO } from '../../api
 const POLL_INTERVAL_MS = 5000
 
 /**
- * F20260921imux：IM 页按「先名后码」流程重组（搭档 UX 指令）。
+ * IM 页按「先名后码」流程重组（搭档 UX 指令）。
  * - 新建流程：点击「新建助理连接」→ 第 1 步输入名字 → 第 2 步显示二维码 → 扫码即建线
  *   （名字是连接的名字，扫码确认后直接 provision——不再有扫码后命名弹层）
  * - 同号覆盖：同一微信（ilinkUserId 相同）重扫时，提醒「已有助理，是否覆盖」——
  *   确认后删旧账号再走建线（对话历史保留在旧对话里，可回看）
  * - 「起名建线」按钮退役：流程前置闭合后无「已扫码未命名」状态，补丁不再需要
- * - 语义根基（F20260920imax）：微信 bot = 号主私有，一个号 = 一条助理线
+ * - 语义根基：微信 bot = 号主私有，一个号 = 一条助理线
  */
 export default function ImPage() {
   // 通道状态
@@ -25,18 +25,18 @@ export default function ImPage() {
   const [weixinAccounts, setWeixinAccounts] = useState<WeixinAccountDTO[]>([])
   const [loadingAccounts, setLoadingAccounts] = useState(true)
 
-  // F20260921imux：新建流程状态——step 'idle' → 'naming'（输入名）→ 'connecting'（扫码）
+  // 新建流程状态——step 'idle' → 'naming'（输入名）→ 'connecting'（扫码）
   const [flowStep, setFlowStep] = useState<'idle' | 'naming' | 'connecting'>('idle')
   const [nameValue, setNameValue] = useState('')
-  // F20260928wxid：扫码人自报称呼（可空）——存 connection.metadata.userName，入站消息据此显示/快照 senderName
+  // 扫码人自报称呼（可空）——存 connection.metadata.userName，入站消息据此显示/快照 senderName
   const [userNameValue, setUserNameValue] = useState('')
   const [creatingLine, setCreatingLine] = useState(false)
 
-  // F20260921imux：扫码确认后发现的同号冲突（旧账号）——等用户裁决覆盖/取消
+  // 扫码确认后发现的同号冲突（旧账号）——等用户裁决覆盖/取消
   const [duplicateAccount, setDuplicateAccount] = useState<{ id: string; hasLine: boolean } | null>(null)
   const [pendingAccountId, setPendingAccountId] = useState<string | null>(null)
 
-  // F20260928fsqr：飞书扫码接入——step 'idle' → 'naming'（起名，流入 appPreset 预填）→ 'connecting'（扫码）
+  // 飞书扫码接入——step 'idle' → 'naming'（起名，流入 appPreset 预填）→ 'connecting'（扫码）
   const [feishuFlowStep, setFeishuFlowStep] = useState<'idle' | 'naming' | 'connecting'>('idle')
   const [feishuNameValue, setFeishuNameValue] = useState('')
   const [feishuApps, setFeishuApps] = useState<FeishuAppDTO[]>([])
@@ -61,7 +61,7 @@ export default function ImPage() {
     setPendingAccountId(null)
   }
 
-  // F20260921imux 检视 D1 处置：改同步（无 await，原 async 签名与 JSDoc 误导）
+  // 检视 D1 处置：改同步（无 await，原 async 签名与 JSDoc 误导）
   const startFlow = () => {
     setFlowStep('naming')
     setNameValue('')
@@ -73,7 +73,7 @@ export default function ImPage() {
     setFlowStep('connecting')
   }
 
-  /** F20260921imux：扫码确认（success）——查同号冲突，无冲突直接建线 */
+  /** 扫码确认（success）——查同号冲突，无冲突直接建线 */
   const handleLoginConfirmed = async (accountId?: string) => {
     setPendingAccountId(accountId ?? null)
     try {

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildOverviewSnapshotRows } from "@usecases/health/snapshot-rows";
 import type { Metrics } from "@usecases/health/metrics-calculator";
 
-/** F20260829hviz：snapshot-rows 共享模块单元测试。
+/** snapshot-rows 共享模块单元测试。
  *  口径锁定：11 标准行 + extraRows 追加；HealthReport 与 RhiScanWorker 两条写入路径同构。 */
 
 function fakeMetrics(): Metrics {

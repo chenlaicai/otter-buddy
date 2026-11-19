@@ -59,7 +59,7 @@ describe("#646 值域契约 classifyDocStatus", () => {
   });
 });
 
-// ===== #646 段2：子状态 =====
+// ===== 段2：子状态 =====
 
 describe("#646 子状态 classifyDocStatusWithSubstatus", () => {
   it("implemented + substatus:active → in-flight（迭代中，参与病态判定）", () => {

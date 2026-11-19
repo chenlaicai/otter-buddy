@@ -1,9 +1,9 @@
 /**
- * SDK 级 Agent 调用端口（R20260817arnt PR-A：自 interface-adapters/agent-runtime/agent-invoke-port.ts
+ * SDK 级 Agent 调用端口（PR-A：自 interface-adapters/agent-runtime/agent-invoke-port.ts
  * 改名上移，消除与 usecases/ports/agent-invoke-port.ts 的同名双定义——那边是 invokeConversation
  * 粒度、PR-D1 时删除；本接口是 SDK invoke 粒度，PiSessionFactory 结构匹配）。
  *
- * F20261109rtcnt：SDK 已换 pi-durable——事件经 durable-event-stream 转换层转回本形态，
+ * SDK 已换 pi-durable——事件经 durable-event-stream 转换层转回本形态，
  * 该 re-export 仅为兼容保留；类型自有化缓到 pi-coding-agent 退役时收编（见 docs/designs/runtime-contract.md）。
  */
 
@@ -15,7 +15,7 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
  * 保持弱类型 + 索引签名（兼容现有消费方 + 测试 mock）。需要 discriminated union 精确 narrowing
  * 时用 re-export 的 `AgentSessionEvent`（SDK 联合类型，要求 AgentMessage 完整字段，适合生产路径）。
  *
- * R20260810piab 遗漏 1：移除了死字段 `delta`——message_update 被 createEventHandler 过滤，
+ * 遗漏 1：移除了死字段 `delta`——message_update 被 createEventHandler 过滤，
  * onEvent 永远收不到；delta 实际在 assistantMessageEvent 内层（output-guard.ts 直连 subscribe 提取）。
  */
 export interface AgentStreamEvent {
@@ -33,33 +33,33 @@ export interface AgentRunResult {
   queued?: boolean;
   /** session 累计 token 消耗（成本口径，仅日志用；不代表上下文窗口占用） */
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
-  /** F20261026ctbg：单次 invoke 增量；与累计快照 tokenUsage 语义严格分离。 */
+  /** 单次 invoke 增量；与累计快照 tokenUsage 语义严格分离。 */
   tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
-  /** 上下文窗口占用：末次 LLM 调用的 input+output+cacheRead+cacheWrite（F20260808ctxw） */
+  /** 上下文窗口占用：末次 LLM 调用的 input+output+cacheRead+cacheWrite */
   ctxTokens?: number;
   ctxMax?: number;
   circuitBreakerMetadata?: { totalCalls: number; circuitReason?: string };
   outputGuardMetadata?: { totalLength: number; tripped: boolean; reason?: string; firstByteLatencyMs?: number; timeoutElapsedMs?: number; suspectedFreeze?: boolean };
-  /** 本次 invoke 实际使用的模型别名（F20260814mtrc：metrics model label 数据源） */
+  /** 本次 invoke 实际使用的模型别名（metrics model label 数据源） */
   modelAlias?: string;
-  /** 本次 invoke 重建了全新 session（F20260814mtrc） */
+  /** 本次 invoke 重建了全新 session */
   sessionRebuilt?: boolean;
-  /** F20260819rscn: LLM 调用 restart_otter(self) 时，SDK 不执行 restart，改为标记信号由调用方处理 */
-  /** F20260920uhuc：synthesizePast 透传（restart_otter 工具参数——獭决定前世是否值得合成） */
+  /** LLM 调用 restart_otter(self) 时，SDK 不执行 restart，改为标记信号由调用方处理 */
+  /** synthesizePast 透传（restart_otter 工具参数——獭决定前世是否值得合成） */
   _selfRestart?: { otterId: string; summary?: string; synthesizePast?: boolean };
   /** LLM 直出文本（未通过 speak 输出，对其他人不可见）。用于检测"旁白流失"失败形态 */
   directText?: string;
-  /** 末条 assistant 消息的 stopReason（F20260903lngth：length=生成被 token 上限截断） */
+  /** 末条 assistant 消息的 stopReason（length=生成被 token 上限截断） */
   lastStopReason?: string;
 }
 
-/** F20260912nlb896：压缩合成影子通道结果（直调 LLM，不经 invoke/锁/池） */
+/** 压缩合成影子通道结果（直调 LLM，不经 invoke/锁/池） */
 export interface SynthesisRunResult {
   /** LLM 直出文本 */
   directText: string;
   /** stopReason（length = 截断，调用方 fail-closed） */
   lastStopReason?: string;
-  /** F20261111synth F3：传输类失败后兑底重试成功的模型别名（主模型成功时缺省）——
+  /** F3：传输类失败后兑底重试成功的模型别名（主模型成功时缺省）——
    *  观测用：日志/排排查一眼区分「主模型合成成功」与「兑底挽救成功」 */
   fallbackUsed?: string;
 }
@@ -69,17 +69,17 @@ export interface DynamicContext {
   sessionSummary?: string;
   /** 对话工作区绝对路径 */
   workspacePath?: string;
-  /** F20260825hndf：件②文件轨迹（机械提取，借用式） */
+  /** 件②文件轨迹（机械提取，借用式） */
   fileTrail?: string;
-  /** F20260825hndf：件③近期原文片段（借用式，消费即删） */
+  /** 件③近期原文片段（借用式，消费即删） */
   recencyWindow?: string;
-  /** F20260825hndf：件④活状态盘点（机械 checklist，借用式） */
+  /** 件④活状态盘点（机械 checklist，借用式） */
   stateInventory?: string;
-  /** F20260826mwrd C3（Part 4）：高危 healing 事件提醒（渲染好的文本，借用式，消费即删） */
+  /** C3（Part 4）：高危 healing 事件提醒（渲染好的文本，借用式，消费即删） */
   healingAlerts?: string;
-  /** #1227 M1：pending 信号裁决提醒（大獭 invoke 头部注入，借用式消费即删） */
+  /** M1：pending 信号裁决提醒（大獭 invoke 头部注入，借用式消费即删） */
   signalAlerts?: string;
-  /** F20261021sprx：定时任务待执行提醒（状态镜像；pending 非零就每次注入，ack 才消失） */
+  /** 定时任务待执行提醒（状态镜像；pending 非零就每次注入，ack 才消失） */
   scheduledTaskAlerts?: string;
 }
 
@@ -95,20 +95,20 @@ export interface InvokeOptions {
    *  策略在 usecases 组装（读盘 base64）；本 port 只透传机制。
    *  模型不支持 vision 时 SDK downgradeUnsupportedImages 自动降级占位符，otter 层不自判。 */
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
-  /** F20260825hndf Phase 2：只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。
+  /** Phase 2：只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。
    *  Pi SDK 无原生 read-only 支持，靠 prompt 约束 + 工具白名单实现。 */
   readOnly?: boolean;
-  /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
+  /** 本批未读消息的最大 sequence_num（启动成功后推进游标用） */
   batchMaxSeq?: number;
-  /** F20260913ctlv：当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
+  /** 当前 invoke ID（invoke 级上下文，由 agent-invoker 注入） */
   currentInvokeId?: string;
   /** 受限外部会话：受限工具、独立 Session 与工作区 MCP，禁止普通池和其他工具面。 */
   externalProfile?: 'restricted';
-  /** F20260913ctlv 彻底切换：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
+  /** 彻底切换：SSE 发射通道（invoke 级注入，工具层发 entry.yield 等事件用） */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
 }
 
-/** F20260920uhuc：jsonl entries 读取门面（统一交接原料源——可选，mock 缺省时调用方降级） */
+/** jsonl entries 读取门面（统一交接原料源——可选，mock 缺省时调用方降级） */
 export interface SessionEntryLike {
   type: string;
   id: string;
@@ -117,15 +117,15 @@ export interface SessionEntryLike {
 
 export interface SdkInvokePort {
   invoke(otterId: string, message: string, options?: InvokeOptions): Promise<AgentRunResult>;
-  /** F20260912nlb896（#896）→F20260920uhuc 泛化：统一合成影子通道——临时 inMemory session 直调 LLM。
+  /** →泛化：统一合成影子通道——临时 inMemory session 直调 LLM。
    *  不走 invoke/锁/池/共享 jsonl。modelOverride（可选）= 合成跟随新世模型。
    *  可选：mock 场景缺省时调用方降级（机械档案兜底）。 */
   runCompactionSynthesis?(otterId: string, prompt: string, modelOverride?: string): Promise<SynthesisRunResult>;
-  /** F20260920uhuc：统一交接——获取 per-otter 锁（冻结窗口；waiter 超时交接模式 120s）。可选 */
+  /** 统一交接——获取 per-otter 锁（冻结窗口；waiter 超时交接模式 120s）。可选 */
   acquireSessionLock?(otterId: string): Promise<() => void>;
-  /** F20260920uhuc：统一交接——只读当前 session 全部 entries（jsonl 切片原料；空/缺失返回 undefined）。可选 */
+  /** 统一交接——只读当前 session 全部 entries（jsonl 切片原料；空/缺失返回 undefined）。可选 */
   readCurrentSessionEntries?(otterId: string): Promise<SessionEntryLike[] | undefined>;
-  /** F20260929kws1：当前 session jsonl 文件绝对路径（保留段截断标记的原文落点锚）。
+  /** 当前 session jsonl 文件绝对路径（保留段截断标记的原文落点锚）。
    *  唯一调用时点 = 交接收集期（restartSession 之前）——此后 agent_sessions 账本翻到新世，
    *  再查即得新世文件（错误锚）。可选：mock 缺省时锚降级不阻塞交接。 */
   getCurrentSessionFile?(otterId: string): Promise<string | undefined>;

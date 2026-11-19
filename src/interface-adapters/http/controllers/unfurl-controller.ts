@@ -8,13 +8,13 @@ import { unfurlNowIso } from "@frameworks/db/conversation/sqlite-unfurl-cache-re
 import { fetchGithubMeta, parseGithubUrl } from "./github-unfurl";
 
 /**
- * F20261013csv3 T1：链类 unfurl 预览卡数据端点——「数据先行」架构翻转。
+ * T1：链类 unfurl 预览卡数据端点——「数据先行」架构翻转。
  *
- * 旧架构（F20261008csf1）：渲染时实时抓取 og + 失败静默退文本（41% 失败率无人察觉）。
+ * 旧架构：渲染时实时抓取 og + 失败静默退文本（41% 失败率无人察觉）。
  * 本架构（P1 原则）：抓取结果（含失败）落库 unfurl_cache，渲染读库——同一条消息
  * 不再有两种渲染命运；失败是显式状态（source='failed' → 前端失败卡），不静默消失。
  *
- * 三态响应（mimo S1——预抓取未完成是常态：渲染毫秒级 vs 抓取秒级）：
+ * 三态响应（mimo ——预抓取未完成是常态：渲染毫秒级 vs 抓取秒级）：
  * - 200 ok：缓存命中（含 failed 7 天内 / og 永久 / github-api 24h 内）
  * - 200 pending：记录不存在或 github-api 过期（SWR）——前端显示骨架轮询，后台抓取补位
  * - 200 failed：source='failed' 且 7 天窗口内——前端渲染显式失败卡（非纯文本降级）
@@ -30,7 +30,7 @@ const UNFURL_MAX_BYTES = 512 * 1024;
 
 /** SSRF 防护：仅放行 http/https，禁 localhost/内网段（点分十进制 + 非点分形式 + IPv6 本地面）。
  *  本系统是本地部署的搭档工具，内网段禁掉不损失真实用途（外部链接预览），但堵掉
- *  「用 unfurl 端点探内网」的滥用面。检视发现 5 收紧面：IPv4-mapped（::ffff:10.*
+ * 「用 unfurl 端点探内网」的滥用面。收紧面：IPv4-mapped（::ffff:10.*
  *  点分与十六进制两形）、ULA（f[cd]xx:）、链路本地（fe[89ab]x:）、十六进制（0x7f000001）
  *  与十进制（2130706433）IPv4。治本（DNS 解析后按 IP 判）见特性文档 P2 项，本层纯收紧。
  *  拆四个小函数：段位判定/点分/非点分/IPv6 各自独立可测（eslint complexity 塑形） */
@@ -100,11 +100,11 @@ export interface UnfurlResult {
   siteName: string | null;
   /** 归一化后的站点域名（favicon 兜底数据源） */
   host: string;
-  /** F20261013csv3：结构化来源标识（og 抓取 / github-api 结构化取数） */
+  /** 结构化来源标识（og 抓取 / github-api 结构化取数） */
   source: "og" | "github-api";
   /** github-api 记录的 PR/issue 状态（open/merged/closed）——前端状态徽章数据源 */
   state?: string | null;
-  /** #1463：draft 子态（gh isDraft）——state='OPEN' 且 isDraft 时徽章显示「草稿」 */
+  /** draft 子态（gh isDraft）——state='OPEN' 且 isDraft 时徽章显示「草稿」 */
   isDraft?: boolean | null;
   /** github-api 记录的 PR diff stat（T2 产物卡 join 投影数据源） */
   additions?: number | null;
@@ -131,7 +131,7 @@ function pickMeta(html: string, key: string): string | null {
   return null;
 }
 
-/** 最小 HTML 实体解码（&amp; &lt; &gt; &quot; &#39; &nbsp;）——og 内容里的高频实体 */
+/** 最小 HTML 实体解码（&amp; &lt; &gt; &quot; &; &nbsp;）——og 内容里的高频实体 */
 function decodeEntities(s: string): string {
   return s
     .replace(/&amp;/g, "&")
@@ -180,7 +180,7 @@ export class UnfurlController {
         return c.json(this.rowToResponse(cached.row));
       }
       if (cached.kind === "stale" && cached.row) {
-        // github-api 24h SWR（R4）：先返回旧值，后台刷新结果下次渲染生效（不做实时推送）
+        // github-api 24h SWR：先返回旧值，后台刷新结果下次渲染生效（不做实时推送）
         this.triggerBackgroundFetch(target.href);
         return c.json(this.rowToResponse(cached.row));
       }

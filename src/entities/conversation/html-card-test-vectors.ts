@@ -1,5 +1,5 @@
 /**
- * HTML 卡片围栏的共享测试向量（F20260728htar）。
+ * HTML 卡片围栏的共享测试向量。
  * - HTML_CARD_STRIP_VECTORS：后端剥离函数（entities/message-body-projection）消费
  * - HTML_CARD_REPLY_DERIVE_VECTORS：前端已回复集合派生（web/src/lib/html-card.ts）消费
  * 纯数据文件：不 import 任何实现，前后端均可直接引用。

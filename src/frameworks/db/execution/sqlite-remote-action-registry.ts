@@ -32,7 +32,7 @@ function rowToReq(row: Row): RemoteActionRequest {
   };
 }
 
-/** F20261118remex（#1868 阶段 4 C2）：remote_action_requests sqlite 实现。 */
+/** （阶段 4 C2）：remote_action_requests sqlite 实现。 */
 export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
   constructor(private readonly db: Database.Database) {}
 

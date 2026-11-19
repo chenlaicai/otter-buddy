@@ -1,5 +1,5 @@
 /**
- * F20260827spcs: frontmatter validator 新增规则测试（#470 / #455）
+ * frontmatter validator 新增规则测试（/ ）
  *
  * 覆盖：title 可读性（纯 slug 报 warn）、文件名 slug 后缀（裸 ID 报 warn）、
  * status 枚举 active 补录（不再误报）。规则实现在单一真相源

@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 /**
- * F20260814qswp：直接测试真实实现 MessageBatcher。
+ * 直接测试真实实现 MessageBatcher。
  *
  * 测试基座（三轮）：mirror / queue 双轨——getBase 读 mirror（模拟 allMessagesRef，
  * 在 apply 后才同步，滞后于真实 state），apply 的 materialize 收到 queue（模拟
@@ -180,15 +180,15 @@ describe('MessageBatcher', () => {
 })
 
 /**
- * F20260929fcln（#884）：冻结链退役契约——batcher 无门控 flush。
- * 历史：F20260825scrf 曾设 getShouldDefer（弹窗期暂停 flush、关窗手动追上）；
- * F20260909srf6 模糊语义换轨后冻结失去服务对象，本轮拆除。
+ * ：冻结链退役契约——batcher 无门控 flush。
+ * 历史：曾设 getShouldDefer（弹窗期暂停 flush、关窗手动追上）；
+ * 模糊语义换轨后冻结失去服务对象，本轮拆除。
  * 本断言锁定：flush 不受任何外部门控影响（无 defer 参数可用），窗口到期必产出——
  * 防止未来「顺手」恢复冻结式 API 重新引入双轨语义。
  */
 describe('MessageBatcher 无门控 flush（F20260929fcln #884）', () => {
   it('接口层：Options 不含 getShouldDefer（条件类型断言，接口加回即 tsc 编译失败）', () => {
-    // 真编译期防线（r2-D2：Exclude 剔除键后类型不变、永不失败，已证伪弃用）：
+    // 真编译期防线（-D2：Exclude 剔除键后类型不变、永不失败，已证伪弃用）：
     // HasDefer = 'getShouldDefer' extends keyof Options ? true : false
     // 接口加回该键 → HasDefer = true → `const _assert: false = true` 编译失败
     type HasDefer = 'getShouldDefer' extends keyof MessageBatcherOptions ? true : false

@@ -1,17 +1,17 @@
 /**
- * 对话状态（F20260922cgrp：弱状态两态管理）
+ * 对话状态（弱状态两态管理）
  * 搭档原话：「对话是弱状态管理，归档即移到独立空间」——completed 状态退役，
  * 只剩 active | archived；生产库零 completed 存量（2026-09-22 已核实），无需迁移。
  * completedAt 字段保留（DB 列不动，历史数据可读）。
  */
 export type ConversationStatus = "active" | "archived";
 
-/** #1224：ConversationKind 运行时单源（穷尽数组）+ 类型守卫。
+/** ConversationKind 运行时单源（穷尽数组）+ 类型守卫。
  *  类型从数组派生（typeof[number]）——新增枚举值只改 CONVERSATION_KINDS 一处，
- *  漏进类型或漏进数组在编译期不可能（同一实体，1725-r1 严重 1 证伪了
- *  satisfies 子集锁的两个方向中防 #1201 有害方向的那个）。其余消费点
+ * 漏进类型或漏进数组在编译期不可能（同一实体，1725-严重 1 证伪了
+ * satisfies 子集锁的两个方向中防 有害方向的那个）。其余消费点
  *  （db mapper 白名单 / controller query 解析 / repo filter / api-contract /
- *  前端 mapper）均从本源派生或经守卫过滤——#1201 同型 bug 成因模式消除。 */
+ * 前端 mapper）均从本源派生或经守卫过滤——同型 bug 成因模式消除。 */
 export const CONVERSATION_KINDS = ["normal", "assistant", "web-assistant"] as const;
 export type ConversationKind = (typeof CONVERSATION_KINDS)[number];
 
@@ -27,8 +27,8 @@ export interface Conversation {
   status: ConversationStatus;
   summary: string | null;
   pinned: boolean;
-  /** F20260920imax：对话类别——assistant = IM 助理自动开户（schema 字段取代 title 前缀约定）；
-   *  F20260924wast：web-assistant = web 浮动獭全局唯一助理对话 */
+  /** 对话类别——assistant = IM 助理自动开户（schema 字段取代 title 前缀约定）；
+   * web-assistant = web 浮动獭全局唯一助理对话 */
   kind: ConversationKind;
   /** 工作区相对路径（相对于 dataDir），null 表示无工作区（旧数据） */
   workspaceDir: string | null;
@@ -38,7 +38,7 @@ export interface Conversation {
   archivedAt: string | null;
 }
 
-/** F20260920imax：测试/存量构造便捷类型——kind 可缺省（normal 默认）。
+/** 测试/存量构造便捷类型——kind 可缺省（normal 默认）。
  *  实体接口 Conversation.kind 仍为必填，避免读端到处判 undefined；
  *  写端（create/insert）用 Conversations 兼容形式收敛可逃逸的可选性 */
 export type ConversationInput = Omit<Conversation, "kind"> & { kind?: ConversationKind };
@@ -69,7 +69,7 @@ export interface LinkedResource {
   status: ArtifactStatus;
   groupId: string | null;
   supersededBy: string | null;
-  /** 对账归档审计（#1835）：受控跨对话归档路径写入，普通 update_artifact_status 不写。 */
+  /** 对账归档审计：受控跨对话归档路径写入，普通 update_artifact_status 不写。 */
   archivedByOtterId: string | null;
   archivedAt: string | null;
   archiveEvidence: string | null;
@@ -84,8 +84,8 @@ export type ParticipantStatus = "active" | "left";
  * - 初始参与者在 create() 时创建，后进场者通过 join() 创建
  * - 退场时更新 leftAt/status
  * - 每个 Otter 实例在一个对话中只进场/退场一次（UA-10）
- * - F20260920trrt：turn 戳字段（joinedAtTurnId/lastActiveTurnNumber 等）随 turn 系统退役；
- *   已读游标唯一刻度 = lastReadSeq（F20260902sgp2 S4c）
+ * - turn 戳字段（joinedAtTurnId/lastActiveTurnNumber 等）随 turn 系统退役；
+ * 已读游标唯一刻度 = lastReadSeq（）
  */
 export interface ConversationParticipant {
   id: string;
@@ -94,7 +94,7 @@ export interface ConversationParticipant {
   status: ParticipantStatus;
   createdAt: string;
   leftAt: string | null;
-  /** F20260929czi0：进场游标初值（写入时语义——仅 createParticipant(s) 落库时生效）。
+  /** 进场游标初值（写入时语义——仅 createParticipant(s) 落库时生效）。
    *  缺省 0 = 新对话初始化（空对话天然正确）；加入已有对话时由域层传进场时刻
    *  max(seq)（进场前历史不是未读）。读取侧游标真值在 participants 行上
    *  （rowToParticipant 不回填本字段）。 */
@@ -102,7 +102,7 @@ export interface ConversationParticipant {
 }
 
 /**
- * 对话状态转换（F20260922cgrp 弱状态管理）：active -> archived
+ * 对话状态转换（弱状态管理）：active -> archived
  * archived 为终态，不可再转换（无 unarchive 机制——归档即移到独立空间）
  */
 export function canArchiveConversation(status: ConversationStatus): boolean {
@@ -147,14 +147,14 @@ export function canTransitionArtifactStatus(
 }
 
 /**
- * 受控对账归档的资源类型白名单（#1835）。
+ * 受控对账归档的资源类型白名单。
  * 机械终态可判的资源类型 = 有明确外部机器证据的交付物：
  * pr（PR MERGED/CLOSED）、worktree（路径不存在/PR 已合入）、branch（PR 已合入）。
  * fact/file/url/game 不在此列——归档判定依赖人工判断，不得经对账路径跨对话归档。
  */
 export const RECONCILIATION_ARCHIVABLE_RESOURCE_TYPES: ReadonlySet<string> = new Set(["pr", "worktree", "branch"]);
 
-/** 资源类型是否可经受控对账路径归档（#1835）。 */
+/** 资源类型是否可经受控对账路径归档。 */
 export function isReconciliationArchivableType(resourceType: string): boolean {
   return RECONCILIATION_ARCHIVABLE_RESOURCE_TYPES.has(resourceType);
 }

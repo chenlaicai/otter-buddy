@@ -1,5 +1,5 @@
 /**
- * 阶段 2（F20261113uaccs）：会话 cookie 签名/校验单测。
+ * 阶段 2：会话 cookie 签名/校验单测。
  * 覆盖：sign→verify 往返、过期拒绝、篡改拒绝、非白名单 role 拒绝、clock 前移拒绝。
  */
 import { describe, it, expect } from "vitest";

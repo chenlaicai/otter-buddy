@@ -12,11 +12,11 @@ const FEISHU_MESSAGES_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/message
 /** 降级前缀:post + md 发送失败时,转 replyText 用纯文本兜底,标记体感落差 */
 const DEGRADE_PREFIX = "[纯文本降级]\n\n";
 
-/** #902：图片上传端点（飞书 im/v1/images，multipart/form-data） */
+/** 图片上传端点（飞书 im/v1/images，multipart/form-data） */
 const FEISHU_IMAGE_UPLOAD_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/images";
 
 export class FeishuClient implements FeishuGateway {
-  /** F20260920imax 增量五：bot 身份键（掩码 appId）——按 bot 锚定路由的键源 */
+  /** 增量五：bot 身份键（掩码 appId）——按 bot 锚定路由的键源 */
   readonly botKey: string;
 
   constructor(
@@ -24,7 +24,7 @@ export class FeishuClient implements FeishuGateway {
     private readonly logger: Logger,
     private readonly tokenManager: FeishuAccessTokenManager,
   ) {
-    // F20260928fsqr（检视建议③）：入站路由锚改单源派生（与 provision/出站同走 bot-key.ts）
+    // （检视建议③）：入站路由锚改单源派生（与 provision/出站同走 bot-key.ts）
     this.botKey = deriveBotKey(this.config.appId);
   }
 

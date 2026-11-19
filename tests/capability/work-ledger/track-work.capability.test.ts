@@ -1,5 +1,5 @@
 /**
- * 能力测试：track_work 工具调用纪律（F20261027hwl1 B 类）。
+ * 能力测试：track_work 工具调用纪律（B 类）。
  *
  * 新增 LLM 行为面：track_work 工具的 description 约束——
  * ①新独立目标 → 獭应 start（title 一句话 + 系统注入 traceId 绑定）

@@ -1,5 +1,5 @@
 /**
- * F20261105embqg 对抗审视三发现的修复验证（检视獭点名的三类决定性用例）：
+ * 对抗审视三发现的修复验证（检视獭点名的三类决定性用例）：
  *
  * 发现 1：首次洪峰受限——空队列（pending=0）灌 2001 条 bulk chunk，
  *         任一时刻「已提交未完成」的 bulk 不得超出水位上界（独立复现的反例）。
@@ -38,7 +38,7 @@ afterAll(() => {
 });
 
 /**
- * F20261109epqst delta r3（D4）：worker 构造即登记，afterEach 统一 stop 兜底
+ * delta （D4）：worker 构造即登记，afterEach 统一 stop 兜底
  * （retrigger 下未 stop 的 worker 跨用例存活偷吃任务——测试卫生，生产单实例 +
  * dispose stopSync 不受影响）。
  */

@@ -12,7 +12,7 @@ import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 /** Agent 事件（流式推送，对齐 SDK AgentSessionEvent + 索引签名兼容弱类型访问） */
 export type AgentEvent = AgentStreamEvent;
 
-/** F20260804hcob: 从 message_end 事件提取 assistant 文本块（与 agent-invoker 的提取逻辑同构；user/toolResult 不计） */
+/** 从 message_end 事件提取 assistant 文本块（与 agent-invoker 的提取逻辑同构；user/toolResult 不计） */
 export function extractAssistantTextFromMessageEnd(e: AgentEvent): string {
   const inner = (e as Record<string, unknown>).assistantMessageEvent as Record<string, unknown> | undefined;
   const msg = inner ?? (e as Record<string, unknown>).message as Record<string, unknown> | undefined;
@@ -26,7 +26,7 @@ export function extractAssistantTextFromMessageEnd(e: AgentEvent): string {
 }
 
 /**
- * F20260804hcob: 维护本轮 assistant 文本缓冲（speak 检测“卡片写在 speak 外”用）。
+ * 维护本轮 assistant 文本缓冲（speak 检测“卡片写在 speak 外”用）。
  * 缓冲按 assistant 消息隔离：message_start（role=assistant）清零，message_end 追加——
  * 检测范围收窄到“本条消息”，避免上一轮文本里的 stray 围栏误拒后续无卡 speak（甚至 livelock）。
  */
@@ -53,7 +53,7 @@ export function createEventHandler(
     if (e.type === "tool_execution_start" && activeEntry) {
       activeEntry.toolCallCount++;
     }
-    /** F20260804hcob: message_start/end 维护本轮文本缓冲（message_end 先于本消息的工具执行触发） */
+    /** message_start/end 维护本轮文本缓冲（message_end 先于本消息的工具执行触发） */
     if (turnText) updateTurnText(turnText, e);
     if (e.type !== "message_update") {
       onEvent?.(e);

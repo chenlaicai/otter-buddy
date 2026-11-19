@@ -1,5 +1,5 @@
 /**
- * F20261008gfrc（三步走③·裁决摩擦）：batch_resolve 高危批量闸测试。
+ * （三步走③·裁决摩擦）：batch_resolve 高危批量闸测试。
  *
  * 验证面：
  * 1. 匹配集中含 high → errorResponse 拒绝批量（含 high 条数与逐条处置指引）

@@ -1,6 +1,6 @@
 /**
  * speak 工具的专用校验逻辑。
- * R20260817arnt PR-A：ToolResponse / textResponse / errorResponse /
+ * PR-A：ToolResponse / textResponse / errorResponse /
  * MAX_TOOL_RESULT_CHARS / truncateToolResult 已随迁 @usecases/ports/agent-tools
  * （工具契约归 port，本文件只剩 speak 专属校验）。
  */
@@ -12,9 +12,9 @@ import remarkGfm from "remark-gfm";
 import type { Code, Nodes, Paragraph, Root } from "mdast";
 import { visit } from "unist-util-visit";
 
-/** F20261022cfme：解析管线与投影层 message-body-projection.ts 的 parser 逐字节对齐——
+/** 解析管线与投影层 message-body-projection.ts 的 parser 逐字节对齐——
  *  同一 remark + remarkGfm(singleTilde:false)，围栏边界判定与前端渲染（react-markdown）一致。
- *  为什么弃正则改 remark（#959）：正则在嵌套围栏处提前截断 under-measure——
+ * 为什么弃正则改 remark：正则在嵌套围栏处提前截断 under-measure——
  *  开围栏 ```` 内嵌 ```（或 ``` 内嵌 ~~~）这类合法嵌套，正则量到第一个内嵌围栏就停，
  *  卡片体积被低估（超体积徽标漏报）；remark 天然处理合法嵌套，与投影层同源。 */
 const parser = () => remark().use(remarkGfm, { singleTilde: false });
@@ -32,7 +32,7 @@ function collectCardFenceNodes(body: string): Code[] {
 }
 
 /** 统计 body 中的 html-card 围栏数量（含 html-card-play 活类围栏）。
- *  F20261022cfme：与 validateSpeakBody 的体积测量同源（collectCardFenceNodes），计数与体积口径一致。 */
+ * 与 validateSpeakBody 的体积测量同源（collectCardFenceNodes），计数与体积口径一致。 */
 function countCardFences(body: string): number {
   return collectCardFenceNodes(body).length;
 }
@@ -42,7 +42,7 @@ function countCardFences(body: string): number {
  *  是顶层段落的裸文本。其它块容器（围栏 code、行内代码 inlineCode、HTML 原始块 html、
  *  块引用 blockquote、列表 list 等）里的 DSML 都是嵌套内容，其文本节点不在顶层段落里。
  *  复用与卡片校验同源的 remark+remarkGfm 解析（Parser 说明见本文件顶部 parser() 注释）。
- *  F20261118dsmlk（#1916）：供 stripToolCallSerializationLeak 判定锚点是否位于顶层段落文本。 */
+ * ：供 stripToolCallSerializationLeak 判定锚点是否位于顶层段落文本。 */
 function collectTopLevelParagraphTextRanges(body: string): Array<{ start: number; end: number }> {
   const ranges: Array<{ start: number; end: number }> = [];
   const tree = parser().parse(body) as Root;
@@ -65,11 +65,11 @@ function isInsideAnyRange(index: number, ranges: Array<{ start: number; end: num
   return ranges.some((r) => index >= r.start && index < r.end);
 }
 
-/** F20261118dsmlk（#1916）：工具调用序列化泄漏锚点。
+/** 工具调用序列化泄漏锚点。
  *  事故现场字节（data/durable-sessions/30288072 entry 333 hexdump）：左尖括号 + 全角
  *  竖线（U+FF5C）+ 大写 DSML + 全角竖线 + 标签名，如 `｜DSML｜tool_calls` / 后随
  *  `｜DSML｜invoke name="yield"` / `｜DSML｜parameter name="reason" string="true"`。
- *  issue #1916 转写有出入：把全角竖线写成了半角下划线 dsml_calls / dsml_invoke /
+ * 转写有出入：把全角竖线写成了半角下划线 dsml_calls / dsml_invoke /
  *  dsml_parameter（小写），并把思维闭合标签写成了英文单词 “response”。锚点两种前缀
  *  形态都覆盖（i 不计大小写）；“response” 单词不作为判据（转写失真，见 strip 函数
  *  注释）。不收裸 invoke / parameter——裸标签可能是正文里合法的代码示例（Markdown
@@ -78,7 +78,7 @@ function isInsideAnyRange(index: number, ranges: Array<{ start: number; end: num
 const TOOL_CALL_SERIALIZATION_RE =
   /<(?:\uFF5CDSML\uFF5C|dsml_)(?:calls|tool_calls|invoke|parameter)\b/i;
 
-/** F20261118dsmlk（#1916）：剥离 speak body 末尾混入的工具调用序列化泄漏。
+/** 剥离 speak body 末尾混入的工具调用序列化泄漏。
  *  根因在模型/provider（deepseek-v4-pro 在「speak 后紧跟 yield」时把第二个调用的
  *  序列化文本写进了第一个调用的 body 参数），应用层无法根治，只能在唯一入库口净化。
  *
@@ -93,7 +93,7 @@ const TOOL_CALL_SERIALIZATION_RE =
  *      这是挡「行内 HTML 包装示例」的补充判据——如 <code>…</code> 这类行内 HTML 包装，
  *      锚点虽在顶层段落文本里，但闭合标记（</code>）暴露它不是泄漏弹尾而是示例回放。
  *
- *  issue #1916 转写与本判据的出入（详见锚点常量注释）：issue 把思维闭合标签转写成了
+ * 转写与本判据的出入（详见锚点常量注释）：issue 把思维闭合标签转写成了
  *  英文单词 “response”、把全角竖线转写成了半角下划线。半角下划线锚点已覆盖；“response”
  *  单词不是可靠指纹——合法正文句末也会出现英文 response，匹配它会误剥正常发言，该转写
  *  形态不剥（fail-open 如实记录），权威字节以 entry 333 为准。

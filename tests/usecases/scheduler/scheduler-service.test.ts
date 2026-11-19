@@ -17,7 +17,7 @@ import { haltRegistry } from '@usecases/signal/halt-registry';
 
 // ─── 辅助工具 ─────────────────────────────────────────────
 
-/** #1208：可观察 healingRepo（事件落 _events 可断言），模块级共享（跨 describe 复用）。 */
+/** 可观察 healingRepo（事件落 _events 可断言），模块级共享（跨 describe 复用）。 */
 function makeObservableHealingRepo(openEvents: Array<Record<string, unknown>> = []) {
   const events: Array<Record<string, unknown>> = [];
   return {
@@ -130,7 +130,7 @@ function createMockTaskRepo() {
       resetCallCount += 1;
     }),
     claimTask: vi.fn(async (id: string, lastTriggeredAt: string) => {
-      // #640: 更新任务的 lastTriggeredAt 字段，防止轮询重复触发
+      // 更新任务的 lastTriggeredAt 字段，防止轮询重复触发
       const task = store.get(id);
       if (task && claimResult) {
         task.lastTriggeredAt = lastTriggeredAt;
@@ -150,7 +150,7 @@ function createMockTaskRepo() {
       }
     }),
     getExecutions: vi.fn(async (taskId: string, options?: { limit?: number }) =>
-      // #1474 检视发现 3：与真实仓储语义对齐——triggeredAt DESC + limit 裁剪
+      // 与真实仓储语义对齐——triggeredAt DESC + limit 裁剪
       // （mock 忽略 limit 会在 >limit 条执行时查出真实仓储查不到的 running，造成误放行漂移）
       Array.from(executions.values())
         .filter(e => e.taskId === taskId)
@@ -172,7 +172,7 @@ function createMockTaskRepo() {
       }
       return changed;
     }),
-    // #1510：启动对账误标「执行被中断」的 failed 行（对账分级修复回查用）
+    // 启动对账误标「执行被中断」的 failed 行（对账分级修复回查用）
     getReconciliationFailedExecutions: vi.fn(async () =>
       Array.from(executions.values()).filter(e =>
         e.status === 'failed' && (e.errorMessage as string | null | undefined)?.includes('执行被中断'),
@@ -246,7 +246,7 @@ function createMockConvRepo() {
   };
 }
 
-/** 创建 SendEntry 的状态化 mock（F20260913ctlv 批2：scheduler 信号落 entries） */
+/** 创建 SendEntry 的状态化 mock（批2：scheduler 信号落 entries） */
 function createMockSendEntry() {
   /** 已创建 system entry 计数 */
   let entryCount = 0;
@@ -256,7 +256,7 @@ function createMockSendEntry() {
     _getEntryCount: () => entryCount,
     createSystemEntry: vi.fn(async (input: { body?: string; senderName?: string; yieldTargets?: string[] }) => {
       entryCount += 1;
-      // F20261104ssfde：回显 senderName——广播捕获测试断言它随 SSE 透出（真实 sendEntry 会落 entry.senderName）
+      // 回显 senderName——广播捕获测试断言它随 SSE 透出（真实 sendEntry 会落 entry.senderName）
       return { entry: { id: `entry-${entryCount}`, body: input?.body ?? '早上好！',
     description: null, sequenceNum: entryCount, senderName: input?.senderName ?? 'system' } };
     }),

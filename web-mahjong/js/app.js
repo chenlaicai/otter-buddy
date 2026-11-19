@@ -1,5 +1,5 @@
 /**
- * 三麻牌局页编排（F20261015mjsg 模块四）。
+ * 三麻牌局页编排（模块四）。
  *
  * 职责边界：视图模型推导全在 view.js（纯函数、可单测），本文件只做
  * ① URL 解析（/mahjong = 大厅，/mahjong/:roomId = 牌局）② 拉视图与动作注入
@@ -255,7 +255,7 @@ function renderSettle() {
       )
       .join("")}`;
   } else if (settle) {
-    // 末局（东风战第 4 局）继续 = 进终局，文案如实（检视建议6）
+    // 末局（东风战第 4 局）继续 = 进终局，文案如实
     const canContinue = state.view?.status === "playing";
     const continueLabel = (state.view?.roundNo ?? 0) >= 4 ? "查看终局 →" : "继续下一局 →";
     html = `<h3>${esc(settle.title)}</h3>${settleHtml(settle)}` +

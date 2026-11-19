@@ -14,14 +14,14 @@ import { projectForChannel } from "@entities/conversation/message-body-projectio
 import path from "node:path";
 
 /**
- * 微信出站通道（issue #565，照 FeishuMessageChannel 模式）。
+ * 微信出站通道（照 FeishuMessageChannel 模式）。
  *
  * 微信与飞书的差异点：
  * - 协议只收纯文本（item type=1）→ markdown 投影后按 replyText 语义发送
  *   （projectForChannel 产出文本，html-card 落占位符 + Web 链接，同飞书）
- * - 会话模型是"人对 bot 私聊"：connection.externalId = bot 账号 id（F20260921wxba
+ * - 会话模型是"人对 bot 私聊"：connection.externalId = bot 账号 id（
  *   路由锚），出站收信人经 manageConnection.resolveReplyTarget 从
- *   metadata.lastChatId 取回（ilinkUserId，入站由 processor 记录，F20260922wxeg）；
+ * metadata.lastChatId 取回（ilinkUserId，入站由 processor 记录，）；
  *   context_token 由 ingress 落盘、gateway 实现层查表回填
  */
 export class WeixinMessageChannel implements OutboundEventChannel {
@@ -33,7 +33,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     private readonly logger: Logger,
     private readonly webBaseUrl?: string,
     private readonly settingsRepo?: Pick<SettingsRepository, "get">,
-    /** #902 媒体出站恢复（F20260913ctlv 删除后重注入）：附件实体查询（拿 filePath）
+    /** 媒体出站恢复（删除后重注入）：附件实体查询（拿 filePath）
      *  + speak entry 附件补拉；未注入时降级纯占位投影不阻塞（旧版 attachmentRepo 死参数语义纠正） */
     private readonly attachmentDeps?: {
       attachmentRepo: Pick<AttachmentRepository, "getByIds">;
@@ -44,9 +44,9 @@ export class WeixinMessageChannel implements OutboundEventChannel {
 
 
 
-  /** F20260913ctlv 批4a：SSE 事件出站——invoke.start 触发"正在思考..."
+  /** 批4a：SSE 事件出站——invoke.start 触发"正在思考..."
    *  （与飞书同语义；message.start 已无生产者）；entry.speak = speak 气泡出站投递。
-   *  F20260913ctlv：entry.user = Web→微信用户消息同步（F20260828fsyc 同步链恢复）——
+   * entry.user = Web→微信用户消息同步（同步链恢复）——
    *  防回环闸 source=web（微信入站链的 entry.user 事件 source=weixin，不回投） */
   onEvent(conversationId: string, event: SSEEvent): void {
     if (event.event === "invoke.start") {
@@ -69,7 +69,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
       });
       return;
     }
-    // F20260920imax：invoke 失败兑底——不再静默（现场：kimi 配额 403 后用户只看到
+    // invoke 失败兑底——不再静默（现场：kimi 配额 403 后用户只看到
     // 「正在思考...」再无下文）。微信侧发失败提示，用户知道重试而非干等
     if (event.event === "entry.failed") {
       this.deliverFailureNotice(conversationId, event).catch((err) => {
@@ -78,7 +78,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     }
   }
 
-  /** F20260922wxeg：出站目标解析——connection.externalId 是 bot 账号 id（路由锚），
+  /** 出站目标解析——connection.externalId 是 bot 账号 id（路由锚），
    *  收信人经 resolveReplyTarget 从 metadata.lastChatId 取回（ilinkUserId，入站时
    *  由 message-processor 记录）。解析不到目标 = 用户尚未在新 connection 上说过话
    *  ——跳过发送记 warn（发给 bot 账号 id 只会 ret=-3 假失败，绝不投递） */
@@ -90,7 +90,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     return target;
   }
 
-  /** F20260920imax：invoke 终态失败 → 微信侧提示（思考中后无下文的静默兑底） */
+  /** invoke 终态失败 → 微信侧提示（思考中后无下文的静默兑底） */
   private async deliverFailureNotice(conversationId: string, _event: SSEEvent): Promise<void> {
     const session = await this.manageConnection.getSessionByConversation(conversationId);
     if (!session) return;
@@ -121,7 +121,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
   }
 
   /** entry.user 出站：Web 用户消息同步到微信（防回环：仅投 source=web）。
-   *  #902 媒体出站：事件自带 attachments（发射点已投影）直接消费 + 媒体真实投递 */
+   * 媒体出站：事件自带 attachments（发射点已投影）直接消费 + 媒体真实投递 */
   private async deliverUserEntryToWeixin(conversationId: string, event: SSEEvent): Promise<void> {
     const data = event.data as { body?: string; source?: string; attachments?: AttachmentRef[] };
     if (!data.body) return;
@@ -155,7 +155,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
   }
 
   /** entry.speak 出站：speak body 投影 + 纯文本投递（与飞书同构）。
-   *  #902 媒体出站：事件载荷无 attachments 时按 entryId 补拉（speak 工具暂无附件写入源）；
+   * 媒体出站：事件载荷无 attachments 时按 entryId 补拉（speak 工具暂无附件写入源）；
    *  拉到则投影占位 + 媒体真实投递（CDN 上传，image/file/video 按 MIME 路由） */
   private async deliverSpeakToWeixin(conversationId: string, event: SSEEvent): Promise<void> {
     const data = event.data as { body?: string; otterName?: string; attachments?: AttachmentRef[]; entryId?: string };
@@ -184,7 +184,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     await this.sendAttachments(target, attachments);
   }
 
-  /** #902：附件解析——事件载荷自带 attachments 直接用；载荷缺席（entry.speak 现阶段
+  /** 附件解析——事件载荷自带 attachments 直接用；载荷缺席（entry.speak 现阶段
    *  恒缺席）时按 entryId 补拉 entry 读出链。补拉失败/未注入依赖时空数组降级纯文本 */
   private async resolveAttachments(data: { attachments?: AttachmentRef[]; entryId?: string }): Promise<AttachmentRef[]> {
     if (data.attachments && data.attachments.length > 0) return data.attachments;
@@ -201,8 +201,8 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     }
   }
 
-  /** #902 媒体出站恢复（git 7bb98c6f sendAttachments 先例 + 两处修正）：逐个查实体拿
-   *  filePath（相对 storageRoot，拼绝对路径——旧版直传相对路径是 F20260913ctlv 前
+  /** 媒体出站恢复（git 7bb98c6f sendAttachments 先例 + 两处修正）：逐个查实体拿
+   * filePath（相对 storageRoot，拼绝对路径——旧版直传相对路径是 前
    *  的存储旧形态）后 replyMedia（CDN 上传按 MIME 路由 item）；单项失败降级占位继续 */
   private async sendAttachments(target: string, attachments: AttachmentRef[]): Promise<void> {
     if (attachments.length === 0) return;
@@ -245,7 +245,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     const connection = await this.manageConnection.getConnection(session.connectionId);
     if (!connection) return;
 
-    // F20260831xtrt：onEvent（thinking）路径与 onMessage 对称路由，飞书会话不进本通道
+    // onEvent（thinking）路径与 onMessage 对称路由，飞书会话不进本通道
     if (connection.externalType !== "weixin") {
       this.logger.debug("Skipping thinking message to non-weixin connection", {
         conversationId,
@@ -258,7 +258,7 @@ export class WeixinMessageChannel implements OutboundEventChannel {
     const target = this.resolveTarget(connection.id, connection);
     if (!target) return;
     try {
-      // F20260829wxch（#213）：thinking 可丢弃，无 context_token 时跳过不裸发
+      // thinking 可丢弃，无 context_token 时跳过不裸发
       await this.weixinGateway.replyText(target, `${otterName} 正在思考...`, { requireContextToken: true });
     } catch (err) {
       this.logger.error("Failed to send Weixin thinking message", err instanceof Error ? err : undefined, {

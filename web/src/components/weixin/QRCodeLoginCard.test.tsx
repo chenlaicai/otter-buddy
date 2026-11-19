@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 /**
- * QRCodeLoginCard 测试（#1112 最小面）——聚焦本次变更行为：
+ * QRCodeLoginCard 测试（最小面）——聚焦本次变更行为：
  * ① binded_redirect → already_connected 终态：文案渲染、toast 提示、
  *    不触发 onLoginConfirmed（无新账号可建线）、停轮询
  * ② success 分支回归对照：既有分流行为不回退
  *
- * 组件全面测试面（二维码渲染/取消/重试/配对码等）归 #1079 检视 2 派生的
- * 待立案项（净增熔断期暂不立），本文件只覆盖 #1112 行为改动。
+ * 组件全面测试面（二维码渲染/取消/重试/配对码等）归 检视 2 派生的
+ * 待立案项（净增熔断期暂不立），本文件只覆盖 行为改动。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, fireEvent, cleanup, screen, act } from '@testing-library/react'
@@ -24,7 +24,7 @@ function session(over: Partial<WeixinLoginSessionDTO> = {}): WeixinLoginSessionD
 beforeEach(() => {
   vi.clearAllMocks()
   vi.useFakeTimers()
-  // mock 数据一律在 render 前 stub（mount 后覆盖无效——#1079 惯例）
+  // mock 数据一律在 render 前 stub（mount 后覆盖无效——惯例）
   vi.spyOn(api, 'startWeixinLogin').mockResolvedValue(session())
 })
 

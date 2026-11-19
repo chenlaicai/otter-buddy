@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * F20261008gdcc P1 项 4：guard_intercept 样本 → replay 用例候选生成器。
+ * P1 项 4：guard_intercept 样本 → replay 用例候选生成器。
  *
- * 背景（guard-mechanism-review 建议 4）：#1360 修的「修复-回归循环」靠人工从 healing
- * 台账翻现场再手写用例——本轮 S1 误拦（93 条/7 天）正是没被固化的现场。本脚本把
+ * 背景（guard-mechanism-review 建议 4）：修的「修复-回归循环」靠人工从 healing
+ * 台账翻现场再手写用例——本轮 误拦（93 条/7 天）正是没被固化的现场。本脚本把
  * 「前日 guard_intercept 新样本」导出为 replay 候选 JSON，daily-health-check 獭据此
  * 走人工裁决（误拦→期望 ALLOW / 规则内→期望 BLOCK）→ 追加到
  * tests/frameworks/agent/guard-v2-real-replay.test.ts（既有 replay 用例文件）。
@@ -30,7 +30,7 @@ function argOf(name, def) {
 
 // dbPath 发现：--db > 环境回退（与 daily-health-check 的 sqlite3 直查前置纪律同源：
 // 先 curl -H 'X-Otter-User-Id: script:guard-replay' http://localhost:3000/api/settings 确认 dbPath
-//（#1322 已接鉴权，无头会 401）；脚本形态下由调用方传入或用默认布局）
+//（已接鉴权，无头会 401）；脚本形态下由调用方传入或用默认布局）
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dbPath = resolve(argOf("--db", `${repoRoot}/data/otter.db`));
 const outPath = resolve(argOf("--out", `${repoRoot}/data/guard-replay-candidates`));
@@ -40,7 +40,7 @@ if (!existsSync(dbPath)) {
   process.exit(2);
 }
 
-// 日期窗口：--date 或默认昨天（UTC 日界，审视处置 PR #1368 §3.3：healing_events.created_at
+// 日期窗口：--date 或默认昨天（UTC 日界，审视处置 §3.3：healing_events.created_at
 // 是 UTC ISO 串，窗口用 UTC 日界；targetDate 也用 getUTC* 同源，避免本地时区「昨日」与
 // UTC 窗错位—— Asia/Shanghai 下旧实现窗口偏移约 8h）
 const targetDate = argOf("--date", (() => {

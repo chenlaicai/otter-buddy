@@ -1,5 +1,5 @@
 /**
- * 能力测试：A3 模型可见内容重建比对（R20260817dshp / issue #289，PR-C 前置）。
+ * 能力测试：A3 模型可见内容重建比对（/ PR-C 前置）。
  *
  * 机制：boot 指向本地录音网关（伪 anthropic 端点），SDK 全链路照常发真实请求——
  * wire 级请求体即模型可见输入的最终真相（system + messages + tools）。
@@ -83,7 +83,7 @@ describe("A3: 模型可见内容重建比对（录音网关确定性场景）", 
     expect(r0.tools?.map((t) => t.name)).toContain("yield");
     expect(JSON.stringify(r0.messages)).toContain("A3-第一轮");
 
-    /** 第 3 次请求（第二轮 speak）：上下文累积——含第 1 轮 speak/yield tool_use、其 tool_result、新的 user 输入 */
+    /** 第 3 次请求（第二轮 speak）：上下文累积——含speak/yield tool_use、其 tool_result、新的 user 输入 */
     const r2dump = JSON.stringify(gateway.requests[2]);
     expect(r2dump).toContain("speak");
     expect(r2dump).toContain("yield");

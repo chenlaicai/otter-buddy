@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * F20260902wh68: core.hooksPath 自愈脚本——worktree/环境覆盖场景的本地钩子防线（issue #684）。
+ * core.hooksPath 自愈脚本——worktree/环境覆盖场景的本地钩子防线。
  *
- * 背景（5 天 3 次复发在案：F20260821kgts 绝对路径覆盖、#476 run/_、#681 worktree 场景
+ * 背景（5 天 3 次复发在案：绝对路径覆盖、run/_、worktree 场景
  * .husky/_ 残留）：core.hooksPath 一旦被外部工具改写为失效值，git 对不存在的钩子目录
  * 静默跳过——全部本地钩子（commit-msg/pre-commit/pre-push/pre-merge-commit）静默失效，
  * 提交规范只能靠 CI 兜底。worktree 是高频现场：多条派工线并行开发，hooksPath 存共享

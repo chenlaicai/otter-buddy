@@ -1,12 +1,12 @@
 /**
- * 上传校验纯函数（多模态 Phase 1；kind 白名单扩展 #608）。
+ * 上传校验纯函数（多模态 Phase 1；kind 白名单扩展 ）。
  *
  * MIME 双路径校验（不信客户端 Content-Type）：
  * - image：magic bytes（PNG/JPEG/GIF/WebP RIFF 容器）；白名单排除 SVG（XSS）
  * - document：无可靠 magic bytes 的纯文本类，走扩展名白名单 + NUL 探嗅（含 NUL 判二进制拒绝）
- * - audio：magic bytes（WAV RIFF-WAVE / MP3 ID3|帧同步），#608
- * - video：magic bytes（MP4 ISO-BMFF ftyp），#608
- * - document 的 PDF：magic bytes %PDF，#608
+ * - audio：magic bytes（WAV RIFF-WAVE / MP3 ID3|帧同步），
+ * - video：magic bytes（MP4 ISO-BMFF ftyp），
+ * - document 的 PDF：magic bytes %PDF，
  *
  * original_name 清洗：basename + 白名单字符集 [a-zA-Z0-9._-\u4e00-\u9fa5]，
  * 仅展示用，禁参与路径拼接（路径穿越防御）。
@@ -20,10 +20,10 @@ export const DOCUMENT_MIME_WHITELIST = new Set([
   "text/plain", "text/markdown", "text/csv", "application/json",
 ]);
 
-/** audio MIME 白名单（#608：微信语音 SILK→WAV 转码产物 + 通用 MP3） */
+/** audio MIME 白名单（微信语音 SILK→WAV 转码产物 + 通用 MP3） */
 export const AUDIO_MIME_WHITELIST = new Set(["audio/wav", "audio/mpeg"]);
 
-/** video MIME 白名单（#608：MP4 容器） */
+/** video MIME 白名单（MP4 容器） */
 export const VIDEO_MIME_WHITELIST = new Set(["video/mp4"]);
 
 /** document 扩展名白名单（与 MIME 白名单一一对应；PDF 走 magic bytes 不在此列） */
@@ -60,14 +60,14 @@ function isWebp(buf: Uint8Array): boolean {
     && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50;
 }
 
-/** WAV：RIFF 容器（RIFF....WAVE）——与 WebP 同为 RIFF，靠 8-11 字段子类型区分（#608） */
+/** WAV：RIFF 容器（RIFF....WAVE）——与 WebP 同为 RIFF，靠 8-11 字段子类型区分 */
 function isWav(buf: Uint8Array): boolean {
   return buf.length >= 12
     && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46
     && buf[8] === 0x57 && buf[9] === 0x41 && buf[10] === 0x56 && buf[11] === 0x45;
 }
 
-/** MP3：ID3v2 header ("ID3") or raw frame sync (FF Ex/Fx + version/layer not reserved) (#608) */
+/** MP3：ID3v2 header ("ID3") or raw frame sync (FF Ex/Fx + version/layer not reserved) */
 function isMp3(buf: Uint8Array): boolean {
   if (buf.length >= 3 && buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return true;
   // Frame sync 11 bit：byte1 全 1；byte2 高 3 位同步 + version(2bit) 非 reserved(0x08) + layer(2bit) 非 reserved(0x00)
@@ -75,13 +75,13 @@ function isMp3(buf: Uint8Array): boolean {
     && (buf[1] & 0x18) !== 0x08 && (buf[1] & 0x06) !== 0x00;
 }
 
-/** MP4：ISO-BMFF 容器（....ftyp）——4-7 字节 "ftyp"（涵盖 mp42/isom/3gp 等全部 brand）（#608） */
+/** MP4：ISO-BMFF 容器（....ftyp）——4-7 字节 "ftyp"（涵盖 mp42/isom/3gp 等全部 brand） */
 function isMp4(buf: Uint8Array): boolean {
   return buf.length >= 8
     && buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70;
 }
 
-/** PDF：%PDF（25 50 44 46）——落在 document kind（注入侧按二进制文档跳过提取）（#608） */
+/** PDF：%PDF（25 50 44 46）——落在 document kind（注入侧按二进制文档跳过提取） */
 function isPdf(buf: Uint8Array): boolean {
   return buf.length >= 4 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46;
 }
@@ -112,15 +112,15 @@ export function sniffType(head: Uint8Array, declaredName: string): DetectedType 
   if (isGif(head)) return { kind: "image", mimeType: "image/gif" };
   // RIFF 子类型：WebP 与 WAV 同容器（前 4 字节 52 49 46 46），靠 8-11 字节互斥区分
   // （WEBP=0x57454250 / WAVE=0x57415645）——新增 RIFF 格式（如 AVI）时注意与
-  // 下方 isWav 的插入位置与子类型注释保持同步，避免顺序依赖误判（检视建议 3）
+  // 下方 isWav 的插入位置与子类型注释保持同步，避免顺序依赖误判
   if (isWebp(head)) return { kind: "image", mimeType: "image/webp" };
 
-  // audio/video 路径：magic bytes（#608）
+  // audio/video 路径：magic bytes
   if (isWav(head)) return { kind: "audio", mimeType: "audio/wav" };
   if (isMp3(head)) return { kind: "audio", mimeType: "audio/mpeg" };
   if (isMp4(head)) return { kind: "video", mimeType: "video/mp4" };
 
-  // document 路径：PDF magic bytes 优先；纯文本类走扩展名白名单 + NUL 探嗅（#608）
+  // document 路径：PDF magic bytes 优先；纯文本类走扩展名白名单 + NUL 探嗅
   if (isPdf(head)) return { kind: "document", mimeType: "application/pdf" };
   if (!containsNul(head)) {
     const mime = documentMimeByExtension(declaredName);

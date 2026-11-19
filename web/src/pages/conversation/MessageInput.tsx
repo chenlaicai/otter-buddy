@@ -15,7 +15,7 @@ interface MessageInputProps {
   placeholder?: string
   otters: Otter[]
   conversationId: string | null
-  /** F20261016inbs：玻璃框固定高度（px）——由 ChatView 分割条状态驱动，与输入内容无关
+  /** 玻璃框固定高度（px）——由 ChatView 分割条状态驱动，与输入内容无关
    *  （搭档拍板：固定边界，绝不做输入内容驱动高度）。textarea 占满玻璃框内部滚动 */
   inputHeight: number
   /** 多模态 Phase 1：附件中转区状态与操作（提升到 ChatView 层以随发送流转） */
@@ -29,7 +29,7 @@ interface MessageInputProps {
 export function MessageInput({ onSend, disabled, placeholder = '输入消息... Enter 发送, @ 提及小獭', otters, conversationId, inputHeight, staged, onRemoveAttachment, onPickFiles, uploadError, onDismissUploadError }: MessageInputProps) {
   const { draft, saveDraft, clearDraft } = useDraftCache(conversationId)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
-  /** F20260916ment：弹层选中过的獭 ID（Slack 模式——选中即绑定身份，不再从文本反解析）。
+  /** 弹层选中过的獭 ID（Slack 模式——选中即绑定身份，不再从文本反解析）。
    *  文本被编辑导致 @名字 被删除时，发送前按残留文本自动清理。 */
   const [pickedMentions, setPickedMentions] = useState<Map<string, string>>(new Map())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -43,9 +43,9 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
   /** 附件携带时允许空文本发送（纯图/纯文件消息），与纯文本发送互斥条件分开判定 */
   const canSend = !disabled && (draft.trim().length > 0 || staged.some(s => !s.uploading))
 
-  /** F20261016inbs 输入框固定边界（搭档拍板：微信式固定隔离边界）：玻璃框高度由
+  /** 输入框固定边界（搭档拍板：微信式固定隔离边界）：玻璃框高度由
    *  inputHeight（分割条拖动状态）决定，与输入内容无关——内容超出时 textarea 内部滚动
-   *  （overflow-y-auto 独立滚动，消息框/输入框两框各自滚动）。旧方案（F20261015inpd 的
+   * （overflow-y-auto 独立滚动，消息框/输入框两框各自滚动）。旧方案（的
    *  field-sizing: content + min-h/max-h 自适应撑高）按搭档拍板废弃：越复杂越容易出错。 */
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -85,7 +85,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
   function handleSend(mode: 'steer' | 'followUp' = 'steer') {
     if (!canSend) return
 
-    // F20260916ment：弹层选中过的獭优先走显式 ID 通道（选中时身份已绑定，不再反解析）；
+    // 弹层选中过的獭优先走显式 ID 通道（选中时身份已绑定，不再反解析）；
     // @名字 已被删掉的选中项自动失效（防止幽灵目标）。
     const mentionIds: string[] = []
     for (const [name, id] of pickedMentions) {
@@ -104,7 +104,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     clearDraft()
     setMentionQuery(null)
     setPickedMentions(new Map())
-    // F20261015inpd：发送后不再重置 style.height（textarea 高度由 CSS 控制，无 JS 写入可重置）
+    // 发送后不再重置 style.height（textarea 高度由 CSS 控制，无 JS 写入可重置）
   }
 
   function insertMention(otter: Otter) {
@@ -157,7 +157,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
         {mentionQuery !== null && filteredOtters.length > 0 && (
           <div className="absolute bottom-16 left-1/2 -translate-x-1/2 glass-overlay rounded-2xl p-1 z-50 min-w-[180px]">
             {filteredOtters.map(o => {
-              // F20260921otcl：mention 候选自带身份（LocalOtter.type/color）
+              // mention 候选自带身份（LocalOtter.type/color）
               const { color } = resolveOtterVisual(o.id, { type: o.type, color: o.color })
               return (
                 <div
@@ -179,8 +179,8 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
         )}
 
         {/* 附件中转区：缩略图/文件卡 + 移除按钮；上传中半透明+loading 态 */}
-        {/* F20261016inbs：附件暂存行堆在玻璃框上方但在固定高容器外（覆盖层自然长高，
-            消息列表衬垫随 overlay 实高动态兜住，F20261015inpd §5 的溢出遮挡问题一并
+        {/* 附件暂存行堆在玻璃框上方但在固定高容器外（覆盖层自然长高，
+            消息列表衬垫随 overlay 实高动态兜住，§5 的溢出遮挡问题一并
             根治）；固定高容器内的玻璃框不受附件挤压，textarea 可用空间恒定 */}
         {(staged.length > 0 || uploadError) && (
           <div className="mb-2 flex flex-wrap gap-2 px-1">

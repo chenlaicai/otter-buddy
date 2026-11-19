@@ -21,14 +21,14 @@ describe("CommandDispatcher", () => {
       enterConversation: vi.fn().mockResolvedValue({ id: "session-1" }),
       getCurrentConversation: vi.fn().mockResolvedValue(null),
     } as any;
-    // F20260913ctlv 批4a：/history 数据源切 entries
+    // 批4a：/history 数据源切 entries
     entryRepo = {
       getEntries: vi.fn().mockResolvedValue([]),
     } as any;
     feishuGateway = {
       replyText: replyTextMock as any,
       replyMarkdown: vi.fn(),
-      replyImage: vi.fn(), // #902：媒体出站接口新增，命令链不用但接口必实现
+      replyImage: vi.fn(), // 媒体出站接口新增，命令链不用但接口必实现
     };
     logger = createTestLogger();
     dispatcher = new CommandDispatcher(manageConnection, entryRepo, feishuGateway, logger);

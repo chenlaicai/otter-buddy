@@ -1,7 +1,7 @@
 /**
- * #891：13 个裸 req.json() 端点 JSON null body 回归测试。
+ * 13 个裸 req.json() 端点 JSON null body 回归测试。
  *
- * 背景：#889 修复了 catch 模式三处，PR #890 审视全仓扫描发现另有 13 处
+ * 背景：修复了 catch 模式三处，审视全仓扫描发现另有 13 处
  * 裸 `c.req.json()` 无任何防御——body 为合法 JSON `null` 时解引用崩 500
  * 并回显 V8 内部错误文本。本文件对全部 13 个端点实测 `body: "null"` 不再 500。
  *
@@ -70,7 +70,7 @@ describe("#891: JSON null body 不崩 500（12 端点回归）", () => {
   } as const;
 
   it("POST /api/conversations（conversation-controller:53）", async () => {
-    // 对抗审视发现 2：mock usecase 会掩盖真实 NOT NULL 崩溃——走真实 sqlite 链路
+    // 对抗mock usecase 会掩盖真实 NOT NULL 崩溃——走真实 sqlite 链路
     const res = await createRealApp().request("/api/conversations", { method: "POST", ...nullBody });
     expect(res.status).toBe(400);
   });
@@ -81,7 +81,7 @@ describe("#891: JSON null body 不崩 500（12 端点回归）", () => {
   });
 
   it("POST /api/otters（otter-controller:53）", async () => {
-    // 对抗审视发现 1：同发现 2，mock 掩盖 NOT NULL 崩溃——走真实 sqlite 链路
+    // 对抗同发现 2，mock 掩盖 NOT NULL 崩溃——走真实 sqlite 链路
     const res = await createRealApp().request("/api/otters", { method: "POST", ...nullBody });
     expect(res.status).toBe(400);
   });
@@ -122,7 +122,7 @@ describe("#891: JSON null body 不崩 500（12 端点回归）", () => {
 
   it("POST /api/conversations/:id/scheduled-tasks（scheduled-task-controller:35）", async () => {
     const res = await app.request("/api/conversations/conv-1/scheduled-tasks", { method: "POST", ...nullBody });
-    // 已知走真实 validation 路径（空 input 缺 cron）→ 断言 400，防 mock 假绿（审视建议 1）
+    // 已知走真实 validation 路径（空 input 缺 cron）→ 断言 400，防 mock 假绿
     expect(res.status).toBe(400);
   });
 
@@ -131,7 +131,7 @@ describe("#891: JSON null body 不崩 500（12 端点回归）", () => {
     expect(res.status).not.toBe(500);
   });
 
-  // F20261023cnct（issue #1063）：POST /api/connections（create）用例随死端点下线删除
+  // POST /api/connections（create）用例随死端点下线删除
   it("POST /api/connections/:id/enter（connection-controller enterConversation）", async () => {
     const res = await createConnectionApp().request("/api/connections/conn-1/enter", { method: "POST", ...nullBody });
     // conn-1 不存在 → not_found → 404（先于 body 消费）
@@ -156,7 +156,7 @@ function createConnectionApp(): Hono {
 }
 
 /**
- * otter/conversation 两端点：mock usecase 会掩盖真实 NOT NULL 崩溃（对抗审视发现 1/2）——
+ * otter/conversation 两端点：mock usecase 会掩盖真实 NOT NULL 崩溃（对抗/2）——
  * 真实 sqlite repo + 真实 usecase + 真实 controller，仅 agent 层用 fakeAgentGateway seam。
  * settingsRepo 仅 read 路径使用，create null body 路径不触达，最小 stub。
  */
@@ -169,7 +169,7 @@ function createRealApp(): Hono {
   const logger = createTestLogger() as never;
   const createOtter = new CreateOtter(otterRepo, fakeAgentGateway(), logger);
   const manageConversation = new ManageConversation(convRepo, createOtter);
-  // F20260913ctlv 批4c：entryDeps 必注入（messages 降级路径已删）
+  // 批4c：entryDeps 必注入（messages 降级路径已删）
   const manageParticipant = new ManageParticipant(convRepo, otterRepo, {
     entryRepo: new SqliteEntryRepository(db),
     invokeRepo: new SqliteInvokeRepository(db),

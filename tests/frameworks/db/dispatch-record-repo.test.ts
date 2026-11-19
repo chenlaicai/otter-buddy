@@ -1,5 +1,5 @@
 /**
- * F20260912avlb：dispatch_records repo 行为测试。
+ * dispatch_records repo 行为测试。
  *
  * 覆盖：①生命周期三路径（created → dispatched → dissolved）
  *      ②markDispatched 批量语义（全部 created 刷 dispatched，已 dispatched 不重复刷新）

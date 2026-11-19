@@ -3,11 +3,11 @@ import type { InvokeEventDTO } from './invoke'
 export type { InvokeEventDTO } from './invoke'
 
 /**
- * F20260914rtsp：invoke_events 展示层折叠（存储不动，渲染前归并）。
- * F20261013csv3 T5：迁入 contract 层——前后端共用同一 fold 逻辑（后端批量投影 +
+ * invoke_events 展示层折叠（存储不动，渲染前归并）。
+ * T5：迁入 contract 层——前后端共用同一 fold 逻辑（后端批量投影 +
  * 前端 SessionModal 展开共用），消除双端漂移面。
  *
- * 配对策略（方案 D 节 + 检视发现 5）：严格顺序遍历 + 同名 FIFO 队列。
+ * 配对策略（方案 D 节 + ）：严格顺序遍历 + 同名 FIFO 队列。
  * Why FIFO 而非 Map 匹配：tool_result（tool_execution_end 落库）只有 name+result
  * 没有 arguments——无法用 name+arguments 配对；同工具连续调用时纯 name Map 匹配
  * 会把第一个结果配给第二个调用。顺序 FIFO 保证串行执行下配对正确。
@@ -21,7 +21,7 @@ export type { InvokeEventDTO } from './invoke'
  * 6. error 直通
  * 7. 孤儿容错：result 无 start → 独立 call 步；start 无 result（running/中断）→ 待定态 call 步
  *
- * speak 吸收（F20260914evdz）：speak 工具的 tool_execution_end 被 event-mapping 特判
+ * speak 吸收：speak 工具的 tool_execution_end 被 event-mapping 特判
  * 落库为 speak 事件（payload.body）而非 tool_result——start 步永无配对结果。若不吸收，
  * 一次发言渲染两条：假「执行中」speak 工具行 + 发言行，内容 100% 重复。吸收 = 移除
  * 假工具行、发言步 rawEventIds 合并溯源（点开仍可看原始分列）。
@@ -35,7 +35,7 @@ export type FoldedStep =
   | { kind: 'think'; text: string; ts: string; rawEventIds: string[] }
   | { kind: 'speak'; body: string; ts: string; rawEventIds: string[] }
   | { kind: 'error'; message: string; ts: string; rawEventIds: string[] }
-  /** F20260918sesp：user 侧注入步（message_start role=user 落库）——触发 prompt / steer / followUp 消费点 */
+  /** user 侧注入步（message_start role=user 落库）——触发 prompt / steer / followUp 消费点 */
   | { kind: 'user'; text: string; ts: string; rawEventIds: string[] }
 
 /** 判定 assistant_toolcall 事件是否 message_end 快照（无执行语义）。
@@ -60,7 +60,7 @@ export function foldInvokeEvents(events: InvokeEventDTO[], opts?: { invokeEnded?
 
   for (const ev of events) {
     switch (ev.eventType) {
-      /** F20260918sesp：user 侧注入直通成步（无配对语义） */
+      /** user 侧注入直通成步（无配对语义） */
       case 'user_injection': {
         const p = ev.payload ?? {}
         steps.push({ kind: 'user', text: String(p.content ?? ''), ts: ev.createdAt, rawEventIds: [ev.id] })

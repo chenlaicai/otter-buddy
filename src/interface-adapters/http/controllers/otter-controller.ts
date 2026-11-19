@@ -28,10 +28,10 @@ export class OtterController {
     private readonly configProvider?: OtterConfigProvider,
     /** 可选：profile 聚合端点（PR-2） */
     private readonly queryOtterProfile?: QueryOtterProfile,
-    /** F20260827ucrt：可选——UI 入口 modelAlias 校验（settings-controller hasModel 同层先例）。
+    /** 可选——UI 入口 modelAlias 校验（settings-controller hasModel 同层先例）。
      *  可选注入保持测试兼容；大獭工具链不走此 controller，不受影响 */
     private readonly modelPool?: ModelPoolLike,
-    /** F20260920uhuc：可选——手动重启走统一交接管线（叠加档案 + 忙碌拒绝）
+    /** 可选——手动重启走统一交接管线（叠加档案 + 忙碌拒绝）
      *  未注入时降级为原语义（直透 restartSession，测试/旧装配兼容） */
     private readonly agentInvoker?: Pick<AgentInvoker, "restartWithUnifiedHandoff">,
   ) {}
@@ -44,7 +44,7 @@ export class OtterController {
         return c.json({ error: "Otter not found" }, 404);
       }
       const config = this.configProvider?.getConfig(id);
-      // F20260908efmd: 有效模型解析 + isDefault 标注
+      // 有效模型解析 + isDefault 标注
       const modelAlias = config?.modelAlias;
       const modelIsDefault = config ? !config.modelAlias : undefined;
       return c.json(toOtterDTO(otter, modelAlias, modelIsDefault));
@@ -57,7 +57,7 @@ export class OtterController {
     try {
       const body = await safeJsonBody<CreateOtterRequestDTO>(c);
 
-      /** F20260827ucrt T1：UI 入口 modelAlias 校验（400 附可用列表，措辞与大獭工具链 tool-factory 一致）。
+      /** T1：UI 入口 modelAlias 校验（400 附可用列表，措辞与大獭工具链 tool-factory 一致）。
        *  未注入 modelPool 时跳过校验（测试/降级场景），usecase 层缺省走默认模型 */
       if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
         const available = this.modelPool.describeModels().map(m => m.alias).join(", ");

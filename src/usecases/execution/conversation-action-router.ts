@@ -8,7 +8,7 @@ import type {
 } from "@usecases/ports/execution-machine";
 
 /**
- * F20261118crtgr（#1868 阶段 5 PR-A）：对话级执行机路由——workspace 六动作工具
+ * （阶段 5 PR-A）：对话级执行机路由——workspace 六动作工具
  * 按对话当前执行机下发。
  *
  * 路由序（方案 stage5 §2.2）：显式 targetOverride 优先 → 对话 current_machine_id

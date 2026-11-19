@@ -1,5 +1,5 @@
 /**
- * 文档状态值域契约（Issue #646，合议定稿 review-lunheng.md §二 / 大獭三项拍板）。
+ * 文档状态值域契约（合议定稿 review-lunheng.md §二 / 大獭三项拍板）。
  *
  * 背景：docs/features 的 status 实查值域无权威 schema（8 种已知值 + 行内注释变体 +
  * review/reviewed 等零星值），chain-builder 白名单、classifyDocOnly、feature-doc-collector
@@ -10,7 +10,7 @@
  * 2. 已知终态值（TERMINAL）：视为稳定，豁免病态判定
  * 3. 未知值一律不碰（UNKNOWN）：状态机/推进器/回填跳过并留痕，防覆盖手工语义
  *
- * locked/final 是否终态的定案（#646 实现时裁定，理由见特性文档）：
+ * locked/final 是否终态的定案（实现时裁定，理由见特性文档）：
  * - locked：实查 37 篇全部是 2026-07-08~07-20 初创期设计文档（data-model/infra/domain
  *   设计稿），此后 40+ 天零新增——语义冻结在「设计定稿」，按终态处理
  * - final：语义自明（最终态），终态
@@ -47,7 +47,7 @@ export const TERMINAL_DOC_STATUSES: ReadonlySet<string> = new Set([
 /** 状态归属判定结果 */
 export type DocStatusClass = "in-flight" | "terminal" | "unknown";
 
-/** 子状态值（#646 段2）：implemented 下的「迭代中」标记。
+/** 子状态值（段2）：implemented 下的「迭代中」标记。
  *  语义：implemented 文档合入后又收到新 commit（分批合入大特性的 PR1 后 PR2 等待期）——
  *  参与病态判定（照常停滞判定），区别于纯 implemented 的豁免。
  *  序列化采用独立 frontmatter 字段 `substatus: active`，而非 issue 记号 `implemented:active` 字面值——
@@ -70,7 +70,7 @@ export function classifyDocStatus(status: string | null | undefined): DocStatusC
 }
 
 /**
- * 带子状态的归属判定（#646 段2）：
+ * 带子状态的归属判定（段2）：
  * - 基础归属非 terminal（in-flight/unknown）→ 原样返回（子状态无意义，不猜语义）
  * - 终态中仅 implemented 定义子状态语义（final/locked/archived = 真终态，子状态忽略）
  * - implemented ∧ substatus=active → 迭代中，视同在途参与病态判定

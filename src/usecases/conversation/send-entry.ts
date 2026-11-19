@@ -1,5 +1,5 @@
 /**
- * SendEntry - 条目发送与 invoke 生命周期管理（F20260913ctlv 彻底切换）
+ * SendEntry - 条目发送与 invoke 生命周期管理（彻底切换）
  *
  * 切换后唯一时间线真相源：
  * - entries 表 = 时间线唯一数据源（user/speak/system/invoke_start/invoke_end/yield）
@@ -44,9 +44,9 @@ export interface SendUserEntryInput {
   source?: EntrySource;
   metadata?: EntryMetadata | null;
   attachmentIds?: string[];
-  /** F20260826fuid：飞书群聊多人识别的发送者显示名快照（存 metadata.senderDisplayName） */
+  /** 飞书群聊多人识别的发送者显示名快照（存 metadata.senderDisplayName） */
   senderDisplayName?: string | null;
-  /** F20260913ctlv：注入方式（目标 running 时）——落 metadata.injectionMode，
+  /** 注入方式（目标 running 时）——落 metadata.injectionMode，
    *  signal-router running 分支消费（steer=打断默认/followUp=排队） */
   injectionMode?: "steer" | "followUp";
 }
@@ -56,7 +56,7 @@ export interface CreateInvokeInput {
   conversationId: string;
   otterId: string;
   triggerEntryId?: string;
-  /** F20261027hwl1：创建即携带的 metadata（traceId/trigger 证据——工作账本归属的数据底座）。
+  /** 创建即携带的 metadata（traceId/trigger 证据——工作账本归属的数据底座）。
    *  可选：旧调用点不传时行为不变（metadata=null，与现状等价）。 */
   metadata?: Record<string, unknown> | null;
 }
@@ -64,11 +64,11 @@ export interface CreateInvokeInput {
 /** 创建 speak 条目输入 */
 export interface CreateSpeakEntryInput {
   conversationId: string;
-  /** 可缺省（F20261015mjsg D2：牌局托管应答等无 invoke 场景——落 null，FK 约束由 ?? null 守住） */
+  /** 可缺省（D2：牌局托管应答等无 invoke 场景——落 null，FK 约束由 ?? null 守住） */
   invokeId?: string;
   otterId: string;
   body: string;
-  /** F20260916hcel：可选元数据（如 cardSchemaVersion） */
+  /** 可选元数据（如 cardSchemaVersion） */
   metadata?: Record<string, unknown>;
 }
 
@@ -94,7 +94,7 @@ export interface CreateInvokeEndEntryInput {
 export interface CreateSystemEntryInput {
   conversationId: string;
   body: string;
-  /** F20260913ctlv 收尾批2：scheduler 内部信号——yieldTargets 即信号目标（原 messages.talkingStonePassedTo）。
+  /** 收尾批2：scheduler 内部信号——yieldTargets 即信号目标（原 messages.talkingStonePassedTo）。
    *  仅 scheduler 生产者使用；无目标的居中系统条目不传 */
   yieldTargets?: string[];
   senderName?: string;
@@ -124,13 +124,13 @@ export class SendEntry {
     private readonly invokeRepo: InvokeRepository,
     private readonly otterRepo: OtterRepository,
     private readonly conversationRepo: ConversationRepository,
-    /** F20260913ctlv 彻底切换：logger + 目标解析依赖（未注入 resolveDeps 时 sendUserEntry
+    /** 彻底切换：logger + 目标解析依赖（未注入 resolveDeps 时 sendUserEntry
      *  不解析目标，由入口预解析；logger 独立成字段以保持构造 ≤5 参）
-     *  #1191（F20260928rmix）：memoryIndex —— #886 删旧 SendMessage 时三处 indexMessage
+     * ：memoryIndex —— 删旧 SendMessage 时三处 indexMessage
      *  调用随消息体消失，9/13 后对话正文不再入记忆（search_memory 失明 15 天）。
      *  此处接回：user/speak 落库后非阻断索引（语义对齐旧 SendMessage：
      *  user 侧 buildIndexBody 含附件投影，speak/abort 侧剥 html-card 围栏）
-     *  F20261013csv3 T1：unfurlPrefetch（可选）——裸 URL 独占行 → 后台抓取落库。
+     * T1：unfurlPrefetch（可选）——裸 URL 独占行 → 后台抓取落库。
      *  非阻断语义：sendUserEntry/createSpeakEntry 落库后同步触发，失败仅 warn。 */
     private readonly aux: {
       logger: Logger;
@@ -148,8 +148,8 @@ export class SendEntry {
   private readonly memoryIndex?: MemoryIndexGateway;
   private readonly unfurlPrefetch?: (urls: string[]) => void;
 
-  /** #1191：索引消息正文到记忆系统（非阻断——失败仅 warn，文字优先送达）。
-   *  sourceId = entry.id（#942 ID 统一后投影主键即源 id，幂等对齐） */
+  /** 索引消息正文到记忆系统（非阻断——失败仅 warn，文字优先送达）。
+   * sourceId = entry.id（ID 统一后投影主键即源 id，幂等对齐） */
   private async indexEntryBody(entryId: string, conversationId: string, body: string): Promise<void> {
     if (!this.memoryIndex) return;
     try {
@@ -182,11 +182,11 @@ export class SendEntry {
       senderId: input.senderId,
       body: input.body,
       invokeId: null,
-      /** F20260913ctlv 补漏：user entry 的发言石目标 = 点火依据（信号路由读此字段） */
+      /** 补漏：user entry 的发言石目标 = 点火依据（信号路由读此字段） */
       yieldTargets: talkingStonePassedTo,
       status: "completed",
       source: input.source ?? "web",
-      // F20260913ctlv：注入方式落 metadata（与 senderDisplayName 合并——两者可同时存在）
+      // 注入方式落 metadata（与 senderDisplayName 合并——两者可同时存在）
       metadata: this.buildUserEntryMetadata(input),
       senderName: input.senderDisplayName?.trim() ?? "",
       contextTokens: null,
@@ -197,11 +197,11 @@ export class SendEntry {
 
     const created = await this.entryRepo.createEntryAtomic(entry);
 
-    // F20260913ctlv 终审修复：附件绑定下沉 usecases（三入口统一——此前仅 Web 路径
+    // 终审修复：附件绑定下沉 usecases（三入口统一——此前仅 Web 路径
     // 由 controller 手动 attach，IM 路径 attachmentIds 传入但从未消费，附件悬空）。
     // attach 后重查，返回的 entry 带 attachments 投影（SSE 载荷数据源）。
     // delta 回修（大獭裁决）：非阻断语义——attach 失败不阻断发送（原 controller
-    // 语义，F20260826fsyc）：entry 已落库，抛错 = 幽灵消息（500+刷新复活+不点火）；
+    // 语义，）：entry 已落库，抛错 = 幽灵消息（500+刷新复活+不点火）；
     // 文字消息优先送达，附件投影为空由前端 tmp 保留逻辑兑底（本地预览）
     let result: Entry = created;
     if (input.attachmentIds && input.attachmentIds.length > 0) {
@@ -217,7 +217,7 @@ export class SendEntry {
       }
     }
 
-    // F20261013csv3 T1：预抓取钩子（非阻断——发送路径不等待网络）。URL 扫描规则
+    // T1：预抓取钩子（非阻断——发送路径不等待网络）。URL 扫描规则
     // 与前端 bare-url 插件同一口径：行内（含行首）裸 http/https URL，独占一段
     // （```html-card 围栏体内的链接由卡片自身渲染，不算裸链不触发预抓取）。
     if (input.source !== 'external') this.triggerUnfurlPrefetch(input.body);
@@ -230,7 +230,7 @@ export class SendEntry {
       talkingStonePassedTo,
     });
 
-    // #1191（F20260928rmix）：索引 user 正文到记忆（旧 SendMessage buildIndexBody 同构：
+    // 索引 user 正文到记忆（旧 SendMessage buildIndexBody 同构：
     // 剥 html-card 围栏 + 附件占位投影行；非阻断）。投影基于发送意图
     // （input.attachmentIds）而非 attach 结果——attach 失败仅影响展示，索引面
     // 与旧口径一致描述用户发送了什么（旧路径 input.attachmentRefs 同语义）
@@ -240,7 +240,7 @@ export class SendEntry {
     return { entry: result, talkingStonePassedTo, mentionFeedback };
   }
 
-  /** F20261013csv3 T1：预抓取触发——裸 URL 扫描（纯函数）+ 非阻断分发。
+  /** T1：预抓取触发——裸 URL 扫描（纯函数）+ 非阻断分发。
    *  扫描口径与前端 bare-url 插件一致：行内（含行首）http/https URL 独占一段才算裸链
    *  （围栏体内的链接由卡片自身渲染）。异常仅 warn——预抓取永不阻断发送路径。 */
   private triggerUnfurlPrefetch(body: string): void {

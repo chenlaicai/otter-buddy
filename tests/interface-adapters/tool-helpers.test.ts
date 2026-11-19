@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { truncateToolResult, textResponse, MAX_TOOL_RESULT_CHARS } from "@usecases/ports/agent-tools";
 import { validateSpeakBody, hasCardFences, extractPlayableCardSummary, stripToolCallSerializationLeak } from "../../src/interface-adapters/agent-runtime/tools/tool-helpers";
 
-/** F20260915hcel：validateSpeakBody 新校验逻辑测试 */
+/** validateSpeakBody 新校验逻辑测试 */
 describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
   it("空 body 被拒绝", () => {
     expect(validateSpeakBody(undefined, "")).toContain("body 不能为空");

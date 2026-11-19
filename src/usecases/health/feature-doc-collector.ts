@@ -11,17 +11,17 @@ import { parseFrontmatterFromContent } from "@usecases/document/frontmatter-pars
 import { validateFeatureFrontmatter } from "@entities/document/frontmatter-validator";
 
 export interface CollectedFeatureDoc {
-  /** F 文档 ID（如 F20260824rhib） */
+  /** F 文档 ID（如 ） */
   id: string;
   /** 文档标题 */
   title: string;
   /** 变更类型 */
   changeType: string | null;
-  /** 文档状态。#646 值域契约：语义分组（在途/终态/未知）消费方统一用
+  /** 文档状态。值域契约：语义分组（在途/终态/未知）消费方统一用
    *  @entities/document/doc-status 的 classifyDocStatus，勿在各消费点自行 has 判断。
    *  本字段保留原始值（含行内注释已被 yaml 解析器剥离后的裸值），不做归一改写。 */
   status: string | null;
-  /** 子状态（#646 段2）：目前仅 implemented: active（合入后又有新 commit = 迭代中，参与病态判定）。
+  /** 子状态（段2）：目前仅 implemented: active（合入后又有新 commit = 迭代中，参与病态判定）。
    *  可选字段（undefined = 无子状态）——新增概念不破坏存量构造点。
  *  独立字段而非复合字面值（implemented:active 会炸 known-values 枚举）。 */
   substatus?: string | null;

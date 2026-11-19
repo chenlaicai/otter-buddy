@@ -1,10 +1,10 @@
 /**
- * ChainBuilder: 特性链构建器（Issue #398）
+ * ChainBuilder: 特性链构建器
  *
  * 从 commit 解析结果 + F 文档构建 FeatureChain（不依赖 frontmatter from 字段——
  * 存量覆盖率仅 3.3%，冷启动策略：以 commit 中的 FID 为主数据源）。
  *
- * F20260902sigm 链路信号模型重构（docStatus 退役）：
+ * 链路信号模型重构（docStatus 退役）：
  * - 判据 100% 来自 git/PR 事实，零字段消费（feature 文档 status 不再参与判定）
  * - state 四值：active / stalled（=pr-stalled 投影）/ regressed / orphan
  * - zombie 删除（链是开放结构，不预言未来）；doc-only 判死删除（零 commit 是常态）
@@ -50,7 +50,7 @@ export interface FeatureChain {
     message: string;
     changeType: string | null;
     filesChanged: string[];
-    /** PR 号（commit 尾部 (#N) 解析；无则 null）。#646 推进器高置信归档判定用 */
+    /** PR 号（commit 尾部  解析；无则 null）。推进器高置信归档判定用 */
     prNumber: number | null;
   }>;
   /** 首次出现（链上最早 commit 日期），orphan 链可能无文档 createdAt */
@@ -92,9 +92,9 @@ export interface ChainCommitInput {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** 默认 pr-stalled 判定阈值（天）。Issue #636 B4 语义延续：展示层文案引用同一真相源，防两处漂移。
- *  F20260902sigm：语义从「commit 停滞 14 天」改为「open PR 无推进 7 天」——open PR 是显式
- *  开放的工作，7 天零 review 零 commit 即值得提醒（方案 R7，options 可配） */
+/** 默认 pr-stalled 判定阈值（天）。B4 语义延续：展示层文案引用同一真相源，防两处漂移。
+ * 语义从「commit 停滞 14 天」改为「open PR 无推进 7 天」——open PR 是显式
+ * 开放的工作，7 天零 review 零 commit 即值得提醒（方案 options 可配） */
 export const DEFAULT_STALLED_PR_DAYS = 7;
 
 /**
@@ -203,7 +203,7 @@ function deriveChainStats(chains: Map<string, FeatureChain>, ctx: ChainCtx): voi
   }
 }
 
-/** Pass 3：只有文档没有 commit 的 FID 也建链（doc-only 链）——稳定，无信号（F20260902sigm R6） */
+/** Pass 3：只有文档没有 commit 的 FID 也建链（doc-only 链）——稳定，无信号（） */
 function appendDocOnlyChains(
   chains: Map<string, FeatureChain>,
   docs: CollectedFeatureDoc[],

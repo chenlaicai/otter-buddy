@@ -4,7 +4,7 @@ import { initSchema } from "@frameworks/db/schema";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 import type { Conversation } from "@entities/conversation/conversation";
 
-/** #1391：conversation 仓 updateStatus（archived 分支）对不存在 ID fail-closed（#1370 族模式收尾） */
+/** conversation 仓 updateStatus（archived 分支）对不存在 ID fail-closed（族模式收尾） */
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");

@@ -1,9 +1,9 @@
 /**
- * #927：halt 生命周期加固 + 信号老化扫描单测。
+ * halt 生命周期加固 + 信号老化扫描单测。
  *
  * 覆盖：
  * - haltRegistry 生命周期语义：endInvoke 清 pending（跨世代残留修复）、clear 解除
- * - halt_otter 工具：活跃性检查（#927 架构裁决——不在执行中则拒绝打标，根治孤儿指令）
+ * - halt_otter 工具：活跃性检查（架构裁决——不在执行中则拒绝打标，根治孤儿指令）
  * - unhalt_otter 工具：解除打标 + pending 落账 dismissed、reason 必填、目标解析
  * - SignalAgingWorker：pending >24h 落 medium healing、halt 类型不扫、已告警去重、repos 未注入静默跳过
  */

@@ -31,16 +31,16 @@ import { runRestartService } from "@frameworks/agent/restart-service-executor";
 import { getTraceContext } from "@usecases/ports/trace-context";
 import { findKillSegments } from "@frameworks/agent/kill-segment-finder";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
-// R20260817arnt PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
+// PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
 import type { AgentTool, ToolContext, ToolModelPool, ToolResponse } from "@usecases/ports/agent-tools";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
-// R20260817arnt PR-B：领域规则下沉到 usecases 层
+// PR-B：领域规则下沉到 usecases 层
 import { validateAndResolve } from "@usecases/conversation/talking-stone";
 
 
  
-/** F20261113hlprm + F20261113sgnpr：healing/signal 结构化参数统一「先全 parse、全合法才落账」。
+/** + healing/signal 结构化参数统一「先全 parse、全合法才落账」。
  *  任一非法返回 error（调用方原子阻断：不建 entry、不落账）；全合法则各自 fire-and-forget 落账后返回 null。
  *  分两步是为了跨参数原子性：避免「healing 已落账、signal 非法阻断发言」的部分落账。 */
 function validateAndPersistSpeakParams(
@@ -61,7 +61,7 @@ function validateAndPersistSpeakParams(
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "speak",
-    // F20260825hcpg 判断标准归位（原设计 F20260728htar L81，在 description 压缩中失传）。
+    // 判断标准归位（原设计 L81，在 description 压缩中失传）。
     // 勿再移出：行为触发类引导必须在工具 description（每请求随 tools 参数注入，pi-ai
     // anthropic-messages.js convertTools），references 指针对「要不要用」的决策无效。
     description: "发言工具——你在聊天室里唯一的发言通道：普通文本输出其他人不可见，只有 speak(body) 的内容会被所有人看到；进展/结论/提问/汇报一律 speak. 纯内容输出不移交行动权，调用后 agent loop 继续，可连续多次 speak（body 按顺序拼接）. TIP: 形态选择（六形态平权，什么场景选什么形态）——短问答/代码片段/简单列表等纯对话用 md 言语直答；方案对比/设计思路/排查结论/结构化数据正文先写 1-2 句结论、html-card 卡片放详情（每条都出卡等于没出卡）；可交互演示/游戏/小工具用 html-card-play 围栏（默认展开运行，自动登记产物）；外部链接/PR 呈递把 URL 裸写独占一段（勿 [label](url)、勿句中夹带——独占一段才自动 unfurl 预览卡；编排者动作）；PR/文档/报告等产物用 create_linked_resource 登记（摘要卡自动混排进时间轴）；图类暂无我方发图通道（lightbox 只管消息附件）；形态选对 ≠ 内容讲清——内容纪律仍由 SYSTEM.md 兑住. GOTCHA: speak≠交棒——说完还需 yield 回合才结束；HTML 卡片（```html-card 围栏）必须完整写在 body 内（写在外面系统会拒绝并指导重试），一条消息最多 2 张、单卡体积限制等具体数值以 get_html_card_contract 返回的契约为准；写卡前必调该工具. 议题汇报卡（L2 拍板）用 importance=\"high\" 默认展开——写进 meta 属性（如 ```html-card title=\"议题\" importance=\"high\"），不豁免单消息卡片预算；折叠态摘要行取卡内首个有效文本行（≤120 字符），关键结论放可见文本靠前位置. 搭档回复中的 ```html-card-reply 围栏是卡片回执（内嵌 JSON 可解析）. 系统自愈：遇系统问题（工具故障/检索缺失/格式异常/工具难用等）用 healing 参数上报——数组，每条 {type, severity, description, suggestion}；type 选 tool_failure/missing_context/wrong_tool/format_violation/knowledge_gap/performance/other/tool_use_feedback/runtime_status_mismatch，severity 缺省 low。禁止在 body 文本里写 <healing> 标签——body 原样展示给搭档，不再解析剥离。工具难用报 type=tool_use_feedback，description 以 [tool:工具名] 开头写清痛点与建议；该报的时机：调用失败且自行绕路解决/同一意图连试多个工具/参数语义反直觉/疑似与相邻工具职责重叠. 獭间信号：对派工的事实性异议/卡住升级用 signal 参数上报（objection/blocked，每条 {type, severity, payload}）；禁止在 body 文本写 <signal> 标签——body 原样展示，不再解析剥离；halt 只能大獭经 halt_otter 工具发出。",
@@ -79,11 +79,11 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (!ctx.currentInvokeId) return errorResponse("[错误] 系统错误：当前 invoke ID 未设置，无法发言。");
 
       const rawBody = params.body as string;
-      // F20261113hlprm + F20261113sgnpr：healing 与 signal 均走 speak 独立参数（结构化字段），
+      // + healing 与 signal 均走 speak 独立参数（结构化字段），
       // 不再从 body 文本解析/剥离标签；先全 parse、全合法才落账（跨参数原子性）。
       const paramError = validateAndPersistSpeakParams(params, ctx, healingRepo, logger);
       if (paramError) return errorResponse(paramError);
-      // F20261118dsmlk（#1916）：剥离 body 末尾混入的工具调用序列化泄漏（模型在
+      // 剥离 body 末尾混入的工具调用序列化泄漏（模型在
       // 「speak 后紧跟 yield」时把第二个调用写进本参数）。剥离而非拒绝——正文已完整，
       // 截断保留正文即可正常落账，避免模型重试死循环。
       const { body: cleanBody, leaked } = stripToolCallSerializationLeak(rawBody);
@@ -735,7 +735,7 @@ async function probeUntil(
 /** gh pr checks 失败表格行首 bucket 枚举（gh 2.89 help：pass/fail/pending/skipping/cancel）。 */
 const GH_PR_CHECKS_BUCKETS = ["pass", "fail", "pending", "skipping", "cancel"] as const;
 
-/** #1623 v3（Review-1640 delta）：gh pr checks 探活的终态失败判定。
+/** v3（Review-1640 delta）：gh pr checks 探活的终态失败判定。
  *  退出码不可用：exit 1 同时覆盖业务失败、transport 错误、NONE、GraphQL 错误。
  *  stderr 分类：gh 业务输出（含失败表格）只写 stdout 且 stderr 为空；
  *  transport/NONE/GraphQL 错误全在 stderr。argv 必须2是 `pr checks` 子命令；
@@ -745,7 +745,7 @@ function isGhPrChecksTerminalFailure(untilArgv: string[], probe: { exitCode?: nu
   if (untilArgv[0] !== "gh" || untilArgv[1] !== "pr" || untilArgv[2] !== "checks") return false;
   if (probe.exitCode !== 1) return false;
   if ((probe.stderr ?? "") !== "") return false;
-  // gh pr checks 表格列序：name<TAB>bucket<TAB>duration<TAB>url（实测 #1639/#1640：
+  // gh pr checks 表格列序：name<TAB>bucket<TAB>duration<TAB>url（实测 /
   // "check\tfail\t9s\thttps://…"）——bucket 在第 2 个 TAB 列，check 名可含空格。
   const lines = (probe.stdout ?? "").split("\n");
   return lines.some((line) => {
@@ -754,7 +754,7 @@ function isGhPrChecksTerminalFailure(untilArgv: string[], probe: { exitCode?: nu
   });
 }
 
-/** F20261022wtpr：立即探测，未就绪时在 seconds 总预算内重试。
+/** 立即探测，未就绪时在 seconds 总预算内重试。
  *  不引入 shell；signal 同时终止子进程和探测间隔，wait 返回后不留轮询。 */
 async function runUntilPolling(
   untilArgv: string[],
@@ -812,7 +812,7 @@ function validateUntil(
   until: string | undefined,
 ): { error: ToolResponse } | { untilArgv: string[] } {
   if (until === undefined || until.trim() === "") return { untilArgv: [] };
-  // N1（delta 复核硬化）：until 通道 kill 族词样一律拒——until 的合法形态是状态查询
+  // （delta 复核硬化）：until 通道 kill 族词样一律拒——until 的合法形态是状态查询
   // 类命令（gh pr checks 等），零合法 kill 形态。
   if (findKillSegments(until).length > 0) {
     return { error: errorResponse("[错误] until 苏醒检查不支持进程终止类命令（kill/pkill/killall 等）——until 只用于状态查询（如 gh pr checks）。确需终止进程的报告搭档处置。") };

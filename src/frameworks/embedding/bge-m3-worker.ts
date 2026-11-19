@@ -1,13 +1,13 @@
 /**
  * bge-m3 Embedding Worker（child_process.fork 子进程）。
  *
- * F20261015kill：从 worker_threads 迁到 child_process——
+ * 从 worker_threads 迁到 child_process——
  * worker.terminate() 拆 isolate 时 onnxruntime N-API 回调抛 Napi::Error
  * 会 std::terminate 打死整个主进程（2026-10-15 21:22 实锤，.ips 栈
  * InferenceSessionWrap::InstanceMethodCallbackWrapper → abort）。
  * 子进程 SIGKILL 不跑析构/N-API teardown，原生死在子进程里主进程无感。
  *
- * 通信协议（F20260811mrpy Part 3：ready 携带 meta）：
+ * 通信协议（Part 3：ready 携带 meta）：
  * 父进程 -> Worker: { type: 'embed', text: string, id: number }
  *          { type: 'embed-batch', texts: string[], id: number }
  * Worker -> 父进程:
@@ -30,26 +30,26 @@ interface EmbedRequest {
   id: number;
 }
 
-/** F20261013ebps：批量 embed 请求 */
+/** 批量 embed 请求 */
 interface EmbedBatchRequest {
   type: "embed-batch";
   texts: string[];
   id: number;
 }
 
-/** F20260811mrpy Part 3：ready 携带的模型元信息 */
+/** Part 3：ready 携带的模型元信息 */
 interface EmbedModelMeta {
   modelId: string;
   modelRev: string;
   dim: number;
 }
 
-// F20261026emct：本地 EmbedResponse 类型已随 post() 迁至 embedding-worker-ipc.ts
+// 本地 EmbedResponse 类型已随 post() 迁至 embedding-worker-ipc.ts
 // （其内部经 embedding-protocol 导入同一形状）
 
 type Extractor = (text: string | string[], options?: unknown) => Promise<{ data: Float32Array; dims: number[] }>;
 
-/** F20261015kill：父进程 fork 时用 env 传配置（fork 无 workerData） */
+/** 父进程 fork 时用 env 传配置（fork 无 workerData） */
 function readWorkerConfig(): WorkerConfig {
   const raw = process.env.OTTER_EMBED_WORKER_CONFIG;
   if (!raw) return {};
@@ -61,7 +61,7 @@ function readWorkerConfig(): WorkerConfig {
 }
 
 /**
- * 解析 OTTER_EMBED_INTRA_OP_THREADS（#1107 检视处置）：非法值（NaN/<1）不可静默
+ * 解析 OTTER_EMBED_INTRA_OP_THREADS（检视处置）：非法值（NaN/<1）不可静默
  * 回退到 onnxruntime 默认（=物理核数，钳制失效不可见）——warn 后回落到 2。
  */
 function resolveIntraOpThreads(): number {
@@ -100,7 +100,7 @@ function getExtractor(): Promise<Extractor> {
 
       const pipe = await pipeline("feature-extraction", settings.modelId, {
         dtype: cfg.dtype ?? "fp32",
-        // #1107: 钳制 onnxruntime intra-op 线程数。默认 = 物理核数，单条 embed 期间
+        // 钳制 onnxruntime intra-op 线程数。默认 = 物理核数，单条 embed 期间
         // 线程池忙等自旋（SpinPause 不放核）把进程 CPU 打到 ~9 核，挤压主事件循环。
         // embedding 是 worker 内串行队列处理，intra-op 2 线程足够（实测延迟仅微增）；
         // OTTER_EMBED_INTRA_OP_THREADS 可覆盖（紧急调参逃生口，不进配置 schema）。
@@ -118,7 +118,7 @@ function getExtractor(): Promise<Extractor> {
   return extractorPromise;
 }
 
-// 预加载模型 + dummy embed 拿 dims（F20260811mrpy Part 3）
+// 预加载模型 + dummy embed 拿 dims（Part 3）
 getExtractor()
   .then(async (fn) => {
     // dummy embed 拿实际维度（transformers.js pipeline 无公开 .config.dim）
@@ -140,7 +140,7 @@ getExtractor()
   });
 
 /**
- * F20261020slvg：显式串行队列——promise chain 保证同一时刻最多一个推理在途。
+ * 显式串行队列——promise chain 保证同一时刻最多一个推理在途。
  * 现状 onnxruntime-node 的 session.run 原生同步阻塞，事件循环停摆期间后续消息
  * 排队，「偶然串行」；显式 chain 把这一不变量写进代码——未来换异步 backend /
  * IOBinding / 改回 worker_threads 时不依赖偶然性（onnxruntime 1.23.2 长文本 ×
@@ -200,7 +200,7 @@ async function handleInferenceMessage(msg: EmbedRequest | EmbedBatchRequest): Pr
 }
 
 process.on("message", (msg: EmbedRequest | EmbedBatchRequest) => {
-  // F20261020slvg：吞错保险丝——handle 内部已逐分支 try/catch，此处防御性
+  // 吞错保险丝——handle 内部已逐分支 try/catch，此处防御性
   // 保证 chain 永不断裂（断裂会静默停摆整个 worker）
   inferenceChain = inferenceChain
     .then(() => handleInferenceMessage(msg))

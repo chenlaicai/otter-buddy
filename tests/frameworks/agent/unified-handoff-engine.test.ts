@@ -1,9 +1,9 @@
 /**
- * F20260920uhuc：统一引擎 + jsonl 切片器 + 锁交接模式单元测试。
+ * 统一引擎 + jsonl 切片器 + 锁交接模式单元测试。
  *
  * 覆盖：
  * - narrative-synthesis-engine：prompt 组装（三源原料 + selfSummary 独立层）+ 档案结构（V2 golden）
- * - session-slicer：最近 4 条 speak 切片（F20260929kws1：token 预算/turn 切片退役）
+ * - session-slicer：最近 4 条 speak 切片（token 预算/turn 切片退役）
  * - SimpleLockManager.setHandoffMode：V3 冻结窗口锁超时对齐（30s → 120s）
  * - archiveReasonToSessionStatus：V4 血缘（compaction → restarted）
  */
@@ -55,7 +55,7 @@ describe("sliceSessionEntries（F20260929kws1：最近 4 条 speak）", () => {
         message: { role: "toolResult", content: [{ type: "toolResult", output: "file.txt" }] } } as never,
     ];
     const slice = sliceSessionEntries(toolOnly);
-    expect(slice).toBeDefined(); // S1 核心：不再 undefined
+    expect(slice).toBeDefined(); // 核心：不再 undefined
     expect(slice!.keptEntries.length).toBe(0); // 保留段空（无 speak）
     expect(slice!.firstKeptEntryId).toBeUndefined();
     expect(serializeKeptWindow(slice!)).toBe(""); // 空保留段序列化为空

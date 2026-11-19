@@ -1,7 +1,7 @@
 import type { ScheduleType } from '@entities/scheduled-task/scheduled-task';
 
 /**
- * Scheduler 指标端口（F20260814qswp）。
+ * Scheduler 指标端口。
  *
  * usecases 层此前直接 import frameworks/metrics 的具体类型与 nowMs 值，
  * 是分层边界的实际破口（eslint 白名单遗漏 metrics 所致）。

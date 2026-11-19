@@ -1,5 +1,5 @@
 /**
- * F20260908efmd: resolveEffectiveModel 单元测试。
+ * resolveEffectiveModel 单元测试。
  *
  * 覆盖场景：
  * - AT-1: config 有 modelAlias → 用值 + isDefault=false

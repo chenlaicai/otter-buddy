@@ -1,5 +1,5 @@
 /**
- * A3 模型可见内容重建比对（R20260817dshp / issue #289 / PR-C 前置）。
+ * A3 模型可见内容重建比对（/ / PR-C 前置）。
  *
  * 捕获机制：本地录音网关——伪 anthropic 端点（boot 时 llm 配置整体指向它）。
  * SDK/pi-ai/AgentSession 全链路照常运行，真实发出的 HTTP 请求体就是**模型可见输入

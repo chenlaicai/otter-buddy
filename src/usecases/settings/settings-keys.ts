@@ -3,7 +3,7 @@
 /** 用户显示名（海獭称呼搭档用的名字，空值回退到"搭档"） */
 export const USER_DISPLAY_NAME_KEY = "user.displayName";
 
-/** F20261022mjls：默认陪打獭配置（JSON 数组：[{otterId, name}, {otterId, name}]，两个 otter 座位）。
+/** 默认陪打獭配置（JSON 数组：[{otterId, name}, {otterId, name}]，两个 otter 座位）。
  *  建房未显式传 otter 座位时回填；显式传 otterId 覆盖。存 settings 表，设置面 PUT 可改。 */
 export const MAHJONG_DEFAULT_OTTERS_KEY = "mahjong.defaultOtters";
 

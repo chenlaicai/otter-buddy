@@ -1,5 +1,5 @@
 /**
- * F20261027hwl1：工作账本 SQLite 仓库。
+ * 工作账本 SQLite 仓库。
  *
  * 表结构见 schema.ts createWorkLedgerTables。归属派生核心：
  * invokes.metadata.traceId（JSON1 扩展 JSON_EXTRACT——better-sqlite3 内建支持）

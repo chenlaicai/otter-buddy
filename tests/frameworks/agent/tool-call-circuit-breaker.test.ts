@@ -41,7 +41,7 @@ describe("buildToolSignature", () => {
 
   it("无参数或其他工具退化为工具名", () => {
     expect(buildToolSignature("bash")).toBe("bash");
-    // #1399 起搜案接 query 指纹（同词重搜算重复）；无参仍退化工具名
+    // 起搜案接 query 指纹（同词重搜算重复）；无参仍退化工具名
     expect(buildToolSignature("search_memory")).toBe("search_memory");
   });
 
@@ -112,7 +112,7 @@ describe("buildToolSignature", () => {
     expect(buildToolSignature("create_otter", {})).toBe("create_otter");
   });
 
-  // ---- #475：带实体参数的管理工具签名 ----
+  // ---- 带实体参数的管理工具签名 ----
 
   it("merge_pr 签名含 prNumber——不同 PR 不算重复", () => {
     expect(buildToolSignature("merge_pr", { prNumber: 1381 })).toBe("merge_pr: 1381");

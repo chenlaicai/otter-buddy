@@ -17,9 +17,9 @@ const STATUS_LABEL: Record<WeixinLoginSessionDTO['status'], string> = {
 const POLL_INTERVAL_MS = 2000
 
 interface QRCodeLoginCardProps {
-  /** F20260921imux：流程前置——名字在扫码前已定（贯穿显示）；不再有扫码后命名弹层 */
+  /** 流程前置——名字在扫码前已定（贯穿显示）；不再有扫码后命名弹层 */
   lineName?: string
-  /** F20260921imux：扫码成功（用户已在微信侧确认）——页面接管后续（旧号处理/建线） */
+  /** 扫码成功（用户已在微信侧确认）——页面接管后续（旧号处理/建线） */
   onLoginConfirmed?: (accountId?: string) => void
 }
 

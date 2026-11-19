@@ -1,6 +1,6 @@
-/* eslint-disable max-lines -- F20261026emct 启动解耦新增 postListenInit 后 465 行（限 450），拆分另开 PR（Composition Root 集中装配是既有设计） */
+/* eslint-disable max-lines -- 启动解耦新增 postListenInit 后 465 行（限 450），拆分另开 PR（Composition Root 集中装配是既有设计） */
 /**
- * buildApp：可测试的系统装配入口（F20260806tstr Part 1，基于 F20260805codx bootstrap 模块）。
+ * buildApp：可测试的系统装配入口（Part 1，基于 bootstrap 模块）。
  * main.ts 是生产薄入口；bootstrap/* 是零件，本模块按序组装 + 提供测试接缝。
  * 全局副作用（配置/日志/auth/飞书/调度器/静态路由）均可经 options 注入或关闭。
  */
@@ -117,11 +117,11 @@ export interface BuildAppOptions {
   syncAuth?: boolean;
   /** 启动调度器，默认 true */
   startScheduler?: boolean;
-  /** F20260825sgnw：RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
+  /** RHI 扫描 worker 启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startRhiWorker?: boolean;
-  /** F20260916b1ea：重启自动恢复服务启动开关（对齐 startScheduler 模式；测试/CI 可关） */
+  /** 重启自动恢复服务启动开关（对齐 startScheduler 模式；测试/CI 可关） */
   startResume?: boolean;
-  /** F20260930roiv：启动窗口期孤儿 invoke 延迟 reconcile 开关（对齐 startRhiWorker 模式；测试/CI 可关） */
+  /** 启动窗口期孤儿 invoke 延迟 reconcile 开关（对齐 startRhiWorker 模式；测试/CI 可关） */
   enableDelayedReconcile?: boolean;
   /** 测试注入预构建模型（如 initFauxModels），跳过 initModels */
   models?: { model: Model<Api>; modelPool?: ModelPool };
@@ -138,7 +138,7 @@ export interface BuiltApp {
   agentGateway: PiSessionFactory;
   agentInvoker: AgentInvoker;
   schedulerService: SchedulerService;
-  /** F20261016ebrt：查询 lane（search_memory，延迟优先） */
+  /** 查询 lane（search_memory，延迟优先） */
   queryEmbedding: EmbeddingGateway;
   /** 实时写 lane（store-memory，fail-fast） */
   liveEmbedding: EmbeddingGateway;
@@ -147,18 +147,18 @@ export interface BuiltApp {
   /** 既有调用方使用的实时写入口 */
   embeddingService: EmbeddingGateway;
   modelPool: ModelPool;
-  /** F20260812mrcq Part 1：embedding 重试 worker（vec 禁用时为 null）。F20261026emct：getter 经 ref 读——worker 在 listen 后才创建 */
+  /** Part 1：embedding 重试 worker（vec 禁用时为 null）。getter 经 ref 读——worker 在 listen 后才创建 */
   get retryWorker(): { stopSync(): void; stop(): Promise<void> } | null;
-  /** F20261026emct：worker 的 ref 容器（getter 数据源，dispose 停表用） */
+  /** worker 的 ref 容器（getter 数据源，dispose 停表用） */
   retryWorkerRef: { current: { stopSync(): void; stop(): Promise<void> } | null };
-  /** F20261026emct：listen 成功后异步初始化（document sync + retry worker + 暗化迁移）。main.ts 在 listen 回调 fire-and-forget；失败不炸进程（内部已 catch 落日志） */
+  /** listen 成功后异步初始化（document sync + retry worker + 暗化迁移）。main.ts 在 listen 回调 fire-and-forget；失败不炸进程（内部已 catch 落日志） */
   postListenInit: () => Promise<void>;
-  /** F20261117cnnct（阶段 4 C1）：connector WSS 网关（main 传给 listen 挂 upgrade；dispose 关通道） */
+  /** （阶段 4 C1）：connector WSS 网关（main 传给 listen 挂 upgrade；dispose 关通道） */
   connectorGateway: ConnectorWsGateway;
   /** 停止调度器、释放 embedding worker、关闭 DB、flush 日志 + metric。幂等。 */
   dispose(): Promise<void>;
 }
-/** F20260825sgnw（#401）：装配 RhiScanWorker（依赖注入集中在此，app.ts 主体只调 start/stop） */
+/** 装配 RhiScanWorker（依赖注入集中在此，app.ts 主体只调 start/stop） */
 function createRhiScanWorker(deps: {
   db: DatabaseType.Database;
   repos: Repositories;
@@ -170,16 +170,16 @@ function createRhiScanWorker(deps: {
 
   // healing 事件源：open 状态全部取（behavior_defect 检测数据面）
   const healingSource = async () => collectHealingEvents(await deps.repos.healingEvent.findOpen(1000));
-  // 指标快照落库端口（F20260829hviz Fix A）：scanOnce 计算指标写 health_snapshots
-  // #447：改从 Repositories DI 消费（healthSnapshot），不再直实例化
+  // 指标快照落库端口（Fix A）：scanOnce 计算指标写 health_snapshots
+  // 改从 Repositories DI 消费（healthSnapshot），不再直实例化
   const snapshotRepo = deps.repos.healthSnapshot;
   const snapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) =>
     snapshotRepo.replaceForDate(snapshotDate, rows);
 
-  // 健康评分 D5 输入：open 信号计数（issue #595 PR1）。
-  // #447：改从 Repositories DI 消费（rhiSignal，与 signalEvent 獭间语义池区分），不再直实例化
+  // 健康评分 D5 输入：open 信号计数（PR1）。
+  // 改从 Repositories DI 消费（rhiSignal，与 signalEvent 獭间语义池区分），不再直实例化
   const signalRepo = deps.repos.rhiSignal;
-  // 成本/产出快照落库端口（#583）：同 repo 的 replaceForDate，独立 metric_type
+  // 成本/产出快照落库端口：同 repo 的 replaceForDate，独立 metric_type
   const costOutputSink = (snapshotDate: string, rows: Array<{ snapshotDate: string; metricType: string; metricKey: string; metricValue: number; metadata?: string }>, metricType?: string) =>
     snapshotRepo.replaceForDate(snapshotDate, rows.map(r => ({
       snapshotDate: r.snapshotDate,
@@ -189,7 +189,7 @@ function createRhiScanWorker(deps: {
       metadata: r.metadata,
     })), metricType);
 
-  // session → otter 映射源（#583）：查询 agent_sessions + otters 表
+  // session → otter 映射源：查询 agent_sessions + otters 表
   const agentSessionSource: AgentSessionSource = async () => {
     const rows = deps.db.prepare(`
       SELECT a.pi_session_id AS piSessionId, a.otter_id AS otterId,
@@ -202,7 +202,7 @@ function createRhiScanWorker(deps: {
 
   const sessionsDir = path.join(deps.rootDir, "data", "sessions");
 
-  // F20261027hwl1：日界换轨（UTC→Asia/Shanghai）+ provider 元数据入库——旧口径行一次性
+  // 日界换轨（UTC→Asia/Shanghai）+ provider 元数据入库——旧口径行一次性
   // 失效。幂等判据：仍存在 metadata 无 provider 字段的 cost_output per-model 行即旧口径；
   // 新口径行全带 provider（含 unknown 显式标记），清完后条件永假（零开销直查索引命中）。
   const costOutputInvalidateAll = () => {
@@ -216,7 +216,7 @@ function createRhiScanWorker(deps: {
     deps.logger.info("cost_output snapshots invalidated for Shanghai-date rekey + provider metadata", { staleRows: stale.c });
   };
 
-  // #1869：RHI 扫描的 Git 工作目录绑定项目根（getRepoRoot——基于代码位置定位，
+  // RHI 扫描的 Git 工作目录绑定项目根（getRepoRoot——基于代码位置定位，
   // 与 process.cwd() 无关），不绑定 rootDir/隔离数据根。alpha 隔离实例以数据根为 cwd
   // 启动（非 Git 仓库），此前 repoPath 落到数据根导致 git log 报 `fatal: not a git repository`。
   // sessionsDir 仍从 rootDir 派生（数据根语义），两者不再混用同一入参。
@@ -234,14 +234,14 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const config = options.config ?? loadConfig(logger, options.configPath);
   initConfig(config);
 
-  // F20260829cach: prompt 缓存长留存。pi-ai 的 anthropic-messages 适配器读
+  // prompt 缓存长留存。pi-ai 的 anthropic-messages 适配器读
   // PI_CACHE_RETENTION 环境变量（getProviderEnvValue），值为 "long" 时 cache_control
   // 携带 ttl="1h"，缓存命中窗口从默认 5 分钟扩到 1 小时（实测 miss 里 47.9% 来自
   // 5 分钟 TTL 过期）。必须在首个 LLM 调用前注入；显式设 false 时尊重外部环境。
   if (config.llm.cacheLongRetention !== false && !process.env.PI_CACHE_RETENTION) {
     process.env.PI_CACHE_RETENTION = 'long';
   }
-  // 记录 1h TTL 实际生效状态（PR #573），后续排查缓存命中率时有直接证据
+  // 记录 1h TTL 实际生效状态，后续排查缓存命中率时有直接证据
   logger.info('Prompt cache long retention', {
     piCacheRetention: process.env.PI_CACHE_RETENTION ?? '(sdk-default 5m)',
   });

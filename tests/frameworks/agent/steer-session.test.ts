@@ -1,6 +1,6 @@
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
- * #1788：activeSessions 前缀匹配命中后，必须 await entry.steer 的真实 admission。
+ * activeSessions 前缀匹配命中后，必须 await entry.steer 的真实 admission。
  * 只有 admitted 才返回 true；未命中、idle 或 admission 失败均返回 false，
  * 由 SignalRouter 回退新 invoke，且不得把信号销账为 steered。
  */

@@ -1,8 +1,8 @@
 import type { ConversationRepository } from "./conversation-repository";
 import type { EntryRepository } from "./entry-repository";
 
-/** F20260913ctlv 批4c：QueryMessage 收缩——messages 表 drop 后仅剩未读状态一个活方法。
- *  F20260920trrt：getTurnsForTool 随 get_turn_history 工具退役删除（turns 表拆除）。
+/** 批4c：QueryMessage 收缩——messages 表 drop 后仅剩未读状态一个活方法。
+ * getTurnsForTool 随 get_turn_history 工具退役删除（turns 表拆除）。
  *  其余 messages 表读取方法（getMessageById 与 getMessages、getMessageEvents 系列、searchMessages/
  *  expandMessage/findByExternalId/getTurnHistory 等）随旧表退役删除。 */
 export class QueryMessage {
@@ -14,7 +14,7 @@ export class QueryMessage {
 
 
   /** Web 用户未读状态（只读）：已读位置 + 未读计数 + 第一条未读条目。
-   *  F20260913ctlv 彻底切换：未读状态读 entries（游标列复用，语义 = entries.sequence_num） */
+   * 彻底切换：未读状态读 entries（游标列复用，语义 = entries.sequence_num） */
   async getUnreadState(conversationId: string, userId: string): Promise<{
     lastReadSeq: number;
     unreadCount: number;

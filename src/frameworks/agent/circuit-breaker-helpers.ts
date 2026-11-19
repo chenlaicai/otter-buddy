@@ -26,12 +26,12 @@ export interface AttachGuardsParams {
   activeSessions: Map<string, { abort: () => Promise<void>; toolCallCount: number; guardAbortReason?: string }>;
   circuitBreakerConfig: CircuitBreakerConfig;
   logger: Logger;
-  /** F20260821i336：编排守卫检查函数（可选） */
+  /** 编排守卫检查函数（可选） */
   orchestrationCheck?: (toolName: string, args?: unknown) => string | null;
-  /** F20261030gblkv（guard-v4）：原守卫传参族（projectRoot/sessionCwd/sandboxGuarded/
+  /** （guard-v4）：原守卫传参族（projectRoot/sessionCwd/sandboxGuarded/
    *  onGuardIntercept/guardGateActive）已退役——bash 守卫唯一执行点迁 tool_call 门
    *  （model-runtime-registry bashGuardGate 直读 store），本链不再涉守卫。 */
-  /** F20261020hlbk（#1556）→ F20261027cbfp（#1653）：per-invoke 循环硬熔断标记（签名→理由）。
+  /** → ：per-invoke 循环硬熔断标记（签名→理由）。
    *  写入时机（两条件或）：terminate（strike 涨满）/ repeatOffender（同签名第 2 次 steer，复犯）。
    *  首次 steer 不写（纯警告）；tool_call 门（loopBlockGuard）读到即物理阻断该签名后续调用。 */
   loopBlockedTools?: Map<string, string>;
@@ -53,7 +53,7 @@ export function attachGuards(params: AttachGuardsParams): AttachGuardsResult {
   const activeEntry = activeSessions.get(sessionKey);
   const timerRef: { clear: (toolCallId?: string) => void } = { clear: () => {} };
   const wrappedAbort = (reason?: string) => { timerRef.clear(); if (activeEntry && !activeEntry.guardAbortReason) activeEntry.guardAbortReason = reason ?? "internal_abort"; return session.abort(); };
-  // #1674：tool_call 首次送达 halt 时接上既有 abort 收尾。
+  // tool_call 首次送达 halt 时接上既有 abort 收尾。
   // 处理器内只同步发出 abort 信号，不等待 session.abort() 的 waitForIdle Promise（防自等待）。
   // 不在 prompt 前预触发：attachGuards 早于 session.prompt()，此刻 abort 是 no-op，
   // 且会提前置幂等标记吞掉后续真实 block 的终止请求。

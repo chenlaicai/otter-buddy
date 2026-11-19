@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 /**
- * F20261013csv3 T1：GitHub URL 结构化取数（gh CLI 路径）。
+ * T1：GitHub URL 结构化取数（gh CLI 路径）。
  *
  * Why gh CLI 而非 og 抓取/undici 代理（方案「设计取舍」表）：
  * ① gh 自带认证 + 用户本机已配网络（进程级代理问题一并绕过——本机直连 github.com
@@ -10,10 +10,10 @@ import { promisify } from "node:util";
  * ② 拿到的是结构化数据（PR 状态/diff stat/labels 远比 og 丰富）；
  * ③ 服务进程内调 gh CLI 已有先例（tool-factory.ts gh pr view），架构上无阻碍。
  *
- * 全类型覆盖（S2 修正——不止 PR）：PR / issue / 文件 / 仓库主页统一走 gh，
+ * 全类型覆盖（修正——不止 PR）：PR / issue / 文件 / 仓库主页统一走 gh，
  * 消灭「非 PR 链接走 og 仍可能超时」的缺口。
  *
- * 执行面设防（mimo S2——URL 来源完全用户可控，攻击面属本方案新增）：
+ * 执行面设防（mimo ——URL 来源完全用户可控，攻击面属本方案新增）：
  * - execFile 参数数组，禁 shell（无管道/展开/注入面）——owner/repo/number 经
  *   encodeURIComponent / ^\d+$ 归一后作为独立 argv 元素，gh 不会把位置参数当 flag
  * - owner/repo 白名单字符集 [a-zA-Z0-9._-]，超集即拒（不落 failed 也不执行）

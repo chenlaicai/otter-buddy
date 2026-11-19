@@ -1,10 +1,10 @@
 /**
- * 交接摘要 LLM 叙事合成 prompt 构建器（F20260825hndf Phase 2）
+ * 交接摘要 LLM 叙事合成 prompt 构建器（Phase 2）
  *
  * 基于 kimi 的七段模板（info-preservation §2.2），
  * 将件④机械数据注入合成 prompt，指令"§⑤ 用这个数据别自己编"。
  *
- * F20260901mbfx（机械/LLM 分工边界审计）：
+ * （机械/LLM 分工边界审计）：
  * - §⑤ 注入全量 B1-B6 渲染文本（此前只有 B1/B6 结构化数据，B2-B5 对合成 LLM 不可见）
  * - §④ 注入机械预取数据（context keys + active 产物清单）——枚举型事实不再依赖 LLM 自行调工具
  * - §⑥ 注入最近搭档消息原文——LLM 只负责挑选，不负责翻找
@@ -18,7 +18,7 @@
 
 import type { StateInventory } from './state-inventory';
 
-/** F20260901mbfx：readOnly 合成的自定义工具白名单——只放行只读查询类工具。
+/** readOnly 合成的自定义工具白名单——只放行只读查询类工具。
  * 设计判据（机制/LLM 分工审计）：合成獭只该读事实，一切写操作/发言/交棒/
  * 实体管理/调度创建都不该在摘要生成路径出现。白名单走"正道"（只列安全项），
  * 新注册工具默认不进白名单——比黑名单（新工具默认放行）安全。
@@ -41,7 +41,7 @@ export const SYNTHESIS_READ_ONLY_TOOL_WHITELIST: ReadonlySet<string> = new Set([
 export interface SynthesisPrefetch {
   /** otter_context 的 key 名列表（不含值——新 session 用 get_context 自取） */
   contextKeys?: string[];
-  /** active 产物清单（ID + 类型 + 标题 + createdAt——F20261009arlz 渲染层按时间倒序截断用） */
+  /** active 产物清单（ID + 类型 + 标题 + createdAt——渲染层按时间倒序截断用） */
   activeArtifacts?: Array<{ id: string; resourceType: string; title?: string; createdAt?: string }>;
   /** 最近搭档（用户）消息原文，按时间正序，供 §⑥ 挑选引用 */
   recentUserMessages?: string[];
@@ -63,7 +63,7 @@ export interface SynthesisPromptOptions {
   trigger: '70%阈值' | '手动' | '熔断';
   /** 当前时间 */
   timestamp?: string;
-  /** §④/§⑥ 机械预取数据（F20260901mbfx） */
+  /** §④/§⑥ 机械预取数据 */
   prefetch?: SynthesisPrefetch;
 }
 
@@ -87,7 +87,7 @@ export function buildSynthesisPrompt(options: SynthesisPromptOptions): string {
 
   const ts = timestamp ?? new Date().toISOString();
   const shortId = oldSessionId.slice(0, 8);
-  // F20260901mbfx：gen N 谱系代数机械推导（lineage 行数 + 1），无 lineage 则 gen1
+  // gen N 谱系代数机械推导（lineage 行数 + 1），无 lineage 则 gen1
   const genN = lineage ? lineage.split('\n').filter(l => l.trim().length > 0).length + 1 : 1;
 
   const parts: string[] = [
@@ -150,7 +150,7 @@ ${lineage ? `${lineage}
 }
 
 /**
- * F20260901mbfx：格式化 §④ 机械预取数据。
+ * 格式化 §④ 机械预取数据。
  * 无数据时明说"无预取"——省略会让 LLM 不确定是"没查"还是"没有"（件④设计同源原则）。
  */
 function formatPrefetchSection(prefetch?: SynthesisPrefetch): string {

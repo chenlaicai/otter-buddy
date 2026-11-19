@@ -1,5 +1,5 @@
 /** 前后端共享的 html-card 渲染限制常量（单一真相源）
- *  Issue #360：此前 web/src/lib/html-card.ts 与
+ * 此前 web/src/lib/html-card.ts 与
  *  src/interface-adapters/agent-runtime/tools/tool-helpers.ts 各定义一次，
  *  仅靠注释约定对齐，无编译期保障——漂移会导致后端放行前端降级的卡片数。
  *  本目录两侧均有 @contract 别名（根/web tsconfig、vitest、vite），value 导入可直接解析。 */
@@ -7,28 +7,28 @@
 /** 单消息卡片预算：第 3 张起前端降级为源码块（不可读），后端 speak 校验同值拒绝 */
 export const CARD_MAX_PER_MESSAGE = 2;
 
-/** 单卡体积预算（字节）：F20260916hcel 弹性化——8KB→64KB，由海獭按内容自控。
+/** 单卡体积预算（字节）：弹性化——8KB→64KB，由海獭按内容自控。
  *  只限 MAX，无 MIN（搭档拍板：「系统只约束最大，真正大小由海獭按内容决定」） */
 export const CARD_MAX_BYTES = 65536;
 
-/** 卡片 schema 版本：F20260916hcel 引入（保留字段，供未来默认状态变化用）。
+/** 卡片 schema 版本：引入（保留字段，供未来默认状态变化用）。
  *  speak 工具创建含 html-card 的条目时写入 metadata.cardSchemaVersion。
- *  当前所有卡默认 collapsed（搭档 9/16 拍板）；唯一例外：F20261009csp2 活类卡
+ * 当前所有卡默认 collapsed（搭档 9/16 拍板）；唯一例外：活类卡
  *  （html-card-play 围栏）默认展开运行——活类的感知动词是「玩」，折叠态没有玩法。 */
 export const CARD_SCHEMA_VERSION = 2;
 
-/** F20261009csp2：活类围栏语言标记。与 html-card 共享渲染沙盒/体积预算/单消息卡数预算，
+/** 活类围栏语言标记。与 html-card 共享渲染沙盒/体积预算/单消息卡数预算，
  *  差异仅三点：默认展开运行、头部「🎮 运行中」徽章、暂停/重启控制。
  *  服务端校验把 play 围栏计入卡数（同一预算，防 2+2 = 4 张卡绕限）。 */
 export const CARD_PLAY_FENCE_LANG = "html-card-play";
 
 /** 卡片 iframe 高度区间（像素）。
  *  CARD_MIN_HEIGHT = 展开初始高度（小起步防跳变过量，随后桥 ResizeObserver 自动撑高/缩回到内容真实高度）；
- *  CARD_MAX_HEIGHT = 防失控上限。F20260929ahgt 起高度全自动，agent 无干预通道 */
+ * CARD_MAX_HEIGHT = 防失控上限。起高度全自动，agent 无干预通道 */
 export const CARD_MIN_HEIGHT = 100;
 export const CARD_MAX_HEIGHT = 4000;
 
-/** 卡片预设类库 CSS（F20261006cssp）：高频卡片样式的单一真相源。
+/** 卡片预设类库 CSS：高频卡片样式的单一真相源。
  *  前端 HtmlCard 注入 srcdoc（渲染层），契约工具注入类清单（告知层）——两端同源，编译期共享不漂移。
  *  清单由真实卡片重复度聚类定（analyses/card-css-stats.mjs，41 卡实测）：每个类 ≥3 张卡重复才入选，
  *  总量预算 ≤8KB；命名以高频实证为准（.btn/.btns/.bar-row 等），消灭漂移命名（.btn-n/.btn-pri 等 7 种按钮写法并存）。
@@ -93,7 +93,7 @@ export const CARD_PRESET_CLASSES_CSS = `
 `;
 
 /** 预设类名清单（给契约工具的告知层）——从 CSS 源机械提取，与渲染层永不漂移。
- *  ⚠️ 边界注记（PR #1318 复核建议 3）：本正则无 `{` 锚，会提取伪类/组合选择器片段（如未来加 .btn:hover 会多提 btn）；
+ * ⚠️ 边界注记（复核建议 3）：本正则无 `{` 锚，会提取伪类/组合选择器片段（如未来加 .btn:hover 会多提 btn）；
  *  测试侧 card-preset-classes.test.ts 用带 `{` 锚的正则锁「类定义全进清单」——两处故意不同源但需同步维护：
  *  若预设 CSS 未来引入伪类/组合规则，两处提取会分叉、测试会红——那时应统一为共享提取函数（单独立 issue），
  *  当前清单全为单类规则，两处等价 */

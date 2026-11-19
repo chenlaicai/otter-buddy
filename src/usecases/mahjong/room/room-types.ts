@@ -55,7 +55,7 @@ export interface RoomView {
   roomId: string;
   gameId: string;
   status: string;
-  /** F20261022mjls：waiting（lobby）态字段——座位就绪况与开始可用性；playing/finished 时 null */
+  /** waiting（lobby）态字段——座位就绪况与开始可用性；playing/finished 时 null */
   lobby: {
     players: ReadonlyArray<{ seat: Seat; name: string; kind: string; otterId?: string; defaultApplied?: boolean }>;
     canStart: boolean;
@@ -125,21 +125,21 @@ export interface RoomServiceDeps {
   humanTimeoutMs?: number;
   /** 超时后宽限（默认 15000，宽限内广播 deadline；到期代理自动摸切） */
   humanGraceMs?: number;
-  /** F20261015mjsg 局终回调（战报卡数据口）——bootstrap 装配 SendEntry；失败仅告警不回滚牌局 */
+  /** 局终回调（战报卡数据口）——bootstrap 装配 SendEntry；失败仅告警不回滚牌局 */
   onGameover?: (report: GameoverReport) => void | Promise<void>;
   /** 失败路径留痕（回调/注入异常）；缺省静默降级 */
   logger?: Pick<Logger, "warn">;
-  /** 检视发现3：终局房宽限出 Map 的毫秒数（≤0 = 立即驱逐；默认 10 分钟——宽限内 view/recover 可用） */
+  /** 终局房宽限出 Map 的毫秒数（≤0 = 立即驱逐；默认 10 分钟——宽限内 view/recover 可用） */
   evictFinishedMs?: number;
-  /** #1564-5：局终结算停驻时长（有真人的房暂停等「继续」；默认 30 秒，到期自动继续） */
+  /** -5：局终结算停驻时长（有真人的房暂停等「继续」；默认 30 秒，到期自动继续） */
   settleHoldMs?: number;
-  /** #1564-6：真人连续超时代打上限（到限自动停局防 runaway；默认 10） */
+  /** -6：真人连续超时代打上限（到限自动停局防 runaway；默认 10） */
   humanIdleStrikeLimit?: number;
-  /** F20261022mjls：lobby 等待房 TTL 毫秒（超时未开始自动清房防占位；默认 1 小时） */
+  /** lobby 等待房 TTL 毫秒（超时未开始自动清房防占位；默认 1 小时） */
   lobbyTtlMs?: number;
-  /** F20261022mjls：獭可用性校验（active 且未 dissolved）；缺省不校验（测试/降级）。
+  /** 獭可用性校验（active 且未 dissolved）；缺省不校验（测试/降级）。
    *  返回 null = 可用；否则返回拒绝原因（如 "otter not found"） */
   checkOtterUsable?: (otterId: string) => Promise<string | null>;
-  /** F20261022mjls：默认陪打獭配置读取（settings key mahjong.defaultOtters）；缺省无默认回填 */
+  /** 默认陪打獭配置读取（settings key mahjong.defaultOtters）；缺省无默认回填 */
   defaultOtters?: () => Promise<MahjongDefaultOtter[] | null>;
 }

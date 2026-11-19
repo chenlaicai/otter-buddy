@@ -4,7 +4,7 @@
  * 管道：采集（git log + F 文档）→ 解析（CommitParser）→ 计算（MetricsCalculator）
  *      → 持久化（HealthSnapshotRepository）→ 输出（CliReport 双格式）
  *
- * Issue #394/#395/#396/#397 的集成层。
+ * ///的集成层。
  */
 
 import type Database from "better-sqlite3";
@@ -27,7 +27,7 @@ export interface HealthReportOptions {
   maxCount?: number;
   /** 跳过持久化（CI/测试环境无写库需求时） */
   skipPersistence?: boolean;
-  /** 快照日期（默认今天；回填历史用，F20260829hviz） */
+  /** 快照日期（默认今天；回填历史用，） */
   snapshotDate?: string;
 }
 
@@ -76,13 +76,13 @@ export class HealthReport {
     // 4. 计算指标
     const metrics = calculateMetrics(parsed, commitsWithFiles);
 
-    // 5. 持久化（同日 DELETE+INSERT 覆盖，对抗审视发现 4：消费方无需理解"取最新"）
+    // 5. 持久化（同日 DELETE+INSERT 覆盖，对抗消费方无需理解"取最新"）
     if (!options.skipPersistence) {
       const rows = buildOverviewSnapshotRows({
         snapshotDate: options.snapshotDate ?? new Date().toISOString().slice(0, 10),
         metrics,
       });
-      // 健康指标旁路（issue #595 PR1）：CLI/backfill 口径无链数据（D3/D5 无数据不参与加权），
+      // 健康指标旁路（PR1）：CLI/backfill 口径无链数据（D3/D5 无数据不参与加权），
       // D5 输入用零信号（chainStates=null 时 D5 恒 null，零值不影响）；
       // worker 当日扫描 replaceForDate 全量覆盖（含链维度），最后写入者口径最全
       const snapshotDate = options.snapshotDate ?? new Date().toISOString().slice(0, 10);

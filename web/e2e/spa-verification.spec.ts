@@ -62,7 +62,7 @@ test.describe('SPA 路由验证', () => {
   test('SPA 导航：点击 TopBar 链接切换页面无白屏', async ({ page }) => {
     await page.goto('/conversation')
 
-    // R2 升级 + D3 修复：isConnected 探针证明 TopBar DOM 节点存活（SPA 核心特征）
+    // 升级 + D3 修复：isConnected 探针证明 TopBar DOM 节点存活（SPA 核心特征）
     // Why: elementHandle() 每次返回不同 JS 包装对象，toBe 比较包装对象恒假；
     //      handle.evaluate(el => el.isConnected) 在浏览器上下文检查底层 DOM 节点
     //      是否仍在文档中——若布局层重挂载，原节点脱离文档，探针变 false，证明力保留

@@ -1,23 +1,23 @@
 /**
- * Matter 实体（F20261006mtlp P1）。
+ * Matter 实体（P1）。
  *
  * 待办——per-conversation 承诺台账的一等实体。对话流是通信不是承诺：
  * matter 把「未完成之事」从消息流升格为带状态机的持续工作单元。
  *
- * 设计依据：docs/features/2026/10/05/F20261006mtlp-matter-loop-closure.md
+ * 设计依据：docs/features/2026/10/05/-matter-loop-closure.md
  * §1 实体模型（字段表）+ §2 状态机（迁移矩阵 + 等待方生命周期规则）。
  *
- * 与 signal_event 的分工（F20260826mwrd）：signal = 瞬时协调信号（objection/blocked/halt），
+ * 与 signal_event 的分工：signal = 瞬时协调信号（objection/blocked/halt），
  * matter = 持续工作单元（有 owner、有生命周期、有宣告权分权）——同构先例，不同物。
  */
 
-/** 决策分级（沿用 F20260909debr 轴；L0 不产生 matter——准入白名单三条均产生不了 L0） */
+/** 决策分级（沿用 轴；L0 不产生 matter——准入白名单三条均产生不了 L0） */
 export type MatterLevel = 'L1' | 'L2';
 
 /**
- * 闭环口径（F20261019fckd，#1457）：区分两类闭环的宣告权语义。
+ * 闭环口径（）：区分两类闭环的宣告权语义。
  * - 'fact'：事实型——完成状态机器可验证（PR MERGED / issue CLOSED / 产物入库），
- *   L2 闭环时 owner 可携机器证据直关（resolution 必含 #PR号 / commit sha 锚点）
+ * L2 闭环时 owner 可携机器证据直关（resolution 必含 号 / commit sha 锚点）
  * - 'decision'：判断型——完成质量由人认定（效果/方向验收），L2 闭环必须搭档确认
  * - null：存量行未标注——保守视同 decision（守卫不放开，不许弱化）
  */
@@ -64,7 +64,7 @@ export interface Matter {
   /** 负责獭——打回/唤醒/重派三处路由依据（WAITING_PARTNER 态下保留） */
   ownerOtterId: string | null;
   level: MatterLevel | null;
-  /** 闭环口径（F20261019fckd）：fact=机器可验证事实可 owner 直关；decision/null=保留 partner 确认闸 */
+  /** 闭环口径：fact=机器可验证事实可 owner 直关；decision/null=保留 partner 确认闸 */
   closureKind: MatterClosureKind | null;
   state: MatterState;
   waitingOn: MatterWaitingOn | null;

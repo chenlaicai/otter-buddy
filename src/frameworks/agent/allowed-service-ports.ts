@@ -1,9 +1,9 @@
 /**
- * 自有项目 dev server 端口白名单（#844，F20260914dsrv）。
+ * 自有项目 dev server 端口白名单（）。
  *
  * 背景：bash 守卫按进程特征拦截 pkill/killall，但外部项目 dev server 命令行
  * 天然含 main.js / node 词元（如 dongbeicun 的 `node dist/api/src/main.js`），
- * 按名匹配从原理上无法区分——6 次变体重试全被拦（#844 实证）。
+ * 按名匹配从原理上无法区分——6 次变体重试全被拦（实证）。
  *
  * 方案 A（静态白名单）：搭档在 <projectRoot>/.otter/allowed-service-ports.json
  * 声明「端口 + 项目目录」后，守卫把「可静态解析为白名单端口上监听者」的 kill
@@ -17,7 +17,7 @@
  *   { "services": [{ "port": 3100, "projectDir": "/Users/x/dongbeicun" }] }
  *
  * 热加载：每次拦截判定都重读文件（与 .otter-buddy.pid 同策略），改配置无需
- * 重启主进程。解析失败 = 无白名单（守卫行为退回 #844 之前，保守）。
+ * 重启主进程。解析失败 = 无白名单（守卫行为退回 之前，保守）。
  */
 import fs from "fs";
 import path from "path";
@@ -75,7 +75,7 @@ export function loadAllowedServicePorts(projectRoot: string): AllowedService[] {
 
 /**
  * 从命令文本静态提取「监听白名单端口」引用：lsof -t -i :3100 / lsof -ti:3100 /
- * lsof -i :3100 -t 等变体（#844 现场变体 4/5 同构）。返回命中的端口列表。
+ * lsof -i :3100 -t 等变体（现场变体 4/5 同构）。返回命中的端口列表。
  */
 export function extractWhitelistedPortRefs(command: string, allowed: AllowedService[]): number[] {
   const hits: number[] = [];

@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 
 /**
- * UPDATE 回执 fail-closed 断言（#1391，#1370 族模式收敛）。
+ * UPDATE 回执 fail-closed 断言（族模式收敛）。
  *
  * better-sqlite3 的 UPDATE 在 WHERE 不匹配时返回 changes=0 但不抛错——
  * 直接吞掉会让状态流转假成功（调用方以为写入了，实际什么都没发生）。

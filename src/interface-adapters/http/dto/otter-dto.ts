@@ -14,7 +14,7 @@ export function toOtterDTO(otter: Otter, modelAlias?: string, modelIsDefault?: b
     name: otter.name,
     type: otter.type,
     status: otter.status,
-    // F20260921otcl：出生色透出（大獭/未回填 null）
+    // 出生色透出（大獭/未回填 null）
     color: otter.color ?? null,
     role: otter.role,
     parentOtterId: otter.parentOtterId,
@@ -36,7 +36,7 @@ export function toOtterSessionDTO(session: OtterSession): OtterSessionDTO {
     archiveReason: session.archiveReason,
     isNegativeCase: session.isNegativeCase,
     summary: session.summary,
-    // F20260908efmd: 透传 session 快照的 modelAlias（null = 存量未快照）
+    // 透传 session 快照的 modelAlias（null = 存量未快照）
     ...(session.modelAlias !== undefined && { modelAlias: session.modelAlias }),
   };
 }

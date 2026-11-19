@@ -142,7 +142,7 @@ export class SqliteInvokeRepository implements InvokeRepository {
     ).run(input, output, cacheRead ?? null, cacheWrite ?? null, invokeId);
   }
 
-  /** F20260914rtsp：更新末次 LLM 往返的上下文窗口占用（invoke.tick 数据落库，右栏刷新恢复用） */
+  /** 更新末次 LLM 往返的上下文窗口占用（invoke.tick 数据落库，右栏刷新恢复用） */
   async updateInvokeCtxWindowUsed(invokeId: string, ctxWindowUsed: number): Promise<void> {
     this.db.prepare(
       "UPDATE invokes SET ctx_window_used = ? WHERE id = ?",
@@ -220,10 +220,10 @@ export class SqliteInvokeRepository implements InvokeRepository {
     return row ? rowToInvoke(row) : null;
   }
 
-  /** F20260916b1ea 重建：重启 reconcile——running invokes 全部置 failed，
+  /** 重建：重启 reconcile——running invokes 全部置 failed，
    *  单条 UPDATE...RETURNING 原子返回被标记行详情（消 SELECT-then-UPDATE 竞态，
    *  恢复入队的数据源）。SQLite 3.35+ 支持 RETURNING（better-sqlite3 13.0.3 已验证）。 */
-  /** #1241（F20261006opid）判据升级：时间戳守卫 → pid 归属。无 guard = 全量清理
+  /** 判据升级：时间戳守卫 → pid 归属。无 guard = 全量清理
    *  （启动路径：进程刚起，库里任何 running 都不可能属于本进程）；
    *  guard.excludePid = 排除本进程 pid（延迟补跑/周期兑底路径）；
    *  guard.beforeTs = pid 复用兑底（旧进程复用本 pid 时其遗留行写入必早于本进程 boot）。 */

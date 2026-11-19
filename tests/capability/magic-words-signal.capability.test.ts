@@ -1,5 +1,5 @@
 /**
- * 能力测试：Magic Words 重审 + 獭间信号协议（F20260826mwrd C4 收口闸）。
+ * 能力测试：Magic Words 重审 + 獭间信号协议（C4 收口闸）。
  *
  * C1-C4 分期落地后逐个激活（原 it.todo 占位——不伪造通过，声明「什么算实现完成」的验收锚点）。
  * C4 收口：全部转真实测试，grep 'it.todo' 零命中是母方案验收的收口闸。
@@ -10,7 +10,7 @@
  * - 词表改版生效（确定性 prompt 断言）：删除词不再出现在 SYSTEM.md Magic Words 表
  * - halt 合规响应 / objection 程序义务 / blocked 一等状态（B 类，真 LLM 采样）
  *
- * 测试设计要点（继承 F20260813actk/talking-stone 经验）：
+ * 测试设计要点（继承 /talking-stone 经验）：
  * - 真系统 + 真 LLM（本地端点），不能用 mock
  * - 任务极简，避免模型重任务下退化干扰验证
  * - 统计采样（3 次至少 2 次成功）应对 LLM 随机性
@@ -35,7 +35,7 @@ function signalEventsFor(ctx: CapabilityContext, conversationId: string) {
     .all(conversationId) as Array<Record<string, unknown>>;
 }
 
-/** #560：轮询等待 halt signal 到达 resolved（快路径秒回，慢路径最长 timeoutMs）。
+/** 轮询等待 halt signal 到达 resolved（快路径秒回，慢路径最长 timeoutMs）。
  * 替代原固定 sleep(10s)：落账与大獭 speak 确认几乎同时，但存在小时序窗口（cap-run4 实测 1 次 pending）。
  * 超时后返回最终态供断言输出诊断信息，不直接 throw——保持原断言语义 */
 async function waitForHaltSignalResolved(

@@ -1,5 +1,5 @@
 /**
- * F20261008tecn（EazoTack 工具瘦身 v1）：toolExposure 打标逻辑测试。
+ * （EazoTack 工具瘦身 v1）：toolExposure 打标逻辑测试。
  *
  * 断言点：
  * 1. manifest toolExposure 标 deferred 的工具 → pi ToolDefinition 带 exposure: "deferred"
@@ -83,7 +83,7 @@ describe("F20261008tecn: toolExposure 打标", () => {
 });
 
 /**
- * F20261008tecn（检视发现 2 修复）：激活集计算纯函数测试。
+ * （）：激活集计算纯函数测试。
  * 锁死核心语义：激活集 = coding ∪ direct 自定义 ∪（有 deferred 时）tool_search，
  * deferred 永不进激活集。防 pi SDK 升级改变 _isActivatable/_isDeclarable 语义时无护栏。
  */

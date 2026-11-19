@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 
 /**
- * #902 断点 1 的失败基线（worktree-isolation bugfix 硬规则：修复前失败证据）。
+ * 断点 1 的失败基线（worktree-isolation bugfix 硬规则：修复前失败证据）。
  *
- * 断言形态沿用 entry-speak-seq-baseline.test.ts 先例（F20260921urdo）：静态扫描发射行。
+ * 断言形态沿用 entry-speak-seq-baseline.test.ts 先例：静态扫描发射行。
  * 在 origin/main（628078f5）上运行必红——发射行不含 attachments；
  * 修复后（本 worktree）必绿。
  */

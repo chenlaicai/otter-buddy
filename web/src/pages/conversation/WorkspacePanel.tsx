@@ -4,7 +4,7 @@ import { ChevronRight, ExternalLink, FileText, Folder, FolderOpen, Loader2 } fro
 import { MarkdownContent } from './MessageList'
 import { identityHeaders } from '../../api/identity'
 import { Modal } from '../../components/Modal'
-// Why: Workspace DTO 单一真相源在 api-contract（issue #558）——本文件曾是手工同步副本，
+// Why: Workspace DTO 单一真相源在 api-contract——本文件曾是手工同步副本，
 // 迁移后直接引用契约，与后端靠 web tsc --noEmit 锁死漂移
 import type { WorkspaceEntry, WorkspaceFileContent, WorkspaceListDirResponse, WorkspaceRevealRequest, WorkspaceRevealResponse } from '@contract/api/workspace'
 import { WORKSPACE_IMAGE_EXTENSIONS } from '@contract/api/workspace'
@@ -24,14 +24,14 @@ function fileColor(name: string): string {
   return 'text-stone-400'
 }
 
-/** 判断是否为可渲染内容的扩展名。无点文件名返回 ''（避免「名为 png 的文本文件」误路由，F20261014pvmd 处置 2） */
+/** 判断是否为可渲染内容的扩展名。无点文件名返回 ''（避免「名为 png 的文本文件」误路由，处置 2） */
 function getExt(name: string): string {
   const base = name.split('/').pop() ?? ''
   const dotIdx = base.lastIndexOf('.')
   return dotIdx > 0 ? base.slice(dotIdx + 1).toLowerCase() : ''
 }
 
-/** 图片扩展名 → MIME 子类型映射（避免 jpg 生成非标准 image/jpg，F20261014pvmd 处置 1；契约单一真相源） */
+/** 图片扩展名 → MIME 子类型映射（避免 jpg 生成非标准 image/jpg，处置 1；契约单一真相源） */
 const IMAGE_MIME_MAP: Record<string, string> = {
   png: 'png', jpg: 'jpeg', jpeg: 'jpeg', gif: 'gif', webp: 'webp', bmp: 'bmp', svg: 'svg+xml',
 }

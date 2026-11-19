@@ -12,7 +12,7 @@ import type { HealingEventRepository } from '@usecases/healing/healing-event-rep
 import { HEALING_ENVIRONMENT_TYPES, HEALING_FEEDBACK_TYPES } from '@entities/healing/healing-event';
 import type { Logger } from '@usecases/ports/logger';
 
-// ─── issue #416：self-healing-analysis prompt git 化 ──────
+// ─── self-healing-analysis prompt git 化 ──────
 // 静态文案的真相源移到 prompts/scheduled/self-healing-analysis.md，
 // 调度器运行时读模板 + 填充 {{HEALING_DATA}}。本文件验证：
 // 1. 模板生效：触发的 body = 模板静态文案 + 动态 healing 数据

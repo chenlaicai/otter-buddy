@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestApp, json, createMockDeps } from "./helpers";
 import type { TestDeps } from "./helpers";
 
-/** F20260913ctlv 终审修复：entries 时间线端点 DTO 投影锁定
+/** 终审修复：entries 时间线端点 DTO 投影锁定
  *  （含 attachments 透出——终审发现的测试盲区：写入链完整但读出链断，回归不可见） */
 
 const entryFixture = {

@@ -1,5 +1,5 @@
 /**
- * F20261109epqst：后台 embedding 统一持久化队列——service 层等待有界性测试。
+ * 后台 embedding 统一持久化队列——service 层等待有界性测试。
  *
  * 根因（2026-11-09 生产实锤）：waitSlot 循环无任何超时——doc 洪峰把 ~2000 条
  * bulk waiter 堆进 slotWaiters 后，retry worker 的第一条 embed(waitSlot) 挂在

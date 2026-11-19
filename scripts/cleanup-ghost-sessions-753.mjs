@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * issue #753：S2 事故遗留清理（一次性运维脚本）。
+ * 事故遗留清理（一次性运维脚本）。
  *
  * 清理两类遗留：
  *  A. dissolved 獭的 active otter_sessions 幽灵行 → 标 archived（archive_reason='ghost_cleanup'）
  *     源头：agent-invoker backfill 兜底不查 otter 状态（已由本特性代码修复堵漏），
- *     存量 12 行是 9/2 S2 事故（No session or config found 热循环）期间给 dissolved 獭建的。
+ * 存量 12 行是 9/2 事故（No session or config found 热循环）期间给 dissolved 獭建的。
  *     不物理删除——保留事故考古价值，标 archived 即脱离 active 视野。
  *  B. 会话 31767a2b（mac touch bar）的 617 条 failed 消息（42 秒热循环产物）→ 物理删除
  *     理由：status='failed' 的截断错误消息（body 均为「[错误] No session or config found」），

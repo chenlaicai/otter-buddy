@@ -2,7 +2,7 @@
 /**
  * 同型审计（prose-audit）· 把「感觉文风很固定」变成可判定的数据
  * 真相源文档：scripts/prose-audit/README.md
- * 背景与清单：docs/research/2026/10/30/R20261030lvtap-llm-voice-text-antipatterns.md
+ * 背景与清单：docs/research/2026/10/30/-llm-voice-text-antipatterns.md
  *
  * 用法：node audit.mjs <章节目录或文件> [--json] [--top N] [--out 报告路径]
  *   --json   机器可读输出（默认人读报告）

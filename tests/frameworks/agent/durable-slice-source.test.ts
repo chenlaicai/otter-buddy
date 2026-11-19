@@ -1,8 +1,8 @@
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
- * M-9af49d4a R2 回归：durable 会话 entries 只读投影（换世档案合成原料修复）。
+ * M-9af49d4a 回归：durable 会话 entries 只读投影（换世档案合成原料修复）。
  *
- * #1783 迁移欠账：前世对话住进 durable sqlite 后，JSONL 读取器拿不到原料 →
+ * 迁移欠账：前世对话住进 durable sqlite 后，JSONL 读取器拿不到原料 →
  * 换世档案 100% 机械转储（「前世 session 文件读取失败」）。本测试锁死：
  * ① 投影形状满足 session-slicer 消费面（type/id/parentId/timestamp/message）；
  * ② 世代边界（reset 后只含当前世代）；③ 真空/缺失语义（[] vs undefined）；

@@ -1,11 +1,11 @@
 /**
- * F20260930gslog：守卫拦截分类器回归——锁定守卫全量拦截文案指纹。
+ * 守卫拦截分类器回归——锁定守卫全量拦截文案指纹。
  *
  * 审视轮 2 教训：手抄文案样本与守卫真实文案漂移 → 测试虚绿（测试样本≠生产文案）。
  * 本文件样本改为「运行时从守卫真实判定函数提取」——用真实命令触发守卫判定，
  * 拿守卫返回的真实 reason 喂分类器，断言 ruleId。守卫文案怎么改，测试跟着真文案走。
  *
- * F20261030gcfbx（v4 对齐重写）：#1702 守卫重建清场 + #1711 guard-v4 重写后，
+ * （v4 对齐重写）：守卫重建清场 + guard-v4 重写后，
  * 本文件随指纹表同步重对齐——探针走 v4 判定入口 checkBashCommandSafety（第一站
  * 杀进程判定 + 第二站黑名单三类），processProbe 桩照 replay.test.ts 基建
  * （identity 恒 null = 三查「查无此进程」，全平台确定性，不真查 ps）。
@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { classifyGuardInterceptReason, UNKNOWN_RULE, ACTIVE_RULE_IDS, isHistoricalAttribution } from "@frameworks/agent/guard-intercept-classify";
 import { checkBashCommandSafety } from "@frameworks/agent/bash-safety-guard";
-// F20261019fito：静态 import（原 4 个用例内动态 await import）——pi-session-factory 模块图
+// 静态 import（原 4 个用例内动态 await import）——pi-session-factory 模块图
 // 首载（数十依赖 + vitest transform）约 5s，恰好顶满 vitest 默认 testTimeout=5000ms，
 // 首个用例「基础字段」独扛加载成本 → 冷缓存/高负载时偶发超时（flaky）。提到文件顶层后
 // 加载成本不进任何用例计时窗，断言零变化。

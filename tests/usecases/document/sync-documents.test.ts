@@ -1,5 +1,5 @@
 /**
- * F20260803mval: SyncDocuments 行为测试
+ * SyncDocuments 行为测试
  * 覆盖 upsert（新/内容变/内容不变）、unknown 枚举 warnings、reconcileSync supersedes 悬空
  */
 import { describe, it, expect, vi } from "vitest";
@@ -13,8 +13,8 @@ import type { FeatureDocument } from "@entities/document/feature";
 import { cleanMarkdownForFts } from "@usecases/document/markdown-noise-cleaner";
 import { createTestLogger } from "../../helpers/logger";
 
-/** F20260803fbit: 算 bodyHash，与 sync-documents 的 computeBodyHash 一致 */
-/** F20260803chunk: 加版本前缀 "chunk-v1|"（D3 触发全量 reindex） */
+/** 算 bodyHash，与 sync-documents 的 computeBodyHash 一致 */
+/** 加版本前缀 "chunk-v1|"（D3 触发全量 reindex） */
 function computeBodyHash(rawBody: string): string | null {
   const cleaned = cleanMarkdownForFts(rawBody);
   if (!cleaned) return null;
@@ -73,7 +73,7 @@ function makeResearchRepo(): ResearchRepository {
 }
 
 /** 智能递归 fs mock：模拟 docs/features/2026/08/03/ 目录树。
- *  F20260901dsyn: docs/research 目录返回空——旧 mock 把两棵树指向同一批文件，
+ * docs/research 目录返回空——旧 mock 把两棵树指向同一批文件，
  *  F 文档会被 research 扫描器重复解析报 Invalid research ID（旧测试不断言 errors 才没暴露） */
 function makeFs(fileMap: Record<string, string>): FileSystemGateway {
   return {
@@ -168,7 +168,7 @@ describe("SyncDocuments - F20260803mval", () => {
   });
 
   it("已有文档内容不变：skip，不调 updateContent/indexFeature", async () => {
-    // F20260803fbit: existing 的 bodyHash 要匹配文件内容算出的值，否则指纹不等走 updated
+    // existing 的 bodyHash 要匹配文件内容算出的值，否则指纹不等走 updated
     const existing = makeDoc({ summary: "测试摘要", bodyHash: computeBodyHash("# 正文\n这是文档正文内容，用于测试分段索引。\n") });
     const featureRepo = makeStatefulFeatureRepo([existing]);
     const indexFeature = vi.fn(async () => {});
@@ -209,7 +209,7 @@ describe("SyncDocuments - F20260803mval", () => {
   });
 
   it("F20260901dsyn: id 漂移——同 file_path DB 存在不同 id -> 结构化错误而非裸 UNIQUE 崩溃，不 insert", async () => {
-    // 复现 #637：文档 id=mmr10，DB 同路径已有 id=mmr1 的记录（#670 回修后测试数据
+    // 复现 文档 id=mmr10，DB 同路径已有 id=mmr1 的记录（回修后测试数据
     // 对齐 4 位后缀契约，原 3 位合成 id 在 {4,10} 下非法）
     const dbDoc = makeDoc({
       id: "F20260803mmr1",
@@ -234,7 +234,7 @@ describe("SyncDocuments - F20260803mval", () => {
   });
 
   it("F20260901dsyn: id 对齐后（文档 id 改回 DB id）——走 upsert update 分支，不再报错", async () => {
-    // 修复后形态：文档 id 已改回 F20260803mmr1，与 DB 一致，fingerprint 不同（status 不同）触发 update
+    // 修复后形态：文档 id 已改回 与 DB 一致，fingerprint 不同（status 不同）触发 update
     const dbDoc = makeDoc({
       id: "F20260803mmr1",
       filePath: "docs/features/2026/08/03/F20260803mmr1.md",
@@ -255,7 +255,7 @@ describe("SyncDocuments - F20260803mval", () => {
   });
 });
 
-/** F20261110dsqy（#1818）：归档守卫测试。
+/** 归档守卫测试。
  * 案发：sync_docs(rootDir=worktree) 时 worktree 检出比主仓少文档是常态，
  * 旧逻辑见「该 rootDir 下无此文件」即归档 → 主仓独有文档被批量误归档（实测
  * 1133/1137 archived）→ 下轮主仓 sync 因 fingerprint 含 status 全量 mismatch →

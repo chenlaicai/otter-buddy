@@ -1,10 +1,10 @@
 /**
- * F20260924uxrc：确认即转后台交接后的 RestartModal 交互测试。
+ * 确认即转后台交接后的 RestartModal 交互测试。
  *
  * 行为变更：原「await 期间弹窗锁死 + 按钮文案切封装中文案」已删——
  * index.confirmRestart 确认即关弹窗 + toast 后台反馈（搭档实证：
  * 停留在弹窗啥也干不了）。本测试钉死新行为：
- * 1. 勾选项默认勾选 / 取消勾选透传 false（保留自 F20260920uhuc）
+ * 1. 勾选项默认勾选 / 取消勾选透传 false（保留自 ）
  * 2. 确认 → 立即触发 onConfirmRestart（同步，不等 API）
  * 3. 防连点：点击后按钮进入 disabled 窗口，再次点击不重复触发
  */

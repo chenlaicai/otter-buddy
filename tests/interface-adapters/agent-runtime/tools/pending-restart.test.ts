@@ -1,5 +1,5 @@
 /**
- * F20260815rstrt pendingRestart 路径单元测试。
+ * pendingRestart 路径单元测试。
  *
  * 通过公共 API createTools 测试 restart_otter 工具的自重启延迟执行逻辑。
  * 实际调用生产代码，而非手动复制逻辑。

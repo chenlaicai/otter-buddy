@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- 调度核心路径（触发/重试/healing 注入/指标/链看门狗）聚合于本文件，
-   拆分需新建模块并移动多个私有方法，引入间接层而降低可读性；#516/#517 增加活跃看门狗与记账校验已尽量精简 */
+   拆分需新建模块并移动多个私有方法，引入间接层而降低可读性；/增加活跃看门狗与记账校验已尽量精简 */
 import type { ConversationRepository } from '@usecases/conversation/conversation-repository';
 import type { SendEntry } from '@usecases/conversation/send-entry';
 import type { EntryRepository } from '@usecases/conversation/entry-repository';
@@ -35,15 +35,15 @@ import { haltRegistry } from '@usecases/signal/halt-registry';
 const ONCE_MAX_RETRIES = 3;
 const ONCE_RETRY_DELAY_MS = 65_000; // 65 秒（避开 claimTask 60s 窗口）
 
-/** #640: 轮询间隔（5 分钟，2026-09-15 闹钟瘦身：30s→5min——任务最小粒度 1min 且全为日报/周报级，
+/** 轮询间隔（5 分钟，2026-09-15 闹钟瘦身：30s→5min——任务最小粒度 1min 且全为日报/周报级，
  *  补触发晚 5 分钟无体感，循环频率降 10 倍；chen 15:09「后台循环太多」裁决）。
- *  ⚠ 本值同时是「快路径触发去重窗」（#640 防重复判据：lastTriggeredAt 在本窗口内视为已被
+ * ⚠ 本值同时是「快路径触发去重窗」（防重复判据：lastTriggeredAt 在本窗口内视为已被
  *  setTimeout 快路径触发）——窗口从 30s 涨到 5min 后，setTimeout 快路径触发失败的回补延迟
  *  同步涨到最多 5min（可接受，见特性文档 timer-diet）。quartz/celery beat 模式：
  *  定时扫描 active 任务，比对墙钟，迟到即补触发 */
 const POLL_INTERVAL_MS = 300_000;
 
-/** #1449：running 执行体滞留挤占阈值（2h）。
+/** running 执行体滞留挤占阈值（2h）。
  *  案发背景（10-11/12 生产现场）：watchExecutionByLedger 无静默窗（换轨路径专属）——
  *  闸门冻结/网关断连/进程 hang 时信号永不被点燃，isMessageSettled 永 false，
  *  看门狗空转 24h 硬上限才释放执行位；期间同任务后续触发全部被 claimAndValidateTask
@@ -55,41 +55,41 @@ const POLL_INTERVAL_MS = 300_000;
  *  Why 2h：正常任务时长上限 ~1h（日报级），2h 留一倍余量；1h 内即便闸门锁死自愈失败，
  *  挤占 healing 也已落账可见（软路径），2h 是硬兜底的机械释放。 */
 const RUNNING_STUCK_THRESHOLD_MS = 2 * 60 * 60 * 1000;
-/** #1510：空 messageId 执行回找 scheduler 锚点的触发时间匹配窗（5min）——锚点在触发时同步落账，
+/** 空 messageId 执行回找 scheduler 锚点的触发时间匹配窗（5min）——锚点在触发时同步落账，
  *  正常偏差秒级；5min 足够容错同时避免把次日同名任务的锚点误配到本次执行。 */
 const ANCHOR_MATCH_WINDOW_MS = 5 * 60 * 1000;
-/** #1449：挤占 skip 落 healing 的同任务节流窗（1h）——挤占态持续时多次触发
+/** 挤占 skip 落 healing 的同任务节流窗（1h）——挤占态持续时多次触发
  *  （如每日补丁清单双触发）只落一条，防告警刷屏；节流状态存内存（重启重置可接受）。 */
 const PREEMPTION_SKIP_HEALING_THROTTLE_MS = 60 * 60 * 1000;
 
-/** #1272：轮询 catch-up 每轮全局配额（所有对话合计）。
- *  Why 3：issue #1272 建议同轮重任务 ≤3；跨对话风暴主要是资源压力，
+/** 轮询 catch-up 每轮全局配额（所有对话合计）。
+ * Why 3：建议同轮重任务 ≤3；跨对话风暴主要是资源压力，
  *  同对话堆积才是上下文爆炸主因（由 CATCHUP_CONV_QUOTA 另行限制）。 */
 const CATCHUP_GLOBAL_QUOTA = 3;
 
-/** #1272：轮询 catch-up 每轮同对话配额。
+/** 轮询 catch-up 每轮同对话配额。
  *  Why 1：多任务同对话同轮注入 = 每条任务指令都是完整上下文负担（6 份数据源+
  *  全量数据的10/1现场），且会被同一执行 session 串行消化；配 1 让同对话任务
  *  逐轮串行注入，每轮间隔一个 POLL_INTERVAL_MS。 */
 const CATCHUP_CONV_QUOTA = 1;
-/** #775 执行级看门狗轮询：任务触发后按此间隔探测「台账在途尝试 + 产出活性」。
- *  #516 静默窗是「无产出才判死」的容忍窗；换轨后信号可能被闸门冻结（用户停机/限流熔断），
+/** 执行级看门狗轮询：任务触发后按此间隔探测「台账在途尝试 + 产出活性」。
+ * 静默窗是「无产出才判死」的容忍窗；换轨后信号可能被闸门冻结（用户停机/限流熔断），
  *  静默窗判死会误杀「被闸门保留、等待恢复」的信号——判活优先看台账（in_progress 即活），
  *  闸门冻结由信号保留语义兜住（恢复后补扫点燃），不靠 scheduler 轮询硬等。 */
 const LEDGER_WATCH_POLL_MS = 15_000;
-/** #1048 看门狗克制（2026-10-20 搭档定调）：定时任务允许漏一次执行（如系统停止期间），
+/** 看门狗克制（2026-10-20 搭档定调）：定时任务允许漏一次执行（如系统停止期间），
  *  兜底/看门狗必须克制——看门狗职责从「判死仲裁」降级为「清坑保洁」，不再等满 24h 追求
  *  精确终态：静默窗无产出 / 持续活跃超窗即放弃等待（WatchdogAbandonedError → skipped，
- *  不计 consecutiveFailures，不触发 3 连败熔断——#516 教训：误杀被熔断放大成静默停跑）。
+ * 不计 consecutiveFailures，不触发 3 连败熔断——教训：误杀被熔断放大成静默停跑）。
  *  任务可于下次调度补跑、信号由补扫消化，放弃是常态操作不是异常。
- *  基线 2h：正常任务时长上限 ~1h（日报级），2h 留一倍余量（与 #1449 孤儿扫描阈值同源判断）。 */
+ * 基线 2h：正常任务时长上限 ~1h（日报级），2h 留一倍余量（与 孤儿扫描阈值同源判断）。 */
 const WATCH_ABANDON_BASELINE_MS = 2 * 60 * 60 * 1000;
 /** 放弃窗口 = max(基线 2h, 2×静默窗)——timeoutMinutes 配大静默窗的任务留一倍余量。 */
 function resolveAbandonWindowMs(silenceMs: number): number {
   return Math.max(WATCH_ABANDON_BASELINE_MS, silenceMs * 2);
 }
 
-/** #1048：看门狗主动放弃等待（非任务失败）——落 skipped 不计熔断（同锁冲突/闸门拦截
+/** 看门狗主动放弃等待（非任务失败）——落 skipped 不计熔断（同锁冲突/闸门拦截
  *  「非任务失败」分账语义）。「放弃」=不再等终态（任务可能仍在后台跑完、可能由补扫消化），
  *  与「失败」（链 settle 后报错 / 429 配额耗尽判死）分道。 */
 export class WatchdogAbandonedError extends Error {
@@ -99,94 +99,94 @@ export class WatchdogAbandonedError extends Error {
   }
 }
 
-/** #642: 429/rate_limit 类错误的最大重试次数。超过此次数仍 429 → 判死（配额耗尽不会自愈，续期无意义） */
+/** 429/rate_limit 类错误的最大重试次数。超过此次数仍 429 → 判死（配额耗尽不会自愈，续期无意义） */
 const MAX_429_RETRIES = 3;
 
-/** #1068: 配额终态降级重试次数上限（每次触发预算 1 次）。
+/** 配额终态降级重试次数上限（每次触发预算 1 次）。
  *  语义：定时任务 invoke 因 quota-exhausted 失败时，restart 执行獭换 fallback 模型重试一次；
  *  重试再失败（任何原因）走既有 failure 记账，不再循环降级（fallback 也可能同池耗尽）。 */
 const MAX_QUOTA_FALLBACK_RETRIES = 1;
 
-/** #516: 链超时参数。语义从「一刀切墙钟」改为「静默容忍窗 + 硬上限」：
+/** 链超时参数。语义从「一刀切墙钟」改为「静默容忍窗 + 硬上限」：
  *  静默窗内链无任何新消息 → 判死；有新消息（流式/终态均算）→ 链活跃，续期等待。
  *  背景：8-24/25/26《每日 issue 处理》被 15 分钟一刀切误杀——链实际跑到 18:47 正常收尾，
  *  底层工作完成但账面记 failed，3 次熔断后 status=error 静默停跑。
  *  默认静默窗 15 分钟（resolveChainSilenceMs 内联），任务级 timeoutMinutes 可覆盖。 */
-/** 硬上限（#1048 收口）：无论链是否活跃，总时长超过 resolveAbandonWindowMs(silenceMs)
+/** 硬上限（收口）：无论链是否活跃，总时长超过 resolveAbandonWindowMs(silenceMs)
  *  即放弃等待（防真死循环占住调度器；原恒 24h 等待退役）。 */
 /** 非链降级路径（未注入 dispatchChainEngine）：单次 invoke 5 分钟一刀切（旧语义保留） */
 const SINGLE_INVOKE_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Cron 解析接口（由 frameworks 层实现）
- *  #640: 支持 referenceTime 参数用于轮询模式下计算从某时间点起的下次触发时间 */
+ * 支持 referenceTime 参数用于轮询模式下计算从某时间点起的下次触发时间 */
 export interface CronParser {
   getNextTime(cron: string, timezone: string, referenceTime?: Date): Date;
-  /** #814：取 referenceTime 之前最近一次应触发时间（调度完整性对账用）。无实现时返回 null。 */
+  /** 取 referenceTime 之前最近一次应触发时间（调度完整性对账用）。无实现时返回 null。 */
   getPrevTime?(cron: string, timezone: string, referenceTime?: Date): Date | null;
 }
 
 export interface SchedulerServiceOptions {
-  /** #823 测试注入：替换轮询 tick 实现（生产不传，默认 tickReal）。
-   *  ⚠ 生产误传将导致 30s 轮询补触发静默失效（tickReal 被整体替换）——与 #823 所修的
+  /** 测试注入：替换轮询 tick 实现（生产不传，默认 tickReal）。
+   * ⚠ 生产误传将导致 30s 轮询补触发静默失效（tickReal 被整体替换）——与 所修的
    *  「tick 死亡不可见」同一 failure mode，只是人为注入。仅测试装配使用。 */
   tickImpl?: () => Promise<void>;
   taskRepo: ScheduledTaskRepository;
   convRepo: ConversationRepository;
-  /** F20260913ctlv 收尾批2：scheduler 内部信号唯一落点 = entries（system entry）。
+  /** 收尾批2：scheduler 内部信号唯一落点 = entries（system entry）。
    *  sendMessage（messages 表）退役；看门狗/记账校验同步改 entries */
   sendEntry: SendEntry;
   entryRepo: EntryRepository;
   agentInvokePort: AgentTurnPort;
   cronParser: CronParser;
   logger: Logger;
-  /** F20260913ctlv 收尾批2：system entry 广播（entry.system SSE，前端时间线实时可见） */
+  /** 收尾批2：system entry 广播（entry.system SSE，前端时间线实时可见） */
   messageBroadcaster?: MessageBroadcaster;
   manageScheduledTask?: ManageScheduledTask;
   manageSession?: ManageSession;
   healingRepo?: HealingEventRepository;
-  /** F20261008hcpa（#1356 层3）：healing 主对话 ID 异步解析器（settings 仓懒解析——
+  /** （层3）：healing 主对话 ID 异步解析器（settings 仓懒解析——
    *  healing 对话由 ensureHealingConversation 引导创建，构造期 settings 可能未就绪）。 */
   healingConversationIdResolver?: () => Promise<string | undefined>;
-  /** F20260902sgp2 S4b：派发台账（可选）——看门狗台账终态判活 */
-  /** #775 S4a 换轨：信号路由器（可选注入）。注入后定时任务触发 = 投信号 → 路由器点火
+  /** 派发台账（可选）——看门狗台账终态判活 */
+  /** 换轨：信号路由器（可选注入）。注入后定时任务触发 = 投信号 → 路由器点火
    *  （过闸门+台账记账）；未注入回退直连链（回滚面，与 sgpv 降级基线同语义）。 */
   signalRouter?: SignalRouter;
   metrics?: SchedulerMetricsPort;
-  /** Why: 链外 invoke 路径不消费 yield 传递目标导致 yield 传递目标丢失（#332；
-   *  F20260904schf 起链引擎改读行级 tsp，不再消费 turn 级 aggregatedTargets）。
+  /** Why: 链外 invoke 路径不消费 yield 传递目标导致 yield 传递目标丢失（；
+   * 起链引擎改读行级 tsp，不再消费 turn 级 aggregatedTargets）。
    *  注入后 invokeAgentWithTimeout 走 DispatchChainEngine.executeChain 续跑发言链。 */
   dispatchChainEngine?: DispatchChainEngine;
-  /** 时钟注入（F20260814qswp）：替代对 @frameworks/metrics nowMs 的直接依赖，测试可替换。
+  /** 时钟注入：替代对 @frameworks/metrics nowMs 的直接依赖，测试可替换。
    *  默认保持原 nowMs 的单调钟语义（duration 计时不受 NTP 步进影响——
    *  首版误用 Date.now 墙钟）；与调度延迟计算的 Date.now 是两条时间线，注入方须保持一致语义 */
   now?: () => number;
   /** PR4: 函数注册表，用于 function executor */
   functionRegistry?: FunctionRegistry;
-  /** #1068: 模型池（可选）——quota-exhausted 降级重试时解析默认模型/选 fallback。
+  /** 模型池（可选）——quota-exhausted 降级重试时解析默认模型/选 fallback。
    *  未注入时降级路径整体跳过（与 manageSession 缺失同语义：warn 后走原失败路径）。 */
   modelPool?: ModelPoolLike;
-  /** #1449：目标獭是否活跃执行中（可选）——孤儿 running 执行扫描的判活回调。
+  /** 目标獭是否活跃执行中（可选）——孤儿 running 执行扫描的判活回调。
    *  未注入按「无存活」处理（保守清理）。 */
   isOtterRunning?: (otterId: string) => boolean;
-  /** F20261021sprx：角色 → 当前名册实例的实体查询，以及忙时待执行列表。 */
+  /** 角色 → 当前名册实例的实体查询，以及忙时待执行列表。 */
   otterRepo?: Pick<OtterRepository, 'getById'>;
   pendingItemRepo?: ScheduledTaskPendingItemRepository;
 }
 
 export class SchedulerService {
   private timers = new Map<string, NodeJS.Timeout>();
-  /** #640: 轮询定时器（唯一，全局扫描所有 active 任务） */
+  /** 轮询定时器（唯一，全局扫描所有 active 任务） */
   private pollTimer: NodeJS.Timeout | undefined;
-  /** #640: 任务下次预期触发时间缓存（内存，避免每次从 cron 重算） */
+  /** 任务下次预期触发时间缓存（内存，避免每次从 cron 重算） */
   private nextExpectedTrigger = new Map<string, Date>();
   private readonly taskRepo: ScheduledTaskRepository;
   private readonly convRepo: ConversationRepository;
-  /** F20260913ctlv 收尾批2：entries 唯一写入面（system entry）+ 读取面（看门狗/记账） */
+  /** 收尾批2：entries 唯一写入面（system entry）+ 读取面（看门狗/记账） */
   private readonly sendEntry: SendEntry;
   private readonly entryRepo: EntryRepository;
   private readonly messageBroadcaster?: MessageBroadcaster;
   private readonly agentInvokePort: AgentTurnPort;
-  /** #1449：isRunning 委托（可选）——孤儿执行扫描判定「running 行是否有存活执行方」。
+  /** isRunning 委托（可选）——孤儿执行扫描判定「running 行是否有存活执行方」。
    *  缺省 = 无存活（最保守：判不出活就当死，机械清理比等 24h 安全）。
    *  生产由 AgentInvoker（委托 PiSessionFactory.isRunning）注入；测试注入假实现。 */
   private readonly isOtterRunning?: (otterId: string) => boolean;
@@ -195,10 +195,10 @@ export class SchedulerService {
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
-  /** F20260902sgp2 S4b：派发台账——看门狗台账终态判活的数据源（可选，未注入回退消息判定） */
-  /** #775 S4a 换轨：信号路由器（可选）——注入后触发走投信号路径 */
+  /** 派发台账——看门狗台账终态判活的数据源（可选，未注入回退消息判定） */
+  /** 换轨：信号路由器（可选）——注入后触发走投信号路径 */
   private signalRouter?: SignalRouter;
-  /** #775 S4a：装配顺序注入点（路由器晚于 scheduler 诞生，构造期互指会循环依赖） */
+  /** 装配顺序注入点（路由器晚于 scheduler 诞生，构造期互指会循环依赖） */
   attachSignalRouter(router: SignalRouter): void {
     this.signalRouter = router;
   }
@@ -208,15 +208,15 @@ export class SchedulerService {
   private readonly manageSession?: ManageSession;
   private readonly functionRegistry?: FunctionRegistry;
   private readonly modelPool?: ModelPoolLike;
-  /** #1208：regression-verify 本轮 skip 的原因（resolveEffectiveBody 写入，skip 落账/心跳消费后清除）。
+  /** regression-verify 本轮 skip 的原因（resolveEffectiveBody 写入，skip 落账/心跳消费后清除）。
    *  实例字段而非返回值——resolveEffectiveBody 签名不变（调用方多），且原因只服务 skip 路径。 */
   private lastRegressionSkipReason?: 'gh-cli-failure' | 'no-due-assertions';
-  /** F20261008hcpa（#1356 层3）：healing 主对话 ID 异步解析器（settings 仓懒解析）。 */
+  /** （层3）：healing 主对话 ID 异步解析器（settings 仓懒解析）。 */
   private readonly healingConversationIdResolver?: () => Promise<string | undefined>;
-  /** #1208：claim 因对话不存在/非 active 被拒时由 claimAndValidateTask 置位，
+  /** claim 因对话不存在/非 active 被拒时由 claimAndValidateTask 置位，
    *  catch 块据此跳过 skipped execution 落账（任务已 disable，落账无意义）。消费后清除。 */
   private conversationDisabledInClaim = false;
-  /** #1449：挤占 skip 落 healing 的节流时间戳（taskId → 上次落账 epoch ms）。
+  /** 挤占 skip 落 healing 的节流时间戳（taskId → 上次落账 epoch ms）。
    *  内存态即可：进程重启后挤占现场已由孤儿扫描清理，重复落账风险随现场消失。 */
   private readonly preemptionSkipHealingAt = new Map<string, number>();
 
@@ -1997,7 +1997,7 @@ export class SchedulerService {
     }
   }
 
-  /** #517: 分页拉取锚点后全部 entries（F20260913ctlv 批2：messages → entries）。
+  /** 分页拉取锚点后全部 entries（批2：messages → entries）。
    *  单页 100 条上限会漏检深层失败（entry 量 >100 且 failed
    *  在 100 条之后时误记 completed）。getEntriesAfter 按 sequence_num 升序返回，
    *  以最后一条 entry id 为游标推进直到取空。 */
@@ -2018,7 +2018,7 @@ export class SchedulerService {
   }
 
   /** messageId 为 null：function executor 无消息（PR4）；LLM executor 传 anchor 消息 id。
-   * F20260901ppfk：防御空串——未来新增 executor 类型若传 ''，归 null 不炸 FK */
+   * 防御空串——未来新增 executor 类型若传 ''，归 null 不炸 FK */
   private async completeExecution(executionId: string, conversationId: string, messageId: string | null): Promise<void> {
     await this.taskRepo.updateExecutionStatus(executionId, {
       status: 'completed',
@@ -2027,9 +2027,9 @@ export class SchedulerService {
     });
   }
 
-  /** #654: 锁冲突跳过记账——execution 记 skipped（非 failed），不 increment consecutiveFailures、
+  /** 锁冲突跳过记账——execution 记 skipped（非 failed），不 increment consecutiveFailures、
    *  不触发 3 连败熔断。errorMessage 留下锁冲突痕迹供面板/排查可见。 */
-  /** #1048：fallback 重试失败的记账分道——看门狗放弃 → skipped（不计熔断），其余 → 失败记账。
+  /** fallback 重试失败的记账分道——看门狗放弃 → skipped（不计熔断），其余 → 失败记账。
    *  返回落账状态供调用方同步 status（拆 helper 另为控 max-depth）。 */
   private async finishFallbackRetry(
     executionId: string,
@@ -2072,7 +2072,7 @@ export class SchedulerService {
       errorMessage,
     });
 
-    // #754：单次失败即落 healing 台账（此前仅 ≥3 次熔断停跑才落——9/2 健康检查单次失败
+    // 单次失败即落 healing 台账（此前仅 ≥3 次熔断停跑才落——9/2 健康检查单次失败
     // 未达 3 次阈值，台账零记录，根因悬置 6 天）。healing 是问题发现第一入口，
     // 单次失败也值得分析视野；定时任务按天/周低频触发，等 3 次可能要 3 天。
     // best-effort：落账失败不阻断失败处理主路径。
@@ -2081,13 +2081,13 @@ export class SchedulerService {
     const failures = await this.taskRepo.incrementConsecutiveFailures(taskId, now);
     if (failures >= 3) {
       await this.taskRepo.updateStatus(taskId, 'error', now);
-      // #516: error 不再静默——置 error 的同时在任务所属对话注入系统消息 + 写 healing event，
+      // error 不再静默——置 error 的同时在任务所属对话注入系统消息 + 写 healing event，
       // 消灭「3 次熔断停跑、用户看板偶遇才发现」的静默死亡。通知失败不阻塞状态变更本身。
       await this.notifyTaskErrored(taskId, failures, errorMessage);
     }
   }
 
-  /** #516: 任务进入 error 状态的通知（F20260913ctlv 批2：system entry + healing event，均 best-effort） */
+  /** 任务进入 error 状态的通知（批2：system entry + healing event，均 best-effort） */
   private async notifyTaskErrored(taskId: string, failures: number, errorMessage: string): Promise<void> {
     const task = await this.taskRepo.getById(taskId).catch(() => null);
     if (!task) {
@@ -2359,7 +2359,7 @@ error_type 为 \`tool_use_feedback\` 的事件是海獭主动报的工具痛点�
 
 /** 读取模板文件，去掉 frontmatter。文件缺失时返回 null（调用方回退到内置文案）。 */
 function loadHealingTemplate(): string | null {
-  // Why: 模板路径基于代码位置解析（#429），cwd 非项目根（systemd/容器）也能读到
+  // Why: 模板路径基于代码位置解析，cwd 非项目根（systemd/容器）也能读到
   const path = resolve(getRepoRoot(), HEALING_ANALYSIS_TEMPLATE_PATH);
   try {
     const content = readFileSync(path, 'utf8');
@@ -2370,7 +2370,7 @@ function loadHealingTemplate(): string | null {
   }
 }
 
-/** regression-verify 模板路径（#1004：静态文案的 git 真相源，动态部分由 {{REGRESSION_DATA}} 占位符填充） */
+/** regression-verify 模板路径（静态文案的 git 真相源，动态部分由 {{REGRESSION_DATA}} 占位符填充） */
 export const REGRESSION_VERIFY_TEMPLATE_PATH = 'prompts/scheduled/regression-verify.md';
 
 /** 读取 regression-verify 模板文件，去掉 frontmatter。文件缺失时返回 null。 */
@@ -2385,7 +2385,7 @@ function loadRegressionVerifyTemplate(): string | null {
   }
 }
 
-/** #1004：从 issue body 中提取「验证断言」段的到期日期（YYYY-MM-DD）。无断言段/无到期行 → null。 */
+/** 从 issue body 中提取「验证断言」段的到期日期（YYYY-MM-DD）。无断言段/无到期行 → null。 */
 export function extractAssertionDueDate(body: string): string | null {
   const section = body.match(/##\s*验证断言([\s\S]*?)(\n##\s|$)/);
   if (!section) return null;
@@ -2393,7 +2393,7 @@ export function extractAssertionDueDate(body: string): string | null {
   return due ? due[1] : null;
 }
 
-/** #1004：构建 regression-verify 任务的动态 prompt。返回 null 表示无到期断言。
+/** 构建 regression-verify 任务的动态 prompt。返回 null 表示无到期断言。
  *  扫描近 62 天 closed 的 daily-review issue（30 天到期 + 32 天余量），提取「验证断言」段到期日期，
  *  只留今天及以前到期的。
  *  失败路径区分：gh 执行失败 → 返回 'GH_FAILED' 哨兵（调用方记 warn 告警，
@@ -2409,7 +2409,7 @@ async function defaultRegressionGhRunner(command: string, args: string[], option
   return promisify(execFile)(command, args, options);
 }
 
-/** #1004：调 gh 拉近 62 天 closed 的 daily-review issue。任何失败（auth/网络/未装/JSON 坏）→ null。 */
+/** 调 gh 拉近 62 天 closed 的 daily-review issue。任何失败（auth/网络/未装/JSON 坏）→ null。 */
 async function fetchClosedDailyReviewIssues(runGh: RegressionGhRunner): Promise<RegressionIssueRow[] | null> {
   const since = new Date(Date.now() - 62 * 24 * 3600 * 1000).toISOString().slice(0, 10);
   try {

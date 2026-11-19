@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * F20260921spcm 回归验证：SPA 路由切换对话时消息列表必须重新拉取。
+ * 回归验证：SPA 路由切换对话时消息列表必须重新拉取。
  *
- * bug 现象（PR #1057 SPA 化引入）：左侧栏点进一个看过的对话，消息停留在旧缓存，
+ * bug 现象（SPA 化引入）：左侧栏点进一个看过的对话，消息停留在旧缓存，
  * 海獭新发言不显示，需 F5 才恢复。
  * 根因：消息加载 useEffect 守门条件 `!allMessages[activeId]`——SPA 下组件不重挂载、
  * 缓存命中即跳过 fetch；SSE 只订阅当前对话且无历史回放，切走期间的事件永久丢失。
@@ -40,10 +40,10 @@ const entriesByConv: Record<string, unknown[]> = {
 
 /** listEntries 拉取计数——断言核心 */
 let listEntriesCalls: string[] = []
-/** F20260921inrl：列表/设置拉取计数——切换对话不应重拉（#1074 债务锚定） */
+/** 列表/设置拉取计数——切换对话不应重拉（债务锚定） */
 let listCalls = 0
 let settingsCalls = 0
-/** F20260923sswd：listInvokes 拉取计数——右栏状态恢复竞态/重试断言核心 */
+/** listInvokes 拉取计数——右栏状态恢复竞态/重试断言核心 */
 let listInvokesCalls: string[] = []
 
 function json(data: unknown) {
@@ -69,13 +69,13 @@ function mockApi() {
     if (invokesMatch) { listInvokesCalls.push(invokesMatch[1]!); return json({ invokes: [] }) }
     if (/^\/api\/conversations\/conv-[ab]\/key-resources/.test(url)) return json({ resources: [] })
     if (/^\/api\/conversations\/conv-[ab]\/read/.test(url)) return json({})
-    // F20260921inrl S1（检视1076）：scheduled-tasks 必须返回数组——catch-all 的 json({})
+    // （检视1076）：scheduled-tasks 必须返回数组——catch-all 的 json({})
     // 会让 useScheduledTasks.ts:20 的 res.map() 拋 TypeError（CI check FAIL 实证）。
     // convId 不限 conv-[ab]：深链接用例里 conv-gone 同样会触发该 hook。
-    // （#1072 时代靠宽匹配误拿列表数组蒙混，mock 收窄后暴露）
+    // （时代靠宽匹配误拿列表数组蒙混，mock 收窄后暴露）
     if (/^\/api\/conversations\/[^/]+\/(scheduled-tasks|attachments)/.test(url)) return json([])
     // 列表请求：带 query 的 /api/conversations?limit=…（子路径请求已在上面分流，这里只接列表本体）
-    // F20260922cgrp：返回结构 { items, total }——列表本体与 LeftPanel 分组分页拉取共用此 mock；
+    // 返回结构 { items, total }——列表本体与 LeftPanel 分组分页拉取共用此 mock；
     // listCalls 只计父组件首屏（limit=500，无 status），分组分页（status/kind）不计入「重拉」断言
     if (/^\/api\/otters\/[^/]+\/sessions/.test(url)) return json([])
     if (url.startsWith('/api/conversations?') || url === '/api/conversations') {
@@ -84,7 +84,7 @@ function mockApi() {
       return json({ items: [convA, convB], total: 2 })
     }
     if (url.startsWith('/api/settings')) { settingsCalls++; return json({ userName: '测试用户' }) }
-    // F20260921inrl D2（检视1076）：catch-all 返回 json({}) 是同类故障温床——未 mock 的
+    // D2（检视1076）：catch-all 返回 json({}) 是同类故障温床——未 mock 的
     // 端点拿到 {} 后 .map() 等数组操作直接 TypeError，且可能被 unhandled rejection 吞掉。
     // 改为显式警告 + 空对象：未知请求可见，漏 mock 时测试输出有明确线索。
     console.warn('[spa-nav-test] unmocked API call:', url)
@@ -92,7 +92,7 @@ function mockApi() {
   })
 }
 
-/** F20261027nmbf：SSE 桩——在 A 会话上翻阅读时注入新发言，制造本地浮窗计数。 */
+/** SSE 桩——在 A 会话上翻阅读时注入新发言，制造本地浮窗计数。 */
 class BadgeXHR {
   static instances: BadgeXHR[] = []
   responseText = ''
@@ -180,7 +180,7 @@ describe('F20261027nmbf：SPA 切会话清理上一会话的新消息浮窗计�
       expect(scroller, '消息滚动容器应就位').toBeTruthy()
       // 用真实 wheel 意图事件进入 floating，避免 jsdom 的布局副作用让 pin 状态失真
       await act(async () => { scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 })) })
-      // F20261029repin：上翻=视觉离底，补几何模拟——jsdom 无布局（scroll 几何全 0），
+      // 上翻=视觉离底，补几何模拟——jsdom 无布局（scroll 几何全 0），
       // 距底判定会把零几何当成「视觉贴底」误恢复跟随清计数（新语义按视觉位置判，几何必须
       // 忠实）。scroll 事件采样后距底 500px > 8px 阈值：新消息到达时保持 floating，计数 +1；
       // 新语义下 scroll 永不置 pin，几何桩不会污染 floating 状态（旧语义不敢桩的顾虑已消失）

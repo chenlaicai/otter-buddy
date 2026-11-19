@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-// #1222 / F20261103tsdkk：T5 生效断言集成测试——真实 SDK execute，非 mock。
+//  T5 生效断言集成测试——真实 SDK execute，非 mock。
 // 防护目标：SDK 双签名漂移（harness vs unbundled dist）导致的静默退化——
 // 若 pi 升级改变 execute 签名/返回结构，本测试第一时间红。
 import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -13,7 +13,7 @@ import { wrapBashWithCwdPrefix, CWD_PREFIX_TAG } from "../../../src/frameworks/a
  *  - createBashToolDefinition 是生产 bash 工具的同源工厂——生产装配走
  *    createAgentSession → SDK createAllToolDefinitions(cwd)，内部即调用本工厂
  *    （agent-session@1.1.0）。SDK execute 签名/返回面漂移在此先红是真的。
- *  - wrapBashWithCwdPrefix 自 F20261014cwsp（删 override 链）起无生产调用方——
+ * - wrapBashWithCwdPrefix 自 （删 override 链）起无生产调用方——
  *    休眠工具，本测试固化其行为契约以备复用（非生产路径防护）。 */
 function buildWrappedBash(cwd: string) {
   const base = createBashToolDefinition(cwd);

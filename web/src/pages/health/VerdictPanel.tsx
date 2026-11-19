@@ -1,5 +1,5 @@
 /**
- * 总览页三层结构（issue #1029，低保真原型 health-panel-lofi.html 为设计真相源）。
+ * 总览页三层结构（低保真原型 health-panel-lofi.html 为设计真相源）。
  *
  * 第一层 判断：综合分大卡——归因句从卡片角落小字升级为主标题（三秒知道「好不好+为什么」）。
  * 第二层 维度：五维大白话改名 + 一句「这量在量什么」+ 分数条替雷达（一眼见高低），
@@ -40,7 +40,7 @@ function dimOf(score: RhiScoreDTO, id: DimensionId) {
 
 // ── 第一层：判断卡 ──
 
-/** 综合分大卡：大数字 + 归因句主标题（issue #1029：从角落小字升级为第一屏主标题） */
+/** 综合分大卡：大数字 + 归因句主标题（从角落小字升级为第一屏主标题） */
 export function VerdictCard({ score }: { score: RhiScoreDTO | null }) {
   if (!score || !score.available || score.overall === null) {
     return (

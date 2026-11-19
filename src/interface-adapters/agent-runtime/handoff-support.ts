@@ -1,5 +1,5 @@
 /**
- * F20260825hndf：优雅上下文交接支持模块
+ * 优雅上下文交接支持模块
  *
  * 从 agent-invoker.ts 抽取交接触发逻辑，降低主文件复杂度。
  * 职责：pre-invoke 阈值检查、handleHandoff 编排、context 恢复/清理。
@@ -16,7 +16,7 @@ export const DEFAULT_CTX_MAX = 128_000;
 export class HandoffState {
   private readonly lastCtxTokens = new Map<string, number>();
   private readonly inProgress = new Map<string, boolean>();
-  /** F20260923hsyn：连续交接失败计数（死循环熔断——9/23 压缩死亡链：失败后 continuing with
+  /** 连续交接失败计数（死循环熔断——9/23 压缩死亡链：失败后 continuing with
    *  current session → ctx 继续涨 → 再触发再失败。连续 2 次失败则强制跳过合成直接机械档案，
    *  断「再试一次同样超窗」的循环；成功后清零） */
   private readonly consecutiveFailCount = new Map<string, number>();
@@ -41,24 +41,24 @@ export class HandoffState {
     this.inProgress.set(otterId, value);
   }
 
-  /** F20260923hsyn：记录一次交接失败（合成失败/锁超时等），返回累计失败次数 */
+  /** 记录一次交接失败（合成失败/锁超时等），返回累计失败次数 */
   recordHandoffFailure(otterId: string): number {
     const n = (this.consecutiveFailCount.get(otterId) ?? 0) + 1;
     this.consecutiveFailCount.set(otterId, n);
     return n;
   }
 
-  /** F20260923hsyn：交接成功后清零失败计数 */
+  /** 交接成功后清零失败计数 */
   clearHandoffFailures(otterId: string): void {
     this.consecutiveFailCount.delete(otterId);
   }
 
-  /** F20260923hsyn：当前连续失败次数 */
+  /** 当前连续失败次数 */
   getConsecutiveFailures(otterId: string): number {
     return this.consecutiveFailCount.get(otterId) ?? 0;
   }
 
-  /** F20260930hsfx M2：熔断计数统一入口——一切「合成未成功」的形态（失败/超时/超窗/熔断跳过/
+  /** M2：熔断计数统一入口——一切「合成未成功」的形态（失败/超时/超窗/熔断跳过/
    *  交接抛错/裸重启保底）都经此单点 +1；一切「换世成功且该清零」的形态经 clear 清零。
    *  收敛前：水位/熔断/自重启三处 catch 各自吞失败不计数、自重启 bare fallback 不清零——
    *  「自重启连炸两次合成」会被永久静默熔断（计数永远到不了 2）。统一入口后口径对称：

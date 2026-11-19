@@ -1,5 +1,5 @@
 /**
- * #576 (F20260901emps): Skills 目录 DTO——能力库页面真数据源。
+ * : Skills 目录 DTO——能力库页面真数据源。
  *
  * Why: 此前页面数据是静态快照（9/11 个 skill，随仓库演化过时）。
  * 真相源 = pi-agent ResourceLoader 发现的 skill 集合（.pi/skills 目录各 SKILL.md frontmatter），
@@ -11,7 +11,7 @@ export interface SkillItemDTO {
   name: string;
   /** frontmatter description（三段式契约摘要） */
   description: string;
-  /** F20260929scfx：SKILL.md frontmatter 之后的正文全文（读文件失败降级为空串） */
+  /** SKILL.md frontmatter 之后的正文全文（读文件失败降级为空串） */
   body?: string;
 }
 

@@ -1,5 +1,5 @@
 /**
- * F20260916fst4：首哑信号消费（agent-invoker handleFirstDumbSignal）单测。
+ * 首哑信号消费（agent-invoker handleFirstDumbSignal）单测。
  *
  * 覆盖方案验证段 3 用例：
  * - _firstDumb → dispatch 被调且 resolvedTargets 含在场大獭

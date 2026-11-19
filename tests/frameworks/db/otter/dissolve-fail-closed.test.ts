@@ -1,5 +1,5 @@
 /**
- * #1403：otter 仓 dissolve 对不存在 ID fail-closed（#1370 族模式口径外收尾，真 sqlite）。
+ * otter 仓 dissolve 对不存在 ID fail-closed（族模式口径外收尾，真 sqlite）。
  *
  * 上游 dissolve-otter.ts 有 getById + canDissolveOtter 双层前置防护，
  * 本用例锁 repo 层兜底：changes=0 时不静默成功，抛错走 assertUpdated 统一口径。

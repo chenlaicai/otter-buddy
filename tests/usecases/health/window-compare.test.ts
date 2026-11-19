@@ -1,5 +1,5 @@
 /**
- * #1704：commitInWindow 窗口归属回归——跨时区 author date 在窗口边界日的归属
+ * commitInWindow 窗口归属回归——跨时区 author date 在窗口边界日的归属
  * 必须按时间戳语义判定，不得随字符串字典序/当日时刻翻转。
  *
  * 原 bug：rhi-scan-worker.ts:345 用 `c.date >= windowStart` 字符串比较，混比 %aI

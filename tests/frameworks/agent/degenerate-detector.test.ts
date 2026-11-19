@@ -42,8 +42,8 @@ function distinctRatioOf(text: string): number {
   return total === 0 ? 1 : segs.size / total;
 }
 
-// ---------- #346：3-5KB 区间阴性夹具生成器 ----------
-// 背景：F20260820d338 将 minBlockLength 5000→3000，3-5KB 块首次暴露于机制 B。
+// ---------- 3-5KB 区间阴性夹具生成器 ----------
+// 背景：将 minBlockLength 5000→3000，3-5KB 块首次暴露于机制 B。
 // 实测：高度模板化的合法结构（表格/日志/JSON/清单/段落）ratio 均 = 1.000，
 // 安全边际充足；阈值语义 = "≥3KB 输出中逐字重复分段超 70% 才算退化"（见
 // 下方边界语义用例）。

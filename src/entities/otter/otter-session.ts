@@ -12,7 +12,7 @@ export interface OtterSession {
   archiveReason: string | null;
   isNegativeCase: boolean;
   summary: string | null;
-  /** F20260908efmd: 该世生效的模型 alias（默认解析后的真实值，非配置裸值）。null = 存量历史数据未快照 */
+  /** 该世生效的模型 alias（默认解析后的真实值，非配置裸值）。null = 存量历史数据未快照 */
   modelAlias: string | null;
 }
 
@@ -26,10 +26,10 @@ export function canArchiveSession(status: SessionStatus): boolean {
 }
 
 /**
- * 构造新 active Session 的纯工厂（F20260805rsto）。
+ * 构造新 active Session 的纯工厂。
  * CreateOtter（首世建账）与 ManageSession.createSession（重启/交接建链）共用，
  * 避免两处各自拼装 session 对象导致字段漂移。
- * @param modelAlias F20260908efmd: 可选——该世生效的模型 alias（默认解析后的真实值）。传 null 表示不快照（存量迁移用）。
+ * @param modelAlias 可选——该世生效的模型 alias（默认解析后的真实值）。传 null 表示不快照（存量迁移用）。
  */
 export function buildNewSession(
   otterId: string,
@@ -57,7 +57,7 @@ export function buildNewSession(
  * 来源：D36 示例 + 旧 repo archiveSession() 逻辑提取（旧 adapter 本身不做映射，映射在 repo 中）
  */
 export function archiveReasonToSessionStatus(reason: string): SessionStatus {
-  // F20260920uhuc：'compaction'（水位交接）与 'restart' 同为换世归档——session 链
+  // 'compaction'（水位交接）与 'restart' 同为换世归档——session 链
   // 语义一致（封存+新行），映射 'restarted' 使 UI Session Chain 按世代正常展示
   if (reason === "restart" || reason === "compaction") {
     return "restarted";

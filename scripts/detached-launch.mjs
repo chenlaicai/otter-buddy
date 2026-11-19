@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * detached-launch.mjs — 全分离启动器（F20260917alph，移植自 tutu-vessel 同名脚本）。
+ * detached-launch.mjs — 全分离启动器（移植自 tutu-vessel 同名脚本）。
  *
  * Usage: node scripts/detached-launch.mjs <logFile> <cmd> [args...]
  *

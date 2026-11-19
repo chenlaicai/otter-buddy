@@ -1,7 +1,7 @@
 /**
- * F20261019fckd（#1457）：事实型闭环分流——closure_kind 守卫矩阵单测。
+ * ：事实型闭环分流——closure_kind 守卫矩阵单测。
  *
- * 覆盖（issue #1457 验收标准的三条落进用例）：
+ * 覆盖（验收标准的三条落进用例）：
  * 1. fact 型 L2 owner 携机器证据直关 ✅（PR 号 / commit sha / mergedAt 三形态）
  * 2. fact 型 L2 缺机器证据被拒 ✅（补偿条件——放权必须有证据）
  * 3. decision 型 L2 owner 直关被拒 ✅（闸不变，不许弱化）

@@ -1,5 +1,5 @@
 /**
- * F20260825evgl 伤疤2：「严肃点」模式切换（manual_review 软断言场景）。
+ * 伤疤2：「严肃点」模式切换（manual_review 软断言场景）。
  *
  * 源测试锚点：system-prompt-behavior.capability.test.ts#Magic Words「严肃点」（it.skip）
  * 该场景在 mimo 上 0/3 失效（LLM 在 companion 闲聊上下文惯性太强，不识别切换信号），
@@ -15,7 +15,7 @@ export const golden: GoldenModule["golden"] = {
   originTest: "system-prompt-behavior.capability.test.ts#Magic Words「严肃点」",
   // 两轮对话压缩为单轮直发（runner runOneSample 只发一条 input；源测试的第二轮
   // 「严肃点」是触发条件，不能丢——丢了测的就只是闲聊）。模型层已知 0/3 不稳定
-  //（F20260810sopt），manualReview 判定留检视獭，本场景的产出价值 = 持续采样
+  //，manualReview 判定留检视獭，本场景的产出价值 = 持续采样
   // 看模型升级后是否自愈，给 judge 积累判例。
   input: "严肃点。我想分析一下这个项目的目录结构。",
   sampling: { n: 3, minSuccess: 2 },

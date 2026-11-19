@@ -4,7 +4,7 @@ import type { SignalEventRepository } from '@usecases/signal/signal-event-reposi
 import { rowToSignalEvent, signalEventToInsertValues, buildSignalFilterClause, type SignalEventRow } from './signal-event-mapper';
 
 /**
- * Signal events 的 SQLite 实现（F20260826mwrd C1）。
+ * Signal events 的 SQLite 实现（C1）。
  * 表结构在 schema.ts createSignalsTable 创建（幂等 CREATE IF NOT EXISTS）。
  */
 export class SqliteSignalEventRepository implements SignalEventRepository {

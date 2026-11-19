@@ -29,7 +29,7 @@ interface ModelEntry {
 
 /**
  * ModelPool：模型连接池。
- * 启动时构建，条目集不可变；默认 alias 可在运行时切换（settings 页，F20260806cnp6），
+ * 启动时构建，条目集不可变；默认 alias 可在运行时切换（settings 页，），
  * 切换只影响之后新建的 session，既有 session 保持原模型。
  *
  * ModelPool 同时实现 ModelPoolLike（usecases/ports），用于 settings-controller 等
@@ -97,14 +97,14 @@ export class ModelPool implements ModelPoolLike {
     return this.entries.get(alias)?.config.contextWindow;
   }
 
-  /** F20260920uhuc 需求变更（2026-09-20）：获取模型的交接阈值（已用 token 绝对值，按模型必填）。
+  /** 需求变更（2026-09-20）：获取模型的交接阈值（已用 token 绝对值，按模型必填）。
    * 回退语义与 getContextWindow 一致：alias 缺省回退默认模型，未知 alias 返回 undefined。 */
   getHandoffThresholdTokens(alias: string | null | undefined): number | undefined {
     if (!alias) return this.entries.get(this.defaultAlias)?.config.handoffThresholdTokens;
     return this.entries.get(alias)?.config.handoffThresholdTokens;
   }
 
-  /** 获取模型的思考深度配置（F20260909mthl）。alias 缺省回退默认模型；未知 alias 返回 undefined（不回退默认——「未配置」与「配置了默认模型的档位」是两个语义，调用点 resolvedAlias 恒为有效 alias） */
+  /** 获取模型的思考深度配置。alias 缺省回退默认模型；未知 alias 返回 undefined（不回退默认——「未配置」与「配置了默认模型的档位」是两个语义，调用点 resolvedAlias 恒为有效 alias） */
   getThinkingLevel(alias: string | null | undefined): ThinkingLevel | undefined {
     if (!alias) return this.entries.get(this.defaultAlias)?.config.thinkingLevel;
     return this.entries.get(alias)?.config.thinkingLevel;

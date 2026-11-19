@@ -1,12 +1,12 @@
 /**
- * F20261009tsts（#1371）：会话级 tool_search 单测。
+ * ：会话级 tool_search 单测。
  *
  * 锁三件事：
  * 1. BM25 排序语义：词频命中 × idf，中英混合 query，无命中返回空，limit 截断
  * 2. execute 行为：命中即激活（setActiveToolsByName 收到 active ∪ hits）、
  *    session 未绑定时报错而非崩溃、空 query 拒绝
  * 3. 免疫性本源：execute 全程只经 holder.session（会话私有引用），不接触任何
- *    可失效的 extension runtime——这是 #1371 的修复主命题
+ * 可失效的 extension runtime——这是 的修复主命题
  */
 
 import { describe, expect, it } from "vitest";

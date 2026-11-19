@@ -1,5 +1,5 @@
 /**
- * Signal 工具（F20260826mwrd C1）：halt_otter（大獭停小獭）+ query_signals（台账查询）。
+ * Signal 工具（C1）：halt_otter（大獭停小獭）+ query_signals（台账查询）。
  *
  * halt 语义（方案 Part 3）：mark 打标 → 目标獭下一 tool_call 边界被 block →
  * 指令作为 error tool result 注入 → 目标獭报告进度并 yield。上下文零丢失。

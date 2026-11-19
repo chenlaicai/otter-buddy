@@ -12,7 +12,7 @@ import type { ActionKind } from "@entities/execution/action-record";
 import { sha256 } from "./ledger/sqlite-action-ledger";
 
 /**
- * F20261118remex（#1868 阶段 4 C2）：workspace 六动作执行器——自 LocalExecutionMachine
+ * （阶段 4 C2）：workspace 六动作执行器——自 LocalExecutionMachine
  * 抽出的公共实现（中枢 local 与 connector 远程共用同一执行语义与台账记账协议）。
  * 纯重构平移（B1 已把闭包障碍扫清：本模块依赖仅 node 内置 + usecases 端口 + entities
  * + ledger hash）。ledger=null 时等价裸执行（记账降级关闭）。
@@ -38,7 +38,7 @@ export class WorkspaceActionExecutor {
 
   constructor(
     private readonly workspaceGateway: WorkspaceGateway,
-    /** F20261116actlg：本机动作台账（null = 记录降级关闭，动作照常执行） */
+    /** 本机动作台账（null = 记录降级关闭，动作照常执行） */
     private readonly ledger: ActionLedger | null = null,
     private readonly warn?: (message: string, meta?: Record<string, unknown>) => void,
     /** invoke 归因读取（中枢 local 传 otterInvokeStorage 读取；connector 恒 undefined） */

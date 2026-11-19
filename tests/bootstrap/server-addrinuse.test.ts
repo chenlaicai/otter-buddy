@@ -1,5 +1,5 @@
 /**
- * #460：listen() EADDRINUSE 处理测试。
+ * listen() EADDRINUSE 处理测试。
  * 僵尸进程根因之三：port 冲突时走 uncaughtException → dispose 链卡住 → 僵尸。
  * 现在 listen() 挂 server 'error' handler，捕获后 process.exit(1) 干净退出。
  * process.exit mock 为 spy，避免真退出测试进程。

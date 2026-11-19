@@ -1,5 +1,5 @@
 /**
- * F20260813mren 审视三轮 #11：buildOtterToolClient 的 syncDocs 接线测试。
+ * 审视三轮 buildOtterToolClient 的 syncDocs 接线测试。
  * 防 app.ts 漏传 deps 时海獭运行时才炸——无 deps 应抛明确错误，有 deps 应透传。
  */
 import { describe, it, expect, vi } from "vitest";
@@ -46,7 +46,7 @@ describe("buildOtterToolClient syncDocs 接线（F20260813mren 审视三轮 #11�
   });
 });
 
-/** F20260821evaf 二轮审视：vecCoverage 必须透传到 agent 路径——
+/** 二轮审视：vecCoverage 必须透传到 agent 路径——
  * 移除 otter_context 降级告警后这是 agent 感知 FTS-only 降级的唯一通道，
  * 此前在 client 层被丢弃（工具 description 却已承诺该字段）。 */
 describe("buildMemoryClient search vecCoverage 透传（F20260821evaf 二轮审视）", () => {

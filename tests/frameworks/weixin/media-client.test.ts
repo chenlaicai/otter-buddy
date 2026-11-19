@@ -3,7 +3,7 @@ import { WeixinMediaClient, mimeFromFileName } from "@frameworks/weixin/media-cl
 import type { WeixinCdnClient } from "@frameworks/weixin/cdn/cdn-client";
 import type { Logger } from "@usecases/ports/logger";
 
-/** issue #608：微信入站媒体四类全量下载测试。
+/** 微信入站媒体四类全量下载测试。
  *  CDN 客户端全 mock（不出网）；silk 转码失败用 spy 验证降级语义。 */
 
 const CDN_FAKE_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]);

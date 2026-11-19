@@ -32,7 +32,7 @@ export interface ResolvedEnvSettings {
 const DEFAULT_MODEL_ID = "Xenova/bge-m3";
 export const DEFAULT_EMBEDDING_DTYPE = "q8" as const;
 
-/** Q8 已通过 F20261110embrc 真实语料 recall 门；fp32 保留为显式回滚路径。 */
+/** Q8 已通过 真实语料 recall 门；fp32 保留为显式回滚路径。 */
 export function resolveEmbeddingDtype(raw?: string): "fp32" | "q8" {
   if (raw === undefined || raw === "") return DEFAULT_EMBEDDING_DTYPE;
   if (raw === "fp32" || raw === "q8") return raw;

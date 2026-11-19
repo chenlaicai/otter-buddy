@@ -1,6 +1,6 @@
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
- * F20260911pspl：池命中路径集成测试（检视 r2 严重 1）。
+ * 池命中路径集成测试（检视 严重 1）。
  *
  * 守护的行为：二次 invoke 复用同一 session（不重建）+ invoke 级寄存器重置 +
  * 工具 getter 穿透读寄存器当前值 + stale streaming 会话驱逐防御。
@@ -23,7 +23,7 @@ import { invokeEpochStorage, mintEpoch } from "@frameworks/agent/invoke-epoch";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 import { SessionLockConflictError } from "@entities/errors";
 
-/** F20261009epoc：直接调 _acquirePooled 需自建 epoch 上下文（公共 invoke() 入口
+/** 直接调 _acquirePooled 需自建 epoch 上下文（公共 invoke() 入口
  *  铸造；直接调内部方法的单测模拟该入口职责），否则命中 D3 fail-loud 面。 */
 let epochSeq = 0;
 function withEpoch<T>(fn: () => Promise<T>): Promise<T> {

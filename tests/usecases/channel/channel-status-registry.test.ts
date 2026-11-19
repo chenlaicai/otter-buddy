@@ -1,5 +1,5 @@
 /**
- * ChannelStatusRegistry 单元测试（F20260901chun 测试设计承诺）
+ * ChannelStatusRegistry 单元测试（测试设计承诺）
  *
  * 断言 update/snapshot/clear/remove 的时序行为，
  * 验证 degraded/lastInboundAt 字段在 merge 中的保留策略。

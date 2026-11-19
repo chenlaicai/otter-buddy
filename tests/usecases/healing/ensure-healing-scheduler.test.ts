@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { ensureHealingScheduler } from '@usecases/healing/ensure-healing-scheduler';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 
-// ─── #1004 检视发现 1：regression-verify seed 不受 healing early return 阻断 ──────
+// ─── regression-verify seed 不受 healing early return 阻断 ──────
 // 存量系统中 self-healing-analysis 必然已 active——若 regression-verify 的 seed 在
 // healing 的 early return 之后，新任务永远不会被创建。本测试锁死两个任务的独立 seed 语义。
 

@@ -12,7 +12,7 @@ export function useScheduledTasks(conversationId: string | null) {
   const tasksRef = useRef(tasks)
   useEffect(() => { tasksRef.current = tasks }, [tasks])
 
-  // 数据加载（F20260827scrf2 曾在弹窗期停拉以保 scrim 采样；F20260929fcln 拆冻结链后恢复常拉）
+  // 数据加载（曾在弹窗期停拉以保 scrim 采样；拆冻结链后恢复常拉）
   useEffect(() => {
     if (!conversationId) return
     setLoading(true)

@@ -1,10 +1,10 @@
 /**
  * otter-type 级声明式工具路由 manifest 加载器。
  *
- * F20260820a4rt: 将硬编码的工具白名单改为声明式配置，
+ * 将硬编码的工具白名单改为声明式配置，
  * 新增/调整 otter 类型只需修改 config/tool-manifest.json，不改代码。
  *
- * F20260821a5cb: 新增 capabilityBlocks（能力块）支持。
+ * 新增 capabilityBlocks（能力块）支持。
  * types 可通过 groups 字段引用命名工具组，loader 自动展开合并。
  */
 
@@ -33,7 +33,7 @@ export interface ToolManifest {
   /** 能力块定义（v2+，可选） */
   capabilityBlocks?: Record<string, CapabilityBlock>;
   /**
-   * F20261008tecn（EazoTack 工具瘦身 v1）：工具暴露级别映射（可选）。
+   * （EazoTack 工具瘦身 v1）：工具暴露级别映射（可选）。
    * 未列出的工具保持 direct（声明给模型，现状行为）。
    * "deferred"：不声明给模型，由 pi 1.1 tool_search（BM25）按需搜出激活——
    * 低频工具从每轮必达 token 预算中移出，搜索命中后才进入上下文。

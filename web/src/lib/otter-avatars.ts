@@ -6,13 +6,13 @@
  * - 用户 → user.svg 固定
  * - 小獭 → 九款像素风随机池，按 otterId 确定性 hash 分配
  *   （同一 otterId 每次刷新得到同一头像，体验是"随机归宿"但稳定）
- * - 用户显式自选的头像存 localStorage override（F20260827ucrt），
+ * - 用户显式自选的头像存 localStorage override，
  *   优先于 hash 池；「随机」= 清除 override 回 hash 池。
  *   局限：localStorage 是 per-browser 的，换设备/清缓存回 hash 池（单用户本地系统可接受，
- *   跨设备持久化见 issue #515）
+ * 跨设备持久化见 ）
  *
  * 注意：生产环境 otterId 为 UUID，判断大獭必须优先用 otter.type
- * （检视发现 2：BIG_OTTER_IDS 硬编码 ID 仅作历史数据兜底）。
+ * （BIG_OTTER_IDS 硬编码 ID 仅作历史数据兜底）。
  */
 
 /** 大獭固定头像 */
@@ -22,7 +22,7 @@ const BIG_OTTER_AVATAR = '/avatars/datu.svg'
 export const USER_AVATAR = '/avatars/user.svg'
 
 /** 小獭九款随机池（按意象命名，与 web/public/avatars/ 下文件对应）
- *  F20260827ucrt：导出供创建弹窗九宫格渲染（只读消费，不修改池内容） */
+ * 导出供创建弹窗九宫格渲染（只读消费，不修改池内容） */
 export const SMALL_OTTER_POOL = [
   'otter-01-yu', // 獭祭鱼
   'otter-02-zhuli', // 竹笠

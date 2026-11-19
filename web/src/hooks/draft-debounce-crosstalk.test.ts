@@ -1,5 +1,5 @@
 /**
- * #1132：debounce 回调闭包捕获 conversationId——300ms 窗口内切换对话不串写草稿。
+ * debounce 回调闭包捕获 conversationId——300ms 窗口内切换对话不串写草稿。
  *
  * 场景回归锚（此前无覆盖）：conv-1 输入 → 300ms 内切到 conv-2 →
  * 旧代码（回调读 conversationIdRef.current）把 conv-1 的文本写进 draft:conv-2；
@@ -54,7 +54,7 @@ describe('#1132 debounce 回调闭包捕获 conversationId', () => {
   })
 })
 
-// ── #1132 检视处置（flush-on-switch）：检视獭-1280 证伪三形态的回归锚 ──
+// ── 检视处置（flush-on-switch）：检视獭-1280 证伪三形态的回归锚 ──
 
 describe('#1132 flush-on-switch（检视处置三形态）', () => {
   beforeEach(() => {
@@ -113,7 +113,7 @@ describe('#1132 flush-on-switch（检视处置三形态）', () => {
   })
 
   it('形态 D（Δ1 fix-regression）：窗口内清空输入——切换/beforeunload 不复活已删草稿', () => {
-    // delta Δ2 改造：原「flush 空串边界」锚的是 S1 同步 removeItem（flush 的
+    // delta Δ2 改造：原「flush 空串边界」锚的是 同步 removeItem（flush 的
     // else 分支不可达——saveDraft('') 在 Δ1 前已 return，pending 恒非空）。
     // 改为锚 Δ1 本体：saveDraft('x') 后 300ms 窗口内清空，pendingWriteRef 必须被清掉，
     // 否则残留 {conv-1,'x'} 被三条路径写回复活。
@@ -122,7 +122,7 @@ describe('#1132 flush-on-switch（检视处置三形态）', () => {
       { initialProps: { convId: 'conv-1' } },
     )
     act(() => { result.current.saveDraft('x') }) // pending={conv-1,'x'}，timer 未 fire
-    act(() => { result.current.saveDraft('') })  // S1 同步 removeItem；Δ1：清 pending
+    act(() => { result.current.saveDraft('') })  // 同步 removeItem；Δ1：清 pending
     // 路径 1：切换对话 flush——修复前 pending 残留 'x' 写回复活
     rerender({ convId: 'conv-2' })
     expect(localStorage.getItem('draft:conv-1')).toBeNull() // 不复活

@@ -1,5 +1,5 @@
 /**
- * Agent/LLM 链路的 metric 实现（F20260814mtrc）
+ * Agent/LLM 链路的 metric 实现
  *
  * 实现 usecases/ports/agent-metrics-port（分层：interface-adapters/usecases 只依赖 port）。
  *
@@ -71,7 +71,7 @@ export class AgentMetrics implements AgentMetricsPort {
   private readonly chainHops: Histogram<string>;
   private readonly chainTokenUsage: Histogram<string>;
   private readonly chainTelemetryGapTotal: Counter<string>;
-  /** F20260821spcm: 旁白流失计数 */
+  /** 旁白流失计数 */
   private readonly noYieldWithOrphanTextTotal: Counter<string>;
   private readonly synthesisTotal: Counter<string>;
 
@@ -106,7 +106,7 @@ export class AgentMetrics implements AgentMetricsPort {
     this.synthesisTotal = AgentMetrics.buildSynthesisMetric(registry);
   }
 
-  /** F20260903lngth：交接摘要合成结果计数器（success/empty/truncated/error/timeout 封闭枚举） */
+  /** 交接摘要合成结果计数器（success/empty/truncated/error/timeout 封闭枚举） */
   private static buildSynthesisMetric(registry: MetricsRegistry) {
     return registry.counter({
       name: "agent_handoff_synthesis_total",
@@ -283,12 +283,12 @@ export class AgentMetrics implements AgentMetricsPort {
     this.chainTelemetryGapTotal.inc();
   }
 
-  /** F20260821spcm: 旁白流失计数（按 otterId 分组） */
+  /** 旁白流失计数（按 otterId 分组） */
   recordNoYieldWithOrphanText(otterId: string): void {
     this.noYieldWithOrphanTextTotal.inc({ otter_id: otterId });
   }
 
-  /** F20260903lngth：交接摘要合成结果计数 */
+  /** 交接摘要合成结果计数 */
   recordSynthesis(outcome: "success" | "empty" | "truncated" | "error" | "timeout"): void {
     this.synthesisTotal.inc({ outcome });
   }

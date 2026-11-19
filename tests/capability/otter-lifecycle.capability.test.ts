@@ -1,10 +1,10 @@
 /**
  * 能力测试：獭生命周期（重启獭生 / 身份注入 / speak 协议）。
  *
- * restart 是本系统出过的真实事故点（F20260805rsto：双层 session 断裂、restart 空操作），
+ * restart 是本系统出过的真实事故点（双层 session 断裂、restart 空操作），
  * 且依赖"agent 层 + domain 层 + 记忆层"三层联动——只有真系统 + 真 LLM 才能验证。
  *
- * LLM 行为断言采用统计采样（mimo speak 协议不稳定性见 F20260805mspk）；
+ * LLM 行为断言采用统计采样（mimo speak 协议不稳定性见 ）；
  * 账本/记忆层转换等确定性断言保持严格。
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -20,7 +20,7 @@ import {
 import { readSessionMessages, getSessionFile } from "./helpers/session-file";
 
 /** BIG_OTTER.md 的身份标记（改文案需同步——这是有意的文案存在性守护）。
- *  鉴别力依据（检视獭-1192 发现 1 修复）：动态上下文（在场成员/对话历史/工作区）
+ * 鉴别力依据（检视獭-1192 ）：动态上下文（在场成员/对话历史/工作区）
  *  只泄漏獭名（「大獭」），完整称谓「海獭团队的头儿」及其组成词不进 user message——
  *  模型自称它只能来自 system role 注入的身份行。 */
 const IDENTITY_MARKER = "海獭团队的头儿";
@@ -52,7 +52,7 @@ function extractUserText(entry: { raw: Record<string, unknown> }): string {
 
 /** 提取叠加式档案「① 交接意图书」层的内容（剥标题行，至下一节标题或档案尾）。
  *  两种形态标题后缀不同（机械转储「触发方自总结原话」/叙事合成「触发方原话，不转述」），
- *  匹配只锚「### ① 交接意图书」前缀。检视獭-1192 发现 2 修复：原话必须恰在 ① 层内
+ * 匹配只锚「### ① 交接意图书」前缀。检视獭-1192 原话必须恰在 ① 层内
  *  且不被转述/截断/追加——toContain 三连只锁「原话在档案某处」，锁不了归属与完整性。 */
 function extractHandoffSectionOne(archive: string): string {
   const after = archive.split("### ① 交接意图书")[1];

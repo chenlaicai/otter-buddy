@@ -1,5 +1,5 @@
 /**
- * Commit/PR 标题模块位词表契约（F20260924mseu，单一真相源）。
+ * Commit/PR 标题模块位词表契约（单一真相源）。
  *
  * 背景：模块位（`[F...][module][Type] 标题` 中的 module）长期只定格式（小写
  * 字母）不定语义，四处信息源（commit-convention.md / commit-msg hook / ci.yml /
@@ -23,7 +23,7 @@
  *
  * 维护纪律：hook / ci.yml 是 shell 无法 import TS，只能人工内联镜像；
  * tests/entities/document/module-tags.test.ts 的元测试从两侧源码提取清单
- * 与本文件导出字符级比对，任何一侧单独改动立即变红（#667/#670 同款先例）。
+ * 与本文件导出字符级比对，任何一侧单独改动立即变红（/同款先例）。
  */
 
 /** 模块位合法形态：全小写字母，禁连字符（与历史 hook 正则一致） */

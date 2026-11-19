@@ -19,9 +19,9 @@ function makePipeline(db: Database.Database): SignalPipeline {
 }
 
 
-/** 时钟冻结点（Issue #605）：真实时钟在模块加载时的快照。两点理由：
+/** 时钟冻结点：真实时钟在模块加载时的快照。两点理由：
  *  1) 冻结——fixture 种子「now - offset」随真实运行时刻漂移，不同时段跑出不同种子、
- *     用例间真实时钟流逝也会引入偏差（#605/#601/#595 同族 flaky 的共同土壤）。
+ * 用例间真实时钟流逝也会引入偏差（//同族 flaky 的共同土壤）。
  *     冻结后单次运行内全部 Date.now() 派生值恒定，该类非确定性物理上不可能发生。
  *  2) 快照而非绝对固定时间——采集窗口 git log --since 按 committer date（真实时钟）过滤，
  *     fixture 的 --date 只设 author date；冻结点偏离真实时钟超过 60 天窗口会把 fixture 整体滤空
@@ -29,7 +29,7 @@ function makePipeline(db: Database.Database): SignalPipeline {
 const CLOCK_SNAPSHOT = new Date();
 // 成本 fixture 必须随冻结时钟滚动：固定 2026-08-28 会在 60 天窗口外被过滤。
 // 时刻钉在上海昨日正午（= 昨日 04:00 UTC）：生产侧日界已统一上海口径
-// （F20261105tzwfx 修 collectOtterOutput），钉正午保留为防御层——若任一侧
+// （修 collectOtterOutput），钉正午保留为防御层——若任一侧
 // 日界回退（cost 行 shanghaiDateKey 或 output 行 +8h SQL 被改回 UTC），fixture
 // 时刻仍在双口径重合带内，测试不因历史分叉窗（UTC 16-24 点）误报。
 import { shanghaiDateKey } from "@usecases/health/session-date-provider";
@@ -60,7 +60,7 @@ class TestRepo {
   }
 
   /** 日期基点：5 天前，每个 commit 递增 1 小时——避免同秒创建导致秒级日期字符串并列、
-   *  链内排序不稳定（曾致 active/regressed 随机翻转的 flaky，issue #595 PR1 修复） */
+   * 链内排序不稳定（曾致 active/regressed 随机翻转的 flaky，PR1 修复） */
   nextCommitDate(): string {
     const d = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000 + this.commitSeq * 60 * 60 * 1000);
     this.commitSeq++;
@@ -85,9 +85,9 @@ class TestRepo {
 }
 
 /** cost_output 测试夹具：session JSONL + otter/session/message 行 + sink，返回 worker 与按日查询函数。
- *  提取动机（F20260909csdt 补充 PR）：describe 主体突破 max-lines-per-function 上限（220 行）。
- *  sink 说明：同时注入 snapshotSink（overview）与 costOutputSink——保留 #583 原用例的
- * 「两 sink 共存」组合覆盖（PR #866 检视发现 2，移除会丢该场景）。 */
+ * 提取动机（补充 PR）：describe 主体突破 max-lines-per-function 上限（220 行）。
+ * sink 说明：同时注入 snapshotSink（overview）与 costOutputSink——保留 原用例的
+ * 「两 sink 共存」组合覆盖（移除会丢该场景）。 */
 interface CostOutputFixtureIds { sessionFile: string; sessionId: string; otterId: string; otterName: string; convId: string; turnId: string; msgId: string }
 async function setupCostOutputFixture(
   repoDir: string,
@@ -109,7 +109,7 @@ async function setupCostOutputFixture(
   db.prepare("INSERT INTO otters (id, name, type) VALUES (?, ?, ?)").run(ids.otterId, ids.otterName, "big");
   db.prepare("INSERT INTO agent_sessions (otter_id, pi_session_id) VALUES (?, ?)").run(ids.otterId, ids.sessionId);
   db.prepare("INSERT INTO conversations (id, title) VALUES (?, ?)").run(ids.convId, "test");
-  // F20260913ctlv 批4c：messages 表已 drop——speak entry 语义种子
+  // 批4c：messages 表已 drop——speak entry 语义种子
   db.prepare(`
     INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, sender_name, created_at, completed_at)
     VALUES (?, ?, 1, 'speak', 'otter', ?, '气泡', NULL, NULL, 'completed', ?, ?, ?)
@@ -185,7 +185,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
     // 5 个 commit 全部采集
     expect(result.commitCount).toBe(5);
-    // 1 条链（F20260801wwww，最新 commit 是 BugFix 且触碰链内文件 → regressed）
+    // 1 条链（最新 commit 是 BugFix 且触碰链内文件 → regressed）
     expect(result.chainCount).toBe(1);
     // bug_recurrence 触发（同文件 4 次 bugfix ≥3）；regressed 的 chain_stall 不触发（不是 stalled）
     expect(result.signalCount).toBeGreaterThanOrEqual(1);
@@ -196,8 +196,8 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const rec = open.find(s => s.signal_type === "bug_recurrence");
     expect(rec).toBeDefined();
     expect(rec!.evidence).toContain("src/invoker.ts");
-    // 修 1 (#11)/修 2 (#12)/修 3 (#13) = 跨 issue 分散形态（每号计数 1，主体不过半）
-    // ——#1012 修法 c 后判 warning（分级而非过滤：仍出信号，不进 critical 主警报区）
+    // 修 1 /修 2 /修 3  = 跨 issue 分散形态（每号计数 1，主体不过半）
+    // ——修法 c 后判 warning（分级而非过滤：仍出信号，不进 critical 主警报区）
     expect(rec!.severity).toBe("warning");
   });
 
@@ -263,8 +263,8 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
 
     const result = await worker.scanOnce();
 
-    // 19 行：11 标准行 + 1 chain_states 行 + 6 health_index 行（issue #595 PR1）
-    //        + 1 fix_interval 行（修复半衰期，Issue #645）
+    // 19 行：11 标准行 + 1 chain_states 行 + 6 health_index 行（PR1）
+    // + 1 fix_interval 行（修复半衰期，）
     expect(result.metricsStored).toBe(19);
     expect(sinkCalls).toHaveLength(1);
     const { date, rows } = sinkCalls[0]!;
@@ -274,7 +274,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     expect(byKey.get("total_commits")!.metricValue).toBe(6);
     expect(byKey.get("bugfix_count")!.metricValue).toBe(3); // 60 天窗口内 3 个 BugFix commit（测试仓库历史全在窗口内）
     const chainStates = byKey.get("chain_states")!;
-    // F20260902sigm：链路信号模型——链尾是 Feature Update（加文档）非 BugFix → 不 regressed；
+    // 链路信号模型——链尾是 Feature Update（加文档）非 BugFix → 不 regressed；
     // 无 open PR（测试仓库无 gh remote，降级缺席）→ 无 stalled。旧断言 { stalled: 1, active: 1 } 已过时
     expect(JSON.parse(chainStates.metadata!)).toEqual({ active: 2 });
 
@@ -326,7 +326,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const before = pipeline.listOpen().length;
     const chains = await worker.buildChainsOnce();
 
-    // 与 scanOnce 同源：同样的仓库能构建出链（含 F20260801wwww / F20260701zzzz）
+    // 与 scanOnce 同源：同样的仓库能构建出链（含 / ）
     const fids = chains.map(c => c.featureId);
     expect(fids).toContain("F20260801wwww");
     expect(fids).toContain("F20260701zzzz");

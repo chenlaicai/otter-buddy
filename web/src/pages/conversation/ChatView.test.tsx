@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * F20260916sgcl 回归：发送成功后附件中转区必须清空。
+ * 回归：发送成功后附件中转区必须清空。
  * 旧链路：MessageInput 直接透传 staged 给 onSend，没有任何环节调 clearAll/takeForSend，
  * 导致悬浮缩略图发送后不消失、下一条消息重复携带同一附件。
  * 本测试锁定：点发送 → onSend 被调用（携带附件）→ 中转区 DOM 消失。

@@ -14,7 +14,7 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/** #1793：真实 HTTP controller + usecase + SQLite，覆盖事故实际经过的完整路径。 */
+/** 真实 HTTP controller + usecase + SQLite，覆盖事故实际经过的完整路径。 */
 describe("DELETE → archiveResource → SQLite（#1793）", () => {
   it("跨对话 404、正确归属 204 且行归档保留、重复 DELETE 409", async () => {
     const db = createTestDb();

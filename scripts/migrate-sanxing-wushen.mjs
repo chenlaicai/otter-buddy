@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * F20260917swsh：三省吾身定时任务整合——存量 DB 一次性迁移脚本。
+ * 三省吾身定时任务整合——存量 DB 一次性迁移脚本。
  *
  * 背景：搭档 2026-09-17 拍板，把 5 个「每日三省吾身」类定时任务收拢到单一对话
  * 《三省吾身》（原 🩺 Self-Healing 对话改名），重排时间轴，删除每日复盘 /
@@ -19,7 +19,7 @@
  *
  * 用法：
  *   node scripts/migrate-sanxing-wushen.mjs [--db <path>] [--dry-run]
- * 默认 db 路径自动从 http://localhost:3000/api/settings 读取（#791 纪律），
+ * 默认 db 路径自动从 http://localhost:3000/api/settings 读取（纪律），
  * 服务不在线时退回 ./data/otter-buddy.db。
  */
 import { readFileSync, existsSync } from 'node:fs';
@@ -56,7 +56,7 @@ function parseArgs() {
 async function resolveDbPath(explicit) {
   if (explicit) return explicit;
   try {
-    // #1322（F20261016autz）：/api/settings 已接鉴权——脚本侧带身份头（对旧服务无头可兼容，头被忽略）
+    // /api/settings 已接鉴权——脚本侧带身份头（对旧服务无头可兼容，头被忽略）
     const res = await fetch('http://localhost:3000/api/settings', {
       headers: { 'X-Otter-User-Id': 'script:migrate-sanxing-wushen', 'X-Otter-User-Role': 'admin' },
     });

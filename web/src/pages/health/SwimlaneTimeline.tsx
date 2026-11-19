@@ -1,16 +1,16 @@
 /**
- * 链泳道时间线（Issue #649，健康面板 PR3）——视觉方案 ui-redesign-visual-review.md §3.2。
+ * 链泳道时间线（健康面板 PR3）——视觉方案 ui-redesign-visual-review.md §3.2。
  *
  * 形态：每链一条泳道，节点圆点按日期线性映射到共享 x 轴（默认 60 天窗口，与
  * 链构建窗口 30+30 对齐）；窗口外老链起点贴左缘截断标注（data-clipped-start）。
- * 四态线尾表达（§3.2 色义锁定；F20260902sigm：zombie 删除，stalled=pr-stalled）：
+ * 四态线尾表达（§3.2 色义锁定；zombie 删除，stalled=pr-stalled）：
  * - active：teal 实线 + 末端呼吸动画（全场唯一动效，swim-active-pulse + SMIL）
  * - stalled（pr-stalled）：线尾虚化（dashed fade-out）+ caramel 空心圆末端 + 「PR 停滞 N 天」旁注
  * - regressed：线体 teal + 线中段 caramel-700 回卷标记（swim-regressed-mark）
  * - orphan：lavender 悬空空心起点（swim-orphan-start）
  * 密度原则（§3.5）：动效仅 active 呼吸一处；异常用实心饱和、常态低饱和；
  * 虚拟化：手写窗口化（滚动容器 + 可视区间渲染，行高 38px），零新依赖。
- * 节点色：bug 系 commit=caramel、其他=teal（复发卡同款色义，#649 拍板）。
+ * 节点色：bug 系 commit=caramel、其他=teal（复发卡同款色义，拍板）。
  */
 
 import { useState, useMemo, useCallback } from 'react'

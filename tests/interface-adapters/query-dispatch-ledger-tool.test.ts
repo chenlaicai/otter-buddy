@@ -1,5 +1,5 @@
 /**
- * F20260912avlb delta 复审建议 1：query_dispatch_ledger 工具层测试。
+ * delta query_dispatch_ledger 工具层测试。
  *
  * 覆盖：①不传 conversationId → queryRecords 收到 undefined（全表口径，与 web 端一致）
  *      ②传 conversationId → 限定单对话

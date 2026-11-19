@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# F20261014pswa 防再犯 capability_test：otter-buddy.sh 命令解析「放行路径」冒烟。
+# 防再犯 capability_test：otter-buddy.sh 命令解析「放行路径」冒烟。
 #
-# 事故背景（#1473 / F20261014alps 引入，#1492 修复）：
+# 事故背景（/ 引入，修复）：
 #   port_explicit 预探测循环曾用 while+shift，无 -p 时把 $@ 吞空 → 正式解析循环
 #   拿不到命令 → start/stop/restart/status 全部落 Usage 退出 1。事故现场用户跑的
 #   正是无 -p 的 stop/restart。
 #   当时四层防线全部只测「机械闸拦不拦」（拒绝路径），没有任何一处断言
 #   「合法命令能走到主命令分发」（放行路径）。本测试补这条盲区。
 #
-# 设计关键（S1/J1 修正，检视獭-1495 两轮发现）：
+# 设计关键（/J1 修正，检视獭-1495 两轮发现）：
 #   worktree 语境下机械闸（scripts/otter-buddy.sh:42-51）在命令分发（:267）之前——
 #   无 -p 且 PORT=3000 时闸先 exit 1、输出不含 Usage。故：
 #   - 「无 -p」形态在 worktree 恒撞闸（测不到命令解析层）→ 检测到闸输出即显式 SKIP
 #     并大声声明；主仓语境（PROJECT_DIR==MAIN_ROOT）不撞闸，无 -p 真实跑（CI 兑现）。
 #   - 「-p 3999 绕闸」形态直达 :267 命令分发层，测「命令解析」本身，与闸行为解耦。
 #
-# 断言强度（S1 加固）：全部用「正断言」——exit 0 + 输出含 [ok]/[info]（cmd_status
+# 断言强度（加固）：全部用「正断言」——exit 0 + 输出含 [ok]/[info]（cmd_status
 # 输出面仅此前缀，见 scripts/otter-buddy.sh:214-233），杜绝「非 Usage 早崩也绿」假阳性。
 #
 # 不触主进程、不起真实服务：status 是只读路径（读 PID 文件 + 端口探测；
-# F20261113stopp 起主服务缺 PID 文件时会自愈重建该文件——验明身份后的零风险写，仍不触进程）。
+# 起主服务缺 PID 文件时会自愈重建该文件——验明身份后的零风险写，仍不触进程）。
 
 set -euo pipefail
 

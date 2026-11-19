@@ -1,6 +1,6 @@
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
- * F20260922handoff 死链修复：装配冒烟测试（防「mock 掩盖生产接线」复发）。
+ * 死链修复：装配冒烟测试（防「mock 掩盖生产接线」复发）。
  *
  * 背景（排查报告 9/21）：readCurrentSessionEntries / acquireSessionLock 在 SdkInvokePort
  * 声明为可选，agent-invoker 用 `?.` 消费——单测注入的 mock port 自带这些方法，
@@ -148,7 +148,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
       otterRepo: new SqliteOtterRepository(db),
     }, createTestLogger());
 
-    // F20260922handoff delta 复核建议2残余修正：create 用 vi.fn + not.toHaveBeenCalled——
+    // delta 复核建议2残余修正：create 用 vi.fn + not.toHaveBeenCalled——
     //  实现的外层 catch 会吞掉 create 抛错返回 undefined，断言照样绿，「回退必红」不成立。
     const createSpy = vi.fn(() => { throw new Error("create 不应被调用"); });
     const mockPiCodingAgent = {
@@ -181,7 +181,7 @@ describe("PiSessionFactory 端口方法装配冒烟（F20260922handoff 死链防
     }, createTestLogger());
 
     // handoffModeKeys 是 SimpleLockManager 私有——cast 触达（同 identity-prefix 测试的已知妥协模式）。
-    // 本用例锁死 F20260922handoff 审视打回的语义反转 bug：若复位在外层 finally，
+    // 本用例锁死 审视打回的语义反转 bug：若复位在外层 finally，
     // 持锁期间 handoffModeKeys 已被清空（交接窗口内 waiter 回退 30s 默认超时）。
     const lockManager = (factory as unknown as { lockManager: { handoffModeKeys: Set<string> } }).lockManager;
     const key = "session:otter-handoff";

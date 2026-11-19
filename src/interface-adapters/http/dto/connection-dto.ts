@@ -1,5 +1,5 @@
 import type { Connection, ConnectionSession } from "@entities/im/connection";
-// F20261023cnct：契约类型迁 @contract/api/connection（issue #1063 契约同步），
+// 契约类型迁 @contract/api/connection（契约同步），
 // 本文件仅保留实体→DTO 映射函数（映射属 HTTP 层职责，非契约本身）。
 // CreateConnectionRequestDTO 随死端点 POST /api/connections 下线删除。
 export type {

@@ -1,11 +1,11 @@
 /**
- * F20260825evgl: golden 场景最小 runner——软代码行为回归评测集的 PR gate 视图。
+ * golden 场景最小 runner——软代码行为回归评测集的 PR gate 视图。
  *
  * 遍历 golden 场景 → 每场景按 sampling 采样（boot + sendUserMessage + waitForOtterMessage +
  * 场景自带命令式断言）→ 经 expectSampledBehavior 断言 → 每场景采样结束 append 一行到
  * results.jsonl（写入点在 runner，不动 expectSampledBehavior 本身）。
  *
- * F20260828gssf: selftest 层——跑真 LLM 采样之前，先把 good/bad 参考序列喂给断言函数
+ * selftest 层——跑真 LLM 采样之前，先把 good/bad 参考序列喂给断言函数
  * 离线校验判别力（good 必过 + bad 必拦）。selftest 不过直接 fail，不进入采样。
  * 零 LLM 依赖——参考消息序列纯构造，不发真实请求。
  *
@@ -65,7 +65,7 @@ export interface GoldenAssertCtx {
 /** 命令式断言：返回 SampleResult 契约 */
 export type GoldenAssert = (ac: GoldenAssertCtx) => Promise<SampleResult>;
 
-/** F20260828gssf: selftest 参考序列——一条 good/bad 的完整定义 */
+/** selftest 参考序列——一条 good/bad 的完整定义 */
 export interface GoldenSelftestRef {
   /** 构造的参考消息序列（零 LLM 调用，纯数据构造） */
   messages: MessageDto[];
@@ -75,8 +75,8 @@ export interface GoldenSelftestRef {
   convId?: string;
 }
 
-/** F20260828gssf: selftest 定义——每个场景配 good/bad 参考。
- *  bad 支持数组：多条 bad 轨迹覆盖不同退化形态（如 r4 缺 search_memory + 顺序颠倒）。
+/** selftest 定义——每个场景配 good/bad 参考。
+ * bad 支持数组：多条 bad 轨迹覆盖不同退化形态（如 缺 search_memory + 顺序颠倒）。
  *  runner 对每条 bad 独立校验，任一通过（expectedOk 匹配失败）即判别力不足。 */
 export interface GoldenSelftest {
   good: GoldenSelftestRef;
@@ -88,7 +88,7 @@ export interface GoldenModule {
   assert: GoldenAssert;
   /** manualReview 场景的判定提示（供检视獭参考，复用源测试既有判据） */
   manualReviewHint?: string;
-  /** F20260828gssf: selftest 参考。静态对象或 factory 函数（DB 依赖场景）。
+  /** selftest 参考。静态对象或 factory 函数（DB 依赖场景）。
    *  bad 支持数组——多条 bad 轨迹覆盖不同退化形态，runner 独立校验每条。 */
   selftest?: GoldenSelftest | ((ctx: CapabilityContext) => Promise<GoldenSelftest>);
 }
@@ -232,12 +232,12 @@ export async function runSelftest(
 /**
  * 注册一组 golden 场景为一个 vitest describe 块。
  * 各场景文件导出 GoldenModule，这里统一 boot 一次、逐场景采样断言。
- * F20261111slfrz：采样期间持防睡眠断言（sleep-assertion.ts，M-a8f8f080 定案）。
+ * 采样期间持防睡眠断言（sleep-assertion.ts，M-a8f8f080 定案）。
  */
 export function registerGoldenScenarios(modules: GoldenModule[]): void {
   describe("golden 场景集：软代码行为回归（PR gate 精简视图）", () => {
     let ctx: CapabilityContext;
-    /** F20261111slfrz：采样期间防系统睡眠（真 LLM 长链分钟级，撞睡眠 = 假挂起） */
+    /** 采样期间防系统睡眠（真 LLM 长链分钟级，撞睡眠 = 假挂起） */
     let sleepAssertion: { release: () => void } | undefined;
 
     beforeAll(async () => {

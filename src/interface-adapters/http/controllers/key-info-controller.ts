@@ -10,7 +10,7 @@ import { toKeyInfoDTO, toLinkedResourceDTO } from "../dto/key-info-dto";
 import type { LinkResourceRequestDTO, LinkedResourceDTO } from "../dto/key-info-dto";
 
 /**
- * F20261013csv3 T2：产物卡数据源增密。
+ * T2：产物卡数据源增密。
  * 读侧：getLinkedResources 返回时 join unfurl_cache 投影（join 键 resource.url ↔
  * unfurl_cache.url）——PR 卡 diff stat + 状态徽章数据源（前端不直读 DB）。
  * 写侧：登记带 url 的产物时触发 unfurl 预抓取（与 T1 共用钩子），历史产物/漏抓的
@@ -20,7 +20,7 @@ export class KeyInfoController {
   constructor(
     private readonly manageKeyInfo: ManageKeyInfo,
     private readonly logger: Logger,
-    /** F20261013csv3 T2：unfurl 缓存读写（join 投影 + 登记侧预抓取触发） */
+    /** T2：unfurl 缓存读写（join 投影 + 登记侧预抓取触发） */
     private readonly unfurlCache?: SqliteUnfurlCacheRepository,
   ) {}
 
@@ -77,7 +77,7 @@ export class KeyInfoController {
     try {
       const conversationId = param(c, "id");
       const resourceId = param(c, "resourceId");
-      // #1793：HTTP DELETE 保持 204 兼容，但领域语义只能是归档，不得物理删除。
+      // HTTP DELETE 保持 204 兼容，但领域语义只能是归档，不得物理删除。
       await this.manageKeyInfo.archiveResource(resourceId, conversationId);
       return c.body(null, 204);
     } catch (err) {

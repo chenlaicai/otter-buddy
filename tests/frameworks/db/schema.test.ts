@@ -1,4 +1,4 @@
-// lint-tests:allow-ddl —— 存量库回归用例需建 #1365 前旧形状 healing_events 表（与 migration.test.ts 同类：被测对象就是旧 schema → 新 schema 的补列/索引迁移本身，生产 schema 建不出旧表形态）
+// lint-tests:allow-ddl —— 存量库回归用例需建 前旧形状 healing_events 表（与 migration.test.ts 同类：被测对象就是旧 schema → 新 schema 的补列/索引迁移本身，生产 schema 建不出旧表形态）
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { initSchema } from "@frameworks/db/schema";
@@ -10,7 +10,7 @@ function createRawDb(): Database.Database {
   return db;
 }
 
-/** #1365（F20261008hbbd）之前的 healing_events 旧表形状（无 bound_issue/bound_at，14 列）。
+/** 之前的 healing_events 旧表形状（无 bound_issue/bound_at，14 列）。
  *  形状对照源：git show b810c133^ 的建表块（检视獭-1390 逐列核对确认）。 */
 function createPre1365HealingEventsTable(db: Database.Database): void {
   db.exec(
@@ -66,7 +66,7 @@ describe("initSchema", () => {
     // 表数量与首次一致
     const tableNames = getTableNames(db);
     expect(tableNames).toContain("conversations");
-    // F20260913ctlv 批4c：messages 族表已删除
+    // 批4c：messages 族表已删除
     expect(tableNames).not.toContain("messages");
   });
 
@@ -148,7 +148,7 @@ describe("initSchema", () => {
 
   it("存量库回归（#1365 前 healing_events 无 bound_issue/bound_at）：initSchema 不炸且补齐列与索引", () => {
     // CREATE TABLE IF NOT EXISTS 对存量库是 no-op，若 bound_issue 索引抢在 ALTER 补列前
-    // 创建会抛 no such column（#1390 事故根因）
+    // 创建会抛 no such column（事故根因）
     // 手写 DDL 靠本文件首行 lint-tests:allow-ddl 豁免放行——lint 正则剥注释后命中字符串
     // 字面量，拼接写法并不绕开检测；存量库建旧表与 attachments-kind-migration 同例
     createPre1365HealingEventsTable(db);
@@ -166,7 +166,7 @@ describe("initSchema", () => {
   });
 
   it("半迁移形态回归（bound_issue 已补、bound_at 缺失）：initSchema 补齐剩余列与索引", () => {
-    // r1-A2 不变量锁：补列必须每列独立 try/catch——若回退成单块 try/catch，
+    // -A2 不变量锁：补列必须每列独立 try/catch——若回退成单块 try/catch，
     // 第一列已存在抛错时第二列（bound_at）的 ALTER 被整体吞掉、永远补不上。
     // 存量库回归用例抓不住这个回退（它两列都缺，第一列 ALTER 不抛错），必须单测半迁移形态
     createPre1365HealingEventsTable(db);

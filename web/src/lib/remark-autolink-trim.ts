@@ -1,12 +1,12 @@
 import type { Link, Nodes, Parent, Root } from 'mdast'
 import type { Plugin } from 'unified'
 
-/** F20261020wabt：GFM autolink 全角尾巴修剪（Web 端）。
+/** GFM autolink 全角尾巴修剪（Web 端）。
  *
  *  背景：GFM autolink 对 https?:// 裸链的停止条件只有空白字符和 <——中文、全角
  *  标点（）。：，、）不属于停止集，整段被吸入 link.url（实证：「（http://127.0.0.1:5000）。」
  *  解析出 url="http://127.0.0.1:5000）。」，href 带中文点不开）。IM 出站侧同款问题
- *  已由 F20260920alnk 在投影层根治（trimAutolinkTrailing，文本级修剪），Web 端
+ * 已由 在投影层根治（trimAutolinkTrailing，文本级修剪），Web 端
  *  当时未接入——本插件是同一判定逻辑在 Web mdast 层的落地。
  *
  *  为什么修在 mdast 节点层而非文本投影层：Web 渲染管线是 ReactMarkdown 直出

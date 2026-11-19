@@ -19,7 +19,7 @@ import type { ModelPool } from "@frameworks/llm/model-pool";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 
 /**
- * Invoke 级寄存器（F20260911pspl session 池化）。
+ * Invoke 级寄存器（session 池化）。
  * 池化后工具闭包跨 invoke 复用，「每 invoke 必变」的字段集中在此，
  * invoke 入口统一重置；工具经 getter 引用读取（读取时机 = 工具执行时）。
  */
@@ -30,14 +30,14 @@ export interface InvokeRegister {
   pendingDispatches: Map<string, string>;
   dispatchWarningShown: boolean;
   orchestrationWarningShown: boolean;
-  /** F20260920uhuc：synthesizePast 透传（restart_otter 工具参数→自重启统一交接） */
+  /** synthesizePast 透传（restart_otter 工具参数→自重启统一交接） */
   pendingRestart?: { summary?: string; modelAlias?: string; synthesizePast?: boolean };
-  /** F20260913ctlv：当前 invoke ID（invoke 级上下文——池命中不刷新则第二次 invoke 复用旧 ID，
+  /** 当前 invoke ID（invoke 级上下文——池命中不刷新则第二次 invoke 复用旧 ID，
    *  speak/yield entry 会挂错 invoke；随寄存器 invoke 入口重置） */
   currentInvokeId?: string;
-  /** F20260913ctlv：SSE 发射通道（工具层发 entry.yield 等事件用；invoke 级注入） */
+  /** SSE 发射通道（工具层发 entry.yield 等事件用；invoke 级注入） */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
-  /** F20260913ctlv：当前打开的 speak entry ID（speak/yield 检测「本轮已发言」用；
+  /** 当前打开的 speak entry ID（speak/yield 检测「本轮已发言」用；
    *  新 invoke 重置为 undefined） */
   lastSpeakEntryId?: string;
 }
@@ -57,7 +57,7 @@ export function createInvokeRegister(): InvokeRegister {
 }
 
 /** invoke 入口重置（新 invoke 开始 = 寄存器回初值；pendingRestart 由消费点清除）。
- *  F20260913ctlv 扩展：currentInvokeId/emitEvent 每次刷新（池命中不刷新则第二次
+ * 扩展：currentInvokeId/emitEvent 每次刷新（池命中不刷新则第二次
  *  invoke 复用旧 invoke ID，speak/yield entry 挂错 invoke）；lastSpeakEntryId
  *  重置 undefined（新 invoke 从零开始计发言）。 */
 export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, invokeDeps?: { currentInvokeId?: string; emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void }): void {
@@ -76,29 +76,29 @@ export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, inv
 export interface BuildCustomToolsParams {
   otterId: string;
   conversationId: string;
-  /** F20261118bltls P1c：本对话搭档（用户）id；缺省 "user"（Web 口径） */
+  /** P1c：本对话搭档（用户）id；缺省 "user"（Web 口径） */
   partnerUserId?: string;
   allowedNames: string[];
-  /** F20260911pspl：invoke 级寄存器（getter 绑定的读取目标） */
+  /** invoke 级寄存器（getter 绑定的读取目标） */
   register: InvokeRegister;
   otterToolClient: OtterToolClient;
   modelPool?: ModelPool;
   otterConfigProvider?: OtterConfigProvider;
   createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
   healingRepo?: HealingEventRepository;
-  /** F20260826mwrd C1：signal 工具（halt_otter/query_signals）的仓库 */
+  /** C1：signal 工具（halt_otter/query_signals）的仓库 */
   signalRepo?: SignalEventRepository;
-  /** F20261006mtlp P1：matter 工具（list_matters/transition_matter）的仓库 */
+  /** P1：matter 工具（list_matters/transition_matter）的仓库 */
   matterRepo?: MatterRepository;
-  /** F20260917trig：RHI 信号工具（triage_signal/list_rhi_signals）的仓库 */
+  /** RHI 信号工具（triage_signal/list_rhi_signals）的仓库 */
   rhiSignalRepo?: SignalRepository;
-  /** F20261027hwl1：工作账本 binder（track_work 工具） */
+  /** 工作账本 binder（track_work 工具） */
   workLedgerBinder?: WorkLedgerBinder;
-  /** #927：目标獭活跃性查询（halt_otter 打标前检查），透传到 ToolContext */
+  /** 目标獭活跃性查询（halt_otter 打标前检查），透传到 ToolContext */
   isOtterRunning?: (otterId: string) => boolean;
   logger: Logger;
   /**
-   * F20261008tecn（EazoTack 工具瘦身 v1）：工具暴露级别映射（来自 config/tool-manifest.json toolExposure 段）。
+   * （EazoTack 工具瘦身 v1）：工具暴露级别映射（来自 config/tool-manifest.json toolExposure 段）。
    * 未提供时全部 direct（现状行为）。deferred 工具不声明给模型，由 tool_search 按需激活。
    */
   toolExposure?: Record<string, "direct" | "deferred">;
@@ -112,7 +112,7 @@ export interface BuildCustomToolsResult {
     description: string;
     parameters: Record<string, unknown>;
     /**
-     * F20261008tecn：pi ToolExposure 暴露级别。direct（默认，声明给模型）或
+     * pi ToolExposure 暴露级别。direct（默认，声明给模型）或
      * deferred（不声明，tool_search BM25 命中后激活——低频工具移出每轮必达 token 预算）。
      * pi 语义见 pi-coding-agent 1.1.0 extensions/types.d.ts ToolExposure。
      */
@@ -129,11 +129,11 @@ export interface BuildCustomToolsResult {
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
   const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, workLedgerBinder, isOtterRunning, logger, toolExposure, partnerUserId } = params;
-  // F20260826mwrd C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
-  // F20261006mtlp P1：matterRepo 同模式挂 ToolContext
+  // C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
+  // P1：matterRepo 同模式挂 ToolContext
 
-  // F20260815rstrt: 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
-  // F20260911pspl：invoke 级字段 getter 化——闭包捕获 ctx 对象，字段读取时
+  // 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
+  // invoke 级字段 getter 化——闭包捕获 ctx 对象，字段读取时
   // 穿透到寄存器当前值（池化后闭包跨 invoke 复用，寄存器在 invoke 入口重置）。
   const toolContext: ToolContext = {
     client: otterToolClient,
@@ -155,7 +155,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     set orchestrationWarningShown(v: boolean) { register.orchestrationWarningShown = v; },
     get pendingRestart() { return register.pendingRestart; },
     set pendingRestart(v: { summary?: string; modelAlias?: string } | undefined) { register.pendingRestart = v; },
-    // F20260913ctlv：invoke 级字段 getter 化（与 #894 模式合流——池命中经 resetInvokeRegister 刷新）
+    // invoke 级字段 getter 化（与 模式合流——池命中经 resetInvokeRegister 刷新）
     get currentInvokeId() { return register.currentInvokeId; },
     set currentInvokeId(v: string | undefined) { register.currentInvokeId = v; },
     get emitEvent() { return register.emitEvent; },
@@ -172,7 +172,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
       label: t.name,
       description: t.description,
       parameters: t.parameters,
-      // F20261008tecn：manifest toolExposure 段打标——deferred 工具不声明给模型，
+      // manifest toolExposure 段打标——deferred 工具不声明给模型，
       // 由 tool_search（BM25）按需激活；未配置的工具保持 direct（现状）。
       // 注意：deferred 工具的 description 是 tool_search 的索引语料，不可为空。
       ...(toolExposure?.[t.name] === "deferred" ? { exposure: "deferred" as const } : {}),
@@ -180,13 +180,13 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
         const result = await t.execute(toolCallId, params, signal);
         const truncated = truncateToolResult(result);
         /**
-         * F20260811sktp: otter ToolResponse.isError → SDK details.__isError 透传。
+         * otter ToolResponse.isError → SDK details.__isError 透传。
          * SDK 的 AgentToolResult 不消费顶层 isError 字段；otter-hooks 的 tool_result handler
          * 读 details.__isError 返回 { isError: true } 覆盖 SDK 标志，透传到 Anthropic API。
          */
         if (result.isError) {
           truncated.details = { ...truncated.details, __isError: true };
-          // F20260904tflp：摩擦精确时刻触发提示——错误结果尾部引导 tool_use_feedback 反馈。
+          // 摩擦精确时刻触发提示——错误结果尾部引导 tool_use_feedback 反馈。
           // 仅 isError 时出现（无噪音）；speak 自身报错不提示（反馈动作发生在 speak，避免循环暗示）。
           if (t.name !== "speak") {
             truncated.content = truncated.content.map(c =>

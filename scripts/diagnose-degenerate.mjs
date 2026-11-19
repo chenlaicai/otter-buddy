@@ -1,5 +1,5 @@
 /**
- * 退化检测离线诊断（issue #424）。chunk 参数是灵敏度参数而非真实模拟（#439）：
+ * 退化检测离线诊断。chunk 参数是灵敏度参数而非真实模拟：
  * 影响触发点数值，不影响是否触发的判定；需要数值对照时用 --chunk 扫多个值。
  *
  * 把被拦消息的完整流式输出重放经过 DegenerateDetector，输出实际触发机制、
@@ -10,13 +10,13 @@
  *      定位该时间戳的 assistant 消息，提取 thinking/text 各 block，模拟
  *      OutputGuard 真实行为（text_start/thinking_start 时 reset + 分块流式喂入）。
  *      pi session jsonl 是唯一保存完整输出的地方——message_segments 只落库
- *      speak 的 body，不含 speak 之后继续生成的裸文本（#424 教训：落库文本
+ * speak 的 body，不含 speak 之后继续生成的裸文本（教训：落库文本
  *      ≠ 检测器累积文本，两者长度可差 20 倍+）。
  *   2. --db <sqlite-path> --message <messageId>
  *      从 message_segments 拉正文重放。注意这只覆盖已落库部分，仅当消息
  *      正常完成（无未落库尾部）时结果才代表运行时判定。
  *
- * 用法示例（#424 事件重放，需先 npm run build 产出 dist）：
+ * 用法示例（事件重放，需先 npm run build 产出 dist）：
  *   node scripts/diagnose-degenerate.mjs \
  *     --session data/sessions/2026-08-24T07-36-50-802Z_*.jsonl \
  *     --ts 2026-08-24T11:54:03.763
@@ -147,7 +147,7 @@ async function main() {
     ? fromSession(args.session, args.ts)
     : await fromDb(args.db, args.message);
   console.log(`数据源: ${args.session ? `session ${path.basename(args.session)} @ ${args.ts}` : `db ${args.db} message ${args.message}`}`);
-  // #439：chunk 是灵敏度参数而非真实模拟——影响触发点数值，不影响是否触发的判定。
+  // chunk 是灵敏度参数而非真实模拟——影响触发点数值，不影响是否触发的判定。
   // 运行时 delta 尺寸由 LLM provider 决定（模型/网络分片不同），无单一真相源可绑定。
   console.log(`喂入分块: ${args.chunk} 字符/块（灵敏度参数，模拟流式 delta 尺度；影响触发点数值不影响判定；可用 --chunk 扫 1/37/100/500 对比）\n`);
   let tripped = false;

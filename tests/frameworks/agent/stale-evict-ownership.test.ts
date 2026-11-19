@@ -1,19 +1,19 @@
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
- * #904：stale 双活下 pendingRestart 消费的归属校验。
+ * stale 双活下 pendingRestart 消费的归属校验。
  *
- * 守护的行为（_evictPooledIfOwned）：旧 invoke 卡死超 300s 被 stale steal（#599）放行
+ * 守护的行为（_evictPooledIfOwned）：旧 invoke 卡死超 300s 被 stale steal放行
  * 新 invoke → 新 invoke 冷启动新 session 入池 → 旧 invoke 苏醒收尾时 pendingRestart
  * 已置位 → finally 消费点 evict 前比对池内条目归属（poolMeta.epoch === 本 invoke
  * epoch，对象引用相等），不匹配则跳过——只逐自己的 session，不误杀新 invoke 的新 session。
  *
- * F20261009epoc：归属判定从 toolContext 引用比对换为 epoch 对象引用比对——判定语义
+ * 归属判定从 toolContext 引用比对换为 epoch 对象引用比对——判定语义
  * 不变（只逐自己的），判定来源统一到 epoch（池命中时 epoch 随所有权转移）。
  *
  * 策略：与 pool-hit-path.test.ts 同款——mock 掉 SDK 两侧，直接构造 poolMeta 双活
  * 状态，打真实私有方法 _evictPooledIfOwned（经 internals 逸出访问），锁定三个分支：
  * 归属自己 → evict；归属他人（stale 双活）→ 保留；池内无条目 → 安全跳过。
- * F20261009epoc：新增 epoch 缺失 → 拒绝 evict + warn（D3 fail-loud）分支。
+ * 新增 epoch 缺失 → 拒绝 evict + warn（D3 fail-loud）分支。
  */
 import { describe, it, expect, vi } from "vitest";
 

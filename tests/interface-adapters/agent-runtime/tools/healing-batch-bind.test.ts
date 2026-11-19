@@ -1,5 +1,5 @@
 /**
- * #1271（F20261008hbbd）：manage_healing_events batch_bind 工具层 + batchBindIssue 仓储层测试。
+ * ：manage_healing_events batch_bind 工具层 + batchBindIssue 仓储层测试。
  *
  * 覆盖矩阵：
  * - 工具层：issueNumber 必填校验 / 防异质归口（至少一个过滤条件）/ dryRun 预览 /
@@ -210,7 +210,7 @@ describe('manage_healing_events batch_bind 工具层', () => {
   });
 
   it('r1-S1 场景 X：不传 filterBoundIssue 的普通批量不终结已归口事件（更新面隔离）', async () => {
-    // PoC 复刻：h1（high，已归口 #42，open）+ l1（low）→ 普通 batch_resolve
+    // PoC 复刻：h1（high，已归口 open）+ l1（low）→ 普通 batch_resolve
     await repo.create(seedEvent({ id: 'h1', errorType: 'tool_failure', severity: 'high', context: null }));
     await repo.create(seedEvent({ id: 'l1', errorType: 'tool_failure', severity: 'low', context: null }));
     await repo.batchBindIssue({ errorType: 'tool_failure' }, 42); // h1/l1 都归口
@@ -294,7 +294,7 @@ describe('#1271 存量库迁移（ensureHealingEventsBoundIssueColumns）', () =
     const db = new Database(':memory:');
     try {
       initSchema(db);
-      // 模拟早于 #1271 时代的存量库：DROP 掉归口链两列（同 introduced_by_pr 迁移测试先例）。
+      // 模拟早于 时代的存量库：DROP 掉归口链两列（同 introduced_by_pr 迁移测试先例）。
       // 先 DROP INDEX：SQLite DROP COLUMN 遇到被索引引用的列会报错
       db.exec('DROP INDEX IF EXISTS idx_healing_events_bound_issue');
       db.exec('ALTER TABLE healing_events DROP COLUMN bound_issue');

@@ -1,11 +1,11 @@
 /**
- * #998：healing errorType 二维分账（环境/系统失败 vs 獭能力失败）映射测试。
+ * healing errorType 二维分账（环境/系统失败 vs 獭能力失败）映射测试。
  *
- * 伤疤来源：#791 同类教训——口径混排（error_type 字段值与 description 分类混排一表）
+ * 伤疤来源：同类教训——口径混排（error_type 字段值与 description 分类混排一表）
  * 把真实信号拆散隐去。二维分账让「工具故障」与「獭不行」在统计层分离，
  * 两种误判的处置方向完全相反。
  *
- * PR #1024 检视修正：guard_intercept 归能力（生产库 37% 第一大类，被拦的是獭的危险动作）；
+ * 检视修正：guard_intercept 归能力（生产库 37% 第一大类，被拦的是獭的危险动作）；
  * tool_use_feedback 移出分账（主动反馈信号不是失败事件）。
  */
 import { describe, it, expect } from "vitest";
@@ -24,7 +24,7 @@ describe("classifyHealingErrorType（#998 二维分账）", () => {
   });
 
   it("獭能力类：missing_context / wrong_tool / format_violation / knowledge_gap / performance / degenerate / guard_intercept", () => {
-    // guard_intercept 归能力：被拦的是獭发出的危险动作，守卫本身工作正常（PR #1024 检视发现 2）
+    // guard_intercept 归能力：被拦的是獭发出的危险动作，守卫本身工作正常（）
     for (const t of ["missing_context", "wrong_tool", "format_violation", "knowledge_gap", "performance", "degenerate", "guard_intercept"] as HealingErrorType[]) {
       expect(classifyHealingErrorType(t)).toBe("capability");
     }

@@ -6,19 +6,19 @@ import { resolveOtterVisual } from '../../lib/otter-visual'
 import { fmtRelativeTime } from '../../lib/utils'
 import * as api from '../../api/client'
 
-/** F20260918imas：助理分组标题（与后端 DTO kind 标识同步出现） */
+/** 助理分组标题（与后端 DTO kind 标识同步出现） */
 const ASSISTANT_GROUP_LABEL = 'IM 助理'
-/** F20260922cgrp：三分组标题（F20260924wast 增 web 助理组） */
+/** 三分组标题（增 web 助理组） */
 const WEB_ASSISTANT_GROUP_LABEL = 'web 助理'
 const CONVERSATION_GROUP_LABEL = '对话'
 const ARCHIVED_GROUP_LABEL = '已归档'
 
-/** F20260922cgrp：分组分页固定页大小（搭档拍板：一页固定 20 个，不做下拉加载更多） */
+/** 分组分页固定页大小（搭档拍板：一页固定 20 个，不做下拉加载更多） */
 const PAGE_SIZE = 20
 
 type GroupKey = 'assistant' | 'webAssistant' | 'conversation' | 'archived'
 
-/** F20260922cgrp：折叠状态持久化 localStorage（默认：助理开、对话开、归档关） */
+/** 折叠状态持久化 localStorage（默认：助理开、对话开、归档关） */
 const COLLAPSED_KEY = (g: GroupKey) => `leftPanel:collapsed:${g}`
 
 interface LeftPanelProps {

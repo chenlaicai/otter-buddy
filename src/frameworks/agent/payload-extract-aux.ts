@@ -10,14 +10,14 @@ import type { CommandModel, Segment } from "./command-model";
 import type { Word } from "./command-lexer";
 
 /** shell 递归/脚本载荷解释器族（与 bash-safety-guard 脚本族同源口径）
- *  F20261028runfa（#1491 案面补记收口）：jshell/Rscript/lua/octave 收编——此前非集内解释器
+ * （案面补记收口）：jshell/Rscript/lua/octave 收编——此前非集内解释器
  *  载荷零判读（Runtime.exec/exec/file.create 真写双层漏，探针实证）。文件形态后缀门见
  *  write-target-evaluator SCRIPT_FILE_SUFFIXES（非 shell runner 只认可读后缀）。 */
 export const SCRIPT_RUNNERS = new Set(["python", "python3", "node", "perl", "ruby", "osascript", "jshell", "rscript", "lua", "octave"]);
-/** bash -c / sh -c 载荷识别（方案 D5 矩阵 #8/#10）——F20261022vwfg：自 command-model
+/** bash -c / sh -c 载荷识别（方案 D5 矩阵 /）——自 command-model
  *  迁入（值吞食守卫要引用；command-model re-export 保持既有引用面） */
 export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh", "ash"]);
-/** 写命令词（argv 落点写面）——F20261022vwfg：自 write-target-evaluator 迁入
+/** 写命令词（argv 落点写面）——自 write-target-evaluator 迁入
  *  （同理由：值吞食守卫引用，wte 从此处 import） */
 export const TARGET_ARG_COMMANDS = new Set(["tee", "cp", "mv", "touch", "mkdir", "rm", "find"]);
 export const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chown", "chgrp", "truncate"]);
@@ -25,7 +25,7 @@ export const EXTENDED_TARGET_COMMANDS = new Set(["install", "ln", "chmod", "chow
 /** 值吞食守卫：带值旗标的值 token 若形似「本守卫有专门判定面的
  *  命令词」（解释器/壳/分发器/wrapper/写命令/git/取数族），不吞——按基线口径保守归位
  *  为段首（吞掉会让 head 走丢，基线判罚 block→allow 翻转，同命令不得反判）。
- *  其余未知命令词两侧判罚同为放行，吞值不产生翻转，不入表（不军备化 #1513）。
+ * 其余未知命令词两侧判罚同为放行，吞值不产生翻转，不入表（不军备化 ）。
  *  惰性构造（WRAPPER_SPECS/MULTI_CALL 在本区块之后定义，避免模块加载 TDZ）。 */
 let execLikeWords: Set<string> | null = null;
 function looksLikeExecWord(text: string): boolean {
@@ -58,8 +58,8 @@ function looksLikeExecWord(text: string): boolean {
  *    assigns: env 专有——吞 FOO=v 形态；
  *    duration: timeout 专有——旗标吞完后吞一个时长 token（\d 开头或数字+单位）。
  *  本表随段首解析收敛迁入共享内层（guard/wte 同一识别域）；
- *  值旗标分写形态不吞的盲区（M-c36b9847）由本层 valueFlags 收编（F20261022vwfg）。
- *  表内清单（穷举，改动须同步矩阵登记与 F20261022vwfg 枚举节）：
+ * 值旗标分写形态不吞的盲区（M-c36b9847）由本层 valueFlags 收编。
+ * 表内清单（穷举，改动须同步矩阵登记与 枚举节）：
  *    env: -u/--unset/-C/--chdir/-S/--split-string；nice: -n/--adjustment；
  *    timeout: -s/--signal/-k/--kill-after；watch: -n/--interval；
  *    stdbuf: -o/--output/-e/--error/-i/--input；
@@ -158,7 +158,7 @@ export interface ExecHead {
  *  同基座）→ 多调分发器子命令归位（busybox sh ≡ sh；裸分发器默认 applet ash）→
  *  版本名归一（canonicalExecName）。段首链动态词（evaluated=null）→ null（判不出，
  *  调用方保守处理）。 */
-/** 无命令回退=跑 shell 的包装词（F20261022vwfg）：包装词吞尽全段、无执行词时的真实
+/** 无命令回退=跑 shell 的包装词：包装词吞尽全段、无执行词时的真实
  *  语义是 shell 执行（管道喂入=shell 读上游，fail-closed 归位 sh）。依据：sudo(8)
  *  「If no command is specified, an interactive shell is executed」；反向实证：
  *  nice/nohup 无命令仅 usage 报错（非 shell）不入表；setsid 本机无从实证按残余记档。 */
@@ -214,7 +214,7 @@ export const FIND_EXEC_VERBS = new Set(["rm", "rmdir", "mv"]);
  *  包装词（对称入口原则——直挂 `env rm` 有 wrapper 剥除、执行体位 `-exec env rm` 不剥
  *  是不对称缺口顺收）；落点引号整词（'mv -f'）取首 token 判
  *  （fail-closed：无效程序名也是破坏意图，与 prod 段文本正则历史口径一致，两层
- *  分叉收敛）。执行体泛化（sh -c 任意载荷）按 #1513 口径记档不追。 */
+ * 分叉收敛）。执行体泛化（sh -c 任意载荷）按 口径记档不追。 */
 export function findExecVerbAt(tokens: ReadonlyArray<{ text: string }>, startIndex: number): boolean {
   let k = startIndex;
   for (;;) {
@@ -345,30 +345,30 @@ export function resolvePayloadScript(payloadWord: Word, flagWord: Word, commandT
   return { script: null, cMode };
 }
 
-// ────────────── git 写族子命令判定（F20261016gwr1，M-46f0e74d） ──────────────
+// ────────────── git 写族子命令判定（M-46f0e74d） ──────────────
 
 /** git 写族子命令词表（求值器 isWrite 口径=宽词表，双签终版 2026-10-12：reset/clean/
  *  stash/pull 一律写族、落点/排除语义在上层判定；**与 prod 严格语义不同**——prod gate
  *  的 push --dry-run 排除/stash push 限定/reset --hard 限定见 gitWriteSubcommandHit）。 */
 export const GIT_WRITE_SUBS = new Set(["commit", "rebase", "merge", "cherry-pick", "apply", "reset", "clean", "push", "stash", "pull"]);
 
-/** F20261016gdfv（#1522）：git stash 写族子命令全集（git-stash(1) 明文）——push/pop/apply/
+/** git stash 写族子命令全集（git-stash(1) 明文）——push/pop/apply/
  *  drop/clear/store/branch 均改工作区或 stash ref；缺省（bare）≡ push（明文）；旗标形
  *  （stash -m …）= push 形态。只读面=list/show/create（create 只打印对象名不落 stash
  *  ref/不动工作区——git-stash(1) 明文，归读面）。两侧共享（isWriteVerbAt / evalGitWrite
  *  / 写族正则同步），词表漂移=静动/双链反判。 */
 export const STASH_WRITE_SUBS = new Set(["push", "pop", "apply", "drop", "clear", "store", "branch"]);
 
-/** F20261016gwr1（M-46f0e74d）：git 写族子命令判定（词级，prod 严格语义）——引号含空格/
+/** （M-46f0e74d）：git 写族子命令判定（词级，prod 严格语义）——引号含空格/
  *  attached/反引号值全覆盖（旧 GIT_WRITE_SUBCOMMAND 正则 \S+ 词面解析对这三形态整体
- *  失明=fail-open 实证，正则已退役）。语义=旧正则锚同款（r2-C 基线）：push 排除
+ * 失明=fail-open 实证，正则已退役）。语义=旧正则锚同款（-C 基线）：push 排除
  *  --dry-run/-n、stash 限 push、reset 限 --hard、clean 限 f 旗标；词等值天然排除
  *  commit-tree/merge-base 词族。走查与 extractGitAliasShell/evalGitWrite 同构（c107
  *  教训：不合并走查，语义注释对齐）。动态值位照常消费后找子命令；动态旗标/子命令位
- *  →false（间接构造不追，#1513 边界）。 */
+ * →false（间接构造不追，边界）。 */
 /** git 取值型全局旗标（旗标词后跟独立值词）——gitWriteSubcommandHit 与 lookAheadWriteSubcommand
  *  两走查共享（词表漂移会再造静动反判；走查不合并=c107 教训，语义注释对齐）。
- *  F20261016gsbx 导出：受保护分支直推窄规则同基座复用（单一真相源）。 */
+ * 导出：受保护分支直推窄规则同基座复用（单一真相源）。 */
 export const GIT_VALUE_FLAGS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--exec-path", "--namespace"]);
 
 export function gitWriteSubcommandHit(seg: Segment): boolean {
@@ -378,10 +378,10 @@ export function gitWriteSubcommandHit(seg: Segment): boolean {
   while (i < words.length) {
     const w = words[i].evaluated;
     if (w === null) {
-      // F20261016gwr1：动态词位不弃权——后续静态写族
+      // 动态词位不弃权——后续静态写族
       // 子命令照判 write（`git -c"$P" commit`/`git -C$P commit` 附着+动态混合形态曾双层
       // fail-open，同语义空格/附着拼接反判）。红线：后续无写族子命令（`git -C"$P" status`
-      //）照常 false，只读面不误拦。间接构造（整词动态子命令 `git "$X"`）仍不追（#1513）。
+      //）照常 false，只读面不误拦。间接构造（整词动态子命令 `git "$X"`）仍不追。
       return lookAheadWriteSubcommand(words, i + 1);
     }
     if (GIT_VALUE_FLAGS.has(w)) {
@@ -396,10 +396,10 @@ export function gitWriteSubcommandHit(seg: Segment): boolean {
 }
 
 /** 写族子命令判定（严格语义，位置定在 words[i]）：push 排除 --dry-run/-n、stash 限写族全集
- *  （F20261016gdfv/#1522：pop/apply/drop/clear/store/branch 真写面收编——旧「限 push」漏拦；
- *  bare ≡ push（F20261016gwr1）；读面 list/show/create 不入）
+ * （/pop/apply/drop/clear/store/branch 真写面收编——旧「限 push」漏拦；
+ * bare ≡ push；读面 list/show/create 不入）
  *  、reset 限 --hard、clean 限 f 旗标；词等值天然排除 commit-tree/merge-base 词族。 */
-// eslint-disable-next-line complexity -- 写族子命令严格语义逐分支（push 排除/stash 写族全集/reset --hard 限定/clean f 旗标，r2-C 基线形态穷举）
+// eslint-disable-next-line complexity -- 写族子命令严格语义逐分支（push 排除/stash 写族全集/reset --hard 限定/clean f 旗标，-C 基线形态穷举）
 function isWriteVerbAt(words: Word[], i: number): boolean {
   const sub = words[i]?.evaluated ?? null;
   if (sub === null) return false;
@@ -412,12 +412,12 @@ function isWriteVerbAt(words: Word[], i: number): boolean {
   return false;
 }
 
-/** F20261016gwr1：动态词位后的写族前瞻——与主走查
+/** 动态词位后的写族前瞻——与主走查
  *  同构（旗标/取值旗标消费后停在首个静态非旗标词=子命令位）就地判 write 即停，**不越位
  *  扫参数**——旧版从 from 全量扫描把参数词当子命令位（`git -C"$P" log -G push` 的 push 被
  *  isWriteVerbAt 命中 → 与静态 `git -C /repo log -G push` 反判=本 PR 病核复发，误拦方向）。
  *  取值旗标必须吞值（`git -c"$P" -C /repo commit` 的 /repo 是值不是子命令位，漏吞=新 fail-open）。
- *  动态词跳过不追（间接构造不追，#1513）；后续无静态非旗标词（`git -C"$P" status` 红线）照常 false。 */
+ * 动态词跳过不追（间接构造不追，）；后续无静态非旗标词（`git -C"$P" status` 红线）照常 false。 */
 function lookAheadWriteSubcommand(words: Word[], from: number): boolean {
   let j = from;
   while (j < words.length) {
@@ -434,7 +434,7 @@ function lookAheadWriteSubcommand(words: Word[], from: number): boolean {
   return false;
 }
 
-// ────────────── git alias shell 展开提取（F20261015gali，M-edd889c2） ──────────────
+// ────────────── git alias shell 展开提取（M-edd889c2） ──────────────
 
 export type GitAliasShellExtraction =
   | { kind: "payload"; texts: string[] }
@@ -514,15 +514,15 @@ function scanConfigAliasWords(words: Word[], start: number): { texts: string[] }
   return texts.length > 0 ? { texts } : null;
 }
 
-/** F20261015gali（M-edd889c2）：git alias shell 展开（! 前缀）定义提取——真执行体载荷。
+/** （M-edd889c2）：git alias shell 展开（! 前缀）定义提取——真执行体载荷。
  *  `!` 前缀 alias 值是任意 shell 执行通道（git 原生语义：从仓库根以 shell 执行）。
  *  检出位（字面 argv0==="git"）：
  *   ① 子命令前全局旗标位 `-c alias.x=!载荷`（值词引号三形态由词法层归一）；
  *   ② `config [旗标…] alias.x '!载荷'`（含 `config 'alias.x=!载荷'` 单词形）。
  *  -c 只认子命令前旗标位——`git grep -c 'alias.x=!x'` 的 -c 是子命令参数非全局旗标
  *  （FP 陷阱：提及/参数位不得误判定义位）。非 ! 前缀=纯子命令别名（git 原生语义不进
- *  shell）不检出。间接构造（env 注入/包装词/整词动态 k=v）不追——F20261015gsub
- *  （#1513）拍板：常见直白形态兜底，物理隔离才是真守卫。
+ * shell）不检出。间接构造（env 注入/包装词/整词动态 k=v）不追——
+ * 拍板：常见直白形态兜底，物理隔离才是真守卫。
  *  返回 {kind:"payload",texts}（可静态提取载荷→调用方递归判读）| {kind:"opaque"}
  *  （检出 ! 定义但载荷不可静态提取→调用方 fail-closed）| null（无定义位）。 */
 /** 引号平衡校验（X4）：单引号/双引号各自成对（双引号内反斜杠可转义）——
@@ -555,9 +555,9 @@ export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
   while (i < words.length) {
     const w = words[i].evaluated;
     if (w === null) {
-      // F20261016gwr1：附着+动态 alias 定义（`-c"alias.x=!$P"`）——
+      // 附着+动态 alias 定义（`-c"alias.x=!$P"`）——
       // 键+! 字面前缀可见证、载荷动态 → opaque（与 evaluate 词位同病同治）；其余动态词位
-      // 间接构造不追（#1513），后续定义位扫描失去锚，按无定义位处置
+      // 间接构造不追，后续定义位扫描失去锚，按无定义位处置
       const p = literalPrefixOf(words[i]);
       if (/^-c["']?alias\.[\w.-]+=/.test(p)) return { kind: "opaque" };
       break;
@@ -572,7 +572,7 @@ export function extractGitAliasShell(seg: Segment): GitAliasShellExtraction {
       continue;
     }
     if (w.startsWith("-c") && w.length > 2) {
-      // F20261016gwr1（M-46f0e74d）：attached -ckey=val 形态（值在词内）
+      // （M-46f0e74d）：attached -ckey=val 形态（值在词内）
       const d = aliasKvOfString(w.slice(2));
       if (d !== null && d.value.startsWith("!")) texts.push(d.value.slice(1));
       i++;

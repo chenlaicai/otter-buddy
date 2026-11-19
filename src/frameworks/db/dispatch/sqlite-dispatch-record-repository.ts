@@ -3,7 +3,7 @@ import type { DispatchRecord, DispatchRecordFilter, DispatchStatus } from '@enti
 import type { DispatchRecordRepository } from '@usecases/dispatch/dispatch-record-repository';
 
 /**
- * dispatch_records 的 SQLite 实现（F20260912avlb）。
+ * dispatch_records 的 SQLite 实现。
  * 表结构在 schema.ts createDispatchRecordsTable 创建（幂等 CREATE IF NOT EXISTS）。
  * 取代旧 otter_context `dispatch:%` 伪存储（状态 100% 失真，见特性文档）。
  */
@@ -23,7 +23,7 @@ export class SqliteDispatchRecordRepository implements DispatchRecordRepository 
 
   async markDispatched(otterId: string, conversationId: string): Promise<number> {
     // Why 只刷 created：首次派工时间戳是「创建到首派窗口」的唯一锚点，
-    // 重复 yield（多轮交棒）不得刷新它（方案 delta 复审建议 1）
+    // 重复 yield（多轮交棒）不得刷新它（方案 delta ）
     const now = new Date().toISOString();
     const result = this.db.prepare(
       "UPDATE dispatch_records SET status = 'dispatched', dispatched_at = ? WHERE otter_id = ? AND conversation_id = ? AND status = 'created'",

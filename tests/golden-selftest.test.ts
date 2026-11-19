@@ -1,5 +1,5 @@
 /**
- * F20260828gssf: selftest 机制单元测试。
+ * selftest 机制单元测试。
  *
  * 直接 import 真实 runSelftest 测试（检视獭实验证伪了"A 类环境导入会解析失败"的论断：
  * vitest.config.ts 的 exclude 只作用于测试文件发现，不阻止模块解析）。

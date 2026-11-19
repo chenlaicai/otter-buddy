@@ -1,5 +1,5 @@
 /**
- * 附件注入服务（多模态 Phase 1，方案 §3.4——审视修复 R4/R7 后的策略归位）。
+ * 附件注入服务（多模态 Phase 1，方案 §3.4——审视修复 /后的策略归位）。
  *
  * 职责：attachmentIds → 当前任务消息的注入载荷（image 真图 + document 文本）。
  * 这是 usecases 层策略（方案 §3.4 分层原则「组装是策略，放 usecases」）：
@@ -62,7 +62,7 @@ export class AttachmentInjectionService {
   }
 
   /**
-   * #826 收尾处置（检视建议发现 2）：仅校验不组装载荷。
+   * 收尾处置（检视建议发现 2）：仅校验不组装载荷。
    * 信号路由器在位时 controller 不需要内存载荷（路由器消费信号时从 attachments 重建）
    * ——避免每条带附件消息双读盘×base64 白建；降级路径（无路由器）仍用 validateAndBuild。
    * @returns 错误消息（拒绝）或 null（通过，无需组装）

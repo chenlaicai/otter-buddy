@@ -72,7 +72,7 @@ describe('ChainDetailDrawer 链详情抽屉（Issue #649 交付 3）', () => {
     expect(text).toContain('fix: 修复')
     expect(text).toContain('2 文件 · a.ts, b.ts')
     expect(text).toContain('#42 已 10 天无推进')
-    // F20260902sigm：docStatus 行删除，改显信号清单
+    // docStatus 行删除，改显信号清单
     expect(text).not.toContain('文档状态')
     expect(c.querySelector('[data-testid="chain-drawer-signals"]')).toBeTruthy()
   })

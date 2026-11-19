@@ -1,5 +1,5 @@
 /**
- * F20260921urdo 修复前失败基线（在主仓 origin/main 代码上运行的副本）：
+ * 修复前失败基线（在主仓 origin/main 代码上运行的副本）：
  * 旧 agent-invoker.ts:618 的 entry.speak 载荷不含 sequenceNum——本用例在主仓跑必红，
  * 在 worktree（修复后）跑必绿。作为 bugfix PR 的失败用例证据。
  */

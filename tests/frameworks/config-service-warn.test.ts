@@ -1,5 +1,5 @@
 /**
- * weixin contextTokenWarn* 配置边界测试（F20260901wxnt 发现1/4）
+ * weixin contextTokenWarn* 配置边界测试（发现1/4）
  *
  * 覆盖：默认启用 / 显式 0 关闭 / 坏值回退默认 / 非数字抛错
  */

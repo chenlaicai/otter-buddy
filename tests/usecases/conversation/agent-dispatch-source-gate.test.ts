@@ -1,5 +1,5 @@
 /**
- * dispatch() 共享入口的来源闸接线断言（#1430 首轮严重1 处置）。
+ * dispatch() 共享入口的来源闸接线断言（首轮）。
  *
  * 背景：dispatch() 是共享入口——feishu/weixin（IM 用户消息）与 agent-invoker 首哑处置
  * （system 合成告警文本）都从这里进。首轮实现曾在此入口硬标 triggerSenderType: "user"，

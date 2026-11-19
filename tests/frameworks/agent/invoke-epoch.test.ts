@@ -1,14 +1,14 @@
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
- * F20261009epoc（#905）：invoke epoch 统一世代——方案验证节 8 条用例中的新增行为锁定。
+ * ：invoke epoch 统一世代——方案验证节 8 条用例中的新增行为锁定。
  *
  * 覆盖（对应特性文档「验证」节编号）：
  * - case 2 降级路径：锁 epoch 缺失回退 generation（fail-soft，热路径不挂）
- * - case 3 寄存器归属（S4 裸露面收口）：stale steal 后旧 invoke finally delete 不删新 invoke 条目
+ * - case 3 寄存器归属（裸露面收口）：stale steal 后旧 invoke finally delete 不删新 invoke 条目
  * - case 4 嵌套继承：嵌套 invoke 继承外层 epoch（不 mint）；嵌套+steal 混合场景 finally delete 正确跳过
  * - case 6 同键嵌套清理边界（known-boundary）：裸 otterId 共键，嵌套与外层共享 epoch，
  *   finally delete 无法区分内外层条目——与现状持平非回归，本用例划定边界
- * - case 7 非对称失效（r3-E-1）：otterInvokeStorage 断但 invokeEpochStorage 残留 →
+ * - case 7 非对称失效（-E-1）：otterInvokeStorage 断但 invokeEpochStorage 残留 →
  *   判非嵌套路径必铸新 epoch 并遮蔽残留外层值——等价性不可达证明的行为锁定
  *
  * 策略：走公共 invoke() 入口锁定时序（epoch 铸造/继承/遮蔽），内部方法用 mock

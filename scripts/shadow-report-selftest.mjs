@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * F20261010gshw：影子报告脚本自证——临时库合成 guard_eval_shadow 记录（含畸形
- * context 容错/窗外样本/r1 处置后 subkind 分桶与聚合记录），跑 shadow-eval-report.mjs
+ * 影子报告脚本自证——临时库合成 guard_eval_shadow 记录（含畸形
+ * context 容错/窗外样本/处置后 subkind 分桶与聚合记录），跑 shadow-eval-report.mjs
  * 核对聚合口径。
  *
  * 用法：node scripts/shadow-report-selftest.mjs（开发自检，CI 外）
@@ -29,7 +29,7 @@ const iso = (msAgo) => new Date(now - msAgo).toISOString();
 // 入参：context, resolution, created_at
 function add(id, ctx, resolution, createdAt) { ins.run(id, ctx, resolution, createdAt); }
 
-// ── 个体（r1 处置后 subkind 分桶）──
+// ── 个体（处置后 subkind 分桶）──
 // 真误拦候选 3（1 确认误拦 / 1 真误放 / 1 未裁决）+ same_block 2 + family_fallback 1 + eval_gain 2
 add("s1", JSON.stringify({ kind: "shadow_eval", subkind: "miss_block_candidate", oldVerdict: "BLOCK", evaluatorWouldAllow: true, oldRuleId: "main_write", commandHead: "cd /wt && git add src", hasWorktreePath: true }), "确认误拦：旧链误判", iso(1000));
 add("s2", JSON.stringify({ kind: "shadow_eval", subkind: "miss_block_candidate", oldVerdict: "BLOCK", evaluatorWouldAllow: true, oldRuleId: "main_write", commandHead: "git log > /repo/x", hasWorktreePath: false }), "真误放：该拦（写主仓）", iso(2000));
@@ -40,7 +40,7 @@ add("s6", JSON.stringify({ kind: "shadow_eval", subkind: "same_block", oldVerdic
 add("s7", JSON.stringify({ kind: "shadow_eval", subkind: "same_block", oldVerdict: "BLOCK", evaluatorWouldBlock: true, oldRuleId: "main_write", commandHead: "git commit -m x" }), null, iso(7000));
 add("s8", JSON.stringify({ kind: "shadow_eval", subkind: "family_fallback", oldVerdict: "BLOCK", unevalReason: "var-suffix", oldRuleId: "main_write", commandHead: "W=/wt; cd $W/sub && touch f" }), null, iso(8000));
 add("s9", "not-json{{", null, iso(9000)); // 畸形——应被容错跳过
-// 旧数据兼容（无 subkind，r1 前形态——按 oldVerdict+wouldAllow 推断 miss_block_candidate）
+// 旧数据兼容（无 subkind，前形态——按 oldVerdict+wouldAllow 推断 miss_block_candidate）
 add("s10", JSON.stringify({ kind: "shadow_eval", oldVerdict: "BLOCK", evaluatorWouldAllow: true, oldRuleId: "main_write", commandHead: "legacy form" }), null, iso(10000));
 // ── 聚合记录（判据③数据源）──
 add("a1", JSON.stringify({ kind: "shadow_eval_aggregate", total: 100, evaluated: 80, unevaluated: 20, mainWriteBlockEvaluated: 5, mainWriteBlockFallback: 2, individualsLogged: 7, dimensionMismatchBlocked: 10, unknownBlocked: 1 }), null, iso(11000));

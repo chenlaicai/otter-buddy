@@ -48,7 +48,7 @@ describe("validate", () => {
   });
 
   it("rejects legacy single-model format (llm.provider + llm.model)", () => {
-    // F20260806cnp6 [Incompatible]：旧格式启动即报错并提示迁移
+    // [Incompatible]：旧格式启动即报错并提示迁移
     expect(() =>
       validate({ llm: { provider: "openai", model: "gpt-4o" } as never }),
     ).toThrow("llm.models[] 为必填字段");
@@ -118,7 +118,7 @@ describe("loadConfig", () => {
     expect(cfg.server.port).toBe(3000);
     expect(cfg.db.path).toBe("./otter-buddy.db");
     expect(cfg.memory.rrfK).toBe(60);
-    // F20261112rnkph Phase 1 段 1：rerank 配置缺省——multiply（零行为变更）+ 设计系数回填
+    // Phase 1 段 1：rerank 配置缺省——multiply（零行为变更）+ 设计系数回填
     expect(cfg.memory.rerankMode).toBe("multiply");
     expect(cfg.memory.rerank.wRrf).toBeCloseTo(0.6, 12);
     expect(cfg.memory.rerank.wTime).toBeCloseTo(0.3, 12);
@@ -624,7 +624,7 @@ describe("updateDefaultModelInYaml comment preservation (#391)", () => {
   });
 });
 
-// F20261008fsrm（#1211）：feishu 静态段全量移除——残留段静默忽略，不进 AppConfig
+// feishu 静态段全量移除——残留段静默忽略，不进 AppConfig
 describe("F20261008fsrm feishu 静态段移除", () => {
   it("残留 feishu 段（appId/appSecret/partnerOpenId）被静默忽略——cfg.feishu undefined，无 warn 抛错", () => {
     mockExistsSync.mockReturnValue(true);

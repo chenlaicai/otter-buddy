@@ -1,5 +1,5 @@
 /**
- * F20260812mrcq Part 1：embedding 重试 worker 测试
+ * Part 1：embedding 重试 worker 测试
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
@@ -21,7 +21,7 @@ function makeEmbeddingGateway(impl: (text: string) => Promise<Float32Array> | ne
   return {
     available: true,
     embed: impl,
-    // F20261109epqst：retry worker 批量消费路径需要 embedBatch——逐条 impl 映射成批
+    // retry worker 批量消费路径需要 embedBatch——逐条 impl 映射成批
     embedBatch: async (texts: string[]) => {
       const out: Float32Array[] = [];
       for (const t of texts) out.push(await impl(t));
@@ -31,7 +31,7 @@ function makeEmbeddingGateway(impl: (text: string) => Promise<Float32Array> | ne
 }
 
 /**
- * F20261109epqst：等后台 drain 收尾（tickNow 触发后 drain 异步跑）——轮询任务终态。
+ * 等后台 drain 收尾（tickNow 触发后 drain 异步跑）——轮询任务终态。
  * 条件满足后额外 settle 150ms：drain 循环从「终态可见」到「finally 清 drainLoop」
  * 之间有异步间隙，不等 settle 的话下一次 tickNow 会因 drainLoop 未清而早退
  * （fire-and-forget 触发式语义的正确对齐，非实现缺陷）。
@@ -78,7 +78,7 @@ beforeEach(() => {
 });
 
 /**
- * F20261109epqst delta r3（D4）：trackedWorker——构造即登记，afterEach 统一
+ * delta （D4）：trackedWorker——构造即登记，afterEach 统一
  * stop 兜底。本文件 16 个构造点仅 1 处显式 stop；retrigger 机制下未 stop 的
  * worker 跨用例存活（self-perpetuating），实证会偷吃同 DB 后续用例的任务
  * （检视獭 D4：S3 任务被本文件泄漏的 w6/w2 领走）。生产不受影响（单实例 +

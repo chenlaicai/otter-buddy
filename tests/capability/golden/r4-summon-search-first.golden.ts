@@ -1,10 +1,10 @@
 /**
- * F20260825evgl 伤疤1：R4 召唤前先搜。
+ * 伤疤1：召唤前先搜。
  *
- * 源测试锚点：system-prompt-behavior.capability.test.ts#R4召唤前先搜
+ * 源测试锚点：system-prompt-behavior.capability.test.ts#召唤前先搜
  * （断言逻辑跟随该测试更新，分叉时以该测试为准——见 golden/README.md 同步规则）。
  *
- * 行为不变量：召唤小獭场景下，create_otter 之前必须有 search_memory（R4 硬约束）。
+ * 行为不变量：召唤小獭场景下，create_otter 之前必须有 search_memory（硬约束）。
  * 用交换级工具轨迹（toolCallNamesForExchange，跨重试聚合）判定顺序。
  */
 import { toolCallNamesForExchange, latestUserSeq } from "../helpers/assert-behavior";

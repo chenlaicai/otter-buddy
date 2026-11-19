@@ -19,14 +19,14 @@ export interface Invoke {
   toolCallCount: number;
   tokenUsageInput: number | null;
   tokenUsageOutput: number | null;
-  /** F20261027hwl1：四分量补齐——cache 两列 schema 早已存在（F20260923icus），但实体/读回链
+  /** 四分量补齐——cache 两列 schema 早已存在，但实体/读回链
    *  此前不携带（update 写入后读回即丢）。null = 无数据（旧数据/usage 缺失）。 */
   tokenUsageCacheRead: number | null;
   tokenUsageCacheWrite: number | null;
-  /** F20260914rtsp：末次 LLM 往返的上下文窗口占用（usage.totalTokens 快照，含 cacheRead/cacheWrite）。
+  /** 末次 LLM 往返的上下文窗口占用（usage.totalTokens 快照，含 cacheRead/cacheWrite）。
    *  右栏「休息中 · xx/xx」与 Session 弹窗 invoke 摘要的数据源；null = 无数据（usage 缺失或旧数据） */
   ctxWindowUsed: number | null;
-  /** #1241：创建本 invoke 的进程 pid（孤儿判据——非本进程 pid 的 running = 旧进程遗留）。
+  /** 创建本 invoke 的进程 pid（孤儿判据——非本进程 pid 的 running = 旧进程遗留）。
    *  null = pid 列引入前的存量行（启动 reconcile 无条件清理）。
    *  必填字段而非可选：防新增构造点漏写（漏写会被启动 reconcile 误杀，编译期强制補齐） */
   pid: number | null;

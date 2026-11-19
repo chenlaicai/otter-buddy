@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * issue #1051：RHI 信号口径切换后的存量清扫（一次性运维脚本）。
+ * RHI 信号口径切换后的存量清扫（一次性运维脚本）。
  *
- * 背景：PR #1560 把 post_merge_fix_density 从「次数≥3 或 占比≥30%」的或门改为
+ * 背景：把 post_merge_fix_density 从「次数≥3 或 占比≥30%」的或门改为
  * 「次数≥3 且 占比≥15%」的双门，并给 hotspot 加了高扇入枢纽排除。合并前旧口径仍在
  * 主仓运行，会持续产出低于新阈值的 density 与指向枢纽文件的 hotspot——且
  * SignalRepository.upsert（src/usecases/health/signal-repository.ts）只匹配
  * status='open'，dismiss 掉的行会被下一轮扫描**新开一行**重新长回来（实测 20 分钟内
  * open 从 16 涨到 28；修复 9 条误 dismiss 时还挖出 9 条同键孪生行的犯罪现场）。
- * 所以合并后必须补跑一次清扫，#1051 的验收断言才能长期成立。
+ * 所以合并后必须补跑一次清扫，的验收断言才能长期成立。
  *
  * 本脚本扫两类（delta 复核 C 项：两类都必须扫，否则断言打不到目标）：
  *  A. density：低于新双门阈值的退出。占比从 evidence 现取（格式由 detectPostMergeFixDensity

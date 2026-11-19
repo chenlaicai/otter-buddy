@@ -1,5 +1,5 @@
 /**
- * F20260826mwrd C1：halt 核心机制单测。
+ * C1：halt 核心机制单测。
  *
  * 覆盖：haltRegistry 状态机（mark → takeForBlock → 持续 block → endInvoke）、
  * haltToolCallGuard（ALS fail-open + block 语义）、buildHaltBlockReason（LLM 注入文本）。
@@ -20,7 +20,7 @@ function makeDirective(overrides: Partial<HaltDirective> = {}): HaltDirective {
     fromOtterName: '大獭',
     conversationId: 'conv-1',
     reason: '方向理解反了，停手等我改派',
-    // #927：fixture 用相对当前时间（issuedAt 供台账/日志，不再做 TTL 存活判定；相对时间是好习惯）
+    // fixture 用相对当前时间（issuedAt 供台账/日志，不再做 TTL 存活判定；相对时间是好习惯）
     issuedAt: new Date().toISOString(),
     ...overrides,
   };

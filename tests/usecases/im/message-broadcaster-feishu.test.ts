@@ -4,7 +4,7 @@ import { FeishuMessageChannel } from "@usecases/im/feishu-message-channel";
 import type { SSEEvent } from "@contract/sse/events";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 
-/** F20260913ctlv 处置轮重写：消息级 broadcast 链路已删——出站全走事件通道。
+/** 处置轮重写：消息级 broadcast 链路已删——出站全走事件通道。
  *  user 出站用例改走 entry.user 事件（source 防回环闸），语义断言沿用。 */
 
 function userEntryEvent(overrides: Partial<{ body: string; source: string }> = {}): SSEEvent {
@@ -19,13 +19,13 @@ function userEntryEvent(overrides: Partial<{ body: string; source: string }> = {
   } as never;
 }
 
-/** issue #281：broadcaster 拆为纯总线 + FeishuMessageChannel 出站通道。
+/** broadcaster 拆为纯总线 + FeishuMessageChannel 出站通道。
  *  测试装配与生产一致：总线注册飞书通道，行为断言全部沿用 */
 function createBroadcaster(webBaseUrl?: string, settingsRepo?: Pick<SettingsRepository, "get">) {
   const manageConnection = {
     getSessionByConversation: vi.fn().mockResolvedValue(null),
     getConnection: vi.fn().mockResolvedValue(null),
-    // F20260920imax 增量五：出站定向解析（普通连接 mock 直用 externalId）
+    // 增量五：出站定向解析（普通连接 mock 直用 externalId）
     resolveReplyTarget: vi.fn((conn: { externalId: string }) => conn.externalId),
   } as any;
   const feishuGateway = {
@@ -41,7 +41,7 @@ function createBroadcaster(webBaseUrl?: string, settingsRepo?: Pick<SettingsRepo
   return { broadcaster, manageConnection, feishuGateway, logger };
 }
 
-/** 把 manageConnection mock 设置为有飞书绑定（#591 重构后出站通道存 Map，
+/** 把 manageConnection mock 设置为有飞书绑定（重构后出站通道存 Map，
  *  取通道改走 outboundChannels.get） */
 function bindFeishu(broadcaster: MessageBroadcaster, externalId = "chat-123", externalType = "feishu") {
   const manageConnection = (broadcaster as any).outboundChannels.get("feishu").o.manageConnection;

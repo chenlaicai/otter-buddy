@@ -1,4 +1,4 @@
-// R20260817arnt PR-A：组合根声明 port 接口而非 Sqlite 具体类——替换实现时类型不突变
+// PR-A：组合根声明 port 接口而非 Sqlite 具体类——替换实现时类型不突变
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { OtterContextRepository } from "@usecases/otter/otter-context-repository";
 import type { MemoryRepository } from "@usecases/memory/memory-repository";
@@ -54,7 +54,7 @@ import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-schedu
 import type { ScheduledTaskPendingItemRepository } from "@usecases/scheduler/pending-item-repository";
 import type { ManageConnection } from "@usecases/im/manage-connection";
 import type { AssistantSessionManager } from "@usecases/im/assistant-session";
-/** F20260924wast：web 助理开户 */
+/** web 助理开户 */
 import type { WebAssistantProvisioner } from "@usecases/conversation/web-assistant-provisioner";
 import type { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
 import type { ManageWorkspace } from "@usecases/conversation/manage-workspace";
@@ -67,7 +67,7 @@ export interface Repositories {
   memoryReader: MemoryReader;
   memoryWriter: MemoryWriter;
   memoryQueue: MemoryQueue;
-  /** F20260826rcmm Phase 0：检索埋点（评估基线数据源） */
+  /** Phase 0：检索埋点（评估基线数据源） */
   searchQueryLog: SearchQueryLogRepository;
   /** P2b1：夜间审视治量状态（幂等键 + 失败区间 + 连败计数） */
   consolidationState: ConsolidationStateRepository;
@@ -80,28 +80,28 @@ export interface Repositories {
   scheduledTaskPending: ScheduledTaskPendingItemRepository;
   connection: ConnectionRepository;
   healingEvent: HealingEventRepository;
-  /** F20260826mwrd C1：獭间结构化信号台账（halt 落账；C2 objection/blocked） */
+  /** C1：獭间结构化信号台账（halt 落账；C2 objection/blocked） */
   signalEvent: SignalEventRepository;
-  /** F20261006mtlp P1：待办承诺台账（matters 表——持续工作单元） */
+  /** P1：待办承诺台账（matters 表——持续工作单元） */
   matter: MatterRepository;
-  /** RHI 健康信号池（issue #447：纳入 DI 注册惯例，与 signalEvent 獭间语义池区分） */
+  /** RHI 健康信号池（纳入 DI 注册惯例，与 signalEvent 獭间语义池区分） */
   rhiSignal: SignalRepository;
-  /** RHI 指标快照（health_snapshots 表，issue #447） */
+  /** RHI 指标快照（health_snapshots 表，） */
   healthSnapshot: HealthSnapshotRepository;
-  /** F20261027hwl1：工作账本（work_items 族三表——归属绑定 + 只读报告） */
+  /** 工作账本（work_items 族三表——归属绑定 + 只读报告） */
   workLedger: WorkLedgerRepository;
-  /** F20260908rlcp：旧派发台账退役（dispatchAttempt 随 main #886 批次退役）。
-   * F20260912avlb：派工台账正式表（客观生命周期 created/dispatched/dissolved）——本 PR 核心，保留 */
+  /** 旧派发台账退役（dispatchAttempt 随 main 批次退役）。
+   * 派工台账正式表（客观生命周期 created/dispatched/dissolved）——本 PR 核心，保留 */
   dispatchRecord: DispatchRecordRepository;
-  /** F20260913csv3 T1：unfurl 预览缓存（P1 数据先行——抓取结果落库，渲染读库） */
+  /** T1：unfurl 预览缓存（P1 数据先行——抓取结果落库，渲染读库） */
   unfurlCache: SqliteUnfurlCacheRepository;
   /** 多模态 Phase 1：附件 repo（上传管线 + 消息组装共用） */
   attachment: AttachmentRepository;
-  /** F20260913ctlv：条目仓库（取代 messages + message_segments） */
+  /** 条目仓库（取代 messages + message_segments） */
   entry: EntryRepository;
-  /** F20260913ctlv：invoke 生命周期仓库 */
+  /** invoke 生命周期仓库 */
   invoke: InvokeRepository;
-  /** F20260916b1ea：重启自动恢复队列（restart_pending_resumes 表） */
+  /** 重启自动恢复队列（restart_pending_resumes 表） */
   resumePending: ResumePendingRepository;
 }
 
@@ -111,11 +111,11 @@ export interface UseCases {
   manageTerminology: ManageTerminology;
   searchMemory: SearchMemory;
   scanDarkEntries: ScanDarkEntries;
-  /** F20261118bltls P1c：belief 现场记录 */
+  /** P1c：belief 现场记录 */
   recordBelief: RecordBelief;
-  /** F20261118bltls P1c：belief 状态迁移（verify/reject/supersede 共用） */
+  /** P1c：belief 状态迁移（verify/reject/supersede 共用） */
   transitionBelief: TransitionBelief;
-  /** F20261118bltls P1c：belief supersede（标记过期/新取代旧 + 建边 + TOCTOU 防护） */
+  /** P1c：belief supersede（标记过期/新取代旧 + 建边 + TOCTOU 防护） */
   supersedeBelief: SupersedeBelief;
   /** P2b1：夜间审视治量状态管理（claim/complete/recordFailure） */
   manageConsolidationState: ManageConsolidationState;
@@ -125,7 +125,7 @@ export interface UseCases {
   getDocProvenance: GetDocProvenance;
   sendEntry: SendEntry;
   queryMessage: QueryMessage;
-  /** F20260826rcmm Phase 0：检索埋点（评估基线数据源） */
+  /** Phase 0：检索埋点（评估基线数据源） */
   recordSearchQuery: RecordSearchQuery;
   manageReadState: ManageReadState;
   manageParticipant: ManageParticipant;
@@ -137,7 +137,7 @@ export interface UseCases {
   manageContext: ManageContext;
   manageScheduledTask: ManageScheduledTask;
   manageConnection: ManageConnection;
-  /** F20260918imas：IM 助理会话管理（自动开户 + 软轮换） */
+  /** IM 助理会话管理（自动开户 + 软轮换） */
   assistantSession: AssistantSessionManager;
   webAssistantProvisioner: WebAssistantProvisioner;
   /** 多模态 Phase 1：附件上传服务 */

@@ -21,16 +21,16 @@ import reactHooks from "eslint-plugin-react-hooks";
 
 /**
  * Frameworks restricted from inner layers: default-deny（deny-all-except-logger）.
- * F20260814qswp：原白名单式列举已失守（metrics/scheduler/feishu 遗漏未被拦截，
+ * 原白名单式列举已失守（metrics/scheduler/feishu 遗漏未被拦截，
  * scheduler-service 曾直接值导入 @frameworks/metrics）。取反为默认全限制，
  * 新增 frameworks 模块自动被覆盖，无需维护清单。D39 豁免仅 logger。
  */
 const restrictedFrameworks = [{
   // deny-all-except-logger-and-repo-root：ESLint 10 的 patterns 对象不支持 allow 例外字段，
   // 用负向前瞻实现"除 logger / repo-root 外全限制"（D39 豁免 logger；repo-root 豁免见
-  // F20260916fndv/#429——纯路径常量模块零依赖，usecases 运行时资源定位（prompt 模板/
+  // /——纯路径常量模块零依赖，usecases 运行时资源定位（prompt 模板/
   // seed 数据）需在不破坏依赖方向的前提下使用，与 logger 豁免同性质）。
-  // F20260920stkx：stock 豁免随 @frameworks/stock 目录整体移除而移除
+  // stock 豁免随 @frameworks/stock 目录整体移除而移除
   regex: "(?:^|@|/)frameworks/(?!logger(?:/|$)|repo-root(?:/|$))",
   message: "Inner layers cannot import from frameworks (except @frameworks/logger and @frameworks/repo-root per D39/#429)",
 }];
@@ -58,7 +58,7 @@ export default tseslint.config(
     },
   },
   {
-    // 牌局页（web-mahjong/，F20261015mjsg 模块四）：浏览器环境原生 ES 模块
+    // 牌局页（web-mahjong/，模块四）：浏览器环境原生 ES 模块
     files: ["web-mahjong/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
@@ -154,8 +154,8 @@ export default tseslint.config(
     }
   },
   // Layer 3: interface-adapters/ — cannot import from frameworks at all
-  // #429 豁免：@frameworks/repo-root（纯路径探测，零业务依赖）。
-  // F20260920stkx：stock/python 豁免随 @frameworks/stock 目录整体移除而移除
+  // 豁免：@frameworks/repo-root（纯路径探测，零业务依赖）。
+  // stock/python 豁免随 @frameworks/stock 目录整体移除而移除
   {
     files: ["src/interface-adapters/**/*.ts"],
     rules: {

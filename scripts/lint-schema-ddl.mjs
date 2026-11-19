@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * F20261009smex: DDL 同块引用静态门（#1390 事故防线 B）。
+ * DDL 同块引用静态门（事故防线 B）。
  *
- * 背景（第二次 P0 启动事故，#1390 复盘）：
- *   #1365 把 CREATE INDEX 与 CREATE TABLE 放同一 db.exec 块，而索引引用的列
+ * 背景（第二次 P0 启动事故，复盘）：
+ * 把 CREATE INDEX 与 CREATE TABLE 放同一 db.exec 块，而索引引用的列
  *   靠块外其后的 ALTER TABLE ADD COLUMN 补——存量库上 CREATE TABLE IF NOT EXISTS
  *   no-op（表早已存在、无该列），索引创建立即炸 `no such column`，永远走不到补列。
  *   全新库 CI/冒烟全绿（CREATE TABLE 一把建全，列天然存在），防线与线上形态错位。
@@ -13,12 +13,12 @@
  *   其引用的列必须满足其一——
  *   A) 同块 CREATE TABLE 定义了该列（全新库场景，列随表创建）；
  *   B) 同文件存在 ALTER TABLE 补列语句且位置在索引块之前（存量库场景，补列先于索引执行）。
- *   两者都不满足 = 违规（#1365 形态：索引在补列之前，存量库必炸）。
+ * 两者都不满足 = 违规（形态：索引在补列之前，存量库必炸）。
  *
  *   豁免：块内显式注释 `lint-schema:allow-index-before-column`（须附理由，
  *   如表重建场景索引建在 RENAME 后的新表上、列由旧表结构保证存在）。
  *
- * 抓取面（S1 处置后扩面）：
+ * 抓取面（处置后扩面）：
  *   - db.exec(`...`) 模板块（schema.ts/migration.ts 的 DDL 主体）
  *   - db.exec("...") 双引号单行块（migration.ts 的零散 DDL，如 :2088）
  *   - db.prepare("...").run() 单行块（migration.ts 的条件建索引，如 :820/:1235）

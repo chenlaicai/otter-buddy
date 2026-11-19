@@ -1,7 +1,7 @@
 /**
  * 能力测试：大獭召唤后派工（big-otter dispatch）
  *
- * F20260813actk: 验证大獭 create_otter 后把行动权（talkingStonePassedTo）传给新建小獭，
+ * 验证大獭 create_otter 后把行动权（talkingStonePassedTo）传给新建小獭，
  * 不传 'user'。修复前生产数据：纯失败 10.0% / 含批量部分丢失 21.4%；批量创建 57.1% 失败率。
  * 失败签名——大獭 body 写"正在并行检视"，真心以为 create=派工。
  *
@@ -12,7 +12,7 @@
  * AT-3（小獭回传大獭）/AT-4（终审传 user）由 talking-stone-routing.capability.test.ts 覆盖回程，
  * 本文件聚焦去程派工（大獭→小獭）。
  *
- * 测试设计要点（继承 F20260810rout 经验）：
+ * 测试设计要点（继承 经验）：
  * - 真系统 + 真 LLM（mimo），不能用 mock
  * - 任务极简（确认到岗），避免 mimo 重任务下退化干扰路由验证
  * - 阈值经二项分布计算：3 次 ≥2 在 p=0.7 时 78% 通过率（过宽）；5 次 ≥4 / 7 次 ≥5 才能检测修复有效性

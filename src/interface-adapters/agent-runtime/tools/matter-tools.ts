@@ -1,6 +1,6 @@
 /**
- * Matter 工具（F20261006mtlp P1：list_matters / transition_matter；F20261006mlp2 P2：register_matter；
- * F20261008mlp3 P3：matter_sweep 跨对话停滞扫描——未闭环扫描升格的确定性数据源）。
+ * Matter 工具（P1：list_matters / transition_matter；P2：register_matter；
+ * P3：matter_sweep 跨对话停滞扫描——未闭环扫描升格的确定性数据源）。
  *
  * 通道 A 代执行（§3.5）：搭档对话直复裁决后，被唤醒獭用本工具代执行板上迁移——
  * `on_behalf_of='partner'` 声明代搭档执行（resolution 必填「代搭档执行：<原话>」留痕），
@@ -119,7 +119,7 @@ function buildTransitionEcho(m: { id: string; title: string; state: string; reso
     (m.waitingOn ? `\n  等待: ${m.waitingOn}${m.waitingFor ? `（${m.waitingFor}）` : ''}` : '');
 }
 
-/** F20261019fckd：closure_kind 参数解析（合法值透传，非法值已在上层报错） */
+/** closure_kind 参数解析（合法值透传，非法值已在上层报错） */
 function parseClosureKindParam(params: Record<string, unknown>): TransitionMatterInput['closureKind'] {
   if (params.closure_kind === undefined) return undefined;
   const kind = (params.closure_kind as string | undefined)?.trim();
@@ -148,7 +148,7 @@ function buildTransitionInput(ctx: ToolContext, params: Record<string, unknown>,
   return input;
 }
 
-/** 代执行声明校验：on_behalf_of 非空即强制 resolution 留痕（N2——宣告权分权的审计面） */
+/** 代执行声明校验：on_behalf_of 非空即强制 resolution 留痕（——宣告权分权的审计面） */
 function validateProxyParams(params: Record<string, unknown>): string | null {
   const onBehalf = (params.on_behalf_of as string | undefined)?.trim();
   if (!onBehalf) return null;

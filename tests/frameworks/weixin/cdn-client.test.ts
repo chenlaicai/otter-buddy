@@ -6,7 +6,7 @@ import type { WeixinApiClient } from "@frameworks/weixin/api-client";
 import type { Logger } from "@usecases/ports/logger";
 
 /**
- * CDN 媒体协议单测（issue #567）。
+ * CDN 媒体协议单测。
  * fetch 全 mock 不出网。AES 语义与 openclaw-weixin cdn/aes-ecb.ts 对齐
  * （PKCS7 默认、密文 16 字节对齐）。
  */

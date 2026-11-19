@@ -1,10 +1,10 @@
 /**
- * AgentMetrics 端口（F20260814mtrc）
+ * AgentMetrics 端口
  *
  * usecases/interface-adapters 只依赖此接口；实现位于 frameworks/metrics/agent-metrics.ts
  * （prom-client）。分层约束：interface-adapters 不许 import frameworks。
  *
- * 指标语义契约（重构不许漂移）见 F20260814mtrc"指标语义契约"节：
+ * 指标语义契约（重构不许漂移）见 "指标语义契约"节：
  * outcome/retry/source/guard reason 均为封闭枚举，token 为 attempt 增量。
  */
 
@@ -14,7 +14,7 @@ export type InvokeOutcome =
   | "user_abort"
   | "guard_abort"
   | "api_error"
-  /** F20261027cnsv 审视修复（Feb 发现 2）：单飞行背压拒绝——背压非故障，独立计数不污染 api_error 口径 */
+  /** 审视修复（Feb 发现 2）：单飞行背压拒绝——背压非故障，独立计数不污染 api_error 口径 */
   | "delegation_rejected"
   | "no_yield_retry"
   | "no_yield_failed";
@@ -26,13 +26,13 @@ export type RetryLabel = "0" | "auto" | "manual";
 export type RetryKind =
   | "sdk_auto"
   | "degenerate_output"
-  | "degenerate_detected" // F20260831dgrt：首次退化检测（非实际重试），与 degenerate_output 语义分离
+  | "degenerate_detected" // 首次退化检测（非实际重试），与 degenerate_output 语义分离
   | "no_yield"
   | "streaming_timeout"
   | "first_byte_timeout"
   | "circuit_break"
   | "bash_safety"
-  | "bash_sleep"; // F20260928slan：sleep 拦截重试（感知问题域，与 kill 域 bash_safety 分流记账）
+  | "bash_sleep"; // sleep 拦截重试（感知问题域，与 kill 域 bash_safety 分流记账）
 
 /** 一次 invoke attempt 的退出画像 */
 export interface InvokeOutcomeRecord {
@@ -62,9 +62,9 @@ export interface AgentMetricsPort {
   recordChainTokenUsage(tokens: number): void;
   /** 每链最多一次：计量缺口只影响可观测性，不参与链停止。 */
   recordChainTelemetryGap(): void;
-  /** F20260821spcm: 旁白流失计数——LLM 输出了直出文本但未调 speak（按 otterId 分组） */
+  /** 旁白流失计数——LLM 输出了直出文本但未调 speak（按 otterId 分组） */
   recordNoYieldWithOrphanText(otterId: string): void;
-  /** F20260903lngth：交接摘要合成结果计数（outcome=success|empty|truncated|error|timeout，封闭枚举） */
+  /** 交接摘要合成结果计数（outcome=success|empty|truncated|error|timeout，封闭枚举） */
   recordSynthesis(outcome: "success" | "empty" | "truncated" | "error" | "timeout"): void;
 }
 

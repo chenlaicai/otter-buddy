@@ -1,5 +1,5 @@
 /**
- * Halt block reason 文本（F20260826mwrd C1）。
+ * Halt block reason 文本（C1）。
  *
  * SDK 语义：tool_call handler 返回 { block: true, reason } → agent-loop 生成
  * isError tool result（reason 为正文）返回 LLM。本文件构造该正文——

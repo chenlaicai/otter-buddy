@@ -64,6 +64,8 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(collectAnchorViolations("r2 处置后").some((x) => x.kind === "轮次编号")).toBe(true);
     expect(collectAnchorViolations("S1").some((x) => x.kind === "轮次编号" && x.token === "S1")).toBe(true);
     expect(collectAnchorViolations("R10").some((x) => x.kind === "轮次编号" && x.token === "R10")).toBe(true);
+    expect(collectAnchorViolations("delta 发现 8 的现场").some((x) => x.kind === "轮次编号")).toBe(true);
+    expect(collectAnchorViolations("S2a").some((x) => x.kind === "轮次编号" && x.token === "S2a")).toBe(true);
   });
 
   it("技术词豁免：M1/M2 芯片、S3 存储、A4 纸；流程描述不误伤", () => {

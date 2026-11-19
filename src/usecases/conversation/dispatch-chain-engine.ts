@@ -4,7 +4,7 @@ import type { AttachmentRef } from "@entities/conversation/attachment";
 import type { ConversationRepository } from "./conversation-repository";
 import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { Logger } from "@usecases/ports/logger";
-  /* eslint-disable max-lines -- F20260904ldgr 注入降级备注后 461>450；#530 护栏 +11 行；拆文件会切断 hop 取源与记账的紧耦合内聚 */
+  /* eslint-disable max-lines -- 注入降级备注后 461>450；护栏 +11 行；拆文件会切断 hop 取源与记账的紧耦合内聚 */
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
 import { USER_DISPLAY_NAME_KEY } from "@usecases/settings/settings-keys";
 import { runWithTrace, newTraceId } from "@usecases/ports/trace-context";
@@ -13,7 +13,7 @@ import type { PartnerResolver } from "@usecases/im/partner-resolver";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { randomUUID } from "node:crypto";
 import { DelegationInFlightError } from "@entities/errors";
-// F20260826mwrd C3（Part 6）：L2 安全词扫描
+// C3（Part 6）：L2 安全词扫描
 import { scanStopWords } from "@usecases/signal/stop-word-scanner";
 import type { SenderType } from "@entities/conversation/entry";
 import { accumulateTokenUsage, emptyTokenUsage, totalTokenUsage, type TokenUsage } from "./token-usage";
@@ -26,16 +26,16 @@ export interface ChainHopResult {
   usageDeltas?: TokenUsage[];
   /** 所有 fulfilled target 都有增量才为 true；rejected target 不纳入 telemetry 完整性。 */
   usageTelemetryComplete?: boolean;
-  /** #530 护栏 steer 文案：进程级传递，下一 hop 前置注入（解决 session 已 dispose 无法 steer 的生命周期问题） */
+  /** 护栏 steer 文案：进程级传递，下一 hop 前置注入（解决 session 已 dispose 无法 steer 的生命周期问题） */
   steerText?: string;
 }
 
-/** F20260907ylfs ②（P3a 批次 2）：单目标 hop 产出判定——护栏决策单点化的载体。
+/** ②（P3a 批次 2）：单目标 hop 产出判定——护栏决策单点化的载体。
  *  settle 记账（chainSource 回填）与路由（nextTargets）共享同一实例，两处不再各滤各的。 */
 export interface HopOutcome {
-  /** F20260913ctlv 彻底切换：行级取数 = invoke 行（含 talkingStonePassedTo 终值）；查库失败/degraded 时 null */
+  /** 彻底切换：行级取数 = invoke 行（含 talkingStonePassedTo 终值）；查库失败/degraded 时 null */
   producedMsg: { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null; metadata?: Record<string, unknown> | null } | null;
-  /** 取数降级标记（#798）：账面补「出处降级」备注用 */
+  /** 取数降级标记：账面补「出处降级」备注用 */
   degraded: boolean;
   /** 护栏门控后的下一跳目标（已滤 'user'；self 仅护栏放行时含）——记账与路由的唯一口径 */
   allowedNext: string[];
@@ -62,9 +62,9 @@ export interface InvokeFnParams {
    *  每轮 ≤2 图服务端硬限制（compaction 低估 4.6 倍实测后的预算控制）；
    *  未读历史统一文本投影不按獭分叉，分叉只发生在当前任务消息。 */
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
-  /** F20260908rlcp：本批未读消息的最大 sequence_num（启动成功后推进游标用） */
+  /** 本批未读消息的最大 sequence_num（启动成功后推进游标用） */
   batchMaxSeq?: number;
-  /** F20261027hwl1：触发本链的 entry id（工作账本归属证据——写 invokes.trigger_entry_id）。
+  /** 触发本链的 entry id（工作账本归属证据——写 invokes.trigger_entry_id）。
    *  链引擎逐 hop 透传；与 trace scope 内 traceId 一起构成「链→invoke」的可归因锚点。 */
   triggerMessageId?: string;
   /** 本次 yield 派工角色；由链引擎逐 hop 显式传递 */
@@ -74,14 +74,14 @@ export interface InvokeFnParams {
 export interface InvokeFnResult {
   /** D2：委托 hop 的进程内结算标记；不落库、不路由，由持有者原链消费续轮。 */
   delegated?: boolean;
-  /** 契约（F20261026ctbg 钉扎）：实为 invoke 行 id，非 speak 消息 id——产出判定
-   *  （fetchProducedMessage 读行级 tsp）与 #530 getSelfYieldDecisionEntries 的当前
+  /** 契约（钉扎）：实为 invoke 行 id，非 speak 消息 id——产出判定
+   * （fetchProducedMessage 读行级 tsp）与 getSelfYieldDecisionEntries 的当前
    *  invoke 边界子查询均以此为前提，改动任一侧需同步。 */
   messageId: string;
-  /** F20261026ctbg：本次 invoke 的四分量 token 增量，绝非 session 累计快照。 */
+  /** 本次 invoke 的四分量 token 增量，绝非 session 累计快照。 */
   tokenUsageDelta?: TokenUsage;
-  /** @deprecated F20260904schf：链引擎已改读行级 tsp（getMessageById 的 talkingStonePassedTo），
-   *  此字段为 turn 级并集（streaming 共栖污染源，#792），保留仅供观测/过渡期，新代码禁止消费。 */
+  /** @deprecated 链引擎已改读行级 tsp（getMessageById 的 talkingStonePassedTo），
+   * 此字段为 turn 级并集（streaming 共栖污染源，），保留仅供观测/过渡期，新代码禁止消费。 */
   aggregatedTargets?: string[];
 }
 
@@ -92,11 +92,11 @@ export type InvokeFn = (params: InvokeFnParams) => Promise<InvokeFnResult>;
  * 同时服务于 SSE 和非 SSE 两条路径，通过 invokeFn 注入解耦差异。
  */
 export class DispatchChainEngine {
-  /** F20260922ctxi：名册快照缓存（进程内纯运行时缓存，key=conversation:otter，重启自然重建）——
+  /** 名册快照缓存（进程内纯运行时缓存，key=conversation:otter，重启自然重建）——
    *  delta 注入对比基准：内容未变不重复注入，变化时重新注入并更新快照 */
   private readonly rosterCache = new Map<string, string>();
 
-  /** F20260922ctxi：名册段消费——返回应拼接的段（""=未变不注入；首轮/变更返回 roster + 空行） */
+  /** 名册段消费——返回应拼接的段（""=未变不注入；首轮/变更返回 roster + 空行） */
   private consumeRosterSegment(conversationId: string, otterId: string, roster: string): string {
     const key = `${conversationId}:${otterId}`;
     const prev = this.rosterCache.get(key);
@@ -1052,11 +1052,11 @@ export class DispatchChainEngine {
       return { message: result, batchMaxSeq };
     }
     const names = await this.resolveSenderNames(filtered);
-    // F20260826fuid：user 消息优先用持久化快照名（飞书群聊多人识别）。
-    // F20260826fpbd：搭档判定改静态——partnerLabel 只属于配置锚定的搭档（含 Web 'user'），
+    // user 消息优先用持久化快照名（飞书群聊多人识别）。
+    // 搭档判定改静态——partnerLabel 只属于配置锚定的搭档（含 Web 'user'），
     //  非搭档即使触发本次派发也不再显示 partnerLabel（动态推断时代的冒名旧病）。
-    //  降级：未配置 partnerOpenId 时回退 #488 行为（当前 sender 无快照→partnerLabel）
-    // F20260928wxid：resolver/staticResolver 已上移（触发消息标签共用）；formatEntry 消费同名变量
+    // 降级：未配置 partnerOpenId 时回退 行为（当前 sender 无快照→partnerLabel）
+    // resolver/staticResolver 已上移（触发消息标签共用）；formatEntry 消费同名变量
     const formatEntry = (m: typeof filtered[number]): string => {
       const label = this.resolveUnreadSenderLabel(m, senderId, partnerLabel, staticResolver, names);
       const text = stripHtmlCardsOnly(m.body ?? '');
@@ -1070,7 +1070,7 @@ export class DispatchChainEngine {
     return { message: result, batchMaxSeq };
   }
 
-  /** F20261019rpay（#1553）：触发消息「新鲜 vs 重放」判定 + 真实 createdAt。
+  /** 触发消息「新鲜 vs 重放」判定 + 真实 createdAt。
    *  重放 = 真实 entry 但不在本轮未读批（已被消费、派发链后续 hop 重复以同一 messageId 点火）。
    *  双信号判定（unreadAll 命中 + getEntryById），非时间阈值启发式。 */
   private async resolveTriggerPresentation(
@@ -1087,7 +1087,7 @@ export class DispatchChainEngine {
     return { createdAt: null, isReplay: false };
   }
 
-  /** buildPendingPreview 已退役（F20260908rlcp：台账退役后数据源不存在） */
+  /** buildPendingPreview 已退役（台账退役后数据源不存在） */
 
   /** 多模态 Phase 1：未读历史统一文本投影（不按目标獭分叉——last_read 保证未读皆近，
    *  历史图"知道是什么"即可；分叉只发生在当前任务消息的真图注入） */

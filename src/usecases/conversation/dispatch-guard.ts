@@ -4,13 +4,13 @@
  * Why: 从 tool-factory.ts 下沉派工守卫逻辑，实现领域规则与工具实现分离。
  * dispatch-guard.ts 包含状态操作，依赖 ToolContext 的 pendingDispatches 字段。
  *
- * 设计依据：R20260817arnt Q2 tool-factory 领域规则下沉
+ * 设计依据：Q2 tool-factory 领域规则下沉
  */
 
 import type { ToolContext } from "@usecases/ports/agent-tools";
 
 /**
- * F20260813actk C9：待派工票据的软守卫——检查未派工并提醒（不清除票据）。
+ * C9：待派工票据的软守卫——检查未派工并提醒（不清除票据）。
  * 若本轮创建的小獭仍有未获行动权的、且本次未提醒过，返回提醒文案（调用方以 terminate=false 返回）。
  * 返回 null 表示无需提醒，可正常提交 speak。
  *

@@ -1,8 +1,8 @@
 /**
- * F20260916b1ea reconcile 入队测试：postInitDatabase 的 failRunningInvokes + 入队逻辑。
+ * reconcile 入队测试：postInitDatabase 的 failRunningInvokes + 入队逻辑。
  *
  * 验证：running invoke → failed + pending 入队；trigger_entry_id 为 NULL 的
- * scheduler 来源 invoke 不入队（A3 处置）；trigger entry 为 system 的 invoke 不入队；
+ * scheduler 来源 invoke 不入队（处置）；trigger entry 为 system 的 invoke 不入队；
  * 幂等（重复启动不重复入队）。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";

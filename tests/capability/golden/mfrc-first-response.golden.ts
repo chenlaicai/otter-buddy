@@ -1,5 +1,5 @@
 /**
- * F20260917mfrc 伤疤：首响应原则——新问题第一把工具先看记忆再翻代码。
+ * 伤疤：首响应原则——新问题第一把工具先看记忆再翻代码。
  *
  * 伤疤来源：2026-09-17 排查（search_query_logs 埋点）：88% invoke 首响应跳过记忆
  * 直接 grep/bash（357 个 invoke 首工具 bash 155/read 112/search_memory 23）。
@@ -8,8 +8,8 @@
  * 首个检索类工具（search_memory/grep/bash/read 之一）必须是 search_memory。
  * 用交换级工具轨迹（toolCallNamesForExchange）判定。
  *
- * 边界（断言须排除的场景，对应 R4 首响应原则的适用边界）：
- * - 任务匹配既定 skill（A5 优先）→ 不在本场景输入设计内
+ * 边界（断言须排除的场景，对应 首响应原则的适用边界）：
+ * - 任务匹配既定 skill（优先）→ 不在本场景输入设计内
  * - 纯新话题/闲聊 → 不在本场景输入设计内
  */
 import { toolCallNamesForExchange, latestUserSeq } from "../helpers/assert-behavior";
@@ -21,7 +21,7 @@ export const golden: GoldenModule["golden"] = {
   id: "mfrc-first-response",
   source: { type: "scar", ref: "2026-09-17 search_query_logs 排查：88% invoke 首响应跳过记忆（F20260917mfrc）" },
   originTest: "n/a（本场景为首响应原则的首个可重放锚点，尚无对应 capability test）",
-  // 项目内有明确历史脉络的问题（worktree 红线是本项目 R1 既有规则），
+  // 项目内有明确历史脉络的问题（worktree 红线是本项目 既有规则），
   // 预期獭先 search_memory 查既有结论，而不是直接 grep 代码找答案
   input: "我想改一下记忆检索的排序逻辑，项目里之前有没有讨论过相关的方案和结论？",
   sampling: { n: 3, minSuccess: 2 },

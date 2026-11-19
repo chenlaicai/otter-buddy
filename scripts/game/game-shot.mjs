@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// game-shot.mjs — Playwright 截图工具（F20261014ghst 原子工具之一）
+// game-shot.mjs — Playwright 截图工具（原子工具之一）
 // 纯文本 stdout：输出截图路径与尺寸；图像只写盘不进 stdout。
 import { chromium } from "playwright";
 import { launchGame, parseCommonArgs, COMMON_HELP } from "./lib/launch.mjs";

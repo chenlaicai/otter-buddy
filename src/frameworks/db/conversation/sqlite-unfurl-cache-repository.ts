@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import type { Logger } from "@usecases/ports/logger";
 
 /**
- * F20261013csv3 T1：unfurl 预览缓存读写（P1「数据先行」原则的持久化载体）。
+ * T1：unfurl 预览缓存读写（P1「数据先行」原则的持久化载体）。
  *
  * 写口仅 unfurl-controller 抓取流程；读口有二：UnfurlCard 经 GET /api/unfurl、
  * LinkedResource 列表接口读侧 join 投影（T2 产物卡 diff stat 数据源）。
@@ -14,7 +14,7 @@ import type { Logger } from "@usecases/ports/logger";
  *   是信息负增量——stale-while-revalidate：返回旧值同时后台刷新，刷新结果下次渲染生效）
  *
  * fetched_at 统一应用层 ISO 8601 写入（与 send-entry.ts 惯例一致），7 天/24h 窗口
- * 用 Date.parse 解析比较——不设 SQL DEFAULT，防空格格式混排字典序偏移（R2）。
+ * 用 Date.parse 解析比较——不设 SQL DEFAULT，防空格格式混排字典序偏移。
  */
 
 /** 缓存行（repository 层实体——控制器/读侧投影共用） */
@@ -28,7 +28,7 @@ export interface UnfurlCacheRow {
   source: "og" | "github-api" | "failed";
   /** github-api 记录：PR/issue 状态（open/merged/closed/draft）——T2 状态徽章数据源 */
   state: string | null;
-  /** #1463：draft 子态标记（gh isDraft）——state='OPEN' 且 isDraft 时徽章显示「草稿」；
+  /** draft 子态标记（gh isDraft）——state='OPEN' 且 isDraft 时徽章显示「草稿」；
    *  其余来源为 null */
   isDraft?: boolean | null;
   /** github-api PR 记录：diff stat（T2 产物卡数据源）；其余来源为 null */

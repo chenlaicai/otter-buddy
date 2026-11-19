@@ -1,5 +1,5 @@
 /**
- * Healing 高危路由单测（F20260826mwrd C3，母方案 Part 4）。
+ * Healing 高危路由单测（C3，母方案 Part 4）。
  *
  * 三层覆盖：
  * 1. registry 纯逻辑：enqueue/takeAll/上限/滞留语义

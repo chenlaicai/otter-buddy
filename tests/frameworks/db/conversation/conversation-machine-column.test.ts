@@ -4,7 +4,7 @@ import { initSchema } from "@frameworks/db/schema";
 import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite-conversation-repository";
 
 /**
- * F20261118crtgr（#1868 阶段 5 PR-A）：conversations.current_machine_id 列——
+ * （阶段 5 PR-A）：conversations.current_machine_id 列——
  * 新库建表含列 / 存量库 ALTER 幂等补列 / repo 窄接口读写。
  */
 

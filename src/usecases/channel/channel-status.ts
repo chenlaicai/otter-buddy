@@ -6,7 +6,7 @@
  */
 
 /** 通道类型标识 */
-export type ChannelKind = "weixin" | "feishu" | (string & {}); // F20260929fsqr：扫码线多实例 kind=feishu-bot:<掩码>（字面量联合保留自动补全，string 收纳多实例键）
+export type ChannelKind = "weixin" | "feishu" | (string & {}); // 扫码线多实例 kind=feishu-bot:<掩码>（字面量联合保留自动补全，string 收纳多实例键）
 
 /**
  * 通道运行时状态（状态机）。
@@ -15,7 +15,7 @@ export type ChannelKind = "weixin" | "feishu" | (string & {}); // F20260929fsqr�
  * - 不细分 -14 "过期 vs 被顶"——协议无区分语义，统一显示"token 失效"
  * - onReconnecting 映射为 error_backoff(errorMsg="WS 重连中")——不为它单加第六态
  *   （重连中本质是"带错误信息的等待"，与 backoff 语义同构）
- * - #663：error_backoff 携带 reconnectAttempts（连续重连次数，成功归零）供
+ * - error_backoff 携带 reconnectAttempts（连续重连次数，成功归零）供
  *   IM 页展示；仅飞书长连接会上报，微信 poller 无此概念
  */
 export type ChannelRuntimeState =
@@ -32,7 +32,7 @@ export type ChannelRuntimeState =
  * - 微信：`weixin-${accountId}`（多账号场景）
  * - 飞书：`feishu`（单实例）
  * 
- * #663：飞书条目携带 appIdMasked（掩码后的凭证标识，掩码在 frameworks 层
+ * 飞书条目携带 appIdMasked（掩码后的凭证标识，掩码在 frameworks 层
  * 完成——registry/controller 不接触完整 appId，凭证不出服务进程）
  */
 export interface ChannelStatusEntry {
@@ -40,9 +40,9 @@ export interface ChannelStatusEntry {
   kind: ChannelKind;
   state: ChannelRuntimeState;
   account?: { id: string; nickname?: string };
-  /** 掩码后的飞书 app_id（#663；形如 cli_a****z9k2，仅展示用） */
+  /** 掩码后的飞书 app_id（；形如 cli_a****z9k2，仅展示用） */
   appIdMasked?: string;
-  /** F20260920imax：飞书自建应用 applink 分享链（扫码/点击直达机器人会话；
+  /** 飞书自建应用 applink 分享链（扫码/点击直达机器人会话；
    *  已添加好友则直接打开对话，未添加则展示添加卡片——“扫码即用”体验） */
   appShareUrl?: string;
 }

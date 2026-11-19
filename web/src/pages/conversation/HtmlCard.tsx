@@ -20,7 +20,7 @@ body { margin:0; padding:12px; background:var(--paper); color:var(--ink);
 /** CSP：default-src 'none' 断外网；form-action 'none' 堵表单外泄；脚本仅限内联（桥 + AI 脚本同上下文） */
 const CARD_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'"
 
-/** 组装 iframe srcdoc：CSP meta + 设计 token + 预设类库（F20261006cssp）+ 桥脚本（仅可交互卡片）+ AI HTML
+/** 组装 iframe srcdoc：CSP meta + 设计 token + 预设类库+ 桥脚本（仅可交互卡片）+ AI HTML
  *  预设类注入在 AI HTML 之前——卡片内联 <style> 晚于预设解析，同 specificity 时后者胜出，天然可覆盖 */
 function buildCardSrcdoc(html: string, cardId: string, interactive: boolean): string {
   const bridge = interactive ? `<script>${buildCardBridgeScript(cardId)}</script>` : ''

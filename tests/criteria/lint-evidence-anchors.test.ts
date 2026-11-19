@@ -1,5 +1,5 @@
 /**
- * F20261013crit: 断言证据锚点轻量规则（lint-evidence-anchors）——验证性断言无锚点 → warn。
+ * 断言证据锚点轻量规则（lint-evidence-anchors）——验证性断言无锚点 → warn。
  * warn 级起步（不阻断），测试锁检测逻辑本身（断言识别 / 锚点识别 / 章节提取）。
  */
 import { describe, it, expect } from "vitest";

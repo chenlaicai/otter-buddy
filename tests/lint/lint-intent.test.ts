@@ -1,8 +1,8 @@
 /**
- * F20260824ax376: PR 评估体系 - intent 字段校验测试
- * F20260825evgl: 扩展软代码域三值 + 联动可判定检查
+ * PR 评估体系 - intent 字段校验测试
+ * 扩展软代码域三值 + 联动可判定检查
  *
- * 检视发现 1 修复：测试 import lint-intent.mjs 的真实现（validateIntent），不再重写副本——
+ * 测试 import lint-intent.mjs 的真实现（validateIntent），不再重写副本——
  * 之前测试验证的是自己的副本逻辑（且 warning 字符串与实现分叉），实现裸奔。
  * 真实现是 .mjs 脚本，经 isMain 守卫后 import 时只取纯函数、不触发 dist 依赖与文件遍历。
  */
@@ -13,7 +13,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-// F20260917sdpl：golden_replay 执行核对读 process.cwd() 下的相对路径（data/metrics/）。
+// golden_replay 执行核对读 process.cwd() 下的相对路径（data/metrics/）。
 // 测试用临时目录切 cwd，避免读到仓库真实记录干扰断言，测完恢复。
 function withTempCwd<T>(fn: () => T): T {
   const orig = process.cwd();
@@ -57,11 +57,11 @@ describe('lint:intent', () => {
   it('should require intent for feature', () => {
     const fm = createBaseFm('feature');
     const result = validateIntent(fm);
-    // F20261005imfg（#839）：缺 intent 块的 feature 新文档 → error（灰色绕过窗口收口）
+    // 缺 intent 块的 feature 新文档 → error（灰色绕过窗口收口）
     expect(result.errors.some((e: string) => e.startsWith('Missing intent field for feature'))).toBe(true);
   });
 
-  // F20261005imfg（#839）：缺字段文档静默跳过的灰色绕过窗口收口。
+  // 缺字段文档静默跳过的灰色绕过窗口收口。
   // 豁免清单 EXEMPT_IDS 从 scripts/intent-exempt-list.txt 加载（模块加载时读 cwd），
   // 键 = 仓库根相对路径（审视处置·建议①：id 键有重复 ID 歧义，路径键 fail-closed）。
   describe('missing-intent gate with exempt list (F20261005imfg, #839)', () => {

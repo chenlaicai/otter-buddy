@@ -1,8 +1,8 @@
 /**
- * #1191 回归：entries → memory_entries 消息索引存量回填迁移。
+ * 回归：entries → memory_entries 消息索引存量回填迁移。
  *
  * 锚定 backfillEntryMemoryIndex 的契约：
- * 1. user/speak 正文回填为 message 类记忆（id = entry.id，#942 ID 统一）
+ * 1. user/speak 正文回填为 message 类记忆（id = entry.id，ID 统一）
  * 2. system/yield/invoke_* 边界条目不入索引（旧口径）
  * 3. user 侧附件拼投影行、双侧剥 html-card 围栏
  * 4. 纯卡片消息剥离后为占位符文本（公开契约：占位符是合法内容，与增量路径同构）
@@ -40,9 +40,9 @@ function insertFkParents(db: Database.Database) {
 }
 
 function insertEntry(db: Database.Database, id: string, type: string, body: string) {
-  // #906：entries (conversation_id, sequence_num) 已 UNIQUE——helper 改用 MAX+1
+  // entries (conversation_id, sequence_num) 已 UNIQUE——helper 改用 MAX+1
   // 递增序号（与 createEntryAtomic 同款原子写入语义），不再硬编码 seq=1。
-  // 旧逃懒写法（全 conversation seq 恒 1）恰是 #906 指出的防线缺口实证。
+  // 旧逃懒写法（全 conversation seq 恒 1）恰是 指出的防线缺口实证。
   db.prepare(
     "INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, source, metadata, sender_name, context_tokens, context_tokens_max, created_at, completed_at) VALUES (?, 'conv-1', (SELECT COALESCE(MAX(sequence_num), 0) + 1 FROM entries WHERE conversation_id = 'conv-1'), ?, ?, ?, ?, NULL, NULL, 'completed', NULL, NULL, '', NULL, NULL, '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z')",
   ).run(id, type, type === "user" ? "user" : "otter", type === "user" ? "user-1" : "otter-1", body);
@@ -100,8 +100,8 @@ describe("#1191 backfillEntryMemoryIndex 存量回填", () => {
   });
 
   /**
-   * #1191 严重 1 回归（检视獭-1200 实锤）：跨路径主键撞车。
-   * 场景：#942 后旧增量路径（indexMessage）曾写 source_table='messages' 口径行，
+   * 严重 1 回归（检视獭-1200 实锤）：跨路径主键撞车。
+   * 场景：后旧增量路径（indexMessage）曾写 source_table='messages' 口径行，
    * 其投影主键 = message.id = entry.id——与回填的主键同源。若回填幂等只按
    * source_table='entries' 判重，看不见旧口径行 → UNIQUE 撞车 → 启动崩。
    * 修复后幂等按主键 id 判断，两种口径全部可见，零撞车。

@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { ManageWorkspace } from "@usecases/conversation/manage-workspace";
 import type { Logger } from "@usecases/ports/logger";
-// Why: Workspace DTO 单一真相源在 api-contract（issue #558）——HTTP 响应体按契约类型序列化，
+// Why: Workspace DTO 单一真相源在 api-contract——HTTP 响应体按契约类型序列化，
 // 类型漂移会在 tsc 阶段暴露而非运行时
 import type { WorkspaceFileContent, WorkspaceListDirResponse, WorkspaceRevealResponse } from "@contract/api/workspace";
 import { HttpError, handleError, param } from "../http-error";

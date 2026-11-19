@@ -1,11 +1,11 @@
 /**
- * F20261026emct：embedBatch 分片闸门（纯函数，可单测）。
+ * embedBatch 分片闸门（纯函数，可单测）。
  *
  * ── 治本纪律不变量（第 7 次修复与前 6 次的分水岭）────────────────────────
  * write lane 任意时刻在飞 embedding 文本总量 ≤ 硬上界（token 预算）。
  *
- * 前 6 轮修复（F20261013ebps 背压 / F20261016ebrt 双 lane / F20261015kill
- * 进程隔离 / F20261020slvg 诚实准入+看门狗 / F20260821evaf 版本锚 / worker
+ * 前 6 轮修复（背压 / 双 lane / 
+ * 进程隔离 / 诚实准入+看门狗 / 版本锚 / worker
  * 串行化）逐条堵具体路径：背压管 in-flight「请求数」不管单批「文本量」；
  * waitSlot 管速率管不住单批体量；超时预算 120s 封顶但 timeout≠cancel——
  * 2026-10-23 雪崩实证：49 条巨批（单条 6k chars 截断后仍巨）独占唯一槽位
@@ -26,7 +26,7 @@
  *  经验值）。与 worker 端无耦合——这是在飞文本量的上界，不是模型窗口。 */
 export const DEFAULT_BATCH_TOKEN_BUDGET = 8192;
 
-/** chars → tokens 粗估（CJK 敏感，F20261026emct）：
+/** chars → tokens 粗估（CJK 敏感，）：
  *  CJK（含全角/假名/注音/CJK 标点）~1 char/token，其余（拉丁/数字/ASCII）~4 chars/token。
  *  口径对齐 store-memory.ts EMBED_MAX_CHARS=6000 注释的 token 模型（6000 chars ≈ 8192 tokens 的 75%，
  *  即中文场景 ~1 char/token）——首版 chars/2 对中文低估约 2×（拆晚侧，危险方向），已修。
@@ -40,7 +40,7 @@ export function estimateTokens(text: string): number {
 }
 
 /**
- * F20261026emct：为分片子批包装调用方 opts。
+ * 为分片子批包装调用方 opts。
  *
  * 分片×salvage 契约错位：调用方 salvage 闭包假定 embeddings 与整批 items 对齐，
  * 但子批晚到结果只携带该子批的向量——offset>0 的子批超时晚到时，若原样透传，
@@ -66,7 +66,7 @@ export function wrapOptsForShard<T extends { salvage?: (embeddings: Float32Array
  *  - 未设 / 非法 / <1：返回默认值（非法时 warn 一条，不静默——对齐
  *    resolveIntraOpThreads 的防钳制失效不可见纪律）。
  *  - 环境变量逃生口而非配置 schema：与 OTTER_EMBED_INTRA_OP_THREADS 同模式
- *    （紧急调参用，不进 config；#1107 先例）。 */
+ * （紧急调参用，不进 config；先例）。 */
 export function resolveBatchTokenBudget(
   env: string | undefined = process.env.OTTER_EMBED_BATCH_TOKEN_BUDGET,
   fallback: number = DEFAULT_BATCH_TOKEN_BUDGET,

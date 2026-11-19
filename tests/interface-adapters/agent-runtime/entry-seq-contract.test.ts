@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 /**
- * F20260921urdo 契约收口测试：entry.* SSE 载荷必含 sequenceNum（已读游标数据源）。
+ * 契约收口测试：entry.* SSE 载荷必含 sequenceNum（已读游标数据源）。
  *
  * 背景：entry.speak 载荷缺 sequenceNum 导致前端 speak 气泡无 seq →「底部即已读」
  * maxSeq 计算排除 speak → 游标推不过最新 speak → 红点僵死。本测试锁契约：

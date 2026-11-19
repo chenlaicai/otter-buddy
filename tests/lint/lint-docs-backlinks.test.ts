@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-// #1294 / F20261103blnkr: from 链存在性检查 + 反向索引计算（纯函数测试）
+//  from 链存在性检查 + 反向索引计算（纯函数测试）
 // 方向定案：反向关系不物化（append-only），computeReverseIndex 扫描期计算
 import { findBrokenBacklinks, computeReverseIndex } from "../../scripts/lint-docs.mjs";
 

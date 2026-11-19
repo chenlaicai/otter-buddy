@@ -1,5 +1,5 @@
 /**
- * HTML 卡片特性工具面测试（F20260728htar）：
+ * HTML 卡片特性工具面测试：
  * - get_html_card_contract 注册与契约内容
  * - speak description 最小契约
  * - 大小獭白名单登记
@@ -25,7 +25,7 @@ function makeEntry(overrides: Partial<{ id: string; entryType: string; senderTyp
   };
 }
 
-/** F20260913ctlv 批4a：SDK 工具切 entries——mock 面同步 */
+/** 批4a：SDK 工具切 entries——mock 面同步 */
 function makeCtx(clientOverrides: Partial<OtterToolClient> = {}): ToolContext {
   const client = {
     conversation: {

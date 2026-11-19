@@ -1,6 +1,6 @@
 /**
- * F20261105embqg：队列治理三件套测试——S1 respawn / S2a 槽位优先级 / S2b 任务优先级 / S3 水位闸门。
- * S1/S2a 在 embedding-service（进程级 mock worker）；S2b/S3 在 embedding-task-queue（纯 SQL）。
+ * 队列治理三件套测试——respawn / 槽位优先级 / 任务优先级 / S3 水位闸门。
+ * /在 embedding-service（进程级 mock worker）；/S3 在 embedding-task-queue（纯 SQL）。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { EmbeddingServiceImpl } from "../../../src/frameworks/embedding/embedding-service";

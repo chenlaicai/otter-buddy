@@ -1,5 +1,5 @@
 /**
- * F20261015mjsg 局终战报（模块五·对话侧）测试：
+ * 局终战报（模块五·对话侧）测试：
  *  - renderGameoverCard：html-card 合规（title 围栏/体积上限/HTML 转义）+ 名次/亮点/锐评/脚注渲染
  *  - sendGameoverReport：挂靠对话解析 → speak entry（cardSchemaVersion=2）→ fact 登记；
  *    无 otter 座位/无挂靠对话跳过；linkResource 失败不回滚发卡

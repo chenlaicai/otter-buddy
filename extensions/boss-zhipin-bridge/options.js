@@ -1,5 +1,5 @@
 /**
- * F20260805rbrg: BOSS 直聘桥接 - options 页脚本
+ * BOSS 直聘桥接 - options 页脚本
  */
 
 const $ = (id) => document.getElementById(id);

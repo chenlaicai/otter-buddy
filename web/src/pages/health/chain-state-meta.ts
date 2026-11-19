@@ -1,11 +1,11 @@
 /**
- * 链四态元数据（Issue #649 PR3 抽出共享；F20260902sigm 五态→四态）。
+ * 链四态元数据（PR3 抽出共享；五态→四态）。
  *
- * 动机：index.tsx 在 import 时挂载 #root（createRoot 副作用），组件测试无法
+ * 动机：index.tsx 在 import 时挂载 （createRoot 副作用），组件测试无法
  * 直接 import 其内部常量——历史测试（RecurrenceCard.test.tsx）只能复制字面量。
  * 泳道/筛选/抽屉与 index.tsx 需要同一份色义与排序权重，单一真相源在此。
  *
- * F20260902sigm：zombie 删除（链是开放结构，不预言未来）；stalled 语义改为
+ * zombie 删除（链是开放结构，不预言未来）；stalled 语义改为
  * pr-stalled（open PR 停滞）。
  *
  * 色彩纪律（palette.ts + 观澜 §3.4）：teal=活跃、caramel=滞留/回退、
@@ -20,12 +20,12 @@ export type ChainState = 'active' | 'stalled' | 'regressed' | 'orphan'
 export const CHAIN_STATE_META: Record<ChainState, { label: string; className: string; color: string }> = {
   active: { label: '活跃', className: 'text-teal-700', color: TEAL[500] },
   stalled: { label: 'PR 停滞', className: 'text-caramel-600', color: CARAMEL[500] },
-  regressed: { label: '回退', className: 'text-caramel-700', color: CARAMEL[700] }, /* #691：严重/回退档升 700 深阶 */
+  regressed: { label: '回退', className: 'text-caramel-700', color: CARAMEL[700] }, /* 严重/回退档升 700 深阶 */
   orphan: { label: '孤儿', className: 'text-lavender-500', color: LAVENDER[400] },
 }
 
 /**
- * 进度语言（issue #1029）：四态翻译成搭档看得懂的进度状态——
+ * 进度语言：四态翻译成搭档看得懂的进度状态——
  * 「进行中的事」tab 的状态徽章/分组标题用 progressLabel（人话），
  * 内部状态名与 CHAIN_STATE_META.label（技术标签）保留在筛选 chips 与 tooltip。
  */
@@ -52,7 +52,7 @@ export const CHANGE_TYPE_LABELS: Record<string, string> = {
   Test: '测试', Chore: '杂务', Experiment: '实验',
 }
 
-/** 泳道节点色：bug 系 commit=caramel、其他=teal（复发卡同款色义；锁定 #649 拍板） */
+/** 泳道节点色：bug 系 commit=caramel、其他=teal（复发卡同款色义；锁定 拍板） */
 export function commitNodeColor(changeType: string | null): string {
   return changeType === 'BugFix' || changeType === 'Experiment' ? CARAMEL[500] : TEAL[400]
 }

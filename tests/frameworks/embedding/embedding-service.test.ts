@@ -10,7 +10,7 @@ import { fork, type ChildProcess } from "child_process";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** F20261015kill：mock worker 统一走 fork + process.send（与生产 bge-m3-worker 同通道） */
+/** mock worker 统一走 fork + process.send（与生产 bge-m3-worker 同通道） */
 function writeMockWorker(name: string, body: string): string {
   const p = path.join(__dirname, name);
   fs.writeFileSync(p, body);

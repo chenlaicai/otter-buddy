@@ -25,7 +25,7 @@ export class WeixinGatewayAdapter implements WeixinGateway {
       accountStore: WeixinAccountStore;
       accountId: string;
       logger: Logger;
-      /** CDN 上传客户端（issue #567 媒体出站；未注入时 replyMedia 抛不支持） */
+      /** CDN 上传客户端（媒体出站；未注入时 replyMedia 抛不支持） */
       cdn?: WeixinCdnClient;
     },
   ) {}
@@ -38,7 +38,7 @@ export class WeixinGatewayAdapter implements WeixinGateway {
     const contextToken = this.resolveContextToken(toUserId);
     if (!contextToken) {
       if (options?.requireContextToken) {
-        // F20260829wxch（#213 检视发现3）：thinking 提示消息竞态防护——
+        // （）：thinking 提示消息竞态防护——
         // 首条消息 dispatch 落盘 context_token 前触发 message.start 时，
         // 裸发 context_token:undefined 会给微信侧协议带来未知行为，直接跳过
         // （thinking 是可丢失的体验优化，最终回复不受影响）

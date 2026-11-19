@@ -1,5 +1,5 @@
 /**
- * @提及解析工具函数（F20260820i333）
+ * @提及解析工具函数
  *
  * 从文本中提取 @提及并匹配在场成员名册。
  * 支持多 @、无尾随空格、标点分隔、NFC 归一化。
@@ -15,7 +15,7 @@ export function parseMentionsFromText(
   text: string,
   participants: Array<{ otterId: string; otterName: string }>,
 ): { resolvedIds: string[]; invalidNames: string[] } {
-  /** 匹配 @名字（F20260916ment 词边界规则，对齐 Twitter/Slack 自由文本提及）：
+  /** 匹配 @名字（词边界规则，对齐 Twitter/Slack 自由文本提及）：
    *  - @ 前必须是行首/空白/中文标点（防止「在@功能」「xxx@latest」被当成点名）
    *  - 名字 = 非空白且非中文标点的连续字符，后接空白/中文标点/字符串结尾 */
   const regex = /(?:^|[\s，。！？、；：\u201c\u201d\u2018\u2019\uff08\uff09\u3010\u3011\u300a\u300b\u3000])@([^\s，。！？、；：\u201c\u201d\u2018\u2019\uff08\uff09\u3010\u3011\u300a\u300b\u3000]+)(?=[\s，。！？、；：\u201c\u201d\u2018\u2019\uff08\uff09\u3010\u3011\u300a\u300b\u3000]|$)/g

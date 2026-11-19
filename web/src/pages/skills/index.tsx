@@ -2,15 +2,15 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { identityHeaders } from '../../api/identity'
 
 /**
- * #576（F20260901emps）：数据源 GET /api/skills（ResourceLoader 真相源）。
- * F20260924uxrc 书式改版（搭档拍板）：双页摊开（spread）秘籍书。
- * F20260929scfx 能力库全书（搭档拍板，对话 9eeb7b69）：书重排三编——
+ * ：数据源 GET /api/skills（ResourceLoader 真相源）。
+ * 书式改版（搭档拍板）：双页摊开（spread）秘籍书。
+ * 能力库全书（搭档拍板，对话 9eeb7b69）：书重排三编——
  *   卷首·心法总纲（/api/prompts system sections 全文，过长续页）
  *   卷中·招式秘籍（skill 正文全文进正文区，过长续页；五章流派分组保留）
  *   卷末·兵器谱（/api/prompts tools 清单，紧凑列表自动分页）
  * 序号修复：「第N门」按书页实际顺序编号（目录页与各章秘籍页同口径）。
  *
- * 翻页引擎沿用 F20260924uxrc 检视修复版（viewRef 回放基准 + 步进/直达两形态排队）。
+ * 翻页引擎沿用 检视修复版（viewRef 回放基准 + 步进/直达两形态排队）。
  */
 interface SkillEntry {
   name: string
@@ -104,7 +104,7 @@ interface PageModel {
   text: string
 }
 
-/** 分页粒度：按行装箱，超页高即切页（F20260929scfx 派工单第 7 条） */
+/** 分页粒度：按行装箱，超页高即切页（派工单第 7 条） */
 const PAGE_TEXT_LINES = 30
 
 /** 将长文本按行装箱为若干页文本（每页 ≤ maxLines 行）。

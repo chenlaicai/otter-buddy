@@ -1,5 +1,5 @@
 /**
- * F20260913ctlv 彻底切换：熔断与重试路径测试（invoke 状态机语义）。
+ * 彻底切换：熔断与重试路径测试（invoke 状态机语义）。
  *
  * 覆盖（原 circuit-break/rate-limit/guard-bounce 测试族的存活语义）：
  * - 首次退化（无 healingRepo）：降级 abort 终态

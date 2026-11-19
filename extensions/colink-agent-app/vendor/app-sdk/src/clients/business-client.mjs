@@ -59,7 +59,7 @@ export function bindBusinessClient(client, execution, identity) {
             active, validate: async (input) => { await active(); await original.validate(input); await active(); } } });
     return identity === 'user' ? Object.freeze({ user: bound.user }) : Object.freeze({ app: bound.app });
 }
-// DM 唤醒（F20261102dmagent）运行时专用读取：仅用户身份，conversationId 来自可信事件上下文
+// DM 唤醒运行时专用读取：仅用户身份，conversationId 来自可信事件上下文
 const dmReaders = new WeakMap();
 export async function readClientDm(client, { conversationId, ...query }) {
     try {

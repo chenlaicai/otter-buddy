@@ -1,8 +1,8 @@
 /**
- * 链详情抽屉（Issue #649 交付 3）：点泳道行 → 拉 #644 chainDetail → 展示全量
+ * 链详情抽屉（交付 3）：点泳道行 → 拉 chainDetail → 展示全量
  * commits（sha/message/changeType/filesChanged）+ stateReason + 信号清单 + docTitle。
  *
- * F20260902sigm：docStatus 行删除（docStatus 退役），改显信号事实清单。
+ * docStatus 行删除（docStatus 退役），改显信号事实清单。
  * 泳道只画轻量节点（sha8+date+changeType），全量信息在此抽屉露出——
  * 单请求消费既有端点，不加新接口。
  */
@@ -14,7 +14,7 @@ import type { RhiChainDetailDTO } from '../../api/client'
 import { OTTER } from './palette'
 import { CHAIN_STATE_META, CHANGE_TYPE_LABELS, commitNodeColor } from './chain-state-meta'
 
-/** 链路信号标签（F20260902sigm） */
+/** 链路信号标签 */
 const CHAIN_SIGNAL_LABELS: Record<string, string> = {
   'pr-stalled': 'PR 停滞',
   regressed: '质量回退',

@@ -1,5 +1,5 @@
 /**
- * getContextWindowTokens（F20260808ctxw 窗口占用口径）单元测试。
+ * getContextWindowTokens（窗口占用口径）单元测试。
  *
  * 回归防线：把口径改回 session 累计值（getSessionStats）时，本文件必须红。
  */

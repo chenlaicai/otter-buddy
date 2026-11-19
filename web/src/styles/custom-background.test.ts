@@ -1,5 +1,5 @@
 /**
- * F20261027cbgix：自定义背景静态 CSS 契约抽检。
+ * 自定义背景静态 CSS 契约抽检。
  * jsdom 不渲染层叠或加载背景图；真实图片适配与玻璃观感由真浏览器验收承担。
  */
 import { describe, expect, it } from 'vitest'
@@ -11,7 +11,7 @@ const css = readFileSync(resolve(__dirname, '../styles/globals.css'), 'utf-8')
 describe('自定义背景静态 CSS 契约', () => {
   it('使用独立固定画布，居中铺满且不重复（F20261102glmtr：薄纱多层形式，var 必带 fallback）', () => {
     expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*position:\s*fixed/)
-    // 多层 background-image：薄纱在最上层，用户图片在下层（F20261102glmtr）
+    // 多层 background-image：薄纱在最上层，用户图片在下层
     expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*background-image:[^;]*rgba\(var\(--canvas-tint-rgb,\s*250,\s*247,\s*238\),\s*0\.32\)[^;]*var\(--custom-bg-image\)/)
     expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*background-size:\s*cover/)
     expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+body::before\s*\{[^}]*background-position:\s*center/)

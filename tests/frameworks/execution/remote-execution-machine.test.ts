@@ -9,7 +9,7 @@ import type { Device } from "@entities/execution/device";
 import type { OnlineSession } from "@entities/execution/online-session";
 
 /**
- * F20261118remex（#1868 阶段 4 C2）：RemoteExecutionMachine 单测——
+ * （阶段 4 C2）：RemoteExecutionMachine 单测——
  * 总闸①（online_sessions 事实源直查）/登记幂等/回执分发/超时落 unknown/
  * 会话下线批量收尾（方案 v3 §5 五态纪律）。
  */
@@ -100,7 +100,7 @@ describe("RemoteExecutionMachine（C2 执行通道核心）", () => {
     const rows = await h.remoteActions.listByStatuses(["succeeded"]);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.result).toBe(JSON.stringify("file-content"));
-    expect(rows[0]!.conversationId).toBe("c1"); // R2 关联维度落值
+    expect(rows[0]!.conversationId).toBe("c1"); // 关联维度落值
   });
 
   it("自铸 actionId 前缀跨重启唯一（bootEpoch 防碰撞）；透传 actionId 优先", async () => {
@@ -269,7 +269,7 @@ describe("SqliteRemoteActionRegistry（五态登记幂等）", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.result).toBe(JSON.stringify({ bytes: 3 }));
 
-    // R2：conversation 维度查询
+    // conversation 维度查询
     const byConv = await registry.listByConversation("c1");
     expect(byConv).toHaveLength(1);
     expect(byConv[0]!.invokeId).toBe("inv-1");

@@ -1,5 +1,5 @@
 /**
- * F20261009fdid（#1274）: lint:docs id 唯一性检查测试。
+ * : lint:docs id 唯一性检查测试。
  *
  * 测 import 真实现的纯函数 findDuplicateIds（isMain 守卫下 import 不触发
  * dist 依赖与文件遍历，模式对齐 lint-intent.test.ts）。
@@ -7,7 +7,7 @@
  * 实跑覆盖（PR Verification 节展示输出）。
  */
 import { describe, it, expect } from 'vitest';
-// 类型声明见 scripts/lint-docs.d.mts（#1294 起补）
+// 类型声明见 scripts/lint-docs.d.mts（起补）
 import { findDuplicateIds, evaluateDistFreshness } from '../../scripts/lint-docs.mjs';
 
 describe('lint:docs id 唯一性（findDuplicateIds）', () => {

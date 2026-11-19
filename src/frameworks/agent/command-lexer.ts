@@ -1,5 +1,5 @@
 /**
- * bash 命令词法层（F20260928grv2，guard-v2-redesign）。
+ * bash 命令词法层（guard-v2-redesign）。
  *
  * 设计：单遍 O(n) 手写状态机，字符流 → Word（含 WordPart 展开结构）+ 操作符 token
  * + heredoc 体 span。方案：guard-redesign-proposal.md §3.1-3.2（D1 自写词法层决策：
@@ -13,7 +13,7 @@
  * 大量共享游标状态，得不偿失；见方案 D1 取舍）。呑例与 kill-segment-finder 同类。
  */
 /* eslint-disable max-lines-per-function, max-statements, complexity, max-depth */
-/* eslint-disable max-lines -- #1686 r1 fd 前缀形态完整识别（scanOperator/scanWord 双 fd 分支镜像补 <<< /<< 形态）后超 450；双分支零语义合并不进窄修 PR（先例：write-target-evaluator.ts 同款记债，结构性合并随收尾 PR） */
+/* eslint-disable max-lines -- fd 前缀形态完整识别（scanOperator/scanWord 双 fd 分支镜像补 <<< /<< 形态）后超 450；双分支零语义合并不进窄修 PR（先例：write-target-evaluator.ts 同款记债，结构性合并随收尾 PR） */
 
 export type PartType = "lit" | "var" | "cmdsub" | "arith" | "escape" | "hex" | "unknown";
 export type QuoteCtx = false | "single" | "double";
@@ -61,7 +61,7 @@ export interface LexResult {
 /** D6 防御：输入上限（超限截断 + parseOk=false，判定层走兜底） */
 const MAX_INPUT = 1_000_000;
 
-/** S4 防碎片爆炸：单词 part 数上限（引号塔形态 27 万碎片 part 的对象分配热点）。
+/** 防碎片爆炸：单词 part 数上限（引号塔形态 27 万碎片 part 的对象分配热点）。
  *  超限 → 尾部折叠为单 unknown part + fail（词不可信 → 判定层走 V1 兑底链，
  *  保守侧不回退；正常命令词 part 数 < 10，恶意形态不受影响）。 */
 const MAX_PARTS_PER_WORD = 256;
@@ -81,7 +81,7 @@ function breaksWord(c: string): boolean {
 }
 
 /** bash 双引号内反斜杠特殊对后随字符集（POSIX/bash 引用语义）：反斜杠仅这五者前有转义作用，
- *  其余（\' \a \x \n …）反斜杠字面保留两字符——M-f89f1ff3 判据（详见 F20261021dqbx）。 */
+ * 其余（\' \a \x \n …）反斜杠字面保留两字符——M-f89f1ff3 判据（详见 ）。 */
 const DQ_BACKSLASH_SPECIAL = new Set(["$", "`", '"', "\\", "\n"]);
 
 /** escape part 静态求值：\c → c（bash 引用语义）；\newline → 空串。hex 不在此求值（保守）。 */
@@ -91,7 +91,7 @@ function evalEscape(raw: string): string {
 }
 
 /** Word.evaluated：全部 parts 为 lit/escape → 拼接值；否则 null（不可静态求值）。
- *  S4 性能：拼接用数组+单次 join（27 万碎片 part 的逐个 += 是 O(n²) 字符拷贝，
+ * 性能：拼接用数组+单次 join（27 万碎片 part 的逐个 += 是 O(n²) 字符拷贝，
  *  引号塔形态 528KB 实测 52ms → join 后归 O(n)）。 */
 function evalWord(parts: WordPart[]): string | null {
   const out: string[] = [];
@@ -347,7 +347,7 @@ export function lex(text: string): LexResult {
           if (dc === "\\") {
             const nx = text[i + 1];
             // M-f89f1ff3：反斜杠仅五符前特殊——非特殊对反斜杠字面保留（lit 两字符，evaluated=bash
-            // 真值）；escape 只留真转义（含尾部截断 \ 保守空值）。判据详见 F20261021dqbx。
+            // 真值）；escape 只留真转义（含尾部截断 \ 保守空值）。判据详见 
             const kind = nx !== undefined && !DQ_BACKSLASH_SPECIAL.has(nx) ? "lit" : "escape";
             parts.push({ type: kind, text: text.slice(i, Math.min(i + 2, n)), quoted: "double" });
             i += 2;
@@ -394,7 +394,7 @@ export function lex(text: string): LexResult {
           // 回退：把这个数字+重定向符作为 op 处理（含 >&N 形态）
           const opStart = i;
           i = j;
-          // #1686 r1 严重 1（检视獭-1686）：fd 前缀形态完整识别（bash 同构）——`0<<<` 是
+          // 严重 1（检视獭-1686）：fd 前缀形态完整识别（bash 同构）——`0<<<` 是
           // here-string、`0<<`/`0<<-` 是 heredoc。旧逻辑只认单字符 `<`，会把 here-string
           // 拆成 `0<`+`<<` 假 heredoc（馈体蒸发成不可见）。
           const three2 = text.slice(i, i + 3);
@@ -422,7 +422,7 @@ export function lex(text: string): LexResult {
       if (i > l) parts.push({ type: "lit", text: text.slice(l, i), quoted: false });
       else i++; // 防御：不可达（breaksWord 已覆盖所有断词符）
     }
-    // S4 防碎片爆炸：超限尾部折叠为单 unknown part + fail（词不可信 → 判定走兑底）
+    // 防碎片爆炸：超限尾部折叠为单 unknown part + fail（词不可信 → 判定走兑底）
     if (parts.length > MAX_PARTS_PER_WORD) {
       parts = [parts[0], { type: "unknown", text: `<+${parts.length - 1}-parts:${text.slice(start, Math.min(i, start + 24))}…>`, quoted: false }];
       fail(`word-parts-overflow @${start} (${parts.length})`);

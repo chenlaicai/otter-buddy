@@ -7,7 +7,7 @@ import { SwimlaneTimeline, ChainFilterChips, sortChainsBySeverity } from './Swim
 import { CHAIN_STATE_META, commitNodeColor } from './chain-state-meta'
 import { TEAL, CARAMEL, LAVENDER } from './palette'
 
-// 页面入口 index.tsx 在 import 时挂载 #root，本测试不 import 它，无副作用
+// 页面入口 index.tsx 在 import 时挂载 本测试不 import 它，无副作用
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 
 /** 单链夹具：60 天窗口内 3 commits（BugFix 收尾 = regressed 语义） */

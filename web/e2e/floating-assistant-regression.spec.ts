@@ -1,5 +1,5 @@
 /**
- * F20260928waf1：浮动獭交互 bug 回归 e2e（失败固化 → 修复验证）。
+ * 浮动獭交互 bug 回归 e2e（失败固化 → 修复验证）。
  *
  * 覆盖（troubleshooting 5a 失败固化——修复前必须红）：
  * 1. 点击面板内输入框、输入文字 → 面板不消失（P1：panelRef 未绑定导致点内=点外）
@@ -92,7 +92,7 @@ test.describe('浮动獭交互回归（F20260928waf1）', () => {
     await otter.locator('[data-testid="floating-otter-avatar"]').click()
     await expect(panel).toBeHidden()
 
-    // 再点獭 → 重展开（toggle 竞态回归——Esc flaky #1181 同路径）
+    // 再点獭 → 重展开（toggle 竞态回归——Esc flaky 同路径）
     await otter.locator('[data-testid="floating-otter-avatar"]').click()
     await expect(panel).toBeVisible()
     await expect(panel.locator('[data-testid="assistant-panel-input"]')).toBeEnabled({ timeout: 15_000 })

@@ -34,7 +34,7 @@ import { createTestLogger } from "../helpers/logger";
 import { createTestDb } from "../helpers/db";
 import { SqliteUnfurlCacheRepository } from "../../src/frameworks/db/conversation/sqlite-unfurl-cache-repository";
 
-/** F20261013csv3 T1：测试用内存 unfurl_cache（独立实例，测试间零共享） */
+/** T1：测试用内存 unfurl_cache（独立实例，测试间零共享） */
 function makeUnfurlCache(): SqliteUnfurlCacheRepository {
   return new SqliteUnfurlCacheRepository(createTestDb(), createTestLogger());
 }
@@ -110,7 +110,7 @@ export function makeConversation(overrides: Partial<{
   updatedAt: string;
   completedAt: string | null;
   archivedAt: string | null;
-  /** F20260929wak1：对话类别（DTO 投影用例需要——'assistant'|'web-assistant'|undefined 等） */
+  /** 对话类别（DTO 投影用例需要——'assistant'|'web-assistant'|undefined 等） */
   kind: string | undefined;
 }> = {}) {
   const now = new Date().toISOString();

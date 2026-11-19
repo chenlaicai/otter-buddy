@@ -1,8 +1,8 @@
 /**
- * F20261027hwl1 迁移三不变量测试：DDL（老库补建）+ 数据（幂等不丢）+ 功能探针（迁移后可写读）。
+ * 迁移三不变量测试：DDL（老库补建）+ 数据（幂等不丢）+ 功能探针（迁移后可写读）。
  *
  * 老库形态：先建无 work ledger 表的库（模拟 10/27 之前的存量库），跑 initSchema
- * （#506 幂等补建路径）→ 三表存在 + 既有数据完好 + binder 全链路可写读。
+ * （幂等补建路径）→ 三表存在 + 既有数据完好 + binder 全链路可写读。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";

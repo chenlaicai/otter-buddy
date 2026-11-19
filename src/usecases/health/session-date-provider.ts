@@ -1,5 +1,5 @@
 /**
- * F20261027hwl1：session 采集的日期/provider 解析工具（从 cost-output-collector 拆出，守 max-lines）。
+ * session 采集的日期/provider 解析工具（从 cost-output-collector 拆出，守 max-lines）。
  */
 
 /** UTC ISO 时间戳 → Asia/Shanghai 日期键（YYYY-MM-DD）。

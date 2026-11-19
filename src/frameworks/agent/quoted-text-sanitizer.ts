@@ -1,9 +1,9 @@
 /**
- * bash 守卫内嵌文本脱敏（#858，F20260914ectx）。
+ * bash 守卫内嵌文本脱敏（）。
  *
  * 背景：守卫对「文本提及」与「执行意图」不区分——--body 参数值、引号内任何含
  * 进程终止族词元的合法文本（issue 正文、review 报告、源码引用、测试字符串）与
- * 真实终止命令被同一正则命中。#858 现场 13 起：gh pr review --body 引
+ * 真实终止命令被同一正则命中。现场 13 起：gh pr review --body 引
  * skill 文本被拦（对抗审视流程在守卫层断裂）、heredoc 写 issue 正文被拦、
  * 本特性开发中实现者 2 次被拦（调试命令内联测试字符串）。
  *
@@ -13,7 +13,7 @@
  * - 危险通道整体跳过脱敏（保守）：bash -c 'kill N' / pipe-to-shell / 脚本
  *   one-liner / heredoc——这些通道的引号内是执行内容不是纯数据；
  * - 单词全引号（'kill' 42877）不匹配 QUOTED_TEXT（要求含非词字符）——该形态
- *   由 #850 normalizeForDetection 归一化路径处理，两条路径不冲突；
+ * 由 normalizeForDetection 归一化路径处理，两条路径不冲突；
  * - 脱敏只影响拦截判定；withDiagnostics 仍扫原命令（回显真实命中点）。
  *
  * heredoc 不在本层覆盖（跨行正文脱敏收益低、边界复杂）——issue 建议的 skill 层
@@ -21,7 +21,7 @@
  */
 
 /** 与 bash-safety-guard 检测词表同口径的敏感词元（等长替换用）
- *  F20260916gtlr：补 otter-buddy\.sh——#970 守卫新增 SERVICE_SCRIPT_KILL 词元时未同步本表，
+ * 补 otter-buddy\.sh——守卫新增 SERVICE_SCRIPT_KILL 词元时未同步本表，
  *  引号数据文本（如 grep 'otter-buddy.sh restart' README.md）被路径限定判定误拦。 */
 const SENSITIVE_TOKENS: RegExp[] = [
   /\bkill\b/gi,
@@ -33,8 +33,8 @@ const SENSITIVE_TOKENS: RegExp[] = [
   /\beval\b/gi,
   /\.otter-buddy\.pid/g,
   /otter-buddy\.sh/gi,
-  // F20260922pmgd：gh pr merge 词元——守卫新增 PR 合入拦截时同步本表（与 otter-buddy.sh
-  // 同型教训 #970：新增守卫词元不同步脱敏表 → 引号数据文本被误拦）
+  // gh pr merge 词元——守卫新增 PR 合入拦截时同步本表（与 otter-buddy.sh
+  // 同型教训 新增守卫词元不同步脱敏表 → 引号数据文本被误拦）
   /gh\s+pr\s+merge/gi,
   /\/pulls\/\d+\/merge\b/gi,
   /\/repos\/[^\s/]+\/[^\s/]+\/merges\b/gi,
@@ -42,20 +42,20 @@ const SENSITIVE_TOKENS: RegExp[] = [
 
 /**
  * 引号内「多词文本」——含至少一个非词字符（空格/中文/标点），排除 'k' 这类
- * 单词全引号（那是 #850 归一化的领地）。非贪婪成对匹配，不跨行。
- * #923 处置重构：单引号段与双引号段分开处理——shell 语义上单引号内是 100%
+ * 单词全引号（那是 归一化的领地）。非贪婪成对匹配，不跨行。
+ * 处置重构：单引号段与双引号段分开处理——shell 语义上单引号内是 100%
  * 字面量（$() / 反引号都不展开），有资格无条件脱敏；双引号内 $() / 反引号
  * 会展开（是执行），命中即整体跳过脱敏。
  */
 const SINGLE_QUOTED_TEXT = /'[^'\n]*[^\w'\n][^'\n]*'/g;
 const DOUBLE_QUOTED_TEXT = /"[^"\n]*[^\w"\n][^"\n]*"/g;
 
-/** F20260923qbsw：语法剥离专用跨行引号对（shell 引号可跨行；与词元脱敏的
+/** 语法剥离专用跨行引号对（shell 引号可跨行；与词元脱敏的
  *  单行多词 QUOTED_TEXT 分工不同，见 stripQuotedTextSpans 注释） */
 const SYNTAX_SINGLE_QUOTED = /'[^']*'/g;
 const SYNTAX_DOUBLE_QUOTED = /"[^"]*"/g;
 
-/** F20260924gfpn：heredoc 载荷整体剥离（等长空格替换）。
+/** heredoc 载荷整体剥离（等长空格替换）。
  *  9/23 台账实证：《issue处理》连环拦中 python3 - <<EOF 的载荷体（测试用例文本，含 kill
  *  字样）被当真实终止命令——cmdLevel「脚本 one-liner + kill + 数字」在原文上命中载荷内数据。
  *  语义：heredoc 定界行之后到闭合行为止是 python/node 的 stdin 数据（非 shell 语法），
@@ -216,7 +216,7 @@ function hasExecutionChannel(command: string): boolean {
  * 剥除空引号对（'' / ""——shell 无操作，与守卫 normalizeForDetection 同语义）。
  * Why 必须在引号段识别前做：`p''k...` 的空引号对会制造假引号边界，
  * QUOTED_TEXT 把 `k... -f "xxx/ma'` 跨界误判为数据段，脱敏反而吞掉命令位词元
- * （#858 开发中实测回归：#844 撞名拦截用例被误放行）。
+ * （开发中实测回归：撞名拦截用例被误放行）。
  */
 function stripEmptyQuotePairs(command: string): string {
   return command.replace(/''/g, "").replace(/""/g, "");
@@ -234,7 +234,7 @@ export function shouldSanitizeForScan(command: string): boolean {
   const singleMatches = basis.match(SINGLE_QUOTED_TEXT) ?? [];
   const doubleMatches = basis.match(DOUBLE_QUOTED_TEXT) ?? [];
   if (singleMatches.length === 0 && doubleMatches.length === 0) return false;
-  // #923 处置 c：shell 执行载荷通道（bash -c / pipe-to-shell / 脚本 one-liner /
+  // 处置 c：shell 执行载荷通道（bash -c / pipe-to-shell / 脚本 one-liner /
   // heredoc）存在时，单引号是其载荷容器（引号内是要执行的命令，不是数据）——
   // 一律不脱敏，回到保守路径。此判定先行，无载荷通道时才谈引号分治。
   if (SHELL_PAYLOAD_CHANNEL.test(basis)) return false;
@@ -256,10 +256,10 @@ export function sanitizeQuotedText(command: string): string {
 }
 
 /**
- * F20260923qbsw：引号段整段剥离为等长空格——供「shell 语法形态判定」（重定向/
+ * 引号段整段剥离为等长空格——供「shell 语法形态判定」（重定向/
  * 复合切断）在扫描前剥掉数据段。
  *
- * 背景（#984 循环拦截事故）：checkMainCheckoutWrite 的 REDIRECT_PATTERN 与
+ * 背景（循环拦截事故）：checkMainCheckoutWrite 的 REDIRECT_PATTERN 与
  * hasRealCdSegment 的「无 & / |」检查是文本级引号盲全文扫描——
  * `gh issue comment --body '... --> ...'`（HTML 注释/markdown 表格）被误判为
  * 重定向写主仓，连拦 3 次中断獭回合（healing 4d692fb6/e671f577）。
@@ -272,7 +272,7 @@ export function sanitizeQuotedText(command: string): string {
  * 不剥离——单引号是其载荷容器，载荷内的重定向/复合是真实语法，必须可见。
  * 因此本函数在 SHELL_PAYLOAD_CHANNEL 命中时原样返回输入。
  *
- * F20260923glay 分层修正：脚本 one-liner（python/node -c|-e）不再是剥离禁区——
+ * 分层修正：脚本 one-liner（python/node -c|-e）不再是剥离禁区——
  * 载荷是 python/node 代码，其中字符串字面量是数据（'...' / "..." / f'...'），
  * 剥离不影响 kill 检测（kill 调用词元在调用位不在字符串里）。shell 载荷
  * （bash -c / 管道进 shell / heredoc）仍整体保留原文（引号内是 shell 代码）。
@@ -285,7 +285,7 @@ export function stripQuotedTextSpans(command: string): string {
   SYNTAX_DOUBLE_QUOTED.lastIndex = 0;
   const blank = (m: string): string => " ".repeat(m.length);
 
-  // F20260923glay 分层：shell 载荷段（bash -c / 管道进 shell / heredoc）
+  // 分层：shell 载荷段（bash -c / 管道进 shell / heredoc）
   // 整段保留原文（引号内是 shell 代码）；其余（常规命令 + 脚本 one-liner 载荷）照常剥离。
   // 整条命令全局分类会让混合命令（bash -c '...' && python3 -c "..."）中的 shell 载荷遁形，
   // 而按 &&/; 等分隔符切段又会切散跨分隔符的引号对（--body "a | b"）。

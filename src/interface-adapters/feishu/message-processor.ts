@@ -19,7 +19,7 @@ export interface FeishuIncomingMessage {
   text: string;
   senderId: string;
   messageId: string;
-  /** F20260918imas：p2p/group 分流（缺省维持现状——群/未知场景不自动开户） */
+  /** p2p/group 分流（缺省维持现状——群/未知场景不自动开户） */
   chatType?: "p2p" | "group";
   /** 多模态 Phase 2：image/file 消息的媒体载荷（文本消息无此字段） */
   media?: FeishuMediaPayload;
@@ -39,19 +39,19 @@ export class FeishuMessageProcessor {
   constructor(
     private readonly deps: {
       manageConnection: ManageConnection;
-      /** F20260928fsqr（检视建议④）：可选注入——ownerOpenId 回填直写 metadata */
+      /** （检视建议④）：可选注入——ownerOpenId 回填直写 metadata */
       connectionRepo?: { mergeMetadata(connectionId: string, patch: Record<string, unknown>): Promise<unknown> };
-      /** F20260918imas / F20260920imax：助理会话管理（p2p 专线开户）。未注入时回退旧拒聊行为 */
+      /**  助理会话管理（p2p 专线开户）。未注入时回退旧拒聊行为 */
       assistantSession?: AssistantSessionManager;
-      /** F20260920imax：助理线模型（专线开户大獭用；缺省全局 default） */
+      /** 助理线模型（专线开户大獭用；缺省全局 default） */
       assistantModelAlias?: string;
-      /** F20260913ctlv 彻底切换：entries 写入面（用户消息唯一落点） */
+      /** 彻底切换：entries 写入面（用户消息唯一落点） */
       sendEntry: SendEntry;
       commandDispatcher: CommandDispatcher;
       feishuGateway: FeishuGateway;
-      /** F20260826fuid：可选注入。未注入或解析失败时 senderName 快照为空，不影响主链路 */
+      /** 可选注入。未注入或解析失败时 senderName 快照为空，不影响主链路 */
       feishuUserInfo?: FeishuUserInfoGateway;
-      /** F20260826fpbd：可选注入。命令门禁（方案B）；未注入或未配置时不拦 */
+      /** 可选注入。命令门禁（方案B）；未注入或未配置时不拦 */
       partnerResolver?: PartnerResolver;
       /** 多模态 Phase 2：可选注入。未注入时 image/file 消息降级为占位文本（不丢消息） */
       feishuResource?: FeishuResourceGateway;
@@ -73,7 +73,7 @@ export class FeishuMessageProcessor {
       textLength: text.length,
     });
 
-    // F20260920imax 增量五（搭档统一模型）：一个 im 侧 bot = 一个海獭助理对话。
+    // 增量五（搭档统一模型）：一个 im 侧 bot = 一个海獭助理对话。
     // 飞书 p2p 路由锚 = bot 本身（connection externalId = feishu-bot:<掩码appId>），
     // 不按私聊者/消息维度分——谁私聊 bot 都进这个 bot 的对话；将来多 bot 各自成立。
     if (msg.chatType === "p2p" && this.deps.feishuGateway.botKey) {
@@ -100,14 +100,14 @@ export class FeishuMessageProcessor {
     await this.deliverToConversation(msg, conversation.id, connection.id, senderId, text);
   }
 
-  /** F20260920imax 增量五：p2p 按 bot 锚定路由——一 bot 一对话 */
+  /** 增量五：p2p 按 bot 锚定路由——一 bot 一对话 */
   private async processP2pViaBot(msg: FeishuIncomingMessage): Promise<void> {
     const botKey = this.deps.feishuGateway.botKey!;
     const connection = await this.deps.manageConnection.ensureConnection(botKey, botKey, "feishu");
     // 出站定向锚：记最后活跃会话（多人私聊同一 bot 时，回复给最近发消息的人）
     await this.deps.manageConnection.noteChatId(connection.id, msg.chatId);
 
-    // F20260928fsqr（检视建议④）：线 owner 回填——provision 时 ownerOpenId 缺失
+    // （检视建议④）：线 owner 回填——provision 时 ownerOpenId 缺失
     //  （SDK user_info 双层可选）或存量线无 metadata 的，首条 p2p 消息 sender 回填
     //  （与 noteChatId 同位；仅缺失时写，已有不覆盖；repo 未注入时跳过——测试/降级兼容）
     if (!connection.metadata?.ownerOpenId && this.deps.connectionRepo) {
@@ -122,7 +122,7 @@ export class FeishuMessageProcessor {
             connectionId: connection.id,
             channel: "feishu",
             displayName: "飞书助理",
-            // F20260920imax：助理线模型（缺省 undefined = CreateOtter 走全局 default）
+            // 助理线模型（缺省 undefined = CreateOtter 走全局 default）
             ...(this.deps.assistantModelAlias && { modelAlias: this.deps.assistantModelAlias }),
           })
         : null);
@@ -137,13 +137,13 @@ export class FeishuMessageProcessor {
       return;
     }
 
-    // F20261010fspm：发送者身份只走 sender_name 快照（气泡上方 senderDisplayName），
+    // 发送者身份只走 sender_name 快照（气泡上方 senderDisplayName），
     // 不再拼进消息体——旧前缀 [名字] 在解析失败时退化成 [b2d82e] 污染正文。
     // 发言人区分：agent 侧 resolveUserEntryLabel（搭档(真名)/访客快照名/可读兜底）三级标签。
     await this.deliverToConversation(msg, conversation.id, connection.id, msg.senderId, msg.text);
   }
 
-  /** F20260920imax：消息投递公共尾部（专线/群聊两路共用）：媒体→入库→fanout→dispatch */
+  /** 消息投递公共尾部（专线/群聊两路共用）：媒体→入库→fanout→dispatch */
   private async deliverToConversation(
     msg: FeishuIncomingMessage,
     conversationId: string,
@@ -156,7 +156,7 @@ export class FeishuMessageProcessor {
     const bodyText = this.composeBodyText(text, outcome);
     const attachmentIds = outcome.attachmentIds.length > 0 ? outcome.attachmentIds : undefined;
 
-    // #608（PR #603 检视建议 1 同款）：agent dispatch 用原始 text，不含降级提示——
+    // （同款）：agent dispatch 用原始 text，不含降级提示——
     // 运维文本不进 agent 上下文；降级提示仅入消息库供用户可见（与微信侧同位置同修）
     const dispatchText = msg.text.trim();
 
@@ -167,9 +167,9 @@ export class FeishuMessageProcessor {
     );
   }
 
-  /** 命令分支（F20260826fpbd 方案B门禁保留） */
+  /** 命令分支（方案B门禁保留） */
   private async dispatchCommand(chatId: string, connectionId: string, text: string, senderId: string): Promise<void> {
-    // F20260826fpbd（方案B）：会话管理命令仅搭档可用。拦截在消息入口而非 CommandDispatcher——
+    // （方案B）：会话管理命令仅搭档可用。拦截在消息入口而非 CommandDispatcher——
     // 命令分发器保持无身份概念，权限判定集中在 PartnerResolver 消费点；
     // 未配置 partnerOpenId 时不拦（降级，存量实例无感升级）
     if (this.deps.partnerResolver?.configured && !this.deps.partnerResolver.isPartner(senderId)) {

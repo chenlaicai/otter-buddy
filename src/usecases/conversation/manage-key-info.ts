@@ -8,7 +8,7 @@ import { DomainError } from "@entities/errors";
 import type { ConversationRepository } from "./conversation-repository";
 import type { MemoryIndexGateway } from "./memory-index-gateway";
 import { redactSecrets, redactMetadataSecrets } from "@usecases/security/redact-secrets";
-// F20261021gmbe（检视发现 2 修复）：白名单正则前后端唯一真相源——同引 api-contract
+// （）：白名单正则前后端唯一真相源——同引 api-contract
 import { GAME_URL_PATTERN, GAME_URL_MESSAGE } from "@contract/api/key-info";
 
 export interface LinkedResourceInput {
@@ -26,14 +26,14 @@ export interface LinkedResourceInput {
 }
 
 /**
- * F20260807factlim: fact content 长度上限（JS UTF-16 code unit 计：中文 1:1，emoji 1:2）。
+ * fact content 长度上限（JS UTF-16 code unit 计：中文 1:1，emoji 1:2）。
  * 工具层（tool-factory）与业务层共用同一常量，保证双层校验口径与消息一致（设计决策 D2）。
  */
 export const FACT_CONTENT_MAX_LENGTH = 500;
 export const FACT_CONTENT_TOO_LONG_MESSAGE =
   "fact 类型资源的 content 不能超过 500 字符。长内容（方案、设计文档等）请先用 write 工具写入文件，再创建 resourceType='file' 的资源指向文件路径。";
 
-/** F20260829gvid（#580）：强制带 groupId 的资源类型。
+/** 强制带 groupId 的资源类型。
  *  这些类型是「一次特性交付」的组成产物（PR/worktree/分支），漏传 groupId 会让
  *  list_artifacts 按组检索落空——gssf/ptun 两次都是检视抓到才补。fact/url/file 可独立
  * 存在（散点事实/外部链接/临时文件），维持可选。 */

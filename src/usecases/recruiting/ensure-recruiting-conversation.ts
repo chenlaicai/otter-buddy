@@ -53,7 +53,7 @@ async function tryReuseExisting(
 
 /** 读取 systemPrompt 文件 */
 function readSystemPrompt(promptPathOverride: string | undefined): string {
-  // Why: 默认路径基于代码位置解析（#429）；promptPathOverride 注入参数优先
+  // Why: 默认路径基于代码位置解析；promptPathOverride 注入参数优先
   const promptPath = promptPathOverride
     ?? path.resolve(getRepoRoot(), RECRUITING_SYSTEM_PROMPT_PATH);
   try {
@@ -148,9 +148,9 @@ async function sendWelcomeMessage(
 }
 
 /**
- * F20260805rbrg：boot 时幂等创建"💼 求职助手"专用对话。
+ * boot 时幂等创建"💼 求职助手"专用对话。
  *
- * 参考 F20260730heal 的 ensureHealingConversation 并扩展：healing 对话无 systemPrompt，
+ * 参考 的 ensureHealingConversation 并扩展：healing 对话无 systemPrompt，
  * recruiting 需要注入求职助手角色 systemPrompt。
  *
  * **不动 ManageConversation.create**（避免抽象层级泄漏——通用 conversation 创建 API
@@ -170,7 +170,7 @@ export async function ensureRecruitingConversation(deps: {
   otterRepo: OtterRepository;
   createOtter: CreateOtter;
   settings: SettingsRepository;
-  /** F20260913ctlv 批4a：welcome 切 entries */
+  /** 批4a：welcome 切 entries */
   sendEntry: SendEntry;
   logger: Logger;
   /** 覆盖 prompt 文件路径（测试用） */

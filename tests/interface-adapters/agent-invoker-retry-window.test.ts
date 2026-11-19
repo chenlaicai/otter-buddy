@@ -1,11 +1,11 @@
 /**
- * #764 审视 A3：retry 观测窗写入侧覆盖（auto_retry_start/end → Map → 归因）。
+ * 审视 A3：retry 观测窗写入侧覆盖（auto_retry_start/end → Map → 归因）。
  *
- * r1 只有 orchestrator 侧 stub getRetryErrorMessage——「auto_retry_start 事件 → 守卫
+ * 只有 orchestrator 侧 stub getRetryErrorMessage——「auto_retry_start 事件 → 守卫
  * → Map set/get」捕获链零驱动。本测试走真实 AgentInvoker.invokeConversation：
  * mock SDK 在 invoke 内回放事件序列（onEvent 回调），断言观测窗生命周期三分支：
  * 1. auto_retry_start 捕获 + backoff 中 abort → 归因文案带底层错误
- * 2. auto_retry_start 后 auto_retry_end(success=true) 清窗 → 之后 abort 不带归因（S1 陈旧归因防线）
+ * 2. auto_retry_start 后 auto_retry_end(success=true) 清窗 → 之后 abort 不带归因（陈旧归因防线）
  * 3. auto_retry_end(success:false)（abort 打断 backoff）不清窗 → 归因保留（防误清）
  */
 

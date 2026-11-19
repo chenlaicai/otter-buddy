@@ -16,7 +16,7 @@ export interface MessageDTO {
   dur: string | null;
   seq: number;
   tsp: string[] | null;
-  /** 信号档位（F20260902u5tr：yield 投石为 NORMAL/URGENT/HALT，用户消息无列值隐式 NORMAL）；仅非空时携带 */
+  /** 信号档位（yield 投石为 NORMAL/URGENT/HALT，用户消息无列值隐式 NORMAL）；仅非空时携带 */
   lvl?: string;
   /** 发送者显示名（otter 消息为 otter 名；user/system 省略） */
   sn?: string;
@@ -26,15 +26,15 @@ export interface MessageDTO {
   src?: string;
   /** 消息分段数组（多 speak 气泡），仅 agent 消息且 segments 非空时携带 */
   segments?: MessageSegmentDTO[];
-  /** 消息关联的獭间信号（F20260826mwrd C4）——徽章在消息原位渲染，仅 otter 消息且有关联信号时携带 */
+  /** 消息关联的獭间信号（C4）——徽章在消息原位渲染，仅 otter 消息且有关联信号时携带 */
   signals?: MessageSignalDTO[];
   /** 多模态 Phase 1：消息携带的附件（仅 attachments 非空时携带） */
   atts?: AttachmentDTO[];
   events?: MessageEventDTO[];
 }
 
-/** 信号轨迹单项（F20260902u5tr：一次投石对一个 otter 目标的投递状态）。
- *  state 判据（服务端持久层推导，前端零推导；F20260902sgp2 S1b 判据切台账）：
+/** 信号轨迹单项（一次投石对一个 otter 目标的投递状态）。
+ * state 判据（服务端持久层推导，前端零推导；判据切台账）：
  *  - PENDING：dispatch_attempts 无该 (message, target) 记录（排队=还没派发）
  *  - CONSUMING：attempt 行 in_progress（持久行，无 5min 墙钟窗，无状态倒退）
  *  - CONSUMED：attempt 终态 completed
@@ -55,11 +55,11 @@ export interface SignalTrailItemDTO {
 
 export interface SignalTrailResponseDTO {
   items: SignalTrailItemDTO[];
-  /** S3.5（F20260903s35u）：会话调度闸门状态（横幅数据源）；路由器未注入时 null */
+  /** S3.5：会话调度闸门状态（横幅数据源）；路由器未注入时 null */
   gate?: { halted: boolean; rateLimitedUntil: string | null } | null;
 }
 
-/** 消息关联的獭间信号（F20260826mwrd C4：UI 徽章数据源） */
+/** 消息关联的獭间信号（C4：UI 徽章数据源） */
 export interface MessageSignalDTO {
   id: string;
   type: "objection" | "blocked" | "halt";
@@ -88,7 +88,7 @@ export interface MessageEventDTO {
   createdAt: string;
 }
 
-/** 附件 DTO（多模态 Phase 1，消息携带的附件透出；#608 扩 kind 值域 audio/video） */
+/** 附件 DTO（多模态 Phase 1，消息携带的附件透出；扩 kind 值域 audio/video） */
 export interface AttachmentDTO {
   id: string;
   kind: "image" | "document" | "audio" | "video";
@@ -114,7 +114,7 @@ export interface SendMessageRequestDTO {
   source?: "external";
   /** 多模态 Phase 1：随消息引用的附件 ID（上传 API 先返回；可选，向后兼容） */
   attachmentIds?: string[];
-  /** F20260913ctlv：注入方式（目标 running 时）。steer=打断当前生成立即注入（默认，
+  /** 注入方式（目标 running 时）。steer=打断当前生成立即注入（默认，
    *  向后兼容）；followUp=排队等当前轮说完再接（不打断） */
   mode?: "steer" | "followUp";
 }

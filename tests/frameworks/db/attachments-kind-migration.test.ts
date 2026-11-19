@@ -5,15 +5,15 @@ import { initSchema } from "@frameworks/db/schema";
 import { migrateDatabase } from "@frameworks/db/migration";
 import { createTestLogger } from "../../helpers/logger";
 
-/** Issue #608：attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。
+/** attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。
  *  场景：老库建表时是窄 CHECK（'image','document'），跑 migrateDatabase 后
  *  应能插入 audio/video 行且数据无损；幂等（重复跑不炸）；新库天然宽约束。 */
 
-/** 把新库的 attachments 表替换为窄 CHECK 老版（模拟 F20260830wxmd 时代存量库）。
+/** 把新库的 attachments 表替换为窄 CHECK 老版（模拟 时代存量库）。
  *  先 initSchema 建全量结构，再 DROP 重建窄版——migrateDatabase 的其他迁移
  *  步骤依赖全量表结构（agent_sessions 等），纯手工建表跑不动完整迁移序列。 */
 function downgradeToLegacyAttachments(db: Database.Database): void {
-  // F20260913ctlv 批4c：message_attachments 表已退役（新库不建）——防御性 DROP IF EXISTS
+  // 批4c：message_attachments 表已退役（新库不建）——防御性 DROP IF EXISTS
   db.exec("DROP TABLE IF EXISTS message_attachments");
   db.exec("DROP TABLE attachments");
   createLegacyAttachments(db);

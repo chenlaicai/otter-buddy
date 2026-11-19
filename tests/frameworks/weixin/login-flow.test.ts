@@ -8,7 +8,7 @@ import { WeixinAccountStore } from "@frameworks/weixin/account-store";
 import type { Logger } from "@usecases/ports/logger";
 
 /**
- * 微信扫码登录流程单测——#571：scaned_but_redirect 网关切换。
+ * 微信扫码登录流程单测——scaned_but_redirect 网关切换。
  *
  * fetch 按 URL 路由记录每次请求的 base，断言重定向后后续轮询打到新网关；
  * 非白名单域拒绝切换（扫码轮询含 qrcode/verify_code，盲跳会导流到第三方）。
@@ -66,7 +66,7 @@ function makeFlow(store: WeixinAccountStore) {
   });
 }
 
-/** confirmed 结果收窄（#1112 run() 返回 union 后测试解构用） */
+/** confirmed 结果收窄（run() 返回 union 后测试解构用） */
 function expectConfirmed(result: import("@frameworks/weixin/login-flow").WeixinLoginResult): {
   accountId: string;
   ilinkUserId?: string;

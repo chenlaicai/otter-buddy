@@ -1,5 +1,5 @@
 /**
- * F20260915cfgt：features 段归一化（从 config-service.ts 拆出，控文件行数）。
+ * features 段归一化（从 config-service.ts 拆出，控文件行数）。
  *
  * 层职责边界（方案「层职责边界」段）：
  * - 本文件是纯函数：只读自身段 raw.features，不做任何推断——
@@ -10,7 +10,7 @@
 import type { Logger } from "@usecases/ports/logger";
 
 /** features 段的原始（未归一化）输入形状，与 config-service.RawConfig.features 同构
- * F20260920stkx：paperTrading 开关随 paper-trading 能力移除（旧配置残留键被忽略，不报错） */
+ * paperTrading 开关随 paper-trading 能力移除（旧配置残留键被忽略，不报错） */
 export interface RawFeatures {
   selfHealing?: boolean;
   recruiting?: boolean;

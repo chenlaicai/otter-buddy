@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * F20261021gmbe：GameEmbedPanel 单测——同源白名单校验 + iframe 挂载/加载态。
+ * GameEmbedPanel 单测——同源白名单校验 + iframe 挂载/加载态。
  *
  * 覆盖：
  * 1. resolveGameEmbedPath：白名单通过（同源牌局路由）+ 路径穿越/外部 URL 拒绝 5 用例

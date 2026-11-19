@@ -10,7 +10,7 @@ export class ManageContext {
   }
 
   /**
-   * F20260821scrt: otter_context 是 LLM 可写的自由 TEXT KV，
+   * otter_context 是 LLM 可写的自由 TEXT KV，
    * value 写入前脱敏。系统内部状态（如 embedding_degraded）直写
    * repository，不经此 usecase，天然不受影响。
    */

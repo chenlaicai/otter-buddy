@@ -1,6 +1,6 @@
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 /**
- * F20261111synth：叙事合成 thinking 能力解析 + 兜底重试 + 预算上调（#1850）。
+ * 叙事合成 thinking 能力解析 + 兜底重试 + 预算上调。
  *
  * 守护的行为（红测先行，2026-11-11 换世合成 100% 降级事故）：
  * 1. F1 能力层：合成专用模型副本按 (baseUrl host + modelId) 继承 SDK provider 目录的

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** F20261105pidr: the execution runtime is durable 1.5.0, not a patched coding-agent. */
+/** the execution runtime is durable 1.5.0, not a patched coding-agent. */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 

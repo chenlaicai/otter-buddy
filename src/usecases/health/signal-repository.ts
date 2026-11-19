@@ -1,5 +1,5 @@
 /**
- * SignalRepository: signals 表读写（Issue #399/#400）
+ * SignalRepository: signals 表读写（/）
  *
  * 信号状态机：open → (acknowledged) → resolved/dismissed。
  * 相同 signal_type + feature_id/file_path 的重复触发做 occurrences 累加
@@ -22,17 +22,17 @@ export interface SignalRecord {
   suggested_action: string | null;
   created_at: string;
   resolved_at: string | null;
-  /** 结构化证据详情 JSON（Issue #644，如 bug_recurrence 全类型 commit 序列）。null=无 */
+  /** 结构化证据详情 JSON（如 bug_recurrence 全类型 commit 序列）。null=无 */
   evidence_detail: string | null;
   /** 置信度：low=大概率误报（UI 折叠收纳）。null=normal（存量默认） */
   confidence: string | null;
-  /** F20260917trig：处置状态机——NULL/'open'=未接单；'triaged'=已归口；'in_progress'=修复中。终态仍走 status */
+  /** 处置状态机——NULL/'open'=未接单；'triaged'=已归口；'in_progress'=修复中。终态仍走 status */
   triage_status: string | null;
-  /** F20260917trig：绑定的 GitHub issue 编号（处置锚点） */
+  /** 绑定的 GitHub issue 编号（处置锚点） */
   issue_number: number | null;
-  /** F20260917trig：归口时间（老化计时起点之一） */
+  /** 归口时间（老化计时起点之一） */
   triaged_at: string | null;
-  /** F20260917trig：处置说明（如「并入 #1012」「误报，阈值问题见 #1012」） */
+  /** 处置说明（如「并入 」「误报，阈值问题见 」） */
   triage_note: string | null;
 }
 
@@ -49,13 +49,13 @@ export interface UpsertSignal {
   confidence?: string | null;
 }
 
-/** #1052：批量归口过滤条件（与 healing batchResolveByFilter 同模式） */
+/** 批量归口过滤条件（与 healing batchResolveByFilter 同模式） */
 export interface SignalBatchBindFilter {
   signalType?: string;
   severity?: string;
 }
 
-/** #1052：批量归口结果（字段名与 healing BatchResolveResult 对齐：matched/truncated/totalMatched） */
+/** 批量归口结果（字段名与 healing BatchResolveResult 对齐：matched/truncated/totalMatched） */
 export interface SignalBatchBindResult {
   matched: number;
   bound: number;
@@ -70,14 +70,14 @@ export class SignalRepository {
   /**
    * upsert：同键信号 occurrences+1 / last_seen 刷新；无匹配则新开一行。返回受影响行。
    *
-   * 同键 re-fire 语义（Issue #1563 re-fire 缺口修复）：
+   * 同键 re-fire 语义（re-fire 缺口修复）：
    * - 同键有 open 行 → 累加（原有行为）
    * - 无 open 行且最新行是 dismissed → re-open 原行（occurrences+1 + status='open' +
    *   resolved_at 置 NULL），triage_note 保留作历史痕迹——dismiss 留痕不再被同键孪生行旁路
    * - 无 open 行且最新行是 resolved（或无同键行）→ 新开一行（复发=新事件，历史保留契约）
    *
    * 匹配序刻意优先 open 行而非「同键最新行」：存量库可能存在 open/dismissed 并存的
-   * 孪生对（PR #1560 现场），优先累加 open 行可避免 re-open 再制造双 open 并存。
+   * 孪生对（现场），优先累加 open 行可避免 re-open 再制造双 open 并存。
    */
   upsert(signal: UpsertSignal, seenAt: Date = new Date()): SignalRecord {
     const now = seenAt.toISOString();
@@ -96,10 +96,10 @@ export class SignalRepository {
       .get(signal.signalType, signal.featureId, signal.filePath) as SignalRecord | undefined;
 
     if (openRow) {
-      // Issue #644：UPDATE 分支必须同步刷 evidence_detail + confidence——只刷旧三字段
+      // UPDATE 分支必须同步刷 evidence_detail + confidence——只刷旧三字段
       // 会导致存量信号的置信分层永远不更新（合议审读 §3.1）。COALESCE 语义：本次未传
       // 时不覆盖旧值（旧行为调用方不受影响）；窗口滑动重算时传新值覆盖。
-      // Issue #645 审视 S1：severity / suggested_action 同理必须刷——僵尸阶梯是首个
+      // 审视 severity / suggested_action 同理必须刷——僵尸阶梯是首个
       // 让同一信号 severity 随时间变化的功能（黄档首开→红档推进），不刷则档位冻结、
       // 消费侧按 severity 路由失效。severity 必传直接覆盖（其余 8 类传入值=注册表
       // 常量=存量值，零行为变化）；suggested_action 可空走 COALESCE（同防御语义）。
@@ -118,7 +118,7 @@ export class SignalRepository {
       return this.coalesceExisting(openRow, signal, detailJson, now);
     }
 
-    // Issue #1563：无 open 行时查同键最新行（任意状态）分派——dismissed 命中走 re-open
+    // 无 open 行时查同键最新行（任意状态）分派——dismissed 命中走 re-open
     // 不新开孪生行；resolved 命中走 INSERT（复发=新事件）。
     const latest = this.db
       .prepare(`
@@ -138,11 +138,11 @@ export class SignalRepository {
     return this.insertNew(signal, detailJson, now);
   }
 
-  /** Issue #1563：dismiss 后同键 re-fire 的 re-open 分支——原行复活（occurrences+1、
+  /** dismiss 后同键 re-fire 的 re-open 分支——原行复活（occurrences+1、
    *  last_seen/evidence 刷新，first_seen/created_at 不动），status='open' + resolved_at
-   *  置 NULL 回未接单队列；triage_note 保留作历史痕迹（F20260917trig §6 抹平语义下
+   * 置 NULL 回未接单队列；triage_note 保留作历史痕迹（§6 抹平语义下
    *  dismiss 时 triage_status/issue_number 已置 NULL，re-open 后即「未接单」）。
-   *  triaged_at 置 NULL（检视发现 1）：re-open 非归口动作，残留上次归口时间戳会与
+   * triaged_at 置 NULL：re-open 非归口动作，残留上次归口时间戳会与
    *  「未接单」状态自相矛盾，三字段（triage_status/issue_number/triaged_at）统一归位 */
   private reopenDismissed(
     existing: SignalRecord,
@@ -169,12 +169,12 @@ export class SignalRepository {
       ...this.coalesceExisting(existing, signal, detailJson, now),
       status: "open",
       resolved_at: null,
-      triaged_at: null, // 与 DB UPDATE 归位一致（不只信 coalesceExisting 拼装，#644 教训）
+      triaged_at: null, // 与 DB UPDATE 归位一致（不只信 coalesceExisting 拼装，教训）
     };
   }
 
   /** INSERT 新行分支（upsert 拆出控行数）——triage 四字段取默认值 NULL
-   *  （F20260917trig §3 末：复发新行不继承旧行绑定/note，视为新事件走完整未接单流程） */
+   * （§3 末：复发新行不继承旧行绑定/note，视为新事件走完整未接单流程） */
   private insertNew(signal: UpsertSignal, detailJson: string | null, now: string): SignalRecord {
     const r = this.db
       .prepare(`
@@ -212,7 +212,7 @@ export class SignalRepository {
     };
   }
 
-  /** Issue #644/#645：UPDATE 分支返回值拼装——与 SQL 侧刷新列保持一致
+  /** /UPDATE 分支返回值拼装——与 SQL 侧刷新列保持一致
    *  （detail/confidence COALESCE、severity/suggested_action 覆盖、计数刷新） */
   private coalesceExisting(
     existing: SignalRecord,
@@ -245,7 +245,7 @@ export class SignalRepository {
   }
 
   resolve(id: number, resolvedAt: Date = new Date()): boolean {
-    // F20260917trig §6：auto-resolve/resolve 终态化时同步抹平处置进度字段
+    // §6：auto-resolve/resolve 终态化时同步抹平处置进度字段
     // （triage_status/issue_number 置 NULL，triage_note 保留作历史痕迹）——
     // 终态覆盖进度，进度只在 open 期内有意义（§6 选项 b 语义）。
     const r = this.db
@@ -267,7 +267,7 @@ export class SignalRepository {
   }
 
   /**
-   * F20260917trig：处置进度写入的唯一入口（§1 写入边界防御声明）。
+   * 处置进度写入的唯一入口（§1 写入边界防御声明）。
    * agent 工具与 HTTP 端点均调用此方法，任何入口不得各自实现 SQL（§2 架构约束 F3）。
    *
    * action 语义（§2 幂等语义表）：

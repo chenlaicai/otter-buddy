@@ -4,7 +4,7 @@ import { initSchema } from "@frameworks/db/schema";
 import { SqliteScheduledTaskRepository } from "@frameworks/db/scheduled-task/sqlite-scheduled-task-repository";
 import type { ScheduledTask } from "@entities/scheduled-task/scheduled-task";
 
-/** #1391：scheduled-task 仓 updateStatus 对不存在 ID fail-closed（#1370 族模式收尾） */
+/** scheduled-task 仓 updateStatus 对不存在 ID fail-closed（族模式收尾） */
 
 function createTestDb(): Database.Database {
   const db = new Database(":memory:");

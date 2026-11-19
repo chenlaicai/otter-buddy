@@ -1,5 +1,5 @@
 /**
- * F20261109epqst：后台 embedding 统一持久化队列——行为层失败用例（修复前红）。
+ * 后台 embedding 统一持久化队列——行为层失败用例（修复前红）。
  *
  * 根因结构：store-memory 的 replaceChunksBySource 把全部 chunk 文本预占进
  * RAM（fireAndForgetEmbedBatch → slotWaiters 长队），DB embedding_tasks 里

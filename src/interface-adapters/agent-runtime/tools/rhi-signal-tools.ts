@@ -1,5 +1,5 @@
 /**
- * RHI 健康信号处置工具（F20260917trig §2）。
+ * RHI 健康信号处置工具（§2）。
  *
  * 与獭间信号工具（signal-tools.ts）分开：那是 signal_events 台账（獭间协调），
  * 这是 signals 表（健康观测）——两个信号池语义不同（方案设计取舍③）。
@@ -22,7 +22,7 @@ import type { SignalRepository, SignalBatchBindFilter, SignalRecord } from "@use
 import { checkOpenIssue, readIssueState, type CheckIssueBinding, type ReadIssueState } from "../../github/issue-binding";
 
 /** 参数校验：signalId/action 合法性检查（拆出控 complexity）。batch_bind 是批量路径，
- *  不需要 signalId，由 handleBatchBind 单独校验（#1052） */
+ * 不需要 signalId，由 handleBatchBind 单独校验 */
 function validateTriageParams(params: Record<string, unknown>): { signalId: number; action: "bind_issue" | "in_progress" | "dismiss" } | { error: string } {
   const signalId = params.signalId as number | undefined;
   const action = params.action as string | undefined;

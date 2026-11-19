@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv } from "node:crypto";
 
 /**
- * AES-128-ECB 工具（微信 CDN 媒体加密，issue #567）。
+ * AES-128-ECB 工具（微信 CDN 媒体加密，）。
  * 协议审计来源：openclaw-weixin src/cdn/aes-ecb.ts（MIT）。
  * Node 默认 PKCS7 padding——与协议一致（密文大小按 16 字节对齐）。
  */

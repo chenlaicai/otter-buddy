@@ -1,5 +1,5 @@
 /**
- * F20261022mjls：lobby 等待房逻辑（自 room-service 拆出——控 max-lines）。
+ * lobby 等待房逻辑（自 room-service 拆出——控 max-lines）。
  * room 内部态经结构化参数注入（同 room-lifecycle.ts 先例）；定时器回调不入 class。
  */
 import type { SanmaEngine } from "../engine/engine";
@@ -32,7 +32,7 @@ export interface StartLobbyDeps<R extends { engine: SanmaEngine; gameId: string 
   beginPlay: (room: R) => void;
 }
 
-/** F20261022mjls：waiting→playing 发牌起跑（牌桌「开始」按钮）。
+/** waiting→playing 发牌起跑（牌桌「开始」按钮）。
  *  - 幂等：非 waiting 房重复 start 返回 alreadyStarted 不报错（牌桌刷新重进不误触发）
  *  - 可选 players 覆盖：座位 kind/name/otterId 可在开始时重配（默认獭回填/自定义切换）
  *  - 獭可用性校验（deps.checkOtterUsable 注入时）：otterId 无效/dissolved → 报错不开局（不产生半开局房）
@@ -145,7 +145,7 @@ export async function applyDefaultOtters(
 }
 
 /** 獭可用性校验（active 且未 dissolved）——任一 otter 座位不可用返回报错文案，全可用返回 null。
- *  PR#1609 delta（检视建议 4）：Promise.all 并行校验（座位互不依赖） */
+ * PR#1609 delta：Promise.all 并行校验（座位互不依赖） */
 export async function checkOttersUsable(
   players: ReadonlyArray<{ kind: string; name: string; otterId?: string }>,
   check: (otterId: string) => Promise<string | null>,

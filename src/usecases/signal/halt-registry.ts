@@ -1,10 +1,10 @@
 /**
- * Halt 指令注册表（F20260826mwrd C1；#927 生命周期加固）。
+ * Halt 指令注册表（C1；生命周期加固）。
  *
  * 内存态打标：halt_otter 工具 mark → 目标獭下一次 tool_call 边界被 block（takeForBlock）
  * → 该 invoke 余下生命周期持续 block（防 LLM 无视指令继续调工具）→ invoke 结束 endInvoke 清理。
  *
- * #927 halt 生命周期语义（治跨世代残留）：
+ * halt 生命周期语义（治跨世代残留）：
  * - **invoke 作用域**：halt 的送达目标是「目标獭的下一个工具调用边界」，送达后持续 block
  *   到该 invoke 结束为止。endInvoke 同时清 pending + active——被 halt 獭合规响应
  *   （speak 报告 + 停止发起调用）后 invoke 自然结束，halt 使命完成，改派的新 invoke
@@ -12,7 +12,7 @@
  * - **打标前活跃性检查（halt_otter 工具内）**：halt 的送达语义是「目标獭下一个工具调用
  *   边界」，消费对象是进行中的 invoke——endInvoke 挂 invoke finally，行动结束必清 pending。
  *   因此打标时目标不在执行中 = 指令无消费对象，直接拒绝打标（引导改派或等开工再打），
- *   从入口杜绝孤儿指令。这是 chen 的架构裁决（#927 PR 终审）：设计不留模糊区，
+ * 从入口杜绝孤儿指令。这是 chen 的架构裁决（PR 终审）：设计不留模糊区，
  *   不用 TTL 兜底——TTL 能防"挂而不化"，但本质是时间窗兜底，前置检查才是根治。
  * - **unhalt_otter 解除路径**：大獭误 halt（如 halt 错目标）时立即清除，完备性保证。
  *
@@ -80,7 +80,7 @@ class HaltRegistry {
     return [...(this.pending.get(targetOtterId) ?? [])];
   }
 
-  /** invoke 生命周期结束（session dispose）清理该獭全部 halt 状态（#927：pending 一并清）。
+  /** invoke 生命周期结束（session dispose）清理该獭全部 halt 状态（pending 一并清）。
    *  halt 是 invoke 作用域指令：已送达（active）随 invoke 结束完成使命；
    *  未送达（pending）的指令挂在本 invoke 边界外无消费对象——跨 invoke 保留只会形成
    *  世代残留（新 invoke 第一个工具调用即被拦），清掉。仍需停手，大獭重发。 */
@@ -89,7 +89,7 @@ class HaltRegistry {
     this.active.delete(targetOtterId);
   }
 
-  /** #927：显式解除（unhalt_otter 工具）。返回被清除的两态指令（pending 供台账 dismiss 落账，active 供回显计数）。 */
+  /** 显式解除（unhalt_otter 工具）。返回被清除的两态指令（pending 供台账 dismiss 落账，active 供回显计数）。 */
   clear(targetOtterId: string): { pending: HaltDirective[]; active: HaltDirective[] } {
     const cleared = {
       pending: this.pending.get(targetOtterId) ?? [],

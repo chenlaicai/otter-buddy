@@ -10,13 +10,13 @@ import { foldInvokeEvents, type FoldedStep } from '../../lib/invoke-event-fold'
 import * as api from '../../api/client'
 
 /**
- * F20260913ctlv：Session 弹窗——点击獭头像弹出，展示该獭的完整 session 记录。
+ * Session 弹窗——点击獭头像弹出，展示该獭的完整 session 记录。
  * 数据源：GET /api/conversations/:id/invokes?otterId=（invoke 列表）+
  *        GET /api/invokes/:invokeId/events（流式过程：assistant_text/tool_call/tool_result/speak/user_injection）
  *
- * F20260914rtsp：自动展开最新 invoke + 事件展示层折叠（invoke-event-fold）。
- * F20260914evdz：实时化改事件驱动（SSE invoke.event 增量 append，无定时器）。
- * F20260918sesp 主从双栏重设计（搭档反馈 2 项）：
+ * 自动展开最新 invoke + 事件展示层折叠（invoke-event-fold）。
+ * 实时化改事件驱动（SSE invoke.event 增量 append，无定时器）。
+ * 主从双栏重设计（搭档反馈 2 项）：
  * - ①滚动错乱根治：旧版 invoke 列表与展开事件共用一个滚动容器，且挂载即跟随底部——
  *   列表 DESC（最新在顶）+ 视口在最底 = 打开看到最老 invoke，想看的 running 反而要往上翻。
  *   新版：左栏 invoke 索引（独立滚动）+ 右栏当前选中 invoke 事件流（独立滚动），
@@ -46,13 +46,13 @@ interface SessionModalProps {
   liveListeners: MutableRefObject<Set<(item: SessionLiveItem) => void>>
 }
 
-/** 终态 invoke 事件加载上限（F20260914rtsp D9） */
+/** 终态 invoke 事件加载上限（D9） */
 const TERMINAL_EVENTS_LIMIT = 300
 
 export function SessionModal({ otter, conversationId, onClose, liveEvents, liveListeners }: SessionModalProps) {
   const [invokes, setInvokes] = useState<InvokeDTO[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  /** F20260918sesp：单选态（替代旧版 expandedEvents 多开记录）——右栏只渲染选中的 invoke */
+  /** 单选态（替代旧版 expandedEvents 多开记录）——右栏只渲染选中的 invoke */
   const [selectedInvokeId, setSelectedInvokeId] = useState<string | null>(null)
   /** 选中 invoke 的已加载事件（null = 加载中/未加载） */
   const [selectedEvents, setSelectedEvents] = useState<InvokeEventDTO[] | null>(null)
@@ -67,7 +67,7 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
   const eventsBoxRef = useRef<HTMLDivElement | null>(null)
   /** 自动滚底跟随：用户上滚（距底 > 40px）暂停，回底恢复；切换选中时重置为跟随 */
   const followBottomRef = useRef(true)
-  /** F20260918sesp：selectedInvokeId ref 镜像——listener 闭包读最新选中（不进 effect 依赖，
+  /** selectedInvokeId ref 镜像——listener 闭包读最新选中（不进 effect 依赖，
    *  避免每次切换选中都重注册 listener + 重复回放） */
   const selectedInvokeIdRef = useRef<string | null>(null)
   useEffect(() => { selectedInvokeIdRef.current = selectedInvokeId }, [selectedInvokeId])
@@ -136,7 +136,7 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  /** F20260914evdz：实时通道接线（事件驱动，替换 #916 的 2s 轮询）。
+  /** 实时通道接线（事件驱动，替换 的 2s 轮询）。
    *  挂载：注册监听 + 回放积压 buffer（弹窗打开前的事件不丢）；
    *  收到增量：仅追加到「当前选中」的 invoke（seq 单调防乱序）；
    *  终态 flush（ev=null）：全量拉取收敛；
@@ -146,7 +146,7 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
     const listener = (item: SessionLiveItem) => {
       if (item.conn !== undefined) {
         setConnLost(!item.conn)
-        /** 检视发现 1：断连恢复（conn=true）即全量收敛——断连窗口内可能丢
+        /** 断连恢复（conn=true）即全量收敛——断连窗口内可能丢
          *  invoke.end flush / invoke.start 信号 / 增量事件；ref 镜像读最新选中 */
         if (item.conn) {
           const cur = selectedInvokeIdRef.current
@@ -189,8 +189,8 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
   const selected = invokes?.find(i => i.id === selectedInvokeId) ?? null
   const selectedIsRunning = selected != null && (liveStatus[selected.id] ?? selected.status) === 'running'
 
-  /** F20261102kfvqa：对齐 Modal.tsx 的 modal-open 声明期（检视建议：scrim 半接入收尾）——
-   *  挂「内容自模糊」+ scrim 摘 backdrop-filter（F20260909srf6 语义），消除旧采样语义下
+  /** 对齐 Modal.tsx 的 modal-open 声明期（检视建议：scrim 半接入收尾）——
+   * 挂「内容自模糊」+ scrim 摘 backdrop-filter（语义），消除旧采样语义下
    *  模糊 2px→6px 的跳变暴露面。多重弹窗共存安全：仅当 body 里无其它 scrim 时才移除
    *  （DOM 移除先于 passive cleanup，自己不干扰自身判定，Modal.tsx 同款生产验证） */
   useEffect(() => {
@@ -200,14 +200,14 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
     }
   }, [])
 
-  // F20261102kfvqa：Portal 挂 body——scrim 脱离页面组件树，与 Modal.tsx 结构对齐
+  // Portal 挂 body——scrim 脱离页面组件树，与 Modal.tsx 结构对齐
   return createPortal(
     <div
       className="fixed inset-0 z-[70] scrim flex items-center justify-center p-4 md:p-8"
       onClick={onClose}
     >
       {/* 弹层级用 glass-overlay（L3，~96% 实色，不随 --glass-t 降透）——曾误用面板级 glass（L1，
-         白底随 glass-t 缩放后不透明度仅 ~49%），搭档反馈正文看不清（F20261102kfvqa） */}
+         白底随 glass-t 缩放后不透明度仅 ~49%），搭档反馈正文看不清 */}
       <div
         className="glass-overlay rounded-3xl w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden shadow-glow"
         onClick={e => e.stopPropagation()}
@@ -229,7 +229,7 @@ export function SessionModal({ otter, conversationId, onClose, liveEvents, liveL
           </button>
         </div>
 
-        {/* 主从双栏（F20260918sesp）：左 invoke 索引（独立滚动）+ 右事件流（独立滚动） */}
+        {/* 主从双栏：左 invoke 索引（独立滚动）+ 右事件流（独立滚动） */}
         <div className="flex-1 flex min-h-0">
           {/* 左栏：invoke 索引 */}
           <div className="w-56 flex-shrink-0 border-r border-white/40 overflow-y-auto py-3 px-2" data-testid="invoke-index">

@@ -19,7 +19,7 @@ import {
 } from './scheduled-task-mapper';
 
 /** 空串/undefined 统一归 null：message_id/ 带 FK 约束（REFERENCES messages/turns），
- * 空串会被外键拒绝。F20260901ppfk：function executor 成功路径曾传 messageId=''
+ * 空串会被外键拒绝。function executor 成功路径曾传 messageId=''
  * 导致撮合结果整笔回滚（FOREIGN KEY constraint failed）。 */
 const toNullableId = (value: string | null | undefined): string | null => (value ? value : null);
 
@@ -63,7 +63,7 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     return rows.map(rowToScheduledTask);
   }
 
-  /** #784：全量任务（含 disabled）——prompt 启动对账用 */
+  /** 全量任务（含 disabled）——prompt 启动对账用 */
   async getAll(): Promise<ScheduledTask[]> {
     const rows = this.db.prepare(
       'SELECT * FROM scheduled_tasks ORDER BY created_at DESC',
@@ -90,7 +90,7 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
   }
 
   async updateStatus(id: string, status: ScheduledTaskStatus, updatedAt: string): Promise<void> {
-    // #1391：changes=0（ID 不存在）时 fail-closed 抛错（#1370 族模式，断言收敛至 assertUpdated）
+    // changes=0（ID 不存在）时 fail-closed 抛错（族模式，断言收敛至 assertUpdated）
     const result = this.db.prepare(
       'UPDATE scheduled_tasks SET status = ?, updated_at = ? WHERE id = ?',
     ).run(status, updatedAt, id);
@@ -153,7 +153,7 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
     return rows.map(rowToExecution);
   }
 
-  /** #1510：启动对账误标「执行被中断」的 failed 行——对账分级修复时回查 invoke 是否真收尾。 */
+  /** 启动对账误标「执行被中断」的 failed 行——对账分级修复时回查 invoke 是否真收尾。 */
   async getReconciliationFailedExecutions(): Promise<ScheduledTaskExecution[]> {
     const rows = this.db.prepare(`
       SELECT * FROM scheduled_task_executions

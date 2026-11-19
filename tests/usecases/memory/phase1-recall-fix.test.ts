@@ -1,5 +1,5 @@
 /**
- * F20260902rcp1 单测：分词双写 + 词典词查询 + 半衰期分层 + 层配额
+ * 单测：分词双写 + 词典词查询 + 半衰期分层 + 层配额
  */
 import { describe, it, expect } from "vitest";
 import { tokenizeWithJieba, tokenizeQuery } from "@frameworks/db/jieba-tokenizer";

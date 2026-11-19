@@ -1,5 +1,5 @@
 /**
- * #1187：expectSampledBehavior 墙钟预算回归测试。
+ * expectSampledBehavior 墙钟预算回归测试。
  * 保护两个语义：
  * 1. 前瞻拦截——elapsed + sampleWorstMs > budgetMs 时剩余采样 SKIP（不跑，不进分母）
  * 2. 无预算——行为与原版一致（全部采样跑完）

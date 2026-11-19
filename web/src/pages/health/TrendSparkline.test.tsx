@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { TrendSparkline } from './HotspotHeat'
 import type { RhiTrendsDTO } from '../../api/client'
 
-/** Issue #647 项 4：趋势图降 sparkline——首屏一行高度让位复发卡，展开后数据不丢 */
+/** 项 4：趋势图降 sparkline——首屏一行高度让位复发卡，展开后数据不丢 */
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 

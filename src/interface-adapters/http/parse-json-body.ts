@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 
 /**
- * #889：安全的 JSON body 解析——非法 JSON 与合法 JSON `null` 统一兜底为 {}。
+ * 安全的 JSON body 解析——非法 JSON 与合法 JSON `null` 统一兜底为 {}。
  *
  * 背景：`await c.req.json().catch(() => ({}))` 只能防住「非 JSON body」，
  * 防不住「合法 JSON null」——json() 解析 "null" 成功返回 null 不走 catch，

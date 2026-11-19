@@ -1,5 +1,5 @@
 /**
- * F20260915cfgt：功能开关门控（装配层）——唯一推断发生地。
+ * 功能开关门控（装配层）——唯一推断发生地。
  *
  * 层职责边界（方案「层职责边界」段）：
  * - 配置层（config-service.buildFeaturesConfig）纯函数只做归一化，输出三态 boolean|undefined
@@ -9,9 +9,9 @@
  * - 海獭系统优化（self-healing）→ 默认关，除作者外无人关心
  * - 个人场景（recruiting）→ 默认关，显式启用
  *
- * F20260920stkx：paperTrading 门随 paper-trading 能力整体移除（实验结论见 R20260920stkx）。
+ * paperTrading 门随 paper-trading 能力整体移除（实验结论见 ）。
  *
- * F20260917swsh：dailyReview 开关随每日复盘任务一并移除（三省吾身整合——
+ * dailyReview 开关随每日复盘任务一并移除（三省吾身整合——
  * 复盘产出的「未闭环事项」改由 7:30 未闭环扫描开 issue 承接，晨报形态废弃）。
  *
  * 兼容策略：老部署未写 features 段时按 DB 存量 active 任务推断（行为不变），

@@ -137,7 +137,7 @@ describe("initModels — custom provider routing", () => {
     await expect(initModels(makeLlm({ provider: "unknown", apiKey: "sk-test" }))).rejects.toThrow("Unsupported LLM provider type: unknown");
   });
 
-  /** F20260808ctxw：自定义模型（不在 provider 字典）注入时携带 config 的 contextWindow，否则 SDK 视为 0 → shouldCompact 恒真 */
+  /** 自定义模型（不在 provider 字典）注入时携带 config 的 contextWindow，否则 SDK 视为 0 → shouldCompact 恒真 */
   it("injects config contextWindow into SDK model when model not in provider dict", async () => {
     await initModels(makeLlm({ alias: "mimo", provider: "anthropic", model: "mimo-v2.5-pro", apiKey: "sk-x", contextWindow: 1048576 }));
 
@@ -155,7 +155,7 @@ describe("initModels — custom provider routing", () => {
     expect(injected).not.toHaveProperty("contextWindow");
   });
 
-  /** F20260808ctxw：maxTokens 为 SDK Model 必填，config 优先、缺省回退模板值（否则请求负载 max_tokens=null） */
+  /** maxTokens 为 SDK Model 必填，config 优先、缺省回退模板值（否则请求负载 max_tokens=null） */
   it("injects config maxTokens when provided", async () => {
     await initModels(makeLlm({ alias: "mimo", provider: "anthropic", model: "mimo-v2.5-pro", apiKey: "sk-x", maxTokens: 131072 }));
 

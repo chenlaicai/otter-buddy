@@ -20,14 +20,14 @@ export interface EntryRepository {
   createEntry(entry: Entry): Promise<void>;
   createEntries(entries: Entry[]): Promise<void>;
   /**
-   * F20260913ctlv 彻底切换：原子序号插入——INSERT ... SELECT COALESCE(MAX(sequence_num),0)+1
+   * 彻底切换：原子序号插入——INSERT ... SELECT COALESCE(MAX(sequence_num),0)+1
    * 消灭「读 MAX 再写」竞态（多獭并发 invoke_start/speak 撞号 → UNIQUE 冲突丢条目）。
    * 入参 sequenceNum 被忽略，返回的 Entry 携带 DB 分配的真实序号。
    */
   createEntryAtomic(entry: Entry): Promise<Entry>;
   /** 原子序号批量插入（事务内逐条 MAX+1，天然连续递增）；返回携带真实序号的 Entry 列表 */
   createEntriesAtomic(entries: Entry[]): Promise<Entry[]>;
-  /** F20260913ctlv 信号销账：consumed 标记写 metadata */
+  /** 信号销账：consumed 标记写 metadata */
   updateEntryMetadata(entryId: string, metadata: EntryMetadata): Promise<void>;
   updateEntryStatus(
     entryId: string,
@@ -43,9 +43,9 @@ export interface EntryRepository {
     conversationId: string,
     options?: GetEntriesOptions,
   ): Promise<Entry[]>;
-  /** #530 决定性记录：仅 user 与指定獭相关 yield，当前 invoke 之前，DESC，最多 limit 条。
+  /** 决定性记录：仅 user 与指定獭相关 yield，当前 invoke 之前，DESC，最多 limit 条。
    *  与通用时间线查询分离，避免透明条目挤掉护栏证据。
-   *  契约（F20261026ctbg 审视⑤钉扎）：currentInvokeId 实为 invoke 行 id，与
+   * 契约（审视⑤钉扎）：currentInvokeId 实为 invoke 行 id，与
    *  InvokeFnResult.messageId 同源（invokeFn 返回的 messageId 即 invoke 行 id）——
    *  SQL 边界子查询（MIN(sequence_num) WHERE invoke_id = ?）以此为前提，改动任一侧需同步。 */
   getSelfYieldDecisionEntries(
@@ -57,7 +57,7 @@ export interface EntryRepository {
   /** 取指定条目之前的 N 条（时间线回看） */
   getEntriesBefore(entryId: string, count: number): Promise<Entry[]>;
   getEntriesAfter(entryId: string, count: number): Promise<Entry[]>;
-  /** #1510：按 senderName 取 since 之后最早的 system entry（ASC——窗口内最早一条 = 本次触发锚点，
+  /** 按 senderName 取 since 之后最早的 system entry（ASC——窗口内最早一条 = 本次触发锚点，
    *  避免 DESC 窗口内最新一条在同任务短窗双触发时串锚）。时间窗过滤由调用方做。 */
   getFirstSystemEntrySince(
     conversationId: string,
@@ -69,17 +69,17 @@ export interface EntryRepository {
   // FTS 搜索
   searchEntries(conversationId: string, query: string, limit?: number): Promise<Entry[]>;
 
-  /** F20260913ctlv 批4a：按 metadata.externalId(s) 查重（招聘桥接入站去重，原 messages.findByExternalId） */
+  /** 批4a：按 metadata.externalId(s) 查重（招聘桥接入站去重，原 messages.findByExternalId） */
   findByExternalId(externalId: string): Promise<Entry | null>;
 
   // 附件关联
   attachAttachment(entryId: string, attachmentId: string, sequenceNum?: number): Promise<void>;
   getAttachments(entryId: string): Promise<Array<{ attachmentId: string; sequenceNum: number }>>;
-  /** #1191：按附件 id 批量取投影 refs（记忆索引用——发送意图描述，attach 前可查） */
+  /** 按附件 id 批量取投影 refs（记忆索引用——发送意图描述，attach 前可查） */
   getAttachmentRefsByIds(ids: string[]): Promise<AttachmentRef[]>;
 
   /**
-   * F20260913ctlv 彻底切换：獭未读注入数据源——entries 表（user/system/speak 按 sequenceNum）。
+   * 彻底切换：獭未读注入数据源——entries 表（user/system/speak 按 sequenceNum）。
    * 游标口径与旧 messages.getUnreadMessages 一致（conversation_participants.last_read_seq），
    * 但 entries 与 messages 两套独立 seq 计数——游标列语义切到 entries 序号。
    */

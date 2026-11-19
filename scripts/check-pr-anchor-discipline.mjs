@@ -83,46 +83,54 @@ export const DISPOSITION_RES = [
   /\b[SMNARr][0-9]{1,2}\s*(?:修复|处置|发现|建议|复核|确认|配套)/g,
   /** 发现/建议/严重 N 紧跟处置词 */
   /(?:发现|建议|严重)\s*[0-9]+\s*(?:处置|修复|配套|建议)/g,
+  /** delta 轮：delta 发现/建议/修复/处置 N */
+  /\bdelta\s*(?:发现|修复|建议|处置|复核|审视|确认|配套)\s*[0-9]+/gi,
 ];
 
-/** 对一段注释文本收集违规编号。 */
-export function collectAnchorViolations(commentText) {
+/** 对一段注释文本收集违规编号（含 token 在文本内的精确位置）。 */
+export function collectAnchorViolationsWithIndex(commentText) {
   const out = [];
-  const push = (token, kind) => out.push({ token, kind });
+  const push = (token, kind, start, end) => out.push({ token, kind, start, end });
 
-  for (const m of commentText.matchAll(FID_RE)) push(m[0], "特性编号");
+  for (const m of commentText.matchAll(FID_RE)) push(m[0], "特性编号", m.index, m.index + m[0].length);
 
   // issue 编号：井号+字母数字，排除 region/endregion 折叠指令
   ISSUE_CAND_RE.lastIndex = 0;
   for (const m of commentText.matchAll(ISSUE_CAND_RE)) {
     if (REGION_DIRECTIVE_RE.test(m[1])) continue;
-    push(m[0], "issue 编号");
+    push(m[0], "issue 编号", m.index, m.index + m[0].length);
   }
 
   for (const re of DISPOSITION_RES) {
     re.lastIndex = 0;
-    for (const m of commentText.matchAll(re)) push(m[0], "轮次编号");
+    for (const m of commentText.matchAll(re)) push(m[0], "轮次编号", m.index, m.index + m[0].length);
   }
 
   // 孤立单字母序号仍禁，但高置信技术词（芯片代际 / 存储桶 / 纸张规格）豁免
   TECH_TOKEN_RE.lastIndex = 0;
-  const singleRe = /\b[SMNAR][0-9]{1,2}\b/g;
+  const singleRe = /\b[SMNARr][0-9]{1,2}[a-z]?\b/g;
   for (const m of commentText.matchAll(singleRe)) {
     if (TECH_TOKEN_RE.test(m[0])) continue;
     if (out.some((v) => v.kind === "轮次编号" && v.token === m[0])) continue;
-    push(m[0], "轮次编号");
+    push(m[0], "轮次编号", m.index, m.index + m[0].length);
   }
 
   return out;
+}
+
+/** 对一段注释文本收集违规编号。 */
+export function collectAnchorViolations(commentText) {
+  return collectAnchorViolationsWithIndex(commentText).map(({ token, kind }) => ({ token, kind }));
 }
 
 function countLines(content, pos) {
   return content.slice(0, pos).split("\n").length;
 }
 
-/** TS/JS 系：TypeScript 编译器级词法扫描，返回每行注释文本（1 基）。 */
-function annotateTs(content) {
-  const out = new Array(content.split("\n").length).fill(null);
+/** TS/JS 系：TypeScript 编译器级词法扫描，返回每行注释文本（1 基）。segs 可选：记录行内注释段精确 offset。 */
+function annotateTs(content, segs = null) {
+  const lines = content.split("\n");
+  const out = new Array(lines.length).fill(null);
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, /* skipTrivia */ false, ts.ScriptKind.TSX, content);
   let token;
   while ((token = scanner.scan()) !== ts.SyntaxKind.EndOfFileToken) {
@@ -130,10 +138,15 @@ function annotateTs(content) {
       const pos = scanner.getTokenPos();
       const text = scanner.getTokenText();
       const startLine = countLines(content, pos);
+      const lineStartOffset = content.lastIndexOf("\n", pos - 1) + 1;
+      const startCol = pos - lineStartOffset;
       const parts = text.split("\n");
       for (let i = 0; i < parts.length; i++) {
         const idx = startLine - 1 + i;
+        const start = i === 0 ? startCol : 0;
+        const end = i === parts.length - 1 ? start + parts[i].length : lines[idx].length;
         out[idx] = out[idx] == null ? parts[i] : `${out[idx]} ${parts[i]}`;
+        if (segs) segs.push({ line: idx, start, end, text: parts[i] });
       }
     }
   }
@@ -141,7 +154,7 @@ function annotateTs(content) {
 }
 
 /** YAML：# 仅在行首或空白后作注释；块标量（| 或 >，含列表项与显式缩进指示符）正文是字符串非注释。 */
-function annotateYaml(content) {
+function annotateYaml(content, segs = null) {
   const lines = content.split("\n");
   const out = new Array(lines.length).fill(null);
   let blockIndent = null; // 块标量正文的最小缩进（父键缩进）
@@ -167,6 +180,7 @@ function annotateYaml(content) {
           if (prev === " " || prev === "\t") {
             commentStart = j;
             out[i] = line.slice(j);
+            if (segs) segs.push({ line: i, start: j, end: line.length, text: line.slice(j) });
             break;
           }
         }
@@ -190,7 +204,7 @@ function annotateYaml(content) {
 }
 
 /** Shell：# 仅在词首或控制运算符后作注释；heredoc 正文是数据非注释（opener 在行尾注释前检测）。 */
-function annotateSh(content) {
+function annotateSh(content, segs = null) {
   const lines = content.split("\n");
   const out = new Array(lines.length).fill(null);
   let heredocDelim = null;
@@ -213,6 +227,7 @@ function annotateSh(content) {
           if (j === 0 || /\s|;|&|\||\(|\)/.test(prev)) {
             commentStart = j;
             out[i] = line.slice(j);
+            if (segs) segs.push({ line: i, start: j, end: line.length, text: line.slice(j) });
             break;
           }
         }
@@ -232,20 +247,20 @@ function annotateSh(content) {
 }
 
 /** Python：# 行内即注释（引号外）；三引号字符串跨行跳过（仅正常代码位置触发）。 */
-function annotatePython(content) {
-  return annotatePyOrToml(content, /* tomlLiteral */ false);
+function annotatePython(content, segs = null) {
+  return annotatePyOrToml(content, /* tomlLiteral */ false, segs);
 }
 
 /** TOML：# 行内即注释（引号外）；单引号 literal string 不转义反斜杠，三引号跨行跳过。 */
-function annotateToml(content) {
-  return annotatePyOrToml(content, /* tomlLiteral */ true);
+function annotateToml(content, segs = null) {
+  return annotatePyOrToml(content, /* tomlLiteral */ true, segs);
 }
 
 /**
  * Python/TOML 共用：# 行内即注释（引号外）；三引号字符串跨行跳过（仅正常代码位置触发）。
  * tomlLiteral=true 时单引号字符串不把反斜杠当转义（TOML literal string 规则）。
  */
-function annotatePyOrToml(content, tomlLiteral) {
+function annotatePyOrToml(content, tomlLiteral, segs = null) {
   const lines = content.split("\n");
   const out = new Array(lines.length).fill(null);
   let inTriple = null; // 三引号定界符（""" 或 '''）
@@ -276,6 +291,7 @@ function annotatePyOrToml(content, tomlLiteral) {
         else if (ch === "'") state = "single";
         else if (ch === "#") {
           out[i] = line.slice(j);
+          if (segs) segs.push({ line: i, start: j, end: line.length, text: line.slice(j) });
           break;
         }
       } else if (state === "double") {
@@ -291,21 +307,24 @@ function annotatePyOrToml(content, tomlLiteral) {
 }
 
 /** HTML：<!-- --> 跨行；闭合行从闭合标记后恢复扫描。 */
-function annotateHtml(content) {
+function annotateHtml(content, segs = null) {
   const lines = content.split("\n");
   const out = new Array(lines.length).fill(null);
   let inComment = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const comments = [];
+    const cmSegs = [];
     let j = 0;
     if (inComment) {
       const close = line.indexOf("-->");
       if (close < 0) {
         out[i] = line;
+        if (segs) segs.push({ line: i, start: 0, end: line.length, text: line });
         continue;
       }
       comments.push(line.slice(0, close + 3));
+      cmSegs.push({ start: 0, end: close + 3 });
       j = close + 3; // 闭合后继续扫描
       inComment = false;
     }
@@ -314,35 +333,43 @@ function annotateHtml(content) {
         const close = line.indexOf("-->", j + 4);
         if (close < 0) {
           comments.push(line.slice(j));
+          cmSegs.push({ start: j, end: line.length });
           inComment = true;
           break;
         }
         comments.push(line.slice(j, close + 3));
+        cmSegs.push({ start: j, end: close + 3 });
         j = close + 2;
       }
     }
-    if (comments.length) out[i] = comments.join(" ");
+    if (comments.length) {
+      out[i] = comments.join(" ");
+      if (segs) for (const s of cmSegs) segs.push({ line: i, ...s, text: line.slice(s.start, s.end) });
+    }
   }
   return out;
 }
 
 /** CSS 系：斜杠星块注释跨行 + 引号字符串跳过；scss/sass/less 另加 // 行注释（URL scheme 的 // 不误判）。 */
-function annotateCss(content, allowLineComment) {
+function annotateCss(content, allowLineComment, segs = null) {
   const lines = content.split("\n");
   const out = new Array(lines.length).fill(null);
   let inBlock = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const comments = [];
+    const cmSegs = [];
     let state = "normal";
     let j = 0;
     if (inBlock) {
       const close = line.indexOf("*/");
       if (close < 0) {
         out[i] = line;
+        if (segs) segs.push({ line: i, start: 0, end: line.length, text: line });
         continue;
       }
       comments.push(line.slice(0, close + 2));
+      cmSegs.push({ start: 0, end: close + 2 });
       j = close + 2; // 闭合后继续扫描代码
       inBlock = false;
     }
@@ -356,16 +383,19 @@ function annotateCss(content, allowLineComment) {
           const end = line.indexOf("*/", j + 2);
           if (end < 0) {
             comments.push(line.slice(j));
+            cmSegs.push({ start: j, end: line.length });
             inBlock = true;
             break;
           }
           comments.push(line.slice(j, end + 2));
+          cmSegs.push({ start: j, end: end + 2 });
           j = end + 1;
         } else if (allowLineComment && ch === "/" && next === "/") {
           // 行注释：URL scheme 的 //（前一个字符是冒号）不是注释
           const prev = j === 0 ? "" : line[j - 1];
           if (prev !== ":") {
             comments.push(line.slice(j));
+            cmSegs.push({ start: j, end: line.length });
             break;
           }
         } else if (allowLineComment && (ch === "u" || ch === "U") && /^url\(/i.test(line.slice(j, j + 4))) {
@@ -397,22 +427,32 @@ function annotateCss(content, allowLineComment) {
         else if (ch === '"') state = "normal";
       }
     }
-    if (comments.length) out[i] = comments.join(" ");
+    if (comments.length) {
+      out[i] = comments.join(" ");
+      if (segs) for (const s of cmSegs) segs.push({ line: i, ...s, text: line.slice(s.start, s.end) });
+    }
   }
   return out;
 }
 
 /** 全文词法标注：返回行号(1 基) → 该行注释文本（跨行块注释体内行也标为注释）。 */
-export function annotateFile(content, path) {
-  if (isHtmlLang(path)) return annotateHtml(content);
-  if (isCssLikeLang(path)) return annotateCss(content, /\.(scss|sass|less)$/.test(path));
+export function annotateFile(content, path, segs = null) {
+  if (isHtmlLang(path)) return annotateHtml(content, segs);
+  if (isCssLikeLang(path)) return annotateCss(content, /\.(scss|sass|less)$/.test(path), segs);
   if (isHashCommentLang(path)) {
-    if (/\.ya?ml$/.test(path)) return annotateYaml(content);
-    if (/\.sh$/.test(path)) return annotateSh(content);
-    if (/\.toml$/.test(path)) return annotateToml(content);
-    return annotatePython(content);
+    if (/\.ya?ml$/.test(path)) return annotateYaml(content, segs);
+    if (/\.sh$/.test(path)) return annotateSh(content, segs);
+    if (/\.toml$/.test(path)) return annotateToml(content, segs);
+    return annotatePython(content, segs);
   }
-  return annotateTs(content);
+  return annotateTs(content, segs);
+}
+
+/** 行内注释段（精确 offset）：[{line: 0基, start, end, text}]。清理工具与判定器共用同一词法。 */
+export function annotateFileSegments(content, path) {
+  const segs = [];
+  annotateFile(content, path, segs);
+  return segs;
 }
 
 /** 解码 Git C 风格引号路径（\ooo 八进制字节序列按 UTF-8 还原）。失败抛错。 */

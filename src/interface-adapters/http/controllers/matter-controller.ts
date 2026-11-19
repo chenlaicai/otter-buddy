@@ -5,7 +5,7 @@ import { handleError, param } from '../http-error';
 import { toMatterDTO } from '../dto/matter-dto';
 
 /**
- * Matter 控制器（F20261006mtlp P1 只读 + F20261006mlp2 P2 近期闭环区）。
+ * Matter 控制器（P1 只读 + P2 近期闭环区）。
  * P2 范围：右侧栏「待办」tab 交互层的只读数据源——open 清单 + 折叠「近期闭环」区
  * （closed 清单，翻案入口）。写路径（裁决/闭环/打回/登记）在 P2 仍不经 HTTP：
  * 板上按钮合成回执路由 owner 獭代执行（特性文档「按钮挂点架构定案」）。

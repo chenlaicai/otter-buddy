@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * F20261008csf1 P1：链类 unfurl 预览卡测试。
+ * P1：链类 unfurl 预览卡测试。
  * 锁定行为：①裸链段落（消息正文只有一个 URL）渲染预览卡；②抓取失败降级普通链接；
  * ③句中链接（有上下文文字）不抢排版，维持行内样式；④Markdown 链接 [label](url) 不出卡。
  */

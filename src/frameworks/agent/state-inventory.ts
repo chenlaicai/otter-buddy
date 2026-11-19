@@ -1,5 +1,5 @@
 /**
- * 活状态盘点生成器（F20260825hndf 件④）
+ * 活状态盘点生成器（件④）
  *
  * 交接时刻一次性执行的机械查询聚合，盘点 6 类跨 session 存活状态。
  * 输出渲染为 markdown checklist，每类一行"有无+指针"，空行也打印。
@@ -30,8 +30,8 @@ export interface StateInventory {
   activity: { status: string; waitingFor?: string };
 }
 
-/** entries 读取窄接口（F20260913ctlv 收尾批1：替代 queryMessage，时间线唯一真相源）。
- *  F20261014wtrm：从 handoff-package-builder.ts 迁入——该文件的 buildHandoffPackage 死代码出清后，
+/** entries 读取窄接口（收尾批1：替代 queryMessage，时间线唯一真相源）。
+ * 从 handoff-package-builder.ts 迁入——该文件的 buildHandoffPackage 死代码出清后，
  *  本接口的唯一活引用是 state-inventory 发言石盘点与 agent-invoker 保留段读取，归位到本文件。 */
 export interface HandoffEntryReader {
   getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{
@@ -45,10 +45,10 @@ export interface HandoffEntryReader {
 }
 
 /** 盘点依赖（由 DI 注入）。
- *  F20260913ctlv 收尾批1：历史读取切 entries——queryMessage（messages 表）退役，
+ * 收尾批1：历史读取切 entries——queryMessage（messages 表）退役，
  *  改用 entryRepo 窄接口（getEntries，sequence_num DESC） */
 export interface StateInventoryDeps {
-  /** F20260913ctlv：entries 读取（发言石状态 = 最新 user entry 的 yieldTargets） */
+  /** entries 读取（发言石状态 = 最新 user entry 的 yieldTargets） */
   entryReader: { getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ senderId: string | null; senderType: string | null; yieldTargets: string[] | null; createdAt: string }>> };
   conversationRepo: ConversationRepository;
   scheduledTaskRepo?: ScheduledTaskRepository;
@@ -88,7 +88,7 @@ export async function collectStateInventory(
   };
 }
 
-/** B1: 发言石/悬置 yield（F20260913ctlv：读最新 user entry 的 yieldTargets） */
+/** B1: 发言石/悬置 yield（读最新 user entry 的 yieldTargets） */
 async function collectTalkingStone(
   conversationId: string,
   deps: StateInventoryDeps,

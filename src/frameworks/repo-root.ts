@@ -1,5 +1,5 @@
 /**
- * F20260916：运行时资源路径统一解析（issue #429）
+ * F20260916：运行时资源路径统一解析
  *
  * 问题：全仓多处运行时读文件用 `resolve(process.cwd(), …)`，
  * 非项目根 cwd 启动（systemd WorkingDirectory、容器 ENTRYPOINT）时静默失败或回退。

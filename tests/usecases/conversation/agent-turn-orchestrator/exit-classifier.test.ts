@@ -141,7 +141,7 @@ describe("isAbortOwnError", () => {
   it("SDK abort 错误 → true", () => {
     expect(isAbortOwnError(new Error("Request was aborted"))).toBe(true);
     expect(isAbortOwnError(new Error("LLM API error: Request was aborted"))).toBe(true);
-    // 生产现场实际写法（无 was，F20260922abfx）：用户中断时 SDK 抛出 "LLM API error: Request aborted"
+    // 生产现场实际写法（无 was，）：用户中断时 SDK 抛出 "LLM API error: Request aborted"
     expect(isAbortOwnError(new Error("Request aborted"))).toBe(true);
     expect(isAbortOwnError(new Error("LLM API error: Request aborted"))).toBe(true);
   });

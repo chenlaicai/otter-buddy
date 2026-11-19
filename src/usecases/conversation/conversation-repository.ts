@@ -11,12 +11,12 @@ export type ListConversationsFilter = {
   limit?: number;
   offset?: number;
   search?: string;
-  /** F20260922cgrp：按状态过滤（弱状态两态：active | archived）；缺省 = 仅 active（归档对话移入独立空间） */
+  /** 按状态过滤（弱状态两态：active | archived）；缺省 = 仅 active（归档对话移入独立空间） */
   status?: ConversationStatus;
-  /** F20260922cgrp：按类别过滤（assistant = IM 助理；normal = 普通对话）；缺省不过滤。
-   *  #1224：联合从 entities 单源派生（原三值硬编码收敛） */
+  /** 按类别过滤（assistant = IM 助理；normal = 普通对话）；缺省不过滤。
+   * 联合从 entities 单源派生（原三值硬编码收敛） */
   kind?: ConversationKind;
-  /** F20260922cgrp：按置顶过滤（false = 仅非置顶——普通区分页不含置顶，计数口径对齐）；缺省不过滤 */
+  /** 按置顶过滤（false = 仅非置顶——普通区分页不含置顶，计数口径对齐）；缺省不过滤 */
   pinned?: boolean;
 };
 
@@ -45,12 +45,12 @@ export interface ConversationRepository {
     timestamp: string,
   ): Promise<void>;
   getIdsByOtterId(otterId: string): Promise<string[]>;
-  /** F20260918imas：收篇摘要落库（助理对话软轮换用） */
+  /** 收篇摘要落库（助理对话软轮换用） */
   updateSummary(id: string, summary: string): Promise<void>;
   getAllIds(options?: { limit?: number; offset?: number }): Promise<string[]>;
   updatePinned(id: string, pinned: boolean): Promise<void>;
 
-  // ── F20261118crtgr（#1868 阶段 5 PR-A）：对话级当前执行机（窄接口直查列，不进实体）──
+  // ── （阶段 5 PR-A）：对话级当前执行机（窄接口直查列，不进实体）──
   /** 对话当前执行机 id（NULL/不存在=默认 local） */
   getExecutionMachineId(id: string): Promise<string | null>;
   /** 切换对话当前执行机（null=回默认 local）；对话不存在返回 false（fail-closed） */
@@ -59,7 +59,7 @@ export interface ConversationRepository {
   // 对话参与者
   getOtterIds(conversationId: string): Promise<string[]>;
 
-  // F20260920trrt：闲置预警新口径（发言 seq 差 + 时间护栏）读时聚合查询。
+  // 闲置预警新口径（发言 seq 差 + 时间护栏）读时聚合查询。
   // 可选接口：测试桩可不实现（未注入时预警降级为无，不阻断主流程）。
   getMaxEntrySeq(conversationId: string): number | Promise<number>;
   getLastSpeakBySender(conversationId: string): Map<string, { seq: number; createdAt: string }> | Promise<Map<string, { seq: number; createdAt: string }>>;
@@ -76,7 +76,7 @@ export interface ConversationRepository {
   flagResource(id: string, flagged: boolean): Promise<void>;
 
   // Participant 管理（UA-4~UA-10）。
-  // F20260929czi0：participant.lastReadSeq 为可选进场游标初值（缺省 0）——
+  // participant.lastReadSeq 为可选进场游标初值（缺省 0）——
   // 新对话初始化调用方零改动；加入已有对话的调用方（manage-participant.join）
   // 传进场时刻 max(seq)，进场前历史不进未读注入。
   createParticipant(participant: ConversationParticipant): Promise<void>;
@@ -89,18 +89,18 @@ export interface ConversationRepository {
     conversationId: string,
   ): Promise<ConversationParticipant[]>;
   updateParticipantLeave(participantId: string, leftAt: string): Promise<void>;
-  /** F20260902sgp2 S4c：游标 seq 刻度（turn 刻度列已随 F20260920trrt 退役——此列是唯一已读游标）。
+  /** 游标 seq 刻度（turn 刻度列已随 退役——此列是唯一已读游标）。
    *  可选：未实现的仓储（测试桩/嵌入方）跳过即可。 */
   updateLastReadSeq?(
     conversationId: string,
     otterId: string,
     seq: number,
   ): void;
-  /** #775：seq 刻度存量回填（一次性，启动时调用）。实体方法：sqlite 实现专用，
+  /** seq 刻度存量回填（一次性，启动时调用）。实体方法：sqlite 实现专用，
    *  未实现的仓储（测试桩）不需要——调用方用 `'backfillLastReadSeq' in repo` 防御。 */
   backfillLastReadSeq?(): number;
-  /** F20260929czi0：进场游标零点修正存量迁移（一次性，启动时调用）。
-   *  active 参与者 × active 对话 × last_read_seq=0 → max(seq)：F20260913ctlv 把
+  /** 进场游标零点修正存量迁移（一次性，启动时调用）。
+   * active 参与者 × active 对话 × last_read_seq=0 → max(seq)：把
    *  「进场游标=0」当成「读全部历史」，零游标獭多为换世后爆窗锁死（从未成功消费
    *  历史），事实状态就是「读到最新」。sqlite 实现专用，防御方式同上。 */
   advanceZeroCursorsForActiveJoin?(): number;
@@ -126,7 +126,7 @@ export interface ConversationRepository {
   ): Promise<number>;
 
   // 会话列表批量查询（含未读计数 + 最后一条 entry 预览，替代 N+1）
-  // F20260922cgrp：返回 { items, total }——total 供前端分组分页页码跳转
+  // 返回 { items, total }——total 供前端分组分页页码跳转
   listConversationsWithMeta(
     userId: string,
     options?: ListConversationsFilter,

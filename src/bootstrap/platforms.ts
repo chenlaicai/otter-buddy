@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- F20260908rlcp: dispatchAttemptRepo 退役后行数仍超 450（装配文件由注入项决定） */
+/* eslint-disable max-lines -- dispatchAttemptRepo 退役后行数仍超 450（装配文件由注入项决定） */
 import { buildContextTokenWarnConfig, type AppConfig } from "@frameworks/config";
 import fsSync from "node:fs";
 import path from "node:path";
@@ -9,12 +9,12 @@ import type { Logger } from "@usecases/ports/logger";
 import type Database from "better-sqlite3";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
-// F20260826mwrd C3（#534）：createManageHealingEventsTool 改为仅 tool-factory 内注册，此处不再 import
+// C3：createManageHealingEventsTool 改为仅 tool-factory 内注册，此处不再 import
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { ActionRunner } from "@usecases/ports/execution-machine";
 import type { OtterContextWindowProvider } from "@usecases/ports/otter-context-window-provider";
-// F20260920uhuc：统一交接引擎（bootstrap=组合根，import frameworks 合法）
+// 统一交接引擎（bootstrap=组合根，import frameworks 合法）
 import type { HandoffEngineDeps } from "../interface-adapters/agent-runtime/agent-invoker";
 import { buildNarrativeSynthesisPrompt, assembleHandoffArchive, buildMechanicalArchive, NARRATIVE_SYNTHESIS_TIMEOUT_MS, synthesisFullBudgetChars } from "@frameworks/agent/narrative-synthesis-engine";
 import { sliceSessionEntries, serializeKeptWindow, setSliceLogger } from "@frameworks/agent/session-slicer";
@@ -73,7 +73,7 @@ import { ensureRecruitingConversation } from "@usecases/recruiting/ensure-recrui
 import { ensureRecruitingScheduler } from "@usecases/recruiting/ensure-recruiting-scheduler";
 import { resolveFeatureGates } from "./feature-gates";
 
-// F20260929fsqr：FeishuBundle 随静态线退役删除（见 createFeishuBundle 注释）
+// FeishuBundle 随静态线退役删除（见 createFeishuBundle 注释）
 
 /** 创建 AgentGateway（PiSessionFactory），解决 OtterToolClient 循环依赖 */
 export async function createAgentGateway(options: {
@@ -89,14 +89,14 @@ export async function createAgentGateway(options: {
   identityPromptDir?: string;
   /** OS/工作区动作执行机路由（组合根已注册内置 local；SDK env 构造面恒走此实例） */
   executionMachines: ExecutionMachineRouter;
-  /** F20261118crtgr（阶段 5 PR-A）：工具面动作路由器（对话级当前机；缺省退化
+  /** （阶段 5 PR-A）：工具面动作路由器（对话级当前机；缺省退化
    *  executionMachines——零行为变化，测试/旧装配兼容） */
   toolActionRunner?: ActionRunner;
-  /** F20261014cwsp: 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
+  /** 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
   dataDir?: string;
 }): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
   const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
-  // F20260929kws1：切片观测锚接线（[keeprecent-slice] cut → 主日志；密度告警已随估算机制退役）
+  // 切片观测锚接线（[keeprecent-slice] cut → 主日志；密度告警已随估算机制退役）
   setSliceLogger(fields => {
     logger.info('[keeprecent-slice] cut', fields);
   });
@@ -108,28 +108,28 @@ export async function createAgentGateway(options: {
     executionMachines: options.executionMachines,
     otterToolClient: null,
     sessionDir: options.sessionDir,
-    // Why: 默认目录基于代码位置解析（#429）；注入参数 override 优先
+    // Why: 默认目录基于代码位置解析；注入参数 override 优先
     identityPromptDir: options.identityPromptDir ?? path.resolve(getRepoRoot(), "prompts/identity"),
     createTools: (ctx, repo, log) => {
       const scheduledTaskDeps = manageScheduledTaskRef
         ? { manage: manageScheduledTaskRef, pending: repos.scheduledTaskPending }
         : undefined;
       const tools = createTools(ctx, repo, log, options.toolActionRunner ?? options.executionMachines, scheduledTaskDeps);
-      // PR #1783 alpha 实测修复：此处追加与 tool-factory.ts 的 `if (healingRepo)` 注册（F20260811sktp）
+      // alpha 实测修复：此处追加与 tool-factory.ts 的 `if (healingRepo)` 注册
       // 同源重复——旧 SDK 不查重名无症状，durable registry validateExtension 遇重名抛错、
       // otter extension 拒载、invoke 必炸。注册权归 tool-factory 单点，此处只透传 repo。
       return tools;
     },
     healingRepo: repos.healingEvent,
     signalRepo: repos.signalEvent,
-    // F20261006mtlp P1：matters 仓库注入——list_matters/transition_matter 注册条件
+    // P1：matters 仓库注入——list_matters/transition_matter 注册条件
     matterRepo: repos.matter,
-    // F20261027hwl1：工作账本 binder 注入——track_work 工具注册条件
+    // 工作账本 binder 注入——track_work 工具注册条件
     workLedgerBinder: new WorkLedgerBinder(repos.workLedger, logger),
-    // F20260917trig：RHI 健康信号仓库注入——triage_signal/list_rhi_signals 注册条件
+    // RHI 健康信号仓库注入——triage_signal/list_rhi_signals 注册条件
     // （signals 表，与獭间 signal_events 语义池分离）
     rhiSignalRepo: repos.rhiSignal,
-    // F20260826mwrd C1：halt 首次注入时把 signal_events 从 pending 迁到 resolved
+    // C1：halt 首次注入时把 signal_events 从 pending 迁到 resolved
     // （resolvedBy=系统，resolution=指令已到达目标獭——halt 无待裁决事项，落账即闭环）。
     // 回调在 tool_call handler 栈内执行（同步语义），resolve 走 fire-and-forget + catch。
     onHaltFirstBlock: (directive) => {

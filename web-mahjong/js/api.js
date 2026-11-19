@@ -1,7 +1,7 @@
 /**
  * 三麻 HTTP 面客户端——页面侧对 /api/mahjong 七个 JSON 端点的薄封装（SSE 见 sse.js）。
  *
- * 端点签名（真相源：docs/features/2026/10/15/F20261015mjsg-mahjong-sanma.md
+ * 端点签名（真相源：docs/features/2026/10/15/-mahjong-sanma.md
  * 「实现记录（Engine 层）·页面獭接口面」）：
  *   POST /rooms · /rooms/:id/join · /rooms/:id/start · /rooms/:id/actions · /rooms/:id/recover
  *   GET  /rooms/:id/view?seat= · /rooms/:id/frames

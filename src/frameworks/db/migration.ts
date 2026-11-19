@@ -1,5 +1,5 @@
 /**
- * 数据库迁移：Session 复用机制。F20260902rcp1 补丁后再次超过 max-lines 阈值，
+ * 数据库迁移：Session 复用机制。补丁后再次超过 max-lines 阈值，
  * 按首行注释预案恢复 eslint-disable max-lines（补丁集合文件，行数由历史补丁数决定）。
  */
 /* eslint-disable max-lines -- 补丁集合，行数由历史补丁数决定（首行注释预案） */
@@ -15,13 +15,13 @@ import { pickOtterColor } from "@entities/otter/palette-picking";
 import { OTTER_PALETTE_KEYS } from "@contract/api/otter-palette";
 
 /** 数据库迁移：添加 session_file 字段和 otter_configs 表 */
-// eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数和行数由历史补丁数决定（#848: +otter_sessions.model_alias）
+// eslint-disable-next-line max-statements, max-lines-per-function -- 补丁集合，语句数和行数由历史补丁数决定（+otter_sessions.model_alias）
 export function migrateDatabase(db: Database.Database, logger: Logger): void {
   ensureAgentSessionFileColumn(db, logger);
   ensureMessagesSourceAndSenderNameColumns(db, logger);
-  // F20261013csv3 T1：unfurl_cache 幂等建表（与 schema.ts 单点登记同 DDL，
+  // T1：unfurl_cache 幂等建表（与 schema.ts 单点登记同 DDL，
   // 老库补建走本补丁，新库直建走 schema.ts——migration-equivalence guard 锁一致性）。
-  // fetched_at 无 SQL DEFAULT：应用层 ISO 8601 写入（空格格式混排会产生字典序偏移——R2）。
+  // fetched_at 无 SQL DEFAULT：应用层 ISO 8601 写入（空格格式混排会产生字典序偏移——）。
   // state/additions/deletions：github-api 结构化字段（T2 join 投影数据源）。
   db.prepare(`
     CREATE TABLE IF NOT EXISTS unfurl_cache (
@@ -41,7 +41,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   `).run();
 
   // 创建 otter_configs 表。
-  // #506 注：此表未纳入 schema.ts（历史原因），仅此一处定义——
+  // 注：此表未纳入 schema.ts（历史原因），仅此一处定义——
   // CREATE IF NOT EXISTS 幂等，bootstrap 每次启动都会跑到，老库缺表会被补建。
   db.prepare(`
     CREATE TABLE IF NOT EXISTS otter_configs (
@@ -63,10 +63,10 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     logger.info('Added model_alias column to otter_configs table');
   }
 
-  /** F20261118nrwht P2a：otter_configs.otter_type CHECK 扩展 'night-reviewer'（存量库迁移）。 */
+  /** P2a：otter_configs.otter_type CHECK 扩展 'night-reviewer'（存量库迁移）。 */
   rebuildOtterConfigsTypeCheck(db, logger);
 
-  // F20260908efmd: otter_sessions 加 model_alias 列（该世生效的模型 alias 快照）
+  // otter_sessions 加 model_alias 列（该世生效的模型 alias 快照）
   const otterSessionColumns = db.prepare("PRAGMA table_info(otter_sessions)").all() as Array<{ name: string }>;
   const hasSessionModelAlias = otterSessionColumns.some(col => col.name === 'model_alias');
   if (!hasSessionModelAlias) {
@@ -74,7 +74,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     logger.info('Added model_alias column to otter_sessions table');
   }
 
-  // F20260902sgp2 S4c：游标 seq 化（新列可空；turn 刻度列已随 F20260920trrt 退役——此列是唯一已读游标）。
+  // 游标 seq 化（新列可空；turn 刻度列已随 退役——此列是唯一已读游标）。
   // 语义：last_read_seq = 该獭已读到的最大 entries.sequence_num；旳行 NULL = 未迁移，backfillLastReadSeq 兑底。
   const participantColumns = db.prepare("PRAGMA table_info(conversation_participants)").all() as Array<{ name: string }>;
   const hasLastReadSeq = participantColumns.some(col => col.name === 'last_read_seq');
@@ -83,24 +83,24 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
     logger.info('Added last_read_seq column to conversation_participants table (sgp2 S4c)');
   }
 
-  /** F20260728htar 一次性补丁 */
+  /** 一次性补丁 */
   rebuildMessagesFtsStripped(db, logger);
   dropMessagesAttachmentsColumn(db, logger);
   addPinnedColumn(db, logger);
 
-  /** F20260902rcp1 一次性补丁：memory_fts_jieba 双写重建（词典词+单字） */
+  /** 一次性补丁：memory_fts_jieba 双写重建（词典词+单字） */
   rebuildMemoryFtsJiebaDoubleWrite(db, logger);
 
-  /** F20260803mval 一次性补丁：移除文档表枚举 CHECK 约束 */
+  /** 一次性补丁：移除文档表枚举 CHECK 约束 */
   rebuildDocumentTablesDropCheck(db, logger);
 
-  /** F20260803fbit: features/research 表加 body_hash 列（驱动 upsert 指纹比较） */
+  /** features/research 表加 body_hash 列（驱动 upsert 指纹比较） */
   addBodyHashColumns(db, logger);
 
-  /** F20260805rbrg：messages 表添加 metadata 列（招聘桥接查重用） */
+  /** messages 表添加 metadata 列（招聘桥接查重用） */
   addMessagesMetadataColumn(db, logger);
 
-  /** F20260815rstrt：scheduled_tasks 表添加 restart_before_invoke 列 */
+  /** scheduled_tasks 表添加 restart_before_invoke 列 */
   addRestartBeforeInvokeColumn(db, logger);
   addTimeoutMinutesColumn(db, logger);
   addExecutorTypeColumns(db, logger);
@@ -112,35 +112,35 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   /** schedule_type + trigger_at 列：支持一次性定时任务 */
   addScheduleTypeColumns(db, logger);
 
-  // F20260827mgux（#506）：原此处的 6 个 ensureXxxTable 誊抄补建（embedding_tasks /
+  // 原此处的 6 个 ensureXxxTable 誊抄补建（embedding_tasks /
   //  embedding_meta / memory_edges / RHI 两表 / signal_events / restart_pending_resumes）
   // 已删除——bootstrap 无条件跑幂等 initSchema 后老库自动补建，新表只写 schema.ts 一处。
   // 表级等价性由 tests/frameworks/db/migration-equivalence.guard.test.ts 守卫。
 
-  /** F20260813mren Part 2: features/research 表加 created_in_conversation_id 列。*/
+  /** Part 2: features/research 表加 created_in_conversation_id 列。*/
   addDocProvenanceColumns(db, logger);
 
-  /** F20260827he2f: healing_events 表添加 introduced_by_pr 列（存量库迁移）。
-   *  PR #386 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
+  /** healing_events 表添加 introduced_by_pr 列（存量库迁移）。
+   * 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
    *  此处用 PRAGMA table_info 检测列存在性作幂等，与 session_file 等历史补丁列一致。 */
   ensureHealingEventsIntroducedByPrColumn(db, logger);
 
-  /** Issue #644（健康面板重设计 PR1）：signals 表添加 evidence_detail + confidence 列（存量库迁移）。
+  /** （健康面板重设计 PR1）：signals 表添加 evidence_detail + confidence 列（存量库迁移）。
    *  schema.ts 新库已含两列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureSignalsEvidenceColumns(db, logger);
 
-  /** F20260917trig：signals 表添加 triage_status / issue_number / triaged_at / triage_note 四列（存量库迁移）。
+  /** signals 表添加 triage_status / issue_number / triaged_at / triage_note 四列（存量库迁移）。
    *  schema.ts 新库已含四列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureSignalsTriageColumns(db, logger);
 
-  /** F20260901sgp0 P0：messages 表添加 signal_level + signal_meta 列（信号协议铺轨）。
+  /** P0：messages 表添加 signal_level + signal_meta 列（信号协议铺轨）。
    *  schema.ts 新库已含两列；存量库需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureMessagesSignalColumns(db, logger);
 
-  /** Issue #608：attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。 */
+  /** attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。 */
   rebuildAttachmentsKindCheck(db, logger);
 
-  /** F20260920trrt：turn 系统整体退役（存量库迁移）——
+  /** turn 系统整体退役（存量库迁移）——
    *  ① entries 表去 turn_id 列重建（FK 指向 turns，须先拆 FK 再 drop 表）；
    *  ② turns 表 drop（entries/particles 的 FK 全部拆除后才能安全删）；
    *  ③ participants 表去 turn 列重建（joined_at_turn_id / left_at_turn_id FK +
@@ -148,98 +148,98 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  新库 schema 已无这些列（检测不到旧列直接返回）。 */
   retireTurnSystem(db, logger);
 
-  /** #654：scheduled_task_executions 表 CHECK 约束扩展 skipped 枚举值（存量库重建）。
+  /** scheduled_task_executions 表 CHECK 约束扩展 skipped 枚举值（存量库重建）。
    *  schema.ts 新库已含；老库 CHECK (running/completed/failed) 无 skipped，需四步重建。 */
   rebuildExecutionsStatusCheck(db, logger);
 
-  /** F20260908rlcp：dispatch_attempts 存量表 drop（退役时已从 schema.ts 删除，此处清理旧库残留）。
-   *  执行条件：表存在即 drop（表已在 F20260908rlcp 退役，无业务方消费）。
+  /** dispatch_attempts 存量表 drop（退役时已从 schema.ts 删除，此处清理旧库残留）。
+   * 执行条件：表存在即 drop（表已在 退役，无业务方消费）。
    *  注：归档导出由 PR 描述的 data/archive/ 流程负责，此处只做 schema 清理。 */
   dropDispatchAttemptsTable(db, logger);
 
   /** 幽灵 sender 回填：sender_type 与 sender_id 语义错位的存量数据修复（2026-09-04 排查）。 */
   backfillGhostSenders(db, logger);
 
-  /** F20260916b1ea：restart_pending_resumes 重建（invoke 模型）。
-   *  8/28 旧 messages 模型的同名表已在 F20260913ctlv 批4c drop；此处由 schema.ts
+  /** restart_pending_resumes 重建（invoke 模型）。
+   * 8/28 旧 messages 模型的同名表已在 批4c drop；此处由 schema.ts
    *  的 createRestartPendingResumesTable 幂等补建新表形（IF NOT EXISTS 对新旧库
    *  一视同仁），无需额外迁移函数。 */
 
-  /** F20260914rtsp：invokes 表添加 ctx_window_used 列（存量库迁移）。
+  /** invokes 表添加 ctx_window_used 列（存量库迁移）。
    *  schema.ts 新库已含；存量库跑不到 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureInvokesCtxWindowUsedColumn(db, logger);
 
-  /** F20260920imax：conversations 表添加 kind 列 + 助理对话回填。
+  /** conversations 表添加 kind 列 + 助理对话回填。
    *  schema.ts 新库已含默认 'normal'；存量库需 ALTER 补列，并按 title 前缀约定
    *  回填存量助理对话（微信助理 · / 飞书助理 · → 'assistant'）。幂等：PRAGMA 检测。 */
   ensureConversationsKindColumn(db, logger);
 
-  /** F20260913ctlv 收尾批4b：messages → entries 幂等回填迁移（先迁后 drop——4c）。 */
+  /** 收尾批4b：messages → entries 幂等回填迁移（先迁后 drop——4c）。 */
   migrateMessagesToEntries(db, logger);
 
-  /** F20260913ctlv 收尾批4c：messages 族六张表 drop（迁移完成 + 对账通过才执行）。
+  /** 收尾批4c：messages 族六张表 drop（迁移完成 + 对账通过才执行）。
    *  保险丝：逐对话对账 entries ≥ 原 messages 数（yield 合成行只增不减），
    *  任一对话对不上即中止 drop 并 warn（备份可回放，服务继续跑——只留死数据不炸）。 */
   dropLegacyMessagesTables(db, logger);
 
-  /** F20260914fkx1：scheduled_task_executions 残留 FK REFERENCES messages(id) 清理。
-   *  Why：#886 批4c drop 了 messages 表，但存量库该表的 message_id 列仍挂
+  /** scheduled_task_executions 残留 FK REFERENCES messages(id) 清理。
+   * Why：批4c drop 了 messages 表，但存量库该表的 message_id 列仍挂
    *  REFERENCES messages(id)——SQLite 在 foreign_keys=ON 时对含 FK 指向已 drop 表的
    *  INSERT 会在 prepare 阶段抛 "no such table: main.messages"（2026-09-14 生产现场：
    *  定时任务 catch-up 全部静默失败，日志 887782）。schema.ts 新库建表已无此 FK，
-   *  仅存量库需要补迁移（四步重建，#654 同模式）。幂等：FK 不指向 messages 即返回。 */
+   * 仅存量库需要补迁移（四步重建，同模式）。幂等：FK 不指向 messages 即返回。 */
   rebuildExecutionsDropMessagesFk(db, logger);
 
-  /** F20260912avlb：otter_context `dispatch:%` 伪存储 → dispatch_records 正式表（一次性搬家）。
+  /** otter_context `dispatch:%` 伪存储 → dispatch_records 正式表（一次性搬家）。
    *  为什么放 migrateDatabase 启动路径：settings 键（dispatch_records_migrated=done）
    *  防重跑——一次成功后不再重跑。新库无 dispatch: key，零循环零副作用。 */
   migrateDispatchRecordsFromContext(db, logger);
 
-  /** F20260915midu（#942）：记忆投影条目主键统一为 source_id（存量迁移）。 */
+  /** 记忆投影条目主键统一为 source_id（存量迁移）。 */
   rebuildMemoryEntriesUnifyIds(db, logger);
 
-  /** F20260921otcl：otters 表加 color 列 + 存量小獭回填（fill-only 续算幂等）。 */
+  /** otters 表加 color 列 + 存量小獭回填（fill-only 续算幂等）。 */
   ensureOtterColorColumn(db, logger);
   backfillOtterColors(db, logger);
 
-  /** F20261116actlg PR-B：restart_pending_resumes 补 claim 三列（存量库 ALTER，幂等 PRAGMA 探测）。
+  /** PR-B：restart_pending_resumes 补 claim 三列（存量库 ALTER，幂等 PRAGMA 探测）。
    *  认领绑定 claim_token/boot_epoch + 恢复轮 recovery_invoke_id 审计链。 */
   ensureRestartPendingResumesClaimColumns(db, logger);
 
-  /** F20260923icus（#1149）：invokes 表补 cache token 两列（存量库 ALTER，幂等 PRAGMA 探测）。 */
+  /** invokes 表补 cache token 两列（存量库 ALTER，幂等 PRAGMA 探测）。 */
   ensureInvokeCacheColumns(db, logger);
 
-  /** #1241（F20261006opid）：invokes 表补 pid 列（存量库 ALTER，幂等 PRAGMA 探测）。
+  /** invokes 表补 pid 列（存量库 ALTER，幂等 PRAGMA 探测）。
    *  孤儿判据数据承载：非本进程 pid 的 running = 旧进程遗留，reconcile 可精确清理。 */
   ensureInvokesPidColumn(db, logger);
 
-  /** #1191（F20260928rmix）：entries → memory_entries 消息索引回填。
-   *  #886 删除 indexMessage 后 9/13 至今的对话正文未入记忆——本函数一次性回填
+  /** entries → memory_entries 消息索引回填。
+   * 删除 indexMessage 后 9/13 至今的对话正文未入记忆——本函数一次性回填
    *  存量（user + speak，双侧剥 html-card 围栏，user 侧拼附件占位投影行），
    *  幂等条件 NOT EXISTS 保证重跑安全；embedding 由启动时 createAndStartRetryWorker
    *  扫暗条目渐进补齐（无需本迁移同步 vec）。 */
   backfillEntryMemoryIndex(db, logger);
 
-  /** #906（F20260930esqu）：entries 表 (conversation_id, sequence_num) 普通索引升级 UNIQUE（存量库）。
+  /** entries 表 (conversation_id, sequence_num) 普通索引升级 UNIQUE（存量库）。
  *  schema.ts 新库已建成 UNIQUE；存量库同名普通索引需 DROP+CREATE 重建（见函数头注）。 */
   ensureEntriesConversationSeqUnique(db, logger);
 
-  /** #1271（F20261008hbbd）：healing_events 表添加 bound_issue / bound_at 两列（存量库迁移）。
+  /** healing_events 表添加 bound_issue / bound_at 两列（存量库迁移）。
  *  归口链结构化：batch_bind 写入，bind≠resolve（对齐 RHI signals.issue_number 字段化先例）。
  *  schema.ts 新库已含两列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。
  *  幂等：PRAGMA 检测（同 ensureSignalsTriageColumns 模式）。 */
   ensureHealingEventsBoundIssueColumns(db, logger);
 
-  /** F20261021sprx：执行者角色列 + 全量存量任务（含 disabled）惰性回填。 */
+  /** 执行者角色列 + 全量存量任务（含 disabled）惰性回填。 */
   migrateScheduledTaskExecutorRoles(db, logger);
 
-  /** #1835（F20261113recon）：linked_resources 加对账归档审计三列（存量库迁移）。
+  /** linked_resources 加对账归档审计三列（存量库迁移）。
    *  schema.ts 新库已含三列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。
    *  幂等：PRAGMA 检测（同 ensureHealingEventsBoundIssueColumns 模式）。 */
   ensureLinkedResourceReconciliationAuditColumns(db, logger);
 }
 
-/** #1835：linked_resources 对账归档审计列（archived_by_otter_id / archived_at / archive_evidence）。
+/** linked_resources 对账归档审计列（archived_by_otter_id / archived_at / archive_evidence）。
  *  受控跨对话归档路径（ManageKeyInfo.archiveResourceForReconciliation）写入；
  *  普通 update_artifact_status 不写。幂等：PRAGMA 检测列存在性。 */
 function ensureLinkedResourceReconciliationAuditColumns(db: Database.Database, logger: Logger): void {

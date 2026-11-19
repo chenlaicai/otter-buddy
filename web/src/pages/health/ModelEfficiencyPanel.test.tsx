@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * F20261027hwl1 模型效率面板行为测试（A 类）：
+ * 模型效率面板行为测试（A 类）：
  * - 真空态：snapshotDays=0 → 说明文案（不显示演示矩阵）
  * - 有数据：provider/model 行渲染；零分母 cache 率显「—」
  */

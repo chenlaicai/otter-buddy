@@ -1,5 +1,5 @@
 /**
- * CircuitBreakSupport - F20260818cbkr 连续退化熔断执行器
+ * CircuitBreakSupport - 连续退化熔断执行器
  *
  * Why: 熔断逻辑（healing_events 读写、restartSession、前情摘要构建）从 AgentInvoker
  * 抽取为内聚模块，invoker 保持 SDK 调用适配器职责。
@@ -27,7 +27,7 @@ import {
 import type { CircuitBreakInfo, HealingEventInput } from "@usecases/conversation/agent-turn-orchestrator/types";
 
 /**
- * F20260831cbkw：session 年龄窗口阈值——熔断创建的 session 若正常存活超过此时间,
+ * session 年龄窗口阈值——熔断创建的 session 若正常存活超过此时间,
  * 视为「已证明健康」，后续退化重新给一次熔断机会。
  * Why: 8/30 墨鱼案例——session 由 8/29 熔断创建，正常工作 8 小时后新退化，
  * 退化根因是新上下文污染而非模型缺陷，应允许再次熔断（清空污染上下文重启）。
@@ -35,17 +35,17 @@ import type { CircuitBreakInfo, HealingEventInput } from "@usecases/conversation
 const HEALTHY_SESSION_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 /**
- * F20261005srst（#1203）：自重启循环判定窗口——自重启创建的 session 若已存活超过此时间，
+ * ：自重启循环判定窗口——自重启创建的 session 若已存活超过此时间，
  * 不再视为循环风险。防循环要防的是「紧邻连环」（分钟级：重启→醒来→又重启）；
- * 2h 后仍在工作的 session 显然不是循环。同构 F20260831cbkw 熔断健康窗口。
+ * 2h 后仍在工作的 session 显然不是循环。同构 熔断健康窗口。
  * Why: 9/28 现场——session 07:27 由自重启创建，12:38 搭档显式指令重启仍被拦
  * （用户介入判据失效，原因无日志可查）。该窗口兑住判据失效类故障：5h 前的自重启产物不可能是循环。
- * F20261103srstd（#1288）：导出单点真相源——tool 层（tool-factory isSelfRestartLoop）与
+ * ：导出单点真相源——tool 层（tool-factory isSelfRestartLoop）与
  * invoker 层（本文件 isSessionSelfRestartCreated）两道防线共用同一窗口常量，禁止再双定义。
  */
 export const SELF_RESTART_LOOP_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
 
-/** 二级触发的窗口推导结果（F20260913ctlv：messages 停写后按 session 时间窗口计，无 turn 推导） */
+/** 二级触发的窗口推导结果（messages 停写后按 session 时间窗口计，无 turn 推导） */
 interface TurnWindowCount {
   count: number;
   /** 最新一条退化事件的 invokeId（DESC 排序 recent[0]），用于 secondary 路径 failedInvokeId */
@@ -53,10 +53,10 @@ interface TurnWindowCount {
 }
 
 /**
- * F20260906srst（#811）：自重启 session 创建后是否有用户消息介入。
+ * ：自重启 session 创建后是否有用户消息介入。
  * 意图来源维度——有用户消息介入的自重启是正常运维（搭档显式指令），不构成循环；
- * 纯 LLM 自发（无用户消息）才是 F20260824srst 威胁模型要拦的循环。
- * 查询失败重试一次（F20261005srst #1203：瞬时故障自愈）；重试仍失败降级为 false（无介入）
+ * 纯 LLM 自发（无用户消息）才是 威胁模型要拦的循环。
+ * 查询失败重试一次（瞬时故障自愈）；重试仍失败降级为 false（无介入）
  * ——维持拦截，保守，但不再静默：onDegrade 回调供调用方落 healing event（判据失效可观测）。
  * Why 不看 system 消息：scheduler/continuation 触发的链路无用户意图，LLM 在其上自发重启仍属循环。
  */
@@ -73,7 +73,7 @@ export async function hasUserMessageSince(
       return Date.parse(last.createdAt) >= Date.parse(since);
     } catch (err) {
       const isFinal = attempt >= MAX_ATTEMPTS;
-      // F20261103srstd 审视严重1修正：await 回调——async 落账（如 tool 层 healingRepo.create）
+      // 审视严重1修正：await 回调——async 落账（如 tool 层 healingRepo.create）
       // 必须在返回前 settle，否则 fire-and-forget 漂移（工具在落账完成前已返回）。
       // 同步回调（invoker 层 logger.warn）await undefined 无害，行为等价。
       if (opts?.onDegrade) await opts.onDegrade(err, isFinal);
@@ -87,32 +87,32 @@ export async function hasUserMessageSince(
 export class CircuitBreakSupport {
   constructor(private readonly deps: {
     manageSession: ManageSession;
-    /** F20260913ctlv 收尾批3：历史读取切 entries（messages 停写，user 消息唯一真相源 = user entry） */
+    /** 收尾批3：历史读取切 entries（messages 停写，user 消息唯一真相源 = user entry） */
     entryReader: { getEntries(conversationId: string, options?: { entryType?: string; limit?: number }): Promise<Array<{ id: string; senderId: string | null; senderType: string | null; body: string | null; createdAt: string }>> };
-    /** F20260913ctlv 彻底切换：系统消息写入（entries 语义）——旧 sendMessage.sendSystem 退役 */
+    /** 彻底切换：系统消息写入（entries 语义）——旧 sendMessage.sendSystem 退役 */
     sendSystem: (conversationId: string, body: string) => Promise<{ id: string; body: string | null; sequenceNum: number; createdAt: string }>;
     healingRepo: HealingEventRepository;
     logger: Logger;
-    /** F20260913ctlv 彻底切换：invoke_events 查询（熔断摘要工具链数据源，可选——未注入降级空序列） */
+    /** 彻底切换：invoke_events 查询（熔断摘要工具链数据源，可选——未注入降级空序列） */
     invokeRepo?: { getInvokeEvents(invokeId: string): Promise<Array<{ eventType: string; payload: Record<string, unknown> }>> };
-    /** F20260831cbkw：熔断 session 年龄窗口阈值（ms），缺省取硬编码 2h */
+    /** 熔断 session 年龄窗口阈值（ms），缺省取硬编码 2h */
     healthySessionThresholdMs?: number;
-    /** F20260922handoff 审视严重1修正：换世清水位状态回调（由 agent-invoker 注入，
+    /** 审视严重1修正：换世清水位状态回调（由 agent-invoker 注入，
      *  持有 handoffState）——熔断路径的 restartSession 也属换世，不清 lastCtxTokens 会
      *  残留旧世 ctxTokens → 下轮 invoke 误判超阈值 → 二次换世。可选：未注入不调用。 */
     onSessionRestarted?: (otterId: string) => void;
   }) {}
 
   /**
-   * F20260827he2f: healing_repo 健康探针——启动时调用一次，验证 DB 可达且表存在且列完整。
+   * healing_repo 健康探针——启动时调用一次，验证 DB 可达且表存在且列完整。
    * 失败仅 warn（不阻塞启动），但日志可作为「healing_events 写入盲区」的诊断入口。
-   * Why: issue #508——熔断重启已发生但事件未落库，健康检查链路对此失明。
+   * Why: ——熔断重启已发生但事件未落库，健康检查链路对此失明。
    * 根因是 healingRepo.create() 抛错被静默吞掉，无可观测信号。
    * 
-   * F20260827he2f 二轮审视：原探针只测读路径（findOpen），无法检测写路径列缺失（introduced_by_pr）。
+   * 二轮审视：原探针只测读路径（findOpen），无法检测写路径列缺失（introduced_by_pr）。
    * 此处增加写路径探针——尝试插入一条测试记录，失败时检查是否为列缺失错误。
    *
-   * #751：探针事件写入即 resolved（heartbeat 语义）——落账只为管道自证，
+   * 探针事件写入即 resolved（heartbeat 语义）——落账只为管道自证，
    * 不进 open 池等待处置；消费侧 query 默认过滤探针（isHealingProbeEvent）。
    */
   async probeHealingRepo(): Promise<boolean> {
@@ -121,7 +121,7 @@ export class CircuitBreakSupport {
       await this.deps.healingRepo.findOpen(1);
       
       // 写路径探针：尝试插入一条测试记录，验证列完整性。
-      // #751: status 直接落 resolved（heartbeat 语义）——探针是心跳不是问题，
+      // status 直接落 resolved（heartbeat 语义）——探针是心跳不是问题，
       // 写入与 resolve 同一次 INSERT 完成，不进 open 池、无中间态（旧版落 open 后
       // 无人 resolve，半小时一次启动探针致 open 池被刷屏稀释真实事件）
       const testEvent: HealingEvent = {
@@ -147,8 +147,8 @@ export class CircuitBreakSupport {
       
       try {
         await this.deps.healingRepo.create(testEvent);
-        // #751: 探针已直接落 resolved（见上），无需后续处置；
-        // 历史堆积的 open 探针属数据操作，不在本次代码变更范围（issue #751 明确另议）
+        // 探针已直接落 resolved（见上），无需后续处置；
+        // 历史堆积的 open 探针属数据操作，不在本次代码变更范围（明确另议）
         return true;
       } catch (writeErr) {
         // 写路径失败，检查是否为列缺失错误
@@ -182,13 +182,13 @@ export class CircuitBreakSupport {
 
   /** degenerate guard 触发点回调：组装完整 HealingEvent 写库 */
   /**
-   * #731：查询 otter 在滑窗内的 guard bounce 次数——上限判定数据源。
+   * 查询 otter 在滑窗内的 guard bounce 次数——上限判定数据源。
    * 直查 healing_events（errorType=guard_intercept 且 context.bounced=true），
    * 不缓存不吞错：查询失败向上拋，由调用方 fail-closed 升级（台账失明 ≠ 无限回发）。
    */
   async countRecentGuardBounces(otterId: string, windowMs: number): Promise<number> {
     const since = new Date(Date.now() - windowMs).toISOString();
-    // F20261102grfix（A 口径拆分）：bounce 计数=回发次数——双时代均只数 context.bounce:true
+    // （A 口径拆分）：bounce 计数=回发次数——双时代均只数 context.bounce:true
     // 的计数落账（与旧口径语义等价）；同族的疑似误拦降级/终态观测（guard_bounce_flow 但无
     // bounce 标）是流程观测非回发，不计入。历史 bounce 记 guard_intercept+context.bounce:true
     // （不重分类，历史按当时口径留存），两源合并后按时间窗计数
@@ -202,13 +202,13 @@ export class CircuitBreakSupport {
   }
 
   /**
-   * F20261008gduc P0-2：滑窗内拦截结构化事件列表（疑似误拦降级通道数据源）。
-   * 审视处置修正（PR #1360 delta）：数据源口径改为「拦截结构化事件」（pi-session-factory
+   * P0-2：滑窗内拦截结构化事件列表（疑似误拦降级通道数据源）。
+   * 审视处置修正（delta）：数据源口径改为「拦截结构化事件」（pi-session-factory
    * buildGuardInterceptHook 落账，context.ruleId 存在性过滤）而非 bounce:true 计数事件——
    * 生产链路上 bounce 计数事件（orchestrator 落账）context 只有 {layer,guardReason,bounceAttempt}，
    * 无 ruleId/commandHead；按 bounce 过滤会把降级判定数据源架空成死代码（每轮拦截同时落
    * 结构化事件，数量对齐且多一轮首拦，判定语义更严）。台账失明时拋错由调用方 fail-closed。
-   * PR #1360 §3.5 处置：历史事件 layer 从落账 context.ruleLayer 取；本轮 currentRuleLayer 由调用方传入。
+   * §3.5 处置：历史事件 layer 从落账 context.ruleLayer 取；本轮 currentRuleLayer 由调用方传入。
    */
   async recentGuardBounceEvents(
     otterId: string,
@@ -233,7 +233,7 @@ export class CircuitBreakSupport {
     try {
       await this.deps.healingRepo.create({
         id: crypto.randomUUID(),
-        // F20260913ctlv：healing_events.messageId 列存 invokeId（表结构不动，语义锚 = invoke）
+        // healing_events.messageId 列存 invokeId（表结构不动，语义锚 = invoke）
         messageId: input.invokeId,
         conversationId: input.conversationId,
         otterId: input.otterId,
@@ -248,7 +248,7 @@ export class CircuitBreakSupport {
         resolvedAt: null,
       });
     } catch (err) {
-      // F20260827he2f: 记录完整上下文，让健康检查链路可观测
+      // 记录完整上下文，让健康检查链路可观测
       this.deps.logger.error('healing_event write FAILED — circuit breaker data source degraded',
         err instanceof Error ? err : new Error(String(err)),
         {
@@ -265,7 +265,7 @@ export class CircuitBreakSupport {
 
   /**
    * 当前 active session 是否由熔断创建（circuit_break 事件 context.newSessionId 指向它）。
-   * F20260831cbkw：增加时间窗口——熔断创建的 session 若已正常存活超过阈值（2h）,
+   * 增加时间窗口——熔断创建的 session 若已正常存活超过阈值（2h）,
    * 视为「已证明健康」，不计入上限判定，允许再次熔断。
    */
   async isSessionCircuitBreakCreated(otterId: string): Promise<boolean> {
@@ -275,7 +275,7 @@ export class CircuitBreakSupport {
   }
 
   /**
-   * F20260818cbkr 一级熔断执行：restart → circuit_break 事件 → true（调用方发全新 invoke）。
+   * 一级熔断执行：restart → circuit_break 事件 → true（调用方发全新 invoke）。
    * 失败降级：消息已由 orchestrator 置 failed，补系统说明 + 留痕，返回 false（行为与现状等价）。
    */
   async executeCircuitBreakRestart(info: CircuitBreakInfo, emitEvent: (event: SSEEvent) => void): Promise<boolean> {
@@ -283,7 +283,7 @@ export class CircuitBreakSupport {
     let session;
     try {
       session = await this.deps.manageSession.restartSession(info.otterId, summary);
-      // F20260922handoff 审视严重1：一级熔断换世清水位状态（与 unifiedHandoff 入口同语义）。
+      // 审视严重1：一级熔断换世清水位状态（与 unifiedHandoff 入口同语义）。
       this.deps.onSessionRestarted?.(info.otterId);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -305,7 +305,7 @@ export class CircuitBreakSupport {
      * 二级预检的 startedAt 过滤兜底防循环（重启前的退化事件不属于新 session 生命周期）。
      */
     await this.writeCircuitBreakEvent(info, { newSessionId: session.id, trigger: 'primary' }).catch(err => {
-      // F20260827he2f: error 级别 + 完整上下文——让健康检查链路可观测
+      // error 级别 + 完整上下文——让健康检查链路可观测
       this.deps.logger.error('circuit_break event write failed after successful restart — healing_events data source degraded',
         err instanceof Error ? err : new Error(String(err)),
         {
@@ -326,7 +326,7 @@ export class CircuitBreakSupport {
   }
 
   /**
-   * F20260818cbkr 二级触发（invoke 前预检）：
+   * 二级触发（invoke 前预检）：
    * 本 session 生命周期内、最近 2 个 turn 窗口 ≥2 次 degenerate 事件 → 先重启再执行本次 invoke。
    * 熔断创建的 session 不再触发（上限，防无限 restart 循环）；预检自身失败不阻塞 invoke（非致命）。
    */
@@ -339,20 +339,20 @@ export class CircuitBreakSupport {
       const inWindow = await this.countDegenerateInTurnWindow(otterId, session);
       if (inWindow.count < 2) return;
 
-      /** F20260913ctlv 批3：最新 user entry body（entries 唯一真相源） */
+      /** 批3：最新 user entry body（entries 唯一真相源） */
       const userEntries = await this.deps.entryReader.getEntries(conversationId, { entryType: 'user', limit: 1 }).catch(() => []);
       const lastUserMessage = userEntries[0]?.body ?? '';
       const summary = lastUserMessage
         ? buildSecondaryCircuitBreakSummary({ lastUserMessage })
         : buildCircuitBreakFallbackSummary();
       const newSession = await this.deps.manageSession.restartSession(otterId, summary);
-      // F20260922handoff 审视严重1：二级熔断换世清水位状态（同 executeCircuitBreakRestart 语义）。
+      // 审视严重1：二级熔断换世清水位状态（同 executeCircuitBreakRestart 语义）。
       this.deps.onSessionRestarted?.(otterId);
       await this.writeCircuitBreakEvent(
         { otterId, conversationId, failedInvokeId: inWindow.latestMessageId },
         { newSessionId: newSession.id, trigger: 'secondary' },
       ).catch(err => {
-        // F20260827he2f: error 级别 + 完整上下文
+        // error 级别 + 完整上下文
         this.deps.logger.error('circuit_break event write failed after secondary restart — healing_events data source degraded',
           err instanceof Error ? err : new Error(String(err)),
           {
@@ -379,7 +379,7 @@ export class CircuitBreakSupport {
     }
   }
 
-  /** F20260913ctlv 彻底切换：统计本 session 生命周期内的退化事件数。
+  /** 彻底切换：统计本 session 生命周期内的退化事件数。
    *  messages 停写后 turn 推导链（healing messageId → messages.turn_id）失效；
    *  二级触发的本质是「同一 session 反复退化」——直接按 session startedAt 过滤计数即可。 */
   private async countDegenerateInTurnWindow(otterId: string, session: OtterSession): Promise<TurnWindowCount> {
@@ -400,12 +400,12 @@ export class CircuitBreakSupport {
 
   /**
    * session 是否被 circuit_break 事件标记为熔断创建，且仍在年龄窗口内。
-   * F20260831cbkw：若 circuit_break 事件距今超过阈值（session 正常存活已久）,
+   * 若 circuit_break 事件距今超过阈值（session 正常存活已久）,
    * 视为「已证明健康」，不计入上限——后续退化重新给一次熔断机会。
    * Why: 8/30 墨鱼案例——session 正常工作 8 小时后新退化，根因是新上下文污染，
    * 不应被当「无药可救」终态。
    */
-  // F20260831cbkw：用 session.startedAt 而非 circuit_break 事件时间——
+  // 用 session.startedAt 而非 circuit_break 事件时间——
   // session 存活时长才是「证明健康」的依据（事件可能在 session 中间发生）
   private async isCircuitBreakCreatedSession(otterId: string, session: OtterSession): Promise<boolean> {
     const events = await this.deps.healingRepo.findRecentByOtter(otterId, 'circuit_break', 20);
@@ -414,7 +414,7 @@ export class CircuitBreakSupport {
     return events.some(e => {
       const ctx = e.context as { newSessionId?: string } | null;
       if (ctx?.newSessionId !== session.id) return false;
-      // F20260831cbkw：session.startedAt 是 session 创建时刻（UTC ISO 8601）——
+      // session.startedAt 是 session 创建时刻（UTC ISO 8601）——
       // 用 session 年龄而非事件时间，因为即使事件在 session 中间，
       // 只要 session 整体存活超过阈值就说明「已经证明健康」
       const sessionAgeMs = now - new Date(session.startedAt).getTime();
@@ -432,7 +432,7 @@ export class CircuitBreakSupport {
   }
 
   /**
-   * F20260824srst：当前 active session 是否由自重启创建（self_restart 事件 context.newSessionId 指向它）。
+   * 当前 active session 是否由自重启创建（self_restart 事件 context.newSessionId 指向它）。
    * Why 复用 isCircuitBreakCreatedSession 模式：self_restart 与 circuit_break 的防循环机制同构，
    * 都是 healing_events + context.newSessionId 标记新 session，区别仅在 errorType 语义。
    */
@@ -445,9 +445,9 @@ export class CircuitBreakSupport {
       return ctx?.newSessionId === session.id;
     });
     if (!selfRestartCreated) return false;
-    // F20261005srst（#1203）：时间衰减豁免——自重启创建的 session 存活超过窗口即不拦。
+    // 时间衰减豁免——自重启创建的 session 存活超过窗口即不拦。
     // 9/28 现场：07:27 自重启创建的 session，12:38 搭档指令重启被拦（介入判据失效无日志可查）
-    // ——该层兑住判据失效类故障。同构 F20260831cbkw 熔断健康窗口。
+    // ——该层兑住判据失效类故障。同构 熔断健康窗口。
     const sessionAgeMs = Date.now() - Date.parse(session.startedAt);
     if (sessionAgeMs > SELF_RESTART_LOOP_WINDOW_MS) {
       this.deps.logger.info('Self-restart loop window exceeded, allowing restart', {
@@ -457,14 +457,14 @@ export class CircuitBreakSupport {
       });
       return false;
     }
-    // F20260906srst（#811）：session 虽由自重启创建，但此后有用户消息介入 → 正常运维，放行。
+    // session 虽由自重启创建，但此后有用户消息介入 → 正常运维，放行。
     // 判据：最新 user 消息 createdAt >= session.startedAt（continuation message 不落库，不污染判据）。
     if (conversationId) {
       const intervened = await hasUserMessageSince(
         async () => (await this.deps.entryReader.getEntries(conversationId, { entryType: 'user', limit: 1 }))[0] ?? null,
         session.startedAt,
         {
-          // F20261005srst（#1203）：降级可观测——重试仍失败时落 healing event，
+          // 降级可观测——重试仍失败时落 healing event，
           // 判据失效不再静默（9/28 两起误拦事后无任何痕迹可归因）。
           onDegrade: (err, isFinal) => {
             this.deps.logger.warn('self-restart user-intervention check degraded', {
@@ -490,7 +490,7 @@ export class CircuitBreakSupport {
   }
 
   /**
-   * F20260824srst：写入 self_restart healing 事件（上限判定的数据源）。
+   * 写入 self_restart healing 事件（上限判定的数据源）。
    * 复用 writeCircuitBreakEvent 模式，区别仅在 errorType 和描述语义。
    */
   async writeSelfRestartEvent(otterId: string, conversationId: string, newSessionId: string, invokeId: string): Promise<void> {
@@ -505,7 +505,7 @@ export class CircuitBreakSupport {
         context: { newSessionId },
       });
     } catch (err) {
-      // F20260827he2f: error 级别 + 完整上下文
+      // error 级别 + 完整上下文
       this.deps.logger.error('self_restart event write failed — healing_events data source degraded',
         err instanceof Error ? err : new Error(String(err)),
         {
@@ -539,7 +539,7 @@ export class CircuitBreakSupport {
     }
   }
 
-  /** F20260913ctlv 彻底切换：从 invoke_events 提取失败 invoke 的 tool_call 工具名序列（按事件顺序）
+  /** 彻底切换：从 invoke_events 提取失败 invoke 的 tool_call 工具名序列（按事件顺序）
    *  注：未注入 invokeRepo 时降级空序列（摘要缺工具链但不阻断熔断） */
   private async extractToolNames(invokeId: string): Promise<string[]> {
     if (!this.deps.invokeRepo) return [];
@@ -554,7 +554,7 @@ export class CircuitBreakSupport {
   }
 
   /** circuit_break 事件写入（上限判定与二级触发防循环的数据源；失败仅留痕不阻塞）。
-   * F20260920uhuc：改为 public——agent-invoker 熔断-handoff 路径跳过 executeCircuitBreakRestart 二次换世时，
+   * 改为 public——agent-invoker 熔断-handoff 路径跳过 executeCircuitBreakRestart 二次换世时，
    * 仍需补写熔断终态事件（newSessionId 指向 unifiedHandoff 建立的新世） */
   async writeCircuitBreakEvent(
     info: Pick<CircuitBreakInfo, 'otterId' | 'conversationId' | 'failedInvokeId'>,
@@ -567,7 +567,7 @@ export class CircuitBreakSupport {
       errorType: 'circuit_break',
       severity: 'medium',
       description: '连续输出退化触发熔断重启（F20260818cbkr）',
-      // F20260831dgcsq: firstInvokeId 作为因果链锚——circuit_break(firstInvokeId=A) → 对齐 degenerate(preRetryMessageId=A)
+      // firstInvokeId 作为因果链锚——circuit_break(firstInvokeId=A) → 对齐 degenerate(preRetryMessageId=A)
       context: { ...context },
     });
   }

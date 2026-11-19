@@ -1,8 +1,8 @@
 /**
- * F20261008hcpa（#1356 层2 疏通）：restart-service.mjs kill-by-pid 校验逻辑单测。
+ * （层2 疏通）：restart-service.mjs kill-by-pid 校验逻辑单测。
  *
  * 覆盖 assertKillByPidSafe 静态不变式：PID 合法性、主进程/自身/父进程拒绝、
- * projectDir 在工作根内。lsof 探测（进程存在性/cwd 归属）沿用 #844 口径：脚本内逻辑 + 手工冒烟。
+ * projectDir 在工作根内。lsof 探测（进程存在性/cwd 归属）沿用 口径：脚本内逻辑 + 手工冒烟。
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
@@ -65,7 +65,7 @@ describe('assertKillByPidSafe（#1356 kill-by-pid）', () => {
   });
 });
 
-// ── #1580 固化失败用例（修复前必失败）：alpha 规范数据根内 projectDir 应放行 ──
+// ── 固化失败用例（修复前必失败）：alpha 规范数据根内 projectDir 应放行 ──
 describe('#1580：alpha 规范数据根（~/.otter/alpha/<hash>）内 projectDir 放行', () => {
   const alphaRoot = path.join(os.homedir(), '.otter', 'alpha');
   const alphaProject = path.join(alphaRoot, '8f113208');
@@ -91,7 +91,7 @@ describe('#1580：alpha 规范数据根（~/.otter/alpha/<hash>）内 projectDir
   });
 });
 
-// ── 检视 A4/A5：wiring 覆盖 + 双源对齐（防调用点/硬编码根漂移静默失效）──
+// ── 检视 A4/wiring 覆盖 + 双源对齐（防调用点/硬编码根漂移静默失效）──
 describe('#1580 wiring 与双源对齐', () => {
   it('killByPidAllowedRoots 双根 = otter 工作根 + alpha 规范数据根', () => {
     const roots = killByPidAllowedRoots('/Users/orca/ai/otter-buddy');

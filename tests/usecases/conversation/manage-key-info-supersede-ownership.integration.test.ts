@@ -4,7 +4,7 @@ import { SqliteConversationRepository } from "@frameworks/db/conversation/sqlite
 import { ManageKeyInfo } from "@usecases/conversation/manage-key-info";
 import type { MemoryIndexGateway } from "@usecases/conversation/memory-index-gateway";
 
-/** #1815：supersede 的旧资源写入必须经过 conversation 归属闸。 */
+/** supersede 的旧资源写入必须经过 conversation 归属闸。 */
 describe("ManageKeyInfo.supersedeResource ownership（#1815）", () => {
   it("未知或跨对话拒绝且 SQLite 不变，正确归属仍完成替代与状态机校验", async () => {
     const db = createTestDb();

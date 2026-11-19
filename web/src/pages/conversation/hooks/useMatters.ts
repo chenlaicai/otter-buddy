@@ -4,12 +4,12 @@ import * as api from '../../../api/client'
 import { showToast } from '../../../components/Toast'
 
 /**
- * F20261006mtlp P1：待办板数据 hook（只读）。
+ * P1：待办板数据 hook（只读）。
  * 数据源 = GET /api/conversations/:id/matters（matters 表 open 清单）。
  * 轮询 30s（与 useScheduledTasks 同节奏——板上钉住的事项不需要秒级刷新，
  * 裁决动作走对话直复，獭代迁移后下轮轮询自然反映）。
  *
- * F20261006mlp2 P2：板上按钮裁决动作（act）+ 「+」登记（register）。
+ * P2：板上按钮裁决动作（act）+ 「+」登记（register）。
  * 架构 = 回执代执行（通道 B，特性文档「按钮挂点架构定案」）：
  * 按钮不新增 HTTP 写端点，而是把搭档意图结构化成一条 html-matter-action
  * 回执消息，经 onRouteToOtter(ownerOtterId) 复用 sendMessage SSE 管线发给
@@ -76,7 +76,7 @@ export interface UseMattersResult {
   recentClosed: MatterDTO[]
   /** 正在发送回执的 matter id（按钮 pending/防重——建议1，一个 matter 同时只发一条裁决） */
   pending: Record<string, boolean>
-  /** 板上裁决（通道 B）：合成回执路由 owner 獭代执行；失败 toast 分流（#1268 教训） */
+  /** 板上裁决（通道 B）：合成回执路由 owner 獭代执行；失败 toast 分流（教训） */
   act: (matter: MatterDTO, action: MatterAction) => Promise<void>
   /** 板上「+」登记（准入路径 2）：合成回执路由默认派发（在场獭/大獭）登记 */
   register: (title: string) => Promise<void>
@@ -109,7 +109,7 @@ export function useMatters(
     ])
       .then(([open, all]) => {
         setMatters(open)
-        // 近期闭环区 = 终态翻案入口：CLOSED（翻案）+ ABANDONED（推翻「不做」恢复，F20261006mlp2 严重2/#1321）
+        // 近期闭环区 = 终态翻案入口：CLOSED（翻案）+ ABANDONED（推翻「不做」恢复，严重2/）
         setRecentClosed(
           all.filter(m => ['CLOSED', 'SUPERSEDED', 'ABANDONED'].includes(m.state))
             .slice(0, RECENT_CLOSED_LIMIT),
@@ -130,15 +130,15 @@ export function useMatters(
   /**
    * P2 板上裁决（通道 B 回执代执行）。
    *
-   * 架构纪律（F20261006mlp2「按钮挂点架构定案」）：按钮不乐观改状态——状态真相只在
+   * 架构纪律（「按钮挂点架构定案」）：按钮不乐观改状态——状态真相只在
    * matters 表，迁移由 owner 獭收到回执后 transition_matter 代执行，板上提前渲染一个
    * 还没发生的迁移 = 双写分裂（板上说已迁、表里还没迁）。这里只合成回执发出去，
    * 真实状态变化经 30s 轮询反映（P1 同款节奏）。
    *
-   * 失败处理（#1268/F20261006s1x0 教训——失败分支不许静默）：回执路由函数抛错时
+   * 失败处理（/教训——失败分支不许静默）：回执路由函数抛错时
    * toast 报错让搭档可重试；发送成功也只表「搭档已表达意图」，不表「已迁移」。
    *
-   * F20261006mlp2 P2 处置建议1：act 改 async、接路由真实结果再 toast——此前先弹成功
+   * P2 处置建议1：act 改 async、接路由真实结果再 toast——此前先弹成功
    * toast 再 fire-and-forget 发回执，发送失败时搭档已看到成功假象。现在 await 路由：
    * resolve 才弹「已发送请求」，reject 弹「发送失败」。按钮防重由 disabled 态兜（MattersPanel）。
    */

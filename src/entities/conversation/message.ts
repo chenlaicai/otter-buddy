@@ -16,7 +16,7 @@ export type MessageStatus = "streaming" | "speaking" | "completed" | "failed" | 
 /** 消息事件类型 */
 export type MessageEventType = "tool_result" | "assistant_toolcall" | "assistant_text" | "error";
 
-/** 消息外部元数据（用于查重等场景，F20260805rbrg） */
+/** 消息外部元数据（用于查重等场景，） */
 export interface MessageMetadata {
   /** 单条消息去重 ID：`boss:{bossId}:{mid}` */
   externalId?: string;
@@ -26,7 +26,7 @@ export interface MessageMetadata {
   eventType?: string;
   /** 严重度（status kind 时填）：warning | critical */
   severity?: "warning" | "critical";
-  /** F20260909smsp：invoke 消息链归组 ID（= 首个 message id）。speak message 用此字段归属到 invoke。 */
+  /** invoke 消息链归组 ID（= 首个 message id）。speak message 用此字段归属到 invoke。 */
   invokeGroupId?: string;
   /** 其他自定义键 */
   [key: string]: unknown;
@@ -54,7 +54,7 @@ export interface Message {
   contextTokens: number | null;
   contextTokensMax: number | null;
   source: MessageSource;
-  /** 可选外部元数据（F20260805rbrg 招聘桥接用，旧消息为 null）。可选以避免破坏既有 Message 构造点。 */
+  /** 可选外部元数据（招聘桥接用，旧消息为 null）。可选以避免破坏既有 Message 构造点。 */
   metadata?: MessageMetadata | null;
   /** 发送者显示名快照（创建时解析）。空串 = 历史行未解析，读取时走 resolveSpeakerName 实时解析。 */
   senderName: string;
@@ -64,7 +64,7 @@ export interface Message {
    *  附件要流到 egress 通道可及处，实体须挂此字段（repository 加载/send 内存构造/发送入库三处回填）。
    *  声明可选避免测试 fixture 编译波及。 */
   attachments?: AttachmentRef[];
-  /** F20260901sgp0 P0: 信号协议元数据（已退役）。
+  /** P0: 信号协议元数据（已退役）。
    *  - signalLevel: 档位 (NORMAL/URGENT/HALT) 已退役，列保留 null 不读。
    *  - signalMeta: 现仅承载 consumed 销账标记（内部用，不透出）。 */
   signalLevel?: string | null;
@@ -102,7 +102,7 @@ export function canAppendEvent(status: MessageStatus): boolean {
  * 仅 streaming 状态的消息可进入 speaking 状态。
  */
 export function canStartSpeaking(status: MessageStatus): boolean {
-  // F20260908rlcp：speaking 状态下的重复 yield 合法——以最后一次 tsp 为准（覆盖写）
+  // speaking 状态下的重复 yield 合法——以最后一次 tsp 为准（覆盖写）
   // 允许「交棒后改派」（create_otter 后 yield 给新獭的场景）
   return status === "streaming" || status === "speaking";
 }

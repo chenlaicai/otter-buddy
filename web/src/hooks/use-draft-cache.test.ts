@@ -143,7 +143,7 @@ describe('useDraftCache', () => {
       result.current.saveDraft('')
     })
 
-    // 手动清空后 debounce timer 不写入（S1 修复：空串同步 removeItem 了）
+    // 手动清空后 debounce timer 不写入（修复：空串同步 removeItem 了）
     act(() => {
       vi.advanceTimersByTime(400)
     })
@@ -157,7 +157,7 @@ describe('useDraftCache', () => {
   })
 
   it('should not resurrect when cleared and unmounted within debounce window (S1 CE-1)', () => {
-    // S1 反例：清空后 300ms debounce 窗口内卸载（SPA 导航），旧 key 留存复活
+    // 反例：清空后 300ms debounce 窗口内卸载（SPA 导航），旧 key 留存复活
     const { result, unmount } = renderHook(() => useDraftCache('conv-1'))
 
     // 写入草稿并完成 debounce
@@ -181,7 +181,7 @@ describe('useDraftCache', () => {
   })
 
   it('should not resurrect when cleared and beforeunload within debounce window (S1 CE-2)', () => {
-    // S1 反例：清空后 300ms debounce 窗口内 beforeunload（关页/刷新），旧 key 留存复活
+    // 反例：清空后 300ms debounce 窗口内 beforeunload（关页/刷新），旧 key 留存复活
     const { result } = renderHook(() => useDraftCache('conv-1'))
 
     // 写入草稿并完成 debounce

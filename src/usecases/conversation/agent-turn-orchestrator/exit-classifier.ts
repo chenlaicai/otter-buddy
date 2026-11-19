@@ -9,17 +9,17 @@
 import type { InvokeOutcome } from "@usecases/ports/agent-metrics-port";
 import { DelegationInFlightError } from "@entities/errors";
 
-/** #752：用户中断时可捕获的底层错误类型（排除 abort 自身产物） */
+/** 用户中断时可捕获的底层错误类型（排除 abort 自身产物） */
 export type AbortUnderlyingError =
   | { kind: 'api_error'; errorMessage: string }
   | { kind: 'guard_abort'; guardReason: string };
 
 /** Agent invocation exit reason classification */
 export type ExitReason =
-  | { kind: 'user_abort'; toolCallCount: number; /** #752：用户中断时的底层 SDK 错误，用于中断归因 */ underlyingError?: AbortUnderlyingError }
-  | { kind: 'guard_abort'; guardReason: string; toolCallCount: number; /** F20261111slfrz：超时类 guard（OutputGuard fire）的实际墙钟耗时与睡眠冻结判定 */ guardTimeoutElapsedMs?: number; guardSuspectedFreeze?: boolean }
+  | { kind: 'user_abort'; toolCallCount: number; /** 用户中断时的底层 SDK 错误，用于中断归因 */ underlyingError?: AbortUnderlyingError }
+  | { kind: 'guard_abort'; guardReason: string; toolCallCount: number; /** 超时类 guard（OutputGuard fire）的实际墙钟耗时与睡眠冻结判定 */ guardTimeoutElapsedMs?: number; guardSuspectedFreeze?: boolean }
   | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
-  /** F20261027cnsv 审视修复（Feb 发现 2）：D3 锁超时降级路径的 DelegationInFlightError
+  /** 审视修复（Feb 发现 2）：D3 锁超时降级路径的 DelegationInFlightError
    *  是背压显式拒绝而非 API 故障——单独归类，台账可区分「拒绝」与「故障」，
    *  避免背压污染 api_error 错误口径。处置行为与 api_error 同路（failTerminal +
    *  人话文案，实测无害），分类只为可观测性准确性。 */
@@ -27,7 +27,7 @@ export type ExitReason =
   | { kind: 'queued'; toolCallCount: number }
   | { kind: 'no_yield'; toolCallCount: number };
 
-/** #752：判断 err 是否是 abort 操作自身的产物（而非 abort 前已存在的底层错误）
+/** 判断 err 是否是 abort 操作自身的产物（而非 abort 前已存在的底层错误）
  *  SDK abort 错误文案存在多种写法（"Request was aborted" / "Request aborted"，
  *  均已在生产现场观察到），匹配须覆盖全部变体——漏匹配会把 abort 副作用
  *  误判为底层 API 错误，导致中断归因消息附上一段误导性的「底层错误」。 */
@@ -50,7 +50,7 @@ export function extractGuardReason(
   return getInternalAbortReason(messageId);
 }
 
-/** F20261027cnsv 审视修复（Feb 发现 2）：错误退出分类——背压拒绝先于通用 api_error
+/** 审视修复（Feb 发现 2）：错误退出分类——背压拒绝先于通用 api_error
  *  判定（DelegationInFlightError 是 factory 单飞行防线的显式拒绝，非模型/API故障）。
  *  拆为独立函数：classifyExit 复杂度守恒（新增分类不突破 complexity 预算）。 */
 function classifyErrorExit(
@@ -76,7 +76,7 @@ export function classifyExit(
   getInternalAbortReason: (messageId: string) => string | undefined,
 ): ExitReason {
   if (userAbortedMessages.has(p.messageId)) {
-    // #752：用户中断时保留底层错误信息用于中断归因
+    // 用户中断时保留底层错误信息用于中断归因
     // 关键：排除 abort 自身产物（SDK 的 "Request was aborted" 错误）——
     // 该错误是 abort 动作的副作用，不是 abort 前已存在的底层错误
     let underlyingError: AbortUnderlyingError | undefined;
@@ -120,7 +120,7 @@ export function exitKindToOutcome(kind: ExitReason["kind"], retryCount: number):
   }
 }
 
-/** F20261111slfrz：从 abort 异常提取 OutputGuard 冻结痕迹（elapsed/判定）——
+/** 从 abort 异常提取 OutputGuard 冻结痕迹（elapsed/判定）——
  *  超时类 guard（OutputGuard fire）的实际耗时挂在 err._outputGuardMetadata：
  *  elapsed ≫ budget = 疑似系统睡眠冻结，orchestrator 据此落 healing 痕迹
  *  （M-a8f8f080 定案）。独立小函数控 classifyExit 复杂度。 */

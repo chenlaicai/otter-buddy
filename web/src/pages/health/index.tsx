@@ -1,11 +1,11 @@
 /**
- * F20260825rweb（#403）：RHI 健康面板页面（三视图）。
- * F20260829hviz：总览从静态数字卡升级为可视化看板。
- * F20260901 UI 重设计 PR2（Issue #647）：总览重组为「出血点仪表」——
+ * ：RHI 健康面板页面（三视图）。
+ * 总览从静态数字卡升级为可视化看板。
+ * F20260901 UI 重设计 PR2：总览重组为「出血点仪表」——
  *   复发模式卡（首屏主角，bug●→fix● 交替时间轴）+ 低置信折叠抽屉 +
  *   热点热力条 + 趋势降 sparkline（可展开详情，数据不丢）+ 色彩 token 统一。
- *   #652 口径：confidence=low 不进 critical/warning 计数（数字与视觉折叠一致）。
- * Issue #1029（F20260917hpui）：总览页三层重组——判断（归因句升主标题）→
+ * 口径：confidence=low 不进 critical/warning 计数（数字与视觉折叠一致）。
+ * ：总览页三层重组——判断（归因句升主标题）→
  *   五维大白话条形（点开展开证据层，原料数据收编下钻）→ 建议动作。
  *   砍掉：模块热区条形图、四张重复指标卡、平铺热点图/环形图/四态条（原料
  *   全部收编进对应维度证据层）。tab 改名：信号→警报、特性链→进行中的事。
@@ -34,7 +34,7 @@ import { WorkLedgerPanel } from './WorkLedgerPanel'
 import { ModelEfficiencyPanel } from './ModelEfficiencyPanel'
 type Tab = 'overview' | 'signals' | 'chains' | 'cost' | 'works'
 
-/** tab 显示名（issue #1029：信号→警报、特性链→进行中的事——内部术语翻译成搭档语言） */
+/** tab 显示名（信号→警报、特性链→进行中的事——内部术语翻译成搭档语言） */
 const TAB_LABELS: Record<Tab, string> = {
   overview: '总览',
   signals: '警报',
@@ -46,7 +46,7 @@ const TAB_LABELS: Record<Tab, string> = {
 const COST_OUTPUT_COLORS = SERIES_COLORS
 
 export default function HealthPage() {
-  // Issue #647：支持 ?tab= 深链（刷新/截图/分享指定视图）；非法值回退 overview
+  // 支持 ?tab= 深链（刷新/截图/分享指定视图）；非法值回退 overview
   const initialTab = (['overview', 'signals', 'chains', 'cost', 'works'] as const).includes(new URLSearchParams(window.location.search).get('tab') as Tab) ? new URLSearchParams(window.location.search).get('tab') as Tab : 'overview'
   const [tab, setTab] = useState<Tab>(initialTab)
   const [overview, setOverview] = useState<RhiOverviewDTO | null>(null)
@@ -57,7 +57,7 @@ export default function HealthPage() {
   const [fanInExcluded, setFanInExcluded] = useState<Array<{ file: string; fanIn: number }>>([])
   const [costOutput, setCostOutput] = useState<RhiCostOutputDTO | null>(null)
   const [score, setScore] = useState<RhiScoreDTO | null>(null)
-  // Issue #649 PR3：泳道异常筛选 + 抽屉选中链
+  // PR3：泳道异常筛选 + 抽屉选中链
   const [chainFilter, setChainFilter] = useState<ChainState | null>(null)
   const [activeChainId, setActiveChainId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -101,7 +101,7 @@ export default function HealthPage() {
     try {
       const r = await api.triggerRhiScan()
       const res = r.result as { commitCount?: number; metricsStored?: number }
-      // #581：后端失败改返 500，此处只处理成功路径（失败进 catch）
+      // 后端失败改返 500，此处只处理成功路径（失败进 catch）
       showToast(`扫描完成：${res.commitCount ?? 0} commits · ${res.metricsStored ?? 0} 项指标入库`, 'success')
       await refresh()
     } catch (err) {

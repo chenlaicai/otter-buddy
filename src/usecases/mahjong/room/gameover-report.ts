@@ -30,7 +30,7 @@ export interface GameoverReportDeps {
 
 type NameOf = (seat: number) => string;
 
-/** F20261022mjls：战报组装（自 RoomService.fireGameover 拆出——控 max-lines）。
+/** 战报组装（自 RoomService.fireGameover 拆出——控 max-lines）。
  *  名次：gameOver 事件优先（nextRound 产生，已在 publishGame 采集）；缺失回退末局点数 */
 export function buildGameoverReport(room: {
   roomId: string;

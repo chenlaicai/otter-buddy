@@ -1,5 +1,5 @@
 /**
- * F20260920trrt 复检处置验证：retireTurnSystem 对三种库形态的正确性。
+ * 复检处置验证：retireTurnSystem 对三种库形态的正确性。
  * - A 新库：历史 ALTER 补丁删除后不再注入僵尸 turn 列
  * - B 存量库：executions 悬空 FK / linked_resources turn 戳 / participants turn 列 / entries turn_id 全清 + 数据保留 + 幂等
  */
@@ -61,7 +61,7 @@ describe("retireTurnSystem 复检处置验证（F20260920trrt）", () => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
     initSchema(db);
-    // 构造存量形态（#654 时代 executions + idnw 时代 participants/linked_resources + ctlv 时代 entries）
+    // 构造存量形态（时代 executions + idnw 时代 participants/linked_resources + ctlv 时代 entries）
     db.pragma("foreign_keys = OFF");
     db.exec(`DROP TABLE scheduled_task_executions`);
     db.exec(`CREATE TABLE scheduled_task_executions (

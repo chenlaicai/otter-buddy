@@ -21,7 +21,7 @@ interface CustomProviderOptions {
   apiKey?: string;
   /** OpenAI 协议：缺省 Responses；chat 使用 /chat/completions。 */
   apiFormat?: "responses" | "chat";
-  /** 模型上下文窗口（自定义模型注入时带入，SDK compaction/溢出检测依赖它，F20260808ctxw） */
+  /** 模型上下文窗口（自定义模型注入时带入，SDK compaction/溢出检测依赖它，） */
   contextWindow?: number;
   /** 最大输出 tokens（缺省回退 provider 模板值；SDK Model 接口必填，缺了请求负载 max_tokens 为 null） */
   maxTokens?: number;

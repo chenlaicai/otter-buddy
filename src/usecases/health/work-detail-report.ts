@@ -1,8 +1,8 @@
 /**
- * F20261027hwl1：工作详情报告——单件工作的成本拆分、参与者、轮次时间线。
+ * 工作详情报告——单件工作的成本拆分、参与者、轮次时间线。
  *  不存在的 workId 返回 null（controller 404），不返回演示对象。
  *
- * F20261027hwl1 复审 S1/A5 修复：
+ * 复审 /修复：
  * - token 汇总走 aggregateAttributionCounts 的 per-work 全量（无 LIMIT，工作再老不丢早期数据）
  * - 证据列表 SQL 内按 work 过滤后取最新 evidenceLimit 条 + truncatedCount 显式返回
  * - per-work usageGapCount 显式返回（不与真实零混淆）
@@ -25,13 +25,13 @@ export interface WorkDetailReport {
   tokens: WorkTokenSummary;
   participants: Array<{ otterId: string; invokeCount: number }>;
   traces: Array<{ traceId: string; boundAt: string; boundVia: string }>;
-  /** 调用证据（最新 N 条，按时间倒序；超出的部分 truncatedCount 显式计数——复审 A5） */
+  /** 调用证据（最新 N 条，按时间倒序；超出的部分 truncatedCount 显式计数——复审 ） */
   invokeEvidence: WorkInvokeEvidence[];
   /** 证据列表截断数（total invokes - evidenceLimit 返回数；0 = 无截断） */
   truncatedCount: number;
-  /** 全部 invoke 数（与列表报告 invokeCount 同口径——复审 S1：两处数字不再打架） */
+  /** 全部 invoke 数（与列表报告 invokeCount 同口径——复审 两处数字不再打架） */
   totalInvokeCount: number;
-  /** per-work usage 缺口（四分量全 null——复审 A5：显式返回不与真实零混淆） */
+  /** per-work usage 缺口（四分量全 null——复审 显式返回不与真实零混淆） */
   usageGapCount: number;
   /** 金额参考可用性（本期恒 false——未配置价格表） */
   pricingAvailable: boolean;
@@ -62,7 +62,7 @@ export class WorkDetailReportBuilder {
     const work = await this.repo.getWorkById(workId);
     if (!work) return null;
 
-    // 复审 S1：token 汇总走全量聚合（SQL 内 GROUP BY，无 LIMIT）——与列表报告同源同口径
+    // 复审 token 汇总走全量聚合（SQL 内 GROUP BY，无 LIMIT）——与列表报告同源同口径
     const agg = await this.repo.aggregateAttributionCounts();
     const perWork = agg.perWork.get(workId);
     const tokens: WorkTokenSummary = perWork

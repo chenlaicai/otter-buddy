@@ -1,5 +1,5 @@
 /**
- * F20260916fst4：orchestrator 首哑判定（first-dumb）单测。
+ * orchestrator 首哑判定（first-dumb）单测。
  *
  * 覆盖方案验证段 5 用例：
  * - 首次 invoke + exhausted 命中挂 _firstDumb
@@ -99,7 +99,7 @@ describe("F20260916fst4 orchestrator 首哑判定", () => {
     expect(result._firstDumb!.errorMessage).toContain("1310");
     expect(result._firstDumb!.resetHint).toBeTruthy();
     expect(result._firstDumb!.failedInvokeId).toBe("invoke-1");
-    // healing 落账已发生（#543 通道不被首哑阻断）
+    // healing 落账已发生（通道不被首哑阻断）
     expect(callbacks.healingEvents.length).toBeGreaterThan(0);
   });
 

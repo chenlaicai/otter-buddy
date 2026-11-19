@@ -14,7 +14,7 @@ import type { WeixinQrStatus, WeixinQrStatusResp } from "./types";
  * 流程（openclaw 插件走 stdin 输入）。CLI 场景通过 verifyCodeInput 回调注入。
  */
 /**
- * 登录结果（#1112）：
+ * 登录结果：
  * - alreadyConnected：binded_redirect 终态——扫码的 bot 已绑定本实例，
  *   服务端不签发新凭证，本地已有凭证继续有效。语义是成功「已连接过」，
  *   不是登录失败（参考实现 openclaw-weixin@2.4.6 login-qr.ts WeixinQrWaitResult
@@ -169,7 +169,7 @@ export class WeixinLoginFlow {
   }
 
   /**
-   * 重定向 URL 白名单校验（switchGateway 与 confirm 落盘共用——#571 审视 S1/S2/A1 收口）。
+   * 重定向 URL 白名单校验（switchGateway 与 confirm 落盘共用——审视 //A1 收口）。
    * 校验对象 = 最终使用的 URL 经 URL 解析后的 hostname（非裸字符串 endsWith）：
    * - `evil.com@weixin.qq.com` 形态 URL 解析后 hostname 是 weixin.qq.com？不——
    *   userinfo 在 @ 前，hostname 是 @ 后的 weixin.qq.com，确实官方；但裸串 endsWith

@@ -279,7 +279,7 @@ describe('SchedulerService metric 集成', () => {
   });
 
   it('createExecution 抛错时 default failed 保证：trigger_total{failed} 递增', async () => {
-    // Why 这个测试：验证 round 2 C1 修复的"默认 failed"语义
+    // Why 这个测试：验证 C1 修复的"默认 failed"语义
     //   createExecution 在 inner try 之前，抛错时 inner try 还没进入
     //   status 仍是默认 'failed'
     const taskRepo = createMockRepo();

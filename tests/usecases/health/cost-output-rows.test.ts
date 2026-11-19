@@ -75,7 +75,7 @@ describe("buildCostOutputSnapshotRows", () => {
     const costs = [fakeCostRecord(), fakeCostRecord({ otterId: "otter-bbb", otterName: "小獭甲" })];
     const outputs = [fakeOutputRecord(), fakeOutputRecord({ otterId: "otter-bbb", otterName: "小獭甲", messageCount: 10, toolCallCount: 3 })];
     const rows = buildCostOutputSnapshotRows(costs, outputs);
-    // 2 cost × 12（#602 删 cache_hit_rate后 11 键 + F20260914usgm error_call_count）+ 2 output × 2 = 28
+    // 2 cost × 12（删 cache_hit_rate后 11 键 + error_call_count）+ 2 output × 2 = 28
     expect(rows.length).toBe(28);
   });
 
@@ -107,7 +107,7 @@ describe("buildCostOutputSnapshotRows", () => {
     expect(byKey.get("total_tokens")).toBe(13700);
     expect(byKey.get("cost_total")).toBeCloseTo(0.1282);
     expect(byKey.get("llm_call_count")).toBe(5);
-    expect(byKey.get("cache_hit_rate")).toBeUndefined(); // #602：死键已删，不再写入
+    expect(byKey.get("cache_hit_rate")).toBeUndefined(); // 死键已删，不再写入
   });
 
   it("PR 数行按日期生成（全局，无 per-otter 维度）", () => {

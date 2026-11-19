@@ -1,8 +1,8 @@
 /**
- * F20261019f714（M-f7148deb 第 2 条）：链接订正通道行为锁定。
+ * （M-f7148deb 第 2 条）：链接订正通道行为锁定。
  *
  * 背景：文档 rename 后引用链同步需要改历史文档正文的链接路径——此前被
- * lint-historical-docs 全拦（正文修改无开口），F20261001lrbk 因此搁置根治
+ * lint-historical-docs 全拦（正文修改无开口），因此搁置根治
  * 改走豁免（lint:docs ratchet 上限 3）。本通道补齐机械开口：.doc-fix 声明 +
  * 全部变更行是成对的纯链接路径/反引号 .md 文件名替换。
  *
@@ -10,7 +10,7 @@
  * 独立迷你 fixture（与 rename 主套件同款隔离方式）。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-// F20261021ttos：临时 git 仓库结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+// 临时 git 仓库结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
 vi.setConfig({ testTimeout: 20_000 });
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -31,7 +31,7 @@ function runLint(cwd: string, args: string[] = []) {
 
 const TARGET = "docs/features/2026/01/01/F20260101tgt-old-feature.md";
 const REFEREE = "docs/features/2026/01/02/F20260102ref-referencing-doc.md";
-// J2 回归 fixture（F20261022j2j3）：同一行内反引号 token 先于 markdown 链接的形态——
+// J2 回归 fixture：同一行内反引号 token 先于 markdown 链接的形态——
 // 修复前 differsOnlyInLinkPaths 的 stripAll 先剥链接再剥 token（第二趟从 token 位再切），
 // 该形态骨架被切坏导致合法 rename 同步订正误拒。
 const REFEREE2 = "docs/features/2026/01/03/F20260103rf2-referencing-doc.md";
@@ -198,7 +198,7 @@ describe("lint-historical-docs 链接订正通道（F20261019f714，M-f7148deb �
     git(repo, ["add", "-A"]);
     git(repo, ["commit", "-q", "-m", "feat: rename + link sync"]);
     const ok = runLint(repo, ["--base", "origin/main"]);
-    expect(ok.status).toBe(0); // S2：链接订正通道在 --base 回放同样生效（修复前此 commit 必红）
+    expect(ok.status).toBe(0); // 链接订正通道在 --base 回放同样生效（修复前此 commit 必红）
     // 后继 commit：观点改写（带声明）——逐 commit 回放必须在第二个 commit 转红
     fs.writeFileSync(
       path.join(repo, REFEREE),

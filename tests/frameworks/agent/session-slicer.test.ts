@@ -1,12 +1,12 @@
 /**
- * F20260929kws1：保留段简化测试（最近 4 条 speak + 单条截断 + 剥离非 text 块）。
+ * 保留段简化测试（最近 4 条 speak + 单条截断 + 剥离非 text 块）。
  *
  * 验证节规格（方案文档「验证」节第 2 条）：
  * 1. 切片：含 10 条 assistant text → 只保留最近 4 条；不足 4 条全保留；无 assistant text 不报错
  * 2. 截断：单条 5000 chars → 750+标记+750；≤1500 不动；多 text 块拼接计长（3×600=1800 → 截）
- * 3. 混合块形态（S1 回归）：text 1000 + thinking 3000 + toolCall args 5000 → 序列化不含
+ * 3. 混合块形态（回归）：text 1000 + thinking 3000 + toolCall args 5000 → 序列化不含
  *    thinking/toolCall 内容，总量 ≤6,500 chars（剥块不截 text 的「硬顶」是假的——实证锚）
- * 4. 契约：messagesToSummarize=保留段之外的全量消息（F20260930hsfx 新口径）；turnPrefixMessages 恒空；isSplitTurn 恒 false
+ * 4. 契约：messagesToSummarize=保留段之外的全量消息（新口径）；turnPrefixMessages 恒空；isSplitTurn 恒 false
  * 5. 回归：user 消息/注入包/toolResult 不进保留段
  */
 import { describe, expect, it } from "vitest";

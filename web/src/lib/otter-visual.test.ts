@@ -1,5 +1,5 @@
 /**
- * F20260921otcl：resolveOtterVisual 单一入口测试。
+ * resolveOtterVisual 单一入口测试。
  *
  * 覆盖：
  * 1. 方案「失败用例先行」两条的常驻迁移（修复前红证据见 PR Verification）：

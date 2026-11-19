@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { extractAssertionDueDate } from '@usecases/scheduler/scheduler-service';
 import type { ScheduledTask } from '@entities/scheduled-task/scheduled-task';
 
-// ─── #1004：验证断言到期日期提取 ──────
+// ─── 验证断言到期日期提取 ──────
 // extractAssertionDueDate 是 regression-verify 任务的筛选核心：
 // 从 closed daily-review issue 的 body 中定位「## 验证断言」段，提取「到期：YYYY-MM-DD」。
 // 提取不到 → null（该 issue 不参与回查，prompt 层会提醒补写断言）。
@@ -53,7 +53,7 @@ describe('extractAssertionDueDate', () => {
   });
 });
 
-// ─── 检视发现 2/3：buildRegressionVerifyBody 失败路径与哨兵区分 ──────
+// ─── /3：buildRegressionVerifyBody 失败路径与哨兵区分 ──────
 // gh CLI 失败（auth 过期/网络）必须返回 REGRESSION_GH_FAILED 哨兵而非 null——
 // 「gh 故障」与「真无到期断言」在调用方可区分，前者触发 warn 告警。
 // 用 vi.mock 拦截 child_process 的 execFile，确定性模拟 gh 失败。

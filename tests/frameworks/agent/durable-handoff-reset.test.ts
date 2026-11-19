@@ -2,7 +2,7 @@ import { createTestExecutionMachineRegistry } from "../../helpers/execution-mach
 /**
  * M-9af49d4a 换世交接 durable 路径失配——根因修复回归锁。
  *
- * #1783 事故回顾：换世登记 ${otterId}-${uuid}.sqlite 世代文件，而打开路径恒用
+ * 事故回顾：换世登记 ${otterId}-${uuid}.sqlite 世代文件，而打开路径恒用
  * durableFile(otterId)=plain 库 → 换世只翻账本不换 transcript。三连伤：
  * ①水位循环（上下文不降反复触发交接，40 分钟三连）；②幽灵账本（世代文件从未创建）；
  * ③前世档案恒机械转储（读取前世文件失败）。生产表现：「大獭触发压缩但上下文还是 400k+」。

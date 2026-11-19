@@ -1,11 +1,11 @@
 /** 链接资源 DTO（统一产物模型，resourceType="fact" 为文本类事实）
  *  resourceType 开放字符串，已用值：fact（文本事实）/url（外部链接）/file（文档路径）
- *  /pr/worktree/branch（F 特性产物，三型必带 groupId）/game（F20261021gmbe 游戏内嵌——
+ * /pr/worktree/branch（F 特性产物，三型必带 groupId）/game（游戏内嵌——
  *  url 必须为本应用麻将牌局路由 ^/mahjong/[\\w-]+$ 全匹配，中间栏 ArtifactCard 渲染为
  *  宿主内嵌 iframe 面板；外部 URL 永不内嵌，写入侧 validateGameUrl 硬拒）。
- *  新增资源型须过 F20261021gmbe「后续形态接入契约」论证（语义独立性 vs url 型泛化污染）。 */
+ * 新增资源型须过 「后续形态接入契约」论证（语义独立性 vs url 型泛化污染）。 */
 
-/** F20261021gmbe（检视发现 2 修复）：game url 白名单正则——前后端唯一真相源。
+/** （）：game url 白名单正则——前后端唯一真相源。
  *  后端（manage-key-info validateGameUrl 写入卫生）与 web（GameEmbedPanel 渲染降级）
  *  同引此常量，扩白名单（后续形态接入契约）只改这一处，消双份漂移面。
  *  先例：CARD_MAX_PER_MESSAGE 等同走 @contract 运行时值导入（tool-helpers.ts）。 */
@@ -30,11 +30,11 @@ export interface LinkedResourceDTO {
   status: "active" | "superseded" | "archived";
   groupId: string | null;
   supersededBy: string | null;
-  /** F20261013csv3 T2：unfurl_cache 读侧 join 投影（join 键 resource.url ↔
+  /** T2：unfurl_cache 读侧 join 投影（join 键 resource.url ↔
    *  unfurl_cache.url）——PR 卡 diff stat + 状态徽章数据源。仅 url 类型资源、
    * 且缓存命中 github-api 记录时携带；落空为 null（渲染侧显示「未抓取」态）。
    *  字段含 state（PR/issue 状态 open/merged/closed/draft）——与 UnfurlCard 的
-   *  UnfurlData.state 同口径，两端不漂移（检视发现 1：投影链丢 state 致前端
+   * UnfurlData.state 同口径，两端不漂移（投影链丢 state 致前端
    *  退用 title.includes 猜状态）。 */
   unfurl?: {
     source: "og" | "github-api" | "failed";
@@ -42,7 +42,7 @@ export interface LinkedResourceDTO {
     description: string | null;
     error: string | null;
     state: string | null;
-    /** #1463：draft 子态（state='OPEN' 且 isDraft → 前端徽章「草稿」） */
+    /** draft 子态（state='OPEN' 且 isDraft → 前端徽章「草稿」） */
     isDraft?: boolean | null;
     additions: number | null;
     deletions: number | null;

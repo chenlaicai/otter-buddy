@@ -3,8 +3,8 @@ import { resolveOtterVisual } from '../lib/otter-visual'
 
 /**
  * Otter avatar with color tag (← D-UI-1: multi-otter color differentiation)
- * 像素风 SVG 头像；加载失败时降级为首字母渐变圆（检视发现 3 的兜底路径）。
- * F20260921otcl：视觉解析收敛——内部改调 resolveOtterVisual 单一入口；
+ * 像素风 SVG 头像；加载失败时降级为首字母渐变圆（的兜底路径）。
+ * 视觉解析收敛——内部改调 resolveOtterVisual 单一入口；
  * 签名增加可选 color prop（父组件持有库色——消息事件色/otters 列表色——时传入，
  * 不传时按 type + fnv1a 展示回退兜底）。既有调用方零强制改动（可选 prop 向后兼容）。
  */
@@ -19,7 +19,7 @@ export function OtterAvatar({
   name: string
   size?: number
   type?: 'big' | 'small'
-  /** F20260921otcl：父组件持有的出生色（色板 key）；优先于内部回退 */
+  /** 父组件持有的出生色（色板 key）；优先于内部回退 */
   color?: string | null
 }) {
   const [failed, setFailed] = useState(false)

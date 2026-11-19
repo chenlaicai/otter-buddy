@@ -488,7 +488,7 @@ describe("F20260917cvid: 本对话来源加权（currentConversationBoost）", (
   });
 
   it("rerank 传入 currentConversationId 时，本对话条目分数 ×1.5，其他对话条目不变", () => {
-    // CI flaky 修复（turn PR #1053 顺带）：默认 createdAt=now 使 boosted/baseline 两次
+    // CI flaky 修复（turn 顺带）：默认 createdAt=now 使 boosted/baseline 两次
     // rerank 之间真实时间流逝 → timeDecay 漂移 → 5.7e-10 差击穿 10 位精度断言（慢机
     // 器 CI 实证）。固定 createdAt + vi.setSystemTime 钉死时间源，双保险。
     const NOW = "2026-09-20T00:00:00Z";
@@ -517,7 +517,7 @@ describe("F20260917cvid: 本对话来源加权（currentConversationBoost）", (
   });
 
   it("不传 currentConversationId 时排序与旧行为一致（零影响）", () => {
-    // 与上一测试同款 flaky（F20260922txre PR 顺带修，CI run 35687806624 实证）：
+    // 与上一测试同款 flaky（PR 顺带修，CI run 35687806624 实证）：
     // 默认 createdAt=now + 双次 rerank 跨毫秒 → timeDecay 漂移 → 5.7e-10 差击穿
     // 10 位精度断言。固定 createdAt + vi.setSystemTime 钉死时间源（同款双保险）。
     const NOW = "2026-09-20T00:00:00Z";

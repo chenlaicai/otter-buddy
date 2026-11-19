@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# F20261103obarx 防再犯 regression_test：otterbar 探活鉴权适配 + renderer 离线驻留。
+# 防再犯 regression_test：otterbar 探活鉴权适配 + renderer 离线驻留。
 #
 # 事故背景（2026-11-03，10/30 起持续 4 天）：
-#   #1541 鉴权层合入后 /api/conversations 对裸探活 401 → status-core 恒判离线 →
+# 鉴权层合入后 /api/conversations 对裸探活 401 → status-core 恒判离线 →
 #   renderer「offline_long 退出让位」× launchd KeepAlive/ThrottleInterval 60s =
 #   「拉起-注册-秒退-注销」循环 = Dock 每分钟闪动（/tmp/otterbar-swift.log 3646 条）。
 #

@@ -5,7 +5,7 @@ import { spawn, execSync } from "node:child_process";
 import type { WorkspaceGateway } from "@usecases/ports/workspace-gateway";
 import type { Logger } from "@usecases/ports/logger";
 import { DomainError } from "@entities/errors";
-// Why: Workspace DTO 单一真相源在 api-contract（issue #558）——本文件曾是定义处，
+// Why: Workspace DTO 单一真相源在 api-contract——本文件曾是定义处，
 // 迁移后此处仅消费契约，与 controller / web 三侧靠双端 tsc 锁死漂移
 import type { WorkspaceEntry, WorkspaceFileContent } from "@contract/api/workspace";
 import { WORKSPACE_IMAGE_EXTENSIONS } from "@contract/api/workspace";

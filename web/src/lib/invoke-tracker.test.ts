@@ -12,7 +12,7 @@ import {
   type ServerInvokeRecord,
 } from './invoke-tracker'
 
-/** F20260913ctlv Phase 4：invoke 状态追踪纯函数（右侧栏面板 + 时间线边界条目） */
+/** Phase 4：invoke 状态追踪纯函数（右侧栏面板 + 时间线边界条目） */
 
 const startPayload = (overrides: Partial<Parameters<typeof applyInvokeStart>[1]> = {}) => ({
   invokeId: 'inv-1',
@@ -108,7 +108,7 @@ describe('applyInvokeTick（F20260914rtsp）', () => {
   })
 })
 
-/** F20260922rprf 检视发现 4：mergeInvokesFromServer（SSE 断连补偿合并） */
+/** mergeInvokesFromServer（SSE 断连补偿合并） */
 describe('mergeInvokesFromServer', () => {
   const serverInvoke = (overrides: Partial<ServerInvokeRecord> = {}): ServerInvokeRecord => ({
     id: 'inv-1', otterId: 'otter-a', status: 'completed',
@@ -166,7 +166,7 @@ describe('mergeInvokesFromServer', () => {
   })
 })
 
-/** F20260928icmm 阶段1：缓存模型合并语义——服务端是权威数据源，同獭按 startedAt 最新者胜。
+/** 阶段1：缓存模型合并语义——服务端是权威数据源，同獭按 startedAt 最新者胜。
  *  弱合并（本地已有即跳过）退役：它让切回对话后的对账拉取（listInvokes 200）写不进状态，
  *  是右栏卡「运行中」四轮未愈的根因（联合排查 2026-09-28，见 docs/features/2026/09/28/）。 */
 describe('mergeInvokesFromServer · cache-model', () => {

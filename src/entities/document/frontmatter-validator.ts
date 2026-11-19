@@ -9,7 +9,7 @@ import { FID_DATE_SEGMENT, FID_SUFFIX_SEGMENT, FID_READ_SUFFIX_SEGMENT, LEGACY_F
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
-  /** F20260803mval: 未知枚举值等软警告，不阻断入库，进 SyncResult 上报健康端点 */
+  /** 未知枚举值等软警告，不阻断入库，进 SyncResult 上报健康端点 */
   warnings: string[];
 }
 
@@ -68,7 +68,7 @@ export function validateResearchFrontmatter(
 
 function validateCommonFields(fm: Record<string, unknown>, errors: string[]): void {
   if (!fm.id || typeof fm.id !== "string") errors.push("Missing id");
-  // F20260803mval: title 加 trim 校验，防纯空格通过
+  // title 加 trim 校验，防纯空格通过
   if (!fm.title || typeof fm.title !== "string" || (fm.title as string).trim().length === 0) {
     errors.push("Missing or blank title");
   }

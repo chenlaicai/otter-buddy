@@ -1,7 +1,7 @@
 import type { Link, Paragraph, Nodes, Root } from 'mdast'
 import type { Plugin } from 'unified'
 
-/** F20261008csf1 P1：裸链标记插件。
+/** P1：裸链标记插件。
  *
  *  为什么在 remark（mdast）层做：判定「段落里只有一个链接、无其他文字」需要访问
  *  父段落——react-markdown 传给 components 的 hast 节点没有 .parent 指针（unist

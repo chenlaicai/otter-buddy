@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { AssistantSessionManager } from "@usecases/im/assistant-session";
 
 /**
- * F20260924wast（S1/D1）：maybeRestartIdleSession 公开入口 + 并发防重测试。
+ * （/D1）：maybeRestartIdleSession 公开入口 + 并发防重测试。
  * checkIdleAndRestartSession = HTTP sendMessage 链调用的公开入口（web 助理对话）；
  * restarting 集合防重保证同对话并发触发时只执行一次 restart。
  */

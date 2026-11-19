@@ -1,22 +1,22 @@
 /**
- * #1300：moving-base 豁免误判修复——「分支内新建」豁免双条件行为锁定。
+ * moving-base 豁免误判修复——「分支内新建」豁免双条件行为锁定。
  *
  * 豁免判据（修复后）：① 窗口 ref..HEAD 内有 Add 记录（既有判据）且 ② 路径不在 base ref 树上
  * （cat-file 一票否决）——条件 2 封死「文档已在 main 存在却靠窗口内 Add 记录被放行」的全部形态。
  *
- * 场景来源（#1290 实证）：分支重建/cherry-pick 场景下窗口可能混入 main 侧 squash 合入的
+ * 场景来源（实证）：分支重建/cherry-pick 场景下窗口可能混入 main 侧 squash 合入的
  * A 形态记录、或攻击者删了重加的自造 Add——原判据只看窗口 Add，从不回答「是否已在 main」。
  *
  * 与既有套件分工：主套件（基础拦截/放行与 .doc-fix 开口）、rename 套件（R 形态）、final 套件
  * （位移守恒）、linkfix 套件（链接订正）、cibase 套件（--base 逐 commit 配对语义）各锁各面，
  * 本套件聚焦 moving-base 与自造 Add 场景，不重复覆盖。
  *
- * 已声明的残余缺口（不在本套件锁定，见特性文档 F20261102mvbsk）：本地 origin/main 引用完全
+ * 已声明的残余缺口（不在本套件锁定，见特性文档 ）：本地 origin/main 引用完全
  * 过期（如仅 `git fetch origin main` 更新 FETCH_HEAD）时，main 侧 squash 与分支 commit 在本地
  * 视图信息论上不可区分，pre-commit 不伪造判据——兜底为 CI --base 模式（t5 锁定）+ fetch 纪律。
  */
 import { describe, it, expect, vi } from "vitest";
-// F20261021ttos：临时 git 仓库结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
+// 临时 git 仓库结构性重活，文件级宽窗（判据见 testing-rules「重成本用例超时策略」）
 vi.setConfig({ testTimeout: 20_000 });
 import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";

@@ -1,5 +1,5 @@
 /**
- * F20261027hwl1 工作账本 API 测试：真实 Hono 应用 + 真实 DB（createTestDb）——
+ * 工作账本 API 测试：真实 Hono 应用 + 真实 DB（createTestDb）——
  * 走生产路由装配（workLedger 控制器注入），断言 HTTP 状态码与响应体（非 mock 调用参数）。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";

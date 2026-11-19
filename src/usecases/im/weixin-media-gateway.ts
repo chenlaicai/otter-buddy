@@ -1,5 +1,5 @@
 /**
- * 微信入站媒体网关 port（issue #567）。
+ * 微信入站媒体网关 port。
  *
  * 语义与 FeishuResourceGateway（usecases/im）对齐：interface-adapters 层的
  * processor 只依赖本 port；实现（CDN 下载 + AES 解密 + silk 转码）在

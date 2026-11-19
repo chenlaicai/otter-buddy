@@ -1,7 +1,7 @@
 /**
- * F20260920uhuc：统一交接（unifiedHandoff / restartWithUnifiedHandoff）单元测试。
+ * 统一交接（unifiedHandoff / restartWithUnifiedHandoff）单元测试。
  *
- * 取代 F20260917rsta 的 restartWithAutoHandoffIfBlank 测试——语义从「空摘要才合成」
+ * 取代 的 restartWithAutoHandoffIfBlank 测试——语义从「空摘要才合成」
  * 升级为「叠加式档案：有无自总结都走统一管线」。
  *
  * 覆盖（方案 V1/V2/V6 的单测层）：
@@ -77,7 +77,7 @@ function makeSlice(): EngineJsonlSlice {
   };
 }
 
-/** F20260930hsfx S1：无 speak 有原料的切片 stub（保留段空、原料非空——事故形态） */
+/** 无 speak 有原料的切片 stub（保留段空、原料非空——事故形态） */
 function makeNoSpeakSlice(): EngineJsonlSlice {
   return {
     firstKeptEntryId: undefined,
@@ -104,7 +104,7 @@ function makeEngine(overrides?: Partial<HandoffEngineDeps>): HandoffEngineDeps &
   const mechanical: string[] = [];
   return {
     prompts, archives, mechanical,
-    // F20261009s6ej6 同步：分档定标 stub（262K → 138,788；其他 → 保守密度 1.6 token/char）
+    // 同步：分档定标 stub（262K → 138,788；其他 → 保守密度 1.6 token/char）
     synthesisFullBudgetChars: (w: number) => w === 262_144 ? 138_788 : Math.floor(w / 1.6),
     buildNarrativeSynthesisPrompt: (input) => {
       prompts.push(JSON.stringify({ trigger: input.trigger, hasSelf: !!input.selfSummary, msgs: input.messagesToSummarize.length }));

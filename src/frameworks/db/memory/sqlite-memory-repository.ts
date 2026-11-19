@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- F20260814qswp 去重+拆分后约 700 行：entry CRUD + FTS/vec 检索 + 权重 + 暗化扫描 */
+/* eslint-disable max-lines -- 去重+拆分后约 700 行：entry CRUD + FTS/vec 检索 + 权重 + 暗化扫描 */
 
 import type Database from "better-sqlite3";
 import type { MemoryEntry, MemoryWeight, MemoryLayer, MemoryContentType } from "@entities/memory/memory-entry";
@@ -55,7 +55,7 @@ const MAX_GET_DETAILS_BATCH = 100;
 export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, MemoryWriter, MemoryQueue {
   private readonly db: Database.Database;
   /**
-   * F20260812mrcq Part 0：vec 表物理存在标志，构造时通过 checkVecTable 固化，readonly。
+   * Part 0：vec 表物理存在标志，构造时通过 checkVecTable 固化，readonly。
    * 不受 disableVec() 影响——区分"vec 表从未创建"vs"vec 表存在但运行时禁用"。
    * 用于 scanDarkEntries / hasEmbeddings / 各 DELETE vec 路径的守卫。
    */
@@ -82,13 +82,13 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     }
   }
 
-  /** F20260814qswp：统一事务包装（替代 8 处手写 BEGIN/COMMIT/ROLLBACK） */
+  /** 统一事务包装（替代 8 处手写 BEGIN/COMMIT/ROLLBACK） */
   private runInTx<T>(fn: () => T): T {
     return this.db.transaction(fn)();
   }
 
   /**
-   * F20260814qswp：单条 entry 的完整插入（entries + fts + fts_jieba + weights 四联）。
+   * 单条 entry 的完整插入（entries + fts + fts_jieba + weights 四联）。
    * 此前在 storeEntry / replaceEntryBySource / replaceEntriesBySource 三处逐字重复，
    * schema 变更需同步改三处——统一为唯一写入路径。
    */
@@ -109,9 +109,9 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
       entry.metadata ? JSON.stringify(entry.metadata) : null,
       entry.createdAt,
     );
-    // F20260805hybrid: jieba 分词，支持中文短查询
-    // F20260902rcq3: 文档类条目（feature/research）把 sourceId（文档编号）注入 FTS 索引前缀——
-    // 文档正文通常不含自己的编号，查「F20260829raft」时确定性最强的目标反而搜不到
+    // jieba 分词，支持中文短查询
+    // 文档类条目（feature/research）把 sourceId（文档编号）注入 FTS 索引前缀——
+    // 文档正文通常不含自己的编号，查「」时确定性最强的目标反而搜不到
     // （Phase 0 复测归因：12/79 残留零召回属此类）。只注入 FTS，不改 content 本体。
     // 正则改用 fid-format 真相源（{4,10}）——自编 {4} 漏掉 27 个长后缀文档
     const ftsText = (entry.sourceTable === "features" || entry.sourceTable === "research")

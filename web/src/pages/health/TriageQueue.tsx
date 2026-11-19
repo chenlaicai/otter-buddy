@@ -1,5 +1,5 @@
 /**
- * TriageQueue：RHI 信号处置队列（F20260917trig §4）。
+ * TriageQueue：RHI 信号处置队列（§4）。
  *
  * 「警报」页从「信号列表 + 建议你去看」改为「处置队列」：
  * - 未接单（triageStatus=null）置顶，按挂了几天降序，每条显示「open N 天」——N 越红越醒目

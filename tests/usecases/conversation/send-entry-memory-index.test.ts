@@ -1,7 +1,7 @@
 /**
- * #1191 回归：entries → memory_entries 消息索引链路接回。
+ * 回归：entries → memory_entries 消息索引链路接回。
  *
- * 背景：#886（F20260913ctlv）删除旧 SendMessage 时，三处 indexMessage 调用随消息体
+ * 背景：删除旧 SendMessage 时，三处 indexMessage 调用随消息体
  * 消失——9/13 后对话正文（user + speak）不再进入记忆系统，search_memory 对对话内容
  * 失明（生产库实证：message 类记忆最后一条 = 9/13）。
  *

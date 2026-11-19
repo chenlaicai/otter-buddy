@@ -1,5 +1,5 @@
 /**
- * F20260930roiv：启动窗口期孤儿 invoke 延迟 reconcile 装配。
+ * 启动窗口期孤儿 invoke 延迟 reconcile 装配。
  *
  * 从 app.ts 抽出（搭档 9/30 指正：行数约束的本意是反思文件膨胀，不是压空行）。
  * app.ts 只留调用点，实现细节集中在此。
@@ -13,7 +13,7 @@ export interface DelayedReconcileOptions {
   enableDelayedReconcile?: boolean;
 }
 
-/** #1241（F20261006opid）：pid 归属判据装配。旧 bootTs 时间戳守卫对事故形态
+/** pid 归属判据装配。旧 bootTs 时间戳守卫对事故形态
  *  （旧进程晚写入，started_at 晚于新进程 boot）永远跳过；pid 判据无此盲区——
  *  非本进程 pid 的 running 无论写入时间均可精确清理。 */
 export function buildInvokeOrphanGuard(): { excludePid: number; beforeTs: string } {

@@ -16,7 +16,7 @@ export interface ScheduledTaskRepository {
   getById(id: string): Promise<ScheduledTask | null>;
   getByConversationId(conversationId: string): Promise<ScheduledTask[]>;
   getAllActive(): Promise<ScheduledTask[]>;
-  /** #784：全量任务（含 disabled）——prompt 启动对账用。disabled 任务 body 漂移同样要治，
+  /** 全量任务（含 disabled）——prompt 启动对账用。disabled 任务 body 漂移同样要治，
    *  重新启用时该跑新 prompt（实证：每日 issue 处理 disabled 且 body 落后模板 2000+ 字符） */
   getAll(): Promise<ScheduledTask[]>;
   update(task: ScheduledTask): Promise<void>;
@@ -34,7 +34,7 @@ export interface ScheduledTaskRepository {
   createExecution(execution: ScheduledTaskExecution): Promise<void>;
   /** 全部 running execution（可按任务过滤；无 20 条窗口，忙判/对账不能漏旧行）。 */
   getRunningExecutions(taskId?: string): Promise<ScheduledTaskExecution[]>;
-  /** #1510：取启动对账误标「执行被中断」的 failed 行——对账分级修复时回查其 invoke 是否真收尾。 */
+  /** 取启动对账误标「执行被中断」的 failed 行——对账分级修复时回查其 invoke 是否真收尾。 */
   getReconciliationFailedExecutions(): Promise<ScheduledTaskExecution[]>;
   /** 启动对账：无近期产出证据的 running 翻篇为 failed；有证据的 ID 由调用方保留。
    *  @returns 翻篇行数（日志可见）。 */

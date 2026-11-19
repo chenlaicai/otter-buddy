@@ -24,7 +24,7 @@ export interface WeixinAccount {
   addedAt: string;
 }
 
-/** context_token 条目 v2 格式（F20260901wxnt：token 年龄追踪 + 预警状态） */
+/** context_token 条目 v2 格式（token 年龄追踪 + 预警状态） */
 export interface ContextTokenEntry {
   token: string;
   /** 该 token 落盘时刻（= 最近一条入站消息到达时刻） */
@@ -108,7 +108,7 @@ export class WeixinAccountStore {
         if (typeof entry.receivedAt === "number" && Number.isFinite(entry.receivedAt)) {
           result[userId] = entry;
         } else {
-          // F20260901wxnt 发现2：v2 条目 receivedAt 非法（手改/损坏）→ 回退 mtime 兜底，与 v1 同款
+          // 发现2：v2 条目 receivedAt 非法（手改/损坏）→ 回退 mtime 兜底，与 v1 同款
           let mtime = Date.now();
           try { mtime = fs.statSync(filePath).mtimeMs; } catch { /* 文件异常用 now */ }
           result[userId] = { ...entry, receivedAt: mtime };

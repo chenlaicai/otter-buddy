@@ -88,7 +88,7 @@ export class SqliteConnectionRepository implements ConnectionRepository {
   }
 
   async updateStatus(id: string, status: ConnectionStatus, timestamp: string): Promise<void> {
-    // #1391：changes=0（ID 不存在）时 fail-closed 抛错（#1370 族模式，断言收敛至 assertUpdated）。
+    // changes=0（ID 不存在）时 fail-closed 抛错（族模式，断言收敛至 assertUpdated）。
     // 注：本方法当前无生产调用方（manage-connection 未使用），fail-closed 护住未来调用路径
     const result = this.db.prepare(
       "UPDATE connections SET status = ?, updated_at = ? WHERE id = ?"
@@ -96,7 +96,7 @@ export class SqliteConnectionRepository implements ConnectionRepository {
     assertUpdated(result, 'connection', id);
   }
 
-  /** F20260920imax 增量五：合并式 metadata 更新（bot 锚定路由的 lastChatId） */
+  /** 增量五：合并式 metadata 更新（bot 锚定路由的 lastChatId） */
   async mergeMetadata(id: string, patch: Record<string, unknown>): Promise<void> {
     const row = this.db.prepare("SELECT metadata FROM connections WHERE id = ?").get(id) as { metadata: string | null } | undefined;
     if (!row) return; // 不存在静默（幂等语义——调用方不感知删除竞态）

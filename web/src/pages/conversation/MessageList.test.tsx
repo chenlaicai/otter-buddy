@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * MessageList 渲染测试。
- * （F20260913ctlv 切换清扫：流式过程面板 StreamingProcess 已退役——流式只在 Session 弹窗展示，
+ * （切换清扫：流式过程面板 StreamingProcess 已退役——流式只在 Session 弹窗展示，
  *  原「流式过程面板事件渲染」describe 块随组件一并移除）
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -38,7 +38,7 @@ describe('F20260907sgpt 高度贴底补偿 + F20261010vwst 视口稳定优先（
    * 背景：信号轨迹 chip / 徽标 / 流式面板折叠等不改 messages.length 的高度变化曾无任何补偿，
    * 用户在底部时视口周期性上跳（搭档 09-07 第五次报告同类现象）。
    *
-   * F20261010vwst 结构性变更：原双 observer（content + viewport）中的 viewportObserver
+   * 结构性变更：原双 observer（content + viewport）中的 viewportObserver
    * 被整体删除——它把「输入框 autoResize / loadingMore 指示条 / 窗口缩小」等一切视口高度
    * 变化源都当成「需要贴底拉回」，导致贴底用户每输入一个换行就被程序性顶起一行（搭档
    * 10-10 报告）。视口高度变化时浏览器对 scrollTop 的 clamp 语义天然保证内容稳定，无需
@@ -49,7 +49,7 @@ describe('F20260907sgpt 高度贴底补偿 + F20261010vwst 视口稳定优先（
    * contentObserver 测试按实例的 observe(target) 分辨 observer 身份后 fire。
    * jsdom 无布局引擎（scrollHeight 恒 0）：实例级 defineProperty 伪造型 scrollHeight
    * 并计数 scrollTop 写入，断言「发生了写入且写的是 scrollHeight」。
-   * 另有结构断言（observe target 检查）锁定观测对象正确性——这是检视发现 1 的回归锚。
+   * 另有结构断言（observe target 检查）锁定观测对象正确性——这是的回归锚。
    */
   let roInstances: ROStub[] = []
   class ROStub {
@@ -93,7 +93,7 @@ describe('F20260907sgpt 高度贴底补偿 + F20261010vwst 视口稳定优先（
 
   function contentRO(): ROStub {
     // 内容包裹 div 无语义 class——结构上：scrollRef 容器（overflow-y-auto）的首个子 div。
-    // F20261010vwst：viewportObserver 已删，不再有 observer 观测滚动容器——改从 DOM 直取
+    // viewportObserver 已删，不再有 observer 观测滚动容器——改从 DOM 直取
     // （scroller.firstElementChild），再在 roInstances 里找观测它的实例
     const scroller = document.querySelector('.overflow-y-auto')
     const content = scroller?.firstElementChild
@@ -174,7 +174,7 @@ describe('F20260907sgpt 高度贴底补偿 + F20261010vwst 视口稳定优先（
     expect(st.writes).toBe(0)
   })
 
-  // F20261010vwst 删除的两个旧锚（视口高度减小→贴底拉回 / 视口增大→不写）——其锚定的
+  // 删除的两个旧锚（视口高度减小→贴底拉回 / 视口增大→不写）——其锚定的
   // viewportObserver 补偿分支被整体删除，删除理由与行为取舍见特性文档
 
   it('切会话：observer 重挂（旧实例 disconnect，新实例观测新容器），采样基线重置', async () => {
@@ -214,7 +214,7 @@ describe('F20260907sgpt 高度贴底补偿 + F20261010vwst 视口稳定优先（
 
 describe('F20260826fpbd user 消息发送者名回退（Web/飞书同步）', () => {
   /**
-   * 场景：飞书群聊多人 + Web 端同步查看（#488 快照链路的降级分支）。
+   * 场景：飞书群聊多人 + Web 端同步查看（快照链路的降级分支）。
    * 后端对 user 消息无快照时 sn 缺失（不冒充），冒充风险在前端回退逻辑：
    * 远程消息（src='feishu'）无快照必须显示中性标签，不得回退全局名——
    * 否则 joy 在权限未开/快照失败时会被 Web 端标成「chen」。
@@ -253,7 +253,7 @@ describe('F20260826fpbd user 消息发送者名回退（Web/飞书同步）', ()
   })
 
   it('未知渠道（src 非 web/feishu）无快照 → 回退全局名（test17：仅飞书算外部，防御性「外部成员」已收窄）', () => {
-    // F20260913ctlv test17：web 来源不再算「外部」（「外部成员」误标自己人）；
+    // test17：web 来源不再算「外部」（「外部成员」误标自己人）；
     // 仅 feishu 显式显示中性标签，其他未知渠道也回退全局名
     const future: LocalMessage = msg({ st: 'user', si: 'ding_user', sn: undefined, src: 'feishu' })
     ;(future as { src?: string }).src = 'dingtalk'
@@ -294,7 +294,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
   const elementProto = Element.prototype as unknown as Record<string, unknown>
   const hadScrollTo = Object.prototype.hasOwnProperty.call(elementProto, 'scrollTo')
   let rafPending: number[] = []
-  /** F20261020wcsr：IntersectionObserver stub——jsdom 无 IO。记录实例供用例手动 fire
+  /** IntersectionObserver stub——jsdom 无 IO。记录实例供用例手动 fire
    *  （isIntersecting 翻转 = 哨兵进入/离开视口的模拟） */
   let ioInstances: IOStub[] = []
   class IOStub {
@@ -355,7 +355,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
   function instrumentRW(el: Element, scrollHeight = 2000, initialTop = 0) {
     const state = { writes: 0, lastVal: -1, top: initialTop }
     Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => scrollHeight })
-    Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => 660 }) // F20261008w8lt：stillNearTop 守卫需要
+    Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => 660 }) // stillNearTop 守卫需要
     Object.defineProperty(el, 'scrollTop', {
       configurable: true,
       get: () => state.top,
@@ -368,9 +368,9 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     messages?: LocalMessage[]
     newMessagesCount?: number
     onJumpToBottom?: () => void
-    /** F20261027nmbf：回锚清零回调 */
+    /** 回锚清零回调 */
     onPinnedToBottom?: () => void
-    /** F20261027nmbf：底部衬垫高度（输入覆盖层实高） */
+    /** 底部衬垫高度（输入覆盖层实高） */
     bottomSpacerPx?: number
     onLoadMore?: () => void
     hasMoreBefore?: boolean
@@ -416,7 +416,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     return el
   }
   function contentRO(): ROStub2 {
-    // F20261010vwst：viewportObserver 已删，无 observer 观测滚动容器——从 DOM 直取 scroller
+    // viewportObserver 已删，无 observer 观测滚动容器——从 DOM 直取 scroller
     const scroller = document.querySelector('.overflow-y-auto')
     const content = scroller?.firstElementChild
     const ro = [...roInstances].reverse().find(r => r.el === content)
@@ -453,8 +453,8 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
-  /** F20261027nmbf：浮窗几何修复——按钮 bottom 必须抬到输入覆盖层（bottomSpacerPx）之上，
-   *  否则被覆盖层（absolute bottom-0 z-10）遮挡点不到（#1535 同族）。修复前 bottom 固定 16px */
+  /** 浮窗几何修复——按钮 bottom 必须抬到输入覆盖层（bottomSpacerPx）之上，
+   * 否则被覆盖层（absolute bottom-0 z-10）遮挡点不到（同族）。修复前 bottom 固定 16px */
   it('F20261027nmbf 几何：浮窗 bottom = 衬垫高+16，抬升到输入覆盖层上方（修复前 bottom 僵 16px 被覆盖）', async () => {
     const pinRef = { current: false }
     const { root, div } = renderList({ pinRef, newMessagesCount: 1, bottomSpacerPx: 96, onJumpToBottom: () => {} })
@@ -472,16 +472,16 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
-  /** F20261029repin：「到底即回锚」机制整体移除（搭档 10/29 裁决「不要有这个机制」）——
+  /** 「到底即回锚」机制整体移除（搭档 10/29 裁决「不要有这个机制」）——
    *  scroll 事件永不置 pin。旧语义（本用例改造前的断言）：floating 滚回 nearBottom 带即
-   *  回锚置 pin + 清零回调（缺陷行为被固化成规格）。红绿锚：旧实现（含 #1700 8px 收紧）
+   * 回锚置 pin + 清零回调（缺陷行为被固化成规格）。红绿锚：旧实现（含 8px 收紧）
    *  在本用例必红——到底滚回断言 pin 保持 false */
   it('F20261029repin 到底不回锚：floating 拖到底部（距底 0）→ 保持 floating，scroll 不置 pin', async () => {
     const pinRef = { current: false }
     let cleared = 0
     const { root, div } = renderList({ pinRef, newMessagesCount: 3, onJumpToBottom: () => {}, onPinnedToBottom: () => { cleared++ } })
     try {
-      await sleep(40) // 等 mount R0 rAF 落完（其写入在未打桩 DOM 上，不污染用例计数）
+      await sleep(40) // 等 mount rAF 落完（其写入在未打桩 DOM 上，不污染用例计数）
       const st = instrumentRW(scrollerOf(), 2000, 1340) // 距底 0：正好贴底（2000-1340-660）
       pinRef.current = false // mount 重置 effect 已置 true——模拟用户上翻后拖回底部
       fireScroll()
@@ -499,7 +499,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
-  /** F20261029repin 新消息恢复跟随（回底跟随唯一自动触发）：floating 视觉贴底（追加前距底
+  /** 新消息恢复跟随（回底跟随唯一自动触发）：floating 视觉贴底（追加前距底
    *  ≤8px）+ 尾部 append → 回锚 + 贴底写入 + 清零。红绿锚：旧实现（无 re-pin 通路）在本
    *  用例必红——append 后不置 pin、不清零。距底判定用追加前几何（distToBottomRef 快照）：
    *  8px 为阈值边界（≤8 判贴底）；若误用追加后实时几何（8+消息高）则必漏回锚 */
@@ -528,7 +528,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
-  /** F20261027nmbf 清零幂等（F20261029repin 语义迁移保留）：清零回调不依赖计数 props 快照，
+  /** 清零幂等（语义迁移保留）：清零回调不依赖计数 props 快照，
    *  父层 set(0) 本就幂等——上一版同名用例断言的是「滚回底部回锚清零」，语义已随机制移除改写 */
   it('F20261029repin 新消息回锚清零幂等：计数 prop 为陈旧快照（0）时也发清零回调', async () => {
     const pinRef = { current: false }
@@ -550,7 +550,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
-  /** F20261029repin 不抢滚动条：floating 离底（追加前距底 >8px）+ append → 保持 floating、
+  /** 不抢滚动条：floating 离底（追加前距底 >8px）+ append → 保持 floating、
    *  零 scrollTop 写入（浮窗计数由父层 +1 保留，见 index.tsx 消息处理）。边界用 9px（>8 最小值） */
   it('F20261029repin 新消息不抢滚动条：floating 离底 9px + append → 保持 floating、零写入、无清零', async () => {
     const pinRef = { current: false }
@@ -617,7 +617,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
     }
   })
 
-  /** F20261029repin 会话归属守卫回归锁（检视 S4）：切会话换消息集（tailId 突变）不是
+  /** 会话归属守卫回归锁（检视 ）：切会话换消息集（tailId 突变）不是
    *  「新消息出现」——即使 floating 且几何贴底也不得触发恢复跟随。构造无守卫必误触发的
    *  最坏几何（采样后距底 0），判别锚=清零回调不发（容器随 key 重建，旧容器写入计数
    *  测不到新容器，不作过度声明）；同时兑现特性文档负向验收③ */

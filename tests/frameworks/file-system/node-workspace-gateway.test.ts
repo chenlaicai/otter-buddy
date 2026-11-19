@@ -164,7 +164,7 @@ describe("NodeWorkspaceGateway", () => {
     expect(gw.getWorkspacePath(convId)).toBe(path.join(tmpDir, "workspaces", convId));
   });
 
-  // ── deletePath（#1484 临时件回收）──
+  // ── deletePath（临时件回收）──
 
   describe("deletePath", () => {
     it("删除文件并返回 deleted=file", async () => {

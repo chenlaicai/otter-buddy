@@ -1,10 +1,10 @@
 /**
- * F20261026emct：embedding worker 的 IPC 发送防护。
+ * embedding worker 的 IPC 发送防护。
  *
  * 背景：bge-m3-worker.ts 的 post() 直接 process.send?.(msg)，无 try/catch——
  * 父进程死亡/disconnect 与最后一次 send 竞态时 send 同步抛 EPIPE，
  * uncaught 异常以非预期姿势杀 worker（2026-10-23 实锤：libc++abi mutex
- * lock failed 崩溃栈，F20261015kill 的 SIGKILL 隔离没盖住 send 路径）。
+ * lock failed 崩溃栈，的 SIGKILL 隔离没盖住 send 路径）。
  *
  * 防护语义：
  * - send 抛错（IPC 已关）→ warn 一条受控日志 + process.exit(1) 自我了断，

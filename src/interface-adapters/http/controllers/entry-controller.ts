@@ -11,11 +11,11 @@ import type { InvokeEventDTO } from "@contract/api/invoke";
 import { handleError, param } from "../http-error";
 
 /**
- * F20260913ctlv 彻底切换：entries 时间线唯一读端点。
+ * 彻底切换：entries 时间线唯一读端点。
  * 前端历史/分页/增量刷新/未读定位全部走这里（messages 渲染端点退役）。
  * 只读——entry 写入由 agent-invoker/tool-factory/send-entry 负责。
  *
- * F20261013csv3 T5：?includeEvents=true 批量投影工具调用明细——
+ * T5：?includeEvents=true 批量投影工具调用明细——
  * 默认关闭（关闭态读端点语义不变，零额外查询）；开关打开时按条目 invokeId 批量取回
  * invoke_events，foldInvokeEvents（contract 层前后端同源）折叠成步骤投影，
  * error 摘要 ≤200 字符、每 invoke ≤20 条（体积护栏）。
@@ -30,7 +30,7 @@ export class EntryController {
   constructor(
     private readonly entryRepo: EntryRepository,
     private readonly logger: Logger,
-    /** F20261013csv3 T5：invoke 事件批量查询（includeEvents=true 时的数据源） */
+    /** T5：invoke 事件批量查询（includeEvents=true 时的数据源） */
     private readonly invokeRepo?: InvokeRepository,
   ) {}
 
@@ -107,14 +107,14 @@ function toEntryDTO(e: Entry & { events?: FoldedStepDTO[] }): EntryDTO {
     source: e.source,
     metadata: e.metadata,
     senderName: e.senderName,
-    // F20260921otcl：发送者出生色透出（repo 读路径 join otters 填充；user/system 条目 null）
+    // 发送者出生色透出（repo 读路径 join otters 填充；user/system 条目 null）
     senderColor: e.senderColor ?? null,
     ...(e.senderOtterType && { senderOtterType: e.senderOtterType }),
     contextTokens: e.contextTokens,
     contextTokensMax: e.contextTokensMax,
     createdAt: e.createdAt,
     completedAt: e.completedAt,
-    // F20260913ctlv 终审修复：附件读出链补通（repo attachAttachments 已填充 Entry 实体）
+    // 终审修复：附件读出链补通（repo attachAttachments 已填充 Entry 实体）
     ...(e.attachments && e.attachments.length > 0 && {
       attachments: e.attachments.map(a => ({
         id: a.id,
@@ -126,7 +126,7 @@ function toEntryDTO(e: Entry & { events?: FoldedStepDTO[] }): EntryDTO {
         height: a.height,
       })),
     }),
-    // F20261013csv3 T5：过程明细（includeEvents=true 时携带）
+    // T5：过程明细（includeEvents=true 时携带）
     ...(e.events && { events: e.events }),
   };
 }

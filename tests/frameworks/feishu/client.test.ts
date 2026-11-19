@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { FeishuClient } from "@frameworks/feishu/client";
 
-/** 构造 mock Response,带齐 ok/status 字段(审视 R5:防未来加 HTTP 错误处理时假阳性) */
+/** 构造 mock Response,带齐 ok/status 字段(审视 防未来加 HTTP 错误处理时假阳性) */
 function mockResponse(payload: { code: number; msg: string }): Response {
   return {
     ok: true,
@@ -134,7 +134,7 @@ describe("FeishuClient", () => {
       await client.replyMarkdown("c", "大獭", "## H2");
 
       expect(callCount).toBe(2);
-      // 审视 R5:验证第二次降级调用走的是 text 而非 post
+      // 审视 验证第二次降级调用走的是 text 而非 post
       const second = JSON.parse(calls[1].body);
       expect(second.msg_type).toBe("text");
     });

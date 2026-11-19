@@ -7,7 +7,7 @@ import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gat
 import { SqliteActionLedger, sha256 } from "@frameworks/execution/ledger/sqlite-action-ledger";
 import { otterInvokeStorage } from "@frameworks/agent/model-runtime-registry";
 
-/** F20261116actlg PR-A：LocalExecutionMachine 台账接线（workspace 副作用入账 + 去重协议）。 */
+/** PR-A：LocalExecutionMachine 台账接线（workspace 副作用入账 + 去重协议）。 */
 
 let dirs: string[] = [];
 function tempDir(): string {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * OtterDetailModal 世数链摘要折叠测试（F20260826xxxx model-badge-restore-and-modal-collapse）
+ * OtterDetailModal 世数链摘要折叠测试（model-badge-restore-and-modal-collapse）
  * - 历史世（restarted/archived）摘要默认 line-clamp-3 折叠，点击「展开」后全文可见
  * - 当前世（active）摘要始终完整展示，不受折叠影响
  * - fetchOtterProfile mock 为 reject：profile 不加载，聚焦 props.sessions 的世数链渲染
@@ -67,7 +67,7 @@ function querySummaries() {
   return Array.from(document.querySelectorAll('[data-testid="session-summary"]'))
 }
 
-/** F20260826mwbc 布局改版：内容双栏容器查询——左=身份信息，右=世代交接 */
+/** 布局改版：内容双栏容器查询——左=身份信息，右=世代交接 */
 function queryColumns() {
   const cols = document.querySelector('[data-testid="detail-columns"]')
   const [identity, generations] = Array.from(cols?.children ?? [])
@@ -91,7 +91,7 @@ describe('OtterDetailModal 世数链摘要折叠', () => {
       makeSession({ id: 's1', status: 'active', previousSessionId: null, summary: '第一世剧情' }),
     ])
     const { cols, identity, generations } = queryColumns()
-    // 容器存在且恰好两栏：桌面 sm: 双栏、默认单列（移动端全屏抽屉降级，#465）
+    // 容器存在且恰好两栏：桌面 sm: 双栏、默认单列（移动端全屏抽屉降级，）
     expect(cols).not.toBeNull()
     expect(cols!.className).toContain('sm:grid-cols-2')
     expect(cols!.className).toContain('grid-cols-1')

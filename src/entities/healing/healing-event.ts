@@ -6,81 +6,81 @@ export type HealingErrorType =
   | 'format_violation'
   | 'knowledge_gap'
   | 'performance'
-  /** F20260818cbkr：degenerate guard 触发（每次退化均落一条） */
+  /** degenerate guard 触发（每次退化均落一条） */
   | 'degenerate'
-  /** F20260818cbkr：熔断重启执行（context.newSessionId 关联新 session） */
+  /** 熔断重启执行（context.newSessionId 关联新 session） */
   | 'circuit_break'
-  /** F20260824srst：自重启执行（context.newSessionId 关联新 session，防循环上限判定） */
+  /** 自重启执行（context.newSessionId 关联新 session，防循环上限判定） */
   | 'self_restart'
-  /** F20260831aksp：bash 安全守卫拦截（框架层每次拦截记 medium 样本）。
-   *  F20261102grfix（A 口径拆分）：编排层 bounce 流程观测已拆至 guard_bounce_flow，
+  /** bash 安全守卫拦截（框架层每次拦截记 medium 样本）。
+   * （A 口径拆分）：编排层 bounce 流程观测已拆至 guard_bounce_flow，
    *  本类型回归纯规则拦截口径（context.ruleId 归因键） */
   | 'guard_intercept'
-  /** F20261102grfix（A 口径拆分）：guard bounce 流程观测（二拦终态自动回发控制信号/同消息
+  /** （A 口径拆分）：guard bounce 流程观测（二拦终态自动回发控制信号/同消息
    *  二拦终态）——流程动作非规则拦截，天然无 ruleId；独立口径防虚增拦截计数与
    *  「无指纹盲区」假象。历史数据仍按当时口径留 guard_intercept+context.bounce:true */
   | 'guard_bounce_flow'
-  /** #543：模型限流/配额耗尽（api_error 终态识别；context 含 modelAlias/exhausted/resetHint） */
+  /** 模型限流/配额耗尽（api_error 终态识别；context 含 modelAlias/exhausted/resetHint） */
   | 'rate_limit'
-  /** #1247：模型上下文窗口超限（400 注入超窗终态；context 含 modelAlias/requestedTokens/windowTokens）。
+  /** 模型上下文窗口超限（400 注入超窗终态；context 含 modelAlias/requestedTokens/windowTokens）。
    *  与 rate_limit 分界：限流是「频率/配额」（重试或改派即恢复），超窗是「体积」（重试无意义，
    *  必须缩注入或换大窗口模型）——两类处置方向不同，混账会误导体检归因 */
   | 'context_overflow'
-  /** #1762：模型内容过滤终态；首次换模型续跑，仍失败立即通知编排者。 */
+  /** 模型内容过滤终态；首次换模型续跑，仍失败立即通知编排者。 */
   | 'content_filter'
-  /** F20260922txes：超时类自动重试耗尽终态（L1 重试后仍超时，L3 升级上报数据源） */
+  /** 超时类自动重试耗尽终态（L1 重试后仍超时，L3 升级上报数据源） */
   | 'timeout_retry_exhausted'
-  /** F20261111slfrz：疑似系统睡眠冻结（OutputGuard 超时实际耗时 ≫ 预算，唤醒后自动重试恢复）——
+  /** 疑似系统睡眠冻结（OutputGuard 超时实际耗时 ≫ 预算，唤醒后自动重试恢复）——
    *  环境侧痕迹事件（M-a8f8f080 定案：睡眠是正常场景，非缺陷非獭能力失败，low 不告警） */
   | 'sleep_freeze'
-  /** F20260904tflp：工具使用感受反馈（海獭主动报难用/多余/过度设计；description 以 [tool:工具名] 前缀标识） */
+  /** 工具使用感受反馈（海獭主动报难用/多余/过度设计；description 以 [tool:工具名] 前缀标识） */
   | 'tool_use_feedback'
-  /** F20261027lbos（#1656）：循环硬熔断门拦截（tool_call 层物理截断）。
+  /** 循环硬熔断门拦截（tool_call 层物理截断）。
    *  分账口径（判定内容原则，非主语）：guard_intercept 判「命令危险」=对獭动作的评价→
    *  capability；本类型判「签名命中拉黑表」=机械状态触发，不含当次调用意图判断（b2
    *  残余面恰证明当次调用可完全正当）→environment，与 circuit_break（strike 涨满执行）
    *  同构。残余风险：真复犯事件同落环境账不进獭能力账，由体检段真复犯 K 分列补偿。 */
   | 'loop_tool_block'
-  /** F20261111hrepl（#1842）：运行时状态投影与真实运行态不一致（如 UI 显示「休息中」
+  /** 运行时状态投影与真实运行态不一致（如 UI 显示「休息中」
    *  实际仍在执行）。模型自报类型——走 speak 的 healing 参数，非框架层自动写库；
    *  分账归 environment（状态投影/系统侧失败，非獭能力退化）。 */
   | 'runtime_status_mismatch'
   | 'other';
 
 /**
- * #998：errorType 二维分账——「环境/系统失败」vs「獭能力失败」。
+ * errorType 二维分账——「环境/系统失败」vs「獭能力失败」。
  * 混排会让 daily-review 把工具故障误读成獭不行、把獭不行误读成工具故障，
  * 两种误判的处置方向完全相反（Qwen-UI-Agent：环境抖动单列是小团队 RL 不收敛误判的主因）。
  * 纯映射函数，不改 schema、不动存量数据。
  *
- * PR #1024 检视修正：guard_intercept 归能力（被拦的是獭发出的危险动作，守卫工作正常；
+ * 检视修正：guard_intercept 归能力（被拦的是獭发出的危险动作，守卫工作正常；
  * 生产库实证 guard_intercept 占全库 37% 第一大类，归环境会放大粉饰）；
  * tool_use_feedback 移出分账（独立 feedback 列——主动反馈信号不是失败事件，计入分母复刻混读）。
  */
 export type HealingFailureClass = 'environment' | 'capability';
 
-/** #998：口径单一真相源——环境类枚举清单。二维行文案由此拼接，防新增枚举时口径文案漂移 */
+/** 口径单一真相源——环境类枚举清单。二维行文案由此拼接，防新增枚举时口径文案漂移 */
 export const HEALING_ENVIRONMENT_TYPES: readonly HealingErrorType[] = [
   'tool_failure',   // 工具故障/超时/429（环境侧）
   'rate_limit',     // 模型配额耗尽（供应商侧）
-  'context_overflow', // #1247：注入超窗（模型窗口容量侧——环境给定，非獭能力失败）
-  'content_filter', // #1762：模型供应商内容过滤（环境侧，非獭工具能力失败）
+  'context_overflow', // 注入超窗（模型窗口容量侧——环境给定，非獭能力失败）
+  'content_filter', // 模型供应商内容过滤（环境侧，非獭工具能力失败）
   'circuit_break',  // 熔断执行（系统保护动作，判「strike 涨满」机械状态）
   'loop_tool_block', // 门拦截（系统保护动作，判「签名命中拉黑表」机械状态——分账口径见枚举处注释）
   'self_restart',   // 自重启执行（系统保护动作）
-  // F20261111hrepl（#1842）：状态投影/运行态不一致——系统侧失败（UI/调度投影 bug），非獭能力退化
+  // 状态投影/运行态不一致——系统侧失败（UI/调度投影 bug），非獭能力退化
   'runtime_status_mismatch',
-  // F20260922txes（续）：漏入本清单会被 classifyHealingErrorType 兜底归 capability，daily-review 误读为獭能力失败）
+  // （续）：漏入本清单会被 classifyHealingErrorType 兜底归 capability，daily-review 误读为獭能力失败）
   'timeout_retry_exhausted',
-  // F20261111slfrz：系统睡眠冻结——环境侧（计时器冻结是 OS 行为，非獭能力失败）
+  // 系统睡眠冻结——环境侧（计时器冻结是 OS 行为，非獭能力失败）
   'sleep_freeze',
 ];
 
-/** #998：不参与成败分账的类型（主动反馈信号，独立一列呈现） */
+/** 不参与成败分账的类型（主动反馈信号，独立一列呈现） */
 export const HEALING_FEEDBACK_TYPES: readonly HealingErrorType[] = ['tool_use_feedback'];
 
 /**
- * #998：errorType → 二维分类；tool_use_feedback 返回 null（不入分账）。
+ * errorType → 二维分类；tool_use_feedback 返回 null（不入分账）。
  * other 默认 capability（Unknown 归因于獭，保守不粉饰系统）。
  * 新增枚举未加入任一清单时归 capability 并在文案中落「其余=能力」——开放式口径是有意兜底。
  */
@@ -108,7 +108,7 @@ export type HealingResolutionAction =
 /** 修复决策记录 */
 export interface HealingResolution {
   action: HealingResolutionAction;
-  /** user=搭档裁决 / agent=獭处置 / system=调度器机制自动行为（如 autoStaleDismiss 超龄清理，#1545） */
+  /** user=搭档裁决 / agent=獭处置 / system=调度器机制自动行为（如 autoStaleDismiss 超龄清理，） */
   decidedBy: 'user' | 'agent' | 'system';
   decidedAt: string;
   notes: string;
@@ -127,10 +127,10 @@ export interface HealingEvent {
   context: Record<string, unknown> | null;
   status: HealingEventStatus;
   resolution: HealingResolution | null;
-  /** #1271：归口的 GitHub issue 编号（F20261008hbbd）。bind≠resolve——归口是结构化认领
+  /** 归口的 GitHub issue 编号。bind≠resolve——归口是结构化认领
    *  （对齐 RHI signals 的 issue_number 字段化先例），事件保持 open 直到修复合入后走 resolve。 */
   boundIssue?: number | null;
-  /** #1271：归口时间（ISO），与 boundIssue 成对写入 */
+  /** 归口时间（ISO），与 boundIssue 成对写入 */
   boundAt?: string | null;
   /** PR ID（PR 评估体系：问题引入的 PR） */
   introducedByPr?: string;

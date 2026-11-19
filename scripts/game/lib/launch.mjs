@@ -1,5 +1,5 @@
 // scripts/game/lib/launch.mjs — 共享启动序列：加载 → seed →（可选 __loadState）→ tick 推进 → 定格
-// F20261014ghst：game-shot / game-state 共用；__loadState 注入逻辑收在这里（不拆独立工具，delta 发现 8）。
+// game-shot / game-state 共用；__loadState 注入逻辑收在这里（不拆独立工具，）。
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 

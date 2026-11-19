@@ -4,7 +4,7 @@ import * as api from '../../api/client'
 import type { FeishuLoginSessionDTO } from '../../api/client'
 
 /**
- * F20260928fsqr：飞书扫码接入卡片（微信 QRCodeLoginCard 同构）。
+ * 飞书扫码接入卡片（微信 QRCodeLoginCard 同构）。
  *
  * 差异：飞书 SDK registerApp 无「已扫码等确认」中间态（waiting_scan 直达终态）；
  * 起名步骤流入 appPreset.name（扫码确认页应用名预填，EchoAgent 同构）。

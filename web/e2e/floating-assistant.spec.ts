@@ -1,10 +1,10 @@
 /**
- * F20260924wast：web 助理（浮动獭）e2e 验证。
+ * web 助理（浮动獭）e2e 验证。
  *
  * 验证项（方案「验证」节）：
  * 1. 全页面常驻（conversation/memory/settings 页均可见獭）
  * 2. 点击獭展开面板 + 首唤自动开户（T2b：无 web 助理对话时创建）
- * 3. 双 tab 并发首唤收敛（N3：只建一条）
+ * 3. 双 tab 并发首唤收敛（只建一条）
  * 4. Esc 收起 / ⌘J 唤起
  *
  * 不在本 spec（需真 LLM 后端/时间操纵，CI 不稳定）：流式回复细节、跨 8h session
@@ -81,7 +81,7 @@ test.describe('浮动獭（F20260924wast）', () => {
     // 断言全局唯一：侧栏 web 助理分组只有一条（经 API 直查——绕开 DOM 折叠态）。
     // K5：前两行 input enabled 前置断言已排除 0 条，收紧为恒等于 1（防断言空转）
     const res = await page.request.get('/api/conversations?kind=web-assistant&limit=10', {
-      // #1868 阶段 2：e2e 直连 API 走声明式头回退路径（会话 cookie 路径由页面 UI 覆盖），
+      // 阶段 2：e2e 直连 API 走声明式头回退路径（会话 cookie 路径由页面 UI 覆盖），
       // 运维脚本回退路径不回归即靠这一条守住。
       headers: { 'X-Otter-User-Id': 'e2e', 'X-Otter-User-Role': 'admin' },
     })
