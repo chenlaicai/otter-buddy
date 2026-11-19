@@ -79,6 +79,26 @@ describe("SqliteInvokeRepository - Invoke 基础操作", () => {
     });
   });
 
+  describe("sumConversationTokenUsage", () => {
+    it("只累计日界内当前对话的 input+output，不计 cache_read/cache_write", async () => {
+      await repo.createInvoke(invokeFixture({
+        id: "in-range", startedAt: "2026-11-19T16:00:00.000Z",
+        tokenUsageInput: 100, tokenUsageOutput: 50,
+        tokenUsageCacheRead: 9_000_000, tokenUsageCacheWrite: 8_000_000,
+      }));
+      await repo.createInvoke(invokeFixture({
+        id: "next-day", startedAt: "2026-11-20T16:00:00.000Z",
+        tokenUsageInput: 999, tokenUsageOutput: 999,
+      }));
+      await expect(repo.sumConversationTokenUsage(
+        "conv-1", "2026-11-19T16:00:00.000Z", "2026-11-20T16:00:00.000Z",
+      )).resolves.toBe(150);
+      await expect(repo.sumConversationTokenUsage(
+        "other-conversation", "2026-11-19T16:00:00.000Z", "2026-11-20T16:00:00.000Z",
+      )).resolves.toBe(0);
+    });
+  });
+
   describe("updateInvokeStatus", () => {
     it("should update invoke status to completed", async () => {
       await repo.createInvoke(invokeFixture());

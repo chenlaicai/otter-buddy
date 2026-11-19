@@ -20,6 +20,8 @@ import type { QueryOtter } from "@usecases/otter/query-otter";
 import type { OtterSession } from "@entities/otter/otter-session";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import type { ScheduledTaskPendingItemRepository } from "@usecases/scheduler/pending-item-repository";
+import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
+import type { ExternalTokenBudgetConfig } from "@interface-adapters/agent-runtime/agent-invoker";
 import { createTestLogger } from "../helpers/logger";
 import { mockSendEntry } from "../helpers/mock-send-entry";
 import { MessageBroadcaster } from "../../src/usecases/im/message-broadcaster";
@@ -83,7 +85,15 @@ function mockAgentInvoke(options: {
 function makeInvoker(
   sdk: SdkInvokePort,
   sendEntry: ReturnType<typeof mockSendEntry>,
-  opts?: { manageSession?: ManageSession; healingRepo?: HealingEventRepository; broadcaster?: MessageBroadcaster; pendingRepo?: ScheduledTaskPendingItemRepository },
+  opts?: {
+    manageSession?: ManageSession;
+    healingRepo?: HealingEventRepository;
+    broadcaster?: MessageBroadcaster;
+    pendingRepo?: ScheduledTaskPendingItemRepository;
+    invokeRepo?: Partial<InvokeRepository>;
+    externalTokenBudget?: ExternalTokenBudgetConfig;
+    now?: () => Date;
+  },
 ): AgentInvoker {
   return new AgentInvoker(
     sdk,
@@ -99,8 +109,9 @@ function makeInvoker(
     undefined, undefined, undefined, undefined, undefined, undefined,
     sendEntry,
     // invokeRepo（熔断摘要读 invoke_events——最小面）
-    { getInvokeEvents: async () => [] } as never,
+    { getInvokeEvents: async () => [], ...opts?.invokeRepo } as never,
     undefined, undefined, undefined, opts?.pendingRepo,
+    undefined, opts?.externalTokenBudget, opts?.now,
   );
 }
 
@@ -141,6 +152,84 @@ describe("AgentInvoker（F20260913ctlv 彻底切换：invoke 状态机）", () =
       senderId: "external:alice", onSSEEvent: () => {},
     })).rejects.toThrow(/requires a persisted external source/);
     expect(sdkCalls).toBe(0);
+  });
+
+  it("外部对话未超每日额度时放行，并按上海自然日查询 input+output 用量", async () => {
+    let sdkCalls = 0;
+    const usageQueries: unknown[][] = [];
+    const sumConversationTokenUsage = vi.fn(async (...args: unknown[]) => {
+      usageQueries.push(args);
+      return 199_999;
+    });
+    const sendEntry = mockSendEntry();
+    const invoker = makeInvoker(mockAgentInvoke({
+      invokeImpl: async () => { sdkCalls++; return { text: "ok" }; },
+    }), sendEntry, {
+      invokeRepo: { sumConversationTokenUsage },
+      externalTokenBudget: { dailyTokenBudgetPerConversation: 200_000, budgetExceededMessage: "额度用完" },
+      now: () => new Date("2026-11-19T16:30:00Z"), // 上海 11/20 00:30
+    });
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-external", userMessageContent: "Hi",
+      senderId: "external:alice", externalProfile: "restricted", onSSEEvent: () => {},
+    }).catch(() => null);
+    expect(usageQueries).toEqual([[
+      "conv-external", "2026-11-19T16:00:00.000Z", "2026-11-20T16:00:00.000Z",
+    ]]);
+    expect(sdkCalls).toBeGreaterThan(0);
+    expect(sendEntry.store.invokes.size).toBe(1);
+  });
+
+  it("外部对话超额时在创建 invoke 与调用模型前拒绝，并留稳定错误码", async () => {
+    let sdkCalls = 0;
+    const sendEntry = mockSendEntry();
+    const invoker = makeInvoker(mockAgentInvoke({
+      invokeImpl: async () => { sdkCalls++; return { text: "must not run" }; },
+    }), sendEntry, {
+      invokeRepo: { sumConversationTokenUsage: async () => 200_000 },
+      externalTokenBudget: { dailyTokenBudgetPerConversation: 200_000, budgetExceededMessage: "今天的对话额度已用完，请明天再试。" },
+    });
+    await expect(invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-external", userMessageContent: "Hi",
+      senderId: "external:alice", externalProfile: "restricted", onSSEEvent: () => {},
+    })).rejects.toThrow("EXTERNAL_TOKEN_BUDGET_EXCEEDED:今天的对话额度已用完，请明天再试。");
+    expect(sdkCalls).toBe(0);
+    expect(sendEntry.store.invokes.size).toBe(0);
+    expect(sendEntry.store.systemBodies).toEqual(["EXTERNAL_TOKEN_BUDGET_EXCEEDED:今天的对话额度已用完，请明天再试。"]);
+  });
+
+  it("外部对话额度配置为 0 时不限且不查询用量", async () => {
+    let sdkCalls = 0;
+    const sumConversationTokenUsage = vi.fn(async () => Number.MAX_SAFE_INTEGER);
+    const invoker = makeInvoker(mockAgentInvoke({
+      invokeImpl: async () => { sdkCalls++; return { text: "ok" }; },
+    }), mockSendEntry(), {
+      invokeRepo: { sumConversationTokenUsage },
+      externalTokenBudget: { dailyTokenBudgetPerConversation: 0, budgetExceededMessage: "不应出现" },
+    });
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-external", userMessageContent: "Hi",
+      senderId: "external:alice", externalProfile: "restricted", onSSEEvent: () => {},
+    }).catch(() => null);
+    expect(sumConversationTokenUsage).not.toHaveBeenCalled();
+    expect(sdkCalls).toBeGreaterThan(0);
+  });
+
+  it("每日额度不作用于非外部对话", async () => {
+    let sdkCalls = 0;
+    const sumConversationTokenUsage = vi.fn(async () => 999_999);
+    const invoker = makeInvoker(mockAgentInvoke({
+      invokeImpl: async () => { sdkCalls++; return { text: "ok" }; },
+    }), mockSendEntry(), {
+      invokeRepo: { sumConversationTokenUsage },
+      externalTokenBudget: { dailyTokenBudgetPerConversation: 1, budgetExceededMessage: "不应出现" },
+    });
+    await invoker.invokeConversation({
+      otterId: "otter-1", conversationId: "conv-normal", userMessageContent: "Hi",
+      senderId: "user-1", onSSEEvent: () => {},
+    }).catch(() => null);
+    expect(sumConversationTokenUsage).not.toHaveBeenCalled();
+    expect(sdkCalls).toBeGreaterThan(0);
   });
 
   it.each([

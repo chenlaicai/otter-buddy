@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ConversationStore, OtterBridge } from '../src/otter-bridge.mjs';
+import { ConversationStore, ExternalTokenBudgetError, OtterBridge } from '../src/otter-bridge.mjs';
 
 function memoryStore() {
   const values = new Map();
@@ -259,6 +259,24 @@ test('fails closed when execution fails or terminal chain has no final speak', a
   state.invokes[0].status = 'completed';
   state.invokes[0].talkingStonePassedTo = ['user'];
   await assert.rejects(pending, /OTTER_FINAL_SPEAK_MISSING/);
+});
+
+test('surfaces the daily budget rejection even though no invoke was created', async () => {
+  const { state, fetcher } = fixture();
+  state.pauseInvokeCreation = true;
+  const bridge = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1 });
+  const pending = bridge.reply(input);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  state.entries.push({
+    id: 'budget-rejected', entryType: 'system', sequenceNum: 2,
+    body: 'EXTERNAL_TOKEN_BUDGET_EXCEEDED:今天的对话额度已用完，请明天再试。',
+  });
+  await assert.rejects(pending, error => {
+    assert.ok(error instanceof ExternalTokenBudgetError);
+    assert.equal(error.userMessage, '今天的对话额度已用完，请明天再试。');
+    return true;
+  });
+  assert.equal(state.invokes.length, 0);
 });
 
 test('requires exactly one otter when creating the mapped conversation', async () => {

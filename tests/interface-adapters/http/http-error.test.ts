@@ -19,6 +19,10 @@ function createTestApp(): Hono {
     return handleError(c, new DomainError("test error", kind));
   });
 
+  app.get("/test-external-budget", (c) => {
+    return handleError(c, new DomainError("EXTERNAL_TOKEN_BUDGET_EXCEEDED:明天再试", "validation"));
+  });
+
   // HttpError 路由
   app.get("/test-http/:status", (c) => {
     const status = parseInt(c.req.param("status"), 10);
@@ -69,6 +73,15 @@ describe("handleError", () => {
     expect(res.status).toBe(403);
     const body = await res.json() as { error: string };
     expect(body.error).toBe("test error");
+  });
+
+  it("外部额度 DomainError -> 400 + 稳定机器码", async () => {
+    const res = await app.request("/test-external-budget");
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "EXTERNAL_TOKEN_BUDGET_EXCEEDED:明天再试",
+      code: "EXTERNAL_TOKEN_BUDGET_EXCEEDED",
+    });
   });
 
   // ─── HttpError -> 指定状态码 ───

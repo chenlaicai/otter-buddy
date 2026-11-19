@@ -118,7 +118,9 @@ describe("loadConfig", () => {
     expect(cfg.server.port).toBe(3000);
     expect(cfg.db.path).toBe("./otter-buddy.db");
     expect(cfg.memory.rrfK).toBe(60);
-    // 段 1：rerank 配置缺省——multiply（零行为变更）+ 设计系数回填
+    expect(cfg.external.dailyTokenBudgetPerConversation).toBe(200_000);
+    expect(cfg.external.budgetExceededMessage).toBe("今天的对话额度已用完，请明天再试。");
+    // Phase 1 段 1：rerank 配置缺省——multiply（零行为变更）+ 设计系数回填
     expect(cfg.memory.rerankMode).toBe("multiply");
     expect(cfg.memory.rerank.wRrf).toBeCloseTo(0.6, 12);
     expect(cfg.memory.rerank.wTime).toBeCloseTo(0.3, 12);
@@ -133,6 +135,23 @@ describe("loadConfig", () => {
     expect(cfg.circuitBreaker).not.toHaveProperty("maxChainTokens");
     expect(cfg.circuitBreaker).not.toHaveProperty("chainDepthSoftLimit");
     expect(cfg.circuitBreaker).not.toHaveProperty("stalledCycleHopLimit");
+  });
+
+  it("加载外部对话额度与超额文案，并允许 0 表示不限", () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + "external:\n  dailyTokenBudgetPerConversation: 0\n  budgetExceededMessage: 明日再来\n");
+    const cfg = loadConfig();
+    expect(cfg.external).toEqual({ dailyTokenBudgetPerConversation: 0, budgetExceededMessage: "明日再来" });
+  });
+
+  it.each([
+    ["external:\n  dailyTokenBudgetPerConversation: -1\n", /非负整数/],
+    ["external:\n  dailyTokenBudgetPerConversation: 1.5\n", /非负整数/],
+    ["external:\n  budgetExceededMessage: \"\"\n", /非空字符串/],
+  ])("拒绝非法外部额度配置 %s", (externalYaml, error) => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(MINIMAL_YAML + externalYaml);
+    expect(() => loadConfig()).toThrow(error);
   });
 
   it("旧链资源阈值即使残留也不会重新变成停止配置", () => {

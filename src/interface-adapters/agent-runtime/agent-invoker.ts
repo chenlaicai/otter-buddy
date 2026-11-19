@@ -168,6 +168,12 @@ import { buildContentFilterRetryMsg, buildContentFilterTerminalMsg } from "@usec
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
 import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-port";
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
+import { externalTokenBudgetExceeded, shanghaiDayRange } from "@usecases/conversation/external-token-budget";
+
+export interface ExternalTokenBudgetConfig {
+  dailyTokenBudgetPerConversation: number;
+  budgetExceededMessage: string;
+}
 
 // buildAutoHandoffOptions / buildManualHandoffOptions 退役——
 // 红线重审后推翻原判：影子通道改变了 当年的技术形态（合成者是干净的
@@ -239,6 +245,10 @@ export class AgentInvoker implements AgentTurnPort {
     private readonly scheduledTaskPendingRepo?: ScheduledTaskPendingItemRepository,
     /** content_filter 首次失败时选择不同模型的备用条目。 */
     private readonly modelPool?: ModelPoolLike,
+    /** 外部对话每日 token 额度；未注入时保持旧装配/测试行为。 */
+    private readonly externalTokenBudget?: ExternalTokenBudgetConfig,
+    /** 日界计算时钟（测试可注入），生产缺省当前时间。 */
+    private readonly now: () => Date = () => new Date(),
   ) {
     this.agentDispatchService = agentDispatchService;
     this.orchestrator = new AgentTurnOrchestrator(logger, metrics);
@@ -400,6 +410,28 @@ export class AgentInvoker implements AgentTurnPort {
     return kind === 'external' ? 'restricted' : undefined;
   }
 
+  /** 在 invoke/模型调用发生前执行外部对话日额度闸。超额只留可识别的系统错误条目供轮询适配器消费。 */
+  private async assertExternalTokenBudget(conversationId: string): Promise<void> {
+    const budget = this.externalTokenBudget?.dailyTokenBudgetPerConversation;
+    if (budget === undefined || budget === 0) return;
+    const sumUsage = this.invokeRepo?.sumConversationTokenUsage;
+    if (typeof sumUsage !== 'function') {
+      throw new DomainError('external token budget usage lookup is unavailable', 'validation');
+    }
+    const { start, end } = shanghaiDayRange(this.now());
+    const used = await sumUsage.call(this.invokeRepo, conversationId, start, end);
+    if (used < budget) return;
+    const error = externalTokenBudgetExceeded(this.externalTokenBudget!.budgetExceededMessage);
+    try {
+      await this.sendEntry?.createSystemEntry({ conversationId, body: error.message });
+    } catch (entryError) {
+      this.logger.warn('[external-budget] rejection marker entry failed', {
+        conversationId, error: entryError instanceof Error ? entryError.message : String(entryError),
+      });
+    }
+    throw error;
+  }
+
   // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- 双路径迁移期；轮边界水位触发器 +3 语句（时机权回收应用层）；+invoke.start 身份透传 1 分支；水位写回 +2 语句（max-statements 覆盖已与 main 对齐）
   private async invokeConversationInner(params: {
     otterId: string;
@@ -424,6 +456,7 @@ export class AgentInvoker implements AgentTurnPort {
     if (!externalProfile && params.senderId.startsWith('external:')) {
       throw new DomainError('external sender requires a persisted external source and restricted profile', 'validation');
     }
+    if (externalProfile) await this.assertExternalTokenBudget(conversationId);
     const startTime = Date.now();
 
     // 统一事件推送：优先用 onSSEEvent 覆盖（测试），默认走 broadcastEvent

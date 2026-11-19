@@ -2,6 +2,22 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const TERMINAL = new Set(['completed', 'failed', 'aborted']);
+export const EXTERNAL_TOKEN_BUDGET_ERROR_CODE = 'EXTERNAL_TOKEN_BUDGET_EXCEEDED';
+const EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX = `${EXTERNAL_TOKEN_BUDGET_ERROR_CODE}:`;
+
+export class ExternalTokenBudgetError extends Error {
+  constructor(userMessage) {
+    super(`${EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX}${userMessage}`);
+    this.userMessage = userMessage;
+  }
+}
+
+/** 兼容 HTTP 文本与持久化系统条目的错误形状；正常路径优先使用 Error.userMessage。 */
+export function externalTokenBudgetMessage(error) {
+  if (typeof error?.userMessage === 'string') return error.userMessage;
+  const match = String(error?.message ?? error).match(/EXTERNAL_TOKEN_BUDGET_EXCEEDED:([^\n"]+)/);
+  return match?.[1] ?? null;
+}
 
 function publicText(body) {
   return String(body ?? '')
@@ -73,6 +89,14 @@ export class OtterBridge {
     });
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 500);
+      try {
+        const payload = JSON.parse(detail);
+        if (payload.code === EXTERNAL_TOKEN_BUDGET_ERROR_CODE && typeof payload.error === 'string') {
+          throw new ExternalTokenBudgetError(payload.error.slice(EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX.length));
+        }
+      } catch (error) {
+        if (error instanceof ExternalTokenBudgetError) throw error;
+      }
       throw new Error(`OTTER_HTTP_${response.status}: ${detail}`);
     }
     return response;
@@ -245,6 +269,12 @@ export class OtterBridge {
         throw new Error('OTTER_TRIGGER_ENTRY_MISMATCH');
       }
       if (trigger) {
+        // 额度闸在 invoke 创建前拒绝，因此没有 failed invoke 可轮询；只认本轮之后由 core 写入的系统错误条目。
+        const budgetEntry = entries.find(entry => entry.entryType === 'system'
+          && entry.sequenceNum > trigger.sequenceNum
+          && typeof entry.body === 'string'
+          && entry.body.startsWith(EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX));
+        if (budgetEntry) throw new ExternalTokenBudgetError(budgetEntry.body.slice(EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX.length));
         // 轮次身份只认 POST 返回的 entry id 与持久化 invoke.triggerEntryId；相同正文/相近时间不构成身份。
         const chainInvokes = invokes.filter(invoke => invoke.triggerEntryId === trigger.id);
         const chainInvokeIds = new Set(chainInvokes.map(invoke => invoke.id));

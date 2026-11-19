@@ -7,6 +7,14 @@ server:
   # HTTP 服务监听端口（默认 3000）
   port: 3000
 
+# === 外部接入对话（CoLink）===
+external:
+  # 每个外部对话每天可消耗的 input+output token 总额（默认 200000；0=不限）
+  # 按 Asia/Shanghai 自然日重置；cache_read/cache_write 不计入，避免上下文缓存重发放大账面。
+  dailyTokenBudgetPerConversation: 200000
+  # 超额后回复给外部用户的文案
+  budgetExceededMessage: "今天的对话额度已用完，请明天再试。"
+
 # === 统一接入登录（F20261113uaccs 阶段 2）===
 auth:
   # 登录口令（登录页输入的口令，owner password）。

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { ExtensionPoint, ViewContainer } from '../vendor/app-sdk/index.mjs';
 import { createManifest } from '../src/manifest.mjs';
 import { createMentionHandler } from '../src/mention-handler.mjs';
+import { ExternalTokenBudgetError } from '../src/otter-bridge.mjs';
 
 test('manifest includes a passive otter avatar and both personal/project scopes', () => {
   const manifest = createManifest();
@@ -68,6 +69,16 @@ test('mention handler routes DM and channel to their respective Otter mappings',
   assert.equal(calls[0].ctx.event.data.reason, 'dm_message');
   assert.equal(calls[1].ctx.event.data.reason, 'mention');
   assert.deepEqual(replies, [{ text: '回答' }, { text: '回答' }]);
+});
+
+test('mention handler replies with the configured budget message without rethrowing for SDK replay', async () => {
+  let calls = 0;
+  const replies = [];
+  const bridge = { reply: async () => { calls++; throw new ExternalTokenBudgetError('今天的对话额度已用完，请明天再试。'); } };
+  const handler = createMentionHandler({ bridge });
+  await handler(ctxFixture({ reason: 'dm_message', conversationId: 'dm' }, replies));
+  assert.equal(calls, 1);
+  assert.deepEqual(replies, [{ text: '今天的对话额度已用完，请明天再试。' }]);
 });
 
 test('mention handler allows personal DM without a user allowlist and rejects unsupported events', async () => {

@@ -61,6 +61,13 @@ export interface AppConfig {
   server: {
     port: number;
   };
+  /** 外部接入对话的滥用防护；额度按单个海獭对话、Asia/Shanghai 自然日计算。 */
+  external: {
+    /** 每日 input+output token 上限；0=不限。cache_read/cache_write 不计入。 */
+    dailyTokenBudgetPerConversation: number;
+    /** 超额时由外部适配器原样回复给用户的文案。 */
+    budgetExceededMessage: string;
+  };
   memory: {
     rrfK: number;
     /** Vec 权重（0-1），0=纯 FTS，1=纯 Vec，默认 0.4（偏信任 FTS） */
@@ -256,6 +263,10 @@ export function updateDefaultModelInYaml(
 /** config.yaml 的原始 YAML 结构 */
 interface RawConfig {
   server?: { port?: number };
+  external?: {
+    dailyTokenBudgetPerConversation?: number;
+    budgetExceededMessage?: string;
+  };
   database?: {
     path?: string;
     walMode?: boolean;
@@ -508,12 +519,24 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
     throw new Error("配置校验失败: server.port 必须是数字");
   }
   validateAuthConfig(raw);
+  validateExternalConfig(raw);
 
   // contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
   if (raw.weixin) validateWeixinWarnConfig(raw.weixin);
 }
 
-/** （delta 检视）：auth.ownerPassword 非字符串（如 YAML 裸数字 123456）
+function validateExternalConfig(raw: RawConfig): void {
+  const budget = raw.external?.dailyTokenBudgetPerConversation;
+  if (budget !== undefined && (typeof budget !== "number" || !Number.isInteger(budget) || budget < 0)) {
+    throw new Error("配置校验失败: external.dailyTokenBudgetPerConversation 必须是非负整数（0=不限）");
+  }
+  const message = raw.external?.budgetExceededMessage;
+  if (message !== undefined && (typeof message !== "string" || message.trim().length === 0)) {
+    throw new Error("配置校验失败: external.budgetExceededMessage 必须是非空字符串");
+  }
+}
+
+/** F20261113uaccs（delta 检视 S2）：auth.ownerPassword 非字符串（如 YAML 裸数字 123456）
  *  会在 buildAuthConfig 裸 TypeError——此处 fail-fast 给引导性报错（与 server.port 同语义）。 */
 function validateAuthConfig(raw: RawConfig): void {
   if (raw.auth?.ownerPassword !== undefined && typeof raw.auth.ownerPassword !== "string") {
@@ -688,11 +711,19 @@ function buildAuthConfig(raw: RawConfig): AppConfig["auth"] {
   return ownerPassword ? { ownerPassword } : undefined;
 }
 
+function buildExternalConfig(raw: RawConfig): AppConfig["external"] {
+  return {
+    dailyTokenBudgetPerConversation: d(raw.external?.dailyTokenBudgetPerConversation, 200_000),
+    budgetExceededMessage: d(raw.external?.budgetExceededMessage, "今天的对话额度已用完，请明天再试。"),
+  };
+}
+
 /** 将 RawConfig 补全默认值，构建 AppConfig。features/attachments 归一化拆至 features-config.ts */
 function applyDefaults(raw: RawConfig & { llm: { default: string; models: NonNullable<NonNullable<RawConfig["llm"]>["models"]> } }, logger?: Logger): AppConfig {
   return {
     db: buildDbConfig(raw),
     server: { port: d(raw.server?.port, 3000) },
+    external: buildExternalConfig(raw),
     memory: buildMemoryConfig(raw),
     embedding: {
       dimensions: d(raw.embedding?.dimensions, 1024),
