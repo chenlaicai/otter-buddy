@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * F20261119asgov（#1963 T3）：open issue「验证断言」段方向 lint。
+ * 断言契约方向闸：open issue「验证断言」段方向 lint（搭档 2026-11-19 指令落地，出处见特性文档）。
  *
  * 断言契约（F20261116 方向语义 + 本特性机械闸）：断言必须是「问题还在判据」——
  * 什么条件满足 = 问题仍未解决 / 修复未兑现。好结果方向断言（「修复后 X 不再发生」
@@ -58,7 +58,7 @@ export function classifyAssertionDirection(section) {
     .filter((line) => !META_LINE_PREFIXES.some((p) => line.trimStart().startsWith(p)))
     .join(" ")
     // 改写标注块（【YYYY-MM-DD lint/回查改写：…】）是溯源信息非断言语义——标注内嵌的
-    // 原文引用可能含好结果词，剥离后再扫（#1766 改写后实证）
+    // 原文引用可能含好结果词，剥离后再扫（改写后复扫实证）
     .replace(/【[^】]*改写：[^】]*】/g, "");
   const goodScan = ["未下降", "未提高", "未修复", "未兑现", "未解决", "未落地", "未归零"]
     .reduce((s, neg) => s.replaceAll(neg, ""), substance);
