@@ -19,7 +19,7 @@ test('manifest includes a passive otter avatar and both personal/project scopes'
   assert.doesNotMatch(svg, /\bopacity\s*=/i);
   assert.doesNotMatch(svg, /url\(#/i);
   assert.doesNotMatch(svg, /(?:fill|stroke)\s*=\s*["'](?!currentColor|none)[^"']+["']/i);
-  assert.equal(manifest.version, '0.6.0');
+  assert.equal(manifest.version, '0.6.1');
   assert.deepEqual(manifest.permissions, ['messages:receive', 'messages:write', 'messages:read-public', 'messages:read-private', 'files:read', 'files:upload']);
   // Why: 0.28 协议把用户消息统一为 app.user_message_received；app.mentioned 已退役。
   assert.deepEqual(manifest.events, { path: '/events', schemaVersion: '2.0.0', types: ['app.user_message_received'] });
@@ -240,4 +240,44 @@ test('vendored SDK matches the pinned version and the manifest constants are not
   assert.ok(existsSync(vendorPackage), 'vendor/app-sdk 缺失：先跑 npm run prepare:sdk');
   const vendored = JSON.parse(readFileSync(vendorPackage, 'utf8'));
   assert.equal(vendored.version, pin.version);
+});
+
+/**
+ * 0.28.1 分页统一契约的 vendor 侧锁定（F20261118clkpg）。
+ * Why 直接测 vendor：我们自己的工具层用 fixture 打桩，看不出「pin 到的 SDK 到底放不放行 cursor」。
+ * 一旦有人回退 vendor 到 0.28.0（dm 只认 beforeId/afterId），线上私聊翻页会以 400 失败，
+ * 而工具层测试仍是绿的——这条断言就是那个缺口。
+ */
+test('vendored SDK 的私聊读取与话题共用 limit/cursor，且拒绝已删除的 beforeId/afterId', async () => {
+  const { createTurnActions } = await import('../vendor/app-sdk/src/events/turn.mjs');
+  const dmRow = { event: { eventId: 'e1', data: { reason: 'dm_message' } } };
+  const seen = [];
+  // 平台侧私聊消息结构（wire-schemas:81/83/84/87）——SDK 会校验形状，不能用最小假数据糊过去。
+  const dmItem = { id: 'm1', conversationId: 'dm-1', senderId: 'u1', senderKind: 'human', text: 'x',
+    attachments: [], createdAt: '2026-11-18T00:00:00.000Z', recalledAt: null };
+  const platform = {
+    readMessages: async (row, capability, input) => {
+      seen.push({ capability, input });
+      return { items: [dmItem], hasMore: false, nextCursor: null };
+    },
+    validate: async () => {},
+  };
+  const actions = createTurnActions({ row: dmRow, platform, requireActive: () => {}, stageReply: () => {} });
+  assert.equal(actions.source.kind, 'dm');
+
+  const page = await actions.source.listMessages({ limit: 20, cursor: 'opaque-cursor' });
+  assert.deepEqual(page, { items: [dmItem], hasMore: false, nextCursor: null });
+  // 身份与 scope 由平台按事件来源固定：私聊必须走当前用户的 messages:read-private。
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].capability.scope, 'messages:read-private');
+  assert.equal(seen[0].capability.identity, 'user');
+  assert.deepEqual(seen[0].input, { limit: 20, cursor: 'opaque-cursor' });
+
+  for (const legacy of [{ beforeId: 'a'.repeat(36) }, { afterId: 'a'.repeat(36) }]) {
+    await assert.rejects(
+      () => actions.source.listMessages(legacy),
+      error => error.code === 'INVALID_READ_OPTIONS',
+      `${Object.keys(legacy)[0]} 已被 0.28.1 删除，必须被 SDK 拒绝`
+    );
+  }
 });
