@@ -40,8 +40,8 @@ const PROD_MEMORY_CONFIG = {
   weightHalfLifeDaysDocument: 90,
   userFlagMultiplier: 2,
   frequencyBoostFactor: 0.1,
-  // 段 1：默认 multiply 零行为变更；加法系数按设计回填（段 1 不切默认）
-  rerankMode: "multiply" as const,
+  // 真实查询双路径验收后生产默认 additive；旧连乘路径另设回退回归用例。
+  rerankMode: "additive" as const,
   rerank: {
     wRrf: 0.6,
     wTime: 0.3,
@@ -52,18 +52,18 @@ const PROD_MEMORY_CONFIG = {
   },
 };
 
-/** 首跑锁定基线（v2 扩充后重录，2026-10-08，本地 3 次复跑完全一致）。
- *  地板取首跑值向下取整 3 位小数（吸收浮点末位，语义仍是「不许变差」）。
- * ⚠️ 地板灵敏度声明：本种子集上 rerank 五信号对指标是净负贡献
- *  （全信号中性化反事实：nDCG@5 0.7998 > 基线 0.6732）——地板只能拦「变差」，
- * 不能证明「变好」；改 rerank 的 PR 绿灯必须附逐信号前后对比，禁单看
+/** 默认切 additive 后重锁基线；地板向下取整 3 位小数（吸收浮点末位）。
+ *  旧 multiply 基线由独立回退用例精确锁定，不被新地板覆盖。
+ * ⚠️ 历史灵敏度声明：旧 multiply 在本种子集上是净负贡献
+ *  （全信号中性化反事实：nDCG@5 0.7998 > 旧 multiply 0.6732）——地板只能拦「变差」，
+ * 不能单独证明「变好」；改 rerank 的 PR 绿灯必须附逐信号前后对比，禁单看
  * 地板（见特性文档 实现记录「反事实与地板灵敏度」节）。
  *  改动排序管线的行为 PR 必须重跑本套件并更新地板（上升可改数字，下降须先
  *  证明是测量噪声或语义预期变化——后者需搭档确认）。 */
 export const BASELINE = {
-  ndcg5: 0.673,
-  ndcg10: 0.707,
-  mrr: 0.811,
+  ndcg5: 0.776,
+  ndcg10: 0.790,
+  mrr: 0.908,
 } as const;
 
 function mockEmbeddingGateway(): EmbeddingGateway {
@@ -168,7 +168,7 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     db.close();
   });
 
-  it("三项指标 ≥ 回归地板（合成种子集基线，指标不许变差）", async () => {
+  it("生产默认 additive 三项指标 ≥ 重锁回归地板", async () => {
     const ndcg5s: number[] = [];
     const ndcg10s: number[] = [];
     const rrs: number[] = [];
@@ -198,6 +198,30 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     expect(ndcg5).toBeGreaterThanOrEqual(BASELINE.ndcg5);
     expect(ndcg10).toBeGreaterThanOrEqual(BASELINE.ndcg10);
     expect(mrrValue).toBeGreaterThanOrEqual(BASELINE.mrr);
+  });
+
+  it("显式 multiply 回退路径保持旧基线 0.6732/0.7079/0.8114", async () => {
+    const legacyEngine = new SearchEngine({ ...PROD_MEMORY_CONFIG, rerankMode: "multiply" });
+    const legacy = new SearchMemory(repo, repo, mockEmbeddingGateway(), legacyEngine, createTestLogger());
+    const ndcg5s: number[] = [];
+    const ndcg10s: number[] = [];
+    const rrs: number[] = [];
+    for (const q of GOLDEN_QUERIES) {
+      const result = await legacy.search({
+        query: q.query,
+        limit: 10,
+        currentConversationId: q.currentConversationId,
+      });
+      const rankedIds = result.entries.map((e) => e.id);
+      const rel = new Map(Object.entries(q.expected));
+      ndcg5s.push(ndcgAtK(rankedIds, rel, 5));
+      ndcg10s.push(ndcgAtK(rankedIds, rel, 10));
+      rrs.push(reciprocalRank(rankedIds, rel));
+      resetWeights();
+    }
+    expect(mean(ndcg5s)).toBeCloseTo(0.6732, 4);
+    expect(mean(ndcg10s)).toBeCloseTo(0.7079, 4);
+    expect(mrr(rrs)).toBeCloseTo(0.8114, 4);
   });
 
   it("additive 全中性化反事实复现 0.7998/0.8029/0.9364（段 1 加法路径语义验收，±0.001）", async () => {

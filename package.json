@@ -27,6 +27,7 @@
     "test:capability:only": "vitest run --config vitest.capability.config.ts",
     "eval:golden": "vitest run tests/usecases/memory/golden-eval.test.ts --disable-console-intercept",
     "eval:grid": "vitest run --config vitest.eval.config.ts --disable-console-intercept --testTimeout=300000",
+    "eval:real": "vitest run --config vitest.real-eval.config.ts --disable-console-intercept --testTimeout=300000",
     "test:all": "npm test && npm run test:capability",
     "lint:capability": "node scripts/lint-capability-docs.mjs",
     "lint:tests": "node scripts/lint-tests.mjs",

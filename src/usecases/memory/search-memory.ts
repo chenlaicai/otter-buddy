@@ -572,7 +572,7 @@ export class SearchMemory {
     /** 查候选里哪些被 supersede，旧条目降权 + 标注。 */
     const superseded = await this.reader.getSupersededBy(hitIds);
 
-    // 段 1：rerankMode 路由——缺省 multiply 零行为变更，additive 走加法融合
+    // 引擎缺省 additive；显式 multiply 保留旧连乘回退。
     const scored = this.searchEngine.configRef.rerankMode === "additive"
       ? this.searchEngine.rerankAdditive(rrfHits, weightMap, currentConversationId, superseded)
       : this.searchEngine.rerank(rrfHits, weightMap, currentConversationId, superseded);
