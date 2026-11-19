@@ -135,7 +135,7 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { SignalRepository } from "@usecases/health/signal-repository";
 import type { SettingsRepository } from "@usecases/settings/settings-repository";
-import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext, buildOtterPrompt, buildInvokeSystemPrompt } from "./session-helpers";
+import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext, buildOtterPrompt, buildInvokeSystemPrompt, RESTRICTED_EXTERNAL_IDENTITY } from "./session-helpers";
 import { DelegationInFlightError, isSessionLockConflictError, SessionLockConflictError } from "@entities/errors";
 import { randomUUID } from "node:crypto";
 // （EazoTack 工具瘦身 v1）：manifest toolExposure 段读取
@@ -1236,8 +1236,12 @@ export class PiSessionFactory implements AgentGateway {
     // getModelAliasForLog 返回解析后的非空值，此处用 config 裸值。
     const rawConfig = this.cfg.otterConfigProvider?.getConfig(otterId);
     const rawModelAlias = rawConfig?.modelAlias;
-    const identityPrefix = await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId, rawModelAlias);
-    // 压缩钩子合成 prompt 的 meta 行要显示名而非 UUID。
+    // F20261119extsg：受限外部会话不注入真实身份段（搭档名/仓库/邮箱/大獭职责文案）——
+    // 改用中性身份常量。身份信息属于内部资产，不得进外部 prompt。
+    const identityPrefix = options?.externalProfile === 'restricted'
+      ? RESTRICTED_EXTERNAL_IDENTITY
+      : await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId, rawModelAlias);
+    // F20260903cmpk（#770）：压缩钩子合成 prompt 的 meta 行要显示名而非 UUID。
     // 查询失败不影响链路（catch 降级 undefined，钩子用"海獭"兜底）。
     const displayName = await this.identityBuilder.getOtterName(otterId).catch(() => undefined);
 
@@ -1539,7 +1543,7 @@ export class PiSessionFactory implements AgentGateway {
     // deferred 工具不声明给模型，由 tool_search 按需激活。readOnly（合成路径）
     // 不启用 tool_search——工具已白名单过滤，搜索能力只会扩大合成面。
     const toolExposure = readOnly || external ? undefined : loadToolExposureFromManifest(process.cwd(), this.logger);
-    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, partnerUserId: options?.partnerUserId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, rhiSignalRepo: this.cfg.rhiSignalRepo, matterRepo: this.cfg.matterRepo, workLedgerBinder: this.cfg.workLedgerBinder, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger, ...(toolExposure ? { toolExposure } : {}) });
+    const { tools: customTools, toolContext } = buildCustomTools({ otterId, conversationId, partnerUserId: options?.partnerUserId, allowedNames: otterToolNames, register, otterToolClient: this.otterToolClient!, modelPool: this.cfg.modelPool, otterConfigProvider: this.cfg.otterConfigProvider, createTools: this.cfg.createTools, healingRepo: this.cfg.healingRepo, signalRepo: this.cfg.signalRepo, rhiSignalRepo: this.cfg.rhiSignalRepo, matterRepo: this.cfg.matterRepo, workLedgerBinder: this.cfg.workLedgerBinder, isOtterRunning: (id: string) => this.isRunning(id), logger: this.logger, ...(external ? { externalRestricted: true } : {}), ...(toolExposure ? { toolExposure } : {}) });
     const codingTools = getCodingToolsForOtterType(otterType, options?.externalProfile);
     // readOnly 模式只保留 read 工具，排除 write/edit/bash
     const filteredCodingTools = readOnly ? codingTools.filter(t => t === 'read') : codingTools;

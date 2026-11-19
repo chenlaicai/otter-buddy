@@ -30,11 +30,20 @@ import type { HealingErrorType, HealingEventStatus, HealingEvent, HealingSeverit
  * （partnerLabel 快照路径）不一致；降级语义对齐 dispatch-chain resolveUnreadSenderLabel 的
  * 回退约定（当前 sender 无快照 → partnerLabel）。
  */
+/** 信号发送者标签。F20261119extsg：外部接入（senderId = `external:<actorId>`）绝不能回退到
+ *  全局搭档显示名——否则受限档把外部发言标成「搭档」，诱使模型把外部内容当搭档指令；
+ *  外部来源一律中性标签（有 senderName 用 senderName，否则「CoLink 用户 <尾4>」）。 */
 export function resolveSignalSenderLabel(
   senderName: string | null | undefined,
   senderId: string,
   partnerLabel?: string,
 ): string {
+  if (senderId.startsWith("external:")) {
+    const name = senderName?.trim();
+    if (name) return name;
+    const tail = senderId.slice("external:".length).replace(/[^\w]/g, "").slice(-4);
+    return tail ? `外部用户 ${tail}` : "外部用户";
+  }
   return senderName?.trim() || partnerLabel?.trim() || senderId;
 }
 

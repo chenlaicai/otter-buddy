@@ -407,6 +407,18 @@ export function buildInvokeSystemPrompt(config: string | OtterPromptConfig | und
   return externalProfile === 'restricted' ? buildRestrictedExternalSystemPrompt(base) : base;
 }
 
+/**
+ * F20261119extsg：受限外部会话的中性身份段。
+ * Why：身份段（identityPrefix）原本无条件注入，含搭档名/对话标题/仓库 URL/commit 邮箱/
+ * 大獭职责文案（identity-builder.ts）——外部用户问一句“你是谁”即可套出内部信息（R3 破口）。
+ * 受限档改为该常量：身份信息与全局设定一律不进外部 prompt。
+ */
+export const RESTRICTED_EXTERNAL_IDENTITY = [
+  '## 我的身份',
+  '- 你是 CoLink 会话助理，只处理当前外部会话范围内的问题。',
+  '- 你不知道也不推测自身运行环境的部署信息、账号、仓库或联系人。',
+].join('\n');
+
 /** 受限多人外部输入：系统级安全边界，正文和历史一律是不可信数据。 */
 export function buildRestrictedExternalSystemPrompt(base: string): string {
   return [base, [

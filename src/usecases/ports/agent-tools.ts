@@ -132,7 +132,14 @@ export interface ToolContext {
    * IM 平台由装配层注入实际 owner id（open_id/ilink_user_id）。
    */
   partnerUserId?: string;
-  /** getter 化（池化后跨 invoke 复用，invoke 入口重置寄存器）。
+  /**
+   * 受限外部会话（CoLink 等外部适配器接入）：本 invoke 的一切工具副作用必须收在"本对话边界"内。
+   * 消费点（F20261119extsg）：speak 只收 body、不落 healing/signal、不自动登记活类卡；
+   * yield 只允许 to:['user']、不登记 matter、不计检视轮次。
+   * 由 session 工厂按 externalProfile === 'restricted' 注入（invoke 级、不可由工具层抬升）。
+   */
+  externalRestricted?: boolean;
+  /** F20260911pspl：getter 化（池化后跨 invoke 复用，invoke 入口重置寄存器）。
    *  读取时机 = 工具执行时（invoke 运行期内），寄存器必有值。 */
   readonly currentMessageId: string;
   /** 模型池（多模型路由，可选，用于校验 modelAlias） */

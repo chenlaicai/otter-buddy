@@ -124,6 +124,9 @@ export class ConversationController {
       const input: CreateConversationInput = {
         title: body.title,
         modelAlias: body.modelAlias,
+        // F20261119extsg：外部接入适配器建对话时声明 kind=external——
+        // 该类别对话的一切 invoke 一律走受限档（含搭档本人从 web 发言），不可被单条消息 source 抬升。
+        ...(body.kind === "external" ? { kind: "external" as const } : {}),
       };
       const conv = await this.manageConversation.create(input);
       const participantsWithOtter = await this.manageParticipant.getActiveParticipants(conv.id);

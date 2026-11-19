@@ -379,6 +379,27 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
    
+  /**
+   * F20261119extsg：外部接入对话的档位来源（对话级单源）。
+   * Why：消息级 source=external 只覆盖外部事件；搭档本人从 web UI 在外部对话里发言、
+   * 或任何后续 hop，都必须继续受限（否则攻击者文本与全工具档同处一个上下文面）。
+   * fail-closed：读不到对话类别时抛错拒绝执行——不得默认降级为全权档。
+   */
+  private async externalProfileForConversationKind(conversationId: string): Promise<'restricted' | undefined> {
+    if (!conversationId || !this.conversationRepo) return undefined;
+    // 装配降级面：受限注入成部分桩（测试/旧装配）时无 getById——按「无对话级档位」处理，
+    // 实际外部事件的档位仍由消息入口的 source=external 强制（双层保险不互相依赖）。
+    const getById = this.conversationRepo.getById as unknown;
+    if (typeof getById !== 'function') return undefined;
+    let kind: string | undefined;
+    try {
+      kind = (await this.conversationRepo.getById(conversationId))?.kind;
+    } catch (err) {
+      throw new DomainError(`conversation profile lookup failed: ${err instanceof Error ? err.message : String(err)}`, 'validation');
+    }
+    return kind === 'external' ? 'restricted' : undefined;
+  }
+
   // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- 双路径迁移期；轮边界水位触发器 +3 语句（时机权回收应用层）；+invoke.start 身份透传 1 分支；水位写回 +2 语句（max-statements 覆盖已与 main 对齐）
   private async invokeConversationInner(params: {
     otterId: string;
@@ -394,7 +415,11 @@ export class AgentInvoker implements AgentTurnPort {
     triggerMessageId?: string;
     assignmentRole?: "reviewer";
   }): Promise<AgentTurnResult> {
-    const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId, externalProfile } = params;
+    const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId, externalProfile: requestedProfile } = params;
+    // F20261119extsg（P1-6 口径①）：对话级档位高于消息级——外部接入对话（kind=external）的
+    // 任何 invoke 一律 restricted，不得被单条消息的 source（如搭档从 web UI 发言的 web 档）抬升。
+    // 外层消息入口的 source 判定只覆盖“外部事件”，本闸覆盖“同一对话里的人类发言”与所有后续 hop。
+    const externalProfile = requestedProfile ?? await this.externalProfileForConversationKind(conversationId);
     // fail-closed：外部身份命名不能替代持久化 source → profile 契约，失配时拒绝而非降级全工具。
     if (!externalProfile && params.senderId.startsWith('external:')) {
       throw new DomainError('external sender requires a persisted external source and restricted profile', 'validation');

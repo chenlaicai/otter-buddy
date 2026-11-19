@@ -95,6 +95,8 @@ export interface BuildCustomToolsParams {
   conversationId: string;
   /** 本对话搭档（用户）id；缺省 "user"（Web 口径） */
   partnerUserId?: string;
+  /** F20261119extsg：受限外部会话标记——透传到 ToolContext，供 speak/yield 窄化副作用 */
+  externalRestricted?: boolean;
   allowedNames: string[];
   /** invoke 级寄存器（getter 绑定的读取目标） */
   register: InvokeRegister;
@@ -158,9 +160,9 @@ function prGuardAccessors(register: InvokeRegister): Pick<ToolContext, "turnPrUr
  * onUpdate/ctx SDK 特有，Otter 工具不需要，忽略。
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
-  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, workLedgerBinder, isOtterRunning, logger, toolExposure, partnerUserId } = params;
-  // signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
-  // matterRepo 同模式挂 ToolContext
+  const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, workLedgerBinder, isOtterRunning, logger, toolExposure, partnerUserId, externalRestricted } = params;
+  // C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
+  // P1：matterRepo 同模式挂 ToolContext
 
   // 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
   // invoke 级字段 getter 化——闭包捕获 ctx 对象，字段读取时
@@ -170,6 +172,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     otterId,
     conversationId,
     partnerUserId: partnerUserId ?? "user",
+    ...(externalRestricted ? { externalRestricted: true } : {}),
     modelPool,
     otterConfigProvider,
     signalRepo,

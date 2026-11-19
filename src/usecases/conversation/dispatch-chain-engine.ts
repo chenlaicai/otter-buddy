@@ -815,6 +815,13 @@ export class DispatchChainEngine {
       const otter = await this.deps.queryOtter.getById(p.otterId);
       return `- ${otter?.name ?? p.otterId}`;
     }));
+    // F20261119extsg：外部接入触发（senderId = `external:<actorId>`）不注入搭档显示名——
+    // 名册是每 hop 都会进 user message 的注入面，泄漏名字/暗示“搭档在场”就等同上一条 P0-6 的口子。
+    const external = senderId?.startsWith("external:") === true;
+    if (external) {
+      lines.push("- 外部用户（传 'user' 即结束本轮并交回行动权）");
+      return `## 在场成员\n${lines.join('\n')}`;
+    }
     const partnerLabel = this.deps.settingsRepo ? ((await this.deps.settingsRepo.get(USER_DISPLAY_NAME_KEY))?.trim() || '搭档') : '搭档';
     lines.push(`- ${partnerLabel}（传 'user' 即交还行动权给搭档）`);
     // 静态绑定后，非搭档的飞书发言者（访客）触发时明示身份——

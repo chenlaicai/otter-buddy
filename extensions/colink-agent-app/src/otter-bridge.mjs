@@ -83,7 +83,9 @@ export class OtterBridge {
     if (existing) return existing;
     const response = await this.request('/api/conversations', {
       method: 'POST',
-      body: JSON.stringify({ title }),
+      // Why（F20261119extsg）：声明 kind=external——中枢据此把**该对话的一切 invoke**（含搭档本人
+      // 从 web UI 的发言、后续所有 hop）钉在受限档，不再只依赖单条消息的 source。
+      body: JSON.stringify({ title, kind: 'external' }),
     });
     const conversation = await response.json();
     if (!conversation.id || !Array.isArray(conversation.otterIds) || conversation.otterIds.length !== 1) {

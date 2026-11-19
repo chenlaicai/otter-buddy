@@ -1,4 +1,4 @@
-import type { Conversation, ConversationParticipant } from "@entities/conversation/conversation";
+import type { Conversation, ConversationParticipant, ConversationKind } from "@entities/conversation/conversation";
 import {
   canArchiveConversation,
 } from "@entities/conversation/conversation";
@@ -16,8 +16,10 @@ export interface CreateConversationInput {
   /** 新建对话时大獭的模型自选（透传给 CreateOtter，缺省 = 默认模型） */
   modelAlias?: string;
   /** 对话类别（assistant = IM 助理自动开户；缺省 normal）。
-   * web-assistant = web 浮动獭全局唯一对话（首唤开户，HTTP create 链） */
-  kind?: "normal" | "assistant" | "web-assistant";
+   * web-assistant = web 浮动獭全局唯一对话（首唤开户，HTTP create 链）；
+   * external = 外部接入对话（CoLink 等适配器建立，F20261119extsg）——该类别下**任何来源**的
+   * invoke 都强制 restricts 受限档（见 agent-invoker 演算闸） */
+  kind?: ConversationKind;
 }
 
 export class ManageConversation {

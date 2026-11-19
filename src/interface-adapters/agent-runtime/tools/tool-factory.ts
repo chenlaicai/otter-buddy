@@ -74,14 +74,39 @@ function runSpeakBodyChecks(turnAssistantText: string | undefined, cleanBody: st
   return prCardGateError;
 }
 
+/** F20261119extsg：受限外部会话的 speak 参数面——只留 body。
+ *  Why：healing/signal 是内部协作台账（落库后会在后续全权档轮次被当提醒回注），
+ *  活类卡自动登记会写全局产物与记忆索引——两者都越出“本对话边界”。 */
+const RESTRICTED_SPEAK_PARAMETERS = {
+  type: "object",
+  properties: {
+    body: { type: "string", description: "发言内容（进展/结论，会即时呈现给外部用户）" },
+  },
+  required: ["body"],
+};
+
+const RESTRICTED_SPEAK_DESCRIPTION = "发言工具——你在当前外部会话里唯一的发言通道：只有 speak(body) 的内容会回给外部用户。限制：只能传 body（healing/signal 参数不可用，传了会被拒）；不支持 ```html-card-play 活类卡（会被拒），普通 Markdown 与 ```html-card 静态卡可以；不得输出或引用任何内部系统信息。说完仍需 yield 交棒。";
+
+/** F20261119extsg：受限外部会话的 yield 参数面——只允许交给 user。 */
+const RESTRICTED_YIELD_PARAMETERS = {
+  type: "object",
+  properties: {
+    to: { type: "array", items: { type: "string" }, description: "只能是 ['user']（外部会话不能把行动权交给其他海獭）。" },
+    reason: { type: "string", description: "一句说明（可选）。" },
+  },
+  required: ["to"],
+};
+
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
+  /** F20261119extsg：受限外部会话标记（invoke 级，来自 session 工厂） */
+  const restricted = ctx.externalRestricted === true;
   return {
     name: "speak",
     // 判断标准归位（原设计 L81，在 description 压缩中失传）。
     // 勿再移出：行为触发类引导必须在工具 description（每请求随 tools 参数注入，pi-ai
     // anthropic-messages.js convertTools），references 指针对「要不要用」的决策无效。
-    description: "发言工具——你在聊天室里唯一的发言通道：普通文本输出其他人不可见，只有 speak(body) 的内容会被所有人看到；进展/结论/提问/汇报一律 speak. 纯内容输出不移交行动权，调用后 agent loop 继续，可连续多次 speak（body 按顺序拼接）. TIP: 形态选择（六形态平权，什么场景选什么形态）——短问答/代码片段/简单列表等纯对话用 md 言语直答；方案对比/设计思路/排查结论/结构化数据正文先写 1-2 句结论、html-card 卡片放详情（每条都出卡等于没出卡）；可交互演示/游戏/小工具用 html-card-play 围栏（默认展开运行，自动登记产物）；外部链接/PR 呈递把 URL 裸写独占一段（勿 [label](url)、勿句中夹带——独占一段才自动 unfurl 预览卡；编排者动作）；PR/文档/报告等产物用 create_linked_resource 登记（摘要卡自动混排进时间轴）；图类暂无我方发图通道（lightbox 只管消息附件）；形态选对 ≠ 内容讲清——内容纪律仍由 SYSTEM.md 兑住. GOTCHA: speak≠交棒——说完还需 yield 回合才结束；HTML 卡片（```html-card 围栏）必须完整写在 body 内（写在外面系统会拒绝并指导重试），一条消息最多 2 张、单卡体积限制等具体数值以 get_html_card_contract 返回的契约为准；写卡前必调该工具. 议题汇报卡（L2 拍板）用 importance=\"high\" 默认展开——写进 meta 属性（如 ```html-card title=\"议题\" importance=\"high\"），不豁免单消息卡片预算；折叠态摘要行取卡内首个有效文本行（≤120 字符），关键结论放可见文本靠前位置. 呈递 PR 请拍板时必出一张带授权按钮的决策卡（脚本内 otterCard.submit({ summary: '<PR号>合入' })，搭档点按即合法授权源）——这是机械闸校验项，缺卡 speak/yield 会被拒. 搭档回复中的 ```html-card-reply 围栏是卡片回执（内嵌 JSON 可解析）. 系统自愈：遇系统问题（工具故障/检索缺失/格式异常/工具难用等）用 healing 参数上报——数组，每条 {type, severity, description, suggestion}；type 选 tool_failure/missing_context/wrong_tool/format_violation/knowledge_gap/performance/other/tool_use_feedback/runtime_status_mismatch，severity 缺省 low。禁止在 body 文本里写 <healing> 标签——body 原样展示给搭档，不再解析剥离。工具难用报 type=tool_use_feedback，description 以 [tool:工具名] 开头写清痛点与建议；该报的时机：调用失败且自行绕路解决/同一意图连试多个工具/参数语义反直觉/疑似与相邻工具职责重叠. 獭间信号：对派工的事实性异议/卡住升级用 signal 参数上报（objection/blocked，每条 {type, severity, payload}）；禁止在 body 文本写 <signal> 标签——body 原样展示，不再解析剥离；halt 只能大獭经 halt_otter 工具发出。",
-    parameters: {
+    description: restricted ? RESTRICTED_SPEAK_DESCRIPTION : "发言工具——你在聊天室里唯一的发言通道：普通文本输出其他人不可见，只有 speak(body) 的内容会被所有人看到；进展/结论/提问/汇报一律 speak. 纯内容输出不移交行动权，调用后 agent loop 继续，可连续多次 speak（body 按顺序拼接）. TIP: 形态选择（六形态平权，什么场景选什么形态）——短问答/代码片段/简单列表等纯对话用 md 言语直答；方案对比/设计思路/排查结论/结构化数据正文先写 1-2 句结论、html-card 卡片放详情（每条都出卡等于没出卡）；可交互演示/游戏/小工具用 html-card-play 围栏（默认展开运行，自动登记产物）；外部链接/PR 呈递把 URL 裸写独占一段（勿 [label](url)、勿句中夹带——独占一段才自动 unfurl 预览卡；编排者动作）；PR/文档/报告等产物用 create_linked_resource 登记（摘要卡自动混排进时间轴）；图类暂无我方发图通道（lightbox 只管消息附件）；形态选对 ≠ 内容讲清——内容纪律仍由 SYSTEM.md 兑住. GOTCHA: speak≠交棒——说完还需 yield 回合才结束；HTML 卡片（```html-card 围栏）必须完整写在 body 内（写在外面系统会拒绝并指导重试），一条消息最多 2 张、单卡体积限制等具体数值以 get_html_card_contract 返回的契约为准；写卡前必调该工具. 议题汇报卡（L2 拍板）用 importance=\"high\" 默认展开——写进 meta 属性（如 ```html-card title=\"议题\" importance=\"high\"），不豁免单消息卡片预算；折叠态摘要行取卡内首个有效文本行（≤120 字符），关键结论放可见文本靠前位置. 呈递 PR 请拍板时必出一张带授权按钮的决策卡（脚本内 otterCard.submit({ summary: '<PR号>合入' })，搭档点按即合法授权源）——这是机械闸校验项，缺卡 speak/yield 会被拒. 搭档回复中的 ```html-card-reply 围栏是卡片回执（内嵌 JSON 可解析）. 系统自愈：遇系统问题（工具故障/检索缺失/格式异常/工具难用等）用 healing 参数上报——数组，每条 {type, severity, description, suggestion}；type 选 tool_failure/missing_context/wrong_tool/format_violation/knowledge_gap/performance/other/tool_use_feedback/runtime_status_mismatch，severity 缺省 low。禁止在 body 文本里写 <healing> 标签——body 原样展示给搭档，不再解析剥离。工具难用报 type=tool_use_feedback，description 以 [tool:工具名] 开头写清痛点与建议；该报的时机：调用失败且自行绕路解决/同一意图连试多个工具/参数语义反直觉/疑似与相邻工具职责重叠. 獭间信号：对派工的事实性异议/卡住升级用 signal 参数上报（objection/blocked，每条 {type, severity, payload}）；禁止在 body 文本写 <signal> 标签——body 原样展示，不再解析剥离；halt 只能大獭经 halt_otter 工具发出。",
+    parameters: restricted ? RESTRICTED_SPEAK_PARAMETERS : {
       type: "object",
       properties: {
         body: { type: "string", description: "发言内容（进展/结论，会即时呈现给搭档）" },
@@ -96,6 +121,12 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (!ctx.currentInvokeId) return errorResponse("[错误] 系统错误：当前 invoke ID 未设置，无法发言。");
 
       const rawBody = params.body as string;
+      // F20261119extsg：受限外部会话的 speak 参数面收窄——healing/signal 是内部台账，
+      // 落库后会在后续全权档轮次被当提醒回注（跳会话污染），外部档机械拒。
+      if (restricted) {
+        const forbidden = params.healing !== undefined ? "healing" : params.signal !== undefined ? "signal" : null;
+        if (forbidden) return errorResponse(`[错误] 受限外部会话不支持 ${forbidden} 参数（不在本对话边界内）。请只用 body 发言。`);
+      }
       // + healing 与 signal 均走 speak 独立参数（结构化字段），
       // 不再从 body 文本解析/剥离标签；先全 parse、全合法才落账（跨参数原子性）。
       const paramError = validateAndPersistSpeakParams(params, ctx, healingRepo, logger);
@@ -105,6 +136,12 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       // 截断保留正文即可正常落账，避免模型重试死循环。
       const { body: cleanBody, leaked } = stripToolCallSerializationLeak(rawBody);
       if (leaked) logger?.warn?.(`[speak] 工具调用序列化泄漏已剥离（invoke=${ctx.currentInvokeId}）`);
+      // F20261119extsg：受限外部会话禁活类卡——
+      // ①它会被 autoRegisterPlayableCards 自动登记进全局产物库并写记忆索引（绕过 send-entry 的外部判断）；
+      // ②它会在搭档的网页端自动运行（外部可控 JS）。拒而非静默丢弃，避免模型误以为已发。
+      if (restricted && /```html-card-play/i.test(cleanBody)) {
+        return errorResponse("[错误] 受限外部会话不支持 ```html-card-play 活类卡。请改为纯文本或普通 ```html-card 静态卡（无法使用就不写卡）。");
+      }
 
       // PR 卡片闸事故：空 body/卡片外写 + PR 呈递拍板辅闸（单条命中 [PR 引用 + 纯请求措辞] 且无卡 → 拒落库指导补卡）
       const bodyError = runSpeakBodyChecks(ctx.getTurnAssistantText?.(), cleanBody);
@@ -132,7 +169,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         // 活类产物登记挂钩：宪法「产物=主体×时刻×形态」——活类卡是产物就该进
         // 时间轴混排体系（已铺好）。best-effort：登记失败不阻断发言（卡片本身已落库，
         // 只是少一张摘要卡）；title 取围栏 title 属性，content 提供可检索摘要
-        await autoRegisterPlayableCards(ctx, cleanBody, speakEntry.id).catch((err) =>
+        await (restricted ? Promise.resolve() : autoRegisterPlayableCards(ctx, cleanBody, speakEntry.id)).catch((err) =>
           logger?.warn?.(`playable-card register failed: ${err instanceof Error ? err.message : String(err)}`),
         );
 
@@ -358,33 +395,47 @@ async function runYieldPrRemindGate(
   }
 }
 
+/** F20261119extsg：受限外部会话的 yield 参数面校验——只允许交回 user，禁内部编排参数。
+ *  拆出保持 createYieldTool 行数（与 speak 侧同理：台账写入面不得越出本对话边界）。 */
+function restrictedYieldParamError(params: Record<string, unknown>, recipients: string[]): string | null {
+  const forbidden = params.expects_partner_decision !== undefined ? "expects_partner_decision" : params.assignmentRole !== undefined ? "assignmentRole" : null;
+  if (forbidden) return `[错误] 受限外部会话不支持 ${forbidden} 参数（不在本对话边界内）。`;
+  if (recipients.some(name => name !== "user")) return "[错误] 受限外部会话只能 yield 给 'user'，不能把行动权交给其他海獭。";
+  return null;
+}
+
+/** 普通档 yield 参数面（受限档走 RESTRICTED_YIELD_PARAMETERS）——拆出模块级保持函数行数预算。 */
+const FULL_YIELD_PARAMETERS = {
+  type: "object",
+  properties: {
+    to: {
+      type: "array",
+      items: { type: "string" },
+      description: "行动权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。接到行动权的人会被系统立即唤醒执行。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 任务未完成需下轮继续时，可以传自己（任务锚点入箱，下轮继续；连续自链受梯度护栏保护）。",
+},
+    reason: {
+      type: "string",
+      description: "（to 包含 'user' 时建议提供）说明为什么需要用户介入。生成理由的过程就是暂停思考的过程。",
+},
+    assignmentRole: {
+      type: "string", enum: ["reviewer"],
+      description: "本次派工角色；派给独立检视者时传 reviewer。角色随本次 yield 传递，完成交回后系统自动累计检视轮次，无需额外上报。",
+},
+    expects_partner_decision: {
+      type: "boolean",
+      description: "（仅 to 包含 'user' 时有意义）true = 本交棒是 L2 显式拍板项（必须等搭档显式动作，不是默认通过模式）——系统自动登记 matter 到本对话待办板（state=WAITING_PARTNER，owner=你），板上钉住不被消息流顶走。R8 默认通过模式（『我推荐 X，今天内无异议就开工』）与待办互斥：携带默认通过语义的 yield 不打标、不登记。",
+    },
+  },
+  required: ["to"],
+};
+
 function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
+  /** F20261119extsg：受限外部会话——只能把行动权交回 user，不得登记 matter/计检视轮次/刷派工台账 */
+  const restricted = ctx.externalRestricted === true;
   return {
     name: "yield",
     description: "交棒工具——结束本轮行动，把行动权交给指定参与者（对方立即被唤醒）。先 speak 再 yield（yield 不携带内容）；若 yield 被拒「尚未落账 speak」，直接补一次 speak 再 yield，勿排查工具。yield 必须单独调用（同批 terminate 不生效）。路由：子任务完成传回召唤者或流程下一步执行者；终审才传 'user'；不确定在场成员先调 get_active_participants。yield 给自己=任务锚点入箱下轮续跑（合法但受梯度护栏保护，禁止长期占用不产出）。⚠️ yield to 'user' 前先想：为什么需要用户介入？自己能处理或该先找其他獭就别传，用 reason 说明理由。",
-    parameters: {
-      type: "object",
-      properties: {
-        to: {
-          type: "array",
-          items: { type: "string" },
-          description: "行动权交给谁（用 Otter 的名字或 'user'，见在场成员名册）。接到行动权的人会被系统立即唤醒执行。路由规则：(1) 子任务完成时，传回召唤你的海獭（小獭默认交回召唤者）或工作流下一步的执行者——不是 'user'；(2) 整个协作任务完成、需要搭档（用户）拍板时，才传 'user'；(3) 任务未完成需下轮继续时，可以传自己（任务锚点入箱，下轮继续；连续自链受梯度护栏保护）。",
-        },
-        reason: {
-          type: "string",
-          description: "（to 包含 'user' 时建议提供）说明为什么需要用户介入。生成理由的过程就是暂停思考的过程。",
-        },
-        assignmentRole: {
-          type: "string", enum: ["reviewer"],
-          description: "本次派工角色；派给独立检视者时传 reviewer。角色随本次 yield 传递，完成交回后系统自动累计检视轮次，无需额外上报。",
-        },
-        expects_partner_decision: {
-          type: "boolean",
-          description: "（仅 to 包含 'user' 时有意义）true = 本交棒是 L2 显式拍板项（必须等搭档显式动作，不是默认通过模式）——系统自动登记 matter 到本对话待办板（state=WAITING_PARTNER，owner=你），板上钉住不被消息流顶走。R8 默认通过模式（『我推荐 X，今天内无异议就开工』）与待办互斥：携带默认通过语义的 yield 不打标、不登记。",
-        },
-      },
-      required: ["to"],
-    },
+    parameters: restricted ? RESTRICTED_YIELD_PARAMETERS : FULL_YIELD_PARAMETERS,
 
     // eslint-disable-next-line complexity -- yield execute 含内容校验/PR 复核/收发双方校验多防线
     execute: async (_id: string, params: Record<string, unknown>) => {
@@ -395,6 +446,11 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       if (prCardGateError) return errorResponse(prCardGateError);
       const paramsError = validateYieldParams(params);
       if (paramsError) return paramsError; const recipients = params.to as string[];
+      // F20261119extsg：受限外部会话的 yield 面收窄——不得携带内部编排参数，且只能交回 user。
+      if (restricted) {
+        const restrictedError = restrictedYieldParamError(params, recipients);
+        if (restrictedError) return errorResponse(restrictedError);
+      }
 
       // PR 呈递三件套守卫（yield 复核侧）：缺席拒绝顶回；零进展放行留声（拆出控行数，best-effort）
       const prRemind = await runYieldPrRemindGate(ctx, logger);
@@ -415,7 +471,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
           assignmentRole: params.assignmentRole === "reviewer" ? "reviewer" : undefined,
         });
 
-        const matterNote = await finalizeYieldSideEffects(ctx, params, resolvedIds, yieldResult);
+        const matterNote = restricted ? "" : await finalizeYieldSideEffects(ctx, params, resolvedIds, yieldResult);
 
         await emitYieldEvent(ctx, yieldResult, resolvedIds);
 
@@ -1544,6 +1600,11 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
       required: ["resourceType"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
+      // F20261119extsg：受限外部会话不得写全局产物库（产物入库会同时写记忆索引，越出本对话边界）。
+      // 外部档工具面本就无此工具，这层是防未来白名单添加时的 fail-closed 断言。
+      if (ctx.externalRestricted === true) {
+        return errorResponse("[错误] 受限外部会话不能创建链接资源。");
+      }
       const resourceType = (params.resourceType as string | undefined) ?? "url";
       if (resourceType === "fact") {
         if (!params.content || (params.content as string).trim().length === 0) {
