@@ -132,6 +132,13 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(collectAnchorViolations("B4 纸张与 B5 纸，C4 纸与 C5 信封")).toEqual([]);
     expect(collectAnchorViolations("B9 抽样，C4：UI 徽章数据源").map((x) => x.token).sort()).toEqual(["B9", "C4"]);
   });
+
+  it("C3 高警队列名不误删（healing 高危路由登记表），B/C 检查项仍删除", () => {
+    expect(collectAnchorViolations("high 级事件入 C3 高警队列").some((x) => x.token === "C3")).toBe(false);
+    expect(collectAnchorViolations("不入 C3 告警").some((x) => x.token === "C3")).toBe(false);
+    expect(collectAnchorViolations("不再入 C3——token 用完跟系统无关").some((x) => x.token === "C3")).toBe(false);
+    expect(collectAnchorViolations("C4 检查项抽样").some((x) => x.token === "C4")).toBe(true);
+  });
 });
 
 describe("annotateFile TS 编译器级词法", () => {

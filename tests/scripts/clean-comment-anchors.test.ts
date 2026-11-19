@@ -69,6 +69,7 @@ describe("cleanCommentText 文档结构编号", () => {
     expect(cleanCommentText("（C4：UI 徽章数据源）").text).toBe("（UI 徽章数据源）");
     expect(cleanCommentText("注入全量 B1-B6 渲染文本").text).toContain("渲染文本");
     expect(cleanCommentText("配对策略（方案 D 节 + ）").text).not.toContain("方案");
+    expect(cleanCommentText("high 级事件入 C3 高警队列").text).toBe("high 级事件入 C3 高警队列");
   });
 
   it("阶段/章 节/方案版本删除", () => {

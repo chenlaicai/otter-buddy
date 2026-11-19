@@ -143,6 +143,10 @@ export interface HealingEventInput {
   description: string;
   suggestion?: string;
   context?: Record<string, unknown>;
+  /** 落地即终态（缺省 open）：配额耗尽属资源侧正常事实，按搭档边界拍板免处置——
+   *  born-resolved 不进 open 消费面（self-healing-analysis findOpen / 8:30 消费即处置链），
+   *  台账可查（findAll(resolved)/sqlite 直查），create_otter 24h 改派提示同步扫 resolved */
+  initialStatus?: "open" | "resolved";
 }
 
 /** TurnCallbacks - orchestrator 回调 adapter 的接口（全部 invoke 化） */

@@ -137,7 +137,10 @@ function isExemptDocNumber(commentText, m, kind) {
     return /^:\d/.test(after);
   }
   if (kind === "BC检查项") {
-    // B/C 系列纸张/信封规格（如「B4 纸」「C5 信封」）不误删
+    // B/C 系列纸张/信封规格（如「B4 纸」「C5 信封」）不误删；
+    // C3 高警队列（healing 高危路由登记表）是队列名，不是检查项号：
+    // 后跟高警/告警/入队/队列，或前有入/不入（「不再入 C3」「不入 C3 告警」）均豁免
+    if (token === "C3" && (/^\s*(?:高警|告警|入队|队列)/.test(after) || /(?:入|不入)\s*$/.test(before))) return true;
     return /^\s*(?:纸|信封|系列|幅面)/.test(after);
   }
   if (kind === "m编号") {
