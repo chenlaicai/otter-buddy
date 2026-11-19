@@ -18,7 +18,7 @@ intent:
   verify_by:
     type: behavior_check
     note: "单测钉住：编排 22 项（幂等/水位/失败重跑/连败 skip/空集/成功链路/审计全集/补审计失败治理/召唤生命周期三态/超时常量同源/Shanghai 日界/损坏档案降级，含两轮审视修复场景钉证）+ 工具快照校验与 dispute 13 项 + 白名单矩阵 2 项 + seed 幂等 3 项 + repo listByTaskId 1 项。"
-capability_test: "n/a: 本刀编排逻辑由单测钉行为门禁（function executor 通道 + 獭生命周期为装配级，无 capability 断言面）；端到端夜审依赖真实 LLM 会话，验收走生产首夜观察。"
+capability_test: "tests/capability/golden/night-review-full-processing.golden.ts"
 created_at: 2026-11-18
 created_in_conversation: 82f71e1a-a8b0-4e0f-916e-5e219624483c
 causal_links:
@@ -181,8 +181,9 @@ small 不可见/night-reviewer 不含，不给核实权）。空变更集不挂�
     受限档案獭测试：runner 新增 `restricted` 场景通道（按指定 otterType/systemPrompt
     建獭 + setup 钩子注入场景数据 + 直接 invoke 该獭，而非只测对话大獭）；新增首场景
     `night-review-full-processing`（直写 2 条 recorded belief + 快照范围写 context，
-    断言每条必处置 + 不越受限工具面）；selftest 判别力通过（good ok / 双 bad 拒），
-    真 LLM 采样 3/3 通过（glm-flash 端点；mimo 测试端点当日配额耗尽），记录已落
+    断言每条必处置 + 不越受限工具面——判据经四/五轮演进为 DB 反查清单精确比对，
+    见下节）；selftest 判别力通过（good ok / 四 bad 拒），真 LLM 采样 3/3 通过
+    （glm-flash 端点；mimo 测试端点当日配额耗尽），记录已落
     data/metrics/golden-results.jsonl。
 14. **文档主方案与代码同步**：主流程节改四状态全集 + fyi 先于 complete + 统一失败
     治理 + dispute 执行体；verify_by note 与验证计数同步。
@@ -191,13 +192,38 @@ small 不可见/night-reviewer 不含，不给核实权）。空变更集不挂�
 17. **matter 查重窗口**：repo 默认 50 条截断 → 调用侧显式 limit=1000（超出窗口的重复
     登记代价=搭档多闭环一条，非数据损坏）+ 用例钉证（60 条噪声后查重仍命中）。
 
+## 四~六轮审视修复（审-1946：发现 18/19 与 CI 复发，golden 扩展落地后）
+
+18. **证据数字与声明同步**（三轮首次闭环、五/六轮随断言演进复发后终闭环）：PR body
+    与本文档的判据描述、selftest 形态、采样细节、回归计数随 head 演进同步——回归
+    582（当轮实测）→ rebase main 9a8a2e07 后 586；capability 声明由「n/a 无断言面」
+    改为指向真实 capability 场景文件（front-matter capability_test →
+    tests/capability/golden/night-review-full-processing.golden.ts）。
+19. **golden 断言判别力演进**（四轮发现、五轮对抗补全、六轮签收）：
+    - 初版「迁移调用 ≥ 清单数」被同条重复处置骗过（四轮对抗实测假阳性）→ 改
+      entry_id 去重 + speak 进判据；
+    - 去重仍可被清单外幻觉 id 骗过（次数与去重达标但清单内全漏审）→ 终版改 DB
+      反查本轮清单精确比对：scenarioIds 全覆盖（covered=清单数）+ 无清单外处置
+      （offList 空）+ speak 收尾；
+    - selftest 改 factory 形态：good（清单内 2 条各处置 + speak）+ 四 bad（漏处置 /
+      同条重复+无 speak / 清单外 ghost-id / 越工具面 search_memory）全判 !ok；
+    - 修正后真采样重跑 3/3 通过（#1 全 reject、#2 全 verify、#3 混合；每条 covered=2/2、
+      offList 空、speak 收尾），golden-results.jsonl:770 留痕（:769 为 selftest）。
+15'. **CI up-to-date 复发**（五轮发现、六轮 rebase 修复确认）：main 前移致闸再失败——
+    rebase 至 9a8a2e07，586 回归复跑全绿（审-1946 六轮独立复核同值），CI 重跑闭环
+    （review-closure 待审视覆盖评论后收尾）。
+
 ## 验证
 
 - 单测 41 项全绿（编排 22 + 工具快照校验/dispute 13 + 白名单矩阵 2 + seed 3 + repo 1，含
-  两轮审视全部修复场景的钉证用例），在 worktree 内跑。
+  各轮审视修复场景的钉证用例），在 worktree 内跑。
+- golden（restricted 通道首场景 night-review-full-processing）：selftest 判别力通过
+  （good + 四 bad 全判别，golden-results.jsonl:769）；真 LLM 采样 3/3 通过（glm-flash；
+  :770 留痕）。
 - `npx tsc --noEmit`、`npx eslint`（改动文件）零错误；tests/usecases/scheduler +
   tests/interface-adapters/belief-migration-range-guard + tests/frameworks/agent/coding-tools +
-  tests/frameworks/db/memory + tests/usecases/memory 全量 582 项通过（无回归；delta 后 rebase 复跑）。
+  tests/frameworks/db/memory + tests/usecases/memory 全量 586 项通过（无回归；rebase
+  main 9a8a2e07 后复跑，审-1946 六轮独立复核同值）。
 - 端到端（真实 LLM 夜审会话）留生产首夜观察：首夜 03:00 触发后核对 healing 主对话的 fyi
   entry 与 matter 锚、consolidation_state settle 档、獭解散无残留。
 
