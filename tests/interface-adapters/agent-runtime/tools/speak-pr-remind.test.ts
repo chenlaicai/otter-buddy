@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createTools } from '@interface-adapters/agent-runtime/tools/tool-factory';
-import { extractPrUrls, recordTurnPrUrls, verifyTurnPrsOnYield, recordRegisteredPr, factPrUrlHint } from '@interface-adapters/agent-runtime/tools/speak-pr-remind';
+import { extractPrUrls, recordTurnPrUrls, verifyTurnPrsOnYield } from '@interface-adapters/agent-runtime/tools/speak-pr-remind';
 import type { ToolContext } from '@usecases/ports/agent-tools';
 
 const PR_URL = 'https://github.com/chenlaicai/otter-buddy/pull/1947';
@@ -36,6 +36,16 @@ function makeCtx(opts: { registeredPrUrls?: string[] } = {}): ToolContext {
           title: null, content: null, category: null, linkedBy: 'big',
           createdAt: '2026-11-19T00:00:00Z', status: 'active',
         }))),
+        // delta 3：登记侧端到端——create_linked_resource 真实工具路径依赖 link；
+        // 按入参回显资源（断开 prRemindGuardNoteOnLink 挂接时相关用例变红）
+        link: vi.fn(async (input: Record<string, unknown>) => ({
+          id: `res-${input.resourceType}`, conversationId: 'conv',
+          resourceType: input.resourceType, url: input.url ?? null,
+          title: input.title ?? null, content: input.content ?? null,
+          category: input.category ?? null, linkedBy: 'big',
+          createdAt: '2026-11-19T00:00:00Z', status: 'active',
+          groupId: input.groupId ?? null,
+        })),
       },
       dispatch: {
         markDispatched: vi.fn(async () => ({ updated: 0 })),
@@ -166,10 +176,13 @@ describe('挂接层端到端：speak 记录 → yield 复核', () => {
     expect(pass.isError).toBeFalsy();
   });
 
-  it('原事故形态二（本回合 pr 登记 + 正文无裸链）：不变量二拒绝补裸链', async () => {
+  it('原事故形态二（create_linked_resource pr 登记 + 正文无裸链）：不变量二拒绝补裸链（登记侧真实工具路径）', async () => {
     const ctx = makeCtx();
     await speak(ctx, 'PR 已交付，摘要卡已登记。');
-    recordRegisteredPr(ctx, PR_URL); // 登记侧挂接（本回合 create_linked_resource pr）
+    const link = await findTool(ctx, 'create_linked_resource').execute('call-link', {
+      resourceType: 'pr', url: PR_URL, groupId: 'F20261119prset',
+    });
+    expect(link.isError).toBeFalsy();
     const rejected = await yieldTo(ctx);
     expect(rejected.isError).toBe(true);
     const text = String((rejected as { content: Array<{ text: string }> }).content[0].text);
@@ -177,10 +190,20 @@ describe('挂接层端到端：speak 记录 → yield 复核', () => {
     expect(text).toContain('unfurl');
   });
 
-  it('登记引导（fact 含 PR URL）：回执提示改 pr 类型但不阻断 fact 创建', () => {
-    const hint = factPrUrlHint({ content: `PR ${PR_URL} 已交付` });
-    expect(hint).toContain('resourceType=pr');
-    expect(factPrUrlHint({ content: '普通事实记录' })).toBeNull();
+  it('登记引导（fact 含 PR URL）：创建回执附引导改 pr 类型但不阻断 fact 创建（真实工具路径）', async () => {
+    const ctx = makeCtx();
+    const link = await findTool(ctx, 'create_linked_resource').execute('call-link', {
+      resourceType: 'fact', content: `PR ${PR_URL} 已交付`,
+    });
+    expect(link.isError).toBeFalsy();
+    const text = String((link as { content: Array<{ text: string }> }).content[0].text);
+    expect(text).toContain('Linked resource created');
+    expect(text).toContain('resourceType=pr');
+    // 对照：不含 PR URL 的 fact 回执无引导
+    const plain = await findTool(ctx, 'create_linked_resource').execute('call-link-2', {
+      resourceType: 'fact', content: '普通事实记录',
+    });
+    expect(String((plain as { content: Array<{ text: string }> }).content[0].text)).not.toContain('resourceType=pr');
   });
 
   it('普通发言回合（无 PR URL）：yield 直接放行，台账零查询', async () => {
