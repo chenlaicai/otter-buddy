@@ -53,6 +53,50 @@ describe("cleanCommentText 删除语义", () => {
     expect(t).not.toContain("检视");
   });
 
+describe("cleanCommentText 文档结构编号", () => {
+  it("T 小节号删除，ISO 时间保留", () => {
+    expect(cleanCommentText("T5：过程明细开关").text).toBe("过程明细开关");
+    expect(cleanCommentText("'T10:00:00+08:00' 字面量").text).toContain("T10:00");
+  });
+
+  it("Part 分节号删除（含小数点、方案前缀）", () => {
+    expect(cleanCommentText("Part 1：扩展契约。").text).toBe("扩展契约。");
+    expect(cleanCommentText("provenance messages（Part 2.3）在工具层组合").text).toContain("工具层组合");
+    expect(cleanCommentText("halt 语义（方案 Part 3）：打标").text).not.toContain("方案");
+  });
+
+  it("检查项号与方案节删除", () => {
+    expect(cleanCommentText("（C4：UI 徽章数据源）").text).toBe("（UI 徽章数据源）");
+    expect(cleanCommentText("注入全量 B1-B6 渲染文本").text).toContain("渲染文本");
+    expect(cleanCommentText("配对策略（方案 D 节 + ）").text).not.toContain("方案");
+  });
+
+  it("阶段/章 节/方案版本删除", () => {
+    expect(cleanCommentText("// （阶段 4 C1）：connector 网关").text).toContain("connector 网关");
+    expect(cleanCommentText("守卫/说明（方案 §2 矩阵）").text).not.toContain("方案");
+    expect(cleanCommentText("采样层（方案 v6.2 定案）").text).toContain("定案");
+  });
+
+  it("审视项号删除，日常词豁免", () => {
+    expect(cleanCommentText("证据质量留给异体审 B9").text).not.toContain("B9");
+    expect(cleanCommentText("A1 审视收口").text).not.toContain("A1");
+    expect(cleanCommentText("A4 纸不误删").text).toContain("A4");
+    expect(cleanCommentText("bge-m3 模型名不误删").text).toContain("bge-m3");
+    expect(cleanCommentText("34 种索引：m0-8 p9-17").text).toContain("m0-8");
+  });
+
+  it("阶段缩写号删除，优先级豁免", () => {
+    expect(cleanCommentText("P1：信号路由器").text).toBe("信号路由器");
+    expect(cleanCommentText("priority 必有且仅 1 个：P0 / P1 / P2").text).toContain("P0");
+    expect(cleanCommentText("打标拿不准时宁降一级（P1→P2）").text).toContain("P1→P2");
+  });
+
+  it("PR 代号与分号残渣", () => {
+    expect(cleanCommentText("// （阶段 5 PR-A）：工具面路由").text).toContain("工具面路由");
+    expect(cleanCommentText("多模态 Phase 1；终审修复").text).toBe("多模态；终审修复");
+  });
+});
+
   it("仅 import 模块不产生写副作用", async () => {
     const { execFileSync } = await import("node:child_process");
     const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
