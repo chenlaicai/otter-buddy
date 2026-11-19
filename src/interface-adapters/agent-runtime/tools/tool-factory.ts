@@ -7,6 +7,7 @@ import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool 
 /** 前后端共享常量，单一真相源在 @contract/api/html-card */
 import { CARD_SCHEMA_VERSION } from "@contract/api/html-card";
 import { validateSpeakBody, hasCardFences, cardFenceValues, extractPlayableCardSummary, stripToolCallSerializationLeak } from "./tool-helpers";
+import { recordTurnPrUrls, verifyTurnPrsOnYield, recordRegisteredPr, factPrUrlHint } from "./speak-pr-remind";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIRED_TYPES, GROUP_ID_REQUIRED_MESSAGE_PREFIX } from "@usecases/conversation/manage-key-info";
@@ -89,6 +90,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       required: ["body"],
     },
      
+    // eslint-disable-next-line complexity -- speak execute 含 params 校验/泄漏剥离/PR 记录多防线
     execute: async (_id: string, params: Record<string, unknown>) => {
       if (!ctx.currentInvokeId) return errorResponse("[错误] 系统错误：当前 invoke ID 未设置，无法发言。");
 
@@ -132,6 +134,16 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
         await autoRegisterPlayableCards(ctx, cleanBody, speakEntry.id).catch((err) =>
           logger?.warn?.(`playable-card register failed: ${err instanceof Error ? err.message : String(err)}`),
         );
+
+        // PR 呈递三件套守卫（回合记录侧）：记录本回合出现的 PR URL（强=独占段
+        // unfurl 口径 / 弱=句中形态），yield 边界统一复核台账——speak 时刻登记
+        // 必然尚未发生（正确顺序 speak→登记→yield），此处提醒必误报，故只记录。
+        // best-effort：提取失败不阻断发言。
+        try {
+          recordTurnPrUrls(ctx, cleanBody);
+        } catch (err) {
+          logger?.warn?.(`[speak] pr-remind 记录失败（不阻断）: ${err instanceof Error ? err.message : String(err)}`);
+        }
 
         return {
           ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
@@ -328,7 +340,24 @@ async function finalizeYieldSideEffects(
   return registerMatterOnTaggedYield(ctx, params, resolvedIds, yieldResult.yieldEntry.id);
 }
 
-function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository): AgentTool {
+/** PR 呈递三件套守卫（yield 复核拆出，控 execute 行数）：拒绝顶回返回 reject；
+ *  零进展放行返回 graceNote（调用方附在交棒回执留声，不静默吞掉仍存缺口）。
+ *  复核失败不阻断交棒（best-effort）。 */
+async function runYieldPrRemindGate(
+  ctx: ToolContext,
+  logger?: Logger,
+): Promise<{ reject?: string; graceNote?: string }> {
+  try {
+    const verdict = await verifyTurnPrsOnYield(ctx);
+    if (!verdict.pass) return { reject: verdict.remind };
+    return { graceNote: verdict.remind };
+  } catch (err) {
+    logger?.warn?.(`[yield] pr-remind 复核失败（不阻断交棒）: ${err instanceof Error ? err.message : String(err)}`);
+    return {};
+  }
+}
+
+function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
   return {
     name: "yield",
     description: "交棒工具——结束本轮行动，把行动权交给指定参与者（对方立即被唤醒）。先 speak 再 yield（yield 不携带内容）；若 yield 被拒「尚未落账 speak」，直接补一次 speak 再 yield，勿排查工具。yield 必须单独调用（同批 terminate 不生效）。路由：子任务完成传回召唤者或流程下一步执行者；终审才传 'user'；不确定在场成员先调 get_active_participants。yield 给自己=任务锚点入箱下轮续跑（合法但受梯度护栏保护，禁止长期占用不产出）。⚠️ yield to 'user' 前先想：为什么需要用户介入？自己能处理或该先找其他獭就别传，用 reason 说明理由。",
@@ -356,6 +385,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       required: ["to"],
     },
 
+    // eslint-disable-next-line complexity -- yield execute 含内容校验/PR 复核/收发双方校验多防线
     execute: async (_id: string, params: Record<string, unknown>) => {
       // 消息非空校验（有 speak entry 才能交棒）+ PR 卡片闸事故 PR 呈递拍板主闸（拆出控复杂度）
       const msgError = await validateMessageHasContent(ctx);
@@ -364,6 +394,10 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       if (prCardGateError) return errorResponse(prCardGateError);
       const paramsError = validateYieldParams(params);
       if (paramsError) return paramsError; const recipients = params.to as string[];
+
+      // PR 呈递三件套守卫（yield 复核侧）：缺席拒绝顶回；零进展放行留声（拆出控行数，best-effort）
+      const prRemind = await runYieldPrRemindGate(ctx, logger);
+      if (prRemind.reject) return errorResponse(prRemind.reject);
 
       const active = await ctx.client.conversation.participant.getActive(ctx.conversationId);
       const { resolvedIds, error } = validateAndResolve(recipients, active);
@@ -384,7 +418,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
 
         await emitYieldEvent(ctx, yieldResult, resolvedIds);
 
-        return { ...textResponse(`[系统控制信号] 交棒成功，回合结束。${matterNote}`), terminate: true };
+        return { ...textResponse(`[系统控制信号] 交棒成功，回合结束。${matterNote}${prRemind.graceNote ? ` ${prRemind.graceNote}` : ""}`), terminate: true };
       } catch (err) {
         if (err instanceof DomainError && err.kind === "conflict") {
           return { ...textResponse("[系统控制信号] 本回合行动已交棒，无需重复调用 yield。请停止调用任何工具。"), terminate: true };
@@ -1470,6 +1504,22 @@ function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepo
   };
 }
 
+/** PR 呈递三件套守卫（登记侧）：pr 登记记入回合寄存器（确认呈递信号——yield
+ *  不变量二据此核「裸链独占段」）；fact 含 PR URL 引导改 pr 类型（原事故
+ *  「仅摘要卡」形态的登记侧入口）。回执提醒不阻断登记（引导式，非拒绝）。 */
+function prRemindGuardNoteOnLink(ctx: ToolContext, resourceType: string, params: Record<string, unknown>): string {
+  try {
+    if (resourceType === "pr" && params.url) recordRegisteredPr(ctx, params.url as string);
+    if (resourceType === "fact") {
+      const hint = factPrUrlHint(params);
+      if (hint) return `\n${hint}`;
+    }
+  } catch {
+    // best-effort：守卫记录失败不影响登记主路径
+  }
+  return "";
+}
+
 function createLinkedResourceTool(ctx: ToolContext): AgentTool {
   return {
     name: "create_linked_resource",
@@ -1520,7 +1570,10 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
         resourceType,
         groupId: params.groupId as string | undefined,
       });
-      return textResponse(`Linked resource created: ${resource.id} (type=${resource.resourceType}, status=${resource.status}, group=${resource.groupId})`);
+      const guardNote = prRemindGuardNoteOnLink(ctx, resourceType, params);
+      return textResponse(
+        `Linked resource created: ${resource.id} (type=${resource.resourceType}, status=${resource.status}, group=${resource.groupId})${guardNote}`,
+      );
     },
   };
 }
@@ -2005,7 +2058,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   const matterRepo = ctx.matterRepo;
   const tools: AgentTool[] = [
     createSpeakTool(ctx, healingRepo, logger),
-    createYieldTool(ctx, healingRepo),
+    createYieldTool(ctx, healingRepo, logger),
     createWaitTool(),
     createSearchMemoryTool(ctx),
     createCreateOtterTool(ctx, healingRepo),

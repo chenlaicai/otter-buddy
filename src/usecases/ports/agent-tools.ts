@@ -174,6 +174,17 @@ export interface ToolContext {
   /** F20260909smsp→F20260913ctlv：当前打开的 speak entry ID（speak/yield 检测本轮已发言用）。
    *  F20260911pspl 池化合流：getter 化穿透寄存器（invoke 入口重置） */
   lastSpeakMessageId?: string;
+
+  /** PR 呈递三件套守卫（回合寄存器）：本回合 speak 中出现过的 GitHub PR URL，
+   *  分强信号（独占段，unfurl 口径）/弱信号（句中等形态）——yield 边界复核台账，
+   *  缺席拒绝顶回（缺口快照比对，详见 turnYieldPrGapSnapshot）。invoke 入口重置。 */
+  turnPrUrls?: { strong: string[]; weak: string[]; registered: string[] };
+  /** yield 边界 PR 守卫的拒绝计数（观测用）。invoke 入口重置。 */
+  turnYieldPrRemindCount?: number;
+  /** yield 边界 PR 守卫的缺口快照（上次拒绝时缺口序列化，与当前相同 = 零进展
+   *  放行防死循环；不同 = 拒绝并附完整缺口回执）。invoke 入口重置。 */
+  turnYieldPrGapSnapshot?: string | null;
+
   /** PR 卡片闸事故 PR 呈递拍板机械闸：本回合 speak body 累计（yield 主闸的判定面——防拆条规避：
    *  先说「#1960 检视完了」再说「可以合入了」单条不共现，累计才能拼出呈递形态）。
    *  invoke 级生命周期（与 lastSpeakMessageId 同步重置；重启归零后 yield 先被「尚未落账 speak」拦，

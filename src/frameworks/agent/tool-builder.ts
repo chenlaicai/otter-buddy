@@ -40,6 +40,13 @@ export interface InvokeRegister {
   /** 当前打开的 speak entry ID（speak/yield 检测「本轮已发言」用；
    *  新 invoke 重置为 undefined） */
   lastSpeakEntryId?: string;
+  /** PR 呈递三件套守卫：本回合 speak 出现的 PR URL（强/弱信号分层） */
+  turnPrUrls?: { strong: string[]; weak: string[]; registered: string[] };
+  /** yield 边界 PR 守卫拒绝计数（观测用；放行判定走缺口快照比对；恒有值，创建即 0） */
+  turnYieldPrRemindCount: number;
+  /** yield 边界 PR 守卫缺口快照（上次拒绝时的缺口序列化；与当前相同 = 零进展放行；
+   *  invoke 入口重置） */
+  turnYieldPrGapSnapshot: string | null;
   /** PR 卡片闸事故 PR 呈递拍板机械闸：本回合 speak body 累计（yield 主闸判定面；invoke 入口重置） */
   speakBodies: string[];
 }
@@ -55,6 +62,9 @@ export function createInvokeRegister(): InvokeRegister {
     currentInvokeId: undefined,
     emitEvent: undefined,
     lastSpeakEntryId: undefined,
+    turnPrUrls: undefined,
+    turnYieldPrRemindCount: 0,
+    turnYieldPrGapSnapshot: null,
     speakBodies: [],
   };
 }
@@ -73,6 +83,9 @@ export function resetInvokeRegister(reg: InvokeRegister, messageId?: string, inv
   reg.currentInvokeId = invokeDeps?.currentInvokeId;
   reg.emitEvent = invokeDeps?.emitEvent;
   reg.lastSpeakEntryId = undefined;
+  reg.turnPrUrls = undefined;
+  reg.turnYieldPrRemindCount = 0;
+  reg.turnYieldPrGapSnapshot = null;
   reg.speakBodies = [];
 }
 
@@ -126,6 +139,19 @@ export interface BuildCustomToolsResult {
   toolContext: ToolContext;
 }
 
+/** PR 呈递三件套守卫回合寄存器访问器（getter 穿透——池化后闭包跨 invoke 复用，
+ *  寄存器在 invoke 入口重置）。抽出为辅助对象：buildCustomTools 行数预算。 */
+function prGuardAccessors(register: InvokeRegister): Pick<ToolContext, "turnPrUrls" | "turnYieldPrRemindCount" | "turnYieldPrGapSnapshot"> {
+  return {
+    get turnPrUrls() { return register.turnPrUrls; },
+    set turnPrUrls(v: { strong: string[]; weak: string[]; registered: string[] } | undefined) { register.turnPrUrls = v; },
+    get turnYieldPrRemindCount() { return register.turnYieldPrRemindCount; },
+    set turnYieldPrRemindCount(v: number) { register.turnYieldPrRemindCount = v; },
+    get turnYieldPrGapSnapshot() { return register.turnYieldPrGapSnapshot; },
+    set turnYieldPrGapSnapshot(v: string | null) { register.turnYieldPrGapSnapshot = v; },
+  };
+}
+
 /**
  * 将 Otter 工具适配为 pi-coding-agent ToolDefinition 格式。
  * 适配点：label 字段 + execute 透传 signal（M1: 用户中断时工具可检查 signal.aborted 提前返回）。
@@ -165,6 +191,7 @@ export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToo
     get emitEvent() { return register.emitEvent; },
     get lastSpeakMessageId() { return register.lastSpeakEntryId; },
     set lastSpeakMessageId(v: string | undefined) { register.lastSpeakEntryId = v; },
+    ...prGuardAccessors(register),
     get speakBodiesThisTurn() { return register.speakBodies; },
     isOtterRunning,
   };
