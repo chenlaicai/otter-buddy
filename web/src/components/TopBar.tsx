@@ -1,17 +1,6 @@
-import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { MessageCircle, Search, Package, Settings, Activity, ClipboardList, type LucideIcon } from 'lucide-react'
 import { NAV_ROUTES } from '@contract/web/pages'
-
-interface ExecutionMachineDTO {
-  id: string
-  name?: string
-}
-
-interface ExecutionMachinesDTO {
-  machines: ExecutionMachineDTO[]
-  currentMachineId: string
-}
 
 /** icon 映射（路由 path → icon 组件）。新增路由忘配 icon 只视觉降级不编译失败 */
 const ICONS: Record<string, LucideIcon> = {
@@ -24,26 +13,9 @@ const ICONS: Record<string, LucideIcon> = {
   '/settings': Settings,
 }
 
-/** SPA TopBar —— 由 AppLayout 渲染一次，导航用 <Link> 客户端路由 */
+/** SPA TopBar —— 独立系统图标 + 居中悬浮主导航，由 AppLayout 渲染一次 */
 export function TopBar() {
   const location = useLocation()
-  // 当前执行机投影（恒为本机，后续多终端接入后随侧边栏选持久机变化）
-  const [machineName, setMachineName] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    fetch('/api/execution-machines', { credentials: 'same-origin' })
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`))))
-      .then((d: ExecutionMachinesDTO) => {
-        if (!cancelled) {
-          const cur = d.machines.find(m => m.id === d.currentMachineId)
-          setMachineName(cur?.name ?? d.currentMachineId)
-        }
-      })
-      .catch(() => { if (!cancelled) setMachineName(null) })
-    return () => { cancelled = true }
-  }, [])
-
   /** 判断当前路由是否激活：精确匹配或前缀匹配（/conversation 匹配 /conversation/xxx） */
   function isActive(path: string): boolean {
     if (path === '/conversation') {
@@ -53,15 +25,18 @@ export function TopBar() {
   }
 
   return (
-    <header className="flex items-center px-5 h-12 glass-strong z-20 flex-shrink-0 mx-3 mt-3 rounded-2xl">
-      {/* Logo left-aligned */}
-      <div className="flex items-center gap-2 flex-1">
-        <img src="/otter-icon.png" alt="Otter Buddy" className="w-6 h-6 rounded-full" />
-        <span className="text-sm font-bold tracking-tight text-otter-600">Otter Buddy</span>
-      </div>
+    <header className="relative z-20 mx-3 mt-3 flex h-12 flex-shrink-0 items-center justify-center">
+      <img
+        src="/otter-icon.png"
+        alt="Otter Buddy"
+        className="absolute left-2 top-1/2 h-8 w-8 -translate-y-1/2 rounded-full shadow-otter"
+      />
 
-      {/* Tabs centered */}
-      <nav className="flex gap-0.5 p-1 rounded-full" style={{ background: 'rgba(139,111,71,0.06)' }}>
+      <nav
+        aria-label="主导航"
+        data-testid="primary-nav"
+        className="glass-nav flex max-w-[calc(100vw-6rem)] items-center gap-0.5 overflow-x-auto rounded-full p-1"
+      >
         {NAV_ROUTES.map(route => {
           const Icon = ICONS[route.path] ?? MessageCircle
           const active = isActive(route.path)
@@ -69,7 +44,7 @@ export function TopBar() {
             <Link
               key={route.path}
               to={route.nav ?? route.path}
-              className={`px-4 py-1 text-xs font-medium rounded-full transition flex items-center gap-1.5 ${
+              className={`flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium transition ${
                 active
                   ? 'nav-pill-active text-otter-600 font-semibold'
                   : 'text-stone-500 hover:text-stone-700'
@@ -81,20 +56,6 @@ export function TopBar() {
           )
         })}
       </nav>
-
-      {/* Right：当前执行机投影（数据不可得时静默隐藏，不阻塞布局） */}
-      <div className="flex-1 flex justify-end">
-        {machineName && (
-          <span
-            data-testid="execution-machine"
-            title={`当前执行机：${machineName}`}
-            className="px-2.5 py-1 text-xs font-medium rounded-full text-otter-600"
-            style={{ background: 'rgba(139,111,71,0.06)' }}
-          >
-            执行机：{machineName}
-          </span>
-        )}
-      </div>
     </header>
   )
 }

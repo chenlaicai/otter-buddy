@@ -8,6 +8,7 @@
  *   3. Mica 薄纱规则：var 带 fallback、无 backdrop-filter
  *   4. 六轮弹窗终局语义不被破坏（与 scrim-flicker-6 互补）
  *   5. 瞬态层白名单闭合（浮动助手 utility 在位 + 窄屏按钮不引用 .glass-overlay）
+ *   6. 小面积一级导航例外：只给 .glass-nav 采样，减少透明度时退化实色
  *
  * jsdom 不渲染层叠；真实观感由真浏览器验收（方案「验证」节 7 项）。
  */
@@ -103,6 +104,17 @@ describe('材质 v3.0 契约：瞬态/遮罩层真玻璃保留（白名单闭合
     for (const f of files) {
       expect(readSrc(f), `${f} 不应含内联 backdropFilter`).not.toMatch(/backdropFilter/)
     }
+  })
+})
+
+describe('材质 v3.0 契约：小面积一级导航真玻璃例外', () => {
+  it('只给菜单容器采样，减少透明度时关闭采样并复用实色 chrome token', () => {
+    const nav = css.match(/\.glass-nav\s*\{[^}]*\}/)
+    expect(nav, '.glass-nav 规则块应存在').toBeTruthy()
+    expect(nav![0]).toMatch(/background:\s*var\(--chrome-bg\)/)
+    expect(nav![0]).toMatch(/backdrop-filter:\s*var\(--overlay-blur\)/)
+    expect(nav![0]).toMatch(/-webkit-backdrop-filter:\s*var\(--overlay-blur\)/)
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)\s*\{\s*\.glass-nav\s*\{\s*backdrop-filter:\s*none;\s*-webkit-backdrop-filter:\s*none;\s*\}\s*\}/)
   })
 })
 
