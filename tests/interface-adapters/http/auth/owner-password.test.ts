@@ -1,5 +1,5 @@
 /**
- * 阶段 2：登录口令（owner password）值源单测。
+ * 登录口令（owner password）值源单测。
  * 覆盖：env 优先、config auth.ownerPassword 次之、文件复用、首启生成（0600）、常数时间比对。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";

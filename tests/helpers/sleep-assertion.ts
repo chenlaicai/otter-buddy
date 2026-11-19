@@ -13,7 +13,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 
 export interface SleepAssertion {
   release: () => void;
-  /** 检视 P1：暴露持断言进程 pid（非 darwin / spawn 失败时 undefined）——
+  /** 检视 暴露持断言进程 pid（非 darwin / spawn 失败时 undefined）——
  *  测试按 pid 精确断言与清理，禁止全局 pkill/pgrep（会误杀环境中其他 caffeinate 持有方） */
   readonly holderPid?: number;
 }

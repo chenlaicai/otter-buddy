@@ -264,7 +264,7 @@ describe('fact 型闭环分流（F20261019fckd，#1457）', () => {
     expect(hasMachineEvidence('mergeCommit 前缀 abc1234')).toBe(true);        // sha 规则②独立成立（abc1234 为 7 位 hex）
     expect(hasMachineEvidence('做完了，我确认没问题')).toBe(false);
     expect(hasMachineEvidence('')).toBe(false);
-    expect(hasMachineEvidence('#1')).toBe(false);          // 1 位太短（#1 形近 matter 短锚，不算 PR 号）
+    expect(hasMachineEvidence('#1')).toBe(false);          // 1 位太短（形近 matter 短锚，不算 PR 号）
     expect(hasMachineEvidence('#1234567')).toBe(true);     // #后 7 位超 PR 号界，但 7 位纯数字本身是合法短 sha 形态（宽松方向重叠，可接受）
     expect(hasMachineEvidence('#1234567890123')).toBe(true);  // 13 位纯数字：超 PR 号界但仍是合法 hex sha 形态（宽松方向重叠，可接受）
     expect(hasMachineEvidence('#12345678901z')).toBe(false); // 含非 hex 字符 z 且超 PR 号界——两形态都不命中

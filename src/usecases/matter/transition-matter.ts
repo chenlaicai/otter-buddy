@@ -1,16 +1,16 @@
 /**
- * TransitionMatter——状态迁移单入口（§2 + §3.5 代执行）。
+ * TransitionMatter——状态迁移单入口（+ 代执行）。
  *
  * 单一真相源纪律的物理落点：所有状态迁移（獭侧 transition_matter 工具、
- * 板上按钮 P2、扫描器兜底重派）必须走本 usecase，非法迁移在此拒绝。
+ * 板上按钮 扫描器兜底重派）必须走本 usecase，非法迁移在此拒绝。
  *
- * 代执行（§3.5 通道 A）：被唤醒獭非 owner 时同样可代执行迁移——声明
+ * 代执行（通道 A）：被唤醒獭非 owner 时同样可代执行迁移——声明
  * `onBehalfOf` 后按被代理者身份过守卫，留痕（resolvedBy 记实际执行獭 + actor
  * 字段记被代理者；非终态迁移只记 actor）。裁决类迁移（partner 专属行）由獭
  * 代搭档执行是空窗期主路（对话直复 → 獭落账 → 复述确认），不声明 = 獭自己身份。
  *
  * 守卫分层（各守卫独立方法，execute 只做编排）：
- * 1. 矩阵守卫：from×to 必须在 §2 合法迁移矩阵内（未列入 = 一律非法）
+ * 1. 矩阵守卫：from×to 必须在 合法迁移矩阵内（未列入 = 一律非法）
  * 2. 触发者守卫：矩阵条目的 allowed 集合（owner/partner/any_otter/system），
  *    触发者身份 = onBehalfOf ?? actor
  * 3. 宣告权守卫（L2 闭环分权）：DONE_PENDING_CONFIRM → CLOSED 时
@@ -32,7 +32,7 @@ export interface TransitionMatterInput {
   to: MatterState;
   /** 实际执行者：'partner' | otterId */
   actor: string;
-  /** §3.5 代执行声明：'partner' | otterId——声明后按被代理者身份过守卫（留痕 actor 字段） */
+  /** 代执行声明：'partner' | otterId——声明后按被代理者身份过守卫（留痕 actor 字段） */
   onBehalfOf?: string;
   /** 补标闭环口径（迁移时可标，写入留痕）：'fact' | 'decision'；未传不改动存量值 */
   closureKind?: MatterClosureKind | null;
@@ -70,7 +70,7 @@ function actorAllowed(transition: MatterTransition, actorType: 'partner' | 'owne
 }
 
 /**
- * 宣告权守卫（§2 闭环宣告权表 + fact 分流）：
+ * 宣告权守卫（闭环宣告权表 + fact 分流）：
  * - L1：獭自关留痕（搭档可翻案）——不变
  * - L2 decision/null：必须搭档确认（触发者身份须为 partner，含代执行声明）——不变
  * - L2 fact：owner 可携机器证据直关（resolution 必含 号/commit sha 锚点，缺证据照拒）；
@@ -118,9 +118,9 @@ function defaultWaitingOn(matter: Matter, to: MatterState, requested: string | n
 function defaultWaitingOnForTransition(matter: Matter, to: MatterState, actor: string, requested: string | null | undefined): string | null {
   if (requested !== undefined) return requested;
   if (to !== 'WAITING_OTTER') return defaultWaitingOn(matter, to, requested);
-  // OPEN→WAITING_OTTER 认领（§2 矩阵 note「登记 waiting_on=otter:<id>」）：认领者=等待方
+  // OPEN→WAITING_OTTER 认领（矩阵 note「登记 waiting_on=otter:<id>」）：认领者=等待方
   if (matter.state === 'OPEN') return `otter:${actor}`;
-  // 打回路径（partner 裁决打回/闭环打回）：默认等 owner 续办（N3——避免 stale partner 漏扫）
+  // 打回路径（partner 裁决打回/闭环打回）：默认等 owner 续办（——避免 stale partner 漏扫）
   return matter.ownerOtterId ? `otter:${matter.ownerOtterId}` : `otter:${actor}`;
 }
 

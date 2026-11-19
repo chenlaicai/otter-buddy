@@ -2,13 +2,13 @@ import type { MatterLevel, MatterState } from '@entities/matter/matter';
 import type { MatterRepository } from './matter-repository';
 
 /**
- * MatterSweep——未闭环扫描升格的数据源 usecase（P3）。
+ * MatterSweep——未闭环扫描升格的数据源 usecase。
  *
  * 背景：prompts/scheduled/未闭环扫描.md 此前是「search_memory 捞回头再说」文本启发式
- * （9/20 后未改——P1 承诺的日巡小改是漏项）。P3 升格为确定性查询：
+ * （9/20 后未改——承诺的日巡小改是漏项）。升格为确定性查询：
  * 扫描跑在三省吾身对话，但 matters 表全局共享——本 usecase 提供跨对话只读扫描。
  *
- * 停滞定义（方案 §7 P3 + 升格）：OPEN 无人认领 / WAITING_PARTNER 积压 /
+ * 停滞定义（+ 升格）：OPEN 无人认领 / WAITING_PARTNER 积压 /
  * WAITING_OTTER 接单未落位——跨日未收尾（24h 基准）。
  * 提醒语义：让等待有声（含短锚+等待时长+等谁的什么动作），不是催办不是自动处置。
  */
@@ -38,7 +38,7 @@ export interface MatterSweepStalledRow {
   senderName: string;
   yieldTargets: string | null;
   body: string | null;
-  /** 去重键：matter 登记时 origin_message_id = yield entry id（P1 准入路径 1 锁定） */
+  /** 去重键：matter 登记时 origin_message_id = yield entry id（准入路径 1 锁定） */
   originMessageId: string;
   /** 已登记的 matter ID（NULL = 未登记——SQL LEFT JOIN 已过滤，恒为 NULL，保留字段供未来扩展） */
   registeredMatterId: string | null;
@@ -52,7 +52,7 @@ export interface MatterSweepResult {
   scannedAt: string;
 }
 
-/** 24h 基准（方案 §3 跨日未收尾；阈值常量集中在此，便于后续调整） */
+/** 24h 基准（跨日未收尾；阈值常量集中在此，便于后续调整） */
 const STALL_THRESHOLD_HOURS = 24;
 
 export class MatterSweep {

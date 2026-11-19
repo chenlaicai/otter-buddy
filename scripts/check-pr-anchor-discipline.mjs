@@ -69,6 +69,28 @@ const REGION_DIRECTIVE_RE = /^(?:end)?region$/i;
 /** 技术词豁免表：单字母+数字中的高置信技术词（芯片代际 / 存储桶 / 纸张规格）。 */
 const TECH_TOKEN_RE = /\b(?:M[0-9]{1,2}|S3|A[1-4])\b/;
 
+/** 文档结构编号：方案/特性文档的小节、分节、检查项、阶段、章节、实现记录引用。 */
+export const DOC_STRUCTURE_RES = [
+  /\bT[0-9]+\b/g, // T 小节号（ISO 时间在豁免逻辑排除）
+  /\bPart\s*[0-9]+(?:\.[0-9]+)?/gi, // Part 分节号（含小数点变体）
+  /\b[BC][0-9]+(?:-[BC][0-9]+)*/g, // 检查项号（含区间变体）
+  /方案\s*[A-Z]\s*节/g, // 方案字母+节 引用
+  /方案\s*§\s*[0-9]+(?:\.[0-9]+)?/g, // 方案+章节号（整体删，不留「方案」残渣）
+  /方案\s*Part\s*[0-9]+(?:\.[0-9]+)?/gi, // 方案+分节号
+  /\bPR-[A-Z][0-9]?\b/g, // PR 代号（拉请求分片号）
+  /\bD[0-9]+(?:-[A-Z][0-9]+)*/g, // D 实现记录号（含区间）
+  /阶段\s*[0-9]+[a-z]?/g, // 阶段号（含字母后缀）
+  /\bPhase\s*[0-9]+/g, // Phase 号（仅大写，不误伤 phase1 文件名）
+  /§\s*[0-9]+(?:\.[0-9]+)?/g, // 章节号（含小数点变体）
+  /方案\s*v[0-9]+(?:\.[0-9]+)?/gi, // 方案版本号
+  /\bR[0-9]{2,}\b/g, // R 规则号（三位数字）
+  /\bS[0-9]+(?:\.[0-9]+)?\b/g, // S 审视项号
+  /\bM[0-9]+\b/g, // M 审视项号
+  /\bA[0-9]+\b/g, // A 审视项号
+  /\bm[0-9]+\b/g, // m 审视项号
+  /\bP[0-9]+\b/g, // P 阶段缩写号
+];
+
 /** 检视轮次编号形态（过程编号）。 */
 export const DISPOSITION_RES = [
   /** 中文动作词 × 处置词 × 序号 */
@@ -86,6 +108,38 @@ export const DISPOSITION_RES = [
   /** delta 轮：delta 发现/建议/修复/处置 N */
   /\bdelta\s*(?:发现|修复|建议|处置|复核|审视|确认|配套)\s*[0-9]+/gi,
 ];
+
+/** 文档结构编号的语义豁免：日常词/时间/复合名不走「文档编号」删除。 */
+function isExemptDocNumber(commentText, m, kind) {
+  const before = commentText.slice(0, m.index);
+  const after = commentText.slice(m.index + m[0].length);
+  const token = m[0];
+  if (kind === "T编号") {
+    // ISO 时间（T10:00）——后紧跟英文冒号+数字；中文冒号是分隔符照删
+    return /^:\d/.test(after);
+  }
+  if (kind === "m编号") {
+    // bge-m3 模型名（前是连字符）或麻将牌索引 m0-8（后是连字符+数字）
+    return /-$/.test(before) || /^-\d/.test(after);
+  }
+  if (kind === "S编号" || kind === "M编号" || kind === "A编号") {
+    // 纸张/芯片/存储规格等日常词紧跟中文语境词（如「A4 纸」「M1 芯片」「S3 存储」）
+    return /^\s*(?:纸|芯片|存储|桶|信封)/.test(after);
+  }
+  if (kind === "P编号") {
+    // 优先级取值/分位/Job 代号：P1→P2、P0 / P1 / P2 空格斜杠列表、priority 语境、P99 分位、P0-b 类后缀
+    return (
+      /^→/.test(after) ||
+      /→$/.test(before) ||
+      /^\s*\/\s/.test(after) || // 「P0 / P1」空格分隔优先级列表（不含 /无空格编号列表）
+      /\s\/\s$/.test(before) || // 列表后项（前是「 / 」）
+      /^-[a-z0-9]/i.test(after) ||
+      /priority/i.test(before) ||
+      token === "P99"
+    );
+  }
+  return false;
+}
 
 /** 对一段注释文本收集违规编号（含 token 在文本内的精确位置）。 */
 export function collectAnchorViolationsWithIndex(commentText) {
@@ -105,6 +159,19 @@ export function collectAnchorViolationsWithIndex(commentText) {
     re.lastIndex = 0;
     for (const m of commentText.matchAll(re)) push(m[0], "轮次编号", m.index, m.index + m[0].length);
   }
+
+  // 文档结构编号（T/Part/B/C/方案/D/阶段/Phase/§/方案 vN/R/S/M/A/m/P）
+  const docKinds = [
+    "T编号", "Part分节", "BC检查项", "方案节", "方案章节", "方案分节", "PR代号", "D编号", "阶段", "Phase", "§章节",
+    "方案版本", "R编号", "S编号", "M编号", "A编号", "m编号", "P编号",
+  ];
+  DOC_STRUCTURE_RES.forEach((re, i) => {
+    re.lastIndex = 0;
+    for (const m of commentText.matchAll(re)) {
+      if (isExemptDocNumber(commentText, m, docKinds[i])) continue;
+      push(m[0], "文档编号", m.index, m.index + m[0].length);
+    }
+  });
 
   // 孤立单字母序号仍禁，但高置信技术词（芯片代际 / 存储桶 / 纸张规格）豁免
   TECH_TOKEN_RE.lastIndex = 0;
@@ -128,27 +195,44 @@ function countLines(content, pos) {
 }
 
 /** TS/JS 系：TypeScript 编译器级词法扫描，返回每行注释文本（1 基）。segs 可选：记录行内注释段精确 offset。 */
-function annotateTs(content, segs = null) {
+function annotateTs(content, path, segs = null) {
   const lines = content.split("\n");
   const out = new Array(lines.length).fill(null);
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, /* skipTrivia */ false, ts.ScriptKind.TSX, content);
-  let token;
-  while ((token = scanner.scan()) !== ts.SyntaxKind.EndOfFileToken) {
-    if (token === ts.SyntaxKind.SingleLineCommentTrivia || token === ts.SyntaxKind.MultiLineCommentTrivia) {
-      const pos = scanner.getTokenPos();
-      const text = scanner.getTokenText();
-      const startLine = countLines(content, pos);
-      const lineStartOffset = content.lastIndexOf("\n", pos - 1) + 1;
-      const startCol = pos - lineStartOffset;
-      const parts = text.split("\n");
-      for (let i = 0; i < parts.length; i++) {
-        const idx = startLine - 1 + i;
-        const start = i === 0 ? startCol : 0;
-        const end = i === parts.length - 1 ? start + parts[i].length : lines[idx].length;
-        out[idx] = out[idx] == null ? parts[i] : `${out[idx]} ${parts[i]}`;
-        if (segs) segs.push({ line: idx, start, end, text: parts[i] });
-      }
+  // 仅 .tsx/.jsx 用 JSX 词法；模板字符串在两种词法下都需 reScanTemplateToken 回到模板尾部
+  const scriptKind = /\.tsx$/.test(path) ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, /* skipTrivia */ false, scriptKind, content);
+  const record = (token) => {
+    if (token !== ts.SyntaxKind.SingleLineCommentTrivia && token !== ts.SyntaxKind.MultiLineCommentTrivia) return;
+    const pos = scanner.getTokenPos();
+    const text = scanner.getTokenText();
+    const startLine = countLines(content, pos);
+    const lineStartOffset = content.lastIndexOf("\n", pos - 1) + 1;
+    const startCol = pos - lineStartOffset;
+    const parts = text.split("\n");
+    for (let i = 0; i < parts.length; i++) {
+      const idx = startLine - 1 + i;
+      const start = i === 0 ? startCol : 0;
+      const end = i === parts.length - 1 ? start + parts[i].length : lines[idx].length;
+      out[idx] = out[idx] == null ? parts[i] : `${out[idx]} ${parts[i]}`;
+      if (segs) segs.push({ line: idx, start, end, text: parts[i] });
     }
+  };
+  let token = scanner.scan();
+  while (token !== ts.SyntaxKind.EndOfFileToken) {
+    if (token === ts.SyntaxKind.TemplateHead) {
+      // 扫描内嵌表达式（其中可能有注释），直到 CloseBraceToken 后 reScan 回模板中间/尾部
+      token = scanner.scan();
+      while (token !== ts.SyntaxKind.CloseBraceToken && token !== ts.SyntaxKind.EndOfFileToken && token !== ts.SyntaxKind.LastTemplateToken) {
+        record(token);
+        token = scanner.scan();
+      }
+      if (token === ts.SyntaxKind.CloseBraceToken) {
+        token = scanner.reScanTemplateToken(/* isInsideJsxElement */ false);
+      }
+      continue;
+    }
+    record(token);
+    token = scanner.scan();
   }
   return out;
 }
@@ -445,7 +529,7 @@ export function annotateFile(content, path, segs = null) {
     if (/\.toml$/.test(path)) return annotateToml(content, segs);
     return annotatePython(content, segs);
   }
-  return annotateTs(content, segs);
+  return annotateTs(content, path, segs);
 }
 
 /** 行内注释段（精确 offset）：[{line: 0基, start, end, text}]。清理工具与判定器共用同一词法。 */

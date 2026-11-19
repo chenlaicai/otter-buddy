@@ -16,17 +16,17 @@ import type { Logger } from '@usecases/ports/logger';
 
 /** 盘点结果 */
 export interface StateInventory {
-  /** B1: 发言石在谁手里 + 悬置 yield */
+  /** 发言石在谁手里 + 悬置 yield */
   talkingStone: { holders: string[]; from?: string } | null;
-  /** B2: 本对话的 active 调度任务 */
+  /** 本对话的 active 调度任务 */
   scheduledTasks: Array<{ name: string; schedule: string; nextTrigger?: string }>;
-  /** B3: 工作区存量文件 */
+  /** 工作区存量文件 */
   workspaceFiles: string[];
-  /** B4: 产物统计 */
+  /** 产物统计 */
   artifacts: { active: number; superseded: number; flagged: number; latestTitle?: string };
-  /** B5: 未解决 healing events */
+  /** 未解决 healing events */
   healingOpen: { count: number; latestDesc?: string };
-  /** B6: 进行中状态 */
+  /** 进行中状态 */
   activity: { status: string; waitingFor?: string };
 }
 
@@ -88,7 +88,7 @@ export async function collectStateInventory(
   };
 }
 
-/** B1: 发言石/悬置 yield（读最新 user entry 的 yieldTargets） */
+/** 发言石/悬置 yield（读最新 user entry 的 yieldTargets） */
 async function collectTalkingStone(
   conversationId: string,
   deps: StateInventoryDeps,
@@ -102,7 +102,7 @@ async function collectTalkingStone(
   };
 }
 
-/** B2: 调度任务 */
+/** 调度任务 */
 async function collectScheduledTasks(
   conversationId: string,
   otterId: string,
@@ -124,13 +124,13 @@ async function collectScheduledTasks(
   }
 }
 
-/** B3: 工作区存量文件 */
+/** 工作区存量文件 */
 function collectWorkspaceFiles(deps: StateInventoryDeps): string[] {
   if (!deps.workspacePath) return [];
   return scanWorkspaceFiles(deps.workspacePath);
 }
 
-/** B4: 产物统计 */
+/** 产物统计 */
 async function collectArtifacts(
   conversationId: string,
   deps: StateInventoryDeps,
@@ -159,7 +159,7 @@ async function collectArtifacts(
   }
 }
 
-/** B5: 未解决 healing events */
+/** 未解决 healing events */
 async function collectHealing(
   conversationId: string,
   deps: StateInventoryDeps,
@@ -178,13 +178,13 @@ async function collectHealing(
   }
 }
 
-/** B6: 进行中状态 */
+/** 进行中状态 */
 async function collectActivity(
   conversationId: string,
   deps: StateInventoryDeps,
 ): Promise<{ status: string; waitingFor?: string }> {
   try {
-    // F20260922cgrp：listConversationsWithMeta 返回 { items, total }（分组分页）
+    // listConversationsWithMeta 返回 { items, total }（分组分页）
     const { items } = await deps.conversationRepo.listConversationsWithMeta('', { limit: 1000 });
     const conv = items.find(c => c.id === conversationId);
     if (!conv) return { status: 'unknown' };
@@ -193,7 +193,7 @@ async function collectActivity(
     const status = (conv as { activityStatus?: string }).activityStatus ?? 'unknown';
     return { status };
   } catch {
-    // 降级：查最新 user entry 的发言石去向（F20260913ctlv：entries）
+    // 降级：查最新 user entry 的发言石去向（entries）
     try {
       const entries = await deps.entryReader.getEntries(conversationId, { entryType: "user", limit: 1 });
     const lastEntry = entries.length > 0 ? entries[0] : null;
@@ -214,7 +214,7 @@ export function renderStateInventory(inv: StateInventory, timestamp?: string): s
   const ts = timestamp ?? new Date().toISOString();
   const parts: string[] = [`## 活状态盘点（机械生成，${ts}）`];
 
-  // B1: 发言石
+  // 发言石
   if (inv.talkingStone) {
     const holders = inv.talkingStone.holders.join(', ');
     const from = inv.talkingStone.from ? `（${inv.talkingStone.from} yield）` : '';

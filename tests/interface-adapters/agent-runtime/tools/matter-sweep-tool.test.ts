@@ -1,5 +1,5 @@
 /**
- * P3：matter_sweep 工具测试（未闭环扫描升格的执行载体）。
+ * matter_sweep 工具测试（未闭环扫描升格的执行载体）。
  *
  * 锁定项：
  * - 注册面：matterRepo 注入时注册，tool-factory 去重

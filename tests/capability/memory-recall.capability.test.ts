@@ -42,8 +42,8 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
   });
 
   /**
-   * #1191（F20260928rmix）：消息→记忆索引链路回归锚。
-   * #886 删 indexMessage 后该链路静默断裂 15 天（search_memory 对 9/13 后对话失明），
+   * 消息→记忆索引链路回归锚。
+   * 删 indexMessage 后该链路静默断裂 15 天（search_memory 对 9/13 后对话失明），
    * 无人发现——本用例固化「用户发消息后 search_memory 可召回」的行为不变量。
    * 纯管道断言（无 LLM 采样）：HTTP 发消息 → HTTP 检索命中同一 token，防再断。
    */
@@ -86,7 +86,7 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
   });
 
   /**
-   * 统计断言：mimo 模型 speak 协议遵从不稳定（发现已记录 F20260805mspk）。
+   * 统计断言：mimo 模型 speak 协议遵从不稳定（发现已记录）。
    * 采样 3 次、断言 ≥1 次全链路成功——既防止套件因模型抖动长红，又不掩盖问题：
    * 每次采样结果都打印，成功率掉到 0 时测试失败。
    *
@@ -99,7 +99,7 @@ describe("记忆系统：跨对话事实召回（真 bge-m3 + 真 LLM）", () =>
       vitestCtx.skip(`LLM 未配置：${ctx.skipReason}`);
     }
 
-    /** #1195：收编到 expectSampledBehavior，享受 #1187 预算护栏（原先手写循环无保护，
+    /** 收编到 expectSampledBehavior，享受 预算护栏（原先手写循环无保护，
      *  等待窗一旦上调即复现僵尸缺口）。与下方隐性信号 it 同构：同 120s 等待窗，
      *  同规格护栏（3×240s+120s → 帽 840s）。 */
     await expectSampledBehavior("跨对话事实召回", 3, 1, async (i) => {

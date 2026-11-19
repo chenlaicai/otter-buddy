@@ -10,7 +10,7 @@
 import type { ToolContext } from "@usecases/ports/agent-tools";
 
 /**
- * C9：待派工票据的软守卫——检查未派工并提醒（不清除票据）。
+ * 待派工票据的软守卫——检查未派工并提醒（不清除票据）。
  * 若本轮创建的小獭仍有未获行动权的、且本次未提醒过，返回提醒文案（调用方以 terminate=false 返回）。
  * 返回 null 表示无需提醒，可正常提交 speak。
  *
@@ -18,9 +18,9 @@ import type { ToolContext } from "@usecases/ports/agent-tools";
  * 若按"意图"提前清除，startSpeaking 失败（如 db locked）会泄漏票据：大獭重试 speak(user) 不再被提醒。
  *
  * 同批调用限制：SDK 默认并行执行同批工具。create_otter 与 speak 同批调用时，
- * create_otter 的 pendingDispatches.set() 可能晚于 speak 的检查执行——C9 只可靠
+ * create_otter 的 pendingDispatches.set() 可能晚于 speak 的检查执行——只可靠
  * 覆盖串行调用场景（create 先完成返回，speak 后调用）。同批 create+speak(to user)
- * 由 prompt 层（C8 description + C1 skill 工作流 + C2 reframe）保证大獭不产生该路径。
+ * 由 prompt 层（description + skill 工作流 + reframe）保证大獭不产生该路径。
  *
  * @param ctx ToolContext（包含 pendingDispatches 和 dispatchWarningShown）
  * @param resolvedIds 已解析的 ID 列表

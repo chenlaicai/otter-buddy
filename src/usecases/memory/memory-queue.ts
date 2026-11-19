@@ -20,7 +20,7 @@ export const EMBED_TASK_PRIORITY = {
 } as const;
 
 /**
- * S3：生产端水位闸门阈值——全量生产者（bulk）入队前查 pendingTaskCount，
+ * 生产端水位闸门阈值——全量生产者（bulk）入队前查 pendingTaskCount，
  * 超过此值跳过本轮入队（暗条目可重扫，不丢）。判据单一（队列深度）：机械可测、
  * 行为可预期；约单 worker 1h 饱和吞吐量级，上线后按 tick_summary 观测再调。
  */
@@ -35,7 +35,7 @@ export interface EmbeddingTask {
 
 export interface MemoryQueue {
   /**
-   * Part 1：embedding 失败入队重试。
+   * embedding 失败入队重试。
    * ON CONFLICT 保留 attempts（避免重置导致无限重试）。
    * status 强制为 'pending'（即使之前是 dead，重新入队复活）。
    * priority 可选——0=live 消息 1=默认 2=bulk 重算，
@@ -43,7 +43,7 @@ export interface MemoryQueue {
    */
   enqueueRetry(entryId: string, error: unknown, priority?: number): Promise<void>;
   /**
-   * Part 1：认领 pending 任务（原子 UPDATE + RETURNING）。
+   * 认领 pending 任务（原子 UPDATE + RETURNING）。
    * attempts 自增 1，next_retry_at 按指数退避自动计算（30/60/120/300/3600s）。
    * 返回 [{entryId, content, attempts}]，content 从 memory_entries JOIN 获取。
    * 排除 status='dead'（除非 enqueueRetry 复活）。
@@ -54,10 +54,10 @@ export interface MemoryQueue {
    * embedding-retry-worker 只需 entryId + content + attempts 即可执行重试。
    */
   claimPendingTasks(limit: number, tokenBudget?: number): Promise<EmbeddingTask[]>;
-  /** Part 1：task 成功，删除 task 行 */
+  /** task 成功，删除 task 行 */
   markTaskDone(entryId: string): Promise<void>;
   /**
-   * S3：当前 pending 任务总数——生产端水位闸门判据。
+   * 当前 pending 任务总数——生产端水位闸门判据。
    * 全量生产者（文档同步 chunk/启动暗扫）入队前查此值，超阈值跳过本轮。
    */
   pendingTaskCount?(): Promise<number>;
@@ -82,7 +82,7 @@ export interface MemoryQueue {
    */
   resetPendingAttempts?(): Promise<number>;
   /**
-   * Part 1：task 失败，更新 last_error。
+   * task 失败，更新 last_error。
    * 若 attempts >= maxAttempts，status 转 'dead'。
    */
   markTaskAttemptFailed(entryId: string, error: unknown, maxAttempts: number): Promise<void>;

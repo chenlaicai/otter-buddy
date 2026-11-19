@@ -198,7 +198,7 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     this.processMessage(data.message, data.sender);
   }
 
-  /** 多模态 Phase 2：放行 text/image/file；F20260829fpst 增加 post 富文本混排。
+  /** 多模态 放行 text/image/file；增加 post 富文本混排。
    *  其余（audio/share_chat/sticker 等）仍忽略——飞书消息类型全集很大，
    *  逐类适配应在真实需求出现时做，避免为不存在的消息类型写无测试的解析分支。 */
   private static readonly SUPPORTED_MESSAGE_TYPES = new Set(["text", "image", "file", "post"]);
@@ -225,20 +225,20 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     sender: FeishuEventData["sender"],
   ): void {
     try {
-      /** 多模态 Phase 2：image/file 提取结构化载荷；F20260829fpst：post 段落解析；text 走原路径 */
+      /** 多模态 image/file 提取结构化载荷；post 段落解析；text 走原路径 */
       const media = this.extractMediaPayload(message.message_type, message.content);
       const content = JSON.parse(message.content) as { text?: string };
       const feishuMessage: FeishuLongConnectionMessage = {
         chatId: message.chat_id,
         messageId: message.message_id,
-        // F20260829fpst：post 正文提取段落 text（非 post 类型维持 content.text 原路径）
+        // post 正文提取段落 text（非 post 类型维持 content.text 原路径）
         text: message.message_type === "post"
           ? this.extractPostText(content)
           : content.text ?? "",
         senderId: sender.sender_id?.open_id ?? "unknown",
         senderType: sender.sender_type,
         messageType: message.message_type,
-        // F20260918imas：p2p/group 分流依据——协议枚举仅这两值，其余值不填（降级保守，
+        // p2p/group 分流依据——协议枚举仅这两值，其余值不填（降级保守，
         // 消费方对无 chatType 场景维持现状不自动开户）
         ...(message.chat_type === "p2p" || message.chat_type === "group" ? { chatType: message.chat_type } : {}),
         ...(media && { media }),
@@ -269,8 +269,8 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     }
   }
 
-  /** 多模态 Phase 2：image/file content JSON → 结构化载荷；其余类型返回 null。
-   *  F20260829fpst：post 富文本混排——按段落顺序收集 img/media 段为媒体项列表；
+  /** 多模态 image/file content JSON → 结构化载荷；其余类型返回 null。
+   * post 富文本混排——按段落顺序收集 img/media 段为媒体项列表；
    *  纯文本 post（无媒体段）返回 null，走原文本路径（不带 media 载荷）。
    *  解析失败（字段缺失/非 JSON）返回 null：调用方按无附件的纯文本消息降级处理。 */
   private extractMediaPayload(messageType: string, rawContent: string): FeishuMediaPayload | null {
@@ -292,7 +292,7 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     }
   }
 
-  /** F20260829fpst：post content → 正文文本（text 段按段落/位置序拼接，段落间 \n\n）。
+  /** post content → 正文文本（text 段按段落/位置序拼接，段落间 \n\n）。
    *  与 extractPostMediaItems 同一套递归语言定位逻辑，保证 text 与媒体项的
    *  顺序口径一致（同一语言体内收集）。解析失败返回空串（消息仍处理，不丢）。 */
   private extractPostText(content: unknown): string {

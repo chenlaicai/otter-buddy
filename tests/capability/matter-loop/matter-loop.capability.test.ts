@@ -1,11 +1,11 @@
 /**
- * 能力测试：matter loop 闭环链路（P1）。
+ * 能力测试：matter loop 闭环链路。
  *
  * 方案验证节锁定三条能力测试场景：
  * ①yield to user 的 L2 自动登记 matter（准入路径 1——獭打标 expects_partner_decision）
  * ②restart 后新世獭档案含 open matters 清单字段（机械供料 handoff_open_matters）
- * ③板上按钮批准回执 → 路由 owner 獭代执行迁移（matters 表状态迁移 + resolution 留痕——P2 补上，）
- * ④板上「+」登记回执 → 獭用 register_matter 工具登记（matters 表新增 OPEN 行——P2 严重1 死链修复的验证面，）
+ * ③板上按钮批准回执 → 路由 owner 獭代执行迁移（matters 表状态迁移 + resolution 留痕——补上，）
+ * ④板上「+」登记回执 → 獭用 register_matter 工具登记（matters 表新增 OPEN 行——严重1 死链修复的验证面，）
  *
  * 断言策略：LLM 行为（獭是否会按指令打标）用统计采样；DB 登记与档案供料是
  * 确定性断言（严格）——登记发生在工具层，只要獭调 yield 带标就必然落库。
@@ -205,7 +205,7 @@ describe("matter loop：L2 拍板登记 + 重启机械供料（真系统 + 真 L
         const firstRound = await waitForOtterMessage(ctx, convId, { timeoutMs: 120_000 });
 
         // 2. 模拟板上「+」登记的合成回执（准入路径 2：搭档手动登记 initialState=OPEN）——
-        //    F20261006mlp2 严重1 修复的验证面：P1 工具面没注册登记工具=登记必丢，本场景锁死后链路。
+        // 的验证面：工具面没注册登记工具=登记必丢，本场景锁死后链路。
         await sendUserMessage(
           ctx,
           convId,
@@ -222,7 +222,7 @@ describe("matter loop：L2 拍板登记 + 重启机械供料（真系统 + 真 L
         }
 
         // 3. 确定性断言：matters 表新增一件 OPEN 状态、标题匹配（登记是机械行为——
-        //    獭只要 register_matter 就必然落库；P1 无此工具则必然失败，正是死链的反面）
+        // 獭只要 register_matter 就必然落库；无此工具则必然失败，正是死链的反面）
         const row = ctx.built.db.prepare(
           "SELECT id, title, state, owner_otter_id FROM matters WHERE conversation_id = ? AND title = ?",
         ).get(convId, "回头再看的重构项") as { id: string; state: string; owner_otter_id: string | null } | undefined;

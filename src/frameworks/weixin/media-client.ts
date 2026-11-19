@@ -43,7 +43,7 @@ export class WeixinMediaClient implements WeixinMediaGateway {
     return { fileName: `weixin-image-${Date.now()}.png`, mimeType: "image/png", buffer };
   }
 
-  /** 语音：silk → wav（#608 恢复）；转码失败降级存原始 silk 字节（ASR 转写文本仍在消息体） */
+  /** 语音：silk → wav（恢复）；转码失败降级存原始 silk 字节（ASR 转写文本仍在消息体） */
   private async downloadVoice(voice: NonNullable<WeixinMediaGatewayItem["voice_item"]>): Promise<WeixinDownloadedMedia> {
     if (!voice.media?.aes_key) throw new Error("voice aes_key missing");
     const silkBuf = await this.deps.cdn.downloadAndDecrypt({
@@ -57,7 +57,7 @@ export class WeixinMediaClient implements WeixinMediaGateway {
     throw new Error("silk→wav 转码失败（原始 SILK 不在附件白名单）");
   }
 
-  /** 视频：AES 解密直下（mp4 容器，#608 恢复） */
+  /** 视频：AES 解密直下（mp4 容器，恢复） */
   private async downloadVideo(video: NonNullable<WeixinMediaGatewayItem["video_item"]>): Promise<WeixinDownloadedMedia> {
     if (!video.media?.aes_key) throw new Error("video aes_key missing");
     const buffer = await this.deps.cdn.downloadAndDecrypt({
@@ -68,7 +68,7 @@ export class WeixinMediaClient implements WeixinMediaGateway {
     return { fileName: `weixin-video-${Date.now()}.mp4`, mimeType: "video/mp4", buffer };
   }
 
-  /** 文件：file_name 保留原始名，MIME 按后缀映射（octet-stream 交管线探嗅，#608 恢复） */
+  /** 文件：file_name 保留原始名，MIME 按后缀映射（octet-stream 交管线探嗅，恢复） */
   private async downloadFile(file: NonNullable<WeixinMediaGatewayItem["file_item"]>): Promise<WeixinDownloadedMedia> {
     if (!file.media?.aes_key) throw new Error("file aes_key missing");
     const buffer = await this.deps.cdn.downloadAndDecrypt({

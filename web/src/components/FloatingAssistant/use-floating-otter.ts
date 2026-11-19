@@ -94,7 +94,7 @@ export function useFloatingOtter(): UseFloatingOtterResult {
   // 可能尚未重渲染，click 读到陈旧 true 被抑制 → Esc 收起后点獭偶发不展开）。改为 ref 同步维护——
   // pointerdown 重置 false，move 越阈值置 true，click handler 直接读 ref。
   const dragMovedRef = useRef(false)
-  // P1 修复：panelRef 从「定义未绑定」改为经 return 暴露，由宿主绑到面板根元素。
+  // 修复：panelRef 从「定义未绑定」改为经 return 暴露，由宿主绑到面板根元素。
   // 此前 panelRef 恒 null → panelRef.current?.contains(target) 恒 undefined → 点面板内部
   // （含输入框）被判为「外部」→ 收起——用户点输入框弹窗即消失的根因
   const panelRef = useRef<HTMLDivElement | null>(null)

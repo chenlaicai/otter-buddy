@@ -1,5 +1,5 @@
 /**
- * 审视 A3：retry 观测窗写入侧覆盖（auto_retry_start/end → Map → 归因）。
+ * 审视 retry 观测窗写入侧覆盖（auto_retry_start/end → Map → 归因）。
  *
  * 只有 orchestrator 侧 stub getRetryErrorMessage——「auto_retry_start 事件 → 守卫
  * → Map set/get」捕获链零驱动。本测试走真实 AgentInvoker.invokeConversation：

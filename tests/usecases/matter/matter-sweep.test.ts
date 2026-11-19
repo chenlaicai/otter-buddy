@@ -1,5 +1,5 @@
 /**
- * P3：MatterSweep usecase + SqliteMatterRepository 停滞扫描扩展测试。
+ * MatterSweep usecase + SqliteMatterRepository 停滞扫描扩展测试。
  *
  * 验证节锁定项「未闭环扫描升格」：
  * - stalledOpen：OPEN 无人认领 / WAITING_PARTNER 积压——跨日未收尾（24h 基准）
@@ -29,7 +29,7 @@ function seedMatter(
     level: string | null;
     waitingOn: string | null;
     waitingFor: string | null;
-    /** 去重键：matter 登记时 origin_message_id = yield entry id（P1 准入路径 1 锁定） */
+    /** 去重键：matter 登记时 origin_message_id = yield entry id（准入路径 1 锁定） */
     originMessageId: string | null;
     createdAt: string;
     updatedAt: string;
@@ -210,7 +210,7 @@ describe('MatterSweep（F20261008mlp3 P3——未闭环扫描升格）', () => {
   it('anti-join 排除语义：已登记 matter 的 yield 条目不命中（去重键=origin_message_id）', async () => {
     // seed yield entry
     seedYieldEntry('e-5', '已登记的拍板', '["user"]', isoDaysAgo(2));
-    // seed 已登记 matter（origin_message_id = yield entry id——P1 准入路径 1 锁定）
+    // seed 已登记 matter（origin_message_id = yield entry id——准入路径 1 锁定）
     seedMatter(repo, {
       id: 'm-7',
       title: '已登记的拍板事项',

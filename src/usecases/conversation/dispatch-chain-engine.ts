@@ -13,7 +13,7 @@ import type { PartnerResolver } from "@usecases/im/partner-resolver";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 import { randomUUID } from "node:crypto";
 import { DelegationInFlightError } from "@entities/errors";
-// C3（Part 6）：L2 安全词扫描
+// L2 安全词扫描
 import { scanStopWords } from "@usecases/signal/stop-word-scanner";
 import type { SenderType } from "@entities/conversation/entry";
 import { accumulateTokenUsage, emptyTokenUsage, totalTokenUsage, type TokenUsage } from "./token-usage";
@@ -45,7 +45,7 @@ export interface HopOutcome {
   steerText?: string;
 }
 
-/** 多模态 Phase 1：每轮真图上限（服务端硬限制，超出拒绝）。
+/** 多模态 每轮真图上限（服务端硬限制，超出拒绝）。
  *  依据：SDK estImageChars 按图 1200 tokens 估算，实测 GLM 2048px 图 ≈5500 input tokens
  *  （差 4.6 倍），图片多时 compaction 触发严重偏晚。 */
 export const MAX_IMAGES_PER_TURN = 2;
@@ -58,7 +58,7 @@ export interface InvokeFnParams {
   senderId: string;
   /** 受限外部会话档：来自持久化触发 entry.source，由调度链显式透传；不得以 senderId 前缀推断。 */
   externalProfile?: "restricted";
-  /** 多模态 Phase 1：当前任务消息携带的图片（ImageContent：base64 + mimeType）。
+  /** 多模态 当前任务消息携带的图片（ImageContent：base64 + mimeType）。
    *  每轮 ≤2 图服务端硬限制（compaction 低估 4.6 倍实测后的预算控制）；
    *  未读历史统一文本投影不按獭分叉，分叉只发生在当前任务消息。 */
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
@@ -72,7 +72,7 @@ export interface InvokeFnParams {
 }
 
 export interface InvokeFnResult {
-  /** D2：委托 hop 的进程内结算标记；不落库、不路由，由持有者原链消费续轮。 */
+  /** 委托 hop 的进程内结算标记；不落库、不路由，由持有者原链消费续轮。 */
   delegated?: boolean;
   /** 契约（钉扎）：实为 invoke 行 id，非 speak 消息 id——产出判定
    * （fetchProducedMessage 读行级 tsp）与 getSelfYieldDecisionEntries 的当前

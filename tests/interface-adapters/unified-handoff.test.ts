@@ -4,12 +4,12 @@
  * 取代 的 restartWithAutoHandoffIfBlank 测试——语义从「空摘要才合成」
  * 升级为「叠加式档案：有无自总结都走统一管线」。
  *
- * 覆盖（方案 V1/V2/V6 的单测层）：
+ * 覆盖（/V2/V6 的单测层）：
  * - V1 锚点：合成走影子通道（runCompactionSynthesis）不触 invoke——锁雪崩根治
  * - V2 场景矩阵：手动叠加档案 / 首哑 false 零合成 / 截断 fail-closed
  * - V6 超时降级：合成超时 → 机械档案 + 正常换世
  * - 忙碌 409：isRunning → DomainError conflict
- * - jsonl 缺失降级、D9 永不阻塞
+ * - jsonl 缺失降级、永不阻塞
  *
  * 断言风格：依赖替身用「录制器」收集副作用，不绑 mock 调用参数/次数（lint 规则约束）。
  */
@@ -130,7 +130,7 @@ function makeEngine(overrides?: Partial<HandoffEngineDeps>): HandoffEngineDeps &
 }
 
 /** SdkInvokePort stub：invoke 记录并抛错（V1 断言合成绝不走 invoke）+ 可控影子通道。
- * F20260930hsfx 审视严重2修正：readCurrentSessionEntries 可注入具体 entries——
+ * 审视严重2修正：readCurrentSessionEntries 可注入具体 entries——
  *   undefined 模拟「读失败/门面缺失」（jsonl-read-fail）、[] 模拟「真空 session」（empty-session）、
  *  有值模拟「有原料」。原 hasEntries:false 统一返回 undefined 只覆盖了读失败形态，真空未单独测。 */
 function makeSdkPort(opts?: {
@@ -138,7 +138,7 @@ function makeSdkPort(opts?: {
   isRunning?: boolean;
   hasEntries?: boolean;
   entries?: unknown[] | undefined;
-  /** F20260930hsfx 审视建议5：acquireSessionLock 抛错注入（测锁冲突不计入熔断的 catch 分支） */
+  /** acquireSessionLock 抛错注入（测锁冲突不计入熔断的 catch 分支） */
   lockError?: Error;
 }): SdkInvokePort & { invokeCalls: string[]; synthPrompts: string[]; synthOverrides: Array<string | undefined>; lockLog: string[] } {
   const invokeCalls: string[] = [];

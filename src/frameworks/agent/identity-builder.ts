@@ -1,7 +1,7 @@
 /**
  * IdentityBuilder：负责 Otter 身份文案构建。
  *
- * 从 PiSessionFactory 拆出（D2 瘦身），职责：
+ * 从 PiSessionFactory 拆出（瘦身），职责：
  * - 加载身份文案文件（BIG_OTTER.md / SMALL_OTTER.md）
  * - 构建首次 invoke 的身份前缀（名称/ID/类型 + 按类型加载的身份文案）
  * - 构建召唤者身份段（小獭专用）
@@ -47,9 +47,9 @@ export class IdentityBuilder {
     }
   }
 
-  /** S1（R20260810piab）：构建首次 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源）
+  /** 构建首次 invoke 的身份前缀：名称/ID/类型 + 按类型加载的身份文案。类型以 otterConfig 为准（与工具门控同一事实源）
    * @param modelAlias 当前 otter 的模型别名（来自 otterConfigProvider），用于注入模型身份段 */
-  /** F20260903cmpk（#770 检视发现 2）：otter 显示名（压缩钩子 meta 行用）。查不到返回 undefined */
+  /** otter 显示名（压缩钩子 meta 行用）。查不到返回 undefined */
   async getOtterName(otterId: string): Promise<string | undefined> {
     const otter = await this.otterRepo.getById(otterId);
     return otter?.name;
@@ -73,28 +73,28 @@ export class IdentityBuilder {
     const userName = rawName?.replace(/[\r\n]/g, '');
     const userIdentity = userName ? `## 我的搭档\n- 名字：${userName}\n- 称呼：搭档（我可以用名字称呼 ta）` : '';
 
-    // F20260810rout: 小獭注入召唤者身份（修复行动权路由 bug——子獭需知道召唤者是谁，结论才能交回）
+    // 小獭注入召唤者身份（修复行动权路由 bug——子獭需知道召唤者是谁，结论才能交回）
     const summonerIdentity = isBig ? '' : await this.buildSummonerIdentity(otter);
 
-    // F20260824aibd: 注入模型身份段——海獭知道自己运行在什么模型上，对抗性协作场景据此选择异模型
+    // 注入模型身份段——海獭知道自己运行在什么模型上，对抗性协作场景据此选择异模型
     const modelIdentity = this.buildModelIdentity(modelAlias);
 
-    // F20260917cvid: 所在对话身份段——海獭知道自己身处哪个对话（标题是搭档起的语义锚，
+    // 所在对话身份段——海獭知道自己身处哪个对话（标题是搭档起的语义锚，
     // 几十世长对话下「我在处理 echo agent 项目」不再依赖搭档每次口头告知）。
     // 查不到/无标题时降级为空段（新对话无标题是正常态），不影响身份注入主流程。
     const conversationIdentity = await this.buildConversationIdentity(conversationId);
 
-    // F20260825m422a: 注入当前日期时间——干净 session 无日期锚点导致特性 ID 日期臆断（#422）
-    // F20260829cach: 锚点改日粒度。原分钟级字符串每次 invoke 都变，而本段拼在 system prompt
+    // 注入当前日期时间——干净 session 无日期锚点导致特性 ID 日期臆断
+    // 锚点改日粒度。原分钟级字符串每次 invoke 都变，而本段拼在 system prompt
     // 前部（身份文案/工具定义之前），一变即打断整个 prompt 前缀缓存（实测 invoke 边界命中率
-    // 从 95%+ 掉到 0-30%，详见 F20260829cach）。分钟级新鲜度不损失——由派发链在每条
+    // 从 95%+ 掉到 0-30%，详见）。分钟级新鲜度不损失——由派发链在每条
     // user message 注入「当前任务」前缀（见 dispatch-chain-engine），不占缓存前缀。
     const now = new Date();
     const dateStr = now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour12: false });
     const dateAnchor = `## 当前日期时间\n- 今天是 ${dateStr}（Asia/Shanghai）`;
 
-    // F20260921sgid: 署名行成品随身份段注入——身份（名号）经此管道 19/19 零失误，而格式
-    // 靠"记得去查 skill"的纪律路径实测漂移率 58%（PR #921 修法对 CLI 建 PR 路径无效）。
+    // 署名行成品随身份段注入——身份（名号）经此管道 19/19 零失误，而格式
+    // 靠"记得去查 skill"的纪律路径实测漂移率 58%（修法对 CLI 建 PR 路径无效）。
     // 把格式挂上已验证的身份管道，署名从"执行规范"降为"复制眼前一行"。
     // 格式实体是 signature-convention skill 的管道快照（同 .github/pull_request_template.md
     // 性质，机制上无法指针化），同步义务见该 skill。
@@ -126,7 +126,7 @@ export class IdentityBuilder {
     }
   }
 
-  /** F20260824aibd: 构建模型身份段——告诉海獭自己是什么模型、擅长什么，用于对抗性协作时选择异模型 */
+  /** 构建模型身份段——告诉海獭自己是什么模型、擅长什么，用于对抗性协作时选择异模型 */
   private buildModelIdentity(alias: string | undefined): string {
     if (!this.modelPool) return '';
     const models = this.modelPool.describeModels();
@@ -140,7 +140,7 @@ export class IdentityBuilder {
 
     const strengths = target.strengths?.length ? target.strengths.join('、') : '未指定';
     const weaknesses = target.weaknesses?.length ? target.weaknesses.join('、') : '未指定';
-    // F20260908efmd: 空配置回退默认时标注「（默认）」——区分显式指定与默认回退
+    // 空配置回退默认时标注「（默认）」——区分显式指定与默认回退
     const isDefault = !alias;
     const modelLabel = isDefault ? `${target.alias}（默认）` : target.alias;
 

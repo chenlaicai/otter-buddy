@@ -1,11 +1,11 @@
 /**
- * Halt block reason 文本（C1）。
+ * Halt block reason 文本。
  *
  * SDK 语义：tool_call handler 返回 { block: true, reason } → agent-loop 生成
  * isError tool result（reason 为正文）返回 LLM。本文件构造该正文——
  * 它是 halt 协议的「注入面」，目标獭的全部行为义务写在这里。
  *
- * prompt 义务（SMALL_OTTER.md C4 改版）与此处文本对齐：不重试被 block 的调用、
+ * prompt 义务（SMALL_OTTER.md 改版）与此处文本对齐：不重试被 block 的调用、
  * 不开新调用、报告进度快照、报告后停止即交回（speak 是唯一豁免工具）。
  */
 import type { HaltDirective } from './halt-registry';

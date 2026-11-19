@@ -2,18 +2,18 @@ import { useEffect, useState } from 'react'
 import { identityHeaders } from '../../api/identity'
 import { Globe, ImageOff } from 'lucide-react'
 
-/** P1 + T1：链类 unfurl 预览卡（数据先行架构）。
+/** + 链类 unfurl 预览卡（数据先行架构）。
  *
  * 宪法「不点开就有信息增量」：裸 URL 在消息流里是零信息（域名+路径），
  * 预览卡把它变成「标题 + 描述 + 站点」——决定去不去之前先知道那是什么。
- * 数据源：GET /api/unfurl?url=（读 unfurl_cache 表，不再实时抓取——P1 数据先行）。
+ * 数据源：GET /api/unfurl?url=（读 unfurl_cache 表，不再实时抓取——数据先行）。
  *
  * 三态（mimo ——预抓取未完成是常态）：
  * - ok：缓存命中 → 渲染完整预览卡
  * - pending：记录不存在/后台抓取中 → 骨架卡轮询（500ms×12，~6s 窗口），
  *   下一次轮询命中已落库的结果（发送时预抓取钩子通常已提前备好数据）
  * - failed：显式失败卡（source='failed'，7 天窗口）——不再静默退纯文本：
- *   「预览抓取失败」+ 原链可点，失败是显式状态（P1 原则：渲染不得静默缺失）
+ * 「预览抓取失败」+ 原链可点，失败是显式状态（原则：渲染不得静默缺失）
  *
  * 兼容：404（API 错误）仍走 failed 态；旧 pending 卡轮询窗口耗尽也落 failed
  * （带「重试」按钮触发后台补抓）。og 永久缓存；github-api 24h SWR（陈旧值带徽记）。
@@ -151,7 +151,7 @@ export function UnfurlCard({ url }: { url: string }) {
     return () => { disposed = true; if (timer) clearTimeout(timer) }
   }, [url])
 
-  // F20261013csv3：显式失败卡（不再静默退纯文本——P1 原则：失败是显式状态）
+  // 显式失败卡（不再静默退纯文本——原则：失败是显式状态）
   if (state.phase === 'failed') {
     return (
       <span className="block my-2 rounded-xl border border-stone-200/60 bg-stone-50/60 overflow-hidden max-w-md">

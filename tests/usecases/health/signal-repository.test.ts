@@ -256,7 +256,7 @@ describe("F20260917trig：triage 状态机 + auto-resolve 抹平语义", () => {
   it("triage dismiss：note 必填拒绝空 note；写入终态 + note 落库；幂等跳过", () => {
     const repo = makeRepo();
     repo.upsert(base);
-    // 空 note 拒绝（§2 参数约束）
+    // 空 note 拒绝（参数约束）
     const r0 = repo.triage(1, "dismiss", { note: "  " });
     expect(r0.ok).toBe(false);
     expect(r0.reason).toContain("note 必填");
@@ -428,7 +428,7 @@ describe("Issue #1563：dismiss 后 re-fire 缺口（同键孪生行）", () => 
 
   it("口径变更窗口重放（#1563 关闭标准）：dismiss 窗口内持续 re-fire，孪生行产生数为 0", () => {
     const { repo, db } = makeRepoWithDb();
-    // 模拟 PR #1560 现场：9 条误 dismiss 信号在 dismiss 窗口期被旧口径扫描持续命中
+    // 模拟 现场：9 条误 dismiss 信号在 dismiss 窗口期被旧口径扫描持续命中
     for (let i = 0; i < 9; i++) {
       const sig = { ...baseSignal, filePath: `src/mod-${i}.ts` };
       const r = repo.upsert(sig);
@@ -471,7 +471,7 @@ describe("Issue #1563：dismiss 后 re-fire 缺口（同键孪生行）", () => 
     expect(r2.issue_number).toBeNull();
     expect(r2.triaged_at).toBeNull(); // 修复前：残留 bind 时的归口时间戳 → 必红
     expect(r2.triage_note).toBe("归口 #123"); // 历史痕迹保留
-    // DB 实态同步验证（不只信 TS 拼装返回值，#644 教训）
+    // DB 实态同步验证（不只信 TS 拼装返回值，教训）
     const open = repo.findOpen();
     expect(open).toHaveLength(1);
     expect(open[0]!.triaged_at).toBeNull();
@@ -479,7 +479,7 @@ describe("Issue #1563：dismiss 后 re-fire 缺口（同键孪生行）", () => 
   });
 
   it("resolved 后同键 re-fire 仍新开行（历史保留契约不回退）", () => {
-    // 回归锁定：修复前天然绿，非失败证据（#1583 计数口径）
+    // 回归锁定：修复前天然绿，非失败证据（计数口径）
     const { repo } = makeRepoWithDb();
     const r1 = repo.upsert(baseSignal);
     repo.resolve(r1.id);

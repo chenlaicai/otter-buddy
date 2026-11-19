@@ -72,7 +72,7 @@ function projectEntry(row: DurableEntryRow, timestamp: string): SessionEntryShap
 /**
  * 只读投影 durable 库「当前世代」entries（= rawContext 活动视图的镜像）。
  * 仅取根 conversation（海獭每獭一库单会话模型）；parentId 链式重接、时间戳合成单调。
- * 审视建议 1：先倒序定位世代边界（只取 head 列），再仅拉取当前世代 record——
+ * 先倒序定位世代边界（只取 head 列），再仅拉取当前世代 record——
  *  免每 invoke 全历史 O(全量) 同步读（probeFirstTurn 高频入口，多世代库会湿漉漉变慢）。
  */
 export function readDurableActiveSessionEntries(file: string): SessionEntryShape[] | undefined {

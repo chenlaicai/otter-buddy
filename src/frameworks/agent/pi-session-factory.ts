@@ -23,7 +23,7 @@ import type {
   AgentGateway,
 } from "@usecases/otter/agent-gateway";
 import type { OtterType } from "@entities/otter/otter";
-// PR-A：以下四项自 interface-adapters 上移 @usecases/ports——消除 frameworks→interface-adapters 倒穿
+// 以下四项自 interface-adapters 上移 @usecases/ports——消除 frameworks→interface-adapters 倒穿
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { Logger } from "@usecases/ports/logger";
 import type { ConversationRepository } from "@usecases/conversation/conversation-repository";
@@ -33,7 +33,7 @@ import type { Model, Api } from "@earendil-works/pi-ai";
 import { ConversationIdle } from "@earendil-works/pi-durable";
 import { createAgentSessionStore } from "./agent-session-store";
 import { classifyGuardInterceptReason } from "./guard-intercept-classify";
-// P0 影子下线：shadow-eval-recorder import 已删（观察期对照机制随转正移除）
+// 影子下线：shadow-eval-recorder import 已删（观察期对照机制随转正移除）
 import { sanitizeQuotedText } from "./quoted-text-sanitizer";
 import type { TokenUsage } from "@usecases/conversation/token-usage";
 
@@ -44,7 +44,7 @@ import type { TokenUsage } from "@usecases/conversation/token-usage";
  */
 /**
  * P0-2：导出 classifyGuardInterceptReason 供 orchestrator 熔断降级通道用
- * （usecases 层禁直 import frameworks——D39/分层约束，经本模块 re-export 收口）。
+ * （usecases 层禁直 import frameworks——/分层约束，经本模块 re-export 收口）。
  */
 export { classifyGuardInterceptReason };
 
@@ -586,8 +586,8 @@ export class PiSessionFactory implements AgentGateway {
     if (this.isRunning(otterId)) {
       throw new Error(`generation reset refused while session running (otter=${otterId})`);
     }
-    // F20260923hspx：换世期间池内旧 session 用 markStale 出池（不 dispose）
-    //  旧 invoke 若仍活着由 GC 兑底——与 markStale 同语义，F20260912nlb896 已验证）。
+    // 换世期间池内旧 session 用 markStale 出池（不 dispose）
+    // 旧 invoke 若仍活着由 GC 兑底——与 markStale 同语义，已验证）。
     this.pool.markStale(otterId);
     this.poolMeta.delete(otterId);
     const previous = this.sessionStore.getWithFile(otterId);
@@ -645,31 +645,31 @@ export class PiSessionFactory implements AgentGateway {
     return session;
   }
 
-  /** F20260924thnk：合成模型解析（自 runCompactionSynthesis 抽出，complexity 限）。
+  /** 合成模型解析（自 runCompactionSynthesis 抽出，complexity 限）。
    *  链路：modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置——
-   *  F20260924swin 链路；显式 maxTokens=F20260924swin 改动点1；
-   *  ⚠ 检视 B1（#1854）：durable 运行时按 (provider, modelId) 从 models 源重解析模型，
+   * 链路；显式 maxTokens=改动点1；
+   * ⚠ 检视 ：durable 运行时按 (provider, modelId) 从 models 源重解析模型，
    *  副本覆盖（maxTokens / thinkingLevelMap）到不了线缆——本方法产出的是副本层语义
    *  （预算计算/观测/测试锚点），线缆实际走池模板值；thinkingLevel 字符串另走
    *  agentChange 独立通道，不受此缺口影响；
    *  resolvedModelAlias = 观测三件套之 1（真实执行模型，非 getModelAliasForLog 的 config 值）。 */
   private resolveSynthesisModel(otterId: string, modelOverride?: string): { resolvedModel: Model<Api>; resolvedModelAlias: string } {
-    // F20260924swin：modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置（既有行为）。
+    // modelOverride（换模型重启场景）优先，缺省回退 otter 当前配置（既有行为）。
     //  此前端口声明第三参但实现丢弃，换模型重启时预算按新模型算、请求发给旧模型 → 必 400。
     let resolvedModel = this.cfg.model;
     if (this.cfg.modelPool) {
       const modelAlias = modelOverride ?? this.cfg.otterConfigProvider.getConfig(otterId)?.modelAlias;
       resolvedModel = this.cfg.modelPool.getModel(modelAlias);
     }
-    // F20260924swin 改动点1 + F20261111synth（8,192 吸收 low 档思考税）：副本层目标值，
-    // 线缆机制缺口见 #1854（durable 重解析丢弃覆盖，现状良性：模板值经 clamp 远大于需求）。
+    // 改动点1 + （8,192 吸收 low 档思考税）：副本层目标值，
+    // 线缆机制缺口见 （durable 重解析丢弃覆盖，现状良性：模板值经 clamp 远大于需求）。
     resolvedModel = { ...resolvedModel, maxTokens: SYNTHESIS_EXPLICIT_MAX_TOKENS };
-    // F20260924thnk 观测三件套之 1：真实执行模型（14:16 现场显示 mimo-pro 但实际执行 override 的 glm）。
+    // 观测三件套之 1：真实执行模型（14:16 现场显示 mimo-pro 但实际执行 override 的 glm）。
     const resolvedModelAlias = modelOverride ?? this.cfg.otterConfigProvider.getConfig(otterId)?.modelAlias ?? resolvedModel.name ?? 'unknown';
     return { resolvedModel, resolvedModelAlias };
   }
 
-  /** F20260924thnk 改动点1：合成 session 禁思考，返回实际生效档位。
+  /** 改动点1：合成 session 禁思考，返回实际生效档位。
    *  Why：thinking 与正文共享 maxTokens（4,096），思考型模型 medium 档思考可烧光全部
    *  预算致正文 0 字 stopReason=length（2026-09-24 14:16 生产实证 57s/length:0 → 机械档案）。
    *  摘要任务 prompt 自带结构化七段指令，off 不降质。
@@ -688,9 +688,9 @@ export class PiSessionFactory implements AgentGateway {
   }
 
   /**
-   * F20260912nlb896（#896 + PR #897）：压缩合成影子通道——临时 inMemory session 直调 LLM。
+   * （+）：压缩合成影子通道——临时 inMemory session 直调 LLM。
    *
-   * Why 不走 invoke（原 #896 的 ALS 锁旁路方案后被推翻）：
+   * Why 不走 invoke（原 的 ALS 锁旁路方案后被推翻）：
    * ①锁：session_before_compact 钩子在 prompt 中途触发，外层持有 per-otter 锁，嵌套 invoke 再取同锁死锁；
    * ②池：锁旁路后嵌套 invoke 在 _acquirePooled 必判外层 streaming session 为 stale 出池、
    *   冷启动 SessionManager.open 同一 jsonl 顶替池条目——压缩摘要 entry 与外层后续消息全部丢失，
@@ -700,13 +700,13 @@ export class PiSessionFactory implements AgentGateway {
    * - 合成 prompt 自包含（完整待压缩历史序列化进 prompt），无需会话历史 → inMemory session 语义等价；
    * - 不入池、不触锁、不写共享 jsonl → 与外层 streaming session 零交互；
    * - 合成纯文本直出（speak 等副作用工具在压缩中途触发必错消息归属）→ 不挂 customTools；
-   *   readOnly 工具白名单（F20260901mbfx）本就是零信任防御（合成 prompt 无工具引导），不提供工具不影响合成质量。
+   * readOnly 工具白名单本就是零信任防御（合成 prompt 无工具引导），不提供工具不影响合成质量。
    *
    * 已知妥协：无熔断/outputGuard 守卫（60s 超时防线在 compaction-hook 层，COMPACTION_SYNTHESIS_TIMEOUT_MS）。
    */
   async runCompactionSynthesis(otterId: string, prompt: string, modelOverride?: string): Promise<SynthesisRunResult> {
     const { resolvedModel, resolvedModelAlias } = this.resolveSynthesisModel(otterId, modelOverride);
-    // F20261111synth F1：合成专用模型副本挂真实能力表 + 显式选档。off 不可表达的端点
+    // F1：合成专用模型副本挂真实能力表 + 显式选档。off 不可表达的端点
     //  （kimi responses 实测拒收 effort:none）不能传 'off'——pi-durable 对 off 的翻译是
     //  「不发 reasoning 参数」，而端点默认行为是开思考且档位不可控（实测 "hi" 烧 48
     //  reasoning tokens）→ pickSynthesisThinkingLevel 显式选最低可表达档（kimi 真值 → low）。
@@ -726,7 +726,7 @@ export class PiSessionFactory implements AgentGateway {
     try {
       return await this.runSynthesisAttempt(otterId, prompt, synthesisModel, resolvedModelAlias, synthesisLevel);
     } catch (err) {
-      // F20261111synth F3：传输类失败 → 兑底模型重试一次（有界：+1 次尝试，D9 永不阻塞
+      // F3：传输类失败 → 兑底模型重试一次（有界：+1 次尝试，永不阻塞
       //  换世不变）。非传输失败（逻辑错误/超时——超时在调用方 compaction-hook 层抛，
       //  非本层错误形态）重试无意义，原样上抛由调用方降级机械档案。
       if (!isSynthesisTransportError(err)) throw err;
@@ -749,7 +749,7 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
-  /** F20261111synth：单次合成尝试——临时 durable 文件 + 影子 session + 直调 LLM。
+  /** 单次合成尝试——临时 durable 文件 + 影子 session + 直调 LLM。
  *  从 runCompactionSynthesis 抽出（F3 兑底重试需要独立的第二次尝试，各自用独立临时
    *  文件避免失败 session 状态污染重试）。原语义零变化。 */
   private async runSynthesisAttempt(
@@ -762,7 +762,7 @@ export class PiSessionFactory implements AgentGateway {
     const synthesisFile = path.join(this.cfg.dataDir && path.isAbsolute(this.cfg.dataDir) ? this.cfg.dataDir : tmpdir(), `durable-synthesis-${randomUUID()}.sqlite`);
     const session = await DurableAgentSession.open({
       otterId, file: synthesisFile,
-      // F20261111mwire（#1854）：models 源按 (provider,id) 覆盖注入合成副本——durable Harness
+      // models 源按 (provider,id) 覆盖注入合成副本——durable Harness
       // 经 getModel(provider,id) 重解析模型，副本不进 models 源就到不了线缆（maxTokens/
       // thinkingLevelMap 被池模板替换）。一次性 session 独立包装，随 session 销毁，零泄漏。
       models: withModelOverride(getModelSource(this.cfg.modelPool), model), model, thinkingLevel,
@@ -771,7 +771,7 @@ export class PiSessionFactory implements AgentGateway {
       // M-9b24be04：合成影子通道自带合成 invokeId——durable prompt 的 invoke 归属守卫
       //（"A turn owns watch/admission/settlement"）要求轮有主；影子通道不在任何 invoke
       // ALS 作用域内，不带 id 会在 prompt() 首行被拒（"Durable prompt requires
-      // currentInvokeId"）——#1783 迁移后叙事合成从未成功的直接原因（R2 修好读取器
+      // currentInvokeId"）——迁移后叙事合成从未成功的直接原因（修好读取器
       // 后暴露）。合成 id 与真实 invoke 命名空间隔离（synthesis- 前缀），事件归因不串轮。
       invokeId: `synthesis-${randomUUID()}`,
       logger: this.logger, register: createInvokeRegister(), context: BACKGROUND_CONTEXT,
@@ -790,7 +790,7 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
-  /** F20261111synth F3：兑底模型别名解析——cfg.synthesisFallbackAlias ?? 'glm'，
+  /** F3：兑底模型别名解析——cfg.synthesisFallbackAlias ?? 'glm'，
  *  池中不存在则 undefined（跳过重试，warn 可见）。不进 config schema：缺省值今天正确，
    *  需要换兑底模型时再升格配置键（特性文档 known issue 记录）。 */
   private resolveSynthesisFallbackAlias(): string | undefined {
@@ -803,7 +803,7 @@ export class PiSessionFactory implements AgentGateway {
     return alias;
   }
 
-  /** F20260924thnk 观测三件套之 1/2：合成 starting 日志。打真实 resolved 模型
+  /** 观测三件套之 1/2：合成 starting 日志。打真实 resolved 模型
    *  （配置/override 后的执行模型）而非 getModelAliasForLog（config 值）——14:16 现场
    *  显示 mimo-pro 但实际执行模型是 override 的 glm，观测误导排查。 */
   private logSynthesisStarting(otterId: string, resolvedModelAlias: string, appliedThinkingLevel: string, promptLength: number): void {
@@ -815,7 +815,7 @@ export class PiSessionFactory implements AgentGateway {
     });
   }
 
-  /** F20260924thnk 观测三件套之 3：合成 completed 日志补 usage（input/output/reasoning）。
+  /** 观测三件套之 3：合成 completed 日志补 usage（input/output/reasoning）。
    *  Usage 来自 @earendil-works/pi-ai types.d.ts:265（reasoning 是 output 子集，可证伪 thinking）。
    *  失败时可直接判别四种模式：off 被 clamp / 端点忽略 disabled / thinking 烧预算 / 截断。 */
   private logSynthesisCompleted(otterId: string, textLength: number, lastStopReason: string | undefined, branch: Parameters<typeof getLastUsage>[0]): void {
@@ -826,9 +826,9 @@ export class PiSessionFactory implements AgentGateway {
     });
   }
 
-  /** F20260920uhuc 死链修复：jsonl entries 读取门面实现（此前端口声明可选但唯一实现体
+  /** 死链修复：jsonl entries 读取门面实现（此前端口声明可选但唯一实现体
    *  缺该方法 → 合成分支永远不进 → 100% 机械档案）。
-   *  F20260922handoff：池外路径改直读 sessionStore.getWithFile +
+   * 池外路径改直读 sessionStore.getWithFile +
    *  SessionManagerClass.open() 只读打开——永不 create。此前走 restoreOrCreate 的降级
    *  分支会在账本缺失时重建 session 覆盖旧记录（「读门面重写账本」），只读声称不实。
    *  池内已有 live sessionManager 时不另 open（避免重复句柄）。 */
@@ -842,8 +842,8 @@ export class PiSessionFactory implements AgentGateway {
         const sessionManager = SessionManagerClass.open(stored.sessionFile);
         return readSessionEntries(sessionManager) as SessionEntryLike[] | undefined;
       }
-      // M-9af49d4a R2：durable 分支——账本指向 sqlite（或未迁移账本行）时直读
-      // durable 库投影当前世代 entries。#1783 迁移后此分支缺失导致换世档案合成
+      // M-9af49d4a durable 分支——账本指向 sqlite（或未迁移账本行）时直读
+      // durable 库投影当前世代 entries。迁移后此分支缺失导致换世档案合成
       // 100% 拿不到原料（「前世 session 文件读取失败」机械转储）。
       // 零副作用只读（不走 Harness.open：probeFirstTurn 在正常 invoke 期也调此处，
       // open 的 recoverAfterReopen 会误 abort 在跑任务）。
@@ -861,7 +861,7 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
-  /** F20260929kws1：当前 session jsonl 文件绝对路径（交接保留段截断标记的原文落点锚）。
+  /** 当前 session jsonl 文件绝对路径（交接保留段截断标记的原文落点锚）。
    *  交接收集期（restartSession 之前）调用：池内 live session 直取 getSessionFile()；
    *  池外从 agent_sessions 账本查 sessionFile——此刻仍指向旧世文件（账本翻新发生在
    *  restartSession 内部），与 readCurrentSessionEntries 同一生命数据源，错位风险一致。 */
@@ -880,7 +880,7 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
-  /** F20260920uhuc 死链修复：交接冻结锁实现（此前端口声明可选但唯一实现体缺该方法 →
+  /** 死链修复：交接冻结锁实现（此前端口声明可选但唯一实现体缺该方法 →
    *  冻结窗口静默跳过 → 并发竞态）。取 invoke 同源的 per-otter 锁；交接模式开启后
    *  后续 waiter 超时自动延长至交接级别（120s，SimpleLockManager.setHandoffMode）。 */
   async acquireSessionLock(otterId: string): Promise<() => void> {
@@ -890,10 +890,10 @@ export class PiSessionFactory implements AgentGateway {
     try {
       const release = await this.lockManager.acquire(key);
       acquired = true;
-      // F20260922handoff：交接模式（waiter 超时 120s）必须覆盖整个持锁期。
+      // 交接模式（waiter 超时 120s）必须覆盖整个持锁期。
       //  复位放在 release 闭包内（release 时先复位再放锁）——此前放外层 finally 会在
       //  acquire 返回瞬间复位，交接窗口内 waiter 仍是默认 30s 超时（「交接窗口假超时」
-      //  语义反转，F20260920uhuc 要消灭的形态）。
+      // 语义反转，要消灭的形态）。
       return () => {
         this.lockManager.setHandoffMode(key, false);
         release();
@@ -904,7 +904,7 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
-  /** D3：30s 锁冲突不再直接泄漏技术错误；handoff 旧世绝不注入。 */
+  /** 30s 锁冲突不再直接泄漏技术错误；handoff 旧世绝不注入。 */
   private async degradeLockTimeout(otterId: string, message: string, options: InvokeOptions | undefined, handoffAtTimeout: boolean): Promise<AgentRunResult> {
     // 受限外部正文在任何锁降级路径都不得进入普通池；新事件必须重新建立独立授权与生命周期。
     if (options?.externalProfile === 'restricted') {
@@ -943,7 +943,7 @@ export class PiSessionFactory implements AgentGateway {
     }
   }
 
-  /** D4：锁持有者的 invoke 行；epoch 缺失的非 invoke 锁路径没有持有者行可读。 */
+  /** 锁持有者的 invoke 行；epoch 缺失的非 invoke 锁路径没有持有者行可读。 */
   private readHolderInvokeStatus(otterId: string, holderEpoch?: object): 'running' | 'completed' | 'failed' | 'aborted' | null {
     const epoch = holderEpoch as InvokeEpoch | undefined;
     const invokeId = epoch?.invokeId;
@@ -958,10 +958,10 @@ export class PiSessionFactory implements AgentGateway {
     message: string,
     options?: InvokeOptions,
   ): Promise<AgentRunResult> {
-    // #896：ALS 嵌套检测锁旁路。**防御性保留，当前无活触发路径**——压缩合成已改走
+    // ALS 嵌套检测锁旁路。**防御性保留，当前无活触发路径**——压缩合成已改走
     // 影子通道（runCompactionSynthesis，不走 invoke）；handoff 合成的 pre-invoke 自动触发
-    // 路径已退役（agent-invoker.ts F20260903cmpk 注释块，唯一调用点被注释）。
-    // 保留理由：同 otterId 的嵌套 invoke 若再取同一把 per-otter 锁必死锁（原 #896 机制），
+    // 路径已退役（agent-invoker.ts 注释块，唯一调用点被注释）。
+    // 保留理由：同 otterId 的嵌套 invoke 若再取同一把 per-otter 锁必死锁（原 机制），
     // 未来新增任何「invoke 内嵌套 invoke」路径（如新钩子/新合成场景）由此层兜底免疫；
     // 且嵌套撞 streaming 的池层保护（_acquirePooled）依赖同一份 ALS 判定，两处语义同源。
     // 判定：同 otterId 的 store 存在 = 同一 async context 内的嵌套 invoke，外层已持锁，直接执行。
@@ -970,13 +970,13 @@ export class PiSessionFactory implements AgentGateway {
     const nestedStore = otterInvokeStorage.getStore();
     if (nestedStore && nestedStore.otterId === otterId) {
       this.logger.debug('[invoke] nested invoke within ALS context, bypassing lock', { otterId, readOnly: options?.readOnly ?? false });
-      // F20261009epoc（D5）：嵌套 invoke 继承外层 epoch（不 mint）——嵌套与外层
+      // 嵌套 invoke 继承外层 epoch（不 mint）——嵌套与外层
       // 共享 session/池条目，独立 epoch 会让外层清理钩子误判嵌套资源为旧世界。
-      // 继承来源 = invokeEpochStorage 外层 store；读到 undefined 走 D3 降级面
+      // 继承来源 = invokeEpochStorage 外层 store；读到 undefined 走 降级面
       // （池/寄存器/清理 fail-loud，锁 fail-soft）。
       return await this._invokeInternal(otterId, message, options);
     }
-    // F20261009epoc（D4 铸造点，r3-E-1 判据唯一化）：mint/继承的分支判据锁死到
+    // （铸造点，-E-1 判据唯一化）：mint/继承的分支判据锁死到
     // 上方 :705 嵌套检查（otterInvokeStorage，判据零变化）——判非嵌套 → 必铸
     // 新对象 + 遮蔽式 invokeEpochStorage.run(e_new)：即使该 store 里残留可读的
     // 外层 epoch（如非对称失效场景）也被新对象遮蔽，不构成「继承」。
@@ -1017,7 +1017,7 @@ export class PiSessionFactory implements AgentGateway {
       throw new Error("OtterToolClient not injected. Call setOtterToolClient() before invoke().");
     }
 
-    // 1. 池化获取 session（F20260911pspl：命中 = 重置 invoke 级寄存器后直接复用；未命中 = 冷启动重建入池）
+    // 1. 池化获取 session（命中 = 重置 invoke 级寄存器后直接复用；未命中 = 冷启动重建入池）
     //    身份注入判定：池命中 = session 已有身份上下文（上轮注入过），不再重复注入；
     //    冷启动 createdNew / pendingIdentity 场景与现状一致。
     const { session, sessionKey, toolContext, turnText, isPooled, createdNew } = await this._acquirePooled(otterId, options);
@@ -1033,23 +1033,23 @@ export class PiSessionFactory implements AgentGateway {
 
     // 4. 注入成功后才消费标记（invoke 失败时保留，下次重试仍会注入）
     this.pendingIdentity.delete(otterId);
-    /** F20260814mtrc：session 重建事实随结果透传（metrics 用，orchestrator recordSessionRebuild） */
+    /** session 重建事实随结果透传（metrics 用，orchestrator recordSessionRebuild） */
     if (createdNew) result.sessionRebuilt = true;
     return result;
   }
 
   /** 池化 session 获取：命中 → 重置 invoke 级寄存器；未命中 → 冷启动重建入池。
-   *  F20260913ctlv 整合并入 readOnly 绕过分支 + ctlv 寄存器刷新（语句数/复杂度超限——
+   * 整合并入 readOnly 绕过分支 + ctlv 寄存器刷新（语句数/复杂度超限——
    *  池编排是单体内聚逻辑，拆分会让 acquire 状态机跨方法散落，降低可读性） */
   // eslint-disable-next-line max-statements, complexity -- ctlv 合流面并入（readOnly 分支 + invoke 级刷新）
   private async _acquirePooled(
     otterId: string,
     options: InvokeOptions | undefined,
   ): Promise<{ session: DurableSession; sessionKey: string; toolContext: ToolContext; turnText: { text: string }; isPooled: boolean; createdNew: boolean }> {
-    // F20260913ctlv 整合移植（PR #886 merge main）：readOnly 池绕过——readOnly 需要过滤
+    // 整合移植（merge main）：readOnly 池绕过——readOnly 需要过滤
     // 工具集（只保留 read），池中 session 是全量工具，命中复用会让合成/handoff 类只读
     // 调用拿到越权工具面（越权风险 + 工具行为不一致）。绕过池 = 不复用/不入池，
-    // session 用完由调用方处置。此语义同时修掉 main #894 的潜在回归（池命中不看 readOnly）。
+    // session 用完由调用方处置。此语义同时修掉 main 的潜在回归（池命中不看 readOnly）。
     if (options?.readOnly || options?.externalProfile === 'restricted') {
       const { createdNew } = await this._restoreOrCreateSession(otterId);
       const otterConfig = this.cfg.otterConfigProvider.getConfig(otterId);
@@ -1068,7 +1068,7 @@ export class PiSessionFactory implements AgentGateway {
     const existing = this.poolMeta.get(otterId);
     if (existing) {
       if (existing.session.isStreaming) {
-        // F20260912nlb896（PR #897）：嵌套 invoke（ALS store 同 otterId）遇到 streaming
+        // 嵌套 invoke（ALS store 同 otterId）遇到 streaming
         // = 合成/handoff 类嵌套调用撞上外层 prompt 中途——**绝不能走下方 stale 出池**：
         // 出池会让外层活 session 被顶替（压缩摘要 entry 与外层后续消息全部丢失，压缩永不生效）。
         // 嵌套场景没有「外层异常」的可能（外层正活着在跑），直接抛错由调用方降级（压缩钩子 catch → Pi 默认）。
@@ -1076,7 +1076,7 @@ export class PiSessionFactory implements AgentGateway {
         if (nestedStore && nestedStore.otterId === otterId) {
           throw new Error(`nested invoke while outer invoke is streaming (otter=${otterId})——外层 session 活跃，嵌套调用不得顶替，由调用方降级`);
         }
-        // 并发防御：stale steal（#599，300s 超时）后旧 invoke 仍挂 streaming，
+        // 并发防御：stale steal（300s 超时）后旧 invoke 仍挂 streaming，
         // 直接复用会让新 invoke 被 SDK 拒绝且寄存器已 reset 致旧 invoke speak 落错消息。
         // ⚠️ 不能立即 dispose：旧 invoke 正在执行中，dispose → agent.abort() 会撕裂旧 invoke。
         // 策略：标记 stale 出池（不再被命中），不 dispose——旧 invoke 终有终点（完成/abort/超时），
@@ -1086,7 +1086,7 @@ export class PiSessionFactory implements AgentGateway {
         this.pool.markStale(otterId);
         this.poolMeta.delete(otterId);
       } else {
-        // F20260913ctlv 整合移植：池命中时刷新 invoke 级 ctlv 字段——currentInvokeId 不刷新
+        // 整合移植：池命中时刷新 invoke 级 ctlv 字段——currentInvokeId 不刷新
         // 则第二次 invoke 复用旧 ID，speak/yield entry 挂错 invoke（时间线结错链）
         resetInvokeRegister(existing.register, options?.messageId, { currentInvokeId: options?.currentInvokeId, emitEvent: options?.emitEvent });
         const turnText = existing.register.turnText;

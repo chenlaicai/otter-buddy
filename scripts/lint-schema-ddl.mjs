@@ -2,7 +2,7 @@
 /**
  * DDL 同块引用静态门（事故防线 B）。
  *
- * 背景（第二次 P0 启动事故，复盘）：
+ * 背景（第二次 启动事故，复盘）：
  * 把 CREATE INDEX 与 CREATE TABLE 放同一 db.exec 块，而索引引用的列
  *   靠块外其后的 ALTER TABLE ADD COLUMN 补——存量库上 CREATE TABLE IF NOT EXISTS
  *   no-op（表早已存在、无该列），索引创建立即炸 `no such column`，永远走不到补列。

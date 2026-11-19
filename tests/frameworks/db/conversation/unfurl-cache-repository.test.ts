@@ -5,7 +5,7 @@ import { SqliteUnfurlCacheRepository, UNFURL_FAILED_TTL_MS, UNFURL_GITHUB_TTL_MS
 import { createTestLogger } from "../../../helpers/logger";
 
 /**
- * T1：unfurl_cache 缓存读写单测。
+ * unfurl_cache 缓存读写单测。
  * 锁定：①put/get round-trip 全字段；②TTL 三分支（og 永久 / failed 7 天 / github-api 24h SWR）；
  * ③getByUrls 批量投影（join 键口径）；④upsert 覆盖语义。
  */

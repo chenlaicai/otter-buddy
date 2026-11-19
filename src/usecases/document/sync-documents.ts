@@ -64,7 +64,7 @@ function researchFingerprint(doc: ResearchDocument): string {
 }
 
 /** 计算 body_hash（清理后 body 的 sha256 前 16 字符） */
-/** D3 加版本前缀 "chunk-v1|"，版本变化触发全量 reindex 生成 chunk */
+/** 加版本前缀 "chunk-v1|"，版本变化触发全量 reindex 生成 chunk */
 const CHUNKING_VERSION = "chunk-v1";
 function computeBodyHash(cleanedBody: string): string | null {
   if (!cleanedBody) return null;

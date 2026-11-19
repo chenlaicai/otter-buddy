@@ -1,11 +1,11 @@
 /**
- * /S3：任务队列优先级与水位闸门单测。
+ * 任务队列优先级与水位闸门单测。
  *
  * 覆盖：
  * - enqueueRetry priority 写入 + ON CONFLICT 不降优先级（首入队优先级保留）
  * - claimPendingTasks 按 priority ASC, next_retry_at ASC 序认领
  * - pendingTaskCount 只数 pending（dead 不计）
- * - S3 消费端：markTaskDone 后 pendingTaskCount 递减
+ * - 消费端：markTaskDone 后 pendingTaskCount 递减
  *
  * lint-tests:allow-ddl——豁免理由：测试对象是 embedding_tasks 表的 SQL 语义
  * 本身，必须建真实表（与 embedding-task-gate.test.ts 同模式）。

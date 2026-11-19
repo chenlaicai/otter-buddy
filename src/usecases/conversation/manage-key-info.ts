@@ -27,7 +27,7 @@ export interface LinkedResourceInput {
 
 /**
  * fact content 长度上限（JS UTF-16 code unit 计：中文 1:1，emoji 1:2）。
- * 工具层（tool-factory）与业务层共用同一常量，保证双层校验口径与消息一致（设计决策 D2）。
+ * 工具层（tool-factory）与业务层共用同一常量，保证双层校验口径与消息一致（设计决策）。
  */
 export const FACT_CONTENT_MAX_LENGTH = 500;
 export const FACT_CONTENT_TOO_LONG_MESSAGE =
@@ -50,8 +50,8 @@ export function validateGroupIdRequired(resourceType: string, groupId: string | 
   );
 }
 
-/** F20261021gmbe：game 型 url 白名单——仅本应用麻将牌局路由（全匹配，非前缀）。
- *  正则与报错文案来自 api-contract（前后端唯一真相源，检视发现 2）；
+/** game 型 url 白名单——仅本应用麻将牌局路由（全匹配，非前缀）。
+ * 正则与报错文案来自 api-contract（前后端唯一真相源，）；
  *  写入时固化数据卫生，防未来白名单扩展时存量脏数据变内嵌面。 */
 
 export function validateGameUrl(resourceType: string, url: string | undefined | null): DomainError | null {
@@ -73,7 +73,7 @@ export class ManageKeyInfo {
       resourceType: input.resourceType,
       url: input.url ?? null,
       title: input.title ?? null,
-      // F20260821scrt: fact 本体表（linked_resources.content）写入前脱敏——记忆索引侧由 StoreMemory 覆盖，本体表此前是明文旁路
+      // fact 本体表（linked_resources.content）写入前脱敏——记忆索引侧由 StoreMemory 覆盖，本体表此前是明文旁路
       content: input.content ? redactSecrets(input.content) : null,
       category: input.category ?? null,
       userFlagged: false,
@@ -103,12 +103,12 @@ export class ManageKeyInfo {
     if (input.resourceType !== "fact" && !input.url) {
       throw new DomainError("非 fact 类型资源必须提供 url", "validation");
     }
-    // F20261021gmbe：game 型 url 前缀白名单（必做——写入时固化数据卫生）
+    // game 型 url 前缀白名单（必做——写入时固化数据卫生）
     const gameUrlErr = validateGameUrl(input.resourceType, input.url);
     if (gameUrlErr) throw gameUrlErr;
   }
 
-  /** 索引内容取自已脱敏的 resource（二轮审视#5：取 raw input 会让 fact 本体与 FTS 一致性依赖 StoreMemory 隐式脱敏） */
+  /** 索引内容取自已脱敏的 resource（二轮审视取 raw input 会让 fact 本体与 FTS 一致性依赖 StoreMemory 隐式脱敏） */
   private getIndexContent(resource: LinkedResource): string {
     return resource.resourceType === "fact"
       ? (resource.content ?? "")
@@ -117,7 +117,7 @@ export class ManageKeyInfo {
 
   async linkResource(input: LinkedResourceInput): Promise<LinkedResource> {
     this.validateInput(input);
-    // F20260829gvid（#580）：直接创建 pr/worktree/branch 时 groupId 必填。supersede 路径不走
+    // 直接创建 pr/worktree/branch 时 groupId 必填。supersede 路径不走
     // 这里（走 supersedeResource，允许继承旧组）——两条路径分开校验。
     const groupIdErr = validateGroupIdRequired(input.resourceType, input.groupId);
     if (groupIdErr) throw groupIdErr;
@@ -138,7 +138,7 @@ export class ManageKeyInfo {
       throw new DomainError(`Cannot supersede resource in status '${existing.status}'`, "conflict");
     }
 
-    // F20260829gvid（#580）：supersede 校验 effective groupId（新输入优先，缺省继承旧组）。
+    // supersede 校验 effective groupId（新输入优先，缺省继承旧组）。
     // 「无 groupId 重建 + supersede」是漏传的既定补救路径（ptun 案例实际用过），此处不能一刀切。
     const groupIdErr = validateGroupIdRequired(newInput.resourceType, newInput.groupId ?? existing.groupId);
     if (groupIdErr) throw groupIdErr;

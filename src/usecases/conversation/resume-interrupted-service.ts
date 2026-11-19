@@ -50,7 +50,7 @@ export class ResumeInterruptedService {
   /** 恢复摘要台账查询上限：远超真实单 invoke 动作量（个位数到几十），仅为拦截病态增长 */
   private static readonly LEDGER_SUMMARY_FETCH_LIMIT = 1_000;
 
-  /** PR-B：本进程 boot 纪元（毫秒时间戳，构造时定格；进程内恒定、跨进程互异） */
+  /** 本进程 boot 纪元（毫秒时间戳，构造时定格；进程内恒定、跨进程互异） */
   private readonly bootEpoch: number;
 
   constructor(
@@ -71,17 +71,17 @@ export class ResumeInterruptedService {
       delayMs?: number;
       /** 429 限流退避基础延迟（ms），测试可注入小值 */
       rateLimitBaseDelayMs?: number;
-      /** PR-B：动作台账只读面（恢复摘要数据源；缺省无摘要——旧文案兼容） */
+      /** 动作台账只读面（恢复摘要数据源；缺省无摘要——旧文案兼容） */
       actionLedger?: { listByInvoke(invokeId: string, limit?: number): Promise<ActionRecord[]> };
-      /** （C2）：远程动作登记只读面（——远程动作五态并入恢复摘要；
+      /** 远程动作登记只读面（——远程动作五态并入恢复摘要；
        *  缺省无远程段——无 connector 场景旧文案兼容） */
       remoteActions?: { listByConversation(conversationId: string, limit?: number): Promise<RemoteActionRequest[]> };
-      /** PR-B：本进程 boot 纪元（认领绑定；测试可注入固定值） */
+      /** 本进程 boot 纪元（认领绑定；测试可注入固定值） */
       bootEpoch?: number;
-      /** F20261117 检视轮 S3：旧持有者 pid 死活探针（重认领预检；测试可注入 fake，
+      /** F20261117 检视轮 旧持有者 pid 死活探针（重认领预检；测试可注入 fake，
        *  缺省 process.kill(pid, 0) 试探——ESRCH=死，EPERM=活着但权限不足） */
       isPidAlive?: (pid: number) => boolean;
-      /** F20261117 检视轮 S3：认领进程 pid（写 claim_pid 供重认领预检；测试可注入） */
+      /** F20261117 检视轮 认领进程 pid（写 claim_pid 供重认领预检；测试可注入） */
       pid?: number;
     },
   ) {
@@ -114,14 +114,14 @@ export class ResumeInterruptedService {
           }
         }),
       );
-      /* F20260906rsts（沿用搭档 9/6 裁决）：成功路径零系统消息（静默成功）；
+      /* （沿用搭档 9/6 裁决）：成功路径零系统消息（静默成功）；
        * 失败/跳过路径的提示在 resumeItemSafe 各出口内发出。 */
     } catch (err) {
       this.deps.logger.error("Resume interrupted invokes failed", err instanceof Error ? err : new Error(String(err)));
     }
   }
 
-  /** #613（移植）：服务重启事件落 healing 台账（try/catch non-fatal） */
+  /** （移植）：服务重启事件落 healing 台账（try/catch non-fatal） */
   private async recordRestartHealingEvent(pendingCount: number): Promise<void> {
     if (!this.deps.healingRepo) return;
     const severity = pendingCount >= 5 ? "high" : pendingCount >= 2 ? "medium" : "low";
@@ -151,7 +151,7 @@ export class ResumeInterruptedService {
   /**
    * 单条 resume 的安全包装——捕获所有异常确保不崩循环。
    * 移植旧 resumeItemSafe 三分类语义（done/skipped/failed）。
-   * F20261117 检视轮 S1：认领 token 在此生成并全程传递（并行恢复下不能走实例字段），
+   * F20261117 检视轮 认领 token 在此生成并全程传递（并行恢复下不能走实例字段），
    * 持有者终态收口用 settleResumeHeld（token 校验）。
    */
   private async resumeItemSafe(item: ResumeQueueItem): Promise<"done" | "skipped" | "failed"> {
@@ -173,7 +173,7 @@ export class ResumeInterruptedService {
     }
   }
 
-  /** 持有校验 settle（F20261117 检视轮 S1）：行被他人接管时 changes=0 不覆盖（交接管者
+  /** 持有校验 settle（F20261117 检视轮）：行被他人接管时 changes=0 不覆盖（交接管者
    *  负责闭环）；写库失败仅日志（收尾异常不逃逸纪律）。 */
   private async settleHeld(invokeId: string, claimToken: string, status: "done" | "failed" | "exhausted"): Promise<void> {
     try {
@@ -186,7 +186,7 @@ export class ResumeInterruptedService {
     }
   }
 
-  /** F20261117 检视轮 S3：pid 死活探针（缺省 process.kill(pid, 0) 试探）。 */
+  /** F20261117 检视轮 pid 死活探针（缺省 process.kill(pid, 0) 试探）。 */
   private checkPidAlive(pid: number): boolean {
     if (this.deps.isPidAlive) return this.deps.isPidAlive(pid);
     try {
@@ -217,7 +217,7 @@ export class ResumeInterruptedService {
     }
   }
 
-  /** F20261117 检视轮 S3：旧持有者死活预检——旧纪元持有进程仍存活时不抢（防双跑）。
+  /** F20261117 检视轮 旧持有者死活预检——旧纪元持有进程仍存活时不抢（防双跑）。
    *  CAS 互斥仍由 claimPendingResume 的 UPDATE 原子保证（预检只收紧旧纪元重认领准入）。 */
   private async isStaleHolderAlive(invokeId: string): Promise<boolean> {
     const holder = await this.deps.resumePendingRepo.getByInvokeId(invokeId).catch(() => null);
@@ -230,16 +230,16 @@ export class ResumeInterruptedService {
     return true;
   }
 
-  /** 认领段：S3 预检 + CAS 认领 + 失败分支处置。返回 "claimed"（可续跑）或 "skipped"。 */
+  /** 认领段：预检 + CAS 认领 + 失败分支处置。返回 "claimed"（可续跑）或 "skipped"。 */
   private async claimForResume(item: ResumeQueueItem, claimToken: string): Promise<"claimed" | "skipped"> {
     if (await this.isStaleHolderAlive(item.invokeId)) return "skipped";
 
     // CAS 认领只在恢复入口一次（attempts 语义 = 跨重启恢复次数）；进程内 429/网络退避
-    // 重试不再重认领——S1 修复轮实证：认领放循环内时，1+3 次重试把 attempts 顶到上限
+    // 重试不再重认领——修复轮实证：认领放循环内时，1+3 次重试把 attempts 顶到上限
     // 与跨重启守卫撞车（「429 重试耗尽」用例 4 次调用只走了 3 次）。
-    // F20261116actlg PR-B：认领绑定 claim token + 本进程 boot 纪元——同 boot 内拒重认领，
+    // 认领绑定 claim token + 本进程 boot 纪元——同 boot 内拒重认领，
     // 恢复者自身崩溃的旧纪元残留可被新开机重认领（attempts 继续累加，上限不放松）；
-    // F20261117 S3：认领同时写 pid（供后续开机做死活预检）。
+    // F20261117 认领同时写 pid（供后续开机做死活预检）。
     const claimed = await this.deps.resumePendingRepo.claimPendingResume(item.invokeId, {
       token: claimToken,
       bootEpoch: this.bootEpoch,
@@ -252,14 +252,14 @@ export class ResumeInterruptedService {
     // ③ 同 boot 已认领（boot_epoch = 本纪元且 claim_token 已写入——同毫秒双路径
     // 并发 resume）→ 持有者仍在处理，保持 pending 不动（settle 会把在途恢复静默
     // 吞成终态，且 exhausted 无兜底重试）。〔检视 minor-1〕
-    // ①场景若旧纪元持有者仍在途，其后续持有 settle 会覆盖这里的 exhausted（S1 收口）。
+    // ①场景若旧纪元持有者仍在途，其后续持有 settle 会覆盖这里的 exhausted（收口）。
     const row = await this.deps.resumePendingRepo.getByInvokeId(item.invokeId);
     if (row?.status === "pending") {
       const sameBootClaimed = row.claimToken != null && row.bootEpoch === this.bootEpoch;
       if (!sameBootClaimed) {
         await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
       } else {
-        // F20261117 检视轮 S1：claim_token 值消费——跳过时记录持有者令牌前缀（可观测：排查谁持有）
+        // F20261117 检视轮 claim_token 值消费——跳过时记录持有者令牌前缀（可观测：排查谁持有）
         this.deps.logger.warn("claim rejected: same-boot holder exists", {
           invokeId: item.invokeId, holderTokenPrefix: row.claimToken?.slice(0, 8), holderBootEpoch: row.bootEpoch,
         });
@@ -268,7 +268,7 @@ export class ResumeInterruptedService {
     return "skipped";
   }
 
-  /** 429 限流/网络错误的指数退避重试包装（F20260830rfto 移植） */
+  /** 429 限流/网络错误的指数退避重试包装（移植） */
   private async resumeOneWithRetry(item: ResumeQueueItem, claimToken: string): Promise<"done" | "skipped" | "failed"> {
     if ((await this.claimForResume(item, claimToken)) === "skipped") return "skipped";
 
@@ -296,7 +296,7 @@ export class ResumeInterruptedService {
     throw lastErr;
   }
 
-  /** #613（移植）：判断是否为 429 限流错误 */
+  /** （移植）：判断是否为 429 限流错误 */
   private isRateLimitError(err: unknown): boolean {
     if (err instanceof Error) {
       return err.message.includes("429") || err.message.includes("rate_limit") || err.message.includes("rate limit");
@@ -305,14 +305,14 @@ export class ResumeInterruptedService {
     return str.includes("429") || str.includes("rate_limit") || str.includes("rate limit");
   }
 
-  /** F202609048840 F2（移植）：判断是否为可重试的网络/连接错误 */
+  /** F2（移植）：判断是否为可重试的网络/连接错误 */
   private isRetryableNetworkError(err: unknown): boolean {
     if (this.isRateLimitError(err)) return true;
     const message = err instanceof Error ? err.message : String(err);
     return this.isRetryableNetworkErrorMessage(message);
   }
 
-  /** F202609048840 F2（移植）：网络类可重试错误的文本模式匹配 */
+  /** F2（移植）：网络类可重试错误的文本模式匹配 */
   private isRetryableNetworkErrorMessage(message: string): boolean {
     const retryablePatterns = [
       "Connection error",
@@ -326,7 +326,7 @@ export class ResumeInterruptedService {
     return retryablePatterns.some(pattern => message.toLowerCase().includes(pattern.toLowerCase()));
   }
 
-  /** F20261116actlg PR-B：取中断 invoke 的台账摘要（机器真相；台账缺席/无行动作返回 null）。
+  /** 取中断 invoke 的台账摘要（机器真相；台账缺席/无行动作返回 null）。
    *  查询上限远大于默认 200——listByInvoke 默认升序 LIMIT 截断会把崩溃时刻的最新动作
    *  （最可能 unknown）先截掉，计数静默失真；真超限时显性标注不完整。〔检视 minor-2〕 */
   private async buildLedgerSummary(invokeId: string, conversationId: string): Promise<string | null> {

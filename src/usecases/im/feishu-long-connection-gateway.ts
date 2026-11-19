@@ -13,7 +13,7 @@ export interface FeishuPostMediaItem {
   fileName?: string;
 }
 
-/** 多模态 Phase 2：飞书 image/file 消息的结构化载荷（frameworks 层解析后透传）。
+/** 多模态 飞书 image/file 消息的结构化载荷（frameworks 层解析后透传）。
  * post 富文本混排消息以 type="post" 携带段落内媒体项列表 */
 export interface FeishuMediaPayload {
   type: "image" | "file" | "post";
@@ -36,6 +36,6 @@ export interface FeishuLongConnectionMessage {
   messageType: string;
   /** p2p/group 分流依据（助理态仅 p2p 自动开户；群聊维持显式绑定） */
   chatType?: "p2p" | "group";
-  /** 多模态 Phase 2：image/file 消息携带（text 消息无此字段） */
+  /** 多模态 image/file 消息携带（text 消息无此字段） */
   media?: FeishuMediaPayload;
 }

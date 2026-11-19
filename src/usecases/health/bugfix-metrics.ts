@@ -5,7 +5,7 @@
  * 落 health_snapshots（metric_type=fix_interval）供 sparkline/热点条消费。
  * 缩短=退化加速（修复节奏变密），拉长=进化（问题收敛）。
  *
- * Why 派生指标而非检测器（合议定稿 §1.3）：不产生信号，只落库供时间序列回放；
+ * Why 派生指标而非检测器（合议定稿）：不产生信号，只落库供时间序列回放；
  * 挂在 MetricsCalculator 输出之后（persistSnapshot 内），不另起采集管道。
  *
  * 口径实查（2026-09-01，main 60 天）：42 个 bugfix、8 个活跃日、爆发式提交模式，

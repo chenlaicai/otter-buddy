@@ -2,9 +2,9 @@
  * 命令结构模型（guard-v2-redesign）。
  *
  * 词法层 token 流 → 结构化命令模型（segments / argv / 重定向 / cd 链 / 递归载荷），
- * 全部判定层消费本模型而非原始文本（方案 §3.2「parse once, judge everywhere」）。
+ * 全部判定层消费本模型而非原始文本（「parse once, judge everywhere」）。
  *
- * 递归消费（方案 D2）：cmdsub/backtick/进程替换/bash -c 与 sh -c 载荷递归解析，
+ * 递归消费（方案）：cmdsub/backtick/进程替换/bash -c 与 sh -c 载荷递归解析，
  * 深度上限 2（超过 → 载荷不可知，判定层保守拦）；heredoc 裸定界符体按危险通道
  * 递归（引号定界=绝对数据）。
  */
@@ -84,12 +84,12 @@ function isRedirOp(op: string): boolean {
     || (op.startsWith("2>") || op.startsWith("1>") || op.startsWith("0<"));
 }
 
-/** bash -c / sh -c 载荷识别（方案 D5 矩阵 /）——SHELL_INTERPRETERS 归 payload-extract-aux
+/** bash -c / sh -c 载荷识别（矩阵）——SHELL_INTERPRETERS 归 payload-extract-aux
  * 单一真相源（迁入，本行 re-export 保持既有引用面） */
 // SCRIPT_RUNNERS 归 payload-extract-aux 单一真相源（本模块曾有同名单本地副本，
 // 双份清单正是识别域漂移源——收敛）
 
-/** cmdsub 递归深度上限（D2/≤2 层，超限=载荷不可知） */
+/** cmdsub 递归深度上限（/≤2 层，超限=载荷不可知） */
 const MAX_DEPTH = 2;
 
 // ────────────────────────────── 解析 ──────────────────────────────
@@ -294,7 +294,7 @@ function collectPayloads(tokens: Token[], text: string, depth: number, tokenSegm
         if (p.type === "cmdsub") {
           if (depth >= MAX_DEPTH) {
             payloads.push(owned(t, { raw: p.text, model: null, kind: "cmdsub", depth }));
-            parseOk = false; // 深度超限=载荷不可知（D2：保守，判定层兜底）
+            parseOk = false; // 深度超限=载荷不可知（保守，判定层兜底）
           } else {
             const sub = parseOnce(p.text, depth + 1);
             payloads.push(owned(t, { raw: p.text, model: sub, kind: "cmdsub", depth: depth + 1 }));

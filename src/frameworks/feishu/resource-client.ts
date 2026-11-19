@@ -6,7 +6,7 @@ import type {
 import type { FeishuAccessTokenManager } from "./access-token-manager";
 
 /**
- * 飞书消息资源下载客户端（多模态 Phase 2）。
+ * 飞书消息资源下载客户端（多模态）。
  *
  * GET /open-apis/im/v1/messages/{message_id}/resources/{resource_key}?type=image|file
  * 权限：image 走 im:message 体系（收消息已具备）；file 需 im:resource——

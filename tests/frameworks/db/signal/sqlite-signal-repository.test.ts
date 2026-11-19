@@ -1,5 +1,5 @@
 /**
- * C1：signal_events 仓库 CRUD 单测。
+ * signal_events 仓库 CRUD 单测。
  *
  * 覆盖：create/findByConversation（过滤组合）/resolve（幂等防重——
  * 已裁决的信号不可被二次 resolve，裁决写路径唯一性）。
@@ -46,7 +46,7 @@ describe('SqliteSignalEventRepository', () => {
     expect(found!.type).toBe('halt');
     expect(found!.targetOtterId).toBe('otter-small');
 
-    // C2 的 objection 无 target
+    // 的 objection 无 target
     await repo.create(makeEvent({ id: 'sig-002', type: 'objection', targetOtterId: null, messageId: 'msg-2' }));
     const objection = await repo.findById('sig-002');
     expect(objection!.targetOtterId).toBeNull();

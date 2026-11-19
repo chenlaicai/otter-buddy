@@ -1,15 +1,15 @@
 /**
- * （阶段 4 C1）+ （C2 执行通道）：connector
+ * + （执行通道）：connector
  * 独立进程入口（客户端侧）。
  *
- * 轻量铁律（阶段 4 / 方案 v3 §7）：本进程不加载模型、embedding、主记忆——
+ * 轻量铁律（/）：本进程不加载模型、embedding、主记忆——
  * 依赖闭包仅 ws + better-sqlite3 + node 内置 + 执行器/台账/网关（构建后闭包断言）。
  *
  * 通道语义（检视 s1/s2/s3 处置）：断线自动重连（指数退避 1s→30s，重连=新会话——
  * hub 侧 sid 代际天然隔离跨会话重放）；心跳半开自愈（45s 无 heartbeat.ack 判死重连）；
  * version 类协议不兼容是致命错误（重连无意义，退出进程让人介入）。
  *
- * C2 动作执行栈（方案 v3 §5/§7）：action.request → ConnectorActionDispatcher
+ * 动作执行栈（/）：action.request → ConnectorActionDispatcher
  * （台账 actionId 幂等快路径）→ WorkspaceActionExecutor（与中枢 local 同一执行
  * 语义与记账协议）→ action.result 回执。数据目录 ~/.otter/connector/<deviceId>/；
  * 台账开机清扫旧纪元 running 行（崩溃恢复兑底）后才执行动作。

@@ -40,7 +40,7 @@ function normalizeScheduleInput(input: CreateScheduledTaskInput): Pick<Scheduled
   };
 }
 
-/** #610: watchlist-only patch 语义——读旧 body JSON、只替换 watchlist 字段。
+/** watchlist-only patch 语义——读旧 body JSON、只替换 watchlist 字段。
  *  返回 null 表示 body 不是合法 JSON 对象（旧格式/非 JSON body 不兼容此通道），由调用方抛 400，
  *  避免把非 JSON body 静默重写而丢内容。其他字段（prompt 等）原样保留，调用方无需携带 prompt 全文。 */
 export function applyWatchlistPatch(body: string, watchlist: string[]): string | null {
@@ -63,7 +63,7 @@ function validateCreateInput(input: CreateScheduledTaskInput): string | null {
 
   const timezone = input.timezone ?? 'Asia/Shanghai';
   if (!isValidTimezone(timezone)) return `Invalid timezone: ${timezone}`;
-  // #891：缺 body 字段的合法 JSON（如有 cron 无 body）会在此处 undefined.length 抛 TypeError
+  // 缺 body 字段的合法 JSON（如有 cron 无 body）会在此处 undefined.length 抛 TypeError
   // 逃逸成 500——先判类型再比长度。注：null body 路径走不到这里（首行 cron 校验已拦），
   // 本防御针对「字段部分缺失」场景（对抗审视更正月因）
   if (typeof input.body !== 'string') return 'body is required';
@@ -81,7 +81,7 @@ function validateCreateInput(input: CreateScheduledTaskInput): string | null {
   return null;
 }
 
-/** #516: timeoutMinutes 校验（create/update 共用）。null/undefined 合法（用默认）。 */
+/** timeoutMinutes 校验（create/update 共用）。null/undefined 合法（用默认）。 */
 function validateTimeoutMinutes(value: number | null | undefined): string | null {
   if (value === undefined || value === null) return null;
   if (!isValidTimeoutMinutes(value)) {
@@ -105,11 +105,11 @@ export interface CreateScheduledTaskInput {
   triggerAt?: string;
   timezone?: string;
   body: string;
-  /** F20260915desc: 人类可读任务描述（≤500 字符），给人看的任务说明。可选。 */
+  /** 人类可读任务描述（≤500 字符），给人看的任务说明。可选。 */
   description?: string | null;
-  /** F20260815rstrt: 每次触发前是否重启执行獭的 session（默认 false） */
+  /** 每次触发前是否重启执行獭的 session（默认 false） */
   restartBeforeInvoke?: boolean;
-  /** #516: 任务级链超时配置（分钟）。null/缺省 = 调度器默认（15 分钟）。上限 1440（24h）。 */
+  /** 任务级链超时配置（分钟）。null/缺省 = 调度器默认（15 分钟）。上限 1440（24h）。 */
   timeoutMinutes?: number | null;
   /** agent 执行者角色名（默认大獭）；talkingStonePassedTo 仅为旧实例绑定的兼容写入面。 */
   executorRole?: string;
@@ -128,20 +128,20 @@ export interface UpdateScheduledTaskInput {
   triggerAt?: string | null;
   timezone?: string;
   body?: string;
-  /** F20260915desc: 任务描述。传 null 清除。 */
+  /** 任务描述。传 null 清除。 */
   description?: string | null;
   executorRole?: string;
   talkingStonePassedTo?: string[];
   status?: ScheduledTaskStatus;
-  /** F20260815rstrt: 每次触发前是否重启执行獭的 session */
+  /** 每次触发前是否重启执行獭的 session */
   restartBeforeInvoke?: boolean;
-  /** #516: 任务级链超时配置（分钟）。null = 回退调度器默认。 */
+  /** 任务级链超时配置（分钟）。null = 回退调度器默认。 */
   timeoutMinutes?: number | null;
   /** PR4: 执行器类型（agent=LLM 会话，function=纯代码） */
   executorType?: 'agent' | 'function';
   /** PR4: function executor 时注册的函数名 */
   functionName?: string;
-  /** #610: watchlist-only patch——服务端读旧 body JSON、只替换 watchlist 字段。
+  /** watchlist-only patch——服务端读旧 body JSON、只替换 watchlist 字段。
    *  调用方不再携带 prompt 全文（旧通道丢一字即损坏）。与 body 字段互斥。 */
   watchlist?: string[];
 }
@@ -181,7 +181,7 @@ export class ManageScheduledTask {
       description: input.description ?? null,
       executorRole: input.executorRole ?? '大獭',
       talkingStonePassedTo: input.talkingStonePassedTo ?? [],
-      // F20260903s4fn：任务触发消息是「系统说的」——senderId 归属 system，不偷目标獭。
+      // 任务触发消息是「系统说的」——senderId 归属 system，不偷目标獭。
       // 历史默认值 talkingStonePassedTo[0] 是发送者语义与展示归属的混淆（生产实证：60+ 条
       // system 消息挂獭 id）。展示归属由前端显示层解决，数据层不撒谎。
       senderId: input.senderId ?? 'system',
@@ -218,7 +218,7 @@ export class ManageScheduledTask {
 
     this.validateUpdateInput(task, input);
 
-    // #610: watchlist patch——与 body 显式互斥，双传说明调用方语义混乱，拒之。
+    // watchlist patch——与 body 显式互斥，双传说明调用方语义混乱，拒之。
     let effectiveBody = input.body ?? task.body;
     if (input.watchlist !== undefined) {
       if (input.body !== undefined) {
@@ -234,7 +234,7 @@ export class ManageScheduledTask {
       }
       effectiveBody = patched;
       // Why：patched body 是新入库值，必须同样满足 10000 上限不变量（prompt 近上限+巨长 watchlist 可超）。
-      // 检视发现 1：报错区分来源——旧通道超限是调用方 body 问题，patch 路径超限是合并 watchlist 后溢出，修复路径不同。
+      // 报错区分来源——旧通道超限是调用方 body 问题，patch 路径超限是合并 watchlist 后溢出，修复路径不同。
       if (effectiveBody.length > 10000) {
         throw new DomainError('patched body exceeds 10000 character limit after merging watchlist', 'validation');
       }

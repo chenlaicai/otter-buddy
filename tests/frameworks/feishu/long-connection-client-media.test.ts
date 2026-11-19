@@ -3,7 +3,7 @@ import { FeishuLongConnectionClient } from "@frameworks/feishu/long-connection-c
 import type { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manager";
 import type { FeishuConfig } from "@frameworks/feishu/types";
 
-/** 多模态 Phase 2：长连接客户端消息解析扩展测试。
+/** 多模态 长连接客户端消息解析扩展测试。
  *  锁定：image/file 消息放行 + media 载荷解析；其余类型仍忽略；
  *  text 消息（含 content.text 缺失的宽容性）不回归。 */
 

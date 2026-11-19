@@ -1,5 +1,5 @@
 /**
- * P1：yield 打标自动登记 matter 集成测试（准入路径 1）。
+ * yield 打标自动登记 matter 集成测试（准入路径 1）。
  *
  * 验证节锁定项「准入白名单（不打标不登记）」：
  * - expects_partner_decision=true + to=['user'] → matters 表自动登记（WAITING_PARTNER/L2/owner=调用獭）
@@ -86,7 +86,7 @@ describe('yield expects_partner_decision 自动登记 matter（准入路径 1）
       waitingOn: 'partner',
       waitingFor: '方案 A 还是 B，请拍板',
       originMessageId: yieldEntryId,
-      // 简报内容单源（§1）：payload 存 reason 全文
+      // 简报内容单源：payload 存 reason 全文
       payload: JSON.stringify({ brief: '方案 A 还是 B，请拍板' }),
     });
   });

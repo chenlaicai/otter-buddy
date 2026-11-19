@@ -1,11 +1,11 @@
 /**
- * 交接摘要 LLM 叙事合成 prompt 构建器（Phase 2）
+ * 交接摘要 LLM 叙事合成 prompt 构建器
  *
- * 基于 kimi 的七段模板（info-preservation §2.2），
+ * 基于 kimi 的七段模板（info-preservation），
  * 将件④机械数据注入合成 prompt，指令"§⑤ 用这个数据别自己编"。
  *
  * （机械/LLM 分工边界审计）：
- * - §⑤ 注入全量 B1-B6 渲染文本（此前只有 B1/B6 结构化数据，B2-B5 对合成 LLM 不可见）
+ * - §⑤ 注入全量 渲染文本（此前只有 /结构化数据，对合成 LLM 不可见）
  * - §④ 注入机械预取数据（context keys + active 产物清单）——枚举型事实不再依赖 LLM 自行调工具
  * - §⑥ 注入最近搭档消息原文——LLM 只负责挑选，不负责翻找
  * - meta 行补 gen N（谱系代数，机械推导）
@@ -55,7 +55,7 @@ export interface SynthesisPromptOptions {
   oldSessionId: string;
   /** 交接谱系（从旧 summary 继承） */
   lineage?: string;
-  /** 件④机械数据（B1-B6 全量） */
+  /** 件④机械数据（全量） */
   stateInventory?: StateInventory;
   /** 件④渲染后的完整文本（§⑤ 注入用） */
   stateInventoryText?: string;
@@ -163,7 +163,7 @@ function formatPrefetchSection(prefetch?: SynthesisPrefetch): string {
     if (prefetch.activeArtifacts.length === 0) {
       lines.push('- active 产物: 无');
     } else {
-      // F20261009arlz L3 注入瘦身：全量列表（实证 33 条含过半僵尸）→ 计数 + 最近 5 条（createdAt 倒序）。
+      // L3 注入瘦身：全量列表（实证 33 条含过半僵尸）→ 计数 + 最近 5 条（createdAt 倒序）。
       // 合成 LLM 只需取材写一句「最近：XXX」摘要，全量列表是纯噪音；超量警示让计数本身成为健康信号。
       const total = prefetch.activeArtifacts.length;
       const recent = [...prefetch.activeArtifacts]

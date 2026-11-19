@@ -1,5 +1,5 @@
 /**
- * Part 2：extractSnippet 边界测试
+ * extractSnippet 边界测试
  *
  * SqliteMemoryRepository.extractSnippet 是 private 方法，通过 searchFTSWithHighlight 间接测试。
  */

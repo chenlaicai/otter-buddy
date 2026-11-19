@@ -138,7 +138,7 @@ describe('#1779 buildRegressionVerifyBody 排除已回查 issue', () => {
   });
 });
 
-// ─── #1208：regression-verify 心跳可见性（REGRESSION_VERIFY_HEARTBEAT）──────
+// ─── regression-verify 心跳可见性（REGRESSION_VERIFY_HEARTBEAT）──────
 // 生产现场 9/18–9/29：任务每天触发但每天因「无到期断言」或「gh 故障」跳过，
 // 既不落 execution 也无任何心跳——「活着但没活干」与「死了」在指标上不可区分。
 // 心跳事件让 due-assertion skipped 状态可查询（24h 去重），GH_FAILED 独立事件不被压制。
@@ -176,7 +176,7 @@ describe('#1208 buildRegressionVerifyBody 心跳', () => {
       _events: events,
       create: vi.fn(async (e: Record<string, unknown>) => { events.push(e); }),
       findOpen: vi.fn(async () => openEvents),
-      // #1208 发现 2：心跳写入即 resolved，去重查 resolved 池
+      // 发现 2：心跳写入即 resolved，去重查 resolved 池
       findAll: vi.fn(async (status: string) => status === 'resolved'
         ? openEvents.filter(e => e.status === 'resolved')
         : openEvents),
@@ -202,7 +202,7 @@ describe('#1208 buildRegressionVerifyBody 心跳', () => {
     expect(repo._events).toHaveLength(1);
     expect(String(repo._events[0].description)).toContain('回归验证心跳');
     expect(String(repo._events[0].description)).toContain('regression-verify');
-    // #1208 发现 2：写入即 resolved（#751 先例），不进 open 池
+    // 发现 2：写入即 resolved（先例），不进 open 池
     expect(repo._events[0].status).toBe('resolved');
     expect(repo._events[0].resolvedAt).toBeTruthy();
 

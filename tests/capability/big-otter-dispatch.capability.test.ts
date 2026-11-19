@@ -65,11 +65,11 @@ describe("大獭召唤后派工：create 后 speak 传给小獭不传 user（真
 
       /** 等大獭完成（create + speak 派工在同一 agent turn） */
       const bigOtterMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000 });
-      /** #984：speak(completed) ≠ 回合结束——tsp 在 yield 时落账，必须等大獭 invoke 终态。
+      /** speak(completed) ≠ 回合结束——tsp 在 yield 时落账，必须等大獭 invoke 终态。
        *  AT-1 单只场景 invoke 终态依赖子獭回合回传，链路较长，跟随采样窗口给足时间。
        *  ⚠️ bigOtterId 必须取自 bigOtterMsg.si（本对话实际响应的獭）——「每对话独立大獭」设计
-       *  （R20260821tutv）下全局 `WHERE type='big' LIMIT 1` 会拿到 boot 獭，采样 #2 起全部等错獭
-       *  （9/28 round6 实证：#1 OK、#2-#5 等待 invoke 创建超时）。 */
+       * 下全局 `WHERE type='big' LIMIT 1` 会拿到 boot 獭，采样 起全部等错獭
+       * （9/28 实证：OK、-等待 invoke 创建超时）。 */
       const bigOtterId = bigOtterMsg.si;
       await waitForInvokeSettled(ctx, convId, bigOtterId, { timeoutMs: 480_000 });
 

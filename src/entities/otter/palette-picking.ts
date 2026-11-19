@@ -6,7 +6,7 @@
  * 且算法不依赖 DB / api-contract——色板 key 数组作为参数传入（entities 不 import
  * 契约层，保持依赖方向：entities ← usecases/frameworks ← api-contract 值经参数注入）。
  *
- * 规则（方案 §3）：
+ * 规则：
  * 1. 从色板挑第一个未占用 key
  * 2. 8 色全占用时挑占用数最少的——并列时取色板数组中 index 最小者（确定性
  *    tie-breaking，保证迁移回填与实时分配行为一致）

@@ -41,7 +41,7 @@ describe('材质 v3.0 契约：常驻层零实时采样（R=0）', () => {
     const block = css.match(/\.bubble-otter\s*\{[^}]*\}/)
     expect(block).toBeTruthy()
     expect(block![0]).not.toMatch(/backdrop-filter/)
-    // 身份色染不能被顺手摘掉（观感保级 T3）
+    // 身份色染不能被顺手摘掉（观感保级）
     expect(block![0]).toMatch(/--otter-tint/)
   })
 })
@@ -58,9 +58,9 @@ describe('材质 v3.0 契约：瞬态/遮罩层真玻璃保留（白名单闭合
     // 正向：白名单 2 处浮动助手保留 utility
     expect(readSrc('web/src/components/FloatingAssistant/AssistantPanel.tsx')).toMatch(/backdrop-blur/)
     expect(readSrc('web/src/components/FloatingAssistant/FloatingOtter.tsx')).toMatch(/backdrop-blur/)
-    // 反向闭合（检视獭-impl A2）：白名单+弹层豁免清单之外，全仓 .tsx 禁 backdrop-blur utility。
+    // 反向闭合（检视獭-impl）：白名单+弹层豁免清单之外，全仓 .tsx 禁 backdrop-blur utility。
     // 豁免均属弹层/抽屉瞬态（WorkDetailDialog/ChainDetailDrawer/im 覆盖确认）；
-    // F20261102glmtr S4 处置：ChatView card-preview 开在流式内容上属常驻面，已摘除。
+    // 处置：ChatView card-preview 开在流式内容上属常驻面，已摘除。
     const exempt = new Set([
       'components/FloatingAssistant/AssistantPanel.tsx',
       'components/FloatingAssistant/FloatingOtter.tsx',

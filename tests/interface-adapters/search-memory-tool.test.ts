@@ -12,7 +12,7 @@ import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 
 function makeCtx(searchImpl: NonNullable<OtterToolClient["memory"]["search"]>, logSearchImpl?: OtterToolClient["memory"]["logSearch"]): ToolContext {
   const client = {
-    memory: { search: searchImpl, logSearch: logSearchImpl ?? (() => undefined) }, // Phase 0：埋点 mock（fire-and-forget）
+    memory: { search: searchImpl, logSearch: logSearchImpl ?? (() => undefined) }, // 埋点 mock（fire-and-forget）
   } as unknown as OtterToolClient;
   return { client, otterId: "otter-1", conversationId: "conv-1", currentMessageId: "msg-cur" };
 }

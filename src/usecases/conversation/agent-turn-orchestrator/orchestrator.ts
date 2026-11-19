@@ -24,8 +24,8 @@ import { matchRateLimitError, buildRateLimitSystemMsg, buildRateLimitDescription
 // api_error 终态窗口超限识别 + 告警文案（注入超窗黑盒修复——与 同骨架）
 import { matchContextOverflowError, buildContextOverflowSystemMsg, buildContextOverflowDescription } from "./context-overflow-error";
 import { isContentFilterError } from "./content-filter-error";
-// high 级 rate_limit 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
-// 下一次 invoke 的 DynamicContext 补送达（复用 Part 4 管道，process 级单例直引，
+// high 级 rate_limit 事件入 高警队列——大獭不在场时 sendSystem 错过，
+// 下一次 invoke 的 DynamicContext 补送达（复用 管道，process 级单例直引，
 // 与 persistHealingIssues 同模式；usecase 内部互引无跨层问题）
 import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
@@ -297,7 +297,7 @@ export class AgentTurnOrchestrator {
   }
 
   /**
-   * #543：api_error 终态处理——限流识别 → 落账 + 通知 → failTerminal。
+   * api_error 终态处理——限流识别 → 落账 + 通知 → failTerminal。
    *
    * Why 在 orchestrator 而非 SDK 层：这里是错误消息的终端汇聚点（api_error 分类后）
    * 且 callbacks（sendSystem/recordHealingEvent/emitEvent）齐全；pi-session-factory
@@ -305,7 +305,7 @@ export class AgentTurnOrchestrator {
    *
    * Why 不重试：SDK（agent-session）已内置 maxRetries=4 指数退避，能上抛到这里的
    * 429 要么是终态配额耗尽（isTerminalRateLimitError 判定不可重试），要么重试
-   * 预算已耗尽——otter 层再叠加重试只会续期静默窗（#642 教训：重试无限续期 = 看门狗失明）。
+   * 预算已耗尽——otter 层再叠加重试只会续期静默窗（教训：重试无限续期 = 看门狗失明）。
    */
   private async handleApiError(
     reason: ExitReason & { kind: 'api_error' | 'delegation_rejected' },
@@ -327,19 +327,19 @@ export class AgentTurnOrchestrator {
       await this.notifyRateLimit(ctx, match).catch(() => { /* 通知失败不阻断 */ });
     }
 
-    // #1247：窗口超限识别（先限流后超窗——词族互斥，串行判定互不干扰）。
-    // 落账 + 通知与 #543 同模式：均非致命，任一失败不阻断 failTerminal 主路径
+    // 窗口超限识别（先限流后超窗——词族互斥，串行判定互不干扰）。
+    // 落账 + 通知与 同模式：均非致命，任一失败不阻断 failTerminal 主路径
     const ctxMatch = matchContextOverflowError(reason.errorMessage);
     if (ctxMatch) {
       await this.recordContextOverflowHealingEvent(ctx, ctxMatch, reason).catch(() => { /* 已在内部记日志 */ });
       await this.notifyContextOverflow(ctx, ctxMatch).catch(() => { /* 通知失败不阻断 */ });
     }
 
-    // #1762：内容过滤不是普通静默 api_error——落独立 high 事件并上抛恢复信号。
+    // 内容过滤不是普通静默 api_error——落独立 high 事件并上抛恢复信号。
     const contentFilter = isContentFilterError(reason.errorMessage);
     if (contentFilter) await this.recordContentFilterHealingEvent(ctx);
 
-    // F20260916fst4：首哑判定（exhausted 分支内、healing 落账后）。
+    // 首哑判定（exhausted 分支内、healing 落账后）。
     // Why 在 failTerminal 之前判定：failTerminal 会把 failed invoke 入库，count 查询须在其后——
     // 此处 await failTerminal 再查计数语义相同（同 invoke 幂等），先判定可避免 failTerminal
     // 内部异常导致信号丢失——先构造 _firstDumb，再 {...result, _firstDumb} 合并返回。
@@ -371,7 +371,7 @@ export class AgentTurnOrchestrator {
     return result;
   }
 
-  /** #1762：内容过滤独立落账；写入失败不阻断既有 failTerminal 主路径。 */
+  /** 内容过滤独立落账；写入失败不阻断既有 failTerminal 主路径。 */
   private async recordContentFilterHealingEvent(ctx: RouteContext): Promise<void> {
     const modelAlias = this.resolveModelAlias(ctx);
     await ctx.callbacks.recordHealingEvent({

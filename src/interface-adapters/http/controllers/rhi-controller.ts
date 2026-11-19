@@ -1,9 +1,9 @@
 /* eslint-disable max-lines -- 显式序列化（serializeSignal + metricKeyToCamel）后有效行 458>450；
    controller 是 /api/health/* 全端点聚合点，拆分待视图稳定后另立 issue */
 /**
- * RhiController: /api/health/* 端点（Phase 2 / ）
+ * RhiController: /api/health/* 端点（/）
  *
- * 三个读端点 + 一个手动扫描端点，数据全部来自 Phase 0/1 的现成结构：
+ * 三个读端点 + 一个手动扫描端点，数据全部来自 /1 的现成结构：
  * - overview: health_snapshots 最新快照 + open 信号计数（含 critical 数）
  * - signals: signals 表（open 优先，可按 status 过滤）
  * - chains:  实时构建特性链（buildFeatureChains 纯函数，读 git + docs）
@@ -26,7 +26,7 @@ import { buildModelBreakdown, buildInvokeStats } from "@usecases/health/usage-mo
 import type { DimensionId, TrendDirection } from "@usecases/health/health-score";
 import { aggregateOpenSignalCounts } from "@usecases/health/signal-counts";
 import { computeFanInExclusions } from "@usecases/health/post-merge-fix-density";
-// B5：信号中文名的单一真相源是 signal-registry（SIGNAL_REGISTRY[type].name）
+// 信号中文名的单一真相源是 signal-registry（SIGNAL_REGISTRY[type].name）
 import { SIGNAL_REGISTRY } from "@usecases/health/signal-registry";
 import type { SignalType } from "@usecases/health/signal-registry";
 import { checkOpenIssue, type CheckIssueBinding } from "../../github/issue-binding";
@@ -40,7 +40,7 @@ function safeParseJson(raw: string): unknown {
   }
 }
 
-/** B5：原 SIGNAL_TYPE_LABELS 本地映射（与 registry name 逐字重复）已收口——
+/** 原 SIGNAL_TYPE_LABELS 本地映射（与 registry name 逐字重复）已收口——
  *  中文名从 SIGNAL_REGISTRY[type].name 取，registry 为单一真相源。未收录类型回退原始 type 字符串。 */
 function signalTypeLabel(type: string): string {
   return SIGNAL_REGISTRY[type as SignalType]?.name ?? type;

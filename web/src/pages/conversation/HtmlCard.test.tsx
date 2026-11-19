@@ -104,7 +104,7 @@ describe('预设类库注入（F20261006cssp）', () => {
   })
 })
 
-/** F20261013csv3 T3/T4：折叠态摘要行 + importance 默认展开 */
+/** 折叠态摘要行 + importance 默认展开 */
 describe('折叠态摘要行 + importance 默认展开（F20261013csv3）', () => {
   it('importance=high 默认展开（iframe 渲染），不显示折叠态摘要行', () => {
     act(() => {

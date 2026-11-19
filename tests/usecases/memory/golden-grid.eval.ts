@@ -1,5 +1,5 @@
 /**
- * Phase 1 段 3：合成集网格标定 + 逐信号反事实表（不切默认）。
+ * 段 3：合成集网格标定 + 逐信号反事实表（不切默认）。
  *
  * 本文件不是回归测试（不进 npm test 默认套件，扩展名非 .test.ts），由 `npm run eval:grid`
  * 显式执行。复用 golden-corpus（44 查询/50 语料）+ ranking-metrics，与 golden-eval 同口径

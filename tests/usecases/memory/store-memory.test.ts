@@ -545,7 +545,7 @@ describe("StoreMemory - issue #509 污染防线", () => {
 
 /** 投影条目主键 = 源实体 ID（消灭双 ID）的规则锁定。
  *  可统一类（messages/linked_resources/features/research）id = source_id；
- *  豁免类保持随机 UUID：signals（INTEGER PK + 1:N upsert）、chunk（1:N + D3 禁边）。 */
+ * 豁免类保持随机 UUID：signals（INTEGER PK + 1:N upsert）、chunk（1:N + 禁边）。 */
 describe("StoreMemory - F20260915midu 投影 ID 统一", () => {
   const gateway: EmbeddingGateway = {
     available: true,
@@ -662,7 +662,7 @@ describe("StoreMemory - F20261109epqst 后台任务统一落库（RAM 长队退�
 });
 
 
-/** F20261110dsqci（#1818）：chunk 内容寻址复用编排验证。
+/** chunk 内容寻址复用编排验证。
  * 案发：无条件删旧插新 + 全量 enqueueRetry（entry id 每次全新，ON CONFLICT
  * 幂等键形同虚设），归档-复活振荡下每轮全量重灌 ~6200 任务白算。 */
 describe("StoreMemory.replaceChunksBySource - F20261110dsqci 内容寻址复用", () => {

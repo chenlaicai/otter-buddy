@@ -41,7 +41,7 @@ export function QRCodeLoginCard({ lineName, onLoginConfirmed }: QRCodeLoginCardP
             showToast(`「${lineName ?? '助理'}」已连接`, 'success')
             onLoginConfirmed?.(s.accountId)
           } else if (s.status === 'already_connected') {
-            // #1112 binded_redirect 终态：bot 已绑定本实例，本地凭证继续有效——
+            // binded_redirect 终态：bot 已绑定本实例，本地凭证继续有效——
             // 不触发 onLoginConfirmed（无新账号可建线）
             showToast('该微信已连接过此实例，无需重复连接', 'info')
           } else if (s.status === 'error') {

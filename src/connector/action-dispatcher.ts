@@ -1,11 +1,11 @@
 /**
- * （阶段 4 C2）：connector 侧动作分发器——action.request →
+ * connector 侧动作分发器——action.request →
  * 本地执行 → action.result 回执。
  *
  * 可测性：不持有 ws 对象（发帧经 sender 回调，sid/seq 由会话层闭包负责），
  * 执行经 WorkspaceActionExecutor（与中枢 local 机器同一执行语义与台账记账协议）。
  *
- * 幂等协议（方案 v3 §5）：先查本地台账——actionId 已 succeeded 直接回已记录结果
+ * 幂等协议：先查本地台账——actionId 已 succeeded 直接回已记录结果
  * （不重执行）；未见过/其他状态照常执行（executor 内部台账 start 对真冲突行兜底
  * dedupe）。回执五态：succeeded/failed 为执行结论；unknown/interrupted 为收尾裁决
  * （本模块只在崩溃/下线路径产生——正常执行两态即可达）。
@@ -24,7 +24,7 @@ export interface ActionExecutorLike {
 
 export interface ConnectorActionDispatcherDeps {
   executor: ActionExecutorLike;
-  /** 本地台账只读面（幂等快路径）+ 收尾面（M1 自杀收尾落 interrupted） */
+  /** 本地台账只读面（幂等快路径）+ 收尾面（自杀收尾落 interrupted） */
   ledger: {
     getByActionId(actionId: string): Promise<ActionRecord | null>;
     settle(actionId: string, verdict: { status: "interrupted"; error?: string }): Promise<void>;
@@ -34,7 +34,7 @@ export interface ConnectorActionDispatcherDeps {
   log?: (message: string, meta?: Record<string, unknown>) => void;
 }
 
-/** 协议 v1 放行的动作白名单（非白名单 type 回 failed——协议 v1 只放六动作，方案 §9） */
+/** 协议 v1 放行的动作白名单（非白名单 type 回 failed——协议 v1 只放六动作，） */
 const SUPPORTED_ACTION_TYPES = new Set<string>([
   "workspace.exists",
   "workspace.list",
@@ -45,14 +45,14 @@ const SUPPORTED_ACTION_TYPES = new Set<string>([
 ]);
 
 export class ConnectorActionDispatcher {
-  /** 在途执行追踪（C3/M1：SIGTERM 自杀收尾——在途 actionId 立即落 interrupted，
- *  不等完成；方案 §6 第4步「取消本进程 running，台账落 interrupted」语义） */
+  /** 在途执行追踪（/SIGTERM 自杀收尾——在途 actionId 立即落 interrupted，
+ * 不等完成；第4步「取消本进程 running，台账落 interrupted」语义） */
   private readonly inflight = new Map<string, true>();
   get inflightCount(): number { return this.inflight.size; }
 
   constructor(private readonly deps: ConnectorActionDispatcherDeps) {}
 
-  /** M1（检视）：自杀收尾——在途动作立即对台账落 interrupted（不等 fs 完成；
+  /** （检视）：自杀收尾——在途动作立即对台账落 interrupted（不等 fs 完成；
  *  完成后 executor 的 settle succeeded 被幂等拦住——调用方视角动作已取消，
  *  两侧（中枢/端上）一致 interrupted，消除两面裁决冲突） */
   async markInflightInterrupted(): Promise<void> {
@@ -73,12 +73,12 @@ export class ConnectorActionDispatcher {
       return;
     }
 
-    // 幂等快路径：actionId 已 succeeded → 直接回已记录结果，不重执行（方案 §5）
+    // 幂等快路径：actionId 已 succeeded → 直接回已记录结果，不重执行
     try {
       const existing = await this.deps.ledger.getByActionId(actionId);
       if (existing?.status === "succeeded") {
         this.deps.log?.("action deduped (already succeeded)", { actionId, type: action.type });
-        // m5（检视）：回执以活体语义为准——workspace.write 活体 result 为 null（void 类），
+        // （检视）：回执以活体语义为准——workspace.write 活体 result 为 null（void 类），
         //  快路径不回 resultSummary（{bytes} 与活体不一致）；delete 的 {deleted} 与活体一致可透传
         this.sendResult(actionId, { status: "succeeded", result: existing.kind === "workspace.write" ? null : this.parseSummary(existing.resultSummary) });
         return;

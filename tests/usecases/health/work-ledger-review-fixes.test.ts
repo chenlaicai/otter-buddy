@@ -2,7 +2,7 @@
  * 复审修复回归测试：
  * - 5000+ invoke / 老 trace 在窗口外——列表与详情 token 一致、守恒、其他工作不混入
  * - 详情 truncatedCount / usageGapCount 显式返回
- * - A4：工具调用计数 Shanghai 日界
+ * - 工具调用计数 Shanghai 日界
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type Database from "better-sqlite3";

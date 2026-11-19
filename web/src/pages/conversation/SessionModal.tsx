@@ -46,7 +46,7 @@ interface SessionModalProps {
   liveListeners: MutableRefObject<Set<(item: SessionLiveItem) => void>>
 }
 
-/** 终态 invoke 事件加载上限（D9） */
+/** 终态 invoke 事件加载上限 */
 const TERMINAL_EVENTS_LIMIT = 300
 
 export function SessionModal({ otter, conversationId, onClose, liveEvents, liveListeners }: SessionModalProps) {

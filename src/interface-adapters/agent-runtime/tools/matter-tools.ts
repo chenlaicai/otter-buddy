@@ -1,11 +1,11 @@
 /**
- * Matter 工具（P1：list_matters / transition_matter；P2：register_matter；
- * P3：matter_sweep 跨对话停滞扫描——未闭环扫描升格的确定性数据源）。
+ * Matter 工具（list_matters / transition_matter；register_matter；
+ * matter_sweep 跨对话停滞扫描——未闭环扫描升格的确定性数据源）。
  *
- * 通道 A 代执行（§3.5）：搭档对话直复裁决后，被唤醒獭用本工具代执行板上迁移——
+ * 通道 A 代执行：搭档对话直复裁决后，被唤醒獭用本工具代执行板上迁移——
  * `on_behalf_of='partner'` 声明代搭档执行（resolution 必填「代搭档执行：<原话>」留痕），
  * 非 owner 獭代 owner 执行同理（`on_behalf_of=<ownerId>`）。不声明 = 獭以自己身份。
- * 空窗期裁决仍走对话直复（通道 A），板上按钮（通道 B）在 P2。
+ * 空窗期裁决仍走对话直复（通道 A），板上按钮（通道 B）在 
  *
  * 权限模型：守卫在 TransitionMatter usecase（矩阵 + 触发者身份 + 宣告权三层），
  * 工具层透传代执行声明，不做身份判定。

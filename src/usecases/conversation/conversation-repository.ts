@@ -50,7 +50,7 @@ export interface ConversationRepository {
   getAllIds(options?: { limit?: number; offset?: number }): Promise<string[]>;
   updatePinned(id: string, pinned: boolean): Promise<void>;
 
-  // ── （阶段 5 PR-A）：对话级当前执行机（窄接口直查列，不进实体）──
+  // ── ：对话级当前执行机（窄接口直查列，不进实体）──
   /** 对话当前执行机 id（NULL/不存在=默认 local） */
   getExecutionMachineId(id: string): Promise<string | null>;
   /** 切换对话当前执行机（null=回默认 local）；对话不存在返回 false（fail-closed） */

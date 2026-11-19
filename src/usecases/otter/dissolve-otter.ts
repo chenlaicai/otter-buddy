@@ -14,7 +14,7 @@ export class DissolveOtter {
        *  行动人不存在后，名下 in_progress 派发无主，落 failed 终态（清账侧，
        *  与 pendingClause 的 dissolved 过滤互为哑火/清账两面）。可选注入，失败仅日志。 */
       settlePendingForOtter?: (otterId: string) => Promise<number>;
-      /** P2：dissolve 出站清算——该獭已发出、tsp 指向
+      /** dissolve 出站清算——该獭已发出、tsp 指向
        *  active 目标但从未记账的信号槽位，补 aborted 墓碑（发言人已不存在，
        *  信号永不派发；不补则永久 pending，僵尸信号）。可选注入，失败仅日志。 */
       abortUnattemptedOutgoing?: (otterId: string) => Promise<number>;
@@ -25,7 +25,7 @@ export class DissolveOtter {
       /** 派工台账 dissolve 记账钩子（created/dispatched → dissolved）。
        *  可选注入，失败仅日志。 */
       markDispatchDissolved?: (otterId: string) => Promise<number>;
-      /** §2 等待方生命周期规则①：獭解散 → 其名下 WAITING_OTTER 的
+      /** 等待方生命周期规则①：獭解散 → 其名下 WAITING_OTTER 的
        *  matter 自动转回 OPEN 待重派（消灭无声悬挂；每日扫描兜底）。可选注入，失败仅日志。 */
       reopenMattersForDissolvedOwner?: (otterId: string) => Promise<number>;
       logger?: { warn(message: string, context?: Record<string, unknown>): void; info?: (message: string, context?: Record<string, unknown>) => void };
@@ -45,7 +45,7 @@ export class DissolveOtter {
     }
 
     /** 2. 不变量校验 */
-    // F20261117dsgrd：大獭永远不可解散（搭档 2026-11-17 定调）。
+    // 大獭永远不可解散（搭档 2026-11-17 定调）。
     // big 獭是对话常驻/宿主执行体，解散不可逆且影响面跨对话——任何入口（工具/HTTP/清理）一律拒绝。
     // 事故背景：2026-11-16 端云改造大獭按不属本对话的 ID 误解散了「三省吾身」大獭。
     if (otter.type === 'big') {
@@ -72,10 +72,10 @@ export class DissolveOtter {
       await this.manageSession.archiveSession(activeSession.id, archiveInput);
     }
 
-    /** 4. 更新状态为 dissolved（B5 回归守护） */
+    /** 4. 更新状态为 dissolved（回归守护） */
     await this.repo.dissolve(otterId, new Date().toISOString());
 
-    /** 4.45 F20260912avlb：派工台账记账——该獭名下全部派工记录落 dissolved 终态
+    /** 4.45 派工台账记账——该獭名下全部派工记录落 dissolved 终态
      *  （dissolve 销毁獭本体，全局事件不分对话）。失败仅日志：台账是记账面不是控制面，
      *  与 4.5/4.6/4.7 清账同模式，不阻断 dissolve 主流程。 */
     await this.markDispatchRecordsDissolved(otterId);
@@ -87,14 +87,14 @@ export class DissolveOtter {
     await this.abortOutgoingSignals(otterId);
     await this.abortIncomingSignals(otterId);
 
-    /** F20261006mtlp：待办板等待方消亡规则——名下 WAITING_OTTER 事项转回 OPEN */
+    /** 待办板等待方消亡规则——名下 WAITING_OTTER 事项转回 OPEN */
     await this.reopenOwnerMatters(otterId);
 
-    /** 5. 销毁 Agent（B5 回归守护） */
+    /** 5. 销毁 Agent（回归守护） */
     await this.agentGateway.destroy(otterId);
   }
 
-  /** 4.45 F20260912avlb：派工台账 dissolve 记账——该獭名下全部 created/dispatched
+  /** 4.45 派工台账 dissolve 记账——该獭名下全部 created/dispatched
    *  记录落 dissolved（全局事件，不分对话）。失败仅日志：与 4.5/4.6/4.7 清账同模式。 */
   private async markDispatchRecordsDissolved(otterId: string): Promise<void> {
     if (!this.deps?.markDispatchDissolved) return;
@@ -108,7 +108,7 @@ export class DissolveOtter {
     }
   }
 
-  /** 4.5 F20260903dmpe 阻尼#4：dissolve 事务内销账名下 in_progress 派发——
+  /** 4.5 阻尼dissolve 事务内销账名下 in_progress 派发——
    *  行动人已不存在，其 in_progress 永无 settle 来源（孤儿账）。落 failed 终态
    *  与 pendingClause 的 dissolved 过滤双保险（09-03 事故的场景根治）。
    *  失败仅日志：账面清理不阻断 dissolve 主流程。 */
@@ -124,7 +124,7 @@ export class DissolveOtter {
     }
   }
 
-  /** 4.6 F20260904schf P2（#792）：dissolve 出站清算——该獭发出的 completed 消息，
+  /** 4.6 ：dissolve 出站清算——该獭发出的 completed 消息，
    *  tsp 指向 active 目标且从未记账的槽位补 aborted/dissolve 墓碑。发言人已解散，
    *  其 yield 信号永不派发；不补则 pendingClause（sender 不限 dissolved）会把这些
    *  槽位永久算 pending（僵尸信号，本次事故的弹药库残余）。
@@ -142,7 +142,7 @@ export class DissolveOtter {
     }
   }
 
-  /** F20261006mtlp §2 等待方生命周期规则①：owner 獭解散 → WAITING_OTTER 事项回 OPEN。
+  /** 等待方生命周期规则①：owner 獭解散 → WAITING_OTTER 事项回 OPEN。
    *  与 4.5/4.6/4.7 同模式：账面清理不阻断 dissolve 主流程，失败仅日志。 */
   private async reopenOwnerMatters(otterId: string): Promise<void> {
     if (!this.deps?.reopenMattersForDissolvedOwner) return;
@@ -156,7 +156,7 @@ export class DissolveOtter {
     }
   }
 
-  /** #827：dissolve 入站清算——别人 yield 给已解散獭、从未记账的信号槽位补 aborted 墓碑。
+  /** dissolve 入站清算——别人 yield 给已解散獭、从未记账的信号槽位补 aborted 墓碑。
    *  与 abortOutgoingSignals 对称：出站清「它发给别人的」，入站清「别人发给它的」。
    *  不补则这些信号永远停在 pending 判据边缘——每次补扫被 routeTarget 判
    *  skipped_inactive 静默跳过，无账无痕（排查不可见）且占 SCAN_LIMIT 名额。 */

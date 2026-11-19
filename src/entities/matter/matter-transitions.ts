@@ -1,5 +1,5 @@
 /**
- * Matter 状态机迁移矩阵（§2）。
+ * Matter 状态机迁移矩阵。
  *
  * 合法迁移矩阵的唯一真相源：未列入矩阵的迁移一律非法，
  * TransitionMatter usecase 单入口据此拒绝（验证节锁定「非法迁移拒绝」）。
@@ -18,12 +18,12 @@ export interface MatterTransition {
   to: MatterState;
   /** 合法触发者集合 */
   allowed: readonly string[];
-  /** 守卫/说明（方案 §2 矩阵「守卫/说明」列） */
+  /** 守卫/说明（矩阵「守卫/说明」列） */
   note: string;
 }
 
 /**
- * §2 合法迁移矩阵（14 条 + 创建 2 条 = 16 条）。
+ * 合法迁移矩阵（14 条 + 创建 2 条 = 16 条）。
  * 索引 key = `${from}->${to}`，查询 O(1)。
  */
 const TRANSITIONS: ReadonlyMap<string, MatterTransition> = new Map([

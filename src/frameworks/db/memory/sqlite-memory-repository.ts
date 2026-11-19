@@ -55,7 +55,7 @@ const MAX_GET_DETAILS_BATCH = 100;
 export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, MemoryWriter, MemoryQueue {
   private readonly db: Database.Database;
   /**
-   * Part 0：vec 表物理存在标志，构造时通过 checkVecTable 固化，readonly。
+   * vec 表物理存在标志，构造时通过 checkVecTable 固化，readonly。
    * 不受 disableVec() 影响——区分"vec 表从未创建"vs"vec 表存在但运行时禁用"。
    * 用于 scanDarkEntries / hasEmbeddings / 各 DELETE vec 路径的守卫。
    */
@@ -112,7 +112,7 @@ export class SqliteMemoryRepository implements MemoryRepository, MemoryReader, M
     // jieba 分词，支持中文短查询
     // 文档类条目（feature/research）把 sourceId（文档编号）注入 FTS 索引前缀——
     // 文档正文通常不含自己的编号，查「」时确定性最强的目标反而搜不到
-    // （Phase 0 复测归因：12/79 残留零召回属此类）。只注入 FTS，不改 content 本体。
+    // （复测归因：12/79 残留零召回属此类）。只注入 FTS，不改 content 本体。
     // 正则改用 fid-format 真相源（{4,10}）——自编 {4} 漏掉 27 个长后缀文档
     const ftsText = (entry.sourceTable === "features" || entry.sourceTable === "research")
       && FID_READ_ANCHOR_REGEX.test(entry.sourceId)

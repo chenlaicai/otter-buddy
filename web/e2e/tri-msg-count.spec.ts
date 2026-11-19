@@ -12,7 +12,7 @@ const DB = process.env.E2E_DB ?? process.env.HOME + '/.otter/alpha/51259f75/otte
 
 test.skip(!process.env.E2E_REPLICA_DATA, 'need replica')
 
-test.setTimeout(90_000) // 12×5s 采样 + 页面加载，默认 30s 必炸（检视 D1）
+test.setTimeout(90_000) // 12×5s 采样 + 页面加载，默认 30s 必炸（检视）
 
 test('消息数时序：注入后 DOM 消息增长路径', async ({ page }) => {
   await page.goto(`/conversation/${CONV}`)
@@ -43,7 +43,7 @@ test('消息数时序：注入后 DOM 消息增长路径', async ({ page }) => {
     console.log('[inj] t=10s 注入完成')
   }, 10000)
 
-  // 每 5s 采样消息数；末尾断言（检视 D1：无断言则修复回退也绿）：
+  // 每 5s 采样消息数；末尾断言（检视 无断言则修复回退也绿）：
   // ①全程不暴增（任何采样点 n ≤ 初始+注入数）；②审计点后新条目可见（快照拉全）
   const samples: number[] = []
   for (let i = 1; i <= 12; i++) {

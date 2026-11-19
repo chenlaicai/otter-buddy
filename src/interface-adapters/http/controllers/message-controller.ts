@@ -45,7 +45,7 @@ function matchesSystemHaltWord(body: string): boolean {
 }
 import type { EntryRepository } from "@usecases/conversation/entry-repository";
 import type { InvokeRepository } from "@usecases/conversation/invoke-repository";
-/** 多模态 Phase 1：附件注入策略归位 usecases 层——controller 只透传调用 */
+/** 多模态 附件注入策略归位 usecases 层——controller 只透传调用 */
  
 import type { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 /** web 助理对话 8h 静默 session 重启检查（HTTP 链补链） */
@@ -63,11 +63,11 @@ export class MessageController {
     private readonly queryOtter: QueryOtter,
     private readonly dispatchChainEngine: DispatchChainEngine,
     private readonly messageBroadcaster?: MessageBroadcaster,
-    /** C4：消息 DTO signals 挂载（徽章数据源） */
+    /** 消息 DTO signals 挂载（徽章数据源） */
     private readonly signalRepo?: SignalEventRepository,
-    /** 多模态 Phase 1：附件注入服务（usecases 层策略——校验+真图+document 文本）；可选装配 */
+    /** 多模态 附件注入服务（usecases 层策略——校验+真图+document 文本）；可选装配 */
     private readonly attachmentInjection?: AttachmentInjectionService,
-    /** P1：信号路由器——主入口调度收敛（火车头换轨）。可选注入：
+    /** 信号路由器——主入口调度收敛（火车头换轨）。可选注入：
      *  未注入时降级田直连链（旧装配/存量测试不变，灰度回滚面） */
     private readonly signalRouter?: SignalRouter,
     /** 切换清扫：user 消息双写 entries（时间线真相源） */
@@ -172,7 +172,7 @@ export class MessageController {
     const requestError = this.validateSendMessageRequest(body);
     if (requestError) return { response: requestError, payload: undefined };
 
-    /** 多模态 Phase 1：附件前置校验（usecases 层策略：存在性 + 每轮 ≤2 图硬限制） */
+    /** 多模态 附件前置校验（usecases 层策略：存在性 + 每轮 ≤2 图硬限制） */
     const payloadResult = await this.validateAttachmentPayload(body.attachmentIds);
     if (payloadResult instanceof Response) return { response: payloadResult, payload: undefined };
 
@@ -214,7 +214,7 @@ export class MessageController {
 
       /** 1.5 ：web 助理对话 8h 静默 session 重启检查
        *  （precheck 后、sendEntry 前——重启先于新消息落库，新消息天然落新 session；
-       *  restart 内部有并发防重，不中断进行中的 dispatch/流式输出，D2 边界） */
+       * restart 内部有并发防重，不中断进行中的 dispatch/流式输出，边界） */
       await this.checkWebAssistantSession(conversationId);
 
       /** 2. 彻底切换：user 消息唯一落点 = entries（messages 表停写）。
@@ -271,7 +271,7 @@ export class MessageController {
   }
 
   /** POST SSE 流 + 调度循环启动（自 sendMessage 拆出）。
-   *  多模态 Phase 1：注入载荷已随前置校验组装（validateAndBuild）——
+   * 多模态 注入载荷已随前置校验组装（validateAndBuild）——
    *  image 真图 + document 文本块；≤2 图硬限制已拒绝；未读历史统一文本投影在 dispatch-chain-engine 内做。 */
   private streamDispatchResponse(
     c: Context,
@@ -302,7 +302,7 @@ export class MessageController {
     const unsubscribe = this.subscribeBroadcasterForPostStream(conversationId, push, mentionFeedback);
 
     const injection = payload && typeof payload !== "string" ? payload : undefined;
-    // P1：主入口火车头换轨——调度收敛到信号路由器（投递即点火）。
+    // 主入口火车头换轨——调度收敛到信号路由器（投递即点火）。
     // K3：SSE 生命周期挂消息终态——本轮信号到终态或超时才关流。
     if (this.signalRouter) {
       // 整合修复：传入 triggerMessageId 只路由本轮触发消息——
@@ -361,7 +361,7 @@ export class MessageController {
     return null;
   }
 
-  /** document 提取块追加在正文之后（多模态 Phase 1：方案 §3.4① 注入格式） */
+  /** document 提取块追加在正文之后（多模态 ① 注入格式） */
   private withDocumentBlock(body: string, documentBlock?: string): string {
     return documentBlock ? `${body}\n\n${documentBlock}` : body;
   }

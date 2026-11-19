@@ -51,7 +51,7 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
   }
 
   async findByConversation(conversationId: string, errorType?: string): Promise<HealingEvent[]> {
-    // S3.5（mimo 审视焦点4）：可选 errorType 过滤——GateBanner 2s 轮询
+    // （mimo 审视焦点4）：可选 errorType 过滤——GateBanner 2s 轮询
     // 只消费 rate_limit 事件，过滤下推 SQL + idx_healing_events_conversation 索引命中
     const rows = errorType
       ? this.db.prepare(
@@ -149,11 +149,11 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     return result.changes;
   }
 
-  /** #1545：超龄 unbound high 只读识别——age-out 从「处置者」收窄为「识别+提醒者」。
+  /** 超龄 unbound high 只读识别——age-out 从「处置者」收窄为「识别+提醒者」。
    *  取回 status='open' AND severity='high' AND created_at<cutoff AND bound_issue IS NULL 的事件，
    *  **不改任何状态**：bound high 去留跟随 issue 生命周期（bind≠resolve，修复合入后
    *  batch_resolve+filterBoundIssue 收尾）；unbound high 保持 open 等 bind_issue 归口
-   *  （#1361 层3「high 必须 bind_issue」硬规则）——时间静默/时间处置都违反设计意图。
+   * （层3「high 必须 bind_issue」硬规则）——时间静默/时间处置都违反设计意图。
    *  只读无并发窗口，取代旧 ageOutHighAndNotify 的 UPDATE...RETURNING 事务。 */
   async findAgedUnboundHigh(staleDays: number): Promise<HealingEvent[]> {
     const cutoff = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000).toISOString();
@@ -165,7 +165,7 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     return rows.map(rowToHealingEvent);
   }
 
-  /** F20261008gfrc：批量闸的 high 探测——与 batchResolveByFilter 同 WHERE 语义，只 count。
+  /** 批量闸的 high 探测——与 batchResolveByFilter 同 WHERE 语义，只 count。
    *  抽 buildBatchWhere 供两路复用，防止闸与更新面的判定漂移。 */
   async countByFilter(filter: HealingEventBatchFilter): Promise<number> {
     const { where, params } = this.buildBatchWhere(filter);
@@ -175,9 +175,9 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     return row.cnt;
   }
 
-  /** F20261008gfrc：batch WHERE 构建抽出（countByFilter / batchResolveByFilter 共用）
-   *  #1271（F20261008hbbd）：新增 ruleId / boundIssue 两个过滤维度（batch_bind /收尾查询用）
-   *  #1271：条件段抽子函数——语句数超 max-statements 25 上限，且新增维度与既有
+  /** batch WHERE 构建抽出（countByFilter / batchResolveByFilter 共用）
+   * 新增 ruleId / boundIssue 两个过滤维度（batch_bind /收尾查询用）
+   * 条件段抽子函数——语句数超 max-statements 25 上限，且新增维度与既有
    *  四维度同构，抽后两类各自演化不互相挤占预算 */
   private buildBatchWhere(filter: HealingEventBatchFilter): { where: string; params: unknown[] } {
     const clauses: string[] = [];
@@ -214,7 +214,7 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     }
   }
 
-  /** #1271（F20261008hbbd）结构化两维度：ruleId（context JSON 提取）/ boundIssue（归口列）
+  /** 结构化两维度：ruleId（context JSON 提取）/ boundIssue（归口列）
    *  ruleId Why json_valid 防御：context 列存疑形态（空串/非 JSON）时 json_extract 抛错会炸
    *  整个查询——先验合法性再提取，非法行归 NULL 不匹配（保守不误归口）
    *  boundIssue null 语义 = 未归口面（batch_bind 作用域）；非 null = 按 issue 收尾查询 */
@@ -245,10 +245,10 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     const limit = options?.limit ?? 100;
     const dryRun = options?.dryRun ?? false;
 
-    // F20261008gfrc：WHERE 构建抽入 buildBatchWhere（与 countByFilter 同语义）
+    // WHERE 构建抽入 buildBatchWhere（与 countByFilter 同语义）
     const { where, params } = this.buildBatchWhere(filter);
 
-    // dryRun: 返回匹配数 + 分批预告（#1271 r1-A1：truncated/totalMatched 与真实执行同语义——
+    // dryRun: 返回匹配数 + 分批预告（-truncated/totalMatched 与真实执行同语义——
     // 150 条时消费端应看到 truncated=true 提醒需多轮，而非以为一次能干完）
     if (dryRun) {
       const countRow = this.db.prepare(
@@ -296,13 +296,13 @@ export class SqliteHealingEventRepository implements HealingEventRepository {
     return result;
   }
 
-  /** #1271（F20261008hbbd）：按 filter 批量归口到 GitHub issue（bind≠resolve）。
-   *  照 RHI batchBindIssue 成熟模式（#1052 同类问题先例）：单事务 count+match+update 原子执行、
+  /** 按 filter 批量归口到 GitHub issue（bind≠resolve）。
+   * 照 RHI batchBindIssue 成熟模式（同类问题先例）：单事务 count+match+update 原子执行、
    *  LIMIT 100 单批、truncated/totalMatched 标志、dryRun 预览。
-   *  语义边界（设计取舍见特性文档 F20261008hbbd）：
+   * 语义边界（设计取舍见特性文档）：
    *  - 只作用于未归口 open（status='open' AND bound_issue IS NULL）——已归口换绑属异质操作，
    *    走单条路径逐条判断（本期无批量换绑）
-   *  - bind 后状态保持 open：归口是结构化认领非静默处置（#1361 层3「high 必须 bind_issue」
+   * - bind 后状态保持 open：归口是结构化认领非静默处置（层3「high 必须 bind_issue」
    *    恰要求此语义——bind 后在 issue 内讨论，修复合入后 batch_resolve + filterBoundIssue 收尾）
    *  - created_at ASC 先老后新：处置最久远优先（与 RHI first_seen ASC 同序口径）
    *  - high 不拦（与 batch_resolve 的 high 批量闸相反且有意为之）：归口把升级信号推向

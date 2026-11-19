@@ -1,6 +1,6 @@
 /**
  * speak 工具的专用校验逻辑。
- * PR-A：ToolResponse / textResponse / errorResponse /
+ * ToolResponse / textResponse / errorResponse /
  * MAX_TOOL_RESULT_CHARS / truncateToolResult 已随迁 @usecases/ports/agent-tools
  * （工具契约归 port，本文件只剩 speak 专属校验）。
  */

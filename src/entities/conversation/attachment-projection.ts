@@ -1,12 +1,12 @@
 /**
- * 附件投影层（多模态支持 Phase 1）。
+ * 附件投影层（多模态支持）。
  *
  * 与 message-body-projection.ts 并列：附件在文本出口（FTS 索引、记忆索引、
  * 未读注入、list_messages/get_message、egress 广播通道）的统一占位投影。
  * 禁止各出口自写占位逻辑（html-card 投影漂移的教训）。
  *
- * 占位格式（方案 §3.5）：
- * - 图片：[图片: caption|文件名]——caption 存在时用 caption，Phase 2 worker
+ * 占位格式：
+ * - 图片：[图片: caption|文件名]——caption 存在时用 caption，worker
  *   上线前恒 NULL，降级文件名兜底
  * - 语音：[语音: 文件名 (size)]——audio kind
  * - 文件：[文件: name (size)]（document/video 统一此格式）

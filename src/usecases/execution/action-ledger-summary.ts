@@ -2,7 +2,7 @@ import type { ActionRecord } from "@entities/execution/action-record";
 import type { RemoteActionRequest, RemoteActionStatus } from "@entities/execution/remote-action-request";
 
 /**
- * PR-B：恢复摘要构造——把台账行折叠成恢复指令可内嵌的机器真相文本。
+ * 恢复摘要构造——把台账行折叠成恢复指令可内嵌的机器真相文本。
  *
  * 分层：pi-durable transcript 说「调用中断了」；台账说「磁盘上到底成了没」。
  * 摘要是两者的合成界面：succeeded 别重做 / interrupted 可安全重做 / unknown 禁止

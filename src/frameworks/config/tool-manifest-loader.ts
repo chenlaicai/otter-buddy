@@ -132,7 +132,7 @@ function validateManifest(
   const typesError = validateTypes(obj.types, blocks, logger);
   if (typesError) return null;
 
-  // F20261008tecn：校验 toolExposure（可选字段，v2+）
+  // 校验 toolExposure（可选字段，v2+）
   const exposure = validateToolExposure(obj.toolExposure, logger);
   if (exposure === "error") return null;
 
@@ -148,7 +148,7 @@ function validateManifest(
 }
 
 /**
- * F20261008tecn：校验 toolExposure 结构。
+ * 校验 toolExposure 结构。
  * 可选字段。校验：值必须是 "direct" | "deferred"；键必须是字符串。
  * 返回解析后的映射；字段缺失返回 undefined；不合规返回 "error" 字符串哨兵（区分 null 映射）。
  */

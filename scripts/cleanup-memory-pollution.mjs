@@ -56,7 +56,7 @@ const db = new Database(args.db, args.apply ? undefined : { readonly: true });
 // ---------- 扫描 ----------
 
 // A 类：空/纯空白 content
-// 已知局限（PR #519 审视测试实证）：SQLite trim() 只去空格不去 \n/\t，纯换行条目
+// 已知局限（审视测试实证）：SQLite trim() 只去空格不去 \n/\t，纯换行条目
 // length(trim(content))=1 抓不到。入库层防线（StoreMemory 用 JS trim，覆盖全部空白）
 // 已阻断新增，存量纯换行条目如存在需手工 SQL（trim(content, char(10)||char(13)||char(9)||' ')）——
 // 一次性脚本不为罕见边界加复杂度，在此声明。

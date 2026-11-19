@@ -20,7 +20,7 @@ export function resolveTalkingStoneTargets(
 ): { resolvedIds: string[]; invalid: string[] } {
   const byName = new Map<string, string>();
   for (const p of active) byName.set(p.otterName.normalize("NFC"), p.otterId);
-  /** 用 Set 去重，防止 LLM 传重复名字导致 DB 存重复 otterId（review P3） */
+  /** 用 Set 去重，防止 LLM 传重复名字导致 DB 存重复 otterId（review） */
   const resolvedSet = new Set<string>();
   const invalid: string[] = [];
   for (const r of recipients) {

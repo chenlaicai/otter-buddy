@@ -75,7 +75,7 @@ describe("disk-id-scanner - F20260804dcnv", () => {
     });
     const map = await scanDiskIds(fs, "docs/features");
     expect(map.size).toBe(1);
-    // 文件名兜底提 F20260804num1，frontmatter 的数字 id 不用
+    // 文件名兜底提 frontmatter 的数字 id 不用
     expect(map.has("F20260804num1")).toBe(true);
   });
 

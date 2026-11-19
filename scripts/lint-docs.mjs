@@ -30,7 +30,7 @@ import { execFileSync } from "node:child_process";
  *  返回 Map<重复 id, 文件路径列表>；缺 id 的条目跳过（缺 id 由
  *  validateXxxFrontmatter 管辖，不属重复语义）。
  *
- *  ⚠️ 与 fid-format 门的隐式耦合（检视 S3）：本检查按字面量精确比对 id，
+ * ⚠️ 与 fid-format 门的隐式耦合（检视）：本检查按字面量精确比对 id，
  *  大小写/空白/前缀等变体之所以不构成绕过，依赖 dist 侧 validateFeatureId
  *  （fid-format.ts 严校验）在前置路径上已拦——若未来 format 门放宽（如允许
  *  大小写不敏感域），此处需同步引入规范化比对，否则变体可逃过重复检查。 */
@@ -107,7 +107,7 @@ export function computeReverseIndex(entries) {
   const byId = new Set(entries.filter((e) => e.id).map((e) => e.id));
   const reverse = new Map();
   for (const e of entries) {
-    if (!e.id) continue; // 无 id 条目不产出指向者（契约：Map<string, string[]>，r1 建议 6）
+    if (!e.id) continue; // 无 id 条目不产出指向者（契约：Map<string, string[]>，建议 6）
     const from = Array.isArray(e.from) ? e.from : [];
     for (const target of from) {
       if (typeof target !== "string" || !byId.has(target)) continue; // 断链/元素违规由 findBrokenBacklinks 报

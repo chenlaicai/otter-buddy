@@ -25,16 +25,16 @@ export interface SearchFilters {
 
 /**
  * 检索来源标识。
- * Part 1：扩展契约为多种检索路径预留。
- * Part 3：收敛——删 keyword-fallback（用因已被 jieba 双表消解）和
+ * 扩展契约为多种检索路径预留。
+ * 收敛——删 keyword-fallback（用因已被 jieba 双表消解）和
  * related-expand（重工程收益不明）。保留 anchor + context-expand 由 实施。
  */
 export type RetrievalSource =
   | "fts"
   | "vec"
   | "both"
-  | "anchor"            // Part 3：F/R ID 子串提取 + 主键直查短路注入
-  | "context-expand";   // Part 2：邻域扩展（chunk ±1 / message 前后条）
+  | "anchor"            // F/R ID 子串提取 + 主键直查短路注入
+  | "context-expand";   // 邻域扩展（chunk ±1 / message 前后条）
 
 /** FTS5 全文检索命中 */
 export interface FTSHit {
@@ -59,7 +59,7 @@ export interface VecHit {
   entry: MemoryEntry;
 }
 
-/** Part 1：暗化条目（无 vec 索引的 memory entry） */
+/** 暗化条目（无 vec 索引的 memory entry） */
 export interface DarkEntry {
   entryId: string;
   contentType: string;

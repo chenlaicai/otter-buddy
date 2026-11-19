@@ -7,7 +7,7 @@
  * 推进语义：
  *   - 单房间单赛（roomId → 最近一场 game；重开房 = 新 gameId）
  *   - advance 循环串行化在 room.chain（防重入）；停驻仅两种：真人等待（parked）与对局终了
- *   - 节流阀（方案 S3 口径）：trivial 回合（无特殊动作且代理=摸切）直接代理执行，不唤醒 LLM
+ * - 节流阀（方案 口径）：trivial 回合（无特殊动作且代理=摸切）直接代理执行，不唤醒 LLM
  *   - 真人：parked → HTTP 注入 injectHumanAction；超时 humanTimeoutMs 后广播 deadline，
  *     再 grace 宽限后仍未注入 → 规则代理自动摸切（战报可记 via=timeout-fallback）
  *   - 獭：wakeOtterForDecision（SDK 直调；重试 1 次；失败规则代理兜底）
@@ -15,7 +15,7 @@
  *   - 断线重连：recover(roomId) = 最新帧 restoreEngine + 续推
  *
  * 收尾三钩（大獭裁决归引擎层）：
- *   - isSeated(otterId)：D2 精确谓词——入座且对局进行中，对话侧据此自动应答「打牌中」
+ * - isSeated(otterId)：精确谓词——入座且对局进行中，对话侧据此自动应答「打牌中」
  *   - addChat + 下局开局注入：真人回话入队（按 otter 座位分队），下局开局后经 gateway
  *     直调注入各 otter session（方案口径：不走运行中 reset/不走 systemPrompt）
  *   - onGameover 回调：局终一次性上报 GameoverReport（终局名次/役种亮点/獭发言/代理代打数），

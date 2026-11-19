@@ -130,7 +130,7 @@ export class SqliteEntryRepository implements EntryRepository {
     })();
   }
 
-  /** F20260913ctlv 彻底切换：原子序号插入（INSERT ... SELECT MAX+1，消灭读后写竞态） */
+  /** 彻底切换：原子序号插入（INSERT ... SELECT MAX+1，消灭读后写竞态） */
   async createEntryAtomic(entry: Entry): Promise<Entry> {
     const insertSql = `
       INSERT INTO entries (
@@ -159,7 +159,7 @@ export class SqliteEntryRepository implements EntryRepository {
     return created ?? entry;
   }
 
-  /** F20260913ctlv 彻底切换：原子序号批量插入（事务内逐条 MAX+1） */
+  /** 彻底切换：原子序号批量插入（事务内逐条 MAX+1） */
   async createEntriesAtomic(entries: Entry[]): Promise<Entry[]> {
     if (entries.length === 0) return [];
     const insertSql = `
@@ -199,7 +199,7 @@ export class SqliteEntryRepository implements EntryRepository {
     status: EntryStatus,
     completedAt?: string,
   ): Promise<void> {
-    // #1403：changes=0（ID 不存在）时 fail-closed 抛错（#1370 族模式收尾，断言收敛至 assertUpdated）。
+    // changes=0（ID 不存在）时 fail-closed 抛错（族模式收尾，断言收敛至 assertUpdated）。
     // 当前全仓零调用方（恢复流改写走别的路径），fail-closed 是防御未知未来调用方的静默假成功。
     const result = completedAt
       ? this.db.prepare(
@@ -216,7 +216,7 @@ export class SqliteEntryRepository implements EntryRepository {
     this.upsertEntryFts(entryId, body);
   }
 
-  /** F20260913ctlv 信号销账：consumed 标记写 metadata */
+  /** 信号销账：consumed 标记写 metadata */
   async updateEntryMetadata(entryId: string, metadata: EntryMetadata): Promise<void> {
     this.db.prepare("UPDATE entries SET metadata = ? WHERE id = ?").run(JSON.stringify(metadata), entryId);
   }
@@ -263,9 +263,9 @@ export class SqliteEntryRepository implements EntryRepository {
     currentInvokeId: string,
     limit: number,
   ): Promise<Entry[]> {
-    // Why: #530 只需 user/yield 的决定性记录。透明条目不占窗口；当前 invoke 边界由它最早的 entry
+    // Why: 只需 user/yield 的决定性记录。透明条目不占窗口；当前 invoke 边界由它最早的 entry
     // 决定，缺省 timeMax 避免漏掉尚未写 entry 的当前 invoke，且始终排除当前 invoke 自身。
-    // F20261026ctbg：生产 yield 条目 sender_id 恒 NULL（send-entry.ts 写入形态），归属
+    // 生产 yield 条目 sender_id 恒 NULL（send-entry.ts 写入形态），归属
     // 判定必须走 invoke 行 otter_id——JOIN invokes 替代 sender_id = ?（否则「自己 to≠self yield」
     // 介入类①被前置滤掉 → 计数虚高 → 误 steer/误 abort）。决定性三类：user / 该獭自己的全部
     // yield（self 与 to≠self 都返回，self/intervene 分类交给引擎 classifyEntryForSelfYield）/ 外部指向该獭的 yield。
@@ -330,7 +330,7 @@ export class SqliteEntryRepository implements EntryRepository {
     return this.hydrateEntries(rows);
   }
 
-  /** #1510：since 之后最早一条 system entry（ASC，窗口内最早 = 本次触发锚点）。 */
+  /** since 之后最早一条 system entry（ASC，窗口内最早 = 本次触发锚点）。 */
   async getFirstSystemEntrySince(
     conversationId: string,
     senderName: string,
@@ -349,7 +349,7 @@ export class SqliteEntryRepository implements EntryRepository {
   }
 
   /**
-   * F20260913ctlv 彻底切换：獭未读注入数据源——entries 表。
+   * 彻底切换：獭未读注入数据源——entries 表。
    * 游标：conversation_participants.last_read_seq（语义切到 entries.sequence_num）。
    * 注入内容：user / system / speak entries（排除自己）——未终态条目排除。
    */
@@ -378,7 +378,7 @@ export class SqliteEntryRepository implements EntryRepository {
     return row.max_seq ?? 0;
   }
 
-  /** F20260913ctlv 批4a：metadata.externalId(s) 查重（招聘桥接入站去重） */
+  /** 批4a：metadata.externalId(s) 查重（招聘桥接入站去重） */
   async findByExternalId(externalId: string): Promise<Entry | null> {
     const row = this.db.prepare(`
       SELECT * FROM entries WHERE
@@ -478,7 +478,7 @@ export class SqliteEntryRepository implements EntryRepository {
     if (entries.length === 0) return;
     for (const entry of entries) {
       if (entry.entryType === "speak" || entry.entryType === "user") {
-        // F20260913ctlv：全列查询——此前只查 4 列，id/mimeType/width/height
+        // 全列查询——此前只查 4 列，id/mimeType/width/height
         // 为硬编码占位（id:"" 拼出 /api/attachments/ 破图 404；透出层修复后成毒数据）
         const attRows = this.db.prepare(`
           SELECT a.id, a.kind, a.original_name, a.mime_type, a.size_bytes, a.width, a.height, a.caption

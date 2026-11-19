@@ -115,7 +115,7 @@ describe('F20260922pmgd merge_pr 工具（PR 合入搭档授权闸）', () => {
     expect(linkArg.resourceType).toBe('fact');
     expect(linkArg.content).toContain('1095合入，你更新下');
     expect(linkArg.content).toContain('PR #1095');
-    expect(linkArg.content).toContain('ue-1'); // F20260929mpav：审计附命中锚点（entryId），事后可回查语境
+    expect(linkArg.content).toContain('ue-1'); // 审计附命中锚点（entryId），事后可回查语境
     // 审计兜底通道：warn 日志带 partnerApproval 全文（跨对话追溯）
     const warnCalls = logger.warn.mock.calls.map(c => String(c[0]));
     expect(warnCalls.some(m => m.includes('AUTHORIZATION') && m.includes('1095合入，你更新下'))).toBe(true);
@@ -174,7 +174,7 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
     execFileMock.mockReset();
   });
 
-  /** 事故重放：2026-09-29 PR #1201 合入，partnerApproval 塞的是自我推理文本 */
+  /** 事故重放：2026-09-29 合入，partnerApproval 塞的是自我推理文本 */
   const INCIDENT_TEXT = '已合入——不对，搭档在 #1201 的授权不是这句，此处授权不明确，应先确认';
 
   it('事故重放：推理/拼接文本非搭档消息子串 → 拒绝执行不 merge；#1440 起拒绝也落审计（REJECTED 码 + 原话全文）', async () => {
@@ -185,7 +185,7 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
     const result = await tool.execute('v1', { prNumber: 1201, partnerApproval: INCIDENT_TEXT });
     expect(JSON.stringify(result)).toContain('未在搭档历史消息中命中');
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
-    // F20261031mrajd（#1440）：拒绝路径审计双通道——linked_resources 落 REJECTED 事实
+    // 拒绝路径审计双通道——linked_resources 落 REJECTED 事实
     expect(linkMock).toHaveBeenCalledOnce();
     const linkArg = linkMock.mock.calls[0]![0];
     expect(linkArg.category).toBe('merge-authorization');
@@ -305,7 +305,7 @@ describe('F20260929mpav 原话校验闸（无原话不允许合入）', () => {
 
   it('S1 短引用整条等值豁免（+#1431 短话术闸）：整条「1095 合吧」（含 PR 号精确授权）→ 放行；从长句抠「合吧」→ 拒', async () => {
     stubGh('OPEN');
-    // 整条等值：搭档独立成条说「1095 合吧」——#1431 起短话术须带目标 PR 号（裸「合吧」见 T2a 引导用例）
+    // 整条等值：搭档独立成条说「1095 合吧」——起短话术须带目标 PR 号（裸「合吧」见 T2a 引导用例）
     const wholeEntries = [
       { id: 'ue-short', entryType: 'user', senderType: 'user', senderId: 'user', body: '1095 合吧', sequenceNum: 331, createdAt: '2026-09-29T04:30:00.000Z' },
     ];
@@ -395,7 +395,7 @@ describe('#1431 时间维度闸（过期原话不得授权）+ 通用短话术�
   });
 
   it('T1a 事故重放：原话时间早于 PR 创建 → 拒绝不 merge；#1440 起拒绝落审计（含命中锚点——过期授权重放最需证据面）', async () => {
-    // 事故锚（#1431）：原话 seq 443 @ 07:29:02Z 针对 #1422；PR #1427 创建于 08:05:02Z——原话早于 PR 存在 36 分钟
+    // 事故锚：原话 seq 443 @ 07:29:02Z 针对；创建于 08:05:02Z——原话早于 PR 存在 36 分钟
     stubGh('OPEN', '2026-10-10T08:05:02.000Z');
     const entries = [
       { id: 'ue-443', entryType: 'user', senderType: 'user', senderId: 'user', body: '合入了，你继续', sequenceNum: 443, createdAt: '2026-10-10T07:29:02.182Z' },
@@ -538,7 +538,7 @@ describe('F20261031mrajd（#1440）拒绝路径审计双通道', () => {
     const result = await tool.execute('r4', { prNumber: 1201, partnerApproval: longFabricated });
     expect(JSON.stringify(result)).toContain('未在搭档历史消息中命中');
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
-    expect(linkMock).toHaveBeenCalledOnce(); // S1 核心：审计不再静默丢失
+    expect(linkMock).toHaveBeenCalledOnce(); // 核心：审计不再静默丢失
     const linkArg = linkMock.mock.calls[0]![0];
     expect(linkArg.content.length).toBeLessThanOrEqual(500); // 过 fact 硬校验
     expect(linkArg.content.startsWith('PR #1201 合入授权拒绝（AUTHORIZATION_REJECTED approval_not_found）')).toBe(true); // 关键 token 保前部

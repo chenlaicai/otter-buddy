@@ -80,7 +80,7 @@ export class MessageBroadcaster {
     const subscribers = this.eventSubscribers.get(conversationId);
     if (!subscribers || subscribers.size === 0) {
       // web-only 修复后此路径新激活（此前 broadcaster undefined 短路），
-      // 阶段2：零订阅丢事件日志 debug→info——阶段1 后右栏正确性已由拉取对账
+      // 零订阅丢事件日志 debug→info——后右栏正确性已由拉取对账
       // 兑底，本日志从「噪音」变为「丢事件窗口」的可观测信号（右栏延迟更新的定位入口）。
       // scheduler/cron 触发的 invoke 无订阅者属常态，噪音顾虑由「仅 invoke.* 终态事件升级」
       // 收窄：invoke.end（丢终态直接影响右栏收敛时机）升 info，其余维持 debug。

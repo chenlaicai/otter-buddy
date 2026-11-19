@@ -31,7 +31,7 @@ export interface ModelConfig {
   contextWindow?: number;
   /** 最大输出 tokens（自定义模型注入 SDK 时携带，缺省回退 provider 模板值，） */
   maxTokens?: number;
-  /** 模型输入能力（多模态 Phase 1）：["text"] 或 ["text","image"]。
+  /** 模型输入能力（多模态）：["text"] 或 ["text","image"]。
    *  显式声明后经 models-factory 覆盖 provider 模板默认值（消除隐式继承的静默变更风险）。
    *  SDK downgradeUnsupportedImages 按 Model.input 自动降级非 vision 模型的图片。 */
   input?: Array<"text" | "image">;
@@ -76,9 +76,9 @@ export interface AppConfig {
     weightHalfLifeDaysDocument: number;
     userFlagMultiplier: number;
     frequencyBoostFactor: number;
-    /** Phase 1：rerank 融合模式（multiply=现状连乘，additive=归一化加法）。 */
+    /** rerank 融合模式（multiply=现状连乘，additive=归一化加法）。 */
     rerankMode: "multiply" | "additive";
-    /** Phase 1：加法融合系数与偏置。 */
+    /** 加法融合系数与偏置。 */
     rerank: {
       wRrf: number;
       wTime: number;
@@ -183,13 +183,13 @@ export interface AppConfig {
   web?: {
     baseUrl?: string;
   };
-  /** 统一接入登录（阶段 2）：登录口令配置。
+  /** 统一接入登录：登录口令配置。
    *  ownerPassword 显式指定时优先于 data/owner-password 文件（env OTTER_OWNER_PASSWORD 仍最高优先）。
    *  缺省 undefined = 未配置，回退 env / data/owner-password 文件 / 首启自动生成。 */
   auth?: {
     ownerPassword?: string;
   };
-  /** 附件配置（多模态 Phase 1）。缺省全部用内置默认值 */
+  /** 附件配置（多模态）。缺省全部用内置默认值 */
   attachments?: {
     /** 存储根目录（相对仓库根或绝对路径，默认 ./data/attachments） */
     storageRoot?: string;
@@ -263,11 +263,11 @@ interface RawConfig {
   };
   llm?: {
     default?: string;
-    /** LLM prompt 缓存长留存开关（F20260829cach，缺省 true） */
+    /** LLM prompt 缓存长留存开关（缺省 true） */
     cacheLongRetention?: boolean;
-    /** F20260908rlcp：Session 热池容量 */
+    /** Session 热池容量 */
     sessionPoolSize?: number;
-    /** F20260908rlcp：Session 热池空闲 TTL（分钟） */
+    /** Session 热池空闲 TTL（分钟） */
     sessionPoolIdleTtlMinutes?: number;
     models?: Array<{
       alias?: string;
@@ -293,16 +293,16 @@ interface RawConfig {
     alpha?: number;
     vecSimilarityThreshold?: number;
     bothBoost?: number;
-    /** F20260917cvid: 本对话来源条目排序加成系数（默认 1.5） */
+    /** 本对话来源条目排序加成系数（默认 1.5） */
     currentConversationBoost?: number;
     weightHalfLifeDays?: number;
-    /** F20260902rcp1: document 层专用半衰期（天），默认 90 */
+    /** document 层专用半衰期（天），默认 90 */
     weightHalfLifeDaysDocument?: number;
     userFlagMultiplier?: number;
     frequencyBoostFactor?: number;
-    /** F20261112rnkph Phase 1：rerank 融合模式（multiply | additive）。 */
+    /** rerank 融合模式（multiply | additive）。 */
     rerankMode?: "multiply" | "additive";
-    /** F20261112rnkph Phase 1：加法融合系数（snake_case，对应 AppConfig.memory.rerank）。 */
+    /** 加法融合系数（snake_case，对应 AppConfig.memory.rerank）。 */
     rerank?: {
       w_rrf?: number;
       w_time?: number;
@@ -318,7 +318,7 @@ interface RawConfig {
     localModelPath?: string;
   };
   contextQuality?: {
-    /** F20260920uhuc 需求变更（2026-09-20）：compactionReserveTokens 退役（按模型
+    /** 需求变更（2026-09-20）：compactionReserveTokens 退役（按模型
      *  handoffThresholdTokens 直给制取代，见 ModelConfig）；此键残留时 validate 报错引导迁移 */
     sdkOverflowReserveTokens?: number;
   };
@@ -343,7 +343,7 @@ interface RawConfig {
     firstByteTimeoutMs?: number;
     healthySessionThresholdMs?: number;
   };
-  // F20261008fsrm（搭档拍板）：feishu 静态段全量移除——扫码为唯一接入方式，config.yaml 的 feishu 段
+  // （搭档拍板）：feishu 静态段全量移除——扫码为唯一接入方式，config.yaml 的 feishu 段
   // 不再读入（残留段被静默忽略，启动无 warn）。历史迁移期已结束。
   weixin?: {
     /** ilink 网关（默认 https://ilinkai.weixin.qq.com） */
@@ -352,7 +352,7 @@ interface RawConfig {
     stateDir?: string;
     /** 搭档的微信 ilink_user_id（命令门禁） */
     partnerUserId?: string;
-    /** 静默多久（分钟）后发 context_token 预警（F20260901wxnt；F20260920wxho：同一静默期只提醒一次，cooldown 键退役） */
+    /** 静默多久（分钟）后发 context_token 预警（；同一静默期只提醒一次，cooldown 键退役） */
     contextTokenWarnMinutes?: number;
   };
   im?: {
@@ -388,7 +388,7 @@ interface RawConfig {
 }
 
 // eslint env 说明：mjs 无 TS 环境，btoa 在 node 22+ 全局可用
-// Why: 配置路径基于代码位置解析（#429），cwd 非项目根（systemd/容器 ENTRYPOINT）也能读到
+// Why: 配置路径基于代码位置解析，cwd 非项目根（systemd/容器 ENTRYPOINT）也能读到
 const CONFIG_PATH = path.resolve(getRepoRoot(), "config/config.yaml");
 
 const VALID_PROVIDERS = ["openai", "anthropic", "kimi-coding"];
@@ -401,7 +401,7 @@ function d<T>(value: T | undefined, fallback: T): T {
 type RawModelConfig = NonNullable<NonNullable<RawConfig["llm"]>["models"]>[number];
 
 /** 校验启用条目的连接与运行参数；禁用条目不进入此路径。 */
-// eslint-disable-next-line complexity -- F20260920uhuc：模型连接字段校验内聚一函数，拆分反而碎
+// eslint-disable-next-line complexity -- 模型连接字段校验内聚一函数，拆分反而碎
 function validateEnabledModel(m: RawModelConfig): void {
   if (!m.provider) throw new Error(`配置校验失败: llm.models["${m.alias}"].provider 为必填字段`);
   if (!m.model) throw new Error(`配置校验失败: llm.models["${m.alias}"].model 为必填字段`);
@@ -681,7 +681,7 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   return { baseUrl: raw.web.baseUrl };
 }
 
-/** 登录口令配置归一化（阶段 2）：空白/未配置一律 undefined，回退到 env / 文件 / 首启生成。
+/** 登录口令配置归一化：空白/未配置一律 undefined，回退到 env / 文件 / 首启生成。
  *  非字符串类型已在 validate() fail-fast；此处防御性兼容（直接调 applyDefaults 的测试路径）。 */
 function buildAuthConfig(raw: RawConfig): AppConfig["auth"] {
   const ownerPassword = typeof raw.auth?.ownerPassword === "string" ? raw.auth.ownerPassword.trim() : "";

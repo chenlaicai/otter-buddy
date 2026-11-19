@@ -1,11 +1,11 @@
 /**
- * Part 1: 从某 entry 出发 BFS 遍历关系图。
+ * 从某 entry 出发 BFS 遍历关系图。
  *
- * D4: relates-to 自动双向（查询层处理），其余按 direction。
- * D6: 返回结构化 path [{entry, edgeType, edgeFromEntryId, depth}]——LLM 能拼链而非看散点。
+ * relates-to 自动双向（查询层处理），其余按 direction。
+ * 返回结构化 path [{entry, edgeType, edgeFromEntryId, depth}]——LLM 能拼链而非看散点。
  * 环安全：visited set 守门。
  *
- * 注：provenance messages（Part 2.3）在工具层组合，不在本 use case。
+ * 注：provenance messages在工具层组合，不在本 use case。
  */
 import type { EdgeType, RelatedEntryItem } from "@entities/memory/memory-edge";
 import type { MemoryReader } from "./memory-reader";

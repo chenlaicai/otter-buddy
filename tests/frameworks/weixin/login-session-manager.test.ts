@@ -357,7 +357,7 @@ describe("WeixinLoginSessionManager already_connected（#1112 binded_redirect �
     const { id } = mgr.start();
     await vi.waitFor(() => expect(mgr.get(id)!.qrcodeUrl).toBeDefined());
     expect(mgr.cancel(id)).toBe(true);
-    // A1 确定性等待：fetch 探针计数到位 = 后台 flow 已消耗完 wait 脚本拿到
+    // 确定性等待：fetch 探针计数到位 = 后台 flow 已消耗完 wait 脚本拿到
     // binded_redirect（1 次 qrcode + 31 次 status = 32 次调用），消除固定 sleep
     // 与脚本回放窗口的时序竞态；不用调用参数断言（lint 禁绑定实现细节）
     await vi.waitFor(() => {

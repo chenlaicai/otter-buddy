@@ -65,7 +65,7 @@ async function main() {
   try {
     const result = await flow.run();
     if (result.alreadyConnected) {
-      // #1112 binded_redirect 终态：bot 已绑定本实例，不发新凭证，本地凭证继续有效
+      // binded_redirect 终态：bot 已绑定本实例，不发新凭证，本地凭证继续有效
       console.log("\n✅ 该微信已连接过此实例，无需重复连接（本地凭证继续有效）。\n");
       process.exit(0);
     }

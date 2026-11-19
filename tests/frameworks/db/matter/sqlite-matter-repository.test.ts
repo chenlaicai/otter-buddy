@@ -1,5 +1,5 @@
 /**
- * P1：matters 仓库 CRUD + open 查询单测。
+ * matters 仓库 CRUD + open 查询单测。
  *
  * 覆盖：create/findById、findByConversation（openOnly/state/owner/waitingOn 过滤）、
  * 跨对话隔离（每对话一块板——搭档约束）。索引存在性由 schema.test.ts 全表扫描覆盖。

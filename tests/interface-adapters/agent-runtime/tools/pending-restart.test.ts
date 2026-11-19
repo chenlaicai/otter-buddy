@@ -59,7 +59,7 @@ function createMockToolContext(overrides: Partial<ToolContext> = {}): ToolContex
         message: {
           getLastBySenderType: vi.fn(async () => null),
         },
-        // F20260913ctlv 批3：entry 命名空间（用户介入检测数据源切 entries）
+        // 批3：entry 命名空间（用户介入检测数据源切 entries）
         entry: {
           getEntries: vi.fn(async () => []),
         },
@@ -190,7 +190,7 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
     vi.clearAllMocks();
   });
 
-  /** F20261005srst（#1203）：self_restart 事件指向 new-session-otter-1 的 healingRepo mock（多用例共享） */
+  /** self_restart 事件指向 new-session-otter-1 的 healingRepo mock（多用例共享） */
   function createSelfRestartHealingRepo(overrides?: { create?: (e: Record<string, unknown>) => Promise<void> }) {
     return {
       create: overrides?.create ?? (async () => {}),
@@ -222,8 +222,8 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
   it('session 由自重启创建时（窗口内），返回系统保护错误', async () => {
     const ctx = createMockToolContext();
     const healingRepo = createSelfRestartHealingRepo();
-    // F20260906srst：显式带 startedAt，验证无用户消息介入时的降级路径；
-    // F20261005srst（#1203）：startedAt 用窗口内相对时间（1h 前）——固定旧日期会被时间衰减豁免放行
+    // 显式带 startedAt，验证无用户消息介入时的降级路径；
+    // startedAt 用窗口内相对时间（1h 前）——固定旧日期会被时间衰减豁免放行
     mockActiveSession(ctx, 60);
     const tools = createTools(ctx, healingRepo, createRecordingLogger());
     const restartTool = tools.find(t => t.name === 'restart_otter');
@@ -231,7 +231,7 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
 
     const result = await restartTool.execute('call-1', { summary: '测试' });
 
-    // 验证返回系统保护错误（#1203：文案含替代通道引导）
+    // 验证返回系统保护错误（文案含替代通道引导）
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('系统保护');
     expect(result.content[0].text).toContain('不允许连续自重启');
@@ -283,7 +283,7 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
     const ctx = createMockToolContext();
     const healingRepo = createSelfRestartHealingRepo();
     // session 由自重启创建，startedAt 早于用户消息
-    // F20261005srst（#1203）：改窗口内相对时间（30min 前）——固定旧日期会被时间衰减豁免短路，
+    // 改窗口内相对时间（30min 前）——固定旧日期会被时间衰减豁免短路，
     // 该用例将不再测介入判据路径（退化为与豁免用例重复）
     mockActiveSession(ctx, 30);
     // 最新 user entry 晚于 session 创建（搭档重启后发过新指令；批3 切 entries 数据源）
@@ -307,7 +307,7 @@ describe('restart_otter 自重启循环防护（F20260824srst）', () => {
   it('#811：用户消息早于 session 创建（重启前的旧消息）→ 仍拦截', async () => {
     const ctx = createMockToolContext();
     const healingRepo = createSelfRestartHealingRepo();
-    // F20261005srst（#1203）：窗口内相对时间（30min 前）——旧固定日期会被时间衰减豁免放行
+    // 窗口内相对时间（30min 前）——旧固定日期会被时间衰减豁免放行
     mockActiveSession(ctx, 30);
     // 最新 user entry 早于 session 创建 → 无新介入，维持拦截（批3 切 entries 数据源）
     (ctx.client.conversation.entry.getEntries as ReturnType<typeof vi.fn>) = vi.fn(async (_convId: string, opts?: { entryType?: string }) => {

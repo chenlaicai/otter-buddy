@@ -16,7 +16,7 @@ const defaultConfig: DatabaseConfig = {
 
 /**
  * 初始化数据库连接（同步）。
- * WAL 模式 + 外键约束 + sqlite-vec 扩展（失败降级为 FTS5-only，D22）。
+ * WAL 模式 + 外键约束 + sqlite-vec 扩展（失败降级为 FTS5-only，）。
  */
 export function initDatabase(config?: DatabaseConfig, logger?: Logger): Database.Database {
   const merged = { ...defaultConfig, ...config };

@@ -1,7 +1,7 @@
 /**
- * C3：manage_healing_events 双注册修复的防回归断言。
+ * manage_healing_events 双注册修复的防回归断言。
  *
- * 双注册史：tool-factory 内注册 + platforms.ts 闭包二次 push（C1 审视顺手发现）。
+ * 双注册史：tool-factory 内注册 + platforms.ts 闭包二次 push（审视顺手发现）。
  * 修复后唯一注册点 = tool-factory（healingRepo 注入时）。
  * 本测试锚定「同一工具名不重复出现」不变量——任何注册路径回归都会红。
  */

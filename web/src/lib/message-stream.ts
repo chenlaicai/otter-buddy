@@ -26,7 +26,7 @@ export function upsertMessage(list: LocalMessage[], msg: LocalMessage): LocalMes
 }
 
 /**
- * 按 seq 有序插入进行中消息（M5：append 位置必须等于服务端 sequence 时序）。
+ * 按 seq 有序插入进行中消息（append 位置必须等于服务端 sequence 时序）。
  * 规则：同 id 原位替换；否则插到第一个 seq 更大的消息之前；
  * 无 seq 的消息（tmp 乐观消息）不参与比较，自然保持在尾部之前插入的消息之后。
  */

@@ -101,8 +101,8 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("unlink_memory");
     expect(tools).toContain("yield");
     expect(tools).toContain("query_dispatch_ledger");
-    expect(tools).toContain("query_signals"); // C1
-    expect(tools).toContain("resolve_signal"); // C2：裁决写路径（big）
+    expect(tools).toContain("query_signals"); // 
+    expect(tools).toContain("resolve_signal"); // 裁决写路径（big）
     expect(tools).toContain("unhalt_otter"); // halt 解除（big 编排域）
     expect(tools).toContain("merge_pr"); // PR 合入授权闸（big 型唯一合入通道）
     expect(tools).toContain("track_work"); // 工作账本登记
@@ -141,17 +141,17 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("link_memory");
     expect(tools).toContain("get_related");
     expect(tools).toContain("unlink_memory");
-    expect(tools).toContain("query_signals"); // C1：小獭可查信号台账
-    expect(tools).toContain("list_matters"); // P1：小獭可查待办板
-    expect(tools).toContain("transition_matter"); // P1：通道 A 代执行迁移（守卫在 usecase）
-    expect(tools).not.toContain("resolve_signal"); // C2：裁决仅 big
+    expect(tools).toContain("query_signals"); // 小獭可查信号台账
+    expect(tools).toContain("list_matters"); // 小獭可查待办板
+    expect(tools).toContain("transition_matter"); // 通道 A 代执行迁移（守卫在 usecase）
+    expect(tools).not.toContain("resolve_signal"); // 裁决仅 big
     expect(tools).toContain("track_work"); // 工作账本登记（大小獭都可用）
     expect(tools).toContain("restart_service"); // 受控服务重启（两型都可用）
     expect(tools).toHaveLength(34); // +restart_service（33→34）
     // halt_otter / resolve_signal / unhalt_otter 是编排/裁决动作，仅 big 型
     expect(tools).not.toContain("halt_otter");
     expect(tools).not.toContain("unhalt_otter"); // 解除同样仅 big
-    expect(tools).not.toContain("resolve_signal"); // C2
+    expect(tools).not.toContain("resolve_signal"); // 
     expect(tools).not.toContain("merge_pr"); // 合入权恒在大獭呈终审链路，小獭无场景
     // 管理类工具不包含
     expect(tools).not.toContain("create_otter");
@@ -201,7 +201,7 @@ describe("getOtterToolNamesForType", () => {
     expect(tools).toContain("restart_otter");
     expect(tools).toContain("yield");
     expect(tools).toContain("query_dispatch_ledger");
-    expect(tools).toContain("query_signals"); // C1
+    expect(tools).toContain("query_signals"); // 
     expect(tools).toContain("unhalt_otter"); // halt 解除（big 编排域）
     expect(tools).toContain("merge_pr"); // undefined 按 big 处理，含合入授权闸
     expect(tools).toContain("workspace_delete"); // undefined 路径同样含回收动词

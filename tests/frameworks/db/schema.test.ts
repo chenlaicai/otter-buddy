@@ -166,7 +166,7 @@ describe("initSchema", () => {
   });
 
   it("半迁移形态回归（bound_issue 已补、bound_at 缺失）：initSchema 补齐剩余列与索引", () => {
-    // -A2 不变量锁：补列必须每列独立 try/catch——若回退成单块 try/catch，
+    // -不变量锁：补列必须每列独立 try/catch——若回退成单块 try/catch，
     // 第一列已存在抛错时第二列（bound_at）的 ALTER 被整体吞掉、永远补不上。
     // 存量库回归用例抓不住这个回退（它两列都缺，第一列 ALTER 不抛错），必须单测半迁移形态
     createPre1365HealingEventsTable(db);

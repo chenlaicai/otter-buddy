@@ -2,7 +2,7 @@
  * Agent SDK 事件 → SSE 事件 / MessageEventInput 映射。
  *
  * Why: 这些是模块级纯函数（无状态、无副作用），从 agent-invoker.ts 抽取
- * 以降低编排文件体积，为 Phase 2 的 orchestrator 上提做准备。
+ * 以降低编排文件体积，为 的 orchestrator 上提做准备。
  */
 
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";

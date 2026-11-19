@@ -9,7 +9,7 @@ import { fmtTime } from '../../lib/utils'
  * - 选择器：全量设备列表（含离线——人要看得见才能决定切回）+ 当前对话机回显/切换
  *   （PUT；离线设备置灰不可选——重连后可切）
  * - 状态列表：该对话最近远程动作五态（requested/succeeded/failed/interrupted/unknown）
- * - SDK 边界提示：远程对话里 SDK 文件/bash 面落 hub 本地（协议 v1 只放六动作，阶段 7 对齐）
+ * - SDK 边界提示：远程对话里 SDK 文件/bash 面落 hub 本地（协议 v1 只放六动作，对齐）
  */
 
 interface MachineEntry {

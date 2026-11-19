@@ -13,8 +13,8 @@ import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
 import type { Device } from "@entities/execution/device";
 
-/** （阶段 4 C1）：WSS 网关协议状态机端到端（真 http server + ws 客户端）。
- *  C1 验收路径：upgrade 鉴权（拒/过）→ hello 版本协商 → 上线（库+Registry 投影）→
+/** WSS 网关协议状态机端到端（真 http server + ws 客户端）。
+ * 验收路径：upgrade 鉴权（拒/过）→ hello 版本协商 → 上线（库+Registry 投影）→
  *  心跳 → 旧 sid 丢弃 → 主动下线（先库后内存 + 通道关）。 */
 
 const T0 = "2026-11-17T00:00:00Z";
@@ -23,7 +23,7 @@ function deviceFixture(overrides: Partial<Device> = {}): Device {
   return { id: "connector-test", name: "测试机", pairToken: "tok-test", createdAt: T0, lastSeenAt: null, ...overrides };
 }
 
-/** 投影替身（ConnectorMachineProjection 占位类随 C2 退役——测试改 inline 最小 fake） */
+/** 投影替身（ConnectorMachineProjection 占位类随 退役——测试改 inline 最小 fake） */
 function fakeProjection(id: string, name?: string): ExecutionMachine {
   return {
     id,
@@ -121,7 +121,7 @@ describe("ConnectorWsGateway 协议状态机（C1 端到端）", () => {
     const session = await repo.getOnlineSession(ack.sid!);
     expect(session?.status).toBe("online");
     expect(session?.deviceId).toBe("connector-test");
-    // Registry 投影可见（C1 占位投影）
+    // Registry 投影可见（占位投影）
     expect(hub.machines.list().map(m => m.id)).toContain("connector-test");
     ws.close();
     await waitClosed(ws);

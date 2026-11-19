@@ -2,12 +2,12 @@ import type Database from "better-sqlite3";
 import type { Logger } from "@usecases/ports/logger";
 
 /**
- * T1：unfurl 预览缓存读写（P1「数据先行」原则的持久化载体）。
+ * unfurl 预览缓存读写（「数据先行」原则的持久化载体）。
  *
  * 写口仅 unfurl-controller 抓取流程；读口有二：UnfurlCard 经 GET /api/unfurl、
- * LinkedResource 列表接口读侧 join 投影（T2 产物卡 diff stat 数据源）。
+ * LinkedResource 列表接口读侧 join 投影（产物卡 diff stat 数据源）。
  *
- * TTL 三分支（单点判定，方案 A3）：
+ * TTL 三分支（单点判定，方案）：
  * - source='og'       → 永久缓存（标题/截图静态元数据，陈旧可接受）
  * - source='failed'   → 7 天窗口内直接返回（防永久黑化，过期重抓）
  * - source='github-api' → 24h SWR（PR 状态/diff stat 随时间衰减，「显示 open 实已 merged」
@@ -26,12 +26,12 @@ export interface UnfurlCacheRow {
   siteName: string | null;
   host: string;
   source: "og" | "github-api" | "failed";
-  /** github-api 记录：PR/issue 状态（open/merged/closed/draft）——T2 状态徽章数据源 */
+  /** github-api 记录：PR/issue 状态（open/merged/closed/draft）——状态徽章数据源 */
   state: string | null;
   /** draft 子态标记（gh isDraft）——state='OPEN' 且 isDraft 时徽章显示「草稿」；
    *  其余来源为 null */
   isDraft?: boolean | null;
-  /** github-api PR 记录：diff stat（T2 产物卡数据源）；其余来源为 null */
+  /** github-api PR 记录：diff stat（产物卡数据源）；其余来源为 null */
   additions: number | null;
   deletions: number | null;
   error: string | null;
@@ -168,7 +168,7 @@ function rowToCacheRow(row: Record<string, unknown>): UnfurlCacheRow {
   };
 }
 
-/** #1463：is_draft 三态转换（1/0/NULL ↔ true/false/null）——独立小函数避免
+/** is_draft 三态转换（1/0/NULL ↔ true/false/null）——独立小函数避免
  *  rowToCacheRow/put 的圈复杂度超限（复杂度预算：12） */
 function toBool3(v: unknown): boolean | null {
   return v === 1 ? true : v === 0 ? false : null;

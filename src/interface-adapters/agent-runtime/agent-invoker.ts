@@ -1,8 +1,8 @@
-/* eslint-disable max-lines -- Phase 1 新增触发链路；后续可拆分为 handoff-support.ts */
+/* eslint-disable max-lines -- 新增触发链路；后续可拆分为 handoff-support.ts */
 /**
  * AgentInvoker - SDK 调用适配器
  *
- * Why: Phase 2 将编排逻辑上提到 AgentTurnOrchestrator（usecase 层），
+ * Why: 将编排逻辑上提到 AgentTurnOrchestrator（usecase 层），
  * AgentInvoker 瘦身为 SDK 调用 + SSE 事件映射 + AttemptDriver 提供。
  *
  * 职责边界：
@@ -123,7 +123,7 @@ export interface HandoffEngineDeps {
     degradeReason?: HandoffDegradeReason;
     /** F4：降级错误摘要（≤200 chars，档案自证） */
     degradeErrorDetail?: string;
-    /** P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters——
+    /** 本对话未闭环 matters 清单（机械供料 handoff_open_matters——
      *  确定性字段不进叙事合成，matter 表活在 session 之外，獭生封存 ≠ 事情失传） */
     openMatters?: string;
   }) => string;
@@ -134,7 +134,7 @@ export interface HandoffEngineDeps {
     fileTrail?: string;
     stateInventory?: string;
     recencyWindow?: string;
-    /** P1：机械供料——未闭环 matters 清单（同 buildMechanicalArchive 语义） */
+    /** 机械供料——未闭环 matters 清单（同 buildMechanicalArchive 语义） */
     openMatters?: string;
   }) => string;
   sliceSessionEntries: (entries: unknown[], options?: { scopeKey?: string }) => EngineJsonlSlice | undefined;
@@ -151,7 +151,7 @@ export interface HandoffEngineDeps {
   synthesisFullBudgetChars: (contextWindowTokens: number) => number;
 }
 import { resolveSpeakerName } from "@usecases/conversation/speaker-resolver";
-// C3：高危 healing 事件提醒（Part 4 高危路由消费侧）
+// 高危 healing 事件提醒（高危路由消费侧）
 import { healingAlertRegistry, renderHealingAlerts } from "@usecases/healing/healing-alert-registry";
 import { signalAlertRegistry, renderSignalAlerts } from "@usecases/signal/signal-alert-registry";
 import { HandoffState, restoreHandoffContext, DEFAULT_CTX_MAX } from "./handoff-support";
@@ -170,7 +170,7 @@ import type { AgentTurnPort, AgentTurnResult } from "@usecases/ports/agent-turn-
 import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch-service";
 
 // buildAutoHandoffOptions / buildManualHandoffOptions 退役——
-// 红线重审后推翻原判：影子通道改变了 P1 当年的技术形态（合成者是干净的
+// 红线重审后推翻原判：影子通道改变了 当年的技术形态（合成者是干净的
 // inMemory 引擎而非退化獭的 invoke 通道），手动/熔断路径统一走 LLM 合成 + 降级链。
 // 四件套 options 组装由统一 handoff 入口（unifiedHandoff）内的机械供料收集取代。
 
@@ -233,7 +233,7 @@ export class AgentInvoker implements AgentTurnPort {
     agentDispatchService?: AgentDispatchService,
     /** 统一交接引擎函数包（bootstrap 注入；缺省时统一交接降级机械档案） */
     private readonly engine?: HandoffEngineDeps,
-    /** P1：matters 仓库（机械供料 handoff_open_matters 数据源；可选注入） */
+    /** matters 仓库（机械供料 handoff_open_matters 数据源；可选注入） */
     private readonly matterRepo?: MatterRepository,
     /** 每次唤醒读取待执行状态镜像（非消费即删）。 */
     private readonly scheduledTaskPendingRepo?: ScheduledTaskPendingItemRepository,
@@ -279,19 +279,19 @@ export class AgentInvoker implements AgentTurnPort {
     this.agentDispatchService = service;
   }
 
-  /** D2：入座獺谓词（RoomService.isSeated）延迟挂接——
+  /** 入座獺谓词（RoomService.isSeated）延迟挂接——
    *  时序：agentInvoker 先于 controllers 诞生（app.ts initAgentAndScheduler → initControllers），
    *  与 agentDispatchService 同款 setter 补偿，对既有构造零侵入。缺省不拦（非三麻部署降级）。 */
   private mahjongSeatQuery?: { isSeated(otterId: string): boolean };
 
-  /** D2：装配后挂接入座谓词（app.ts initControllers 之后调用） */
+  /** 装配后挂接入座谓词（app.ts initControllers 之后调用） */
   attachMahjongSeatQuery(query: { isSeated(otterId: string): boolean }): void {
     this.mahjongSeatQuery = query;
   }
 
   /**
    * 驱动 Agent 对话：构建上下文 -> 创建 streaming 消息 -> invoke -> 事件映射 -> 完成/失败。
-   * B7-B11 行为实现。
+   * 行为实现。
    *
    * streaming 事件通过 messageBroadcaster.broadcastEvent 统一推送给所有订阅者。
    * onSSEEvent 可选覆盖（测试用），默认走 broadcastEvent。
@@ -310,7 +310,7 @@ export class AgentInvoker implements AgentTurnPort {
     retryCount?: number;
     /** Web 手动重试标识（retry label 区分 manual/auto） */
     manualRetry?: boolean;
-    /** 多模态 Phase 1：当前任务消息携带的图片（≤2 张，dispatch-chain 透传） */
+    /** 多模态 当前任务消息携带的图片（≤2 张，dispatch-chain 透传） */
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     /** 本批未读消息的最大 sequence_num（启动成功后推进游标用） */
     batchMaxSeq?: number;
@@ -318,7 +318,7 @@ export class AgentInvoker implements AgentTurnPort {
     triggerMessageId?: string;
     assignmentRole?: "reviewer";
   }): Promise<AgentTurnResult> {
-    // D2 牌局中对话侧防护：入座獺不进 LLM 推理（局中水位换世会打穿牌局上下文）——
+    // 牌局中对话侧防护：入座獺不进 LLM 推理（局中水位换世会打穿牌局上下文）——
     // 自动应答「打牌中」。判据 = RoomService.isSeated 精确谓词（非通用 isRunning——定时任务里的
     // 獺不误伤，大獭 10/16 裁决）。安全词例外：消息命中「停下」→ 放行走 LLM（L2 急停不能被牌局
     // 吞掉；reminder 已由链引擎附在消息尾随，扫到即放行）——过度放行是安全方向（顶多一轮 LLM）。
@@ -334,7 +334,7 @@ export class AgentInvoker implements AgentTurnPort {
     return runWithTrace({ traceId: newTraceId(), source: "direct" }, () => this.invokeConversationInner(params));
   }
 
-  /** D2：入座獺的对话 invoke 拦截——speak entry 自动应答 + entry.speak 广播（实时气泡），
+  /** 入座獺的对话 invoke 拦截——speak entry 自动应答 + entry.speak 广播（实时气泡），
    *  不进 LLM、不建 invoke。返回合成 turn 结果：链引擎 fetchProducedMessage 查 invokes 无此 id →
    *  tsp 空 → 发言链自然收束（降级路径既有的容错语义，不新增分支）。 */
   private async blockSeatedInvoke(params: { otterId: string; conversationId: string }): Promise<AgentTurnResult> {
@@ -379,7 +379,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
    
-  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- F20260913ctlv 双路径迁移期；F20260920uhuc 轮边界水位触发器 +3 语句（时机权回收应用层）；F20260921otcl +invoke.start 身份透传 1 分支；F20260922handoff 水位写回 +2 语句（max-statements 覆盖已与 main(#1094) 对齐）
+  // eslint-disable-next-line max-lines-per-function, max-statements, complexity -- 双路径迁移期；轮边界水位触发器 +3 语句（时机权回收应用层）；+invoke.start 身份透传 1 分支；水位写回 +2 语句（max-statements 覆盖已与 main 对齐）
   private async invokeConversationInner(params: {
     otterId: string;
     conversationId: string;
@@ -417,14 +417,14 @@ export class AgentInvoker implements AgentTurnPort {
     });
 
     /**
-     * F20260920uhuc：水位交接触发器（invoke 轮边界检查——时机权从 Pi 钩子收回应用层）。
+     * 水位交接触发器（invoke 轮边界检查——时机权从 Pi 钩子收回应用层）。
      *
-     * 写回语义变为「换 session 交接」后，Pi 钩子内换 session 是竞态地狱（#896 同构：
+     * 写回语义变为「换 session 交接」后，Pi 钩子内换 session 是竞态地狱（同构：
      * 外层 invoke 持锁+池引用），故时机权收回：每轮 invoke 开始前查上轮 ctxTokens，
      * 超过该獭模型的交接阈值（ctxTokens > handoffThresholdTokens，2026-09-20 需求变更：
      * 按模型直给已用 token 绝对值，旧全局 compactionReserveTokens 预留制退役）即执行统一交接。
      *
-     * 检查密度取舍（F20260903cmpk 反向）：从 Pi 每轮 LLM 调用边界降为 invoke 轮边界，
+     * 检查密度取舍（反向）：从 Pi 每轮 LLM 调用边界降为 invoke 轮边界，
      * 轮内工具循环暴涨可能漏检——补偿 = SDK overflow 兜底（reserve=50K 贴溢出点，
      * U1 验证 overflow 判定独立于 reserve）。
      */
@@ -437,15 +437,15 @@ export class AgentInvoker implements AgentTurnPort {
       try {
         await this.unifiedHandoff(otterId, conversationId, { trigger: '水位', synthesizePast: HANDOFF_SYNTHESIZE_PAST_DEFAULT });
       } catch (err) {
-        // F20260930hsfx M2：水位路径交接失败也计入熔断（锁冲突
+        // 水位路径交接失败也计入熔断（锁冲突
         // （SessionLockConflictError——交接窗口内本獭 invoke 撞车，属正常互斥非合成失败）不计入，
-        //  否则一次普通并发就会累积熔断计数。#654 语义：锁冲突不该算「交接失败」。
+        // 否则一次普通并发就会累积熔断计数。语义：锁冲突不该算「交接失败」。
         if (!isSessionLockConflictError(err)) {
           this.handoffState.noteHandoffOutcome(otterId, 'synthesis-failed');
         }
-        // F20260922handoff：交接失败（含 inProgress 撞车 conflict——
+        // 交接失败（含 inProgress 撞车 conflict——
         //  交接窗口内本獭 invoke 正是「重启后 30 秒内发言」主场景）不杀本消息——
-        //  D9 同源：交接失败永不阻塞 invoke，照常走当前世。conflict 除外？不，
+        // 同源：交接失败永不阻塞 invoke，照常走当前世。conflict 除外？不，
         //  水位入口的 conflict 只可能来自另一路交接已在进行（手动/熔断），本消息
         //  照旧执行是最安全的降级（旧世上下文继续，下轮再检水位）。
         this.logger.warn('[handoff] watermark handoff failed at invoke boundary, continuing with current session', {
@@ -463,7 +463,7 @@ export class AgentInvoker implements AgentTurnPort {
      * 也不能因普通会话的熔断/水位状态触发换世。当前事件与受限 durable 是唯一历史来源。 */
     if (!externalProfile) await this.circuitBreak?.maybeSecondaryCircuitBreak(otterId, conversationId);
     const dynamicContext: DynamicContext = externalProfile ? {} : await this.buildDynamicContext(otterId, conversationId);
-    // F20260826mwrd：高危 healing 事件提醒——仅 big 獭消费（编排者处置义务），
+    // 高危 healing 事件提醒——仅 big 獭消费（编排者处置义务），
     // small 獭 invoke 不取队列（队列滞留，大獭下轮补提醒）。失败不阻断主流程（台账在，提醒可再等）。
     // otterType 查询与下方 otter 复用：此处仅取 type，会话中 otter 主体仍在 streaming 消息创建后取。
     const invokedOtter = await this.queryOtter.getById(otterId);
@@ -474,7 +474,7 @@ export class AgentInvoker implements AgentTurnPort {
         dynamicContext.healingAlerts = renderHealingAlerts(alerts);
         this.logger.info('Healing high alerts injected', { otterId, conversationId, count: alerts.length });
       }
-      // #1227 M1：pending 信号裁决提醒——协议义务的物理可见面（跨对话滞留，无二次提醒；超龄由 aging 落系统异常记录供分析）
+      // pending 信号裁决提醒——协议义务的物理可见面（跨对话滞留，无二次提醒；超龄由 aging 落系统异常记录供分析）
       const signalAlerts = signalAlertRegistry.takeAll(conversationId);
       if (signalAlerts.length > 0) {
         dynamicContext.signalAlerts = renderSignalAlerts(signalAlerts);
@@ -503,9 +503,9 @@ export class AgentInvoker implements AgentTurnPort {
     this.logger.debug('Creating invoke (timeline model)', { otterId, conversationId });
     const otter = invokedOtter;
 
-    // F20260913ctlv 彻底切换：不再创建 streaming 主 message（messages 表停写 UI 消息）。
+    // 彻底切换：不再创建 streaming 主 message（messages 表停写 UI 消息）。
     // invoke 开始 = createInvoke + invoke_start entry + invoke.start SSE（唯一路径，失败硬抛）
-    // F20261027hwl1：traceId/trigger 证据随创建落 metadata——工作账本归属的确定性数据底座
+    // traceId/trigger 证据随创建落 metadata——工作账本归属的确定性数据底座
     // （trace scope 由链引擎/入口注入，此处在 scope 内读取；重试链自然继承同一 traceId）。
     const { invoke, invokeStartEntry } = await this.sendEntry!.createInvoke({
       conversationId,
@@ -519,25 +519,25 @@ export class AgentInvoker implements AgentTurnPort {
     const currentInvokeId = invoke.id;
     const resolvedOtterName = resolveSpeakerName("otter", otterId, otter?.name) ?? otterId;
     // SSE: invoke.start（triggerEntryId = invoke_start entry id——时间线居中条目与 invoke 关联）
-    // F20260921otcl：otter 实体在手则透传出生色（闭包透传，零额外查询；otter 为 null（已解散等）时缺省，前端展示回退）
+    // otter 实体在手则透传出生色（闭包透传，零额外查询；otter 为 null（已解散等）时缺省，前端展示回退）
     emitEvent({ event: "invoke.start", data: { invokeId: invoke.id, otterId, otterName: resolvedOtterName, conversationId, startedAt: invoke.startedAt, triggerEntryId: invokeStartEntry.id, otterType: otter?.type, otterColor: otter?.color ?? null } });
     this.logger.info('Invoke created', { invokeId: invoke.id, otterId, conversationId });
 
-    // F20260814mtrc：invokeId 进 trace scope（onEvent 回调与收尾日志自动携带）
+    // invokeId 进 trace scope（onEvent 回调与收尾日志自动携带）
     return runWithTrace({ messageId: currentInvokeId }, async () => {
       let previousRestartDelta: AgentTurnResult["tokenUsageDelta"];
-      // F20260819rscn: 用闭包捕获自重启信号（orchestrator 不透传未知字段）
-      // F20260908efmd: 扩展 modelAlias 字段——配额耗尽时应急切模型
+      // 用闭包捕获自重启信号（orchestrator 不透传未知字段）
+      // 扩展 modelAlias 字段——配额耗尽时应急切模型
       let pendingSelfRestart: { otterId: string; summary?: string; modelAlias?: string; synthesizePast?: boolean } | undefined;
 
       // 创建 AttemptDriver 和 TurnCallbacks
       const driver = this.createAttemptDriver(otterId, conversationId, dynamicContext, emitEvent, { otterName: otter?.name, otterType: otter?.type, otterColor: otter?.color ?? null, onSelfRestart: (signal) => { pendingSelfRestart = signal; }, images, batchMaxSeq, currentInvokeId, externalProfile });
-      // F20260913ctlv 彻底切换：invoke 态回调（无 failMessage→abort SDK 联动——handleAutoRetry 同 invoke 重试不再杀 session）
+      // 彻底切换：invoke 态回调（无 failMessage→abort SDK 联动——handleAutoRetry 同 invoke 重试不再杀 session）
       const callbacks = this.createTurnCallbacks(emitEvent, otterId);
 
       const turnInput = this.buildTurnInput(params, currentInvokeId, startTime);
 
-      // 委托给 orchestrator 执行（#764：观测窗清理进 finally——classifyExit/
+      // 委托给 orchestrator 执行（观测窗清理进 finally——classifyExit/
       // routeByReason 在 executeTurn 的 try 外，DB 抖动上抛时普通清理会被跳过，
       // 长生命周期单例逐 turn 泄漏）
       let turnResult: Awaited<ReturnType<typeof this.orchestrator.executeTurn>>;
@@ -546,12 +546,12 @@ export class AgentInvoker implements AgentTurnPort {
         turnResult.tokenUsageDelta = addTokenUsage(previousRestartDelta, turnResult.tokenUsageDelta);
         previousRestartDelta = turnResult.tokenUsageDelta;
       } finally {
-        // #764：turn 结束清理 retry 观测窗（归因消费已发生在 executeTurn 内）
+        // turn 结束清理 retry 观测窗（归因消费已发生在 executeTurn 内）
         this.retryContextByInvoke.delete(turnInput.invokeId);
       }
 
       /**
-       * F20260818cbkr 一级熔断：orchestrator 上抛熔断信号（executeTurn 循环内不消费）→
+       * 一级熔断：orchestrator 上抛熔断信号（executeTurn 循环内不消费）→
        * restart + 写 circuit_break 事件 + 全新 invoke（新入口重新 buildDynamicContext，前情摘要随新 session.summary 注入）。
        */
       // 同 invoke 的 attempts 由 orchestrator 累加真实增量；递归重启的各段在下方合并。
@@ -559,7 +559,7 @@ export class AgentInvoker implements AgentTurnPort {
       if (retried) return this.withAdditionalDelta(retried, turnResult.tokenUsageDelta);
 
       /**
-       * F20260916fst4：首哑信号消费（_circuitBreak 之后——circuit break 是系统级保护优先于场景级信号）。
+       * 首哑信号消费（_circuitBreak 之后——circuit break 是系统级保护优先于场景级信号）。
        * fire-and-forget：首哑处置不嵌套当前 invoke（唤醒大獭走独立直连链），失败仅日志不影响当前收尾。
        */
       const firstDumb = ordinaryRecoveryValue(externalProfile, turnResult._firstDumb);
@@ -568,7 +568,7 @@ export class AgentInvoker implements AgentTurnPort {
       }
 
       /**
-       * F20260819rscn 自重启信号：LLM 调用 restart_otter(self) 后，SDK 标记信号不执行 restart，
+       * 自重启信号：LLM 调用 restart_otter(self) 后，SDK 标记信号不执行 restart，
        * 由 agent-invoker 执行 restart + 全新 invoke（獭继续工作）。
        * Why 对齐 handleCircuitBreakSignal 模式：restart 后必须递归调用 invokeConversationInner，
        * 新 session 的 summary 仅在入口 buildDynamicContext 注入一次。
@@ -579,7 +579,7 @@ export class AgentInvoker implements AgentTurnPort {
         if (selfRestarted) return this.withAdditionalDelta(selfRestarted, turnResult.tokenUsageDelta);
       }
 
-      // F20260920uhuc 死链修复：水位状态写回（此前 setLastCtxTokens 零调用 →
+      // 死链修复：水位状态写回（此前 setLastCtxTokens 零调用 →
       // shouldTriggerWatermarkHandoff 永远 false → 水位交接从未触发）。ctxTokens 来自
       // turn 内 message_end usage（右栏实时口径同公式），换世后首 invoke 读不到 usage
       // 属自然语义（新世上下文为空）。
@@ -598,7 +598,7 @@ export class AgentInvoker implements AgentTurnPort {
     return result;
   }
 
-  /** 创建 AttemptDriver：包装 SdkInvokePort（F20260913ctlv：currentInvokeId 必传） */
+  /** 创建 AttemptDriver：包装 SdkInvokePort（currentInvokeId 必传） */
   private createAttemptDriver(
     otterId: string,
     conversationId: string,
@@ -606,7 +606,7 @@ export class AgentInvoker implements AgentTurnPort {
     emitEvent: (event: SSEEvent) => void,
     opts: { otterName?: string; otterType?: string; otterColor?: string | null; onSelfRestart?: (signal: { otterId: string; summary?: string; synthesizePast?: boolean }) => void; images?: Array<{ type: "image"; data: string; mimeType: string }>; batchMaxSeq?: number; currentInvokeId: string; externalProfile?: 'restricted' },
   ): AttemptDriver {
-    /** F20260922handoff：ctxTokens 旁路盒——TurnResult 不带 ctxTokens，闭包直改
+    /** ctxTokens 旁路盒——TurnResult 不带 ctxTokens，闭包直改
      *  外部 let 不可行，driver 对象生命周期覆盖整个 turn，invokeConversationInner 收尾处
      *  读 driver._lastCtxTokens（类型上显式可选字段）写回 handoffState 水位状态。 */
     const ctxTokensBox = { value: undefined as number | undefined };
@@ -628,9 +628,9 @@ export class AgentInvoker implements AgentTurnPort {
           batchMaxSeq: opts?.batchMaxSeq,
           onEvent: (e: AgentStreamEvent) => this.handleStreamEvent(e, input, otterId, emitEvent, opts, toolStarts, countBox, onEvent, conversationId),
         });
-        // F20260920uhuc 死链修复：invoke 结果 ctxTokens 写盒（水位状态数据源）
+        // 死链修复：invoke 结果 ctxTokens 写盒（水位状态数据源）
         ctxTokensBox.value = result.ctxTokens;
-        // F20260819rscn: SDK 标记了自重启信号时，通知调用方（闭包捕获）
+        // SDK 标记了自重启信号时，通知调用方（闭包捕获）
         if (result._selfRestart) opts?.onSelfRestart?.(result._selfRestart);
         return { result: result as unknown as InvokeResultShape, toolCallCount: countBox.count };
       },
@@ -652,7 +652,7 @@ export class AgentInvoker implements AgentTurnPort {
         return this.retryContextByInvoke.get(invokeId);
       },
     };
-    // F20260922handoff：ctxTokens 旁路盒经 defineProperty 挂 driver——AttemptDriver
+    // ctxTokens 旁路盒经 defineProperty 挂 driver——AttemptDriver
     //  类型已显式声明 _lastCtxTokens 可选字段，消除消费侧 cast。
     Object.defineProperty(driver, '_lastCtxTokens', {
       get: () => ctxTokensBox.value,
@@ -661,7 +661,7 @@ export class AgentInvoker implements AgentTurnPort {
     return driver;
   }
 
-  /** F20260913ctlv 彻底切换：系统消息唯一落点 = entries（system entry），messages 停写 */
+  /** 彻底切换：系统消息唯一落点 = entries（system entry），messages 停写 */
   /** invoke 持久化回调集（createTurnCallbacks 拆分）：直透 send-entry 用例层 */
   private makeInvokePersistenceCallbacks(): Pick<TurnCallbacks,
     'getInvokeById' | 'updateInvokeStatus' | 'updateInvokeTalkingStonePassedTo'
@@ -709,12 +709,12 @@ export class AgentInvoker implements AgentTurnPort {
     const sendEntry = this.sendEntry!;
     const { entry } = await sendEntry.createSystemEntry({ conversationId: convId, body });
     this.logger.debug('System entry sent', { entryId: entry.id, conversationId: convId });
-    // F20260921urdo 契约收口：投影补 createdAt（SSE 载荷必含字段）
+    // 契约收口：投影补 createdAt（SSE 载荷必含字段）
     return { id: entry.id, body: entry.body, sequenceNum: entry.sequenceNum, createdAt: entry.createdAt };
   }
 
-  /** 创建 TurnCallbacks：invoke 生命周期 + SSE 事件推送（F20260913ctlv 彻底切换：全部 invoke 化）
-   *  invoke 持久化回调收编 makeInvokePersistenceCallbacks（F20260914usgm 拆分守 max-lines） */
+  /** 创建 TurnCallbacks：invoke 生命周期 + SSE 事件推送（彻底切换：全部 invoke 化）
+   * invoke 持久化回调收编 makeInvokePersistenceCallbacks（拆分守 max-lines） */
   private createTurnCallbacks(
     emitEvent: (event: SSEEvent) => void,
     otterId?: string,
@@ -731,17 +731,17 @@ export class AgentInvoker implements AgentTurnPort {
         await this.circuitBreak.recordHealingEvent(input);
       },
 
-      // #731：bounce 计数查询——直透 CircuitBreakSupport（无 healingRepo 时 circuitBreak 为 null，
+      // bounce 计数查询——直透 CircuitBreakSupport（无 healingRepo 时 circuitBreak 为 null，
       // 拋错交由 orchestrator fail-closed 升级；不静默返回 0，防「降级配置下无限回发」）
       getRecentGuardBounces: async (otterId: string, windowMs: number) => {
         if (!this.circuitBreak) throw new Error('guard bounce count unavailable: healing repo not configured');
         return this.circuitBreak.countRecentGuardBounces(otterId, windowMs);
       },
 
-      // F20261008gduc P0-2：疑似误拦降级通道数据源——滑窗内 bounce 事件列表（含 ruleId/ruleLayer/commandHead）。
+      // P0-2：疑似误拦降级通道数据源——滑窗内 bounce 事件列表（含 ruleId/ruleLayer/commandHead）。
       // classifyGuardInterceptReason 在 frameworks 层（guard-intercept-classify），usecases 禁直 import
-      // （D39 分层）——分类动作在 interface-adapters 回调实现内完成，orchestrator 只消费归一后的
-      // currentRuleId/currentRuleLayer。PR #1360 §3.5 处置：layer 随分类归一，供高危层文案中性化判定。
+      // （分层）——分类动作在 interface-adapters 回调实现内完成，orchestrator 只消费归一后的
+      // currentRuleId/currentRuleLayer。处置：layer 随分类归一，供高危层文案中性化判定。
       getRecentGuardBounceEvents: async (otterId: string, windowMs: number, guardReason?: string) => {
         if (!this.circuitBreak) throw new Error('guard bounce events unavailable: healing repo not configured');
         const cls = guardReason ? classifyGuardInterceptReason(guardReason) : undefined;
@@ -761,7 +761,7 @@ export class AgentInvoker implements AgentTurnPort {
         return otter ? { name: otter.name, type: otter.type, color: otter.color } : null;
       },
 
-      // F20260916fst4：首哑判定数据源——invokeRepo 缺省时拋错由 orchestrator fail-open
+      // 首哑判定数据源——invokeRepo 缺省时拋错由 orchestrator fail-open
       // 降级（detectFirstDumb 外层 catch，回到现状静默终链）
       getInvokeCount: async (conversationId: string, otterId: string) => {
         if (!this.invokeRepo) throw new Error('invoke count unavailable: invoke repo not configured');
@@ -782,7 +782,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /**
-   * F20260814mtrc：流事件埋点——工具调用/耗时/错误、SDK 自动重试、compaction。
+   * 流事件埋点——工具调用/耗时/错误、SDK 自动重试、compaction。
    * 工具按 toolCallId 配对计时（对齐 circuit-breaker 的防御式配对）。
    */
   private recordStreamEventMetrics(e: AgentStreamEvent, toolStarts: Map<string, number>): void {
@@ -836,7 +836,7 @@ export class AgentInvoker implements AgentTurnPort {
   }
 
   /**
-   * #764：retry 观测窗生命周期。
+   * retry 观测窗生命周期。
    * auto_retry_start：捕获 backoff 的底层错误（429 等）——backoff 期间 abort 时 err 通道
    * 拿不到 errorMessage，exit 分类从这里取归因上下文。
    * auto_retry_end(success=true)：retry 成功 = backoff 等待已结束、LLM 恢复干活——观测窗
@@ -856,9 +856,9 @@ export class AgentInvoker implements AgentTurnPort {
     }
   }
 
-  /** F20260913ctlv 彻底切换：流式事件处理（SSE 转发 + speak entry 发射 + invoke_events 持久化 + 计数）
-   *  F20260914rtsp：message_end → invoke.tick（右栏 ctx/工具计数实时化）+ ctx_window_used 落库 */
-  // eslint-disable-next-line max-params, complexity, max-statements -- 事件管线需要完整上下文；事件分发本质是多分支；F20260922wbfx +compaction 失败上浮分支
+  /** 彻底切换：流式事件处理（SSE 转发 + speak entry 发射 + invoke_events 持久化 + 计数）
+   * message_end → invoke.tick（右栏 ctx/工具计数实时化）+ ctx_window_used 落库 */
+  // eslint-disable-next-line max-params, complexity, max-statements -- 事件管线需要完整上下文；事件分发本质是多分支；+compaction 失败上浮分支
   private handleStreamEvent(
     e: AgentStreamEvent,
     input: { invokeId: string },
@@ -873,7 +873,7 @@ export class AgentInvoker implements AgentTurnPort {
     this.logger.debug('Agent event received', { invokeId: input.invokeId, eventType: e.type, toolName: e.name ?? e.toolName });
     this.recordStreamEventMetrics(e, toolStarts);
     this.trackRetryWindow(e, input.invokeId);
-    // F20260922wbfx：SDK 压缩失败上浮——compaction_end 携带 errorMessage 时 warn 留痕。
+    // SDK 压缩失败上浮——compaction_end 携带 errorMessage 时 warn 留痕。
     // 9/22 事故实证：18:40 SDK threshold 压缩触发但摘要失败，compaction_end(errorMessage)
     // 走 _emit 普通订阅通道到达本处，但 otter 侧只记 metrics 不读 errorMessage——呼救被静默吞掉。
     // （session_compact_failed 走 extension 通道，subscribe 收不到，errorMessage 是唯一可达信号。）
@@ -898,7 +898,7 @@ export class AgentInvoker implements AgentTurnPort {
     }
     if (e.type === "tool_execution_end" && (e.name ?? e.toolName) === "speak") {
       this.logger.debug('speak tool executed', { invokeId: input.invokeId });
-      // F20260913ctlv 彻底切换 + 语义清理：speak 是原子工具调用（无流式生命周期）——
+      // 彻底切换 + 语义清理：speak 是原子工具调用（无流式生命周期）——
       // 落库即 completed，单事件 entry.speak 携带全量 body 一次性渲染完整气泡。
       // entry.start 伪事件已退役（原与 entry.speak 背靠背同数据发射，纯为模拟不存在的占位生命周期）。
       const speakDetails = (e.result as { details?: { entryId?: string } } | undefined)?.details;
@@ -906,21 +906,21 @@ export class AgentInvoker implements AgentTurnPort {
         const resolvedName = resolveSpeakerName("otter", otterId, opts?.otterName) ?? otterId;
         const entryId = speakDetails.entryId as string;
         const body = String((speakDetails as { body?: unknown }).body ?? "");
-        // F20260921urdo 契约收口：sequenceNum/createdAt 必含——已读游标与排序数据源（缺席即红点僵死）
+        // 契约收口：sequenceNum/createdAt 必含——已读游标与排序数据源（缺席即红点僵死）
         const sequenceNum = (speakDetails as { sequenceNum?: number }).sequenceNum;
         const createdAt = (speakDetails as { createdAt?: string }).createdAt;
-        // #902：attachments 透传——speak 工具暂无附件写入源，details 无此字段时缺席；
+        // attachments 透传——speak 工具暂无附件写入源，details 无此字段时缺席；
         // IM 出站通道见 data.attachments 缺失即按 entryId 补拉（entry 读出链自带投影，见双通道实现）。
-        // r1-A1：运行时闸防畸形穿透（#608 接入前 details 恒无此字段，闸为未来接入者驻守）
+        // -运行时闸防畸形穿透（接入前 details 恒无此字段，闸为未来接入者驻守）
         const rawAttachments = (speakDetails as { attachments?: unknown }).attachments;
         const speakAttachments = Array.isArray(rawAttachments) ? (rawAttachments as Array<Record<string, unknown>>) : undefined;
         emitEvent({ event: "entry.speak", data: { entryId, invokeId: opts.currentInvokeId, otterId, body, otterName: resolvedName, otterType: opts.otterType, otterColor: opts.otterColor ?? null, ...(sequenceNum != null && { sequenceNum }), ...(createdAt && { createdAt }), ...(speakAttachments && speakAttachments.length > 0 && { attachments: speakAttachments }) } });
       }
     }
-    // F20260913ctlv 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）
-    // F20260914evdz：落库后广播 invoke.event（弹窗实时观察）——需 otterId/conversationId 路由上下文
+    // 彻底切换：流式过程唯一存储 = invoke_events（message_events 停写）
+    // 落库后广播 invoke.event（弹窗实时观察）——需 otterId/conversationId 路由上下文
     this.persistInvokeEvent(e, opts.currentInvokeId, { otterId, conversationId });
-    // F20260914rtsp：message_end → invoke.tick（ctx 窗口占用快照 + 工具计数，右栏实时化）
+    // message_end → invoke.tick（ctx 窗口占用快照 + 工具计数，右栏实时化）
     if (e.type === "message_end") {
       this.emitInvokeTick(e, {
         otterId, conversationId, invokeId: opts.currentInvokeId,
@@ -931,10 +931,10 @@ export class AgentInvoker implements AgentTurnPort {
     onEvent(e);
   }
 
-  /** F20260914rtsp：message_end 提取 usage → 发射 invoke.tick + ctx_window_used 落库。
+  /** message_end 提取 usage → 发射 invoke.tick + ctx_window_used 落库。
    *  usage.totalTokens = input+output+cacheRead+cacheWrite（实测 pi session jsonl 验证，不含 reasoning）。
    *  usage 缺失（SDK 版本差异/部分 provider 不报）→ 静默不发射，右栏显示 '—' 兑底（AT-11）。
-   *  F20261014wtrm：同步实时写回 lastCtxTokens——水位随流式每轮更新，交接判定（invoke 开头
+   * 同步实时写回 lastCtxTokens——水位随流式每轮更新，交接判定（invoke 开头
    *  shouldTriggerWatermarkHandoff）永远拿最新值。此前唯一写回点在 invoke 成功收尾，overflow/截断的
    *  invoke 恰好不留水位证据 → 满 buffer 獭交接永不触发、反复被触发反复 400（《主目录污染》僵尸死循环）。 */
   private emitInvokeTick(
@@ -946,7 +946,7 @@ export class AgentInvoker implements AgentTurnPort {
     if (usage == null) return;
     const ctxWindowUsed = usage.totalTokens ?? (usage.input + usage.output + usage.cacheRead + usage.cacheWrite);
     if (!Number.isFinite(ctxWindowUsed) || ctxWindowUsed <= 0) return;
-    // F20261014wtrm：每轮流式返回即更新交接水位——不等 invoke 收尾（收尾路径在失败时不会执行）
+    // 每轮流式返回即更新交接水位——不等 invoke 收尾（收尾路径在失败时不会执行）
     // 外部 durable 与普通 Otter 水位分属不同生命周期；实时事件也不能污染共享 otterId 状态。
     if (!ctx.externalProfile) this.handoffState.setLastCtxTokens(ctx.otterId, ctxWindowUsed);
     const ctxMax = this.getCtxMax(ctx.otterId);

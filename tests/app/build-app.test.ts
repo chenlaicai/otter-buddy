@@ -64,7 +64,7 @@ describe("buildApp 组装根启动", () => {
       syncAuth: false,
       startScheduler: false,
     });
-    // #1322（F20261016autz）：真实装配的 app 也注入默认身份（否则被鉴权层 401）
+    // 真实装配的 app 也注入默认身份（否则被鉴权层 401）
     withIdentity(built.app);
   }, 180_000);
 
@@ -74,7 +74,7 @@ describe("buildApp 组装根启动", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("健康端点可用（全栈装配完成）", { timeout: 20_000 }, async () => {  // F20261021ttos：全栈装配（真 sqlite+faux LLM）重成本，#1366 四件套实证
+  it("健康端点可用（全栈装配完成）", { timeout: 20_000 }, async () => {  // 全栈装配（真 sqlite+faux LLM）重成本，四件套实证
     const res = await built.app.request("/api/health/memory");
     expect(res.status).toBe(200);
   });
@@ -83,7 +83,7 @@ describe("buildApp 组装根启动", () => {
     expect(built.embeddingService.available).toBe(false);
   });
 
-  // F20261026emct delta（建议 2）：C 项启动解耦的行为回归防护——buildApp 返回后
+  // delta（建议 2）：C 项启动解耦的行为回归防护——buildApp 返回后
   // postListenInit 之前：retryWorker 尚未创建（ref.current 为 null，listen 先行）；
   // postListenInit 执行后：worker 就位（stub worker 报错 → vec 禁用 → null 是合法态，
   // 但「null 且 postListenInit 未跑」与「postListenInit 已跑」必须可区分——断言不炸
@@ -101,14 +101,14 @@ describe("buildApp 组装根启动", () => {
     expect(built.retryWorkerRef).toBeDefined();
   }, 30_000);
 
-  // issue #1252 S-2 回归防护：patrolWorker.start() 若被挪回 initAgentAndScheduler 之前，
+  // S-2 回归防护：patrolWorker.start() 若被挪回 initAgentAndScheduler 之前，
   // scheduler-reconcile duty 首轮 tick 的 TDZ ReferenceError 会被 patrol-worker.ts:75
   // 失败隔离 catch 吞成 error 日志——启动不炸、无断言时不红。此断言封住该回归。
   it("patrol 首轮 tick 无 scheduler-reconcile TDZ 失败（#1252 回归防护）", () => {
     expect(capturedLogs.errors.some((m) => m.includes("Patrol duty failed: scheduler-reconcile"))).toBe(false);
   });
 
-  // #1869 回归防护：RHI 扫描的 Git 工作目录绑定项目根（getRepoRoot）而非 rootDir。
+  // 回归防护：RHI 扫描的 Git 工作目录绑定项目根（getRepoRoot）而非 rootDir。
   // 本测试 rootDir 指向非 Git 空目录（docs-root）——修复前 scanOnce 会对该目录执行 git log
   // 报 fatal: not a git repository → POST /api/health/scan 返回 500；修复后绑定真仓库根成功。
   it("RHI 扫描 git 工作目录绑定项目根而非 rootDir（#1869 回归防护）", async () => {
@@ -132,7 +132,7 @@ describe("buildApp 组装根启动", () => {
     const fetched = await getRes.json() as { name: string };
     expect(fetched.name).toBe("启动测试獭");
 
-    /** 真 DB 断言：otters 表有行，且 F20260805rsto 不变量（出生即建首世 domain session）成立 */
+    /** 真 DB 断言：otters 表有行，且 不变量（出生即建首世 domain session）成立 */
     const row = built.db.prepare("SELECT name FROM otters WHERE id = ?").get(otter.id) as { name: string };
     expect(row.name).toBe("启动测试獭");
     const session = await built.repos.otter.getActiveSession(otter.id);
@@ -146,8 +146,8 @@ describe("buildApp 组装根启动", () => {
 
   it("多模态 D1 回归：附件端点经全栈装配可达（路由挂载 + controller 构造）", async () => {
     // POST：不存在的会话 → controller 的会话校验返回 404 JSON "Conversation not found"。
-    //   D1 故障模式（controller 未装配 → router 条件挂载跳过）下这里是 Hono 默认纯文本 404，
-    //   json() 解析即炸——本断言正是从装配层盲区漏出 D1 后补的回归。
+    // 故障模式（controller 未装配 → router 条件挂载跳过）下这里是 Hono 默认纯文本 404，
+    // json() 解析即炸——本断言正是从装配层盲区漏出 后补的回归。
     const postRes = await built.app.request("/api/conversations/00000000-0000-4000-8000-000000000000/attachments", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

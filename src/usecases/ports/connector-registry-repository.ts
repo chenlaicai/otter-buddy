@@ -2,7 +2,7 @@ import type { Device } from "@entities/execution/device";
 import type { OnlineSession, OnlineSessionDisconnectReason } from "@entities/execution/online-session";
 
 /**
- * （阶段 4 C1）：connector 注册仓库（devices + online_sessions
+ * connector 注册仓库（devices + online_sessions
  * + pairing_codes）。总闸唯一事实源的持久层——WSS 通道与 Registry 内存投影都以此为准。
  *
  * 语义要点：
@@ -23,7 +23,7 @@ export interface ConnectorRegistryRepository {
   redeemAndCreateDevice(code: string, device: Device, now: string): Promise<boolean>;
   /** 按 token 查设备（upgrade 鉴权用；无/撤销返回 null） */
   findDeviceByToken(token: string): Promise<Device | null>;
-  /** M2（检视，阶段 5 PR-A）：设备在线状态全量视图（devices LEFT JOIN online_sessions）
+  /** （检视，）：设备在线状态全量视图（devices LEFT JOIN online_sessions）
    *  ——离线已配对设备也可见（人要能「看见离线设备再决定切回」）；lastSeenAt 优先
    *  在线会话实时值，否则 devices.last_seen_at（最后上线时刻） */
   listDeviceOnlineStatus(): Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
@@ -41,7 +41,7 @@ export interface ConnectorRegistryRepository {
   touchOnlineSession(sessionId: string, at: string): Promise<void>;
   /** 下线/断线/清扫：落 offline + reason（幂等——已 offline 不改写原因） */
   closeOnlineSession(sessionId: string, reason: Exclude<OnlineSessionDisconnectReason, null>, at: string): Promise<void>;
-  /** （C2）：按 device 查当前 online 会话（总闸①事实源直查；至多一行——唯一索引兜底） */
+  /** 按 device 查当前 online 会话（总闸①事实源直查；至多一行——唯一索引兜底） */
   listOnlineSessionsByDevice(deviceId: string): Promise<Array<{ id: string; status: string; connectedAt: string }>>;
   /** 中枢启动清扫：所有 online 行落 offline/hub-restart（返回清扫数，幂等） */
   sweepStaleOnlineSessions(at: string): Promise<number>;

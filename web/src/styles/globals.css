@@ -23,7 +23,7 @@
   --color-caramel-400: #D9A57B;
   --color-caramel-500: #C9956B;
   --color-caramel-600: #8F6234;
-  --color-caramel-700: #6B4924; /* 严重/回退深阶（观澜 §3.4，） */
+  --color-caramel-700: #6B4924; /* 严重/回退深阶（观澜） */
 
   --color-lavender-300: #B5A8D8;
   --color-lavender-400: #9B8AC8;
@@ -102,7 +102,7 @@
   --scrim: rgba(28,22,16,0.30);
   --scrim-blur: blur(6px);
   /* 弹层是最高层级且承载正文阅读，不透明度需保证文字对比度（不与 glass-t 联动降透） */
-  /* 瞬态层专用（v3.0 保留真玻璃：小面+瞬态是采样材质最佳位，§4） */
+  /* 瞬态层专用（v3.0 保留真玻璃：小面+瞬态是采样材质最佳位，） */
   --overlay-bg: linear-gradient(165deg, rgb(255 253 249 / 96%), rgb(255 251 244 / 93%));
   --overlay-blur: blur(40px) saturate(180%);
   --overlay-shadow: 0 24px 64px rgba(42,32,20,0.22), 0 4px 16px rgba(42,32,20,0.10);
@@ -253,7 +253,7 @@ body {
 }
 
 /* 窄屏常驻抽屉开关钮（<lg fixed 常驻面）——实色无采样。
-   v2.3 曾用 .glass-overlay（blur(40px) 持续采样流式中栏，违反 T1 常驻层无采样）；
+   v2.3 曾用 .glass-overlay（blur(40px) 持续采样流式中栏，违反 常驻层无采样）；
    观感用 --overlay-bg 同款渐变（96%/93% 实色感），仅去 blur */
 .drawer-fab {
   background: var(--overlay-bg);

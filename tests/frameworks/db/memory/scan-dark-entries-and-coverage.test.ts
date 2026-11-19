@@ -1,5 +1,5 @@
 /**
- * Part 1：SqliteMemoryRepository 暗化条目扫描 + vec 覆盖率接口测试
+ * SqliteMemoryRepository 暗化条目扫描 + vec 覆盖率接口测试
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Database from "better-sqlite3";
@@ -55,7 +55,7 @@ describe("SqliteMemoryRepository - F20260811mrpy Part 1 暗化/覆盖率", () =>
   });
 
   it("scanDarkEntries 在 disableVec 后清表并返回全表暗化 vecDisabled=true", async () => {
-    // Part 0：disableVec 同步清 memory_vec 表；
+    // disableVec 同步清 memory_vec 表；
     // scanDarkEntries 用 vecTableExists 守卫（不受 hasVec 影响），仍能检测全表暗化。
     repo.disableVec();
     const result = await repo.scanDarkEntries();

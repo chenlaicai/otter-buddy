@@ -190,7 +190,7 @@ jobs:
         run: npx vitest run tests/guard/ tests/frameworks/agent/allowed-service-ports.test.ts
 
   # SPA e2e 冒烟闸门——四轮对抗循环三次实证「静态检查绿 ≠ 运行时没崩」
-  # （TS 编译过但设置页白屏 D1、断言改了但恒假 D3），真机验证必须进 CI 拦合入。
+  # （TS 编译过但设置页白屏 断言改了但恒假），真机验证必须进 CI 拦合入。
   # 流水线与本地完全同构：scripts/e2e-server.sh run（起服务→playwright→停服务，trap 始终清理）。
   # 无 bge-m3 模型：embedding 缺失不阻塞启动（FTS-only 降级），LLM 用占位端点（e2e 不触达）。
   e2e:
@@ -231,7 +231,7 @@ jobs:
 
   # P0-b: Golden Gate selftest-only 独立入口（零 LLM、不配置 LLM 端点）
   # 仅跑 selftest 层（good/bad 参考序列校验断言判别力，纯构造零真实请求）；
-  # 采样层靠 LLM，本地跑不走 CI（方案 v6.2 mimo 定案：selftest-only 入口）。
+  # 采样层靠 LLM，本地跑不走 CI（mimo 定案：selftest-only 入口）。
   # 注意：golden.runner 的采样用例在无 LLM 时 it.skip，但 boot 仍需 bge-m3 就绪
   # （boot.ts L209 禁止静默降级）——CI 走「预置模型缓存」路径：见下方 models 缓存步骤。
   golden-selftest:

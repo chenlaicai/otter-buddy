@@ -140,7 +140,7 @@ describe("create_linked_resource 工具层 F20260829gvid groupId 必填校验（
   });
 });
 
-/** 检视处置 D2(a)（delta ）：speak 调用点集成测试——
+/** 检视处置 (a)（delta）：speak 调用点集成测试——
  *  守护 autoRegisterPlayableCards 挂钩不回退：含 html-card-play 围栏的 speak body
  *  必须登记 fact，且 content 摘要 = extractPlayableCardSummary 输出（script 源码不漏入）。 */
 function makeSpeakToolForPlayableCard() {

@@ -53,7 +53,7 @@ export class MemoryController {
     private readonly manageMemory: ManageMemory,
     private readonly scanDarkEntries: ScanDarkEntries,
     private readonly embeddingGateway: EmbeddingGateway,
-    /** #576（F20260901emps）：recent 端点数据源（repo + logger 收拢为第 5 参，避 max-params） */
+    /** recent 端点数据源（repo + logger 收拢为第 5 参，避 max-params） */
     private readonly deps: { repo: MemoryRepository; logger: Logger },
   ) {}
 
@@ -69,7 +69,7 @@ export class MemoryController {
       const detailLevel = c.req.query("detail_level") as DetailLevel | undefined;
       const library = c.req.query("library");
       const layer = c.req.query("layer") as MemoryLayer | undefined;
-      /** F20260803fbit/F20260803chunk: contentType 多选（逗号分隔），如 ?content_type=feature_chunk,feature
+      /** /contentType 多选（逗号分隔），如 ?content_type=feature_chunk,feature
        *  命名与 detail_level 一致用 snake_case；agent 工具参数也是 content_type */
       const contentTypeParam = c.req.query("content_type") as string | undefined;
       let contentType: MemoryContentType[] | undefined;
@@ -82,10 +82,10 @@ export class MemoryController {
         contentType = parts as MemoryContentType[];
       }
 
-      /** F20260805rbrg: 时间过滤（ISO timestamp），仅返回此时间之后创建的记忆 */
+      /** 时间过滤（ISO timestamp），仅返回此时间之后创建的记忆 */
       const createdAfter = c.req.query("created_after") || undefined;
       const debug = c.req.query("debug") === "true";
-      /** F20260812mrcq Part 2: 邻域扩展（chunk ±1 / message 前后条） */
+      /** 邻域扩展（chunk ±1 / message 前后条） */
       const expandContext = c.req.query("expand_context") === "true";
 
       const result = await this.searchMemory.search({
@@ -102,7 +102,7 @@ export class MemoryController {
         expandContext,
       });
 
-      /** F20260803mval: total=0 且 embedding 不可用时附 degraded，让用户感知结果可能不完整 */
+      /** total=0 且 embedding 不可用时附 degraded，让用户感知结果可能不完整 */
       const degraded = result.total === 0 && !this.embeddingGateway.available;
       return c.json({
         entries: result.entries.map((e) => {
@@ -112,7 +112,7 @@ export class MemoryController {
         }),
         total: result.total,
         vecCoverage: result.vecCoverage,
-        // F20260812mrcq Part 2: 邻域扩展（独立字段，不混入 entries）+ 审视二轮 M4 snippet 高亮一致
+        // 邻域扩展（独立字段，不混入 entries）+ 审视二轮 snippet 高亮一致
         ...(result.contextEntries ? {
           contextEntries: result.contextEntries.map((e) => {
             const snippet = e.snippet ? highlightSnippet(e.snippet, query) : e.snippet;
@@ -141,10 +141,10 @@ export class MemoryController {
     }
   }
 
-  /** F20260811mrpy Part 1 + F20260812mrcq Part 1：扫描无 vec 索引的暗化条目 */
+  /** + 扫描无 vec 索引的暗化条目 */
   async getDarkEntries(c: Context): Promise<Response> {
     try {
-      // F20260812mrcq Part 1：include_dead=true 查看全部（含 dead-letter，运维排查）
+      // include_dead=true 查看全部（含 dead-letter，运维排查）
       const includeDead = c.req.query("include_dead") === "true";
       const result = await this.scanDarkEntries.execute(includeDead);
       return c.json(result);
@@ -175,7 +175,7 @@ export class MemoryController {
   }
 
   /**
-   * #576（F20260901emps）：最近记忆——记忆搜索页初始态数据源。
+   * 最近记忆——记忆搜索页初始态数据源。
    * 让页面打开即有内容（而非静默引导文案），点击条目可展开详情。
    */
   async recent(c: Context): Promise<Response> {

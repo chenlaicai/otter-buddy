@@ -9,7 +9,7 @@ import type { Logger } from "@usecases/ports/logger";
 import type Database from "better-sqlite3";
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { initAgentSessionFactory } from "@frameworks/agent/pi-session-factory";
-// C3：createManageHealingEventsTool 改为仅 tool-factory 内注册，此处不再 import
+// createManageHealingEventsTool 改为仅 tool-factory 内注册，此处不再 import
 import type { PiSessionFactory } from "@frameworks/agent/pi-session-factory";
 import type { OtterConfigProvider } from "@usecases/ports/otter-config-provider";
 import type { ActionRunner } from "@usecases/ports/execution-machine";
@@ -89,7 +89,7 @@ export async function createAgentGateway(options: {
   identityPromptDir?: string;
   /** OS/工作区动作执行机路由（组合根已注册内置 local；SDK env 构造面恒走此实例） */
   executionMachines: ExecutionMachineRouter;
-  /** （阶段 5 PR-A）：工具面动作路由器（对话级当前机；缺省退化
+  /** 工具面动作路由器（对话级当前机；缺省退化
    *  executionMachines——零行为变化，测试/旧装配兼容） */
   toolActionRunner?: ActionRunner;
   /** 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
@@ -122,14 +122,14 @@ export async function createAgentGateway(options: {
     },
     healingRepo: repos.healingEvent,
     signalRepo: repos.signalEvent,
-    // P1：matters 仓库注入——list_matters/transition_matter 注册条件
+    // matters 仓库注入——list_matters/transition_matter 注册条件
     matterRepo: repos.matter,
     // 工作账本 binder 注入——track_work 工具注册条件
     workLedgerBinder: new WorkLedgerBinder(repos.workLedger, logger),
     // RHI 健康信号仓库注入——triage_signal/list_rhi_signals 注册条件
     // （signals 表，与獭间 signal_events 语义池分离）
     rhiSignalRepo: repos.rhiSignal,
-    // C1：halt 首次注入时把 signal_events 从 pending 迁到 resolved
+    // halt 首次注入时把 signal_events 从 pending 迁到 resolved
     // （resolvedBy=系统，resolution=指令已到达目标獭——halt 无待裁决事项，落账即闭环）。
     // 回调在 tool_call handler 栈内执行（同步语义），resolve 走 fire-and-forget + catch。
     onHaltFirstBlock: (directive) => {
@@ -154,46 +154,46 @@ export async function createAgentGateway(options: {
   };
 }
 
-export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: Logger, options?: { agentMetrics?: AgentMetricsPort; agentGateway?: PiSessionFactory; /** F20260928fsqr：渲染链 resolver 外置注入（全局实例——飞书扫码首号运行时写入 addPartnerId）；缺省内部构造（行为不变） */ partnerResolver?: PartnerResolver }): DispatchChainEngine {
+export function createDispatchChainEngine(repos: Repositories, uc: UseCases, appConfig: AppConfig, logger: Logger, options?: { agentMetrics?: AgentMetricsPort; agentGateway?: PiSessionFactory; /** 渲染链 resolver 外置注入（全局实例——飞书扫码首号运行时写入 addPartnerId）；缺省内部构造（行为不变） */ partnerResolver?: PartnerResolver }): DispatchChainEngine {
   return new DispatchChainEngine({
     conversationRepo: repos.conversation,
     queryOtter: uc.queryOtter,
     logger,
     settingsRepo: repos.settings,
     metrics: options?.agentMetrics,
-    // D2：链调度主防线——同獭忙碌时委托 SDK 队列，不撞锁。
+    // 链调度主防线——同獭忙碌时委托 SDK 队列，不撞锁。
     isRunning: options?.agentGateway ? (otterId) => options.agentGateway!.isRunning(otterId) : undefined,
     followUp: options?.agentGateway ? async (otterId, text, followOptions) => {
       if (followOptions?.delegated) return options.agentGateway!.followUp(otterId, text, { delegated: true, reason: 'chain', delegatedOptions: { conversationId: followOptions.conversationId ?? '' } });
       return options.agentGateway!.followUp(otterId, text);
     } : undefined,
-    // F20261027cnsv：单飞行拒绝的人话系统通知（send-entry 用例闭包）
+    // 单飞行拒绝的人话系统通知（send-entry 用例闭包）
     systemEntryRepo: uc.sendEntry,
-    // F20260826fpbd：搭档身份静态判定。未配置时 PartnerResolver 降级（动态推断）
-    // F20260928wxid：双渠道 ID——微信消息也经链引擎渲染历史，搭档需被认出（含微信 ilink_user_id）
-    // F20260928fsqr：外置实例（扫码首号运行时写入）；缺省内部构造保持存量行为
-    // F20261008fsrm：feishu 静态段移除，feishu 锚一律扫码首号（app.ts 全局 resolver）
+    // 搭档身份静态判定。未配置时 PartnerResolver 降级（动态推断）
+    // 双渠道 ID——微信消息也经链引擎渲染历史，搭档需被认出（含微信 ilink_user_id）
+    // 外置实例（扫码首号运行时写入）；缺省内部构造保持存量行为
+    // feishu 静态段移除，feishu 锚一律扫码首号（app.ts 全局 resolver）
     partnerResolver: options?.partnerResolver ?? PartnerResolver.forIdentity(undefined, appConfig.weixin?.partnerUserId),
-    // F20260902sgp2 S1：派发台账注入——所有入口每次派发都记账（链引擎是必经之路，§4.2）。
+    // 派发台账注入——所有入口每次派发都记账（链引擎是必经之路，）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
-    // #530 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
-    // F20260907ylfs ②：steer 回调已删（③ steer 注入改走 ChainHopResult.steerText
+    // 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
+    // ②：steer 回调已删（③ steer 注入改走 ChainHopResult.steerText
     // 进程级传递，回调零调用点成死装配）；steerSession 保留在
     // pi-session-factory（① URGENT steer 注入的依赖，signal-router 直调不经链引擎 deps）。
     abort: options?.agentGateway ? (otterId) => options.agentGateway!.abort(otterId) : undefined,
     healingRepo: repos.healingEvent,
-    // F20260913ctlv 彻底切换：未读注入/hop 产出判定/self-yield 护栏数据源（entries + invokes）
+    // 彻底切换：未读注入/hop 产出判定/self-yield 护栏数据源（entries + invokes）
     entryRepo: repos.entry,
     invokeRepo: repos.invoke,
     selfYieldEntryRepo: repos.entry,
-    // F20260920trrt：闲置预警新口径数据源（SQLite 实现提供；turn 刻度退役后接发言 seq 刻度）。
+    // 闲置预警新口径数据源（SQLite 实现提供；turn 刻度退役后接发言 seq 刻度）。
     // 可选方法（接口声明带?）：旧测试桩不实现也能装配，但接口类型带它们，直传即可
     idleStatsRepo: repos.conversation,
   });
 }
 
 /**
- * F20260901cxmw：otterId → modelAlias → contextWindow 解析闭包（窄端口注入，避免 interface-adapters 越层依赖 frameworks）。
+ * otterId → modelAlias → contextWindow 解析闭包（窄端口注入，避免 interface-adapters 越层依赖 frameworks）。
  * otterConfigProvider 缺失时 getConfig 回 undefined → getContextWindow(undefined) 即默认模型窗口。
  */
 function buildCtxWindowProvider(
@@ -206,19 +206,19 @@ function buildCtxWindowProvider(
       // 未配 alias 时走默认模型窗口（model-pool.getContextWindow 语义：null/undefined → 默认条目）
       return modelPool.getContextWindow(alias);
     },
-    // F20260920uhuc 需求变更（2026-09-20）：交接阈值按模型直给（已用 token 绝对值）
+    // 需求变更（2026-09-20）：交接阈值按模型直给（已用 token 绝对值）
     getOtterHandoffThresholdTokens: (otterId: string): number | undefined => {
       const alias = otterConfigProvider?.getConfig(otterId)?.modelAlias;
       return modelPool.getHandoffThresholdTokens(alias);
     },
-    // F20260923hsyn：按别名直查（合成模型覆盖场景）
+    // 按别名直查（合成模型覆盖场景）
     getContextWindowByAlias: (modelAlias: string): number | undefined => {
       return modelPool.getContextWindow(modelAlias);
     },
   };
 }
 
-/** F20260920uhuc：统一交接引擎函数包组装（bootstrap 层 import frameworks——组合根合法）。
+/** 统一交接引擎函数包组装（bootstrap 层 import frameworks——组合根合法）。
  *  水位阈值按模型读 ModelConfig.handoffThresholdTokens（2026-09-20 需求变更，直给制）。
  *  类型桥接：frameworks 具体签名 → HandoffEngineDeps 结构面（具体类型在 bootstrap 收敛）。 */
 function buildHandoffEngineDeps(): HandoffEngineDeps {
@@ -244,7 +244,7 @@ function buildAgentInvoker(o: {
   agentMetrics?: AgentMetricsPort; appConfig?: AppConfig; ctxWindowProvider?: OtterContextWindowProvider;
   agentDispatchService?: AgentDispatchService;
   modelPool?: ModelPool;
-  /** F20260920uhuc：统一交接引擎函数包 */
+  /** 统一交接引擎函数包 */
   handoffEngine?: HandoffEngineDeps;
 }): AgentInvoker {
   return new AgentInvoker(
@@ -252,24 +252,24 @@ function buildAgentInvoker(o: {
     o.uc.queryMessage, o.uc.manageSession, o.uc.queryOtter, o.logger,
     o.messageBroadcaster, o.workspaceGateway, o.repos.settings, o.agentMetrics,
     o.repos.healingEvent,
-    // F20260825hndf：优雅上下交接依赖注入
+    // 优雅上下交接依赖注入
     o.repos.conversation,
     o.repos.scheduledTask,
     (conversationId) => o.repos.conversation.getLinkedResources(conversationId, { status: "active" }),
     o.uc.manageContext,
-    // F20260831cbkw：熔断 session 年龄窗口阈值（从 config 读取，缺省 2h）
+    // 熔断 session 年龄窗口阈值（从 config 读取，缺省 2h）
     o.appConfig?.circuitBreaker.healthySessionThresholdMs,
-    // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
+    // otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
     o.ctxWindowProvider,
-    // F20260913ctlv 彻底切换：invoke 生命周期管理（唯一写入面）
+    // 彻底切换：invoke 生命周期管理（唯一写入面）
     o.uc.sendEntry,
-    // F20260913ctlv 彻底切换：invoke 仓库（熔断摘要读 invoke_events）
+    // 彻底切换：invoke 仓库（熔断摘要读 invoke_events）
     o.repos.invoke,
-    // F20260916fst4：首哑信号消费时 dispatch 大獭（setter 延迟挂接，见 initAgentAndScheduler 注释）
+    // 首哑信号消费时 dispatch 大獭（setter 延迟挂接，见 initAgentAndScheduler 注释）
     o.agentDispatchService,
-    // F20260920uhuc：统一交接引擎函数包
+    // 统一交接引擎函数包
     o.handoffEngine,
-    // F20261006mtlp P1：matters 仓库——机械供料 handoff_open_matters 数据源
+    // matters 仓库——机械供料 handoff_open_matters 数据源
     o.repos.matter,
     o.repos.scheduledTaskPending,
     o.modelPool,
@@ -280,12 +280,12 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
   const { repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics, agentMetrics, dispatchChainEngine, appConfig, modelPool, otterConfigProvider } = options;
   await agentGateway.warmup();
 
-  // F20260920stkx：paper-trading 能力移除（选项 A）——原 PR4/PR5 装配块随能力整体退役。
+  // paper-trading 能力移除（选项 A）——原 PR4/PR5 装配块随能力整体退役。
 
-  // F20260901cxmw：otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
+  // otter 实际模型 contextWindow 解析（handoff 阈值按真实窗口计算）
   const ctxWindowProvider = modelPool ? buildCtxWindowProvider(modelPool, otterConfigProvider) : undefined;
 
-  // F20260916fst4：首哑信号消费依赖——AgentDispatchService 构建晚于 agentInvoker
+  // 首哑信号消费依赖——AgentDispatchService 构建晚于 agentInvoker
   //（initPlatforms 内 feishu/weixin 分支），时序上无法构造注入。方案选定 setter 延迟挂接：
   // 延迟到 initPlatforms 各 AgentDispatchService 构建完成后调用（见下方两处），
   // 对既有构造零侵入（agentDispatchService 为可选参数，缺省降级仅日志）。
@@ -295,11 +295,11 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
     handoffEngine: buildHandoffEngineDeps(),
   });
 
-  // F20260920uhuc：压缩钩子接线退役——setCompactionSynthesis 随 session_before_compact 钩子退役
+  // 压缩钩子接线退役——setCompactionSynthesis 随 session_before_compact 钩子退役
   //（时机权回收应用层轮边界水位，七段合成迁入统一引擎 narrative-synthesis-engine，
   //  经 HandoffEngineDeps 注入 agentInvoker）。
 
-  // F20260827he2f：启动时探针——验证 healing_repo 可达，熔断事件落库能力正常
+  // 启动时探针——验证 healing_repo 可达，熔断事件落库能力正常
   // 失败仅 warn（不阻塞启动），但日志可作为诊断入口
   agentInvoker.probeHealingRepo().catch((err: unknown) => {
     logger.warn('healing_repo startup probe failed', { error: err instanceof Error ? err.message : String(err) });
@@ -307,7 +307,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
 
   const cronParser = new SimpleCronParser();
   const schedulerService = new SchedulerService(
-    // F20260913ctlv 收尾批2：内部信号唯一落点 = entries（system entry + entry.system 广播）
+    // 收尾批2：内部信号唯一落点 = entries（system entry + entry.system 广播）
     buildSchedulerServiceOptions({
       taskRepo: repos.scheduledTask,
       convRepo: repos.conversation,
@@ -320,7 +320,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
       manageScheduledTask: uc.manageScheduledTask,
       manageSession: uc.manageSession,
       healingRepo: repos.healingEvent,
-      // F20261008hcpa（#1356 层3）：high 超龄升级提醒的推送目的地（healing 主对话）——
+      // （层3）：high 超龄升级提醒的推送目的地（healing 主对话）——
       // 懒解析：healing 对话由 ensureHealingConversation 异步引导创建，构造期 settings 未就绪
       healingConversationIdResolver: async () => {
         try {
@@ -332,7 +332,7 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
       metrics,
       dispatchChainEngine,
       modelPool,
-      // #1449：孤儿 running 执行扫描判活回调——AgentInvoker 委托 PiSessionFactory.isRunning，
+      // 孤儿 running 执行扫描判活回调——AgentInvoker 委托 PiSessionFactory.isRunning，
       //   有执行现场（用户停机冻结等）不动它，无现场（网关断连/进程假死）机械释放。
       isOtterRunning: (otterId: string) => agentInvoker.isRunning?.(otterId) ?? false,
       otterRepo: repos.otter,
@@ -348,25 +348,25 @@ function buildSchedulerServiceOptions(o: SchedulerServiceOptions): SchedulerServ
   return o;
 }
 
-/** issue #281：broadcaster 由 app.ts 无条件创建（平台无关总线），飞书出站作为 channel 注册 */
-// F20260929fsqr：createFeishuBundle/setupFeishu/FeishuBundle 随静态线退役删除
+/** broadcaster 由 app.ts 无条件创建（平台无关总线），飞书出站作为 channel 注册 */
+// createFeishuBundle/setupFeishu/FeishuBundle 随静态线退役删除
 // （唯一调用方 app.ts 已移除；误复活风险与死代码一并清除）
 
-/** F20260920imax：助理态注入片段（微信/飞书共用语义：总开关 + 助理线模型；setupFeishu/startWeixinChannels 双消费方） */
+/** 助理态注入片段（微信/飞书共用语义：总开关 + 助理线模型；setupFeishu/startWeixinChannels 双消费方） */
 function buildAssistantInjections(appConfig: AppConfig, uc: UseCases): {
   assistantSession?: AssistantSessionManager;
   assistantModelAlias?: string;
 } {
   return {
-    // F20260918imas / F20260920imax：助理态（p2p 自动开户；对话永续）；总开关关闭时不注入（回退拒聊）
+    //  助理态（p2p 自动开户；对话永续）；总开关关闭时不注入（回退拒聊）
     ...(appConfig.im?.assistant?.enabled !== false && { assistantSession: uc.assistantSession }),
-    // F20260920imax：助理线模型（自动开户的大獭用；缺省全局 default）
+    // 助理线模型（自动开户的大獭用；缺省全局 default）
     ...(appConfig.im?.assistant?.modelAlias && { assistantModelAlias: appConfig.im.assistant.modelAlias }),
   };
 }
 
-// F20260929fsqr：setupFeishu 已随静态线退役删除
-// F20260929fsqr：setupFeishu 随静态线退役删除——唯一调用方 app.ts 已移除；
+// setupFeishu 已随静态线退役删除
+// setupFeishu 随静态线退役删除——唯一调用方 app.ts 已移除；
 // 装配语义由 buildFeishuRuntime 工厂统一承担（扫码线 feishu-scan.ts 全权持有）
 
 export interface PlatformBootstrapResult {
@@ -377,36 +377,36 @@ export interface PlatformBootstrapResult {
   recruitingInit: Promise<void>;
   /** 微信通道轮询句柄（app 关停时统一 stop） */
   weixinPollers?: WeixinPollingChannel[];
-  /** 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） */
+  /** 通道状态注册表（统一 IM 页 + 真实健康状态） */
   registry?: ChannelStatusRegistry;
-  /** #460：飞书长连接 stop 句柄（app dispose 时停 WSClient 重连，防僵尸进程） */
+  /** 飞书长连接 stop 句柄（app dispose 时停 WSClient 重连，防僵尸进程） */
   stopFeishu?: () => void;
 }
 
-/** F20260928fsqr：单 app 飞书运行时句柄（静态 config app 与扫码 apps 共用工厂产出） */
+/** 单 app 飞书运行时句柄（静态 config app 与扫码 apps 共用工厂产出） */
 export interface FeishuRuntime {
   /** bot 锚键（feishu-bot:<掩码appId>）——provision/出站归属/状态投影三处同源 */
   botKey: string;
   tokenManager: FeishuAccessTokenManager;
   client: FeishuClient;
   agentDispatchService: AgentDispatchService;
-  /** 停 WS 长连接（#460 dispose 链接入；同步停出站通道由调用方 unregister） */
+  /** 停 WS 长连接（dispose 链接入；同步停出站通道由调用方 unregister） */
   stop: () => void;
 }
 
 /**
- * F20260928fsqr：飞书单 app 运行时工厂（静态 config app 与扫码 apps 共用）。
+ * 飞书单 app 运行时工厂（静态 config app 与扫码 apps 共用）。
  *
  * 吸收原 createFeishuBundle（client/tokenManager/出站注册）+ setupFeishu 装配段
  * （commandDispatcher/partnerResolver/messageProcessor/longConnection）两段。
- * 每条 WS 一套独立装配（D1）：token 域按 app 隔离是飞书机制，共享无收益有串扰。
+ * 每条 WS 一套独立装配：token 域按 app 隔离是飞书机制，共享无收益有串扰。
  *
- * 出站键控（#591 同构）：通道按 botKey 注册/注销，FeishuMessageChannel 按
+ * 出站键控（同构）：通道按 botKey 注册/注销，FeishuMessageChannel 按
  * externalId === botKey 过滤归属——多 app 广播互不串扰。
  *
- * 命令门禁锚（D7 双层）：每线独立 resolver——`PartnerResolver.forGate(线ownerOpenId, 首号ownerOpenId?)`；
+ * 命令门禁锚（双层）：每线独立 resolver——`PartnerResolver.forGate(线ownerOpenId, 首号ownerOpenId?)`；
  * 线主人自己线上可跑命令、首号（部署者）任意线上可跑、陌生人被拦。
- * （静态 config app 路径已随 F20261008fsrm 移除——锚一律来自扫码人/首号。）
+ * （静态 config app 路径已随 移除——锚一律来自扫码人/首号。）
  */
 export function buildFeishuRuntime(options: {
   appId: string;
@@ -448,9 +448,9 @@ export function buildFeishuRuntime(options: {
       gateResolver, agentDispatchService, messageBroadcaster,
     });
 
-    // 键控出站（#591 同构）：按 botKey 注册，FeishuMessageChannel 按 externalId===botKey 过滤。
-    // 同 app 重扫（绑定已有 app 时真实发生）替换旧通道而非追加，#591 语义。
-    // #902 媒体出站：attachmentDeps 注入（实体查询 + speak 补拉 + 存储根；不注降级纯占位投影）
+    // 键控出站（同构）：按 botKey 注册，FeishuMessageChannel 按 externalId===botKey 过滤。
+    // 同 app 重扫（绑定已有 app 时真实发生）替换旧通道而非追加，语义。
+    // 媒体出站：attachmentDeps 注入（实体查询 + speak 补拉 + 存储根；不注降级纯占位投影）
     const channelKey = options.channelKey ?? key;
     messageBroadcaster.registerOutboundChannel(
       channelKey,
@@ -472,8 +472,8 @@ export function buildFeishuRuntime(options: {
   }
 }
 
-/** F20260928fsqr：WS 长连接启动 + stop 句柄拼装（拆出控 buildFeishuRuntime 行数；
- *  #460：stop 接入调用方 dispose 链，出站 unregister 同步成对做） */
+/** WS 长连接启动 + stop 句柄拼装（拆出控 buildFeishuRuntime 行数；
+ * stop 接入调用方 dispose 链，出站 unregister 同步成对做） */
 function finishFeishuRuntime(o: {
   appId: string; key: string; channelKey: string; feishuConfig: FeishuConfig;
   tokenManager: FeishuAccessTokenManager; client: FeishuClient;
@@ -506,7 +506,7 @@ function finishFeishuRuntime(o: {
   };
 }
 
-/** F20260928fsqr：扫码 app 的 FeishuConfig 拼装（encryptKey 不适用——事件走 WS 无 webhook 加密） */
+/** 扫码 app 的 FeishuConfig 拼装（encryptKey 不适用——事件走 WS 无 webhook 加密） */
 function buildScanFeishuConfig(appId: string, appSecret: string, gateOwnerOpenId?: string): FeishuConfig {
   return {
     appId,
@@ -515,7 +515,7 @@ function buildScanFeishuConfig(appId: string, appSecret: string, gateOwnerOpenId
   };
 }
 
-/** F20260928fsqr：扫码 app 的 messageProcessor 装配（拆出控 buildFeishuRuntime 行数；
+/** 扫码 app 的 messageProcessor 装配（拆出控 buildFeishuRuntime 行数；
  *  语义与存量 setupFeishu 原装配段一致——助理注入/附件三件套/门禁 resolver 全同构） */
 function buildScanFeishuProcessor(o: {
   appConfig: AppConfig; uc: UseCases; repos: Repositories; logger: Logger;
@@ -545,7 +545,7 @@ function buildScanFeishuProcessor(o: {
 }
 
 
-/** 微信通道启动（issue #565）：每个已登录账号拉一条轮询 + 注册出站通道 */
+/** 微信通道启动：每个已登录账号拉一条轮询 + 注册出站通道 */
 export function startWeixinChannels(options: {
   appConfig: AppConfig;
   repos: Repositories;
@@ -560,7 +560,7 @@ export function startWeixinChannels(options: {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter } = options;
   const weixinConfig = appConfig.weixin;
   if (!weixinConfig) {
-    // Bugfix（F20260831wxsp）：有已登录账号但 config 无 weixin 段时不再静默 return——
+    // Bugfix：有已登录账号但 config 无 weixin 段时不再静默 return——
     // 否则重启后轮询无声消失（web 无任何异常，微信就是不响）。
     // 触发路径：扫码时 ensureWeixinConfig 写回失败（如路径错误 ENOENT）→ 重启读不到 weixin 段。
     // 账号 state（token/游标）在 stateDir（默认 ./data/weixin）不受影响，默认段即可拉起轮询；
@@ -572,7 +572,7 @@ export function startWeixinChannels(options: {
     const pollers = orphanAccounts
       .map((account) => startWeixinAccount({ appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig: {}, account, registry, signalRouter }))
       .filter((p): p is WeixinPollingChannel => p !== undefined);
-    // F20260901chun：orphan 降级拉起后标记 degraded，UI 显示「🟡 降级运行中」而非假绿
+    // orphan 降级拉起后标记 degraded，UI 显示「🟡 降级运行中」而非假绿
     if (registry) {
       for (const account of orphanAccounts) {
         registry.update(`weixin-${account.id}`, { kind: "weixin", state: { kind: "running", since: Date.now(), degraded: true } });
@@ -609,22 +609,22 @@ interface StartWeixinAccountOptions {
   weixinConfig: WeixinConfig;
   account: WeixinAccount;
   registry?: ChannelStatusRegistry;
-  /** F20260901sgpv P1：信号路由器（微信入口换轨） */
+  /** 信号路由器（微信入口换轨） */
   signalRouter?: SignalRouter;
 }
 
-/** 单账号启动（初始启动与 web 扫码登录热启动共用，issue #566） */
+/** 单账号启动（初始启动与 web 扫码登录热启动共用，） */
 function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingChannel | undefined {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account, registry } = options;
   try {
       const api = new WeixinApiClient({ baseUrl: account.baseUrl || weixinConfig.baseUrl || "https://ilinkai.weixin.qq.com", token: account.token, logger });
-      // 媒体支持（issue #567）：CDN 客户端同构注入 gateway（出站上传）与媒体下载实现（入站）
+      // 媒体支持：CDN 客户端同构注入 gateway（出站上传）与媒体下载实现（入站）
       const cdn = new WeixinCdnClient({ api, logger });
       const mediaGateway = new WeixinMediaClient({ cdn, logger });
       const gateway = new WeixinGatewayAdapter({ api, accountStore, accountId: account.id, logger, cdn });
-      // 出站：广播总线注册（与飞书同模式；F20260913ctlv 删 attachmentRepo 死参数，
-      // #902 媒体出站恢复：重注入附件依赖——实体查询 + speak 补拉 + 存储根）
-      // #591：键控注册（"weixin-<accountId>"）——同账号重登录时替换旧通道而非追加，
+      // 出站：广播总线注册（与飞书同模式；删 attachmentRepo 死参数，
+      // 媒体出站恢复：重注入附件依赖——实体查询 + speak 补拉 + 存储根）
+      // 键控注册（"weixin-<accountId>"）——同账号重登录时替换旧通道而非追加，
       // 防止重复投递；停轮询/删账号时 unregisterOutboundChannel 成对清理
       messageBroadcaster.registerOutboundChannel(
         `weixin-${account.id}`,
@@ -642,27 +642,27 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
       });
       const processor = new WeixinMessageProcessor({
         manageConnection: uc.manageConnection,
-        // F20260921wxba：入站路由锚 = bot 账号（与扫码建线同键，bot=对话统一模型）
+        // 入站路由锚 = bot 账号（与扫码建线同键，bot=对话统一模型）
         botAccountId: account.id,
-        // F20260928wxid：建线人鉴定——仅 owner 消息盖自报称呼
+        // 建线人鉴定——仅 owner 消息盖自报称呼
         ownerIlinkUserId: account.ilinkUserId,
-        // F20260918imas / F20260920imax：助理态（私聊自动开户；对话永续 + 8h 静默换 session）；语义同 setupFeishu
+        //  助理态（私聊自动开户；对话永续 + 8h 静默换 session）；语义同 setupFeishu
         ...buildAssistantInjections(appConfig, uc),
-        // F20260913ctlv 收尾批2：微信消息唯一落点 = entries（与飞书同构）
+        // 收尾批2：微信消息唯一落点 = entries（与飞书同构）
         sendEntry: uc.sendEntry,
         entryRepo: repos.entry,
         weixinGateway: gateway,
-        // F20260928wxid：保持单渠道锚（语义同飞书装配处——门禁只认本渠道搭档锚，防 configured 误翻锁死命令）
-        // F20261113wxplo：门禁锚=显式 partnerUserId 优先，否则回退线 owner（每线主人自管自线；
+        // 保持单渠道锚（语义同飞书装配处——门禁只认本渠道搭档锚，防 configured 误翻锁死命令）
+        // 门禁锚=显式 partnerUserId 优先，否则回退线 owner（每线主人自管自线；
         // 不再吃 config 回写的首号 global 兜底——那会把首号错认成所有线的搭档）
         partnerResolver: PartnerResolver.forGate(weixinConfig.partnerUserId ?? account.ilinkUserId),
-        // F20260901sgpv P1：微信入口换轨（与飞书同构）
+        // 微信入口换轨（与飞书同构）
         agentDispatchService: (() => {
           const svc = new AgentDispatchService({
             dispatchChainEngine, entryRepo: repos.entry, agentInvokePort: agentInvoker, logger,
             ...(options.signalRouter && { signalRouter: options.signalRouter }),
           });
-          // F20260916fst4：首哑信号消费依赖挂接——微信通道的 dispatch 实例就地 setter 挂到 agentInvoker
+          // 首哑信号消费依赖挂接——微信通道的 dispatch 实例就地 setter 挂到 agentInvoker
           // （幂等：与 feishu 实例能力等价，双通道装配时后挂接者覆盖前者无语义差异）
           agentInvoker.attachAgentDispatchService(svc);
           return svc;
@@ -692,7 +692,7 @@ function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingCh
 }
 
 /**
- * web 扫码登录成功后热启动单账号（issue #566）：不重启进程把轮询拉起。
+ * web 扫码登录成功后热启动单账号：不重启进程把轮询拉起。
  * 调用方组装 weixinConfig（config 无 weixin 段时用默认值 + 登录回传的 partnerUserId）。
  */
 export function hotStartWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingChannel | undefined {
@@ -700,7 +700,7 @@ export function hotStartWeixinAccount(options: StartWeixinAccountOptions): Weixi
 }
 
 export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: string; logger?: Logger }): void {
-  // Why: 默认路径基于代码位置解析（#429）；opts.configPath override 优先
+  // Why: 默认路径基于代码位置解析；opts.configPath override 优先
   const configPath = opts.configPath ?? path.resolve(getRepoRoot(), "config/config.yaml");
   try {
     const text = fsSync.readFileSync(configPath, "utf8");
@@ -708,9 +708,9 @@ export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: strin
     if (raw?.weixin) return; // 幂等
     if (!raw) return; // 非法 YAML——loadConfig 已在启动时把关，这里不覆盖文件
     // Why: 文本追加而非 yaml.dump 全量重写——config/config.yaml 满篇人工注释（对齐 example），
-    // dump 会把注释全部抹掉（F20260829wxui 引入的隐患，仅在写回路径修对后才会显现）。
+    // dump 会把注释全部抹掉（引入的隐患，仅在写回路径修对后才会显现）。
     // weixin 是顶层段，追加到文件末尾即等价；缩进对齐顶层键。
-    // F20261113wxplo：只回写 stateDir，不回写 partnerUserId——首号扫码不得被持久化成
+    // 只回写 stateDir，不回写 partnerUserId——首号扫码不得被持久化成
     // 全局搭档锚（多账号时「第一个扫码的人」会被错认成搭档，重启后锁死他人命令）。
     const section = yaml.dump({
       weixin: {
@@ -731,7 +731,7 @@ export function ensureWeixinConfig(opts: { configPath?: string; stateDir?: strin
 export async function initPlatforms(options: { appConfig: AppConfig; repos: Repositories; uc: UseCases; agentInvoker: AgentInvoker; dispatchChainEngine: DispatchChainEngine; messageBroadcaster: MessageBroadcaster; logger: Logger; signalRouter?: SignalRouter }): Promise<PlatformBootstrapResult> {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, logger, signalRouter } = options;
 
-  // F20260915cfgt：功能开关门控（三态：显式配置 > DB 存量推断 > 缺省值）。
+  // 功能开关门控（三态：显式配置 > DB 存量推断 > 缺省值）。
   // gates 解析必须同步完成后再接 ensure 链——推断依赖 getAllActive，放 Promise 链外保证顺序确定。
   const gates = await resolveFeatureGates({
     features: appConfig.features,
@@ -741,7 +741,7 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
   });
   logger.info("Feature gates resolved", { gates });
 
-  // F20260915cfgt：self-healing 属海獭系统优化（除作者外无人关心），默认关；老部署靠存量推断保持 on
+  // self-healing 属海獭系统优化（除作者外无人关心），默认关；老部署靠存量推断保持 on
   let healingInit: Promise<void> = Promise.resolve();
   if (gates.selfHealing) {
     healingInit = ensureHealingConversation({ manageConversation: uc.manageConversation, convRepo: repos.conversation, otterRepo: repos.otter, settings: repos.settings, sendEntry: uc.sendEntry, logger })
@@ -754,7 +754,7 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
   let inboundApiKey: string | undefined;
   let getBridgeStatus: GetBridgeStatus | undefined;
   let recruitingInit: Promise<void> = Promise.resolve();
-  // F20260915cfgt：recruiting 双门（apiKey && features.recruiting）。
+  // recruiting 双门（apiKey && features.recruiting）。
   // 门控边界 = 整个子系统：webhook 处理器/桥接状态/seed 三对象同块创建，关 features 时
   // processInboundRecruit 留 undefined，initControllers 侧自动降级 NoopInboundController（controllers.ts:182-189）
   if (appConfig.inbound?.recruiting?.apiKey && gates.recruiting) {
@@ -766,7 +766,7 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
       dispatchChainEngine,
       agentInvoker,
       logger,
-      // #775 S4a：招聘入口换轨——过闸门+台账（未注入回退直连链）
+      // 招聘入口换轨——过闸门+台账（未注入回退直连链）
       signalRouter,
     );
     getBridgeStatus = new GetBridgeStatus(repos.settings);
@@ -788,10 +788,10 @@ export async function initPlatforms(options: { appConfig: AppConfig; repos: Repo
       .catch(err => logger.warn("Recruiting init failed", { error: err instanceof Error ? err.message : String(err) }));
   }
 
-  // ── 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态） ──
+  // ── 通道状态注册表（统一 IM 页 + 真实健康状态） ──
   const registry = new InMemoryChannelStatusRegistry();
 
-  // ── 微信通道（issue #565）：每个已登录账号拉起轮询 + 出站注册 ──
+  // ── 微信通道：每个已登录账号拉起轮询 + 出站注册 ──
   const weixinPollers = startWeixinChannels({ ...options, registry });
 
   return { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry };

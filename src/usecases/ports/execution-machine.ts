@@ -38,7 +38,7 @@ export interface ExecutionAction<K extends ExecutionActionType> {
 }
 
 /** 动作去重协议位——调用方显式携带 actionId 时，同 id 已 succeeded
- *  的动作直接返回已记录结果不重复执行；阶段 4 connector 重投递时获得幂等语义。 */
+ * 的动作直接返回已记录结果不重复执行；connector 重投递时获得幂等语义。 */
 export interface ActionRunOptions {
   actionId?: string;
 }

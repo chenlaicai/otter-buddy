@@ -41,7 +41,7 @@ export default function ConversationListPage() {
   const [searchParams] = useSearchParams()
   const [conversations, setConversations] = useState<LocalConversation[]>([])
   const [loading, setLoading] = useState(true)
-  /** F20260922cgrp delta（检视建议 6）：首屏硬上限 500——超限静默截断不可接受，接 total 提示 */
+  /** delta：首屏硬上限 500——超限静默截断不可接受，接 total 提示 */
   const [truncatedTotal, setTruncatedTotal] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
   const [newTitle, setNewTitle] = useState('')
@@ -51,7 +51,7 @@ export default function ConversationListPage() {
   const [defaultAlias, setDefaultAlias] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; cid: string } | null>(null)
-  // F20260922cgrp delta：归档对话不在 conversations（active-only）——find 落空时合成 archived
+  // delta：归档对话不在 conversations（active-only）——find 落空时合成 archived
   // 最小对象；该页菜单对归档项不渲染任何操作项（置顶/归档对 archived 均无意义），菜单本体不弹
   const activeConvForMenu = ctxMenu
     ? (conversations.find(c => c.id === ctxMenu.cid) ?? {
@@ -60,7 +60,7 @@ export default function ConversationListPage() {
     : null
 
   useEffect(() => {
-    // F20260922cgrp：listConversations 返回 { items, total }；首屏全量拉 active（分组分页由 LeftPanel 内部管理）
+    // listConversations 返回 { items, total }；首屏全量拉 active（分组分页由 LeftPanel 内部管理）
     api.listConversations({ limit: 500 })
       .then(({ items, total }) => {
         setConversations(items.map(mapConversationDTO))
@@ -120,7 +120,7 @@ export default function ConversationListPage() {
 
   const handleContextMenu = useCallback((e: React.MouseEvent, cid: string) => {
     e.preventDefault()
-    // F20260826pfix：视口钳位——贴边右键时菜单不出屏（与会话页 index.tsx:1110 同款防护）
+    // 视口钳位——贴边右键时菜单不出屏（与会话页 index.tsx:1110 同款防护）
     const x = Math.min(e.clientX, window.innerWidth - 168)
     const y = Math.min(e.clientY, window.innerHeight - 90)
     setCtxMenu({ x, y, cid })
@@ -266,7 +266,7 @@ export default function ConversationListPage() {
         <BigOtterModelDropdown models={models} defaultAlias={defaultAlias} selectedModel={selectedModel} onSelect={setSelectedModel} />
       </Modal>
 
-      {/* 对话右键菜单：Portal 挂 document.body（F20261023pmnu，#1006）——与 WorkspacePanel ctxMenu 同款防护：
+      {/* 对话右键菜单：Portal 挂 document.body——与 WorkspacePanel ctxMenu 同款防护：
           根容器未来若引入 transform/backdrop-filter（整页过渡动画等）会成为 containing block，
           后代 fixed 元素退化为相对容器定位、菜单按「右键坐标 + 容器偏移」飞出视口；挂 body 一劳永逸 */}
       {ctxMenu && activeConvForMenu && activeConvForMenu.status !== 'archived' && createPortal(

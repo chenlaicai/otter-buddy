@@ -169,7 +169,7 @@ export class WeixinLoginFlow {
   }
 
   /**
-   * 重定向 URL 白名单校验（switchGateway 与 confirm 落盘共用——审视 //A1 收口）。
+   * 重定向 URL 白名单校验（switchGateway 与 confirm 落盘共用——审视 //收口）。
    * 校验对象 = 最终使用的 URL 经 URL 解析后的 hostname（非裸字符串 endsWith）：
    * - `evil.com@weixin.qq.com` 形态 URL 解析后 hostname 是 weixin.qq.com？不——
    *   userinfo 在 @ 前，hostname 是 @ 后的 weixin.qq.com，确实官方；但裸串 endsWith
@@ -193,7 +193,7 @@ export class WeixinLoginFlow {
       this.deps.logger.warn(`Weixin ${scene}: redirect target is not a valid URL, refused`, { raw });
       return undefined;
     }
-    // delta A1 残留：URL 带 credentials（user:pass@host）直接拒——undici 对带 credentials
+    // delta 残留：URL 带 credentials（user:pass@host）直接拒——undici 对带 credentials
     // 的 Request 会抛错，登录被打挂；且 credentials 出现在跳转目标里本身就可疑
     if (url.username || url.password) {
       this.deps.logger.warn(`Weixin ${scene}: redirect target carries credentials, refused`, { host: url.hostname });

@@ -1,5 +1,5 @@
 /**
- * 嵌入禁用开关测试（阶段 6a 部署底座：OTTER_EMBEDDING=off）。
+ * 嵌入禁用开关测试（部署底座：OTTER_EMBEDDING=off）。
  *
  * 禁用语义：available=false + embed 恒拒——检索侧 searchVec 的 catch 降级链
  * （FTS-only 回落）由既有测试覆盖，此处钉住禁用服务的契约面。

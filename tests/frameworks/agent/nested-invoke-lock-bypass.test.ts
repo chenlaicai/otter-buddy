@@ -25,7 +25,7 @@ import { invokeEpochStorage, mintEpoch } from "@frameworks/agent/invoke-epoch";
 import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-repository";
 
 /** 直接调 _acquirePooled 需自建 epoch 上下文（公共 invoke() 入口
- *  铸造；直接调内部方法的单测模拟该入口职责），否则命中 D3 fail-loud 面。 */
+ * 铸造；直接调内部方法的单测模拟该入口职责），否则命中 fail-loud 面。 */
 let epochSeq = 0;
 function withEpoch<T>(fn: () => Promise<T>): Promise<T> {
   return invokeEpochStorage.run(mintEpoch("test-otter", `test-invoke-${++epochSeq}`), fn);
@@ -213,7 +213,7 @@ describe("#896 池层 streaming 保护（PR #897 检视严重 1）", () => {
 
     // 嵌套 invoke（ALS store 同 otterId）撞上 streaming → 必须抛错（由钩子 catch 降级），
     // 且不得出池/顶替（外层 session 仍是池条目）。
-    // F20261009epoc：嵌套路径继承外层 epoch（invokeEpochStorage 随 ALS 链传播），
+    // 嵌套路径继承外层 epoch（invokeEpochStorage 随 ALS 链传播），
     // 模拟时用真实嵌套形态——外层 run 内再调，两个 ALS 都有 store。
     await expect(
       otterInvokeStorage.run(
@@ -235,7 +235,7 @@ describe("#896 池层 streaming 保护（PR #897 检视严重 1）", () => {
     sessions.get("o1")!.isStreaming = true;
 
     // 裸调用（无 otterInvokeStorage store）→ stale steal 场景：出池 + 冷启动。
-    // F20261009epoc：真并发来自不同 async context（各自独立 epoch）——withEpoch 模拟新
+    // 真并发来自不同 async context（各自独立 epoch）——withEpoch 模拟新
     // invoke 的独立 epoch 上下文。
     const second = await withEpoch(() => internals._acquirePooled("o1", { messageId: "m2" }));
     expect(second.isPooled).toBe(false);

@@ -138,7 +138,7 @@ test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
     await page.addInitScript(SAMPLER)
     await gotoBottomPinned(page)
 
-    // 开采样 → 真实发送一张 600px 高卡并展开（检视发现 6：普通文本 27~108px < 判据下限 150px，
+    // 开采样 → 真实发送一张 600px 高卡并展开（普通文本 27~108px < 判据下限 150px，
     // 刺激量不足护栏恒绿——修不好也红不了；折叠态只渲染按钮 ~108px 也不够，必须点「展开渲染」
     // 让 iframe 内 600px div 真实渲染，单次增量 >阈值才能钉住补偿链）
     await page.evaluate(() => { (window as unknown as { __samplerOn: boolean }).__samplerOn = true })

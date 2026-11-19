@@ -134,7 +134,7 @@ function textResult(text: string, isError = false) {
 /**
  * BM25 简化排序（词频命中 × idf）：score = Σ_{t∈query∩doc} idf(t)，
  * idf(t) = ln(1 + N / df(t))，N 为候选工具总数。无命中返回空。
- * 语料经 buildToolCorpus（含参数 schema），分词含 stem 归一（检视发现 1 处置）。
+ * 语料经 buildToolCorpus（含参数 schema），分词含 stem 归一。
  */
 export function rankToolsByQuery(
   query: string,

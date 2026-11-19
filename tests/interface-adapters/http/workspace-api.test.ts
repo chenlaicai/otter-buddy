@@ -4,7 +4,7 @@
  * 覆盖：
  * - 路径穿越：conversationId UUID 校验拒绝含路径分隔符/.. 的值
  * - 多字节截断：中文文件按字节截断且不破坏 UTF-8 边界
- * - S3 正常链路：listDir / readFile 核心路径
+ * - 正常链路：listDir / readFile 核心路径
  * - 错误语义：工作区不存在 → 404（DomainError）而非 500
  */
 
@@ -102,7 +102,7 @@ describe("Workspace HTTP API", () => {
     });
   });
 
-  // ─── S2: 多字节截断 ───
+  // ─── 多字节截断 ───
 
   describe("多字节文件截断", () => {
     it("小文件不截断", async () => {
@@ -311,7 +311,7 @@ describe("Workspace HTTP API", () => {
   });
 });
 
-// ─── 契约形状锁（issue #558）：wire 响应体必须与 api-contract 契约一致 ───
+// ─── 契约形状锁：wire 响应体必须与 api-contract 契约一致 ───
 // Why: 三侧（usecase/controller/web）已各自 import 契约类型，编译期漂移由双端
 // tsc 锁死；这里锁的是运行时 wire 形状——JSON 字段缺失/多出/类型漂移会被感知
 

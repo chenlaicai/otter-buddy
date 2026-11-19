@@ -19,10 +19,10 @@ import { OTTER_PALETTE_KEYS } from "@contract/api/otter-palette";
 export function migrateDatabase(db: Database.Database, logger: Logger): void {
   ensureAgentSessionFileColumn(db, logger);
   ensureMessagesSourceAndSenderNameColumns(db, logger);
-  // T1：unfurl_cache 幂等建表（与 schema.ts 单点登记同 DDL，
+  // unfurl_cache 幂等建表（与 schema.ts 单点登记同 DDL，
   // 老库补建走本补丁，新库直建走 schema.ts——migration-equivalence guard 锁一致性）。
   // fetched_at 无 SQL DEFAULT：应用层 ISO 8601 写入（空格格式混排会产生字典序偏移——）。
-  // state/additions/deletions：github-api 结构化字段（T2 join 投影数据源）。
+  // state/additions/deletions：github-api 结构化字段（join 投影数据源）。
   db.prepare(`
     CREATE TABLE IF NOT EXISTS unfurl_cache (
       url TEXT PRIMARY KEY,
@@ -117,7 +117,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   // 已删除——bootstrap 无条件跑幂等 initSchema 后老库自动补建，新表只写 schema.ts 一处。
   // 表级等价性由 tests/frameworks/db/migration-equivalence.guard.test.ts 守卫。
 
-  /** Part 2: features/research 表加 created_in_conversation_id 列。*/
+  /** features/research 表加 created_in_conversation_id 列。*/
   addDocProvenanceColumns(db, logger);
 
   /** healing_events 表添加 introduced_by_pr 列（存量库迁移）。
@@ -133,7 +133,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
    *  schema.ts 新库已含四列；存量库跑不到 initSchema 的 CREATE 分支，需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureSignalsTriageColumns(db, logger);
 
-  /** P0：messages 表添加 signal_level + signal_meta 列（信号协议铺轨）。
+  /** messages 表添加 signal_level + signal_meta 列（信号协议铺轨）。
    *  schema.ts 新库已含两列；存量库需 ALTER 补列。幂等：PRAGMA 检测。 */
   ensureMessagesSignalColumns(db, logger);
 
@@ -202,7 +202,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   ensureOtterColorColumn(db, logger);
   backfillOtterColors(db, logger);
 
-  /** PR-B：restart_pending_resumes 补 claim 三列（存量库 ALTER，幂等 PRAGMA 探测）。
+  /** restart_pending_resumes 补 claim 三列（存量库 ALTER，幂等 PRAGMA 探测）。
    *  认领绑定 claim_token/boot_epoch + 恢复轮 recovery_invoke_id 审计链。 */
   ensureRestartPendingResumesClaimColumns(db, logger);
 
@@ -331,7 +331,7 @@ function migrateScheduledTaskExecutorRoles(db: Database.Database, logger: Logger
 }
 
 /**
- * F20260915midu（#942）：记忆投影条目 ID 与源实体 ID 统一（存量迁移）。
+ * 记忆投影条目 ID 与源实体 ID 统一（存量迁移）。
  *
  * 背景：投影条目曾另生成 UUID 作主键、仅 source_id 回指源实体——同一实体双 ID，
  * link_memory 拿源实体 ID 直查 memory_entries 命中不了投影，资源/文档类节点永远没有边。
@@ -341,7 +341,7 @@ function migrateScheduledTaskExecutorRoles(db: Database.Database, logger: Logger
  *
  * 方案选型：SQLite 无法直接 UPDATE 被 FK（memory_weights/memory_edges）与字符串键
  * （FTS5/vec0 虚拟表、embedding_tasks）双重引用的主键——PRAGMA defer_foreign_keys
- * 仅 defer 到 commit 仍撞 immediate 约束。故采用内存表重建（#654/#608 同模式四步重建的
+ * 仅 defer 到 commit 仍撞 immediate 约束。故采用内存表重建（/同模式四步重建的
  * 多表推广）：FOREIGN_KEYS=OFF 单事务内 快照映射 → _new 表复制（换键）→ DROP → RENAME。
  *
  * 级联表处理：

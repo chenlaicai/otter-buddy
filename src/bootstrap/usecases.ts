@@ -61,7 +61,7 @@ export interface UseCaseDeps {
   workspaceGateway?: WorkspaceGateway;
   /** Otter 配置提供方（ManageParticipant 读 modelAlias 注入 ParticipantDTO） */
   otterConfigProvider?: OtterConfigProvider;
-  /** 模型池（有效模型解析 / session 快照 / restart 切模型）。未注入时 T1/T2/T3 降级 */
+  /** 模型池（有效模型解析 / session 快照 / restart 切模型）。未注入时 //降级 */
   modelPool?: ModelPoolLike;
 }
 
@@ -71,7 +71,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   const { searchMemory, createEdge, getRelated, deleteEdge, getDocProvenance, manageMemory, manageTerminology, scanDarkEntries, recordBelief, transitionBelief, supersedeBelief, manageConsolidationState } = memoryUcs;
   // 彻底切换：未读状态读 entries
   const queryMessage = new QueryMessage(repos.conversation, entryRepo);
-  // Phase 0：检索埋点（评估基线数据源）
+  // 检索埋点（评估基线数据源）
   // 收尾批3：上下文快照数据源切 entries
   const recordSearchQuery = new RecordSearchQuery(repos.searchQueryLog, entryRepo, logger);
   const manageReadState = new ManageReadState(repos.conversation, entryRepo);
@@ -114,7 +114,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   // web 助理开户（全局唯一 kind=web-assistant 对话；幂等 + 人设注入；
   // modelAlias 共用 im.assistant.modelAlias——对话实例各自独立，改配置下个 session 生效）
   const webAssistantProvisioner = buildWebAssistantProvisioner(repos.conversation, createOtter, appConfig, logger);
-  // 多模态 Phase 1：附件上传服务（storageRoot 等来自 config.attachments）
+  // 多模态 附件上传服务（storageRoot 等来自 config.attachments）
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);
   // 工作区文件浏览（只读）——workspaceGateway 可选注入
   const manageWorkspace = workspaceGateway ? new ManageWorkspace(workspaceGateway, logger) : undefined;
@@ -154,7 +154,7 @@ function buildDissolveOtter(
     // 旧台账退役——settle/abort 清账随 main 批次退役
     /** 派工台账 dissolve 记账钩子 */
     markDispatchDissolved: async (otterId: string) => repos.dispatchRecord.markDissolved(otterId),
-    /** §2 等待方消亡规则①：獭解散 → 名下 WAITING_OTTER 事项回 OPEN */
+    /** 等待方消亡规则①：獭解散 → 名下 WAITING_OTTER 事项回 OPEN */
     reopenMattersForDissolvedOwner: async (otterId: string) => repos.matter.reopenForDissolvedOwner(otterId, new Date().toISOString()),
     logger,
   });
@@ -175,7 +175,7 @@ function buildWebAssistantProvisioner(
   });
 }
 
-/** 多模态 Phase 1：附件上传服务工厂（config.attachments 缺省值内置） */
+/** 多模态 附件上传服务工厂（config.attachments 缺省值内置） */
 function buildAttachmentUploadService(
   repos: Repositories,
   appConfig: UseCaseDeps["appConfig"],
@@ -254,13 +254,13 @@ function buildSendEntry(opts: {
     logger: opts.logger,
     resolveDeps: opts.resolveDeps,
     ...(opts.memoryIndex ? { memoryIndex: opts.memoryIndex } : {}),
-    // T1：unfurl 预抓取钩子（非阻断——逐 URL 后台抓取，失败落 failed 记录）
+    // unfurl 预抓取钩子（非阻断——逐 URL 后台抓取，失败落 failed 记录）
     unfurlPrefetch: buildUnfurlPrefetch(opts.repos.unfurlCache, opts.logger),
   });
 }
 
 /**
- * T1：unfurl 预抓取回调装配（send-entry 钩子 → 后台抓取落库）。
+ * unfurl 预抓取回调装配（send-entry 钩子 → 后台抓取落库）。
  * 逐 URL 非阻断：已有缓存记录（另一并发请求抓过）跳过；失败落 failed 记录。
  * 直接调 gh/og 抓取逻辑而不复用 UnfurlController——避免 usecases → interface-adapters
  * 反向依赖；抓取主流程（分路/TTL/落库）在此内联最小实现。

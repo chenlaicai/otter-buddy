@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Part 5: 测试反模式的机械拦截（commit-time gate）。
+ * 测试反模式的机械拦截（commit-time gate）。
  *
  * 拦截清单（全部是可机械判定、零误判的形态——判断性要求靠 skill/文档信道，不在此列）：
  * 1. tests/ 下手写 CREATE TABLE / CREATE VIRTUAL TABLE（必须 createTestDb，防 schema 漂移）

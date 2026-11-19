@@ -45,7 +45,7 @@ export function getAttachmentRefsByIds(db: Database.Database, ids: string[]): At
 }
 
 export function upsertEntryFts(db: Database.Database, entryId: string, body: string): void {
-  // F20261026ctbg 审视修复：恢复原实现写法——entries_fts 是 fts5(entry_id UNINDEXED, body)
+  // 审视修复：恢复原实现写法——entries_fts 是 fts5(entry_id UNINDEXED, body)
   // （schema.ts），无 rowid/content 列语义；另原实现有 stripHtmlCardFences 预处理，拆分时一并丢失
   db.prepare("DELETE FROM entries_fts WHERE entry_id = ?").run(entryId);
   db.prepare("INSERT INTO entries_fts (entry_id, body) VALUES (?, ?)")

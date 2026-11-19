@@ -21,7 +21,7 @@ interface EmbedBatchRequest {
 }
 
 /**
- * Part 3：ready 消息携带 meta（modelId/modelRev/dim）。
+ * ready 消息携带 meta（modelId/modelRev/dim）。
  * worker 加载完模型 + dummy embed 拿到 dims 后发送。
  */
 export type EmbedResponse =

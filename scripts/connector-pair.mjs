@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * （阶段 4 C1）：connector 配对管理 CLI。
+ * connector 配对管理 CLI。
  *
  * 用法：
  *   node scripts/connector-pair.mjs                       # 生成一次性配对码（8 位，10 分钟有效）
@@ -8,7 +8,7 @@
  *   node scripts/connector-pair.mjs --unpair <deviceId>   # 撤销配对（token 即刻失效，online 行关闭）
  *   node scripts/connector-pair.mjs --db=/path/to.db      # 指定 DB（默认 data/otter-buddy.db）
  *
- * 配对流程（方案 v3 §3）：本 CLI 生成一次性码 → 人贴给 connector 首启参数 →
+ * 配对流程：本 CLI 生成一次性码 → 人贴给 connector 首启参数 →
  * connector POST /api/connector/pair 核销换长效 token → 之后 WSS upgrade 用 token 鉴权。
  * 码即秘密：时效内单次核销，过期/重放一律拒绝（repo.redeemPairingCode fail-closed）。
  */

@@ -28,13 +28,13 @@ export interface MemoryReader {
   // 查询
   getById(id: string): Promise<MemoryEntry | null>;
   /**
-   * Part 3：按 source_id + 可选 contentType 主键直查。
+   * 按 source_id + 可选 contentType 主键直查。
    * 用于 anchor 短路——F/R 文档 ID 形如 "" 作为 source_id 索引。
    * contentType 优先级：F ID 优先 'feature'（summary），R ID 优先 'research'（summary）。
    */
   getBySourceId(sourceId: string, contentType?: MemoryContentType): Promise<MemoryEntry | null>;
   /**
-   * Part 2：按 source + chunk_index 查邻域（±1）。
+   * 按 source + chunk_index 查邻域（±1）。
    * 用于 context-expand——命中 chunk 后扩展前后 chunk。
    * 返回 0-2 个条目（chunk 0 向前无 / last 向后无）。
    */
@@ -44,7 +44,7 @@ export interface MemoryReader {
     chunkIndex: number,
   ): Promise<MemoryEntry[]>;
   /**
-   * Part 2：按 conversation + createdAt 查前后各一条 message。
+   * 按 conversation + createdAt 查前后各一条 message。
    * 用于 context-expand——命中 message 后扩展上下文消息。
    * 返回 0-2 个条目（首条向前无 / 末条向后无）。
    */
@@ -64,28 +64,28 @@ export interface MemoryReader {
     filters: SearchFilters,
   ): Promise<VecHit[]>;
   hasVecTable(): boolean;
-  /** Part 0：vec 路径当前是否运行时启用（受 disableVec 影响，区别于 hasVecTable） */
+  /** vec 路径当前是否运行时启用（受 disableVec 影响，区别于 hasVecTable） */
   isVecEnabled(): boolean;
   /** 按 ID 批量获取记忆条目（渐进式披露 get_memory_detail） */
   getDetails(ids: string[]): Promise<MemoryEntry[]>;
-  /** Part 3：读取存储的 embedding 元信息 */
+  /** 读取存储的 embedding 元信息 */
   getEmbeddingMeta(): Promise<Partial<EmbedModelMeta>>;
   /**
-   * Part 1 + Part 0/1：扫描无 vec 索引的暗化条目。
+   * + /1：扫描无 vec 索引的暗化条目。
    *
-   * Part 0：用 vecTableExists 守卫，disableVec 后仍可检测全表暗化。
-   * Part 1：默认排除 status='dead' 的 dead-letter（防报告噪音）。
+   * 用 vecTableExists 守卫，disableVec 后仍可检测全表暗化。
+   * 默认排除 status='dead' 的 dead-letter（防报告噪音）。
    *   传 includeDead=true 可查看全部（运维排查）。
    */
   scanDarkEntries(includeDead?: boolean): Promise<{ entries: DarkEntry[]; total: number; vecDisabled: boolean }>;
   /**
-   * Part 1：批量查询 entry 是否有 vec 索引（vecCoverage 计算用）。
+   * 批量查询 entry 是否有 vec 索引（vecCoverage 计算用）。
    * 返回 Map<entryId, hasVec>。vec 表不可用时所有 entry 返回 false。
    */
   hasEmbeddings(entryIds: string[]): Promise<Map<string, boolean>>;
   /**
-   * Part 2: 按 conversationId 获取消息条目（provenance 读路径用）。
-   * D8: 不做预筛选，返回全部（按 limit 截断），附带 role/turn 等元数据。
+   * 按 conversationId 获取消息条目（provenance 读路径用）。
+   * 不做预筛选，返回全部（按 limit 截断），附带 role/turn 等元数据。
    */
   getEntriesByConversation(
     conversationId: string,
@@ -93,7 +93,7 @@ export interface MemoryReader {
   ): Promise<MemoryEntry[]>;
 
   /**
-   * D6: 从某 entry 出发 BFS 遍历关系图。
+   * 从某 entry 出发 BFS 遍历关系图。
    * 返回 [{ edge, entry }]——边 + 邻居 entry 配对，让调用方拼结构化 path。
    * depth 默认 1。visited 守门防环。
    * relates-to 自动双向查（from OR to），其余单向。
@@ -107,7 +107,7 @@ export interface MemoryReader {
   getEdgeById(edgeId: string): Promise<MemoryEdge | null>;
 
   /**
-   * P0：批量查候选条目里哪些被 supersede。
+   * 批量查候选条目里哪些被 supersede。
    * 返回 Map<旧条目 ID, 取代它的条目 ID>（supersedes 边的 from→to）。
    * 用于检索端 stale 降权 + 标注「已被 [新条目] 取代」。
    */

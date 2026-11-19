@@ -61,7 +61,7 @@ export class SqliteOtterRepository implements OtterRepository {
     return result;
   }
 
-  /** F20260921otcl：对话内小獭出生色占用集（join participants + otters，一次 SELECT）。
+  /** 对话内小獭出生色占用集（join participants + otters，一次 SELECT）。
    *  占用范围 = active 参与者中 type='small' 且 color 非空（dissolved 獭已离场不占色）。 */
   async getColorOccupancy(conversationId: string): Promise<Map<string, number>> {
     const rows = this.db.prepare(`
@@ -77,7 +77,7 @@ export class SqliteOtterRepository implements OtterRepository {
   }
 
   async dissolve(otterId: string, dissolvedAt: string): Promise<void> {
-    // #1403：changes=0（ID 不存在）时 fail-closed 抛错（#1370 族模式收尾，断言收敛至 assertUpdated）。
+    // changes=0（ID 不存在）时 fail-closed 抛错（族模式收尾，断言收敛至 assertUpdated）。
     // 上游 dissolve-otter.ts 有 getById + canDissolveOtter 双层前置防护，抛错只在删除竞态窗口触发。
     const result = this.db.prepare(`
       UPDATE otters SET status = 'dissolved', dissolved_at = ?

@@ -32,7 +32,7 @@ function rowToReq(row: Row): RemoteActionRequest {
   };
 }
 
-/** （阶段 4 C2）：remote_action_requests sqlite 实现。 */
+/** remote_action_requests sqlite 实现。 */
 export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
   constructor(private readonly db: Database.Database) {}
 
@@ -44,7 +44,7 @@ export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
       ).run(req.actionId, req.onlineSessionId, req.deviceId, req.actionType, req.createdAt, req.conversationId, req.invokeId);
       return true;
     } catch (err) {
-      // m1（检视）：仅 PK 冲突是「重复 actionId」语义（返 false 调用方 fail-closed）；
+      // （检视）：仅 PK 冲突是「重复 actionId」语义（返 false 调用方 fail-closed）；
       //  其他库故障（locked/磁盘满/语句错）重新抛出——错误归因不错位，排障有线索
       const code = (err as { code?: string }).code ?? "";
       if (code.includes("SQLITE_CONSTRAINT")) return false;

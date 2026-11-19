@@ -77,7 +77,7 @@ export class CreateOtter {
         modelAlias: params.modelAlias,
       });
     } catch (err) {
-      /** B1 回归守护：Agent 创建失败时回滚 DB 记录，避免孤立 Otter */
+      /** 回归守护：Agent 创建失败时回滚 DB 记录，避免孤立 Otter */
       await this.repo.deleteOtter(id);
       throw err;
     }

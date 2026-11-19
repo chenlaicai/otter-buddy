@@ -10,7 +10,7 @@
  * （errorType=other，severity=medium，context 带 signalId 供跟进）。
  *
  * 为什么 medium 不是 high：悬置 24h 是流程违规（裁决义务被遗忘），不是系统故障；
- * high 走 healing-alert 即时唤醒链路（C3），留给运行时异常。
+ * high 走 healing-alert 即时唤醒链路，留给运行时异常。
  *
  * 落账去重：同一 signalId 只落一次老化告警——scan 前查 open healing 事件的
  * context.signalId 是否已存在。healing 事件被 resolve 后若信号仍 pending，

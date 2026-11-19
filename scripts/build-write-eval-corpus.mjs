@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * shadow 语料库构建（三源合成，方案 v2 模块 2）。
+ * shadow 语料库构建（三源合成，模块 2）。
  *
  * 用法：
  *   node scripts/build-write-eval-corpus.mjs --db <dbPath> [--out <path>]
@@ -8,12 +8,12 @@
  * 三源：
  * replay 存量（guard-v2-real-replay.test.ts + 固化候选——命令+期望内嵌在本脚本，单一真相源为 fixtures JSON）
  * healing 台账回捞（复用 generate-guard-replay.mjs 的查询口径——guard_intercept 结构化事件 commandHead 反查）
- *   S3 形态补齐（覆盖面表逐行 × 三态人工构造——内嵌本脚本）
+ * 形态补齐（覆盖面表逐行 × 三态人工构造——内嵌本脚本）
  *
  * 输出：tests/fixtures/guard-write-eval-corpus.json
  *   { generatedAt, sources, samples: [{id, command, expect: "ALLOW"|"BLOCK"|"UNEVAL_UNKNOWN", source, note}] }
  *   expect=ALLOW/BLOCK 是人工裁决的行为期望（对"现行判定链+求值器终态"而言）；
- *   UNEVAL_UNKNOWN 表示预期求值器回落旧链、旧行为即期望（Phase 1 载荷族/动态族）。
+ * UNEVAL_UNKNOWN 表示预期求值器回落旧链、旧行为即期望（载荷族/动态族）。
  *
  * 注意：台账回捞部分需要 db 存在；无 db 时 --skip-ledger 跳过该源（语料量不足 100 时构建脚本退出码 3 提示）。
  */
@@ -39,10 +39,10 @@ function add(command, expect, source, note) {
   samples.push({ id: `c${String(n).padStart(3, "0")}`, command, expect, verdict, source, note: note ?? "" });
 }
 
-// ── S3：形态补齐（覆盖面表 × 三态；每规则至少放行/拦截/回落各一）──
+// ── 形态补齐（覆盖面表 × 三态；每规则至少放行/拦截/回落各一）──
 const WT = "/repo/.otter/worktrees/wt";
 const M = "/repo";
-// F20261009phs2：台账截断载荷族的窄提取全形态锚（commandHead 源上限 120 字符，
+// 台账截断载荷族的窄提取全形态锚（commandHead 源上限 120 字符，
 //  ledger 样本载荷不完整——全形态由合成样本钉死，账本条只测既有截断面行为）
 const LIT = `const fs=require('fs');\nconsole.log(fs.readdirSync('/tmp').length)`; // 只读字面量载荷
 const LIT_REL = `const p='web/src/pages/x.tsx';\nconsole.log(p)`; // 相对路径字面量载荷
@@ -118,7 +118,7 @@ EOF`, "ALLOW", "synthetic", "裸定界体=数据（模型层不递归，#1171 �
 add(`ls -la && git status`, "ALLOW", "synthetic", "纯读空集");
 add(`cd ${WT} && cat f.txt | grep x | wc -l`, "ALLOW", "synthetic", "管道读族");
 
-// ── S1：replay 存量（guard-v2-real-replay 9 例语义搬入；路径用真实主仓形态）──
+// ── replay 存量（guard-v2-real-replay 9 例语义搬入；路径用真实主仓形态）──
 const RT = "/Users/orca/ai/otter-buddy/.otter/worktrees";
 add(`cd ${RT}/invoke-periodic-audit && F=web/src/pages/conversation/index.tsx && cp $F /tmp/bak.tsx`, "UNEVAL_UNKNOWN", "replay-928", "E1 现场：cp $F 动态源——源动态不影响落点判定，cp 落点 /tmp 放行（但 $F 在 words evaluated 为 null → dynamic-path 回落，行为不变）");
 add(`cd ${RT}/capability-entries-bridge && git stash push -- tests/capability/helpers/audit-fixtures.ts`, "ALLOW", "replay-928", "E3 现场");
@@ -126,7 +126,7 @@ add(`cd ${RT}/guard-v2-redesign && git add -A && git commit -F /tmp/commit-p3.tx
 add(`cd ${RT}/guard-v2-redesign && git checkout main -- src/x.ts`, "ALLOW", "replay-928", "checkout 非写族词表：求值器无落点放行=旧行为；shadow 首跑归因后修正");
 add(`cd ${RT}/wx-bridge && rm -rf node_modules/.cache && npm run build`, "ALLOW", "replay-928", "rm/npm 非本层判定（data_destructive 层）；求值器无落点放行=旧行为；shadow 首跑归因后修正");
 
-// ── S2：healing 台账回捞（db 存在时）──
+// ── healing 台账回捞（db 存在时）──
 let ledgerCount = 0;
 if (!args.includes("--skip-ledger") && existsSync(dbPath)) {
   try {
@@ -147,7 +147,7 @@ if (!args.includes("--skip-ledger") && existsSync(dbPath)) {
       if (!head || seen.has(head)) continue;
       seen.add(head);
       // 台账样本只有被拦事实，无期望裁决——期望留人工（verdict 字段），构建期标 UNEVAL_UNKNOWN（回落=旧行为）
-      // 人工裁决流程：跑本脚本后对 verdict=null 样本逐条填 ALLOW/BLOCK（同 #1368 固化纪律）
+      // 人工裁决流程：跑本脚本后对 verdict=null 样本逐条填 ALLOW/BLOCK（同 固化纪律）
       add(head, "UNEVAL_UNKNOWN", "ledger", `台账 ${row.created_at.slice(0, 10)} ruleId=${ctx.ruleId ?? "?"}（期望待人工裁决）`);
       ledgerCount += 1;
     }

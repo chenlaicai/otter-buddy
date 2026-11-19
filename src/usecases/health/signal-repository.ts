@@ -97,7 +97,7 @@ export class SignalRepository {
 
     if (openRow) {
       // UPDATE 分支必须同步刷 evidence_detail + confidence——只刷旧三字段
-      // 会导致存量信号的置信分层永远不更新（合议审读 §3.1）。COALESCE 语义：本次未传
+      // 会导致存量信号的置信分层永远不更新（合议审读）。COALESCE 语义：本次未传
       // 时不覆盖旧值（旧行为调用方不受影响）；窗口滑动重算时传新值覆盖。
       // 审视 severity / suggested_action 同理必须刷——僵尸阶梯是首个
       // 让同一信号 severity 随时间变化的功能（黄档首开→红档推进），不刷则档位冻结、
@@ -134,13 +134,13 @@ export class SignalRepository {
       return this.reopenDismissed(latest, signal, detailJson, now);
     }
 
-    // id 为 INTEGER PRIMARY KEY AUTOINCREMENT（Phase 0 schema 定义），用自增 id 而非 UUID
+    // id 为 INTEGER PRIMARY KEY AUTOINCREMENT（schema 定义），用自增 id 而非 UUID
     return this.insertNew(signal, detailJson, now);
   }
 
   /** dismiss 后同键 re-fire 的 re-open 分支——原行复活（occurrences+1、
    *  last_seen/evidence 刷新，first_seen/created_at 不动），status='open' + resolved_at
-   * 置 NULL 回未接单队列；triage_note 保留作历史痕迹（§6 抹平语义下
+   * 置 NULL 回未接单队列；triage_note 保留作历史痕迹（抹平语义下
    *  dismiss 时 triage_status/issue_number 已置 NULL，re-open 后即「未接单」）。
    * triaged_at 置 NULL：re-open 非归口动作，残留上次归口时间戳会与
    *  「未接单」状态自相矛盾，三字段（triage_status/issue_number/triaged_at）统一归位 */
@@ -174,7 +174,7 @@ export class SignalRepository {
   }
 
   /** INSERT 新行分支（upsert 拆出控行数）——triage 四字段取默认值 NULL
-   * （§3 末：复发新行不继承旧行绑定/note，视为新事件走完整未接单流程） */
+   * （末：复发新行不继承旧行绑定/note，视为新事件走完整未接单流程） */
   private insertNew(signal: UpsertSignal, detailJson: string | null, now: string): SignalRecord {
     const r = this.db
       .prepare(`
@@ -245,9 +245,9 @@ export class SignalRepository {
   }
 
   resolve(id: number, resolvedAt: Date = new Date()): boolean {
-    // §6：auto-resolve/resolve 终态化时同步抹平处置进度字段
+    // auto-resolve/resolve 终态化时同步抹平处置进度字段
     // （triage_status/issue_number 置 NULL，triage_note 保留作历史痕迹）——
-    // 终态覆盖进度，进度只在 open 期内有意义（§6 选项 b 语义）。
+    // 终态覆盖进度，进度只在 open 期内有意义（选项 b 语义）。
     const r = this.db
       .prepare(`UPDATE signals SET status = 'resolved', resolved_at = ?,
         triage_status = NULL, issue_number = NULL
@@ -257,7 +257,7 @@ export class SignalRepository {
   }
 
   dismiss(id: number, resolvedAt: Date = new Date()): boolean {
-    // 抹平语义同 resolve（§6）——dismiss 也是终态化。
+    // 抹平语义同 resolve——dismiss 也是终态化。
     const r = this.db
       .prepare(`UPDATE signals SET status = 'dismissed', resolved_at = ?,
         triage_status = NULL, issue_number = NULL
@@ -267,10 +267,10 @@ export class SignalRepository {
   }
 
   /**
-   * 处置进度写入的唯一入口（§1 写入边界防御声明）。
-   * agent 工具与 HTTP 端点均调用此方法，任何入口不得各自实现 SQL（§2 架构约束 F3）。
+   * 处置进度写入的唯一入口（写入边界防御声明）。
+   * agent 工具与 HTTP 端点均调用此方法，任何入口不得各自实现 SQL（架构约束 F3）。
    *
-   * action 语义（§2 幂等语义表）：
+   * action 语义（幂等语义表）：
    * - bind_issue：triage_status='triaged', issue_number=N, triaged_at=now（覆盖式更新，允许换绑）
    * - in_progress：triage_status='in_progress'（前置须已 bind_issue；幂等跳过）
    * - dismiss：status='dismissed' 终态 + triage_note=note 必写库（note 必填；幂等跳过）

@@ -1,5 +1,5 @@
 /**
- * 信号裁决提醒链路测试（M1：当场处理可见性）。
+ * 信号裁决提醒链路测试（当场处理可见性）。
  *
  * 链路：小獭 speak 用 signal 参数 → persistSignalEvents 落账 + signalAlertRegistry.register
  * → 大獭下一轮 invoke 头部注入（renderSignalAlerts）→ resolve_signal 裁决 → dismiss 注销。

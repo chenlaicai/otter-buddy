@@ -24,7 +24,7 @@ import * as path from "node:path";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
 import { BackgroundStore } from "@usecases/settings/background-store";
 import { BackgroundController } from "@interface-adapters/http/controllers/background-controller";
-/** 多模态 Phase 1（审视修复 /）：注入服务（usecases 层策略） */
+/** 多模态 （审视修复 /）：注入服务（usecases 层策略） */
 import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
@@ -106,9 +106,9 @@ export interface ControllerDeps {
   rhiScanWorker: RhiScanWorker;
   signalRepo: SignalRepository;
   healthSnapshotRepo: HealthSnapshotRepository;
-  /** C4：消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分） */
+  /** 消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分） */
   signalEventRepo: SignalEventRepository;
-  /** 多模态 Phase 1：附件 repo（message-controller vision 读图 + attachment-controller 文件流） */
+  /** 多模态 附件 repo（message-controller vision 读图 + attachment-controller 文件流） */
   attachmentRepo?: AttachmentRepository;
   attachmentStorageRoot?: string;
   /** 微信连接管理：登录会话管理 + 账号 store */
@@ -127,7 +127,7 @@ export interface ControllerDeps {
   provisionWeixinAssistantLine?: (accountId: string, name: string) => Promise<{ conversationId: string; title: string }>;
   /** 通道状态注册表（统一 IM 页 + 真实健康状态） */
   registry?: ChannelStatusRegistry;
-  /** P1：信号路由器（主入口调度收敛；未注入时 MC/ADS/RIS 降级直连链） */
+  /** 信号路由器（主入口调度收敛；未注入时 MC/ADS/RIS 降级直连链） */
   signalRouter?: SignalRouter;
   /** 能力库页面数据源（ResourceLoader 适配器）；缺省时路由返回 503 */
   skillDirectory?: SkillDirectory;
@@ -173,7 +173,7 @@ function buildMahjongController(deps: ControllerDeps, logger: Logger): MahjongCo
       logger,
     }, report),
   });
-  // D2：入座谓词挂接（装配内完成——同 agentDispatchService 先例）——
+  // 入座谓词挂接（装配内完成——同 agentDispatchService 先例）——
   // 对话侧对入座獭自动应答「打牌中」不进 LLM（防局中水位换世打穿牌局上下文）
   deps.agentInvoker.attachMahjongSeatQuery({ isSeated: (otterId: string) => rooms.isSeated(otterId) });
   return new MahjongController(rooms, store, logger);
@@ -184,7 +184,7 @@ function buildChannelController(deps: ControllerDeps) {
   return new ChannelController(deps.registry, deps.weixinAccountStore);
 }
 
-/** T2：KeyInfoController 装配——注入 unfurl 缓存（join 投影）+
+/** KeyInfoController 装配——注入 unfurl 缓存（join 投影）+
  *  登记侧预抓取回调（非阻断包一层异常捕获——抓取失败由 unfurl 控制器落 failed 记录）。 */
 function buildKeyInfoController(
   manageKeyInfo: ManageKeyInfo,
@@ -217,12 +217,12 @@ function buildSettingsConfig(appConfig: AppConfig): SettingsConfig {
     embeddingModelPath: appConfig.embedding.modelPath,
     embeddingLocalModelPath: appConfig.embedding.localModelPath,
     embeddingDim: appConfig.embedding.dimensions,
-    // F20260924wast：浮动獭开关（im.assistant.web.enabled，DI 启动注入；默认 true）
+    // 浮动獭开关（im.assistant.web.enabled，DI 启动注入；默认 true）
     assistantWebEnabled: appConfig.im?.assistant?.web?.enabled !== false,
   };
 }
 
-/** F20260912avlb：活动页控制器（三域台账只读；拆出降 initControllers 行数） */
+/** 活动页控制器（三域台账只读；拆出降 initControllers 行数） */
 function buildActivityController(repos: Repositories, logger: Logger) {
   return new ActivityController(
     repos.healingEvent,
@@ -233,7 +233,7 @@ function buildActivityController(repos: Repositories, logger: Logger) {
   );
 }
 
-/** F20260921imux：微信连接控制器工厂（拆出降 initControllers 复杂度——函数行数限制） */
+/** 微信连接控制器工厂（拆出降 initControllers 复杂度——函数行数限制） */
 function buildWeixinControllerInstance(
   deps: ControllerDeps,
   repos: Repositories,
@@ -245,13 +245,13 @@ function buildWeixinControllerInstance(
     accountStore: deps.weixinAccountStore,
     onAccountDeleted: deps.onWeixinAccountDeleted,
     ...(deps.provisionWeixinAssistantLine && { provisionAssistantLine: deps.provisionWeixinAssistantLine }),
-    // F20260921imux：账号列表投影助理线（repos.connection 直供，只读）
+    // 账号列表投影助理线（repos.connection 直供，只读）
     ...(repos.connection && { connectionRepo: repos.connection }),
     logger,
   });
 }
 
-/** F20260928fsqr：飞书扫码连接控制器装配（会话/store 任缺则 undefined——路由 404 兼容） */
+/** 飞书扫码连接控制器装配（会话/store 任缺则 undefined——路由 404 兼容） */
 function buildFeishuScanControllerInstance(deps: ControllerDeps, repos: Repositories, logger: Logger): FeishuConnectionController | undefined {
   const scan = deps.feishuScan;
   if (!scan?.feishuLoginSessions || !scan.feishuAppStore) return undefined;
@@ -265,7 +265,7 @@ function buildFeishuScanControllerInstance(deps: ControllerDeps, repos: Reposito
   });
 }
 
-/** F20261027hwl1：工作账本 + 模型效率控制器（只读报告）——构建器直接组装，从 initControllers
+/** 工作账本 + 模型效率控制器（只读报告）——构建器直接组装，从 initControllers
  *  拆出（max-lines-per-function 守卫） */
 function buildWorkLedgerController(repos: Repositories, healthSnapshotRepo: HealthSnapshotRepository, logger: Logger): WorkLedgerController {
   return new WorkLedgerController(
@@ -280,20 +280,20 @@ function buildWorkLedgerController(repos: Repositories, healthSnapshotRepo: Heal
 export function initControllers(deps: ControllerDeps, logger: Logger) {
   const { uc, repos, agentInvoker, appConfig, modelPool, settingsRepo, otterConfigProvider, schedulerService, cronParser, dispatchChainEngine, messageBroadcaster, featureRepo, researchRepo, embeddingGateway, processInboundRecruit, inboundApiKey, getBridgeStatus, rhiScanWorker, signalRepo, healthSnapshotRepo, signalEventRepo, signalRouter } = deps;
 
-  /** issue #566：微信连接控制器 */
+  /** 微信连接控制器 */
   const weixinController = buildWeixinControllerInstance(deps, repos, logger);
-  /** F20260928fsqr：飞书扫码连接控制器 */
+  /** 飞书扫码连接控制器 */
   const feishuController = buildFeishuScanControllerInstance(deps, repos, logger);
 
   const settings = buildSettingsConfig(appConfig);
   const nodeFs = new NodeFileSystem();
   const rootDir = process.cwd();
-  /** F20261013csv3 T1：unfurl 预览卡控制器（先建实例——T2 的 keyInfo 装配需引用其预抓取） */
+  /** unfurl 预览卡控制器（先建实例——的 keyInfo 装配需引用其预抓取） */
   const unfurlController = new UnfurlController(logger, repos.unfurlCache);
 
   const mahjongController = buildMahjongController(deps, logger);
 
-  /** 多模态 Phase 1（审视修复 R4/R7）：附件注入服务——校验+真图+document 文本组装均在此（usecases 层策略） */
+  /** 多模态 （审视修复 /）：附件注入服务——校验+真图+document 文本组装均在此（usecases 层策略） */
   const attachmentInjection = buildAttachmentInjection(deps, appConfig, repos, logger);
 
   return {
@@ -308,13 +308,13 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       uc.sendEntry,
       repos.entry,
       repos.invoke,
-      // F20260924wast（S1）：web 助理对话 8h 静默 session 重启检查（HTTP 链补链）
+      // web 助理对话 8h 静默 session 重启检查（HTTP 链补链）
       uc.assistantSession,
       repos.conversation,
     ),
-    // F20260913ctlv 彻底切换：invoke 查询 + 中止 + 重试（自足调度链）
+    // 彻底切换：invoke 查询 + 中止 + 重试（自足调度链）
     invoke: new InvokeController(repos.invoke, logger, agentInvoker, dispatchChainEngine, messageBroadcaster),
-    // F20260913ctlv 切换清扫：entries 时间线只读查询端点（前端历史数据源）
+    // 切换清扫：entries 时间线只读查询端点（前端历史数据源）
     entry: new EntryController(repos.entry, logger, repos.invoke),
     memory: new MemoryController(uc.searchMemory, uc.manageMemory, uc.scanDarkEntries, embeddingGateway, { repo: repos.memory, logger }),
     keyInfo: buildKeyInfoController(uc.manageKeyInfo, logger, repos, unfurlController),
@@ -323,9 +323,9 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
       new BackgroundStore(path.join(rootDir, "data", "backgrounds")), logger,
     ),
     scheduledTask: new ScheduledTaskController(uc.manageScheduledTask, schedulerService, cronParser, logger),
-    // F20261006mtlp P1：待办板只读（matters 表 open 清单——右侧栏第五 tab 数据源）
+    // 待办板只读（matters 表 open 清单——右侧栏第五 tab 数据源）
     matter: new MatterController(repos.matter, logger),
-    // F20261013csv3 T1：链类 unfurl 预览卡——缓存读库 + gh 结构化取数 + pending 三态
+    // 链类 unfurl 预览卡——缓存读库 + gh 结构化取数 + pending 三态
     unfurl: unfurlController,    connection: new ConnectionController(uc.manageConnection, logger),
     health: new HealthController(
       featureRepo, researchRepo, embeddingGateway, nodeFs, rootDir, logger, deps.getEmbeddingHealth,
@@ -339,9 +339,9 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
           logger,
         )
       : new NoopInboundController(),
-    // 多模态 Phase 1：附件端点（上传 + 文件流）。storageRoot 缺省 ./data/attachments；
-    // 审视修复 R10：上传时校验会话存在（隔离语义）
-    // D1 修复：fallback repos.attachment（与上方 MessageController 同模式）——
+    // 多模态 附件端点（上传 + 文件流）。storageRoot 缺省 ./data/attachments；
+    // 审视修复 上传时校验会话存在（隔离语义）
+    // 修复：fallback repos.attachment（与上方 MessageController 同模式）——
     // 此前硬性 `deps.attachmentRepo &&` 条件在装配根未显式传参时恒 false，附件路由生产 404
     attachment: new AttachmentController(
       uc.attachmentUpload,
@@ -352,18 +352,18 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
     ),
     // 工作区文件浏览（只读）——manageWorkspace 可选注入
     workspace: uc.manageWorkspace ? new WorkspaceController(uc.manageWorkspace, logger) : undefined,
-    // 微信连接管理（issue #566）——登录会话管理器注入时挂载
+    // 微信连接管理——登录会话管理器注入时挂载
     weixin: weixinController,
     feishuScan: feishuController,
-    // 通道状态聚合端点（F20260901chun：统一 IM 页 + 真实健康状态）
+    // 通道状态聚合端点（统一 IM 页 + 真实健康状态）
     channel: buildChannelController(deps),
-    // #576（F20260901emps）：能力库真数据源。测试环境（无 ResourceLoader）可省略，路由层优雅降级
+    // 能力库真数据源。测试环境（无 ResourceLoader）可省略，路由层优雅降级
     skills: deps.skillDirectory ? new SkillController(deps.skillDirectory, logger) : undefined,
-    // F20260929scfx：能力库全书三编数据源（卷首心法总纲 + 卷末兵器谱）
+    // 能力库全书三编数据源（卷首心法总纲 + 卷末兵器谱）
     prompts: deps.promptDirectory ? new PromptController(deps.promptDirectory, logger) : undefined,
-    // F20260912avlb：活动页三域台账只读（三 repo + conversation 表 join 在场态）
+    // 活动页三域台账只读（三 repo + conversation 表 join 在场态）
     activity: buildActivityController(repos, logger),
-    // F20261015mjsg：三麻将局 API（可选装配）
+    // 三麻将局 API（可选装配）
     mahjong: mahjongController,
   };
 }

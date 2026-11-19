@@ -32,7 +32,7 @@ export interface CapabilityContext {
 
 export interface BootOptions {
   /**
-   * A3 模型可见内容比对：录音网关地址（http://127.0.0.1:port）。
+   * 模型可见内容比对：录音网关地址（http://127.0.0.1:port）。
    * 提供时 llm 配置整体替换为指向该网关的伪端点（anthropic 协议、假 key）——
    * SDK 真实发请求，网关记录 wire 级请求体并回放脚本化响应。见 model-visible.ts。
    */
@@ -104,7 +104,7 @@ function resolveTestConfig(tmpDir: string): AppConfig {
    *  导致 worker 内 @huggingface/transformers 解析到非生产构建、推理挂起。必须清空。 */
   config.embedding.workerExecArgv = [];
 
-  /** #984：localModelPath 绝对化。capability 会把 cwd chdir 到 tmp 沙箱（防 agent 工具写真仓），
+  /** localModelPath 绝对化。capability 会把 cwd chdir 到 tmp 沙箱（防 agent 工具写真仓），
    *  而 worker 内 transformers.js 的 env.localModelPath 在沙箱 cwd 下解析 —— 相对路径 ./models
    *  在沙箱里不存在，模型加载 fetch failed、embedding 永不 ready。
    *  解析策略与 scripts/download-bge-m3.mjs resolveModelDir 对齐：worktree 场景复用主仓 models。 */
@@ -174,7 +174,7 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "otter-capability-"));
   const config = resolveTestConfig(tmpDir);
 
-  /** A3 录音网关：llm 整体替换为指向网关的伪 anthropic 端点（SDK 全链路照常走） */
+  /** 录音网关：llm 整体替换为指向网关的伪 anthropic 端点（SDK 全链路照常走） */
   if (options.recordingGatewayUrl) {
     config.llm = {
       default: "a3-recorder",
@@ -244,7 +244,7 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
   }
 
   const ready = built;
-  // #1322（F20261016autz）：capability 装配的 app 注入默认身份（否则被鉴权层 401）
+  // capability 装配的 app 注入默认身份（否则被鉴权层 401）
   withIdentity(ready.app);
   return {
     built: ready,

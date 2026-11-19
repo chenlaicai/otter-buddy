@@ -1,5 +1,5 @@
 /**
- * C1：halt 注入链路集成测试（无 LLM）。
+ * halt 注入链路集成测试（无 LLM）。
  *
  * 验证装配而非行为（行为由 halt-core.test.ts 纯函数覆盖）：
  * DefaultResourceLoader 装载 otter-hooks 后——

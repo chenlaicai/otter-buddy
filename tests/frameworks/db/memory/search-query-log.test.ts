@@ -1,5 +1,5 @@
 /**
- * Phase 0：检索埋点集成测试。
+ * 检索埋点集成测试。
  * 覆盖：insert 落表（JSON 字段序列化）、RecordSearchQuery 上下文快照构建
  * （最近 5 条、正序、预览截断）、fire-and-forget 失败不抛。
  */
@@ -34,7 +34,7 @@ afterAll(() => {
 function makeRecorder(contextMessages: Array<{ id: string; body: string }>) {
   const pool = contextMessages.map((m, i) => ({
     id: m.id, senderId: "otter-1", senderType: "otter", body: m.body,
-    sequenceNum: i + 1, // 传入顺序即 seq 序（旧测试数据 m1..m6 按时间正序）
+    sequenceNum: i + 1, // 传入顺序即 seq 序（旧测试数据 ..按时间正序）
   }));
   entryRepo = {
     // 模拟 repo 行为：speak/user 各拉 2N 再由调用方合并排序取最近 N
@@ -93,7 +93,7 @@ describe("RecordSearchQuery.record", () => {
 
     const row = db.prepare("SELECT context_messages, top_entry_ids FROM search_query_logs WHERE conversation_id = ?").get("conv-ctx") as Record<string, string>;
     const ctx = JSON.parse(row.context_messages) as Array<{ id: string; preview: string }>;
-    // 最近 5 条（m2-m6），正序还原
+    // 最近 5 条（-m6），正序还原
     expect(ctx.map((c) => c.id)).toEqual(["m2", "m3", "m4", "m5", "m6"]);
     // 预览截断
     expect(ctx.find((c) => c.id === "m3")!.preview.length).toBe(160);
@@ -116,7 +116,7 @@ describe("RecordSearchQuery.record", () => {
 
     const row = db.prepare("SELECT context_messages FROM search_query_logs WHERE conversation_id = ?").get("conv-exc") as Record<string, string>;
     const ctx = JSON.parse(row.context_messages) as Array<{ id: string }>;
-    // 快照 = 查询发起前的上下文：m1、m2，不含 m-cur
+    // 快照 = 查询发起前的上下文：不含 m-cur
     expect(ctx.map((c) => c.id)).toEqual(["m1", "m2"]);
   });
 

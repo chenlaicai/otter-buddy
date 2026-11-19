@@ -24,7 +24,7 @@ import { SqliteOtterRepository } from "@frameworks/db/otter/sqlite-otter-reposit
 import { SessionLockConflictError } from "@entities/errors";
 
 /** 直接调 _acquirePooled 需自建 epoch 上下文（公共 invoke() 入口
- *  铸造；直接调内部方法的单测模拟该入口职责），否则命中 D3 fail-loud 面。 */
+ * 铸造；直接调内部方法的单测模拟该入口职责），否则命中 fail-loud 面。 */
 let epochSeq = 0;
 function withEpoch<T>(fn: () => Promise<T>): Promise<T> {
   return invokeEpochStorage.run(mintEpoch("test-otter", `test-invoke-${++epochSeq}`), fn);
@@ -33,7 +33,7 @@ function withEpoch<T>(fn: () => Promise<T>): Promise<T> {
 type FakeSession = {
   isStreaming: boolean;
   disposed: boolean;
-  /** F20261014cwsp S7/S9：SDK 同构字段——_buildRuntime 按调用时 this._cwd 重建工具
+  /** /SDK 同构字段——_buildRuntime 按调用时 this._cwd 重建工具
    * （agent-session.js:2910），build 捕获的 cwd 快照是唯一可观测行为面 */
   _cwd: string;
   builtWithCwd: string[];

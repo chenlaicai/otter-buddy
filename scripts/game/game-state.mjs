@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // game-state.mjs — 状态导出工具（原子工具之三）
-// 调 window.__gameState()，JSON 文本 stdout——agent 不靠读代码猜运行时状态（B3）。
+// 调 window.__gameState()，JSON 文本 stdout——agent 不靠读代码猜运行时状态。
 import { chromium } from "playwright";
 import { launchGame, parseCommonArgs, COMMON_HELP } from "./lib/launch.mjs";
 import fs from "node:fs";

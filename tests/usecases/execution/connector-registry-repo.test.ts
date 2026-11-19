@@ -7,7 +7,7 @@ import { createTestDb } from "../../helpers/db";
 import type { Device } from "@entities/execution/device";
 import type { OnlineSession } from "@entities/execution/online-session";
 
-/** （阶段 4 C1）：connector 注册仓库 + Registry 顶替语义。
+/** connector 注册仓库 + Registry 顶替语义。
  *  总闸唯一事实源的三态钉死：配对码原子核销 / 顶替上线 / 幂等下线 / 启动清扫。 */
 
 function deviceFixture(overrides: Partial<Device> = {}): Device {

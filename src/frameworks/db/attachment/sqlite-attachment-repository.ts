@@ -1,5 +1,5 @@
 /**
- * 附件仓储 SQLite 实现（多模态 Phase 1）。
+ * 附件仓储 SQLite 实现（多模态）。
  */
 
 import type Database from "better-sqlite3";

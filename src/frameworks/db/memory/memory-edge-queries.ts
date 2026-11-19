@@ -37,7 +37,7 @@ export function createEdge(
 /**
  * 从某 entry 出发查直接邻居（1 跳）。
  * BFS 的 depth>1 在 GetRelated use case 层循环调此方法。
- * D4: relates-to 自动双向（from OR to）；其余按 direction 单向。
+ * relates-to 自动双向（from OR to）；其余按 direction 单向。
  */
 export function getEdgesByEntry(
   db: Database.Database,
@@ -64,7 +64,7 @@ export function getEdgesByEntry(
   return results;
 }
 
-/** D4: directed 边（produced/references/supersedes）按 direction 单向查 */
+/** directed 边（produced/references/supersedes）按 direction 单向查 */
 function queryDirectedEdges(
   db: Database.Database,
   entryId: string,

@@ -15,12 +15,12 @@ import { RecordingNodeExecutionEnv } from "./recording-node-execution-env";
 
 /**
  * Built-in machine: reuse the existing Node implementations, with no second OS path.
- * （阶段 4 C2）：六动作执行语义抽出 WorkspaceActionExecutor（与 connector
+ * 六动作执行语义抽出 WorkspaceActionExecutor（与 connector
  * 远程共用），本类薄壳化为机器身份（id/name/Env 工厂）+ 委托执行。
  */
 export class LocalExecutionMachine implements ExecutionMachine {
   readonly id = LOCAL_EXECUTION_MACHINE_ID;
-  /** Web 当前执行机投影展示名（阶段 2） */
+  /** Web 当前执行机投影展示名 */
   readonly name = "本机";
 
   private readonly executor: WorkspaceActionExecutor;
@@ -31,7 +31,7 @@ export class LocalExecutionMachine implements ExecutionMachine {
     ledger: ActionLedger | null = null,
     warn?: (message: string, meta?: Record<string, unknown>) => void,
   ) {
-    // 归因注入（C2 闭包收口）：真实 invoke 上下文读取留在中枢 local 侧——
+    // 归因注入（闭包收口）：真实 invoke 上下文读取留在中枢 local 侧——
     // WorkspaceActionExecutor 本体零 agent/contract 依赖（connector 可复用）
     this.executor = new WorkspaceActionExecutor(workspaceGateway, ledger, warn, () => {
       const store = otterInvokeStorage.getStore();

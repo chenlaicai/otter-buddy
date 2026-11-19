@@ -4,12 +4,12 @@ import * as api from '../../../api/client'
 import { showToast } from '../../../components/Toast'
 
 /**
- * P1：待办板数据 hook（只读）。
+ * 待办板数据 hook（只读）。
  * 数据源 = GET /api/conversations/:id/matters（matters 表 open 清单）。
  * 轮询 30s（与 useScheduledTasks 同节奏——板上钉住的事项不需要秒级刷新，
  * 裁决动作走对话直复，獭代迁移后下轮轮询自然反映）。
  *
- * P2：板上按钮裁决动作（act）+ 「+」登记（register）。
+ * 板上按钮裁决动作（act）+ 「+」登记（register）。
  * 架构 = 回执代执行（通道 B，特性文档「按钮挂点架构定案」）：
  * 按钮不新增 HTTP 写端点，而是把搭档意图结构化成一条 html-matter-action
  * 回执消息，经 onRouteToOtter(ownerOtterId) 复用 sendMessage SSE 管线发给
@@ -20,7 +20,7 @@ import { showToast } from '../../../components/Toast'
 /** 板上裁决动作（按钮 → 目标态；to 由按钮声明、獭代执行透传——不让獭自由判映射） */
 export type MatterAction = 'approve' | 'reject' | 'sendback' | 'confirm_close' | 'confirm_sendback' | 'reopen'
 
-/** 动作 → 目标态（§2 矩阵的 partner 专属迁移行） */
+/** 动作 → 目标态（矩阵的 partner 专属迁移行） */
 const ACTION_TO_STATE: Record<MatterAction, string> = {
   /** WAITING_PARTNER → DONE_PENDING_CONFIRM（批准，獭按裁决执行后转待确认） */
   approve: 'DONE_PENDING_CONFIRM',

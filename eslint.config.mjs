@@ -3,19 +3,19 @@ import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 
 /**
- * Clean Architecture layer dependency rules (D30-D42)
+ * Clean Architecture layer dependency rules 
  *
  * Dependency direction (outer -> inner):
  *   frameworks/ -> interface-adapters/ -> usecases/ -> entities/
  *
  * Rules:
- * - entities/: no imports from usecases, interface-adapters, or frameworks (except @frameworks/logger per D39)
- * - usecases/: no imports from interface-adapters or frameworks (except @frameworks/logger per D39)
+ * - entities/: no imports from usecases, interface-adapters, or frameworks (except @frameworks/logger per)
+ * - usecases/: no imports from interface-adapters or frameworks (except @frameworks/logger per)
  * - interface-adapters/: no imports from frameworks
  * - frameworks/: no restrictions (may import from all inner layers)
  * - main.ts: Composition Root, exempt from all layer restrictions
  *
- * Cross-cutting exemption (D39): @frameworks/logger is allowed in entities/ and usecases/.
+ * Cross-cutting exemption : @frameworks/logger is allowed in entities/ and usecases/.
  * Config: @frameworks/config is NOT exempt — must be injected via main.ts.
  */
 
@@ -23,11 +23,11 @@ import reactHooks from "eslint-plugin-react-hooks";
  * Frameworks restricted from inner layers: default-deny（deny-all-except-logger）.
  * 原白名单式列举已失守（metrics/scheduler/feishu 遗漏未被拦截，
  * scheduler-service 曾直接值导入 @frameworks/metrics）。取反为默认全限制，
- * 新增 frameworks 模块自动被覆盖，无需维护清单。D39 豁免仅 logger。
+ * 新增 frameworks 模块自动被覆盖，无需维护清单。豁免仅 logger。
  */
 const restrictedFrameworks = [{
   // deny-all-except-logger-and-repo-root：ESLint 10 的 patterns 对象不支持 allow 例外字段，
-  // 用负向前瞻实现"除 logger / repo-root 外全限制"（D39 豁免 logger；repo-root 豁免见
+  // 用负向前瞻实现"除 logger / repo-root 外全限制"（豁免 logger；repo-root 豁免见
   // /——纯路径常量模块零依赖，usecases 运行时资源定位（prompt 模板/
   // seed 数据）需在不破坏依赖方向的前提下使用，与 logger 豁免同性质）。
   // stock 豁免随 @frameworks/stock 目录整体移除而移除
@@ -123,7 +123,7 @@ export default tseslint.config(
       ]
     }
   },
-  // Layer 1: entities/ — cannot import from any outer layer (except @frameworks/logger per D39)
+  // Layer 1: entities/ — cannot import from any outer layer (except @frameworks/logger per)
   {
     files: ["src/entities/**/*.ts"],
     rules: {
@@ -138,7 +138,7 @@ export default tseslint.config(
       }]
     }
   },
-  // Layer 2: usecases/ — cannot import from interface-adapters or frameworks (except @frameworks/logger per D39)
+  // Layer 2: usecases/ — cannot import from interface-adapters or frameworks (except @frameworks/logger per)
   {
     files: ["src/usecases/**/*.ts"],
     rules: {

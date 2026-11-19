@@ -91,7 +91,7 @@ describe("buildAutoRetryMsg", () => {
     expect(msg).toContain("检查");
   });
 
-  // T2：事故 C 回归——bash_safety 拦截后重试提示必须携带拦截原因与替代路径
+  // 事故 C 回归——bash_safety 拦截后重试提示必须携带拦截原因与替代路径
   it("bash_safety:* 透传拦截原因（不再落到通用兜底文案）", () => {
     const msg = buildAutoRetryMsg('bash_safety:bash 命令包含针对主进程 PID 的终止命令');
     expect(msg).toContain("安全守卫拦截");

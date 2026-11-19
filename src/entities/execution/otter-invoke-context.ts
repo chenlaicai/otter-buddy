@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { OtterPromptConfig } from "@contract/api/otter";
 
 /**
- * （阶段 4 B1 搬家）：per-invoke 上下文自 model-runtime-registry
+ * （搬家）：per-invoke 上下文自 model-runtime-registry
  * 抽出为独立小模块——原位置头部拖 pi-ai/pi-coding-agent 全家桶依赖，而 execution 侧
  * （local-execution-machine / recording-node-execution-env）只用它 getStore() 读
  * invokeId 归因，公共执行器抽包（connector 复用）闭包因此不干净。本模块纯
@@ -13,7 +13,7 @@ import type { OtterPromptConfig } from "@contract/api/otter";
 
 /** per-invoke 上下文，通过 AsyncLocalStorage 传递给 extension handler。 */
 export interface OtterInvokeContext {
-  /** （阶段 3）：当前 invoke id——动作台账归属用。 */
+  /** 当前 invoke id——动作台账归属用。 */
   currentInvokeId?: string;
   /** 当前正在执行的工具调用 id（DurableSession.beforeTool 写入、
    * 下一枚 beforeTool 覆盖）——动作台账按 toolCallId 铸造 actionId。 */
@@ -22,7 +22,7 @@ export interface OtterInvokeContext {
   otterPromptConfig: string | OtterPromptConfig | undefined;
   /** 首次 invoke 的身份前缀（名称/ID/类型/身份文案/模型指南/搭档名）；非首次为空串 */
   identityPrefix: string;
-  /** C1：当前 invoke 的 otterId——tool_call handler 查 halt 标用 */
+  /** 当前 invoke 的 otterId——tool_call handler 查 halt 标用 */
   otterId: string;
   /** per-invoke 幂等标记，避免重复 abort 与重复覆盖退出原因。 */
   haltAbortRequested?: boolean;

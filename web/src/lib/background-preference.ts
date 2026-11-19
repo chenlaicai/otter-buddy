@@ -5,7 +5,7 @@ import { setBackgroundSnapshot } from './background-preference-store'
 export const MAX_BACKGROUND_BYTES = 8 * 1024 * 1024
 const ACCEPTED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 let operationGeneration = 0
-/** A1：取色代际守卫——快速换图/清除时，陈旧 onload 回调不得回写 var（检视獭-impl 建议采纳） */
+/** 取色代际守卫——快速换图/清除时，陈旧 onload 回调不得回写 var（检视獭-impl 建议采纳） */
 let tintGeneration = 0
 
 
@@ -15,7 +15,7 @@ export class BackgroundPreferenceError extends Error {}
 const NEUTRAL_TINT_RGB = '250, 247, 238'
 
 function clearAppliedBackground() {
-  tintGeneration++ // A1：作废所有在途取色回调
+  tintGeneration++ // 作废所有在途取色回调
   const root = document.documentElement
   root.style.removeProperty('--custom-bg-image')
   root.removeAttribute('data-custom-bg')
@@ -44,7 +44,7 @@ function extractDominantTint(url: string, root: HTMLElement, gen: number): void 
     const image = new Image()
     image.onload = () => {
       try {
-        if (gen !== tintGeneration) return // A1：已被后续换图/清除作废，陈旧取色不得回写
+        if (gen !== tintGeneration) return // 已被后续换图/清除作废，陈旧取色不得回写
         if (image.naturalWidth === 0 || image.naturalHeight === 0) return
         const canvas = document.createElement('canvas')
         canvas.width = 8

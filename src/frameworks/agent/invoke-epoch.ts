@@ -7,7 +7,7 @@
  * 随 AsyncLocalStorage 传播，锁/池/寄存器/清理钩子只认 token（对象引用相等）。
  * 双活从「各处各自应对的意外」变「一处定义清楚的语义」。
  *
- * 设计要点（方案 D1/D2，特性文档 docs/features/2026/10/09/ 见 ）：
+ * 设计要点（方案 /特性文档 docs/features/2026/10/09/ 见）：
  * - 纯进程内值对象，不持久化——跨进程「复活」物理不可能（进程死 promise 死），
  * DB 层 pid+bootTs 双判据已兜住跨进程场景（-砍持久化）。
  * - 判定一律用对象引用相等（entry.epoch === alsEpoch），不用任何可比较的
@@ -21,11 +21,11 @@
  * - epoch 必须在锁 acquire（:710）之前可读，故走独立通道早装。
  * - 遮蔽式 run（invoke() 入口判非嵌套后必铸新对象 run）：即使该 store 里
  *   残留可读的外层 epoch 也被遮蔽——「共享 epoch 对象且抢锁」在任何失效
- * 组合（含非对称失效）下不可达，等价性全称成立（-E-1，见特性文档 D4）。
+ * 组合（含非对称失效）下不可达，等价性全称成立（-E-1，见特性文档）。
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 
-/** invoke 世代 token（D2）。判定用对象引用相等，字段仅观测/日志用。 */
+/** invoke 世代 token。判定用对象引用相等，字段仅观测/日志用。 */
 export interface InvokeEpoch {
   readonly invokeId: string;
   readonly mintedAt: number;
@@ -44,7 +44,7 @@ export const invokeEpochStorage = new AsyncLocalStorage<InvokeEpoch>();
 const seqCounters = new Map<string, number>();
 
 /**
- * 铸造新 epoch（D4 铸造点：invoke() 入口、锁 acquire 之前）。
+ * 铸造新 epoch（铸造点：invoke() 入口、锁 acquire 之前）。
  * 每次调用必返回全新对象（冻结）——引用相等判定依赖对象身份唯一性，
  * 禁止任何形式的复用/缓存。
  */

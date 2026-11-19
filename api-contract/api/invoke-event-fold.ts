@@ -4,10 +4,10 @@ export type { InvokeEventDTO } from './invoke'
 
 /**
  * invoke_events 展示层折叠（存储不动，渲染前归并）。
- * T5：迁入 contract 层——前后端共用同一 fold 逻辑（后端批量投影 +
+ * 迁入 contract 层——前后端共用同一 fold 逻辑（后端批量投影 +
  * 前端 SessionModal 展开共用），消除双端漂移面。
  *
- * 配对策略（方案 D 节 + ）：严格顺序遍历 + 同名 FIFO 队列。
+ * 配对策略（+）：严格顺序遍历 + 同名 FIFO 队列。
  * Why FIFO 而非 Map 匹配：tool_result（tool_execution_end 落库）只有 name+result
  * 没有 arguments——无法用 name+arguments 配对；同工具连续调用时纯 name Map 匹配
  * 会把第一个结果配给第二个调用。顺序 FIFO 保证串行执行下配对正确。

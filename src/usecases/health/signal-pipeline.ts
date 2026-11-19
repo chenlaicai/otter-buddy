@@ -3,7 +3,7 @@
  *
  * Signal 产生 →（1）落库 signals 表（upsert occurrences）
  *            →（2）critical 信号写记忆系统（StoreMemory，search_memory 可检索）
- *            →（3）critical 唤醒回调（Phase 1 由调用方注入 create_scheduled_task 桥，本层只留端口）
+ * →（3）critical 唤醒回调（由调用方注入 create_scheduled_task 桥，本层只留端口）
  *
  * 哲学（特性文档）：面板是传感器阵列不是自动驾驶——信号只触发，处置走 skill chain + 搭档终审。
  */

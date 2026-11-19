@@ -14,15 +14,15 @@ import type { RemoteActionRegistry } from "@usecases/ports/remote-action-registr
 import type { ConnectorRegistryRepository } from "@usecases/ports/connector-registry-repository";
 
 /**
- * （阶段 4 C2）：远程执行机——动作经 WSS 通道下发 connector 执行。
+ * 远程执行机——动作经 WSS 通道下发 connector 执行。
  *
- * 总闸三道（方案 v3 §5/）：① online_sessions 表 status=online（唯一事实源直查）
+ * 总闸三道（/）：① online_sessions 表 status=online（唯一事实源直查）
  * + ② Registry 投影可达（本机实例注册即达） + ③ 通道已连接（sendToDevice）。
  * 每次下发：actionId（调用方透传或 `<中枢bootEpoch>-<uuid>` 自铸）先登记
  * remote_action_requests（requested）→ action.request → 等 action.result；
  * 超时/会话下线 → 落 unknown（不盲重试，五态纪律）——落点。
  * createExecutionEnvironment 不支持（SDK 文件/bash 面只在 local 机器；远程工具面
- * 走动作协议——阶段 5/7 语义）。
+ * 走动作协议——/7 语义）。
  */
 export class RemoteExecutionMachine implements ExecutionMachine {
   readonly name: string;

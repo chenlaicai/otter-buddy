@@ -51,10 +51,10 @@ async function listInvokeEvents(ctx: CapabilityContext, invokeId: string): Promi
 }
 
 /** 獭是否 speak 过（等待前交代）
- *  #1198 根因修复：原断言拿「首个 otter speak entry 的 sequenceNum」与「wait 所在 invoke
+ * 根因修复：原断言拿「首个 otter speak entry 的 sequenceNum」与「wait 所在 invoke
  *  的首条 entry（即 invoke_start）的 sequenceNum」比较——但 speak 是 invoke 内的工具调用，
  *  其 entry sequenceNum 恒大于本回合 invoke_start（invoke_start 先落库）。当 speak 与 wait
- *  同属一个回合时，speak@N 恒 > invoke_start@2，anchored 断言结构性恒 false，从 #1126
+ * 同属一个回合时，speak@N 恒 > invoke_start@2，anchored 断言结构性恒 false，从 
  *  建立即红（2/3 timing=anchored speak@3 < wait-invoke@2 即此形态）。
  *  正确锚：wait 所在 invoke 的事件流里，speak 工具调用（assistant_toolcall name=speak）
  *  必须先于 wait 工具调用（tool_execution_start 对两者同发 assistant_toolcall，顺序可判）。

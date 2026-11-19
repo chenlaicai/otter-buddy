@@ -1,5 +1,5 @@
 /**
- * 附件上传管线（多模态 Phase 1，方案 §3.2）。
+ * 附件上传管线（多模态）。
  *
  * 流程：流式读取（Content-Length 预检 + 流式计数）→ MIME 双路径校验 →
  * 图片 sharp resize 2048px 落盘 / 文档直落盘 → sha256（落盘后字节）→
@@ -37,7 +37,7 @@ export interface UploadInput {
   originalName: string;
   /** 客户端声明的 MIME（不可信，服务端双路径校验说了算） */
   declaredMimeType: string;
-  /** 上传者（user 或 otter id；飞书 Phase 2 为 sender 身份） */
+  /** 上传者（user 或 otter id；飞书 为 sender 身份） */
   uploaderId: string;
 }
 

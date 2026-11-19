@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 中枢代码部署脚本（阶段 6a）——从本机把构建产物推上 ECS 并重启服务。
+# 中枢代码部署脚本——从本机把构建产物推上 ECS 并重启服务。
 # 用法：在【本机】仓库根跑 bash deploy/ecs/deploy.sh
 # 传输统一走 .otter/deploy-keys/ecs-ssh.sh（ssh 管道 + 远端 sudo tar 解包）——
 # 单一路径单一身份（admin），不做 rsync 直连双分支。

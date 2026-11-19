@@ -131,7 +131,7 @@ function isNonLogicCarrier(filePath: string): boolean {
   // 修法 c 补全：schema 演进载体——migration.ts/schema.ts 的 N 修 = N 个独立 schema 演进，
   // 被动累加非同一根因反复修（与 types/测试同属「载体噪声」，归因报告 10/23 条盲区中 4 条是它们）
   if (/^(src\/frameworks\/db\/)?(migration|schema)\.[cm]?[jt]s$/i.test(filePath)) return true;
-  // 转发桶（barrel：重导出 .ts/.js）——不含 .tsx/.jsx（delta D1：web/src/pages/*/index.tsx
+  // 转发桶（barrel：重导出 .ts/.js）——不含 .tsx/.jsx（delta web/src/pages/*/index.tsx
   // 是页面主组件不是 barrel，存量最大热点信号 5（11 事件）曾被误静音，回退并加回归锚）
   return /^index\.[cm]?(t|j)s$/i.test(base)
     || /^(platforms|usecases|main)\.[cm]?[jt]s$/i.test(base); // 组装/入口（src 根的组装文件）
@@ -176,8 +176,8 @@ function buildRecurrenceEvidence(
   const prList = [...entry.prs].sort((a, b) => a - b).map(p => `#${p}`);
   const prCount = prList.length;
   const noPrCount = entry.noPrShas.size;
-  // 检视发现 3：三形态各说一次——纯 PR「PR #a, #b」；纯无 PR「N 个无 PR 号 commit」；
-  // 混合「PR #a, #b + M 个无 PR 号 commit」（不再出现「无 PR 号 commit + N 个无 PR 号 commit」冗余）
+  // 三形态各说一次——纯 PR「」；纯无 PR「N 个无 PR 号 commit」；
+  // 混合「+ M 个无 PR 号 commit」（不再出现「无 PR 号 commit + N 个无 PR 号 commit」冗余）
   let eventText: string;
   if (prCount > 0 && noPrCount === 0) {
     eventText = `PR ${prList.join(", ")}`;

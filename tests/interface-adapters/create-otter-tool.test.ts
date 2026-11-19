@@ -41,7 +41,7 @@ function makeCreateOtterTool(options: {
         return { id: "new-otter-id", name: params.name };
       },
     },
-    // F20260821i336：派工台账 mock
+    // 派工台账 mock
     dispatch: {
       createRecord: async () => ({ id: "dispatch-1" }),
       markDispatched: async () => {},

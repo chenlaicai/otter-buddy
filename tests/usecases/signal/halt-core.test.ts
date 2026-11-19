@@ -1,5 +1,5 @@
 /**
- * C1：halt 核心机制单测。
+ * halt 核心机制单测。
  *
  * 覆盖：haltRegistry 状态机（mark → takeForBlock → 持续 block → endInvoke）、
  * haltToolCallGuard（ALS fail-open + block 语义）、buildHaltBlockReason（LLM 注入文本）。

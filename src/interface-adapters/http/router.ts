@@ -43,7 +43,7 @@ export interface RouterPlumbingOptions {
   executionMachines?: {
     list: () => Array<{ id: string; name: string }>;
     currentId: () => string;
-    /** （阶段 5 PR-A）+ M2（检视）：已配对设备全量状态（含离线——
+    /** + （检视）：已配对设备全量状态（含离线——
      *  人要看得见离线设备才能决定切回；缺省退化仅 local——旧装配/测试兼容） */
     deviceStatus?: () => Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
     /** 对话存在性校验（GET 404 口径对齐 PUT——不注入则不校验，测试桩兼容） */
@@ -52,10 +52,10 @@ export interface RouterPlumbingOptions {
     getConversationMachine?: (conversationId: string) => Promise<string | null>;
     /** 对话远程动作状态（执行状态展示） */
     listConversationRemoteActions?: (conversationId: string, limit?: number) => Promise<Array<{ actionId: string; deviceId: string; actionType: string; status: string; error: string | null; createdAt: string; settledAt: string | null }>>;
-    /** （阶段 5 PR-A）：对话级切换（目标校验+写列；缺省 501） */
+    /** 对话级切换（目标校验+写列；缺省 501） */
     setConversationMachine?: (conversationId: string, machineId: string | null) => Promise<{ ok: true } | { ok: false; status: 400 | 404; error: string }>;
   };
-  /** （阶段 4 C1）：connector 配对端点（码即秘密，无登录态） */
+  /** connector 配对端点（码即秘密，无登录态） */
   connectorPair?: ConnectorPairController;
 }
 
@@ -63,7 +63,7 @@ export interface Controllers {
   conversation: ConversationController;
   otter: OtterController;
   message: MessageController;
-  /** Phase 4：invoke 只读查询端点（Session 弹窗数据源） */
+  /** invoke 只读查询端点（Session 弹窗数据源） */
   invoke: InvokeController;
   /** 切换清扫：entries 时间线只读查询端点 */
   entry: EntryController;
@@ -77,7 +77,7 @@ export interface Controllers {
   rhi: RhiController;
   /** 工作账本 + 模型效率（只读报告） */
   workLedger?: WorkLedgerController;
-  /** 多模态 Phase 1：附件端点（上传 + 文件流） */
+  /** 多模态 附件端点（上传 + 文件流） */
   attachment?: AttachmentController;
   /** 工作区文件浏览端点（只读） */
   workspace?: WorkspaceController;
@@ -93,13 +93,13 @@ export interface Controllers {
   prompts?: PromptController;
   /** 活动页三域台账只读端点 */
   activity: ActivityController;
-  /** P1：待办板只读端点（matters 表 open 清单） */
+  /** 待办板只读端点（matters 表 open 清单） */
   matter: MatterController;
-  /** P1：链类 unfurl 预览卡数据端点（og 元数据代理抓取） */
+  /** 链类 unfurl 预览卡数据端点（og 元数据代理抓取） */
   unfurl: UnfurlController;
   /** 三麻将局 API（建房/入座/开局/动作/视图/复盘/SSE/恢复）——可选装配 */
   mahjong?: MahjongController;
-  /** （阶段 4 C1）：connector 配对端点（可选装配——测试不传则无此路由） */
+  /** connector 配对端点（可选装配——测试不传则无此路由） */
   connectorPair?: ConnectorPairController;
   inbound: { optionsEvents: (c: Context) => Response | Promise<Response>; receiveEvents: (c: Context) => Response | Promise<Response>; getStatus: (c: Context) => Response | Promise<Response> };
 }
@@ -108,7 +108,7 @@ export interface Controllers {
 const PROCESS_START_TIME = Date.now();
 
 function registerConvRoutes(app: Hono, c: Controllers): void {
-  // 探活端点（阶段 6a）：无鉴权、零依赖（不碰库/不上游）——systemd ExecStartPost、
+  // 探活端点：无鉴权、零依赖（不碰库/不上游）——systemd ExecStartPost、
   // nginx/部署脚本健康检查、云监控专用；身份策略表置 public（不进会话/业务面）。
   app.get("/api/ping", (ctx) => ctx.json({ ok: true, pid: process.pid, uptimeSec: Math.floor((Date.now() - PROCESS_START_TIME) / 1000) }));
   app.get("/api/conversations", (ctx) => c.conversation.list(ctx));
@@ -125,7 +125,7 @@ function registerMsgRoutes(app: Hono, c: Controllers): void {
   app.post("/api/conversations/:id/messages", (ctx) => c.message.sendMessage(ctx));
   app.get("/api/conversations/:id/unread", (ctx) => c.message.getUnreadState(ctx));
   app.post("/api/conversations/:id/read", (ctx) => c.message.markRead(ctx));
-  // Phase 4：invoke 只读查询（Session 弹窗 + 獭状态面板）
+  // invoke 只读查询（Session 弹窗 + 獭状态面板）
   app.get("/api/conversations/:id/invokes", (ctx) => c.invoke.list(ctx));
   app.get("/api/invokes/:id/events", (ctx) => c.invoke.getEvents(ctx));
   // 彻底切换：invoke 中止/重试（UI 停止与重试按钮唯一后端；messages abort/retry 退役）
@@ -225,12 +225,12 @@ function registerScheduledTaskRoutes(app: Hono, c: Controllers): void {
   app.get("/api/scheduled-tasks/:taskId/executions", (ctx) => c.scheduledTask.listExecutions(ctx));
 }
 
-/** P1：待办板只读端点（matters 表 open 清单） */
+/** 待办板只读端点（matters 表 open 清单） */
 function registerMatterRoutes(app: Hono, c: Controllers): void {
   app.get("/api/conversations/:id/matters", (ctx) => c.matter.listOpenByConversation(ctx));
 }
 
-/** P1：链类 unfurl——GET /api/unfurl?url=，失败 404 前端降级普通链接 */
+/** 链类 unfurl——GET /api/unfurl?url=，失败 404 前端降级普通链接 */
 function registerUnfurlRoutes(app: Hono, c: Controllers): void {
   app.get("/api/unfurl", (ctx) => c.unfurl.get(ctx));
 }
@@ -317,8 +317,8 @@ function registerAuthRoutes(app: Hono, plumbing: RouterPlumbingOptions): void {
 
 /** 执行机端点组（拆出降 registerPlumbingRoutes 复杂度） */
 function registerExecutionMachineRoutes(app: Hono, plumbing: RouterPlumbingOptions): void {
-  // Web 执行机列表：local（Registry 恒在）+ 已配对设备全量（M2：含离线——Registry
-  // 投影下线即注销，离线设备只有 devices 表可见；方案 §2.4「已配对设备含在线状态点」）。
+  // Web 执行机列表：local（Registry 恒在）+ 已配对设备全量（含离线——Registry
+  // 投影下线即注销，离线设备只有 devices 表可见；「已配对设备含在线状态点」）。
   if (plumbing?.executionMachines) {
     app.get("/api/execution-machines", async (ctx) => {
       const currentId = plumbing.executionMachines!.currentId();
@@ -402,7 +402,7 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
 
   /** 对话域鉴权层——身份声明 + 路由策略表 + fail-closed 兑底，
    *  挂在 requestId 之后、所有路由之前（一处覆盖既有与新增端点）。
-   * 阶段 2：注入会话校验器后真实登录 cookie 优先，声明式头/query 回退。 */
+   * 注入会话校验器后真实登录 cookie 优先，声明式头/query 回退。 */
   app.use('*', identityMiddleware(plumbing?.auth?.verifySession));
 
   registerPlumbingRoutes(app, plumbing);
@@ -425,7 +425,7 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
     app.get("/api/channels/status", (ctx) => ctrl.channel!.getStatus(ctx));
   }
 
-  /** 多模态 Phase 1：附件端点（可选装配——未注入时不暴露路由） */
+  /** 多模态 附件端点（可选装配——未注入时不暴露路由） */
   if (ctrl.attachment) {
     app.post("/api/conversations/:id/attachments", (ctx) => ctrl.attachment!.upload(ctx));
     app.get("/api/attachments/:id", (ctx) => ctrl.attachment!.getById(ctx));
@@ -434,14 +434,14 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
   return app;
 }
 
-/** 统一接入 + 执行机投影端点（阶段 2）。拆出以守住 createRouter 行数预算。 */
+/** 统一接入 + 执行机投影端点。拆出以守住 createRouter 行数预算。 */
 function registerPlumbingRoutes(app: Hono, plumbing?: RouterPlumbingOptions): void {
   // 登录/登出已在策略表置 public，session 走 authenticated。
   if (plumbing) registerAuthRoutes(app, plumbing);
 
   if (plumbing) registerExecutionMachineRoutes(app, plumbing);
 
-  // （阶段 4 C1）：connector 配对——码即秘密，不要求登录态（connector 无浏览器）
+  // connector 配对——码即秘密，不要求登录态（connector 无浏览器）
   if (plumbing?.connectorPair) {
     app.post("/api/connector/pair", (ctx) => plumbing.connectorPair!.pair(ctx));
   }

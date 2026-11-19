@@ -159,7 +159,7 @@ export class MetricsRegistry {
     try {
       fs.appendFileSync(filePath, payload, { encoding: "utf-8" });
     } catch (err) {
-      // ENOENT = 目录被外部删除（如误删事故）→ 重建后重试一次，指标不静默丢失（#1039）
+      // ENOENT = 目录被外部删除（如误删事故）→ 重建后重试一次，指标不静默丢失
       if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
         fs.mkdirSync(this.dir, { recursive: true });
         fs.appendFileSync(filePath, payload, { encoding: "utf-8" });

@@ -3,7 +3,7 @@
  *
  * 背景：restoreHandoffContext 曾强写 4 键（含 handoff_open_matters → ctx.openMatters），
  * 但 DynamicContext 接口与渲染函数均无 openMatters 字段——强写后静默丢弃。
- * 且 D8 演进后档案走 session.summary 单点写入，handoff_* 四键在生产无任何写入方（死代码面）。
+ * 且 演进后档案走 session.summary 单点写入，handoff_* 四键在生产无任何写入方（死代码面）。
  * 修法：撤除孤立的 handoff_open_matters 键（openMatters 走 archive 段直传，不借道 otter_context），
  * 并钉死「恢复仅覆盖健在的三借用式键」。
  */

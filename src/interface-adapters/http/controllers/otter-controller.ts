@@ -57,7 +57,7 @@ export class OtterController {
     try {
       const body = await safeJsonBody<CreateOtterRequestDTO>(c);
 
-      /** T1：UI 入口 modelAlias 校验（400 附可用列表，措辞与大獭工具链 tool-factory 一致）。
+      /** UI 入口 modelAlias 校验（400 附可用列表，措辞与大獭工具链 tool-factory 一致）。
        *  未注入 modelPool 时跳过校验（测试/降级场景），usecase 层缺省走默认模型 */
       if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
         const available = this.modelPool.describeModels().map(m => m.alias).join(", ");

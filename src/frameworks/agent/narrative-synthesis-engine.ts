@@ -56,7 +56,7 @@ export function synthesisFullBudgetChars(contextWindowTokens: number): number {
 
 /** 显式合成 max_tokens（与 pi-session-factory 调用侧同值，单一真相源）。
  *  输出实证 ≤2,415 chars ≤ ~1K tokens，prompt 规则 7 自限 ≤2000 tokens。
- * ⚠ 机制缺口（检视 B1，）：durable 运行时按 (provider, modelId) 从 models 源
+ * ⚠ 机制缺口（检视）：durable 运行时按 (provider, modelId) 从 models 源
  *  重解析模型，本副本覆盖到不了线缆——线缆实际走池模板 maxTokens（经
  *  clampMaxTokensToContext 自动收缩），本常量在 durable 时代为副本层目标值，
  * 「输入容量 = 窗口 − max_tokens」的旧断言在 durable 线缆上不成立（待 修复）。
@@ -165,7 +165,7 @@ export interface NarrativeSynthesisInput {
     activeArtifacts?: Array<{ id: string; resourceType: string; title?: string }>;
     recentUserMessages?: string[];
   };
-  /** P1：本对话未闭环 matters 清单（§④ 机械供料——起接入合成原料） */
+  /** 本对话未闭环 matters 清单（§④ 机械供料——起接入合成原料） */
   openMatters?: string;
   /** 当前时间戳（缺省 now） */
   timestamp?: string;

@@ -33,7 +33,7 @@ export function modelRef(model: { provider: string; id: string }): { provider: s
  *  Why：durable Harness 对 models 源的使用面 = getModel/streamSimple/completeSimple/
  *  fetchDeferred/cancelDeferred（pi-durable harness 全量 grep 实证）——模型解析经
  *  getModel(provider, id) 重取（generation.js:138），副本覆盖（maxTokens/thinkingLevelMap）
- * 若不进 models 源就到不了线缆（检视 B1：显式 max_tokens 在
+ * 若不进 models 源就到不了线缆（检视 显式 max_tokens 在
  *  durable 迁移后空转的根因）。
  *  语义：Proxy get 委托底层（函数 bind 到底层对象，auth/凭据/流式链路零改动），
  *  仅 getModel 命中目标 (provider,id) 时返回覆盖副本；不改底层（底层源是 WeakMap

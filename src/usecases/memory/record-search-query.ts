@@ -1,7 +1,7 @@
 /**
  * RecordSearchQuery：检索埋点 use case。
  *
- * Phase 0：search_memory 每次真实调用后记录
+ * search_memory 每次真实调用后记录
  * （查询 + top 命中 + 对话上下文快照），供评估基线标注。
  *
  * 设计约束（方案决策）：

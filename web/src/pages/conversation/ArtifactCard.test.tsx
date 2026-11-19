@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * P1：文类产物摘要卡混排测试。
+ * 文类产物摘要卡混排测试。
  * 锁定行为：①pr/file/fact 类型的 linkedResources 按 createdAt 插到时间轴对应位置；
  * ②fact 卡显示 content 全文（≤500 字）；③file 卡显示首段摘要+展开全文；
  * ④钉住按钮切换高亮状态；⑤非 pr/file/fact 类型（url/worktree/branch）不混排。
@@ -140,7 +140,7 @@ describe('产物卡混排（F20261008csf1）', () => {
   })
 
   it('早于窗口最早消息的产物不显示（分页窗口下界，检视发现 2）', () => {
-    // 模拟分页：首拉最新 2 条（m2/m3），全量产物里 r-old 诞生于 m1 之前（窗口外）
+    // 模拟分页：首拉最新 2 条（/），全量产物里 r-old 诞生于 之前（窗口外）
     renderTimeline(
       [msg('m2', '2026-10-08T10:00:00Z'), msg('m3', '2026-10-08T11:00:00Z')],
       [res('r-old', 'fact', '2026-10-08T08:00:00Z'), res('r-in', 'fact', '2026-10-08T10:30:00Z')],

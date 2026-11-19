@@ -8,10 +8,10 @@ import { unfurlNowIso } from "@frameworks/db/conversation/sqlite-unfurl-cache-re
 import { fetchGithubMeta, parseGithubUrl } from "./github-unfurl";
 
 /**
- * T1：链类 unfurl 预览卡数据端点——「数据先行」架构翻转。
+ * 链类 unfurl 预览卡数据端点——「数据先行」架构翻转。
  *
  * 旧架构：渲染时实时抓取 og + 失败静默退文本（41% 失败率无人察觉）。
- * 本架构（P1 原则）：抓取结果（含失败）落库 unfurl_cache，渲染读库——同一条消息
+ * 本架构（原则）：抓取结果（含失败）落库 unfurl_cache，渲染读库——同一条消息
  * 不再有两种渲染命运；失败是显式状态（source='failed' → 前端失败卡），不静默消失。
  *
  * 三态响应（mimo ——预抓取未完成是常态：渲染毫秒级 vs 抓取秒级）：
@@ -32,7 +32,7 @@ const UNFURL_MAX_BYTES = 512 * 1024;
  *  本系统是本地部署的搭档工具，内网段禁掉不损失真实用途（外部链接预览），但堵掉
  * 「用 unfurl 端点探内网」的滥用面。收紧面：IPv4-mapped（::ffff:10.*
  *  点分与十六进制两形）、ULA（f[cd]xx:）、链路本地（fe[89ab]x:）、十六进制（0x7f000001）
- *  与十进制（2130706433）IPv4。治本（DNS 解析后按 IP 判）见特性文档 P2 项，本层纯收紧。
+ * 与十进制（2130706433）IPv4。治本（DNS 解析后按 IP 判）见特性文档 项，本层纯收紧。
  *  拆四个小函数：段位判定/点分/非点分/IPv6 各自独立可测（eslint complexity 塑形） */
 
 /** 整数 IPv4 是否内网段：127/8、10/8、0/8、172.16-31/12、192.168/16 */
@@ -106,7 +106,7 @@ export interface UnfurlResult {
   state?: string | null;
   /** draft 子态（gh isDraft）——state='OPEN' 且 isDraft 时徽章显示「草稿」 */
   isDraft?: boolean | null;
-  /** github-api 记录的 PR diff stat（T2 产物卡 join 投影数据源） */
+  /** github-api 记录的 PR diff stat（产物卡 join 投影数据源） */
   additions?: number | null;
   deletions?: number | null;
 }

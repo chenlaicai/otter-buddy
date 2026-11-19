@@ -114,6 +114,14 @@ function deleteOneRound(text, violations) {
       merged.push([s, e]);
     }
   }
+  // 合并后再查一次括号吞噬：相邻 token 合并后区间恰好落在括号内，连括号一并删
+  for (const m of merged) {
+    const swallow = swallowEmptyPair(text, m[0], m[1]);
+    if (swallow) {
+      m[0] = swallow.s;
+      m[1] = swallow.e;
+    }
+  }
 
   let result = "";
   let prev = 0;
@@ -144,9 +152,13 @@ function tidyComment(text) {
     .replace(/^(\s*\*)\s+/, "$1 ")
     .replace(/\s+(\*+\/)$/, " $1");
   // 删空后暴露的孤立冒号/顿号（仅限注释引导符后）
-  t = t.replace(/^((?:\/\/!?|#+|\/\*+|\*)\s*)[：:、]\s*/, "$1");
+  t = t.replace(/^(\s*(?:\/\/!?|#+|\/\*+|\*)\s*)[：:、]\s*/, "$1");
+  // 删除编号后残留的「空格+分号」压成单分号（如「多模态 ；终审」→「多模态；终审」）
+  t = t.replace(/\s+；/g, "；");
+  // 删除编号后残留的「空格+闭括号」压紧（如「检视獭 ）」→「检视獭）」）
+  t = t.replace(/\s+）(?!）)/g, "）").replace(/\s+\)(?!\))/g, ")");
   // 双井号编号清单删除后残留的孤立斜杠（仅当后面是空白/中文，不误伤 /tmp 路径）
-  t = t.replace(/^((?:\/\/!?|#+|\/\*+|\*)\s*)\/(?=\s|[\u4e00-\u9fff])/, "$1");
+  t = t.replace(/^(\s*(?:\/\/!?|#+|\/\*+|\*)\s*)\/(?=\s|[\u4e00-\u9fff])/, "$1");
   return t;
 }
 
@@ -213,6 +225,8 @@ function main() {
   const samples = [];
   for (const f of files) {
     if (!isSupportedCodePath(f) || isExcludedPath(f)) continue;
+    // 工具脚本自身的注释里的编号示例是规则说明（元语言），不参与存量清理
+    if (f === "scripts/clean-comment-anchors.mjs" || f === "scripts/check-pr-anchor-discipline.mjs") continue;
     let content;
     try {
       content = readFileSync(`${root}/${f}`, "utf8");

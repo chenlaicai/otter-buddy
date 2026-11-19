@@ -67,7 +67,7 @@ export class ChannelController {
         });
       } else {
         // 无 registry 条目：服务刚重启、轮询未起
-        // F20260901chun 发现11：无 registry 条目 ≠ 配置缺失——区分 not_started（轮询未起）与 no_config（无 config 段且降级失败）
+        // 发现11：无 registry 条目 ≠ 配置缺失——区分 not_started（轮询未起）与 no_config（无 config 段且降级失败）
         channels.push({
           channelId,
           kind: "weixin",
@@ -77,9 +77,9 @@ export class ChannelController {
       }
     }
     
-    // 飞书通道：静态 "feishu" 键已随静态线退役（F20260929fsqr）——不再单查此键；
+    // 飞书通道：静态 "feishu" 键已随静态线退役——不再单查此键；
     // 扫码线统一走下方 feishu-bot: 前缀扫投。
-    // F20260928fsqr：扫码接入线——registry 键 = botKey（feishu-bot:<掩码appId>）多实例。
+    // 扫码接入线——registry 键 = botKey（feishu-bot:<掩码appId>）多实例。
     // kind 带 feishu- 前缀供前端区分实例（前端 find(kind==='feishu') 历史静态线语义已随退役失效）
     for (const [channelId, entry] of registryMap) {
       if (channelId.startsWith("feishu-bot:")) {

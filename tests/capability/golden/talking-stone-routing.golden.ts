@@ -42,7 +42,7 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
     return { ok: false, detail: `大獭未召唤小獭 tools=${JSON.stringify(tools)}` };
   }
 
-  /** 发现 2 修复（+2026-09-02 表路径修正）：按 conversation_participants 过滤。
+  /** （+2026-09-02 表路径修正）：按 conversation_participants 过滤。
    *  原查 conversation_otters（建会话初始名单）——但 create_otter 的 join 链路写
    *  conversation_participants（manage-participant.ts L69），生产路径永不命中旧表，
    *  采样 0/3 稳定 fail；selftest 自插旧表数据故绿灯——构造路径与生产路径分叉。 */

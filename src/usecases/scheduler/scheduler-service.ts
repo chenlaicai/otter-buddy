@@ -2382,7 +2382,7 @@ function latestRegressionVerifyVerdict(comments: Array<{ body?: unknown }>, issu
   return latest;
 }
 
-/** #1779：同 issue 最新 verdict=pass 才排除；查询失败返回 null，调用方 fail-closed。 */
+/** 同 issue 最新 verdict=pass 才排除；查询失败返回 null，调用方 fail-closed。 */
 async function fetchRegressionVerifyResult(issueNumber: number, runGh: RegressionGhRunner): Promise<boolean | null> {
   try {
     const { stdout } = await runGh('gh', [

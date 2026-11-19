@@ -221,7 +221,7 @@ export function findKillSegments(command: string): KillSegment[] {
     }
     // 引号包裹的 bash/sh -c 载荷——外层检测对引号内第二位起的词元失效
     //（右支要求词元紧邻 -c、innerPkill 被引号内 ; 截断），提取载荷递归检测补齐。
-    // （/S3）：逐载荷入结果——hits[0]+break 会让首个良性命中遮蔽后续载荷
+    // （/）：逐载荷入结果——hits[0]+break 会让首个良性命中遮蔽后续载荷
     // 的真实攻击（良性 decoy 漏拦）；判定文本改用载荷级命中段（hit.segment），外层
     // 包装/传参/注释不是 kill 目标语义的一部分（混入致注释命中进程名表、传参变量
     // 命中间接 PID 模式两类误拦）。

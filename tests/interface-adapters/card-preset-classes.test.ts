@@ -21,7 +21,7 @@ describe("卡片预设类库（F20261006cssp）", () => {
   });
 
   it("CSS 内类定义全部进清单（无漏报）", () => {
-    // ⚠️ 边界注记（PR #1318 复核建议 3）：本正则带 `{` 锚，与 contract 侧 CARD_PRESET_CLASS_NAMES 的无锚正则不同源——
+    // ⚠️ 边界注记（复核建议 3）：本正则带 `{` 锚，与 contract 侧 CARD_PRESET_CLASS_NAMES 的无锚正则不同源——
     // 当前清单全为单类规则，两处等价；若未来预设引入伪类/组合选择器规则，两处分叉、本测试红——
     // 届时统一为共享提取函数（见 contract 侧同款注释）
     const cssClasses = [...new Set([...CARD_PRESET_CLASSES_CSS.matchAll(/\.([a-zA-Z][\w-]*)\s*\{/g)].map((m) => m[1]))];
@@ -56,7 +56,7 @@ describe("卡片预设类库（F20261006cssp）", () => {
   });
 
   it("预设色值只用设计 token（var() 引用），不硬编码水獭色阶色值", () => {
-    // 禁止出现 #FAF6F0 等 token 原始色值（应写 var(--otter-50)）；白/红等功能色除外
+    // 禁止出现 等 token 原始色值（应写 var(--otter-50)）；白/红等功能色除外
     const rawHex = CARD_PRESET_CLASSES_CSS.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
     const allowed = new Set(["#fff", "#FFF"]);
     for (const hex of rawHex) {

@@ -56,7 +56,7 @@ export class SqliteResumePendingRepository implements ResumePendingRepository {
   private static readonly MAX_RESUME_ATTEMPTS = 5;
 
   async claimPendingResume(invokeId: string, claim: { token: string; bootEpoch: number; pid: number }): Promise<boolean> {
-    // PR-B：认领绑定 token+epoch（F20261117 检视轮 S3 补 pid）——同 boot 内已认领
+    // 认领绑定 token+epoch（F20261117 检视轮 补 pid）——同 boot 内已认领
     // 拒重认领（boot_epoch = 本次纪元且已有 token = 本 boot 已有持有者）；旧纪元残留可重认领
     // （恢复者自身崩溃不留死锁，服务层预检旧持有者 pid 死活）；attempts 每次认领（含重认领）
     // 自增，上限守卫不放松。

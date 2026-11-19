@@ -4,10 +4,10 @@
  * 覆盖四项修复：
  * 1. §④/§⑥ 机械预取注入（prefetch 参数渲染）
  * 2. meta 行 gen N 谱系代数机械推导
- * 3. §⑤ 优先注入全量 B1-B6 渲染文本（件④一次聚合两用）
+ * 3. §⑤ 优先注入全量 渲染文本（件④一次聚合两用）
  * 4. readOnly 合成自定义工具白名单内容安全
  *
- * 断言策略（D7）：验证输出结构与内容，不绑定实现细节。
+ * 断言策略：验证输出结构与内容，不绑定实现细节。
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -169,7 +169,7 @@ describe("F20260901mbfx §⑤ 全量 B1-B6 注入", () => {
         "## 活状态盘点\n- 发言石：在大獭手中\n- 调度任务：1 个 active\n- 工作区：3 个文件\n- Healing：无 open",
     });
 
-    // B2/B3/B5 内容对合成 LLM 可见（此前只有 B1/B6 结构化数据）
+    // //内容对合成 LLM 可见（此前只有 /结构化数据）
     expect(prompt).toContain("调度任务：1 个 active");
     expect(prompt).toContain("工作区：3 个文件");
     expect(prompt).toContain("Healing：无 open");

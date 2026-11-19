@@ -118,7 +118,7 @@ describe("loadConfig", () => {
     expect(cfg.server.port).toBe(3000);
     expect(cfg.db.path).toBe("./otter-buddy.db");
     expect(cfg.memory.rrfK).toBe(60);
-    // Phase 1 段 1：rerank 配置缺省——multiply（零行为变更）+ 设计系数回填
+    // 段 1：rerank 配置缺省——multiply（零行为变更）+ 设计系数回填
     expect(cfg.memory.rerankMode).toBe("multiply");
     expect(cfg.memory.rerank.wRrf).toBeCloseTo(0.6, 12);
     expect(cfg.memory.rerank.wTime).toBeCloseTo(0.3, 12);

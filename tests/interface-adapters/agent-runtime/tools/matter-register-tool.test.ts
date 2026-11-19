@@ -1,7 +1,7 @@
 /**
- * P2 严重1：register_matter 工具单测（「+」登记入口的执行载体）。
+ * 严重1：register_matter 工具单测（「+」登记入口的执行载体）。
  *
- * 死链背景：P1 只把 RegisterMatter 接在 yield 打标路径（准入路径 1），工具面没注册
+ * 死链背景：只把 RegisterMatter 接在 yield 打标路径（准入路径 1），工具面没注册
  * 登记工具——板上「+」合成登记回执让獭去登记，獭无工具可达 = 登记必丢。本文件锁
  * register_matter 工具的登记语义：title 必填、登记即 OPEN、owner 缺省=登记獭自己。
  */

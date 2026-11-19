@@ -70,8 +70,8 @@ describe("RhiScanWorker 环比骤变（Issue #645）", () => {
     const today = new Date().toISOString().slice(0, 10);
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    // 昨日五维+综合全部 80；今日 fixture 无 bugfix → bugfixRatio=0 → D1 质量成本 100（Δ+20），
-    // 流程合规率 1/1 满分 → D4 流程合规 100（Δ+20）——双维度同时触发，断言锁 D4 文案
+    // 昨日五维+综合全部 80；今日 fixture 无 bugfix → bugfixRatio=0 → 质量成本 100（Δ+20），
+    // 流程合规率 1/1 满分 → 流程合规 100（Δ+20）——双维度同时触发，断言锁 文案
     const prevRows: HealthIndexSnapshot[] = [
       { snapshotDate: yesterday, metricKey: "D1", metricValue: 80 },
       { snapshotDate: yesterday, metricKey: "D2", metricValue: 80 },

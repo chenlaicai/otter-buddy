@@ -195,7 +195,7 @@ describe("工厂层：换世账本与世代文件（M-9af49d4a 回归锁）", ()
     const factory = buildFactory(db, sessionDir, faux.getModel());
     await factory.create(otterId, { systemPrompt: "world-1" } as never);
 
-    // 预置旧世界账本行（指向 jsonl——#1783 前的存量形态）
+    // 预置旧世界账本行（指向 jsonl——前的存量形态）
     const legacyJsonl = path.join(sessionDir, "legacy.jsonl");
     writeFileSync(legacyJsonl, "");
     db.prepare("UPDATE agent_sessions SET session_file = ? WHERE otter_id = ?").run(legacyJsonl, otterId);

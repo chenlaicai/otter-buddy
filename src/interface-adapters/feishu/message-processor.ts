@@ -21,11 +21,11 @@ export interface FeishuIncomingMessage {
   messageId: string;
   /** p2p/group 分流（缺省维持现状——群/未知场景不自动开户） */
   chatType?: "p2p" | "group";
-  /** 多模态 Phase 2：image/file 消息的媒体载荷（文本消息无此字段） */
+  /** 多模态 image/file 消息的媒体载荷（文本消息无此字段） */
   media?: FeishuMediaPayload;
 }
 
-/** 多模态 Phase 2：飞书 ingress 附件处理结果 */
+/** 多模态 飞书 ingress 附件处理结果 */
 interface FeishuAttachmentOutcome {
   /** 走完上传管线的附件 id（随 sendMessage 的 attachmentIds 入库） */
   attachmentIds: string[];
@@ -53,7 +53,7 @@ export class FeishuMessageProcessor {
       feishuUserInfo?: FeishuUserInfoGateway;
       /** 可选注入。命令门禁（方案B）；未注入或未配置时不拦 */
       partnerResolver?: PartnerResolver;
-      /** 多模态 Phase 2：可选注入。未注入时 image/file 消息降级为占位文本（不丢消息） */
+      /** 多模态 可选注入。未注入时 image/file 消息降级为占位文本（不丢消息） */
       feishuResource?: FeishuResourceGateway;
       attachmentUpload?: AttachmentUploadService;
       attachmentInjection?: AttachmentInjectionService;
@@ -151,7 +151,7 @@ export class FeishuMessageProcessor {
     senderId: string,
     text: string,
   ): Promise<void> {
-    // 多模态 Phase 2：媒体消息先走附件管线（降级语义见 processMedia），再入消息库
+    // 多模态 媒体消息先走附件管线（降级语义见 processMedia），再入消息库
     const outcome = msg.media ? await this.processMedia(msg, conversationId, senderId) : { attachmentIds: [] as string[], degradeNote: null };
     const bodyText = this.composeBodyText(text, outcome);
     const attachmentIds = outcome.attachmentIds.length > 0 ? outcome.attachmentIds : undefined;
@@ -182,7 +182,7 @@ export class FeishuMessageProcessor {
     await this.deps.commandDispatcher.dispatch(connectionId, text, chatId);
   }
 
-  /** 多模态 Phase 2：消息体组装——降级提示拼进 body；全降级时占位防空消息 */
+  /** 多模态 消息体组装——降级提示拼进 body；全降级时占位防空消息 */
   private composeBodyText(text: string, outcome: Pick<FeishuAttachmentOutcome, "attachmentIds" | "degradeNote">): string {
     let bodyText = text;
     if (outcome.degradeNote) {

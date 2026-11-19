@@ -1,6 +1,6 @@
 /**
- * 队列治理三件套测试——respawn / 槽位优先级 / 任务优先级 / S3 水位闸门。
- * /在 embedding-service（进程级 mock worker）；/S3 在 embedding-task-queue（纯 SQL）。
+ * 队列治理三件套测试——respawn / 槽位优先级 / 任务优先级 / 水位闸门。
+ * 在 embedding-service（进程级 mock worker）；/在 embedding-task-queue（纯 SQL）。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { EmbeddingServiceImpl } from "../../../src/frameworks/embedding/embedding-service";
@@ -163,7 +163,7 @@ describe("F20261105embqg S2a：槽位优先级唤醒", () => {
         .then(() => wakeOrder.push("live"));
 
       await Promise.all([first, bulk, live]);
-      // live 先完成（P0 插队），bulk 后完成
+      // live 先完成（插队），bulk 后完成
       expect(wakeOrder).toEqual(["live", "bulk"]);
     } finally {
       service.dispose();

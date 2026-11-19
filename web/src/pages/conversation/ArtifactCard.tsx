@@ -4,14 +4,14 @@ import type { LocalLinkedResource } from '../../lib/mappers'
 import { GameEmbedPanel, resolveGameEmbedPath } from './GameEmbedPanel'
 import { Modal } from '../../components/Modal'
 
-/** P1：文类产物摘要卡。
+/** 文类产物摘要卡。
  *
  * 宪法定义：文类 = PR/F-R 文档/报告/fact，中间栏展示形态 = 摘要卡（diff 统计/首段摘要/结论
  * 数字），点击进全文。视觉与消息气泡强区分（边框+底色+类型徽章）——混排可扫读性的来源。
  *
  * 数据源口径（为何 PR 卡只有标题/URL/时间）：
  *  - linked_resources 表对 pr 类型只存 title+url+metadata（无 diff 统计列）——diff/CI 状态
- *    需要额外接 gh API，本期不做（宪法 P1 范围：数据现成）；卡片信息增量 = 类型徽章 + 标题 +
+ * 需要额外接 gh API，本期不做（宪法 范围：数据现成）；卡片信息增量 = 类型徽章 + 标题 +
  *    登记人 + 时间 + 直达链接
  *  - file 类型同（title+url）；fact 类型有 content 本体（≤500 字），摘要卡直接显示全文
  *  - 点击行为：url 存在新窗口打开（「点击进详情」）；无 url 的 fact 展开全文（fact 全文
@@ -26,10 +26,10 @@ const TYPE_BADGES: Record<string, { label: string; icon: typeof FileText; badgeC
   game: { label: '游戏', icon: Gamepad2, badgeClass: 'bg-violet-50 text-violet-600 border-violet-200/60' },
 }
 
-/** T2：file/fact 卡折叠态摘要行最大字符数——content 首行摘要 */
+/** file/fact 卡折叠态摘要行最大字符数——content 首行摘要 */
 const FOLDED_SNIPPET_MAX = 120
 
-/** content 首行摘要：取首个非空行，截断至 FOLDED_SNIPPET_MAX（T2——file 卡折叠态信息增量） */
+/** content 首行摘要：取首个非空行，截断至 FOLDED_SNIPPET_MAX（——file 卡折叠态信息增量） */
 function firstLineSnippet(content: string | null): string | null {
   if (!content) return null
   const firstLine = content.split('\n').map(l => l.trim()).find(l => l.length > 0)
@@ -84,7 +84,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
         </div>
       )
     }
-    // T2：file 卡折叠态摘要行（content 首行摘要）——不再只有标题+URL
+    // file 卡折叠态摘要行（content 首行摘要）——不再只有标题+URL
     const snippet = firstLineSnippet(resource.content)
     if (snippet) {
       return <p className="text-sm text-stone-600 leading-relaxed">{snippet}</p>
@@ -95,7 +95,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
     return null
   })()
 
-  // T2：PR 卡 unfurl join 投影（后端 LinkedResourceDTO.unfurl——diff stat + 状态徽章数据源）
+  // PR 卡 unfurl join 投影（后端 LinkedResourceDTO.unfurl——diff stat + 状态徽章数据源）
   const unfurl = resource.unfurl
 
   return (

@@ -179,7 +179,7 @@ describe("lint-historical-docs --base CI 模式（F20261009hcig，#1281）", () 
 
   it("merge commit 携带 docs 变更（含 evil merge 塞内容）→ 跳过不拦截（实测修正：误报面优先）", () => {
     // 实测发现：本仓 up-to-date gate 强制 PR rebase/merge main，而 main 的 squash 合入会把
-    // .doc-fix 创建/删除对消（两 R099 实证）——「PR merge main」时 merge commit 的
+    // .doc-fix 创建/删除对消（两 实证）——「PR merge main」时 merge commit 的
     // first-parent diff 会把 main 来的变更记入本 PR，若检查则必红。故 merge commit 跳过；
     // 本用例锁定该行为（含 evil merge 形态，取舍见特性文档）。
     const r2 = freshRepo("lint-hist-cibase-evil-");

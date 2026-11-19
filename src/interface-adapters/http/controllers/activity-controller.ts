@@ -20,7 +20,7 @@ import type {
   DispatchRecordDTO, DispatchRecordsResponseDTO,
 } from "@contract/api/activity";
 
-/** healing 事件数百条量级，controller 内存过滤 errorType 安全（方案 Part 2） */
+/** healing 事件数百条量级，controller 内存过滤 errorType 安全 */
 const HEALING_LIST_LIMIT = 500;
 
 export class ActivityController {

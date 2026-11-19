@@ -1,5 +1,5 @@
 /**
- * 命令结构模型测试（D7 第②层：模型结构断言）。
+ * 命令结构模型测试（第②层：模型结构断言）。
  *
  * 锁死「token 流 → 结构模型」的正确性：分段/argv/赋值前缀/重定向/递归载荷/深度控制。
  * 判定层决策表在 bash-safety-guard.test.ts（第③层）。
@@ -127,7 +127,7 @@ describe("command-model 结构模型", () => {
       expect(l2?.model).toBeDefined(); // d=2 仍解析
       const l3 = l2?.model?.payloads.find(p => p.kind === "cmdsub");
       expect(l3).toBeDefined();
-      expect(l3!.model).toBeNull(); // 第三层不再解析（D2）
+      expect(l3!.model).toBeNull(); // 第三层不再解析
     });
     it("裸定界 heredoc 体含展开特征时递归（危险通道）；纯数据体不递归（r1-S2/V1 对齐）", () => {
       // 体含展开（$/反引号）→ 危险通道递归

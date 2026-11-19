@@ -20,14 +20,14 @@ export class AgentDispatchService {
       entryRepo: EntryRepository;
       agentInvokePort: AgentTurnPort;
       logger: Logger;
-      /** P1：信号路由器（可选注入）——注入后 IM 入口走信号路由，
+      /** 信号路由器（可选注入）——注入后 IM 入口走信号路由，
        *  resolveFirstTurnTargets 隐式查询随之停用（四入口勘测硬约束 1：删，不双轨） */
       signalRouter?: SignalRouter;
     },
   ) {}
 
   /** 触发 Agent 派发（用于飞书等非 Web 路径；事件通过 AgentInvoker 内部的 broadcastEvent 统一推送）。
-   *  多模态 Phase 2：injection 为飞书 ingress 附件的注入载荷（与 Web 路径同一份组装策略）——
+   * 多模态 injection 为飞书 ingress 附件的注入载荷（与 Web 路径同一份组装策略）——
    *  documentBlock 拼接在消息文本后（与 message-controller.withDocumentBlock 同语义），
    *  images 走 executeChain 透传到当前任务消息。 */
   async dispatch(input: {
@@ -53,7 +53,7 @@ export class AgentDispatchService {
         return {};
       }
 
-      // P1：IM 入口换轨——信号路由（消息自带 talkingStonePassedTo 是
+      // IM 入口换轨——信号路由（消息自带 talkingStonePassedTo 是
       // 唯一目标真相源）。四入口勘测硬约束 1：resolveFirstTurnTargets 读库最新 user
       // 消息定目标在并发时有竞态，隐式查询必须删而非双轨——注入路由器后旧路径不可达。
       // 多模态收口：带附件消息从此过信号路由器闸门+台账（注入载荷由路由器从 attachments 重建）
@@ -73,7 +73,7 @@ export class AgentDispatchService {
     }
   }
 
-  /** 旧降级路径（路由器未注入时）：读库最新 user 消息定目标——F20260901sgpv P1 已知竞态，随 P2 退役 */
+  /** 旧降级路径（路由器未注入时）：读库最新 user 消息定目标——已知竞态，随 退役 */
   private async dispatchLegacyChain(
     conversationId: string,
     userMessageContent: string,
@@ -86,9 +86,9 @@ export class AgentDispatchService {
       return { error: "无可用的 Otter 参与者" };
     }
 
-    // F20260902sgp2 S1：首 hop 记账用触发消息（与 resolveFirstTurnTargets 同源——
+    // 首 hop 记账用触发消息（与 resolveFirstTurnTargets 同源——
     // 最新 user entry；旧路径已知竞态下两者至少自洽，目标与消息 ID 来自同一次读取）
-    // F20260913ctlv 收尾批1：切 entries（user entry id = 触发锚）
+    // 收尾批1：切 entries（user entry id = 触发锚）
     const triggerEntries = await this.deps.entryRepo.getEntries(conversationId, { entryType: "user", limit: 1 });
 
     let lastMessageId: string | undefined;
@@ -99,7 +99,7 @@ export class AgentDispatchService {
       senderId,
       initialTargets: firstTurnTargets,
       triggerMessageId: triggerEntries[0]?.id,
-      // F20261012swsg（#1430）：来源由 dispatch() 调用方声明透传——合成文本传 system 不进扫描；
+      // 来源由 dispatch() 调用方声明透传——合成文本传 system 不进扫描；
       // 缺省不扫描（漏报方向安全）
       triggerSenderType,
       ...(injection?.images && { images: injection.images }),
@@ -110,7 +110,7 @@ export class AgentDispatchService {
           userMessageContent: params.userMessageContent,
           senderId: params.senderId,
           ...(params.images && { images: params.images }),
-          // F20260922ctxi 检视修复：batchMaxSeq 透传（同款漏传——游标不推进致未读重复注入）
+          // 检视修复：batchMaxSeq 透传（同款漏传——游标不推进致未读重复注入）
           batchMaxSeq: params.batchMaxSeq,
           assignmentRole: params.assignmentRole,
         });

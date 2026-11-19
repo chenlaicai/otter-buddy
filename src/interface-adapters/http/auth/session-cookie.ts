@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 /**
- * 会话 cookie 签名/校验（阶段 2）。
+ * 会话 cookie 签名/校验。
  * 无状态 HMAC-SHA256 签名 cookie：`userId.role.issuedAtMs.maxAgeMs.sig`，
  * secret = 登录口令——轮换登录口令即整体撤销既有会话（单用户部署可接受的撤销语义，
  * 无需服务端会话表；登录失败/登出由客户端清 cookie + 服务端签名过期双保险）。

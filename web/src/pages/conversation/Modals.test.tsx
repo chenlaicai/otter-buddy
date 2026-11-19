@@ -165,7 +165,7 @@ describe('OtterDetailModal 世数链摘要折叠', () => {
     expect(generations.textContent).not.toContain('⚔️')
   })
 
-  // F20260920srbtn：重启獭生对小獭开放，小獭 footer 双按钮（重启+解散），大獭仅重启
+  // 重启獭生对小獭开放，小獭 footer 双按钮（重启+解散），大獭仅重启
   it('小獭 footer：重启獭生与解散小獭双按钮并存（F20260920srbtn）', () => {
     renderDetailModal([
       makeSession({ id: 's1', status: 'active', previousSessionId: null }),
@@ -201,7 +201,7 @@ describe('OtterDetailModal 世数链摘要折叠', () => {
   })
 })
 
-// ═══ F20260827ucrt：CreateOtterModal 重做测试 ═══
+// ═══ CreateOtterModal 重做测试 ═══
 // getSettings 在文件头 vi.mock 工厂中导出，这里 import 后按需 mock 返回值
 import { getSettings } from '../../api/client'
 import { fireEvent } from '@testing-library/react'
@@ -308,8 +308,8 @@ describe('F20260827ucrt CreateOtterModal', () => {
   })
 })
 
-// ═══ F20260909rmpx：RestartModal 模型切换下拉测试 ═══
-// restart 弹窗补 UI 模型选择（后端 restart modelAlias 已在 F20260908efmd 实现，UI 遗漏）
+// ═══ RestartModal 模型切换下拉测试 ═══
+// restart 弹窗补 UI 模型选择（后端 restart modelAlias 已在 实现，UI 遗漏）
 function renderRestartModal(onConfirm: (summary: string, modelAlias?: string) => void, otter?: Partial<Otter>) {
   const noop = () => {}
   const target = { id: 'o1', name: '测试獭', type: 'big', createdAt: '2026-08-25', modelAlias: 'kimi', ...otter } as Otter

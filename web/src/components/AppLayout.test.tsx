@@ -41,7 +41,7 @@ vi.mock('../../api/client', () => ({
   getSettings: vi.fn().mockResolvedValue({ models: [], defaultModelAlias: 'main', userName: '', assistantWebEnabled: true }),
 }))
 
-// 阶段 2：AppLayout 加会话门——本骨架回归不关心登录流程，固定为已登录态直测布局
+// AppLayout 加会话门——本骨架回归不关心登录流程，固定为已登录态直测布局
 vi.mock('../hooks/use-session', () => ({
   useSession: () => ({ state: 'authenticated', login: vi.fn(), logout: vi.fn() }),
 }))

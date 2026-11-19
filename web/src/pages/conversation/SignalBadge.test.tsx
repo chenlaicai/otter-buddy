@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * C4：SignalBadge 徽章测试——三态渲染 + 点击展开 + halt 高亮。
+ * SignalBadge 徽章测试——三态渲染 + 点击展开 + halt 高亮。
  *
- * 母方案 Part 5 验收：pending（橙）→ resolved（绿，显示裁决摘要）/ dismissed（灰，显示理由）；
+ * 母验收：pending（橙）→ resolved（绿，显示裁决摘要）/ dismissed（灰，显示理由）；
  * objection/blocked 常规徽章点击展开 payload；halt 高亮显示「已执行」。
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'

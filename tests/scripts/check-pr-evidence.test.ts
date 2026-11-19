@@ -1,9 +1,9 @@
 /**
- * check-pr-evidence 机械闸可持续测试（S3/整改固化）。
+ * check-pr-evidence 机械闸可持续测试（/整改固化）。
  *
- * 覆盖检视獭-mech 审视 S3（模板原文/TBD/Summary 关键词假绿）与 
+ * 覆盖检视獭-mech 审视 （模板原文/TBD/Summary 关键词假绿）与 
  * （豁免双向错分：运行时 prompt 漏放、README.ts 误放、中文路径 quoting 误伤）的实测用例，
- * 及 good/bad/no-body 主路径与 D1 回归（非文档「纯文档豁免」话术绕过、合法回滚句误杀）。
+ * 及 good/bad/no-body 主路径与 回归（非文档「纯文档豁免」话术绕过、合法回滚句误杀）。
  * 24 个测试用例（24 tests）由 vitest run（npm test）执行，CI test step 即机器锚点。
  */
 import { describe, it, expect } from "vitest";

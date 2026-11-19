@@ -475,7 +475,7 @@ cmd_stop() {
   fi
 
   if is_pid_alive "$pid"; then
-    # 杀伐校验（沿用 otter-buddy.sh T1）：锁文件 PID 必须确实是
+    # 杀伐校验（沿用 otter-buddy.sh）：锁文件 PID 必须确实是
     # 锁定端口的监听者。锁文件指向别的进程时拒杀——宁可让人来裁决。
     # lsof 不可用时跳过校验降级放行（增强闸门不做硬依赖）。
     if command -v lsof >/dev/null 2>&1; then

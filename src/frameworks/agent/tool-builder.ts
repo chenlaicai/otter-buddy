@@ -1,7 +1,7 @@
 /**
  * 工具构建器。
  *
- * 从 PiSessionFactory 拆出（D2 瘦身），职责：
+ * 从 PiSessionFactory 拆出（瘦身），职责：
  * - 将 Otter 工具适配为 pi-coding-agent ToolDefinition 格式
  * - 构建 toolContext
  */
@@ -86,9 +86,9 @@ export interface BuildCustomToolsParams {
   otterConfigProvider?: OtterConfigProvider;
   createTools: (ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger) => AgentTool[];
   healingRepo?: HealingEventRepository;
-  /** C1：signal 工具（halt_otter/query_signals）的仓库 */
+  /** signal 工具（halt_otter/query_signals）的仓库 */
   signalRepo?: SignalEventRepository;
-  /** P1：matter 工具（list_matters/transition_matter）的仓库 */
+  /** matter 工具（list_matters/transition_matter）的仓库 */
   matterRepo?: MatterRepository;
   /** RHI 信号工具（triage_signal/list_rhi_signals）的仓库 */
   rhiSignalRepo?: SignalRepository;
@@ -124,13 +124,13 @@ export interface BuildCustomToolsResult {
 
 /**
  * 将 Otter 工具适配为 pi-coding-agent ToolDefinition 格式。
- * 适配点：label 字段 + execute 透传 signal（M1: 用户中断时工具可检查 signal.aborted 提前返回）。
+ * 适配点：label 字段 + execute 透传 signal（用户中断时工具可检查 signal.aborted 提前返回）。
  * onUpdate/ctx SDK 特有，Otter 工具不需要，忽略。
  */
 export function buildCustomTools(params: BuildCustomToolsParams): BuildCustomToolsResult {
   const { otterId, conversationId, allowedNames, register, otterToolClient, modelPool, otterConfigProvider, createTools, healingRepo, signalRepo, rhiSignalRepo, matterRepo, workLedgerBinder, isOtterRunning, logger, toolExposure, partnerUserId } = params;
-  // C1：signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
-  // P1：matterRepo 同模式挂 ToolContext
+  // signalRepo 挂 ToolContext（tool-factory 从 ctx 读，避免 createTools 参数膨胀）
+  // matterRepo 同模式挂 ToolContext
 
   // 返回 toolContext 引用，供 PiSessionFactory 检查 pendingRestart
   // invoke 级字段 getter 化——闭包捕获 ctx 对象，字段读取时

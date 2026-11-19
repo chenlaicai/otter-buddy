@@ -2,7 +2,7 @@ import { createTestExecutionMachineRegistry } from "../../helpers/execution-mach
 /**
  * ：合成模型覆盖到达线缆——红测。
  *
- * 事故链（检视 B1）：durable 运行时按 (provider, modelId) 从 models 源重解析
+ * 事故链（检视）：durable 运行时按 (provider, modelId) 从 models 源重解析
  * 模型（harness/generation.js:138），durable-session 的 agentChange() 只传
  * {provider, modelId}——合成模型副本上的 maxTokens/thinkingLevelMap 覆盖被丢弃，
  * 线缆实际走池模板值（maxTokens 128000 + 空 thinkingLevelMap）。

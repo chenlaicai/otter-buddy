@@ -76,7 +76,7 @@ export function updateResourceStatus(db: Database.Database, id: string, status: 
 }
 
 /**
- * 受控对账归档审计写入（#1835）。仅由 ManageKeyInfo.archiveResourceForReconciliation
+ * 受控对账归档审计写入。仅由 ManageKeyInfo.archiveResourceForReconciliation
  * 在状态迁移成功后调用；普通 update_artifact_status 路径不写审计列。
  */
 export function updateResourceArchiveAudit(
@@ -121,10 +121,10 @@ export function flagResource(db: Database.Database, id: string, flagged: boolean
   db.prepare("UPDATE linked_resources SET user_flagged = ? WHERE id = ?").run(flagged ? 1 : 0, id);
 }
 
-/** F20260929czi0：进场游标写入。participant.lastReadSeq = 可选进场游标初值，缺省 0。
- *  两种进场场景语义（取代 F20260913ctlv test15 的「进场游标=0=读全部历史」口径——
+/** 进场游标写入。participant.lastReadSeq = 可选进场游标初值，缺省 0。
+ * 两种进场场景语义（取代 test15 的「进场游标=0=读全部历史」口径——
  *  该口径把「未读」零点从进场点挪到对话起点，新獭天生背上全对话未读债，大对话 +
- *  小窗口模型首请求即爆窗；原始拍板追溯见 git 历史与 F20260929czi0）:
+ * 小窗口模型首请求即爆窗；原始拍板追溯见 git 历史与）:
  *  - 新对话初始化（空对话）：缺省 0 天然正确——对话全部历史 = 开场白；
  *  - 加入已有对话（manage-participant.join）：传进场时刻 max(seq)——进场前历史
  *    不是未读，背景供给归派工简报/检索工具，不再按存在灌入。 */
@@ -142,7 +142,7 @@ export function createParticipants(db: Database.Database, participants: Conversa
   if (participants.length === 0) return;
   db.exec("BEGIN");
   try {
-    // F20260929czi0：同 createParticipant——lastReadSeq 为可选进场游标初值（缺省 0）
+    // 同 createParticipant——lastReadSeq 为可选进场游标初值（缺省 0）
     const stmt = db.prepare(`
       INSERT INTO conversation_participants (id, conversation_id, otter_id, status, created_at, last_read_seq)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -183,13 +183,13 @@ export function updateParticipantLeave(
   `).run(leftAt, participantId);
 }
 
-/** F20260902sgp2 S4c：游标 seq 双写（新刻度）。NULL 安全：last_read_seq 列可空，
+/** 游标 seq 双写（新刻度）。NULL 安全：last_read_seq 列可空，
  *  首次写入直接设值；回滚面 = 旧列 last_read_turn_number 未动，读路径按 NULL 回退。 */
-/** #775：seq 刻度存量回填（一次性，停写旧列的前置）。以同会话最大 sequence_num 为
+/** seq 刻度存量回填（一次性，停写旧列的前置）。以同会话最大 sequence_num 为
  *  基线回填 last_read_seq=NULL 的行——「读到最新」是双写过渡期 NULL 行的事实状态
  *  （这些行从未走过新路径，若回填 0 会把全部历史当未读，属 rbsg 形态误判）。
  *  幂等：只更新 NULL 行；回滚面 = 回填值与旧列独立，读路径 NULL 回退逻辑保留。
- *  F20260913ctlv 收尾批3：游标刻度切 entries（entries.sequence_num 是新时间线唯一序列；
+ * 收尾批3：游标刻度切 entries（entries.sequence_num 是新时间线唯一序列；
  *  messages 停写后 MAX(messages.sequence_num) 恒停摆，回填值会错）。 */
 export function backfillLastReadSeq(db: Database.Database): number {
   const result = db.prepare(`
@@ -208,7 +208,7 @@ export function updateLastReadSeq(
   otterId: string,
   seq: number,
 ): void {
-  // F20261014czgd：单调性闸——游标语义上只增不减，拒绝任何小于等于现值的写入
+  // 单调性闸——游标语义上只增不减，拒绝任何小于等于现值的写入
   // （事故实证：batchMaxSeq=0 哨兵经 pushCursorOnStartup 无守卫写入，把游标 2412 覆盖成 0，
   // 下一轮 getUnreadEntries 按 seq>0 把全历史当未读注入爆窗）。
   // NULL 行处理：WHERE 子句的 last_read_seq IS NULL 分支已覆盖（SQLite 标量 max(NULL,x)=NULL 坑已在
@@ -224,7 +224,7 @@ export function updateLastReadSeq(
       "SELECT last_read_seq FROM conversation_participants WHERE conversation_id = ? AND otter_id = ?"
     ).get(conversationId, otterId) as { last_read_seq: number | null } | undefined;
     if (current && current.last_read_seq != null && current.last_read_seq >= seq) {
-      // eslint-disable-next-line no-console -- 仓储层模块级函数无 logger 注入通道（同 schema.ts sqlite-vec 先例）；防御日志有事故溯源价值（F20261014czgd：零日志曾致同类事故全靠推断定位），不能删
+      // eslint-disable-next-line no-console -- 仓储层模块级函数无 logger 注入通道（同 schema.ts sqlite-vec 先例）；防御日志有事故溯源价值（零日志曾致同类事故全靠推断定位），不能删
       console.warn(`[cursor-guard] updateLastReadSeq 单调性拦截：${otterId}@${conversationId} 现值 ${current.last_read_seq} ≥ 写入值 ${seq}，已拒绝`);
     }
   }

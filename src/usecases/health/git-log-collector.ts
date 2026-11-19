@@ -93,11 +93,11 @@ export async function collectGitLogWithFiles(
     maxCount?: number;
     /** 统计基准分支（默认 main）——RHI 语义是“仓库健康”，
      *  不指定 ref 时 git log 取 HEAD，在 feature 分支上运行会得到分支线性历史，
-     *  bugfix 比率等指标不可复现（PR #417 对抗审视发现 2） */
+     * bugfix 比率等指标不可复现（对抗） */
     ref?: string;
   }
 ): Promise<GitCommitWithFiles[]> {
-  // #1869 连带修复：CI 分离检出（actions/checkout ref=<sha>）无本地 main 分支，
+  // 连带修复：CI 分离检出（actions/checkout ref=<sha>）无本地 main 分支，
   // `git log main` 报 ambiguous argument。按序回退 main → origin/main → HEAD，
   // 首个可解析者生效；main 仍在时行为不变（可复现指标不受影响）。
   const refs = options?.ref ? [options.ref] : ["main", "origin/main", "HEAD"];

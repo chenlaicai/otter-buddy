@@ -78,7 +78,7 @@ describe("api.js × 真实 Hono 路由", () => {
   it("建房 → join 私有视图 → 观战全览 → 动作注入逐字透传 → 复盘帧链", async () => {
     const created = await api.createRoom({ roomId: ROOM, seed: "client-seed", players: PLAYERS });
     expect(created.roomId).toBe(ROOM);
-    expect(created.status).toBe("waiting"); // F20261022mjls：建房开等待房
+    expect(created.status).toBe("waiting"); // 建房开等待房
     expect(created.seed).toBe("client-seed");
     // 开始：waiting→playing 发牌起跑
     const began = await api.start(ROOM);
@@ -127,7 +127,7 @@ describe("api.js × 真实 Hono 路由", () => {
   }
   it("#1532 api.chat 回话封装：POST /chat → {accepted:true, seat}", async () => {
     await api.createRoom({ roomId: ROOM, seed: "chat-seed", players: PLAYERS });
-    await api.start(ROOM); // F20261022mjls：waiting 房 chat 会 409，先开局
+    await api.start(ROOM); // waiting 房 chat 会 409，先开局
     const res = (await api.chat(ROOM, 1, "在吗")) as Record<string, any>;
     expect(res.accepted).toBe(true);
     expect(res.seat).toBe(1);
@@ -285,7 +285,7 @@ describe("真 SSE 端点桥接（hello/game/human-wait）", () => {
         headers: { "Content-Type": "application/json" },
         body: "{}",
       }),
-    ); // F20261022mjls：建房开等待房，先开局才有 game/human-wait 推送
+    ); // 建房开等待房，先开局才有 game/human-wait 推送
 
     const frames: any[] = [];
     const statuses: string[] = [];
@@ -379,7 +379,7 @@ describe("真 SSE 端点桥接（hello/game/human-wait）", () => {
     expect(waitFrame.roomId).toBe(ROOM);
     expect(Number.isNaN(new Date(waitFrame.deadline).getTime())).toBe(false);
 
-    // ④ 真人回话 → chat 帧（含 from/name——#1532 页面回显与观战端同流的字段基础）
+    // ④ 真人回话 → chat 帧（含 from/name——页面回显与观战端同流的字段基础）
     await api.chat(ROOM, 1, "测试回话");
     await waitUntil(() => frames.some((f) => f.type === "chat"), 3000, "chat 帧");
     const chatFrame = frames.find((f) => f.type === "chat");

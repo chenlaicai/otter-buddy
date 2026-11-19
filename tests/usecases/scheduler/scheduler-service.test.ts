@@ -294,14 +294,14 @@ function createMockEntryRepo() {
       if (idx === -1) return [];
       return all.slice(idx + 1, idx + 1 + count);
     }),
-    // #1510 对账分级：按 entryType 过滤（DESC）——空 messageId 执行回找 scheduler 系统锚点用
+    // 对账分级：按 entryType 过滤（DESC）——空 messageId 执行回找 scheduler 系统锚点用
     getEntries: vi.fn(async (conversationId: string, options?: { entryType?: string; limit?: number }) => {
       const filtered = [...entries.values()].filter(e =>
         (!options?.entryType || e.entryType === options.entryType),
       ).reverse();
       return filtered.slice(0, options?.limit ?? 50);
     }),
-    // #1510 对账分级：senderName + since 后最早一条 system entry（Map 插入序=ASC）
+    // 对账分级：senderName + since 后最早一条 system entry（Map 插入序=ASC）
     getFirstSystemEntrySince: vi.fn(async (conversationId: string, senderName: string, sinceIso: string) => {
       const all = [...entries.values()].filter(e =>
         e.entryType === 'system' && e.senderName === senderName && (e.createdAt ?? '') >= sinceIso,
@@ -334,13 +334,13 @@ function createMockCronParser(nextTime: Date, prevTime?: Date | null) {
   const state = { prevTime: prevTime ?? null };
   return {
     _callCount: callCount,
-    /** #823 测试可变窗口：运行时对账用例需要在 start() 后推进 prevDue */
+    /** 测试可变窗口：运行时对账用例需要在 start() 后推进 prevDue */
     set prevDue(v: Date | null) { state.prevTime = v; },
     getNextTime: vi.fn(() => {
       callCount.value++;
       return nextTime;
     }),
-    // #814：调度完整性对账（可选——undefined 表示不支持，start() 跳过对账）
+    // 调度完整性对账（可选——undefined 表示不支持，start() 跳过对账）
     ...(prevTime !== undefined ? { getPrevTime: vi.fn(() => state.prevTime) } : {}),
   };
 }
@@ -459,7 +459,7 @@ describe('SchedulerService - start/stop', () => {
 
       await service.start();
 
-      // #247 修复：24h 截断后只重新调度，不触发任务
+      // 修复：24h 截断后只重新调度，不触发任务
       // 推进 23 小时：不应触发（delay 被 cap 到 24h）
       await vi.advanceTimersByTimeAsync(23 * 60 * 60 * 1000);
       expect(taskRepo._executions.size).toBe(0);
@@ -720,7 +720,7 @@ describe('SchedulerService - trigger', () => {
       expect(err).toBeInstanceOf(DomainError);
       expect(err.kind).toBe('validation');
 
-      // #1208：claim 被拒（抢占失败）落 skipped execution 行——触发事实可见
+      // claim 被拒（抢占失败）落 skipped execution 行——触发事实可见
       expect(taskRepo._executions.size).toBe(1);
       expect(Array.from(taskRepo._executions.values())[0].status).toBe('skipped');
 
@@ -762,7 +762,7 @@ describe('SchedulerService - trigger', () => {
       expect(taskRepo._statusUpdates).toHaveLength(1);
       expect(taskRepo._statusUpdates[0]).toEqual({ id: 'task-1', status: 'disabled' });
 
-      // 对话不存在 → 任务已 disable，不落 skipped execution（#1208 排除项：任务已停，落账无意义）
+      // 对话不存在 → 任务已 disable，不落 skipped execution（排除项：任务已停，落账无意义）
       expect(taskRepo._executions.size).toBe(0);
     });
 
@@ -798,7 +798,7 @@ describe('SchedulerService - trigger', () => {
       expect(taskRepo._statusUpdates).toHaveLength(1);
       expect(taskRepo._statusUpdates[0]).toEqual({ id: 'task-1', status: 'disabled' });
 
-      // 对话非 active → 任务已 disable，不落 skipped execution（#1208 排除项同上）
+      // 对话非 active → 任务已 disable，不落 skipped execution（排除项同上）
       expect(taskRepo._executions.size).toBe(0);
     });
   });
@@ -954,7 +954,7 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
       lastTriggeredAt: new Date(Date.now() - 24 * 3600_000).toISOString(),
     } as never));
     convRepo._addConversation('conv-1', { status: 'active' });
-    // createExecution 炸点模拟（#912 修复前的 FK 现场同构）：INSERT 抛 SqliteError 型异常
+    // createExecution 炸点模拟（修复前的 FK 现场同构）：INSERT 抛 SqliteError 型异常
     const original = taskRepo.createExecution;
     (taskRepo as Record<string, unknown>).createExecution = vi.fn(async () => {
       throw new Error('SqliteError: no such table: main.messages');
@@ -978,13 +978,13 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
     const healingRepo = makeHealingRepo();
     const { service } = makePreExecService(healingRepo);
 
-    // start 不 rethrow（tick 内 logger.error 消化——这正是 #913 静默问题的形态）；
+    // start 不 rethrow（tick 内 logger.error 消化——这正是 静默问题的形态）；
     // 等待 tick 微任务链完成后再断言 healing
     await service.start();
     await new Promise(r => setTimeout(r, 50));
     service.stop();
 
-    // 核心断言：前置炸点落 healing（#913 修复前为零痕迹）。mock cronParser 无间隔控制，
+    // 核心断言：前置炸点落 healing（修复前为零痕迹）。mock cronParser 无间隔控制，
     // 50ms 窗口内 tick 多轮触发多份（每轮独立落账，生产场景由真实 cron 间隔自然隔开）——
     // 断言「存在且全部为前置炸点形态」而非条数
     const preEvents = healingRepo._events.filter(ev => (ev.context as Record<string, unknown>)?.stage === 'pre-execution');
@@ -998,7 +998,7 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
   });
 
   it('claim 被拒（running execution 存在）→ 正常跳过，不落前置 healing', async () => {
-    vi.useFakeTimers(); // #1208：隔离轮询 tick，只验证 service.start() 对账行为
+    vi.useFakeTimers(); // 隔离轮询 tick，只验证 service.start() 对账行为
     try {
       const healingRepo = makeHealingRepo();
       const taskRepo = createMockTaskRepo();
@@ -1038,7 +1038,7 @@ describe('#913: catch-up 前置阶段炸点落 healing（claim 后 execution 建
   });
 });
 
-// #929 边界系列公共 helper（模块级，避免 describe 回调超 max-lines）：按 offsetMs 构造 lastTriggeredAt 跑一轮对账，返回落账事件数
+// 边界系列公共 helper（模块级，避免 describe 回调超 max-lines）：按 offsetMs 构造 lastTriggeredAt 跑一轮对账，返回落账事件数
 async function runReconcileEdge(prevDue: Date, offsetMs: number): Promise<number> {
   const taskRepo = createMockTaskRepo();
   const convRepo = createMockConvRepo();
@@ -1681,13 +1681,13 @@ describe('SchedulerService - once 任务调度', () => {
       await Promise.resolve();
 
       // 验证：任务标记 error（而非 disabled）
-      // #246 修复后：所有重试均执行，由 triggerOnceWithRetry 标记 error
+      // 修复后：所有重试均执行，由 triggerOnceWithRetry 标记 error
       expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
       expect(taskRepo._statusUpdates.some(u => u.status === 'disabled')).toBe(false);
     });
 
     it("#251 resetConsecutiveFailures 失败不覆写已 completed 的 execution", async () => {
-      // #251: completeExecution 之后 resetConsecutiveFailures 抛 DB 错时，
+      // completeExecution 之后 resetConsecutiveFailures 抛 DB 错时，
       // 不应走 handleExecutionFailure 覆写已 completed 的 execution record。
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
@@ -1722,7 +1722,7 @@ describe('SchedulerService - once 任务调度', () => {
       expect(execution).toBeTruthy();
       expect(execution!.status).toBe('completed');
 
-      // #251 核心验证：trigger 成功返回且 execution 为 completed，
+      // 核心验证：trigger 成功返回且 execution 为 completed，
       // 说明 resetConsecutiveFailures 的错误被吞掉，不影响成功语义。
     });
   });
@@ -1886,7 +1886,7 @@ describe('SchedulerService - restartBeforeInvoke', () => {
   });
 });
 
-// ─── F20261021sprx：忙时待执行列表（取代 #1471 互斥 skip 守卫） ─────────
+// ─── 忙时待执行列表（取代 互斥 skip 守卫） ─────────
 
 describe('SchedulerService - F20261021sprx 忙时待执行列表', () => {
   beforeEach(() => {
@@ -2045,7 +2045,7 @@ describe('SchedulerService - F20261021sprx 忙时待执行列表', () => {
   });
 });
 
-// ─── #332: 链外 invoke 路径走 DispatchChainEngine 续跑发言链 ────────────
+// ─── 链外 invoke 路径走 DispatchChainEngine 续跑发言链 ────────────
 
 describe('#332: dispatchChainEngine 注入后 invokeAgentWithTimeout 走链引擎', () => {
   function createMockDispatchChainEngine() {
@@ -2196,7 +2196,7 @@ describe('#332: dispatchChainEngine 注入后 invokeAgentWithTimeout 走链引�
   });
 });
 
-// ─── #516/#517: 链看门狗 + 记账校验 + error 通知 ────────────────────
+// ─── /链看门狗 + 记账校验 + error 通知 ────────────────────
 
 describe('#516: 任务级超时配置（timeoutMinutes）', () => {
   it('create 时 timeoutMinutes 传入并持久化，校验非法值抛 DomainError', async () => {
@@ -2244,9 +2244,9 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       await vi.advanceTimersByTimeAsync(61_000);
       const err = await errPromise;
 
-      // #1048 语义调整（断言随之更新，理由入 F20261020wgrt 特性文档「对旧特性的改动」）：
+      // 语义调整（断言随之更新，理由入 特性文档「对旧特性的改动」）：
       // 静默判死从「任务失败（failed + 计熔断）」改为「看门狗放弃（skipped 不计熔断）」——
-      // 判死=主动停止等待≠任务失败，防误杀被 3 连败熔断放大成静默停跑（#516 教训）。
+      // 判死=主动停止等待≠任务失败，防误杀被 3 连败熔断放大成静默停跑（教训）。
       expect(err).toBeInstanceOf(WatchdogAbandonedError);
       expect(err.message).toContain('看门狗放弃');
     } finally {
@@ -2275,7 +2275,7 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       taskRepo._store.set(task.id, task);
       convRepo._addConversation('conv-1', { status: 'active' });
 
-      // 每次探测都返回一条新 entry（链活跃；F20260913ctlv 批2 切 entries）
+      // 每次探测都返回一条新 entry（链活跃；批2 切 entries）
       const activeEntry = {
         id: 'e-new', senderId: 'otter-1', entryType: 'speak', body: '产出',
         yieldTargets: null, metadata: null,
@@ -2303,7 +2303,7 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       expect(result.executionId).toBeTruthy();
       const execution = taskRepo._executions.get(result.executionId);
       expect(execution!.status).toBe('completed');
-      // 至少 3 次活性探测都被续期（F20260913ctlv 批2：探测数据源 = entries）
+      // 至少 3 次活性探测都被续期（批2：探测数据源 = entries）
       expect((entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(3);
     } finally {
       vi.useRealTimers();
@@ -2331,7 +2331,7 @@ describe('#516: 任务级超时配置（timeoutMinutes）', () => {
       taskRepo._store.set(task.id, task);
       convRepo._addConversation('conv-1', { status: 'active' });
 
-      // 链 settle 后活性探测才返回（无新 entry）——模拟探测 async 空隙内链 settle（F20260913ctlv 批2 切 entries）
+      // 链 settle 后活性探测才返回（无新 entry）——模拟探测 async 空隙内链 settle（批2 切 entries）
       (entryRepo.getEntriesAfter as ReturnType<typeof vi.fn>).mockImplementation(
         async () => await new Promise<Array<never>>(resolve => {
           resolveChain({ otterReply: 'settled while probing' });
@@ -2517,7 +2517,7 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
     convRepo._addConversation('conv-1', { status: 'active' });
 
     // 锚点后有一条 failed 的 invoke_end entry（invoke 失败现场：锁超时 → invoke failed，但链 resolve；
-    // F20260913ctlv 批2 切 entries——invoke 终态记 metadata.invokeStatus）
+    // 批2 切 entries——invoke 终态记 metadata.invokeStatus）
     const failedEntry = {
       id: 'e-failed', senderId: null, entryType: 'invoke_end', body: '🦦 小獭行动失败：Lock acquire timeout',
       yieldTargets: null, metadata: { invokeStatus: 'failed' },
@@ -2633,7 +2633,7 @@ describe('#517: invoke 失败时 execution 不得记 completed', () => {
     convRepo._addConversation('conv-1', { status: 'active' });
 
     // 第 1 页 100 条全部正常产出，第 2 页第 101 条是 failed 的 invoke_end entry
-    // 旧实现单页 limit=100 会漏检，分页修复后应检出（F20260913ctlv 批2 切 entries）
+    // 旧实现单页 limit=100 会漏检，分页修复后应检出（批2 切 entries）
     const okEntries = Array.from({ length: 100 }, (_, i) => ({
       id: `e-ok-${i}`, senderId: 'otter-1', entryType: 'speak', body: '产出',
       yieldTargets: null, metadata: null,
@@ -2723,19 +2723,19 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
 
     // 第 3 次失败后：status=error
     expect(taskRepo._statusUpdates.some(u => u.status === 'error')).toBe(true);
-    // 系统条目已注入任务所属对话（含任务名与停跑提示；F20260913ctlv 批2 切 entries）
+    // 系统条目已注入任务所属对话（含任务名与停跑提示；批2 切 entries）
     const sysCalls = (sendEntry.createSystemEntry as ReturnType<typeof vi.fn>).mock.calls;
     const notifyCall = sysCalls.find(c => typeof c[0]?.body === 'string' && c[0].body.includes('[定时任务错误]'));
     expect(notifyCall).toBeTruthy();
     expect(notifyCall![0].conversationId).toBe('conv-1');
     expect(notifyCall![0].body).toContain('每日问候');
-    // healing event 已落：#754 起单次失败即落 medium + 熔断停跑落 high（共 4 条）
+    // healing event 已落：起单次失败即落 medium + 熔断停跑落 high（共 4 条）
     expect(healingEvents.length).toBe(4);
     const errorEvent = healingEvents.find(e => e.severity === 'high')!;
     expect(errorEvent).toBeTruthy();
     expect(errorEvent.status).toBe('open');
     expect(errorEvent.context).toMatchObject({ taskId: 'task-notify' });
-    // #754：单次失败事件（medium，含 executionId 与完整错误文本）
+    // 单次失败事件（medium，含 executionId 与完整错误文本）
     const singleFailures = healingEvents.filter(e => e.severity === 'medium');
     expect(singleFailures.length).toBe(3);
     expect((singleFailures[0]!.context as Record<string, unknown>).executionError).toBeTruthy();
@@ -2777,7 +2777,7 @@ describe('#516: 任务进入 error 状态时落通知（消灭静默死亡）', 
   });
 });
 
-// ─── #640: 轮询补触发测试 ─────────────────────────────────────
+// ─── 轮询补触发测试 ─────────────────────────────────────
 
 describe('#640: 轮询补触发（tick polling catch-up）', () => {
   beforeEach(() => {
@@ -2872,7 +2872,7 @@ describe('#640: 轮询补触发（tick polling catch-up）', () => {
   });
 });
 
-// ─── #1272: 停机/冻结补偿触发风暴防护 ─────────────────────
+// ─── 停机/冻结补偿触发风暴防护 ─────────────────────
 
 describe('#1272: 补偿触发风暴防护（catch-up storm guard）', () => {
   beforeEach(() => {
@@ -3026,7 +3026,7 @@ describe('#1272: 补偿触发风暴防护（catch-up storm guard）', () => {
   });
 });
 
-// ─── #641: claim 前检查 running execution 测试 ─────────────────
+// ─── claim 前检查 running execution 测试 ─────────────────
 
 describe('#641: claim 前检查 running execution', () => {
   beforeEach(() => {
@@ -3128,7 +3128,7 @@ describe('#641: claim 前检查 running execution', () => {
   });
 });
 
-// ─── #642: 链看门狗 429 判死测试 ─────────────────────────────
+// ─── 链看门狗 429 判死测试 ─────────────────────────────
 
 describe('#642: 链看门狗 429 判死', () => {
   beforeEach(() => {
@@ -3154,7 +3154,7 @@ describe('#642: 链看门狗 429 判死', () => {
     taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
     convRepo._addConversation('conv-1', { status: 'active' });
 
-    // 模拟锚点后 entries 全部含 429 特征（F20260913ctlv 批2 切 entries：判据 = body 文本）
+    // 模拟锚点后 entries 全部含 429 特征（批2 切 entries：判据 = body 文本）
     const rateLimitEntries = [
       { id: 'e-3', senderId: 'otter-1', entryType: 'invoke_end', body: 'Error 429: Too Many Requests', yieldTargets: null, metadata: null },
       { id: 'e-2', senderId: 'otter-1', entryType: 'invoke_end', body: 'rate limit exceeded, retrying...', yieldTargets: null, metadata: null },
@@ -3226,7 +3226,7 @@ describe('#642: 链看门狗 429 判死', () => {
     taskRepo._store.set('task-1', makeTask({ id: 'task-1', conversationId: 'conv-1' }));
     convRepo._addConversation('conv-1', { status: 'active' });
 
-    // F20260913ctlv 批2 切 entries：getEntriesAfter(count=3) 取锚点后最近 entries
+    // 批2 切 entries：getEntriesAfter(count=3) 取锚点后最近 entries
     //（实现取 slice(-3) 尾部——语义等同旧 DESC 取最新；本用例构造 >3 条，尾部全 429）
     const mixedEntries = [
       { id: 'e-1', senderId: 'otter-1', entryType: 'speak', body: 'Starting task...', yieldTargets: null, metadata: null },
@@ -3254,7 +3254,7 @@ describe('#642: 链看门狗 429 判死', () => {
   });
 });
 
-// ─── #654: session 锁冲突 → skipped 记账测试 ─────────────────────
+// ─── session 锁冲突 → skipped 记账测试 ─────────────────────
 
 describe('#654: session 锁冲突记 skipped（非 failed），不计 consecutiveFailures', () => {
   beforeEach(() => {
@@ -3390,7 +3390,7 @@ describe('#654: session 锁冲突记 skipped（非 failed），不计 consecutiv
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// #775 S4a：scheduler 换轨（routeDirectSignal 直投 + 执行级台账看门狗 + 闸门 skipped）
+// scheduler 换轨（routeDirectSignal 直投 + 执行级台账看门狗 + 闸门 skipped）
 // ─────────────────────────────────────────────────────────────────────────────
 describe('#775 S4a: scheduler 换轨', () => {
   function makeSwappedService(opts: {
@@ -3555,7 +3555,7 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
 
   it('#949：reconcileMissedWindowsNow（巡检单轮）→ 错过窗口任务落 healing（不依赖轮询 tick）', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-06T08:00:00.000Z')); // #823: 固定系统时间（负延迟 → setTimeout(1) 风暴根因）
+    vi.setSystemTime(new Date('2026-09-06T08:00:00.000Z')); // 固定系统时间（负延迟 → setTimeout(1) 风暴根因）
     try {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
@@ -3589,14 +3589,14 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
         healingRepo: healingRepo as never,
-        tickImpl: async () => {}, // #823：隔离轮询补触发，只验证对账定时器
+        tickImpl: async () => {}, // 隔离轮询补触发，只验证对账定时器
       });
       await service.start();
       // 启动对账已落 1 条；清空模拟「该窗口已处置/已是旧账」，看巡检单轮是否独立工作：
       // 用新窗口（prevDue 更新）模拟时间推进后再次错过
       healingRepo._events.length = 0;
       (cronParser as unknown as { prevDue: Date | null }).prevDue = new Date('2026-09-07T01:00:00.000Z'); // 新错过窗口
-      // #949：定时器已并入 PatrolWorker——直接调公共方法等价「巡检 tick 触发」
+      // 定时器已并入 PatrolWorker——直接调公共方法等价「巡检 tick 触发」
       await service.reconcileMissedWindowsNow();
       await service.stop();
 
@@ -3613,7 +3613,7 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
 
   it('运行时对账去重：同一错过窗口已被启动对账落账 → 运行时不重复落', async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-06T08:00:00.000Z')); // #823: 固定系统时间——getNextTime mock 返回固定值，不定住 Date.now 会让 setTimeout 拿到负延迟
+    vi.setSystemTime(new Date('2026-09-06T08:00:00.000Z')); // 固定系统时间——getNextTime mock 返回固定值，不定住 Date.now 会让 setTimeout 拿到负延迟
     try {
       const taskRepo = createMockTaskRepo();
       const convRepo = createMockConvRepo();
@@ -3641,12 +3641,12 @@ describe('#823: 运行时定期对账（tick 循环死亡时错过窗口仍可�
         cronParser: cronParser as unknown as CronParser,
         logger: mockLogger,
         healingRepo: healingRepo as never,
-        tickImpl: async () => {}, // #823：隔离轮询补触发，只验证对账定时器
+        tickImpl: async () => {}, // 隔离轮询补触发，只验证对账定时器
       });
       await service.start();
       const afterStartup = healingRepo._events.length; // 启动对账落 1 条
       expect(afterStartup).toBe(1);
-      // #949：调三次巡检单轮等价原「3h 三次对账 tick」
+      // 调三次巡检单轮等价原「3h 三次对账 tick」
       await service.reconcileMissedWindowsNow();
       await service.reconcileMissedWindowsNow();
       await service.reconcileMissedWindowsNow();
@@ -3713,7 +3713,7 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
       _events: [] as Array<Record<string, unknown>>,
       create: vi.fn(async () => { /* 对账事件 */ }),
       findOpen: vi.fn(async () => openEvents),
-      // #1208：buildHealingAnalysisBody 需要 getStats——缺它 resolveEffectiveBody 抛错走 catch 而非 skip
+      // buildHealingAnalysisBody 需要 getStats——缺它 resolveEffectiveBody 抛错走 catch 而非 skip
       getStats: vi.fn(async () => ({ open: 0, resolved: 0, dismissed: 0, byType: {}, bySeverity: {} })),
       autoStaleDismiss: vi.fn(async () => 0),
     findAgedUnboundHigh: vi.fn(async () => []),
@@ -3763,10 +3763,10 @@ describe('#823 根修：skip 吞 claim 导致任务饿死（9/6 生产现场）'
       await service.trigger('task-heal').catch(() => undefined);
       const after = taskRepo._store.get('task-heal')!.lastTriggeredAt;
 
-      // 关键断言：skip 消耗 claim 并刷 last_triggered_at（#1208：skip 必须可见，
+      // 关键断言：skip 消耗 claim 并刷 last_triggered_at（skip 必须可见，
       // 否则 reconcile 对账把每天正常 skip 误报为「错过触发窗口」）
       expect(after).not.toBe(before);
-      // #1208：动态 skip 落 skipped execution 行——消除「任务死了」与「没事干」的指标盲区
+      // 动态 skip 落 skipped execution 行——消除「任务死了」与「没事干」的指标盲区
       expect(taskRepo._executions.size).toBe(1);
       const skippedExec = Array.from(taskRepo._executions.values())[0];
       expect(skippedExec.status).toBe('skipped');
@@ -3871,7 +3871,7 @@ describe('#1208 根修：动态 skip 可见性（11 天零执行记录生产现�
   // skipped-24h-ratio 指标全盲。根修：skip 落 skipped execution 行 + 刷 last_triggered_at。
 
   it('running execution 存在 → 触发事实记 completed 且 last_triggered_at 刷新（pending 口径）', async () => {
-    vi.useFakeTimers(); // #1208：隔离轮询 tick——只验证 trigger() 单次行为，不让 tick 反复触发灌入 executions
+    vi.useFakeTimers(); // 隔离轮询 tick——只验证 trigger() 单次行为，不让 tick 反复触发灌入 executions
     try {
       const healingRepo = makeObservableHealingRepo();
       const taskRepo = createMockTaskRepo();
@@ -3904,7 +3904,7 @@ describe('#1208 根修：动态 skip 可见性（11 天零执行记录生产现�
       await service.trigger('task-claim-skip').catch(() => undefined);
       service.stop();
 
-      // F20261021sprx：忙时触发仍落 execution，但改为入列即 completed（不再 claim skip）。
+      // 忙时触发仍落 execution，但改为入列即 completed（不再 claim skip）。
       expect(taskRepo._executions.size).toBe(1);
       const exec = Array.from(taskRepo._executions.values())[0];
       expect(exec.status).toBe('completed');
@@ -3998,7 +3998,7 @@ describe('#1208 根修：动态 skip 可见性（11 天零执行记录生产现�
       await service.start();
       await service.trigger('task-heal2').catch(() => undefined);
 
-      // #1208：dynamic skip 落 skipped execution 行（此前 0 行 = 静默）
+      // dynamic skip 落 skipped execution 行（此前 0 行 = 静默）
       expect(taskRepo._executions.size).toBe(1);
       const exec = Array.from(taskRepo._executions.values())[0];
       expect(exec.status).toBe('skipped');
@@ -4339,7 +4339,7 @@ describe('#1545：超龄 unbound high 识别提醒（findAgedUnboundHigh → ale
     const alerts = healingAlertRegistry.takeAll('healing-conv-1');
     expect(alerts).toHaveLength(2);
     expect(alerts.map(a => a.eventId)).toEqual(['he-a', 'he-b']);
-    // #1545：提醒文案从「已 dismissed」改为「未归口，待 bind_issue」——引导归口而非宣告处置
+    // 提醒文案从「已 dismissed」改为「未归口，待 bind_issue」——引导归口而非宣告处置
     expect(alerts[0].description).toContain('high 超龄 48h 未归口，待 bind_issue');
     expect(warnSpy).toHaveBeenCalled();
   });
@@ -4396,7 +4396,7 @@ describe('#1545：超龄 unbound high 识别提醒（findAgedUnboundHigh → ale
 });
 
 
-// ─── #1449：running 执行体滞留挤占治理 ────────────────────
+// ─── running 执行体滞留挤占治理 ────────────────────
 
 describe('#1449 running 执行体滞留挤占治理', () => {
   const HOURS = 3_600_000;
@@ -4470,7 +4470,7 @@ describe('#1449 running 执行体滞留挤占治理', () => {
   });
 
   it('防污染：reap 判死清理后不向 haltRegistry 打标（halt 是 invoke 作用域人用停手令，无活跃 invoke 打标=孤儿指令会 block 新触发）', async () => {
-    // 回归 S1（PR #1459 第一轮审视严重发现）：reap 曾在判死分支 haltRegistry.mark，
+    // 回归 （第一轮审视严重发现）：reap 曾在判死分支 haltRegistry.mark，
     // 导致放行的新触发第一个 tool_call 吃到残留 halt 被 block——本 PR 治的病以新形态复发。
     const { service, taskRepo, agentInvoke } = setupStuck({
       isOtterRunning: () => false,
@@ -4625,7 +4625,7 @@ describe('#1449 running 执行体滞留挤占治理', () => {
     // reap 已翻篇滞留执行 + 落 high healing
     expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
     expect(healingRepo._events.some(e => e.severity === 'high')).toBe(true);
-    // 轮询 reap 同样不打 halt（S1 回归锁定）
+    // 轮询 reap 同样不打 halt（回归锁定）
     expect(haltRegistry.isHalted('otter-1')).toBe(false);
   });
 
@@ -4639,7 +4639,7 @@ describe('#1449 running 执行体滞留挤占治理', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// #1048：看门狗克制（放弃 ≠ 失败）——2026-10-20 搭档定调「定时任务允许漏一次执行，
+// 看门狗克制（放弃 ≠ 失败）——2026-10-20 搭档定调「定时任务允许漏一次执行，
 // 兜底/看门狗必须克制」。看门狗从「判死仲裁」降级为「清坑保洁」：静默窗无产出 /
 // 持续活跃超窗即放弃等待（落 skipped，不计 consecutiveFailures，不触发 3 连败熔断），
 // 不再空转 24h 硬上限追精确终态。

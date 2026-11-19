@@ -662,7 +662,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
 
   it('F20261020wcsr 兜底：绝对顶部 prepend → 增量写入保持位置（规范 §2.1 边界）', async () => {
     // 场景：floating 用户停留在绝对顶部（scrollTop=0），哨兵加载 prepend 50 条历史——
-    // 规范 §2.1：锚点不选「未离开原点」的容器，浏览器锚定不工作，由手写兜底补偿：
+    // 规范 锚点不选「未离开原点」的容器，浏览器锚定不工作，由手写兜底补偿：
     // 增量式写入 scrollTop = max(scrollTop + delta, 0)，方向构造性封闭
     const pinRef = { current: true }
     const { root, div } = renderList({ pinRef, onLoadMore: () => {} })
@@ -894,7 +894,7 @@ describe('F20261008scpg scroll-pin 状态机（意图驱动贴底 + 程序写入
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageUp' }))
       })
       expect(pinRef.current, '页面级 PageUp 应脱锚').toBe(false)
-      // 显式回锚后测输入框保护（F20261029repin：「到底即回锚」已移除，scroll 永不置 pin——
+      // 显式回锚后测输入框保护（「到底即回锚」已移除，scroll 永不置 pin——
       // 回锚只能走显式动作（跳底/发言），此处直接置 pin 模拟；下方顺带回归 scroll 不改 pin）
       pinRef.current = true
       const st = instrumentRW(scrollerOf(), 2000, 1950)
@@ -1190,7 +1190,7 @@ describe('F20261104ssfde：scheduler 来源系统消息折叠（中间栏长任�
 })
 
 describe('F20261104ssfde 补充：折叠阈值 800 精确边界', () => {
-  /** 检视发现 4：验收声称 >800 折叠，但原用例只测了 4 字符/1919 字符两端，
+  /** 验收声称 >800 折叠，但原用例只测了 4 字符/1919 字符两端，
    *  没有落在阈值上。补 800（不折叠）与 801（折叠）两断言，验收口径可执行。 */
   it('恰好 800 字符 → 不折叠（阈值语义：> 800 才折）', () => {
     const body = 'a'.repeat(800)

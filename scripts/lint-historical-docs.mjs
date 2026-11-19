@@ -33,7 +33,7 @@
  *   HEAD → <commit>^（精确重放 pre-commit 时点语义：pre-commit 运行时 HEAD 即待提交 commit 的父）。
  *   merge commit 跳过不检查（实测取舍）：曾设计按 first-parent diff 检查（封 evil merge），
  *   但实测发现误报面不可接受——本仓 CI up-to-date gate 强制 PR 分支 rebase/merge main，而
- * main 的 squash 合入会把 .doc-fix 创建/删除对消出净 diff（如 两个 R099）：
+ * main 的 squash 合入会把 .doc-fix 创建/删除对消出净 diff（如 两个）：
  *   「PR merge main」时 merge commit 的 first-parent diff 会把 main 来的变更记入本 PR → 必红。
  *   如实声明恣意口子：跳过意味着 merge commit 路径无机械拦截，evil merge 成为与
  *   --no-verify 同等易行的绕过通道（与普通 PR 恰在本 gate 分道——普通 PR 的非 merge
@@ -76,7 +76,7 @@ function baseRef() {
   return null;
 }
 
-/** F20261009hcig（#1281）：命令行参数解析。当前仅 --base <ref>（CI 逐 commit 模式）。 */
+/** 命令行参数解析。当前仅 --base <ref>（CI 逐 commit 模式）。 */
 function parseArgs(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i++) {
@@ -93,7 +93,7 @@ function parseArgs(argv) {
   return out;
 }
 
-/** 变更集上下文（F20260831dgim 的 staged 语义与 F20261009hcig 的 commit 语义统一抽象）：
+/** 变更集上下文（的 staged 语义与 的 commit 语义统一抽象）：
  *  把「diff 来源 + 树引用 + log 上界」参数化，同一套校验逻辑可重放在 staged 区（pre-commit）
  *  或单个 commit 的 first-parent diff（--base CI 模式）上。两模式语义等价性锚点：
  *  pre-commit 运行时 HEAD = 待提交 commit 的父、index = 即将提交的内容——commitCtx 中

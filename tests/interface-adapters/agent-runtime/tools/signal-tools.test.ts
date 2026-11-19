@@ -1,5 +1,5 @@
 /**
- * C1：halt_otter / query_signals 工具单测。
+ * halt_otter / query_signals 工具单测。
  *
  * 覆盖：参数校验（reason 必填/目标解析失败）、自我 halt 拒绝、打标+落账联动、
  * 台账查询过滤。mock ToolContext（client.conversation.participant.getActive）。

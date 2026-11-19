@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * P1 项 4：guard_intercept 样本 → replay 用例候选生成器。
+ * 项 4：guard_intercept 样本 → replay 用例候选生成器。
  *
  * 背景（guard-mechanism-review 建议 4）：修的「修复-回归循环」靠人工从 healing
  * 台账翻现场再手写用例——本轮 误拦（93 条/7 天）正是没被固化的现场。本脚本把
@@ -40,7 +40,7 @@ if (!existsSync(dbPath)) {
   process.exit(2);
 }
 
-// 日期窗口：--date 或默认昨天（UTC 日界，审视处置 §3.3：healing_events.created_at
+// 日期窗口：--date 或默认昨天（UTC 日界，审视处置 healing_events.created_at
 // 是 UTC ISO 串，窗口用 UTC 日界；targetDate 也用 getUTC* 同源，避免本地时区「昨日」与
 // UTC 窗错位—— Asia/Shanghai 下旧实现窗口偏移约 8h）
 const targetDate = argOf("--date", (() => {

@@ -1,7 +1,7 @@
 /**
  * ModelRuntimeRegistry：负责 pi-coding-agent ModelRuntime 的初始化和模型注册。
  *
- * 从 PiSessionFactory 拆出（D2 瘦身），职责：
+ * 从 PiSessionFactory 拆出（瘦身），职责：
  * - 加载 pi-coding-agent SDK（ESM-only）
  * - 创建 ModelRuntime 并注入 config.yaml 的 apiKey
  * - 创建 SettingsManager（retry maxRetries=4）
@@ -39,9 +39,9 @@ async function loadPiCodingAgent(): Promise<PiCodingAgentModule> {
 }
 
 export class ModelRuntimeRegistry {
-  /** pi-coding-agent ModelRuntime（S3: 用 SDK 完整类型替代最小接口） */
+  /** pi-coding-agent ModelRuntime（用 SDK 完整类型替代最小接口） */
   private modelRuntime: ModelRuntime | null = null;
-  /** SDK SettingsManager（M2: retry maxRetries=4 取代 otter 层 API error 重试） */
+  /** SDK SettingsManager（retry maxRetries=4 取代 otter 层 API error 重试） */
   private settingsManager: SettingsManager | null = null;
   /** pi-coding-agent 模块缓存 */
   private piCodingAgent: PiCodingAgentModule | null = null;
@@ -52,7 +52,7 @@ export class ModelRuntimeRegistry {
     private readonly modelPool: ModelPool | undefined,
     private readonly logger: Logger,
     private readonly resourceLoaderOverride?: ResourceLoader,
-    /** C1：halt 首次注入回调（signal_events 落账更新 + 外部监听） */
+    /** halt 首次注入回调（signal_events 落账更新 + 外部监听） */
     private readonly onHaltFirstBlock?: (directive: HaltDirective) => void,
   ) {}
 
@@ -109,7 +109,7 @@ export class ModelRuntimeRegistry {
               pi.on("context", (event: { messages: any[] }) => {
                 return { messages: externalizeHistoricalToolResults(externalizeHistoricalImages(stripHistoricalThinking(event.messages))) };
               });
-              // C1：halt 边界注入。tool_call 扩展事件在每次工具执行前触发，
+              // halt 边界注入。tool_call 扩展事件在每次工具执行前触发，
               // 返回 { block, reason } → SDK agent-loop 对该次调用生成 isError tool result
               // （reason 正文）返回 LLM。读 ALS store 拿当前 invoke 的 otterId（fail-open：
               // 读不到 store 时放行，见 haltToolCallGuard 注释）。
@@ -149,7 +149,7 @@ export class ModelRuntimeRegistry {
           }],
         });
         await this.resourceLoader.reload();
-        // C1：halt 首次注入回调——落账更新（指令已到达）+ 日志。
+        // halt 首次注入回调——落账更新（指令已到达）+ 日志。
         // 注册在 resourceLoader 就绪后（首次 halt 必然晚于 session 创建，而 session 依赖 resourceLoader）。
         haltRegistry.onFirstBlock(directive => {
           this.logger.info('Halt directive first block injected', { targetOtterId: directive.targetOtterId, signalId: directive.id, fromOtterId: directive.fromOtterId });
@@ -164,15 +164,15 @@ export class ModelRuntimeRegistry {
       }
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
       this.modelRuntime = await piCodingAgent.ModelRuntime.create();
-      // M2（R20260810piab）：SettingsManager retry maxRetries=4 取代 otter 层 API error 重试（SDK 默认 3）
+      // SettingsManager retry maxRetries=4 取代 otter 层 API error 重试（SDK 默认 3）
       this.settingsManager = piCodingAgent.SettingsManager.create(process.cwd());
-      // F20260904cq30：compaction 触发线从贴窗才压（窗口−默认 reserve 16K≈1032K）修正为质量线。
+      // compaction 触发线从贴窗才压（窗口−默认 reserve 16K≈1032K）修正为质量线。
       // 触发公式 contextTokens > contextWindow − reserveTokens，1M 窗口下 1048576−700000=348576≈340K。
       // Why 340K：实测大獭上下文均值 60-73K 为好体验区、266K 已入退化区（详见 F 文档决策记录）；
       // 搭档拍板 300K 标称线，整数 reserveTokens=700K 的实际触发 340K 在退化区间之上且留有余量。
       // 配置化（搭档要求）：config contextQuality.compactionReserveTokens，缺省 700_000。
       // merge 语义：partial merge——仅接管 reserveTokens，enabled/keepRecentTokens 保留 SDK 默认。
-      // F20260920uhuc 终审修正：SDK threshold reserve 改用 sdkOverflowReserveTokens（缺省 50_000）——
+      // 终审修正：SDK threshold reserve 改用 sdkOverflowReserveTokens（缺省 50_000）——
       // 应用层质量线（compactionReserveTokens 340K 触发）已由 agent-invoker 轮边界水位接管，
       // SDK threshold 只留真溢出救急（1M 窗口下 995K 触发，贴溢出点）；若仍用 700K 会与
       // 应用层水位线撞车，单轮暴涨场景 SDK 抢先原地压缩（丢历史），违背「压缩=交接」架构意图。
@@ -209,7 +209,7 @@ export class ModelRuntimeRegistry {
 
   /** 注册自定义 provider（alias !== config.provider 时） */
   private _registerCustomProvider(alias: string, config: ModelConfig, model: Model<Api>): void {
-    // S3（R20260810piab）：model 现在是 Model<Api>，字段类型由 SDK 精确声明，无需 inline cast 弱化。
+    // model 现在是 Model<Api>，字段类型由 SDK 精确声明，无需 inline cast 弱化。
     // contextWindow/maxTokens 在 Model 上可能 undefined，但 ProviderConfigInput 期望 number——
     // 回退到 config 的值（config 是 otter 自己的 ModelConfig，这些字段是 number | undefined），
     // 双重 undefined 时回退 0（SDK 视 0 contextWindow 为"总是需要 compaction"，但此处只在 alias !== provider 时触发）。

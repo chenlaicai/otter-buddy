@@ -245,7 +245,7 @@ export class WeixinPollingChannel {
   }
 
   /**
-   * context_token 过期预警检查（F20260901wxnt；F20260920wxho 改为每静默期一次）。
+   * context_token 过期预警检查（；改为每静默期一次）。
    * 逐用户独立 try/catch：一个用户失败不阻断其他用户。
    * 发送失败记 error 日志 + warnedAt 止损不重试（ret=-2 = token 已死，重试必败）。
    */
@@ -279,7 +279,7 @@ export class WeixinPollingChannel {
   }
 
   /** 单用户预警判断 + 发送（被 checkContextTokenExpiry 调用，失败向上抛由调用方 catch）。
-   *  F20260920wxho：warnedAt 存在即跳过（同一静默期只提醒一次，无论过多久）；
+   * warnedAt 存在即跳过（同一静默期只提醒一次，无论过多久）；
    *  重置资格的唯一路径是入站换新 token（saveContextToken 清 warnedAt + 内存缓存同步清除）。 */
   private async warnUserIfStale(
     userId: string,
@@ -291,7 +291,7 @@ export class WeixinPollingChannel {
     const age = nowMs - entry.receivedAt;
     if (age < warn.afterMs) return; // 未满阈值
     // 本静默期内已提醒过（含发送失败止损记录）——不再重复。
-    // Why（F20260920wxho）：原 cooldown 到期重发设计在生产演变为骚扰——token 实际存活
+    // Why：原 cooldown 到期重发设计在生产演变为骚扰——token 实际存活
     // 远超预估（6h 仍在发），预警本身可能为出站保活，形成「不回复就每小时一条」的无限循环；
     // 提醒的使命是「断连前告知一次」，用户知情后重发只剩打扰价值。
     const warnedAt = this.warnedAtMemoryCache.get(userId) ?? entry.warnedAt;
@@ -337,7 +337,7 @@ export class WeixinPollingChannel {
     const now = Date.now();
     
     // 状态映射表（简化 switch 逻辑）
-    // lastInboundAt 保留策略：无新值时合并旧值，防长轮询空转覆盖最近入站时间（#F20260901chun 发现7）
+    // lastInboundAt 保留策略：无新值时合并旧值，防长轮询空转覆盖最近入站时间（发现7）
     const existing = extra?.lastInboundAt === undefined
       ? registry.snapshot().find(e => e.channelId === channelId)
       : undefined;

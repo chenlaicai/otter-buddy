@@ -178,7 +178,7 @@ export async function syncDocuments(
 }
 
 /**
- * Part 1：创建并启动 embedding 重试 worker。
+ * 创建并启动 embedding 重试 worker。
  *
  * 启动前做存量迁移：扫描已存在的暗化条目（本 F 上线前累积），
  * 批量 enqueueRetry 入队，让 retry worker tick 后逐步修复。
@@ -208,10 +208,10 @@ export async function createAndStartRetryWorker(
     }
   }
 
-  // F20260812mrcq Part 1：存量暗化条目迁移
+  // 存量暗化条目迁移
   // 扫描已存在的暗化条目，批量 enqueueRetry 入队。
   //
-  // F20261026emct 两处收窄：
+  // 两处收窄：
   // 1) includeDead=true → false：dead 是独立判定的终态（真不可嵌入/entry 已删），
   //    复活它只会把死信重新灌回队列越滚越大（2026-10-23 实锤 686 条 dead 不收敛
   //    正是启动迁移的一部分）。真缺 vec 的 pending 语义条目才迁移。存量 dead
@@ -220,7 +220,7 @@ export async function createAndStartRetryWorker(
   //    API 堆在主线程，2905 条积压场景下逐条 INSERT 会长时间堵塞事件循环，
   //    health 端点无法响应（30s 超时雪上加霜）。
   //
-  // F20261105embqg S3：入队前水位闸门——启动暗扫是全量生产者，队列已积压时
+  // 入队前水位闸门——启动暗扫是全量生产者，队列已积压时
   // （如前次崩溃遗留）再灌入只会把活消息的出队延迟推到 tick 周期之后。
   // 跳过是幂等安全操作：暗条目保持现状，下次启动重扫（retry 队列可延后语义的边界）。
   const existing = await repos.memoryReader.scanDarkEntries(false);

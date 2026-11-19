@@ -34,7 +34,7 @@ export class ManageConnection {
       id,
       name,
       externalId,
-      // F20260831xtrt：通道类型可声明（weixin 等）；缺省 feishu 保持既有行为
+      // 通道类型可声明（weixin 等）；缺省 feishu 保持既有行为
       externalType,
       metadata: null,
       status: "active",
@@ -54,8 +54,8 @@ export class ManageConnection {
   }
 
   /** 首次见到的外部用户/群自动注册为 Connection（备用方法）
-   *  F20260831xtrt：externalType 透传 createConnection，微信 ingress 传 "weixin"
-   *  检视R4：externalType 仅用于新建连接；已有连接直接返回原类型，不覆盖不报错 */
+   * externalType 透传 createConnection，微信 ingress 传 "weixin"
+   * 检视externalType 仅用于新建连接；已有连接直接返回原类型，不覆盖不报错 */
   async ensureConnection(externalId: string, name: string, externalType = "feishu"): Promise<Connection> {
     const existing = await this.connRepo.getByExternalId(externalId);
     if (existing) {
@@ -65,15 +65,15 @@ export class ManageConnection {
     return this.createConnection(name, externalId, externalType);
   }
 
-  /** F20260920imax 增量五：bot 锚定路由——记录「最后活跃会话」供出站定向回复
+  /** 增量五：bot 锚定路由——记录「最后活跃会话」供出站定向回复
    *  （bot connection 的 externalId 是 bot 键非 chatId，出站需从 metadata 找回目标） */
   async noteChatId(connectionId: string, chatId: string): Promise<void> {
     await this.connRepo.mergeMetadata(connectionId, { lastChatId: chatId });
   }
 
-  /** F20260920imax 增量五：出站目标解析——bot connection 优先 metadata.lastChatId，
+  /** 增量五：出站目标解析——bot connection 优先 metadata.lastChatId，
    *  普通连接（群聊/旧数据）直接 externalId 即 chatId。
-   *  F20260922wxeg：微信同构——bot 锚定后 connection.externalId = bot 账号 id
+   * 微信同构——bot 锚定后 connection.externalId = bot 账号 id
    *  （建线/路由锚），不是收信人；真实收信人（ilinkUserId）由入站/provision 记到
    *  metadata.lastChatId。缺目标返回 null，调用方跳过发送并记日志（裸发给 bot
    *  账号 id 只会 ret=-3 假失败，绝不投递）。 */

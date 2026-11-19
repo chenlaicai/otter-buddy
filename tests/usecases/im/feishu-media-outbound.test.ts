@@ -76,7 +76,7 @@ function createChannel(attachmentDeps?: unknown) {
   const broadcaster = new MessageBroadcaster(logger);
   broadcaster.registerOutboundChannel(
     "feishu",
-    // #1194 合入后构造函数对象参数化（this.o.xxx）——#902 rebase 适配；
+    // 合入后构造函数对象参数化（this.o.xxx）——rebase 适配；
     // attachmentDeps 用 as never 过 Pick 结构（mock 面窄于实体全字段，运行时仅消费所用字段）
     new FeishuMessageChannel({
       manageConnection, feishuGateway, logger,

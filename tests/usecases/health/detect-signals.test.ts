@@ -194,7 +194,7 @@ describe("detectSignals", () => {
 
   it("F20260902sigm：doc-only 链（任何 status，无论创建多久）零信号——零 commit 是常态不是病", () => {
     // 旧模型按 status 过滤（draft/proposed/design 豁免、development 触发）；新模型 docStatus 退役，
-    // doc-only 一律稳定（245 篇零 commit 文档是本仓常态，方案 R6）
+    // doc-only 一律稳定（245 篇零 commit 文档是本仓常态，方案）
     const docs = [
       { id: "F20260801draf", title: "t", changeType: "feature", status: "draft",
         tags: [], modules: [], causalLinksFrom: [], supersedes: [],
@@ -400,10 +400,10 @@ describe("Issue #645：behavior_defect 窗口化", () => {
 });
 
 describe("Issue #660：behavior_defect 窗口边界覆盖增强", () => {
-  // 语义锚点（与 issue 文本的口径差异留痕）：issue #660 第三项「降序（聚类优先）」源自
-  // PR #656（未合入实现）的「信号按窗口内次数降序」；main 合入的 #658 实际语义是
-  // 「同型事件按 createdAt 升序聚合，evidence 报最早~最晚」（F20260901rhdet §② 明文），
-  // 无跨类型密度排序。本组用例锁定 #658 合入版契约，密度排序属特性变更不在本 issue 范围。
+  // 语义锚点（与 issue 文本的口径差异留痕）：第三项「降序（聚类优先）」源自
+  // （未合入实现）的「信号按窗口内次数降序」；main 合入的 实际语义是
+  // 「同型事件按 createdAt 升序聚合，evidence 报最早~最晚」（§② 明文），
+  // 无跨类型密度排序。本组用例锁定 合入版契约，密度排序属特性变更不在本 issue 范围。
 
   it("混合时间分布：12 天前×2 与窗口内×3 交错 → 只计窗口内 3 次触发", () => {
     // Why 交错：现有用例的窗口外事件是成组排列的，未覆盖乱序输入下窗口过滤的正确性

@@ -331,13 +331,13 @@ describe("WeixinPollingChannel - 入站清除内存缓存 warnedAt (F20260901wxn
 
   it("入站消息清除内存缓存 warnedAt（资格重置的内存侧，F20260920wxho 语义）", async () => {
     // 场景（后：每静默期只提醒一次）
-    // Phase 1: disk warnedAt=10min ago → 已提醒过 → 抑制
-    // Phase 2: 快进121min → 仍抑制（cooldown 已退役，warnedAt 存在即跳过）
-    //   ——但为验证内存清除链路，本测试 Phase 2 先入站换新重置资格：
+    // disk warnedAt=10min ago → 已提醒过 → 抑制
+    // 快进121min → 仍抑制（cooldown 已退役，warnedAt 存在即跳过）
+    // ——但为验证内存清除链路，本测试 先入站换新重置资格：
     //   快进前先注入入站消息 → saveContextToken 清 disk warnedAt → 内存缓存 delete → 资格恢复
-    // Phase 3: 快进 61min → age > afterMs → 预警触发 → 内存缓存 set warnedAt
-    // Phase 4: 用户回复 → dispatchInbound → saveContextToken (disk 清零) + warnedAtMemoryCache.delete (内存清零)
-    // Phase 5: 快进90min → age > afterMs, 内存缓存已清 → 预警触发
+    // 快进 61min → age > afterMs → 预警触发 → 内存缓存 set warnedAt
+    // 用户回复 → dispatchInbound → saveContextToken (disk 清零) + warnedAtMemoryCache.delete (内存清零)
+    // 快进90min → age > afterMs, 内存缓存已清 → 预警触发
     // 若内存缓存未清（bug）：warnedAt 存在 → 错误抑制 → 漏发（用户回了消息却再收不到预警）
     const warnedAt = fakeNow - 10 * 60_000; // disk: 10 分钟前被预警过
     const { accountStore, savedTokens } = makeFakeAccountStore({
@@ -369,12 +369,12 @@ describe("WeixinPollingChannel - 入站清除内存缓存 warnedAt (F20260901wxn
 
     poller.start();
 
-    // Phase 1: check 运行（fakeNow 原始值），已提醒过 → 抑制 → getUpdates 1 挂起
+    // check 运行（fakeNow 原始值），已提醒过 → 抑制 → getUpdates 1 挂起
     await vi.advanceTimersByTimeAsync(100); // drain check 微任务
     expect(getUpdatesCallCount).toBe(1); // loop 卡在 getUpdates 1
     expect(sendCalls).toHaveLength(0); // 已提醒过抑制
 
-    // Phase 2: 入站消息 → saveContextToken（disk 清零）+ 内存缓存 delete → 资格重置
+    // 入站消息 → saveContextToken（disk 清零）+ 内存缓存 delete → 资格重置
     getUpdatesResolvers[0]({
       ret: 0,
       msgs: [{
@@ -388,7 +388,7 @@ describe("WeixinPollingChannel - 入站清除内存缓存 warnedAt (F20260901wxn
     expect(savedTokens).toHaveLength(1);
     expect(getUpdatesCallCount).toBe(2); // loop 卡在 getUpdates 2
 
-    // Phase 3: 快进 61 分钟 → resolve getUpdates 2 → check 运行 → 预警触发（第二次静默期满阈值）
+    // 快进 61 分钟 → resolve getUpdates 2 → check 运行 → 预警触发（第二次静默期满阈值）
     fakeNow += 61 * 60_000;
     getUpdatesResolvers[1]({ ret: 0, msgs: [] });
     await vi.advanceTimersByTimeAsync(100); // drain check + send + getUpdates 3 hang
@@ -396,7 +396,7 @@ describe("WeixinPollingChannel - 入站清除内存缓存 warnedAt (F20260901wxn
     expect(sendCalls[0].toUserId).toBe("user1");
     expect(getUpdatesCallCount).toBe(3); // loop 卡在 getUpdates 3
 
-    // Phase 4: resolve getUpdates 3 → 入站消息 → dispatchInbound
+    // resolve getUpdates 3 → 入站消息 → dispatchInbound
     // → saveContextToken（disk: receivedAt=now, warnedAt=undefined）+ warnedAtMemoryCache.delete
     // → check 运行（fakeNow 不变，age=0 → 不触发）→ getUpdates 4 挂起
     getUpdatesResolvers[2]({
@@ -413,7 +413,7 @@ describe("WeixinPollingChannel - 入站清除内存缓存 warnedAt (F20260901wxn
     expect(savedTokens[1].token).toBe("tok-renewed"); // token 换新
     expect(getUpdatesCallCount).toBe(4); // loop 卡在 getUpdates 4
 
-    // Phase 5: 快进 90 分钟 → resolve getUpdates 4 → check 运行
+    // 快进 90 分钟 → resolve getUpdates 4 → check 运行
     // age = 90min > afterMs = 60min
     // disk warnedAt = undefined（saveContextToken 清零）
     // 内存缓存 = 已清除（dispatchInbound 调了 delete）

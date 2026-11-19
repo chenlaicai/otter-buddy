@@ -201,7 +201,7 @@ export class SqliteWorkLedgerRepository implements WorkLedgerRepository {
     const after = options?.invokedAfterIso;
     // Why: traceId 从 metadata JSON 派生（JSON_EXTRACT）——归属是派生关系不是写时冗余，
     // avoids 双写漂移；invokes 原始行永不被账本改写。
-    // F20261027hwl1 复审 S1：本方法不再是报告聚合入口（先截断后聚合产生窗口偏置）——
+    // 复审 本方法不再是报告聚合入口（先截断后聚合产生窗口偏置）——
     // 报告走 aggregateAttributionCounts / listInvokesByWork；此处保留小窗口逐行证据场景。
     const sql = `
       SELECT i.id AS invoke_id, i.conversation_id, i.otter_id, i.status, i.started_at,
@@ -237,7 +237,7 @@ export class SqliteWorkLedgerRepository implements WorkLedgerRepository {
     }));
   }
 
-  /** F20261027hwl1 复审 S1：全量归属聚合（SQL 内 GROUP BY，无 LIMIT）。
+  /** 复审 全量归属聚合（SQL 内 GROUP BY，无 LIMIT）。
    *  守恒：sum(perWork.tokens) + unassigned.tokens 的 totalTokens = 全部 invokes 四分量总和。
    *  usage 缺口（四分量全 null）按 per-work usageGapCount / 未归属桶同样显式计出，不当零。 */
   async aggregateAttributionCounts(): Promise<WorkAttributionAggregate> {
@@ -286,7 +286,7 @@ export class SqliteWorkLedgerRepository implements WorkLedgerRepository {
     return { perWork, unassigned, total: { invokeCount: totalInvokeCount, attributedCount } };
   }
 
-  /** F20261027hwl1 复审 S1：按 work 的 trace 集合在 SQL 内直接过滤（详情页数据源）。
+  /** 复审 按 work 的 trace 集合在 SQL 内直接过滤（详情页数据源）。
    *  不走全表 LIMIT——早期 invoke 不会被窗口挤出；证据列表 evidenceLimit 截断时
    *  由调用方（报告层）返回 truncatedCount，token 汇总仍全量。 */
   async listInvokesByWork(workId: string, options?: { evidenceLimit?: number }): Promise<WorkInvokeAttribution[]> {
@@ -324,7 +324,7 @@ export class SqliteWorkLedgerRepository implements WorkLedgerRepository {
     }));
   }
 
-  /** F20261027hwl1 复审 S1/A5：按 work 全量 invoke 数（truncatedCount 计算） */
+  /** 复审 /按 work 全量 invoke 数（truncatedCount 计算） */
   async countInvokesByWork(workId: string): Promise<number> {
     const row = this.db.prepare(`
       SELECT COUNT(*) AS c
@@ -336,7 +336,7 @@ export class SqliteWorkLedgerRepository implements WorkLedgerRepository {
   }
 }
 
-/** F20261027hwl1 复审 S1：聚合行的四分量结构化（complexity 守卫拆出） */
+/** 复审 聚合行的四分量结构化（complexity 守卫拆出） */
 interface AggregateSqlRow {
   work_id: string | null; invoke_count: number;
   input_sum: number | null; output_sum: number | null; cache_read_sum: number | null; cache_write_sum: number | null;

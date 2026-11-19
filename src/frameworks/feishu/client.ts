@@ -63,7 +63,7 @@ export class FeishuClient implements FeishuGateway {
   }
 
   /**
-   * 发送 Markdown 富文本消息(post + md 标签,F20260812fmdr)。
+   * 发送 Markdown 富文本消息(post + md 标签,)。
    *
    * post JSON 结构:
    *   { zh_cn: { title: "[senderLabel]", content: [[{ tag: "md", text: markdown }]] } }

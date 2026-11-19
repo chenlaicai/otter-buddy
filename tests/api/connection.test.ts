@@ -113,7 +113,7 @@ describe("Connection API", () => {
     });
   });
 
-  // F20261023cnct（issue #1063）：POST :id/leave 与 GET :id/session 的用例随死端点下线删除
+  // POST :id/leave 与 GET :id/session 的用例随死端点下线删除
   describe("GET /api/connections/:id/conversations", () => {
     it("返回活跃对话列表", async () => {
       seedConversation(db, "conv-1", "对话一");
@@ -139,7 +139,7 @@ describe("Connection API", () => {
     });
   });
 
-  // F20261023cnct（issue #1063）：关闭标准验证断言「下线后契约测试无残留引用」的机械化固化。
+  // 关闭标准验证断言「下线后契约测试无残留引用」的机械化固化。
   // 双重断言：生产 router 源文本零死端点注册 + ConnectionController 方法面零死方法。
   // usecase ManageConnection 不在断言面（有意保留给 IM 命令体系，见 manage-connection.ts）。
   describe("死端点已下线（issue #1063 契约无残留断言）", () => {

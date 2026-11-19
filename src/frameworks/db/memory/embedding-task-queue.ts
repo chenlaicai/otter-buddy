@@ -1,5 +1,5 @@
 /**
- * 任务优先级常量与 S3 水位阈值定义在 port 层（usecases/memory/memory-queue.ts）
+ * 任务优先级常量与 水位阈值定义在 port 层（usecases/memory/memory-queue.ts）
  * ——本文件（frameworks）从 port 导入，依赖方向 frameworks→usecases。
  */
 import { EMBED_TASK_PRIORITY } from "../../../usecases/memory/memory-queue";
@@ -7,7 +7,7 @@ import { estimateTokens } from "../../embedding/embed-batch-sharding";
 import { percentile } from "../../embedding/embedding-lane-stats";
 
 /**
- * Part 1：embedding 失败重试任务队列（embedding_tasks 表）SQL。
+ * embedding 失败重试任务队列（embedding_tasks 表）SQL。
  * 从 sqlite-memory-repository.ts 拆出——job-queue 职责与 entry 存储正交；
  * Repository 的 port 方法委托到这里的纯函数。
  */
@@ -134,10 +134,10 @@ function countTasksWithinTokenBudget(db: Database.Database, limit: number, budge
 }
 
 /**
- * F20261105embqg：当前 pending 任务总数——生产端水位闸门（S3）的判据。
+ * 当前 pending 任务总数——生产端水位闸门的判据。
  * 判据单一（队列深度），无时间/增速维度：机械可测、行为可预期，
  * 阈值调优只动常量不动逻辑（当日事故复盘：多因子自适应闸门自身会变成
- * 新的不可预期机制，见 F20261105embqg 设计取舍）。
+ * 新的不可预期机制，见 设计取舍）。
  */
 export function pendingTaskCount(db: Database.Database): number {
   const row = db.prepare(
@@ -147,7 +147,7 @@ export function pendingTaskCount(db: Database.Database): number {
 }
 
 /**
- * F20261109epqst：队列健康快照——pending 总数 / 最老 pending 任务年龄（秒）/
+ * 队列健康快照——pending 总数 / 最老 pending 任务年龄（秒）/
  * 按优先级分布。验收抓手：最老任务年龄单调下降 = 旧任务持续出队；
  * 年龄停滞 = 消费停摆（生产实锤：09:14 迁入的 1000 条到 10:22 仍 attempts=0）。
  */
@@ -209,13 +209,13 @@ export function markTaskAttemptFailed(db: Database.Database, entryId: string, er
 }
 
 /**
- * F20261020slvg：启动时重置 pending 任务的 attempts 归零。
+ * 启动时重置 pending 任务的 attempts 归零。
  * claim 即 attempts+1，而超时循环（不计失败）会反复 claim 把 attempts 撑到 ≥3——
  * 2026-10-16 活锁 4h40m 后存量 2905 条积压大量 attempts 虚高，不重置的话上线后
  * 遇到一次硬错误（或旧版瞬态错误）就成批 dead-letter。只在启动迁移调一次。
  * 返回重置的行数。
  *
- * F20261026emct：语义锁定——reset 只赦免 pending（活锁受害者），dead 是独立
+ * 语义锁定——reset 只赦免 pending（活锁受害者），dead 是独立
  * 判定的终态（真不可嵌入/entry 已删），不赦免（SQL 本就如此，注释显式锁定，
  * 防未来重构误改 WHERE 加上 dead）。2026-10-23 实锤：dead 不收敛越滚越大
  * （686 条）正是启动迁移 includeDead=true 复活 dead + 不清理幽灵造成的。
@@ -230,7 +230,7 @@ export function resetPendingAttempts(db: Database.Database): number {
 }
 
 /**
- * F20261026emct：一次性出清孤儿任务——entry 已被删除的
+ * 一次性出清孤儿任务——entry 已被删除的
  * 任务（真定义：entry_id NOT EXISTS，无论 last_error 形态）。首版只按
  * last_error LIKE '%entry deleted%' 代理口径删，DB 实测两类差额 129 条
  * （含 98 条 10-23 巨批超时残骸 'batch timeout (49 texts)'）——代理口径外的孤儿
@@ -247,7 +247,7 @@ export function purgeGhostTasks(db: Database.Database): number {
 }
 
 /**
- * F20261026emct：统计孤儿任务规模（真定义口径，dry-run 报告用，不删除）。
+ * 统计孤儿任务规模（真定义口径，dry-run 报告用，不删除）。
  */
 export function countGhostTasks(db: Database.Database): number {
   const row = db.prepare(`

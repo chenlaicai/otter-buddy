@@ -287,7 +287,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const fiMeta = JSON.parse(fixInterval.metadata!);
     expect(fiMeta).toEqual({ windowDays: 60, bugfixCount: 3, intervalCount: 2, stat: "median" });
 
-    // health_index 行：metricType 统一，5 维度 + overall 全在（D5 零信号满分）
+    // health_index 行：metricType 统一，5 维度 + overall 全在（零信号满分）
     const hiRows = rows.filter(r => r.metricType === "health_index");
     expect(hiRows.map(r => r.metricKey).sort()).toEqual(["D1", "D2", "D3", "D4", "D5", "overall"]);
     const overall = hiRows.find(r => r.metricKey === "overall")!;
@@ -361,7 +361,7 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
     const keys = new Set(costRows.map(r => r.metric_key));
     expect(keys.has("input_tokens")).toBe(true);
     expect(keys.has("cost_total")).toBe(true);
-    expect(keys.has("cache_hit_rate")).toBe(false); // #602：死键已删
+    expect(keys.has("cache_hit_rate")).toBe(false); // 死键已删
     expect(keys.has("message_count")).toBe(true);
     expect(keys.has("tool_call_count")).toBe(true);
 
@@ -373,11 +373,11 @@ describe("RhiScanWorker（临时仓库 + 真 sqlite）", () => {
   });
 
   it("多轮扫描后历史日期 cost_output 行存活且数值不重复累计（F20260909csdt 回归保险）", async () => {
-    // 本用例是「per-otter 行按真实日期落库」修复（PR #860）的回归保险：
+    // 本用例是「per-otter 行按真实日期落库」修复的回归保险：
     // 验证 scanOnce 连跑两次后，历史日期行仍在（replaceForDate 逐日幂等）
     // 且数值与单次扫描一致（不随扫描次数重复累计）。
-    // 覆盖 per-otter 行 + 全局行混合场景（PR #866 检视发现 1）：fixture 仓库的 seed
-    // 含 F 文档（F20260801wwww，2026-08-01），fdoc_count 全局行随每轮扫描落库。
+    // 覆盖 per-otter 行 + 全局行混合场景：fixture 仓库的 seed
+    // 含 F 文档（2026-08-01），fdoc_count 全局行随每轮扫描落库。
     const { worker, queryDay } = await setupCostOutputFixture(repoDir, db, {
       sessionFile: `${COST_FIXTURE_STEM}_test-sess-002.jsonl`,
       sessionId: "test-sess-002",

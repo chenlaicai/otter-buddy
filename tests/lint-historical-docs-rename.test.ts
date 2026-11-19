@@ -8,7 +8,7 @@
  *
  * 背景：git mv 产生的 R 配对此前被双重误拦（isAddedOnBranch 按 oldPath 判历史 +
  * checkFrontmatterScope 单路径 diff 把 rename 展开成全文新增）——纯 rename
- * （similarity 100%）本质是文件名级元数据订正。修复后：R100 + .doc-fix 放行；
+ * （similarity 100%）本质是文件名级元数据订正。修复后：+ .doc-fix 放行；
  * 无声明拦截；rename+frontmatter 编辑按两侧边界校验放行；rename+正文编辑仍拦。
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -74,7 +74,7 @@ afterAll(() => {
 describe("lint-historical-docs rename 通道（#1257，F20261001lrbk）", () => {
   it("R100 纯 rename + .doc-fix → 放行（修复前被双重误拦，#1257 的通道）", () => {
     const renamed = "docs/features/2026/01/01/F20260101old-pure-rename.md";
-    git(repo, ["mv", OLD_DOC, renamed]); // 纯 git mv，R100，内容零变化
+    git(repo, ["mv", OLD_DOC, renamed]); // 纯 git mv，内容零变化
     fs.writeFileSync(path.join(repo, ".doc-fix"), "文件名补 slug 后缀订正（文件名级元数据）\n");
     stageOnly(repo, renamed);
     git(repo, ["add", "--", OLD_DOC, ".doc-fix"]);

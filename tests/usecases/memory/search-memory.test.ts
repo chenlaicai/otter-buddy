@@ -301,7 +301,7 @@ describe("SearchMemory - vec-only snippet 降级（自带 mock，与主套件解
     /** mock repo：FTS 返回空，vec 返回 longEntry */
     const mockRepo = {
       hasVecTable: () => true,
-      /* #576: listRecent 不在此测试范围 */
+      /* listRecent 不在此测试范围 */
       listRecent: async () => [] as never[],
       isVecEnabled: () => true,
       searchFTSWithHighlight: async () => [],
@@ -340,7 +340,7 @@ describe("SearchMemory - vec-only snippet 降级（自带 mock，与主套件解
       getEntriesByConversation: async () => [],
       // P2b1：belief 状态区间查询（本测试不触达）
       listBeliefsByStatus: async () => [],
-      // F20261110dsqy：chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
+      // chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
       findEntriesBySourceAndType: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
@@ -381,7 +381,7 @@ describe("SearchMemory - F20260803fbit 去重与 contentType filter", () => {
     const docBase = { layer: "document" as const, sourceId: "F123", sourceTable: "features", conversationId: null, granularity: "coarse" as const, metadata: null, createdAt: "2026-08-03T00:00:00Z" };
     storeEntry(db, { ...docBase, id: "summary-1", contentType: "feature", content: "记忆系统校验链路设计概要" });
     storeEntry(db, { ...docBase, id: "body-1", contentType: "feature_chunk", content: "正文详细描述了记忆系统的校验链路与 BM25 ranking 机制" });
-    /** PR审视 B8：F123 的第 2 个 chunk，测多 chunk 命中 boost（multi_hit_count 只统计 chunk） */
+    /** PR审视 F123 的第 2 个 chunk，测多 chunk 命中 boost（multi_hit_count 只统计 chunk） */
     storeEntry(db, { ...docBase, id: "body-1b", contentType: "feature_chunk", content: "记忆系统的 embedding 与向量检索路径补充" });
     /** 另一个文档的 body entry，不同 sourceId */
     storeEntry(db, { ...docBase, id: "body-2", sourceId: "F456", contentType: "feature_chunk", content: "另一文档关于 FTS5 trigram 配置" });
@@ -461,7 +461,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
     // Mock repo：FTS 返回高质量结果，vec 返回低质量结果
     const mockRepo = {
       hasVecTable: () => true,
-      /* #576: listRecent 不在此测试范围 */
+      /* listRecent 不在此测试范围 */
       listRecent: async () => [] as never[],
       isVecEnabled: () => true,
       searchFTSWithHighlight: async () => [
@@ -509,7 +509,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       getEntriesByConversation: async () => [],
       // P2b1：belief 状态区间查询（本测试不触达）
       listBeliefsByStatus: async () => [],
-      // F20261110dsqy：chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
+      // chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
       findEntriesBySourceAndType: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
@@ -548,7 +548,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
 
     const mockRepo = {
       hasVecTable: () => true,
-      /* #576: listRecent 不在此测试范围 */
+      /* listRecent 不在此测试范围 */
       listRecent: async () => [] as never[],
       isVecEnabled: () => true,
       searchFTSWithHighlight: async () => [
@@ -596,7 +596,7 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       getEntriesByConversation: async () => [],
       // P2b1：belief 状态区间查询（本测试不触达）
       listBeliefsByStatus: async () => [],
-      // F20261110dsqy：chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
+      // chunk 复用对齐读（fake 无旧 chunk → 全新建，与旧语义一致）
       findEntriesBySourceAndType: async () => [],
     } satisfies import("@usecases/memory/memory-repository").MemoryRepository;
 
@@ -629,7 +629,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       available: true,
       embed: async () => new Float32Array([0.1, 0.2, 0.3]),
     };
-    // 灌一条 F 文档 summary（审视二轮 M1: await 防 fire-and-forget 竞态）
+    // 灌一条 F 文档 summary（审视二轮 await 防 fire-and-forget 竞态）
     await repo.storeEntry({
       id: "anchor-1", layer: "document", contentType: "feature",
       sourceId: "F20260812mrcq", sourceTable: "features",
@@ -650,7 +650,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
     expect(result.entries.length).toBeGreaterThan(0);
     expect(result.entries[0].source).toBe("anchor");
     expect(result.entries[0].sourceId).toBe("F20260812mrcq");
-    // #1398 回归：anchor 短路路径的 drillDown.params 也必须是 { ids } 数组形态
+    // 回归：anchor 短路路径的 drillDown.params 也必须是 { ids } 数组形态
     const anchorEntry = result.entries[0];
     expect(anchorEntry.drillDown).toBeDefined();
     expect(Array.isArray(anchorEntry.drillDown!.params.ids)).toBe(true);
@@ -873,7 +873,7 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
     // 所有 contextEntries source = context-expand
     for (const ctx of result.contextEntries!) {
       expect(ctx.source).toBe("context-expand");
-      // #1398 回归：context-expand 邻域条目的 drillDown.params 也必须是 { ids } 数组形态
+      // 回归：context-expand 邻域条目的 drillDown.params 也必须是 { ids } 数组形态
       expect(ctx.drillDown).toBeDefined();
       expect(Array.isArray(ctx.drillDown!.params.ids)).toBe(true);
       expect(ctx.drillDown!.params).not.toHaveProperty("id");
@@ -994,14 +994,14 @@ describe("SearchMemory - F20260812mrcq Part 2 context-expand", () => {
       expandContext: true,
       contentType: ["message"],
     });
-    // 命中 m2
+    // 命中 
     expect(result.entries.find(e => e.id === "m2")).toBeDefined();
-    // contextEntries 应含 m1 和 m3
+    // contextEntries 应含 和 
     expect(result.contextEntries).toBeDefined();
     const ctxIds = result.contextEntries!.map(e => e.id);
     expect(ctxIds).toContain("m1");
     expect(ctxIds).toContain("m3");
-    // 不应含 m0 / m4（非邻域）或 m2（命中本身）
+    // 不应含 / （非邻域）或 （命中本身）
     expect(ctxIds).not.toContain("m0");
     expect(ctxIds).not.toContain("m4");
     expect(ctxIds).not.toContain("m2");

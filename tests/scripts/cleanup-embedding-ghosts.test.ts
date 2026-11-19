@@ -113,7 +113,7 @@ describe("cleanup-embedding-ghosts.mjs", () => {
       INSERT INTO embedding_tasks (entry_id, next_retry_at, status, attempts, created_at, last_error)
       VALUES ('ghost-1', datetime('now'), 'pending', 1, datetime('now'), 'entry deleted (content join failed)')
     `).run();
-    // 有效任务（entry 存在）：在线删除必须保留（delta 建议 2：保留语义要有被测对象）
+    // 有效任务（entry 存在）：在线删除必须保留（保留语义要有被测对象）
     online.prepare(`
       INSERT INTO embedding_tasks (entry_id, next_retry_at, status, attempts, created_at, last_error)
       VALUES ('e1', datetime('now'), 'pending', 0, datetime('now'), NULL)
@@ -127,7 +127,7 @@ describe("cleanup-embedding-ghosts.mjs", () => {
     const walSize = fs.statSync(`${onlineDbPath}-wal`).size;
     expect(walSize).toBeGreaterThan(0);
 
-    // 负对照（delta 建议 1）：此刻 cp 主 DB 必须丢 e2——否则「backup 含 e2」
+    // 负对照：此刻 cp 主 DB 必须丢 e2——否则「backup 含 e2」
     // 不证明在线备份的必要性（auto-checkpoint 可能已把 WAL 冲回主库的反例口封死）
     const cpPath = path.join(tmpDir, "online-cp-copy.db");
     fs.copyFileSync(onlineDbPath, cpPath);

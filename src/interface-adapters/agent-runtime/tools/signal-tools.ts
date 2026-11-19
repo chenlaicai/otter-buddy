@@ -1,10 +1,10 @@
 /**
- * Signal 工具（C1）：halt_otter（大獭停小獭）+ query_signals（台账查询）。
+ * Signal 工具：halt_otter（大獭停小獭）+ query_signals（台账查询）。
  *
- * halt 语义（方案 Part 3）：mark 打标 → 目标獭下一 tool_call 边界被 block →
+ * halt 语义：mark 打标 → 目标獭下一 tool_call 边界被 block →
  * 指令作为 error tool result 注入 → 目标獭报告进度并 yield。上下文零丢失。
  *
- * C2 增量：resolve_signal（objection/blocked 裁决写路径）——本文件已留位。
+ * 增量：resolve_signal（objection/blocked 裁决写路径）——本文件已留位。
  */
 
 import type { ToolContext, AgentTool } from "@usecases/ports/agent-tools";
@@ -89,7 +89,7 @@ export function createHaltOtterTool(ctx: ToolContext, signalRepo: SignalEventRep
       return errorResponse("[错误] 不能 halt 自己。需要中断自己的执行请直接收尾（stop 当前动作、汇报、yield）。");
     }
 
-    // #927 架构裁决（chen 终审）：halt 的送达语义是「目标獭下一个工具调用边界」，
+    // 架构裁决（chen 终审）：halt 的送达语义是「目标獭下一个工具调用边界」，
     // 消费对象是进行中的 invoke——endInvoke 挂 invoke finally，行动结束必清 pending。
     // 因此打标时目标不在执行中 = 指令无消费对象（孤儿），直接拒绝。
     // 这是根治，不用 TTL 兜底——设计不留模糊区。

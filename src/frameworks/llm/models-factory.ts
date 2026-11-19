@@ -25,7 +25,7 @@ interface CustomProviderOptions {
   contextWindow?: number;
   /** 最大输出 tokens（缺省回退 provider 模板值；SDK Model 接口必填，缺了请求负载 max_tokens 为 null） */
   maxTokens?: number;
-  /** 模型输入能力（多模态 Phase 1）：显式声明时覆盖 provider 模板 input，
+  /** 模型输入能力（多模态）：显式声明时覆盖 provider 模板 input，
    *  消除 anthropic 模板隐式继承 ["text","image"] 的静默风险（如 glm-5.3 无 vision 需声明 ["text"]） */
   input?: Array<"text" | "image">;
 }

@@ -208,7 +208,7 @@ export class CircuitBreakSupport {
    * 生产链路上 bounce 计数事件（orchestrator 落账）context 只有 {layer,guardReason,bounceAttempt}，
    * 无 ruleId/commandHead；按 bounce 过滤会把降级判定数据源架空成死代码（每轮拦截同时落
    * 结构化事件，数量对齐且多一轮首拦，判定语义更严）。台账失明时拋错由调用方 fail-closed。
-   * §3.5 处置：历史事件 layer 从落账 context.ruleLayer 取；本轮 currentRuleLayer 由调用方传入。
+   * 处置：历史事件 layer 从落账 context.ruleLayer 取；本轮 currentRuleLayer 由调用方传入。
    */
   async recentGuardBounceEvents(
     otterId: string,

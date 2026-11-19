@@ -7,13 +7,13 @@ import { maskAppId } from "./long-connection-client";
  *
  * 存储布局：`<stateDir>/feishu-apps.json` — `{ appId → { appSecret, ownerOpenId, name, addedAt } }`
  *
- * Why 文件而非 DB（D4）：connections 表是路由锚（externalId=bot 键），凭据是运行时
+ * Why 文件而非 DB：connections 表是路由锚（externalId=bot 键），凭据是运行时
  * 密钥（含 secret）——混入 DB 无消费方且扩大暴露面。对齐微信 accounts.json 先例
  * ，stateDir 本地权限保护，不上 git。
  *
  * ownerOpenId 双层可选：registerApp 的 user_info/open_id 均可缺席（SDK types
  * 321888-321896）——缺失时建线 metadata 留空，首条 p2p 消息 sender 回填（与
- * noteChatId 同位，D7 降级路径）。
+ * noteChatId 同位，降级路径）。
  */
 export interface FeishuAppRecord {
   appId: string;

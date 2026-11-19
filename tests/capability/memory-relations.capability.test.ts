@@ -171,7 +171,7 @@ describe("记忆关系层：edge CRUD + BFS + provenance（真 app + 真 DB）",
     const provenance = await ctx.built.usecases.getDocProvenance.execute(docEntryId);
     expect(provenance.conversationId).toBe(conv.id);
     expect(provenance.messages.length).toBe(2);
-    // D8: 不预筛选，两条消息都返回
+    // 不预筛选，两条消息都返回
     expect(provenance.messages.some(m => m.content.includes("第一条"))).toBe(true);
     expect(provenance.messages.some(m => m.content.includes("第二条"))).toBe(true);
   });

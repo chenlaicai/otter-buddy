@@ -31,11 +31,11 @@ import { runRestartService } from "@frameworks/agent/restart-service-executor";
 import { getTraceContext } from "@usecases/ports/trace-context";
 import { findKillSegments } from "@frameworks/agent/kill-segment-finder";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
-// PR-A：工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
+// 工具契约类型自本文件上移 @usecases/ports/agent-tools（消除 frameworks 反向依赖此文件）
 import type { AgentTool, ToolContext, ToolModelPool, ToolResponse } from "@usecases/ports/agent-tools";
 import { stripHtmlCardFences } from "@entities/conversation/message-body-projection";
 import { textResponse, errorResponse } from "@usecases/ports/agent-tools";
-// PR-B：领域规则下沉到 usecases 层
+// 领域规则下沉到 usecases 层
 import { validateAndResolve } from "@usecases/conversation/talking-stone";
 
 
@@ -89,27 +89,27 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       const { body: cleanBody, leaked } = stripToolCallSerializationLeak(rawBody);
       if (leaked) logger?.warn?.(`[speak] 工具调用序列化泄漏已剥离（invoke=${ctx.currentInvokeId}）`);
 
-      /** F20260804hcob: 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
+      /** 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
       const bodyError = validateSpeakBody(ctx.getTurnAssistantText?.(), cleanBody);
       if (bodyError) return errorResponse(bodyError);
 
       try {
-        // F20260913ctlv 彻底切换：唯一路径——speak entry（entries 表，獭气泡唯一来源）。
+        // 彻底切换：唯一路径——speak entry（entries 表，獭气泡唯一来源）。
         // 旧 speak message（messages 表）路径已删除。
         const speakEntry = await ctx.client.conversation.entry.createSpeakEntry({
           conversationId: ctx.conversationId,
           invokeId: ctx.currentInvokeId,
           otterId: ctx.otterId,
           body: cleanBody,
-          // F20260916hcel：含 html-card 的条目写入 schemaVersion（保留字段）
+          // 含 html-card 的条目写入 schemaVersion（保留字段）
           ...(hasCardFences(cleanBody) ? { metadata: { cardSchemaVersion: CARD_SCHEMA_VERSION } } : {}),
         });
         // 已发言标记（validateMessageHasContent 短路「已发言」判定；yield 后重置）。
         // 复用 lastSpeakMessageId 字段存 entry id。
         ctx.lastSpeakMessageId = speakEntry.id;
 
-        // F20261009csp2 活类产物登记挂钩：宪法「产物=主体×时刻×形态」——活类卡是产物就该进
-        // 时间轴混排体系（P1 已铺好）。best-effort：登记失败不阻断发言（卡片本身已落库，
+        // 活类产物登记挂钩：宪法「产物=主体×时刻×形态」——活类卡是产物就该进
+        // 时间轴混排体系（已铺好）。best-effort：登记失败不阻断发言（卡片本身已落库，
         // 只是少一张摘要卡）；title 取围栏 title 属性，content 提供可检索摘要
         await autoRegisterPlayableCards(ctx, cleanBody, speakEntry.id).catch((err) =>
           logger?.warn?.(`playable-card register failed: ${err instanceof Error ? err.message : String(err)}`),
@@ -119,7 +119,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
           ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
           terminate: false,
           /** agent-invoker 检测此标记并发射 entry.start/entry.speak SSE（真实 entryId）。
-           *  F20260921urdo 契约收口：sequenceNum/createdAt 必带——已读游标与排序的数据源，
+           * 契约收口：sequenceNum/createdAt 必带——已读游标与排序的数据源，
            *  禁发射点手拼缺失 */
           details: { __speakIntermediate: true, body: cleanBody, entryId: speakEntry.id, entryType: speakEntry.entryType, sequenceNum: speakEntry.sequenceNum, createdAt: speakEntry.createdAt },
         };
@@ -130,11 +130,11 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
   };
 }
 
-/** F20261009csp2：活类卡自动产物登记。宪法「产物=主体×时刻×形态」——活类卡
- *  （html-card-play 围栏）是产物，自动登记为 fact 类 linked_resource，进 P1 的时间轴
+/** 活类卡自动产物登记。宪法「产物=主体×时刻×形态」——活类卡
+ * （html-card-play 围栏）是产物，自动登记为 fact 类 linked_resource，进 的时间轴
  *  混排体系（不登记则「现场有这东西但链上查无此人」）。content 放可检索摘要（title +
  *  围栏内文本片段），url 留空（活类本体在消息原文里，get_message 可回看）。
- *  检视处置 3：markdown 解析口径（remark parse mdast 遍历，与前端 collectCodeNodes 同构）
+ * markdown 解析口径（remark parse mdast 遍历，与前端 collectCodeNodes 同构）
  *  取代手写正则——正则与解析器对四反引号/嵌套围栏形态会分裂（漏登/假登记） */
 async function autoRegisterPlayableCards(ctx: ToolContext, body: string, entryId: string): Promise<void> {
   if (!body.includes("html-card-play")) return;
@@ -153,7 +153,7 @@ async function autoRegisterPlayableCards(ctx: ToolContext, body: string, entryId
   for (const card of playCards) {
     const title = parseCardMetaTitle(card.meta) ?? "未命名活类卡";
     // 摘要：去标签后的文本前 180 字（fact content ≤500 字限制内）。
-    // F20261009csp2 补丁：extractPlayableCardSummary 先剥 script/style 整块再删标签——
+    // 补丁：extractPlayableCardSummary 先剥 script/style 整块再删标签——
     // 游戏卡九成内容是 script 源码，旧正则会把 "(function(){ var S = …" 漏进摘要（乱码卡实证）
     const textContent = extractPlayableCardSummary(card.value);
     await ctx.client.resource.link({
@@ -807,7 +807,7 @@ function parseUntilArgv(until: string): string[] | null {
   return argv.length > 0 ? argv : null;
 }
 
-/** wait 子步骤：until 前置校验——kill 族词样拒止 + 元字符/引号检查（A1/D4③）。 */
+/** wait 子步骤：until 前置校验——kill 族词样拒止 + 元字符/引号检查（/③）。 */
 function validateUntil(
   until: string | undefined,
 ): { error: ToolResponse } | { untilArgv: string[] } {
@@ -824,7 +824,7 @@ function validateUntil(
   return { untilArgv };
 }
 
-/** wait 子步骤：回显 reason——返回文本以「等待原因：<reason>」开头；缺 reason 时附轻提示（A2）。 */
+/** wait 子步骤：回显 reason——返回文本以「等待原因：<reason>」开头；缺 reason 时附轻提示。 */
 function buildWaitEcho(reason: string | undefined, seconds: number, untilResultText: string): ToolResponse {
   const reasonEcho = reason
     ? `等待原因：${reason}`

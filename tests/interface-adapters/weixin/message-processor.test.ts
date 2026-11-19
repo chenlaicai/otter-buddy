@@ -232,7 +232,7 @@ describe("WeixinMessageProcessor", () => {
     expect(ctx.sentMessages[0].attachmentIds).toBeUndefined();
   });
 
-  // ── #608：四类媒体全量入库（voice/file/video 恢复）──
+  // ── 四类媒体全量入库（voice/file/video 恢复）──
 
   it("语音消息：下载入库 audio kind + ASR 转写文本在 body（#608）", async () => {
     const ctx = makeProcessor({
@@ -310,7 +310,7 @@ describe("WeixinMessageProcessor", () => {
   });
 });
 
-// F20260928wxid：称呼链（独立 describe 防主 describe 超行限）
+// 称呼链（独立 describe 防主 describe 超行限）
 describe("WeixinMessageProcessor · F20260928wxid 称呼链", () => {
   it("connection metadata 有 userName → senderDisplayName 快照入库（海獭/前端不再裸 ID）", async () => {
     const ctx = makeProcessor({ ownerIlinkUserId: "u-1" });

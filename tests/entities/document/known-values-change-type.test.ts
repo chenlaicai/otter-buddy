@@ -45,7 +45,7 @@ describe("F20261031ctuny（#1718 检视建议1）别名表跨源一致守卫", (
     for (const canonical of KNOWN_CHANGE_TYPES) {
       const probe = canonical === canonical.trim() ? ` ${canonical} ` : canonical;
       if (normalizeChangeType(probe) !== probe) {
-        // trim 即非恒等——lint-intent 侧无 trim（#1717 前），别名键另测
+        // trim 即非恒等——lint-intent 侧无 trim（前），别名键另测
       }
     }
     // 别名键非恒等面：从 KNOWN 值反推候选别名（bugfix→fix 型：去分隔符/换分隔符形态）

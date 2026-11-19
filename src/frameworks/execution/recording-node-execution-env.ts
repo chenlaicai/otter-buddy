@@ -39,7 +39,7 @@ const NODE_ERROR_TO_FILE_ERROR: Record<string, "aborted" | "not_found" | "permis
 };
 
 /**
- * F20261116actlg：带台账记录的本机执行环境。
+ * 带台账记录的本机执行环境。
  *
  * 拦截副作用操作（写/追加/截断/改名/删除/建目录/exec）落动作台账；只读操作直通不入账
  * （幂等可安全重做，入账只加倍写负载）。分层定位：pi-durable 的 transcript 回答

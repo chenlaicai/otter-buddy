@@ -31,7 +31,7 @@ function entry(id: string, seq: number, body: string) {
 
 /** before 游标请求的行为开关：true=500 失败（模拟服务端错），false=成功返回更早条目 */
 let beforeShouldFail = true
-/** A1 竞态用例：before 请求挂起为 deferred（切会话后再迟到失败） */
+/** 竞态用例：before 请求挂起为 deferred（切会话后再迟到失败） */
 let beforeDeferred: { resolve: (r: Response) => void; reject: (e: unknown) => void } | null = null
 
 function json(data: unknown) {

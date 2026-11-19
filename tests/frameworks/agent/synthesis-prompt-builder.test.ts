@@ -1,8 +1,8 @@
 /**
- * Phase 2：交接摘要 LLM 叙事合成 prompt 构建器测试
+ * 交接摘要 LLM 叙事合成 prompt 构建器测试
  *
  * 验证六分区模板生成、件④机械数据注入、降级摘要构建。
- * 断言策略（D7）：验证输出结构，不绑定具体实现细节。
+ * 断言策略：验证输出结构，不绑定具体实现细节。
  */
 import { describe, it, expect } from "vitest";
 import { buildSynthesisPrompt, buildMechanicalDump } from "@frameworks/agent/synthesis-prompt-builder";
@@ -76,9 +76,9 @@ describe("buildSynthesisPrompt", () => {
       stateInventory: mockInventory,
     });
 
-    // B1 发言石数据
+    // 发言石数据
     expect(prompt).toContain("在场: otter-1 手中（user-1 yield）");
-    // B6 进行中数据
+    // 进行中数据
     expect(prompt).toContain("进行中: awaiting_review，等待 kimi");
   });
 

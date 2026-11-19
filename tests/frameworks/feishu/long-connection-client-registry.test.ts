@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChannelStatusRegistry } from "@usecases/channel/channel-status";
 
 // 飞书 WS 回调→registry 状态映射测试
-// 检视獭 D2 要求：飞书4回调映射至少一组测试覆盖
+// 检视獭 要求：飞书4回调映射至少一组测试覆盖
 
 /** Mock 连接状态（onReconnecting 上报 reconnectAttempts 的数据源，用例内可改） */
 let mockConnectionStatus: { state: string; lastConnectTime?: string; reconnectAttempts: number } = {

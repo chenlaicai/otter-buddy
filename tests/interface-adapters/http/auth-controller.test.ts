@@ -1,5 +1,5 @@
 /**
- * 阶段 2：统一接入登录三端点 + 中间件会话优先。
+ * 统一接入登录三端点 + 中间件会话优先。
  * 裸 createRouter + auth plumbing（不经 tests/api/helpers 身份包装）——断言真实装配行为。
  */
 import { describe, it, expect, vi } from "vitest";
@@ -229,7 +229,7 @@ describe("对话级执行机切换端点（阶段 5 PR-A：PUT /api/conversation
   });
 });
 
-// ─── F20261118exstt（#1868 阶段 5 PR-B）：对话当前机 + 远程动作状态端点 ───
+// ─── ：对话当前机 + 远程动作状态端点 ───
 describe("执行状态端点（GET execution-machine / remote-actions）", () => {
   function statusApp(current: string | null, actions: Array<{ actionId: string; status: string }>, exists?: () => Promise<boolean>): Hono {
     return rawApp({

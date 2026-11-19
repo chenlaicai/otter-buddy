@@ -1,5 +1,5 @@
 /**
- * RHI 健康信号处置工具（§2）。
+ * RHI 健康信号处置工具。
  *
  * 与獭间信号工具（signal-tools.ts）分开：那是 signal_events 台账（獭间协调），
  * 这是 signals 表（健康观测）——两个信号池语义不同（方案设计取舍③）。
@@ -8,7 +8,7 @@
  * 对账公式 M+K+D=N 从 triage 数据自动生成（「从自觉变机制」）。
  * list_rhi_signals：未接单清单查询——处置者（日报獭/搭档/被派工小獭）的派工输入。
  *
- * 写入语义契约（方案 §2 幂等语义表——实现必须逐行对齐）：
+ * 写入语义契约（幂等语义表——实现必须逐行对齐）：
  * - bind_issue：triage_status='triaged', issue_number=N, triaged_at=now（issueNumber 必填；覆盖式更新允许换绑）
  * - in_progress：triage_status='in_progress'（前置须已 bind_issue；幂等跳过）
  * - dismiss：status='dismissed' 终态 + triage_note 必写库（note 必填；幂等跳过）
@@ -49,7 +49,7 @@ async function rejectUnlessOpen(
   return dryRun ? null : rejectInvalidBinding(issueNumber, checkIssueBinding);
 }
 
-/** #1052：batch_bind——未接单信号按 filter 批量归口（照 manage_healing_events.batch_resolve 模式）。
+/** batch_bind——未接单信号按 filter 批量归口（照 manage_healing_events.batch_resolve 模式）。
  *  根治「daily-review 150 条逐条 triage_signal 被『连续同构调用』循环守卫阻断」的流程冲突——
  *  >10 条同类型同归口时走批量，逐条仅用于异质处置。 */
 async function handleBatchBind(params: Record<string, unknown>, signalRepo: SignalRepository, checkIssueBinding: CheckIssueBinding): Promise<ReturnType<typeof textResponse>> {
@@ -96,7 +96,7 @@ async function executeBatchBind(
   }, null, 2));
 }
 
-/** #1761：同一收尾判断适用于整个筛选族时，一次写入而非逐条表演。 */
+/** 同一收尾判断适用于整个筛选族时，一次写入而非逐条表演。 */
 function handleBatchDismiss(
   params: Record<string, unknown>,
   signalRepo: SignalRepository,

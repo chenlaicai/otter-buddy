@@ -61,7 +61,7 @@ export class EmbeddingServiceImpl implements EmbeddingGateway {
    */
   private readonly slotWaiters: Array<{ priority: number; resolve: () => void; timer?: ReturnType<typeof setTimeout>; expired?: boolean }> = [];
   private readonly readyState: ReadyState = { ready: false, loadError: null, waiters: [] };
-  /** Part 3：worker ready 时缓存的模型元信息 */
+  /** worker ready 时缓存的模型元信息 */
   private cachedMeta: EmbedModelMeta | null = null;
   private requestId = 0;
   /** 单次 embed 请求超时（ms）。超时后触发 FTS5-only 降级 */

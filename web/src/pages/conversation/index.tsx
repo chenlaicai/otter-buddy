@@ -205,9 +205,9 @@ export default function ConversationPage() {
    *  会导致右栏永久卡在「运行中」。合并逻辑提取为纯函数 mergeInvokesFromServer（invoke-tracker），
    *  幂等（无变更返回原引用）。
    * 兼作 loadConversationDetail 内联 listInvokes 失败时的重试兜底——
-   * 阶段3：门控与重试链退役——弱合并换轨后双拉无害化，防双拉补丁失去
+   * 门控与重试链退役——弱合并换轨后双拉无害化，防双拉补丁失去
    *  存在理由；对账统一走无门控的 syncInvokeStatesFromServer。 */
-  /** 阶段3（旧补丁退役）：统一拉取对账（原 syncInvokeStatesFromServer（带门控）+
+  /** （旧补丁退役）：统一拉取对账（原 syncInvokeStatesFromServer（带门控）+
    *  syncInvokeStatesOnReconnect（无门控）双函数收敛为单函数，无门控）。
    *  缓存模型下 mergeInvokesFromServer 幂等，任何时机重复拉取都安全；历史上为防
    *  初始双拉设的 invokeStatesLoadedRef 门控已退役（弱合并退役后双拉无害，门控失去
@@ -270,26 +270,26 @@ export default function ConversationPage() {
   }, [])
 
   // 活动状态轮询：每 5 秒刷新对话列表（仅在页面可见时）。
-  // F20260916lpsc：visibleIds 传入当前列表 id 集合——分页追加的对话不被首屏轮询冲掉
+  // visibleIds 传入当前列表 id 集合——分页追加的对话不被首屏轮询冲掉
   const visibleConvIds = useMemo(() => new Set(conversations.map(c => c.id)), [conversations])
   useConversationListPolling(pageState !== 'loading' && pageState !== 'error', setConversations, visibleConvIds)
 
-  /** F20260922cgrp：「加载更多」机制退役——分组分页由 LeftPanel 内部管理（每页 20 条页码跳转） */
-  /** F20261013csv3 T5：过程明细开关（内存态——刷新回默认关闭；不持久化偏好） */
+  /** 「加载更多」机制退役——分组分页由 LeftPanel 内部管理（每页 20 条页码跳转） */
+  /** 过程明细开关（内存态——刷新回默认关闭；不持久化偏好） */
   const [showProcessDetail, setShowProcessDetail] = useState(false)
 
   const loadConversationDetail = useCallback(async (convId: string) => {
-    // 检视发现 3：切对话时清理上一会话未触发的重试定时器（防旧会话 invoke 状态滞后写进新会话）
+    // 切对话时清理上一会话未触发的重试定时器（防旧会话 invoke 状态滞后写进新会话）
     invokeRetryTimersRef.current.forEach(clearTimeout)
     invokeRetryTimersRef.current = []
     try {
-      // F20260913ctlv 彻底切换：时间线唯一数据源 = entries（messages 渲染路径退役）
-      // F20260923sswd：listInvokes 从依赖链拆出并行发——原实现排在 Promise.all 之后，
+      // 彻底切换：时间线唯一数据源 = entries（messages 渲染路径退役）
+      // listInvokes 从依赖链拆出并行发——原实现排在 Promise.all 之后，
       // listEntries/participants 慢时右栏状态恢复被拖住；且 .catch(() => null) 静默吞失败，
-      // 切对话发现右栏状态错、手动刷新才恢复（issue #1134 入口 A）。
+      // 切对话发现右栏状态错、手动刷新才恢复（入口 A）。
       const invokesPromise = api.listInvokes(convId, { limit: 50 })
       const [entriesResp, keyInfo, participants] = await Promise.all([
-        // F20261013csv3 T5：开关打开时批量投影工具调用明细（includeEvents=true）
+        // 开关打开时批量投影工具调用明细（includeEvents=true）
         showProcessDetail ? api.listEntriesWithEvents(convId, 50) : api.listEntries(convId, 50),
         api.getKeyResources(convId),
         api.getParticipants(convId),
@@ -300,8 +300,8 @@ export default function ConversationPage() {
       }))
       // entries 全量映射（ASC；单一 sequenceNum 排序天然单调——跨表排序问题消失）
       const msgs = entriesResp.entries.map(mapEntryDTO)
-      /** F20260913ctlv test17：刷新恢复 invokeStates——右栏中断/重试按钮依赖该獭最新 invoke 状态。
-       *  F20260928icmm 阶段1：缓存模型换轨——内联恢复改用 mergeInvokesFromServer（同獭
+      /** test17：刷新恢复 invokeStates——右栏中断/重试按钮依赖该獭最新 invoke 状态。
+       * 缓存模型换轨——内联恢复改用 mergeInvokesFromServer（同獭
        *  startedAt 最新者胜，服务端可覆盖本地旧状态）。旧「本地已有即 continue」弱合并退役：
        *  SPA 切对话组件不卸载、invokeStates 不清空，旧实现把服务端正确状态原样丢弃，
        *  是右栏卡「运行中」直到手动刷新的根因（listInvokes 200 但 UI 不修）。 */
@@ -309,15 +309,15 @@ export default function ConversationPage() {
         const invokesResp = await invokesPromise
         setInvokeStates(prev => mergeInvokesFromServer(prev, invokesResp.invokes))
       } catch {
-        // F20260928icmm 阶段3：重试链降级——双次延迟重试（600ms/2500ms）降为单次 600ms；
+        // 重试链降级——双次延迟重试（600ms/2500ms）降为单次 600ms；
         // 2500ms 二次重试退役（60s 周期对账 + focus/导航读点已是更强兑底，短链无增量价值）。
-        // 检视发现 3：定时器句柄入 ref，切对话时清理（防旧会话状态滞后写进新会话）。
+        // 定时器句柄入 ref，切对话时清理（防旧会话状态滞后写进新会话）。
         console.warn('[invokeStates] 初始拉取失败，600ms 后重试:', convId)
         invokeRetryTimersRef.current.push(setTimeout(() => { void syncInvokeStatesFromServer(convId) }, 600))
       }
       setHasMoreBefore(entriesResp.hasMore)
       setUnreadState(unread)
-      // F20260921urdo 判定换轨：打开会话即 ack（Slack/Discord 同型语义）——取代旧
+      // 判定换轨：打开会话即 ack（Slack/Discord 同型语义）——取代旧
       // 「首次访问初始化已读」条件路径；未读分隔线仍在（视觉定位用），红点即时消散
       ackActiveRead(convId, msgs)
       setUnreadSeparatorSeq(null)
@@ -333,7 +333,7 @@ export default function ConversationPage() {
         ...prev,
         [convId]: keyInfo.resources.map(mapLinkedResourceDTO),
       }))
-      // 更新 allOtters，按对话存储（#502：浅比较保引用，防轮询/重进对话时 hover 卡微闪）
+      // 更新 allOtters，按对话存储（浅比较保引用，防轮询/重进对话时 hover 卡微闪）
       setAllOtters(prev => mergeOttersIfChanged(prev, convId, participants.map(p => mapParticipantDTO(p))))
     } catch (err) {
       console.error('Failed to load conversation detail:', err)
@@ -342,14 +342,14 @@ export default function ConversationPage() {
   }, [ackActiveRead, syncInvokeStatesFromServer, showProcessDetail])
 
   /** 静默刷新消息列表（轮询/对账用，失败不打扰用户，下轮重试） */
-  /** F20260913ctlv 增量刷新；F20261005vsyc 重构：尾页快照 + mergeMessages 幂等合并。
+  /** 增量刷新；重构：尾页快照 + mergeMessages 幂等合并。
    *  Why 弃用 after 游标（listEntriesAfter）：①游标取「列表末位带 seq 条目」——丢失条目
    *  seq 低于本地尾部时永久漏补（本案 15:55 speak seq=780 丢失后，15:56 yield 无 seq 居中
    *  条目先到，末位游标反指更早条目）；②列表非全局 seq 有序时末位非最大 seq 同样漏。
    *  尾页快照 + 幂等合并不依赖游标假设，低位缺口/乱序一概能补（同 id 幂等，窗口外终态
    *  允许丢弃——与整页重载同语义）。 */
   /**
-   * F20261009rwqa（三轮上跳根治）：快照窗口对齐——刷新拉取的条目必须 ⊆ 当前已加载窗口 ∪ 新条目。
+   * （三轮上跳根治）：快照窗口对齐——刷新拉取的条目必须 ⊆ 当前已加载窗口 ∪ 新条目。
    * 旧版固定拉尾页 100 条：首屏只装 50 条的长会话，周期审计（60s）/焦点对账/SSE 重连补偿
    * 任一触发都会把窗口外的 50 条历史塞进列表（实测 sh +8817px、贴底用户被推离），
    * 且每分钟重复暴增——「历史对话更容易跳」的根因。
@@ -359,14 +359,14 @@ export default function ConversationPage() {
    * 更早条目漏补）；头部游标无此问题——窗口内条目已在本地，低位缺口不存在，新条目 seq 恒 > oldest。
    * 边界：①游标取首个非 tmp-/err- 真实条目（乐观条目无后端 seq，查不到会 fail-closed 返空，
    * 刷新退化但无害）；②oldest 后超 200 条（断连数小时后首刷等极端态）：ASC+LIMIT 截断的是
-   * 最新端（检视 S2 实锤：注释初版写的「尾部恒在快照内」方向反了）——循环翻页拉到尾，
+   * 最新端（检视 实锤：注释初版写的「尾部恒在快照内」方向反了）——循环翻页拉到尾，
    * 上限 5 轮（首请求 200 + 5 轮翻页，封顶 1200 条/6 请求）防失控：仍超限则放弃窗口对齐、
    * 使用已拉到的部分快照（保最旧侧 1200 条、丢最新端缺口——无额外请求，不存在回退拉取分支；
    * 最新端缺口无法自愈——游标恒锚窗口头，静止窗口下刷新恒返回同一 1200 条，SSE 只补
    * 断连后新产生的条目；补齐靠重进会话（首屏拉尾页盖住最新）或上翻扩窗（游标前移扩大
    * 可达范围））。
    * 进循环条件：游标后条目总数 > 200——与单轮增量无关。用户上翻 loadMoreBefore 扩窗后
-   * （每批 50 条，F20261020wcsr 起），窗口 >200 时每轮审计都会进循环（每轮 2+ 请求、O(窗口) 传输）——
+   * （每批 50 条，起），窗口 >200 时每轮审计都会进循环（每轮 2+ 请求、O(窗口) 传输）——
    * 这是 after=oldest 设计的已知取舍（F20260921 末位游标低位缺口风险不可回退）。
    * in-flight 游标语义：tmp-/err- 乐观条目按 id 前缀排除、不作游标，但游标本身可以是
    * in-flight 状态的真实条目（如活跃獭正在流式的 speak 是窗口最旧真实条目时）——无 correctness
@@ -380,7 +380,7 @@ export default function ConversationPage() {
       let resp = oldestId
         ? await api.listEntriesAfter(convId, oldestId, 200)
         : await api.listEntries(convId, 100)
-      // S2 修复：hasMore=true 说明截断了最新端——游标推进到快照末位继续拉，直到取全或达上限。
+      // 修复：hasMore=true 说明截断了最新端——游标推进到快照末位继续拉，直到取全或达上限。
       // 不能 fallback 尾页拉取（会放弃窗口对齐，极端场景窗口外暴增回归——本案要杀的形态）
       if (oldestId) {
         let pages = 0
@@ -394,7 +394,7 @@ export default function ConversationPage() {
       }
       if (resp.entries.length > 0) {
         const snapshot = resp.entries.map(mapEntryDTO)
-        /** delta D（检视獭-1292 三轮，F20260814qswp 同类回归修复）：合并计算全部
+        /** delta D（检视獭-1292 三轮，同类回归修复）：合并计算全部
          *  移进函数式 updater——对 fresh prev（批队列最新值）重算，消除 stale-base
          *  clobber 竞态（SSE batcher 新消息先入队时，闭包 result 基于 allMessagesRef
          *  旧值算出，直写会覆盖丢新条目——本库 37.5s 静默丢失实证教训同型）。
@@ -422,7 +422,7 @@ export default function ConversationPage() {
           if (!changed) return prev
           return { ...prev, [convId]: result }
         })
-        /** F20260921urdo 判定换轨：拉到快照后，若对话处于打开且聚焦状态则 ack。
+        /** 判定换轨：拉到快照后，若对话处于打开且聚焦状态则 ack。
          *  ack 游标语义保守：基于快照实体（用户应读到的最新内容）取游标，
          *  不依赖 updater 内合并结果（setState 异步）。 */
         if (convId === activeIdRef.current && document.visibilityState === 'visible' && document.hasFocus()) {
@@ -434,7 +434,7 @@ export default function ConversationPage() {
     }
   }, [ackActiveRead])
 
-  /** F20260921urdo 判定换轨：窗口聚焦/切回可见时 ack（300ms 防抖，快速切换不抖）。
+  /** 判定换轨：窗口聚焦/切回可见时 ack（300ms 防抖，快速切换不抖）。
    *  document.hasFocus() 兼容 focus 事件与 visibilitychange 双通道；后台 tab 收到
    *  新消息不 ack（红点保留，切回时消散）。
    *  ack 前先 refreshMessages：失焦期间落库的新条目（SSE 未投递/断连）先拉进
@@ -450,9 +450,9 @@ export default function ConversationPage() {
         if (convId && document.visibilityState === 'visible' && document.hasFocus()) {
           refreshMessages(convId)
           ackActiveRead(convId)
-          /** F20260928icmm 阶段1：窗口聚焦/切回可见时同步对账右栏 invoke 状态——
+          /** 窗口聚焦/切回可见时同步对账右栏 invoke 状态——
            *  失焦/后台窗口期间的 invoke.end 可能因订阅断开丢失（无回放），切回时
-           *  用权威数据拉齐（无门控对账；门控已随阶段3 退役）。 */
+           * 用权威数据拉齐（无门控对账；门控已随退役）。 */
           void syncInvokeStatesFromServer(convId)
         }
         ackReadDebounceRef.current = null
@@ -466,22 +466,22 @@ export default function ConversationPage() {
     }
   }, [ackActiveRead, refreshMessages, syncInvokeStatesFromServer])
 
-  /** 点击"新消息 N 条"浮窗：滚动与置 pin 由 MessageList 内部完成（ref 直连，F20261008scpg 修复死按钮）；
+  /** 点击"新消息 N 条"浮窗：滚动与置 pin 由 MessageList 内部完成（ref 直连，修复死按钮）；
    *  此处只清计数。旧 querySelector('[data-message-list]') 路径已删除（属性渲染端不存在） */
   const handleJumpToBottom = useCallback(() => {
     setNewMessagesCount(0)
   }, [])
 
-  /** F20261027nmbf：回锚清零——floating→pinned 转换时清浮窗计数（F20261029repin：转换时机
+  /** 回锚清零——floating→pinned 转换时清浮窗计数（转换时机
    *  =「新消息+视觉贴底」与显式动作，旧「滚回底部」路径已随「到底即回锚」机制移除）。
    *  修「计数僵死」：旧实现只有点浮窗/发言两个清零入口，均要求按钮可点；输入覆盖层
-   *  （F20261015inpd）遮挡按钮后清零路径全断——左栏红点已被聚焦 ack 消掉（F20260921urdo），
+   * 遮挡按钮后清零路径全断——左栏红点已被聚焦 ack 消掉，
    *  浮窗仍挂“新消息 N 条”僵死。回锚=用户已在底部看到全部新消息，清零语义等同已读 */
   const handlePinnedToBottom = useCallback(() => {
     setNewMessagesCount(0)
   }, [])
 
-  /** F20260913ctlv 彻底切换：向上加载更旧历史（entries before 游标） */
+  /** 彻底切换：向上加载更旧历史（entries before 游标） */
   const loadMoreBefore = useCallback(async () => {
     if (!activeId || loadingMoreRef.current || !hasMoreBefore) return
     const list = allMessagesRef.current[activeId] || []
@@ -489,9 +489,9 @@ export default function ConversationPage() {
     if (!oldest?.id) return
     loadingMoreRef.current = true
     setLoadingMore(true)
-    setLoadMoreError(false) // F20261021lmfe：开始加载即清错误态（重试语义——手动按钮点击即重试）
+    setLoadMoreError(false) // 开始加载即清错误态（重试语义——手动按钮点击即重试）
     try {
-      // F20261020wcsr：每批 20→50 条（与 Telegram 一致：ChatActivity.java loadMessages 50 条/批；
+      // 每批 20→50 条（与 Telegram 一致：ChatActivity.java loadMessages 50 条/批；
       // 50 条 ≈ 2-3 屏，兼顾请求数与 prepend 高度稳定性）
       const resp = await api.listEntries(activeId, 50, oldest.id)
       if (resp.entries.length === 0) { setHasMoreBefore(false); return }
@@ -503,9 +503,9 @@ export default function ConversationPage() {
       }))
     } catch (err) {
       console.error('Failed to load more history:', err)
-      // F20261021lmfe（issue #1581）：失败置错误态——按钮进入「加载失败，点击重试」态
+      // 失败置错误态——按钮进入「加载失败，点击重试」态
       // （哨兵自动通道失败同样只在按钮体现，不弹窗不打断阅读）。
-      // 会话归属判权（检视 A1）：请求发起后切会话，旧请求迟到失败不得把错误旗标泄入新会话 UI——
+      // 会话归属判权（检视）：请求发起后切会话，旧请求迟到失败不得把错误旗标泄入新会话 UI——
       // activeIdRef 是当前会话即时值，与本次请求闭包捕获的 activeId 不一致即丢弃
       if (activeIdRef.current === activeId) setLoadMoreError(true)
     } finally {
@@ -530,7 +530,7 @@ export default function ConversationPage() {
     }
   }, [activeId, allMessages])
 
-  /** F20261027nmbf D-1：计数只归 activeId 所有；不随过程明细触发的详情加载重跑而误清 */
+  /** D-1：计数只归 activeId 所有；不随过程明细触发的详情加载重跑而误清 */
   useEffect(() => {
     setNewMessagesCount(0)
   }, [activeId])
@@ -539,9 +539,9 @@ export default function ConversationPage() {
     if (activeId) {
       loadConversationDetail(activeId)
     }
-    // F20261021lmfe：切会话清失败态——错误属于上一会话的那一次请求，不得阻断新会话自动通道
+    // 切会话清失败态——错误属于上一会话的那一次请求，不得阻断新会话自动通道
     setLoadMoreError(false)
-    // F20260921spcm：SPA 路由切换对话时组件不重挂载，旧守门条件 `!allMessages[activeId]`
+    // SPA 路由切换对话时组件不重挂载，旧守门条件 `!allMessages[activeId]`
     // 在缓存命中时跳过拉取——切走期间海獭的新发言永久不可见（SSE 只订当前对话且无回放）。
     // 修法：恢复 MPA 时代「进入对话即拉最新」语义，activeId 变化就拉。
     // 注：allMessages 不在依赖里——避免拉取结果 setState 反过来重触发本 effect。
@@ -551,19 +551,19 @@ export default function ConversationPage() {
   useEffect(() => {
     if (!activeId) return
 
-    // F20260913ctlv：invoke 生命周期跟踪（invokeStates 独立 reducer，不进消息列表）
+    // invoke 生命周期跟踪（invokeStates 独立 reducer，不进消息列表）
     const syncInvokeState = (updater: (prev: InvokeStates) => InvokeStates) => {
       setInvokeStates(prev => updater(prev))
     }
 
-    // F20260913ctlv 彻底切换：事件分发器——单通道（entry.* / invoke.*；message.* 已退役）
+    // 彻底切换：事件分发器——单通道（entry.* / invoke.*；message.* 已退役）
     const handlers: Record<string, (data: Record<string, unknown>) => void> = {
       'entry.user': (data) => {
         const d = data as { entryId: string; sequenceNum?: number; senderId?: string; body?: string; createdAt?: string; yieldTargets?: string[]; senderName?: string; attachments?: LocalAttachment[] }
         const userMsg: LocalMessage = {
           id: d.entryId, st: 'user', si: d.senderId || 'user',
           content: d.body ?? '', status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
-          // F20260913ctlv 收尾：yieldTargets = 发言石目标（user 气泡「→ 目标」传递行）
+          // 收尾：yieldTargets = 发言石目标（user 气泡「→ 目标」传递行）
           yieldTargets: d.yieldTargets ?? null,
           // 终审修复：senderName（IM 用户身份链，防实时窗口显示「我」）+ atts（附件实时投影）
           sn: d.senderName || undefined,
@@ -572,7 +572,7 @@ export default function ConversationPage() {
         let added = false
         batchUpdateMessages(activeId!, (current) => {
           if (current.some(m => m.id === userMsg.id)) return current
-          // F20260913ctlv 补漏：tmp 乐观气泡替换（同会话末尾同内容 user tmp → 真实 entryId）——
+          // 补漏：tmp 乐观气泡替换（同会话末尾同内容 user tmp → 真实 entryId）——
           // POST 流与常驻通道都会收到 entry.user，不替换则同一句话渲染两条
           const tmpIdx = [...current].reverse().findIndex(m =>
             m.id.startsWith('tmp-') && m.st === 'user' && m.content === userMsg.content)
@@ -590,9 +590,9 @@ export default function ConversationPage() {
       },
       'entry.speak': (data) => {
         /** speak entry 全量 body——speak 是原子工具调用（无流式生命周期），落库即 completed。
-         *  F20260913ctlv 语义清理：entry.start 伪事件已退役，entry.speak 自包含——
+         * 语义清理：entry.start 伪事件已退役，entry.speak 自包含——
          *  气泡不存在则插入 completed 完整气泡（无占位、无 streaming 中间态），存在则填 body 收敛终态。
-         *  F20260921urdo 契约收口：sequenceNum/createdAt 必接（后端已贯通）——seq 是
+         * 契约收口：sequenceNum/createdAt 必接（后端已贯通）——seq 是
          *  已读游标与排序数据源，缺席即红点僵死。 */
         const d = data as { entryId: string; invokeId?: string; otterId?: string; body?: string; otterName?: string; createdAt?: string; sequenceNum?: number; otterType?: string; otterColor?: string | null }
         if (!d.body) return
@@ -603,7 +603,7 @@ export default function ConversationPage() {
             added = true
             const msg: LocalMessage = {
               id: d.entryId, st: 'otter', si: d.otterId || '', sn: d.otterName,
-              // F20260921otcl：事件携带出生色（占位/渲染双用）
+              // 事件携带出生色（占位/渲染双用）
               scolor: d.otterColor ?? null,
               content: body, status: 'completed', seq: d.sequenceNum, ts: d.createdAt || nowTs(), dur: null,
               invokeId: d.invokeId,
@@ -617,7 +617,7 @@ export default function ConversationPage() {
         }
         if (added) { if (!pinRef.current) setNewMessagesCount(c => c + 1) }
       },
-      // F20260913ctlv 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
+      // 收尾：entry.complete 事件已退役（后端无发射点；speak 气泡终态由 invoke.end 收敛）
       'entry.failed': (data) => {
         const d = data as { entryId: string; invokeId?: string; body?: string; otterId?: string; otterName?: string; otterType?: string; otterColor?: string | null }
         /** invoke 级失败（invokeId 锚）——刷新后由 invoke_end entry 呈现，实时阶段：

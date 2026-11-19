@@ -1,11 +1,11 @@
 /**
- * RegisterMatter——准入白名单三条的登记 usecase（§3 生死线）。
+ * RegisterMatter——准入白名单三条的登记 usecase（生死线）。
  *
  * matter 只能由白名单动作产生：
  * 1. L2 显式拍板项的 yield to user（yield 工具 expects_partner_decision 打标 →
  *    yield 工具内调本 usecase，state=WAITING_PARTNER，owner=调用獭）
- * 2. 搭档说「回头再说」（P2 板上入口；P1 仅工具/系统路径可达）
- * 3. 跨日未收尾任务（P3 三省吾身扫描）
+ * 2. 搭档说「回头再说」（板上入口；仅工具/系统路径可达）
+ * 3. 跨日未收尾任务（三省吾身扫描）
  *
  * 獭随手不能开 matter（调用方权限不在本层——本 usecase 是登记物理入口，
  * 防泛滥靠「白名单硬编码在产生路径」：只有 yield 工具与扫描器调这里）。

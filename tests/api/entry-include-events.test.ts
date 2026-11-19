@@ -5,7 +5,7 @@ import { foldInvokeEvents } from "@contract/api/invoke-event-fold";
 import type { InvokeEventDTO } from "@contract/api/invoke";
 
 /**
- * T5：entries ?includeEvents=true 批量投影集成测试。
+ * entries ?includeEvents=true 批量投影集成测试。
  * 锁定：①开关关闭（默认）entries 无 events 字段 + 不查 invokeRepo；
  * ②开关打开批量投影折叠步（foldInvokeEvents 同源）；③error 摘要 ≤200 字符；
  * ④每 invoke ≤20 条；⑤无 invokeId 的条目不携带 events。

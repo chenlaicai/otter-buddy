@@ -28,7 +28,7 @@ interface LeftPanelProps {
   onNewConversation: () => void
   onContextMenu: (e: React.MouseEvent, cid: string) => void
   otters: Otter[]
-  /** F20260922cgrp：数据变化通知（归档/置顶/新建后父组件刷新各分组数据） */
+  /** 数据变化通知（归档/置顶/新建后父组件刷新各分组数据） */
   onRefresh?: () => void
 }
 
@@ -36,7 +36,7 @@ interface LeftPanelProps {
 const SCROLL_POS_KEY = 'leftPanel:scrollTop'
 
 /**
- * F20260922cgrp：页码跳转器——`‹ 1 2 3 … N ›`，N>10 时折叠中间页（首尾 + 当前±2）。
+ * 页码跳转器——`‹ 1 2 3 … N ›`，N>10 时折叠中间页（首尾 + 当前±2）。
  * 简单实现：页数 ≤10 全展示；>10 展示 1 … (cur-2..cur+2) … N。
  */
 function Pagination({ page, total, onChange, testid }: { page: number; total: number; onChange: (p: number) => void; testid: string }) {

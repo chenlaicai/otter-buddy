@@ -1,5 +1,5 @@
 /**
- * 每日健康检查模板纪律锁（P1）
+ * 每日健康检查模板纪律锁
  *
  * 9:00 任务的 prompt 真相源在 prompts/scheduled/daily-health-check.md（git 模板，
  * /确立），DB body 是运行时副本（update-scheduled-task-body.mjs 同步）。
@@ -36,7 +36,7 @@ describe('每日健康检查模板纪律锁（#791 P1）', () => {
     for (const n of [1, 2, 3, 4, 5, 6]) {
       expect(tpl).toMatch(new RegExp(`^${n}\\. \\*\\*`, 'm'));
     }
-    // 语义锚定（#1036 检视：只断言编号锁不住语义，条目改名换内容照样绿）
+    // 语义锚定（检视：只断言编号锁不住语义，条目改名换内容照样绿）
     expect(tpl).toMatch(/1\. \*\*对话历史\*\*[\s\S]*?search_memory/);
     expect(tpl).toMatch(/2\. \*\*GitHub issues \/ PRs\*\*/);
     expect(tpl).toMatch(/3\. \*\*self-healing events\*\*[\s\S]*?二维分账/);

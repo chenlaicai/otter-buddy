@@ -71,7 +71,7 @@ describe("牌局页浏览器真机渲染", () => {
       body: JSON.stringify({ roomId: ROOM, seed: "visual-seed", players: PLAYERS }),
     });
     expect(res.status).toBe(201);
-    // F20261022mjls：建房开等待房——真机渲染前先开局（页面在新语义下点「开始」触发，测试直接走 API 等价物）
+    // 建房开等待房——真机渲染前先开局（页面在新语义下点「开始」触发，测试直接走 API 等价物）
     const started = await fetch(`${base}/api/mahjong/rooms/${ROOM}/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

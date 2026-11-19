@@ -1,5 +1,5 @@
 /**
- * 附件 HTTP 端点集成测试（多模态 Phase 1，审视修复 /）。
+ * 附件 HTTP 端点集成测试（多模态 审视修复 /）。
  *
  * 真 Hono app + 真 busboy + 真 sharp + 真 sqlite：
  * - 竞态回归（核心）：上传响应必须含附件 ID——close 后 await 全部 in-flight upload
@@ -267,11 +267,11 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
       { getById: async () => null } as unknown as QueryOtter,
       dispatchChainEngine,
       new MessageBroadcaster(logger) as never,
-      // F20260826mwrd C4 合并适配：signalRepo 位占位
+      // 合并适配：signalRepo 位占位
       undefined,
       injection,
       undefined,
-      // F20260913ctlv 彻底切换：sendEntry（user 消息唯一落点 = entries）——记录调用面供断言
+      // 彻底切换：sendEntry（user 消息唯一落点 = entries）——记录调用面供断言
       Object.assign({
         sendUserEntry: async (input: { conversationId: string; senderId: string; body: string; talkingStonePassedTo?: string[]; attachmentIds?: string[] }) => {
           sendEntryCalls.push(input);
@@ -350,7 +350,7 @@ describe("sendMessage 附件前置校验 + FTS 时序（R3）", () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // F20260913ctlv 终审修复：attach 下沉 sendUserEntry 内部（三入口统一）——
+    // 终审修复：attach 下沉 sendUserEntry 内部（三入口统一）——
     // controller 不再手动调 attachEntryAttachments，attachmentIds 即绑定凭证
     expect(sendEntryCalls).toHaveLength(1);
     expect(sendEntryCalls[0]!.attachmentIds).toEqual(uploadedImageIds.slice(0, 1));

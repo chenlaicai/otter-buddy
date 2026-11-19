@@ -260,7 +260,7 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
     // 二拦终态：invoke aborted（bounce 耗尽升级）
     const invoke = [...sendEntry.store.invokes.values()][0]!;
     expect(["aborted", "failed"]).toContain(invoke.status);
-    // guard bounce 流程观测留痕（F20261102grfix：guard_bounce_flow 独立口径）
+    // guard bounce 流程观测留痕（guard_bounce_flow 独立口径）
     expect(healing.events.some(e => e.errorType === "guard_bounce_flow")).toBe(true);
   });
 });

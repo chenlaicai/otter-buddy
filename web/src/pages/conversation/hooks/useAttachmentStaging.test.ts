@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * 多模态 Phase 1 前端附件：useAttachmentStaging hook 行为测试。
+ * 多模态 前端附件：useAttachmentStaging hook 行为测试。
  * 锁定状态机关键行为：占位→服务端替换、上传失败回滚、发送提取与清空、
  * 图片上限兜底（前端与后端 MAX_IMAGES_PER_TURN=2 一致）。
  */

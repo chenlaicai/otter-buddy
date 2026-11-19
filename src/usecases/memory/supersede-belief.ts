@@ -4,7 +4,7 @@
  * 两条路径：
  * - markExpired(oldId)：夜间审视獭「标记过期」——旧条目迁 superseded，不建边（无新条目）。
  * - markReplaced(oldId, newId)：现场「写入带 supersedes 提议」——旧条目迁 superseded，
- *   并建 supersedes 边（from=new 取代者，to=old 被取代；P0 检索端据此降权 + get_related 可拼链）。
+ * 并建 supersedes 边（from=new 取代者，to=old 被取代；检索端据此降权 + get_related 可拼链）。
  *
  * TOCTOU 防护（P1c 前瞻已知项）：markReplaced 建边前先查 old 是否已有入边 supersedes
  * （getSupersededBy 命中=已被取代）——已取代则跳过建边与迁移（幂等），防并发双写把
@@ -15,7 +15,7 @@ import { DomainError } from "@entities/errors";
 import type { TransitionBelief } from "./transition-belief";
 
 export interface SupersedeBeliefPorts {
-  /** 查哪些条目已被 supersedes 边指向（P0 同源 Map<旧,新>） */
+  /** 查哪些条目已被 supersedes 边指向（同源 Map<旧,新>） */
   getSupersededBy(entryIds: string[]): Promise<Map<string, string>>;
   /** 建 supersedes 边（from=取代者，to=被取代） */
   createEdge(input: {
