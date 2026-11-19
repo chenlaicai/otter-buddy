@@ -45,6 +45,43 @@ test('svgToPng renders an SVG to PNG bytes', async () => {
   assert.deepEqual([...bytes.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 });
 
+test('svgToPng rejects active content, external reads, and unsafe use references before loading sharp', async () => {
+  const dangerous = [
+    '<!DOCTYPE svg><svg xmlns="http://www.w3.org/2000/svg"/>',
+    '<!DOCTYPE svg [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg"/>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject width="10" height="10"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><image href="file:///etc/passwd"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><use href="https://attacker.test/a.svg#x"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="file:///tmp/a#x"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><a href="ht&#116;p://attacker.test">x</a></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect onload="alert(1)"/></svg>',
+  ];
+  for (const svg of dangerous) {
+    let sharpLoads = 0;
+    await assert.rejects(svgToPng(svg, async () => { sharpLoads++; throw new Error('must not load'); }));
+    assert.equal(sharpLoads, 0);
+  }
+});
+
+test('svgToPng rejects oversized canvases and excessive element counts before loading sharp', async () => {
+  const tooWide = '<svg xmlns="http://www.w3.org/2000/svg" width="2001" height="20"/>';
+  const tooTall = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="2001"/>';
+  const tooMany = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">${'<rect/>'.repeat(2000)}</svg>`;
+  for (const svg of [tooWide, tooTall, tooMany]) {
+    let sharpLoads = 0;
+    await assert.rejects(svgToPng(svg, async () => { sharpLoads++; }), /SVG_(?:DIMENSION|ELEMENT)_LIMIT/);
+    assert.equal(sharpLoads, 0);
+  }
+});
+
+test('svgToPng still renders a normal SVG with internal use references and http namespace identifiers', async () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><defs><rect id="pixel" width="20" height="20" fill="red"/></defs><use href="#pixel"/></svg>';
+  const bytes = await svgToPng(svg);
+  assert.ok(bytes instanceof Uint8Array);
+  assert.deepEqual([...bytes.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+});
+
 test('extractSvgBlocks removes all bare SVGs from the text even beyond the send cap', () => {
   const svgOf = fill => `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="${fill}"/></svg>`;
   const source = `开头\n${svgOf('red')}\n${svgOf('blue')}\n${svgOf('green')}\n结尾`;
