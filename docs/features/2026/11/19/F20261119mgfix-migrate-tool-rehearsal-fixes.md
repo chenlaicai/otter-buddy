@@ -26,18 +26,26 @@ capability_test: "tests/scripts/migrate-tools.test.ts"
 | ② | 术语种子 data/terminology/ 由 getRepoRoot 运行时读——deploy 排除 data/ + 云端无 git → 起服 ENOENT | 种子 git mv 进 src，编译期 import JSON（随 dist 部署，路径基准消失） |
 | ③ | 白名单边界：漏 backgrounds/weixin；混入 execution-machines（本地真相+裸拷 sqlite 风险）/quota-browser（cache） | 收敛 MIGRATE_INCLUDES + 代码根 data symlink→物理数据根（deploy.sh 建链，cwd 回代码根）+ runbook 口径统一 |
 
-## 检视 D 轮处置（D1/D2）
+## 检视 D 轮处置（D1/D2/D3）
 
 - **D1（WorkingDirectory 切数据根误伤仓资产）**：revert WorkingDirectory 回代码根
   /opt/otter-buddy；数据根语义改由 deploy.sh 建的 `/opt/otter-buddy/data →
   /var/lib/otter-buddy/data` symlink 承载——cwd 双语义解耦（文档同步/resource 装载
-  按代码根，./data 相对引用穿链落物理根）。已知边界：cwd 同时被两种语义消费的
-  架构膔本身未根治（后续演进：消费点统一锚 getRepoRoot/显式数据根 env），
-  symlink 方案在目标布局下实证无归档/skills 丢失（ECS 复验）。
+  按代码根，./data 相对引用穿链落物理根）。生产布局回归实证（ECS 真数据副本）：
+  15 skills 装载、document sync archived:0；中途不完整布局轮曾静默归档 1085 条
+  （探活全绿）——真切序列钉死「一次性布局完整，禁止裸起后补」。已知边界：cwd 双语义
+  架构本身未根治（后续演进：消费点统一锚 getRepoRoot/显式数据根 env），
+  symlink 是目标布局下的实证安全解。
 - **D2（DB 布局契约矛盾）**：README/runbook/unit 三处口径统一——物理数据根
   /var/lib/otter-buddy/data（restore 目标），config database.path ./data/otter-buddy.db
   （相对 cwd=代码根，穿链）。
+- **D3（deploy 建链两安全缺陷）**：①首装目录属主——mkdir 后 chown otter:otter，
+  sudo -u otter test -w 机械验证可写；②嵌套链假成功——建链前 fail-closed
+  （${REMOTE_CODE}/data 存在且非 symlink 即报错退出提示人工处置），建链后
+  readlink 精确匹配校验。
 - **测试残余**：三个不迁目录补 fixture 实体（负向断言钉得住）+ backgrounds 正向断言。
+- **附加实证**：JSON import 需 `with { type: "json" }`（node24 产物态 ESM 严格；
+  本机 vitest 跑 TS 源宽容未拦，ECS 产物 ERR_IMPORT_ATTRIBUTE_MISSING 实证）。
 
 ## 检视处置（reviewer-1968-dspro 两严重）
 

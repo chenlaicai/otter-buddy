@@ -18,7 +18,8 @@ guard-replay 归档（历史存档，云端不重放）。
   →verify 4min→起服首扫 22min（2 核；重启热缓存后快）
 - 真切架构：**预热全量 + 停服窗口内 rsync 增量**（窗口分钟级，不陪 1h 传输）
 - 双实例并存=定时任务双跑：真切序列本机停服后才起云端；验证实例验证完即停
-- 布局约定：WorkingDirectory=数据根父（/var/lib/otter-buddy），./data/* 相对引用统一
+- 布局约定：代码根 data symlink→物理数据根（WorkingDirectory=代码根 /opt/otter-buddy，
+  ./data/* 穿链落 /var/lib/otter-buddy/data；deploy.sh 建链含属主与嵌套链 fail-closed 校验）
 - 磁盘纪律：restore 验证过后删 tar（峰值 92%→79%）
 
 ## 切换操作序列（真切）
@@ -38,7 +39,7 @@ guard-replay 归档（历史存档，云端不重放）。
    ```
 5. **起云**：`systemctl start otter-buddy`（探活就绪 + 单实例锁护数据域）。
 6. **入口切换**：web 用 `https://otter.60.205.214.148.sslip.io/`；connector 换 `wss://…/connector-ws`。
-7. **验证期巡检**：`node scripts/migrate-verify.mjs --data-dir <目标> --manifest <manifest>` 幂等重跑 + 内存曲线观察（`systemctl status`）。
+7. **验证期巡检**：`node scripts/migrate-verify.mjs --data-dir /var/lib/otter-buddy/data --manifest <manifest>` 幂等重跑 + 内存曲线观察（`systemctl status`）。
 
 ## 回退剧本（云端验证不过 / 想回本机）
 
