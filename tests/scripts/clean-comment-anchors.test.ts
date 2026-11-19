@@ -105,6 +105,8 @@ describe("cleanCommentText 文档结构编号", () => {
     expect(cleanCommentText("P1：信号路由器").text).toBe("信号路由器");
     expect(cleanCommentText("priority 必有且仅 1 个：P0 / P1 / P2").text).toContain("P0");
     expect(cleanCommentText("打标拿不准时宁降一级（P1→P2）").text).toContain("P1→P2");
+    expect(cleanCommentText("P0-2：判定滑窗内拦截").text).toBe("判定滑窗内拦截");
+    expect(cleanCommentText("P0-b 后缀保留").text).toBe("P0-b 后缀保留");
   });
 
   it("PR 代号与分号残渣", () => {

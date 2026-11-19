@@ -193,7 +193,7 @@ export class WeixinMessageProcessor {
     return this.deps.manageConnection.getCurrentConversation(connectionId);
   }
 
-  /** 未绑会话提示（媒体消息加「链接有时效」提醒——） */
+  /** 未绑会话提示（媒体消息加「链接有时效」提醒） */
   private async replyNoConversation(fromUserId: string, items: WeixinMediaGatewayItem[]): Promise<void> {
     const hasMedia = items.some(i => (i.type ?? 0) >= 2 && (i.type ?? 0) <= 5);
     await this.deps.weixinGateway.replyText(

@@ -79,6 +79,16 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(d.map((x) => x.token).sort()).toEqual(["A1", "M2", "S3"]);
   });
 
+  it("P 数字子项整体命中（P0-2 是编号），字母 Job 后缀豁免（P0-b）", () => {
+    expect(collectAnchorViolations("P0-2：判定滑窗").map((x) => x.token)).toEqual(["P0-2"]);
+    expect(collectAnchorViolations("P1-12 审视二轮").map((x) => x.token)).toEqual(["P1-12"]);
+    expect(collectAnchorViolations("P0-b 后缀保留")).toEqual([]);
+    expect(collectAnchorViolations("P0-B 后缀保留")).toEqual([]);
+    // A/M/S/R 同构：数字子项整体命中，字母/技术词豁免保留
+    expect(collectAnchorViolations("S4-1：终态").map((x) => x.token)).toEqual(["S4-1"]);
+    expect(collectAnchorViolations("R2-1 delta 裁决").map((x) => x.token)).toEqual(["R2-1"]);
+  });
+
   it("git rename 相似度分数 R100/R50 豁免，规则号 R1-R12 命中", () => {
     expect(collectAnchorViolations("非 R100 rename 时 git plain 查询漏判").some((x) => x.token === "R100")).toBe(false);
     expect(collectAnchorViolations("相似度>R50%，rename 检测存活").some((x) => x.token === "R50")).toBe(false);

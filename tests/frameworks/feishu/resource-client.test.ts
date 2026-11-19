@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { FeishuResourceClient } from "@frameworks/feishu/resource-client";
 import type { FeishuAccessTokenManager } from "@frameworks/feishu/access-token-manager";
 
-/** 多模态 飞书资源下载客户端行为测试（fetch 全 mock，不出网）。
+/** 多模态：飞书资源下载客户端行为测试（fetch 全 mock，不出网）。
  *  锁定：成功路径字节透传 / HTTP 错误 null 降级 / 空体 null / 网络异常 null。 */
 
 function makeClient(fetchImpl: typeof fetch) {

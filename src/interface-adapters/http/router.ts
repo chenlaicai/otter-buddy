@@ -77,7 +77,7 @@ export interface Controllers {
   rhi: RhiController;
   /** 工作账本 + 模型效率（只读报告） */
   workLedger?: WorkLedgerController;
-  /** 多模态 附件端点（上传 + 文件流） */
+  /** 多模态：附件端点（上传 + 文件流） */
   attachment?: AttachmentController;
   /** 工作区文件浏览端点（只读） */
   workspace?: WorkspaceController;
@@ -425,7 +425,7 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
     app.get("/api/channels/status", (ctx) => ctrl.channel!.getStatus(ctx));
   }
 
-  /** 多模态 附件端点（可选装配——未注入时不暴露路由） */
+  /** 多模态：附件端点（可选装配——未注入时不暴露路由） */
   if (ctrl.attachment) {
     app.post("/api/conversations/:id/attachments", (ctx) => ctrl.attachment!.upload(ctx));
     app.get("/api/attachments/:id", (ctx) => ctrl.attachment!.getById(ctx));

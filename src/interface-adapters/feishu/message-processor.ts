@@ -25,7 +25,7 @@ export interface FeishuIncomingMessage {
   media?: FeishuMediaPayload;
 }
 
-/** 多模态 飞书 ingress 附件处理结果 */
+/** 多模态：飞书 ingress 附件处理结果 */
 interface FeishuAttachmentOutcome {
   /** 走完上传管线的附件 id（随 sendMessage 的 attachmentIds 入库） */
   attachmentIds: string[];
@@ -53,7 +53,7 @@ export class FeishuMessageProcessor {
       feishuUserInfo?: FeishuUserInfoGateway;
       /** 可选注入。命令门禁（方案B）；未注入或未配置时不拦 */
       partnerResolver?: PartnerResolver;
-      /** 多模态 可选注入。未注入时 image/file 消息降级为占位文本（不丢消息） */
+      /** 多模态：可选注入。未注入时 image/file 消息降级为占位文本（不丢消息） */
       feishuResource?: FeishuResourceGateway;
       attachmentUpload?: AttachmentUploadService;
       attachmentInjection?: AttachmentInjectionService;
@@ -151,7 +151,7 @@ export class FeishuMessageProcessor {
     senderId: string,
     text: string,
   ): Promise<void> {
-    // 多模态 媒体消息先走附件管线（降级语义见 processMedia），再入消息库
+    // 多模态：媒体消息先走附件管线（降级语义见 processMedia），再入消息库
     const outcome = msg.media ? await this.processMedia(msg, conversationId, senderId) : { attachmentIds: [] as string[], degradeNote: null };
     const bodyText = this.composeBodyText(text, outcome);
     const attachmentIds = outcome.attachmentIds.length > 0 ? outcome.attachmentIds : undefined;
@@ -182,7 +182,7 @@ export class FeishuMessageProcessor {
     await this.deps.commandDispatcher.dispatch(connectionId, text, chatId);
   }
 
-  /** 多模态 消息体组装——降级提示拼进 body；全降级时占位防空消息 */
+  /** 多模态：消息体组装——降级提示拼进 body；全降级时占位防空消息 */
   private composeBodyText(text: string, outcome: Pick<FeishuAttachmentOutcome, "attachmentIds" | "degradeNote">): string {
     let bodyText = text;
     if (outcome.degradeNote) {
@@ -241,14 +241,14 @@ export class FeishuMessageProcessor {
       },
     });
 
-    // 异步触发 Agent 派发（多模态 带附件注入载荷——图片真图 + 文档文本块）
+    // 异步触发 Agent 派发（多模态：带附件注入载荷——图片真图 + 文档文本块）
     // dispatchText 为原始正文（降级提示不进 agent 上下文，与微信侧同款）
     // 直连链点火（targets 显式传）——signalRouter 依赖 messages 信号行，
     // IM 入口不再写 messages，改为链引擎直连（目标已由 entries 解析）
     this.triggerAgentDispatch(ids.conversationId, dispatchText, ids.senderId, payload.injection, { entryId: userEntry.id, resolvedTargets: talkingStonePassedTo });
   }
 
-  /** 多模态 媒体消息处理——下载 → 上传管线 → 附件 id + 注入载荷。
+  /** 多模态：媒体消息处理——下载 → 上传管线 → 附件 id + 注入载荷。
    * post 混排消息可能含多个媒体项——逐项下载/入库，单项失败单项降级
    *  （其余项照常）；全部媒体项走完后一次性 validateForSend（≤2 图硬限制，与 Web
    *  路径同一份策略）。任何失败都降级为可见文本（消息不丢），不抛错中断主链路。 */

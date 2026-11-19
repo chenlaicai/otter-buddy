@@ -22,7 +22,7 @@ import type { ConnectorRegistryRepository } from "@usecases/ports/connector-regi
  * remote_action_requests（requested）→ action.request → 等 action.result；
  * 超时/会话下线 → 落 unknown（不盲重试，五态纪律）——落点。
  * createExecutionEnvironment 不支持（SDK 文件/bash 面只在 local 机器；远程工具面
- * 走动作协议——/7 语义）。
+ * 走动作协议语义）。
  */
 export class RemoteExecutionMachine implements ExecutionMachine {
   readonly name: string;

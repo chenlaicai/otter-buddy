@@ -43,8 +43,8 @@ import type { TokenUsage } from "@usecases/conversation/token-usage";
  * cd 前缀场景截掉 worktree 路径特征），sanitizeQuotedText 脱敏后再截短（口径）。
  */
 /**
- * P0-2：导出 classifyGuardInterceptReason 供 orchestrator 熔断降级通道用
- * （usecases 层禁直 import frameworks——/分层约束，经本模块 re-export 收口）。
+ * 导出 classifyGuardInterceptReason 供 orchestrator 熔断降级通道用
+ * （usecases 层禁直 import frameworks——分层约束，经本模块 re-export 收口）。
  */
 export { classifyGuardInterceptReason };
 
@@ -261,7 +261,7 @@ export interface InvokeOptions {
   messageId?: string;
   /** 首次 invoke 标志（内部使用，注入身份信息） */
   isFirstInvoke?: boolean;
-  /** 多模态 当前任务消息携带的图片，透传给 session.prompt(text, { images })。
+  /** 多模态：当前任务消息携带的图片，透传给 session.prompt(text, { images })。
    *  模型不支持 vision 时 SDK downgradeUnsupportedImages 自动降级（otter 层不自判）。 */
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
   /** 只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。 */
@@ -280,7 +280,7 @@ export interface InvokeOptions {
   partnerUserId?: string;
 }
 
-/** 多模态 把 InvokeOptions 折叠成 SDK PromptOptions（images 缺省返回 undefined，保持纯文本路径行为等价） */
+/** 多模态：把 InvokeOptions 折叠成 SDK PromptOptions（images 缺省返回 undefined，保持纯文本路径行为等价） */
 function buildPromptOptions(options: InvokeOptions | undefined): { images?: Array<{ type: "image"; data: string; mimeType: string }> } | undefined {
   if (options?.images && options.images.length > 0) return { images: options.images };
   return undefined;

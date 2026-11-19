@@ -11,7 +11,7 @@ import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { Logger } from "@usecases/ports/logger";
 
-/** 多模态 飞书 ingress 收图/收文件的行为测试。
+/** 多模态：飞书 ingress 收图/收文件的行为测试。
  *  锁定关键行为：media → 下载 → 上传管线 → attachmentIds 随消息入库；
  *  注入载荷透传 dispatch；四类降级（未装配/下载失败/校验拒绝/上传异常）消息不丢。 */
 

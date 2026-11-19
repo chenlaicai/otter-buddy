@@ -84,7 +84,7 @@ export class WeixinApiClient {
     return headers;
   }
 
-  /** POST 请求头：公共头 + Content-Type（仅 POST 搞 JSON body，） */
+  /** POST 请求头：公共头 + Content-Type（仅 POST 搞 JSON body） */
   private buildPostHeaders(): Record<string, string> {
     return { "Content-Type": "application/json", ...this.buildCommonHeaders() };
   }

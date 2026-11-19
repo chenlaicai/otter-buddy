@@ -202,7 +202,7 @@ export class CircuitBreakSupport {
   }
 
   /**
-   * P0-2：滑窗内拦截结构化事件列表（疑似误拦降级通道数据源）。
+   * 滑窗内拦截结构化事件列表（疑似误拦降级通道数据源）。
    * 审视处置修正（delta）：数据源口径改为「拦截结构化事件」（pi-session-factory
    * buildGuardInterceptHook 落账，context.ruleId 存在性过滤）而非 bounce:true 计数事件——
    * 生产链路上 bounce 计数事件（orchestrator 落账）context 只有 {layer,guardReason,bounceAttempt}，

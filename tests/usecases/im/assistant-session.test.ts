@@ -125,7 +125,7 @@ describe("AssistantSessionManager", () => {
     expect(ctx.restarts[0].summary).toContain("conv-existing");
     expect(ctx.restarts[0].summary).toContain("用户提问");
 
-    // 先落 summary/记忆后重启（/4 处置验证：摘要只构建一次、带真实标题）
+    // 先落 summary/记忆后重启（处置验证：摘要只构建一次、带真实标题）
     expect(ctx.summaries).toHaveLength(1); // 单次落库（若双 buildDigest 路径会重复写）
     expect(ctx.digests).toHaveLength(1);
     expect(ctx.summaries[0].id).toBe("conv-existing");

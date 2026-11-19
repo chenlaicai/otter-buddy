@@ -95,7 +95,7 @@ export interface Repositories {
   dispatchRecord: DispatchRecordRepository;
   /** unfurl 预览缓存（数据先行——抓取结果落库，渲染读库） */
   unfurlCache: SqliteUnfurlCacheRepository;
-  /** 多模态 附件 repo（上传管线 + 消息组装共用） */
+  /** 多模态：附件 repo（上传管线 + 消息组装共用） */
   attachment: AttachmentRepository;
   /** 条目仓库（取代 messages + message_segments） */
   entry: EntryRepository;
@@ -140,7 +140,7 @@ export interface UseCases {
   /** IM 助理会话管理（自动开户 + 软轮换） */
   assistantSession: AssistantSessionManager;
   webAssistantProvisioner: WebAssistantProvisioner;
-  /** 多模态 附件上传服务 */
+  /** 多模态：附件上传服务 */
   attachmentUpload: AttachmentUploadService;
   /** 工作区文件浏览（只读） */
   manageWorkspace?: ManageWorkspace;

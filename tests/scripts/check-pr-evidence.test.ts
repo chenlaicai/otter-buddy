@@ -1,5 +1,5 @@
 /**
- * check-pr-evidence 机械闸可持续测试（/整改固化）。
+ * check-pr-evidence 机械闸可持续测试（整改固化）。
  *
  * 覆盖检视獭-mech 审视 （模板原文/TBD/Summary 关键词假绿）与 
  * （豁免双向错分：运行时 prompt 漏放、README.ts 误放、中文路径 quoting 误伤）的实测用例，

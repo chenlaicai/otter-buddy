@@ -5,7 +5,7 @@
  * - seconds ∈ [5,600]（<5 / >600 拒绝）
  * - 带 until 时 seconds ≤ 560（预算裕量；561 拒绝）
  * - until 过 checkBashCommandSafety 主链（命中即拒绝并透传拦截文案，）
- * - until 禁元字符/单双引号（/③）
+ * - until 禁元字符/单双引号（③）
  * - until 立即探测，非零在 seconds 总预算内每 10s 重试；
  *   成功/超时返回真实探测次数，abort 清理计时器；安全校验在首次执行前完成
  * - 回显 reason / 缺省附轻提示

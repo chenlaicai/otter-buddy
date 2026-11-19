@@ -4,7 +4,7 @@
  * 取代 的 restartWithAutoHandoffIfBlank 测试——语义从「空摘要才合成」
  * 升级为「叠加式档案：有无自总结都走统一管线」。
  *
- * 覆盖（/V2/V6 的单测层）：
+ * 覆盖单测层：
  * - V1 锚点：合成走影子通道（runCompactionSynthesis）不触 invoke——锁雪崩根治
  * - V2 场景矩阵：手动叠加档案 / 首哑 false 零合成 / 截断 fail-closed
  * - V6 超时降级：合成超时 → 机械档案 + 正常换世

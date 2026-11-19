@@ -1,5 +1,5 @@
 /**
- * 飞书资源下载网关端口（多模态 飞书 ingress 收图/收文件）。
+ * 飞书资源下载网关端口（多模态：飞书 ingress 收图/收文件）。
  *
  * 飞书对 image/file 消息只推引用（image_key/file_key），不推字节——
  * 必须拿 message_id + key 回调下载 API 换字节流，再灌进统一附件管线。

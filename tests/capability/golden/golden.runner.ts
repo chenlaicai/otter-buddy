@@ -361,7 +361,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
  * 下一个 hop——如大獭 summon 后 yield 给小獭，小獭又需 30-60s 完整回合）。源测试
  * talking-stone-routing 用 afterSeq 两段式等待；golden 通用化：首终态后 settle 窗口
  * 内若消息数还在涨则继续等，静止后断言。窗口独立于首跳超时，总上限 = 首跳 + settleMs
- * （默认 180s，长链场景经 golden.settleMs 覆盖，）。 */
+ * （默认 180s，长链场景经 golden.settleMs 覆盖）。 */
 async function runOneSample(
   ctx: CapabilityContext,
   golden: GoldenScenario,

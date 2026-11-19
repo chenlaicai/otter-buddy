@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** useCardBridge 安全闸门测试（P2-6）：
+/** useCardBridge 安全闸门测试：
  *  jsdom + 手动 dispatch MessageEvent + mock registry/Toast 模块。
  *  覆盖：伪造 source / cardId 不匹配 / 超限 payload / submit 节流 / 挂起期同卡重发 /
  *  A 挂起 B 提交 / 连续 3 次拒绝关闭 / 已回复集合命中 / resize clamp / 挂起预览存活判据 */

@@ -884,7 +884,7 @@ function parseUntilArgv(until: string): string[] | null {
   return argv.length > 0 ? argv : null;
 }
 
-/** wait 子步骤：until 前置校验——kill 族词样拒止 + 元字符/引号检查（/③）。 */
+/** wait 子步骤：until 前置校验——kill 族词样拒止 + 元字符/引号检查（③）。 */
 function validateUntil(
   until: string | undefined,
 ): { error: ToolResponse } | { untilArgv: string[] } {

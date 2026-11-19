@@ -13,7 +13,7 @@ export interface FeishuPostMediaItem {
   fileName?: string;
 }
 
-/** 多模态 飞书 image/file 消息的结构化载荷（frameworks 层解析后透传）。
+/** 多模态：飞书 image/file 消息的结构化载荷（frameworks 层解析后透传）。
  * post 富文本混排消息以 type="post" 携带段落内媒体项列表 */
 export interface FeishuMediaPayload {
   type: "image" | "file" | "post";

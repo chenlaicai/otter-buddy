@@ -577,7 +577,7 @@ export class SendEntry {
   /** 批4a：按 ID 取条目（get_message 工具） */
   async getEntryById(entryId: string): Promise<Entry | null> { return this.entryRepo.getEntryById(entryId); }
 
-  /** 彻底切换：user entry 挂附件（多模态 接线） */
+  /** 彻底切换：user entry 挂附件（多模态：接线） */
   async attachEntryAttachments(entryId: string, attachmentIds: string[]): Promise<void> {
     for (let i = 0; i < attachmentIds.length; i++) {
       await this.entryRepo.attachAttachment(entryId, attachmentIds[i]!, i);

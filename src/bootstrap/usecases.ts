@@ -114,7 +114,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   // web 助理开户（全局唯一 kind=web-assistant 对话；幂等 + 人设注入；
   // modelAlias 共用 im.assistant.modelAlias——对话实例各自独立，改配置下个 session 生效）
   const webAssistantProvisioner = buildWebAssistantProvisioner(repos.conversation, createOtter, appConfig, logger);
-  // 多模态 附件上传服务（storageRoot 等来自 config.attachments）
+  // 多模态：附件上传服务（storageRoot 等来自 config.attachments）
   const attachmentUpload = buildAttachmentUploadService(repos, appConfig, logger);
   // 工作区文件浏览（只读）——workspaceGateway 可选注入
   const manageWorkspace = workspaceGateway ? new ManageWorkspace(workspaceGateway, logger) : undefined;
@@ -175,7 +175,7 @@ function buildWebAssistantProvisioner(
   });
 }
 
-/** 多模态 附件上传服务工厂（config.attachments 缺省值内置） */
+/** 多模态：附件上传服务工厂（config.attachments 缺省值内置） */
 function buildAttachmentUploadService(
   repos: Repositories,
   appConfig: UseCaseDeps["appConfig"],

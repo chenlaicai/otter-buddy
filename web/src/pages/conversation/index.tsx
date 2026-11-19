@@ -975,7 +975,7 @@ export default function ConversationPage() {
     ackActiveRead(activeId)
     /** 有 @ 则指定目标；无 @ 传空数组，由后端按规则解析（回复最后发言者，兜底大獭） */
     const targetOtterIds = mentionOtterIds ?? []
-    /** 多模态 附件从 ChatView 中转区传入（上传已完成，此处只带服务端 id 引用） */
+    /** 多模态：附件从 ChatView 中转区传入（上传已完成，此处只带服务端 id 引用） */
     const attachmentIds = attachments?.map(a => a.id)
 
     const userMsg: LocalMessage = {

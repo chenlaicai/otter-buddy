@@ -164,7 +164,7 @@ export function sendMessage(conversationId: string, body: SendMessageRequestDTO)
   })
 }
 
-/** 多模态 附件上传（multipart）——后端返回 { attachments: AttachmentDTO[] }（含服务端分配的 id）。
+/** 多模态：附件上传（multipart）——后端返回 { attachments: AttachmentDTO[] }（含服务端分配的 id）。
  *  用原生 fetch 不走 request()：multipart 禁止手动设 Content-Type（boundary 由浏览器生成） */
 export function uploadAttachments(conversationId: string, files: File[], uploaderId = 'user'): Promise<UploadAttachmentResponseDTO> {
   const form = new FormData()
@@ -635,7 +635,7 @@ export function deleteWeixinAccount(id: string): Promise<{ status: string }> {
   return request(`/weixin/accounts/${id}`, { method: 'DELETE' })
 }
 
-// ── RHI 健康面板（/；增补 trends）──
+// ── RHI 健康面板（增补 trends）──
 // DTO 单一真相源收口到 @contract/api/rhi——以下均为契约层 re-export
 export type {
   RhiSignalDTO,

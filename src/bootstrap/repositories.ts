@@ -71,7 +71,7 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     /** 派发台账退役（dispatchAttempt 随 main 批次退役）；
      * 派工台账正式表（取代 otter_context 伪存储）——本 PR 核心，保留 */
     dispatchRecord: new SqliteDispatchRecordRepository(db),
-    /** 多模态 附件 repo */
+    /** 多模态：附件 repo */
     attachment: new SqliteAttachmentRepository(db),
     /** 条目仓库（取代 messages + message_segments） */
     entry: new SqliteEntryRepository(db),

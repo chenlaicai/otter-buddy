@@ -278,7 +278,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   await postInitDatabase(db, repos, logger);
 
   // Embedding 版本锚校验（在 memory index 写入前完成）
-  // 模型/维度不一致时禁用 vec 路径（降级状态经检索结果 vecCoverage 暴露，）
+  // 模型/维度不一致时禁用 vec 路径（降级状态经检索结果 vecCoverage 暴露）
   const embeddingVersionCheck = await verifyEmbeddingVersion(queryEmbedding, repos, logger);
   if (!embeddingVersionCheck.vecEnabled) {
     logger.warn(`Embedding vec path disabled due to ${embeddingVersionCheck.reason}`);
@@ -491,7 +491,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   //    不再每次重启重跑），切换瞬间 pending=0，此后只增真实欠账。
   // 可选注入降级面保持：出问题摘除本构造块 + 下方注入点即回直连链（回滚通道）。
   // 恢复的入口范围：web MC / 飞书 ADS / 微信 / RIS 启动补扫（scheduler/retry 仍直连，
-  // 其派发经链引擎记账，无双触发账面歧义——）。
+  // 其派发经链引擎记账，无双触发账面歧义）。
   // 多模态收口：附件注入服务——路由器 invokeTarget 从 attachments 重建 InjectionPayload
   // attachmentInjection not needed in app.ts (signal-router no longer uses it,
   // message-controller gets its own from controllers.ts bootstrap)

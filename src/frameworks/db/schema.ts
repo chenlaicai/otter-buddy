@@ -387,7 +387,7 @@ function createTerminologyTables(db: Database.Database): void {
 
 /** unfurl 预览缓存表——「数据先行」原则的持久化载体。
  *  抓取结果（含失败）落库，渲染读库不触网；fetched_at 走应用层 ISO 8601 写入
- * （不设 SQL DEFAULT，防空格格式与 ISO 混排产生字典序偏移——）。
+ * （不设 SQL DEFAULT，防空格格式与 ISO 混排产生字典序偏移）。
  * source 三分支 TTL：og 永久 / failed 7 天窗口 / github-api 24h SWR。
  * state/additions/deletions：github-api 记录的结构化字段（PR 卡 join 投影数据源——
  * 方案 DDL 与 数据流存在张力，本实现按数据流要求补列，记录在特性文档实现偏差节）。 */
@@ -412,7 +412,7 @@ function createUnfurlCacheTable(db: Database.Database): void {
 
   // unfurl_cache 存量库迁移——is_draft 列（DRAFT 徽章数据源）。
   // 幂等同 introduced_by_pr 模式；每列独立 try/catch（-教训）。
-  // 放本建表函数尾部（各表迁移归自己建表函数——healing 三列迁移同款惯例，）
+  // 放本建表函数尾部（各表迁移归自己建表函数——healing 三列迁移同款惯例）
   try {
     db.exec(`ALTER TABLE unfurl_cache ADD COLUMN is_draft INTEGER`);
   } catch {
@@ -523,7 +523,7 @@ function createParticipantTables(db: Database.Database): void {
   `);
 }
 
-/** Agent Session 映射表（Otter ↔ Pi Session，） */
+/** Agent Session 映射表（Otter ↔ Pi Session） */
 function createAgentSessionsTable(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_sessions (

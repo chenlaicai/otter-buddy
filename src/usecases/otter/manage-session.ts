@@ -54,7 +54,7 @@ export class ManageSession {
   /**
    * 创建新 Session。
    * 前置条件：该 otter 无 active session。
-   * previousSessionId 指向前一个 session（链式关系，）。
+   * previousSessionId 指向前一个 session（链式关系）。
    * summary：写入新行，供下一轮 invoke 注入新獭生上下文
    * （restart 的「前情摘要」原本只写旧行，新 session 永远读不到）。
    */

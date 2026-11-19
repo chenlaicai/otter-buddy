@@ -341,7 +341,7 @@ function migrateScheduledTaskExecutorRoles(db: Database.Database, logger: Logger
  *
  * 方案选型：SQLite 无法直接 UPDATE 被 FK（memory_weights/memory_edges）与字符串键
  * （FTS5/vec0 虚拟表、embedding_tasks）双重引用的主键——PRAGMA defer_foreign_keys
- * 仅 defer 到 commit 仍撞 immediate 约束。故采用内存表重建（/同模式四步重建的
+ * 仅 defer 到 commit 仍撞 immediate 约束。故采用内存表重建（同模式四步重建的
  * 多表推广）：FOREIGN_KEYS=OFF 单事务内 快照映射 → _new 表复制（换键）→ DROP → RENAME。
  *
  * 级联表处理：

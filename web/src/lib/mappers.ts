@@ -114,7 +114,7 @@ export interface LocalMessage {
   signals?: LocalMessageSignal[]
   /** 发言石目标（信号轨迹判定用）；乐观消息/SSE 实时消息无此字段 */
   tsp?: string[] | null
-  /** 多模态 随消息携带的附件 */
+  /** 多模态：随消息携带的附件 */
   atts?: LocalAttachment[]
   /** 时间线条目类型（speak/user 气泡渲染，其余居中特殊渲染）。
    *  旧 messages 表数据无此字段（undefined）——按 st 回退推导，历史兼容零迁移 */
@@ -191,7 +191,7 @@ export interface LocalLinkedResource {
   flagged: boolean
   auto: boolean
   /** 产物状态（active 才混排——superseded/archived 是退役产物，
-   * 与继任者并排出现会误导「存在两个现行 PR」，） */
+   * 与继任者并排出现会误导「存在两个现行 PR」） */
   status: 'active' | 'superseded' | 'archived'
   /** 登记时间——中间栏产物卡按时间轴混排的定位依据 */
   createdAt?: string
@@ -266,7 +266,7 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     segments: dto.segments,
     // 消息关联信号（徽章数据）
     signals: dto.signals?.map(s => ({ ...s })),
-    // 多模态 附件透出（仅非空时携带）
+    // 多模态：附件透出（仅非空时携带）
     ...(dto.atts && { atts: dto.atts }),
   }
 }

@@ -1,5 +1,5 @@
 /**
- * 附件 HTTP 端点集成测试（多模态 审视修复 /）。
+ * 附件 HTTP 端点集成测试（多模态：审视修复）。
  *
  * 真 Hono app + 真 busboy + 真 sharp + 真 sqlite：
  * - 竞态回归（核心）：上传响应必须含附件 ID——close 后 await 全部 in-flight upload

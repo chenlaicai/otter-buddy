@@ -34,7 +34,7 @@ export interface ConnectorActionDispatcherDeps {
   log?: (message: string, meta?: Record<string, unknown>) => void;
 }
 
-/** 协议 v1 放行的动作白名单（非白名单 type 回 failed——协议 v1 只放六动作，） */
+/** 协议 v1 放行的动作白名单（非白名单 type 回 failed——协议 v1 只放六动作） */
 const SUPPORTED_ACTION_TYPES = new Set<string>([
   "workspace.exists",
   "workspace.list",
@@ -45,7 +45,7 @@ const SUPPORTED_ACTION_TYPES = new Set<string>([
 ]);
 
 export class ConnectorActionDispatcher {
-  /** 在途执行追踪（/SIGTERM 自杀收尾——在途 actionId 立即落 interrupted，
+  /** 在途执行追踪（SIGTERM 自杀收尾——在途 actionId 立即落 interrupted，
  * 不等完成；第4步「取消本进程 running，台账落 interrupted」语义） */
   private readonly inflight = new Map<string, true>();
   get inflightCount(): number { return this.inflight.size; }

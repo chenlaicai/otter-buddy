@@ -23,7 +23,7 @@ export interface ConnectorRegistryRepository {
   redeemAndCreateDevice(code: string, device: Device, now: string): Promise<boolean>;
   /** 按 token 查设备（upgrade 鉴权用；无/撤销返回 null） */
   findDeviceByToken(token: string): Promise<Device | null>;
-  /** （检视，）：设备在线状态全量视图（devices LEFT JOIN online_sessions）
+  /** 设备在线状态全量视图（devices LEFT JOIN online_sessions）
    *  ——离线已配对设备也可见（人要能「看见离线设备再决定切回」）；lastSeenAt 优先
    *  在线会话实时值，否则 devices.last_seen_at（最后上线时刻） */
   listDeviceOnlineStatus(): Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;

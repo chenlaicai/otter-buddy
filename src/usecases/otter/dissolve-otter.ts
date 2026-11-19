@@ -75,7 +75,7 @@ export class DissolveOtter {
     /** 4. 更新状态为 dissolved（回归守护） */
     await this.repo.dissolve(otterId, new Date().toISOString());
 
-    /** 4.45 派工台账记账——该獭名下全部派工记录落 dissolved 终态
+    /** 派工台账记账——该獭名下全部派工记录落 dissolved 终态
      *  （dissolve 销毁獭本体，全局事件不分对话）。失败仅日志：台账是记账面不是控制面，
      *  与 4.5/4.6/4.7 清账同模式，不阻断 dissolve 主流程。 */
     await this.markDispatchRecordsDissolved(otterId);
@@ -94,7 +94,7 @@ export class DissolveOtter {
     await this.agentGateway.destroy(otterId);
   }
 
-  /** 4.45 派工台账 dissolve 记账——该獭名下全部 created/dispatched
+  /** 派工台账 dissolve 记账——该獭名下全部 created/dispatched
    *  记录落 dissolved（全局事件，不分对话）。失败仅日志：与 4.5/4.6/4.7 清账同模式。 */
   private async markDispatchRecordsDissolved(otterId: string): Promise<void> {
     if (!this.deps?.markDispatchDissolved) return;
@@ -108,7 +108,7 @@ export class DissolveOtter {
     }
   }
 
-  /** 4.5 阻尼dissolve 事务内销账名下 in_progress 派发——
+  /** 阻尼 dissolve 事务内销账名下 in_progress 派发——
    *  行动人已不存在，其 in_progress 永无 settle 来源（孤儿账）。落 failed 终态
    *  与 pendingClause 的 dissolved 过滤双保险（09-03 事故的场景根治）。
    *  失败仅日志：账面清理不阻断 dissolve 主流程。 */
@@ -124,7 +124,7 @@ export class DissolveOtter {
     }
   }
 
-  /** 4.6 ：dissolve 出站清算——该獭发出的 completed 消息，
+  /** dissolve 出站清算——该獭发出的 completed 消息，
    *  tsp 指向 active 目标且从未记账的槽位补 aborted/dissolve 墓碑。发言人已解散，
    *  其 yield 信号永不派发；不补则 pendingClause（sender 不限 dissolved）会把这些
    *  槽位永久算 pending（僵尸信号，本次事故的弹药库残余）。

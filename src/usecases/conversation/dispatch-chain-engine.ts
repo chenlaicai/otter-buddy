@@ -45,7 +45,7 @@ export interface HopOutcome {
   steerText?: string;
 }
 
-/** 多模态 每轮真图上限（服务端硬限制，超出拒绝）。
+/** 多模态：每轮真图上限（服务端硬限制，超出拒绝）。
  *  依据：SDK estImageChars 按图 1200 tokens 估算，实测 GLM 2048px 图 ≈5500 input tokens
  *  （差 4.6 倍），图片多时 compaction 触发严重偏晚。 */
 export const MAX_IMAGES_PER_TURN = 2;
@@ -58,7 +58,7 @@ export interface InvokeFnParams {
   senderId: string;
   /** 受限外部会话档：来自持久化触发 entry.source，由调度链显式透传；不得以 senderId 前缀推断。 */
   externalProfile?: "restricted";
-  /** 多模态 当前任务消息携带的图片（ImageContent：base64 + mimeType）。
+  /** 多模态：当前任务消息携带的图片（ImageContent：base64 + mimeType）。
    *  每轮 ≤2 图服务端硬限制（compaction 低估 4.6 倍实测后的预算控制）；
    *  未读历史统一文本投影不按獭分叉，分叉只发生在当前任务消息。 */
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
@@ -161,7 +161,7 @@ export class DispatchChainEngine {
       externalProfile?: "restricted";
       initialTargets: string[];
       invokeFn: InvokeFn;
-      /** 多模态 当前任务消息携带的图片（≤2 张，超出在 controller 层已拒绝） */
+      /** 多模态：当前任务消息携带的图片（≤2 张，超出在 controller 层已拒绝） */
       images?: Array<{ type: "image"; data: string; mimeType: string }>;
       /** 触发消息 ID（首 hop 记账）。缺省时跳过首 hop 记账（链路零变化）。
        *  hop 2+ 记账用 yield 出处消息 ID，与此参数无关。 */
@@ -1089,7 +1089,7 @@ export class DispatchChainEngine {
 
   /** buildPendingPreview 已退役（台账退役后数据源不存在） */
 
-  /** 多模态 未读历史统一文本投影（不按目标獭分叉——last_read 保证未读皆近，
+  /** 多模态：未读历史统一文本投影（不按目标獭分叉——last_read 保证未读皆近，
    *  历史图"知道是什么"即可；分叉只发生在当前任务消息的真图注入） */
   private appendUnreadAttachmentLine(attachments?: AttachmentRef[]): string {
     const projection = projectAttachments(attachments ?? []);

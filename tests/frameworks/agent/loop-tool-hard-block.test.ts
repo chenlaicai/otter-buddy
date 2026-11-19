@@ -171,7 +171,7 @@ describe("检测器报警 → 粘滞标记 → 门物理截断（集成，直攻
       { loopBlockedTools, abortOverride },
     );
 
-    // 连发 6 次触发 consecutive steer（警告，不写 Map——P0-2）；
+    // 连发 6 次触发 consecutive steer（警告，不写 Map）；
     // 继续无视 → strike 涨满 3 → terminate → 写入粘滞 Map（事故场景仍被兑住）
     for (let i = 0; i < 6 + 3; i++) {
       session.emit(sdkToolStart("create_linked_resource", { content: `垃圾${i}` }));

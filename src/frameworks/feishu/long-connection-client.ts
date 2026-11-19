@@ -198,7 +198,7 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
     this.processMessage(data.message, data.sender);
   }
 
-  /** 多模态 放行 text/image/file；增加 post 富文本混排。
+  /** 多模态：放行 text/image/file；增加 post 富文本混排。
    *  其余（audio/share_chat/sticker 等）仍忽略——飞书消息类型全集很大，
    *  逐类适配应在真实需求出现时做，避免为不存在的消息类型写无测试的解析分支。 */
   private static readonly SUPPORTED_MESSAGE_TYPES = new Set(["text", "image", "file", "post"]);

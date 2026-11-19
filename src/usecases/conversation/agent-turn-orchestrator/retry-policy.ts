@@ -150,7 +150,7 @@ export function buildGuardBounceEscalationMsg(otterName: string, guardReason?: s
   return `[系统保护] ${otterName} 已连续 ${GUARD_BOUNCE_MAX} 次被 bash 守卫拦截并自动回发，仍在尝试被拦命令——已停止自动回发并中断其发言。请人工介入：排查该獭任务是否涉及进程管理，或核实守卫是否误拦。`;
 }
 
-// ─── P0-2：同规则 3 连判「疑似误拦」降级通道（獭失联半小时）───
+// ─── 同规则 3 连判「疑似误拦」降级通道（獭失联半小时）───
 // 同规则阈值复用 GUARD_BOUNCE_MAX（=3）——曾有独立常量 GUARD_BOUNCE_SAME_RULE_MAX
 // 但未被消费形成误导，已删除；降级触发条件 = priorBounces >= GUARD_BOUNCE_MAX 且滑窗 bounce
 // 全部命中同一 ruleId（orchestrator detectSameRuleBounce）。
@@ -158,13 +158,13 @@ export function buildGuardBounceEscalationMsg(otterName: string, guardReason?: s
 /** 宪法高危分层（bash-guard-constitution「一、分层原则」）——命中这些层的规则时通知文案中性化。 */
 const HIGH_RISK_RULE_LAYERS = new Set(["self_kill", "bypass_guard"]);
 
-/** P0-2：高危规则（kill 族/防绕过）的「大概率误拦」预判可能诱导搭档放行真违规——文案中性化判定。 */
+/** 高危规则（kill 族/防绕过）的「大概率误拦」预判可能诱导搭档放行真违规——文案中性化判定。 */
 export function isHighRiskRuleLayer(ruleLayer?: string): boolean {
   return ruleLayer !== undefined && HIGH_RISK_RULE_LAYERS.has(ruleLayer);
 }
 
 /**
- * P0-2：疑似误拦的搭档侧通知。同规则 3 连说明命令形态稳定（獭在正确命令上反复撞墙），
+ * 疑似误拦的搭档侧通知。同规则 3 连说明命令形态稳定（獭在正确命令上反复撞墙），
  * 大概率守卫误拦面而非獭顽固违规——此时 abort 是错杀（獭失联半小时），
  * 改为请搭档人工核实/临时放行。含命令摘要 + 命中规则 + 重试次数三要素。
  * 高危规则层（self_kill/bypass_guard）不预判「大概率误拦」——
@@ -186,7 +186,7 @@ export function buildGuardBounceSuspectedFpMsg(
 }
 
 /**
- * P0-2：降级通道给獭的会话内提示（retry message 注入下一轮 invoke context）。
+ * 降级通道给獭的会话内提示（retry message 注入下一轮 invoke context）。
  * 不再让它继续撞同一规则（abort 前它已重试 3 次同一形态），引导换写法/报告搭档。
  * 高危规则层不预判「大概率误拦」——与搭档侧通知同口径中性化。
  */

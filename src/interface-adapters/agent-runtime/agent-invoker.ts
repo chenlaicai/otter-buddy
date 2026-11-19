@@ -310,7 +310,7 @@ export class AgentInvoker implements AgentTurnPort {
     retryCount?: number;
     /** Web 手动重试标识（retry label 区分 manual/auto） */
     manualRetry?: boolean;
-    /** 多模态 当前任务消息携带的图片（≤2 张，dispatch-chain 透传） */
+    /** 多模态：当前任务消息携带的图片（≤2 张，dispatch-chain 透传） */
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     /** 本批未读消息的最大 sequence_num（启动成功后推进游标用） */
     batchMaxSeq?: number;
@@ -738,7 +738,7 @@ export class AgentInvoker implements AgentTurnPort {
         return this.circuitBreak.countRecentGuardBounces(otterId, windowMs);
       },
 
-      // P0-2：疑似误拦降级通道数据源——滑窗内 bounce 事件列表（含 ruleId/ruleLayer/commandHead）。
+      // 疑似误拦降级通道数据源——滑窗内 bounce 事件列表（含 ruleId/ruleLayer/commandHead）。
       // classifyGuardInterceptReason 在 frameworks 层（guard-intercept-classify），usecases 禁直 import
       // （分层）——分类动作在 interface-adapters 回调实现内完成，orchestrator 只消费归一后的
       // currentRuleId/currentRuleLayer。处置：layer 随分类归一，供高危层文案中性化判定。

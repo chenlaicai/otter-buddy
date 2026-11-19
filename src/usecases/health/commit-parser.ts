@@ -139,7 +139,7 @@ function createCompliantResult(
   return { sha, message, featureId, module, changeType, prNumber, isCompliant: true };
 }
 
-/** 创建 F 前缀非标准格式结果（skipReason 区分 unrecognized_change_type 与 non_standard_format，） */
+/** 创建 F 前缀非标准格式结果（skipReason 区分 unrecognized_change_type 与 non_standard_format） */
 function createFPrefixResult(
   sha: string,
   message: string,

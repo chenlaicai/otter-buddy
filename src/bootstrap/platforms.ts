@@ -179,7 +179,7 @@ export function createDispatchChainEngine(repos: Repositories, uc: UseCases, app
     // 外置实例（扫码首号运行时写入）；缺省内部构造保持存量行为
     // feishu 静态段移除，feishu 锚一律扫码首号（app.ts 全局 resolver）
     partnerResolver: options?.partnerResolver ?? PartnerResolver.forIdentity(undefined, appConfig.weixin?.partnerUserId),
-    // 派发台账注入——所有入口每次派发都记账（链引擎是必经之路，）。
+    // 派发台账注入——所有入口每次派发都记账（链引擎是必经之路）。
     // 记账失败仅日志不阻断（硬约束 1）；不注入时链路行为与 sgpv 回滚基线一致。
     // 梯度护栏：abort 回调注入（可选——不注入时降级为纯日志）。
     // ②：steer 回调已删（③ steer 注入改走 ChainHopResult.steerText
@@ -446,7 +446,7 @@ export interface FeishuRuntime {
  *
  * 命令门禁锚（双层）：每线独立 resolver——`PartnerResolver.forGate(线ownerOpenId, 首号ownerOpenId?)`；
  * 线主人自己线上可跑命令、首号（部署者）任意线上可跑、陌生人被拦。
- * （静态 config app 路径已随 移除——锚一律来自扫码人/首号。）
+ * （静态 config app 路径已移除——锚一律来自扫码人/首号。）
  */
 export function buildFeishuRuntime(options: {
   appId: string;
@@ -653,7 +653,7 @@ interface StartWeixinAccountOptions {
   signalRouter?: SignalRouter;
 }
 
-/** 单账号启动（初始启动与 web 扫码登录热启动共用，） */
+/** 单账号启动（初始启动与 web 扫码登录热启动共用） */
 function startWeixinAccount(options: StartWeixinAccountOptions): WeixinPollingChannel | undefined {
   const { appConfig, repos, uc, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, accountStore, weixinConfig, account, registry } = options;
   try {

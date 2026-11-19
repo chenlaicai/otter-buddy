@@ -89,7 +89,7 @@ function isRedirOp(op: string): boolean {
 // SCRIPT_RUNNERS 归 payload-extract-aux 单一真相源（本模块曾有同名单本地副本，
 // 双份清单正是识别域漂移源——收敛）
 
-/** cmdsub 递归深度上限（/≤2 层，超限=载荷不可知） */
+/** cmdsub 递归深度上限（≤2 层，超限=载荷不可知） */
 const MAX_DEPTH = 2;
 
 // ────────────────────────────── 解析 ──────────────────────────────

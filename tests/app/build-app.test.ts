@@ -101,7 +101,7 @@ describe("buildApp 组装根启动", () => {
     expect(built.retryWorkerRef).toBeDefined();
   }, 30_000);
 
-  // S-2 回归防护：patrolWorker.start() 若被挪回 initAgentAndScheduler 之前，
+  // 回归防护：patrolWorker.start() 若被挪回 initAgentAndScheduler 之前，
   // scheduler-reconcile duty 首轮 tick 的 TDZ ReferenceError 会被 patrol-worker.ts:75
   // 失败隔离 catch 吞成 error 日志——启动不炸、无断言时不红。此断言封住该回归。
   it("patrol 首轮 tick 无 scheduler-reconcile TDZ 失败（#1252 回归防护）", () => {

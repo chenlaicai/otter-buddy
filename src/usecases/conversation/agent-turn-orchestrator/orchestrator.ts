@@ -330,7 +330,7 @@ export class AgentTurnOrchestrator {
     }
 
     // 窗口超限识别（先限流后超窗——词族互斥，串行判定互不干扰）。
-    // 落账 + 通知与 同模式：均非致命，任一失败不阻断 failTerminal 主路径
+    // 落账 + 通知同模式：均非致命，任一失败不阻断 failTerminal 主路径
     const ctxMatch = matchContextOverflowError(reason.errorMessage);
     if (ctxMatch) {
       await this.recordContextOverflowHealingEvent(ctx, ctxMatch, reason).catch(() => { /* 已在内部记日志 */ });
@@ -479,7 +479,7 @@ export class AgentTurnOrchestrator {
   }
 
   /** context_overflow healing 落账（注入超窗是体积问题，重试无意义 → severity:high）。
-   * 同 high 级落账成功后入 C3 高警队列，大獭不在场时补送达 */
+   * high 级落账成功后入 C3 高警队列，大獭不在场时补送达 */
   private async recordContextOverflowHealingEvent(
     ctx: RouteContext,
     match: NonNullable<ReturnType<typeof matchContextOverflowError>>,
@@ -634,7 +634,7 @@ export class AgentTurnOrchestrator {
   ): Promise<string | undefined> {
     if (!reason.guardSuspectedFreeze || !isTimeoutGuardReason(reason.guardReason)) return undefined;
     await this.recordSleepFreezeHealingEvent(ctx, reason.guardReason, reason.guardTimeoutElapsedMs);
-    // 检视 文案只写确证事实（空窗+熔断接管），不断言「已恢复」——重试耗尽路径同样成立，
+    // 文案只写确证事实（空窗+熔断接管），不断言「已恢复」——重试耗尽路径同样成立，
     // 避免恢复失败时 healing 留下错误事实
     return `检测到约 ${Math.round((reason.guardTimeoutElapsedMs ?? 0) / 60000)} 分钟事件空窗（疑似系统睡眠冻结），已由超时熔断接管（guard→abort→自动重试）`;
   }
@@ -860,7 +860,7 @@ export class AgentTurnOrchestrator {
     const otter = await ctx.callbacks.getOtterById(ctx.input.otterId);
     const otterName = resolveSpeakerName("otter", ctx.input.otterId, otter?.name) ?? ctx.input.otterId;
 
-    // P0-2：超限且滑窗内 bounce 全部命中同一规则（ruleId 同且非 unknown）
+    // 超限且滑窗内 bounce 全部命中同一规则（ruleId 同且非 unknown）
     // → 判「疑似误拦」走降级通道（通知搭档 + 引导獭换写法），而非静默 abort——
     // 同规则命中说明命令形态稳定（獭在正确命令上反复撞墙），abort 是错杀。
     // 真违规（异规则反复撞 / unknown 无法归类）仍走原 escalateGuardBounce abort 终态。
@@ -898,7 +898,7 @@ export class AgentTurnOrchestrator {
   }
 
   /**
-   * P0-2：判定滑窗内拦截是否全部命中与本轮同一 ruleId（疑似误拦）。
+   * 判定滑窗内拦截是否全部命中与本轮同一 ruleId（疑似误拦）。
    * 数据源 getRecentGuardBounceEvents（拦截结构化事件——每条对应一轮拦截，含
    * ruleId/ruleLayer/commandHead；含首轮首拦，比 bounce 计数多一轮，判定语义更严）。
    * 不可用/查询失败返回 null（fail-closed 回 abort 升级，不误判误拦放行真违规）。
@@ -936,7 +936,7 @@ export class AgentTurnOrchestrator {
   }
 
   /**
-   * P0-2：疑似误拦降级通道——中断自动重试循环（本轮不再回发），
+   * 疑似误拦降级通道——中断自动重试循环（本轮不再回发），
    * 搭档侧发「疑似误拦」通知（含命令摘要+命中规则+重试次数，请人工核实/临时放行），
    * 会话内给獭降级提示（下一轮 invoke context，引导换写法/报告搭档而非继续撞同一规则）。
    * 不 abort 终态：invoke 保持 failed（可手动重试），区别于 escalateGuardBounce 的 aborted。

@@ -83,7 +83,7 @@ export function loadTemplate(taskName, dir = join(repoRoot, 'prompts', 'schedule
 
 /** dynamic 模板含运行时占位符（如 {{HEALING_DATA}}），DB 里的 body 由调度器动态生成，
  * 静态同步会破坏占位符形态。接受已读文件内容，避免重复 IO。
- * 值形态兼容：裸 true（含 YAML 规范的 True/TRUE 大写变体，）/ 带引号 "true" / 行尾注释
+ * 值形态兼容：裸 true（含 YAML 规范的 True/TRUE 大写变体）/ 带引号 "true" / 行尾注释
  * （测试锁定，保守侧：宁可误判 dynamic 跳过，不覆盖 DB）。 */
 export function isDynamicTemplate(fileContent) {
   const m = fileContent.match(/^---\n([\s\S]*?)\n---\n/);

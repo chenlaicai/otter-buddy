@@ -82,7 +82,7 @@ export class HealthReport {
         snapshotDate: options.snapshotDate ?? new Date().toISOString().slice(0, 10),
         metrics,
       });
-      // 健康指标旁路（PR1）：CLI/backfill 口径无链数据（/无数据不参与加权），
+      // 健康指标旁路：CLI/backfill 口径无链数据（无数据不参与加权），
       // 输入用零信号（chainStates=null 时 恒 null，零值不影响）；
       // worker 当日扫描 replaceForDate 全量覆盖（含链维度），最后写入者口径最全
       const snapshotDate = options.snapshotDate ?? new Date().toISOString().slice(0, 10);

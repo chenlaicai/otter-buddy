@@ -35,7 +35,7 @@ export interface AgentTurnPort {
     retryCount?: number;
     /** Web 手动重试标识（metrics retry label 区分 manual/auto） */
     manualRetry?: boolean;
-    /** 多模态 当前任务消息携带的图片（ImageContent；≤2 图由服务端硬限制把关） */
+    /** 多模态：当前任务消息携带的图片（ImageContent；≤2 图由服务端硬限制把关） */
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     /** 本批未读消息的最大 sequence_num（启动成功后推进游标用）。
      * port 声明补齐——实现方早已支持，缺声明让 recruiting 路径无法透传（游标不推进） */

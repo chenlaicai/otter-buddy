@@ -24,7 +24,7 @@ import * as path from "node:path";
 import { NodeFileSystem } from "@frameworks/file-system/node-file-system";
 import { BackgroundStore } from "@usecases/settings/background-store";
 import { BackgroundController } from "@interface-adapters/http/controllers/background-controller";
-/** 多模态 （审视修复 /）：注入服务（usecases 层策略） */
+/** 多模态（审视修复）：注入服务（usecases 层策略） */
 import { AttachmentInjectionService } from "@usecases/conversation/attachment-injection-service";
 import { ConversationController } from "@interface-adapters/http/controllers/conversation-controller";
 import { OtterController } from "@interface-adapters/http/controllers/otter-controller";
@@ -108,7 +108,7 @@ export interface ControllerDeps {
   healthSnapshotRepo: HealthSnapshotRepository;
   /** 消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分） */
   signalEventRepo: SignalEventRepository;
-  /** 多模态 附件 repo（message-controller vision 读图 + attachment-controller 文件流） */
+  /** 多模态：附件 repo（message-controller vision 读图 + attachment-controller 文件流） */
   attachmentRepo?: AttachmentRepository;
   attachmentStorageRoot?: string;
   /** 微信连接管理：登录会话管理 + 账号 store */
@@ -293,7 +293,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
 
   const mahjongController = buildMahjongController(deps, logger);
 
-  /** 多模态 （审视修复 /）：附件注入服务——校验+真图+document 文本组装均在此（usecases 层策略） */
+  /** 多模态（审视修复）：附件注入服务——校验+真图+document 文本组装均在此（usecases 层策略） */
   const attachmentInjection = buildAttachmentInjection(deps, appConfig, repos, logger);
 
   return {
@@ -339,7 +339,7 @@ export function initControllers(deps: ControllerDeps, logger: Logger) {
           logger,
         )
       : new NoopInboundController(),
-    // 多模态 附件端点（上传 + 文件流）。storageRoot 缺省 ./data/attachments；
+    // 多模态：附件端点（上传 + 文件流）。storageRoot 缺省 ./data/attachments；
     // 审视修复 上传时校验会话存在（隔离语义）
     // 修复：fallback repos.attachment（与上方 MessageController 同模式）——
     // 此前硬性 `deps.attachmentRepo &&` 条件在装配根未显式传参时恒 false，附件路由生产 404

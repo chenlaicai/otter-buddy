@@ -240,7 +240,7 @@ export class RhiScanWorker {
     // 6. 管道：落库 + 记忆 + 唤醒
     const pipelineResult = await this.pipeline.process(signals, this.options.wakeup);
 
-    // 6.5 记录 open 信号计数（health_index 输入：本次扫描后的真实余压）
+    // 记录 open 信号计数（health_index 输入：本次扫描后的真实余压）
     this.lastOpenSignalCounts = this.countOpenBySeverity() ?? { critical: 0, warning: 0 };
 
     // 7. 指标计算 + 快照落库（Fix A：修「面板扫描不写指标」断链）

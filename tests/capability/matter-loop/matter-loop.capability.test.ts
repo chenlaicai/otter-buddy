@@ -4,8 +4,8 @@
  * 方案验证节锁定三条能力测试场景：
  * ①yield to user 的 L2 自动登记 matter（准入路径 1——獭打标 expects_partner_decision）
  * ②restart 后新世獭档案含 open matters 清单字段（机械供料 handoff_open_matters）
- * ③板上按钮批准回执 → 路由 owner 獭代执行迁移（matters 表状态迁移 + resolution 留痕——补上，）
- * ④板上「+」登记回执 → 獭用 register_matter 工具登记（matters 表新增 OPEN 行——严重1 死链修复的验证面，）
+ * ③板上按钮批准回执 → 路由 owner 獭代执行迁移（matters 表状态迁移 + resolution 留痕——补上）
+ * ④板上「+」登记回执 → 獭用 register_matter 工具登记（matters 表新增 OPEN 行——死链修复的验证面）
  *
  * 断言策略：LLM 行为（獭是否会按指令打标）用统计采样；DB 登记与档案供料是
  * 确定性断言（严格）——登记发生在工具层，只要獭调 yield 带标就必然落库。

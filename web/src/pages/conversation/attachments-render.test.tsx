@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * 多模态 前端附件：MessageList 消息气泡附件渲染测试。
+ * 多模态：前端附件：MessageList 消息气泡附件渲染测试。
  * 锁定行为：带 atts 的消息渲染图片缩略图（src 指向服务端端点）与
  * document 文件卡（含文件名与大小）；多图走网格布局。
  */

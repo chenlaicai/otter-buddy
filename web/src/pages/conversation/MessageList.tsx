@@ -867,9 +867,9 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
   )
 }
 
-/** 多模态 消息内附件渲染。图片网格缩略图（点击原位放大——图类
+/** 多模态：消息内附件渲染。图片网格缩略图（点击原位放大——图类
  *  内联 lightbox 取代原新窗口打开）+ document/audio/video 文件卡（点击下载；audio 用原生
- * 控件回放，）。
+ * 控件回放）。
  *  同一端点 /api/attachments/:id，image inline / 其他 attachment。
  *  为什么用后端端点而非 base64 内嵌：DTO 只带引用（id/尺寸），消息体积不变，缓存友好（immutable） */
 function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: boolean }) {
@@ -1118,7 +1118,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
               </div>
             </div>
           )}
-          {/* 多模态 附件块（图片网格 + 文件卡），正文后渲染 */}
+          {/* 多模态：附件块（图片网格 + 文件卡），正文后渲染 */}
           {m.atts && m.atts.length > 0 && <AttachmentBlock atts={m.atts} isUser={isUser} />}
           {/* 进行中的消息（实时或刷新后重新进入）保留停止能力 */}
           {inFlight && (

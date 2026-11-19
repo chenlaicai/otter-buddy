@@ -5,7 +5,7 @@ export interface MessageSegmentDTO {
   sequenceNum: number;
 }
 
-/** 消息响应 DTO（前端短字段名映射，） */
+/** 消息响应 DTO（前端短字段名映射） */
 export interface MessageDTO {
   id: string;
   st: string;

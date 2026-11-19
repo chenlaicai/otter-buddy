@@ -1,4 +1,4 @@
-/** Embedding 模型元信息（版本锚用，） */
+/** Embedding 模型元信息（版本锚用） */
 export interface EmbedModelMeta {
   /** 模型标识，如 "Xenova/bge-m3" */
   modelId: string;

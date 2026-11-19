@@ -18,7 +18,7 @@ interface MessageInputProps {
   /** 玻璃框固定高度（px）——由 ChatView 分割条状态驱动，与输入内容无关
    *  （搭档拍板：固定边界，绝不做输入内容驱动高度）。textarea 占满玻璃框内部滚动 */
   inputHeight: number
-  /** 多模态 附件中转区状态与操作（提升到 ChatView 层以随发送流转） */
+  /** 多模态：附件中转区状态与操作（提升到 ChatView 层以随发送流转） */
   staged: StagedAttachment[]
   onRemoveAttachment: (id: string) => void
   onPickFiles: (files: File[]) => void
@@ -125,7 +125,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     setMentionQuery(null)
   }
 
-  /** 多模态 剪贴板粘贴文件（微信式体验）——从 paste 事件提取文件走同一上传管线。
+  /** 多模态：剪贴板粘贴文件（微信式体验）——从 paste 事件提取文件走同一上传管线。
    *  仅拦截含文件的粘贴；纯文本粘贴（含截图工具自动写入的文本 URL）走原生行为不打断。 */
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const files = Array.from(e.clipboardData?.files ?? [])
@@ -134,7 +134,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     onPickFiles(files)
   }
 
-  /** 多模态 拖拽文件进输入框（与粘贴同管线）。拖文本/链接走原生 */
+  /** 多模态：拖拽文件进输入框（与粘贴同管线）。拖文本/链接走原生 */
   function handleDrop(e: React.DragEvent<HTMLTextAreaElement>) {
     const files = Array.from(e.dataTransfer?.files ?? [])
     if (files.length === 0) return
@@ -226,7 +226,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
 
         <div className="flex flex-col" style={{ height: inputHeight }}>
         <div className="flex-1 min-h-0 flex items-end gap-2 glass-input rounded-3xl px-4 py-2.5 transition">
-          {/* 多模态 附件选择入口。图片数已达上限仍允许选（可选中文档），后端注入前还会硬校验 */}
+          {/* 多模态：附件选择入口。图片数已达上限仍允许选（可选中文档），后端注入前还会硬校验 */}
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled || staged.length >= MAX_FILES_PER_UPLOAD}

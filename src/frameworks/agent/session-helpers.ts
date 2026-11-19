@@ -165,7 +165,7 @@ export class SimpleLockManager {
   //  「锁 generation 的本质是锁位易主事件计数」→ epoch 收编后「steal = 新 invoke
   //  （新 epoch 对象）接管锁位，旧 release 引用不等 → no-op」——同键跨 steal 的
   // 前后持有者（含嵌套链）不共享 epoch 对象（-E-1 判据唯一化保证）。
-  // **generation 计数器保留且不可退役（fail-soft，检视 A-1 订正）**：锁是热路径
+  // **generation 计数器保留且不可退役（fail-soft 订正）**：锁是热路径
   //  不能 fail-loud；且 reset/destroy/handoff 等非 invoke 调用点不传 epoch，
   //  generation 是这些路径的**唯一** steal 防线（不是可选兑底）。两判定关系：
   //  release 时 generation 恒判在先（短路），epoch 判定在其后追加——当前拓扑下

@@ -149,7 +149,7 @@ export interface ProjectForChannelOptions {
   maxBytes?: number;
   /** 截断时追加的提示文本。缺省 `…(已截断,完整内容见 Web 端)` */
   truncationHint?: string;
-  /** 多模态 消息携带的附件（占位投影在 truncate 之前注入，跨通道不丢） */
+  /** 多模态：消息携带的附件（占位投影在 truncate 之前注入，跨通道不丢） */
   attachments?: AttachmentRef[];
 }
 
@@ -237,7 +237,7 @@ function truncateByBytes(text: string, maxBytes: number, hint: string): string {
  *
  * 流水线：stripHtmlCardFences → 占位符人化（带 Web 链接）→ 附件占位注入 → 字节级截断。
  *
- * 多模态 附件占位必须在 truncateByBytes **之前**注入（顺序写死）——
+ * 多模态：附件占位必须在 truncateByBytes **之前**注入（顺序写死）——
  * 若在投影返回后追加，25KB 截断会恰好裁掉附件行，跨通道不丢目标失效。
  * 截断预算权收投影层：附件块作为受保护尾部，从 maxBytes 中预留预算，
  * 正文按剩余预算截断，附件块强制存活（附件行 ≤几行字节，预留代价可忽略）。
@@ -311,7 +311,7 @@ export function projectForChannel(body: string, options: ProjectForChannelOption
   // IM 出站前统一截尾：URL 尾部只保留 RFC 3986 合法尾字符，剥离串原样保留在文本中。
   const autolinkTrimmed = trimAutolinkTrailing(humanized);
 
-  // 多模态 附件块在截断前注入流水线；预算权收投影层——
+  // 多模态：附件块在截断前注入流水线；预算权收投影层——
   // 附件块预留后正文按剩余预算截断，附件块在截断后仍存活（跨通道不丢）
   const attachmentBlock = humanizeAttachmentPlaceholders(options);
   if (!attachmentBlock) {

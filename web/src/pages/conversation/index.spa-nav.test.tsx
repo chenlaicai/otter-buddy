@@ -294,7 +294,7 @@ describe('右栏 invoke 状态恢复（F20260923sswd，issue #1134）', () => {
   it('listInvokes 失败 → 不静默吞，600ms 单次延迟重试（2500ms 已退役，阶段3）（fake timers）', async () => {
     vi.useFakeTimers()
     try {
-      let failCount = 2 // 初始 + 600ms 重试全败（2500ms 二次重试已退役，）
+      let failCount = 2 // 初始 + 600ms 重试全败（2500ms 二次重试已退役）
       listInvokesCalls = []
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
         const url = String(input)
@@ -324,7 +324,7 @@ describe('右栏 invoke 状态恢复（F20260923sswd，issue #1134）', () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(700) })
       const callsAfter600 = listInvokesCalls.length
       expect(callsAfter600).toBeGreaterThan(callsAfterInitial)
-      // 推进 3000ms → 无第二次重试（2500ms 已退役，后续兑底归周期对账/读点，）
+      // 推进 3000ms → 无第二次重试（2500ms 已退役，后续兑底归周期对账/读点）
       await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
       expect(listInvokesCalls.length).toBe(callsAfter600)
     } finally {

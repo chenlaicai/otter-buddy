@@ -185,7 +185,7 @@ const HEALING_EVENT_IDS_INLINE_MAX = 5;
 /**
  * 收集 manage_healing_events 的过滤特征（行为维度）。
  * query 侧旋钮（status/errorType/includeProbe）不入签名——查询旋钮非实体标识，
- * 同 action 连发正是卡壳语义（特性文档 2.3 设计决策，）。
+ * 同 action 连发正是卡壳语义（特性文档设计决策）。
  */
 function healingFilterParts(a: Record<string, unknown>): string[] {
   const parts: string[] = [];
@@ -383,7 +383,7 @@ function rawToolSignature(toolName: string, args?: unknown): string {
   return dispatchToolSignature(toolName, a) ?? toolName;
 }
 
-/** 文件/工作区工具判定：read/write/edit + workspace 列/读/写/删（//）——独立函数控 dispatchToolSignature 复杂度 */
+/** 文件/工作区工具判定：read/write/edit + workspace 列/读/写/删——独立函数控 dispatchToolSignature 复杂度 */
 function isFileOrWorkspaceTool(toolName: string): boolean {
   return toolName === "read"
     || toolName === "write"
@@ -442,7 +442,7 @@ function bashSignature(a: Record<string, unknown>): string | null {
 }
 
 /**
- * 文件类签名分发：read/write/edit 走 fileToolSignature；workspace 列/读/写/删同构接入（//
+ * 文件类签名分发：read/write/edit 走 fileToolSignature；workspace 列/读/写/删同构接入（
  * 独立实现——workspace path 是相对沙箱根的短路径，语义独立）。
  */
 function fileOrWorkspaceSignature(toolName: string, a: Record<string, unknown>): string {
@@ -586,7 +586,7 @@ export class ToolCallCircuitBreaker {
           trigger: "ignored_steer",
         };
       }
-      // （P0-1）：滑窗 steer 时清空窗口历史并进入未成熟期。
+      // 滑窗 steer 时清空窗口历史并进入未成熟期。
       // 旧行为：旧模式残留窗口 → 后续每次 check 继续命中 → strike 只能靠 allow 清零但窗口
       // 持续命中期间永无 allow → 响应警告也注定 terminate（死刑链，近 7 天 54 次中断/239 次
       // 门拦截根因一）。清窗后：改换新序列 → 重灌无命中 → 成熟后 allow → strike 清零恢复

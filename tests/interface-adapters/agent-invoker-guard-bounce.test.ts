@@ -248,7 +248,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
 
   it("GB-3c：新口径 seed（guard_bounce_flow+bounce:true ×2）→ 超限升级——flow 侧计数判别用例", async () => {
     // 判别性用例：钉死 flow 侧类型串与计数链——若 guard_bounce_flow 串写错/
-    // 漏过滤 bounce 标，flow 计数恒 0 → priorBounces=0 → 永不升级 → 无限回发（/
+    // 漏过滤 bounce 标，flow 计数恒 0 → priorBounces=0 → 永不升级 → 无限回发（
     // 防的 bounce 循环回归），而 legacy-seed 的 GB-3 全绿拦不住
     const sendEntry = mockSendEntry();
     const healing = mockHealingRepo([
@@ -361,7 +361,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     expect(abortedInvoke).toBeTruthy();
   });
 
-  /** b：sleep 域（bash_sleep:）纳入 bounce——orchestrator 三门适配验证 */
+  /** sleep 域（bash_sleep:）纳入 bounce——orchestrator 三门适配验证 */
   it("GB-sleep：sleep 域二拦终态 → 自动回发（bounce 门对 bash_sleep: 开启）→ 回发后自纠成功闭环", async () => {
     const sendEntry = mockSendEntry();
     const healing = mockHealingRepo();
@@ -522,7 +522,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       userMessageContent: "修复任务 X", senderId: "user-1",
     });
 
-    // P0-2：同规则 3 连且非 unknown → 疑似误拦降级通道：sendSystem 是「疑似误拦」文案（非「已停止自动回发并中断其发言」）
+    // 同规则 3 连且非 unknown → 疑似误拦降级通道：sendSystem 是「疑似误拦」文案（非「已停止自动回发并中断其发言」）
     const fpMsg = sendEntry.store.systemBodies.find(b => b.includes("疑似误拦"));
     expect(fpMsg).toBeTruthy();
     expect(fpMsg).toContain("file-tool-guard/main-repo-write");

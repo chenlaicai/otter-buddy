@@ -173,7 +173,7 @@ export interface TurnCallbacks {
    */
   getRecentGuardBounces(otterId: string, windowMs: number): Promise<number>;
   /**
-   * P0-2：查询滑窗内拦截结构化事件列表（疑似误拦降级通道数据源）。
+   * 查询滑窗内拦截结构化事件列表（疑似误拦降级通道数据源）。
    * 与 getRecentGuardBounces 同 errorType 查询，但数据源是拦截结构化事件
    * （pi-session-factory 落账，context 含 ruleId/ruleLayer/commandHead）而非 bounce:true 计数事件，
    * 每条对应一轮拦截。不可用时拋错由调用方 fail-closed。

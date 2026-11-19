@@ -51,7 +51,7 @@ export function validateGroupIdRequired(resourceType: string, groupId: string | 
 }
 
 /** game 型 url 白名单——仅本应用麻将牌局路由（全匹配，非前缀）。
- * 正则与报错文案来自 api-contract（前后端唯一真相源，）；
+ * 正则与报错文案来自 api-contract（前后端唯一真相源）；
  *  写入时固化数据卫生，防未来白名单扩展时存量脏数据变内嵌面。 */
 
 export function validateGameUrl(resourceType: string, url: string | undefined | null): DomainError | null {
