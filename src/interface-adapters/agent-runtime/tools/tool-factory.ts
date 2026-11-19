@@ -7,6 +7,7 @@ import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool 
 /** 前后端共享常量，单一真相源在 @contract/api/html-card */
 import { CARD_SCHEMA_VERSION } from "@contract/api/html-card";
 import { validateSpeakBody, hasCardFences, extractPlayableCardSummary, stripToolCallSerializationLeak } from "./tool-helpers";
+import { remindUnregisteredPrs } from "./speak-pr-remind";
 import type { HealingEventRepository } from "@usecases/healing/healing-event-repository";
 
 import { FACT_CONTENT_MAX_LENGTH, FACT_CONTENT_TOO_LONG_MESSAGE, GROUP_ID_REQUIRED_TYPES, GROUP_ID_REQUIRED_MESSAGE_PREFIX } from "@usecases/conversation/manage-key-info";
@@ -115,8 +116,16 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
           logger?.warn?.(`playable-card register failed: ${err instanceof Error ? err.message : String(err)}`),
         );
 
+        // PR 呈递三件套第三步机械守卫：独占段 PR 未登记台账 → 回执当场提醒。
+        // best-effort 同活类登记：检测失败不阻断发言；提醒不代替登记（groupId 只有
+        // agent 知道，机械层只顶回「漏了」不猜「该填什么」）。
+        const prRemind = await remindUnregisteredPrs(ctx, cleanBody).catch((err) => {
+          logger?.warn?.(`[speak] pr-remind 检测失败（不阻断）: ${err instanceof Error ? err.message : String(err)}`);
+          return null;
+        });
+
         return {
-          ...textResponse("[系统控制信号] 已记录发言，继续工作。"),
+          ...textResponse(prRemind ? `[系统控制信号] 已记录发言。${prRemind}` : "[系统控制信号] 已记录发言，继续工作。"),
           terminate: false,
           /** agent-invoker 检测此标记并发射 entry.start/entry.speak SSE（真实 entryId）。
            *  F20260921urdo 契约收口：sequenceNum/createdAt 必带——已读游标与排序的数据源，
