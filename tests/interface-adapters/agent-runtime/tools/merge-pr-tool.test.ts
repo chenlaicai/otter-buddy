@@ -27,6 +27,16 @@ vi.mock('node:child_process', () => ({
   execFile: (...args: unknown[]) => execFileMock(...args),
 }));
 
+// repo-root spy 包装：默认转发真实 getRepoRoot()（行为不变，既有用例不破坏）；
+// 判别力钉用 mockReturnValueOnce 注入受控假根——闭环闸路径若不来自定位器（旧固定
+// 层数实现），假根拼接对照必不相等，测试即红。
+const { getRepoRootSpy } = vi.hoisted(() => ({ getRepoRootSpy: vi.fn() }));
+vi.mock('@frameworks/repo-root', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@frameworks/repo-root')>();
+  getRepoRootSpy.mockImplementation(() => actual.getRepoRoot());
+  return { ...actual, getRepoRoot: getRepoRootSpy };
+});
+
 import { createTools } from '@interface-adapters/agent-runtime/tools/tool-factory';
 
 function makeLogger(): Logger & { warn: ReturnType<typeof vi.fn> } {
@@ -578,9 +588,11 @@ describe('SG2 畸形返回兜底（原 F20260929mpav 用例）', () => {
 describe('检视闭环闸脚本路径解析（产物布局回归）', () => {
   beforeEach(() => {
     execFileMock.mockReset();
+    getRepoRootSpy.mockClear();
   });
 
-  it('传给 node 的脚本路径经逐级探测解析且真实存在', async () => {
+  /** 端到端可达钉：传给 node 的脚本路径经定位器解析且真实存在。 */
+  it('闭环闸脚本路径经仓库根定位器解析且真实存在', async () => {
     stubGh('OPEN', DEFAULT_PR_CREATED_AT, 'Merged PR #1095', 0);
     const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
     const tool = findMergePr(makeCtx(linkMock));
@@ -590,18 +602,34 @@ describe('检视闭环闸脚本路径解析（产物布局回归）', () => {
     );
     expect(call, '闭环闸脚本应被调用').toBeDefined();
     const scriptPath = (call![1] as string[])[0];
+    expect(getRepoRootSpy).toHaveBeenCalled();
+    expect(scriptPath).toBe(resolve(getRepoRootSpy.mock.results.at(-1)!.value, 'scripts', 'check-pr-review-closure.mjs'));
     expect(existsSync(scriptPath), `脚本路径应真实存在: ${scriptPath}`).toBe(true);
   });
 
-  it('固定层数上溯公式在 dist/src 产物布局下锚定错误（回归钉：必须逐级探测）', async () => {
+  /** 判别力钉（受控假根注入）：定位器返回受控根时，传给 node 的路径必须随之变为
+   *  假根拼接结果——固定层数实现不调定位器，路径仍是真实根，对照必不相等即红。
+   *  src 直跑布局下新旧公式输出恰好同值，不注入受控根无法区分实现。 */
+  it('闭环闸脚本路径必须来自仓库根定位器（受控假根注入：固定层数实现下必红）', async () => {
+    const fakeRoot = '/tmp/rvcp-fake-root-1949';
+    getRepoRootSpy.mockReturnValueOnce(fakeRoot);
+    stubGh('OPEN', DEFAULT_PR_CREATED_AT, 'Merged PR #1095', 0);
+    const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
+    const tool = findMergePr(makeCtx(linkMock));
+    await tool.execute('td', { prNumber: 1095, partnerApproval: '1095合入，你更新下', strategy: 'squash' });
+    const call = execFileMock.mock.calls.find(
+      (c: unknown[]) => c[0] === 'node' && String((c[1] as string[])[0]).includes('check-pr-review-closure'),
+    );
+    expect(call, '闭环闸脚本应被调用').toBeDefined();
+    expect((call![1] as string[])[0]).toBe(resolve(fakeRoot, 'scripts', 'check-pr-review-closure.mjs'));
+  });
+
+  it('固定层数上溯公式在 dist/src 产物布局下锚定错误（事实钉：为什么不能写死层数）', async () => {
     const { findRepoRoot, getRepoRoot } = await import('@frameworks/repo-root');
-    // 模拟编译产物模块位置（真实布局：tsc outDir=dist + rootDir 隐含 src → dist/src/interface-adapters/...）
     const fakeModulePath = resolve(getRepoRoot(), 'dist', 'src', 'interface-adapters', 'agent-runtime', 'tools', 'tool-factory.js');
     const legacyResolved = resolve(dirname(fakeModulePath), '..', '..', '..', '..', 'scripts', 'check-pr-review-closure.mjs');
-    // 旧公式（上溯 4 层）落在 dist/scripts —— 产物里不存在的路径
     expect(legacyResolved).toBe(resolve(getRepoRoot(), 'dist', 'scripts', 'check-pr-review-closure.mjs'));
     expect(existsSync(legacyResolved)).toBe(false);
-    // 逐级探测公式从同一位置出发锚定真 root，脚本可达
     const viaProbe = findRepoRoot(dirname(fakeModulePath));
     expect(viaProbe).toBe(getRepoRoot());
     const probedScript = resolve(viaProbe!, 'scripts', 'check-pr-review-closure.mjs');
