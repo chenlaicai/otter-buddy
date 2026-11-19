@@ -137,6 +137,12 @@ jobs:
         if: github.event_name == 'pull_request'
         run: node scripts/check-pr-anchor-discipline.mjs --base origin/main
 
+      # 依赖分区唯一性闸：同一个包不许同时出现在 dependencies 与 devDependencies。
+      # npm 对重复声明静默取 dev 那份，于是 npm ci --omit=dev（生产安装）跳过它，
+      # 代码却照样 import——生产启动即 ERR_MODULE_NOT_FOUND，而本地与 CI 全绿（不 omit dev）。
+      - name: Run dependency-sections gate (check-dependency-sections)
+        run: node scripts/check-dependency-sections.mjs
+
       # 断言证据锚点轻量规则（warn 起步，ratchet）
       - name: Run evidence-anchor lint (warn-level)
         if: github.event_name == 'pull_request'

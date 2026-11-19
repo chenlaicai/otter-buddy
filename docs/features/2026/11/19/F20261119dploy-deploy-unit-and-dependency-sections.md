@@ -1,0 +1,95 @@
+---
+title: 部署通道两处根因修复：依赖分区唯一 + App unit 纳入部署
+id: F20261119dploy
+date: 2026-11-19
+module: deploy
+change_type: fix
+status: active
+from: F20261118cldep
+summary: |
+  #1941 合入后按 deploy.sh 部署 ECS 服务起不来：`npm ci --omit=dev` 后找不到 hono。根因是
+  package.json 把 hono 等包同时写进 dependencies 与 devDependencies——npm 静默取 dev 那份，
+  生产安装跳过它，HTTP 层照样 import，启动即 ERR_MODULE_NOT_FOUND；本地与 CI 都装 dev 依赖，
+  测试永远看不见。连带两处：deploy.sh 只部署中枢，App 扩展是独立 unit（/opt/colink-agent-app）
+  脚本不管，「部署成功但 App 还是旧版」；打包带上 macOS resource fork，文档同步整片报
+  Missing frontmatter（一次 7914 个）。修法：删重复声明 + 机械闸
+  check-dependency-sections.mjs 挂 CI + deploy.sh 两段式（备份、重启、按源版本核对 manifest）
+  + 打包排除垃圾文件。
+intent:
+  problem: "生产部署通道等同坏掉：任何从零安装的生产环境都因缺 hono 启动失败，而本地/CI 全绿掩盖；同时 deploy.sh 的单段式让 App 扩展版本与中枢脱钩，部署后无法确认真实在线版本"
+  expected_effect: "npm ci --omit=dev 装出来的依赖能跑起 dist；重复声明在 CI 合入前就红；一次 deploy.sh 同时更新中枢与 App 两个 unit，并以「实际服务的 manifest 版本 == 源清单版本」作为部署成功判据；线上文档同步不再被 macOS resource fork 污染"
+  verify_by:
+    type: behavior_check
+    evidence:
+      - "反向验证：把 hono 加回 devDependencies → `node scripts/check-dependency-sections.mjs` exit 1 并报「hono → dependencies + devDependencies」；复原 exit 0"
+      - "单测 tests/scripts/check-dependency-sections.test.ts 14 条全绿（分区互斥、三区同列、缺失分区容错、lock dev 标记、devDependencies 带 dev 标记不误报、CLI exit 0/1/2）"
+      - "package-lock.json 由 npm --package-lock-only 重算：hono / @hono/node-server 的 \"dev\": true 标记消失（omit=dev 会装上），playwright 1.63.0 从 dependencies 移除"
+      - "线上实证（2026-11-19 ECS）：修前 npm ci --omit=dev 后启动报 Cannot find package 'hono'；补包装上后 /api/ping 200；本次脚本第二段上线后 /opt/colink-agent-app 由 0.6.0 变 0.6.1，公网 manifest 亦为 0.6.1"
+      - "deploy.sh 语法自检 bash -n 通过；备份保留最近 3 份（ls -1dt | tail -n +4 | xargs rm -rf）"
+capability_test: "tests/scripts/check-dependency-sections.test.ts"
+tags: [deploy, dependency-hygiene, ci-gate, systemd, packaging]
+modules:
+  - package.json
+  - package-lock.json
+  - scripts/check-dependency-sections.mjs
+  - tests/scripts/check-dependency-sections.test.ts
+  - .github/workflows/ci.yml
+  - deploy/ecs/deploy.sh
+  - deploy/ecs/README.md
+---
+
+# F20261119dploy：部署通道两处根因修复
+
+## 触发
+
+搭档 09:33 授权合入 #1941（私聊历史翻页跟随平台统一契约）。按 runbook 跑
+`bash deploy/ecs/deploy.sh` 后 ECS 上的中枢起不来：
+
+```
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'hono' imported from
+  /opt/otter-buddy/dist/src/interface-adapters/http/controllers/auth-controller.js
+```
+
+同时暴露第二个问题：App 扩展是独立 unit，deploy.sh 从未覆盖它——脚本报「部署成功」，
+但公网 `manifest.json` 还是上一版 `0.6.0`。
+
+## 根因（三处，都是机械可判的结构问题）
+
+1. **依赖分区重复声明。** `hono`、`@hono/node-server`、`playwright` 同时出现在
+   `dependencies` 与 `devDependencies`。npm 不报错、只保留一份解析结果（取 dev 那份），
+   `--omit=dev` 于是跳过它们。代码照样 import → 生产启动即崩。**本地与 CI 不 omit dev，
+   所以测试全绿**；11-12 的旧 dist 不 import hono，也让问题潜伏到这次才炸。
+2. **部署脚本只覆盖一个 unit。** 中枢在 `/opt/otter-buddy`，App 扩展在
+   `/opt/colink-agent-app`（独立 systemd unit，内部端口 31130）。脚本只 rsync 前者，
+   App 版本与中枢脱钩，「部署成功」与「线上版本正确」之间没有机械联系。
+3. **打包带上 macOS resource fork。** 从 macOS 打包时 `._*`（AppleDouble）随行上线，
+   文档同步把它们当特性文档解析，整片报 `Missing frontmatter`（一次 7914 个）。
+
+## 修法
+
+| 面 | 改动 |
+| --- | --- |
+| 依赖声明 | `hono` / `@hono/node-server` 只留 `dependencies`；`playwright` 只留 `devDependencies`（实证：全仓唯一引用在 `scripts/game/*.mjs`，纯开发工具；版本冲突 1.63.0 vs 1.65.0 一并消除） |
+| 机械闸 | 新增 `scripts/check-dependency-sections.mjs`：① 分区互斥（四区两两不得重叠）② `dependencies` 的包在 lock 中不得带 `dev: true`。挂进 CI `check` 段（该 job 是分支保护 required 上下文） |
+| 部署 | `deploy.sh` 扩成两段式：第一段中枢（原样 + 打包排除 `._*`/`.DS_Store`），第二段把中枢里的扩展目录同步到 `/opt/colink-agent-app`、留备份（保留最近 3 份）、重启 `colink-agent-app`，并**用源清单版本核对实际服务的 manifest 版本**作为成功判据 |
+| 文档 | `deploy/ecs/README.md` 补双 unit 部署、备份回滚、依赖分区红线 |
+
+## 设计取舍
+
+- **为什么用「分区互斥」而不是「显式白名单」**：白名单会随依赖变化腐化，且拦不住新引入的
+  重复声明；互斥是结构不变量，零维护。
+- **为什么第二道断言要读 lock**：光看 `package.json` 不够——lock 里的 `dev: true` 才是
+  npm 的实际判定依据（本次 hono 在 lock 里正是 `dev: true`）。断言放在 lock 层，等价于断言
+  「生产安装会不会装到它」。
+- **为什么部署判据用「服务的 manifest 版本 == 源清单版本」**：不关心进程怎么起、日志说什么，
+  只认实际对外声明的版本。这一条把「我以为发上去了」变成可观测事实。
+- **不做的事**：不改 `npm ci` 为 `npm install`（后者会重算依赖树，破坏可复现性）；不为
+  `onnxruntime-node` 的 postinstall 网络失败加绕过（本次已用 `--ignore-scripts` 现场脱困，
+  但那是部署环境网络问题，另案跟踪）。
+
+## 遗留（不在本 PR 范围）
+
+- ECS 上 `onnxruntime-node` postinstall 下载 build list 报 HTTP 302 失败，导致
+  `npm ci --omit=dev` 在**干净** node_modules 上仍可能失败一次；本次是 `--ignore-scripts`
+  绕过。云端本就 `OTTER_EMBEDDING=off`（模型文件不迁），但安装路径的可复现性需要独立治。
+- `deploy.sh` 仍假设本机 `.otter/deploy-keys/ecs-ssh.sh` 就绪；首次部署的密钥引导不在脚本内。

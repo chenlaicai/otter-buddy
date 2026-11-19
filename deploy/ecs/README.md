@@ -40,7 +40,9 @@
      ```
 3. **systemd 单元**：`sudo cp deploy/ecs/otter-buddy.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable otter-buddy`
 4. **TLS**：先装 nginx-otter.conf 的 80 段（或整文件）→ `sudo bash deploy/ecs/setup-tls.sh` → 确认证书路径 → reload nginx
-5. **代码部署**：前置——本机仓 `.otter/deploy-keys/ecs-ssh.sh`（免密 helper，私钥同目录、已 gitignore）与远端 `/opt/node24` 就绪。然后本机仓库根 `bash deploy/ecs/deploy.sh`（build → tar+ssh 管道 → 远端 npm ci → restart → 探活；传输统一走 ecs-ssh.sh 单一身份 admin）
+5. **代码部署**：前置——本机仓 `.otter/deploy-keys/ecs-ssh.sh`（免密 helper，私钥同目录、已 gitignore）与远端 `/opt/node24` 就绪。然后本机仓库根 `bash deploy/ecs/deploy.sh`（build → tar+ssh 管道 → 远端 npm ci → restart → 探活 → App unit 同步与版本核对；传输统一走 ecs-ssh.sh 单一身份 admin）
+   - **一次部署覆盖两个 unit**（2026-11-19 起）：`otter-buddy`（中枢，`/opt/otter-buddy`）与 `colink-agent-app`（CoLink App 扩展，`/opt/colink-agent-app`）。脚本第二段把中枢里的 `extensions/colink-agent-app/` 同步到独立 unit 目录、留备份、重启，并核对 `manifest.json` 的 `version` 与源清单一致——不再接受「部署成功但 App 还是旧版」。
+   - 打包排除 macOS resource fork（`._*`）与 `.DS_Store`：这类文件不是内容，带上线会让文档同步整片报 `Missing frontmatter`（2026-11-19 实证 7914 个）。
 6. **验证**：
    - `curl https://otter.60.205.214.148.sslip.io/api/ping` → `{"ok":true,...}`
    - 浏览器开 `https://otter.60.205.214.148.sslip.io/` 登录页
@@ -54,6 +56,8 @@
 ## 回退
 
 - 代码回退：重跑 deploy.sh（上一版 git commit 检出后构建）
+- App 扩展回退：`sudo rm -rf /opt/colink-agent-app && sudo cp -a /opt/colink-agent-app.bak-<时间戳> /opt/colink-agent-app && sudo systemctl restart colink-agent-app`（deploy.sh 每次部署留备份，只保留最近 3 份）
+- 生产依赖面红线：`npm ci --omit=dev` 要求 `dependencies` 与 `devDependencies` 零重叠——同一个包两边都写时 npm 取 dev 那份，生产安装直接跳过，服务启动即 `ERR_MODULE_NOT_FOUND`（2026-11-19 实证：`hono`）。机械闸 `scripts/check-dependency-sections.mjs` 在 CI `check` 段守着。
 - 数据回退：6b 的迁移快照保留在本机（本方案下中枢数据 6b 之前仍在本地——ECS 上 6a 阶段是空库新起）
 - 整机回退：`systemctl disable --now otter-buddy && nginx conf 移除`——恢复 colink PoC 或空机
 
