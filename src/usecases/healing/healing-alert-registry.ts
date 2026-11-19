@@ -1,5 +1,5 @@
 /**
- * Healing 高危路由登记表（C3，母方案 Part 4）。
+ * Healing 高危路由登记表（母）。
  *
  * 现状：severity:high 事件写入后仅 logger.warn——大獭要等每日批处理才知道。
  * 增强：high 事件写入时在此登记，大獭下一次 invoke 的 buildDynamicContext 消费
@@ -94,7 +94,7 @@ export const healingAlertRegistry = new HealingAlertRegistry();
  * 详情查询走台账工具——不在此重复全量信息。
  */
 export function renderHealingAlerts(alerts: HealingAlert[]): string {
-  // #1545 次要发现修复：聚合提醒的 ids 段不参与 120 字符截断——截断会让 ids 全量
+  // 次要发现修复：聚合提醒的 ids 段不参与 120 字符截断——截断会让 ids 全量
   // 仅首条可见（298 条超限聚合现场），大獭无从定位事件族；改为「摘要截断 + ids 段完整」
   // 两段拼接，台账查询指引保留
   const lines = alerts.map(a => {

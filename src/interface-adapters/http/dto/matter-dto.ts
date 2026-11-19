@@ -1,6 +1,6 @@
 import type { Matter } from '@entities/matter/matter';
 
-/** matter 响应（P1 只读——右侧栏「待办」tab 数据源） */
+/** matter 响应（只读——右侧栏「待办」tab 数据源） */
 export interface MatterDTO {
   id: string;
   conversationId: string;
@@ -21,7 +21,7 @@ export interface MatterDTO {
   closedAt: string | null;
 }
 
-/** Entity -> DTO（P1 只读投影，字段全集透传——payload 供裁决界面渲染 P2 用） */
+/** Entity -> DTO（只读投影，字段全集透传——payload 供裁决界面渲染 用） */
 export function toMatterDTO(matter: Matter): MatterDTO {
   return {
     id: matter.id,

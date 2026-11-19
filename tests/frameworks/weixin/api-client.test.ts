@@ -5,7 +5,7 @@ import { WeixinApiClient } from "@frameworks/weixin/api-client";
  * 微信 ilink API 客户端单测（全 mock fetch，不出网）。
  * 断言风格对齐 tests/frameworks/feishu/client.test.ts：captureFetch 记录
  * 请求（url/headers/body），断言记录内容而非 mock 调用本身。
- * 协议契约来源：@tencent-weixin/openclaw-weixin@2.4.6 源码审计（/）。
+ * 协议契约来源：@tencent-weixin/openclaw-weixin@2.4.6 源码审计。
  */
 function captureFetch(respond: () => unknown = () => ({ ret: 0 })) {
   const calls: Array<{ url: string; method?: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];

@@ -16,7 +16,7 @@ describe("expectSampledBehavior budgetMs（#1187）", () => {
       await new Promise((r) => setTimeout(r, 300));
       return { ok: true, detail: `#${i + 1}` };
     }, { budgetMs: 900, sampleWorstMs: 500 });
-    // #1 起跑 elapsed≈0；#2 起跑 elapsed≈300（300+500<900 跑）；#3 起跑 elapsed≈600（600+500>900 SKIP）
+    // 起跑 elapsed≈0；起跑 elapsed≈300（300+500<900 跑）；起跑 elapsed≈600（600+500>900 SKIP）
     if (ran > 2) throw new Error(`前瞻未生效：ran=${ran}（应 ≤2）`);
   });
 
@@ -27,7 +27,7 @@ describe("expectSampledBehavior budgetMs（#1187）", () => {
       await new Promise((r) => setTimeout(r, 400));
       return { ok: true, detail: `#${i + 1}` };
     }, { budgetMs: 1000, sampleWorstMs: 400 });
-    // #1 elapsed 0；#2 elapsed 400（400+400<1000 跑）——两个都跑，总耗时 800 ≤ 1000
+    // elapsed 0；elapsed 400（400+400<1000 跑）——两个都跑，总耗时 800 ≤ 1000
     if (ran !== 2) throw new Error(`ran=${ran} 应为 2（worst 精确时不误拦）`);
   });
 
@@ -50,7 +50,7 @@ describe("expectSampledBehavior budgetMs（#1187）", () => {
     } catch (err) {
       assertionError = err;
     }
-    // 预算 500/worst 350：#1 跑（0+350<500）、#2 拦（350+350>500）→ ran=1 < minSuccess 2 → 必红
+    // 预算 500/worst 350：跑（0+350<500）、拦（350+350>500）→ ran=1 < minSuccess 2 → 必红
     if (!assertionError) throw new Error("SKIP 致采样不足时应断言红，未抛错");
     const msg = String(assertionError);
     if (!msg.includes("SKIP")) throw new Error(`断言消息应含 SKIP 明细：${msg.slice(0, 200)}`);

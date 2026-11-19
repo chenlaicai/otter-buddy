@@ -40,10 +40,10 @@ function die(msg, extra = {}) {
 }
 
 /**
- * F20261023ktru（#1069）：执行级使用痕迹——「restart-service.mjs 被使用 ≥1 次」此前无数据源
+ * 执行级使用痕迹——「restart-service.mjs 被使用 ≥1 次」此前无数据源
  * 可查（regression-verify 断言②「无法判定」缺口：无运行日志表）。append-only JSONL，每条含
  * ts/action/outcome；die() 拒绝路径同样留痕（「正道走了但被拒」是死链的自动取证通道，
- * 2026-10-22 colink 现场只能事后人工回查）。写失败不抛、stderr 提示（#1632 检视建议 1）——
+ * 2026-10-22 colink 现场只能事后人工回查）。写失败不抛、stderr 提示——
  * 留痕是可观测性副产物，不得反过来让受控终止更脆，但静默断供也不可接受。
  * 导出供单测（tmp 目录注入 tracePath）；主流程经 main-guard 保护。
  */
@@ -52,16 +52,16 @@ export function traceUsage(record, tracePath = path.join(otterRoot, "data", "met
     fs.mkdirSync(path.dirname(tracePath), { recursive: true });
     fs.appendFileSync(tracePath, `${JSON.stringify({ ts: new Date().toISOString(), ...record })}\n`);
   } catch (err) {
-    // 写失败不阻主流程，但不静默——留痕是断言②的数据源，静默断供无从察觉（#1632 检视建议 1）
+    // 写失败不阻主流程，但不静默——留痕是断言②的数据源，静默断供无从察觉
     console.error(`[restart-service] 留痕写入失败（${tracePath}）：${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
 /**
- * #1069：端口声明解析（导出供单测；主流程经 main-guard 保护不会被 import 触发）。
+ * 端口声明解析（导出供单测；主流程经 main-guard 保护不会被 import 触发）。
  *
  * 输入/输出均为普通对象，文件 IO 限定在 whitelistPath 一个文件内，测试用 tmp 目录驱动。
- * 检视处置（S1）：--add 的 projectDir 必须落在 allowedRoots（otter 工作根）之下且
+ * 检视处置：--add 的 projectDir 必须落在 allowedRoots（otter 工作根）之下且
  * 不得是根本身/不存在的路径——授权面从「搭档手动」扩展为「獭可在工作根内自助」，
  * 工作根外（系统目录/其他项目树）仍须搭档手动编辑白名单。主进程防线不变。
  *
@@ -124,9 +124,9 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowed
     return { ok: false, error: "--add 必须同时给 --project /abs/path（声明该端口归属的项目目录）" };
   }
 
-  // 检视处置 S1：--add 授权面收窄——projectDir 必须在 allowedRoots（工作根）之下、
+  // 检视处置 --add 授权面收窄——projectDir 必须在 allowedRoots（工作根）之下、
   // 不得是根本身、必须真实存在且是目录。范围外终止诉求走搭档手动授权（原语义）。
-  // A2（delta 建议）：roots 与 projectDir 都 realpath 归一后再判边界——与主流程 cwd 校验
+  // （delta 建议）：roots 与 projectDir 都 realpath 归一后再判边界——与主流程 cwd 校验
   // 同口径，消「进程经 symlink 启动」的词法/真实路径不一致边角（macOS /var→/private/var 等）
   const roots = (allowedRoots ?? []).map((r) => { try { return fs.realpathSync(r); } catch { return path.resolve(r); } });
   if (roots.length === 0) {
@@ -136,7 +136,7 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowed
   try {
     realProjectDir = fs.realpathSync(projectDir);
   } catch { /* 不存在/不可达——在下方存在性检查拦截 */ }
-  // 存在性先行：不存在/不是目录的路径直接拒（A2 realpath 改序后仍保持原语义优先级）
+  // 存在性先行：不存在/不是目录的路径直接拒（realpath 改序后仍保持原语义优先级）
   let isDir = false;
   try {
     isDir = fs.statSync(projectDir).isDirectory();
@@ -156,7 +156,7 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowed
   }
   // 写回的 projectDir 用原始声明值（搭档可读），真实路径归一只用于边界判定
 
-  // 检视处置 M1：写回加锁（串行化并发 --add，锁内 re-read 消丢更新）+ temp+rename 原子替换
+  // 检视处置 写回加锁（串行化并发 --add，锁内 re-read 消丢更新）+ temp+rename 原子替换
   // （磁盘满/中断不留半截文件）。锁陈旧（>5s）强占防死锁。
   fs.mkdirSync(path.dirname(whitelistPath), { recursive: true }); // 锁文件也要落在已存在的目录
   return withLock(whitelistPath + ".lock", () => {
@@ -182,8 +182,8 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowed
   });
 }
 
-/** 检视处置 M1：简版排他锁（open wx 原子争用 + 100ms 轮询 + 陈锁强占）。
- *  模块私有（A1：无外部消费方，不进 d.mts 第二真相源） */
+/** 检视处置 简版排他锁（open wx 原子争用 + 100ms 轮询 + 陈锁强占）。
+ * 模块私有（无外部消费方，不进 d.mts 第二真相源） */
 function withLock(lockPath, fn) {
   const MAX_ATTEMPTS = 30; // ~3s 上限
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -215,23 +215,23 @@ function withLock(lockPath, fn) {
 }
 
 /**
- * #1580：kill-by-pid 合法根构造（导出供单测覆盖 wiring）——otter 工作根 + alpha 规范数据根。
- * alpha 根与 alpha.sh 的 `alpha_root_dir()` 为双源真相，单测有机械对齐断言防漂移（检视 A4）。
+ * kill-by-pid 合法根构造（导出供单测覆盖 wiring）——otter 工作根 + alpha 规范数据根。
+ * alpha 根与 alpha.sh 的 `alpha_root_dir()` 为双源真相，单测有机械对齐断言防漂移（检视）。
  */
 export function killByPidAllowedRoots(otterRoot) {
   return [path.resolve(otterRoot, ".."), path.join(os.homedir(), ".otter", "alpha")];
 }
 
-// ── F20261008hcpa：kill-by-pid 纯校验逻辑（导出供单测；主流程经 main-guard 保护）──
+// ── kill-by-pid 纯校验逻辑（导出供单测；主流程经 main-guard 保护）──
 
 /**
- * kill-by-pid 校验（F20261008hcpa，#1356 层2 疏通）。
+ * kill-by-pid 校验（层2 疏通）。
  *
  * 纯函数——PID 存活/cwd 归属的 lsof 探测由调用方（主流程）做，本函数只校验
  * 「可静态判定的不变式」：PID 合法性、主进程/自身/父进程拒绝、projectDir 在合法根内。
  * 返回 { ok: true } 或 { ok: false, error }。
  *
- * #1580：allowedRoot 单根 → allowedRoots 多根——alpha 规范数据根（~/.otter/alpha/<hash>，
+ * allowedRoot 单根 → allowedRoots 多根——alpha 规范数据根（~/.otter/alpha/<hash>，
  * alpha.sh:51-53 alpha_root_dir）不在 otter 工作根（/Users/orca/ai）之下，单根校验把
  * alpha 实例的受控终止通道整个堵死（「启」有 alpha.sh，「停」无合法出路）。口径与
  * resolvePortEntry 的 allowedRoots 统一：任一根之下且非任一根本身即合法。
@@ -273,7 +273,7 @@ if (isMain) {
   // ── 参数解析 ──
   const args = process.argv.slice(2);
 
-  // F20261008hcpa（#1356 层2 疏通）：kill-by-pid 子命令——指定 PID 受控终止。
+  // （层2 疏通）：kill-by-pid 子命令——指定 PID 受控终止。
   // 场景：僵尸进程/测试残留进程按 PID 精确终止（端口路由不适用时）。
   // 安全不变式与端口路径同构：②主进程拒绝 ③cwd 归属校验，只是换了个寻址方式。
   if (args[0] === "kill-by-pid") {
@@ -284,7 +284,7 @@ if (isMain) {
       console.error("  --project: 项目目录（必填——kill-by-pid 无白名单声明语义，须现场给出归属目录）");
       process.exit(1);
     }
-    // 剩余 lsof 探测（进程存在性/cwd 归属）留在本流程（#844 原口径：手工冒烟覆盖）
+    // 剩余 lsof 探测（进程存在性/cwd 归属）留在本流程（原口径：手工冒烟覆盖）
     let kbProjectDir = null;
     for (let i = 2; i < args.length; i++) {
       if (args[i] === "--project" && args[i + 1]) { kbProjectDir = path.resolve(args[i + 1]); i++; }
@@ -299,7 +299,7 @@ if (isMain) {
       mainPid: kbMainPid,
       selfPid: process.pid,
       selfPpid: process.ppid,
-      // #1580：合法根双根——otter 工作根 + alpha 规范数据根（alpha.sh alpha_root_dir）
+      // 合法根双根——otter 工作根 + alpha 规范数据根（alpha.sh alpha_root_dir）
       allowedRoots: killByPidAllowedRoots(otterRoot),
     });
     if (!kbCheck.ok) die(kbCheck.error, { action: "kill-by-pid", pid, projectDir: kbProjectDir });
@@ -340,7 +340,7 @@ if (isMain) {
     else if (args[i] === "--add") { add = true; }
   }
 
-  // ── 校验 ①：端口白名单（含 --add 声明写回，#1069；allowedRoots=otter 工作根=otterRoot 上级）──
+  // ── 校验 ①：端口白名单（含 --add 声明写回，；allowedRoots=otter 工作根=otterRoot 上级）──
   const resolved = resolvePortEntry({
     port,
     projectDir,

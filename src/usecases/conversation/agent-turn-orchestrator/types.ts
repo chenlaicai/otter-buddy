@@ -23,7 +23,7 @@ export type ErrorWithToolCallCount = Error & {
 /** invoke 结果形状 */
 export interface InvokeResultShape {
   text: string;
-  /** D3：锁超时转 SDK 队列，当前 invoke 不执行模型、不重试。 */
+  /** 锁超时转 SDK 队列，当前 invoke 不执行模型、不重试。 */
   queued?: boolean;
   tokenUsageDelta?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
@@ -173,11 +173,11 @@ export interface TurnCallbacks {
    */
   getRecentGuardBounces(otterId: string, windowMs: number): Promise<number>;
   /**
-   * P0-2：查询滑窗内拦截结构化事件列表（疑似误拦降级通道数据源）。
+   * 查询滑窗内拦截结构化事件列表（疑似误拦降级通道数据源）。
    * 与 getRecentGuardBounces 同 errorType 查询，但数据源是拦截结构化事件
    * （pi-session-factory 落账，context 含 ruleId/ruleLayer/commandHead）而非 bounce:true 计数事件，
    * 每条对应一轮拦截。不可用时拋错由调用方 fail-closed。
-   * §3.5 处置：额外归一 currentRuleLayer（宪法分层，高危层通知文案中性化用）。
+   * 处置：额外归一 currentRuleLayer（宪法分层，高危层通知文案中性化用）。
    */
   getRecentGuardBounceEvents?(otterId: string, windowMs: number, guardReason?: string): Promise<Array<{ ruleId?: string; ruleLayer?: string; commandHead?: string; currentRuleId?: string; currentRuleLayer?: string }>>;
   /** 当前 active session 是否由熔断创建（上限判定） */

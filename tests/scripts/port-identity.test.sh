@@ -17,7 +17,7 @@
 #
 # 隔离设计（重写动机）：
 #   旧版直接在仓根跑真实脚本，隐含假设「仓根无存活 PID 文件」——自愈功能落地后
-#   该假设不再成立（正常态=PID 文件存在且指向真实主服务，stop 会撞 T1 拒杀分支）。
+# 该假设不再成立（正常态=PID 文件存在且指向真实主服务，stop 会撞 拒杀分支）。
 #   现把脚本拷进 mktemp 沙箱跑（PROJECT_DIR=沙箱），PID 文件/监听者全部隔离，
 #   真实主服务零接触。TMP 必须 pwd -P 物理归一——macOS mktemp 落 /var（软链），
 #   lsof 报 /private/var 真实路径，不归一 listener_class 的 cwd 比对恒失配。
@@ -32,8 +32,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SCRIPT_SRC="$REPO_ROOT/scripts/otter-buddy.sh"
 
 PORT_LISTEN=3457   # 场景A：监听者 vs 客户端
-PORT_MAIN=3458     # 场景B/B2：本仓 node 哑监听（stop 代停）
-PORT_HEAL=3459     # 场景B3/B4：status/start 自愈重建 PID 文件
+PORT_MAIN=3458     # 场景B/本仓 node 哑监听（stop 代停）
+PORT_HEAL=3459     # 场景/status/start 自愈重建 PID 文件
 PORT_FOREIGN=3460  # 场景C：python 占用者（拒杀边界）
 PORT_PIDF=3461     # 场景D：PID 文件正路（指向谁停谁）
 
@@ -132,7 +132,7 @@ echo "$out" | grep -q "another worktree" \
   && fail "场景B: 不应再把主服务当另一实例: $out" || true
 pass "场景B: 无 PID 文件时 stop 验明主服务身份直接代停（PID ${NODE_PID}）"
 
-# ── 场景B2：过期 PID 文件（指向死进程）+ 本仓 node 监听 → 同样代停 ──
+# ── 场景过期 PID 文件（指向死进程）+ 本仓 node 监听 → 同样代停 ──
 echo "--- 场景B2: 过期 PID 文件 stop 代停主服务 ---"
 spawn_node_listener "$PORT_MAIN"; NODE_PID2=$SPAWNED_PID
 echo "999999" > "$PID_FILE"
@@ -145,7 +145,7 @@ assert_dead "$NODE_PID2" "场景B2"
 [ ! -f "$PID_FILE" ] || fail "场景B2: 过期 PID 文件应被清理"
 pass "场景B2: 过期 PID 文件不挡路，验明身份后代停（PID ${NODE_PID2}）"
 
-# ── 场景B3/B4：status/start 发现主服务缺 PID 文件 → 自愈重建──
+# ── 场景/status/start 发现主服务缺 PID 文件 → 自愈重建──
 echo "--- 场景B3/B4: status/start 自愈重建 PID 文件 ---"
 spawn_node_listener "$PORT_HEAL"; NODE_PID3=$SPAWNED_PID
 [ ! -f "$PID_FILE" ] || fail "场景B3前置: 沙箱 PID 文件应不存在"

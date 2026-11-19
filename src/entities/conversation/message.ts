@@ -60,11 +60,11 @@ export interface Message {
   senderName: string;
   createdAt: string;
   completedAt: string | null;
-  /** 消息携带的附件（多模态 Phase 1）。可选字段：广播链路走 entities 不经 DTO，
+  /** 消息携带的附件（多模态）。可选字段：广播链路走 entities 不经 DTO，
    *  附件要流到 egress 通道可及处，实体须挂此字段（repository 加载/send 内存构造/发送入库三处回填）。
    *  声明可选避免测试 fixture 编译波及。 */
   attachments?: AttachmentRef[];
-  /** P0: 信号协议元数据（已退役）。
+  /** 信号协议元数据（已退役）。
    *  - signalLevel: 档位 (NORMAL/URGENT/HALT) 已退役，列保留 null 不读。
    *  - signalMeta: 现仅承载 consumed 销账标记（内部用，不透出）。 */
   signalLevel?: string | null;

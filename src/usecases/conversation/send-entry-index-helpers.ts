@@ -17,7 +17,7 @@ export function buildUserIndexBody(body: string, attachments: AttachmentRef[]): 
   return projection ? `${stripped}\n${projection}` : stripped;
 }
 
-/** #1191：按发送意图加载附件投影 refs（attach 失败也投影——旧口径 attachmentRefs 同语义）。
+/** 按发送意图加载附件投影 refs（attach 失败也投影——旧口径 attachmentRefs 同语义）。
  *  查不到的 id（已删/毒数据）静默跳过，索引面不固化为硬错 */
 export async function loadAttachmentRefs(
   entryRepo: EntryRepository,

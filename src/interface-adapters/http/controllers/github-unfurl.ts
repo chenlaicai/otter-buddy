@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 /**
- * T1：GitHub URL 结构化取数（gh CLI 路径）。
+ * GitHub URL 结构化取数（gh CLI 路径）。
  *
  * Why gh CLI 而非 og 抓取/undici 代理（方案「设计取舍」表）：
  * ① gh 自带认证 + 用户本机已配网络（进程级代理问题一并绕过——本机直连 github.com

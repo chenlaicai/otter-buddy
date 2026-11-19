@@ -81,7 +81,7 @@ export class SqliteTerminologyRepository implements TerminologyRepository {
       "SELECT * FROM terminology_entries WHERE term = ? AND status = 'active'",
     );
     /**
-     * F20260813actk 第五轮审视：同 id 改名的兜底匹配。
+     * 第五轮审视：同 id 改名的兜底匹配。
      * seed 改 term 不改 id 时（如"发言石"→"行动权"），按 term 查 miss 会走 INSERT 撞 PK。
      * 按 id 兜底查到存量行，走 UPDATE 分支（含 term 列更新）。
      */

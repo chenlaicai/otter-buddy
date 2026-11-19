@@ -1,4 +1,4 @@
-// PR-A：组合根声明 port 接口而非 Sqlite 具体类——替换实现时类型不突变
+// 组合根声明 port 接口而非 Sqlite 具体类——替换实现时类型不突变
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { OtterContextRepository } from "@usecases/otter/otter-context-repository";
 import type { MemoryRepository } from "@usecases/memory/memory-repository";
@@ -67,9 +67,9 @@ export interface Repositories {
   memoryReader: MemoryReader;
   memoryWriter: MemoryWriter;
   memoryQueue: MemoryQueue;
-  /** Phase 0：检索埋点（评估基线数据源） */
+  /** 检索埋点（评估基线数据源） */
   searchQueryLog: SearchQueryLogRepository;
-  /** P2b1：夜间审视治量状态（幂等键 + 失败区间 + 连败计数） */
+  /** 夜间审视治量状态（幂等键 + 失败区间 + 连败计数） */
   consolidationState: ConsolidationStateRepository;
   terminology: TerminologyRepository;
   conversation: ConversationRepository;
@@ -80,9 +80,9 @@ export interface Repositories {
   scheduledTaskPending: ScheduledTaskPendingItemRepository;
   connection: ConnectionRepository;
   healingEvent: HealingEventRepository;
-  /** C1：獭间结构化信号台账（halt 落账；C2 objection/blocked） */
+  /** 獭间结构化信号台账（halt 落账；objection/blocked） */
   signalEvent: SignalEventRepository;
-  /** P1：待办承诺台账（matters 表——持续工作单元） */
+  /** 待办承诺台账（matters 表——持续工作单元） */
   matter: MatterRepository;
   /** RHI 健康信号池（纳入 DI 注册惯例，与 signalEvent 獭间语义池区分） */
   rhiSignal: SignalRepository;
@@ -93,9 +93,9 @@ export interface Repositories {
   /** 旧派发台账退役（dispatchAttempt 随 main 批次退役）。
    * 派工台账正式表（客观生命周期 created/dispatched/dissolved）——本 PR 核心，保留 */
   dispatchRecord: DispatchRecordRepository;
-  /** T1：unfurl 预览缓存（P1 数据先行——抓取结果落库，渲染读库） */
+  /** unfurl 预览缓存（数据先行——抓取结果落库，渲染读库） */
   unfurlCache: SqliteUnfurlCacheRepository;
-  /** 多模态 Phase 1：附件 repo（上传管线 + 消息组装共用） */
+  /** 多模态：附件 repo（上传管线 + 消息组装共用） */
   attachment: AttachmentRepository;
   /** 条目仓库（取代 messages + message_segments） */
   entry: EntryRepository;
@@ -111,13 +111,13 @@ export interface UseCases {
   manageTerminology: ManageTerminology;
   searchMemory: SearchMemory;
   scanDarkEntries: ScanDarkEntries;
-  /** P1c：belief 现场记录 */
+  /** belief 现场记录 */
   recordBelief: RecordBelief;
-  /** P1c：belief 状态迁移（verify/reject/supersede 共用） */
+  /** belief 状态迁移（verify/reject/supersede 共用） */
   transitionBelief: TransitionBelief;
-  /** P1c：belief supersede（标记过期/新取代旧 + 建边 + TOCTOU 防护） */
+  /** belief supersede（标记过期/新取代旧 + 建边 + TOCTOU 防护） */
   supersedeBelief: SupersedeBelief;
-  /** P2b1：夜间审视治量状态管理（claim/complete/recordFailure） */
+  /** 夜间审视治量状态管理（claim/complete/recordFailure） */
   manageConsolidationState: ManageConsolidationState;
   createEdge: CreateEdge;
   getRelated: GetRelated;
@@ -125,7 +125,7 @@ export interface UseCases {
   getDocProvenance: GetDocProvenance;
   sendEntry: SendEntry;
   queryMessage: QueryMessage;
-  /** Phase 0：检索埋点（评估基线数据源） */
+  /** 检索埋点（评估基线数据源） */
   recordSearchQuery: RecordSearchQuery;
   manageReadState: ManageReadState;
   manageParticipant: ManageParticipant;
@@ -140,7 +140,7 @@ export interface UseCases {
   /** IM 助理会话管理（自动开户 + 软轮换） */
   assistantSession: AssistantSessionManager;
   webAssistantProvisioner: WebAssistantProvisioner;
-  /** 多模态 Phase 1：附件上传服务 */
+  /** 多模态：附件上传服务 */
   attachmentUpload: AttachmentUploadService;
   /** 工作区文件浏览（只读） */
   manageWorkspace?: ManageWorkspace;

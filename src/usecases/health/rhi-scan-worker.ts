@@ -76,7 +76,7 @@ export interface RhiScanWorkerOptions {
   costOutputInvalidateAll?: () => void;
   /** 指标计算滚动窗口天数（默认 60：趋势图 30 天 + 前后各 15 天缓冲） */
   metricsWindowDays?: number;
-  /** 信号仓库（可选，PR1）：注入后健康评分 D5 用真实 open 计数；未注入时降级零值 */
+  /** 信号仓库（可选，PR1）：注入后健康评分 用真实 open 计数；未注入时降级零值 */
   signalRepo?: SignalRepository;
   /** session JSONL 目录路径（LLM 成本采集数据源）。未注入时跳过成本采集。 */
   sessionsDir?: string;
@@ -103,11 +103,11 @@ export interface RhiScanResult {
   memoryIndexed: number;
   wakeupsTriggered: number;
   errors: string[];
-  /** 写入 health_snapshots 的指标行数（；未注入 sink 时为 0） */
+  /** 写入 health_snapshots 的指标行数（未注入 sink 时为 0） */
   metricsStored: number;
-  /** 写入 health_snapshots 的成本/产出行数（；未注入 costOutputSink 时为 0） */
+  /** 写入 health_snapshots 的成本/产出行数（未注入 costOutputSink 时为 0） */
   costOutputStored: number;
-  /** snapshot_shift 环比骤变信号数（；prevDayHealthIndexSource 未注入时恒为 0） */
+  /** snapshot_shift 环比骤变信号数（prevDayHealthIndexSource 未注入时恒为 0） */
   snapshotShiftCount: number;
 }
 
@@ -115,7 +115,7 @@ export class RhiScanWorker {
   private timer: NodeJS.Timeout | null = null;
   private inflightTick: Promise<void> | null = null;
   private stopped = true;
-  /** 最近一轮扫描后的 open 信号计数（health_index D5 输入；signalRepo 未注入时恒 null） */
+  /** 最近一轮扫描后的 open 信号计数（health_index 输入；signalRepo 未注入时恒 null） */
   private lastOpenSignalCounts: { critical: number; warning: number } | null = null;
 
   /** 最近一轮写入的 health_index 快照行（环比骤变的「今日」侧：
@@ -131,7 +131,7 @@ export class RhiScanWorker {
     private readonly options: RhiScanWorkerOptions = {},
   ) {}
 
-  /** open 信号按 severity 计数（D5 输入；repo 未注入返回 null → 评分降级零值）。
+  /** open 信号按 severity 计数（输入；repo 未注入返回 null → 评分降级零值）。
    * 方案甲：confidence=low 不进 critical/warning 计数（与 overview 同源
    *  aggregateOpenSignalCounts）——低置信折叠后健康分不再纹丝不动。 */
   private countOpenBySeverity(): { critical: number; warning: number } | null {
@@ -163,7 +163,7 @@ export class RhiScanWorker {
     this.logger.info("RHI scan worker stopped", { action: "rhi_worker_stop" });
   }
 
-  /** 仅构建特性链（不检测信号不落库）——Phase 2 /api/health/chains 端点用。
+  /** 仅构建特性链（不检测信号不落库）——/api/health/chains 端点用。
    *  采集+解析+PR 数据接入与 scanOnce 同逻辑，保证面板看到的链与信号同源。 */
   async buildChainsOnce(): Promise<ReturnType<typeof buildFeatureChains>> {
     const commitsWithFiles = await collectGitLogWithFiles(this.repoPath, {
@@ -240,7 +240,7 @@ export class RhiScanWorker {
     // 6. 管道：落库 + 记忆 + 唤醒
     const pipelineResult = await this.pipeline.process(signals, this.options.wakeup);
 
-    // 6.5 记录 open 信号计数（health_index D5 输入：本次扫描后的真实余压）
+    // 记录 open 信号计数（health_index 输入：本次扫描后的真实余压）
     this.lastOpenSignalCounts = this.countOpenBySeverity() ?? { critical: 0, warning: 0 };
 
     // 7. 指标计算 + 快照落库（Fix A：修「面板扫描不写指标」断链）

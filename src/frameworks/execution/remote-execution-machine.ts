@@ -14,15 +14,15 @@ import type { RemoteActionRegistry } from "@usecases/ports/remote-action-registr
 import type { ConnectorRegistryRepository } from "@usecases/ports/connector-registry-repository";
 
 /**
- * （阶段 4 C2）：远程执行机——动作经 WSS 通道下发 connector 执行。
+ * 远程执行机——动作经 WSS 通道下发 connector 执行。
  *
- * 总闸三道（方案 v3 §5/）：① online_sessions 表 status=online（唯一事实源直查）
+ * 总闸三道：① online_sessions 表 status=online（唯一事实源直查）
  * + ② Registry 投影可达（本机实例注册即达） + ③ 通道已连接（sendToDevice）。
  * 每次下发：actionId（调用方透传或 `<中枢bootEpoch>-<uuid>` 自铸）先登记
  * remote_action_requests（requested）→ action.request → 等 action.result；
  * 超时/会话下线 → 落 unknown（不盲重试，五态纪律）——落点。
  * createExecutionEnvironment 不支持（SDK 文件/bash 面只在 local 机器；远程工具面
- * 走动作协议——阶段 5/7 语义）。
+ * 走动作协议语义）。
  */
 export class RemoteExecutionMachine implements ExecutionMachine {
   readonly name: string;
@@ -63,16 +63,16 @@ export class RemoteExecutionMachine implements ExecutionMachine {
       else waiter.reject(new Error(frame.data.error ?? `remote action ${frame.data.status}: ${frame.data.actionId}`));
     });
     this.deps.channel.onSessionDown((sessionId, deviceId, reason) => {
-      // M1（检视）：网关下线事件是全局广播，本机器只收口**自己设备**的会话——
+      // （检视）：网关下线事件是全局广播，本机器只收口**自己设备**的会话——
       // 多设备同时在线时任一设备下线不得误杀其他设备的在途请求（孤儿化 requested 行）
       if (deviceId !== this.id) return;
-      // C3（方案 §6 第4步）：收尾按原因分流——主动优雅下线（device-offline）在途可
+      // （第4步）：收尾按原因分流——主动优雅下线（device-offline）在途可
       // 确定性裁决 interrupted（可安全重做）；意外断开（心跳超时/hub 重启）真相不明落
-      // unknown（禁止盲目重试）——S2 不对称边界
+      // unknown（禁止盲目重试）——不对称边界
       const verdict = reason === "device-offline" ? "interrupted" : "unknown";
       const batchError = verdict === "interrupted" ? "device offline before result (graceful: interrupted)" : "device offline before result";
       void this.deps.remoteActions.markSessionRequests(sessionId, verdict, this.isoNow(), batchError).catch(err => {
-        // m2（检视）：批量收尾失败不能零日志——DB 行滞留 requested 会永久「在途」，排障需要线索
+        // （检视）：批量收尾失败不能零日志——DB 行滞留 requested 会永久「在途」，排障需要线索
         this.deps.warn?.("remote action session-down settle failed (rows stay requested)", { sessionId, verdict, error: String(err) });
       });
       for (const [actionId, waiter] of [...this.pending.entries()]) {
@@ -87,7 +87,7 @@ export class RemoteExecutionMachine implements ExecutionMachine {
     throw new Error(`remote machine does not host SDK execution environments (device: ${this.id})`);
   }
 
-  /** 单调帧序（m4：action.request 的 seq 对账用——协议规定 seq 不承担可靠性，
+  /** 单调帧序（action.request 的 seq 对账用——协议规定 seq 不承担可靠性，
    *  仅日志对账与乱序检测，故进程内单调即可） */
   private frameSeq = 0;
 
@@ -114,7 +114,7 @@ export class RemoteExecutionMachine implements ExecutionMachine {
       result: null,
       createdAt: this.isoNow(),
       settledAt: null,
-      // R2 关联维度：六动作 input 均携带 conversationId；invoke 归因取 hub 进程内上下文
+      // 关联维度：六动作 input 均携带 conversationId；invoke 归因取 hub 进程内上下文
       conversationId: this.conversationIdOf(action.input),
       invokeId: otterInvokeStorage.getStore()?.currentInvokeId ?? null,
     });
@@ -151,7 +151,7 @@ export class RemoteExecutionMachine implements ExecutionMachine {
     return this.deps.actionTimeoutMs ?? CONNECTOR_ACTION_TIMEOUT_MS;
   }
 
-  /** 六动作 input 均携带 conversationId（m7：workspace.path 也含——getWorkspacePath
+  /** 六动作 input 均携带 conversationId（workspace.path 也含——getWorkspacePath
    *  按 conversation 解析；故六动作全落会话维度，非 path 动作才缺） */
   private conversationIdOf(input: unknown): string | null {
     const candidate = (input as { conversationId?: unknown } | undefined)?.conversationId;

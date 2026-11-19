@@ -36,12 +36,12 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
 };
 
 /**
- * F20260828gssf: selftest 参考序列。
+ * selftest 参考序列。
  *
- * good = 正确行为轨迹：獭先 search_memory 再 create_otter（R4 合规）
+ * good = 正确行为轨迹：獭先 search_memory 再 create_otter（合规）
  * bad  = 伤疤复现轨迹（多条）：
- *   - bad[0]: 獭跳过 search_memory 直接 create_otter（R4 违规——缺搜索）
- *   - bad[1]: 獭先 create_otter 再 search_memory（R4 违规——顺序颠倒）
+ * - bad[0]: 獭跳过 search_memory 直接 create_otter（违规——缺搜索）
+ * - bad[1]: 獭先 create_otter 再 search_memory（违规——顺序颠倒）
  *     退化实验证明：删掉顺序判据后 bad[0] 仍能通过（bad 与判据同构），
  *     bad[1] 堵住这个盲区。见检视獭-gssf 判别力攻击实验 5a/5b。
  */

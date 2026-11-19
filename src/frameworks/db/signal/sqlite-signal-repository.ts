@@ -4,7 +4,7 @@ import type { SignalEventRepository } from '@usecases/signal/signal-event-reposi
 import { rowToSignalEvent, signalEventToInsertValues, buildSignalFilterClause, type SignalEventRow } from './signal-event-mapper';
 
 /**
- * Signal events 的 SQLite 实现（C1）。
+ * Signal events 的 SQLite 实现。
  * 表结构在 schema.ts createSignalsTable 创建（幂等 CREATE IF NOT EXISTS）。
  */
 export class SqliteSignalEventRepository implements SignalEventRepository {
@@ -44,7 +44,7 @@ export class SqliteSignalEventRepository implements SignalEventRepository {
     return rows.map(rowToSignalEvent);
   }
 
-  /** F20260912avlb：全表查询（可选过滤），created_at 倒序——复用 mapper 的过滤子句拼装 */
+  /** 全表查询（可选过滤），created_at 倒序——复用 mapper 的过滤子句拼装 */
   async findAll(filter?: SignalQueryFilter, limit = 200): Promise<SignalEvent[]> {
     const { clause, params } = buildSignalFilterClause(filter);
     const rows = this.db.prepare(

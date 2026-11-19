@@ -2,7 +2,7 @@
  * 防睡眠断言 helper 单测（M-a8f8f080 定案——睡眠冻结≠挂起）。
  * 轻量单测（不带 .capability 后缀，不进 capability 重配置）。
  *
- * 断言纪律（检视 P1/P2 修复）：
+ * 断言纪律（检视 /修复）：
  * - 不用全局 pkill/pgrep——按句柄暴露的 holderPid 精确断言与清理，不误杀环境中其他 caffeinate 持有方
  * - 平台 stub 后恢复原始 descriptor（非 darwin CI 上不得残留假平台）
  * - spawn 失败路径用模块注入失败（不做 mock 调用参数/次数断言，只断言行为：句柄无害可释放）

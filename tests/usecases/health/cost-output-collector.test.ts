@@ -142,7 +142,7 @@ describe("collectOtterOutput", () => {
     expect(small828.toolCallCount).toBe(1);
 
     const big829 = results.find(r => r.date === "2026-08-29" && r.otterId === "otter-aaa")!;
-    expect(big829.messageCount).toBe(2); // m4(09:00 UTC) + m6(20:00 UTC=上海08-29凌晨) 同归 08-29
+    expect(big829.messageCount).toBe(2); // (09:00 UTC) + (20:00 UTC=上海08-29凌晨) 同归 08-29
     expect(big829.toolCallCount).toBe(2); // 上海日键与 SQL 归日一致，不再静默归零
   });
 

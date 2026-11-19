@@ -1,5 +1,5 @@
 /**
- * P2b2：夜间审视 scheduled-task seed 单测。
+ * 夜间审视 scheduled-task seed 单测。
  *
  * 钉住：幂等（已 active 不重建）、手动 disable 不复活（尊重搭档操作）、
  * function executor 形态（functionName/executorType/body 携带 conversationId）。

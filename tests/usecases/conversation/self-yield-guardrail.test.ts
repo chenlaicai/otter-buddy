@@ -474,7 +474,7 @@ describe("#530 self-yield guardrail", () => {
       invokeFn: async () => { calls++; return { messageId: "m-new" }; },
     });
     expect(calls).toBe(1);
-    // #530 abort 链副作用断言：路由清空 nextTargets 终链（calls=1 即证）+ healing 事件落台账；
+    // abort 链副作用断言：路由清空 nextTargets 终链（calls=1 即证）+ healing 事件落台账；
     //  abort 目标身份不在此窥 mock 调用参数，由下方 getSelfYieldDecisionEntries 只取决定性记录的行为链保证
     expect(m.healingRepo.create).toHaveBeenCalled();
   });
@@ -483,7 +483,7 @@ describe("#530 self-yield guardrail", () => {
 
   describe("非 self-yield 路径无影响", () => {
     it("正常 yield 给其他 otter 不触发护栏", async () => {
-      // F20261026ctbg：深度硬停退役——静态 owner-tsp 会无限派发 owner-otter；首跳验证「正常 yield 不触发护栏」后收尾
+      // 深度硬停退役——静态 owner-tsp 会无限派发 owner-otter；首跳验证「正常 yield 不触发护栏」后收尾
       let hops = 0;
       (m.invokeRepo.getInvokeById as ReturnType<typeof vi.fn>).mockImplementation(async () => {
         hops++;
@@ -545,7 +545,7 @@ describe("#530 self-yield guardrail", () => {
         invokeFn: async () => ({ invokeId: "inv-new", messageId: "inv-new", aggregatedTargets: ["otter-1"] }),
       });
 
-      // F20260913ctlv：护栏计数数据源 = entries——副作用断言：本会话至少被扫描过一次
+      // 护栏计数数据源 = entries——副作用断言：本会话至少被扫描过一次
       expect((m.entryRepo.getEntries as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(1);
     });
   });

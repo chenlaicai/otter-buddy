@@ -1,6 +1,6 @@
 /**
  * restart-service.mjs resolvePortEntry 单测（纯逻辑 + tmp 目录驱动文件 IO）。
- * 检视处置后追加：工作根边界（allowedRoots）、M1 原子写/并发锁、L1 权限错误文案。
+ * 检视处置后追加：工作根边界（allowedRoots）、原子写/并发锁、L1 权限错误文案。
  *
  * 覆盖：白名单缺失/端口未声明时的两条正道（--add 现场声明 vs 拒绝+指引）、
  * --add 写回保留既有 entries、projectDir 不一致拒绝、损坏 JSON 不覆盖、
@@ -173,7 +173,7 @@ describe('#1069 resolvePortEntry（白名单声明解析）', () => {
     expect(r.ok).toBe(true); // 已声明条目不受 --add 边界影响
   });
 
-  // ── 检视处置：M1 原子写 / 锁 ──
+  // ── 检视处置：原子写 / 锁 ──
 
   it('M1·写回后无 .tmp 残留文件（temp+rename 原子替换）', () => {
     const r = resolvePortEntry({ port: 3100, projectDir: dongbeiDir, add: true, whitelistPath: wlPath, allowedRoots });

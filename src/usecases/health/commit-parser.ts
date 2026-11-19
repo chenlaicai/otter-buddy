@@ -63,13 +63,13 @@ const STANDARD_FORMAT_REGEX = new RegExp(
   `^\\[F(${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[(${TYPE_PATTERN})\\]`
 );
 
-/** 三段结构探测正则（#425 发现 7）：类型段存在但值任意——用于区分「类型未识别」与「格式不合规」；捕获组结构与 STANDARD_FORMAT_REGEX 对齐（1=FID，2=module，3=类型） */
+/** 三段结构探测正则（发现 7）：类型段存在但值任意——用于区分「类型未识别」与「格式不合规」；捕获组结构与 STANDARD_FORMAT_REGEX 对齐（1=FID，2=module，3=类型） */
 const STRUCTURED_TYPE_SEGMENT_REGEX = new RegExp(
   `^\\[F(${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT})\\]\\[([a-z][a-z-]*)\\]\\[([^\\]]+)\\]`
 );
 
-/** PR 号正则：取行尾最后一个 (#123)（检视发现 2：首匹配会把标题内 issue 引用错认为
- *  PR 号——34f6d146「(#776) (#786)」应取 786；squash 合入的 PR 号恒在行尾） */
+/** PR 号正则：取行尾最后一个 （首匹配会把标题内 issue 引用错认为
+ * PR 号——34f6d146「 」应取 786；squash 合入的 PR 号恒在行尾） */
 const PR_NUMBER_REGEX = /.*\(#(\d+)\)\s*$/;
 
 /**
@@ -92,8 +92,8 @@ export function parseCommit(sha: string, message: string): ParsedCommit {
     return createCompliantResult(sha, message, standardMatch, firstLine);
   }
 
-  // 三段结构完整但类型未识别（#425 发现 7）：与纯格式不合规区分，
-  // 如 [Feature]/[Enhancement]/[Tests]（Feature 是历史别名，#432 起不再收录）
+  // 三段结构完整但类型未识别（发现 7）：与纯格式不合规区分，
+  // 如 [Feature]/[Enhancement]/[Tests]（Feature 是历史别名，起不再收录）
   const structuredTypeMatch = firstLine.match(STRUCTURED_TYPE_SEGMENT_REGEX);
   if (structuredTypeMatch) {
     return createFPrefixResult(sha, message, structuredTypeMatch, firstLine, { skipReason: 'unrecognized_change_type', module: structuredTypeMatch[2] });
@@ -139,7 +139,7 @@ function createCompliantResult(
   return { sha, message, featureId, module, changeType, prNumber, isCompliant: true };
 }
 
-/** 创建 F 前缀非标准格式结果（skipReason 区分 unrecognized_change_type 与 non_standard_format，#671） */
+/** 创建 F 前缀非标准格式结果（skipReason 区分 unrecognized_change_type 与 non_standard_format） */
 function createFPrefixResult(
   sha: string,
   message: string,

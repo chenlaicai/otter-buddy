@@ -38,7 +38,7 @@ export class MahjongController {
     private readonly logger: Logger,
   ) {}
 
-  /** D2：app.ts 用——挂接入座谓词到 AgentInvoker（对话侧「打牌中」拦截） */
+  /** app.ts 用——挂接入座谓词到 AgentInvoker（对话侧「打牌中」拦截） */
   get roomService(): RoomService {
     return this.rooms;
   }
@@ -83,7 +83,7 @@ export class MahjongController {
     return ctx.json({ roomId, seat: body.seat, view });
   }
 
-  /** F20261022mjls：开始（牌桌「开始」按钮）——waiting→playing 发牌起跑；幂等；可选 players 覆盖 */
+  /** 开始（牌桌「开始」按钮）——waiting→playing 发牌起跑；幂等；可选 players 覆盖 */
   async start(ctx: Context): Promise<Response> {
     const roomId = ctx.req.param("roomId") ?? "";
     const body = (await ctx.req.json().catch(() => ({}))) as { players?: PlayerConfig[] };
@@ -104,7 +104,7 @@ export class MahjongController {
       if (res.reason === "room not found") return ctx.json({ error: res.reason }, 404);
       return ctx.json({ error: res.reason }, 400);
     }
-    // PR#1609 delta（检视建议 3）：回执必带 view 字段——前端拿不到 view 不渲染牌桌，消除
+    // PR#1609 delta：回执必带 view 字段——前端拿不到 view 不渲染牌桌，消除
     // alreadyStarted+驱逐边缘「无 view 空桌」困惑；无 view 时显式带 null（前端据此提示回大厅）
     const view = this.rooms.view(roomId, null);
     if (view) return ctx.json({ roomId, status: view.status, view });
@@ -140,7 +140,7 @@ export class MahjongController {
     return ctx.json({ accepted: true, roomId, seat: body.seat, view });
   }
 
-  /** #1564-5：结算停驻推进——「继续」按钮（404 未知房 / 409 已终局 / 400 非停驻态） */
+  /** -5：结算停驻推进——「继续」按钮（404 未知房 / 409 已终局 / 400 非停驻态） */
   async continueRound(ctx: Context): Promise<Response> {
     const roomId = ctx.req.param("roomId") ?? "";
     const res = this.rooms.continueRound(roomId);
@@ -153,7 +153,7 @@ export class MahjongController {
     return ctx.json({ accepted: true, roomId, ...(view ? { view } : {}) });
   }
 
-  /** #1564-6：停局/删房——终局/进行中均可（防 runaway 止血阀） */
+  /** -6：停局/删房——终局/进行中均可（防 runaway 止血阀） */
   async stop(ctx: Context): Promise<Response> {
     const roomId = ctx.req.param("roomId") ?? "";
     const res = this.rooms.stopRoom(roomId);

@@ -8,7 +8,7 @@
  * zombie 删除（链是开放结构，不预言未来）；stalled 语义改为
  * pr-stalled（open PR 停滞）。
  *
- * 色彩纪律（palette.ts + 观澜 §3.4）：teal=活跃、caramel=滞留/回退、
+ * 色彩纪律（palette.ts + 观澜）：teal=活跃、caramel=滞留/回退、
  * lavender-400=孤儿（悬空/辅助）。跨图表色义锁定：同一 token 在泳道 SVG、
  * chips、抽屉徽章中语义不变。
  */
@@ -43,7 +43,7 @@ export function chainStateRank(state: string): number {
   return order[state] ?? 0
 }
 
-/** 异常态（筛选 chips 展示序=严重优先，§3.2 视觉反转：异常实心/活跃灰显描边） */
+/** 异常态（筛选 chips 展示序=严重优先，视觉反转：异常实心/活跃灰显描边） */
 export const ANOMALY_STATES: ChainState[] = ['stalled', 'regressed', 'orphan']
 
 /** commit changeType → 中文标签（原 index.tsx 重复定义收编；链抽屉/泳道 tooltip 共用） */

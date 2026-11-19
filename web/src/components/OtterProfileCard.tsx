@@ -4,7 +4,7 @@ import type { LocalOtterSession } from '../lib/mappers'
 import { sortSessionChain } from '../lib/session-chain'
 import { fmtTime } from '../lib/utils'
 
-/** hover 快览卡（D2，~280px，玻璃拟态，向左弹出）。
+/** hover 快览卡（~280px，玻璃拟态，向左弹出）。
  *  全部数据来自现有 props，零新接口。 */
 export function OtterProfileCard({
   otter,
@@ -20,7 +20,7 @@ export function OtterProfileCard({
   const chain = sortSessionChain(sessions)
   const activeGen = activeSession ? chain.indexOf(activeSession) + 1 : 0
 
-  // 称号徽章：规则化派生（D3）
+  // 称号徽章：规则化派生
   const badges: string[] = []
   if (isBig) badges.push('族群长老')
   if (activeGen >= 3) badges.push(`${activeGen}世轮回`)

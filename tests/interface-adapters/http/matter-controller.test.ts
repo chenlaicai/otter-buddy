@@ -1,8 +1,8 @@
 /**
- * MatterController 只读端点测试（P1 + P2 includeClosed）。
+ * MatterController 只读端点测试（+ includeClosed）。
  *
- * P2 鉴别面：?includeClosed=1 返回含终态（折叠「近期闭环」区 = 翻案入口数据源）；
- * 默认只返回 open 清单。写路径不经 HTTP（P2 板上按钮 = 回执代执行通道 B）。
+ * 鉴别面：?includeClosed=1 返回含终态（折叠「近期闭环」区 = 翻案入口数据源）；
+ * 默认只返回 open 清单。写路径不经 HTTP（板上按钮 = 回执代执行通道 B）。
  */
 import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
@@ -48,7 +48,7 @@ function makeRepo(all: Matter[]): MatterRepository {
     },
     transition: async () => null,
     reopenForDissolvedOwner: async () => 0,
-    // P3 补 stalledOpen/unregisteredYieldsToUser stub 还原单断言
+    // 补 stalledOpen/unregisteredYieldsToUser stub 还原单断言
     stalledOpen: async () => [],
     unregisteredYieldsToUser: async () => [],
   } as MatterRepository;

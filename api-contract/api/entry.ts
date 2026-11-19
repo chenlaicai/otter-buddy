@@ -6,7 +6,7 @@
 export type EntryTypeDTO = "speak" | "user" | "invoke_start" | "invoke_end" | "yield" | "system";
 export type EntryStatusDTO = "streaming" | "speaking" | "completed" | "failed" | "aborted";
 
-/** 附件引用 DTO（多模态 Phase 1；终审修复：entry 读出链透出，与 MessageDTO.atts 同形） */
+/** 附件引用 DTO（多模态；终审修复：entry 读出链透出，与 MessageDTO.atts 同形） */
 export interface EntryAttachmentDTO {
   id: string;
   kind: "image" | "document" | "audio" | "video";
@@ -43,14 +43,14 @@ export interface EntryDTO {
   completedAt: string | null;
   /** 附件引用（仅 speak/user 条目；非空时携带——entry_attachments JOIN 投影） */
   attachments?: EntryAttachmentDTO[];
-  /** T5：过程明细开关（?includeEvents=true 时携带）——折叠后的工具调用
+  /** 过程明细开关（?includeEvents=true 时携带）——折叠后的工具调用
    *  步（foldInvokeEvents 同源投影），error 摘要 ≤200 字符，每 invoke ≤20 条。
    *  开销注意：开关打开时 N+1 变批量（invoke_events 表按 invokeId IN 一次取回），
    *  默认 false（关闭态读端点语义不变，零额外查询）。 */
   events?: FoldedStepDTO[];
 }
 
-/** T5：折叠后的工具调用步 DTO（foldInvokeEvents 投影——call/think/speak/error/user 五形） */
+/** 折叠后的工具调用步 DTO（foldInvokeEvents 投影——call/think/speak/error/user 五形） */
 export type FoldedStepDTO =
   | { kind: "call"; name: string; args?: unknown; result?: unknown; isError?: boolean; pending: boolean; interrupted?: boolean; ts: string; tsEnd?: string }
   | { kind: "think"; text: string; ts: string }

@@ -5,7 +5,7 @@
  *         任一时刻「已提交未完成」的 bulk 不得超出水位上界（独立复现的反例）。
  * 发现 2：retry 优先级跨层闭合——claim 的 priority 透传到 embed 调用
  *         （live retry 任务先于已在等的 bulk waiter 被 worker 消费）。
- * 发现 3：S3 跳过的暗条目有运行时恢复路径——retry tick 空闲时（队列空）
+ * 发现 3：跳过的暗条目有运行时恢复路径——retry tick 空闲时（队列空）
  *         有界回填暗条目为 bulk 任务。
  *
  * lint-tests:allow-ddl——豁免理由：发现 2/3 用例需真实 SqliteMemoryRepository
@@ -38,7 +38,7 @@ afterAll(() => {
 });
 
 /**
- * delta （D4）：worker 构造即登记，afterEach 统一 stop 兜底
+ * delta ：worker 构造即登记，afterEach 统一 stop 兜底
  * （retrigger 下未 stop 的 worker 跨用例存活偷吃任务——测试卫生，生产单实例 +
  * dispose stopSync 不受影响）。
  */
@@ -176,7 +176,7 @@ describe("发现 3：S3 跳过的暗条目有运行时恢复路径", () => {
 
     // 3) 第二 tick：claim → embed（1024 维）→ storeEmbedding 落库 → markTaskDone。
     // 关键闭合验证：向量真的落库（而非 Dimension mismatch 后退队假绿）
-    // F20261109epqst：tickNow 触发式（后台 drain）——轮询等消费完成再断言
+    // tickNow 触发式（后台 drain）——轮询等消费完成再断言
     await worker.tickNow();
     for (let i = 0; i < 200 && ((db.prepare("SELECT COUNT(*) AS n FROM memory_vec WHERE memory_entry_id = 'dark-1'").get() as { n: number }).n === 0); i++) {
       await new Promise((r) => setTimeout(r, 10));

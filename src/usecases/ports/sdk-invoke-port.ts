@@ -1,7 +1,7 @@
 /**
- * SDK 级 Agent 调用端口（PR-A：自 interface-adapters/agent-runtime/agent-invoke-port.ts
+ * SDK 级 Agent 调用端口（自 interface-adapters/agent-runtime/agent-invoke-port.ts
  * 改名上移，消除与 usecases/ports/agent-invoke-port.ts 的同名双定义——那边是 invokeConversation
- * 粒度、PR-D1 时删除；本接口是 SDK invoke 粒度，PiSessionFactory 结构匹配）。
+ * 粒度、时删除；本接口是 SDK invoke 粒度，PiSessionFactory 结构匹配）。
  *
  * SDK 已换 pi-durable——事件经 durable-event-stream 转换层转回本形态，
  * 该 re-export 仅为兼容保留；类型自有化缓到 pi-coding-agent 退役时收编（见 docs/designs/runtime-contract.md）。
@@ -29,7 +29,7 @@ export type { AgentSessionEvent };
 /** Agent 执行结果（与 Pi 的 AgentRunResult 结构匹配） */
 export interface AgentRunResult {
   text: string;
-  /** D3：锁超时后已交给持有者 SDK 队列，本次未执行模型。 */
+  /** 锁超时后已交给持有者 SDK 队列，本次未执行模型。 */
   queued?: boolean;
   /** session 累计 token 消耗（成本口径，仅日志用；不代表上下文窗口占用） */
   tokenUsage?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
@@ -75,9 +75,9 @@ export interface DynamicContext {
   recencyWindow?: string;
   /** 件④活状态盘点（机械 checklist，借用式） */
   stateInventory?: string;
-  /** C3（Part 4）：高危 healing 事件提醒（渲染好的文本，借用式，消费即删） */
+  /** 高危 healing 事件提醒（渲染好的文本，借用式，消费即删） */
   healingAlerts?: string;
-  /** M1：pending 信号裁决提醒（大獭 invoke 头部注入，借用式消费即删） */
+  /** pending 信号裁决提醒（大獭 invoke 头部注入，借用式消费即删） */
   signalAlerts?: string;
   /** 定时任务待执行提醒（状态镜像；pending 非零就每次注入，ack 才消失） */
   scheduledTaskAlerts?: string;
@@ -91,11 +91,11 @@ export interface InvokeOptions {
   /** 当前 streaming 消息 ID（speak 工具需要） */
   messageId?: string;
   onEvent?: (event: AgentStreamEvent) => void;
-  /** 多模态 Phase 1：当前任务消息携带的图片（ImageContent：base64 data + mimeType）。
+  /** 多模态：当前任务消息携带的图片（ImageContent：base64 data + mimeType）。
    *  策略在 usecases 组装（读盘 base64）；本 port 只透传机制。
    *  模型不支持 vision 时 SDK downgradeUnsupportedImages 自动降级占位符，otter 层不自判。 */
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
-  /** Phase 2：只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。
+  /** 只读模式——跳过消息持久化和 SSE 广播，用于交接摘要合成。
    *  Pi SDK 无原生 read-only 支持，靠 prompt 约束 + 工具白名单实现。 */
   readOnly?: boolean;
   /** 本批未读消息的最大 sequence_num（启动成功后推进游标用） */

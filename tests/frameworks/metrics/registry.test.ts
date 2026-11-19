@@ -101,7 +101,7 @@ describe("MetricsRegistry", () => {
   });
 
   it("目录被外部删除后 flush 自愈（ENOENT 重建重试，指标不丢）", async () => {
-    // 复现 #1039：目录被 rm -rf 后 flush 不应抛错，应重建目录并落盘
+    // 复现 目录被 rm -rf 后 flush 不应抛错，应重建目录并落盘
     const reg = new MetricsRegistry(noopLogger, { dir });
     const c = reg.counter({ name: "selfheal_total", help: "test" });
     c.inc();

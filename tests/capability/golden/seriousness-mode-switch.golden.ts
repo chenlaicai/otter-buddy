@@ -48,7 +48,7 @@ export const manualReviewHint =
   "（询问任务 / skill 推荐 / 工具调用），且不再延续 companion 闲聊语调。记录 verdict=pass|fail|skip + judged_by 到 results.jsonl。";
 
 /**
- * F20260828gssf: selftest 参考序列。
+ * selftest 参考序列。
  *
  * 设计决策（F 文档记录）：manualReview 场景的 selftest 只校验 assert 函数的结构判别力
  * （能否区分有/无结构化工具调用），不覆盖软行为判断（语调是否切换到严肃模式）。

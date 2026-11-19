@@ -50,7 +50,7 @@ describe("SqliteHealingEventRepository severity 分层（#1356）", () => {
       expect((await repo.findById("old-high"))!.status).toBe("open");
       expect((await repo.findById("new-high"))!.status).toBe("open");
 
-      // #1545 处置轮 S2：dismiss 终态三列齐——autoStaleDismiss 不再生产空 resolution 行
+      // 处置轮 dismiss 终态三列齐——autoStaleDismiss 不再生产空 resolution 行
       const low = (await repo.findById("old-low"))!;
       expect(low.resolution).not.toBeNull();
       expect(low.resolution!.action).toBe("no_action");
@@ -71,7 +71,7 @@ describe("SqliteHealingEventRepository severity 分层（#1356）", () => {
       expect(aged[0].id).toBe("aged-high");
       expect(aged[0].description).toBe("aged");
 
-      // #1545：不处置——状态/resolution/resolved_at 均不动
+      // 不处置——状态/resolution/resolved_at 均不动
       const after = (await repo.findById("aged-high"))!;
       expect(after.status).toBe("open");
       expect(after.resolvedAt).toBeNull();
@@ -109,7 +109,7 @@ describe("SqliteHealingEventRepository severity 分层（#1356）", () => {
   });
 
   describe("#1545 修复：age-out 不处置、只识别超龄 unbound high", () => {
-    /** issue #1545 三缺陷回归：
+    /** 三缺陷回归：
      * ① bound high 被 age-out 误伤（bind≠resolve，去留应随 issue 生命周期）
      * ② unbound high 被 dismiss 后永失 bind_issue 归口通道（batch_bind 只作用 open）
      * ③ dismiss 不落 resolution（审计断链）
@@ -136,7 +136,7 @@ describe("SqliteHealingEventRepository severity 分层（#1356）", () => {
       expect(after.status).toBe("open");
       expect(after.resolvedAt).toBeNull();
       expect(after.resolution).toBeNull();
-      // 可继续归口（#1545 缺陷②的反证：bind 通道不被状态关闭）
+      // 可继续归口（缺陷②的反证：bind 通道不被状态关闭）
       const bindResult = await repo.batchBindIssue({ errorType: "guard_intercept" }, 1468, { now: new Date() });
       expect(bindResult.boundIds).toContain("unbound-aged");
       expect((await repo.findById("unbound-aged"))!.status).toBe("open"); // bind 后仍 open（bind≠resolve）

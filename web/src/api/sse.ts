@@ -22,7 +22,7 @@ export function consumeSSE(
   const decoder = new TextDecoder()
   let buffer = ''
   /** 事件名跨 chunk 保持：event: 行与 data: 行可能分属不同 read chunk，
-   *  声明在循环内会在 chunk 边界丢失事件名导致整帧静默丢弃（F20260819spyd） */
+   * 声明在循环内会在 chunk 边界丢失事件名导致整帧静默丢弃 */
   let currentEvent = ''
 
   ;(async () => {

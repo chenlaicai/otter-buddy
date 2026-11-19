@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* global Buffer */
 /**
- * 迁移工具共享库（阶段 6b：迁移校验与回退）。
+ * 迁移工具共享库（迁移校验与回退）。
  *
  * 被 migrate-export / migrate-restore / migrate-verify 三个 CLI 与 vitest 共用。
  * 导出纯函数 + 少量 fs 操作封装，不持全局状态（可测性）。

@@ -95,7 +95,7 @@ function normalizeIssueItem(item: unknown, index: number): { issue: HealingIssue
 }
 
 /**
- * 校验 speak 的 healing 结构化参数（F20261113hlprm：healing 从 body 文本标签改为独立参数）。
+ * 校验 speak 的 healing 结构化参数（healing 从 body 文本标签改为独立参数）。
  * 未传/空 → 空 issues；非法 → 可操作 error（原子阻断发言，不落账不建 entry）。
  */
 export function parseHealingParam(raw: unknown): HealingParamResult {
@@ -117,9 +117,9 @@ export function parseHealingParam(raw: unknown): HealingParamResult {
 }
 
 /**
- * 落账 healing issues（F20261113hlprm：从 interceptHealingReport 迁移，参数法专用）。
+ * 落账 healing issues（从 interceptHealingReport 迁移，参数法专用）。
  * high → healingAlertRegistry.enqueue + repo.create；fire-and-forget 双写各自失败不阻塞对方
- * （审计面以 healing_events 为准，语义同 F20260826mwrd C3）。
+ * （审计面以 healing_events 为准，语义同）。
  */
 export function persistHealingIssues(issues: HealingIssueParam[], ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): void {
   if (issues.length === 0) return;
@@ -170,9 +170,9 @@ async function handleBatchResolve(
     errorType: params.filterErrorType as HealingErrorType | undefined,
     createdBefore: params.filterCreatedBefore as string | undefined,
     createdAfter: params.filterCreatedAfter as string | undefined,
-    // #1271（F20261008hbbd）：ruleId / boundIssue 透传——修复合入后的收尾环：
+    // ruleId / boundIssue 透传——修复合入后的收尾环：
     // batch_resolve + filterBoundIssue=<N> 把该 issue 归口的事件族批量终结。
-    // ⚠️ 未传 filterBoundIssue 时强制 boundIssue: null（更新面与探测面对称，r1-S1）：
+    // ⚠️ 未传 filterBoundIssue 时强制 boundIssue: null（更新面与探测面对称）：
     // 否则普通批量（如「清理残留」型 filterErrorType 批处置）会把已归口 high 顺带静默
     // 终结——bind≠resolve 生命周期被后门击穿（已归口事件必须走显式 filterBoundIssue=N
     // 收尾，收尾动作本身就是「修复合入已验证」的声明）
@@ -192,7 +192,7 @@ async function handleBatchResolve(
     return textResponse(JSON.stringify({ dryRun: true, matched: result.matched }, null, 2));
   }
 
-  // F20261008gfrc（三步走③·裁决摩擦）：匹配集中含 high severity 时拒绝批量 resolve——
+  // （三步走③·裁决摩擦）：匹配集中含 high severity 时拒绝批量 resolve——
   // high 事件（变体重试计数升级类）是「正当诉求无出路」的升级信号，一键静默
   // 会把它淹没在批量处置里。先 count 高危数，>0 则 errorResponse 逼逐条处置（逐条
   // resolve 不受本闸限制——摩擦加在批量面，不是禁止处置本身）。
@@ -200,10 +200,10 @@ async function handleBatchResolve(
   // count 用独立方法而非 findAll（100 条上限的 findAll 对 >100 匹配集会漏检 high）。
   // ⚠️ countByFilter 探测不设 LIMIT 是闸正确性关键——若加 LIMIT 与更新面「对齐」会让
   // >100 匹配集的 high 漏检 → 闸失效（更新面 LIMIT 是事务分批语义，探测面必须全量）。
-  // #1271（F20261008hbbd）闸豁免：只数未归口 high（boundIssue: null 叠加探测）——已归口
+  // 闸豁免：只数未归口 high（boundIssue: null 叠加探测）——已归口
   // （bind 到 issue）的 high 不计入闸。「无出路」的前提已不成立：bind 把升级信号送进了
-  // 结构化跟踪面（#1361 层3 的预期路径），修复合入后 batch_resolve + filterBoundIssue
-  // 是它的设计内收尾环；禁它批量终结 = high 事件族永久堆积（正是 #1271 要治的病）。
+  // 结构化跟踪面（层3 的预期路径），修复合入后 batch_resolve + filterBoundIssue
+  // 是它的设计内收尾环；禁它批量终结 = high 事件族永久堆积（正是 要治的病）。
   // 用户显式传 filterBoundIssue=N 时更新面已限定在已归口域（bound_issue=N 与 IS NULL
   // 矛盾 → 探测面必空），直接跳过探测；不传或传 null 时叠加 IS NULL 数未归口 high。
   // 未归口 high 仍然全量拦截——闸的本体语义不变。
@@ -227,11 +227,11 @@ async function handleBatchResolve(
   }, null, 2));
 }
 
-/** #1271（F20261008hbbd）：batch_bind——按 filter 批量归口到 GitHub issue（bind≠resolve）。
- *  照 RHI handleBatchBind 模式（#1052 同类问题先例）：issueNumber 必填 + filter 至少一个
+/** batch_bind——按 filter 批量归口到 GitHub issue（bind≠resolve）。
+ * 照 RHI handleBatchBind 模式（同类问题先例）：issueNumber 必填 + filter 至少一个
  *  条件（防异质归口——无过滤全量 bind 会把不相关事件族归到同一 issue）。
  *  语义：只作用未归口 open；bind 后事件保持 open（归口≠处置，终态走 resolve）；
- *  high 不设闸（与 batch_resolve 相反且有意为之）——#1361 层3 恰要求「high 必须
+ * high 不设闸（与 batch_resolve 相反且有意为之）——层3 恰要求「high 必须
  *  bind_issue 归口，不得直接 dismiss/resolve」：归口把升级信号推向结构化跟踪面，
  *  不是静默它的反面。 */
 async function handleBatchBind(
@@ -296,13 +296,13 @@ async function executeHealingBatchBind(
   }, null, 2));
 }
 
-/** #751：query 动作——查池 + 可选 errorType 过滤 + 默认探针过滤（includeProbe 诊断通道） */
+/** query 动作——查池 + 可选 errorType 过滤 + 默认探针过滤（includeProbe 诊断通道） */
 async function handleQuery(params: Record<string, unknown>, healingRepo: HealingEventRepository): Promise<ToolResponse> {
   const status = (params.status as string) ?? 'open';
   let events = await healingRepo.findAll(status as 'open' | 'resolved' | 'dismissed', 50);
   const et = params.errorType as string | undefined;
   if (et) events = events.filter(e => e.errorType === et);
-  // #751：默认过滤健康探针事件（哨兵 messageId/conversationId/otterId = probe-test）——
+  // 默认过滤健康探针事件（哨兵 messageId/conversationId/otterId = probe-test）——
   // 探针是管道心跳非真实问题，混在结果里会稀释真实事件（占展示位/干扰处置判断）。
   // includeProbe: true 时不过滤，供诊断探针落账本身（如验证探针是否在正常写入）。
   const includeProbe = (params.includeProbe as boolean) ?? false;
@@ -324,7 +324,7 @@ export function createManageHealingEventsTool(
     const ids = params.eventIds as string[];
     if (!ids?.length) return errorResponse("[错误] eventIds 不能为空");
     if (action === 'resolve' || action === 'dismiss') {
-      // #1545 缺陷③：dismiss 与 resolve 同构落 resolution——此前 dismiss 走 updateStatus
+      // 缺陷③：dismiss 与 resolve 同构落 resolution——此前 dismiss 走 updateStatus
       // 丢弃 resolutionNotes，终态记录只剩 status+resolved_at（「为何 dismiss」不可考）
       const fn = action === 'resolve'
         ? (id: string) => healingRepo.resolve(id, { action: ((params.resolutionAction as string) ?? 'no_action') as HealingResolutionAction, decidedBy: 'agent' as const, decidedAt: new Date().toISOString(), notes: (params.resolutionNotes as string) ?? '' })

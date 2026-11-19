@@ -18,7 +18,7 @@ export function cleanMarkdownForFts(body: string): string {
   return body
     // HTML 注释
     .replace(/<!--[\s\S]*?-->/g, '')
-    // 代码围栏开头（保留代码内容，只删围栏行）；B6: 同时清理 ``` 和 ~~~ 围栏
+    // 代码围栏开头（保留代码内容，只删围栏行）；同时清理 ``` 和 ~~~ 围栏
     // PR审视 加 ^ {0,3} 缩进限制（与 isFenceLine 一致，CommonMark 最多 3 空格）
     .replace(/^ {0,3}(?:```|~~~)[^\n]*\n/gm, '')
     // 代码围栏结尾

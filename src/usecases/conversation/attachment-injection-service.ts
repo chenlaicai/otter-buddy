@@ -1,13 +1,13 @@
 /**
- * 附件注入服务（多模态 Phase 1，方案 §3.4——审视修复 /后的策略归位）。
+ * 附件注入服务（多模态——审视修复后的策略归位）。
  *
  * 职责：attachmentIds → 当前任务消息的注入载荷（image 真图 + document 文本）。
- * 这是 usecases 层策略（方案 §3.4 分层原则「组装是策略，放 usecases」）：
+ * 这是 usecases 层策略（分层原则「组装是策略，放 usecases」）：
  * - ≤2 图服务端硬限制在此执行（controller 只透传调用，不再自判）
- * - document 提取注入 LLM（plain-text extractor + 16KB/文件截断，方案 §3.4①）
+ * - document 提取注入 LLM（plain-text extractor + 16KB/文件截断，①）
  *
  * 消费方：message-controller（sendMessage/retry）——HTTP 层薄壳；
- * Phase 2 飞书 ingress 复用本服务（sendMessage 直调路径不再绕过限制）。
+ * 飞书 ingress 复用本服务（sendMessage 直调路径不再绕过限制）。
  *
  * 读盘失败的降级语义：附件信息不丢（文本投影占位仍在），仅真图/真文本缺席。
  */
@@ -28,11 +28,11 @@ export interface InjectionImage {
 /** 注入载荷：image 真图 + document 文本块（追加在消息文本之后） */
 export interface InjectionPayload {
   images?: InjectionImage[];
-  /** document 提取文本块（每文件一行占位 + 内容，16KB/文件截断；方案 §3.4①） */
+  /** document 提取文本块（每文件一行占位 + 内容，16KB/文件截断；①） */
   documentBlock?: string;
 }
 
-/** document 单文件注入截断（方案 §3.4①：16KB/文件） */
+/** document 单文件注入截断（①：16KB/文件） */
 const DOCUMENT_MAX_BYTES = 16 * 1024;
 
 /** 依赖注入（均为可选装配物——缺 repo 时附件注入整体关闭） */
@@ -96,9 +96,9 @@ export class AttachmentInjectionService {
   /**
    * 组装注入载荷：image → base64 真图；document → 提取文本块（16KB/文件截断）。
    * 调用前应先过 validateForSend（限制已在入口拒绝，此处不再重复判）。
-   * 单次读盘后多獭共享（dispatch-chain 对每獭复用同一份载荷——优于方案 §3.4③ 的 3 獭 3 次读盘）。
+   * 单次读盘后多獭共享（dispatch-chain 对每獭复用同一份载荷——优于③ 的 3 獭 3 次读盘）。
    *
-   * #608：audio/video/PDF 不进注入载荷（文本投影占位已覆盖可见性；音频/视频无法
+   * audio/video/PDF 不进注入载荷（文本投影占位已覆盖可见性；音频/视频无法
    * 以文本注入 LLM——语音的转写文本在消息 body，视频抽帧后议；PDF 待文本提取器）。
    */
   async buildInjectionPayload(attachmentIds?: string[]): Promise<InjectionPayload | undefined> {
@@ -116,7 +116,7 @@ export class AttachmentInjectionService {
         this.pushImage(images, await this.readAttachmentFile(a.filePath), a.mimeType);
         continue;
       }
-      if (this.shouldSkipInjection(a)) continue; // #608：音视频/PDF 不注入，见 shouldSkipInjection 注释
+      if (this.shouldSkipInjection(a)) continue; // 音视频/PDF 不注入，见 shouldSkipInjection 注释
       // document（纯文本类）：提取注入（白名单 MIME 均为纯文本，直接 utf8 解码）
       await this.pushDocumentLine(docLines, a, await this.readAttachmentFile(a.filePath));
     }
@@ -128,7 +128,7 @@ export class AttachmentInjectionService {
     };
   }
 
-  /** #608：非注入类附件判定（音频/视频无法文本化；PDF 二进制 utf8 解码只会产出
+  /** 非注入类附件判定（音频/视频无法文本化；PDF 二进制 utf8 解码只会产出
    *  乱码污染上下文——均待后续能力（抽帧/文本提取器）再启用注入，占位投影已可见） */
   private shouldSkipInjection(a: { kind: string; mimeType: string }): boolean {
     return a.kind === "audio" || a.kind === "video" || a.mimeType === "application/pdf";
@@ -151,7 +151,7 @@ export class AttachmentInjectionService {
     docLines.push(`[文件: ${a.originalName}]\n${this.truncateDocumentBytes(raw)}`);
   }
 
-  /** 读盘（async，审视修复 R12：不阻塞事件循环；失败降级 null：占位投影仍在，真图/真文本缺席——warn 留痕） */
+  /** 读盘（async，审视修复 不阻塞事件循环；失败降级 null：占位投影仍在，真图/真文本缺席——warn 留痕） */
   private async readAttachmentFile(filePath: string): Promise<Buffer | null> {
     const abs = path.join(this.deps.storageRoot ?? "./data/attachments", filePath);
     try {
@@ -165,7 +165,7 @@ export class AttachmentInjectionService {
     }
   }
 
-  /** 16KB/文件截断（UTF-8 字节级，不切断多字节字符；方案 §3.4①） */
+  /** 16KB/文件截断（UTF-8 字节级，不切断多字节字符；①） */
   private truncateDocumentBytes(raw: Buffer): string {
     if (raw.length <= DOCUMENT_MAX_BYTES) return raw.toString("utf8");
     let end = DOCUMENT_MAX_BYTES;

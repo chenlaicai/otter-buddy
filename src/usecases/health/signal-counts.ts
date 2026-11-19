@@ -10,7 +10,7 @@
  *
  * 消费方（两处必须同源，否则口径断层复发）：
  * - rhi-controller.overview：面板数字（openSignalsBySeverity / openSignalsByConfidence）
- * - rhi-scan-worker.countOpenBySeverity：health_index D5「信号压力」维度输入
+ * - rhi-scan-worker.countOpenBySeverity：health_index 「信号压力」维度输入
  */
 
 import type { SignalRecord } from "./signal-repository";

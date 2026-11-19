@@ -5,9 +5,9 @@ import { OTTER_GRADIENT } from '../../lib/otter-colors'
 import { useMatters, type MatterAction } from './hooks/useMatters'
 
 /**
- * P1 只读板 + P2 交互层。
+ * 只读板 + 交互层。
  *
- * P2 范围（方案 §5 就地操作 + §3.5 通道 B）：
+ * 范围（就地操作 + 通道 B）：
  * - WAITING_PARTNER 条目内嵌裁决按钮（批准/否决/打回）
  * - DONE_PENDING_CONFIRM 条目「确认闭环/打回」
  * - 折叠「近期闭环」区 = 翻案入口（CLOSED → OPEN）
@@ -19,7 +19,7 @@ import { useMatters, type MatterAction } from './hooks/useMatters'
  * 代执行迁移（守卫语义不变）。owner 已解散时后端自动退派在场大獭兜底，按钮仍可用。
  *
  * 样式严格沿用现有 tab 体系（glass 面板/glass-card 条目/otter 渐变主按钮，采样自
- * MessageInput 发送键与 P1 面板），不自造任何风格。
+ * MessageInput 发送键与 面板），不自造任何风格。
  */
 
 /** 状态徽章文案与配色（沿用面板 stone/teal/amber 色系） */
@@ -96,7 +96,7 @@ function ConfirmActions({ onAct, busy }: { onAct: (action: MatterAction) => void
 /** 近期闭环区条目（翻案/恢复入口——低频操作，翻案按钮仅 hover/简洁呈现） */
 function ClosedItem({ matter, onReopen }: { matter: MatterDTO; onReopen: () => void }) {
   const badge = STATE_BADGE[matter.state] ?? { label: matter.state, className: 'bg-stone-400/15 text-stone-400' }
-  // F20261006mlp2 严重2：CLOSED 与 ABANDONED 都可翻案恢复（ABANDONED 曾是永久死路，#1321 收口）
+  // 严重2：CLOSED 与 ABANDONED 都可翻案恢复（ABANDONED 曾是永久死路，收口）
   const reversible = matter.state === 'CLOSED' || matter.state === 'ABANDONED'
   return (
     <div className="px-2.5 py-2 rounded-xl glass-card mb-1.5 opacity-80" data-testid="matter-closed-item">
@@ -161,8 +161,8 @@ function MatterItem({
           {matter.ownerOtterId ? `owner ${matter.ownerOtterId.slice(0, 8)}` : ''}
         </div>
       )}
-      {/* F20261008mlp3 P3 严重2修复：板上简报呈现——WAITING_PARTNER 条目展开 payload 简报
-          三层结构（§6 吸收语义：卡片被顶走后 matter 兜底，板上看不到简报=兜底残缺）。
+      {/* 板上简报呈现——WAITING_PARTNER 条目展开 payload 简报
+          三层结构（吸收语义：卡片被顶走后 matter 兜底，板上看不到简报=兜底残缺）。
           payload 为 JSON 字符串，解析失败降级为原文展示（不阻断面板渲染）。 */}
       {matter.payload && matter.state === 'WAITING_PARTNER' && (
         <MatterBrief payload={matter.payload} />
@@ -178,10 +178,10 @@ function MatterItem({
 }
 
 /**
- * MatterBrief（F20261008mlp3 P3 严重2修复）：板上简报呈现——payload 简报三层结构。
- * 方案 §6 吸收语义：卡片是 matter 处于 WAITING_PARTNER 态的呈现形态；卡片被顶走后
+ * MatterBrief：板上简报呈现——payload 简报三层结构。
+ * 吸收语义：卡片是 matter 处于 WAITING_PARTNER 态的呈现形态；卡片被顶走后
  * matter 兜底——板上必须能看到简报内容，否则兜底残缺。
- * payload 为 JSON 字符串（P1 准入路径 1 锁定：JSON.stringify({ brief: '...' })），
+ * payload 为 JSON 字符串（准入路径 1 锁定：JSON.stringify({ brief: '...' })），
  * 解析失败降级为原文展示（不阻断面板渲染）。
  */
 function MatterBrief({ payload }: { payload: string }) {
@@ -271,7 +271,7 @@ export function MattersPanel({
     new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   )
 
-  /** tab 角标语义（方案 §5）：只数「等你裁决 + 待你确认闭环」——搭档欠的动作才配叫角标 */
+  /** tab 角标语义：只数「等你裁决 + 待你确认闭环」——搭档欠的动作才配叫角标 */
   const partnerActionCount = matters.filter(m =>
     m.state === 'WAITING_PARTNER' || m.state === 'DONE_PENDING_CONFIRM',
   ).length

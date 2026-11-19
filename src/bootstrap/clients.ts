@@ -16,7 +16,7 @@ export function buildMemoryClient(uc: UseCases) {
         ? { id: entry.id, content: entry.content, score: 1, layer: entry.layer, createdAt: entry.createdAt }
         : null;
     },
-    // Phase 0：检索埋点（fire-and-forget）。调用方（search_memory 工具）注入
+    // 检索埋点（fire-and-forget）。调用方（search_memory 工具）注入
     // conversationId/callerId——client 是单例，拿不到 per-request 上下文，故由 tool 层传。
     logSearch: (p: { query: string; conversationId: string; callerId: string | null; beforeMessageId?: string | null; detailLevel?: string; library?: string; limitCount?: number; topEntryIds: string[]; total: number }) => {
       // 双层防护：catch 防 Promise rejection，try/catch 防 uc 未装配时的同步 TypeError 逃逸
@@ -38,7 +38,7 @@ export function buildMemoryClient(uc: UseCases) {
         entries: result.entries.map(mapEntry),
         // 审视修正：透传检索真值 total——埋点/失败分类用（区分「只找到 N 条」vs「命中多返回 top-k」）
         total: result.total,
-        // Part 2 审视二轮 B1: agent 路径透传 contextEntries
+        // 审视二轮 agent 路径透传 contextEntries
         ...(result.contextEntries ? { contextEntries: result.contextEntries.map(mapEntry) } : {}),
         // 二轮审视: agent 路径透传 vecCoverage——移除 otter_context 降级告警后，
         // 这是 agent 感知 FTS-only 降级/暗化条目的唯一通道（此前只到 HTTP 端点，工具 description 却已承诺）
@@ -77,7 +77,7 @@ export function buildMemoryClient(uc: UseCases) {
   };
 }
 
-/** P1c：belief 工具面客户端方法（拆出降 buildMemoryClient 行数） */
+/** belief 工具面客户端方法（拆出降 buildMemoryClient 行数） */
 function buildBeliefClientMethods(uc: UseCases) {
   return {
     recordBelief: async (params: {
@@ -182,7 +182,7 @@ export function buildOtterToolClient(
           const { participant, systemMessage } = await uc.manageParticipant.join(
             convId, otterId, `${name} 加入了对话`,
           );
-          // F20260913ctlv：进场 system entry 投影透出（create_otter 广播 entry.system SSE 用；
+          // 进场 system entry 投影透出（create_otter 广播 entry.system SSE 用；
           // 旧降级路径返回 Message，无投影）
           if (systemMessage && "entryType" in systemMessage) {
             return { ...participant, systemEntry: { id: systemMessage.id, body: systemMessage.body, sequenceNum: systemMessage.sequenceNum, createdAt: systemMessage.createdAt } };
@@ -191,12 +191,12 @@ export function buildOtterToolClient(
         },
         getActive: async (convId) => {
           const participantsWithOtter = await uc.manageParticipant.getActiveParticipants(convId);
-          // #446: modelAlias 在 usecase 批量预取，此处从 ParticipantWithOtter 透传
+          // modelAlias 在 usecase 批量预取，此处从 ParticipantWithOtter 透传
           return participantsWithOtter.map(p => ({ ...p.participant, otterName: p.otterName, ...(p.modelAlias !== undefined && { modelAlias: p.modelAlias }) }));
         },
         leave: (convId, otterId) => uc.manageParticipant.markLeft(convId, otterId),
       },
-      // F20260913ctlv：entry 和 invoke 子命名空间（新模型，渐进迁移）
+      // entry 和 invoke 子命名空间（新模型，渐进迁移）
       // 旧路径继续工作，新路径优先，失败时 fallback 到旧路径
       entry: {
         createSpeakEntry: async (params) => {
@@ -208,7 +208,7 @@ export function buildOtterToolClient(
             body: params.body,
             metadata: params.metadata,
           });
-          // F20260921urdo 契约收口：返回 sequenceNum/createdAt——SSE 投影必含字段，
+          // 契约收口：返回 sequenceNum/createdAt——SSE 投影必含字段，
           // 消费方（已读游标/排序）不再依赖发射点各自手拼
           return { id: entry.entry.id, entryType: entry.entry.entryType, body: entry.entry.body ?? '', sequenceNum: entry.entry.sequenceNum, createdAt: entry.entry.createdAt };
         },
@@ -239,15 +239,15 @@ export function buildOtterToolClient(
         },
         getEntries: async (convId, opts) => {
           const entries = await uc.sendEntry.getEntries(convId, opts);
-          // F20260913ctlv 批3：投影带 createdAt/senderId（自重启用户介入检测等只读消费）；F20260929mpav 补 sequenceNum（merge_pr 原话校验命中锚点）
+          // 批3：投影带 createdAt/senderId（自重启用户介入检测等只读消费）；补 sequenceNum（merge_pr 原话校验命中锚点）
           return entries.map(e => ({ id: e.id, entryType: e.entryType, body: e.body, senderId: e.senderId, senderType: e.senderType, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
         },
-        // F20260913ctlv 批3：全文搜索（entries_fts，search_messages 工具数据源切换）
+        // 批3：全文搜索（entries_fts，search_messages 工具数据源切换）
         searchEntries: async (convId: string, query: string, limit?: number) => {
           const entries = await uc.sendEntry.searchEntries(convId, query, limit);
           return entries.map(e => ({ id: e.id, entryType: e.entryType, senderId: e.senderId, senderType: e.senderType, body: e.body, sequenceNum: e.sequenceNum, createdAt: e.createdAt }));
         },
-        // F20260913ctlv 批4a：SDK 工具切 entries（get_message/list_messages）；get_turn_history 已随 turn 退役（F20260920trrt）
+        // 批4a：SDK 工具切 entries（get_message/list_messages）；get_turn_history 已随 turn 退役
         getEntryById: async (entryId: string) => {
           const e = await uc.sendEntry.getEntryById(entryId);
           if (!e) return null;
@@ -261,7 +261,7 @@ export function buildOtterToolClient(
       invoke: {
         appendInvokeEvent: async (invokeId, eventType, payload) => {
           const saved = await uc.sendEntry.appendInvokeEvent(invokeId, eventType as "assistant_text" | "assistant_toolcall" | "tool_result" | "error" | "speak", payload);
-          /** F20260914evdz：透传落库事件标识（invoke.event 广播数据面） */
+          /** 透传落库事件标识（invoke.event 广播数据面） */
           return { id: saved.id, sequenceNum: saved.sequenceNum, createdAt: saved.createdAt };
         },
         getInvokeById: async (invokeId) => {
@@ -293,7 +293,7 @@ export function buildOtterToolClient(
       dissolve: (id) => uc.dissolveOtter.execute(id),
       getById: (id) => uc.queryOtter.getById(id),
       getActiveSession: (otterId) => uc.manageSession.getActiveSession(otterId),
-      // F20260920uhuc：restart_otter 工具（大獭重启别人）走统一交接管线——synthesizePast 透传；
+      // restart_otter 工具（大獭重启别人）走统一交接管线——synthesizePast 透传；
       // agentInvoker 未装配时降级域层直透（测试装配兼容）
       restart: (otterId, summary, modelAlias, synthesizePast) => deps?.agentInvoker
         ? deps.agentInvoker.restartWithUnifiedHandoff(otterId, { selfSummary: summary, modelAlias, synthesizePast: synthesizePast ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT })
@@ -305,7 +305,7 @@ export function buildOtterToolClient(
       delete: (otterId, key) => uc.manageContext.delete(otterId, key),
     },
     resource: buildResourceClient(uc),
-    // F20260813mren 审视二轮：sync_docs 工具——写文档后立即入库，不等重启
+    // 审视二轮：sync_docs 工具——写文档后立即入库，不等重启
     docs: {
       sync: async (rootDir?: string) => {
         if (!deps?.syncDocs) {
@@ -323,7 +323,7 @@ export function buildOtterToolClient(
         }
       },
     },
-    // F20260821i336：派工台账工具。F20260912avlb：实现切 dispatch_records 正式表
+    // 派工台账工具。实现切 dispatch_records 正式表
     // （原 otter_context 伪存储状态 100% 失真，见特性文档「数据层真相」）
     dispatch: {
       createRecord: async (params) => {

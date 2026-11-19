@@ -108,7 +108,7 @@ function stripNegations(text: string, phrases: string[], negPrefixes: string[]):
   return cleaned;
 }
 
-/** 文本是否含 PR 引用（#N 或 pull URL）。 */
+/** 文本是否含 PR 引用（或 pull URL）。 */
 export function hasPrReference(text: string): boolean {
   return PR_REFERENCE_RE.test(text);
 }

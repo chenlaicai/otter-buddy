@@ -48,7 +48,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
  * 同 `session:${otterId}`），外层再取同键锁 = 嵌套同键等待 → 每次唤醒悬挂至超时。
  * 串行化由端口 invoke 自带锁保证；方案「Invoke前调 acquireSessionLock」系对端口
  * 签名的字面理解，与实现矛盾——此处以实现为准，留痕供审视。
- * conversationId 可选：缺省 = 纯 session 直调（不落对话 entry——S1/S2 口径）。
+ * conversationId 可选：缺省 = 纯 session 直调（不落对话 entry 口径）。
  * 每次唤醒仍生成独立 currentInvokeId，满足 durable prompt/副作用工具的 invoke 归属门禁。 */
 export class SdkOtterGateway implements OtterGateway {
   constructor(

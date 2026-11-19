@@ -1,11 +1,11 @@
 /**
- * Matter 实体（P1）。
+ * Matter 实体。
  *
  * 待办——per-conversation 承诺台账的一等实体。对话流是通信不是承诺：
  * matter 把「未完成之事」从消息流升格为带状态机的持续工作单元。
  *
  * 设计依据：docs/features/2026/10/05/-matter-loop-closure.md
- * §1 实体模型（字段表）+ §2 状态机（迁移矩阵 + 等待方生命周期规则）。
+ * 实体模型（字段表）+ 状态机（迁移矩阵 + 等待方生命周期规则）。
  *
  * 与 signal_event 的分工：signal = 瞬时协调信号（objection/blocked/halt），
  * matter = 持续工作单元（有 owner、有生命周期、有宣告权分权）——同构先例，不同物。
@@ -24,7 +24,7 @@ export type MatterLevel = 'L1' | 'L2';
 export type MatterClosureKind = 'fact' | 'decision';
 
 /**
- * 状态机当前态（§2 五存续态 + 两终态出口）。
+ * 状态机当前态（五存续态 + 两终态出口）。
  * 合法迁移矩阵见 matter-transitions.ts——未列入矩阵的迁移一律非法，
  * usecase 单入口（transition-matter.ts）拒绝。
  */
@@ -53,7 +53,7 @@ export const MATTER_OPEN_STATES: readonly MatterState[] = [
  */
 export type MatterWaitingOn = string;
 
-/** Matter 实体（字段严格按方案 §1 字段表） */
+/** Matter 实体（字段严格按字段表） */
 export interface Matter {
   id: string;
   conversationId: string;
@@ -84,7 +84,7 @@ export interface Matter {
 /** 按对话查询 matter 的过滤条件 */
 export interface MatterQueryFilter {
   state?: MatterState;
-  /** 查询 open 列表（P1 右侧栏只读 tab + 机械供料数据源） */
+  /** 查询 open 列表（右侧栏只读 tab + 机械供料数据源） */
   openOnly?: boolean;
   ownerOtterId?: string;
   waitingOn?: string;

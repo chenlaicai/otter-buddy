@@ -40,7 +40,7 @@ export function buildHttpApp(
 
   app.route("/", createRouter(controllers, logger, plumbing));
 
-  // 页面层：三麻牌局页（F20261015mjsg 模块四）。独立原生单页、不进 web/ 的 vite 构建链；
+  // 页面层：三麻牌局页（模块四）。独立原生单页、不进 web/ 的 vite 构建链；
   // 必须先于下方 SPA fallback 注册——app.get("*") 会把 /mahjong/:roomId 吞成 SPA 入口
   //（方案模块四「注意与 SPA fallback 的交互」）。/mahjong=大厅（建房/入座），/mahjong/:roomId=牌局页
   if (mahjongStaticRoot !== false) {
@@ -63,7 +63,7 @@ export function buildHttpApp(
   }
 
   if (staticRoot !== false) {
-    // F20260901chun：旧 URL 301 重定向到 /im（防外链断裂）
+    // 旧 URL 301 重定向到 /im（防外链断裂）
     app.get("/connections", (c) => c.redirect("/im", 301));
     app.get("/weixin", (c) => c.redirect("/im", 301));
 
@@ -75,7 +75,7 @@ export function buildHttpApp(
     // 覆盖 /memory、/skills、/settings 等干净 URL 的深链接直达
     // Why: serveStatic 的 path 选项行为不可靠（Hono 文档不明确），改为异步读取文件
     //       避免模块加载时 readFileSync 的 CWD 问题——alpha 实例启动时 CWD 可能与模块加载时不同
-    // S2 修复：排除 /api/ 前缀——API 路由未命中应返回 404，不能被 SPA fallback 吞掉成 200
+    // 修复：排除 /api/ 前缀——API 路由未命中应返回 404，不能被 SPA fallback 吞掉成 200
     const staticRootResolved = resolve(staticRoot);
     app.get("*", async (c) => {
       // API 路由未命中 → 404，不 fallback 到 SPA
@@ -98,7 +98,7 @@ export function buildHttpApp(
   return app;
 }
 
-/** WSS upgrade 挂载面（F20261117cnnct 阶段 4 C1）：返回 true = 已处理该 upgrade
+/** WSS upgrade 挂载面：返回 true = 已处理该 upgrade
  *  （connector 路径，鉴权失败也已回执）；false = 非 connector 路径（宿主自行处理/销毁）。 */
 export type WsUpgradeHandler = (
   request: IncomingMessage,
@@ -107,9 +107,9 @@ export type WsUpgradeHandler = (
 ) => Promise<boolean>;
 
 /** 监听端口（生产路径；测试用 app.request 不需要）。
- *  #460：serve() 回调只在成功时触发；EADDRINUSE 等绑定错误走 server 的 'error' 事件——
+ * serve() 回调只在成功时触发；EADDRINUSE 等绑定错误走 server 的 'error' 事件——
  *  捕获后干净退出，避免 port 冲突时走 uncaughtException → dispose 链又卡住（僵尸进程根因之三）。
- *  F20261117cnnct：可选 WSS upgrade 挂载（同端口 connector 通道；不传则 upgrade 一律销毁）。 */
+ * 可选 WSS upgrade 挂载（同端口 connector 通道；不传则 upgrade 一律销毁）。 */
 export function listen(app: Hono, port: number, logger: Logger, wsUpgrade?: WsUpgradeHandler): void {
   const server = serve({ fetch: app.fetch, port }, (info) => {
     logger.info(`Otter Buddy server running at http://localhost:${info.port}`);

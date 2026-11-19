@@ -21,11 +21,11 @@ export interface FeishuIncomingMessage {
   messageId: string;
   /** p2p/group 分流（缺省维持现状——群/未知场景不自动开户） */
   chatType?: "p2p" | "group";
-  /** 多模态 Phase 2：image/file 消息的媒体载荷（文本消息无此字段） */
+  /** 多模态 image/file 消息的媒体载荷（文本消息无此字段） */
   media?: FeishuMediaPayload;
 }
 
-/** 多模态 Phase 2：飞书 ingress 附件处理结果 */
+/** 多模态：飞书 ingress 附件处理结果 */
 interface FeishuAttachmentOutcome {
   /** 走完上传管线的附件 id（随 sendMessage 的 attachmentIds 入库） */
   attachmentIds: string[];
@@ -53,7 +53,7 @@ export class FeishuMessageProcessor {
       feishuUserInfo?: FeishuUserInfoGateway;
       /** 可选注入。命令门禁（方案B）；未注入或未配置时不拦 */
       partnerResolver?: PartnerResolver;
-      /** 多模态 Phase 2：可选注入。未注入时 image/file 消息降级为占位文本（不丢消息） */
+      /** 多模态：可选注入。未注入时 image/file 消息降级为占位文本（不丢消息） */
       feishuResource?: FeishuResourceGateway;
       attachmentUpload?: AttachmentUploadService;
       attachmentInjection?: AttachmentInjectionService;
@@ -151,7 +151,7 @@ export class FeishuMessageProcessor {
     senderId: string,
     text: string,
   ): Promise<void> {
-    // 多模态 Phase 2：媒体消息先走附件管线（降级语义见 processMedia），再入消息库
+    // 多模态：媒体消息先走附件管线（降级语义见 processMedia），再入消息库
     const outcome = msg.media ? await this.processMedia(msg, conversationId, senderId) : { attachmentIds: [] as string[], degradeNote: null };
     const bodyText = this.composeBodyText(text, outcome);
     const attachmentIds = outcome.attachmentIds.length > 0 ? outcome.attachmentIds : undefined;
@@ -182,7 +182,7 @@ export class FeishuMessageProcessor {
     await this.deps.commandDispatcher.dispatch(connectionId, text, chatId);
   }
 
-  /** 多模态 Phase 2：消息体组装——降级提示拼进 body；全降级时占位防空消息 */
+  /** 多模态：消息体组装——降级提示拼进 body；全降级时占位防空消息 */
   private composeBodyText(text: string, outcome: Pick<FeishuAttachmentOutcome, "attachmentIds" | "degradeNote">): string {
     let bodyText = text;
     if (outcome.degradeNote) {
@@ -194,13 +194,13 @@ export class FeishuMessageProcessor {
     return bodyText;
   }
 
-  /** 入库 + 广播 + dispatch（自 process 拆出控复杂度；dispatchText 与 bodyText 分离见 #608） */
+  /** 入库 + 广播 + dispatch（自 process 拆出控复杂度；dispatchText 与 bodyText 分离见） */
   private async persistAndFanout(
     ids: { chatId: string; senderId: string; conversationId: string; connectionId: string },
     payload: { bodyText: string; attachmentIds?: string[]; injection?: FeishuAttachmentOutcome["injection"] },
     dispatchText: string,
   ): Promise<void> {
-    // F20260913ctlv 彻底切换：飞书用户消息唯一落点 = entries（messages 表停写 UI 消息）。
+    // 彻底切换：飞书用户消息唯一落点 = entries（messages 表停写 UI 消息）。
     // 目标解析在 SendEntry 内完成；路由点火用 entries 目标。
     const senderDisplayName = await this.resolveSenderName(ids.senderId, ids.chatId);
     const { entry: userEntry, talkingStonePassedTo, mentionFeedback } = await this.deps.sendEntry.sendUserEntry({
@@ -218,7 +218,7 @@ export class FeishuMessageProcessor {
       entryId: userEntry.id,
     });
 
-    // F20260820i333: @提及解析失败时发送 feedback 给用户
+    // @提及解析失败时发送 feedback 给用户
     if (mentionFeedback) {
       await this.deps.feishuGateway.replyText(ids.chatId, mentionFeedback).catch(err => {
         this.deps.logger.error("Failed to send mention feedback", err instanceof Error ? err : undefined, {
@@ -241,15 +241,15 @@ export class FeishuMessageProcessor {
       },
     });
 
-    // 异步触发 Agent 派发（多模态 Phase 2：带附件注入载荷——图片真图 + 文档文本块）
-    // #608：dispatchText 为原始正文（降级提示不进 agent 上下文，与微信侧同款）
-    // F20260913ctlv：直连链点火（targets 显式传）——signalRouter 依赖 messages 信号行，
+    // 异步触发 Agent 派发（多模态：带附件注入载荷——图片真图 + 文档文本块）
+    // dispatchText 为原始正文（降级提示不进 agent 上下文，与微信侧同款）
+    // 直连链点火（targets 显式传）——signalRouter 依赖 messages 信号行，
     // IM 入口不再写 messages，改为链引擎直连（目标已由 entries 解析）
     this.triggerAgentDispatch(ids.conversationId, dispatchText, ids.senderId, payload.injection, { entryId: userEntry.id, resolvedTargets: talkingStonePassedTo });
   }
 
-  /** 多模态 Phase 2：媒体消息处理——下载 → 上传管线 → 附件 id + 注入载荷。
-   *  F20260829fpst：post 混排消息可能含多个媒体项——逐项下载/入库，单项失败单项降级
+  /** 多模态：媒体消息处理——下载 → 上传管线 → 附件 id + 注入载荷。
+   * post 混排消息可能含多个媒体项——逐项下载/入库，单项失败单项降级
    *  （其余项照常）；全部媒体项走完后一次性 validateForSend（≤2 图硬限制，与 Web
    *  路径同一份策略）。任何失败都降级为可见文本（消息不丢），不抛错中断主链路。 */
   private async processMedia(
@@ -347,7 +347,7 @@ export class FeishuMessageProcessor {
   }
 
   /** 下载字节 → 统一上传管线（校验/resize/去重免费复用）。
-   *  F20260829fpst：按媒体项参数化（post 混排逐项复用，image/file 单项同路）。 */
+   * 按媒体项参数化（post 混排逐项复用，image/file 单项同路）。 */
   private async ingestThroughPipeline(
     item: { kind: "image" | "file"; key: string; fileName?: string },
     download: { buffer: Buffer; fileName: string },
@@ -367,10 +367,10 @@ export class FeishuMessageProcessor {
     });
   }
 
-  /** F20260826fuid：open_id → 姓名。网关未注入返回 null，永不阻塞消息入库。
-   *  F20261010fspm：解析失败不再返回裸 null——落可读兜底「飞书·尾6位」，替代旧
+  /** open_id → 姓名。网关未注入返回 null，永不阻塞消息入库。
+   * 解析失败不再返回裸 null——落可读兜底「飞书·尾6位」，替代旧
    *  「[b2d82e] 正文前缀」的退化形态；快照维度，agent 侧按发言人逐一区分。
-   *  F20261012cmmn：主数据源换聊天成员映射（im chat members 实测带 name）；
+   * 主数据源换聊天成员映射（im chat members 实测带 name）；
    *  contact users 对授权范围外用户脱敏（code 0 但无 name）降为备用源。 */
   private async resolveSenderName(senderId: string, chatId: string): Promise<string | null> {
     if (!this.deps.feishuUserInfo) return null;
@@ -387,7 +387,7 @@ export class FeishuMessageProcessor {
     }
   }
 
-  /** F20261010fspm：open_id 尾 6 位可读兜底（仅 ID 足长时截尾，短 ID 原样） */
+  /** open_id 尾 6 位可读兜底（仅 ID 足长时截尾，短 ID 原样） */
   private idTail(senderId: string): string {
     return senderId.length > 6 ? senderId.slice(-6) : senderId;
   }
@@ -397,7 +397,7 @@ export class FeishuMessageProcessor {
     userMessageContent: string,
     senderId: string,
     injection?: FeishuAttachmentOutcome["injection"],
-    /** F20260913ctlv 彻底切换：触发锚 entry id + entries 解析目标（直连链点火；无 targets 时交给 dispatch 内部路由） */
+    /** 彻底切换：触发锚 entry id + entries 解析目标（直连链点火；无 targets 时交给 dispatch 内部路由） */
     anchor?: { entryId: string; resolvedTargets?: string[] },
   ): void {
     const messageId = anchor?.entryId;
@@ -412,7 +412,7 @@ export class FeishuMessageProcessor {
       injection,
       messageId,
       resolvedTargets,
-      // F20261012swsg（#1430）：IM 用户消息显式声明来源——安全词扫描闸放行
+      // IM 用户消息显式声明来源——安全词扫描闸放行
       triggerSenderType: "user",
     }).then(result => {
       if (result.error) {

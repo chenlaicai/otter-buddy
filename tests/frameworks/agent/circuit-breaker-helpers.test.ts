@@ -674,7 +674,7 @@ describe("attachCircuitBreaker - F20261027cbfp 粘滞黑名单写入时机（#16
     session.emit(sdkToolStart("bash", { command: "git commit -m x" }));
     expect(session.steer).toHaveBeenCalledOnce(); // 确认触发了 steer
 
-    // P0-2：steer 不写黑名单——同签名调用不被物理拦截
+    // steer 不写黑名单——同签名调用不被物理拦截
     expect(loopBlockedTools.size).toBe(0);
   });
 
@@ -694,7 +694,7 @@ describe("attachCircuitBreaker - F20261027cbfp 粘滞黑名单写入时机（#16
     for (let i = 0; i < 4; i++) session.emit(sdkToolStart("bash", { command: "git commit -m x" }));
 
     expect(abortOverride).toHaveBeenCalledOnce(); // terminate 发生
-    expect(loopBlockedTools.size).toBe(1); // P0-2：terminate 时仍写入黑名单
+    expect(loopBlockedTools.size).toBe(1); // terminate 时仍写入黑名单
     expect([...loopBlockedTools.keys()][0]).toContain("git commit");
   });
 });

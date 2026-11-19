@@ -65,11 +65,11 @@ describe("大獭召唤后派工：create 后 speak 传给小獭不传 user（真
 
       /** 等大獭完成（create + speak 派工在同一 agent turn） */
       const bigOtterMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000 });
-      /** #984：speak(completed) ≠ 回合结束——tsp 在 yield 时落账，必须等大獭 invoke 终态。
+      /** speak(completed) ≠ 回合结束——tsp 在 yield 时落账，必须等大獭 invoke 终态。
        *  AT-1 单只场景 invoke 终态依赖子獭回合回传，链路较长，跟随采样窗口给足时间。
        *  ⚠️ bigOtterId 必须取自 bigOtterMsg.si（本对话实际响应的獭）——「每对话独立大獭」设计
-       *  （R20260821tutv）下全局 `WHERE type='big' LIMIT 1` 会拿到 boot 獭，采样 #2 起全部等错獭
-       *  （9/28 round6 实证：#1 OK、#2-#5 等待 invoke 创建超时）。 */
+       * 下全局 `WHERE type='big' LIMIT 1` 会拿到 boot 獭，采样 起全部等错獭
+       * （9/28 实证：OK、-等待 invoke 创建超时）。 */
       const bigOtterId = bigOtterMsg.si;
       await waitForInvokeSettled(ctx, convId, bigOtterId, { timeoutMs: 480_000 });
 
@@ -97,7 +97,7 @@ describe("大獭召唤后派工：create 后 speak 传给小獭不传 user（真
         detail: `小獭=${smallOtter.name} tsp=${JSON.stringify(tsp)} match=${passedToSmall} body="${dispatchMsg.content.slice(0, 60)}"`,
       };
     }, { budgetMs: 3300000, sampleWorstMs: 660000 });
-  }, 3_420_000); // 57 分钟 = 5×660s 最坏 + 120s 余量（#1187 公式）
+  }, 3_420_000); // 57 分钟 = 5×660s 最坏 + 120s 余量（公式）
 
   it("AT-2 批量 4 只：大獭召唤 4 只后 tsp 含全部 4 只 ID（7 次采样 ≥5）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
@@ -117,7 +117,7 @@ describe("大獭召唤后派工：create 后 speak 传给小獭不传 user（真
       );
 
       const bigOtterMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 240_000 });
-      /** #984：同上，等 invoke 终态再读 tsp。AT-2 批量 4 只链路更长。
+      /** 同上，等 invoke 终态再读 tsp。AT-2 批量 4 只链路更长。
        *  ⚠️ bigOtterId 取 bigOtterMsg.si（每对话独立大獭，全局查询会拿错獭） */
       const bigOtterId2 = bigOtterMsg.si;
       await waitForInvokeSettled(ctx, convId, bigOtterId2, { timeoutMs: 600_000 });
@@ -148,5 +148,5 @@ describe("大獭召唤后派工：create 后 speak 传给小獭不传 user（真
         detail: `召唤 ${newSmalls.length} 只（${newSmalls.map((r) => r.name).join(",")}） tsp 覆盖 ${coveredCount}/${newSmalls.length} user=${passedToUser} body="${dispatchMsg.content.slice(0, 80)}"`,
       };
     }, { budgetMs: 5880000, sampleWorstMs: 840000 });
-  }, 6_000_000); // 100 分钟 = 7×840s 最坏 + 120s 余量（#1187 公式）
+  }, 6_000_000); // 100 分钟 = 7×840s 最坏 + 120s 余量（公式）
 });

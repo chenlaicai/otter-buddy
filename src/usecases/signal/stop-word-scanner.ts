@@ -1,5 +1,5 @@
 /**
- * L2「停下」安全词扫描（C3，母方案 Part 6）。
+ * L2「停下」安全词扫描（母）。
  *
  * 设计要点（母方案 L143-151 + 取舍表 L198）：
  * - 显式字符类匹配，不用分词——分词结果随词典漂移，安全词检测不挂在概率性 NLP 上
@@ -47,8 +47,8 @@ export interface StopWordScanResult {
 }
 
 /**
- * 触发来源标注（T1 证据锚点枚举）：user | scheduler | system | otter。
- * 三态（user|scheduler|system）为 T1 基线要求，otter 为机械诚实补全（来源信息存在时不归并）。
+ * 触发来源标注（证据锚点枚举）：user | scheduler | system | otter。
+ * 三态（user|scheduler|system）为 基线要求，otter 为机械诚实补全（来源信息存在时不归并）。
  */
 export type TriggerSourceLabel = "user" | "scheduler" | "system" | "otter" | "未知";
 
@@ -78,7 +78,7 @@ export interface StopWordScanEvidence {
 }
 
 /**
- * 证据锚点（T1 插槽）：模板生成器机械拼接，缺字段降级「未提供」，不编造、
+ * 证据锚点（插槽）：模板生成器机械拼接，缺字段降级「未提供」，不编造、
  * 不经 LLM 书写。下游 LLM 可按锚点机械核实「提醒声称的命中」对应哪条真实消息。
  */
 function buildEvidenceAnchor(evidence?: StopWordScanEvidence): string {
@@ -91,7 +91,7 @@ function buildEvidenceAnchor(evidence?: StopWordScanEvidence): string {
 /** reminder 文本（SYSTEM.md Magic Words「停下」条目的执行引导） */
 function buildReminder(matched: string[], evidence?: StopWordScanEvidence): string {
   const source = resolveTriggerSource(evidence?.senderType, evidence?.senderHint);
-  // #1430 假急停根因之一：reminder 固定声称「用户消息」误导下游归因。来源措辞如实：
+  // 假急停根因之一：reminder 固定声称「用户消息」误导下游归因。来源措辞如实：
   // user 保持既有措辞（行为面零变化）；其他来源显式标注，下游 LLM 能正确归因。
   const sourceDesc = source === "user" ? "用户消息" : `触发消息（来源：${source}）`;
   return `[L2 安全词检测] ${sourceDesc}命中安全词「${matched.join('」「')}」（形态：后侧为硬边界）。`

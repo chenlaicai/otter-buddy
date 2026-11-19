@@ -38,7 +38,7 @@ export function createListMessagesTool(ctx: ToolContext): AgentTool {
       },
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // F20260913ctlv 批4a：数据源切 entries（时间线唯一真相源，sequence_num 倒序）
+      // 批4a：数据源切 entries（时间线唯一真相源，sequence_num 倒序）
       const entries = await ctx.client.conversation.entry.listEntries(ctx.conversationId, {
         limit: (params.limit as number | undefined) ?? 50,
         ...(params.entryType ? { entryType: params.entryType as string } : {}),
@@ -66,7 +66,7 @@ export function createSearchMessagesTool(ctx: ToolContext): AgentTool {
       required: ["query"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // F20260913ctlv 收尾批3：数据源切 entries_fts（时间线唯一真相源；messages_fts 停写）
+      // 收尾批3：数据源切 entries_fts（时间线唯一真相源；messages_fts 停写）
       const entries = await ctx.client.conversation.entry.searchEntries(
         ctx.conversationId,
         params.query as string,

@@ -57,7 +57,7 @@ export class OtterController {
     try {
       const body = await safeJsonBody<CreateOtterRequestDTO>(c);
 
-      /** T1：UI 入口 modelAlias 校验（400 附可用列表，措辞与大獭工具链 tool-factory 一致）。
+      /** UI 入口 modelAlias 校验（400 附可用列表，措辞与大獭工具链 tool-factory 一致）。
        *  未注入 modelPool 时跳过校验（测试/降级场景），usecase 层缺省走默认模型 */
       if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
         const available = this.modelPool.describeModels().map(m => m.alias).join(", ");
@@ -67,7 +67,7 @@ export class OtterController {
         );
       }
 
-      /** F20260827ucrt T4：血缘诚实化——不再透传 body.parentOtterId。
+      /** 血缘诚实化——不再透传 body.parentOtterId。
        *  UI 创建的小獭没有獭召唤者（召唤者是人类用户），血缘如实落 null（usecase 既有 ?? null 逻辑），
        *  与大獭工具链的「系统注入真实召唤者」（tool-factory.ts，不经此 controller）对齐 */
       const input: CreateOtterInput = {
@@ -77,7 +77,7 @@ export class OtterController {
         modelAlias: body.modelAlias,
         systemPrompt: body.systemPrompt,
         context: body.context,
-        // F20260921otcl：出生挑色域——UI 在对话页创建小獭，query 注入当前对话 ID
+        // 出生挑色域——UI 在对话页创建小獭，query 注入当前对话 ID
         conversationId: c.req.query("conversationId") || undefined,
       };
       const otter = await this.createOtterUseCase.execute(input);
@@ -91,7 +91,7 @@ export class OtterController {
   async dissolve(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
-      // #889：safeJsonBody 兜底非法 JSON 与 JSON null，防 body.summary on null 崩溃
+      // safeJsonBody 兜底非法 JSON 与 JSON null，防 body.summary on null 崩溃
       const body = await safeJsonBody<{ summary?: string }>(c);
       await this.dissolveOtterUseCase.execute(id, body.summary);
       return c.json({ status: "dissolved" });
@@ -113,9 +113,9 @@ export class OtterController {
   async restart(c: Context): Promise<Response> {
     try {
       const id = param(c, "id");
-      // #889：safeJsonBody 兜底非法 JSON 与 JSON null，防 body.summary on null 崩溃
+      // safeJsonBody 兜底非法 JSON 与 JSON null，防 body.summary on null 崩溃
       const body = await safeJsonBody<{ summary?: string; modelAlias?: string; synthesizePast?: boolean }>(c);
-      // F20260908efmd: restart body 增 modelAlias + hasModel 校验
+      // restart body 增 modelAlias + hasModel 校验
       if (this.modelPool && body.modelAlias && !this.modelPool.hasModel(body.modelAlias)) {
         const available = this.modelPool.describeModels().map(m => m.alias).join(", ");
         throw new DomainError(
@@ -123,18 +123,18 @@ export class OtterController {
           "validation",
         );
       }
-      // F20260920uhuc：统一交接管线——synthesizePast 透传（缺省 true，向后兼容旧客户端）；
+      // 统一交接管线——synthesizePast 透传（缺省 true，向后兼容旧客户端）；
       // 忙碌（running invoke）拒绝 409（DomainError conflict 映射）；合成失败降级机械档案
-      // F20261009s6ej6（检视 A1）：三元兜底删除——agentInvoker 未注入时不再静默降级
+      // （检视）：三元兜底删除——agentInvoker 未注入时不再静默降级
       //  manageSession.restartSession（裸路径不发系统消息，重启入口分裂为两条路的根因）。
-      //  用 HttpError 501（F20261027obsc，#1417 观察项①）：服务端装配缺失＝能力未实现，
+      // 用 HttpError 501（观察项①）：服务端装配缺失＝能力未实现，
       //  与同控制器 getProfile 缺配置返 501 同码同口径（原 500，检视判 501 对装配缺失更精确）。
       if (!this.agentInvoker) {
         throw new HttpError("Restart service unavailable: agentInvoker not configured", 501);
       }
       const session = await this.agentInvoker.restartWithUnifiedHandoff(id, {
         selfSummary: body.summary,
-        // F20260930hsfx 层积岩清理：默认值收敛 HANDOFF_SYNTHESIZE_PAST_DEFAULT 单点。
+        // 层积岩清理：默认值收敛 HANDOFF_SYNTHESIZE_PAST_DEFAULT 单点。
         synthesizePast: body.synthesizePast ?? HANDOFF_SYNTHESIZE_PAST_DEFAULT,
         modelAlias: body.modelAlias,
       });

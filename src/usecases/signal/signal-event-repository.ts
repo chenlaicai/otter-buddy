@@ -1,8 +1,8 @@
 /**
- * Signal event 持久化仓库接口（C1）。
+ * Signal event 持久化仓库接口。
  *
- * 写路径：halt_otter 工具调用（C1）；signal-parser 拦截（C2）。
- * 读路径：halt 查询工具（C1 大獭侧）；裁决工具（C2）；UI DTO（C4）。
+ * 写路径：halt_otter 工具调用；signal-parser 拦截。
+ * 读路径：halt 查询工具（大獭侧）；裁决工具；UI DTO。
  * 每列消费方声明见 -magic-words-l10n-signal-protocol.md「新增 schema 字段消费方声明」。
  */
 
@@ -13,7 +13,7 @@ export interface SignalEventRepository {
   findById(id: string): Promise<SignalEvent | null>;
   /** 按对话查询（可选 type/status/from/to 过滤），created_at 倒序 */
   findByConversation(conversationId: string, filter?: SignalQueryFilter, limit?: number): Promise<SignalEvent[]>;
-  /** 按消息 ID 批量查询（C4 UI DTO 挂载用），message_id 分组，组内 created_at 升序（与剥离前原文顺序一致） */
+  /** 按消息 ID 批量查询（UI DTO 挂载用），message_id 分组，组内 created_at 升序（与剥离前原文顺序一致） */
   findByMessageIds(messageIds: string[]): Promise<SignalEvent[]>;
   /** 全表查询（可选过滤），created_at 倒序——web 活动页数据源。
    *  与 findByConversation 互斥使用：后者限单对话，本方法跨对话全量。 */

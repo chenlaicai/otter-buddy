@@ -32,7 +32,7 @@ function rowToReq(row: Row): RemoteActionRequest {
   };
 }
 
-/** （阶段 4 C2）：remote_action_requests sqlite 实现。 */
+/** remote_action_requests sqlite 实现。 */
 export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
   constructor(private readonly db: Database.Database) {}
 
@@ -44,7 +44,7 @@ export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
       ).run(req.actionId, req.onlineSessionId, req.deviceId, req.actionType, req.createdAt, req.conversationId, req.invokeId);
       return true;
     } catch (err) {
-      // m1（检视）：仅 PK 冲突是「重复 actionId」语义（返 false 调用方 fail-closed）；
+      // （检视）：仅 PK 冲突是「重复 actionId」语义（返 false 调用方 fail-closed）；
       //  其他库故障（locked/磁盘满/语句错）重新抛出——错误归因不错位，排障有线索
       const code = (err as { code?: string }).code ?? "";
       if (code.includes("SQLITE_CONSTRAINT")) return false;
@@ -69,7 +69,7 @@ export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
   }
 
   async listByConversation(conversationId: string, limit = 200, order: "asc" | "desc" = "asc"): Promise<RemoteActionRequest[]> {
-    // s2（检视遗留处置）：rowid tie-breaker——created_at 毫秒精度同值时 DESC LIMIT 边界不定序
+    // rowid tie-breaker——created_at 毫秒精度同值时 DESC LIMIT 边界不定序
     const dir = order === "desc" ? "DESC" : "ASC";
     const rows = this.db.prepare(
       `SELECT * FROM remote_action_requests WHERE conversation_id = ? ORDER BY created_at ${dir}, rowid ${dir} LIMIT ?`,
@@ -85,7 +85,7 @@ export class SqliteRemoteActionRegistry implements RemoteActionRegistry {
     return result.changes;
   }
 
-  /** m1（检视）：中枢硬崩溃重启后，残留 requested 行统一落 unknown（hub 停摆期间
+  /** （检视）：中枢硬崩溃重启后，残留 requested 行统一落 unknown（hub 停摆期间
    *  在途动作无人收尾——真相不明；与 sweepStaleOnlineSessions 同位调用） */
   async sweepStaleRequested(settledAt: string): Promise<number> {
     const result = this.db.prepare(

@@ -15,22 +15,22 @@ import { handleError, param } from "../http-error";
  * 前端历史/分页/增量刷新/未读定位全部走这里（messages 渲染端点退役）。
  * 只读——entry 写入由 agent-invoker/tool-factory/send-entry 负责。
  *
- * T5：?includeEvents=true 批量投影工具调用明细——
+ * ?includeEvents=true 批量投影工具调用明细——
  * 默认关闭（关闭态读端点语义不变，零额外查询）；开关打开时按条目 invokeId 批量取回
  * invoke_events，foldInvokeEvents（contract 层前后端同源）折叠成步骤投影，
  * error 摘要 ≤200 字符、每 invoke ≤20 条（体积护栏）。
  */
 
-/** T5：error 摘要截断上限（≤200 字符——防畸形错误消息撑爆响应体） */
+/** error 摘要截断上限（≤200 字符——防畸形错误消息撑爆响应体） */
 const EVENT_ERROR_MAX_CHARS = 200;
-/** T5：每 invoke 投影步数上限（≤20 条——明细是扫读辅助，不是全量审计） */
+/** 每 invoke 投影步数上限（≤20 条——明细是扫读辅助，不是全量审计） */
 const EVENTS_PER_INVOKE_MAX = 20;
 
 export class EntryController {
   constructor(
     private readonly entryRepo: EntryRepository,
     private readonly logger: Logger,
-    /** T5：invoke 事件批量查询（includeEvents=true 时的数据源） */
+    /** invoke 事件批量查询（includeEvents=true 时的数据源） */
     private readonly invokeRepo?: InvokeRepository,
   ) {}
 
@@ -68,7 +68,7 @@ export class EntryController {
     }
   }
 
-  /** T5 批量投影：收集条目的 invokeId（去重）→ 一次批量查询 invoke_events →
+  /** 批量投影：收集条目的 invokeId（去重）→ 一次批量查询 invoke_events →
    *  逐 invoke fold（≤20 步）→ 挂到对应条目的 events 字段。 */
   private async withEvents(entries: Entry[]): Promise<Entry[]> {
     if (!this.invokeRepo) return entries;
@@ -126,7 +126,7 @@ function toEntryDTO(e: Entry & { events?: FoldedStepDTO[] }): EntryDTO {
         height: a.height,
       })),
     }),
-    // T5：过程明细（includeEvents=true 时携带）
+    // 过程明细（includeEvents=true 时携带）
     ...(e.events && { events: e.events }),
   };
 }

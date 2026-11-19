@@ -64,7 +64,7 @@ export interface CreateInvokeInput {
 /** 创建 speak 条目输入 */
 export interface CreateSpeakEntryInput {
   conversationId: string;
-  /** 可缺省（D2：牌局托管应答等无 invoke 场景——落 null，FK 约束由 ?? null 守住） */
+  /** 可缺省（牌局托管应答等无 invoke 场景——落 null，FK 约束由 ?? null 守住） */
   invokeId?: string;
   otterId: string;
   body: string;
@@ -130,7 +130,7 @@ export class SendEntry {
      *  调用随消息体消失，9/13 后对话正文不再入记忆（search_memory 失明 15 天）。
      *  此处接回：user/speak 落库后非阻断索引（语义对齐旧 SendMessage：
      *  user 侧 buildIndexBody 含附件投影，speak/abort 侧剥 html-card 围栏）
-     * T1：unfurlPrefetch（可选）——裸 URL 独占行 → 后台抓取落库。
+     * unfurlPrefetch（可选）——裸 URL 独占行 → 后台抓取落库。
      *  非阻断语义：sendUserEntry/createSpeakEntry 落库后同步触发，失败仅 warn。 */
     private readonly aux: {
       logger: Logger;
@@ -217,7 +217,7 @@ export class SendEntry {
       }
     }
 
-    // T1：预抓取钩子（非阻断——发送路径不等待网络）。URL 扫描规则
+    // 预抓取钩子（非阻断——发送路径不等待网络）。URL 扫描规则
     // 与前端 bare-url 插件同一口径：行内（含行首）裸 http/https URL，独占一段
     // （```html-card 围栏体内的链接由卡片自身渲染，不算裸链不触发预抓取）。
     if (input.source !== 'external') this.triggerUnfurlPrefetch(input.body);
@@ -240,7 +240,7 @@ export class SendEntry {
     return { entry: result, talkingStonePassedTo, mentionFeedback };
   }
 
-  /** T1：预抓取触发——裸 URL 扫描（纯函数）+ 非阻断分发。
+  /** 预抓取触发——裸 URL 扫描（纯函数）+ 非阻断分发。
    *  扫描口径与前端 bare-url 插件一致：行内（含行首）http/https URL 独占一段才算裸链
    *  （围栏体内的链接由卡片自身渲染）。异常仅 warn——预抓取永不阻断发送路径。 */
   private triggerUnfurlPrefetch(body: string): void {
@@ -276,7 +276,7 @@ export class SendEntry {
       toolCallCount: 0,
       tokenUsageInput: null, tokenUsageOutput: null, tokenUsageCacheRead: null, tokenUsageCacheWrite: null,
       ctxWindowUsed: null,
-      /** #1241：进程归属标记——重启后非本 pid 的 running 被判孤儿清理 */
+      /** 进程归属标记——重启后非本 pid 的 running 被判孤儿清理 */
       pid: process.pid, metadata,
     };
 
@@ -346,7 +346,7 @@ export class SendEntry {
 
     const created = await this.entryRepo.createEntryAtomic(entry);
 
-    // F20261013csv3 T1：预抓取钩子（非阻断）——user/speak 共用同一扫描口径
+    // 预抓取钩子（非阻断）——user/speak 共用同一扫描口径
     if (!external) this.triggerUnfurlPrefetch(input.body);
 
     this.logger.info('Speak entry created', {
@@ -355,7 +355,7 @@ export class SendEntry {
       otterId: input.otterId,
     });
 
-    // #1191（F20260928rmix）：索引 speak 正文到记忆（旧 SendMessage 同构：剥 html-card 围栏；
+    // 索引 speak 正文到记忆（旧 SendMessage 同构：剥 html-card 围栏；
     // 失败消息不索引——旧 abort 路径只索引带 body 的中断正文，此处 completed 语义）
     if (!external) await this.indexEntryBody(created.id, input.conversationId, stripHtmlCardFences(input.body));
 
@@ -477,7 +477,7 @@ export class SendEntry {
       yieldTargets: null,
       status: "completed",
       source: null,
-      /** F20260913ctlv test17：invoke 真实终态记 metadata.invokeStatus——entries.status
+      /** test17：invoke 真实终态记 metadata.invokeStatus——entries.status
        *  是死字段（全部 completed），历史渲染靠它识别可重试条目（重试按钮数据源） */
       metadata: input.status !== "completed" ? { invokeStatus: input.status } : null,
       senderName: otter.name,
@@ -564,27 +564,27 @@ export class SendEntry {
     await this.invokeRepo.updateInvokeTokenUsage(invokeId, input, output, cacheRead, cacheWrite);
   }
 
-  /** F20260914rtsp：末次 LLM 往返 ctx 窗口占用（invoke.tick 落库，刷新恢复用） */
+  /** 末次 LLM 往返 ctx 窗口占用（invoke.tick 落库，刷新恢复用） */
   async updateInvokeCtxWindowUsed(invokeId: string, ctxWindowUsed: number): Promise<void> { await this.invokeRepo.updateInvokeCtxWindowUsed(invokeId, ctxWindowUsed); }
 
-  /** F20260914usgm：更新 invoke model 归属（merge 进 metadata，不动其他键） */
+  /** 更新 invoke model 归属（merge 进 metadata，不动其他键） */
   async updateInvokeModel(invokeId: string, model: string): Promise<void> {
     const invoke = await this.invokeRepo.getInvokeById(invokeId);
     if (!invoke) return;
     await this.invokeRepo.updateInvokeMetadata(invokeId, { ...(invoke.metadata ?? {}), model });
   }
 
-  /** F20260913ctlv 批4a：按 ID 取条目（get_message 工具） */
+  /** 批4a：按 ID 取条目（get_message 工具） */
   async getEntryById(entryId: string): Promise<Entry | null> { return this.entryRepo.getEntryById(entryId); }
 
-  /** F20260913ctlv 彻底切换：user entry 挂附件（多模态 Phase 1 接线） */
+  /** 彻底切换：user entry 挂附件（多模态：接线） */
   async attachEntryAttachments(entryId: string, attachmentIds: string[]): Promise<void> {
     for (let i = 0; i < attachmentIds.length; i++) {
       await this.entryRepo.attachAttachment(entryId, attachmentIds[i]!, i);
     }
   }
 
-  /** F20260913ctlv 收尾批3：全文搜索（entries_fts——search_messages 工具数据源） */
+  /** 收尾批3：全文搜索（entries_fts——search_messages 工具数据源） */
   async searchEntries(conversationId: string, query: string, limit?: number): Promise<Entry[]> {
     return this.entryRepo.searchEntries(conversationId, query, limit);
   }

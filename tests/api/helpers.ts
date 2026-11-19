@@ -34,7 +34,7 @@ import { createTestLogger } from "../helpers/logger";
 import { createTestDb } from "../helpers/db";
 import { SqliteUnfurlCacheRepository } from "../../src/frameworks/db/conversation/sqlite-unfurl-cache-repository";
 
-/** T1：测试用内存 unfurl_cache（独立实例，测试间零共享） */
+/** 测试用内存 unfurl_cache（独立实例，测试间零共享） */
 function makeUnfurlCache(): SqliteUnfurlCacheRepository {
   return new SqliteUnfurlCacheRepository(createTestDb(), createTestLogger());
 }
@@ -413,11 +413,11 @@ export interface TestDeps {
   manageParticipant: any;
   sendMessageUseCase: any;
   conversationRepo: any;
-  /** F20260913ctlv Phase 4：invoke repo（只读查询端点；缺省用内存 stub） */
+  /** invoke repo（只读查询端点；缺省用内存 stub） */
   invokeRepo?: any;
-  /** F20260913ctlv 切换清扫：entry repo（时间线只读查询端点；缺省用内存 stub） */
+  /** 切换清扫：entry repo（时间线只读查询端点；缺省用内存 stub） */
   entryRepo?: any;
-  /** F20260913ctlv 批4c：QueryMessage 收缩后仅 getUnreadState + getTurnsForTool（MessageController GET 路由用） */
+  /** 批4c：QueryMessage 收缩后仅 getUnreadState + getTurnsForTool（MessageController GET 路由用） */
   queryMessage: any;
   agentInvoker: any;
   manageReadState: any;
@@ -426,11 +426,11 @@ export interface TestDeps {
   manageSession: any;
   queryOtter: any;
   searchMemory: any;
-  /** #576（F20260901emps）：recent 端点 repo（默认空列表，需测试时覆写 listRecent） */
+  /** recent 端点 repo（默认空列表，需测试时覆写 listRecent） */
   memoryRepo?: { listRecent: (limit: number) => Promise<unknown[]> };
-  /** #576（F20260901emps）：能力库真数据源（默认空列表） */
+  /** 能力库真数据源（默认空列表） */
   skillDirectory?: { list: () => Promise<{ name: string; description: string; body?: string }[]> };
-  /** F20260929scfx：能力库全书——系统提示词分节 + 工具清单（默认空实现） */
+  /** 能力库全书——系统提示词分节 + 工具清单（默认空实现） */
   promptDirectory?: {
     getSystemSections: () => Promise<Array<{ title: string; content: string }>>;
     listTools: () => Promise<Array<{ name: string; description: string }>>;
@@ -439,7 +439,7 @@ export interface TestDeps {
   manageMemory: any;
   manageKeyInfo: any;
   settingsConfig: SettingsConfig;
-  // #528 收敛批次记录：settingsRepo/manageScheduledTask/schedulerService/cronParser 四处仍为 any——
+  // 收敛批次记录：settingsRepo/manageScheduledTask/schedulerService/cronParser 四处仍为 any——
   // createMockDeps 默认值经 mockMethods() 产出 Record<string, Mock>（索引签名），不满足接口命名属性检查；
   // 强行收敛需重构 mock 基建（泛型断言丢检查或手写结构 mock），收益不成比例，留后续批次
   settingsRepo: any;
@@ -447,9 +447,9 @@ export interface TestDeps {
   manageScheduledTask: any;
   schedulerService: any;
   cronParser: any;
-  /** 可选：注入后 OtterController 读 modelAlias 写入 OtterDTO（#528: any → OtterConfigProvider，漏方法 mock 编译报错） */
+  /** 可选：注入后 OtterController 读 modelAlias 写入 OtterDTO（any → OtterConfigProvider，漏方法 mock 编译报错） */
   otterConfigProvider?: OtterConfigProvider;
-  /** F20260920uhuc：可选——restart 统一交接委托（与上方 agentInvoker: any 区分，避免默认 mock 缺方法） */
+  /** 可选——restart 统一交接委托（与上方 agentInvoker: any 区分，避免默认 mock 缺方法） */
   otterRestartAutoHandoff?: Pick<AgentInvoker, "restartWithUnifiedHandoff">;
 }
 
@@ -469,7 +469,7 @@ export function createTestApp(deps: TestDeps): Hono {
     logger,
   });
 
-  // F20260817bcst 对抗审视 T2：改用**真实** MessageBroadcaster（裸总线 = web-only 形态），
+  // 对抗审视 改用**真实** MessageBroadcaster（裸总线 = web-only 形态），
   // 让 API 测试真正走过 POST 流 → 生产总线 → SSE 的完整链路（旧 mock 绕过了总线实现）
   const broadcaster = new MessageBroadcaster(logger);
 
@@ -482,8 +482,8 @@ export function createTestApp(deps: TestDeps): Hono {
     dispatchChainEngine,
     broadcaster,
   );
-  // F20260913ctlv Phase 4：invoke 只读查询端点——默认内存 stub（测试可用 deps.invokeRepo 覆写）
-  // F20260930s1x0（issue #1251）：注入 agentInvoker（此前未注入，abort 端点走 500 分支），
+  // invoke 只读查询端点——默认内存 stub（测试可用 deps.invokeRepo 覆写）
+  // 注入 agentInvoker（此前未注入，abort 端点走 500 分支），
   // 默认 mock 缺 abort 方法时按 500 语义 stub——abort 行为断言须显式覆写 deps.agentInvoker
   const invokeCtrl = new InvokeController(
     (deps.invokeRepo ?? {
@@ -494,8 +494,8 @@ export function createTestApp(deps: TestDeps): Hono {
     logger,
     deps.agentInvoker,
   );
-  // F20260913ctlv 切换清扫：entries 时间线只读查询端点——默认内存 stub
-  // F20261013csv3 T5：第三参 invokeRepo（includeEvents=true 批量投影数据源；缺省空实现）
+  // 切换清扫：entries 时间线只读查询端点——默认内存 stub
+  // 第三参 invokeRepo（includeEvents=true 批量投影数据源；缺省空实现）
   const entryCtrl = new EntryController(
     (deps.entryRepo ?? {
       getEntries: async () => [],
@@ -519,7 +519,7 @@ export function createTestApp(deps: TestDeps): Hono {
     deps.manageMemory,
     deps.scanDarkEntries ?? { execute: async () => ({ entries: [], total: 0, vecDisabled: false }) },
     { available: true, embed: async () => new Float32Array(1024) },
-    /* #576：recent 端点 repo——默认空实现，测试可经 deps.memoryRepo 覆写 */
+    /* recent 端点 repo——默认空实现，测试可经 deps.memoryRepo 覆写 */
     { repo: (deps.memoryRepo ?? { listRecent: async () => [] }) as unknown as MemoryRepository, logger },
   );
   const keyInfoCtrl = new KeyInfoController(
@@ -553,27 +553,27 @@ export function createTestApp(deps: TestDeps): Hono {
     ),
     connection: {} as any, // TODO: 添加 mock
     health: {} as any, // TODO: 添加 mock
-    rhi: {} as any, // F20260825rweb：RHI 端点 mock（RHI 专项测试另建，见 tests/api/rhi-api.test.ts）
+    rhi: {} as any, // RHI 端点 mock（RHI 专项测试另建，见 tests/api/rhi-api.test.ts）
     inbound: {
       optionsEvents: (c: any) => c.body(null, 204),
       receiveEvents: async (c: any) => c.json({ ok: true }),
     } as any,
-    /* #576（F20260901emps）：能力库真数据源端点；默认注入，需测试时经 deps.skillDirectory 覆写 */
+    /* 能力库真数据源端点；默认注入，需测试时经 deps.skillDirectory 覆写 */
     skills: deps.skillDirectory
       ? new SkillController(deps.skillDirectory as never, createTestLogger())
       : new SkillController({ list: async () => [] }, createTestLogger()),
-    /* F20260929scfx：能力库全书三编数据源；默认空实现，测试经 deps.promptDirectory 覆写 */
+    /* 能力库全书三编数据源；默认空实现，测试经 deps.promptDirectory 覆写 */
     prompts: deps.promptDirectory
       ? new PromptController(deps.promptDirectory as never, createTestLogger())
       : new PromptController(
           { getSystemSections: async () => [], listTools: async () => [] },
           createTestLogger(),
         ),
-    /* F20260912avlb：活动页三域台账只读（默认空实现，activity 专项测试另建真 sqlite） */
+    /* 活动页三域台账只读（默认空实现，activity 专项测试另建真 sqlite） */
     activity: {} as any,
-    /* F20261006mtlp P1：待办板只读（默认空实现，matter 专项测试另建真 sqlite） */
+    /* 待办板只读（默认空实现，matter 专项测试另建真 sqlite） */
     matter: {} as any,
-    /* F20261013csv3 T1：unfurl 三态控制器（缓存读写 + gh 取数；默认内存 sqlite cache） */
+    /* unfurl 三态控制器（缓存读写 + gh 取数；默认内存 sqlite cache） */
     unfurl: new UnfurlController(logger, makeUnfurlCache()),
 
   };
@@ -583,7 +583,7 @@ export function createTestApp(deps: TestDeps): Hono {
   // 暴露 broadcaster 给测试（用于配置 mock invokeConversation 的事件推送）
   (app as any).__mockBroadcaster = broadcaster;
 
-  // #1322（F20261016autz）：业务用例注入默认身份；鉴权矩阵用裸 app（identity-middleware.test.ts）
+  // 业务用例注入默认身份；鉴权矩阵用裸 app（identity-middleware.test.ts）
   return withIdentity(app);
 }
 
@@ -591,7 +591,7 @@ export function createTestApp(deps: TestDeps): Hono {
 export function createMockDeps(): TestDeps {
   const manageSession = mockMethods(["createSession", "getActiveSession", "archiveSession", "getSessionHistory", "setSessionSummary", "restartSession"]) as Record<string, any>;
   return {
-    // F20260922cgrp delta：complete 退役（弱状态两态管理），mock 方法名同步删除
+    // delta：complete 退役（弱状态两态管理），mock 方法名同步删除
     manageConversation: mockMethods(["create", "getById", "archive", "getIdsByOtterId", "getAllIds", "listWithMeta", "pin", "unpin"]),
     manageParticipant: mockMethods(["getActiveParticipants", "join", "leave"]),
     sendMessageUseCase: {
@@ -619,9 +619,9 @@ export function createMockDeps(): TestDeps {
     createOtterUseCase: mockMethods(["execute"]),
     dissolveOtterUseCase: mockMethods(["execute"]),
     manageSession,
-    // F20261009s6ej6：controller 三元兜底删除后必须注入 agentInvoker。默认委托到
+    // controller 三元兜底删除后必须注入 agentInvoker。默认委托到
     //  manageSession.restartSession——裸路径 API 测试（restart 端点 HTTP 行为）的 mock 语义不变。
-    //  统一交接路径测试显式覆写 deps.otterRestartAutoHandoff（F20260920uhuc 用例已如此）。
+    // 统一交接路径测试显式覆写 deps.otterRestartAutoHandoff（用例已如此）。
     otterRestartAutoHandoff: {
       restartWithUnifiedHandoff: vi.fn((otterId: string, params: { selfSummary?: string; modelAlias?: string }) =>
         manageSession.restartSession(otterId, params.selfSummary, params.modelAlias)),
@@ -636,7 +636,7 @@ export function createMockDeps(): TestDeps {
       dbPath: "./otter-buddy.db",
       embeddingModelPath: "./embedding.bin",
       embeddingDim: 1024,
-      // F20260924wast：浮动獭开关（测试基线默认开）
+      // 浮动獭开关（测试基线默认开）
       assistantWebEnabled: true,
     },
     settingsRepo: mockMethods(["get", "update", "getAll"]),

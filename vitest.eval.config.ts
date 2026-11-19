@@ -1,7 +1,7 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
 
-/** Phase 1 段 3：标定/反事实评估专用 config——只跑 .eval.ts，不并入 npm test 默认套件。
+/** 段 3：标定/反事实评估专用 config——只跑 .eval.ts，不并入 npm test 默认套件。
  *  与 vitest.config.ts 同 alias，但 include 只收 .eval.ts（避免 mergeConfig 数组 concat 把 .test.ts 全量带进来）。 */
 export default defineConfig({
   resolve: {

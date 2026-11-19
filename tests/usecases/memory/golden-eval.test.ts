@@ -1,5 +1,5 @@
 /**
- * Phase 0：golden 评测 runner + 回归地板（合成种子集基线）。
+ * golden 评测 runner + 回归地板（合成种子集基线）。
  *
  * 跑真实检索全链路：FTS5(jieba) → 预聚合 → RRF 融合 → rerank 五信号（SearchMemory.execute
  * 完整路径，非只测 rerank）。Vec 路径口径与现有 search 测试一致：mock EmbeddingGateway
@@ -14,7 +14,7 @@
  *   search-memory.ts incrementRetrievalCounts 副作用会污染后续查询的 frequency 信号）
  *   并按 WEIGHT_PRESETS 重放预设。
  *
- * 地板数字：nDCG@5/@10、MRR 三项基线首跑后锁定（见特性文档「Phase 0 实现记录」）。
+ * 地板数字：nDCG@5/@10、MRR 三项基线首跑后锁定（见特性文档「实现记录」）。
  * 地板语义 = 指标不许变差（≥ 基线 - 容差），容差吸收浮点/环境抖动，当前设 0（本地与
  * CI 同为确定性路径——固定语料+固定相对时间+权重重置；若未来环境引入真异步信号再调）。
  */
@@ -40,7 +40,7 @@ const PROD_MEMORY_CONFIG = {
   weightHalfLifeDaysDocument: 90,
   userFlagMultiplier: 2,
   frequencyBoostFactor: 0.1,
-  // Phase 1 段 1：默认 multiply 零行为变更；加法系数按设计回填（段 1 不切默认）
+  // 段 1：默认 multiply 零行为变更；加法系数按设计回填（段 1 不切默认）
   rerankMode: "multiply" as const,
   rerank: {
     wRrf: 0.6,
@@ -56,8 +56,8 @@ const PROD_MEMORY_CONFIG = {
  *  地板取首跑值向下取整 3 位小数（吸收浮点末位，语义仍是「不许变差」）。
  * ⚠️ 地板灵敏度声明：本种子集上 rerank 五信号对指标是净负贡献
  *  （全信号中性化反事实：nDCG@5 0.7998 > 基线 0.6732）——地板只能拦「变差」，
- *  不能证明「变好」；Phase 1 改 rerank 的 PR 绿灯必须附逐信号前后对比，禁单看
- *  地板（见特性文档 Phase 0 实现记录「反事实与地板灵敏度」节）。
+ * 不能证明「变好」；改 rerank 的 PR 绿灯必须附逐信号前后对比，禁单看
+ * 地板（见特性文档 实现记录「反事实与地板灵敏度」节）。
  *  改动排序管线的行为 PR 必须重跑本套件并更新地板（上升可改数字，下降须先
  *  证明是测量噪声或语义预期变化——后者需搭档确认）。 */
 export const BASELINE = {
@@ -201,7 +201,7 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
   });
 
   it("additive 全中性化反事实复现 0.7998/0.8029/0.9364（段 1 加法路径语义验收，±0.001）", async () => {
-    // F20261112rnkph Phase 1 段 1：加法融合路径按设计矩阵全中性化（w_rrf=1 其余 0）→
+    // 段 1：加法融合路径按设计矩阵全中性化（w_rrf=1 其余 0）→
     // finalScore = norm(rrf)（池内 min-max 单调变换），排序与 raw RRF 一致 → 反事实数字复现。
     // 证明 additive 路径不是摆设、段 1 的归一化口径与设计表 1 一致（验收锚点见特性文档）。
     const additiveEngine = new SearchEngine({

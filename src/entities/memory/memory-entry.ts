@@ -83,7 +83,7 @@ export interface MemoryWeight {
 }
 
 /**
- * Part 2：下钻提示，告知调用方用什么工具拿全文。
+ * 下钻提示，告知调用方用什么工具拿全文。
  * detail_level != "full" 时填充到 RetrievalResultEntry.drillDown。
  */
 export interface DrillDownHint {

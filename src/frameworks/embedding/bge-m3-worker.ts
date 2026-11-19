@@ -7,7 +7,7 @@
  * InferenceSessionWrap::InstanceMethodCallbackWrapper → abort）。
  * 子进程 SIGKILL 不跑析构/N-API teardown，原生死在子进程里主进程无感。
  *
- * 通信协议（Part 3：ready 携带 meta）：
+ * 通信协议（ready 携带 meta）：
  * 父进程 -> Worker: { type: 'embed', text: string, id: number }
  *          { type: 'embed-batch', texts: string[], id: number }
  * Worker -> 父进程:
@@ -37,7 +37,7 @@ interface EmbedBatchRequest {
   id: number;
 }
 
-/** Part 3：ready 携带的模型元信息 */
+/** ready 携带的模型元信息 */
 interface EmbedModelMeta {
   modelId: string;
   modelRev: string;
@@ -118,7 +118,7 @@ function getExtractor(): Promise<Extractor> {
   return extractorPromise;
 }
 
-// 预加载模型 + dummy embed 拿 dims（Part 3）
+// 预加载模型 + dummy embed 拿 dims
 getExtractor()
   .then(async (fn) => {
     // dummy embed 拿实际维度（transformers.js pipeline 无公开 .config.dim）

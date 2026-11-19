@@ -250,7 +250,7 @@ describe("F20261009epoc case 6：同键嵌套清理边界（known-boundary，D5�
 
     // known-boundary 声明：外层的后续 finally 再跑一次 delete 时条目已不在（无二次伤害面），
     // 且外层若重新注册（下轮 invoke）不受影响——边界由 sessionKey 键控语义划定，
-    // 彻底区分需引入嵌套计数（超出本 PR 范围，方案 D5 边界声明）。
+    // 彻底区分需引入嵌套计数（超出本 PR 范围，方案 边界声明）。
     db.close();
   });
 });

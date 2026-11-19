@@ -298,7 +298,7 @@ export class SanmaEngine {
     const wall = r.wall;
     const justCalled = r.justCalled?.seat === seat ? r.justCalled : undefined;
 
-    // 打牌（食替过滤）；立直后仅允许摸切刚摸的那张（#1564-2）
+    // 打牌（食替过滤）；立直后仅允许摸切刚摸的那张
     const drawnNotation = r.drawn ? notation(r.drawn) : undefined;
     const seen = new Set<string>();
     for (const t of p.hand) {
@@ -417,7 +417,7 @@ export class SanmaEngine {
       }
     }
     if (!chankan) {
-      // 立直后不能副露（碰/大明杠）——只能荣和或过（#1564-2）
+      // 立直后不能副露（碰/大明杠）——只能荣和或过
       if (
         !p.riichi &&
         canCall({ request: { type: "pon", called: tile }, concealed: p.hand, melds: p.melds, turnWindow: true }).ok

@@ -80,7 +80,7 @@ export function useDraftCache(conversationId: string | null) {
     // 如果 conversationId 为 null，不保存草稿
     if (!conversationId) return
 
-    // S1 修复：空串同步移除 key——防止 300ms debounce 窗口内卸载时旧值留存复活
+    // 修复：空串同步移除 key——防止 300ms debounce 窗口内卸载时旧值留存复活
     // Why: 手动清空语义=立即删除，不等 debounce；与 clearDraft 的 removeItem 同构
     if (!text) {
       localStorage.removeItem(`draft:${conversationId}`)
@@ -92,7 +92,7 @@ export function useDraftCache(conversationId: string | null) {
     }
 
     // 设置新的 debounce timer
-    // #1132 修复：闭包捕获 conversationId（timer 设置时的值），不用 conversationIdRef.current
+    // 修复：闭包捕获 conversationId（timer 设置时的值），不用 conversationIdRef.current
     // Why: debounce 回调的语义是「text 与 conversationId 配对写入」——text 是本对话的输入，
     // id 必须是输入发生时的对话；读 ref 则 300ms 窗口内切换对话后 ref 已指向新对话，
     // 旧对话的文本串写进 draft:conv-2。与 beforeunload handler（读 ref 取「最新值」语义）
@@ -137,7 +137,7 @@ export function useDraftCache(conversationId: string | null) {
       // 立即同步写入 localStorage（读 ref 而非闭包 draft——闭包在 deps=[] 下永远是初始值）
       const currentConversationId = conversationIdRef.current
       const currentDraft = draftRef.current
-      // #1132 处置 B：pending 写入意图优先（它是用户最后确认中的输入）——直接落盘，
+      // 处置 B：pending 写入意图优先（它是用户最后确认中的输入）——直接落盘，
       // 避免「timer 还未触发 + draftRef 旧稿」的覆盖回滚形态
       const pending = pendingWriteRef.current
       if (pending) {
@@ -162,7 +162,7 @@ export function useDraftCache(conversationId: string | null) {
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
 
-      // R5 修复：组件卸载时（SPA 导航）同步 flush 草稿到 localStorage
+      // 修复：组件卸载时（SPA 导航）同步 flush 草稿到 localStorage
       // Why: beforeunload 只在浏览器关闭/刷新时触发，SPA 的 Link 导航不触发它
       // 组件卸载时 draft 可能还没写入（debounce 300ms 窗口内），必须同步 flush
       // 使用 draftRef.current 而非闭包中的 draft——闭包捕获的是 effect 注册时的值
@@ -171,7 +171,7 @@ export function useDraftCache(conversationId: string | null) {
         clearTimeout(debounceTimerRef.current)
         debounceTimerRef.current = null
       }
-      // #1132 处置：卸载时 pending 写入意图优先落盘（与 beforeunload 同构）
+      // 处置：卸载时 pending 写入意图优先落盘（与 beforeunload 同构）
       const pendingOnUnmount = pendingWriteRef.current
       if (pendingOnUnmount) {
         if (pendingOnUnmount.text) {

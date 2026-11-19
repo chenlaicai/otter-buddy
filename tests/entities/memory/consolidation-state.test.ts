@@ -1,5 +1,5 @@
 /**
- * P2b1：consolidation_state 实体单测。
+ * consolidation_state 实体单测。
  *
  * 覆盖：幂等键构造/回解的形态边界、空白状态、失败区间的形态一致性校验。
  */
@@ -67,7 +67,7 @@ describe("isValidInstant / isOrderedFailureRange（P2b1）", () => {
     expect(isOrderedFailureRange("2026-11-18T00:00:00.000Z", "2026-11-18T12:00:00.000Z")).toBe(true);
     expect(isOrderedFailureRange("2026-11-18T12:00:00.000Z", "2026-11-18T00:00:00.000Z")).toBe(false);
     expect(isOrderedFailureRange("", "2026-11-18T12:00:00.000Z")).toBe(false);
-    // D2：同刻异精度（'Z' vs '.000Z' 字符串序会把同刻误判成倒挂）——数值序正确判等
+    // 同刻异精度（'Z' vs '.000Z' 字符串序会把同刻误判成倒挂）——数值序正确判等
     expect(isOrderedFailureRange("2026-11-18T00:00:00Z", "2026-11-18T00:00:00.000Z")).toBe(true);
   });
 });

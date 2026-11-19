@@ -487,7 +487,7 @@ describe("SqliteScheduledTaskRepository - 状态管理与执行记录", () => {
   });
 });
 
-// ─── #516: timeout_minutes 列持久化 ────────────────────
+// ─── timeout_minutes 列持久化 ────────────────────
 
 describe("timeout_minutes 持久化 (#516)", () => {
   let db: Database.Database;

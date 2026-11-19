@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Part 5: 能力测试约定校验（commit-time gate）。
+ * 能力测试约定校验（commit-time gate）。
  *
  * 规则（docs/README.md「能力测试约定」）：
  * - change_type 为 feature / prompt 的 F 文档，应声明 capability_test 字段：
@@ -60,7 +60,7 @@ for (const file of walk(path.join(root, "docs/features"))) {
 
   const testPath = capTest.replace(/^["']|["']$/g, "");
   if (!fs.existsSync(path.join(root, testPath))) {
-    // F20260913ctlv 终审修正：悬空指针 error → warning——功能退役删测试后，存量
+    // 终审修正：悬空指针 error → warning——功能退役删测试后，存量
     // 文档快照的指针必然悬空（快照原则禁止回改），这是结构性存量债务而非新增违规。
     // 归 ratchet 管辖（警告数只减不增）：新增文档指错路径同样推高警告数受上限约束。
     // 原 error 语义的盲区：退役功能的 PR 被迫在「改历史快照」与「CI 红」间二选一。
@@ -72,7 +72,7 @@ for (const file of walk(path.join(root, "docs/features"))) {
 /** Ratchet（第二轮对抗检视）：警告数只许减不许增——否则警告疲劳后约束力归零。
  *  新增 feature/prompt 文档缺 capability_test 会推高警告数并在此报错；
  *  存量文档补声明后可下调本数值。 */
-const MAX_WARNINGS = 80; // F20260913ctlv：+4 悬空指针入账；F20260920uhuc：+1（compaction-hook 钩子退役删测试，F20260903cmpk 指针悬空——功能退役的存量债务，先例同构）；F20261014cwsp：+1（override 机制整套退役删测试，F20260922scwd 指针悬空——同构先例）；F20261019gses：+1（影子记账退役删测试，F20261010gshw 指针悬空——同构先例；快照原则禁止回改，开发獭 fb0724d8 曾回改历史文档洗掉此警告被搭档指出，正确解法是入账棘轮）；F20261029gbrmv：+10（bash 守卫机制整体退役清场删测试，alph/mrdp/gfpn/gfvl/h304/pyro/gtfr/grrf/phys/gsbx 十篇历史文档 capability_test 指针悬空——同构先例，守卫重建清场的存量债务）
+const MAX_WARNINGS = 80; // +4 悬空指针入账；+1（compaction-hook 钩子退役删测试，指针悬空——功能退役的存量债务，先例同构）；+1（override 机制整套退役删测试，指针悬空——同构先例）；+1（影子记账退役删测试，指针悬空——同构先例；快照原则禁止回改，开发獭 fb0724d8 曾回改历史文档洗掉此警告被搭档指出，正确解法是入账棘轮）；+10（bash 守卫机制整体退役清场删测试，alph/mrdp/gfpn/gfvl/h304/pyro/gtfr/grrf/phys/gsbx 十篇历史文档 capability_test 指针悬空——同构先例，守卫重建清场的存量债务）
 
 if (warnings > MAX_WARNINGS) {
   errors++;

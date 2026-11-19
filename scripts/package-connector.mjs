@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * （阶段 6c）：connector 打包器——packages/connector 出可分发 npm tarball。
+ * connector 打包器——packages/connector 出可分发 npm tarball。
  *
  * 职责链：版本一致性校验（packages/connector vs 主仓，防漂移）→ bin 产物可执行位
  * （shebang 文件 npm pack 不自动加 +x，npm i -g 后经 bin 链接执行需要）→

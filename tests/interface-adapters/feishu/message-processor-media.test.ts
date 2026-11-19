@@ -11,7 +11,7 @@ import type { AgentDispatchService } from "@usecases/conversation/agent-dispatch
 import type { MessageBroadcaster } from "@usecases/im/message-broadcaster";
 import type { Logger } from "@usecases/ports/logger";
 
-/** 多模态 Phase 2：飞书 ingress 收图/收文件的行为测试。
+/** 多模态：飞书 ingress 收图/收文件的行为测试。
  *  锁定关键行为：media → 下载 → 上传管线 → attachmentIds 随消息入库；
  *  注入载荷透传 dispatch；四类降级（未装配/下载失败/校验拒绝/上传异常）消息不丢。 */
 
@@ -113,7 +113,7 @@ describe("FeishuMessageProcessor 多模态 ingress（Phase 2）", () => {
     });
 
     const dispatchArgs = dispatch.mock.calls.at(-1) ?? [];
-    // F20260913ctlv：dispatch 收参数对象
+    // dispatch 收参数对象
     expect(dispatchArgs[0]?.conversationId).toBe("conv-1");
     expect(dispatchArgs[0]?.senderId).toBe("ou_x");
     const injection = dispatchArgs[0]?.injection as { images?: Array<{ mimeType: string }> } | undefined;
@@ -216,7 +216,7 @@ describe("FeishuMessageProcessor 多模态 ingress（Phase 2）", () => {
     expect(dispatchArgs[0]?.injection).toBeUndefined();
   });
 
-  // ── #608：降级提示不进 agent dispatch 上下文（PR #603 检视建议 1 同款）──
+  // ── 降级提示不进 agent dispatch 上下文（同款）──
 
   it("媒体下载失败：降级提示入消息体可见，agent dispatch 用原始正文（#608）", async () => {
     const { deps, send, dispatch } = makeDeps();

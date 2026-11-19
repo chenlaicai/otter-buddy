@@ -61,7 +61,7 @@ test.describe('面板历史顺序 + 行动边界（F20260929wap1）', () => {
     // user(1) → invoke_start(2) → system 告警(3) → speak(4) → invoke_end(5)：user 必须第一个，invoke_end 收尾
     expect(order[0]).toBe('assistant-panel-user-msg')
     expect(order[order.length - 1]).toBe('assistant-panel-system-msg')
-    // M1 失败锁（计数断言）：system 条总数必须 = invoke_start + 告警 + invoke_end = 3——
+    // 失败锁（计数断言）：system 条总数必须 = invoke_start + 告警 + invoke_end = 3——
     // 只修 reverse 不修 filter 时 = 1（红）；只加 invoke_start 漏 invoke_end 时 = 2（红）
     const systemCount = order.filter(t => t === 'assistant-panel-system-msg').length
     expect(systemCount).toBe(3)

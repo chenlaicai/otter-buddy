@@ -2,7 +2,7 @@
  * 獭间信号老化扫描（流程层）。
  *
  * 现场事故：blocked 信号悬置 6 天无人裁决——signal 对账段挂在 daily review 调度链上，
- * 9/10-9/13 调度器断档（/）期间唯一消费方停摆，违规漏网。
+ * 9/10-9/13 调度器断档期间唯一消费方停摆，违规漏网。
  *
  * 本 worker 独立于 daily review：app 级 1h setInterval（unref，不阻退出），
  * 扫 signal_events 中 pending 态 objection/blocked（halt 不扫——halt 无待裁决事项，
@@ -10,7 +10,7 @@
  * （errorType=other，severity=medium，context 带 signalId 供跟进）。
  *
  * 为什么 medium 不是 high：悬置 24h 是流程违规（裁决义务被遗忘），不是系统故障；
- * high 走 healing-alert 即时唤醒链路（C3），留给运行时异常。
+ * high 走 healing-alert 即时唤醒链路，留给运行时异常。
  *
  * 落账去重：同一 signalId 只落一次老化告警——scan 前查 open healing 事件的
  * context.signalId 是否已存在。healing 事件被 resolve 后若信号仍 pending，

@@ -9,7 +9,7 @@ import { nowTs } from '../../lib/utils'
 /**
  * 浮层对话面板（380×520）。
  * 消息流（HTTP sendMessage + POST SSE 流式）+ 输入框 + 「完整对话 ↗」跳转。
- * 一期纯文本渲染（非目标：富内容 html-card）；无上下文 chip（T4 已砍）。
+ * 一期纯文本渲染（非目标：富内容 html-card）；无上下文 chip（已砍）。
  * session 状态：一期展示轮换提示文案（剩余时长二期补——方案未决 1）。
  */
 
@@ -108,7 +108,7 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
         },
         // 流内 invoke.start 渲染（发送后本轮行动边界即时可见，居中状态条）。
         //  契约事件名是 invoke.start（invoke 记录创建 + invoke_start entry 投影，events.ts:36）。
-        //  S3：去重键用事件自带的 triggerEntryId（= entry id，agent-invoker.ts:356）——与历史
+        // 去重键用事件自带的 triggerEntryId（= entry id，agent-invoker.ts:356）——与历史
         //  加载的 e.id 同构，未来做历史刷新（K7 二期）不会双条
         'invoke.start': data => {
           const d = data as { invokeId: string; otterName?: string; triggerEntryId?: string }
@@ -118,7 +118,7 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
             return [...prev, { id: key, st: 'system' as const, content: `🦦 ${d.otterName || '大獭'}开始行动～`, ts: nowTs() }]
           })
         },
-        // F20260929wap1 S1：invoke 终态边界（闭括号）——completed/failed/aborted 三态均渲染，
+        // invoke 终态边界（闭括号）——completed/failed/aborted 三态均渲染，
         //  「开始行动」不再悬挂无收尾，行动中可判定 = 有 start 无 end。
         //  DS1：invokeId 记入收尾 Set——entry.failed/aborted（yield 重试耗尽路径同帧双发）
         //  凭此跳过，防双收尾条；保留 finalize 吞异常时 entry 事件的兑底路径
@@ -132,7 +132,7 @@ export const AssistantPanel = forwardRef<HTMLDivElement, AssistantPanelProps>(fu
             return [...prev, { id: key, st: 'system' as const, content: d.endBody || `🦦 ${d.otterName || '大獭'}${tail}～`, ts: nowTs() }]
           })
         },
-        // F20260929wap1 S1：invoke_end entry 投影（失败/中止的 entry 面）——与 invoke.end 同形态居中条。
+        // invoke_end entry 投影（失败/中止的 entry 面）——与 invoke.end 同形态居中条。
         //  DS1：已收尾的 invoke 跳过（invoke.end 已渲染过，同帧双发防双条）
         'entry.failed': data => {
           const d = data as { entryId: string; invokeId?: string; body?: string; otterName?: string }

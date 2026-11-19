@@ -206,7 +206,7 @@ describe('validateCommitDate', () => {
     const tenDaysAgoISO = tenDaysAgo.toISOString();
 
     it('dual-base: 定稿改名合入日后，--at 创建时间基准被当前时间基准救回（PR 标题改名场景）', () => {
-      // #789 现场模型：创建 10 天前，定稿改名今天。与创建基准差 10 天，但与当前差 0 天 → 通过
+      // 现场模型：创建 10 天前，定稿改名今天。与创建基准差 10 天，但与当前差 0 天 → 通过
       const { exitCode } = runCLI([
         '--at', tenDaysAgoISO,
         `[F${todayId}wxeg][weixin][BugFix] 出站 sendmessage 全量观测日志`,
@@ -256,7 +256,7 @@ describe('validateCommitDate', () => {
 
   describe('CLI 退出码（集成）', () => {
     // Why: CLI 集成用例走真实脚本，脚本用系统当前日期判定偏差（±2 天）。
-    // 硬编码日期会在日期滚动后必然失败（#422 同源教训：禁止凭印象标日期）。
+    // 硬编码日期会在日期滚动后必然失败（同源教训：禁止凭印象标日期）。
     // 动态生成「今天/3 天前」的日期，测试永不随时间衰减。
     const today = new Date();
     const ymd = (d: Date) =>
@@ -264,7 +264,7 @@ describe('validateCommitDate', () => {
         d.getDate(),
       ).padStart(2, '0')}`;
     // 本地时区近似即可：±7 天容忍下 UTC/Shanghai 差 1 天不影响结论
-    // F20260913ctlv：±2 → ±7 放宽，集成测试用 8 天前才应拒绝
+    // ±2 → ±7 放宽，集成测试用 8 天前才应拒绝
     const eightDaysAgo = new Date(today.getTime() - 8 * 24 * 3600 * 1000);
 
     it('should exit 0 for valid F-type commit', () => {

@@ -82,9 +82,9 @@ export function loadTemplate(taskName, dir = join(repoRoot, 'prompts', 'schedule
 }
 
 /** dynamic 模板含运行时占位符（如 {{HEALING_DATA}}），DB 里的 body 由调度器动态生成，
- *  静态同步会破坏占位符形态（issue #416）。接受已读文件内容，避免重复 IO。
- *  值形态兼容：裸 true（含 YAML 规范的 True/TRUE 大写变体，检视#797 发现 2）/ 带引号 "true" / 行尾注释
- *  （#430 测试锁定，保守侧：宁可误判 dynamic 跳过，不覆盖 DB）。 */
+ * 静态同步会破坏占位符形态。接受已读文件内容，避免重复 IO。
+ * 值形态兼容：裸 true（含 YAML 规范的 True/TRUE 大写变体）/ 带引号 "true" / 行尾注释
+ * （测试锁定，保守侧：宁可误判 dynamic 跳过，不覆盖 DB）。 */
 export function isDynamicTemplate(fileContent) {
   const m = fileContent.match(/^---\n([\s\S]*?)\n---\n/);
   return m ? /^dynamic:\s*['"]?(?:true|True|TRUE)['"]?\s*(?:#.*)?$/m.test(m[1]) : false;
@@ -99,7 +99,7 @@ function main() {
     return;
   }
 
-  // 模板永远从脚本所在仓（worktree）读，确保与 PR 内容一致；--tpl-dir 供测试注入（#430）
+  // 模板永远从脚本所在仓（worktree）读，确保与 PR 内容一致；--tpl-dir 供测试注入
 
   const tpl = loadTemplate(name, explicitTplDir ?? join(repoRoot, 'prompts', 'scheduled'));
   if (!tpl) {
@@ -137,7 +137,7 @@ function main() {
   console.log(`[update-task] 任务「${name}」(${task.id}) body 已更新 ← ${tpl.path}`);
 }
 
-// 直接执行（非 import）时才跑 main——支持测试 import 函数级用例（#430）
+// 直接执行（非 import）时才跑 main——支持测试 import 函数级用例
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }

@@ -339,9 +339,9 @@ describe("F20260916fst4 agent-invoker 首哑信号消费", () => {
 
       // 可观察行为 1：dispatch 被调且目标为大獭
       expect(orderLog).toContain("dispatch");
-      // 可观察行为 3（#1430 首轮严重1）：首哑合成文本显式声明 system 来源——不进安全词扫描
+      // 可观察行为 3（首轮严重1）：首哑合成文本显式声明 system 来源——不进安全词扫描
       expect(captured.source).toBe("system");
-      // 可观察行为 2：alert 入队（C3 通道）+ system entry（搭档可见留痕）
+      // 可观察行为 2：alert 入队（通道）+ system entry（搭档可见留痕）
       expect(orderLog).toContain("enqueue");
       expect(sendEntry.store.systemBodies.some(b => b.includes("首哑告警"))).toBe(true);
     } finally {

@@ -23,8 +23,8 @@
  *
  * 已知局限（第一版，详见特性文档「设计取舍」节）：独立检视的真证据
  * 是 yield 检视派工 trace（DB 侧），脚本拿不到——「审查者署名」是脚本能判的最硬
- * 代理，署名真实性与「回执语义真实」由对抗审视 B9 抽样兜底（与 check-pr-evidence
- * 同构：机械闸不判真实，判结构；真实归检视獭 B9）。
+ * 代理，署名真实性与「回执语义真实」由对抗审视 抽样兜底（与 check-pr-evidence
+ * 同构：机械闸不判真实，判结构；真实归检视獭）。
  *
  * 退出码：0 闭环（含 docs-only 豁免）/ 1 断环 / 2 拒判（数据不足或查询失败——fail-closed 同态）。
  * 用法：
@@ -42,7 +42,7 @@ const PASS_RE = /(通过|闭环|复核确认|至此闭合|均已处置|全部落
 const FAIL_RE = /(需要修改|存在以下问题|request[ _-]?changes)/i;
 /** PASS 负向排除（防「未通过/没有通过/未闭环」等否定式误受） */
 const PASS_NEG_RE = /(未通过|没有通过|不通过|尚未通过|未闭环|未均已处置|未全部落实)/;
-/** 审查者署名（防 self-PASS——字符串在场，真实性由 B9 抽样兜底） */
+/** 审查者署名（防 self-PASS——字符串在场，真实性由 抽样兜底） */
 const REVIEWER_RE = /(##\s*审查者|reviewer-[\w-]+|检视獭)/;
 /** 处置确认段/逐条核实语义（上轮处置确认——空段即断环） */
 const DISPOSITION_RE = /(##\s*(上轮处置确认|处置确认|发现处置|逐条处置核实)|逐条(核实|处置|确认)|处置核实|均已处置|全部(正确|处置|落实))/;
@@ -128,7 +128,7 @@ export function checkReviewClosure(pr) {
     return { ok: false, status: "no_disposition", reasons };
   }
 
-  // 4. 审查者署名：挡住「无署名」的 self-PASS（字符串在场是脚本能判的最硬代理，真实性由 B9 兜底）
+  // 4. 审查者署名：挡住「无署名」的 self-PASS（字符串在场是脚本能判的最硬代理，真实性由 兜底）
   if (!REVIEWER_RE.test(body)) {
     reasons.push("覆盖 head 的回执无审查者署名（## 审查者 / reviewer- 名号）——无署名回执不构成独立检视");
     return { ok: false, status: "no_reviewer", reasons };

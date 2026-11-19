@@ -339,7 +339,7 @@ describe('LeftPanel 三分组 + 分页跳转（F20260922cgrp）', () => {
       expect(spy).toHaveBeenCalled()
       const call = spy.mock.calls.find(c => (c[0] as { offset?: number })?.offset === 20)
       expect(call).toBeTruthy()
-      // F20260922cgrp delta：普通区拉取带 pinned:false（排除置顶，计数口径对齐）
+      // delta：普通区拉取带 pinned:false（排除置顶，计数口径对齐）
       expect((call![0] as { pinned?: boolean }).pinned).toBe(false)
     })
   })
@@ -472,9 +472,9 @@ describe('LeftPanel IM 助理分组（F20260918imas）', () => {
         />
       )
     })
-    // 分组标签存在（F20260922cgrp：组头改为可折叠 GroupHeader）
+    // 分组标签存在（组头改为可折叠 GroupHeader）
     const label = container.querySelector('[data-testid="leftpanel-group-assistant"]')
-    // F20260920imax rebase 后分组标签含计数徽章（textContent = "IM 助理" + 数量）——
+    // rebase 后分组标签含计数徽章（textContent = "IM 助理" + 数量）——
     // 断言改为包含匹配，避免徽章计数变化脆断
     expect(label?.textContent).toContain('IM 助理')
     // 助理项与普通项各归各组：按渲染顺序，a1 在 c2（置顶普通）之前。
@@ -495,7 +495,7 @@ describe('LeftPanel IM 助理分组（F20260918imas）', () => {
   })
 
   it('置顶的助理对话仍留在 IM 助理分组内（不升入普通置顶组）', async () => {
-    // F20260922cgrp：普通对话由内部分页拉取——stub 提供（c1 非置顶，从父组件 props 隔离）
+    // 普通对话由内部分页拉取——stub 提供（c1 非置顶，从父组件 props 隔离）
     stubGroupFetch([dtoOf({ id: 'c1', title: '普通对话', status: 'active', otterIds: [], pinned: false })], 1)
     const convs: LocalConversation[] = [
       { id: 'a1', title: '微信助理 · x1', status: 'active', otterIds: [], pinned: true, kind: 'assistant' },

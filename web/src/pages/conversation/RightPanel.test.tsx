@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * RightPanel 关键资源展示测试（；升级 hover 卡行为）
+ * RightPanel 关键资源展示测试（升级 hover 卡行为）
  * - FactItem：长内容截断（truncate）+ 悬浮详情卡显示全文（可复制）
  * - LinkedResourceItem：统一 stone 色系 + 类型色块 + 截断 + 悬浮详情卡
  * - F20260828tab：tab 切换逻辑

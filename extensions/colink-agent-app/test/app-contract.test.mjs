@@ -243,7 +243,7 @@ test('vendored SDK matches the pinned version and the manifest constants are not
 });
 
 /**
- * 0.28.1 分页统一契约的 vendor 侧锁定（F20261118clkpg）。
+ * 0.28.1 分页统一契约的 vendor 侧锁定。
  * Why 直接测 vendor：我们自己的工具层用 fixture 打桩，看不出「pin 到的 SDK 到底放不放行 cursor」。
  * 一旦有人回退 vendor 到 0.28.0（dm 只认 beforeId/afterId），线上私聊翻页会以 400 失败，
  * 而工具层测试仍是绿的——这条断言就是那个缺口。

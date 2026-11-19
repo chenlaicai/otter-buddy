@@ -103,7 +103,7 @@ describe('ExecutionMachineModal（阶段 5 PR-B）', () => {
     await waitFor(() => expect(screen.getByText(/暂无远程动作记录/)).toBeTruthy())
   })
 
-  // minor2（检视遗留处置）：reload 非 OK 不再静默——401 呈现登录过期错误条而非误导空态
+  // reload 非 OK 不再静默——401 呈现登录过期错误条而非误导空态
   it('reload 401（会话过期）→ 登录过期错误条，不再呈现误导空态', async () => {
     vi.stubGlobal('fetch', stubFetch(() => jsonResponse({ error: 'unauthorized' }, 401)))
     render(<ExecutionMachineModal conversationId="c-1" onClose={() => {}} />)
@@ -111,7 +111,7 @@ describe('ExecutionMachineModal（阶段 5 PR-B）', () => {
     expect(screen.queryByText(/暂无远程动作记录/)).toBeNull()
   })
 
-  // minor2（检视遗留处置）：非 401 非 OK 聚合呈现，不再静默
+  // 非 401 非 OK 聚合呈现，不再静默
   it('reload 部分 5xx → 聚合错误条（含状态码），不再静默空态', async () => {
     vi.stubGlobal('fetch', stubFetch((url) => {
       if (url.includes('/remote-actions')) return jsonResponse({ error: 'boom' }, 500)

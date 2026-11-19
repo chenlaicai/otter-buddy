@@ -1,7 +1,7 @@
 /**
  * SnapshotShift: 健康分环比骤变检测
  *
- * 输入相邻两日的 health_index 快照行（五维 + overall，metricKey=D1..D5/overall），
+ * 输入相邻两日的 health_index 快照行（五维 + overall，metricKey=../overall），
  * 输出 |Δ|≥阈值的维度骤变列表。全确定性、无 LLM、纯函数。
  *
  * 消费链（定稿）：本模块只产出检测函数；每日检查任务用
@@ -21,7 +21,7 @@ export const SNAPSHOT_SHIFT_THRESHOLD = 10;
 /** 相邻两日的健康分快照值（null=当日该维度无数据，不参与 diff） */
 export interface HealthIndexSnapshot {
   snapshotDate: string;
-  /** metricKey：D1..D5 或 overall */
+  /** metricKey：..或 overall */
   metricKey: string;
   metricValue: number | null;
 }

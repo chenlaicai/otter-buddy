@@ -1,8 +1,8 @@
 /**
- * 能力测试：Magic Words 重审 + 獭间信号协议（C4 收口闸）。
+ * 能力测试：Magic Words 重审 + 獭间信号协议（收口闸）。
  *
- * C1-C4 分期落地后逐个激活（原 it.todo 占位——不伪造通过，声明「什么算实现完成」的验收锚点）。
- * C4 收口：全部转真实测试，grep 'it.todo' 零命中是母方案验收的收口闸。
+ * 分期落地后逐个激活（原 it.todo 占位——不伪造通过，声明「什么算实现完成」的验收锚点）。
+ * 收口：全部转真实测试，grep 'it.todo' 零命中是母方案验收的收口闸。
  *
  * 场景分类：
  * - L2 扫描 + LLM 语境确认（B 类，真 LLM 采样）：「这个词叫停下」讨论语境不急停
@@ -63,7 +63,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
     ctx?.cleanup();
   });
 
-  // 依赖 C3：用户消息 L2 扫描 + LLM 语境确认
+  // 依赖 用户消息 L2 扫描 + LLM 语境确认
   it("用户消息讨论「停下」一词（如「这个词叫停下」）不触发急停（3 次采样 ≥2）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
@@ -91,7 +91,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
     }, { budgetMs: 900000, sampleWorstMs: 300000 });
   }, 1_020_000);
 
-  // 依赖 C3：用户词 halt 合流——L2 命中注入 + LLM 确认后急停（B 类：LLM 需把命中判断为指令）
+  // 依赖 用户词 halt 合流——L2 命中注入 + LLM 确认后急停（B 类：LLM 需把命中判断为指令）
   it("用户独立成词的「停下」触发急停响应（含对运行中小獭 halt 打标——无运行中小獭时仅全场停手）（3 次采样 ≥2）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
@@ -101,7 +101,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
       await sendUserMessage(ctx, convId, "请记住数字 42，一会儿我会用到。简短确认即可。");
       const setupAnchor = latestUserSeq(await listMessages(ctx, convId));
       await waitForOtterMessage(ctx, convId, { timeoutMs: 150_000, afterSeq: setupAnchor });
-      /** #984（检视 1167 严重 1/3）：独立成词「停下」走系统级急停（message-controller
+      /** （检视 1167 严重 1/3）：独立成词「停下」走系统级急停（message-controller
        *  落库/点火前短路，202+halted）——user entry 不落库、大獭不唤醒。
        *  断言：①确定性信号 halted=true（触发层）；②急停后窗口内无新增副作用工具（行为层）。
        *  旧版 waitForOtterMessage 等新回复是断言病：急停后没有新回复是预期语义。 */
@@ -124,8 +124,8 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
     }, { budgetMs: 900000, sampleWorstMs: 300000 });
   }, 1_020_000);
 
-  // 依赖 C1：halt 边界注入（B 类：小獭收到 halt block 后的合规动作）
-  // #984（检视 1167 严重 1 补漏）：前世 3 轮 9 采样实证——测试端点（mimo-v2.6-flash）不把
+  // 依赖 halt 边界注入（B 类：小獭收到 halt block 后的合规动作）
+  // （检视 1167 严重 1 补漏）：前世 3 轮 9 采样实证——测试端点（mimo-v2.6-flash）不把
   // 「停掉小獭」识别为 halt_otter 指令，tsp 永远拿不到，用例必超时（本轮 600s 复现）。
   // 机制层有单测覆盖（halt 打标→block 注入），端点限制留样在此。待换强端点后启用。
   it.skip("大獭对运行中小獭 halt，小獭下一工具边界收尾停手，进度快照 yield 回发起者（上下文保留）（测试端点模型不识别 halt 指令，skip）", async (t) => {
@@ -142,10 +142,10 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
       // afterSeq 锚定：召唤轮之后的消息，防止拿到陈旧回复
       const summonAnchor = latestUserSeq(await listMessages(ctx, convId));
       const bigMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000, afterSeq: summonAnchor });
-      /** #984（检视 1167 严重 1/2）：speak(completed) ≠ 回合结束——tsp 在 yield 时落账，
+      /** （检视 1167 严重 1/2）：speak(completed) ≠ 回合结束——tsp 在 yield 时落账，
        *  读 tsp 前必须等大獭 invoke 终态（旧版竞态是「大獭未派工」三连的根因）。
        *  settled 后取大獭在锚点后最新带 tsp 的发言。 */
-      const bigOtterId = bigMsg.si; // ⚠️ 每对话独立大獭，取实际响应者；全局查询会拿错獭（9/28 round6 实证）
+      const bigOtterId = bigMsg.si; // ⚠️ 每对话独立大獭，取实际响应者；全局查询会拿错獭（9/28 实证）
       await waitForInvokeSettled(ctx, convId, bigOtterId, { timeoutMs: 300_000 });
       const settledMsgs = await listMessages(ctx, convId);
       const bigDispatch = settledMsgs
@@ -171,7 +171,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
       // 旧版缺 afterSeq 直接拿陈旧消息返回，随即查 signals 时大獭尚未执行——检查过早恒 false
       const haltAnchor = latestUserSeq(await listMessages(ctx, convId));
       await waitForOtterMessage(ctx, convId, { timeoutMs: 180_000, afterSeq: haltAnchor });
-      // #560：落账轮询替代固定 sleep(10s)——resolved 即刻返回；超时（60s）后返回最终态供断言诊断
+      // 落账轮询替代固定 sleep(10s)——resolved 即刻返回；超时（60s）后返回最终态供断言诊断
       const haltSignal = await waitForHaltSignalResolved(ctx, convId);
       if (!haltSignal) return { ok: false, detail: `无 halt signal 落账 signals=${JSON.stringify(signalEventsFor(ctx, convId).map(s => s.type))}` };
       const resolved = haltSignal.status === "resolved";
@@ -182,7 +182,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
     }, { budgetMs: 2160000, sampleWorstMs: 720000 });
   }, 2_280_000);
 
-  // 依赖 C2：objection 程序义务（B 类：小獭知道写 signal、大獭知道裁决义务）
+  // 依赖 objection 程序义务（B 类：小獭知道写 signal、大獭知道裁决义务）
   it("小獭对错误派工发含锚点的 objection，大獭下轮收到 reminder 并显式裁决（3 次采样 ≥2）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
@@ -211,7 +211,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
     }, { budgetMs: 1980000, sampleWorstMs: 660000 });
   }, 2_100_000);
 
-  // 依赖 C2：blocked 一等状态（B 类：blocked 信号附已试清单）
+  // 依赖 blocked 一等状态（B 类：blocked 信号附已试清单）
   it("小獭 blocked 信号附已试清单，落 signal_events 为一等状态（3 次采样 ≥2）", async (t) => {
     if (!ctx.llmAvailable) t.skip(`LLM 未配置：${ctx.skipReason}`);
 
@@ -238,7 +238,7 @@ describe("Magic Words 重审 + 獭间信号协议（真系统 + 真 LLM）", () 
     }, { budgetMs: 1080000, sampleWorstMs: 360000 });
   }, 1_200_000);
 
-  // 依赖 C4：词表改版生效（确定性 prompt 断言——无 LLM，不采样）
+  // 依赖 词表改版生效（确定性 prompt 断言——无 LLM，不采样）
   it("「星星罐子」「就这样」「严肃点」不再作为 Magic Words 被识别，行为由语义层自然覆盖", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");

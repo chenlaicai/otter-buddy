@@ -18,15 +18,15 @@ export interface PendingResume {
   attempts: number;
   createdAt: string;
   settledAt: string | null;
-  /** PR-B：认领令牌（认领窗口持有者标识；未认领为 null） */
+  /** 认领令牌（认领窗口持有者标识；未认领为 null） */
   claimToken: string | null;
-  /** PR-B：认领时的进程 boot 纪元——旧纪元残留认领可被新开机重认领
+  /** 认领时的进程 boot 纪元——旧纪元残留认领可被新开机重认领
    *  （恢复者自身崩溃不留死锁）；同 boot 内拒绝重认领（防双窗口双跑） */
   bootEpoch: number | null;
-  /** F20261117 检视轮可优化项 S3：认领进程 pid——重认领前 liveness 预检
+  /** 认领进程 pid——重认领前 liveness 预检
    *  （旧持有者仍存活则不抢防双跑；已死/NULL 才允许重认领） */
   claimPid: number | null;
-  /** PR-B：本恢复轮点火的 invoke id（审计链：原 invoke 为 PK 不变，
+  /** 本恢复轮点火的 invoke id（审计链：原 invoke 为 PK 不变，
    *  此列追加式记录每一轮的恢复 invoke，多次恢复全历史不丢） */
   recoveryInvokeId: string | null;
 }

@@ -103,7 +103,7 @@ function createMockTaskRepo(task: ScheduledTask) {
   } as unknown as ScheduledTaskRepository;
 }
 
-/** 状态化捕获：sendEntry.createSystemEntry 创建过的 body 列表（F20260913ctlv 批2 切 entries） */
+/** 状态化捕获：sendEntry.createSystemEntry 创建过的 body 列表（批2 切 entries） */
 function createCapturingSendEntry() {
   const sentBodies: string[] = [];
   const createSystemEntry = vi.fn(async ({ body }: { body: string }) => {
@@ -175,7 +175,7 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
     expect(capturing.sentBodies).toHaveLength(1);
     const effectiveBody = capturing.sentBodies[0];
 
-    // 动态数据部分（#1512 线索化后：样本行含 id 短锚 + msg 前缀，无 ### 分组头）
+    // 动态数据部分（线索化后：样本行含 id 短锚 + msg 前缀，无 ### 分组头）
     expect(effectiveBody).toContain('mock healing event 0');
     expect(effectiveBody).toContain('工具故障');
     expect(effectiveBody).toContain('当前系统健康概况');
@@ -203,7 +203,7 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
     expect(effectiveBody).toContain('獭能力失败 2 条');
     expect(effectiveBody).toContain('主动反馈 0 条');
     // 口径文案从实体清单拼接（非硬编码字面量）——测试期望与生产同源（scheduler-service.ts:1518），
-    // 清单新增类型不再失配（F20260922txes delta 复核回归 1：清单 4→5 时硬编码字面量失配）
+    // 清单新增类型不再失配（delta 复核回归 1：清单 4→5 时硬编码字面量失配）
     expect(effectiveBody).toContain(`${HEALING_ENVIRONMENT_TYPES.join('/')}=环境`);
     expect(effectiveBody).toContain(`${HEALING_FEEDBACK_TYPES.join('/')}=反馈独立列`);
   });
@@ -222,7 +222,7 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
     const result = await service.trigger('task-healing');
 
     // 副作用断言：未发送消息 + 日志记录跳过原因（状态化捕获，非 mock 调用断言）
-    // #1208：skip 落 skipped execution 行 → executionId 非空（此前空串 = 静默）
+    // skip 落 skipped execution 行 → executionId 非空（此前空串 = 静默）
     expect(result.executionId).toBeTruthy();
     expect(capturing.sentBodies).toHaveLength(0);
     const skipLogged = (mockLogger.info as ReturnType<typeof vi.fn>).mock.calls.some(
@@ -233,7 +233,7 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
 
   it('cwd 非项目根时：模板仍生效（#429，路径基于代码位置解析）', async () => {
     // 旧行为：cwd 切走 → readFileSync ENOENT → 回退内置文案。
-    // 新行为：路径基于 import.meta.dirname 定位仓库根（#429），cwd 无关，真模板照常生效。
+    // 新行为：路径基于 import.meta.dirname 定位仓库根，cwd 无关，真模板照常生效。
     // 区分真模板 vs 回退文案：守卫测试锁定二者内容一致，唯一稳定差异是
     // 真模板走 includes('{{HEALING_DATA}}') 替换分支——替换后不含字面占位符，
     // 回退文案 replace 后也同样不含——因此改用 warn 日志副作用区分：真模板生效时
@@ -312,7 +312,7 @@ describe('SchedulerService - self-healing-analysis 模板化（issue #416）', (
   });
 });
 
-// ─── #1512：数据区线索化（样本行含事件锚点 + 建议不随行 + 预算控制）────
+// ─── 数据区线索化（样本行含事件锚点 + 建议不随行 + 预算控制）────
 describe('SchedulerService - self-healing-analysis 数据区线索化（#1512）', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -322,7 +322,7 @@ describe('SchedulerService - self-healing-analysis 数据区线索化（#1512）
     vi.useRealTimers();
   });
 
-  /** #1512 mock：带 suggestion + 长 description（模拟 guard 引导全文嵌入形态） */
+  /** mock：带 suggestion + 长 description（模拟 guard 引导全文嵌入形态） */
   function createVerboseHealingRepo(count: number, opts: { duplicatePrefix?: boolean } = {}) {
     const events = Array.from({ length: count }, (_, i) => ({
       id: `hevt${String(i).padStart(2, "0")}x9k`,

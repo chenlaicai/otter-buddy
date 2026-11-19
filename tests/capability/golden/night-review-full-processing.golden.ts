@@ -90,7 +90,7 @@ const MIGRATION_TOOLS = new Set(["belief_verify", "belief_reject", "belief_super
 const ALLOWED_TOOLS = new Set([...MIGRATION_TOOLS, "speak", "yield"]);
 
 /** 提取工具调用轨迹（name + entry_id 参数）——「每条必处置」按条目去重判，
- *  防同条重复调用虚增计数（四轮审视发现 19 钉证形态）。 */
+ * 防同条重复调用虚增计数（四轮审视钉证形态）。 */
 type GoldenEvent = { eventType: string; payload?: { content?: Array<{ type: string; name?: string; arguments?: unknown }> } };
 type GoldenMsg = { st: string; seq: number; events?: GoldenEvent[] };
 
@@ -187,7 +187,7 @@ export const selftest: GoldenModule["selftest"] = async (ctx) => {
         expectedOk: false,
       },
       {
-        // 同条重复处置 + 无 speak 收尾（四轮审视发现 19 钉证形态）
+        // 同条重复处置 + 无 speak 收尾（四轮审视钉证形态）
         messages: [
           {
             id: "st-nr-o3", st: "otter", si: "selftest-otter", content: "", status: "completed", seq: 1,

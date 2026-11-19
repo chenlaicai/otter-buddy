@@ -35,7 +35,7 @@ describe('F20260909scrf6：弹窗期内容自模糊样式契约', () => {
   })
 })
 
-/** 冻结链标识 pattern（-C2）：模块级单一真相源，契约用例与 corpus 自测共用 */
+/** 冻结链标识 pattern（-）：模块级单一真相源，契约用例与 corpus 自测共用 */
 const FREEZE_CHAIN_PATTERN = /modalOpen|isAnyModalOpen|runOrDefer|flushDeferredOps|getShouldDefer/
 
 /**
@@ -79,8 +79,8 @@ describe('F20260929fcln：冻结链退役契约（#884）', () => {
   it('conversation/index.tsx 已拆冻结链（无 modalOpen 派生/门控、无 runOrDefer、无关窗 flush）', () => {
     const page = readFileSync(resolve(__dirname, '../pages/conversation/index.tsx'), 'utf-8')
     // 裸子串匹配：modalOpen / modalOpenRef / setModalOpen 全形态覆盖，
-    // isAnyModalOpen 因大写 M 不被裸子串命中（r3-C1）需显式列出。
-    // 不能用 \b 词边界——\bmodalOpen\b 对 modalOpenRef 不命中（r2-D1 实证）。
+    // isAnyModalOpen 因大写 M 不被裸子串命中（-）需显式列出。
+    // 不能用 \b 词边界——\bmodalOpen\b 对 modalOpenRef 不命中（-实证）。
     // 当前文件零命中，误报零
     expect(page).not.toMatch(FREEZE_CHAIN_PATTERN)
   })
@@ -90,13 +90,13 @@ describe('F20260929fcln：冻结链退役契约（#884）', () => {
     // pattern 变更时本用例先红，不再依赖「每轮手工注入两三个形态」的抽查式验证
     const FREEZE_PATTERN = FREEZE_CHAIN_PATTERN
     const positive = [
-      'if (modalOpen) return',                        // 裸门控（r2-D1 验收点 2）
-      'if (modalOpenRef.current) return',              // ref 镜像（历史真实形态，r2-D1 验收点 1）
+      'if (modalOpen) return',                        // 裸门控（-验收点 2）
+      'if (modalOpenRef.current) return',              // ref 镜像（历史真实形态，-验收点 1）
       'const [modalOpen, setModalOpen] = useState(false)', // state 声明
-      'const isAnyModalOpen = modal.type !== \'none\'',  // 派生（r3-C1）
-      'runOrDefer(() => setAllOtters(apply))',         // 延迟队列（F20260827scrf2）
+      'const isAnyModalOpen = modal.type !== \'none\'',  // 派生（-）
+      'runOrDefer(() => setAllOtters(apply))',         // 延迟队列
       'flushDeferredOps()',                            // 关窗 flush
-      'getShouldDefer: () => modalOpenRef.current',    // batcher defer 参数（F20260825scrf）
+      'getShouldDefer: () => modalOpenRef.current',    // batcher defer 参数
     ]
     const negative = [
       'useConversationListPolling(enabled, setConversations, visibleConvIds)',

@@ -11,9 +11,9 @@ import { streamEvents } from "../sse-streamer";
 import type { SSEEvent } from "@contract/sse/events";
 
 /**
- * Phase 4：invoke 只读查询端点。
+ * invoke 只读查询端点。
  * Session 弹窗（invoke 列表 + 流式过程展开）与右侧栏状态面板刷新的数据源。
- * 只读——invoke 生命周期写入由 agent-invoker/orchestrator 负责（Phase 2 已建）。
+ * 只读——invoke 生命周期写入由 agent-invoker/orchestrator 负责（已建）。
  */
 
 export class InvokeController {
@@ -96,7 +96,7 @@ export class InvokeController {
   }
 
   /** POST /api/invokes/:id/retry
-   *  F20260913ctlv 彻底切换：invoke 重试 = 对该獭重新 invoke 一次（新 invoke 行 + 新时间线）。
+   * 彻底切换：invoke 重试 = 对该獭重新 invoke 一次（新 invoke 行 + 新时间线）。
    *  session 上下文已完整（原 invoke 的过程都在 session 里），重试 prompt 用简短续跑指令。
    *  SSE 流与正常发言链一致（entry.* / invoke.* 事件经 broadcaster 推送）。 */
   async retry(c: Context): Promise<Response> {
@@ -129,12 +129,12 @@ export class InvokeController {
   }
 
   /** POST /api/otters/:id/retry?conversationId=xxx
-   *  F20260913ctlv test17（搭档拍板）：獭锚重试——重试的是「该獭的 session」（上下文载体），
+   * test17（搭档拍板）：獭锚重试——重试的是「该獭的 session」（上下文载体），
    *  invoke 只是 session 上的一次执行记录。invokeId 锚的「重试哪次」是伪精度（triggerMessageId
    *  在链引擎未被消费、retry prompt 不引用旧 invoke），故改为獭锚简化链路。
    *  定位：该獭最近一次非 completed invoke（无可重试目标 409）；session 上下文承载原始任务。
    *
-   *  F20261020ided 判重去重：「同獭 running 时重试/再派工」必须在判重层被拒，而不是下沉到
+   * 判重去重：「同獭 running 时重试/再派工」必须在判重层被拒，而不是下沉到
    *  session 锁 30s 超时后裸抛「[错误] Lock acquire timeout…」（现场：前端 116ms 双击重试
    *  按钮各放行一条，第二条撞锁超时）。判重语义三层（与 abort/retry 窗口竞态裁决一致）：
    *  ①invoke 库行 running → 明确在跑 → 409 otter_invoke_running
@@ -159,7 +159,7 @@ export class InvokeController {
           code: 'external_invoke_retry_unsupported',
         }, 409);
       }
-      // ①库行 running → 明确在跑 → 判重拒绝（F20261020ided）
+      // ①库行 running → 明确在跑 → 判重拒绝
       if (latest.status === "running") {
         return c.json(
           { error: "otter is currently running, retry rejected", code: "otter_invoke_running" },

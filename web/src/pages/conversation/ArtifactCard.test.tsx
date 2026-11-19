@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * P1：文类产物摘要卡混排测试。
+ * 文类产物摘要卡混排测试。
  * 锁定行为：①pr/file/fact 类型的 linkedResources 按 createdAt 插到时间轴对应位置；
  * ②fact 卡显示 content 全文（≤500 字）；③file 卡显示首段摘要+展开全文；
  * ④钉住按钮切换高亮状态；⑤非 pr/file/fact 类型（url/worktree/branch）不混排。

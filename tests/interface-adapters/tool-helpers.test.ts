@@ -78,7 +78,7 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     expect(validateSpeakBody(undefined, body)).toBeNull();
   });
 
-  // F20261022cfme（#959）：嵌套围栏 under-measure 修复回归——改 remark 解析后体积完整测量。
+  // 嵌套围栏 under-measure 修复回归——改 remark 解析后体积完整测量。
   it("F20261022cfme：嵌套围栏（开4内嵌3）卡片体积完整测量——超 64KB 被拒（修复前正则 under-measure 漏报）", () => {
     const big = "x".repeat(70000);
     const body = '````html-card title="嵌套大卡"\n<p>head</p>\n```\nembedded\n```\n' + big + '\n````';
@@ -114,7 +114,7 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     expect(validateSpeakBody(card, card)).toBeNull();
   });
 
-  // F20261022cfme（S3 补牙）：S2 两条行为变化的有牙回归——旧正则下修复前红（case A 丢卡放行、case B 误拦）。
+  // （补牙）：两条行为变化的有牙回归——旧正则下修复前红（case A 丢卡放行、case B 误拦）。
   it("F20261022cfme（S2 行为）：body 假围栏字样 + assistant 真卡——仍报 speak 之外（防静默丢卡回退）", () => {
     const turn = '```html-card title="外"\n<div>x</div>\n```';
     const body = '说明：\n\n    ```html-card\n    字样\n';
@@ -270,7 +270,7 @@ describe("truncateToolResult", () => {
   });
 });
 
-/** F20261009csp2 补丁：活类卡登记摘要提取——script/style 源码不得漏进摘要（乱码卡实证） */
+/** 补丁：活类卡登记摘要提取——script/style 源码不得漏进摘要（乱码卡实证） */
 describe("extractPlayableCardSummary（活类卡登记摘要）", () => {
   const gameHtml = `<div><div style="display:none">终章灰盒试玩：先占卜获取情报，召唤洞察獭补自测盲区，最后念出封印咒语。</div><div id="screen">镜湖。水面没有倒影。</div><div id="hud">幼獭 HP 100</div></div>
 <script>
@@ -303,7 +303,7 @@ describe("extractPlayableCardSummary（活类卡登记摘要）", () => {
   });
 });
 
-/** 检视处置 A1/A2（PR #1396 对抗审视，检视獭1396 报告） */
+/** 检视处置 /（对抗审视，检视獭1396 报告） */
 describe("extractPlayableCardSummary（检视处置补丁）", () => {
   it("A1：未闭合 script（截断卡）不漏源码——剥到结尾", () => {
     const truncated = '<div>镜湖开场文案</div><script>var S = { hp:100, mp:60, divined:false';
@@ -325,7 +325,7 @@ describe("extractPlayableCardSummary（检视处置补丁）", () => {
 
 
 
-/** F20261118dsmlk（#1916）：工具调用序列化泄漏剥离 */
+/** 工具调用序列化泄漏剥离 */
 describe("stripToolCallSerializationLeak", () => {
   // 真实事故字节（durable-sessions/30288072 entry 333 hexdump）：左尖括号 + 全角竖线
   // （U+FF5C）+ 大写 DSML + 全角竖线 + 标签名。用 Unicode 转义拼接，避免源码直写全角。

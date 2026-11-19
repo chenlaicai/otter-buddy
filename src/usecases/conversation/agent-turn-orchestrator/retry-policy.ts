@@ -36,7 +36,7 @@ export function buildRetryFailBody(reason: string): string {
   if (reason === "first_byte_timeout") return "生成超时（长时间无输出）";
   if (reason.startsWith("circuit_break:")) return "工具调用异常";
   if (reason === "api_error") return "底层调用错误";
-  // T2：对话流可见文案——事实而非误导（修复前显示通用「执行异常」）
+  // 对话流可见文案——事实而非误导（修复前显示通用「执行异常」）
   if (reason.startsWith("bash_safety:")) return "检测到针对主进程的不允许命令，已拦截并引导海獭重新分析任务";
   // sleep 拦截的对话流文案——感知问题非安全问题，措辞向引导而非 kill 域
   if (reason.startsWith("bash_sleep:")) return "检测到长时间静默等待（sleep），已拦截并引导海獭说明理由后改用 wait 工具";
@@ -65,25 +65,25 @@ export function buildAutoRetryMsg(reason: string): string {
   if (reason.startsWith('circuit_break:')) {
     return '[系统提醒] 你上一轮工具调用异常，已被系统自动重试。请检查工具调用策略后继续。';
   }
-  // T2：透传拦截原因 + 无 restart 出口口径（搭档终审：不存在海獭重启主进程的合法场景）
+  // 透传拦截原因 + 无 restart 出口口径（搭档终审：不存在海獭重启主进程的合法场景）
   // Part B：文案压缩——原因透传保留（自诊断必需），引导语从 200 字长文压为一句
   // （四要素浓缩：不允许 + 无合法场景 + worktree 正道 + 换写法；9/23 实证重试 3 次重复长文刷屏）。
   if (reason.startsWith('bash_safety:')) {
     return `[系统提醒] 你刚才的 bash 命令被安全守卫拦截：${reason.slice('bash_safety:'.length)} 该命令不允许（主进程是海獭运行环境，不存在需要重启或停止主进程的合法场景）——验证代码变更请在 worktree 起隔离实例，服务异常报告搭档。请换写法继续，不要重复原命令。`;
   }
-  // F20260928slan：sleep 拦截的 LLM 文案——透传守卫引导文案，提示 speak 先行 + wait 工具，无 kill 域样板
+  // sleep 拦截的 LLM 文案——透传守卫引导文案，提示 speak 先行 + wait 工具，无 kill 域样板
   if (reason.startsWith('bash_sleep:')) {
     return `[系统提醒] 你刚才的 bash 命令被等待守卫拦截：${reason.slice('bash_sleep:'.length)} 请先 speak 说明你在等什么、为什么是这个时长，然后改用 wait 工具（seconds/reason/until）。请基于以上约束继续执行，不要重复原命令。`;
   }
   return '[系统提醒] 你上一轮执行异常，已被系统自动重试。请继续完成你的发言。';
 }
 
-// ─── F20260916b1ea：重启自动恢复文案（9/13 被 #886 误删，invoke 模型重建）───
+// ─── 重启自动恢复文案（9/13 被 误删，invoke 模型重建）───
 
 /**
- * F20260916b1ea：恢复链续跑引导文案。invoke 模型下被中断獭已落库的
+ * 恢复链续跑引导文案。invoke 模型下被中断獭已落库的
  * speak entries 追加式保留，文案由旧版「保留在本条消息中」改为「保留在对话中」。
- * F20261116actlg PR-B：可选内嵌动作台账摘要（机器真相——succeeded 别重做/unknown
+ * 可选内嵌动作台账摘要（机器真相——succeeded 别重做/unknown
  * 先检查/interrupted 可重做），「上一步实际做没做成」从此查台账不靠回忆。
  */
 export function buildRestartResumeMsg(actionLedgerSummary?: string | null): string {
@@ -93,20 +93,20 @@ export function buildRestartResumeMsg(actionLedgerSummary?: string | null): stri
   return `[系统提醒] 服务重启导致你的执行中断，系统已自动恢复。${summaryBlock}你之前 speak 的内容已保留在对话中，请基于已有进度继续完成发言，然后 yield 交棒。如果对任务上下文记忆不完整，先查阅消息历史再继续。`;
 }
 
-/** F20260916b1ea：恢复失败/跳过的用户可见提示（成功路径静默——沿用搭档 9/6 裁决）。 */
-/** F20260916b1ea：恢复链 invoke 失败状态提示（failed = 可手动重试，区别于 exhausted 永久放弃） */
+/** 恢复失败/跳过的用户可见提示（成功路径静默——沿用搭档 9/6 裁决）。 */
+/** 恢复链 invoke 失败状态提示（failed = 可手动重试，区别于 exhausted 永久放弃） */
 export function buildRestartResumeFailedInvokeMsg(): string {
   return "[系统] 恢复过程中 invoke 失败，已标记为失败，请手动重试该消息。";
 }
 
-// ─── #731：bash 守卫二拦终态自动回发控制信号（guard bounce）───
+// ─── bash 守卫二拦终态自动回发控制信号（guard bounce）───
 
 /**
- * #731：单獭 guard bounce 自动回发上限（GUARD_BOUNCE_WINDOW_MS 窗口内）。
+ * 单獭 guard bounce 自动回发上限（GUARD_BOUNCE_WINDOW_MS 窗口内）。
  * 超限停止自动回发，升级上报（healing high + 会话内系统消息）。
  * 拦截是反馈信号不是断头台——但反馈被无视 N 次后必须见人。
  *
- * F20261008hcpa（#1356 层1 打断）：上限 3→2——同规则第 3 次拦截不再自动回发，
+ * （层1 打断）：上限 3→2——同规则第 3 次拦截不再自动回发，
  * 直接走升级（abort 终态 + 系统消息 + healing high）。升级后的 healing 事件
  * （severity high）由层3 接盘：消费任务强制 bind_issue，24h 无人处置推 alert-registry。
  * 搭档终审语义不变：「反馈被无视 N 次后必须见人」，N 从 3 收紧到 2（打断更早）。
@@ -114,15 +114,15 @@ export function buildRestartResumeFailedInvokeMsg(): string {
 export const GUARD_BOUNCE_MAX = 2;
 
 /**
- * #731：bounce 计数窗口（ms）——限「同时失控的自循环」；
+ * bounce 计数窗口（ms）——限「同时失控的自循环」；
  * 历史拦截随窗口滑出，不永久占用额度（十分钟前的教训不该堵死现在的自纠）。
  */
 export const GUARD_BOUNCE_WINDOW_MS = 10 * 60 * 1000;
 
 /**
- * #731：bounce 回发消息——复用 buildAutoRetryMsg 的四要素文案（被拦/为什么/正道/继续），
- * 前缀告知回发进度。口径与 F20260831aksp 终审一致：不提供任何 restart 出口。
- * F20260928slan：sleep 拦截的 bounce 前缀按域区分文案（感知问题 vs 安全问题）。
+ * bounce 回发消息——复用 buildAutoRetryMsg 的四要素文案（被拦/为什么/正道/继续），
+ * 前缀告知回发进度。口径与 终审一致：不提供任何 restart 出口。
+ * sleep 拦截的 bounce 前缀按域区分文案（感知问题 vs 安全问题）。
  */
 export function buildGuardBounceMsg(reason: string, attempt: number): string {
   const core = buildAutoRetryMsg(reason).slice('[系统提醒] '.length);
@@ -132,8 +132,8 @@ export function buildGuardBounceMsg(reason: string, attempt: number): string {
   return `[系统提醒] ${prefix}${core}`;
 }
 
-/** #731：bounce 时旧消息的 fail 过渡文案（一拦 auto-retry 的 buildRetryFailBody 同族，区别在自纠已失败一次）。
- *  F20260928slan：入参化——睡眠域「长时间静默等待（自纠后仍裸 sleep）」，安全域保留原「进程」措辞。 */
+/** bounce 时旧消息的 fail 过渡文案（一拦 auto-retry 的 buildRetryFailBody 同族，区别在自纠已失败一次）。
+ * 入参化——睡眠域「长时间静默等待（自纠后仍裸 sleep）」，安全域保留原「进程」措辞。 */
 export function buildGuardBounceFailBody(guardReason?: string): string {
   if (guardReason?.startsWith('bash_sleep:')) {
     return "检测到长时间静默等待（sleep，自纠重试后仍被拦），已拦截并自动回发控制信号";
@@ -141,8 +141,8 @@ export function buildGuardBounceFailBody(guardReason?: string): string {
   return "检测到针对主进程的不允许命令（自纠重试后仍被拦），已拦截并自动回发控制信号";
 }
 
-/** #731：bounce 超限升级的会话内用户可见通知。
- *  F20260928slan：入参化——睡眠域引导「改用 wait 工具并说明理由」，安全域保留「进程管理」排查口径。 */
+/** bounce 超限升级的会话内用户可见通知。
+ * 入参化——睡眠域引导「改用 wait 工具并说明理由」，安全域保留「进程管理」排查口径。 */
 export function buildGuardBounceEscalationMsg(otterName: string, guardReason?: string): string {
   if (guardReason?.startsWith('bash_sleep:')) {
     return `[系统保护] ${otterName} 已连续 ${GUARD_BOUNCE_MAX} 次被等待守卫拦截并自动回发，仍在尝试裸 sleep——已停止自动回发并中断其发言。请人工介入：引导该獭改用 wait 工具并先 speak 说明理由，或核实守卫是否误拦。`;
@@ -150,7 +150,7 @@ export function buildGuardBounceEscalationMsg(otterName: string, guardReason?: s
   return `[系统保护] ${otterName} 已连续 ${GUARD_BOUNCE_MAX} 次被 bash 守卫拦截并自动回发，仍在尝试被拦命令——已停止自动回发并中断其发言。请人工介入：排查该獭任务是否涉及进程管理，或核实守卫是否误拦。`;
 }
 
-// ─── F20261008gduc P0-2：同规则 3 连判「疑似误拦」降级通道（#1353 獭失联半小时）───
+// ─── 同规则 3 连判「疑似误拦」降级通道（獭失联半小时）───
 // 同规则阈值复用 GUARD_BOUNCE_MAX（=3）——曾有独立常量 GUARD_BOUNCE_SAME_RULE_MAX
 // 但未被消费形成误导，已删除；降级触发条件 = priorBounces >= GUARD_BOUNCE_MAX 且滑窗 bounce
 // 全部命中同一 ruleId（orchestrator detectSameRuleBounce）。
@@ -158,16 +158,16 @@ export function buildGuardBounceEscalationMsg(otterName: string, guardReason?: s
 /** 宪法高危分层（bash-guard-constitution「一、分层原则」）——命中这些层的规则时通知文案中性化。 */
 const HIGH_RISK_RULE_LAYERS = new Set(["self_kill", "bypass_guard"]);
 
-/** P0-2（PR #1360 §3.5）：高危规则（kill 族/防绕过）的「大概率误拦」预判可能诱导搭档放行真违规——文案中性化判定。 */
+/** 高危规则（kill 族/防绕过）的「大概率误拦」预判可能诱导搭档放行真违规——文案中性化判定。 */
 export function isHighRiskRuleLayer(ruleLayer?: string): boolean {
   return ruleLayer !== undefined && HIGH_RISK_RULE_LAYERS.has(ruleLayer);
 }
 
 /**
- * P0-2：疑似误拦的搭档侧通知。同规则 3 连说明命令形态稳定（獭在正确命令上反复撞墙），
- * 大概率守卫误拦面而非獭顽固违规——此时 abort 是错杀（#1353：獭失联半小时），
+ * 疑似误拦的搭档侧通知。同规则 3 连说明命令形态稳定（獭在正确命令上反复撞墙），
+ * 大概率守卫误拦面而非獭顽固违规——此时 abort 是错杀（獭失联半小时），
  * 改为请搭档人工核实/临时放行。含命令摘要 + 命中规则 + 重试次数三要素。
- * PR #1360 §3.5：高危规则层（self_kill/bypass_guard）不预判「大概率误拦」——
+ * 高危规则层（self_kill/bypass_guard）不预判「大概率误拦」——
  * 改中性文案请搭档核实命令正当性，防预判诱导放行真违规；低危层（r1_gate/permission/habit）
  * 保留误拦倾向判断。
  */
@@ -186,9 +186,9 @@ export function buildGuardBounceSuspectedFpMsg(
 }
 
 /**
- * P0-2：降级通道给獭的会话内提示（retry message 注入下一轮 invoke context）。
+ * 降级通道给獭的会话内提示（retry message 注入下一轮 invoke context）。
  * 不再让它继续撞同一规则（abort 前它已重试 3 次同一形态），引导换写法/报告搭档。
- * PR #1360 §3.5：高危规则层不预判「大概率误拦」——与搭档侧通知同口径中性化。
+ * 高危规则层不预判「大概率误拦」——与搭档侧通知同口径中性化。
  */
 export function buildGuardBounceSuspectedFpRetryMsg(ruleId: string, ruleLayer?: string): string {
   const head = `[系统提醒] 你已连续多次被 bash 守卫拦截且命中同一规则（${ruleId}）。`;
@@ -198,7 +198,7 @@ export function buildGuardBounceSuspectedFpRetryMsg(ruleId: string, ruleLayer?: 
   return `${head}系统判断大概率是守卫误拦。请不要再重复相同命令形态：①尝试换一种写法（如显式 cd worktree 路径、拆分命令）；②若确认命令本身正当，speak 向搭档说明情况并请求人工放行；③不要再自动重试相同命令。`;
 }
 
-/** F20260922txes：超时类重试耗尽终态的会话内用户可见提示（L3 升级上报）
+/** 超时类重试耗尽终态的会话内用户可见提示（L3 升级上报）
  *  口径与 buildUserAbortBody 一致：只写确证事实（重试过、仍超时、可手动重试），不归因模型/网络。 */
 export function buildTimeoutRetryExhaustedMsg(guardReason: string): string {
   const label = guardReason === 'first_byte_timeout'
@@ -220,13 +220,13 @@ export function buildGuardAbortBody(guardReason: string | undefined): string {
     return '[系统保护] 检测到工具调用异常循环，已自动中断。';
   }
   if (guardReason?.startsWith('bash_safety:')) return '[系统保护] 检测到针对主进程的不允许命令（主进程是海獭运行环境，任何情况下不得终止），已自动中断。若需验证代码变更请在 worktree 用独立端口启动隔离实例；服务异常请报告搭档。';
-  // F20260928slan：sleep 拦截终态文案——感知问题非安全问题，引导 wait 工具 + speak 先行
+  // sleep 拦截终态文案——感知问题非安全问题，引导 wait 工具 + speak 先行
   if (guardReason?.startsWith('bash_sleep:')) return '[系统保护] 检测到长时间静默等待（sleep），已自动中断。等待请用 wait 工具并先向搭档说明理由（speak 说明等什么、为什么是这个时长）。';
   return '[系统保护] 输出异常，已自动中断。';
 }
 
 /** Build user abort body with partner label.
- *  F20260913ctlv 搭档拍板口径：只写确证内容——中断不一定有底层错误，可能就是主动中断；
+ * 搭档拍板口径：只写确证内容——中断不一定有底层错误，可能就是主动中断；
  *  系统无法确证错误根因归类，不写「模型服务异常」这类断言，改为确证事实 + 附错误原文。 */
 export function buildUserAbortBody(
   toolCallCount: number,
@@ -247,7 +247,7 @@ export function buildUserAbortBody(
 }
 
 /**
- * F20260818cbkr：熔断重启相关文案与摘要构建（纯函数）。
+ * 熔断重启相关文案与摘要构建（纯函数）。
  * 熔断路径：orchestrator 收尾当前消息 + 上抛信号 → agent-invoker restart + 全新 invoke。
  */
 

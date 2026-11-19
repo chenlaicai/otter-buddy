@@ -85,7 +85,7 @@ describe("F20261027cnsv D2 链式 hop 委托", () => {
 
   it("单目标单飞行拒绝：链不 abort（rejects 不再外抛），不 fallback 重投，人话系统通知落账", async () => {
     // 审视修复（Feb 发现 1）：旧断言 executeChain rejects 把「整链 abort」钉成
-    // 预期行为，与 D2「新 hop 快速失败（人话）+ 显式拒绝而非静默丢」口径冲突——
+    // 预期行为，与 「新 hop 快速失败（人话）+ 显式拒绝而非静默丢」口径冲突——
     // 修复后被拒目标走 rejected 结果通道（不重投），链正常收敛，人话通知显式告知。
     const invokeFn: InvokeFn = async () => { throw new Error("拒绝后不得重投"); };
     const systemBodies: string[] = [];

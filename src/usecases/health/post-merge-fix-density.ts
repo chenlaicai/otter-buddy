@@ -138,12 +138,12 @@ function detectChainFixDensity(ctx: {
   const chainFiles = new Set([...chain.touchFiles].filter(f => !excludedSet.has(f)));
   const bugfixHits = countBugfixHits(inWindow, chainFiles);
 
-  // 双门 AND（#1051 方案 1）：两道门都要过。原「或门」让次数门在大分母下失守——
+  // 双门 AND（方案 1）：两道门都要过。原「或门」让次数门在大分母下失守——
   // 月产 200+ commit 的仓库里，合入 30 天内的特性几乎必然凑够 3 条 bugfix。
   // 占比直接按实算，不再设最小分母下限：原设计的「分母 <5 占比失真」顾虑（合入后
   // 仅 1 条 bugfix → 100% 触发是荒谬的）在 AND 语义下已由次数门接管——占比只在
   // 次数 ≥3 时才可能过关，1 条 bugfix 无论如何过不了。而保留下限会造成**非单调悬崖**
-  //（PR #1560 检视建议 4）：3 bugfix/4 commit=75% 双门皆过却被拦，3/5=60% 反而触发。
+  //3 bugfix/4 commit=75% 双门皆过却被拦，3/5=60% 反而触发。
   const ratio = inWindow.length > 0 ? bugfixHits / inWindow.length : 0;
   if (bugfixHits < FIX_COUNT_THRESHOLD || ratio < FIX_RATIO_THRESHOLD) return null;
 
@@ -188,7 +188,7 @@ function summarizeExclusions(excluded: Array<{ file: string; fanIn: number }>): 
  * 从链集合计算高扇入排除清单（GET /api/health/chains 响应附带——排除清单常驻可见，
  * 不依赖信号触发。验收项：清单可见不黑箱）。
  *
- * 单一真相源（检视建议 3）：检测器与 chains 端点共用本函数，扇入统一按链构建窗口
+ * 单一真相源：检测器与 chains 端点共用本函数，扇入统一按链构建窗口
  * （60 天）的链触碰统计。此前检测器从 30 天检测窗口 commit 流独立计算，与端点构成
  * 双计算源——两窗口清单当前重合是数据分布的偶然，边界文件随仓库活动漂移后
  * 面板展示清单与检测器实际排除集会失配，UI 声明「不计入合并后修复密度信号」失实。

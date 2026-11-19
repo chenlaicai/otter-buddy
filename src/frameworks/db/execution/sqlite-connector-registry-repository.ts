@@ -49,7 +49,7 @@ function rowToSession(row: OnlineSessionRow): OnlineSession {
 }
 
 /**
- * （阶段 4 C1）：connector 注册仓库 sqlite 实现。
+ * connector 注册仓库 sqlite 实现。
  * 总闸唯一事实源——所有状态变更先落库，内存投影（Registry/WSS 通道）随后跟进；
  * 库写失败由调用方收敛 fail-closed（宁可误下线不可误放行）。
  */
@@ -71,7 +71,7 @@ export class SqliteConnectorRegistryRepository implements ConnectorRegistryRepos
   }
 
   async redeemAndCreateDevice(code: string, device: Device, now: string): Promise<boolean> {
-    // 检视 s6：事务原子化——核销失败不建设备（消除「码已烧但设备未建」窗口）
+    // 事务原子化——核销失败不建设备（消除「码已烧但设备未建」窗口）
     const runAll = this.db.transaction((): boolean => {
       const redeemed = this.db.prepare(
         "UPDATE pairing_codes SET redeemed_at = ? WHERE code = ? AND redeemed_at IS NULL AND expires_at > ?",
@@ -98,7 +98,7 @@ export class SqliteConnectorRegistryRepository implements ConnectorRegistryRepos
     return row ? rowToDevice(row) : null;
   }
 
-  /** M2（检视）：设备在线状态全量视图——离线已配对设备也返回（方案 §2.4「已配对设备
+  /** （检视）：设备在线状态全量视图——离线已配对设备也返回（「已配对设备
    *  含在线状态点」——设备下线不自动回切，人要看得见才能决定切回/等重连） */
   async listDeviceOnlineStatus(): Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>> {
     const rows = this.db.prepare(

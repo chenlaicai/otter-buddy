@@ -199,7 +199,7 @@ describe("DegenerateDetector 机制 A（非对齐精确重复）", () => {
   });
 
   it("抓住 thinking 泄漏型循环（#424 型，f19a4a4e：532 字符周期 ×49，机制 B 盲区）", () => {
-    // 真实事件 #424（8/24 11:54 UTC，mimo）：speak 完成后继续生成的裸 text
+    // 真实事件 （8/24 11:54 UTC，mimo）：speak 完成后继续生成的裸 text
     // block 把 thinking 内容逐字复制后循环 49 遍（周期 532，总 26171 字符）。
     // 匿名化：保持「机制 B 盲区」结构属性，措辞去人名/去项目专名；周期选质数
     // 569（原始 532 与分段 100 的 gcd=4，匿名后与 100 互素）——比原始样本
@@ -281,7 +281,7 @@ describe("DegenerateDetector 3-5KB 区间阴性夹具（#346，F20260820d338 阈
   // minBlockLength 5000→3000 后，3-5KB 块首次暴露于机制 B（distinct-ratio）。
   // 阴性断言：verdict = { degenerate: false } 且 distinctRatioOf(text) > 0.5
   //（实测全部 = 1.000，安全边际约 3.3 倍；0.5 护栏防止夹具参数微调后贴阈值飞行）。
-  // 对照 F20260820d338 的 ≥5KB 实测最低 0.838。
+  // 对照 的 ≥5KB 实测最低 0.838。
   // 断言长度下限统一 >= 3000：表达“样本必须落在被测区间”的设计意图，
   // 而非迁就个别样本的实际长度（否则低于 minBlockLength 机制 B 不介入、断言空转）。
 
@@ -305,7 +305,7 @@ describe("DegenerateDetector 3-5KB 区间阴性夹具（#346，F20260820d338 阈
   });
 
   it("编号 checklist：重复 bullet 前缀 + 8 条内容池复用，3.1-4.2KB 不触发（3 种子）", () => {
-    // kimi-分析獭-v2 在 #346 建议的高危形态：前缀模式重复但内容各异
+    // kimi-分析獭-v2 在 建议的高危形态：前缀模式重复但内容各异
     for (let i = 0; i < 3; i++) {
       const text = checklistText(118 + i * 20, 700 + i);
       expect(text.length).toBeGreaterThanOrEqual(3000);

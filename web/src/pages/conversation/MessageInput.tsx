@@ -18,7 +18,7 @@ interface MessageInputProps {
   /** 玻璃框固定高度（px）——由 ChatView 分割条状态驱动，与输入内容无关
    *  （搭档拍板：固定边界，绝不做输入内容驱动高度）。textarea 占满玻璃框内部滚动 */
   inputHeight: number
-  /** 多模态 Phase 1：附件中转区状态与操作（提升到 ChatView 层以随发送流转） */
+  /** 多模态：附件中转区状态与操作（提升到 ChatView 层以随发送流转） */
   staged: StagedAttachment[]
   onRemoveAttachment: (id: string) => void
   onPickFiles: (files: File[]) => void
@@ -125,7 +125,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     setMentionQuery(null)
   }
 
-  /** 多模态 Phase 2：剪贴板粘贴文件（微信式体验）——从 paste 事件提取文件走同一上传管线。
+  /** 多模态：剪贴板粘贴文件（微信式体验）——从 paste 事件提取文件走同一上传管线。
    *  仅拦截含文件的粘贴；纯文本粘贴（含截图工具自动写入的文本 URL）走原生行为不打断。 */
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const files = Array.from(e.clipboardData?.files ?? [])
@@ -134,7 +134,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
     onPickFiles(files)
   }
 
-  /** 多模态 Phase 2：拖拽文件进输入框（与粘贴同管线）。拖文本/链接走原生 */
+  /** 多模态：拖拽文件进输入框（与粘贴同管线）。拖文本/链接走原生 */
   function handleDrop(e: React.DragEvent<HTMLTextAreaElement>) {
     const files = Array.from(e.dataTransfer?.files ?? [])
     if (files.length === 0) return
@@ -180,7 +180,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
 
         {/* 附件中转区：缩略图/文件卡 + 移除按钮；上传中半透明+loading 态 */}
         {/* 附件暂存行堆在玻璃框上方但在固定高容器外（覆盖层自然长高，
-            消息列表衬垫随 overlay 实高动态兜住，§5 的溢出遮挡问题一并
+            消息列表衬垫随 overlay 实高动态兜住，的溢出遮挡问题一并
             根治）；固定高容器内的玻璃框不受附件挤压，textarea 可用空间恒定 */}
         {(staged.length > 0 || uploadError) && (
           <div className="mb-2 flex flex-wrap gap-2 px-1">
@@ -226,7 +226,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
 
         <div className="flex flex-col" style={{ height: inputHeight }}>
         <div className="flex-1 min-h-0 flex items-end gap-2 glass-input rounded-3xl px-4 py-2.5 transition">
-          {/* 多模态 Phase 1：附件选择入口。图片数已达上限仍允许选（可选中文档），后端注入前还会硬校验 */}
+          {/* 多模态：附件选择入口。图片数已达上限仍允许选（可选中文档），后端注入前还会硬校验 */}
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled || staged.length >= MAX_FILES_PER_UPLOAD}
@@ -265,7 +265,7 @@ export function MessageInput({ onSend, disabled, placeholder = '输入消息... 
             className="flex-1 bg-transparent text-sm text-stone-700 placeholder-stone-400 resize-none outline-none h-full leading-relaxed disabled:opacity-50 overflow-y-auto"
           />
           <MagicWordHelp />
-          {/* F20260913ctlv：双发送模式——主=steer（打断插话，默认）/ 副=followUp（排队等这轮
+          {/* 双发送模式——主=steer（打断插话，默认）/ 副=followUp（排队等这轮
               说完再接，不打断）。mode 经 onSend 透传 sendMessage 请求体，signal-router
               running 分支按 injectionMode 选择注入方式 */}
           <button

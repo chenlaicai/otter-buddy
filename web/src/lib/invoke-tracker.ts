@@ -71,7 +71,7 @@ export interface ServerInvokeRecord {
 }
 
 /** 服务端 invokes 合并进本地 invokeStates（拉取对账的写入语义，唯一真相源）。
- * 缓存模型（阶段1，弱合并退役）：服务端 invokes 表是权威数据源，
+ * 缓存模型（弱合并退役）：服务端 invokes 表是权威数据源，
  *  同獭按 startedAt 最新者胜（同刻同 invokeId 时终态胜 running；同刻异 id 保守
  *  保持先到者；startedAt 不可解析时保守保持）；服务端更新即可覆盖本地任何旧状态
  *  （含本地终态——旧「本地终态即跳过」反向洞已随弱合并退役）；本地新于服务端
@@ -80,7 +80,7 @@ export interface ServerInvokeRecord {
  *  时回填本地上一轮值，与 applyInvokeStart「跨 invoke 保留 ctx」语义对齐。
  *  幂等：无任何变更时返回原引用（周期/重连/读点对账不驱动多余 re-render）。 */
 export function mergeInvokesFromServer(states: InvokeStates, invokes: ServerInvokeRecord[]): InvokeStates {
-  /** 阶段1：缓存模型合并语义——服务端 invokes 表是权威数据源，同獭按
+  /** 缓存模型合并语义——服务端 invokes 表是权威数据源，同獭按
    *  startedAt 最新者胜（同刻比状态终态性：终态胜 running）；幂等：无变更返回原引用。
    *  弱合并（本地已有即跳过 / 本地终态即跳过）退役——它让切回对话后的对账拉取写不进状态，
    *  是右栏卡「运行中」四轮未愈的根因（联合排查 2026-09-28）。
@@ -211,7 +211,7 @@ export function fmtCtx(n: number | undefined | null): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }
 
-/** F20260928icmm 阶段3退役：invokeId → otterId 反查（invoke.end 事件实际发射不带 otterId
+/** 退役：invokeId → otterId 反查（invoke.end 事件实际发射不带 otterId
  *  的前提已过时——唯一发射点 agent-invoker.ts 恒带 otterId；前端空串时早退与反查 miss
  *  行为等价，反查链无存在理由，已删） */
 

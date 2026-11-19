@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** HtmlCard 回归测试（P1-2）：
+/** HtmlCard 回归测试：
  *  user 卡片（interactive=false，无桥无 registry）collapse→re-expand 不被误判为导航逃逸。
  *  修复前 loadCountRef 只在 interactive 分支内重置，重展开时二次 load 计数沿用旧值 → invalid */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -104,7 +104,7 @@ describe('预设类库注入（F20261006cssp）', () => {
   })
 })
 
-/** F20261013csv3 T3/T4：折叠态摘要行 + importance 默认展开 */
+/** 折叠态摘要行 + importance 默认展开 */
 describe('折叠态摘要行 + importance 默认展开（F20261013csv3）', () => {
   it('importance=high 默认展开（iframe 渲染），不显示折叠态摘要行', () => {
     act(() => {

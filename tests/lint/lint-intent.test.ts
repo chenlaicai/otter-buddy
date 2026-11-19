@@ -286,12 +286,12 @@ describe('lint:intent', () => {
   });
 });
 
-// F20260917sdpl 改动 1：软代码 verify_by 声明时间界收口
+// 改动 1：软代码 verify_by 声明时间界收口
 describe('lint:intent all-domain intent block gate (F20261103itald, #1740)', () => {
   // 搭档 2026-11-03 拍板：intent 声明域扩至全部 change_type（硬/软代码均必填）。
   // 时间界增量收口：created_at ≥ 2026-11-03 的新文档缺 intent 块 → error（存量不追诉，
-  // 与 #1238 软代码缺块收口同构）。绕过面（不写 created_at 降 warning）与软代码域
-  // 同构共存，不新增治理——见 F20261103itald 设计取舍。
+  // 与 软代码缺块收口同构）。绕过面（不写 created_at 降 warning）与软代码域
+  // 同构共存，不新增治理——见 设计取舍。
   it('should error on new fix doc (created_at ≥ 2026-11-03) missing intent block', () => {
     const fm = { ...createBaseFm('fix'), created_at: '2026-11-03' };
     const result = validateIntent(fm);
@@ -323,7 +323,7 @@ describe('lint:intent all-domain intent block gate (F20261103itald, #1740)', () 
     expect(result.errors.some((e: string) => e.startsWith('Missing intent block for all-domain change'))).toBe(true);
   });
 
-  // 审视 r1 S3 口径锁定：「所有 change_type」含 tests 类——#1295 决策锁 E 的静默面
+  // 审视 口径锁定：「所有 change_type」含 tests 类——决策锁 E 的静默面
   // 仅覆盖存量（created_at < 2026-11-03），新 tests 文档随全域门收口。
   it('S3 口径：新 tests 文档（created_at ≥ 2026-11-03）缺块 → error（全域门含 tests 类，#1295 锁 E 静默面随时间界失效）', () => {
     const fm = { ...createBaseFm('tests'), created_at: '2026-11-03' };
@@ -331,7 +331,7 @@ describe('lint:intent all-domain intent block gate (F20261103itald, #1740)', () 
     expect(result.errors.some((e: string) => e.startsWith('Missing intent block for all-domain change'))).toBe(true);
   });
 
-  // 审视 r1 A1 锁定：残块/空块不再绕过——字段级 problem/expected_effect 对新文档（全域时间界）同步收口。
+  // 审视 锁定：残块/空块不再绕过——字段级 problem/expected_effect 对新文档（全域时间界）同步收口。
   it('A1：新 fix 文档 intent 空块 {} → 字段级 error（problem + expected_effect 双缺，残块绕过修复）', () => {
     const fm = { ...createBaseFm('fix', { problem: '', expected_effect: '' }), intent: {}, created_at: '2026-11-03' };
     const result = validateIntent(fm);
@@ -345,7 +345,7 @@ describe('lint:intent all-domain intent block gate (F20261103itald, #1740)', () 
     expect(result.errors).toHaveLength(0);
   });
 
-  // 审视 r1 A2 锁定：豁免 × 全域门——豁免清单文档即使新日期缺块也 0 error（ratchet 语义不破）。
+  // 审视 锁定：豁免 × 全域门——豁免清单文档即使新日期缺块也 0 error（ratchet 语义不破）。
   it('A2：豁免清单文档 × created_at ≥ 2026-11-03 缺块 → 0 error（豁免优先于全域门，与软代码域同构）', () => {
     const realExemptPath = [...EXEMPT_IDS][0];
     expect(realExemptPath, '豁免清单应非空').toBeDefined();
@@ -411,7 +411,7 @@ describe('lint:intent soft-code verify_by enforcement (F20260917sdpl)', () => {
     expect(result.warnings.some((w: string) => w.startsWith('Recommended intent.verify_by field for soft-code change'))).toBe(true);
   });
 
-  // 边界防御（检视建议 1）：created_at 含 ISO 时间后缀时的字符串比较行为锁定。
+  // 边界防御：created_at 含 ISO 时间后缀时的字符串比较行为锁定。
   // '2026-09-17T…' >= '2026-09-17' 为 true（同日前缀 + 更长字符串）——按界日判定，符合「同日新建一律要求声明」语义。
   it('should treat created_at with time suffix as on/boundary date (error)', () => {
     const fm = {
@@ -440,7 +440,7 @@ describe('lint:intent soft-code verify_by enforcement (F20260917sdpl)', () => {
   });
 });
 
-// F20260917sdpl 改动 2：golden_replay 声明的执行记录核对（分环境）
+// 改动 2：golden_replay 声明的执行记录核对（分环境）
 describe('lint:intent golden_replay record check (F20260917sdpl)', () => {
   const baseGoldenFm = () => ({
     ...createBaseFm('feature', {
@@ -515,7 +515,7 @@ describe('lint:intent golden_replay record check (F20260917sdpl)', () => {
   });
 });
 
-// F20261005imfg 审视处置（检视獭-1283 首轮，2026-10-05）锁定用例——独立 describe 控制单函数行数
+// 审视处置（检视獭-1283 首轮，2026-10-05）锁定用例——独立 describe 控制单函数行数
 describe('lint:intent review-round fixes (F20261005imfg, PR #1283)', () => {
   // 严重①：「已补齐」判据与豁免触发条件对偶（非豁免身份重跑无任何 "Missing intent" 类
   // error 才算已补齐）。bad-schema（intent:{goal,why}）从未补齐，isIntentComplete 必须
@@ -563,7 +563,7 @@ describe('lint:intent review-round fixes (F20261005imfg, PR #1283)', () => {
   });
 });
 
-// F20261005imfg delta 轮新发现 2：truthy 非字符串 change_type（`[feature]`/`123`/`true`）
+// delta 轮新发现 2：truthy 非字符串 change_type（`[feature]`/`123`/`true`）
 // 原双 lint 静默（`||` 只兑 falsy），typeof 门统一按缺失口径拦截（探针实证三形态 EXIT=1）
 describe('lint:intent truthy non-string change_type (F20261005imfg delta round)', () => {
   it('should error on array-valued change_type missing intent block', () => {
@@ -589,10 +589,10 @@ describe('lint:intent truthy non-string change_type (F20261005imfg delta round)'
   });
 });
 
-// F20261030iprio（#1238）：软代码收口「声明缺失」全形态——惩罚梯度倒置修复。
+// 软代码收口「声明缺失」全形态——惩罚梯度倒置修复。
 // 倒置形态（修复前实证）：软代码新文档缺整个 intent 块只 warning（recommended），
 // 有 intent 块但缺 verify_by 却 error——缺得越彻底罚得越轻。
-// F20261005imfg 已收 feature/prompt 路径（缺块即 error），本组锁 bugfix/refactor
+// 已收 feature/prompt 路径（缺块即 error），本组锁 bugfix/refactor
 // 与其他 change_type 的软代码新文档同口径：整块缺失不轻于缺 verify_by。
 describe('intent-missing penalty inversion for soft-code docs (#1238, F20261030iprio)', () => {
   it('红测 A：软代码新 bugfix 文档缺整块 intent → error（不再降级 warning）', () => {
@@ -666,12 +666,12 @@ describe('intent-missing penalty inversion for soft-code docs (#1238, F20261030i
   });
 });
 
-// F20261030ctalg（#1295）：change_type 枚举漂移收口——分类集合与 known-values.ts 真相源对齐。
+// change_type 枚举漂移收口——分类集合与 known-values.ts 真相源对齐。
 // 复测现状（2026-10-30）：fix 392 篇 / feature-update 37 篇此前不在任何集合，缺块完全静默；
 // bugfix/feature_update 是历史拼写（走别名归一，文案保留原拼写）；tests 为 test-only 文档
-// 历史口径「不需要 intent 声明（决策锁定维持静默）」——F20261103itald（#1740，2026-11-03
+// 历史口径「不需要 intent 声明（决策锁定维持静默）」——（2026-11-03
 // 搭档拍板「所有 change_type 都要填」）后收窄为仅存量静默：created_at ≥ 2026-11-03 的
-// tests 文档纳入全域门（见 all-domain describe S3 用例），下方锁 E 用例锁定存量侧语义。
+// tests 文档纳入全域门（见 all-domain describe 用例），下方锁 E 用例锁定存量侧语义。
 describe('change_type enum alignment with known-values truth source (#1295, F20261030ctalg)', () => {
   it('静默面关闭 A：非软代码 fix 缺整块 → recommended warning（此前 0 error 0 warning 完全静默）', () => {
     const fm = {
@@ -770,7 +770,7 @@ describe('change_type enum alignment with known-values truth source (#1295, F202
   });
 });
 
-// F20261030ctalg 检视 r1 建议 3：语义非法日期（词法合法/日历非法）与不可解析格式同口径。
+// 语义非法日期（词法合法/日历非法）与不可解析格式同口径。
 describe('isNewEnough semantic-invalid dates (#1295, F20261030ctalg delta)', () => {
   it('建议 3 I：2026-13-01（13 月）按存量宽容，不判新（warning 不 error）', () => {
     const fm = {
@@ -814,7 +814,7 @@ describe('isNewEnough semantic-invalid dates (#1295, F20261030ctalg delta)', () 
   });
 });
 
-// F20261031cttrm（#1293）：change_type 空白串 trim 口径对齐——trim 后为空按缺失处理
+// change_type 空白串 trim 口径对齐——trim 后为空按缺失处理
 // （与 intent.problem 的 .trim().length===0 判空同口径），不再依赖 lint:docs Unknown
 // warning + baseline 满载（3=cap）的巧合拦截；带空格值 trim 归位参与分类。
 describe('change_type whitespace-string trim semantics (#1293, F20261031cttrm)', () => {

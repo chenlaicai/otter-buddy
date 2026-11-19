@@ -3,7 +3,7 @@
  * 所有页面通过 React Router 客户端路由渲染，TopBar/Sidebar 只渲染一次。
  * 路由级懒加载（React.lazy + Suspense）——未访问的页面代码不下载。
  * 
- * D1 修复：迁移到数据路由（createBrowserRouter）以支持 useBlocker
+ * 修复：迁移到数据路由（createBrowserRouter）以支持 useBlocker
  * Why: useBlocker 是数据路由专属 API，组件式 BrowserRouter 不支持
  */
 import { lazy, Suspense } from 'react'
@@ -35,7 +35,7 @@ function LoadingFallback() {
   )
 }
 
-// D1 修复：使用数据路由（createBrowserRouter）替代组件式 BrowserRouter
+// 修复：使用数据路由（createBrowserRouter）替代组件式 BrowserRouter
 // Why: useBlocker 是数据路由专属 API，组件式 BrowserRouter 不支持
 const router = createBrowserRouter([
   {

@@ -1,5 +1,5 @@
 /**
- * P1a：RecordBelief 写入路径测试（校验拒收 + 合法入库形态）。
+ * RecordBelief 写入路径测试（校验拒收 + 合法入库形态）。
  */
 import { describe, it, expect } from "vitest";
 import { BeliefGuard } from "@usecases/memory/belief-guard";

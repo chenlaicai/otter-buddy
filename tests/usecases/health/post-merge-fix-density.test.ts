@@ -45,7 +45,7 @@ function largeChain(featureId: string): FeatureChain {
 
 describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
   it("双门 AND：3 次 bugfix 且占比达标（次数门+比率门下限边界）", () => {
-    // #1051 方案 1：原只验次数门（3 条 bugfix 无分母）——AND 语义下分母 3 <5 时
+    // 方案 1：原只验次数门（3 条 bugfix 无分母）——AND 语义下分母 3 <5 时
     // 占比置 0 不产出，故补足 filler 到 3/10 = 30%（占比 ≥15%）
     const commits = [
       commit("b1", 2, "[F20260901xaaa][agent][BugFix] 1", ["src/feat-a.ts"]),
@@ -82,7 +82,7 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
 
   it("大特性档 30 天窗口：合入后第 20 天的 bugfix 计入（小修档会漏）", () => {
     // 链合于 25 天前，bugfix 在合入后 5/12/20 天——只有大档（30天）窗口够得着第 20 天。
-    // 补 filler 到 3/14 ≈ 21%（双门 AND 下占比门也要过，#1051 方案 1）
+    // 补 filler 到 3/14 ≈ 21%（双门 AND 下占比门也要过，方案 1）
     const commits = [
       commit("b1", 5, "[F20260901zaaa][agent][BugFix] 1", ["src/big-0.ts"]),
       commit("b2", 12, "[F20260901zaaa][agent][BugFix] 2", ["src/big-1.ts"]),
@@ -151,7 +151,7 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
   });
 
   it("次数门下限：2 bugfix / 5 commit = 40% 占比再高也不触发（次数门未过，双门 AND）", () => {
-    // #1051 方案 1：原口径（或门）此形态会触发。AND 语义下 2 次 bugfix 证据链太薄
+    // 方案 1：原口径（或门）此形态会触发。AND 语义下 2 次 bugfix 证据链太薄
     // ——单点事件不构成「补丁摞补丁」，落 health_snapshots 快照而非警报位
     const commits: SignalCommitInput[] = [
       commit("b1", 2, "[F20260901xbbb][agent][BugFix] 1", ["src/feat-a.ts"]),
@@ -165,7 +165,7 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
   });
 
   it("#1051 噪音形态不产出：3 bugfix / 111 commit = 3%（实测存量 #435 形态）", () => {
-    // 核心回归（#1051 方案 1）：sqlite 实测 open 存量 40 条里 39 条是这个形态——
+    // 核心回归（方案 1）：sqlite 实测 open 存量 40 条里 39 条是这个形态——
     // 次数门过了（3 ≥3），但分母 111 条 commit、占比仅 3%。月产 200+ commit 的仓库里
     // 任何合入 30 天内的特性都会凑够 3 条 bugfix，次数门在大分母下形同虚设。
     // 新口径（双门 AND）下此形态不得产出 signal
@@ -181,7 +181,7 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
   });
 
   it("小分母不触发：2 bugfix / 3 commit 不触发（次数门未过）", () => {
-    // 注（PR #1560 检视建议 4）：原为「最小分母保护」——分母 <5 时强制 ratio=0。
+    // 注：原为「最小分母保护」——分母 <5 时强制 ratio=0。
     // 双门 AND 下该下限已由次数门接管并移除（它会造成非单调悬崖，见下一条回归）。
     // 本例仍不触发，但理由从「占比支未启用」变为「次数门 2 <3 未过」
     const commits = [
@@ -194,7 +194,7 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
   });
 
   it("无非单调悬崖：3 bugfix / 4 commit = 75% 应触发（原最小分母下限拦杀的形态）", () => {
-    // PR #1560 检视建议 4 回归：旧下限造成 3/4=75% 被拦、3/5=60% 反而触发（密度更高
+    // 回归：旧下限造成 3/4=75% 被拦、3/5=60% 反而触发（密度更高
     // 反而更不可能报警）。下限移除后占比按实算，单调：密度越高越容易触发。
     // 原设计下限的顾虑「合入后仅 1 条 bugfix → 100% 触发是荒谬的」由次数门 ≥3 接管
     const commits = [
@@ -210,7 +210,7 @@ describe("detectPostMergeFixDensity（Issue #647 项 6）", () => {
   });
 
   it("排除清单：高扇入文件不计入分子（≥10 特性触碰；FID 后缀纯字母）", () => {
-    // 排除清单从 chains 统计扇入（检视建议 3 单一真相源）：10 条 dummy 链都碰 hot.ts
+    // 排除清单从 chains 统计扇入（单一真相源）：10 条 dummy 链都碰 hot.ts
     // → fanIn=10 进清单。bugfix 只碰 hot.ts → 链文件排除后剩 big-0..4 → 0 次不触发
     // FID 后缀合法形态：4-12 位纯字母（commit-parser 白名单 [2-9a-kmnp-z]，数字/短尾不合法）
     const letters = "abcdefghijkmnpqr";

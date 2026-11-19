@@ -24,7 +24,7 @@ export interface MemoryWriter {
   storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void>;
   /** 按 source 删除记忆条目（upsert reindex 时清旧 entry，防 FTS 命中陈旧内容） */
   deleteBySource(sourceTable: string, sourceId: string): Promise<void>;
-  /** 按 source 原子替换（单事务内删旧+插新，防 upsert 中间失败丢数据，B2 修复）。
+  /** 按 source 原子替换（单事务内删旧+插新，防 upsert 中间失败丢数据，修复）。
    * （检视鬾5）：返回 embeddingKept——同 id 快路径下旧 content 与新 content
    *  一致且 vec 行存在时，vec 不删除（embedding 无需重算，调用方据此跳过 fireAndForgetEmbed）。
    *  动机：归档-复活振荡恢复轮 ~1100 篇 summary 若全部重 embed 会挤占 live 通道。 */
@@ -42,13 +42,13 @@ export interface MemoryWriter {
   /** 读同 source+contentType 的现存 entries——chunk 复用对齐用
    *  （sync reindex 前比对旧 chunk，内容未变的复用，消除向量白算）。 */
   findEntriesBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<MemoryEntry[]>;
-  /** PR审视 S3-14: 按 source + contentType 删除（body 清空时清理旧 chunk entries） */
+  /** PR审视 -14: 按 source + contentType 删除（body 清空时清理旧 chunk entries） */
   deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void>;
   // 更新
   incrementRetrievalCounts(memoryEntryIds: string[]): Promise<void>;
   flagMemory(memoryEntryId: string, flagged: boolean): Promise<void>;
   updateLayerByConversation(conversationId: string, from: MemoryLayer, to: MemoryLayer): Promise<void>;
-  /** Part 3：写入/更新 embedding 元信息 */
+  /** 写入/更新 embedding 元信息 */
   setEmbeddingMeta(meta: EmbedModelMeta): Promise<void>;
 
   // ---- 记忆关系层 ----
@@ -70,7 +70,7 @@ export interface MemoryWriter {
 
   /**
    * 按 entry id 批量清理关联边（deleteBySource 等 delete 路径调）。
-   * D7: 不依赖 FK CASCADE，手动 DELETE（与 embedding_tasks 模式一致）。
+   * 不依赖 FK CASCADE，手动 DELETE（与 embedding_tasks 模式一致）。
    */
   deleteEdgesByEntryIds(entryIds: string[]): Promise<void>;
 }

@@ -1,9 +1,9 @@
 /**
- * P1a：主动记忆层（belief）写入守卫。
+ * 主动记忆层（belief）写入守卫。
  *
- * 四维出处校验（otter-memory-design v4 §3.2）+ 状态机迁移守卫（§3.3）+ 防环（§3.3）。
+ * 四维出处校验（otter-memory-design v4）+ 状态机迁移守卫+ 防环。
  * 机器校验挡「无源之水」：空出处 / ID 不存在 / 来源身份不符 = 拒收（视为编造）。
- * 代码校验不靠提示词（v4 §5 硬约束 2）。
+ * 代码校验不靠提示词（v4 硬约束 2）。
  */
 import type { BeliefKind, BeliefStatus } from "@entities/memory/belief";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
@@ -37,7 +37,7 @@ export interface ValidateBeliefInput {
   nowMs?: number;
 }
 
-/** belief 内容长度上限（对齐 fact ≤500 先例，v4 §7 防主动记忆噪声增长） */
+/** belief 内容长度上限（对齐 fact ≤500 先例，v4 防主动记忆噪声增长） */
 export const BELIEF_MAX_CONTENT_CHARS = 500;
 
 /** 一条校验失败（结构化，便于调用方透出给 agent） */
@@ -51,7 +51,7 @@ export type BeliefGuardResult =
   | { ok: false; errors: BeliefGuardError[] };
 
 /**
- * P1a: 合法状态机迁移矩阵（§3.3）。
+ * 合法状态机迁移矩阵。
  * - recorded → verified：夜间核实通过
  * - recorded → disputed：夜间打回 / 搭档否决
  * - recorded → superseded：现场即时纠正（尚未核实即被取代）

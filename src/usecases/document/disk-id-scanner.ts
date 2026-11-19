@@ -18,7 +18,7 @@ import { parseFrontmatterFromContent } from "@usecases/document/frontmatter-pars
 import { FID_DATE_SEGMENT, FID_READ_SUFFIX_SEGMENT } from "@entities/document/fid-format";
 
 /** 文件名提 ID：-xxx.md / -xxx.md / .md
- * ID 段口径同 fid-format.ts 单一真相源（；旧副本 {3,8} 比契约窄，已对齐；
+ * ID 段口径同 fid-format.ts 单一真相源（旧副本 {3,8} 比契约窄，已对齐；
  *  下限 4 系实查最短后缀，见真相源头注释）*/
 const ID_FROM_FILENAME = new RegExp(`^([FR]${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT})(?:[-.]|$)`);
 
@@ -60,7 +60,7 @@ async function scanRec(
     if (!entry.name.endsWith(".md")) continue;
     const id = await extractId(fs, full, entry.name, logger);
     if (id) {
-      // F20260804dcnv: 同 ID 冲突（两份文件 frontmatter 都损坏、文件名 ID 相同）
+      // 同 ID 冲突（两份文件 frontmatter 都损坏、文件名 ID 相同）
       // 静默覆盖会让被覆盖的文件双重消失--和本 PR 要修的 bug 同类。走 Logger
       // 让 operator 能发现命名冲突（不直接 console.warn，保持 use case 层纯净）。
       const existing = ids.get(id);

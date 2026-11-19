@@ -23,7 +23,7 @@ import { readFileSync, existsSync } from "node:fs";
 
 const ANCHOR_RE = /F20\d{6}[a-z0-9]{4}|#\d{3,}\b/g; // F+8位日期+4随机缀；issue 号不限位数（防年份到期静默失效）
 
-/** hex 色值假阳性修复——色值（/）与 issue 号（/）结构同形，
+/** hex 色值假阳性修复——色值与 issue 号结构同形，
  * 只能靠上下文判别：色值总伴随 CSS 语境词出现在匹配点之前（solid / 底 / 色块 ）。
  * 判别器宁漏放不误拦：漏放（真 issue 号恰好前文有 CSS 词）由白名单兑底，误拦（合法色值被拦）
  * 直接阻塞合法 commit（提交现场：词典色值 被拦三道）。 */
@@ -127,7 +127,7 @@ for (const file of targets) {
     }
     const hits = line.match(ANCHOR_RE);
     if (hits) {
-      // #1089：滤掉带 CSS 语境的 hex 色值命中（F 编号不受影响——它无色值同形问题）
+      // 滤掉带 CSS 语境的 hex 色值命中（F 编号不受影响——它无色值同形问题）
       const anchorHits = hits.filter((h) => h.startsWith("F20") || !isHexColorHit(line, h));
       if (anchorHits.length === 0) continue;
       const m = matchWhitelist(whitelist, file, i + 1, line);

@@ -186,10 +186,10 @@ export class OutputGuard {
    * resume：计数归零后 re-arm 首字节窗口。
    * 所有 pause 原因（tool / compaction / auto_retry）结束后跟随的都是新请求的冷
    * prefill（全量上下文重算），与 prompt 首发同性质，统一用首字节预算覆盖
-   * （F20260805abpp：工具结束曾恢复冻结的滑动剩余预算，大上下文 prefill 超过
+   * （工具结束曾恢复冻结的滑动剩余预算，大上下文 prefill 超过
    * 滑动预算被误切——《对话列表的状态图标》streaming_timeout 事故根因）。
    *
-   * 已知例外（架构师检视 S1）：speak 等 terminate 工具的 end 之后没有新请求，
+   * 已知例外（架构师检视）：speak 等 terminate 工具的 end 之后没有新请求，
    * 此处 arm 的首字节计时器为虚空请求布防，安全性依赖 invoke finally 的
    * destroy() 及时跟进（agent_end → prompt() resolve → cleanup 是同步微任务链）。
    * 若未来引入慢 agent_end/turn_end 扩展钩子（>firstByteTimeoutMs），虚空计时器
@@ -245,7 +245,7 @@ export class OutputGuard {
     this.timerBudgetMs = budgetMs;
     this.timerStartedAt = Date.now();
     /** 首字节窗口 arm 时刻同步刷新埋点基准（tool/compaction/auto_retry resume 的
-     *  re-arm 也走这里，否则埋点会把"原始 arm→delta"记成 TTFT 并覆盖真值——检视 S3） */
+     * re-arm 也走这里，否则埋点会把"原始 arm→delta"记成 TTFT 并覆盖真值——检视） */
     if (kind === "first_byte") this.firstByteArmedAt = this.timerStartedAt;
     this.pendingAbort = abort;
     this.timer = setTimeout(() => this.onTimeout(), budgetMs);
@@ -290,7 +290,7 @@ export class OutputGuard {
  *
  * 事件契约（SDK agent-core 原始事件，subscribe 通道）：
  * - message_update: { assistantMessageEvent: { type, delta? } } —— delta 在内层
- *   （F20260804dglp 根因 2：初版读外层 event.delta，恒 undefined，guard 从未生效）
+ * （根因 2：初版读外层 event.delta，恒 undefined，guard 从未生效）
  * - tool_execution_start/end、compaction_start/end、auto_retry_start/end：pause/resume
  */
 export function attachOutputGuard(

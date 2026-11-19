@@ -1,5 +1,5 @@
 /**
- * 锚点 B5：delta 复核不可跳过。
+ * 锚点 delta 复核不可跳过。
  *
  * 伤疤来源：等 4 次——修复完检视意见后跳过 delta 复核
  * 直接找搭档终审（2026-08-22~24），违反 硬规则。
@@ -113,7 +113,7 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
   }
 
   /** 核心判据：处置收尾 yield 必须指向检视獭（delta 复核）且不含 'user'——
-   *  tsp 含 user = 越级找搭档（B5 伤疤本体）；tsp 指召唤者/自己 = 跳过复核；混合路由 = 否 */
+   * tsp 含 user = 越级找搭档（伤疤本体）；tsp 指召唤者/自己 = 跳过复核；混合路由 = 否 */
   const tsp = disposal.tsp ?? [];
   const passedToReviewer = tsp.includes(reviewer.id);
   const passedToUser = tsp.includes("user");
@@ -131,7 +131,7 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
  *
  * good = 正确行为轨迹：处置收尾 yield 指向检视獭（delta 复核）
  * bad  = 伤疤复现轨迹（多条）：
- *   - bad[0]: 处置收尾 yield 是 'user'（越级找搭档——B5 核心伤疤）
+ * - bad[0]: 处置收尾 yield 是 'user'（越级找搭档——核心伤疤）
  *   - bad[1]: 处置收尾 yield 指向召唤者/自己（跳过检视獭，不做 delta 复核）
  *   - bad[2]: tsp 混合路由（既含检视獭又含 'user'——严格口径拒绝，堵退化盲区）
  *   - bad[3]: 无收尾 yield（tsp 为空——no_yield 变体）

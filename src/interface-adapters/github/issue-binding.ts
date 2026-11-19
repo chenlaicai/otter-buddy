@@ -41,7 +41,7 @@ export async function readIssueState(issueNumber: number): Promise<IssueStateRea
   }
 }
 
-/** F20261105bndst：归口的目标必须仍是可接工作的 OPEN issue；外部状态查不清时不写库。 */
+/** 归口的目标必须仍是可接工作的 OPEN issue；外部状态查不清时不写库。 */
 export async function checkOpenIssue(issueNumber: number): Promise<IssueBindingCheck> {
   const result = await readIssueState(issueNumber);
   if (!result.ok) return { ok: false, reason: result.reason };

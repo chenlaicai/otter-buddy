@@ -96,7 +96,7 @@ describe("F20260929kws1 保留段简化：最近 4 条 speak", () => {
     expect(slice).toBeDefined();
     expect(slice!.keptEntries.length).toBe(4);
     const serialized = serializeKeptWindow(slice!);
-    // 最近 4 条 speak（#6-#9）在；更早的 speak（#0-#5）不在
+    // 最近 4 条 speak（-）在；更早的 speak（-）不在
     expect(serialized).toContain("第 9 条 speak");
     expect(serialized).toContain("第 6 条 speak");
     expect(serialized).not.toContain("第 5 条 speak");
@@ -120,7 +120,7 @@ describe("F20260929kws1 保留段简化：最近 4 条 speak", () => {
     expect(serialized).toContain("答 1");
     expect(serialized).toContain("答 2");
 
-    // F20260930hsfx S1 核心：无 assistant text（纯工具轮前世）不再返回 undefined——
+    // 核心：无 assistant text（纯工具轮前世）不再返回 undefined——
     //  保留段空（keptEntries=[]）但 messagesToSummarize 照送全量原料，合成不被连坐跳过
     //  （事故形态：6 秒空 speak session 拿到机械档案，根因是 slice undefined 连坐跳过合成）。
     const toolOnly = [
@@ -129,7 +129,7 @@ describe("F20260929kws1 保留段简化：最近 4 条 speak", () => {
       makeToolResultEntry(),
     ];
     const toolSlice = sliceSessionEntries(toolOnly);
-    expect(toolSlice).toBeDefined(); // 不再 undefined（S1 核心断言）
+    expect(toolSlice).toBeDefined(); // 不再 undefined（核心断言）
     expect(toolSlice!.keptEntries.length).toBe(0); // 保留段空
     expect(toolSlice!.firstKeptEntryId).toBeUndefined(); // 无 speak 起点
     // 原料 = 保留段之外的全量消息（无 speak 时即全量）：thinking/toolCall assistant + user + toolResult
@@ -208,7 +208,7 @@ describe("F20260929kws1 保留段简化：最近 4 条 speak", () => {
       entries.push(makeAssistantEntry([textBlock(`speak ${i}`)]));
     }
     const slice = sliceSessionEntries(entries)!;
-    // F20260930hsfx 新口径：原料 = 「保留段（最近 4 条 speak）之外的全量消息」。最近 4 条 speak =
+    // 新口径：原料 = 「保留段（最近 4 条 speak）之外的全量消息」。最近 4 条 speak =
     //  speak 4..7（index 9,11,13,15），原料 = index 0..8 共 9 条（user 0-3 + speak 0-3 + user 4）——
     //  与旧「第 4 条 speak 之前」数值相同，但语义改为「保留段之外」（无 speak 时取全量，
     //  不再拦腰切断 gap 消息、不与保留段陈旧倒挂）。

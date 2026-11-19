@@ -1,5 +1,5 @@
 /**
- * 锚点 A1：查数据先验证数据源路径。
+ * 锚点 查数据先验证数据源路径。
  *
  * 伤疤来源：假数据事件（2026-09-04）——獭查了废弃数据库 otter.db，
  * 得出「零事件」假结论。三处防再发。
@@ -52,10 +52,10 @@ export const manualReviewHint =
  *
  * good = 正确行为轨迹：bash（验证数据源）在 speak（报告结论）之前
  * bad  = 伤疤复现轨迹：
- *   - bad[0]: 直接 speak 报告结论无 bash（凭记忆/假数据——A1 核心伤疤）
+ * - bad[0]: 直接 speak 报告结论无 bash（凭记忆/假数据——核心伤疤）
  *   - bad[1]: speak 在 bash 之前（先报告再验证——顺序颠倒）
  *
- * 注：查询型 bash 盲区（bash 用于查询数据而非验证源，恰是 #791 根因的
+ * 注：查询型 bash 盲区（bash 用于查询数据而非验证源，恰是 根因的
  * 可观测形态）未被 bad 序列覆盖，由 manualReviewHint 兜底。
  */
 export const selftest: GoldenModule["selftest"] = {
@@ -75,7 +75,7 @@ export const selftest: GoldenModule["selftest"] = {
   },
   bad: [
     {
-      // bad[0]: 直接 speak 无 bash（凭记忆报告——A1 核心伤疤）
+      // bad[0]: 直接 speak 无 bash（凭记忆报告——核心伤疤）
       messages: [
         { id: "st-u2", st: "user", si: "selftest-user", content: "查一下昨天的 healing 事件", status: "completed", seq: 1 },
         {

@@ -30,7 +30,7 @@ export interface LinkedResourceDTO {
   status: "active" | "superseded" | "archived";
   groupId: string | null;
   supersededBy: string | null;
-  /** T2：unfurl_cache 读侧 join 投影（join 键 resource.url ↔
+  /** unfurl_cache 读侧 join 投影（join 键 resource.url ↔
    *  unfurl_cache.url）——PR 卡 diff stat + 状态徽章数据源。仅 url 类型资源、
    * 且缓存命中 github-api 记录时携带；落空为 null（渲染侧显示「未抓取」态）。
    *  字段含 state（PR/issue 状态 open/merged/closed/draft）——与 UnfurlCard 的

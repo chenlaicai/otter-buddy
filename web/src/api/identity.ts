@@ -1,7 +1,7 @@
-/** 统一接入登录（阶段 2）——web 身份接入点替换。
+/** 统一接入登录——web 身份接入点替换。
  *
  * 基线：web 自报硬编码 `X-Otter-User-Id: web-ui` + `X-Otter-User-Role: admin`
- *  （声明式身份值源，公网可伪造）。阶段 2 起 web 的请求身份**随会话 cookie 派生**——
+ * （声明式身份值源，公网可伪造）。起 web 的请求身份**随会话 cookie 派生**——
  *  login 后服务端派发 httpOnly 会话 cookie，同源 fetch/XHR/直链（img/audio/a）自动携带，
  *  不再发声明头。本文件保留 identityHeaders/withIdentity 两个导出名以不打破调用面，
  *  identityHeaders 返回空对象（身份由 cookie 承担），withIdentity 恒等返回 path。

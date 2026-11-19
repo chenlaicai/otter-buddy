@@ -2,9 +2,9 @@ import { useState } from 'react'
 import type { LocalMessageSignal } from '../../lib/mappers'
 
 /**
- * C4：獭间信号徽章——消息原位渲染 <signal> 块的视觉表达。
+ * 獭间信号徽章——消息原位渲染 <signal> 块的视觉表达。
  *
- * 分档（母方案 Part 5）：
+ * 分档（母）：
  * - objection/blocked：常规徽章，点击展开 payload 正文
  * - halt：高亮徽章（谁停了谁）
  * - 状态机：pending（橙）→ resolved（绿，显示裁决摘要）/ dismissed（灰，显示理由）

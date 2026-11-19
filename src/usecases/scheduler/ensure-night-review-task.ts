@@ -1,5 +1,5 @@
 /**
- * P2b2：夜间审视 scheduled-task seed（幂等，挂 healing 初始化链尾）。
+ * 夜间审视 scheduled-task seed（幂等，挂 healing 初始化链尾）。
  *
  * 任务形态：executorType='function'、functionName='night-review-orchestrator'、
  * cron 每日 03:00 Asia/Shanghai（错开现有 7:30-11:00 时间轴——夜间审视字面意义放凌晨，

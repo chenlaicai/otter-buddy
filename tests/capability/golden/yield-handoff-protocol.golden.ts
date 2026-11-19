@@ -43,7 +43,7 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
 };
 
 /**
- * F20260828gssf: selftest 参考序列。
+ * selftest 参考序列。
  *
  * good = 正确行为轨迹：獭 speak 后 yield，completed 消息有内容有 tsp
  * bad  = 伤疤复现轨迹（多条）：

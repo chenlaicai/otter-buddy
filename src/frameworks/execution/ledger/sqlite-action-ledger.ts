@@ -17,7 +17,7 @@ import type { Logger } from "@usecases/ports/logger";
  * 本机动作台账 sqlite 实现。
  *
  * 存储：`<dataDir>/execution-machines/<deviceId>/actions.db`（WAL）。
- * 每机一库——「执行机本地的动作真相」语义：阶段 4/5 远程机各自持有台账，
+ * 每机一库——「执行机本地的动作真相」语义：/5 远程机各自持有台账，
  * 中枢只经机器接口查询；工具执行热路径与主库隔离。
  *
  * 纪元（boot epoch）：meta.boot_seq 单调递增（单语句原子自增），每次开机 +1；

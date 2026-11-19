@@ -129,9 +129,9 @@ export class WeixinLoginSessionManager {
   }
 
   /**
-   * flow 完成总分流（#1112）：alreadyConnected（binded_redirect）→ already_connected
+   * flow 完成总分流：alreadyConnected（binded_redirect）→ already_connected
    * 终态，不落盘不热启动（本地凭证继续有效，既有账号与 poller 不受影响）；
-   * 其余走 handleFlowSuccess 分流（#592）。
+   * 其余走 handleFlowSuccess 分流。
    * 已取消会话收到 alreadyConnected：保持 cancelled（无任何落盘副作用，无需善后）。
    */
   private handleFlowResult(session: WeixinLoginSession, result: WeixinLoginResult): void {
@@ -147,16 +147,16 @@ export class WeixinLoginSessionManager {
     this.handleFlowSuccess(session, result.accountId, result.ilinkUserId);
   }
 
-  /** flow 完成分流（#592）：cancelled+account_deleted → 删号取消，不落盘不热启动；
+  /** flow 完成分流：cancelled+account_deleted → 删号取消，不落盘不热启动；
    *  cancelled（其它原因）→ 账号保留（微信侧授权已成，不回滚）；正常完成 → success */
   private handleFlowSuccess(session: WeixinLoginSession, accountId: string, ilinkUserId?: string): void {
     if (session.status === "cancelled") {
       // 前端已取消但扫码仍完成：账号已落盘（微信侧授权已成，回滚只会让
       // UI 状态与存储不一致）——状态保持 cancelled，不触发 onSuccess 热启动。
-      // #592：若取消原因是账号删除（cancellationReason 记录），说明用户
+      // 若取消原因是账号删除（cancellationReason 记录），说明用户
       // 已表态不要这个账号——安全路径同步 removeAccount，彻底阻断「删了
       // 又复活」（onSuccess 不触发，不会重新拉起轮询；后续清理由 app.ts 的
-      // onWeixinAccountDeleted 回调链完成——检视 #682 发现 2：不设冗余 hook）
+      // onWeixinAccountDeleted 回调链完成——不设冗余 hook）
       if (session.cancellationReason === "account_deleted") {
         this.deps.accountStore.removeAccount(accountId);
         this.deps.logger.info("Weixin login completed after account deletion; removed persisted account", { accountId });
@@ -184,7 +184,7 @@ export class WeixinLoginSessionManager {
   }
 
   /**
-   * 按账号 id 取消活跃登录会话（#592，账号删除时调用）。
+   * 按账号 id 取消活跃登录会话（账号删除时调用）。
    *
    * 语义：**仅取消非终态会话**；已 success 的会话是终态（账号已落盘、poller 已拉起），
    * 它的账号清理走 onAccountDeleted 回调链，不经此路径。会话的 accountId 在
@@ -210,7 +210,7 @@ export class WeixinLoginSessionManager {
   }
 
   /**
-   * 按扫码人（ilinkUserId）取消活跃登录会话（#592：删除账号时一并取消
+   * 按扫码人（ilinkUserId）取消活跃登录会话（删除账号时一并取消
    * 同扫码人尚在等待确认的其它会话——它们落盘后就是同一个人的「新账号」，
    * 留着必复活）。
    */

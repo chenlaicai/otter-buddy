@@ -54,7 +54,7 @@ export function buildNewSession(
 /**
  * 归档原因到 Session 状态的映射。
  * 'restart' -> 'restarted'，其余 -> 'archived'
- * 来源：D36 示例 + 旧 repo archiveSession() 逻辑提取（旧 adapter 本身不做映射，映射在 repo 中）
+ * 来源：示例 + 旧 repo archiveSession() 逻辑提取（旧 adapter 本身不做映射，映射在 repo 中）
  */
 export function archiveReasonToSessionStatus(reason: string): SessionStatus {
   // 'compaction'（水位交接）与 'restart' 同为换世归档——session 链

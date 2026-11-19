@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * P1 只读 + P2 交互层渲染/行为测试。
+ * 只读 + 交互层渲染/行为测试。
  *
- * P2 用例（板上按钮裁决 = 回执代执行通道 B，「按钮挂点架构定案」）：
+ * 用例（板上按钮裁决 = 回执代执行通道 B，「按钮挂点架构定案」）：
  * - WAITING_PARTNER 条目渲染 批准/打回/否决 按钮组
  * - DONE_PENDING_CONFIRM 条目渲染 确认闭环/打回 按钮组
  * - 点「批准」→ 合成 html-matter-action 回执、经 onRouteToOtter 路由 owner（ownerOtterId）

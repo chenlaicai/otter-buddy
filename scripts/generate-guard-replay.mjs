@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * P1 项 4：guard_intercept 样本 → replay 用例候选生成器。
+ * 项 4：guard_intercept 样本 → replay 用例候选生成器。
  *
  * 背景（guard-mechanism-review 建议 4）：修的「修复-回归循环」靠人工从 healing
  * 台账翻现场再手写用例——本轮 误拦（93 条/7 天）正是没被固化的现场。本脚本把
@@ -40,7 +40,7 @@ if (!existsSync(dbPath)) {
   process.exit(2);
 }
 
-// 日期窗口：--date 或默认昨天（UTC 日界，审视处置 §3.3：healing_events.created_at
+// 日期窗口：--date 或默认昨天（UTC 日界，审视处置 healing_events.created_at
 // 是 UTC ISO 串，窗口用 UTC 日界；targetDate 也用 getUTC* 同源，避免本地时区「昨日」与
 // UTC 窗错位—— Asia/Shanghai 下旧实现窗口偏移约 8h）
 const targetDate = argOf("--date", (() => {
@@ -53,7 +53,7 @@ const until = `${targetDate}T23:59:59.999Z`;
 const { default: Database } = await import("better-sqlite3");
 const db = new Database(dbPath, { readonly: true });
 
-// 审视处置（PR #1368 §3.3）：SQL 层强制 #1360 数据源口径——拦截结构化事件
+// 审视处置：SQL 层强制 数据源口径——拦截结构化事件
 // （context.ruleId 存在），排除 bounce 计数事件（无 ruleId，落 unknown/无法提取命令
 // 噪声候选）；json_extract 兼旧格式真样本（无 ruleId 但 description 带命令前缀）。
 // delta 处置（检视獭1360 实测）：json_extract 遇非法 JSON 抛 "malformed SQL JSON" 而非
@@ -77,7 +77,7 @@ function extractCommandHead(description) {
   return m ? m[1] : null;
 }
 
-// ruleId 分类（优先用落账 context.ruleId——#1360 数据源口径；缺失时标 unknown
+// ruleId 分类（优先用落账 context.ruleId——数据源口径；缺失时标 unknown
 // 由裁决侧用 guard-intercept-classify 指纹表补——脚本不复制全量指纹表防双源漂移）
 function classify(row) {
   let ctx = {};

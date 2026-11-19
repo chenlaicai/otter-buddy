@@ -111,7 +111,7 @@ const SERVICE_SCRIPT_KILL = /(?:^|[;&|`$(])\s*(?:sudo\s+)?(?:(?:bash|sh)\s+)?(?:
 /** PID 文件引用——直接指向主进程号码来源 */
 const PID_FILE_REFERENCE = /\.otter-buddy\.pid/;
 
-/** 从 kill 段提取字面量 PID 参数（信号参数跳过；#777：剥引号与子 shell 括号） */
+/** 从 kill 段提取字面量 PID 参数（信号参数跳过；剥引号与子 shell 括号） */
 function extractLiteralPids(segment: string): number[] {
   const pids: number[] = [];
   // 去掉命令名部分，只看参数
@@ -119,7 +119,7 @@ function extractLiteralPids(segment: string): number[] {
   const words = afterCmd.split(/\s+/).filter(Boolean);
   for (const w of words) {
     if (w.startsWith("-")) continue; // 跳过信号参数
-    // #777：去引号外再去子 shell 括号（`(kill 42877)` 的 PID 带右括号尾，parseInt 前剥除）
+    // 去引号外再去子 shell 括号（`(kill 42877)` 的 PID 带右括号尾，parseInt 前剥除）
     const stripped = w.replace(/^["']|["']$/g, "").replace(/^[()]+|[()]+$/g, "");
     const pid = parseInt(stripped, 10);
     if (!isNaN(pid) && pid > 0 && String(pid) === stripped) pids.push(pid);
@@ -132,7 +132,7 @@ function pkillTargetsOtter(segment: string): boolean {
   return PKILL_OTTER_PATTERNS.some(p => lowered.includes(p.toLowerCase()));
 }
 
-/** #844 白名单端口溯源放行（现有机制保留）：kill $(lsof :3100) 类 alpha 实例清理 */
+/** 白名单端口溯源放行（现有机制保留）：kill $(lsof :3100) 类 alpha 实例清理 */
 function whitelistedPortAllow(
   killSegments: { segment: string; isPkill: boolean }[],
   command: string,
@@ -172,7 +172,7 @@ function whitelistedPortAllow(
 }
 
 /**
- * F20261102grfix（B 治本·拦截点直标）：拦截返回值从纯文案升级为文案+归因键绑定对。
+ * （B 治本·拦截点直标）：拦截返回值从纯文案升级为文案+归因键绑定对。
  *
  * 背景：ruleId 此前靠 guard-intercept-classify 事后按文案特征片段反查——文案面向人
  * （改写/动态前缀/多出口分裂）而归因键需要机器稳定，文案一改指纹表即脱节（10-19 抽取
@@ -193,7 +193,7 @@ const MAIN_KILL_BLOCK_MSG: GuardBlock = {
   ruleId: "self_kill_main",
   layer: "self_kill",
 };
-// F20261105killa 政策 A：INDIRECT_KILL_BLOCK_MSG（self_kill_nonliteral）随保守拦退役删除——
+// 政策 A：INDIRECT_KILL_BLOCK_MSG（self_kill_nonliteral）随保守拦退役删除——
 // 历史文案归因由 guard-intercept-classify 指纹表承担（RETIRED_RULE_IDS 封存、可分类不活跃）。
 const PKILL_OTTER_BLOCK_MSG: GuardBlock = {
   text: "pkill/killall 按名匹配会命中主进程（node/otter-buddy 特征名）——不允许。精确终止请用字面量 PID kill。",
@@ -218,9 +218,9 @@ function literalPidTargetsMain(pid: number, mainPid: number | null, probe: Proce
   return id.ppid === mainPid; // 三查：直接父进程是主进程（直系 worker，杀它连带主进程）
 }
 
-/** S2（检视初轮）：广播/进程组 kill 目标——kill -1 / kill -9 -1 / kill -- -<PGID>。
+/** （检视初轮）：广播/进程组 kill 目标——kill -1 / kill -9 -1 / kill -- -<PGID>。
  *  kill(2) 语义：pid<-1=进程组、pid=-1=广播（全部用户进程，必含主进程）——无法静态
- *  排除主进程，保守拦（P0 面优先于宁漏勿误；主进程 PID 可经 ps 获知故同拦）。 */
+ * 排除主进程，保守拦（面优先于宁漏勿误；主进程 PID 可经 ps 获知故同拦）。 */
 const BROADCAST_KILL_BLOCK_MSG: GuardBlock = {
   text: "kill 目标为广播/进程组（-1 或 -- -PGID）——无法静态排除主进程，保守拦截。请用字面量 PID kill（非主进程放行）。",
   ruleId: "self_kill_process_group",
@@ -240,7 +240,7 @@ function broadcastKillTargetHit(segment: string): boolean {
   return rest.some(a => a === "-1" || /^-\d+$/.test(a));
 }
 
-/** 非字面量 kill 目标（F20261105killa 政策 A：能确认才拦，确认不了放行）。
+/** 非字面量 kill 目标（政策 A：能确认才拦，确认不了放行）。
  *
  *  演进史：8/30 初版「能确认才拦」→ 8/30 审视轮为堵非字面量绕过临时翻转为保守拦 →
  *  10/30 guard-v4 重建将其作「既有资产」原样保留（与 v4 总则「宁漏勿误」内在矛盾，
@@ -248,10 +248,10 @@ function broadcastKillTargetHit(segment: string): boolean {
  *
  *  保留的确认通道（拦得有依据）：
  *  - PID 文件引用（kill $(cat .otter-buddy.pid)）——目标就是主进程号码来源
- *  - 管道直接来源是主 PID 文件（cat .otter-buddy.pid | xargs kill——检视 S1：
+ * - 管道直接来源是主 PID 文件（cat .otter-buddy.pid | xargs kill——检视 
  *    kill 段自身无 pid 文件引用但 stdin 直接来自主 pid 文件，数据流等价于命令
  *    替换，属「能确认」）；其他 pid 文件（pids/backend.pid 等自有资产）不在此列，放行
- *  - 白名单端口溯源放行先行（#844，allowed-service-ports）
+ * - 白名单端口溯源放行先行（allowed-service-ports）
  *  其余非字面量形态（变量/$()/管道/xargs——无法静态求值，也即无法确认为主进程）放行。 */
 function checkIndirectKillTarget(
   killSegments: { segment: string; isPkill: boolean; source?: "pipe" }[],
@@ -262,7 +262,7 @@ function checkIndirectKillTarget(
 ): GuardBlock | null {
   if (whitelistedPortAllow(killSegments, command, allowedServices, mainPid ?? -1)) return null;
   if (PID_FILE_REFERENCE.test(segment)) return MAIN_KILL_BLOCK_MSG;
-  // 检视 S1：管道右段的直接来源若是主 PID 文件——kill $(cat pid) 与 cat pid | xargs kill
+  // 检视 管道右段的直接来源若是主 PID 文件——kill $(cat pid) 与 cat pid | xargs kill
   // 数据流等价（stdin 即目标清单），同属「能确认是主进程」——拦；自有 pid 文件不匹配
   // PID_FILE_REFERENCE（仅主进程 pid），自然落入放行分支。
   const seg = killSegments.find(k => k.segment === segment);
@@ -270,7 +270,7 @@ function checkIndirectKillTarget(
   return null; // 政策 A：确认不了 ≠ 拦——非字面量目标放行（宁漏勿误）
 }
 
-/** 检视 S1：kill 段（管道右段）的直接 stdin 来源是否主 PID 文件。
+/** 检视 kill 段（管道右段）的直接 stdin 来源是否主 PID 文件。
  *  定位 kill 段在原文的偏移，向左找最近的段分隔符，取左段（trim 后）判是否
  *  「cat/读到主 pid 文件」的命令形态（cat <pidfile> / < <pidfile>）。
  *  只认直接相邻段——两步以上构造（先存变量再管道）属「确认不了」放行面。 */
@@ -303,13 +303,13 @@ interface KillCheckContext {
 }
 
 /** 单个 kill 段的四查：pkill 特征名 / 广播目标 / 字面量身份 / 非字面量间接来源；
- *  再叠 #1899 ps|grep 签名数据流（字面量与扫描来源可混合）。返回 null=放行。 */
+ * 再叠 ps|grep 签名数据流（字面量与扫描来源可混合）。返回 null=放行。 */
 function checkOneKillSegment(k: KillCheckContext["killSegments"][number], ctx: KillCheckContext): GuardBlock | null {
   // pkill/killall 族：按名匹配
   if (k.isPkill) {
     return pkillTargetsOtter(k.segment) ? PKILL_OTTER_BLOCK_MSG : null; // 非特征名（如 pkill vitest）放行
   }
-  // S2：广播/进程组目标保守拦（-1 广播必含主进程；ps 可获知 PGID 同拦）
+  // 广播/进程组目标保守拦（-1 广播必含主进程；ps 可获知 PGID 同拦）
   if (broadcastKillTargetHit(k.segment)) return BROADCAST_KILL_BLOCK_MSG;
   // kill 字面量：三查身份；无字面量则走非字面量分支
   const literalBlock = checkLiteralKillTarget(k.segment, ctx.mainPid, ctx.probe);
@@ -318,7 +318,7 @@ function checkOneKillSegment(k: KillCheckContext["killSegments"][number], ctx: K
     const indirectBlock = checkIndirectKillTarget(ctx.killSegments, ctx.command, k.segment, ctx.allowedServices, ctx.mainPid);
     if (indirectBlock) return indirectBlock;
   }
-  // #1899：字面量 PID 与扫描来源可混合出现在同一 kill argv；字面量三查后仍须检查其余目标。
+  // 字面量 PID 与扫描来源可混合出现在同一 kill argv；字面量三查后仍须检查其余目标。
   const sourceCommand = k.payload ?? ctx.command;
   const sourceStart = k.localStart ?? k.start;
   return psGrepMainSignatureFeedsKill(sourceCommand, k.segment, sourceStart, k.payloadQuote === "double")
@@ -368,9 +368,9 @@ const CREDENTIAL_PATH_PATTERNS = [
   /\.aws([/ "'$]|$)/,
 ];
 
-/** #1892 明确写凭证目录：写/删/改动词 + 就地改写（sed/awk/gawk/perl/ruby -i / --in-place）+ 重定向/追加（> / >>） */
+/** 明确写凭证目录：写/删/改动词 + 就地改写（sed/awk/gawk/perl/ruby -i / --in-place）+ 重定向/追加（> / >>） */
 const CRED_WRITE_RE = /\b(?:cp|mv|rm|install|tee|chmod|chown|chattr|truncate|ssh-keygen|touch|ln|rsync|dd|unlink)\b|\b(?:sed|gawk|awk|perl|ruby)\b[^\n;|&]*\s(?:-i(?:\.[A-Za-z]+)?|--in-place)\b|>>|>/;
-/** #1892 明确读私钥/凭证本体：已知私钥名（id_* 非 .pub）/ .pem / .key / credentials / secring.gpg */
+/** 明确读私钥/凭证本体：已知私钥名（id_* 非 .pub）/ .pem / .key / credentials / secring.gpg */
 const CRED_PRIVATE_READ_RE = /(?:id_rsa|id_ed25519|id_ecdsa|id_dsa|id_xmss)(?![\w.-]*\.pub)|\.pem\b|\.key\b|credentials\b|secring\.gpg\b/;
 
 /** 展开归一：~/x 与 /Users/<who>/.x 双形态都认（不依赖 HOME 求值——路径特征即拦） */
@@ -388,20 +388,20 @@ function credentialPathHit(command: string): boolean {
   return false;
 }
 
-/** F20261109bexfz（搭档 2026-11-09 拍板）：B 类外发域名表判定整类退役——
+/** （搭档 2026-11-09 拍板）：B 类外发域名表判定整类退役——
  *  原 uploadExfilHit/makeEgressDomainAllowed/DEFAULT_EGRESS_DOMAINS/uploadVerbHitFor/
  *  NETWORK_EXFIL_BLOCK_MSG 已删除（「防外发」需求无真实来源，白名单语义与
  *  「只允许黑名单」总则相反）。存量 healing 归因由 classify 指纹表回溯兑底。 */
 
-/** 建议③（检视初轮→delta-r3 数据流判定）：进程替换形态 bash <(curl …)——
+/** 建议③（检视初轮→delta-数据流判定）：进程替换形态 bash <(curl …)——
  *  fetcher 输出直接进解释器 argv，同属「下载即执行」（不入盘不可审阅）。
- *  delta-r3：数据流判定——只拦「解释器段自带的 <( ) 内是 fetcher」
+ * delta-数据流判定——只拦「解释器段自带的 <() 内是 fetcher」
  *  （bash <(curl) 拦；bash <(echo)|diff <(curl) 放——解释器吃 echo，curl 只是 diff 参数）；
- *  cat <(curl)|bash 漏判面由 pipeToInterpreterHit 的 D4 段内扩形态覆盖。 */
+ * cat <(curl)|bash 漏判面由 pipeToInterpreterHit 的 段内扩形态覆盖。 */
 function processSubstitutionHit(command: string): boolean {
   const interpreterRe = /^(?:sudo\s+)?(?:env\s+(?:\S+\s+)*?)?(?:[A-Za-z_]\w*=\S+\s+)*(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript|source)\b/;
   const fetcherInsideRe = /<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
-  // delta-r3：链内再按 | 拆管道段——解释器段与 <(fetcher) 必须在同一段
+  // 链内再按 | 拆管道段——解释器段与 <(fetcher) 必须在同一段
   // （bash <(echo)|diff <(curl)：解释器段的替换里是 echo，curl 在 diff 段——放行）
   for (const chain of command.split(/&&|\|\||[;&\n]/)) {
     for (const segRaw of chain.split("|")) {
@@ -413,12 +413,12 @@ function processSubstitutionHit(command: string): boolean {
 }
 function pipeToInterpreterHit(command: string): boolean {
   const interpreterRe = /^(?:sudo\s+)?(?:env\s+(?:\S+\s+)*?)?(?:[A-Za-z_]\w*=\S+\s+)*(?:sh|bash|zsh|dash|ksh|python\d?|node|perl|ruby|osascript)\b/;
-  // #1892：python -m json.tool 是格式化模块（读 stdin 输出格式化 JSON），非「执行下载内容」——排除出解释器判定
+  // python -m json.tool 是格式化模块（读 stdin 输出格式化 JSON），非「执行下载内容」——排除出解释器判定
   const jsonToolFormatterRe = /^(?:sudo\s+)?(?:env\s+(?:\S+\s+)*?)?python\d?\s+-m\s+json\.tool\b/;
-  // D4（检视 delta-r3）：段首 fetcher 或段内进程替换 fetcher（cat <(curl …) 形态——
+  // （检视）：段首 fetcher 或段内进程替换 fetcher（cat <(curl …) 形态——
   // 替换输出即该段的数据源，管道对端解释器吃到下载内容，与 curl|sh 同构）
   const fetcherRe = /^(?:sudo\s+)?(?:curl|wget)\b|<\(\s*(?:sudo\s+)?(?:curl|wget)\b/;
-  // 按管道链拆段（| 单管）；&& / || / ; / & / 换行之间的段互不配对（delta-r2 补 &：
+  // 按管道链拆段（| 单管）；&& / ||  ; / & / 换行之间的段互不配对（补 &：
   // 后台复合 curl|head & cat|python3 不跨链配对）
   for (const chain of command.split(/&&|\|\||[;&\n]/)) {
     const parts = chain.split("|").map(p => p.trim()).filter(Boolean);
@@ -432,8 +432,8 @@ function pipeToInterpreterHit(command: string): boolean {
 }
 
 /** 第二站主判定 */
-/** 第二站黑名单拦截块（F20261102grfix：内联文案常量化+ruleId 直标）。
- *  注：B 类 NETWORK_EXFIL_BLOCK_MSG 已随 F20261109bexfz 退役删除（黑名单剩两类）。 */
+/** 第二站黑名单拦截块（内联文案常量化+ruleId 直标）。
+ * 注：B 类 NETWORK_EXFIL_BLOCK_MSG 已随 退役删除（黑名单剩两类）。 */
 const CRED_DIR_BLOCK_MSG: GuardBlock = {
   text: "凭证目录（~/.ssh / ~/.gnupg / ~/.aws）禁止访问——密钥/凭证不进獭上下文。如确需相关操作请告知搭档人工执行。",
   ruleId: "cred_dir_access",
@@ -445,7 +445,7 @@ const DOWNLOAD_EXEC_BLOCK_MSG: GuardBlock = {
   layer: "bypass_guard",
 };
 
-/** 第二站主判定（F20261109bexfz：B 类外发域名判定退役，剩 A 类凭证路径 + C 类下载即执行）
+/** 第二站主判定（B 类外发域名判定退役，剩 A 类凭证路径 + C 类下载即执行）
  *  allowedEgressDomains 参数为退役兼容签名（不再参与判定，静默忽略）。 */
 function checkBlacklistStation(command: string, _allowedEgressDomains?: string[]): GuardBlock | null {
   if (credentialPathHit(command)) {

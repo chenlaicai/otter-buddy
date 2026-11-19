@@ -7,7 +7,7 @@ const logger = createTestLogger();
 describe("F20261027cnsv D4 session lock steal probe", () => {
   it.each([
     ["running", true, false],
-    ["running", false, true], // 孤儿行：定稿 D4 明确可接管
+    ["running", false, true], // 孤儿行：定稿 明确可接管
     ["completed", true, false], // yield 后 drain：明确禁止误抢
     ["completed", false, true],
     ["aborted", true, true],

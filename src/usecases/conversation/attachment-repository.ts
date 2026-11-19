@@ -1,5 +1,5 @@
 /**
- * 附件仓储接口（多模态 Phase 1）。
+ * 附件仓储接口（多模态）。
  *
  * usecases 层 port：上传管线/投影出口都依赖本接口，
  * SQLite 实现在 frameworks/db/attachment/sqlite-attachment-repository.ts。

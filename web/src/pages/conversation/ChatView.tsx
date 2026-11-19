@@ -34,9 +34,9 @@ interface ChatViewProps {
   highlightMessageId?: string | null
   /** 用户在设置中配置的称呼 */
   userName?: string
-  /** P1：文类产物摘要卡数据源 */
+  /** 文类产物摘要卡数据源 */
   linkedResources?: LinkedResource[]
-  /** T5：过程明细开关（内存态——刷新回默认关闭） */
+  /** 过程明细开关（内存态——刷新回默认关闭） */
   showProcessDetail?: boolean
   onToggleProcessDetail?: () => void
   /** 卡片提交待确认预览（输入框上方单槽位） */
@@ -223,14 +223,14 @@ export function ChatView(props: ChatViewProps) {
                   : 'bg-stone-400/15 text-stone-400'
               }`}
             >
-              {/* F20260922cgrp：弱状态两态——completed 退役，只剩 活跃 | 已归档 */}
+              {/* 弱状态两态——completed 退役，只剩 活跃 | 已归档 */}
               {c.status === 'active' ? '活跃' : '已归档'}
             </span>
           )}
         </div>
         {c && (
           <div className="flex gap-1.5">
-            {/* F20261013csv3 T5：过程明细开关——内存态，刷新回默认关闭 */}
+            {/* 过程明细开关——内存态，刷新回默认关闭 */}
             {props.onToggleProcessDetail && (
               <button
                 onClick={props.onToggleProcessDetail}
@@ -288,16 +288,16 @@ export function ChatView(props: ChatViewProps) {
         bottomSpacerPx={bottomSpacerPx}
       />
 
-      {/* Input：F20261015inpd 覆盖层 + F20261016inbs 固定边界——absolute 悬浮底部，脱离
+      {/* Input：覆盖层 + 固定边界——absolute 悬浮底部，脱离
           文档流不挤压消息列表；顶部 8px 分割条热区（可拖），实高经 ResizeObserver 同步给
           MessageList 做等高衬垫（旧写死 170px 预留已删，死区归零）。
-          F20261016pcov：卡片预览槽位也在覆盖层内（分割条下方、输入框上方）。
-          F20261019ovmh（#1538）：覆盖层总高封顶容器高的 60%——#1535 把卡片迁入后，短视口
+          卡片预览槽位也在覆盖层内（分割条下方、输入框上方）。
+          ：覆盖层总高封顶容器高的 60%——把卡片迁入后，短视口
           + 大卡片（数据 JSON 展开态最坏 ~550px）+ 输入框拉满（55%）叠加可吃掉整个消息区。
           封顶用 max-h-[60%]（百分比锚 containing block = main，非 60vh——矮窗口里 vh 可能
           大于 main 实高，overflow-hidden 的 main 会直接裁掉溢出部分，把 bug 换个形态带回来）。
-          常规态消息区恒留 ≥40%（R2 极端态——矮视口装不下卡片地板时宁溢出不裁按钮，见
-          cardAwareInputLimit）。溢出时卡片内容区内部滚动；输入让步/卡片地板见 R2 几何。
+          常规态消息区恒留 ≥40%（极端态——矮视口装不下卡片地板时宁溢出不裁按钮，见
+          cardAwareInputLimit）。溢出时卡片内容区内部滚动；输入让步/卡片地板见 几何。
           衬垫机制零改动自动正确：RO 观测 overlay 实高，max-h clamp 后实高 = 封顶值，衬垫
           同步封顶——不会出现衬垫按未封顶自然高度算、消息被吞进 overlay 背后的错位。
           ⚠️ 容器不加 overflow-hidden：分割条热区（h-2 -mt-2）靠负 margin 探出 overlay 顶沿
@@ -319,18 +319,18 @@ export function ChatView(props: ChatViewProps) {
             <GripHorizontal className="w-4 h-2 text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden="true" />
           </span>
         </div>
-        {/* F20261016pcov 卡片提交预览槽位（强制且永久，无直接发送开关）：summary 全文 +
+        {/* 卡片提交预览槽位（强制且永久，无直接发送开关）：summary 全文 +
             data JSON 全文默认可见。根治（搭档 10-16 报告「交互卡片触发的回答点不了」）：
-            旧位置是 main 文档流子元素（MessageList 后 flex-shrink-0），与 #1516 起的输入
+            旧位置是 main 文档流子元素（MessageList 后 flex-shrink-0），与 起的输入
             覆盖层（absolute bottom-0 z-10）叠放——覆盖层透明但命中测试照吃，把发送/拒绝
             按钮的点击全吞了；卡片弹出还会压矮消息视口。现挪进覆盖层内（分割条下方、输入
             框上方）：覆盖层实高自然含卡片（ResizeObserver 同步给 MessageList 做等高衬垫，
             三笔账一次结清：按钮可点 + 衬垫含卡片 + 卡片不再压视口）。
             按钮行恒可见（检视獭-1552 实测打脸过绝对承诺：卡片 min-h-0 可塌到 0，按钮随之
-            被裁——R2 处置改为 JS 几何：卡片在场时输入有效上限动态收紧、给卡片留地板，见
-            cardAwareInputLimit）。卡片地板动态设 minHeight（R2：封顶零和下若 60% 预算装
-            不下地板，宁可让 overlay 溢出 main 底也不裁按钮——issue #1538 保消息区优先，
-            #1535 保按钮可点优先，两个保障不因封顶互相牺牲） */}
+            被裁——处置改为 JS 几何：卡片在场时输入有效上限动态收紧、给卡片留地板，见
+            cardAwareInputLimit）。卡片地板动态设 minHeight（封顶零和下若 60% 预算装
+            不下地板，宁可让 overlay 溢出 main 底也不裁按钮——保消息区优先，
+            保按钮可点优先，两个保障不因封顶互相牺牲） */}
         {props.cardPreview && (
           <div data-testid="card-preview" className="mx-1 mb-2 rounded-2xl border border-amber-200/60 bg-amber-50/90 px-4 py-3 flex-shrink flex flex-col min-h-0 overflow-hidden" style={{ minHeight: cardFloorPx }}>
             <div className="flex items-start gap-1.5 text-[11px] text-amber-700 mb-2 shrink-0">

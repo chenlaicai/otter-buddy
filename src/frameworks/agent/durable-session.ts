@@ -451,7 +451,7 @@ export class DurableSession {
       // 审视复核澄清：abort **不撤回** queued write（上游 withdrawQueuedInputs 跳过
       // write 模式，reset 正是 queued write）——此处 abort 仅作活流收尾，残余 queued
       // reset 若在下一边界落盘，效果等同一次合法世代边界（无害）；守护的职责是
-      // 响亮失败，不是补偿。busy 前置拒绝（pi.live.run 检查）归入 R5 后续防御层。
+      // 响亮失败，不是补偿。busy 前置拒绝（pi.live.run 检查）归入 后续防御层。
       await this.conversation.abort(context).catch(() => undefined);
       throw new Error(`durable generation reset guard failed: no pi.reset head boundary after reset (otter=${this.options.otterId}, newest=${newest?.kind ?? "none"})`);
     }

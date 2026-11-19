@@ -237,7 +237,7 @@ describe("assembleHandoffArchive + buildMechanicalArchive（V2 档案结构）",
 
   it("F20260930hsfx S2：机械档案文案带具体降级 reason（不再三并列混淆）", () => {
     // 每种降级形态有唯一文案——事后排查一眼定位是真空/超时/熔断/超窗哪种。
-    // 审视建议1：断言 8 项 = HandoffDegradeReason 7 个有效枚举值逐一断言 + 1 项向后兼容（不传 reason 回落通用文案）。
+    // 断言 8 项 = HandoffDegradeReason 7 个有效枚举值逐一断言 + 1 项向后兼容（不传 reason 回落通用文案）。
     expect(buildMechanicalArchive({ otterName: "獭", trigger: "手动", degradeReason: "empty-session" }))
       .toContain("前世 session 无任何消息");
     expect(buildMechanicalArchive({ otterName: "獭", trigger: "手动", degradeReason: "jsonl-read-fail" }))

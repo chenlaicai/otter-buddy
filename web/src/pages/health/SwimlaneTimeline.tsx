@@ -1,14 +1,14 @@
 /**
- * 链泳道时间线（健康面板 PR3）——视觉方案 ui-redesign-visual-review.md §3.2。
+ * 链泳道时间线（健康面板 PR3）——视觉方案 ui-redesign-visual-review.md 
  *
  * 形态：每链一条泳道，节点圆点按日期线性映射到共享 x 轴（默认 60 天窗口，与
  * 链构建窗口 30+30 对齐）；窗口外老链起点贴左缘截断标注（data-clipped-start）。
- * 四态线尾表达（§3.2 色义锁定；zombie 删除，stalled=pr-stalled）：
+ * 四态线尾表达（色义锁定；zombie 删除，stalled=pr-stalled）：
  * - active：teal 实线 + 末端呼吸动画（全场唯一动效，swim-active-pulse + SMIL）
  * - stalled（pr-stalled）：线尾虚化（dashed fade-out）+ caramel 空心圆末端 + 「PR 停滞 N 天」旁注
  * - regressed：线体 teal + 线中段 caramel-700 回卷标记（swim-regressed-mark）
  * - orphan：lavender 悬空空心起点（swim-orphan-start）
- * 密度原则（§3.5）：动效仅 active 呼吸一处；异常用实心饱和、常态低饱和；
+ * 密度原则：动效仅 active 呼吸一处；异常用实心饱和、常态低饱和；
  * 虚拟化：手写窗口化（滚动容器 + 可视区间渲染，行高 38px），零新依赖。
  * 节点色：bug 系 commit=caramel、其他=teal（复发卡同款色义，拍板）。
  */
@@ -75,7 +75,7 @@ function buildLaneGeom(ch: RhiChainDTO, xOf: (iso: string | null) => number, now
   return { nodes, firstX, lastX, clippedStart, regressedAtX }
 }
 
-/** 四态线体色（§3.2 + §3.4：stalled 线体 caramel-400 浅阶；regressed 线体 teal——
+/** 四态线体色（+ stalled 线体 caramel-400 浅阶；regressed 线体 teal——
  *  它本质仍是进行中的链，caramel-700 只给回卷标记） */
 function laneLineColor(state: ChainState): string {
   if (state === 'stalled') return CARAMEL[400]
@@ -106,7 +106,7 @@ function SwimRow({ ch, y, xOf, now, onOpen }: { ch: RhiChainDTO; y: number; xOf:
     >
       <rect x={0} y={1} width={ROW_W} height={ROW_H - 2} fill="transparent" />
       <title>{`${CHAIN_STATE_META[ch.state]?.label ?? ch.state} · ${ch.featureId} · ${ch.commitCount} commits${ch.daysSinceLastCommit !== null ? ` · 距上次 ${ch.daysSinceLastCommit} 天` : ''}`}</title>
-      {/* 左缘截断标注：窗口外老链，起点贴左缘（§3.2 共享 x 轴约定） */}
+      {/* 左缘截断标注：窗口外老链，起点贴左缘（共享 x 轴约定） */}
       {geo.clippedStart && (
         <g className="swim-clipped-mark">
           <line x1={LANE_X0 - 6} y1={ROW_H / 2 - 6} x2={LANE_X0 - 6} y2={ROW_H / 2 + 6} stroke={OTTER[400]} strokeWidth={2} />
@@ -123,7 +123,7 @@ function SwimRow({ ch, y, xOf, now, onOpen }: { ch: RhiChainDTO; y: number; xOf:
           stroke={lineColor} strokeWidth={2}
         />
       )}
-      {/* orphan：悬空空心起点（无入边连接，§3.2 lavender-400） */}
+      {/* orphan：悬空空心起点（无入边连接，lavender-400） */}
       {ch.state === 'orphan' && (
         <circle className="swim-orphan-start" data-orphan-start="1" cx={hasCommits ? geo.firstX : LANE_X0 + 6} cy={ROW_H / 2} r={4.5} fill="none" stroke={LAVENDER[400]} strokeWidth={2} />
       )}
@@ -156,7 +156,7 @@ function SwimRow({ ch, y, xOf, now, onOpen }: { ch: RhiChainDTO; y: number; xOf:
   )
 }
 
-/** pr-stalled 旁注文案：单 PR 「#N 停 7 天」，多 PR 「#N 等 2 个」 */
+/** pr-stalled 旁注文案：单 PR 「停 7 天」，多 PR 「等 2 个」 */
 function stalledPrLabel(ch: RhiChainDTO): string {
   const sig = ch.signals.find(s => s.id === 'pr-stalled')
   const prs = sig?.stalledPrs ?? []
@@ -198,7 +198,7 @@ function XAxis({ now }: { now: Date }) {
   const end = now.getTime()
   const ticks = Array.from({ length: 7 }, (_, i) => {
     const t = end - (WINDOW_DAYS - i * 10) * DAY_MS
-    // A1 修复（F20260920tdun）：epoch ms 先转本地 ISO 再格式化——旧实现 toISOString() 直接切 UTC 日期，
+    // 修复：epoch ms 先转本地 ISO 再格式化——旧实现 toISOString() 直接切 UTC 日期，
     // CST 0:00-8:00 期间标签显示前一天；现在用 fmtTimeShort 走本地时区，MM-DD 与页面其他域一致
     return { x: LANE_X0 + (i * 10 / WINDOW_DAYS) * (LANE_X1 - LANE_X0), label: fmtTimeShort(new Date(t).toISOString()).slice(0, 5) }
   })
@@ -259,9 +259,9 @@ export function SwimlaneTimeline({ chains, onOpen }: { chains: RhiChainDTO[]; on
   )
 }
 
-/** 异常态筛选 chips（Issue #649 交付 2，观澜 §3.2 视觉反转）：异常实心+计数徽章，
+/** 异常态筛选 chips（交付 2，观澜 视觉反转）：异常实心+计数徽章，
  *  活跃描边灰显；点异常 chip 泳道只留命中链（再点取消）。「全部」chip 恢复全量。
- *  放本模块而非 index.tsx：后者 import 时挂载 #root，组件测试无法引用。 */
+ * 放本模块而非 index.tsx：后者 import 时挂载 组件测试无法引用。 */
 export function ChainFilterChips({ counts, total, active, onPick }: {
   counts: Record<string, number>
   total: number
@@ -303,7 +303,7 @@ export function ChainFilterChips({ counts, total, active, onPick }: {
           </button>
         )
       })}
-      {/* 活跃 chip：描边灰显（§3.2 视觉反转——常态在筛选语法里降级） */}
+      {/* 活跃 chip：描边灰显（视觉反转——常态在筛选语法里降级） */}
       <button
         className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
           active === 'active'

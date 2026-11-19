@@ -56,7 +56,7 @@ export function synthesisFullBudgetChars(contextWindowTokens: number): number {
 
 /** 显式合成 max_tokens（与 pi-session-factory 调用侧同值，单一真相源）。
  *  输出实证 ≤2,415 chars ≤ ~1K tokens，prompt 规则 7 自限 ≤2000 tokens。
- * ⚠ 机制缺口（检视 B1，）：durable 运行时按 (provider, modelId) 从 models 源
+ * ⚠ 机制缺口（检视）：durable 运行时按 (provider, modelId) 从 models 源
  *  重解析模型，本副本覆盖到不了线缆——线缆实际走池模板 maxTokens（经
  *  clampMaxTokensToContext 自动收缩），本常量在 durable 时代为副本层目标值，
  * 「输入容量 = 窗口 − max_tokens」的旧断言在 durable 线缆上不成立（待 修复）。
@@ -165,7 +165,7 @@ export interface NarrativeSynthesisInput {
     activeArtifacts?: Array<{ id: string; resourceType: string; title?: string }>;
     recentUserMessages?: string[];
   };
-  /** P1：本对话未闭环 matters 清单（§④ 机械供料——起接入合成原料） */
+  /** 本对话未闭环 matters 清单（§④ 机械供料——起接入合成原料） */
   openMatters?: string;
   /** 当前时间戳（缺省 now） */
   timestamp?: string;
@@ -309,8 +309,8 @@ function appendMaterialSections(lines: string[], ctx: PromptContext, input: Narr
   appendMechanicalSections(lines, input);
 }
 
-/** F20260923hsyn：历史段（含预算裁剪——裁剪在此做，调用方拿到的 prompt 必然装得下）。
- *  F20260924swin：裁剪上移到 buildNarrativeSynthesisPrompt（需先实测固定段才能算历史段预算），
+/** 历史段（含预算裁剪——裁剪在此做，调用方拿到的 prompt 必然装得下）。
+ * 裁剪上移到 buildNarrativeSynthesisPrompt（需先实测固定段才能算历史段预算），
  *  本函数只负责渲染——裁剪结果经 input.__trimDropped 透传（装配细节，不进 NarrativeSynthesisInput 公开面）。 */
 function appendHistorySection(lines: string[], input: NarrativeSynthesisInput): void {
   const droppedCount = (input as unknown as { __trimDropped?: number }).__trimDropped ?? 0;
@@ -335,7 +335,7 @@ function appendMechanicalSections(lines: string[], input: NarrativeSynthesisInpu
     lines.push('### §⑤ 活状态盘点（DB 权威源快照）');
     lines.push(stripInventoryTitle(input.stateInventoryText ?? ''));
   }
-  // F20261027hfup（M-12b165a7）：未闭环 matters 进合成原料——叙事路径下「接单≠落位」类
+  // （M-12b165a7）：未闭环 matters 进合成原料——叙事路径下「接单≠落位」类
   //  悬置事项曾被丢出七段摘要（此前只挂档案机械段，合成路径零可见性）。确定性枚举供料，
   //  §① 下一步必须与其对齐（与 appendRuleLines 规则 1 呼应）。
   if (input.openMatters) {
@@ -389,7 +389,7 @@ function formatPrefetch(prefetch?: NarrativeSynthesisInput['prefetch']): string 
       parts.push(`- active 产物（${prefetch.activeArtifacts.length} 个）: ${arts.join(' ｜ ')}`);
     }
   }
-  // F20261027hfup：recentUserMessages 不回填本函数——§⑥ formatRecentUserMessages 单点渲染
+  // recentUserMessages 不回填本函数——§⑥ formatRecentUserMessages 单点渲染
   //  （§④ 双渲染点=消息明细双份进 prompt 双倍挤占固定段预算，回退）。
   return parts.length > 0 ? parts.join('\n') : '- （无预取数据）';
 }
@@ -426,14 +426,14 @@ export function buildMechanicalArchive(input: {
   stateInventoryText?: string;
   recencyWindow?: string;
   fileTrail?: string;
-  /** F20260930hsfx：降级原因（贯穿日志与档案文案——「synthesizePast=false / 失败 / 超时」
+  /** 降级原因（贯穿日志与档案文案——「synthesizePast=false / 失败 / 超时」
    *  三并列无法区分真空/无 speak/jsonl 读失败等具体形态；唯一枚举一眼定位）。 */
   degradeReason?: HandoffDegradeReason;
-  /** F20261111synth F4：降级错误摘要（≤200 chars，档案自证）——synthesis-error/timeout
+  /** F4：降级错误摘要（≤200 chars，档案自证）——synthesis-error/timeout
    *  时由调用方传入 err.message；档案携带失败原因原文，排查不再依赖进程日志存活
    *  （11-11 事故 09:32 档案因日志轮换只能按同签名推断归因）。 */
   degradeErrorDetail?: string;
-  /** F20261006mtlp P1：本对话未闭环 matters 清单（机械供料 handoff_open_matters） */
+  /** 本对话未闭环 matters 清单（机械供料 handoff_open_matters） */
   openMatters?: string;
 }): string {
   const ts = new Date().toISOString();
@@ -451,9 +451,9 @@ export function buildMechanicalArchive(input: {
   }
 
   parts.push('### 说明');
-  // F20260930hsfx：reason 具体化——每种降级形态独立文案，不再三并列混淆
+  // reason 具体化——每种降级形态独立文案，不再三并列混淆
   parts.push(`- ${input.degradeReason ? HANDOFF_DEGRADE_REASON_TEXT[input.degradeReason] : 'LLM 叙事合成未执行或降级，本档案为机械转储形态'}`);
-  // F20261111synth F4：失败原因原文进档案（截 200 chars——归因用，不是日志倾倒场）
+  // F4：失败原因原文进档案（截 200 chars——归因用，不是日志倾倒场）
   if (input.degradeErrorDetail?.trim()) {
     parts.push(`- 失败原因：${input.degradeErrorDetail.trim().slice(0, 200)}`);
   }
@@ -481,7 +481,7 @@ function pushSection(parts: string[], heading: string, body: string | undefined)
 }
 
 /**
- * 组装新世起始上下文（叠加式档案，T4 核心）。
+ * 组装新世起始上下文（叠加式档案，核心）。
  *
  * 结构（方案「新世起始上下文」节）：
  * ## 前世档案（新世必读）
@@ -499,7 +499,7 @@ export function assembleHandoffArchive(params: {
   fileTrail?: string;
   stateInventory?: string;
   recencyWindow?: string;
-  /** F20261006mtlp P1：机械供料——本对话未闭环 matters 清单 */
+  /** 机械供料——本对话未闭环 matters 清单 */
   openMatters?: string;
 }): string {
   const parts: string[] = ['## 前世档案（新世必读）', ''];

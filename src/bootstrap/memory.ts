@@ -178,7 +178,7 @@ export async function syncDocuments(
 }
 
 /**
- * Part 1：创建并启动 embedding 重试 worker。
+ * 创建并启动 embedding 重试 worker。
  *
  * 启动前做存量迁移：扫描已存在的暗化条目（本 F 上线前累积），
  * 批量 enqueueRetry 入队，让 retry worker tick 后逐步修复。
@@ -208,10 +208,10 @@ export async function createAndStartRetryWorker(
     }
   }
 
-  // F20260812mrcq Part 1：存量暗化条目迁移
+  // 存量暗化条目迁移
   // 扫描已存在的暗化条目，批量 enqueueRetry 入队。
   //
-  // F20261026emct 两处收窄：
+  // 两处收窄：
   // 1) includeDead=true → false：dead 是独立判定的终态（真不可嵌入/entry 已删），
   //    复活它只会把死信重新灌回队列越滚越大（2026-10-23 实锤 686 条 dead 不收敛
   //    正是启动迁移的一部分）。真缺 vec 的 pending 语义条目才迁移。存量 dead
@@ -220,7 +220,7 @@ export async function createAndStartRetryWorker(
   //    API 堆在主线程，2905 条积压场景下逐条 INSERT 会长时间堵塞事件循环，
   //    health 端点无法响应（30s 超时雪上加霜）。
   //
-  // F20261105embqg S3：入队前水位闸门——启动暗扫是全量生产者，队列已积压时
+  // 入队前水位闸门——启动暗扫是全量生产者，队列已积压时
   // （如前次崩溃遗留）再灌入只会把活消息的出队延迟推到 tick 周期之后。
   // 跳过是幂等安全操作：暗条目保持现状，下次启动重扫（retry 队列可延后语义的边界）。
   const existing = await repos.memoryReader.scanDarkEntries(false);
@@ -238,7 +238,7 @@ export async function createAndStartRetryWorker(
       logger.info(`Migrating ${existing.total} existing dark entries to retry queue`);
       const ENQUEUE_BATCH_SIZE = 100;
       for (const entry of existing.entries) {
-        // F20261105embqg S2b：启动暗扫是全量重算生产者，bulk 优先级（2）——
+        // 启动暗扫是全量重算生产者，bulk 优先级（2）——
         // 已在队/live 后续入队的任务优先消费，防暗扫淹没活路径
         await repos.memoryQueue.enqueueRetry(entry.entryId, new Error("migrated from existing dark entries"), EMBED_TASK_PRIORITY.bulk);
         migratedCount++;
@@ -261,7 +261,7 @@ export async function createAndStartRetryWorker(
     resolveBatchTokenBudget(),
   );
   worker.start();
-  // F20261109epqst：启动即消费存量——自跑首轮 tickNow（fire-and-forget，不阻塞启动）。
+  // 启动即消费存量——自跑首轮 tickNow（fire-and-forget，不阻塞启动）。
   // 根因：PatrolWorker.start() 在 buildApp 内同步跑首轮 tick，此时 postListenInit
   // 尚未创建本 worker（duty 跳过），存量任务要等下一个 1h tick——“重启接着处理已有
   // 任务”的验收要求不允许（生产 09:14 启动能 09:16 消费纯属启动慢的巧合）。
@@ -269,7 +269,7 @@ export async function createAndStartRetryWorker(
   void worker.tickNow().catch((err) =>
     logger.error("EmbeddingRetryWorker startup tick failed", err instanceof Error ? err : new Error(String(err))),
   );
-  // #949：周期 tick 由 PatrolWorker 每 1h 驱动（start() 不再自持定时器）——日志不再打印 intervalMs（原 30_000 为 #948 降频前的残留误导）
+  // 周期 tick 由 PatrolWorker 每 1h 驱动（start() 不再自持定时器）——日志不再打印 intervalMs（原 30_000 为 降频前的残留误导）
   logger.info("EmbeddingRetryWorker started", {
     driver: "patrol-worker",
     migratedExisting: migratedCount,

@@ -8,7 +8,7 @@ import type { HealingEventRepository } from "@usecases/healing/healing-event-rep
 import type { HealingEvent, HealingResolution } from "@entities/healing/healing-event";
 import type { Logger } from "@usecases/ports/logger";
 
-/** §3 验收 /老化 worker 聚合限流 + 孤儿 healing 清理 + triaged 停滞告警 */
+/** 验收 /老化 worker 聚合限流 + 孤儿 healing 清理 + triaged 停滞告警 */
 
 function makeDeps(): { repo: SignalRepository; healing: HealingEventRepository & { events: HealingEvent[] } } {
   const db = new Database(":memory:");

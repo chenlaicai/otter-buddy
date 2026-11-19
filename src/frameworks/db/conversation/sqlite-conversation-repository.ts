@@ -62,7 +62,7 @@ const LAST_ACTIVITY_ENTRY_PREDICATE = `(
 )`;
 
 export class SqliteConversationRepository implements ConversationRepository {
-  /** 多模态 Phase 1：附件 repo（消息组装点①——repository 加载回填 attachments） */
+  /** 多模态：附件 repo（消息组装点①——repository 加载回填 attachments） */
   /** 附件 JOIN 降级时留痕（不再吞错——真实 DB 故障须可观测） */
   private readonly logger?: Logger;
 
@@ -113,9 +113,9 @@ export class SqliteConversationRepository implements ConversationRepository {
   }
 
   async updateStatus(id: string, status: ConversationStatus, timestamp: string): Promise<void> {
-    // F20260922cgrp：弱状态两态——completed 退役，只剩 archived 写入路径
+    // 弱状态两态——completed 退役，只剩 archived 写入路径
     if (status === "archived") {
-      // #1391：changes=0（ID 不存在）时 fail-closed 抛错（#1370 族模式）。上游
+      // changes=0（ID 不存在）时 fail-closed 抛错（族模式）。上游
       // manage-conversation.archive 已有 getById 前置防护（not_found + canArchiveConversation
       // 拦重复归档），此处抛错只在「前置检查与写入间的删除竞态窗口」触发，不改变幂等语义
       const result = this.db.prepare(`UPDATE conversations SET status = 'archived', archived_at = ?, updated_at = ? WHERE id = ?`)
@@ -131,7 +131,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       "SELECT conversation_id FROM conversation_otters WHERE otter_id = ?",
     ).all(otterId) as { conversation_id: string }[];
     if (rows.length > 0) return rows.map(r => r.conversation_id);
-    // F20261009s6ej6：fallback 查 conversation_participants——小獭经 invite_otter 加入对话
+    // fallback 查 conversation_participants——小獭经 invite_otter 加入对话
     //  只写 participants 不写 conversation_otters（两表数据不一致的历史遗留），导致
     //  resolveFirstConversationId 找不到对话 → restartWithUnifiedHandoff 降级 bare restart
     //  → 无系统消息（搭档点小獭重启獭生按钮没有 ⏳/✅ 反馈的根因）。
@@ -156,7 +156,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       .run(pinned ? 1 : 0, id);
   }
 
-  // ── F20261118crtgr（#1868 阶段 5 PR-A）：对话级当前执行机 ──
+  // ── ：对话级当前执行机 ──
 
   async getExecutionMachineId(id: string): Promise<string | null> {
     const row = this.db.prepare("SELECT current_machine_id FROM conversations WHERE id = ?")
@@ -165,13 +165,13 @@ export class SqliteConversationRepository implements ConversationRepository {
   }
 
   async setExecutionMachineId(id: string, machineId: string | null): Promise<boolean> {
-    // m2（检视）：配置变更不污染活动时间戳（updated_at 语义=最后活动）
+    // （检视）：配置变更不污染活动时间戳（updated_at 语义=最后活动）
     const result = this.db.prepare("UPDATE conversations SET current_machine_id = ? WHERE id = ?")
       .run(machineId, id);
     return result.changes > 0;
   }
 
-  /** F20260918imas：收篇摘要落库（助理对话软轮换用） */
+  /** 收篇摘要落库（助理对话软轮换用） */
   async updateSummary(id: string, summary: string): Promise<void> {
     this.db.prepare("UPDATE conversations SET summary = ?, updated_at = ? WHERE id = ?")
       .run(summary, new Date().toISOString(), id);
@@ -205,12 +205,12 @@ export class SqliteConversationRepository implements ConversationRepository {
   async getActiveParticipants(conversationId: string): Promise<ConversationParticipant[]> { return mixins.getActiveParticipants(this.db, conversationId); }
   async updateParticipantLeave(participantId: string, leftAt: string): Promise<void> { mixins.updateParticipantLeave(this.db, participantId, leftAt); }
   async updateLastReadSeq(conversationId: string, otterId: string, seq: number): Promise<void> { mixins.updateLastReadSeq(this.db, conversationId, otterId, seq); }
-  /** #775：seq 刻度存量回填（一次性，启动时调用） */
+  /** seq 刻度存量回填（一次性，启动时调用） */
   backfillLastReadSeq(): number { return mixins.backfillLastReadSeq(this.db); }
-  /** F20260929czi0：进场游标零点修正存量迁移（一次性，启动时调用） */
+  /** 进场游标零点修正存量迁移（一次性，启动时调用） */
   advanceZeroCursorsForActiveJoin(): number { return mixins.advanceZeroCursorsForActiveJoin(this.db); }
   async markParticipantLeft(conversationId: string, otterId: string): Promise<void> { mixins.markParticipantLeft(this.db, conversationId, otterId); }
-  // ── F20260920trrt：闲置预警新口径（发言 seq 差 + 时间护栏）读时聚合三查询 ──
+  // ── 闲置预警新口径（发言 seq 差 + 时间护栏）读时聚合三查询 ──
   getMaxEntrySeq(conversationId: string): number { return mixins.getMaxEntrySeq(this.db, conversationId); }
   getLastSpeakBySender(conversationId: string): Map<string, { seq: number; createdAt: string }> { return mixins.getLastSpeakBySender(this.db, conversationId); }
   getLastInvokeStartedAtByOtter(conversationId: string): Map<string, string> { return mixins.getLastInvokeStartedAtByOtter(this.db, conversationId); }
@@ -236,7 +236,7 @@ export class SqliteConversationRepository implements ConversationRepository {
   }
 
   async getUnreadCount(conversationId: string, userId: string): Promise<number> {
-    // F20260913ctlv 批4c：数据源切 entries（messages 表 drop）——跳过用户自己的气泡
+    // 批4c：数据源切 entries（messages 表 drop）——跳过用户自己的气泡
     const row = this.db.prepare(`
       SELECT COUNT(*) as cnt FROM entries
       WHERE conversation_id = ?
@@ -253,7 +253,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     userId: string,
     options?: ListConversationsFilter,
   ): Promise<ConversationListResult> {
-    // F20260913ctlv 批4c：数据源切 entries（messages 表 drop）——
+    // 批4c：数据源切 entries（messages 表 drop）——
     // unread/activity/last 预览全部从时间线读取；activity 判据 = running invoke（invokes 表）
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
@@ -291,7 +291,7 @@ export class SqliteConversationRepository implements ConversationRepository {
       otter_ids_flat: string | null;
       activity_status: 'processing' | 'awaiting_user' | 'idle';
     }>;
-    // F20260922cgrp：total = 满足过滤条件的总数（不含分页），供前端页码跳转
+    // total = 满足过滤条件的总数（不含分页），供前端页码跳转
     const totalRow = this.db.prepare(
       `SELECT COUNT(*) AS cnt FROM conversations c ${whereClause}`,
     ).get(...filterParams) as { cnt: number };
@@ -314,7 +314,7 @@ export class SqliteConversationRepository implements ConversationRepository {
 
   // ── Message 全文搜索（FTS5） ──
 
-  /** F20260805rbrg：按 metadata 查重。支持单条（externalId）和批量（externalIds 数组）两种格式。 */
+  /** 按 metadata 查重。支持单条（externalId）和批量（externalIds 数组）两种格式。 */
 
-  /** F20260909smsp：按 invokeGroupId 查询 invoke 消息链（首个 message + speak messages） */
+  /** 按 invokeGroupId 查询 invoke 消息链（首个 message + speak messages） */
 }

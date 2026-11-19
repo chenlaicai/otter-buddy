@@ -85,7 +85,7 @@ export class SettingsController {
     }
   }
 
-  /** F20261022mjls：默认陪打獭入参校验（自 updateSettings 拆出——控复杂度）；通过返回 null */
+  /** 默认陪打獭入参校验（自 updateSettings 拆出——控复杂度）；通过返回 null */
   private validateDefaultOtters(raw: unknown): string | null {
     if (!Array.isArray(raw)) return 'defaultOtters 必须是 [{otterId, name}] 数组';
     for (const item of raw) {

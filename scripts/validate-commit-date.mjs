@@ -106,8 +106,8 @@ import { pathToFileURL } from 'node:url';
 
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectRun) {
-  // F20260914prdb: --at <ISO> 注入基准时间（CI 传 PR 创建时间，与当前时间双基准任一通过）
-  // F20260914prdb: --warn-on-drift 偏差超窗降为警告（commit-msg 钩子用，bad_date 仍硬拦）
+  // --at <ISO> 注入基准时间（CI 传 PR 创建时间，与当前时间双基准任一通过）
+  // --warn-on-drift 偏差超窗降为警告（commit-msg 钩子用，bad_date 仍硬拦）
   const args = process.argv.slice(2);
   const atIdx = args.indexOf('--at');
   const warnOnDrift = args.includes('--warn-on-drift');

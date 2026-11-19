@@ -194,7 +194,7 @@ export function playerPanel(view, seat, viewer) {
 
 /**
  * 玩家条（v3 座位角信息条）＝玩家面板去掉牌河。
- * 牌河交给 riverTable 单点渲染——同一状态只留一个渲染点，避免两处不同步（D4）。
+ * 牌河交给 riverTable 单点渲染——同一状态只留一个渲染点，避免两处不同步。
  */
 export function playerStrip(view, seat, viewer) {
   const panel = playerPanel(view, seat, viewer);
@@ -220,9 +220,9 @@ export function stripsByPosition(view, viewer) {
 /**
  * 桌心视图模型（v3 主骨架）：三家牌河围桌心三方 + 中央信息盘数据。
  *
- * D1 定稿：牌字符**全正朝向**（不倒不侧），旋转的是摆放位置不是字符——
+ * 定稿：牌字符**全正朝向**（不倒不侧），旋转的是摆放位置不是字符——
  * top=上家河（远侧）/ right=下家河（右侧）/ self=自己河（近侧），三块矩形区围住 hub。
- * hub 复用 fieldInfo（D3：信息盘承载场况主显示，与左上角标不同屏双显）。
+ * hub 复用 fieldInfo（信息盘承载场况主显示，与左上角标不同屏双显）。
  *
  * @param {object} view  RoomView
  * @param {number|null} viewer  观战传 null（座位环按 seat0 为底）
@@ -382,7 +382,7 @@ export function settlementModel(events) {
 }
 
 /**
- * 聊天行格式化（#1532）：ownSeat 命中显「你」，獭发言带（獭）标记，名字缺省回退号位。
+ * 聊天行格式化：ownSeat 命中显「你」，獭发言带（獭）标记，名字缺省回退号位。
  * 纯函数——传输层只发 chat 帧（seat/from/name/text），怎么排由视图层定。
  * @param {{seat: number, name?: string, from?: string, text: string}} ev
  * @param {number|null} ownSeat

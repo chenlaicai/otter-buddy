@@ -8,12 +8,12 @@
  * - 判据 100% 来自 git/PR 事实，零字段消费（feature 文档 status 不再参与判定）
  * - state 四值：active / stalled（=pr-stalled 投影）/ regressed / orphan
  * - zombie 删除（链是开放结构，不预言未来）；doc-only 判死删除（零 commit 是常态）
- * - signals 信号清单可叠加（挂几个报几个）；state 是 signals 的兼容投影（Phase 2 收敛）
+ * - signals 信号清单可叠加（挂几个报几个）；state 是 signals 的兼容投影（收敛）
  *
  * 信号定义：
  * - pr-stalled: 链上存在 open PR ∧ 该 PR >7 天无推进（无新 commit/review/comment）
  * - regressed:  链最新 commit 是 BugFix 且触碰链内更早 commit 引入的文件（无 inFlight 前提，
- *               合入后修 bug 恰是最常见的回退场景——T4 修复漏报）
+ * 合入后修 bug 恰是最常见的回退场景——修复漏报）
  * - doc-gap:    合入 commit 的 FID 在 docs/features 无文档（原 orphan 定义不变）
  */
 
@@ -92,7 +92,7 @@ export interface ChainCommitInput {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** 默认 pr-stalled 判定阈值（天）。B4 语义延续：展示层文案引用同一真相源，防两处漂移。
+/** 默认 pr-stalled 判定阈值（天）。语义延续：展示层文案引用同一真相源，防两处漂移。
  * 语义从「commit 停滞 14 天」改为「open PR 无推进 7 天」——open PR 是显式
  * 开放的工作，7 天零 review 零 commit 即值得提醒（方案 options 可配） */
 export const DEFAULT_STALLED_PR_DAYS = 7;
@@ -231,7 +231,7 @@ function classifySignals(chain: FeatureChain, ctx: ChainCtx): ChainSignal[] {
   }
 
   // regressed：最新 commit 是 BugFix 且触碰链内更早 commit 引入的文件（窄门：文件交集即证据）
-  // F20260902sigm T4：删除 inFlight 前提——合入后修 bug 恰是最常见的回退场景，不再漏报
+  // 删除 inFlight 前提——合入后修 bug 恰是最常见的回退场景，不再漏报
   const regressed = findRegressed(chain);
   if (regressed) {
     signals.push({
@@ -250,7 +250,7 @@ function classifySignals(chain: FeatureChain, ctx: ChainCtx): ChainSignal[] {
   return signals;
 }
 
-/** state = signals 的兼容投影（Phase 2 待 web 消费完全切换后收敛删除） */
+/** state = signals 的兼容投影（待 web 消费完全切换后收敛删除） */
 function projectState(chain: FeatureChain): ChainState {
   if (chain.signals.some(s => s.id === "doc-gap")) return "orphan";
   if (chain.signals.some(s => s.id === "regressed")) return "regressed";

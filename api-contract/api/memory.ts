@@ -1,7 +1,7 @@
 /**
  * 检索来源（纯字符串联合，不依赖 usecases 层）。
- * Part 1：扩展契约。
- * Part 3：收敛——删 keyword-fallback（用因已被 jieba 双表消解）和
+ * 扩展契约。
+ * 收敛——删 keyword-fallback（用因已被 jieba 双表消解）和
  * related-expand（重工程收益不明）。anchor + context-expand 由 实施。
  */
 export type RetrievalSource =
@@ -15,18 +15,18 @@ export type RetrievalSource =
 export type DetailLevel = "summary" | "snippet" | "full";
 
 /**
- * Part 1：vec 路径覆盖率（默认返回）。
- * Part 2 审视 m5：加 vecDisabled，消除 ratio=0 歧义。
+ * vec 路径覆盖率（默认返回）。
+ * 审视 加 vecDisabled，消除 ratio=0 歧义。
  */
 export interface VecCoverageDTO {
   total: number;
   withVec: number;
   ratio: number;
-  /** Part 2: vec 路径运行时禁用（disableVec 清表后） */
+  /** vec 路径运行时禁用（disableVec 清表后） */
   vecDisabled?: boolean;
 }
 
-/** Part 1：debug 模式注入的中间分值 */
+/** debug 模式注入的中间分值 */
 export interface RetrievalDebugInfoDTO {
   rrfScore: number;
   finalScore: number;
@@ -66,7 +66,7 @@ export interface SearchResultDTO {
   entries: MemoryEntryDTO[];
   total: number;
   vecCoverage: VecCoverageDTO;
-  /** Part 2: 邻域扩展条目（仅 expand_context=true 时存在） */
+  /** 邻域扩展条目（仅 expand_context=true 时存在） */
   contextEntries?: MemoryEntryDTO[];
 }
 
@@ -80,7 +80,7 @@ export interface SearchQueryDTO {
   detail_level?: DetailLevel;
   library?: string;
   debug?: boolean;
-  /** Part 2: 开启邻域扩展（chunk ±1 / message 前后条） */
+  /** 开启邻域扩展（chunk ±1 / message 前后条） */
   expand_context?: boolean;
   /** /contentType 多选（逗号分隔），如 ?content_type=feature_chunk,feature */
   content_type?: string;

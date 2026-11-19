@@ -4,7 +4,7 @@
  * （删掉 bound_issue/bound_at 重建 14 列旧表），被测对象就是「旧 schema → 新 schema」
  * 的补列迁移本身，与 migration.test.ts 同类场景。
  *
- * 背景（第二次 P0 启动事故，复盘）：
+ * 背景（第二次 启动事故，复盘）：
  *   build-app.test.ts 用 fs.mkdtempSync 空目录 + 全新 sqlite——只证明「新库能起」。
  * 而线上 100% 是存量库（升级场景），的索引抢跑在全新库上永远绿、
  *   在存量库上必炸。防线与线上形态错位，两次事故同一模式。
@@ -128,7 +128,7 @@ describe("buildApp 存量库形态启动（#1390 防线 A）", () => {
 
   it("存量库补列后启动不炸（#1390 核心回归）", () => {
     // initDatabaseAndModels 在 beforeAll 中成功返回 = 启动路径没炸
-    // 若 #1365 形态回归（索引在补列前），beforeAll 会抛 no such column，本断言走不到
+    // 若 形态回归（索引在补列前），beforeAll 会抛 no such column，本断言走不到
     expect(true).toBe(true);
   });
 

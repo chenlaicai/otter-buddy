@@ -2,7 +2,7 @@
  * otter 实际模型 contextWindow 查询端口。
  *
  * Why: handoff 触发阈值需要按 otter 真实模型的 contextWindow 计算，
- * 而非一刀切 128k（遗留的 Phase 1 占位）。AgentInvoker 在
+ * 而非一刀切 128k（遗留的 占位）。AgentInvoker 在
  * interface-adapters 层，不能直接依赖 frameworks 层的 ModelPool——参照
  * model-pool-like.ts 的窄接口模式，由 bootstrap 组装闭包注入。
  *

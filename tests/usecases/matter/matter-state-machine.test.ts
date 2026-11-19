@@ -1,8 +1,8 @@
 /**
- * P1：matter 状态机迁移矩阵单测（方案 §2——验证节锁定项）。
+ * matter 状态机迁移矩阵单测（——验证节锁定项）。
  *
  * 覆盖：
- * 1. 合法迁移全矩阵（§2 表 14 条存续迁移逐条放行）
+ * 1. 合法迁移全矩阵（表 14 条存续迁移逐条放行）
  * 2. 非法迁移拒绝（未列入矩阵的组合一律拒绝——含终态互迁、反向迁移）
  * 3. 触发者守卫（partner 专属迁移獭不能代执行）
  * 4. 宣告权分权（L2 无搭档确认不可 CLOSED；L1 獭可自关留痕）
@@ -120,7 +120,7 @@ describe('matter 状态机：合法迁移矩阵（§2 全量）', () => {
     });
     expect(updated.state).toBe('CLOSED');
     expect(updated.closedAt).not.toBeNull();
-    expect(updated.resolvedBy).toBe(`otter:${OWNER}`); // §1 口径：otter:<id>
+    expect(updated.resolvedBy).toBe(`otter:${OWNER}`); // 口径：otter:<id>
   });
 
   it('DONE_PENDING_CONFIRM → CLOSED（L2 搭档确认）', async () => {
@@ -308,7 +308,7 @@ describe('matter 状态机：代执行（§3.5 通道 A——声明后按被代�
     });
     expect(updated.state).toBe('DONE_PENDING_CONFIRM');
     expect(updated.resolution).toBe('代搭档执行：批准按方案A');
-    // N1 修订：resolvedBy 统一记实际执行獭（被代理者身份经 resolution 留痕）
+    // 修订：resolvedBy 统一记实际执行獭（被代理者身份经 resolution 留痕）
     expect(updated.resolvedBy).toBe(`otter:${OTHER_OTTER}`);
   });
 
@@ -329,7 +329,7 @@ describe('matter 状态机：代执行（§3.5 通道 A——声明后按被代�
       actor: OTHER_OTTER, onBehalfOf: OWNER, resolution: '代执行：已完成 X',
     });
     expect(updated.state).toBe('DONE_PENDING_CONFIRM');
-    expect(updated.resolvedBy).toBe(`otter:${OTHER_OTTER}`); // N1 修订：记实际执行獭
+    expect(updated.resolvedBy).toBe(`otter:${OTHER_OTTER}`); // 修订：记实际执行獭
   });
 
   it('代执行声明不能越矩阵：獭代搭档执行 WAITING_OTTER→WAITING_PARTNER（owner 专属行）仍拒', async () => {
@@ -374,7 +374,7 @@ describe('matter 状态机：宣告权分权（L2 闭环必须搭档确认）', 
       matterId: makeMatter().id, to: 'CLOSED', actor: OWNER, resolution: 'L1 自关留痕',
     });
     expect(updated.state).toBe('CLOSED');
-    expect(updated.resolvedBy).toBe(`otter:${OWNER}`); // §1 口径：otter:<id>
+    expect(updated.resolvedBy).toBe(`otter:${OWNER}`); // 口径：otter:<id>
   });
 
   it('L2 DONE_PENDING_CONFIRM → CLOSED 搭档确认放行', async () => {

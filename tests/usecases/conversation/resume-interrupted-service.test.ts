@@ -166,7 +166,7 @@ function makeHarness(): Harness {
       const invokeId = opts.invokeId ?? crypto.randomUUID();
       const userEntryId = crypto.randomUUID();
       const createdAt = opts.userEntryCreatedAt ?? T0;
-      // #906：entries (conversation_id, sequence_num) 已 UNIQUE——同 conversation 多次
+      // entries (conversation_id, sequence_num) 已 UNIQUE——同 conversation 多次
       // seed（healing 落账测试 seed 两次）不能用硬编码 seq=1，改 MAX+1（与 createEntryAtomic 同款）
       db.prepare(`
         INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_type, sender_id, body, invoke_id, yield_targets, status, sender_name, created_at, completed_at)
@@ -253,7 +253,7 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
     expect(chain.calls[0]!.userMessageContent).toContain("保留在对话中");
     // done 流转
     expect(h.queueStatus(invokeId)).toBe("done");
-    // F20260906rsts 沿用：成功路径静默——零系统消息
+    // 沿用：成功路径静默——零系统消息
     expect(h.systemEntries).toHaveLength(0);
   });
 
@@ -458,7 +458,7 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
     expect(h.queueStatus(invokeId1)).toBe("failed");
     expect(h.queueStatus(invokeId2)).toBe("done");
   });
-  // ─── F20261116actlg PR-B：恢复摘要注入 + 恢复轮回填 ───
+  // ─── 恢复摘要注入 + 恢复轮回填 ───
 
 it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢复轮 invoke 回填审计锚", async () => {
     const invokeId = await h.seedInterrupted();
@@ -487,7 +487,7 @@ it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢�
     expect(h.queueStatus(invokeId)).toBe("done");
   });
 
-  // ─── F20261118remex（C2/R2）：远程动作五态并入恢复摘要 ───
+  // ─── 远程动作五态并入恢复摘要 ───
 
   it("台账缺席 → 旧版文案（无摘要块）；认领绑定注入的 bootEpoch", async () => {
     const invokeId = await h.seedInterrupted();
@@ -505,7 +505,7 @@ it("台账摘要内嵌续跑指令：unknown 优先呈现 + 处置指引；恢�
 
 });
 
-// ─── F20261117 检视轮修复（PR #1902 review minor-1/minor-2 + 未覆盖点）───
+// ─── 修复与未覆盖点 ───
 describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持 pending / 摘要超限显性标注 / 台账查询失败退化）", () => {
   let h: Harness;
 
@@ -571,7 +571,7 @@ describe("ResumeInterruptedService 检视轮修复（同 boot 认领冲突保持
   });
 });
 
-// ─── F20261117 检视轮可优化项 S1/S2/S3（搭档裁决：可优化项做完整）───
+// ─── 可优化项（搭档裁决：做完整）───
 describe("ResumeInterruptedService 可优化项完整落地（S1 持有收口/S2 审计链追加/S3 旧持有者死活预检）", () => {
   let h: Harness;
 
@@ -608,7 +608,7 @@ describe("ResumeInterruptedService 可优化项完整落地（S1 持有收口/S2
     expect(chain.calls).toHaveLength(1); // 接手恢复
     const row = await h.resumeRepo.getByInvokeId(invokeId);
     expect(row?.claimToken).not.toBe("dead-holder"); // 新 token
-    expect(row?.claimPid).toBe(7777); // S3：pid 更新为新持有者
+    expect(row?.claimPid).toBe(7777); // pid 更新为新持有者
     expect(row?.attempts).toBe(2); // 重认领自增
     expect(h.queueStatus(invokeId)).toBe("done");
   });
@@ -635,9 +635,9 @@ describe("ResumeInterruptedService 可优化项完整落地（S1 持有收口/S2
     await h.buildService(chain, { bootEpoch: 42, pid: 5555 }).resume();
 
     const row = await h.resumeRepo.getByInvokeId(invokeId);
-    expect(row?.claimPid).toBe(5555); // S3 数据承载：认领写 pid
-    expect(h.queueStatus(invokeId)).toBe("done"); // S1：持有者 token 收口成功
-    expect(row?.recoveryInvokeId).toBe("new-invoke-1"); // S2：审计链首轮
+    expect(row?.claimPid).toBe(5555); // 数据承载：认领写 pid
+    expect(h.queueStatus(invokeId)).toBe("done"); // 持有者 token 收口成功
+    expect(row?.recoveryInvokeId).toBe("new-invoke-1"); // 审计链首轮
   });
 
   it("S2：崩溃重启二次恢复——审计链追加不丢首轮记录（恢复者崩溃后新开机接手）", async () => {
@@ -652,12 +652,12 @@ describe("ResumeInterruptedService 可优化项完整落地（S1 持有收口/S2
     await h.buildService(chain2, { bootEpoch: 999, pid: 2000, isPidAlive: () => false }).resume();
 
     const row = await h.resumeRepo.getByInvokeId(invokeId);
-    expect(row?.recoveryInvokeId).toBe("new-invoke-1,new-invoke-1"); // S2：两轮全历史（stub 固定 messageId）
+    expect(row?.recoveryInvokeId).toBe("new-invoke-1,new-invoke-1"); // 两轮全历史（stub 固定 messageId）
     expect(h.queueStatus(invokeId)).toBe("done");
   });
 });
 
-// ─── F20261118remex（#1868 阶段 4 C2/R2）：远程动作五态并入恢复摘要 ───
+// ─── 远程动作五态并入恢复摘要 ───
 describe("ResumeInterruptedService 远程动作摘要并入（C2/R2）", () => {
   let h: Harness;
 

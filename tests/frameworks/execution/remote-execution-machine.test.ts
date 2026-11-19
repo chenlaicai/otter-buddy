@@ -9,9 +9,9 @@ import type { Device } from "@entities/execution/device";
 import type { OnlineSession } from "@entities/execution/online-session";
 
 /**
- * （阶段 4 C2）：RemoteExecutionMachine 单测——
+ * RemoteExecutionMachine 单测——
  * 总闸①（online_sessions 事实源直查）/登记幂等/回执分发/超时落 unknown/
- * 会话下线批量收尾（方案 v3 §5 五态纪律）。
+ * 会话下线批量收尾（五态纪律）。
  */
 
 const T0 = 1731801600000; // 2026-11-17T00:00:00Z
@@ -276,12 +276,12 @@ describe("SqliteRemoteActionRegistry（五态登记幂等）", () => {
     expect(await registry.listByConversation("c-other")).toHaveLength(0);
   });
 
-  // s2（检视遗留处置）：同毫秒 created_at 定序——rowid tie-breaker 使 DESC LIMIT 边界确定
+  // 同毫秒 created_at 定序——rowid tie-breaker 使 DESC LIMIT 边界确定
   it("listByConversation 同毫秒 created_at：desc 后插入在前 / asc 先插入在前（rowid 定序）", async () => {
     const db = createTestDb();
     const registry = new SqliteRemoteActionRegistry(db);
     await registry.recordRequest(reqRow("tie-1"));
-    await registry.recordRequest(reqRow("tie-2")); // 同 T0 毫秒、同 conversation
+    await registry.recordRequest(reqRow("tie-2")); // 同 毫秒、同 conversation
     const desc = await registry.listByConversation("c1", 200, "desc");
     expect(desc.map(r => r.actionId)).toEqual(["tie-2", "tie-1"]); // DESC：后插入（rowid 大）在前
     const asc = await registry.listByConversation("c1", 200, "asc");

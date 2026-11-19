@@ -42,7 +42,7 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
     return { ok: false, detail: `大獭未召唤小獭 tools=${JSON.stringify(tools)}` };
   }
 
-  /** 发现 2 修复（+2026-09-02 表路径修正）：按 conversation_participants 过滤。
+  /** （+2026-09-02 表路径修正）：按 conversation_participants 过滤。
    *  原查 conversation_otters（建会话初始名单）——但 create_otter 的 join 链路写
    *  conversation_participants（manage-participant.ts L69），生产路径永不命中旧表，
    *  采样 0/3 稳定 fail；selftest 自插旧表数据故绿灯——构造路径与生产路径分叉。 */
@@ -80,7 +80,7 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
 };
 
 /**
- * F20260828gssf: selftest 参考序列（DB 依赖场景——factory 函数）。
+ * selftest 参考序列（DB 依赖场景——factory 函数）。
  *
  * 本场景断言需要查 DB（conversation_participants JOIN otters），所以 selftest 是 factory 函数：
  * 先通过 API 创建会话，再往 DB 插入测试 otter 记录，然后构造带正确 senderId 的消息。
@@ -114,7 +114,7 @@ export const selftest: GoldenModule["selftest"] = async (ctx: CapabilityContext)
 
   // 关联到会话（跟随 assert 表路径修正：join 生产链路写 conversation_participants，
   // 构造路径与生产路径同表——原插 conversation_otters 是构造/生产分叉根源。
-  // F20260920trrt：turn 族列已随 turn 系统退役，participants 直插核心列）
+  // turn 族列已随 turn 系统退役，participants 直插核心列）
   const now = new Date().toISOString();
   ctx.built.db
     .prepare(`INSERT OR REPLACE INTO conversation_participants

@@ -5,7 +5,7 @@ import type { ConnectorRegistryRepository } from "@usecases/ports/connector-regi
 import type { Device } from "@entities/execution/device";
 
 /**
- * （阶段 4 C1）：connector 配对端点。
+ * connector 配对端点。
  * POST /api/connector/pair { code, name } → 核销一次性码 → 建设备身份 → 返 deviceId+pairToken。
  *
  * 鉴权模型：码即秘密（CLI 生成 → 人贴给 connector）——本端点不要求登录态（connector
@@ -27,7 +27,7 @@ export class ConnectorPairController {
     }
 
     const now = new Date().toISOString();
-    // 原子核销+建设备（s6：事务内一气呵成，码烧空耗窗口消除）；
+    // 原子核销+建设备（事务内一气呵成，码烧空耗窗口消除）；
     // 过期/重放/不存在统一 403（不区分，防探测）
     const device: Device = {
       id: `connector-${randomUUID().slice(0, 8)}`,

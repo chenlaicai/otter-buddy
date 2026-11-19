@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestApp, json, createMockDeps } from "./helpers";
 import type { TestDeps } from "./helpers";
 
-/** Phase 4：invoke 只读查询端点（Session 弹窗数据源） */
+/** invoke 只读查询端点（Session 弹窗数据源） */
 
 const invokeFixture = {
   id: "inv-1",
@@ -139,7 +139,7 @@ describe("Invoke API（F20260913ctlv）", () => {
       expect(res.status).toBe(404);
     });
 
-    // F20260930s1x0（issue #1251）：假「行动中」（孤儿 invoke，#1241 场景）abort 必须 409 + 机读码，
+    // 假「行动中」（孤儿 invoke，场景）abort 必须 409 + 机读码，
     // 前端据此提示「该行动并非真实运行」而非静默无效果——本案修复的服务端契约
     it.each(["completed", "failed", "aborted"] as const)(
       "非 running invoke（%s，含假行动中的孤儿）→ 409 + code=invoke_not_running，且不调 agentInvoker.abort",

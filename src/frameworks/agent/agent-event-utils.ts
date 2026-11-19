@@ -1,7 +1,7 @@
 /**
  * Agent 事件工具函数。
  *
- * 从 PiSessionFactory 拆出（D2 瘦身），职责：
+ * 从 PiSessionFactory 拆出（瘦身），职责：
  * - 从 message_end 事件提取 assistant 文本块
  * - 维护本轮 assistant 文本缓冲（speak 检测“卡片写在 speak 外”用）
  * - 创建 session 事件处理器

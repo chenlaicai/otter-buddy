@@ -19,7 +19,7 @@ export type ExitReason =
   | { kind: 'user_abort'; toolCallCount: number; /** 用户中断时的底层 SDK 错误，用于中断归因 */ underlyingError?: AbortUnderlyingError }
   | { kind: 'guard_abort'; guardReason: string; toolCallCount: number; /** 超时类 guard（OutputGuard fire）的实际墙钟耗时与睡眠冻结判定 */ guardTimeoutElapsedMs?: number; guardSuspectedFreeze?: boolean }
   | { kind: 'api_error'; errorMessage: string; toolCallCount: number }
-  /** 审视修复（Feb 发现 2）：D3 锁超时降级路径的 DelegationInFlightError
+  /** 审视修复（Feb 发现 2）：锁超时降级路径的 DelegationInFlightError
    *  是背压显式拒绝而非 API 故障——单独归类，台账可区分「拒绝」与「故障」，
    *  避免背压污染 api_error 错误口径。处置行为与 api_error 同路（failTerminal +
    *  人话文案，实测无害），分类只为可观测性准确性。 */

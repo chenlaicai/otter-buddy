@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TLS 证书一次性签发（阶段 6a）——Certbot webroot 模式。
+# TLS 证书一次性签发——Certbot webroot 模式。
 # 用法：在 ECS 上 sudo bash setup-tls.sh
 # 两阶段（避免 chicken-and-egg：443 块引用的证书签发前不存在，整配置装上 nginx -t 会挂）：
 #   阶段一：仅装 80 段（HTTP→ACME）→ reload → certbot 签发

@@ -165,7 +165,7 @@ function currentPr(): number | string | undefined {
   const m = ref.match(/refs\/pull\/(\d+)\//);
   if (m) return Number(m[1]);
 
-  // #793：本地跑兜底——从 git 取当前分支名，便于关联测试结果与开发分支
+  // 本地跑兜底——从 git 取当前分支名，便于关联测试结果与开发分支
   try {
     const branch = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8", timeout: 5000 }).trim();
     if (branch && branch !== "HEAD") return `local:${branch}`;
@@ -174,7 +174,7 @@ function currentPr(): number | string | undefined {
   return undefined;
 }
 
-/** F20260828gssf: selftest 结果 */
+/** selftest 结果 */
 export interface SelftestResult {
   passed: boolean;
   reason?: string;
@@ -183,7 +183,7 @@ export interface SelftestResult {
 }
 
 /**
- * F20260828gssf: 运行 selftest——校验断言函数对 good/bad 参考序列的判别力。
+ * 运行 selftest——校验断言函数对 good/bad 参考序列的判别力。
  * 零 LLM 调用，纯离线校验。判别力不足（两个都过或两个都拦）直接 fail。
  */
 export async function runSelftest(
@@ -266,7 +266,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
       const label = `golden:${golden.id}`;
 
       it(`${golden.id}（n=${golden.sampling.n} ≥${golden.sampling.minSuccess}，源 ${golden.originTest}）`, async (t) => {
-        /** F20260828gssf: selftest 前置校验——不依赖 LLM，无论 LLM 是否可用都跑。
+        /** selftest 前置校验——不依赖 LLM，无论 LLM 是否可用都跑。
          *  判别力不足时直接 fail，不进入采样（"仪器先证明可靠才花钱"）。 */
         if (mod.selftest) {
           const selftestResult = await runSelftest(ctx, mod);
@@ -294,7 +294,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
         if (golden.manualReview) {
           const mr = await runOneSample(ctx, golden, assert);
           console.log(`MANUAL_REVIEW: ${golden.id} 采样信号：${mr.detail}`);
-          // D2（F20261028evpkg）：manualReview 判定材料——回复全文供检视獭判语调，不只靠信号布尔
+          // manualReview 判定材料——回复全文供检视獭判语调，不只靠信号布尔
           const otterReplies = (mr.messages ?? [])
             .filter((m) => m.st === "otter")
             .map((m) => m.content);
@@ -317,7 +317,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
         }
 
         let successes = 0;
-        /** 异常路径落账（glm-flash delta 发现 2）：采样抛异常时 expectSampledBehavior 直接向上抛，
+        /** 异常路径落账（glm-flash）：采样抛异常时 expectSampledBehavior 直接向上抛，
  *        appendResult 不执行——首跑 fail/超时/环境故障在 jsonl 无痕，「fail 留痕→复跑通过」
  *        的申诉链只剩后半。异常行 passed:false + error 字段，与正常 fail 行同语义。 */
         try {
@@ -351,7 +351,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
           manual: false,
           passed: successes >= golden.sampling.minSuccess, // 自动场景 passed = successes >= minSuccess（v6.3，mimo 新发现 2 + glm-flash 发现 7）
         });
-      }, golden.timeoutMs ?? 1_800_000); // 超时帽默认 30 分钟（采样 × 每轮完整 agent 回合 ~30-60s），长链场景经 golden.timeoutMs 覆盖（#1603）
+      }, golden.timeoutMs ?? 1_800_000); // 超时帽默认 30 分钟（采样 × 每轮完整 agent 回合 ~30-60s），长链场景经 golden.timeoutMs 覆盖
     }
   });
 }
@@ -361,7 +361,7 @@ export function registerGoldenScenarios(modules: GoldenModule[]): void {
  * 下一个 hop——如大獭 summon 后 yield 给小獭，小獭又需 30-60s 完整回合）。源测试
  * talking-stone-routing 用 afterSeq 两段式等待；golden 通用化：首终态后 settle 窗口
  * 内若消息数还在涨则继续等，静止后断言。窗口独立于首跳超时，总上限 = 首跳 + settleMs
- * （默认 180s，长链场景经 golden.settleMs 覆盖，#1603）。 */
+ * （默认 180s，长链场景经 golden.settleMs 覆盖）。 */
 async function runOneSample(
   ctx: CapabilityContext,
   golden: GoldenScenario,
@@ -398,7 +398,7 @@ async function runOneSample(
 
   // settle 窗口：等后续 hop。每 5s 拉一次消息数，链静止或窗口耗尽则进入断言。
   // 静止阈值 90s（18 轮无新增终态）：串行接棒的第二跳可能 30-60s 才开始 streaming，
-  // 10s 静止会在「上一跳完成→下一跳开始」的间隙误判链静止（glm-flash delta 发现 1：
+  // 10s 静止会在「上一跳完成→下一跳开始」的间隙误判链静止（glm-flash 
   // 首跑 3/3 靠并行重叠掩盏，串行接棒 >15s 的链会假 fail）。90s = 第二跳时长上限
   // 与总窗口的折中，代价是单跳场景多等 90s。
   const settleMs = golden.settleMs ?? 180_000;
@@ -414,7 +414,7 @@ async function runOneSample(
       stableRounds++;
       /** 90s 无新 otter 消息 **且无进行中回合**（streaming/running）才判链静止：
        *  「XX 开始行动～」占位是 system st 不入 otterAny 计数，thinking/工具调用期
-       *  计数不变但 invoke 未完，仅凭计数判静止会把链截在中途（#1603 诊断实证：
+       * 计数不变但 invoke 未完，仅凭计数判静止会把链截在中途（诊断实证：
        *  检视獭审查思考数分钟被截，断言报「未出具检视意见」假 fail）。 */
       const hasActive = messages.some(
         (m) => m.status === "streaming" || m.status === "speaking", // invokes.running 已投影为 streaming（assert-behavior status 映射）
@@ -428,6 +428,6 @@ async function runOneSample(
 
   const messages = await listMessages(ctx, convId);
   const result = await assert({ ctx, convId, messages });
-  // D2（F20261028evpkg）：附带 messages 供 manualReview 输出 transcript（判定材料）
+  // 附带 messages 供 manualReview 输出 transcript（判定材料）
   return { ...result, messages };
 }

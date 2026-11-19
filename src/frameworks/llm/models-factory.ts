@@ -25,7 +25,7 @@ interface CustomProviderOptions {
   contextWindow?: number;
   /** 最大输出 tokens（缺省回退 provider 模板值；SDK Model 接口必填，缺了请求负载 max_tokens 为 null） */
   maxTokens?: number;
-  /** 模型输入能力（多模态 Phase 1）：显式声明时覆盖 provider 模板 input，
+  /** 模型输入能力（多模态）：显式声明时覆盖 provider 模板 input，
    *  消除 anthropic 模板隐式继承 ["text","image"] 的静默风险（如 glm-5.3 无 vision 需声明 ["text"]） */
   input?: Array<"text" | "image">;
 }
@@ -152,10 +152,10 @@ async function loadCustomProvider(
         // 不继承 thinkingLevelMap，避免意外行为；Chat 使用 system，兼容拒绝 developer 角色的网关。
         compat: modelApi === "openai-completions" ? { supportsDeveloperRole: false } : {},
         thinkingLevelMap: {},
-        // 多模态 Phase 1：config 显式 input 优先，缺省回退 provider 模板值
+        // 多模态 config 显式 input 优先，缺省回退 provider 模板值
         input: options.input ?? template.input,
         cost: (template as Record<string, unknown>).cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        /** F20260808ctxw：contextWindow 缺省时 SDK 视为 0，shouldCompact 恒真（每轮白跑摘要调用） */
+        /** contextWindow 缺省时 SDK 视为 0，shouldCompact 恒真（每轮白跑摘要调用） */
         ...(options.contextWindow !== undefined && { contextWindow: options.contextWindow }),
         /** maxTokens 为 SDK Model 必填：缺省时请求负载 max_tokens=null（严格端点 400）。config 优先，回退模板值 */
         maxTokens: options.maxTokens ?? template.maxTokens,
@@ -241,10 +241,10 @@ async function initModelPool(
     }
     modelEntries.push({ config: mc, model: resolvedModel });
 
-    // F20260831vmcf：自定义 provider 模型未显式声明 input 时警告模板继承的静默风险——
+    // 自定义 provider 模型未显式声明 input 时警告模板继承的静默风险——
     // anthropic 模板隐式继承 ["text","image"]，非 vision 模型会把图注入给看不见图的端点
     // （2026-08-31 实测坐实：glm-5.3 返回 200 但 thinking 自述看不见、颜色幻觉；
-    // F20260827mmdu 的 README「合入后运营项」因无提醒从未被执行，防御形同虚设）
+    // 的 README「合入后运营项」因无提醒从未被执行，防御形同虚设）
     if (
       logger && mc.input === undefined &&
       needsCustomProvider({ apiKey: mc.apiKey, apiBaseUrl: mc.apiBaseUrl }) &&

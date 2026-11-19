@@ -84,7 +84,7 @@ function mockApi() {
       return json({ items: [convA, convB], total: 2 })
     }
     if (url.startsWith('/api/settings')) { settingsCalls++; return json({ userName: '测试用户' }) }
-    // D2（检视1076）：catch-all 返回 json({}) 是同类故障温床——未 mock 的
+    // （检视1076）：catch-all 返回 json({}) 是同类故障温床——未 mock 的
     // 端点拿到 {} 后 .map() 等数组操作直接 TypeError，且可能被 unhandled rejection 吞掉。
     // 改为显式警告 + 空对象：未知请求可见，漏 mock 时测试输出有明确线索。
     console.warn('[spa-nav-test] unmocked API call:', url)
@@ -225,7 +225,7 @@ describe('SPA 路由切换对话：初始加载不再重拉（F20260921inrl，#1
     expect(listCalls).toBe(1)
     expect(settingsCalls).toBe(1)
 
-    // 切到 B：详情必须拉（F20260921spcm 语义），但列表/设置不得重拉
+    // 切到 B：详情必须拉（语义），但列表/设置不得重拉
     await act(async () => { await router.navigate('/conversation/conv-b') })
     await flushAsync()
     expect(listEntriesCalls).toEqual(['conv-a', 'conv-b'])
@@ -294,7 +294,7 @@ describe('右栏 invoke 状态恢复（F20260923sswd，issue #1134）', () => {
   it('listInvokes 失败 → 不静默吞，600ms 单次延迟重试（2500ms 已退役，阶段3）（fake timers）', async () => {
     vi.useFakeTimers()
     try {
-      let failCount = 2 // 初始 + 600ms 重试全败（2500ms 二次重试已退役，阶段3）
+      let failCount = 2 // 初始 + 600ms 重试全败（2500ms 二次重试已退役）
       listInvokesCalls = []
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
         const url = String(input)
@@ -324,7 +324,7 @@ describe('右栏 invoke 状态恢复（F20260923sswd，issue #1134）', () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(700) })
       const callsAfter600 = listInvokesCalls.length
       expect(callsAfter600).toBeGreaterThan(callsAfterInitial)
-      // 推进 3000ms → 无第二次重试（2500ms 已退役，后续兑底归周期对账/读点，阶段3）
+      // 推进 3000ms → 无第二次重试（2500ms 已退役，后续兑底归周期对账/读点）
       await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
       expect(listInvokesCalls.length).toBe(callsAfter600)
     } finally {
@@ -334,9 +334,9 @@ describe('右栏 invoke 状态恢复（F20260923sswd，issue #1134）', () => {
 })
 
 /**
- * F20260924ircc 回归用例（issue #1160，#1144 回归）：
+ * 回归用例（回归）：
  * 初始拉取成功后，SSE 断连重连的补偿拉取必须仍然发生——
- * F20260923sswd 的防双拉门控（invokeStatesLoadedRef）错误覆盖了重连补偿路径，
+ * 的防双拉门控（invokeStatesLoadedRef）错误覆盖了重连补偿路径，
  * 导致初始成功后任何断连窗口丢失的 invoke.end 无愈合路径（右栏永久卡「运行中」）。
  * 本用例在旧实现下必失败（listInvokes 恒 1 次），修复后通过。
  */
@@ -350,7 +350,7 @@ describe('SSE 断连重连补偿（F20260924ircc，issue #1160）', () => {
     onload: (() => void) | null = null
     constructor() { FakeXHR.instances.push(this) }
     open() {}
-    // #1322：SSE 订阅现在会设身份头（生产 XHR 标配方法，fake 补齐）
+    // SSE 订阅现在会设身份头（生产 XHR 标配方法，fake 补齐）
     setRequestHeader() {}
     send() {}
     abort() {}
@@ -372,7 +372,7 @@ describe('SSE 断连重连补偿（F20260924ircc，issue #1160）', () => {
       const router = createTestRouter('/conversation/conv-b')
       await act(async () => { root.render(<RouterProvider router={router} />) })
       await act(async () => { await vi.advanceTimersByTimeAsync(80) })
-      // 初始内联拉取已发生（阶段3 后无门控，但首连补偿仍不触发——needsSyncAfterReconnect 初值 false 语义不变）
+      // 初始内联拉取已发生（后无门控，但首连补偿仍不触发——needsSyncAfterReconnect 初值 false 语义不变）
       expect(listInvokesCalls.length).toBe(1)
       expect(FakeXHR.instances.length).toBeGreaterThanOrEqual(1)
       const first = FakeXHR.instances[0]!
@@ -396,7 +396,7 @@ describe('SSE 断连重连补偿（F20260924ircc，issue #1160）', () => {
 })
 
 /**
- * F20260928icmm 阶段1：缓存模型合并语义——右栏 invoke 状态对账可覆盖本地旧状态。
+ * 缓存模型合并语义——右栏 invoke 状态对账可覆盖本地旧状态。
  * 根因主场景（四轮未愈）：SPA 切对话组件不卸载、invokeStates 不清空；切走期间
  * invoke 终态事件（GET 通道断开/丢件）未投递，切回后 listInvokes 200 拿到正确数据，
  * 但旧「本地已有即 continue」弱合并把结果丢弃——右栏永久卡「运行中」直到手动刷新。
@@ -407,7 +407,7 @@ describe('右栏 invoke 状态对账：缓存模型合并（F20260928icmm）', (
   let invokesByConv: Record<string, unknown[]>
 
   /** 静默 SSE 桩：本组用例只测右栏对账，不测订阅链路；替换真实 jsdom XHR 免其网络噪声
-   *  干扰 fake-timer 对账计数（#1868 阶段 2 移除了订阅身份头后，jsdom XHR 会真去取订阅
+   * 干扰 fake-timer 对账计数（移除了订阅身份头后，jsdom XHR 会真去取订阅
    *  响应并触发 onprogress/onload 重连链，污染 listInvokes 计数）。 */
   class SilentXHR {
     responseText = ''

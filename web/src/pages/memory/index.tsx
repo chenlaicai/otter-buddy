@@ -157,7 +157,7 @@ function hitCountLabel(group: Extract<ResultGroup, { kind: 'doc' }>): string {
 }
 
 /**
- * F20260929mrui：单条结果（组内行）。
+ * 单条结果（组内行）。
  * dataStructure 开关（外部组级/全局控制）展开完整数据结构面板。
  */
 function ResultItem({ entry, showStructure, onExpand, onSimilar, onFlag }: {
@@ -316,7 +316,7 @@ export default function MemorySearchPage() {
   const [granularity, setGranularity] = useState('')
   const [detailLevel, setDetailLevel] = useState<'summary' | 'snippet' | 'full'>('snippet')
   const [library, setLibrary] = useState('')
-  /** F20260929mrui：多条件查询状态 */
+  /** 多条件查询状态 */
   const [contentTypes, setContentTypes] = useState<string[]>([])
   const [timePreset, setTimePreset] = useState('all')
   const [conversationIdFilter, setConversationIdFilter] = useState('')
@@ -347,13 +347,13 @@ export default function MemorySearchPage() {
   const [refineQuery, setRefineQuery] = useState('')
   const [showRefine, setShowRefine] = useState(false)
 
-  // F20260803mval: 记忆系统健康状态（降级时显示 banner）
+  // 记忆系统健康状态（降级时显示 banner）
   const [health, setHealth] = useState<api.MemoryHealthDTO | null>(null)
   useEffect(() => {
     api.getMemoryHealth().then(setHealth).catch(() => {})
   }, [])
 
-  // #576（F20260901emps）：初始态加载最近记忆——页面打开即有内容，而非静默引导文案。
+  // 初始态加载最近记忆——页面打开即有内容，而非静默引导文案。
   // 切正常搜索后不回退（results !== null 时不再覆盖）；加载失败静默保持原引导文案（降级可接受）
   const [recent, setRecent] = useState<MemoryEntryDTO[] | null>(null)
   useEffect(() => {
@@ -394,7 +394,7 @@ export default function MemorySearchPage() {
     }
   }
 
-  /** 结构化分组（F20260929mrui 核心） */
+  /** 结构化分组（核心） */
   const resultGroups = useMemo(
     () => results ? groupResults(results, contextResults) : [],
     [results, contextResults],
@@ -482,7 +482,7 @@ export default function MemorySearchPage() {
         </div>
       )}
       <div className="flex flex-1 overflow-hidden p-3 gap-3">
-        {/* 检索条件面板（F20260929mrui：多条件查询） */}
+        {/* 检索条件面板（多条件查询） */}
         <aside className="w-64 glass rounded-3xl flex flex-col flex-shrink-0 overflow-y-auto p-4 space-y-4">
           <div style={{ fontSize: '16px', fontWeight: 600 }}>记忆召回</div>
 
@@ -639,7 +639,7 @@ export default function MemorySearchPage() {
           </div>
         </aside>
 
-        {/* 结果区：结构化分组呈现（F20260929mrui 核心） */}
+        {/* 结果区：结构化分组呈现（核心） */}
         <main className="flex-1 glass rounded-3xl overflow-y-auto p-6">
           {loading && (
             <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -660,7 +660,7 @@ export default function MemorySearchPage() {
             </div>
           )}
 
-          {/* #576：初始态展示最近记忆（有内容可看可点，展开详情走既有 Modal） */}
+          {/* 初始态展示最近记忆（有内容可看可点，展开详情走既有 Modal） */}
           {!loading && results === null && recent !== null && recent.length > 0 && (
             <div className="max-w-[860px] mx-auto space-y-3">
               <div className="flex items-center justify-between mb-1">
@@ -709,7 +709,7 @@ export default function MemorySearchPage() {
             </div>
           )}
 
-          {/* #576：recent 为空数组 = 环境无数据（区分于加载中）——显式空态文案 */}
+          {/* recent 为空数组 = 环境无数据（区分于加载中）——显式空态文案 */}
           {!loading && results === null && recent !== null && recent.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full gap-2">
               <Search className="w-10 h-10 text-stone-300" />

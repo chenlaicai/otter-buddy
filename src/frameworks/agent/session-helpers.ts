@@ -10,9 +10,9 @@ import { SessionLockConflictError } from "@entities/errors";
 import { loadToolManifest, getToolNamesFromManifest } from "../config/tool-manifest-loader";
 
 /**
- * P2a：belief 迁移三工具（verify/reject/supersede）仅 night-reviewer 受限写者獭可见。
+ * belief 迁移三工具（verify/reject/supersede）仅 night-reviewer 受限写者獭可见。
  * big（"*" 展开全量注册集）与 small（memory 组）都不得持有——迁移权只属于夜间审视獭；
- * 任何普通 agent 可自我核实会掏空独立核实信任模型（P1c k3 审视结论）。
+ * 任何普通 agent 可自我核实会掏空独立核实信任模型。
  */
 export const BELIEF_MIGRATION_TOOLS = ["belief_verify", "belief_reject", "belief_supersede"] as const;
 
@@ -34,7 +34,7 @@ function stripBeliefMigrationTools(names: string[]): string[] {
  */
 export function getCodingToolsForOtterType(otterType: string | undefined, externalProfile?: 'restricted'): string[] {
   if (externalProfile === 'restricted') return [];
-  // P2a：night-reviewer 受限写者獭只审不写码，不持 read/write/edit/bash 等编码工具。
+  // night-reviewer 受限写者獭只审不写码，不持 read/write/edit/bash 等编码工具。
   if (otterType === 'night-reviewer') return [];
   // big 和 small otter 均启用全部编码工具（含搜索/浏览专用工具）
   return ["read", "write", "edit", "bash", "grep", "find", "ls"];
@@ -60,7 +60,7 @@ export function getOtterToolNamesForType(
   externalProfile?: 'restricted',
 ): string[] {
   if (externalProfile === 'restricted') return ['speak', 'yield'];
-  // P2a：night-reviewer 受限写者獭恒 5 工具（speak/yield + 三迁移）。
+  // night-reviewer 受限写者獭恒 5 工具（speak/yield + 三迁移）。
   // 不依赖 manifest defaultType fallback——manifest 缺 night-reviewer 类型时
   // getToolNamesFromManifest 会退到 defaultType='big' 的 "*" 全集（fail-open 风险）。
   if (otterType === 'night-reviewer') {
@@ -83,8 +83,8 @@ export function getOtterToolNamesForType(
     "link_memory", "get_related", "unlink_memory",
     "sync_docs",
     "query_dispatch_ledger", // 派工台账查询工具
-    "query_signals", // C1：信号台账查询（halt 是编排动作，仅 big 型）
-    "halt_otter", "unhalt_otter", "resolve_signal", // C2：编排/裁决仅 big 型；unhalt 解除同属编排
+    "query_signals", // 信号台账查询（halt 是编排动作，仅 big 型）
+    "halt_otter", "unhalt_otter", "resolve_signal", // 编排/裁决仅 big 型；unhalt 解除同属编排
     "merge_pr", // PR 合入授权闸仅 big 型（fallback 列表；manifest 模式下 big="*" 自动包含，small 按组不含）
   ];
 
@@ -103,8 +103,8 @@ export function getOtterToolNamesForType(
 
   /** small otter：消息检索 + 记忆 + 上下文 + 术语库 + 产物管理 + 参与者查询 + 工作区 + 定时任务 + 自愈管理 + 自身重启，不含 Otter 管理类工具（create_otter/dissolve_otter）。
    *  restart_otter 工具内部有访问控制：小獭只能重启自己。
-   * C1：query_signals 开放（复盘自己的 halt/信号）；halt_otter 仅 big。
-   * C2：resolve_signal 仅 big（裁决权在大獭）。 */
+   * query_signals 开放（复盘自己的 halt/信号）；halt_otter 仅 big。
+   * resolve_signal 仅 big（裁决权在大獭）。 */
   return stripBeliefMigrationTools([
     "speak", "yield", "search_memory", "create_linked_resource", "get_memory_detail",
     "get_message", "list_messages", "search_messages",
@@ -117,8 +117,8 @@ export function getOtterToolNamesForType(
     "workspace_info", "workspace_list", "workspace_read", "workspace_write", "workspace_delete", // 临时件回收机械路径
     "link_memory", "get_related", "unlink_memory",
     "sync_docs",
-    "query_signals", // C1：小獭可查信号台账（halt_otter 仅 big 型）
-    "list_matters", "transition_matter", // P1：待办板查/迁（transition 守卫在 usecase）
+    "query_signals", // 小獭可查信号台账（halt_otter 仅 big 型）
+    "list_matters", "transition_matter", // 待办板查/迁（transition 守卫在 usecase）
     "track_work", // 工作账本登记（实现者与检视者都要留痕）
     "restart_service", // deny signal 下保留既有受控重启正道
   ]);
@@ -150,7 +150,7 @@ export interface SessionLockProbeResult {
 }
 export type SessionLockProbe = (key: string, holderEpoch?: object) => SessionLockProbeResult | undefined;
 
-/** D4：超龄只触发检查；双活和 completed+SDK 活都必须继续等待。
+/** 超龄只触发检查；双活和 completed+SDK 活都必须继续等待。
  *  尤其后者是 yield 后的 drain 窗口，不能把它误判成僵尸。 */
 export function shouldStealSessionLock(probe: SessionLockProbeResult): boolean {
   if (probe.invokeStatus === null) return false;
@@ -165,7 +165,7 @@ export class SimpleLockManager {
   //  「锁 generation 的本质是锁位易主事件计数」→ epoch 收编后「steal = 新 invoke
   //  （新 epoch 对象）接管锁位，旧 release 引用不等 → no-op」——同键跨 steal 的
   // 前后持有者（含嵌套链）不共享 epoch 对象（-E-1 判据唯一化保证）。
-  //  **generation 计数器保留且不可退役（D3 fail-soft，检视 A-1 订正）**：锁是热路径
+  // **generation 计数器保留且不可退役（fail-soft 订正）**：锁是热路径
   //  不能 fail-loud；且 reset/destroy/handoff 等非 invoke 调用点不传 epoch，
   //  generation 是这些路径的**唯一** steal 防线（不是可选兑底）。两判定关系：
   //  release 时 generation 恒判在先（短路），epoch 判定在其后追加——当前拓扑下
@@ -238,9 +238,9 @@ export class SimpleLockManager {
 
     lock.held = true;
     lock.heldAt = Date.now();
-    /** Why(#599): 捕获本次持有世代——release 时世代不匹配（已被 steal）则 no-op */
+    /** Why: 捕获本次持有世代——release 时世代不匹配（已被 steal）则 no-op */
     const myGeneration = lock.generation;
-    /** F20261009epoc：本持有者的 epoch（对象引用）——release 时与锁当前 holderEpoch
+    /** 本持有者的 epoch（对象引用）——release 时与锁当前 holderEpoch
      *  引用比对（generation 判定之后的第二道）。本 acquire 带 epoch 时两者都记录；
      *  不带 epoch（非 invoke 路径）时仅 generation 生效（旧版行为，且是该路径唯一防线）。 */
     const myEpoch = epoch;
@@ -251,14 +251,14 @@ export class SimpleLockManager {
     return () => {
       if (released) return;
       released = true;
-      // Why(#599): 世代不匹配 = 锁已被 stale 接管者夺走。此时动锁状态会
+      // Why: 世代不匹配 = 锁已被 stale 接管者夺走。此时动锁状态会
       // 干扰新持有者（错误释放或错误移交），本次 release 必须是 no-op。
       // 【判定次序陷阱（检视 A-1）】generation 恒判在先（结构性短路）：无 epoch
       //  路径（reset/destroy/损毁后重建/handoff 等调用点不传 epoch）里 generation
       //  是**唯一** steal 防线，不是可退役的兑底——若当「epoch 在场时可省」删掉
       //  这行，所有无 epoch 路径的互斥静默破坏。
       if (lock.generation !== myGeneration) return;
-      // F20261009epoc：epoch 引用比对（第二道，myEpoch 在场时生效）——锁位易主
+      // epoch 引用比对（第二道，myEpoch 在场时生效）——锁位易主
       //  （steal）后锁的 holderEpoch 已是接管者的对象，旧持有者闭包捕获的不等 → no-op。
       //  正常路径（waiter 队列接力/直接释放）持有者唯一，引用必相等。在当前调用点
       //  拓扑下与 generation 判定全路径同真同假（唯一 epoch 调用点是 invoke() 路径
@@ -285,7 +285,7 @@ export class SimpleLockManager {
   private shouldSteal(key: string, lock: { holderEpoch?: object }, holderAgeMs: number | null): boolean {
     // handoffMode 谓词沿用「key 有交接在场」：窗口内宁可等待，不能误杀旧世。
     if (this.handoffModeKeys.has(key) || holderAgeMs === null || holderAgeMs < this.stealThresholdMs) return false;
-    if (!this.probe) return true; // 非生产调用方无 holder 可查，保留 #599 旧行为。
+    if (!this.probe) return true; // 非生产调用方无 holder 可查，保留 旧行为。
     try {
       const state = this.probe(key, lock.holderEpoch);
       const steal = state ? shouldStealSessionLock(state) : false;
@@ -297,7 +297,7 @@ export class SimpleLockManager {
     }
   }
 
-  /** 等待锁释放或超时（#599 自 acquire 拆出：保持 acquire 主流程可读性） */
+  /** 等待锁释放或超时（自 acquire 拆出：保持 acquire 主流程可读性） */
   private async waitForLock(
     key: string,
     lock: { heldAt: number | null; waiters: Array<() => void> },
@@ -317,7 +317,7 @@ export class SimpleLockManager {
             const idx = lock.waiters.indexOf(waiterResolve);
             if (idx !== -1) lock.waiters.splice(idx, 1);
           }
-          // Why(#423 方案1): 超时是静默故障——错误被抛出后若无调用方记录，
+          // Why(方案1): 超时是静默故障——错误被抛出后若无调用方记录，
           // 事故侧只能看到报错文本，无法定位持有者是谁、持有了多久。
           // 此处落结构化日志，把可得的诊断证据（持有者、持有时长、队列深度）留下。
           // 边界说明：healing event 上报需要 messageId/conversationId（schema NOT NULL），
@@ -335,7 +335,7 @@ export class SimpleLockManager {
               timeoutMs: timeout,
               /** 持有者已持有该锁的时长（ms）；null 表示状态不可考（如 destroy 后重建） */
               holderHeldForMs: lock.heldAt !== null ? now - lock.heldAt : null,
-              /** #599：steal 阈值——对照 holderHeldForMs 可判断本超时是否本应被 steal 兜住 */
+              /** steal 阈值——对照 holderHeldForMs 可判断本超时是否本应被 steal 兜住 */
               stealThresholdMs: this.stealThresholdMs,
               /** 超时发生时仍在排队的等待者数量（不含本次） */
               queueLength: lock.waiters.length,
@@ -419,7 +419,7 @@ export function buildRestrictedExternalSystemPrompt(base: string): string {
 }
 
 /**
- * 换世首轮判定（F20260922ctxi）：session entries 中尚无 user 消息 = 新世首轮。
+ * 换世首轮判定：session entries 中尚无 user 消息 = 新世首轮。
  * 前情情报（会话摘要/工作区路径）只在首轮注入——每轮重复注入会在历史里线性堆积
  * （实测同一份前世档案 636 字符 × N 轮逐字节重复）。
  * 调用方在 entries 门面缺失/读取失败时应保守视为首轮（宁重复不丢失前情）。
@@ -429,7 +429,7 @@ export function shouldInjectSessionPreamble(entries: Array<{ type: string; [key:
 }
 
 /**
- * F20261021gtbf：换世首轮的任务简报时效提醒（幽灵工单防御）。
+ * 换世首轮的任务简报时效提醒（幽灵工单防御）。
  *
  * 机制根源（M-1326410e，五次流通实证）：otter_config.systemPrompt 是 summon 时写死的自由文本，
  * restart/换世后原样沿用（restartSession 只更新 modelAlias）——旧任务段无世代边界照进新世，
@@ -446,11 +446,11 @@ export const TASK_BRIEF_FRESHNESS_REMINDER = `## 任务简报时效提醒（换�
 
 /**
  * 构建包含动态上下文的用户消息。
- * S1（R20260810piab）：system prompt（otterPrompt + identity）已改由 extension
+ * system prompt（otterPrompt + identity）已改由 extension
  * before_agent_start handler 注入 system role，不再拼在 user message 里。
  * staticPrompt 参数保留但调用方传空串（向后兼容签名，后续可清理）。
  */
-// eslint-disable-next-line complexity -- F20260826mwrd C3：+healingAlerts 渲染分支（借用式注入面汇聚处，拆分反而降低内聚）
+// eslint-disable-next-line complexity -- +healingAlerts 渲染分支（借用式注入面汇聚处，拆分反而降低内聚）
 export function buildMessageWithContext(
   staticPrompt: string,
   message: string,
@@ -464,39 +464,39 @@ export function buildMessageWithContext(
 
   if (dynamicContext?.sessionSummary) {
     parts.push(`## 会话摘要\n${dynamicContext.sessionSummary}`);
-    /** F20261021gtbf：换世首轮随前情档案注入任务简报时效提醒——sessionSummary 存在 =
+    /** 换世首轮随前情档案注入任务简报时效提醒——sessionSummary 存在 =
      *  重启/交接换世（首世无档案不注入）。幽灵工单防御的机制层，与身份文案
      *  （SMALL_OTTER.md 时效纪律）构成双层防御。 */
     parts.push(TASK_BRIEF_FRESHNESS_REMINDER);
   }
 
-  // F20260825hndf：件②文件轨迹（借用式，消费即删）
+  // 件②文件轨迹（借用式，消费即删）
   if (dynamicContext?.fileTrail) {
     parts.push(dynamicContext.fileTrail);
   }
 
-  // F20260825hndf：件③近期原文（借用式，消费即删）
+  // 件③近期原文（借用式，消费即删）
   if (dynamicContext?.recencyWindow) {
     parts.push(dynamicContext.recencyWindow);
   }
 
-  // F20260825hndf：件④活状态盘点（借用式，消费即删）
+  // 件④活状态盘点（借用式，消费即删）
   if (dynamicContext?.stateInventory) {
     parts.push(dynamicContext.stateInventory);
   }
 
-  // F20260826mwrd C3（Part 4）：高危 healing 事件提醒（借用式，消费即删）。
+  // 高危 healing 事件提醒（借用式，消费即删）。
   // 位置在 workspacePath 之后、用户消息之前——提醒属环境情报而非任务本体。
   if (dynamicContext?.healingAlerts) {
     parts.push(dynamicContext.healingAlerts);
   }
 
-  // #1227 M1：pending 信号裁决提醒（借用式，消费即删）——大獭编排义务的物理可见面
+  // pending 信号裁决提醒（借用式，消费即删）——大獭编排义务的物理可见面
   if (dynamicContext?.signalAlerts) {
     parts.push(dynamicContext.signalAlerts);
   }
 
-  // F20261021sprx：待执行列表是 DB 状态镜像，不做 take/consume；ack 前每轮唤醒都提醒。
+  // 待执行列表是 DB 状态镜像，不做 take/consume；ack 前每轮唤醒都提醒。
   if (dynamicContext?.scheduledTaskAlerts) {
     parts.push(dynamicContext.scheduledTaskAlerts);
   }

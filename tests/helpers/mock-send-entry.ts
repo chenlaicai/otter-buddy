@@ -132,7 +132,7 @@ export function mockSendEntry(options?: {
       store.entries.push(entry);
       return { entry };
     },
-    /** F20260914evdz：返回落库事件标识（invoke.event 广播数据面；seq 递增近似真实行为） */
+    /** 返回落库事件标识（invoke.event 广播数据面；seq 递增近似真实行为） */
     appendInvokeEvent: vi.fn(async () => ({ id: crypto.randomUUID(), sequenceNum: ++store.eventSeq, createdAt: new Date().toISOString() })),
     incrementInvokeToolCallCount: async (invokeId: string) => {
       const inv = store.invokes.get(invokeId);
@@ -141,7 +141,7 @@ export function mockSendEntry(options?: {
     updateInvokeTokenUsage: async (invokeId: string, input: number, output: number) => {
       store.tokenUsageUpdates.push({ invokeId, input, output });
     },
-    /** F20260914rtsp：ctx 窗口占用落库（invoke.tick 数据面） */
+    /** ctx 窗口占用落库（invoke.tick 数据面） */
     updateInvokeCtxWindowUsed: async (invokeId: string, ctxWindowUsed: number) => {
       const inv = store.invokes.get(invokeId);
       if (inv) inv.ctxWindowUsed = ctxWindowUsed;

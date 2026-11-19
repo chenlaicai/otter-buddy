@@ -91,7 +91,7 @@ describe('#1580：alpha 规范数据根（~/.otter/alpha/<hash>）内 projectDir
   });
 });
 
-// ── 检视 A4/wiring 覆盖 + 双源对齐（防调用点/硬编码根漂移静默失效）──
+// ── 检视 /wiring 覆盖 + 双源对齐（防调用点/硬编码根漂移静默失效）──
 describe('#1580 wiring 与双源对齐', () => {
   it('killByPidAllowedRoots 双根 = otter 工作根 + alpha 规范数据根', () => {
     const roots = killByPidAllowedRoots('/Users/orca/ai/otter-buddy');

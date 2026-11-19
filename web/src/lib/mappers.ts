@@ -39,7 +39,7 @@ export interface LocalConversation {
   activityStatus?: 'processing' | 'awaiting_user' | 'idle'
 }
 
-/** 前端本地消息信号（C4：徽章数据，后端 MessageSignalDTO 投影） */
+/** 前端本地消息信号（徽章数据，后端 MessageSignalDTO 投影） */
 export interface LocalMessageSignal {
   id: string
   type: 'objection' | 'blocked' | 'halt'
@@ -73,7 +73,7 @@ export interface LocalMessageSegment {
   sequenceNum: number
 }
 
-/** 前端本地附件（多模态 Phase 1；扩 kind 值域）——与 AttachmentDTO 同构，历史/乐观两条路径共用 */
+/** 前端本地附件（多模态；扩 kind 值域）——与 AttachmentDTO 同构，历史/乐观两条路径共用 */
 export interface LocalAttachment {
   id: string
   kind: 'image' | 'document' | 'audio' | 'video'
@@ -110,11 +110,11 @@ export interface LocalMessage {
   src?: 'web' | 'feishu'
   /** 消息分段（F-multi-speak-bubble）；历史消息可能无此字段 */
   segments?: LocalMessageSegment[]
-  /** 消息关联信号（C4 徽章）；历史消息可能无此字段 */
+  /** 消息关联信号（徽章）；历史消息可能无此字段 */
   signals?: LocalMessageSignal[]
   /** 发言石目标（信号轨迹判定用）；乐观消息/SSE 实时消息无此字段 */
   tsp?: string[] | null
-  /** 多模态 Phase 1：随消息携带的附件 */
+  /** 多模态：随消息携带的附件 */
   atts?: LocalAttachment[]
   /** 时间线条目类型（speak/user 气泡渲染，其余居中特殊渲染）。
    *  旧 messages 表数据无此字段（undefined）——按 st 回退推导，历史兼容零迁移 */
@@ -129,7 +129,7 @@ export interface LocalMessage {
   /** html-card schema版本（保留字段，供未来默认状态变化用；当前所有卡默认折叠）。
    *  ≥2 → 默认 expanded；缺失 → 默认 collapsed */
   cardSchemaVersion?: number
-  /** T5：过程明细（?includeEvents=true 批量投影——foldInvokeEvents 同源
+  /** 过程明细（?includeEvents=true 批量投影——foldInvokeEvents 同源
    *  折叠步；仅 invoke 关联条目携带；开关关闭时不存在此字段） */
   foldedEvents?: FoldedStepDTO[]
 }
@@ -147,7 +147,7 @@ export type TimelineEntryType =
 
 /** TimelineEntry：时间线渲染视角的条目（LocalMessage 超集，向后兼容）。
  *  实现采用「字段下沉」而非新类型替换——LocalMessage 全链路（batcher/insertBySeq/
- *  乐观消息/轮询）不动，entryType 驱动 MessageList 的渲染分収；特性文档 D7：
+ * 乐观消息/轮询）不动，entryType 驱动 MessageList 的渲染分収；特性文档 
  *  历史数据兼容优先，旧 messages 数据原样可读 */
 export type TimelineEntry = LocalMessage
 
@@ -190,13 +190,13 @@ export interface LocalLinkedResource {
   category: string | null
   flagged: boolean
   auto: boolean
-  /** F20261008csf1 P1：产物状态（active 才混排——superseded/archived 是退役产物，
-   *  与继任者并排出现会误导「存在两个现行 PR」，检视发现 4） */
+  /** 产物状态（active 才混排——superseded/archived 是退役产物，
+   * 与继任者并排出现会误导「存在两个现行 PR」） */
   status: 'active' | 'superseded' | 'archived'
-  /** F20261008csf1 P1：登记时间——中间栏产物卡按时间轴混排的定位依据 */
+  /** 登记时间——中间栏产物卡按时间轴混排的定位依据 */
   createdAt?: string
-  /** F20261013csv3 T2：unfurl join 投影（PR 卡 diff stat + 状态徽章数据源；
-   *  null = 未抓取/落空）。F20261030draft（检视 r1 严重 1）：形状从 api-contract
+  /** unfurl join 投影（PR 卡 diff stat + 状态徽章数据源；
+   * null = 未抓取/落空）。（检视 严重 1）：形状从 api-contract
    *  派生而非内联——本次内联拷贝漏改 isDraft 致 tsc 断链，单一真相源根治再发。 */
   unfurl?: LinkedResourceDTO['unfurl']
 }
@@ -212,7 +212,7 @@ export interface LocalOtterSession {
   archiveReason: string | null
   isNegativeCase: boolean
   summary: string | null
-  /** F20260908efmd: 该世生效的模型 alias（null = 存量历史数据未快照） */
+  /** 该世生效的模型 alias（null = 存量历史数据未快照） */
   modelAlias?: string | null
 }
 
@@ -236,7 +236,7 @@ export function mapConversationDTO(dto: ConversationListItemDTO | ConversationDT
     title: dto.title,
     status: dto.status as 'active' | 'archived',
     pinned: dto.pinned,
-    // F20260924wast：kind 联合类型只含非 normal 值（DTO 缺省 = normal）
+    // kind 联合类型只含非 normal 值（DTO 缺省 = normal）
     ...(dto.kind && { kind: dto.kind }),
     otterIds: 'otterIds' in dto ? dto.otterIds : [],
     ...('unreadCount' in dto && { unreadCount: dto.unreadCount }),
@@ -259,19 +259,19 @@ export function mapMessageDTO(dto: MessageDTO): LocalMessage {
     dur: dto.dur,
     ctx: dto.ctx,
     ctxMax: dto.ctxMax,
-    // F20260902u5tr：发言石目标透出（信号轨迹判定）
+    // 发言石目标透出（信号轨迹判定）
     tsp: dto.tsp,
     src: dto.src as 'web' | 'feishu' | undefined,
     // F-multi-speak-bubble: 历史消息分段数据
     segments: dto.segments,
-    // F20260826mwrd C4: 消息关联信号（徽章数据）
+    // 消息关联信号（徽章数据）
     signals: dto.signals?.map(s => ({ ...s })),
-    // 多模态 Phase 1：附件透出（仅非空时携带）
+    // 多模态：附件透出（仅非空时携带）
     ...(dto.atts && { atts: dto.atts }),
   }
 }
 
-/** F20260913ctlv 切换清扫：EntryDTO → LocalMessage（时间线历史数据源）。
+/** 切换清扫：EntryDTO → LocalMessage（时间线历史数据源）。
  *  entryType 直接携带（speak/user/invoke_start/invoke_end/yield/system），驱动 MessageList 渲染分流；
  *  居中条目（invoke 边界/yield）的 content 用 entry.body（后端已填约定文案）。 */
 export function mapEntryDTO(dto: EntryDTO): LocalMessage {
@@ -291,19 +291,19 @@ export function mapEntryDTO(dto: EntryDTO): LocalMessage {
     src: (dto.source ?? undefined) as 'web' | 'feishu' | undefined,
     entryType: dto.entryType,
     invokeId: dto.invokeId ?? undefined,
-    // F20260921otcl：发送者出生色透出（repo join otters 投影；大獭/未回填 null）。
+    // 发送者出生色透出（repo join otters 投影；大獭/未回填 null）。
     scolor: dto.senderColor ?? null,
-    // F20261021sprx：entry 自带 type 优先，名册只作缺失时兜底。
+    // entry 自带 type 优先，名册只作缺失时兜底。
     stype: dto.senderOtterType,
-    // F20260913ctlv test17：invoke_end 的 metadata.invokeStatus 透出（重试按钮数据源）
+    // test17：invoke_end 的 metadata.invokeStatus 透出（重试按钮数据源）
     ...(dto.metadata?.invokeStatus === 'failed' || dto.metadata?.invokeStatus === 'aborted' ? { invokeStatus: dto.metadata.invokeStatus } : {}),
-    // F20260916hcel：html-card schema版本透出
+    // html-card schema版本透出
     ...(dto.metadata?.cardSchemaVersion != null ? { cardSchemaVersion: Number(dto.metadata.cardSchemaVersion) } : {}),
     // yieldTargets 双用途：yield 条目的传递目标 + user entry 的发言石目标（传递行数据源）
     yieldTargets: dto.yieldTargets ?? undefined,
-    // F20260913ctlv 终审修复：附件透出（与 mapMessageDTO 的 atts 映射同款）
+    // 终审修复：附件透出（与 mapMessageDTO 的 atts 映射同款）
     ...(dto.attachments && { atts: dto.attachments }),
-    // F20261013csv3 T5：过程明细投影（includeEvents=true 时携带——foldInvokeEvents 同源折叠步）
+    // 过程明细投影（includeEvents=true 时携带——foldInvokeEvents 同源折叠步）
     ...(dto.events && { foldedEvents: dto.events }),
   }
 }
@@ -332,10 +332,10 @@ export function mapLinkedResourceDTO(dto: LinkedResourceDTO): LocalLinkedResourc
     category: dto.category,
     flagged: dto.userFlagged,
     auto: dto.autoLinked,
-    // F20261008csf1 P1：登记时间透出（产物卡混排时间轴定位）
+    // 登记时间透出（产物卡混排时间轴定位）
     createdAt: dto.createdAt,
     status: dto.status,
-    // F20261013csv3 T2：unfurl join 投影直透（PR 卡 diff stat/状态徽章数据源）
+    // unfurl join 投影直透（PR 卡 diff stat/状态徽章数据源）
     unfurl: dto.unfurl ?? null,
   }
 }
@@ -351,7 +351,7 @@ export function mapSessionDTO(dto: OtterSessionDTO): LocalOtterSession {
     archiveReason: dto.archiveReason,
     isNegativeCase: dto.isNegativeCase,
     summary: dto.summary,
-    // F20260908efmd: 透传 session 快照的 modelAlias（null = 存量未快照）
+    // 透传 session 快照的 modelAlias（null = 存量未快照）
     modelAlias: dto.modelAlias,
   }
 }
@@ -368,7 +368,7 @@ export interface LocalScheduledTask {
   triggerAt: string | null
   timezone: string
   body: string
-  /** F20260915desc: 人类可读任务描述（可选），面板优先显示 */
+  /** 人类可读任务描述（可选），面板优先显示 */
   description: string | null
   executorRole: string
   talkingStonePassedTo: string[]

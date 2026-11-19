@@ -31,7 +31,7 @@ otter-connector --hub https://otter.example.com
 - 动作台账落 `~/.otter/connector/<deviceId>/action-ledger.sqlite`（机器侧真相源，崩溃恢复）
 - SIGINT/SIGTERM 优雅下线（在途动作落 interrupted）
 
-## 升级说明（阶段 6c 起）
+## 升级说明
 
 - 升级子协议 pin：连接握手必须声明 `otter-connector.v1`——**旧版 connector（本包
   0.1.0 之前仓内直跑形态）连新中枢会被升级层拒绝**，装本包或升级本包即可，配对

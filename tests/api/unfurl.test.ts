@@ -7,7 +7,7 @@ import { parseGithubUrl } from "../../src/interface-adapters/http/controllers/gi
 import { createTestLogger } from "../helpers/logger";
 
 /**
- * T1：unfurl 三态控制器集成测试。
+ * unfurl 三态控制器集成测试。
  * 锁定行为：①缓存命中 ok；②无记录 → pending + 后台抓取补位（og 元数据提取归一化）；
  * ③失败落 failed 记录（7 天窗口显式返回，过期重新抓取）；④github-api SWR（24h 内 fresh，
  * 过期 stale 先返旧值 + 后台刷新）；⑤恶意 URL 注入（内网段/十六进制/IPv6-mapped/flag 注入）。

@@ -1,5 +1,5 @@
 /**
- * Part 1：embedding 重试 worker 测试
+ * embedding 重试 worker 测试
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
@@ -78,10 +78,10 @@ beforeEach(() => {
 });
 
 /**
- * delta （D4）：trackedWorker——构造即登记，afterEach 统一
+ * delta ：trackedWorker——构造即登记，afterEach 统一
  * stop 兜底。本文件 16 个构造点仅 1 处显式 stop；retrigger 机制下未 stop 的
  * worker 跨用例存活（self-perpetuating），实证会偷吃同 DB 后续用例的任务
- * （检视獭 D4：S3 任务被本文件泄漏的 w6/w2 领走）。生产不受影响（单实例 +
+ * （检视獭 任务被本文件泄漏的 w6/w2 领走）。生产不受影响（单实例 +
  * dispose stopSync），测试卫生。
  */
 const activeWorkers: Array<{ stop(): Promise<void> }> = [];

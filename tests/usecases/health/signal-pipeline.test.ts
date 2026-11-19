@@ -136,7 +136,7 @@ describe("SignalPipeline", () => {
     const s2Record = pipeline.listOpen().find(s => s.signal_type === "chain_stall")!;
     repo.triage(s2Record.id, "bind_issue", { issueNumber: 1012, note: "并入 #1012" });
 
-    // 下一轮扫描：s2 不再被检测 → auto-resolve → §6 抹平
+    // 下一轮扫描：s2 不再被检测 → auto-resolve → 抹平
     await pipeline.process([s1]);
     const resolved = repo.findByStatus("resolved");
     expect(resolved).toHaveLength(1);

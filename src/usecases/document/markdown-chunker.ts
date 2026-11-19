@@ -3,7 +3,7 @@
  *
  * 把特性/研究文档的 body 按标题结构切成多个 chunk。每个 chunk 是独立 memory_entry
  * 的内容来源。分段在原始 markdown 上进行（保留标题井号），逐 chunk 清理在
- * indexFeatureChunks/indexResearchChunks 内做（决策 D2 关键顺序）。
+ * indexFeatureChunks/indexResearchChunks 内做（决策 关键顺序）。
  *
  * 分段策略（基于 91 个文档实测：100% 有 H2，97.8% section <2000 字符）：
  * 1. 短文档（< CHUNK_THRESHOLD）→ 单 chunk
@@ -56,7 +56,7 @@ export function chunkMarkdown(body: string): MarkdownChunk[] {
   const trimmed = body.trim();
   if (!trimmed) return [];
 
-  // PR审视 B1：去掉 H1 标题行需代码块感知——代码块内的 "# xxx"（markdown 示例/shell 注释）不能删
+  // PR审视 去掉 H1 标题行需代码块感知——代码块内的 "# xxx"（markdown 示例/shell 注释）不能删
   const bodyNoH1 = removeH1OutsideCodeblocks(body);
   if (!bodyNoH1.trim()) return [];
 
@@ -69,7 +69,7 @@ export function chunkMarkdown(body: string): MarkdownChunk[] {
   return mergeShortChunks(chunks);
 }
 
-/** PR审视 B1：去除 H1 标题行，但跳过代码块内的行（状态机跟踪围栏） */
+/** PR审视 去除 H1 标题行，但跳过代码块内的行（状态机跟踪围栏） */
 function removeH1OutsideCodeblocks(body: string): string {
   const lines = body.split("\n");
   let inCode = false;
@@ -117,7 +117,7 @@ function processLevel(text: string, level: number, parentPath: string[]): Markdo
  * 只切指定 level 的标题（精确匹配 # 数量）。更高级别标题（外层已切好，通常不出现）
  * 和更低级别标题都作为内容的一部分。第一个指定级别标题之前的内容是前言 section
  * （title=null）。
- * PR审视 B2：代码块状态感知——代码块内的 "# xxx" / "## xxx"（markdown 示例）不是标题，不切分。
+ * PR审视 代码块状态感知——代码块内的 "# xxx" / "## xxx"（markdown 示例）不是标题，不切分。
  */
 function splitByHeadingLevel(text: string, level: number): RawSection[] {
   const lines = text.split("\n");
@@ -178,7 +178,7 @@ function splitByParagraphsAndCodeblocks(text: string, headingPath: string[]): Ma
   };
 
   for (const block of blocks) {
-    // 单个 codeblock 超阈值：M4 兜底，按行强制切分
+    // 单个 codeblock 超阈值：兜底，按行强制切分
     if (block.type === "codeblock" && block.text.length > MAX_CODEBLOCK_FORCE_SPLIT) {
       emitCurrent();
       const forcedChunks = forceSplitByLines(block.text, headingPath);
@@ -237,15 +237,15 @@ function splitIntoAtomicBlocks(text: string): Block[] {
     }
   }
   if (current.length > 0) {
-    // tail flush：未闭合代码块作为 codeblock（M4 兜底在调用方处理超长）
+    // tail flush：未闭合代码块作为 codeblock（兜底在调用方处理超长）
     const text = current.join("\n").trim();
     if (text) blocks.push({ type: inCode ? "codeblock" : "paragraph", text });
   }
   return blocks;
 }
 
-/** M2 修正：同时识别 ``` 和 ~~~ 围栏（CommonMark 两种合法 fenced code block） */
-/** PR审视 B4：最多允许 3 个前导空格（CommonMark 规范），4+ 空格缩进是 indented code block 非围栏 */
+/** 修正：同时识别 ``` 和 ~~~ 围栏（CommonMark 两种合法 fenced code block） */
+/** PR审视 最多允许 3 个前导空格（CommonMark 规范），4+ 空格缩进是 indented code block 非围栏 */
 function isFenceLine(line: string): boolean {
   const indent = line.length - line.trimStart().length;
   if (indent > 3) return false;
@@ -253,7 +253,7 @@ function isFenceLine(line: string): boolean {
   return trimmed.startsWith("```") || trimmed.startsWith("~~~");
 }
 
-/** M4 兜底：超大 codeblock 按行强制切分（每 CHUNK_THRESHOLD 一段） */
+/** 兜底：超大 codeblock 按行强制切分（每 CHUNK_THRESHOLD 一段） */
 function forceSplitByLines(text: string, headingPath: string[]): MarkdownChunk[] {
   const lines = text.split("\n");
   const chunks: MarkdownChunk[] = [];
@@ -275,7 +275,7 @@ function forceSplitByLines(text: string, headingPath: string[]): MarkdownChunk[]
 /**
  * 短 chunk 合并：charCount < MIN_CHUNK_SIZE 的 chunk 合并到相邻。
  * 优先合并到前一个（如已入 merged）；否则合并到后一个。合并后 headingPath 用合并目标的。
- * PR审视 M1：创建新对象而非原地修改，避免 mutation 风险。
+ * PR审视 创建新对象而非原地修改，避免 mutation 风险。
  */
 function mergeShortChunks(chunks: MarkdownChunk[]): MarkdownChunk[] {
   if (chunks.length <= 1) return chunks;
@@ -287,7 +287,7 @@ function mergeShortChunks(chunks: MarkdownChunk[]): MarkdownChunk[] {
       merged.push(chunk);
       continue;
     }
-    // 短 chunk：合并到前一个（如有）或后一个（M1：创建新对象）
+    // 短 chunk：合并到前一个（如有）或后一个（创建新对象）
     if (merged.length > 0) {
       const prev = merged[merged.length - 1];
       merged[merged.length - 1] = {

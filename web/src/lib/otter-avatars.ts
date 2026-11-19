@@ -45,7 +45,7 @@ export const OTTER_AVATAR_OVERRIDE_PREFIX = 'otter-avatar:'
 
 /**
  * FNV-1a 32-bit hash：确定性、跨刷新稳定。
- * F20260921otcl：BIG_OTTER_IDS 历史兜底已删除——type 三路契约（SSE/participants/
+ * BIG_OTTER_IDS 历史兜底已删除——type 三路契约（SSE/participants/
  * entries）补齐后处处可得，对生产 UUID 永久失效的兜底是死代码；type 缺省视为小獭
  */
 function fnv1a(str: string): number {
@@ -59,7 +59,7 @@ function fnv1a(str: string): number {
 
 /**
  * 读取小獭头像 override（仅小獭池内资源名有效；异常环境返回 null 走 hash 池）。
- * 用户自选（F20260827ucrt）；大獭/用户头像不受 override 影响
+ * 用户自选；大獭/用户头像不受 override 影响
  */
 function getAvatarOverride(otterId: string, type?: 'big' | 'small'): string | null {
   if (type === 'big') return null
@@ -72,7 +72,7 @@ function getAvatarOverride(otterId: string, type?: 'big' | 'small'): string | nu
 }
 
 /**
- * 写入/清除小獭头像 override（F20260827ucrt UI 自选）。
+ * 写入/清除小獭头像 override（UI 自选）。
  * @param avatarName 池内资源名；null = 清除（回「随机」hash 池）
  */
 export function setOtterAvatarOverride(otterId: string, avatarName: string | null): void {
@@ -90,8 +90,8 @@ export function setOtterAvatarOverride(otterId: string, avatarName: string | nul
 /**
  * otterId → 头像 URL。
  * 按 otter.type 判断大獭（生产 ID 为 UUID，无法枚举硬编码）；type 缺省视为小獭
- * （F20260921otcl：历史 ID 池兜底已删）。
- * 小獭优先读 localStorage override（F20260827ucrt），未命中走 hash 池——
+ * （历史 ID 池兜底已删）。
+ * 小獭优先读 localStorage override，未命中走 hash 池——
  * 未自选的獭路径与改前逐位一致。
  */
 export function getOtterAvatar(otterId: string, type?: 'big' | 'small'): string {

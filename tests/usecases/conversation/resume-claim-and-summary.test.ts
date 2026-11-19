@@ -7,7 +7,7 @@ import type { RemoteActionRequest } from "@entities/execution/remote-action-requ
 import { createTestDb } from "../../helpers/db";
 import { createTestLogger } from "../../helpers/logger";
 
-/** PR-B：认领绑定 claim token/boot epoch + 恢复摘要构造。 */
+/** 认领绑定 claim token/boot epoch + 恢复摘要构造。 */
 // lint-tests:allow-ddl —— 存量库迁移回归需手建 restart_pending_resumes 旧形态表（无 claim 四列）
 // 验证 ALTER 补列幂等（被测对象就是「旧 schema → 新 schema」迁移本身，与 migration 测试同类）
 

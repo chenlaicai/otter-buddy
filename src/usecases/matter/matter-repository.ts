@@ -2,12 +2,12 @@ import type { Matter, MatterQueryFilter } from '@entities/matter/matter';
 import type { MatterSweepStall, MatterSweepStalledRow } from './matter-sweep';
 
 /**
- * Matter 持久化仓库接口（P1）。
+ * Matter 持久化仓库接口。
  *
  * 写路径：RegisterMatter（准入白名单三条）+ TransitionMatter（状态迁移单入口）。
  * 读路径：①右侧栏「待办」tab（只读 API）②restart 机械供料（handoff_open_matters）
  *        ③獭侧 list_matters 工具。
- * 每列消费方声明见方案 §1 ⑥纪律。
+ * 每列消费方声明见⑥纪律。
  */
 
 export interface MatterRepository {
@@ -29,20 +29,20 @@ export interface MatterRepository {
     patch: Partial<Pick<Matter, 'state' | 'waitingOn' | 'waitingFor' | 'payload' | 'resolution' | 'resolvedBy' | 'closureKind'>> & { updatedAt: string; closedAt?: string | null },
   ): Promise<Matter | null>;
   /**
-   * 等待方消亡规则（§2 等待方生命周期规则①）：owner 獭被解散 →
+   * 等待方消亡规则（等待方生命周期规则①）：owner 獭被解散 →
    * 其名下 WAITING_OTTER 的 matter 自动转回 OPEN 待重派（每日扫描兜底）。
    */
   reopenForDissolvedOwner(otterId: string, now: string): Promise<number>;
 
   /**
-   * P3：跨对话停滞扫描（未闭环扫描升格——确定性数据源）。
-   * 停滞定义（方案 §7 P3）：OPEN 无人认领 / WAITING_PARTNER 积压——跨日未收尾（24h 基准）。
+   * 跨对话停滞扫描（未闭环扫描升格——确定性数据源）。
+   * 停滞定义：OPEN 无人认领 / WAITING_PARTNER 积压——跨日未收尾（24h 基准）。
    * 只读；调用方（三省吾身大獭）负责提醒，不做自动处置。
    */
   stalledOpen(nowIso: string, stallThresholdIso: string, limit?: number): Promise<MatterSweepStall[]>;
 
   /**
-   * P3：漏登记的 L2 待裁决项发现（准入路径 3 兜底——可执行化）。
+   * 漏登记的 L2 待裁决项发现（准入路径 3 兜底——可执行化）。
    * 只读；调用方去重 + 决定是否补登记。
    */
   unregisteredYieldsToUser(sinceIso: string, limit?: number): Promise<MatterSweepStalledRow[]>;

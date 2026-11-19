@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-//  T5 生效断言集成测试——真实 SDK execute，非 mock。
+// 生效断言集成测试——真实 SDK execute，非 mock。
 // 防护目标：SDK 双签名漂移（harness vs unbundled dist）导致的静默退化——
 // 若 pi 升级改变 execute 签名/返回结构，本测试第一时间红。
 import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";

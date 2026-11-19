@@ -101,7 +101,7 @@ export default function SettingsPage() {
     }
   }
 
-  // S3 修复：SPA 路由级拦截——useBlocker 阻止客户端导航（点击 TopBar 链接等）
+  // 修复：SPA 路由级拦截——useBlocker 阻止客户端导航（点击 TopBar 链接等）
   // Why: beforeunload 只在浏览器关闭/刷新时触发，SPA 的 Link 导航不触发它
   useBlocker(({ currentLocation, nextLocation }) => {
     if (!hasUnsaved) return false // 无未保存变更，不阻止
@@ -215,7 +215,7 @@ export default function SettingsPage() {
               </div>
             </section>
 
-            {/* F20260924wast：浮动獭 */}
+            {/* 浮动獭 */}
             <section className="mb-8">
               <h2 className="text-sm font-semibold text-stone-600 mb-4">浮动獭</h2>
               <div className="space-y-2">

@@ -51,7 +51,7 @@ export async function initDatabaseAndModels(
   modelsOverride?: { model: Model<Api>; modelPool?: ModelPool },
 ): Promise<DatabaseBootstrapResult> {
   const dbPath = appConfig.db.path;
-  // 单实例锁（阶段 6a）：打开数据库前先拿进程互斥锁——双进程共写同一 SQLite 是阶段 6 红线。
+  // 单实例锁：打开数据库前先拿进程互斥锁——双进程共写同一 SQLite 是红线。
   // 首启目录预建：云部署数据卷（如 /var/lib/otter-buddy）首次可能不存在，
   // 否则锁文件创建直接 ENOENT fail-closed（首启检视发现）。
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -72,7 +72,7 @@ export async function initDatabaseAndModels(
   migrateMessageSegments(db, logger);
 
   const otterConfigProvider = new SqliteOtterConfigProvider(db);
-  // 嵌入开关（阶段 6a）：OTTER_EMBEDDING=off 显式禁用嵌入——不 fork 双 worker、
+  // 嵌入开关：OTTER_EMBEDDING=off 显式禁用嵌入——不 fork 双 worker、
   // 不加载/下载模型（云端小内存机降级 FTS-only 检索；语义召回缺失向消费方暴露）。
   // 消费侧降级已内建：searchVec 的 embed 抛错即回落 FTS5，无需改动检索链。
   const embeddingOff = process.env.OTTER_EMBEDDING === "off";
@@ -106,7 +106,7 @@ export async function initDatabaseAndModels(
   };
 }
 
-/** 禁用态嵌入服务（导出供单测/诊断）：available=false + embed 恒拒——检索侧 catch 后自动 FTS-only（D22 降级链） */
+/** 禁用态嵌入服务（导出供单测/诊断）：available=false + embed 恒拒——检索侧 catch 后自动 FTS-only（降级链） */
 export function disabledEmbeddingServices(): {
   liveService: EmbeddingGateway;
   backfillService: EmbeddingGateway;
@@ -151,7 +151,7 @@ export async function reconcileRunningInvokes(db: Database.Database, repos: Repo
       continue;
     }
     try {
-      // F20260917rscr 三点裁决：① 不再排除 scheduler 来源——定时任务中断与用户消息
+      // 三点裁决：① 不再排除 scheduler 来源——定时任务中断与用户消息
       // 中断本质相同（意外中断的工作该续上）；「防重复产出」由恢复侧的「獭已恢复」
       // 判据统一覆盖（中断后该獭已有新 invoke 即跳过——cron 重触发场景自然被挡）。
       // trigger_entry_id 为 NULL 的直调路径（无锚 invokeConversation）同样入队——
@@ -175,23 +175,23 @@ export async function reconcileRunningInvokes(db: Database.Database, repos: Repo
 /** DB 初始化后的种子数据 + 孤儿修复 + ledger 回填 */
 export async function postInitDatabase(db: Database.Database, repos: Repositories, logger: Logger): Promise<void> {
   await seedTerminologyData(db, logger);
-  // F20260916b1ea 重建：重启 reconcile + 恢复入队（提取 reconcileRunningInvokes 控复杂度）
+  // 重建：重启 reconcile + 恢复入队（提取 reconcileRunningInvokes 控复杂度）
   await reconcileRunningInvokes(db, repos, logger);
   await backfillSessionLedger(db, repos.otter, logger);
 
-  // ── F20260902sgp2 S1：派发台账启动任务（顺序固定：死亡证明 → backfill 墓碑）──
-  // ① 死亡证明（§4.4）：上个进程遗留的 in_progress 一律标 failed（进程内不可能有存活的
+  // ── 派发台账启动任务（顺序固定：死亡证明 → backfill 墓碑）──
+  // ① 死亡证明：上个进程遗留的 in_progress 一律标 failed（进程内不可能有存活的
   //    in_progress 跨越重启；先例 reconcile-orphans failInFlightMessages 同款语义）。
   //    每次重启都跑（记账面收尾，非迁移）。
-  // ② backfill 墓碑（§4.5）：**仅一次**——F20260902hopf 后续核查发现墓碑每次重启都重跑
-  //    （3589→3607），会吞掉崩溃窗口的真 pending（R1 场景：用户消息落库后进程死、
+  // ② backfill 墓碑：**仅一次**——后续核查发现墓碑每次重启都重跑
+  // （3589→3607），会吞掉崩溃窗口的真 pending（场景：用户消息落库后进程死、
   //    无人应答，该由补扫点燃——被下次重启的墓碑误标翻篇）。守卫：settings CAS 一次性锁，
     //    tryInsertIfAbsent 先到先得；老库已跑过墓碑（无守卫期）的处理见下方 comment。
   // 两者失败均仅日志——台账是记账面不是控制面，任何失败不阻断启动（硬约束 1）。
   try {
-    // F20260908rlcp: dispatch_attempts ledger retired
+    // dispatch_attempts ledger retired
     logger.info('[signal-ledger] 台账已退役，跳过启动记账');
-    // #775：seq 刻度存量回填（观察项①收尾前置）。守卫 = NULL 行计数（幂等：只更新 NULL 行，
+    // seq 刻度存量回填（观察项①收尾前置）。守卫 = NULL 行计数（幂等：只更新 NULL 行，
     // 全量覆盖后计数恒 0，重复启动零代价）；回填后 markBatchRead 停写旧列，读路径 NULL
     // 回退保留（seq 列不会因停写回 NULL，回退分支只服务极端脏数据）。
     try {
@@ -205,9 +205,9 @@ export async function postInitDatabase(db: Database.Database, repos: Repositorie
     } catch (e) {
       logger.warn('[cursor-seq] seq 回填失败（不阻塞启动；读路径 NULL 回退仍在）', { error: e instanceof Error ? e.message : String(e) });
     }
-    // F20260929czi0：进场游标零点修正存量迁移（一次性，守卫同上：零游标行计数，
+    // 进场游标零点修正存量迁移（一次性，守卫同上：零游标行计数，
     // 空对话重写 max(seq)=0 等价零改动，重复启动零代价）。仅推进「active 参与者 ×
-    // active 对话 × last_read_seq=0」——这些游标是 F20260913ctlv 口径的事故值
+    // active 对话 × last_read_seq=0」——这些游标是 口径的事故值
     //（零游标獭把全历史当未读，多为换世后爆窗锁死），不是合法已读位置；失败仅日志，
     // 不阻断启动（否则修复本身会打断生产启动，得不偿失）。
     try {
@@ -226,7 +226,7 @@ export async function postInitDatabase(db: Database.Database, repos: Repositorie
   }
 }
 
-/** sync 完成后的 chunk 迁移（独立于 migrateDatabase，PR 审视 S3-01） */
+/** sync 完成后的 chunk 迁移（独立于 migrateDatabase，PR 审视 -01） */
 export function postSyncMigrations(db: Database.Database, logger: Logger, syncResult: SyncResult): void {
   migrateFeatureBodyToChunks(db, logger, syncResult.errors.length);
 }
@@ -245,7 +245,7 @@ export function shutdownDatabase(db: Database.Database, logger: Logger): void {
 }
 
 /**
- * F20260811mrpy Part 3：Embedding 版本锚校验。
+ * Embedding 版本锚校验。
  *
  * bootstrap 时比对 worker 实际加载的模型元信息（modelId/modelRev/dim）与 embedding_meta 表存储的基线。
  * 不一致则禁用 vec 路径（检索结果的 vecCoverage.vecDisabled 向消费方暴露降级状态）。
@@ -253,7 +253,7 @@ export function shutdownDatabase(db: Database.Database, logger: Logger): void {
  *
  * 失败模式：无 getMeta 方法（老接口）或 getMeta 超时/失败时跳过校验（vecEnabled=true）。
  *
- * F20260821evaf 审视记录：原设计的 otter_context('system','embedding_degraded') 写入是双重死代码——
+ * 审视记录：原设计的 otter_context('system','embedding_degraded') 写入是双重死代码——
  * a) FK 约束（otter_id → otters.id）挡住 'system' 幽灵 id，写入必失败；
  * b) agent 的 get_context 工具按注入 otterId 读，无任何路径读 'system' 行，写了也没人消费。
  * agent 感知实际由 search_memory 结果的 vecCoverage 字段承担，故移除该写入。
@@ -262,7 +262,7 @@ const GET_META_TIMEOUT_MS = 30_000;
 
 /** 取 worker 当前 meta，带超时。超时/失败返回 null（调用方跳过校验，不崩 boot）。
  * 超时只截断"worker 永不 ready 也永不报错"的挂起态（onnxruntime 死锁等），
- * 不掩盖 mismatch——mismatch 在 meta 成功拿到后才判定（F20260821evaf 审视项）。
+ * 不掩盖 mismatch——mismatch 在 meta 成功拿到后才判定（审视项）。
  * 依赖：getMeta 内部 waitForReady 的 waiters 由 worker ready/error/exit 事件兜底回收，
  * 超时后残留 waiter 最坏滞留为有界对象，无泄漏。 */
 async function fetchCurrentMeta(
@@ -288,7 +288,7 @@ async function fetchCurrentMeta(
 
 /** 读存储基线。IO 错误（磁盘满/只读等）返回 null（跳过校验，不崩 boot）。
  * schema 缺失（no such table）单独识别并 error 级告警——那是 migration 没跑到的信号，
- * 不能像 IO 错误一样静默 skip（否则重演"静默跳过藏 10 天"，F20260821evaf 二轮审视项）。 */
+ * 不能像 IO 错误一样静默 skip（否则重演"静默跳过藏 10 天"，二轮审视项）。 */
 async function readStoredMeta(repos: Repositories, logger: Logger): Promise<Partial<EmbedModelMeta> | null> {
   try {
     return await repos.memoryReader.getEmbeddingMeta();
@@ -321,7 +321,7 @@ export async function verifyEmbeddingVersion(
   repos: Repositories,
   logger: Logger,
 ): Promise<{ vecEnabled: boolean; reason?: string }> {
-  // 显式禁用（阶段 6a）：OTTER_EMBEDDING=off 时无 worker 可校——直接降级
+  // 显式禁用：OTTER_EMBEDDING=off 时无 worker 可校——直接降级
   // vec 路径（vecCoverage 如实报 disabled，storeEmbedding 跳过），
   // 不走 getMeta（禁用服务无该方法，且 waitForReady 会永久挂起）。
   if (process.env.OTTER_EMBEDDING === "off") {
@@ -334,7 +334,7 @@ export async function verifyEmbeddingVersion(
   }
   // 兼容老接口（无 getMeta）：跳过校验，保持原有行为。
   // 注意不能用 available 判断——它是 worker ready 的时序快照，bootstrap 时恒为 false，
-  // 会让校验永远走不到（F20260821evaf 根因）。getMeta 内部会 waitForReady，直接调用即可。
+  // 会让校验永远走不到（根因）。getMeta 内部会 waitForReady，直接调用即可。
   if (typeof embeddingGateway.getMeta !== "function") {
     return { vecEnabled: true };
   }
@@ -402,6 +402,6 @@ export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: Logge
   }
 }
 
-/** F20260930roiv：启动窗口期孤儿 invoke 延迟 reconcile 设置已拆至 invoke-reconcile.ts
+/** 启动窗口期孤儿 invoke 延迟 reconcile 设置已拆至 invoke-reconcile.ts
  *  （结构性拆分）。本文件曾残留同名死代码副本（app.ts 实际 import 自 invoke-reconcile.ts），
- *  #1241 顺手清理。 */
+ * 顺手清理。 */

@@ -75,7 +75,7 @@ describe("SimpleCronParser", () => {
       expect(result.getUTCMinutes()).toBe(30);
     });
 
-    // ─── S3: referenceTime 参数支持 ─────────────────────────
+    // ─── referenceTime 参数支持 ─────────────────────────
     it("referenceTime 参数：计算从参考时间起的下次触发", () => {
       const parser = new SimpleCronParser();
       // cron = 每天 9:00 UTC

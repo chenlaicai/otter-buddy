@@ -120,7 +120,7 @@ function RecurrenceTimeline({ card }: { card: RecurrenceCard }) {
 /** 复发卡列表（首屏主角）：频次优先、其次最近复发（观澜 3.1）；无模式时给确定感空态 */
 export function RecurrenceSection({ signals }: { signals: RhiSignalDTO[] }) {
   const cards = signals.map(toRecurrenceCard).filter((c): c is RecurrenceCard => c !== null)
-  // 排序在前端做（检视建议 2）：接口返回顺序与频次无关，首屏卡序必须频次优先
+  // 排序在前端做：接口返回顺序与频次无关，首屏卡序必须频次优先
   cards.sort((a, b) => b.commitCount - a.commitCount || b.commits[b.commits.length - 1]!.date.localeCompare(a.commits[a.commits.length - 1]!.date))
   if (cards.length === 0) {
     return (
@@ -141,7 +141,7 @@ export function RecurrenceSection({ signals }: { signals: RhiSignalDTO[] }) {
 }
 
 /**
- * 信号条目频次徽章（检视建议 5）：全信号 tab 与复发卡统一频次口径——
+ * 信号条目频次徽章：全信号 tab 与复发卡统一频次口径——
  * bug_recurrence 走 evidenceDetail.commits.length（证据序列长度），
  * 其余信号类型保留 occurrences（扫描触发次数，对非复发类信号是合理计数）。
  * bug_recurrence 的 occurrences 严禁展示：随扫描频率漂移，与复发卡数字同屏矛盾。
@@ -165,8 +165,8 @@ export function FreqBadge({ signal }: { signal: RhiSignalDTO }) {
 }
 
 /**
- * 高扇入排除清单（验收项三：可见不黑箱；检视建议 6 抽出为独立组件以便 DOM 测试——
- * index.tsx 在 import 时挂载 #root 有副作用，不可直接作为测试对象）。
+ * 高扇入排除清单（验收项三：可见不黑箱；抽出为独立组件以便 DOM 测试——
+ * index.tsx 在 import 时挂载 有副作用，不可直接作为测试对象）。
  * 集合为空不渲染。
  */
 export function FanInExcludedList({ files }: { files: Array<{ file: string; fanIn: number }> }) {

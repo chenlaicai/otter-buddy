@@ -4,7 +4,7 @@ import type { MatterRepository } from '@usecases/matter/matter-repository';
 import type { MatterSweepStall, MatterSweepStalledRow } from '@usecases/matter/matter-sweep';
 
 /**
- * Matters 的 SQLite 实现（P1；P3：扫描升格扩展）。
+ * Matters 的 SQLite 实现（扫描升格扩展）。
  * 表结构在 schema.ts createMattersTable 创建（幂等 CREATE IF NOT EXISTS）。
  */
 
@@ -140,7 +140,7 @@ export class SqliteMatterRepository implements MatterRepository {
   }
 
   /**
-   * F20261006mtlp §2 等待方生命周期规则①（审视修订：判定键 = waiting_on 指向的獭，
+   * 等待方生命周期规则①（审视修订：判定键 = waiting_on 指向的獭，
    * 补 owner 键双扫——消灭悬挂优先）：**waiting_on 指向的獭**（或 owner）被解散 →
    * 其名下 WAITING_OTTER 的 matter 自动转回 OPEN 待重派（每日扫描兜底发现）。
    * 返回受影响行数（0 = 无悬挂事项，正常态）。
@@ -159,8 +159,8 @@ export class SqliteMatterRepository implements MatterRepository {
   }
 
   /**
-   * F20261008mlp3 P3：跨对话停滞扫描（未闭环扫描升格——确定性数据源）。
-   * 停滞定义（方案 §7 P3 + F20261027hfup 升格）：OPEN 无人认领 / WAITING_PARTNER 积压 /
+   * 跨对话停滞扫描（未闭环扫描升格——确定性数据源）。
+   * 停滞定义（+ 升格）：OPEN 无人认领 / WAITING_PARTNER 积压 /
    * WAITING_OTTER 接单未落位——跨日未收尾（24h 基准）。
    * 只读；调用方（三省吾身大獭）负责提醒，不做自动处置。
    */
@@ -192,8 +192,8 @@ export class SqliteMatterRepository implements MatterRepository {
   }
 
   /**
-   * F20261008mlp3 P3：漏登记的 L2 待裁决项发现（准入路径 3 兜底——可执行化）。
-   * 严重3修复：①SQL 排除已登记 matter（LEFT JOIN origin_message_id——"漏登记"语义落进查询）；
+   * 漏登记的 L2 待裁决项发现（准入路径 3 兜底——可执行化）。
+   * ①SQL 排除已登记 matter（LEFT JOIN origin_message_id——"漏登记"语义落进查询）；
    * ②输出带 originMessageId + registeredMatterId，调用方按去重键判定（不用肉眼甄别）；
    * ③expects_partner_decision 未持久化（schema 无此列），SQL 层面无法区分 L2 拍板与
    * 例行交棒——兜底半径如实声明为「yield-to-user 未登记增量」，L2 甄别留给调用方
@@ -224,7 +224,7 @@ export class SqliteMatterRepository implements MatterRepository {
       senderName: r.sender_name,
       yieldTargets: r.yield_targets,
       body: r.body,
-      // 去重键：matter 登记时 origin_message_id = yield entry id（P1 准入路径 1 锁定）
+      // 去重键：matter 登记时 origin_message_id = yield entry id（准入路径 1 锁定）
       originMessageId: r.id,
       registeredMatterId: r.registered_matter_id,
     }));

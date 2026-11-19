@@ -1,7 +1,7 @@
 /**
  * SqliteConsolidationStateRepository：夜间审视治量状态仓库实现。
  *
- * P2b1。表结构见 schema.ts consolidation_state。
+ * 表结构见 schema.ts consolidation_state。
  * 表形态是幂等键一行一档；save 走 INSERT OR REPLACE 全量 upsert。
  */
 
@@ -61,7 +61,7 @@ export class SqliteConsolidationStateRepository implements ConsolidationStateRep
   }
 
   /**
-   * P2b2：列指定 taskId 的全部档，日期升序。全表读出后用 parseReviewKey 内存过滤
+   * 列指定 taskId 的全部档，日期升序。全表读出后用 parseReviewKey 内存过滤
    * （表一天一行量级；不用的 LIKE 前缀匹配规避 taskId 含通配符的误匹配面）。
    */
   async listByTaskId(taskId: string): Promise<ConsolidationState[]> {

@@ -53,6 +53,94 @@ describe("cleanCommentText 删除语义", () => {
     expect(t).not.toContain("检视");
   });
 
+describe("cleanCommentText 文档结构编号", () => {
+  it("T 小节号删除，ISO 时间保留", () => {
+    expect(cleanCommentText("T5：过程明细开关").text).toBe("过程明细开关");
+    expect(cleanCommentText("'T10:00:00+08:00' 字面量").text).toContain("T10:00");
+  });
+
+  it("Part 分节号删除（含小数点、方案前缀）", () => {
+    expect(cleanCommentText("Part 1：扩展契约。").text).toBe("扩展契约。");
+    expect(cleanCommentText("provenance messages（Part 2.3）在工具层组合").text).toContain("工具层组合");
+    expect(cleanCommentText("halt 语义（方案 Part 3）：打标").text).not.toContain("方案");
+  });
+
+  it("检查项号与方案节删除", () => {
+    expect(cleanCommentText("（C4：UI 徽章数据源）").text).toBe("（UI 徽章数据源）");
+    expect(cleanCommentText("注入全量 B1-B6 渲染文本").text).toContain("渲染文本");
+    expect(cleanCommentText("配对策略（方案 D 节 + ）").text).not.toContain("方案");
+    expect(cleanCommentText("high 级事件入 C3 高警队列").text).toBe("high 级事件入 C3 高警队列");
+  });
+
+  it("阶段/章 节/方案版本删除", () => {
+    expect(cleanCommentText("// （阶段 4 C1）：connector 网关").text).toContain("connector 网关");
+    expect(cleanCommentText("守卫/说明（方案 §2 矩阵）").text).not.toContain("方案");
+    expect(cleanCommentText("采样层（方案 v6.2 定案）").text).toContain("定案");
+  });
+
+  it("审视项号删除，日常词豁免", () => {
+    expect(cleanCommentText("证据质量留给异体审 B9").text).not.toContain("B9");
+    expect(cleanCommentText("A1 审视收口").text).not.toContain("A1");
+    expect(cleanCommentText("A4 纸不误删").text).toContain("A4");
+    expect(cleanCommentText("bge-m3 模型名不误删").text).toContain("bge-m3");
+    expect(cleanCommentText("34 种索引：m0-8 p9-17").text).toContain("m0-8");
+  });
+
+  it("m 时间边界豁免：短句结尾的「m1 之前/之后/前/后」不误删", () => {
+    expect(cleanCommentText("诞生于 m1 之前").text).toBe("诞生于 m1 之前");
+    expect(cleanCommentText("诞生于 m1 之后").text).toBe("诞生于 m1 之后");
+    expect(cleanCommentText("诞生于 m1 前").text).toBe("诞生于 m1 前");
+    expect(cleanCommentText("诞生于 m1 后").text).toBe("诞生于 m1 后");
+  });
+
+  it("行首 // 后的 P/m 编号照删（引导符不是列表分隔符），真实斜杠列表保留", () => {
+    expect(cleanCommentText("// P1：信号路由器").text).toBe("// 信号路由器");
+    expect(cleanCommentText("// m1 修复").text).toBe("// 修复");
+    expect(cleanCommentText("/* m1 修复 */").text).toBe("/* 修复 */");
+    expect(cleanCommentText("// P0/P1/P2").text).toBe("// P0/P1/P2");
+    expect(cleanCommentText("// m2/m3 测试数据").text).toBe("// m2/m3 测试数据");
+  });
+
+  it("阶段缩写号删除，优先级豁免", () => {
+    expect(cleanCommentText("P1：信号路由器").text).toBe("信号路由器");
+    expect(cleanCommentText("priority 必有且仅 1 个：P0 / P1 / P2").text).toContain("P0");
+    expect(cleanCommentText("打标拿不准时宁降一级（P1→P2）").text).toContain("P1→P2");
+    expect(cleanCommentText("P0-2：判定滑窗内拦截").text).toBe("判定滑窗内拦截");
+    expect(cleanCommentText("P0-b 后缀保留").text).toBe("P0-b 后缀保留");
+  });
+
+  it("PR 代号与分号残渣", () => {
+    expect(cleanCommentText("// （阶段 5 PR-A）：工具面路由").text).toContain("工具面路由");
+    expect(cleanCommentText("多模态 Phase 1；终审修复").text).toBe("多模态；终审修复");
+  });
+
+  it("嵌套组合编号删除 + 孤立分隔符/空括号收敛", () => {
+    expect(cleanCommentText(`/** ${fid()}（C2/R2）：远程动作五态段 */`).text).toBe("/** 远程动作五态段 */");
+    expect(cleanCommentText("（预算闭合留裕量，D3/D6）").text).toBe("（预算闭合留裕量）");
+    expect(cleanCommentText("（更新面与探测面对称，r1-S1）：").text).toBe("（更新面与探测面对称）：");
+    expect(cleanCommentText(`fail-closed（D2/r1-S1）`).text).toBe("fail-closed");
+  });
+
+  it("git R 相似度不误删；D 子项与 issue 子项整体删", () => {
+    expect(cleanCommentText("非 R100 rename 时 git plain 查询漏判").text).toContain("R100");
+    expect(cleanCommentText("相似度>R50%，rename 检测存活").text).toContain("R50%");
+    expect(cleanCommentText(`误伤面（${hash()}1653 D1-1）的唯一观测源`).text).toBe("误伤面的唯一观测源");
+    expect(cleanCommentText(`只能荣和或过（${hash()}1564-2）`).text).toBe("只能荣和或过");
+  });
+
+  it("delta 简写形态整体删除不留残渣", () => {
+    expect(cleanCommentText("// delta-r3：链内再按 | 拆管道段").text).toBe("// 链内再按 | 拆管道段");
+    expect(cleanCommentText("D4（检视 delta-r3）：段首 fetcher").text).toBe("（检视）：段首 fetcher");
+  });
+
+  it("delta 简写大小写变体整体删除不留前缀", () => {
+    expect(cleanCommentText("// Delta2：复核建议").text).toBe("// 复核建议");
+    expect(cleanCommentText("// DeltaR3 处置后").text).toBe("// 处置后");
+    expect(cleanCommentText("// DELTA-r3：链内再拆").text).toBe("// 链内再拆");
+    expect(cleanCommentText("// Delta D1 回归锚").text).toBe("// 回归锚");
+  });
+});
+
   it("仅 import 模块不产生写副作用", async () => {
     const { execFileSync } = await import("node:child_process");
     const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");

@@ -1,6 +1,6 @@
 /* eslint-disable max-lines -- 启动解耦新增 postListenInit 后 465 行（限 450），拆分另开 PR（Composition Root 集中装配是既有设计） */
 /**
- * buildApp：可测试的系统装配入口（Part 1，基于 bootstrap 模块）。
+ * buildApp：可测试的系统装配入口（基于 bootstrap 模块）。
  * main.ts 是生产薄入口；bootstrap/* 是零件，本模块按序组装 + 提供测试接缝。
  * 全局副作用（配置/日志/auth/飞书/调度器/静态路由）均可经 options 注入或关闭。
  */
@@ -147,13 +147,13 @@ export interface BuiltApp {
   /** 既有调用方使用的实时写入口 */
   embeddingService: EmbeddingGateway;
   modelPool: ModelPool;
-  /** Part 1：embedding 重试 worker（vec 禁用时为 null）。getter 经 ref 读——worker 在 listen 后才创建 */
+  /** embedding 重试 worker（vec 禁用时为 null）。getter 经 ref 读——worker 在 listen 后才创建 */
   get retryWorker(): { stopSync(): void; stop(): Promise<void> } | null;
   /** worker 的 ref 容器（getter 数据源，dispose 停表用） */
   retryWorkerRef: { current: { stopSync(): void; stop(): Promise<void> } | null };
   /** listen 成功后异步初始化（document sync + retry worker + 暗化迁移）。main.ts 在 listen 回调 fire-and-forget；失败不炸进程（内部已 catch 落日志） */
   postListenInit: () => Promise<void>;
-  /** （阶段 4 C1）：connector WSS 网关（main 传给 listen 挂 upgrade；dispose 关通道） */
+  /** connector WSS 网关（main 传给 listen 挂 upgrade；dispose 关通道） */
   connectorGateway: ConnectorWsGateway;
   /** 停止调度器、释放 embedding worker、关闭 DB、flush 日志 + metric。幂等。 */
   dispose(): Promise<void>;
@@ -176,7 +176,7 @@ function createRhiScanWorker(deps: {
   const snapshotSink = (snapshotDate: string, rows: CreateSnapshotRow[]) =>
     snapshotRepo.replaceForDate(snapshotDate, rows);
 
-  // 健康评分 D5 输入：open 信号计数（PR1）。
+  // 健康评分 输入：open 信号计数（PR1）。
   // 改从 Repositories DI 消费（rhiSignal，与 signalEvent 獭间语义池区分），不再直实例化
   const signalRepo = deps.repos.rhiSignal;
   // 成本/产出快照落库端口：同 repo 的 replaceForDate，独立 metric_type
@@ -277,15 +277,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   }
   await postInitDatabase(db, repos, logger);
 
-  // F20260811mrpy Part 3：Embedding 版本锚校验（在 memory index 写入前完成）
-  // 模型/维度不一致时禁用 vec 路径（降级状态经检索结果 vecCoverage 暴露，F20260821evaf）
+  // Embedding 版本锚校验（在 memory index 写入前完成）
+  // 模型/维度不一致时禁用 vec 路径（降级状态经检索结果 vecCoverage 暴露）
   const embeddingVersionCheck = await verifyEmbeddingVersion(queryEmbedding, repos, logger);
   if (!embeddingVersionCheck.vecEnabled) {
     logger.warn(`Embedding vec path disabled due to ${embeddingVersionCheck.reason}`);
   }
   // ── 记忆索引 + 文档同步 ──
-  // F20261016ebrt：写入 lane 服务 store/sync（吞吐），查询 lane 只服务 search（延迟）
-  // F20261109epqst 检视处置（严重发现 1 配套）：onBulkEnqueued 弱触发——doc sync
+  // 写入 lane 服务 store/sync（吞吐），查询 lane 只服务 search（延迟）
+  // 检视处置（严重）：onBulkEnqueued 弱触发——doc sync
   // 运行中入库的 chunk 任务不再等 patrol 1h，落库即触发 retry worker 消费（worker
   // 未就绪时静默，启动 tickNow/patrol 周期兜底）。ref 桥接 worker 的延迟创建。
   const retryWorkerRef: { current: Awaited<ReturnType<typeof createAndStartRetryWorker>> } = { current: null };
@@ -294,22 +294,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     if (!w) return; // worker 未就绪：启动 tickNow 会吃掉已落库任务
     void w.tickNow().catch(() => { /* 触发失败不炸生产者；patrol 周期兜底 */ });
   });
-  // F20261026emct 启动解耦：document sync + postSyncMigrations + 暗化迁移 + retry worker
+  // 启动解耦：document sync + postSyncMigrations + 暗化迁移 + retry worker
   // 全部延后到 HTTP listen 成功后异步执行（postListenInit，见 BuiltApp 字段，
   // main.ts 在 listen 回调里 fire）。此前 syncDocuments（全库逐文档 chunk + embed）
   // 与 scanDarkEntries 迁移（全表扫描 + 逐条 INSERT）堵在 buildApp 内、listen 之前
   // —— 10-23 雪崩启动期间 health 端点 30s 无响应触发外部重启，重启又重扫，死循环。
   // listen 先行后：health 最先可用；迁移分批限流（bootstrap/memory.ts）不再堵事件循环。
 
-  // F20260812mrcq Part 1：embedding 重试 worker
-  // F20261026emct：worker 启动与存量迁移延后到 listen 后（postListenInit）。
+  // embedding 重试 worker
+  // worker 启动与存量迁移延后到 listen 后（postListenInit）。
   // vec 版本校验/模型加载等重开销仍在 buildApp 内（listen 前完成，避免带着未就绪的
   // embedding 服务接流量）。
-  // #949：worker 本体不再自持定时器——由下方 PatrolWorker 统一驱动（tickNow 巡检）
-  // F20261026emct：retryWorker 由 postListenInit 创建（listen 后），PatrolWorker/dispose
+  // worker 本体不再自持定时器——由下方 PatrolWorker 统一驱动（tickNow 巡检）
+  // retryWorker 由 postListenInit 创建（listen 后），PatrolWorker/dispose
   // 经 ref 闭包延迟绑定——启动时序解耦后 worker 可能晚于 patrolWorker 构造。
   const appRootDir = options.rootDir ?? process.cwd();
-  /** F20261026emct：listen 成功后异步初始化（document sync + retry worker + 暗化迁移）。
+  /** listen 成功后异步初始化（document sync + retry worker + 暗化迁移）。
    *  失败不炸进程：sync/迁移失败只落 error 日志（与原 buildApp 内 await 失败即
    *  启动失败相比，listen 后失败不该拖垮已就绪的 HTTP 服务） */
   const postListenInit = async (): Promise<void> => {
@@ -325,13 +325,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       logger.error("Post-listen retry worker init failed", err instanceof Error ? err : new Error(String(err)));
     }
   };
-  // F20260825sgnw（#401）：RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
+  // RHI 定时采集 worker——每小时跑一轮 采集→链→信号→记忆通道
   // 对齐 startScheduler 开关模式，测试/CI 可关（否则 buildApp 每次起 setInterval + git 采集副作用）
   const rhiScanWorker = createRhiScanWorker({
     db, repos, embeddingService: liveEmbedding, logger,
     rootDir: options.rootDir ?? process.cwd(),
   });
-  // #927：獭间信号老化扫描——独立于 daily review 调度链（9/10-9/13 断档期唯一消费方停摆的教训），
+  // 獭间信号老化扫描——独立于 daily review 调度链（9/10-9/13 断档期唯一消费方停摆的教训），
   // pending objection/blocked 悬置 >24h 落 medium healing。
   const signalAgingWorker = new SignalAgingWorker(
     () => repos.signalEvent,
@@ -339,39 +339,39 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     logger,
   );
 
-  // F20260917trig §3：RHI 信号老化扫描——signals 表超龄未接单/归口停滞自动落聚合 healing。
+  // RHI 信号老化扫描——signals 表超龄未接单/归口停滞自动落聚合 healing。
   // 独立于调度链（与獭间 aging 同教训）；聚合限流（同 signal_type 一轮 1 条）防存量告警风暴。
-  // 编排防线：存量批量出清（§5，大獭合入后执行）先于本 worker 首次 tick 的存量命中。
+  // 编排防线：存量批量出清（大獭合入后执行）先于本 worker 首次 tick 的存量命中。
   const rhiSignalAgingWorker = new RhiSignalAgingWorker(
     () => repos.rhiSignal,
     () => repos.healingEvent,
     logger,
   );
 
-  // #949：四个「扫台账」同构循环合并为单一巡检 worker（8→5 常驻循环）——
-  // 运行时对账（#823）/ Signal Aging（#927）/ RHI Scan（#401）/ Embedding Retry（F20260812mrcq）。
-  // #1241（F20261006opid）：+ invoke 孤儿 reconcile（pid 归属判据，周期 1h 兜底；
+  // 四个「扫台账」同构循环合并为单一巡检 worker（8→5 常驻循环）——
+  // 运行时对账/ Signal Aging/ RHI Scan/ Embedding Retry。
+  // + invoke 孤儿 reconcile（pid 归属判据，周期 1h 兜底；
   //  判据语义：非本进程 pid 的 running = 旧进程遗留，清理；本 pid 卡死 running 不在其范围——
   //  旧 bootTs 守卫对「旧进程晚写入」事故形态永远跳过，pid 判据下 1h 兜底真正生效）。
   // 失败隔离：一家炸了不影响后续家；周期 1h（四家原节奏已对齐，无时钟语义变化）。
-  // issue #1252 遗留问题2：构造保持原位（duty 闭包延迟绑定），但 start() 必须移到
+  // 遗留问题2：构造保持原位（duty 闭包延迟绑定），但 start() 必须移到
   // initAgentAndScheduler（schedulerService 初始化）之后——PatrolWorker.start 立即同步跑首轮
   // tick，'scheduler-reconcile' duty 在 schedulerService TDZ 期内执行会抛
   // "Cannot access 'schedulerService' before initialization"（9/30 启动日志实证）。
-  // F20261026emct：retry worker 缺失告警限频擂脏（每 patrol 周期 1h 最多一条）
+  // retry worker 缺失告警限频擂脏（每 patrol 周期 1h 最多一条）
   let lastRetryWorkerNullWarnAt = 0;
   const patrolWorker = new PatrolWorker([
     { name: 'scheduler-reconcile', run: () => schedulerService.reconcileMissedWindowsNow() },
     { name: 'signal-aging', run: async () => { await signalAgingWorker.scanOnce(); } },
-    // F20260917trig §3：RHI 信号老化（聚合限流 + 孤儿 healing 清理）——并入巡检循环
+    // RHI 信号老化（聚合限流 + 孤儿 healing 清理）——并入巡检循环
     { name: 'rhi-signal-aging', run: async () => { await rhiSignalAgingWorker.scanOnce(); } },
     { name: 'rhi-scan', run: async () => { await rhiScanWorker.scanOnce(); } },
     createInvokeOrphanReconcileDuty(db, repos, logger),
-    // F20261026emct：经 ref 读——worker 由 postListenInit 创建，可能晚于 PatrolWorker 构造；
+    // 经 ref 读——worker 由 postListenInit 创建，可能晚于 PatrolWorker 构造；
     // late-bind duty 每轮 tick 动态查 ref（worker 未就绪时空转，就绪后自动接管），
     // 不再用展开时快照条件——那会在 worker 未创建时永久丢掉该 duty
     { name: 'embedding-retry', run: async () => {
-      // F20261026emct：动态查 ref——worker 由 postListenInit 创建（listen 后），
+      // 动态查 ref——worker 由 postListenInit 创建（listen 后），
       // 可能晚于 PatrolWorker 构造；未就绪时空转，就绪后自动接管。
       // 告警：ref 持续为 null = retry 能力静默缺失，只有一条
       // postListenInit 的 error 日志后无任何周期信号——每轮 duty 限频 warn 一次，
@@ -388,16 +388,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       await w.tickNow();
     } },
   ], logger);
-  // #1241（F20261006opid）：启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（pid 归属判据，
+  // 启动窗口期孤儿 invoke 兜底——延迟 10s 补跑一次 reconcile（pid 归属判据，
   //  旧进程晚写入的孤儿不再被时间戳守卫跳过）；fire-and-forget 不阻塞启动，失败仅日志。
   const delayedReconcileTimer = setupDelayedReconcile(options, db, repos, logger);
-  // issue #1252 遗留问题2：patrolWorker.start 原在此处（startRhiWorker 分支）——移至
+  // 遗留问题2：patrolWorker.start 原在此处（startRhiWorker 分支）——移至
   // initAgentAndScheduler 之后（见下）消除 schedulerService TDZ。
   if (modelPool) validateModelAliases(db, modelPool, logger);
   
   // ── 对话工作区与内置本机执行机 ──
   const workspaceGateway = new NodeWorkspaceGateway(dataDir);
-  // F20261116actlg（#1868 阶段 3）：本机动作台账——每机一库（执行机本地真相：副作用
+  // 本机动作台账——每机一库（执行机本地真相：副作用
   // 五态 + hash + 结果位置）。open() 内完成开机清扫（旧纪元 running 裁决）+ 终态修剪；
   // 失败降级为无台账运行（记录关闭，动作照常执行），不阻断启动。
   let actionLedger: SqliteActionLedger | null = null;
@@ -421,7 +421,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   );
 
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
-  // F20261118crtgr（阶段 5 PR-A）：工具面动作路由——六动作按对话当前执行机下发
+  // 工具面动作路由——六动作按对话当前执行机下发
   // （SDK env 构造面仍走 executionMachines 恒 local——边界见 router 头注）
   const toolActionRouter = new ConversationActionRouter(executionMachines, repos.conversation);
   const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask } = await createAgentGateway({
@@ -433,21 +433,21 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     dataDir,
   });
   const uc = initUseCases({ repos, entryRepo: repos.entry, invokeRepo: repos.invoke, agentGateway, embeddingService: queryEmbedding, memoryIndex, appConfig: config, logger, workspaceGateway, otterConfigProvider, modelPool });
-  // F20260813mren：sync_docs 工具注入——海獭写完文档可立即触发同步入库
+  // sync_docs 工具注入——海獭写完文档可立即触发同步入库
   // rootDir 透传——worktree 流程下文槛在 worktree，海獭可传 worktree 绝对路径
-  // F20260920uhuc：agentInvoker 延迟绑定容器——buildOtterToolClient 先于 agentInvoker 构造
+  // agentInvoker 延迟绑定容器——buildOtterToolClient 先于 agentInvoker 构造
   // （同 setOtterToolClient 时序先例），闭包经 ref 读最新值
   const agentInvokerRef: { current?: Pick<AgentInvoker, "restartWithUnifiedHandoff"> } = {};
   resolveOtterToolClient(buildOtterToolClient(uc, {
     syncDocs: async (rootDir?: string) => {
-      // F20261110dsqy（#1818）：显式传非主仓 rootDir（worktree）时归档自动禁用
+      // 显式传非主仓 rootDir（worktree）时归档自动禁用
       // （canonical 守卫，防 worktree 部分检出误归档主仓文档→归档-复活振荡重灌）
       const r = await syncDocuments(repos, memoryIndex, logger, rootDir ?? options.rootDir ?? process.cwd(), { canonicalRootDir: appRootDir });
       return { synced: r.synced, updated: r.updated, skipped: r.skipped, archived: r.archived, errors: r.errors.length };
     },
-    /** F20260912avlb：dispatch 工具指向派工台账正式表 */
+    /** dispatch 工具指向派工台账正式表 */
     dispatchRepo: repos.dispatchRecord,
-    /** F20260920uhuc：restart_otter 工具统一交接入口（延迟绑定） */
+    /** restart_otter 工具统一交接入口（延迟绑定） */
     agentInvoker: {
       restartWithUnifiedHandoff: (otterId, params) => {
         if (!agentInvokerRef.current) {
@@ -465,35 +465,35 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const agentMetrics = new AgentMetrics(metricsRegistry);
 
   // ── 调度引擎 + 平台集成 ──
-  const globalPartnerResolver = PartnerResolver.forIdentity(undefined, config.weixin?.partnerUserId); // F20260928fsqr：渲染 resolver 外置——扫码首号运行时写入。F20260929fsqr：feishu.partnerOpenId 随静态段退役移除，飞书搭档锚一律扫码首号
+  const globalPartnerResolver = PartnerResolver.forIdentity(undefined, config.weixin?.partnerUserId); // 渲染 resolver 外置——扫码首号运行时写入。feishu.partnerOpenId 随静态段退役移除，飞书搭档锚一律扫码首号
   const dispatchChainEngine = createDispatchChainEngine(repos, uc, config, logger, { agentMetrics, agentGateway, partnerResolver: globalPartnerResolver });
-  /** issue #281：广播总线无条件创建（平台无关），飞书出站作为 channel 注册——
+  /** 广播总线无条件创建（平台无关），飞书出站作为 channel 注册——
    *  旧实现 messageBroadcaster: feishu?.broadcaster 导致 web-only 部署流式链路断流 */
   const messageBroadcaster = new MessageBroadcaster(logger);
-  // F20261008fsrm（搭档拍板）：feishu 静态凭证残留全量移除——扫码为唯一接入方式。
+  // （搭档拍板）：feishu 静态凭证残留全量移除——扫码为唯一接入方式。
   // config.yaml 残留 feishu 段被静默忽略（config-service 已不读入），无迁移告警。
 
   const { agentInvoker, cronParser, schedulerService } = await initAgentAndScheduler({ repos, uc, agentGateway, messageBroadcaster, logger, workspaceGateway, metrics: schedulerMetrics, agentMetrics, dispatchChainEngine, db, appConfig: config, modelPool, otterConfigProvider });
-  // F20260920uhuc：统一交接入口回填（otter tool client 延迟绑定）
+  // 统一交接入口回填（otter tool client 延迟绑定）
   agentInvokerRef.current = agentInvoker;
 
-  // issue #1252：patrolWorker.start 移至 schedulerService 初始化之后（TDZ 修复，
+  // patrolWorker.start 移至 schedulerService 初始化之后（TDZ 修复，
   // 构造块原位——闭包延迟绑定不随位置变化）。
   if (options.startRhiWorker ?? true) {
     patrolWorker.start();
   }
 
-  // ── F20260902sgp2 S2：信号路由器重挂（v2 语义：pending = 派发台账）──
+  // ── 信号路由器重挂（v2 语义：pending = 派发台账）──
   // rbsg 回滚的两大根因已在 v2 消除：
   // ① 「未读 ≠ 待行动」语义混淆 → v2 判据 = 已投递 ∧ 无 dispatch_attempts 记录
   //    （行动义务由台账记账，游标回归上下文本职）；
-  // ② 存量批量点火 → backfill 墓碑已于 S1 一次性翻篇（#739 起带一次性守卫，
+  // ② 存量批量点火 → backfill 墓碑已于 一次性翻篇（起带一次性守卫，
   //    不再每次重启重跑），切换瞬间 pending=0，此后只增真实欠账。
   // 可选注入降级面保持：出问题摘除本构造块 + 下方注入点即回直连链（回滚通道）。
   // 恢复的入口范围：web MC / 飞书 ADS / 微信 / RIS 启动补扫（scheduler/retry 仍直连，
-  // 其派发经链引擎记账，无双触发账面歧义——F20260902sgp2 §4.2）。
-  // #826 多模态收口：附件注入服务——路由器 invokeTarget 从 attachments 重建 InjectionPayload
-  // F20260908rlcp: attachmentInjection not needed in app.ts (signal-router no longer uses it,
+  // 其派发经链引擎记账，无双触发账面歧义）。
+  // 多模态收口：附件注入服务——路由器 invokeTarget 从 attachments 重建 InjectionPayload
+  // attachmentInjection not needed in app.ts (signal-router no longer uses it,
   // message-controller gets its own from controllers.ts bootstrap)
   // const attachmentInjection = new AttachmentInjectionService({
   //   attachmentRepo: repos.attachment,
@@ -509,8 +509,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     logger,
     healingRepo: repos.healingEvent,
     settingsRepo: repos.settings,
-    // F20260908rlcp: dispatchAttemptRepo/attachmentInjection/agentGateway 退役，改用 factory。
-    // F20260913ctlv 整合轮修复：显式 adapter 替代 as unknown as 双重绕过——三个方法
+    // dispatchAttemptRepo/attachmentInjection/agentGateway 退役，改用 factory。
+    // 整合轮修复：显式 adapter 替代 as unknown as 双重绕过——三个方法
     // 编译期可见，再丢（如合并误删）tsc 直接报错（steerSession 曾被合并丢过，靠运行时才发现）
     factory: {
       isRunning: (otterId: string) => agentGateway.isRunning(otterId),
@@ -518,19 +518,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       steerSession: (otterId: string, text: string) => agentGateway.steerSession(otterId, text),
     } satisfies SignalRouterSessionFactory,
   });
-  // #775 S4a：scheduler 换轨接线——路由器晚于 scheduler 诞生（initAgentAndScheduler
+  // scheduler 换轨接线——路由器晚于 scheduler 诞生（initAgentAndScheduler
   // 内部依赖链更长），构造后注入；scheduler 触发从此过闸门+台账，与五入口同一调度纪律。
   schedulerService.attachSignalRouter(signalRouter);
   const { processInboundRecruit, inboundApiKey, getBridgeStatus, healingInit, recruitingInit, weixinPollers, registry } =
     await initPlatforms({ appConfig: config, repos, uc, agentInvoker, dispatchChainEngine, logger, messageBroadcaster, signalRouter });
 
-  // ── 微信 web 登录（issue #566）：零配置可用 ──
+  // ── 微信 web 登录：零配置可用 ──
   // config 无 weixin 段时也能发起扫码（登录会话用默认网关 + 默认 stateDir）；
   // 登录成功后：ensureWeixinConfig 补写 config.yaml + 热启动轮询，重启后常驻生效。
   // 注：账号删除后的轮询停止由 controller 层回调处理（此处闭包注入 stop 逻辑）
   const weixinAccountStore = new WeixinAccountStore(config.weixin ?? {});
   const extraWeixinPollers: WeixinPollingChannel[] = [];
-  // #591：停掉并注销同 accountId 的旧轮询（替换语义）。热启动重登录虽生成新
+  // 停掉并注销同 accountId 的旧轮询（替换语义）。热启动重登录虽生成新
   // accountId，但同账号重登/极窗内并发登录可产生同 id 场景；registry 条目
   // 同步清（对齐 stopStalePollersForUser 的做法：stop() 内部会写回状态，
   // 必须先 stop 再 remove，否则被覆盖）
@@ -545,7 +545,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     }
     return false;
   };
-  // F20260831wxsp 修复 4：重新扫码后回收同扫码人的旧轮询。账号 id 每次扫码新生成
+  // 修复 4：重新扫码后回收同扫码人的旧轮询。账号 id 每次扫码新生成
   //（weixin-<时间戳>），旧 token 的轮询若在 -14 的 1h 暂停 sleep 里，不回收就成了
   // 每小时醒一次吃 -14 再睡回去的僵尸循环——直到下次重启才消失。按 ilinkUserId
   // （扫码人）识别旧轮询；两个池都清（冷启动池 + 热启动池），与账号删除的停法同构。
@@ -555,10 +555,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       for (let i = pool.length - 1; i >= 0; i--) {
         if (pool[i].ilinkUserId === ilinkUserId) {
           pool[i].stop();
-          // F20260901chun：鬼影回收时同步清 registry 条目（防残留状态误导 UI）
+          // 鬼影回收时同步清 registry 条目（防残留状态误导 UI）
           // 必须在 stop() 之后——stop() 内部会写回状态，先清会被覆盖
           registry?.remove(`weixin-${pool[i].accountId}`);
-          // #591：出站通道同步注销——旧 poller 停了但 channel 还挂在 broadcaster
+          // 出站通道同步注销——旧 poller 停了但 channel 还挂在 broadcaster
           // 上，一条消息仍会投给旧 token（大概率 -14 报错吞在通道 catch 里）
           messageBroadcaster.unregisterOutboundChannel(`weixin-${pool[i].accountId}`);
           pool.splice(i, 1);
@@ -574,13 +574,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     logger,
     onSuccess: (accountId, ilinkUserId) => {
       // partnerUserId = 命令门禁锚定的扫码人（命令重启后仍生效）；config 无 weixin 段时兜底注入
-      // Bugfix（F20260831wxsp）：补写目标必须与读入路径一致——此前缺省 "./config.yaml" 而真实
+      // Bugfix：补写目标必须与读入路径一致——此前缺省 "./config.yaml" 而真实
       // 配置在 config/config.yaml，写回 ENOENT 静默失败，重启后 weixin 段丢失、轮询拉不起来。
       // options.configPath 是测试注入的临时路径；生产缺省走 ensureWeixinConfig 内的默认（对齐 loadConfig）。
       ensureWeixinConfig({ configPath: options.configPath, stateDir: config.weixin?.stateDir, logger });
       const account = weixinAccountStore.getAccount(accountId);
       if (!account) return;
-      // #591 替换语义：同 accountId 的旧 poller 先停再重启（防同账号并发轮询
+      // 替换语义：同 accountId 的旧 poller 先停再重启（防同账号并发轮询
       // 消费同游标致重复投递）；stopStalePollersForUser 负责同扫码人旧账号的
       // 僵尸循环回收（-14 暂停 sleep 监听 abort，stop 即醒即退）。两道去重
       // 独立生效：前者管「同 id」，后者管「同人不同 id」
@@ -602,7 +602,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   });
 
   // ── HTTP 层 ──
-  // F20260928fsqr：飞书扫码接入（装配在 bootstrap/feishu-scan.ts）
+  // 飞书扫码接入（装配在 bootstrap/feishu-scan.ts）
   const feishuScan = setupFeishuScanChannels({ config, uc, repos, agentInvoker, dispatchChainEngine, messageBroadcaster, logger, registry, signalRouter, globalPartnerResolver });
 
   // PR-2：创建 profile 聚合 use case（warmup 后 ResourceLoader 可用）
@@ -610,10 +610,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   const statsQuery = new SqliteStatsQuery(db);
   const queryOtterProfile = new QueryOtterProfile(repos.otter, otterConfigProvider, modelPool, logger, { resourceLoader: resourceLoader as any, statsQuery });
 
-  /** F20260921wxba + F20260922wxeg：删号清理链——释放 bot 锚绑定（重扫建新线可绑）
+  /** + 删号清理链——释放 bot 锚绑定（重扫建新线可绑）
    *  + 删号即删线（搭档指令 9/22）。归属判定双源：metadata.assistantConversationId
    *  （provision 写入，精确归属）优先，存量 connection 无此键兑底当前活跃绑定
-   *  （delta N1：否则存量线删号恒漏删）。占用护栏（N2）：目标被别的连接绑定跳过
+   * （delta 否则存量线删号恒漏删）。占用护栏：目标被别的连接绑定跳过
    *  归档。archived 对话不可再被 /in（enterConversation 状态校验），无后续受害者。 */
   const releaseWeixinConnectionAndArchiveLine = async (accountId: string): Promise<void> => {
     try {
@@ -639,12 +639,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     }
   };
 
-  // #576 能力库数据源（F20260929scfx 扩展 body=SKILL.md 正文，读失败降级 ''）；warmup 前 null → 空列表
+  // 能力库数据源（扩展 body=SKILL.md 正文，读失败降级 ''）；warmup 前 null → 空列表
   const skillDirectory = resourceLoader
     ? { list: async () => (await resourceLoader.getSkills()).skills.map((s: { name: string; description: string }) => ({ name: s.name, description: s.description, body: readSkillBody(s.name) })) }
     : undefined;
 
-  // F20260929scfx：卷首心法总纲（SYSTEM.md 按 ## 切分）+ 卷末兵器谱（createTools 真实全集）；读失败降级空
+  // 卷首心法总纲（SYSTEM.md 按 ## 切分）+ 卷末兵器谱（createTools 真实全集）；读失败降级空
   const promptDirectory = {
     getSystemSections: async () => readSystemSections(),
     listTools: async () => listAllToolSummaries(),
@@ -661,31 +661,31 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       repos.memoryQueue,
     ),
     processInboundRecruit, inboundApiKey, getBridgeStatus,
-    // F20260825rweb（#402）：RHI 面板 API 依赖
+    // RHI 面板 API 依赖
     rhiScanWorker,
-    // #447：RHI 面板 API 依赖改从 Repositories DI 消费
+    // RHI 面板 API 依赖改从 Repositories DI 消费
     signalRepo: repos.rhiSignal,
     healthSnapshotRepo: repos.healthSnapshot,
-    // F20260826mwrd C4：消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分）
+    // 消息徽章数据源（signal_events 表，与 RHI 的 health 语义池区分）
     signalEventRepo: repos.signalEvent,
-    // F20260902sgp2 S2：信号路由器重挂（web 主入口换轨；未注入时 MC 降级直连链）
+    // 信号路由器重挂（web 主入口换轨；未注入时 MC 降级直连链）
     signalRouter,
-    // F20261015mjsg：三麻将局域装配（db + PiSessionFactory 作为 SdkInvokePort）
+    // 三麻将局域装配（db + PiSessionFactory 作为 SdkInvokePort）
     mahjongDeps: { db, sdkPort: agentGateway },
-    // F20261022mjls：麻将默认陪打獭/獭可用性校验依赖（settings + otter repo）
+    // 麻将默认陪打獭/獭可用性校验依赖（settings + otter repo）
     mahjongOtterDeps: { settingsRepo: repos.settings, otterRepo: repos.otter },
-    // 多模态 Phase 1（D1 修复）：显式传递附件 repo——漏传会导致附件路由生产 404
+    // 多模态 （修复）：显式传递附件 repo——漏传会导致附件路由生产 404
     attachmentRepo: repos.attachment,
-    // 微信连接管理（issue #566）
+    // 微信连接管理
     weixinLoginSessions,
     feishuScan: { ...feishuScan, onAppDeleted: async (appId) => { if (!disposed) feishuScan.onAppDeleted(appId); } },
     weixinAccountStore,
-    // F20260920imax：扫码后按名开助理线（必填名；闭环封装 ensureConnection + 开户）
-    // F20260928wxid：userName 不走本闭包——controller 建线后直接写 metadata（与 PATCH user-name 对称）
+    // 扫码后按名开助理线（必填名；闭环封装 ensureConnection + 开户）
+    // userName 不走本闭包——controller 建线后直接写 metadata（与 PATCH user-name 对称）
     provisionWeixinAssistantLine: async (accountId, name) => {
       // 微信连接 externalId = 账号 id（与消息 ingress 的 ensureConnection 同键，幂等汇合）
       const connection = await uc.manageConnection.ensureConnection(accountId, accountId, "weixin");
-      // F20260922wxeg：建线即刻记录出站目标（扫码人 ilinkUserId）——不依赖
+      // 建线即刻记录出站目标（扫码人 ilinkUserId）——不依赖
       // 「用户先发一条消息」才恢复出站（无消息期也从 Web 侧发起对话的场景）
       const account = weixinAccountStore.getAccount(accountId);
       if (account?.ilinkUserId) {
@@ -699,7 +699,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       // 已有 active 绑定 = 已建过线（幂等：不重复建，返回当前）
       const existing = await uc.manageConnection.getCurrentConversation(connection.id);
       if (existing) {
-        // F20260922wxeg：幂等分支补写归属 metadata（存量 connection 断键续接）
+        // 幂等分支补写归属 metadata（存量 connection 断键续接）
         if (typeof connection.metadata?.assistantConversationId !== "string") {
           await repos.connection.mergeMetadata(connection.id, { assistantConversationId: existing.id }).catch((err) => {
             logger.warn("Weixin provision: assistantConversationId backfill failed（删号归档将走绑定兑底）", { accountId, error: err instanceof Error ? err.message : String(err) });
@@ -714,7 +714,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         ...(config.im?.assistant?.modelAlias && { modelAlias: config.im.assistant.modelAlias }),
       });
       if (!conv) throw new Error("助理线创建失败");
-      // F20260922wxeg：记录「这条线建出来的对话」归属——删号时按此归档
+      // 记录「这条线建出来的对话」归属——删号时按此归档
       // 失败后果 = 删号时该对话残留（可手动归档），记 warn 供诊断
       await repos.connection.mergeMetadata(connection.id, { assistantConversationId: conv.id }).catch((err) => {
         logger.warn("Weixin provision: assistantConversationId metadata write failed（删号时对话将残留）", { accountId, conversationId: conv.id, error: err instanceof Error ? err.message : String(err) });
@@ -728,7 +728,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       const stopped = stopWeixinPoller(accountId, extraWeixinPollers);
       if (!stopped && weixinPollers) stopWeixinPoller(accountId, weixinPollers);
       await releaseWeixinConnectionAndArchiveLine(accountId);
-      // #592：清理关联的活跃登录会话——开着登录页又去删账号的竞态场景，不清理
+      // 清理关联的活跃登录会话——开着登录页又去删账号的竞态场景，不清理
       // 的话扫码确认后账号重新落盘（「删了又复活」）。非终态会话置 cancelled；
       // 若扫码已在后台完成（accountId 已回填）连带清同扫码人的其它会话。已终态
       // （success/error/expired/cancelled）的不动——终态语义不可变更。
@@ -742,16 +742,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       }
       logger.info("Weixin account deleted; poller stopped", { accountId });
     },
-    // 通道状态注册表（F20260901chun：统一 IM 页 + 真实健康状态）
+    // 通道状态注册表（统一 IM 页 + 真实健康状态）
     registry,
-    // #576（F20260901emps）：能力库真数据源
+    // 能力库真数据源
     skillDirectory,
-    // F20260929scfx：能力库全书——系统提示词分节 + 工具清单
+    // 能力库全书——系统提示词分节 + 工具清单
     promptDirectory,
   }, logger);
 
   const mahjongRoot = options.staticRoot === false ? false : path.resolve(import.meta.dirname, "../..", "web-mahjong");
-  // ── 统一接入（issue #1868 阶段 2）：登录口令 → HMAC 会话签名器 → auth 三端点 + 中间件会话优先 ──
+  // ── 统一接入：登录口令 → HMAC 会话签名器 → auth 三端点 + 中间件会话优先 ──
   const ownerPassword = resolveOwnerPassword({ dataDir, logger, env: process.env, configuredPassword: config.auth?.ownerPassword });
   const sessionSigner = createSessionSigner(ownerPassword);
   const authController = new AuthController({
@@ -759,15 +759,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     signSession: (identity) => sessionSigner.sign(identity, Date.now()),
   });
 
-  // ── F20261117cnnct（阶段 4 C1）+ F20261118remex（C2 执行通道）：connector 装配 ──
+  // ── + （执行通道）：connector 装配 ──
   // repo（总闸唯一事实源）→ WSS 网关（upgrade 鉴权/协议 v1/先库后内存）→ 配对端点；
-  // 启动清扫：上一运行周期残留的 online 行落 offline/hub-restart（方案 §3 D2，await——
+  // 启动清扫：上一运行周期残留的 online 行落 offline/hub-restart（await——
   // 清扫完成前不接受新连接语义上更干净，且代价仅一行 UPDATE）。
-  // C2：上线投影换真 RemoteExecutionMachine（总闸三道→登记→下发→等待/超时落 unknown）。
+  // 上线投影换真 RemoteExecutionMachine（总闸三道→登记→下发→等待/超时落 unknown）。
   const connectorRepo = new SqliteConnectorRegistryRepository(db);
-  const remoteActionRegistry = new SqliteRemoteActionRegistry(db); // R1 登记落点 + R2 摘要数据源
+  const remoteActionRegistry = new SqliteRemoteActionRegistry(db); // 登记落点 + 摘要数据源
   const hubBootEpoch = Date.now(); // actionId 前缀纪元（跨重启防碰撞）
-  // （6c）Origin 白名单：OTTER_WS_ALLOWED_ORIGINS 逗号分隔 exact match；未配置=空
+  // Origin 白名单：OTTER_WS_ALLOWED_ORIGINS 逗号分隔 exact match；未配置=空
   // （fail-closed 拒所有带 Origin 请求——connector node 客户端不发 Origin 不受影响）。
   // 公网部署后若引入浏览器 WS 客户端，将页面 origin 列入即可。
   const wsAllowedOrigins = (process.env.OTTER_WS_ALLOWED_ORIGINS ?? "")
@@ -785,7 +785,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
         remoteActions: remoteActionRegistry,
         connectorRegistry: connectorRepo,
         hubBootEpoch,
-        warn: (message, meta) => logger.warn(message, { deviceId, ...meta }), // m2：收尾失败等排障线索
+        warn: (message, meta) => logger.warn(message, { deviceId, ...meta }), // 收尾失败等排障线索
       });
       machine.wireChannel();
       remoteMachines.set(deviceId, machine);
@@ -795,7 +795,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   await connectorGateway.sweepStaleSessionsOnBoot().catch((err) => {
     logger.warn("connector stale session sweep failed (non-fatal)", { error: err instanceof Error ? err.message : String(err) });
   });
-  // m1（检视）：硬崩溃重启收口——残留 requested 行真相不明落 unknown（与 online 行清扫同位）
+  // （检视）：硬崩溃重启收口——残留 requested 行真相不明落 unknown（与 online 行清扫同位）
   await remoteActionRegistry.sweepStaleRequested(new Date().toISOString()).then((swept) => {
     if (swept > 0) logger.info("swept stale remote action requests on boot", { swept });
   }).catch((err) => {
@@ -815,11 +815,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       executionMachines: {
         list: () => executionMachines.list(),
         currentId: () => executionMachines.currentMachineId(),
-        // F20261118crtgr（阶段 5 PR-A）+ M2/m3b（检视）：设备全量状态收口 repo（含离线设备）
+        // + /（检视）：设备全量状态收口 repo（含离线设备）
         deviceStatus: async () => connectorRepo.listDeviceOnlineStatus(),
-        // F20261118exstt minor1（检视遗留处置）：GET 404 口径对齐 PUT（不存在对话显式 404，不再混作「默认 local」）
+        // GET 404 口径对齐 PUT（不存在对话显式 404，不再混作「默认 local」）
         conversationExists: async (conversationId) => (await repos.conversation.getById(conversationId)) !== null,
-        // F20261118exstt（阶段 5 PR-B）：对话当前机 + 远程动作状态
+        // 对话当前机 + 远程动作状态
         getConversationMachine: (conversationId) => repos.conversation.getExecutionMachineId(conversationId),
         listConversationRemoteActions: async (conversationId, limit) => {
           // 最近优先（DESC——ASC LIMIT 会截掉最新动作）；列裁剪到展示面
@@ -830,7 +830,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
           }));
         },
         setConversationMachine: async (conversationId, machineId) => {
-          // m1b（检视）："local" 归一化为 null（列语义唯一——默认只有 NULL 一种表示）
+          // （检视）："local" 归一化为 null（列语义唯一——默认只有 NULL 一种表示）
           const normalized = machineId === executionMachines.currentMachineId() ? null : machineId;
           if (normalized !== null && !executionMachines.list().some(m => m.id === normalized)) {
             return { ok: false as const, status: 400 as const, error: `machine not registered: ${String(normalized)}（设备未上线或未配对——目标必须当前在册；离线设备重连后可切）` };
@@ -845,8 +845,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   );
 
   // 飞书长连接启动（原 startServer 内的副作用，装配语义上属于"启动平台集成"）
-  // #460：捕获 stopFeishu 句柄接入 dispose 链（防 WSClient 重连阻止退出）
-  // F20260929fsqr：静态线退役——启动句柄仅由扫码线持有（feishu-scan.ts），dispose 链不再有 feishuStop
+  // 捕获 stopFeishu 句柄接入 dispose 链（防 WSClient 重连阻止退出）
+  // 静态线退役——启动句柄仅由扫码线持有（feishu-scan.ts），dispose 链不再有 feishuStop
 
   /** 等待所有 ensure 完成后再启动 scheduler，确保新创建的 scheduled task 被遍历到。
    *  与旧 main() 的差异：buildApp 会 await 这两个 ensure 再返回（确定性更高，无 LLM 调用、耗时极小）。 */
@@ -857,8 +857,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     });
   }
 
-  // F20260916b1ea：重启自动恢复服务重建（8/28 同名机制被 #886 误删后按 invoke 模型回归）。
-  // F20260917rscr：补扫已删除（9/17 重启风暴实证）——只恢复队列里的中断 invoke。
+  // 重启自动恢复服务重建（8/28 同名机制被 误删后按 invoke 模型回归）。
+  // 补扫已删除（9/17 重启风暴实证）——只恢复队列里的中断 invoke。
   // 装配在 agentInvoker 之后（invokeFn 闭包捕获）；fire-and-forget 不阻塞服务就绪。
   if (options.startResume ?? true) {
     const resumeService = new ResumeInterruptedService({
@@ -873,9 +873,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
       },
       healingRepo: repos.healingEvent,
       logger,
-      // F20261116actlg PR-B：恢复摘要数据源（本机动作台账只读面；台账缺席时恢复文案退回旧版）
+      // 恢复摘要数据源（本机动作台账只读面；台账缺席时恢复文案退回旧版）
       actionLedger: actionLedger ?? undefined,
-      // F20261118remex（C2/R2）：远程动作五态并入恢复摘要（remote_action_requests 只读面）
+      // 远程动作五态并入恢复摘要（remote_action_requests 只读面）
       remoteActions: remoteActionRegistry,
     });
     resumeService.resume().catch((err) => {
@@ -889,33 +889,33 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     usecases: uc, repos, agentGateway, agentInvoker, schedulerService,
     queryEmbedding, liveEmbedding, backfillEmbedding,
     embeddingService: liveEmbedding, modelPool, retryWorkerRef, postListenInit,
-    /** F20261117cnnct（阶段 4 C1）：connector WSS 网关（main 传给 listen 挂 upgrade；
+    /** connector WSS 网关（main 传给 listen 挂 upgrade；
      *  dispose 链关通道——在途连接按 hub-restart 收尾） */
     connectorGateway,
     get retryWorker() { return retryWorkerRef.current; },
     dispose: async () => {
       if (disposed) return;
       disposed = true;
-      // F20260930roiv：停延迟 reconcile 定时器（防进程退出后回调炸）
+      // 停延迟 reconcile 定时器（防进程退出后回调炸）
       if (delayedReconcileTimer) clearTimeout(delayedReconcileTimer);
-      // F20261116actlg：关动作台账（WAL checkpoint 落盘）；F20261117cnnct：关 connector WSS 网关（在途连接 hub-restart 收尾 + 停扫描定时器）
+      // 关动作台账（WAL checkpoint 落盘）；关 connector WSS 网关（在途连接 hub-restart 收尾 + 停扫描定时器）
       try { actionLedger?.close(); connectorGateway.dispose(); } catch { /* best-effort */ }
-      // #460：停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
-      feishuScan.disposeAll(); // F20260929fsqr：扫码线持有全部飞书 WS 句柄，dispose 时统一停（原 feishuStop 随静态线退役）
-      // F20260829wxch（#213）：停微信长轮询通道——否则 SIGINT/SIGTERM 时
+      // 停飞书长连接 WSClient（重连机制会阻止退出，根因之四）
+      feishuScan.disposeAll(); // 扫码线持有全部飞书 WS 句柄，dispose 时统一停（原 feishuStop 随静态线退役）
+      // 停微信长轮询通道——否则 SIGINT/SIGTERM 时
       // fetch 挂到超时、notifyStop 不调用、服务端不知客户端已断
       weixinPollers?.forEach((p) => p.stop());
-      // issue #566：web 登录热启动的轮询同样要停（dispose 单独数组）
+      // web 登录热启动的轮询同样要停（dispose 单独数组）
       extraWeixinPollers.forEach((p) => p.stop());
-      // F20260928fsqr：扫码飞书运行时统一停（#460 同款——WSClient 重连阻退出 + 出站成对注销）
+      // 扫码飞书运行时统一停（同款——WSClient 重连阻退出 + 出站成对注销）
       feishuScan.disposeAll();
-      // F20260901chun：防御性清空通道状态注册表（防未来加事件监听/定时器泄漏）
+      // 防御性清空通道状态注册表（防未来加事件监听/定时器泄漏）
       registry?.clear();
       schedulerService.stop();
-      // F20260812mrcq Part 1：先停 retry worker 再关 DB（F20261026emct：经 ref——listen 前后都可能）
+      // 先停 retry worker 再关 DB（经 ref——listen 前后都可能）
       retryWorkerRef.current?.stopSync();
-      // #949：巡检 worker 统一停（原 RHI/Signal Aging/运行时对账/Embedding Retry 的定时器）。
-      // issue #1252：start 已移至 initAgentAndScheduler 之后；stop 幂等（timer/inflight 均空安全），
+      // 巡检 worker 统一停（原 RHI/Signal Aging/运行时对账/Embedding Retry 的定时器）。
+      // start 已移至 initAgentAndScheduler 之后；stop 幂等（timer/inflight 均空安全），
       // 未 start 时调 stop 仅多一条 info 日志，无需防御标志。
       await patrolWorker.stop();
       // await metric flush 到文件，确保进程退出前数据落盘

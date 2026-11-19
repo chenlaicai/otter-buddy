@@ -1,5 +1,5 @@
 /**
- * Agent 工具领域接口（PR-A / D2 拍板）。
+ * Agent 工具领域接口（已拍板）。
  *
  * 工具是"给 LLM 的手脚"，其契约（AgentTool/ToolContext/ToolResponse）是应用层概念——
  * interface-adapters（工具实现与文案）与 frameworks（pi-session-factory 装载）双方
@@ -20,7 +20,7 @@ import type { ModelPoolLike } from "./model-pool-like";
 import type { OtterConfigProvider } from "./otter-config-provider";
 
 /**
- * 工具层的模型池窄接口（PR-A）：工具只做 modelAlias 校验与列举，
+ * 工具层的模型池窄接口：工具只做 modelAlias 校验与列举，
  * 不需要默认模型切换/全量信息。具体 ModelPool 结构化兼容，无需 adapter。
  * 取代 tool-factory 内的重复 ModelPoolLike 定义（双定义消除）。
  */
@@ -105,7 +105,7 @@ export interface AgentTool {
   parameters: Record<string, unknown>;
   /**
    * 执行工具。
-   * M1（R20260810piab）：signal 透传 SDK 的 AbortSignal——用户中断时工具可检查 signal.aborted 提前返回。
+   * signal 透传 SDK 的 AbortSignal——用户中断时工具可检查 signal.aborted 提前返回。
    * 大多数工具不需要中断（执行快），signal 参数可选；长耗时工具（如 workspace_* 操作大文件）应定期检查。
    */
   execute: (toolCallId: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResponse>;
@@ -116,7 +116,7 @@ export interface AgentTool {
  * 工具上下文：invoke 时由系统注入，闭包捕获。
  * otterId、conversationId 由系统注入，LLM 不传。
  *
- * F20260911pspl（session 池化）：session 常驻后工具闭包跨 invoke 复用，
+ * （session 池化）：session 常驻后工具闭包跨 invoke 复用，
  * 「每 invoke 必变」的字段从值捕获改为 getter 引用（invoke 入口统一重置寄存器）。
  * conversationId 保持值捕获——池 key = 对话内獭实例（每个对话的獭是独立实体，
  * manage-conversation.ts「为每个对话创建独立的大獭」），一个常驻 session 终身
@@ -127,17 +127,17 @@ export interface ToolContext {
   otterId: string;
   conversationId: string;
   /**
-   * F20261118bltls P1c：本对话搭档（用户）id——belief preference 来源身份校验用。
+   * 本对话搭档（用户）id——belief preference 来源身份校验用。
    * Web 端缺省 "user"（PartnerResolver 同口径：Web senderId 恒为 user）；
    * IM 平台由装配层注入实际 owner id（open_id/ilink_user_id）。
    */
   partnerUserId?: string;
-  /** F20260911pspl：getter 化（池化后跨 invoke 复用，invoke 入口重置寄存器）。
+  /** getter 化（池化后跨 invoke 复用，invoke 入口重置寄存器）。
    *  读取时机 = 工具执行时（invoke 运行期内），寄存器必有值。 */
   readonly currentMessageId: string;
   /** 模型池（多模型路由，可选，用于校验 modelAlias） */
   modelPool?: ToolModelPool;
-  /** F20260824aibd: Otter 配置提供者（用于查询其他獭的 modelAlias） */
+  /** Otter 配置提供者（用于查询其他獭的 modelAlias） */
   otterConfigProvider?: OtterConfigProvider;
   /**
    * 当前 assistant 消息的文本（speak 之外的输出）。
@@ -145,34 +145,34 @@ export interface ToolContext {
    */
   getTurnAssistantText?: () => string;
   /**
-   * F20260815rstrt: 自重启时由 restart_otter 工具设置。
+   * 自重启时由 restart_otter 工具设置。
    * PiSessionFactory 在 session.prompt() 返回后检查并执行重启。
-   * F20260908efmd: 扩展 modelAlias 字段——配额耗尽时应急切模型，透传到 agent-invoker。
+   * 扩展 modelAlias 字段——配额耗尽时应急切模型，透传到 agent-invoker。
    * Why: session.prompt() 是原子的，中途无法替换 session；
    * 延迟到 prompt 完成后执行，消息生命周期不受影响。
    */
-  /** F20260920uhuc：synthesizePast 透传（restart_otter 工具参数→自重启统一交接） */
+  /** synthesizePast 透传（restart_otter 工具参数→自重启统一交接） */
   pendingRestart?: { summary?: string; modelAlias?: string; synthesizePast?: boolean };
   /**
-   * F20260813actk C9：本轮待派工票据（otterId → otterName）。
+   * 本轮待派工票据（otterId → otterName）。
    * create_otter 创建后注册；speak 派工后清除已覆盖的；未清空时 speak 给一次软提醒（非阻断）。
-   * agent invoke 级生命周期（每次 invoke 新建）。可选——未注入时 C9 no-op。
+   * agent invoke 级生命周期（每次 invoke 新建）。可选——未注入时 no-op。
    */
   pendingDispatches?: Map<string, string>;
-  /** F20260813actk C9：本轮是否已展示过派工提醒。避免软守卫死循环——首次提醒后二次 speak 放行。 */
+  /** 本轮是否已展示过派工提醒。避免软守卫死循环——首次提醒后二次 speak 放行。 */
   dispatchWarningShown?: boolean;
-  /** F20260821i336：本轮是否已展示过编排守卫提醒。二次放行——首次提醒后再次调用 write/edit/bash 放行。 */
+  /** 本轮是否已展示过编排守卫提醒。二次放行——首次提醒后再次调用 write/edit/bash 放行。 */
   orchestrationWarningShown?: boolean;
-  /** F20260826mwrd C1：signal_events 仓库（halt_otter/query_signals 注册条件；invoke 级注入） */
+  /** signal_events 仓库（halt_otter/query_signals 注册条件；invoke 级注入） */
   signalRepo?: SignalEventRepository;
-  /** F20261006mtlp P1：matters 仓库（待办——list_matters/transition_matter 注册条件；invoke 级注入） */
+  /** matters 仓库（待办——list_matters/transition_matter 注册条件；invoke 级注入） */
   matterRepo?: MatterRepository;
-  /** F20260917trig：RHI 健康信号仓库（signals 表——triage_signal/list_rhi_signals 注册条件） */
+  /** RHI 健康信号仓库（signals 表——triage_signal/list_rhi_signals 注册条件） */
   rhiSignalRepo?: SignalRepository;
-  /** F20261027hwl1：工作账本 binder（track_work 工具注册条件；invoke 级注入） */
+  /** 工作账本 binder（track_work 工具注册条件；invoke 级注入） */
   workLedgerBinder?: WorkLedgerBinder;
-  /** F20260909smsp→F20260913ctlv：当前打开的 speak entry ID（speak/yield 检测本轮已发言用）。
-   *  F20260911pspl 池化合流：getter 化穿透寄存器（invoke 入口重置） */
+  /** 当前打开的 speak entry ID（speak/yield 检测本轮已发言用）。
+   * 池化合流：getter 化穿透寄存器（invoke 入口重置） */
   lastSpeakMessageId?: string;
 
   /** PR 呈递三件套守卫（回合寄存器）：本回合 speak 中出现过的 GitHub PR URL，
@@ -186,15 +186,15 @@ export interface ToolContext {
   turnYieldPrGapSnapshot?: string | null;
 
   /** PR 卡片闸事故 PR 呈递拍板机械闸：本回合 speak body 累计（yield 主闸的判定面——防拆条规避：
-   *  先说「#1960 检视完了」再说「可以合入了」单条不共现，累计才能拼出呈递形态）。
+   * 先说「检视完了」再说「可以合入了」单条不共现，累计才能拼出呈递形态）。
    *  invoke 级生命周期（与 lastSpeakMessageId 同步重置；重启归零后 yield 先被「尚未落账 speak」拦，
    *  补 speak 即重新累计，两闸自洽）。 */
   speakBodiesThisTurn?: string[];
-  /** F20260913ctlv：当前 invoke ID（invoke 级上下文）。F20260911pspl 合流：getter 化穿透寄存器 */
+  /** 当前 invoke ID（invoke 级上下文）。合流：getter 化穿透寄存器 */
   currentInvokeId?: string;
-  /** F20260913ctlv：SSE 发射通道（工具层发 entry.yield 等事件用）。寄存器穿透 */
+  /** SSE 发射通道（工具层发 entry.yield 等事件用）。寄存器穿透 */
   emitEvent?: (event: { event: string; data: Record<string, unknown> }) => void;
-  /** #927：目标獭活跃性查询（halt_otter 打标前检查——不在执行中则拒绝打标，从入口杜绝孤儿指令）。
+  /** 目标獭活跃性查询（halt_otter 打标前检查——不在执行中则拒绝打标，从入口杜绝孤儿指令）。
    *  PiSessionFactory.isRunning 同源（activeSessions 查询），invoke 生命周期语义一致。 */
   isOtterRunning?: (otterId: string) => boolean;
 }

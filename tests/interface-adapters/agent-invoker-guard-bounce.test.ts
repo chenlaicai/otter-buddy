@@ -75,7 +75,7 @@ function seedBounceEvent(overrides: Partial<HealingEvent> = {}): HealingEvent {
   };
 }
 
-/** PR #1360 delta 处置：疑似误拦降级通道数据源改为「拦截结构化事件」（pi-session-factory
+/** delta 处置：疑似误拦降级通道数据源改为「拦截结构化事件」（pi-session-factory
  * buildGuardInterceptHook 落账形态——context 含 ruleId/ruleLayer/commandHead，每条对应一轮拦截）。
  * seed 形态对齐生产，防「测试 seed 与生产落账形态脱节」的虚绿（本轮实证的 delta 缺陷正是这种脱节）。 */
 function seedInterceptEvent(overrides: Partial<HealingEvent> = {}): HealingEvent {
@@ -108,7 +108,7 @@ function seedBounceRound(ruleId: string, ruleLayer: string, commandHead: string)
 }
 
 /**
- * SdkInvokePort mock：bash_safety 场景脚本驱动（F20260913ctlv：SDK 会话键 = invokeId）。
+ * SdkInvokePort mock：bash_safety 场景脚本驱动（SDK 会话键 = invokeId）。
  * script 元素：{ guard: n } = 接下来 n 次 invoke 返回 bash_safety 终态（内部 abort reason），
  * 之后 { done: true } 正常完成（含 yield 语义——onYield 置 invoke completed）。
  */
@@ -144,7 +144,7 @@ const mockManageSession = {
 
 const queryOtter: QueryOtter = { getById: async () => ({ id: "otter-1", name: "大獭", type: "main" }) } as unknown as QueryOtter;
 
-// eslint-disable-next-line max-lines-per-function -- #731 bounce 能力面 10 用例聚合（GB-1~GB-6d + GB-sleep）；mock 基础设施（mockHealingRepo/mockAgentInvoke/yieldRounds 包装）在文件级共享，拆 describe 需重复造共享块，收益不抵成本
+// eslint-disable-next-line max-lines-per-function -- bounce 能力面 10 用例聚合（GB-1~GB-6d + GB-sleep）；mock 基础设施（mockHealingRepo/mockAgentInvoke/yieldRounds 包装）在文件级共享，拆 describe 需重复造共享块，收益不抵成本
 describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731)", () => {
   it("GB-1/GB-2：二拦终态 → 自动回发（failed 过渡+sendSystem 带因+同 invoke 重试）→ 回发后自纠成功闭环", async () => {
     const sendEntry = mockSendEntry();
@@ -192,25 +192,25 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     expect(bounceMsg).toContain("不要重复原命令");
     // guard-v4 文案自带 restart-service 受控出口指引（正道出口）+ orchestrator 追加中性化指引——
     // v3 时代「不含 restart」断言已过时，删除
-    // bounce 计数落账：guard_bounce_flow（F20261102grfix 口径拆分——流程观测独立类型）
+    // bounce 计数落账：guard_bounce_flow（口径拆分——流程观测独立类型）
     const bounceEvent = healing.events.find(e => e.errorType === "guard_bounce_flow");
     expect(bounceEvent).toBeTruthy();
     // 回发后自纠成功：SDK invoke 3 轮（2 撞 + 1 成功闭环）；
-    // 闭环验证 = invoke 终态 completed + yield 目标 user-1（F20260913ctlv：aggregatedTargets 已退役）
+    // 闭环验证 = invoke 终态 completed + yield 目标 user-1（aggregatedTargets 已退役）
     expect(invoke._count()).toBe(3);
     const finalInvoke = yieldRounds.size > 0
       ? [...sendEntry.store.invokes.values()].find(inv => inv.talkingStonePassedTo?.includes("user-1"))
       : undefined;
     expect(finalInvoke?.status).toBe("completed");
     expect(result.invokeId).toBeTruthy();
-    // F20260913ctlv：同 invoke 重试——retry 轮 message = 拦截提醒（buildAutoRetryMsg）；
+    // 同 invoke 重试——retry 轮 message = 拦截提醒（buildAutoRetryMsg）；
     // bounce 全文以 system entry 落库（sendSystem 断言已覆盖）
     expect(invoke._contexts[2]).toContain("安全守卫拦截");
   });
 
   it("GB-3：滑窗内已回发 2 次 → 停止回发升级：abort 终态 + 升级系统消息 + healing high", async () => {
     const sendEntry = mockSendEntry();
-    // seed 2 条窗口内 bounce 事件 → 本轮是第 3 次，超限（F20261008hcpa：上限 2）
+    // seed 2 条窗口内 bounce 事件 → 本轮是第 3 次，超限（上限 2）
     const healing = mockHealingRepo([
       seedBounceEvent(), seedBounceEvent(),
     ]);
@@ -247,8 +247,8 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
   });
 
   it("GB-3c：新口径 seed（guard_bounce_flow+bounce:true ×2）→ 超限升级——flow 侧计数判别用例", async () => {
-    // 判别性用例（检视发现 4）：钉死 flow 侧类型串与计数链——若 guard_bounce_flow 串写错/
-    // 漏过滤 bounce 标，flow 计数恒 0 → priorBounces=0 → 永不升级 → 无限回发（#731/#1353
+    // 判别性用例：钉死 flow 侧类型串与计数链——若 guard_bounce_flow 串写错/
+    // 漏过滤 bounce 标，flow 计数恒 0 → priorBounces=0 → 永不升级 → 无限回发（
     // 防的 bounce 循环回归），而 legacy-seed 的 GB-3 全绿拦不住
     const sendEntry = mockSendEntry();
     const healing = mockHealingRepo([
@@ -353,15 +353,15 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       userMessageContent: "修复任务 X", senderId: "user-1",
     });
 
-    // F20260913ctlv：abort 终态 = createInvokeEndEntry('aborted') + invoke 行 aborted
-    // （F20260830fabt 的 sdk abort 接线移至 abort() 显式中断路径——升级路径靠 invoke 终态收口）
+    // abort 终态 = createInvokeEndEntry('aborted') + invoke 行 aborted
+    // （的 sdk abort 接线移至 abort() 显式中断路径——升级路径靠 invoke 终态收口）
     const abortEnds = sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted");
     expect(abortEnds).toHaveLength(1);
     const abortedInvoke = [...sendEntry.store.invokes.values()].find(inv => inv.status === "aborted");
     expect(abortedInvoke).toBeTruthy();
   });
 
-  /** F20260928slan D5b：sleep 域（bash_sleep:）纳入 #731 bounce——orchestrator 三门适配验证 */
+  /** sleep 域（bash_sleep:）纳入 bounce——orchestrator 三门适配验证 */
   it("GB-sleep：sleep 域二拦终态 → 自动回发（bounce 门对 bash_sleep: 开启）→ 回发后自纠成功闭环", async () => {
     const sendEntry = mockSendEntry();
     const healing = mockHealingRepo();
@@ -396,7 +396,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     // 二拦终态不再 aborted：bounce 门对 bash_sleep: 开启（shouldGuardBounce + isGuardBounceTerminal 适配）
     const abortEnds = sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted");
     expect(abortEnds).toHaveLength(0);
-    // bounce sendSystem：含「等待守卫拦截」前缀（D5c bounce 文案 sleep 域分流）
+    // bounce sendSystem：含「等待守卫拦截」前缀（c bounce 文案 sleep 域分流）
     const bounceMsg = sendEntry.store.systemBodies.find(b => b.includes("自动回发控制信号"));
     expect(bounceMsg).toBeTruthy();
     expect(bounceMsg).toContain("等待守卫拦截");
@@ -497,7 +497,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     const sendEntry = mockSendEntry();
     // 低危层规则：file-tool-guard/main-repo-write（r1_gate）——文案保留「大概率误拦」预判；
     // guardReason 需带 bash_safety: 前缀（orchestrator.ts:575 bounce 识别链路要求）+
-    // file-tool-guard 结构化文案（v4 下活着的低危通道；检视 S2 处置：原示例 cred_dir_access
+    // file-tool-guard 结构化文案（v4 下活着的低危通道；检视 处置：原示例 cred_dir_access
     // 已改挂 bypass_guard 高危层，不再适合做低危层示例）
     const mainWriteReason = "bash_safety:[file-tool-guard] write.mkdir 拒绝（ruleId=file-tool-guard/main-repo-write）：目标不在允许写区";
     const healing = mockHealingRepo([
@@ -522,7 +522,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
       userMessageContent: "修复任务 X", senderId: "user-1",
     });
 
-    // P0-2：同规则 3 连且非 unknown → 疑似误拦降级通道：sendSystem 是「疑似误拦」文案（非「已停止自动回发并中断其发言」）
+    // 同规则 3 连且非 unknown → 疑似误拦降级通道：sendSystem 是「疑似误拦」文案（非「已停止自动回发并中断其发言」）
     const fpMsg = sendEntry.store.systemBodies.find(b => b.includes("疑似误拦"));
     expect(fpMsg).toBeTruthy();
     expect(fpMsg).toContain("file-tool-guard/main-repo-write");
@@ -530,7 +530,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     // 低危层（r1_gate）保留「大概率误拦」预判
     expect(fpMsg).toContain("大概率是守卫误拦");
     expect(fpMsg).not.toContain("已停止自动回发并中断其发言");
-    // §3.2 处置：命令摘要取最新一次（DESC 序 events[0]，非最旧）——钉住「取最新」防回退
+    // 处置：命令摘要取最新一次（DESC 序 events[0]，非最旧）——钉住「取最新」防回退
     expect(fpMsg).toContain("mkdir new-dir latest");
     expect(fpMsg).not.toContain("mkdir new-dir old");
     // 降级通道：invoke 终态 failed（非 aborted——保留手动重试空间，与真违规 abort 区分）
@@ -570,7 +570,7 @@ describe("AgentInvoker — bash 守卫二拦终态自动回发控制信号 (#731
     // 高危层仍走降级（同规则 3 连 → 不 abort）
     expect(sendEntry.store.invokeEndCalls.filter(e => e.status === "aborted")).toHaveLength(0);
     expect(sendEntry.store.invokeEndCalls.filter(e => e.status === "failed")).toHaveLength(1);
-    // §3.5 处置：但通知文案中性化——不预判「大概率误拦」，改请核实正当性 + 明示不要放行
+    // 处置：但通知文案中性化——不预判「大概率误拦」，改请核实正当性 + 明示不要放行
     const fpMsg = sendEntry.store.systemBodies.find(b => b.includes("疑似误拦"));
     expect(fpMsg).toBeTruthy();
     expect(fpMsg).toContain("self_kill_main");

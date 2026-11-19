@@ -1,7 +1,7 @@
 /**
  * ModelRuntimeRegistry：负责 pi-coding-agent ModelRuntime 的初始化和模型注册。
  *
- * 从 PiSessionFactory 拆出（D2 瘦身），职责：
+ * 从 PiSessionFactory 拆出（瘦身），职责：
  * - 加载 pi-coding-agent SDK（ESM-only）
  * - 创建 ModelRuntime 并注入 config.yaml 的 apiKey
  * - 创建 SettingsManager（retry maxRetries=4）
@@ -39,9 +39,9 @@ async function loadPiCodingAgent(): Promise<PiCodingAgentModule> {
 }
 
 export class ModelRuntimeRegistry {
-  /** pi-coding-agent ModelRuntime（S3: 用 SDK 完整类型替代最小接口） */
+  /** pi-coding-agent ModelRuntime（用 SDK 完整类型替代最小接口） */
   private modelRuntime: ModelRuntime | null = null;
-  /** SDK SettingsManager（M2: retry maxRetries=4 取代 otter 层 API error 重试） */
+  /** SDK SettingsManager（retry maxRetries=4 取代 otter 层 API error 重试） */
   private settingsManager: SettingsManager | null = null;
   /** pi-coding-agent 模块缓存 */
   private piCodingAgent: PiCodingAgentModule | null = null;
@@ -52,7 +52,7 @@ export class ModelRuntimeRegistry {
     private readonly modelPool: ModelPool | undefined,
     private readonly logger: Logger,
     private readonly resourceLoaderOverride?: ResourceLoader,
-    /** C1：halt 首次注入回调（signal_events 落账更新 + 外部监听） */
+    /** halt 首次注入回调（signal_events 落账更新 + 外部监听） */
     private readonly onHaltFirstBlock?: (directive: HaltDirective) => void,
   ) {}
 
@@ -109,7 +109,7 @@ export class ModelRuntimeRegistry {
               pi.on("context", (event: { messages: any[] }) => {
                 return { messages: externalizeHistoricalToolResults(externalizeHistoricalImages(stripHistoricalThinking(event.messages))) };
               });
-              // C1：halt 边界注入。tool_call 扩展事件在每次工具执行前触发，
+              // halt 边界注入。tool_call 扩展事件在每次工具执行前触发，
               // 返回 { block, reason } → SDK agent-loop 对该次调用生成 isError tool result
               // （reason 正文）返回 LLM。读 ALS store 拿当前 invoke 的 otterId（fail-open：
               // 读不到 store 时放行，见 haltToolCallGuard 注释）。
@@ -149,7 +149,7 @@ export class ModelRuntimeRegistry {
           }],
         });
         await this.resourceLoader.reload();
-        // C1：halt 首次注入回调——落账更新（指令已到达）+ 日志。
+        // halt 首次注入回调——落账更新（指令已到达）+ 日志。
         // 注册在 resourceLoader 就绪后（首次 halt 必然晚于 session 创建，而 session 依赖 resourceLoader）。
         haltRegistry.onFirstBlock(directive => {
           this.logger.info('Halt directive first block injected', { targetOtterId: directive.targetOtterId, signalId: directive.id, fromOtterId: directive.fromOtterId });
@@ -164,15 +164,15 @@ export class ModelRuntimeRegistry {
       }
       /** 创建 ModelRuntime 并注入 config.yaml 的 apiKey（SDK 不读 config.yaml） */
       this.modelRuntime = await piCodingAgent.ModelRuntime.create();
-      // M2（R20260810piab）：SettingsManager retry maxRetries=4 取代 otter 层 API error 重试（SDK 默认 3）
+      // SettingsManager retry maxRetries=4 取代 otter 层 API error 重试（SDK 默认 3）
       this.settingsManager = piCodingAgent.SettingsManager.create(process.cwd());
-      // F20260904cq30：compaction 触发线从贴窗才压（窗口−默认 reserve 16K≈1032K）修正为质量线。
+      // compaction 触发线从贴窗才压（窗口−默认 reserve 16K≈1032K）修正为质量线。
       // 触发公式 contextTokens > contextWindow − reserveTokens，1M 窗口下 1048576−700000=348576≈340K。
       // Why 340K：实测大獭上下文均值 60-73K 为好体验区、266K 已入退化区（详见 F 文档决策记录）；
       // 搭档拍板 300K 标称线，整数 reserveTokens=700K 的实际触发 340K 在退化区间之上且留有余量。
       // 配置化（搭档要求）：config contextQuality.compactionReserveTokens，缺省 700_000。
       // merge 语义：partial merge——仅接管 reserveTokens，enabled/keepRecentTokens 保留 SDK 默认。
-      // F20260920uhuc 终审修正：SDK threshold reserve 改用 sdkOverflowReserveTokens（缺省 50_000）——
+      // 终审修正：SDK threshold reserve 改用 sdkOverflowReserveTokens（缺省 50_000）——
       // 应用层质量线（compactionReserveTokens 340K 触发）已由 agent-invoker 轮边界水位接管，
       // SDK threshold 只留真溢出救急（1M 窗口下 995K 触发，贴溢出点）；若仍用 700K 会与
       // 应用层水位线撞车，单轮暴涨场景 SDK 抢先原地压缩（丢历史），违背「压缩=交接」架构意图。
@@ -209,7 +209,7 @@ export class ModelRuntimeRegistry {
 
   /** 注册自定义 provider（alias !== config.provider 时） */
   private _registerCustomProvider(alias: string, config: ModelConfig, model: Model<Api>): void {
-    // S3（R20260810piab）：model 现在是 Model<Api>，字段类型由 SDK 精确声明，无需 inline cast 弱化。
+    // model 现在是 Model<Api>，字段类型由 SDK 精确声明，无需 inline cast 弱化。
     // contextWindow/maxTokens 在 Model 上可能 undefined，但 ProviderConfigInput 期望 number——
     // 回退到 config 的值（config 是 otter 自己的 ModelConfig，这些字段是 number | undefined），
     // 双重 undefined 时回退 0（SDK 视 0 contextWindow 为"总是需要 compaction"，但此处只在 alias !== provider 时触发）。
@@ -276,7 +276,7 @@ export function stripHistoricalThinking(messages: any[]) {
 }
 
 /**
- * S1（R20260810piab）：before_agent_start handler 的纯函数实现。
+ * before_agent_start handler 的纯函数实现。
  * 提取为独立导出函数以便测试——不需要走完整 SDK 调用链即可验证 system prompt 注入逻辑。
  *
  * 在 SDK base systemPrompt 基础上追加 otterPrompt + identityPrefix，返回新 systemPrompt。
@@ -296,8 +296,8 @@ export function buildBeforeAgentStartResult(
   return { systemPrompt: parts.join("\n\n") };
 }
 
-/** S1（R20260810piab）：per-invoke 上下文，通过 AsyncLocalStorage 传递给 extension handler。 */
-/** S1（R20260810piab）：per-invoke 上下文——F20261117cnnct（阶段 4 B1 搬家）已抽至
+/** per-invoke 上下文，通过 AsyncLocalStorage 传递给 extension handler。 */
+/** per-invoke 上下文——（搬家）已抽至
  *  @entities/execution/otter-invoke-context（纯 AsyncLocalStorage 小模块，依赖闭包干净——
  *  execution 侧公共执行器抽包给 connector 复用时不再拖 agent 全家桶）；
  *  此处转发导出保持 agent 侧既有 import 点零改动。 */
@@ -305,15 +305,15 @@ export { otterInvokeStorage, type OtterInvokeContext } from "@entities/execution
 
 
 
-// F20260920uhuc：compactionHookDeps/setCompactionHookDeps 退役（session_before_compact
+// compactionHookDeps/setCompactionHookDeps 退役（session_before_compact
 //  钩子随时机权回收而退役，见上方 factory 注册处注释）。
 
 /**
- * F20260826mwrd C1：halt tool_call handler 的 block 判定（显式传入 per-invoke store，测试可独立覆盖）。
+ * halt tool_call handler 的 block 判定（显式传入 per-invoke store，测试可独立覆盖）。
  *
  * SDK 语义链：tool_call 扩展事件 → ToolCallEventResult{ block, reason } →
  * agent-loop 对 block 生成 isError tool result（reason 正文）返回 LLM。
- * #1674：首次送达同时经既有 abort 链结束本轮——工具 block 只是反馈，不能替代执行退出。
+ * 首次送达同时经既有 abort 链结束本轮——工具 block 只是反馈，不能替代执行退出。
  *
  * 为什么不是拦截器内闭包直接取 store：ALS store 读不到（如 handler 在异步边界后执行）时
  * 无法区分「无 halt」与「读不到」——独立成纯函数后，读不到返回 undefined（放行），
@@ -344,14 +344,14 @@ export function haltToolCallGuard(
 }
 
 /**
- * F20261020hlbk（#1556）：循环工具硬熔断的 tool_call 门（物理阻断）。
+ * 循环工具硬熔断的 tool_call 门（物理阻断）。
  *
  * 检测器（ToolCallCircuitBreaker）报警时把循环签名写进 store.loopBlockedTools（粘滞，
  * 不被穿插调用清零），本门在**每次工具执行前**读到即返回 {block, reason} → SDK 生成
  * isError tool result、工具不执行——这是唯一的物理截断点（steer 只是建议、terminate
  * 整轮 abort 可重试致循环复活）。对准 AC1「检测器报警后无法继续调用该工具（物理截断）」。
  *
- * - speak/yield 豁免：硬熔断后獭必须仍能 speak 报告 + yield 交棒逃生（F20260806cbsx）。
+ * - speak/yield 豁免：硬熔断后獭必须仍能 speak 报告 + yield 交棒逃生。
  * - fail-open：store / loopBlockedTools 缺失时放行（镜像 haltToolCallGuard，不误伤正常工具流）。
  */
 export function loopBlockGuard(
@@ -365,8 +365,8 @@ export function loopBlockGuard(
   const sig = buildToolSignature(toolName, input);
   const reason = map.get(sig);
   if (reason === undefined) return undefined;
-  // F20261027lbos（#1656）：拦截落账（同签名去重，只记首次）——loop_tool_block 事件
-  // 是 b2 残余误伤面（#1653）的唯一观测源，缺失则体检失明。
+  // 拦截落账（同签名去重，只记首次）——loop_tool_block 事件
+  // 是 b2 残余误伤面的唯一观测源，缺失则体检失明。
   // 懒初始化去重集（与 loopBlockedTools 同生命周期）；fail-open：钩子缺失/抛错不阻断拦截。
   if (!store.loopBlockLoggedSignatures) store.loopBlockLoggedSignatures = new Set();
   if (!store.loopBlockLoggedSignatures.has(sig)) {
@@ -384,18 +384,18 @@ export function loopBlockGuard(
 }
 
 /**
- * F20261030gblkv（guard-v4）：bash 守卫门（tool_call 层显式落痕，v4 重建）。
+ * （guard-v4）：bash 守卫门（tool_call 层显式落痕，v4 重建）。
  *
- * 前身 F20261026gobs（M-2bf6e98c）：守卫拦截原在 tool_execution_start（abort 链）——
- * abort 信号异步生效、与工具执行竞态，被拦命令可能已 spawn 并「静默 exit 0」（#1616
+ * 前身 （M-2bf6e98c）：守卫拦截原在 tool_execution_start（abort 链）——
+ * abort 信号异步生效、与工具执行竞态，被拦命令可能已 spawn 并「静默 exit 0」（
  * 实证）。v4 沿用 tool_call 门形态：被拦命令不执行，SDK 对 block 生成 isError tool
  * result（reason 正文）返回 LLM——显式落痕，模型看到「命令被拦截（未执行）+ 理由」。
  *
- * v4 变化（F20261030gblkv 终态）：
+ * v4 变化（终态）：
  * - 判定=纯文本两层（第一站杀进程三查 + 第二站黑名单三类），无沙箱层、无 abort
  *   兜底链——本门是守卫唯一执行点；
  * - fail-open：store / guardProjectRoot 缺省时放行（镜像 halt/loop-block，不误伤
- *   正常工具流；缺省=守卫不生效，同 #1702 过渡态语义）；
+ * 正常工具流；缺省=守卫不生效，同 过渡态语义）；
  * - 拦截落 healing（guard_intercept 事件）——守卫行为以真实使用为准，误拦语料
  *   经回放库（tests/guard/replay/）固化为「必须放行」回归用例。
  */
@@ -417,7 +417,7 @@ export function bashGuardGate(
   if (!rawBlock) return undefined;
   const reasonText = stripSleepMarkerIfPresent(rawBlock.text);
   // 拦截落 healing——守卫行为以真实使用为准（回放库语料来源）。
-  // F20261102grfix：ruleId/layer 随拦截块直标传入，落账归因不再事后文案反查
+  // ruleId/layer 随拦截块直标传入，落账归因不再事后文案反查
   store?.guardOnIntercept?.({ command, reason: reasonText, ruleId: rawBlock.ruleId, ruleLayer: rawBlock.layer });
   return {
     block: true,

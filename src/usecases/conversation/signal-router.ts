@@ -105,22 +105,22 @@ export class SignalRouter {
   constructor(
     private readonly deps: {
       conversationRepo: ConversationRepository;
-      /** F20260913ctlv 收尾批2：entries 数据源（user/system 信号唯一真相源；messages 兜底已删） */
+      /** 收尾批2：entries 数据源（user/system 信号唯一真相源；messages 兜底已删） */
       entryRepo: EntryRepository;
       queryOtter: QueryOtter;
       dispatchChainEngine: DispatchChainEngine;
       invokeFn: SignalRouterInvokeFn;
       logger: Logger;
       healingRepo?: HealingEventRepository;
-      /** F20260922ctxi：发送者显示名回退链用（senderName 快照缺失时回退配置显示名，#488 同款降级） */
+      /** 发送者显示名回退链用（senderName 快照缺失时回退配置显示名，同款降级） */
       settingsRepo?: { get(key: string): Promise<string | null | undefined> };
-      /** F20260908rlcp：LRU 热池窄接口（isRunning/followUp/steerSession） */
+      /** LRU 热池窄接口（isRunning/followUp/steerSession） */
       factory: SignalRouterSessionFactory;
     },
   ) {}
 
   /**
-   * #775 S4a：scheduler·招聘直投通道。
+   * scheduler·招聘直投通道。
    *
    * Why 不走 routeSignal：行动类 system 消息落库后可能存在扫描窗口，常规路由会产生
    * 「入口直连派发 + 路由器重复点火」的双跑面——入口必须从原点独占点火权。
@@ -164,14 +164,14 @@ export class SignalRouter {
     conversationId: string,
     filter?: { otterId?: string; triggerMessageId?: string },
   ): Promise<Array<{ signal: SignalView; action: RouteAction }>> {
-    // F20260908rlcp 整合修复（实测双触发根因）：
+    // 整合修复（实测双触发根因）：
     // 必须只处理「本次触发的消息」——triggerMessageId 传入时只路由该消息。
     // 旧实现扫 getMessages 全部历史逐条点火：已处理的獭产出消息（tsp 指回）
     // 会被反复重燃，同一条用户消息触发 N 次 invoke（09-09 实测：说一句话大獭被点 3 次）。
     // 獭的产出消息（senderType='otter'）绝不作为路由信号源——链引擎的 hop 续跑
     // （nextTargets）已承载 yield 路由，此处再扫 = 与链引擎双跑。
     if (!filter?.triggerMessageId) {
-      // F20260908rlcp：routeAllPending 已退役，无 triggerMessageId 的调用是残留路径——拒绝
+      // routeAllPending 已退役，无 triggerMessageId 的调用是残留路径——拒绝
       this.deps.logger.warn("[signal-router] routeSignals 无 triggerMessageId 调用（残留路径），拒绝", { conversationId });
       return [];
     }
@@ -223,11 +223,11 @@ export class SignalRouter {
 
     // 2. 目标是否在热池且运行中
     if (!signal.externalProfile && this.deps.factory.isRunning(targetId)) {
-      // F20260908rlcp 实测修复：followUp/steer 注入成功后必须销账（consumed 标记）——
+      // 实测修复：followUp/steer 注入成功后必须销账（consumed 标记）——
       // 否则 resume 补扫与历史扫描会把已注入的信号当成「待处理」再次点火（09-09 实测三句回复根因）。
       // 销账动作与注入动作同事务语义：注入成功即写 consumed，失败则不写（下次重试）。
 
-      /** F20260913ctlv（test13 拍板 + followUp 按钮）：默认 steer（插话即时生效，打断
+      /** （test13 拍板 + followUp 按钮）：默认 steer（插话即时生效，打断
        *  当前生成）；用户显式选 followUp（副按钮「排队」）时排队等当前轮说完再接。
        *  mode 来自 entry.metadata.injectionMode（sendMessage 请求体透传落库） */
       if (signal.injectionMode === "followUp") {
@@ -266,7 +266,7 @@ export class SignalRouter {
     return "retry_invoked";
   }
 
-  /** F20260913ctlv 收尾批2：按 ID 加载信号视图（entries 唯一真相源）。
+  /** 收尾批2：按 ID 加载信号视图（entries 唯一真相源）。
    *  scheduler 内部信号已切 system entry（原 messages 兜底分支删除——无消费方）。
    *  传入 id 兼容历史调用面：entries 查不到即 null（不回 messages）。 */
   private async loadSignalView(messageId: string): Promise<SignalView | null> {
@@ -302,7 +302,7 @@ export class SignalRouter {
     await this.deps.entryRepo.updateEntryMetadata(entry.id, meta);
   }
 
-  /** F20260908rlcp：信号是否已销账（consumed 标记存在=已注入成功，补扫跳过） */
+  /** 信号是否已销账（consumed 标记存在=已注入成功，补扫跳过） */
   private isSignalConsumed(signal: SignalView): boolean {
     if (!signal.signalMeta) return false;
     try {
@@ -326,7 +326,7 @@ export class SignalRouter {
     return `【急讯 msg:${signal.id}】来自 ${sender}：${this.extractContent(signal)}`;
   }
 
-  /** F20260922ctxi：配置显示名读取（缺失/异常降级 undefined → 继续回退 senderId） */
+  /** 配置显示名读取（缺失/异常降级 undefined → 继续回退 senderId） */
   private async getPartnerLabel(): Promise<string | undefined> {
     if (!this.deps.settingsRepo) return undefined;
     try {
@@ -362,7 +362,7 @@ export class SignalRouter {
           initialTargets: [otterId],
           invokeFn: (params) => this.deps.invokeFn(params),
           triggerMessageId: signal.id,
-          // F20261012swsg（#1430）：信号触发消息来源透传——安全词扫描闸只放行 user 信号，
+          // 信号触发消息来源透传——安全词扫描闸只放行 user 信号，
           // system 合成消息/scheduler 锚点不进扫描。注意 11:57 二次复现实际走的是 dispatch()
           // 直连链（首哑告警，见 agent-invoker），非本路径——两条路径均已按来源封闸。
           triggerSenderType: signal.senderType as SenderType,

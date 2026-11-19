@@ -1,9 +1,9 @@
 /**
- * TriageQueue：RHI 信号处置队列（§4）。
+ * TriageQueue：RHI 信号处置队列。
  *
  * 「警报」页从「信号列表 + 建议你去看」改为「处置队列」：
  * - 未接单（triageStatus=null）置顶，按挂了几天降序，每条显示「open N 天」——N 越红越醒目
- * - 已归口折叠为一组，显示绑定 issue 链接 + triageNote +「triaged N 天」（D3 修订：
+ * - 已归口折叠为一组，显示绑定 issue 链接 + triageNote +「triaged N 天」（修订：
  *   让二期触发条件「triaged 超 14d ≥5 条」在面板上可观测）
  * - 修复中显示 issue + 状态
  * - 每条操作按钮：开 issue 处置 / 绑定已有 issue / 忽略（附理由）——写路径经
@@ -181,12 +181,12 @@ function SignalRow({ signal, now, onChanged }: { signal: RhiSignalDTO; now: numb
   )
 }
 
-/** 处置队列主组件：按处置状态分组渲染（§4 面板规格）。now 可注入供测试固定时间 */
+/** 处置队列主组件：按处置状态分组渲染（面板规格）。now 可注入供测试固定时间 */
 export function TriageQueue({ signals, onChanged, now }: { signals: RhiSignalDTO[]; onChanged: () => void; now?: number }) {
   const nowMs = now ?? Date.now()
   const untriaged = signals
     .filter(s => s.triageStatus === null)
-    // 未接单按挂了几天降序——first_seen 越早（挂越久）越靠前（§4：N 越红越醒目）
+    // 未接单按挂了几天降序——first_seen 越早（挂越久）越靠前（N 越红越醒目）
     .sort((a, b) => Date.parse(a.firstSeen) - Date.parse(b.firstSeen))
   const triaged = signals.filter(s => s.triageStatus === 'triaged')
   const inProgress = signals.filter(s => s.triageStatus === 'in_progress')

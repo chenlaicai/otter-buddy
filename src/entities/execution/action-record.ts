@@ -1,5 +1,5 @@
 /**
- * （阶段 3）：执行机动作台账实体。
+ * 执行机动作台账实体。
  *
  * 分层定位（搭档 2026-11-16 认可的分工表）：
  * - 对话/任务持久与恢复 = pi-durable（哪些调用发出过、哪些有回执、哪些中断）
@@ -18,7 +18,7 @@ export type ActionLedgerStatus =
   | "unknown";
 
 /**
- * 状态语义（与 §3.D 对齐）：
+ * 状态语义（与 .D 对齐）：
  * - succeeded / failed：动作执行完毕，结果确定（bash 非零退出码也算 succeeded——
  *   「动作跑完了」是事实，退出码是数据；failed 留给确定性未达成：spawn 失败等从未跑起来的情形）。
  * - interrupted：确认未完成（abort/超时/写前崩溃/rename 未落位）——重做是完成它的合法路径。
@@ -47,7 +47,7 @@ export interface ActionRecord {
    *  调用方显式传的 actionId 原样使用（去重协议本体，跨 boot 复用是预期行为）。 */
   actionId: string;
   deviceId: string;
-  /** 阶段 4 onlineSession 落地前恒 null */
+  /** onlineSession 落地前恒 null */
   onlineSessionId: string | null;
   invokeId: string | null;
   conversationId: string | null;

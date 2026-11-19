@@ -1,5 +1,5 @@
 /**
- * Halt 指令注册表（C1；生命周期加固）。
+ * Halt 指令注册表（生命周期加固）。
  *
  * 内存态打标：halt_otter 工具 mark → 目标獭下一次 tool_call 边界被 block（takeForBlock）
  * → 该 invoke 余下生命周期持续 block（防 LLM 无视指令继续调工具）→ invoke 结束 endInvoke 清理。

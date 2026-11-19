@@ -1,5 +1,5 @@
 /** HTML 卡片（html-card）纯函数库：meta 解析 / payload 校验 / 已回复集合派生 / 回执构造
- * 设计文档 §2/§3；与后端剥离函数、useCardBridge 共享同一套规则与测试向量。
+ * 设计文档 /；与后端剥离函数、useCardBridge 共享同一套规则与测试向量。
  *  围栏扫描用 remark（mdast）解析：普通代码围栏是不透明块（内部的 reply 字样只是代码示例），
  *  支持 ~~~ 围栏与 blockquote/list 容器嵌套，与后端剥离函数同一解析语义 */
 
@@ -48,7 +48,7 @@ export function parseCardTitle(meta: string | null | undefined): string | null {
   return parseMetaAttr(meta, 'title')
 }
 
-/** T4：卡片重要性分级（`importance="high"` 默认展开）。
+/** 卡片重要性分级（`importance="high"` 默认展开）。
  *  只有两档：normal（默认，折叠）/ high（默认展开）；不是 `high` 一律按 normal
  *  （含缺失/解析失败——降级安全方向是折叠）。约束：high 不豁免单消息卡片预算
  *  （CARD_MAX_PER_MESSAGE），防止把 high 当预算旁路。 */
@@ -60,10 +60,10 @@ export function parseCardImportance(meta: string | null | undefined): CardImport
   return v === 'high' ? 'high' : 'normal'
 }
 
-/** 折叠态摘要行最大字符数（T3） */
+/** 折叠态摘要行最大字符数 */
 export const CARD_FOLDED_SUMMARY_MAX_CHARS = 120
 
-/** T3：从卡片 HTML 提取折叠态摘要行。
+/** 从卡片 HTML 提取折叠态摘要行。
  *  口径（与既有卡面摘要互不依赖，纯展示层派生）：
  *  - 跳过 <script>/<style>/<textarea> 内容（脚本/样式不是给人看的）
  *  - 纯标点行视同空（装饰性分隔线等不产出信息）
@@ -171,7 +171,7 @@ export function deriveRepliedCardIds(messages: Array<{ content: string; st: stri
 
 /** body 中 html-card 围栏数量（fenceIndex 存在性判据：fenceIndex < 数量即围栏仍在）。
  *  挂起预览的自动丢弃用：用户收起卡片（iframe unmount）时围栏仍在，不丢预览。
- *  F20261009csp2 检视处置 2：活类围栏（html-card-play）计入——否则 useCardBridge 的
+ * 活类围栏（html-card-play）计入——否则 useCardBridge 的
  *  cardFencePresent 对活类卡判假，submit 预览挂起即被瞬丢（游戏回传成绩闭环失效） */
 export function countCardFences(body: string): number {
   if (!body.includes('html-card')) return 0

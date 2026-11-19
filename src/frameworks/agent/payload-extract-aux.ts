@@ -14,7 +14,7 @@ import type { Word } from "./command-lexer";
  *  载荷零判读（Runtime.exec/exec/file.create 真写双层漏，探针实证）。文件形态后缀门见
  *  write-target-evaluator SCRIPT_FILE_SUFFIXES（非 shell runner 只认可读后缀）。 */
 export const SCRIPT_RUNNERS = new Set(["python", "python3", "node", "perl", "ruby", "osascript", "jshell", "rscript", "lua", "octave"]);
-/** bash -c / sh -c 载荷识别（方案 D5 矩阵 /）——自 command-model
+/** bash -c / sh -c 载荷识别（矩阵）——自 command-model
  *  迁入（值吞食守卫要引用；command-model re-export 保持既有引用面） */
 export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh", "ash"]);
 /** 写命令词（argv 落点写面）——自 write-target-evaluator 迁入
@@ -137,7 +137,7 @@ export function canonicalExecName(raw: string): string {
   const stripped = base.replace(/[\d.]+$/, "");
   // M-f6762368 dot 对称根修：版本剥离不许吃空词——dot-source 的「.」全由剥离字符（[\d.]+）
   // 构成，剥成空名会让 SCRIPT_FILE_RUNNERS.has(".") 恒 false，source/dot 同义词不对称
-  //（探针 P1/P10 实证：dot 执行段不进载荷判读直接放行）。剥空即回原文。
+  //（探针 /实证：dot 执行段不进载荷判读直接放行）。剥空即回原文。
   if (stripped === "") return base;
   return EXEC_NAME_ALIASES[stripped] ?? stripped;
 }

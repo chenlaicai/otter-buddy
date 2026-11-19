@@ -44,7 +44,7 @@ export async function createConversation(ctx: CapabilityContext, name: string): 
   return body.id;
 }
 
-/** #984 诊断：猎取「ReadableStream is locked」真实栈——vitest 只留 message 时看不到源。 */
+/** 诊断：猎取「ReadableStream is locked」真实栈——vitest 只留 message 时看不到源。 */
 function diagnosticWrap<A extends unknown[], R>(fn: (...args: A) => Promise<R>, label: string): (...args: A) => Promise<R> {
   return async (...args: A): Promise<R> => {
     try {
@@ -70,7 +70,7 @@ export const sendUserMessage = diagnosticWrap(async function sendUserMessage(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ senderId: "capability-tester", body: text, talkingStonePassedTo: opts.talkingStonePassedTo ?? [] }),
   });
-  // #984：非 200 带响应体抛错——裸 404/202 无法定位是路由退役还是 halt 闸门
+  // 非 200 带响应体抛错——裸 404/202 无法定位是路由退役还是 halt 闸门
   if (res.status !== 200) {
     let errBody = "<unreadable>";
     let bodyErr: unknown;
@@ -92,7 +92,7 @@ export const sendUserMessage = diagnosticWrap(async function sendUserMessage(
 }, "sendUserMessage");
 
 export async function listMessages(ctx: CapabilityContext, convId: string): Promise<MessageDto[]> {
-  // #984 桥接：GET /messages 已退役（F20260913ctlv #886，entries 为唯一渲染数据源）。
+  // 桥接：GET /messages 已退役（entries 为唯一渲染数据源）。
   // capability 测试不改生产路由——从 GET /entries 拉全量时间线，按 entryType/senderType
   // 映射回 MessageDto 视图；events 从 invoke_events（同库直查）按 invokeId 组装。
   const all: Array<Record<string, unknown>> = [];
@@ -181,7 +181,7 @@ export async function listMessages(ctx: CapabilityContext, convId: string): Prom
   }).filter((m) => m.st !== "system" || m.content.length > 0);
 }
 
-/** #984：等某獭的 invoke 到达终态（yield 落账后才可读 tsp）。
+/** 等某獭的 invoke 到达终态（yield 落账后才可读 tsp）。
  *  子獭 speak(completed) ≠ 回合结束——yield 在 speak 之后调，no_yield 重试循环中
  *  invoke 仍 running、tsp 未写。waitForOtterMessage 只保证「有 completed speak」，
  *  断言 tsp/yield 行为前必须等 invoke 终态。 */
@@ -233,7 +233,7 @@ export async function waitForOtterMessage(
       (m) => m.st === "otter" && (opts.afterSeq === undefined || m.seq > opts.afterSeq),
     );
 
-    /** 优先 completed：speak 未收尾的失败会触发系统自动重试（F20260730sbrt），
+    /** 优先 completed：speak 未收尾的失败会触发系统自动重试，
      *  第一个 failed 不是回合终局，重试常成功 */
     const completed = otterMsgs.find((m) => m.status === "completed");
     if (completed) return completed;
@@ -270,7 +270,7 @@ export function toolCallNames(message: MessageDto): string[] {
 
 /**
  * 交换级工具轨迹（跨消息、跨 turn 聚合）。
- * speak 未收尾触发自动重试时（F20260730sbrt），首试的工具调用落在 failed 消息上，
+ * speak 未收尾触发自动重试时，首试的工具调用落在 failed 消息上，
  * 且重试是**新的一跳（不同 turnId）**——只看最终 completed 消息或单 turn 都会漏测
  * （第二轮对抗检视实证：首试 search_memory 拿到事实，重试直接 speak）。
  * 断言"獭是否查过记忆"这类行为必须用本函数：聚合用户消息（afterSeq）之后的全部獭消息。
@@ -376,7 +376,7 @@ export async function expectSampledBehavior(
       outcomes.push(`#${i + 1}: ${result.ok ? "OK" : "FAIL"} ${result.detail}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      /** #1187 僵尸征兆专项诊断：500 not open = it 超时后 afterAll 已 dispose，本样本是僵尸残留 */
+      /** 僵尸征兆专项诊断：500 not open = it 超时后 afterAll 已 dispose，本样本是僵尸残留 */
       const zombieHint = msg.includes("database connection is not open")
         ? "〔#1187 诊断：app DB 已被关闭——大概率 it 超时后僵尸采样（vitest 不取消测试函数），检查 budgetMs 是否覆盖全部采样〕"
         : "";

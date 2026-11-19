@@ -39,7 +39,7 @@ interface RightPanelProps {
   onDeleteScheduledTask: (taskId: string) => void
   onTriggerScheduledTask: (taskId: string) => void
   onViewScheduledTaskHistory: (taskId: string) => void
-  /** P2：待办板裁决回执路由（handleSend 的 mention 路由封装——owner 为空时默认派发） */
+  /** 待办板裁决回执路由（handleSend 的 mention 路由封装——owner 为空时默认派发） */
   onRouteToOtter?: (body: string, ownerOtterId: string | null) => void
 }
 
@@ -52,7 +52,7 @@ export function RightPanel(props: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<RightPanelTab>('participants')
   /** 走秒驱动——有任一 running 时 1s interval 重渲染右栏（无 running 停，AT-3）。
  *  Why 容器级单定时器：N 獭 N 定时器无意义；现状仅靠对话列表轮询（5s）间接 re-render 搭便车，
- * 页面隐藏即完全定格（副作用，见 P1） */
+ * 页面隐藏即完全定格（副作用，见） */
   const [tickNow, setTickNow] = useState(() => Date.now())
   const anyRunning = Object.values(props.invokeStates ?? {}).some(s => s.status === 'running')
   useEffect(() => {
@@ -176,7 +176,7 @@ function isTouchDevice() {
 }
 
 /**
- * #502：memo 兜底——allOtters 浅比较保住引用后，本组件 props 稳定即不重渲染，
+ * memo 兜底——allOtters 浅比较保住引用后，本组件 props 稳定即不重渲染，
  * hover 快览卡不再因轮询产生的新对象引用而微闪。
  * onClick/onDissolve/onRestart 由 RightPanel 内联箭头每次新建——memo 对函数 props 无效，
  * 但 otter/sessions 两个数据 props 是抖动主源，仍值得包。
@@ -195,30 +195,30 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
 }: {
   otter: Otter
   sessions: OtterSession[]
-  /** F20260913ctlv：invoke 实时状态（undefined = 本会话无 invoke，显示休眠） */
+  /** invoke 实时状态（undefined = 本会话无 invoke，显示休眠） */
   invokeState?: OtterInvokeState
-  /** F20260914rtsp：右栏容器级走秒时钟——驱动 fmtInvokeElapsed 重算（running 状态行每秒 +1s）。
+  /** 右栏容器级走秒时钟——驱动 fmtInvokeElapsed 重算（running 状态行每秒 +1s）。
  *  仅作重渲染触发器，卡片内不直接消费其值（耗时函数用默认 Date.now()） */
   tickNow?: number
   onClick: () => void
-  /** F20260913ctlv：点击头像 → Session 弹窗 */
+  /** 点击头像 → Session 弹窗 */
   onOpenSession?: () => void
-  /** F20260913ctlv：中断当前 running invoke（右栏按钮） */
+  /** 中断当前 running invoke（右栏按钮） */
   onAbortInvoke?: (invokeId: string) => void
-  /** F20260913ctlv：重试失败/中断 invoke（右栏按钮） */
+  /** 重试失败/中断 invoke（右栏按钮） */
   onRetryInvoke?: () => void
   onDissolve: (id: string) => void
   onRestart: (id: string) => void
 }) {
-  /** F20260920uhuc：忙碌判定——running invoke 存在即置灰重启 */
+  /** 忙碌判定——running invoke 存在即置灰重启 */
   const invokeStateBusy = invokeState?.status === 'running'
   const isBig = o.type === 'big'
   const activeS = sessions.find(s => s.status === 'active')
-  /** F20260805dmux：世数与详情弹窗同口径（拉链位置），不用 sessions.length */
+  /** 世数与详情弹窗同口径（拉链位置），不用 sessions.length */
   const activeGen = activeS ? sortSessionChain(sessions).indexOf(activeS) + 1 : 0
   const [hovering, setHovering] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  /** F20260826pfix：trigger rect 快照，hover 展开时供 portal 定位 */
+  /** trigger rect 快照，hover 展开时供 portal 定位 */
   const rowRef = useRef<HTMLDivElement>(null)
   const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null)
 
@@ -249,7 +249,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
         onClick={onClick}
         className="px-2.5 py-2 rounded-xl cursor-pointer glass-card mb-1.5 transition hover:shadow-bubble hover:-translate-y-0.5 group"
       >
-        {/* F20260913ctlv test17 排版：主行只放身份信息（头像+名/模型+类型/世数+状态行），
+        {/* test17 排版：主行只放身份信息（头像+名/模型+类型/世数+状态行），
             操作按钮独立一行（Session / 中断 / 重试 + hover 管理动作）——不再全挤一行 */}
         <div className="flex items-center gap-2">
           <button
@@ -259,7 +259,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
             aria-label={`查看 ${o.name} 的 session 记录`}
           >
             <OtterAvatar otterId={o.id} name={o.name} size={32} type={o.type} />
-            {/* F20260913ctlv：streaming 呼吸点（活跃 invoke 指示，叠加在头像右下角） */}
+            {/* streaming 呼吸点（活跃 invoke 指示，叠加在头像右下角） */}
             {invokeState?.status === 'running' && (
               <span className="absolute -right-0.5 -bottom-0.5 w-2.5 h-2.5 rounded-full bg-teal-400 border border-white animate-pulse" data-testid="invoke-streaming-dot" />
             )}
@@ -267,7 +267,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="text-xs font-semibold text-stone-700 truncate">{o.name}</span>
-              {/* F20260908efmd: 模型 badge（配置缺失回退默认恒非空） */}
+              {/* 模型 badge（配置缺失回退默认恒非空） */}
               {o.modelAlias && (
                 <span data-testid="model-badge" className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-stone-400/15 text-stone-500 whitespace-nowrap shrink-0">
                   {o.modelAlias}{o.modelIsDefault && <span className="text-stone-400">（默认）</span>}
@@ -275,10 +275,10 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
               )}
             </div>
             <div className="text-[10px] text-stone-400 whitespace-nowrap truncate">
-              {/* F20260914rtsp：世数时间改「from」格式（搭档拍板）；大獭必然在场，「大獭 · 持久」前缀移除 */}
+              {/* 世数时间改「from」格式（搭档拍板）；大獭必然在场，「大獭 · 持久」前缀移除 */}
               {isBig ? '' : (o.role?.name || '小獭')}{activeS ? ` · 第${activeGen}世 from ${fmtTime(activeS.startedAt)}` : ''}
             </div>
-            {/* F20260914rtsp：invoke 实时状态行（行动中：状态+走秒+工具数+ctx；休息中：ctx 兜底）。
+            {/* invoke 实时状态行（行动中：状态+走秒+工具数+ctx；休息中：ctx 兜底）。
  *  走秒由容器 tickNow 驱动重渲染；ctx 缺数据时显 '—'（tick 未发射过/刷新无 ctx_tokens）。
  *  无 invoke 记录但有世时也显示休息中行——ctx 表示「当前 session 上下文占用」，休息中占用不变，
  *  属准确数据；从未握过（新建无数据）则显 '—'。 */}
@@ -341,8 +341,8 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
               解散
             </span>
           )}
-          {/* F20260920srbtn：重启獭生对小獭开放（与 agent 侧 restart_otter 大獭可重启小獭对齐）；
-              F20260920uhuc：忙碌置灰（running invoke 时禁用） */}
+          {/* 重启獭生对小獭开放（与 agent 侧 restart_otter 大獭可重启小獭对齐）；
+              忙碌置灰（running invoke 时禁用） */}
           <button
             onClick={e => { e.stopPropagation(); if (!invokeStateBusy) onRestart(o.id) }}
             disabled={invokeStateBusy}
@@ -353,7 +353,7 @@ const OtterParticipantCard = memo(function OtterParticipantCard({
           </button>
         </div>
       </div>
-      {/* hover 快览卡：F20260826pfix 改 Portal + fixed 按 trigger 坐标定位。
+      {/* hover 快览卡：改 Portal + fixed 按 trigger 坐标定位。
        *  Why: 原 absolute right-full bottom-0 在 aside overflow-y-auto 内，列表长时
        *  （卡片滚到 panel 底部）快览卡向上延伸被 panel 顶缘剪裁/视觉贴屏顶。
        *  Portal 脱离 aside 的 overflow 上下文，坐标按 trigger rect 实时计算并 clamp。 */}

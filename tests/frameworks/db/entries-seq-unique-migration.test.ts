@@ -31,7 +31,7 @@ function seqIndexUnique(db: Database.Database): boolean | undefined {
   return indexList.find(idx => idx.name === 'idx_entries_conversation_seq')?.unique === 1;
 }
 
-/** 构造「老库」：新库 schema 建好后，把 UNIQUE 索引降回普通索引（模拟 #906 之前的存量形态） */
+/** 构造「老库」：新库 schema 建好后，把 UNIQUE 索引降回普通索引（模拟 之前的存量形态） */
 function downgradeIndexToPlain(db: Database.Database): void {
   db.exec("DROP INDEX idx_entries_conversation_seq");
   db.exec("CREATE INDEX idx_entries_conversation_seq ON entries(conversation_id, sequence_num)");
@@ -106,7 +106,7 @@ describe("#906 entries (conversation_id, sequence_num) UNIQUE 索引迁移", () 
     downgradeIndexToPlain(db);
     seedConversation(db, "conv-r");
     seedEntry(db, "conv-r", 1);
-    // 普通索引下重复 seq 可写入（正是 #906 指出的防线缺口）
+    // 普通索引下重复 seq 可写入（正是 指出的防线缺口）
     db.prepare(`
       INSERT INTO entries (id, conversation_id, sequence_num, entry_type, sender_name)
       VALUES ('entry-dup', 'conv-r', 1, 'system', 'test')

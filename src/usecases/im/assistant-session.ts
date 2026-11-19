@@ -53,7 +53,7 @@ export class AssistantSessionManager {
     },
   ) {}
 
-  /** （D1）：restart 进行中标记（conversationId 集合）——双 tab 同 tick
+  /** restart 进行中标记（conversationId 集合）——双 tab 同 tick
    *  对同一对话并发触发 restart 时的防重闸；完成/失败均清除（失败下次消息再试） */
   private readonly restarting = new Set<string>();
 
@@ -129,7 +129,7 @@ export class AssistantSessionManager {
    * 触发锚 = 对话最后一条 entry 距今超过 sessionIdleHours（活跃对话持续刷新天然不触发）。
    * 交接摘要 = 机械拼接（writeDigest），作为 restartSession 的 summary 注入新 session 前世上下文。
    * 摘要落 summary + 记忆照旧（连续性锚）。失败不阻塞消息处理（丢摘要代价 < 丢消息代价）。
-   * （D1）：进行中标记防重——同对话并发触发（双 tab 同 tick）时后续调用
+   * 进行中标记防重——同对话并发触发（双 tab 同 tick）时后续调用
    *  直接跳过（首个完成的 restart 已换新 session，后续消息落新 session 天然正确）。
    */
   private async maybeRestartIdleSession(conversationId: string): Promise<void> {
@@ -172,7 +172,7 @@ export class AssistantSessionManager {
         conversationId,
       });
     } finally {
-      // F20260924wast（D1）：防重标记在成功/失败/提前返回路径统一清除
+      // 防重标记在成功/失败/提前返回路径统一清除
       this.restarting.delete(conversationId);
     }
   }
@@ -182,7 +182,7 @@ export class AssistantSessionManager {
     return conv?.title ?? conversationId;
   }
 
-  /** 摘要落库：conversation.summary + 记忆条目（F20260920imax）——仅
+  /** 摘要落库：conversation.summary + 记忆条目——仅
    *  非重启路径使用；重启路径在 maybeRestartIdleSession 内联同语义逻辑——构建一次全链共用） */
   private async writeDigest(current: { id: string; title: string }): Promise<void> {
     const digest = await this.buildDigest(current);

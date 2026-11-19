@@ -93,7 +93,7 @@ describe("SqliteConversationRepository - 对话基础操作", () => {
       expect(as!.kind).toBe("assistant");
     });
 
-    // M2：回退分支用例——列 NOT NULL DEFAULT 'normal'（migration.ts:746），但旧库 PRAGMA
+    // 回退分支用例——列 NOT NULL DEFAULT 'normal'（migration.ts:746），但旧库 PRAGMA
     // 探测前路径/手工改库仍可能遇到非枚举值，回退 normal 兑底并锁死行为
     it("F20260929wak1：kind 非法值回退 normal（回退分支锁——防未来枚举变更时静默放行怪值）", async () => {
       await repo.create(conversationFixture({ id: "conv-bogus" }));

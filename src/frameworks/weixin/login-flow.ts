@@ -92,7 +92,7 @@ export class WeixinLoginFlow {
   /** confirmed 落盘并返回账号信息 */
   private confirm(st: WeixinQrStatusResp): WeixinLoginResult {
     if (!st.bot_token) throw new Error("扫码 confirmed 但未返回 bot_token");
-    // #571 审视 S2：confirmed 下发的 baseurl 零校验落盘会被 platforms.ts 拿去建
+    // 审视 confirmed 下发的 baseurl 零校验落盘会被 platforms.ts 拿去建
     // 带 bot_token 的正式 client——Authorization 随行长驻，恶意域=长效凭证泄露。
     // 与 switchGateway 同一白名单收口；非白名单拒绝落盘（消费端有默认网关回退，
     // 无新增失败面），不炸登录流程。
@@ -133,15 +133,15 @@ export class WeixinLoginFlow {
         return this.pollOnce(qrcode, code);
       }
       case "scaned_but_redirect":
-        // #571：协议语义要求切换到 redirect_host 指向的新网关重试（IDC 分片），
+        // 协议语义要求切换到 redirect_host 指向的新网关重试（IDC 分片），
         // 原实现在原网关轮询到 5 分钟超时永远等不到 confirmed。
         this.switchGateway(st);
         return "abort-loop";
       case "binded_redirect":
-        // #1112：终态——扫码的 bot 已绑定本实例，服务端不签发新凭证，本地凭证
+        // 终态——扫码的 bot 已绑定本实例，服务端不签发新凭证，本地凭证
         // 继续有效（参考实现 openclaw-weixin@2.4.6 login-qr.ts:389 语义：
         // alreadyConnected = 成功「已连接过此实例，无需重复连接」，非登录失败）。
-        // 原实现在 default 分支继续轮询到 5 分钟超时（与 #571 同族：状态未处理致超时）。
+        // 原实现在 default 分支继续轮询到 5 分钟超时（与 同族：状态未处理致超时）。
         this.deps.logger.info("Weixin login: binded_redirect, bot already bound to this instance");
         return "already-connected";
       default:
@@ -151,12 +151,12 @@ export class WeixinLoginFlow {
   }
 
   /**
-   * #571：扫码重定向网关切换。redirect_host（纯主机名）或 baseurl（完整 URL）
+   * 扫码重定向网关切换。redirect_host（纯主机名）或 baseurl（完整 URL）
    * 指示新轮询网关；切后本实例后续轮询全部走新网关。
    * 安全：非微信官方域拒绝切换（白名单校验），防服务端下发任意域名时扫码
    * 轮询（含 qrcode/verify_code 参数）被导流到第三方主机。
    *
-   * 审视 S1 修复：校验对象统一为**最终实际使用的 URL 的 hostname**——原实现
+   * 审视 修复：校验对象统一为**最终实际使用的 URL 的 hostname**——原实现
    * 校验 redirect_host 却使用 baseurl，响应同时给合法 host + 恶意 baseurl 即绕过。
    */
   private switchGateway(st: WeixinQrStatusResp): void {
@@ -169,7 +169,7 @@ export class WeixinLoginFlow {
   }
 
   /**
-   * 重定向 URL 白名单校验（switchGateway 与 confirm 落盘共用——审视 //A1 收口）。
+   * 重定向 URL 白名单校验（switchGateway 与 confirm 落盘共用——审视 //收口）。
    * 校验对象 = 最终使用的 URL 经 URL 解析后的 hostname（非裸字符串 endsWith）：
    * - `evil.com@weixin.qq.com` 形态 URL 解析后 hostname 是 weixin.qq.com？不——
    *   userinfo 在 @ 前，hostname 是 @ 后的 weixin.qq.com，确实官方；但裸串 endsWith
@@ -193,7 +193,7 @@ export class WeixinLoginFlow {
       this.deps.logger.warn(`Weixin ${scene}: redirect target is not a valid URL, refused`, { raw });
       return undefined;
     }
-    // delta A1 残留：URL 带 credentials（user:pass@host）直接拒——undici 对带 credentials
+    // delta 残留：URL 带 credentials（user:pass@host）直接拒——undici 对带 credentials
     // 的 Request 会抛错，登录被打挂；且 credentials 出现在跳转目标里本身就可疑
     if (url.username || url.password) {
       this.deps.logger.warn(`Weixin ${scene}: redirect target carries credentials, refused`, { host: url.hostname });

@@ -31,7 +31,7 @@ export interface ModelConfig {
   contextWindow?: number;
   /** 最大输出 tokens（自定义模型注入 SDK 时携带，缺省回退 provider 模板值，） */
   maxTokens?: number;
-  /** 模型输入能力（多模态 Phase 1）：["text"] 或 ["text","image"]。
+  /** 模型输入能力（多模态）：["text"] 或 ["text","image"]。
    *  显式声明后经 models-factory 覆盖 provider 模板默认值（消除隐式继承的静默变更风险）。
    *  SDK downgradeUnsupportedImages 按 Model.input 自动降级非 vision 模型的图片。 */
   input?: Array<"text" | "image">;
@@ -76,9 +76,9 @@ export interface AppConfig {
     weightHalfLifeDaysDocument: number;
     userFlagMultiplier: number;
     frequencyBoostFactor: number;
-    /** Phase 1：rerank 融合模式（multiply=现状连乘，additive=归一化加法）。 */
+    /** rerank 融合模式（multiply=现状连乘，additive=归一化加法）。 */
     rerankMode: "multiply" | "additive";
-    /** Phase 1：加法融合系数与偏置。 */
+    /** 加法融合系数与偏置。 */
     rerank: {
       wRrf: number;
       wTime: number;
@@ -183,13 +183,13 @@ export interface AppConfig {
   web?: {
     baseUrl?: string;
   };
-  /** 统一接入登录（阶段 2）：登录口令配置。
+  /** 统一接入登录：登录口令配置。
    *  ownerPassword 显式指定时优先于 data/owner-password 文件（env OTTER_OWNER_PASSWORD 仍最高优先）。
    *  缺省 undefined = 未配置，回退 env / data/owner-password 文件 / 首启自动生成。 */
   auth?: {
     ownerPassword?: string;
   };
-  /** 附件配置（多模态 Phase 1）。缺省全部用内置默认值 */
+  /** 附件配置（多模态）。缺省全部用内置默认值 */
   attachments?: {
     /** 存储根目录（相对仓库根或绝对路径，默认 ./data/attachments） */
     storageRoot?: string;
@@ -263,11 +263,11 @@ interface RawConfig {
   };
   llm?: {
     default?: string;
-    /** LLM prompt 缓存长留存开关（F20260829cach，缺省 true） */
+    /** LLM prompt 缓存长留存开关（缺省 true） */
     cacheLongRetention?: boolean;
-    /** F20260908rlcp：Session 热池容量 */
+    /** Session 热池容量 */
     sessionPoolSize?: number;
-    /** F20260908rlcp：Session 热池空闲 TTL（分钟） */
+    /** Session 热池空闲 TTL（分钟） */
     sessionPoolIdleTtlMinutes?: number;
     models?: Array<{
       alias?: string;
@@ -293,16 +293,16 @@ interface RawConfig {
     alpha?: number;
     vecSimilarityThreshold?: number;
     bothBoost?: number;
-    /** F20260917cvid: 本对话来源条目排序加成系数（默认 1.5） */
+    /** 本对话来源条目排序加成系数（默认 1.5） */
     currentConversationBoost?: number;
     weightHalfLifeDays?: number;
-    /** F20260902rcp1: document 层专用半衰期（天），默认 90 */
+    /** document 层专用半衰期（天），默认 90 */
     weightHalfLifeDaysDocument?: number;
     userFlagMultiplier?: number;
     frequencyBoostFactor?: number;
-    /** F20261112rnkph Phase 1：rerank 融合模式（multiply | additive）。 */
+    /** rerank 融合模式（multiply | additive）。 */
     rerankMode?: "multiply" | "additive";
-    /** F20261112rnkph Phase 1：加法融合系数（snake_case，对应 AppConfig.memory.rerank）。 */
+    /** 加法融合系数（snake_case，对应 AppConfig.memory.rerank）。 */
     rerank?: {
       w_rrf?: number;
       w_time?: number;
@@ -318,7 +318,7 @@ interface RawConfig {
     localModelPath?: string;
   };
   contextQuality?: {
-    /** F20260920uhuc 需求变更（2026-09-20）：compactionReserveTokens 退役（按模型
+    /** 需求变更（2026-09-20）：compactionReserveTokens 退役（按模型
      *  handoffThresholdTokens 直给制取代，见 ModelConfig）；此键残留时 validate 报错引导迁移 */
     sdkOverflowReserveTokens?: number;
   };
@@ -343,7 +343,7 @@ interface RawConfig {
     firstByteTimeoutMs?: number;
     healthySessionThresholdMs?: number;
   };
-  // F20261008fsrm（搭档拍板）：feishu 静态段全量移除——扫码为唯一接入方式，config.yaml 的 feishu 段
+  // （搭档拍板）：feishu 静态段全量移除——扫码为唯一接入方式，config.yaml 的 feishu 段
   // 不再读入（残留段被静默忽略，启动无 warn）。历史迁移期已结束。
   weixin?: {
     /** ilink 网关（默认 https://ilinkai.weixin.qq.com） */
@@ -352,7 +352,7 @@ interface RawConfig {
     stateDir?: string;
     /** 搭档的微信 ilink_user_id（命令门禁） */
     partnerUserId?: string;
-    /** 静默多久（分钟）后发 context_token 预警（F20260901wxnt；F20260920wxho：同一静默期只提醒一次，cooldown 键退役） */
+    /** 静默多久（分钟）后发 context_token 预警（同一静默期只提醒一次，cooldown 键退役） */
     contextTokenWarnMinutes?: number;
   };
   im?: {
@@ -388,7 +388,7 @@ interface RawConfig {
 }
 
 // eslint env 说明：mjs 无 TS 环境，btoa 在 node 22+ 全局可用
-// Why: 配置路径基于代码位置解析（#429），cwd 非项目根（systemd/容器 ENTRYPOINT）也能读到
+// Why: 配置路径基于代码位置解析，cwd 非项目根（systemd/容器 ENTRYPOINT）也能读到
 const CONFIG_PATH = path.resolve(getRepoRoot(), "config/config.yaml");
 
 const VALID_PROVIDERS = ["openai", "anthropic", "kimi-coding"];
@@ -401,7 +401,7 @@ function d<T>(value: T | undefined, fallback: T): T {
 type RawModelConfig = NonNullable<NonNullable<RawConfig["llm"]>["models"]>[number];
 
 /** 校验启用条目的连接与运行参数；禁用条目不进入此路径。 */
-// eslint-disable-next-line complexity -- F20260920uhuc：模型连接字段校验内聚一函数，拆分反而碎
+// eslint-disable-next-line complexity -- 模型连接字段校验内聚一函数，拆分反而碎
 function validateEnabledModel(m: RawModelConfig): void {
   if (!m.provider) throw new Error(`配置校验失败: llm.models["${m.alias}"].provider 为必填字段`);
   if (!m.model) throw new Error(`配置校验失败: llm.models["${m.alias}"].model 为必填字段`);
@@ -417,11 +417,11 @@ function validateEnabledModel(m: RawModelConfig): void {
   if (m.apiFormat !== undefined && !m.apiBaseUrl && !m.apiKey) {
     throw new Error(`配置校验失败: llm.models["${m.alias}"].apiFormat 仅在配置 apiBaseUrl 或 apiKey 的自定义 OpenAI provider 中生效`);
   }
-  // F20260909mthl：thinkingLevel 枚举校验（档位→模型的实际映射交给 SDK thinkingLevelMap clamp，配置层只挡非法词）
+  // thinkingLevel 枚举校验（档位→模型的实际映射交给 SDK thinkingLevelMap clamp，配置层只挡非法词）
   if (m.thinkingLevel !== undefined && !VALID_THINKING_LEVELS.includes(m.thinkingLevel)) {
     throw new Error(`配置校验失败: llm.models["${m.alias}"].thinkingLevel 必须是 ${VALID_THINKING_LEVELS.join(" / ")}，当前值: ${m.thinkingLevel}`);
   }
-  // F20260920uhuc 需求变更（2026-09-20）：交接阈值按模型必填（已用 token 绝对值）。
+  // 需求变更（2026-09-20）：交接阈值按模型必填（已用 token 绝对值）。
   // 每模型单独水位线——不同模型窗口差异大（128K 与 1M 不共享一条线），不设全局缺省
   if (typeof m.handoffThresholdTokens !== "number" || !Number.isFinite(m.handoffThresholdTokens) || m.handoffThresholdTokens <= 0) {
     throw new Error(
@@ -484,7 +484,7 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
   if (!raw.llm?.models || raw.llm.models.length === 0) {
     throw new Error("配置校验失败: llm.models[] 为必填字段（至少一个模型条目，单模型配置也请写为一条 models[] 条目）");
   }
-  // F20260920uhuc 需求变更（2026-09-20）：compactionReserveTokens 退役 fail-closed——
+  // 需求变更（2026-09-20）：compactionReserveTokens 退役 fail-closed——
   // 残留旧键直接报错引导迁移（静默忽略会让用户以为全局水位线还在生效）
   if ((raw.contextQuality as Record<string, unknown> | undefined)?.compactionReserveTokens !== undefined) {
     throw new Error(
@@ -493,7 +493,7 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
       "迁移公式：handoffThresholdTokens = 模型 contextWindow − 旧 compactionReserveTokens",
     );
   }
-  // F20261109bexfz：bashGuard.allowedEgressDomains 已随 B 类外发判定退役——残留键报错引导删除
+  // bashGuard.allowedEgressDomains 已随 B 类外发判定退役——残留键报错引导删除
   // （静默忽略会让搭档以为白名单还在生效，与 compactionReserveTokens 同一理）
   if ((raw as Record<string, unknown>).bashGuard !== undefined) {
     throw new Error(
@@ -509,11 +509,11 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
   }
   validateAuthConfig(raw);
 
-  // F20260901wxnt：contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
+  // contextTokenWarn* 非数字时下游 Math.max 返回 NaN → 预警条件双旁路 → 每 35s 轰炸全部用户
   if (raw.weixin) validateWeixinWarnConfig(raw.weixin);
 }
 
-/** F20261113uaccs（delta 检视 S2）：auth.ownerPassword 非字符串（如 YAML 裸数字 123456）
+/** （delta 检视）：auth.ownerPassword 非字符串（如 YAML 裸数字 123456）
  *  会在 buildAuthConfig 裸 TypeError——此处 fail-fast 给引导性报错（与 server.port 同语义）。 */
 function validateAuthConfig(raw: RawConfig): void {
   if (raw.auth?.ownerPassword !== undefined && typeof raw.auth.ownerPassword !== "string") {
@@ -531,15 +531,15 @@ function validateAssistantModelAlias(raw: RawConfig): void {
   }
 }
 
-/** 传入值→有限数，非法回退默认值（F20260901wxnt 发现1：YAML "60min" → NaN → 全轰炸） */
+/** 传入值→有限数，非法回退默认值（发现1：YAML "60min" → NaN → 全轰炸） */
 function safeFinite(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 /**
- * 预警窗口构造（F20260901wxnt）：显式 0 即关闭；未配置默认 60min；clamp 下限 1 分钟（防 35s 误报）。
+ * 预警窗口构造：显式 0 即关闭；未配置默认 60min；clamp 下限 1 分钟（防 35s 误报）。
  * 非有限数（NaN/Infinity，如 YAML "60min"）由 safeFinite 回退默认——与 validate() 启动报错构成双层防线（构造层兑底）。
- * F20260920wxho：cooldownMs 退役——同一静默期只提醒一次，入站换新 token 才重置资格。
+ * cooldownMs 退役——同一静默期只提醒一次，入站换新 token 才重置资格。
  * 归属 weixin 配置域，供 platforms.ts 装配层直接消费。
  */
 export function buildContextTokenWarnConfig(
@@ -551,7 +551,7 @@ export function buildContextTokenWarnConfig(
   };
 }
 
-/** 校验 weixin contextTokenWarnMinutes 合法性（正整数或 undefined，F20260901wxnt 发现1；F20260920wxho：cooldown 键退役不再校验） */
+/** 校验 weixin contextTokenWarnMinutes 合法性（正整数或 undefined，发现1；cooldown 键退役不再校验） */
 function validateWeixinWarnConfig(weixin: NonNullable<RawConfig["weixin"]>): void {
   const val = weixin.contextTokenWarnMinutes;
   if (val !== undefined && (typeof val !== "number" || !Number.isInteger(val))) {
@@ -568,7 +568,7 @@ function buildDbConfig(raw: RawConfig): AppConfig["db"] {
 }
 
 function buildMemoryRerankConfig(raw: RawConfig): Pick<AppConfig["memory"], "rerankMode" | "rerank"> {
-  // F20261112rnkph Phase 1 段 1：默认 multiply（零默认行为变更），加法系数按设计回填
+  // 段 1：默认 multiply（零默认行为变更），加法系数按设计回填
   const memory = raw.memory;
   const rawRerank = memory?.rerank;
   return {
@@ -626,7 +626,7 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
   };
 }
 
-/** 微信通道配置（issue #565）：有账号状态目录即启用（token 由 CLI 扫码落盘） */
+/** 微信通道配置：有账号状态目录即启用（token 由 CLI 扫码落盘） */
 function buildWeixinConfig(raw: RawConfig): AppConfig["weixin"] {
   const seg = raw.weixin ?? {};
   // 三字段全空 → 未启用；任一有值 → 给出完整默认（baseUrl/stateDir 有内置缺省）
@@ -642,8 +642,8 @@ function buildWeixinConfig(raw: RawConfig): AppConfig["weixin"] {
   };
 }
 
-/** F20260918imas / F20260920imax：IM 助理模式配置（默认开启；对话永续 + 8h 静默 session 重启；模型可配）。
- *  F20260924wast：web 助理开关归入同段（assistant.web.enabled，默认开启） */
+/**  IM 助理模式配置（默认开启；对话永续 + 8h 静默 session 重启；模型可配）。
+ * web 助理开关归入同段（assistant.web.enabled，默认开启） */
 function buildImConfig(raw: RawConfig): AppConfig["im"] {
   const seg = raw.im?.assistant;
   return {
@@ -671,7 +671,7 @@ function buildInboundConfig(raw: RawConfig): AppConfig["inbound"] {
 
 function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   if (!raw.web?.baseUrl) return undefined;
-  // 协议白名单(审视 F20260812fmdr R5):防止 javascript:/data: 等危险协议被注入到
+  // 协议白名单(审视):防止 javascript:/data: 等危险协议被注入到
   // 飞书侧 html-card 占位符的跳转链接里。配置异常时抛错阻止启动(快失败)
   if (!/^https?:\/\//i.test(raw.web.baseUrl)) {
     throw new Error(
@@ -681,7 +681,7 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
   return { baseUrl: raw.web.baseUrl };
 }
 
-/** 登录口令配置归一化（阶段 2）：空白/未配置一律 undefined，回退到 env / 文件 / 首启生成。
+/** 登录口令配置归一化：空白/未配置一律 undefined，回退到 env / 文件 / 首启生成。
  *  非字符串类型已在 validate() fail-fast；此处防御性兼容（直接调 applyDefaults 的测试路径）。 */
 function buildAuthConfig(raw: RawConfig): AppConfig["auth"] {
   const ownerPassword = typeof raw.auth?.ownerPassword === "string" ? raw.auth.ownerPassword.trim() : "";

@@ -15,11 +15,11 @@ import {
 } from "@entities/execution/connector-protocol";
 
 /** 下线原因（收尾语义分流的依据）：device-offline=主动优雅下线（在途可确定性裁决
- *  interrupted——方案 §6 第4步）；heartbeat-timeout/hub-restart=意外断开（在途真相
+ * interrupted——第4步）；heartbeat-timeout/hub-restart=意外断开（在途真相
  * 不明落 unknown，不对称边界） */
 export type ConnectorSessionDownReason = "device-offline" | "heartbeat-timeout" | "hub-restart";
 
-/** （C2）：动作通道面——RemoteExecutionMachine 依赖的网关能力子集（测试可 fake） */
+/** 动作通道面——RemoteExecutionMachine 依赖的网关能力子集（测试可 fake） */
 export interface ConnectorActionChannel {
   /** 向设备在线连接发帧；离线/无连接返回 false */
   sendToDevice(deviceId: string, frame: ConnectorFrame): boolean;
@@ -38,15 +38,15 @@ interface LiveConnection {
 }
 
 /**
- * （阶段 4 C1）：connector WSS 网关——upgrade 鉴权（6c：子协议 pin + Origin 白名单
+ * connector WSS 网关——upgrade 鉴权（子协议 pin + Origin 白名单
  *  + Bearer token 三查）+ 协议 v1
  * （hello/heartbeat/offline + sid 会话代际）+ 总闸库层状态机。
  *
- * 事实源纪律（方案 v3 §3/）：online_sessions 表是唯一事实源——上线/下线先落库，
+ * 事实源纪律：online_sessions 表是唯一事实源——上线/下线先落库，
  * Registry 内存投影随后（先库后内存；库写失败 fail-closed 关通道，宁误下线不误放行）。
  * 旧 sid 帧一律静默丢弃 + 计数日志（模块 C 红线：重连≠恢复）。
  *
- * C1 边界：只承载通道与会话；动作帧（action.request/result）C2 落地——本网关收到
+ * 边界：只承载通道与会话；动作帧（action.request/result）落地——本网关收到
  * 未知类型帧回 error/protocol。
  */
 export class ConnectorWsGateway {
@@ -65,17 +65,17 @@ export class ConnectorWsGateway {
     private readonly machineRegistry: ExecutionMachineRegistry,
     private readonly logger: Logger,
     private readonly deps: {
-      /** 执行机投影工厂：上线时注册进 Registry（C1 装配处传占位投影，C2 换真 RemoteExecutionMachine） */
+      /** 执行机投影工厂：上线时注册进 Registry（装配处传占位投影，换真 RemoteExecutionMachine） */
       makeMachineProjection?: (deviceId: string, deviceName: string) => ExecutionMachine;
       now?: () => number;
-      /** （阶段 6c）Origin 白名单（exact match）：带 Origin 的升级请求必须命中，否则 403。
+      /** Origin 白名单（exact match）：带 Origin 的升级请求必须命中，否则 403。
        *  未配置（空）= fail-closed 拒所有带 Origin 请求——connector 是 node 客户端不发
        *  Origin 不受影响；防浏览器 CSWSH 与公网跨站探测。 */
       allowedOrigins?: string[];
     } = {},
   ) {
-    // noServer 模式：upgrade 事件由宿主 HTTP server 路由进来（同端口，方案 §2）；
-    // 子协议回显（6c）：升级层已校验声明，握手响应回显 pin 值完成协商
+    // noServer 模式：upgrade 事件由宿主 HTTP server 路由进来（同端口）；
+    // 子协议回显：升级层已校验声明，握手响应回显 pin 值完成协商
     this.wss = new WebSocketServer({
       noServer: true,
       handleProtocols: () => CONNECTOR_WS_SUBPROTOCOL,
@@ -83,7 +83,7 @@ export class ConnectorWsGateway {
     this.wss.on("connection", (socket, request) => this.onConnection(socket, request));
   }
 
-  /** 宿主 server upgrade 路由挂载点：升级请求双查（6c：子协议 pin + Origin 白名单）
+  /** 宿主 server upgrade 路由挂载点：升级请求双查（子协议 pin + Origin 白名单）
    *  + Bearer token 校验（fail-closed 拒升级）。非 connector 路径直接返回 false（交还
    *  宿主处理）；鉴权失败返回 true + reject 回执（子协议/Origin 查先于 token——扫描器
    *  与通用 WS 客户端在指纹层即拒，不进 token 查询路径）。 */
@@ -107,7 +107,7 @@ export class ConnectorWsGateway {
     return true;
   }
 
-  /** （6c）升级指纹双查：①子协议 pin（必须声明 otter-connector.v1——通用客户端/扫描器
+  /** 升级指纹双查：①子协议 pin（必须声明 otter-connector.v1——通用客户端/扫描器
    *  挡在指纹层，不进 token 查询路径）②Origin 白名单（无 Origin 放行；带 Origin 必须
    *  命中，白名单空 = fail-closed 拒所有带 Origin 请求——浏览器 CSWSH 纵深防御）。
    *  返回 [code, reason] = 拒；null = 过。*/
@@ -230,8 +230,8 @@ export class ConnectorWsGateway {
     return live;
   }
 
-  /** 下线五步的通道侧（C1）：库表 offline（幂等）→ Registry 注销投影 → 关通道。
-   *  queued/running 动作收尾与晚到回执丢弃随 C2 remote_action_requests 落地。 */
+  /** 下线五步的通道侧：库表 offline（幂等）→ Registry 注销投影 → 关通道。
+   * queued/running 动作收尾与晚到回执丢弃随 remote_action_requests 落地。 */
   private async shutdown(live: LiveConnection, reason: ConnectorSessionDownReason, code: number, message: string): Promise<void> {
     this.connections.delete(live.sessionId);
     if (this.deviceIndex.get(live.deviceId) === live.sessionId) this.deviceIndex.delete(live.deviceId);
@@ -264,7 +264,7 @@ export class ConnectorWsGateway {
     }, CONNECTOR_HEARTBEAT_TIMEOUT_MS / 3);
   }
 
-  /** 中枢启动清扫：所有 online 行落 offline/hub-restart（方案 §3 D2；幂等） */
+  /** 中枢启动清扫：所有 online 行落 offline/hub-restart（幂等） */
   async sweepStaleSessionsOnBoot(): Promise<number> {
     const swept = await this.repo.sweepStaleOnlineSessions(new Date(this.now()).toISOString());
     if (swept > 0) this.logger.info("swept stale online sessions on boot", { swept });
@@ -280,7 +280,7 @@ export class ConnectorWsGateway {
     return this.staleFrameDrops;
   }
 
-  /** F20261118remex（C2）：动作通道面实现（ConnectorActionChannel） */
+  /** 动作通道面实现（ConnectorActionChannel） */
   sendToDevice(deviceId: string, frame: ConnectorFrame): boolean {
     const sessionId = this.deviceIndex.get(deviceId);
     if (!sessionId) return false;

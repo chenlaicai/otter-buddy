@@ -1,5 +1,5 @@
 /**
- * RHI 信号老化扫描（§3）。
+ * RHI 信号老化扫描。
  *
  * 现场事故：40 条 critical bug_recurrence 信号最老挂 23 天（2026-08-25 first_seen），
  * 已全部聚入 但 issue 仍 open——RHI 信号池（signals 表）无任何老化/升级机制，
@@ -17,7 +17,7 @@
  * 数组），不逐条落——存量场景一次 40 条同根因告警 = 呻吟轰炸，消耗处置注意力。
  * 獭间 SignalAgingWorker 不做聚合是因为其信号量小；RHI 量级差异显式处理。
  *
- * 孤儿 healing 清理（S3 修订）：信号终态化（resolved/dismissed）后，其对应 aging healing
+ * 孤儿 healing 清理（修订）：信号终态化（resolved/dismissed）后，其对应 aging healing
  * 同步自动销号（context.signalId 单条格式 + context.signalIds 聚合格式都匹配——
  * mimo delta 附言：两种字段名都要兼容），避免指向已不存在问题的告警挂在自愈台账成噪音债。
  *
@@ -123,7 +123,7 @@ export class RhiSignalAgingWorker {
     const result: RhiSignalAgingResult = { scannedAt, agedCount: 0, alertsCreated: 0, orphanHealingsResolved: 0 };
     if (!signalRepo || !healingRepo) return result;
 
-    // ── 孤儿 healing 清理（S3）：信号已终态化 → 对应 aging healing 自动销号 ──
+    // ── 孤儿 healing 清理：信号已终态化 → 对应 aging healing 自动销号 ──
     result.orphanHealingsResolved = await this.resolveOrphanHealings(signalRepo, healingRepo, scannedAt);
 
     // ── 老化扫描：未接单（按 first_seen 计时）+ 归口停滞（按 triaged_at 计时） ──
@@ -210,7 +210,7 @@ export class RhiSignalAgingWorker {
     });
   }
 
-  /** 孤儿 healing 清理（S3）：终态化信号对应的 aging healing 自动销号 */
+  /** 孤儿 healing 清理：终态化信号对应的 aging healing 自动销号 */
   private async resolveOrphanHealings(
     signalRepo: SignalRepository,
     healingRepo: HealingEventRepository,

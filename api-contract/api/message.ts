@@ -5,7 +5,7 @@ export interface MessageSegmentDTO {
   sequenceNum: number;
 }
 
-/** 消息响应 DTO（前端短字段名映射，D57） */
+/** 消息响应 DTO（前端短字段名映射） */
 export interface MessageDTO {
   id: string;
   st: string;
@@ -26,9 +26,9 @@ export interface MessageDTO {
   src?: string;
   /** 消息分段数组（多 speak 气泡），仅 agent 消息且 segments 非空时携带 */
   segments?: MessageSegmentDTO[];
-  /** 消息关联的獭间信号（C4）——徽章在消息原位渲染，仅 otter 消息且有关联信号时携带 */
+  /** 消息关联的獭间信号——徽章在消息原位渲染，仅 otter 消息且有关联信号时携带 */
   signals?: MessageSignalDTO[];
-  /** 多模态 Phase 1：消息携带的附件（仅 attachments 非空时携带） */
+  /** 多模态 消息携带的附件（仅 attachments 非空时携带） */
   atts?: AttachmentDTO[];
   events?: MessageEventDTO[];
 }
@@ -49,17 +49,17 @@ export interface SignalTrailItemDTO {
   state: "PENDING" | "CONSUMING" | "CONSUMED" | "FAILED";
   ts: string;
   seq: number;
-  /** FAILED 态展示失败原因（attempt.note，含 retry 前情压缩——§8.2 折中）；其余态 null */
+  /** FAILED 态展示失败原因（attempt.note，含 retry 前情压缩——折中）；其余态 null */
   note?: string | null;
 }
 
 export interface SignalTrailResponseDTO {
   items: SignalTrailItemDTO[];
-  /** S3.5：会话调度闸门状态（横幅数据源）；路由器未注入时 null */
+  /** 会话调度闸门状态（横幅数据源）；路由器未注入时 null */
   gate?: { halted: boolean; rateLimitedUntil: string | null } | null;
 }
 
-/** 消息关联的獭间信号（C4：UI 徽章数据源） */
+/** 消息关联的獭间信号（UI 徽章数据源） */
 export interface MessageSignalDTO {
   id: string;
   type: "objection" | "blocked" | "halt";
@@ -88,7 +88,7 @@ export interface MessageEventDTO {
   createdAt: string;
 }
 
-/** 附件 DTO（多模态 Phase 1，消息携带的附件透出；扩 kind 值域 audio/video） */
+/** 附件 DTO（多模态 消息携带的附件透出；扩 kind 值域 audio/video） */
 export interface AttachmentDTO {
   id: string;
   kind: "image" | "document" | "audio" | "video";
@@ -99,7 +99,7 @@ export interface AttachmentDTO {
   height?: number | null;
 }
 
-/** 上传响应 DTO（多模态 Phase 1） */
+/** 上传响应 DTO（多模态） */
 export interface UploadAttachmentResponseDTO {
   attachments: AttachmentDTO[];
 }
@@ -112,7 +112,7 @@ export interface SendMessageRequestDTO {
   body: string;
   /** 受限外部适配器消息：启用受限工具与全局记忆隔离；缺省 web 保持原行为。 */
   source?: "external";
-  /** 多模态 Phase 1：随消息引用的附件 ID（上传 API 先返回；可选，向后兼容） */
+  /** 多模态 随消息引用的附件 ID（上传 API 先返回；可选，向后兼容） */
   attachmentIds?: string[];
   /** 注入方式（目标 running 时）。steer=打断当前生成立即注入（默认，
    *  向后兼容）；followUp=排队等当前轮说完再接（不打断） */

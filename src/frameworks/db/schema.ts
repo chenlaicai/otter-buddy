@@ -33,7 +33,7 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
   try {
     createConversationTables(db);
     createMemoryTables(db);
-    /** P2b1：夜间审视治量结构（幂等键 + 失败区间 + 连败计数）。
+    /** 夜间审视治量结构（幂等键 + 失败区间 + 连败计数）。
      *  新表只写 schema.ts 一处（bootstrap 无条件幂等 initSchema，老库自动补建）。 */
     createConsolidationStateTable(db);
     createTerminologyTables(db);
@@ -52,9 +52,9 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createHealthSnapshotsTable(db);
     createSignalsTable(db);
     createSignalEventsTable(db);
-    /** P1：matters 表（待办——per-conversation 承诺台账）。
+    /** matters 表（待办——per-conversation 承诺台账）。
      * 同构 signal_events但语义不同（持续工作单元 ≠ 瞬时信号），
-     * 不复用。字段/索引严格按 §1 字段表。 */
+     * 不复用。字段/索引严格按 字段表。 */
     createMattersTable(db);
     /** 派工台账正式表（本 PR 核心）。dispatch_attempts 与
      * restart_pending_resumes 随 main 批次（/ctlv）退役。 */
@@ -70,11 +70,11 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
     createRestartPendingResumesTable(db);
     /** 三麻：牌局元数据 + 逐帧快照（断线恢复/复盘/哈希链）。新表走 幂等补建 */
     createMahjongTables(db);
-    /** （阶段 4 C1）：connector 设备注册——devices（配对身份）+
+    /** connector 设备注册——devices（配对身份）+
      *  online_sessions（执行授权会话，总闸唯一事实源；每 device 至多一 online 行的
      * partial unique index 库层兜底）+ pairing_codes（一次性配对码）。新表走 幂等补建 */
     createConnectorRegistryTables(db);
-    /** （阶段 4 C2）：中枢侧远程动作请求登记（五态投影，恢复摘要数据源） */
+    /** 中枢侧远程动作请求登记（五态投影，恢复摘要数据源） */
     createRemoteActionRequestsTable(db);
     /** 工作账本投影（work_items / work_item_traces / conversation_active_work）。
      *  独立工作 ≠ conversation 的成本归集单位——详见特性文档「核心数据结构」；
@@ -111,13 +111,13 @@ export function initSchema(db: Database.Database, logger?: Logger): void {
   }
 }
 
-/** #506: sqlite_master 表名清单（type='table'）。守卫测试与差集日志共用。 */
+/** sqlite_master 表名清单（type='table'）。守卫测试与差集日志共用。 */
 function listTableNames(db: Database.Database): string[] {
   return (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
     .all() as Array<{ name: string }>).map(r => r.name);
 }
 
-/** F20261015mjsg：三麻牌局比赛元数据 + 逐帧快照（哈希链：prev_hash→hash 防篡改，断线从最新帧恢复） */
+/** 三麻牌局比赛元数据 + 逐帧快照（哈希链：prev_hash→hash 防篡改，断线从最新帧恢复） */
 function createMahjongTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS mahjong_games (
@@ -157,14 +157,14 @@ function createConversationTables(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT,
       archived_at TEXT,
-      /* （阶段 5 PR-A）：对话级当前执行机——NULL=默认 local
+      /* 对话级当前执行机——NULL=默认 local
        * （存量对话零迁移行为不变）；显式切换不自动漂移（设备下线不回切，fail-closed） */
       current_machine_id TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
   `);
-  // F20261118crtgr（#1868 阶段 5 PR-A，m3a 检视归位）：存量库迁移——conversations.current_machine_id 列
+  // （检视归位）：存量库迁移——conversations.current_machine_id 列
   // （幂等 ALTER：新库 CREATE TABLE 已含，旧库补列；同 introduced_by_pr 模式但归 conversations 建表函数）
   try {
     db.exec(`ALTER TABLE conversations ADD COLUMN current_machine_id TEXT`);
@@ -188,7 +188,7 @@ function createConversationTables(db: Database.Database): void {
 
 
 /** 记忆上下文：memory_entries + memory_weights + FTS5 + vec0 */
-/* eslint-disable max-lines-per-function -- F20260811mrpy 加入 embedding_meta 后表增多 */
+/* eslint-disable max-lines-per-function -- 加入 embedding_meta 后表增多 */
 function createMemoryTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS memory_entries (
@@ -222,7 +222,7 @@ function createMemoryTables(db: Database.Database): void {
     );
   `);
 
-  // F20260805hybrid: jieba 分词表，支持中文短查询
+  // jieba 分词表，支持中文短查询
   // F370: memory_fts (trigram) 只写不查，已移除——旧库残留表无害，不主动 DROP
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts_jieba USING fts5(
@@ -231,7 +231,7 @@ function createMemoryTables(db: Database.Database): void {
     );
   `);
 
-  /** vec0 虚拟表：sqlite-vec 不可用时跳过（D22 降级模式） */
+  /** vec0 虚拟表：sqlite-vec 不可用时跳过（降级模式） */
   try {
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS memory_vec USING vec0(
@@ -244,7 +244,7 @@ function createMemoryTables(db: Database.Database): void {
     console.warn("sqlite-vec extension not available, falling back to FTS5-only search");
   }
 
-  // F20260811mrpy Part 3：Embedding 版本锚（key-value 结构）
+  // Embedding 版本锚（key-value 结构）
   // 记录当前 memory_vec 中向量是用哪个 modelId/modelRev/dim 生成的，
   // bootstrap 时校验，不一致则降级为纯 FTS（避免新查询与旧向量混跑导致召回静默变差）。
   db.exec(`
@@ -255,7 +255,7 @@ function createMemoryTables(db: Database.Database): void {
     );
   `);
 
-  // F20260826rcmm Phase 0：检索埋点——search_memory 真实调用记录。
+  // 检索埋点——search_memory 真实调用记录。
   // 评估基线数据源：查询 + top 命中 + 对话上下文快照（标注者还原意图用）。
   // 上下文与 top ID 用 JSON 存 TEXT（一次性评估流程，不做关系型拆表）。
   // 只增不删（评估期结束后可整表 DROP）。无 FK——埋点是旁路观测，不与主数据耦合。
@@ -277,7 +277,7 @@ function createMemoryTables(db: Database.Database): void {
       ON search_query_logs (created_at);
   `);
 
-  // F20260812mrcq Part 1：embedding 失败重试队列。
+  // embedding 失败重试队列。
   // store-memory.ts 的 fire-and-forget embedding 失败后入队，
   // 由 EmbeddingRetryWorker tick 消费（指数退避），3 次失败转 dead-letter。
   // content 不冗余存储——retry worker 用 JOIN memory_entries 获取（entry content 不可变）。
@@ -299,12 +299,12 @@ function createMemoryTables(db: Database.Database): void {
       ON embedding_tasks (status, next_retry_at);
   `);
 
-  // F20260813mren: 记忆关系层——memory_entries 之间的有向关系边。
+  // 记忆关系层——memory_entries 之间的有向关系边。
   // 把 flat 数据变成可声明、可遍历的记忆图，让 LLM 拼证据链/因果链/发展链。
-  // D4: 无 direction 字段——relates-to 查询层自动双向（from OR to），其余单向。
-  // D7: 不依赖 FK CASCADE（与 embedding_tasks 一致），清理走 deleteBySource 内手动 DELETE。
+  // 无 direction 字段——relates-to 查询层自动双向（from OR to），其余单向。
+  // 不依赖 FK CASCADE（与 embedding_tasks 一致），清理走 deleteBySource 内手动 DELETE。
   //      文档 chunk entry（fine 粒度）sync 时 replaceEntriesBySource 删旧建新，
-  //      所以 D3 限制 link_memory 只能对 coarse entry 建边（CreateEdge use case 校验）。
+  // 所以 限制 link_memory 只能对 coarse entry 建边（CreateEdge use case 校验）。
   db.exec(`
     CREATE TABLE IF NOT EXISTS memory_edges (
       id TEXT PRIMARY KEY,
@@ -325,7 +325,7 @@ function createMemoryTables(db: Database.Database): void {
   `);
 }
 
-/** P2b1：夜间审视治量结构（otter-memory-design v4 §4.4）。
+/** 夜间审视治量结构（otter-memory-design v4）。
  *  幂等键 review:{date}:{taskId} 一行一档；failed_range=[failed_after, failed_through] 区间不是点，
  *  连败计数绑定该区间；result_json 非空 = 已 settle（撞键直接返回原结果）。 */
 function createConsolidationStateTable(db: Database.Database): void {
@@ -385,12 +385,12 @@ function createTerminologyTables(db: Database.Database): void {
   `);
 }
 
-/** F20261013csv3 T1：unfurl 预览缓存表——P1「数据先行」原则的持久化载体。
+/** unfurl 预览缓存表——「数据先行」原则的持久化载体。
  *  抓取结果（含失败）落库，渲染读库不触网；fetched_at 走应用层 ISO 8601 写入
- *  （不设 SQL DEFAULT，防空格格式与 ISO 混排产生字典序偏移——R2）。
- *  source 三分支 TTL：og 永久 / failed 7 天窗口 / github-api 24h SWR（A3）。
- *  state/additions/deletions：github-api 记录的结构化字段（T2 PR 卡 join 投影数据源——
- *  方案 DDL 与 T2 数据流存在张力，本实现按数据流要求补列，记录在特性文档实现偏差节）。 */
+ * （不设 SQL DEFAULT，防空格格式与 ISO 混排产生字典序偏移）。
+ * source 三分支 TTL：og 永久 / failed 7 天窗口 / github-api 24h SWR。
+ * state/additions/deletions：github-api 记录的结构化字段（PR 卡 join 投影数据源——
+ * 方案 DDL 与 数据流存在张力，本实现按数据流要求补列，记录在特性文档实现偏差节）。 */
 function createUnfurlCacheTable(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS unfurl_cache (
@@ -410,9 +410,9 @@ function createUnfurlCacheTable(db: Database.Database): void {
     );
   `);
 
-  // #1463（F20261030draft）：unfurl_cache 存量库迁移——is_draft 列（DRAFT 徽章数据源）。
-  // 幂等同 introduced_by_pr 模式；每列独立 try/catch（r1-A2 教训）。
-  // 放本建表函数尾部（各表迁移归自己建表函数——healing 三列迁移同款惯例，检视 r1 建议 3）
+  // unfurl_cache 存量库迁移——is_draft 列（DRAFT 徽章数据源）。
+  // 幂等同 introduced_by_pr 模式；每列独立 try/catch（-教训）。
+  // 放本建表函数尾部（各表迁移归自己建表函数——healing 三列迁移同款惯例）
   try {
     db.exec(`ALTER TABLE unfurl_cache ADD COLUMN is_draft INTEGER`);
   } catch {
@@ -523,7 +523,7 @@ function createParticipantTables(db: Database.Database): void {
   `);
 }
 
-/** Agent Session 映射表（Otter ↔ Pi Session，R12） */
+/** Agent Session 映射表（Otter ↔ Pi Session） */
 function createAgentSessionsTable(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_sessions (
@@ -562,8 +562,8 @@ function createOtterContextTable(db: Database.Database): void {
 }
 
 
-/** 文档表：features + research（F20260721qh74 文档数据模型）
- *  F20260803mval: 移除 change_type/status/exploration_type 的 CHECK 约束，
+/** 文档表：features + research（文档数据模型）
+ * 移除 change_type/status/exploration_type 的 CHECK 约束，
  *  枚举合法性改由应用层 known-values.ts 单一真相源判定。DB 不再做枚举约束，
  *  避免工作流演进时 DB CHECK 与应用层同步过期（曾导致 41 文档入库失败）。 */
 function createDocumentTables(db: Database.Database): void {
@@ -613,7 +613,7 @@ function createDocumentTables(db: Database.Database): void {
   `);
 }
 
-/** 定时任务表：scheduled_tasks + scheduled_task_executions（F20260721x8k9） */
+/** 定时任务表：scheduled_tasks + scheduled_task_executions */
 function createScheduledTaskTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
@@ -753,7 +753,7 @@ function createHealingEventTables(db: Database.Database): void {
   `);
 
 
-  // F20260824ax376: 存量数据库迁移——introduced_by_pr 列
+  // 存量数据库迁移——introduced_by_pr 列
   // ALTER TABLE ADD COLUMN 幂等：列已存在时 SQLite 抛错，try/catch 静默处理
   // 策略：不引入独立迁移框架，保持 initSchema 幂等可重复调用的设计
   try {
@@ -761,8 +761,8 @@ function createHealingEventTables(db: Database.Database): void {
   } catch {
     // 列已存在，忽略
   }
-  // #1271（F20261008hbbd）：存量库迁移——归口链两列。同 introduced_by_pr 幂等模式（F20260930esqu 迁移自检先例：
-  // 生产副本真启动验证见 PR Verification 节）。r1-A2：每列独立 try/catch——共用单块时
+  // 存量库迁移——归口链两列。同 introduced_by_pr 幂等模式（迁移自检先例：
+  // 生产副本真启动验证见 PR Verification 节）。-每列独立 try/catch——共用单块时
   // 第一列成功第二列抛错会被整体吞掉，半迁移状态只能靠 migration.ts 兜底，双路径不一致
   try {
     db.exec(`ALTER TABLE healing_events ADD COLUMN bound_issue INTEGER`);
@@ -774,12 +774,12 @@ function createHealingEventTables(db: Database.Database): void {
   } catch {
     // 列已存在，忽略
   }
-  // #1271（F20261008hbbd）：归口链查询索引——batch_bind 作用面探测（bound_issue IS NULL）
+  // 归口链查询索引——batch_bind 作用面探测（bound_issue IS NULL）
   // 与修复合入后按 issue 收尾（bound_issue = N）都是高频路径，无索引全表扫。
   // 必须放在补列之后：索引在建表块内时存量库（IF NOT EXISTS no-op、列尚不存在）启动即炸
   db.exec(`CREATE INDEX IF NOT EXISTS idx_healing_events_bound_issue ON healing_events(bound_issue)`);
 
-  // F20261105embqg：embedding_tasks 存量库迁移——priority 列（0=活消息 1=默认 2=全量重算）。
+  // embedding_tasks 存量库迁移——priority 列（0=活消息 1=默认 2=全量重算）。
   // 同 introduced_by_pr 幂等模式；存量行默认 1（默认级）。索引同样放在补列之后。
   try {
     db.exec(`ALTER TABLE embedding_tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 1`);
@@ -877,7 +877,7 @@ function createDispatchRecordsTable(db: Database.Database): void {
   `);
 }
 
-/** Signal events 表（F20260826mwrd C1：獭间结构化信号台账，halt 落账 + C2 objection/blocked）。
+/** Signal events 表（獭间结构化信号台账，halt 落账 + objection/blocked）。
  *  注意与 health 域的 signals 表（healing 去重聚合）无关——命名区分见特性文档「为什么不复用」节。 */
 function createSignalEventsTable(db: Database.Database): void {
   db.exec(`
@@ -904,10 +904,10 @@ function createSignalEventsTable(db: Database.Database): void {
   `);
 }
 
-/** Matters 表（F20261006mtlp P1）：待办——per-conversation 承诺台账。
- *  消费方声明（方案 §1 ⑥纪律）：
+/** Matters 表：待办——per-conversation 承诺台账。
+ * 消费方声明（⑥纪律）：
  *  读方 = ①右侧栏「待办」tab ②restart 机械供料（handoff_open_matters）
- *      ③三省吾身未闭环扫描（P3）④獭侧 matter 工具（list_matters/transition_matter）
+ * ③三省吾身未闭环扫描④獭侧 matter 工具（list_matters/transition_matter）
  *  写路径 = usecases/matter 登记/裁决/闭环/翻案 usecase（状态迁移单入口，见 transition-matter.ts）。
  *  单一真相源纪律：状态只在 matters 表，流内消息只是投影。 */
 function createMattersTable(db: Database.Database): void {
@@ -936,8 +936,8 @@ function createMattersTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_matters_waiting_on ON matters(waiting_on);
   `);
 
-  // #1457（F20261019fckd）：存量库迁移——closure_kind 列（存量 NULL 保守视同 decision，守卫不放开）。
-  // 同 healing_events introduced_by_pr 幂等模式（F20260824ax376）：列已存在时 SQLite 抛错，静默忽略。
+  // 存量库迁移——closure_kind 列（存量 NULL 保守视同 decision，守卫不放开）。
+  // 同 healing_events introduced_by_pr 幂等模式：列已存在时 SQLite 抛错，静默忽略。
   try {
     db.exec(`ALTER TABLE matters ADD COLUMN closure_kind TEXT`);
   } catch {
@@ -1049,9 +1049,9 @@ function createPaperTradingTables(db: Database.Database): void {
 
 
 
-/** 附件表（多模态 Phase 1）：attachments（message_attachments 已随批4c 删除，关联走 entry_attachments）。
+/** 附件表（多模态）：attachments（message_attachments 已随批4c 删除，关联走 entry_attachments）。
  *  附件与消息解耦（先上传拿 ID 再随消息引用）；sha256+uploader 唯一索引支持去重
- *  （撞唯一索引返回已有行 id）。F20260728htar 死字段教训：每字段消费方见特性文档。 */
+ * （撞唯一索引返回已有行 id）。死字段教训：每字段消费方见特性文档。 */
 function createAttachmentTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS attachments (
@@ -1074,7 +1074,7 @@ function createAttachmentTables(db: Database.Database): void {
   `);
 }
 
-/** Invoke 表：invokes + invoke_events（F20260913ctlv） */
+/** Invoke 表：invokes + invoke_events */
 function createInvokeTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS invokes (
@@ -1121,7 +1121,7 @@ function createInvokeTables(db: Database.Database): void {
   `);
 }
 
-/** 重启自动恢复队列（F20260916b1ea：F20260826rsme 同名机制重建，invoke 模型版）。
+/** 重启自动恢复队列（同名机制重建，invoke 模型版）。
  *  原子 claim（attempts CAS）+ crash-resilience（pending 持久跨重启）+ 上限（exhausted）
  *  三保障承载体；scheduled 任务来源 invoke 不入队（trigger_entry_id 为 NULL 或
  *  指向 system entry——reconcile 入队时排除，防定时任务恢复重复产出）。 */
@@ -1136,7 +1136,7 @@ function createRestartPendingResumesTable(db: Database.Database): void {
       attempts INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       settled_at TEXT,
-      /* PR-B：认领绑定 claim token/boot epoch（恢复者自身崩溃不留死锁，
+      /* 认领绑定 claim token/boot epoch（恢复者自身崩溃不留死锁，
        *  旧纪元残留可被新开机重认领——重认领前判旧持有者 pid 死活防双跑）
        *  + 恢复轮 invoke 审计链（追加式，多次恢复全历史） */
       claim_token TEXT,
@@ -1149,7 +1149,7 @@ function createRestartPendingResumesTable(db: Database.Database): void {
   `);
 }
 
-/** Entries 表（F20260913ctlv：取代 messages + message_segments） */
+/** Entries 表（取代 messages + message_segments） */
 function createEntryTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS entries (
@@ -1195,7 +1195,7 @@ function createEntryTables(db: Database.Database): void {
   `);
 }
 
-/** Entries 全文搜索（F20260913ctlv：取代 messages_fts） */
+/** Entries 全文搜索（取代 messages_fts） */
 function createEntryFtsTable(db: Database.Database): void {
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
@@ -1206,7 +1206,7 @@ function createEntryFtsTable(db: Database.Database): void {
   `);
 }
 
-/** F20261027hwl1：工作账本投影三表。
+/** 工作账本投影三表。
  *  工作定义（特性文档「目标」节）：有独立目标、边界和结束状态的一次工作承诺——
  *  一段对话可有多件工作，一件工作可跨对话。三表是只读观测投影的存储底座：
  *  - work_items：工作主档（含 origin 证据与 evidence_quality——历史部分归属不冒充精确账）
@@ -1266,7 +1266,7 @@ function createWorkLedgerTables(db: Database.Database): void {
   `);
 }
 
-/** F20261117cnnct（#1868 阶段 4 C1）：connector 注册三表（配对身份/执行授权会话/一次性配对码） */
+/** connector 注册三表（配对身份/执行授权会话/一次性配对码） */
 function createConnectorRegistryTables(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS devices (
@@ -1286,7 +1286,7 @@ function createConnectorRegistryTables(db: Database.Database): void {
       disconnect_reason TEXT CHECK(disconnect_reason IS NULL OR disconnect_reason IN ('device-offline', 'heartbeat-timeout', 'hub-restart', 'auth-failed')),
       last_seen_at TEXT NOT NULL,
       protocol_version INTEGER,
-      /* CASCADE：撤销设备 = 身份+token+会话史彻底清除（动作审计归 remote_action_requests，C2） */
+      /* CASCADE：撤销设备 = 身份+token+会话史彻底清除（动作审计归 remote_action_requests） */
       FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
     );
 
@@ -1306,7 +1306,7 @@ function createConnectorRegistryTables(db: Database.Database): void {
   `);
 }
 
-/** F20261118remex（#1868 阶段 4 C2）：远程动作请求登记表（R1 落点 + R2 恢复摘要并入） */
+/** 远程动作请求登记表（落点 + 恢复摘要并入） */
 function createRemoteActionRequestsTable(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS remote_action_requests (

@@ -13,7 +13,7 @@ import { createTestExecutionMachineRegistry } from "../../helpers/execution-mach
  * 策略：与 pool-hit-path.test.ts 同款——mock 掉 SDK 两侧，直接构造 poolMeta 双活
  * 状态，打真实私有方法 _evictPooledIfOwned（经 internals 逸出访问），锁定三个分支：
  * 归属自己 → evict；归属他人（stale 双活）→ 保留；池内无条目 → 安全跳过。
- * 新增 epoch 缺失 → 拒绝 evict + warn（D3 fail-loud）分支。
+ * 新增 epoch 缺失 → 拒绝 evict + warn（fail-loud）分支。
  */
 import { describe, it, expect, vi } from "vitest";
 

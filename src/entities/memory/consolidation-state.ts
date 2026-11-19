@@ -1,7 +1,7 @@
 /**
- * P2b1：夜间审视治量结构（otter-memory-design v4 §4.4）。
+ * 夜间审视治量结构（otter-memory-design v4）。
  *
- * 「治量结构 > 内容」——夜间审视调度器（P2b2）的幂等与失败治理档案点。
+ * 「治量结构 > 内容」——夜间审视调度器的幂等与失败治理档案点。
  * 解决的问题：夜审是 LLM 会话，重跑两次产出必不同（非确定性），必须有存档点判重；
  * 崩溃/停机重跑必须「不丢不重」，从旧水位继续。
  *
@@ -14,14 +14,14 @@
  * 本实体只做形态定义与纯函数；写入/迁移判断在 usecase（manage-consolidation-state.ts）。
  */
 
-/** 同区间连败阈值：达到后跳过该区间 + 报 healing（P2b2 编排侧消费） */
+/** 同区间连败阈值：达到后跳过该区间 + 报 healing（编排侧消费） */
 export const MAX_CONSECUTIVE_FAILURES = 3;
 
-/** P2b2：夜间审视任务的固定 taskId（单任务日审——幂等键第二维度） */
+/** 夜间审视任务的固定 taskId（单任务日审——幂等键第二维度） */
 export const NIGHT_REVIEW_TASK_ID = "night-review";
 
 /**
- * P2b2：快照范围写入夜审獭 otter context 的 key。
+ * 快照范围写入夜审獭 otter context 的 key。
  * 编排召唤时写入 {after, through}（JSON 字符串）；三迁移工具执行时读取并校验
  * 目标 belief 的 createdAt 在范围内（fail-closed：无此 key 即拒——非编排召唤的獭
  * 无从获得迁移权）。白名单恒 5 工具不含 set_context，LLM 无法篡改。

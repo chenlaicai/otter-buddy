@@ -15,7 +15,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3116',
-    // 阶段 2：登录后会话 cookie 统一进 storageState（global-setup 写入）
+    // 登录后会话 cookie 统一进 storageState（global-setup 写入）
     storageState: 'e2e/.auth/owner.json',
   },
   outputDir: './test-results',

@@ -38,7 +38,7 @@ async function createHealingConversation(
   const conversation = await deps.manageConversation.create({ title: HEALING_CONVERSATION_TITLE });
   await pinHealing(deps.manageConversation, conversation.id, deps.logger);
 
-  // M1: 通过 otterRepo 验证 type === 'big'，不依赖参与者顺序
+  // 通过 otterRepo 验证 type === 'big'，不依赖参与者顺序
   const participants = await deps.convRepo.getActiveParticipants(conversation.id);
   let bigOtterId: string | undefined;
   for (const p of participants) {

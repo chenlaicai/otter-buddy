@@ -8,15 +8,15 @@
  * worker 旁路（rhi-scan-worker.persistSnapshot）与 score 端点共用同一实现。
  *
  * 维度口径（实测校准版）：
- * - D1 质量成本: bugfix_ratio 分段线性 min(100, 100×max(0,(0.55-ratio)/0.30))
+ * - 质量成本: bugfix_ratio 分段线性 min(100, 100×max(0,(0.55-ratio)/0.30))
  *   三档锚点：≤25% 满分 / 40% = 50 / ≥55% 归零
- * - D2 架构稳定: 100 - bugfixReworkRate×250 - imbalance触发?20:0（返工率，与 D1/信号错位）
- * - D3 交付活力: active占比×100 - regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分（四态：
- * pr-stalled 投影 stalled 顶上原 zombie 权重位，降至 ×50；D5 分母口径不变——
+ * - 架构稳定: 100 - bugfixReworkRate×250 - imbalance触发?20:0（返工率，与 /信号错位）
+ * - 交付活力: active占比×100 - regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分（四态：
+ * pr-stalled 投影 stalled 顶上原 zombie 权重位，降至 ×50；分母口径不变——
  *   active+stalled 仍为「活跃+停滞中」链）
- * - D4 流程合规: compliance_rate×100（线性）
- * - D5 信号压力: 100-(critical密度×40+warning密度×30)（clamp）；
- *   活跃链 = state∈{active,stalled}（zombie/orphan 积压由 D3 惩罚，不重复压 D5）
+ * - 流程合规: compliance_rate×100（线性）
+ * - 信号压力: 100-(critical密度×40+warning密度×30)（clamp）；
+ * 活跃链 = state∈{active,stalled}（zombie/orphan 积压由 惩罚，不重复压）
  *
  * 无数据维度（如回填历史无 chain_states）：score=null（「—」），
  * 不参与综合分加权，综合分按其余维度权重归一。
@@ -55,7 +55,7 @@ export const DIMENSION_PLAIN_NAMES: Record<DimensionId, string> = {
   D5: "告警处置",
 };
 
-/** D3 链状态枚举 → 中文（归因句不裸奔英文枚举值）。改此文案须同步前端 chain-state-meta.ts 的 CHAIN_STATE_PROGRESS */
+/** 链状态枚举 → 中文（归因句不裸奔英文枚举值）。改此文案须同步前端 chain-state-meta.ts 的 CHAIN_STATE_PROGRESS */
 const CHAIN_STATE_ZH: Record<string, string> = {
   active: "推进中",
   stalled: "卡住",
@@ -116,17 +116,17 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(100, n));
 }
 
-/** D1 质量成本：ratio≤20% 满分，线性降至 40% 归零（审视 定稿：分段线性 + clamp）
+/** 质量成本：ratio≤20% 满分，线性降至 40% 归零（审视 定稿：分段线性 + clamp）
  *  2026-09-20 搭档裁决：37.9% bugfix 占比是 harness 完工质量的持续信号，保留原锚点不放宽。
  *  「排除特性变化后一直改得多，就是完工质量不好、返工率高，就是要反思改进的信号」 */
 export function scoreD1(bugfixRatio: number): number {
   return clamp(100 * Math.max(0, (0.4 - bugfixRatio) / 0.2));
 }
 
-/** D2 架构稳定：bugfix 返工率线性扣分 + bugfix:feature 失衡（≥2 倍）再扣 20
- *  搭档裁决（2026-09-20）：D2 从「修改集中度」换为「bugfix 返工率」——直接测「补丁失效」，
- *  天然剥离 feature 活跃度（feature 改动不进分子），与 D1（bugfix 占比面）和 bug_recurrence
- *  信号（同文件反复出 bug）错位：D1 测「修 bug 的占比」，返工率测「修了没修好」。
+/** 架构稳定：bugfix 返工率线性扣分 + bugfix:feature 失衡（≥2 倍）再扣 20
+ * 搭档裁决（2026-09-20）：从「修改集中度」换为「bugfix 返工率」——直接测「补丁失效」，
+ * 天然剥离 feature 活跃度（feature 改动不进分子），与 （bugfix 占比面）和 bug_recurrence
+ * 信号（同文件反复出 bug）错位：测「修 bug 的占比」，返工率测「修了没修好」。
  *  实测 60 天窗口：457 个文件被 bugfix 碰过，127 个 ≥2 次，返工率 27.8%。
  *  公式锚点：100 − reworkRate×250
  *    10%→75（绿）——「10 个修复 1 个返工」
@@ -139,7 +139,7 @@ export function scoreD2(bugfixReworkRate: number, imbalanceTriggered: boolean): 
   return clamp(100 - penalty - (imbalanceTriggered ? 20 : 0));
 }
 
-/** D3 交付活力：active 占比给分，regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分
+/** 交付活力：active 占比给分，regressed（×1.5）/stalled（×0.5，pr-stalled 投影）占比扣分
  * zombie 删除，stalled 顶上原 zombie 权重位
  * 校准：stalled 权重从 ×100 降至 ×50（建议），与 zombie/orphan 分级；
  *  当前 stalled=0（9/3后），但为未来 stalled 复现预留中间惩罚系数 */
@@ -150,7 +150,7 @@ export function scoreD3(chainStates: Record<string, number>, stalledWeight = 50)
   return clamp(pct("active") * 100 - pct("regressed") * 150 - pct("stalled") * stalledWeight);
 }
 
-/** D5 信号压力：open 信号按活跃链（active+stalled）归一后的密度扣分 */
+/** 信号压力：open 信号按活跃链（active+stalled）归一后的密度扣分 */
 export function scoreD5(critical: number, warning: number, activeChains: number): number {
   if (activeChains <= 0) return 0;
   const cd = critical / activeChains;
@@ -180,7 +180,7 @@ function dimensionD1(input: HealthScoreInput): DimensionScore {
 }
 
 function dimensionD2(input: HealthScoreInput): DimensionScore {
-  // 搭档裁决：D2 从「修改集中度」换为「bugfix 返工率」——直接测「补丁失效」
+  // 搭档裁决：从「修改集中度」换为「bugfix 返工率」——直接测「补丁失效」
   const reworkRate = input.bugfixReworkRate;
   const imbalance = isImbalanceTriggered(input.changeTypes);
   const score = scoreD2(reworkRate, imbalance);
@@ -292,7 +292,7 @@ export function computeHealthScore(input: HealthScoreInput): HealthScoreResult {
 /**
  * 走向判定：近 7 天均值 vs 前 7 天均值，差值 >±TREND_THRESHOLD 判 ↑/↓。
  * 序列按时间升序（日期对齐，null=无数据日）。
- * F20260920hcal 修正：null 过滤改为窗口内剔除——先按日期分割窗口再剔除各窗口内 null，
+ * 修正：null 过滤改为窗口内剔除——先按日期分割窗口再剔除各窗口内 null，
  * 避免 null 穿孔导致前窗口日期被后窗口数据「借用」（原实现全序列 filter 后切分）。
  * @param minRecentValid recent 窗口最少有效值数（默认 3；生产调用点传 3 防噪声）
  */

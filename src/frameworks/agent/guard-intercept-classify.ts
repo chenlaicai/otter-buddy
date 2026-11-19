@@ -46,7 +46,7 @@ export interface GuardRuleClass {
  * 数据不进獭上下文本身是守卫边界完整性（绕过面）；不挂 permission（该层语义是对外
  * 制度动作 pr_merge，v4 后无守卫拦截规则）——挂 bypass_guard 使 retry-policy 高危
  * 集合（self_kill/bypass_guard）覆盖两规则，3 连拦走中性化文案，不预判「大概率误拦」
- * 诱导放行凭证访问（§3.5 中性化理由）。
+ * 诱导放行凭证访问（中性化理由）。
  * sleep_block 指纹已删（检视 处置）：拦截本体随 v4 退役，兼容层只剩前缀剥离，
  * 文案零发射点；classify 无台账重分类路径（仅拦截时点分类），历史事件已按当时
  * ruleId 落库——保留无消费者。

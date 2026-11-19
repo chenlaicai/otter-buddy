@@ -151,7 +151,7 @@ function NewConvModal(props: ModalsProps) {
 }
 
 function ArchiveModal(props: ModalsProps) {
-  // F20260922cgrp delta：modal.type === 'archive' 时 cid 恒存在（ConversationModals 路由保证）
+  // delta：modal.type === 'archive' 时 cid 恒存在（ConversationModals 路由保证）
   const cid = props.modal.type === 'archive' ? props.modal.cid : ''
   return (
     <Modal
@@ -175,13 +175,13 @@ function CreateOtterModal(props: ModalsProps) {
   const [name, setName] = useState('')
   const [role, setRole] = useState('')
   const [resp, setResp] = useState('')
-  /** 头像：null = 随机（hash 池），否则池内资源名（F20260827ucrt） */
+  /** 头像：null = 随机（hash 池），否则池内资源名 */
   const [avatar, setAvatar] = useState<string | null>(null)
   /** 模型：空串 = 默认模型；下拉数据源 GET /api/settings */
   const [models, setModels] = useState<ModelInfoDTO[]>([])
   const [defaultAlias, setDefaultAlias] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
-  /** prompt 双档：引导生成（默认）/高级编辑（F20260827ucrt 审视定义：
+  /** prompt 双档：引导生成（默认）/高级编辑（审视定义：
    *  开高级预填当前生成；关高级编辑保留 state 不生效；引导档始终展示最新生成） */
   const [advanced, setAdvanced] = useState(false)
   const [manualPrompt, setManualPrompt] = useState('')
@@ -353,11 +353,11 @@ function RestartModal(props: ModalsProps) {
   const { modal } = props
   const otter = modal.type === 'restart' ? props.otters.find(o => o.id === modal.otterId) : null
   const [summary, setSummary] = useState('')
-  /** F20260909rmpx: restart 切模型——模型下拉数据源 GET /api/settings；
+  /** restart 切模型——模型下拉数据源 GET /api/settings；
    *  空串 = 不换模型（沿用当前生效模型），与后端 modelAlias 可选语义对齐 */
   const [models, setModels] = useState<ModelInfoDTO[]>([])
   const [selectedModel, setSelectedModel] = useState('')
-  /** F20260920uhuc：生成前世总结勾选（默认勾）；交接态（正在封装前世档案…）+ 防连点 */
+  /** 生成前世总结勾选（默认勾）；交接态（正在封装前世档案…）+ 防连点 */
   const [synthesizePast, setSynthesizePast] = useState(true)
   const [submitting, setSubmitting] = useState(false)
 
@@ -379,8 +379,8 @@ function RestartModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose} disabled={submitting}>取消</ModalButton>
-          {/* F20260920uhuc 交接态反馈 + 防连点：合成期间按钮锁死，文案告知正在封装前世档案
-              F20260924uxrc：只保留「点击即锁」的防连点窗口（同步清 summary），
+          {/* 交接态反馈 + 防连点：合成期间按钮锁死，文案告知正在封装前世档案
+              只保留「点击即锁」的防连点窗口（同步清 summary），
               持久 submitting 态已删——index.confirmRestart 确认即关弹窗转后台，
               原 await 期间弹窗锁死全屏 = 搭档实证「啥也干不了」 */}
           <ModalButton
@@ -423,7 +423,7 @@ function RestartModal(props: ModalsProps) {
           className="form-input w-full resize-none min-h-[60px]"
         />
       </div>
-      {/* F20260920uhuc：生成前世总结勾选（默认勾）——取消勾选则新世档案 = 自总结 + 机械供料，零合成秒级换世 */}
+      {/* 生成前世总结勾选（默认勾）——取消勾选则新世档案 = 自总结 + 机械供料，零合成秒级换世 */}
       <label className="flex items-center gap-2 mt-3 cursor-pointer select-none" data-testid="synthesize-past-toggle">
         <input
           type="checkbox"
@@ -456,7 +456,7 @@ function legacyCopy(text: string): boolean {
   return ok
 }
 
-/** 属性说明文案常量（D2.1）
+/** 属性说明文案常量（.1）
  *  与映射表同源维护——改映射必须同步改此处。 */
 const HELP_TEXT = {
   level: '等级 = 世数：海獭每次重启獭生（session 封存重开）+1。资历指标，非游戏升级。',
@@ -519,7 +519,7 @@ function OtterDetailModal(props: ModalsProps) {
   const activeSession = chain.find(s => s.status === 'active')
   const activeGen = activeSession ? chain.indexOf(activeSession) + 1 : 0
 
-  // 称号徽章：规则化派生（D3），PR-2 启用"高产"
+  // 称号徽章：规则化派生，PR-2 启用"高产"
   const badges: string[] = []
   if (isBig) badges.push('族群长老')
   if (activeGen >= 3) badges.push(`${activeGen}世轮回`)
@@ -551,7 +551,7 @@ function OtterDetailModal(props: ModalsProps) {
       footer={
         <>
           <ModalButton onClick={props.onClose}>关闭</ModalButton>
-          {/* F20260920srbtn：重启獭生对小獭开放（与 agent 侧 restart_otter 对齐）；小獭保留解散双入口 */}
+          {/* 重启獭生对小獭开放（与 agent 侧 restart_otter 对齐）；小獭保留解散双入口 */}
           <ModalButton variant="danger" onClick={() => { props.onClose(); props.onOpenRestart(otter.id) }}>
             重启獭生
           </ModalButton>
@@ -583,7 +583,7 @@ function OtterDetailModal(props: ModalsProps) {
         </div>
       </div>
 
-      {/* ═══ 内容双栏（F20260826mwbc 布局改版）：左=身份信息，右=世代交接 ═══
+      {/* ═══ 内容双栏（布局改版）：左=身份信息，右=世代交接 ═══
        * Why sm: —— 与 Modal fullScreenOnMobile 的 639px 断点严格互补：
        *  <640px 全屏抽屉必然单列堆叠（世代交接在身份信息下方）；
        *  ≥640px modal 580px 定宽，内容区 540px，两栏各 ~260px。
@@ -671,7 +671,7 @@ function OtterDetailModal(props: ModalsProps) {
             </div>
           ) : profile && (
             <div className="space-y-3">
-              {/* ⚔️ 武器：模型描述 + 强项。F20260908efmd: 始终渲染（有效模型恒非空） */}
+              {/* ⚔️ 武器：模型描述 + 强项。始终渲染（有效模型恒非空） */}
               <EquipmentSlot
                 icon="⚔️"
                 label="武器"
@@ -820,7 +820,7 @@ function OtterDetailModal(props: ModalsProps) {
                   <div className="text-[11px] text-stone-500 mt-1">
                     开始 {s.startedAt}{s.archivedAt ? ` · 归档 ${s.archivedAt}` : ''}
                   </div>
-                  {/* F20260908efmd: 转世履历每世行显示武器（session 快照的 modelAlias） */}
+                  {/* 转世履历每世行显示武器（session 快照的 modelAlias） */}
                   {s.modelAlias && (
                     <div className="text-[11px] text-stone-500 mt-0.5">
                       ⚔️ {s.modelAlias}
@@ -863,4 +863,4 @@ function OtterDetailModal(props: ModalsProps) {
   )
 }
 
-/* F20261009csf3：LinkResourceModal 随关键资源 tab 退役移除（入口与调用方均已删） */
+/* LinkResourceModal 随关键资源 tab 退役移除（入口与调用方均已删） */

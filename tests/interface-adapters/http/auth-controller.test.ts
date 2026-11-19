@@ -1,5 +1,5 @@
 /**
- * 阶段 2：统一接入登录三端点 + 中间件会话优先。
+ * 统一接入登录三端点 + 中间件会话优先。
  * 裸 createRouter + auth plumbing（不经 tests/api/helpers 身份包装）——断言真实装配行为。
  */
 import { describe, it, expect, vi } from "vitest";
@@ -229,7 +229,7 @@ describe("对话级执行机切换端点（阶段 5 PR-A：PUT /api/conversation
   });
 });
 
-// ─── F20261118exstt（#1868 阶段 5 PR-B）：对话当前机 + 远程动作状态端点 ───
+// ─── ：对话当前机 + 远程动作状态端点 ───
 describe("执行状态端点（GET execution-machine / remote-actions）", () => {
   function statusApp(current: string | null, actions: Array<{ actionId: string; status: string }>, exists?: () => Promise<boolean>): Hono {
     return rawApp({
@@ -278,7 +278,7 @@ describe("执行状态端点（GET execution-machine / remote-actions）", () =>
     expect((await app.request("/api/conversations/c-1/remote-actions")).status).toBe(401);
   });
 
-  // minor1（检视遗留处置）：GET 404 口径对齐 PUT——不存在对话不再混作「默认 local」
+  // GET 404 口径对齐 PUT——不存在对话不再混作「默认 local」
   it("GET 两端点：不存在对话 → 404 conversation not found（对齐 PUT 口径）", async () => {
     const app = statusApp(null, [], async () => false);
     const cookie = await cookieOfApp(app);

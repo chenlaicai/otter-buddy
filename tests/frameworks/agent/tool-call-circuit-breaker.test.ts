@@ -256,7 +256,7 @@ describe("buildToolSignature —— #1399 残余口子收口", () => {
     // 同对 relates-to 与有向边分桶（≈ 标记）：同对混 type 连发不互累计（B-3b 滑窗兜底），
     // 同桶内连发（如反复 produced）仍累计
     expect(aRetry).toBe("link_memory: m-1→m-2≈");
-    // relates-to 对称边：反向建边是同义重试变体，归一累计（r1 A1）
+    // relates-to 对称边：反向建边是同义重试变体，归一累计
     expect(buildToolSignature("link_memory", { from_id: "m-2", to_id: "m-1", type: "relates-to" }))
       .toBe("link_memory: m-1→m-2≈");
     // produced 有向边：两方向独立签名（A produced B ≠ B produced A）
@@ -286,7 +286,7 @@ describe("buildToolSignature —— #1399 残余口子收口", () => {
     expect(fact).not.toBe(pr);
     expect(fact).toBe(buildToolSignature("create_linked_resource", { resourceType: "fact", content: "某事实文本" }));
     expect(buildToolSignature("create_linked_resource", {})).toBe("create_linked_resource");
-    // r1 S2：url 优先于 title——同 title 不同 url 的正当批量不算重复
+    // url 优先于 title——同 title 不同 url 的正当批量不算重复
     const prA = buildToolSignature("create_linked_resource", { resourceType: "pr", url: "https://x/pull/100", title: "同名登记 A" });
     const prB = buildToolSignature("create_linked_resource", { resourceType: "pr", url: "https://x/pull/101", title: "同名登记 A" });
     expect(prA).not.toBe(prB);
@@ -707,7 +707,7 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
     );
 
     // A-B-C 交替：旧版每次 check 命中即 strike+1（旧 20 次内必 terminate）；
-    // F20261027cbfp 后：滑窗 steer 清窗 → 重灌满 18 条才再次命中（strike+1）→
+    // 后：滑窗 steer 清窗 → 重灌满 18 条才再次命中（strike+1）→
     // strike 3 > maxRepeatAfterWarning=2 → terminate。约需 18×3+18 次调用。
     const tools = ["A", "B", "C"];
     let lastAction = "";
@@ -739,9 +739,9 @@ describe("ToolCallCircuitBreaker — 两档制与签名判据", () => {
       if (result.action === "steer") { steerSeen = true; steerResult = result; break; }
     }
     expect(steerSeen).toBe(true);
-    expect(steerResult?.blocked).toBe(true); // 旧 AC-8 能力断言回补（#1653 检视发现 3）
+    expect(steerResult?.blocked).toBe(true); // 旧 AC-8 能力断言回补
     expect(steerResult?.reason).toContain("Repeating tool call pattern");
-    // F20261027cbfp：steer 后清窗进入未成熟期——紧接着的同模式调用不再连发 steer
+    // steer 后清窗进入未成熟期——紧接着的同模式调用不再连发 steer
     //（重灌满 18 条前不判定），这是修复「窗口残留致 strike 快速涨满」的预期行为。
     const after = cb.check("A");
     expect(after.action).toBe("allow");

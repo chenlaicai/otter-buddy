@@ -1,7 +1,7 @@
 /**
- * P2b1：夜间审视治量状态管理 usecase。
+ * 夜间审视治量状态管理 usecase。
  *
- * 消费方是 P2b2 的夜间审视编排（scheduled-task 触发）。本 usecase 只回答三个问题：
+ * 消费方是 的夜间审视编排（scheduled-task 触发）。本 usecase 只回答三个问题：
  * 1. claim：这次审视是否已 settle（撞键返回原结果）？没 settle 的话，上次失败区间和连败数是什么？
  * 2. complete：成功后把变更集写进存档点，清零失败区间。
  * 3. recordFailure：失败后登记——同区间连败 +1（异区间重置），并返回是否该跳过。
@@ -112,7 +112,7 @@ export class ManageConsolidationState {
       throw new DomainError(`失败区间非法或倒挂：after=${JSON.stringify(after)} through=${JSON.stringify(through)}`, "validation");
     }
     // 统同一化到毫秒精度 canonical ISO：sameRange 用严格相等，但编排两次调用可能走不同精度来源
-    // （如“00Z” vs “00.000Z”）——同刻异精度不能误判成换区间（审视 D2）。
+    // （如“00Z” vs “00.000Z”）——同刻异精度不能误判成换区间（审视）。
     const nAfter = new Date(after).toISOString();
     const nThrough = new Date(through).toISOString();
     const existing = await this.repo.getByKey(reviewKey);

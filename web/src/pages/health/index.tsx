@@ -111,13 +111,13 @@ export default function HealthPage() {
     }
   }
 
-  // Issue #652：置信度三分——low 不进 critical/warning 组（后端计数口径同源），抽屉收纳
-  // F20260917trig：signals tab 改处置队列——按处置状态分组（TriageQueue 内部三分），
+  // 置信度三分——low 不进 critical/warning 组（后端计数口径同源），抽屉收纳
+  // signals tab 改处置队列——按处置状态分组（TriageQueue 内部三分），
   // severity 分组退居组件内部徽章；low 置信仍折叠（不稀释真警报）
   const lowConfidenceSignals = signals.filter(s => s.confidence === 'low')
   const normalSignals = signals.filter(s => s.confidence !== 'low')
-  // issue #1029：D5 证据 + 建议动作链路——「警报」页未接单信号数（triage 字段，F20260917trig）
-  // #652 口径同源：low 置信不进未接单计数（与警报 tab 分组一致）
+  // 证据 + 建议动作链路——「警报」页未接单信号数（triage 字段）
+  // 口径同源：low 置信不进未接单计数（与警报 tab 分组一致）
   const untriagedCount = signals.filter(s => s.triageStatus === null && s.confidence !== 'low').length
 
   return (
@@ -168,7 +168,7 @@ export default function HealthPage() {
             ))}
           </div>
 
-          {/* 总览视图（issue #1029 三层结构）：判断 → 五维（点开展证据）→ 建议动作；
+          {/* 总览视图（三层结构）：判断 → 五维（点开展证据）→ 建议动作；
               复发模式卡保留（首屏洞察主角）；原料数据（环形图/热区/四态）收编进维度证据层 */}
           {tab === 'overview' && (
             <div className="space-y-4">
@@ -183,7 +183,7 @@ export default function HealthPage() {
                 untriagedCount={untriagedCount}
               />
 
-              {/* 洞察区：复发模式卡（同文件反复修 bug——首屏主角，#647 保留）+ 低置信折叠抽屉 */}
+              {/* 洞察区：复发模式卡（同文件反复修 bug——首屏主角，保留）+ 低置信折叠抽屉 */}
               <div className="rounded-2xl bg-white/70 border border-stone-200/60 px-4 py-3">
                 <div className="flex items-center gap-1.5 text-xs text-stone-500 mb-2">
                   <ShieldAlert className="w-4 h-4 text-caramel-600" />
@@ -191,7 +191,7 @@ export default function HealthPage() {
                   <span className="text-stone-400">· 同文件反复修 bug 的模式</span>
                 </div>
                 <RecurrenceSection signals={signals.filter(s => s.signalType === 'bug_recurrence')} />
-                {/* Issue #652/#647：低置信信号默认折叠不稀释真警报；数字与折叠一致（后端同源口径）*/}
+                {/* 低置信信号默认折叠不稀释真警报；数字与折叠一致（后端同源口径）*/}
                 <div className="mt-3">
                   <LowConfidenceDrawer signals={lowConfidenceSignals} />
                 </div>
@@ -200,7 +200,7 @@ export default function HealthPage() {
               {/* 第三层：处置——红/黄维度各配建议动作（链到「警报」处置队列） */}
               <ActionList score={score} untriagedCount={untriagedCount} />
 
-              {/* 趋势 sparkline（#647 项 4 保留）：一行高度，点开展开完整趋势，数据不丢 */}
+              {/* 趋势 sparkline（项 4 保留）：一行高度，点开展开完整趋势，数据不丢 */}
               {trends && trends.series.length > 0 && <TrendSparkline trends={trends} />}
 
               {(!trends || trends.series.length === 0) && (
@@ -213,7 +213,7 @@ export default function HealthPage() {
             </div>
           )}
 
-          {/* 信号视图（F20260917trig §4：处置队列——按处置状态分组，操作按钮可执行） */}
+          {/* 信号视图（处置队列——按处置状态分组，操作按钮可执行） */}
           {tab === 'signals' && (
             <div className="space-y-4">
               {/* 处置队列说明卡 */}
@@ -228,7 +228,7 @@ export default function HealthPage() {
               {normalSignals.length > 0 && (
                 <TriageQueue signals={normalSignals} onChanged={() => void refresh()} />
               )}
-              {/* Issue #652：低置信单列（不与主警报等权），默认折叠；18 条假警报不稀释真警报 */}
+              {/* 低置信单列（不与主警报等权），默认折叠；18 条假警报不稀释真警报 */}
               {lowConfidenceSignals.length > 0 && (
                 <LowConfidenceDrawer signals={lowConfidenceSignals} />
               )}
@@ -241,14 +241,14 @@ export default function HealthPage() {
             </div>
           )}
 
-          {/* 特性链视图（issue #1029 改名「进行中的事」+ 进度语言分组折叠；
+          {/* 特性链视图（改名「进行中的事」+ 进度语言分组折叠；
               泳道组件 SwimlaneTimeline 本体不重写——ChainsPanel 只分组折叠；
-              筛选 chips + 详情抽屉保留（Issue #649）*/}
+              筛选 chips + 详情抽屉保留*/}
           {tab === 'chains' && (
             <div className="space-y-4">
               <div className="rounded-2xl bg-white/70 border border-stone-200/60 px-4 py-3">
                 <ChainFilterChips counts={stateCounts} total={chains.length} active={chainFilter} onPick={setChainFilter} />
-                {/* Issue #647：高扇入排除清单可见不黑箱（合并后修复密度信号的边界一）*/}
+                {/* 高扇入排除清单可见不黑箱（合并后修复密度信号的边界一）*/}
                 <FanInExcludedList files={fanInExcluded} />
               </div>
               <ChainsPanel
@@ -257,7 +257,7 @@ export default function HealthPage() {
               />
             </div>
           )}
-          {/* 用量/效率视图（F20260914usgm：模型主维度改版，成本展示撤除） */}
+          {/* 用量/效率视图（模型主维度改版，成本展示撤除） */}
           {tab === 'cost' && (
             <div className="space-y-4">
               {costOutput && costOutput.series.length > 0 ? (
@@ -271,7 +271,7 @@ export default function HealthPage() {
                     <MetricCard label="每日派工" value={costOutput.totals.dispatchCount} icon={<Layers className="w-4 h-4" />} />
                   </div>
 
-                  {/* 两个占比图：Token 占比 + 调用次数占比（F20260914usgm 搭档需求②） */}
+                  {/* 两个占比图：Token 占比 + 调用次数占比（搭档需求②） */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <ChartCard title="Token 占比 · 按模型" subtitle="区间累计 totalTokens" icon={<PieIcon className="w-4 h-4 text-otter-500" />}>
                       <ModelUsagePie models={costOutput.models} metric="totalTokens" />
@@ -281,7 +281,7 @@ export default function HealthPage() {
                     </ChartCard>
                   </div>
 
-                  {/* 模型明细表：token 四分类/调用/失败/命中率（F20260914usgm 搭档需求①） */}
+                  {/* 模型明细表：token 四分类/调用/失败/命中率（搭档需求①） */}
                   <ChartCard title="模型用量明细" subtitle={`按 totalTokens 降序 · 失败调用含 403/500 等 LLM 错误`} icon={<Layers className="w-4 h-4 text-otter-500" />}>
                     <ModelUsageTable models={costOutput.models} />
                   </ChartCard>
@@ -316,7 +316,7 @@ export default function HealthPage() {
                     </ChartCard>
                   </div>
 
-                  {/* 单次问答均值：总 + 按模型（F20260914usgm 搭档需求③） */}
+                  {/* 单次问答均值：总 + 按模型（搭档需求③） */}
                   <ChartCard title="单次 invoke 均值" subtitle={`最新快照 ${costOutput.latestSnapshotDate ?? '—'} · token 为 session 累计差分口径`} icon={<Activity className="w-4 h-4 text-otter-500" />}>
                     <InvokeStatsTable stats={costOutput.invokeStats} />
                   </ChartCard>
@@ -364,7 +364,7 @@ export default function HealthPage() {
             </div>
           )}
 
-          {/* 工作账本视图（F20261027hwl1：独立工作的成本归集 + 模型效率矩阵） */}
+          {/* 工作账本视图（独立工作的成本归集 + 模型效率矩阵） */}
           {tab === 'works' && (
             <div className="space-y-6">
               <WorkLedgerPanel />
@@ -373,7 +373,7 @@ export default function HealthPage() {
           )}
         </div>
       </div>
-      {/* 链详情抽屉（Issue #649 交付 3）：点泳道行展开，全量 commits + 状态归因 */}
+      {/* 链详情抽屉（交付 3）：点泳道行展开，全量 commits + 状态归因 */}
       <ChainDetailDrawer featureId={activeChainId} onClose={() => setActiveChainId(null)} />
     </>
   )
@@ -441,7 +441,7 @@ function fmtLargeNumber(v: number): string {
   return String(v)
 }
 
-/** F20260914usgm：模型占比环形图（token 占比 / 调用次数占比，metric 切换） */
+/** 模型占比环形图（token 占比 / 调用次数占比，metric 切换） */
 function ModelUsagePie({ models, metric }: { models: api.RhiModelUsageDTO[]; metric: 'totalTokens' | 'callCount' }) {
   const data = models.map(m => ({ name: m.model, value: m[metric] })).filter(d => d.value > 0)
   const total = data.reduce((s, d) => s + d.value, 0)
@@ -463,7 +463,7 @@ function ModelUsagePie({ models, metric }: { models: api.RhiModelUsageDTO[]; met
   )
 }
 
-/** F20260914usgm：模型用量明细表（token 四分类/调用/失败/命中率） */
+/** 模型用量明细表（token 四分类/调用/失败/命中率） */
 function ModelUsageTable({ models }: { models: api.RhiModelUsageDTO[] }) {
   return (
     <div className="overflow-x-auto">
@@ -501,7 +501,7 @@ function ModelUsageTable({ models }: { models: api.RhiModelUsageDTO[] }) {
   )
 }
 
-/** F20260914usgm：单次 invoke 均值表（_total 置顶 + per-model） */
+/** 单次 invoke 均值表（_total 置顶 + per-model） */
 function InvokeStatsTable({ stats }: { stats: api.RhiInvokeStatsDTO[] }) {
   const sorted = [...stats].sort((a, b) => (a.model === '_total' ? -1 : b.model === '_total' ? 1 : b.invokeCount - a.invokeCount))
   if (sorted.length === 0) return <EmptyChart text="无 invoke 数据（需有 model 归属的新 invoke）" />

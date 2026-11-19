@@ -28,7 +28,7 @@ interface LeftPanelProps {
   onNewConversation: () => void
   onContextMenu: (e: React.MouseEvent, cid: string) => void
   otters: Otter[]
-  /** F20260922cgrp：数据变化通知（归档/置顶/新建后父组件刷新各分组数据） */
+  /** 数据变化通知（归档/置顶/新建后父组件刷新各分组数据） */
   onRefresh?: () => void
 }
 
@@ -36,7 +36,7 @@ interface LeftPanelProps {
 const SCROLL_POS_KEY = 'leftPanel:scrollTop'
 
 /**
- * F20260922cgrp：页码跳转器——`‹ 1 2 3 … N ›`，N>10 时折叠中间页（首尾 + 当前±2）。
+ * 页码跳转器——`‹ 1 2 3 … N ›`，N>10 时折叠中间页（首尾 + 当前±2）。
  * 简单实现：页数 ≤10 全展示；>10 展示 1 … (cur-2..cur+2) … N。
  */
 function Pagination({ page, total, onChange, testid }: { page: number; total: number; onChange: (p: number) => void; testid: string }) {
@@ -96,7 +96,7 @@ function Pagination({ page, total, onChange, testid }: { page: number; total: nu
   )
 }
 
-/** F20260922cgrp：可折叠分组头（chevron + 标题 + 计数） */
+/** 可折叠分组头（chevron + 标题 + 计数） */
 function GroupHeader({
   label,
   count,
@@ -130,7 +130,7 @@ function GroupHeader({
 export function LeftPanel({ conversations, activeId, onSelect, onNewConversation, onContextMenu, otters, onRefresh }: LeftPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // ── 对话标题搜索（F20260916lpsc）──
+  // ── 对话标题搜索──
   // Why: 就地展开输入框 + 服务端 LIKE 过滤。搜索态下列表替换为命中结果（平铺、不分组不分页），
   // 清空恢复分组视图。防抖 300ms 防每次击键一发请求。
   const [searchOpen, setSearchOpen] = useState(false)
@@ -162,7 +162,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [keyword, searchOpen])
 
-  // ── F20260922cgrp：三分组折叠状态（localStorage 持久化；默认 助理开/对话开/归档关）──
+  // ── 三分组折叠状态（localStorage 持久化；默认 助理开/对话开/归档关）──
   const [collapsed, setCollapsed] = useState<Record<GroupKey, boolean>>(() => ({
     assistant: localStorage.getItem(COLLAPSED_KEY('assistant')) === '1',
     webAssistant: localStorage.getItem(COLLAPSED_KEY('webAssistant')) === '1',
@@ -177,10 +177,10 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
     })
   }, [])
 
-  // ── F20260922cgrp：分组数据──
+  // ── 分组数据──
   // IM 助理 + 置顶区来自父组件 conversations（全量，数量小）；
   // 普通对话 + 已归档走独立分页查询（每页 20 条 + total 页码跳转）。
-  // F20260924wast：web 助理独立分组（开关关闭时侧栏仅余此分组头，重开须改 config.yaml + 重启）
+  // web 助理独立分组（开关关闭时侧栏仅余此分组头，重开须改 config.yaml + 重启）
   const assistantConvs = conversations.filter(c => c.kind === 'assistant')
   const webAssistantConvs = conversations.filter(c => c.kind === 'web-assistant')
   const pinnedConvs = conversations.filter(c => !c.kind && c.pinned)
@@ -193,7 +193,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   const [archivedTotal, setArchivedTotal] = useState(0)
 
   // 普通对话总数（pinned 全量 + normal 分页 total）——normalTotal 经 pinned:false 过滤，
-  // 不再含置顶（检视严重 1 修复：原口径 pinnedConvs.length + normalTotal 双重计数置顶项）
+  // 不再含置顶（检视原口径 pinnedConvs.length + normalTotal 双重计数置顶项）
   const conversationGroupTotal = pinnedConvs.length + normalTotal
 
   const loadNormalPage = useCallback((page: number) => {
@@ -205,7 +205,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
       offset: (page - 1) * PAGE_SIZE,
     })
       .then(({ items, total }) => {
-        // 检视严重 2 修复：页数收缩 clamp——末页条目归档/删空后重拉回空页时回退到末页，
+        // 检视页数收缩 clamp——末页条目归档/删空后重拉回空页时回退到末页，
         // 防止页码器消失造成空白页死锁
         const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
         if (items.length === 0 && page > pageCount) {
@@ -237,7 +237,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
   }, [])
 
   // 初次挂载 + conversations 变化（归档/置顶/新建/轮询刷新）时重拉当前页。
-  // 检视建议 7 修复：折叠的组跳过分页【条目】拉取（5s 轮询不再放大 3 倍请求），展开时重拉；
+  // 折叠的组跳过分页【条目】拉取（5s 轮询不再放大 3 倍请求），展开时重拉；
   // 但组头计数必须常显（搭档诉求「分组上要显示当前有几个对话」）——归档组折叠时也需轻量
   // total 查询（limit=1 只取计数，不传 pinned/kind 时后端 COUNT 与列表同 where，成本一致）
   useEffect(() => {
@@ -332,7 +332,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
       )}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-2">
         {searchResults ? (
-          /* 搜索态：平铺命中结果（不分组不分页），F20260916lpsc 既有行为保留 */
+          /* 搜索态：平铺命中结果（不分组不分页），既有行为保留 */
           <>
             {searchResults.map(c => (
               <ConversationItem
@@ -370,7 +370,7 @@ export function LeftPanel({ conversations, activeId, onSelect, onNewConversation
             ))}
 
             {/* ── 《web 助理》组：浮动獭对话（全局唯一；开关关闭时侧栏仅余此分组头）。
-                 F20260928waf1 P3：空组「创建」按钮移除——web 助理全局唯一、首唤自动开户，
+                 空组「创建」按钮移除——web 助理全局唯一、首唤自动开户，
                  不存在用户侧「创建」语义（搭档实测反馈）；重开浮动獭须改 config.yaml
                  （settings 开关只读）+ 重启 */}
             <GroupHeader
@@ -486,7 +486,7 @@ function ConversationItem({
   onSelect: (id: string) => void
   onContextMenu: (e: React.MouseEvent, cid: string) => void
   otters: Otter[]
-  /** F20260922cgrp：置顶项底色区分（搭档：置顶/普通边界看不清） */
+  /** 置顶项底色区分（搭档：置顶/普通边界看不清） */
   pinnedHighlight?: boolean
 }) {
   const convOtters: Otter[] = c.otterIds
@@ -547,7 +547,7 @@ function ConversationItem({
         </div>
         <div className="flex ml-auto">
           {convOtters.map(o => {
-            // F20260921otcl：列表项自带身份（LocalOtter.type/color）走库值
+            // 列表项自带身份（LocalOtter.type/color）走库值
             const { color } = resolveOtterVisual(o.id, { type: o.type, color: o.color })
             return (
               <div

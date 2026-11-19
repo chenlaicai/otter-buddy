@@ -61,7 +61,7 @@ export class ManageConversation {
       archivedAt: null,
     };
 
-    /** 单事务：conversations + conversation_otters（C5 修复） */
+    /** 单事务：conversations + conversation_otters（修复） */
     await this.repo.create(conversation, otterIds);
 
     /** 创建对话工作区目录 */
@@ -69,7 +69,7 @@ export class ManageConversation {
       await this.workspaceGateway.ensureWorkspace(id);
     }
 
-    /** A6: 为每个 otterId 创建 ConversationParticipant 记录
+    /** 为每个 otterId 创建 ConversationParticipant 记录
      *  统一 getActiveParticipants() 查询路径
      *  批量创建保证原子性（UA-7：避免参与者记录不完整） */
     const participants: ConversationParticipant[] = otterIds.map((otterId) => ({
@@ -109,7 +109,7 @@ export class ManageConversation {
     }
   }
 
-  /** 获取 otter 参与的所有对话 ID（供 ManageSession.archiveSession 使用，C3 修复） */
+  /** 获取 otter 参与的所有对话 ID（供 ManageSession.archiveSession 使用，修复） */
   async getIdsByOtterId(otterId: string): Promise<string[]> {
     return this.repo.getIdsByOtterId(otterId);
   }
@@ -120,7 +120,7 @@ export class ManageConversation {
   }
 
   /** 批量查询会话列表（含未读计数 + last_message，一条 SQL JOIN 替代 N+1）
-   *  F20260922cgrp：返回 { items, total }——total 供前端分组分页页码跳转 */
+   * 返回 { items, total }——total 供前端分组分页页码跳转 */
   async listWithMeta(
     userId: string,
     options?: ListConversationsFilter,

@@ -84,7 +84,7 @@ export class SqliteFrameStore {
 
   // ── 比赛元数据 ──
 
-  /** F20261022mjls：status 可选（默认 playing 兼容旧调用）；waiting = lobby 等待房 */
+  /** status 可选（默认 playing 兼容旧调用）；waiting = lobby 等待房 */
   createGame(id: string, roomId: string, config: GameState["config"], status = "playing"): void {
     const now = new Date().toISOString();
     this.db
@@ -116,7 +116,7 @@ export class SqliteFrameStore {
       .run(status, new Date().toISOString(), id);
   }
 
-  /** F20261022mjls：lobby 开始时回写座位配置（默认獭回填/自定义覆盖后的最终 players）——恢复/review 用真相源 */
+  /** lobby 开始时回写座位配置（默认獭回填/自定义覆盖后的最终 players）——恢复/review 用真相源 */
   updateGameConfig(id: string, config: GameState["config"]): void {
     this.db
       .prepare("UPDATE mahjong_games SET config_json = ?, updated_at = ? WHERE id = ?")

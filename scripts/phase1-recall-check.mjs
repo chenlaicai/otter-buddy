@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * 验收脚本：Phase 0 的 306 条查询在修复后的 recall 对比
+ * 验收脚本：的 306 条查询在修复后的 recall 对比
  * 用法：node scripts/phase1-recall-check.mjs [--db path] [--annotations path]
- * 数据依赖：Phase 0 产物（annotate-input.jsonl + annotations-glm-v3.jsonl + system-results.jsonl）
+ * 数据依赖：产物（annotate-input.jsonl + annotations-glm-v3.jsonl + system-results.jsonl）
  */
 import Database from "better-sqlite3";
 import { load } from "sqlite-vec";

@@ -192,14 +192,14 @@ describe("migrateMessagesToEntries（F20260913ctlv 批4b）", () => {
 
     runMigration();
 
-    // 新序号空间：m1=1, m2=2, m2-yield=3, m3=4（yield 合成行占据独立序号）
+    // 新序号空间：=1, =2, -yield=3, =4（yield 合成行占据独立序号）
     const entries = getEntries("conv-nr");
     expect(entries.map(e => e.id)).toEqual(["m1", "m2", "m2-yield", "m3"]);
     expect(entries.map(e => e.sequence_num)).toEqual([1, 2, 3, 4]);
-    // 用户游标 3（旧空间末条 m3）→ 映射到 m3 新序号 4；不映射则 m3 被误判未读
+    // 用户游标 3（旧空间末条）→ 映射到 新序号 4；不映射则 被误判未读
     const urs = db.prepare(`SELECT last_read_message_seq FROM conversation_user_read_state WHERE user_id='chen' AND conversation_id='conv-nr'`).get() as { last_read_message_seq: number };
     expect(urs.last_read_message_seq).toBe(4);
-    // otter 游标 1（旧前缀末条 m1）→ 新序号仍 1，不变
+    // otter 游标 1（旧前缀末条）→ 新序号仍 1，不变
     const part = db.prepare(`SELECT last_read_seq FROM conversation_participants WHERE conversation_id='conv-nr' AND otter_id='otter-a'`).get() as { last_read_seq: number };
     expect(part.last_read_seq).toBe(1);
   });
@@ -225,7 +225,7 @@ describe("migrateMessagesToEntries（F20260913ctlv 批4b）", () => {
 
     runMigration();
 
-    // F20260913ctlv 批4c：迁移通过后旧表直接 drop——streaming 语义只体现在 entry 的 invokeStatus
+    // 批4c：迁移通过后旧表直接 drop——streaming 语义只体现在 entry 的 invokeStatus
     const hasMsgTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get();
     expect(hasMsgTable).toBeUndefined();
     const entry = getEntries("conv-4")[0];

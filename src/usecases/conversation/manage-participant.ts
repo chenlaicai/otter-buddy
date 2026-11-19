@@ -61,9 +61,9 @@ export class ManageParticipant {
 
     const now = new Date().toISOString();
 
-    /** 2. 创建参与记录。F20260929czi0：进场游标零点 = 进场点——先读进场时刻
+    /** 2. 创建参与记录。进场游标零点 = 进场点——先读进场时刻
      *  max(seq)，以此作为游标初值（进场前历史不是未读，背景供给归派工简报/
-     *  检索工具；取代 F20260913ctlv 的游标=0 口径）。时序安全：seq 由
+     * 检索工具；取代 的游标=0 口径）。时序安全：seq 由
      *  createEntryAtomic 单调原子分配，「先读 maxSeq=M → 写 participant(游标=M)」
      *  顺序下，读数之后并发落库的消息 seq 恒 > M = 游标，对新獭恒可见、无漏读窗口，
      *  无需加锁。 */
@@ -85,7 +85,7 @@ export class ManageParticipant {
     return { participant, systemMessage };
   }
 
-  /** F20260913ctlv：进场/退场系统消息写入（entry 路径） */
+  /** 进场/退场系统消息写入（entry 路径） */
   private async writeSystemRecord(
     conversationId: string,
     otterId: string,
@@ -121,7 +121,7 @@ export class ManageParticipant {
    */
   /**
    * Otter 退场：更新参与记录 + 退场系统消息。
-   * F20260913ctlv 彻底切换：与 join 同款去 open-turn 硬校验（ensureActiveTurn 兜底）+
+   * 彻底切换：与 join 同款去 open-turn 硬校验（ensureActiveTurn 兜底）+
    * 系统消息改 system entry。生产调用方已退役（clients.ts 走 markLeft），保留供测试/
    * 未来场景使用。
    */
@@ -158,7 +158,7 @@ export class ManageParticipant {
   }
 
   /**
-   * 标记 otter 在对话中已离开（F20260803trrf: dissolve_otter 顺带修）。
+   * 标记 otter 在对话中已离开（dissolve_otter 顺带修）。
    * 与 leave() 的区别：不要求 active turn、不创建系统消息--仅更新 participant status。
    * 用于 dissolve 场景（otter 被解散时，可能无 active turn）。
    */
@@ -167,12 +167,12 @@ export class ManageParticipant {
   }
 
   /** 获取当前在场的所有 Otter（UA-7） */
-  // eslint-disable-next-line complexity -- F20260908efmd: 有效模型解析分支增加（configProvider + modelPool 可选组合）
+  // eslint-disable-next-line complexity -- 有效模型解析分支增加（configProvider + modelPool 可选组合）
   async getActiveParticipants(
     conversationId: string,
   ): Promise<ParticipantWithOtter[]> {
     const participants = await this.repo.getActiveParticipants(conversationId);
-    // #446: 批量预取消除循环内 N+1——otterRepo.getById + configProvider.getConfig 原本每参与者各一次 DB 查询
+    // 批量预取消除循环内 N+1——otterRepo.getById + configProvider.getConfig 原本每参与者各一次 DB 查询
     const ottersById = await this.otterRepo.getByIds(participants.map(p => p.otterId));
     const configsByOtterId = this.configProvider
       ? this.configProvider.getConfigs(participants.map(p => p.otterId))
@@ -182,7 +182,7 @@ export class ManageParticipant {
       const otter = ottersById.get(participant.otterId);
       const otterName = otter?.name ?? `Otter ${participant.otterId.slice(0, 8)}`;
       const config = configsByOtterId.get(participant.otterId);
-      // F20260908efmd: 有效模型解析——空配置回退默认并标注
+      // 有效模型解析——空配置回退默认并标注
       if (this.configProvider && this.modelPool) {
         const effective = resolveEffectiveModel(config, this.modelPool);
         result.push({ participant, otterName, otterType: otter?.type, otterColor: otter?.color ?? null, roleName: otter?.role?.name, modelAlias: effective.alias, modelIsDefault: effective.isDefault });

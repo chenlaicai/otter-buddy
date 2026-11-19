@@ -1,8 +1,8 @@
-# ECS 部署 runbook（阶段 6a：部署底座）
+# ECS 部署 runbook（部署底座）
 
 > 特性：F20261118cldep（#1868 阶段 6 三步切片之首）。
 > 范围：把中枢以正式形态部署到阿里云 ECS（60.205.214.148）。
-> **不含**：数据迁移与真实切换（6b 的 migrate-* 脚本）、安全强化与演练（6c）。
+> **不含**：数据迁移与真实切换（migrate-* 脚本）、安全强化与演练。
 
 ## 目标拓扑
 
@@ -10,7 +10,7 @@
 [本机] deploy.sh ──ssh 管道（.otter/deploy-keys/ecs-ssh.sh）──▶ /opt/otter-buddy（代码）
                             /etc/otter-buddy/config.yaml（配置）
                             /etc/otter-buddy.env（env 面：OTTER_EMBEDDING=off 等）
-                            /var/lib/otter-buddy（数据持久卷——6b 迁移目标）
+                            /var/lib/otter-buddy（数据持久卷——迁移目标）
 [ECS]
   nginx(443, otter.60.205.214.148.sslip.io) ──▶ 127.0.0.1:3000
                                                   ├─ /            中枢 HTTP（web UI + API）
@@ -69,13 +69,13 @@
 - 代码回退：重跑 deploy.sh（上一版 git commit 检出后构建）
 - App 扩展回退：`sudo rm -rf /opt/colink-agent-app && sudo cp -a /opt/colink-agent-app.bak-<时间戳> /opt/colink-agent-app && sudo systemctl restart colink-agent-app`（deploy.sh 每次部署留备份，只保留最近 3 份）
 - 生产依赖面红线：`npm ci --omit=dev` 要求 `dependencies` 与 `devDependencies` 零重叠——同一个包两边都写时 npm 取 dev 那份，生产安装直接跳过，服务启动即 `ERR_MODULE_NOT_FOUND`（2026-11-19 实证：`hono`）。机械闸 `scripts/check-dependency-sections.mjs` 在 CI `check` 段守着。
-- 数据回退：6b 的迁移快照保留在本机（本方案下中枢数据 6b 之前仍在本地——ECS 上 6a 阶段是空库新起）
+- 数据回退：迁移快照保留在本机（本方案下中枢数据迁移前仍在本地——ECS 上部署阶段是空库新起）
 - 整机回退：`systemctl disable --now otter-buddy && nginx conf 移除`——恢复 colink PoC 或空机
 
 ## 已知边界
 
-- 6a 阶段 ECS 是**空库新实例**（无历史对话）——真数据在 6b 迁移后才上云
+- 部署阶段 ECS 是**空库新实例**（无历史对话）——真数据在数据迁移后才上云
 - **终态进程拓扑（搭档定稿）**：这台机只有一个海獭系统——主中枢进程（含全部模块能力）；
   PoC 中枢（263M）退役让位，colink-agent-app（~几十 M，CoLink 通道适配）过渡保留至
   能力并入；内存账：系统服务 ~500M + 主中枢（关 bge）400-700M + swap 6G 兜底，余量健康
-- connector WSS 升级鉴权强化与 packages 化已随 6c 落地：升级层三查（子协议 pin → Origin 白名单 → Bearer token，见 F20261119cwssp）；Origin 白名单 `OTTER_WS_ALLOWED_ORIGINS` 当前保持空（fail-closed 拒带 Origin 请求，connector node 客户端不受影响）
+- connector WSS 升级鉴权强化与 packages 化已落地：升级层三查（子协议 pin → Origin 白名单 → Bearer token，见 F20261119cwssp）；Origin 白名单 `OTTER_WS_ALLOWED_ORIGINS` 当前保持空（fail-closed 拒带 Origin 请求，connector node 客户端不受影响）

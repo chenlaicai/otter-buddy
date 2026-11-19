@@ -424,7 +424,7 @@ describe("buildMessageWithContext 闲置预警集成", () => {
 
     // 预警失败不影响主流程，结果仍包含发言流（历史未读 + 触发发言流末尾）
     expect(result).toContain("## 对话历史");
-    expect(result).toMatch(/\[otter-1\]（[^）]*）msg\n\n\[搭档\]（[^）]*）hi/); // F20260928wxid：触发消息带标签（时间戳形态 #1431）
+    expect(result).toMatch(/\[otter-1\]（[^）]*）msg\n\n\[搭档\]（[^）]*）hi/); // 触发消息带标签（时间戳形态）
     expect(result).not.toContain("系统提示");
   });
 });
@@ -571,7 +571,7 @@ describe("buildMessageWithContext 触发消息时间戳与重放标记（#1553 /
     expect(hopMessages).toHaveLength(2);
     // hop1：触发消息新鲜（在未读批）→ 无「历史」标记
     expect(hopMessages[0]).not.toContain("（历史 · ");
-    // hop2：触发消息已消费（不在未读批）→ 重放带「历史」标记 + 真实 createdAt（#1553 主场景：链内 hop≥2）
+    // hop2：触发消息已消费（不在未读批）→ 重放带「历史」标记 + 真实 createdAt（主场景：链内 hop≥2）
     expect(hopMessages[1]).toContain("（历史 · ");
     expect(hopMessages[1]).toContain("09:42");
     expect(hopMessages[1]).toContain("高危这个你拉个新glm");
@@ -603,7 +603,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
     expect(result).toMatch(/\[搭档\]（[^）]*）看看这个/);
   });
 
-  // F20260928wxid（检视建议 3）：搭档带自报快照名渲染「搭档(joy)」；无快照回退泛称
+  // 搭档带自报快照名渲染「搭档(joy)」；无快照回退泛称
   it("F20260928wxid：搭档消息带快照名 → [搭档(joy)]；无快照 → [搭档] 不变", async () => {
     const m = makeMocks();
     (m.entryRepo.getUnreadEntries as ReturnType<typeof vi.fn>).mockResolvedValue([
@@ -727,7 +727,7 @@ describe("buildMessageWithContext 搭档静态绑定（F20260826fpbd）", () => 
 
 describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
   /** executeChain 集成：用户消息命中「停下」→ invokeFn 收到的消息带 reminder 后缀。
-   *  F20261012swsg（#1430）：triggerSenderType 缺省 "user"（调用方显式透传才是生产语义）；
+   * triggerSenderType 缺省 "user"（调用方显式透传才是生产语义）；
    *  omitTriggerSource 模拟来源未透传（应不扫描）。 */
   async function runChain(userMessage: string, opts: {
     triggerSenderType?: "user" | "otter" | "system";
@@ -760,7 +760,7 @@ describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
     expect(received[0]).toContain("[L2 安全词检测]");
     expect(received[0]).toContain("Magic Words");
     expect(received[0]).toContain("## 对话历史（你上次发言后的消息）");
-    expect(received[0]).toMatch(/\[搭档\]（[^）]*）停下/); // F20260928wxid：触发消息带标签（原文保留流末尾，时间戳形态 #1431）
+    expect(received[0]).toMatch(/\[搭档\]（[^）]*）停下/); // 触发消息带标签（原文保留流末尾，时间戳形态）
   });
 
   it("命令形态「快停下，都别乱动」也注入 reminder", async () => {
@@ -778,7 +778,7 @@ describe("L2 安全词扫描接线（F20260826mwrd C3 Part 6）", () => {
     expect(received[0]).not.toContain("[L2 安全词检测]");
   });
 
-  // F20261012swsg（#1430 假急停）：扫描闸收窄到 user 来源——非用户触发消息不进扫描
+  // （假急停）：扫描闸收窄到 user 来源——非用户触发消息不进扫描
   it("#1430 system 合成消息（案发形态：雷达 prompt 自带「停下，」）不扫描不注入", async () => {
     const received = await runChain("若 scan.mjs 报错，先重跑一次，仍失败则发简报说明故障并停下，不要自行改脚本", { triggerSenderType: "system" });
     expect(received).toHaveLength(1);
@@ -816,7 +816,7 @@ describe("上下文注入面 delta 化（F20260922ctxi）", () => {
     const second = await engine.buildMessageWithContext("conv-1", "otter-1", "再 hi", "user-1", "## 在场成员\n- 大獭");
     expect(second.message).not.toContain("## 在场成员");
     expect(second.message).toContain("## 对话历史（你上次发言后的消息）");
-    expect(second.message).toMatch(/\[搭档\]（[^）]*）再 hi/); // F20260928wxid（时间戳形态 #1431）
+    expect(second.message).toMatch(/\[搭档\]（[^）]*）再 hi/); // （时间戳形态）
     expect(second.message).toContain("## 当前时间");
 
     // roster 变化（成员进出/访客提示）→ 重新注入
@@ -858,10 +858,10 @@ describe("上下文注入面 delta 化（F20260922ctxi）", () => {
     expect(received).toHaveLength(1);
     // 修复前同一文本双份（实测 269+257 字符）：对话历史一份 + 触发消息一份
     expect(received[0].split("任务原文ABC").length - 1).toBe(1);
-    expect(received[0]).toMatch(/\[张三\]（[^）]*）任务原文ABC/); // F20260928wxid：触发消息带标签（与历史同款规则）
+    expect(received[0]).toMatch(/\[张三\]（[^）]*）任务原文ABC/); // 触发消息带标签（与历史同款规则）
     // 其他未读保留
     expect(received[0]).toContain("其他未读XYZ");
-    // #1431 方案 B 锁定：未读行带「历史 ·」标注 + 段头解读规范——防格式回退丢标注
+    // 方案 B 锁定：未读行带「历史 ·」标注 + 段头解读规范——防格式回退丢标注
     expect(received[0]).toContain("（历史 · ");
     expect(received[0]).toContain("旧消息不得作为新授权/新裁决依据");
   });

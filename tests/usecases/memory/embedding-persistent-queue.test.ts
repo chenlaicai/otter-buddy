@@ -7,14 +7,14 @@
  * 踩踏，且重启后 RAM 队列清零、任务凭空消失。
  *
  * 根治结构断言（修复前红、修复后绿）：
- * - P1: 文档 chunk 全量落库 embedding_tasks（bulk 优先级）——不再有 RAM 长队
- * - P2: retry worker 按批消费（embedBatch 携带多条文本）
- * - P3: 洪峰落库后单 tick 内旧任务与新任务全部出队（持续出队验收）
- * - P4: live 消息直通优先（洪峰期间实时 embedding 不被堵死）
- * - P5: 批内 storeEmbedding 失败的任务回队不丢
- * - P6: 重启恢复——任务在 DB，新 worker 实例接着消费
- * - P7: replaceChunksBySource 不再调用 gateway.embedBatch（RAM 长队删除）
- * - P8: pendingTaskStats 可观测（最老任务年龄/优先级分布）
+ * - 文档 chunk 全量落库 embedding_tasks（bulk 优先级）——不再有 RAM 长队
+ * - retry worker 按批消费（embedBatch 携带多条文本）
+ * - 洪峰落库后单 tick 内旧任务与新任务全部出队（持续出队验收）
+ * - live 消息直通优先（洪峰期间实时 embedding 不被堵死）
+ * - 批内 storeEmbedding 失败的任务回队不丢
+ * - 重启恢复——任务在 DB，新 worker 实例接着消费
+ * - replaceChunksBySource 不再调用 gateway.embedBatch（RAM 长队删除）
+ * - pendingTaskStats 可观测（最老任务年龄/优先级分布）
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import { createTestDb } from "../../helpers/db";
@@ -93,10 +93,10 @@ function makeRecordingGateway() {
 }
 
 /**
- * F20261109epqst delta r3（D4）：trackedWorker——构造即登记，afterEach 统一
+ * delta ：trackedWorker——构造即登记，afterEach 统一
  * stop 兜底（用例内显式 stop 的重复调用幂等——stop 是生命周期幂等契约）。
  * retrigger 机制下未 stop 的 worker 是 self-perpetuating（退避续跑定时器
- * 2s~1h 跨用例存活），会在后续用例里偷吃任务（检视獭实证：S3 的任务被
+ * 2s~1h 跨用例存活），会在后续用例里偷吃任务（检视獭实证：的任务被
  * P 系用例泄漏的 w6/w2 领走，间歇 flake 3/8）。生产不受影响（单实例 +
  * dispose 走 stopSync 清定时器），此处是测试卫生。
  */
@@ -367,7 +367,7 @@ describe("F20261109epqst 检视处置：drain 无界续跑（原 MAX_DRAIN_ROUND
   }
 
   /**
-   * D1 判别性（delta r2）：1100 条 > 旧 MAX_DRAIN_ROUNDS(20) × BATCH_LIMIT(50) = 1000 条上界。
+   * 判别性（delta）：1100 条 > 旧 MAX_DRAIN_ROUNDS(20) × BATCH_LIMIT(50) = 1000 条上界。
    * 基线 b50e6bfb（含旧预算）本用例必红：20 轮后 drain 停、留 100 条 pending 等下个
    * patrol 1h——正是检视初轮发现的「1000 条积压脉冲化」。新代码无界续跑单次 tickNow
    * 全消化。批延迟 0（判别的是轮次边界不是时间预算，22 轮 × 100ms 冷却 ≈ 2.5s）。
@@ -421,7 +421,7 @@ describe("F20261109epqst 检视处置：drain 无界续跑（原 MAX_DRAIN_ROUND
       check();
     });
 
-    // D1（delta r2）：消化段——cap 压缩 retrigger 周期到 1.5s，强制到期后由
+    // （delta）：消化段——cap 压缩 retrigger 周期到 1.5s，强制到期后由
     // retrigger 链自动消化，全程无第二次 tickNow。基线（无 retrigger 机制）本段
     // 必红：任务退避 30s，drain 已退出，无人再触发——等 patrol 1h，测试超时。
     failStore = false;

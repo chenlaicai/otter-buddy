@@ -23,9 +23,9 @@ import { createTestLogger } from "../../helpers/logger";
 import type { Device } from "@entities/execution/device";
 
 /**
- * （阶段 4 C2）端到端验收：RemoteExecutionMachine → WSS 网关 →
+ * 端到端验收：RemoteExecutionMachine → WSS 网关 →
  * 真 connector 执行栈（dispatcher + 公共执行器 + 本地台账 + workspace 网关临时目录）
- * → 六动作全链 / 中枢幂等拒 / connector 侧幂等快路径 / 断线在途落 unknown（方案 §8）。
+ * → 六动作全链 / 中枢幂等拒 / connector 侧幂等快路径 / 断线在途落 unknown。
  * 拓扑对齐生产装配：hub 侧 machine 投影接真 gateway 通道（app.ts 形态），
  * connector 侧执行栈对齐 main.ts buildRuntime 形态（独立数据目录）。
  */
@@ -87,7 +87,7 @@ async function startE2E(db: Database.Database, opts: { actionTimeoutMs?: number 
 
 /** connector 侧 ws 客户端（真执行栈接线：action.request → dispatcher → 回帧） */
 async function connectConnector(url: string, runtime: Awaited<ReturnType<typeof buildConnectorRuntime>>): Promise<{ ws: WebSocket; sid: string }> {
-  // 6c：升级子协议 pin（对齐 connector/main.ts 真实客户端行为）
+  // 升级子协议 pin（对齐 connector/main.ts 真实客户端行为）
   const ws = new WebSocket(url, [CONNECTOR_WS_SUBPROTOCOL], { headers: { authorization: "Bearer tok-e2e" } });
   const sid = await new Promise<string>((resolve, reject) => {
     ws.once("open", () => {
@@ -158,11 +158,11 @@ describe("C2 执行通道端到端（六动作/幂等/断线收尾）", () => {
     await expect(machine.run({ type: "workspace.read", input: { conversationId: "c1", relativePath: "dir/a.txt" } }))
       .rejects.toThrow();
 
-    // 中枢侧登记六行全 succeeded（R1 回执投影）
+    // 中枢侧登记六行全 succeeded（回执投影）
     const rows = await hub.remoteActions.listByStatuses(["succeeded"]);
     expect(rows).toHaveLength(7);
     expect(rows.every(r => r.deviceId === DEVICE_ID)).toBe(true);
-    // R2：conversation 维度可查
+    // conversation 维度可查
     const byConv = await hub.remoteActions.listByConversation("c1");
     expect(byConv.length).toBeGreaterThanOrEqual(6);
 
@@ -275,7 +275,7 @@ describe("C2 执行通道端到端（六动作/幂等/断线收尾）", () => {
     hub.server.close();
   });
 
-  // ─── C3（方案 §6/§8）：主动下线五步 + 旧 sid 晚到回执 + 总闸验收 ───
+  // ─── 主动下线五步 + 旧 sid 晚到回执 + 总闸验收 ───
 
   it("C3：主动优雅下线（offline 帧）在途落 interrupted + 下线后旧会话不能执行（issue 验收②）", async () => {
     const hub = await startE2E(db);
@@ -299,7 +299,7 @@ describe("C2 执行通道端到端（六动作/幂等/断线收尾）", () => {
     const interrupted = await hub.remoteActions.listByStatuses(["interrupted"]);
     expect(interrupted.map(r => r.actionId)).toEqual(["c3-graceful-1"]);
     expect(interrupted[0]!.error).toContain("graceful");
-    // m3（检视）：优雅路径的会话行收尾 reason 必须是 device-offline（区别于心跳超时）
+    // （检视）：优雅路径的会话行收尾 reason 必须是 device-offline（区别于心跳超时）
     const reasonRow = db.prepare("SELECT status, disconnect_reason FROM online_sessions WHERE id = ?").get(sid) as { status: string; disconnect_reason: string };
     expect(reasonRow).toMatchObject({ status: "offline", disconnect_reason: "device-offline" });
 
@@ -325,7 +325,7 @@ describe("C2 执行通道端到端（六动作/幂等/断线收尾）", () => {
     const fresh = await connectConnector(hub.url, runtime); // 新会话（新 sid）
     expect(fresh.sid).not.toBe(staleSid);
 
-    // m5（检视）：先登记一条 requested 行——stale result 即便被误派发也 settle 不了它
+    // （检视）：先登记一条 requested 行——stale result 即便被误派发也 settle 不了它
     // （强断言：此前用未登记 actionId 是同义反复）
     const staleSid2 = stale.sid;
     await hub.remoteActions.recordRequest({

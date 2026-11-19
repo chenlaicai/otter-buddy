@@ -1,5 +1,5 @@
 /**
- * P2b2：夜间审视编排（night-review orchestrator）。
+ * 夜间审视编排（night-review orchestrator）。
  *
  * 注册进 scheduler 的 FunctionRegistry（executorType='function'），每日 cron 触发。
  * 治量进代码、LLM 只做核对：编排层负责幂等取档（claim）、区间计算（水位/失败重跑）、
@@ -39,7 +39,7 @@ import type { SendEntry } from "@usecases/conversation/send-entry";
 import { buildNightReviewerPrompt, buildNightReviewMessage } from "./night-review-prompt";
 import type { Logger } from "@usecases/ports/logger";
 
-/** 夜审时区（写进配置语义：v4 §4.2 固定时刻按此时区解释） */
+/** 夜审时区（写进配置语义：v4 固定时刻按此时区解释） */
 export const NIGHT_REVIEW_TIMEZONE = "Asia/Shanghai";
 
 /** 夜审獭 invoke 超时（分钟）——与任务 seed 的 timeoutMinutes 同源（防 LLM 会话挂死拖住编排） */
@@ -193,7 +193,7 @@ export class NightReviewOrchestrator {
   /**
    * 跨档水位：after = min(最新 settle 档 through, 最早未清失败区间 failedAfter)。
    * settle 档 through 保证「上次成功审到哪」不重跑；未清失败区间保证「停机/失败漏掉的段」
-   * 不丢审（v4 §4.4 停机错过 → 从旧水位继续）。无任何档 → 兜底回看窗（首跑）。
+   * 不丢审（v4 停机错过 → 从旧水位继续）。无任何档 → 兜底回看窗（首跑）。
    */
   private async resolveWatermarkAfter(nowIso: string): Promise<string> {
     const states = await this.deps.consolidationRepo.listByTaskId(NIGHT_REVIEW_TASK_ID);
@@ -262,7 +262,7 @@ export class NightReviewOrchestrator {
     let otterId: string | null = null;
     try {
       if (pending.length > 0) {
-        // 召唤（P2a 档案）+ 快照范围写入獭 context（三迁移工具 fail-closed 校验的数据源）
+        // 召唤（档案）+ 快照范围写入獭 context（三迁移工具 fail-closed 校验的数据源）
         const otter = await this.deps.createOtter.execute({
           name: `夜审${date}T${new Date().toISOString().slice(11, 16).replace(":", "")}`,
           type: "night-reviewer",
@@ -498,7 +498,7 @@ export class NightReviewOrchestrator {
    */
   private async reportChangeset(conversationId: string, changeset: NightReviewChangeset): Promise<string> {
     const title = `夜间审视 ${changeset.date}：${changeset.changes.length} 条 belief 迁移待过目`;
-    // 查重窗口：repo 默认只回最近 50 条（delta 审视发现 17）——夜审 matter 每日累积，
+    // 查重窗口：repo 默认只回最近 50 条（delta）——夜审 matter 每日累积，
     // 补发重跑与首次登记之间可能隔超过 50 条新 matter。窗口提到 1000（单对话 matter
     // 极端量级），超出窗口的重复登记代价是搭档多闭环一条 WAITING_PARTNER，非数据损坏。
     const existing = await this.deps.matterRepo.findByConversation(conversationId, undefined, 1000);

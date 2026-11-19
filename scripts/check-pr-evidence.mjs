@@ -7,9 +7,9 @@
  * agent 陈述层两层字段齐全，或显式声明「无」）。豁免集合精确化：仅 docs/ 全树
  * 与仓根标准文档（README/CONTRIBUTING/SECURITY/CHANGELOG 系 .md）——
  * prompts/、.pi/、.github/ 等运行时契约/行为面按扩展名一律不豁免。
- * 不判语义（证据质量留给异体审 B9），只机械判：触发 + Rollback 实质 + 分层两层。
+ * 不判语义（证据质量留给异体审），只机械判：触发 + Rollback 实质 + 分层两层。
  * 半机械标注：本闸只护「字段存在与两层结构」，不护「内容真实」——后者由
- * 对抗审视 B9 抽样锚点复验护。
+ * 对抗审视 抽样锚点复验护。
  *
  * 退出码：0 通过 / 1 违规 / 2 拒判（diff 为空，M-0f8cf262 口径）。
  * 用法：node scripts/check-pr-evidence.mjs [--base <ref>] [--pr-body-file <path>]
@@ -46,7 +46,7 @@ export function extractSection(body, titlePattern) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
-/** 占位词：模板说明/待填标记不算实质内容（精确行级匹配，防误杀合法句——D1b：「Remove the feature flag…」是合法回滚说明） */
+/** 占位词：模板说明/待填标记不算实质内容（精确行级匹配，防误杀合法句——b：「Remove the feature flag…」是合法回滚说明） */
 const PLACEHOLDER_RE = /^(tbd|todo|n\/a|none|待定|待补[充写]?|占位)[.!。]?$/i;
 /** PR 模板原句残留（长特征串精确匹配，不做动词前缀匹配——前缀匹配曾误杀合法内容开头） */
 const TEMPLATE_PROSE_MARKERS = [
@@ -69,9 +69,9 @@ export function hasSubstance(sectionText) {
 }
 
 /**
- * 证据分层声明段判定（S3 修复 + D1a 收紧）：限定在「## 证据分层声明」段内，
+ * 证据分层声明段判定（修复 + a 收紧）：限定在「## 证据分层声明」段内，
  * 非文档交付必须两层字段齐全——「机器锚点」层与「agent 陈述」层标识均出现
- * （层内容各自可为「无」）。D1a：trigger=true 场景不接受「无（纯文档豁免）」类
+ * （层内容各自可为「无」）。a：trigger=true 场景不接受「无（纯文档豁免）」类
  * 全无声明——纯文档豁免在路径判定层已完成，不走 body 检查。
  * 返回错误列表（空 = 通过）。
  */
@@ -127,7 +127,7 @@ function main() {
 
   let diffText = "";
   try {
-    // -z：NUL 分隔，免疫 core.quotepath 对非 ASCII 路径的 C-style quote（S4 修复）
+    // -z：NUL 分隔，免疫 core.quotepath 对非 ASCII 路径的 C-style quote（修复）
     diffText = execFileSync("git", ["diff", "--name-only", "-z", `${base}...HEAD`], {
       encoding: "utf8",
     });

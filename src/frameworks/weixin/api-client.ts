@@ -84,7 +84,7 @@ export class WeixinApiClient {
     return headers;
   }
 
-  /** POST 请求头：公共头 + Content-Type（仅 POST 搞 JSON body，#624） */
+  /** POST 请求头：公共头 + Content-Type（仅 POST 搞 JSON body） */
   private buildPostHeaders(): Record<string, string> {
     return { "Content-Type": "application/json", ...this.buildCommonHeaders() };
   }
@@ -172,8 +172,8 @@ export class WeixinApiClient {
       item_list: [{ type: 1, text_item: { text: params.text } }],
       context_token: params.contextToken,
     };
-    // F20260914wxeg（原 F20260904wxeg，定稿改名）：出站全量观测——sendmessage 是 iLink「假成功」重灾区（ret=0 但微信侧
-    // 不投递），入参/响应逐字段留痕，排查不再依赖「无错误日志」的反推（#213 教训）
+    // （原 定稿改名）：出站全量观测——sendmessage 是 iLink「假成功」重灾区（ret=0 但微信侧
+    // 不投递），入参/响应逐字段留痕，排查不再依赖「无错误日志」的反推（教训）
     const startedAt = Date.now();
     let resp: WeixinSendMessageResp;
     try {
@@ -218,7 +218,7 @@ export class WeixinApiClient {
     );
   }
 
-  /** 媒体上传：申请预签名 CDN 上传 URL（issue #567） */
+  /** 媒体上传：申请预签名 CDN 上传 URL */
   getUploadUrl(params: WeixinGetUploadUrlReq, timeoutMs = 15000): Promise<WeixinGetUploadUrlResp> {
     return this.post("ilink/bot/getuploadurl", { ...params, base_info: this.baseInfo() }, timeoutMs);
   }
@@ -240,7 +240,7 @@ export class WeixinApiClient {
         { msg, base_info: this.baseInfo() },
         15000,
       ) as WeixinSendMessageResp;
-      // F20260904wxeg：errcode 通道校验与 sendTextMessage
+      // errcode 通道校验与 sendTextMessage
       // 同构（F137 实证媒体路径同样可能只走 errcode）——两处独立实现，保持一致拦截语义
       if (resp.errcode !== undefined && resp.errcode !== 0) {
         throw new Error(`weixin sendmessage errcode=${resp.errcode} errmsg=${resp.errmsg ?? "(none)"}`);

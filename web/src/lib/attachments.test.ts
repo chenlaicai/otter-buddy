@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * 多模态 Phase 1 前端附件：lib/attachments 校验纯函数测试。
+ * 多模态：前端附件：lib/attachments 校验纯函数测试。
  * 白名单与大小限制和后端 upload-validation.ts / config 默认值对齐——
  * 前端拒一次省一趟网络，但后端仍是真相源。
  */

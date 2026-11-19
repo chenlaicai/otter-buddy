@@ -47,7 +47,7 @@ function markerName(branch: string) {
   return `otter-claim-ok-${N}-${branch.replace(/[^A-Za-z0-9._-]/g, "_")}`;
 }
 
-/** 真跑认领闸脚本（cwd 即仓库/worktree 顶层）；issue 号可换（拒 commit 路径用 N2） */
+/** 真跑认领闸脚本（cwd 即仓库/worktree 顶层）；issue 号可换（拒 commit 路径用占位号） */
 function runGateWith(cwd: string, issueNum: number) {
   const msgFile = join(tmp, `msg-${issueNum}.txt`);
   writeFileSync(msgFile, `[F20261119abcde][ci][New Feature] 测试提交（#${issueNum}）\n`);
@@ -71,7 +71,7 @@ beforeAll(() => {
   }
   mkdirSync(join(tmp, ".githooks"), { recursive: true });
   writeFileSync(join(tmp, ".githooks", "commit-msg"), readFileSync(join(repoRoot, ".githooks", "commit-msg")));
-  // fake gh：#N2 返回空评论（零认领 → 拒）；其余 exit 1（查询失败 → fail-open）
+  // fake gh：占位号返回空评论（零认领 → 拒）；其余 exit 1（查询失败 → fail-open）
   fakeBin = join(tmp, "fake-bin");
   mkdirSync(fakeBin, { recursive: true });
   writeFileSync(join(fakeBin, "gh"), "#!/bin/sh\nif [ \"$1\" = issue ] && [ \"$2\" = view ] && [ \"$3\" = 999000002 ]; then echo '[]'; exit 0; fi\nexit 1\n");

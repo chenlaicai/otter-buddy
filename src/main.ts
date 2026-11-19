@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   const configPath = parseConfigPathArg(process.argv.slice(2));
   const built = await buildApp({ logger, configPath });
   listen(built.app, built.config.server.port, logger, (req, socket, head) => built.connectorGateway.handleUpgrade(req, socket, head, (code, reason) => { socket.write(`HTTP/1.1 ${code} ${reason}\r\nConnection: close\r\n\r\n`); socket.destroy(); }));
-  // F20261026emct：listen 先行，重初始化（document sync + retry worker + 暗化迁移）
+  // listen 先行，重初始化（document sync + retry worker + 暗化迁移）
   // 异步补上——health 端点最先可用，不再被启动期全库同步堵 30s+（10-23 雪崩死循环根因之一）。
   // fire-and-forget：失败已内部 catch 落日志，不拖垮已就绪的 HTTP 服务。
   built.postListenInit().catch((err) => {
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
 
   // ── 进程级安全网：最后一道防线，防止未处理异常/rejection 导致进程裸死 ──
 
-  /** #460：dispose 超时兜底（5s，超时强退，防僵尸进程根因之一）。实现见 bootstrap/shutdown.ts */
+  /** dispose 超时兜底（5s，超时强退，防僵尸进程根因之一）。实现见 bootstrap/shutdown.ts */
   const DISPOSE_TIMEOUT_MS = 5_000;
   const forceExit = process.exit.bind(process);
 

@@ -201,7 +201,7 @@ function TreeNode(props: TreeNodeProps) {
 
 // ── 文件内容渲染 ────────────────────────────────────────────────────────────
 
-/** .md / .markdown → 消息流同款 MarkdownContent（event-log 变体：GFM + Prism 语法高亮；不接 unfurl 卡片/链接——安全设计，勿改 variant，F20261014pvmd 对齐） */
+/** .md / .markdown → 消息流同款 MarkdownContent（event-log 变体：GFM + Prism 语法高亮；不接 unfurl 卡片/链接——安全设计，勿改 variant，对齐） */
 function MarkdownRenderer({ content }: { content: string }) {
   return (
     <div data-testid="react-markdown" className="prose max-w-none text-stone-700 text-sm leading-relaxed
@@ -249,7 +249,7 @@ function PlainRenderer({ content }: { content: string }) {
   )
 }
 
-/** 图片 → 居中展示，max 尺寸约束（F20261014pvmd） */
+/** 图片 → 居中展示，max 尺寸约束 */
 function ImageRenderer({ dataUrl }: { dataUrl: string }) {
   return (
     <div data-testid="image-preview" className="flex items-center justify-center p-2">
@@ -406,7 +406,7 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
   }, [])
 
   /**
-   * Safari 26 兜底：实测（F20260916scfx 排查，搭档 Safari 26.6.2 现场）contextmenu 事件
+   * Safari 26 兜底：实测（排查，搭档 Safari 26.6.2 现场）contextmenu 事件
    * 能派发、preventDefault 也标记成功（defaultPrevented=true），但原生菜单照弹——
    * React 19 挂在 root 的委托 handler 拦不住。mousedown 阶段拦截 button===2 可抢在
    * 浏览器默认行为前生效，Chromium 上同样无害（与 onContextMenu 并存双保险）。
@@ -417,7 +417,7 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
     if (!el) return
     const onMouseDown = (ev: MouseEvent) => {
       if (ev.button !== 2) return
-      // 只拦文件节点：folder 节点没挂 onContextMenu（本 PR 不加菜单），拦了反而从「原生菜单」退化为「什么都没有」（检视发现 1）
+      // 只拦文件节点：folder 节点没挂 onContextMenu（本 PR 不加菜单），拦了反而从「原生菜单」退化为「什么都没有」
       const target = (ev.target as HTMLElement).closest('[data-testid^="file-"]')
       if (target) ev.preventDefault()
     }
@@ -495,9 +495,9 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
       </div>
 
       {/* 右键菜单：fixed 蒙层 + 玻璃卡片（仿 index.tsx ctxMenu 模式） */}
-      {/* Why Portal：菜单必须挂 document.body——防御性隔离（F20261102glmtr 后 aside.glass
+      {/* Why Portal：菜单必须挂 document.body——防御性隔离（后 aside.glass
           已无 backdrop-filter/containing-block 副作用，但未来若引入 transform/filter 等
-          CB 属性，后代 fixed 仍会退化相对 aside 定位而飞出视口；F20260916scfx 探针4
+          CB 属性，后代 fixed 仍会退化相对 aside 定位而飞出视口；探针4
           曾实测：右键 x=1605 时菜单 left=3130，Safari/Chromium 均如此） */}
       {ctxMenu && createPortal(
         <>
@@ -522,7 +522,7 @@ export function WorkspacePanel({ conversationId }: WorkspacePanelProps) {
         document.body
       )}
 
-      {/* 文件预览 Modal：Modal 组件内部自带 portal 挂 body + z-[100]，无需外层 portal（F20261014pvmd 处置 3） */}
+      {/* 文件预览 Modal：Modal 组件内部自带 portal 挂 body + z-[100]，无需外层 portal（处置 3） */}
       {selectedFile && (
         <FilePreviewModal file={selectedFile} onClose={() => setSelectedFile(null)} />
       )}

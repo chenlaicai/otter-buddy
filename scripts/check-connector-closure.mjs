@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * （阶段 4）：connector 构建产物依赖闭包断言（方案 v3 §7）。
+ * connector 构建产物依赖闭包断言。
  *
  * 轻量铁律的构建级硬约束：dist/connector 的 import 图不得出现模型/embedding/记忆/
- * agent 全家桶节点（issue 阶段 4「不加载模型、embedding 或主记忆」）。eslint 边界
+ * agent 全家桶节点（issue 「不加载模型、embedding 或主记忆」）。eslint 边界
  * 是早期软拦截，本脚本是产物级硬闸（CI 跑）。
  *
  * 用法：先 npm run build:connector 再 node scripts/check-connector-closure.mjs
@@ -22,7 +22,7 @@ const FORBIDDEN = [
   /@frameworks\/db\/(conversation|otter|memory|im)/, // 主库领域 repo（中枢数据）
   /@earendil-works\/(pi-ai|pi-coding-agent|pi-agent-core|chord)/,
   /@interface-adapters/,
-  // C2 白名单（方案 v3 §5/§7）：执行机端口 + workspace 网关/动作台账端口 + logger
+  // 白名单：执行机端口 + workspace 网关/动作台账端口 + logger
   // + connector 注册仓——公共执行器（WorkspaceActionExecutor）与台账/网关实现的依赖面。
   // 白名单外的一切 usecases 节点仍禁（防 agent/memory 等领域逻辑从 usecases 侧渗入）。
   /@usecases\/(?!ports\/(logger|connector-registry-repository|execution-machine|workspace-gateway|action-ledger)$)/,

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* global URL, AbortSignal */
 /**
- * 迁移导出（阶段 6b）：停源一致性导出 → manifest（sha256/target + 表行数）→ tar.gz 产物。
+ * 迁移导出：停源一致性导出 → manifest（sha256/target + 表行数）→ tar.gz 产物。
  *
  * 用法（本机，主服务停止后）：
  *   node scripts/migrate-export.mjs [--out <dir>] [--data-dir <dir>] [--ping-port <n>] [--skip-liveness]

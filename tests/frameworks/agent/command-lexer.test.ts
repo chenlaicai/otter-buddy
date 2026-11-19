@@ -1,10 +1,10 @@
 /**
- * 词法层 golden token 流测试（方案 D7 三层测试之第①层）。
+ * 词法层 golden token 流测试（方案 三层测试之第①层）。
  *
  * 锁死「shell 理解对不对」：输入命令 → 期望 token 结构（词的求值结果/操作符序列/
  * heredoc 元数据/parseOk）。判定层决策表在 bash-safety-guard.test.ts（第③层）。
  *
- * 写法纪律（方案 D7）：结构断言与判定断言分离——本文件只断言词法结构，
+ * 写法纪律（方案）：结构断言与判定断言分离——本文件只断言词法结构，
  * 不 import 判定层；防「决策对但理解错」的巧合正确。
  */
 import { describe, expect, it } from "vitest";
@@ -88,7 +88,7 @@ describe("command-lexer golden token 流", () => {
       expect(r.tokens[1].word!.evaluated).toBe('a"b');
     });
     it("hex 转义：引号外 hex part 不求值；单引号内字面量", () => {
-      // 引号外（bash 词内 \x 字面双字符）：hex part，不可静态求值（D5 矩阵 #2）
+      // 引号外（bash 词内 \x 字面双字符）：hex part，不可静态求值（矩阵）
       const r1 = lex("printf \\x6b\\x69");
       expect(r1.tokens[1].word!.evaluated).toBeNull();
       expect(r1.tokens[1].word!.parts.every(p => p.type === "hex")).toBe(true);

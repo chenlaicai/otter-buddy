@@ -2,13 +2,13 @@
  * HealthScore 单测（PR1 + 校准批次）
  *
  * 覆盖：五维评分边界（0/满分/clamp）+ 状态分级边界（49/50/74/75）
- * + 走向判定（±5 边界/数据不足/窗口内 null 剔除）+ 无数据降级（D3/D5 null 不参与加权）
+ * + 走向判定（±5 边界/数据不足/窗口内 null 剔除）+ 无数据降级（null 不参与加权）
  * + health_index 行构建 + 拖累归因。
  *
  * 校准变更：
- * - D1: 40%归零→55%归零（三档锚点 ≤25%/40%/≥55%）
- * - D2: ×4+cap60→×2无封顶（恢复区分度）
- * - D3: stalled ×100→×50（中间惩罚系数）
+ * - 40%归零→55%归零（三档锚点 ≤25%/40%/≥55%）
+ * - ×4+cap60→×2无封顶（恢复区分度）
+ * - stalled ×100→×50（中间惩罚系数）
  * - judgeTrend: null 先切窗口再剔除（窗口内 null 不拉扯跨窗口数据）
  */
 
@@ -220,21 +220,21 @@ describe("综合分与拖累归因", () => {
   it("无数据维度权重归一：仅 D1/D4 有数据时按 0.35 总权重归一", () => {
     const r = computeHealthScore({
       ...BASE_INPUT,
-      chainStates: null, // D3、D5 无数据
+      chainStates: null, // 无数据
       hotspotFiles: [], changeTypes: {},
       bugfixRatio: 0.1, totalCommits: 100, compliantCommits: 80,
     });
-    // D1=100（ratio 0.1），D2=100（无热点无失衡——changeTypes 空不触发），D4=80
+    // =100（ratio 0.1），=100（无热点无失衡——changeTypes 空不触发），=80
     // 权重：0.25+0.2+0.1=0.55 → (100×0.25+100×0.2+80×0.1)/0.55 ≈ 96.4
     expect(r.overall).toBeCloseTo(96.4, 1);
   });
   it("归因指向最低维度的最大扣分项", () => {
     const r = computeHealthScore({
       ...BASE_INPUT,
-      bugfixRatio: 0.38, // D1≈56.7（校准后）
-      compliantCommits: 60, // D4=60
+      bugfixRatio: 0.38, // ≈56.7（校准后）
+      compliantCommits: 60, // =60
     });
-    // D4=60 < D1≈56.7? No, D1=100*(0.55-0.38)/0.30=56.7, D4=60, D1 is lower
+    // =60 < ≈56.7? No, =100*(0.55-0.38)/0.30=56.7, =60, is lower
     expect(r.attribution).toContain("修 bug 比例");
     expect(r.attribution).toContain("bugfix");
   });
@@ -255,7 +255,7 @@ describe("综合分与拖累归因", () => {
     expect(r.attribution).toBeNull();
   });
   it("D4 非满分时归因指向 D4 未规范提交数", () => {
-    const r = computeHealthScore({ ...BASE_INPUT, chainStates: { active: 10 } }); // D4=80 最低（D3=100）
+    const r = computeHealthScore({ ...BASE_INPUT, chainStates: { active: 10 } }); // =80 最低（=100）
     expect(r.attribution).toContain("流程纪律");
     expect(r.attribution).toContain("20 个提交");
   });
@@ -306,7 +306,7 @@ describe("health_index 行构建", () => {
   it("每维一行 + overall 一行（metadata 含归因），无数据维度跳过", () => {
     const r = computeHealthScore({
       ...BASE_INPUT,
-      chainStates: null, // D3/D5 跳过
+      chainStates: null, // 跳过
     });
     const rows = buildHealthIndexRows(r);
     const keys = rows.map(row => row.metricKey);

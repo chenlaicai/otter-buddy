@@ -124,7 +124,7 @@ function validateManifest(manifest) {
       error(`types.${typeName}.tools 必须为 "*" 或数组`);
     }
 
-    // F20260821kgts: wildcard 是全放行语义，仅 allowlist 内类型可用
+    // wildcard 是全放行语义，仅 allowlist 内类型可用
     if (typeConfig.tools === "*" && !WILDCARD_ALLOWED_TYPES.has(typeName)) {
       error(`types.${typeName}.tools 使用了 "*"（全放行）但不在 WILDCARD_ALLOWED_TYPES 白名单中——新类型请显式枚举工具，或显式修改 lint 脚本白名单`);
     }
@@ -279,10 +279,10 @@ if (manifest && registeredTools) {
   validateToolNames(manifest, registeredTools);
 }
 
-// F20261008tecn（检视发现 1）：deferred ∩ coding 工具集 = ∅ 静态校验
+// deferred ∩ coding 工具集 = ∅ 静态校验
 // 不变量：deferred 工具名不得出现在 coding 工具集（getCodingToolsForOtterType 硬编码 7 个）。
 // 违反时 pi SDK 在 session 构造瞬间经 allowedTools×_isDeclarable 路径把它推入激活集，
-// setActiveToolsByName 修正不了已发生的第一次请求窗口（详见 F20261008tecn 变更清单 4）。
+// setActiveToolsByName 修正不了已发生的第一次请求窗口（详见 变更清单 4）。
 // coding 集与 session-helpers.ts getCodingToolsForOtterType 单一真相源同口径（lint 无法 import ts，人工同步）。
 const CODING_TOOLS = ["read", "write", "edit", "bash", "grep", "find", "ls"];
 if (manifest?.toolExposure) {

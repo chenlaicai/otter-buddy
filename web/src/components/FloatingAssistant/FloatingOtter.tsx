@@ -7,7 +7,7 @@ import type { OtterMood } from './global-conversation-store'
  * - look 张望：左右探头（rotate ±6°）
  * - bubble 冒泡：红点（未读数）+ 轻跳
  * 位置/拖动状态由宿主（FloatingAssistant）经 props 注入——獭与面板共享同一份。
- * P2：hover 快捷气泡（三条「随便问点什么」）移除——实测反馈多余，
+ * hover 快捷气泡（三条「随便问点什么」）移除——实测反馈多余，
  * 交互简化为「点击獭=开面板」，无中间层
  */
 

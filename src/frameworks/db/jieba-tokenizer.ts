@@ -50,12 +50,12 @@ export function tokenizeWithJieba(text: string, options?: { doubleWrite?: boolea
  * @param query 查询词
  * @returns 分词结果数组（已过滤停用词）
  * 注意：如果所有 token 都是停用词，返回原始查询词（避免空结果）
- * F20260902rcp1: 查询侧改 HMM 词典模式——单字模式（cut(x,false)）在
- * @node-rs/jieba 2.x 下无词典参与，中文查询退化为全单字，区分度坍塌（Phase 0 根因1）。
+ * 查询侧改 HMM 词典模式——单字模式（cut(x,false)）在
+ * @node-rs/jieba 2.x 下无词典参与，中文查询退化为全单字，区分度坍塌（根因1）。
  */
 export function tokenizeQuery(query: string): string[] {
   if (!query) return [];
-  // #1115（检视处置扩大）：过滤空白与纯标点 token——trim 只覆盖空白子类，
+  // （检视处置扩大）：过滤空白与纯标点 token——trim 只覆盖空白子类，
   // 标点 token（cut("health-panel") → ["health","-","panel"]）与空格同病：
   // 零 posting 使 AND 段恒空，含标点查询永远走双段旁路收敛收益。
   // 改为「至少含一个字母或数字」的 Unicode 判定（含中文/CJK/数字，排除纯标点/空白）。

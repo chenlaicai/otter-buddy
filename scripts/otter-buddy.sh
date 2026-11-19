@@ -77,7 +77,7 @@ get_pid() {
 # -sTCP:LISTEN 只留监听套接字：客户端连接进程（浏览器 ESTABLISHED 连接等）天然
 # 排除——本案事故：Safari 网络进程的连接条目排在监听者前面，head -1 选中了它，
 # stop 报「another worktree's Otter Buddy」并建议 kill 浏览器进程。
-# 口径与下方杀伐校验（T1）对齐——同文件同一端口问题不再两种写法。
+# 口径与下方杀伐校验对齐——同文件同一端口问题不再两种写法。
 port_owner_pid() {
   lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -1 || true
 }
@@ -243,7 +243,7 @@ cmd_stop() {
 
   # 有 PID 文件且进程存活：只杀自己的（先 SIGTERM 优雅退出，超时再 SIGKILL）
   if [ -n "$my_pid" ] && kill -0 "$my_pid" 2>/dev/null; then
-    # T1 杀伐校验：PID 文件里的进程必须确实是 $PORT 的监听者。
+    # 杀伐校验：PID 文件里的进程必须确实是 $PORT 的监听者。
     # 关闭 8/29 事故 A 窗口：主仓目录跑 stop -p 3002 时 PID 文件指向 3000 主服务，-p 参数原先不参与杀伐决策。
     # lsof 不可用时跳过校验降级放行（增强闸门不做硬依赖）；端口无人监听但进程存活 → 拒杀（正是事故 A 形态）。
     if command -v lsof >/dev/null 2>&1; then

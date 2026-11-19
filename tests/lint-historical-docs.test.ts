@@ -294,18 +294,18 @@ describe("lint-historical-docs: 历史文档不可变", () => {
 
   it("F20260922rntc（#1103）：本分支新建文档 R 形态 rename（git mv 不改内容，R100 纯 rename）→ 通过（rename 溯源修复锁定）", () => {
     // 修复前实测：R 形态（相似度≥50%）下新路径查不到 Add commit → 误拦（行为随 git 相似度漂移）
-    // 用纯 git mv（不改内容）保证 R100 形态，排除内容改写导致的 D+A 退化
+    // 用纯 git mv（不改内容）保证 形态，排除内容改写导致的 D+A 退化
     const renamed = "docs/features/2026/08/31/F20260831new-r-form.md";
     git(repo, ["mv", NEW_DOC, renamed]);
     // git mv 已暂存 rename 两端，无需再 add（旧路径已不存在，add 会报 pathspec 错）
     // 确认 staged 确实是 R 形态——rename 检测需全量 diff（pathspec 单路径过滤会抑制 rename 配对，
-    // 实测：-- <new> 只显示 A；全量才显示 R100 old\tnew）
+    // 实测：-- <new> 只显示 A；全量才显示 old\tnew）
     const status = git(repo, ["diff", "--cached", "--name-status"]);
     expect(status).toMatch(new RegExp(`^R\\d{2,3}\\t${NEW_DOC}\\t${renamed}$`, "m"));
     const r = runLint(repo);
     expect(r.status).toBe(0);
     // 收尾（与上一用例同序列）：reset → 恢复 HEAD 内容 → add → mv 回 → reset
-    // 隐式假设（检视建议 2 注记）：恢复内容 = trim + 单 "\n"（git() helper 对输出 trim），
+    // 隐式假设（注记）：恢复内容 = trim + 单 "\n"（git() helper 对输出 trim），
     // 仅对「单换行结尾」的 fixture 精确——若 fixture 改为无换行/多换行结尾，恢复会静默漂移
     git(repo, ["reset", "-q", "--", "."]);
     fs.writeFileSync(path.join(repo, renamed), git(repo, ["show", `HEAD:${NEW_DOC}`]) + "\n");

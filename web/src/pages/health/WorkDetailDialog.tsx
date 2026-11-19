@@ -165,7 +165,7 @@ export function WorkDetailDialog({ workId, onClose }: Props) {
                   </div>
                 </div>
 
-                {/* 调用证据（最新在前；截断显式计数——复审 A5） */}
+                {/* 调用证据（最新在前；截断显式计数——复审） */}
                 <div>
                   <div className="text-xs font-semibold text-stone-500 mb-1.5">
                     调用证据（最新 {detail.invokeEvidence.length} 条）

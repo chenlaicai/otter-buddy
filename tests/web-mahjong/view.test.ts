@@ -482,7 +482,7 @@ describe("玩家条 playerStrip / stripsByPosition（v3 座位角信息条，不
 
 describe("#1532 formatChatLine 聊天行格式化", () => {
   it("自己/他者/獭标记/名字缺省回退", () => {
-    // ownSeat 命中显「你」且**忽略 fixture name**——name:"B" 仍显「你」，坏实现直接返回 name 会红（检视发现3）
+    // ownSeat 命中显「你」且**忽略 fixture name**——name:"B" 仍显「你」，坏实现直接返回 name 会红
     expect(formatChatLine({ seat: 1, name: "B", from: "human", text: "加油" }, 1)).toBe("你：加油");
     expect(formatChatLine({ seat: 0, name: "阿獭", from: "otter", text: "收到！" }, 1)).toBe("阿獭（獭）：收到！");
     expect(formatChatLine({ seat: 2, name: "C", from: "human", text: "hi" }, 1)).toBe("C：hi");

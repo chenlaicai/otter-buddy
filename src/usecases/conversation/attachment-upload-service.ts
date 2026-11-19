@@ -1,5 +1,5 @@
 /**
- * 附件上传管线（多模态 Phase 1，方案 §3.2）。
+ * 附件上传管线（多模态）。
  *
  * 流程：流式读取（Content-Length 预检 + 流式计数）→ MIME 双路径校验 →
  * 图片 sharp resize 2048px 落盘 / 文档直落盘 → sha256（落盘后字节）→
@@ -37,7 +37,7 @@ export interface UploadInput {
   originalName: string;
   /** 客户端声明的 MIME（不可信，服务端双路径校验说了算） */
   declaredMimeType: string;
-  /** 上传者（user 或 otter id；飞书 Phase 2 为 sender 身份） */
+  /** 上传者（user 或 otter id；飞书 为 sender 身份） */
   uploaderId: string;
 }
 
@@ -46,7 +46,7 @@ function buildRelativePath(sha256: string, ext: string): string {
   return path.posix.join("attachments", sha256.slice(0, 2), sha256.slice(2, 4), `${sha256}${ext}`);
 }
 
-/** MIME → 存储扩展名（表驱动；#608 扩 audio/video/pdf） */
+/** MIME → 存储扩展名（表驱动；扩 audio/video/pdf） */
 const MIME_EXTENSION_MAP: Record<string, string> = {
   "image/png": ".png",
   "image/jpeg": ".jpg",
@@ -66,7 +66,7 @@ function extForMime(mimeType: string): string {
   return MIME_EXTENSION_MAP[mimeType] ?? "";
 }
 
-/** kind 人类可读名（错误消息用，#608 扩展） */
+/** kind 人类可读名（错误消息用，扩展） */
 function kindLabel(kind: "image" | "document" | "audio" | "video"): string {
   return kind === "image" ? "图片" : kind === "audio" ? "音频" : kind === "video" ? "视频" : "文档";
 }
@@ -165,7 +165,7 @@ export class AttachmentUploadService {
       kind: detected.kind,
       sizeBytes: finalSize,
       width, height,
-      caption: null, // Phase 2 异步 worker 回填
+      caption: null, // 异步 worker 回填
       uploaderId,
       createdAt: new Date().toISOString(),
     };

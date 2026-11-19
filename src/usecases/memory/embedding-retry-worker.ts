@@ -1,5 +1,5 @@
 /**
- * Part 1 → embedding 后台队列消费者（原「重试 worker」）。
+ * embedding 后台队列消费者（原「重试 worker」）。
  *
  * 后本 worker 是后台 embedding 的唯一消费者：
  * - store-memory 后台路径（文档 chunk）直接落库 embedding_tasks（不再预占 RAM 槽位）
@@ -45,7 +45,7 @@ export class EmbeddingRetryWorker {
    * 原 20 轮/10min 预算是 tick 内联阻塞时代的约束（防 tick 挂死饿死 patrol），
    * drain 后台化后照抄成了「正常积压推回小时巡检」的脉冲边界——按实测
    * 1.13 条/s，600s 只够 ~678 条，生产 1000 条积压首轮即被截断，剩余空等
-   * ~50min 到下个 patrol tick（验证盲区恰好覆盖：alpha 60/40 条、P3b 120 条
+   * ~50min 到下个 patrol tick（验证盲区恰好覆盖：alpha 60/40 条、120 条
    * 均低于 678 边界）。根治：drain 自续跑直到队列清空（见 runBackgroundDrain
    * 终止条件），退避感知 retrigger 补上「全部在退避」的空窗。
    */
@@ -57,7 +57,7 @@ export class EmbeddingRetryWorker {
   /** retrigger 下界：防 DB 时钟秒级精度下轮询式自触发 */
   private static readonly RETRIGGER_MIN_MS = 2_000;
   /**
-   * S3（对抗）：空闲回填单 tick 上限——S3 闸门跳过的
+   * （对抗）：空闲回填单 tick 上限——闸门跳过的
    * 暗条目在队列清空后的恢复路径。有界增量，与启动暗扫的一次性全量区分。
    */
   private static readonly IDLE_BACKFILL_LIMIT = 200;
@@ -184,11 +184,11 @@ export class EmbeddingRetryWorker {
   }
 
   private async tick(): Promise<void> {
-    // 审视 B3：双重守卫——worker 没 ready 或 vec 被运行时禁用都不消费
+    // 审视 双重守卫——worker 没 ready 或 vec 被运行时禁用都不消费
     if (!this.embeddingGateway.available) return;
     if (!this.reader.isVecEnabled()) return;
 
-    // F20261013ebps：熔断——连续 N 轮全失败，暂停消费（worker 已淹，再打加压）
+    // 熔断——连续 N 轮全失败，暂停消费（worker 已淹，再打加压）
     if (this.consecutiveFullFailures >= EmbeddingRetryWorker.MAX_CONSECUTIVE_FULL_FAILURES) {
       if (this.consecutiveFullFailures % 10 === EmbeddingRetryWorker.MAX_CONSECUTIVE_FULL_FAILURES) {
         this.logger.warn(
@@ -200,7 +200,7 @@ export class EmbeddingRetryWorker {
       return;
     }
 
-    // F20261109epqst：有积压 → 启动/复用后台 drain（不阻塞 patrol duty）
+    // 有积压 → 启动/复用后台 drain（不阻塞 patrol duty）
     if (typeof this.queue.pendingTaskCount === "function") {
       const pending = await this.queue.pendingTaskCount();
       if (pending > 0) {
@@ -213,13 +213,13 @@ export class EmbeddingRetryWorker {
       return;
     }
 
-    // F20261105embqg S3（对抗审视发现 3）：空闲回填——高水位被跳过的暗条目
+    // （对抗）：空闲回填——高水位被跳过的暗条目
     // 不再只能等下次 sync/重启：队列空了才回填（有界）。详见 idleBackfillDarkEntries。
     await this.idleBackfillDarkEntries();
   }
 
   /**
-   * F20261109epqst：drain 唯一启动入口（单实例守卫——tickNow/retrigger 并发触发
+   * drain 唯一启动入口（单实例守卫——tickNow/retrigger 并发触发
    * 时只跑一个循环）。retrigger 定时器先清（新循环自带退出时的重排期）。
    */
   private ensureDrain(): void {
@@ -234,7 +234,7 @@ export class EmbeddingRetryWorker {
   }
 
   /**
-   * F20261109epqst 检视处置（严重发现 1）：后台 drain 自续跑——直到队列见底/
+   * 检视处置（严重发现 1）：后台 drain 自续跑——直到队列见底/
    * 全部在退避/lane 忙/熔断/停机才退出；无轮次与时间预算（原 MAX_DRAIN_ROUNDS/
    * MAX_DRAIN_MS 已删——那是 tick 内联阻塞时代的约束，照抄会把正常积压推回
    * 小时巡检脉冲化）。退出且队列非空时 scheduleRetrigger 按最早可领取时间续跑。
@@ -284,7 +284,7 @@ export class EmbeddingRetryWorker {
 
   /**
    * 单轮停机判定（从 drainLoopBody 拆出）。
-   * F20261020slvg 对抗审视洞 3：熔断只数硬失败轮（成功=0 且 hard>0）——纯超时轮
+   * 对抗审视洞 3：熔断只数硬失败轮（成功=0 且 hard>0）——纯超时轮
    * 是「lane 慢」的正常路径，计入熔断会让慢机器 3 轮后自我砖化。返回停机原因
    * 或 null（继续）。
    */
@@ -331,7 +331,7 @@ export class EmbeddingRetryWorker {
   }
 
   /**
-   * F20261109epqst 检视处置：退避感知续跑——队列非空但全部在退避（或 lane 忙）
+   * 检视处置：退避感知续跑——队列非空但全部在退避（或 lane 忙）
    * 时，按最早可领取时间 +2s 护栏短延迟重启 drain。延迟封顶 1h（更长等待交
    * patrol 周期兜底）；测试可用 setTestRetriggerCapMs 压缩。
    */
@@ -397,9 +397,9 @@ export class EmbeddingRetryWorker {
 
 
   /**
-   * F20261109epqst：处理已 claim 的任务批次——批量 embedBatch 消费。
+   * 处理已 claim 的任务批次——批量 embedBatch 消费。
    *
-   * 原 F20261020slvg 逐条 embedWithSalvage 是吞吐黑洞（检视獭发现 3：BATCH_LIMIT=50
+   * 原 逐条 embedWithSalvage 是吞吐黑洞（检视獭发现 3：BATCH_LIMIT=50
    * 逐条仅排队开销就分钟级）；worker 原生支持批量（bge-m3 embed-batch 一次前向），
    * 本方法按 EMBED_BATCH_SIZE 组批串行调用 embedBatch（service 层 token 闸门
    * 会再拆过大的批）。
@@ -485,7 +485,7 @@ export class EmbeddingRetryWorker {
           await this.queue.markTaskDone(slice[i].entryId);
           successCount++;
         } catch (err) {
-          // F20261109epqst 检视处置追修（P5 CI 慢机暴露）：写库失败**不走 enqueueRetry**。
+          // 检视处置追修（CI 慢机暴露）：写库失败**不走 enqueueRetry**。
           // 任务行仍在（claim 不删行），claim 已按 attempts 推 next_retry_at 到退避未来
           // ——「回队」由退避自然实现。若 enqueueRetry 会把 next_retry_at 重置为 now，
           // drain 无界续跑下同轮立即重领、attempts 快速到 3 → 真实活锁成 dead-letter
@@ -576,9 +576,9 @@ export class EmbeddingRetryWorker {
   }
 
   /**
-   * F20261020slvg：单条任务的 embed——waitSlot 软限流 + salvage 双轨。
+   * 单条任务的 embed——waitSlot 软限流 + salvage 双轨。
    * salvage 里 service 已包裹吞错；此处再兜一层：失败留 pending，下个 tick 重来。
-   * F20261109epqst：等待上界由 service 默认（60s）承担——超时 reject
+   * 等待上界由 service 默认（60s）承担——超时 reject
    * EmbedSlotTimeoutError（transient 类，不计 attempts）。
    */
   private async embedWithSalvage(task: EmbeddingTask): Promise<Float32Array> {
@@ -609,28 +609,28 @@ export class EmbeddingRetryWorker {
     task: EmbeddingTask,
     err: unknown,
   ): Promise<"busy" | "timeout" | "transient" | "hard"> {
-    // F20261020slvg：背压——「现在忙」不是「这条坏了」，不计 attempts。
+    // 背压——「现在忙」不是「这条坏了」，不计 attempts。
     if (err instanceof EmbedBackpressureError) {
       this.logger.warn(
         `Embedding retry lane busy for ${task.entryId} (not counted, stopping this round): ${err}`,
       );
       return "busy";
     }
-    // F20261109epqst：槽位等待超时同背压待遇——lane 饱和，终止本轮
+    // 槽位等待超时同背压待遇——lane 饱和，终止本轮
     if (err instanceof Error && err.name === "EmbedSlotTimeoutError") {
       this.logger.warn(
         `Embedding retry slot wait timeout for ${task.entryId} (not counted, stopping this round): ${err}`,
       );
       return "busy";
     }
-    // F20261016ebrt：超时 ≠ 坏条目——不计入 maxAttempts，不 dead-letter。
+    // 超时 ≠ 坏条目——不计入 maxAttempts，不 dead-letter。
     if (err instanceof EmbedTimeoutError) {
       this.logger.warn(
         `Embedding retry timeout for ${task.entryId} (not counted toward dead-letter, salvage may still land it): ${err}`,
       );
       return "timeout";
     }
-    // F20261020slvg 对抗审视洞 2：瞬态错误（worker 重建/崩溃/熔断/send 失败）不计
+    // 对抗审视洞 2：瞬态错误（worker 重建/崩溃/熔断/send 失败）不计
     // attempts——claim 即 attempts+1 已被超时循环撑大，瞬态错误再计数会成批 dead-letter
     if (err instanceof EmbedTransientError) {
       this.logger.warn(
@@ -652,7 +652,7 @@ export class EmbeddingRetryWorker {
   }
 
   /**
-   * F20261105embqg S3（对抗审视发现 3）：空闲回填——S3 闸门跳过的暗条目的
+   * （对抗）：空闲回填——闸门跳过的暗条目的
    * 运行时恢复路径。仅在队列完全清空时触发（不挤兑任何待消费任务），
    * 每 tick 上限 IDLE_BACKFILL_LIMIT 条、bulk 优先级（2）。与启动暗扫的
    * 区别：那里是一次性全量，这里是有界增量，队列再次升高时自然停手

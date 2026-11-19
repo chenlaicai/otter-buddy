@@ -1,5 +1,5 @@
 /**
- * OtterToolClient 端口（PR-A：自 interface-adapters/agent-runtime/otter-tool-client.ts
+ * OtterToolClient 端口（自 interface-adapters/agent-runtime/otter-tool-client.ts
  * 整体上移）——usecase 门面：agent 工具经此访问对话/记忆/文档领域查询，bootstrap/clients.ts
  * 装配具体实现。其 import 全部落在 entities/usecases（上移合法的前提）。
  */
@@ -120,7 +120,7 @@ export interface OtterToolClient {
     getById(id: string): Promise<MemorySearchEntry | null>;
     search(query: string, limit?: number, detailLevel?: DetailLevel, library?: string, createdAfter?: string, contentType?: MemoryContentType[], expandContext?: boolean, currentConversationId?: string): Promise<{ entries: MemorySearchEntry[]; total: number; contextEntries?: MemorySearchEntry[]; vecCoverage?: VecCoverage }>;
     /**
-     * Phase 0：检索埋点（fire-and-forget）。
+     * 检索埋点（fire-and-forget）。
      * search_memory 工具 execute 后调用——记录查询 + top 命中 + 对话上下文，供评估基线标注。
      * beforeMessageId：上下文快照上界（不含），传触发检索的当前消息 ID，防检索动作自身发言污染标注。
      * total 必须传检索系统真值（search 返回的 total），非 entries.length。
@@ -136,7 +136,7 @@ export interface OtterToolClient {
     /** 删除一条关系边（纠错用） */
     unlinkEdge(edgeId: string): Promise<void>;
     /**
-     * P1c：现场记录 belief（kind/content/anchors/inferredFrom/supersedes）。
+     * 现场记录 belief（kind/content/anchors/inferredFrom/supersedes）。
      * supersedes 可选——带则同步建 supersedes 边 + 旧条目迁 superseded。
      */
     recordBelief(params: {
@@ -149,12 +149,12 @@ export interface OtterToolClient {
       partnerUserId: string;
       createdBy?: string;
     }): Promise<{ entryId: string; edgeId?: string }>;
-    /** P1c：belief 状态迁移（verify/reject/supersede 共用） */
+    /** belief 状态迁移（verify/reject/supersede 共用） */
     transitionBelief(params: { entryId: string; to: "verified" | "disputed" | "superseded" }): Promise<{ entryId: string; from: string; to: string }>;
-    /** P1c：belief 标记过期（无新条目，只迁 superseded） */
+    /** belief 标记过期（无新条目，只迁 superseded） */
     markBeliefExpired(entryId: string): Promise<{ entryId: string }>;
     /**
-     * Part 2: 查文档 provenance——该文档由哪段对话产出 + 该对话的消息。
+     * 查文档 provenance——该文档由哪段对话产出 + 该对话的消息。
      * 只对 feature/research 文档有效；非文档或无 provenance 返回 conversationId=null。
      */
     getDocProvenance(entryId: string): Promise<{ conversationId: string | null; messages: MemorySearchEntry[] }>;

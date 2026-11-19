@@ -60,17 +60,94 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(collectAnchorViolations("round-2 修复").some((x) => x.kind === "轮次编号")).toBe(true);
     expect(collectAnchorViolations("第 2 轮复审").some((x) => x.kind === "轮次编号")).toBe(true);
     expect(collectAnchorViolations("检视轮次 2").some((x) => x.kind === "轮次编号")).toBe(true);
-    expect(collectAnchorViolations("S1 修复").some((x) => x.kind === "轮次编号")).toBe(true);
+    expect(collectAnchorViolations("S1 修复").some((x) => x.kind === "文档编号" && x.token === "S1")).toBe(true);
     expect(collectAnchorViolations("r2 处置后").some((x) => x.kind === "轮次编号")).toBe(true);
-    expect(collectAnchorViolations("S1").some((x) => x.kind === "轮次编号" && x.token === "S1")).toBe(true);
-    expect(collectAnchorViolations("R10").some((x) => x.kind === "轮次编号" && x.token === "R10")).toBe(true);
+    expect(collectAnchorViolations("S1").some((x) => x.kind === "文档编号" && x.token === "S1")).toBe(true);
+    expect(collectAnchorViolations("R10").some((x) => x.kind === "文档编号" && x.token === "R10")).toBe(true);
+    expect(collectAnchorViolations("R1 处置").some((x) => x.kind === "文档编号" && x.token === "R1")).toBe(true);
+    expect(collectAnchorViolations("R9 复核").some((x) => x.kind === "文档编号" && x.token === "R9")).toBe(true);
     expect(collectAnchorViolations("delta 发现 8 的现场").some((x) => x.kind === "轮次编号")).toBe(true);
-    expect(collectAnchorViolations("S2a").some((x) => x.kind === "轮次编号" && x.token === "S2a")).toBe(true);
+    expect(collectAnchorViolations("S2a").some((x) => x.kind === "文档编号" && x.token === "S2a")).toBe(true);
   });
 
-  it("技术词豁免：M1/M2 芯片、S3 存储、A4 纸；流程描述不误伤", () => {
+  it("技术词豁免：芯片/存储/纸/设备/尺寸/实例/无空格优先级；审视项号删除", () => {
     const v = collectAnchorViolations("M1 与 M2 芯片均兼容，对象存入 S3 后异步处理，A4 纸张，发现 3 处差异，建议采用");
     expect(v).toEqual([]);
+    const extras = ["Apple M1 设备", "A4 尺寸", "m5.large 实例", "P0/P1/P2"];
+    for (const s of extras) expect(collectAnchorViolations(s)).toEqual([]);
+    const d = collectAnchorViolations("M2 审视、S3 检视轮、A1 审视");
+    expect(d.map((x) => x.token).sort()).toEqual(["A1", "M2", "S3"]);
+  });
+
+  it("P 数字子项整体命中（P0-2 是编号），字母 Job 后缀豁免（P0-b）", () => {
+    expect(collectAnchorViolations("P0-2：判定滑窗").map((x) => x.token)).toEqual(["P0-2"]);
+    expect(collectAnchorViolations("P1-12 审视二轮").map((x) => x.token)).toEqual(["P1-12"]);
+    expect(collectAnchorViolations("P0-b 后缀保留")).toEqual([]);
+    expect(collectAnchorViolations("P0-B 后缀保留")).toEqual([]);
+    // A/M/S/R 同构：数字子项整体命中，字母/技术词豁免保留
+    expect(collectAnchorViolations("S4-1：终态").map((x) => x.token)).toEqual(["S4-1"]);
+    expect(collectAnchorViolations("R2-1 delta 裁决").map((x) => x.token)).toEqual(["R2-1"]);
+  });
+
+  it("git rename 相似度分数 R100/R50 豁免，规则号 R1-R12 命中", () => {
+    expect(collectAnchorViolations("非 R100 rename 时 git plain 查询漏判").some((x) => x.token === "R100")).toBe(false);
+    expect(collectAnchorViolations("相似度>R50%，rename 检测存活").some((x) => x.token === "R50")).toBe(false);
+    expect(collectAnchorViolations("R12 修复").some((x) => x.kind === "文档编号" && x.token === "R12")).toBe(true);
+    expect(collectAnchorViolations("R1 处置").some((x) => x.kind === "文档编号" && x.token === "R1")).toBe(true);
+  });
+
+  it("delta 轮简写形态命中：delta-r3 / delta2 / delta D1", () => {
+    expect(collectAnchorViolations("delta-r3：链内按 | 拆段").some((x) => x.kind === "轮次编号" && x.token === "delta-r3")).toBe(true);
+    expect(collectAnchorViolations("delta2 复核建议").some((x) => x.kind === "轮次编号" && x.token === "delta2")).toBe(true);
+    expect(collectAnchorViolations("delta D1 回归锚").some((x) => x.kind === "轮次编号" && x.token === "delta D1")).toBe(true);
+  });
+
+  it("delta 轮简写大小写不敏感：Delta2 / DeltaR3 / DELTA-r3 / Delta D1 整体命中", () => {
+    expect(collectAnchorViolations("Delta2 复核建议").some((x) => x.kind === "轮次编号" && x.token === "Delta2")).toBe(true);
+    expect(collectAnchorViolations("DeltaR3 处置").some((x) => x.kind === "轮次编号" && x.token === "DeltaR3")).toBe(true);
+    expect(collectAnchorViolations("DELTA-r3：链内再拆").some((x) => x.kind === "轮次编号" && x.token === "DELTA-r3")).toBe(true);
+    expect(collectAnchorViolations("Delta D1 回归锚").some((x) => x.kind === "轮次编号" && x.token === "Delta D1")).toBe(true);
+  });
+
+  it("检视语境的小写 sN / minorN / 日期型检视轮命中，变量名与索牌区间不误伤", () => {
+    expect(collectAnchorViolations("检视 s2 处置").some((x) => x.kind === "轮次编号" && x.token === "检视 s2")).toBe(true);
+    expect(collectAnchorViolations("s2（检视遗留处置）").some((x) => x.kind === "轮次编号" && x.token === "s2")).toBe(true);
+    expect(collectAnchorViolations("minor1（检视遗留处置）").some((x) => x.kind === "轮次编号" && x.token === "minor1")).toBe(true);
+    expect(collectAnchorViolations("F20261117 检视轮 补 pid").some((x) => x.kind === "轮次编号" && x.token === "F20261117 检视轮")).toBe(true);
+    expect(collectAnchorViolations("s1 已归口，s2 修复中").some((x) => x.token === "s1")).toBe(false);
+    expect(collectAnchorViolations("字牌花色数；34 种类索引：m0-8 p9-17 s18-26 z27-33").some((x) => x.token === "s18")).toBe(false);
+    expect(collectAnchorViolations("首拉最新 2 条（m2/m3），r-old 诞生于 m1 之前（窗口外）").some((x) => x.kind === "文档编号" && x.token === "m1")).toBe(false);
+  });
+
+  it("m 时间边界豁免：注释恰好在「之前/之后/前/后」结束（短句结尾）不误删", () => {
+    for (const s of ["诞生于 m1 之前", "诞生于 m1 之后", "诞生于 m1 前", "诞生于 m1 后"]) {
+      expect(collectAnchorViolations(s).some((x) => x.kind === "文档编号" && x.token === "m1")).toBe(false);
+    }
+  });
+
+  it("行注释引导符 // 不作为 P/m 斜杠列表分隔符——行首编号照删，列表豁免保留", () => {
+    // 真实注释形态命中（// 后首个 P/m 不再是“列表后项”）
+    expect(collectAnchorViolations("// P2b2：夜审").some((x) => x.kind === "文档编号" && x.token === "P2b2")).toBe(true);
+    expect(collectAnchorViolations("// P1：信号路由器").some((x) => x.kind === "文档编号" && x.token === "P1")).toBe(true);
+    expect(collectAnchorViolations("// m1 修复").some((x) => x.kind === "文档编号" && x.token === "m1")).toBe(true);
+    // 块注释对照：同样不豁免
+    expect(collectAnchorViolations("/* P1：信号路由器 */").some((x) => x.kind === "文档编号" && x.token === "P1")).toBe(true);
+    expect(collectAnchorViolations("/* m1 修复 */").some((x) => x.kind === "文档编号" && x.token === "m1")).toBe(true);
+    // 真实斜杠列表豁免保留
+    expect(collectAnchorViolations("// P0/P1/P2").some((x) => x.kind === "文档编号" && x.token === "P1")).toBe(false);
+    expect(collectAnchorViolations("// m2/m3 测试数据").some((x) => x.kind === "文档编号" && x.token === "m3")).toBe(false);
+  });
+
+  it("BC 纸/信封规格不误删，检查项号删除", () => {
+    expect(collectAnchorViolations("B4 纸张与 B5 纸，C4 纸与 C5 信封")).toEqual([]);
+    expect(collectAnchorViolations("B9 抽样，C4：UI 徽章数据源").map((x) => x.token).sort()).toEqual(["B9", "C4"]);
+  });
+
+  it("C3 高警队列名不误删（healing 高危路由登记表），B/C 检查项仍删除", () => {
+    expect(collectAnchorViolations("high 级事件入 C3 高警队列").some((x) => x.token === "C3")).toBe(false);
+    expect(collectAnchorViolations("不入 C3 告警").some((x) => x.token === "C3")).toBe(false);
+    expect(collectAnchorViolations("不再入 C3——token 用完跟系统无关").some((x) => x.token === "C3")).toBe(false);
+    expect(collectAnchorViolations("C4 检查项抽样").some((x) => x.token === "C4")).toBe(true);
   });
 });
 
@@ -82,6 +159,43 @@ describe("annotateFile TS 编译器级词法", () => {
     expect(ann[1]).toBeNull(); // 模板正文第二行非注释
     expect(ann[2]).toBeNull();
     expect(ann[3]).toContain(hash()); // 模板后真行注释
+  });
+
+  it("多插值/嵌套模板后的行注释仍命中，JSX 文本里的 // 不误报", () => {
+    const multi = annotateFile(`const x = \`\${a}\${b}\`; ${sl()} ${hash()}1937`, "src/a.ts");
+    expect(multi[0]).toContain(hash());
+    const nested = annotateFile(`const x = \`\${a ? \`\${b}\` : c}\`; ${sl()} ${hash()}1937`, "src/a.ts");
+    expect(nested[0]).toContain(hash());
+    const jsxText = annotateFile(`const x = <div>text ${sl()} ${hash()}1937</div>;`, "src/a.jsx");
+    expect(jsxText[0] ?? "").not.toContain(hash());
+  });
+
+  it("嵌套作用域注释全覆盖：函数体/箭头/条件块/类方法/对象与接口属性", () => {
+    const fnBody = annotateFile([`function f() {`, `  ${sl()} ${hash()}1937`, `  return 1;`, `}`].join("\n"), "src/a.ts");
+    expect(fnBody[1]).toContain(hash());
+    const arrow = annotateFile([`const g = () => {`, `  ${sl()} ${hash()}1937`, `  return 2;`, `};`].join("\n"), "src/a.ts");
+    expect(arrow[1]).toContain(hash());
+    const ifBody = annotateFile([`if (a) {`, `  ${sl()} ${hash()}1937`, `  b();`, `}`].join("\n"), "src/a.ts");
+    expect(ifBody[1]).toContain(hash());
+    const cls = annotateFile([`class C {`, `  m() {`, `    ${sl()} ${hash()}1937`, `    return 1;`, `  }`, `}`].join("\n"), "src/a.ts");
+    expect(cls[2]).toContain(hash());
+    const obj = annotateFile([`const o = {`, `  /** ${hash()}1937 */`, `  k: 1,`, `};`].join("\n"), "src/a.ts");
+    expect(obj[1]).toContain(hash());
+    const iface = annotateFile([`interface I {`, `  /** ${hash()}1937 */`, `  a: number;`, `}`].join("\n"), "src/a.ts");
+    expect(iface[1]).toContain(hash());
+  });
+
+  it("开括号/逗号后的 trailing 注释不遗漏", () => {
+    const brace = annotateFile([`if (a) { ${sl()} ${hash()}1937`, `  b();`, `}`].join("\n"), "src/a.ts");
+    expect(brace[0]).toContain(hash());
+    const comma = annotateFile([`foo(a, ${sl()} ${hash()}1937`, `  b);`].join("\n"), "src/a.ts");
+    expect(comma[0]).toContain(hash());
+  });
+
+  it("JSX 嵌套注释命中，JSX 文本（含嵌套与文首 //）不误报", () => {
+    expect(annotateFile(`const x = <div>{a && <b>{/* ${hash()}1937 */}</b>}</div>;`, "src/a.tsx")[0]).toContain(hash());
+    expect(annotateFile(`const x = <div>{a && <b>${sl()} ${hash()}1937</b>}</div>;`, "src/a.tsx")[0] ?? "").not.toContain(hash());
+    expect(annotateFile(`const x = <div>${sl()} ${hash()}1937</div>;`, "src/a.tsx")[0] ?? "").not.toContain(hash());
   });
 
   it("多行块注释闭合行后的字符串不误伤", () => {

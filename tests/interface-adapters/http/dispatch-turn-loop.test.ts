@@ -92,7 +92,7 @@ describe("dispatchTurnLoop 链调度（F20261026ctbg：资源形态不判死，�
       },
     } as unknown as AgentInvoker;
 
-    // F20260913ctlv 彻底切换：hop 产出判定读 invoke 行（tsp = invoke 的交棒目标）
+    // 彻底切换：hop 产出判定读 invoke 行（tsp = invoke 的交棒目标）
     const invokeRows = new Map<string, { id: string; status: string; otterId: string; talkingStonePassedTo: string[] | null; endedAt: string | null }>();
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
@@ -100,7 +100,7 @@ describe("dispatchTurnLoop 链调度（F20261026ctbg：资源形态不判死，�
       logger: logger as never,
       invokeRepo: { getInvokeById: async (id: string) => invokeRows.get(id) ?? null },
       entryRepo: { getEntries: async () => [], getUnreadEntries: async () => [] },
-      // F20261014czgd：空批兜底依赖 idleStatsRepo.getMaxEntrySeq——stub 缺失会触发降级 warn，
+      // 空批兜底依赖 idleStatsRepo.getMaxEntrySeq——stub 缺失会触发降级 warn，
       // 污染本用例「不发 warn」断言；补 stub 走正常路径（空对话 max(seq)=0）。
       idleStatsRepo: { getMaxEntrySeq: async () => 0, getLastSpeakBySender: async () => new Map(), getLastInvokeStartedAtByOtter: async () => new Map() },
     });
@@ -144,7 +144,7 @@ describe("dispatchTurnLoop 链调度（F20261026ctbg：资源形态不判死，�
 
     /** 两跳全部派发（x→y）后自然收尾：无资源形态停止、无停止系统消息 */
     expect(dispatchCount).toBe(2);
-    // F20260922ctxi：dispatchTurnLoop 闭包必须透传 batchMaxSeq（修复前漏传 → pushCursorOnStartup
+    // dispatchTurnLoop 闭包必须透传 batchMaxSeq（修复前漏传 → pushCursorOnStartup
     // 拿不到批次游标永不推进 → 已注入的未读下轮重复注入；实测 retry 路径重复 ⏳✅ 两条系统条目）
     expect(receivedBatchMaxSeq).not.toBeUndefined();
     expect(warns).toHaveLength(0);
@@ -161,16 +161,16 @@ describe("dispatchTurnLoop 链调度（F20261026ctbg：资源形态不判死，�
     const agentInvoker = {
       invokeConversation: async ({ otterId }: { otterId: string }) => {
         dispatchCount++;
-        // F20261026ctbg：补真实形态的 token 计量 delta——无 delta 会被判 telemetry 缺口（仅观测告警，
+        // 补真实形态的 token 计量 delta——无 delta 会被判 telemetry 缺口（仅观测告警，
         //  但污染本用例「零 warn」断言；真实 invokeFn 总是返回 usage）
         return { messageId: `m-${otterId}`, aggregatedTargets: [], tokenUsageDelta: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0 } };
       },
     } as unknown as AgentInvoker;
 
-    // F20260904schf：本测试场景 = 消息行无行级 yield → 链一轮终止。
+    // 本测试场景 = 消息行无行级 yield → 链一轮终止。
     // 不能与触顶测试共享带互传 tsp 的 stub（那会让本场景变 2 跳，测试失真）。
     const noYieldMessageStub = { getMessageById: async () => null } as unknown as QueryMessage;
-    // F20260913ctlv 彻底切换：invoke 行无 tsp（无 yield）→ 链一轮终止
+    // 彻底切换：invoke 行无 tsp（无 yield）→ 链一轮终止
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
       queryOtter: queryOtterStub,
@@ -178,7 +178,7 @@ describe("dispatchTurnLoop 链调度（F20261026ctbg：资源形态不判死，�
 
       invokeRepo: { getInvokeById: async () => ({ id: "inv-1", status: "completed", otterId: "otter-x", talkingStonePassedTo: [], endedAt: new Date().toISOString() }) },
       entryRepo: { getEntries: async () => [], getUnreadEntries: async () => [] },
-      // F20261014czgd：空批兜底依赖 idleStatsRepo.getMaxEntrySeq——stub 缺失会触发降级 warn，
+      // 空批兜底依赖 idleStatsRepo.getMaxEntrySeq——stub 缺失会触发降级 warn，
       // 污染本用例「不发 warn」断言；补 stub 走正常路径（空对话 max(seq)=0）。
       idleStatsRepo: { getMaxEntrySeq: async () => 0, getLastSpeakBySender: async () => new Map(), getLastInvokeStartedAtByOtter: async () => new Map() },
     });
@@ -229,7 +229,7 @@ describe("dispatchTurnLoop 链调度（F20261026ctbg：资源形态不判死，�
       },
     } as unknown as AgentInvoker;
 
-    // F20260913ctlv 彻底切换：未读注入读 entries（user/speak/system 条目）
+    // 彻底切换：未读注入读 entries（user/speak/system 条目）
     const dispatchChainEngine = new DispatchChainEngine({
       conversationRepo,
       queryOtter,
@@ -270,12 +270,12 @@ describe("dispatchTurnLoop 链调度（F20261026ctbg：资源形态不判死，�
     await new Promise(r => setTimeout(r, 50));
 
     expect(contexts).toHaveLength(1);
-    /** 名册：name 映射在场（F20260803trrf: 去 otterId，speak 改用名字） */
+    /** 名册：name 映射在场（去 otterId，speak 改用名字） */
     expect(contexts[0]).toContain("## 在场成员");
     expect(contexts[0]).toContain("- 小獭");
     expect(contexts[0]).not.toContain("otterId:");
     expect(contexts[0]).toContain("'user'");
-    /** 历史消息用名字标注，不用 UUID（时间戳形态：[名字]（时间）text，#1431） */
+    /** 历史消息用名字标注，不用 UUID（时间戳形态：[名字]（时间）text） */
     expect(contexts[0]).toMatch(/\[小獭\]（[^）]*）万象更新/);
     expect(contexts[0]).not.toContain("[otter-x]");
   });

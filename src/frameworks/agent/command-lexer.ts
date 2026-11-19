@@ -2,15 +2,15 @@
  * bash 命令词法层（guard-v2-redesign）。
  *
  * 设计：单遍 O(n) 手写状态机，字符流 → Word（含 WordPart 展开结构）+ 操作符 token
- * + heredoc 体 span。方案：guard-redesign-proposal.md §3.1-3.2（D1 自写词法层决策：
+ * + heredoc 体 span。方案：guard-redesign-proposal.md -3.2（自写词法层决策：
  * 热路径依赖纯净；需求是词法级安全语义非完整 AST）。
  *
- * 失败语义（D3 分层 fail-closed）：未闭合引号 / $( / 反引号 / heredoc → parseOk=false，
+ * 失败语义（分层 fail-closed）：未闭合引号 / $( / 反引号 / heredoc → parseOk=false，
  * 判定层走词元级兜底。词法层不递归——cmdsub/backtick/进程替换/bash -c 载荷只记载荷
  * 文本（part.text），递归消费与深度控制（≤2 层）在模型层（command-model.ts）。
  *
  * eslint 复杂度豁免：单遍状态机是本模块的本质形态（分段拆分会在扫描器间引入
- * 大量共享游标状态，得不偿失；见方案 D1 取舍）。呑例与 kill-segment-finder 同类。
+ * 大量共享游标状态，得不偿失；见方案 取舍）。呑例与 kill-segment-finder 同类。
  */
 /* eslint-disable max-lines-per-function, max-statements, complexity, max-depth */
 /* eslint-disable max-lines -- fd 前缀形态完整识别（scanOperator/scanWord 双 fd 分支镜像补 <<< /<< 形态）后超 450；双分支零语义合并不进窄修 PR（先例：write-target-evaluator.ts 同款记债，结构性合并随收尾 PR） */
@@ -58,7 +58,7 @@ export interface LexResult {
   issues: string[];
 }
 
-/** D6 防御：输入上限（超限截断 + parseOk=false，判定层走兜底） */
+/** 防御：输入上限（超限截断 + parseOk=false，判定层走兜底） */
 const MAX_INPUT = 1_000_000;
 
 /** 防碎片爆炸：单词 part 数上限（引号塔形态 27 万碎片 part 的对象分配热点）。
@@ -208,7 +208,7 @@ export function lex(text: string): LexResult {
       }
       return;
     }
-    // #1374（F20261009qdlq）raw-quote 回退：双引号内 $ 紧邻引号（$" / $'）无特殊
+    // raw-quote 回退：双引号内 $ 紧邻引号（$" / $'）无特殊
     // 语义——grep "^npm|^$" / grep "^a$'" 中 $ 是正则锚定字面量，引号是外层闭合。
     // 真 ANSI-C/locale 引用不会出现在双引号内，greedy indexOf 会把该形态误判为
     // 引用未闭合 → 连带外层引号 fail → parseOk=false → cd 豁免退化。按字面 $ 回
@@ -368,7 +368,7 @@ export function lex(text: string): LexResult {
       if (c === "\\") {
         const e = i;
         // hex 形态 \xNN（任何引用上下文）：归 hex part 保守不求值——与现状
-        // INDIRECT_PID_PATTERNS \\x 检测同方向（D5 矩阵 #2）。printf '\x6b' 的
+        // INDIRECT_PID_PATTERNS \\x 检测同方向（矩阵）。printf '\x6b' 的
         // 单引号内形态由双/单引号分支自行处理，此处是词内非引号上下文。
         if (text[i + 1] === "x" && /[0-9a-fA-F]/.test(text[i + 2] ?? "")) {
           const h = i;
@@ -474,7 +474,7 @@ export function lex(text: string): LexResult {
       const after = text[j] ?? "";
       if ((after === ">" || after === "<") && j > i) {
         i = j;
-        // #1686 r1 严重 1（检视獭-1686）：fd 前缀形态完整识别（bash 同构）——`0<<<` 是
+        // 严重 1（检视獭-1686）：fd 前缀形态完整识别（bash 同构）——`0<<<` 是
         // here-string、`0<<`/`0<<-` 是 heredoc。旧分支只认单字符 `<`，把 `0<<<x` 拆成
         // `0<`+`<<` 假 heredoc（here-string 馈体蒸发）、`0<<EOF` 拆段喂不进载荷判读
         // ——「换形态即绕过」同族。与无 fd 形态走同一扫描语义。
@@ -550,7 +550,7 @@ export function lex(text: string): LexResult {
       continue;
     }
     if (c === "(" || c === ")" || c === "|" || c === "&" || c === ";" || c === "<" || c === ">" || /[0-9]/.test(c)) {
-      // ( 前邻接 word → 函数定义形态（name() { … }）——排除区，fail-closed（D2/r1-S1）
+      // ( 前邻接 word → 函数定义形态（name() { … }）——排除区，fail-closed
       if (c === "(" && isWordStart(tokens) === false) {
         fail(`function-definition paren @${i}`);
       }

@@ -1,5 +1,5 @@
 /**
- * HealthReport: 健康报告主入口（Phase 0 MVP 集成）
+ * HealthReport: 健康报告主入口（MVP 集成）
  *
  * 管道：采集（git log + F 文档）→ 解析（CommitParser）→ 计算（MetricsCalculator）
  *      → 持久化（HealthSnapshotRepository）→ 输出（CliReport 双格式）
@@ -66,7 +66,7 @@ export class HealthReport {
       commitsWithFiles.map(({ sha, message }) => ({ sha, message })),
     );
 
-    // 3. 采集 F 文档（Phase 0 校验覆盖率，Phase 1 特性链构建的数据源）
+    // 3. 采集 F 文档（校验覆盖率，特性链构建的数据源）
     const featureDocs = await collectFeatureDocs(this.repoPath);
     this.logger.info("Feature docs collected", {
       action: "health_report_docs",
@@ -82,8 +82,8 @@ export class HealthReport {
         snapshotDate: options.snapshotDate ?? new Date().toISOString().slice(0, 10),
         metrics,
       });
-      // 健康指标旁路（PR1）：CLI/backfill 口径无链数据（D3/D5 无数据不参与加权），
-      // D5 输入用零信号（chainStates=null 时 D5 恒 null，零值不影响）；
+      // 健康指标旁路：CLI/backfill 口径无链数据（无数据不参与加权），
+      // 输入用零信号（chainStates=null 时 恒 null，零值不影响）；
       // worker 当日扫描 replaceForDate 全量覆盖（含链维度），最后写入者口径最全
       const snapshotDate = options.snapshotDate ?? new Date().toISOString().slice(0, 10);
       try {

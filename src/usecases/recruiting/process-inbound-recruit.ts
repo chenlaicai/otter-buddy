@@ -217,7 +217,7 @@ export class ProcessInboundRecruit {
   }
 
   /**
-   * #775 S4a 真换轨：触发大獭处理。注入路由器时走直投通道（闸门+台账+busy 语义，
+   * 真换轨：触发大獭处理。注入路由器时走直投通道（闸门+台账+busy 语义，
    * 与 scheduler 同款）——桥接消息不再绕过调度纪律；闸门拦截（用户停机/限流熔断）
    * 时信号已由 sendMessage 落库，恢复后补扫点燃，此处仅记 warn 不重试。
    * 未注入时回退直连链（回滚面与装配开关对齐）。
@@ -249,7 +249,7 @@ export class ProcessInboundRecruit {
         conversationId,
         userMessageContent,
         senderId,
-        // F20260922ctxi：batchMaxSeq 透传（同款漏传修复——解构丢弃致游标不推进）
+        // batchMaxSeq 透传（同款漏传修复——解构丢弃致游标不推进）
         batchMaxSeq,
       });
 
@@ -259,7 +259,7 @@ export class ProcessInboundRecruit {
       senderId: 'boss-zhipin-bridge',
       initialTargets: [bigOtterId],
       triggerMessageId,
-      // F20261012swsg（#1430）：招聘批次为 bridge 合成文本（system 来源）——不进安全词扫描
+      // 招聘批次为 bridge 合成文本（system 来源）——不进安全词扫描
       triggerSenderType: "system",
       invokeFn,
     });

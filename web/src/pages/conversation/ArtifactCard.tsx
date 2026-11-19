@@ -4,14 +4,14 @@ import type { LocalLinkedResource } from '../../lib/mappers'
 import { GameEmbedPanel, resolveGameEmbedPath } from './GameEmbedPanel'
 import { Modal } from '../../components/Modal'
 
-/** P1：文类产物摘要卡。
+/** 文类产物摘要卡。
  *
  * 宪法定义：文类 = PR/F-R 文档/报告/fact，中间栏展示形态 = 摘要卡（diff 统计/首段摘要/结论
  * 数字），点击进全文。视觉与消息气泡强区分（边框+底色+类型徽章）——混排可扫读性的来源。
  *
  * 数据源口径（为何 PR 卡只有标题/URL/时间）：
  *  - linked_resources 表对 pr 类型只存 title+url+metadata（无 diff 统计列）——diff/CI 状态
- *    需要额外接 gh API，本期不做（宪法 P1 范围：数据现成）；卡片信息增量 = 类型徽章 + 标题 +
+ * 需要额外接 gh API，本期不做（宪法 范围：数据现成）；卡片信息增量 = 类型徽章 + 标题 +
  *    登记人 + 时间 + 直达链接
  *  - file 类型同（title+url）；fact 类型有 content 本体（≤500 字），摘要卡直接显示全文
  *  - 点击行为：url 存在新窗口打开（「点击进详情」）；无 url 的 fact 展开全文（fact 全文
@@ -26,10 +26,10 @@ const TYPE_BADGES: Record<string, { label: string; icon: typeof FileText; badgeC
   game: { label: '游戏', icon: Gamepad2, badgeClass: 'bg-violet-50 text-violet-600 border-violet-200/60' },
 }
 
-/** T2：file/fact 卡折叠态摘要行最大字符数——content 首行摘要 */
+/** file/fact 卡折叠态摘要行最大字符数——content 首行摘要 */
 const FOLDED_SNIPPET_MAX = 120
 
-/** content 首行摘要：取首个非空行，截断至 FOLDED_SNIPPET_MAX（T2——file 卡折叠态信息增量） */
+/** content 首行摘要：取首个非空行，截断至 FOLDED_SNIPPET_MAX（——file 卡折叠态信息增量） */
 function firstLineSnippet(content: string | null): string | null {
   if (!content) return null
   const firstLine = content.split('\n').map(l => l.trim()).find(l => l.length > 0)
@@ -84,7 +84,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
         </div>
       )
     }
-    // T2：file 卡折叠态摘要行（content 首行摘要）——不再只有标题+URL
+    // file 卡折叠态摘要行（content 首行摘要）——不再只有标题+URL
     const snippet = firstLineSnippet(resource.content)
     if (snippet) {
       return <p className="text-sm text-stone-600 leading-relaxed">{snippet}</p>
@@ -95,7 +95,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
     return null
   })()
 
-  // T2：PR 卡 unfurl join 投影（后端 LinkedResourceDTO.unfurl——diff stat + 状态徽章数据源）
+  // PR 卡 unfurl join 投影（后端 LinkedResourceDTO.unfurl——diff stat + 状态徽章数据源）
   const unfurl = resource.unfurl
 
   return (
@@ -114,7 +114,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
           <Icon className="w-3 h-3" />
           {badge.label}
         </span>
-        {/* T2：PR 状态徽章（unfurl join 投影 state 字段——检视发现 1：曾退用
+        {/* PR 状态徽章（unfurl join 投影 state 字段——曾退用
             title.includes 猜状态，closed/draft 误显「开放中」；与 UnfurlCard 徽章同口径） */}
         {resource.type === 'pr' && unfurl?.source === 'github-api' && unfurl.state && (
           <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
@@ -141,14 +141,14 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
         </button>
       </div>
       {body}
-      {/* F20261021gmbe：game 展开态——宿主内嵌游戏面板（白名单内同源 iframe；收起即卸载断 SSE；
+      {/* game 展开态——宿主内嵌游戏面板（白名单内同源 iframe；收起即卸载断 SSE；
           放大态时内联位让位 modal（单实例，避免双 iframe 双 SSE）） */}
       {gameExpanded && !enlarged && (
         <div className="mt-2">
           <GameEmbedPanel url={resource.url} title={resource.title} />
         </div>
       )}
-      {/* T2：PR 卡 diff stat（unfurl join 投影——additions/deletions 仅 github-api PR 记录携带） */}
+      {/* PR 卡 diff stat（unfurl join 投影——additions/deletions 仅 github-api PR 记录携带） */}
       {resource.type === 'pr' && unfurl?.additions != null && unfurl?.deletions != null && (
         <p className="text-[11px] mt-1">
           <span className="text-teal-600">+{unfurl.additions}</span>
@@ -157,7 +157,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
           <span className="text-stone-400"> · 来自 gh 结构化取数</span>
         </p>
       )}
-      {/* T2：join 落空（历史 PR/未抓取）——显式「未抓取」态，不静默缺失 */}
+      {/* join 落空（历史 PR/未抓取）——显式「未抓取」态，不静默缺失 */}
       {resource.type === 'pr' && resource.url && !unfurl && (
         <p className="text-[11px] text-stone-400 mt-1">未抓取（将自动补抓）</p>
       )}
@@ -207,7 +207,7 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
         )}
         {resource.auto && <span>自动登记</span>}
       </div>
-      {/* F20261021gmbe：放大 modal（90vw，牌桌完整体验）——收起/关闭即卸载 */}
+      {/* 放大 modal（90vw，牌桌完整体验）——收起/关闭即卸载 */}
       {gameExpanded && enlarged && (
         <GameEnlargeModal
           url={resource.url}
@@ -219,9 +219,9 @@ export function ArtifactCard({ resource, pinned, onTogglePin }: {
   )
 }
 
-/** F20261021gmbe：放大态 modal——复用 Modal（焦点管理/Escape/栈）；宽度 90vw，
+/** 放大态 modal——复用 Modal（焦点管理/Escape/栈）；宽度 90vw，
  *  iframe 高度扣掉 header/内边距（modal 内容区上限 calc(80vh-120px)）。
- *  键盘局限（检视发现 1 反驳注明）：iframe 一且获得焦点（打牌/聊天输入是必然操作），
+ * 键盘局限（反驳注明）：iframe 一且获得焦点（打牌/聊天输入是必然操作），
  *  键盘事件派发进 iframe 内部 document 不冒泡父页——Escape/Tab trap 在此时失效，
  *  这是 iframe 嵌入的浏览器级行为（非本实现缺陷）。鼠标关闭始终可用（X 按钮 + scrim
  *  点击，Modal.tsx:115/130）；键盘在 iframe 内属游戏操作域。向 iframe 转发 Escape

@@ -6,10 +6,10 @@ import type { RetrievalSource, FTSHit, VecHit } from "./memory-types";
 /** document 层条目类型——半衰期分层与层配额共用此集合（导出供 search-memory debug 注入复用） */
 export const DOCUMENT_CONTENT_TYPES = new Set(["feature", "research", "feature_chunk", "research_chunk"]);
 
-/** Phase 1：rerank 融合模式。multiply=五信号连乘（现状），additive=归一化加法融合。 */
+/** rerank 融合模式。multiply=五信号连乘（现状），additive=归一化加法融合。 */
 export type RerankMode = "multiply" | "additive";
 
-/** Phase 1：加法融合系数与偏置（隐微权重和为 1，见 normalizeRerankWeights）。 */
+/** 加法融合系数与偏置（隐微权重和为 1，见 normalizeRerankWeights）。 */
 export interface RerankWeights {
   wRrf: number;
   wTime: number;
@@ -51,7 +51,7 @@ export function normalizeRerankWeights(weights: RerankWeights): RerankWeights {
   };
 }
 
-/** P1b：belief 状态相对权重（应用于 beliefBoost 之上）。
+/** belief 状态相对权重（应用于 beliefBoost 之上）。
  *  verified=1.0（全加成）；recorded=0.6（可用但 [未核实] 不当权威）；
  *  disputed=0.3（打回重新入审，存疑）；superseded=0.1（已被取代，可检索但深埋）。 */
 export function beliefStatusMultiplier(status: BeliefStatus): number {
@@ -78,21 +78,21 @@ export interface SearchEngineConfig {
   currentConversationBoost: number;
   weightHalfLifeDays: number;
   /** document 层（feature/research summary+chunk）专用半衰期，默认 90 天——
-   *  7 天半衰期下一个月前的文档权重只剩 5%，「找历史特性」类查询永久出局（Phase 0 根因3） */
+   * 7 天半衰期下一个月前的文档权重只剩 5%，「找历史特性」类查询永久出局（根因3） */
   weightHalfLifeDaysDocument: number;
   userFlagMultiplier: number;
   frequencyBoostFactor: number;
-  /** Phase 1：rerank 融合模式，缺省 multiply（段 1 零默认变更）。缺省在构造时回填。 */
+  /** rerank 融合模式，缺省 multiply（段 1 零默认变更）。缺省在构造时回填。 */
   rerankMode?: RerankMode;
-  /** Phase 1：加法融合系数（wRrf/wTime/wFreq 连续权重隐微和为 1，运行时在 rerankAdditive 内比例归一）。缺省在构造时回填。 */
+  /** 加法融合系数（wRrf/wTime/wFreq 连续权重隐微和为 1，运行时在 rerankAdditive 内比例归一）。缺省在构造时回填。 */
   rerank?: RerankWeights;
-  /** P0：被 supersedes 边指向的旧条目的降权因子（finalScore × 此值）。可选，构造时回填默认 0.3。 */
+  /** 被 supersedes 边指向的旧条目的降权因子（finalScore × 此值）。可选，构造时回填默认 0.3。 */
   supersededPenalty?: number;
-  /** P1b：主动记忆层（belief）排序加成系数，默认 2.0——检索最高优先级（v4 §1）。缺省在构造时回填。 */
+  /** 主动记忆层（belief）排序加成系数，默认 2.0——检索最高优先级（v4）。缺省在构造时回填。 */
   beliefBoost?: number;
 }
 
-/** Phase 1：加法融合系数缺省（设计回填，段 1 不切默认；标定后段 3 再写回）。 */
+/** 加法融合系数缺省（设计回填，段 1 不切默认；标定后段 3 再写回）。 */
 export const DEFAULT_RERANK_WEIGHTS: RerankWeights = {
   wRrf: 0.6,
   wTime: 0.3,
@@ -117,16 +117,16 @@ export interface ScoredHit {
   entry: MemoryEntry;
   /** 同源多 chunk 命中数（dedupAndBoostBySource 设置，>1 时注入返回 metadata） */
   multiHitCount?: number;
-  /** Phase 1 段 2：additive 分解分量（仅 rerankAdditive 填充；multiply 路径 undefined）。
+  /** 段 2：additive 分解分量（仅 rerankAdditive 填充；multiply 路径 undefined）。
    *  finalScore（去重前）= contribRrf + contribTime + contribFreq + biasFlag + biasConv。 */
   contribRrf?: number;
   contribTime?: number;
   contribFreq?: number;
   biasFlag?: number;
   biasConv?: number;
-  /** P0：被哪个条目取代（supersedes 边的 from 端=取代者/新条目），有则说明此条已过期，检索端标注并降权。 */
+  /** 被哪个条目取代（supersedes 边的 from 端=取代者/新条目），有则说明此条已过期，检索端标注并降权。 */
   supersededBy?: string;
-  /** P1b：belief 生命周期状态（供结果标注 [未核实]/[已核实]/[存疑]）。 */
+  /** belief 生命周期状态（供结果标注 [未核实]/[已核实]/[存疑]）。 */
   beliefStatus?: BeliefStatus;
 }
 
@@ -164,32 +164,32 @@ export class SearchEngine {
   /**
    * RRF 融合：FTS + Vec 两路结果合并（三阶段策略）
    *
-   * 阶段 1：Vec 质量门控 - 过滤掉 similarity < vecSimilarityThreshold 的结果
-   * 阶段 2：加权 RRF - 用 alpha 控制 FTS 和 Vec 的权重
-   * 阶段 3：一致性加权 - 两路命中的结果给予 bothBoost 加成
+   * Vec 质量门控 - 过滤掉 similarity < vecSimilarityThreshold 的结果
+   * 加权 RRF - 用 alpha 控制 FTS 和 Vec 的权重
+   * 一致性加权 - 两路命中的结果给予 bothBoost 加成
    */
   rrfFusion(ftsHits: FTSHit[], vecHits: VecHit[]): Map<string, RrfHit> {
     const k = this.config.rrfK;
     const ftsWeight = 1 - this.config.alpha;
     const vecWeight = this.config.alpha;
 
-    // 阶段 1：Vec 质量门控
+    // Vec 质量门控
     const filteredVecHits = this.filterVecHitsByThreshold(vecHits);
 
-    // 阶段 2：加权 RRF 融合
+    // 加权 RRF 融合
     const scores = this.mergeWeightedScores(ftsHits, filteredVecHits, k, ftsWeight, vecWeight);
 
-    // 阶段 3：一致性加权
+    // 一致性加权
     return this.applyBothBoost(scores);
   }
 
-  /** 阶段 1：过滤低相似度的 Vec 结果 */
+  /** 过滤低相似度的 Vec 结果 */
   private filterVecHitsByThreshold(vecHits: VecHit[]): VecHit[] {
     const threshold = this.config.vecSimilarityThreshold;
     return vecHits.filter(hit => (1 - hit.distance) >= threshold);
   }
 
-  /** 阶段 2：加权 RRF 融合 FTS 和 Vec 结果 */
+  /** 加权 RRF 融合 FTS 和 Vec 结果 */
   private mergeWeightedScores(
     ftsHits: FTSHit[],
     vecHits: VecHit[],
@@ -227,7 +227,7 @@ export class SearchEngine {
     }
   }
 
-  /** 阶段 3：对两路命中的结果应用 bothBoost 加成 */
+  /** 对两路命中的结果应用 bothBoost 加成 */
   private applyBothBoost(
     scores: Map<string, { score: number; entry: MemoryEntry; source: RetrievalSource }>,
   ): Map<string, RrfHit> {
@@ -260,7 +260,7 @@ export class SearchEngine {
     return result;
   }
 
-  /** P0：被 supersedes 边指向的旧条目降权系数——命中返回 supersededPenalty，否则 1。 */
+  /** 被 supersedes 边指向的旧条目降权系数——命中返回 supersededPenalty，否则 1。 */
   private supersededMultiplier(
     entryId: string,
     supersededById?: ReadonlyMap<string, string>,
@@ -268,7 +268,7 @@ export class SearchEngine {
     return supersededById?.has(entryId) ? this.config.supersededPenalty ?? 0.3 : 1.0;
   }
 
-  /** P0：取取代此条目的新条目 ID（无则 undefined）。 */
+  /** 取取代此条目的新条目 ID（无则 undefined）。 */
   private supersededLabel(
     entryId: string,
     supersededById?: ReadonlyMap<string, string>,
@@ -276,7 +276,7 @@ export class SearchEngine {
     return supersededById?.get(entryId);
   }
 
-  /** P1b：belief 条目排序因子与状态（非 belief 返回因子 1、无状态）。 */
+  /** belief 条目排序因子与状态（非 belief 返回因子 1、无状态）。 */
   private beliefFactor(entry: MemoryEntry): { factor: number; status: BeliefStatus | undefined } {
     if (entry.contentType !== "belief") return { factor: 1.0, status: undefined };
     const belief = parseBeliefMetadata(entry);
@@ -290,13 +290,13 @@ export class SearchEngine {
   /** 权重重排：rrfScore × timeDecay × frequencyBoost × userFlagMultiplier × conversationBoost
    * document 层（feature/research summary+chunk）按 weightHalfLifeDaysDocument 衰减，
    *  其余层维持 weightHalfLifeDays。
-   * P0：supersededById 里的条目再乘 supersededPenalty，并透出 supersededBy。 */
+   * supersededById 里的条目再乘 supersededPenalty，并透出 supersededBy。 */
   rerank(
     hits: Map<string, RrfHit>,
     weights: Map<string, MemoryWeight>,
     /** 当前对话 ID——命中条目 conversationId 匹配时乘 currentConversationBoost */
     currentConversationId?: string,
-    /** P0：被 supersede 的旧条目 → 取代它的条目 */
+    /** 被 supersede 的旧条目 → 取代它的条目 */
     supersededById?: ReadonlyMap<string, string>,
   ): ScoredHit[] {
     const result: ScoredHit[] = [];
@@ -335,7 +335,7 @@ export class SearchEngine {
     return result;
   }
 
-  /** Phase 1 段 1：归一化加法融合路径（与 rerank() 并存，rerankMode=additive 时调用）。
+  /** 段 1：归一化加法融合路径（与 rerank() 并存，rerankMode=additive 时调用）。
    *  score = w_rrf·norm(rrf) + w_time·timeDecay + w_freq·norm(freq) + b_flag·[flagged] + b_conv·[同对话]
    *  连续权重隐微和为 1（normalizeRerankWeights 比例归一）；rrf 池内 min-max、freq 饱和截断。 */
   rerankAdditive(
@@ -374,7 +374,7 @@ export class SearchEngine {
           + (isCurrentConversation ? w.bConv : 0)) *
         this.supersededMultiplier(hit.entryId, supersededById) *
         beliefFactor;
-      // Phase 1 段 2：透出逐信号贡献分量，供 debug 通道采集（逐信号对比表不靠外部重算）
+      // 段 2：透出逐信号贡献分量，供 debug 通道采集（逐信号对比表不靠外部重算）
       const contribRrf = w.wRrf * rrfNorm[i];
       const contribTime = w.wTime * timeDecay;
       const contribFreq = w.wFreq * freqNorm;
@@ -418,7 +418,7 @@ export class SearchEngine {
   }
 
   /**
-   * Part 1：public 暴露 time_decay 计算（debug 信息注入用）。
+   * public 暴露 time_decay 计算（debug 信息注入用）。
    * 与内部 computeTimeDecay 等价。
    */
   computeTimeDecayPublic(createdAt: string, halfLifeDays?: number): number {
@@ -426,7 +426,7 @@ export class SearchEngine {
   }
 
   /**
-   * Part 1：public 暴露 frequency_boost 计算（debug 信息注入用）。
+   * public 暴露 frequency_boost 计算（debug 信息注入用）。
    * 与内部 computeFrequencyBoost 等价。
    */
   computeFrequencyBoostPublic(retrievalCount: number): number {

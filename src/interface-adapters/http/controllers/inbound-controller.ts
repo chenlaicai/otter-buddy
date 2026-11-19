@@ -82,7 +82,7 @@ export class InboundController {
 
   /** 校验请求体并分发到 use case（receiveEvents 的复杂度拆出） */
   private async dispatchEvents(c: Context, raw: unknown): Promise<Response> {
-    // #889：JSON null body 防御——json() 解析 "null" 成功不走 catch，
+    // JSON null body 防御——json() 解析 "null" 成功不走 catch，
     // null.source 解引用会崩 500 并回显 V8 内部错误文本，此处显式判 null 返 400
     if (raw === null) {
       return c.json({ ok: false, error: 'invalid JSON: body 必须是 object，收到 null' }, 400);

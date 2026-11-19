@@ -131,7 +131,7 @@ function isNonLogicCarrier(filePath: string): boolean {
   // 修法 c 补全：schema 演进载体——migration.ts/schema.ts 的 N 修 = N 个独立 schema 演进，
   // 被动累加非同一根因反复修（与 types/测试同属「载体噪声」，归因报告 10/23 条盲区中 4 条是它们）
   if (/^(src\/frameworks\/db\/)?(migration|schema)\.[cm]?[jt]s$/i.test(filePath)) return true;
-  // 转发桶（barrel：重导出 .ts/.js）——不含 .tsx/.jsx（delta D1：web/src/pages/*/index.tsx
+  // 转发桶（barrel：重导出 .ts/.js）——不含 .tsx/.jsx（delta web/src/pages/*/index.tsx
   // 是页面主组件不是 barrel，存量最大热点信号 5（11 事件）曾被误静音，回退并加回归锚）
   return /^index\.[cm]?(t|j)s$/i.test(base)
     || /^(platforms|usecases|main)\.[cm]?[jt]s$/i.test(base); // 组装/入口（src 根的组装文件）
@@ -176,8 +176,8 @@ function buildRecurrenceEvidence(
   const prList = [...entry.prs].sort((a, b) => a - b).map(p => `#${p}`);
   const prCount = prList.length;
   const noPrCount = entry.noPrShas.size;
-  // 检视发现 3：三形态各说一次——纯 PR「PR #a, #b」；纯无 PR「N 个无 PR 号 commit」；
-  // 混合「PR #a, #b + M 个无 PR 号 commit」（不再出现「无 PR 号 commit + N 个无 PR 号 commit」冗余）
+  // 三形态各说一次——纯 PR「」；纯无 PR「N 个无 PR 号 commit」；
+  // 混合「+ M 个无 PR 号 commit」（不再出现「无 PR 号 commit + N 个无 PR 号 commit」冗余）
   let eventText: string;
   if (prCount > 0 && noPrCount === 0) {
     eventText = `PR ${prList.join(", ")}`;
@@ -195,20 +195,20 @@ function buildRecurrenceEvidence(
 }
 
 /** bug_recurrence：同模块同文件 bugfix ≥N 个不同修复事件/窗口（窄门：不依赖语义聚类）。
- *  #1214 口径修订（承接 #1012 根因分析）：
+ * 口径修订（承接 根因分析）：
  *  - 修复事件去重：同 PR 号的多 commit 计 1 事件；无 PR 号 commit 各计 1 事件
  *    （noPrShas 非去重——git log sha 唯一，Set 只是容器；措辞是「各计」非「去重」）。
- *    前提显式化（检视发现 5）：squash/rebase 合入使 commit message 带 (#N)——
+ * 前提显式化：squash/rebase 合入使 commit message 带 ——
  *    merge-commit 流的中间 commit 无 PR 号会各计 1 事件（当前 321/322 带 PR 号，
  *    若未来改 merge-commit 流需重评此口径）
- *  - 适用面如实声明（检视发现 1）：squash 惯例下「同 PR 多 commit」当前为 0 例，
+ * - 适用面如实声明：squash 惯例下「同 PR 多 commit」当前为 0 例，
  *    去重是面向多 commit PR/rebase 形态的口径正确性保障，不是本 PR 的主要收益；
  *    假聚集主形态（同一根因跨 PR 系列）由后续 severity 分级/系列归因 issue 承载
- *  - 非逻辑载体排除：types（收窄到 bootstrap 装配路径，检视发现 4——全仓
+ * - 非逻辑载体排除：types（收窄到 bootstrap 装配路径，——全仓
  *    basename 排除会误伤 weixin/types.ts 等 runtime 常量载体）/转发桶/组装/测试
  *  - occurrences 语义澄清：evidence 报独立修复事件数 + PR 清单 + 首末修复日期
- *  #1012 修法 c（2026-10-05）：severity 分级 + 载体排除补全——
- *  - 系列归因分级：同一 issue 反复修 ≥threshold → critical（真腐烂——#1160 五连形态）；
+ * 修法 c（2026-10-05）：severity 分级 + 载体排除补全——
+ * - 系列归因分级：同一 issue 反复修 ≥threshold → critical（真腐烂——五连形态）；
  *    跨 issue 分散 ≥threshold → warning（热点活跃假象）。分级而非过滤（归因报告推荐：
  *    「同一 bug 修了又坏」仅 2/23=9%，一刀切 critical 让告警失去区分度）
  *  - 载体排除补全：migration.ts/schema.ts 入非逻辑载体（schema 演进 N 修 = N 个独立演进，
@@ -227,12 +227,12 @@ function detectBugRecurrence(
   // key: module + file -> bugfix PR 记录（窗口内，同 PR 去重 + 系列归因数据源）
   const byModuleFile = collectBugfixByFile(commits, now, windowDays);
 
-  // 第二遍（Issue #644）：为触发文件收集窗口内全类型 commit，见 collectDetailCommits
+  // 第二遍：为触发文件收集窗口内全类型 commit，见 collectDetailCommits
   collectDetailCommits(commits, byModuleFile, new Date(now.getTime() - windowDays * DAY_MS));
 
   const signals: DetectedSignal[] = [];
   for (const entry of byModuleFile.values()) {
-    // #1012 修法 c：分级判据——同系列达阈 critical，分散达阈 warning，未达阈不出信号
+    // 修法 c：分级判据——同系列达阈 critical，分散达阈 warning，未达阈不出信号
     const severity = classifyRecurrenceSeverity(entry, entry.issueRefCounts, threshold);
     if (severity !== null) {
       signals.push({
@@ -254,15 +254,15 @@ function detectBugRecurrence(
   return signals;
 }
 
-/** #1214：第一遍收集——窗口内 bugfix commit 按模块/文件聚合（同 PR 去重 + 非逻辑载体排除）。
+/** 第一遍收集——窗口内 bugfix commit 按模块/文件聚合（同 PR 去重 + 非逻辑载体排除）。
  *  从 detectBugRecurrence 拆出控复杂度（lint max-complexity）。 */
 interface BugfixFileEntry {
   module: string;
   file: string;
-  prs: Set<number>;              // #1214：去重后的独立 PR 集（触发判据之一）
+  prs: Set<number>;              // 去重后的独立 PR 集（触发判据之一）
   noPrShas: Set<string>;         // 无 PR 号的 commit（squash 前本地修复），按 sha 去重计 1 次/事件
-  /** #1012 修法 c：窗口内 bugfix commit 的 issue 引用计数（系列归因数据源）。
-   *  「主体同一 issue」= 同一根因修复系列（真腐烂——#1160 五连、#1207 集群实测形态）；
+  /** 修法 c：窗口内 bugfix commit 的 issue 引用计数（系列归因数据源）。
+   * 「主体同一 issue」= 同一根因修复系列（真腐烂——五连、集群实测形态）；
    *  跨 issue 分散修复是高迭代热点。
    *  Why 计数而非 Set：同一系列的 commit 各有不同 PR 号（squash 1:1），Set 口径会把
    *  同系列误判成分散；计数 + 主体占比判据才能区分。Why 不用 featureId（delta 纠错）：
@@ -270,7 +270,7 @@ interface BugfixFileEntry {
   issueRefCounts: Map<number, number>;
   shas: string[];
   dates: Date[];
-  /** 窗口内触碰该文件的全类型 commit（bug●→fix● 交替时间轴数据源，Issue #644） */
+  /** 窗口内触碰该文件的全类型 commit（bug●→fix● 交替时间轴数据源） */
   allCommits: SignalDetailCommit[];
 }
 
@@ -289,7 +289,7 @@ function collectBugfixByFile(
     // Set 防御（审视建议发现 4）：同 commit 的 filesChanged 若含重复文件名，
     // 不去重会双计 shas 抬高触发次数——当前 git --name-only 不重复，纯防御性收口
     for (const file of new Set(c.filesChanged)) {
-      // #1214：非逻辑载体不参与复发计数（types/组装/测试——被动触碰非根因载体）
+      // 非逻辑载体不参与复发计数（types/组装/测试——被动触碰非根因载体）
       if (isNonLogicCarrier(file)) continue;
       const key = `${c.parsed.module}\u0000${file}`;
       let entry = byModuleFile.get(key);
@@ -299,10 +299,10 @@ function collectBugfixByFile(
       }
       entry.shas.push(c.sha.slice(0, 8));
       entry.dates.push(date);
-      // #1214：同 PR 去重——squash 前链式修复算 1 个 PR 复发事件；无 PR 号的按 sha 计
+      // 同 PR 去重——squash 前链式修复算 1 个 PR 复发事件；无 PR 号的按 sha 计
       if (c.parsed.prNumber !== null) entry.prs.add(c.parsed.prNumber);
       else entry.noPrShas.add(c.sha);
-      // #1012 修法 c：系列归因数据源——message 内 issue 引用计数（#1160 五连形态）
+      // 修法 c：系列归因数据源——message 内 issue 引用计数（五连形态）
       for (const m of c.message.matchAll(/#(\d+)/g)) {
         const n = Number(m[1]);
         entry.issueRefCounts.set(n, (entry.issueRefCounts.get(n) ?? 0) + 1);
@@ -312,7 +312,7 @@ function collectBugfixByFile(
   return byModuleFile;
 }
 
-/** Issue #644 第二遍收集：为已触发的 (module, file) 填充窗口内全类型 commit 序列（时间升序）。
+/** 第二遍收集：为已触发的 (module, file) 填充窗口内全类型 commit 序列（时间升序）。
  *  Why 全类型：只有 bugfix 画不出「引入-修复-回归-再修复」交替节奏，前端时间轴需要 changeType
  *  区分节点（观澜视觉方案 3.1）。窗口滑动时随扫描整体重算覆盖（非 append）。 */
 function collectDetailCommits(
@@ -345,7 +345,7 @@ function collectDetailCommits(
   }
 }
 
-/** chain_stall：特性链滞留（F20260902sigm：读 chain.signals 的 pr-stalled 信号——
+/** chain_stall：特性链滞留（读 chain.signals 的 pr-stalled 信号——
  *  病态判据 100% 来自 PR 事实，docStatus 不再参与；zombie/doc-only 判死已删）。
  *  一个链挂多个停滞 PR 时逐条出信号（挂几个报几个，不合并不取最严重） */
 function detectChainStall(chains: FeatureChain[]): DetectedSignal[] {
@@ -434,7 +434,7 @@ function detectHotspot(
   return signals;
 }
 
-/** behavior_defect：同一 errorType healing event 复发（Issue #645 窗口化升级）。
+/** behavior_defect：同一 errorType healing event 复发（窗口化升级）。
  *  Why 窗口化而非全量聚合：healing 库 degenerate 57 次/12 天是全库最高频模式，
  *  全量聚合下它永久占用警报位，无法区分「历史遗留」与「最近在恶化」——升级后
  *  同型 ≥3 次/7 天才报，第一天就会对 degenerate 报警（这正是本项的存在意义）。 */
@@ -452,7 +452,7 @@ function detectBehaviorDefect(
   const byType = new Map<string, CollectedHealingEvent[]>();
   for (const e of healingEvents) {
     const createdAt = new Date(e.createdAt);
-    // 审视 A2：Invalid Date 的 valueOf()=NaN，NaN < x 恒 false——直接比较拦不住非法时间，
+    // 审视 Invalid Date 的 valueOf()=NaN，NaN < x 恒 false——直接比较拦不住非法时间，
     // 必须显式 Number.isFinite 拦截（非法时间事件不进窗口，否则排序 comparator 返回 NaN 顺序不定）
     const t = createdAt.getTime();
     if (!Number.isFinite(t) || t < windowStart.getTime()) continue; // 窗口外/非法时间不参与

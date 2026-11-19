@@ -59,7 +59,7 @@ export class SqliteDispatchRecordRepository implements DispatchRecordRepository 
     ).all() as Array<{ otter_id: string; key: string; value: string }>;
     if (rows.length === 0) return { migrated: 0, ignored: 0 };
 
-    // 全局 active 獭集合（delta 复审建议 2：dissolved 判定以 otters 表为准——
+    // 全局 active 獭集合（delta dissolved 判定以 otters 表为准——
     // dissolve 销毁獭本体（全局事件），participant 名册在 leave 失败时残留不可靠）
     const activeIds = new Set(
       (this.db.prepare("SELECT id FROM otters WHERE status = 'active'").all() as Array<{ id: string }>).map(r => r.id),

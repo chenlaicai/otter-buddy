@@ -188,7 +188,7 @@ describe('MessageBatcher', () => {
  */
 describe('MessageBatcher 无门控 flush（F20260929fcln #884）', () => {
   it('接口层：Options 不含 getShouldDefer（条件类型断言，接口加回即 tsc 编译失败）', () => {
-    // 真编译期防线（-D2：Exclude 剔除键后类型不变、永不失败，已证伪弃用）：
+    // 真编译期防线（-Exclude 剔除键后类型不变、永不失败，已证伪弃用）：
     // HasDefer = 'getShouldDefer' extends keyof Options ? true : false
     // 接口加回该键 → HasDefer = true → `const _assert: false = true` 编译失败
     type HasDefer = 'getShouldDefer' extends keyof MessageBatcherOptions ? true : false

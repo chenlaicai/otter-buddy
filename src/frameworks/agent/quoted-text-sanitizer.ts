@@ -80,7 +80,7 @@ export function stripHeredocPayloads(command: string): string {
   return blankHeredocBody(command);
 }
 
-/** #1207（F20260930l573）：提取全部 heredoc 载荷 span——供体感知判定。
+/** 提取全部 heredoc 载荷 span——供体感知判定。
  *  closer 语义与 bash 对齐：定界符必须独占一行（行首无空白、行尾无任何字符——
  *  实测 `EOF   ` 不闭合；此前容忍 [ \t]* 的宽版被构造出利用链：
  *  体首定义 `EOF = 0` 让 python 合法经过「假闭合行」+ 宽版 closer 误判闭合，
@@ -147,7 +147,7 @@ function blankHeredocBody(command: string): string {
   while ((m = HEREDOC_OPEN.exec(command)) !== null) {
     const openLineEnd = command.indexOf("\n", m.index);
     if (openLineEnd === -1) break; // 无换行（单行 <<EOF 后无体）——无需剥
-    // #1207：closer 与 bash 对齐——定界符独占一行（行首无空白、行尾无任何
+    // closer 与 bash 对齐——定界符独占一行（行首无空白、行尾无任何
     // 字符，`EOF   ` 不闭合）。宽版 `[ \\t]*` 被利用（体首 `EOF = 0` + 尾段
     // 真实写入端到端 ALLOW）；剥体到不了的位置体文本留在扫描面 → 保守侧。
     // <<- 变体允许行首 TAB（bash 只剥 tab 不剥空格）
@@ -167,11 +167,11 @@ function blankHeredocBody(command: string): string {
   return out + command.slice(cursor);
 }
 
-/** #923 处置 c：shell 执行载荷通道——命中时命令里的引号段是「要执行的命令」本体 */
+/** 处置 c：shell 执行载荷通道——命中时命令里的引号段是「要执行的命令」本体 */
 const SHELL_PAYLOAD_CHANNEL = /\b(?:bash|sh|zsh)\s+-c\b|\|\s*(?:sh|bash|zsh)\b|\b(?:perl|ruby|python\d?)\s+.*(?:-e|-c)\s|\bnode\s+.*(?:-e|--eval)\s|<<</;
 
 /**
- * F20260923glay：脚本 one-liner 通道（python/perl/ruby -c|-e、node -e|--eval）——
+ * 脚本 one-liner 通道（python/perl/ruby -c|-e、node -e|--eval）——
  * 文档性常量：脚本载荷与 shell 载荷的分层语义说明（shell 载荷引号内是 shell 代码须保留原文，
  * 脚本载荷字符串字面量是数据可剥离）。当前实现已内联进 stripQuotedTextSpans 的载荷段定位
  * 逻辑（不再用通道整体分类），保留此常量供 kill 检测等调用方对齐口径。
@@ -196,7 +196,7 @@ function sanitizeSegment(segment: string): string {
 }
 
 /** 危险通道检测：引号内是执行内容（非纯数据）的形态，禁止脱敏。
- * #923：双引号内的 $() / 反引号 / ${...} 是 shell 真实展开
+ * 双引号内的 $() / 反引号 / ${...} 是 shell 真实展开
  * （执行）——存在即整体跳过脱敏。单引号内的这些形态是字面文本（永不展开），
  * 不在此判定范围（单引号段无条件可脱敏，shell 语义背书）。 */
 function hasExecutionChannel(command: string): boolean {

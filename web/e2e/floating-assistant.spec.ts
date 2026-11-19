@@ -81,7 +81,7 @@ test.describe('浮动獭（F20260924wast）', () => {
     // 断言全局唯一：侧栏 web 助理分组只有一条（经 API 直查——绕开 DOM 折叠态）。
     // K5：前两行 input enabled 前置断言已排除 0 条，收紧为恒等于 1（防断言空转）
     const res = await page.request.get('/api/conversations?kind=web-assistant&limit=10', {
-      // 阶段 2：e2e 直连 API 走声明式头回退路径（会话 cookie 路径由页面 UI 覆盖），
+      // e2e 直连 API 走声明式头回退路径（会话 cookie 路径由页面 UI 覆盖），
       // 运维脚本回退路径不回归即靠这一条守住。
       headers: { 'X-Otter-User-Id': 'e2e', 'X-Otter-User-Role': 'admin' },
     })

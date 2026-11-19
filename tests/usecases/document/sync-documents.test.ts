@@ -14,7 +14,7 @@ import { cleanMarkdownForFts } from "@usecases/document/markdown-noise-cleaner";
 import { createTestLogger } from "../../helpers/logger";
 
 /** 算 bodyHash，与 sync-documents 的 computeBodyHash 一致 */
-/** 加版本前缀 "chunk-v1|"（D3 触发全量 reindex） */
+/** 加版本前缀 "chunk-v1|"（触发全量 reindex） */
 function computeBodyHash(rawBody: string): string | null {
   const cleaned = cleanMarkdownForFts(rawBody);
   if (!cleaned) return null;

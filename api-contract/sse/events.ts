@@ -40,7 +40,7 @@ export type SSEEventMap = {
   "invoke.start": { invokeId: string; otterId: string; otterName: string; conversationId: string; startedAt: string; triggerEntryId?: string; otterType?: string; otterColor?: string | null };
   /** invoke 过程心跳：每次 LLM 往返（message_end）发射一次。
    *  ctxWindowUsed = 末次往返 usage.totalTokens（上下文窗口占用快照，含 cacheRead/cacheWrite），
-   * 与 invoke.end.tokenUsage（input+output 成本口径累计）语义不同——勿混用（见 D8）。
+   * 与 invoke.end.tokenUsage（input+output 成本口径累计）语义不同——勿混用。
    * usage 缺失时不发射（右栏显示 '—' 兑底）。（modelAlias 字段删除：发射端从未携带，
    *  前端用 otter.modelAlias；需要时再加，避免契约与实现不对齐） */
   "invoke.tick": { invokeId: string; otterId: string; conversationId: string; ctxWindowUsed: number; ctxMax: number; toolCallCount?: number };

@@ -24,6 +24,7 @@ import {
   collectAnchorViolationsWithIndex,
   isSupportedCodePath,
   isExcludedPath,
+  isToolScriptPath,
 } from "./check-pr-anchor-discipline.mjs";
 
 /** 编号与正文之间的分隔符 run（不含连字符/斜杠——它们可能是正文负号、路径）。 */
@@ -85,9 +86,23 @@ function deleteOneRound(text, violations) {
           s -= pm[0].length;
         }
       }
-      // 斜杠连接的 issue 列表（#N/#N/...）：后续数字项一并删除
+      // 斜杠连接列表的前导斜杠也吞（#N/#N 从后往前删时，前一项已删剩 /）：仅当 / 前是数字/#/字母时才吞，
+      // 避免误吞 fix/#123 这类路径/引用前缀
+      const lead = prefix.match(/\/\s*$/);
+      if (lead) {
+        const beforeSlash = s - lead[0].length - 1;
+        const beforeCh = beforeSlash < 0 ? null : text[beforeSlash];
+        if (beforeCh !== null && /[#0-9a-zA-Z]/.test(beforeCh)) {
+          s -= lead[0].length;
+        }
+      }
+      // 斜杠连接的 issue 列表（#N/#N/...）：后续数字项一并删除；连字符子项（#1564-2）一并删除
       const tail = text.slice(e).match(/^(\/\s*[0-9]+)+/);
       if (tail) e += tail[0].length;
+      else {
+        const sub = text.slice(e).match(/^-\d+/);
+        if (sub) e += sub[0].length;
+      }
     }
     if (fullDelete) {
       const sep = text.slice(e).match(SEP_RE);
@@ -112,6 +127,14 @@ function deleteOneRound(text, violations) {
       prev[1] = Math.max(prev[1], e);
     } else {
       merged.push([s, e]);
+    }
+  }
+  // 合并后再查一次括号吞噬：相邻 token 合并后区间恰好落在括号内，连括号一并删
+  for (const m of merged) {
+    const swallow = swallowEmptyPair(text, m[0], m[1]);
+    if (swallow) {
+      m[0] = swallow.s;
+      m[1] = swallow.e;
     }
   }
 
@@ -144,9 +167,24 @@ function tidyComment(text) {
     .replace(/^(\s*\*)\s+/, "$1 ")
     .replace(/\s+(\*+\/)$/, " $1");
   // 删空后暴露的孤立冒号/顿号（仅限注释引导符后）
-  t = t.replace(/^((?:\/\/!?|#+|\/\*+|\*)\s*)[：:、]\s*/, "$1");
+  t = t.replace(/^(\s*(?:\/\/!?|#+|\/\*+|\*)\s*)[：:、]\s*/, "$1");
+  // 删除编号后残留的「空格+分号」压成单分号（如「多模态 ；终审」→「多模态；终审」）
+  t = t.replace(/\s+；/g, "；");
+  // 删除编号后残留的「空格+闭括号」压紧（如「检视獭 ）」→「检视獭）」）
+  t = t.replace(/\s+）(?!）)/g, "）").replace(/\s+\)(?!\))/g, ")");
   // 双井号编号清单删除后残留的孤立斜杠（仅当后面是空白/中文，不误伤 /tmp 路径）
-  t = t.replace(/^((?:\/\/!?|#+|\/\*+|\*)\s*)\/(?=\s|[\u4e00-\u9fff])/, "$1");
+  t = t.replace(/^(\s*(?:\/\/!?|#+|\/\*+|\*)\s*)\/(?=\s|[\u4e00-\u9fff])/, "$1");
+  // 编号删除后残留的孤立分隔符（斜杠/连字符）收敛：
+  //   （/回归守护）→（回归守护）；「，/）」→「，）」；「2/）」→「2）」；（/-）→（）
+  t = t.replace(/([（(，,。；;、：:])\s*[/-]+(?=\s*[）)，,。；;、：:])/g, "$1");
+  t = t.replace(/([（(])\s*[/-]+(?=\s*[\u4e00-\u9fff])/g, "$1");
+  t = t.replace(/[/-]+(?=\s*[）)，,。；;、：:])/g, "");
+  // 分隔符删空后残留的全角空括号（仅全角——不误伤 posix_spawn() 这类 ASCII 空括号）
+  t = t.replace(/（\s*）/g, "");
+  // 括号/分隔符收敛后可能暴露出新的引导符后孤立标点（冒号/逗号/斜杠），再清一遍
+  t = t.replace(/^(\s*(?:\/\/!?|#+|\/\*+|\*)\s*)[：:、]\s*/, "$1");
+  t = t.replace(/^(\s*(?:\/\/!?|#+|\/\*+|\*)\s*)\/(?=\s|[\u4e00-\u9fff])/, "$1");
+  t = t.replace(/[，,]\s*(?=[）)])/g, "");
   return t;
 }
 
@@ -213,6 +251,8 @@ function main() {
   const samples = [];
   for (const f of files) {
     if (!isSupportedCodePath(f) || isExcludedPath(f)) continue;
+    // 工具脚本自身的注释里的编号示例是规则说明（元语言），不参与存量清理
+    if (isToolScriptPath(f)) continue;
     let content;
     try {
       content = readFileSync(`${root}/${f}`, "utf8");

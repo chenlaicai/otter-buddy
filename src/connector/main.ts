@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * （阶段 4 C1）+ （C2 执行通道）：connector
- * 独立进程入口（客户端侧）。packages/connector 独立分发（阶段 6c）。
+ * （执行通道）：connector
+ * 独立进程入口（客户端侧）。packages/connector 独立分发。
  *
  * shebang：packages/connector 打包后经 bin（otter-connector）直接执行；
  * 主构建（dist/src/connector/）同样保留——无碍（不被当模块加载）。
  *
- * 轻量铁律（阶段 4 / 方案 v3 §7）：本进程不加载模型、embedding、主记忆——
+ * 轻量铁律：本进程不加载模型、embedding、主记忆——
  * 依赖闭包仅 ws + better-sqlite3 + node 内置 + 执行器/台账/网关（构建后闭包断言）。
  *
- * 通道语义（检视 s1/s2/s3 处置）：断线自动重连（指数退避 1s→30s，重连=新会话——
+ * 通道语义：断线自动重连（指数退避 1s→30s，重连=新会话——
  * hub 侧 sid 代际天然隔离跨会话重放）；心跳半开自愈（45s 无 heartbeat.ack 判死重连）；
  * version 类协议不兼容是致命错误（重连无意义，退出进程让人介入）。
  *
- * C2 动作执行栈（方案 v3 §5/§7）：action.request → ConnectorActionDispatcher
+ * 动作执行栈：action.request → ConnectorActionDispatcher
  * （台账 actionId 幂等快路径）→ WorkspaceActionExecutor（与中枢 local 同一执行
  * 语义与记账协议）→ action.result 回执。数据目录 ~/.otter/connector/<deviceId>/；
  * 台账开机清扫旧纪元 running 行（崩溃恢复兑底）后才执行动作。
@@ -51,7 +51,7 @@ interface Args {
   name?: string;
 }
 
-/** 心跳半开判死：3 个间隔无 ack 即认为通道死（检视 s2——hub 侧 90s 判死，客户端侧更早自愈） */
+/** 心跳半开判死：3 个间隔无 ack 即认为通道死（hub 侧 90s 判死，客户端侧更早自愈） */
 const HEARTBEAT_ACK_TIMEOUT_MS = CONNECTOR_HEARTBEAT_INTERVAL_MS * 3;
 /** 重连退避：1s 起，指数翻倍，上限 30s */
 const RECONNECT_BASE_MS = 1_000;
@@ -122,7 +122,7 @@ interface ConnState {
   settled: boolean;
 }
 
-/** 心跳双循环：发送间隔 + ack 判死（检视 s2：3 间隔无 ack 主动断开重连——不等 TCP 超时） */
+/** 心跳双循环：发送间隔 + ack 判死（3 间隔无 ack 主动断开重连——不等 TCP 超时） */
 function startHeartbeatLoops(ws: WebSocket, state: ConnState): void {
   state.heartbeat = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN && state.sessionId) {
@@ -150,7 +150,7 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
     } else if (frame.type === "heartbeat.ack") {
       state.lastAckAt = Date.now();
     } else if (frame.type === "action.request") {
-      // C2 动作执行：fire-and-forget（回执经 sendResultFrame 读当前连接——执行期间重连
+      // 动作执行：fire-and-forget（回执经 sendResultFrame 读当前连接——执行期间重连
       // 则带新 sid 被 hub 旧 sid 校验丢弃，语义正确：旧会话动作对新会话回答无意义）
       void runtime.dispatcher.handleActionRequest(frame).catch(err => {
         log("action dispatch failed", { actionId: frame.data.actionId, error: String(err) });
@@ -170,13 +170,13 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
  */
 let currentWs: WebSocket | null = null;
 let currentSid: string | null = null;
-/** m2（检视）：优雅退出中——重连循环见此标志不再起新连接 */
+/** （检视）：优雅退出中——重连循环见此标志不再起新连接 */
 let exiting = false;
 
 function registerSignalHandlersOnce(shutdown: () => Promise<void>): void {
   let shuttingDown = false;
   const goOffline = (signal: string): void => {
-    if (shuttingDown) return; // s1（检视）：双信号幂等——重复 offline 帧不叠退出链
+    if (shuttingDown) return; // 双信号幂等——重复 offline 帧不叠退出链
     shuttingDown = true;
     exiting = true;
     if (currentWs?.readyState === WebSocket.OPEN && currentSid) {
@@ -184,16 +184,16 @@ function registerSignalHandlersOnce(shutdown: () => Promise<void>): void {
       currentWs.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "offline", seq, sid: currentSid, data: {} }));
       log("offline requested", { signal });
     }
-    // M1（检视，回方案 §6 第4步原设计）：自杀收尾——不等在途 fs 完成，在途动作立即
+    // （检视，回第4步原设计）：自杀收尾——不等在途 fs 完成，在途动作立即
     // 落 interrupted（与中枢侧 offline→interrupted 同裁决）；短窗后退出。
-    // m2（检视）：shuttingDown 后重连循环不再起新连接（防优雅下线后顶替重连再死）。
+    // （检视）：shuttingDown 后重连循环不再起新连接（防优雅下线后顶替重连再死）。
     void shutdown().finally(() => setTimeout(() => process.exit(0), 150)); // 一拍发送窗口后退出
   };
   process.on("SIGINT", () => goOffline("SIGINT"));
   process.on("SIGTERM", () => goOffline("SIGTERM"));
 }
 
-/** 回执发帧闭包：读当前连接（currentWs/currentSid）。执行期间重连时的两个窗口（m3 检视
+/** 回执发帧闭包：读当前连接（currentWs/currentSid）。执行期间重连时的两个窗口（检视
  *  修订）：新 socket 已开但 hello.ack 未回 → 回执带旧 sid 被 hub 侧 stale-sid 校验丢弃；
  *  hello.ack 已回 → 回执带新 sid 通过校验，但旧会话下线钩子已把等待者收尾（reject+删），
  *  hub 侧 onActionResult 查不到 waiter 而忽略——端到端语义一致：旧会话动作对新会话
@@ -207,7 +207,7 @@ function sendResultFrame(data: Extract<ConnectorFrame, { type: "action.result" }
   }
 }
 
-/** C2 执行栈（方案 §7 数据目录 ~/.otter/connector/<deviceId>/）：workspace 网关 +
+/** 执行栈（数据目录 ~/.otter/connector/<deviceId>/）：workspace 网关 +
  *  本地台账（机器侧真相源）+ 公共执行器（与中枢 local 同一执行语义）+ 分发器 */
 interface ConnectorRuntime {
   dispatcher: ConnectorActionDispatcher;
@@ -218,10 +218,10 @@ async function buildRuntime(identity: DeviceIdentity): Promise<ConnectorRuntime>
   const dataRoot = path.join(os.homedir(), ".otter", "connector", identity.deviceId);
   await mkdir(dataRoot, { recursive: true });
   const ledger = new SqliteActionLedger(path.join(dataRoot, "action-ledger.sqlite"), {
-    deviceId: identity.deviceId, // 台账行归属设备（阶段 3 表结构预留的维度）
+    deviceId: identity.deviceId, // 台账行归属设备（表结构预留的维度）
   });
   // 开机清扫：旧纪元 running 行裁决（崩溃恢复语义——断线收尾的兑底面）；
-  // m6（检视）：清扫失败不能零日志——残留 running 行永不裁决需排障线索（best-effort 继续）
+  // （检视）：清扫失败不能零日志——残留 running 行永不裁决需排障线索（best-effort 继续）
   const sweep = await ledger.open().catch((err: unknown) => {
     log("ledger boot sweep failed (stale running rows stay unresolved)", { error: String(err) });
     return null;
@@ -241,7 +241,7 @@ async function buildRuntime(identity: DeviceIdentity): Promise<ConnectorRuntime>
 function connectOnce(hub: string, identity: DeviceIdentity, runtime: ConnectorRuntime): Promise<"closed" | "fatal"> {
   return new Promise(resolve => {
     const wsUrl = new URL("/connector-ws", hub.replace(/^http/, "ws"));
-    // 6c：子协议 pin 声明（hub 升级层校验；缺声明的旧版客户端会被 hub 拒——升级
+    // 子协议 pin 声明（hub 升级层校验；缺声明的旧版客户端会被 hub 拒——升级
     // connector 包即可，配对身份/协议状态机不变）
     const ws = new WebSocket(wsUrl, [CONNECTOR_WS_SUBPROTOCOL], { headers: { authorization: `Bearer ${identity.pairToken}` } });
     const state: ConnState = { sessionId: null, heartbeat: null, ackWatch: null, lastAckAt: 0, settled: false };
@@ -279,9 +279,9 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  // 断线自动重连（检视 s1）：指数退避，重连=新会话（hub 侧 sid 代际隔离跨会话重放）
-  const runtime = await buildRuntime(identity); // C2：执行栈（台账清扫后才开始执行动作）
-  // C3/M1：信号处理注册一次（runtime 后——自杀收尾读 dispatcher 在途集）
+  // 断线自动重连：指数退避，重连=新会话（hub 侧 sid 代际隔离跨会话重放）
+  const runtime = await buildRuntime(identity); // 执行栈（台账清扫后才开始执行动作）
+  // 信号处理注册一次（runtime 后——自杀收尾读 dispatcher 在途集）
   registerSignalHandlersOnce(() => runtime.dispatcher.markInflightInterrupted());
   let backoff = RECONNECT_BASE_MS;
   for (;;) {
@@ -290,7 +290,7 @@ async function main(): Promise<void> {
       process.stderr.write("protocol version incompatible with hub — upgrade connector (reconnect pointless)\n");
       process.exit(3);
     }
-    if (exiting) { // m2（检视）：优雅退出中不顶替重连（防新会话被退出再带走）
+    if (exiting) { // （检视）：优雅退出中不顶替重连（防新会话被退出再带走）
       log("exit before reconnect", {});
       return;
     }

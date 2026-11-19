@@ -12,9 +12,9 @@ import type { ActionKind } from "@entities/execution/action-record";
 import { sha256 } from "./ledger/sqlite-action-ledger";
 
 /**
- * （阶段 4 C2）：workspace 六动作执行器——自 LocalExecutionMachine
+ * workspace 六动作执行器——自 LocalExecutionMachine
  * 抽出的公共实现（中枢 local 与 connector 远程共用同一执行语义与台账记账协议）。
- * 纯重构平移（B1 已把闭包障碍扫清：本模块依赖仅 node 内置 + usecases 端口 + entities
+ * 纯重构平移（已把闭包障碍扫清：本模块依赖仅 node 内置 + usecases 端口 + entities
  * + ledger hash）。ledger=null 时等价裸执行（记账降级关闭）。
  *
  * 归因注入（闭包收口）：invoke 归因读取り otterInvokeStorage（其类型拖 api-contract
@@ -80,7 +80,7 @@ export class WorkspaceActionExecutor {
     }
   }
 
-  /** F20261116actlg：workspace 动作的绝对 target（MAJOR 修复：清扫 hash 核对需要可解析的
+  /** workspace 动作的绝对 target（MAJOR 修复：清扫 hash 核对需要可解析的
    *  真实路径——相对逻辑路径会让 verifyHashOnDisk 拿它对进程 CWD 做 realpath，全线误判）。
    *  解析失败时回退逻辑展示路径（记账仍完整，hash 核对降级为 interrupted——诚实但可用）。 */
   private async workspaceAbsoluteTarget(conversationId: string, relativePath: string): Promise<string> {
@@ -92,7 +92,7 @@ export class WorkspaceActionExecutor {
     }
   }
 
-  /** F20261116actlg：workspace 写入入账（content hash 先记后写——崩溃后 hash 核对的基础）。 */
+  /** workspace 写入入账（content hash 先记后写——崩溃后 hash 核对的基础）。 */
   private async recordedWorkspaceWrite(conversationId: string, relativePath: string, content: string, options?: ActionRunOptions): Promise<void> {
     if (!this.ledger) {
       await this.workspaceGateway.writeFile(conversationId, relativePath, content);
@@ -115,7 +115,7 @@ export class WorkspaceActionExecutor {
     }
   }
 
-  /** F20261116actlg：workspace 删除入账（幂等可重做类）。 */
+  /** workspace 删除入账（幂等可重做类）。 */
   private async recordedWorkspaceDelete(
     conversationId: string,
     relativePath: string,

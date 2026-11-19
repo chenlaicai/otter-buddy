@@ -1,5 +1,5 @@
 /**
- * Part 2：extractSnippet 边界测试
+ * extractSnippet 边界测试
  *
  * SqliteMemoryRepository.extractSnippet 是 private 方法，通过 searchFTSWithHighlight 间接测试。
  */
@@ -92,7 +92,7 @@ describe("searchFTSWithHighlight - F20260811mrpy Part 2 extractSnippet", () => {
     const hits = await repo.searchFTSWithHighlight(fid, {});
     const target = hits.find(h => h.entryId === "anchor-doc");
     expect(target).toBeDefined();
-    // 修复后：锚点词在 content 里找不到 → fallback 带 [F20260829raft] 前缀，命中原因可见
+    // 修复后：锚点词在 content 里找不到 → fallback 带 [] 前缀，命中原因可见
     expect(target?.snippet?.startsWith(`[${fid}] `)).toBe(true);
     expect(target?.snippet).toContain("这是文档正文");
   });

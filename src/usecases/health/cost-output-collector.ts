@@ -308,7 +308,7 @@ function buildCostRecord(
 }
 
 /** 按 key 聚合（per-otter per-day per-model）。
- *  cacheHitRate 不再计算（#602）：消费端统一从 cacheReadTokens+inputTokens 推导。 */
+ * cacheHitRate 不再计算：消费端统一从 cacheReadTokens+inputTokens 推导。 */
 function aggregateUsageRecords(
   records: Array<OtterCostRecord & { _key: string }>,
 ): OtterCostRecord[] {
@@ -401,9 +401,9 @@ export function collectOtterOutput(
 ): OtterOutputRecord[] {
   const since = options?.since ?? new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  // F20260913ctlv 批4c：数据源切 entries（speak = 獭气泡产出；messages 表已 drop）
-  // F20261105tzwfx：日界统一 Asia/Shanghai（与 consumeLine/countToolCallsInFile 同轨）。
-  // hwl1 复审 A4 改了 toolCallCounts 的日键（shanghaiDateKey）但此处 SQL DATE() 仍是
+  // 数据源切 entries（speak = 獭气泡产出；messages 表已 drop）
+  // 日界统一 Asia/Shanghai（与 consumeLine/countToolCallsInFile 同轨）。
+  // 改了 toolCallCounts 的日键（shanghaiDateKey）但此处 SQL DATE() 仍是
   // UTC 日界——上海 0-8 点窗口：(a) messageCount 归 UTC 日与 toolCallCounts 的上海日
   // 键错配，toolCallCounts.get(r.date) 查不到、toolCallCount 静默归零；(b) cost 行与
   // output 行跨日分裂。SQLite 无时区支持，用 datetime(+8h) 后取 DATE 等价上海日。
@@ -453,7 +453,7 @@ async function countToolCallsInFile(
     const msg = obj as unknown as SessionMessageLine;
     if (msg.message.role !== "assistant") continue;
 
-    // F20261027hwl1 复审 A4：工具调用计数日界同步 Asia/Shanghai（与 consumeLine 的 token 记录同轨，
+    // 复审 工具调用计数日界同步 Asia/Shanghai（与 consumeLine 的 token 记录同轨，
     // 消灭同采集器内 UTC/Shanghai 口径分裂——北京时间 0-8 点窗口同一调用曾落到不同日期）
     const date = shanghaiDateKey(msg.timestamp);
     if (sinceDate && date < sinceDate) continue;
@@ -526,7 +526,7 @@ export interface PrCountRecord {
 
 /**
  * 通过 git log 统计合并的 PR 数量。
- * GitHub merge commit 格式：Merge pull request #NNN from ...
+ * GitHub merge commit 格式：Merge pull request from ...
  */
 export async function collectPrCounts(
   repoPath: string,
@@ -571,7 +571,7 @@ export interface DispatchCountRecord {
 }
 
 /**
- * F20260912avlb：从 dispatch_records 表采集 per-date 的每日派工数。
+ * 从 dispatch_records 表采集 per-date 的每日派工数。
  * 口径：按 dispatched_at 日期聚合（有 dispatched_at 的记录数 = 当日实际派出的工）。
  * 旧口径（「任务完成数」：只认 completed/failed 终态）自上线以来一直静默归零——
  * 终态从未有写入路径（见特性文档「数据层真相」），是死口径；本切换为客观可判定的

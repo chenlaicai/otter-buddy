@@ -215,7 +215,7 @@ export default function SkillsPage() {
 
   useEffect(() => {
     let cancelled = false
-    // F20260929scfx：双源并行拉取（skills + prompts）；prompts 失败降级 null
+    // 双源并行拉取（skills + prompts）；prompts 失败降级 null
     // （卷首/卷末编跳过），skills 失败才整书降级
     Promise.all([
       fetch('/api/skills', { headers: identityHeaders() })
@@ -255,7 +255,7 @@ export default function SkillsPage() {
   const maxViewRef = useRef(maxView)
   maxViewRef.current = maxView
 
-  /** 翻页引擎（F20260924uxrc 检视修复版）：回放基准 = viewRef；步进累计 / 直达覆盖两形态 */
+  /** 翻页引擎（检视修复版）：回放基准 = viewRef；步进累计 / 直达覆盖两形态 */
   const goView = useCallback((target: number) => {
     const cur = viewRef.current
     const t = Math.max(0, Math.min(maxViewRef.current, target))

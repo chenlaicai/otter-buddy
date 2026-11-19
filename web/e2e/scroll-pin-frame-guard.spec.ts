@@ -138,7 +138,7 @@ test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
     await page.addInitScript(SAMPLER)
     await gotoBottomPinned(page)
 
-    // 开采样 → 真实发送一张 600px 高卡并展开（检视发现 6：普通文本 27~108px < 判据下限 150px，
+    // 开采样 → 真实发送一张 600px 高卡并展开（普通文本 27~108px < 判据下限 150px，
     // 刺激量不足护栏恒绿——修不好也红不了；折叠态只渲染按钮 ~108px 也不够，必须点「展开渲染」
     // 让 iframe 内 600px div 真实渲染，单次增量 >阈值才能钉住补偿链）
     await page.evaluate(() => { (window as unknown as { __samplerOn: boolean }).__samplerOn = true })
@@ -186,7 +186,7 @@ test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
     await page.evaluate(() => { (window as unknown as { __samplerOn: boolean }).__samplerOn = false })
 
     await assertNoJump(page, 'f1fx-B')
-    // 终态断言（检视发现 6 实验三：RO 链死/无补偿时终态停底 124px 不回，逐帧阈值抓不到——
+    // 终态断言（实验三：RO 链死/无补偿时终态停底 124px 不回，逐帧阈值抓不到——
     // finalDist 归零断言是 RO 冷启动修复（发现 5）的天然验收）
     await assertFinalPinned(page, 'f1fx-B')
   })
@@ -194,7 +194,7 @@ test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
   test('C (F20261010vwst + F20261015inpd): 贴底下输入框输入多行——scrollTop 帧级稳定 + 视口高度恒定', async ({ page }) => {
     // 场景源头：搭档 10-10 报告「输入多行时中间栏消息跳动」——旧 viewportObserver 把输入框
     // autoResize 撑高当成需要贴底拉回的信号，每敲一个换行程序性 scrollTop += 一行高（~23px）。
-    // 10/15 根治（F20261015inpd）：输入框区改为覆盖层（absolute bottom-0），脱离文档流不挤压
+    // 10/15 根治：输入框区改为覆盖层（absolute bottom-0），脱离文档流不挤压
     // 消息列表视口——视口高度恒定，跳动机制链第一环（视口压缩）消失。
     // 断言对象是 scrollTop 本身（不是距底）：视口高度变化时距底距离合法地变大（dist=sh−top−ch，
     // 用距底断言会误判；scrollTop 不动才是「内容稳定」的正确判据。
@@ -219,7 +219,7 @@ test.describe('F20261008f1fx 贴底零闪跳护栏', () => {
     const first = tops.length ? tops[0] : 0
     const maxDrift = tops.length ? Math.max(...tops.map(t => Math.abs(t - first))) : 0
     const inputH = await input.evaluate(el => el.getBoundingClientRect().height)
-    // F20261015inpd 新增断言：视口高度（clientHeight）全程恒定——覆盖层方案的核心收益
+    // 新增断言：视口高度（clientHeight）全程恒定——覆盖层方案的核心收益
     const chs = await page.evaluate(() => (window as unknown as { __chs: number[] }).__chs)
     const chVaries = chs.length ? Math.max(...chs) - Math.min(...chs) : 0
     console.log(`[inpd-C] frames=${tops.length} scrollTop首帧=${first} maxDrift=${maxDrift}px 输入框末态高=${inputH}px 视口振幅=${chVaries}px`)

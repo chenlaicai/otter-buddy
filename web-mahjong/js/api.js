@@ -60,15 +60,15 @@ export function createApi(opts = {}) {
     }),
     /** 入座 → {roomId, seat, view}（私有视图，含手牌） */
     join: (roomId, seat) => post(room(roomId, "/join"), { seat }),
-    /** F20261022mjls：开始（waiting→playing 发牌起跑；body 可选 players 覆盖；幂等） */
+    /** 开始（waiting→playing 发牌起跑；body 可选 players 覆盖；幂等） */
     start: (roomId, payload) => post(room(roomId, "/start"), payload),
     /** 真人动作注入 → {accepted:true, view}（400 = 非该座停驻或动作非法） */
     action: (roomId, seat, action) => post(room(roomId, "/actions"), { seat, action }),
-    /** 真人回话 → {accepted:true, roomId, seat, view}（#1532：入队广播 chat 帧，回显靠 SSE） */
+    /** 真人回话 → {accepted:true, roomId, seat, view}（入队广播 chat 帧，回显靠 SSE） */
     chat: (roomId, seat, text) => post(room(roomId, "/chat"), { seat, text }),
-    /** #1564-5：结算停驻「继续下一局」 */
+    /** 结算停驻「继续下一局」 */
     continueRound: (roomId) => post(room(roomId, "/continue")),
-    /** #1564-6：停局/删房 */
+    /** 停局/删房 */
     stop: (roomId) => post(room(roomId, "/stop")),
     /** 断线恢复（最新帧还原 + 续推） */
     recover: (roomId) => post(room(roomId, "/recover")),

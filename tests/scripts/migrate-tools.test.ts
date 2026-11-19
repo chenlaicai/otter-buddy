@@ -1,5 +1,5 @@
 /**
- * 迁移工具测试（阶段 6b）：lib 纯函数 + export→restore→verify 端到端（小 fixture）。
+ * 迁移工具测试：lib 纯函数 + export→restore→verify 端到端（小 fixture）。
  *
  * 端到端走真实 tar/gzip 子进程与三个 CLI 脚本——与生产路径完全同构，
  * 只是数据集是 tmp 下的小 fixture（两张表几个文件）。

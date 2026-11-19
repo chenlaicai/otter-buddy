@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { HelpCircle } from 'lucide-react'
 
-/** 属性说明弹出框（? 图标，D2.1）
+/** 属性说明弹出框（? 图标，.1）
  *  点击弹出说明气泡（触屏友好），再点图标或点外部关闭。
  *  说明内容 = 该属性的「本质」：是什么、怎么算的、数据从哪来。
  *  F20260903：text 放宽为 ReactNode——健康页五维雷达的公式说明是结构化列表
@@ -82,7 +82,7 @@ export function HelpIcon({ text }: { text: React.ReactNode }) {
           role="tooltip"
           className="fixed w-60 max-h-[60vh] overflow-y-auto glass-overlay rounded-xl p-3 text-xs text-stone-600 leading-relaxed z-[120] shadow-bubble"
           style={{ left: pos.left, top: pos.top }}
-          /* 审视发现2：Portal 后气泡不在 ref 子树内，mousedown 必须在气泡上阻止冒泡，
+          /* Portal 后气泡不在 ref 子树内，mousedown 必须在气泡上阻止冒泡，
              否则 document 级 handleOutside 先于 click 关闭气泡——用户无法选中复制文案 */
           onMouseDown={e => e.stopPropagation()}
           onClick={e => e.stopPropagation()}

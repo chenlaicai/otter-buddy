@@ -38,29 +38,29 @@ export interface HtmlCardProps {
   interactive: boolean
   /** 卡片所在消息的 senderId（registry 登记，回执显式路由用） */
   authorId: string
-  /** F20260916hcel：html-card schema版本，保留为将来可能的默认状态变化留口子。
+  /** html-card schema版本，保留为将来可能的默认状态变化留口子。
    *  当前所有卡默认 collapsed（搭档 9/16 拍板） */
   cardSchemaVersion?: number
-  /** F20261013csv3 T4：卡片重要性——`high` 默认展开（不豁免单消息卡片预算） */
+  /** 卡片重要性——`high` 默认展开（不豁免单消息卡片预算） */
   importance?: CardImportance
-  /** F20261013csv3 T3：折叠态摘要行（纯文本，≤120 字符；null = 无有效摘要） */
+  /** 折叠态摘要行（纯文本，≤120 字符；null = 无有效摘要） */
   foldedSummary?: string | null
-  /** F20261009csp2 活类：html-card-play 围栏——默认展开运行 + 🎮 徽章 + 暂停/重启控制。
-   *  宪法 F20261008csfw：活类感知动词是「玩」，折叠态没有玩法 */
+  /** 活类：html-card-play 围栏——默认展开运行 + 🎮 徽章 + 暂停/重启控制。
+   * 宪法 活类感知动词是「玩」，折叠态没有玩法 */
   playable?: boolean
 }
 
 type CardView = 'collapsed' | 'expanded' | 'source' | 'invalid'
 
 function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId, playable, importance = 'normal', foldedSummary = null }: HtmlCardProps) {
-  /** F20260916hcel：所有卡默认折叠（搭档 9/16 拍板）；
-   *  F20261009csp2 例外①：活类卡默认展开运行（宪法：折叠态没有玩法）；
-   *  F20261013csv3 T4 例外②：importance=high 卡默认展开（简报卡分级——L2 议题不埋折叠态） */
+  /** 所有卡默认折叠（搭档 9/16 拍板）；
+   * 例外①：活类卡默认展开运行（宪法：折叠态没有玩法）；
+   * 例外②：importance=high 卡默认展开（简报卡分级——L2 议题不埋折叠态） */
   const [view, setView] = useState<CardView>(playable || importance === 'high' ? 'expanded' : 'collapsed')
-  /** F20261009csp2 活类重启控制：nonce 变化强制重挂载 iframe（脚本状态归零重跑）。
+  /** 活类重启控制：nonce 变化强制重挂载 iframe（脚本状态归零重跑）。
    *  暂停 = 收起（卸载 iframe 即停脚本，无需 kill 通道）；重启 = 回 expanded + 新 nonce */
   const [runNonce, setRunNonce] = useState(0)
-  /** F20260929ahgt：agent 不再管高度——初始固定 CARD_MIN_HEIGHT（小起步防视觉跳变过量），
+  /** agent 不再管高度——初始固定 CARD_MIN_HEIGHT（小起步防视觉跳变过量），
    *  展开后桥 ResizeObserver 上报真实内容高度（clamp [1, CARD_MAX_HEIGHT]，可撑可缩）。
    *  旧卡的 data-height 属性自此为无害冗余，不再解析。 */
   const [height, setHeight] = useState(CARD_MIN_HEIGHT)
@@ -75,7 +75,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId,
   /** 展开时向 registry 登记 contentWindow ↔ cardId（source 白名单 + 高度回写 + 作者路由）。
    *  进入 expanded 即重置 loadCount（user 卡片无桥也要重置：collapse→re-expand 会重挂载 iframe，
    *  不重置则二次 load 计数沿用旧值，被误判为导航逃逸而降级 invalid）。
-   *  F20261009csp2 检视处置 1：deps 加 runNonce——重启重挂载是新 iframe 的首次 load，
+   * deps 加 runNonce——重启重挂载是新 iframe 的首次 load，
    *  不重置则计到 2 误判逃逸；同时 re-register 新 contentWindow（旧 win 已随卸载失联） */
   useEffect(() => {
     if (view !== 'expanded') return
@@ -154,7 +154,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId,
       {view === 'expanded' && (
         <>
           <iframe
-            /* F20261009csp2：key 含 runNonce——活类重启时强制重挂载，脚本状态归零 */
+            /* key 含 runNonce——活类重启时强制重挂载，脚本状态归零 */
             key={`${cardId}:${runNonce}`}
             ref={iframeRef}
             /* 绝不加 allow-same-origin：保持 opaque origin 隔离 */

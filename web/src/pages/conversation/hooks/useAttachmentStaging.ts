@@ -1,5 +1,5 @@
 /**
- * 多模态 Phase 1：附件上传中转状态（选择 → 上传 → 随消息发送）。
+ * 多模态：附件上传中转状态（选择 → 上传 → 随消息发送）。
  *
  * 独立 hook 而非塞进 useDraftCache：草稿是纯文本可 localStorage 持久化，
  * 附件含 File 对象（不可序列化）且上传后就是服务端 id 引用——生命周期不同，不混存。
@@ -117,7 +117,7 @@ export function useAttachmentStaging(conversationId: string | null) {
     setUploadError(null)
   }, [])
 
-  /** 会话切换即清空（发现 1 修复）：ref 比较只在 id 真变化时触发（挂载不清空，
+  /** 会话切换即清空：ref 比较只在 id 真变化时触发（挂载不清空，
    *  避免无谓 rerender）；ChatView 不重挂载，靠本 effect 隔离会话 A/B 的中转状态。
    *  进行中的上传完成回调（DTO 替换遍历 uploading 条目）在清空后的空列表上空转，不会复活条目。 */
   const prevConversationIdRef = useRef(conversationId)

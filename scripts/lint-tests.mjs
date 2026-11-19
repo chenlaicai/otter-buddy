@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Part 5: 测试反模式的机械拦截（commit-time gate）。
+ * 测试反模式的机械拦截（commit-time gate）。
  *
  * 拦截清单（全部是可机械判定、零误判的形态——判断性要求靠 skill/文档信道，不在此列）：
  * 1. tests/ 下手写 CREATE TABLE / CREATE VIRTUAL TABLE（必须 createTestDb，防 schema 漂移）
@@ -47,7 +47,7 @@ const allowDdlFiles = [];
 // 派发台账真实仓储集成测试（rbsg 事故教训：mock 与真实投影的分歧两次酿祸，/）。
 // 被测对象是 pending 判据 SQL 与真实投影的交互，手写 seed 需直插 messages/otters
 // 原始行（initSchema 建表后无生产写入路径可到达该形状）；与 migration 同类隔离场景
-// 8→11（/）：①note-cap.test.ts——capNote 五写路径真库集成，
+// 8→11：①note-cap.test.ts——capNote 五写路径真库集成，
 // 同 dispatch-attempt-repo 场景；②helpers/dispatch-attempt-seed.ts——上述测试的共用
 // seed 提取（INSERT 直插 messages/otters，非 DDL 但携带 allow-ddl 标记文件入豁免清单）；
 // ③attachments-kind-migration.test.ts——存量库迁移回归，此前漏登记（存量遗留，

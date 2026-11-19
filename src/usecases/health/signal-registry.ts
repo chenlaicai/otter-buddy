@@ -6,7 +6,7 @@
  * 合并后修复密度，实现在 post-merge-fix-density.ts）。
  * 检测器实现度分级：
  * - MVP 已实现：bug_recurrence / chain_stall / hotspot / behavior_defect / hotspot_imbalance
- * - Phase 1.5 待实现（数据源依赖）：eval_regression / intent_drop（intent 字段冷启动 0%）
+ * - .5 待实现（数据源依赖）：eval_regression / intent_drop（intent 字段冷启动 0%）
  *   / review_debt（需 PR comment 数据判定是否走过对抗审视）
  */
 

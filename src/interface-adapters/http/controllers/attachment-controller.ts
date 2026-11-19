@@ -1,10 +1,10 @@
 /**
- * 附件 HTTP 端点（多模态 Phase 1，方案 §3.3）。
+ * 附件 HTTP 端点（多模态）。
  *
  * POST /api/conversations/:id/attachments  multipart/form-data 上传（busboy 流式解析）
  * GET  /api/attachments/:id                文件流（nosniff；document 强制 attachment 下载）
  *
- * 访问控制假设（方案 §3.2 显式声明）：Phase 1 附件端点不做独立鉴权，
+ * 访问控制假设（显式声明）：附件端点不做独立鉴权，
  * 安全性依赖三重前提——①部署网络隔离；②UUIDv4 122bit 不可猜；
  * ③附件直链不脱离 Web 同源体系（egress 投影只给对话页链接）。
  */

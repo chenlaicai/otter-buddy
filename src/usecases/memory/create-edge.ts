@@ -1,9 +1,9 @@
 /**
- * Part 1: 创建记忆关系边。
+ * 创建记忆关系边。
  *
- * D3: 校验 from/to entry 都是 coarse 粒度——防 chunk sync 时 replaceEntriesBySource
+ * 校验 from/to entry 都是 coarse 粒度——防 chunk sync 时 replaceEntriesBySource
  *     删旧建新 chunk 导致 CASCADE/手动删边静默丢失。
- * D7: 幂等由 repo 层 UNIQUE(from, to, type) + ON CONFLICT 保证。
+ * 幂等由 repo 层 UNIQUE(from, to, type) + ON CONFLICT 保证。
  */
 import type { EdgeType } from "@entities/memory/memory-edge";
 import type { MemoryReader } from "./memory-reader";
@@ -33,7 +33,7 @@ export class CreateEdge {
       throw new DomainError("self-loop edges not allowed", "validation");
     }
 
-    // D3: 校验两端 entry 不是 chunk 类型（chunk 被 sync replaceEntriesBySource 删旧建新，边会静默丢失）
+    // 校验两端 entry 不是 chunk 类型（chunk 被 sync replaceEntriesBySource 删旧建新，边会静默丢失）
     // 注意：message 是 fine 粒度但不会被 sync 替换，所以允许建边。
     // 真正需要排除的只有 feature_chunk 和 research_chunk。
     const [fromEntry, toEntry] = await Promise.all([
@@ -60,7 +60,7 @@ export class CreateEdge {
       );
     }
 
-    // F20260821scrt: metadata 含 link_memory 的 note（LLM 自由文本），落库前脱敏
+    // metadata 含 link_memory 的 note（LLM 自由文本），落库前脱敏
     const edgeId = await this.writer.createEdge({
       ...input,
       metadata: input.metadata ? redactMetadataSecrets(input.metadata) : undefined,

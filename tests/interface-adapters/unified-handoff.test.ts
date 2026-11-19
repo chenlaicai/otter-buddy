@@ -4,12 +4,12 @@
  * 取代 的 restartWithAutoHandoffIfBlank 测试——语义从「空摘要才合成」
  * 升级为「叠加式档案：有无自总结都走统一管线」。
  *
- * 覆盖（方案 V1/V2/V6 的单测层）：
+ * 覆盖单测层：
  * - V1 锚点：合成走影子通道（runCompactionSynthesis）不触 invoke——锁雪崩根治
  * - V2 场景矩阵：手动叠加档案 / 首哑 false 零合成 / 截断 fail-closed
  * - V6 超时降级：合成超时 → 机械档案 + 正常换世
  * - 忙碌 409：isRunning → DomainError conflict
- * - jsonl 缺失降级、D9 永不阻塞
+ * - jsonl 缺失降级、永不阻塞
  *
  * 断言风格：依赖替身用「录制器」收集副作用，不绑 mock 调用参数/次数（lint 规则约束）。
  */
@@ -130,7 +130,7 @@ function makeEngine(overrides?: Partial<HandoffEngineDeps>): HandoffEngineDeps &
 }
 
 /** SdkInvokePort stub：invoke 记录并抛错（V1 断言合成绝不走 invoke）+ 可控影子通道。
- * F20260930hsfx 审视严重2修正：readCurrentSessionEntries 可注入具体 entries——
+ * 审视严重2修正：readCurrentSessionEntries 可注入具体 entries——
  *   undefined 模拟「读失败/门面缺失」（jsonl-read-fail）、[] 模拟「真空 session」（empty-session）、
  *  有值模拟「有原料」。原 hasEntries:false 统一返回 undefined 只覆盖了读失败形态，真空未单独测。 */
 function makeSdkPort(opts?: {
@@ -138,7 +138,7 @@ function makeSdkPort(opts?: {
   isRunning?: boolean;
   hasEntries?: boolean;
   entries?: unknown[] | undefined;
-  /** F20260930hsfx 审视建议5：acquireSessionLock 抛错注入（测锁冲突不计入熔断的 catch 分支） */
+  /** acquireSessionLock 抛错注入（测锁冲突不计入熔断的 catch 分支） */
   lockError?: Error;
 }): SdkInvokePort & { invokeCalls: string[]; synthPrompts: string[]; synthOverrides: Array<string | undefined>; lockLog: string[] } {
   const invokeCalls: string[] = [];
@@ -158,7 +158,7 @@ function makeSdkPort(opts?: {
     },
     acquireSessionLock: async (otterId: string) => {
       lockLog.push(`acquire:${otterId}`);
-      if (opts?.lockError) throw opts.lockError; // 锁冲突/取锁失败注入（审视建议5：不计入熔断）
+      if (opts?.lockError) throw opts.lockError; // 锁冲突/取锁失败注入（不计入熔断）
       return () => { lockLog.push(`release:${otterId}`); };
     },
     // entries 显式注入优先；否则 hasEntries:false → undefined（读失败形态）；默认有 1 条 entry
@@ -177,7 +177,7 @@ function makeInvokerWithEngine(opts: {
   engine?: HandoffEngineDeps;
   conversationIds?: string[];
   restartSession?: ManageSession["restartSession"];
-  /** F20260920uhuc 需求变更（2026-09-20）：进度消息通道 stub */
+  /** 需求变更（2026-09-20）：进度消息通道 stub */
   broadcaster?: { events: Array<{ conversationId: string; event: string; data: unknown }> };
   sendEntry?: { bodies: string[] };
   ctxWindowProvider?: { window?: number; threshold?: number };
@@ -220,11 +220,11 @@ function makeInvokerWithEngine(opts: {
     } : undefined) as never, // sendEntry
     undefined, // invokeRepo
     undefined, // agentDispatchService
-    opts.engine, // engine（F20260920uhuc）
+    opts.engine, // engine
   ) as unknown as AgentInvoker;
 }
 
-// eslint-disable-next-line max-lines-per-function -- 统一交接 describe 块：V1-V6 + S1-S2 + M2/M4 用例同域聚合（拆分会割裂「同一交接管线行为」的断言内聚）
+// eslint-disable-next-line max-lines-per-function -- 统一交接 describe 块：V1-V6 + -+ /用例同域聚合（拆分会割裂「同一交接管线行为」的断言内聚）
 describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
   it("V1 锚点：合成走影子通道——全程零 invoke 调用 + 持锁释放配对（锁雪崩根治）", async () => {
     const sdk = makeSdkPort();
@@ -333,10 +333,10 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
     expect(engine.mechanical).toEqual(["手动"]);
   });
 
-  // ─── F20260930hsfx S1 核心：保留段空不废合成 ───
+  // ─── 核心：保留段空不废合成 ───
   it("S1 事故形态：无 speak 有工具轮原料 → 合成照跑（保留段空不再连坐跳过叙事合成）", async () => {
     // 本次事故实证：前世只活了 6 秒、全是工具轮（0 条 speak）——旧实现 slice undefined
-    //  连坐跳过合成，新世拿到机械档案。S1 修复后：保留段空只影响展示节，合成照常执行。
+    // 连坐跳过合成，新世拿到机械档案。修复后：保留段空只影响展示节，合成照常执行。
     const sdk = makeSdkPort();
     const engine = makeEngine({ sliceSessionEntries: () => makeNoSpeakSlice() });
     const invoker = makeInvokerWithEngine({ sdk, engine });
@@ -344,7 +344,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
     const session = await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
 
     expect(session.id).toBe("sess-new");
-    expect(sdk.synthPrompts).toHaveLength(1); // S1 核心：合成照跑一次（不再因保留段空跳过）
+    expect(sdk.synthPrompts).toHaveLength(1); // 核心：合成照跑一次（不再因保留段空跳过）
     expect(engine.mechanical).toEqual([]); // 不降级机械档案——叙事合成成功
     expect(engine.archives.length).toBe(1); // 走叙事档案（assembleHandoffArchive）
   });
@@ -362,7 +362,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
     expect(session.id).toBe("sess-new");
     expect(sdk.synthPrompts).toEqual([]); // 真空 session 无原料，合成跳过合理
     expect(engine.mechanical).toEqual(["手动"]); // 机械档案兜底
-    // M5：完成文案补 reason——真空 session 的降级对用户可见（不再是笼统「机械档案」）
+    // 完成文案补 reason——真空 session 的降级对用户可见（不再是笼统「机械档案」）
     expect(sendEntry.bodies.some(b => b.includes("机械档案") && b.includes("无任何消息"))).toBe(true);
   });
 
@@ -411,7 +411,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
     const doneMsg = sendEntry.bodies.find(b => b.includes("前世已封存"));
     expect(doneMsg).toBeDefined();
     expect(doneMsg!).toContain("机械档案");
-    expect(doneMsg!).toContain("compaction"); // #1277：专属文案含 compaction 字样
+    expect(doneMsg!).toContain("compaction"); // 专属文案含 compaction 字样
     expect(doneMsg!).toContain("无普通消息");
     expect(doneMsg!).not.toContain("无任何消息"); // 与真空 session 区分
     expect(doneMsg!).not.toContain("读取失败"); // 与读失败区分
@@ -426,12 +426,12 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
     await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
 
     expect(engine.mechanical).toEqual(["手动"]); // 降级机械档案
-    // M5/S2：完成文案补「合成失败」reason（sendSystemEntry 失败静默——查 bodies 实际收集到的）
+    // 完成文案补「合成失败」reason（sendSystemEntry 失败静默——查 bodies 实际收集到的）
     expect(sendEntry.bodies.some(b => b.includes("机械档案"))).toBe(true);
     const doneMsg = sendEntry.bodies.find(b => b.includes("前世已封存"));
     expect(doneMsg).toBeDefined();
     expect(doneMsg!).toContain("机械档案"); // 合成失败降级机械档案
-    expect(doneMsg!).toContain("叙事合成执行失败"); // M5/S2：降级 reason 对搭档可见
+    expect(doneMsg!).toContain("叙事合成执行失败"); // 降级 reason 对搭档可见
   });
 
   it("F20261111synth F4：合成失败 → 机械档案携带降级错误摘要（档案自证，不依赖进程日志）", async () => {
@@ -486,7 +486,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
   });
 
   it("M1 审视建议4：进度文案负向断言——不预告「前世总结中」、删错误时间框", async () => {
-    // M1 文案诚实：进度只说确定的事（「正在重启獭生，前世档案生成中」），
+    // 文案诚实：进度只说确定的事（「正在重启獭生，前世档案生成中」），
     //  不预告「前世总结中」（可能随后降级为机械档案，预告即撒谎）。负向断言锁回归。
     const sdk = makeSdkPort();
     const engine = makeEngine();
@@ -506,7 +506,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
   it("M4：熔断场景 synthesizePast=false 直接机械档案（快速止损，不跑合成）", async () => {
     // Why：熔断语义是快速止损——不拖交接锁跑最长 300s 合成。熔断重启直接机械档案。
     //  注：本用例经 restartWithUnifiedHandoff 手动路径模拟「synthesizePast=false 走机械、
-    //  零合成调用」的 M4 语义；熔断触发路径（handleCircuitBreakSignal）同 synthesizePast=false。
+    // 零合成调用」的 语义；熔断触发路径（handleCircuitBreakSignal）同 synthesizePast=false。
     const sdk = makeSdkPort();
     const engine = makeEngine();
     const invoker = makeInvokerWithEngine({ sdk, engine });
@@ -518,11 +518,11 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
   });
 
   it("审视严重3：熔断场景完成文案显「熔断强制」而非「触发方选择跳过」（circuit-open 归因优先于 user-off）", async () => {
-    // M4×M5 交叉：熔断重启传 synthesizePast=false，degradeReason 判定链若 !synthesizePast 优先
+    // ×交叉：熔断重启传 synthesizePast=false，degradeReason 判定链若 !synthesizePast 优先
     //  会把熔断归因成「触发方选择跳过」（虚假归因——没人选，是熔断强制）。修复后 circuit-open
     //  优先命中：熔断场景完成文案显「熔断强制机械」。
     // delta 严重3真修补真实路径：用 trigger='熔断' + synthesizePast=false + 计数≥2——正是
-    //  handleCircuitBreakSignal 的 M4 传参组合。此前用例是 synthesizePast=true 旁路，锁的是
+    // handleCircuitBreakSignal 的 传参组合。此前用例是 synthesizePast=true 旁路，锁的是
     //  不会发生的行为组合（绿≠修好）；真修去掉判定前缀后，此真实路径才命中 circuit-open。
     const goodSdk = makeSdkPort(); // 合成本可成功
     const engine = makeEngine();
@@ -531,7 +531,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
     invoker["handoffState"].noteHandoffOutcome("otter-1", "synthesis-failed"); // 预热熔断计数到 2
     invoker["handoffState"].noteHandoffOutcome("otter-1", "synthesis-failed");
 
-    // 真实熔断路径判定：synthesizePast=false + 计数≥2 → circuit-open（M4 传参组合；trigger 在
+    // 真实熔断路径判定：synthesizePast=false + 计数≥2 → circuit-open（传参组合；trigger 在
     //  restartWithUnifiedHandoff 固定为 '手动'，统一交接内部 degradeReason 判定与 trigger 无关）。
     await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: false });
 
@@ -543,7 +543,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
   });
 
   it("M2 审视建议5：交接失败锁冲突不计入熔断（SessionLockConflictError 非合成失败）", async () => {
-    // #654 语义：锁冲突是交接窗口正常互斥，不该累积熔断计数。acquireSessionLock 抛
+    // 语义：锁冲突是交接窗口正常互斥，不该累积熔断计数。acquireSessionLock 抛
     //  SessionLockConflictError → unifiedHandoff catch → 降级裸重启，但计数不变。
     const { SessionLockConflictError } = await import("@entities/errors");
     const engine = makeEngine();
@@ -654,7 +654,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
       sendEntry,                         // 18：invoke 生命周期
       { getInvokeEvents: async () => [] } as never, // 19：invokeRepo
       undefined, // agentDispatchService
-      makeEngine(), // 21：engine（F20260920uhuc）
+      makeEngine(), // 21：engine
     ) as unknown as AgentInvoker;
 
     await invoker.invokeConversation({
@@ -662,7 +662,7 @@ describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
     });
 
     expect(invokeCalls).toBe(2); // 首段退化 + 新世全新 invoke
-    expect(restarts).toHaveLength(1); // 审视发现1核心断言：只换世一次
+    expect(restarts).toHaveLength(1); // 核心断言：只换世一次
     expect(restarts[0]).toBe("restart:otter-1");
     // 熔断终态事件已补写（newSessionId 指向 unifiedHandoff 建立的新世）
     const circuitEvent = healingEvents.find((e) => e.errorType === "circuit_break");
@@ -681,13 +681,13 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
 
     await invoker.restartWithUnifiedHandoff("otter-1", { synthesizePast: true });
 
-    // start + done 两态；文案含关键提示词（F20260930hsfx M1：进度文案只说确定的事——
+    // start + done 两态；文案含关键提示词（进度文案只说确定的事——
     //  「正在重启獭生，前世档案生成中」，不预告「前世总结中」、删掉错误的时间框）
     expect(sendEntry.bodies).toHaveLength(2);
     expect(sendEntry.bodies[0]).toContain("正在重启獭生");
     expect(sendEntry.bodies[0]).toContain("前世档案生成中");
     expect(sendEntry.bodies[0]).toContain("大獭「测试獭」"); // 类型感知称呼（big→大獭）
-    expect(sendEntry.bodies[0]).not.toContain("预计 5-15 秒"); // M1：错误时间框已删
+    expect(sendEntry.bodies[0]).not.toContain("预计 5-15 秒"); // 错误时间框已删
     expect(sendEntry.bodies[1]).toContain("前世已封存");
     expect(sendEntry.bodies[1]).toContain("完整叙事档案"); // 合成成功 → 叙事形态告知
     expect(broadcaster.events).toHaveLength(2);
@@ -742,7 +742,7 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
 
     expect(channels.length).toBeGreaterThan(0);
     expect(channels.every(c => c === 'handoff')).toBe(true);
-    // F20260930hsfx M1 文案诚实：synthesizePast=false 时进度文案不预告合成（完成文案
+    // 文案诚实：synthesizePast=false 时进度文案不预告合成（完成文案
     //  补「机械档案（触发方选择跳过前世叙事合成）」reason）；channel='handoff' 锁旁路钉不变。
     expect(sendEntry.bodies.some(b => b.includes("机械档案"))).toBe(true);
     expect(sendEntry.bodies.some(b => b.includes("前世已封存"))).toBe(true);
@@ -788,7 +788,7 @@ describe("需求变更（2026-09-20）：交接进度系统消息 + 水位按模
 
   it("F20260923hspx+F20260924swin 合成超窗预检：prompt 超全文预算 → 跳过合成走机械档案（动机案例回归）", async () => {
     // Why：9/23 实测 566K chars prompt 超 kimi-256k 262K 窗口 400，白等 96s 才降级。
-    //  预检应在合成前拦下。F20261009s6ej6 口径：预算 = synthesisFullBudgetChars(262144) = 138,788
+    // 预检应在合成前拦下。口径：预算 = synthesisFullBudgetChars(262144) = 138,788
     //  （262K 档重新定标——2026-10-09 7 例真实失败样本最小 173,485 × 0.8）。
     const engine = makeEngine({
       buildNarrativeSynthesisPrompt: () => "x".repeat(200_000), // > 138,788 预算 → 拦下

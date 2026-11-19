@@ -61,7 +61,7 @@ export default function ImPage() {
     setPendingAccountId(null)
   }
 
-  // 检视 D1 处置：改同步（无 await，原 async 签名与 JSDoc 误导）
+  // 检视 处置：改同步（无 await，原 async 签名与 JSDoc 误导）
   const startFlow = () => {
     setFlowStep('naming')
     setNameValue('')
@@ -118,8 +118,8 @@ export default function ImPage() {
     }
   }
 
-  /** F20260921imux：覆盖确认——删旧账号（对话历史保留）→ 新记录建线。
-   *  检视 S1 处置：两步错误语义拆分——delete 失败（未做任何变更，可原地重试）
+  /** 覆盖确认——删旧账号（对话历史保留）→ 新记录建线。
+   * 检视 处置：两步错误语义拆分——delete 失败（未做任何变更，可原地重试）
    *  与 provision 失败（旧已清理，指引重新新建）分别提示，不再合并误导 */
   const confirmOverwrite = async () => {
     if (!duplicateAccount) return
@@ -160,7 +160,7 @@ export default function ImPage() {
     }
   }, [])
 
-  // F20260920imax：加载助理对话（IM 助理分组数据源——kind=assistant）
+  // 加载助理对话（IM 助理分组数据源——kind=assistant）
   const [assistantConvs, setAssistantConvs] = useState<Array<{ id: string; title: string; lastMessageTs?: string | null; lastMessagePreview?: string | null }>>([])
   const loadAssistantConversations = useCallback(async () => {
     try {
@@ -180,7 +180,7 @@ export default function ImPage() {
     return () => { if (pollTimer.current) window.clearInterval(pollTimer.current) }
   }, [loadChannelStatus, loadWeixinAccounts, loadAssistantConversations])
 
-  // F20260928wxid：存量线补/改称呼（新线在扫码时填；这条是存量兜底通道）
+  // 存量线补/改称呼（新线在扫码时填；这条是存量兜底通道）
   const handleEditUserName = async (accountId: string, current?: string) => {
     const input = prompt('你的称呼（助理会这样称呼你；留空 = 清除，恢复 ID 展示）', current ?? '')
     if (input === null) return  // 取消
@@ -196,7 +196,7 @@ export default function ImPage() {
   }
 
   const handleDeleteWeixinAccount = async (accountId: string) => {
-    // F20260922wxeg：删号即删线（后端会连同助理对话一起移除）——确认文案说清后果
+    // 删号即删线（后端会连同助理对话一起移除）——确认文案说清后果
     if (!confirm('确定移除该助理？对应的助理对话将一并删除，之后需重新扫码建线')) return
     try {
       await api.deleteWeixinAccount(accountId)
@@ -209,8 +209,8 @@ export default function ImPage() {
     }
   }
 
-  // 状态展示辅助（通道健康）F20260928wxid：恢复 #655 五态完整映射
-  // （#1055 重写时误写 ok/degraded 三态，后端从无此 kind，致 running/token_stale/stopped 全落「未知」）
+  // 状态展示辅助（通道健康）恢复 五态完整映射
+  // （重写时误写 ok/degraded 三态，后端从无此 kind，致 running/token_stale/stopped 全落「未知」）
   const getStatusColor = (state: ChannelStatusDTO['state']): string => {
     switch (state.kind) {
       case 'running': return state.degraded ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'
@@ -232,8 +232,8 @@ export default function ImPage() {
   }
 
   /** 微信聚合状态：任一 error_backoff → 优先；任一 token_stale → 次优先；任一 running.degraded → 三优先；否则取首个
-   *  F20260928wxid：hasStale 原找 kind='degraded'（不存在的值）→ token_stale 永远漏报；
-   *  检视建议 1：多账号时任一账号 running.degraded 不设防会被绿色掩盖，补三优先级 */
+   * hasStale 原找 kind='degraded'（不存在的值）→ token_stale 永远漏报；
+   * 多账号时任一账号 running.degraded 不设防会被绿色掩盖，补三优先级 */
   const getWeixinAggregateStatus = (): ChannelStatusDTO | undefined => {
     const weixinEntries = channelStatus.filter(c => c.kind === 'weixin')
     if (weixinEntries.length === 0) return undefined
@@ -247,7 +247,7 @@ export default function ImPage() {
   }
 
   /** 飞书聚合状态：扫码线多实例（kind=feishu-bot:*），聚合优先级照微信先例
-   *  F20260929fsqr（delta 检视建议 6）：静态 kind='feishu' 键随退役消失，纯扫码模式下
+   * （delta）：静态 kind='feishu' 键随退役消失，纯扫码模式下
    *  原单键 find 恒 miss → 徽标恒「未配置」——改前缀聚合。
    *  O1 注：无 token_stale 档——飞书 WS 模式当前不可达该态（long-connection-client 仅报
    *  running/error_backoff）；未来若引入 token_stale 需在此补档 */
@@ -268,7 +268,7 @@ export default function ImPage() {
     <>
       {/* Why: max-w-6xl —— 双列布局需要更宽画布；4xl 下两卡并排会挤压二维码可读性 */}
       <div className="max-w-6xl w-full mx-auto px-4 py-8">
-        {/* 页头：助理定位主 CTA（F20260920imax） */}
+        {/* 页头：助理定位主 CTA */}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-stone-800">IM 助理</h1>
           <p className="text-sm text-stone-500 mt-1">
@@ -276,7 +276,7 @@ export default function ImPage() {
           </p>
         </div>
 
-        {/* Why: 微信/飞书双列并排 —— 两条平级 IM，单列堆叠浪费纵向空间（F20260902imsc）。
+        {/* Why: 微信/飞书双列并排 —— 两条平级 IM，单列堆叠浪费纵向空间。
             items-start：卡高不一致时短卡不拉伸填高；lg 以下回落单列 */}
         <div className="grid gap-6 lg:grid-cols-2 items-start">
           {/* 微信卡片（主角） */}
@@ -318,7 +318,7 @@ export default function ImPage() {
               ) : (
                 <div className="space-y-2">
                   {weixinAccounts.map(acc => {
-                    // F20260921imux：账号→对话映射改后端真相源（assistantLine 投影），
+                    // 账号→对话映射改后端真相源（assistantLine 投影），
                     // 取代 title.includes(acc.id) 启发式（增量三后必 miss）
                     const linked = acc.assistantLine
                       ? assistantConvs.find(c => c.id === acc.assistantLine!.conversationId)
@@ -344,7 +344,7 @@ export default function ImPage() {
                               <span className="text-xs px-2 py-1 rounded-full bg-skeleton text-stone-500">未运行</span>
                             )
                           })()}
-                          {/* F20260928wxid：称呼展示 + 存量线编辑入口 */}
+                          {/* 称呼展示 + 存量线编辑入口 */}
                           <button
                             onClick={() => handleEditUserName(acc.id, acc.userName)}
                             className={`px-3 py-1.5 text-xs rounded-lg transition ${acc.userName ? 'text-teal-600 hover:bg-teal-50' : 'text-stone-400 hover:bg-stone-100'}`}
@@ -366,7 +366,7 @@ export default function ImPage() {
               )}
             </div>
 
-            {/* F20260921imux：新建流程（先名后码） */}
+            {/* 新建流程（先名后码） */}
             {flowStep === 'idle' && (
               <button
                 onClick={startFlow}
@@ -392,7 +392,7 @@ export default function ImPage() {
                   placeholder="输入助理名字（必填）"
                   className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-stone-200 bg-white/70 focus:outline-none focus:ring-2 focus:ring-teal-300"
                 />
-                {/* F20260928wxid：扫码人自报称呼（可空）——微信无查名 API，自报是唯一解；
+                {/* 扫码人自报称呼（可空）——微信无查名 API，自报是唯一解；
                     空则维持现状（裸 ID 展示），不强制增加扫码摩擦 */}
                 <input
                   value={userNameValue}
@@ -444,7 +444,7 @@ export default function ImPage() {
               </span>
             </div>
 
-            {/* 三步引导：未配置态指向扫码流程，已配置态指向加好友开聊（F20260929fsqr 扫码文案对齐） */}
+            {/* 三步引导：未配置态指向扫码流程，已配置态指向加好友开聊（扫码文案对齐） */}
             <div className="space-y-2.5 mb-4">
               {(feishuStatus
                 ? [
@@ -470,7 +470,7 @@ export default function ImPage() {
             <p className="text-sm text-stone-600">
               {feishuStatus ? '应用凭证已配置' : '未配置飞书凭证——扫码即可接入，无需任何凭证'}
             </p>
-            {/* #663：掩码 appId 展示 */}
+            {/* 掩码 appId 展示 */}
             {feishuStatus?.appIdMasked && (
               <p className="text-xs text-stone-400 mt-1 font-mono">app_id: {feishuStatus.appIdMasked}</p>
             )}
@@ -483,7 +483,7 @@ export default function ImPage() {
               </p>
             )}
 
-            {/* F20260928fsqr：扫码接入（registerApp 免凭证）——起名 + 扫码两步 */}
+            {/* 扫码接入（registerApp 免凭证）——起名 + 扫码两步 */}
             {feishuFlowStep === 'naming' && (
               <div className="mt-4 space-y-3">
                 <input
@@ -567,7 +567,7 @@ export default function ImPage() {
           </div>
         </div>
 
-        {/* F20260921imux：同号覆盖确认（扫码确认后弹） */}
+        {/* 同号覆盖确认（扫码确认后弹） */}
         {duplicateAccount && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" role="dialog" aria-label="同号覆盖确认">
             <div className="glass-card rounded-2xl p-6 w-[400px] shadow-xl">
@@ -599,7 +599,7 @@ export default function ImPage() {
           </div>
         )}
 
-        {/* F20260921imux：建线进行中提示（无冲突路径，扫码确认 → provision 完成的窗口） */}
+        {/* 建线进行中提示（无冲突路径，扫码确认 → provision 完成的窗口） */}
         {flowStep === 'connecting' && pendingAccountId && !duplicateAccount && creatingLine && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
             <div className="glass-card rounded-2xl p-6 shadow-xl text-center">

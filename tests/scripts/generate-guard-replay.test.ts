@@ -1,5 +1,5 @@
 /**
- * P1 项 4：generate-guard-replay.mjs 单测。
+ * 项 4：generate-guard-replay.mjs 单测。
  *
  * 脚本职责：前日 guard_intercept 事件 → replay 候选 JSON（裁决前置的机械部分：
  * 按日筛选、commandHead/reason 反查、ruleId 分类、脱敏、去重）。期望值裁决是人工/獭审
@@ -23,7 +23,7 @@ let dbPath: string;
 let outDir: string;
 
 /** 昨日/前日 ISO 日期串（UTC 日界，与脚本同源口径——脚本 targetDate 用
- * getUTC* 算 UTC 昨日（§3.3），旧本地时区实现在 Asia/Shanghai 凌晨
+ * getUTC* 算 UTC 昨日，旧本地时区实现在 Asia/Shanghai 凌晨
  *  0-8 点（UTC 前日 16-24 点）播种日与窗口日错位一天，种子全部窗外、断言必红 */
 function utcDate(offsetDays: number): string {
   const d = new Date(Date.now() + offsetDays * 24 * 3600 * 1000);
@@ -76,7 +76,7 @@ beforeAll(() => {
     structuredEvent("s4", `${y2}T03:00:00.000Z`, "cd /repo/wt && git status", "main_write", "r1_gate"),
     // 非 guard_intercept → 不入候选
     { id: "s5", errorType: "tool_error", description: "unrelated", context: {}, createdAt: `${y}T03:00:00.000Z` },
-    // 旧格式：context 无 ruleId、description 无命令前缀 → 审视处置（#1368 §3.3）
+    // 旧格式：context 无 ruleId、description 无命令前缀 → 审视处置
     // 后 SQL 层直接排除（无 ruleId 且无命令前缀 = 无法裁决的纯噪声，如 bounce 计数事件）
     { id: "s6", errorType: "guard_intercept", description: "旧格式自由文本无命令前缀", context: {}, createdAt: `${y}T06:00:00.000Z` },
     // description 反查路径：context 缺 commandHead 但 description 有命令前缀
@@ -112,7 +112,7 @@ describe("generate-guard-replay.mjs（F20261008gdcc 项 4）", () => {
     const { outJsonPath } = runScript();
     expect(existsSync(outJsonPath)).toBe(true);
     const payload = JSON.parse(readFileSync(outJsonPath, "utf8"));
-    // s1+s3+s7 入候选；s2 去重、s4 窗外、s5 类型外、s6 被 SQL 口径过滤（§3.3）
+    // s1+s3+s7 入候选；s2 去重、s4 窗外、s5 类型外、s6 被 SQL 口径过滤
     expect(payload.totalIntercepts).toBe(4);
     expect(payload.uniqueSamples).toBe(3);
     const byId = new Map<string, { id: string; ruleId: string; ruleLayer: string; commandHead: string; commandHeadSanitized: string; verdict: string | null }>(

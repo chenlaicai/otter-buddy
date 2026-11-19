@@ -119,13 +119,13 @@ describe("AssistantSessionManager", () => {
     expect(result).toEqual({ id: "conv-existing", title: "助理线" });
     expect(ctx.created).toHaveLength(0);
 
-    // restartSession 收到的摘要带真实标题（检视发现 1：曾发空标题）+ 内容完整
+    // restartSession 收到的摘要带真实标题（曾发空标题）+ 内容完整
     expect(ctx.restarts).toHaveLength(1);
     expect(ctx.restarts[0].otterId).toBe("otter-of-conv-existing");
     expect(ctx.restarts[0].summary).toContain("conv-existing");
     expect(ctx.restarts[0].summary).toContain("用户提问");
 
-    // 先落 summary/记忆后重启（检视发现 1/4 处置验证：摘要只构建一次、带真实标题）
+    // 先落 summary/记忆后重启（处置验证：摘要只构建一次、带真实标题）
     expect(ctx.summaries).toHaveLength(1); // 单次落库（若双 buildDigest 路径会重复写）
     expect(ctx.digests).toHaveLength(1);
     expect(ctx.summaries[0].id).toBe("conv-existing");
@@ -159,7 +159,7 @@ describe("AssistantSessionManager", () => {
   });
 
   it("收篇摘要时间戳为 Asia/Shanghai 本地时间，非 UTC 直出（A2 修复验证）", async () => {
-    // A2 田bug：旧实现 toISOString().slice(0,16) 直出 UTC，用户看到的时间差 8 小时。
+    // 田bug：旧实现 toISOString().slice(0,16) 直出 UTC，用户看到的时间差 8 小时。
     // 固定 UTC 时间锚定：06:30Z 应显示 14:30（Shanghai），而非 06:30（UTC）。
     // mock 按真实仓库语义实现：limit:1（maybeRestartIdleSession 阈值判断）返回旧时间
     // 触发 8h 静默重启，writeDigest 全量拉取返回固定锚定时间

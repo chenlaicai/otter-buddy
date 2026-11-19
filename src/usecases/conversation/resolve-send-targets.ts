@@ -146,7 +146,7 @@ async function validateTargets(
 }
 
 /**
- * 默认派发对象（F20260913ctlv test12 搭档拍板优先级）:
+ * 默认派发对象（test12 搭档拍板优先级）:
  * 1. 当前 running 的獭（invokes 表 status=running）——steer/followUp 语义：用户在獭行动中
  *    插话应注入那只 running 的獭，而不是按「最后完成发言」另选目标新开 invoke
  *    （test12 案发：话獭 running 时说「停下」被解析给大獭 → 双大獭 invoke 并发）
@@ -192,7 +192,7 @@ async function resolveDefaultTargets(
 }
 
 /** 优先级 1 子步骤：running 獭选取（单只直选；多只按最近 speak；空集回 null 走下级优先级）。
- *  F20260913ctlv test12 搭档拍板：用户在獭 running 期间插话应 steer 进那只獭 */
+ * test12 搭档拍板：用户在獭 running 期间插话应 steer 进那只獭 */
 async function pickRunningTarget(
   deps: ResolveTargetsDeps,
   conversationId: string,
@@ -221,7 +221,7 @@ async function pickRunningTarget(
 }
 
 /**
- * #1191（F20260928rmix）：SendEntry.sendUserEntry 的目标解析包装——
+ * SendEntry.sendUserEntry 的目标解析包装——
  * 显式目标直用；空且 resolveDeps 可用时走默认派发链，否则空数组（入口必须预解析）。
  * 从 send-entry.ts 抽出（主文件行数上限）。
  */

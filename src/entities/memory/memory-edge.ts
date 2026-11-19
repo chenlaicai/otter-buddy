@@ -4,7 +4,7 @@
  */
 import type { MemoryEntry } from "./memory-entry";
 
-/** 边类型（固定枚举，D2 决策：4 种） */
+/** 边类型（固定枚举，决策：4 种） */
 export type EdgeType = "produced" | "references" | "supersedes" | "relates-to";
 
 /** 运行时校验字符串是否为合法 EdgeType */
@@ -28,11 +28,11 @@ export interface MemoryEdge {
 }
 
 /**
- * D6: GetRelated 返回的结构化路径项。
+ * GetRelated 返回的结构化路径项。
  * LLM 拿到后能理解 "A 指向 B，B 指向 C" 的链式关系，而非平铺列表。
  */
 export interface RelatedEntryItem {
-  /** 邻居 entry（完整 MemoryEntry，PR 审视 P1-5：复用类型防退化） */
+  /** 邻居 entry（完整 MemoryEntry，复用类型防退化） */
   entry: MemoryEntry;
   /** 这条边的类型 */
   edgeType: EdgeType;

@@ -1,7 +1,7 @@
 /**
- * P2b2：夜间审视编排（NightReviewOrchestrator）单测。
+ * 夜间审视编排（NightReviewOrchestrator）单测。
  *
- * 钉住治量闭环（v4 §4.4 不丢不重 + §4.5 fyi 否决锚）：
+ * 钉住治量闭环（v4 不丢不重 + fyi 否决锚）：
  * - 幂等：claim settled 短路（LLM 重跑不重）
  * - 水位：首跑回看窗 / settle 档 through 推进 / 未清失败区间取较早（停机补跑不丢审）
  * - 失败：同区间重跑原区间、连败达阈值当次 skip + healing（不上抛熔断任务）、
@@ -137,7 +137,7 @@ function makeHarness(overrides?: Partial<Harness>): Harness {
     } as never,
     matterRepo: {
       findByConversation: vi.fn(async (_conv: string, _filter?: unknown, limit?: number) => {
-        // delta 审视发现 17：查重窗口语义——mock 镜像 repo 的 limit 截断（默认 50）
+        // 查重窗口语义——mock 镜像 repo 的 limit 截断（默认 50）
         const cap = limit ?? 50;
         return h.existingMatters.slice(0, cap).map((m) => ({ id: m.id, title: m.title }));
       }),

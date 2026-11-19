@@ -1,5 +1,5 @@
 /**
- * Part 3：verifyEmbeddingVersion 三分支测试
+ * verifyEmbeddingVersion 三分支测试
  *
  * 分支：
  * 1. embeddingGateway 无 getMeta（老接口）→ 跳过（vecEnabled=true）

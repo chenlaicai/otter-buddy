@@ -1,7 +1,7 @@
 /**
  * e2e 护栏（微信式重构）：scroll-restore-guard.spec.ts 的新语义接替版。
  * 旧 spec 断言「loadMore 恢复不甩位」——距顶恢复链已退役，位置保持主力移交浏览器
- * scroll anchoring（§3.3 要求：启用前专项 e2e 验证四锚不回归+原始抖动
+ * scroll anchoring（要求：启用前专项 e2e 验证四锚不回归+原始抖动
  * 不重现，本文即该验证的承担者之一）。
  * 三用例：
  * ①中部 prepend 零跳变（锚 2，锚定核心验收）：上翻到中部阅读 → 哨兵自动加载历史 →
@@ -9,7 +9,7 @@
  * ②哨兵触发 + 连拉限幅（锚 4）：近顶自动加载；停在顶部连拉 ≤3 批后停；
  *   下滚再上滚可再触发
  * ③绝对顶部 prepend 兜底（锚 5）：滚到 scrollTop=0 触发加载 → 原顶部消息视口位置
- *   偏移 ≤4px（规范 §2.1 边界：锚点不选原点容器，jsdom 无法模拟，只能真实浏览器验证）
+ * 偏移 ≤4px（规范 边界：锚点不选原点容器，jsdom 无法模拟，只能真实浏览器验证）
  * 环境门控同 frame-guard：无复刻会话数据显式 skip（CI 空库不假绿）。
  */
 import { test, expect } from '@playwright/test'
@@ -127,7 +127,7 @@ test.describe('F20261020wcsr 微信式重构 e2e 护栏', () => {
     await page.evaluate(() => { const e2 = (window as unknown as { __findScroller(): HTMLElement }).__findScroller(); e2.scrollTop = 0 })
     await page.waitForTimeout(8000) // 等连拉窗口
     const msgsAfterChain = await page.evaluate(() => (window as unknown as { __findScroller(): HTMLElement }).__findScroller().querySelectorAll('[data-message-id]').length)
-    const batches = Math.round((msgsAfterChain - msgsAtStart) / 50) // 每批 50 条（wcsr T4）
+    const batches = Math.round((msgsAfterChain - msgsAtStart) / 50) // 每批 50 条（wcsr）
     console.log(`[锚4] 连拉 msgs ${msgsAtStart} → ${msgsAfterChain}（≈${batches} 批）`)
     expect(msgsAfterChain, '停在顶部应自动连拉').toBeGreaterThan(msgsAtStart)
     expect(batches, '连拉限幅 ≤3 批').toBeLessThanOrEqual(3)

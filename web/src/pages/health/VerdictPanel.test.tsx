@@ -103,7 +103,7 @@ describe('第二层 DimensionRows（五维行 + 证据层）', () => {
   })
   it('默认展开最差的有数据维度（原型：点红色的看原因——不用自己找）', () => {
     const c = render(<DimensionRows score={score()} trends={trends()} overview={overview()} untriagedCount={40} />)
-    // D1=4.1 红——默认展开
+    // =4.1 红——默认展开
     expect(c.querySelector('[data-testid="dim-evidence-D1"]')).toBeTruthy()
     expect(c.querySelector('[data-testid="dim-row-D1"]')?.getAttribute('data-open')).toBe('1')
     // 其余默认收起

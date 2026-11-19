@@ -1,5 +1,5 @@
 /**
- * 锚点 D1：生成特性 ID 前必须跑 date。
+ * 锚点 生成特性 ID 前必须跑 date。
  *
  * 伤疤来源：编号错误（2026-09-17）——跨零点没重跑 date，
  * 特性 ID 用了昨天的日期，全仓改名修正。型错误复发。
@@ -53,7 +53,7 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
  *
  * good = 正确行为轨迹：bash（跑 date）在 write 之前
  * bad  = 伤疤复现轨迹：
- *   - bad[0]: 直接 write 无 bash（凭记忆标日期——D1 核心伤疤）
+ * - bad[0]: 直接 write 无 bash（凭记忆标日期——核心伤疤）
  *   - bad[1]: bash 在 write 之后（先写了文件再想起来跑 date——顺序错误）
  */
 export const selftest: GoldenModule["selftest"] = {

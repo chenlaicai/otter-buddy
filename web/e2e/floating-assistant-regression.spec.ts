@@ -2,10 +2,10 @@
  * 浮动獭交互 bug 回归 e2e（失败固化 → 修复验证）。
  *
  * 覆盖（troubleshooting 5a 失败固化——修复前必须红）：
- * 1. 点击面板内输入框、输入文字 → 面板不消失（P1：panelRef 未绑定导致点内=点外）
+ * 1. 点击面板内输入框、输入文字 → 面板不消失（panelRef 未绑定导致点内=点外）
  * 2. 点击面板内消息区空白处 → 面板不消失
- * 2b. hover 獭无快捷气泡（P2：快捷问句砍除后交互简化验证）
- * 2c. 侧栏无「创建 web 助理对话」按钮（P3：全局唯一语义，删除按钮）
+ * 2b. hover 獭无快捷气泡（快捷问句砍除后交互简化验证）
+ * 2c. 侧栏无「创建 web 助理对话」按钮（全局唯一语义，删除按钮）
  * 2d. 现有「点外收起」正路径仍工作（点页面其它区域 → 收起）
  * 注：本用例只验证交互行为，不做发消息（需真 LLM 回复）。
  */
@@ -56,7 +56,7 @@ test.describe('浮动獭交互回归（F20260928waf1）', () => {
   })
 
   test('P3：侧栏无「创建 web 助理对话」按钮（mock 空列表——防用例间首唤开户污染共享库）', async ({ page }) => {
-    // regex 而非 glob（检视 DS1）：Playwright glob 以 $ 锚定收尾，而 listConversations 实际流量
+    // regex 而非 glob：Playwright glob 以 $ 锚定收尾，而 listConversations 实际流量
     // 全带 query（有参 ?limit=500、无参也拼裸 ?），glob **/api/conversations 拦不到任何请求。
     // regex 覆盖零 query/带 query/裸 ?，同时排除 /:id/entries 子路径
     await page.route(/\/api\/conversations(\?.*)?$/, async route => {

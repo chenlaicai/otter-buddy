@@ -1,11 +1,11 @@
 /**
- * P1a：主动记忆层（belief）实体。
+ * 主动记忆层（belief）实体。
  *
  * belief = 「现在什么是真的」的蒸馏层，区别于沉淀物（发生过什么，永不变）。
  * 物理形态：memory_entries 之上的分区——content_type 新增 "belief"（不建平行新库），
  * 沿用 FTS+向量+记忆图+supersedes 边。状态机与出处约束见 belief-guard.ts。
  *
- * 本体论（otter-memory-design v4 §1）：belief 分两类——
+ * 本体论（otter-memory-design v4）：belief 分两类——
  * - preference：搭档个人喜好，来源只能是搭档原话（四维校验第 2 条）；
  * - state：agent 推得的当前认识，必须标「推断」并给依据，永不当硬规则用。
  */
@@ -14,7 +14,7 @@ import type { MemoryEntry } from "./memory-entry";
 /** belief 分类：preference=搭档喜好；state=agent 推断的当前认识 */
 export type BeliefKind = "preference" | "state";
 
-/** belief 生命周期状态（otter-memory-design v4 §3.3） */
+/** belief 生命周期状态（otter-memory-design v4） */
 export type BeliefStatus = "recorded" | "verified" | "disputed" | "superseded";
 
 /** belief 条目 metadata（MemoryEntry.metadata 的契约形态） */

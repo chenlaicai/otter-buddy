@@ -133,7 +133,7 @@ describe("HealthController - F20260803mval", () => {
     const ctrl = new HealthController(featureRepo, researchRepo, makeEmbedding(true), fs, "/root", createTestLogger());
     const res = await makeApp(ctrl).request("/api/health/memory");
     const body = await res.json() as Record<string, unknown>;
-    // 文件名兜底提 ID -> F20260804nometa 进 diskIds，但 DB 没有 -> gap
+    // 文件名兜底提 ID -> 进 diskIds，但 DB 没有 -> gap
     expect((body.reconcileGaps as string[])).toContain("F20260804nometa");
     const gaps = body.gapReasons as Array<{ id: string; errors: string[] }>;
     const gap = gaps.find(g => g.id === "F20260804nometa");

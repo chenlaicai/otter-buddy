@@ -35,13 +35,13 @@ export interface MemoryRepository {
   storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void>;
   /** 按 source 删除记忆条目（upsert reindex 时清旧 entry，防 FTS 命中陈旧内容） */
   deleteBySource(sourceTable: string, sourceId: string): Promise<void>;
-  /** 按 source 原子替换（单事务内删旧+插新，防 upsert 中间失败丢数据，B2 修复）。
+  /** 按 source 原子替换（单事务内删旧+插新，防 upsert 中间失败丢数据，修复）。
    * ：镜像 MemoryWriter，返回 summary 向量是否保留。 */
   replaceEntryBySource(entry: MemoryEntry): Promise<{ embeddingKept: boolean }>;
   /** 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条），chunk 索引。
    * ：镜像 MemoryWriter 的复用参数与实际生效复用集返回值（见其注释）。 */
   replaceEntriesBySource(entries: MemoryEntry[], opts?: { reuseEntryIds?: ReadonlySet<string> }): Promise<{ reusedEntryIds: Set<string> }>;
-  /** PR审视 S3-14: 按 source + contentType 删除（body 清空时清理旧 chunk entries） */
+  /** PR审视 -14: 按 source + contentType 删除（body 清空时清理旧 chunk entries） */
   deleteBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<void>;
   /** 镜像 MemoryWriter——读同 source+type 现存 entries（chunk 复用对齐） */
   findEntriesBySourceAndType(sourceTable: string, sourceId: string, contentType: MemoryContentType): Promise<MemoryEntry[]>;
@@ -51,13 +51,13 @@ export interface MemoryRepository {
    *  过滤 chunk 类条目——它们是文档分段碎片，直接罗列对用户无意义 */
   listRecent(limit: number): Promise<MemoryEntry[]>;
   /**
-   * Part 3：按 source_id + 可选 contentType 主键直查。
+   * 按 source_id + 可选 contentType 主键直查。
    * 用于 anchor 短路——F/R 文档 ID 形如 "" 作为 source_id 索引。
    * contentType 优先级：F ID 优先 'feature'（summary），R ID 优先 'research'（summary）。
    */
   getBySourceId(sourceId: string, contentType?: MemoryContentType): Promise<MemoryEntry | null>;
   /**
-   * Part 2：按 source + chunk_index 查邻域（±1）。
+   * 按 source + chunk_index 查邻域（±1）。
    * 用于 context-expand——命中 chunk 后扩展前后 chunk。
    * 返回 0-2 个条目（chunk 0 向前无 / last 向后无）。
    */
@@ -67,7 +67,7 @@ export interface MemoryRepository {
     chunkIndex: number,
   ): Promise<MemoryEntry[]>;
   /**
-   * Part 2：按 conversation + createdAt 查前后各一条 message。
+   * 按 conversation + createdAt 查前后各一条 message。
    * 用于 context-expand——命中 message 后扩展上下文消息。
    * 返回 0-2 个条目（首条向前无 / 末条向后无）。
    */
@@ -87,7 +87,7 @@ export interface MemoryRepository {
     filters: SearchFilters,
   ): Promise<VecHit[]>;
   hasVecTable(): boolean;
-  /** Part 0：vec 路径当前是否运行时启用（受 disableVec 影响，区别于 hasVecTable） */
+  /** vec 路径当前是否运行时启用（受 disableVec 影响，区别于 hasVecTable） */
   isVecEnabled(): boolean;
   /** 按 ID 批量获取记忆条目（渐进式披露 get_memory_detail） */
   getDetails(ids: string[]): Promise<MemoryEntry[]>;
@@ -95,24 +95,24 @@ export interface MemoryRepository {
   incrementRetrievalCounts(memoryEntryIds: string[]): Promise<void>;
   flagMemory(memoryEntryId: string, flagged: boolean): Promise<void>;
   updateLayerByConversation(conversationId: string, from: MemoryLayer, to: MemoryLayer): Promise<void>;
-  /** Part 3：读取存储的 embedding 元信息 */
+  /** 读取存储的 embedding 元信息 */
   getEmbeddingMeta(): Promise<Partial<EmbedModelMeta>>;
-  /** Part 3：写入/更新 embedding 元信息 */
+  /** 写入/更新 embedding 元信息 */
   setEmbeddingMeta(meta: EmbedModelMeta): Promise<void>;
   /**
-   * Part 1 + Part 0/1：扫描无 vec 索引的暗化条目。
+   * + /1：扫描无 vec 索引的暗化条目。
    */
   scanDarkEntries(includeDead?: boolean): Promise<{ entries: DarkEntry[]; total: number; vecDisabled: boolean }>;
   /**
-   * Part 1：批量查询 entry 是否有 vec 索引（vecCoverage 计算用）。
+   * 批量查询 entry 是否有 vec 索引（vecCoverage 计算用）。
    */
   hasEmbeddings(entryIds: string[]): Promise<Map<string, boolean>>;
   /**
-   * Part 1：embedding 失败入队重试。
+   * embedding 失败入队重试。
    */
   enqueueRetry(entryId: string, error: unknown): Promise<void>;
   /**
-   * Part 1：认领 pending 任务（原子 UPDATE + RETURNING）。
+   * 认领 pending 任务（原子 UPDATE + RETURNING）。
    */
   claimPendingTasks(limit: number): Promise<Array<{
     entryId: string;
@@ -121,17 +121,17 @@ export interface MemoryRepository {
     lastAttemptAt: string | null;
     createdAt: string;
   }>>;
-  /** Part 1：task 成功，删除 task 行 */
+  /** task 成功，删除 task 行 */
   markTaskDone(entryId: string): Promise<void>;
   /**
-   * Part 1：task 失败，更新 last_error。
+   * task 失败，更新 last_error。
    */
   markTaskAttemptFailed(entryId: string, error: unknown, maxAttempts: number): Promise<void>;
 
   // ---- 记忆关系层 ----
 
   /**
-   * Part 2: 按 conversationId 获取消息条目（provenance 读路径用）。
+   * 按 conversationId 获取消息条目（provenance 读路径用）。
    */
   getEntriesByConversation(
     conversationId: string,
@@ -150,7 +150,7 @@ export interface MemoryRepository {
   }): Promise<string>;
 
   /**
-   * D6: 从某 entry 出发 BFS 遍历关系图。
+   * 从某 entry 出发 BFS 遍历关系图。
    */
   getEdgesByEntry(entryId: string, opts?: {
     edgeTypes?: EdgeType[];
@@ -161,13 +161,13 @@ export interface MemoryRepository {
   getEdgeById(edgeId: string): Promise<MemoryEdge | null>;
 
   /**
-   * P0：批量查候选条目里哪些被 supersede（旧→新映射），
+   * 批量查候选条目里哪些被 supersede（旧→新映射），
    * 检索端 stale 降权 + 标注用。
    */
   getSupersededBy(entryIds: string[]): Promise<Map<string, string>>;
 
   /**
-   * P2b1：按状态 + 时间闭区间列 belief（镜像 MemoryReader 同款）。
+   * 按状态 + 时间闭区间列 belief（镜像 MemoryReader 同款）。
    */
   listBeliefsByStatus(
     status: BeliefStatus,

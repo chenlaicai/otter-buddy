@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * 测试时间炸弹静态扫描（收窄版 v2，B1 方案重生）。
+ * 测试时间炸弹静态扫描（收窄版 v2，方案重生）。
  *
  * 历史：v19/23 随 退役——辅助面全量报 ISO 日期 warning
  * 873 条，刷屏训练开发者无视；退役次日 rhi-api 即被存量炸弹引爆（CI 红），
- * 证明「写法规范 only」管不住存量与漏写。本版按 的 B1 倾向重生，
+ * 证明「写法规范 only」管不住存量与漏写。本版按 的 倾向重生，
  * 收窄策略：只报「ISO 日期与真实时钟共现/交互」的高危组合，纯 fixture 不报。
  *
  * 三层检测（只扫 tests/ 下 *.test.ts / *.spec.ts）：
@@ -79,7 +79,7 @@ export const W1_BASELINE = 14;
  * @property {string} [rootDir]
  */
 
-/** 从代码行去除行内注释，保留字符串内的 //（如 URL，v1 A3 教训） */
+/** 从代码行去除行内注释，保留字符串内的 //（如 URL，v1 教训） */
 function stripInlineComment(line) {
   let inStr = null;
   for (let i = 0; i < line.length; i++) {

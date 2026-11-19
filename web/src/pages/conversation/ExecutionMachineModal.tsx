@@ -9,7 +9,7 @@ import { fmtTime } from '../../lib/utils'
  * - 选择器：全量设备列表（含离线——人要看得见才能决定切回）+ 当前对话机回显/切换
  *   （PUT；离线设备置灰不可选——重连后可切）
  * - 状态列表：该对话最近远程动作五态（requested/succeeded/failed/interrupted/unknown）
- * - SDK 边界提示：远程对话里 SDK 文件/bash 面落 hub 本地（协议 v1 只放六动作，阶段 7 对齐）
+ * - SDK 边界提示：远程对话里 SDK 文件/bash 面落 hub 本地（协议 v1 只放六动作，对齐）
  */
 
 interface MachineEntry {
@@ -69,7 +69,7 @@ export function ExecutionMachineModal({ conversationId, onClose, onSwitched }: P
         fetch(`/api/conversations/${conversationId}/execution-machine`, { credentials: 'same-origin' }),
         fetch(`/api/conversations/${conversationId}/remote-actions?limit=30`, { credentials: 'same-origin' }),
       ])
-      // minor2（检视遗留处置）：非 OK 不再静默——区分鉴权失败与服务错误，避免 401 呈现误导性空态
+      // 非 OK 不再静默——区分鉴权失败与服务错误，避免 401 呈现误导性空态
       if (mRes.status === 401 || cRes.status === 401 || aRes.status === 401) {
         setError('登录已过期，请刷新页面重新登录（HTTP 401）')
         return
@@ -91,7 +91,7 @@ export function ExecutionMachineModal({ conversationId, onClose, onSwitched }: P
 
   useEffect(() => { void reload() }, [reload])
 
-  // s4（检视遗留处置）：in-flight ref 守卫——React 重渲染前的极窄双击窗口不再重复发 PUT
+  // in-flight ref 守卫——React 重渲染前的极窄双击窗口不再重复发 PUT
   //（同目标幂等本无害，守卫彻底封死；state 式 disabled 保留供 UI 呈现）
   const switchingRef = useRef<string | null | undefined>(undefined)
 
