@@ -65,7 +65,7 @@ function validateAndPersistSpeakParams(
  *  非法 body 优先报原错，闸只拦可发言的呈递形态（纯请求措辞表不含「可以合入」——
  *  检视报告常态无卡，收进来误拦非呈递方）。 */
 function runSpeakBodyChecks(turnAssistantText: string | undefined, cleanBody: string): string | null {
-  /** F20260804hcob: 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
+  /** 空 body + 卡片写在 speak 外的统一校验（后者：assistant 文本不持久化，搭档看不到，拒绝并指导重试） */
   const bodyError = validateSpeakBody(turnAssistantText, cleanBody);
   if (bodyError) return bodyError;
   const prCardGateError = checkSpeakGate(cleanBody, hasCardFences);
