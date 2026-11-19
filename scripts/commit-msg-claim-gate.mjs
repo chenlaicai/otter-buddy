@@ -9,7 +9,7 @@
  *    otter-claim-ok-<N>-<分支> 标记缓存），后续 commit 零开销——协议顺序本就是
  *    「认领 → worktree → commit」，首 commit 即第一个强制点。marker 绑分支：同
  *    worktree 切到另一 F-ID 分支后不命中旧缓存（重新核验即拒）；release/他线接管
- *    后同分支仍命中——已接受残余，CI 闸（check-pr-claim）每次真查兜底
+ *    后同分支仍命中——风险已转移：CI 闸（check-pr-claim）每次真查兜底
  *    （kimi检视獭-1954 MINOR-1）。
  *  - marker 必须落在 git rev-parse --absolute-git-dir（worktree 私有 git-dir），
  *    不可取其父目录——.git/worktrees/ 是全部 linked worktree 共享目录，父目录级

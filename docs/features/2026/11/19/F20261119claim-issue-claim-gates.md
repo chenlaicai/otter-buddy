@@ -60,7 +60,7 @@ causal_links:
 - **闸判存在性，仲裁判冲突**：认领评论存在且 F-ID 匹配 = 过闸；「两条线并发认领靠 GitHub 时间戳裁决」「双 PR 仲裁」「接管协议」等冲突场景仍走 skill 文本的仲裁规则（原协议条款 2/3/6 语义不变）
 - **fail-open 边界**：commit 侧闸网络失败放行（本地开发连续性优先），CI 侧闸查询失败拒判 exit 2（fail-closed 同态，与 review-closure 闸一致）——两闸互补
 - **F-ID 后缀正则**：`F\d{8}[a-z][a-z0-9]{4}`（首位字母+后 4 位字母数字）——实证后缀含数字（qs2ce/claim），原「5 位小写字母」描述与存量不符
-- **接力呈报形态的残余**：双闸拦「未认领开工」（9-01 撞车形态与 #1899 开工侧），「接力在途 PR 的重复呈报」不在本闸覆盖（呈报是 speak 动作无机械位）——伤害形态为打扰而非双合入（merge 权唯一在搭档），接受残余；skill 接管协议的「PR 页声明+stand down 回执」继续覆盖协作场景
+- **接力呈报形态的已知边界**：双闸拦「未认领开工」（9-01 撞车形态与 #1899 开工侧），「接力在途 PR 的重复呈报」不在本闸覆盖（呈报是 speak 动作无机械位）——伤害上界为打扰而非双合入（风险已被限制：merge 权唯一在搭档，双合入物理不可能）；skill 接管协议的「PR 页声明+stand down 回执」继续覆盖协作场景
 
 ## 对抗检视修复轮（kimi检视獭-1954，2026-11-19）
 
@@ -68,9 +68,9 @@ causal_links:
 
 - **BLOCK-1（提取语义）**：旧实现无条件扫全部裸 #N——本 PR 自身概述段的 #1899 历史事故叙述被误当工作对象（CI 闸实盘 exit 1）；反向 `Closes <issue URL>` 形态提取不到（双闸同盲）。修复：两级提取语义（closes 族含 URL 优先/裸 #N 兜底），双闸同源。修复后本 PR 实跑绿。
 - **BLOCK-2（marker 共享）**：`dirname(git rev-parse --git-dir)` 在 linked worktree 落 `.git/worktrees/` 共享父目录——检视獭实盘复现他线 worktree 因共享 marker 零核验静默放行。修复：`--absolute-git-dir` + marker 绑分支；集成测试锁死。
-- **MINOR-1（缓存永久有效）**：marker 绑分支后同 worktree 切分支即失效重核；release/他线接管后同分支仍命中——已接受残余（CI 闸每次真查兜底）。
+- **MINOR-1（缓存永久有效）**：marker 绑分支后同 worktree 切分支即失效重核；release/他线接管后同分支仍命中——风险已被转移：本地漏拦由 CI 闸每次真查兜底（拦截不缺席，只是位置后移）。
 - **MINOR-2（R 类绕闸）**：认领闸从 hook 尾部移至 F/R 分流前，R 类引用 #N 同样核验。
 - **MINOR-3（豁免集漂移）**：认领闸不再自维护豁免列表，import check-pr-evidence 的 isDocOnlyPath 单一真相源（AGENTS.md 移出豁免——agent 行为契约非纯叙述文档；SECURITY.md 等变体补齐）。
-- **无 closes 裸引用不可区分残余**：无 closes 族时叙述性 #N 与工作对象无法机械区分（如 body 写「复盘 #1899」且未用 closes 声明工作对象）——已接受残余，解法是工作对象用 closes 族显式声明。
+- **无 closes 裸引用不可区分的已知边界**：无 closes 族时叙述性 #N 与工作对象无法机械区分（如 body 写「复盘 #1899」且未用 closes 声明工作对象）——语义判断超出机械闸结构判定能力（原理上界）；风险已被规避：工作对象用 closes 族显式声明即永不触发。
 - **修复轮新坦 ①hook 退出码传播**：MINOR-2 把认领闸移到 hook 中间位后发现 sh 无 set -e，闸 exit 1 会被后续命令覆盖——曾实证拒 commit 失效、commit 照常落地（闸打印 ❌ 但 hook 整体 exit 0）。修复：`|| exit 1` 显式传播；集成测试锁死（fake gh 空评论 → 闸拒 → hook 必 exit 1）。
 - **修复轮新坦 ②commit 侧提取语义**：修复 commit 自身 message body 写「叙述 #1899 被误当工作对象」触发兜底全提误拦（CI 侧的两级语义不适用 commit——message 无 body 叙述与工作对象的结构区分，但首行尾注 `(#N)` 是强工作对象信号）。commit 侧独立语义：首行 #N + 全文 closes 族计入，body 裸 #N 不计（extractCommitIssueNumbers 单一真相源）。
