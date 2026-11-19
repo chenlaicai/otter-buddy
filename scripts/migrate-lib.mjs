@@ -24,10 +24,14 @@ import { createRequire } from "node:module";
 
 const nodeRequire = createRequire(import.meta.url);
 
-/** 迁移数据域：data/ 下的子目录与文件白名单（核心集——不含 models/backups/logs/rehearsal 库） */
+/** 迁移数据域：data/ 下的子目录与文件白名单（核心集——不含 models/backups/logs/rehearsal 库）。
+ *  演练轮实证补齐（ECS 起服 ENOENT 实证）：terminology（启动必需种子）、
+ *  execution-machines（执行机状态）、backgrounds（用户设置背景图）、weixin（通道凭据）、
+ *  quota-browser（运行时数据）——五项原白名单遗漏。 */
 export const MIGRATE_INCLUDES = [
   "workspaces", "sessions", "durable-sessions", "attachments",
   "feishu", "metrics", "otter-buddy.db", "owner-password",
+  "terminology", "execution-machines", "backgrounds", "weixin", "quota-browser",
 ];
 
 /** sqlite 主库文件识别（主库 + durable-sessions 每会话一库）。

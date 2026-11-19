@@ -52,6 +52,11 @@ beforeAll(() => {
   mkdirSync(path.join(dataDir, "logs"), { recursive: true });
   writeFileSync(path.join(dataDir, "logs/otter-buddy.log"), "logs");
   writeFileSync(path.join(dataDir, "otter-buddy-rehearsal-old.db"), "legacy db");
+  // 演练轮实证补齐的运行必需/用户数据目录（mfix）：terminology / weixin / backgrounds
+  mkdirSync(path.join(dataDir, "terminology"), { recursive: true });
+  writeFileSync(path.join(dataDir, "terminology/seed-terminology.json"), "[]");
+  mkdirSync(path.join(dataDir, "weixin"), { recursive: true });
+  writeFileSync(path.join(dataDir, "weixin/state.json"), "{}");
 });
 
 afterAll(() => {
@@ -65,6 +70,8 @@ describe("migrate-lib（阶段 6b 纯函数）", () => {
     expect(files).toContain("durable-sessions/s1.sqlite");
     expect(files).toContain("workspaces/c-1/file.txt");
     expect(files).toContain("owner-password");
+    expect(files).toContain("terminology/seed-terminology.json"); // mfix：启动必需种子
+    expect(files).toContain("weixin/state.json"); // mfix：通道凭据
     expect(files.some((f) => f.startsWith("backups/"))).toBe(false);
     expect(files.some((f) => f.startsWith("logs/"))).toBe(false);
     expect(files.some((f) => f.includes("rehearsal"))).toBe(false);
