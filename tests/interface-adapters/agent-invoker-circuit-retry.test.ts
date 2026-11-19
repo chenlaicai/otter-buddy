@@ -191,6 +191,11 @@ describe("AgentInvoker 熔断与重试（F20260913ctlv：invoke 状态机）", (
     const rlEvents = healing.events.filter(e => e.errorType === "rate_limit");
     expect(rlEvents.length).toBeGreaterThan(0);
     expect(rlEvents.every(e => e.severity === "low"), "配额耗终态应降级 low（不再进 high 通道）").toBe(true);
+    expect(rlEvents.every(e => e.status === "resolved"), "配额耗终态落地即 resolved（不进 open 消费面：每日分析/消费即处置链）").toBe(true);
+    expect(rlEvents.every(e => {
+      const r = e.resolution as { action?: string; decidedBy?: string; notes?: string } | null;
+      return r?.action === "no_action" && r?.decidedBy === "user" && (r?.notes?.length ?? 0) > 0;
+    }), "born-resolved 需带处置语义 resolution（no_action/user/notes）").toBe(true);
     expect(sendEntry.store.systemBodies.some(b => b.includes("限流") || b.includes("配额"))).toBe(true);
     expect(c3Spy, "配额耗尽不入 C3 高警队列（大獭告警通道不消费）").not.toHaveBeenCalled();
     } finally {

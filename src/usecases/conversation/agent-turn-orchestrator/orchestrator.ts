@@ -27,8 +27,8 @@ import { isContentFilterError } from "./content-filter-error";
 // high 级 context_overflow 事件入 C3 高警队列——大獭不在场时 sendSystem 错过，
 // 下一次 invoke 的 DynamicContext 补送达（复用 Part 4 管道，process 级单例直引，
 // 与 persistHealingIssues 同模式；usecase 内部互引无跨层问题）。
-// F20261119hqil（#1963）：rate_limit（配额耗尽终态）已按搭档边界拍板降级 low、
-// 不再入 C3——「token 用完跟系统无关」，high 告警通道不消费该族。
+// 配额耗尽终态已按搭档 2026-11-19 边界拍板降级 low、落地即 resolved、
+// 不再入 C3——「token 用完跟系统无关」，high 告警与 open 消费链均不消费该族。
 import { healingAlertRegistry } from "@usecases/healing/healing-alert-registry";
 import type { AgentStreamEvent } from "@usecases/ports/sdk-invoke-port";
 import type { ErrorWithToolCallCount, InvokeResultShape, TurnInput, TurnResult, AttemptDriver, TurnCallbacks, RouteContext, TerminalContext, FirstDumbInfo } from "./types";
@@ -420,11 +420,12 @@ export class AgentTurnOrchestrator {
   }
 
   /** #543：rate_limit healing 落账（severity 按配额耗尽/瞬时分级）。
-   *  F20261119hqil（#1963，搭档 2026-11-19 边界拍板，沿 11-17「token 用完跟系统无关」）：
-   *  配额耗尽终态（exhausted）降级 high→low 且不入 C3 高警队列——配额属资源侧正常耗尽，
-   *  high 通道/大獭告警/超限聚合不再消费（曾周 60 条挤占真信号，#1511 回查实证）。
-   *  边界内功能保留：create_otter 的 24h 改派提示读 open 事件不筛 severity（新小獭触发
-   *  边界）；瞬时限流（SDK 重试耗尽）维持 medium；会话内 sendSystem 告警维持（现场上下文，非台账噪声）。 */
+   *  搭档 2026-11-19 边界拍板（沿 11-17「token 用完跟系统无关」）：配额耗尽终态（exhausted）
+   *  降级 high→low、落地即 resolved（initialStatus）、不入 C3 高警队列——配额属资源侧正常耗尽，
+   *  high 通道/大獭告警/超限聚合/open 消费链（每日分析与消费即处置）均不再消费
+   *  （曾周数十条挤占真信号，回查实证）。
+   *  边界内功能保留：create_otter 的 24h 改派提示改扫 open+resolved（新小獭触发边界）；
+   *  瞬时限流（SDK 重试耗尽）维持 medium 与 open；会话内 sendSystem 告警维持（现场上下文）。 */
   private async recordRateLimitHealingEvent(
     ctx: RouteContext,
     match: NonNullable<ReturnType<typeof matchRateLimitError>>,
@@ -438,6 +439,7 @@ export class AgentTurnOrchestrator {
         otterId: ctx.input.otterId,
         errorType: "rate_limit",
         severity: match.exhausted ? "low" : "medium",
+        initialStatus: match.exhausted ? "resolved" : undefined,
         description: buildRateLimitDescription({ modelAlias, exhausted: match.exhausted }),
         suggestion: match.exhausted
           ? "配额重置前该模型不可用：改派其他模型的獭，或等待重置时间后重试"
@@ -450,7 +452,7 @@ export class AgentTurnOrchestrator {
           errorMessage: reason.errorMessage.slice(0, 500),
         },
       });
-      // F20261119hqil：配额耗尽不入 C3 高警队列（降级 low 后 high 语义不复存在；
+      // 配额耗尽不入 C3 高警队列（降级 low 后 high 语义不复存在；
       // context_overflow 的入队维持——体积超窗是注入侧终态问题，属系统信号）
     } catch (err) {
       ctx.callbacks.logger.error('rate_limit healing_event write FAILED',

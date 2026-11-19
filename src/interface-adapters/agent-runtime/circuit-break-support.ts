@@ -231,6 +231,8 @@ export class CircuitBreakSupport {
 
   async recordHealingEvent(input: HealingEventInput): Promise<void> {
     try {
+      const createdAt = new Date().toISOString();
+      const bornResolved = input.initialStatus === "resolved";
       await this.deps.healingRepo.create({
         id: crypto.randomUUID(),
         // healing_events.messageId 列存 invokeId（表结构不动，语义锚 = invoke）
@@ -242,10 +244,12 @@ export class CircuitBreakSupport {
         description: input.description,
         suggestion: input.suggestion ?? '',
         context: input.context ?? null,
-        status: 'open',
-        resolution: null,
-        createdAt: new Date().toISOString(),
-        resolvedAt: null,
+        status: bornResolved ? 'resolved' : 'open',
+        resolution: bornResolved
+          ? { action: 'no_action', decidedBy: 'user', decidedAt: createdAt, notes: '资源侧正常事实按搭档边界拍板免处置，不进 open 消费面（台账可查）' }
+          : null,
+        createdAt,
+        resolvedAt: bornResolved ? createdAt : null,
       });
     } catch (err) {
       // 记录完整上下文，让健康检查链路可观测

@@ -52,3 +52,8 @@ modules:
 - 不动瞬时限流（medium）：SDK 重试耗尽可能是真异常，保留观察。
 - 不做事件删除/静默档位开关：单一 severity 收窄已达成「high 通道忽略」，台账 low 记录保留排障可见性（搭档口径「忽略」按不进报警面理解；若要彻底不落账，另拍板）。
 - 存量清理：open 配额事件当前为 0（age-out 机制已清扫），无迁移项。
+
+## 检视处置 delta（初轮 🔴×2）
+
+- **🔴1 消费链补全（落地即 resolved）**：初版仅降级 high→low + 撤 C3，open 事件仍进 self-healing-analysis `findOpen(20)` 与 8:30「消费即处置」链——未满足「不要海獭系统处理」。处置：`HealingEventInput` 新增 `initialStatus`，配额耗终态落地即 **resolved**（resolution 注记「资源侧正常事实按搭档边界拍板免处置」），open 消费面（每日分析/消费即处置/超限聚合）机械不可见；`checkModelQuotaHint`（create_otter 24h 改派提示）改扫 open+resolved 两态——边界内功能保留且不依赖 open 语义（24h 窗口是真过滤，open/resolved 不携带配额恢复语义）。测试补断言：status 全 resolved + resolution 注记在场。
+- **🔴2 注释编号闸**：代码注释中的特性/issue 编号按闸剥除（语义保留、出处归特性文档与 PR）；初版注释误写改名前 ID 的漂移一并消除。
