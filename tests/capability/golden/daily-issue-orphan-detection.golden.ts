@@ -73,26 +73,34 @@ function lastOtterContent(messages: MessageDto[]): string {
 
 export const assert: GoldenModule["assert"] = async ({ messages }) => {
   const content = lastOtterContent(messages);
-  // 「在途 N 条（忽略）」「拍板搁置 N 条」计数行合法含编号——剥离后再判正文缺席
-  const body = content
-    .split("\n")
-    .filter((l) => !/在途.*忽略/.test(l) && !/拍板搁置/.test(l))
-    .join("\n");
 
   const hasOrphanSection = /孤儿检出/.test(content);
-  const orphan1 = body.includes("#1801");
-  const orphan2 = body.includes("#1802");
-  const orphanIdx = content.indexOf("孤儿");
+  // 段解析：孤儿检出段 = 「孤儿」首现到下一个节标题（##/清单段）之间的文本。
+  // 终核发现假阳性：只查 includes 会让「孤儿段空、#1801/#1802 混普通清单」蒙混——
+  // 必须判孤儿编号落在段内。注意段外不排除：实测合规输出会把孤儿再列入勾选表
+  // （动作行要求搭档勾选授权，段是曝光位、表是授权位，重复非违规）——违例形态
+  // 只有「段内缺失」（空段宣告/孤儿只混普通清单）。
+  const orphanStart = content.indexOf("孤儿");
+  const afterOrphan = orphanStart >= 0 ? content.slice(orphanStart) : "";
+  const sectionEndMatch = afterOrphan.match(/\n#{1,3}\s|\n\*\*[^*]*清单|\n今日勾选清单/);
+  const orphanSection = sectionEndMatch ? afterOrphan.slice(0, sectionEndMatch.index) : afterOrphan;
+  const orphan1 = orphanSection.includes("#1801");
+  const orphan2 = orphanSection.includes("#1802");
+  const orphanIdx = orphanStart;
   const firstChecklistIdx = Math.min(
     ...[content.indexOf("#1806"), content.indexOf("#1807")].filter((i) => i >= 0),
   );
   const orphanFirst = orphanIdx !== -1 && Number.isFinite(firstChecklistIdx) && orphanIdx < firstChecklistIdx;
-  const noInflight = !body.includes("#1803") && !body.includes("#1804");
+  // 在途/搁置判据：清单行（管道分隔「#N 标题 | 分类 | 建议」格式）不得含在途/搁置编号。
+  // 终核发现假阳性：旧实现整行剥离「在途…忽略」行——编号若借该行进正文即漏检；
+  // 改为直接判管道清单行（清单格式是 prompt 写死的），叙述性提及不算违规。
+  const checklistLines = content.split("\n").filter((l) => l.includes("|"));
+  const noInflight = !checklistLines.some((l) => l.includes("#1803") || l.includes("#1804"));
   const hasInflightTail = /在途\s*\d+\s*条（忽略）|在途[^\n]*忽略/.test(content);
-  const noShelved = !body.includes("#1805");
+  const noShelved = !checklistLines.some((l) => l.includes("#1805"));
   const hasShelvedCount = /拍板搁置/.test(content);
-  const hasWaiting = body.includes("#1806") && /等输入/.test(content);
-  const hasFresh = body.includes("#1807");
+  const hasWaiting = content.includes("#1806") && /等输入/.test(content);
+  const hasFresh = content.includes("#1807");
 
   const ok =
     hasOrphanSection && orphan1 && orphan2 && orphanFirst &&
@@ -149,6 +157,35 @@ const BAD_INFLIGHT_IN_BODY = `净增熔断：open 7 | 昨日新增 1 / 关闭 0 
 
 拍板搁置 1 条`;
 
+const BAD_ORPHAN_SECTION_EMPTY = `净增熔断：open 7 | 昨日新增 1 / 关闭 0 | 状态：正常
+
+## 孤儿检出（第一职责）
+孤儿检出：无（open 7 条全部在途/等输入/拍板搁置/未清龄）
+
+## 今日勾选清单
+- #1801 [scheduler] 定时任务重复触发 | actionable | 建议今日开工 | 回复编号即开工
+- #1802 [memory] 检索偶发空结果 | actionable | 建议今日开工
+- #1806 [memory] 排序口径确认 | 等输入 | 等搭档回复
+- #1807 [healing] guard 拦截异常率升高 | actionable | 建议今日开工
+
+在途 2 条（忽略）
+拍板搁置 1 条`;
+
+const BAD_INFLIGHT_WITH_TAIL = `净增熔断：open 7 | 昨日新增 1 / 关闭 0 | 状态：正常
+
+## 孤儿检出（第一职责）
+- #1801 [scheduler] 定时任务重复触发 | 挂龄 9 天 | 已认领 | 停滞——建议拍去留
+- #1802 [memory] 检索偶发空结果 | 挂龄 11 天 | 无认领——建议拍去留
+
+## 今日勾选清单
+- #1803 [ui] 卡片闪烁 | actionable | 建议今日开工
+- #1804 [db] 迁移脚本幂等 | actionable | 建议今日开工
+- #1806 [memory] 排序口径确认 | 等输入 | 等搭档回复
+- #1807 [healing] guard 拦截异常率升高 | actionable | 建议今日开工
+
+在途 2 条（忽略）
+拍板搁置 1 条`;
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -171,6 +208,23 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u3", 1, FIXTURE_INPUT, "user"),
         msg("st-o3", 2, BAD_INFLIGHT_IN_BODY),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 3（终核假阳性实证）：孤儿段空态宣告 + 孤儿混进普通清单——段名在场即骗过 includes 检查
+      messages: [
+        msg("st-u4", 1, FIXTURE_INPUT, "user"),
+        msg("st-o4", 2, BAD_ORPHAN_SECTION_EMPTY),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 4（终核假阳性实证）：在途单列 actionable 且同时有「在途 N 条（忽略）」尾行——
+      // 整行剥离计数行的旧实现会把借尾行蒙混的正文项漏检
+      messages: [
+        msg("st-u5", 1, FIXTURE_INPUT, "user"),
+        msg("st-o5", 2, BAD_INFLIGHT_WITH_TAIL),
       ],
       expectedOk: false,
     },

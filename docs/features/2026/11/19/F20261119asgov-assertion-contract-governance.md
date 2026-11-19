@@ -109,18 +109,19 @@ open 且挂龄 ≥3 天且无 open PR 引用，满足其一：① 认领后超 4
 
 裁决链留痕：16:19「那肯定a」（A 豁免）→ 21:55 终审决策卡改裁 B（回执 7574002f:0，{goldenGate:B, assertion:keep}）——同事项最新拍板取代前判，断言极性维持不变（重申）。
 
-新增两条 golden 场景（tests/capability/golden/，runner restricted 路径扩展 externalProfile 透传——invoke 工具面恒 speak/yield，防演练环境试探 gh/bash 空转烧采样轮）：
+新增两条 golden 场景（tests/capability/golden/，restricted 路径借 night-reviewer 档案的零编码工具面——speak/yield 在场、gh/bash 不在场，防演练环境试探取数空转烧采样轮；曾试 runner 扩展 externalProfile 透传，实测直调 invokeConversation 下受限档不产消息终态，0/10 超时留痕后弃用）：
 
 | 场景 | 覆盖 prompt | 行为不变量 | 来源伤疤 |
 |---|---|---|---|
 | daily-issue-orphan-detection | 每日-issue-处理.md 孤儿检出段+在途忽略 | 孤儿置顶入段（#1801/#1802）；在途 PR 单不进正文（#1803/#1804 缺席+尾部「在途 N 条（忽略）」）；拍板搁置只计数（#1805）；等输入照列标「等输入」（#1806）；新单正常入清单（#1807） | issue #1963 + 搭档 11-19 孤儿检出原话 |
 | regression-verify-direction-repair | regression-verify.md 方向修复协议 | 第二轮同因不走裸 ⚠️：作者身份机械取反改写（「回查改写」+「取反」留痕）→ 按改写后判据判定 ✅ 通过（verdict=pass）；绝不反向解读判 ❌ | 11-15/11-18 两轮同因 ⚠️ 空转实证 |
 
-采样协议：n=10 ≥8（README 行为改动 PR 层）；模型 mimo-v2.6-flash。构造妥协声明：真实流程獭自跑 gh/sqlite 取数，演练环境无后端，扫描数据/检查结果由调度器角色内联注入（与 {{REGRESSION_DATA}} 占位符注入同构）——测的是组版/判定协议遵循，非取数能力。
+采样协议：n=10 ≥8（README 行为改动 PR 层）；校准模型 k3.1-pro（mimo/glm 配额双 429 顶班，见下）。构造妥协声明：真实流程獭自跑 gh/sqlite 取数，演练环境无后端，扫描数据/检查结果由调度器角色内联注入（与 {{REGRESSION_DATA}} 占位符注入同构）——测的是组版/判定协议遵循，非取数能力。
 
 **采样结果**（2026-11-19 实跑，model=k3.1-pro——mimo 套餐与 glm 周/月配额均耗尽 429 实测，kimi 端点顶班；顶班适配两处：config 补 cacheLongRetention:false 对齐生产（prompt_cache_retention 被拒）+ thinkingLevel:max（reasoning.effort=none 被拒））：
-- daily-issue-orphan-detection：9/10 ✓（≥8 过闸）——唯一失败 #7 漏拍板搁置规则（#1805 进正文且未计数），拍板搁置遵循度 90%，已列入观察
-- regression-verify-direction-repair：10/10 ✓——方向修复协议全样本遵循（改写留痕 + 按改写后判据判 ✅）
+- 【v3 断言收紧+校准后重跑，终态】daily-issue-orphan-detection：**9/10 ✓**（唯一失败为 75 字退化短输出，非规则违例）；regression-verify-direction-repair：**9/10 ✓**（唯一失败为环境性 LLM 超时，非判定违例）——双双过 ≥8 闸
+- 【v2 中间态】断言收紧首跑：daily 2/10、regression 1/10——暴露解析器与真实输出格式错位（孤儿合规重复列勾选表被误判段外；历史引用「首轮判定 ⚠️」被全量拦截误伤），校准后进 v3。此两轮留痕证明：断言收紧本身也需采样校准，不是改严就是对
+- 【v1 首轮】daily 9/10、regression 10/10——后被终核证明断言存在假阳性，该轮通过率仅作下界参考
 - 留痕：data/metrics/golden-results.jsonl（pr=1966 行）；失败首轮留痕同文件（externalProfile 路径 0/10 ×2——直调 invokeConversation 下受限档不产消息终态，弃用改 night-reviewer 档案借零编码工具面）
 
 ## 终审收口（搭档 2026-11-19 拍板链）
