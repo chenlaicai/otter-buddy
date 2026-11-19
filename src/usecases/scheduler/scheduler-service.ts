@@ -678,6 +678,14 @@ export class SchedulerService {
     return resolution.otter?.id;
   }
 
+  /** F20261119reapk：忙判 covered 的真直发判定（可选能力——降级装配/mock 未注入该方法时按
+   *  无覆盖处理：宁多入列一条 pending 由部分唯一索引去重，不因能力缺失炸掉忙判主路径）。 */
+  private async hasDirectCompletionInSlotSafe(taskId: string, triggeredAt: string): Promise<boolean> {
+    const repo = this.pendingItemRepo as Partial<ScheduledTaskPendingItemRepository> | undefined;
+    if (!repo?.hasDirectCompletionInSlot) return false;
+    return repo.hasDirectCompletionInSlot(taskId, triggeredAt);
+  }
+
   /** 宽口径忙判定：session 在池/在流，或该獭身上任何任务仍有 running execution（含本任务）。 */
   private async isExecutorBusy(task: ScheduledTask, executorOtterId: string, currentExecutionId?: string): Promise<boolean> {
     try {
@@ -1367,9 +1375,14 @@ export class SchedulerService {
       }
 
       if (task.scheduleType !== 'once' && busy) {
-        // 同槽位 running/completed 已覆盖本轮，failed/skipped 不抑制（pending 兜失败重试）。
+        // 同槽位 running/真直发 completed 已覆盖本轮，failed/skipped 不抑制（pending 兜失败重试）。
+        // F20261119reapk：抑制型 completed（message_id=NULL，忙判自身的账面落款）不算覆盖——
+        // 否则「A 滞留翻篇 + B 抑制型在场 + C 遇忙」的现场会三行全空载体（failed + 两笔
+        // NULL-completed，无 running 无 pending），11-13 事故形态复发；连续遇忙由
+        // 部分唯一索引去重防 pending 爆炸（同任务仅一条在队）。
         const covered = this.pendingItemRepo
-          ? await this.pendingItemRepo.hasExecutionInSlot(task.id, now, ['running', 'completed'], executionId)
+          ? (await this.pendingItemRepo.hasExecutionInSlot(task.id, now, ['running'], executionId))
+            || (await this.hasDirectCompletionInSlotSafe(task.id, now))
           : false;
         if (!covered && this.pendingItemRepo) {
           await this.pendingItemRepo.enqueue({

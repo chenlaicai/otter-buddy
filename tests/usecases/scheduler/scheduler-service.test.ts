@@ -5157,6 +5157,8 @@ describe('F20261119reapk 真实 SQLite 集成：kindle 判定链端到端', () =
   function setupRealKindle(opts: {
     stuckAt: string;
     realRows: Array<{ id: string; status: string; messageId: string | null; triggeredAt: string }>;
+    stuckMessageId?: string | null;
+    isOtterRunning?: (id: string) => boolean;
   }) {
     const { db, repo } = seedRealDb(opts.realRows);
     const taskRepo = createMockTaskRepo();
@@ -5167,7 +5169,7 @@ describe('F20261119reapk 真实 SQLite 集成：kindle 判定链端到端', () =
     convRepo._addConversation(task.conversationId, { status: 'active' });
     taskRepo._executions.set('stuck-exec-1', {
       id: 'stuck-exec-1', taskId: task.id, triggeredAt: opts.stuckAt,
-      completedAt: null, status: 'running', errorMessage: null, messageId: null,
+      completedAt: null, status: 'running', errorMessage: null, messageId: opts.stuckMessageId ?? null,
     });
     taskRepo.getExecutions = vi.fn(async (taskId?: string, options?: { limit?: number }) => {
       let rows = Array.from(taskRepo._executions.values()).filter(e => e.taskId === taskId);
@@ -5175,21 +5177,32 @@ describe('F20261119reapk 真实 SQLite 集成：kindle 判定链端到端', () =
       if (options?.limit != null) rows = rows.slice(0, options.limit);
       return rows;
     }) as unknown as typeof taskRepo.getExecutions;
+    // 生产同库双写在测试里的忠实模拟：mock 翻篇/收尾同步写真库 executions 行，
+    // 否则 kindle/忙判 covered 的真库查询会看到与 mock 不一致的旧状态。
+    const origUpdate = taskRepo.updateExecutionStatus.bind(taskRepo);
+    taskRepo.updateExecutionStatus = vi.fn(async (id: string, updates: Record<string, unknown>) => {
+      await origUpdate(id, updates);
+      if (db.prepare(`SELECT 1 FROM scheduled_task_executions WHERE id = ?`).get(id)) {
+        db.prepare(`UPDATE scheduled_task_executions SET status = ?, completed_at = ?, error_message = ? WHERE id = ?`)
+          .run(String(updates.status ?? ''), updates.completedAt ?? null, updates.errorMessage ?? null, id);
+      }
+    }) as unknown as typeof taskRepo.updateExecutionStatus;
+    const agentInvoke = createMockAgentInvoke();
 
     const service = new SchedulerService({
       taskRepo: taskRepo as unknown as ScheduledTaskRepository,
       convRepo: convRepo as unknown as ConversationRepository,
       sendEntry: createMockSendEntry() as unknown as SendEntry,
       entryRepo: createMockEntryRepo() as unknown as EntryRepository,
-      agentInvokePort: createMockAgentInvoke() as unknown as AgentTurnPort,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
       cronParser: createMockCronParser(new Date(Date.now() + 60_000)) as unknown as CronParser,
       logger: mockLogger,
       healingRepo: healingRepo as never,
       tickImpl: async () => {},
-      isOtterRunning: () => false,
+      isOtterRunning: opts.isOtterRunning ?? (() => false),
       pendingItemRepo: repo as never,
     });
-    return { service, taskRepo, healingRepo, db, repo };
+    return { service, taskRepo, healingRepo, db, repo, agentInvoke };
   }
 
   it('真实 SQLite 集成：11-13 形态（同槽抑制型 completed）→ 判定链真库放行、真库入列', async () => {
@@ -5245,6 +5258,55 @@ describe('F20261119reapk 真实 SQLite 集成：kindle 判定链端到端', () =
     expect(count).toBe(0);
     const ev = healingRepo._events.find(e => e.severity === 'high');
     expect(ev && (ev.context as Record<string, unknown>).pendingKindleState).toBe('covered');
+    db.close();
+  });
+
+  it('真实 SQLite 集成：三行现场回归——A 带锚点判死翻篇 + B 抑制型在场 + C 挤占后遇忙 → 忙判 covered 不认抑制型、恰好一条 pending', async () => {
+    // kimi 二轮反例：A 滞留带锚点（判死与獭活跃不矛盾）+ B 抑制型 completed + C 遇忙。
+    // 旧忙判 covered 认 B 为覆盖 → 不入列 → 三行全空载体（11-13 形态复发）；
+    // 修正后 covered 只认 running/真直发 → C 入列，恰好一条 pending。
+    const stuckAt = new Date(Date.now() - 3 * HOURS).toISOString();
+    const coveredAt = new Date(Date.now() - 3 * HOURS + 5 * 60_000).toISOString();
+    const { service, taskRepo, db } = setupRealKindle({
+      stuckAt,
+      stuckMessageId: 'anchor-a', // 有锚点仍须产出证据：entryRepo 无产出 → 判死翻篇
+      isOtterRunning: () => true,  // 獭活跃（跑别的活）→ C 忙判 busy
+      realRows: [
+        { id: 'stuck-exec-1', status: 'running', messageId: 'anchor-a', triggeredAt: stuckAt },
+        { id: 'suppressed-exec', status: 'completed', messageId: null, triggeredAt: coveredAt },
+      ],
+    });
+
+    await service.trigger('task-1');
+
+    // A 翻篇 + C 落抑制型账面 completed（遇忙路径不变）
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    const cExec = [...taskRepo._executions.values()].find(e => e.id !== 'stuck-exec-1' && e.id !== 'suppressed-exec');
+    expect(cExec && cExec.status).toBe('completed');
+    // 真库：B 抑制型不算覆盖 → C 入列，恰好一条 pending
+    const rows = db.prepare(`SELECT COUNT(*) AS c FROM scheduled_task_pending_items`).get() as { c: number };
+    expect(rows.c).toBe(1);
+    db.close();
+  });
+
+  it('真实 SQLite 集成：挤占后直发成功分支 → 真库零 pending（新执行即载体，无双载体）', async () => {
+    const stuckAt = new Date(Date.now() - 3 * HOURS).toISOString();
+    const { service, taskRepo, agentInvoke, db } = setupRealKindle({
+      stuckAt,
+      stuckMessageId: 'anchor-a',
+      isOtterRunning: () => false, // 獭空闲 → C 直发
+      realRows: [
+        { id: 'stuck-exec-1', status: 'running', messageId: 'anchor-a', triggeredAt: stuckAt },
+      ],
+    });
+
+    const result = await service.trigger('task-1');
+
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    expect(result.executionId).toBeDefined();
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled(); // 直发（新执行即当轮载体）
+    const count = (db.prepare(`SELECT COUNT(*) AS c FROM scheduled_task_pending_items`).get() as { c: number }).c;
+    expect(count).toBe(0);
     db.close();
   });
 });

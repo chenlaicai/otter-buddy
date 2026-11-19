@@ -3,7 +3,7 @@ id: F20261119reapk
 title: "scheduler 机械释放补 pending 入列：「恢复后由补扫消化」的载体保证（#1893）"
 summary: "定时任务执行体滞留超 2h 机械释放后，当轮工作失去全部载体——11-13 健康检查当日 daily-review 缺失实证（双触发抑制链：首触发 running 滞留，二次触发被同槽 running 抑制成不入列的账面 completed，机械释放只翻篇不管消化载体）。修法：仅轮询释放路径补 kindleReapPending（挤占触发点不 kindle——翻篇后本轮立即放行新触发，新执行即当轮载体；此时入列会赶在新行建立前完成，同槽双载体并发且消费链覆盖重查只认 completed，running 窗口拦不住补做）；仅 agent 型入列（function 无 pending 角色通道）；同槽无其他 running 且无真直发 completed（抑制型不算覆盖）则 enqueue（保原槽位，恢复后经既有提醒通道补做/弃做留痕）；once 不入列；索引去重静默；入列结果以状态枚举落 healing（kindled/covered/deduped/skipped/error 可区分，异常不再与去重同形）。KeepAlive 探针为长期项不进本 PR。"
 change_type: bugfix
-capability_test: "n/a: 纯代码逻辑修复非 LLM 行为采样面——入列判定矩阵由 6 例单测覆盖（tests/usecases/scheduler/scheduler-service.test.ts F20261119reapk describe 块：实证场景/同槽 running/真直发覆盖/索引去重/挤占路径/once 守卫）；现场维度的验证载体是后续 healing 落账 context.pendingKindled 与 pending 项消费留痕"
+capability_test: "n/a: 纯代码逻辑修复非 LLM 行为采样面——入列判定矩阵 9 例 + 真实 SQLite 集成 4 例（tests/usecases/scheduler/scheduler-service.test.ts F20261119reapk 两 describe：实证场景/同槽双跑/真直发覆盖/索引去重/挤占不 kindle/function 守卫/抛错 error 态/once 守卫 + 11-13 形态真库/同槽即时重试真库/三行现场回归/直发分支零 pending）；现场维度的验证载体是后续 healing 落账 context.pendingKindleState 与 pending 项消费留痕"
 intent:
   problem: "机械释放的语义缺口：reapStaleRunningExecutions 只做「账面翻篇 + healing 落账」，隐含假设「恢复后由补扫消化」——但补扫消化的载体（pending 项）在双触发抑制链下恰好不存在。11-13 实证：00:51 首触发注入后执行方冻结，消息悬空；00:56 二次触发走忙判入列路径，covered 判定同槽 running 已覆盖→不入列、execution 落 completed（message_id=NULL 账面完成）；02:54 机械释放首触发后，当轮工作无任何载体。对照组：11-14/16/18/19 每天「execution 秒完成 + 同时刻 pending 项」成对存在，唯独 11-13 断链。"
   solution: "机械释放与消化载体绑定为原子动作：reapStaleRunningExecutionsForTask（轮询扫描）与 reapPreemptingExecutions（挤占触发点）翻篇 failed 后调 kindleReapPending——守卫（pendingItemRepo 未注入/once 任务）短路；同槽覆盖判定用两个既有原语（hasExecutionInSlot(['running'], 排除自己) 防双跑重复、hasDirectCompletionInSlot 真直发 completed=已覆盖），抑制型 completed（message_id=NULL）显式不算覆盖（正是事故形态）；enqueue 由部分唯一索引去重（同任务已有 pending=已有载体，静默返回 false）；triggeredAt 用原 execution 槽位保持同 cron 槽对账语义。healing context 增 pendingKindled，suggestion 按入列结果分叉。失败仅日志不阻塞释放本体（释放是主语义，入列是增强）。"
@@ -64,7 +64,9 @@ await this.recordReapHealing(task, exec.id, kindleState);
 5. **enqueue**：triggeredAt 用原 execution 槽位（次日消费按同 cron 槽对账）；部分唯一索引去重（同任务已有 pending=已有载体，返回 false 静默 → deduped）
 6. **healing context.pendingKindleState** 状态枚举落账（kindled/covered/deduped/skipped/error），suggestion 按状态分叉——入列异常与正常去重/覆盖必须可区分（error 态明示需人工核查 pending 队列），否则归因错误
 
-**挤占路径不 kindle 的完整闭环论证**：翻篇后新触发的所有分支都有载体——直发成功 → completed 载体；新执行滞留 → 2h 轮询释放时 kindle；新触发被忙判 skip → 既有 pending 兜失败重试路径；新触发 skip 后下轮 catch-up 再触发。唯一需要 kindle 的窗口是「没有新触发在途」的轮询释放，两个路径职责不重叠。
+**挤占路径不 kindle 的完整闭环论证（二轮修正后）**：翻篇后新触发的所有分支都有载体——直发成功 → completed 载体；新执行滞留 → 2h 轮询释放时 kindle；新触发遇忙 → 忙判 covered（修正后只认 running/真直发 completed）判无覆盖 → 入 pending；新触发 skip 后下轮 catch-up 再触发。唯一需要 kindle 的窗口是「没有新触发在途」的轮询释放，两个路径职责不重叠。
+
+**忙判 covered 语义修正（二轮必修，治 11-13 第一因）**：原忙判 covered 认一切 completed（含抑制型 message_id=NULL）为覆盖——「A 滞留翻篇 + B 抑制型在场 + C 遇忙」现场会三行全空载体（failed + 两笔 NULL-completed，无 running 无 pending），正是 11-13 事故的完整复现链。修正为只认 running 或真直发 completed（hasDirectCompletionInSlot）；连续遇忙由部分唯一索引去重防 pending 爆炸。可选能力降级：降级装配/mock 未注入 hasDirectCompletionInSlot 时按无覆盖处理（宁多入列一条由索引去重，不炸忙判主路径）。
 
 失败仅日志不阻塞释放本体——释放是主语义（回收执行位），入列是消化增强。
 
@@ -85,8 +87,8 @@ await this.recordReapHealing(task, exec.id, kindleState);
   6. function executor 不入列（pendingKindleState=skipped）
   7. enqueue/槽位查询抛异常 → error 态落账（suggestion 明示需人工核查），释放本体不受阻
   8. once 守卫不入列
-  9. 真实 SQLite 集成两例：11-13 形态（抑制型 completed 真库判定放行+真库入列断言）与同槽即时重试（真库 running 判 covered 不入列）——判定链在真实槽位 SQL 下端到端验证
-- 全量 scheduler-service 127 例绿；tsc/eslint 绿
+  9. 真实 SQLite 集成四例：11-13 形态（抑制型 completed 真库判定放行+真库入列）、同槽即时重试（真库 running 判 covered 不入列）、三行现场回归（A 带锚点判死翻篇 + B 抑制型在场 + C 挤占后遇忙 → 忙判 covered 不认抑制型、恰好一条 pending）、挤占后直发成功分支（真库零 pending）——判定链在真实槽位 SQL 下端到端验证，mock 翻篇与真库双写同步忠实模拟生产同库行为
+- 全量 scheduler-service 129 例绿；tsc/eslint 绿
 - 现场观察项（后续 healing 落账）：机械释放事件的 context.pendingKindleState 分布与 pending 项消费 resolution 留痕
 
 ## 对抗检视处置（首轮 BLOCK 两条必修+两条建议全采纳）
@@ -95,3 +97,8 @@ await this.recordReapHealing(task, exec.id, kindleState);
 - 🔴 function executor 误入 agent pending 通道（无消费者，獭会把函数 body 当任务展开）→ 采纳：kindle 守卫加 executorType!=='agent' 短路
 - 🟡 pendingKindled=false 三态混一（异常/去重/覆盖同形，归因错误）→ 采纳：状态枚举 pendingKindleState（kindled/covered/deduped/skipped/error）+ suggestion 分叉，error 态明示需人工核查
 - 🟡 判定矩阵未触达真实 SQL 语义 → 采纳：补两条真实 SQLite 集成测试（11-13 形态 + 同槽即时重试）+ enqueue 抛错与 function 守卫用例
+
+## 对抗检视处置（二轮 BLOCK 一条必修+一条建议全采纳）
+
+- 🔴 挤占撤 kindle 后忙判分支闭环缺口（kimi 发现：A 滞留翻篇 + B 抑制型在场 + C 遇忙 → 忙判 covered 认 B 为覆盖 → 不入列 → 三行全空载体，11-13 形态复发）→ 采纳修法：修正忙判 covered 语义——只认 running 或真直发 completed（治第一因：原忙判语义正是 11-13 事故首环）；补三行现场真库回归（恰好一条 pending）与直发成功分支真库断言（零 pending）；可选能力降级防降级装配炸主路径
+- 🟡 对外说明旧口径（PR body/frontmatter 仍写两释放点 kindle、pendingKindled、6 例）→ 采纳：frontmatter capability_test 与 PR body 全量同步至现状（仅轮询路径/五态枚举/9+4 例）
