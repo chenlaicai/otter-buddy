@@ -35,7 +35,7 @@ import type { HealingErrorType, HealingEventStatus, HealingEvent, HealingSeverit
  * （partnerLabel 快照路径）不一致；降级语义对齐 dispatch-chain resolveUnreadSenderLabel 的
  * 回退约定（当前 sender 无快照 → partnerLabel）。
  */
-/** 信号发送者标签。F20261119extsg：外部接入（senderId = `external:<actorId>`）绝不能回退到
+/** 信号发送者标签。外部接入（senderId = `external:<actorId>`）绝不能回退到
  *  全局搭档显示名——否则受限档把外部发言标成「搭档」，诱使模型把外部内容当搭档指令；
  *  外部来源一律中性标签（有 senderName 用 senderName，否则「外部用户 <尾4>」）。 */
 export function resolveSignalSenderLabel(
@@ -48,7 +48,7 @@ export function resolveSignalSenderLabel(
 }
 
 /**
- * F20261119extsg（D3 复核补）：对话级外部档位判定。
+ * （复核补）：对话级外部档位判定。
  * Why：entryToSignalView 只按 `source === 'external'` 出档——网页发言 source='web'，
  * 在 kind=external 对话里既会走热旁路（steer/followUp）又会被拼上搭档真名。
  * 路由层必须与 agent-invoker 同口径以对话类别为准，而非消息来源。
@@ -255,7 +255,7 @@ export class SignalRouter {
       return "skipped_inactive";
     }
 
-    // F20261119extsg：对话级档位（覆盖消息级）——外部接入对话里的网页发言也算外部，
+    // 对话级档位（覆盖消息级）——外部接入对话里的网页发言也算外部，
     // 既不得走热旁路 steer（绕过 invoke 级档位），也不得在注入文本里带搭档真名。
     const externalProfile = signal.externalProfile
       ?? await resolveExternalConversationProfile(this.deps.conversationRepo, conversationId, this.deps.logger);
@@ -367,7 +367,7 @@ export class SignalRouter {
   }
 
   /**
-   * 注入文本里的发送者标签（D3 复核）：
+   * 注入文本里的发送者标签（复核）：
    * 外部对话里**任何**发言者都不读全局显示名——外部 sender 走「外部用户 <尾4>」，
    * 网页发言走中性称呼，避免在真实入口处把搭档真名拼进上下文。
    */

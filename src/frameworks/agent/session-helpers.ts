@@ -408,9 +408,9 @@ export function buildInvokeSystemPrompt(config: string | OtterPromptConfig | und
 }
 
 /**
- * F20261119extsg：受限外部会话的中性身份段。
+ * 受限外部会话的中性身份段。
  * Why：身份段（identityPrefix）原本无条件注入，含搭档名/对话标题/仓库 URL/commit 邮箱/
- * 大獭职责文案（identity-builder.ts）——外部用户问一句“你是谁”即可套出内部信息（R3 破口）。
+ * 大獭职责文案（identity-builder.ts）——外部用户问一句“你是谁”即可套出内部信息（破口）。
  * 受限档改为该常量：身份信息与全局设定一律不进外部 prompt。
  */
 export const RESTRICTED_EXTERNAL_IDENTITY = [

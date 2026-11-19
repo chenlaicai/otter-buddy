@@ -1,5 +1,5 @@
 /**
- * F20261119extsg：外部接入对话（CoLink 等）的身份中性化单一实现。
+ * 外部接入对话（CoLink 等）的身份中性化单一实现。
  *
  * Why：外部对话的 user message 由三个独立面拼装——信号台账（signal-router）、在场名册
  * （buildRoster）、最终消息组装（resolveUserEntryLabel）。任一面回退到搭档显示名，

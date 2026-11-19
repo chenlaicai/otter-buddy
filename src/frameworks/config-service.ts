@@ -536,7 +536,7 @@ function validateExternalConfig(raw: RawConfig): void {
   }
 }
 
-/** F20261113uaccs（delta 检视 S2）：auth.ownerPassword 非字符串（如 YAML 裸数字 123456）
+/** （delta 检视）：auth.ownerPassword 非字符串（如 YAML 裸数字 123456）
  *  会在 buildAuthConfig 裸 TypeError——此处 fail-fast 给引导性报错（与 server.port 同语义）。 */
 function validateAuthConfig(raw: RawConfig): void {
   if (raw.auth?.ownerPassword !== undefined && typeof raw.auth.ownerPassword !== "string") {

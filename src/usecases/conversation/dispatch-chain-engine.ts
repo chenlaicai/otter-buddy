@@ -813,7 +813,7 @@ export class DispatchChainEngine {
   }
 
   /**
-   * F20261119extsg：对话级外部判定（与 agent-invoker 的档位单源同口径）。
+   * 对话级外部判定（与 agent-invoker 的档位单源同口径）。
    * Why：外部接入对话（kind=external）的上下文里有攻击者可控文本，连搭档本人的 web 发言
    * 也不得把内部身份（显示名/仓库/邮箱）带进同一 prompt。
    * fail-closed：回读异常按外部处理——宁可少注入一个名字，不可在异常时默认泄漏。
@@ -836,7 +836,7 @@ export class DispatchChainEngine {
 
   /**
    * 搭档显示名：外部接入对话一律中性称呼，不读全局 settings。
-   * Why（D2 复核）：外部对话上下文里有攻击者可控文本，标签回退成真名即等同泄漏身份。
+   * Why（复核）：外部对话上下文里有攻击者可控文本，标签回退成真名即等同泄漏身份。
    */
   private async resolvePartnerLabel(conversationId: string): Promise<string> {
     if (await this.isExternalConversation(conversationId)) return NEUTRAL_EXTERNAL_USER_LABEL;
@@ -853,9 +853,9 @@ export class DispatchChainEngine {
       const otter = await this.deps.queryOtter.getById(p.otterId);
       return `- ${otter?.name ?? p.otterId}`;
     }));
-    // F20261119extsg：外部接入触发（senderId = `external:<actorId>`）不注入搭档显示名——
-    // 名册是每 hop 都会进 user message 的注入面，泄漏名字/暗示“搭档在场”就等同上一条 P0-6 的口子。
-    // F20261119extsg（D2 复核补）：senderId 前缀只覆盖外部事件触发；搭档本人从 web 在
+    // 外部接入触发（senderId = `external:<actorId>`）不注入搭档显示名——
+    // 名册是每 hop 都会进 user message 的注入面，泄漏名字/暗示“搭档在场”就等同上一条的口子。
+    // （复核补）：senderId 前缀只覆盖外部事件触发；搭档本人从 web 在
     // kind=external 对话里发言时 sender 是 'user'，同样不得注入搭档显示名。
     const external = isExternalSenderId(senderId) || await this.isExternalConversation(conversationId);
     if (external) {
@@ -1169,7 +1169,7 @@ export class DispatchChainEngine {
     partnerLabel: string,
     staticResolver: { isPartner: (id: string) => boolean } | undefined,
   ): string {
-    // F20261119extsg：外部发送者必须先于 resolver 判定中性化——未配置 partnerOpenId 时下面的
+    // 外部发送者必须先于 resolver 判定中性化——未配置 partnerOpenId 时下面的
     // 降级分支会把它当「当前 sender」回退成 partnerLabel（实证：外部 trigger 渲染成搭档真名）。
     if (isExternalSenderId(entrySenderId)) return externalSenderLabel(entrySenderId, m.senderName);
     if (staticResolver) {

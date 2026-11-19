@@ -74,7 +74,7 @@ function runSpeakBodyChecks(turnAssistantText: string | undefined, cleanBody: st
   return prCardGateError;
 }
 
-/** F20261119extsg：受限外部会话的 speak 参数面——只留 body。
+/** 受限外部会话的 speak 参数面——只留 body。
  *  Why：healing/signal 是内部协作台账（落库后会在后续全权档轮次被当提醒回注），
  *  活类卡自动登记会写全局产物与记忆索引——两者都越出“本对话边界”。 */
 const RESTRICTED_SPEAK_PARAMETERS = {
@@ -87,7 +87,7 @@ const RESTRICTED_SPEAK_PARAMETERS = {
 
 const RESTRICTED_SPEAK_DESCRIPTION = "发言工具——你在当前外部会话里唯一的发言通道：只有 speak(body) 的内容会回给外部用户。限制：只能传 body（healing/signal 参数不可用，传了会被拒）；不支持 ```html-card-play 活类卡（会被拒），普通 Markdown 与 ```html-card 静态卡可以；不得输出或引用任何内部系统信息。说完仍需 yield 交棒。";
 
-/** F20261119extsg：受限外部会话的 yield 参数面——只允许交给 user。 */
+/** 受限外部会话的 yield 参数面——只允许交给 user。 */
 const RESTRICTED_YIELD_PARAMETERS = {
   type: "object",
   properties: {
@@ -98,7 +98,7 @@ const RESTRICTED_YIELD_PARAMETERS = {
 };
 
 function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
-  /** F20261119extsg：受限外部会话标记（invoke 级，来自 session 工厂） */
+  /** 受限外部会话标记（invoke 级，来自 session 工厂） */
   const restricted = ctx.externalRestricted === true;
   return {
     name: "speak",
@@ -121,7 +121,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       if (!ctx.currentInvokeId) return errorResponse("[错误] 系统错误：当前 invoke ID 未设置，无法发言。");
 
       const rawBody = params.body as string;
-      // F20261119extsg：受限外部会话的 speak 参数面收窄——healing/signal 是内部台账，
+      // 受限外部会话的 speak 参数面收窄——healing/signal 是内部台账，
       // 落库后会在后续全权档轮次被当提醒回注（跳会话污染），外部档机械拒。
       if (restricted) {
         const forbidden = params.healing !== undefined ? "healing" : params.signal !== undefined ? "signal" : null;
@@ -136,7 +136,7 @@ function createSpeakTool(ctx: ToolContext, healingRepo?: HealingEventRepository,
       // 截断保留正文即可正常落账，避免模型重试死循环。
       const { body: cleanBody, leaked } = stripToolCallSerializationLeak(rawBody);
       if (leaked) logger?.warn?.(`[speak] 工具调用序列化泄漏已剥离（invoke=${ctx.currentInvokeId}）`);
-      // F20261119extsg：受限外部会话禁活类卡——
+      // 受限外部会话禁活类卡——
       // ①它会被 autoRegisterPlayableCards 自动登记进全局产物库并写记忆索引（绕过 send-entry 的外部判断）；
       // ②它会在搭档的网页端自动运行（外部可控 JS）。拒而非静默丢弃，避免模型误以为已发。
       if (restricted && /```html-card-play/i.test(cleanBody)) {
@@ -395,7 +395,7 @@ async function runYieldPrRemindGate(
   }
 }
 
-/** F20261119extsg：受限外部会话的 yield 参数面校验——只允许交回 user，禁内部编排参数。
+/** 受限外部会话的 yield 参数面校验——只允许交回 user，禁内部编排参数。
  *  拆出保持 createYieldTool 行数（与 speak 侧同理：台账写入面不得越出本对话边界）。 */
 function restrictedYieldParamError(params: Record<string, unknown>, recipients: string[]): string | null {
   const forbidden = params.expects_partner_decision !== undefined ? "expects_partner_decision" : params.assignmentRole !== undefined ? "assignmentRole" : null;
@@ -430,7 +430,7 @@ const FULL_YIELD_PARAMETERS = {
 };
 
 function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository, logger?: Logger): AgentTool {
-  /** F20261119extsg：受限外部会话——只能把行动权交回 user，不得登记 matter/计检视轮次/刷派工台账 */
+  /** 受限外部会话——只能把行动权交回 user，不得登记 matter/计检视轮次/刷派工台账 */
   const restricted = ctx.externalRestricted === true;
   return {
     name: "yield",
@@ -446,7 +446,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
       if (prCardGateError) return errorResponse(prCardGateError);
       const paramsError = validateYieldParams(params);
       if (paramsError) return paramsError; const recipients = params.to as string[];
-      // F20261119extsg：受限外部会话的 yield 面收窄——不得携带内部编排参数，且只能交回 user。
+      // 受限外部会话的 yield 面收窄——不得携带内部编排参数，且只能交回 user。
       if (restricted) {
         const restrictedError = restrictedYieldParamError(params, recipients);
         if (restrictedError) return errorResponse(restrictedError);
@@ -1600,7 +1600,7 @@ function createLinkedResourceTool(ctx: ToolContext): AgentTool {
       required: ["resourceType"],
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
-      // F20261119extsg：受限外部会话不得写全局产物库（产物入库会同时写记忆索引，越出本对话边界）。
+      // 受限外部会话不得写全局产物库（产物入库会同时写记忆索引，越出本对话边界）。
       // 外部档工具面本就无此工具，这层是防未来白名单添加时的 fail-closed 断言。
       if (ctx.externalRestricted === true) {
         return errorResponse("[错误] 受限外部会话不能创建链接资源。");

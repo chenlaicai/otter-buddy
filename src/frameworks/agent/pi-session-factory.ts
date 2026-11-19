@@ -1236,12 +1236,12 @@ export class PiSessionFactory implements AgentGateway {
     // getModelAliasForLog 返回解析后的非空值，此处用 config 裸值。
     const rawConfig = this.cfg.otterConfigProvider?.getConfig(otterId);
     const rawModelAlias = rawConfig?.modelAlias;
-    // F20261119extsg：受限外部会话不注入真实身份段（搭档名/仓库/邮箱/大獭职责文案）——
+    // 受限外部会话不注入真实身份段（搭档名/仓库/邮箱/大獭职责文案）——
     // 改用中性身份常量。身份信息属于内部资产，不得进外部 prompt。
     const identityPrefix = options?.externalProfile === 'restricted'
       ? RESTRICTED_EXTERNAL_IDENTITY
       : await this.identityBuilder.buildIdentityPrefix(otterId, otterType, conversationId, rawModelAlias);
-    // F20260903cmpk（#770）：压缩钩子合成 prompt 的 meta 行要显示名而非 UUID。
+    // 压缩钩子合成 prompt 的 meta 行要显示名而非 UUID。
     // 查询失败不影响链路（catch 降级 undefined，钩子用"海獭"兜底）。
     const displayName = await this.identityBuilder.getOtterName(otterId).catch(() => undefined);
 

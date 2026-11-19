@@ -120,7 +120,7 @@ describe("loadConfig", () => {
     expect(cfg.memory.rrfK).toBe(60);
     expect(cfg.external.dailyTokenBudgetPerConversation).toBe(200_000);
     expect(cfg.external.budgetExceededMessage).toBe("今天的对话额度已用完，请明天再试。");
-    // Phase 1 段 1：rerank 配置缺省——multiply（零行为变更）+ 设计系数回填
+    // 段 1：rerank 配置缺省——multiply（零行为变更）+ 设计系数回填
     expect(cfg.memory.rerankMode).toBe("multiply");
     expect(cfg.memory.rerank.wRrf).toBeCloseTo(0.6, 12);
     expect(cfg.memory.rerank.wTime).toBeCloseTo(0.3, 12);

@@ -127,7 +127,7 @@ export class SqliteConversationRepository implements ConversationRepository {
     }
   }
 
-  /** F20261119extsg：类别单向升级（normal→external）。WHERE 带 kind='normal' 保证幂等且
+  /** 类别单向升级（normal→external）。WHERE 带 kind='normal' 保证幂等且
    *  绝不降档；changes=0 时区分「已是目标类别」（幂等 OK）与「其他类别」（fail-closed 抛错）。 */
   async updateKind(id: string, kind: ConversationKind, timestamp: string): Promise<void> {
     if (kind !== "external") throw new Error(`Unsupported kind promotion: ${kind}`);

@@ -17,7 +17,7 @@ export interface CreateConversationInput {
   modelAlias?: string;
   /** 对话类别（assistant = IM 助理自动开户；缺省 normal）。
    * web-assistant = web 浮动獭全局唯一对话（首唤开户，HTTP create 链）；
-   * external = 外部接入对话（CoLink 等适配器建立，F20261119extsg）——该类别下**任何来源**的
+   * external = 外部接入对话（CoLink 等适配器建立）——该类别下**任何来源**的
    * invoke 都强制 restricts 受限档（见 agent-invoker 演算闸） */
   kind?: ConversationKind;
 }
@@ -92,7 +92,7 @@ export class ManageConversation {
   }
 
   /**
-   * F20261119extsg：把存量对话单向升档为 external（外部接入适配器的懒迁移入口）。
+   * 把存量对话单向升档为 external（外部接入适配器的懒迁移入口）。
    * Why：适配器只在「新建」时声明 kind；上线前已存在的 CoLink 绑定仍是 normal，
    * 搭档从 web 在这些旧外部对话发言时不会获得对话级受限保护。
    * 只允许 normal→external（升档），其他类别 fail-closed 拒绝——降档会静默撤销隔离。

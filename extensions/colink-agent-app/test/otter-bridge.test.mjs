@@ -38,7 +38,7 @@ function fixture({ autoComplete = true, otterIds = ['big-otter'] } = {}) {
     const path = new URL(url).pathname;
     if (path === '/api/conversations') {
       state.creates++;
-      // F20261119extsg：新建即外部对话——与真实中枢一致，随后的懒升档 GET 应看到 external。
+      // 新建即外部对话——与真实中枢一致，随后的懒升档 GET 应看到 external。
       state.createdKind = JSON.parse(options.body ?? '{}').kind ?? 'normal';
       state.conversationKind = state.createdKind;
       return Response.json({ id: 'otter-conversation-1', otterIds });

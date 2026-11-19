@@ -235,7 +235,7 @@ describe("Conversation API", () => {
     });
   });
 
-  // ─── PATCH /api/conversations/:id/kind（F20261119extsg：存量外部绑定懒升档） ───
+  // ─── PATCH /api/conversations/:id/kind（存量外部绑定懒升档） ───
 
   describe("PATCH /api/conversations/:id/kind", () => {
     it("kind=external 升档：调用 usecase 并回传新类别", async () => {

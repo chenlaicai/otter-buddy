@@ -390,7 +390,7 @@ export class AgentInvoker implements AgentTurnPort {
 
    
   /**
-   * F20261119extsg：外部接入对话的档位来源（对话级单源）。
+   * 外部接入对话的档位来源（对话级单源）。
    * Why：消息级 source=external 只覆盖外部事件；搭档本人从 web UI 在外部对话里发言、
    * 或任何后续 hop，都必须继续受限（否则攻击者文本与全工具档同处一个上下文面）。
    * fail-closed：读不到对话类别时抛错拒绝执行——不得默认降级为全权档。
@@ -448,7 +448,7 @@ export class AgentInvoker implements AgentTurnPort {
     assignmentRole?: "reviewer";
   }): Promise<AgentTurnResult> {
     const { otterId, conversationId, userMessageContent, onSSEEvent, retryCount = 0, images, batchMaxSeq, triggerMessageId, externalProfile: requestedProfile } = params;
-    // F20261119extsg（P1-6 口径①）：对话级档位高于消息级——外部接入对话（kind=external）的
+    // （口径①）：对话级档位高于消息级——外部接入对话（kind=external）的
     // 任何 invoke 一律 restricted，不得被单条消息的 source（如搭档从 web UI 发言的 web 档）抬升。
     // 外层消息入口的 source 判定只覆盖“外部事件”，本闸覆盖“同一对话里的人类发言”与所有后续 hop。
     const externalProfile = requestedProfile ?? await this.externalProfileForConversationKind(conversationId);

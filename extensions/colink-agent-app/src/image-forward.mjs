@@ -77,7 +77,7 @@ export function extractSvgBlocks(text) {
   return { svgs, text: remainder.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim() };
 }
 
-/** XML 数值/基础字符实体解码后再做协议检查，防止 ht&#116;p:// 之类绕过。 */
+/** XML 数值/基础字符实体解码后再做协议检查，防止用字符实体拼出协议名绕过黑名单。 */
 function decodeXmlEntities(value) {
   return value.replace(/&(#x[0-9a-f]+|#[0-9]+|quot|apos|lt|gt|amp);/gi, (entity, code) => {
     const lower = code.toLowerCase();

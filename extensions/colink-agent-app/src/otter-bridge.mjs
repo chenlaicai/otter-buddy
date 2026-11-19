@@ -103,7 +103,7 @@ export class OtterBridge {
   }
 
   /**
-   * 存量绑定的懒升档（F20261119extsg P1）：上线前建立的 CoLink 对话仍是 kind='normal'，
+   * 存量绑定的懒升档：上线前建立的 CoLink 对话仍是 kind='normal'，
    * 只声明新建不足以覆盖它们——搭档从 web 在这些旧对话发言就绕开了对话级受限档。
    * 升档失败即抛错（fail-closed）：宁可不服务本轮，也不让外部对话按全权档跑。
    */
@@ -125,7 +125,7 @@ export class OtterBridge {
     }
     const response = await this.request('/api/conversations', {
       method: 'POST',
-      // Why（F20261119extsg）：声明 kind=external——中枢据此把**该对话的一切 invoke**（含搭档本人
+      // Why：声明 kind=external——中枢据此把**该对话的一切 invoke**（含搭档本人
       // 从 web UI 的发言、后续所有 hop）钉在受限档，不再只依赖单条消息的 source。
       body: JSON.stringify({ title, kind: 'external' }),
     });

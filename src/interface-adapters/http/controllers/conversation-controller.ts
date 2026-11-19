@@ -124,7 +124,7 @@ export class ConversationController {
       const input: CreateConversationInput = {
         title: body.title,
         modelAlias: body.modelAlias,
-        // F20261119extsg：外部接入适配器建对话时声明 kind=external——
+        // 外部接入适配器建对话时声明 kind=external——
         // 该类别对话的一切 invoke 一律走受限档（含搭档本人从 web 发言），不可被单条消息 source 抬升。
         ...(body.kind === "external" ? { kind: "external" as const } : {}),
       };
@@ -151,7 +151,7 @@ export class ConversationController {
   }
 
   /**
-   * PATCH /api/conversations/:id/kind —— 外部接入绑定的存量对话懒升档（F20261119extsg）。
+   * PATCH /api/conversations/:id/kind —— 外部接入绑定的存量对话懒升档。
    * 只接受 `{ kind: 'external' }` 单向升档；其他值 400（降档会静默撤销隔离，永久拒绝）。
    */
   async promoteKind(c: Context): Promise<Response> {
