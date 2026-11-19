@@ -782,7 +782,7 @@ export const METHOD_GUIDES = {
             {
                 "name": "options",
                 "optional": false,
-                "type": "{ conversationId: string; limit?: number; beforeId?: string; afterId?: string; }",
+                "type": "{ conversationId: string; limit?: number; cursor?: string; }",
                 "parameters": [
                     {
                         "name": "conversationId",
@@ -797,16 +797,10 @@ export const METHOD_GUIDES = {
                         "description": "单次读取数量；具体范围与默认值见该接口字段表（文件文本读取不同于列表分页）。"
                     },
                     {
-                        "name": "beforeId",
+                        "name": "cursor",
                         "type": "string",
                         "required": false,
-                        "description": "读取该私聊消息之前的消息，必须与当前会话匹配。"
-                    },
-                    {
-                        "name": "afterId",
-                        "type": "string",
-                        "required": false,
-                        "description": "读取该私聊消息之后的消息，必须与当前会话匹配。"
+                        "description": "上一页的 nextCursor；首请求省略，后续原样传回。"
                     }
                 ],
                 "open": false

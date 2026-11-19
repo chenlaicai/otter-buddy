@@ -80,7 +80,7 @@ export const resultSchemas = [
     { "kind": "array", "item": 79 },
     { "kind": "object", "fields": { "userId": { "schema": 3, "optional": false }, "displayName": { "schema": 3, "optional": false }, "username": { "schema": 3, "optional": false } } },
     { "kind": "object", "fields": { "artifactId": { "schema": 3, "optional": false }, "mimeType": { "schema": 3, "optional": false }, "data": { "schema": 3, "optional": false } }, "values": 66 },
-    { "kind": "object", "fields": { "items": { "schema": 82, "optional": false } } },
+    { "kind": "object", "fields": { "items": { "schema": 82, "optional": false }, "hasMore": { "schema": 4, "optional": false }, "nextCursor": { "schema": 7, "optional": false } } },
     { "kind": "array", "item": 83 },
     { "kind": "object", "fields": { "id": { "schema": 3, "optional": false }, "conversationId": { "schema": 3, "optional": false }, "senderId": { "schema": 3, "optional": false }, "senderKind": { "schema": 84, "optional": false }, "text": { "schema": 3, "optional": false }, "attachments": { "schema": 86, "optional": false }, "createdAt": { "schema": 3, "optional": false }, "recalledAt": { "schema": 7, "optional": false } } },
     { "kind": "union", "members": [23, 85] },

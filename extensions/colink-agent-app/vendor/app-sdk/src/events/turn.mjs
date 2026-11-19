@@ -8,7 +8,7 @@ export function createTurnActions({ row, platform, requireActive, stageReply, pr
     const visibility = 'channelVisibility' in row.event.data ? row.event.data.channelVisibility : undefined;
     const capability = dm || visibility === 'private' ? CAPABILITIES.privateMessages
         : visibility === 'public' ? CAPABILITIES.publicMessages : undefined;
-    const allowed = dm ? ['limit', 'beforeId', 'afterId'] : ['limit', 'cursor'];
+    const allowed = ['limit', 'cursor'];
     const read = (method) => async (options = {}) => {
         requireActive();
         const input = structuredClone(options);
@@ -16,8 +16,7 @@ export function createTurnActions({ row, platform, requireActive, stageReply, pr
             Object.keys(input).some(key => !allowed.includes(key)))
             throw fail('INVALID_READ_OPTIONS', 400);
         if ((input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100)) ||
-            (input.cursor !== undefined && (typeof input.cursor !== 'string' || !input.cursor || input.cursor.length > 2048)) ||
-            ['beforeId', 'afterId'].some(key => input[key] !== undefined && (typeof input[key] !== 'string' || !input[key] || input[key].length > 36)))
+            (input.cursor !== undefined && (typeof input.cursor !== 'string' || !input.cursor || input.cursor.length > 2048)))
             throw fail('INVALID_READ_OPTIONS', 400);
         if (!capability)
             throw fail('SOURCE_READ_IDENTITY_UNAVAILABLE', 403);

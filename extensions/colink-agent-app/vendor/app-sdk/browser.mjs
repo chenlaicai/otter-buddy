@@ -817,7 +817,7 @@ var METHOD_GUIDES = {
       {
         "name": "options",
         "optional": false,
-        "type": "{ conversationId: string; limit?: number; beforeId?: string; afterId?: string; }",
+        "type": "{ conversationId: string; limit?: number; cursor?: string; }",
         "parameters": [
           {
             "name": "conversationId",
@@ -832,16 +832,10 @@ var METHOD_GUIDES = {
             "description": "\u5355\u6B21\u8BFB\u53D6\u6570\u91CF\uFF1B\u5177\u4F53\u8303\u56F4\u4E0E\u9ED8\u8BA4\u503C\u89C1\u8BE5\u63A5\u53E3\u5B57\u6BB5\u8868\uFF08\u6587\u4EF6\u6587\u672C\u8BFB\u53D6\u4E0D\u540C\u4E8E\u5217\u8868\u5206\u9875\uFF09\u3002"
           },
           {
-            "name": "beforeId",
+            "name": "cursor",
             "type": "string",
             "required": false,
-            "description": "\u8BFB\u53D6\u8BE5\u79C1\u804A\u6D88\u606F\u4E4B\u524D\u7684\u6D88\u606F\uFF0C\u5FC5\u987B\u4E0E\u5F53\u524D\u4F1A\u8BDD\u5339\u914D\u3002"
-          },
-          {
-            "name": "afterId",
-            "type": "string",
-            "required": false,
-            "description": "\u8BFB\u53D6\u8BE5\u79C1\u804A\u6D88\u606F\u4E4B\u540E\u7684\u6D88\u606F\uFF0C\u5FC5\u987B\u4E0E\u5F53\u524D\u4F1A\u8BDD\u5339\u914D\u3002"
+            "description": "\u4E0A\u4E00\u9875\u7684 nextCursor\uFF1B\u9996\u8BF7\u6C42\u7701\u7565\uFF0C\u540E\u7EED\u539F\u6837\u4F20\u56DE\u3002"
           }
         ],
         "open": false
@@ -3502,16 +3496,12 @@ function methodUsage(inputName, identities, identityHint) {
   const write = writeUsage(guide.route === "PUT /app-files/:fileId/content" ? "POST /app-files" : guide.route);
   const metadata = structuredClone(guide);
   if (turnRead) {
-    const dm = guides["directMessages.list"];
     metadata.arguments = [{
       name: "options",
-      type: "TopicReadOptions | DirectMessageReadOptions",
+      type: "TopicReadOptions",
       optional: true,
       open: false,
-      parameters: [
-        ...metadata.arguments[0].parameters.filter((p) => ["limit", "cursor"].includes(p.name)),
-        ...dm.arguments[0].parameters.filter((p) => ["beforeId", "afterId"].includes(p.name))
-      ]
+      parameters: metadata.arguments[0].parameters.filter((p) => ["limit", "cursor"].includes(p.name))
     }];
     metadata.reference = "for-ai-sdk-events.md#\u8BFB\u53D6\u5F53\u524D\u6765\u6E90";
   }
@@ -3951,7 +3941,7 @@ var resultSchemas = [
   { "kind": "array", "item": 79 },
   { "kind": "object", "fields": { "userId": { "schema": 3, "optional": false }, "displayName": { "schema": 3, "optional": false }, "username": { "schema": 3, "optional": false } } },
   { "kind": "object", "fields": { "artifactId": { "schema": 3, "optional": false }, "mimeType": { "schema": 3, "optional": false }, "data": { "schema": 3, "optional": false } }, "values": 66 },
-  { "kind": "object", "fields": { "items": { "schema": 82, "optional": false } } },
+  { "kind": "object", "fields": { "items": { "schema": 82, "optional": false }, "hasMore": { "schema": 4, "optional": false }, "nextCursor": { "schema": 7, "optional": false } } },
   { "kind": "array", "item": 83 },
   { "kind": "object", "fields": { "id": { "schema": 3, "optional": false }, "conversationId": { "schema": 3, "optional": false }, "senderId": { "schema": 3, "optional": false }, "senderKind": { "schema": 84, "optional": false }, "text": { "schema": 3, "optional": false }, "attachments": { "schema": 86, "optional": false }, "createdAt": { "schema": 3, "optional": false }, "recalledAt": { "schema": 7, "optional": false } } },
   { "kind": "union", "members": [23, 85] },
