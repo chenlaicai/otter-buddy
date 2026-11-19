@@ -79,8 +79,24 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
   const hasRewriteMarker = /回查改写/.test(content);
   const hasInversion = /取反/.test(content);
   const hasPassVerdict = /✅\s*通过/.test(content) && /verdict=pass/.test(content);
-  const notUnknown = !/判定[：:]\s*⚠️/.test(content);
-  const notFail = !/判定[：:]\s*❌/.test(content);
+  // 终核发现假阳性：旧实现只拦「判定：⚠️」窄式——改写照做但尾部仍裸留
+  // 「⚠️ 无法判定」蛇咬尾形态会蒙混。v2 全量拦截又过严：合规输出会引用历史评论
+  // 「首轮因同因判定 ⚠️」（引用非判定）。 refined：拦三种违例信号，放行历史引用——
+  // ① 判定位空转：判定：⚠️ / verdict=unknown；② 蛇咬尾对冲：「本轮…无法判定」
+  // 或「仍/继续/暂/先 标/是/判…⚠️」；③ fail 判定：判定：❌ / verdict=fail / ❌ 未通过。
+  // 注意剥离汇总行的计数图例（「✅ 1 / ❌ 0 / ⚠️ 0」是格式固定件，非判定）。
+  const judged = content
+    .split("\n")
+    .filter((l) => !/汇总|回查\s*\d+\s*条\s*→/.test(l))
+    .join("\n");
+  const spinVerdict = /判定[：:]\s*⚠️/.test(judged) || /verdict=unknown/.test(judged);
+  const hedgeUnknown =
+    /本轮[^。\n]*(⚠️[^。\n]*无法判定|无法判定)/.test(judged) ||
+    /(仍|继续|暂|先)[标是判][^。\n]{0,4}⚠️/.test(judged);
+  const failVerdict =
+    /判定[：:]\s*❌/.test(judged) || /verdict=fail/.test(judged) || /❌\s*未通过/.test(judged);
+  const notUnknown = !(spinVerdict || hedgeUnknown);
+  const notFail = !failVerdict;
 
   const ok = hasRewriteMarker && hasInversion && hasPassVerdict && notUnknown && notFail;
 
@@ -97,6 +113,7 @@ function msg(id: string, seq: number, content: string, st = "otter"): MessageDto
 
 const GOOD_RECHECK = `🔁 验证断言回查（到期 2026-11-19）
 - 断言（2026-11-19 回查改写：原断言「修复后配额耗尽事件不再以 severity=high 落账进入 C3 高警队列」取反）：配额耗尽事件仍以 severity=high 落账进入 C3 高警队列（问题还在判据）
+- 方向修复：2026-11-18 首轮曾因同一原因判定 ⚠️，本轮按方向修复协议由作者侧机械取反（历史引用非本轮判定）
 - 检查方式：sqlite 查询 healing_events 近 30 天 severity='high' AND error_type='rate_limit' 行数
 - 证据：0 行（2026-10-20 起无 high 落账）
 - 判定：✅ 通过（改写后判据不满足 = 问题已消失，销案不重开）
@@ -122,6 +139,17 @@ const BAD_REVERSE_READ = `🔁 验证断言回查（到期 2026-11-19）
 
 汇总：回查 1 条 → ❌ 1`;
 
+const BAD_HEDGE_AFTER_REWRITE = `🔁 验证断言回查（到期 2026-11-19）
+- 断言（2026-11-19 回查改写：原断言「修复后配额耗尽事件不再以 severity=high 落账」取反）：配额耗尽事件仍以 severity=high 落账进入 C3 高警队列（问题还在判据）
+- 检查方式：sqlite 查询 healing_events 近 30 天 severity='high' AND error_type='rate_limit' 行数
+- 证据：0 行
+- 判定：✅ 通过
+<!-- regression-verify: issue=777; verdict=pass; at=2026-11-19T01:30:00.000Z -->
+
+补充说明：本轮仍标 ⚠️ 无法判定——样本窗口太短，建议下轮再观察。
+
+汇总：回查 1 条 → ✅ 1 / ❌ 0 / ⚠️ 0`;
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -144,6 +172,15 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u3", 1, FIXTURE_INPUT, "user"),
         msg("st-o3", 2, BAD_REVERSE_READ),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 3（终核假阳性实证）：改写照做 + ✅ 判定，但蛇咬尾补一句裸
+      // 「⚠️ 无法判定」蛇头蛇尾两沾——窄式「判定：⚠️」检查漏检形态
+      messages: [
+        msg("st-u4", 1, FIXTURE_INPUT, "user"),
+        msg("st-o4", 2, BAD_HEDGE_AFTER_REWRITE),
       ],
       expectedOk: false,
     },
