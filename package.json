@@ -42,7 +42,8 @@
     "smoke:boot": "bash scripts/smoke-boot.sh",
     "lint:schema": "node scripts/lint-schema-ddl.mjs",
     "postinstall": "patch-package",
-    "build:connector": "npx tsc -p tsconfig.connector.json && npx tsc-alias -f -p tsconfig.connector.json && node scripts/check-connector-closure.mjs"
+    "build:connector": "npx tsc -p tsconfig.connector.json && npx tsc-alias -f -p tsconfig.connector.json && node scripts/check-connector-closure.mjs",
+    "package:connector": "npm run build:connector && node scripts/package-connector.mjs"
   },
   "keywords": [],
   "author": "",
