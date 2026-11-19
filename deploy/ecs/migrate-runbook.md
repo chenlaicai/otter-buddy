@@ -40,7 +40,7 @@ guard-replay 归档（历史存档，云端不重放）。
    ```
 5. **起服前机械检查（身份链终端闸）**：目录与**主库文件本身**都要 otter 可写（不只顶层目录）：
    ```
-   sudo -u otter test -w /var/lib/otter-buddy/data && sudo -u otter test -w /var/lib/otter-buddy/data/otter-buddy.db || echo "FATAL: 属主/权限链断" 
+   sudo -u otter test -w /var/lib/otter-buddy/data && sudo -u otter test -w /var/lib/otter-buddy/data/otter-buddy.db || { echo "FATAL: 属主/权限链断"; exit 1; }
    ```
 6. **起云**：`systemctl start otter-buddy`（6a 单元：探活就绪 + 单实例锁护数据域）。
 7. **入口切换**：web 用 `https://otter.60.205.214.148.sslip.io/`；connector 换 `wss://…/connector-ws`。
