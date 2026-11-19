@@ -5,7 +5,7 @@
  * 只是数据集是 tmp 下的小 fixture（两张表几个文件）。
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readdirSync, existsSync, symlinkSync as fsSymlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readdirSync, existsSync, symlinkSync as fsSymlinkSync, cpSync as fsCpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -81,7 +81,7 @@ describe("migrate-lib（阶段 6b 纯函数）", () => {
 
   it("verifyAgainstManifest：篡改文件内容 → sha mismatch；删行 → 表行数 mismatch；多余文件 → extra", async () => {
     const copyDir = path.join(fixtureRoot, "tampered");
-    execFileSync("cp", ["-c", "-R", dataDir, copyDir], { stdio: "pipe" });
+    fsCpSync(dataDir, copyDir, { recursive: true, verbatimSymlinks: true }); // 跨平台（CI linux 无 cp -c）
     // 篡改 + 删行 + 多余文件
     writeFileSync(path.join(copyDir, "owner-password"), "changed");
     const db = new Database(path.join(copyDir, "otter-buddy.db"));
