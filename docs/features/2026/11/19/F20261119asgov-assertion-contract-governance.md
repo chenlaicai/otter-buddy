@@ -102,10 +102,28 @@ open 且挂龄 ≥3 天且无 open PR 引用，满足其一：① 认领后超 4
 
 - **🔴1 净增申报**：regression-verify +1233B / 每日-issue-处理 +1983B（触 8000B 警告线、预算内）——净增理由：新增第一职责「孤儿检出」定义段与「断言方向例行 lint」协议段为搭档 11-19 两项指令的最小可执行载体，语义不可再压（四轮压缩已出清 ~1KB）；出清纪律：孤儿检出稳定运行两周后按实证精简示例行；后续任何再增按「等量出清」执行（PR body 同步申报）。
 - **🔴2 对话活动判据恢复**：见 delta 🟡1 二轮修正（严口径双侧统一）。
-- **🔴3 Golden Gate（三轮修正，处置终态=升级搭档裁决）**：豁免前提（verify_by=static_only/human_judge）不满足（本特性 behavior_check），main 亦无可跑场景（12 场景均 agent 行为层；night-review-full-processing 属在途 PR #1946，初轮归因有误已更正）。选项 A「按无场景事实豁免 + #1946 合入后补归属记录」（作者推荐：机械面已由 17 用例+dogfood 锚定，行为面由次日自然执行观察，场景建设与 #1946 撞面）；选项 B「本 PR 内新增 golden 场景并 n=10 采样」（成本：场景设计+真实采样）。裁决前按开放项呈报，不伪装已修。
+- **🔴3 Golden Gate（四轮修正，处置终态=搭档裁决 B 落地）**：豁免前提（verify_by=static_only/human_judge）不满足（本特性 behavior_check），main 亦无可跑场景（12 场景均 agent 行为层；night-review-full-processing 属已合入 PR #1946 的夜审獭场景，覆盖 belief 处置而非本 PR prompt）。裁决历经两段：16:19 搭档曾确认 A（豁免）；**21:55 搭档经终审决策卡改裁 B**（「1966 裁决：Golden Gate 选B + 断言维持」，卡片回执锚点 7574002f:0）——规则所有者最新裁决为准，A 豁免作废。B 落地见下「Golden 场景落地」段。
 - **🔴4 文档/PR 稳态对齐**：summary/存量清扫段/PR dogfood 段改为 #1204 还原 + 稳态待改写 1（拍板跳过）口径。
 
-## 终审收口（搭档 2026-11-19 15:39 拍板「ok 按你推荐来」）
+## Golden 场景落地（搭档 2026-11-19 21:55 裁决 B 执行）
 
-- **Golden Gate**：按搭档裁决**豁免落地**——两段式裁决留痕：15:39「ok 按你推荐来」批准推荐方向（当时描述含「跑夜审出记录」的错误前提）；15:44 作者事实更正（夜审场景覆盖夜审獭 belief 处置，非本 PR prompt）后，检视獭裁定授权不得延伸至已变化前提；**16:19 搭档更正后重新确认「那肯定a」**——纯无场景事实豁免最终成立，不自建场景、不产生 golden 记录。**事实更正**：作者此前称「在途夜审 PR 合入后其 night-review 场景可当场跑出归属记录」有误——实测该场景覆盖的是夜审獭 belief 处置行为（buildNightReviewerPrompt），并非每日 issue 任务/regression-verify prompt；main 现仍无一场景覆盖本 PR 改动的 prompt。故豁免依据=「无场景事实 + 搭档裁决」，非「已跑记录」。
+裁决链留痕：16:19「那肯定a」（A 豁免）→ 21:55 终审决策卡改裁 B（回执 7574002f:0，{goldenGate:B, assertion:keep}）——同事项最新拍板取代前判，断言极性维持不变（重申）。
+
+新增两条 golden 场景（tests/capability/golden/，runner restricted 路径扩展 externalProfile 透传——invoke 工具面恒 speak/yield，防演练环境试探 gh/bash 空转烧采样轮）：
+
+| 场景 | 覆盖 prompt | 行为不变量 | 来源伤疤 |
+|---|---|---|---|
+| daily-issue-orphan-detection | 每日-issue-处理.md 孤儿检出段+在途忽略 | 孤儿置顶入段（#1801/#1802）；在途 PR 单不进正文（#1803/#1804 缺席+尾部「在途 N 条（忽略）」）；拍板搁置只计数（#1805）；等输入照列标「等输入」（#1806）；新单正常入清单（#1807） | issue #1963 + 搭档 11-19 孤儿检出原话 |
+| regression-verify-direction-repair | regression-verify.md 方向修复协议 | 第二轮同因不走裸 ⚠️：作者身份机械取反改写（「回查改写」+「取反」留痕）→ 按改写后判据判定 ✅ 通过（verdict=pass）；绝不反向解读判 ❌ | 11-15/11-18 两轮同因 ⚠️ 空转实证 |
+
+采样协议：n=10 ≥8（README 行为改动 PR 层）；模型 mimo-v2.6-flash。构造妥协声明：真实流程獭自跑 gh/sqlite 取数，演练环境无后端，扫描数据/检查结果由调度器角色内联注入（与 {{REGRESSION_DATA}} 占位符注入同构）——测的是组版/判定协议遵循，非取数能力。
+
+**采样结果**（2026-11-19 实跑，model=k3.1-pro——mimo 套餐与 glm 周/月配额均耗尽 429 实测，kimi 端点顶班；顶班适配两处：config 补 cacheLongRetention:false 对齐生产（prompt_cache_retention 被拒）+ thinkingLevel:max（reasoning.effort=none 被拒））：
+- daily-issue-orphan-detection：9/10 ✓（≥8 过闸）——唯一失败 #7 漏拍板搁置规则（#1805 进正文且未计数），拍板搁置遵循度 90%，已列入观察
+- regression-verify-direction-repair：10/10 ✓——方向修复协议全样本遵循（改写留痕 + 按改写后判据判 ✅）
+- 留痕：data/metrics/golden-results.jsonl（pr=1966 行）；失败首轮留痕同文件（externalProfile 路径 0/10 ×2——直调 invokeConversation 下受限档不产消息终态，弃用改 night-reviewer 档案借零编码工具面）
+
+## 终审收口（搭档 2026-11-19 拍板链）
+
+- **Golden Gate**：两段裁决以最新为准——15:39/16:19 A 豁免（两段式留痕：15:39「ok 按你推荐来」含错误前提、15:44 作者更正、16:19 搭档更正后确认「那肯定a」）；**21:55 搭档经决策卡改裁 B**（本 PR 内新增 golden 场景 + n=10 采样）——已落地（见上段），豁免作废、产生真实 golden 记录。**事实更正保留**：作者此前「夜审场景合入后可当场跑出归属记录」有误——night-review 场景覆盖夜审獭 belief 处置（buildNightReviewerPrompt），并非每日 issue 任务/regression-verify prompt。
 - **断言极性**：搭档确认两式本质等价、按作者推荐**维持「如果 X 则问题还在」**（现行机器与存量零迁移；防糊弄优势——逼提单人写可证伪的失败形态）。此为 11-16 拍板口径的再确认。

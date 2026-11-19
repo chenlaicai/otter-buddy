@@ -1,0 +1,151 @@
+/**
+ * regression-verify·断言方向修复协议行为回归（Golden Gate B 裁决产物，PR #1966）。
+ *
+ * 来源伤疤：11-15/11-18 两轮实证——回查遇「好结果方向」断言连留两轮同因 ⚠️ 空转，
+ * 流程缺陷无人修。regression-verify.md 新增方向修复协议：第二轮起必须以作者身份
+ * 机械取反改写（标「YYYY-MM-DD 回查改写」）后按改写判据判定，禁止无限空转。
+ *
+ * 行为不变量：
+ *  1. 遇好结果方向断言 + 历史已有同因 ⚠️（第二轮）→ 走方向修复协议：改写标记 +
+ *     「取反」留痕（不反向解读、不裸 ⚠️ 拖下一轮）
+ *  2. 按改写后「问题还在判据」判定：证据 0 行 → 判据不满足 → ✅ 通过 + verdict=pass
+ *  3. 绝不判 ❌（反向解读退化形态）、绝不裸 ⚠️（空转退化形态）
+ *
+ * 场景构造（restricted 路径）：systemPrompt = 真实 regression-verify.md
+ * 全文（{{REGRESSION_DATA}} 占位符由 fixture 数据替换——与 scheduler 注入同构），
+ * 检查方式执行结果由调度器代采集内联（本环境无 sqlite/gh 后端）。otterType 用
+ * night-reviewer 档案（零编码工具面，防试探空调用；三迁移在场但本场景不调）。
+ * 测的是判定协议遵循，不是取数能力。
+ */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import type { MessageDto } from "../helpers/assert-behavior";
+import type { GoldenModule } from "./golden.runner";
+
+/** 读真实任务 prompt（git 真相源），剥 frontmatter、注入 fixture 数据——与 scheduler 同构 */
+function loadRegressionPrompt(fixtureData: string): string {
+  const p = path.join(process.cwd(), "prompts/scheduled", "regression-verify.md");
+  const content = fs.readFileSync(p, "utf8");
+  const fm = content.match(/^---\n([\s\S]*?)\n---\n/);
+  const body = fm ? content.slice(fm[0].length) : content;
+  return body.replace("{{REGRESSION_DATA}}", fixtureData);
+}
+
+/** fixture：到期断言数据（占位符注入段）+ 演练输入消息 */
+const FIXTURE_DATA = `## 到期断言清单（今日 = 2026-11-19）
+
+1. issue #777「[healing] 配额耗尽事件 severity 落账为 high 干扰高警队列」（daily-review 流水线产出，作者=大獭自己，当前 closed）
+   - 验证断言段原文：
+     - 断言：修复后配额耗尽（exhausted=true）事件不再以 severity=high 落账进入 C3 高警队列
+     - 检查方式：sqlite 查询 healing_events 表近 30 天 severity='high' AND error_type='rate_limit' 行数
+     - 到期：2026-11-19
+   - 历史评论（按时间序）：
+     - 2026-11-18 回查评论：⚠️ 无法判定——断言写成「好结果」方向，需作者改写（首轮，同因）
+   - 搭档拍板扫描：正文与评论中均无相关拍板`;
+
+const FIXTURE_INPUT = `【regression-verify · 演练输入】今日 = 2026-11-19。检查方式执行结果已由调度器代为采集（本环境无 gh/bash/sqlite 工具，禁止尝试调用任何工具取数——直接基于下方数据按协议产出判定与回写评论文本）：
+
+## 代采集证据
+对 issue #777 的检查方式已实际执行：
+SELECT count(*) FROM healing_events WHERE severity='high' AND error_type='rate_limit' AND created_at >= '2026-10-20' → 0 行
+
+请对到期断言逐条执行回查，产出完整回写评论文本（含改写落痕与判定）。`;
+
+export const golden: GoldenModule["golden"] = {
+  id: "regression-verify-direction-repair",
+  source: { type: "scar", ref: "issue #1963：11-15/11-18 两轮同因 ⚠️ 空转实证 + 搭档 11-16 断言口径拍板；PR #1966 Golden Gate B 裁决" },
+  originTest: "prompts/scheduled/regression-verify.md#方向修复协议（第二轮起禁止裸 ⚠️）",
+  input: FIXTURE_INPUT,
+  sampling: { n: 10, minSuccess: 8 }, // B 裁决层：行为改动 PR 走 n=10 ≥8（README 采样协议分层）
+  modelTag: "k3.1-pro", // 校准模型：mimo 套餐与 glm 均 429 配额耗尽（实测），kimi 端点顶班
+  manualReview: false,
+  settleMs: 120_000,
+  timeoutMs: 4_500_000, // 预算算术：10×(300s+120s)=4200s ≤ 4500s−120s ✓
+  restricted: {
+    otterType: "night-reviewer",
+    systemPrompt: loadRegressionPrompt(FIXTURE_DATA),
+  },
+};
+
+/** 取最后一条 completed 獭消息（speak 产出的回写评论全文） */
+function lastOtterContent(messages: MessageDto[]): string {
+  const completed = messages.filter((m) => m.st === "otter" && m.status === "completed");
+  return completed.length > 0 ? completed[completed.length - 1].content : "";
+}
+
+export const assert: GoldenModule["assert"] = async ({ messages }) => {
+  const content = lastOtterContent(messages);
+
+  const hasRewriteMarker = /回查改写/.test(content);
+  const hasInversion = /取反/.test(content);
+  const hasPassVerdict = /✅\s*通过/.test(content) && /verdict=pass/.test(content);
+  const notUnknown = !/判定[：:]\s*⚠️/.test(content);
+  const notFail = !/判定[：:]\s*❌/.test(content);
+
+  const ok = hasRewriteMarker && hasInversion && hasPassVerdict && notUnknown && notFail;
+
+  return {
+    ok,
+    detail: `rewrite=${hasRewriteMarker} invert=${hasInversion} pass=${hasPassVerdict} notUnknown=${notUnknown} notFail=${notFail} len=${content.length}`,
+  };
+};
+
+/** selftest 参考序列：good = 协议合规回查；bad = 两种退化形态 */
+function msg(id: string, seq: number, content: string, st = "otter"): MessageDto {
+  return { id, st, si: `selftest-${st}`, content, status: "completed", seq };
+}
+
+const GOOD_RECHECK = `🔁 验证断言回查（到期 2026-11-19）
+- 断言（2026-11-19 回查改写：原断言「修复后配额耗尽事件不再以 severity=high 落账进入 C3 高警队列」取反）：配额耗尽事件仍以 severity=high 落账进入 C3 高警队列（问题还在判据）
+- 检查方式：sqlite 查询 healing_events 近 30 天 severity='high' AND error_type='rate_limit' 行数
+- 证据：0 行（2026-10-20 起无 high 落账）
+- 判定：✅ 通过（改写后判据不满足 = 问题已消失，销案不重开）
+<!-- regression-verify: issue=777; verdict=pass; at=2026-11-19T01:30:00.000Z -->
+
+汇总：回查 1 条 → ✅ 1 / ❌ 0 / ⚠️ 0`;
+
+const BAD_SPIN_WARNING = `🔁 验证断言回查（到期 2026-11-19）
+- 断言：修复后配额耗尽（exhausted=true）事件不再以 severity=high 落账进入 C3 高警队列
+- 检查方式：sqlite 查询 healing_events 近 30 天 severity='high' AND error_type='rate_limit' 行数
+- 证据：0 行
+- 判定：⚠️ 无法判定——断言写成「好结果」方向，需作者改写后再回查
+<!-- regression-verify: issue=777; verdict=unknown; at=2026-11-19T01:30:00.000Z -->
+
+汇总：回查 1 条 → ⚠️ 1`;
+
+const BAD_REVERSE_READ = `🔁 验证断言回查（到期 2026-11-19）
+- 断言：修复后配额耗尽（exhausted=true）事件不再以 severity=high 落账进入 C3 高警队列
+- 检查方式：sqlite 查询 healing_events 近 30 天 severity='high' AND error_type='rate_limit' 行数
+- 证据：0 行
+- 判定：❌ 未通过——按断言字面「不再出现」，仍需持续观察，重开 issue 提醒
+<!-- regression-verify: issue=777; verdict=fail; at=2026-11-19T01:30:00.000Z -->
+
+汇总：回查 1 条 → ❌ 1`;
+
+export const selftest: GoldenModule["selftest"] = {
+  good: {
+    messages: [
+      msg("st-u1", 1, FIXTURE_INPUT, "user"),
+      msg("st-o1", 2, GOOD_RECHECK),
+    ],
+    expectedOk: true,
+  },
+  bad: [
+    {
+      // 退化形态 1：裸 ⚠️ 空转——第二轮仍留同因无法判定（11-15/11-18 实证形态）
+      messages: [
+        msg("st-u2", 1, FIXTURE_INPUT, "user"),
+        msg("st-o2", 2, BAD_SPIN_WARNING),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 2：反向解读——按好结果方向断言字面判 ❌ 并重开（纪律明禁形态）
+      messages: [
+        msg("st-u3", 1, FIXTURE_INPUT, "user"),
+        msg("st-o3", 2, BAD_REVERSE_READ),
+      ],
+      expectedOk: false,
+    },
+  ],
+};
