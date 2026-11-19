@@ -64,15 +64,24 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(collectAnchorViolations("r2 处置后").some((x) => x.kind === "轮次编号")).toBe(true);
     expect(collectAnchorViolations("S1").some((x) => x.kind === "文档编号" && x.token === "S1")).toBe(true);
     expect(collectAnchorViolations("R10").some((x) => x.kind === "文档编号" && x.token === "R10")).toBe(true);
+    expect(collectAnchorViolations("R1 处置").some((x) => x.kind === "文档编号" && x.token === "R1")).toBe(true);
+    expect(collectAnchorViolations("R9 复核").some((x) => x.kind === "文档编号" && x.token === "R9")).toBe(true);
     expect(collectAnchorViolations("delta 发现 8 的现场").some((x) => x.kind === "轮次编号")).toBe(true);
     expect(collectAnchorViolations("S2a").some((x) => x.kind === "文档编号" && x.token === "S2a")).toBe(true);
   });
 
-  it("技术词豁免：M1 芯片、S3 存储、A4 纸；流程描述不误伤；审视项号删除", () => {
-    const v = collectAnchorViolations("M1 芯片与 S3 存储均兼容，A4 纸规格，发现 3 处差异，建议采用");
+  it("技术词豁免：芯片/存储/纸/设备/尺寸/实例/无空格优先级；审视项号删除", () => {
+    const v = collectAnchorViolations("M1 与 M2 芯片均兼容，对象存入 S3 后异步处理，A4 纸张，发现 3 处差异，建议采用");
     expect(v).toEqual([]);
+    const extras = ["Apple M1 设备", "A4 尺寸", "m5.large 实例", "P0/P1/P2"];
+    for (const s of extras) expect(collectAnchorViolations(s)).toEqual([]);
     const d = collectAnchorViolations("M2 审视、S3 检视轮、A1 审视");
     expect(d.map((x) => x.token).sort()).toEqual(["A1", "M2", "S3"]);
+  });
+
+  it("BC 纸/信封规格不误删，检查项号删除", () => {
+    expect(collectAnchorViolations("B4 纸张与 B5 纸，C4 纸与 C5 信封")).toEqual([]);
+    expect(collectAnchorViolations("B9 抽样，C4：UI 徽章数据源").map((x) => x.token).sort()).toEqual(["B9", "C4"]);
   });
 });
 
@@ -84,6 +93,15 @@ describe("annotateFile TS 编译器级词法", () => {
     expect(ann[1]).toBeNull(); // 模板正文第二行非注释
     expect(ann[2]).toBeNull();
     expect(ann[3]).toContain(hash()); // 模板后真行注释
+  });
+
+  it("多插值/嵌套模板后的行注释仍命中，JSX 文本里的 // 不误报", () => {
+    const multi = annotateFile(`const x = \`\${a}\${b}\`; ${sl()} ${hash()}1937`, "src/a.ts");
+    expect(multi[0]).toContain(hash());
+    const nested = annotateFile(`const x = \`\${a ? \`\${b}\` : c}\`; ${sl()} ${hash()}1937`, "src/a.ts");
+    expect(nested[0]).toContain(hash());
+    const jsxText = annotateFile(`const x = <div>text ${sl()} ${hash()}1937</div>;`, "src/a.jsx");
+    expect(jsxText[0] ?? "").not.toContain(hash());
   });
 
   it("多行块注释闭合行后的字符串不误伤", () => {
@@ -297,7 +315,7 @@ describe("checkDiff 集成（readFileFn 注入）", () => {
 
   it("M1/S3 技术词豁免、孤立 S1 命中、round 形态命中", () => {
     const content = [
-      `${sl()} M1 芯片与 S3 存储兼容`,
+      `${sl()} M1 与 S3 存储兼容`,
       `${sl()} round-2 修复后保留终态`,
       `${sl()} S1`,
     ].join("\n");
@@ -306,7 +324,7 @@ describe("checkDiff 集成（readFileFn 注入）", () => {
       "--- a/src/a.ts",
       "+++ b/src/a.ts",
       "@@ -0,0 +1,3 @@",
-      `+${sl()} M1 芯片与 S3 存储兼容`,
+      `+${sl()} M1 与 S3 存储兼容`,
       `+${sl()} round-2 修复后保留终态`,
       `+${sl()} S1`,
     ].join("\n");

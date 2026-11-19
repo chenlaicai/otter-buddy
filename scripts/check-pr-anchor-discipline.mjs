@@ -83,7 +83,7 @@ export const DOC_STRUCTURE_RES = [
   /\bPhase\s*[0-9]+/g, // Phase 号（仅大写，不误伤 phase1 文件名）
   /§\s*[0-9]+(?:\.[0-9]+)?/g, // 章节号（含小数点变体）
   /方案\s*v[0-9]+(?:\.[0-9]+)?/gi, // 方案版本号
-  /\bR[0-9]{2,}[a-z]?\b/g, // R 规则号（三位数字，含字母后缀）
+  /\bR[0-9]+[a-z]?\b/g, // R 规则号（单位数也禁：R1-R9 + R099/R100）
   /\bS[0-9]+[a-z]?(?:\.[0-9]+)?\b/g, // S 审视项号（含字母/小数点后缀）
   /\bM[0-9]+[a-z]?\b/g, // M 审视项号（含字母后缀）
   /\bA[0-9]+[a-z]?\b/g, // A 审视项号（含字母后缀）
@@ -118,21 +118,32 @@ function isExemptDocNumber(commentText, m, kind) {
     // ISO 时间（T10:00）——后紧跟英文冒号+数字；中文冒号是分隔符照删
     return /^:\d/.test(after);
   }
-  if (kind === "m编号") {
-    // bge-m3 模型名（前是连字符）或麻将牌索引 m0-8（后是连字符+数字）
-    return /-$/.test(before) || /^-\d/.test(after);
+  if (kind === "BC检查项") {
+    // B/C 系列纸张/信封规格（如「B4 纸」「C5 信封」）不误删
+    return /^\s*(?:纸|信封|系列|幅面)/.test(after);
   }
-  if (kind === "S编号" || kind === "M编号" || kind === "A编号") {
-    // 纸张/芯片/存储规格等日常词紧跟中文语境词（如「A4 纸」「M1 芯片」「S3 存储」）
-    return /^\s*(?:纸|芯片|存储|桶|信封)/.test(after);
+  if (kind === "m编号") {
+    // bge-m3 模型名（前是连字符）、麻将牌索引 m0-8（后是连字符+数字）、m5.large 实例（后是点）
+    if (/-$/.test(before) || /^-\d/.test(after) || /^\./.test(after)) return true;
+  }
+  if (kind === "S编号" || kind === "M编号" || kind === "A编号" || kind === "m编号") {
+    // 明确审视语境（前后紧跟审视/检视/轮/锚点/(检视)）→ 编号，不豁免（删）
+    const afterCtx = after.trimStart();
+    if (/^(?:审视|检视|复审|评审|快审|终核|锚点|轮)/.test(afterCtx)) return false;
+    if (/^[(（](?:审视|检视|复审|评审)/.test(afterCtx)) return false;
+    if (/(?:审视|检视|复审|评审|快审|终核|锚点|轮)\s*$/.test(before.trimEnd())) return false;
+    // 段落级技术词（芯片/存储/纸/信封/设备/实例/尺寸/桶）→ 该段字母编号视作日常词豁免
+    if (/芯片|存储|纸|信封|设备|实例|尺寸|桶/.test(commentText)) return true;
+    // 默认：审视项编号（无技术语境）→ 删
+    return false;
   }
   if (kind === "P编号") {
-    // 优先级取值/分位/Job 代号：P1→P2、P0 / P1 / P2 空格斜杠列表、priority 语境、P99 分位、P0-b 类后缀
+    // 优先级取值/分位/Job 代号：P1→P2、P0/P1/P2 斜杠列表（空格或不空格）、priority 语境、P99 分位、P0-b 类后缀
     return (
       /^→/.test(after) ||
       /→$/.test(before) ||
-      /^\s*\/\s/.test(after) || // 「P0 / P1」空格分隔优先级列表（不含 /无空格编号列表）
-      /\s\/\s$/.test(before) || // 列表后项（前是「 / 」）
+      /^\s*\//.test(after) || // 斜杠列表（P0/P1 或 P0 / P1）
+      /\s*\/\s*$/.test(before) || // 列表后项（前是「/」或「 / 」）
       /^-[a-z0-9]/i.test(after) ||
       /priority/i.test(before) ||
       token === "P99"
@@ -194,46 +205,44 @@ function countLines(content, pos) {
   return content.slice(0, pos).split("\n").length;
 }
 
-/** TS/JS 系：TypeScript 编译器级词法扫描，返回每行注释文本（1 基）。segs 可选：记录行内注释段精确 offset。 */
+/** TS/JS 系：TS 编译器级 AST + 注释范围收集。返回每行注释文本（1 基）。segs 可选：记录行内注释段精确 offset。 */
 function annotateTs(content, path, segs = null) {
   const lines = content.split("\n");
   const out = new Array(lines.length).fill(null);
-  // 仅 .tsx/.jsx 用 JSX 词法；模板字符串在两种词法下都需 reScanTemplateToken 回到模板尾部
-  const scriptKind = /\.tsx$/.test(path) ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, /* skipTrivia */ false, scriptKind, content);
-  const record = (token) => {
-    if (token !== ts.SyntaxKind.SingleLineCommentTrivia && token !== ts.SyntaxKind.MultiLineCommentTrivia) return;
-    const pos = scanner.getTokenPos();
-    const text = scanner.getTokenText();
+  // 仅 .tsx/.jsx 用 JSX/AST 词法；模板字符串/嵌套模板/JSX 文本均由 createSourceFile 保证，不再手写状态机
+  const scriptKind = /\.tsx$/.test(path)
+    ? ts.ScriptKind.TSX
+    : /\.jsx$/.test(path)
+      ? ts.ScriptKind.JSX
+      : ts.ScriptKind.TS;
+  const sourceFile = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, /* setParentNodes */ true, scriptKind);
+  const seen = new Set();
+  const record = (pos, end) => {
+    if (pos < 0 || end > content.length || pos >= end) return;
+    const key = `${pos}:${end}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const text = content.slice(pos, end);
     const startLine = countLines(content, pos);
     const lineStartOffset = content.lastIndexOf("\n", pos - 1) + 1;
     const startCol = pos - lineStartOffset;
     const parts = text.split("\n");
     for (let i = 0; i < parts.length; i++) {
       const idx = startLine - 1 + i;
+      if (idx >= lines.length) continue;
       const start = i === 0 ? startCol : 0;
-      const end = i === parts.length - 1 ? start + parts[i].length : lines[idx].length;
+      const endCol = i === parts.length - 1 ? start + parts[i].length : lines[idx].length;
       out[idx] = out[idx] == null ? parts[i] : `${out[idx]} ${parts[i]}`;
-      if (segs) segs.push({ line: idx, start, end, text: parts[i] });
+      if (segs) segs.push({ line: idx, start, end: endCol, text: parts[i] });
     }
   };
-  let token = scanner.scan();
-  while (token !== ts.SyntaxKind.EndOfFileToken) {
-    if (token === ts.SyntaxKind.TemplateHead) {
-      // 扫描内嵌表达式（其中可能有注释），直到 CloseBraceToken 后 reScan 回模板中间/尾部
-      token = scanner.scan();
-      while (token !== ts.SyntaxKind.CloseBraceToken && token !== ts.SyntaxKind.EndOfFileToken && token !== ts.SyntaxKind.LastTemplateToken) {
-        record(token);
-        token = scanner.scan();
-      }
-      if (token === ts.SyntaxKind.CloseBraceToken) {
-        token = scanner.reScanTemplateToken(/* isInsideJsxElement */ false);
-      }
-      continue;
-    }
-    record(token);
-    token = scanner.scan();
-  }
+  const collectRanges = (pos, end) => {
+    ts.forEachLeadingCommentRange(content, pos, (lpos, lend) => record(lpos, lend));
+    const trailing = ts.getTrailingCommentRanges(content, end);
+    if (trailing) for (const r of trailing) record(r.pos, r.end);
+  };
+  ts.forEachChild(sourceFile, (node) => collectRanges(node.pos, node.end));
+  collectRanges(sourceFile.pos, sourceFile.end);
   return out;
 }
 
