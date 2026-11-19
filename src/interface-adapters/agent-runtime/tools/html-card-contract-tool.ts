@@ -135,7 +135,7 @@ otterCard.submit({
 - **合入后动作**：squash/merge、issue 自动关、谁收尾
 - **授权按钮**：卡片脚本内 \`otterCard.submit({ summary: '<PR号>合入', data: { pr: <PR号> } })\`——summary 固定格式，搭档点按即成为 merge_pr 的合法授权源（F20260922pmgd）
 
-机械闸双闸点：speak 落库前（辅闸：单条命中 PR 引用+纯请求措辞且无卡→拒）与 yield to user 前（主闸：回合累计命中呈递形态但无含 otterCard.submit 的卡→拒）。闸只认「有没有 submit 按钮」，不校验 summary 措辞——但固定格式是 merge_pr 授权源的命中率保障。
+机械闸双闸点：speak 落库前（辅闸：单条命中 PR 引用+纯请求措辞且无卡→拒）与 yield to user 前（主闸：回合累计命中呈递形态但无含 otterCard.submit 的卡→拒）。闸对「按钮」只认**字样弱信号**（剔展示区后围栏含 otterCard.submit 即算，按钮真实可按由本模板纪律与检视兜底），不校验 summary 措辞——但固定格式是 merge_pr 授权源的命中率保障。
 
 ⚠️ 形态选对 ≠ 内容讲清——本表只管形态路由，内容组织纪律（结论先行/取舍依据随结论/证据可核）仍由 SYSTEM.md 规则层兑住。
 `;

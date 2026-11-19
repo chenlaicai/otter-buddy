@@ -248,10 +248,11 @@ describe("二轮检视回归：否定前缀扩充与语气词组保护", () => {
     expect(hasDecisionRequestNarrow("PR #1964 不要拍板吧。")).toBe(false);
     expect(hasDecisionRequestWide("PR #1964 不要拍板吧。")).toBe(false);
   });
-  it("「要不请你拍板/要不请你授权」建议语气命中（不再被误剔）", () => {
+  it("「要不请你拍板/要不请你授权」建议语气：主闸命中（辅闸被单字「不」误剔漏拦——错误代价结构决定的双表口径：辅闸误拦代价高于漏拦，主闸兜底）", () => {
     expect(hasDecisionRequestWide("PR #1964 CI 全绿，要不请你拍板。")).toBe(true);
     expect(hasDecisionRequestWide("PR #1964 CI 全绿，要不请你授权。")).toBe(true);
-    expect(hasDecisionRequestNarrow("PR #1964 CI 全绿，要不请你拍板。")).toBe(true);
+    // 辅闸层单字「不」剔除使语气词组被误剔——放行（可接受，主闸在 yield 拦住）
+    expect(hasDecisionRequestNarrow("PR #1964 CI 全绿，要不请你拍板。")).toBe(false);
   });
   it("「要不要合入/要不要合并」疑问请求仍命中（「不要X」前缀不误剔词组）", () => {
     expect(hasDecisionRequestWide("PR #1964 要不要合入？")).toBe(true);
@@ -317,5 +318,39 @@ describe("三轮检视回归：指代豁免引号形态补全", () => {
     expect(hasDeferredCardReference("PR #1964 可以合了；回归用例 ‘卡片在上一条’ 已固化。")).toBe(false);
     expect(hasDeferredCardReference("PR #1964 可以合了；回归用例 '卡片在上一条' 已固化。")).toBe(false);
     expect(checkSpeakGate("PR #1964 可以合了；回归用例 `卡片在上一条` 已固化。", hasCardFences)).toBeNull();
+  });
+});
+
+describe("四轮检视回归：单字否定的双表分层（辅闸恢复剔除，主闸维持无）", () => {
+  it("辅闸窄表：我不等/暂不等/不请 X 不再误拦（单字「不」恢复剔除——误拦代价高于漏拦）", () => {
+    for (const s of [
+      "PR #1964 我不等你拍板，先继续收尾。",
+      "PR #1964 暂不等你拍板，先继续收尾。",
+      "PR #1964 不请你拍板。",
+    ]) {
+      expect(hasDecisionRequestNarrow(s), s).toBe(false);
+    }
+  });
+  it("主闸宽表：不批准/不予批准/不建议批准合入仍是已声明边界（yield 补阻塞说明卡）", () => {
+    // 主闸无单字「不」——这些负向结论在宽表命中，to user 语境被要求出卡：
+    // 出一张「为什么不能合」的阻塞说明卡是合理呈递形态（非伤害性误拦），
+    // 显式记录为收窄代价（不静默回归——首轮 R2 的完整否定样本已双表过闸）。
+    expect(hasDecisionRequestWide("PR #1964 不批准合入，仍有阻塞项。")).toBe(true);
+    // 「不予」双字无语气歧义，入基础否定表——主闸也正确剔除
+    expect(hasDecisionRequestWide("PR #1964 不予批准合入，仍有阻塞项。")).toBe(false);
+    expect(hasDecisionRequestWide("PR #1964 不建议批准合入，仍有阻塞项。")).toBe(true);
+    expect(hasDecisionRequestNarrow("PR #1964 不批准合入，仍有阻塞项。")).toBe(false);
+  });
+  it("「暂不等你拍板」双字「暂不」入基础否定表（双表都剔）", () => {
+    expect(hasDecisionRequestWide("PR #1964 暂不等你拍板。")).toBe(false);
+  });
+});
+
+describe("四轮检视回归：纯文本 submit 字样放行（弱信号最简边界）", () => {
+  it("纯 div/button 文本里的 submit 字样放行——最简空壳形态，显式钉住", () => {
+    const div = ["#1964 可以合入了", "```html-card", "<div>otterCard.submit</div>", "```"].join("\n");
+    const btn = ["#1964 可以合入了", "```html-card", "<button>otterCard.submit</button>", "```"].join("\n");
+    expect(decisionCardPresent([div], cardFenceValues)).toBe(true);
+    expect(decisionCardPresent([btn], cardFenceValues)).toBe(true);
   });
 });

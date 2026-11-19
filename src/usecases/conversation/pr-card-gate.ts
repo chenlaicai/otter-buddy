@@ -12,15 +12,15 @@
  *   独立检视獭的检视报告（「检视通过，可以合入」）常态无卡，收进来会误拦非呈递方；
  *   评价措辞只在主闸的 yield-to-user 上下文里才算请求。
  * - 主闸（yield to user 前）：本回合 speak 累计 + yield reason 命中 [PR 引用 + 请求措辞（宽表）]
- *   且累计 speak 中无可执行提交路径的决策卡 → 拒绝交棒指导补决策卡。
+ *   且累计 speak 中无含提交信号的决策卡（弱字样） → 拒绝交棒指导补决策卡。
  *   yield to user 本身是「请搭档行动」的结构信号，与请求措辞共现才拦——检视獭 yield 回大獭不触发。
  *
- * 授权按钮判定取「结构化可执行路径在场」：script 块内（清 JS 注释/字符串后）的
- * otterCard.submit( 调用，或事件处理器属性（onclick 等）里的调用——注释掉的、
- * 字符串里的、code/pre/textarea 展示的、data-* 数据属性里的都不算
- * （空壳卡绕过两轮对抗实证：无语法上下文的子串判定不可靠）。
- * summary 文案（建议「<PR号>合入」，merge_pr 合法授权源）是模板纪律，机械层只管
- * 「有没有可执行的提交路径」，不管措辞。
+ * 授权按钮判定取**弱信号**（三轮对抗实证后的架构收窄）：剔除语法稳定的展示区
+ * （HTML 注释/code/pre/textarea）后围栏内含 otterCard.submit 字样。JS 语义级判定
+ * （script 解析/注释字符串清理/事件白名单）不可收敛，空壳形态（JS 内嵌伪调用、
+ * 纯文本字样）机械不可证明，放通记已知边界——闸的主目标是拦「卡片整体缺位」，
+ * 卡片质量由模板纪律与独立检视兜底，运行时真相由卡片回执事后可证。
+ * summary 文案（建议「<PR号>合入」，merge_pr 合法授权源）是模板纪律，机械层不管措辞。
  */
 
 /** PR 引用：GitHub #N（issue/PR 共号域——呈递语境 #N 泛指待拍板对象，通报 issue 完成同样该出卡）
@@ -37,10 +37,14 @@ const PR_REFERENCE_RE = /#\d{3,}|github\.com\/[^\s)]+\/pull\/\d+/;
  *  - 请求词与否定词之间允许 0-2 字封闭集副词（再/先/都/也/就/还/且/而）——
  *    「无需再等你拍板」「没必要先请你拍板」等副词间隙形态。
  *  - 隔实义字（「不阻塞，可以合入」）不构成否定——肯定语义保留。 */
-const NEGATION_PREFIXES = [
-  "不是", "并非", "没有", "无需", "无须", "不用", "不需要", "没必要", "暂无", "不再", "不要", "并不", "毫不",
+const NEGATION_PREFIXES_BASE = [
+  "不是", "并非", "没有", "无需", "无须", "不用", "不需要", "没必要", "暂无", "暂不", "不再", "不要", "不予", "并不", "毫不",
   "无", "非", "没", "别", "勿", "莫",
 ];
+/** 辅闸（speak 落库前）专用：追加单字「不」。错误代价结构不对称——辅闸误拦 = 正常
+ *  发言说不出话（最高代价），辅闸漏拦还有主闸兜底；所以辅闸宁可多剔（漏拦方向），
+ *  单字「不」的语气歧义（要不/何不请你拍板被误剔）在此层可接受，主闸仍会拦住真实请求。 */
+const NEGATION_PREFIXES_NARROW = [...NEGATION_PREFIXES_BASE, "不"];
 
 /** 否定词与请求词之间的封闭集副词窗（0-2 字）。 */
 const ADVERB_WINDOW = "[再先都也就还且而]{0,2}";
@@ -92,11 +96,11 @@ function escapeRegExp(s: string): string {
 /** 剔除否定组合与完成态：返回干净文本（词匹配的前提）。
  *  否定剔除按「否定前缀 + 副词窗 + 请求词」组合删片段，不按整句——同回合多 PR 多状态
  *  混排天然支持（「A 已合入，B 可以合入」剔除后 B 的请求仍在）。 */
-function stripNegations(text: string, phrases: string[]): string {
+function stripNegations(text: string, phrases: string[], negPrefixes: string[]): string {
   let cleaned = text;
   for (const phrase of phrases) {
     const escaped = escapeRegExp(phrase);
-    for (const neg of NEGATION_PREFIXES) {
+    for (const neg of negPrefixes) {
       cleaned = cleaned.replace(new RegExp(`${escapeRegExp(neg)}\\s*${ADVERB_WINDOW}\\s*${escaped}`, "g"), "");
     }
   }
@@ -111,15 +115,15 @@ export function hasPrReference(text: string): boolean {
   return PR_REFERENCE_RE.test(text);
 }
 
-/** 主闸判定：文本（剔除否定后）是否含请求拍板措辞（宽表）。 */
+/** 主闸判定：文本（剔除否定后）是否含请求拍板措辞（宽表）。基础否定表（无单字「不」）。 */
 export function hasDecisionRequestWide(text: string): boolean {
-  const cleaned = stripNegations(text, YIELD_REQUEST_PHRASES);
+  const cleaned = stripNegations(text, YIELD_REQUEST_PHRASES, NEGATION_PREFIXES_BASE);
   return YIELD_REQUEST_PHRASES.some((p) => cleaned.includes(p));
 }
 
-/** 辅闸判定：文本（剔除否定后）是否含纯请求拍板措辞（窄表）。 */
+/** 辅闸判定：文本（剔除否定后）是否含纯请求拍板措辞（窄表）。扩展否定表（含单字「不」）。 */
 export function hasDecisionRequestNarrow(text: string): boolean {
-  const cleaned = stripNegations(text, SPEAK_REQUEST_PHRASES);
+  const cleaned = stripNegations(text, SPEAK_REQUEST_PHRASES, NEGATION_PREFIXES_NARROW);
   return SPEAK_REQUEST_PHRASES.some((p) => cleaned.includes(p));
 }
 
@@ -129,7 +133,6 @@ export function hasDeferredCardReference(text: string): boolean {
   return DEFERRED_CARD_RE.test(text.replace(QUOTED_SPAN_RE, ""));
 }
 
-/** script 块内清 JS 不可执行区：块注释 → 字符串（单双引号/模板串）→ 行注释。
 /** 决策卡提交按钮在场判定（弱信号，架构收窄终态）：
  *  剔除**语法稳定无嵌套歧义**的展示区（HTML 注释 / code / pre / textarea 块）后，
  *  围栏内含 otterCard.submit 字样。
@@ -142,7 +145,7 @@ export function hasDeferredCardReference(text: string): boolean {
  *  的空壳形态机械不可证明，放通记边界——本闸的主目标是拦「卡片整体缺位」（事故
  *  本形态），卡片质量（按钮真实可按）由 get_html_card_contract 模板纪律与独立检视
  *  兜底，运行时真相由卡片回执（html-card-reply）事后可证。 */
-function hasExecutableSubmit(fenceHtml: string): boolean {
+function submitSignalPresent(fenceHtml: string): boolean {
   return fenceHtml
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<code[\s\S]*?<\/code>/gi, "")
@@ -152,13 +155,13 @@ function hasExecutableSubmit(fenceHtml: string): boolean {
 }
 
 /**
- * 决策卡在场判定：任一 speak body 的 html-card 围栏内容含可执行提交路径。
+ * 决策卡在场判定：任一 speak body 的 html-card 围栏内容含提交信号（弱字样）。
  * 围栏收集复用 remark 管线（与体积测量同源）——为避免 usecases → interface-adapters
  * 反向依赖，此处注入围栏值收集函数而非直接 import。
  */
 export function decisionCardPresent(speakBodies: string[], collectFenceValues: (body: string) => string[]): boolean {
   return speakBodies.some((body) =>
-    collectFenceValues(body).some((fence) => hasExecutableSubmit(fence)),
+    collectFenceValues(body).some((fence) => submitSignalPresent(fence)),
   );
 }
 
@@ -181,7 +184,7 @@ export function checkSpeakGate(body: string, hasCardFences: (body: string) => bo
 
 /** 主闸：yield to user 前检查。返回拒绝理由，null 放行。
  *  触发 = 本回合呈递面（speak 累计 + yield reason）含 PR 引用 + 宽表请求措辞，
- *  且累计 speak 无含可执行提交路径的决策卡。reason 面恒生效（yield 参数必在，
+ *  且累计 speak 无含提交信号（弱字样）的决策卡。reason 面恒生效（yield 参数必在，
  *  fail-open 只覆盖 speak 累计缺失维度）。 */
 export function checkYieldGate(
   speakBodies: string[],
