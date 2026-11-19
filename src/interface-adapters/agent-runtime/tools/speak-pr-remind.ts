@@ -18,7 +18,7 @@ import { scanBareUrls } from "@usecases/conversation/send-entry-unfurl-scan";
  * 台账比对按完整路径归一（owner/repo 小写 + pull/<n>）——按尾号比对会跨仓库
  * 同号吞提醒。
  *
- * 两条不变量（yield 复核，检视 delta 1 补第二条——否则「补登记后放行但裸链
+ * 两条不变量（yield 复核，检视补第二条——否则「补登记后放行但裸链
  * 仍缺席」构成假闭环，原事故两类现场依旧无 unfurl）：
  * 一、强信号 URL 必须已登记（第三步）；
  * 二、确认呈递的 PR——本回合 pr 登记过（registered）或弱信号已在台账——
@@ -103,7 +103,7 @@ export type YieldPrVerdict = { pass: true; remind?: string } | { pass: false; re
 
 /**
  * yield 边界复核：回合寄存器中的 PR URL 按两不变量复核。
- * 拒绝/放行按 **缺口快照比对** 判定（delta 2：替代「同回合二次无条件放行」——
+ * 拒绝/放行按 **缺口快照比对** 判定（替代「同回合二次无条件放行」——
  * 多 PR 混合缺口按回执部分修复后，剩余缺口会被无条件放行构成假闭环）：
  * - 缺口空 → 放行；
  * - 缺口与上次拒绝时完全相同（零进展：agent 收到完整回执后未做任何修复，
@@ -167,7 +167,7 @@ function dedupByIdentity(): (u: string, i: number, arr: string[]) => boolean {
 }
 
 /** 回执话术：**完整列出全部缺口**（多 PR × 两不变量逐类成段，不因一类存在而
- *  early-return 吞掉另一类——delta 2 发现：混合缺口只报第一类，agent 按回执修复
+ * early-return 吞掉另一类——发现：混合缺口只报第一类，agent 按回执修复
  *  后另一类被二次放行静默吞掉）。零进展放行变体开头声明「视为确认放行」并留声。 */
 function buildRemindText(
   gaps: {

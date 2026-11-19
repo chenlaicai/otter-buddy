@@ -36,7 +36,7 @@ function makeCtx(opts: { registeredPrUrls?: string[] } = {}): ToolContext {
           title: null, content: null, category: null, linkedBy: 'big',
           createdAt: '2026-11-19T00:00:00Z', status: 'active',
         }))),
-        // delta 3：登记侧端到端——create_linked_resource 真实工具路径依赖 link；
+        // 登记侧端到端——create_linked_resource 真实工具路径依赖 link；
         // 按入参回显资源（断开 prRemindGuardNoteOnLink 挂接时相关用例变红）
         link: vi.fn(async (input: Record<string, unknown>) => ({
           id: `res-${input.resourceType}`, conversationId: 'conv',

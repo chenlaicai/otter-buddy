@@ -1,5 +1,5 @@
 /**
- * Agent 工具领域接口（ 拍板）。
+ * Agent 工具领域接口（已拍板）。
  *
  * 工具是"给 LLM 的手脚"，其契约（AgentTool/ToolContext/ToolResponse）是应用层概念——
  * interface-adapters（工具实现与文案）与 frameworks（pi-session-factory 装载）双方
