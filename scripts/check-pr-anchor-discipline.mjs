@@ -145,7 +145,7 @@ function isExemptDocNumber(commentText, m, kind) {
     if (/-$/.test(before) || /^-\d/.test(after) || /^\./.test(after)) return true;
     // 测试数据/窗口边界：m1/m2/m3 斜杠列表 或「m1 之前/之后」时间窗口语（非审视项号）
     if (/\/\s*$/.test(before) || /^\s*\//.test(after)) return true;
-    if (/^\s*(?:之前|之后|前|后)[^0-9]/.test(after)) return true;
+    if (/^\s*(?:之前|之后|前|后)(?=$|[^0-9])/.test(after)) return true;
   }
   if (kind === "R编号") {
     // git rename 相似度分数（R100/R096/R50% 等）——diff --name-status 的 R 分，不是规则号

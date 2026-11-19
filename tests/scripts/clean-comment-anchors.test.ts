@@ -85,6 +85,13 @@ describe("cleanCommentText 文档结构编号", () => {
     expect(cleanCommentText("34 种索引：m0-8 p9-17").text).toContain("m0-8");
   });
 
+  it("m 时间边界豁免：短句结尾的「m1 之前/之后/前/后」不误删", () => {
+    expect(cleanCommentText("诞生于 m1 之前").text).toBe("诞生于 m1 之前");
+    expect(cleanCommentText("诞生于 m1 之后").text).toBe("诞生于 m1 之后");
+    expect(cleanCommentText("诞生于 m1 前").text).toBe("诞生于 m1 前");
+    expect(cleanCommentText("诞生于 m1 后").text).toBe("诞生于 m1 后");
+  });
+
   it("阶段缩写号删除，优先级豁免", () => {
     expect(cleanCommentText("P1：信号路由器").text).toBe("信号路由器");
     expect(cleanCommentText("priority 必有且仅 1 个：P0 / P1 / P2").text).toContain("P0");

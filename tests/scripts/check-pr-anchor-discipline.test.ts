@@ -109,6 +109,12 @@ describe("collectAnchorViolations 三类编号", () => {
     expect(collectAnchorViolations("首拉最新 2 条（m2/m3），r-old 诞生于 m1 之前（窗口外）").some((x) => x.kind === "文档编号" && x.token === "m1")).toBe(false);
   });
 
+  it("m 时间边界豁免：注释恰好在「之前/之后/前/后」结束（短句结尾）不误删", () => {
+    for (const s of ["诞生于 m1 之前", "诞生于 m1 之后", "诞生于 m1 前", "诞生于 m1 后"]) {
+      expect(collectAnchorViolations(s).some((x) => x.kind === "文档编号" && x.token === "m1")).toBe(false);
+    }
+  });
+
   it("BC 纸/信封规格不误删，检查项号删除", () => {
     expect(collectAnchorViolations("B4 纸张与 B5 纸，C4 纸与 C5 信封")).toEqual([]);
     expect(collectAnchorViolations("B9 抽样，C4：UI 徽章数据源").map((x) => x.token).sort()).toEqual(["B9", "C4"]);
