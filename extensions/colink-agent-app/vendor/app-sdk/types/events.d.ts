@@ -70,11 +70,6 @@ export interface TopicReadOptions {
     limit?: number;
     cursor?: string;
 }
-export interface DirectMessageReadOptions {
-    limit?: number;
-    beforeId?: string;
-    afterId?: string;
-}
 export interface TurnActions {
     /** Reads only the original topic or DM conversation; never accepts caller-selected resources or identities. */
     readonly source: {
@@ -90,7 +85,7 @@ export interface TurnActions {
        * @remarks 仅传对应分页参数；SDK 按可信来源固定身份，公共话题用 A，私密话题及私聊用本轮 U。缺少可见性时等待具有完整来源的新事件；不切换身份重试，不以通用读取绕过来源限制。
        * @see https://colink.link/docs/app-extensions/colink-for-ai.zip 文档包：for-ai-sdk-errors.md#原来源读取
        */
-        listMessages(options?: DirectMessageReadOptions): Promise<DirectMessagePage>;
+        listMessages(options?: TopicReadOptions): Promise<DirectMessagePage>;
     };
     /** Persist and send a complete stage message now. Await for backpressure; key is stable within the event. */
     /** @sdkFailure progress

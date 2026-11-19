@@ -75,10 +75,8 @@ export function methodUsage(inputName, identities, identityHint) {
     const write = writeUsage(guide.route === 'PUT /app-files/:fileId/content' ? 'POST /app-files' : guide.route);
     const metadata = structuredClone(guide);
     if (turnRead) {
-        const dm = guides['directMessages.list'];
-        metadata.arguments = [{ name: 'options', type: 'TopicReadOptions | DirectMessageReadOptions', optional: true, open: false,
-                parameters: [...metadata.arguments[0].parameters.filter(p => ['limit', 'cursor'].includes(p.name)),
-                    ...dm.arguments[0].parameters.filter(p => ['beforeId', 'afterId'].includes(p.name))] }];
+        metadata.arguments = [{ name: 'options', type: 'TopicReadOptions', optional: true, open: false,
+                parameters: metadata.arguments[0].parameters.filter(p => ['limit', 'cursor'].includes(p.name)) }];
         metadata.reference = 'for-ai-sdk-events.md#读取当前来源';
     }
     return { ...metadata, ...(write ? { write } : {}), method: publicName,

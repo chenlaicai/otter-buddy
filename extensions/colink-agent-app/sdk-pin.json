@@ -1,8 +1,8 @@
 {
   "package": "@colink/app-sdk",
-  "version": "0.28.0",
-  "integrity": "sha512-h+8Xn1zx8aZXKeCpaNwe4uu4egvvr2Sk84wEOCEGKXXbz3c/lCCoR6sU+r7TOStzkmYxo4xCNQs+88ThHnDL9w==",
+  "version": "0.28.1",
+  "integrity": "sha512-nbXyyW8qVDzjzcidKgv3UYmJnyS4xkRfjAEx1r15EXNi6L1HbxsdGLzVDtNipZkWOKCMlmMGHKr4A6OeRaCwAQ==",
   "builtFrom": "dev/app-toolkit/distribution/build.mjs",
-  "sourceCommit": "a9525f46daf77f462b2cd28c48dd85c72095df1f",
+  "sourceCommit": "a2e4c18f009e1d58d1a6cc6d4d15510db67db269",
   "note": "由 npm run prepare:sdk 生成，勿手改；升级 SDK 时重跑并同步适配插件代码"
 }
