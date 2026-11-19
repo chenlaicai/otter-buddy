@@ -4922,6 +4922,138 @@ describe('#1048: 看门狗克制（放弃 ≠ 失败）', () => {
       vi.useRealTimers();
     }
   });
+
+});
+
+describe('F20261119reapk 机械释放补 pending 入列（「恢复后由补扫消化」载体保证）', () => {
+  const HOURS = 3_600_000;
+
+  /** 自包含滞留现场：预置超龄 running 执行 + 可控 pendingItemRepo（入列副作用记录在 enqueued 数组） */
+  function setupReapKindle(opts: {
+    isOtterRunning?: (id: string) => boolean;
+    taskOverrides?: Partial<ScheduledTask>;
+    slotHasRunning?: boolean;
+    directCompleted?: boolean;
+    enqueueResult?: boolean;
+  } = {}) {
+    const taskRepo = createMockTaskRepo();
+    const convRepo = createMockConvRepo();
+    const entryRepo = createMockEntryRepo();
+    const sendEntry = createMockSendEntry();
+    const agentInvoke = createMockAgentInvoke();
+    const healingRepo = makeObservableHealingRepo();
+    const stuckAt = new Date(Date.now() - 3 * HOURS).toISOString();
+
+    const task = makeTask(opts.taskOverrides ?? { lastTriggeredAt: stuckAt });
+    taskRepo._store.set(task.id, task);
+    convRepo._addConversation(task.conversationId, { status: 'active' });
+    taskRepo._executions.set('stuck-exec-1', {
+      id: 'stuck-exec-1', taskId: task.id, triggeredAt: stuckAt,
+      completedAt: null, status: 'running', errorMessage: null, messageId: null,
+    });
+    taskRepo.getExecutions = vi.fn(async (taskId?: string, options?: { limit?: number }) => {
+      let rows = Array.from(taskRepo._executions.values()).filter(e => e.taskId === taskId);
+      rows.sort((a, b) => String(b.triggeredAt).localeCompare(String(a.triggeredAt)));
+      if (options?.limit != null) rows = rows.slice(0, options.limit);
+      return rows;
+    }) as unknown as typeof taskRepo.getExecutions;
+
+    // 副作用记录代替 mock 调用断言（仓 lint 禁绑定实现细节）
+    const enqueued: Array<Record<string, unknown>> = [];
+    const pendingItemRepo = {
+      hasExecutionInSlot: async () => opts.slotHasRunning ?? false,
+      hasDirectCompletionInSlot: async () => opts.directCompleted ?? false,
+      enqueue: async (item: Record<string, unknown>) => {
+        enqueued.push(item);
+        return opts.enqueueResult ?? true;
+      },
+    };
+
+    const service = new SchedulerService({
+      taskRepo: taskRepo as unknown as ScheduledTaskRepository,
+      convRepo: convRepo as unknown as ConversationRepository,
+      sendEntry: sendEntry as unknown as SendEntry,
+      entryRepo: entryRepo as unknown as EntryRepository,
+      agentInvokePort: agentInvoke as unknown as AgentTurnPort,
+      cronParser: createMockCronParser(new Date(Date.now() + 60_000)) as unknown as CronParser,
+      logger: mockLogger,
+      healingRepo: healingRepo as never,
+      tickImpl: async () => {},
+      isOtterRunning: opts.isOtterRunning,
+      pendingItemRepo: pendingItemRepo as never,
+    });
+    return { service, taskRepo, healingRepo, agentInvoke, enqueued, task, stuckAt };
+  }
+
+  // Why 只冻 Date 不冻定时器：trigger 路径的看门狗/超时 race 依赖真实 setTimeout
+  beforeEach(() => { haltRegistry.resetForTest(); vi.useFakeTimers({ toFake: ['Date'] }); });
+  afterEach(() => { haltRegistry.resetForTest(); vi.useRealTimers(); });
+
+  it('11-13 实证场景：轮询扫描翻篇 + 同槽仅抑制型 completed → 补入列（triggeredAt 保持原槽位）', async () => {
+    const { service, taskRepo, healingRepo, enqueued, stuckAt } = setupReapKindle({ isOtterRunning: () => false });
+
+    await (service as unknown as { tickReal(): Promise<void> }).tickReal();
+
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    // 副作用断言：恰好入列一条，槽位/任务/角色/对话均携原现场
+    expect(enqueued.length).toBe(1);
+    expect(enqueued[0].triggeredAt).toBe(stuckAt);
+    expect(enqueued[0].taskId).toBe('task-1');
+    expect(enqueued[0].role).toBe('大獭');
+    expect(enqueued[0].conversationId).toBe('conv-1');
+    // 抑制型 completed（message_id=NULL）不算覆盖——现场形态：二次触发的账面 completed 存在仍需入列
+    const ev = healingRepo._events.find(e => e.severity === 'high');
+    expect(ev && (ev.context as Record<string, unknown>).pendingKindled).toBe(true);
+  });
+
+  it('同槽另有 running（双触发窗口）→ 不重复入列', async () => {
+    const { service, taskRepo, enqueued } = setupReapKindle({ isOtterRunning: () => false, slotHasRunning: true });
+
+    await (service as unknown as { tickReal(): Promise<void> }).tickReal();
+
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    expect(enqueued.length).toBe(0);
+  });
+
+  it('同槽已有真直发 completed（带锚点）→ 已覆盖不入列', async () => {
+    const { service, enqueued } = setupReapKindle({ isOtterRunning: () => false, directCompleted: true });
+
+    await (service as unknown as { tickReal(): Promise<void> }).tickReal();
+
+    expect(enqueued.length).toBe(0);
+  });
+
+  it('enqueue 被部分唯一索引去重（同任务已有 pending）→ 静默、pendingKindled=false 落账', async () => {
+    const { service, healingRepo, enqueued } = setupReapKindle({ isOtterRunning: () => false, enqueueResult: false });
+
+    await (service as unknown as { tickReal(): Promise<void> }).tickReal();
+
+    expect(enqueued.length).toBe(1); // 尝试过入列但被索引去重
+    const ev = healingRepo._events.find(e => e.severity === 'high');
+    expect(ev && (ev.context as Record<string, unknown>).pendingKindled).toBe(false);
+  });
+
+  it('挤占触发点路径同样补入列：翻篇后入列 + 新触发放行不冲突', async () => {
+    const { service, taskRepo, agentInvoke, enqueued } = setupReapKindle({ isOtterRunning: () => false });
+
+    const result = await service.trigger('task-1');
+
+    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+    expect(enqueued.length).toBe(1);
+    expect(result.executionId).toBeDefined();
+    expect(agentInvoke.invokeConversation).toHaveBeenCalled(); // 新触发放行不受影响
+  });
+
+  it('once 任务不入列（行触发后即删，pending FK 悬空）', async () => {
+    const { service, enqueued } = setupReapKindle({
+      isOtterRunning: () => false,
+      taskOverrides: { scheduleType: 'once', triggerAt: new Date(Date.now() - 3 * HOURS).toISOString() },
+    });
+
+    await (service as unknown as { tickReal(): Promise<void> }).tickReal();
+
+    expect(enqueued.length).toBe(0); // once 守卫：无论翻篇与否都不入列
+  });
 });
 
 describe('F20261104ssfde：定时任务触发 SSE 广播透出 senderName（前端折叠识别依据）', () => {

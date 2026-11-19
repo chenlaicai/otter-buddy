@@ -577,12 +577,51 @@ export class SchedulerService {
       this.logger.warn('孤儿扫描: running 执行已机械释放', {
         taskId: task.id, executionId: exec.id, triggeredAt: exec.triggeredAt, targetOtter,
       });
-      await this.recordReapHealing(task, exec.id);
+      const kindled = await this.kindleReapPending(task, exec);
+      await this.recordReapHealing(task, exec.id, kindled);
     }
   }
 
-  /** #1449：孤儿清理落 healing（high——日报缺失级事故，值得被看见）。失败仅日志。 */
-  private async recordReapHealing(task: ScheduledTask, executionId: string): Promise<void> {
+  /** F20261119reapk：机械释放补 pending 入列——「恢复后由补扫消化」的载体保证。
+   *  现场（11-13 健康检查实证）：首触发 running 滞留（执行方冻结未消费注入消息），
+   *  二次触发被同槽 running 抑制成不入列的账面 completed（message_id=NULL），
+   *  机械释放翻篇后当轮工作失去全部载体，当日任务目标丢失。
+   *  判定：同槽无其他 running 且无真直发 completed（抑制型 completed 不算覆盖）→ 入列，
+   *  恢复后经 pending 提醒通道补做/弃做均留痕。once 行触发后即删（pending FK 悬空）不入列。 */
+  private async kindleReapPending(task: ScheduledTask, execution: ScheduledTaskExecution): Promise<boolean> {
+    if (!this.pendingItemRepo || task.scheduleType === 'once') return false;
+    try {
+      if (await this.pendingItemRepo.hasExecutionInSlot(task.id, execution.triggeredAt, ['running'], execution.id)) return false;
+      if (await this.pendingItemRepo.hasDirectCompletionInSlot(task.id, execution.triggeredAt)) return false;
+      const enqueued = await this.pendingItemRepo.enqueue({
+        id: crypto.randomUUID(),
+        taskId: task.id,
+        conversationId: task.conversationId,
+        role: task.executorRole,
+        triggeredAt: execution.triggeredAt,
+        status: 'pending',
+        consumedAt: null,
+        resolution: null,
+        resolutionReason: null,
+      });
+      if (enqueued) {
+        this.logger.info('机械释放补 pending 入列：恢复后经 pending 通道重燃', {
+          taskId: task.id, executionId: execution.id, slotTriggeredAt: execution.triggeredAt,
+        });
+      }
+      return enqueued;
+    } catch (err) {
+      this.logger.warn('机械释放补 pending 入列失败（不阻塞释放本体）', {
+        taskId: task.id, executionId: execution.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+  }
+
+  /** #1449：孤儿清理落 healing（high——日报缺失级事故，值得被看见）。失败仅日志。
+   *  F20261119reapk：context 带 pendingKindled，suggestion 分叉由入列结果驱动。 */
+  private async recordReapHealing(task: ScheduledTask, executionId: string, pendingKindled = false): Promise<void> {
     if (!this.healingRepo) return;
     try {
       await this.healingRepo.create({
@@ -593,12 +632,15 @@ export class SchedulerService {
         errorType: 'other',
         severity: 'high',
         description: `定时任务「${task.name}」running 执行体滞留超 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h，轮询扫描机械释放`,
-        suggestion: '核查该时段是否用户停机/限流冻结或网关断连；若为闸门冻结滞留属已知形态，恢复后由补扫消化',
+        suggestion: pendingKindled
+          ? '核查该时段是否用户停机/限流冻结或网关断连；已补 pending 入列，执行方恢复后经 pending 通道重燃补做'
+          : '核查该时段是否用户停机/限流冻结或网关断连；未入列（同槽已覆盖/去重/once），次日 cron 自然覆盖',
         context: {
           taskId: task.id,
           executionId,
           thresholdMs: RUNNING_STUCK_THRESHOLD_MS,
           reapedAt: new Date().toISOString(),
+          pendingKindled,
         },
         status: 'open',
         resolution: null,
@@ -1596,7 +1638,8 @@ export class SchedulerService {
       this.logger.warn('挤占触发点：孤儿 running 执行已即时释放', {
         taskId: task.id, executionId: exec.id, triggeredAt: exec.triggeredAt, targetOtter, halted,
       });
-      await this.recordReapHealing(task, exec.id);
+      const kindled = await this.kindleReapPending(task, exec);
+      await this.recordReapHealing(task, exec.id, kindled);
     }
   }
 
