@@ -1,7 +1,9 @@
 # Otter Buddy 中枢 — ECS 正式 systemd 单元（部署底座）
 # 安装：sudo cp otter-buddy.service /etc/systemd/system/ && sudo systemctl daemon-reload
 # 数据根：/var/lib/otter-buddy（持久卷，迁移/备份都围绕它）
-# 代码根：/opt/otter-buddy（deploy.sh rsync 更新）
+# 代码根：/opt/otter-buddy（deploy.sh rsync 更新；data 为 symlink → /var/lib/otter-buddy/data，
+# 部署时由 deploy.sh 创建——cwd 保持代码根，docs/skills/config 等仓资产正常解析，
+# ./data/* 相对引用穿链落物理数据根；检视 D1 处置：不用 WorkingDirectory 承载数据根语义）
 # 注意：替换 colink PoC 实例时先 systemctl disable --now otter-buddy（旧 PoC）再装本单元
 
 [Unit]

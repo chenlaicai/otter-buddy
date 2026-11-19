@@ -211,7 +211,7 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
   const root = repoRoot();
   fs.cpSync(path.join(root, ".pi"), path.join(sandbox, ".pi"), { recursive: true });
   fs.cpSync(path.join(root, "prompts"), path.join(sandbox, "prompts"), { recursive: true });
-  fs.cpSync(path.join(root, "data/terminology"), path.join(sandbox, "data/terminology"), { recursive: true });
+  // 术语种子已随 dist 编译期 import（mgfix）——沙箱无需再拷 data/terminology
   fs.symlinkSync(path.join(root, "models"), path.join(sandbox, "models"));
   const prevCwd = process.cwd();
   /** 必须在 buildApp 前 chdir：pi ResourceLoader、identity 目录、ensure-model 均按 cwd 解析 */

@@ -113,9 +113,12 @@ async function main() {
   const manifestPath = path.join(outDir, `migrate-${ts}.manifest.json`);
   fs.writeFileSync(path.join(staging, "MIGRATE-MANIFEST.json"), JSON.stringify(manifest, null, 2));
 
-  // 打包（gzip -1：12G 量级压缩耗时与体积折中）
+  // 打包（gzip -1：12G 量级压缩耗时与体积折中）。
+  // COPYFILE_DISABLE=1（演练轮实证修复）：macOS bsdtar 默认把扩展属性写成 AppleDouble
+  // （._*）条目混进 tar——manifest 对 staging 计算（无 ._）→ restore 多余文件检测
+  // fail-closed 拒收。禁后 tar 内容与 staging 严格一致。
   const tarPath = path.join(outDir, `migrate-${ts}.tar.gz`);
-  execFileSync("tar", ["-czf", tarPath, "-C", staging, "."], { stdio: "inherit" });
+  execFileSync("tar", ["-czf", tarPath, "-C", staging, "."], { stdio: "inherit", env: { ...process.env, COPYFILE_DISABLE: "1" } });
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 
   fs.rmSync(staging, { recursive: true, force: true });

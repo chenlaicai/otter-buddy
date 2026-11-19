@@ -24,10 +24,15 @@ import { createRequire } from "node:module";
 
 const nodeRequire = createRequire(import.meta.url);
 
-/** 迁移数据域：data/ 下的子目录与文件白名单（核心集——不含 models/backups/logs/rehearsal 库） */
+/** 迁移数据域：data/ 下的子目录与文件白名单（核心集——不含 models/backups/logs/rehearsal 库）。
+ *  演练轮实证收敛：terminology 种子改随 dist 部署（代码资产，
+ *  编译期 import）；execution-machines（执行机本地真相不迁移不备份——特性文档语义）
+ *  与 quota-browser（运行时 cache）不迁；backgrounds（用户设置背景图）/weixin（通道
+ *  凭据）为用户数据保留迁移。 */
 export const MIGRATE_INCLUDES = [
   "workspaces", "sessions", "durable-sessions", "attachments",
   "feishu", "metrics", "otter-buddy.db", "owner-password",
+  "backgrounds", "weixin",
 ];
 
 /** sqlite 主库文件识别（主库 + durable-sessions 每会话一库）。
