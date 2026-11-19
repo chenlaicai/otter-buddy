@@ -119,9 +119,11 @@ open 且挂龄 ≥3 天且无 open PR 引用，满足其一：① 认领后超 4
 采样协议：n=10 ≥8（README 行为改动 PR 层）；校准模型 k3.1-pro（mimo/glm 配额双 429 顶班，见下）。构造妥协声明：真实流程獭自跑 gh/sqlite 取数，演练环境无后端，扫描数据/检查结果由调度器角色内联注入（与 {{REGRESSION_DATA}} 占位符注入同构）——测的是组版/判定协议遵循，非取数能力。
 
 **采样结果**（2026-11-19 实跑，model=k3.1-pro——mimo 套餐与 glm 周/月配额均耗尽 429 实测，kimi 端点顶班；顶班适配两处：config 补 cacheLongRetention:false 对齐生产（prompt_cache_retention 被拒）+ thinkingLevel:max（reasoning.effort=none 被拒））：
-- 【v3 断言收紧+校准后重跑，终态】daily-issue-orphan-detection：**9/10 ✓**（唯一失败为 75 字退化短输出，非规则违例）；regression-verify-direction-repair：**9/10 ✓**（唯一失败为环境性 LLM 超时，非判定违例）——双双过 ≥8 闸
+- 【v5 终态·二轮终核处置后】daily-issue-orphan-detection：**10/10 ✓**（二轮终核 2 严重处置：逐出现行判据修无管道绕过 + #1806 段位判 + deferral 空转拦截；v4 7/10 暴露拍板搁置计数/在途尾行弱遵循 → prompt 加「输出骨架」硬化后全样本通过）；regression-verify-direction-repair：**10/10 ✓**（v4 终态，deferral 拦截与历史引用区分生效）
+- 【v3】daily 9/10、regression 9/10（v2→v3 校准轮）
 - 【v2 中间态】断言收紧首跑：daily 2/10、regression 1/10——暴露解析器与真实输出格式错位（孤儿合规重复列勾选表被误判段外；历史引用「首轮判定 ⚠️」被全量拦截误伤），校准后进 v3。此两轮留痕证明：断言收紧本身也需采样校准，不是改严就是对
 - 【v1 首轮】daily 9/10、regression 10/10——后被终核证明断言存在假阳性，该轮通过率仅作下界参考
+- 【prompt 硬化记录】v4 7/10 定位两处弱遵循（拍板搁置计数行漏写 ~15%、在途尾行偶漏）→ 孤儿检出段加「输出骨架（缺段即不合规）」+ 等量出清（净 -11B，9943B 预算内），v5 10/10。教训留痕：行为弱遵循优先硬化 prompt 而非放宽断言或重跑蒙混
 - 留痕：data/metrics/golden-results.jsonl（pr=1966 行）；失败首轮留痕同文件（externalProfile 路径 0/10 ×2——直调 invokeConversation 下受限档不产消息终态，弃用改 night-reviewer 档案借零编码工具面）
 
 ## 终审收口（搭档 2026-11-19 拍板链）
