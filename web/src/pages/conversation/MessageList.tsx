@@ -139,7 +139,7 @@ function CardAwarePre({ children, node, ...props }: ComponentProps<'pre'> & { no
   return <pre {...props}>{children}</pre>
 }
 
-/** F20261008csf1 P1：a 组件——裸链段落升级为 unfurl 预览卡（链类形态）。
+/** a 组件——裸链段落升级为 unfurl 预览卡（链类形态）。
  *  判定不在组件层做：react-markdown 传给 components 的 hast 节点无 .parent 指针
  *  （unist 树不回填父指针），拿不到段落上下文——改由 remark 插件（remark-bare-link）
  *  在 mdast 层判定，经 hProperties 通道写入 dataBareUrl（与 html-card fenceIndex 同构），
@@ -198,28 +198,28 @@ export { MarkdownContent }
 
 
 
-/** F20261008scpg scroll-pin 状态机常量：touch 脱锚位移阈值（账本常量 LEDGER_TTL_MS/LEDGER_EPS_PX
- *  与 F20261020lmld 近顶触发带 LOAD_MORE_TOP_PX 已随 F20261020wcsr 退役——触发改哨兵，账本删除） */
+/** scroll-pin 状态机常量：touch 脱锚位移阈值（账本常量 LEDGER_TTL_MS/LEDGER_EPS_PX
+ * 与 近顶触发带 LOAD_MORE_TOP_PX 已随 退役——触发改哨兵，账本删除） */
 const TOUCH_UNPIN_PX = 10
-/** F20261020wcsr：哨兵预触发带（px）——哨兵距视口顶 200px（≈2-4 条消息）即开始加载，
+/** 哨兵预触发带（px）——哨兵距视口顶 200px（≈2-4 条消息）即开始加载，
  *  「还没到顶就已备好」的微信手感；取 0 则用户到顶才开始等加载 */
 const SENTINEL_ROOT_MARGIN_PX = 200
-/** F20261020wcsr：连拉限幅——用户停在顶部时自动连拉上限（批）。无上限=一口气拉完全量
- *  （F20261020lmld 注释口径不可接受）；有上限保阅读意图。冷却只约束自动通道，手动按钮不受限。
+/** 连拉限幅——用户停在顶部时自动连拉上限（批）。无上限=一口气拉完全量
+ * （注释口径不可接受）；有上限保阅读意图。冷却只约束自动通道，手动按钮不受限。
  *  解除通道：handleScroll 检测向下位移（用户离开顶部）即重置。故障模式=哨兵静默（同 lmld
  *  死锁形态），逃生口=可见按钮（手动通道不受限） */
 const AUTO_CHAIN_MAX_BATCHES = 3
-/** F20261029repin 新消息恢复跟随的视觉贴底阈值（px）：亚像素余量，任何可感知的上拉距离
+/** 新消息恢复跟随的视觉贴底阈值（px）：亚像素余量，任何可感知的上拉距离
  *  都远大于此。不用旧 100px 近底宽带——「宽松回锚=善意」假设已作废（搭档 10/29 裁决
- *  移除「到底即回锚」机制，归因见 F20261029repin §3） */
+ * 移除「到底即回锚」机制，归因见） */
 const NEWMSG_REPIN_PX = 8
 
-/** F20261104ssfde：scheduler 来源系统消息折叠阈值（字符）。低于此长度的短系统消息仍全文展示，
+/** scheduler 来源系统消息折叠阈值（字符）。低于此长度的短系统消息仍全文展示，
  *  避免琐碎消息也套一层点击成本。实测：未闭环扫撞 1.3k、健康检查 6.3k、issue 处理 3.9k——
  *  800 可全覆盖且不影响小任务（如补丁清单 814 也会折叠，它同样是完整任务指令）。 */
 const SCHEDULER_SYSMSG_FOLD_THRESHOLD = 800
 
-/** F20261008csf1 P1：混排时间线条目——消息气泡 or 文类产物摘要卡 */
+/** 混排时间线条目——消息气泡 or 文类产物摘要卡 */
 type TimelineItem =
   | { kind: 'message'; ts: string; seq: number; message: Message }
   | { kind: 'artifact'; ts: string; seq: -1; resource: LocalLinkedResource }
@@ -829,7 +829,7 @@ export function MessageList({
   )
 }
 
-/** F20261008csf1 P1：图类内联 lightbox——点击缩略图原位放大（遮罩层），再点关闭。
+/** 图类内联 lightbox——点击缩略图原位放大（遮罩层），再点关闭。
  *  宪法「缩略即全文，点击放大」：不跳新窗口（原实现 target=_blank 打断对话现场）。
  *  Esc/点击遮罩关闭；防滚动穿透（body overflow 临时锁定）。 */
 function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
@@ -867,9 +867,9 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
   )
 }
 
-/** 多模态 Phase 1：消息内附件渲染。图片网格缩略图（点击原位放大——F20261008csf1 图类
+/** 多模态 消息内附件渲染。图片网格缩略图（点击原位放大——图类
  *  内联 lightbox 取代原新窗口打开）+ document/audio/video 文件卡（点击下载；audio 用原生
- *  控件回放，#608）。
+ * 控件回放，）。
  *  同一端点 /api/attachments/:id，image inline / 其他 attachment。
  *  为什么用后端端点而非 base64 内嵌：DTO 只带引用（id/尺寸），消息体积不变，缓存友好（immutable） */
 function AttachmentBlock({ atts, isUser }: { atts: LocalAttachment[]; isUser: boolean }) {
@@ -1159,7 +1159,7 @@ function MessageItem({ message: m, otters, onStopStream, onRetryMessage, highlig
 }
 
 
-/** F20261013csv3 T5：折叠后的工具调用步渲染（call/think/speak/error/user 五形——
+/** 折叠后的工具调用步渲染（call/think/speak/error/user 五形——
  *  后端 foldInvokeEvents 投影，error 摘要 ≤200 字符，每 invoke ≤20 条） */
 function FoldedStepRow({ step }: { step: import('@contract/api').FoldedStepDTO }) {
   switch (step.kind) {

@@ -230,7 +230,7 @@ export function updateLastReadSeq(
   }
 }
 
-/** F20260920trrt：对话内最大 sequence_num（闲置预警的全局刻度——turn 退役后唯一的「对话推进」度量） */
+/** 对话内最大 sequence_num（闲置预警的全局刻度——turn 退役后唯一的「对话推进」度量） */
 export function getMaxEntrySeq(db: Database.Database, conversationId: string): number {
   const row = db.prepare(`
     SELECT MAX(sequence_num) AS m FROM entries WHERE conversation_id = ?
@@ -238,7 +238,7 @@ export function getMaxEntrySeq(db: Database.Database, conversationId: string): n
   return row?.m ?? 0;
 }
 
-/** F20260920trrt：各 sender 的最后一条 speak（seq + created_at）——发言口径的活跃度。
+/** 各 sender 的最后一条 speak（seq + created_at）——发言口径的活跃度。
  *  SQLite 裸列特性：GROUP BY + MAX() 时非聚合列取自 MAX 所在行（官方文档保证）。 */
 export function getLastSpeakBySender(
   db: Database.Database,
@@ -257,7 +257,7 @@ export function getLastSpeakBySender(
   return map;
 }
 
-/** F20260920trrt：各 otter 的最近一次被唤醒时间（invokes.started_at）——闲置预警时间护栏数据源 */
+/** 各 otter 的最近一次被唤醒时间（invokes.started_at）——闲置预警时间护栏数据源 */
 export function getLastInvokeStartedAtByOtter(
   db: Database.Database,
   conversationId: string,
@@ -276,7 +276,7 @@ export function getLastInvokeStartedAtByOtter(
 }
 
 
-/** F20260803trrf: 指定 sender 的最新条目（F20260913ctlv 批3 切 entries；markBatchRead rejected 路径用）。
+/** 指定 sender 的最新条目（批3 切 entries；markBatchRead rejected 路径用）。
  *  兼容返回 Message 形状（消费方只读 id/senderId/createdAt/sequenceNum）——
  *  body 从 entry.body 投影为 segments，aggregateBody 还原。 */
 export function getLastMessageBySender(db: Database.Database, conversationId: string, senderId: string): Message | null {
@@ -286,7 +286,7 @@ export function getLastMessageBySender(db: Database.Database, conversationId: st
   return row ? entryRowToMessageLike(row) : null;
 }
 
-/** F20260826rsme：指定 senderType 的最新条目（批3 切 entries；circuit-break 用户介入检测用） */
+/** 指定 senderType 的最新条目（批3 切 entries；circuit-break 用户介入检测用） */
 export function getLastMessageBySenderType(db: Database.Database, conversationId: string, senderType: string): Message | null {
   const row = db.prepare(
     `SELECT * FROM entries WHERE conversation_id = ? AND sender_type = ? ORDER BY sequence_num DESC LIMIT 1`,
@@ -325,19 +325,19 @@ function entryRowToMessageLike(row: EntryAsMessageRow & { body: string | null })
   };
 }
 
-/** F20260803trrf: 标记 participant 已离开（dissolve_otter 顺带修，不要求 active turn） */
+/** 标记 participant 已离开（dissolve_otter 顺带修，不要求 active turn） */
 export function markParticipantLeft(db: Database.Database, conversationId: string, otterId: string): void {
   db.prepare(
     `UPDATE conversation_participants SET status = 'left', left_at = datetime('now') WHERE conversation_id = ? AND otter_id = ? AND status = 'active'`,
   ).run(conversationId, otterId);
 }
 
-/** F20260929czi0：进场游标零点修正存量迁移（一次性，启动时调用）。
+/** 进场游标零点修正存量迁移（一次性，启动时调用）。
  *  active 参与者 × active 对话 × last_read_seq=0 → 该对话 max(seq)。
- *  Why：F20260913ctlv 的「进场游标=0」口径让零游标獭把全历史当未读；这些獭多为
+ * Why：的「进场游标=0」口径让零游标獭把全历史当未读；这些獭多为
  *  换世后首请求爆窗锁死（pushCursorOnStartup 只在启动成功时推进游标——爆窗 400 →
  *  不推进 → 永远全量未读，pi-session-factory.ts pushCursorOnStartup），从未成功消费
- *  过任何历史消息，事实状态就是「读到最新」，与 #775 backfillLastReadSeq 的回填
+ * 过任何历史消息，事实状态就是「读到最新」，与 backfillLastReadSeq 的回填
  *  语义同源。空对话里 max(seq)=0，迁移前后等价，幂等天然安全。
  *  幂等：只更新 0 行；全量推进后（游标恒 >0 或空对话仍为 0——后者重写等价零改动）
  *  重复执行零副作用。已知边界：空对话的零游标行迁移后仍为 0，守卫计数永不结清，

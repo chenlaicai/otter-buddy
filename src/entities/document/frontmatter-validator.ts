@@ -108,7 +108,7 @@ function validateSummary(summary: unknown, errors: string[]): void {
   }
 }
 
-/** F20260803mval: 未知值进 warnings 不阻断（应用层不再硬卡语义枚举） */
+/** 未知值进 warnings 不阻断（应用层不再硬卡语义枚举） */
 function validateFeatureStatus(status: unknown, warnings: string[]): void {
   if (status && typeof status === "string" && !isKnownFeatureStatus(status)) {
     warnings.push(`Unknown feature status: ${status}`);
@@ -125,7 +125,7 @@ function validateChangeType(changeType: unknown, warnings: string[]): void {
  *  用于 title 可读性判定：纯英文 slug 形态（连字符连接、无空格、无 CJK）不算可读 title。 */
 const CJK_RE = /[\u3400-\u4dbf\u4e00-\u9fff]/;
 
-/** F20260827spcs（#470）: title 可读性校验。
+/** title 可读性校验。
  *  主流惯例：title 是人类可读描述（如「commit-msg 钩子类型白名单与 commit-convention.md 对齐」），
  *  slug 应放文件名而非 title。纯 slug 形态（无 CJK 且无空白的连写串）报 warning，不阻断。
  *  存量 slug title 较多（过渡期），由 lint:docs 的 ratchet 上限约束只减不增。 */
@@ -140,9 +140,9 @@ export function validateTitleReadability(title: unknown, warnings: string[]): vo
   }
 }
 
-/** F20260827spcs（#470）: 特性文档文件名 slug 后缀校验。
- *  主流命名：F<date><id>-<slug>.md（存量 271/292）；缺 slug 后缀报 warning（#470 评论升级为必查项），
- *  与存量兼容，逐步收紧。仅对 feature 文档生效。ID 段口径同 fid-format.ts（#667）。 */
+/** 特性文档文件名 slug 后缀校验。
+ * 主流命名：F<date><id>-<slug>.md（存量 271/292）；缺 slug 后缀报 warning（评论升级为必查项），
+ * 与存量兼容，逐步收紧。仅对 feature 文档生效。ID 段口径同 fid-format.ts。 */
 export function validateFilenameSlug(filePath: string, warnings: string[]): void {
   const base = filePath.split("/").pop() ?? "";
   if (new RegExp(`^F${FID_DATE_SEGMENT}${FID_READ_SUFFIX_SEGMENT}\\.md$`).test(base)) {
@@ -182,7 +182,7 @@ function validateSupersedesPrefix(
 
 /**
  * 验证文件路径是否匹配 ID 中的日期（领域规则）
- * ID 格式：F20260722mk74，其中 20260722 是日期
+ * ID 格式：其中 20260722 是日期
  * 路径格式：docs/features/2026/07/22/...
  */
 function validateFilePath(id: string, filePath: string, errors: string[]): void {

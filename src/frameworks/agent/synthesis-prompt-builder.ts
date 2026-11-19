@@ -180,7 +180,7 @@ function formatPrefetchSection(prefetch?: SynthesisPrefetch): string {
 }
 
 /**
- * F20260901mbfx：格式化 §⑥ 最近搭档消息原文（去空白行，带序号，时间正序）。
+ * 格式化 §⑥ 最近搭档消息原文（去空白行，带序号，时间正序）。
  */
 function formatRecentUserMessages(prefetch?: SynthesisPrefetch): string {
   if (!prefetch?.recentUserMessages || prefetch.recentUserMessages.length === 0) {
@@ -194,9 +194,9 @@ function formatRecentUserMessages(prefetch?: SynthesisPrefetch): string {
 /**
  * 格式化件④机械数据为 prompt 内容（§⑤）。
  *
- * F20260901mbfx：优先注入 stateInventoryText（renderStateInventory 的全量 B1-B6
- * 渲染文本——此前只注入 B1/B6 结构化摘要，B2-B5（调度任务/工作区/产物/healing）
- * 对合成 LLM 不可见）；无渲染文本时降级用结构化数据现拼 B1/B6。
+ * 优先注入 stateInventoryText（renderStateInventory 的全量 
+ * 渲染文本——此前只注入 /结构化摘要，（调度任务/工作区/产物/healing）
+ * 对合成 LLM 不可见）；无渲染文本时降级用结构化数据现拼 /
  */
 function formatStateInventoryForPrompt(
   inventory?: StateInventory,
@@ -239,7 +239,7 @@ function formatStateInventoryForPrompt(
 /**
  * 构建降级摘要（防线②：机械转储）。
  *
- * 当 LLM 合成失败/超时时使用，保留 Phase 1 的机械转储逻辑。
+ * 当 LLM 合成失败/超时时使用，保留 的机械转储逻辑。
  */
 export function buildMechanicalDump(
   otterName: string,

@@ -156,7 +156,7 @@ function SwimRow({ ch, y, xOf, now, onOpen }: { ch: RhiChainDTO; y: number; xOf:
   )
 }
 
-/** pr-stalled 旁注文案：单 PR 「#N 停 7 天」，多 PR 「#N 等 2 个」 */
+/** pr-stalled 旁注文案：单 PR 「停 7 天」，多 PR 「等 2 个」 */
 function stalledPrLabel(ch: RhiChainDTO): string {
   const sig = ch.signals.find(s => s.id === 'pr-stalled')
   const prs = sig?.stalledPrs ?? []
@@ -259,9 +259,9 @@ export function SwimlaneTimeline({ chains, onOpen }: { chains: RhiChainDTO[]; on
   )
 }
 
-/** 异常态筛选 chips（Issue #649 交付 2，观澜 §3.2 视觉反转）：异常实心+计数徽章，
+/** 异常态筛选 chips（交付 2，观澜 视觉反转）：异常实心+计数徽章，
  *  活跃描边灰显；点异常 chip 泳道只留命中链（再点取消）。「全部」chip 恢复全量。
- *  放本模块而非 index.tsx：后者 import 时挂载 #root，组件测试无法引用。 */
+ * 放本模块而非 index.tsx：后者 import 时挂载 组件测试无法引用。 */
 export function ChainFilterChips({ counts, total, active, onPick }: {
   counts: Record<string, number>
   total: number

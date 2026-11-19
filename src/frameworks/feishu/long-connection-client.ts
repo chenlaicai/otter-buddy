@@ -377,7 +377,7 @@ export class FeishuLongConnectionClient implements FeishuLongConnectionGateway {
   }
 }
 
-/** #663：app_id 掩码（保留前 5 后 4 位，形如 cli_a****z9k2）——完整凭证不出 frameworks 层。
+/** app_id 掩码（保留前 5 后 4 位，形如 cli_a****z9k2）——完整凭证不出 frameworks 层。
  *  过短 appId（≤9 位）全掩码中间段，防止超短标识被反推。 */
 export function maskAppId(appId: string): string {
   if (!appId) return "";

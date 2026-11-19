@@ -45,7 +45,7 @@ export function buildActionLedgerSummary(rows: ActionRecord[], maxRows = MAX_ROW
   return `机器台账（${counts}）：\n${lines.join("\n")}`;
 }
 
-// ─── F20261118remex（#1868 阶段 4 C2）：远程动作五态摘要（R2 闭环）───
+// ─── ：远程动作五态摘要（闭环）───
 // 数据源 remote_action_requests（中枢侧回执投影）：远程动作在恢复链可见可裁决，
 // 不再因数据源断裂退化为旧文案。connector 台账仍是机器侧真相源（端上核对用）。
 

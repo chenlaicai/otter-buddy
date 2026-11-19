@@ -44,7 +44,7 @@ export async function createConversation(ctx: CapabilityContext, name: string): 
   return body.id;
 }
 
-/** #984 诊断：猎取「ReadableStream is locked」真实栈——vitest 只留 message 时看不到源。 */
+/** 诊断：猎取「ReadableStream is locked」真实栈——vitest 只留 message 时看不到源。 */
 function diagnosticWrap<A extends unknown[], R>(fn: (...args: A) => Promise<R>, label: string): (...args: A) => Promise<R> {
   return async (...args: A): Promise<R> => {
     try {
@@ -181,7 +181,7 @@ export async function listMessages(ctx: CapabilityContext, convId: string): Prom
   }).filter((m) => m.st !== "system" || m.content.length > 0);
 }
 
-/** #984：等某獭的 invoke 到达终态（yield 落账后才可读 tsp）。
+/** 等某獭的 invoke 到达终态（yield 落账后才可读 tsp）。
  *  子獭 speak(completed) ≠ 回合结束——yield 在 speak 之后调，no_yield 重试循环中
  *  invoke 仍 running、tsp 未写。waitForOtterMessage 只保证「有 completed speak」，
  *  断言 tsp/yield 行为前必须等 invoke 终态。 */
@@ -270,7 +270,7 @@ export function toolCallNames(message: MessageDto): string[] {
 
 /**
  * 交换级工具轨迹（跨消息、跨 turn 聚合）。
- * speak 未收尾触发自动重试时（F20260730sbrt），首试的工具调用落在 failed 消息上，
+ * speak 未收尾触发自动重试时，首试的工具调用落在 failed 消息上，
  * 且重试是**新的一跳（不同 turnId）**——只看最终 completed 消息或单 turn 都会漏测
  * （第二轮对抗检视实证：首试 search_memory 拿到事实，重试直接 speak）。
  * 断言"獭是否查过记忆"这类行为必须用本函数：聚合用户消息（afterSeq）之后的全部獭消息。

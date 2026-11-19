@@ -90,7 +90,7 @@ export function externalizeHistoricalImages(messages: any[]): any[] {
 }
 
 /** 找 turn 边界：最后一条非 assistant/toolResult 的消息索引；无边界消息 = 0（全部视为当前 turn，保守保留）。
- *  F20260922txre（#1093）：导出供 toolresult-externalizer 复用同一边界语义（零行为改动）。 */
+ * 导出供 toolresult-externalizer 复用同一边界语义（零行为改动）。 */
 export function findTurnBoundary(messages: any[]): number {
   for (let i = messages.length - 1; i >= 0; i--) {
     const role = messages[i]?.role;
@@ -139,7 +139,7 @@ function projectMessage(msg: any, idx: number, boundary: number, toolCallInfo: M
 
 /** 「所见」摘录：该 toolResult 之后（不限紧邻，可能隔着其他工具调用对）首条非空 assistant text 的首句。
  *  不跨越 turn 边界（j > boundary 停扫）——历史图片的摘录若抓到下一 turn 切换话题后的无关 text，
- *  会把「所见」张冠李戴（检视发现 1 反例：读图 A 无分析 → user 换话题 → 摘录抓到「别的分析」）。 */
+ * 会把「所见」张冠李戴（反例：读图 A 无分析 → user 换话题 → 摘录抓到「别的分析」）。 */
 function findExcerpt(messages: any[], toolResultIdx: number, boundary: number): string {
   for (let j = toolResultIdx + 1; j < messages.length; j++) {
     if (j > boundary) return "";

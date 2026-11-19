@@ -46,7 +46,7 @@ export function checkPendingDispatches(
 }
 
 /**
- * F20260813actk C9：startSpeaking 提交成功后确认清除已派工票据（按"提交成功"清，非按"意图"清）
+ * startSpeaking 提交成功后确认清除已派工票据（按"提交成功"清，非按"意图"清）
  *
  * @param ctx ToolContext（包含 pendingDispatches）
  * @param resolvedIds 已解析的 ID 列表
@@ -58,7 +58,7 @@ export function confirmDispatchesClear(ctx: ToolContext, resolvedIds: string[]):
 }
 
 /**
- * F20260821i336：编排对话软守卫——当大獭在有未派工小獭时调用 write/edit/bash，提醒一次（二次放行）。
+ * 编排对话软守卫——当大獭在有未派工小獭时调用 write/edit/bash，提醒一次（二次放行）。
  *
  * 问题：同 turn 自己改文件 = 1 次工具调用，派工 = 多次调用。成本不对称导致大獭每次走最省力路径。
  * 方案：在 tool_execution_start 事件中，对 write/edit/bash 检查 pendingDispatches，

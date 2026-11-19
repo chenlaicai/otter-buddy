@@ -117,7 +117,7 @@ export function buildGuardInterceptContext(
   };
 }
 import { SYNTHESIS_EXPLICIT_MAX_TOKENS } from "./narrative-synthesis-engine";
-// F20261111synth（#1850）：合成 thinking 能力解析 + 选档 + 兑底重试准入
+// 合成 thinking 能力解析 + 选档 + 兑底重试准入
 import { resolveSynthesisThinkingLevelMap, pickSynthesisThinkingLevel, isSynthesisTransportError, type ThinkingLevelMap } from "./synthesis-thinking-capability";
 import type { AgentSessionStore } from "./agent-session-store";
 import { classifyGuardIntercept } from "./guard-intercept-escalation";
@@ -138,11 +138,11 @@ import type { SettingsRepository } from "@usecases/settings/settings-repository"
 import { getCodingToolsForOtterType, getOtterToolNamesForType, SimpleLockManager, getSessionManagerClass, buildMessageWithContext, buildOtterPrompt, buildInvokeSystemPrompt } from "./session-helpers";
 import { DelegationInFlightError, isSessionLockConflictError, SessionLockConflictError } from "@entities/errors";
 import { randomUUID } from "node:crypto";
-// F20261008tecn（EazoTack 工具瘦身 v1）：manifest toolExposure 段读取
+// （EazoTack 工具瘦身 v1）：manifest toolExposure 段读取
 import { loadToolManifest, type ToolManifest } from "../config/tool-manifest-loader";
 
 /**
- * F20261008tecn：读取 manifest 的 toolExposure 段（进程内缓存，仅首次读盘）。
+ * 读取 manifest 的 toolExposure 段（进程内缓存，仅首次读盘）。
  * manifest 缺失/不合规时返回 undefined——全部工具保持 direct（现状行为，fail-open），
  * 但打 info 日志让失效可被日志检索发现（静默失效不可观测）。
  */
@@ -159,7 +159,7 @@ function loadToolExposureFromManifest(projectRoot: string, logger: { info: (msg:
 }
 
 /**
- * F20261008tecn：计算 session 激活集的纯函数。
+ * 计算 session 激活集的纯函数。
  *
  * 语义：激活集 = coding 工具 ∪ direct 自定义工具 ∪（有 deferred 时）tool_search。
  * deferred 工具**不进激活集**（已注册、未激活、可搜索——pi tool_search 只搜非激活工具）。
@@ -190,12 +190,12 @@ import { haltRegistry, type HaltDirective } from "@usecases/signal/halt-registry
 import type { ModelPool } from "@frameworks/llm/model-pool";
 import { IdentityBuilder } from "./identity-builder";
 import { buildCustomTools, createInvokeRegister, resetInvokeRegister, type InvokeRegister } from "./tool-builder";
-// F20261009tsts（#1371）：会话级 tool_search（替代 SDK createToolSearchExtension，免疫 ctx stale）
+// 会话级 tool_search（替代 SDK createToolSearchExtension，免疫 ctx stale）
 
 import { resolveSessionCwd } from "./session-cwd-resolver";
 import { getRepoRoot } from "@frameworks/repo-root";
-// F20261015phys：bash 物理沙箱——sandbox-exec 包裹獭 bash 执行面
-// F20260901mbfx（审计 F5）：readOnly 合成的自定义工具白名单（只读查询类）
+// bash 物理沙箱——sandbox-exec 包裹獭 bash 执行面
+// （审计 F5）：readOnly 合成的自定义工具白名单（只读查询类）
 import { SYNTHESIS_READ_ONLY_TOOL_WHITELIST } from "./synthesis-prompt-builder";
 import { ModelRuntimeRegistry, otterInvokeStorage } from "./model-runtime-registry";
 import { invokeEpochStorage, mintEpoch, type InvokeEpoch } from "./invoke-epoch";
@@ -205,13 +205,13 @@ import { createEventHandler } from "./agent-event-utils";
 import type { AgentEvent } from "./agent-event-utils";
 
 /**
- * F20260831tumv：仅用于计算注册工具全集的占位 ToolContext（模块级基础字段）。
+ * 仅用于计算注册工具全集的占位 ToolContext（模块级基础字段）。
  * Why：createTools 声明上依赖 ToolContext，但实际工厂实现（bootstrap/platforms.ts 注入的
  * tool-factory 路径）只消费 signalRepo / otterId / conversationId 等少数字段，不读实体工具
  * （Ledger 等）。传占位上下文可零副作用获取全部注册工具名，供 manifest "*" 展开使用。
  * signalRepo 等影响条件注册的字段由 buildOtterToolWhitelist 运行时补充。
  * 注：若未来工具工厂改为惰性注册（按 ctx 字段过滤注册集），需改回从 buildCustomTools
- * 内部拿真实全集，见特性文档 F20260831tumv 的遗留观察。
+ * 内部拿真实全集，见特性文档 的遗留观察。
  */
 const EMPTY_TOOL_CONTEXT_BASE: ToolContext = {
   client: undefined as unknown as ToolContext["client"],
@@ -277,7 +277,7 @@ export interface InvokeOptions {
   partnerUserId?: string;
 }
 
-/** 多模态 Phase 1：把 InvokeOptions 折叠成 SDK PromptOptions（images 缺省返回 undefined，保持纯文本路径行为等价） */
+/** 多模态 把 InvokeOptions 折叠成 SDK PromptOptions（images 缺省返回 undefined，保持纯文本路径行为等价） */
 function buildPromptOptions(options: InvokeOptions | undefined): { images?: Array<{ type: "image"; data: string; mimeType: string }> } | undefined {
   if (options?.images && options.images.length > 0) return { images: options.images };
   return undefined;
@@ -334,7 +334,7 @@ import { readDurableActiveSessionEntries } from "./durable-slice-source";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { PiSessionPool } from "@frameworks/pi/pi-session-pool";
 
-/** F20261014czgd：启动游标推进守卫——batchMaxSeq<=0（「无新读」哨兵）时不推进，
+/** 启动游标推进守卫——batchMaxSeq<=0（「无新读」哨兵）时不推进，
  *  防 0 写入把游标归零、下一轮全历史当未读注入（10-13 三起同型爆窗事故）。
  *  提取为纯函数导出：供测试直接验证守卫逻辑（不依赖 PiSessionFactory 完整构造）。 */
 export function shouldPushCursorOnStartup(batchMaxSeq: number): boolean {

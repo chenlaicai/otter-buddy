@@ -240,7 +240,7 @@ test.describe('F20261016inbs 输入框固定边界（vite 隔离实例）', () =
   })
 })
 
-/** F20261016pcov：卡片预览槽位进覆盖层（搭档 10-16 报告「交互卡片触发的回答点不了」）。
+/** 卡片预览槽位进覆盖层（搭档 10-16 报告「交互卡片触发的回答点不了」）。
  *  根因：预览卡是 main 文档流子元素，输入覆盖层（absolute bottom-0 z-10）透明叠其上——
  *  hit-test 照吃，发送/拒绝按钮点击全被吞。修法：卡片挪进覆盖层内（分割条下方、
  *  输入框上方），衬垫自然含卡片高。真值验证必须真浏览器 hit-test（jsdom 无布局）。
@@ -571,13 +571,13 @@ test.describe('F20261019ovmh 覆盖层总高封顶（vite 隔离实例）', () =
   })
 })
 
-/** F20261111csvfx 卡片按钮无效 payload 反馈（搭档 11-09 报告「我点击按钮无反应」）。
+/** 卡片按钮无效 payload 反馈（搭档 11-09 报告「我点击按钮无反应」）。
  *  复现现场：大獭简报卡（importance=high 默认展开）按钮
  *  `otterCard.submit({choice:'…',label:'…'})` 缺 summary → 父页 validateCardSubmitPayload
  *  拒绝 → 旧版 useCardBridge 静默 return（点击零反馈）。
  *  验证链：真点击（非 evaluate 调桥）→ 父窗 message 探针捕到 card:submit（点击链活着）→
  *  预览不出现（契约闸门不放开）→ 反馈 toast 可见（修复点）。
- *  合法 payload 路径回归见同文件 F20261016pcov 用例 7/8（预览→确认→回执 POST）。 */
+ * 合法 payload 路径回归见同文件 用例 7/8（预览→确认→回执 POST）。 */
 const BROKEN_CARD_BODY = [
   '```html-card title="根治 embedding：后台统一落库、按批出队" importance="high"',
   '<div><p>一句话结论</p>',

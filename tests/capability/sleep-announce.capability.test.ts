@@ -79,7 +79,7 @@ function spokeBeforeWaitCrossInvoke(entries: EntryDto[], waitInvokeIds: Set<stri
 }
 
 /** invoke 事件流里的工具调用名（按执行发生顺序）
- *  #1210 检视 A1/A2：只解析执行序形态（tool_execution_start 映射的 payload.name 直挂）。
+ * 检视 /只解析执行序形态（tool_execution_start 映射的 payload.name 直挂）。
  *  message_end 的 payload.content blocks 形态与执行序形态对同一调用各产一条事件，
  *  双解析会使 call#N 序号失真且 toolNamesFromEvents 可能漏直挂形态——统一只认执行序。 */
 function toolNamesFromEvents(events: InvokeEventDto[]): string[] {

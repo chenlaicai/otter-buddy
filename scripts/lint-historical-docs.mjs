@@ -132,16 +132,16 @@ function commitCtx(sha, parent, baseSha) {
 
 /** 该文件是否为本分支新建（在 origin/main..HEAD 全部 commit 中曾出现过 Add，含新增后修改/重命名路径）
  *  边界：新增后 commit 再修改的场景，log 范围含产生 Add 的 commit，判定为分支新建
- *  F20260922rntc（#1103）：rename R 形态溯源——staged rename 未提交时，新路径在 ref..HEAD 中
+ * rename R 形态溯源——staged rename 未提交时，新路径在 ref..HEAD 中
  *  查不到 Add（git log --follow 对已提交历史有效，但对「索引区里尚未提交的 rename」看不到），
  *  需按旧路径查 Add。
- *  F20260922rntc delta（PR #1108 检视严重 1 + 建议 1，判定语义修订）：
+ * delta（检视严重 1 + 建议 1，判定语义修订）：
  *  - R 形态（oldPath 存在）：仅按 oldPath 判定——R 行语义上内容来源是 oldPath，「任一命中」
  *    中 newPath 一侧对 R 行恒 miss（依赖 git 怪癖的偶然正确），若 git 修正行为则留误放窗口
  *  - 非 R 形态（M/D）：并集查询——`--diff-filter=A`（无 --follow）兜住高相似派生文件
  *    （--follow 与 diff-filter 交互对派生文件系统性 miss，实测坐实），`--follow --diff-filter=A`
  *    保留已提交 rename 链的溯源
- *  F20261009hcig（#1281）：head 参数——log 上界可参数化（pre-commit 传 HEAD = 待提交 commit
+ * head 参数——log 上界可参数化（pre-commit 传 HEAD = 待提交 commit
  *  的父；--base 逐 commit 模式传 <commit>^，精确重放同一时点语义）。
  */
 function isAddedOnBranch(file, ref, oldPath, head = "HEAD") {
@@ -190,7 +190,7 @@ function inDocsTreePath(p) {
 }
 
 /** 路径的 --follow 改名链上是否出现过 docs/features|research 路径。
- *  #1273 delta 第二轮（严重 2）：用于「删除树外文件」的入册判定——两步逃逸链把历史文档
+ * delta 第二轮（严重 2）：用于「删除树外文件」的入册判定——两步逃逸链把历史文档
  *  mv 出树后留下的残留，其删除动作也是历史文档处置链的一环，不得静默放行。 */
 function hasDocsTreeAncestry(p) {
   try {
@@ -204,7 +204,7 @@ function hasDocsTreeAncestry(p) {
 }
 
 /** D 行渊源判定：该路径 --follow 改名链的「最早新增 commit」是否早于基准分支。
- *  #1273 delta 第二轮（probeC 实证）：攻击者 step1 把历史文档 mv 出树后，自己的 commit 恰好
+ * delta 第二轮（probeC 实证）：攻击者 step1 把历史文档 mv 出树后，自己的 commit 恰好
  *  给新路径造出了「分支内 Add」记录，isAddedOnBranch 被这条自造记录骗过 → 豁免删除。
  *  解法：看链的最早新增落在哪——早于 base = 渊源是历史文档，删除无条件违规；
  *  落在本分支 = 分支内新建后删除的正常迭代，照常豁免。
@@ -229,7 +229,7 @@ function hasHistoricalAncestry(p, ref) {
   }
 }
 
-/** #1300：路径在 ref 树上是否存在（git cat-file -e）。
+/** 路径在 ref 树上是否存在（git cat-file -e）。
  *  exit 128 = 路径不在 ref（正常 miss，调用方继续既有判定）；其他异常码宁可判存在（宁拦勿放——
  *  判存在走历史文档拦截，误拦由 .doc-fix 显式通道兜底，误放无通道可救）。
  *  ref 有效性由调用方保证（baseRef() 已验证 / commitCtx 的 baseSha 已解析），catch 里 128 无 ref 侧歧义。 */
@@ -243,8 +243,8 @@ function pathExistsOnRef(p, ref) {
 }
 
 /** rename 血统判定：oldPath 自身在 base 存在，或其 --follow 链上任一 R 记录的源路径在 base 存在。
- *  #1273 delta-3（probeChain 实证）：封「链上 rename 自造 Add 豁免」——分支内非 R100 rename 的
- *  目标被 plain 查询记为分支内 Add，后续 R100 的 oldPath 命中它即被误豁免；rename 源在 base 的
+ * delta-3（probeChain 实证）：封「链上 rename 自造 Add 豁免」——分支内非 rename 的
+ * 目标被 plain 查询记为分支内 Add，后续 的 oldPath 命中它即被误豁免；rename 源在 base 的
  *  存在性是攻击链伪造不了的。C 记录（copy 派生）不算 rename 血统——cp 派生是分支内新文档（rntc）。
  *  查询异常宁拦（返回 true 交后续边界校验拦截）。 */
 function hasRenameLineageToBase(oldPath, ref) {
@@ -276,7 +276,7 @@ function hasRenameLineageToBase(oldPath, ref) {
 
 /** git 故障诊断摘要：取 stderr 首个**清洗后**非空行（去 ANSI/换行、截断 200），供降级放行时打印。
  *  只取首行 + 截断，避免把整段 git 输出糊进门禁日志；不含任何仓库内容。
- *  先 sanitize 再判空（检视 r2 非阻断）：纯 ANSI 首行（如只由颜色码组成）清洗后为空，
+ * 先 sanitize 再判空（检视 非阻断）：纯 ANSI 首行（如只由颜色码组成）清洗后为空，
  *  若先判空再清洗就会把真正的诊断行（第二行）丢掉、输出 unknown——诊断函数丢掉诊断本身。 */
 function briefGitFailure(error) {
   const raw = String(error?.stderr || error?.message || "");
@@ -354,7 +354,7 @@ export function findViolations(ctx = stagedCtx()) {
   return { errors, entries, degraded: false };
 }
 
-/** F20261019f714：行差异是否仅在「链接路径 / 反引号内 .md 文件名 token」——
+/** 行差异是否仅在「链接路径 / 反引号内 .md 文件名 token」——
  *  剥全部 ](path) 链接段与 `file.md` 反引号文件名段后骨架须相同；
  *  且至少一个路径/token 发生了变化。反引号 token 限定 .md 文件名形态
  *  （[A-Za-z0-9_-/]+\.md）——正文里任意反引号术语不在订正语义内（宁拦勿放）。 */
@@ -384,9 +384,9 @@ function differsOnlyInLinkPaths(oldLine, newLine) {
   return op.length === np.length && op.some((p, i) => p !== np[i]);
 }
 
-/** F20261019f714：diff 段内全部变更行成对纯链接/文件名订正校验，返回 (旧,新) 路径对
+/** diff 段内全部变更行成对纯链接/文件名订正校验，返回 (旧,新) 路径对
  *  清单供 J1 rename 对账。hunk 体内不存在 diff 头（similarity/---/+++ 头行都在首个
- *  @@ 之前）——S3 修复：删除旧版 `---`/`+++` 字面跳行（它只会命中内容恰以 -- / ++
+ * @@ 之前）——修复：删除旧版 `---`/`+++` 字面跳行（它只会命中内容恰以 -- / ++
  *  开头的正文行，前缀碰撞曾让观点改写夹带链接对 fail-open 放行）。
  *  M 形态与 R 形态 rename+编辑共用。 */
 function linkFixPairs(diffSection) {
@@ -427,7 +427,7 @@ function linkFixPairs(diffSection) {
   return { ok: true, pairs };
 }
 
-/** F20261019f714（M-f7148deb 第 2 条）：链接订正开口校验——历史文档的全部变更行是成对的
+/** （M-f7148deb 第 2 条）：链接订正开口校验——历史文档的全部变更行是成对的
  *  纯链接路径/文件名 token 替换（删行与增行一一配对，每对只在链接路径或反引号内
  *  .md 文件名上不同，行内其余字节相同）。非成对/正文变更 → outOfScope（宁拦勿放）。
  *  语义边界：链接路径与文件名引用是「指向哪」的机械事实，不是内容观点——rename 后的
@@ -550,7 +550,7 @@ ${declaration.hint}`);
   process.exit(1);
 }
 
-/** F20261009hcig（#1281）：--base <ref> CI 模式——逐 commit 重放 pre-commit 同等校验。
+/** --base <ref> CI 模式——逐 commit 重放 pre-commit 同等校验。
  *
  *  为什么逐 commit 而不是对 range 整体 diff 一次：.doc-fix 配对语义。pre-commit 模式下
  *  声明与历史文档变更天然同 commit（同一 staged 区）；range 整体扫描时若退化成「range 内
@@ -662,7 +662,7 @@ ${declaration.hint}`);
   process.exit(0);
 }
 
-// 直接执行（非被 import 测试）时跑 main（F20261009hcig：--base 优先路由到 CI 模式）
+// 直接执行（非被 import 测试）时跑 main（--base 优先路由到 CI 模式）
 if (process.argv[1] && process.argv[1].endsWith("lint-historical-docs.mjs")) {
   const args = parseArgs(process.argv.slice(2));
   if (args.base) {
@@ -672,7 +672,7 @@ if (process.argv[1] && process.argv[1].endsWith("lint-historical-docs.mjs")) {
   }
 }
 
-/** 终端输出消毒：strip ANSI 转义序列与回车，防理由文本污染终端（检视建议 4）
+/** 终端输出消毒：strip ANSI 转义序列与回车，防理由文本污染终端
  *  eslint no-control-regex 规避：用 u001b 构造而非字面 \x1b */
 function sanitize(s) {
   const esc = String.fromCharCode(27);
@@ -700,7 +700,7 @@ function frontmatterLastLineOf(ref) {
 /** 逐 hunk 校验：新增行（+）用 new-side 行号比对新边界；删除行（-）用 old-side 行号比对旧边界。
  *  位置判定对两类行统一生效（delta-严重 1：形状判定有洞已退役）。
  *  hunk 体从头行行尾（第二个 @@ 之后）开始，下一 hunk 边界用行首 "\n@@" 锚定。
- *  全检-严重 1 处置修正（#1273）：原实现把 body 起点定在正则匹配串尾，即 hunk 头
+ * 全检-修正：原实现把 body 起点定在正则匹配串尾，即 hunk 头
  *  `@@ -a,b +c,d @@ <节尾上下文>` 的尾部上下文（-U0 下 git 会附节尾相邻行）被当首行
  *  计入坐标——幻影 +1 使 fm 边界附近（尤其 fm 末行插入）的合法元数据编辑被误拦
  *  （假阳性，over-blocking；实测 8 探针变体中 fm 末插行/fm 删行+插行均被误拦）。
@@ -757,15 +757,15 @@ function fmBoundaryShiftConsistent(oldFmLastLine, newFmLastLine, fmDelta) {
   return oldFmLastLine + fmDelta === newFmLastLine;
 }
 
-/** R 形态 rename 的 frontmatter 边界校验（#1257，F20261001lrbk）。
+/** R 形态 rename 的 frontmatter 边界校验。
  *  rename 配对只在全量 staged diff 中呈现（pathspec 单路径过滤会抑制 rename 检测，实测坐实），
  *  故从全量 diff 提取本文件的 rename 段再解析：
  *  - similarity index 100% 且无 hunk且无 Binary 标记：纯 rename（内容零变化，文件名级元数据订正）→ 放行
- *    （#1273 严重 1：零 hunk 单独不充分——含 NUL 字节的文件 diff 呈 Binary 零 hunk，会把整段正文重写
+ * （严重 1：零 hunk 单独不充分——含 NUL 字节的文件 diff 呈 Binary 零 hunk，会把整段正文重写
  *    伪装成纯 rename 绕过；三者同验才放行）
  *  - 有 hunk：rename + 编辑——按 old/new 两侧 frontmatter 边界校验，正文编辑仍拦
  *  - 未匹配到 rename 配对（相似度低于阈值退化为 A+D）：宁拦（大改不是文件名订正）
- *  - 旧路径在 docs 管辖树外的 R 配对：不进本通道，退回宁拦（#1273 严重 2 跨树逃逸链封口）
+ * - 旧路径在 docs 管辖树外的 R 配对：不进本通道，退回宁拦（严重 2 跨树逃逸链封口）
  *  .doc-fix 声明在调用侧同样强制（rename 通道不是无声明后门）。 */
 function checkRenameScope(oldPath, newPath, outOfScope, ctx = stagedCtx()) {
   let diff;
@@ -818,8 +818,8 @@ function checkRenameScope(oldPath, newPath, outOfScope, ctx = stagedCtx()) {
 /** 校验每个历史文档的变更行全部落在 frontmatter 块内（首个 --- 至次个 ---）。
  *  判定口径（宁拦勿放）：变更行（+/- 开头、非 +++/--- 头）trim 后非空，且行号在 frontmatter 块外 → 超出。
  *  读新版本树引用拿新 frontmatter 边界，与 -U0 diff 的 hunk 行号比对。
- *  #1257：entries 携带 name-status 元数据，R 形态 rename 走 checkRenameScope（全量 diff 解析 rename 对）。
- *  F20261009hcig：ref 侧由 ctx 提供（pre-commit: index:/HEAD:；--base: commit:/commit^:）。 */
+ * entries 携带 name-status 元数据，R 形态 rename 走 checkRenameScope（全量 diff 解析 rename 对）。
+ * ref 侧由 ctx 提供（pre-commit: index:/HEAD:；--base: commit:/commit^:）。 */
 function checkFrontmatterScope(files, entries = {}, ctx = stagedCtx()) {
   const outOfScope = [];
   for (const file of files) {

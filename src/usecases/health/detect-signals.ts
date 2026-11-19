@@ -195,20 +195,20 @@ function buildRecurrenceEvidence(
 }
 
 /** bug_recurrence：同模块同文件 bugfix ≥N 个不同修复事件/窗口（窄门：不依赖语义聚类）。
- *  #1214 口径修订（承接 #1012 根因分析）：
+ * 口径修订（承接 根因分析）：
  *  - 修复事件去重：同 PR 号的多 commit 计 1 事件；无 PR 号 commit 各计 1 事件
  *    （noPrShas 非去重——git log sha 唯一，Set 只是容器；措辞是「各计」非「去重」）。
- *    前提显式化（检视发现 5）：squash/rebase 合入使 commit message 带 (#N)——
+ * 前提显式化：squash/rebase 合入使 commit message 带 ——
  *    merge-commit 流的中间 commit 无 PR 号会各计 1 事件（当前 321/322 带 PR 号，
  *    若未来改 merge-commit 流需重评此口径）
- *  - 适用面如实声明（检视发现 1）：squash 惯例下「同 PR 多 commit」当前为 0 例，
+ * - 适用面如实声明：squash 惯例下「同 PR 多 commit」当前为 0 例，
  *    去重是面向多 commit PR/rebase 形态的口径正确性保障，不是本 PR 的主要收益；
  *    假聚集主形态（同一根因跨 PR 系列）由后续 severity 分级/系列归因 issue 承载
- *  - 非逻辑载体排除：types（收窄到 bootstrap 装配路径，检视发现 4——全仓
+ * - 非逻辑载体排除：types（收窄到 bootstrap 装配路径，——全仓
  *    basename 排除会误伤 weixin/types.ts 等 runtime 常量载体）/转发桶/组装/测试
  *  - occurrences 语义澄清：evidence 报独立修复事件数 + PR 清单 + 首末修复日期
- *  #1012 修法 c（2026-10-05）：severity 分级 + 载体排除补全——
- *  - 系列归因分级：同一 issue 反复修 ≥threshold → critical（真腐烂——#1160 五连形态）；
+ * 修法 c（2026-10-05）：severity 分级 + 载体排除补全——
+ * - 系列归因分级：同一 issue 反复修 ≥threshold → critical（真腐烂——五连形态）；
  *    跨 issue 分散 ≥threshold → warning（热点活跃假象）。分级而非过滤（归因报告推荐：
  *    「同一 bug 修了又坏」仅 2/23=9%，一刀切 critical 让告警失去区分度）
  *  - 载体排除补全：migration.ts/schema.ts 入非逻辑载体（schema 演进 N 修 = N 个独立演进，
@@ -254,7 +254,7 @@ function detectBugRecurrence(
   return signals;
 }
 
-/** #1214：第一遍收集——窗口内 bugfix commit 按模块/文件聚合（同 PR 去重 + 非逻辑载体排除）。
+/** 第一遍收集——窗口内 bugfix commit 按模块/文件聚合（同 PR 去重 + 非逻辑载体排除）。
  *  从 detectBugRecurrence 拆出控复杂度（lint max-complexity）。 */
 interface BugfixFileEntry {
   module: string;
@@ -312,7 +312,7 @@ function collectBugfixByFile(
   return byModuleFile;
 }
 
-/** Issue #644 第二遍收集：为已触发的 (module, file) 填充窗口内全类型 commit 序列（时间升序）。
+/** 第二遍收集：为已触发的 (module, file) 填充窗口内全类型 commit 序列（时间升序）。
  *  Why 全类型：只有 bugfix 画不出「引入-修复-回归-再修复」交替节奏，前端时间轴需要 changeType
  *  区分节点（观澜视觉方案 3.1）。窗口滑动时随扫描整体重算覆盖（非 append）。 */
 function collectDetailCommits(
@@ -345,7 +345,7 @@ function collectDetailCommits(
   }
 }
 
-/** chain_stall：特性链滞留（F20260902sigm：读 chain.signals 的 pr-stalled 信号——
+/** chain_stall：特性链滞留（读 chain.signals 的 pr-stalled 信号——
  *  病态判据 100% 来自 PR 事实，docStatus 不再参与；zombie/doc-only 判死已删）。
  *  一个链挂多个停滞 PR 时逐条出信号（挂几个报几个，不合并不取最严重） */
 function detectChainStall(chains: FeatureChain[]): DetectedSignal[] {
@@ -434,7 +434,7 @@ function detectHotspot(
   return signals;
 }
 
-/** behavior_defect：同一 errorType healing event 复发（Issue #645 窗口化升级）。
+/** behavior_defect：同一 errorType healing event 复发（窗口化升级）。
  *  Why 窗口化而非全量聚合：healing 库 degenerate 57 次/12 天是全库最高频模式，
  *  全量聚合下它永久占用警报位，无法区分「历史遗留」与「最近在恶化」——升级后
  *  同型 ≥3 次/7 天才报，第一天就会对 degenerate 报警（这正是本项的存在意义）。 */

@@ -42,7 +42,7 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-/** F20260915desc: 面板描述文本决策——优先 description；未填时回退。
+/** 面板描述文本决策——优先 description；未填时回退。
  *  agent 型 body 常为 JSON 包装（{"prompt":"..."}），抽出 prompt 前 80 字符；
  *  非 JSON body 直接预览；function 型 body 常为 '{}'，完全无可读内容，返回 null 由 UI 落「未填写」提示。 */
 function resolveTaskPreview(task: LocalScheduledTask): { text: string; isFallback: boolean } | null {

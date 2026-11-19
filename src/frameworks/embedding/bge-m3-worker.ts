@@ -118,7 +118,7 @@ function getExtractor(): Promise<Extractor> {
   return extractorPromise;
 }
 
-// 预加载模型 + dummy embed 拿 dims（Part 3）
+// 预加载模型 + dummy embed 拿 dims
 getExtractor()
   .then(async (fn) => {
     // dummy embed 拿实际维度（transformers.js pipeline 无公开 .config.dim）

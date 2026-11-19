@@ -127,7 +127,7 @@ export function collectAddedDocPaths(repoRoot, baseRef = "origin/main") {
   return new Set(`${committed}\n${staged}`.split("\n").filter(Boolean));
 }
 
-// #1294 / F20261103blnkr: from 链断链 ratchet 基线（2026-11-03 实测存量 31 处，只减不增；
+//  from 链断链 ratchet 基线（2026-11-03 实测存量 31 处，只减不增；
 // 修复后手动调低——报错信息含当前计数）。构成：28 真断链（7-8 月 from 指向从未存在/
 // 已改名 id）+ 3 元素形态违规（YAML map 形态的 issue/外链引用，非文档 id）。
 // 注意：计数式 ratchet 的交换空档（修一条+加一条净数不变）是已知取舍——修复时调低基线即封窗。
@@ -146,7 +146,7 @@ function walk(dir, ext = ".md") {
   return out;
 }
 
-/** #1400: 递归收集 dir 下 ext 文件的 { rel, mtimeMs }（rel = 仓库根相对路径）。 */
+/** 递归收集 dir 下 ext 文件的 { rel, mtimeMs }（rel = 仓库根相对路径）。 */
 function collectMtimes(root, dir, ext) {
   return walk(dir, ext).map((full) => ({
     rel: path.relative(root, full),

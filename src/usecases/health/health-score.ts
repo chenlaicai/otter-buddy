@@ -292,7 +292,7 @@ export function computeHealthScore(input: HealthScoreInput): HealthScoreResult {
 /**
  * 走向判定：近 7 天均值 vs 前 7 天均值，差值 >±TREND_THRESHOLD 判 ↑/↓。
  * 序列按时间升序（日期对齐，null=无数据日）。
- * F20260920hcal 修正：null 过滤改为窗口内剔除——先按日期分割窗口再剔除各窗口内 null，
+ * 修正：null 过滤改为窗口内剔除——先按日期分割窗口再剔除各窗口内 null，
  * 避免 null 穿孔导致前窗口日期被后窗口数据「借用」（原实现全序列 filter 后切分）。
  * @param minRecentValid recent 窗口最少有效值数（默认 3；生产调用点传 3 防噪声）
  */

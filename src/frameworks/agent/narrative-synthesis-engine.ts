@@ -309,8 +309,8 @@ function appendMaterialSections(lines: string[], ctx: PromptContext, input: Narr
   appendMechanicalSections(lines, input);
 }
 
-/** F20260923hsyn：历史段（含预算裁剪——裁剪在此做，调用方拿到的 prompt 必然装得下）。
- *  F20260924swin：裁剪上移到 buildNarrativeSynthesisPrompt（需先实测固定段才能算历史段预算），
+/** 历史段（含预算裁剪——裁剪在此做，调用方拿到的 prompt 必然装得下）。
+ * 裁剪上移到 buildNarrativeSynthesisPrompt（需先实测固定段才能算历史段预算），
  *  本函数只负责渲染——裁剪结果经 input.__trimDropped 透传（装配细节，不进 NarrativeSynthesisInput 公开面）。 */
 function appendHistorySection(lines: string[], input: NarrativeSynthesisInput): void {
   const droppedCount = (input as unknown as { __trimDropped?: number }).__trimDropped ?? 0;
@@ -481,7 +481,7 @@ function pushSection(parts: string[], heading: string, body: string | undefined)
 }
 
 /**
- * 组装新世起始上下文（叠加式档案，T4 核心）。
+ * 组装新世起始上下文（叠加式档案，核心）。
  *
  * 结构（方案「新世起始上下文」节）：
  * ## 前世档案（新世必读）

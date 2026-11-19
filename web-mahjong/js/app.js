@@ -89,7 +89,7 @@ function meldZoneHtml(p) {
 
 /**
  * 玩家信息条内容（名字/风/徽标/点数）——**不含牌河**：牌河归 riverTable 单点渲染，
- * 同一状态只留一个渲染点（D4）。
+ * 同一状态只留一个渲染点。
  */
 function pinfoInnerHtml(p) {
   const badges = [
@@ -118,7 +118,7 @@ function stripBlockHtml(p) {
 // ───────────────────────── 渲染 ─────────────────────────
 
 /** 场况角标（台面左上）：宝牌指示 + 牌型提醒预留槽位 + 连接态 + 停局。
- *  场况主显示已移桌心信息盘（D3：同一状态不双显，角标不再重复局数/本场/供托/余牌） */
+ * 场况主显示已移桌心信息盘（同一状态不双显，角标不再重复局数/本场/供托/余牌） */
 function renderField() {
   const f = fieldInfo(state.view);
   const dora = f.doraIndicators.map((d) => tileHtml(d.code, "tile--sm")).join("");
@@ -132,7 +132,7 @@ function renderField() {
     <span class="conn" data-on="${state.conn === "open" ? 1 : 0}">● ${esc(connText)}</span>`;
 }
 
-/** #1564-6：停局入口（POST /stop）——终局/进行中均可停，防真人离桌 runaway 烧 token */
+/** -6：停局入口（POST /stop）——终局/进行中均可停，防真人离桌 runaway 烧 token */
 function stopBtnHtml() {
   return '<button type="button" class="btn btn--ghost" data-do="stop">停局</button>';
 }
@@ -148,7 +148,7 @@ function renderPlayers(strips, table) {
   $("shimocha").classList.toggle("is-riichi", !!right?.riichi);
 }
 
-/** 中央信息盘：局数/本场/供托/余牌（D3 场况主显示落桌心，与左上角标分工） */
+/** 中央信息盘：局数/本场/供托/余牌（场况主显示落桌心，与左上角标分工） */
 function renderHub(hub) {
   $("hubSeries").textContent = hub.windLabel;
   $("hubRound").textContent = hub.roundLabel;
@@ -241,7 +241,7 @@ function renderClaim() {
 
 /**
  * 结算停驻：占中央信息盘位（对局=信息盘，结算=结算面板，互斥切换由 felt[data-state] 驱动）。
- * #1564-5 口径不变：局终展示结算 + 「继续」按钮；终局由 gameover 分支接管。
+ * -5 口径不变：局终展示结算 + 「继续」按钮；终局由 gameover 分支接管。
  */
 function renderSettle() {
   const el = $("settlePanel");
@@ -769,7 +769,7 @@ async function onCreate() {
   }
 }
 
-/** F20261022mjls：等待房「开始」——收集换獭输入，POST /start（带 players 覆盖）后进牌桌 */
+/** 等待房「开始」——收集换獭输入，POST /start（带 players 覆盖）后进牌桌 */
 async function onStartGame() {
   const lobbyPlayers = state.view?.lobby?.players ?? [];
   const pick = (i) => {

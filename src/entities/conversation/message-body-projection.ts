@@ -126,7 +126,7 @@ export function stripHtmlCardsOnly(body: string): string {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// 信道投影（F20260812fmdr）：把 body 变换成特定信道可渲染的形式
+// 信道投影：把 body 变换成特定信道可渲染的形式
 //
 // 当前出口：飞书 post + md。流水线：
 //   stripHtmlCardFences(markPlaceholders:true) → humanizePlaceholders → truncateByBytes
@@ -134,7 +134,7 @@ export function stripHtmlCardsOnly(body: string): string {
 // 与 stripHtmlCardFences 的关系：
 // - stripHtmlCardFences 产出机器友好占位符（`[html-card: 标题]`），供检索/记忆索引用
 // - projectForChannel 用 markPlaceholders:true 让占位符带零宽前缀,humanizePlaceholders
-//   只匹配带前缀的版本,避免误匹配 body 原文里的 LLM 字面量(审视 R5)
+// 只匹配带前缀的版本,避免误匹配 body 原文里的 LLM 字面量(审视)
 //
 // 截断常量、提示语都通过 options 传入，entity 层不知道"飞书 30KB 限制"这种信道细节。
 // ──────────────────────────────────────────────────────────────────────────
@@ -237,7 +237,7 @@ function truncateByBytes(text: string, maxBytes: number, hint: string): string {
  *
  * 流水线：stripHtmlCardFences → 占位符人化（带 Web 链接）→ 附件占位注入 → 字节级截断。
  *
- * 多模态 Phase 1：附件占位必须在 truncateByBytes **之前**注入（顺序写死）——
+ * 多模态 附件占位必须在 truncateByBytes **之前**注入（顺序写死）——
  * 若在投影返回后追加，25KB 截断会恰好裁掉附件行，跨通道不丢目标失效。
  * 截断预算权收投影层：附件块作为受保护尾部，从 maxBytes 中预留预算，
  * 正文按剩余预算截断，附件块强制存活（附件行 ≤几行字节，预留代价可忽略）。
@@ -249,12 +249,12 @@ function truncateByBytes(text: string, maxBytes: number, hint: string): string {
  * @param options.truncationHint 截断提示，缺省 `…(已截断,完整内容见 Web 端)`
  * @param options.attachments 消息附件（占位投影在截断前注入流水线）
  */
-/** F20260920alnk：URL 尾部合法字符（RFC 3986 pchar / query / fragment 的可打印 ASCII 子集）。
+/** URL 尾部合法字符（RFC 3986 pchar / query / fragment 的可打印 ASCII 子集）。
  *  GFM autolink 对 https:// 裸链的停止条件只有空白和 <，全角标点/中文/任何非空白
  *  Unicode 都会被吸入——从尾部反向剥离直到命中合法尾字符。 */
 const URL_TRAILING_CHAR = /[A-Za-z0-9\-_~.!$&'()*+,;=:@#%/?]$/;
 
-/** F20260920alnk：修正 GFM autolink 的全角尾巴。
+/** 修正 GFM autolink 的全角尾巴。
  *  场景（搭档多次实证）：「（https://github.com/x/pull/1053）。本地偶发的」——GFM 把
  *  「）。本地偶发的」整个吸进 URL，IM 侧点不开链接。
  *  做法：remark+GFM 解析定位 autolink 的 link 节点（源文本区段），把区段替换为
@@ -262,7 +262,7 @@ const URL_TRAILING_CHAR = /[A-Za-z0-9\-_~.!$&'()*+,;=:@#%/?]$/;
  *  不依赖 autolink 边界，尾巴问题就地消除；position 替换只动命中区段，原文其余
  *  部分零改动（不做 stringify 全文重排，避免 round-trip 改写其他语法）。
  *  解析失败/无命中时原样返回（尽力而为，不阻断出站）。 */
-// 模块级复用（检视 D1）：parser 链构建有开销，IM 出站每条消息都要过这里
+// 模块级复用（检视）：parser 链构建有开销，IM 出站每条消息都要过这里
 const AUTOLINK_PARSER = remark().use(remarkGfm);
 
 export function trimAutolinkTrailing(text: string): string {

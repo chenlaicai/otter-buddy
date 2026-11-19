@@ -53,7 +53,7 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
  *
  * good = 正确行为轨迹：bash（跑 date）在 write 之前
  * bad  = 伤疤复现轨迹：
- *   - bad[0]: 直接 write 无 bash（凭记忆标日期——D1 核心伤疤）
+ * - bad[0]: 直接 write 无 bash（凭记忆标日期——核心伤疤）
  *   - bad[1]: bash 在 write 之后（先写了文件再想起来跑 date——顺序错误）
  */
 export const selftest: GoldenModule["selftest"] = {

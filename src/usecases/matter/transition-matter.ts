@@ -146,12 +146,12 @@ function assertTransitionAllowed(matter: Matter, input: TransitionMatterInput): 
   assertCloseAuthority(matter, to, identity, input.resolution, input.closureKind);
 }
 
-/** resolvedBy 归一化（§1 口径：partner / otter:<id>） */
+/** resolvedBy 归一化（口径：partner / otter:<id>） */
 function normalizedActor(actor: string): string {
   return actor === 'partner' ? 'partner' : `otter:${actor}`;
 }
 
-/** 迁移 patch 构造（execute 只做编排；N1：resolvedBy 单写记实际执行獭，无二次留痕写入） */
+/** 迁移 patch 构造（execute 只做编排；resolvedBy 单写记实际执行獭，无二次留痕写入） */
 function buildTransitionPatch(
   matter: Matter, input: TransitionMatterInput, now: string,
 ): Parameters<MatterRepository['transition']>[2] {

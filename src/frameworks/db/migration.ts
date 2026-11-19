@@ -555,7 +555,7 @@ function rebuildMemoryEntriesUnifyIds(db: Database.Database, logger: Logger): vo
   logger.info(`Rebuilt memory_entries: ${mappingRows.length} projection ids unified with source_id (F20260915midu)`);
 }
 
-/** F20260912avlb：dispatch 伪存储 → 正式表的一次性搬家（幂等：settings 键 + 无 key 零循环）。
+/** dispatch 伪存储 → 正式表的一次性搬家（幂等：settings 键 + 无 key 零循环）。
  *  状态映射与全局 dissolved 覆盖见 SqliteDispatchRecordRepository.migrateFromContext。 */
 function migrateDispatchRecordsFromContext(db: Database.Database, logger: Logger): void {
   const done = db.prepare("SELECT value FROM settings WHERE key = 'dispatch_records_migrated'")
@@ -633,7 +633,7 @@ function backfillGhostSenders(db: Database.Database, logger: Logger): void {
   logger.info(`Backfilled ghost otter senders: fixed=${fixed}, skipped=${skipped}`, {});
 }
 
-/** F20261118nrwht P2a：otter_configs.otter_type CHECK 扩展 'night-reviewer'（存量库迁移）。
+/** otter_configs.otter_type CHECK 扩展 'night-reviewer'（存量库迁移）。
  *  受限写者獭档案须可落库：night-reviewer 只持 belief 三迁移工具，是夜间审视的执行体。
  *  Why 表重建而非 ALTER：SQLite 无法修改已有 CHECK 约束，只能重建表替换（同 rebuildAttachmentsKindCheck 模式）。
  *  幂等：新库 schema 已是宽约束（检测不到旧文本直接返回）；重建 DROP+RENAME 事务内完成。
@@ -664,7 +664,7 @@ function rebuildOtterConfigsTypeCheck(db: Database.Database, logger: Logger): vo
   logger.info('otter_configs otter_type CHECK widened: night-reviewer now accepted');
 }
 
-/** Issue #608：attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。
+/** attachments 表 kind CHECK 约束扩展 audio/video（存量库迁移）。
  *  Why 表重建而非 ALTER：SQLite 无法修改已有 CHECK 约束，只能重建表替换。
  *  与 rebuildDocumentTablesDropCheck 同模式：检测 sqlite_master 的旧 CHECK 文本判存量。
  *  幂等：新库 schema 已是宽约束（检测不到旧文本直接返回）；重建过程 DROP+RENAME 事务内完成。
@@ -716,7 +716,7 @@ function rebuildAttachmentsKindCheck(db: Database.Database, logger: Logger): voi
   logger.info('attachments kind CHECK widened: audio/video now accepted');
 }
 
-/** F20260920trrt：turn 系统退役迁移（存量库）。
+/** turn 系统退役迁移（存量库）。
  *  顺序硬约束：① entries 去 turn_id（拆 FK）→ ② participants 去 turn 列（拆 FK）→ ③ turns drop。
  *  幂等：新库 schema 无 turn_id 列（PRAGMA 检测不到直接返回）。
  *  FK 事务模式与 rebuildAttachmentsKindCheck 同款（PRAGMA foreign_keys 事务外关、事务后恢复）。 */
@@ -750,8 +750,8 @@ function retireTurnSystem(db: Database.Database, logger: Logger): void {
   logger.info('turn system retired: entries/participants/executions turn columns / linked_resources stamps / turns table removed');
 }
 
-/** F20260920trrt（复检发现 1）：scheduled_task_executions 去 turn_id 重建。
- *  存量库该表带 turn_id TEXT REFERENCES turns(id)（#654 重建时代形）——不拆 FK，
+/** （复检发现 1）：scheduled_task_executions 去 turn_id 重建。
+ * 存量库该表带 turn_id TEXT REFERENCES turns(id)（重建时代形）——不拆 FK，
  *  drop turns 后 INSERT 在 prepare 阶段即 no such table: main.turns，定时任务全停。
  *  幂等：无 turn_id 列（新库/已迁移）直接返回。 */
 function rebuildExecutionsWithoutTurnId(db: Database.Database): void {
@@ -776,7 +776,7 @@ function rebuildExecutionsWithoutTurnId(db: Database.Database): void {
     `);
 }
 
-/** F20260920trrt（复检发现 2）：linked_resources 去 turn 戳两列（linked_at_turn_number /
+/** （复检发现 2）：linked_resources 去 turn 戳两列（linked_at_turn_number /
  *  status_changed_at_turn_number，idnw 时代纯账面戳，无行为消费）。幂等：无该列直接返回。 */
 function dropLinkedResourcesTurnStamps(db: Database.Database): void {
   const cols = db.prepare("PRAGMA table_info(linked_resources)").all() as Array<{ name: string }>;
@@ -815,7 +815,7 @@ function dropLinkedResourcesTurnStamps(db: Database.Database): void {
     `);
 }
 
-/** F20260920trrt：entries 去 turn_id 拷贝重建（保留其余全部列/索引） */
+/** entries 去 turn_id 拷贝重建（保留其余全部列/索引） */
 function rebuildEntriesWithoutTurnId(db: Database.Database): void {
   db.exec(`
       CREATE TABLE entries_new (
@@ -855,7 +855,7 @@ function rebuildEntriesWithoutTurnId(db: Database.Database): void {
     `);
 }
 
-/** F20260920trrt：participants 去 turn 列拷贝重建（FK + 四个 turn number 列） */
+/** participants 去 turn 列拷贝重建（FK + 四个 turn number 列） */
 function rebuildParticipantsWithoutTurnColumns(db: Database.Database): void {
   db.exec(`
       CREATE TABLE conversation_participants_new (
@@ -881,7 +881,7 @@ function rebuildParticipantsWithoutTurnColumns(db: Database.Database): void {
     `);
 }
 
-/** Issue #644：signals 表补 evidence_detail / confidence 列（幂等，PRAGMA 检测）。
+/** signals 表补 evidence_detail / confidence 列（幂等，PRAGMA 检测）。
  *  Why 独立函数：与 ensureHealingEventsIntroducedByPrColumn 同模式——存量库列补丁不进 initSchema
  *  的 CREATE（新库自动带上），只在这里 ALTER 补旧库。 */
 function ensureSignalsEvidenceColumns(db: Database.Database, logger: Logger): void {
@@ -896,7 +896,7 @@ function ensureSignalsEvidenceColumns(db: Database.Database, logger: Logger): vo
   }
 }
 
-/** F20260917trig：signals 表补处置状态机四列（幂等，PRAGMA 检测）。
+/** signals 表补处置状态机四列（幂等，PRAGMA 检测）。
  *  同 ensureSignalsEvidenceColumns 模式——存量库列补丁不进 initSchema 的 CREATE，
  *  只在这里 ALTER 补旧库。四列全部 nullable/默认值，存量行为零变化。 */
 function ensureSignalsTriageColumns(db: Database.Database, logger: Logger): void {
@@ -913,7 +913,7 @@ function ensureSignalsTriageColumns(db: Database.Database, logger: Logger): void
   add('triage_note', 'triage_note TEXT DEFAULT NULL');
 }
 
-/** F20260914rtsp：invokes 表补 ctx_window_used 列（存量库）。幂等：PRAGMA 检测。 */
+/** invokes 表补 ctx_window_used 列（存量库）。幂等：PRAGMA 检测。 */
 function ensureInvokesCtxWindowUsedColumn(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(invokes)").all() as Array<{ name: string }>;
   if (!columns.some(col => col.name === 'ctx_window_used')) {
@@ -923,11 +923,11 @@ function ensureInvokesCtxWindowUsedColumn(db: Database.Database, logger: Logger)
 }
 
 /**
- * F20260803fbit: 为 features/research 表加 body_hash 列。
+ * 为 features/research 表加 body_hash 列。
  * 老库已跑过 rebuildDocumentTablesDropCheck（标记 done 不会重建），
  * 需要独立 ADD COLUMN 补列。PRAGMA table_info 检测列存在性作幂等。
  */
-/** F20260920imax：conversations.kind 列迁移 + 助理对话回填（title 前缀约定 → schema 字段）。 */
+/** conversations.kind 列迁移 + 助理对话回填（title 前缀约定 → schema 字段）。 */
 function ensureConversationsKindColumn(db: Database.Database, logger: Logger): void {
   const cols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
   if (!cols.some(col => col.name === 'kind')) {
@@ -957,7 +957,7 @@ function addBodyHashColumns(db: Database.Database, logger: Logger): void {
   }
 }
 
-/** F20260805rbrg：messages.metadata TEXT 列存外部 ID 等查重信息。PRAGMA 探测幂等。 */
+/** messages.metadata TEXT 列存外部 ID 等查重信息。PRAGMA 探测幂等。 */
 function addMessagesMetadataColumn(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
     // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
@@ -1002,7 +1002,7 @@ function addScheduleTypeColumns(db: Database.Database, logger: Logger): void {
 }
 
 /**
- * F20260813mren Part 2: features/research 表加 created_in_conversation_id 列。
+ * features/research 表加 created_in_conversation_id 列。
  * 记录文档由哪段对话产出（事实级 provenance，非推断）。
  * PRAGMA table_info 检测列存在性作幂等。
  */
@@ -1021,7 +1021,7 @@ function addDocProvenanceColumns(db: Database.Database, logger: Logger): void {
 }
 
 /**
- * F20260728htar 补丁（a）：存量 FTS rebuild 为剥离投影。
+ * 补丁（a）：存量 FTS rebuild 为剥离投影。
  * FTS 写入从触发器拿回应用层后，messages_fts.body 存 html-card 剥离文本。
  * 单事务内 DELETE + 逐条剥离重插；settings 表 messages_fts_stripped_rebuild=done
  * 作幂等键（initSchema 的 DROP TRIGGER 先于 migrateDatabase，"触发器存在"不能作判据）。
@@ -1063,9 +1063,9 @@ function rebuildMessagesFtsStripped(db: Database.Database, logger: Logger): void
 }
 
 /**
- * F20260902rcp1 补丁：memory_fts_jieba 全量重建为双写格式（词典词 + 全单字）。
+ * 补丁：memory_fts_jieba 全量重建为双写格式（词典词 + 全单字）。
  * 背景：旧索引用 cut(x,false) 全单字写入，词典词（「健康」「架构」）在索引中不存在，
- * 短语查询永远 miss（Phase 0 根因1）。重建后双写兼容两类查询。
+ * 短语查询永远 miss（根因1）。重建后双写兼容两类查询。
  * 幂等键：settings 表 fts_jieba_double_write=done（沿用 rebuildMessagesFtsStripped 模式）。
  */
 function rebuildMemoryFtsJiebaDoubleWrite(db: Database.Database, logger: Logger): void {
@@ -1102,7 +1102,7 @@ function rows_count_hint(db: Database.Database): number {
 }
 
 /**
- * F20260728htar 补丁（b）：messages 表 DROP COLUMN attachments（死字段清除）。
+ * 补丁（b）：messages 表 DROP COLUMN attachments（死字段清除）。
  * 以 PRAGMA 探测列存在性作天然幂等（DROP COLUMN 需 SQLite 3.35+，better-sqlite3 捆绑版本满足）。
  */
 function dropMessagesAttachmentsColumn(db: Database.Database, logger: Logger): void {
@@ -1119,7 +1119,7 @@ function dropMessagesAttachmentsColumn(db: Database.Database, logger: Logger): v
   logger.info('Dropped attachments column from messages table');
 }
 
-/** F20260803pncv：conversations 表添加 pinned 列（置顶功能）。PRAGMA 探测幂等。 */
+/** conversations 表添加 pinned 列（置顶功能）。PRAGMA 探测幂等。 */
 function addPinnedColumn(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
   const hasPinned = columns.some(col => col.name === 'pinned');
@@ -1130,7 +1130,7 @@ function addPinnedColumn(db: Database.Database, logger: Logger): void {
 }
 
 /**
- * F20260803mval 补丁：重建 features/research 表移除枚举 CHECK 约束。
+ * 补丁：重建 features/research 表移除枚举 CHECK 约束。
  * SQLite 不支持 ALTER TABLE DROP CHECK，必须 CREATE new -> INSERT FROM old -> DROP old -> RENAME。
  * settings 表 doc_check_constraints_dropped=done 作幂等键。
  * 新表定义与 schema.ts createDocumentTables 一致（无 change_type/status/exploration_type 的枚举 CHECK）。
@@ -1222,7 +1222,7 @@ function rebuildDocumentTablesDropCheck(db: Database.Database, logger: Logger): 
   logger.info('Rebuilt features/research tables to drop CHECK constraints (doc_check_constraints_dropped=done)');
 }
 
-/** F20260815rstrt: scheduled_tasks 表添加 restart_before_invoke 列。PRAGMA 探测幂等。 */
+/** scheduled_tasks 表添加 restart_before_invoke 列。PRAGMA 探测幂等。 */
 function addRestartBeforeInvokeColumn(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
   const hasRestartBeforeInvoke = columns.some(col => col.name === 'restart_before_invoke');
@@ -1232,7 +1232,7 @@ function addRestartBeforeInvokeColumn(db: Database.Database, logger: Logger): vo
   logger.info('Added restart_before_invoke column to scheduled_tasks table');
 }
 
-/** #516: scheduled_tasks 表添加 timeout_minutes 列（任务级链超时配置）。PRAGMA 探测幂等。 */
+/** scheduled_tasks 表添加 timeout_minutes 列（任务级链超时配置）。PRAGMA 探测幂等。 */
 function addTimeoutMinutesColumn(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
   const hasTimeoutMinutes = columns.some(col => col.name === 'timeout_minutes');
@@ -1255,8 +1255,8 @@ function addExecutorTypeColumns(db: Database.Database, logger: Logger): void {
   }
 }
 
-/** F20260915desc: scheduled_tasks 表添加 description 列（人类可读任务描述）。
- *  PRAGMA 探测幂等。原同时回填 paper-trading 两个 seed 任务描述，F20260920stkx 移除后无官方 seed。 */
+/** scheduled_tasks 表添加 description 列（人类可读任务描述）。
+ * PRAGMA 探测幂等。原同时回填 paper-trading 两个 seed 任务描述，移除后无官方 seed。 */
 function addDescriptionColumn(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
   if (!columns.some(col => col.name === 'description')) {
@@ -1305,13 +1305,13 @@ export function migrateExistingData(
 }
 
 /**
- * F20260803chunk: 清理旧 feature_body/research_body entries（chunking 取代整 body entry，决策 D1）。
+ * 清理旧 feature_body/research_body entries（chunking 取代整 body entry，决策）。
  *
- * B7：独立 export 函数，不加入 migrateDatabase 函数体（migrateDatabase 在 sync 之前执行）。
+ * 独立 export 函数，不加入 migrateDatabase 函数体（migrateDatabase 在 sync 之前执行）。
  *     在 main.ts 中 syncDocuments 之后单独调用。
- * B3：sync 之前调用会删旧数据，sync 失败则正文索引消失；移到 sync 之后则 sync 失败旧数据还在。
- * M14：加 syncErrors 参数，仅当 sync 无错误时执行清理。防 sync 部分失败时清掉失败文档正文索引。
- * S10：vec 删除 try-catch 加 log warn（防吞非 table-not-found 错误）。
+ * sync 之前调用会删旧数据，sync 失败则正文索引消失；移到 sync 之后则 sync 失败旧数据还在。
+ * 加 syncErrors 参数，仅当 sync 无错误时执行清理。防 sync 部分失败时清掉失败文档正文索引。
+ * vec 删除 try-catch 加 log warn（防吞非 table-not-found 错误）。
  */
 export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger, syncErrors: number): void {
   const done = db.prepare("SELECT value FROM settings WHERE key = 'chunking_v1_migrated'")
@@ -1354,8 +1354,8 @@ export function migrateFeatureBodyToChunks(db: Database.Database, logger: Logger
 }
 
 /**
- * F20260827he2f: healing_events 表添加 introduced_by_pr 列（存量库迁移）。
- * PR #386 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
+ * healing_events 表添加 introduced_by_pr 列（存量库迁移）。
+ * 的迁移写在 initSchema 中，存量库永远跑不到——导致 INSERT 时 100% 抛「no such column」。
  * 此处用 PRAGMA table_info 检测列存在性作幂等，与 session_file 等历史补丁列一致。
  */
 function ensureHealingEventsIntroducedByPrColumn(db: Database.Database, logger: Logger): void {
@@ -1367,7 +1367,7 @@ function ensureHealingEventsIntroducedByPrColumn(db: Database.Database, logger: 
   }
 }
 
-/** F20260901sgp0 P0: messages 表添加 signal_level / signal_meta 列（信号协议铺轨）。
+/** messages 表添加 signal_level / signal_meta 列（信号协议铺轨）。
  *  存量行 NULL = 无信号语义（向后兼容）。PRAGMA 探测幂等。 */
 function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
@@ -1395,8 +1395,8 @@ function ensureMessagesSignalColumns(db: Database.Database, logger: Logger): voi
 }
 
 /**
- * F20260818segs: message_segments 子表迁移。
- * （#506 后建表职责由 initSchema 无条件承担，此函数只做存量数据搬移与 body 列移除：
+ * message_segments 子表迁移。
+ * （后建表职责由 initSchema 无条件承担，此函数只做存量数据搬移与 body 列移除：
  *  1. 将存量 messages.body 迁移到 message_segments（一条 body → 一个 segment，sequence_num=0）
  *  2. 移除 messages.body 列（SQLite 3.35+ DROP COLUMN，降级时跳过））
  */
@@ -1454,7 +1454,7 @@ function ensureAgentSessionFileColumn(db: Database.Database, logger: Logger): vo
 }
 
 /** messages 表补 source + sender_name 列（PRAGMA 探测幂等，自 migrateDatabase 拆出；
- *  sender_name 为 F20260824snrs 发送者显示名快照） */
+ * sender_name 为 发送者显示名快照） */
 function ensureMessagesSourceAndSenderNameColumns(db: Database.Database, logger: Logger): void {
   if (!(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get() as { name: string } | undefined)) {
     // F20260913ctlv 批4c：messages 表已 drop（迁移完成后/新库）——全部 messages 补丁跳过
@@ -1472,11 +1472,11 @@ function ensureMessagesSourceAndSenderNameColumns(db: Database.Database, logger:
   }
 }
 
-/** #654：scheduled_task_executions 表 CHECK 约束扩展 skipped 枚举值。
+/** scheduled_task_executions 表 CHECK 约束扩展 skipped 枚举值。
  *  老库 CHECK (status IN (running, completed, failed)) 不含 skipped，写入即抛
  *  constraint violation。SQLite 无法 ALTER CHECK，需 CREATE-INSERT-DROP-RENAME 四步重建
  *  （先例：rebuildDocumentTablesDropCheck）。幂等：新库 CHECK 已含 skipped 时直接返回。
- *  #805：重建补齐 FK 防护（foreign_keys OFF + try/finally + ON，与 #608/#792/#812 统一）。 */
+ * 重建补齐 FK 防护（foreign_keys OFF + try/finally + ON，与 //统一）。 */
 function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): void {
   const schemaRow = db.prepare(
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='scheduled_task_executions'",
@@ -1516,8 +1516,8 @@ function rebuildExecutionsStatusCheck(db: Database.Database, logger: Logger): vo
   logger.info('Rebuilt scheduled_task_executions table to add skipped status (#654)');
 }
 
-/** F20260908rlcp：dispatch_attempts 存量表 drop。
- *  表已在 F20260908rlcp 退役（schema.ts 删除），此处清理旧库残留。
+/** dispatch_attempts 存量表 drop。
+ * 表已在 退役（schema.ts 删除），此处清理旧库残留。
  *  幂等：表不存在时跳过。PRAGMA foreign_keys 事务外关闭、drop 后恢复。 */
 function dropDispatchAttemptsTable(db: Database.Database, logger: Logger): void {
   const tableExists = db.prepare(
@@ -1535,13 +1535,13 @@ function dropDispatchAttemptsTable(db: Database.Database, logger: Logger): void 
   logger.info('Dropped dispatch_attempts table (F20260908rlcp retirement)');
 }
 
-/** F20260916b1ea：restart_pending_resumes 的 F202609048840 F4 重建函数已删除——
- *  旧 messages 模型表形随 F20260913ctlv 批4c 整体 drop，新 invoke 模型表形由
+/** restart_pending_resumes 的 F4 重建函数已删除——
+ * 旧 messages 模型表形随 批4c 整体 drop，新 invoke 模型表形由
  *  schema.ts createRestartPendingResumesTable 幂等建出（CHECK 含 failed，无需重建）。 */
 
 
 /* ══════════════════════════════════════════════════════════════════
- * F20260913ctlv 收尾批4b：messages → entries 数据迁移（幂等回填，非破坏）
+ * 收尾批4b：messages → entries 数据迁移（幂等回填，非破坏）
  *
  * 数据面（生产主库实勘 2026-09-12）：9598 条 messages / 162 对话
  * （user 2301 全 completed / system 1131 / otter 6166 = completed 5262 +
@@ -1898,7 +1898,7 @@ function remapReadCursors(db: Database.Database, conversationId: string, maxNew:
   }
 }
 
-/** F20260914rmap：无重叠路径的读游标重映射。
+/** 无重叠路径的读游标重映射。
  *  旧游标语义 = 「已读旧 messages 前 K 条」，锚点必须按消息 id 定位（不能用
  *  「新 seq ≤ 旧值」查找——yield 合成行占据序号会把锚点吸到合成行上）。
  *  映射：旧前缀最后一条消息 id → 该 entry 的新序号（base 行与消息同 id；
@@ -1952,7 +1952,7 @@ function remapReadCursorsNoOverlap(
 }
 
 
-/** F20260913ctlv 收尾批4c：messages 族旧表 drop（六张 + 对账保险丝）。
+/** 收尾批4c：messages 族旧表 drop（六张 + 对账保险丝）。
  *  前置：migrateMessagesToEntries 已标 done（幂等键）；messages 表不存在（新库/已 drop）
  *  直接过。对账：逐对话 entries 条数 ≥ messages 条数——迁移只会增行（yield 合成），
  *  少于即迁移遗漏，中止 drop。 */
@@ -1996,14 +1996,14 @@ function dropLegacyMessagesTables(db: Database.Database, logger: Logger): void {
   logger.info('[messages→entries] Dropped legacy tables: messages / message_events / message_segments / message_attachments / messages_fts / restart_pending_resumes (F20260913ctlv 批4c)', {});
 }
 
-/** F20260914fkx1：scheduled_task_executions 残留 FK 清理（#886 后遗）。
+/** scheduled_task_executions 残留 FK 清理（后遗）。
  *  存量库该表建于 messages 存活期，message_id 列挂 REFERENCES messages(id)；
  *  批4c drop messages 后 FK 指向空表，foreign_keys=ON 时 INSERT 在 prepare 阶段抛
  *  SqliteError: no such table: main.messages（2026-09-14 09:21 生产现场，4 个定时任务
  *  catch-up 全部静默失败——错误发生在 createExecution 且未建 execution 行）。
- *  四步重建去 FK（#654 同模式）：CREATE 无 FK 新表 → INSERT SELECT → DROP → RENAME。
+ * 四步重建去 FK（同模式）：CREATE 无 FK 新表 → INSERT SELECT → DROP → RENAME。
  *  幂等：PRAGMA foreign_key_list 无 messages 引用即返回（新库/已迁移）。
- *  #805 FK 防护：重建本身在 foreign_keys=OFF 下进行，try/finally 恢复 ON。 */
+ * FK 防护：重建本身在 foreign_keys=OFF 下进行，try/finally 恢复 ON。 */
 function rebuildExecutionsDropMessagesFk(db: Database.Database, logger: Logger): void {
   const fkRows = db.prepare("PRAGMA foreign_key_list(scheduled_task_executions)").all() as Array<{ table: string }>;
   if (!fkRows.some(fk => fk.table === 'messages')) return;
@@ -2036,7 +2036,7 @@ function rebuildExecutionsDropMessagesFk(db: Database.Database, logger: Logger):
   logger.info('Rebuilt scheduled_task_executions: stale messages FK removed (F20260914fkx1)');
 }
 
-/** F20260923icus（#1149）：invokes 表补 token_usage_cache_read / token_usage_cache_write 两列。
+/** invokes 表补 token_usage_cache_read / token_usage_cache_write 两列。
  *  新库 initSchema 已含；存量库 ALTER 补列。幂等：PRAGMA 探测。历史行留 NULL（无法回补）。 */
 function ensureInvokeCacheColumns(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(invokes)").all() as Array<{ name: string }>;
@@ -2047,7 +2047,7 @@ function ensureInvokeCacheColumns(db: Database.Database, logger: Logger): void {
   }
 }
 
-/** F20260921otcl：otters 表补 color 列（PRAGMA 探测幂等——新库 initSchema 已含，存量库 ALTER 补列） */
+/** otters 表补 color 列（PRAGMA 探测幂等——新库 initSchema 已含，存量库 ALTER 补列） */
 function ensureOtterColorColumn(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(otters)").all() as Array<{ name: string }>;
   if (!columns.some(col => col.name === 'color')) {
@@ -2056,7 +2056,7 @@ function ensureOtterColorColumn(db: Database.Database, logger: Logger): void {
   }
 }
 
-/** #1241（F20261006opid）：invokes 表补 pid 列（存量库）——孤儿判据数据承载。
+/** invokes 表补 pid 列（存量库）——孤儿判据数据承载。
  *  幂等：PRAGMA 探测；新库 initSchema 已含（schema.ts 同步登记）。 */
 function ensureInvokesPidColumn(db: Database.Database, logger: Logger): void {
   const columns = db.prepare("PRAGMA table_info(invokes)").all() as Array<{ name: string }>;
@@ -2067,7 +2067,7 @@ function ensureInvokesPidColumn(db: Database.Database, logger: Logger): void {
 }
 
 /**
- * F20260921otcl：存量小獭颜色回填（fill-only 续算，真幂等）。
+ * 存量小獭颜色回填（fill-only 续算，真幂等）。
  *
  * 分组：按 conversation_participants 对话归属分组（现行参与者表——conversation_otters
  * 是遗留 join 表仅覆盖大獭，小獭归属在 participants；大獭 type='big' 不分配）。
@@ -2120,13 +2120,13 @@ function backfillOtterColors(db: Database.Database, logger: Logger): void {
 }
 
 /**
- * #1191（F20260928rmix）：entries → memory_entries 消息索引存量回填。
+ * entries → memory_entries 消息索引存量回填。
  *
- * 背景：#886（F20260913ctlv）删除旧 SendMessage 的三处 indexMessage 调用后，
+ * 背景：删除旧 SendMessage 的三处 indexMessage 调用后，
  * 9/13 至修复日的对话正文（user + speak）未入记忆——search_memory 对该时段
  * 对话内容失明（生产库实证：message 类记忆最后一条 = 9/13）。
  *
- * 回填口径（对齐旧 SendMessage 语义 + #942 ID 统一）：
+ * 回填口径（对齐旧 SendMessage 语义 + ID 统一）：
  * - 范围：entry_type IN ('user','speak') 且 body 非空（system/yield/invoke_* 边界
  *   条目不入——旧口径只有正文承载语义的条目入索引）
  * - 投影主键 = entry.id（sourceTable='entries'，generateId 直透）——与增量写入
@@ -2206,25 +2206,25 @@ function backfillEntryMemoryIndex(db: Database.Database, logger: Logger): void {
   }
 }
 
-/** #1191：人类可读文件大小（与 attachment-projection.ts humanSize 同构，migration 独立持有避免跨层 import） */
+/** 人类可读文件大小（与 attachment-projection.ts humanSize 同构，migration 独立持有避免跨层 import） */
 function humanSizeForIndex(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${bytes}B`;
 }
 
-/** #906（F20260930esqu）：entries 表 (conversation_id, sequence_num) 普通索引升级 UNIQUE（存量库迁移）。
+/** entries 表 (conversation_id, sequence_num) 普通索引升级 UNIQUE（存量库迁移）。
  *  Why：createEntryAtomic 的 INSERT ... SELECT MAX+1 在 SQLite 单写锁下正确，但无数据库级
  *  最后防线（对比 turns 表退役前的 idx_turns_conversation_number 唯一约束）；一旦出现并发写
  *  路径绕过原子插入（如直接 SQL/未来批量导入器），重复 seq 会静默破坏序号刻度语义。
  *  语义上 (conversation_id, sequence_num) 本就该唯一——索引加固为 UNIQUE 是补齐欠账而非新增约束。
  *  幂等：PRAGMA index_list 检测 unique 标志，已是 UNIQUE 直接返回；
- *  防御双保险：重复检查 + DROP/CREATE 同一事务（r1 审视发现①：检查在事务外时 TOCTOU
+ * 防御双保险：重复检查 + DROP/CREATE 同一事务（审视发现①：检查在事务外时 TOCTOU
  *  窗口内并发写重复行会让 CREATE UNIQUE INDEX 抛错上穿，击穿「不阻断启动」契约；写锁下原子化后
  *  概率保证变结构保证）。发现重复则 log 告警并跳过（不抛错阻断启动——生产已验证 0 重复
  *  （2026-09-30，31596 行），这是兜底不是主路径；放行旧行为比阻断启动安全）；
  *  重建：SQLite 无 ALTER INDEX，DROP 旧普通索引 + CREATE UNIQUE INDEX 事务内完成
- *  （裸 exec 在 DROP 后、CREATE 前中断会丢失查询索引，同 #608 rebuildAttachmentsKindCheck 模式）。
+ * （裸 exec 在 DROP 后、CREATE 前中断会丢失查询索引，同 rebuildAttachmentsKindCheck 模式）。
  *  schema.ts:953 已同步改为 CREATE UNIQUE INDEX（新库直接建成 UNIQUE，本函数对它幂等直接返回）。 */
 function ensureEntriesConversationSeqUnique(db: Database.Database, logger: Logger): void {
   const indexInfo = db.prepare("PRAGMA index_list('entries')").all() as Array<{ name: string; unique: number }>;
@@ -2255,7 +2255,7 @@ function ensureEntriesConversationSeqUnique(db: Database.Database, logger: Logge
   logger.info('[ensureEntriesConversationSeqUnique] Upgraded idx_entries_conversation_seq to UNIQUE (#906, F20260930esqu)');
 }
 
-/** #1271（F20261008hbbd）：healing_events 补 bound_issue / bound_at 两列（存量库）。
+/** healing_events 补 bound_issue / bound_at 两列（存量库）。
  *  同 ensureSignalsTriageColumns 模式——存量库列补丁不进 initSchema 的 CREATE，
  *  只在这里 ALTER 补旧库。两列全部 nullable，存量行为零变化。
  *  新库由 schema.ts initSchema 直接建成（含 idx_healing_events_bound_issue 索引）；
@@ -2274,7 +2274,7 @@ function ensureHealingEventsBoundIssueColumns(db: Database.Database, logger: Log
 }
 
 /**
- * F20261116actlg PR-B：restart_pending_resumes 补 claim 四列（存量库 ALTER，幂等）。
+ * restart_pending_resumes 补 claim 四列（存量库 ALTER，幂等）。
  * - claim_token/boot_epoch：认领绑定（同 boot 内已认领拒重认领；旧纪元残留可被新开机重认领）；
  * - claim_pid：认领进程 pid（重认领前 liveness 预检——旧持有者仍存活则不抢，防双跑）；
  * - recovery_invoke_id：恢复轮 invoke 审计链（追加式，多次恢复全历史；originalInvokeId=行 PK 跨世代不变）。

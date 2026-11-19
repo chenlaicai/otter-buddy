@@ -31,7 +31,7 @@ function norm(key: keyof RawFeatures, v: boolean | null | undefined, logger?: Lo
   return undefined;
 }
 
-/** 附件段默认值（F20260915cfgt 从 config-service 迁来，控行数） */
+/** 附件段默认值（从 config-service 迁来，控行数） */
 export function buildRawAttachmentsConfig(raw: { attachments?: { storageRoot?: string; maxImageBytes?: number; maxDocumentBytes?: number } }): { storageRoot: string; maxImageBytes: number; maxDocumentBytes: number } {
   return {
     storageRoot: raw.attachments?.storageRoot ?? "./data/attachments",

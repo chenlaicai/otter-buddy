@@ -48,7 +48,7 @@ interface WeixinMediaItemEntry {
  *
  * 命令体系复用 im-command-parser（/list /in /out /history /help 与
  * ManageConnection 的会话绑定语义通道无关）；partnerResolver 做命令门禁
- * （F20260826fpbd 方案 B 同语义：配置 partnerUserId 时仅搭档可用命令）。
+ * （方案 B 同语义：配置 partnerUserId 时仅搭档可用命令）。
  */
 export class WeixinMessageProcessor {
   constructor(

@@ -308,7 +308,7 @@ function buildCostRecord(
 }
 
 /** 按 key 聚合（per-otter per-day per-model）。
- *  cacheHitRate 不再计算（#602）：消费端统一从 cacheReadTokens+inputTokens 推导。 */
+ * cacheHitRate 不再计算：消费端统一从 cacheReadTokens+inputTokens 推导。 */
 function aggregateUsageRecords(
   records: Array<OtterCostRecord & { _key: string }>,
 ): OtterCostRecord[] {
@@ -526,7 +526,7 @@ export interface PrCountRecord {
 
 /**
  * 通过 git log 统计合并的 PR 数量。
- * GitHub merge commit 格式：Merge pull request #NNN from ...
+ * GitHub merge commit 格式：Merge pull request from ...
  */
 export async function collectPrCounts(
   repoPath: string,
@@ -571,7 +571,7 @@ export interface DispatchCountRecord {
 }
 
 /**
- * F20260912avlb：从 dispatch_records 表采集 per-date 的每日派工数。
+ * 从 dispatch_records 表采集 per-date 的每日派工数。
  * 口径：按 dispatched_at 日期聚合（有 dispatched_at 的记录数 = 当日实际派出的工）。
  * 旧口径（「任务完成数」：只认 completed/failed 终态）自上线以来一直静默归零——
  * 终态从未有写入路径（见特性文档「数据层真相」），是死口径；本切换为客观可判定的

@@ -178,7 +178,7 @@ export function createTriageSignalTool(ctx: ToolContext, signalRepo: SignalRepos
   };
 }
 
-/** #1787：仅明确 CLOSED 才进入遗留清单；外部状态按 issue 去重并顺序查询。 */
+/** 仅明确 CLOSED 才进入遗留清单；外部状态按 issue 去重并顺序查询。 */
 async function selectClosedIssueSignals(
   rows: SignalRecord[],
   readState: ReadIssueState,

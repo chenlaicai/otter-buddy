@@ -421,7 +421,7 @@ function validateIntent(fm, exemptKey) {
   return { errors, warnings };
 }
 
-// F20261005imfg 审视处置（检视獭-1283 严重 1）：「已补齐」判据单一真相源。
+// 审视处置（检视獭-1283 严重 1）：「已补齐」判据单一真相源。
 // 豁免降级的 error 全部以 "Missing intent" 开头（缺块/problem/expected_effect 三类），
 // 过期检测的判据必须与之完全对偶：以非豁免身份重跑 validateIntent，
 // 无任何 "Missing intent" 类 error 才算已补齐——否则 bad-schema（intent:{goal,why}）

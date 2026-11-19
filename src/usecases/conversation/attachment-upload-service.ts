@@ -46,7 +46,7 @@ function buildRelativePath(sha256: string, ext: string): string {
   return path.posix.join("attachments", sha256.slice(0, 2), sha256.slice(2, 4), `${sha256}${ext}`);
 }
 
-/** MIME → 存储扩展名（表驱动；#608 扩 audio/video/pdf） */
+/** MIME → 存储扩展名（表驱动；扩 audio/video/pdf） */
 const MIME_EXTENSION_MAP: Record<string, string> = {
   "image/png": ".png",
   "image/jpeg": ".jpg",
@@ -66,7 +66,7 @@ function extForMime(mimeType: string): string {
   return MIME_EXTENSION_MAP[mimeType] ?? "";
 }
 
-/** kind 人类可读名（错误消息用，#608 扩展） */
+/** kind 人类可读名（错误消息用，扩展） */
 function kindLabel(kind: "image" | "document" | "audio" | "video"): string {
   return kind === "image" ? "图片" : kind === "audio" ? "音频" : kind === "video" ? "视频" : "文档";
 }

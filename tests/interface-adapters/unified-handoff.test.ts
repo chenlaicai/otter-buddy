@@ -224,7 +224,7 @@ function makeInvokerWithEngine(opts: {
   ) as unknown as AgentInvoker;
 }
 
-// eslint-disable-next-line max-lines-per-function -- 统一交接 describe 块：V1-V6 + S1-S2 + M2/M4 用例同域聚合（拆分会割裂「同一交接管线行为」的断言内聚）
+// eslint-disable-next-line max-lines-per-function -- 统一交接 describe 块：V1-V6 + -+ /用例同域聚合（拆分会割裂「同一交接管线行为」的断言内聚）
 describe("restartWithUnifiedHandoff（F20260920uhuc 统一交接）", () => {
   it("V1 锚点：合成走影子通道——全程零 invoke 调用 + 持锁释放配对（锁雪崩根治）", async () => {
     const sdk = makeSdkPort();

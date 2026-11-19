@@ -96,7 +96,7 @@ function Pagination({ page, total, onChange, testid }: { page: number; total: nu
   )
 }
 
-/** F20260922cgrp：可折叠分组头（chevron + 标题 + 计数） */
+/** 可折叠分组头（chevron + 标题 + 计数） */
 function GroupHeader({
   label,
   count,

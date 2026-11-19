@@ -2259,7 +2259,7 @@ export class SchedulerService {
 
 const MAX_PROMPT_LENGTH = 8000;
 
-/** self-healing-analysis 模板路径（issue #416：静态文案的 git 真相源，动态部分由 {{HEALING_DATA}} 占位符填充） */
+/** self-healing-analysis 模板路径（静态文案的 git 真相源，动态部分由 {{HEALING_DATA}} 占位符填充） */
 export const HEALING_ANALYSIS_TEMPLATE_PATH = 'prompts/scheduled/self-healing-analysis.md';
 
 /** 回退文案（模板缺失时用）。必须与模板静态部分保持一致——
@@ -2431,11 +2431,11 @@ export async function buildRegressionVerifyBody(runGh: RegressionGhRunner = defa
   return `## 验证断言回查任务\n\n${dataSection}\n\n逐条：gh issue view 读断言段 → 执行检查方式 → 判定 ✅/❌/⚠️ → 评论回写（含 <!-- regression-verify: ... --> 标记）；❌ 已关闭的重开并升级优先级。`;
 }
 
-/** #1208：regression-verify 心跳可见性——「活着但没活干」可查询。
+/** regression-verify 心跳可见性——「活着但没活干」可查询。
  *  生产现场 9/18–9/29：任务每天 11:00 触发但每天跳过（无到期断言 / gh 故障），
  *  既不落 execution 也无任何心跳——与「死了」在指标上不可区分。
  *
- *  写入形态：**写入即 resolved**（#751 心跳语义先例 circuit-break-support.ts:92-101——
+ * 写入形态：**写入即 resolved**（心跳语义先例 circuit-break-support.ts:92-101——
  *  「探针是心跳不是问题」，落账只为管道自证，不进 open 池等待处置）。
  *  Why resolved 而非 open：open 事件会被次日 9:00 self-healing-analysis 的 findOpen(20)
  *  消费（废掉其「no open events」skip 机制）、污染 dismiss 率统计；心跳是状态记录，
@@ -2493,9 +2493,9 @@ export async function buildRegressionVerifyHeartbeat(
 }
 
 /** 构建 healing 分析任务的动态 prompt。返回 null 表示无待处理事件。
- *  静态文案来自 prompts/scheduled/self-healing-analysis.md（issue #416 git 化），
+ * 静态文案来自 prompts/scheduled/self-healing-analysis.md（git 化），
  *  文件缺失时回退到内置文案保证可用性。 */
-/** #1512：数据区线索化——样本行带锚点（id 短锚 + msg 前缀）、同形聚类带计数、
+/** 数据区线索化——样本行带锚点（id 短锚 + msg 前缀）、同形聚类带计数、
  *  描述截断保留差异信息、建议不随行（下钻获取）、总预算控制（2K 字符硬顶）。
  *  样本选取：findOpen 上限内的最新事件；同形归并仅作用于样本内（description
  *  前 30 字相同 = 同形族），非全库聚类——全库分布由 stats 行提供。 */

@@ -58,10 +58,10 @@ export function traceUsage(record, tracePath = path.join(otterRoot, "data", "met
 }
 
 /**
- * #1069：端口声明解析（导出供单测；主流程经 main-guard 保护不会被 import 触发）。
+ * 端口声明解析（导出供单测；主流程经 main-guard 保护不会被 import 触发）。
  *
  * 输入/输出均为普通对象，文件 IO 限定在 whitelistPath 一个文件内，测试用 tmp 目录驱动。
- * 检视处置（S1）：--add 的 projectDir 必须落在 allowedRoots（otter 工作根）之下且
+ * 检视处置：--add 的 projectDir 必须落在 allowedRoots（otter 工作根）之下且
  * 不得是根本身/不存在的路径——授权面从「搭档手动」扩展为「獭可在工作根内自助」，
  * 工作根外（系统目录/其他项目树）仍须搭档手动编辑白名单。主进程防线不变。
  *
@@ -182,8 +182,8 @@ export function resolvePortEntry({ port, projectDir, add, whitelistPath, allowed
   });
 }
 
-/** 检视处置 M1：简版排他锁（open wx 原子争用 + 100ms 轮询 + 陈锁强占）。
- *  模块私有（A1：无外部消费方，不进 d.mts 第二真相源） */
+/** 检视处置 简版排他锁（open wx 原子争用 + 100ms 轮询 + 陈锁强占）。
+ * 模块私有（无外部消费方，不进 d.mts 第二真相源） */
 function withLock(lockPath, fn) {
   const MAX_ATTEMPTS = 30; // ~3s 上限
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -215,23 +215,23 @@ function withLock(lockPath, fn) {
 }
 
 /**
- * #1580：kill-by-pid 合法根构造（导出供单测覆盖 wiring）——otter 工作根 + alpha 规范数据根。
- * alpha 根与 alpha.sh 的 `alpha_root_dir()` 为双源真相，单测有机械对齐断言防漂移（检视 A4）。
+ * kill-by-pid 合法根构造（导出供单测覆盖 wiring）——otter 工作根 + alpha 规范数据根。
+ * alpha 根与 alpha.sh 的 `alpha_root_dir()` 为双源真相，单测有机械对齐断言防漂移（检视）。
  */
 export function killByPidAllowedRoots(otterRoot) {
   return [path.resolve(otterRoot, ".."), path.join(os.homedir(), ".otter", "alpha")];
 }
 
-// ── F20261008hcpa：kill-by-pid 纯校验逻辑（导出供单测；主流程经 main-guard 保护）──
+// ── kill-by-pid 纯校验逻辑（导出供单测；主流程经 main-guard 保护）──
 
 /**
- * kill-by-pid 校验（F20261008hcpa，#1356 层2 疏通）。
+ * kill-by-pid 校验（层2 疏通）。
  *
  * 纯函数——PID 存活/cwd 归属的 lsof 探测由调用方（主流程）做，本函数只校验
  * 「可静态判定的不变式」：PID 合法性、主进程/自身/父进程拒绝、projectDir 在合法根内。
  * 返回 { ok: true } 或 { ok: false, error }。
  *
- * #1580：allowedRoot 单根 → allowedRoots 多根——alpha 规范数据根（~/.otter/alpha/<hash>，
+ * allowedRoot 单根 → allowedRoots 多根——alpha 规范数据根（~/.otter/alpha/<hash>，
  * alpha.sh:51-53 alpha_root_dir）不在 otter 工作根（/Users/orca/ai）之下，单根校验把
  * alpha 实例的受控终止通道整个堵死（「启」有 alpha.sh，「停」无合法出路）。口径与
  * resolvePortEntry 的 allowedRoots 统一：任一根之下且非任一根本身即合法。

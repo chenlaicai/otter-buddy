@@ -119,7 +119,7 @@ export function stripToolCallSerializationLeak(body: string): { body: string; le
 
 /**
  * speak body 校验：返回错误文案（null 表示通过）。
- * F20260804hcob: 除空 body 外，还检测"卡片写在 speak 外"——assistant 文本不持久化，
+ * 除空 body 外，还检测"卡片写在 speak 外"——assistant 文本不持久化，
  * 写在里面的 html-card 搭档根本看不到，必须拒绝并指导模型把围栏移入 body 重试。
  */
 export function validateSpeakBody(turnAssistantText: string | undefined, cleanBody: string): string | null {
@@ -157,7 +157,7 @@ export function hasCardFences(body: string): boolean {
   return countCardFences(body) > 0;
 }
 
-/** F20261009csp2 活类卡（html-card-play）登记摘要提取（tool-factory autoRegisterPlayableCards 使用）。
+/** 活类卡（html-card-play）登记摘要提取（tool-factory autoRegisterPlayableCards 使用）。
  *  修复：先剥 <script>/<style> 整块再删标签——script 内容是 JS 源码不是文案，
  *  只删标签会把源码漏进摘要（实证：quest RPG 卡摘要成了 "(function(){ var S = …"）。
  *  卡片作者若要摘要可控，可在 HTML 里写一段隐藏 div（display:none）承载人话摘要。 */

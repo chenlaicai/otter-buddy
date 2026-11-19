@@ -68,7 +68,7 @@ describe("commit-msg Modification-Class 词表闸（F20261106gtagl）", () => {
   });
 });
 
-// —— 词表提取器（镜像一致性真实双向提取，F20261106gtagl r1 发现5 重写）——
+// —— 词表提取器（镜像一致性真实双向提取，发现5 重写）——
 // hook 侧：从 case 分支实提取（pipe-separated 词表行）
 function extractHookVocabulary(hook: string): Set<string> {
   const m = hook.match(/^\s+([a-z][a-z-]*(?:\|[a-z][a-z-]*)+)\)\s*$/m);

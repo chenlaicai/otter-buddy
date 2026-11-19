@@ -56,7 +56,7 @@ const THREE_PART_EXEMPT = new Set(["companion"]); // fallback skill 豁免
 // 跨 skill 裸写不再属于合法宇宙——由 E1c 显式拦截并给迁移指引。
 const REF_LINE_RE = /`((?:\.\.\/|references\/)[^`]*\.md)`|\]\(((?:\.\.\/|references\/)[^)]+\.md)\)/g;
 
-// E1c（#773）：跨 skill 裸写引用（<name>/references/… 或 <name>/SKILL.md）——lint 按 skills
+// E1c：跨 skill 裸写引用（<name>/references/… 或 <name>/SKILL.md）——lint 按 skills
 // 根解析会放行，SDK 从当前 skill 目录解析必然 ENOENT。必须 ../ 前缀。
 const BARE_CROSS_SKILL_RE = /`([a-z][a-z0-9-]*\/(?:references\/[^`]*\.md|SKILL\.md))`|\]\(([a-z][a-z0-9-]*\/(?:references\/[^)]+\.md|SKILL\.md))\)/g;
 // E1：反引号内的绝对路径 .md 引用（含 .pi/skills 前缀）——cwd 依赖，跨环境必然失效
@@ -107,7 +107,7 @@ function readManifest() {
  * 解析引用形态 → 文件绝对路径（与 REF_LINE_RE 的合法宇宙一一对应）。
  * 解析规则（与 SDK 系统提示给 agent 的指引一致：相对 skill 目录解析）：
  *   references/x.md | ../x.md        → 相对当前 skill 目录
- *   （#773：跨 skill 裸写已非法化，E1c 拦截——不再参与存在性解析）
+ * （跨 skill 裸写已非法化，E1c 拦截——不再参与存在性解析）
  */
 function resolveRefToAbs(s, refPath) {
   return path.resolve(s.dir, refPath);
@@ -134,7 +134,7 @@ function workflowLineRange(bodyLines) {
   return start >= 0 ? [start, end] : null;
 }
 
-/** 提取「### 禁用语」节全文（#1896 ratchet 专用）：标题必须精确为「### 禁用语」（行尾无其他内容），
+/** 提取「### 禁用语」节全文（ratchet 专用）：标题必须精确为「### 禁用语」（行尾无其他内容），
  *  到下一个 `## ` 节标题前结束。标题带后缀/改名均返回 null（触发 error，防节被改名绕过）。
  *  三级标题（###）属节内子级，只以二级（##）作为节边界。 */
 function extractBannedSection(body) {
@@ -298,18 +298,18 @@ for (const s of skills) {
   }
 }
 
-// 校验 8: 数量下限 ratchet（F20260821kgts）
+// 校验 8: 数量下限 ratchet
 if (skills.length < MIN_SKILLS) {
   error(`skills 数量 ${skills.length} < 下限 ${MIN_SKILLS}——skill 目录被清空或大量缺失？有意移除请同步下调 MIN_SKILLS`);
 }
 
 // 校验 9 E2 全局 pass：引用可见性 = 出现在任一 skill 的工作流 section（含跨 skill 绑定）。
 // 分级：哪都没绑定 → error；仅其他 skill 的工作流绑定、本 skill 未内联 → warning。
-// （实证 #726/#758：工作流内联引用被高频读取（20-190 次）；索引-only 引用低频/零读取；
+// （实证 /工作流内联引用被高频读取（20-190 次）；索引-only 引用低频/零读取；
 //   跨 skill 工作流绑定有效（author-response-protocol.md 由 code-implementation 步骤 10 绑定，被读 48 次））
-// #773 豁免：SKILL.md 是 skill 入口文件——skill 加载即读，E2 的「索引-only 低可见性」
+// 豁免：SKILL.md 是 skill 入口文件——skill 加载即读，E2 的「索引-only 低可见性」
 // 实证（针对 references 类材料文件）对入口文件不适用。
-// 并集在循环外一次构建（O(skills)——#758 检视发现 3：原实现在循环内重建 O(skills²)）
+// 并集在循环外一次构建（O(skills)——原实现在循环内重建 O(skills²)）
 const anyWorkflowRefs = new Set();
 for (const { wfRefs } of skillWorkflowRefs.values()) {
   for (const r of wfRefs) anyWorkflowRefs.add(r);

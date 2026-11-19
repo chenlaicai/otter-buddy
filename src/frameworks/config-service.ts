@@ -513,7 +513,7 @@ export function validate(raw: RawConfig): asserts raw is RawConfig & { llm: { de
   if (raw.weixin) validateWeixinWarnConfig(raw.weixin);
 }
 
-/** F20261113uaccs（delta 检视 S2）：auth.ownerPassword 非字符串（如 YAML 裸数字 123456）
+/** （delta 检视）：auth.ownerPassword 非字符串（如 YAML 裸数字 123456）
  *  会在 buildAuthConfig 裸 TypeError——此处 fail-fast 给引导性报错（与 server.port 同语义）。 */
 function validateAuthConfig(raw: RawConfig): void {
   if (raw.auth?.ownerPassword !== undefined && typeof raw.auth.ownerPassword !== "string") {
@@ -531,15 +531,15 @@ function validateAssistantModelAlias(raw: RawConfig): void {
   }
 }
 
-/** 传入值→有限数，非法回退默认值（F20260901wxnt 发现1：YAML "60min" → NaN → 全轰炸） */
+/** 传入值→有限数，非法回退默认值（发现1：YAML "60min" → NaN → 全轰炸） */
 function safeFinite(value: number | undefined, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 /**
- * 预警窗口构造（F20260901wxnt）：显式 0 即关闭；未配置默认 60min；clamp 下限 1 分钟（防 35s 误报）。
+ * 预警窗口构造：显式 0 即关闭；未配置默认 60min；clamp 下限 1 分钟（防 35s 误报）。
  * 非有限数（NaN/Infinity，如 YAML "60min"）由 safeFinite 回退默认——与 validate() 启动报错构成双层防线（构造层兑底）。
- * F20260920wxho：cooldownMs 退役——同一静默期只提醒一次，入站换新 token 才重置资格。
+ * cooldownMs 退役——同一静默期只提醒一次，入站换新 token 才重置资格。
  * 归属 weixin 配置域，供 platforms.ts 装配层直接消费。
  */
 export function buildContextTokenWarnConfig(
@@ -551,7 +551,7 @@ export function buildContextTokenWarnConfig(
   };
 }
 
-/** 校验 weixin contextTokenWarnMinutes 合法性（正整数或 undefined，F20260901wxnt 发现1；F20260920wxho：cooldown 键退役不再校验） */
+/** 校验 weixin contextTokenWarnMinutes 合法性（正整数或 undefined，发现1；cooldown 键退役不再校验） */
 function validateWeixinWarnConfig(weixin: NonNullable<RawConfig["weixin"]>): void {
   const val = weixin.contextTokenWarnMinutes;
   if (val !== undefined && (typeof val !== "number" || !Number.isInteger(val))) {
@@ -626,7 +626,7 @@ function buildCircuitBreakerConfig(raw: RawConfig): AppConfig["circuitBreaker"] 
   };
 }
 
-/** 微信通道配置（issue #565）：有账号状态目录即启用（token 由 CLI 扫码落盘） */
+/** 微信通道配置：有账号状态目录即启用（token 由 CLI 扫码落盘） */
 function buildWeixinConfig(raw: RawConfig): AppConfig["weixin"] {
   const seg = raw.weixin ?? {};
   // 三字段全空 → 未启用；任一有值 → 给出完整默认（baseUrl/stateDir 有内置缺省）
@@ -642,8 +642,8 @@ function buildWeixinConfig(raw: RawConfig): AppConfig["weixin"] {
   };
 }
 
-/** F20260918imas / F20260920imax：IM 助理模式配置（默认开启；对话永续 + 8h 静默 session 重启；模型可配）。
- *  F20260924wast：web 助理开关归入同段（assistant.web.enabled，默认开启） */
+/**  IM 助理模式配置（默认开启；对话永续 + 8h 静默 session 重启；模型可配）。
+ * web 助理开关归入同段（assistant.web.enabled，默认开启） */
 function buildImConfig(raw: RawConfig): AppConfig["im"] {
   const seg = raw.im?.assistant;
   return {

@@ -103,7 +103,7 @@ async function createConversationAndParticipant(
 }
 
 /** 发欢迎系统消息（仅作为对话起点上下文，不期望大獭回复）。
- *  F20260913ctlv 批4a：sendSystem 退役，落 system entry（时间线唯一真相源） */
+ * 批4a：sendSystem 退役，落 system entry（时间线唯一真相源） */
 async function sendWelcomeMessage(
   sendEntry: SendEntry,
   conversationId: string,

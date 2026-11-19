@@ -84,7 +84,7 @@ add(`pushd ${M} && touch x`, "UNEVAL_UNKNOWN", "synthetic", "pushd 回落");
 add(`cd ${M}/../elsewhere && touch x`, "UNEVAL_UNKNOWN", "synthetic", ".. 爬升保守回落");
 add(`cd ${WT} && cd sub && touch f`, "ALLOW", "synthetic", "链式 cd");
 
-// 载荷族（Phase 1 显式回落——旧行为即期望）
+// 载荷族（显式回落——旧行为即期望）
 add(`python3 -c "open('${M}/data/x','w').write('hi')"`, "UNEVAL_UNKNOWN", "synthetic", "审视 S1 锚点回落");
 add(`node -e "require('fs').writeFileSync('${M}/x','1')"`, "UNEVAL_UNKNOWN", "synthetic", "载荷族回落");
 add(`python3 -c "print(open('a.txt').read())"`, "UNEVAL_UNKNOWN", "synthetic", "只读载荷也回落（行为不变）");
@@ -95,12 +95,12 @@ add(`bash -c 'touch ${M}/x'`, "BLOCK", "synthetic", "bash-c 递归命中主仓")
 add(`bash -c 'cd ${WT} && touch a'`, "ALLOW", "synthetic", "bash-c 递归 wt");
 add(`echo $(date) > /tmp/f`, "ALLOW", "synthetic", "cmdsub 在读侧，落点 tmp");
 add(`cd $(dirname x)/../main && touch y`, "UNEVAL_UNKNOWN", "synthetic", "BC-6 cmdsub 变形回落");
-// 审视 §3.1 负门（PR #1381 严重：$VAR 拼接后缀爬升曾假放行真主仓写）——永久钉住回落
+// 审视 负门（严重：$VAR 拼接后缀爬升曾假放行真主仓写）——永久钉住回落
 add(`W=${WT}; cd $W/../.. && touch foo`, "UNEVAL_UNKNOWN", "synthetic", "负门：$W/.. 爬升回落（§3.1）");
 add(`W=${WT}; cd $W/../../../main && touch foo`, "UNEVAL_UNKNOWN", "synthetic", "负门：$W/../../../main 深爬升回落（§3.1 逃逸形态原样）");
 add(`W=${WT}; cd $W/sub && touch foo`, "UNEVAL_UNKNOWN", "synthetic", "负门：$W/字面后缀拼接回落（非纯 $VAR 词）");
 add(`cd ${WT}/.. && touch foo`, "UNEVAL_UNKNOWN", "synthetic", "负门：evaluated 含 .. 回落");
-// 审视 §3.3 负门：嵌套 decoy 不得被 worktree 排除误豁免
+// 审视 负门：嵌套 decoy 不得被 worktree 排除误豁免
 add(`touch ${M}/data/.otter/worktrees/decoy/f`, "BLOCK", "synthetic", "负门：嵌套 decoy 非主仓 worktree 区（§3.3）");
 add(`echo x > ${M}/data/.otter/worktrees/decoy/f`, "BLOCK", "synthetic", "负门：decoy 重定向拦（§3.3）");
 
@@ -157,7 +157,7 @@ if (!args.includes("--skip-ledger") && existsSync(dbPath)) {
   }
 }
 
-// ── S4：F20261009phs2 Phase 2 窄提取族（合成全形态锚——台账 commandHead 截断 120 字符，
+// ── 窄提取族（合成全形态锚——台账 commandHead 截断 120 字符，
 //   多行载荷完整形态只能靠合成钉死；c122-c130 原裁决样本的同源构建）──
 add(`cd ${WT} && node -e "require('fs').writeFileSync('${WT}/out.txt', 'x')"`, "ALLOW", "synthetic", "P2 窄提取：node -e 字面量落 worktree → 放行");
 add(`cd ${WT} && python3 -c "open('sub/rel.txt','w').write('x')"`, "ALLOW", "synthetic", "P2 窄提取：相对路径写按 cwd 拼接落 wt → 放行");
@@ -179,7 +179,7 @@ add(`cd ${WT} && git push origin HEAD 2>&1 | tail -3`, "ALLOW", "synthetic", "P2
 add(`git add docs/features/x.md`, "BLOCK", "synthetic", "P2 git add index：主仓 cwd 相对路径 → 拦");
 add(`cd ${WT} && git add -A && git commit -F /tmp/msg.txt`, "ALLOW", "synthetic", "P2 git add index：wt cwd → 放行（#1170 主形态）");
 add(`git -C ${WT} add src/x.ts`, "ALLOW", "synthetic", "P2 git add index：-C wt → 放行");
-// ── #1411 审视处置负门（PR #1411 §3.1 红线逃逸修复 + argvBase off-by-one）──
+// ── 审视处置负门（红线逃逸修复 + argvBase off-by-one）──
 add(`node -e "fs.writeFileSync('${WT}/../../../main/y', 'z')"`, "UNEVAL_UNKNOWN", "synthetic", "#1411 负门：绝对路径 .. 爬升（逃逸形态原样）——Phase 1 c99/c100 负门同款编码：不在覆盖域，期望回落+旧链兜底，绝不假放行");
 add(`node -e "fs.writeFileSync('${WT}/x'+'/../../../main/y', 'z')"`, "UNEVAL_UNKNOWN", "synthetic", "#1411 负门：拼接折叠后含 .. 同拒——负门同款编码：期望回落");
 add(`node -e "fs.writeFileSync(process.argv[2], 'x')" /tmp/a ${M}/b`, "BLOCK", "synthetic", "#1411 负门：argv[2] 映射第二实参（off-by-one 修正后正确拦截，曾误判 ALLOW）");

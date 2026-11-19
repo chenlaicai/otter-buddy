@@ -86,7 +86,7 @@ function queryDirectedEdges(
   return rows.map(row => ({ edge: rowToMemoryEdge(row), neighborEntry: rowToMemoryEntryJoined(row) }));
 }
 
-/** D4: relates-to 自动双向查（from OR to） */
+/** relates-to 自动双向查（from OR to） */
 function querySymmetricEdges(
   db: Database.Database,
   entryId: string,
@@ -113,8 +113,8 @@ export function getEdgeById(db: Database.Database, edgeId: string): MemoryEdge |
 }
 
 /**
- * F20261118stale P0：批量查候选条目里哪些被 supersede。
- * supersedes 边语义（F20260813mren，link_memory 工具描述）：from=取代者（新），to=被取代（旧）。
+ * 批量查候选条目里哪些被 supersede。
+ * supersedes 边语义（link_memory 工具描述）：from=取代者（新），to=被取代（旧）。
  * 故对候选条目查「to 端命中」——候选在 to_entry_id 说明它被取代；返回 Map<旧条目 ID, 新条目 ID>。
  * 多次更新会产生多条指向同一旧条目的边，取 created_at 最新的一条作为取代者
  * （ASC 升序遍历 + Map.set 后写覆盖 = 最新一行最后写入胜出）。
@@ -141,7 +141,7 @@ export function deleteEdge(db: Database.Database, edgeId: string): void {
 }
 
 /**
- * F20260813mren D7: 按 entry id 批量清理关联边。
+ * 按 entry id 批量清理关联边。
  * deleteBySource / replaceEntryBySource 等 delete 路径调。
  * 不依赖 FK CASCADE（与 embedding_tasks 一致模式）。
  */

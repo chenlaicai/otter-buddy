@@ -164,7 +164,7 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
  */
 let currentWs: WebSocket | null = null;
 let currentSid: string | null = null;
-/** m2（检视）：优雅退出中——重连循环见此标志不再起新连接 */
+/** （检视）：优雅退出中——重连循环见此标志不再起新连接 */
 let exiting = false;
 
 function registerSignalHandlersOnce(shutdown: () => Promise<void>): void {
@@ -187,7 +187,7 @@ function registerSignalHandlersOnce(shutdown: () => Promise<void>): void {
   process.on("SIGTERM", () => goOffline("SIGTERM"));
 }
 
-/** 回执发帧闭包：读当前连接（currentWs/currentSid）。执行期间重连时的两个窗口（m3 检视
+/** 回执发帧闭包：读当前连接（currentWs/currentSid）。执行期间重连时的两个窗口（检视
  *  修订）：新 socket 已开但 hello.ack 未回 → 回执带旧 sid 被 hub 侧 stale-sid 校验丢弃；
  *  hello.ack 已回 → 回执带新 sid 通过校验，但旧会话下线钩子已把等待者收尾（reject+删），
  *  hub 侧 onActionResult 查不到 waiter 而忽略——端到端语义一致：旧会话动作对新会话
@@ -201,7 +201,7 @@ function sendResultFrame(data: Extract<ConnectorFrame, { type: "action.result" }
   }
 }
 
-/** C2 执行栈（方案 §7 数据目录 ~/.otter/connector/<deviceId>/）：workspace 网关 +
+/** 执行栈（数据目录 ~/.otter/connector/<deviceId>/）：workspace 网关 +
  *  本地台账（机器侧真相源）+ 公共执行器（与中枢 local 同一执行语义）+ 分发器 */
 interface ConnectorRuntime {
   dispatcher: ConnectorActionDispatcher;

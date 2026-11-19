@@ -157,7 +157,7 @@ function hitCountLabel(group: Extract<ResultGroup, { kind: 'doc' }>): string {
 }
 
 /**
- * F20260929mrui：单条结果（组内行）。
+ * 单条结果（组内行）。
  * dataStructure 开关（外部组级/全局控制）展开完整数据结构面板。
  */
 function ResultItem({ entry, showStructure, onExpand, onSimilar, onFlag }: {

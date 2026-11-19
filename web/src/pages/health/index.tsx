@@ -441,7 +441,7 @@ function fmtLargeNumber(v: number): string {
   return String(v)
 }
 
-/** F20260914usgm：模型占比环形图（token 占比 / 调用次数占比，metric 切换） */
+/** 模型占比环形图（token 占比 / 调用次数占比，metric 切换） */
 function ModelUsagePie({ models, metric }: { models: api.RhiModelUsageDTO[]; metric: 'totalTokens' | 'callCount' }) {
   const data = models.map(m => ({ name: m.model, value: m[metric] })).filter(d => d.value > 0)
   const total = data.reduce((s, d) => s + d.value, 0)
@@ -463,7 +463,7 @@ function ModelUsagePie({ models, metric }: { models: api.RhiModelUsageDTO[]; met
   )
 }
 
-/** F20260914usgm：模型用量明细表（token 四分类/调用/失败/命中率） */
+/** 模型用量明细表（token 四分类/调用/失败/命中率） */
 function ModelUsageTable({ models }: { models: api.RhiModelUsageDTO[] }) {
   return (
     <div className="overflow-x-auto">
@@ -501,7 +501,7 @@ function ModelUsageTable({ models }: { models: api.RhiModelUsageDTO[] }) {
   )
 }
 
-/** F20260914usgm：单次 invoke 均值表（_total 置顶 + per-model） */
+/** 单次 invoke 均值表（_total 置顶 + per-model） */
 function InvokeStatsTable({ stats }: { stats: api.RhiInvokeStatsDTO[] }) {
   const sorted = [...stats].sort((a, b) => (a.model === '_total' ? -1 : b.model === '_total' ? 1 : b.invokeCount - a.invokeCount))
   if (sorted.length === 0) return <EmptyChart text="无 invoke 数据（需有 model 归属的新 invoke）" />

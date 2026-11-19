@@ -336,9 +336,9 @@ function collectPayloads(tokens: Token[], text: string, depth: number, tokenSegm
 }
 
 /** 词是否是解释器载荷调用（bash -c 'cmd' / python -c 'code'）→ 返回全部载荷
- *  （一个段内多个 -c 载荷词并列：`bash -c 'kill 1' bash -c 'pkill x'`——V1 #1154 S2
+ * （一个段内多个 -c 载荷词并列：`bash -c 'kill 1' bash -c 'pkill x'`——V1 
  *  逐载荷语义：一个都不能被首个良性载荷遮蔽）
- *  F20261022vwfg：段首解析换 resolveExecHead 共享内层——旧版裸 argv0 键控漏掉
+ * 段首解析换 resolveExecHead 共享内层——旧版裸 argv0 键控漏掉
  *  wrapper 形态与版本名（sudo python -c / python3.11 -c 的载荷从不递归进 payloads，
  *  写面无从判定、与裸形态判罚分叉）；-c/-e 扫描限 headIndex 之后（防 wrapper
  *  值词伪装旗标：sudo -p -c python -c '载荷'——prompt 值 -c 不是载荷旗标）。 */

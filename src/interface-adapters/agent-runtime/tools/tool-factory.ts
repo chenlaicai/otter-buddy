@@ -174,7 +174,7 @@ function parseCardMetaTitle(meta: string | null | undefined): string | null {
   return m && m[1] ? m[1] : null;
 }
 
-/** F20260821i336（F20260912avlb 改造）：yield 成功后记账派工——行动权首次/再次交给目标獭。
+/** （改造）：yield 成功后记账派工——行动权首次/再次交给目标獭。
  *  markDispatched 只刷 created 状态行：首次派工时间戳不被后续多轮交棒刷新。 */
 function validateYieldParams(params: Record<string, unknown>): ToolResponse | null {
   const recipients = params.to as string[] | undefined;
@@ -211,7 +211,7 @@ async function updateDispatchLedgerOnYield(ctx: ToolContext, resolvedIds: string
   }
 }
 
-/** F20260913ctlv 彻底切换：消息非空校验——有 speak entry 即视为有内容（lastSpeakMessageId = entry id） */
+/** 彻底切换：消息非空校验——有 speak entry 即视为有内容（lastSpeakMessageId = entry id） */
 async function validateMessageHasContent(ctx: ToolContext): Promise<string | null> {
   if (!ctx.currentInvokeId) return "[错误] 系统错误：当前 invoke ID 未设置，无法交棒。";
   if (ctx.lastSpeakMessageId) return null;
@@ -225,8 +225,8 @@ async function validateMessageHasContent(ctx: ToolContext): Promise<string | nul
 
  
 /**
- * F20261006mtlp P1：准入路径 1——L2 显式拍板项的 yield to user 打标即登记。
- * 不打标不登记（防泛滥=机械）；默认通过模式不打标（与 R8 互斥不登记，方案 §2 硬边界）。
+ * 准入路径 1——L2 显式拍板项的 yield to user 打标即登记。
+ * 不打标不登记（防泛滥=机械）；默认通过模式不打标（与 互斥不登记，硬边界）。
  * matterRepo 未注入（旧装配）时静默跳过——登记是增强不是 yield 前置条件。
  * 返回附在交棒回执后的待办注记（空串 = 无登记）。
  */
@@ -360,7 +360,7 @@ function createYieldTool(ctx: ToolContext, _healingRepo?: HealingEventRepository
 }
 
 /** search_memory: 检索记忆（渐进式披露：支持 detail_level + library 路由 + 时间过滤） */
-// eslint-disable-next-line max-lines-per-function -- F20260826rcmm Phase 0 加埋点后超 60 行
+// eslint-disable-next-line max-lines-per-function -- 加埋点后超 60 行
 function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "search_memory",
@@ -443,12 +443,12 @@ function createSearchMemoryTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** #543：create_otter 前置提示——目标模型近 24h 内有未恢复的配额耗尽记录时提示改派。
+/** create_otter 前置提示——目标模型近 24h 内有未恢复的配额耗尽记录时提示改派。
  *  Why 提示不硬拦：rate_limit 事件 resolve 无人驱动（配额恢复是外部事实），
  *  24h 窗内旧事件可能已恢复——硬拦会误伤；提示让编排獭结合上下文自行裁决。
  *  findAll('open', 50) 按时间倒序，rate_limit 事件正常态为 0，过滤成本可忽略。
  *
- *  时钟假设（#719）：`Date.now() - Date.parse(e.createdAt)` 假设进程时钟与 DB 写入时钟同源——
+ * 时钟假设：`Date.now() - Date.parse(e.createdAt)` 假设进程时钟与 DB 写入时钟同源——
  *  当前单机 SQLite 部署成立（同进程写同进程读）。多进程/远端 DB 部署时需改用
  *  nowMs 注入接口（与 scheduler 时钟注入模式对齐），此处不提前实现。 */
 async function checkModelQuotaHint(
@@ -472,7 +472,7 @@ async function checkModelQuotaHint(
   }
 }
 
-/** #1247 + #543 + F20260908efmd：create_otter 前置校验链（modelAlias 合法性 → 注入预算 → 配额提示）。
+/** + + create_otter 前置校验链（modelAlias 合法性 → 注入预算 → 配额提示）。
  *  拆出 execute 主体以控 createCreateOtterTool 行数（max-lines-per-function）；
  *  返回 errorResponse 文本则硬拦，quotaHint 为提示性尾注（不拦）。 */
 async function validateCreateOtterParams(
@@ -504,15 +504,15 @@ async function validateCreateOtterParams(
     : { targetAlias, explicitAlias: modelAlias?.trim(), quotaHint };
 }
 
-/** #1247：create_otter 注入体积预算前置检查——窗口装不下时创建阶段即拦，不让小獭生下来就死（#1247 改进点 2）。
+/** create_otter 注入体积预算前置检查——窗口装不下时创建阶段即拦，不让小獭生下来就死（改进点 2）。
  *  估算式：systemPrompt 字符数 × 密度上限 + 固定注入底线 ≥ 窗口 × 安全比 → 硬拦。
- *  - 密度上限 CTX_DENSITY_TOK_PER_CHAR = 1.5：F20260923hsyn 夹逼定标实测中文密度 ~1.443 tok/char，
+ * - 密度上限 CTX_DENSITY_TOK_PER_CHAR = 1.5：夹逼定标实测中文密度 ~1.443 tok/char，
  *    取整为上限值（低估 token 会漏拦，宁可高估少量误拦——误拦可换模型/减简报绕开）
- *  - 固定注入底线 BASE_INJECTION_TOKENS = 30_000：工具定义 #1230 实测 27K + 身份段余量。
+ * - 固定注入底线 BASE_INJECTION_TOKENS = 30_000：工具定义 实测 27K + 身份段余量。
  *    首请求 = 工具定义 + 身份段 + systemPrompt + 首条 user 消息，前两者是常量占大头
  *  - 安全比 WINDOW_SAFETY_RATIO = 0.8：留输出 token 空间（窗口含输入+输出）
  *  Why 硬拦而非提示：与配额不同，注入体积是确定事实（prompt 长度可测），不随时间恢复；
- *  首请求必死与配额「可能已恢复」语义不同。估算器路线已被 F20260929kws1 三度返工否定，
+ * 首请求必死与配额「可能已恢复」语义不同。估算器路线已被 三度返工否定，
  *  但那是「对话切片预算弹性」场景；此处是创建时点一次性粗测（只需保守上界，不需精确预算），
  *  密度上限取整 + 固定底线正是「可测的精确测、不可测的用保守值」哲学。
  *  Why fail-soft：窗口未配置（getContextWindow undefined）时跳过——不硬依赖装配完整，
@@ -615,8 +615,8 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
   };
 }
 
-/** F20260922pmgd：merge_pr 工具——PR 合入搭档授权闸。
- *  事故锚：2026-09-22 大獭在搭档未显式授权时自行 gh pr merge 合入 #1095（流水线惯性）。
+/** merge_pr 工具——PR 合入搭档授权闸。
+ * 事故锚：2026-09-22 大獭在搭档未显式授权时自行 gh pr merge 合入 （流水线惯性）。
  *  定位：v1 提醒 + 审计 → v2 升级物理闸——partnerApproval 必须逐字命中
  *  搭档 user 历史消息（规范化容忍空白/引号形态；短引用<4实义字须整条等值；卡片回执
  *  data JSON 围栏不作授权源），未命中拒绝执行；授权原话落 linked_resources + warn 日志双通道。 */
@@ -626,9 +626,9 @@ import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
 
-/** wait 参数边界（方案 F20260928slan）：per-event 熔断 maxPerEventTimeMs 默认 600s——
+/** wait 参数边界（方案）：per-event 熔断 maxPerEventTimeMs 默认 600s——
  *  seconds 上限对齐 600（不豁免计时，防 wait 成熔断逃逸通道）；带 until 时 ≤560
- *  （预算闭合留 ε 裕量：seconds + until 30s + ε ≤ 600，D3/D6——570+30 压线 race）。 */
+ * （预算闭合留 ε 裕量：seconds + until 30s + ε ≤ 600，/——570+30 压线 race）。 */
 const WAIT_SECONDS_MIN = 5;
 const WAIT_SECONDS_MAX = 600;
 const WAIT_SECONDS_MAX_WITH_UNTIL = 560;
@@ -638,9 +638,9 @@ const WAIT_UNTIL_TIMEOUT_MS = 30_000;
 const WAIT_UNTIL_OUTPUT_MAX = 2048;
 /** 子进程每流硬缓冲上限；maxBuffer 超限会杀进程，不能拿上下文截断值充当此值。 */
 const WAIT_UNTIL_SUBPROCESS_BUFFER_MAX = 1024 * 1024;
-/** F20261022wtpr：条件等待使用固定探测间隔；不新增獭可调配置。 */
+/** 条件等待使用固定探测间隔；不新增獭可调配置。 */
 const WAIT_UNTIL_POLL_INTERVAL_MS = 10_000;
-/** F20261026wfpb（#1623 返修）：gh pr checks 探活的失败判定不采用裸退出码分类——
+/** （返修）：gh pr checks 探活的失败判定不采用裸退出码分类——
  *  test -f/grep 未匹配（可恢复未就绪）、gh 网络故障与 NONE（transport/未知，可重试）
  *  均为 exit 1，与「CI 业务失败」同码不可区分（Review-1640 生产路径反例实证）。
  *  改用 stderr 分类：gh 业务失败表格走 stdout、stderr 空；transport 错误/NONE/
@@ -793,7 +793,7 @@ async function runUntilPolling(
 
   return `\nuntil 条件未通过（共 ${attempts} 次探测；最后一次 ${lastFailure}）。\n请按 until 的退出码语义判断是尚未就绪还是已经失败；仅确认仍在等待时再增大 seconds。`;
 }
-/** until 禁用的 shell 元字符 + 单双引号（D4③：sh -c '…' 形态经空白切 argv 语义扭曲，显式拒绝给出可操作提示）。
+/** until 禁用的 shell 元字符 + 单双引号（③：sh -c '…' 形态经空白切 argv 语义扭曲，显式拒绝给出可操作提示）。
  *  用 RegExp 构造避免字符类内裸引号——lint 的 stripTsComments 不解析正则字面量，
  *  裸引号会致后续注释剥离失效（已知限制，lint 文件头注释自述）。 */
 const WAIT_UNTIL_FORBIDDEN = new RegExp("[|&;><`$()\\'\"\\\\]");
@@ -833,10 +833,10 @@ function buildWaitEcho(reason: string | undefined, seconds: number, untilResultT
   return textResponse(`${reasonEcho}\n${timingEcho}${untilResultText}`);
 }
 
-/** F20260928slan：wait 工具——等待指定时长（替代裸 sleep），理由自证 + 可选苏醒检查。
+/** wait 工具——等待指定时长（替代裸 sleep），理由自证 + 可选苏醒检查。
  *  定位：感知问题的正道工具（非安全授权闸）。reason 可选靠描述+回显引导；until 可选苏醒检查
  *  命令（禁元字符，execFileAsync 无 shell 展开）——终结「sleep 完再查一次」两拍心智。
- *  详见方案文档 F20260928slan。 */
+ * 详见方案文档 */
 function createWaitTool(): AgentTool {
   return {
     name: "wait",
@@ -1015,7 +1015,7 @@ async function verifyPartnerApproval(
 
 /** merge_pr 子步骤：审计双通道落痕（linked_resources 主 + warn 日志跨对话兜底）。
  *  审计附原话命中锚点（entryId/seq/createdAt）——事后可回查授权语境。
- *  F20261031mrajd（#1440）：泛化为 merge 授权事件双通道——拒绝路径（原话未命中/时间闸/
+ * 泛化为 merge 授权事件双通道——拒绝路径（原话未命中/时间闸/
  *  短话术闸）同落 linked_resources（content 首 token AUTHORIZATION_REJECTED + 拒绝码，
  *  与成功授权同 category=merge-authorization，单 PR 授权全景一次查全）；判定语义零改动
  *  （fail-closed 不变），审计写入失败不阻断主行为（拒绝仍是拒绝，合入仍继续——non-fatal
@@ -1089,11 +1089,11 @@ function buildMergeAuditRecord(
   };
 }
 
-/** #1431 授权时效/精确性闸（方案 A + C）。
+/** 授权时效/精确性闸（方案 A + C）。
  *  时间维度：命中消息必须严格晚于 PR 创建——过期授权（针对更早 PR 的原话，含重放/注入区历史消息）一律拒绝。
- *  事故锚：2026-10-10 PR #1427 被 36 分钟前针对 #1422 的原话「合入了，你继续」误授权合入（原话真实存在但指向别的 PR）。
+ * 事故锚：2026-10-10 被 36 分钟前针对 的原话「合入了，你继续」误授权合入（原话真实存在但指向别的 PR）。
  *  通用短话术：「合入了」「继续」等短话术天然易跨 PR 误配——含目标 PR 号才算精确授权。
- *  F20261031mrajd（#1440）：返回结构化拒绝（reasonCode 供审计落痕 + 用户文案原样）；null = 放行。
+ * 返回结构化拒绝（reasonCode 供审计落痕 + 用户文案原样）；null = 放行。
  *  判定语义零改动——只是把「只落 warn 日志」的拒绝事件补上 linked_resources 审计通道。 */
 interface ApprovalGateRejection {
   reasonCode: string;
@@ -1289,13 +1289,13 @@ function createDissolveOtterTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20260824srst + F20260906srst（#811）: 自重启循环防护——当前 session 是否由自重启创建且无用户消息介入（tool 层第一道防线）
+/** + : 自重启循环防护——当前 session 是否由自重启创建且无用户消息介入（tool 层第一道防线）
  *  意图来源维度：session 由自重启创建后，若搭档发过新指令（senderType=user 消息晚于 startedAt），
  *  重启是正常运维 → 不拦；纯 LLM 自发（无用户消息介入）才是循环，拦。
- *  F20261005srst（#1203）三件套：①时间衰减豁免（存活超 2h 不拦，同构 F20260831cbkw 熔断健康窗口）
+ * 三件套：①时间衰减豁免（存活超 2h 不拦，同构 熔断健康窗口）
  *  ②判据查询重试一次（瞬时故障自愈）③降级落 healing event（判据失效可观测，不再静默）。
  *  Why 走 OtterToolClient 端口：tool 层无 queryMessage 依赖，复用 message 客户端的只读查询。
- *  F20261103srstd（#1288）：窗口常量与介入判据收敛到 circuit-break-support 单点——tool 层包一层
+ * 窗口常量与介入判据收敛到 circuit-break-support 单点——tool 层包一层
  *  async wrapper 复用 hasUserMessageSince（重试/降级语义同源），窗口常量 import 导出值，不再双定义。 */
 import { SELF_RESTART_LOOP_WINDOW_MS, hasUserMessageSince } from '../circuit-break-support';
 async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRepository): Promise<boolean> {
@@ -1347,8 +1347,8 @@ async function isSelfRestartLoop(ctx: ToolContext, healingRepo?: HealingEventRep
   return true;
 }
 
-/** F20260810rstart: restart_otter 工具。小獭只能重启自己，大獭可重启任意 otter。 */
-// eslint-disable-next-line max-lines-per-function -- F20260920uhuc：synthesizePast 参数 +3 行（61/60）
+/** restart_otter 工具。小獭只能重启自己，大獭可重启任意 otter。 */
+// eslint-disable-next-line max-lines-per-function -- synthesizePast 参数 +3 行（61/60）
 function createRestartOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepository): AgentTool {
   return {
     name: "restart_otter",
@@ -1511,7 +1511,7 @@ function createGetMemoryDetailTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20261118bltls P1c：belief 工具面四件（record/verify/reject/supersede）。 */
+/** belief 工具面四件（record/verify/reject/supersede）。 */
 function createRecordBeliefTool(ctx: ToolContext): AgentTool {
   return {
     name: "record_belief",
@@ -1552,7 +1552,7 @@ function createRecordBeliefTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20261118bltls P1c：belief_verify / belief_reject / belief_supersede（F20261118nrwht P2a 重建——仅 night-reviewer 白名单可见） */
+/** belief_verify / belief_reject / belief_supersede（重建——仅 night-reviewer 白名单可见） */
 function buildBeliefMigrationTool(
   ctx: ToolContext,
   name: "belief_verify" | "belief_reject" | "belief_supersede",
@@ -1617,8 +1617,8 @@ function createSupersedeBeliefTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20261118bltls P1c：belief 工具集（record + verify/reject/supersede）——
- *  F20261118nrwht P2a：三个迁移工具回归注册，但仅 night-reviewer 白名单可见
+/** belief 工具集（record + verify/reject/supersede）——
+ * 三个迁移工具回归注册，但仅 night-reviewer 白名单可见
  *  （session-helpers BELIEF_MIGRATION_TOOLS 排除集兜底：big "*" 与小 small memory 组均剔除）。 */
 function createBeliefTools(ctx: ToolContext): AgentTool[] {
   return [
@@ -1629,7 +1629,7 @@ function createBeliefTools(ctx: ToolContext): AgentTool[] {
   ];
 }
 
-/** F20260813mren Part 3: link_memory — LLM 声明两个记忆条目之间的关系 */
+/** link_memory — LLM 声明两个记忆条目之间的关系 */
 function createLinkMemoryTool(ctx: ToolContext): AgentTool {
   return {
     name: "link_memory",
@@ -1667,7 +1667,7 @@ function createLinkMemoryTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20260813mren Part 3: get_related — BFS 遍历关系图，返回结构化 path */
+/** get_related — BFS 遍历关系图，返回结构化 path */
 function createGetRelatedTool(ctx: ToolContext): AgentTool {
   return {
     name: "get_related",
@@ -1710,7 +1710,7 @@ function createGetRelatedTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20260813mren 审视二轮: sync_docs — 写完文档立即同步入库（不等重启） */
+/** 审视二轮: sync_docs — 写完文档立即同步入库（不等重启） */
 function createSyncDocsTool(ctx: ToolContext): AgentTool {
   return {
     name: "sync_docs",
@@ -1732,7 +1732,7 @@ function createSyncDocsTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20260813mren Part 3: unlink_memory — 删除关系边（纠错用） */
+/** unlink_memory — 删除关系边（纠错用） */
 function createUnlinkEdgeTool(ctx: ToolContext): AgentTool {
   return {
     name: "unlink_memory",
@@ -1903,9 +1903,9 @@ function createGetActiveParticipantsTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** F20260821i336（F20260912avlb 改造）：query_dispatch_ledger — 查询派工台账，大獭汇报前核对。
+/** （改造）：query_dispatch_ledger — 查询派工台账，大獭汇报前核对。
  *  状态为客观生命周期三态：created（就位待命）/ dispatched（已派工）/ dissolved（獭已解散）。
- *  delta 复审建议 1：conversationId 不再兑底当前对话——缺省全表（与 web 端一致），
+ * delta conversationId 不再兑底当前对话——缺省全表（与 web 端一致），
  *  大獭跨对话巡检用；传指定 ID 则限定单对话。 */
 function createQueryDispatchLedgerTool(ctx: ToolContext): AgentTool {
   return {
@@ -2043,7 +2043,7 @@ export function createTools(ctx: ToolContext, healingRepo?: HealingEventReposito
   return tools;
 }
 
-/** F20261028egitx：deny signal 下唯一受控重启口；只传固定脚本参数，不经 bash。 */
+/** deny signal 下唯一受控重启口；只传固定脚本参数，不经 bash。 */
 export function createRestartServiceTool(ctx: ToolContext, logger?: Logger): AgentTool {
   return {
     name: "restart_service",

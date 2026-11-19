@@ -276,7 +276,7 @@ export function stripHistoricalThinking(messages: any[]) {
 }
 
 /**
- * S1（R20260810piab）：before_agent_start handler 的纯函数实现。
+ * before_agent_start handler 的纯函数实现。
  * 提取为独立导出函数以便测试——不需要走完整 SDK 调用链即可验证 system prompt 注入逻辑。
  *
  * 在 SDK base systemPrompt 基础上追加 otterPrompt + identityPrefix，返回新 systemPrompt。
@@ -296,8 +296,8 @@ export function buildBeforeAgentStartResult(
   return { systemPrompt: parts.join("\n\n") };
 }
 
-/** S1（R20260810piab）：per-invoke 上下文，通过 AsyncLocalStorage 传递给 extension handler。 */
-/** S1（R20260810piab）：per-invoke 上下文——F20261117cnnct（阶段 4 B1 搬家）已抽至
+/** per-invoke 上下文，通过 AsyncLocalStorage 传递给 extension handler。 */
+/** per-invoke 上下文——（搬家）已抽至
  *  @entities/execution/otter-invoke-context（纯 AsyncLocalStorage 小模块，依赖闭包干净——
  *  execution 侧公共执行器抽包给 connector 复用时不再拖 agent 全家桶）；
  *  此处转发导出保持 agent 侧既有 import 点零改动。 */
@@ -305,15 +305,15 @@ export { otterInvokeStorage, type OtterInvokeContext } from "@entities/execution
 
 
 
-// F20260920uhuc：compactionHookDeps/setCompactionHookDeps 退役（session_before_compact
+// compactionHookDeps/setCompactionHookDeps 退役（session_before_compact
 //  钩子随时机权回收而退役，见上方 factory 注册处注释）。
 
 /**
- * F20260826mwrd C1：halt tool_call handler 的 block 判定（显式传入 per-invoke store，测试可独立覆盖）。
+ * halt tool_call handler 的 block 判定（显式传入 per-invoke store，测试可独立覆盖）。
  *
  * SDK 语义链：tool_call 扩展事件 → ToolCallEventResult{ block, reason } →
  * agent-loop 对 block 生成 isError tool result（reason 正文）返回 LLM。
- * #1674：首次送达同时经既有 abort 链结束本轮——工具 block 只是反馈，不能替代执行退出。
+ * 首次送达同时经既有 abort 链结束本轮——工具 block 只是反馈，不能替代执行退出。
  *
  * 为什么不是拦截器内闭包直接取 store：ALS store 读不到（如 handler 在异步边界后执行）时
  * 无法区分「无 halt」与「读不到」——独立成纯函数后，读不到返回 undefined（放行），
@@ -344,14 +344,14 @@ export function haltToolCallGuard(
 }
 
 /**
- * F20261020hlbk（#1556）：循环工具硬熔断的 tool_call 门（物理阻断）。
+ * 循环工具硬熔断的 tool_call 门（物理阻断）。
  *
  * 检测器（ToolCallCircuitBreaker）报警时把循环签名写进 store.loopBlockedTools（粘滞，
  * 不被穿插调用清零），本门在**每次工具执行前**读到即返回 {block, reason} → SDK 生成
  * isError tool result、工具不执行——这是唯一的物理截断点（steer 只是建议、terminate
  * 整轮 abort 可重试致循环复活）。对准 AC1「检测器报警后无法继续调用该工具（物理截断）」。
  *
- * - speak/yield 豁免：硬熔断后獭必须仍能 speak 报告 + yield 交棒逃生（F20260806cbsx）。
+ * - speak/yield 豁免：硬熔断后獭必须仍能 speak 报告 + yield 交棒逃生。
  * - fail-open：store / loopBlockedTools 缺失时放行（镜像 haltToolCallGuard，不误伤正常工具流）。
  */
 export function loopBlockGuard(
@@ -384,18 +384,18 @@ export function loopBlockGuard(
 }
 
 /**
- * F20261030gblkv（guard-v4）：bash 守卫门（tool_call 层显式落痕，v4 重建）。
+ * （guard-v4）：bash 守卫门（tool_call 层显式落痕，v4 重建）。
  *
- * 前身 F20261026gobs（M-2bf6e98c）：守卫拦截原在 tool_execution_start（abort 链）——
- * abort 信号异步生效、与工具执行竞态，被拦命令可能已 spawn 并「静默 exit 0」（#1616
+ * 前身 （M-2bf6e98c）：守卫拦截原在 tool_execution_start（abort 链）——
+ * abort 信号异步生效、与工具执行竞态，被拦命令可能已 spawn 并「静默 exit 0」（
  * 实证）。v4 沿用 tool_call 门形态：被拦命令不执行，SDK 对 block 生成 isError tool
  * result（reason 正文）返回 LLM——显式落痕，模型看到「命令被拦截（未执行）+ 理由」。
  *
- * v4 变化（F20261030gblkv 终态）：
+ * v4 变化（终态）：
  * - 判定=纯文本两层（第一站杀进程三查 + 第二站黑名单三类），无沙箱层、无 abort
  *   兜底链——本门是守卫唯一执行点；
  * - fail-open：store / guardProjectRoot 缺省时放行（镜像 halt/loop-block，不误伤
- *   正常工具流；缺省=守卫不生效，同 #1702 过渡态语义）；
+ * 正常工具流；缺省=守卫不生效，同 过渡态语义）；
  * - 拦截落 healing（guard_intercept 事件）——守卫行为以真实使用为准，误拦语料
  *   经回放库（tests/guard/replay/）固化为「必须放行」回归用例。
  */

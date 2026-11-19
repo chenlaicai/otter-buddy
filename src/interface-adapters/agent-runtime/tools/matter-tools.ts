@@ -51,7 +51,7 @@ async function resolveMatterId(
   return { id: hit[0].id };
 }
 
-/** list_matters：本对话待办清单（open 列表；P1 只读呈现给獭查板） */
+/** list_matters：本对话待办清单（open 列表；只读呈现给獭查板） */
 export function createListMattersTool(ctx: ToolContext, matterRepo: MatterRepository): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
     const listMatters = new ListMatters(matterRepo);
@@ -84,7 +84,7 @@ export function createListMattersTool(ctx: ToolContext, matterRepo: MatterReposi
   };
 }
 
-/** F20261019fckd：closure_kind 参数校验（影响宣告权分流，非法值显式报错不静默吞） */
+/** closure_kind 参数校验（影响宣告权分流，非法值显式报错不静默吞） */
 function validateClosureKindParam(params: Record<string, unknown>): string | null {
   if (params.closure_kind === undefined) return null;
   const kind = (params.closure_kind as string | undefined)?.trim();
@@ -202,7 +202,7 @@ export function createTransitionMatterTool(ctx: ToolContext, matterRepo: MatterR
   };
 }
 
-/** F20261019fckd：register 的 closure_kind 解析（非法值当未标注——登记失败比错标代价高，安全方向保守） */
+/** register 的 closure_kind 解析（非法值当未标注——登记失败比错标代价高，安全方向保守） */
 function parseRegisterClosureKind(params: Record<string, unknown>): 'fact' | 'decision' | null {
   const kind = (params.closure_kind as string | undefined)?.trim();
   return kind === 'fact' || kind === 'decision' ? kind : null;
@@ -221,11 +221,11 @@ function buildRegisterParams(ctx: ToolContext, params: Record<string, unknown>) 
 }
 
 /**
- * register_matter（F20261006mlp2 P2——通道 B 「+」登记入口的执行载体）。
+ * register_matter（——通道 B 「+」登记入口的执行载体）。
  *
  * 板上「登记一件事」按钮合成 html-matter-action register 回执（准入路径 2：搭档
  * 手动登记，initialState=OPEN），由被唤醒獭用本工具登记到待办板。这补齐了
- * P1 只把 RegisterMatter 接在 yield 打标路径（准入路径 1）上的缺口——
+ * 只把 RegisterMatter 接在 yield 打标路径（准入路径 1）上的缺口——
  * 回执让獭去登记，但工具面没注册登记工具 = 登记必丢（严重1死链）。
  *
  * 准入纪律：登记即 OPEN（搭档手动，非 yield 打标）。title 必填；owner 缺省=
@@ -276,13 +276,13 @@ export function createRegisterMatterTool(ctx: ToolContext, matterRepo: MatterRep
 }
 
 /**
- * matter_sweep（F20261008mlp3 P3——未闭环扫描升格的确定性数据源）。
+ * matter_sweep（——未闭环扫描升格的确定性数据源）。
  *
  * 跨对话停滞扫描：OPEN 无人认领 / WAITING_PARTNER 积压——跨日未收尾（24h 基准）。
  * 只读；调用方（三省吾身大獭）负责提醒，不做自动处置。
  *
  * 权限模型：仅大獭型注册（session-helpers getOtterToolNamesForType 白名单控制），
- * small 型不持有——跨对话查询权与编排权对齐（P3 定案：扫描跑在三省吾身对话，
+ * small 型不持有——跨对话查询权与编排权对齐（定案：扫描跑在三省吾身对话，
  * matter 工具按对话隔离，跨对话查询需要大獭专属工具）。
  */
 export function createMatterSweepTool(ctx: ToolContext, matterRepo: MatterRepository): AgentTool {

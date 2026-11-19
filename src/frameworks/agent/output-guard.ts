@@ -290,7 +290,7 @@ export class OutputGuard {
  *
  * 事件契约（SDK agent-core 原始事件，subscribe 通道）：
  * - message_update: { assistantMessageEvent: { type, delta? } } —— delta 在内层
- *   （F20260804dglp 根因 2：初版读外层 event.delta，恒 undefined，guard 从未生效）
+ * （根因 2：初版读外层 event.delta，恒 undefined，guard 从未生效）
  * - tool_execution_start/end、compaction_start/end、auto_retry_start/end：pause/resume
  */
 export function attachOutputGuard(

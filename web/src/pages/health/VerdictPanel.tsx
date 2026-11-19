@@ -262,7 +262,7 @@ function DimensionEvidence({ dim, score, trends, overview, untriagedCount }: {
   }
 }
 
-/** D1 证据层的 bugfix 占比迷你走势条（原型 spark：bad 段标红） */
+/** 证据层的 bugfix 占比迷你走势条（原型 spark：bad 段标红） */
 function BugfixRatioSparkline({ points }: { points: Array<{ date: string; bugfixRatio?: number }> }) {
   const vals = points.map(p => p.bugfixRatio ?? 0)
   const max = Math.max(...vals, 0.01)
@@ -359,5 +359,5 @@ export function ActionList({ score, untriagedCount }: {
   )
 }
 
-// CHANGE_TYPE_LABELS 在本文件的 D1 证据文案里引用（保持收编单一真相源）
+// CHANGE_TYPE_LABELS 在本文件的 证据文案里引用（保持收编单一真相源）
 void CHANGE_TYPE_LABELS

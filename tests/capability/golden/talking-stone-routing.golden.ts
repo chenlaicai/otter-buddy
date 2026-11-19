@@ -80,7 +80,7 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
 };
 
 /**
- * F20260828gssf: selftest 参考序列（DB 依赖场景——factory 函数）。
+ * selftest 参考序列（DB 依赖场景——factory 函数）。
  *
  * 本场景断言需要查 DB（conversation_participants JOIN otters），所以 selftest 是 factory 函数：
  * 先通过 API 创建会话，再往 DB 插入测试 otter 记录，然后构造带正确 senderId 的消息。

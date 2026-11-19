@@ -132,14 +132,14 @@ function fileToolSignature(toolName: string, a: Record<string, unknown>): string
   return digest ? `${toolName}: ${path}#${digest}` : `${toolName}: ${path}`;
 }
 
-/** 实体工具签名：工具名 + 实体标识；标识缺失时退回工具名（连续缺参被 steer 是合理纠错信号）。F20260826d464 先例泛化（#475） */
+/** 实体工具签名：工具名 + 实体标识；标识缺失时退回工具名（连续缺参被 steer 是合理纠错信号）。先例泛化 */
 function entityToolSignature(toolName: string, key: string, value: unknown): string {
   return typeof value === "string" && value ? `${toolName}: ${value}` : toolName;
 }
 
 /**
  * 简单实体工具表：工具名 → 实体键。异实体即不同签名（批量流合法），同实体连发累计（幂等值得提醒）。
- * #1895 同族收口：带实体参数却漏进签名表的工具统一走表（避免 managementToolSignature
+ * 同族收口：带实体参数却漏进签名表的工具统一走表（避免 managementToolSignature
  * switch 逐 case 膨胀——复杂度 lint 曾卡在 20/12，收口用数据表非控制流）。
  */
 const ENTITY_KEYED_TOOLS: Record<string, string> = {
@@ -160,7 +160,7 @@ function entityKeyedToolSignature(toolName: string, a: Record<string, unknown>):
   return key ? entityToolSignature(toolName, key, a[key]) : null;
 }
 
-/** Otter 管理工具签名：dissolve/restart 取 otterId；create 取 name。F20260826d464 */
+/** Otter 管理工具签名：dissolve/restart 取 otterId；create 取 name。*/
 function otterToolSignature(toolName: string, a: Record<string, unknown>): string | null {
   if (toolName === "dissolve_otter" || toolName === "restart_otter") {
     return entityToolSignature(toolName, "otterId", a.otterId);
@@ -185,7 +185,7 @@ const HEALING_EVENT_IDS_INLINE_MAX = 5;
 /**
  * 收集 manage_healing_events 的过滤特征（行为维度）。
  * query 侧旋钮（status/errorType/includeProbe）不入签名——查询旋钮非实体标识，
- * 同 action 连发正是卡壳语义（特性文档 2.3 设计决策，F20261009tspg）。
+ * 同 action 连发正是卡壳语义（特性文档 2.3 设计决策，）。
  */
 function healingFilterParts(a: Record<string, unknown>): string[] {
   const parts: string[] = [];
@@ -219,7 +219,7 @@ function healingFilterParts(a: Record<string, unknown>): string[] {
  * manage_healing_events 签名：action + 过滤特征（行为维度）。
  * 同一 action 不同过滤特征不算重复（resolve 不同 event / bind 到不同 issue /
  * 按不同时间窗分批都是不同操作）；无过滤特征时同 action 连发保留兜底——
- * query 连发正是卡壳语义（#475）。
+ * query 连发正是卡壳语义。
  * 已知限制（特性文档 2.3）：truncated=true 续跑是协议规定的合法重复，同签名累计；
  * 跨调用批次状态会破坏签名无状态性，接受该限制。
  */
@@ -271,11 +271,11 @@ function updateArtifactStatusSignature(a: Record<string, unknown>): string {
 }
 
 /**
- * 带实体参数的管理工具签名（#475，F20260826d464 先例泛化）：
+ * 带实体参数的管理工具签名（先例泛化）：
  * 批量操作不同实体（合入不同 PR、halt 不同 otter、迁移不同 matter、查不同消息/记忆）
  * 不算重复；同一实体连续操作才累计。标识缺失时退回工具名。
- * 设计哲学（F20260728cbwt）：签名只取「行为」（实体标识），忽略无关参数值。
- * #1399：残余口子收口——link_memory、workspace 读写、create_linked_resource、
+ * 设计哲学：签名只取「行为」（实体标识），忽略无关参数值。
+ * 残余口子收口——link_memory、workspace 读写、create_linked_resource、
  * set_context、search 三件套五组同类接入（各自判据见各签名函数）。关键取舍：
  * 实体相同即同签名（type/关系等附加参数不区分）——同一实体的连发
  * 是值得提醒的模式（幂等声明/同 key 反写），「不同实体」才是正当批量流。
@@ -303,7 +303,7 @@ function managementToolSignature(toolName: string, a: Record<string, unknown>): 
   }
 }
 
-/** #1399 残余口子：link_memory/workspace 读写/create_linked_resource/set_context/search 三件套 */
+/** 残余口子：link_memory/workspace 读写/create_linked_resource/set_context/search 三件套 */
 function residualToolSignature(toolName: string, a: Record<string, unknown>): string | null {
   switch (toolName) {
     case "link_memory":
@@ -321,7 +321,7 @@ function residualToolSignature(toolName: string, a: Record<string, unknown>): st
   }
 }
 
-/** link_memory/unlink_memory 签名：from→to 组合。分桶语义（r1 A1 + delta-D1）：produced/references/supersedes 有向边两方向独立；relates-to 对称边反向建边字典序归一（签名带≈标记，与有向边分桶——同对混 type 连发不互累计，B-3b 滑窗兜底）；unlink_memory 恒有向（删哪条边有方向性，无论 type） */
+/** link_memory/unlink_memory 签名：from→to 组合。分桶语义（A1 + delta-）：produced/references/supersedes 有向边两方向独立；relates-to 对称边反向建边字典序归一（签名带≈标记，与有向边分桶——同对混 type 连发不互累计，B-3b 滑窗兜底）；unlink_memory 恒有向（删哪条边有方向性，无论 type） */
 function memoryEdgeSignature(toolName: string, a: Record<string, unknown>): string {
   const from = strOrEmpty(a.from_id);
   const to = strOrEmpty(a.to_id);
@@ -343,7 +343,7 @@ function isSymmetricEdge(toolName: string, type: unknown, from: string, to: stri
 /**
  * create_linked_resource 签名：类型 + 内容指纹。
  * 同类型不同内容不算重复（登记不同 PR/fact/文件是正当批量）；同类型同内容算重复
- * （幂等登记值得提醒）。取首序 url → content → title（#1399 r1 S2 修正：url 是
+ * （幂等登记值得提醒）。取首序 url → content → title（修正：url 是
  * 资源定位主键且多与 title 并存——title 优先会把「同 title 不同 url」的正当批量
  * 误归同签名，也会让「同 url 改 title」的幂等重登记签名漂移）。
  */
@@ -361,9 +361,9 @@ function linkedResourceSignature(a: Record<string, unknown>): string {
  * 同名工具不同行为不算重复：bash 看命令词、read 看目标路径、edit/write 看路径+内容指纹；
  * 真正的卡壳（同一命令反复失败、同一编辑反复重试、反复读同一文件）才会累计。
  *
- * F20260820d338：speak 加入 body 内容指纹——连续 speak 不同内容不算重复，
+ * speak 加入 body 内容指纹——连续 speak 不同内容不算重复，
  * 同一 speak 内容反复输出才累计（与 write/edit 同理）。
- * F20261009tspg：出口统一 capSignature——签名会注入 steer 提示与 warn 日志，
+ * 出口统一 capSignature——签名会注入 steer 提示与 warn 日志，
  * 任何路径的超长签名（如 100 eventIds）收敛为截断+指纹。
  */
 export function buildToolSignature(toolName: string, args?: unknown): string {
@@ -383,7 +383,7 @@ function rawToolSignature(toolName: string, args?: unknown): string {
   return dispatchToolSignature(toolName, a) ?? toolName;
 }
 
-/** 文件/工作区工具判定：read/write/edit + workspace 列/读/写/删（#1399/#1767/#1802）——独立函数控 dispatchToolSignature 复杂度 */
+/** 文件/工作区工具判定：read/write/edit + workspace 列/读/写/删（//）——独立函数控 dispatchToolSignature 复杂度 */
 function isFileOrWorkspaceTool(toolName: string): boolean {
   return toolName === "read"
     || toolName === "write"
@@ -442,7 +442,7 @@ function bashSignature(a: Record<string, unknown>): string | null {
 }
 
 /**
- * 文件类签名分发：read/write/edit 走 fileToolSignature；workspace 列/读/写/删同构接入（#1399/#1767/#1802，
+ * 文件类签名分发：read/write/edit 走 fileToolSignature；workspace 列/读/写/删同构接入（//
  * 独立实现——workspace path 是相对沙箱根的短路径，语义独立）。
  */
 function fileOrWorkspaceSignature(toolName: string, a: Record<string, unknown>): string {

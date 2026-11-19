@@ -150,7 +150,7 @@ export function createHaltOtterTool(ctx: ToolContext, signalRepo: SignalEventRep
 }
 
 /**
- * #927：unhalt_otter 解除工具。大獭误 halt（打错目标/需求撤回）时立即清除打标，
+ * unhalt_otter 解除工具。大獭误 halt（打错目标/需求撤回）时立即清除打标，
  * 不等 TTL 自然过期。同时把未消费指令对应的 signal_events 落账从 pending
  * 迁到 dismissed（解除记录，审计闭环）。已送达（active）的指令无法追回注入文本，
  * 但清除后目标獭后续工具调用恢复放行。
@@ -201,7 +201,7 @@ export function createUnhaltOtterTool(ctx: ToolContext, signalRepo: SignalEventR
   };
 }
 
-/** query_signals：台账查询（C1 只读；大獭复盘 + UI 前的对话内查证） */
+/** query_signals：台账查询（只读；大獭复盘 + UI 前的对话内查证） */
 export function createQuerySignalsTool(ctx: ToolContext, signalRepo: SignalEventRepository): AgentTool {
   const exec = async (_id: string, params: Record<string, unknown>): Promise<ReturnType<typeof textResponse>> => {
     const filter: SignalQueryFilter = {};
@@ -240,7 +240,7 @@ export function createQuerySignalsTool(ctx: ToolContext, signalRepo: SignalEvent
 }
 
 /**
- * F20261113sgnpr：speak 入口信号参数（signal 从 body 文本 <signal> 标签改为独立参数）。
+ * speak 入口信号参数（signal 从 body 文本 <signal> 标签改为独立参数）。
  * halt 仍只能经 halt_otter 工具（type 白名单不含 halt）。
  */
 const SIGNAL_PARAM_TYPES: ReadonlySet<string> = new Set(['objection', 'blocked']);
@@ -248,7 +248,7 @@ const SIGNAL_PARAM_SEVERITIES: ReadonlySet<string> = new Set(['low', 'medium', '
 const SIGNAL_MAX_FIELD_LENGTH = 1000;
 const SIGNAL_MAX_PER_SPEAK = 5;
 
-/** speak signal 参数的 JSON Schema（F20261113sgnpr）：白名单与 parseSignalParam 同源维护 */
+/** speak signal 参数的 JSON Schema：白名单与 parseSignalParam 同源维护 */
 export const SPEAK_SIGNAL_PARAM_SCHEMA = {
   type: "array",
   description: "獭间协作信号上报（可选）——小獭对派工的异议/卡住升级走结构化参数，不再在 body 文本写 <signal> 标签。objection=对派工的事实性异议（payload 须含文档锚点/file:line）；blocked=卡住升级（payload 须附已试清单）。halt 不走此参数，只能大獭经 halt_otter 工具发出。没信号就不传。",
@@ -319,7 +319,7 @@ function normalizeSignalItem(item: unknown, index: number): { signal: SignalPara
 }
 
 /**
- * 校验 speak 的 signal 结构化参数（F20261113sgnpr：signal 从 body 文本标签改为独立参数）。
+ * 校验 speak 的 signal 结构化参数（signal 从 body 文本标签改为独立参数）。
  * 未传/空 → 空 signals；非法 → 可操作 error（原子阻断发言，不建 entry 不落账——
  * objection/blocked 是「假装没看见」的保险丝，不可静默丢弃）。
  */
@@ -342,8 +342,8 @@ export function parseSignalParam(raw: unknown): SignalParamResult {
 }
 
 /**
- * 落账 signal 事件（F20261113sgnpr：从 interceptSignalReport 迁移，参数法专用）。
- * repo.create 成功后 signalAlertRegistry.register（#1227 M1 提醒）；fire-and-forget
+ * 落账 signal 事件（从 interceptSignalReport 迁移，参数法专用）。
+ * repo.create 成功后 signalAlertRegistry.register（提醒）；fire-and-forget
  * 失败仅日志不阻断发言（台账是审计面，不是发言前置条件）。
  */
 export function persistSignalEvents(signals: SignalParamItem[], ctx: ToolContext, repo: SignalEventRepository, logger?: Logger): void {
@@ -427,7 +427,7 @@ async function checkResolvable(
 }
 
 /**
- * F20260826mwrd C2：resolve_signal 裁决工具（big 专用）。
+ * resolve_signal 裁决工具（big 专用）。
  * 「程序化裁决义务」的代码落点：裁决 = 本工具调用落库，speak 里的裁决文本仅作展示。
  * 状态迁移以此为唯一数据源（UI 徽章 resolved/dismissed 渲染同源）。
  */

@@ -74,12 +74,12 @@ const OVERVIEW_KEYS = [
   "bugfix_count", "bugfix_ratio", "bugfix_ratio_of_fid",
 ] as const;
 
-/** snake_case 指标键 → camelCase 序列化投影（Issue #448：API 命名对齐，DB 存储键不动） */
+/** snake_case 指标键 → camelCase 序列化投影（API 命名对齐，DB 存储键不动） */
 function metricKeyToCamel(key: string): string {
   return key.replace(/_([a-z0-9])/g, (_, ch: string) => ch.toUpperCase());
 }
 
-/** signals 响应序列化（Issue #448）：不再 `...s` 透传 DB 行——契约字段显式映射，
+/** signals 响应序列化：不再 `...s` 透传 DB 行——契约字段显式映射，
  *  created_at/resolved_at 从未进 DTO（前端零消费），透传噪音一并移除 */
 function serializeSignal(s: SignalRecord): RhiSignalDTO {
   return {
@@ -107,14 +107,14 @@ function serializeSignal(s: SignalRecord): RhiSignalDTO {
   };
 }
 
-/** trends 序列指标键（F20260829hviz）：折线图趋势专用，比率 ×100 转百分比点位 */
+/** trends 序列指标键：折线图趋势专用，比率 ×100 转百分比点位 */
 const TREND_KEYS = [
   "total_commits", "bugfix_count", "bugfix_ratio", "compliant_commits",
 ] as const;
 
 const DEFAULT_TREND_DAYS = 30;
 
-/** 趋势序列聚合：{ date → { key → value } }，比率键 ×100 转百分比（F20260829hviz） */
+/** 趋势序列聚合：{ date → { key → value } }，比率键 ×100 转百分比 */
 const RATIO_KEYS = new Set(["bugfix_ratio", "bugfix_ratio_of_fid"]);
 
 function aggregateTrendSeries(rows: Array<{ snapshot_date: string; metric_key: string; metric_value: number }>):
@@ -187,7 +187,7 @@ function parseLatestHealthIndex(
 }
 
 /** 每维 + overall 的近 14 天序列 → 走向判定
- *  F20260920hcal：补日期对齐 null 占位——先从 rows 收集全部日期，再按日期填充值或 null，
+ * 补日期对齐 null 占位——先从 rows 收集全部日期，再按日期填充值或 null，
  *  让 judgeTrend 的窗口内 null 剔除逻辑真正生效（原实现缺日被静默跳过，修正成 no-op）。
  *  recent 窗口收紧：≥3 个有效值才判走向（旧版放行 1 个，噪声过大）。
  */
@@ -210,16 +210,16 @@ function judgeTrends(
   return trend;
 }
 
-/** cost_output 趋势序列构建（#583）
+/** cost_output 趋势序列构建
  *  cacheHitRate 从 cache_read_tokens + input_tokens 求和推导（真加权平均），
- *  不对 per-record cache_hit_rate 做简单平均（#583 第二轮审视修复：三处口径统一）。
+ * 不对 per-record cache_hit_rate 做简单平均（第二轮审视修复：三处口径统一）。
  *
- *  混合求和说明（F20260909csdt 补充）：同一 snapshot_date 下 per-otter 行与全局行
+ * 混合求和说明（补充）：同一 snapshot_date 下 per-otter 行与全局行
  * （pr_count/fdoc_count/dispatch_count）混在一起按 metric_key 求和是安全的——
  *  两类行的指标键集合不相交：per-otter 指标（token/cost/call/message/tool_call）
  *  只存在于 per-otter 行，全局指标只存在于全局行，互不污染、无重复计数风险。
  *
- *  F20260914usgm：invoke stats 行（invoke_count/avg_*）带 metadata.model，不进
+ * invoke stats 行（invoke_count/avg_*）带 metadata.model，不进
  *  AGGREGATE_KEYS 求和——由 buildModelBreakdown / buildInvokeStats 独立消费。 */
 function buildCostTrendSeries(
   costRows: Array<{ snapshot_date: string; metric_key: string; metric_value: number; metadata?: string | null }>,
@@ -248,8 +248,8 @@ function buildCostTrendSeries(
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** cost_output per-otter 聚合（#583）：从最新一天的行提取 otter 明细 */
-/** 从最新一天的行提取 otter 明细（#583） */
+/** cost_output per-otter 聚合：从最新一天的行提取 otter 明细 */
+/** 从最新一天的行提取 otter 明细 */
 function buildCostOtterBreakdown(
   latestRows: Array<{ metric_key: string; metric_value: number; metadata: string | null }>,
 ): Array<{

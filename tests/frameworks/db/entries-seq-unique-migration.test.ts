@@ -31,7 +31,7 @@ function seqIndexUnique(db: Database.Database): boolean | undefined {
   return indexList.find(idx => idx.name === 'idx_entries_conversation_seq')?.unique === 1;
 }
 
-/** 构造「老库」：新库 schema 建好后，把 UNIQUE 索引降回普通索引（模拟 #906 之前的存量形态） */
+/** 构造「老库」：新库 schema 建好后，把 UNIQUE 索引降回普通索引（模拟 之前的存量形态） */
 function downgradeIndexToPlain(db: Database.Database): void {
   db.exec("DROP INDEX idx_entries_conversation_seq");
   db.exec("CREATE INDEX idx_entries_conversation_seq ON entries(conversation_id, sequence_num)");

@@ -144,7 +144,7 @@ export function getParticipants(conversationId: string): Promise<ParticipantDTO[
   return request(`/conversations/${conversationId}/participants`)
 }
 
-// ── Messages（F20260913ctlv 彻底切换：只保留发言/未读/已读，历史读取/事件/中止/重试已迁 entries+invokes）──
+// ── Messages（彻底切换：只保留发言/未读/已读，历史读取/事件/中止/重试已迁 entries+invokes）──
 
 /** 未读状态 */
 export function getUnreadState(conversationId: string): Promise<UnreadStateDTO> {
@@ -164,7 +164,7 @@ export function sendMessage(conversationId: string, body: SendMessageRequestDTO)
   })
 }
 
-/** 多模态 Phase 1：附件上传（multipart）——后端返回 { attachments: AttachmentDTO[] }（含服务端分配的 id）。
+/** 多模态 附件上传（multipart）——后端返回 { attachments: AttachmentDTO[] }（含服务端分配的 id）。
  *  用原生 fetch 不走 request()：multipart 禁止手动设 Content-Type（boundary 由浏览器生成） */
 export function uploadAttachments(conversationId: string, files: File[], uploaderId = 'user'): Promise<UploadAttachmentResponseDTO> {
   const form = new FormData()
@@ -176,7 +176,7 @@ export function uploadAttachments(conversationId: string, files: File[], uploade
   })
 }
 
-// ── Invokes（F20260913ctlv：Session 弹窗 + 獭状态面板数据源）──
+// ── Invokes（Session 弹窗 + 獭状态面板数据源）──
 
 /** 拉取会话内 invoke 记录列表（before 游标分页，otterId 可选过滤单獭） */
 export function listInvokes(conversationId: string, options?: { limit?: number; before?: string; otterId?: string }): Promise<InvokeListResponseDTO> {
@@ -191,28 +191,28 @@ export function getInvokeEvents(invokeId: string): Promise<InvokeEventsResponseD
   return request(`/invokes/${invokeId}/events`)
 }
 
-/** F20260913ctlv 切换清扫：拉取会话时间线条目（entries 历史数据源，替代 messages 渲染路径） */
+/** 切换清扫：拉取会话时间线条目（entries 历史数据源，替代 messages 渲染路径） */
 export function listEntries(conversationId: string, limit = 50, before?: string): Promise<EntriesResponseDTO> {
   const qs = new URLSearchParams({ limit: String(limit) })
   if (before) qs.set('before', before)
   return request(`/conversations/${conversationId}/entries?${qs}`)
 }
 
-/** F20261013csv3 T5：过程明细开关——includeEvents=true 批量投影工具调用明细 */
+/** 过程明细开关——includeEvents=true 批量投影工具调用明细 */
 export function listEntriesWithEvents(conversationId: string, limit = 50, before?: string): Promise<EntriesResponseDTO> {
   const qs = new URLSearchParams({ limit: String(limit), includeEvents: 'true' })
   if (before) qs.set('before', before)
   return request(`/conversations/${conversationId}/entries?${qs}`)
 }
 
-/** F20260913ctlv 彻底切换：after 游标向下分页（增量刷新用，升序） */
+/** 彻底切换：after 游标向下分页（增量刷新用，升序） */
 export function listEntriesAfter(conversationId: string, after: string, limit = 100): Promise<EntriesResponseDTO> {
   const qs = new URLSearchParams({ limit: String(limit), after })
   return request(`/conversations/${conversationId}/entries?${qs}`)
 }
 
-/** F20260913ctlv 彻底切换：中止运行中 invoke（Session 弹窗/右栏停止按钮）
- *  F20260930s1x0（issue #1251）：失败统一抛 InvokeAbortError（携带 status/code），
+/** 彻底切换：中止运行中 invoke（Session 弹窗/右栏停止按钮）
+ * 失败统一抛 InvokeAbortError（携带 status/code），
  *  调用方据此区分「假行动中 409」与「中断链路故障」 */
 export async function abortInvoke(invokeId: string, otterId: string): Promise<{ status: string }> {
   try {
@@ -229,7 +229,7 @@ export async function abortInvoke(invokeId: string, otterId: string): Promise<{ 
   }
 }
 
-/** F20260913ctlv 彻底切换：重试失败 invoke（前端气泡重试按钮；返回 SSE 流） */
+/** 彻底切换：重试失败 invoke（前端气泡重试按钮；返回 SSE 流） */
 export function retryInvoke(invokeId: string): Promise<Response> {
   return fetch(`${BASE}/invokes/${invokeId}/retry`, {
     method: 'POST',
@@ -237,7 +237,7 @@ export function retryInvoke(invokeId: string): Promise<Response> {
   })
 }
 
-/** F20260913ctlv test17（搭档拍板）：獭锚重试——重试的是獭的 session（上下文载体），
+/** test17（搭档拍板）：獭锚重试——重试的是獭的 session（上下文载体），
  *  invoke 只是执行记录。右栏重试按钮用此（无需 invokeId，天然避开 otterId/invokeId 错位坑） */
 export function retryOtter(otterId: string, conversationId: string): Promise<Response> {
   return fetch(`${BASE}/otters/${otterId}/retry?conversationId=${encodeURIComponent(conversationId)}`, {
@@ -252,7 +252,7 @@ export function getOtter(id: string): Promise<OtterDTO> {
   return request(`/otters/${id}`)
 }
 
-/** F20260921otcl：conversationId 走 query 注入（出生挑色域——服务端 controller 层读取） */
+/** conversationId 走 query 注入（出生挑色域——服务端 controller 层读取） */
 export function createOtter(body: CreateOtterRequestDTO, conversationId?: string): Promise<OtterDTO> {
   const qs = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : ''
   return request(`/otters${qs}`, { method: 'POST', body: JSON.stringify(body) })
@@ -266,7 +266,7 @@ export function getSessionHistory(otterId: string): Promise<OtterSessionDTO[]> {
   return request(`/otters/${otterId}/sessions`)
 }
 
-/** F20260920uhuc：synthesizePast（缺省 true=后台由引擎合成前世叙事档案；false=仅自总结+机械档案） */
+/** synthesizePast（缺省 true=后台由引擎合成前世叙事档案；false=仅自总结+机械档案） */
 export function restartOtter(otterId: string, summary?: string, modelAlias?: string, synthesizePast?: boolean): Promise<OtterSessionDTO> {
   const body: { summary?: string; modelAlias?: string; synthesizePast?: boolean } = {}
   if (summary) body.summary = summary
@@ -340,7 +340,7 @@ export function searchSimilar(memoryEntryId: string, limit = 10): Promise<Search
   })
 }
 
-// ── Health (F20260803mval) ──
+// ── Health  ──
 
 export interface MemoryGapReason {
   id: string
@@ -368,7 +368,7 @@ export function flagMemory(id: string, flagged: boolean): Promise<{ status: stri
   return request(`/memory/${id}/flag`, { method: 'PATCH', body: JSON.stringify({ flagged }) })
 }
 
-/** #576（F20260901emps）：最近记忆——记忆召回页初始态数据源 */
+/** 最近记忆——记忆召回页初始态数据源 */
 export function getRecentMemory(limit = 10): Promise<{ entries: MemoryEntryDTO[]; total: number }> {
   return request(`/memory/recent?limit=${limit}`)
 }
@@ -454,7 +454,7 @@ export function listScheduledTasks(conversationId: string): Promise<ScheduledTas
   return request(`/conversations/${conversationId}/scheduled-tasks`)
 }
 
-/** F20261006mtlp P1：待办板 matter（matters 表 open 清单，只读） */
+/** 待办板 matter（matters 表 open 清单，只读） */
 export interface MatterDTO {
   id: string
   conversationId: string
@@ -474,7 +474,7 @@ export interface MatterDTO {
   closedAt: string | null
 }
 
-/** F20261006mtlp P1 只读 + F20261006mlp2 P2 近期闭环区——列出对话 matters（默认 open；includeClosed 含终态） */
+/** 只读 + 近期闭环区——列出对话 matters（默认 open；includeClosed 含终态） */
 export function listMatters(conversationId: string, options?: { includeClosed?: boolean }): Promise<MatterDTO[]> {
   const qs = options?.includeClosed ? '?includeClosed=1' : ''
   return request(`/conversations/${conversationId}/matters${qs}`)
@@ -514,7 +514,7 @@ export function listExecutions(taskId: string, options?: { limit?: number; offse
 }
 
 // ── Connections (IM 大厅) ──
-// F20261023cnct：契约类型迁 @contract/api/connection（issue #1063 契约同步，双端单一真相源）
+// 契约类型迁 @contract/api/connection（契约同步，双端单一真相源）
 
 export type { ConnectionDTO, ConnectionSessionDTO, EnterConversationRequestDTO } from '@contract/api'
 
@@ -530,7 +530,7 @@ export function listActiveConversations(): Promise<ActiveConversationDTO[]> {
   return request('/connections/any/conversations')
 }
 
-// ── 微信连接管理（issue #566）──
+// ── 微信连接管理──
 
 export interface WeixinLoginSessionDTO {
   id: string
@@ -555,8 +555,8 @@ export interface WeixinAccountDTO {
   userName?: string
 }
 
-/** F20260921imux：同号识别（扫码前/后探测已有账号）。
- *  预留：扫码前预探测场景；当前前端走列表本地匹配，暂未消费（检视 D2 标注） */
+/** 同号识别（扫码前/后探测已有账号）。
+ * 预留：扫码前预探测场景；当前前端走列表本地匹配，暂未消费（检视 标注） */
 export function lookupWeixinAccount(ilinkUserId: string): Promise<{ account?: { id: string; assistantLine?: { conversationId: string } } }> {
   return request('/weixin/accounts/lookup', { method: 'POST', body: JSON.stringify({ ilinkUserId }) })
 }
@@ -565,7 +565,7 @@ export function startWeixinLogin(): Promise<WeixinLoginSessionDTO> {
   return request('/weixin/login', { method: 'POST' })
 }
 
-// ── F20260928fsqr：飞书扫码接入 ──
+// ── 飞书扫码接入 ──
 
 /** 飞书登录会话（SDK registerApp 无 scanned 态——waiting_scan 直达终态） */
 export interface FeishuLoginSessionDTO {
@@ -621,12 +621,12 @@ export function listWeixinAccounts(): Promise<WeixinAccountDTO[]> {
   return request('/weixin/accounts')
 }
 
-/** F20260920imax：扫码登录后按名建助理线（名字必填）。F20260928wxid：userName 可选——扫码人自报称呼，存 connection.metadata */
+/** 扫码登录后按名建助理线（名字必填）。userName 可选——扫码人自报称呼，存 connection.metadata */
 export function provisionWeixinAssistantLine(accountId: string, name: string, userName?: string): Promise<{ conversationId: string; title: string }> {
   return request(`/weixin/accounts/${accountId}/assistant-line`, { method: 'POST', body: JSON.stringify({ name, ...(userName ? { userName } : {}) }) })
 }
 
-/** F20260928wxid：存量线补/改称呼（空串 = 清除，维持裸 ID 展示） */
+/** 存量线补/改称呼（空串 = 清除，维持裸 ID 展示） */
 export function updateWeixinUserName(accountId: string, userName: string): Promise<{ userName?: string }> {
   return request(`/weixin/accounts/${accountId}/user-name`, { method: 'PATCH', body: JSON.stringify({ userName }) })
 }
@@ -635,8 +635,8 @@ export function deleteWeixinAccount(id: string): Promise<{ status: string }> {
   return request(`/weixin/accounts/${id}`, { method: 'DELETE' })
 }
 
-// ── RHI 健康面板（F20260825rweb #402/#403；F20260829hviz 增补 trends）──
-// Issue #448：DTO 单一真相源收口到 @contract/api/rhi——以下均为契约层 re-export
+// ── RHI 健康面板（/；增补 trends）──
+// DTO 单一真相源收口到 @contract/api/rhi——以下均为契约层 re-export
 export type {
   RhiSignalDTO,
   RhiSignalEvidenceDetailDTO,
@@ -664,7 +664,7 @@ export function getRhiChains(signal?: AbortSignal): Promise<{ chains: RhiChainDT
   return request('/health/chains', { signal })
 }
 
-/** Issue #644：链详情（全类型 commit 序列——泳道时间线/链详情抽屉数据源） */
+/** 链详情（全类型 commit 序列——泳道时间线/链详情抽屉数据源） */
 export function getRhiChainDetail(featureId: string, signal?: AbortSignal): Promise<{ chain: RhiChainDetailDTO }> {
   return request(`/health/chains/${encodeURIComponent(featureId)}`, { signal })
 }
@@ -673,12 +673,12 @@ export function getRhiTrends(days = 30, signal?: AbortSignal): Promise<RhiTrends
   return request(`/health/trends?days=${days}`, { signal })
 }
 
-/** #581：扫描失败时后端返回 500，request() 抛 ApiError——响应体不再有 ok:false 分支 */
+/** 扫描失败时后端返回 500，request() 抛 ApiError——响应体不再有 ok:false 分支 */
 export function triggerRhiScan(): Promise<{ result: Record<string, unknown> }> {
   return request('/health/scan', { method: 'POST' })
 }
 
-/** F20260917trig：面板处置队列写路径（与 agent 工具 triage_signal 共享 repo.triage() 单一方法） */
+/** 面板处置队列写路径（与 agent 工具 triage_signal 共享 repo.triage() 单一方法） */
 export function triageRhiSignal(
   id: number,
   body: { action: 'bind_issue' | 'in_progress' | 'dismiss'; issueNumber?: number; note?: string },
@@ -695,7 +695,7 @@ export interface RhiCostOutputTrendPointDTO {
   messageCount: number
 }
 
-/** F20260914usgm：per-model 汇总（面板主维度） */
+/** per-model 汇总（面板主维度） */
 export interface RhiModelUsageDTO {
   model: string
   inputTokens: number
@@ -708,7 +708,7 @@ export interface RhiModelUsageDTO {
   cacheHitRate: number
 }
 
-/** F20260914usgm：单次问答均值（per-model + _total） */
+/** 单次问答均值（per-model + _total） */
 export interface RhiInvokeStatsDTO {
   model: string
   invokeCount: number
@@ -751,7 +751,7 @@ export function getRhiCostOutput(days = 30, includeAllOtters = false, signal?: A
   return request(`/health/cost-output?days=${days}&includeAllOtters=${includeAllOtters}`, { signal })
 }
 
-// ─── F20261027hwl1：工作账本 + 模型效率 ───
+// ─── 工作账本 + 模型效率 ───
 
 /** 工作账本：token 四分量汇总 */
 export interface WorkTokenSummaryDTO {
@@ -878,7 +878,7 @@ export function getModelEfficiency(signal?: AbortSignal): Promise<ModelEfficienc
   return request('/health/model-efficiency', { signal })
 }
 
-/** F20260830xxxx：健康评分 DTO（GET /api/health/score，issue #595 PR2）*/
+/** 健康评分 DTO（GET /api/health/score，PR2）*/
 export interface RhiScoreDimensionDTO {
   dimension: 'D1' | 'D2' | 'D3' | 'D4' | 'D5'
   name: string
@@ -901,7 +901,7 @@ export function getRhiScore(signal?: AbortSignal): Promise<RhiScoreDTO> {
   return request('/health/score', { signal })
 }
 
-// ── 通道状态（F20260901chun：统一 IM 页 + 真实健康状态）──
+// ── 通道状态（统一 IM 页 + 真实健康状态）──
 
 export interface ChannelStatusDTO {
   channelId: string;
@@ -931,7 +931,7 @@ export function getChannelStatus(): Promise<ChannelStatusResponseDTO> {
   return request('/channels/status')
 }
 
-// ── 活动页三域台账（F20260912avlb，全只读）──
+// ── 活动页三域台账（全只读）──
 
 /** healing 事件列表（status 默认 open） */
 export function getActivityHealing(params?: { status?: string; errorType?: string; conversationId?: string; limit?: number }, signal?: AbortSignal): Promise<HealingEventsResponseDTO> {

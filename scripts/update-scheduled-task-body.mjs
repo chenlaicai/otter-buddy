@@ -137,7 +137,7 @@ function main() {
   console.log(`[update-task] 任务「${name}」(${task.id}) body 已更新 ← ${tpl.path}`);
 }
 
-// 直接执行（非 import）时才跑 main——支持测试 import 函数级用例（#430）
+// 直接执行（非 import）时才跑 main——支持测试 import 函数级用例
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }

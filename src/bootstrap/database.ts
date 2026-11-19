@@ -245,7 +245,7 @@ export function shutdownDatabase(db: Database.Database, logger: Logger): void {
 }
 
 /**
- * F20260811mrpy Part 3：Embedding 版本锚校验。
+ * Embedding 版本锚校验。
  *
  * bootstrap 时比对 worker 实际加载的模型元信息（modelId/modelRev/dim）与 embedding_meta 表存储的基线。
  * 不一致则禁用 vec 路径（检索结果的 vecCoverage.vecDisabled 向消费方暴露降级状态）。
@@ -253,7 +253,7 @@ export function shutdownDatabase(db: Database.Database, logger: Logger): void {
  *
  * 失败模式：无 getMeta 方法（老接口）或 getMeta 超时/失败时跳过校验（vecEnabled=true）。
  *
- * F20260821evaf 审视记录：原设计的 otter_context('system','embedding_degraded') 写入是双重死代码——
+ * 审视记录：原设计的 otter_context('system','embedding_degraded') 写入是双重死代码——
  * a) FK 约束（otter_id → otters.id）挡住 'system' 幽灵 id，写入必失败；
  * b) agent 的 get_context 工具按注入 otterId 读，无任何路径读 'system' 行，写了也没人消费。
  * agent 感知实际由 search_memory 结果的 vecCoverage 字段承担，故移除该写入。
@@ -262,7 +262,7 @@ const GET_META_TIMEOUT_MS = 30_000;
 
 /** 取 worker 当前 meta，带超时。超时/失败返回 null（调用方跳过校验，不崩 boot）。
  * 超时只截断"worker 永不 ready 也永不报错"的挂起态（onnxruntime 死锁等），
- * 不掩盖 mismatch——mismatch 在 meta 成功拿到后才判定（F20260821evaf 审视项）。
+ * 不掩盖 mismatch——mismatch 在 meta 成功拿到后才判定（审视项）。
  * 依赖：getMeta 内部 waitForReady 的 waiters 由 worker ready/error/exit 事件兜底回收，
  * 超时后残留 waiter 最坏滞留为有界对象，无泄漏。 */
 async function fetchCurrentMeta(
@@ -288,7 +288,7 @@ async function fetchCurrentMeta(
 
 /** 读存储基线。IO 错误（磁盘满/只读等）返回 null（跳过校验，不崩 boot）。
  * schema 缺失（no such table）单独识别并 error 级告警——那是 migration 没跑到的信号，
- * 不能像 IO 错误一样静默 skip（否则重演"静默跳过藏 10 天"，F20260821evaf 二轮审视项）。 */
+ * 不能像 IO 错误一样静默 skip（否则重演"静默跳过藏 10 天"，二轮审视项）。 */
 async function readStoredMeta(repos: Repositories, logger: Logger): Promise<Partial<EmbedModelMeta> | null> {
   try {
     return await repos.memoryReader.getEmbeddingMeta();
@@ -402,6 +402,6 @@ export function syncApiKeyToAgentAuth(llmConfig: AppConfig["llm"], logger: Logge
   }
 }
 
-/** F20260930roiv：启动窗口期孤儿 invoke 延迟 reconcile 设置已拆至 invoke-reconcile.ts
+/** 启动窗口期孤儿 invoke 延迟 reconcile 设置已拆至 invoke-reconcile.ts
  *  （结构性拆分）。本文件曾残留同名死代码副本（app.ts 实际 import 自 invoke-reconcile.ts），
- *  #1241 顺手清理。 */
+ * 顺手清理。 */

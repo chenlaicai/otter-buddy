@@ -131,7 +131,7 @@ export const assert: GoldenModule["assert"] = async ({ ctx, convId, messages }) 
  *
  * good = 正确行为轨迹：处置收尾 yield 指向检视獭（delta 复核）
  * bad  = 伤疤复现轨迹（多条）：
- *   - bad[0]: 处置收尾 yield 是 'user'（越级找搭档——B5 核心伤疤）
+ * - bad[0]: 处置收尾 yield 是 'user'（越级找搭档——核心伤疤）
  *   - bad[1]: 处置收尾 yield 指向召唤者/自己（跳过检视獭，不做 delta 复核）
  *   - bad[2]: tsp 混合路由（既含检视獭又含 'user'——严格口径拒绝，堵退化盲区）
  *   - bad[3]: 无收尾 yield（tsp 为空——no_yield 变体）

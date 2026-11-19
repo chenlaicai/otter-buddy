@@ -123,7 +123,7 @@ describe("SanmaEngine", () => {
   });
 });
 
-// ─── #1564-2 立直后摸打约束：仅摸切 + 暗杠听牌形不变（RED→GREEN）───
+// ─── -2 立直后摸打约束：仅摸切 + 暗杠听牌形不变（RED→GREEN）───
 
 describe("立直后摸打约束（#1564-2）", () => {
   /** 白盒造一个立直态：当前家 riichi=true，手牌 = hand13 + drawn（drawn 入手并由 r.drawn 引用） */

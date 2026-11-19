@@ -218,7 +218,7 @@ function messageFromEntry(entry: SessionEntry): SlicerMessage | undefined {
   return sessionEntryToContextMessages(entry)[0];
 }
 
-/** #1277：全 compaction entry 极端形态判定（entries 非空且全部为 compaction）——
+/** 全 compaction entry 极端形态判定（entries 非空且全部为 compaction）——
  *  交接降级归因专用：该形态 slice 非空但 messagesToSummarize 为空（messageFromEntry 跳过
  *  compaction），hasMaterial=false 走机械档案，reason 应标 compaction-only 而非笼统空 session。 */
 export function isCompactionOnlyEntries(entries: SessionEntry[]): boolean {
@@ -226,7 +226,7 @@ export function isCompactionOnlyEntries(entries: SessionEntry[]): boolean {
 }
 
 // ============================================================================
-// 切片观测锚（F20260929kws1：字段简化为 keptSpeaks/keptChars；密度告警随估算机制退役）
+// 切片观测锚（字段简化为 keptSpeaks/keptChars；密度告警随估算机制退役）
 // ============================================================================
 
 /** 日志函数注入位（frameworks 层不直接 import logger，对齐现有依赖注入模式）；生产平台在注入时接线 */

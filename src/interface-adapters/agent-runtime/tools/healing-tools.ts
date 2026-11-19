@@ -95,7 +95,7 @@ function normalizeIssueItem(item: unknown, index: number): { issue: HealingIssue
 }
 
 /**
- * 校验 speak 的 healing 结构化参数（F20261113hlprm：healing 从 body 文本标签改为独立参数）。
+ * 校验 speak 的 healing 结构化参数（healing 从 body 文本标签改为独立参数）。
  * 未传/空 → 空 issues；非法 → 可操作 error（原子阻断发言，不落账不建 entry）。
  */
 export function parseHealingParam(raw: unknown): HealingParamResult {
@@ -117,9 +117,9 @@ export function parseHealingParam(raw: unknown): HealingParamResult {
 }
 
 /**
- * 落账 healing issues（F20261113hlprm：从 interceptHealingReport 迁移，参数法专用）。
+ * 落账 healing issues（从 interceptHealingReport 迁移，参数法专用）。
  * high → healingAlertRegistry.enqueue + repo.create；fire-and-forget 双写各自失败不阻塞对方
- * （审计面以 healing_events 为准，语义同 F20260826mwrd C3）。
+ * （审计面以 healing_events 为准，语义同）。
  */
 export function persistHealingIssues(issues: HealingIssueParam[], ctx: ToolContext, repo: HealingEventRepository, logger?: Logger): void {
   if (issues.length === 0) return;
@@ -227,11 +227,11 @@ async function handleBatchResolve(
   }, null, 2));
 }
 
-/** #1271（F20261008hbbd）：batch_bind——按 filter 批量归口到 GitHub issue（bind≠resolve）。
- *  照 RHI handleBatchBind 模式（#1052 同类问题先例）：issueNumber 必填 + filter 至少一个
+/** batch_bind——按 filter 批量归口到 GitHub issue（bind≠resolve）。
+ * 照 RHI handleBatchBind 模式（同类问题先例）：issueNumber 必填 + filter 至少一个
  *  条件（防异质归口——无过滤全量 bind 会把不相关事件族归到同一 issue）。
  *  语义：只作用未归口 open；bind 后事件保持 open（归口≠处置，终态走 resolve）；
- *  high 不设闸（与 batch_resolve 相反且有意为之）——#1361 层3 恰要求「high 必须
+ * high 不设闸（与 batch_resolve 相反且有意为之）——层3 恰要求「high 必须
  *  bind_issue 归口，不得直接 dismiss/resolve」：归口把升级信号推向结构化跟踪面，
  *  不是静默它的反面。 */
 async function handleBatchBind(
@@ -296,7 +296,7 @@ async function executeHealingBatchBind(
   }, null, 2));
 }
 
-/** #751：query 动作——查池 + 可选 errorType 过滤 + 默认探针过滤（includeProbe 诊断通道） */
+/** query 动作——查池 + 可选 errorType 过滤 + 默认探针过滤（includeProbe 诊断通道） */
 async function handleQuery(params: Record<string, unknown>, healingRepo: HealingEventRepository): Promise<ToolResponse> {
   const status = (params.status as string) ?? 'open';
   let events = await healingRepo.findAll(status as 'open' | 'resolved' | 'dismissed', 50);

@@ -250,7 +250,7 @@ function classifySignals(chain: FeatureChain, ctx: ChainCtx): ChainSignal[] {
   return signals;
 }
 
-/** state = signals 的兼容投影（Phase 2 待 web 消费完全切换后收敛删除） */
+/** state = signals 的兼容投影（待 web 消费完全切换后收敛删除） */
 function projectState(chain: FeatureChain): ChainState {
   if (chain.signals.some(s => s.id === "doc-gap")) return "orphan";
   if (chain.signals.some(s => s.id === "regressed")) return "regressed";

@@ -55,7 +55,7 @@ function countChunks(sourceId: string): number {
   return row.c;
 }
 
-/** F20261110dsqci：查某 entry 的卫星数据存在性（fts/weights——复用语义的保留对象） */
+/** 查某 entry 的卫星数据存在性（fts/weights——复用语义的保留对象） */
 function satellitesOf(entryId: string): { fts: number; weights: number } {
   const fts = (db.prepare("SELECT COUNT(*) c FROM memory_fts_jieba WHERE memory_entry_id=?").get(entryId) as { c: number }).c;
   const weights = (db.prepare("SELECT COUNT(*) c FROM memory_weights WHERE memory_entry_id=?").get(entryId) as { c: number }).c;
