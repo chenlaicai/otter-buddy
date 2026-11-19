@@ -83,17 +83,19 @@ export function sha256File(absPath) {
   return hash.digest("hex");
 }
 
-/** sqlite 表行数快照（只读打开；返回 {表名: 行数}，跳过 sqlite 内部表） */
+/** sqlite 表行数快照（只读打开；返回 {表名: 行数}，跳过 sqlite 内部表与 vec0 虚拟表
+ *  ——虚拟表依赖扩展模块，裸连接（restore/verify 端）count 会报 no such module */
 export function sqliteTableCounts(dbPath) {
   const Database = nodeRequire("better-sqlite3");
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
   try {
-    const tables = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-    ).all().map((r) => r.name);
+    const rows = db.prepare(
+      "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    ).all();
     const counts = {};
-    for (const t of tables) {
-      counts[t] = db.prepare(`SELECT count(*) AS c FROM "${t.replace(/"/g, '""')}"`).get().c;
+    for (const r of rows) {
+      if (r.sql && /USING\s+vec0/i.test(r.sql)) continue; // vec 虚拟表：内容随主表，行数校验不适用
+      counts[r.name] = db.prepare(`SELECT count(*) AS c FROM "${r.name.replace(/"/g, '""')}"`).get().c;
     }
     return counts;
   } finally {
