@@ -577,12 +577,65 @@ export class SchedulerService {
       this.logger.warn('孤儿扫描: running 执行已机械释放', {
         taskId: task.id, executionId: exec.id, triggeredAt: exec.triggeredAt, targetOtter,
       });
-      await this.recordReapHealing(task, exec.id);
+      const kindleState = await this.kindleReapPending(task, exec);
+      await this.recordReapHealing(task, exec.id, kindleState);
     }
   }
 
-  /** #1449：孤儿清理落 healing（high——日报缺失级事故，值得被看见）。失败仅日志。 */
-  private async recordReapHealing(task: ScheduledTask, executionId: string): Promise<void> {
+  /** F20261119reapk：轮询机械释放补 pending 入列——「恢复后由补扫消化」的载体保证。
+   *  仅轮询路径调用：挤占触发点翻篇后本轮立即放行新触发（新执行即当轮载体），
+   *  此时 kindle 会赶在新行建立前入列，同槽「直发中 + pending 可消费」双载体并发
+   *  （消费链覆盖重查只认 completed，running 窗口拦不住补做）——防双跑链断开，故不 kindle。
+   *  现场（11-13 健康检查实证）：首触发 running 滞留（执行方冻结未消费注入），
+   *  二次触发被同槽 running 抑制成不入列的账面 completed（message_id=NULL），
+   *  轮询机械释放翻篇后当轮工作失去全部载体，当日任务目标丢失。
+   *  判定：仅 agent 型（function 无 pending 角色通道，入列只会让獭把函数 body
+   *  当任务展开）；同槽无其他 running 且无真直发 completed（抑制型不算覆盖）→ 入列；
+   *  once 行触发后即删（FK 悬空）不入列；入列结果以状态枚举落 healing（可观测性：
+   *  入列异常与正常去重/覆盖必须可区分，否则归因错误）。 */
+  private async kindleReapPending(
+    task: ScheduledTask,
+    execution: ScheduledTaskExecution,
+  ): Promise<'kindled' | 'covered' | 'deduped' | 'skipped' | 'error'> {
+    if (!this.pendingItemRepo || task.scheduleType === 'once' || task.executorType !== 'agent') return 'skipped';
+    try {
+      if (await this.pendingItemRepo.hasExecutionInSlot(task.id, execution.triggeredAt, ['running'], execution.id)) return 'covered';
+      if (await this.pendingItemRepo.hasDirectCompletionInSlot(task.id, execution.triggeredAt)) return 'covered';
+      const enqueued = await this.pendingItemRepo.enqueue({
+        id: crypto.randomUUID(),
+        taskId: task.id,
+        conversationId: task.conversationId,
+        role: task.executorRole,
+        triggeredAt: execution.triggeredAt,
+        status: 'pending',
+        consumedAt: null,
+        resolution: null,
+        resolutionReason: null,
+      });
+      if (enqueued) {
+        this.logger.info('机械释放补 pending 入列：恢复后经 pending 通道重燃', {
+          taskId: task.id, executionId: execution.id, slotTriggeredAt: execution.triggeredAt,
+        });
+        return 'kindled';
+      }
+      return 'deduped';
+    } catch (err) {
+      this.logger.warn('机械释放补 pending 入列失败（不阻塞释放本体）', {
+        taskId: task.id, executionId: execution.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return 'error';
+    }
+  }
+
+  /** #1449：孤儿清理落 healing（high——日报缺失级事故，值得被看见）。失败仅日志。
+   *  F20261119reapk：kindleState 仅轮询路径传入（挤占路径不 kindle——新触发即载体），
+   *  入列异常与正常去重/覆盖以状态枚举区分，suggestion 分叉由状态驱动。 */
+  private async recordReapHealing(
+    task: ScheduledTask,
+    executionId: string,
+    kindleState?: 'kindled' | 'covered' | 'deduped' | 'skipped' | 'error',
+  ): Promise<void> {
     if (!this.healingRepo) return;
     try {
       await this.healingRepo.create({
@@ -593,12 +646,18 @@ export class SchedulerService {
         errorType: 'other',
         severity: 'high',
         description: `定时任务「${task.name}」running 执行体滞留超 ${RUNNING_STUCK_THRESHOLD_MS / 3_600_000}h，轮询扫描机械释放`,
-        suggestion: '核查该时段是否用户停机/限流冻结或网关断连；若为闸门冻结滞留属已知形态，恢复后由补扫消化',
+        suggestion: (() => {
+          if (kindleState === 'kindled') return '已补 pending 入列，执行方恢复后经 pending 通道重燃补做；核查该时段是否用户停机/限流冻结';
+          if (kindleState === 'error') return '补 pending 入列失败（enqueue/槽位查询异常），需人工核查 pending 队列；核查该时段是否用户停机/限流冻结';
+          if (kindleState === 'covered' || kindleState === 'deduped' || kindleState === 'skipped') return '未入列（同槽已覆盖/索引去重/边界跳过），次日 cron 自然覆盖；核查该时段是否用户停机/限流冻结';
+          return '翻篇即放行新触发，当轮载体由新执行承担；若新执行滞留，轮询释放时补 pending 入列';
+        })(),
         context: {
           taskId: task.id,
           executionId,
           thresholdMs: RUNNING_STUCK_THRESHOLD_MS,
           reapedAt: new Date().toISOString(),
+          ...(kindleState ? { pendingKindleState: kindleState } : {}),
         },
         status: 'open',
         resolution: null,
@@ -617,6 +676,14 @@ export class SchedulerService {
   private async resolveExecutorOtterId(task: ScheduledTask): Promise<string | undefined> {
     const resolution = await resolveExecutorOtter(task, { convRepo: this.convRepo, otterRepo: this.otterRepo });
     return resolution.otter?.id;
+  }
+
+  /** F20261119reapk：忙判 covered 的真直发判定（可选能力——降级装配/mock 未注入该方法时按
+   *  无覆盖处理：宁多入列一条 pending 由部分唯一索引去重，不因能力缺失炸掉忙判主路径）。 */
+  private async hasDirectCompletionInSlotSafe(taskId: string, triggeredAt: string): Promise<boolean> {
+    const repo = this.pendingItemRepo as Partial<ScheduledTaskPendingItemRepository> | undefined;
+    if (!repo?.hasDirectCompletionInSlot) return false;
+    return repo.hasDirectCompletionInSlot(taskId, triggeredAt);
   }
 
   /** 宽口径忙判定：session 在池/在流，或该獭身上任何任务仍有 running execution（含本任务）。 */
@@ -1308,9 +1375,14 @@ export class SchedulerService {
       }
 
       if (task.scheduleType !== 'once' && busy) {
-        // 同槽位 running/completed 已覆盖本轮，failed/skipped 不抑制（pending 兜失败重试）。
+        // 同槽位 running/真直发 completed 已覆盖本轮，failed/skipped 不抑制（pending 兜失败重试）。
+        // F20261119reapk：抑制型 completed（message_id=NULL，忙判自身的账面落款）不算覆盖——
+        // 否则「A 滞留翻篇 + B 抑制型在场 + C 遇忙」的现场会三行全空载体（failed + 两笔
+        // NULL-completed，无 running 无 pending），11-13 事故形态复发；连续遇忙由
+        // 部分唯一索引去重防 pending 爆炸（同任务仅一条在队）。
         const covered = this.pendingItemRepo
-          ? await this.pendingItemRepo.hasExecutionInSlot(task.id, now, ['running', 'completed'], executionId)
+          ? (await this.pendingItemRepo.hasExecutionInSlot(task.id, now, ['running'], executionId))
+            || (await this.hasDirectCompletionInSlotSafe(task.id, now))
           : false;
         if (!covered && this.pendingItemRepo) {
           await this.pendingItemRepo.enqueue({
@@ -1596,6 +1668,9 @@ export class SchedulerService {
       this.logger.warn('挤占触发点：孤儿 running 执行已即时释放', {
         taskId: task.id, executionId: exec.id, triggeredAt: exec.triggeredAt, targetOtter, halted,
       });
+      // F20261119reapk：挤占路径不 kindle——翻篇后本轮立即放行新触发（新执行即当轮载体）；
+      // 此处入列会赶在新行建立前完成，同槽「直发中 + pending 可消费」双载体并发（消费链
+      // 覆盖重查只认 completed，running 窗口拦不住补做）。若新执行再滞留，2h 轮询释放时补列。
       await this.recordReapHealing(task, exec.id);
     }
   }
