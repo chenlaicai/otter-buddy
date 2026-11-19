@@ -30,36 +30,52 @@ export const MIGRATE_INCLUDES = [
   "feishu", "metrics", "otter-buddy.db", "owner-password",
 ];
 
-/** sqlite 文件识别（主库 + durable-sessions 每会话一库） */
-function isSqliteFile(relPath) {
-  return relPath === "otter-buddy.db" || relPath.startsWith("durable-sessions/");
+/** sqlite 主库文件识别（主库 + durable-sessions 每会话一库）。
+ *  精确匹配 .sqlite 后缀——排除 WAL 伴生（-shm 重建产物绝不迁；-wal 由 backup API
+ *  合并进备份，伴生文件迁移反而危险：新旧 WAL 混淆）。 */
+export function isSqliteFile(relPath) {
+  if (relPath === "otter-buddy.db") return true;
+  return relPath.startsWith("durable-sessions/") && relPath.endsWith(".sqlite");
 }
 
-/** 收集迁移域文件清单（相对路径，排序稳定） */
-export function collectMigrateFiles(dataDir) {
+/** WAL 伴生文件排除（-shm/-wal）：迁移域外 */
+function isWalSidecar(relPath) {
+  return relPath.startsWith("durable-sessions/") && (relPath.endsWith(".sqlite-shm") || relPath.endsWith(".sqlite-wal"));
+}
+
+/** 收集迁移域条目（file|symlink，排序稳定；排除 WAL 伴生） */
+export function collectMigrateEntries(dataDir) {
   const out = [];
   for (const name of MIGRATE_INCLUDES) {
     const abs = path.join(dataDir, name);
     if (!fs.existsSync(abs)) continue; // 可选项缺失不阻断（如 feishu 未配置）
     const stat = fs.lstatSync(abs);
     if (stat.isDirectory()) {
-      for (const rel of walkSorted(abs)) out.push(path.join(name, rel));
+      for (const e of walkEntries(abs)) out.push({ rel: path.join(name, e.rel), type: e.type });
+    } else if (stat.isSymbolicLink()) {
+      out.push({ rel: name, type: "symlink" });
     } else {
-      out.push(name);
+      out.push({ rel: name, type: "file" });
     }
   }
-  return out.sort();
+  return out.filter((e) => !isWalSidecar(e.rel)).sort((a, b) => a.rel.localeCompare(b.rel));
 }
 
-function walkSorted(dir) {
+/** 兼容旧名（普通文件相对路径清单——不含 symlink） */
+export function collectMigrateFiles(dataDir) {
+  return collectMigrateEntries(dataDir).map((e) => e.rel);
+}
+
+/** 收集结果条目：file=普通文件；symlink=符号链接（保留原样，不跟随） */
+export function walkEntries(dir) {
   const acc = [];
   const rec = (d, prefix) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const rel = prefix ? `${prefix}/${e.name}` : e.name;
       if (e.isDirectory()) rec(path.join(d, e.name), rel);
-      else if (e.isFile()) acc.push(rel);
-      // symlink：跳过（迁移域不应有；出现即诊断而非跟随）
-      else if (e.isSymbolicLink()) throw new Error(`symlink in migrate domain: ${path.join(d, e.name)}`);
+      else if (e.isFile()) acc.push({ rel, type: "file" });
+      else if (e.isSymbolicLink()) acc.push({ rel, type: "symlink" });
+      // socket/FIFO 等特殊类型：跳过（运行时产物，不可打包不可迁移）
     }
   };
   rec(dir, "");
@@ -117,16 +133,20 @@ export async function sqliteBackup(srcDbPath, destDbPath) {
   }
 }
 
-/** 生成 manifest（对 staging 目录内的相对路径集计算 sha + 表行数） */
-export async function buildManifest(dataDir, relFiles, sourceRoot) {
+/** 生成 manifest（对 staging 目录内条目集计算 sha/target + 表行数） */
+export async function buildManifest(dataDir, entries, sourceRoot) {
   const files = [];
   const databases = {};
-  for (const rel of relFiles) {
-    const abs = path.join(dataDir, rel);
+  for (const e of entries) {
+    const abs = path.join(dataDir, e.rel);
+    if (e.type === "symlink") {
+      files.push({ path: e.rel, type: "symlink", target: fs.readlinkSync(abs) });
+      continue;
+    }
     const size = fs.statSync(abs).size;
-    files.push({ path: rel, size, sha256: sha256File(abs) });
-    if (isSqliteFile(rel) && size > 0) {
-      databases[rel] = { tables: sqliteTableCounts(abs) };
+    files.push({ path: e.rel, type: "file", size, sha256: sha256File(abs) });
+    if (isSqliteFile(e.rel) && size > 0) {
+      databases[e.rel] = { tables: sqliteTableCounts(abs) };
     }
   }
   return {
@@ -139,6 +159,23 @@ export async function buildManifest(dataDir, relFiles, sourceRoot) {
   };
 }
 
+/** 迁移域普通文件总字节数（磁盘预检用） */
+export function manifestPayloadBytes(manifest) {
+  let total = 0;
+  for (const f of manifest.files) if (f.type !== "symlink") total += f.size;
+  return total;
+}
+
+/** 目录所在卷剩余字节数（statfs；不可用时返回 null 由调用方降级跳过预检） */
+export function volumeFreeBytes(dirPath) {
+  try {
+    const st = fs.statfsSync(dirPath);
+    return st.bavail * st.bsize;
+  } catch {
+    return null;
+  }
+}
+
 /** 三级校验（可独立重跑）：文件清单+大小+sha 全量，sqlite 表行数逐库逐表。
  *  返回 { ok, report }——report 含逐项结果与差异明细（供人读与 JSON 落档）。 */
 export function verifyAgainstManifest(dataDir, manifest) {
@@ -147,15 +184,22 @@ export function verifyAgainstManifest(dataDir, manifest) {
   for (const f of manifest.files) {
     const abs = path.join(dataDir, f.path);
     seen.add(f.path);
-    if (!fs.existsSync(abs)) { diffs.push(`missing: ${f.path}`); continue; }
-    const size = fs.statSync(abs).size;
-    if (size !== f.size) { diffs.push(`size mismatch: ${f.path} (manifest ${f.size}, actual ${size})`); continue; }
+    const lstat = fs.lstatSync(abs, { throwIfNoEntry: false });
+    if (!lstat) { diffs.push(`missing: ${f.path}`); continue; }
+    if (f.type === "symlink") {
+      if (!lstat.isSymbolicLink()) { diffs.push(`type mismatch: ${f.path} (manifest symlink, actual ${lstat.isFile() ? "file" : "other"})`); continue; }
+      const target = fs.readlinkSync(abs);
+      if (target !== f.target) diffs.push(`symlink target mismatch: ${f.path} (manifest ${f.target}, actual ${target})`);
+      continue;
+    }
+    if (!lstat.isFile()) { diffs.push(`type mismatch: ${f.path} (manifest file, actual symlink/other)`); continue; }
+    if (lstat.size !== f.size) { diffs.push(`size mismatch: ${f.path} (manifest ${f.size}, actual ${lstat.size})`); continue; }
     const sha = sha256File(abs);
     if (sha !== f.sha256) diffs.push(`sha256 mismatch: ${f.path}`);
   }
-  // 多出的文件（restore 目录里 manifest 未登记的）——提示级不算失败？算（云端目录应与导出严格一致）
-  for (const rel of collectMigrateFiles(dataDir)) {
-    if (!seen.has(rel)) diffs.push(`extra file: ${rel}`);
+  // 多出的条目（restore 目录里 manifest 未登记的）——云端目录应与导出严格一致
+  for (const e of collectMigrateEntries(dataDir)) {
+    if (!seen.has(e.rel)) diffs.push(`extra file: ${e.rel}`);
   }
   // 表行数
   const tableDiffs = [];

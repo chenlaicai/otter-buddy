@@ -23,6 +23,9 @@ const reportIdx = args.indexOf("--report");
 const reportPath = reportIdx !== -1 ? path.resolve(args[reportIdx + 1]) : path.join(dataDir, "..", "migrate-verify-report.json");
 
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+if (manifest.assumedConsistent === false) {
+  console.warn("[migrate-verify] ⚠️ 产物导出时跳过了停源检查（assumedConsistent=false）——活库快照风险，结果仅供参考");
+}
 const { ok, report } = verifyAgainstManifest(dataDir, manifest);
 fs.mkdirSync(path.dirname(reportPath), { recursive: true });
 fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));

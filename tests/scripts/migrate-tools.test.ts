@@ -5,14 +5,14 @@
  * 只是数据集是 tmp 下的小 fixture（两张表几个文件）。
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readdirSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readdirSync, existsSync, symlinkSync as fsSymlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import Database from "better-sqlite3";
 import { createTestDb } from "../helpers/db";
 import {
-  collectMigrateFiles, buildManifest, verifyAgainstManifest,
+  collectMigrateFiles, collectMigrateEntries, buildManifest, verifyAgainstManifest,
 } from "../../scripts/migrate-lib.mjs";
 
 const repoRoot = path.resolve(__dirname, "../..");
@@ -40,6 +40,12 @@ beforeAll(() => {
   mkdirSync(path.join(dataDir, "workspaces/c-1"), { recursive: true });
   writeFileSync(path.join(dataDir, "workspaces/c-1/file.txt"), "hello migrate");
   writeFileSync(path.join(dataDir, "owner-password"), "fixture-password");
+  // symlink（workspaces 正常组成：venv 相对链/绝对链）
+  fsSymlinkSync("python", path.join(dataDir, "workspaces/c-1/bin-python"));
+  fsSymlinkSync("/usr/local/bin/absolute-target", path.join(dataDir, "workspaces/c-1/abs-link"));
+  // WAL 伴生（durable-sessions 生产形态：主库 + -shm/-wal 伴生）
+  writeFileSync(path.join(dataDir, "durable-sessions/s1.sqlite-shm"), "shm sidecar");
+  writeFileSync(path.join(dataDir, "durable-sessions/s1.sqlite-wal"), "wal sidecar");
   // 白名单外（不应进 manifest）：backups / logs / rehearsal 库
   mkdirSync(path.join(dataDir, "backups"), { recursive: true });
   writeFileSync(path.join(dataDir, "backups/old.tar.gz"), "legacy");
@@ -65,8 +71,7 @@ describe("migrate-lib（阶段 6b 纯函数）", () => {
   });
 
   it("buildManifest + verifyAgainstManifest：同目录自校验通过（表行数含在 manifest）", async () => {
-    const files = collectMigrateFiles(dataDir);
-    const manifest = await buildManifest(dataDir, files, dataDir);
+    const manifest = await buildManifest(dataDir, collectMigrateEntries(dataDir), dataDir);
     expect(manifest.databases["otter-buddy.db"].tables.conversations).toBe(3);
     expect(manifest.databases["otter-buddy.db"].tables.conversation_otters).toBe(7);
     expect(manifest.databases["durable-sessions/s1.sqlite"].tables.conversations).toBe(1);
@@ -83,12 +88,15 @@ describe("migrate-lib（阶段 6b 纯函数）", () => {
     db.exec("DELETE FROM conversation_otters WHERE otter_id = 'otter-0'");
     db.close();
     writeFileSync(path.join(copyDir, "workspaces/c-1/extra.txt"), "extra");
-    const manifest = await buildManifest(dataDir, collectMigrateFiles(dataDir), dataDir);
+    rmSync(path.join(copyDir, "workspaces/c-1/bin-python"));
+    fsSymlinkSync("changed-target", path.join(copyDir, "workspaces/c-1/bin-python")); // symlink target 篡改
+    const manifest = await buildManifest(dataDir, collectMigrateEntries(dataDir), dataDir);
     const { ok, report } = verifyAgainstManifest(copyDir, manifest);
     expect(ok).toBe(false);
     expect(report.fileDiffs.some((d) => d.includes("owner-password"))).toBe(true);
     expect(report.tableDiffs.some((d) => d.includes("#conversation_otters"))).toBe(true);
     expect(report.fileDiffs.some((d) => d.includes("extra.txt"))).toBe(true);
+    expect(report.fileDiffs.some((d) => d.includes("bin-python") && d.includes("symlink"))).toBe(true);
   });
 });
 
