@@ -1,6 +1,6 @@
 import { DomainError } from "@entities/errors";
 
-/** 外部对话额度错误的稳定机器码；CoLink 适配器只认此前缀，不向用户展示内部错误细节。 */
+/** 外部对话额度错误的稳定机器码；外部适配器只认此前缀，不向用户展示内部错误细节。 */
 export const EXTERNAL_TOKEN_BUDGET_ERROR_CODE = "EXTERNAL_TOKEN_BUDGET_EXCEEDED";
 export const EXTERNAL_TOKEN_BUDGET_ERROR_PREFIX = `${EXTERNAL_TOKEN_BUDGET_ERROR_CODE}:`;
 

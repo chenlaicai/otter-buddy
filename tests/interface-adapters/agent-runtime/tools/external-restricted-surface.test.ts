@@ -1,5 +1,5 @@
 /**
- * 受限外部会话（CoLink 等外部接入）的副作用边界回归。
+ * 受限外部会话（多用户外部平台接入）的副作用边界回归。
  *
  * 锁定的四条不变式（搭档 2026-11-19 定案）：
  * 1) 工具面：`speak` 只收 body、`yield` 只交回 user —— 均不得把外部内容写进内部台账
@@ -125,7 +125,7 @@ describe('受限外部会话：yield 只能交回 user', () => {
 
 describe('受限外部会话：注入面与标签面', () => {
   it('身份段是中性身份，不含搭档名/仓库/邮箱', () => {
-    expect(RESTRICTED_EXTERNAL_IDENTITY).toContain('CoLink 会话助理');
+    expect(RESTRICTED_EXTERNAL_IDENTITY).toContain('外部会话的助理');
     for (const leak of ['搭档', 'github.com', '@users.noreply', 'otter-buddy']) {
       expect(RESTRICTED_EXTERNAL_IDENTITY).not.toContain(leak);
     }

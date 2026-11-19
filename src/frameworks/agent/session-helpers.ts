@@ -415,7 +415,7 @@ export function buildInvokeSystemPrompt(config: string | OtterPromptConfig | und
  */
 export const RESTRICTED_EXTERNAL_IDENTITY = [
   '## 我的身份',
-  '- 你是 CoLink 会话助理，只处理当前外部会话范围内的问题。',
+  '- 你是当前外部会话的助理，只处理本会话范围内的问题。',
   '- 你不知道也不推测自身运行环境的部署信息、账号、仓库或联系人。',
 ].join('\n');
 
