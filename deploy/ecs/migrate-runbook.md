@@ -32,14 +32,19 @@ guard-replay 归档（历史存档，云端不重放）。
    ```
    一致性：sqlite 走 better-sqlite3 backup API（WAL 合并）；普通文件 clonefile 拷贝。
 3. **传输**：`scp` / `rsync` 产物到 ECS（`sh .otter/deploy-keys/ecs-ssh.sh` 通道）。
-4. **还原**（ECS，物理数据根 `/var/lib/otter-buddy/data`——代码根 /opt/otter-buddy/data 为 deploy.sh 建的指向此处的 symlink，restore 落物理根）：
+4. **还原**（ECS，物理数据根 `/var/lib/otter-buddy/data`——代码根 /opt/otter-buddy/data 为 deploy.sh 建的指向此处的 symlink，restore 落物理根）。**身份纪律（检视终审实证）：必须以 otter 身份跑**——admin 直接跑对 otter 属主目录不可写；sudo/root 跑则产物归 root，正式 User=otter 写不了主库：
    ```
-   node scripts/migrate-restore.mjs --tar migrate-<ts>.tar.gz --data-dir /var/lib/otter-buddy/data
+   sudo -u otter /opt/node24/bin/node scripts/migrate-restore.mjs --tar migrate-<ts>.tar.gz --data-dir /var/lib/otter-buddy/data
    # 默认拒非空目录（防误覆盖）；内置三级校验：文件 sha256 全量 + sqlite 表行数逐库逐表 + 多余文件检测
+   # 注：非首次 restore（目录已非空）需 --allow-overwrite；tar 文件本身需 otter 可读（chown 或 /tmp 下 chmod）
    ```
-5. **起云**：`systemctl start otter-buddy`（探活就绪 + 单实例锁护数据域）。
-6. **入口切换**：web 用 `https://otter.60.205.214.148.sslip.io/`；connector 换 `wss://…/connector-ws`。
-7. **验证期巡检**：`node scripts/migrate-verify.mjs --data-dir /var/lib/otter-buddy/data --manifest <manifest>` 幂等重跑 + 内存曲线观察（`systemctl status`）。
+5. **起服前机械检查（身份链终端闸）**：目录与**主库文件本身**都要 otter 可写（不只顶层目录）：
+   ```
+   sudo -u otter test -w /var/lib/otter-buddy/data && sudo -u otter test -w /var/lib/otter-buddy/data/otter-buddy.db || echo "FATAL: 属主/权限链断" 
+   ```
+6. **起云**：`systemctl start otter-buddy`（6a 单元：探活就绪 + 单实例锁护数据域）。
+7. **入口切换**：web 用 `https://otter.60.205.214.148.sslip.io/`；connector 换 `wss://…/connector-ws`。
+8. **验证期巡检**：`sudo -u otter /opt/node24/bin/node scripts/migrate-verify.mjs --data-dir /var/lib/otter-buddy/data --manifest <manifest>` 幂等重跑 + 内存曲线观察（`systemctl status`）。
 
 ## 回退剧本（云端验证不过 / 想回本机）
 

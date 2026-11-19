@@ -43,13 +43,16 @@ capability_test: "tests/scripts/migrate-tools.test.ts"
   sudo -u otter test -w 机械验证可写；②嵌套链假成功——建链前 fail-closed
   （${REMOTE_CODE}/data 存在且非 symlink 即报错退出提示人工处置），建链后
   readlink 精确匹配校验。
+- **终审补：restore 身份链**——runbook 还原/巡检命令显式 `sudo -u otter`（admin 跑
+  写不了 otter 属主目录；root 跑产物归 root 正式服务写不了）；起服前机械检查覆盖
+  **主库文件本身可写**（不只顶层目录）。
 - **测试残余**：三个不迁目录补 fixture 实体（负向断言钉得住）+ backgrounds 正向断言。
 - **附加实证**：JSON import 需 `with { type: "json" }`（node24 产物态 ESM 严格；
   本机 vitest 跑 TS 源宽容未拦，ECS 产物 ERR_IMPORT_ATTRIBUTE_MISSING 实证）。
 
 ## 检视处置（reviewer-1968-dspro 两严重）
 
-- **S1（白名单收了 ≠ 服务会读）**：处置=术语种子归位 dist（结构性消除路径基准分歧）+ WorkingDirectory 收口数据根父（./data/* 全族统一，验证实例实证布局）
+- **S1（白名单收了 ≠ 服务会读）**：处置=术语种子归位 dist（结构性消除路径基准分歧）；首版 WorkingDirectory 收口数据根父方案被 D1 取代（见 D 轮处置）
 - **S2（execution-machines 裸拷 sqlite）**：处置=移出白名单（对齐特性文档「执行机本地真相不迁移不备份」）；quota-browser 同理
 
 ## 演练实证注记（入 runbook）
