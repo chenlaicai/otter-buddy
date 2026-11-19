@@ -121,3 +121,7 @@ if [ -n "$modclass_line" ]; then
       ;;
   esac
 fi
+
+# F20261119cimp2: issue 认领 commit 闸——message 引用 #N 时核验 otter-claim
+# （协议顺序：认领 → worktree → commit；网络失败 fail-open，CI 闸兜底）
+node scripts/commit-msg-claim-gate.mjs "$1"

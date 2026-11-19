@@ -137,6 +137,15 @@ jobs:
         if: github.event_name == 'pull_request'
         run: node scripts/check-pr-anchor-discipline.mjs --base origin/main
 
+      # issue 认领闸（前闸）——PR 引用的 issue 须持有 otter-claim 认领且 worktree F-ID
+      # 与分支匹配（无认领开工 = 红，他线认领 = 红）；认领协议的机械执行点，与 commit-msg
+      # 侧闸双保险（skill 文本只做引导不担约束——注意力自律已被 #1899 双呈实证失效）。
+      - name: Run issue-claim gate (check-pr-claim)
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-pr-claim.mjs --pr-number ${{ github.event.pull_request.number }}
+
       # 断言证据锚点轻量规则（warn 起步，ratchet）
       - name: Run evidence-anchor lint (warn-level)
         if: github.event_name == 'pull_request'
