@@ -1,5 +1,5 @@
 ---
-id: F20261118sprmd
+id: F20261119sprmd
 title: "scheduler roster miss 自愈降级：pending 队列兜底替代 healing 账本污染（#1913）"
 summary: "2026-11-16 误解散事故（F20261117dsgrd 背景）当天，大獭 session 空窗期内三个 cron 任务触发全部 no-such-role-in-roster skipped：当天任务直接丢轮（次日 cron 才补跑），且每轮白记一条 low healing event 污染账本。修复：roster miss 从「skipped + healing」改为自愈降级——cron 任务入 pending 队列（执行者就位后经 manage_scheduled_task_pending 提醒补执行，部分唯一索引保证同任务仅一条在队）；once 任务触发后即删（pending FK 悬空不能入队），改有声系统通知（原 busy 专用通道参数化复用）。healing 只在降级通道本身失败时记（fail-closed）。"
 change_type: fix
@@ -25,7 +25,7 @@ causal_links:
   - {type: "reuses", id: "F20261021sprx", note: "roster miss 双路解析（角色名册+legacy fallback）的后置降级补齐"}
 ---
 
-# scheduler roster miss 自愈降级（F20261118sprmd）
+# scheduler roster miss 自愈降级（F20261119sprmd）
 
 ## 事故还原（#1913 真实根因）
 
