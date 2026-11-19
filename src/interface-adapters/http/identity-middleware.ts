@@ -111,6 +111,54 @@ export const POLICY_TABLE: readonly PolicyRule[] = [
     policy: "write",
     note: "记忆全文/统计/暗化条目——全库私有数据面；与 POST search/similar 同档",
   },
+  {
+    methods: ["GET", "HEAD"],
+    path: /^\/api\/otters(\/|$)/,
+    policy: "write",
+    note: "獭详情/画像/session 历史（含交接 summary 与对话上下文），业务正文读面；建散重启仍按下方 admin 规则",
+  },
+  {
+    methods: ["GET", "HEAD"],
+    path: /^\/api\/scheduled-tasks(\/|$)/,
+    policy: "write",
+    note: "定时任务详情与执行记录——任务 body/指令全文在里面，读它等于读搭档的自动化配置",
+  },
+  {
+    methods: ["GET", "HEAD"],
+    path: /^\/api\/connections(\/|$)/,
+    policy: "write",
+    note: "通道详情与其活跃对话清单（会话标题/对话 id 的业务别名）——与对话清单同档",
+  },
+  {
+    methods: ["GET", "HEAD"],
+    path: /^\/api\/(skills|prompts)(\/|$)/,
+    policy: "write",
+    note: "能力库与提示词库全文（内含系统提示词与工具约定），读它等于读系统内部实现",
+  },
+  {
+    methods: ["GET", "HEAD"],
+    path: /^\/api\/(activity|health)(\/|$)/,
+    policy: "write",
+    note: "体检/自愈/信号/派工台账与工作账本——内部运营数据面（含对话与环境信息）；处置与扫描仍按下方 admin 规则",
+  },
+  {
+    methods: ["GET", "HEAD"],
+    path: /^\/api\/(weixin|feishu|channels|execution-machines)(\/|$)/,
+    policy: "write",
+    note: "平台账号/通道/执行机清单——基础设施与凭据面元数据，不向低档位开放",
+  },
+  {
+    methods: ["GET", "HEAD"],
+    path: /^\/api\/attachments(\/|$)/,
+    policy: "authenticated",
+    note: "**保持 authenticated**（显式说明）：附件字节以 <img src>/<audio src> 直链形态消费，身份来自同源会话 cookie；升 write 不增加安全性（能过 cookie 的只能是 owner），却会让任何未登录预览/外链场景直接 403。内容可达性由「知道附件 id」限制（id 为服务端生成的不可枚举标识）",
+  },
+  {
+    methods: ["GET", "HEAD"],
+    path: /^\/api\/(auth\/session|unfurl)(\/|$)/,
+    policy: "authenticated",
+    note: "**保持 authenticated**（显式说明）：session 探活本身要能在未登录时回答「你是谁」，unfurl 只取外部 URL 元信息、不读本地数据面",
+  },
   // ── admin（建散/凭据/自动化/配置等系统级写）──
   { methods: ["POST", "DELETE"], path: /^\/api\/otters(\/|$)/, policy: "admin", note: "建獭/解散/重启" },
   {
@@ -138,7 +186,9 @@ function nonEmpty(v: string | undefined): string | undefined {
 }
 
 /** 反代转发头：任一在场即证明这条请求不是本机直连（客户端可伪造它们，但伪造只会让自己
- *  掉出声明式通道，掉不进更宽的档位——方向安全）。 */
+ *  掉出声明式通道，掉不进更宽的档位——方向安全）。
+ *  判「在场」而非「非空」：空值头（`X-Forwarded-For:` 不带值）也是反代留下的痕迹，
+ *  按值判定等于给伪造者留一个「发空头」的绕过口。 */
 const FORWARDING_HEADERS = ["x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host"] as const;
 
 /** node-server 适配器把原始 IncomingMessage 挂在 env.incoming 上；测试/内存 app 没有。 */
@@ -151,7 +201,7 @@ interface NodeServerEnv {
  *  生产路径由 node-server 适配器恒提供 env.incoming。 */
 export function allowsDeclaredIdentity(c: Context): boolean {
   for (const header of FORWARDING_HEADERS) {
-    if (nonEmpty(c.req.header(header)) !== undefined) return false;
+    if (c.req.header(header) !== undefined) return false;
   }
   const remoteAddress = (c.env as NodeServerEnv | undefined)?.incoming?.socket?.remoteAddress;
   if (remoteAddress === undefined) return true;

@@ -44,7 +44,7 @@ causal_links:
 | 1 | `server.host` 配置化，缺省 `127.0.0.1`；非字符串/带协议/空白 fail-fast；绑非回环地址启动告警 | `src/frameworks/config-service.ts`、`src/bootstrap/server.ts`、`src/main.ts` |
 | 2 | 回环判定抽成共用件（`localhost`/`127.0.0.0-8`/`::1`/`::ffff:127.x`/`[::1]`） | `src/interface-adapters/http/loopback.ts` |
 | 3 | 声明式通道来源闸：对端回环 + 无转发头才放行；外部来源只认 owner 会话 cookie | `src/interface-adapters/http/identity-middleware.ts`（`allowsDeclaredIdentity` / `parseIdentity`） |
-| 4 | 读面显式收档：`/api/conversations*`、`/api/invokes*`、`/api/entries*`、`/api/memory*` 的 GET/HEAD → `write`；`POST /api/memory/search/similar` → `write` | 同文件策略表 |
+| 4 | 读面显式收档：`/api/conversations*`、`/api/invokes*`、`/api/entries*`、`/api/memory*`、`/api/otters*`（含 session 历史）、`/api/scheduled-tasks*`（任务 body 与执行记录）、`/api/connections*`（对话清单别名）、`/api/skills`、`/api/prompts`、`/api/activity*`、`/api/health*`、`/api/weixin|feishu|channels|execution-machines` 的 GET/HEAD → `write`；`POST /api/memory/search/similar` → `write`；`/api/attachments`、`/api/auth/session`、`/api/unfurl` 显式行写明为何保持 `authenticated` | 同文件策略表 |
 | 5 | 反代纵深：nginx 站点在 `location /` 清空 `X-Otter-User-Id` / `X-Otter-User-Role` | `deploy/ecs/nginx-otter.conf` |
 | 6 | 配置样例补 `server.host` 注释 | `config/config.yaml.example` |
 
@@ -54,7 +54,9 @@ causal_links:
 2. **判据取「回环 且 无转发头」，不取「信任 X-Forwarded-For 的解析结果」**。后者的前提是反代是可信的且整链都写了头，而我们要防的正是「反代后面忘了改」这种部署漂移。客户端伪造转发头只会让自己掉出声明式通道，方向安全。
 3. **读面用方法维度限定（GET/HEAD），不做族级通配**。族级规则会遮蔽同族的 admin 规则（建会话、会话级定时任务、MCP 配置注入），首条命中的顺序依赖太脆。
 4. **`server.host` 缺省回环而不是缺省全接口**。自部署单用户系统里「能被外部连上」应当是显式选择；容器/反代场景显式写 `0.0.0.0` 即可，且会留下一条告警。
-5. **未改 `/api/attachments/*` 读档**。附件直链仍走兜底 `authenticated`：它在浏览器里以 `<img src>` / `<audio src>` 形态消费，身份来自同源会话 cookie；升到 `write` 不增加安全性（能过 cookie 的都是 owner），却会让任何未登录预览场景直接 403，收益为负。
+5. **未改 `/api/attachments/*` 读档**。附件直链仍走 `authenticated`（表内已显式列行并写理由）：它在浏览器里以 `<img src>` / `<audio src>` 形态消费，身份来自同源会话 cookie；升到 `write` 不增加安全性（能过 cookie 的都是 owner），却会让任何未登录预览场景直接 403，收益为负。同理显式保留 `/api/auth/session`（未登录时也要能回答「你是谁」）与 `/api/unfurl`（只取外部 URL 元信息）。
+6. **转发头按「在场」判而不是按「非空」判**。空值转发头（`X-Forwarded-For:` 不带值）同样是反代留下的痕迹；按值判等于给伪造者留一个「发空头」的绕过口。回归用例把四种转发头的空值形态逐一双测。
+7. **读面规则族按「业务正文/私有数据面」归类，不按「看起来敏感」猜**。判断口径：这条 GET 返回的东西是否含对话正文、记忆正文、提示词/能力库全文、任务指令、账号凭据元数据——是则 `write`，否则显式保留并写理由。漏口比误伤更贵：误伤会在真机验证时立刻暴露，漏口不会。
 
 ## 部署侧（本 PR 只准备配置与清单，**未上线**）
 
@@ -76,3 +78,14 @@ causal_links:
 | 反代请求带假身份头 | 401（nginx 清空 + 转发头判据双保险） |
 | `ss -ltnp` | `127.0.0.1:3000` |
 | ECS 探活 | `/api/ping` 照旧绿（public 面不受来源闸影响） |
+
+## 检视处置（独立检视獭第一轮）
+
+| 级别 | 发现 | 处置 |
+| --- | --- | --- |
+| P1 | 空值转发头绕过来源闸（按值判 `nonEmpty` ⇒ `X-Forwarded-For:` 空串视同不在场） | 改为按**在场**判；四种转发头空值形态补回归 |
+| P1 | 业务正文读口别名漏网：`/api/connections/:id/conversations`（对话清单别名）、`/api/scheduled-tasks/:id(/executions)`（任务 body 全文）、`/api/otters/:id/sessions`（交接 summary） | 全部并入显式读档规则 |
+| P2 | 能力库/提示词库全文（`/api/skills`、`/api/prompts`）仍 guest 可读 | 升 `write` |
+| P2 | 一处恒真断言（只断言导出是函数） | 改为 `allowsDeclaredIdentity` 直测：无对端地址放行 / 非回环拒 / 空值转发头拒 |
+
+一并审查后主动补足：`/api/activity*`、`/api/health*`、`/api/weixin|feishu|channels|execution-machines` 同为内部运营与凭据元数据面，一并收档。
