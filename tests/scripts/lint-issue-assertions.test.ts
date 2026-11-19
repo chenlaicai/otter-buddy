@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { extractAssertionSection, classifyAssertionDirection } from "../../scripts/lint-issue-assertions.mjs";
 
 /**
- * F20261119asgov（#1963 T3）：断言方向 lint 单测。
- * 样本取自真实 issue 形态（#1511/#1553/#1580/#1963/#1540 原文式）+ 边界形态。
+ * 断言方向 lint 单测。样本取自真实 issue 原文形态（阈值型/只触发一次型/仍必现拒绝型/
+ * 改写后仍≥基线型等，出处见特性文档）+ 边界形态。
  */
 
 describe("extractAssertionSection", () => {
