@@ -16,6 +16,8 @@
  * 验证「参数校验 → PR 状态门 → 原话校验 → 审计双通道 → 合入执行」全链路。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import type { ToolContext } from '@usecases/ports/agent-tools';
 import type { Logger } from '@usecases/ports/logger';
 
@@ -570,5 +572,40 @@ describe('SG2 畸形返回兜底（原 F20260929mpav 用例）', () => {
     const result = await tool.execute('v13', { prNumber: 1095, partnerApproval: '1095合入，你更新下' });
     expect(JSON.stringify(result)).toContain('fail-closed');
     expect(execFileMock.mock.calls.filter(c => (c[1] as string[])[1] === 'merge')).toHaveLength(0);
+  });
+});
+
+describe('检视闭环闸脚本路径解析（产物布局回归）', () => {
+  beforeEach(() => {
+    execFileMock.mockReset();
+  });
+
+  it('传给 node 的脚本路径经逐级探测解析且真实存在', async () => {
+    stubGh('OPEN', DEFAULT_PR_CREATED_AT, 'Merged PR #1095', 0);
+    const linkMock = vi.fn().mockResolvedValue({ id: 'res-1' });
+    const tool = findMergePr(makeCtx(linkMock));
+    await tool.execute('tp', { prNumber: 1095, partnerApproval: '1095合入，你更新下', strategy: 'squash' });
+    const call = execFileMock.mock.calls.find(
+      (c: unknown[]) => c[0] === 'node' && String((c[1] as string[])[0]).includes('check-pr-review-closure'),
+    );
+    expect(call, '闭环闸脚本应被调用').toBeDefined();
+    const scriptPath = (call![1] as string[])[0];
+    expect(existsSync(scriptPath), `脚本路径应真实存在: ${scriptPath}`).toBe(true);
+  });
+
+  it('固定层数上溯公式在 dist/src 产物布局下锚定错误（回归钉：必须逐级探测）', async () => {
+    const { findRepoRoot, getRepoRoot } = await import('@frameworks/repo-root');
+    // 模拟编译产物模块位置（真实布局：tsc outDir=dist + rootDir 隐含 src → dist/src/interface-adapters/...）
+    const fakeModulePath = resolve(getRepoRoot(), 'dist', 'src', 'interface-adapters', 'agent-runtime', 'tools', 'tool-factory.js');
+    const legacyResolved = resolve(dirname(fakeModulePath), '..', '..', '..', '..', 'scripts', 'check-pr-review-closure.mjs');
+    // 旧公式（上溯 4 层）落在 dist/scripts —— 产物里不存在的路径
+    expect(legacyResolved).toBe(resolve(getRepoRoot(), 'dist', 'scripts', 'check-pr-review-closure.mjs'));
+    expect(existsSync(legacyResolved)).toBe(false);
+    // 逐级探测公式从同一位置出发锚定真 root，脚本可达
+    const viaProbe = findRepoRoot(dirname(fakeModulePath));
+    expect(viaProbe).toBe(getRepoRoot());
+    const probedScript = resolve(viaProbe!, 'scripts', 'check-pr-review-closure.mjs');
+    expect(existsSync(probedScript)).toBe(true);
+    expect(probedScript).not.toBe(legacyResolved);
   });
 });

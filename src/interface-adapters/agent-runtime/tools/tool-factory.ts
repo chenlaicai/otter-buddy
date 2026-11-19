@@ -622,7 +622,7 @@ function createCreateOtterTool(ctx: ToolContext, healingRepo?: HealingEventRepos
  *  data JSON 围栏不作授权源），未命中拒绝执行；授权原话落 linked_resources + warn 日志双通道。 */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 const execFileAsync = promisify(execFile);
 
@@ -1130,12 +1130,14 @@ function checkApprovalGates(
 /** 检视闭环闸——merge_pr 执行前 call scripts/check-pr-review-closure.mjs fail-closed。
  *  断环（exit 1）与拒判（exit 2）均拒绝合入；脚本输出缺口描述回显供搭档/大獭补环。
  *  与授权原话闸并列：授权闸保「人点头」，闭环闸保「当前版本被独立检视过」。
- *  脚本路径用 import.meta.url 模块位置锚点（不依赖 process.cwd()），
- *  cwd 漂移不再导致 ENOENT 误杀全部合入。 */
+ *  脚本路径经 getRepoRoot() 解析（逐级向上探测 package.json 锚点，src 直跑与
+ *  dist/src 产物双布局兼容）。旧实现固定上溯层数——假设产物在
+ *  dist/interface-adapters（实际是 dist/src/interface-adapters，深一层），
+ *  拼出不存在的 dist/scripts 路径，首次真实合入即崩且被 fail-closed
+ *  包装成「无有效检视回执」误导排障方向。 */
 async function checkReviewClosureOnPr(prNumber: number): Promise<{ terminal?: ReturnType<typeof errorResponse> }> {
   try {
-    // 模块位置 <root>/dist/interface-adapters/agent-runtime/tools/ → 上 4 层到 <root>/scripts/
-    const scriptPath = fileURLToPath(new URL("../../../../scripts/check-pr-review-closure.mjs", import.meta.url));
+    const scriptPath = resolve(getRepoRoot(), "scripts", "check-pr-review-closure.mjs");
     await execFileAsync(
       "node",
       [scriptPath, "--pr-number", String(prNumber)],
