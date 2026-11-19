@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- 合并 main 分支 contentType + recruiting createdAfter 后行数增加 */
 import type { MemoryContentType } from "@entities/memory/memory-entry";
 import type { EdgeType } from "@entities/memory/memory-edge";
+import { NIGHT_REVIEW_RANGE_CONTEXT_KEY } from "@entities/memory/consolidation-state";
 import { createListArtifactsTool, createUpdateArtifactStatusTool, createArchiveArtifactForReconciliationTool } from "./artifact-tools";
 import { createGetHtmlCardContractTool } from "./html-card-contract-tool";
 import { createGetMessageTool, createListMessagesTool, createSearchMessagesTool } from "./message-tools";
@@ -1643,7 +1644,46 @@ function createRecordBeliefTool(ctx: ToolContext): AgentTool {
   };
 }
 
-/** belief_verify / belief_reject / belief_supersede（重建——仅 night-reviewer 白名单可见） */
+/** 解析范围档字符串并验语义（fail-closed 纯函数）：语法损坏/字段缺失/非法时间/倒挂
+ * 一律拒——Date.parse(undefined)=NaN 使比较恒 false 会放行任意条目（首轮审视发现）。 */
+function parseSnapshotRangeRaw(raw: string): { after: string; through: string } | null {
+  let parsed: { after?: unknown; through?: unknown };
+  try {
+    parsed = JSON.parse(raw) as { after?: unknown; through?: unknown };
+  } catch {
+    return null;
+  }
+  const afterMs = typeof parsed?.after === "string" ? Date.parse(parsed.after) : Number.NaN;
+  const throughMs = typeof parsed?.through === "string" ? Date.parse(parsed.through) : Number.NaN;
+  if (Number.isNaN(afterMs) || Number.isNaN(throughMs) || afterMs > throughMs) return null;
+  return { after: parsed.after as string, through: parsed.through as string };
+}
+
+/** 快照范围解析与校验（fail-closed）：读獭 context 的范围档并验语义。 */
+async function resolveSnapshotRange(
+  ctx: ToolContext,
+): Promise<[{ after: string; through: string }, null] | [null, string]> {
+  let store: Record<string, string>;
+  try {
+    store = await ctx.client.context.get(ctx.otterId, NIGHT_REVIEW_RANGE_CONTEXT_KEY);
+  } catch (err) {
+    return [null, `快照范围档案读取失败：${err instanceof Error ? err.message : String(err)}`];
+  }
+  const raw = store[NIGHT_REVIEW_RANGE_CONTEXT_KEY];
+  if (!raw) {
+    return [null, "本会话无快照范围（非夜审编排召唤）——belief 状态迁移仅限夜间审视编排内进行"];
+  }
+  const range = parseSnapshotRangeRaw(raw);
+  if (range === null) {
+    return [null, `快照范围档案损坏或语义非法（${NIGHT_REVIEW_RANGE_CONTEXT_KEY}）`];
+  }
+  return [range, null];
+}
+
+/** belief 三迁移工具（首建、以 night-reviewer 白名单重建，后续夜审编排阶段加快照范围校验——
+ * 设计依据 v4 「出处 ID 存在且在当日快照范围内」：
+ *  范围从夜审獭 otter context 的 night_review_range 读取（编排召唤时写入；白名单无
+ *  set_context，LLM 无法篡改），无此 key 即拒（fail-closed：非编排召唤的獭无从获得迁移权）。 */
 function buildBeliefMigrationTool(
   ctx: ToolContext,
   name: "belief_verify" | "belief_reject" | "belief_supersede",
@@ -1655,7 +1695,7 @@ function buildBeliefMigrationTool(
     belief_supersede: "标记 belief 过期 → superseded（旧条目保留、降权、可回滚，不删）。",
   };
   return {
-    description: `${desc[name]} When: 夜间审视/现场纠错时。BOUNDARY: 只做状态迁移，改不了条目内容；superseded 为终态无出边。`,
+    description: `${desc[name]} When: 夜间审视/现场纠错时。BOUNDARY: 只做状态迁移，改不了条目内容；仅限快照范围内创建的条目；superseded 为终态无出边。`,
     parameters: {
       type: "object",
       properties: {
@@ -1665,6 +1705,24 @@ function buildBeliefMigrationTool(
     },
     execute: async (_id: string, params: Record<string, unknown>) => {
       try {
+        const entryId = params.entry_id as string;
+        // 快照范围校验（fail-closed）：无范围档/损坏/语义非法即拒（首轮审视发现的
+        // 语义分支补全）；目标条目 createdAt 须落在闭区间内——范围由编排层写入，不受提示词约束。
+        const [range, rangeError] = await resolveSnapshotRange(ctx);
+        if (rangeError !== null) return errorResponse(`${name} 拒绝：${rangeError}`);
+        const target = await ctx.client.memory.getById(entryId);
+        if (!target) {
+          return errorResponse(`${name} 失败：目标条目不存在（${entryId}）`);
+        }
+        // createdAt 缺失（装配未回填）同样 fail-closed 拒——快照校验不仓促放行
+        const createdMs = target.createdAt !== undefined ? Date.parse(target.createdAt) : Number.NaN;
+        if (Number.isNaN(createdMs)
+          || createdMs < Date.parse(range.after)
+          || createdMs > Date.parse(range.through)) {
+          return errorResponse(
+            `${name} 拒绝：目标条目 createdAt（${target.createdAt ?? "缺失"}）不在快照范围 [${range.after}, ${range.through}] 内`,
+          );
+        }
         if (name === "belief_supersede") {
           const r = await ctx.client.memory.markBeliefExpired(params.entry_id as string);
           return textResponse(JSON.stringify(r));
@@ -1711,12 +1769,43 @@ function createSupersedeBeliefTool(ctx: ToolContext): AgentTool {
 /** belief 工具集（record + verify/reject/supersede）——
  * 三个迁移工具回归注册，但仅 night-reviewer 白名单可见
  *  （session-helpers BELIEF_MIGRATION_TOOLS 排除集兜底：big "*" 与小 small memory 组均剔除）。 */
+/** 搭档否决打回执行体（夜审编排阶段补全）：recorded/verified → disputed 单向。
+ *  与三迁移工具的区别：①无快照范围约束（打回对象可以是任何历史 belief，否决权
+ *  不受夜审区间限制）；②不在排除集——对 big 开放（fyi 否决锚的落地通道，大獭
+ *  按搭档「打回 M-xxx」的裁决调用）；③不给核实权——只能打回不能 verify，
+ *  「verified 必须来自独立审视」的信任模型不变（状态机本就预留
+ *  recorded→disputed/verified→disputed 的搭档否决边）。 */
+function createDisputeBeliefTool(ctx: ToolContext): AgentTool {
+  return {
+    name: "belief_dispute",
+    description: "打回 belief → disputed（检索标 [存疑]，重新入审）。仅限搭档否决场景：夜审变更集 fyi 的 matter 被搭档打回时，把对应 belief 迁 disputed。BOUNDARY: 只打回不核实（verified 只能来自夜间审视）；无快照范围限制。",
+    parameters: {
+      type: "object",
+      properties: {
+        entry_id: { type: "string", description: "目标 belief 条目 ID（可从夜审变更集 fyi 或 matter payload 取）" },
+      },
+      required: ["entry_id"],
+    },
+    execute: async (_id: string, params: Record<string, unknown>) => {
+      try {
+        const r = await ctx.client.memory.transitionBelief({ entryId: params.entry_id as string, to: "disputed" });
+        return textResponse(JSON.stringify(r));
+      } catch (err) {
+        return errorResponse(`belief_dispute 失败：${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  };
+}
+
 function createBeliefTools(ctx: ToolContext): AgentTool[] {
   return [
     createRecordBeliefTool(ctx),
     createVerifyBeliefTool(ctx),
     createRejectBeliefTool(ctx),
     createSupersedeBeliefTool(ctx),
+    // 搭档否决打回（不在 BELIEF_MIGRATION_TOOLS 排除集：big 可见、small 的 memory 组
+    // 未列入故不可见、night-reviewer 白名单显式五件不含它——打回权只在大獭手里）
+    createDisputeBeliefTool(ctx),
   ];
 }
 

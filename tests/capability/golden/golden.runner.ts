@@ -53,6 +53,17 @@ export interface GoldenScenario {
   /** 长链场景覆盖 it 超时帽（默认 1_800_000）。须满足
    *  sampling.n × (300_000 + settleMs) ≤ timeoutMs − 120_000（expectSampledBehavior 预算算术）。 */
   timeoutMs?: number;
+  /**
+   * 受限档案獭场景（夜间审视编排刀扩展）：不把 input 发给对话大獭，而是创建指定
+   * type/systemPrompt 的獭并直接 invoke 它——golden 从「只测标准大獭会话」扩展到
+   * 「可测任意档案獭」（night-reviewer 等受限白名单的提示词行为回归）。
+   * setup 钩子在建獭后、invoke 前做场景数据注入（belief/context 等），返回最终输入。
+   */
+  restricted?: {
+    otterType: string;
+    systemPrompt?: string;
+    setup?: (ctx: CapabilityContext, args: { convId: string; otterId: string }) => Promise<string>;
+  };
 }
 
 /** 场景断言函数的上下文：boot 装配 + 本次采样的消息历史 */
@@ -357,7 +368,31 @@ async function runOneSample(
   assert: GoldenAssert,
 ): Promise<SampleResult & { messages?: MessageDto[] }> {
   const convId = await createConversation(ctx, `golden:${golden.id}`);
-  await sendUserMessage(ctx, convId, golden.input);
+  if (golden.restricted) {
+    // 受限档案獭路径：建指定档案的獭 → setup 注入场景数据 → 直接 invoke 该獭
+    // （input 不进 user entry——夜审真实流程是编排注入，无用户消息）
+    const otter = await ctx.built.usecases.createOtter.execute({
+      name: `golden-${golden.id}`,
+      type: golden.restricted.otterType as never,
+      systemPrompt: golden.restricted.systemPrompt,
+    });
+    try {
+      const input = golden.restricted.setup
+        ? await golden.restricted.setup(ctx, { convId, otterId: otter.id })
+        : golden.input;
+      await ctx.built.agentInvoker.invokeConversation({
+        otterId: otter.id,
+        conversationId: convId,
+        userMessageContent: input,
+        senderId: "system",
+      });
+    } finally {
+      // 獭生命周期与编排同构：审完即散，不留孤儿（失败也散）
+      await ctx.built.usecases.dissolveOtter.execute(otter.id).catch(() => undefined);
+    }
+  } else {
+    await sendUserMessage(ctx, convId, golden.input);
+  }
   const firstMsg = await waitForOtterMessage(ctx, convId, { timeoutMs: 300_000 });
   void firstMsg; // 首跳等待仅为了拿到「回合已开始产出终态」的锚点；settle 窗口自己探终态数
 
