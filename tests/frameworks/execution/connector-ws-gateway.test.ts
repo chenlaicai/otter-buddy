@@ -462,6 +462,12 @@ describe("ConnectorWsGateway 协议 v2 双栈（协商/能力闸/output 分发�
       v: CONNECTOR_PROTOCOL_VERSION, type: "action.cancel", seq: 11, sid, data: { actionId: "gate-1" },
     });
     expect(cancelSent).toBe(false);
+    // v1 会话下发 file.* 族 → 闸拦（协议 v2 面）
+    const fileSent = hub.gateway.sendToDevice("connector-test", {
+      v: CONNECTOR_PROTOCOL_VERSION, type: "action.request", seq: 11, sid,
+      data: { actionId: "gate-1f", action: { type: "file.write", input: { conversationId: "c1", path: "a.txt", content: "x" } } },
+    });
+    expect(fileSent).toBe(false);
     // 六动作放行；帧 v 按会话版本盖章（机器侧构造 v=2，线上落 v=1）
     const okSent = hub.gateway.sendToDevice("connector-test", {
       v: CONNECTOR_PROTOCOL_VERSION, type: "action.request", seq: 12, sid,

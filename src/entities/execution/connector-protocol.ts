@@ -86,10 +86,45 @@ export interface ShellExecActionResult {
  *  spawn_error/shell_unavailable/callback_error/invalid_input/workspace_unavailable/unknown（→failed） */
 export type ShellExecErrorCode = string;
 
-/** 动作类型 → 引入协议的最低版本（v1=workspace 六动作；v2 新增 shell.exec）。
- *  hub 侧下行闸依此判定（v1 会话收到 shell.exec 不应发生——下行即拦）。 */
+// ── 文件动作族（协议 v2 新增） ──
+
+/** 文件动作 input 公共面：conversationId 必带（设备工作区定位 + 台账归因锚）；
+ *  invokeId/toolCallId 归因透传（可选——hub 侧 remote_action_requests 另有归因） */
+export interface FileActionBase {
+  conversationId: string;
+  invokeId?: string;
+  toolCallId?: string;
+}
+
+/** 文件动作路径语义：path 由 hub 侧完成跨机映射后下发——设备绝对路径直接使用；
+ *  相对路径与 ~/file:// 特殊形态由 connector 以设备工作区根为 cwd 按设备语义解析 */
+export interface FilePathInput extends FileActionBase { path: string }
+
+/** 二进制内容编码：write/append 的 content 为字符串载荷，encoding=base64 时按 base64 解码落盘 */
+export type FileContentEncoding = "utf8" | "base64";
+
+export interface FileWriteInput extends FilePathInput { content: string; encoding?: FileContentEncoding }
+export interface FileTruncateInput extends FilePathInput { size: number }
+export interface FileRenameInput extends FileActionBase { source: string; destination: string }
+export interface FileRemoveInput extends FilePathInput { recursive?: boolean; force?: boolean }
+export interface FileMkdirInput extends FilePathInput { recursive?: boolean }
+/** file.readLines：批量读行（SDK readTextLines）；maxLines 截断（行尾换行符剥离由 SDK 侧语义） */
+export interface FileReadLinesInput extends FilePathInput { maxLines?: number }
+export interface FileJoinPathInput extends FileActionBase { parts: string[] }
+export interface FileTempDirInput extends FileActionBase { prefix?: string }
+export interface FileTempFileInput extends FileActionBase { prefix?: string; suffix?: string }
+
+/** file.openReader（二进制读器）打开结果：句柄 + 即时 info（read 工具开读即取——省一次往返） */
+export interface FileOpenReaderInput extends FilePathInput { noFollow?: boolean }
+export interface FileReaderReadInput extends FileActionBase { handle: string; position: number; length: number }
+export interface FileReaderScanInput extends FileActionBase { handle: string; startLine: number; endLine?: number }
+export interface FileHandleInput extends FileActionBase { handle: string }
+export interface FileDirReaderNextInput extends FileActionBase { handle: string; maxEntries: number }
+
+/** 动作类型 → 引入协议的最低版本（v1=workspace 六动作；v2 新增 shell.exec 与 file.* 族）。
+ *  hub 侧下行闸依此判定（v1 会话收到 v2 动作不应发生——下行即拦）。 */
 export function actionTypeMinVersion(actionType: string): number {
-  return actionType === "shell.exec" ? 2 : 1;
+  return actionType === "shell.exec" || actionType.startsWith("file.") ? 2 : 1;
 }
 
 export type ConnectorFrame =
