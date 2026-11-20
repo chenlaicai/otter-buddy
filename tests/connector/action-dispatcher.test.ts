@@ -3,6 +3,8 @@ import { ConnectorActionDispatcher } from "../../src/connector/action-dispatcher
 import type { ShellExecutorLike, ShellRunOutcome } from "../../src/connector/shell-action-executor";
 import type { ActionRecord } from "@entities/execution/action-record";
 import type { ConnectorFrame } from "@entities/execution/connector-protocol";
+import type { AnyExecutionAction } from "@usecases/ports/execution-machine";
+import type { FileExecutorLike } from "../../src/connector/file-action-executor";
 
 /**
  * connector 侧动作分发器单测——
@@ -19,20 +21,22 @@ function requestFrame(actionId: string, type: string, input: Record<string, unkn
 function makeDeps(opts: {
   existing?: ActionRecord | null;
   ledgerError?: boolean;
-  executorImpl?: (action: { type: string; input: Record<string, unknown> }, options?: { actionId?: string }) => Promise<unknown>;
+  executorImpl?: (action: AnyExecutionAction, options?: { actionId?: string }) => Promise<unknown>;
   shell?: ShellExecutorLike;
+  file?: FileExecutorLike;
 } = {}) {
   const sent: ResultFrame[] = [];
   const executorCalls: Array<{ type: string; actionId?: string }> = [];
   const deps = {
     executor: {
-      run: async (action: { type: string; input: Record<string, unknown> }, options?: { actionId?: string }) => {
+      run: async (action: AnyExecutionAction, options?: { actionId?: string }) => {
         executorCalls.push({ type: action.type, actionId: options?.actionId });
         if (opts.executorImpl) return opts.executorImpl(action, options);
         return "ok";
       },
     },
     ...(opts.shell ? { shell: opts.shell } : {}),
+    ...(opts.file ? { file: opts.file } : {}),
     ledger: {
       getByActionId: async () => {
         if (opts.ledgerError) throw new Error("db locked");
@@ -58,12 +62,48 @@ function ledgerRow(status: ActionRecord["status"], resultSummary: string | null 
 }
 
 describe("ConnectorActionDispatcher", () => {
-  it("白名单外动作类型 → failed 回执（执行能力白名单：六动作 + shell.exec）", async () => {
+  it("白名单外动作类型 → failed 回执（执行能力白名单：六动作 + shell.exec + file.* 族）", async () => {
     const { dispatcher, sent } = makeDeps();
-    await dispatcher.handleActionRequest(requestFrame("a-x", "file.write", { path: "/etc/passwd" }));
+    await dispatcher.handleActionRequest(requestFrame("a-x", "agent.run", { path: "/etc/passwd" }));
     expect(sent).toHaveLength(1);
     expect(sent[0]!.status).toBe("failed");
     expect(sent[0]!.error).toContain("unsupported action type");
+  });
+
+  it("file.* 路由：file 执行器结局直通（succeeded 值 / failed errorCode+errorPath）", async () => {
+    const file: FileExecutorLike = {
+      run: async (type, input) => {
+        if (type === "file.read") return { status: "succeeded", result: `content:${String(input.path)}` };
+        return { status: "failed", errorCode: "not_found", error: "ENOENT", errorPath: String(input.path) };
+      },
+      closeAllResources: async () => {},
+    };
+    const { dispatcher, sent } = makeDeps({ file });
+    await dispatcher.handleActionRequest(requestFrame("f-1", "file.read", { conversationId: "c1", path: "/d/a.txt" }));
+    expect(sent[0]).toMatchObject({ actionId: "f-1", status: "succeeded", result: "content:/d/a.txt" });
+    await dispatcher.handleActionRequest(requestFrame("f-2", "file.write", { conversationId: "c1", path: "/d/no/a.txt" }));
+    // FileError code 直通 + errorPath 随 result.path 回传（hub 还原 SDK FileError）
+    expect(sent[1]).toMatchObject({ actionId: "f-2", status: "failed", errorCode: "not_found", result: { path: "/d/no/a.txt" } });
+  });
+
+  it("file.* 无 file 执行器装配 → failed/unsupported（防御纵深：hub 版本闸外第二道）", async () => {
+    const { dispatcher, sent } = makeDeps(); // 未装 file
+    await dispatcher.handleActionRequest(requestFrame("f-no", "file.read", { conversationId: "c1", path: "a.txt" }));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.status).toBe("failed");
+    expect(sent[0]!.error).toContain("no file executor");
+  });
+
+  it("file 写类幂等快路径：台账已 succeeded → 回 null 不重执行（与活体 void 语义一致）", async () => {
+    const existing = ledgerRow("succeeded", JSON.stringify({ bytes: 5 }));
+    existing.kind = "file.write";
+    const file: FileExecutorLike = {
+      run: async () => { throw new Error("must not re-execute"); },
+      closeAllResources: async () => {},
+    };
+    const { dispatcher, sent } = makeDeps({ existing, file });
+    await dispatcher.handleActionRequest(requestFrame("f-dup", "file.write", { conversationId: "c1", path: "a.txt", content: "x" }));
+    expect(sent[0]).toMatchObject({ actionId: "f-dup", status: "succeeded", result: null });
   });
 
   it("shell.exec 无 shell 执行器装配 → failed/unsupported（防御纵深：hub 版本闸外第二道）", async () => {

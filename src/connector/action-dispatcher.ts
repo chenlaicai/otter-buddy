@@ -20,6 +20,7 @@ import type { ConnectorFrame, ShellExecActionInput } from "@entities/execution/c
 import type { ActionRecord } from "@entities/execution/action-record";
 import type { AnyExecutionAction } from "@usecases/ports/execution-machine";
 import type { ShellExecutorLike, ShellRunOutcome } from "./shell-action-executor";
+import type { FileActionOutcome, FileExecutorLike } from "./file-action-executor";
 
 /** connector 侧六动作执行面（WorkspaceActionExecutor 的最小依赖切片——测试可 fake） */
 export interface ActionExecutorLike {
@@ -31,6 +32,8 @@ export interface ConnectorActionDispatcherDeps {
   /** shell.exec 执行器（协议 v2 面；缺省 = 本构建不带 shell 能力——收到 shell.exec 回
    *  failed/unsupported。v1 会话收到 shell.exec 不应发生：hub 下行版本闸已拦） */
   shell?: ShellExecutorLike;
+  /** file.* 族执行器（协议 v2 面；缺省同上回 failed/unsupported） */
+  file?: FileExecutorLike;
   /** 本地台账只读面（幂等快路径）+ 收尾面（自杀收尾落 interrupted） */
   ledger: {
     getByActionId(actionId: string): Promise<ActionRecord | null>;
@@ -41,8 +44,8 @@ export interface ConnectorActionDispatcherDeps {
   log?: (message: string, meta?: Record<string, unknown>) => void;
 }
 
-/** 执行能力白名单（非白名单 type 回 failed——协议 v1 六动作 + v2 新增 shell.exec）。
- *  注意与版本闸的分层：本集合是「本端会执行什么」；「v1 会话收不到 shell.exec」
+/** 执行能力白名单（非白名单 type 回 failed——协议 v1 六动作 + v2 新增 shell.exec 与 file.* 族）。
+ *  注意与版本闸的分层：本集合是「本端会执行什么」；「v1 会话收不到 v2 动作」
  *  由 hub 侧 sendToDevice 版本闸保证（双保险）。 */
 const SUPPORTED_ACTION_TYPES = new Set<string>([
   "workspace.exists",
@@ -52,6 +55,13 @@ const SUPPORTED_ACTION_TYPES = new Set<string>([
   "workspace.delete",
   "workspace.path",
   "shell.exec",
+  "file.read", "file.readLines", "file.readBinary", "file.write", "file.append", "file.truncate",
+  "file.rename", "file.remove", "file.mkdir", "file.stat", "file.list", "file.exists",
+  "file.canonicalPath", "file.absolutePath", "file.joinPath",
+  "file.createTempDir", "file.createTempFile", "file.flush",
+  "file.openReader", "file.readerRead", "file.readerScanLines", "file.readerInfo",
+  "file.openDirReader", "file.dirReaderNext", "file.openLineReader", "file.lineReaderRead",
+  "file.resourceClose",
 ]);
 
 export class ConnectorActionDispatcher {
@@ -88,9 +98,12 @@ export class ConnectorActionDispatcher {
       const existing = await this.deps.ledger.getByActionId(actionId);
       if (existing?.status === "succeeded") {
         this.deps.log?.("action deduped (already succeeded)", { actionId, type: action.type });
-        // （检视）：回执以活体语义为准——workspace.write 活体 result 为 null（void 类），
-        //  快路径不回 resultSummary（{bytes} 与活体不一致）；delete 的 {deleted} 与活体一致可透传
-        this.sendResult(actionId, { status: "succeeded", result: existing.kind === "workspace.write" ? null : this.parseSummary(existing.resultSummary) });
+        // （检视）：回执以活体语义为准——活体 result 为 null（void 类）的动作族
+        //  快路径不回 resultSummary（write 的 {bytes} 与活体不一致）；delete 的 {deleted} 与活体一致可透传
+        this.sendResult(actionId, {
+          status: "succeeded",
+          result: VOID_RESULT_KINDS.has(existing.kind) ? null : this.parseSummary(existing.resultSummary),
+        });
         return;
       }
     } catch (err) {
@@ -100,17 +113,9 @@ export class ConnectorActionDispatcher {
 
     try {
       this.inflight.set(actionId, true);
-      // shell.exec 走专用执行器（独立 env + AbortController/流式 output/取消）；
-      // 六动作走公共 WorkspaceActionExecutor（与中枢 local 同一执行语义）
-      if (action.type === "shell.exec") {
-        if (!this.deps.shell) {
-          this.sendResult(actionId, { status: "failed", error: "unsupported action type: shell.exec (no shell executor)" });
-          return;
-        }
-        const outcome = await this.deps.shell.run(action.input as unknown as ShellExecActionInput, { actionId });
-        this.sendShellOutcome(actionId, outcome);
-        return;
-      }
+      // shell.exec / file.* 走专用执行器；六动作走公共 WorkspaceActionExecutor（与中枢 local 同一执行语义）
+      if (await this.runShell(actionId, action)) return;
+      if (await this.runFile(actionId, action)) return;
       const result = await this.deps.executor.run(
         { type: action.type, input: action.input } as AnyExecutionAction,
         { actionId },
@@ -122,6 +127,30 @@ export class ConnectorActionDispatcher {
     } finally {
       this.inflight.delete(actionId);
     }
+  }
+
+  /** shell.exec 路由（独立 env + AbortController/流式 output/取消）；非 shell.exec 返回 false */
+  private async runShell(actionId: string, action: { type: string; input: unknown }): Promise<boolean> {
+    if (action.type !== "shell.exec") return false;
+    if (!this.deps.shell) {
+      this.sendResult(actionId, { status: "failed", error: "unsupported action type: shell.exec (no shell executor)" });
+      return true;
+    }
+    const outcome = await this.deps.shell.run(action.input as unknown as ShellExecActionInput, { actionId });
+    this.sendShellOutcome(actionId, outcome);
+    return true;
+  }
+
+  /** file.* 族路由（FileActionExecutor：设备侧语义 + 台账五态）；非 file.* 返回 false */
+  private async runFile(actionId: string, action: { type: string; input: unknown }): Promise<boolean> {
+    if (!action.type.startsWith("file.")) return false;
+    if (!this.deps.file) {
+      this.sendResult(actionId, { status: "failed", error: `unsupported action type: ${action.type} (no file executor)` });
+      return true;
+    }
+    const outcome = await this.deps.file.run(action.type, action.input as Record<string, unknown>, { actionId });
+    this.sendFileOutcome(actionId, outcome);
+    return true;
   }
 
   /** action.cancel（协议 v2，S→C）：只 abort 指定动作的在途进程组——
@@ -151,6 +180,21 @@ export class ConnectorActionDispatcher {
     });
   }
 
+  /** 文件结局 → action.result 载荷（v2：errorCode 透传 FileError code；errorPath 随 result.path 回传） */
+  private sendFileOutcome(actionId: string, outcome: FileActionOutcome): void {
+    if (outcome.status === "succeeded") {
+      this.deps.send({ actionId, status: "succeeded", result: outcome.result ?? null });
+      return;
+    }
+    this.deps.send({
+      actionId,
+      status: outcome.status,
+      error: outcome.error,
+      errorCode: outcome.errorCode,
+      ...(outcome.errorPath !== undefined ? { result: { path: outcome.errorPath } } : {}),
+    });
+  }
+
   private sendResult(
     actionId: string,
     verdict: { status: "succeeded"; result?: unknown } | { status: "failed"; error: string },
@@ -174,3 +218,9 @@ export class ConnectorActionDispatcher {
     }
   }
 }
+
+/** 活体 result 为 null（void 类）的动作 kind——快路径幂等回执不回 resultSummary（与活体语义一致） */
+const VOID_RESULT_KINDS = new Set<string>([
+  "workspace.write",
+  "file.write", "file.append", "file.truncate", "file.rename", "file.remove", "file.mkdir",
+]);

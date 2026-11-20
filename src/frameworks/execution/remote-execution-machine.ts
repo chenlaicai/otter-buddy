@@ -7,7 +7,7 @@ import {
   type ExecutionActionType,
   type ExecutionMachine,
 } from "@usecases/ports/execution-machine";
-import { CONNECTOR_ACTION_TIMEOUT_MS, CONNECTOR_PROTOCOL_VERSION, type ConnectorFrame, type ShellExecActionInput } from "@entities/execution/connector-protocol";
+import { CONNECTOR_ACTION_TIMEOUT_MS, CONNECTOR_PROTOCOL_VERSION, actionTypeMinVersion, type ConnectorFrame, type ShellExecActionInput } from "@entities/execution/connector-protocol";
 import { otterInvokeStorage } from "@entities/execution/otter-invoke-context";
 import type { ConnectorActionChannel } from "./connector-ws-gateway";
 import type { RemoteActionRegistry } from "@usecases/ports/remote-action-registry";
@@ -110,9 +110,15 @@ export class RemoteExecutionMachine implements ExecutionMachine {
   }
 
   /** 远程 bash 能力预检，避免旧协议会话先发工作区查询再失败。 */
+  /** 环境侧 exec 直接调用本闸（v1 会话禁 shell.exec 的显式错误，先于 run 的版本检查） */
   assertShellSupported(): void {
+    this.assertV2Supported("shell.exec");
+  }
+
+  /** v2 动作族统一闸（shell.exec / file.* / reader 族）：v1 会话下行即拦（fail-closed） */
+  assertV2Supported(feature: string): void {
     if (this.deps.channel.negotiatedVersion?.(this.id) === 1) {
-      throw new Error("shell.exec requires connector protocol v2");
+      throw new Error(`${feature} requires connector protocol v2`);
     }
   }
 
@@ -139,7 +145,7 @@ export class RemoteExecutionMachine implements ExecutionMachine {
     if (!session || session.status !== "online") {
       throw new Error(`connector device offline or unpaired: ${this.id}`);
     }
-    if (action.type === "shell.exec") this.assertShellSupported();
+    if (actionTypeMinVersion(action.type) > 1) this.assertV2Supported(action.type);
     return session;
   }
 
