@@ -64,7 +64,7 @@ function forwardOutput(options: ShellExecOptions, context: Context) {
 }
 
 /**
- * 远程 SDK 执行环境：shell（PR-A）+ 文件面（PR-B）经 RemoteExecutionMachine.run
+ * 远程 SDK 执行环境：shell + 文件面经 RemoteExecutionMachine.run
  * 落到 connector 设备执行（协议 v2），绝不静默落 hub。
  *
  * 设计决策：

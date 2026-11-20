@@ -266,7 +266,7 @@ describe("RemoteExecutionMachine（C2 执行通道核心）", () => {
     expect(() => h.machine.createExecutionEnvironment("/tmp")).toThrow("requires conversationId");
     const env = h.machine.createExecutionEnvironment("/hub/workspaces/c1", "c1");
     expect(env.id).toBe("remote:conn-dev-1");
-    // 文件面已走线（PR-B）：设备离线 → FileError(unknown)，绝不是静默落 hub
+    // 文件面已走线：设备离线 → FileError(unknown)，绝不是静默落 hub
     const result = await env.readTextFile("a.txt", BACKGROUND_CONTEXT);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("unknown");
