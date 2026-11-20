@@ -3,7 +3,7 @@ id: F20261120pwsim
 title: "登录口令值源砍到两级：config 优先，没配就生成到启动机上可查看的文件"
 summary: "搭档明确否决了 env 那一层：口令要「配了就用我配的，没配就启动时生成一个放在启动机上、我能查看」。原值源是 env `OTTER_OWNER_PASSWORD` → config `auth.ownerPassword` → `data/owner-password` 文件 → 首启生成，四层里第一层对用户不可见（进程环境），排障时人会以为「我配的是这个」。本笔删掉 env 这一层：判定只剩 config 与文件两级；进程环境里若还留着旧变量，启动日志 warn 一句「已废弃并被忽略」，绝不静默改走别的值。同期把 e2e 的注入方式从 env 改为 `config.e2e.yaml` 的 `auth.ownerPassword`，让测试也走生产同款路径。"
 change_type: refactor
-capability_test: "tests/interface-adapters/http/auth/owner-password.test.ts（11 例：config 优先 / 文件复用 / 首启生成 0600 / 空白文件 fail / config 覆盖旧文件 warn / 解析入参不再含 env）"
+capability_test: "tests/interface-adapters/http/auth/owner-password.test.ts（11 例：config 优先 / 文件复用 / 首启生成 0600 / 空白文件 fail / config 覆盖旧文件 warn / 残留 env 不得覆盖 config 或文件的行为断言）"
 intent:
   problem: "登录口令原先有四个值源（env → config → 文件 → 生成），其中 env 在进程环境里，用户在配置文件里看不见它，于是「我明明配在 config 里」与「实际生效的是别处」并存——口令配错的表现是登录不进去，而看不到的那一层让人查错方向。搭档的原话是：不要 env 这这那那，配了就用我的，没配就生成一个放启动机上我能查看。"
   solution: "删掉 env 层：resolveOwnerPassword 只接受 config `auth.ownerPassword` 与数据目录口令文件；文件不存在时首启生成（0600，日志明说路径与「可查看」）。app.ts 若发现进程环境里仍有旧变量，warn 一句「已废弃并被忽略」（不回显值）。e2e 改用 config.e2e.yaml 的 auth.ownerPassword，脚本不再 env 注入。config 示例、部署 README、config-service 注释同步去掉 env 说法。"
@@ -65,7 +65,7 @@ env 层的收益只有「部署脚本能改口令而不碰配置文件」，代�
 | 首启生成 | 文件 0600、内容与返回值一致 |
 | 空白文件 → 抛错 | 损坏宁 fail，不静默换口令 |
 | config 覆盖旧文件 → warn | 提示旧值将被忽略 |
-| 解析入参不再含 env | 形态断言：旧变量无法从这条路径进入判定 |
+| 残留 env 不得覆盖 config 或文件 | 真实设置旧环境变量后仍返回 config/文件值，finally 恢复环境 |
 
 ## 已知边界
 

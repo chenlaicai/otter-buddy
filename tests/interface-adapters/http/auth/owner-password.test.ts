@@ -52,12 +52,18 @@ describe("登录口令（owner password）：值源解析", () => {
     expect(resolveOwnerPassword({ configuredPassword: "  ", dataDir: dir })).toBe("from-file");
   });
 
-  it("旧 env 值源已废弃：解析选项里根本没有 env 入参，export 名只留作启动提示", () => {
-    // 形态断言：解析函数只接受 config 口令与数据目录——即使进程环境里还留着旧变量，
-    // 也无法从这条路径进入判定（app.ts 里对残留变量只 warn 一句「已忽略」）。
-    const options: Parameters<typeof resolveOwnerPassword>[0] = { dataDir: dir };
-    expect(Object.keys(options)).toEqual(["dataDir"]);
-    expect(DEPRECATED_OWNER_PASSWORD_ENV).toBe("OTTER_OWNER_PASSWORD");
+  it("旧 env 值源已废弃：残留变量不能覆盖 config 或口令文件", () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, OWNER_PASSWORD_FILENAME), "from-file\n", { mode: 0o600 });
+    const previous = process.env[DEPRECATED_OWNER_PASSWORD_ENV];
+    try {
+      process.env[DEPRECATED_OWNER_PASSWORD_ENV] = "from-deprecated-env";
+      expect(resolveOwnerPassword({ dataDir: dir })).toBe("from-file");
+      expect(resolveOwnerPassword({ dataDir: dir, configuredPassword: "from-config" })).toBe("from-config");
+    } finally {
+      if (previous === undefined) delete process.env[DEPRECATED_OWNER_PASSWORD_ENV];
+      else process.env[DEPRECATED_OWNER_PASSWORD_ENV] = previous;
+    }
   });
 
   it("config 口令覆盖既有文件时记 warn（避免运维拿旧值困惑）", () => {
