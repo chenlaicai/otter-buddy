@@ -21,10 +21,11 @@ external:
 
 # === 统一接入登录（F20261113uaccs 阶段 2）===
 auth:
-  # 登录口令（登录页输入的口令，owner password）。
-  # 显式配置后优先于 data/owner-password 文件（env OTTER_OWNER_PASSWORD 仍最高优先）；
-  # 不配置则回退 env → data/owner-password 文件 → 首启自动生成。
-  # 建议部署时写一个自己能记住的固定密码：
+  # 登录口令（登录页输入的口令，owner password）。值源只有两级：
+  #   1. 这里配了就用它（推荐：写一个自己记得住的固定口令）；
+  #   2. 不配置则用启动机数据目录下的 data/owner-password（首启自动生成 0600，可直接 cat 查看）。
+  # 没有 env 一层：旧变量 OTTER_OWNER_PASSWORD 已废弃，进程环境里留着也只会在启动日志里
+  # 警告一句「已忽略」，不参与判定。
   # ownerPassword: "my-rememberable-password"
   # 服务令牌（可选）：给「会跳反代 / 跨主机」的集成方（如部署在同机的外部通道适配进程）
   # 一个真凭据。声明式身份头（X-Otter-User-* / ?otterRole=）只对本机直连生效，

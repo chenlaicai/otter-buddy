@@ -37,7 +37,7 @@
    - `/etc/otter-buddy.env`：
      ```
      OTTER_EMBEDDING=off
-     OTTER_OWNER_PASSWORD=<本机同款或新口令>
+     # 登录口令写进 config 的 auth.ownerPassword（不再有 OTTER_OWNER_PASSWORD 这一层）
      OTTER_SERVICE_TOKEN=<openssl rand -base64 32>
      ```
      `OTTER_SERVICE_TOKEN` 是 HTTP 面给「会跳反代/跨主机」的集成方（当前就是同机的 colink-agent-app）留的唯一可编程凭据：中枢只让**本机直连**用声明式身份头（`X-Otter-User-*`），一旦经 nginx 或走公网域名，声明式头一律拒（401）——那是伪造面。所以 App 侧 `/etc/colink-agent-app.env` 必须给同一个值（`OTTER_SERVICE_TOKEN=<同值>`），扩展便会用 `Authorization: Bearer` 而不是声明式头；两边不同值＝App 侧稳定 401。

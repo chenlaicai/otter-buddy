@@ -8,17 +8,22 @@ import type { Logger } from "@usecases/ports/logger";
  * 替换 的声明式身份头值源——web 前端不再自报 `web-ui/admin`，而是
  * 经登录端点校验登录口令后派发会话 cookie；身份中间件从会话派生身份。
  *
- * 登录口令（owner password）来源优先级：
- *   1. env `OTTER_OWNER_PASSWORD`（部署注入，支持 alpha/e2e/生产三态显式指定）；
- *   2. config.yaml `auth.ownerPassword`（显式自定义的、可读可记的固定登录密码）；
- *   3. `data/owner-password` 文件（首启自动生成，0600）——口令缺失时生成并落盘，
- *      二次启动自动复用（会话跨重启可续）。
+ * 登录口令（owner password）来源优先级——只有两级，任何人读一遍就能推出「我的口令是哪来的」：
+ *   1. config.yaml `auth.ownerPassword`（自己配的固定口令，配了就用它）；
+ *   2. `data/owner-password` 文件（没配时首启生成，0600，落在启动机的数据目录里，可直接查看）。
+ *      二次启动复用该文件（会话跨重启可续）。
+ *
+ * 为什么不再有 env 一层：优先级每多一层，排障时就多一次「我以为配的是这个」——口令这种
+ * 「配错就登不进去」的东西，藏一层不可见的值源没有任何收益。所以 env 一律不参与判定；
+ * 若进程环境里还留着旧变量，启动时会 warn 一句「已忽略」，不会静默改走别的值。
  *
  * 安全边界（诚实声明）：登录口令是本机单用户的登录凭据，不是面向公网的多人权限系统；
  * 它把「谁能在浏览器里拿到 admin 会话」从「任何人伪造头」收口到「持有该口令的人」。
  */
-export const OWNER_PASSWORD_ENV = "OTTER_OWNER_PASSWORD";
 export const OWNER_PASSWORD_FILENAME = "owner-password";
+
+/** 已废弃的值源名：仅用于启动时提示「这个变量不再生效」，不参与任何判定。 */
+export const DEPRECATED_OWNER_PASSWORD_ENV = "OTTER_OWNER_PASSWORD";
 
 /** 生成随机登录口令（base64url，32 bytes → 43 字符，无 base64 歧义字符） */
 export function generateOwnerPassword(): string {
@@ -39,7 +44,6 @@ export function verifyOwnerPassword(expected: string, candidate: string): boolea
 }
 
 export interface ResolveOwnerPasswordOptions {
-  env?: NodeJS.ProcessEnv;
   /** config.yaml `auth.ownerPassword`（显式自定义的登录密码；缺省 undefined = 未配置）。 */
   configuredPassword?: string;
   dataDir: string;
@@ -47,13 +51,10 @@ export interface ResolveOwnerPasswordOptions {
 }
 
 /**
- * 解析登录口令：env 优先，其次 config `auth.ownerPassword`，再次 `data/owner-password` 文件，
- * 均无则生成并落盘（0600）。返回最终生效的口令；dataDir 为沙箱父目录（口令文件落在其下）。
+ * 解析登录口令：config `auth.ownerPassword` 优先；未配置则复用 `data/owner-password` 文件，
+ * 文件不存在则生成并落盘（0600）。返回最终生效的口令；dataDir 是口令文件所在目录。
  */
 export function resolveOwnerPassword(options: ResolveOwnerPasswordOptions): string {
-  const envPassword = options.env?.[OWNER_PASSWORD_ENV]?.trim();
-  if (envPassword) return envPassword;
-
   const configuredPassword = options.configuredPassword?.trim();
   if (configuredPassword) {
     warnIfOverrideFilePassword(options, configuredPassword);
@@ -76,7 +77,7 @@ export function resolveOwnerPassword(options: ResolveOwnerPasswordOptions): stri
   // mkdir/write 失败向上抛，由启动链 fail-fast。
   mkdirSync(path.dirname(filePath), { recursive: true });
   writeFileSync(filePath, `${password}\n`, { mode: 0o600 });
-  options.logger?.info("登录口令已生成", { filePath });
+  options.logger?.info("登录口令已生成（未在 config 配置，首次启动自动生成，可查看该文件）", { filePath });
   return password;
 }
 
