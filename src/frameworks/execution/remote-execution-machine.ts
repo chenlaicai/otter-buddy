@@ -109,6 +109,13 @@ export class RemoteExecutionMachine implements ExecutionMachine {
     return new RemoteExecutionEnv(this, cwd, conversationId);
   }
 
+  /** 远程 bash 能力预检，避免旧协议会话先发工作区查询再失败。 */
+  assertShellSupported(): void {
+    if (this.deps.channel.negotiatedVersion?.(this.id) === 1) {
+      throw new Error("shell.exec requires connector protocol v2");
+    }
+  }
+
   private frameSeq = 0;
 
   async run<K extends ExecutionActionType>(
@@ -132,9 +139,7 @@ export class RemoteExecutionMachine implements ExecutionMachine {
     if (!session || session.status !== "online") {
       throw new Error(`connector device offline or unpaired: ${this.id}`);
     }
-    if (action.type === "shell.exec" && this.deps.channel.negotiatedVersion?.(this.id) === 1) {
-      throw new Error("shell.exec requires connector protocol v2");
-    }
+    if (action.type === "shell.exec") this.assertShellSupported();
     return session;
   }
 
@@ -158,7 +163,7 @@ export class RemoteExecutionMachine implements ExecutionMachine {
     sessionId: string,
     options?: ActionRunOptions,
   ): Promise<ExecutionActionResult<K>> {
-    const wait = this.createWaiter(actionId, sessionId, options);
+    const wait = this.createWaiter(actionId, sessionId, action.type, options);
     const input = action.type === "shell.exec"
       ? { ...action.input, invokeId: (action.input as ShellExecActionInput).invokeId ?? otterInvokeStorage.getStore()?.currentInvokeId }
       : action.input;
@@ -177,13 +182,14 @@ export class RemoteExecutionMachine implements ExecutionMachine {
   private createWaiter<K extends ExecutionActionType>(
     actionId: string,
     sessionId: string,
+    actionType: ExecutionActionType,
     options?: ActionRunOptions,
   ): Promise<ExecutionActionResult<K>> {
     return new Promise<ExecutionActionResult<K>>((resolve, reject) => {
       const waiter: PendingWaiter = {
         resolve: result => resolve(result as ExecutionActionResult<K>), reject,
         onOutput: options?.onOutput, abortSignal: options?.abortSignal,
-        timer: setTimeout(() => this.timeoutWaiter(actionId, options?.timeoutMs ?? this.timeout, reject), options?.timeoutMs ?? this.timeout),
+        timer: setTimeout(() => this.timeoutWaiter(actionId, sessionId, actionType, options?.timeoutMs ?? this.timeout, reject), options?.timeoutMs ?? this.timeout),
       };
       waiter.abortHandler = () => this.deps.channel.sendToDevice(this.id, {
         v: CONNECTOR_PROTOCOL_VERSION, type: "action.cancel", seq: (this.frameSeq += 1), sid: sessionId, data: { actionId },
@@ -193,7 +199,18 @@ export class RemoteExecutionMachine implements ExecutionMachine {
     });
   }
 
-  private timeoutWaiter(actionId: string, timeoutMs: number, reject: (error: Error) => void): void {
+  private timeoutWaiter(
+    actionId: string,
+    sessionId: string,
+    actionType: ExecutionActionType,
+    timeoutMs: number,
+    reject: (error: Error) => void,
+  ): void {
+    if (actionType === "shell.exec") {
+      this.deps.channel.sendToDevice(this.id, {
+        v: CONNECTOR_PROTOCOL_VERSION, type: "action.cancel", seq: (this.frameSeq += 1), sid: sessionId, data: { actionId },
+      });
+    }
     const current = this.pending.get(actionId);
     if (current) this.clearPending(actionId, current);
     void this.deps.remoteActions.settleRequest(actionId, "unknown", this.isoNow(), undefined, `timeout after ${String(timeoutMs)}ms`);

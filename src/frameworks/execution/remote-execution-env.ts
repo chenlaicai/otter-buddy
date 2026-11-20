@@ -58,6 +58,7 @@ export class RemoteExecutionEnv implements ExecutionEnv {
     context: Context,
   ): Promise<Result<ShellExecResult, ExecutionError>> {
     if (context.abortSignal?.aborted) return err(new ExecutionError("aborted", "aborted before remote exec"));
+    this.machine.assertShellSupported();
     const opts = options ?? {};
     try {
       const deviceWorkspace = await this.machine.run({
@@ -104,6 +105,7 @@ export class RemoteExecutionEnv implements ExecutionEnv {
       command: typeof command === "string" ? command : [...command],
       cwd: this.deviceCwd(options.cwd, deviceWorkspace),
       invokeId: otterInvokeStorage.getStore()?.currentInvokeId,
+      toolCallId: otterInvokeStorage.getStore()?.currentToolCallId,
       ...optional,
     } as ShellExecActionInput;
   }

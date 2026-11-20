@@ -53,8 +53,9 @@ export interface ShellExecActionInput extends Record<string, unknown> {
   /** 输出窗口（调用方保留的尾部 + 采样节流）：设置后 connector 可省略窗口外输出，
    *  省略量经 action.output.skipped 精确上报；缺省 = 全量逐块转发 */
   window?: ShellOutputWindowSpec;
-  /** invoke 归因透传（可选——connector 台账同维度记账用） */
+  /** invoke/toolCall 归因透传（可选——connector 台账同维度记账用） */
   invokeId?: string;
+  toolCallId?: string;
 }
 
 /** ShellOutputWindow 的协议线形（与 SDK ShellOutputWindow 同构，entities 层不引 SDK 类型） */

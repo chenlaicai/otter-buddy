@@ -161,6 +161,16 @@ describe("RemoteExecutionMachine（C2 执行通道核心）", () => {
     expect(rows[0]!.error).toContain("timeout");
   });
 
+  it("shell 等回执超时 → 落 unknown 且发取消杀远端进程组", async () => {
+    const h2 = setup({ timeoutMs: 40 });
+    await seedOnlineSession(h2.connectorRepo);
+    h2.channel.setVersion(2);
+    await expect(h2.machine.run({ type: "shell.exec", input: { conversationId: "c1", command: "sleep 5" } }))
+      .rejects.toThrow("remote action timeout");
+    expect(h2.channel.sent.some(frame => frame.type === "action.cancel")).toBe(true);
+    expect(await h2.remoteActions.listByStatuses(["unknown"])).toHaveLength(1);
+  });
+
   it("总闸③：通道不可用（sendToDevice false）→ 登记行落 unknown + 拒发", async () => {
     await seedOnlineSession(h.connectorRepo);
     h.channel.setSendOk(false);
@@ -265,6 +275,9 @@ describe("RemoteExecutionMachine（C2 执行通道核心）", () => {
     await seedOnlineSession(h.connectorRepo);
     await expect(h.machine.run({ type: "shell.exec", input: { conversationId: "c1", command: "pwd" } }))
       .rejects.toThrow("requires connector protocol v2");
+    expect(h.channel.sent).toHaveLength(0);
+    const env = h.machine.createExecutionEnvironment("/hub/workspaces/c1", "c1");
+    await expect(env.exec("pwd", undefined, BACKGROUND_CONTEXT)).rejects.toThrow("requires connector protocol v2");
     expect(h.channel.sent).toHaveLength(0);
 
     h.channel.setVersion(2);

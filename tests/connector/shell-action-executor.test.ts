@@ -49,7 +49,7 @@ describe("ShellActionExecutor", () => {
 
   it("成功：exitCode 0 → succeeded；stdout 实时流回；台账落 succeeded + exitCode + 会话归因", async () => {
     const outcome = await ctx.executor.run(
-      { conversationId: "c1", command: "echo hello-remote", invokeId: "inv-1" },
+      { conversationId: "c1", command: "echo hello-remote", invokeId: "inv-1", toolCallId: "tool-bash-1" },
       { actionId: "sh-ok-1" },
     );
     expect(outcome).toMatchObject({ status: "succeeded", result: { exitCode: 0 } });
@@ -60,7 +60,7 @@ describe("ShellActionExecutor", () => {
     // 台账：机器侧真相源
     const row = await ctx.ledger!.getByActionId("sh-ok-1");
     expect(row).toMatchObject({
-      status: "succeeded", kind: "shell.exec", conversationId: "c1", invokeId: "inv-1",
+      status: "succeeded", kind: "shell.exec", conversationId: "c1", invokeId: "inv-1", toolCallId: "tool-bash-1",
     });
     expect(JSON.parse(row!.resultSummary!)).toMatchObject({ exitCode: 0 });
   });

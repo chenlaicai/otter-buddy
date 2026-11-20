@@ -217,7 +217,7 @@ export class ShellActionExecutor implements ShellExecutorLike {
         actionId,
         invokeId: typeof input.invokeId === "string" ? input.invokeId : null,
         conversationId: input.conversationId,
-        toolCallId: null,
+        toolCallId: typeof input.toolCallId === "string" ? input.toolCallId : null,
         source: "sdk-env", // hub 侧 SDK bash 面的远程投影——与 RecordingNodeExecutionEnv 的 exec 入账同源
         kind: "shell.exec",
         target: display,

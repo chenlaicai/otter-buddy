@@ -106,9 +106,16 @@ read/write/edit/bash 仍依赖本机 ExecutionEnv。本切片先把 bash 做成�
 | 验证 | 结果 |
 |---|---|
 | `npx tsc --noEmit` | PASS |
-| 远程机器/路由/DurableSession + connector dispatcher/shell/gateway/执行 e2e | 85 tests PASS |
+| 远程机器/路由/DurableSession + connector dispatcher/shell/gateway/执行 e2e | 86 tests PASS |
 | `npm run build:connector` + closure + 主仓 build | PASS |
 | 全量测试与 lint | 待 rebase 后最终复验 |
+
+## 检视处置
+
+独立代码检视首轮通过。顺手加固：hub 等 shell 回执超时也会发 cancel，避免
+远端进程在登记 unknown 后继续运行；旧协议在执行前预检，省掉工作区查询空转；
+connector 台账补 toolCallId 归因。工作区路径查询的恢复摘要噪声与 spill 跨机读取
+仍留后续切片，不影响本切片正确性。
 
 ## Rollback
 
