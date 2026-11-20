@@ -76,9 +76,10 @@ cmd_start() {
   npm --prefix web run build
 
   # 启动（后台、日志落文件）
-  # 注入固定 owner password（与 web/e2e/global-setup.ts 缺省值一致）供登录写 storageState；
-  # 覆盖用户 shell 环境避免误用生产口令写入 e2e 登录态。
-  nohup env OTTER_OWNER_PASSWORD="${E2E_OWNER_PASSWORD:-e2e-owner-password}" node dist/src/main.js --config config/config.e2e.yaml > "${LOG_FILE}" 2>&1 &
+  # 登录口令来自 config/config.e2e.yaml 的 auth.ownerPassword（与 web/e2e/global-setup.ts 缺省值一致）。
+  # 不再用 env 注入：口令值源只有「config」与「启动机上的口令文件」两级，e2e 走同一条路径，
+  # 才能覆盖到生产同款机制，而不是一条只有测试在用的旁路。
+  nohup node dist/src/main.js --config config/config.e2e.yaml > "${LOG_FILE}" 2>&1 &
   local pid=$!
   echo "$pid" > "${E2E_PID_FILE}"
   echo "e2e server starting (pid ${pid}) -> ${BASE_URL}"

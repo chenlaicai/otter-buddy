@@ -1,13 +1,14 @@
 /**
  * 登录口令（owner password）值源单测。
- * 覆盖：env 优先、config auth.ownerPassword 次之、文件复用、首启生成（0600）、常数时间比对。
+ * 覆盖：config auth.ownerPassword 优先、文件复用、首启生成（0600）、常数时间比对；
+ * 以及「env 已废弃，不再参与判定」。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
-  OWNER_PASSWORD_ENV,
+  DEPRECATED_OWNER_PASSWORD_ENV,
   OWNER_PASSWORD_FILENAME,
   generateOwnerPassword,
   resolveOwnerPassword,
@@ -25,13 +26,11 @@ afterEach(() => {
 });
 
 describe("登录口令（owner password）：值源解析", () => {
-  it("env 优先于 config 与文件（alpha/e2e/生产三态显式注入）", () => {
-    const password = resolveOwnerPassword({
-      env: { [OWNER_PASSWORD_ENV]: "from-env" },
-      configuredPassword: "from-config",
-      dataDir: dir,
-    });
-    expect(password).toBe("from-env");
+  it("config 优先于文件（配了就是配了，不再有 env 这一层截胡）", () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, OWNER_PASSWORD_FILENAME), "from-file\n", { mode: 0o600 });
+    const password = resolveOwnerPassword({ configuredPassword: "from-config", dataDir: dir });
+    expect(password).toBe("from-config");
   });
 
   it("config auth.ownerPassword 优先于文件（可自定义、能记住的固定登录密码）", () => {
@@ -53,10 +52,18 @@ describe("登录口令（owner password）：值源解析", () => {
     expect(resolveOwnerPassword({ configuredPassword: "  ", dataDir: dir })).toBe("from-file");
   });
 
-  it("env 为空串时不采信，回落文件生成", () => {
-    const password = resolveOwnerPassword({ env: { [OWNER_PASSWORD_ENV]: "  " }, dataDir: dir });
-    expect(password).not.toBe("  ");
-    expect(password.length).toBeGreaterThan(20);
+  it("旧 env 值源已废弃：残留变量不能覆盖 config 或口令文件", () => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, OWNER_PASSWORD_FILENAME), "from-file\n", { mode: 0o600 });
+    const previous = process.env[DEPRECATED_OWNER_PASSWORD_ENV];
+    try {
+      process.env[DEPRECATED_OWNER_PASSWORD_ENV] = "from-deprecated-env";
+      expect(resolveOwnerPassword({ dataDir: dir })).toBe("from-file");
+      expect(resolveOwnerPassword({ dataDir: dir, configuredPassword: "from-config" })).toBe("from-config");
+    } finally {
+      if (previous === undefined) delete process.env[DEPRECATED_OWNER_PASSWORD_ENV];
+      else process.env[DEPRECATED_OWNER_PASSWORD_ENV] = previous;
+    }
   });
 
   it("config 口令覆盖既有文件时记 warn（避免运维拿旧值困惑）", () => {

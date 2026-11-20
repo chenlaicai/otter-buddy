@@ -1,7 +1,8 @@
 /**
  * Playwright global-setup：统一接入登录后写 storageState。
  * 之后所有 spec 以已登录浏览器上下文运行——不再需要硬编码 X-Otter 声明头。
- * 口令来源：env E2E_OWNER_PASSWORD（缺省 e2e-owner-password，与 scripts/e2e-server.sh 启动注入一致）。
+ * 口令来源：服务端取 config/config.e2e.yaml 的 auth.ownerPassword（固定 e2e-owner-password）。
+ * 这里的 env E2E_OWNER_PASSWORD 只是「测试客户端填什么」的旁路开关，改它必须同步改那份配置。
  */
 import { chromium } from '@playwright/test'
 

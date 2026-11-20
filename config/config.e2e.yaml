@@ -6,6 +6,10 @@
 #   见 src/bootstrap/database.ts ensureBgeM3Model 注释）；LLM 用占位端点（e2e 不触达）。
 server:
   port: 3199
+auth:
+  # e2e 专用固定登录口令（与 web/e2e/global-setup.ts、scripts/e2e-server.sh 一致）：
+  # e2e 只跑 SPA 冒烟，不是机密；写在这里是为了让口令走「config 优先」这条生产同款路径。
+  ownerPassword: "e2e-owner-password"
 database:
   # e2e 专用临时库：systemd 无关、无生产数据；CI 每次全新，本地复用由脚本清理
   path: ./data/e2e/otter-e2e.db

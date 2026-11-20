@@ -37,7 +37,7 @@ import { ConnectorWsGateway } from "@frameworks/execution/connector-ws-gateway";
 import { RemoteExecutionMachine } from "@frameworks/execution/remote-execution-machine";
 import { SqliteRemoteActionRegistry } from "@frameworks/db/execution/sqlite-remote-action-registry";
 import { ConnectorPairController } from "@interface-adapters/http/controllers/connector-pair-controller";
-import { resolveOwnerPassword, verifyOwnerPassword } from "@interface-adapters/http/auth/owner-password";
+import { DEPRECATED_OWNER_PASSWORD_ENV, resolveOwnerPassword, verifyOwnerPassword } from "@interface-adapters/http/auth/owner-password";
 import { createSessionSigner } from "@interface-adapters/http/auth/session-cookie";
 import { AuthController } from "@interface-adapters/http/controllers/auth-controller";
 
@@ -752,7 +752,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
 
   const mahjongRoot = options.staticRoot === false ? false : path.resolve(import.meta.dirname, "../..", "web-mahjong");
   // ── 统一接入：登录口令 → HMAC 会话签名器 → auth 三端点 + 中间件会话优先 ──
-  const ownerPassword = resolveOwnerPassword({ dataDir, logger, env: process.env, configuredPassword: config.auth?.ownerPassword });
+  // 旧 env 值源已废弃：仍留在环境里时明确提示「不生效」，避免排障时以为配的是它。
+  if ((process.env[DEPRECATED_OWNER_PASSWORD_ENV] ?? "").trim() !== "") {
+    logger.warn("环境变量已废弃并被忽略：登录口令只认 config auth.ownerPassword 或数据目录下的口令文件", {
+      envKey: DEPRECATED_OWNER_PASSWORD_ENV,
+    });
+  }
+  const ownerPassword = resolveOwnerPassword({ dataDir, logger, configuredPassword: config.auth?.ownerPassword });
   const sessionSigner = createSessionSigner(ownerPassword);
   const authController = new AuthController({
     verifyOwnerPassword: (password) => verifyOwnerPassword(ownerPassword, password),
