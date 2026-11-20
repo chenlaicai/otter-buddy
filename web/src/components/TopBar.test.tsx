@@ -17,6 +17,8 @@ describe('TopBar 悬浮主导航', () => {
     expect(screen.queryByText('Otter Buddy')).toBeNull()
     expect(container.querySelector('header')?.classList.contains('glass-strong')).toBe(false)
     expect(screen.getByRole('navigation', { name: '主导航' }).classList.contains('glass-nav')).toBe(true)
+    expect(container.querySelector('.glass-nav-effect')).not.toBeNull()
+    expect(container.querySelector('feDisplacementMap')?.getAttribute('scale')).toBe('80')
     expect(screen.getAllByRole('link')).toHaveLength(NAV_ROUTES.length)
   })
 
