@@ -26,7 +26,7 @@
 
 ## 首次部署步骤
 
-1. **替换海獭 CoLink PoC 体系**（终态：海獭中枢与 CoLink 适配轻进程长期并存）：
+1. **替换海獭 CoLink PoC 体系**（海獭中枢与 CoLink 适配轻进程长期并存）：
    `sudo systemctl disable --now otter-buddy`（PoC 中枢退役，验证数据默认不迁移）。
    colink-agent-app 是 CoLink 通道适配（独立轻进程，OtterBridge 连中枢 API）。
    **CoLink 是独立外部系统，与海獭没有隶属关系**——这台机上它是「外部 IM 平台 ↔ 海獭」的
