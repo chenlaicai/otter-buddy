@@ -13,7 +13,7 @@ intent:
     assertions:
       - "TopBar.test.tsx 3/3：独立玻璃导航、仅图标、无执行机 badge/请求、激活态与七个路由入口保持"
       - "material-v3.test.ts 12/12：玻璃只加在小面积 .glass-nav，prefers-reduced-transparency 下关闭采样并复用实色 token"
-      - "Playwright 1440×900 与 1024×768：菜单中心偏差均为 0px，无页面错误、无导航溢出；支持 SVG 背景滤镜时 backdrop-filter 直接包含 url(#nav-liquid-glass) 与 blur(3px) saturate(1.4) brightness(1.25)，feDisplacementMap scale=80"
+      - "Playwright Chromium 与 WebKit，1440×900 和 1024×768：菜单中心偏差均为 0px，无页面错误、无导航溢出；外框及 7 个菜单项均有 glass-nav-sample，采样层 filter 直接包含 url(#nav-liquid-glass) 与 blur(3px) saturate(1.4) brightness(1.25)，feDisplacementMap scale=80"
 created_in_conversation: 3995c48d-499a-4c2d-b04f-e3581a3d3e28
 tags: [web, ui, topbar, glass, navigation, responsive]
 modules:
@@ -35,7 +35,7 @@ causal_links:
 
 - **透明 header，不再通长铺材质**：`header` 只负责 48px 高的布局与层级，无背景、边框或阴影。
 - **左侧只留图标**：移除文字品牌，保留 `alt="Otter Buddy"`；图标绝对定位，避免其宽度影响菜单的真实视口居中。
-- **中央菜单 Liquid Glass**：`.glass-nav-effect` 独立背景采样层使用 `blur(3px) + saturate(140%) + brightness(125%)`，并由 `feTurbulence → feGaussianBlur → feDisplacementMap(scale=80)` 产生真实位移。位移滤镜必须放进 `backdrop-filter`，直接处理背景采样；普通 `filter` 在 Chromium 只处理透明元素自身，不会产生背景折射。`.glass-nav-tint` 负责低白纱着色，高光与渐变折射边保留，文字/图标位于不参与位移的内容层。复用全局 `--glass-t`，不引入新依赖。选中项继续使用 `.nav-pill-active`。
+- **中央菜单与每个菜单项都有 Liquid Glass**：外框 `.glass-nav-effect` 和每个 `.glass-nav-item-effect` 都包含独立 `.glass-nav-sample`。采样层复制当前静止画布（自定义图片按视口 fixed/cover 对齐），再由 `feTurbulence → feGaussianBlur → feDisplacementMap(scale=80)` 直接位移真实像素，并使用 `blur(3px) + saturate(140%) + brightness(125%)`。这条路径不依赖浏览器对 SVG `backdrop-filter` 的分歧实现，Chrome 与 Safari 共用。着色、高光和渐变折射边保留，文字/图标位于不参与位移的内容层；选中项继续使用 `.nav-pill-active`。复用全局 `--glass-t`，不引入新依赖。
 - **小面积常驻例外**：材质 v3 的“常驻大面零采样”原则不变；本次只给约 604×40px 的一级菜单开放真玻璃，是搭档指定的明确例外。`prefers-reduced-transparency` 下关闭 blur，并随 `--chrome-bg` 一起退化实色。
 - **执行机退出系统顶栏**：删除 TopBar 的 badge、状态、DTO 和 `/api/execution-machines` 请求。后端投影端点及对话页 `ExecutionMachineModal` 的列表/切换能力完全保留。
 - **窄宽度兜底**：菜单设置视口最大宽度与横向滚动，隐藏滚动条；在本应用声明的 1024px 最小宽度下七项完整展示，无溢出。
@@ -46,9 +46,9 @@ causal_links:
 
 候选“保留通长顶栏、只加强玻璃”被否决：它没有解决跨度过长与信息层级混杂的核心问题。候选“删除执行机 API”也被否决：对话级执行机列表仍需要它，本次只移除错误的系统级呈现。
 
-代价：小面积常驻菜单现在会实时采样背景，保留极低面积的重采样成本；其收益是用户指定的一级菜单材质层级，且减少透明度偏好可完整降级。
+代价：外框与 7 个菜单项各有一层小面积静态画布副本和 SVG 滤镜；其收益是用户指定的一级菜单与逐项材质层级，且减少透明度偏好可完整降级。它不采样实时 DOM 内容，只复制静止画布。
 
-**不闪前提与失效条件**：当前 `AppLayout` 中 header 与内容滚动区是上下排列的兄弟节点，菜单背后只有静止画布，没有滚动或流式内容，因此常驻采样不会遇到 v3 已根治的“运行中像素重采样”场景。若未来把菜单改成覆盖在滚动/流式内容之上，或在菜单背后加入动画，此前提即失效；届时必须撤掉 `.glass-nav` 的 blur、退回 R=0 实色半透材质，而不能依赖“小面积”继续豁免。
+**不闪前提与失效条件**：当前 `AppLayout` 中 header 与内容滚动区是上下排列的兄弟节点，菜单背后只有静止画布，没有滚动或流式内容，因此可以复制画布而保持视觉一致，也不会遇到 v3 已根治的“运行中像素重采样”场景。若未来把菜单改成覆盖在滚动/流式内容之上，或在菜单背后加入动画，此前提即失效；届时必须撤掉 `.glass-nav-sample` 的复制画布与 blur、退回 R=0 实色半透材质，而不能让副本继续冒充实时背景。
 
 ## 负面向验收
 
@@ -77,15 +77,17 @@ causal_links:
 
 图片只写入 alpha 隔离实例用于验收，不改默认画布、不向仓库添加壁纸资产。Chrome 最小复现及 1440/1024 两视口截图均已复验；Safari 仍以搭档实机目检为准，不用 Chromium 结果冒充。
 
-3184 生产实例复验又发现开发/构建差异：lightningcss 对同规则内“标准 `backdrop-filter` 在前、`-webkit-` 在前缀在后”的顺序只保留前缀版，Chrome 因而没有采样与位移。局部修复为前缀声明在前、标准声明在后，并用材质契约锁定顺序；不改全局 CSS 压缩器。最终验收以生产构建后的 3184 计算样式和截图为准。
+3184 生产实例复验又发现开发/构建差异：lightningcss 对同规则内“标准 `backdrop-filter` 在前、`-webkit-` 前缀在后”的顺序只保留前缀版，Chrome 因而没有采样与位移。当时局部修复为前缀声明在前、标准声明在后；不改全局 CSS 压缩器。
+
+随后搭档实测 Chrome 有位移、Safari 又变成薄纱，并提出每个菜单项也应有材质、参考钉钉手机端浮动栏。WebKit 最小复现进一步确认：其 `@supports` 虽接受 `backdrop-filter: url(#…)`，实际并不位移背景，因此 `@supports` 不能证明视觉能力。最终实现取消这条浏览器分叉，改为复制静止画布到真实像素层并直接施加 SVG displacement；外框与 7 个菜单项都使用同一 `.glass-nav-sample`，文字和图标独立在上层。Chromium 与 WebKit 的同图截图均出现真实位移，最终仍需生产实例与搭档 Safari 实机目检。
 
 ## 验证证据
 
 - 组件与材质测试：2 文件、15 用例全部通过。
 - Web 构建通过；仅有既存 chunk 大小与动态/静态导入提示。
 - 全量 Web 测试在本分支两次为 872/873，通过项包含本次全部用例；同一 `index.spa-nav.test.tsx` fake-timer 用例在全量并行运行时出现额外调用。该文件在分支和未改基线单跑均 11/11，基线全量两次 871/871；不归因、不隐瞒，已登记 #1969 跟踪。
-- 真浏览器脚本：`data/workspaces/3995c48d-499a-4c2d-b04f-e3581a3d3e28/verify-topbar.cjs`（验证时用 Vite + API mock，页面错误为零，验证服务已停止）。
-- 截图：`topbar-desktop.png`、`topbar-min-width.png`（同目录）。实现者已亲自查看，玻璃只落在菜单胶囊，左侧图标与右侧留白平衡。
+- 真浏览器脚本：`data/workspaces/3995c48d-499a-4c2d-b04f-e3581a3d3e28/verify-topbar.cjs`（Vite + API mock，Chromium/WebKit 两视口页面错误均为零）；生产实例由同目录 `verify-alpha-topbar.cjs` 复验。
+- 截图：`topbar-desktop-{chromium,webkit}.png`、`topbar-min-width-{chromium,webkit}.png` 与 `topbar-alpha-{chromium,webkit}.png`（同目录）。实现者已亲自查看：外框与 7 个菜单项都有独立玻璃层，双端均出现背景位移，左侧图标与右侧留白平衡。
 - 已过最简实现检查：复用既有路由、玻璃 token、激活样式与图标，无新依赖、无新运行时机制；改动集中在 TopBar、一个 CSS 类及对应测试。
 
 ## 视觉质检门

@@ -17,9 +17,10 @@ describe('TopBar 悬浮主导航', () => {
     expect(screen.queryByText('Otter Buddy')).toBeNull()
     expect(container.querySelector('header')?.classList.contains('glass-strong')).toBe(false)
     expect(screen.getByRole('navigation', { name: '主导航' }).classList.contains('glass-nav')).toBe(true)
-    expect(container.querySelector('.glass-nav-effect')).not.toBeNull()
+    expect(container.querySelector('.glass-nav-effect .glass-nav-sample')).not.toBeNull()
     expect(container.querySelector('feDisplacementMap')?.getAttribute('scale')).toBe('80')
     expect(screen.getAllByRole('link')).toHaveLength(NAV_ROUTES.length)
+    expect(container.querySelectorAll('.glass-nav-item .glass-nav-item-effect .glass-nav-sample')).toHaveLength(NAV_ROUTES.length)
   })
 
   it('移除系统级执行机 badge，且不再请求执行机投影', () => {
