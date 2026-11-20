@@ -14,10 +14,12 @@ import { Hono } from "hono";
 import {
   identityMiddleware,
   resolvePolicy,
+  allowsDeclaredIdentity,
   IDENTITY_HEADERS,
   IDENTITY_QUERY,
 } from "../../../src/interface-adapters/http/identity-middleware";
 import { createRouter, type Controllers } from "../../../src/interface-adapters/http/router";
+import type { Context } from "hono";
 
 const H_ID = IDENTITY_HEADERS.userId;
 const H_ROLE = IDENTITY_HEADERS.role;
@@ -54,8 +56,40 @@ describe("resolvePolicy：路由策略表矩阵", () => {
       ["POST", "/api/otters/o1/retry", "write"],
       ["POST", "/api/connections/c1/enter", "write"],
       // POST :id/leave 已下线，矩阵行删除（enter 保留为活端点）
-      // 读语义的 POST 形态不按写兜底
-      ["POST", "/api/memory/search/similar", "authenticated"],
+      // 阅读语义的 POST 形态与读面同档（全库记忆正文）
+      ["POST", "/api/memory/search/similar", "write"],
+      // 读面显式收档：业务正文（对话/时间线/invoke 流水/记忆）至少 user 档，guest 不得读
+      ["GET", "/api/conversations", "write"],
+      ["HEAD", "/api/conversations", "write"],
+      ["GET", "/api/conversations/c1", "write"],
+      ["GET", "/api/conversations/c1/entries", "write"],
+      ["GET", "/api/conversations/c1/invokes", "write"],
+      ["GET", "/api/invokes/i1/events", "write"],
+      ["GET", "/api/entries/e1", "write"],
+      ["GET", "/api/memory/stats", "write"],
+      ["GET", "/api/memory/dark-entries", "write"],
+      // 对话族的写/admin 规则不被读档盖住（方法维度限定）
+      ["POST", "/api/conversations", "write"],
+      // 其余业务正文读口（与对话/记忆同级的私有数据面）
+      ["GET", "/api/otters/o1", "write"],
+      ["GET", "/api/otters/o1/sessions", "write"],
+      ["GET", "/api/otters/o1/profile", "write"],
+      ["GET", "/api/scheduled-tasks/t1", "write"],
+      ["GET", "/api/scheduled-tasks/t1/executions", "write"],
+      ["GET", "/api/connections/c1", "write"],
+      ["GET", "/api/connections/c1/conversations", "write"],
+      ["GET", "/api/skills", "write"],
+      ["GET", "/api/prompts", "write"],
+      ["GET", "/api/health/memory", "write"],
+      ["GET", "/api/activity/healing", "write"],
+      ["GET", "/api/weixin/accounts", "write"],
+      ["GET", "/api/feishu/apps", "write"],
+      ["GET", "/api/channels/status", "write"],
+      ["GET", "/api/execution-machines", "write"],
+      // 显式说明保持 authenticated 的三处（表内写明理由，不靠兑底）
+      ["GET", "/api/attachments/a1", "authenticated"],
+      ["GET", "/api/auth/session", "authenticated"],
+      ["GET", "/api/unfurl", "authenticated"],
     ];
     for (const [method, path, expected] of cases) {
       expect(resolvePolicy(method, path), `${method} ${path}`).toBe(expected);
@@ -63,8 +97,7 @@ describe("resolvePolicy：路由策略表矩阵", () => {
   });
 
   it("表外 /api/* 方法级 fail-closed 兜底：读→authenticated、非读→write", () => {
-    expect(resolvePolicy("GET", "/api/conversations")).toBe("authenticated");
-    expect(resolvePolicy("GET", "/api/attachments/att-1")).toBe("authenticated");
+    expect(resolvePolicy("GET", "/api/nonexistent-new-read")).toBe("authenticated");
     expect(resolvePolicy("POST", "/api/conversations")).toBe("write"); // 建会话
     expect(resolvePolicy("POST", "/api/conversations/c1/messages")).toBe("write");
     expect(resolvePolicy("PATCH", "/api/conversations/c1/archive")).toBe("write");
@@ -178,6 +211,98 @@ describe("identityMiddleware：身份解析与裁决", () => {
     expect((await app.request("/api/inbound/events", { method: "POST" })).status).toBe(200);
     expect((await app.request("/api/inbound/events", { method: "OPTIONS" })).status).toBe(204);
     expect((await app.request("/page")).status).toBe(200);
+  });
+});
+
+/** 真实装配里 node-server 适配器把原始 IncomingMessage 挂在 env.incoming；测试用 env 注入模拟来源。 */
+type NodeEnv = { incoming: { socket: { remoteAddress: string } } };
+function envFrom(remoteAddress: string): NodeEnv {
+  return { incoming: { socket: { remoteAddress } } };
+}
+
+describe("声明式通道来源闸：只对本机直连开", () => {
+  const app = miniApp();
+  /** 无 env 注入的内存 app（模拟“拿不到对端地址”的装配面） */
+  const bareApp = new Hono();
+  bareApp.use("*", identityMiddleware());
+  bareApp.get("/api/things", (c) => c.json({ ok: true }));
+  const bareRequest = (path: string, init?: RequestInit, env?: unknown) =>
+    bareApp.request(path, init, env as never);
+
+  it("回环对端（IPv4 / IPv6 / IPv4-mapped）保留声明式头通道", async () => {
+    for (const addr of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) {
+      const res = await app.request("/api/things", { headers: { [H_ID]: "script", [H_ROLE]: "admin" } }, envFrom(addr));
+      expect(res.status, addr).toBe(200);
+    }
+  });
+
+  it("非回环对端带假 admin 头 → 401（修复前为 200）", async () => {
+    const res = await app.request(
+      "/api/things",
+      { headers: { [H_ID]: "mallory", [H_ROLE]: "admin" } },
+      envFrom("203.0.113.9"),
+    );
+    expect(res.status).toBe(401);
+    expect((await res.json() as { code: string }).code).toBe("unauthorized");
+  });
+
+  it("反代形态（对端回环 + 转发头）视同外部来源：头/query 均不采信", async () => {
+    const viaHeader = await app.request(
+      "/api/things",
+      { headers: { [H_ID]: "mallory", [H_ROLE]: "admin", "x-forwarded-for": "203.0.113.9" } },
+      envFrom("127.0.0.1"),
+    );
+    expect(viaHeader.status).toBe(401);
+    const viaQuery = await app.request(
+      `/api/things?${IDENTITY_QUERY.userId}=mallory&${IDENTITY_QUERY.role}=admin`,
+      { headers: { "x-real-ip": "203.0.113.9" } },
+      envFrom("127.0.0.1"),
+    );
+    expect(viaQuery.status).toBe(401);
+  });
+
+  it("外部来源仍可用 owner 会话 cookie 通过（闸只斩声明式通道，不斩真凭据）", async () => {
+    const sessioned = new Hono();
+    sessioned.use("*", identityMiddleware((cookie) =>
+      cookie === "signed-session" ? { userId: "owner", role: "admin" } : null));
+    sessioned.get("/api/things", (c) => c.json({ ok: true, identity: c.get("identity" as never) }));
+    const res = await sessioned.request(
+      "/api/things",
+      { headers: { cookie: "otter_session=signed-session" } },
+      envFrom("203.0.113.9"),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json() as { identity: { userId: string } }).identity.userId).toBe("owner");
+    // 无效会话 + 外部来源 = 401（无声明式回退）
+    const bad = await sessioned.request(
+      "/api/things",
+      { headers: { cookie: "otter_session=forged", [H_ID]: "owner", [H_ROLE]: "admin" } },
+      envFrom("203.0.113.9"),
+    );
+    expect(bad.status).toBe(401);
+  });
+
+  it("public 面不受来源闸影响：平台回调仍无身份可达", async () => {
+    expect((await app.request("/api/inbound/events", { method: "POST" }, envFrom("203.0.113.9"))).status).toBe(200);
+  });
+
+  it("空值转发头也算反代痕迹：头在场即拒声明式通道（按值判等于留绕过口）", async () => {
+    for (const header of ["x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host"]) {
+      const res = await bareRequest("/api/things", { headers: { [H_ID]: "local", [header]: "" } });
+      expect(res.status, `${header} 空值`).toBe(401);
+    }
+  });
+
+  it("allowsDeclaredIdentity 单判据（直测，不经中间件）：无对端地址放行、非回环拒、任一转发现场即拒", () => {
+    const fake = (headers: Record<string, string>, remoteAddress?: string) => ({
+      req: { header: (n: string) => headers[n.toLowerCase()] },
+      env: remoteAddress === undefined ? {} : envFrom(remoteAddress),
+    }) as unknown as Context;
+    expect(allowsDeclaredIdentity(fake({}))).toBe(true);
+    expect(allowsDeclaredIdentity(fake({}, "127.0.0.1"))).toBe(true);
+    expect(allowsDeclaredIdentity(fake({}, "198.51.100.7"))).toBe(false);
+    expect(allowsDeclaredIdentity(fake({ "x-forwarded-for": "" }, "127.0.0.1"))).toBe(false);
+    expect(allowsDeclaredIdentity(fake({ "x-real-ip": "203.0.113.9" }, "127.0.0.1"))).toBe(false);
   });
 });
 

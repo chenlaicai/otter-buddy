@@ -41,8 +41,11 @@ PORT_PIDF=3461     # 场景D：PID 文件正路（指向谁停谁）
 # mktemp 跨平台形态：显式路径模板 + 6 个 X（GNU mktemp 强制要求模板含 X，
 # macOS -t prefix 无 X 也能跑但 GNU 会报 too few X's——CI Linux 首轮实证）
 TMP="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/port-identity-test.XXXXXX")" && pwd -P)"
-mkdir -p "$TMP/scripts"
+mkdir -p "$TMP/scripts/lib"
 cp "$SCRIPT_SRC" "$TMP/scripts/otter-buddy.sh"
+# 脚本会 source scripts/lib/probe-host.sh（探针地址随 config 的 server.host 走），
+# 沙箱副本要带上这份库，否则脚本首行解析就炸、本用例变成"脚本跑不起来"的假红
+cp "$(dirname "$SCRIPT_SRC")/lib/probe-host.sh" "$TMP/scripts/lib/probe-host.sh"
 SCRIPT="$TMP/scripts/otter-buddy.sh"
 PID_FILE="$TMP/.otter-buddy.pid"
 

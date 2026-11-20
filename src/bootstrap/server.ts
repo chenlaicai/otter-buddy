@@ -7,6 +7,7 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import type { Logger } from "@usecases/ports/logger";
 import { createRouter, type RouterPlumbingOptions } from "@interface-adapters/http/router";
+import { isLoopbackHost } from "@interface-adapters/http/loopback";
 import { getMetricsRegistry } from "@frameworks/metrics/registry";
 import type { initControllers } from "./controllers";
 
@@ -100,20 +101,29 @@ export function buildHttpApp(
 
 /** WSS upgrade 挂载面：返回 true = 已处理该 upgrade
  *  （connector 路径，鉴权失败也已回执）；false = 非 connector 路径（宿主自行处理/销毁）。 */
-export type WsUpgradeHandler = (
-  request: IncomingMessage,
+export type WsUpgradeHandler = (  request: IncomingMessage,
   socket: Duplex,
   head: Buffer,
 ) => Promise<boolean>;
 
 /** 监听端口（生产路径；测试用 app.request 不需要）。
- * serve() 回调只在成功时触发；EADDRINUSE 等绑定错误走 server 的 'error' 事件——
+ *  serve() 回调只在成功时触发；EADDRINUSE 等绑定错误走 server 的 'error' 事件——
  *  捕获后干净退出，避免 port 冲突时走 uncaughtException → dispose 链又卡住（僵尸进程根因之三）。
- * 可选 WSS upgrade 挂载（同端口 connector 通道；不传则 upgrade 一律销毁）。 */
-export function listen(app: Hono, port: number, logger: Logger, wsUpgrade?: WsUpgradeHandler): void {
-  const server = serve({ fetch: app.fetch, port }, (info) => {
-    logger.info(`Otter Buddy server running at http://localhost:${info.port}`);
+ *  可选 WSS upgrade 挂载（同端口 connector 通道；不传则 upgrade 一律销毁）。
+ *  @param host 监听地址，缺省 127.0.0.1（只接受本机/本机反代）。绑非回环地址时告警：
+ *  中枢的凭据体系仅为单用户设计，直面对外网卡等于把全部 API 交给网络上的任何人。
+ *  @returns 底层 http server（装配层不关心；测试拿它验实际绑定地址后自行 close）。 */
+export function listen(app: Hono, port: number, logger: Logger, wsUpgrade?: WsUpgradeHandler, host = "127.0.0.1"): ReturnType<typeof serve> {
+  const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
+    const shownHost = host.includes(":") ? `[${host}]` : host;
+    logger.info(`Otter Buddy server running at http://${shownHost}:${info.port}`);
   });
+  if (!isLoopbackHost(host)) {
+    logger.warn(
+      `监听非回环地址 ${host}：网卡上任何人都能连中枢。确认前置反代/防火墙已就位，` +
+      `且该地址不是把 3000 端口直接交给公网（声明式身份通道仅对本机直连生效，公网访问须走 owner 登录态）。`,
+    );
+  }
   if (wsUpgrade) {
     server.on("upgrade", (request, socket, head) => {
       void wsUpgrade(request, socket, head).then(handled => {
@@ -129,4 +139,5 @@ export function listen(app: Hono, port: number, logger: Logger, wsUpgrade?: WsUp
     }
     process.exit(1);
   });
+  return server;
 }

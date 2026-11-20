@@ -18,7 +18,13 @@ resolve_config_port() {
   line="${line##*port:}"
   echo "${line%#*}" | tr -d " \t\"'"
 }
+# 探针地址同理跟 config 走：server.host 决定服务监听在哪，探针不能写死 IPv4 回环
+# （配置 ::1 时服务只在 IPv6 回环上，写死 127.0.0.1 的探活恒失败）。
+# shellcheck source=./lib/probe-host.sh
+. "$PROJECT_DIR/scripts/lib/probe-host.sh"
+
 PORT="$(resolve_config_port || echo 3000)"
+PROBE_HOST="$(probe_host_for "$(config_server_host "$PROJECT_DIR/config/config.yaml")")"
 
 # 主仓根：worktree 场景 git-common-dir 指向主仓 .git（其父目录即主仓根）。
 # 与 scripts/alpha.sh main_repo_root 同口径。
@@ -222,7 +228,7 @@ cmd_start() {
       exit 1
     fi
     # /api/settings 已接鉴权——健康探针带身份头（无头 401 → curl -sf 判失败）
-    if curl -sf -H 'X-Otter-User-Id: script:otter-buddy.sh' -H 'X-Otter-User-Role: admin' "http://localhost:$PORT/api/settings" >/dev/null 2>&1; then
+    if curl -sf -H 'X-Otter-User-Id: script:otter-buddy.sh' -H 'X-Otter-User-Role: admin' "http://$PROBE_HOST:$PORT/api/settings" >/dev/null 2>&1; then
       echo ""
       echo "[ok] Started (PID $pid) -> http://localhost:$PORT"
       echo "     Logs: $LOG_FILE"

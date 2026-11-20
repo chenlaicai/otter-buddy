@@ -21,11 +21,12 @@ describe("listen() 端口冲突处理（#460）", () => {
 
   beforeAll(async () => {
     // 先占住一个随机端口（真实占用，非 mock——EADDRINUSE 必须真发生）。
-    // 注：不指定 host（绑全接口，含 IPv6 ::）——listen() 内部 serve() 默认也绑全接口，
-    // 若 blocker 只绑 127.0.0.1，IPv6 侧不冲突，不会触发 EADDRINUSE。
+    // 注：blocker 与 listen() 都必须落在同一个地址上才会真冲突——listen() 缺省只绑
+    // 127.0.0.1（不再绑全接口），所以 blocker 也显式绑 127.0.0.1；只绑 :: 的 blocker
+    // 在某些系统上不会与 127.0.0.1 绑定冲突，那样本用例会变成假阴性。
     blocker = createServer();
     await new Promise<void>((resolve) => {
-      blocker.listen(0, () => resolve());
+      blocker.listen(0, "127.0.0.1", () => resolve());
     });
     port = (blocker.address() as AddressInfo).port;
     exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null): never => {

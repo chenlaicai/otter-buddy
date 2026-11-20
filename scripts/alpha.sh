@@ -27,6 +27,12 @@ HEALTH_PATH="/api/settings"
 HEALTH_TIMEOUT=60         # 主服务冷启动含 embedding 模型加载，放宽到 60s
                           # /api/settings 已接鉴权——探针必须带身份头，无头 401 会被 curl -sf 判为不健康
 
+# 探针地址跟 config 的 server.host 走（alpha 副本从主仓 config 继承 host 段）：
+# 写死 IPv4 回环时，配置成 IPv6 回环的实例探活恒失败，随后会被当作启动失败清掉。
+# shellcheck source=./lib/probe-host.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/probe-host.sh"
+PROBE_HOST="127.0.0.1"    # cmd_start 按本次实例的实际 config 覆盖
+
 # ── 基础 helpers ────────────────────────────────────────────
 
 die() { echo "Error: $1" >&2; exit 1; }
@@ -202,7 +208,7 @@ wait_for_health_or_exit() {
   local waited=0
   echo "Waiting for API on port $port ..." >&2
   while [ "$waited" -lt "$max_wait" ]; do
-    if curl -sf -H 'X-Otter-User-Id: script:alpha.sh' -H 'X-Otter-User-Role: admin' "http://localhost:$port$HEALTH_PATH" >/dev/null 2>&1; then
+    if curl -sf -H 'X-Otter-User-Id: script:alpha.sh' -H 'X-Otter-User-Role: admin' "http://$PROBE_HOST:$port$HEALTH_PATH" >/dev/null 2>&1; then
       return 0
     fi
     if ! is_pid_alive "$pid"; then
@@ -400,6 +406,8 @@ cmd_start() {
     || die "Failed to launch detached alpha process. No lockfile written; nothing to clean up."
 
   # 健康检查（fail-fast）——失败路径清理半启动进程树，不留无锁文件孤儿
+  PROBE_HOST="$(probe_host_for "$(config_server_host "$config_file")")"
+
   if ! wait_for_health_or_exit "$port" "$launch_pid"; then
     stop_process_tree "$launch_pid"
     die "Alpha failed to become healthy. Process cleaned up. Log: $log_file"
