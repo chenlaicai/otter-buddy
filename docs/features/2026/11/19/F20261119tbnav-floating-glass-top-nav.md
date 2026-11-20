@@ -13,7 +13,7 @@ intent:
     assertions:
       - "TopBar.test.tsx 3/3：独立玻璃导航、仅图标、无执行机 badge/请求、激活态与七个路由入口保持"
       - "material-v3.test.ts 12/12：玻璃只加在小面积 .glass-nav，prefers-reduced-transparency 下关闭采样并复用实色 token"
-      - "Playwright 1440×900 与 1024×768：菜单中心偏差均为 0px，无页面错误、无导航溢出；独立采样层为 blur(3px) saturate(1.4) brightness(1.25)，filter 指向 nav-liquid-glass，feDisplacementMap scale=80"
+      - "Playwright 1440×900 与 1024×768：菜单中心偏差均为 0px，无页面错误、无导航溢出；支持 SVG 背景滤镜时 backdrop-filter 直接包含 url(#nav-liquid-glass) 与 blur(3px) saturate(1.4) brightness(1.25)，feDisplacementMap scale=80"
 created_in_conversation: 3995c48d-499a-4c2d-b04f-e3581a3d3e28
 tags: [web, ui, topbar, glass, navigation, responsive]
 modules:
@@ -35,7 +35,7 @@ causal_links:
 
 - **透明 header，不再通长铺材质**：`header` 只负责 48px 高的布局与层级，无背景、边框或阴影。
 - **左侧只留图标**：移除文字品牌，保留 `alt="Otter Buddy"`；图标绝对定位，避免其宽度影响菜单的真实视口居中。
-- **中央菜单 Liquid Glass**：`.glass-nav-effect` 独立背景采样层使用 `blur(3px) + saturate(140%) + brightness(125%)`，并由 `feTurbulence → feGaussianBlur → feDisplacementMap(scale=80)` 产生真实位移；`.glass-nav-tint` 负责低白纱着色，高光与渐变折射边保留，文字/图标位于不参与位移的内容层。复用全局 `--glass-t`，不引入新依赖。选中项继续使用 `.nav-pill-active`。
+- **中央菜单 Liquid Glass**：`.glass-nav-effect` 独立背景采样层使用 `blur(3px) + saturate(140%) + brightness(125%)`，并由 `feTurbulence → feGaussianBlur → feDisplacementMap(scale=80)` 产生真实位移。位移滤镜必须放进 `backdrop-filter`，直接处理背景采样；普通 `filter` 在 Chromium 只处理透明元素自身，不会产生背景折射。`.glass-nav-tint` 负责低白纱着色，高光与渐变折射边保留，文字/图标位于不参与位移的内容层。复用全局 `--glass-t`，不引入新依赖。选中项继续使用 `.nav-pill-active`。
 - **小面积常驻例外**：材质 v3 的“常驻大面零采样”原则不变；本次只给约 604×40px 的一级菜单开放真玻璃，是搭档指定的明确例外。`prefers-reduced-transparency` 下关闭 blur，并随 `--chrome-bg` 一起退化实色。
 - **执行机退出系统顶栏**：删除 TopBar 的 badge、状态、DTO 和 `/api/execution-machines` 请求。后端投影端点及对话页 `ExecutionMachineModal` 的列表/切换能力完全保留。
 - **窄宽度兜底**：菜单设置视口最大宽度与横向滚动，隐藏滚动条；在本应用声明的 1024px 最小宽度下七项完整展示，无溢出。
@@ -71,9 +71,11 @@ causal_links:
 
 第二版把主体白纱覆盖降低、blur 降至 14px，并用 `::before` 增加斜向镜面高光、`::after` 增加亮边/暖色接触边交替的渐变折射边。玻璃感来自“背景透出 + 表面反射 + 边缘厚度”三者共同存在，而非继续加白。减少透明度时专用背景变量退化实色、blur 与两个装饰伪元素全部关闭。
 
-随后按搭档要求改用 macOS 图片壁纸验证，先修正了深色纹理下的文字对比。搭档进一步明确目标是 **Liquid Glass 而非普通玻璃拟态**，因此最终加入真实 SVG displacement 折射层：背景纹理经过菜单时发生可见几何位移，文字与图标保持清晰不参与变形。该真实折射目前由 Chromium 验证；其他浏览器保留采样、透色与高光降级，减少透明度偏好下折射层和装饰层全部关闭。
+随后按搭档要求改用 macOS 图片壁纸验证，先修正了深色纹理下的文字对比。搭档进一步明确目标是 **Liquid Glass 而非普通玻璃拟态**，因此加入 SVG displacement 折射层：背景纹理经过菜单时发生几何位移，文字与图标保持清晰不参与变形。
 
-图片只写入 alpha 隔离实例用于验收，不改默认画布、不向仓库添加壁纸资产。
+搭档随后实测 Safari 略有折射、Chrome 仍只是薄纱，推翻了实现者此前的浏览器判断。最小复现确认根因是滤镜挂点：普通 `filter: url(#…)` 没有折射 Chromium 的背景采样；改成 `backdrop-filter: url(#…) blur(3px) …` 后，同一图片的背景线条在 Chrome 中真实弯曲。支持 SVG 背景滤镜的浏览器走直接背景位移，其他浏览器保留原采样、透色与高光降级；减少透明度偏好下折射层和装饰层全部关闭。
+
+图片只写入 alpha 隔离实例用于验收，不改默认画布、不向仓库添加壁纸资产。Chrome 最小复现及 1440/1024 两视口截图均已复验；Safari 仍以搭档实机目检为准，不用 Chromium 结果冒充。
 
 ## 验证证据
 
