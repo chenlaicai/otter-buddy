@@ -26,10 +26,11 @@
 
 ## 首次部署步骤
 
-1. **替换海獭 CoLink PoC 体系**（终态：本机只跑一个海獭系统进程）：
+1. **替换海獭 CoLink PoC 体系**（海獭中枢与 CoLink 适配轻进程长期并存）：
    `sudo systemctl disable --now otter-buddy`（PoC 中枢退役，验证数据默认不迁移）。
-   colink-agent-app 是海獭的 CoLink 通道适配（独立轻进程，OtterBridge 连中枢 API）——
-   过渡期保留（CoLink 对接不能断），待 CoLink 能力并入主中枢进程后退役；
+   colink-agent-app 是 CoLink 通道适配（独立轻进程，OtterBridge 连中枢 API）。
+   **CoLink 是独立外部系统，与海獭没有隶属关系**——这台机上它是「外部 IM 平台 ↔ 海獭」的
+   桥，不是等待并入中枢的临时件；轻进程形态是长期形态（搭档拍板），不并入主中枢进程。
    其 `Requires=otter-buddy.service` 在新单元安装后自然满足
 2. **配置面**：
    - `/etc/otter-buddy/config.yaml`：沿 PoC 版（server.port 3000 / database.path `./data/otter-buddy.db`（相对 WorkingDirectory=/opt/otter-buddy，经 data symlink 落 /var/lib/otter-buddy/data 物理数据根）/ llm models 走本机 apig 回环或真实 key——**从本机主中枢 config.yaml 拷贝 llm 段，勿用 PoC 占位 key**）。数据迁移（6b 工具）restore 目标 = `/var/lib/otter-buddy/data`（物理根，与 symlink 布局对齐）
@@ -57,7 +58,11 @@
    - **App 目录同步排除 `node_modules`**，依赖由独立安装步骤管（扩展有 sharp 这类自有生产依赖）。装完脚本会做依赖闭包校验：清单里每个 dependency 必须在 `node_modules` 有目录——缺包不会让探活失败，只会在用到该能力时炸。
    - **中枢 `npm ci` 失败时的回退**：这台机 `onnxruntime-node` 安装脚本要下载二进制、源不可达（云端 `OTTER_EMBEDDING=off`）。脚本先试 `npm ci`，失败退回「按 lock 就地安装 + 跳过安装脚本」，随后仍做依赖闭包校验 + `/api/ping` 探活。
 6. **验证**：
-   - `curl https://otter.60.205.214.148.sslip.io/api/ping` → `{"ok":true,...}`
+   - **先判入口是否存在**：`curl -sk -o /dev/null -w '%{http_code}' https://<中枢域名>/api/ping`——
+     `404` 或证书错误时先排查中枢站点未装或未正确配置（如 nginx 落到默认 server），不要直接
+     判成中枢进程故障；若确认站点未装，则中枢无公网入口，唯一对外应用入口是 CoLink App，
+     确认其可用的姿势是 `curl -s https://app.<域名>/manifest.json` 看版本
+   - `curl https://otter.60.205.214.148.sslip.io/api/ping` → `{"ok":true,...}`（前置：站点与证书已装）
    - 浏览器开 `https://otter.60.205.214.148.sslip.io/` 登录页
    - `systemctl status otter-buddy`（active + Memory 曲线）
    - connector 升级新包后改连 `wss://otter.60.205.214.148.sslip.io/connector-ws`（安装：`npm i -g otter-buddy-connector-<ver>.tgz`，命令 `otter-connector --hub https://otter...`——升级子协议 pin 生效后旧版客户端（仓内直跑形态）会被 400 拒，装包即解，配对身份不变）
@@ -77,7 +82,12 @@
 ## 已知边界
 
 - 部署阶段 ECS 是**空库新实例**（无历史对话）——真数据在数据迁移后才上云
-- **终态进程拓扑（搭档定稿）**：这台机只有一个海獭系统——主中枢进程（含全部模块能力）；
-  PoC 中枢（263M）退役让位，colink-agent-app（~几十 M，CoLink 通道适配）过渡保留至
-  能力并入；内存账：系统服务 ~500M + 主中枢（关 bge）400-700M + swap 6G 兜底，余量健康
+- **进程拓扑**：两个 systemd unit 长期并存——`otter-buddy`（海獭中枢，全部模块能力）与
+  `colink-agent-app`（CoLink 通道适配，~几十 M）。判别口径：海獭中枢对自己负责，CoLink 是
+  外部平台，两者靠 HTTP 对接（`OTTER_BASE_URL`，现网回环 `http://127.0.0.1:3000`），
+  所以适配进程不会因为「能力收拢」而消失。内存账：系统服务 ~500M + 主中枢（关 bge）
+  400-700M + swap 6G 兜底，余量健康
+- **对外入口分工**：`app.<域名>` → `127.0.0.1:31130`（CoLink App，平台回调入口）；
+  中枢网页入口需要另装 `nginx-otter.conf` + 证书才会存在，未装即「中枢无公网入口」——
+  此时 CoLink App 是唯一对外应用入口（`/events` 接收 `app.user_message_received` 等事件）
 - connector WSS 升级鉴权强化与 packages 化已落地：升级层三查（子协议 pin → Origin 白名单 → Bearer token，见 F20261119cwssp）；Origin 白名单 `OTTER_WS_ALLOWED_ORIGINS` 当前保持空（fail-closed 拒带 Origin 请求，connector node 客户端不受影响）
