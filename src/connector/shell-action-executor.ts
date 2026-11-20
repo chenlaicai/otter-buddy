@@ -100,7 +100,7 @@ export class ShellActionExecutor implements ShellExecutorLike {
     if (!conversationId || !commandOk) {
       return { early: { status: "failed", errorCode: "invalid_input", error: "shell.exec requires non-empty conversationId and command" } };
     }
-    // B1：conversationId → 设备工作区根（<connector dataRoot>/workspaces/<id>）；
+    // conversationId 映射设备工作区根（<connector dataRoot>/workspaces/<id>）；
     // 确保根存在（会话首次 shell 时工作区可能尚未落盘——与 workspace 写动作的 mkdir 语义对齐）。
     let root: string;
     try {

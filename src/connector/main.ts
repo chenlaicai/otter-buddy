@@ -194,7 +194,7 @@ function registerSignalHandlersOnce(shutdown: () => Promise<void>): void {
     if (shuttingDown) return; // 双信号幂等——重复 offline 帧不叠退出链
     shuttingDown = true;
     exiting = true;
-    // 优雅退出顺序（阶段 7）：先取消 shell 进程组（abort → SDK 杀进程组，不留孤儿进程）
+    // 优雅退出先取消 shell 进程组（abort → SDK 杀进程组，不留孤儿进程）
     // + 在途台账落 interrupted，再发 offline 帧收尾——hub 侧 device-offline 收尾与
     // connector 侧自杀收尾同裁决（interrupted），两侧一致。
     void shutdown().catch(() => { /* best-effort */ }).finally(() => {
@@ -324,7 +324,7 @@ async function main(): Promise<void> {
   // 断线自动重连：指数退避，重连=新会话（hub 侧 sid 代际隔离跨会话重放）
   const runtime = await buildRuntime(identity); // 执行栈（台账清扫后才开始执行动作）
   // 信号处理注册一次（runtime 后——自杀收尾读 dispatcher 在途集）。
-  // 顺序（阶段 7）：先取消 shell 进程组（不留孤儿进程），再落台账 interrupted 收尾。
+  // 先取消 shell 进程组（不留孤儿进程），再落台账 interrupted 收尾。
   registerSignalHandlersOnce(async () => {
     await runtime.shellExecutor.shutdown("connector shutting down (graceful offline)")
       .catch(err => log("shell executor shutdown failed (non-fatal)", { error: String(err) }));

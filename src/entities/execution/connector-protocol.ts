@@ -143,5 +143,5 @@ export const CONNECTOR_HEARTBEAT_TIMEOUT_MS = 90_000;
 /** 动作执行回执等待上限——超时中枢侧落 unknown（不盲重试，五态纪律）。
  * 文件动作量级秒级，30s 覆盖慢盘；无进度流。
  * （shell.exec 等长动作的等待上限由调用方按命令 timeout + grace 另行放大——
- *  hub 侧纪律见阶段7方案 §4，本常量只服务文件类六动作缺省。） */
+ *  hub 侧对长动作另设等待纪律，本常量只服务文件类六动作缺省。） */
 export const CONNECTOR_ACTION_TIMEOUT_MS = 30_000;
