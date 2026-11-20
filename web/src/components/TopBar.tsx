@@ -62,7 +62,7 @@ export function TopBar() {
           })}
         </div>
 
-        {/* Chromium 的真实位移折射；其他浏览器退化为采样 + 透色 + 高光。 */}
+        {/* 背景位移折射；不支持 SVG backdrop filter 的浏览器退化为采样 + 透色 + 高光。 */}
         <svg aria-hidden="true" className="pointer-events-none absolute h-0 w-0" focusable="false">
           <defs>
             <filter
