@@ -66,7 +66,7 @@
    - 浏览器开 `https://otter.60.205.214.148.sslip.io/` 登录页。**登录口令**取 `/etc/otter-buddy/config.yaml`
      的 `auth.ownerPassword`，没配则回退 `OTTER_OWNER_PASSWORD` → `/var/lib/otter-buddy/data/owner-password`
      （首启自动生成，`sudo cat` 可读）——公开入口开了却不知道口令，等于把自己锁在门外
-   - 登录后确认三件：会话 cookie 带 `Secure`（`Set-Cookie` 里看）、附件上传 >1MB 不 413、牌局页事件流逐帧推进（不攒批）
+   - 登录后确认三件：会话 cookie 带 `Secure`（`Set-Cookie` 里看）、附件上传 >1MB 不 413、主聊天与牌局事件流逐帧推进（不攒批）
    - `systemctl status otter-buddy`（active + Memory 曲线）
    - connector 升级新包后改连 `wss://otter.60.205.214.148.sslip.io/connector-ws`（安装：`npm i -g otter-buddy-connector-<ver>.tgz`，命令 `otter-connector --hub https://otter...`——升级子协议 pin 生效后旧版客户端（仓内直跑形态）会被 400 拒，装包即解，配对身份不变）
 
@@ -100,7 +100,7 @@
      `X-Otter-User-Role: admin` 就能绕过登录——反代后面所有请求在中枢看来都来自 `127.0.0.1`。
   2. **`client_max_body_size` 抬到 120m**：中枢自己允许单请求 120MB（单文件 25MB），nginx 默认
      1m 会让反代层先 413 掉，而上传失败在中枢日志里没有任何痕迹（请求根本没到）。
-  3. **SSE 路径关 `proxy_buffering`**：牌局 `/api/mahjong/rooms/<id>/events` 是
+  3. **SSE 路径关 `proxy_buffering`**：会话订阅、发消息、两类重试与牌局事件流都是
      `text/event-stream`，默认缓冲会把事件攒批——表现是「页面很慢」，不是报错。
   4. **会话 cookie 的 `Secure`**：中枢按请求形态翻转（`X-Forwarded-Proto: https` → 标 Secure），
      所以 `proxy_set_header X-Forwarded-Proto $scheme` 必须留着；丢了就等于降级成不标 Secure。

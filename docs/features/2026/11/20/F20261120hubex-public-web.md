@@ -1,13 +1,13 @@
 ---
 id: F20261120hubex
 title: "中枢网页对外：会话 cookie 按请求形态标 Secure，反代配置补齐上传与 SSE 两处静默坑"
-summary: "中枢网页入口原本只在本机/回环形态下跑过，代码里会话 cookie 写死 `secure: false`（注释写着「上云时应按部署形态翻转」）。要把 `otter.<域名>` 开到公网，这一条必须先翻：改成按请求形态判定（`X-Forwarded-Proto` 首段为 https 或请求自身协议为 https 才标 Secure，缺失/其他值一律按明文，宁可少标不误标）。同时把 `nginx-otter.conf` 里两个「不报错但功能坏」的坑补上：`client_max_body_size` 默认 1m 会让附件上传在反代层被 413 掉（中枢日志零痕迹），牌局 SSE 走默认 `proxy_buffering on` 会被攒批（表现是慢，不是错）。"
+summary: "中枢网页入口原本只在本机/回环形态下跑过，代码里会话 cookie 写死 `secure: false`（注释写着「上云时应按部署形态翻转」）。要把 `otter.<域名>` 开到公网，这一条必须先翻：改成按请求形态判定（`X-Forwarded-Proto` 首段为 https 或请求自身协议为 https 才标 Secure，缺失/其他值一律按明文，宁可少标不误标）。同时把 `nginx-otter.conf` 里两个「不报错但功能坏」的坑补上：`client_max_body_size` 默认 1m 会让附件上传在反代层被 413 掉（中枢日志零痕迹），主聊天与牌局 SSE 走默认 `proxy_buffering on` 会被攒批（表现是慢，不是错）。"
 change_type: feature-update
-capability_test: "tests/interface-adapters/http/auth-controller.test.ts（新增 2 例：反代 https → 带 Secure / 明文 → 不带；多值转发头取首段、https 以外一律明文）"
+capability_test: "tests/interface-adapters/http/auth-controller.test.ts（新增 2 例：反代 https → 带 Secure / 明文 → 不带；多值转发头取首段、https 以外一律明文）+ tests/deploy/ecs-nginx-public-web.test.ts（5 类 SSE 路由逐一匹配同一关缓冲 location，身份头清理与超时配置在位）"
 intent:
   problem: "中枢网页入口此前没有公网形态：会话 cookie 写死 `secure: false`，注释自陈「本机 http 部署不强制，上云时应按部署形态翻转」。一旦按计划把 `otter.<域名>` 开出去，浏览器→反代这一段是 TLS 而 cookie 不标 Secure，等于给明文降级留口子。同时反代配置只写了「清空声明式身份头」和 WS 透传两件事，缺两处不会报错但会坏功能的配置：上传被 1m 默认上限 413（中枢侧看不到请求，日志零痕迹），牌局 SSE 事件流被默认缓冲攒批（用户看到的是「很慢」）。"
-  solution: "① auth-controller 增加 `isSecureRequest`：先看 `X-Forwarded-Proto` 首段，缺失才看请求自身 URL 协议，只认 `https` 字面值——把「本机/上云」的人肉切换改成按请求形态判定。② nginx-otter.conf 补 `client_max_body_size 120m`（对齐中枢 120MB 预检 / 25MB 单文件）、牌局 SSE 专属 location 关 `proxy_buffering`/`proxy_cache` 并延长读超时、TLS 段加 HSTS。③ README 把「公开入口前必须做对的四件事」写成分条，并把登录口令的取法写进验证节。"
-  expected_effect: "公网 HTTPS 形态下会话 cookie 带 Secure；附件上传不再被反代层 413；牌局事件流逐帧到达。三者都是「配错不报错」的类型，写成文档条目 + 单测后，后续改 nginx 配置漏一条会被看文档的人当场发现。"
+  solution: "① auth-controller 增加 `isSecureRequest`：先看 `X-Forwarded-Proto` 首段，缺失才看请求自身 URL 协议，只认 `https` 字面值——把「本机/上云」的人肉切换改成按请求形态判定。② nginx-otter.conf 补 `client_max_body_size 120m`（对齐中枢 120MB 预检 / 25MB 单文件）、覆盖会话订阅、发消息/重试与牌局的 SSE 专属 location 关 `proxy_buffering`/`proxy_cache` 并延长读超时、TLS 段加 HSTS。③ README 把「公开入口前必须做对的四件事」写成分条，并把登录口令的取法写进验证节。"
+  expected_effect: "公网 HTTPS 形态下会话 cookie 带 Secure；附件上传不再被反代层 413；主聊天与牌局事件流逐帧到达。三者都是「配错不报错」的类型，写成文档条目 + 单测后，后续改 nginx 配置漏一条会被看文档的人当场发现。"
   verify_by:
     type: static_only
 created_in_conversation: 0401284f-dff7-4927-af60-3516a984529d
@@ -33,7 +33,7 @@ causal_links:
 | --- | --- | --- |
 | 1 | 会话 cookie 写死 `secure: false`，注释自陈「上云时应按部署形态翻转」 | 浏览器→反代是 TLS，cookie 却不标 Secure → 明文降级面 |
 | 2 | `nginx` 默认 `client_max_body_size 1m`，而中枢允许单请求 120MB（单文件 25MB） | 附件/图片上传被反代层 413；中枢日志**零痕迹**（请求没到中枢），排查会往中枢找 |
-| 3 | 牌局 `/api/mahjong/rooms/<id>/events` 是 `text/event-stream`，默认 `proxy_buffering on` | 事件被攒批下发；用户看到「页面很慢」，不是报错 |
+| 3 | 会话订阅、发消息/重试与牌局 SSE 是 `text/event-stream`，默认 `proxy_buffering on` | 主聊天或牌局事件被攒批下发；用户看到「页面很慢」，不是报错 |
 
 ## 改了什么
 
@@ -56,7 +56,7 @@ export function isSecureRequest(c: Pick<Context, "req">): boolean {
 ### 2. 反代配置三补（`deploy/ecs/nginx-otter.conf`）
 
 - TLS server 段 `client_max_body_size 120m`（与中枢 `Content-Length` 预检同量级）；
-- 牌局 SSE 专属 location：`proxy_buffering off` + `proxy_cache off` + 读超时 3600s（与 connector WS 同款长连接处理），并同样清空声明式身份头；
+- 覆盖会话订阅、发消息、两类重试与牌局的 SSE 专属 location：`proxy_buffering off` + `proxy_cache off` + 读超时 3600s（与 connector WS 同款长连接处理），并同样清空声明式身份头；
 - TLS 段 `add_header Strict-Transport-Security "max-age=31536000" always`。
 
 ### 3. 文档（`deploy/ecs/README.md`）
@@ -79,6 +79,8 @@ export function isSecureRequest(c: Pick<Context, "req">): boolean {
 | 多值 / 其它值 | `https, http` → 含 `Secure`；`http` → 不含 |
 
 判据落在**发出的 `Set-Cookie` 头**上（不是内部函数返回值），因为线上行为由这个头决定。
+
+另有 `tests/deploy/ecs-nginx-public-web.test.ts` 将会话订阅、发消息、两类重试与牌局 5 类代表路径逐一匹配专属 location，并断言关缓冲/缓存、读超时与声明式身份头清理都在位；修复前主聊天路径不匹配会红。
 
 ## 已知边界
 
