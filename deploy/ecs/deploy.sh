@@ -68,12 +68,12 @@ tar --exclude='./.git' --exclude='./node_modules' --exclude='./data' --exclude='
       && sudo mkdir -p /var/lib/otter-buddy/data \
       && sudo chown otter:otter /var/lib/otter-buddy /var/lib/otter-buddy/data \
       && if [ -e ${REMOTE_CODE}/data ] && [ ! -L ${REMOTE_CODE}/data ]; then \
-           echo "FATAL: ${REMOTE_CODE}/data 是真实目录（非 symlink）——ln -sfn 不会替换它只会建嵌套链，服务将静默读旧目录。请先人工处置（确认无数据后 rm -rf 或 mv），再重跑部署。" >&2; exit 1; \
+           echo \"FATAL: ${REMOTE_CODE}/data 是真实目录（非 symlink）——ln -sfn 不会替换它只会建嵌套链，服务将静默读旧目录。请先人工处置（确认无数据后 rm -rf 或 mv），再重跑部署。\" >&2; exit 1; \
          fi \
       && sudo ln -sfn /var/lib/otter-buddy/data ${REMOTE_CODE}/data \
-      && [ "$(readlink ${REMOTE_CODE}/data)" = "/var/lib/otter-buddy/data" ] \
+      && [ \"\$(readlink ${REMOTE_CODE}/data)\" = \"/var/lib/otter-buddy/data\" ] \
       && sudo -u otter test -w /var/lib/otter-buddy/data \
-      || { echo "FATAL: data symlink 建链/属主校验失败（readlink 目标不符或 otter 不可写）" >&2; exit 1; }"
+      || { echo \"FATAL: data symlink 建链/属主校验失败（readlink 目标不符或 otter 不可写）\" >&2; exit 1; }"
 
 # 远端：装生产依赖 → 依赖闭包校验 → 重启 → 探活。
 # npm ci 在这台机的 onnxruntime-node 安装脚本上会因二进制源不可达而失败（云端本就关闭嵌入），
