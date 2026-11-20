@@ -53,6 +53,8 @@ node scripts/migrate-state.mjs --source <旧 state.enc> --target <新 state.enc>
 
 ## 配置
 
+连中枢的身份：`OTTER_BASE_URL` 指向中枢，认证方式二选一——同机部署且中枢只监听回环时，声明式身份头（`X-Otter-User-Id`/`X-Otter-User-Role`）可用；一旦 `OTTER_BASE_URL` 走公网域名或反代，就必须设 `OTTER_SERVICE_TOKEN`（与中枢侧 `auth.serviceToken` 同值，≥16 字符），扩展会改用 `Authorization: Bearer`——中枢按「本机直连」之外一律拒掉声明式头，这是外部伪造面的收口。缺令牌走公网域名会稳定 401（`OTTER_HTTP_401`）。
+
 见 `.env.example`。身份与连接（`COLINK_APP_ID`/`COLINK_APP_INSTANCE_ID`/`COLINK_CLIENT_ID`/`COLINK_CLIENT_SECRET`/`COLINK_SIGNING_SECRET`/`COLINK_ISSUER`）由 SDK 从环境读取并在创建运行时逐字段校验，错误码 `INVALID_APP_CONFIG`，不回显凭据。manifest 声明了 app 渲染视图，因此 `COLINK_APP_ORIGIN` 必填；宿主与主站不同源时再设 `COLINK_HOST_ORIGIN`。
 
 SDK 状态（安装、OAuth、持久输出账本）保存在 `COLINK_STATE_FILE`（缺省 `./.colink/state.enc`）与旁边的 `.key`；该目录需持久化、备份、仅服务账号可读，且单进程单副本独占。本扩展自己的 `DATA_DIR` 只存外部会话 → Otter Conversation 映射，写入采用同目录临时文件加原子重命名，文件权限 `0600`。

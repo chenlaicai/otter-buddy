@@ -66,14 +66,23 @@ export class ConversationStore {
 }
 
 export class OtterBridge {
-  constructor({ baseUrl, store, fetcher = fetch, timeoutMs = 180_000, pollMs = 1_000, toolBridge }) {
+  constructor({ baseUrl, store, fetcher = fetch, timeoutMs = 180_000, pollMs = 1_000, toolBridge, serviceToken }) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.store = store;
     this.fetcher = fetcher;
     this.timeoutMs = timeoutMs;
     this.pollMs = pollMs;
     this.toolBridge = toolBridge;
+    /** 中枢服务令牌（OTTER_SERVICE_TOKEN）。有它就用 Bearer 真凭据——
+     *  中枢的声明式身份头只对本机直连生效，走公网域名/反代时必须靠令牌。 */
+    this.serviceToken = typeof serviceToken === 'string' && serviceToken.trim() !== '' ? serviceToken.trim() : undefined;
     this.lanes = new Map();
+  }
+
+  /** 身份头：有令牌走 Bearer（跨反代/公网可用），否则退回声明式头（本机直连场景）。 */
+  identityHeaders() {
+    if (this.serviceToken) return { Authorization: `Bearer ${this.serviceToken}` };
+    return { 'X-Otter-User-Id': 'colink-agent-app', 'X-Otter-User-Role': 'admin' };
   }
 
   async request(path, options = {}, signal) {
@@ -81,8 +90,7 @@ export class OtterBridge {
       ...options,
       headers: {
         'content-type': 'application/json',
-        'X-Otter-User-Id': 'colink-agent-app',
-        'X-Otter-User-Role': 'admin',
+        ...this.identityHeaders(),
         ...options.headers,
       },
       signal,
@@ -199,10 +207,7 @@ export class OtterBridge {
       {
         method: 'POST',
         body: form,
-        headers: {
-          'X-Otter-User-Id': 'colink-agent-app',
-          'X-Otter-User-Role': 'admin',
-        },
+        headers: this.identityHeaders(),
         signal,
       },
     );

@@ -426,3 +426,46 @@ test('re-registers byte-identical MCP config on the next round so Otter accepts 
   assert.equal(state.mcpConfigs.length, 2);
   assert.deepEqual(state.mcpConfigs[1], state.mcpConfigs[0]);
 });
+
+test('有服务令牌时用 Bearer，没令牌时退回声明式头（普通请求与 multipart 一致）', async () => {
+  const seen = [];
+  const fetcher = async (url, options = {}) => {
+    const path = new URL(url).pathname;
+    seen.push({ path, headers: options.headers ?? {}, body: options.body });
+    if (path === '/api/conversations') return Response.json({ id: 'otter-conversation-1', otterIds: ['big-otter'] });
+    if (/^\/api\/conversations\/[^/]+$/.test(path)) return Response.json({ id: 'otter-conversation-1' });
+    if (/^\/api\/conversations\/[^/]+\/attachments$/.test(path)) {
+      return Response.json({ attachments: [{ id: 'attachment-1' }] }, { status: 201 });
+    }
+    return Response.json({ entries: [], invokes: [] });
+  };
+  const image = { bytes: new Uint8Array([1, 2, 3]), mimeType: 'image/png', fileName: 'image.png' };
+  const uploadScope = { installationId: 'installation-1', externalId: 'dm-1' };
+
+  const withToken = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, serviceToken: '  abcdefghijklmnop1234  ' });
+  assert.deepEqual(withToken.identityHeaders(), { Authorization: 'Bearer abcdefghijklmnop1234' });
+  await withToken.request('/api/conversations/x');
+  assert.equal(seen.at(-1).headers.Authorization, 'Bearer abcdefghijklmnop1234');
+  // 令牌在场时不再发声明式头（避免两条通道语义打架）
+  assert.equal(seen.at(-1).headers['X-Otter-User-Role'], undefined);
+  assert.equal(await withToken.uploadAttachment('otter-conversation-1', image, undefined, uploadScope), 'attachment-1');
+  assert.equal(seen.at(-1).path, '/api/conversations/otter-conversation-1/attachments');
+  assert.equal(seen.at(-1).headers.Authorization, 'Bearer abcdefghijklmnop1234');
+  assert.equal(seen.at(-1).headers['X-Otter-User-Role'], undefined);
+  assert.ok(seen.at(-1).body instanceof FormData);
+
+  const withoutToken = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1 });
+  assert.deepEqual(withoutToken.identityHeaders(), { 'X-Otter-User-Id': 'colink-agent-app', 'X-Otter-User-Role': 'admin' });
+  await withoutToken.request('/api/conversations/x');
+  assert.equal(seen.at(-1).headers.Authorization, undefined);
+  assert.equal(seen.at(-1).headers['X-Otter-User-Role'], 'admin');
+  assert.equal(await withoutToken.uploadAttachment('otter-conversation-1', image, undefined, uploadScope), 'attachment-1');
+  assert.equal(seen.at(-1).headers.Authorization, undefined);
+  assert.equal(seen.at(-1).headers['X-Otter-User-Id'], 'colink-agent-app');
+  assert.equal(seen.at(-1).headers['X-Otter-User-Role'], 'admin');
+  assert.ok(seen.at(-1).body instanceof FormData);
+
+  // 空白令牌视同未配置
+  const blank = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, serviceToken: '   ' });
+  assert.equal(blank.identityHeaders().Authorization, undefined);
+});

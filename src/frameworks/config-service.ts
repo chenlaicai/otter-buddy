@@ -199,6 +199,10 @@ export interface AppConfig {
    *  缺省 undefined = 未配置，回退 env / data/owner-password 文件 / 首启自动生成。 */
   auth?: {
     ownerPassword?: string;
+    /** 服务令牌：持有者可用 `Authorization: Bearer <token>` 以服务身份访问 HTTP 面。
+     *  外部来源（跳反代／跨主机）唯一可编程凭据——声明式身份头只对本机直连生效，不能跨反代用。
+     *  缺省不开启（未配置 = 该通道不存在）。 */
+    serviceToken?: string;
   };
   /** 附件配置（多模态）。缺省全部用内置默认值 */
   attachments?: {
@@ -389,6 +393,7 @@ interface RawConfig {
     baseUrl?: string;
   };
   auth?: {
+    serviceToken?: string;
     ownerPassword?: string;
   };
   attachments?: {
@@ -569,6 +574,23 @@ function validateAuthConfig(raw: RawConfig): void {
       "配置校验失败: auth.ownerPassword 必须是字符串（YAML 中请加引号，如 ownerPassword: \"my-password\"）",
     );
   }
+  validateServiceToken(raw);
+}
+
+/** 服务令牌校验：它是外部来源唯一可编程凭据——类型错会让下游恒拒或恒放行，
+ *  太短则可被猜中，两者都必须在启动期拦住。 */
+function validateServiceToken(raw: RawConfig): void {
+  const token = raw.auth?.serviceToken;
+  if (token === undefined) return;
+  if (typeof token !== "string") {
+    throw new Error(
+      "配置校验失败: auth.serviceToken 必须是字符串（YAML 中请加引号，如 serviceToken: \"<随机串>\"）",
+    );
+  }
+  const trimmed = token.trim();
+  if (trimmed !== "" && trimmed.length < 16) {
+    throw new Error("配置校验失败: auth.serviceToken 至少 16 个字符（唯一凭据，太短可被猜中）");
+  }
 }
 
 /** 静态助理配置指向禁用条目时启动即报错，避免运行时静默回退到默认模型。 */
@@ -733,7 +755,12 @@ function buildWebConfig(raw: RawConfig): AppConfig["web"] {
  *  非字符串类型已在 validate() fail-fast；此处防御性兼容（直接调 applyDefaults 的测试路径）。 */
 function buildAuthConfig(raw: RawConfig): AppConfig["auth"] {
   const ownerPassword = typeof raw.auth?.ownerPassword === "string" ? raw.auth.ownerPassword.trim() : "";
-  return ownerPassword ? { ownerPassword } : undefined;
+  const serviceToken = typeof raw.auth?.serviceToken === "string" ? raw.auth.serviceToken.trim() : "";
+  if (!ownerPassword && !serviceToken) return undefined;
+  return {
+    ...(ownerPassword ? { ownerPassword } : {}),
+    ...(serviceToken ? { serviceToken } : {}),
+  };
 }
 
 function buildExternalConfig(raw: RawConfig): AppConfig["external"] {

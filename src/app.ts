@@ -10,6 +10,7 @@ import type Database from "better-sqlite3";
 import type { Hono } from "hono";
 
 import { loadConfig, initConfig, type AppConfig } from "@frameworks/config";
+import { createServiceTokenVerifier, resolveServiceToken } from "@interface-adapters/http/auth/service-token";
 import { getRepoRoot } from "@frameworks/repo-root";
 import { PinoLogger } from "@frameworks/logger";
 import type { Logger } from "@usecases/ports/logger";
@@ -758,6 +759,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     verifyOwnerPassword: (password) => verifyOwnerPassword(ownerPassword, password),
     signSession: (identity) => sessionSigner.sign(identity, Date.now()),
   });
+  /** 服务令牌（可选）：集成方跳反代/跳主机时唯一可编程凭据（见 auth/service-token 模块注释）。 */
+  const serviceToken = resolveServiceToken({ env: process.env, configured: config.auth?.serviceToken });
+  const verifyServiceToken = serviceToken === undefined ? undefined : createServiceTokenVerifier(serviceToken);
 
   // ── + （执行通道）：connector 装配 ──
   // repo（总闸唯一事实源）→ WSS 网关（upgrade 鉴权/协议 v1/先库后内存）→ 配对端点；
@@ -810,6 +814,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     {
       auth: {
         verifySession: (value) => sessionSigner.verify(value, Date.now()),
+        verifyServiceToken,
         controller: authController,
       },
       executionMachines: {

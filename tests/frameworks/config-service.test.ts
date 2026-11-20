@@ -74,6 +74,16 @@ describe("validate", () => {
     expect(() => validate({ llm: { models }, server: { host: "0.0.0.0" } })).not.toThrow();
   });
 
+  it("auth.serviceToken：类型与最小长度 fail-fast，空串视同未配置", () => {
+    const models = [{ alias: "main", provider: "openai", model: "gpt-4o", handoffThresholdTokens: 40_000 }];
+    expect(() => validate({ llm: { models }, auth: { serviceToken: 123 as unknown as string } }))
+      .toThrow("auth.serviceToken 必须是字符串");
+    expect(() => validate({ llm: { models }, auth: { serviceToken: "short" } }))
+      .toThrow("至少 16 个字符");
+    expect(() => validate({ llm: { models }, auth: { serviceToken: "x".repeat(16) } })).not.toThrow();
+    expect(() => validate({ llm: { models }, auth: { serviceToken: "  " } })).not.toThrow();
+  });
+
   it("throws when auth.ownerPassword is not a string (YAML 裸数字)", () => {
     expect(() =>
       validate({
@@ -212,6 +222,20 @@ describe("loadConfig", () => {
     // 显式空白=配置写错，fail-fast（而非静默回落——写了一个空地址却没生效很难查）
     mockReadFileSync.mockReturnValue(`${base}server:\n  host: "  "\n`);
     expect(() => loadConfig()).toThrow("server.host");
+  });
+
+  it("auth.serviceToken 加载：与 ownerPassword 独立，trim 后生效", () => {
+    mockExistsSync.mockReturnValue(true);
+    const base = "llm:\n  models:\n    - alias: main\n      provider: openai\n      model: gpt-4o\n      handoffThresholdTokens: 40000\n";
+    mockReadFileSync.mockReturnValue(`${base}auth:\n  serviceToken: "  token-abcdefghijklmnop  "\n`);
+    expect(loadConfig().auth?.serviceToken).toBe("token-abcdefghijklmnop");
+    mockReadFileSync.mockReturnValue(`${base}auth:\n  ownerPassword: "pw"\n  serviceToken: "token-abcdefghijklmnop"\n`);
+    const both = loadConfig();
+    expect(both.auth?.ownerPassword).toBe("pw");
+    expect(both.auth?.serviceToken).toBe("token-abcdefghijklmnop");
+    // 未配置时不产生 auth 对象（不引入空壳配置）
+    mockReadFileSync.mockReturnValue(base);
+    expect(loadConfig().auth).toBeUndefined();
   });
 
   it("loads config with custom values", () => {

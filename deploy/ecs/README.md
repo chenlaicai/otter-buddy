@@ -37,7 +37,9 @@
      ```
      OTTER_EMBEDDING=off
      OTTER_OWNER_PASSWORD=<本机同款或新口令>
+     OTTER_SERVICE_TOKEN=<openssl rand -base64 32>
      ```
+     `OTTER_SERVICE_TOKEN` 是 HTTP 面给「会跳反代/跨主机」的集成方（当前就是同机的 colink-agent-app）留的唯一可编程凭据：中枢只让**本机直连**用声明式身份头（`X-Otter-User-*`），一旦经 nginx 或走公网域名，声明式头一律拒（401）——那是伪造面。所以 App 侧 `/etc/colink-agent-app.env` 必须给同一个值（`OTTER_SERVICE_TOKEN=<同值>`），扩展便会用 `Authorization: Bearer` 而不是声明式头；两边不同值＝App 侧稳定 401。
 3. **systemd 单元**：`sudo cp deploy/ecs/otter-buddy.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable otter-buddy`
 4. **TLS**：先装 nginx-otter.conf 的 80 段（或整文件）→ `sudo bash deploy/ecs/setup-tls.sh` → 确认证书路径 → reload nginx
 5. **代码部署**：前置——本机仓 `.otter/deploy-keys/ecs-ssh.sh`（免密 helper，私钥同目录、已 gitignore）与远端 `/opt/node24` 就绪。然后本机仓库根 `bash deploy/ecs/deploy.sh`（build → tar+ssh 管道 → 远端 npm ci → restart → 探活 → App unit 同步与版本核对；传输统一走 ecs-ssh.sh 单一身份 admin）

@@ -26,6 +26,11 @@ auth:
   # 不配置则回退 env → data/owner-password 文件 → 首启自动生成。
   # 建议部署时写一个自己能记住的固定密码：
   # ownerPassword: "my-rememberable-password"
+  # 服务令牌（可选）：给「会跳反代 / 跨主机」的集成方（如部署在同机的外部通道适配进程）
+  # 一个真凭据。声明式身份头（X-Otter-User-* / ?otterRole=）只对本机直连生效，
+  # 走公网域名或反代时会被拒——那里只能用 `Authorization: Bearer <token>`。
+  # 至少 16 字符，建议 openssl rand -base64 32；env OTTER_SERVICE_TOKEN 优先于此处。
+  # serviceToken: "<32+ 字符随机串>"
 
 # === 数据库配置 ===
 database:

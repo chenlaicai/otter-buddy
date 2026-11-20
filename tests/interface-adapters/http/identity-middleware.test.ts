@@ -306,6 +306,67 @@ describe("声明式通道来源闸：只对本机直连开", () => {
   });
 });
 
+describe("服务令牌通道：集成方的真凭据（不受来源闸限制）", () => {
+  const TOKEN = "s".repeat(32);
+  const app = new Hono();
+  app.use("*", identityMiddleware(undefined, (token) =>
+    token === TOKEN ? { userId: "service-token", role: "admin" as const } : null));
+  app.get("/api/things", (c) => c.json({ ok: true, identity: c.get("identity" as never) }));
+  app.get("/api/settings", (c) => c.json({ ok: true }));
+
+  it("跳反代形态（回环对端 + 转发头）仍可用令牌通过——这正是它存在的理由", async () => {
+    const res = await app.request(
+      "/api/things",
+      { headers: { authorization: `Bearer ${TOKEN}`, "x-forwarded-for": "203.0.113.9" } },
+      envFrom("127.0.0.1"),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json() as { identity: { userId: string; role: string } }).identity)
+      .toEqual({ userId: "service-token", role: "admin" });
+  });
+
+  it("外部来源（非回环对端）同样可用——令牌是秘密，不依赖来源", async () => {
+    const res = await app.request(
+      "/api/settings",
+      { headers: { authorization: `Bearer ${TOKEN}` } },
+      envFrom("203.0.113.9"),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("令牌错误/缺失/非 Bearer 形态 → 401（声明式回退也拿不到档位）", async () => {
+    const wrong = await app.request("/api/settings", { headers: { authorization: "Bearer nope" } }, envFrom("203.0.113.9"));
+    expect(wrong.status).toBe(401);
+    const missing = await app.request("/api/settings", { headers: { authorization: "" } }, envFrom("203.0.113.9"));
+    expect(missing.status).toBe(401);
+    const nonBearer = await app.request("/api/settings", { headers: { authorization: `Basic ${TOKEN}` } }, envFrom("203.0.113.9"));
+    expect(nonBearer.status).toBe(401);
+  });
+
+  it("未注入校验器时令牌通道不存在（Bearer 被忽略，仍按声明式/来源闸判定）", async () => {
+    const bare = new Hono();
+    bare.use("*", identityMiddleware());
+    bare.get("/api/things", (c) => c.json({ ok: true }));
+    const res = await bare.request("/api/things", { headers: { authorization: `Bearer ${TOKEN}` } }, envFrom("203.0.113.9"));
+    expect(res.status).toBe(401);
+  });
+
+  it("会话 cookie 优先于令牌（同一请求两真凭据并存时以会话为准）", async () => {
+    const both = new Hono();
+    both.use("*", identityMiddleware(
+      (cookie) => (cookie === "signed" ? { userId: "owner", role: "admin" as const } : null),
+      () => ({ userId: "service-token", role: "admin" as const }),
+    ));
+    both.get("/api/things", (c) => c.json({ identity: c.get("identity" as never) }));
+    const res = await both.request(
+      "/api/things",
+      { headers: { cookie: "otter_session=signed", authorization: `Bearer ${TOKEN}` } },
+      envFrom("127.0.0.1"),
+    );
+    expect((await res.json() as { identity: { userId: string } }).identity.userId).toBe("owner");
+  });
+});
+
 /** 真实路由装配（裸 createRouter——不经 tests/api/helpers 的身份包装） */
 function rawRouter(): Hono {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };

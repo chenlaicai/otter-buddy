@@ -5234,31 +5234,40 @@ describe('F20261119reapk 真实 SQLite 集成：kindle 判定链端到端', () =
 
   it('真实 SQLite 集成：同槽即时重试（另有未超阈 running）→ 真库判定 covered 不入列', async () => {
     // 同槽两行：stuck running（3h 前，将被翻篇）+ 新 running（5min 前，未超阈值不动）
-    const stuckAt = new Date(Date.now() - 3 * HOURS).toISOString();
-    const retriedAt = new Date(Date.now() - 5 * 60_000).toISOString();
-    const { service, taskRepo, healingRepo, db } = setupRealKindle({
-      stuckAt,
-      realRows: [
-        { id: 'stuck-exec-1', status: 'running', messageId: null, triggeredAt: stuckAt },
-        { id: 'retried-exec', status: 'running', messageId: null, triggeredAt: retriedAt },
-      ],
-    });
-    // mock taskRepo 同步补新 running 行（reap 循环对它未超阈值跳过，kindle 真库查询能看见）
-    taskRepo._executions.set('retried-exec', {
-      id: 'retried-exec', taskId: 'task-1', triggeredAt: retriedAt,
-      completedAt: null, status: 'running', errorMessage: null, messageId: null,
-    });
+    // 此刻取固定值而非真实时钟：本用例断言的两件事都算在「此刻」上——两行是否同一 cron 槽
+    //（槽是每日窗口，槽起点后三小时内「3h 前」与「5min 前」必然跨槽），以及新行是否超滞留阈值。
+    // 用真实时钟写等于把用例结果绑在跑测试的钟点上，一天里有一段时间必红。
+    const fixedNow = new Date('2026-11-20T05:00:00.000Z').getTime();
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(fixedNow);
+    try {
+      const stuckAt = new Date(fixedNow - 3 * HOURS).toISOString();
+      const retriedAt = new Date(fixedNow - 5 * 60_000).toISOString();
+      const { service, taskRepo, healingRepo, db } = setupRealKindle({
+        stuckAt,
+        realRows: [
+          { id: 'stuck-exec-1', status: 'running', messageId: null, triggeredAt: stuckAt },
+          { id: 'retried-exec', status: 'running', messageId: null, triggeredAt: retriedAt },
+        ],
+      });
+      // mock taskRepo 同步补新 running 行（reap 循环对它未超阈值跳过，kindle 真库查询能看见）
+      taskRepo._executions.set('retried-exec', {
+        id: 'retried-exec', taskId: 'task-1', triggeredAt: retriedAt,
+        completedAt: null, status: 'running', errorMessage: null, messageId: null,
+      });
 
-    await (service as unknown as { tickReal(): Promise<void> }).tickReal();
+      await (service as unknown as { tickReal(): Promise<void> }).tickReal();
 
-    expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
-    expect(taskRepo._executions.get('retried-exec')!.status).toBe('running'); // 未超阈值不动
-    // 真库判定：同槽另有 running（排除自己）→ covered，不入列
-    const count = (db.prepare(`SELECT COUNT(*) AS c FROM scheduled_task_pending_items`).get() as { c: number }).c;
-    expect(count).toBe(0);
-    const ev = healingRepo._events.find(e => e.severity === 'high');
-    expect(ev && (ev.context as Record<string, unknown>).pendingKindleState).toBe('covered');
-    db.close();
+      expect(taskRepo._executions.get('stuck-exec-1')!.status).toBe('failed');
+      expect(taskRepo._executions.get('retried-exec')!.status).toBe('running'); // 未超阈值不动
+      // 真库判定：同槽另有 running（排除自己）→ covered，不入列
+      const count = (db.prepare(`SELECT COUNT(*) AS c FROM scheduled_task_pending_items`).get() as { c: number }).c;
+      expect(count).toBe(0);
+      const ev = healingRepo._events.find(e => e.severity === 'high');
+      expect(ev && (ev.context as Record<string, unknown>).pendingKindleState).toBe('covered');
+      db.close();
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('真实 SQLite 集成：三行现场回归——A 带锚点判死翻篇 + B 抑制型在场 + C 挤占后遇忙 → 忙判 covered 不认抑制型、恰好一条 pending', async () => {

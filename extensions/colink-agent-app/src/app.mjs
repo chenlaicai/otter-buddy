@@ -21,6 +21,9 @@ const toolBridge = new CoLinkToolBridge({
 await toolBridge.start();
 const bridge = new OtterBridge({
   baseUrl: process.env.OTTER_BASE_URL,
+  // 中枢服务令牌（可选）：中枢走公网域名/反代时唯一可编程凭据；
+  // 与中枢侧 config.yaml 的 auth.serviceToken 同值。未配置则退回声明式头（仅本机直连可用）。
+  serviceToken: process.env.OTTER_SERVICE_TOKEN,
   store: new ConversationStore(resolve(dataDir, 'otter-conversations.json')),
   timeoutMs: 180_000,
   toolBridge,

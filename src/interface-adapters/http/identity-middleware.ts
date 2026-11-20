@@ -227,12 +227,33 @@ export function resolvePolicy(method: string, path: string): Policy {
 /** 会话校验器：给 cookie 值返回可信身份，无效/过期返回 null（注入自 session 工程——见 auth/session-cookie）。 */
 export type SessionVerifier = (cookieValue: string) => Identity | null;
 
+/** 服务令牌校验器：给 Bearer token 返回值信任的服务身份，不匹配返回 null。
+ *  外部来源（跳反代／跳主机）的可编程入口——声明式头只对本机直连开，服务集成方拿这个。 */
+export type ServiceTokenVerifier = (token: string) => Identity | null;
+
 /** 会话通道：cookie 签名校验（真凭据）。无会话/?非法一律 null，交由后续通道决定。 */
 function identityFromSession(c: Context, verifySession?: SessionVerifier): Identity | null {
   if (!verifySession) return null;
   const sessionCookie = getCookie(c, SESSION_COOKIE_NAME);
   if (sessionCookie === undefined || sessionCookie === "") return null;
   return verifySession(sessionCookie);
+}
+
+/** Bearer 头里的令牌值（无 Authorization / 非 Bearer 形态返回 undefined）。 */
+function bearerToken(c: Context): string | undefined {
+  const header = c.req.header("authorization");
+  if (header === undefined) return undefined;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match ? match[1].trim() : undefined;
+}
+
+/** 服务令牌通道：给集成方（同机或反代之后）的真凭据。与声明式通道无关——
+ *  它不受来源闸限制，因为令牌本身就是秘密，伪造需先猜到它。 */
+function identityFromServiceToken(c: Context, verifyServiceToken?: ServiceTokenVerifier): Identity | null {
+  if (!verifyServiceToken) return null;
+  const token = bearerToken(c);
+  if (token === undefined) return null;
+  return verifyServiceToken(token);
 }
 
 /** 声明式通道：身份头优先、query 直链退路（仅本机直连可用，由调用方把闸）。 */
@@ -254,9 +275,11 @@ function identityFromDeclaration(c: Context): Identity | null {
  *  来源闸：声明式通道只对**本机直连**开——外部来源（非回环对端，或带转发头）不采信头/query，
  *  没有有效会话就是 null（401）。这样「服务绑非回环地址」或「反代后面忘了改」都不会把
  *  一个可伪造的 admin 头放进去。 */
-export function parseIdentity(c: Context, verifySession?: SessionVerifier): Identity | null {
+export function parseIdentity(c: Context, verifySession?: SessionVerifier, verifyServiceToken?: ServiceTokenVerifier): Identity | null {
   const fromSession = identityFromSession(c, verifySession);
   if (fromSession) return fromSession;
+  const fromServiceToken = identityFromServiceToken(c, verifyServiceToken);
+  if (fromServiceToken) return fromServiceToken;
   if (!allowsDeclaredIdentity(c)) return null;
   return identityFromDeclaration(c);
 }
@@ -268,14 +291,14 @@ function deny(c: Context, status: 401 | 403, error: string, code: "unauthorized"
 /** 挂在 router 最外层（requestId 之后）：一处覆盖全部既有与新增路由。
  *  verifySession 由装配层注入（app.ts 用 owner token 构造 HMAC 校验器）；测试/引导脚本
  * 不注入时退化为纯声明式路径（既有行为，基线不变）。 */
-export function identityMiddleware(verifySession?: SessionVerifier) {
+export function identityMiddleware(verifySession?: SessionVerifier, verifyServiceToken?: ServiceTokenVerifier) {
   return async (c: Context, next: Next): Promise<Response | void> => {
     const policy = resolvePolicy(c.req.method, c.req.path);
     if (policy === "public") {
       await next();
       return;
     }
-    const identity = parseIdentity(c, verifySession);
+    const identity = parseIdentity(c, verifySession, verifyServiceToken);
     if (!identity) return deny(c, 401, "Authentication required", "unauthorized");
     // 下游控制器可读身份（接缝已就位；当前无消费方——session 工程的挂点）
     c.set("identity" as never, identity);
