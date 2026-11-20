@@ -235,25 +235,68 @@ body {
     inset 1px 0 1px rgba(255,255,255,0.42),
     inset -1px 0 1px rgba(82,58,35,0.10);
 }
-.glass-nav-effect {
+.glass-nav-effect, .glass-nav-item-effect {
   position: absolute;
   inset: 0;
   overflow: hidden;
   border-radius: inherit;
   pointer-events: none;
-  /* Safari fallback：普通 filter 只提供有限效果；支持背景滤镜的浏览器由下方覆盖。 */
-  /* 前缀版必须先写：lightningcss 会保留最后一条等价声明，反序会在生产构建删掉标准属性。 */
-  -webkit-backdrop-filter: var(--nav-glass-blur);
-  backdrop-filter: var(--nav-glass-blur);
-  filter: url(#nav-liquid-glass);
 }
-@supports ((backdrop-filter: url("#nav-liquid-glass")) or (-webkit-backdrop-filter: url("#nav-liquid-glass"))) {
-  .glass-nav-effect {
-    /* 位移必须直接处理 backdrop；普通 filter 在 Chromium 不会折射透明层的背景。 */
-    -webkit-backdrop-filter: url(#nav-liquid-glass) var(--nav-glass-blur);
-    backdrop-filter: url(#nav-liquid-glass) var(--nav-glass-blur);
-    filter: none;
-  }
+/* 双端同一路径：复制静止画布到真实像素层，再直接位移该层。
+   不依赖 Safari 对 SVG backdrop-filter 仅有声明支持、但不产生位移的实现。 */
+.glass-nav-sample {
+  position: absolute;
+  inset: -20%;
+  background-color: var(--bg-base);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
+    var(--blob-1), var(--blob-2), var(--blob-3), var(--blob-4), var(--band);
+  background-attachment: fixed;
+  filter: url(#nav-liquid-glass) var(--nav-glass-blur);
+}
+:root[data-custom-bg='true'] .glass-nav-sample {
+  background-image:
+    linear-gradient(rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32), rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32)),
+    var(--custom-bg-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+/* 每个菜单项都是独立的小玻璃片；内容始终在不参与折射的上层。 */
+.glass-nav-item {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid rgba(255,255,255,0.34);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,0.55),
+    inset 0 -1px 1px rgba(82,58,35,0.12),
+    0 2px 5px rgba(42,32,20,0.06);
+}
+.glass-nav-item-tint {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(115deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05) 55%, rgba(255,255,255,0.12));
+}
+.glass-nav-item-content {
+  position: relative;
+  z-index: 2;
+}
+.glass-nav-item:hover {
+  border-color: rgba(255,255,255,0.62);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,0.72),
+    inset 0 -1px 1px rgba(82,58,35,0.14),
+    0 3px 8px rgba(42,32,20,0.10);
+}
+.glass-nav-item.nav-pill-active {
+  background: transparent;
+  border-color: rgba(255,255,255,0.72);
+}
+.glass-nav-item.nav-pill-active .glass-nav-item-tint {
+  background: rgb(255 255 255 / calc(38% * var(--glass-t)));
 }
 .glass-nav-tint {
   position: absolute;
@@ -294,7 +337,7 @@ body {
   mask-composite: exclude;
 }
 @media (prefers-reduced-transparency: reduce) {
-  .glass-nav-effect { display: none; }
+  .glass-nav-effect, .glass-nav-item-effect { display: none; }
   .glass-nav::before, .glass-nav::after { display: none; }
 }
 

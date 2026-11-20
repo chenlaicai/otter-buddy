@@ -38,8 +38,10 @@ export function TopBar() {
         data-testid="primary-nav"
         className="glass-nav max-w-[calc(100vw-6rem)] rounded-full"
       >
-        {/* 折射只作用于背景采样层，菜单文字与图标不参与位移。 */}
-        <span aria-hidden="true" className="glass-nav-effect" />
+        {/* 折射只作用于复制的静态画布，菜单文字与图标不参与位移。 */}
+        <span aria-hidden="true" className="glass-nav-effect">
+          <span className="glass-nav-sample" />
+        </span>
         <span aria-hidden="true" className="glass-nav-tint" />
         <div className="glass-nav-content flex items-center gap-0.5 overflow-x-auto p-1">
           {NAV_ROUTES.map(route => {
@@ -49,20 +51,26 @@ export function TopBar() {
               <Link
                 key={route.path}
                 to={route.nav ?? route.path}
-                className={`flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium transition ${
+                className={`glass-nav-item flex shrink-0 items-center rounded-full px-4 py-1.5 text-xs font-medium transition ${
                   active
                     ? 'nav-pill-active text-otter-700 font-semibold'
                     : 'text-stone-700 hover:text-stone-900'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5" />
-                {route.label}
+                <span aria-hidden="true" className="glass-nav-item-effect">
+                  <span className="glass-nav-sample" />
+                </span>
+                <span aria-hidden="true" className="glass-nav-item-tint" />
+                <span className="glass-nav-item-content flex items-center gap-1.5">
+                  <Icon className="w-3.5 h-3.5" />
+                  {route.label}
+                </span>
               </Link>
             )
           })}
         </div>
 
-        {/* 背景位移折射；不支持 SVG backdrop filter 的浏览器退化为采样 + 透色 + 高光。 */}
+        {/* 直接位移复制的画布像素，Chrome 与 Safari 共用同一路径。 */}
         <svg aria-hidden="true" className="pointer-events-none absolute h-0 w-0" focusable="false">
           <defs>
             <filter
