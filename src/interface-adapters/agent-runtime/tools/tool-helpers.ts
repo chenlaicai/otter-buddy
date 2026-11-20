@@ -140,7 +140,7 @@ export function validateSpeakBody(turnAssistantText: string | undefined, cleanBo
     if (cardSizes[i] > CARD_MAX_BYTES) {
       const kb = (cardSizes[i] / 1024).toFixed(1);
       const limit = CARD_MAX_BYTES / 1024;
-      return `[错误] 第 ${i + 1} 张 html-card 卡片内容为 ${kb}KB，超出 ${limit}KB 体积限制。请精简卡片内容后重试。`;
+      return `[错误] 第 ${i + 1} 张 html-card 卡片内容为 ${kb}KB，超出 ${limit}KB 体积限制。请精简卡片内容，或把全文转为文类产物（写文件 + create_linked_resource 登记，卡片只留摘要）后重试。注意：不要往卡片里塞 JS 库或 base64 图片——图形需求用内联 SVG（见契约图类卡节）或 diagram skill。`;
     }
   }
 

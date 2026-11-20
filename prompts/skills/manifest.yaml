@@ -105,6 +105,12 @@ skills:
     notes: 獭间冲突解决查表——冲突分型 + 解决策略矩阵 + 升级协议 + 裁决记录格式。2026-08-21 由 mimo+kimi+大獭对抗讨论产出。
 
   # ── 设计方法论 ──
+  - name: diagram
+    category: technique
+    next: [visual-design]   # 技术图解之外剩展示设计需求时
+    not_for: [visual-design]
+    notes: 技术图解（架构/流程/时序/关系）= html-card 内联 SVG 图卡，默认展开。绘制规范（网格对齐/单流向/密度克制/token 配色）+ 质检门，不塞 JS 库。
+
   - name: visual-design
     category: technique
     next: [code-implementation]   # 设计稿中的交互逻辑实现

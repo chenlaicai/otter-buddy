@@ -6,7 +6,7 @@
  * 口径（大獭 10/16 裁决 + 方案文档）：
  *  - conversationId = 首个 otter 座位的挂靠对话（resolveFirstConversationId 同源：getIdsByOtterId[0]；
  *    该查询无 ORDER BY、返回序未定义——既有语义沿用，选对话策略是独立议题）
- *  - html-card 合规：单卡、title 必填、<64KB、schema v2（entry.metadata.cardSchemaVersion）
+ *  - html-card 合规：单卡、title 必填、体积上限内（CARD_MAX_BYTES）、schema v2（entry.metadata.cardSchemaVersion）
  *  - 无 otter 座位 / 无挂靠对话 → 跳过并告警——战报失败不阻塞牌局（RoomService.fireGameover 已兜底）
  *  - linked_resource：fact 类、content ≤500（FACT_CONTENT_MAX_LENGTH），发卡成功后登记，
  *    登记失败仅告警（卡已可见，不回滚）
@@ -155,7 +155,7 @@ function speechRows(report: GameoverReport): string[] {
 /**
  * 战报 html-card（渲染为 speak entry body）。
  * 结构：一行可见前言 + 单卡（名次/役种亮点/桌上锐评/脚注）。preset 类直用
- * （.head/.sec/.kv/.alt/.meta/.foot——contract 预设库），体积远低于 64KB 上限。
+ * （.head/.sec/.kv/.alt/.meta/.foot——contract 预设库），体积远低于上限（CARD_MAX_BYTES）。
  */
 export function renderGameoverCard(report: GameoverReport): string {
   const nameOf: NameOf = (seat) => report.ranking.find((r) => r.seat === seat)?.name
