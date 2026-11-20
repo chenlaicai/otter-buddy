@@ -5,7 +5,7 @@
  *    无 otter 座位/无挂靠对话跳过；linkResource 失败不回滚发卡
  */
 import { describe, it, expect } from "vitest";
-import { CARD_SCHEMA_VERSION } from "@contract/api/html-card";
+import { CARD_SCHEMA_VERSION, CARD_MAX_BYTES } from "@contract/api/html-card";
 import {
   renderGameoverCard,
   sendGameoverReport,
@@ -60,11 +60,11 @@ function report(overrides: Partial<GameoverReport> = {}): GameoverReport {
 }
 
 describe("renderGameoverCard 战报卡渲染", () => {
-  it("html-card 合规：title 围栏单卡、体积 <64KB、名次/四局亮点/锐评截断/代打脚注", () => {
+  it("html-card 合规：title 围栏单卡、体积远低于上限（CARD_MAX_BYTES）、名次/四局亮点/锐评截断/代打脚注", () => {
     const body = renderGameoverCard(report());
     expect(body).toContain('```html-card title="🀄 三麻战报"');
     expect(body.match(/```html-card/g)).toHaveLength(1); // 单卡
-    expect(Buffer.byteLength(body, "utf8")).toBeLessThan(65536);
+    expect(Buffer.byteLength(body, "utf8")).toBeLessThan(CARD_MAX_BYTES);
 
     // 名次三行
     expect(body).toContain("第 1 名");

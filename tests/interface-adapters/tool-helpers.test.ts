@@ -59,10 +59,21 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     expect(result).toContain("体积限制");
   });
 
-  it("正文散文不计入体积校验（60KB 卡 + 10KB 正文通过）", () => {
-    const cardContent = "x".repeat(60000); // 60KB 卡片
-    const prose = "y".repeat(10000); // 10KB 正文
+  it("正文散文不计入体积校验（262000B 卡 + 10KB 正文通过——若散文计入则超限被拒，256KB 下保持判别力）", () => {
+    const cardContent = "x".repeat(262000); // 逼近 256KB 上限的卡片
+    const prose = "y".repeat(10000); // 10KB 正文（计入则 272000 > 262144）
     const body = `${prose}\n\`\`\`html-card title="合规卡"\n${cardContent}\n\`\`\`\n${prose}`;
+    expect(validateSpeakBody(undefined, body)).toBeNull();
+  });
+
+  it("卡片含 base64 内嵌资源被机械拒收（体积放宽后防护不削弱）", () => {
+    const body = '```html-card title="图"\n<img src="data:image/png;base64,iVBORw0KGgo="/>\n```';
+    const result = validateSpeakBody(undefined, body);
+    expect(result).toContain("base64");
+  });
+
+  it("正文散文含 base64 字样不误伤（只量围栏内 HTML）", () => {
+    const body = '讨论 ;base64, 编码原理\n```html-card title="干净卡"\n<p>ok</p>\n```';
     expect(validateSpeakBody(undefined, body)).toBeNull();
   });
 

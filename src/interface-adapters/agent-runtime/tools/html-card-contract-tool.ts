@@ -13,7 +13,7 @@ export const HTML_CARD_CONTRACT = `# HTML 卡片写作契约
 
 ## 语法骨架
 
-卡片以 CommonMark 围栏块嵌入 speak 的 body，一条消息最多 ${CARD_MAX_PER_MESSAGE} 张，单卡 ≤${CARD_MAX_BYTES / 1024}KB（超限会被截断，可能导致发言损坏重来）：
+卡片以 CommonMark 围栏块嵌入 speak 的 body，一条消息最多 ${CARD_MAX_PER_MESSAGE} 张，单卡 ≤${CARD_MAX_BYTES / 1024}KB（超限会被拒收并返回错误文案指导重试，不会静默截断）：
 
 \`\`\`html-card title="卡片标题"
 <!-- 自包含 HTML 片段：内联 <style> + 结构 + 内联 <script>（可选） -->
@@ -91,6 +91,7 @@ otterCard.submit({
 - document.write
 - <form action> 指向外部目标（表单外泄）；表单只做本地输入收集，提交走 otterCard.submit
 - 任何外网请求（图片/字体/脚本/fetch 一律被 CSP 阻断）
+- base64 内嵌资源（data: URI 图片/字体/脚本——speak 写入侧机械拒收；技术图解用内联 SVG，别 base64）
 
 ## 回执读取规则
 
@@ -110,6 +111,7 @@ otterCard.submit({
 技术图解（架构图/流程图/时序图/关系图）用普通 html-card 内联 \`<svg>\` 承载——渲染层零改动，CSP 只禁外网请求，内联 SVG 完全合法。图类卡不是新围栏，是 html-card 的一种用途正名：
 
 - **默认展开**：写 \`importance="high"\`——图的感知动词是「看」，折叠态的图等于没发（与活类「玩」同理）。仍不豁免单消息卡数预算
+- **角标**：high 卡缺省挂「简报」chip——图类卡加 \`chip="图解"\` 覆盖（≤12 字符），避免架构图被标成简报
 - **绘制规范见 diagram skill**（图型选择/网格对齐/token 配色/密度克制）——「像人画的」靠规范不靠库；不要往卡片里塞 mermaid/echarts 等 JS 库（体积上限放不下，也无必要）
 - 配色一律 \`var(--ink)\`/\`var(--ink-3)\`/\`var(--line)\`/\`var(--teal-*)\` 等设计 token，SVG 用 \`viewBox\` + \`width="100%"\` 自适应，禁视口相对高度
 - 图片文件（PNG/截图）仍无发图通道——图类卡解决的是「技术图解」，不是「发图片」

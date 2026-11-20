@@ -144,6 +144,14 @@ export function validateSpeakBody(turnAssistantText: string | undefined, cleanBo
     }
   }
 
+  /** base64 内嵌资源机械拦截（体积上限放宽后防护语义不削弱：更大预算可容纳小库/base64，
+   *  契约禁用清单与机械闸对齐——技术图解走内联 SVG，全文/图片转文类产物） */
+  for (let i = 0; i < cardNodes.length; i++) {
+    if (/;base64,/.test(cardNodes[i].value ?? "")) {
+      return `[错误] 第 ${i + 1} 张 html-card 卡片含 base64 内嵌资源（;base64,）——契约禁止。技术图解请用内联 SVG（见契约图类卡节），图片/全文转文类产物（写文件 + create_linked_resource 登记）。`;
+    }
+  }
+
   /** + 「卡片写在 speak 外」检测改 hasCardFences（remark 口径），
    *  与计数/体积同源；body 侧复用 cardCount === 0，避免对 cleanBody 二次解析。 */
   if (turnAssistantText !== undefined && hasCardFences(turnAssistantText) && cardCount === 0) {

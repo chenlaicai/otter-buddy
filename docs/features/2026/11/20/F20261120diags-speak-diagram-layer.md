@@ -48,6 +48,7 @@ L3 形态路由（F20261009fpeq 六形态进注入面）都已闭环。**L4 图�
 | 3 | speak 描述图类句改写；BIG/SMALL_OTTER 六形态段补图意识 | `tool-factory.ts`、`prompts/identity/` |
 | 4 | CARD_MAX_BYTES 65536→262144（注释写明保险丝定位）；超限文案引导转文类产物/内联 SVG | `api-contract/api/html-card.ts`、`tool-helpers.ts` |
 | 5 | 测试随常量更新（256KB 边界/超限/嵌套围栏）；gameover-report 注释口径改 CARD_MAX_BYTES | `tests/`、`web/src/lib/html-card.test.ts` |
+| 6 | DS Flash 异模型检视 delta：①high 卡新增可选 `chip` 角标属性（图类卡标「图解」而非「简报」，web 解析+渲染）②base64 内嵌资源 speak 写入侧机械拒收 + 契约禁用清单（体积放宽不削弱原防护语义）③diagram skill 沉淀分层图骨架 references（可抄网格+SVG 骨架）④「正文散文不计入」用例恢复判别力（262000B 卡+10KB 正文）⑤契约「超限截断」误述改「拒收并指导重试」⑥decision-briefing 折叠/高度口径同步 | `web/`、`tool-helpers.ts`、`.pi/skills/diagram/references/` |
 
 ## 设计决策
 
@@ -63,6 +64,8 @@ L3 形态路由（F20261009fpeq 六形态进注入面）都已闭环。**L4 图�
 
 ## 验证
 
-- `pnpm lint:skills`（新 skill 合规）
-- tool-helpers / html-card / gameover-report 相关单测
+- `pnpm lint:skills`（新 skill 合规，references 工作流内联）
+- tool-helpers / html-card / gameover-report 相关单测（含 base64 拒收、散文不误伤、parseCardChip）
+- 根 + web `tsc --noEmit`
+- 三轮 diagram-reviewer 检视 8 项 + 一轮 DS Flash 异模型检视 6 建议，全部闭环
 - 行为验证：首例狗粮图卡已在驱动对话产出；后续真实汇报场景持续观察 + 搭档反馈回流 diagram skill

@@ -43,6 +43,8 @@ export interface HtmlCardProps {
   cardSchemaVersion?: number
   /** 卡片重要性——`high` 默认展开（不豁免单消息卡片预算） */
   importance?: CardImportance
+  /** high 卡角标文案覆盖（如 图解）——缺省 null 渲染「简报」 */
+  chip?: string | null
   /** 折叠态摘要行（纯文本，≤120 字符；null = 无有效摘要） */
   foldedSummary?: string | null
   /** 活类：html-card-play 围栏——默认展开运行 + 🎮 徽章 + 暂停/重启控制。
@@ -52,7 +54,7 @@ export interface HtmlCardProps {
 
 type CardView = 'collapsed' | 'expanded' | 'source' | 'invalid'
 
-function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId, playable, importance = 'normal', foldedSummary = null }: HtmlCardProps) {
+function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId, playable, importance = 'normal', chip = null, foldedSummary = null }: HtmlCardProps) {
   /** 所有卡默认折叠（搭档 9/16 拍板）；
    * 例外①：活类卡默认展开运行（宪法：折叠态没有玩法）；
    * 例外②：importance=high 卡默认展开（简报卡分级——L2 议题不埋折叠态） */
@@ -115,7 +117,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId,
         <span className="font-medium truncate flex-1">{title || '未命名卡片'}</span>
         {importance === 'high' && (
           <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 bg-caramel-400/20 text-caramel-600" title="importance=high：默认展开的简报卡">
-            简报
+            {chip ?? '简报'}
           </span>
         )}
         <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${playable ? 'bg-teal-400/20 text-teal-700' : 'bg-otter-400/15 text-otter-600'}`}>
