@@ -223,7 +223,7 @@ body {
 }
 
 /* 一级主导航 Liquid Glass：真实位移折射层 + 低覆盖着色 + 镜面高光。
-   SVG displacement 仅 Chromium 生效；其他浏览器保留采样材质降级。 */
+   SVG displacement 直接作用于 backdrop；不支持时保留采样材质降级。 */
 .glass-nav {
   position: relative;
   border: 1px solid rgba(255,255,255,0.58);
@@ -241,9 +241,18 @@ body {
   overflow: hidden;
   border-radius: inherit;
   pointer-events: none;
+  /* Safari fallback：普通 filter 只提供有限效果；支持背景滤镜的浏览器由下方覆盖。 */
   backdrop-filter: var(--nav-glass-blur);
   -webkit-backdrop-filter: var(--nav-glass-blur);
   filter: url(#nav-liquid-glass);
+}
+@supports ((backdrop-filter: url("#nav-liquid-glass")) or (-webkit-backdrop-filter: url("#nav-liquid-glass"))) {
+  .glass-nav-effect {
+    /* 位移必须直接处理 backdrop；普通 filter 在 Chromium 不会折射透明层的背景。 */
+    backdrop-filter: url(#nav-liquid-glass) var(--nav-glass-blur);
+    -webkit-backdrop-filter: url(#nav-liquid-glass) var(--nav-glass-blur);
+    filter: none;
+  }
 }
 .glass-nav-tint {
   position: absolute;
