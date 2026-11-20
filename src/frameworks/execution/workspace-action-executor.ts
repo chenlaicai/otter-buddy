@@ -73,10 +73,8 @@ export class WorkspaceActionExecutor {
         return this.recordedWorkspaceDelete(action.input.conversationId, action.input.relativePath, action.input.recursive, options);
       case "workspace.path":
         return this.workspaceGateway.getWorkspacePath(action.input.conversationId);
-      default: {
-        const unhandled: never = action;
-        throw new Error(`Unsupported local execution action: ${JSON.stringify(unhandled)}`);
-      }
+      default:
+        throw new Error(`Unsupported local execution action: ${JSON.stringify(action)}`);
     }
   }
 

@@ -7,6 +7,7 @@ import type { ConnectorFrame } from "@entities/execution/connector-protocol";
 import { createTestDb } from "../../helpers/db";
 import type { Device } from "@entities/execution/device";
 import type { OnlineSession } from "@entities/execution/online-session";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 
 /**
  * RemoteExecutionMachine 单测——
@@ -21,18 +22,27 @@ const DEVICE_ID = "conn-dev-1";
 function fakeChannel(): ConnectorActionChannel & {
   sent: ConnectorFrame[];
   setSendOk: (ok: boolean) => void;
-  emitResult: (actionId: string, status: "succeeded" | "failed" | "interrupted" | "unknown", result?: unknown, error?: string) => void;
+  setVersion: (version: number) => void;
+  emitResult: (actionId: string, status: "succeeded" | "failed" | "interrupted" | "unknown", result?: unknown, error?: string, errorCode?: string) => void;
+  emitOutput: (actionId: string, text: string, stream?: "stdout" | "stderr") => void;
   emitSessionDown: (sessionId: string, reason: "device-offline" | "heartbeat-timeout" | "hub-restart") => void;
 } {
   const sent: ConnectorFrame[] = [];
   let sendOk = true;
+  let version = 1;
   let resultHandler: ((frame: Extract<ConnectorFrame, { type: "action.result" }>) => void) | null = null;
+  let outputHandler: ((frame: Extract<ConnectorFrame, { type: "action.output" }>) => void) | null = null;
   let downHandler: ((sessionId: string, deviceId: string, reason: "device-offline" | "heartbeat-timeout" | "hub-restart") => void) | null = null;
   return {
     sent,
     setSendOk: ok => { sendOk = ok; },
-    emitResult: (actionId, status, result, error) => {
-      resultHandler?.({ v: 1, type: "action.result", seq: 1, sid: "s1", data: { actionId, status, ...(status === "succeeded" ? { result } : { error: error ?? "x" }) } });
+    setVersion: value => { version = value; },
+    negotiatedVersion: () => version,
+    emitResult: (actionId, status, result, error, errorCode) => {
+      resultHandler?.({ v: version, type: "action.result", seq: 1, sid: "s1", data: { actionId, status, ...(result !== undefined ? { result } : {}), ...(status === "succeeded" ? {} : { error: error ?? "x" }), ...(errorCode ? { errorCode } : {}) } });
+    },
+    emitOutput: (actionId, text, stream = "stdout") => {
+      outputHandler?.({ v: version, type: "action.output", seq: 1, sid: "s1", data: { actionId, text, stream } });
     },
     emitSessionDown: (sessionId, reason) => { downHandler?.(sessionId, DEVICE_ID, reason); },
     sendToDevice: (_deviceId, frame) => {
@@ -41,6 +51,7 @@ function fakeChannel(): ConnectorActionChannel & {
       return true;
     },
     onActionResult: handler => { resultHandler = handler; },
+    onActionOutput: handler => { outputHandler = handler; },
     onSessionDown: handler => { downHandler = handler; },
   };
 }
@@ -241,8 +252,55 @@ describe("RemoteExecutionMachine（C2 执行通道核心）", () => {
     expect((await h.remoteActions.listByStatuses(["succeeded"])).map(r => r.actionId)).toEqual(["m1-b"]);
   });
 
-  it("createExecutionEnvironment 不支持（远程无 SDK 执行环境——阶段 5/7 语义）", () => {
-    expect(() => h.machine.createExecutionEnvironment("/tmp")).toThrow("does not host SDK execution environments");
+  it("远程 SDK env 必须绑定业务对话；文件面显式不支持", async () => {
+    expect(() => h.machine.createExecutionEnvironment("/tmp")).toThrow("requires conversationId");
+    const env = h.machine.createExecutionEnvironment("/hub/workspaces/c1", "c1");
+    expect(env.id).toBe("remote:conn-dev-1");
+    const result = await env.readTextFile("a.txt", BACKGROUND_CONTEXT);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("not_supported");
+  });
+
+  it("协议 v1 拒发 shell；v2 流式输出与取消帧按 actionId 归路", async () => {
+    await seedOnlineSession(h.connectorRepo);
+    await expect(h.machine.run({ type: "shell.exec", input: { conversationId: "c1", command: "pwd" } }))
+      .rejects.toThrow("requires connector protocol v2");
+    expect(h.channel.sent).toHaveLength(0);
+
+    h.channel.setVersion(2);
+    const controller = new AbortController();
+    const output: string[] = [];
+    const pending = h.machine.run(
+      { type: "shell.exec", input: { conversationId: "c1", command: "printf ok" } },
+      undefined,
+      { abortSignal: controller.signal, onOutput: text => output.push(text) },
+    );
+    await new Promise(r => setTimeout(r, 0));
+    const request = h.channel.sent[0] as Extract<ConnectorFrame, { type: "action.request" }>;
+    const actionId = request.data.actionId;
+    h.channel.emitOutput(actionId, "remote-out");
+    expect(output).toEqual(["remote-out"]);
+    controller.abort();
+    expect(h.channel.sent.some(frame => frame.type === "action.cancel" && frame.data.actionId === actionId)).toBe(true);
+    h.channel.emitResult(actionId, "interrupted", undefined, "aborted", "aborted");
+    await expect(pending).rejects.toMatchObject({ errorCode: "aborted" });
+  });
+
+  it("RemoteExecutionEnv 把 hub 工作区 cwd 映射到设备工作区", async () => {
+    await seedOnlineSession(h.connectorRepo);
+    h.channel.setVersion(2);
+    const env = h.machine.createExecutionEnvironment("/hub/workspaces/c1", "c1");
+    const pending = env.exec("pwd", { cwd: "/hub/workspaces/c1/sub" }, BACKGROUND_CONTEXT);
+    await new Promise(r => setTimeout(r, 0));
+    const pathRequest = h.channel.sent[0] as Extract<ConnectorFrame, { type: "action.request" }>;
+    h.channel.emitResult(pathRequest.data.actionId, "succeeded", "/device/workspaces/c1");
+    await new Promise(r => setTimeout(r, 0));
+    const shellRequest = h.channel.sent[1] as Extract<ConnectorFrame, { type: "action.request" }>;
+    expect(shellRequest.data.action.type).toBe("shell.exec");
+    expect(shellRequest.data.action.input).toMatchObject({ conversationId: "c1", cwd: "/device/workspaces/c1/sub" });
+    h.channel.emitResult(shellRequest.data.actionId, "succeeded", { exitCode: 0 });
+    const result = await pending;
+    expect(result).toEqual({ ok: true, value: { exitCode: 0 } });
   });
 });
 

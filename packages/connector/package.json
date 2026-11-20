@@ -1,7 +1,7 @@
 {
   "name": "@otter-buddy/connector",
   "version": "0.1.0",
-  "description": "OtterBuddy connector — 设备侧动作执行代理（连接中枢 WSS 网关，协议 v1）",
+  "description": "OtterBuddy connector — 设备侧动作执行代理（连接中枢 WSS 网关，协议 v2/v1 双栈）",
   "license": "UNLICENSED",
   "private": true,
   "type": "module",
@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "ws": "^8.21.0",
-    "better-sqlite3": "^13.0.3"
+    "better-sqlite3": "^13.0.3",
+    "@earendil-works/pi-durable": "1.5.0",
+    "@earendil-works/chord": "1.5.0"
   }
 }

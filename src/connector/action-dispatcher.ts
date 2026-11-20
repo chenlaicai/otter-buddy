@@ -1,21 +1,25 @@
 /**
  * connector 侧动作分发器——action.request →
- * 本地执行 → action.result 回执。
+ * 本地执行 → action.result 回执；action.cancel（协议 v2）→ 只 abort 指定动作。
  *
  * 可测性：不持有 ws 对象（发帧经 sender 回调，sid/seq 由会话层闭包负责），
- * 执行经 WorkspaceActionExecutor（与中枢 local 机器同一执行语义与台账记账协议）。
+ * 六动作经 WorkspaceActionExecutor（与中枢 local 同一执行语义与台账记账协议），
+ * shell.exec 经 ShellActionExecutor（独立 env + AbortController；SDK 杀进程组）。
  *
  * 幂等协议：先查本地台账——actionId 已 succeeded 直接回已记录结果
  * （不重执行）；未见过/其他状态照常执行（executor 内部台账 start 对真冲突行兜底
  * dedupe）。回执五态：succeeded/failed 为执行结论；unknown/interrupted 为收尾裁决
- * （本模块只在崩溃/下线路径产生——正常执行两态即可达）。
+ * （本模块只在崩溃/下线路径产生——正常执行两态即可达；shell.exec 的
+ *  aborted/timeout 映射 interrupted 属确定性停止，正常路径亦可达）。
  *
- * 轻量铁律：依赖闭包仅 entities/execution + node 内置（构建后闭包断言把守）。
+ * 轻量铁律：依赖闭包仅 entities/execution + node 内置 + SDK env 轻量面
+ * （构建后闭包断言把守）。
  */
 
-import type { ConnectorFrame } from "@entities/execution/connector-protocol";
+import type { ConnectorFrame, ShellExecActionInput } from "@entities/execution/connector-protocol";
 import type { ActionRecord } from "@entities/execution/action-record";
 import type { AnyExecutionAction } from "@usecases/ports/execution-machine";
+import type { ShellExecutorLike, ShellRunOutcome } from "./shell-action-executor";
 
 /** connector 侧六动作执行面（WorkspaceActionExecutor 的最小依赖切片——测试可 fake） */
 export interface ActionExecutorLike {
@@ -24,6 +28,9 @@ export interface ActionExecutorLike {
 
 export interface ConnectorActionDispatcherDeps {
   executor: ActionExecutorLike;
+  /** shell.exec 执行器（协议 v2 面；缺省 = 本构建不带 shell 能力——收到 shell.exec 回
+   *  failed/unsupported。v1 会话收到 shell.exec 不应发生：hub 下行版本闸已拦） */
+  shell?: ShellExecutorLike;
   /** 本地台账只读面（幂等快路径）+ 收尾面（自杀收尾落 interrupted） */
   ledger: {
     getByActionId(actionId: string): Promise<ActionRecord | null>;
@@ -34,7 +41,9 @@ export interface ConnectorActionDispatcherDeps {
   log?: (message: string, meta?: Record<string, unknown>) => void;
 }
 
-/** 协议 v1 放行的动作白名单（非白名单 type 回 failed——协议 v1 只放六动作） */
+/** 执行能力白名单（非白名单 type 回 failed——协议 v1 六动作 + v2 新增 shell.exec）。
+ *  注意与版本闸的分层：本集合是「本端会执行什么」；「v1 会话收不到 shell.exec」
+ *  由 hub 侧 sendToDevice 版本闸保证（双保险）。 */
 const SUPPORTED_ACTION_TYPES = new Set<string>([
   "workspace.exists",
   "workspace.list",
@@ -42,6 +51,7 @@ const SUPPORTED_ACTION_TYPES = new Set<string>([
   "workspace.write",
   "workspace.delete",
   "workspace.path",
+  "shell.exec",
 ]);
 
 export class ConnectorActionDispatcher {
@@ -90,6 +100,17 @@ export class ConnectorActionDispatcher {
 
     try {
       this.inflight.set(actionId, true);
+      // shell.exec 走专用执行器（独立 env + AbortController/流式 output/取消）；
+      // 六动作走公共 WorkspaceActionExecutor（与中枢 local 同一执行语义）
+      if (action.type === "shell.exec") {
+        if (!this.deps.shell) {
+          this.sendResult(actionId, { status: "failed", error: "unsupported action type: shell.exec (no shell executor)" });
+          return;
+        }
+        const outcome = await this.deps.shell.run(action.input as unknown as ShellExecActionInput, { actionId });
+        this.sendShellOutcome(actionId, outcome);
+        return;
+      }
       const result = await this.deps.executor.run(
         { type: action.type, input: action.input } as AnyExecutionAction,
         { actionId },
@@ -101,6 +122,33 @@ export class ConnectorActionDispatcher {
     } finally {
       this.inflight.delete(actionId);
     }
+  }
+
+  /** action.cancel（协议 v2，S→C）：只 abort 指定动作的在途进程组——
+   *  不直接宣称成功，最终状态只信随后到来的 action.result（五态纪律）。
+   *  动作未知/已完成 → no-op + 日志（cancel 与 result 竞态是合法时序）。 */
+  handleActionCancel(data: { actionId: string }): void {
+    if (!this.deps.shell) {
+      this.deps.log?.("action.cancel ignored (no shell executor)", { actionId: data.actionId });
+      return;
+    }
+    const cancelled = this.deps.shell.cancel(data.actionId);
+    this.deps.log?.("action.cancel handled", { actionId: data.actionId, cancelled });
+  }
+
+  /** shell 结局 → action.result 载荷（v2：errorCode + 失败时 result 带 spill 诊断路径） */
+  private sendShellOutcome(actionId: string, outcome: ShellRunOutcome): void {
+    if (outcome.status === "succeeded") {
+      this.deps.send({ actionId, status: "succeeded", result: outcome.result });
+      return;
+    }
+    this.deps.send({
+      actionId,
+      status: outcome.status,
+      error: outcome.error,
+      errorCode: outcome.errorCode,
+      ...(outcome.spillPath !== undefined ? { result: { spillPath: outcome.spillPath } } : {}),
+    });
   }
 
   private sendResult(

@@ -1,4 +1,4 @@
-import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import type { ExecutionEnv, ShellOutputInfo } from "@earendil-works/pi-durable/env";
 import { randomUUID } from "node:crypto";
 import {
   type ActionRunOptions,
@@ -7,28 +7,41 @@ import {
   type ExecutionActionType,
   type ExecutionMachine,
 } from "@usecases/ports/execution-machine";
-import { CONNECTOR_ACTION_TIMEOUT_MS, CONNECTOR_PROTOCOL_VERSION, type ConnectorFrame } from "@entities/execution/connector-protocol";
+import { CONNECTOR_ACTION_TIMEOUT_MS, CONNECTOR_PROTOCOL_VERSION, type ConnectorFrame, type ShellExecActionInput } from "@entities/execution/connector-protocol";
 import { otterInvokeStorage } from "@entities/execution/otter-invoke-context";
 import type { ConnectorActionChannel } from "./connector-ws-gateway";
 import type { RemoteActionRegistry } from "@usecases/ports/remote-action-registry";
 import type { ConnectorRegistryRepository } from "@usecases/ports/connector-registry-repository";
+import { RemoteExecutionEnv } from "./remote-execution-env";
+
+/** 远程动作失败保留机器可读分类与部分结果，供 ExecutionEnv 还原 SDK 错误面。 */
+export class RemoteActionError extends Error {
+  constructor(message: string, readonly errorCode?: string, readonly result?: unknown) {
+    super(message);
+    this.name = "RemoteActionError";
+  }
+}
+
+interface PendingWaiter {
+  resolve: (result: unknown) => void;
+  reject: (error: Error) => void;
+  timer: NodeJS.Timeout;
+  onOutput?: (text: string, info: ShellOutputInfo) => void;
+  abortSignal?: AbortSignal;
+  abortHandler?: () => void;
+}
 
 /**
  * 远程执行机——动作经 WSS 通道下发 connector 执行。
  *
- * 总闸三道：① online_sessions 表 status=online（唯一事实源直查）
- * + ② Registry 投影可达（本机实例注册即达） + ③ 通道已连接（sendToDevice）。
- * 每次下发：actionId（调用方透传或 `<中枢bootEpoch>-<uuid>` 自铸）先登记
- * remote_action_requests（requested）→ action.request → 等 action.result；
- * 超时/会话下线 → 落 unknown（不盲重试，五态纪律）——落点。
- * createExecutionEnvironment 不支持（SDK 文件/bash 面只在 local 机器；远程工具面
- * 走动作协议语义）。
+ * 总闸三道：在线会话事实源、Registry 投影、活体通道。每次下发先登记
+ * remote_action_requests，再等 action.result；超时/会话下线落 unknown 或
+ * interrupted，不盲重试。流式输出只转发，不改变动作终态。
  */
 export class RemoteExecutionMachine implements ExecutionMachine {
   readonly name: string;
 
-  /** actionId 等待表：actionId → resolver（result 帧到达/超时/下线时兑现） */
-  private readonly pending = new Map<string, { resolve: (r: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  private readonly pending = new Map<string, PendingWaiter>();
   private wired = false;
 
   constructor(
@@ -38,57 +51,64 @@ export class RemoteExecutionMachine implements ExecutionMachine {
       channel: ConnectorActionChannel;
       remoteActions: RemoteActionRegistry;
       connectorRegistry: ConnectorRegistryRepository;
-      /** 中枢 boot 纪元（actionId 前缀——跨重启防碰撞） */
       hubBootEpoch: number;
       actionTimeoutMs?: number;
       now?: () => number;
-      /** 非致命异常观测（收尾失败等排障线索；缺省静默） */
       warn?: (message: string, meta?: Record<string, unknown>) => void;
     },
   ) {
     this.name = name ?? id;
   }
 
-  /** 通道回调接线（装配处调用一次；幂等）——result 分发 + 会话下线收尾 */
   wireChannel(): void {
     if (this.wired) return;
     this.wired = true;
     this.deps.channel.onActionResult(frame => {
       const waiter = this.pending.get(frame.data.actionId);
       if (!waiter) return;
-      clearTimeout(waiter.timer);
-      this.pending.delete(frame.data.actionId);
+      this.clearPending(frame.data.actionId, waiter);
       void this.deps.remoteActions.settleRequest(frame.data.actionId, frame.data.status, this.isoNow(), frame.data.result, frame.data.error);
-      if (frame.data.status === "succeeded") waiter.resolve(frame.data.result);
-      else waiter.reject(new Error(frame.data.error ?? `remote action ${frame.data.status}: ${frame.data.actionId}`));
+      if (frame.data.status === "succeeded") {
+        waiter.resolve(frame.data.result);
+      } else {
+        waiter.reject(new RemoteActionError(
+          frame.data.error ?? `remote action ${frame.data.status}: ${frame.data.actionId}`,
+          frame.data.errorCode,
+          frame.data.result,
+        ));
+      }
+    });
+    this.deps.channel.onActionOutput?.(frame => {
+      const waiter = this.pending.get(frame.data.actionId);
+      if (!waiter?.onOutput) return;
+      try {
+        waiter.onOutput(frame.data.text, {
+          stream: frame.data.stream,
+          ...(frame.data.skipped ? { skipped: frame.data.skipped } : {}),
+        });
+      } catch (error) {
+        this.deps.warn?.("remote action output callback failed", { actionId: frame.data.actionId, error: String(error) });
+      }
     });
     this.deps.channel.onSessionDown((sessionId, deviceId, reason) => {
-      // （检视）：网关下线事件是全局广播，本机器只收口**自己设备**的会话——
-      // 多设备同时在线时任一设备下线不得误杀其他设备的在途请求（孤儿化 requested 行）
       if (deviceId !== this.id) return;
-      // （第4步）：收尾按原因分流——主动优雅下线（device-offline）在途可
-      // 确定性裁决 interrupted（可安全重做）；意外断开（心跳超时/hub 重启）真相不明落
-      // unknown（禁止盲目重试）——不对称边界
       const verdict = reason === "device-offline" ? "interrupted" : "unknown";
       const batchError = verdict === "interrupted" ? "device offline before result (graceful: interrupted)" : "device offline before result";
       void this.deps.remoteActions.markSessionRequests(sessionId, verdict, this.isoNow(), batchError).catch(err => {
-        // （检视）：批量收尾失败不能零日志——DB 行滞留 requested 会永久「在途」，排障需要线索
         this.deps.warn?.("remote action session-down settle failed (rows stay requested)", { sessionId, verdict, error: String(err) });
       });
       for (const [actionId, waiter] of [...this.pending.entries()]) {
-        clearTimeout(waiter.timer);
-        this.pending.delete(actionId);
+        this.clearPending(actionId, waiter);
         waiter.reject(new Error(`device session down before result (${verdict}): ${sessionId}`));
       }
     });
   }
 
-  createExecutionEnvironment(_cwd: string): ExecutionEnv {
-    throw new Error(`remote machine does not host SDK execution environments (device: ${this.id})`);
+  createExecutionEnvironment(cwd: string, conversationId?: string): ExecutionEnv {
+    if (!conversationId) throw new Error(`remote execution environment requires conversationId (device: ${this.id})`);
+    return new RemoteExecutionEnv(this, cwd, conversationId);
   }
 
-  /** 单调帧序（action.request 的 seq 对账用——协议规定 seq 不承担可靠性，
-   *  仅日志对账与乱序检测，故进程内单调即可） */
   private frameSeq = 0;
 
   async run<K extends ExecutionActionType>(
@@ -97,70 +117,114 @@ export class RemoteExecutionMachine implements ExecutionMachine {
     options?: ActionRunOptions,
   ): Promise<ExecutionActionResult<K>> {
     this.wireChannel();
-    // 总闸①：唯一事实源直查（session online）
+    const session = await this.requireOnlineSession(action, options?.abortSignal);
+    const actionId = options?.actionId ?? `${String(this.deps.hubBootEpoch)}-${randomUUID()}`;
+    await this.recordAction(action, actionId, session.id);
+    return this.dispatch(action, actionId, session.id, options);
+  }
+
+  private async requireOnlineSession(
+    action: ExecutionAction<ExecutionActionType>,
+    abortSignal?: AbortSignal,
+  ): Promise<{ id: string; status: string }> {
+    if (abortSignal?.aborted) throw new Error("remote action aborted before send");
     const session = await this.findOnlineSession();
     if (!session || session.status !== "online") {
       throw new Error(`connector device offline or unpaired: ${this.id}`);
     }
+    if (action.type === "shell.exec" && this.deps.channel.negotiatedVersion?.(this.id) === 1) {
+      throw new Error("shell.exec requires connector protocol v2");
+    }
+    return session;
+  }
 
-    const actionId = options?.actionId ?? `${String(this.deps.hubBootEpoch)}-${randomUUID()}`;
+  private async recordAction(
+    action: ExecutionAction<ExecutionActionType>,
+    actionId: string,
+    onlineSessionId: string,
+  ): Promise<void> {
     const recorded = await this.deps.remoteActions.recordRequest({
-      actionId,
-      onlineSessionId: session.id,
-      deviceId: this.id,
-      actionType: action.type,
-      status: "requested",
-      error: null,
-      result: null,
-      createdAt: this.isoNow(),
-      settledAt: null,
-      // 关联维度：六动作 input 均携带 conversationId；invoke 归因取 hub 进程内上下文
+      actionId, onlineSessionId, deviceId: this.id, actionType: action.type,
+      status: "requested", error: null, result: null, createdAt: this.isoNow(), settledAt: null,
       conversationId: this.conversationIdOf(action.input),
       invokeId: otterInvokeStorage.getStore()?.currentInvokeId ?? null,
     });
     if (!recorded) throw new Error(`duplicate remote actionId: ${actionId}`);
+  }
 
+  private async dispatch<K extends ExecutionActionType>(
+    action: ExecutionAction<K>,
+    actionId: string,
+    sessionId: string,
+    options?: ActionRunOptions,
+  ): Promise<ExecutionActionResult<K>> {
+    const wait = this.createWaiter(actionId, sessionId, options);
+    const input = action.type === "shell.exec"
+      ? { ...action.input, invokeId: (action.input as ShellExecActionInput).invokeId ?? otterInvokeStorage.getStore()?.currentInvokeId }
+      : action.input;
     const sent = this.deps.channel.sendToDevice(this.id, {
       v: CONNECTOR_PROTOCOL_VERSION,
       type: "action.request",
       seq: (this.frameSeq += 1),
-      sid: session.id,
-      data: { actionId, action: { type: action.type, input: action.input as Record<string, unknown> } },
+      sid: sessionId,
+      data: { actionId, action: { type: action.type, input: input as Record<string, unknown> } },
     } satisfies ConnectorFrame);
-    if (!sent) {
-      // 总闸③未过（通道刚断）：登记行落 unknown（会话下线钩子也会批量收——这里精确收）
-      await this.deps.remoteActions.settleRequest(actionId, "unknown", this.isoNow(), undefined, "channel closed before send");
-      throw new Error(`connector channel unavailable: ${this.id}`);
-    }
+    if (!sent) await this.failSend(actionId);
+    if (options?.abortSignal?.aborted) this.pending.get(actionId)?.abortHandler?.();
+    return wait;
+  }
 
-    return await new Promise<ExecutionActionResult<K>>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(actionId);
-        void this.deps.remoteActions.settleRequest(actionId, "unknown", this.isoNow(), undefined, `timeout after ${String(this.timeout)}ms`);
-        reject(new Error(`remote action timeout: ${actionId}`));
-      }, this.timeout);
-      this.pending.set(actionId, {
-        resolve: r => resolve(r as ExecutionActionResult<K>),
-        reject,
-        timer,
+  private createWaiter<K extends ExecutionActionType>(
+    actionId: string,
+    sessionId: string,
+    options?: ActionRunOptions,
+  ): Promise<ExecutionActionResult<K>> {
+    return new Promise<ExecutionActionResult<K>>((resolve, reject) => {
+      const waiter: PendingWaiter = {
+        resolve: result => resolve(result as ExecutionActionResult<K>), reject,
+        onOutput: options?.onOutput, abortSignal: options?.abortSignal,
+        timer: setTimeout(() => this.timeoutWaiter(actionId, options?.timeoutMs ?? this.timeout, reject), options?.timeoutMs ?? this.timeout),
+      };
+      waiter.abortHandler = () => this.deps.channel.sendToDevice(this.id, {
+        v: CONNECTOR_PROTOCOL_VERSION, type: "action.cancel", seq: (this.frameSeq += 1), sid: sessionId, data: { actionId },
       });
+      this.pending.set(actionId, waiter);
+      options?.abortSignal?.addEventListener("abort", waiter.abortHandler, { once: true });
     });
+  }
+
+  private timeoutWaiter(actionId: string, timeoutMs: number, reject: (error: Error) => void): void {
+    const current = this.pending.get(actionId);
+    if (current) this.clearPending(actionId, current);
+    void this.deps.remoteActions.settleRequest(actionId, "unknown", this.isoNow(), undefined, `timeout after ${String(timeoutMs)}ms`);
+    reject(new Error(`remote action timeout: ${actionId}`));
+  }
+
+  private async failSend(actionId: string): Promise<never> {
+    const waiter = this.pending.get(actionId);
+    if (waiter) this.clearPending(actionId, waiter);
+    await this.deps.remoteActions.settleRequest(actionId, "unknown", this.isoNow(), undefined, "channel closed before send");
+    throw new Error(`connector channel unavailable: ${this.id}`);
+  }
+
+  private clearPending(actionId: string, waiter: PendingWaiter): void {
+    clearTimeout(waiter.timer);
+    if (waiter.abortSignal && waiter.abortHandler) {
+      waiter.abortSignal.removeEventListener("abort", waiter.abortHandler);
+    }
+    this.pending.delete(actionId);
   }
 
   private get timeout(): number {
     return this.deps.actionTimeoutMs ?? CONNECTOR_ACTION_TIMEOUT_MS;
   }
 
-  /** 六动作 input 均携带 conversationId（workspace.path 也含——getWorkspacePath
-   *  按 conversation 解析；故六动作全落会话维度，非 path 动作才缺） */
   private conversationIdOf(input: unknown): string | null {
     const candidate = (input as { conversationId?: unknown } | undefined)?.conversationId;
     return typeof candidate === "string" ? candidate : null;
   }
 
   private async findOnlineSession(): Promise<{ id: string; status: string } | null> {
-    // 通过 repo 的既有接口找当前 online 会话（listOnlineByDevice 语义：deviceIndex 在 gateway，
-    // 这里走库表查询——ConnectorRegistryRepository 需暴露按 device 查 online 行）
     const sessions = await this.deps.connectorRegistry.listOnlineSessionsByDevice(this.id);
     return sessions.length > 0 ? sessions[0]! : null;
   }

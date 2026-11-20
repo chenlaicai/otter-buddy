@@ -14,9 +14,12 @@
  * version 类协议不兼容是致命错误（重连无意义，退出进程让人介入）。
  *
  * 动作执行栈：action.request → ConnectorActionDispatcher
- * （台账 actionId 幂等快路径）→ WorkspaceActionExecutor（与中枢 local 同一执行
- * 语义与记账协议）→ action.result 回执。数据目录 ~/.otter/connector/<deviceId>/；
- * 台账开机清扫旧纪元 running 行（崩溃恢复兑底）后才执行动作。
+ * （台账 actionId 幂等快路径）→ WorkspaceActionExecutor（六动作，与中枢 local 同一执行
+ * 语义与记账协议）/ ShellActionExecutor（协议 v2 的 shell.exec——独立 env +
+ * AbortController，SDK 杀进程组；stdout/stderr 经 action.output 帧实时流回）
+ * → action.result 回执。action.cancel（S→C）只 abort 指定动作进程组，不直接宣称成功。
+ * 数据目录 ~/.otter/connector/<deviceId>/；台账开机清扫旧纪元 running 行（崩溃恢复
+ * 兑底）后才执行动作。
  *
  * 用法（packages/connector 打包分发后）：
  *   otter-connector --hub https://otter.example.com --pair <码> --name <设备名>   # 首启配对
@@ -32,13 +35,15 @@ import os from "node:os";
 import {
   CONNECTOR_HEARTBEAT_INTERVAL_MS,
   CONNECTOR_PROTOCOL_VERSION,
-  CONNECTOR_WS_SUBPROTOCOL,
+  CONNECTOR_WS_SUBPROTOCOLS,
+  HELLO_SUPPORTED_VERSIONS,
   type ConnectorFrame,
 } from "@entities/execution/connector-protocol";
 import { NodeWorkspaceGateway } from "@frameworks/file-system/node-workspace-gateway";
 import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-ledger";
 import { WorkspaceActionExecutor } from "@frameworks/execution/workspace-action-executor";
 import { ConnectorActionDispatcher } from "./action-dispatcher";
+import { ShellActionExecutor } from "./shell-action-executor";
 
 interface DeviceIdentity {
   deviceId: string;
@@ -116,6 +121,8 @@ let seq = 0;
 /** 单次连接的共享状态（处理器拆分后经对象传递） */
 interface ConnState {
   sessionId: string | null;
+  /** hello.ack 协商出的协议版本——此后所有上行帧 v 字段用它（v1 会话发 v1 帧） */
+  version: number;
   heartbeat: NodeJS.Timeout | null;
   ackWatch: NodeJS.Timeout | null;
   lastAckAt: number;
@@ -127,7 +134,7 @@ function startHeartbeatLoops(ws: WebSocket, state: ConnState): void {
   state.heartbeat = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN && state.sessionId) {
       seq += 1;
-      ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "heartbeat", seq, sid: state.sessionId, data: {} }));
+      ws.send(JSON.stringify({ v: state.version, type: "heartbeat", seq, sid: state.sessionId, data: {} }));
     }
   }, CONNECTOR_HEARTBEAT_INTERVAL_MS);
   state.ackWatch = setInterval(() => {
@@ -143,7 +150,9 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
     const frame = JSON.parse(String(raw)) as ConnectorFrame;
     if (frame.type === "hello.ack" && frame.sid) {
       state.sessionId = frame.sid;
+      state.version = frame.data.version;
       currentSid = frame.sid; // minor-1：信号处理读最新会话
+      currentVersion = frame.data.version;
       state.lastAckAt = Date.now();
       log("online", { deviceId: identity.deviceId, sessionId: frame.sid, version: frame.data.version });
       startHeartbeatLoops(ws, state);
@@ -155,6 +164,10 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
       void runtime.dispatcher.handleActionRequest(frame).catch(err => {
         log("action dispatch failed", { actionId: frame.data.actionId, error: String(err) });
       });
+    } else if (frame.type === "action.cancel") {
+      // 取消（协议 v2）：只 abort 指定动作进程组——不直接宣称成功，
+      // 最终状态只信随后的 action.result
+      runtime.dispatcher.handleActionCancel(frame.data);
     } else if (frame.type === "error") {
       log("hub error frame", { data: frame.data });
       if (frame.data.code === "version") settle("fatal"); // 协议不兼容：重连无意义
@@ -170,6 +183,8 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
  */
 let currentWs: WebSocket | null = null;
 let currentSid: string | null = null;
+/** 当前会话协商版本（hello.ack 落定；上行帧 v 字段随会话版本） */
+let currentVersion: number = CONNECTOR_PROTOCOL_VERSION;
 /** （检视）：优雅退出中——重连循环见此标志不再起新连接 */
 let exiting = false;
 
@@ -179,15 +194,17 @@ function registerSignalHandlersOnce(shutdown: () => Promise<void>): void {
     if (shuttingDown) return; // 双信号幂等——重复 offline 帧不叠退出链
     shuttingDown = true;
     exiting = true;
-    if (currentWs?.readyState === WebSocket.OPEN && currentSid) {
-      seq += 1;
-      currentWs.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "offline", seq, sid: currentSid, data: {} }));
-      log("offline requested", { signal });
-    }
-    // （检视，回第4步原设计）：自杀收尾——不等在途 fs 完成，在途动作立即
-    // 落 interrupted（与中枢侧 offline→interrupted 同裁决）；短窗后退出。
-    // （检视）：shuttingDown 后重连循环不再起新连接（防优雅下线后顶替重连再死）。
-    void shutdown().finally(() => setTimeout(() => process.exit(0), 150)); // 一拍发送窗口后退出
+    // 优雅退出顺序（阶段 7）：先取消 shell 进程组（abort → SDK 杀进程组，不留孤儿进程）
+    // + 在途台账落 interrupted，再发 offline 帧收尾——hub 侧 device-offline 收尾与
+    // connector 侧自杀收尾同裁决（interrupted），两侧一致。
+    void shutdown().catch(() => { /* best-effort */ }).finally(() => {
+      if (currentWs?.readyState === WebSocket.OPEN && currentSid) {
+        seq += 1;
+        currentWs.send(JSON.stringify({ v: currentVersion, type: "offline", seq, sid: currentSid, data: {} }));
+        log("offline requested", { signal });
+      }
+      setTimeout(() => process.exit(0), 150); // 一拍发送窗口后退出
+    });
   };
   process.on("SIGINT", () => goOffline("SIGINT"));
   process.on("SIGTERM", () => goOffline("SIGTERM"));
@@ -201,16 +218,32 @@ function registerSignalHandlersOnce(shutdown: () => Promise<void>): void {
 function sendResultFrame(data: Extract<ConnectorFrame, { type: "action.result" }>["data"]): void {
   if (currentWs?.readyState === WebSocket.OPEN && currentSid) {
     seq += 1;
-    currentWs.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "action.result", seq, sid: currentSid, data }));
+    currentWs.send(JSON.stringify({ v: currentVersion, type: "action.result", seq, sid: currentSid, data }));
   } else {
     log("action result dropped (no live session)", { actionId: data.actionId });
   }
 }
 
+/** action.output 发帧闭包（协议 v2）：同 sendResultFrame 的当前连接语义——
+ *  执行期间重连则带新 sid 被 hub 旧 sid 校验丢弃（输出帧不改终态，丢弃零副作用）。 */
+function sendOutputFrame(data: Extract<ConnectorFrame, { type: "action.output" }>["data"]): void {
+  if (currentWs?.readyState === WebSocket.OPEN && currentSid) {
+    seq += 1;
+    try {
+      currentWs.send(JSON.stringify({ v: currentVersion, type: "action.output", seq, sid: currentSid, data }));
+    } catch (err) {
+      log("action output send failed (non-fatal)", { actionId: data.actionId, error: String(err) });
+    }
+  }
+  // 无活会话时静默丢（输出是易失流，不值得日志噪声——result 帧才记 dropped）
+}
+
 /** 执行栈（数据目录 ~/.otter/connector/<deviceId>/）：workspace 网关 +
- *  本地台账（机器侧真相源）+ 公共执行器（与中枢 local 同一执行语义）+ 分发器 */
+ *  本地台账（机器侧真相源）+ 公共执行器（六动作，与中枢 local 同一执行语义）+
+ *  shell 执行器（协议 v2：shell.exec + 流式 output + 取消）+ 分发器 */
 interface ConnectorRuntime {
   dispatcher: ConnectorActionDispatcher;
+  shellExecutor: ShellActionExecutor;
   ledger: SqliteActionLedger;
 }
 
@@ -227,14 +260,22 @@ async function buildRuntime(identity: DeviceIdentity): Promise<ConnectorRuntime>
     return null;
   });
   if (sweep) log("ledger boot sweep", { ...sweep });
-  const executor = new WorkspaceActionExecutor(new NodeWorkspaceGateway(dataRoot), ledger, (message, meta) => log(message, meta));
+  const workspaceGateway = new NodeWorkspaceGateway(dataRoot);
+  const executor = new WorkspaceActionExecutor(workspaceGateway, ledger, (message, meta) => log(message, meta));
+  const shellExecutor = new ShellActionExecutor({
+    ledger,
+    resolveWorkspaceRoot: conversationId => workspaceGateway.getWorkspacePath(conversationId),
+    sendOutput: sendOutputFrame,
+    log: (message, meta) => log(message, meta),
+  });
   const dispatcher = new ConnectorActionDispatcher({
     executor,
+    shell: shellExecutor,
     ledger,
     send: sendResultFrame,
     log: (message, meta) => log(message, meta),
   });
-  return { dispatcher, ledger };
+  return { dispatcher, shellExecutor, ledger };
 }
 
 /** 单次连接生命周期。resolve "fatal" = 协议不兼容（重连无意义）；"closed" = 可重连。 */
@@ -243,8 +284,8 @@ function connectOnce(hub: string, identity: DeviceIdentity, runtime: ConnectorRu
     const wsUrl = new URL("/connector-ws", hub.replace(/^http/, "ws"));
     // 子协议 pin 声明（hub 升级层校验；缺声明的旧版客户端会被 hub 拒——升级
     // connector 包即可，配对身份/协议状态机不变）
-    const ws = new WebSocket(wsUrl, [CONNECTOR_WS_SUBPROTOCOL], { headers: { authorization: `Bearer ${identity.pairToken}` } });
-    const state: ConnState = { sessionId: null, heartbeat: null, ackWatch: null, lastAckAt: 0, settled: false };
+    const ws = new WebSocket(wsUrl, [...CONNECTOR_WS_SUBPROTOCOLS], { headers: { authorization: `Bearer ${identity.pairToken}` } });
+    const state: ConnState = { sessionId: null, version: CONNECTOR_PROTOCOL_VERSION, heartbeat: null, ackWatch: null, lastAckAt: 0, settled: false };
     const settle = (outcome: "closed" | "fatal"): void => {
       if (state.settled) return;
       state.settled = true;
@@ -254,7 +295,8 @@ function connectOnce(hub: string, identity: DeviceIdentity, runtime: ConnectorRu
     };
     ws.on("open", () => {
       seq += 1;
-      ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq, data: { supportedVersions: [CONNECTOR_PROTOCOL_VERSION] } }));
+      // hello 携带本端支持集（[1,2]）——hub 取交集最高；v1 中枢协商落 v1（六动作面）
+      ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq, data: { supportedVersions: [...HELLO_SUPPORTED_VERSIONS] } }));
     });
     attachMessageHandler(ws, identity, state, runtime, settle);
     currentWs = ws; // minor-1：信号处理读最新连接（注册一次，见 registerSignalHandlersOnce）
@@ -281,8 +323,13 @@ async function main(): Promise<void> {
 
   // 断线自动重连：指数退避，重连=新会话（hub 侧 sid 代际隔离跨会话重放）
   const runtime = await buildRuntime(identity); // 执行栈（台账清扫后才开始执行动作）
-  // 信号处理注册一次（runtime 后——自杀收尾读 dispatcher 在途集）
-  registerSignalHandlersOnce(() => runtime.dispatcher.markInflightInterrupted());
+  // 信号处理注册一次（runtime 后——自杀收尾读 dispatcher 在途集）。
+  // 顺序（阶段 7）：先取消 shell 进程组（不留孤儿进程），再落台账 interrupted 收尾。
+  registerSignalHandlersOnce(async () => {
+    await runtime.shellExecutor.shutdown("connector shutting down (graceful offline)")
+      .catch(err => log("shell executor shutdown failed (non-fatal)", { error: String(err) }));
+    await runtime.dispatcher.markInflightInterrupted();
+  });
   let backoff = RECONNECT_BASE_MS;
   for (;;) {
     const outcome = await connectOnce(args.hub, identity, runtime);

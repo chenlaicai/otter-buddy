@@ -149,16 +149,18 @@ describe("ConnectorWsGateway 协议状态机（C1 端到端）", () => {
     await waitClosed(ws); // 拒连后服务端关闭
   });
 
-  it("心跳：heartbeat → heartbeat.ack + last_seen 前移", async () => {
+  it("心跳：heartbeat → heartbeat.ack + last_seen 前移（v1 协商会话——帧 v 随会话版本）", async () => {
     const ws = wsConnect(hub.url, "tok-test");
     await new Promise<void>(r => ws.on("open", () => r()));
-    ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
+    ws.send(JSON.stringify({ v: 1, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
     const ack = await nextFrame(ws);
+    expect(ack.data).toMatchObject({ version: 1 }); // 旧端协商落 v1
     const sid = ack.sid!;
 
-    ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "heartbeat", seq: 2, sid, data: {} }));
+    ws.send(JSON.stringify({ v: 1, type: "heartbeat", seq: 2, sid, data: {} }));
     const hbAck = await nextFrame(ws);
     expect(hbAck.type).toBe("heartbeat.ack");
+    expect(hbAck.v).toBe(1); // 回帧 v 按会话协商版本盖章
     const repo = new SqliteConnectorRegistryRepository(db);
     const session = await repo.getOnlineSession(sid);
     expect(typeof session?.lastSeenAt).toBe("string");
@@ -169,18 +171,33 @@ describe("ConnectorWsGateway 协议状态机（C1 端到端）", () => {
   it("旧 sid 帧静默丢弃 + 计数（模块 C 红线：重连≠恢复）", async () => {
     const ws = wsConnect(hub.url, "tok-test");
     await new Promise<void>(r => ws.on("open", () => r()));
-    ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
+    ws.send(JSON.stringify({ v: 1, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
     const ack = await nextFrame(ws);
 
     // 伪造旧 sid 心跳——服务端应静默丢弃（不回 ack）
-    ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "heartbeat", seq: 2, sid: "stale-session-id", data: {} }));
+    ws.send(JSON.stringify({ v: 1, type: "heartbeat", seq: 2, sid: "stale-session-id", data: {} }));
     await expect(nextFrame(ws)).rejects.toThrow(/timeout|closed/);
     expect(hub.gateway.staleDropCount).toBeGreaterThanOrEqual(1);
 
     // 正确 sid 仍工作
-    ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "heartbeat", seq: 3, sid: ack.sid!, data: {} }));
+    ws.send(JSON.stringify({ v: 1, type: "heartbeat", seq: 3, sid: ack.sid!, data: {} }));
     const hbAck = await nextFrame(ws);
     expect(hbAck.type).toBe("heartbeat.ack");
+    ws.close();
+    await waitClosed(ws);
+  });
+
+  it("帧 v 不等于会话协商版本 → 静默丢弃（v1 会话不收 v2 帧，双栈隔离）", async () => {
+    const ws = wsConnect(hub.url, "tok-test");
+    await new Promise<void>(r => ws.on("open", () => r()));
+    ws.send(JSON.stringify({ v: 1, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
+    const ack = await nextFrame(ws);
+    expect(ack.data).toMatchObject({ version: 1 });
+    const dropsBefore = hub.gateway.staleDropCount;
+    // v1 会话上发 v=2 帧 → 丢弃（版本随会话）
+    ws.send(JSON.stringify({ v: 2, type: "heartbeat", seq: 2, sid: ack.sid!, data: {} }));
+    await expect(nextFrame(ws)).rejects.toThrow(/timeout|closed/);
+    expect(hub.gateway.staleDropCount).toBe(dropsBefore + 1);
     ws.close();
     await waitClosed(ws);
   });
@@ -189,10 +206,10 @@ describe("ConnectorWsGateway 协议状态机（C1 端到端）", () => {
     const repo = new SqliteConnectorRegistryRepository(db);
     const ws = wsConnect(hub.url, "tok-test");
     await new Promise<void>(r => ws.on("open", () => r()));
-    ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
+    ws.send(JSON.stringify({ v: 1, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
     const ack = await nextFrame(ws);
 
-    ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "offline", seq: 2, sid: ack.sid!, data: {} }));
+    ws.send(JSON.stringify({ v: 1, type: "offline", seq: 2, sid: ack.sid!, data: {} }));
     await waitClosed(ws); // 服务端主动关
 
     const session = await repo.getOnlineSession(ack.sid!);
@@ -205,7 +222,7 @@ describe("ConnectorWsGateway 协议状态机（C1 端到端）", () => {
     const repo = new SqliteConnectorRegistryRepository(db);
     const ws = wsConnect(hub.url, "tok-test");
     await new Promise<void>(r => ws.on("open", () => r()));
-    ws.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
+    ws.send(JSON.stringify({ v: 1, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
     const ack = await nextFrame(ws);
 
     ws.terminate(); // 模拟断线（不走优雅关闭）
@@ -221,7 +238,7 @@ describe("ConnectorWsGateway 协议状态机（C1 端到端）", () => {
     const repo = new SqliteConnectorRegistryRepository(db);
     const ws1 = wsConnect(hub.url, "tok-test");
     await new Promise<void>(r => ws1.on("open", () => r()));
-    ws1.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
+    ws1.send(JSON.stringify({ v: 1, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
     const ack1 = await nextFrame(ws1);
     ws1.close();
     await waitClosed(ws1);
@@ -229,7 +246,7 @@ describe("ConnectorWsGateway 协议状态机（C1 端到端）", () => {
 
     const ws2 = wsConnect(hub.url, "tok-test");
     await new Promise<void>(r => ws2.on("open", () => r()));
-    ws2.send(JSON.stringify({ v: CONNECTOR_PROTOCOL_VERSION, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
+    ws2.send(JSON.stringify({ v: 1, type: "hello", seq: 1, data: { supportedVersions: [1] } }));
     const ack2 = await nextFrame(ws2);
     expect(ack2.sid).not.toBe(ack1.sid); // 新会话代际
     expect((await repo.getOnlineSession(ack1.sid!))?.status).toBe("offline");
@@ -331,5 +348,161 @@ describe("ConnectorWsGateway 升级请求双查（6c：子协议 pin + Origin �
       hub.gateway.dispose();
       await new Promise<void>(resolve => hub.server.close(() => resolve()));
     }
+  });
+});
+
+describe("ConnectorWsGateway 协议 v2 双栈（协商/能力闸/output 分发）", () => {
+  let db: Database.Database;
+  let hub: Awaited<ReturnType<typeof startHub>>;
+
+  beforeEach(async () => {
+    db = createTestDb();
+    await new SqliteConnectorRegistryRepository(db).createDevice(deviceFixture());
+    hub = await startHub(db);
+  });
+
+  afterEach(async () => {
+    hub.gateway.dispose();
+    await new Promise<void>(resolve => hub.server.close(() => resolve()));
+    db.close();
+  });
+
+  /** 建联并完成 hello（以客户端 max 版本作 hello 帧 v；返回协商版本与 sid） */
+  async function helloSession(versions: number[], opts: ConnectOpts = {}): Promise<{ ws: WebSocket; sid: string; version: number }> {
+    const ws = wsConnect(hub.url, "tok-test", opts);
+    await new Promise<void>(r => ws.on("open", () => r()));
+    ws.send(JSON.stringify({ v: Math.max(...versions), type: "hello", seq: 1, data: { supportedVersions: versions } }));
+    const ack = await nextFrame(ws);
+    expect(ack.type).toBe("hello.ack");
+    return { ws, sid: ack.sid!, version: (ack.data as { version: number }).version };
+  }
+
+  it("版本协商取交集最高：[1,2] → 2；[1] → 1；协商版本落 online_sessions.protocolVersion", async () => {
+    const repo = new SqliteConnectorRegistryRepository(db);
+    const v2 = await helloSession([1, 2]);
+    expect(v2.version).toBe(2);
+    expect((await repo.getOnlineSession(v2.sid))?.protocolVersion).toBe(2);
+    v2.ws.close();
+    await waitClosed(v2.ws);
+
+    const v1 = await helloSession([1]);
+    expect(v1.version).toBe(1);
+    expect((await repo.getOnlineSession(v1.sid))?.protocolVersion).toBe(1);
+    v1.ws.close();
+    await waitClosed(v1.ws);
+  });
+
+  it("子协议双收：仅声明 v1 pin 放行且回显 v1；混合声明 [v1,v2] 优先回显 v2", async () => {
+    const wsV1 = wsConnect(hub.url, "tok-test", { subprotocol: ["otter-connector.v1"] });
+    await new Promise<void>(r => wsV1.on("open", () => r()));
+    expect(wsV1.protocol).toBe("otter-connector.v1");
+    wsV1.close();
+    await waitClosed(wsV1);
+
+    const wsMixed = wsConnect(hub.url, "tok-test", { subprotocol: ["otter-connector.v1", "otter-connector.v2"] });
+    await new Promise<void>(r => wsMixed.on("open", () => r()));
+    expect(wsMixed.protocol).toBe("otter-connector.v2"); // 优先 v2
+    wsMixed.close();
+    await waitClosed(wsMixed);
+  });
+
+  it("action.output（v2 会话）→ onActionOutput 分发（text/stream/skipped 透传）", async () => {
+    const { ws, sid } = await helloSession([1, 2]);
+    const outputs: Array<Extract<ConnectorFrame, { type: "action.output" }>["data"]> = [];
+    hub.gateway.onActionOutput(frame => outputs.push(frame.data));
+
+    ws.send(JSON.stringify({
+      v: 2, type: "action.output", seq: 2, sid,
+      data: { actionId: "a-1", stream: "stdout", text: "hello", skipped: { bytes: 30, newlines: 3, endsWithNewline: true } },
+    }));
+    await new Promise(r => setTimeout(r, 150));
+    expect(outputs).toEqual([{ actionId: "a-1", stream: "stdout", text: "hello", skipped: { bytes: 30, newlines: 3, endsWithNewline: true } }]);
+    ws.close();
+    await waitClosed(ws);
+  });
+
+  it("v1 会话收到 action.output → error/protocol（v2 帧面对 v1 关闭）", async () => {
+    const { ws, sid } = await helloSession([1]);
+    const outputs: unknown[] = [];
+    hub.gateway.onActionOutput(frame => outputs.push(frame.data));
+
+    ws.send(JSON.stringify({ v: 1, type: "action.output", seq: 2, sid, data: { actionId: "a-1", stream: "stdout", text: "x" } }));
+    const errFrame = await nextFrame(ws);
+    expect(errFrame.type).toBe("error");
+    if (errFrame.type === "error") expect(errFrame.data.code).toBe("protocol");
+    expect(errFrame.v).toBe(1); // 错误回执同样按会话版本盖章
+    expect(outputs).toHaveLength(0); // 未分发
+    ws.close();
+    await waitClosed(ws);
+  });
+
+  it("旧 sid 的 action.output 丢弃 + 计数 + 不分发（晚到输出不复活旧会话）", async () => {
+    const { ws } = await helloSession([1, 2]);
+    const outputs: unknown[] = [];
+    hub.gateway.onActionOutput(frame => outputs.push(frame.data));
+    const dropsBefore = hub.gateway.staleDropCount;
+
+    ws.send(JSON.stringify({ v: 2, type: "action.output", seq: 2, sid: "stale-sid", data: { actionId: "a-1", stream: "stdout", text: "late" } }));
+    await new Promise(r => setTimeout(r, 150));
+    expect(hub.gateway.staleDropCount).toBe(dropsBefore + 1);
+    expect(outputs).toHaveLength(0);
+    ws.close();
+    await waitClosed(ws);
+  });
+
+  it("sendToDevice 版本闸：v1 会话拒发 shell.exec 与 action.cancel；六动作放行且 v 盖章为 1", async () => {
+    const { ws, sid } = await helloSession([1]);
+    // v1 会话下发 shell.exec → 闸拦（返回 false，帧不达端上）
+    const shellSent = hub.gateway.sendToDevice("connector-test", {
+      v: CONNECTOR_PROTOCOL_VERSION, type: "action.request", seq: 10, sid,
+      data: { actionId: "gate-1", action: { type: "shell.exec", input: { conversationId: "c1", command: "echo x" } } },
+    });
+    expect(shellSent).toBe(false);
+    const cancelSent = hub.gateway.sendToDevice("connector-test", {
+      v: CONNECTOR_PROTOCOL_VERSION, type: "action.cancel", seq: 11, sid, data: { actionId: "gate-1" },
+    });
+    expect(cancelSent).toBe(false);
+    // 六动作放行；帧 v 按会话版本盖章（机器侧构造 v=2，线上落 v=1）
+    const okSent = hub.gateway.sendToDevice("connector-test", {
+      v: CONNECTOR_PROTOCOL_VERSION, type: "action.request", seq: 12, sid,
+      data: { actionId: "gate-2", action: { type: "workspace.exists", input: { conversationId: "c1" } } },
+    });
+    expect(okSent).toBe(true);
+    const frame = await nextFrame(ws);
+    expect(frame.v).toBe(1);
+    expect(frame.type).toBe("action.request");
+    ws.close();
+    await waitClosed(ws);
+  });
+
+  it("sendToDevice 版本闸：v2 会话放行 shell.exec/action.cancel，v 盖章为 2", async () => {
+    const { ws, sid } = await helloSession([1, 2]);
+    const shellSent = hub.gateway.sendToDevice("connector-test", {
+      v: CONNECTOR_PROTOCOL_VERSION, type: "action.request", seq: 10, sid,
+      data: { actionId: "gate-3", action: { type: "shell.exec", input: { conversationId: "c1", command: "echo x" } } },
+    });
+    expect(shellSent).toBe(true);
+    const reqFrame = await nextFrame(ws);
+    expect(reqFrame.v).toBe(2);
+    expect(reqFrame.type).toBe("action.request");
+
+    const cancelSent = hub.gateway.sendToDevice("connector-test", {
+      v: CONNECTOR_PROTOCOL_VERSION, type: "action.cancel", seq: 11, sid, data: { actionId: "gate-3" },
+    });
+    expect(cancelSent).toBe(true);
+    const cancelFrame = await nextFrame(ws);
+    expect(cancelFrame).toMatchObject({ v: 2, type: "action.cancel", data: { actionId: "gate-3" } });
+    ws.close();
+    await waitClosed(ws);
+  });
+
+  it("negotiatedVersion：在线返回会话协商版本，离线/未知设备 undefined", async () => {
+    expect(hub.gateway.negotiatedVersion("connector-test")).toBeUndefined();
+    const v1 = await helloSession([1]);
+    expect(hub.gateway.negotiatedVersion("connector-test")).toBe(1);
+    v1.ws.close();
+    await waitClosed(v1.ws);
+    await new Promise(r => setTimeout(r, 200)); // 等下线收尾
+    expect(hub.gateway.negotiatedVersion("connector-test")).toBeUndefined();
   });
 });

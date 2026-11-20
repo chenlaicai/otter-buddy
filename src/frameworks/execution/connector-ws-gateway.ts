@@ -8,9 +8,11 @@ import type { ConnectorRegistryRepository } from "@usecases/ports/connector-regi
 import type { ExecutionMachine } from "@usecases/ports/execution-machine";
 import type { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
 import {
+  actionTypeMinVersion,
   CONNECTOR_HEARTBEAT_TIMEOUT_MS,
   CONNECTOR_PROTOCOL_VERSION,
-  CONNECTOR_WS_SUBPROTOCOL,
+  CONNECTOR_WS_SUBPROTOCOLS,
+  HELLO_SUPPORTED_VERSIONS,
   type ConnectorFrame,
 } from "@entities/execution/connector-protocol";
 
@@ -21,12 +23,20 @@ export type ConnectorSessionDownReason = "device-offline" | "heartbeat-timeout" 
 
 /** 动作通道面——RemoteExecutionMachine 依赖的网关能力子集（测试可 fake） */
 export interface ConnectorActionChannel {
-  /** 向设备在线连接发帧；离线/无连接返回 false */
+  /** 向设备在线连接发帧；离线/无连接返回 false。
+   *  协议 v2 闸：帧面超出会话协商版本（v1 会话收 shell.exec/action.cancel）时拒发
+   *  返回 false + 告警日志（v1 会话只通行六动作——版本能力闸，下行即拦）。 */
   sendToDevice(deviceId: string, frame: ConnectorFrame): boolean;
   /** action.result 帧回调注册（中枢侧等待者分发） */
   onActionResult(handler: (frame: Extract<ConnectorFrame, { type: "action.result" }>) => void): void;
+  /** action.output 流式输出帧回调注册（协议 v2；可选——旧 fake 缺省不实现，
+   *  消费方用可选调用 `onActionOutput?.(...)` 接线） */
+  onActionOutput?(handler: (frame: Extract<ConnectorFrame, { type: "action.output" }>) => void): void;
   /** 会话下线通知（每一次 online → offline，含原因）——等待者收尾钩子 */
   onSessionDown(handler: (sessionId: string, deviceId: string, reason: ConnectorSessionDownReason) => void): void;
+  /** 设备当前在线会话的协商协议版本（离线/未知 → undefined）——
+   *  调用方下发 v2 面动作前的预检用（可选，fail-fast 友好错误） */
+  negotiatedVersion?(deviceId: string): number | undefined;
 }
 import type { OnlineSession } from "@entities/execution/online-session";
 
@@ -35,19 +45,24 @@ interface LiveConnection {
   deviceId: string;
   sessionId: string;
   lastSeenAt: number;
+  /** hello 协商出的会话协议版本——帧校验（v 字段）与下行发帧（v 盖章 + 能力闸）
+   *  一律用它而非全局常量（v1/v2 双栈共存窗口） */
+  version: number;
 }
 
 /**
- * connector WSS 网关——upgrade 鉴权（子协议 pin + Origin 白名单
- *  + Bearer token 三查）+ 协议 v1
- * （hello/heartbeat/offline + sid 会话代际）+ 总闸库层状态机。
+ * connector WSS 网关——upgrade 鉴权（子协议 pin 双收 + Origin 白名单
+ *  + Bearer token 三查）+ 协议 v2/v1 双栈
+ * （hello 交集协商/heartbeat/offline + sid 会话代际 + 协商版本级帧校验与下行闸）
+ *  + 总闸库层状态机。
  *
  * 事实源纪律：online_sessions 表是唯一事实源——上线/下线先落库，
  * Registry 内存投影随后（先库后内存；库写失败 fail-closed 关通道，宁误下线不误放行）。
  * 旧 sid 帧一律静默丢弃 + 计数日志（模块 C 红线：重连≠恢复）。
  *
- * 边界：只承载通道与会话；动作帧（action.request/result）落地——本网关收到
- * 未知类型帧回 error/protocol。
+ * 边界：只承载通道与会话；动作帧（action.request/result + v2 的 action.output 分发）
+ * 落地——本网关收到未知类型帧回 error/protocol；action.cancel 是 S→C 单向帧，
+ * 网关只负责按版本闸下发（不在中枢侧执行取消语义）。
  */
 export class ConnectorWsGateway {
   private readonly wss: WebSocketServer;
@@ -55,6 +70,7 @@ export class ConnectorWsGateway {
   /** deviceId → sessionId 反查（动作帧路由用；顶替上线时刷新） */
   private readonly deviceIndex = new Map<string, string>();
   private readonly actionResultHandlers: Array<(frame: Extract<ConnectorFrame, { type: "action.result" }>) => void> = [];
+  private readonly actionOutputHandlers: Array<(frame: Extract<ConnectorFrame, { type: "action.output" }>) => void> = [];
   private readonly sessionDownHandlers: Array<(sessionId: string, deviceId: string, reason: ConnectorSessionDownReason) => void> = [];
   private sweepTimer: NodeJS.Timeout | null = null;
   /** 旧 sid 帧丢弃计数（观测模块 C 红线命中情况） */
@@ -78,7 +94,9 @@ export class ConnectorWsGateway {
     // 子协议回显：升级层已校验声明，握手响应回显 pin 值完成协商
     this.wss = new WebSocketServer({
       noServer: true,
-      handleProtocols: () => CONNECTOR_WS_SUBPROTOCOL,
+      // 子协议双收优先 v2（升级层已校验声明——此处从客户端声明集里选 pin 回显）
+      handleProtocols: (protocols: Set<string>) =>
+        CONNECTOR_WS_SUBPROTOCOLS.find(p => protocols.has(p)) ?? false,
     });
     this.wss.on("connection", (socket, request) => this.onConnection(socket, request));
   }
@@ -114,7 +132,7 @@ export class ConnectorWsGateway {
   private checkUpgradeFingerprint(request: IncomingMessage): [number, string] | null {
     const subprotocols = String(request.headers["sec-websocket-protocol"] ?? "")
       .split(",").map(s => s.trim()).filter(Boolean);
-    if (!subprotocols.includes(CONNECTOR_WS_SUBPROTOCOL)) return [400, "missing required subprotocol"];
+    if (!subprotocols.some(p => CONNECTOR_WS_SUBPROTOCOLS.includes(p))) return [400, "missing required subprotocol"];
     const rawOrigin = request.headers.origin;
     const origin = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
     if (origin !== undefined && !(this.deps.allowedOrigins ?? []).includes(origin)) {
@@ -133,36 +151,10 @@ export class ConnectorWsGateway {
         try {
           const frame = JSON.parse(String(raw)) as ConnectorFrame;
           if (!live) {
-            // 第一帧必须是 hello（未建立会话代际）
-            if (frame.type !== "hello") {
-              this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "error", seq: 0, data: { code: "protocol", message: "first frame must be hello" } });
-              return socket.close(1002, "protocol violation");
-            }
-            live = await this.handleHello(socket, device, frame);
+            live = await this.handleFirstFrame(socket, device, frame);
             return;
           }
-          // 会话建立后：所有帧必须带正确 sid（旧 sid 丢弃+计数——模块 C 红线）
-          if (frame.sid !== live.sessionId || frame.v !== CONNECTOR_PROTOCOL_VERSION) {
-            this.staleFrameDrops += 1;
-            this.logger.warn("connector frame dropped (stale sid or bad version)", { deviceId: device.id, sessionId: live.sessionId, frameSid: frame.sid, drops: this.staleFrameDrops });
-            return;
-          }
-          live.lastSeenAt = this.now();
-          if (frame.type === "action.result") {
-            for (const handler of this.actionResultHandlers) handler(frame);
-            return;
-          }
-          switch (frame.type) {
-            case "heartbeat":
-              await this.repo.touchOnlineSession(live.sessionId, new Date(this.now()).toISOString());
-              this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "heartbeat.ack", seq: frame.seq, sid: live.sessionId, data: {} });
-              break;
-            case "offline":
-              await this.shutdown(live, "device-offline", 1001, "device requested offline");
-              break;
-            default:
-              this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "error", seq: frame.seq, sid: live.sessionId, data: { code: "protocol", message: `frame type not supported in C1: ${String((frame as { type?: string }).type)}` } });
-          }
+          await this.handleSessionFrame(socket, device, live, frame);
         } catch (err) {
           this.logger.warn("connector frame handling failed", { deviceId: device.id, error: err instanceof Error ? err.message : String(err) });
         }
@@ -177,17 +169,71 @@ export class ConnectorWsGateway {
     });
   }
 
-  /** hello → 版本协商（hub 支持集 ∩ connector 支持集取最高；无交集拒连——当前 hub 侧
-   *  支持集为单版本 [v1]，多版本演进时只扩本端支持集常量即可）→ 库表开 session（先库后内存）→ hello.ack 下发 sid */
+  /** 会话前帧处理：第一帧必须是 hello（否则 protocol 违规关通道）；返回建立的 LiveConnection */
+  private async handleFirstFrame(
+    socket: WebSocket,
+    device: { id: string; name: string },
+    frame: ConnectorFrame,
+  ): Promise<LiveConnection | null> {
+    if (frame.type !== "hello") {
+      this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "error", seq: 0, data: { code: "protocol", message: "first frame must be hello" } });
+      socket.close(1002, "protocol violation");
+      return null;
+    }
+    return this.handleHello(socket, device, frame);
+  }
+
+  /** 会话内帧处理：sid/版本校验（旧 sid 或错版本丢弃+计数——模块 C 红线）→ 类型分发 */
+  private async handleSessionFrame(
+    socket: WebSocket,
+    device: { id: string; name: string },
+    live: LiveConnection,
+    frame: ConnectorFrame,
+  ): Promise<void> {
+    // 会话建立后：所有帧必须带正确 sid + 帧 v 等于本会话协商版本
+    // （双栈共存：v1 会话不收 v2 帧，反之亦然）
+    if (frame.sid !== live.sessionId || frame.v !== live.version) {
+      this.staleFrameDrops += 1;
+      this.logger.warn("connector frame dropped (stale sid or bad version)", { deviceId: device.id, sessionId: live.sessionId, frameSid: frame.sid, drops: this.staleFrameDrops });
+      return;
+    }
+    live.lastSeenAt = this.now();
+    if (frame.type === "action.result") {
+      for (const handler of this.actionResultHandlers) handler(frame);
+      return;
+    }
+    // action.output（协议 v2）：流式输出分发——不改终态，只喂等待者 output 回调。
+    // v1 会话不该收到（端上旧版不会发）；收到即落 default → error/protocol（版本能力面）。
+    if (frame.type === "action.output" && live.version >= 2) {
+      for (const handler of this.actionOutputHandlers) handler(frame);
+      return;
+    }
+    switch (frame.type) {
+      case "heartbeat":
+        await this.repo.touchOnlineSession(live.sessionId, new Date(this.now()).toISOString());
+        this.send(socket, { v: live.version, type: "heartbeat.ack", seq: frame.seq, sid: live.sessionId, data: {} });
+        break;
+      case "offline":
+        await this.shutdown(live, "device-offline", 1001, "device requested offline");
+        break;
+      default:
+        this.send(socket, { v: live.version, type: "error", seq: frame.seq, sid: live.sessionId, data: { code: "protocol", message: `frame type not supported: ${String((frame as { type?: string }).type)}` } });
+    }
+  }
+
+  /** hello → 版本协商（hub 支持集 ∩ connector 支持集取最高；无交集拒连——hub 支持
+   *  [v1,v2] 双栈：旧 connector（仅 v1）协商落 v1 继续六动作；新 connector 落 v2 开放
+   *  shell/output/cancel 面）→ 库表开 session（先库后内存）→ hello.ack 下发 sid+版本 */
   private async handleHello(
     socket: WebSocket,
     device: { id: string; name: string },
     frame: Extract<ConnectorFrame, { type: "hello" }>,
   ): Promise<LiveConnection> {
     const supported = frame.data.supportedVersions ?? [];
-    const version = Math.max(0, ...supported.filter(v => v === CONNECTOR_PROTOCOL_VERSION));
-    if (version !== CONNECTOR_PROTOCOL_VERSION) {
-      this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "error", seq: frame.seq, data: { code: "version", message: "no overlapping protocol version" } });
+    const version = Math.max(0, ...HELLO_SUPPORTED_VERSIONS.filter(v => supported.includes(v)));
+    if (version <= 0) {
+      // 拒连回执 echo 对端 hello 的 v（旧端不核 v 也能解析；新端按自身版本校验）
+      this.send(socket, { v: typeof frame.v === "number" ? frame.v : CONNECTOR_PROTOCOL_VERSION, type: "error", seq: frame.seq, data: { code: "version", message: "no overlapping protocol version" } });
       socket.close(1002, "version mismatch");
       throw new Error("version mismatch");
     }
@@ -221,12 +267,12 @@ export class ConnectorWsGateway {
       }
     }
 
-    const live: LiveConnection = { socket, deviceId: device.id, sessionId: session.id, lastSeenAt: now };
+    const live: LiveConnection = { socket, deviceId: device.id, sessionId: session.id, lastSeenAt: now, version };
     this.connections.set(session.id, live);
     this.deviceIndex.set(device.id, session.id);
     this.ensureSweepTimer();
     this.logger.info("connector device online", { deviceId: device.id, sessionId: session.id, protocolVersion: version });
-    this.send(socket, { v: CONNECTOR_PROTOCOL_VERSION, type: "hello.ack", seq: frame.seq, sid: session.id, data: { version } });
+    this.send(socket, { v: version, type: "hello.ack", seq: frame.seq, sid: session.id, data: { version } });
     return live;
   }
 
@@ -280,18 +326,38 @@ export class ConnectorWsGateway {
     return this.staleFrameDrops;
   }
 
-  /** 动作通道面实现（ConnectorActionChannel） */
+  /** 动作通道面实现（ConnectorActionChannel）。
+   *  版本能力闸（协议 v2 双栈）：v1 会话只通行六动作——shell.exec 请求与 action.cancel
+   *  帧面对其关闭，拒发返回 false + 告警（调用方走通道不可用路径落 unknown，不静默降级）；
+   *  发帧 v 字段按会话协商版本盖章（不用全局常量——v1 会话收 v1 帧）。 */
   sendToDevice(deviceId: string, frame: ConnectorFrame): boolean {
     const sessionId = this.deviceIndex.get(deviceId);
     if (!sessionId) return false;
     const live = this.connections.get(sessionId);
     if (!live || live.socket.readyState !== live.socket.OPEN) return false;
-    this.send(live.socket, frame);
+    if (frame.type === "action.request" && actionTypeMinVersion(frame.data.action.type) > live.version) {
+      this.logger.warn("action rejected by protocol version gate (not sent)", { deviceId, actionType: frame.data.action.type, sessionVersion: live.version });
+      return false;
+    }
+    if (frame.type === "action.cancel" && live.version < 2) {
+      this.logger.warn("action.cancel rejected by version gate (v1 session)", { deviceId, actionId: frame.data.actionId });
+      return false;
+    }
+    this.send(live.socket, { ...frame, v: live.version });
     return true;
   }
 
   onActionResult(handler: (frame: Extract<ConnectorFrame, { type: "action.result" }>) => void): void {
     this.actionResultHandlers.push(handler);
+  }
+
+  onActionOutput(handler: (frame: Extract<ConnectorFrame, { type: "action.output" }>) => void): void {
+    this.actionOutputHandlers.push(handler);
+  }
+
+  negotiatedVersion(deviceId: string): number | undefined {
+    const sessionId = this.deviceIndex.get(deviceId);
+    return sessionId ? this.connections.get(sessionId)?.version : undefined;
   }
 
   onSessionDown(handler: (sessionId: string, deviceId: string, reason: ConnectorSessionDownReason) => void): void {

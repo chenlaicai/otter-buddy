@@ -11,6 +11,8 @@ import { createInvokeRegister } from "@frameworks/agent/tool-builder";
 import { createTestExecutionMachineRegistry } from "../../helpers/execution-machine";
 import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-ledger";
 import type { Logger } from "@usecases/ports/logger";
+import { ConversationActionRouter } from "@usecases/execution/conversation-action-router";
+import type { ExecutionMachine } from "@usecases/ports/execution-machine";
 
 const logger: Logger = { debug() {}, info() {}, warn() {}, error() {}, child() { return this; } };
 
@@ -105,6 +107,62 @@ describe("durable coding tools through LocalExecutionMachine", () => {
       await session.close(BACKGROUND_CONTEXT);
       ledger.close();
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("SDK bash 按 ALS 业务对话选择执行机，物理写入设备侧目录", { timeout: 20_000 }, async () => {
+    const hubDir = await mkdtemp(path.join(tmpdir(), "durable-hub-"));
+    const deviceDir = await mkdtemp(path.join(tmpdir(), "durable-device-"));
+    const registry = createTestExecutionMachineRegistry(hubDir);
+    const deviceLocal = createTestExecutionMachineRegistry(deviceDir);
+    let envConversationId: string | undefined;
+    const remote: ExecutionMachine = {
+      id: "connector-b",
+      run: (action, target, options) => deviceLocal.run(action, target, options),
+      createExecutionEnvironment: (_cwd, conversationId) => {
+        envConversationId = conversationId;
+        return deviceLocal.resolve().createExecutionEnvironment(deviceDir, conversationId);
+      },
+    };
+    registry.register(remote);
+    const router = new ConversationActionRouter(registry, {
+      getExecutionMachineId: async id => id === "business-c" ? "connector-b" : null,
+    });
+    const faux = fauxProvider({});
+    const models = createModels();
+    models.setProvider(faux.provider);
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("bash", { command: "printf remote-sdk > proof.txt", timeout: 5 }, { id: "remote-bash-call" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("remote-complete"),
+    ]);
+    const session = await DurableSession.open({
+      otterId: "otter-remote",
+      file: path.join(hubDir, "session.sqlite"),
+      models,
+      model: faux.getModel(),
+      cwd: hubDir,
+      executionMachines: router,
+      logger,
+      register: createInvokeRegister(),
+      invokeId: "invoke-remote-machine",
+      context: BACKGROUND_CONTEXT,
+      tools: { codingTools: ["bash"], customTools: [] },
+      haltRegistry: { takeForBlock: () => [], isHalted: () => false },
+    });
+    try {
+      const { otterInvokeStorage } = await import("@frameworks/agent/model-runtime-registry");
+      const events: unknown[] = [];
+      await otterInvokeStorage.run({
+        otterId: "otter-remote", otterPromptConfig: "", identityPrefix: "", currentConversationId: "business-c",
+      }, () => session.prompt("run remotely", undefined, new DurableEventStream(event => events.push(event)), BACKGROUND_CONTEXT));
+      expect(JSON.stringify(events)).not.toContain('"isError":true');
+      expect(envConversationId).toBe("business-c");
+      expect(await readFile(path.join(deviceDir, "proof.txt"), "utf8")).toBe("remote-sdk");
+      await expect(readFile(path.join(hubDir, "proof.txt"), "utf8")).rejects.toThrow();
+    } finally {
+      await session.close(BACKGROUND_CONTEXT);
+      await rm(hubDir, { recursive: true, force: true });
+      await rm(deviceDir, { recursive: true, force: true });
     }
   });
 });
