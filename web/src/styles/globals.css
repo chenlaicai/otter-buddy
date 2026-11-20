@@ -222,8 +222,8 @@ body {
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
 }
 
-/* 一级主导航 Liquid Glass：真实位移折射层 + 低覆盖着色 + 镜面高光。
-   SVG displacement 直接作用于 backdrop；不支持时保留采样材质降级。 */
+/* 一级主导航 Liquid Glass：整条静止画布折射底座 + 单个滑动选中透镜。
+   结构参照钉钉移动端：未选中项不画独立胶囊，选中块切换时拉长再收回。 */
 .glass-nav {
   position: relative;
   border: 1px solid rgba(255,255,255,0.58);
@@ -262,41 +262,40 @@ body {
   background-position: center;
   background-repeat: no-repeat;
 }
-/* 每个菜单项都是独立的小玻璃片；内容始终在不参与折射的上层。 */
+/* 未选中项保持裸文字/图标；只有这一枚选中透镜在底座内部移动。 */
 .glass-nav-item {
   position: relative;
   isolation: isolate;
-  border: 1px solid rgba(255,255,255,0.34);
-  box-shadow:
-    inset 0 1px 1px rgba(255,255,255,0.55),
-    inset 0 -1px 1px rgba(82,58,35,0.12),
-    0 2px 5px rgba(42,32,20,0.06);
 }
-.glass-nav-item-tint {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(115deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05) 55%, rgba(255,255,255,0.12));
+.glass-nav-item:not(.nav-pill-active):hover {
+  background: rgba(255,255,255,0.10);
+}
+.glass-nav-item.nav-pill-active {
+  background: transparent;
 }
 .glass-nav-item-content {
   position: relative;
   z-index: 2;
 }
-.glass-nav-item:hover {
-  border-color: rgba(255,255,255,0.62);
+.glass-nav-selection {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: 9999px;
+  pointer-events: none;
+  border: 1px solid rgba(255,255,255,0.48);
   box-shadow:
-    inset 0 1px 1px rgba(255,255,255,0.72),
-    inset 0 -1px 1px rgba(82,58,35,0.14),
-    0 3px 8px rgba(42,32,20,0.10);
+    inset 0 1px 1px rgba(255,255,255,0.70),
+    inset 0 -2px 3px rgba(125,205,220,0.20),
+    0 2px 5px rgba(42,32,20,0.08);
 }
-.glass-nav-item.nav-pill-active {
-  background: transparent;
-  border-color: rgba(255,255,255,0.72);
-}
-.glass-nav-item.nav-pill-active .glass-nav-item-tint {
-  background: rgb(255 255 255 / calc(38% * var(--glass-t)));
+.glass-nav-selection-tint {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(145deg, rgba(235,235,235,0.62), rgba(215,215,215,0.42));
 }
 .glass-nav-tint {
   position: absolute;
@@ -338,6 +337,7 @@ body {
 }
 @media (prefers-reduced-transparency: reduce) {
   .glass-nav-effect, .glass-nav-item-effect { display: none; }
+  .glass-nav-selection-tint { background: var(--nav-active-bg); }
   .glass-nav::before, .glass-nav::after { display: none; }
 }
 
