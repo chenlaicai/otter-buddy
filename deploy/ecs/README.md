@@ -26,7 +26,7 @@
 
 ## 首次部署步骤
 
-1. **替换海獭 CoLink PoC 体系**（终态：本机只跑一个海獭系统进程）：
+1. **替换海獭 CoLink PoC 体系**（终态：海獭中枢与 CoLink 适配轻进程长期并存）：
    `sudo systemctl disable --now otter-buddy`（PoC 中枢退役，验证数据默认不迁移）。
    colink-agent-app 是 CoLink 通道适配（独立轻进程，OtterBridge 连中枢 API）。
    **CoLink 是独立外部系统，与海獭没有隶属关系**——这台机上它是「外部 IM 平台 ↔ 海獭」的
@@ -59,8 +59,9 @@
    - **中枢 `npm ci` 失败时的回退**：这台机 `onnxruntime-node` 安装脚本要下载二进制、源不可达（云端 `OTTER_EMBEDDING=off`）。脚本先试 `npm ci`，失败退回「按 lock 就地安装 + 跳过安装脚本」，随后仍做依赖闭包校验 + `/api/ping` 探活。
 6. **验证**：
    - **先判入口是否存在**：`curl -sk -o /dev/null -w '%{http_code}' https://<中枢域名>/api/ping`——
-     `404` 或证书错误说明中枢站点压根没装（nginx 落到默认 server），此时「中枢无公网入口」，
-     唯一对外通道是 CoLink App；确认可用的姿势是 `curl -s https://app.<域名>/manifest.json` 看版本
+     `404` 或证书错误时先排查中枢站点未装或未正确配置（如 nginx 落到默认 server），不要直接
+     判成中枢进程故障；若确认站点未装，则中枢无公网入口，唯一对外应用入口是 CoLink App，
+     确认其可用的姿势是 `curl -s https://app.<域名>/manifest.json` 看版本
    - `curl https://otter.60.205.214.148.sslip.io/api/ping` → `{"ok":true,...}`（前置：站点与证书已装）
    - 浏览器开 `https://otter.60.205.214.148.sslip.io/` 登录页
    - `systemctl status otter-buddy`（active + Memory 曲线）
@@ -88,5 +89,5 @@
   400-700M + swap 6G 兜底，余量健康
 - **对外入口分工**：`app.<域名>` → `127.0.0.1:31130`（CoLink App，平台回调入口）；
   中枢网页入口需要另装 `nginx-otter.conf` + 证书才会存在，未装即「中枢无公网入口」——
-  此时 `app.user_message_received` 是唯一对外通道
+  此时 CoLink App 是唯一对外应用入口（`/events` 接收 `app.user_message_received` 等事件）
 - connector WSS 升级鉴权强化与 packages 化已落地：升级层三查（子协议 pin → Origin 白名单 → Bearer token，见 F20261119cwssp）；Origin 白名单 `OTTER_WS_ALLOWED_ORIGINS` 当前保持空（fail-closed 拒带 Origin 请求，connector node 客户端不受影响）
