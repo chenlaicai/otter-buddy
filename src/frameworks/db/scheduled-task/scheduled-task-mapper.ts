@@ -27,6 +27,7 @@ export interface ScheduledTaskRow {
   timeout_minutes: number | null;
   executor_type: string;
   function_name: string | null;
+  target_machine_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -73,6 +74,7 @@ export function rowToScheduledTask(row: ScheduledTaskRow): ScheduledTask {
     timeoutMinutes: row.timeout_minutes ?? null,
     executorType: (row.executor_type ?? 'agent') as 'agent' | 'function',
     functionName: row.function_name ?? undefined,
+    targetMachineId: row.target_machine_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -112,6 +114,7 @@ export function taskToRow(task: ScheduledTask): ScheduledTaskRow {
     timeout_minutes: task.timeoutMinutes,
     executor_type: task.executorType ?? 'agent',
     function_name: task.functionName ?? null,
+    target_machine_id: task.targetMachineId ?? null,
     created_at: task.createdAt,
     updated_at: task.updatedAt,
   };

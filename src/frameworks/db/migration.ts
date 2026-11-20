@@ -105,6 +105,7 @@ export function migrateDatabase(db: Database.Database, logger: Logger): void {
   addTimeoutMinutesColumn(db, logger);
   addExecutorTypeColumns(db, logger);
   addDescriptionColumn(db, logger);
+  addTargetMachineIdColumn(db, logger);
 
   /** 对话工作区目录：conversations 表添加 workspace_dir 列 */
   addWorkspaceDirColumn(db, logger);
@@ -1266,6 +1267,17 @@ function addDescriptionColumn(db: Database.Database, logger: Logger): void {
 
   // paper-trading 能力移除——原 backfill 的两个 seed 任务描述随能力退役，
   // 已回填到存量 DB 的描述保留（历史数据不动）。无官方 seed 任务，回填清单置空。
+}
+
+/** scheduled_tasks 表添加 target_machine_id 列（定时任务目标执行机声明）。
+ *  PRAGMA 探测幂等。NULL = 按对话绑定解析（现状）；声明后触发前再校验注册中心/在线会话——
+ *  目标离线记 skipped 留痕，绝不静默落到 hub/local（守卫在 scheduler-service）。 */
+function addTargetMachineIdColumn(db: Database.Database, logger: Logger): void {
+  const columns = db.prepare("PRAGMA table_info(scheduled_tasks)").all() as Array<{ name: string }>;
+  if (columns.some(col => col.name === 'target_machine_id')) return;
+
+  db.prepare('ALTER TABLE scheduled_tasks ADD COLUMN target_machine_id TEXT').run();
+  logger.info('Added target_machine_id column to scheduled_tasks table');
 }
 
 /** 迁移现有数据：为现有 session 创建 OtterConfig */

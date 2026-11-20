@@ -21,6 +21,8 @@ export interface CreateScheduledTaskRequestDTO {
   restartBeforeInvoke?: boolean;
   /** 任务级链超时配置（分钟）。null/缺省 = 调度器默认（15 分钟） */
   timeoutMinutes?: number | null;
+  /** 目标执行机（已配对设备 id）。缺省/null = 按对话绑定解析 */
+  targetMachineId?: string | null;
 }
 
 /** 更新定时任务请求 */
@@ -42,6 +44,8 @@ export interface UpdateScheduledTaskRequestDTO {
   restartBeforeInvoke?: boolean;
   /** 任务级链超时配置（分钟）。null = 回退调度器默认 */
   timeoutMinutes?: number | null;
+  /** 目标执行机。传 null 清除声明（回退对话绑定解析） */
+  targetMachineId?: string | null;
 }
 
 /** 定时任务响应 */
@@ -66,6 +70,8 @@ export interface ScheduledTaskDTO {
   restartBeforeInvoke: boolean;
   /** 任务级链超时（分钟）。null = 调度器默认 */
   timeoutMinutes: number | null;
+  /** 目标执行机（已配对设备 id）。null = 按对话绑定解析 */
+  targetMachineId: string | null;
   nextTriggerAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -110,6 +116,7 @@ export function toScheduledTaskDTO(task: ScheduledTask, nextTriggerAt?: string |
     lastTriggeredAt: task.lastTriggeredAt,
     restartBeforeInvoke: task.restartBeforeInvoke,
     timeoutMinutes: task.timeoutMinutes,
+    targetMachineId: task.targetMachineId ?? null,
     nextTriggerAt: nextTriggerAt ?? null,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,

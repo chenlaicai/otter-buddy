@@ -23,6 +23,7 @@ import { SqliteAttachmentRepository } from "@frameworks/db/attachment/sqlite-att
 import { SqliteEntryRepository } from "@frameworks/db/conversation/sqlite-entry-repository";
 import { SqliteInvokeRepository } from "@frameworks/db/conversation/sqlite-invoke-repository";
 import { SqliteResumePendingRepository } from "@frameworks/db/conversation/sqlite-resume-pending-repository";
+import { SqliteConnectorRegistryRepository } from "@frameworks/db/execution/sqlite-connector-registry-repository";
 import { SqliteUnfurlCacheRepository } from "@frameworks/db/conversation/sqlite-unfurl-cache-repository";
 import { SqliteWorkLedgerRepository } from "@frameworks/db/health/sqlite-work-ledger-repository";
 
@@ -81,5 +82,7 @@ export function initRepositories(db: Database.Database, logger?: Logger): Reposi
     unfurlCache: new SqliteUnfurlCacheRepository(db, logger ?? consoleLogger()),
     /** 重启自动恢复队列（restart_pending_resumes 重建） */
     resumePending: new SqliteResumePendingRepository(db),
+    /** connector 注册中心（执行机选择/目标机校验的事实源——app.ts 不再本地直实例化） */
+    connectorRegistry: new SqliteConnectorRegistryRepository(db),
   };
 }

@@ -42,6 +42,9 @@ export interface ScheduledTask {
   executorType: ExecutorType;
   /** PR4: function executor 时注册的函数名 */
   functionName?: string;
+  /** 目标执行机（已配对设备 id）。缺省/null = 按对话绑定解析（现状）。
+   *  声明后触发前再校验注册中心/在线会话——目标离线记 skipped 留痕，绝不静默落到 hub/local。 */
+  targetMachineId?: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -46,6 +46,7 @@ export class ScheduledTaskController {
         description: body.description,
         restartBeforeInvoke: body.restartBeforeInvoke,
         timeoutMinutes: body.timeoutMinutes,
+        targetMachineId: body.targetMachineId,
         executorRole: body.executorRole,
         talkingStonePassedTo: body.talkingStonePassedTo,
         senderId: body.senderId,
@@ -106,6 +107,7 @@ export class ScheduledTaskController {
         status: body.status,
         restartBeforeInvoke: body.restartBeforeInvoke,
         timeoutMinutes: body.timeoutMinutes,
+        targetMachineId: body.targetMachineId,
       });
 
       return c.json(toScheduledTaskDTO(task, this.getNextTriggerAt(task)));

@@ -119,6 +119,9 @@ export interface CreateScheduledTaskInput {
   executorType?: 'agent' | 'function';
   /** PR4: function executor 时注册的函数名 */
   functionName?: string;
+  /** 目标执行机（已配对设备 id）。缺省/null = 按对话绑定解析（现状）。
+   *  非空时服务端校验：设备已注册 + 对话当前执行机绑定与其一致。 */
+  targetMachineId?: string | null;
 }
 
 export interface UpdateScheduledTaskInput {
@@ -144,14 +147,23 @@ export interface UpdateScheduledTaskInput {
   /** watchlist-only patch——服务端读旧 body JSON、只替换 watchlist 字段。
    *  调用方不再携带 prompt 全文（旧通道丢一字即损坏）。与 body 字段互斥。 */
   watchlist?: string[];
+  /** 目标执行机。传 null 清除声明（回退对话绑定解析）；传 id 时同 create 校验。 */
+  targetMachineId?: string | null;
 }
+
+/** 目标执行机声明校验器（装配层注入——注册中心 + 对话绑定的事实源都在 frameworks/db）。
+ *  返回错误消息（非空）= 拒绝该声明；null = 通过。 */
+export type TargetMachineValidator = (conversationId: string, machineId: string) => Promise<string | null>;
 
 export type TaskChangeCallback = (taskId: string, action: 'created' | 'updated' | 'deleted') => void;
 
 export class ManageScheduledTask {
   private onChangeCallbacks: TaskChangeCallback[] = [];
 
-  constructor(readonly repo: ScheduledTaskRepository) {}
+  constructor(
+    readonly repo: ScheduledTaskRepository,
+    private readonly validateTargetMachine?: TargetMachineValidator,
+  ) {}
 
   /** 注册任务变更回调（用于通知 SchedulerService 清理 timer） */
   onChange(callback: TaskChangeCallback): void {
@@ -169,6 +181,7 @@ export class ManageScheduledTask {
     if (validationError) {
       throw new DomainError(validationError, 'validation');
     }
+    await this.assertTargetMachineValid(input.conversationId, input.targetMachineId);
 
     const now = new Date().toISOString();
     const task: ScheduledTask = {
@@ -192,6 +205,7 @@ export class ManageScheduledTask {
       timeoutMinutes: input.timeoutMinutes ?? null,
       executorType: input.executorType ?? 'agent',
       functionName: input.functionName,
+      targetMachineId: input.targetMachineId ?? null,
       createdAt: now,
       updatedAt: now,
     };
@@ -217,6 +231,7 @@ export class ManageScheduledTask {
     }
 
     this.validateUpdateInput(task, input);
+    await this.assertTargetMachineValid(task.conversationId, input.targetMachineId);
 
     // watchlist patch——与 body 显式互斥，双传说明调用方语义混乱，拒之。
     let effectiveBody = input.body ?? task.body;
@@ -257,12 +272,35 @@ export class ManageScheduledTask {
       timeoutMinutes: input.timeoutMinutes !== undefined ? input.timeoutMinutes : task.timeoutMinutes,
       executorType: input.executorType ?? task.executorType,
       functionName: input.functionName ?? task.functionName,
+      targetMachineId: input.targetMachineId !== undefined ? input.targetMachineId : task.targetMachineId,
       updatedAt: now,
     };
 
     await this.repo.update(updated);
     this.notifyChange(updated.id, 'updated');
     return updated;
+  }
+
+  /** 目标执行机声明校验（create/update 共用；undefined/null = 未声明或清除，不校验）。
+   *  Why fail-closed 在输入边界：声明了就必须此刻成立——触发守卫兜底执行期的漂移
+   *  （下线/解绑），输入边界兜底创建期的笔误/跨界指定。 */
+  private async assertTargetMachineValid(
+    conversationId: string,
+    targetMachineId: string | null | undefined,
+  ): Promise<void> {
+    if (targetMachineId === undefined || targetMachineId === null) return;
+    if (!this.validateTargetMachine) {
+      // 未注入校验器（旧装配/最小测试桩）而调用方声明了目标——不 silently 放行：
+      // 声明无法被证实即拒绝（与触发守卫「端口缺失带 target → skip」同一 fail-closed 取向）。
+      throw new DomainError(
+        'targetMachineId declared but target machine validator is not configured',
+        'validation',
+      );
+    }
+    const error = await this.validateTargetMachine(conversationId, targetMachineId);
+    if (error) {
+      throw new DomainError(error, 'validation');
+    }
   }
 
   private validateUpdateInput(task: ScheduledTask, input: UpdateScheduledTaskInput): void {

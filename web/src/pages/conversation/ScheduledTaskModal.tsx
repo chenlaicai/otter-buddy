@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Clock, Loader } from 'lucide-react'
 import { Modal, ModalButton } from '../../components/Modal'
 import type { LocalScheduledTask } from '../../lib/mappers'
@@ -14,8 +14,17 @@ interface Props {
     description: string
     executorRole: string
     restartBeforeInvoke: boolean
+    /** 目标执行机（已配对设备 id）。null = 跟随对话执行机绑定（默认） */
+    targetMachineId: string | null
   }) => void
   onClose: () => void
+}
+
+/** /api/execution-machines 返回的机器条目：local 无 online 字段，已配对设备有 */
+interface MachineEntry {
+  id: string
+  name: string
+  online?: boolean
 }
 
 const CRON_PRESETS = [
@@ -43,7 +52,23 @@ export function ScheduledTaskModal({ mode, task, onSave, onClose }: Props) {
   const [body, setBody] = useState(task?.body ?? '')
   const [description, setDescription] = useState(task?.description ?? '')
   const [restartBeforeInvoke, setRestartBeforeInvoke] = useState(task?.restartBeforeInvoke ?? false)
+  const [targetMachineId, setTargetMachineId] = useState<string | null>(task?.targetMachineId ?? null)
+  const [machines, setMachines] = useState<MachineEntry[]>([])
   const [saving, setSaving] = useState(false)
+
+  // 目标执行机选项：已配对设备（local 枢纽不是合法目标——服务端校验只认注册设备）
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/execution-machines', { credentials: 'same-origin' })
+      .then(res => (res.ok ? res.json() : null))
+      .then((json: { machines?: MachineEntry[] } | null) => {
+        if (!cancelled && json?.machines) {
+          setMachines(json.machines.filter(m => typeof m.online === 'boolean'))
+        }
+      })
+      .catch(() => { /* 列表拉取失败不阻塞表单——目标选择器留空，服务端校验兜底 */ })
+    return () => { cancelled = true }
+  }, [])
 
   // 表单验证
   const isValid = name.trim() && body.trim() && cron.split(/\s+/).length === 5
@@ -60,6 +85,7 @@ export function ScheduledTaskModal({ mode, task, onSave, onClose }: Props) {
         description: description.trim(),
         executorRole: task?.executorRole ?? '大獭',
         restartBeforeInvoke,
+        targetMachineId,
       })
     } finally {
       setSaving(false)
@@ -175,6 +201,26 @@ export function ScheduledTaskModal({ mode, task, onSave, onClose }: Props) {
             className="form-input w-full bg-stone-50 text-stone-600"
           />
           <div className="text-xs text-stone-400 mt-1">触发时按对话名册解析当前实例，不再绑定历史獭。</div>
+        </div>
+
+        {/* 目标执行机（可选——默认跟随对话执行机绑定） */}
+        <div>
+          <label className="block text-sm font-medium text-stone-700 mb-1.5">目标执行机</label>
+          <select
+            value={targetMachineId ?? ''}
+            onChange={e => setTargetMachineId(e.target.value || null)}
+            className="w-full"
+          >
+            <option value="">跟随对话执行机（默认）</option>
+            {machines.map(m => (
+              <option key={m.id} value={m.id}>
+                {m.name}{m.online === false ? '（离线）' : ''}
+              </option>
+            ))}
+          </select>
+          <div className="text-xs text-stone-400 mt-1">
+            声明后任务只在该设备上执行：目标离线时本轮记 skipped，绝不静默落到 hub/local
+          </div>
         </div>
 
         {/* 每次触发前重启獭生 */}

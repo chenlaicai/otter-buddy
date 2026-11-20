@@ -26,10 +26,13 @@ import type { Repositories, UseCases } from "./types";
 import { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { OtterToolClient } from "@usecases/ports/otter-tool-client";
 import type { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
+import type { AttachmentUploadService } from "@usecases/conversation/attachment-upload-service";
+import { resolveSessionCwd } from "@frameworks/agent/session-cwd-resolver";
 import { createTools } from "@interface-adapters/agent-runtime/tools/tool-factory";
 import { DispatchChainEngine } from "@usecases/conversation/dispatch-chain-engine";
 import type { SignalRouter } from "@usecases/conversation/signal-router";
 import type { AgentTurnPort } from "@usecases/ports/agent-turn-port";
+import type { ToolContext } from "@usecases/ports/agent-tools";
 import type { AssistantSessionManager } from "@usecases/im/assistant-session";
 import { AgentInvoker } from "@interface-adapters/agent-runtime/agent-invoker";
 import { SimpleCronParser } from "@frameworks/scheduler/cron-parser";
@@ -80,6 +83,27 @@ import { resolveFeatureGates } from "./feature-gates";
 
 // FeishuBundle 随静态线退役删除（见 createFeishuBundle 注释）
 
+/** upload_device_file 双依赖挂 ToolContext（tool-factory 按字段存在性注册该工具）。
+ *  env 解析与 DurableSession env 工厂同链路（resolveForConversation → createExecutionEnvironment）——
+ *  SDK coding face 语义：设备绝对路径/~/file:// 由设备侧执行机解析，不碰 workspace 管理面。
+ *  attachmentUpload 未到位的装配（早期 invoke）只缺该工具，不影响其余工具集。 */
+function injectUploadChannel(
+  ctx: ToolContext,
+  attachmentUpload: AttachmentUploadService | null,
+  options: { executionMachines: ExecutionMachineRouter; dataDir?: string },
+): void {
+  if (attachmentUpload) ctx.attachmentUpload = attachmentUpload;
+  ctx.resolveExecutionEnv = async (conversationId) => {
+    const machine = options.executionMachines.resolveForConversation
+      ? await options.executionMachines.resolveForConversation(conversationId)
+      : options.executionMachines.resolve();
+    return machine.createExecutionEnvironment(
+      resolveSessionCwd(conversationId, options.dataDir ?? "./data"),
+      conversationId,
+    );
+  };
+}
+
 /** 创建 AgentGateway（PiSessionFactory），解决 OtterToolClient 循环依赖 */
 export async function createAgentGateway(options: {
   repos: Repositories;
@@ -99,7 +123,7 @@ export async function createAgentGateway(options: {
   toolActionRunner?: ActionRunner;
   /** 主仓 data/ 目录绝对路径（resolveSessionCwd 用） */
   dataDir?: string;
-}): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void }> {
+}): Promise<{ agentGateway: PiSessionFactory; resolveOtterToolClient: (client: OtterToolClient) => void; resolveManageScheduledTask: (mst: ManageScheduledTask) => void; resolveAttachmentUpload: (svc: AttachmentUploadService) => void }> {
   const { repos, otterConfigProvider, model, modelPool, db, logger } = options;
   // 切片观测锚接线（[keeprecent-slice] cut → 主日志；密度告警已随估算机制退役）
   setSliceLogger(fields => {
@@ -107,6 +131,9 @@ export async function createAgentGateway(options: {
   });
   // Why: manageScheduledTask 在 initUseCases 之后才可用，用 mutable ref 延迟注入
   let manageScheduledTaskRef: ManageScheduledTask | null = null;
+  // attachmentUpload 同 manageScheduledTask 的延迟注入模式（initUseCases 后 app.ts 回填）——
+  // upload_device_file 的显式上传通道依赖它
+  let attachmentUploadRef: AttachmentUploadService | null = null;
   // OtterToolClient 循环依赖：先注入空占位，initUseCases 后通过 resolveOtterToolClient 注入真实实例
   const agentGateway = await initAgentSessionFactory({
     model, modelPool, db,
@@ -119,6 +146,8 @@ export async function createAgentGateway(options: {
       const scheduledTaskDeps = manageScheduledTaskRef
         ? { manage: manageScheduledTaskRef, pending: repos.scheduledTaskPending }
         : undefined;
+      // upload_device_file 双依赖挂 ToolContext（tool-factory 按字段存在性注册该工具）。
+      injectUploadChannel(ctx, attachmentUploadRef, options);
       const tools = createTools(ctx, repo, log, options.toolActionRunner ?? options.executionMachines, scheduledTaskDeps);
       // alpha 实测修复：此处追加与 tool-factory.ts 的 `if (healingRepo)` 注册
       // 同源重复——旧 SDK 不查重名无症状，durable registry validateExtension 遇重名抛错、
@@ -156,6 +185,7 @@ export async function createAgentGateway(options: {
     agentGateway,
     resolveOtterToolClient: (client) => agentGateway.setOtterToolClient(client),
     resolveManageScheduledTask: (mst) => { manageScheduledTaskRef = mst; },
+    resolveAttachmentUpload: (svc) => { attachmentUploadRef = svc; },
   };
 }
 
@@ -345,6 +375,8 @@ export async function initAgentAndScheduler(options: { repos: Repositories; uc: 
       otterRepo: repos.otter,
       pendingItemRepo: repos.scheduledTaskPending,
       functionRegistry,
+      // 目标执行机触发守卫的执行期事实源：注册中心在线状态视图（未注册/离线 → skipped）。
+      deviceStatus: () => repos.connectorRegistry.listDeviceOnlineStatus(),
     }),
   );
 

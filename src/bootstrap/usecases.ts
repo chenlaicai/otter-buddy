@@ -35,7 +35,7 @@ import { ManageConversation } from "@usecases/conversation/manage-conversation";
 import { ManageSession } from "@usecases/otter/manage-session";
 import { DissolveOtter } from "@usecases/otter/dissolve-otter";
 import { ManageContext } from "@usecases/otter/manage-context";
-import { ManageScheduledTask } from "@usecases/scheduled-task/manage-scheduled-task";
+import { ManageScheduledTask, type TargetMachineValidator } from "@usecases/scheduled-task/manage-scheduled-task";
 import { ManageConnection } from "@usecases/im/manage-connection";
 import { AssistantSessionManager } from "@usecases/im/assistant-session";
 /** web 助理开户（幂等 + 人设后端注入） */
@@ -63,6 +63,21 @@ export interface UseCaseDeps {
   otterConfigProvider?: OtterConfigProvider;
   /** 模型池（有效模型解析 / session 快照 / restart 切模型）。未注入时 //降级 */
   modelPool?: ModelPoolLike;
+}
+
+/** 目标执行机声明校验器（装配层注入 ManageScheduledTask——注册中心事实源 + 对话绑定一致性） */
+function buildTargetMachineValidator(repos: Pick<Repositories, 'connectorRegistry' | 'conversation'>): TargetMachineValidator {
+  return async (conversationId, machineId) => {
+    const devices = await repos.connectorRegistry.listDeviceOnlineStatus();
+    if (!devices.some(d => d.deviceId === machineId)) {
+      return `目标执行机未注册或已撤销配对: ${machineId}`;
+    }
+    const bound = await repos.conversation.getExecutionMachineId(conversationId);
+    if (bound !== machineId) {
+      return `对话当前执行机（${bound ?? 'hub 本地'}）与目标执行机（${machineId}）不一致——请先在对话中选择该执行机再声明任务目标`;
+    }
+    return null;
+  };
 }
 
 export function initUseCases(deps: UseCaseDeps): UseCases {
@@ -93,7 +108,7 @@ export function initUseCases(deps: UseCaseDeps): UseCases {
   );
   const dissolveOtter = buildDissolveOtter(repos, agentGateway, manageSession, logger);
   const manageContext = new ManageContext(repos.otterContext);
-  const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask);
+  const manageScheduledTask = new ManageScheduledTask(repos.scheduledTask, buildTargetMachineValidator(repos));
   const manageConnection = new ManageConnection(repos.connection, repos.conversation, logger);
   //  IM 助理会话管理（p2p/微信私聊自动开户；对话永续 +
   // 8h 静默 session 重启）。

@@ -160,6 +160,13 @@ export function ScheduledTaskSection({ tasks, onToggle, onEdit, onDelete, onTrig
           <div className="text-xs text-stone-500 mb-2">执行角色：{task.executorRole}</div>
 
           {/* 特性标签 */}
+          {task.targetMachineId && (
+            <div className="text-xs text-otter-600 mb-2 flex items-center gap-1">
+              <span className="px-1.5 py-0.5 rounded-full bg-otter-100 text-otter-700 text-[10px] font-medium" title="任务只在该设备上执行；目标离线时本轮记 skipped，绝不静默落到 hub/local">
+                目标机 {task.targetMachineId.slice(0, 8)}
+              </span>
+            </div>
+          )}
           {task.restartBeforeInvoke && (
             <div className="text-xs text-otter-600 mb-2 flex items-center gap-1">
               <span className="px-1.5 py-0.5 rounded-full bg-otter-100 text-otter-700 text-[10px] font-medium">重启獭生</span>

@@ -399,6 +399,8 @@ export interface CreateScheduledTaskRequestDTO {
   senderId?: string
   restartBeforeInvoke?: boolean
   timeoutMinutes?: number | null
+  /** 目标执行机（已配对设备 id）。缺省/null = 按对话绑定解析 */
+  targetMachineId?: string | null
 }
 
 export interface UpdateScheduledTaskRequestDTO {
@@ -415,6 +417,8 @@ export interface UpdateScheduledTaskRequestDTO {
   status?: 'active' | 'disabled' | 'error'
   restartBeforeInvoke?: boolean
   timeoutMinutes?: number | null
+  /** 目标执行机。传 null 清除声明 */
+  targetMachineId?: string | null
 }
 
 export interface ScheduledTaskDTO {
@@ -435,6 +439,8 @@ export interface ScheduledTaskDTO {
   lastTriggeredAt: string | null
   restartBeforeInvoke: boolean
   timeoutMinutes: number | null
+  /** 目标执行机（已配对设备 id）。null = 按对话绑定解析 */
+  targetMachineId: string | null
   nextTriggerAt: string | null
   createdAt: string
   updatedAt: string

@@ -378,6 +378,8 @@ export interface LocalScheduledTask {
   lastTriggeredAt: string | null
   restartBeforeInvoke: boolean
   timeoutMinutes: number | null
+  /** 目标执行机（已配对设备 id）。缺省 = 按对话绑定解析（旧服务端/缓存 DTO 可缺省） */
+  targetMachineId?: string | null
   nextTriggerAt: string | null
   createdAt: string
   updatedAt: string
@@ -413,6 +415,8 @@ export interface ScheduledTaskDTO {
   lastTriggeredAt: string | null
   restartBeforeInvoke: boolean
   timeoutMinutes: number | null
+  /** 新后端透出；旧服务端可缺省（mapper 归 null = 按对话绑定） */
+  targetMachineId?: string | null
   nextTriggerAt: string | null
   createdAt: string
   updatedAt: string
@@ -447,6 +451,7 @@ export function mapScheduledTaskDTO(dto: ScheduledTaskDTO): LocalScheduledTask {
     lastTriggeredAt: dto.lastTriggeredAt,
     restartBeforeInvoke: dto.restartBeforeInvoke,
     timeoutMinutes: dto.timeoutMinutes,
+    targetMachineId: dto.targetMachineId ?? null,
     nextTriggerAt: dto.nextTriggerAt,
     createdAt: dto.createdAt,
     updatedAt: dto.updatedAt,

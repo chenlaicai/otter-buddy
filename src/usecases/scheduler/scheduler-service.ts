@@ -99,6 +99,15 @@ export class WatchdogAbandonedError extends Error {
   }
 }
 
+/** 目标执行机不可用（未注册/离线/绑定漂移/注册中心不可达）——落 skipped 不计熔断
+ *  （同锁冲突/闸门拦截「非任务失败」分账语义）。绝不静默落到 hub/local 执行。 */
+export class TargetMachineUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TargetMachineUnavailableError';
+  }
+}
+
 /** 429/rate_limit 类错误的最大重试次数。超过此次数仍 429 → 判死（配额耗尽不会自愈，续期无意义） */
 const MAX_429_RETRIES = 3;
 
@@ -171,6 +180,11 @@ export interface SchedulerServiceOptions {
   /** 角色 → 当前名册实例的实体查询，以及忙时待执行列表。 */
   otterRepo?: Pick<OtterRepository, 'getById'>;
   pendingItemRepo?: ScheduledTaskPendingItemRepository;
+  /** 设备在线状态查询（可选——注册中心 listDeviceOnlineStatus 的窄口适配）。
+   *  任务声明 targetMachineId 时触发守卫执行期再校验用：未注册/离线/绑定漂移 → skip。
+   *  ⚠ 任务带 target 而本端口缺失（旧装配/降级）时守卫 fail-closed 记 skipped——
+   *  绝不静默落到 hub/local。 */
+  deviceStatus?: () => Promise<Array<{ deviceId: string; name: string; online: boolean; lastSeenAt: string | null }>>;
 }
 
 export class SchedulerService {
@@ -192,6 +206,8 @@ export class SchedulerService {
   private readonly isOtterRunning?: (otterId: string) => boolean;
   private readonly otterRepo?: Pick<OtterRepository, 'getById'>;
   private readonly pendingItemRepo?: ScheduledTaskPendingItemRepository;
+  /** 设备在线状态查询（可选）——目标执行机触发守卫用；任务带 target 而端口缺失时 fail-closed。 */
+  private readonly deviceStatus?: SchedulerServiceOptions['deviceStatus'];
   private readonly cronParser: CronParser;
   private readonly logger: Logger;
   private readonly healingRepo?: HealingEventRepository;
@@ -242,6 +258,7 @@ export class SchedulerService {
     this.manageSession = options.manageSession;
     this.functionRegistry = options.functionRegistry;
     this.modelPool = options.modelPool;
+    this.deviceStatus = options.deviceStatus;
 
     // 注册任务变更回调
     if (options.manageScheduledTask) {
@@ -1641,6 +1658,46 @@ export class SchedulerService {
       this.conversationDisabledInClaim = true; // 告知 catch 块本任务已 disable，skip 落账无意义
       await this.taskRepo.updateStatus(task.id, 'disabled', now);
       throw new DomainError('Conversation is not active', 'validation');
+    }
+
+    await this.assertTargetMachineRunnable(task);
+  }
+
+  /** 目标执行机触发守卫（claim 后、invoke 前——执行期再校验，不依赖创建时刻状态）。
+   *  任务声明 targetMachineId 时任一不满足即抛 TargetMachineUnavailableError：
+   *  1) 对话执行机绑定漂移（≠ target）——fail-closed，不静默在别处跑；
+   *  2) 设备未注册 / 无在线会话（目标离线）；
+   *  3) deviceStatus 端口缺失（旧装配/降级）——fail-closed，绝不落到 hub/local。
+   *  调用方（claimAndValidateTask 外层 catch）将其记 skipped execution + rethrow：
+   *  不计 consecutiveFailures、不熔断；once 任务进既有有界重试链，耗尽转 error + 通知。
+   *  恢复语义：不重放不补跑——下一次 tick 走正常 claim 路径（乐观锁+running 互斥=单写者）。 */
+  private async assertTargetMachineRunnable(task: ScheduledTask): Promise<void> {
+    const target = task.targetMachineId ?? null;
+    if (!target) return;
+
+    const bound = await this.convRepo.getExecutionMachineId(task.conversationId);
+    if (bound !== target) {
+      throw new TargetMachineUnavailableError(
+        `目标执行机不可用：对话执行机绑定漂移（task target=${target}, conversation bound=${bound ?? 'hub-local'}），本轮不执行、不落 hub/local`,
+      );
+    }
+
+    if (!this.deviceStatus) {
+      throw new TargetMachineUnavailableError(
+        `目标执行机不可用：设备状态查询未装配（task target=${target}），无法证实目标在线——fail-closed 不执行`,
+      );
+    }
+    const devices = await this.deviceStatus();
+    const device = devices.find(d => d.deviceId === target);
+    if (!device) {
+      throw new TargetMachineUnavailableError(
+        `目标执行机不可用：设备未注册或已撤销配对（task target=${target}），本轮不执行`,
+      );
+    }
+    if (!device.online) {
+      throw new TargetMachineUnavailableError(
+        `目标执行机不可用：设备离线（task target=${target} ${device.name}，lastSeenAt=${device.lastSeenAt ?? 'unknown'}）——本轮记 skipped，不静默落到 hub/local，重新上线后下一次触发正常执行`,
+      );
     }
   }
 

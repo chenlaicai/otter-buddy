@@ -1,6 +1,7 @@
 // 组合根声明 port 接口而非 Sqlite 具体类——替换实现时类型不突变
 import type { OtterRepository } from "@usecases/otter/otter-repository";
 import type { OtterContextRepository } from "@usecases/otter/otter-context-repository";
+import type { ConnectorRegistryRepository } from "@usecases/ports/connector-registry-repository";
 import type { MemoryRepository } from "@usecases/memory/memory-repository";
 import type { MemoryReader } from "@usecases/memory/memory-reader";
 import type { MemoryWriter } from "@usecases/memory/memory-writer";
@@ -103,6 +104,8 @@ export interface Repositories {
   invoke: InvokeRepository;
   /** 重启自动恢复队列（restart_pending_resumes 表） */
   resumePending: ResumePendingRepository;
+  /** connector 注册中心（devices/online_sessions/pairing——执行机选择的事实源） */
+  connectorRegistry: ConnectorRegistryRepository;
 }
 
 export interface UseCases {

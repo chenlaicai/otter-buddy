@@ -32,7 +32,6 @@ import { LOCAL_EXECUTION_MACHINE_ID } from "@usecases/ports/execution-machine";
 import { ExecutionMachineRegistry } from "@usecases/execution/execution-machine-registry";
 import { ConversationActionRouter } from "@usecases/execution/conversation-action-router";
 import type { ExecutionMachine } from "@usecases/ports/execution-machine";
-import { SqliteConnectorRegistryRepository } from "@frameworks/db/execution/sqlite-connector-registry-repository";
 import { ConnectorWsGateway } from "@frameworks/execution/connector-ws-gateway";
 import { RemoteExecutionMachine } from "@frameworks/execution/remote-execution-machine";
 import { SqliteRemoteActionRegistry } from "@frameworks/db/execution/sqlite-remote-action-registry";
@@ -424,7 +423,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
   // 工具与 SDK env 共用对话级路由，执行目标只认 conversations 当前选择。
   const toolActionRouter = new ConversationActionRouter(executionMachines, repos.conversation);
-  const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask } = await createAgentGateway({
+  const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask, resolveAttachmentUpload } = await createAgentGateway({
     repos, otterConfigProvider, model, modelPool, db, logger,
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
@@ -458,6 +457,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     },
   }));
   resolveManageScheduledTask(uc.manageScheduledTask);
+  // upload_device_file 显式上传通道回填（同 manageScheduledTask 延迟注入模式）
+  resolveAttachmentUpload(uc.attachmentUpload);
 
   // ── Metric 框架（prom-client + JSONL 文件持久化）──
   const metricsRegistry = initMetricsRegistry(logger, { dir: path.join(dataDir, "metrics") });
@@ -773,7 +774,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // 启动清扫：上一运行周期残留的 online 行落 offline/hub-restart（await——
   // 清扫完成前不接受新连接语义上更干净，且代价仅一行 UPDATE）。
   // 上线投影换真 RemoteExecutionMachine（总闸三道→登记→下发→等待/超时落 unknown）。
-  const connectorRepo = new SqliteConnectorRegistryRepository(db);
+  // 注册中心单实例归 Repositories（usecases 校验/装配消费同一事实源——devices +
+  // online_sessions 的行级视图，无状态包装，同 db 双实例无害，但单点构造消歧）。
+  const connectorRepo = repos.connectorRegistry;
   const remoteActionRegistry = new SqliteRemoteActionRegistry(db); // 登记落点 + 摘要数据源
   const hubBootEpoch = Date.now(); // actionId 前缀纪元（跨重启防碰撞）
   // Origin 白名单：OTTER_WS_ALLOWED_ORIGINS 逗号分隔 exact match；未配置=空

@@ -32,13 +32,14 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
       INSERT INTO scheduled_tasks (
         id, conversation_id, name, schedule_type, cron, trigger_at, timezone, body, description,
         executor_role, talking_stone_passed_to, sender_id, status, consecutive_failures,
-        last_triggered_at, restart_before_invoke, timeout_minutes, executor_type, function_name, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        last_triggered_at, restart_before_invoke, timeout_minutes, executor_type, function_name,
+        target_machine_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       row.id, row.conversation_id, row.name, row.schedule_type, row.cron, row.trigger_at, row.timezone,
       row.body, row.description, row.executor_role, row.talking_stone_passed_to, row.sender_id, row.status,
       row.consecutive_failures, row.last_triggered_at, row.restart_before_invoke, row.timeout_minutes,
-      row.executor_type, row.function_name, row.created_at, row.updated_at,
+      row.executor_type, row.function_name, row.target_machine_id, row.created_at, row.updated_at,
     );
   }
 
@@ -78,13 +79,13 @@ export class SqliteScheduledTaskRepository implements ScheduledTaskRepository {
         name = ?, schedule_type = ?, cron = ?, trigger_at = ?, timezone = ?, body = ?, description = ?,
         executor_role = ?, talking_stone_passed_to = ?, sender_id = ?, status = ?,
         consecutive_failures = ?, last_triggered_at = ?, restart_before_invoke = ?, timeout_minutes = ?,
-        executor_type = ?, function_name = ?, updated_at = ?
+        executor_type = ?, function_name = ?, target_machine_id = ?, updated_at = ?
       WHERE id = ?
     `).run(
       row.name, row.schedule_type, row.cron, row.trigger_at, row.timezone, row.body, row.description,
       row.executor_role, row.talking_stone_passed_to, row.sender_id, row.status,
       row.consecutive_failures, row.last_triggered_at, row.restart_before_invoke, row.timeout_minutes,
-      row.executor_type, row.function_name, row.updated_at,
+      row.executor_type, row.function_name, row.target_machine_id, row.updated_at,
       row.id,
     );
   }

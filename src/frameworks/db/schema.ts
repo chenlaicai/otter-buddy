@@ -636,6 +636,7 @@ function createScheduledTaskTables(db: Database.Database): void {
       timeout_minutes INTEGER,
       executor_type TEXT NOT NULL DEFAULT 'agent' CHECK (executor_type IN ('agent', 'function')),
       function_name TEXT,
+      target_machine_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
