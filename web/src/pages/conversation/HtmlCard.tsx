@@ -116,7 +116,7 @@ function HtmlCardInner({ cardId, fenceIndex, title, code, interactive, authorId,
         <Hash className="w-3 h-3 text-stone-400 flex-shrink-0" />
         <span className="font-medium truncate flex-1">{title || '未命名卡片'}</span>
         {importance === 'high' && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 bg-caramel-400/20 text-caramel-600" title="importance=high：默认展开的简报卡">
+          <span className="text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 bg-caramel-400/20 text-caramel-600" title={`importance=high：默认展开的${chip ?? '简报'}卡`}>
             {chip ?? '简报'}
           </span>
         )}

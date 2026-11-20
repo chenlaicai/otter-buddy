@@ -77,6 +77,11 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     expect(validateSpeakBody(undefined, body)).toBeNull();
   });
 
+  it("围栏内纯文字提及 base64 不误伤（无 data: URI 形态；<pre> 示例/脚本字符串同理）", () => {
+    const body = '```html-card title="科普卡"\n<pre>data URI 形如 data:类型;base64, 后接内容，;base64, 是标记</pre>\n```';
+    expect(validateSpeakBody(undefined, body)).toBeNull();
+  });
+
   it("卡片写在 speak 外被拒绝", () => {
     const turnText = '```html-card title="外"\n<div>outside</div>\n```';
     const body = "正文没有卡片";

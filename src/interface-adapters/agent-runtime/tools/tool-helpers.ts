@@ -145,9 +145,11 @@ export function validateSpeakBody(turnAssistantText: string | undefined, cleanBo
   }
 
   /** base64 内嵌资源机械拦截（体积上限放宽后防护语义不削弱：更大预算可容纳小库/base64，
-   *  契约禁用清单与机械闸对齐——技术图解走内联 SVG，全文/图片转文类产物） */
+   *  契约禁用清单与机械闸对齐——技术图解走内联 SVG，全文/图片转文类产物）。
+   *  只匹配 data: URI 形态（data:<type>/<subtype>;base64,）——纯文字讨论 base64、
+   *  <pre> 示例、脚本字符串含 ";base64," 子串均不误伤（禁内嵌资源，不禁提及）。 */
   for (let i = 0; i < cardNodes.length; i++) {
-    if (/;base64,/.test(cardNodes[i].value ?? "")) {
+    if (/data:[\w.+-]+\/[\w.+-]+;base64,/i.test(cardNodes[i].value ?? "")) {
       return `[错误] 第 ${i + 1} 张 html-card 卡片含 base64 内嵌资源（;base64,）——契约禁止。技术图解请用内联 SVG（见契约图类卡节），图片/全文转文类产物（写文件 + create_linked_resource 登记）。`;
     }
   }
