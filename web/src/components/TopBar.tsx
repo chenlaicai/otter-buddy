@@ -46,8 +46,8 @@ export function TopBar() {
               to={route.nav ?? route.path}
               className={`flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium transition ${
                 active
-                  ? 'nav-pill-active text-otter-600 font-semibold'
-                  : 'text-stone-500 hover:text-stone-700'
+                  ? 'nav-pill-active text-otter-700 font-semibold'
+                  : 'text-stone-700 hover:text-stone-900'
               }`}
             >
               <Icon className="w-3.5 h-3.5" />

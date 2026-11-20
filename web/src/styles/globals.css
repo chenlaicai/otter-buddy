@@ -89,8 +89,8 @@
 
   /* 一级导航专用真玻璃：低白纱覆盖 + 适度采样，保留背景色相与边缘折光。
      与常驻大面 chrome 分离，避免为了导航观感把其他顶栏一起变透。 */
-  --nav-glass-bg: linear-gradient(115deg, rgb(255 255 255 / calc(34% * var(--glass-t))), rgb(255 255 255 / calc(12% * var(--glass-t))) 46%, rgb(255 255 255 / calc(22% * var(--glass-t))));
-  --nav-glass-blur: blur(14px) saturate(190%) contrast(105%);
+  --nav-glass-bg: linear-gradient(115deg, rgb(255 255 255 / calc(34% * var(--glass-t))), rgb(255 255 255 / calc(18% * var(--glass-t))) 46%, rgb(255 255 255 / calc(22% * var(--glass-t))));
+  --nav-glass-blur: blur(14px) saturate(170%) brightness(116%);
 
   /* L1 浮起面板（侧栏、输入框）：稍实 + 高投影（v3.0 --panel-blur 置 none，原 blur(24px) saturate(200%)） */
   --panel-bg: linear-gradient(165deg, rgb(255 255 255 / calc(58% * var(--glass-t))), rgb(255 255 255 / calc(38% * var(--glass-t))));

@@ -114,7 +114,7 @@ describe('材质 v3.0 契约：小面积一级导航真玻璃例外', () => {
     expect(nav![0]).toMatch(/background:\s*var\(--nav-glass-bg\)/)
     expect(nav![0]).toMatch(/backdrop-filter:\s*var\(--nav-glass-blur\)/)
     expect(nav![0]).toMatch(/-webkit-backdrop-filter:\s*var\(--nav-glass-blur\)/)
-    expect(css).toMatch(/--nav-glass-blur:\s*blur\(14px\)\s*saturate\(190%\)\s*contrast\(105%\)/)
+    expect(css).toMatch(/--nav-glass-blur:\s*blur\(14px\)\s*saturate\(170%\)\s*brightness\(116%\)/)
     expect(css).toMatch(/--nav-glass-bg:\s*#F7F2EA;\s*--nav-glass-blur:\s*none/)
     expect(css).toMatch(/\.glass-nav::before\s*\{[^}]*background:/)
     expect(css).toMatch(/\.glass-nav::after\s*\{[^}]*mask-composite:\s*exclude/)
