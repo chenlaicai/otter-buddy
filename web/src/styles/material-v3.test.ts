@@ -108,9 +108,9 @@ describe('材质 v3.0 契约：瞬态/遮罩层真玻璃保留（白名单闭合
 })
 
 describe('材质 v3.0 契约：小面积一级导航真玻璃例外', () => {
-  it('外框与每个菜单项复制静态画布并直接位移，减少透明度时整体退化实色', () => {
+  it('整条底座与单个滑动选中透镜复制静态画布，未选中项不带胶囊', () => {
     const wrappers = css.match(/\.glass-nav-effect,\s*\.glass-nav-item-effect\s*\{[^}]*\}/)
-    expect(wrappers, '外框与菜单项都需要独立折射裁剪层').toBeTruthy()
+    expect(wrappers, '外框与选中透镜都需要折射裁剪层').toBeTruthy()
     expect(wrappers![0]).toMatch(/overflow:\s*hidden/)
     const sample = css.match(/\.glass-nav-sample\s*\{[^}]*\}/)
     expect(sample, '真实画布像素采样层应存在').toBeTruthy()
@@ -119,13 +119,15 @@ describe('材质 v3.0 契约：小面积一级导航真玻璃例外', () => {
     expect(sample![0]).not.toMatch(/backdrop-filter/)
     expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+\.glass-nav-sample\s*\{[^}]*var\(--custom-bg-image\)/)
     expect(css).toMatch(/\.glass-nav-item-content\s*\{[^}]*z-index:\s*2/)
-    expect(css).toMatch(/\.glass-nav-item\.nav-pill-active\s+\.glass-nav-item-tint\s*\{[^}]*background:/)
+    expect(css).toMatch(/\.glass-nav-selection\s*\{[^}]*position:\s*absolute/)
+    expect(css).toMatch(/\.glass-nav-selection-tint\s*\{[^}]*background:/)
+    expect(css).toMatch(/\.glass-nav-item\.nav-pill-active\s*\{\s*background:\s*transparent;\s*\}/)
     expect(css).toMatch(/--nav-glass-blur:\s*blur\(3px\)\s*saturate\(140%\)\s*brightness\(125%\)/)
     expect(css).toMatch(/--nav-glass-bg:\s*#F7F2EA;\s*--nav-glass-blur:\s*none/)
     expect(css).toMatch(/\.glass-nav-tint\s*\{[^}]*background:\s*var\(--nav-glass-bg\)/)
     expect(css).toMatch(/\.glass-nav::before\s*\{[^}]*background:/)
     expect(css).toMatch(/\.glass-nav::after\s*\{[^}]*mask-composite:\s*exclude/)
-    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)\s*\{\s*\.glass-nav-effect,\s*\.glass-nav-item-effect\s*\{\s*display:\s*none;\s*\}\s*\.glass-nav::before,\s*\.glass-nav::after\s*\{\s*display:\s*none;\s*\}\s*\}/)
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)\s*\{\s*\.glass-nav-effect,\s*\.glass-nav-item-effect\s*\{\s*display:\s*none;\s*\}\s*\.glass-nav-selection-tint\s*\{\s*background:\s*var\(--nav-active-bg\);\s*\}\s*\.glass-nav::before,\s*\.glass-nav::after\s*\{\s*display:\s*none;\s*\}\s*\}/)
   })
 })
 
