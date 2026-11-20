@@ -8,6 +8,7 @@
  *   3. Mica 薄纱规则：var 带 fallback、无 backdrop-filter
  *   4. 六轮弹窗终局语义不被破坏（与 scrim-flicker-6 互补）
  *   5. 瞬态层白名单闭合（浮动助手 utility 在位 + 窄屏按钮不引用 .glass-overlay）
+ *   6. 小面积一级导航例外：只给 .glass-nav 采样，减少透明度时退化实色
  *
  * jsdom 不渲染层叠；真实观感由真浏览器验收（方案「验证」节 7 项）。
  */
@@ -103,6 +104,30 @@ describe('材质 v3.0 契约：瞬态/遮罩层真玻璃保留（白名单闭合
     for (const f of files) {
       expect(readSrc(f), `${f} 不应含内联 backdropFilter`).not.toMatch(/backdropFilter/)
     }
+  })
+})
+
+describe('材质 v3.0 契约：小面积一级导航真玻璃例外', () => {
+  it('整条底座与单个滑动选中透镜复制静态画布，未选中项不带胶囊', () => {
+    const wrappers = css.match(/\.glass-nav-effect,\s*\.glass-nav-item-effect\s*\{[^}]*\}/)
+    expect(wrappers, '外框与选中透镜都需要折射裁剪层').toBeTruthy()
+    expect(wrappers![0]).toMatch(/overflow:\s*hidden/)
+    const sample = css.match(/\.glass-nav-sample\s*\{[^}]*\}/)
+    expect(sample, '真实画布像素采样层应存在').toBeTruthy()
+    expect(sample![0]).toMatch(/background-attachment:\s*fixed/)
+    expect(sample![0]).toMatch(/filter:\s*url\(#nav-liquid-glass\)\s*var\(--nav-glass-blur\)/)
+    expect(sample![0]).not.toMatch(/backdrop-filter/)
+    expect(css).toMatch(/:root\[data-custom-bg='true'\]\s+\.glass-nav-sample\s*\{[^}]*var\(--custom-bg-image\)/)
+    expect(css).toMatch(/\.glass-nav-item-content\s*\{[^}]*z-index:\s*2/)
+    expect(css).toMatch(/\.glass-nav-selection\s*\{[^}]*position:\s*absolute/)
+    expect(css).toMatch(/\.glass-nav-selection-tint\s*\{[^}]*background:/)
+    expect(css).toMatch(/\.glass-nav-item\.nav-pill-active\s*\{\s*background:\s*transparent;\s*\}/)
+    expect(css).toMatch(/--nav-glass-blur:\s*blur\(3px\)\s*saturate\(140%\)\s*brightness\(125%\)/)
+    expect(css).toMatch(/--nav-glass-bg:\s*#F7F2EA;\s*--nav-glass-blur:\s*none/)
+    expect(css).toMatch(/\.glass-nav-tint\s*\{[^}]*background:\s*var\(--nav-glass-bg\)/)
+    expect(css).toMatch(/\.glass-nav::before\s*\{[^}]*background:/)
+    expect(css).toMatch(/\.glass-nav::after\s*\{[^}]*mask-composite:\s*exclude/)
+    expect(css).toMatch(/@media \(prefers-reduced-transparency: reduce\)\s*\{\s*\.glass-nav-effect,\s*\.glass-nav-item-effect\s*\{\s*display:\s*none;\s*\}\s*\.glass-nav-selection-tint\s*\{\s*background:\s*var\(--nav-active-bg\);\s*\}\s*\.glass-nav::before,\s*\.glass-nav::after\s*\{\s*display:\s*none;\s*\}\s*\}/)
   })
 })
 

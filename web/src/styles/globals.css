@@ -52,8 +52,8 @@
    层级：画布(极光/自定义图+Mica薄纱) → 面板(.glass-strong/.glass/
    .glass-input) → 内容(.glass-card 与 .bubble-* 系、.form-input)
    全部实色半透、无 backdrop-filter（R=0，运行中像素变化不再引发
-   重采样闪动）；真玻璃仅存瞬态层(.glass-overlay 弹层菜单/浮动助手)
-   与弹窗遮罩(.scrim 六轮终局 )。
+   重采样闪动）；真玻璃仅存瞬态层(.glass-overlay 弹层菜单/浮动助手)、
+   小面积一级导航(.glass-nav 明确例外)与弹窗遮罩(.scrim 六轮终局 )。
    层级靠【透明度梯度 + 投影高度】区分；嵌套激活态(.conv-active/
    .nav-pill-active)退化为半透纯色，不叠玻璃。
    性能预算：常驻层零 backdrop-filter（微软明示 GPU 密集）；瞬态
@@ -86,6 +86,11 @@
      透明度梯度+投影维持；blur 值保留在注释里供回滚参考（blur(28px) saturate(200%)） */
   --chrome-bg: linear-gradient(180deg, rgb(255 255 255 / calc(50% * var(--glass-t))), rgb(255 255 255 / calc(32% * var(--glass-t))));
   --chrome-blur: none;
+
+  /* 一级导航专用真玻璃：低白纱覆盖 + 适度采样，保留背景色相与边缘折光。
+     与常驻大面 chrome 分离，避免为了导航观感把其他顶栏一起变透。 */
+  --nav-glass-bg: linear-gradient(115deg, rgb(255 255 255 / calc(34% * var(--glass-t))), rgb(255 255 255 / calc(18% * var(--glass-t))) 46%, rgb(255 255 255 / calc(22% * var(--glass-t))));
+  --nav-glass-blur: blur(3px) saturate(140%) brightness(125%);
 
   /* L1 浮起面板（侧栏、输入框）：稍实 + 高投影（v3.0 --panel-blur 置 none，原 blur(24px) saturate(200%)） */
   --panel-bg: linear-gradient(165deg, rgb(255 255 255 / calc(58% * var(--glass-t))), rgb(255 255 255 / calc(38% * var(--glass-t))));
@@ -147,6 +152,7 @@
 @media (prefers-reduced-transparency: reduce) {
   :root {
     --chrome-bg: #F7F2EA;  --chrome-blur: none;
+    --nav-glass-bg: #F7F2EA; --nav-glass-blur: none;
     --panel-bg: #FAF6EF;   --panel-blur: none;
     --card-bg: #FFFDF9;    --card-blur: none;
     --bubble-blur: none;
@@ -209,11 +215,130 @@ body {
     var(--blob-1), var(--blob-2), var(--blob-3), var(--blob-4), var(--band);
 }
 
-/* L0 chrome：顶栏（浮起圆角玻璃条，与全局面板统一） */
+/* L0 chrome：其他常驻顶栏表面（大面积，不采样） */
 .glass-strong {
   background: var(--chrome-bg);
   border: 1px solid var(--hairline);
   box-shadow: var(--card-shadow), var(--edge-hi), inset 0 -1px 0 var(--contact-line);
+}
+
+/* 一级主导航 Liquid Glass：整条静止画布折射底座 + 单个滑动选中透镜。
+   结构参照钉钉移动端：未选中项不画独立胶囊，选中块切换时拉长再收回。 */
+.glass-nav {
+  position: relative;
+  border: 1px solid rgba(255,255,255,0.58);
+  box-shadow:
+    0 12px 30px rgba(42,32,20,0.14),
+    0 2px 6px rgba(42,32,20,0.08),
+    inset 0 1px 1px rgba(255,255,255,0.90),
+    inset 0 -1px 1px rgba(82,58,35,0.20),
+    inset 1px 0 1px rgba(255,255,255,0.42),
+    inset -1px 0 1px rgba(82,58,35,0.10);
+}
+.glass-nav-effect, .glass-nav-item-effect {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+/* 双端同一路径：复制静止画布到真实像素层，再直接位移该层。
+   不依赖 Safari 对 SVG backdrop-filter 仅有声明支持、但不产生位移的实现。 */
+.glass-nav-sample {
+  position: absolute;
+  inset: -20%;
+  background-color: var(--bg-base);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
+    var(--blob-1), var(--blob-2), var(--blob-3), var(--blob-4), var(--band);
+  background-attachment: fixed;
+  filter: url(#nav-liquid-glass) var(--nav-glass-blur);
+}
+:root[data-custom-bg='true'] .glass-nav-sample {
+  background-image:
+    linear-gradient(rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32), rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32)),
+    var(--custom-bg-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+/* 未选中项保持裸文字/图标；只有这一枚选中透镜在底座内部移动。 */
+.glass-nav-item {
+  position: relative;
+  isolation: isolate;
+}
+.glass-nav-item:not(.nav-pill-active):hover {
+  background: rgba(255,255,255,0.10);
+}
+.glass-nav-item.nav-pill-active {
+  background: transparent;
+}
+.glass-nav-item-content {
+  position: relative;
+  z-index: 2;
+}
+.glass-nav-selection {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: 9999px;
+  pointer-events: none;
+  border: 1px solid rgba(255,255,255,0.48);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,0.70),
+    inset 0 -2px 3px rgba(125,205,220,0.20),
+    0 2px 5px rgba(42,32,20,0.08);
+}
+.glass-nav-selection-tint {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(145deg, rgba(235,235,235,0.62), rgba(215,215,215,0.42));
+}
+.glass-nav-tint {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--nav-glass-bg);
+}
+.glass-nav-content {
+  position: relative;
+  z-index: 1;
+  scrollbar-width: none;
+}
+.glass-nav-content::-webkit-scrollbar { display: none; }
+/* 顶部斜向镜面高光：只表现表面反射，不再给整块菜单盖白纱。 */
+.glass-nav::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(105deg, rgba(255,255,255,0.42), rgba(255,255,255,0.08) 28%, transparent 52%, rgba(255,255,255,0.16) 82%, rgba(255,255,255,0.30));
+}
+/* 渐变折射边：亮边与暖色接触边交替，建立玻璃厚度而非平面描边。 */
+.glass-nav::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(115deg, rgba(255,255,255,0.96), rgba(255,255,255,0.18) 35%, rgba(104,79,50,0.24) 68%, rgba(255,255,255,0.68));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass-nav-effect, .glass-nav-item-effect { display: none; }
+  .glass-nav-selection-tint { background: var(--nav-active-bg); }
+  .glass-nav::before, .glass-nav::after { display: none; }
 }
 
 /* L1 浮起面板：侧栏 */
