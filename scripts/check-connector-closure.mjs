@@ -20,7 +20,12 @@ const FORBIDDEN = [
   /@frameworks\/embedding/,
   /@frameworks\/memory/,
   /@frameworks\/db\/(conversation|otter|memory|im)/, // 主库领域 repo（中枢数据）
-  /@earendil-works\/(pi-ai|pi-coding-agent|pi-agent-core|chord)/,
+  /@earendil-works\/(pi-ai|pi-coding-agent|pi-agent-core)/,
+  // chord 全家桶续禁；唯一精确放行 @earendil-works/chord/context——轻量子路径
+  // （Context 类型 + BACKGROUND_CONTEXT/withAbortSignal，运行面仅引 pi-telemetry 的
+  // NOOP span），connector 侧 ShellActionExecutor 经它驱动 SDK exec 的 abort 语义。
+  // 负向断言鎻定「恰好 /context」：/context/x、/contextual、裸 chord 均仍禁。
+  /@earendil-works\/chord(?!\/context$)/,
   /@interface-adapters/,
   // 白名单：执行机端口 + workspace 网关/动作台账端口 + logger
   // + connector 注册仓——公共执行器（WorkspaceActionExecutor）与台账/网关实现的依赖面。

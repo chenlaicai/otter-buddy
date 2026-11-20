@@ -1262,7 +1262,7 @@ export class PiSessionFactory implements AgentGateway {
     const loopBlockOnIntercept = this.buildLoopBlockInterceptHook(otterId, { messageId: options?.messageId, conversationId: options?.conversationId });
     return await otterInvokeStorage.run(
       // otterId 进 store——tool_call handler 查 halt 标用
-      { otterPromptConfig, identityPrefix, otterId, displayName, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardOnIntercept },
+      { otterPromptConfig, identityPrefix, otterId, displayName, currentConversationId: conversationId, loopBlockedTools, loopBlockOnIntercept, guardProjectRoot, guardSessionCwd, guardOnIntercept },
       // eslint-disable-next-line max-statements, complexity -- pool hit/miss 两条路径 + startup cursor push；pendingRestart 检查增加语句数；守卫拦截 hook 增加分支
       async () => {
         // 1. session 已由 _acquirePooled 提供（池化：命中复用 / 未命中冷启动入池）

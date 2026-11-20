@@ -1,10 +1,10 @@
 import type {
   ActionRunOptions,
-  ActionRunner,
   ExecutionAction,
   ExecutionActionResult,
   ExecutionActionType,
   ExecutionMachine,
+  ExecutionMachineRouter,
 } from "@usecases/ports/execution-machine";
 
 /**
@@ -15,18 +15,28 @@ import type {
  * （conversations 列，NULL=默认）→ Registry 默认（local）。六动作 input 均携带
  * conversationId（已验证），无需 ToolContext。
  *
- * 边界（SDK 面不路由）：pi-session-factory 的 createExecutionEnvironment 仍走
- * Registry 直连（恒 local 解析）——远程对话的 SDK 文件/bash 面落 hub 本地，
- * 与协议 v1「只放六动作」一致，对齐。
+ * SDK env 也经本路由解析：bash 在远程机上显式执行；尚未支持的文件能力
+ * 返回 not_supported，不回退 hub 本机。
  *
  * fail-closed 语义：对话指向的机器未注册（设备撤销/从未上线）时 resolve 抛
  * 「machine not registered」——不静默回切 local（防「以为在 B 干活其实在 A」）。
  */
-export class ConversationActionRouter implements ActionRunner {
+export class ConversationActionRouter implements ExecutionMachineRouter {
   constructor(
     private readonly registry: { resolve(targetMachineId?: string): ExecutionMachine },
     private readonly conversations: { getExecutionMachineId(id: string): Promise<string | null> },
   ) {}
+
+  resolve(targetMachineId?: string): ExecutionMachine {
+    return this.registry.resolve(targetMachineId);
+  }
+
+  /** SDK env 工厂的业务对话入口；无对话/未选择时沿用默认本机。 */
+  async resolveForConversation(conversationId?: string): Promise<ExecutionMachine> {
+    if (!conversationId) return this.registry.resolve();
+    const selected = await this.conversations.getExecutionMachineId(conversationId);
+    return this.registry.resolve(selected ?? undefined);
+  }
 
   async run<K extends ExecutionActionType>(
     action: ExecutionAction<K>,

@@ -1,23 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { ConnectorActionDispatcher } from "../../src/connector/action-dispatcher";
+import type { ShellExecutorLike, ShellRunOutcome } from "../../src/connector/shell-action-executor";
 import type { ActionRecord } from "@entities/execution/action-record";
 import type { ConnectorFrame } from "@entities/execution/connector-protocol";
 
 /**
  * connector 侧动作分发器单测——
- * 幂等快路径（台账已 succeeded 不重执行）/白名单拒/执行回执/台账读失败降级。
+ * 幂等快路径（台账已 succeeded 不重执行）/白名单拒/执行回执/台账读失败降级；
+ * 协议 v2：shell.exec 路由（结局映射/errorCode/spill 透传）、action.cancel 接线。
  */
 
 type ResultFrame = Extract<ConnectorFrame, { type: "action.result" }>["data"];
 
 function requestFrame(actionId: string, type: string, input: Record<string, unknown>) {
-  return { v: 1, type: "action.request", seq: 1, sid: "s1", data: { actionId, action: { type, input } } } as const;
+  return { v: 2, type: "action.request", seq: 1, sid: "s1", data: { actionId, action: { type, input } } } as const;
 }
 
 function makeDeps(opts: {
   existing?: ActionRecord | null;
   ledgerError?: boolean;
   executorImpl?: (action: { type: string; input: Record<string, unknown> }, options?: { actionId?: string }) => Promise<unknown>;
+  shell?: ShellExecutorLike;
 } = {}) {
   const sent: ResultFrame[] = [];
   const executorCalls: Array<{ type: string; actionId?: string }> = [];
@@ -29,6 +32,7 @@ function makeDeps(opts: {
         return "ok";
       },
     },
+    ...(opts.shell ? { shell: opts.shell } : {}),
     ledger: {
       getByActionId: async () => {
         if (opts.ledgerError) throw new Error("db locked");
@@ -54,12 +58,20 @@ function ledgerRow(status: ActionRecord["status"], resultSummary: string | null 
 }
 
 describe("ConnectorActionDispatcher", () => {
-  it("白名单外动作类型 → failed 回执（协议 v1 只放六动作）", async () => {
+  it("白名单外动作类型 → failed 回执（执行能力白名单：六动作 + shell.exec）", async () => {
     const { dispatcher, sent } = makeDeps();
-    await dispatcher.handleActionRequest(requestFrame("a-x", "shell.exec", { command: "rm -rf /" }));
+    await dispatcher.handleActionRequest(requestFrame("a-x", "file.write", { path: "/etc/passwd" }));
     expect(sent).toHaveLength(1);
     expect(sent[0]!.status).toBe("failed");
     expect(sent[0]!.error).toContain("unsupported action type");
+  });
+
+  it("shell.exec 无 shell 执行器装配 → failed/unsupported（防御纵深：hub 版本闸外第二道）", async () => {
+    const { dispatcher, sent } = makeDeps(); // 未装 shell
+    await dispatcher.handleActionRequest(requestFrame("a-no-shell", "shell.exec", { conversationId: "c1", command: "echo hi" }));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.status).toBe("failed");
+    expect(sent[0]!.error).toContain("no shell executor");
   });
 
   it("幂等快路径：台账已 succeeded → 不重执行；write 类回 null（活体 void 语义，m5）", async () => {
@@ -132,5 +144,76 @@ describe("ConnectorActionDispatcher", () => {
     await dispatcher.handleActionRequest(requestFrame("a-4", "workspace.exists", { conversationId: "c1" }));
     expect(executorCalls).toHaveLength(1);
     expect(sent[0]!.status).toBe("succeeded");
+  });
+});
+
+describe("ConnectorActionDispatcher — shell.exec（协议 v2）", () => {
+  /** fake shell 执行器：记录调用，按剧本回结局 */
+  function fakeShell(script: (input: unknown, options: { actionId: string }) => Promise<ShellRunOutcome>) {
+    const calls: Array<{ input: unknown; actionId: string }> = [];
+    const cancelled: string[] = [];
+    const shell: ShellExecutorLike = {
+      run: async (input, options) => {
+        calls.push({ input, actionId: options.actionId });
+        return script(input, options);
+      },
+      cancel: (actionId) => { cancelled.push(actionId); return true; },
+      shutdown: async () => {},
+    };
+    return { shell, calls, cancelled };
+  }
+
+  it("成功结局 → succeeded + result 透传（exitCode/spillPath）", async () => {
+    const { shell, calls } = fakeShell(async () => ({ status: "succeeded", result: { exitCode: 0, spillPath: "/tmp/spill.log" } }));
+    const { dispatcher, sent, executorCalls } = makeDeps({ shell });
+    await dispatcher.handleActionRequest(requestFrame("sh-1", "shell.exec", { conversationId: "c1", command: "echo hi" }));
+    expect(calls).toEqual([{ input: { conversationId: "c1", command: "echo hi" }, actionId: "sh-1" }]); // actionId 透传（台账记账锚）
+    expect(executorCalls).toHaveLength(0); // 不走六动作执行器
+    expect(sent[0]).toMatchObject({ actionId: "sh-1", status: "succeeded", result: { exitCode: 0, spillPath: "/tmp/spill.log" } });
+  });
+
+  it("interrupted 结局（abort/timeout）→ interrupted + errorCode 透传", async () => {
+    const { shell } = fakeShell(async () => ({ status: "interrupted", errorCode: "timeout", error: "timeout:5" }));
+    const { dispatcher, sent } = makeDeps({ shell });
+    await dispatcher.handleActionRequest(requestFrame("sh-2", "shell.exec", { conversationId: "c1", command: "sleep 99", timeout: 5 }));
+    expect(sent[0]).toMatchObject({ actionId: "sh-2", status: "interrupted", error: "timeout:5", errorCode: "timeout" });
+  });
+
+  it("failed 结局（spawn_error 等）→ failed + errorCode + 失败时 result 带 spill 诊断路径", async () => {
+    const { shell } = fakeShell(async () => ({ status: "failed", errorCode: "spawn_error", error: "Working directory does not exist", spillPath: "/tmp/partial.log" }));
+    const { dispatcher, sent } = makeDeps({ shell });
+    await dispatcher.handleActionRequest(requestFrame("sh-3", "shell.exec", { conversationId: "c1", command: "x" }));
+    expect(sent[0]).toMatchObject({
+      actionId: "sh-3", status: "failed", errorCode: "spawn_error",
+      result: { spillPath: "/tmp/partial.log" },
+    });
+  });
+
+  it("幂等快路径：shell.exec 台账已 succeeded → 不重执行，回已记录 {exitCode}", async () => {
+    const { shell, calls } = fakeShell(async () => ({ status: "succeeded", result: { exitCode: 0 } }));
+    const existing: ActionRecord = {
+      ...ledgerRow("succeeded", JSON.stringify({ exitCode: 7 })),
+      kind: "shell.exec", target: "echo hi",
+    };
+    const { dispatcher, sent } = makeDeps({ shell, existing });
+    await dispatcher.handleActionRequest(requestFrame("a-1", "shell.exec", { conversationId: "c1", command: "echo hi" }));
+    expect(calls).toHaveLength(0); // 未重执行
+    expect(sent[0]).toMatchObject({ status: "succeeded", result: { exitCode: 7 } });
+  });
+
+  it("action.cancel → 委托 shell.cancel；不直接宣称成功（终态只信 action.result）", () => {
+    const { shell, cancelled } = fakeShell(async () => ({ status: "succeeded", result: { exitCode: 0 } }));
+    const { dispatcher, sent } = makeDeps({ shell });
+    dispatcher.handleActionCancel({ actionId: "sh-9" });
+    expect(cancelled).toEqual(["sh-9"]);
+    expect(sent).toHaveLength(0); // cancel 不产生回执帧
+  });
+
+  it("shell 执行器抛异常（契约外） → failed 回执兑底", async () => {
+    const { shell } = fakeShell(async () => { throw new Error("unexpected boom"); });
+    const { dispatcher, sent } = makeDeps({ shell });
+    await dispatcher.handleActionRequest(requestFrame("sh-4", "shell.exec", { conversationId: "c1", command: "x" }));
+    expect(sent[0]!.status).toBe("failed");
+    expect(sent[0]!.error).toContain("unexpected");
   });
 });

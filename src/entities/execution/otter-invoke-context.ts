@@ -15,6 +15,8 @@ import type { OtterPromptConfig } from "@contract/api/otter";
 export interface OtterInvokeContext {
   /** 当前 invoke id——动作台账归属用。 */
   currentInvokeId?: string;
+  /** 当前业务对话 id——执行机按对话选择解析；与 durable 内部会话 id 不同。 */
+  currentConversationId?: string;
   /** 当前正在执行的工具调用 id（DurableSession.beforeTool 写入、
    * 下一枚 beforeTool 覆盖）——动作台账按 toolCallId 铸造 actionId。 */
   currentToolCallId?: string;

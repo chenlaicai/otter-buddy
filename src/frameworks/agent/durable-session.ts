@@ -121,7 +121,13 @@ export class DurableSession {
     session.harness = await Harness.open(storage, {
       models: options.models,
       registry: session.registry,
-      env: ({ cwd }) => options.executionMachines.resolve().createExecutionEnvironment(cwd ?? options.cwd),
+      env: async ({ cwd }) => {
+        const conversationId = otterInvokeStorage.getStore()?.currentConversationId;
+        const machine = options.executionMachines.resolveForConversation
+          ? await options.executionMachines.resolveForConversation(conversationId)
+          : options.executionMachines.resolve();
+        return machine.createExecutionEnvironment(cwd ?? options.cwd, conversationId);
+      },
       settings: {
         retry: { enabled: true, maxRetries: 4, baseDelayMs: 1000, maxAgentDelayMs: 30000 },
         stream: { timeoutMs: 600000, maxRetries: 0 },

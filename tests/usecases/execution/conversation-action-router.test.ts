@@ -85,4 +85,11 @@ describe("ConversationActionRouter（阶段 5 PR-A）", () => {
     await router.run({ type: "workspace.path", input: { conversationId: "c-x" } } as never);
     expect(local.calls).toHaveLength(1);
   });
+
+  it("SDK env 异步解析复用同一对话选择；无对话通道保持 local", async () => {
+    const { router, local, remote } = setup({ "c-remote": "connector-b" });
+    await expect(router.resolveForConversation("c-remote")).resolves.toBe(remote);
+    await expect(router.resolveForConversation(undefined)).resolves.toBe(local);
+    await expect(router.resolveForConversation("c-legacy")).resolves.toBe(local);
+  });
 });

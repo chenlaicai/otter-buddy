@@ -422,14 +422,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   );
 
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
-  // 工具面动作路由——六动作按对话当前执行机下发
-  // （SDK env 构造面仍走 executionMachines 恒 local——边界见 router 头注）
+  // 工具与 SDK env 共用对话级路由，执行目标只认 conversations 当前选择。
   const toolActionRouter = new ConversationActionRouter(executionMachines, repos.conversation);
   const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask } = await createAgentGateway({
     repos, otterConfigProvider, model, modelPool, db, logger,
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
-    executionMachines,
+    executionMachines: toolActionRouter,
     toolActionRunner: toolActionRouter,
     dataDir,
   });
