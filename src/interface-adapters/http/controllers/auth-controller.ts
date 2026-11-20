@@ -15,6 +15,14 @@ export interface AuthControllerDeps {
 
 export const OWNER_SESSION_USER_ID = "owner";
 
+/** 请求是否走 TLS：反代（经 nginx 终止 TLS）看 `X-Forwarded-Proto`，直连看自身 URL 协议。
+ *  只认 `https` 字面值；缺失或多值取第一段，别的一概当明文——宁可少标 Secure 也不误标。 */
+export function isSecureRequest(c: Pick<Context, "req">): boolean {
+  const forwarded = c.req.header("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  if (forwarded !== undefined && forwarded !== "") return forwarded === "https";
+  return c.req.url.startsWith("https://");
+}
+
 export class AuthController {
   constructor(private readonly deps: AuthControllerDeps) {}
 
@@ -32,8 +40,9 @@ export class AuthController {
       sameSite: "Lax",
       path: "/",
       maxAge: Math.floor(SESSION_MAX_AGE_MS / 1000),
-      // 本机 http 部署不强制 Secure；上云时应按部署形态翻转。
-      secure: false,
+      // 按请求形态翻转，而不是按「本机/上云」人肉切换：经反代到达时浏览器→反代这一段
+      // 已经是 TLS，cookie 不标 Secure 就等于允许它随明文请求出走。
+      secure: isSecureRequest(c),
     });
     return c.json({ ok: true, identity });
   }

@@ -63,7 +63,10 @@
      判成中枢进程故障；若确认站点未装，则中枢无公网入口，唯一对外应用入口是 CoLink App，
      确认其可用的姿势是 `curl -s https://app.<域名>/manifest.json` 看版本
    - `curl https://otter.60.205.214.148.sslip.io/api/ping` → `{"ok":true,...}`（前置：站点与证书已装）
-   - 浏览器开 `https://otter.60.205.214.148.sslip.io/` 登录页
+   - 浏览器开 `https://otter.60.205.214.148.sslip.io/` 登录页。**登录口令**取 `/etc/otter-buddy/config.yaml`
+     的 `auth.ownerPassword`，没配则回退 `OTTER_OWNER_PASSWORD` → `/var/lib/otter-buddy/data/owner-password`
+     （首启自动生成，`sudo cat` 可读）——公开入口开了却不知道口令，等于把自己锁在门外
+   - 登录后确认三件：会话 cookie 带 `Secure`（`Set-Cookie` 里看）、附件上传 >1MB 不 413、主聊天与牌局事件流逐帧推进（不攒批）
    - `systemctl status otter-buddy`（active + Memory 曲线）
    - connector 升级新包后改连 `wss://otter.60.205.214.148.sslip.io/connector-ws`（安装：`npm i -g otter-buddy-connector-<ver>.tgz`，命令 `otter-connector --hub https://otter...`——升级子协议 pin 生效后旧版客户端（仓内直跑形态）会被 400 拒，装包即解，配对身份不变）
 
@@ -87,7 +90,18 @@
   外部平台，两者靠 HTTP 对接（`OTTER_BASE_URL`，现网回环 `http://127.0.0.1:3000`），
   所以适配进程不会因为「能力收拢」而消失。内存账：系统服务 ~500M + 主中枢（关 bge）
   400-700M + swap 6G 兜底，余量健康
-- **对外入口分工**：`app.<域名>` → `127.0.0.1:31130`（CoLink App，平台回调入口）；
-  中枢网页入口需要另装 `nginx-otter.conf` + 证书才会存在，未装即「中枢无公网入口」——
-  此时 CoLink App 是唯一对外应用入口（`/events` 接收 `app.user_message_received` 等事件）
+- **对外入口分工**：两个入口各管一段，互不依赖——
+  - `otter.<域名>` → `127.0.0.1:3000`：**中枢网页入口**（web UI + API，登录口令进会话）。装法见
+    第 4 步 TLS（`nginx-otter.conf` + `setup-tls.sh`）；未装即「中枢无公网入口」。
+  - `app.<域名>` → `127.0.0.1:31130`：**CoLink App 入口**，只服务 CoLink 平台回调
+    （`/events` 接收 `app.user_message_received` 等事件）。它不代理中枢网页。
+- **把中枢网页开到公网时，反代层有四件事必须做对**（都在 `nginx-otter.conf` 里，改的时候别只改一半）：
+  1. **清空声明式身份头**：`X-Otter-User-Id/Role` 置空。不清的话任何客户端自带一个
+     `X-Otter-User-Role: admin` 就能绕过登录——反代后面所有请求在中枢看来都来自 `127.0.0.1`。
+  2. **`client_max_body_size` 抬到 120m**：中枢自己允许单请求 120MB（单文件 25MB），nginx 默认
+     1m 会让反代层先 413 掉，而上传失败在中枢日志里没有任何痕迹（请求根本没到）。
+  3. **SSE 路径关 `proxy_buffering`**：会话订阅、发消息、两类重试与牌局事件流都是
+     `text/event-stream`，默认缓冲会把事件攒批——表现是「页面很慢」，不是报错。
+  4. **会话 cookie 的 `Secure`**：中枢按请求形态翻转（`X-Forwarded-Proto: https` → 标 Secure），
+     所以 `proxy_set_header X-Forwarded-Proto $scheme` 必须留着；丢了就等于降级成不标 Secure。
 - connector WSS 升级鉴权强化与 packages 化已落地：升级层三查（子协议 pin → Origin 白名单 → Bearer token，见 F20261119cwssp）；Origin 白名单 `OTTER_WS_ALLOWED_ORIGINS` 当前保持空（fail-closed 拒带 Origin 请求，connector node 客户端不受影响）

@@ -76,6 +76,38 @@ describe("统一接入登录（auth 三端点）", () => {
     expect(body.identity).toEqual({ userId: "owner", role: "admin" });
   });
 
+  it("cookie Secure 按请求形态翻转：反代 https → 带 Secure；明文 → 不带", async () => {
+    const proxied = await app.request("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Forwarded-Proto": "https" },
+      body: JSON.stringify({ password: OWNER_PASSWORD }),
+    });
+    expect(proxied.headers.get("set-cookie")).toContain("Secure");
+
+    const plain = await app.request("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: OWNER_PASSWORD }),
+    });
+    expect(plain.headers.get("set-cookie")).not.toContain("Secure");
+  });
+
+  it("cookie Secure：多值转发头取第一段，https 以外的值一律按明文", async () => {
+    const multi = await app.request("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Forwarded-Proto": "https, http" },
+      body: JSON.stringify({ password: OWNER_PASSWORD }),
+    });
+    expect(multi.headers.get("set-cookie")).toContain("Secure");
+
+    const downgraded = await app.request("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Forwarded-Proto": "http" },
+      body: JSON.stringify({ password: OWNER_PASSWORD }),
+    });
+    expect(downgraded.headers.get("set-cookie")).not.toContain("Secure");
+  });
+
   it("session：无 cookie → 401（fail-closed，未登录 API 按策略拒绝）", async () => {
     const res = await app.request("/api/auth/session");
     expect(res.status).toBe(401);
