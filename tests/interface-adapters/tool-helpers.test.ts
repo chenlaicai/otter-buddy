@@ -45,24 +45,40 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     expect(hasCardFences(one)).toBe(true);
   });
 
-  it("单卡 64KB 边界通过（恰好 65536 字节）", () => {
-    const content = "x".repeat(65536 - 20); // 留点余量给围栏语法
+  it("单卡 256KB 边界通过（恰好 262144 字节——只量围栏内 HTML，围栏语法不计入）", () => {
+    const content = "x".repeat(262144);
     const body = `\`\`\`html-card title="大卡"\n${content}\n\`\`\``;
     expect(validateSpeakBody(undefined, body)).toBeNull();
   });
 
-  it("单卡超 64KB 被拒绝（只量围栏内 HTML，不量正文散文）", () => {
-    const content = "x".repeat(65537);
+  it("单卡超 256KB 被拒绝（只量围栏内 HTML，不量正文散文）", () => {
+    const content = "x".repeat(262145);
     const body = `\`\`\`html-card title="超大卡"\n${content}\n\`\`\``;
     const result = validateSpeakBody(undefined, body);
     expect(result).toContain("超出");
     expect(result).toContain("体积限制");
   });
 
-  it("正文散文不计入体积校验（64KB 卡 + 10KB 正文通过）", () => {
-    const cardContent = "x".repeat(60000); // 60KB 卡片
-    const prose = "y".repeat(10000); // 10KB 正文
+  it("正文散文不计入体积校验（262000B 卡 + 10KB 正文通过——若散文计入则超限被拒，256KB 下保持判别力）", () => {
+    const cardContent = "x".repeat(262000); // 逼近 256KB 上限的卡片
+    const prose = "y".repeat(10000); // 10KB 正文（计入则 272000 > 262144）
     const body = `${prose}\n\`\`\`html-card title="合规卡"\n${cardContent}\n\`\`\`\n${prose}`;
+    expect(validateSpeakBody(undefined, body)).toBeNull();
+  });
+
+  it("卡片含 base64 内嵌资源被机械拒收（体积放宽后防护不削弱）", () => {
+    const body = '```html-card title="图"\n<img src="data:image/png;base64,iVBORw0KGgo="/>\n```';
+    const result = validateSpeakBody(undefined, body);
+    expect(result).toContain("base64");
+  });
+
+  it("正文散文含 base64 字样不误伤（只量围栏内 HTML）", () => {
+    const body = '讨论 ;base64, 编码原理\n```html-card title="干净卡"\n<p>ok</p>\n```';
+    expect(validateSpeakBody(undefined, body)).toBeNull();
+  });
+
+  it("围栏内纯文字提及 base64 不误伤（无 data: URI 形态；<pre> 示例/脚本字符串同理）", () => {
+    const body = '```html-card title="科普卡"\n<pre>data URI 形如 data:类型;base64, 后接内容，;base64, 是标记</pre>\n```';
     expect(validateSpeakBody(undefined, body)).toBeNull();
   });
 
@@ -79,8 +95,8 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
   });
 
   // 嵌套围栏 under-measure 修复回归——改 remark 解析后体积完整测量。
-  it("F20261022cfme：嵌套围栏（开4内嵌3）卡片体积完整测量——超 64KB 被拒（修复前正则 under-measure 漏报）", () => {
-    const big = "x".repeat(70000);
+  it("F20261022cfme：嵌套围栏（开4内嵌3）卡片体积完整测量——超上限被拒（修复前正则 under-measure 漏报）", () => {
+    const big = "x".repeat(270000);
     const body = '````html-card title="嵌套大卡"\n<p>head</p>\n```\nembedded\n```\n' + big + '\n````';
     const result = validateSpeakBody(undefined, body);
     expect(result).toContain("超出");
@@ -92,8 +108,8 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     expect(validateSpeakBody(undefined, body)).toBeNull();
   });
 
-  it("F20261022cfme：反引号开 + ~~~ 嵌套卡片体积完整测量——超 64KB 被拒", () => {
-    const big = "x".repeat(70000);
+  it("F20261022cfme：反引号开 + ~~~ 嵌套卡片体积完整测量——超上限被拒", () => {
+    const big = "x".repeat(270000);
     const body = '```html-card title="波浪嵌套"\n<p>head</p>\n~~~\nembedded\n~~~\n' + big + '\n```';
     const result = validateSpeakBody(undefined, body);
     expect(result).toContain("超出");

@@ -60,6 +60,17 @@ export function parseCardImportance(meta: string | null | undefined): CardImport
   return v === 'high' ? 'high' : 'normal'
 }
 
+/** high 卡角标文案上限（字符）——角标是标签不是句子 */
+export const CARD_CHIP_MAX_CHARS = 12
+
+/** 解析 chip 属性（high 卡角标文案覆盖，如 图解/战报）。
+ *  缺省/空串返回 null（渲染层回退默认「简报」）；截断至 CARD_CHIP_MAX_CHARS。 */
+export function parseCardChip(meta: string | null | undefined): string | null {
+  const v = parseMetaAttr(meta, 'chip')?.trim()
+  if (!v) return null
+  return v.slice(0, CARD_CHIP_MAX_CHARS)
+}
+
 /** 折叠态摘要行最大字符数 */
 export const CARD_FOLDED_SUMMARY_MAX_CHARS = 120
 

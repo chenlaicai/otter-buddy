@@ -7,7 +7,7 @@
 | 场景 | 格式 | 约定 |
 |---|---|---|
 | 通用（交付给人/外部使用） | 独立 HTML 文件 | 单文件自包含（内联 style），无外部依赖，双击可开 |
-| 海獭对话卡片 | html-card | 走卡片契约：design token 引用、无外链、≤64KB、otterCard API |
+| 海獭对话卡片 | html-card | 走卡片契约：design token 引用、无外链、体积以实时契约为准（当前 ≤256KB）、otterCard API |
 
 ## 独立 HTML 约定
 

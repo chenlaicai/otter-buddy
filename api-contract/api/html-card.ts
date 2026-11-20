@@ -7,9 +7,11 @@
 /** 单消息卡片预算：第 3 张起前端降级为源码块（不可读），后端 speak 校验同值拒绝 */
 export const CARD_MAX_PER_MESSAGE = 2;
 
-/** 单卡体积预算（字节）：弹性化——8KB→64KB，由海獭按内容自控。
- *  只限 MAX，无 MIN（搭档拍板：「系统只约束最大，真正大小由海獭按内容决定」） */
-export const CARD_MAX_BYTES = 65536;
+/** 单卡体积预算（字节）：弹性化——8KB→64KB→256KB（搭档 2026-11-20 拍板），由海獭按内容自控。
+ *  只限 MAX，无 MIN（搭档拍板：「系统只约束最大，真正大小由海獭按内容决定」）。
+ *  定位是失控保险丝而非内容约束：正常内容卡（含复杂内联 SVG 图）通常 <20KB，
+ *  撞限信号 = 该换写法（全文转文类产物 / 别塞 JS 库 / 别内嵌 base64），不是放开上限。 */
+export const CARD_MAX_BYTES = 262144;
 
 /** 卡片 schema 版本：引入（保留字段，供未来默认状态变化用）。
  *  speak 工具创建含 html-card 的条目时写入 metadata.cardSchemaVersion。

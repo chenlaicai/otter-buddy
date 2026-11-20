@@ -14,7 +14,7 @@ import { OtterAvatar } from '../../components/OtterAvatar'
 import { fmtTokens, ctxPercent, fmtTime } from '../../lib/utils'
 import { withIdentity } from '../../api/identity'
 import { fmtBytes } from '../../lib/attachments'
-import { parseCardTitle, parseCardImportance, extractFoldedSummary } from '../../lib/html-card'
+import { parseCardTitle, parseCardImportance, parseCardChip, extractFoldedSummary } from '../../lib/html-card'
 import { remarkHtmlCardIndex } from '../../lib/remark-html-card-index'
 import { remarkBareLink } from '../../lib/remark-bare-link'
 import { remarkAutolinkTrim } from '../../lib/remark-autolink-trim'
@@ -114,6 +114,7 @@ function CardAwareCode({ className, children, node, ...props }: CodeComponentPro
         cardSchemaVersion={ctx.cardSchemaVersion}
         playable={playable}
         importance={parseCardImportance(meta)}
+        chip={parseCardChip(meta)}
         foldedSummary={extractFoldedSummary(text)}
       />
     )

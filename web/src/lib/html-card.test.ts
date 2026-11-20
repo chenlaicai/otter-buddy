@@ -6,6 +6,7 @@ import {
   CARD_SUMMARY_MAX_CHARS,
   byteLength,
   parseCardTitle,
+  parseCardChip,
   validateCardSubmitPayload,
   deriveRepliedCardIds,
   countCardFences,
@@ -111,11 +112,19 @@ describe('countCardFences（围栏存在性判据）', () => {
 })
 
 describe('常量与工具', () => {
-  it('预算常量符合设计文档（2 张 / 64KB / 500 字符 / 2KB）', () => {
+  it('预算常量符合设计文档（2 张 / 256KB / 500 字符 / 2KB）', () => {
     expect(CARD_MAX_PER_MESSAGE).toBe(2)
-    expect(CARD_MAX_BYTES).toBe(65536)
+    expect(CARD_MAX_BYTES).toBe(262144)
     expect(CARD_SUMMARY_MAX_CHARS).toBe(500)
     expect(CARD_DATA_MAX_BYTES).toBe(2048)
+  })
+
+  it('parseCardChip：缺省 null / 正常解析 / 空白 null / 截断 12 字符', () => {
+    expect(parseCardChip('title="x" importance="high"')).toBeNull()
+    expect(parseCardChip('title="x" chip="图解"')).toBe('图解')
+    expect(parseCardChip('chip="   "')).toBeNull()
+    expect(parseCardChip(null)).toBeNull()
+    expect(parseCardChip('chip="一二三四五六七八九十甲乙丙丁"')).toHaveLength(12)
   })
 
   it('byteLength 按 UTF-8 计（中文 3 字节）', () => {
