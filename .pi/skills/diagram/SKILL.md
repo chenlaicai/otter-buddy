@@ -36,7 +36,7 @@ category: technique
    - `<svg viewBox="0 0 W H" width="100%" style="font-family:inherit">`，禁视口相对高度；正文图宽 W 建议 680-760，字号 ≥10.5（标题 13-16）
    - 配色只用设计 token：底 `var(--paper)`/`var(--otter-50)`、描边 `var(--line)`、强调 `var(--teal-500)`、警示/缺口 `var(--caramel-500)`、文字 `var(--ink)`/`var(--ink-3)`——不自造色值
    - 箭头统一 `<defs><marker>` 定义一次复用；文字居中用 `text-anchor="middle"`，长标签 ≤2 行
-   - SVG 内第一行 `<text>` 写结论句（图卡折叠摘要/检索占位时承载信息增量）
+   - SVG 内第一行 `<text>` 写结论句（折叠摘要可提取 SVG 文本）；**检索/记忆占位只保留卡片 title**——title 必须自成结论（如「说话治理全景：图形层断腿定位」），别指望图内文字被检索到
 4. **出卡**：普通 html-card 围栏 + `importance="high"`（图的感知动词是「看」，折叠态等于没发）；正文配 1-2 句结论，图外叙述不放图内。体积参考：常规 <20KB，256KB 上限是保险丝不是目标。
 5. **过质检门**（不过门不出稿）：
    - [ ] 单图单主题——标题能回答「这张图说明什么」，答不出就拆

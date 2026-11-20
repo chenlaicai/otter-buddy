@@ -45,8 +45,8 @@ describe("validateSpeakBody（F20260915hcel 弹性化）", () => {
     expect(hasCardFences(one)).toBe(true);
   });
 
-  it("单卡 256KB 边界通过（恰好 262144 字节，F20261120diags 放宽）", () => {
-    const content = "x".repeat(262144 - 20); // 留点余量给围栏语法
+  it("单卡 256KB 边界通过（恰好 262144 字节——只量围栏内 HTML，围栏语法不计入）", () => {
+    const content = "x".repeat(262144);
     const body = `\`\`\`html-card title="大卡"\n${content}\n\`\`\``;
     expect(validateSpeakBody(undefined, body)).toBeNull();
   });
