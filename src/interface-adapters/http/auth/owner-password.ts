@@ -25,12 +25,17 @@ export function generateOwnerPassword(): string {
   return randomBytes(32).toString("base64url");
 }
 
-/** 常数时间比对，防时序侧信道（登录口令表单字符串比对） */
-export function verifyOwnerPassword(expected: string, candidate: string): boolean {
+/** 常数时间字符串比对，防时序侧信道（登录口令、服务令牌等「猜到即通过」的秘密都走这里） */
+export function constantTimeStringEquals(expected: string, candidate: string): boolean {
   const a = Buffer.from(expected, "utf8");
   const b = Buffer.from(candidate, "utf8");
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+/** 登录口令表单字符串比对 */
+export function verifyOwnerPassword(expected: string, candidate: string): boolean {
+  return constantTimeStringEquals(expected, candidate);
 }
 
 export interface ResolveOwnerPasswordOptions {

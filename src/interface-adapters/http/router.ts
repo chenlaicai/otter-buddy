@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { randomUUID } from "crypto";
 import type { Logger } from "@usecases/ports/logger";
-import { identityMiddleware, type Identity, type SessionVerifier } from "./identity-middleware";
+import { identityMiddleware, type Identity, type ServiceTokenVerifier, type SessionVerifier } from "./identity-middleware";
 import type { AuthController } from "./controllers/auth-controller";
 import type { ConversationController } from "./controllers/conversation-controller";
 import type { OtterController } from "./controllers/otter-controller";
@@ -38,6 +38,8 @@ export interface RouterPlumbingOptions {
   auth?: {
     /** 会话校验器（session cookie → 身份），注入身份中间件。 */
     verifySession: SessionVerifier;
+    /** 服务令牌校验器（Bearer token → 服务身份）；不注入 = 服务令牌通道不存在。 */
+    verifyServiceToken?: ServiceTokenVerifier;
     controller: AuthController;
   };
   executionMachines?: {
@@ -404,7 +406,7 @@ export function createRouter(ctrl: Controllers, logger: Logger, plumbing?: Route
   /** 对话域鉴权层——身份声明 + 路由策略表 + fail-closed 兑底，
    *  挂在 requestId 之后、所有路由之前（一处覆盖既有与新增端点）。
    * 注入会话校验器后真实登录 cookie 优先，声明式头/query 回退。 */
-  app.use('*', identityMiddleware(plumbing?.auth?.verifySession));
+  app.use('*', identityMiddleware(plumbing?.auth?.verifySession, plumbing?.auth?.verifyServiceToken));
 
   registerPlumbingRoutes(app, plumbing);
 

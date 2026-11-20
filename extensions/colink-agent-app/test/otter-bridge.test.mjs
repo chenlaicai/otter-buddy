@@ -426,3 +426,30 @@ test('re-registers byte-identical MCP config on the next round so Otter accepts 
   assert.equal(state.mcpConfigs.length, 2);
   assert.deepEqual(state.mcpConfigs[1], state.mcpConfigs[0]);
 });
+
+test('有服务令牌时用 Bearer，没令牌时退回声明式头（跨反代可用 vs 仅本机直连）', async () => {
+  const seen = [];
+  const fetcher = async (url, options = {}) => {
+    seen.push({ path: new URL(url).pathname, headers: options.headers ?? {} });
+    if (new URL(url).pathname === '/api/conversations') return Response.json({ id: 'otter-conversation-1', otterIds: ['big-otter'] });
+    if (/^\/api\/conversations\/[^/]+$/.test(new URL(url).pathname)) return Response.json({ id: 'otter-conversation-1' });
+    return Response.json({ entries: [], invokes: [] });
+  };
+
+  const withToken = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, serviceToken: '  abcdefghijklmnop1234  ' });
+  assert.deepEqual(withToken.identityHeaders(), { Authorization: 'Bearer abcdefghijklmnop1234' });
+  await withToken.request('/api/conversations/x');
+  assert.equal(seen.at(-1).headers.Authorization, 'Bearer abcdefghijklmnop1234');
+  // 令牌在场时不再发声明式头（避免两条通道语义打架）
+  assert.equal(seen.at(-1).headers['X-Otter-User-Role'], undefined);
+
+  const withoutToken = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1 });
+  assert.deepEqual(withoutToken.identityHeaders(), { 'X-Otter-User-Id': 'colink-agent-app', 'X-Otter-User-Role': 'admin' });
+  await withoutToken.request('/api/conversations/x');
+  assert.equal(seen.at(-1).headers.Authorization, undefined);
+  assert.equal(seen.at(-1).headers['X-Otter-User-Role'], 'admin');
+
+  // 空白令牌视同未配置
+  const blank = new OtterBridge({ baseUrl: 'http://otter.test', store: memoryStore(), fetcher, pollMs: 1, serviceToken: '   ' });
+  assert.equal(blank.identityHeaders().Authorization, undefined);
+});
