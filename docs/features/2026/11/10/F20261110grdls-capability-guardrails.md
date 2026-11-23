@@ -88,7 +88,7 @@ head 观测成功率 ≥0.8、Newcombe 差值区间下限 >−0.2，按同族场
 17 轮沿用各测试原有 3/5/7 采样与超时，不改断言；50 是检测约 0.90→0.70 劣化的初始下限，
 不是任何场景的万能充分样本量；更严格场景可在看 head 前预注册覆盖，禁止事后调宽。
 少跑、额外抽奖重跑、复制 runId、运行重叠或时间顺序不交错都拒判。canonical 常量锁定协议，
-完整 inventory 锁定 62 测试、37 自动采样、2 人工场景与 2 个声明期 skip；CI 逐 run 重算实际
+完整 inventory 锁定 66 测试、40 自动采样、2 人工场景与 2 个声明期 skip；CI 逐 run 重算实际
 内容而非只认哈希。每轮先干净 build，default/secondary/fallback 均固定参考模型，禁止测试过滤。
 
 结论为 `PASS / FAIL / INCONCLUSIVE / BLOCKED`：样本不足、预算 SKIP、超时、429、 undeclared
@@ -141,6 +141,14 @@ inventory 缺口；head 始终必须零硬失败，防止把「base 也差」当
   Kimi 定向 wait 2/3、detour 3/3；Flash 的 skill/objection/blocked 均 3/3。
   wait 另由 durable `beforeTool` 拒绝当前 invoke 尚未 speak 的等待，机制测试覆盖拒绝→纠正→放行。
   身份自称识别补「调度团队/调度」合法表达；慢 golden 场景可显式延长响应窗，不断言降级。
+
+## 2026-11-23 残留 PR 恢复
+
+- 原 PR 在 11/12 因真 LLM base/head 非劣证据遭遇 429、仅留存 BLOCKED comparison 后无人接续；不是已分流合入或被取代。
+- 分支已 rebase 到 main `04b42a70125bf74854ad4ae2f42c0c1d36d18431`，保留 main 新增的受限档案 golden、会话级 MCP 配置与 custom tool 注册面；parity 在新 merge-base 实跑，精确许可仅含 4 个身份 system 与 4 个 wait 描述漂移。
+- main 新增 4 个能力用例后，canonical inventory 同步为 66 测试、40 自动采样、2 人工评审、2 声明 skip；JSON、生成模块与内容哈希同步更新，历史 BLOCKED 证据不改写。
+- 机器锚点：`npm run build` 与 `npm run lint` 通过；6 个定向文件 97/97；faux 17/17 文件、19 passed + 47 既有语义 skipped；全仓 524 文件先行通过，2 个浏览器文件在补齐 Playwright chromium 后 12/12 通过；parity PASS。
+- 真 LLM 新 base/head 非劣证据仍未生成，PR 继续保持 Draft，禁止把上述机器门通过表述为 live PASS。
 
 ## 非目标
 

@@ -36,7 +36,7 @@ export const CANONICAL_PROTOCOL = Object.freeze({
   notes: "50 是检测约 0.90→0.70 劣化的初始下限，不是通用充分样本量；场景可在看 head 结果前预注册更严格值，禁止事后放宽。",
 });
 export const CANONICAL_PROTOCOL_SHA256 = "ef873493a7ebc98038af603d909033990a0e3f4f7e8eb2e23259db93d21349ed";
-export const CANONICAL_INVENTORY_SHA256 = "3dde5a4a5477967a8bd73d90e1ee00539c76ca801fbfcc264adf4c758b0c5874";
+export const CANONICAL_INVENTORY_SHA256 = "48bf5504faf525240575bbc3debaabafa72cf3fe055ac926a46f5367b9aa458c";
 export { CANONICAL_INVENTORY };
 
 export function sha256(value) {
