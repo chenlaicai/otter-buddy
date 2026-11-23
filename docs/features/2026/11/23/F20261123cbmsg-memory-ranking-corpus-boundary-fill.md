@@ -225,8 +225,12 @@ P75/P25 只有 2.05**，即文档层内部的年龄差异很小，改文档半�
 
 ```ts
 expected: {
-  "g-fact-cv01": 3, "g-fact-cv02": 1, "g-clu-02b": 2,
+  "g-fact-cv01": 3, "g-fact-cv02": 1,
+  "g-fact-07": 1, "g-msg-01": 1, "g-msg-05": 1, "g-msg-07": 1, "g-msg-08": 1,
   "g-res-01": 2, "g-res-01-c1": 1,
+  "g-clu-02a": 1, "g-clu-02b": 2, "g-clu-02c": 2, "g-clu-05b": 1,
+  "g-clu-06a": 1, "g-clu-06b": 1, "g-doc-old01": 1, "g-doc-old02": 1,
+  "g-clu-08a": 1, "g-clu-08b": 1,
 }
 ```
 
@@ -244,11 +248,11 @@ expected: {
 | P2 | `g-clu-07b` | feature | 60 | null | 「守卫实录整理规范：成文记录、验收证据与复核处置说明」 |
 
 - `E12`（probe，**不注入会话**，把文档半衰期从会话加成中隔离）：「分层」
-  `expected: { "g-clu-06b": 3, "g-clu-06a": 2, "g-res-03": 2, "g-clu-04b": 1 }`。
+  `expected: { "g-clu-06b": 3, "g-clu-06a": 2, "g-res-03": 2, "g-fact-10": 2, "g-feat-01-c3": 1, "g-clu-04a": 1, "g-clu-04b": 1 }`。
   message 的词面分略高；默认 90 天文档半衰期让 `g-clu-06b` 居首，半衰期=1 时 `g-clu-06a`
   反超，top-K 与 nDCG@10 均改变。
 - `E13`（probe，不注入）：「记录」
-  `expected: { "g-clu-07b": 3, "g-clu-07a": 2, "g-doc-old02": 1, "g-clu-02a": 1, "g-clu-02c": 1 }`。
+  `expected: { "g-clu-07b": 3, "g-clu-07a": 2, "g-clu-01a": 1, "g-clu-01c": 1, "g-clu-02a": 1, "g-clu-02c": 1, "g-doc-old01": 1, "g-doc-old02": 1 }`。
   默认 `g-clu-07a` 居首、`g-clu-07b` 领先 `g-doc-old02`；半衰期=1 后 `g-doc-old02`
   反超 `g-clu-07b`，top-K 与 nDCG@10 改变。message 也是正例，所以标准 RR 不变是正确口径，
   不得伪造“所有反事实都必须让 RR 下降”的断言。
@@ -267,8 +271,8 @@ expected: {
 
 ```ts
 expected: {
-  "g-fact-cv02": 1, "g-fact-cv01": 1, "g-doc-old01": 3,
-  "g-res-01-c1": 2, "g-doc-old02": 2, "g-res-01": 2,
+  "g-fact-cv02": 1, "g-fact-cv01": 1, "g-clu-02b": 1, "g-msg-07": 1,
+  "g-fact-07": 2, "g-doc-old01": 3, "g-res-01-c1": 2, "g-doc-old02": 2, "g-res-01": 2,
 }
 ```
 
@@ -287,8 +291,10 @@ top-K 与 nDCG@10 均改变。C11 的 top1 是弱相关 `g-fact-cv02`，不再�
 它提供异构候选对照，不冒充文档半衰期或会话加成探针。
 
 **合计与防腐化约束**：新增 **10 条、5 查询**（60/49），旧 50 条目与旧 44 查询不改。
-结构测试额外锁定：D7 两条 fact 同龄；D7/C11/E12/E13/E14 的查询文本不得等于任何 expected 正例原文。
-行为测试逐条锁默认 top1、所有 expected 正例进 top10，以及上述目标参数反事实；聚合地板不能遮蔽单查询退化。
+结构测试额外锁定：D7 两条 fact 年龄差 <1000ms；D7/C11/E12/E13/E14 的查询文本不得等于任何
+expected 正例原文；四条宽查询的全语料直接文本命中必须全部标正，禁止一边同义命中、一边计 0。
+行为测试逐条锁默认 top1、目标正例进 top10、top10 零未标注候选，以及上述目标参数反事实；
+弱相关全局标注不要求全部挤进 top10，聚合地板也不能遮蔽单查询退化。
 
 ### 4.2 地板漂移处置协议（G3）
 
@@ -325,7 +331,8 @@ top-K 与 nDCG@10 均改变。C11 的 top1 是弱相关 `g-fact-cv02`，不再�
 | AT-2 | 同龄成对正例存在（**只要求约束型，不要求判别型**） | 同上脚本，检查是否存在「两条同龄（age 相同）、不同 contentType、其中文档层条目的 expected 分级 = 3」的成对组 | 至少 2 对；否则 FAIL（意味着文档层半衰期仍缺同龄约束型观测）。**不要求分级相同**——同分级会让 nDCG 对位置互换不敏感，反而掩盖缺口 |
 | AT-3 | 三族锚点与新语料一致 | `npm run eval:golden`；需要网格时再跑 `npm run eval:grid` | 默认 additive、显式 multiply、additive 全中性分别符合 §4.2 重锁值与既有判定带；全部用例绿，grid 的旧 FLOOR/锚点/候选矩阵断言无残留 |
 | AT-6 | 定向观测面对目标参数有响应 | `npx vitest run tests/usecases/memory/golden-eval.test.ts -t "判别力"` | D7 在 `bConv=0` 时同/跨对话 fact 交换榜首且 nDCG 下降；C11/E12/E13 在文档半衰期 90→1 后 top-K 与单查询 nDCG 均改变，并满足 §4.1 各自相对顺序断言 |
-| AT-7 | 新查询不退化为精确文案或聚合均值遮罩 | `npx vitest run tests/usecases/memory/golden-eval.test.ts -t "新增 5 查询"` | 五条默认 top1 与全部 expected 正例 top10 逐条通过；结构断言另保证查询文本不等于任何 expected 正例原文 |
+| AT-7 | 新查询不退化为精确文案或聚合均值遮罩 | `npx vitest run tests/usecases/memory/golden-eval.test.ts -t "新增 5 查询"` | 五条默认 top1、目标正例 top10、top10 零未标注候选逐条通过；结构断言另保证查询文本不等于任何 expected 正例原文 |
+| AT-8 | 宽查询 ground truth 不选择性漏标 | `npx vitest run tests/usecases/memory/golden-eval.test.ts -t "宽查询不得选择性漏标"` | D7/C11/E12/E13 的全语料直接文本命中均有正分级；E12 另补语义直接相关的 `g-fact-10` |
 | AT-5 | 探针层守卫不被破坏 | `npx vitest run tests/usecases/memory/golden-eval.test.ts -t "探针层引用近邻簇"` | PASS（新 E 层查询的 `expected` 均含 `g-clu-` 前缀 key）——初版 `g-pair*`/`g-het*` 命名会在这里 FAIL |
 
 | AT-4（人工判读） | 标注质量 | 新条目的 content 与 expected 分级是否语义一致；**同龄**是否真同龄；E14 的查询文本与 `g-clu-08a/b` 是否有共享实词 | 每条新查询都能一句话说出「为什么这条该排第一」；理由不得依赖年龄（同龄对天然满足）；E14 两条都必须能被 FTS 召回到候选池 |
@@ -407,7 +414,7 @@ top-K 与 nDCG@10 均改变。C11 的 top1 是弱相关 `g-fact-cv02`，不再�
 ### 8.1 落地范围
 
 - `golden-corpus.ts`：50 → **60** 条目、44 → **49** 查询，全部标记 `golden-seed-v3`；旧 50 条目与旧 44 查询及 expected 未改。
-- `golden-eval.test.ts`：除 AT-1/AT-2/AT-5 外，新增查询非精确原文守卫、五条默认 top1/top10 快照、D7 的 `bConv` 反事实、C11/E12/E13 的文档半衰期反事实。
+- `golden-eval.test.ts`：除 AT-1/AT-2/AT-5 外，新增查询非精确原文、宽查询直接命中不得漏标、五条默认 top1/目标正例/top10 零未标注候选、D7 的 `bConv` 反事实、C11/E12/E13 的文档半衰期反事实。
 - `golden-grid.eval.ts`：同步 FLOOR、multiply、全中性、达标组合数与候选矩阵锚点。
 - `src/*`、`config/*`、prompts、skills、协议层均未改，外部 LLM 调用为零。
 
@@ -435,13 +442,15 @@ top-K 与 nDCG@10 均改变。C11 的 top1 是弱相关 `g-fact-cv02`，不再�
 
 | 路径 | 实测 nDCG@5 / nDCG@10 / MRR | 重锁方式 |
 |---|---|---|
-| additive | **0.7688 / 0.7772 / 0.8883** | 地板向下三位：0.768 / 0.777 / 0.888 |
-| multiply | **0.6708 / 0.7023 / 0.8010** | 四位精确锚 |
-| additive 全中性 | **0.7823 / 0.7990 / 0.9315** | 保留 ±0.001 判定带 |
+| additive | **0.7657 / 0.7727 / 0.8883** | 地板向下三位：0.765 / 0.772 / 0.888 |
+| multiply | **0.6783 / 0.7028 / 0.8112** | 四位精确锚 |
+| additive 全中性 | **0.7792 / 0.7950 / 0.9315** | 保留 ±0.001 判定带 |
 
 五条新查询默认 top1 依次为：C11=`g-fact-cv02`、D7=`g-fact-cv01`、E12=`g-clu-06b`、
 E13=`g-clu-07a`、E14=`g-clu-08b`；所有 expected 正例均进 top10。C11 top1 只是 1 分弱相关、
 E13 top1 是 2 分 message，不再出现“五条最高分级全部满分”的精确文案假象。
+四条宽查询的直接文本命中均已标正；E12 另补 `g-fact-10` 近同义正例。top10 不允许出现 0 分候选，
+目标正例必须进 top10，其余全局弱相关标注不要求全部进入 top10。
 
 定向反事实均走真实 FTS+RRF+additive 全链路，每次只改一个目标参数：
 
@@ -459,10 +468,10 @@ E13 top1 是 2 分 message，不再出现“五条最高分级全部满分”的
 
 - `npm run eval:grid`：352 个组合中 **183** 个达到新地板。最佳候选仍为
   `w_rrf=0.8 / w_time=0 / w_freq=0.2 / b_flag=0.1 / b_conv=0.05`，实测
-  **0.7885 / 0.8006 / 0.9315**。
-- `npx vitest run tests/usecases/memory/golden-eval.test.ts`：**13/13 PASS**；memory 定向 **94/94 PASS**。
+  **0.7854 / 0.7966 / 0.9315**。
+- `npx vitest run tests/usecases/memory/golden-eval.test.ts`：**14/14 PASS**；memory 定向 **95/95 PASS**。
 - `npm run lint:tests`、`npm run lint:docs`、`npm run lint:intent`、`npm run build`：PASS。
-- `npm test`：**526 文件、6811 测试全部通过**。CI 以最终推送 HEAD 为准，不沿用反事实修复前旧结果。
+- `npm test`：**526 文件、6812 测试全部通过**。CI 以最终推送 HEAD 为准，不沿用反事实修复前旧结果。
 
 ## 下一步
 
