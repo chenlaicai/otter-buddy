@@ -75,7 +75,7 @@ causal_links:
 
 ## 验证证据
 
-- 组件 10/10、材质契约 12/12，共 22/22；TypeScript 与 Vite 生产构建通过。
+- 组件 10/10、材质契约 12/12，共 22/22；全量 Web 89 文件、881/881 测试通过；TypeScript 与 Vite 生产构建通过。jsdom 通过 `src/test/setup.ts` 提供标准 ResizeObserver 接口，AppLayout 真实挂载 TopBar 的回归测试同步通过。
 - 工作区报告：`production-glass-verification.md`；脚本：`verify-production-glass.cjs`。
 - 双端真实点击视频：`production-glass-{chromium,webkit}-clicks.webm`。
 - 静止与运动帧：`production-glass-{chromium,webkit}-{rest,expand,moving,arrive,settle}.png`。
