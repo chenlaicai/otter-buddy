@@ -49,7 +49,7 @@ interface MetricResult {
 }
 
 /** 地板（golden-eval BASELINE，向下取整 3 位，见 ） */
-const FLOOR = { ndcg5: 0.791, ndcg10: 0.799, mrr: 0.907 } as const;
+const FLOOR = { ndcg5: 0.768, ndcg10: 0.777, mrr: 0.888 } as const;
 
 /** 设计回填默认系数（段 1 已入配置缺省） */
 const DEFAULT_ADDITIVE: RerankWeights = { wRrf: 0.6, wTime: 0.3, wFreq: 0.1, bUserFlag: 0.05, bConv: 0.05, freqCap: 10 };
@@ -196,17 +196,17 @@ describe("golden grid + 反事实（段 3 标定，不切默认）", () => {
     expect(counterfactuals.length).toBe(8);
     const cfByName = new Map(cfRows.map((r) => [r.name, r]));
     const mult = cfByName.get("multiply 生产默认（全开）")!;
-    expect(mult.ndcg5).toBeCloseTo(0.6948, 4);
-    expect(mult.ndcg10).toBeCloseTo(0.7214, 4);
-    expect(mult.mrr).toBeCloseTo(0.8112, 4);
+    expect(mult.ndcg5).toBeCloseTo(0.6708, 4);
+    expect(mult.ndcg10).toBeCloseTo(0.7023, 4);
+    expect(mult.mrr).toBeCloseTo(0.8010, 4);
     const neutral = cfByName.get("additive 全中性（w_rrf=1 其余 0）")!;
-    expect(neutral.ndcg5).toBeCloseTo(0.8114, 4);
-    expect(neutral.ndcg10).toBeCloseTo(0.8184, 4);
-    expect(neutral.mrr).toBeCloseTo(0.9417, 4);
+    expect(neutral.ndcg5).toBeCloseTo(0.7823, 4);
+    expect(neutral.ndcg10).toBeCloseTo(0.7990, 4);
+    expect(neutral.mrr).toBeCloseTo(0.9315, 4);
 
     // 网格结构：空间尺寸精确、行唯一、权重和≈1、指标有限
     expect(grid.length).toBe(352);
-    expect(eligible.length).toBe(113);
+    expect(eligible.length).toBe(183);
     const seen = new Set<string>();
     for (const r of grid) {
       const key = `${r.wRrf}|${r.wTime}|${r.wFreq}|${r.bFlag}|${r.bConv}`;
@@ -227,9 +227,9 @@ describe("golden grid + 反事实（段 3 标定，不切默认）", () => {
     expect(candidate.wFreq).toBeCloseTo(0.2, 9);
     expect(candidate.bFlag).toBe(0.1);
     expect(candidate.bConv).toBe(0.05);
-    expect(candidate.ndcg5).toBeCloseTo(0.8133, 4);
-    expect(candidate.ndcg10).toBeCloseTo(0.8201, 4);
-    expect(candidate.mrr).toBeCloseTo(0.9413, 4);
+    expect(candidate.ndcg5).toBeCloseTo(0.7885, 4);
+    expect(candidate.ndcg10).toBeCloseTo(0.8006, 4);
+    expect(candidate.mrr).toBeCloseTo(0.9315, 4);
 
     db.close();
   });

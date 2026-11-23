@@ -174,7 +174,7 @@ P75/P25 只有 2.05**，即文档层内部的年龄差异很小，改文档半�
 观测到——这是 C2 要处理的那类缺口。
 
 > **此处必须分清两种观测面（检视 E4，跨节矛盾订正）**：C2 能补的是**约束型**缺口——
-> 让“本对话加成 / 文档半衰期改动不得把同龄文档层正例打下榜首”变得可检测；它**补不了**
+> 让“本对话加成 / 文档半衰期改动会改变同龄跨层正例的相对位置”变得可检测；它**补不了**
 > 「分级完全相同的 top 对」这个**判别型**缺口——那需要评测器层面的「同分级相对顺序」断言
 > （nDCG 对同分级位置互换不敏感）。上一版这句直接写「这正是 C2 要补的东西」，与 §4.1 的
 > D2 修正矛盾，现改为「C2 要处理的那类缺口」并把限定写清。判别型缺口**本文不交付**，
@@ -208,126 +208,87 @@ P75/P25 只有 2.05**，即文档层内部的年龄差异很小，改文档半�
 
 ## 四、方案设计
 
-### 4.1 四类补条目（规格，非实现）
+### 4.1 四类补条目（最终实现）
 
-所有新条目沿用现有 `entry(id, layer, contentType, ageDays, content, conversationId)` 构造器，
-`daysAgo(N)` 动态相对时间（#1126 日期炸弹规矩不变），`metadata.corpus` 升级为 `golden-seed-v3`，
-便于新旧语料分开统计。
+所有新条目沿用 `entry(...)` 与 `daysAgo(N)`，`metadata.corpus` 升级为 `golden-seed-v3`。
+本节是落地后的行级规格；初版“查询与正例原文相同”的精确短文案已废弃。新查询必须有近邻候选，
+且默认排序与目标参数反事实都要可机械判读，不能只靠结构存在性或聚合均值证明观测面成立。
 
 **C1 同对话 fact（补 fact 层的 conversationId 缺口）——2 条**
 
-| id | layer | contentType | age | conversationId | content 要点 |
+| id | layer | contentType | age | conversationId | content |
 |---|---|---|---:|---|---|
-| `g-fact-cv01` | working | fact | 6 | CONV_ALPHA | 「nDCG MRR」——与 `g-clu-02b`（message，2d）同义不同粒度；精确短文案作为同对话 fact 正例 |
-| `g-fact-cv02` | working | fact | 30 | CONV_BETA | 「对话记录：排序指标讨论结论是 nDCG 优先」——跨对话对照项，谓词恒假 |
+| `g-fact-cv01` | working | fact | 6 | CONV_ALPHA | 「本对话评测：nDCG MRR 定稿」 |
+| `g-fact-cv02` | working | fact | 6 | CONV_BETA | 「跨对话评测：nDCG MRR」 |
 
-配 1 条查询：
+配 `D7`（conversation，注入 CONV_ALPHA）：「评测」：
 
-- `D7`（layer=conversation，注入 CONV_ALPHA）：「nDCG MRR」`expected: { "g-fact-cv01": 3, "g-clu-02b": 2 }`
-  ——同对话内 fact 提炼 vs message 原话的粒度偏好判别式（`F20261112lmcba` 指出的「正确形态」）。
-  （layer=conversation，不受探针层 `g-clu-` 前缀守卫约束。）
+```ts
+expected: {
+  "g-fact-cv01": 3, "g-fact-cv02": 1, "g-clu-02b": 2,
+  "g-res-01": 2, "g-res-01-c1": 1,
+}
+```
 
-**C2 同对话跨层同龄成对（补文档层谓词恒假的观测缺口）——4 条（2 对）**
+两条新 fact **同龄、近等长**，跨对话条目的词面分略高。默认 `bConv=0.05` 时 `g-fact-cv01`
+以微弱优势排第一；只把 `bConv` 调为 0 后 `g-fact-cv02` 反超，top-K 改变且 D7 nDCG@10 下降。
+这条因此不是“fact 有 conversationId”的结构摆设，而是 fact 会话加成的定向反事实。
 
-| 对 | 条目 | contentType | age | conversationId | 说明 |
+**C2 同对话跨层同龄成对（补文档半衰期观测缺口）——4 条（2 对）**
+
+| 对 | 条目 | contentType | age | conversationId | content |
 |---|---|---|---:|---|---|
-| P1 | `g-clu-06a` | message | 20 | CONV_ALPHA | 「本对话：个人 云端 中枢 方案 初稿」 |
-| P1 | `g-clu-06b` | feature | 20 | null | 「个人 云端 中枢 方案 成文」——同龄、同主题、无会话归属 |
-| P2 | `g-clu-07a` | message | 60 | CONV_ALPHA | 「本对话：守卫 实录 整理 需求 讨论 记录 补充 说明」 |
-| P2 | `g-clu-07b` | feature | 60 | null | 「守卫 实录 整理」——同龄，用来观测文档层半衰期 |
+| P1 | `g-clu-06a` | message | 30 | CONV_ALPHA | 「本对话分层评测方案：working historical document 的年龄与候选差异初稿」 |
+| P1 | `g-clu-06b` | feature | 30 | null | 「记忆分层评测设计：working historical document 的成文方案与半衰期边界说明」 |
+| P2 | `g-clu-07a` | message | 60 | CONV_ALPHA | 「本对话记录：守卫实录整理的需求讨论与验收口径」 |
+| P2 | `g-clu-07b` | feature | 60 | null | 「守卫实录整理规范：成文记录、验收证据与复核处置说明」 |
 
-> **id 前缀说明（检视发现 3 的修正）**：初版用的是 `g-pair1-*` / `g-pair2-*`，会被
-> `golden-eval.test.ts:93-99` 的探针层守卫拦住——该守卫要求 **E 层（probe）** 查询的
-> `expected` 至少含一个 `g-clu-` 前缀 key，否则判「区分度退化」。改用 `g-clu-06/07` 编号
-> 直接并入既有近邻簇命名空间，既满足守卫语义（这两对**本来就是**近邻簇），也不需要动测试。
+- `E12`（probe，**不注入会话**，把文档半衰期从会话加成中隔离）：「分层」
+  `expected: { "g-clu-06b": 3, "g-clu-06a": 2, "g-res-03": 2, "g-clu-04b": 1 }`。
+  message 的词面分略高；默认 90 天文档半衰期让 `g-clu-06b` 居首，半衰期=1 时 `g-clu-06a`
+  反超，top-K 与 nDCG@10 均改变。
+- `E13`（probe，不注入）：「记录」
+  `expected: { "g-clu-07b": 3, "g-clu-07a": 2, "g-doc-old02": 1, "g-clu-02a": 1, "g-clu-02c": 1 }`。
+  默认 `g-clu-07a` 居首、`g-clu-07b` 领先 `g-doc-old02`；半衰期=1 后 `g-doc-old02`
+  反超 `g-clu-07b`，top-K 与 nDCG@10 改变。message 也是正例，所以标准 RR 不变是正确口径，
+  不得伪造“所有反事实都必须让 RR 下降”的断言。
 
-配 2 条查询（layer=probe，因此必须引 `g-clu-` —— 已满足）：
+两对的用途是**同龄、跨层、带分级差的约束型观测**，不是同分级判别式。同龄排除绝对年龄变量；
+3 vs 2 让目标文档的位置变化能反映到 nDCG。真正的同分级相对顺序仍是后续评测器课题。
 
-> **为什么 expected 写成 3 vs 2，以及它与「同分级判别式」的关系（检视 D2 的正面回应）**：
-> 本节标题写的是「同龄成对」，最初的叙述里又说「期望分级刻意写成同分级」，但下面是 3 vs 2 ——
-> 这是上一版的自相矛盾，且恰好踩中 §4.4 自己的禁忌。现已拆成两件事说清：
->
-> - **「同龄」是硬约束**（年龄完全相等，这两对确实满足）——它保证「年龄不是排序依据」；
-> - **「分级」写成 3 vs 2 是有意的**：在 golden 集里，分级差是**唯一能让“该排第一”稳定成立**
->   的标注形式。若写成 2 vs 2（真同分级），则 nDCG 对两者的位置互换不敏感，一个把文档压在
->   message 下面的错误排序会被判为“部分正确”，**反而掩盖缺口**。
-> - 所以这两对的真实用途不是「同分级翻盘」，而是：**同龄 + 文档层条目为正例**。它们让
->   `conversation_boost` 与 `weightHalfLifeDaysDocument` 的任何改动必须至少不把
->   `g-clu-06b`/`g-clu-07b` 从榜首打下去——这是**约束型**观测面，不是判别型。
->
-> 真正的判别型不能用 nDCG 判定“分级相同”的两条谁应在先——同分级互换不改 nDCG 增益。
-> 那需要同时改 `golden-eval.test.ts` 增加一条「同分级相对顺序」断言；**本文未把它列为交付项**，
-> 记为后续增量（见 §4.3 AT-2 的措辞与「下一步」）。
-> **本文不声称 C2 能独立提供判别型观测面**——那是一个被检视正确指出、上一版夸大的点。
+**C3 旧文档正例对照——2 条**
 
-- `E12`（probe，注入 CONV_ALPHA）：「个人 云端 中枢 方案」`expected: { "g-clu-06b": 3, "g-clu-06a": 2 }`
-  ——文档层应当因为「成文」语义胜出；同时 `conversation_boost` 只作用于 `g-clu-06a`（message），
-  所以这条查询同时约束「本对话加成不得把同龄 message 翻到成文文档之上」。
-- `E13`（probe，不注入）：「守卫 实录 整理」`expected: { "g-clu-07b": 3, "g-clu-07a": 2 }`
-  ——无会话归属时的纯文档层对照，改 `weightHalfLifeDaysDocument` 应当在这里有数字响应。
+| id | contentType | age | content |
+|---|---:|---|---|
+| `g-doc-old01` | research | 270 | 「旧评测调研记录：nDCG 位置折扣」 |
+| `g-doc-old02` | feature_chunk | 180 | 「早期评测调研记录 chunk：nDCG 分级增益与标注一致性对照」 |
 
-**C3 旧文档正例对照（补「文档层非正例」的偏置）——2 条（+2 条查询）**
+配 `C11`（document）：「nDCG」：
 
-现有文档层 16 条里，`g-feat-03`(20d) / `g-feat-06`(10d) / `g-feat-07`(55d) 是新正例，其余
-多为干扰项；文档层 decay 区间只有 2 倍差异，改半衰期的效应极弱。补两条**同主题、年龄差 3 倍**
-的正例，让半衰期改动有可测的年龄差：
+```ts
+expected: {
+  "g-fact-cv02": 1, "g-fact-cv01": 1, "g-doc-old01": 3,
+  "g-res-01-c1": 2, "g-doc-old02": 2, "g-res-01": 2,
+}
+```
 
-| id | contentType | age | 配的查询 | expected |
-|---|---:|---|---|---|
-| `g-doc-old01` | research | 270 | `C11`（layer=document）：「评测 调研 nDCG」；条目 content 同查询精确短文案 | `{ "g-doc-old01": 3, "g-res-01": 2, "g-doc-old02": 2 }` |
-| `g-doc-old02` | feature_chunk | 180 | ↑ 同一条 C11 | 同上（同一条查询同时观测 research 与 chunk 两种旧正例） |
+默认 `g-res-01-c1` 领先 `g-doc-old01`；只把文档半衰期从 90 改为 1 后两者交换，
+top-K 与 nDCG@10 均改变。C11 的 top1 是弱相关 `g-fact-cv02`，不再让五条新查询靠精确文案全部满分。
 
-> 这两条是带分级差的新正例（3 vs 2）——它们的用途不是判别信号，而是给
-> `weightHalfLifeDaysDocument`（90→60/180）一个可测的**年龄差对照组**（270d vs 75d、180d vs 40d）。
+**C4 异构干扰簇——2 条**
 
-**C4 异构干扰簇（补跨层干扰，非本对话加成）——2 条**
-
-| id | contentType | age | conversationId | content（行级文案，落地直接照抄） |
+| id | contentType | age | conversationId | content |
 |---|---|---:|---|---|
-| `g-clu-08a` | message | 15 | CONV_BETA | 「其他对话：异构 检索 链路 跨层 召回 差异 讨论 记录 补充 说明」 |
-| `g-clu-08b` | fact | 15 | null | 「异构 召回 跨层 差异」 |
+| `g-clu-08a` | message | 15 | CONV_BETA | 「其他对话：异构检索链路的跨层召回差异评测讨论，比较 message 与 fact 候选顺序」 |
+| `g-clu-08b` | fact | 15 | null | 「异构检索的跨层召回差异评测：fact 结论排序对照」 |
 
-配 `E14`（probe，**不注入** `currentConversationId`）：「异构 召回 跨层 差异」`expected: { "g-clu-08b": 3, "g-clu-08a": 2 }`。
+配 `E14`（probe，不注入会话）：「异构 召回 跨层 差异」
+`expected: { "g-clu-08b": 3, "g-clu-08a": 2 }`。默认 fact 居首，两个正例都进 top10；
+它提供异构候选对照，不冒充文档半衰期或会话加成探针。
 
-> **C4 的两次修正（检视 D4 + E2）**：
-> 上一版有两处自相矛盾：①合计表说「C4 查询=0（并入 E12）」，正文却仍保留 E14 定义；
-> ②更实质的是，`g-clu-08a/b` 的内容与 E12 原查询文本「方案 成文 哪一版」**无共享实词**，
-> FTS 召不到，也不在 E12 的 expected 里——两条会成为**无人消费的死语料**。
->
-> 现改为：**保留 E14 独立查询**；且行级文案已补齐（上一版只给了用途描述、没给 content，
-> 落地时 08a 仍可能召不到）——两条都显式含「异构 / 跨层 / 召回 / 差异」四个词，与查询文本
-> 字面重叠。**E14 不注入** `currentConversationId`——它观测的是「无加成时 fact 压过跨对话 message」，
-> 与 E12 的观察面不重叠。条目数不变（+2），查询数 +1（下面总账随之调整）。
-
-**合计口径（最终）—— 5 条查询落地**
-
-| 项 | 条目 | 查询（落地） |
-|---|---:|---:|
-| C1 同对话 fact | 2 | 1（D7） |
-| C2 跨层同龄成对 | 4 | 2（E12、E13） |
-| C3 旧文档正例对照 | 2 | 1（C11 合并 research+chunk 两种旧正例） |
-| C4 异构干扰簇 | 2 | 1（E14，独立查询） |
-| **合计** | **10 条**（50 → 60） | **5 条**（44 → 49） |
-
-> **数值变化说明（检视 D4）**：上一版写「+4 条 44 → 48」并说 C4 并入 E12；因为 C4 与 E12 无共享
-> 实词（见 C4 节），并入不成立，C4 必须有自己的查询。所以最终是 **+5 条 → 49**，距 `:75` 的
-> `<= 50` 还剩 1 条余量。C11 仍然是合并查询（一条同时带 `g-doc-old01` 与 `g-doc-old02` 两个正例），
-> 这是它从 C11/C12 两条合并成一条的原因。
-
-> **为什么是 +5 而不是逐项 6（检视发现 4 + D4 的最终修正）**：初版写「+5 条 44 → 49」时是拍脑袋的数、
-> 对不上分项；后来一度改成「+4」（把 C4 并入 E12），但 D4 复核发现并入不成立 —— C4 与 E12 无共享
-> 实词，那两条会变成无人召回的**死语料**。所以最终口径是 **+5**，且之所以是 5 而不是 6，
-> 是因为 C11 合并了 C3 的两条查询（一条同时带 `g-doc-old01` research 270d 与 `g-doc-old02`
-> chunk 180d 两个正例）。分项：D7 + E12 + E13 + C11 + E14 = 5。
->
-> 重要：**上一版靠着的「C4 并入 E12」那句是错的，已删**。E14 必须保留，否则 C4 两条语料
-> 无人消费、AT-2 与 AT-4 全部落空。
->
-> 实现 PR 若确实要 +6，必须先改 `<= 50` 上限并在 PR 内说明理由——那是另一项决策。
-
-**门槛自检**：`GOLDEN_QUERIES.length >= 30`（:74）与 `<= 50`（:75）均满足（**49**）；
-探针层守卫（:93-99，**E 层**查询的 `expected` 必须含 `g-clu-` 前缀 key）因 E12/E13/E14 分别引了
-`g-clu-06b` / `g-clu-07b` / `g-clu-08b` 而满足——这正是把新条目改名为 `g-clu-06/07/08` 的直接原因。
+**合计与防腐化约束**：新增 **10 条、5 查询**（60/49），旧 50 条目与旧 44 查询不改。
+结构测试额外锁定：D7 两条 fact 同龄；D7/C11/E12/E13/E14 的查询文本不得等于任何 expected 正例原文。
+行为测试逐条锁默认 top1、所有 expected 正例进 top10，以及上述目标参数反事实；聚合地板不能遮蔽单查询退化。
 
 ### 4.2 地板漂移处置协议（G3）
 
@@ -361,8 +322,10 @@ P75/P25 只有 2.05**，即文档层内部的年龄差异很小，改文档半�
 | 编号 | 场景 | 操作 | 预期结果（PASS/FAIL） |
 |---|---|---|---|
 | AT-1 | 缺口已补（**只看 fact 层**，不要求文档层带会话归属） | 提取 `golden-corpus.ts` 的 `entry(...)`，按 contentType 统计 conversationId 非 null 的条数 | PASS 当且仅当：fact 层 conv≠null ≥ 2 **且其中至少 1 条与 message 条目同属 CONV_ALPHA**。**不得**要求 feature/research/*_chunk 层带 conv（本文 §4.4 明确文档层保持 null，强行要求与其自相矛盾——初版此条为永久 FAIL，已修） |
-| AT-2 | 同龄成对正例存在（**只要求约束型，不要求判别型**） | 同上脚本，检查是否存在「两条同龄（age 相同）、不同 contentType、其中文档层条目的 expected 分级 = 3」的成对组 | 至少 2 对；否则 FAIL（意味着文档层半衰期仍缺同龄约束型观测）。**不要求分级相同**——理由见 §4.1 C2 的说明块：同分级会让 nDCG 对位置互换不敏感，反而掩盖缺口 |
+| AT-2 | 同龄成对正例存在（**只要求约束型，不要求判别型**） | 同上脚本，检查是否存在「两条同龄（age 相同）、不同 contentType、其中文档层条目的 expected 分级 = 3」的成对组 | 至少 2 对；否则 FAIL（意味着文档层半衰期仍缺同龄约束型观测）。**不要求分级相同**——同分级会让 nDCG 对位置互换不敏感，反而掩盖缺口 |
 | AT-3 | 三族锚点与新语料一致 | `npm run eval:golden`；需要网格时再跑 `npm run eval:grid` | 默认 additive、显式 multiply、additive 全中性分别符合 §4.2 重锁值与既有判定带；全部用例绿，grid 的旧 FLOOR/锚点/候选矩阵断言无残留 |
+| AT-6 | 定向观测面对目标参数有响应 | `npx vitest run tests/usecases/memory/golden-eval.test.ts -t "判别力"` | D7 在 `bConv=0` 时同/跨对话 fact 交换榜首且 nDCG 下降；C11/E12/E13 在文档半衰期 90→1 后 top-K 与单查询 nDCG 均改变，并满足 §4.1 各自相对顺序断言 |
+| AT-7 | 新查询不退化为精确文案或聚合均值遮罩 | `npx vitest run tests/usecases/memory/golden-eval.test.ts -t "新增 5 查询"` | 五条默认 top1 与全部 expected 正例 top10 逐条通过；结构断言另保证查询文本不等于任何 expected 正例原文 |
 | AT-5 | 探针层守卫不被破坏 | `npx vitest run tests/usecases/memory/golden-eval.test.ts -t "探针层引用近邻簇"` | PASS（新 E 层查询的 `expected` 均含 `g-clu-` 前缀 key）——初版 `g-pair*`/`g-het*` 命名会在这里 FAIL |
 
 | AT-4（人工判读） | 标注质量 | 新条目的 content 与 expected 分级是否语义一致；**同龄**是否真同龄；E14 的查询文本与 `g-clu-08a/b` 是否有共享实词 | 每条新查询都能一句话说出「为什么这条该排第一」；理由不得依赖年龄（同龄对天然满足）；E14 两条都必须能被 FTS 召回到候选池 |
@@ -370,7 +333,7 @@ P75/P25 只有 2.05**，即文档层内部的年龄差异很小，改文档半�
 ### 4.4 负面清单（不要做）
 
 - **不要把约束型与判别型混为一谈**——C2 的 3 vs 2 是刻意的约束型标注：同龄排除年龄变量，
-  文档层 3 分正例用于检测“不得被打下榜首”；它不是同分级判别式。若要补判别型，必须另加
+  文档层 3 分正例用于检测目标文档的相对位置变化；它不是同分级判别式。若要补同分级判别型，必须另加
   同分级相对顺序断言，不能靠把 C2 改成同分级让 nDCG 假装可判。
 - **不要把 fact 层一律标成 CONV_ALPHA**——`F20261112lmcba` 的结论是层感知只影响 message 与本对话 fact
   两类，如果 fact 全带会话归属，谓词命中集会被放大到不可归因；C1 只加 2 条、其中 1 条故意跨对话。
@@ -418,7 +381,7 @@ P75/P25 只有 2.05**，即文档层内部的年龄差异很小，改文档半�
 ## 六、影响范围
 
 - **改动面**：`tests/usecases/memory/golden-corpus.ts`（+10 条、+5 查询、`metadata.corpus` → `golden-seed-v3`）；
-  `tests/usecases/memory/golden-eval.test.ts`（三族锚点重锁 commit + 新断言 AT-1/AT-2/AT-5）；
+  `tests/usecases/memory/golden-eval.test.ts`（三族锚点重锁 + 新断言 AT-1/AT-2/AT-5/AT-6/AT-7）；
   需要网格时的 `tests/usecases/memory/golden-grid.eval.ts`（FLOOR/锚点/候选矩阵同步）；
   `docs/features/`（本文）。
 - **不动的面**：`src/usecases/memory/*`、`config/*`、任何 prompts / skill / 协议层。
@@ -443,44 +406,63 @@ P75/P25 只有 2.05**，即文档层内部的年龄差异很小，改文档半�
 
 ### 8.1 落地范围
 
-- `golden-corpus.ts`：50 → **60** 条目、44 → **49** 查询，全部标记 `golden-seed-v3`；新增条目与查询同第四节规格。
-- `golden-eval.test.ts`：新增 fact 会话归属与两对同龄跨层正例断言，锁定三族新锚点。
-- `golden-grid.eval.ts`：同步 FLOOR、multiply、全中性与候选矩阵锚点。
+- `golden-corpus.ts`：50 → **60** 条目、44 → **49** 查询，全部标记 `golden-seed-v3`；旧 50 条目与旧 44 查询及 expected 未改。
+- `golden-eval.test.ts`：除 AT-1/AT-2/AT-5 外，新增查询非精确原文守卫、五条默认 top1/top10 快照、D7 的 `bConv` 反事实、C11/E12/E13 的文档半衰期反事实。
+- `golden-grid.eval.ts`：同步 FLOOR、multiply、全中性、达标组合数与候选矩阵锚点。
 - `src/*`、`config/*`、prompts、skills、协议层均未改，外部 LLM 调用为零。
 
 ### 8.2 旧 44 诊断（新 60 语料、旧 44 查询）
 
 | 路径 | 改动前 | 新语料旧 44 | 变化 |
 |---|---|---|---|
-| additive | 0.7769 / 0.7906 / 0.9085 | **0.7697 / 0.7781 / 0.8965** | −0.0072 / −0.0125 / −0.0120 |
-| multiply | 0.6732 / 0.7079 / 0.8114 | **0.6715 / 0.7012 / 0.8011** | −0.0017 / −0.0067 / −0.0103 |
-| additive 全中性 | 0.7998 / 0.8029 / 0.9364 | **0.7917 / 0.7995 / 0.9351** | −0.0081 / −0.0034 / −0.0013 |
+| additive | 0.7769 / 0.7906 / 0.9085 | **0.7558 / 0.7615 / 0.8756** | −0.0211 / −0.0291 / −0.0329 |
+| multiply | 0.6732 / 0.7079 / 0.8114 | **0.6640 / 0.6857 / 0.7898** | −0.0092 / −0.0222 / −0.0216 |
+| additive 全中性 | 0.7998 / 0.8029 / 0.9364 | **0.7746 / 0.7896 / 0.9237** | −0.0252 / −0.0133 / −0.0127 |
 
-±0.01 是诊断带而非硬等值门禁。additive nDCG@10/MRR 与 multiply MRR 略超带，已按协议逐条列出
-新条目进入旧查询 top-K 的来源：B8=`g-clu-08a,g-doc-old01`；C1=`g-clu-08a`；
-D4=`g-clu-08a,g-doc-old01`；D5=`g-fact-cv02`；E3=`g-clu-06b,g-fact-cv02,g-clu-06a`；
-E4=`g-doc-old01,g-doc-old02`；E9=`g-clu-06b,g-clu-06a`；E10=`g-clu-08a`。
-没有修改任何旧查询 expected，也没有把新条目标注进旧查询；变化来自正常候选池竞争。
+±0.01 是诊断带而非硬等值门禁。本轮为建立真实反事实，新增语料与既有评测/分层/记录主题形成更多近邻，
+降幅超过诊断带，不能藏进“五条新查询满分”或新地板里。additive 下新条目进入旧查询 top-K 的完整清单：
 
-### 8.3 新 49 三族锚点与查询有效性
+- A3=`g-clu-08b`；B8=`g-clu-08a,g-fact-cv02,g-fact-cv01`；
+- C1=`g-clu-06b,g-clu-08b,g-clu-08a`；C3=`g-clu-06b,g-clu-06a`；C6=`g-doc-old02`；
+- D1=`g-clu-06b`；D4=`g-clu-08a,g-fact-cv01,g-fact-cv02`；D5=`g-clu-08b,g-fact-cv01`；
+- E1=`g-clu-07b`；E3=`g-clu-06a,g-clu-08a,g-clu-06b`；E4=`g-fact-cv01,g-fact-cv02,g-clu-06b`；
+- E8=`g-clu-06b,g-clu-06a`；E9=`g-clu-06a,g-clu-06b,g-doc-old01`；E10=`g-clu-08b,g-clu-08a`。
+
+没有修改任何旧查询 expected，也没有把新条目标注进旧查询。旧 44 指标只作诊断留证，不被改成硬等值门禁；
+后续若要收窄候选干扰，应另做语料 PR 并保留本轮反事实，不得直接恢复精确短文案。
+
+### 8.3 新 49 三族锚点与定向反事实
 
 | 路径 | 实测 nDCG@5 / nDCG@10 / MRR | 重锁方式 |
 |---|---|---|
-| additive | **0.7916 / 0.7992 / 0.9070** | 地板向下三位：0.791 / 0.799 / 0.907 |
-| multiply | **0.6948 / 0.7214 / 0.8112** | 四位精确锚 |
-| additive 全中性 | **0.8114 / 0.8184 / 0.9417** | 保留 ±0.001 判定带 |
+| additive | **0.7688 / 0.7772 / 0.8883** | 地板向下三位：0.768 / 0.777 / 0.888 |
+| multiply | **0.6708 / 0.7023 / 0.8010** | 四位精确锚 |
+| additive 全中性 | **0.7823 / 0.7990 / 0.9315** | 保留 ±0.001 判定带 |
 
-五条新查询的 top1 分别为 `g-doc-old01`、`g-fact-cv01`、`g-clu-06b`、`g-clu-07b`、`g-clu-08b`，
-均与 expected 的最高分级一致；所有新增 expected 正例都进入候选。调试过程中修正了新增文案的
-jieba 分词与 AND 优先查询覆盖，没有改旧语料、生产排序器或通过降低 expected 迎合排名。
+五条新查询默认 top1 依次为：C11=`g-fact-cv02`、D7=`g-fact-cv01`、E12=`g-clu-06b`、
+E13=`g-clu-07a`、E14=`g-clu-08b`；所有 expected 正例均进 top10。C11 top1 只是 1 分弱相关、
+E13 top1 是 2 分 message，不再出现“五条最高分级全部满分”的精确文案假象。
+
+定向反事实均走真实 FTS+RRF+additive 全链路，每次只改一个目标参数：
+
+| 查询 | 默认 → 反事实 | 机械断言 |
+|---|---|---|
+| D7 | `bConv=0.05 → 0` | `g-fact-cv01` 榜首变为 `g-fact-cv02`；top-K 改变，nDCG@10 下降 |
+| C11 | 文档半衰期 `90 → 1` | `g-doc-old01` 反超 `g-res-01-c1`；top-K 与 nDCG@10 改变 |
+| E12 | 文档半衰期 `90 → 1` | `g-clu-06a` 反超 `g-clu-06b` 成为榜首；top-K 与 nDCG@10 改变 |
+| E13 | 文档半衰期 `90 → 1` | `g-doc-old02` 反超 `g-clu-07b`；top-K 与 nDCG@10 改变；message 仍居首，RR 不变属预期 |
+
+这些断言直接处置独立检视的严重发现：初版精确短文案对 `bConv` / 文档半衰期没有响应，AT-1/AT-2
+只验证结构，不能证明观测能力。现在结构、默认行为、反事实三层都有测试，而非只改文档措辞。
 
 ### 8.4 网格与验证
 
-- `npm run eval:grid`：1/1 PASS；352 个组合中 **113** 个达到新地板。最佳候选仍为
+- `npm run eval:grid`：352 个组合中 **183** 个达到新地板。最佳候选仍为
   `w_rrf=0.8 / w_time=0 / w_freq=0.2 / b_flag=0.1 / b_conv=0.05`，实测
-  **0.8133 / 0.8201 / 0.9413**。
-- `npx vitest run tests/usecases/memory/golden-eval.test.ts`：**10/10 PASS**。
-- golden + search-engine + search-memory 定向：**91/91 PASS**。
+  **0.7885 / 0.8006 / 0.9315**。
+- `npx vitest run tests/usecases/memory/golden-eval.test.ts`：**13/13 PASS**；memory 定向 **94/94 PASS**。
+- `npm run lint:tests`、`npm run lint:docs`、`npm run lint:intent`、`npm run build`：PASS。
+- `npm test`：**526 文件、6811 测试全部通过**。CI 以最终推送 HEAD 为准，不沿用反事实修复前旧结果。
 
 ## 下一步
 
