@@ -1,7 +1,7 @@
 ---
 title: 附件显式上传与定时任务目标执行机（阶段 7 PR-C）
-id: F20261120rattc
-date: 2026-11-20
+id: F20261123rattc
+date: 2026-11-23
 module: session
 change_type: feature
 summary: |
@@ -24,7 +24,7 @@ intent:
 capability_test: "tests/usecases/scheduler/scheduler-target-machine.test.ts"
 ---
 
-# F20261120rattc：附件显式上传 + 定时任务目标执行机
+# F20261123rattc：附件显式上传 + 定时任务目标执行机
 
 ## 背景与边界
 
@@ -41,7 +41,7 @@ PR-B 已把 SDK 文件面打通（binary file.read / 读器句柄）；PR-C 补�
 
 - 入参：`filePath`（SDK coding face 语义——设备绝对路径 / `~/` / `file://`，
   与 DurableSession 给 SDK 的 env 同一解析通道，不碰 workspace_* 的 resolveSafe 管理面）、
-  `originalName?`、`caption?`、`mimeType?`（声明值仅供嗅探参考，服务端 sniff 说了算）。
+  `originalName?`、`mimeType?`（声明值仅供嗅探参考，服务端 sniff 说了算）。
 - 执行：按当前 invoke 的对话执行机解析 env（`resolveForConversation` → 机器 → session → env，
   与 pi-session-factory env 工厂同链路）；`openBinaryReader` 64KB 分块流式读出，
   `Readable.from(async generator)` 接入既有 `AttachmentUploadService.upload`——
