@@ -81,8 +81,11 @@ function mockEmbeddingGateway(): EmbeddingGateway {
 
 describe("golden 评测集结构断言（防语料腐化）", () => {
   it("查询数 30-50 条且五层齐备（覆盖度守卫）", () => {
+    expect(CORPUS).toHaveLength(60);
+    expect(GOLDEN_QUERIES).toHaveLength(49);
     expect(GOLDEN_QUERIES.length).toBeGreaterThanOrEqual(30);
     expect(GOLDEN_QUERIES.length).toBeLessThanOrEqual(50);
+    expect(CORPUS.every((e) => e.metadata?.corpus === "golden-seed-v3")).toBe(true);
     const layers = new Set(GOLDEN_QUERIES.map((q) => q.layer));
     for (const l of ["fact", "history", "document", "conversation", "probe"] as const) {
       expect(layers.has(l as never), `layer ${l} 缺失`).toBe(true);
@@ -111,6 +114,28 @@ describe("golden 评测集结构断言（防语料腐化）", () => {
     const types = new Set(CORPUS.map((e) => e.contentType));
     for (const t of ["message", "fact", "feature", "feature_chunk", "research", "research_chunk"]) {
       expect(types.has(t as never), `contentType ${t} 未覆盖`).toBe(true);
+    }
+  });
+
+  it("fact 会话归属与同龄跨层正例覆盖（AT-1 / AT-2）", () => {
+    const factWithConversation = CORPUS.filter((e) => e.contentType === "fact" && e.conversationId !== null);
+    expect(factWithConversation.length).toBeGreaterThanOrEqual(2);
+    const messageConversations = new Set(
+      CORPUS.filter((e) => e.contentType === "message" && e.conversationId !== null).map((e) => e.conversationId),
+    );
+    expect(factWithConversation.some((e) => messageConversations.has(e.conversationId))).toBe(true);
+
+    for (const [messageId, documentId, queryId] of [
+      ["g-clu-06a", "g-clu-06b", "E12"],
+      ["g-clu-07a", "g-clu-07b", "E13"],
+    ] as const) {
+      const message = CORPUS.find((e) => e.id === messageId)!;
+      const document = CORPUS.find((e) => e.id === documentId)!;
+      expect(document.contentType).not.toBe(message.contentType);
+      expect(Math.abs(new Date(document.createdAt).getTime() - new Date(message.createdAt).getTime())).toBeLessThan(1000);
+      const query = GOLDEN_QUERIES.find((q) => q.id === queryId)!;
+      expect(query.expected[documentId]).toBe(3);
+      expect(query.expected[messageId]).toBeGreaterThan(0);
     }
   });
 

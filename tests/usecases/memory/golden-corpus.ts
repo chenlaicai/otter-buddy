@@ -42,7 +42,7 @@ function entry(
     conversationId,
     granularity: "coarse",
     content,
-    metadata: { corpus: "golden-seed-v2" },
+    metadata: { corpus: "golden-seed-v3" },
     createdAt: daysAgoIso(ageDays),
   };
 }
@@ -54,7 +54,7 @@ export interface WeightPreset {
   retrievalCount?: number;
 }
 
-/** ── 语料条目（37 条）────────────────────────────────────────── */
+/** ── 语料条目（60 条）────────────────────────────────────────── */
 
 export const CORPUS: MemoryEntry[] = [
   // 事实层（fact，10 条）
@@ -226,6 +226,38 @@ export const CORPUS: MemoryEntry[] = [
   entry("g-clu-05b", "working", "message", 3,
     "本对话：检索排序评测的 runner 跑通全链路，指标稳定",
     CONV_ALPHA),
+
+  // ── 跨层正例覆盖（v3）：fact 会话归属、同龄跨层、旧文档与异构干扰 ──
+  entry("g-fact-cv01", "working", "fact", 6,
+    "nDCG MRR",
+    CONV_ALPHA),
+  entry("g-fact-cv02", "working", "fact", 30,
+    "对话记录：排序指标讨论结论是 nDCG 优先",
+    CONV_BETA),
+  entry("g-clu-06a", "working", "message", 20,
+    "本对话：个人 云端 中枢 方案 初稿",
+    CONV_ALPHA),
+  entry("g-clu-06b", "document", "feature", 20,
+    "个人 云端 中枢 方案 成文",
+    null),
+  entry("g-clu-07a", "working", "message", 60,
+    "本对话：守卫 实录 整理 需求 讨论 记录 补充 说明",
+    CONV_ALPHA),
+  entry("g-clu-07b", "document", "feature", 60,
+    "守卫 实录 整理",
+    null),
+  entry("g-doc-old01", "document", "research", 270,
+    "评测 调研 nDCG",
+    null),
+  entry("g-doc-old02", "document", "feature_chunk", 180,
+    "早期 评测 调研 nDCG chunk：候选池 正例 对照 补充 说明",
+    null),
+  entry("g-clu-08a", "working", "message", 15,
+    "其他对话：异构 检索 链路 跨层 召回 差异 讨论 记录 补充 说明",
+    CONV_BETA),
+  entry("g-clu-08b", "working", "fact", 15,
+    "异构 召回 跨层 差异",
+    null),
 ];
 
 /** 权重预设：fact-06 搭档标记（user_flag 信号）；fact-01/fact-06 有检索历史（frequency 信号） */
@@ -235,7 +267,7 @@ export const WEIGHT_PRESETS: WeightPreset[] = [
   { entryId: "g-clu-03b", retrievalCount: 4 }, // 簇3：当前 CI 门禁事实常被引用（frequency 区分）
 ];
 
-/** ── golden 查询集（32 条，四层分层）────────────────────────── */
+/** ── golden 查询集（49 条，五层分层）────────────────────────── */
 
 export type QueryLayer = "fact" | "history" | "document" | "conversation" | "probe";
 
@@ -309,8 +341,10 @@ export const GOLDEN_QUERIES: GoldenQuery[] = [
     expected: { "g-feat-04": 3 } },
   { id: "C10", layer: "document", query: "jieba 停用词 doubleWrite",
     expected: { "g-feat-05": 3, "g-fact-04": 2 } },
+  { id: "C11", layer: "document", query: "评测 调研 nDCG",
+    expected: { "g-doc-old01": 3, "g-res-01": 2, "g-doc-old02": 2 } },
 
-  // D. 本对话主题（6 条，注入 currentConversationId）
+  // D. 本对话主题（7 条，注入 currentConversationId）
   { id: "D1", layer: "conversation", query: "golden 语料 时间戳 设计",
     currentConversationId: CONV_ALPHA,
     expected: { "g-msg-09": 3, "g-fact-09": 2 } },
@@ -329,8 +363,11 @@ export const GOLDEN_QUERIES: GoldenQuery[] = [
   { id: "D6", layer: "conversation", query: "语料 contentType 时间 分布",
     currentConversationId: CONV_ALPHA,
     expected: { "g-msg-09": 3, "g-feat-06": 1 } },
+  { id: "D7", layer: "conversation", query: "nDCG MRR",
+    currentConversationId: CONV_ALPHA,
+    expected: { "g-fact-cv01": 3, "g-clu-02b": 2 } },
 
-  // E. 高区分度排序探针（v2 新增，；layer=probe）
+  // E. 高区分度排序探针（layer=probe）
   // 特征：候选池 ≥3 条近邻干扰，FTS 词汇重叠难分；期望排序依赖 rerank 信号
   //（本对话加成/新鲜度/标记），把「排得好不好」与「能不能搜到」分开。
   { id: "E1", layer: "probe", query: "worktree 改动 提交 规范",
@@ -361,6 +398,13 @@ export const GOLDEN_QUERIES: GoldenQuery[] = [
   { id: "E11", layer: "probe", query: "检索 排序 评测 稳定",
     currentConversationId: CONV_ALPHA,
     expected: { "g-clu-05b": 3, "g-msg-08": 2 } },
+  { id: "E12", layer: "probe", query: "个人 云端 中枢 方案",
+    currentConversationId: CONV_ALPHA,
+    expected: { "g-clu-06b": 3, "g-clu-06a": 2 } },
+  { id: "E13", layer: "probe", query: "守卫 实录 整理",
+    expected: { "g-clu-07b": 3, "g-clu-07a": 2 } },
+  { id: "E14", layer: "probe", query: "异构 召回 跨层 差异",
+    expected: { "g-clu-08b": 3, "g-clu-08a": 2 } },
 ];
 
 /** 探针层守卫数据：E 层查询的期望标注必须引用近邻干扰簇（区分度存在性） */
