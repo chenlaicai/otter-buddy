@@ -84,11 +84,9 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
   // 「首轮因同因判定 ⚠️」（引用非判定）。 refined：拦三种违例信号，放行历史引用——
   // ① 判定位空转：判定：⚠️ / verdict=unknown；② 蛇咬尾对冲：「本轮…无法判定」
   // 或「仍/继续/暂/先 标/是/判…⚠️」；③ fail 判定：判定：❌ / verdict=fail / ❌ 未通过。
-  // 注意剥离汇总行的计数图例（「✅ 1 / ❌ 0 / ⚠️ 0」是格式固定件，非判定）。
-  const judged = content
-    .split("\n")
-    .filter((l) => !/汇总|回查\s*\d+\s*条\s*→/.test(l))
-    .join("\n");
+  // 汇总图例（✅/❌/⚠️ 计数）不命中下列判定结构，无需预过滤；任何含「汇总」
+  // 或「回查 N 条 →」的实际判定行仍须接受同一组空转检查，避免借标签洗白。
+  const judged = content;
   const spinVerdict = /判定[：:]\s*⚠️/.test(judged) || /verdict=unknown/.test(judged);
   // 「⚠️ 无法判定」逐行判（终核三轮）：只有以「历史/回查评论/原评论：」开头、
   // 且含首轮/日期等时间锚的完整引用行才豁免；相邻行、普通行内的历史词或「非本轮」
@@ -97,10 +95,13 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     .split("\n")
     .some((l) => {
       if (!/⚠️\s*无法判定/.test(l)) return false;
+      const trailingAfterQuote = l.includes("」") ? l.slice(l.lastIndexOf("」") + 1) : l;
+      const hasCurrentAdjudication =
+        /本轮|维持原判|沿用|照旧|仍判|继续判|留待|再观察|下轮|下次|销案搁置/.test(trailingAfterQuote);
       const explicitHistoricalQuote =
         /^\s*[-*]?\s*(?:历史(?:评论)?|回查评论|原评论)(?:引用)?[：:]/.test(l) &&
         /首轮|2026-11-18|上轮|此前|曾因|已因/.test(l) &&
-        !/本轮/.test(l);
+        !hasCurrentAdjudication;
       return !explicitHistoricalQuote;
     });
   const hedgeUnknown =
@@ -169,7 +170,7 @@ const BAD_DEFER_ORIGINAL = `🔁 验证断言回查（到期 2026-11-19）
 - 检查方式：sqlite 查询 healing_events 近 30 天 severity='high' AND error_type='rate_limit' 行数
 - 证据：0 行
 - 判定：✅ 通过
-- ⚠️ 无法判定——同一断言仍因方向问题留待下轮
+- ⚠️ 无法判定——同一断言仍因方向问题留待下轮（详见汇总）
 <!-- regression-verify: issue=777; verdict=pass; at=2026-11-19T01:30:00.000Z -->
 
 汇总：回查 1 条 → ✅ 1 / ❌ 0 / ⚠️ 0`;
@@ -184,6 +185,11 @@ const BAD_ADJACENT_HISTORY = `🔁 验证断言回查（到期 2026-11-19）
 <!-- regression-verify: issue=777; verdict=pass; at=2026-11-19T01:30:00.000Z -->
 
 汇总：回查 1 条 → ✅ 1 / ❌ 0 / ⚠️ 0`;
+
+const BAD_HISTORY_REASSERT = GOOD_RECHECK.replace(
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」",
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」——维持原判，销案搁置",
+);
 
 export const selftest: GoldenModule["selftest"] = {
   good: {
@@ -234,6 +240,14 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u6", 1, FIXTURE_INPUT, "user"),
         msg("st-o6", 2, BAD_ADJACENT_HISTORY),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 6（终核四轮实证）：历史引文闭合后夹带当前轮复判，整行不得再豁免
+      messages: [
+        msg("st-u7", 1, FIXTURE_INPUT, "user"),
+        msg("st-o7", 2, BAD_HISTORY_REASSERT),
       ],
       expectedOk: false,
     },

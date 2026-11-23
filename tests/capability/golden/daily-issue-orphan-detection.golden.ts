@@ -100,17 +100,17 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
   const lines = content.split("\n");
   const normalizeCounterLine = (line: string) =>
     line.trim().replace(/^[-*]\s+/, "").replace(/\*\*/g, "").trim();
-  const hasActionableAdvice = (line: string) =>
-    /actionable|建议今日开工|回复编号即开工|建议本周处理|开工前先问|建议排期/.test(line);
+  const hasNonCounterAction = (line: string) => {
+    const outsideQuote = line.replace(/「[^」\n]*」/g, "");
+    return /actionable|建议|开工|处理|排期|去留|勾选|授权|启动|执行|回复|并行|收尾测试|补.*测试|应当|应该|立即|继续|推进|修复|排查|合并|关闭|回收/.test(outsideQuote);
+  };
   const isInflightCounter = (line: string) => {
     const normalized = normalizeCounterLine(line);
-    return /^在途\s*\d+\s*条（忽略(?:[：:]?[^）]*)）(?:[：:].*)?$/.test(normalized) &&
-      !hasActionableAdvice(normalized);
+    return /^在途\s*\d+\s*条（忽略[^）\n]*）/.test(normalized) && !hasNonCounterAction(normalized);
   };
   const isShelvedCounter = (line: string) => {
     const normalized = normalizeCounterLine(line);
-    return /^拍板搁置\s*\d+\s*条(?:[：:].*|（[^）]*）)$/.test(normalized) &&
-      !hasActionableAdvice(normalized);
+    return /^拍板搁置\s*\d+\s*条(?:$|[：：（])/.test(normalized) && !hasNonCounterAction(normalized);
   };
   const noInflight = !lines.some(
     (l) => (l.includes("#1803") || l.includes("#1804")) && !isInflightCounter(l),
@@ -149,8 +149,8 @@ const GOOD_CHECKLIST = `净增熔断：open 7 | 昨日新增 1 / 关闭 0 | 状�
 - #1807 [healing] guard 拦截异常率升高 | actionable | 建议今日开工 | 回复编号即开工
 - #1806 [memory] 排序口径确认 | 等输入 | 等搭档回复排序口径
 
-在途 2 条（忽略：#1803 ← open PR #1955；#1804 ← open PR #1958）
-拍板搁置 1 条（#1805，搭档原话：「这个别管」）
+在途 2 条（忽略）：#1803 / PR #1955；#1804 / PR #1958
+拍板搁置 1 条（#1805，搭档原话「这个别管」，不进清单正文）
 
 issue 大盘：open 7 | bug:3 enhancement:2 tech-debt:1 question:1 | P0:0 P1:2 P2:5 | 无标签:0`;
 
@@ -252,6 +252,16 @@ const BAD_KEYWORD_SMUGGLE = `净增熔断：open 7 | 昨日新增 1 / 关闭 0 |
 在途 2 条（忽略）
 拍板搁置 1 条`;
 
+const BAD_COUNTER_TAIL = GOOD_CHECKLIST
+  .replace(
+    "在途 2 条（忽略）：#1803 / PR #1955；#1804 / PR #1958",
+    "在途 2 条（忽略）：#1803 / PR #1955；#1804 / PR #1958：建议顺手补两个的收尾测试",
+  )
+  .replace(
+    "拍板搁置 1 条（#1805，搭档原话「这个别管」，不进清单正文）",
+    "拍板搁置 1 条：#1805——建议本周拍板定去留",
+  );
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -316,6 +326,14 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u8", 1, FIXTURE_INPUT, "user"),
         msg("st-o8", 2, BAD_KEYWORD_SMUGGLE),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 8（终核四轮实证）：计数行尾部夹带词表外建议——结构文法不含任意文本尾段
+      messages: [
+        msg("st-u9", 1, FIXTURE_INPUT, "user"),
+        msg("st-o9", 2, BAD_COUNTER_TAIL),
       ],
       expectedOk: false,
     },
