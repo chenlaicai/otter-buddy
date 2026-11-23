@@ -21,7 +21,7 @@ describe("expectSampledBehavior budgetMs（#1187）", () => {
     } catch (err) {
       assertionError = err;
     }
-    // #1/#2 成功也不能抵消 #3 SKIP：实验无效，不能按 2/2 判绿。
+    // 前两次成功也不能抵消第三次 SKIP：实验无效，不能按 2/2 判绿。
     if (ran > 2) throw new Error(`前瞻未生效：ran=${ran}（应 ≤2）`);
     if (!String(assertionError).includes("INCONCLUSIVE")) throw new Error("预算 SKIP 必须响亮判 INCONCLUSIVE");
   });
