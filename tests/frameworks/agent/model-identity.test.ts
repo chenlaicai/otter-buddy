@@ -115,4 +115,13 @@ describe("buildIdentityPrefix 模型身份段（F20260824aibd）", () => {
     expect(prefix).toContain("我的运行时模型");
     expect(prefix).toContain("mimo");
   });
+
+  it("小獭身份注入使用 speak signal 参数法，不再指示 body 标签协议", async () => {
+    await seedOtter("o1", "检视獭", "small");
+    const prefix = await makeBuilder().buildIdentityPrefix("o1", "small", "", "");
+
+    expect(prefix).toContain("独立 `signal` 参数（数组）");
+    expect(prefix).toContain("禁止在 body 文本里写 `<signal>` 标签");
+    expect(prefix).not.toContain("必须用结构化 `<signal>` 嵌在 speak body");
+  });
 });

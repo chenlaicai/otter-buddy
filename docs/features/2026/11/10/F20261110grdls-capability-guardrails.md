@@ -148,6 +148,7 @@ inventory 缺口；head 始终必须零硬失败，防止把「base 也差」当
 - 分支已 rebase 到 main `04b42a70125bf74854ad4ae2f42c0c1d36d18431`，保留 main 新增的受限档案 golden、会话级 MCP 配置与 custom tool 注册面；parity 在新 merge-base 实跑，精确许可仅含 4 个身份 system 与 4 个 wait 描述漂移。
 - main 新增 4 个能力用例后，canonical inventory 同步为 66 测试、40 自动采样、2 人工评审、2 声明 skip；JSON、生成模块与内容哈希同步更新，历史 BLOCKED 证据不改写。
 - 机器锚点：`npm run build` 与 `npm run lint` 通过；6 个定向文件 97/97；faux 17/17 文件、19 passed + 47 既有语义 skipped；全仓 524 文件先行通过，2 个浏览器文件在补齐 Playwright chromium 后 12/12 通过；parity PASS。
+- 独立 delta 检视发现 restricted 内部 skills 泄露、SMALL_OTTER 旧 `<signal>` body 协议与 62 计数残留；已分别改为普通档才接回 skills、`speak({ body, signal })` 参数法、从 canonical inventory 派生计数，并补双向装配/身份注入断言（48/48 通过）。
 - 真 LLM 新 base/head 非劣证据仍未生成，PR 继续保持 Draft，禁止把上述机器门通过表述为 live PASS。
 
 ## 非目标

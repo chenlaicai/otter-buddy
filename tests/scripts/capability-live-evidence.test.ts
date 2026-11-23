@@ -80,7 +80,7 @@ function canonicalRuns(role: "base" | "head", harnessSha = "e".repeat(64)) {
     item.scenarios = CANONICAL_INVENTORY.sampledScenarioIds.map(id => ({ id, successes: 45, valid: 50, skipped: 0, invalid: 0 }));
     item.manualReviews = CANONICAL_INVENTORY.manualReviewIds.map(id => ({ id, verdict: "pass", judged_by: "独立检视獭" }));
     item.undeclaredSkips = [...CANONICAL_INVENTORY.declaredSkippedTestFullNames];
-    item.vitestResult = { sha256: "0".repeat(64), total: 62, failed: 0 };
+    item.vitestResult = { sha256: "0".repeat(64), total: CANONICAL_INVENTORY.testFullNames.length, failed: 0 };
     item.model = { ...CANONICAL_PROTOCOL.referenceModel, configSha256: "d".repeat(64) };
     return item;
   });
@@ -303,7 +303,7 @@ describe("人工评审附件", () => {
     }));
     const failed = assertions.filter(item => item.status === "failed").length;
     const vitest = {
-      numTotalTests: 62, numFailedTests: mode === "count" ? failed + 1 : failed,
+      numTotalTests: CANONICAL_INVENTORY.testFullNames.length, numFailedTests: mode === "count" ? failed + 1 : failed,
       testResults: [{ name: "canonical.ts", status: failed ? "failed" : "passed", assertionResults: assertions }],
     };
     const exitCode = mode === "exit" ? 1 : mode === "zero-fail" ? 0 : sampleFailure || hardFailure ? 1 : 0;

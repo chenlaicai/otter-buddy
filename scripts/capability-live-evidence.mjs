@@ -78,7 +78,7 @@ export function validateProtocol(protocol) {
 export function validateRunInventory(run, inventory) {
   const errors = [];
   const sorted = values => [...(values ?? [])].sort();
-  if (JSON.stringify(sorted(run.actualTests ?? [])) !== JSON.stringify(sorted(inventory.testFullNames))) errors.push("实际 62 项测试与 canonical inventory 不一致");
+  if (JSON.stringify(sorted(run.actualTests ?? [])) !== JSON.stringify(sorted(inventory.testFullNames))) errors.push(`实际 ${inventory.testFullNames.length} 项测试与 canonical inventory 不一致`);
   if (JSON.stringify(sorted((run.scenarios ?? []).map(item => item.id))) !== JSON.stringify(sorted(inventory.sampledScenarioIds))) errors.push("实际采样场景与 canonical inventory 不一致");
   if (JSON.stringify(sorted((run.manualReviews ?? []).map(item => item.id))) !== JSON.stringify(sorted(inventory.manualReviewIds))) errors.push("人工场景与 canonical inventory 不一致");
   if (JSON.stringify(sorted(run.undeclaredSkips ?? [])) !== JSON.stringify(sorted(inventory.declaredSkippedTestFullNames))) errors.push("skip 集合不等于 canonical 声明期 skip");

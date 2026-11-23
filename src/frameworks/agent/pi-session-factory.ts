@@ -1590,7 +1590,8 @@ export class PiSessionFactory implements AgentGateway {
       model: resolvedModel,
       thinkingLevel: this.cfg.modelPool?.getThinkingLevel(resolvedAlias),
       prompt,
-      skillsPrompt: await this.buildDurableSkillsPrompt(),
+      // 内部 skill 名称、描述与绝对路径只接回普通档；restricted 外部档保持最小信息面。
+      skillsPrompt: external ? "" : await this.buildDurableSkillsPrompt(),
       cwd: workspaceCwd,
       executionMachines: this.cfg.executionMachines,
       tools: { customTools: filteredCustomTools, codingTools: filteredCodingTools, readOnly, toolExposure },
