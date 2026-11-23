@@ -1,5 +1,5 @@
 /**
- * regression-verify·断言方向修复协议行为回归（Golden Gate B 裁决产物，PR #1966）。
+ * regression-verify·断言方向修复协议行为回归（Golden Gate B 裁决产物）。
  *
  * 来源伤疤：11-15/11-18 两轮实证——回查遇「好结果方向」断言连留两轮同因 ⚠️ 空转，
  * 流程缺陷无人修。regression-verify.md 新增方向修复协议：第二轮起必须以作者身份
@@ -90,16 +90,19 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     .filter((l) => !/汇总|回查\s*\d+\s*条\s*→/.test(l))
     .join("\n");
   const spinVerdict = /判定[：:]\s*⚠️/.test(judged) || /verdict=unknown/.test(judged);
-  // 「⚠️ 无法判定」逐出现点判：上下文 60/80 字符窗口含历史标记（首轮/2026-11-18/
-  // 历史/上轮/原评论/此前/曾因/已因）= 引用首轮评论，放行；否则为本轮空转（含
-  // 原始反例形态「⚠️ 无法判定——同一断言仍因方向问题留待下轮」——deferral 即违规）。
-  const hasCurrentRoundUnknown = (() => {
-    for (const m of judged.matchAll(/⚠️\s*无法判定/g)) {
-      const ctx = judged.slice(Math.max(0, (m.index ?? 0) - 60), (m.index ?? 0) + 80);
-      if (!/首轮|2026-11-18|历史|上轮|原评论|此前|曾因|已因/.test(ctx)) return true;
-    }
-    return false;
-  })();
+  // 「⚠️ 无法判定」逐行判（终核三轮）：只有以「历史/回查评论/原评论：」开头、
+  // 且含首轮/日期等时间锚的完整引用行才豁免；相邻行、普通行内的历史词或「非本轮」
+  // 字样均不能把当前轮空转合法化。
+  const hasCurrentRoundUnknown = judged
+    .split("\n")
+    .some((l) => {
+      if (!/⚠️\s*无法判定/.test(l)) return false;
+      const explicitHistoricalQuote =
+        /^\s*[-*]?\s*(?:历史(?:评论)?|回查评论|原评论)(?:引用)?[：:]/.test(l) &&
+        /首轮|2026-11-18|上轮|此前|曾因|已因/.test(l) &&
+        !/本轮/.test(l);
+      return !explicitHistoricalQuote;
+    });
   const hedgeUnknown =
     /本轮[^。\n]*(⚠️[^。\n]*无法判定|无法判定)/.test(judged) ||
     /(仍|继续|暂|先)[标是判][^。\n]{0,4}⚠️/.test(judged);
@@ -124,6 +127,7 @@ function msg(id: string, seq: number, content: string, st = "otter"): MessageDto
 const GOOD_RECHECK = `🔁 验证断言回查（到期 2026-11-19）
 - 断言（2026-11-19 回查改写：原断言「修复后配额耗尽事件不再以 severity=high 落账进入 C3 高警队列」取反）：配额耗尽事件仍以 severity=high 落账进入 C3 高警队列（问题还在判据）
 - 方向修复：2026-11-18 首轮曾因同一原因判定 ⚠️，本轮按方向修复协议由作者侧机械取反（历史引用非本轮判定）
+- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」
 - 检查方式：sqlite 查询 healing_events 近 30 天 severity='high' AND error_type='rate_limit' 行数
 - 证据：0 行（2026-10-20 起无 high 落账）
 - 判定：✅ 通过（改写后判据不满足 = 问题已消失，销案不重开）
@@ -170,6 +174,17 @@ const BAD_DEFER_ORIGINAL = `🔁 验证断言回查（到期 2026-11-19）
 
 汇总：回查 1 条 → ✅ 1 / ❌ 0 / ⚠️ 0`;
 
+const BAD_ADJACENT_HISTORY = `🔁 验证断言回查（到期 2026-11-19）
+- 历史评论：2026-11-18 首轮曾因同一原因判定 ⚠️（引用，非本轮判定）
+- 断言（2026-11-19 回查改写：原断言「修复后配额耗尽事件不再以 severity=high 落账」取反）：配额耗尽事件仍以 severity=high 落账进入 C3 高警队列（问题还在判据）
+- 检查方式：sqlite 查询 healing_events 近 30 天 severity='high' AND error_type='rate_limit' 行数
+- 证据：0 行
+- 判定：✅ 通过
+- ⚠️ 无法判定——留待下轮
+<!-- regression-verify: issue=777; verdict=pass; at=2026-11-19T01:30:00.000Z -->
+
+汇总：回查 1 条 → ✅ 1 / ❌ 0 / ⚠️ 0`;
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -210,6 +225,15 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u5", 1, FIXTURE_INPUT, "user"),
         msg("st-o5", 2, BAD_DEFER_ORIGINAL),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 5（终核三轮实证）：本轮空转行紧邻历史引用——字符窗口判据会把
+      // 紧邻的历史标记误算到本轮行上；整行结构判不受影响
+      messages: [
+        msg("st-u6", 1, FIXTURE_INPUT, "user"),
+        msg("st-o6", 2, BAD_ADJACENT_HISTORY),
       ],
       expectedOk: false,
     },

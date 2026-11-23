@@ -27,7 +27,7 @@ import * as bannedPhrases from "./banned-phrases-no-merge-guidance.golden";
 // 夜间审视编排刀：受限档案獭 golden 首场景（搭档裁决 2026-11-19——golden 须测真实档案獭）
 import * as nightReview from "./night-review-full-processing.golden";
 
-// Golden Gate B 裁决（PR #1966，搭档 2026-11-19）：定时任务 prompt 双场景 n=10 真实采样
+// Golden Gate B 裁决（搭档 2026-11-19）：定时任务 prompt 双场景 n=10 真实采样
 import * as dailyIssueOrphan from "./daily-issue-orphan-detection.golden";
 import * as regressionDirectionRepair from "./regression-verify-direction-repair.golden";
 

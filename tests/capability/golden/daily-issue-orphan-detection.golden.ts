@@ -1,16 +1,16 @@
 /**
- * 每日 issue 处理·孤儿检出行为回归（Golden Gate B 裁决产物，PR #1966）。
+ * 每日 issue 处理·孤儿检出行为回归（Golden Gate B 裁决产物）。
  *
- * 来源伤疤：issue #1963 + 搭档 2026-11-19 原话「忽略在途的pr，关注挂了好几天的……
+ * 来源伤疤：每日任务治理事项 + 搭档 2026-11-19 原话「忽略在途的pr，关注挂了好几天的……
  * 把孤儿事件拉出来」——此前每日清单把在途 PR 项照列（制造重复开工面）、挂多天停滞单
  * 无人曝光。prompts/scheduled/每日-issue-处理.md 新增「孤儿检出」置顶段 + 在途忽略规则。
  *
  * 行为不变量（清单组版规则）：
- *  1. 清单正文前置顶「孤儿检出」段，挂龄达标且无在途 PR 的停滞单（#1801/#1802）入段
- *  2. 有 open PR 引用的在途单（#1803/#1804）不进清单正文，至多尾部一行「在途 N 条（忽略）」
- *  3. 评论含搭档「别管/勿动/勿捞取」的拍板搁置单（#1805）不进清单不进孤儿段，只计数
- *  4. 「等搭档输入」类（#1806）不算孤儿，照列清单标「等输入」
- *  5. 今日新建单（#1807）正常入清单；孤儿段位置先于普通清单项
+ *  1. 清单正文前置顶「孤儿检出」段，挂龄达标且无在途 PR 的停滞单入段
+ *  2. 有 open PR 引用的在途单不进清单正文，至多尾部一行「在途 N 条（忽略）」
+ *  3. 评论含搭档「别管/勿动/勿捞取」的拍板搁置单不进清单不进孤儿段，只计数
+ *  4. 「等搭档输入」类不算孤儿，照列清单标「等输入」
+ *  5. 今日新建单正常入清单；孤儿段位置先于普通清单项
  *
  * 场景构造（restricted 路径）：systemPrompt = 真实任务 prompt 全文
  * （git 真相源直读），input = 调度器代采集的扫描数据内联。otterType 用
@@ -76,7 +76,7 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
 
   const hasOrphanSection = /孤儿检出/.test(content);
   // 段解析：孤儿检出段 = 「孤儿」首现到下一个节标题（##/清单段）之间的文本。
-  // 终核发现假阳性：只查 includes 会让「孤儿段空、#1801/#1802 混普通清单」蒙混——
+  // 终核发现假阳性：只查 includes 会让「孤儿段空、目标孤儿混普通清单」蒙混——
   // 必须判孤儿编号落在段内。注意段外不排除：实测合规输出会把孤儿再列入勾选表
   // （动作行要求搭档勾选授权，段是曝光位、表是授权位，重复非违规）——违例形态
   // 只有「段内缺失」（空段宣告/孤儿只混普通清单）。
@@ -94,17 +94,31 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     ...[outsideOrphan.indexOf("#1806"), outsideOrphan.indexOf("#1807")].filter((i) => i >= 0),
   );
   const orphanFirst = orphanIdx !== -1 && Number.isFinite(firstChecklistIdx) && orphanIdx < firstChecklistIdx;
-  // 在途/搁置判据（终核二轮）：逐出现行判——含在途编号的每行都必须自证合法身份
-  // （同行同时含「在途」与「忽略」），含搁置编号的每行必须含「拍板搁置/别管」。
-  // 不再依赖管道格式——无「|」的清单条目同样受判（终核实证：管道判据被无管道形态绕过）。
+  // 在途/搁置判据（终核三轮）：只豁免**独立计数行**（「在途 N 条（忽略）」/「拍板搁置
+  // N 条」完整行，可在冒号后列编号），其余一切含在途/搁置编号的行（含借同行关键词
+  // 或完整计数短语蒙混的 actionable 条目）一律违例。
   const lines = content.split("\n");
+  const normalizeCounterLine = (line: string) =>
+    line.trim().replace(/^[-*]\s+/, "").replace(/\*\*/g, "").trim();
+  const hasActionableAdvice = (line: string) =>
+    /actionable|建议今日开工|回复编号即开工|建议本周处理|开工前先问|建议排期/.test(line);
+  const isInflightCounter = (line: string) => {
+    const normalized = normalizeCounterLine(line);
+    return /^在途\s*\d+\s*条（忽略(?:[：:]?[^）]*)）(?:[：:].*)?$/.test(normalized) &&
+      !hasActionableAdvice(normalized);
+  };
+  const isShelvedCounter = (line: string) => {
+    const normalized = normalizeCounterLine(line);
+    return /^拍板搁置\s*\d+\s*条(?:[：:].*|（[^）]*）)$/.test(normalized) &&
+      !hasActionableAdvice(normalized);
+  };
   const noInflight = !lines.some(
-    (l) => (l.includes("#1803") || l.includes("#1804")) && !(/在途/.test(l) && /忽略/.test(l)),
+    (l) => (l.includes("#1803") || l.includes("#1804")) && !isInflightCounter(l),
   );
-  const hasInflightTail = /在途\s*\d+\s*条（忽略）|在途[^\n]*忽略/.test(content);
-  const noShelved = !lines.some((l) => l.includes("#1805") && !/拍板搁置|别管/.test(l));
-  const hasShelvedCount = /拍板搁置/.test(content);
-  // #1806/#1807 必须在段外普通清单（终核二轮实证：#1806 只错列孤儿段曾蒙混）
+  const hasInflightTail = lines.some(isInflightCounter);
+  const noShelved = !lines.some((l) => l.includes("#1805") && !isShelvedCounter(l));
+  const hasShelvedCount = lines.some(isShelvedCounter);
+  // 等输入单与今日新建单必须在段外普通清单（终核二轮实证：等输入单只错列孤儿段曾蒙混）
   const waitingLine = outsideOrphan.split("\n").find((l) => l.includes("#1806"));
   const hasWaiting = waitingLine !== undefined && /等输入/.test(waitingLine);
   const hasFresh = outsideOrphan.includes("#1807");
@@ -135,8 +149,8 @@ const GOOD_CHECKLIST = `净增熔断：open 7 | 昨日新增 1 / 关闭 0 | 状�
 - #1807 [healing] guard 拦截异常率升高 | actionable | 建议今日开工 | 回复编号即开工
 - #1806 [memory] 排序口径确认 | 等输入 | 等搭档回复排序口径
 
-在途 2 条（忽略）
-拍板搁置 1 条
+在途 2 条（忽略：#1803 ← open PR #1955；#1804 ← open PR #1958）
+拍板搁置 1 条（#1805，搭档原话：「这个别管」）
 
 issue 大盘：open 7 | bug:3 enhancement:2 tech-debt:1 question:1 | P0:0 P1:2 P2:5 | 无标签:0`;
 
@@ -222,6 +236,22 @@ const BAD_WAITING_IN_ORPHAN_SECTION = `净增熔断：open 7 | 昨日新增 1 / 
 在途 2 条（忽略）
 拍板搁置 1 条`;
 
+const BAD_KEYWORD_SMUGGLE = `净增熔断：open 7 | 昨日新增 1 / 关闭 0 | 状态：正常
+
+## 孤儿检出（第一职责）
+- #1801 [scheduler] 定时任务重复触发 | 挂龄 9 天 | 已认领 | 停滞——建议拍去留
+- #1802 [memory] 检索偶发空结果 | 挂龄 11 天 | 无认领——建议拍去留
+
+## 今日勾选清单
+- #1803 [ui] 卡片闪烁——actionable，建议今日开工（在途 2 条（忽略））
+- #1804 [db] 迁移脚本幂等——actionable，建议今日开工（在途收尾忽略同步）
+- #1805 [eval] 评测机制去留——拍板搁置 1 条，但仍建议本周处理，开工前先问搭档
+- #1806 [memory] 排序口径确认 | 等输入 | 等搭档回复
+- #1807 [healing] guard 拦截异常率升高 | actionable | 建议今日开工
+
+在途 2 条（忽略）
+拍板搁置 1 条`;
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -273,10 +303,19 @@ export const selftest: GoldenModule["selftest"] = {
       expectedOk: false,
     },
     {
-      // 退化形态 6（终核二轮实证）：#1806 被误列孤儿段、普通清单缺席——等输入类判孤儿失守
+      // 退化形态 6（终核二轮实证）：等输入单被误列孤儿段、普通清单缺席——等输入类判孤儿失守
       messages: [
         msg("st-u7", 1, FIXTURE_INPUT, "user"),
         msg("st-o7", 2, BAD_WAITING_IN_ORPHAN_SECTION),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 7（终核三轮实证）：actionable 条目借同行「在途/忽略」关键词蒙混——
+      // 只有独立计数行（「在途 N 条（忽略）」骨架）才豁免
+      messages: [
+        msg("st-u8", 1, FIXTURE_INPUT, "user"),
+        msg("st-o8", 2, BAD_KEYWORD_SMUGGLE),
       ],
       expectedOk: false,
     },
