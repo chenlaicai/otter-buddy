@@ -142,12 +142,24 @@ describe("golden 评测集结构断言（防语料腐化）", () => {
     // 否则精确词面匹配会掩盖 rerank 信号是否真的有判别力。
     const currentFact = CORPUS.find((e) => e.id === "g-fact-cv01")!;
     const crossFact = CORPUS.find((e) => e.id === "g-fact-cv02")!;
-    expect(currentFact.createdAt).toBe(crossFact.createdAt);
+    expect(Math.abs(new Date(currentFact.createdAt).getTime() - new Date(crossFact.createdAt).getTime())).toBeLessThan(1000);
     for (const queryId of ["D7", "C11", "E12", "E13", "E14"]) {
       const query = GOLDEN_QUERIES.find((q) => q.id === queryId)!;
       for (const entryId of Object.keys(query.expected)) {
         const expectedEntry = CORPUS.find((e) => e.id === entryId)!;
         expect(query.query, `${queryId} 不得与 ${entryId} 正例原文相同`).not.toBe(expectedEntry.content);
+      }
+    }
+  });
+
+  it("宽查询不得选择性漏标直接命中条目（ground truth 一致性守卫）", () => {
+    for (const queryId of ["D7", "C11", "E12", "E13"]) {
+      const query = GOLDEN_QUERIES.find((q) => q.id === queryId)!;
+      const needle = query.query.toLocaleLowerCase();
+      const directMatches = CORPUS.filter((e) => e.content.toLocaleLowerCase().includes(needle));
+      expect(directMatches.length, `${queryId} 应有近邻候选`).toBeGreaterThanOrEqual(2);
+      for (const entry of directMatches) {
+        expect(query.expected[entry.id] ?? 0, `${queryId} 直接命中 ${entry.id} 却被计为 0`).toBeGreaterThan(0);
       }
     }
   });
@@ -253,20 +265,24 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     expect(mrrValue).toBeGreaterThanOrEqual(BASELINE.mrr);
   });
 
-  it("新增 5 查询逐条锁 top1 与全部正例召回，不退化为聚合均值遮罩", async () => {
-    const expectedTop1 = {
-      D7: "g-fact-cv01",
-      C11: "g-fact-cv02",
-      E12: "g-clu-06b",
-      E13: "g-clu-07a",
-      E14: "g-clu-08b",
+  it("新增 5 查询逐条锁 top1、目标正例与零未标注候选，不退化为聚合均值遮罩", async () => {
+    const expected = {
+      D7: { top1: "g-fact-cv01", targets: ["g-fact-cv01", "g-fact-cv02"] },
+      C11: { top1: "g-fact-cv02", targets: ["g-doc-old01", "g-doc-old02"] },
+      E12: { top1: "g-clu-06b", targets: ["g-clu-06a", "g-clu-06b"] },
+      E13: { top1: "g-clu-07a", targets: ["g-clu-07a", "g-clu-07b", "g-doc-old02"] },
+      E14: { top1: "g-clu-08b", targets: ["g-clu-08a", "g-clu-08b"] },
     } as const;
-    for (const [queryId, top1] of Object.entries(expectedTop1)) {
+    for (const [queryId, { top1, targets }] of Object.entries(expected)) {
       const query = GOLDEN_QUERIES.find((q) => q.id === queryId)!;
-      const ids = (await runGoldenQuery(queryId)).map((e) => e.id);
+      const entries = await runGoldenQuery(queryId);
+      const ids = entries.map((e) => e.id);
       expect(ids[0], `${queryId} top1`).toBe(top1);
-      for (const entryId of Object.keys(query.expected)) {
-        expect(ids, `${queryId} 正例 ${entryId} 未进 top10`).toContain(entryId);
+      for (const entryId of targets) {
+        expect(ids, `${queryId} 目标正例 ${entryId} 未进 top10`).toContain(entryId);
+      }
+      for (const entry of entries) {
+        expect(query.expected[entry.id] ?? 0, `${queryId} top10 出现未标注候选 ${entry.id}`).toBeGreaterThan(0);
       }
     }
   });

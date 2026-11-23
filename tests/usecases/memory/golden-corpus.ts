@@ -344,7 +344,10 @@ export const GOLDEN_QUERIES: GoldenQuery[] = [
   { id: "C10", layer: "document", query: "jieba 停用词 doubleWrite",
     expected: { "g-feat-05": 3, "g-fact-04": 2 } },
   { id: "C11", layer: "document", query: "nDCG",
-    expected: { "g-fact-cv02": 1, "g-fact-cv01": 1, "g-doc-old01": 3, "g-res-01-c1": 2, "g-doc-old02": 2, "g-res-01": 2 } },
+    expected: {
+      "g-fact-cv02": 1, "g-fact-cv01": 1, "g-clu-02b": 1, "g-msg-07": 1,
+      "g-fact-07": 2, "g-doc-old01": 3, "g-res-01-c1": 2, "g-doc-old02": 2, "g-res-01": 2,
+    } },
 
   // D. 本对话主题（7 条，注入 currentConversationId）
   { id: "D1", layer: "conversation", query: "golden 语料 时间戳 设计",
@@ -367,7 +370,14 @@ export const GOLDEN_QUERIES: GoldenQuery[] = [
     expected: { "g-msg-09": 3, "g-feat-06": 1 } },
   { id: "D7", layer: "conversation", query: "评测",
     currentConversationId: CONV_ALPHA,
-    expected: { "g-fact-cv01": 3, "g-fact-cv02": 1, "g-clu-02b": 2, "g-res-01": 2, "g-res-01-c1": 1 } },
+    expected: {
+      "g-fact-cv01": 3, "g-fact-cv02": 1,
+      "g-fact-07": 1, "g-msg-01": 1, "g-msg-05": 1, "g-msg-07": 1, "g-msg-08": 1,
+      "g-res-01": 2, "g-res-01-c1": 1,
+      "g-clu-02a": 1, "g-clu-02b": 2, "g-clu-02c": 2, "g-clu-05b": 1,
+      "g-clu-06a": 1, "g-clu-06b": 1, "g-doc-old01": 1, "g-doc-old02": 1,
+      "g-clu-08a": 1, "g-clu-08b": 1,
+    } },
 
   // E. 高区分度排序探针（layer=probe）
   // 特征：候选池 ≥3 条近邻干扰，FTS 词汇重叠难分；期望排序依赖 rerank 信号
@@ -401,9 +411,16 @@ export const GOLDEN_QUERIES: GoldenQuery[] = [
     currentConversationId: CONV_ALPHA,
     expected: { "g-clu-05b": 3, "g-msg-08": 2 } },
   { id: "E12", layer: "probe", query: "分层",
-    expected: { "g-clu-06b": 3, "g-clu-06a": 2, "g-res-03": 2, "g-clu-04b": 1 } },
+    expected: {
+      "g-clu-06b": 3, "g-clu-06a": 2, "g-res-03": 2, "g-fact-10": 2,
+      "g-feat-01-c3": 1, "g-clu-04a": 1, "g-clu-04b": 1,
+    } },
   { id: "E13", layer: "probe", query: "记录",
-    expected: { "g-clu-07b": 3, "g-clu-07a": 2, "g-doc-old02": 1, "g-clu-02a": 1, "g-clu-02c": 1 } },
+    expected: {
+      "g-clu-07b": 3, "g-clu-07a": 2,
+      "g-clu-01a": 1, "g-clu-01c": 1, "g-clu-02a": 1, "g-clu-02c": 1,
+      "g-doc-old01": 1, "g-doc-old02": 1,
+    } },
   { id: "E14", layer: "probe", query: "异构 召回 跨层 差异",
     expected: { "g-clu-08b": 3, "g-clu-08a": 2 } },
 ];
