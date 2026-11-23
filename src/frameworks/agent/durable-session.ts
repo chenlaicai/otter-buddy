@@ -39,6 +39,8 @@ export interface DurableSessionOptions {
   thinkingLevel?: string;
   prompt?: string;
   identity?: string;
+  /** coding-agent ResourceLoader 发现的 skills 可见面；durable 不做隐式资源继承。 */
+  skillsPrompt?: string;
   cwd: string;
   executionMachines: ExecutionMachineResolver;
   tools: DurableToolBundle;
@@ -94,7 +96,7 @@ export class DurableSession {
     this.deferredTools = options.tools.customTools.filter(t => options.tools.toolExposure?.[t.name] === "deferred").map(t => t.name);
     this.otterExtension = defineExtension({
       name: "otter",
-      sections: [section("otter", () => [this.promptText, this.options.identity, this.options.mcp?.instructions()].filter(Boolean).join("\n\n"), { tag: false })],
+      sections: [section("otter", () => [this.promptText, this.options.identity, this.options.skillsPrompt, this.options.mcp?.instructions()].filter(Boolean).join("\n\n"), { tag: false })],
       tools: this.customToolRegistrations().map(tool => options.tools.toolExposure?.[tool.name] === "deferred" ? { ...tool, deferred: true as const } : tool),
       hooks: [hook(ToolTask, {
         beforeTool: (call) => this.beforeTool(call),
@@ -306,7 +308,8 @@ export class DurableSession {
     this.currentInvokeId = next.currentInvokeId;
     this.hasBoundInvoke = true;
     if (next.prompt !== undefined) this.promptText = next.prompt;
-    this.options.identity = next.identity;
+    // 池命中只刷新 invoke/prompt；undefined 不得清空上一轮身份。
+    if (next.identity !== undefined) this.options.identity = next.identity;
   }
 
   // A turn owns watch, admission, settlement and usage accounting as one boundary.

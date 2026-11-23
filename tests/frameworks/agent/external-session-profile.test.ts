@@ -44,7 +44,7 @@ async function fixture() {
   return { dataDir, workspace, sessionDir, db, factory };
 }
 
-async function openProfile(factory: PiSessionFactory, conversationId = CONVERSATION_ID) {
+async function openProfile(factory: PiSessionFactory, conversationId = CONVERSATION_ID, restricted = true) {
   let captured: Record<string, unknown> | undefined;
   vi.spyOn(DurableSession, 'open').mockImplementation(async options => {
     captured = options as unknown as Record<string, unknown>;
@@ -53,7 +53,12 @@ async function openProfile(factory: PiSessionFactory, conversationId = CONVERSAT
   const internals = factory as unknown as {
     _createSessionWithTools: (...args: unknown[]) => Promise<unknown>;
   };
-  await internals._createSessionWithTools('o1', 'big', { conversationId, externalProfile: 'restricted' }, createInvokeRegister());
+  await internals._createSessionWithTools(
+    'o1',
+    'big',
+    { conversationId, ...(restricted ? { externalProfile: 'restricted' } : {}) },
+    createInvokeRegister(),
+  );
   return captured!;
 }
 
@@ -82,6 +87,23 @@ describe('CoLink Session 实际装配', () => {
 
       const other = await openProfile(factory, 'b1b2c3d4-e5f6-7890-abcd-ef1234567890');
       expect(other.file).not.toBe(captured.file);
+    } finally {
+      db.close();
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('restricted 不装配内部 skills，普通档才显式接回', async () => {
+    const { dataDir, db, factory } = await fixture();
+    try {
+      const internals = factory as unknown as { buildDurableSkillsPrompt: () => Promise<string> };
+      vi.spyOn(internals, 'buildDurableSkillsPrompt').mockResolvedValue('INTERNAL_SKILLS_WITH_PATHS');
+
+      const restricted = await openProfile(factory);
+      expect(restricted.skillsPrompt).toBe('');
+
+      const ordinary = await openProfile(factory, CONVERSATION_ID, false);
+      expect(ordinary.skillsPrompt).toBe('INTERNAL_SKILLS_WITH_PATHS');
     } finally {
       db.close();
       await fs.rm(dataDir, { recursive: true, force: true });
