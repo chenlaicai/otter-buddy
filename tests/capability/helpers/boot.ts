@@ -35,6 +35,8 @@ export interface BootOptions {
    * 模型可见内容比对：录音网关地址（http://127.0.0.1:port）。
    * 提供时 llm 配置整体替换为指向该网关的伪端点（anthropic 协议、假 key）——
    * SDK 真实发请求，网关记录 wire 级请求体并回放脚本化响应。见 model-visible.ts。
+   * 这类用例只断言模型 wire，不读写向量检索，因此不等待 embedding 就绪；
+   * 否则无 bge-m3 的常规单测环境会把确定性的本地录音测试误判为失败。
    */
   recordingGatewayUrl?: string;
   /**
@@ -230,7 +232,9 @@ export async function bootCapabilityApp(options: BootOptions = {}): Promise<Capa
       syncAuth: false,
       startScheduler: false,
     });
-    await waitEmbeddingReady(built, options.embeddingTimeoutMs ?? 240_000);
+    if (!options.recordingGatewayUrl) {
+      await waitEmbeddingReady(built, options.embeddingTimeoutMs ?? 240_000);
+    }
   } catch (err) {
     /** 失败路径同样恢复 cwd + dispose：否则同 fork 后续文件以诡异 ENOENT 失败（chdir 泄漏） */
     built?.dispose();
