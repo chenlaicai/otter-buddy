@@ -424,7 +424,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
   // ── Agent + UseCases（解决 OtterToolClient 循环依赖）──
   // 工具与 SDK env 共用对话级路由，执行目标只认 conversations 当前选择。
   const toolActionRouter = new ConversationActionRouter(executionMachines, repos.conversation);
-  const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask } = await createAgentGateway({
+  const { agentGateway, resolveOtterToolClient, resolveManageScheduledTask, resolveAttachmentUpload } = await createAgentGateway({
     repos, otterConfigProvider, model, modelPool, db, logger,
     sessionDir: options.sessionDir ?? path.join(dataDir, "sessions"),
     identityPromptDir: options.identityPromptDir,
@@ -458,6 +458,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<BuiltApp>
     },
   }));
   resolveManageScheduledTask(uc.manageScheduledTask);
+  // upload_device_file 显式上传通道回填（同 manageScheduledTask 延迟注入模式）
+  resolveAttachmentUpload(uc.attachmentUpload);
 
   // ── Metric 框架（prom-client + JSONL 文件持久化）──
   const metricsRegistry = initMetricsRegistry(logger, { dir: path.join(dataDir, "metrics") });

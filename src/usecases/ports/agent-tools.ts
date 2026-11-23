@@ -18,6 +18,8 @@ import type { MatterRepository } from "@usecases/matter/matter-repository";
 import type { WorkLedgerBinder } from "@usecases/health/work-ledger-binder";
 import type { ModelPoolLike } from "./model-pool-like";
 import type { OtterConfigProvider } from "./otter-config-provider";
+import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
+import type { Readable } from "node:stream";
 
 /**
  * 工具层的模型池窄接口：工具只做 modelAlias 校验与列举，
@@ -178,6 +180,26 @@ export interface ToolContext {
   rhiSignalRepo?: SignalRepository;
   /** 工作账本 binder（track_work 工具注册条件；invoke 级注入） */
   workLedgerBinder?: WorkLedgerBinder;
+  /** 附件上传管线（upload_device_file 工具依赖；装配层注入。缺省 = 工具不注册）。 */
+  attachmentUpload?: {
+    upload(input: {
+      stream: Readable;
+      originalName: string;
+      declaredMimeType: string;
+      uploaderId: string;
+    }): Promise<{
+      id: string;
+      kind: string;
+      originalName: string;
+      mimeType: string;
+      sizeBytes: number;
+      sha256: string;
+      filePath: string;
+    }>;
+  };
+  /** 对话执行机 env 解析（与 DurableSession env 工厂同链路——resolveForConversation →
+   *  createExecutionEnvironment；upload_device_file 经它读设备字节。缺省 = 工具不注册）。 */
+  resolveExecutionEnv?: (conversationId: string) => Promise<ExecutionEnv>;
   /** 当前打开的 speak entry ID（speak/yield 检测本轮已发言用）。
    * 池化合流：getter 化穿透寄存器（invoke 入口重置） */
   lastSpeakMessageId?: string;
