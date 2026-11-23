@@ -61,9 +61,9 @@ const PROD_MEMORY_CONFIG = {
  *  改动排序管线的行为 PR 必须重跑本套件并更新地板（上升可改数字，下降须先
  *  证明是测量噪声或语义预期变化——后者需搭档确认）。 */
 export const BASELINE = {
-  ndcg5: 0.776,
-  ndcg10: 0.790,
-  mrr: 0.908,
+  ndcg5: 0.765,
+  ndcg10: 0.772,
+  mrr: 0.888,
 } as const;
 
 function mockEmbeddingGateway(): EmbeddingGateway {
@@ -81,8 +81,11 @@ function mockEmbeddingGateway(): EmbeddingGateway {
 
 describe("golden 评测集结构断言（防语料腐化）", () => {
   it("查询数 30-50 条且五层齐备（覆盖度守卫）", () => {
+    expect(CORPUS).toHaveLength(60);
+    expect(GOLDEN_QUERIES).toHaveLength(49);
     expect(GOLDEN_QUERIES.length).toBeGreaterThanOrEqual(30);
     expect(GOLDEN_QUERIES.length).toBeLessThanOrEqual(50);
+    expect(CORPUS.every((e) => e.metadata?.corpus === "golden-seed-v3")).toBe(true);
     const layers = new Set(GOLDEN_QUERIES.map((q) => q.layer));
     for (const l of ["fact", "history", "document", "conversation", "probe"] as const) {
       expect(layers.has(l as never), `layer ${l} 缺失`).toBe(true);
@@ -111,6 +114,53 @@ describe("golden 评测集结构断言（防语料腐化）", () => {
     const types = new Set(CORPUS.map((e) => e.contentType));
     for (const t of ["message", "fact", "feature", "feature_chunk", "research", "research_chunk"]) {
       expect(types.has(t as never), `contentType ${t} 未覆盖`).toBe(true);
+    }
+  });
+
+  it("fact 会话归属与同龄跨层正例覆盖（AT-1 / AT-2）", () => {
+    const factWithConversation = CORPUS.filter((e) => e.contentType === "fact" && e.conversationId !== null);
+    expect(factWithConversation.length).toBeGreaterThanOrEqual(2);
+    const messageConversations = new Set(
+      CORPUS.filter((e) => e.contentType === "message" && e.conversationId !== null).map((e) => e.conversationId),
+    );
+    expect(factWithConversation.some((e) => messageConversations.has(e.conversationId))).toBe(true);
+
+    for (const [messageId, documentId, queryId] of [
+      ["g-clu-06a", "g-clu-06b", "E12"],
+      ["g-clu-07a", "g-clu-07b", "E13"],
+    ] as const) {
+      const message = CORPUS.find((e) => e.id === messageId)!;
+      const document = CORPUS.find((e) => e.id === documentId)!;
+      expect(document.contentType).not.toBe(message.contentType);
+      expect(Math.abs(new Date(document.createdAt).getTime() - new Date(message.createdAt).getTime())).toBeLessThan(1000);
+      const query = GOLDEN_QUERIES.find((q) => q.id === queryId)!;
+      expect(query.expected[documentId]).toBe(3);
+      expect(query.expected[messageId]).toBeGreaterThan(0);
+    }
+
+    // 目标参数反事实的隔离条件：同对话/跨对话 fact 必须同龄；新查询不得复制正例原文，
+    // 否则精确词面匹配会掩盖 rerank 信号是否真的有判别力。
+    const currentFact = CORPUS.find((e) => e.id === "g-fact-cv01")!;
+    const crossFact = CORPUS.find((e) => e.id === "g-fact-cv02")!;
+    expect(Math.abs(new Date(currentFact.createdAt).getTime() - new Date(crossFact.createdAt).getTime())).toBeLessThan(1000);
+    for (const queryId of ["D7", "C11", "E12", "E13", "E14"]) {
+      const query = GOLDEN_QUERIES.find((q) => q.id === queryId)!;
+      for (const entryId of Object.keys(query.expected)) {
+        const expectedEntry = CORPUS.find((e) => e.id === entryId)!;
+        expect(query.query, `${queryId} 不得与 ${entryId} 正例原文相同`).not.toBe(expectedEntry.content);
+      }
+    }
+  });
+
+  it("宽查询不得选择性漏标直接命中条目（ground truth 一致性守卫）", () => {
+    for (const queryId of ["D7", "C11", "E12", "E13"]) {
+      const query = GOLDEN_QUERIES.find((q) => q.id === queryId)!;
+      const needle = query.query.toLocaleLowerCase();
+      const directMatches = CORPUS.filter((e) => e.content.toLocaleLowerCase().includes(needle));
+      expect(directMatches.length, `${queryId} 应有近邻候选`).toBeGreaterThanOrEqual(2);
+      for (const entry of directMatches) {
+        expect(query.expected[entry.id] ?? 0, `${queryId} 直接命中 ${entry.id} 却被计为 0`).toBeGreaterThan(0);
+      }
     }
   });
 
@@ -168,6 +218,21 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     db.close();
   });
 
+  /** 单查询全链路执行；每个反事实只替换传入配置，检索副作用仍在查询后重置。 */
+  async function runGoldenQuery(queryId: string, config = PROD_MEMORY_CONFIG) {
+    const query = GOLDEN_QUERIES.find((q) => q.id === queryId);
+    if (!query) throw new Error(`unknown golden query: ${queryId}`);
+    const engine = new SearchEngine(config);
+    const search = new SearchMemory(repo, repo, mockEmbeddingGateway(), engine, createTestLogger());
+    const result = await search.search({
+      query: query.query,
+      limit: 10,
+      currentConversationId: query.currentConversationId,
+    });
+    resetWeights();
+    return result.entries;
+  }
+
   it("生产默认 additive 三项指标 ≥ 重锁回归地板", async () => {
     const ndcg5s: number[] = [];
     const ndcg10s: number[] = [];
@@ -200,7 +265,78 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     expect(mrrValue).toBeGreaterThanOrEqual(BASELINE.mrr);
   });
 
-  it("显式 multiply 回退路径保持旧基线 0.6732/0.7079/0.8114", async () => {
+  it("新增 5 查询逐条锁 top1、目标正例与零未标注候选，不退化为聚合均值遮罩", async () => {
+    const expected = {
+      D7: { top1: "g-fact-cv01", targets: ["g-fact-cv01", "g-fact-cv02"] },
+      C11: { top1: "g-fact-cv02", targets: ["g-doc-old01", "g-doc-old02"] },
+      E12: { top1: "g-clu-06b", targets: ["g-clu-06a", "g-clu-06b"] },
+      E13: { top1: "g-clu-07a", targets: ["g-clu-07a", "g-clu-07b", "g-doc-old02"] },
+      E14: { top1: "g-clu-08b", targets: ["g-clu-08a", "g-clu-08b"] },
+    } as const;
+    for (const [queryId, { top1, targets }] of Object.entries(expected)) {
+      const query = GOLDEN_QUERIES.find((q) => q.id === queryId)!;
+      const entries = await runGoldenQuery(queryId);
+      const ids = entries.map((e) => e.id);
+      expect(ids[0], `${queryId} top1`).toBe(top1);
+      for (const entryId of targets) {
+        expect(ids, `${queryId} 目标正例 ${entryId} 未进 top10`).toContain(entryId);
+      }
+      for (const entry of entries) {
+        expect(query.expected[entry.id] ?? 0, `${queryId} top10 出现未标注候选 ${entry.id}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("D7 对 fact 会话加成有判别力：bConv=0 时同/跨对话 fact 交换榜首且 nDCG 下降", async () => {
+    const query = GOLDEN_QUERIES.find((q) => q.id === "D7")!;
+    const rel = new Map(Object.entries(query.expected));
+    const before = (await runGoldenQuery("D7")).map((e) => e.id);
+    const withoutConversation = (await runGoldenQuery("D7", {
+      ...PROD_MEMORY_CONFIG,
+      rerank: { ...PROD_MEMORY_CONFIG.rerank, bConv: 0 },
+    })).map((e) => e.id);
+
+    expect(before[0]).toBe("g-fact-cv01");
+    expect(withoutConversation[0]).toBe("g-fact-cv02");
+    expect(withoutConversation).not.toEqual(before);
+    expect(ndcgAtK(withoutConversation, rel, 10)).toBeLessThan(ndcgAtK(before, rel, 10));
+  });
+
+  it("C11/E12/E13 对文档半衰期有判别力：90→1 天改变 top-K 与单查询指标", async () => {
+    const shortDocumentHalfLife = { ...PROD_MEMORY_CONFIG, weightHalfLifeDaysDocument: 1 };
+
+    const c11 = GOLDEN_QUERIES.find((q) => q.id === "C11")!;
+    const c11Rel = new Map(Object.entries(c11.expected));
+    const c11Before = (await runGoldenQuery("C11")).map((e) => e.id);
+    const c11After = (await runGoldenQuery("C11", shortDocumentHalfLife)).map((e) => e.id);
+    expect(c11Before.indexOf("g-res-01-c1")).toBeLessThan(c11Before.indexOf("g-doc-old01"));
+    expect(c11After.indexOf("g-doc-old01")).toBeLessThan(c11After.indexOf("g-res-01-c1"));
+    expect(c11After).not.toEqual(c11Before);
+    expect(ndcgAtK(c11After, c11Rel, 10)).not.toBe(ndcgAtK(c11Before, c11Rel, 10));
+
+    const e12 = GOLDEN_QUERIES.find((q) => q.id === "E12")!;
+    const e12Rel = new Map(Object.entries(e12.expected));
+    const e12Before = (await runGoldenQuery("E12")).map((e) => e.id);
+    const e12After = (await runGoldenQuery("E12", shortDocumentHalfLife)).map((e) => e.id);
+    expect(e12Before[0], "E12 默认文档榜首").toBe("g-clu-06b");
+    expect(e12After[0], "E12 半衰期=1 后 message 榜首").toBe("g-clu-06a");
+    expect(e12After).not.toEqual(e12Before);
+    expect(e12After.indexOf("g-clu-06b")).toBeGreaterThan(e12Before.indexOf("g-clu-06b"));
+    expect(ndcgAtK(e12After, e12Rel, 10)).not.toBe(ndcgAtK(e12Before, e12Rel, 10));
+
+    // E13 的 message 也是正例，标准 RR 不因榜首不变而下降是正确口径；锁目标文档与
+    // 180 天 chunk 的交换及 nDCG，避免拿 RR 假装所有反事实都必须同向变化。
+    const e13 = GOLDEN_QUERIES.find((q) => q.id === "E13")!;
+    const e13Rel = new Map(Object.entries(e13.expected));
+    const e13Before = (await runGoldenQuery("E13")).map((e) => e.id);
+    const e13After = (await runGoldenQuery("E13", shortDocumentHalfLife)).map((e) => e.id);
+    expect(e13Before.indexOf("g-clu-07b")).toBeLessThan(e13Before.indexOf("g-doc-old02"));
+    expect(e13After.indexOf("g-doc-old02")).toBeLessThan(e13After.indexOf("g-clu-07b"));
+    expect(e13After).not.toEqual(e13Before);
+    expect(ndcgAtK(e13After, e13Rel, 10)).not.toBe(ndcgAtK(e13Before, e13Rel, 10));
+  });
+
+  it("显式 multiply 回退路径保持 golden-seed-v3 基线 0.6783/0.7028/0.8112", async () => {
     const legacyEngine = new SearchEngine({ ...PROD_MEMORY_CONFIG, rerankMode: "multiply" });
     const legacy = new SearchMemory(repo, repo, mockEmbeddingGateway(), legacyEngine, createTestLogger());
     const ndcg5s: number[] = [];
@@ -219,12 +355,15 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
       rrs.push(reciprocalRank(rankedIds, rel));
       resetWeights();
     }
-    expect(mean(ndcg5s)).toBeCloseTo(0.6732, 4);
-    expect(mean(ndcg10s)).toBeCloseTo(0.7079, 4);
-    expect(mrr(rrs)).toBeCloseTo(0.8114, 4);
+    console.log(
+      `[golden-eval][multiply] n=${GOLDEN_QUERIES.length} nDCG@5=${mean(ndcg5s).toFixed(4)} nDCG@10=${mean(ndcg10s).toFixed(4)} MRR=${mrr(rrs).toFixed(4)}`,
+    );
+    expect(mean(ndcg5s)).toBeCloseTo(0.6783, 4);
+    expect(mean(ndcg10s)).toBeCloseTo(0.7028, 4);
+    expect(mrr(rrs)).toBeCloseTo(0.8112, 4);
   });
 
-  it("additive 全中性化反事实复现 0.7998/0.8029/0.9364（段 1 加法路径语义验收，±0.001）", async () => {
+  it("additive 全中性化反事实复现 golden-seed-v3 锚点 0.7792/0.7950/0.9315（±0.001）", async () => {
     // 段 1：加法融合路径按设计矩阵全中性化（w_rrf=1 其余 0）→
     // finalScore = norm(rrf)（池内 min-max 单调变换），排序与 raw RRF 一致 → 反事实数字复现。
     // 证明 additive 路径不是摆设、段 1 的归一化口径与设计表 1 一致（验收锚点见特性文档）。
@@ -257,12 +396,12 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     const mrrValue = mrr(rrs);
 
     console.log(
-      `[golden-eval][additive-全中性] nDCG@5=${ndcg5.toFixed(4)} nDCG@10=${ndcg10.toFixed(4)} MRR=${mrrValue.toFixed(4)} (反事实锚点 0.7998/0.8029/0.9364)`,
+      `[golden-eval][additive-全中性] nDCG@5=${ndcg5.toFixed(4)} nDCG@10=${ndcg10.toFixed(4)} MRR=${mrrValue.toFixed(4)} (反事实锚点 0.7792/0.7950/0.9315)`,
     );
 
-    expect(Math.abs(ndcg5 - 0.7998)).toBeLessThan(0.001);
-    expect(Math.abs(ndcg10 - 0.8029)).toBeLessThan(0.001);
-    expect(Math.abs(mrrValue - 0.9364)).toBeLessThan(0.001);
+    expect(Math.abs(ndcg5 - 0.7792)).toBeLessThan(0.001);
+    expect(Math.abs(ndcg10 - 0.7950)).toBeLessThan(0.001);
+    expect(Math.abs(mrrValue - 0.9315)).toBeLessThan(0.001);
   });
 
   it("基线合理性：当前管线在种子集上非平凡（防地板=摆设）", async () => {
