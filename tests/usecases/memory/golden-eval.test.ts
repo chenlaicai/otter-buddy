@@ -137,6 +137,19 @@ describe("golden 评测集结构断言（防语料腐化）", () => {
       expect(query.expected[documentId]).toBe(3);
       expect(query.expected[messageId]).toBeGreaterThan(0);
     }
+
+    // 目标参数反事实的隔离条件：同对话/跨对话 fact 必须同龄；新查询不得复制正例原文，
+    // 否则精确词面匹配会掩盖 rerank 信号是否真的有判别力。
+    const currentFact = CORPUS.find((e) => e.id === "g-fact-cv01")!;
+    const crossFact = CORPUS.find((e) => e.id === "g-fact-cv02")!;
+    expect(currentFact.createdAt).toBe(crossFact.createdAt);
+    for (const queryId of ["D7", "C11", "E12", "E13", "E14"]) {
+      const query = GOLDEN_QUERIES.find((q) => q.id === queryId)!;
+      for (const entryId of Object.keys(query.expected)) {
+        const expectedEntry = CORPUS.find((e) => e.id === entryId)!;
+        expect(query.query, `${queryId} 不得与 ${entryId} 正例原文相同`).not.toBe(expectedEntry.content);
+      }
+    }
   });
 
   it("时间戳动态构造（相对年龄恒定，无写死日期）", () => {
@@ -193,6 +206,21 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     db.close();
   });
 
+  /** 单查询全链路执行；每个反事实只替换传入配置，检索副作用仍在查询后重置。 */
+  async function runGoldenQuery(queryId: string, config = PROD_MEMORY_CONFIG) {
+    const query = GOLDEN_QUERIES.find((q) => q.id === queryId);
+    if (!query) throw new Error(`unknown golden query: ${queryId}`);
+    const engine = new SearchEngine(config);
+    const search = new SearchMemory(repo, repo, mockEmbeddingGateway(), engine, createTestLogger());
+    const result = await search.search({
+      query: query.query,
+      limit: 10,
+      currentConversationId: query.currentConversationId,
+    });
+    resetWeights();
+    return result.entries;
+  }
+
   it("生产默认 additive 三项指标 ≥ 重锁回归地板", async () => {
     const ndcg5s: number[] = [];
     const ndcg10s: number[] = [];
@@ -223,6 +251,73 @@ describe("golden 评测 runner：全链路指标 + 回归地板", () => {
     expect(ndcg5).toBeGreaterThanOrEqual(BASELINE.ndcg5);
     expect(ndcg10).toBeGreaterThanOrEqual(BASELINE.ndcg10);
     expect(mrrValue).toBeGreaterThanOrEqual(BASELINE.mrr);
+  });
+
+  it("新增 5 查询逐条锁 top1 与全部正例召回，不退化为聚合均值遮罩", async () => {
+    const expectedTop1 = {
+      D7: "g-fact-cv01",
+      C11: "g-fact-cv02",
+      E12: "g-clu-06b",
+      E13: "g-clu-07a",
+      E14: "g-clu-08b",
+    } as const;
+    for (const [queryId, top1] of Object.entries(expectedTop1)) {
+      const query = GOLDEN_QUERIES.find((q) => q.id === queryId)!;
+      const ids = (await runGoldenQuery(queryId)).map((e) => e.id);
+      expect(ids[0], `${queryId} top1`).toBe(top1);
+      for (const entryId of Object.keys(query.expected)) {
+        expect(ids, `${queryId} 正例 ${entryId} 未进 top10`).toContain(entryId);
+      }
+    }
+  });
+
+  it("D7 对 fact 会话加成有判别力：bConv=0 时同/跨对话 fact 交换榜首且 nDCG 下降", async () => {
+    const query = GOLDEN_QUERIES.find((q) => q.id === "D7")!;
+    const rel = new Map(Object.entries(query.expected));
+    const before = (await runGoldenQuery("D7")).map((e) => e.id);
+    const withoutConversation = (await runGoldenQuery("D7", {
+      ...PROD_MEMORY_CONFIG,
+      rerank: { ...PROD_MEMORY_CONFIG.rerank, bConv: 0 },
+    })).map((e) => e.id);
+
+    expect(before[0]).toBe("g-fact-cv01");
+    expect(withoutConversation[0]).toBe("g-fact-cv02");
+    expect(withoutConversation).not.toEqual(before);
+    expect(ndcgAtK(withoutConversation, rel, 10)).toBeLessThan(ndcgAtK(before, rel, 10));
+  });
+
+  it("C11/E12/E13 对文档半衰期有判别力：90→1 天改变 top-K 与单查询指标", async () => {
+    const shortDocumentHalfLife = { ...PROD_MEMORY_CONFIG, weightHalfLifeDaysDocument: 1 };
+
+    const c11 = GOLDEN_QUERIES.find((q) => q.id === "C11")!;
+    const c11Rel = new Map(Object.entries(c11.expected));
+    const c11Before = (await runGoldenQuery("C11")).map((e) => e.id);
+    const c11After = (await runGoldenQuery("C11", shortDocumentHalfLife)).map((e) => e.id);
+    expect(c11Before.indexOf("g-res-01-c1")).toBeLessThan(c11Before.indexOf("g-doc-old01"));
+    expect(c11After.indexOf("g-doc-old01")).toBeLessThan(c11After.indexOf("g-res-01-c1"));
+    expect(c11After).not.toEqual(c11Before);
+    expect(ndcgAtK(c11After, c11Rel, 10)).not.toBe(ndcgAtK(c11Before, c11Rel, 10));
+
+    const e12 = GOLDEN_QUERIES.find((q) => q.id === "E12")!;
+    const e12Rel = new Map(Object.entries(e12.expected));
+    const e12Before = (await runGoldenQuery("E12")).map((e) => e.id);
+    const e12After = (await runGoldenQuery("E12", shortDocumentHalfLife)).map((e) => e.id);
+    expect(e12Before[0], "E12 默认文档榜首").toBe("g-clu-06b");
+    expect(e12After[0], "E12 半衰期=1 后 message 榜首").toBe("g-clu-06a");
+    expect(e12After).not.toEqual(e12Before);
+    expect(e12After.indexOf("g-clu-06b")).toBeGreaterThan(e12Before.indexOf("g-clu-06b"));
+    expect(ndcgAtK(e12After, e12Rel, 10)).not.toBe(ndcgAtK(e12Before, e12Rel, 10));
+
+    // E13 的 message 也是正例，标准 RR 不因榜首不变而下降是正确口径；锁目标文档与
+    // 180 天 chunk 的交换及 nDCG，避免拿 RR 假装所有反事实都必须同向变化。
+    const e13 = GOLDEN_QUERIES.find((q) => q.id === "E13")!;
+    const e13Rel = new Map(Object.entries(e13.expected));
+    const e13Before = (await runGoldenQuery("E13")).map((e) => e.id);
+    const e13After = (await runGoldenQuery("E13", shortDocumentHalfLife)).map((e) => e.id);
+    expect(e13Before.indexOf("g-clu-07b")).toBeLessThan(e13Before.indexOf("g-doc-old02"));
+    expect(e13After.indexOf("g-doc-old02")).toBeLessThan(e13After.indexOf("g-clu-07b"));
+    expect(e13After).not.toEqual(e13Before);
+    expect(ndcgAtK(e13After, e13Rel, 10)).not.toBe(ndcgAtK(e13Before, e13Rel, 10));
   });
 
   it("显式 multiply 回退路径保持 golden-seed-v3 基线 0.6948/0.7214/0.8112", async () => {
