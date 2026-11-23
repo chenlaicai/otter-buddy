@@ -44,6 +44,7 @@ import { SqliteActionLedger } from "@frameworks/execution/ledger/sqlite-action-l
 import { WorkspaceActionExecutor } from "@frameworks/execution/workspace-action-executor";
 import { ConnectorActionDispatcher } from "./action-dispatcher";
 import { ShellActionExecutor } from "./shell-action-executor";
+import { FileActionExecutor } from "./file-action-executor";
 
 interface DeviceIdentity {
   deviceId: string;
@@ -155,6 +156,8 @@ function attachMessageHandler(ws: WebSocket, identity: DeviceIdentity, state: Co
       currentVersion = frame.data.version;
       state.lastAckAt = Date.now();
       log("online", { deviceId: identity.deviceId, sessionId: frame.sid, version: frame.data.version });
+      // 会话更替：读器句柄是进程内资源，旧会话代际已死——全量关闭防泄漏
+      void runtime.fileExecutor.closeAllResources("session replaced");
       startHeartbeatLoops(ws, state);
     } else if (frame.type === "heartbeat.ack") {
       state.lastAckAt = Date.now();
@@ -240,10 +243,11 @@ function sendOutputFrame(data: Extract<ConnectorFrame, { type: "action.output" }
 
 /** 执行栈（数据目录 ~/.otter/connector/<deviceId>/）：workspace 网关 +
  *  本地台账（机器侧真相源）+ 公共执行器（六动作，与中枢 local 同一执行语义）+
- *  shell 执行器（协议 v2：shell.exec + 流式 output + 取消）+ 分发器 */
+ *  shell 执行器 + 文件执行器（协议 v2：file.* 族 + 读器句柄）+ 分发器 */
 interface ConnectorRuntime {
   dispatcher: ConnectorActionDispatcher;
   shellExecutor: ShellActionExecutor;
+  fileExecutor: FileActionExecutor;
   ledger: SqliteActionLedger;
 }
 
@@ -268,14 +272,20 @@ async function buildRuntime(identity: DeviceIdentity): Promise<ConnectorRuntime>
     sendOutput: sendOutputFrame,
     log: (message, meta) => log(message, meta),
   });
+  const fileExecutor = new FileActionExecutor({
+    ledger,
+    resolveWorkspaceRoot: conversationId => workspaceGateway.getWorkspacePath(conversationId),
+    log: (message, meta) => log(message, meta),
+  });
   const dispatcher = new ConnectorActionDispatcher({
     executor,
     shell: shellExecutor,
+    file: fileExecutor,
     ledger,
     send: sendResultFrame,
     log: (message, meta) => log(message, meta),
   });
-  return { dispatcher, shellExecutor, ledger };
+  return { dispatcher, shellExecutor, fileExecutor, ledger };
 }
 
 /** 单次连接生命周期。resolve "fatal" = 协议不兼容（重连无意义）；"closed" = 可重连。 */
@@ -328,6 +338,9 @@ async function main(): Promise<void> {
   registerSignalHandlersOnce(async () => {
     await runtime.shellExecutor.shutdown("connector shutting down (graceful offline)")
       .catch(err => log("shell executor shutdown failed (non-fatal)", { error: String(err) }));
+    // 读器句柄全量关闭（进程内资源随下线释放）
+    await runtime.fileExecutor.closeAllResources("connector shutting down (graceful offline)")
+      .catch(err => log("file executor close failed (non-fatal)", { error: String(err) }));
     await runtime.dispatcher.markInflightInterrupted();
   });
   let backoff = RECONNECT_BASE_MS;

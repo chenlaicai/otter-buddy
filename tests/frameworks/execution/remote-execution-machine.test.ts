@@ -262,13 +262,21 @@ describe("RemoteExecutionMachine（C2 执行通道核心）", () => {
     expect((await h.remoteActions.listByStatuses(["succeeded"])).map(r => r.actionId)).toEqual(["m1-b"]);
   });
 
-  it("远程 SDK env 必须绑定业务对话；文件面显式不支持", async () => {
+  it("远程 SDK env 必须绑定业务对话；文件面走线（离线→unknown）；watch/listFiles 显式禁用", async () => {
     expect(() => h.machine.createExecutionEnvironment("/tmp")).toThrow("requires conversationId");
     const env = h.machine.createExecutionEnvironment("/hub/workspaces/c1", "c1");
     expect(env.id).toBe("remote:conn-dev-1");
+    // 文件面已走线：设备离线 → FileError(unknown)，绝不是静默落 hub
     const result = await env.readTextFile("a.txt", BACKGROUND_CONTEXT);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("not_supported");
+    if (!result.ok) expect(result.error.code).toBe("unknown");
+    // 显式禁用面：watch/listFiles 保持 not_supported（SDK 契约化降级信号）
+    const listed = await env.listFiles!("/device/x", undefined, BACKGROUND_CONTEXT);
+    expect(listed.ok).toBe(false);
+    if (!listed.ok) expect(listed.error.code).toBe("not_supported");
+    const watched = await env.watch([], () => {}, BACKGROUND_CONTEXT);
+    expect(watched.ok).toBe(false);
+    if (!watched.ok) expect(watched.error.code).toBe("not_supported");
   });
 
   it("协议 v1 拒发 shell；v2 流式输出与取消帧按 actionId 归路", async () => {

@@ -91,20 +91,13 @@ export class ShellActionExecutor implements ShellExecutorLike {
   private async prepare(input: ShellExecActionInput): Promise<
     { early: ShellRunOutcome } | { early?: never; cwd: string; display: string }
   > {
-    // 输入校验（协议面 fail-closed：不合法输入不产生副作用、不入账）
-    const conversationId = typeof input?.conversationId === "string" ? input.conversationId : "";
-    const command = input?.command;
-    const commandOk = typeof command === "string"
-      ? command.length > 0
-      : Array.isArray(command) && command.length > 0 && command.every(part => typeof part === "string");
-    if (!conversationId || !commandOk) {
-      return { early: { status: "failed", errorCode: "invalid_input", error: "shell.exec requires non-empty conversationId and command" } };
-    }
+    const valid = validateShellInput(input);
+    if ("early" in valid) return valid;
     // conversationId 映射设备工作区根（<connector dataRoot>/workspaces/<id>）；
     // 确保根存在（会话首次 shell 时工作区可能尚未落盘——与 workspace 写动作的 mkdir 语义对齐）。
     let root: string;
     try {
-      root = this.deps.resolveWorkspaceRoot(conversationId);
+      root = this.deps.resolveWorkspaceRoot(valid.conversationId);
       await mkdir(root, { recursive: true });
     } catch (error) {
       return { early: { status: "failed", errorCode: "workspace_unavailable", error: `workspace root unavailable: ${errorMessage(error)}` } };
@@ -112,7 +105,7 @@ export class ShellActionExecutor implements ShellExecutorLike {
     // cwd 映射（设备侧语义——hub 下发前已完成跨机映射）：缺省/相对 → 相对设备工作区根；
     // 绝对路径显式保留（不存在的 cwd 由 SDK spawn_error 诚实回报）。
     const cwd = input.cwd === undefined ? root : path.isAbsolute(input.cwd) ? input.cwd : path.resolve(root, input.cwd);
-    return { cwd, display: displayCommand(command) };
+    return { cwd, display: displayCommand(valid.command) };
   }
 
   /** 在途跟踪执行：独立 env + AbortController 进表 → exec → 结局映射；finally 清理进程组 */
@@ -248,23 +241,42 @@ function displayCommand(command: string | string[]): string {
   return command.map(part => (/[^\w.,:/=@%-]/.test(part) ? `'${part.replace(/'/g, `'\\''`)}'` : part)).join(" ");
 }
 
+/** shell.exec 输入校验（协议面 fail-closed：不合法输入不产生副作用、不入账）。
+ *  空 argv 按 SDK 契约是 spawn_error（env-conformance 锚定）；缺 conversationId/坏类型才是 invalid_input */
+function validateShellInput(input: ShellExecActionInput):
+  | { early: ShellRunOutcome }
+  | { conversationId: string; command: string | string[] } {
+  const conversationId = typeof input?.conversationId === "string" ? input.conversationId : "";
+  const command = input?.command;
+  if (conversationId && Array.isArray(command) && command.length === 0) {
+    return { early: { status: "failed", errorCode: "spawn_error", error: "shell.exec empty argv (spawn error)" } };
+  }
+  const commandOk = typeof command === "string"
+    ? command.length > 0
+    : Array.isArray(command) && command.length > 0 && command.every(part => typeof part === "string");
+  if (!conversationId || !commandOk) {
+    return { early: { status: "failed", errorCode: "invalid_input", error: "shell.exec requires non-empty conversationId and command" } };
+  }
+  return { conversationId, command };
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 /**
- * 窗口化输出泵（window 模式）：只保留尾部 maxBytes/maxLines，按
- * minIntervalMs + bytesPerSecond 节流采样发帧；被砍头部累计为 skipped（UTF-8 字节/
- * 换行数/是否以换行结尾——与 SDK ShellOutputSkip 同构）挂到下一帧。
- * 无窗口时调用方直发（本类不参与）。所有计量在 UTF-8 字节域进行（Buffer），
- * 切割时跳过 UTF-8 continuation byte，不产出 U+FFFD 破字符。
+ * 窗口化输出泵（window 模式）：按 minIntervalMs + bytesPerSecond 节流采样发帧；
+ * 采样时 pending 超窗则省略「使剩余后缀仍严格超窗的最长前缀」，后缀连同 skipped
+ * （UTF-8 字节/换行数/是否以换行结尾——与 SDK ShellOutputSkip 同构）一帧发出。
+ * 契约锚点（SDK ShellOutputInfo.skipped）：带 skipped 的块必须超窗——被省略文本
+ * 绝不在调用方保留尾内；块永不按窗口截断。进程结算时 flush 末段（同一逻辑）。
+ * 无窗口时调用方直发（本类不参与）。计量在 UTF-8 字节域进行（Buffer），
+ * 切割只在字符边界（UTF-8 lead byte 前）——不切字符即无 U+FFFD，原始字节数 =
+ * 解码文本字节数（与 skipped 的解码域计量同值）。
  */
 class WindowedOutputPump {
   private pending = Buffer.alloc(0);
   private lastStream: "stdout" | "stderr" = "stdout";
-  private skippedBytes = 0;
-  private skippedNewlines = 0;
-  private skippedEndsWithNewline = false;
   private lastSentAt = Date.now(); // 首帧同样受采样闸约束（minIntervalMs 自足量起计）
   private lastSentBytes = 0;
   private timer: NodeJS.Timeout | null = null;
@@ -279,7 +291,6 @@ class WindowedOutputPump {
     if (this.flushed || text === "") return;
     this.pending = Buffer.concat([this.pending, Buffer.from(text, "utf-8")]);
     this.lastStream = stream;
-    this.trimToWindow();
     const delay = this.gateDelayMs();
     if (delay <= 0) this.sample();
     else this.ensureTimer(delay);
@@ -311,54 +322,92 @@ class WindowedOutputPump {
     this.timer.unref?.();
   }
 
+  /** 采样发帧：pending ≤ 窗口 → 全发；超窗 → 省略最长可省前缀，后缀带 skipped 发出 */
   private sample(): void {
-    if (this.pending.length === 0) return; // 无文本时 skipped 计数挂到下一帧（不产空帧）
-    const text = this.pending.toString("utf-8");
+    if (this.pending.length === 0) return;
+    const { emitBuf, omitted } = splitForWindow(this.pending, this.window);
+    const text = emitBuf.toString("utf-8");
     const stream = this.lastStream;
-    const skipped = this.skippedBytes > 0
-      ? { bytes: this.skippedBytes, newlines: this.skippedNewlines, endsWithNewline: this.skippedEndsWithNewline }
-      : undefined;
+    const skipped = omitted ? skipSpecOf(omitted) : undefined;
     this.pending = Buffer.alloc(0);
-    this.skippedBytes = 0;
-    this.skippedNewlines = 0;
-    this.skippedEndsWithNewline = false;
     this.lastSentAt = Date.now();
     this.lastSentBytes = Buffer.byteLength(text, "utf-8");
     this.emit(text, stream, skipped);
   }
+}
 
-  /** 砍头部到窗口内：先按行窗（保留尾部 maxLines 个换行），再按字节窗（对齐 UTF-8 边界） */
-  private trimToWindow(): void {
-    let buf = this.pending;
-    const maxLines = Math.max(0, this.window.maxLines);
-    let newlines = 0;
-    for (let i = buf.length - 1; i >= 0; i--) {
-      if (buf[i] === 0x0a) {
-        newlines += 1;
-        if (newlines > maxLines) {
-          this.drop(buf.subarray(0, i + 1));
-          buf = buf.subarray(i + 1);
-          break;
-        }
-      }
-    }
-    const maxBytes = Math.max(1, this.window.maxBytes);
-    if (buf.length > maxBytes) {
-      let start = buf.length - maxBytes;
-      while (start < buf.length && (buf[start]! & 0xc0) === 0x80) start += 1; // UTF-8 continuation byte 不对齐切割点
-      this.drop(buf.subarray(0, start));
-      buf = buf.subarray(start);
-    }
-    this.pending = buf;
-  }
+/** 窗口分割：超窗时省略前缀，后缀连同 skipped 一帧发出。后缀必须严格超窗
+ *  （契约：带 skipped 的块 > 窗口——被省略文本绝不在调用方保留尾内）。
+ *  候选起点（取最大 = 省略最多）：字节候选（maxBytes+1 后缀，字符边界后对齐）；
+ *  行候选 A（maxLines+1 个完整行，行边界对齐——优先于同效的贴换行变体）；
+ *  行候选 B（含第 maxLines+1 个换行的最短后缀——行数刚够时的冏底）。
+ *  无合规候选（超窗但无法构造严格超窗后缀）→ 不省略全发（无 skipped 的块不受限）。 */
+function splitForWindow(
+  pending: Buffer,
+  window: ShellOutputWindowSpec,
+): { emitBuf: Buffer; omitted: Buffer | null } {
+  const maxBytes = Math.max(1, window.maxBytes);
+  const maxLines = Math.max(0, window.maxLines);
+  const totalNewlines = countNewlines(pending);
+  if (pending.length <= maxBytes && totalNewlines <= maxLines) return { emitBuf: pending, omitted: null };
+  const candidates = windowSplitCandidates(pending, maxBytes, maxLines);
+  if (candidates.length === 0) return { emitBuf: pending, omitted: null }; // 无合规省略 → 全发
+  const start = Math.max(...candidates);
+  return { emitBuf: pending.subarray(start), omitted: start > 0 ? pending.subarray(0, start) : null };
+}
 
-  /** 省略量累计（endsWithNewline 取最后一段被省略文本的结尾——累计省略文本的尾部语义） */
-  private drop(omitted: Buffer): void {
-    if (omitted.length === 0) return;
-    let newlines = 0;
-    for (const byte of omitted) if (byte === 0x0a) newlines += 1;
-    this.skippedBytes += omitted.length;
-    this.skippedNewlines += newlines;
-    this.skippedEndsWithNewline = omitted[omitted.length - 1] === 0x0a;
+/** 超窗分割的候选起点集（字节/行边界/贴换行变体）；空 = 无法构造合规省略 */
+function windowSplitCandidates(pending: Buffer, maxBytes: number, maxLines: number): number[] {
+  const candidates: number[] = [];
+  if (pending.length > maxBytes) {
+    let start = pending.length - (maxBytes + 1);
+    while (start > 0 && (pending[start]! & 0xc0) === 0x80) start -= 1; // 后对齐到字符边界（保足量）
+    candidates.push(start);
   }
+  // 行候选：从尾数第 k 个换行——起点取其后（k-1 个换行入后缀，且行边界对齐）
+  const lineAligned = suffixStartAfterNthNewlineFromEnd(pending, maxLines + 2);
+  if (lineAligned !== null) candidates.push(lineAligned);
+  if (candidates.length === 0) {
+    // 贴换行变体：后缀含第 maxLines+1 个换行（起点在该换行本身——会劈开该行，仅冏底用）
+    const atNewline = suffixStartAtNewlineFromEnd(pending, maxLines + 1);
+    if (atNewline !== null) candidates.push(atNewline);
+  }
+  return candidates;
+}
+
+function countNewlines(buf: Buffer): number {
+  let count = 0;
+  for (const byte of buf) if (byte === 0x0a) count += 1;
+  return count;
+}
+
+/** 从尾数第 n 个换行之后的偏移（后缀含 n-1 个换行且行边界对齐）；不足 n 个换行 → null */
+function suffixStartAfterNthNewlineFromEnd(buf: Buffer, n: number): number | null {
+  let seen = 0;
+  for (let i = buf.length - 1; i >= 0; i--) {
+    if (buf[i] === 0x0a) {
+      seen += 1;
+      if (seen === n) return i + 1;
+    }
+  }
+  return null;
+}
+
+/** 从尾数第 n 个换行本身的偏移（后缀含 n 个换行，首字符是换行——劈行变体）；不足 → null */
+function suffixStartAtNewlineFromEnd(buf: Buffer, n: number): number | null {
+  let seen = 0;
+  for (let i = buf.length - 1; i >= 0; i--) {
+    if (buf[i] === 0x0a) {
+      seen += 1;
+      if (seen === n) return i;
+    }
+  }
+  return null;
+}
+
+/** 省略量计量（解码域：不切字符 → 原始字节数即解码字节数） */
+function skipSpecOf(omitted: Buffer): ShellOutputSkipSpec {
+  let newlines = 0;
+  for (const byte of omitted) if (byte === 0x0a) newlines += 1;
+  return { bytes: omitted.length, newlines, endsWithNewline: omitted[omitted.length - 1] === 0x0a };
 }

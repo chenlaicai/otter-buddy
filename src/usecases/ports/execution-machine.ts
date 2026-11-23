@@ -1,5 +1,23 @@
-import type { ExecutionEnv, ShellOutputInfo } from "@earendil-works/pi-durable/env";
-import type { ShellExecActionInput, ShellExecActionResult } from "@entities/execution/connector-protocol";
+import type { ExecutionEnv, FileInfo, LineScan, ShellOutputInfo, TextLine } from "@earendil-works/pi-durable/env";
+import type {
+  FileDirReaderNextInput,
+  FileHandleInput,
+  FileJoinPathInput,
+  FileMkdirInput,
+  FileOpenReaderInput,
+  FilePathInput,
+  FileReadLinesInput,
+  FileReaderReadInput,
+  FileReaderScanInput,
+  FileRemoveInput,
+  FileRenameInput,
+  FileTempDirInput,
+  FileTempFileInput,
+  FileTruncateInput,
+  FileWriteInput,
+  ShellExecActionInput,
+  ShellExecActionResult,
+} from "@entities/execution/connector-protocol";
 
 export const LOCAL_EXECUTION_MACHINE_ID = "local";
 
@@ -32,6 +50,35 @@ export interface ExecutionActionMap {
     input: ShellExecActionInput;
     result: ShellExecActionResult;
   };
+  // ── 文件动作族（协议 v2；FileError 经 errorCode 透传） ──
+  "file.read": { input: FilePathInput; result: string };
+  "file.readLines": { input: FileReadLinesInput; result: string[] };
+  "file.readBinary": { input: FilePathInput; result: string }; // base64
+  "file.write": { input: FileWriteInput; result: void };
+  "file.append": { input: FileWriteInput; result: void };
+  "file.truncate": { input: FileTruncateInput; result: void };
+  "file.rename": { input: FileRenameInput; result: void };
+  "file.remove": { input: FileRemoveInput; result: void };
+  "file.mkdir": { input: FileMkdirInput; result: void };
+  "file.stat": { input: FilePathInput; result: FileInfo };
+  "file.list": { input: FilePathInput; result: FileInfo[] };
+  "file.exists": { input: FilePathInput; result: boolean };
+  "file.canonicalPath": { input: FilePathInput; result: string };
+  "file.absolutePath": { input: FilePathInput; result: string };
+  "file.joinPath": { input: FileJoinPathInput; result: string };
+  "file.createTempDir": { input: FileTempDirInput; result: string };
+  "file.createTempFile": { input: FileTempFileInput; result: string };
+  "file.flush": { input: FilePathInput; result: void };
+  // ── 读器句柄资源协议（协议 v2；句柄是 connector 进程内资源） ──
+  "file.openReader": { input: FileOpenReaderInput; result: { handle: string; info: FileInfo } };
+  "file.readerRead": { input: FileReaderReadInput; result: string }; // base64
+  "file.readerScanLines": { input: FileReaderScanInput; result: LineScan };
+  "file.readerInfo": { input: FileHandleInput; result: FileInfo };
+  "file.openDirReader": { input: FilePathInput; result: { handle: string } };
+  "file.dirReaderNext": { input: FileDirReaderNextInput; result: { entries: FileInfo[]; done: boolean } };
+  "file.openLineReader": { input: FilePathInput; result: { handle: string } };
+  "file.lineReaderRead": { input: FileHandleInput; result: TextLine | null };
+  "file.resourceClose": { input: FileHandleInput; result: void };
 }
 
 export type ExecutionActionType = keyof ExecutionActionMap;

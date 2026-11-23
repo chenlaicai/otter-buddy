@@ -148,15 +148,15 @@ describe("ShellActionExecutor", () => {
     expect((await ctx.ledger!.getByActionId("sh-spawn-1"))?.status).toBe("failed");
   });
 
-  it("非法输入（缺 conversationId / 空 argv）→ failed + invalid_input，零副作用零入账", async () => {
+  it("非法输入（缺 conversationId）→ failed + invalid_input；空 argv 按 SDK 契约是 spawn_error；零副作用零入账", async () => {
     const bad1 = await ctx.executor.run({ command: "echo x" } as never, { actionId: "sh-bad-1" });
     expect(bad1).toMatchObject({ status: "failed", errorCode: "invalid_input" });
     const bad2 = await ctx.executor.run({ conversationId: "c1", command: [] }, { actionId: "sh-bad-2" });
-    expect(bad2).toMatchObject({ status: "failed", errorCode: "invalid_input" });
+    expect(bad2).toMatchObject({ status: "failed", errorCode: "spawn_error" });
     expect(await ctx.ledger!.getByActionId("sh-bad-1")).toBeNull();
   });
 
-  it("窗口模式：尾部有界保留 + skipped 精确计数；末段 flush 不丢尾", async () => {
+  it("窗口模式：带 skipped 的块严格超窗（契约）+ 省略计数精确；末段 flush 不丢尾", async () => {
     const outcome = await ctx.executor.run(
       {
         conversationId: "c1",
@@ -173,10 +173,19 @@ describe("ShellActionExecutor", () => {
     const kept = frames.map(f => f.text).join("");
     expect(kept).toContain("line-199"); // 尾部完整
     expect(kept).not.toContain("line-000"); // 头部被窗口省略
+    // SDK 契约：带 skipped 的块必须严格超窗（被省略文本绝不在调用方保留尾内）
+    for (const frame of frames) {
+      if (!frame.skipped) continue;
+      const frameNewlines = frame.text.split("\n").length - 1;
+      expect(Buffer.byteLength(frame.text, "utf-8") > 1024 || frameNewlines > 10).toBe(true);
+    }
+    // 行窗主导：行边界对齐的最小严格超窗后缀 = 11 行（line-189..199，99 字节），省略头 189 行
+    expect(kept).toContain("line-189");
+    expect(kept).not.toContain("line-188");
     const skippedTotal = frames.reduce((acc, f) => acc + (f.skipped?.bytes ?? 0), 0);
     const skippedNewlines = frames.reduce((acc, f) => acc + (f.skipped?.newlines ?? 0), 0);
-    expect(skippedTotal).toBe(190 * 9); // 省略量精确：头 190 行 × 9 字节
-    expect(skippedNewlines).toBe(190);
+    expect(skippedTotal).toBe(189 * 9); // 省略量精确：头 189 行 × 9 字节
+    expect(skippedNewlines).toBe(189);
     // 保留 + 省略 = 全量输出（200 行 × 9 字节 = 1800 字节）
     expect(Buffer.byteLength(kept, "utf-8") + skippedTotal).toBe(200 * 9);
   });
