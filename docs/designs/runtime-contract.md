@@ -59,7 +59,7 @@
 | create 同事务写 otter_configs，getConfig 必中 | create() 写入的 session 映射... 同事务落库 | 1 |
 | 真实 DB 层 SELECT 命中 otter_configs | 真实 DB 层验证 | 1 |
 | 当前世代读取只依赖公开 Storage 契约 | durable-slice-source.test.ts 的 reset/compaction/分页与工厂接线 | 14 |
-| 身份/system prompt 进入模型实际 wire 请求 | model-visible-parity.capability.test.ts 的 system 非空且含大獭 | 15 |
+| 身份与 skills 进入模型实际 wire 请求 | durable-model-visible.test.ts 的两轮 4 请求身份 + 首轮 skills 断言 | 15 |
 
 ## 四、已知债（显式缓做记录）
 

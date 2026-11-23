@@ -3,7 +3,7 @@ id: F20261123grdls
 title: "durable 前世读取、身份与技能接线确定性修复"
 summary: "从已关闭的 #1830 拆出低成本、可确定验证的修复：前世切片改走公开只读 Storage 契约，身份每轮进入模型 system 面且池刷新不再清空，普通档接回 skills 而 restricted 外部档不泄露内部技能清单。不带入 base/head 各 17 轮的真 LLM 统计协议。"
 change_type: fix
-capability_test: "tests/frameworks/agent/durable-slice-source.test.ts + durable-runtime.test.ts + external-session-profile.test.ts"
+capability_test: "tests/frameworks/agent/durable-model-visible.test.ts + durable-slice-source.test.ts + durable-runtime.test.ts + external-session-profile.test.ts"
 intent:
   problem: "durable 会话的前世读取消费者直接依赖 SQLite 表结构，身份未稳定进入模型 system 面，skills 未显式接回；池刷新还会用 undefined 清空已有身份。"
   solution: "用公开 Storage 当前世代查询替换消费者拼 SQL；每轮调用刷新 identity，options 局部刷新保留旧身份；普通档显式注入 skills，restricted 档传空。"
@@ -46,6 +46,7 @@ modules:
 
 ## 验证
 
+- `tests/frameworks/agent/durable-model-visible.test.ts`：本地录音网关捕获两轮共 4 次真实 wire 请求，逐次断言 system 含身份，首轮另断言 `<available_skills>` 与实际 skill 名；零外部 LLM。
 - `tests/frameworks/agent/durable-slice-source.test.ts`：公开 Storage 下界与翻页、真实会话投影、重启世代边界、压缩、空/缺失语义。
 - `tests/frameworks/agent/durable-runtime.test.ts`：options 局部刷新保留身份，并跑既有 durable 运行回归。
 - `tests/frameworks/agent/external-session-profile.test.ts`：同一装配面断言 restricted 的 `skillsPrompt` 为空、普通档接回技能清单。
