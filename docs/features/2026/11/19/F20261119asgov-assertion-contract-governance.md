@@ -118,7 +118,9 @@ open 且挂龄 ≥3 天且无 open PR 引用，满足其一：① 认领后超 4
 
 采样协议：n=10 ≥8（README 行为改动 PR 层）；校准模型 k3.1-pro（mimo/glm 配额双 429 顶班，见下）。构造妥协声明：真实流程獭自跑 gh/sqlite 取数，演练环境无后端，扫描数据/检查结果由调度器角色内联注入（与 {{REGRESSION_DATA}} 占位符注入同构）——测的是组版/判定协议遵循，非取数能力。
 
-**采样结果**（2026-11-19 实跑，model=k3.1-pro——mimo 套餐与 glm 周/月配额均耗尽 429 实测，kimi 端点顶班；顶班适配两处：config 补 cacheLongRetention:false 对齐生产（prompt_cache_retention 被拒）+ thinkingLevel:max（reasoning.effort=none 被拒））：
+**采样结果**（2026-11-19 至 2026-11-23 多轮实跑，model=k3.1-pro——mimo 套餐与 glm 周/月配额均耗尽 429 实测，kimi 端点顶班；顶班适配两处：config 补 cacheLongRetention:false 对齐生产（prompt_cache_retention 被拒）+ thinkingLevel:max（reasoning.effort=none 被拒））：
+- 【v6 终态·三轮终核处置后，2026-11-23】daily-issue-orphan-detection：**9/10 ✓**（第 9 轮 `noShelved=false / shelvedCount=false`，漏拍板搁置计数；达到 ≥8 闸，不宣称全样本通过）；regression-verify-direction-repair：**10/10 ✓**。断言终态：daily 只豁免完整独立计数行，允许真实合规变体「在途 N 条（忽略：编号←PR）」「拍板搁置 N 条（编号，原话）」，任何开工/actionable 建议仍拦截；regression 仅豁免以「历史/回查评论/原评论：」开头且含时间锚的完整引用行，相邻当前轮裸 ⚠️ 不再被历史词合法化。
+- 【v6 仪器校准留痕】首轮 daily 0/10 + 单轮诊断 0/1：真实输出均为合法独立计数，但初版整行正则只接受冒号后纯编号，误拒括号内编号/PR/原话变体；据真实 transcript 扩展计数行结构，未改 prompt，全部 bad selftest 保持拦截后重跑得到上述 9/10。失败记录与 transcript 均保留，不以复跑覆盖。
 - 【v5·二轮终核处置后】daily-issue-orphan-detection：**10/10 + 复跑 9/10，双过闸**（二轮终核 2 严重处置：逐出现行判据修无管道绕过 + #1806 段位判 + deferral 空转拦截；v4 7/10 暴露拍板搁置计数/在途尾行弱遵循 → prompt 加「输出骨架」硬化；最后一次复跑第 3 轮 `noInflight=false`，不得写成全样本通过）；regression-verify-direction-repair：**10/10 ✓**（v4，deferral 拦截与历史引用区分生效）
 - 【v3】daily 9/10、regression 9/10（v2→v3 校准轮）
 - 【v2 中间态】断言收紧首跑：daily 2/10、regression 1/10——暴露解析器与真实输出格式错位（孤儿合规重复列勾选表被误判段外；历史引用「首轮判定 ⚠️」被全量拦截误伤），校准后进 v3。此两轮留痕证明：断言收紧本身也需采样校准，不是改严就是对
