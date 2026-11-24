@@ -6,6 +6,7 @@ import { SearchMemory } from "@usecases/memory/search-memory";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
+import { hashEntryProjectionContent } from "@usecases/memory/entry-projection-policy";
 
 const NOW = new Date().toISOString();
 
@@ -89,7 +90,7 @@ describe("vec 检索状态与降级", () => {
   it("searchSimilar 的 vec 查询异步拒绝时降级为空结果而不抛出", async () => {
     const { db, repo, search } = await setup(successfulEmbedding());
     try {
-      await repo.storeEmbedding("entry-1", new Float32Array(1024).fill(0.25));
+      await repo.storeEmbedding("entry-1", 1, hashEntryProjectionContent("vectorstatemarker remains searchable through FTS"), new Float32Array(1024).fill(0.25));
       vi.spyOn(repo, "searchVec").mockRejectedValue(new Error("similar query failed"));
       const result = await search.searchSimilar("entry-1", 5);
       expect(result.entries).toEqual([]);

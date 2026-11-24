@@ -7,6 +7,7 @@ import { SearchMemory } from "@usecases/memory/search-memory";
 import { SearchEngine } from "@usecases/memory/search-engine";
 import { ManageMemory } from "@usecases/memory/manage-memory";
 import type { MemoryEntry } from "@entities/memory/memory-entry";
+import { hashEntryProjectionContent } from "@usecases/memory/entry-projection-policy";
 import type { EmbeddingGateway } from "@usecases/memory/embedding-gateway";
 import { tokenizeWithJieba } from "@frameworks/db/jieba-tokenizer";
 
@@ -311,13 +312,13 @@ describe("SearchMemory - vec-only snippet 降级（自带 mock，与主套件解
       getById: async () => null,
       getEmbedding: async () => null,
       getDetails: async () => [],
-      storeEntry: async () => {},
+      storeEntry: async () => ({ generation: 1, contentHash: "test-content-hash" }),
       storeEmbedding: async () => {},
       incrementRetrievalCounts: async () => {},
       flagMemory: async () => {},
       updateLayerByConversation: async () => {},
       deleteBySource: async () => {},
-      replaceEntryBySource: async () => ({ embeddingKept: false }),
+      replaceEntryBySource: async () => ({ embeddingKept: false, generation: 1, contentHash: "test-content-hash" }),
       replaceEntriesBySource: async () => ({ reusedEntryIds: new Set<string>() }),
       deleteBySourceAndType: async () => {},
       getEmbeddingMeta: async () => ({}),
@@ -480,13 +481,13 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       getById: async () => null,
       getEmbedding: async () => null,
       getDetails: async () => [],
-      storeEntry: async () => {},
+      storeEntry: async () => ({ generation: 1, contentHash: "test-content-hash" }),
       storeEmbedding: async () => {},
       incrementRetrievalCounts: async () => {},
       flagMemory: async () => {},
       updateLayerByConversation: async () => {},
       deleteBySource: async () => {},
-      replaceEntryBySource: async () => ({ embeddingKept: false }),
+      replaceEntryBySource: async () => ({ embeddingKept: false, generation: 1, contentHash: "test-content-hash" }),
       replaceEntriesBySource: async () => ({ reusedEntryIds: new Set<string>() }),
       deleteBySourceAndType: async () => {},
       getEmbeddingMeta: async () => ({}),
@@ -567,13 +568,13 @@ describe("SearchMemory - 混合搜索融合策略", () => {
       getById: async () => null,
       getEmbedding: async () => null,
       getDetails: async () => [],
-      storeEntry: async () => {},
+      storeEntry: async () => ({ generation: 1, contentHash: "test-content-hash" }),
       storeEmbedding: async () => {},
       incrementRetrievalCounts: async () => {},
       flagMemory: async () => {},
       updateLayerByConversation: async () => {},
       deleteBySource: async () => {},
-      replaceEntryBySource: async () => ({ embeddingKept: false }),
+      replaceEntryBySource: async () => ({ embeddingKept: false, generation: 1, contentHash: "test-content-hash" }),
       replaceEntriesBySource: async () => ({ reusedEntryIds: new Set<string>() }),
       deleteBySourceAndType: async () => {},
       getEmbeddingMeta: async () => ({}),
@@ -637,7 +638,7 @@ describe("SearchMemory - F20260812mrcq Part 3 anchor 短路", () => {
       content: "F20260812mrcq summary content about memory recall quality",
       metadata: null, createdAt: "2026-08-12T00:00:00Z",
     });
-    await repo.storeEmbedding("anchor-1", new Float32Array(1024).fill(0.1));
+    await repo.storeEmbedding("anchor-1", 1, hashEntryProjectionContent("F20260812mrcq summary content about memory recall quality"), new Float32Array(1024).fill(0.1));
 
     const searchEngine = new SearchEngine({ rrfK: 60, alpha: 0.4, vecSimilarityThreshold: 0.3, bothBoost: 1.2, currentConversationBoost: 1.5, weightHalfLifeDays: 7, weightHalfLifeDaysDocument: 90, userFlagMultiplier: 2, frequencyBoostFactor: 0.1 });
     const search = new SearchMemory(repo, repo, embedding, searchEngine, createTestLogger());

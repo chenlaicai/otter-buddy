@@ -26,7 +26,9 @@ export const EMBED_TASK_PRIORITY = {
  */
 export const EMBED_QUEUE_HIGH_WATER = 2000;
 
-export interface EmbeddingTask {
+import type { EmbeddingGeneration } from "./memory-types";
+
+export interface EmbeddingTask extends EmbeddingGeneration {
   entryId: string;
   content: string;
   attempts: number;
@@ -55,7 +57,7 @@ export interface MemoryQueue {
    */
   claimPendingTasks(limit: number, tokenBudget?: number): Promise<EmbeddingTask[]>;
   /** task 成功，删除 task 行 */
-  markTaskDone(entryId: string): Promise<void>;
+  markTaskDone(entryId: string, generation: number, contentHash: string): Promise<void>;
   /**
    * 当前 pending 任务总数——生产端水位闸门判据。
    * 全量生产者（文档同步 chunk/启动暗扫）入队前查此值，超阈值跳过本轮。
@@ -85,5 +87,5 @@ export interface MemoryQueue {
    * task 失败，更新 last_error。
    * 若 attempts >= maxAttempts，status 转 'dead'。
    */
-  markTaskAttemptFailed(entryId: string, error: unknown, maxAttempts: number): Promise<void>;
+  markTaskAttemptFailed(entryId: string, generation: number, contentHash: string, error: unknown, maxAttempts: number): Promise<void>;
 }

@@ -7,6 +7,7 @@ import {
   markTaskAttemptFailed,
   pendingTaskStats,
 } from "@frameworks/db/memory/embedding-task-queue";
+import { hashEntryProjectionContent } from "@usecases/memory/entry-projection-policy";
 
 let db: DatabaseType.Database;
 
@@ -39,7 +40,7 @@ describe("F20261110embrc token-budget claim", () => {
   it("pendingTaskStats 不把 dead 计入 pending 或年龄分布", () => {
     seed("token-dead", "死信任务");
     seed("token-pending", "仍在等待的任务");
-    markTaskAttemptFailed(db, "token-dead", new Error("hard"), 0);
+    markTaskAttemptFailed(db, "token-dead", { generation: 1, contentHash: hashEntryProjectionContent("死信任务") }, new Error("hard"), 0);
 
     const stats = pendingTaskStats(db);
 

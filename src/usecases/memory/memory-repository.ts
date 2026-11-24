@@ -17,7 +17,7 @@ import type {
 import type { MemoryEdge, EdgeType } from "@entities/memory/memory-edge";
 import type { BeliefStatus } from "@entities/memory/belief";
 import type { EmbedModelMeta } from "./embedding-gateway";
-import type { SearchFilters, FTSHit, SnippetHit, VecHit, DarkEntry } from "./memory-types";
+import type { SearchFilters, FTSHit, SnippetHit, VecHit, DarkEntry, EmbeddingGeneration } from "./memory-types";
 
 // 共享类型从 memory-types.ts re-export（消除 memory-reader.ts 反向依赖）
 export type {
@@ -31,13 +31,13 @@ export type {
 
 export interface MemoryRepository {
   // 写入
-  storeEntry(entry: MemoryEntry): Promise<void>;
-  storeEmbedding(memoryEntryId: string, embedding: Float32Array): Promise<void>;
+  storeEntry(entry: MemoryEntry): Promise<EmbeddingGeneration>;
+  storeEmbedding(memoryEntryId: string, generation: number, contentHash: string, embedding: Float32Array): Promise<void>;
   /** 按 source 删除记忆条目（upsert reindex 时清旧 entry，防 FTS 命中陈旧内容） */
   deleteBySource(sourceTable: string, sourceId: string): Promise<void>;
   /** 按 source 原子替换（单事务内删旧+插新，防 upsert 中间失败丢数据，修复）。
    * ：镜像 MemoryWriter，返回 summary 向量是否保留。 */
-  replaceEntryBySource(entry: MemoryEntry): Promise<{ embeddingKept: boolean }>;
+  replaceEntryBySource(entry: MemoryEntry): Promise<{ embeddingKept: boolean } & EmbeddingGeneration>;
   /** 按 source 原子替换多条 entry（1:N，单事务删旧全部+插新 N 条），chunk 索引。
    * ：镜像 MemoryWriter 的复用参数与实际生效复用集返回值（见其注释）。 */
   replaceEntriesBySource(entries: MemoryEntry[], opts?: { reuseEntryIds?: ReadonlySet<string> }): Promise<{ reusedEntryIds: Set<string> }>;
@@ -120,13 +120,13 @@ export interface MemoryRepository {
     attempts: number;
     lastAttemptAt: string | null;
     createdAt: string;
-  }>>;
+  } & EmbeddingGeneration>>;
   /** task 成功，删除 task 行 */
-  markTaskDone(entryId: string): Promise<void>;
+  markTaskDone(entryId: string, generation: number, contentHash: string): Promise<void>;
   /**
    * task 失败，更新 last_error。
    */
-  markTaskAttemptFailed(entryId: string, error: unknown, maxAttempts: number): Promise<void>;
+  markTaskAttemptFailed(entryId: string, generation: number, contentHash: string, error: unknown, maxAttempts: number): Promise<void>;
 
   // ---- 记忆关系层 ----
 

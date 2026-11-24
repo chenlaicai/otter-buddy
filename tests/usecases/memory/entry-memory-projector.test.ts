@@ -61,7 +61,7 @@ describe("C2 EntryMemoryProjector 增量契约（真实 SQLite）", () => {
       expect(firstReplay.kind).toBe("unchanged");
       expect(db.prepare("SELECT COUNT(*) AS n FROM embedding_tasks WHERE entry_id = 'normal-secret'").get()).toEqual({ n: 0 });
 
-      await repo.storeEmbedding("normal-secret", new Float32Array(1024).fill(0.25));
+      await repo.storeEmbedding("normal-secret", 1, hashEntryProjectionContent(stored.content), new Float32Array(1024).fill(0.25));
       const secondReplay = projector.apply(decision, NOW);
       expect(secondReplay.kind).toBe("unchanged");
       expect(db.prepare("SELECT COUNT(*) AS n FROM memory_vec WHERE memory_entry_id = 'normal-secret'").get()).toEqual({ n: 1 });

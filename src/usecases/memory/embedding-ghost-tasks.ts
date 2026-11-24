@@ -13,7 +13,7 @@ export async function separateGhostEmbeddingTasks(
   for (const task of claimed) {
     if (!task.content) {
       logger.warn(`EmbeddingRetryWorker: entry ${task.entryId} vanished, recording failed attempt`);
-      await queue.markTaskAttemptFailed(task.entryId, new Error("entry deleted"), maxAttempts);
+      await queue.markTaskAttemptFailed(task.entryId, task.generation, task.contentHash, new Error("entry deleted"), maxAttempts);
       ghostFailures++;
       continue;
     }
