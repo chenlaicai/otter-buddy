@@ -43,18 +43,25 @@ describe("parseBootstrapJson", () => {
   const NOW = Date.parse("2026-11-24T12:00:00.000Z");
 
   it("合法结构给出 hub+code；各字段独立校验", () => {
+    // 服务端 bootstrap 端点字段名是 code（回归锚：旧实现只认 pairingCode，真实下载文件码被静默丢弃）
+    expect(parseBootstrapJson(JSON.stringify({ hub: "https://hub.example.com/", code: "ab2cd3ef", expiresAt: "2026-11-24T13:00:00.000Z" }), NOW))
+      .toEqual({ hub: "https://hub.example.com", pairingCode: "AB2CD3EF" });
+    // pairingCode 兼容别名（手写文件容错）
     expect(parseBootstrapJson(JSON.stringify({ hub: "https://hub.example.com/", pairingCode: "ab2cd3ef", expiresAt: "2026-11-24T13:00:00.000Z" }), NOW))
+      .toEqual({ hub: "https://hub.example.com", pairingCode: "AB2CD3EF" });
+    // 两字段同时在时 code 优先（服务端格式为准）
+    expect(parseBootstrapJson(JSON.stringify({ hub: "https://hub.example.com/", code: "ab2cd3ef", pairingCode: "zz2cd3ef", expiresAt: "2026-11-24T13:00:00.000Z" }), NOW))
       .toEqual({ hub: "https://hub.example.com", pairingCode: "AB2CD3EF" });
     expect(parseBootstrapJson(JSON.stringify({ hub: "https://hub.example.com" }), NOW))
       .toEqual({ hub: "https://hub.example.com" });
-    expect(parseBootstrapJson(JSON.stringify({ pairingCode: "AB2CD3EF", expiresAt: "2026-11-24T13:00:00.000Z" }), NOW))
+    expect(parseBootstrapJson(JSON.stringify({ code: "AB2CD3EF", expiresAt: "2026-11-24T13:00:00.000Z" }), NOW))
       .toEqual({ pairingCode: "AB2CD3EF" });
   });
 
   it("过期码只丢 code 保 hub；无时效的码不采纳（引导文件必带 expiresAt）", () => {
-    const expired = parseBootstrapJson(JSON.stringify({ hub: "https://hub.example.com", pairingCode: "AB2CD3EF", expiresAt: "2026-11-24T11:00:00.000Z" }), NOW);
+    const expired = parseBootstrapJson(JSON.stringify({ hub: "https://hub.example.com", code: "AB2CD3EF", expiresAt: "2026-11-24T11:00:00.000Z" }), NOW);
     expect(expired).toEqual({ hub: "https://hub.example.com" });
-    const noExpiry = parseBootstrapJson(JSON.stringify({ hub: "https://hub.example.com", pairingCode: "AB2CD3EF" }), NOW);
+    const noExpiry = parseBootstrapJson(JSON.stringify({ hub: "https://hub.example.com", code: "AB2CD3EF" }), NOW);
     expect(noExpiry).toEqual({ hub: "https://hub.example.com" });
   });
 

@@ -7,7 +7,8 @@
  * 既有 pairing_codes 链路。
  *
  * 自动带入来源（bootstrap 引导文件）：Web 添加设备面板下载的
- * otter-connector-bootstrap.json，含 hub / pairingCode / expiresAt。发现顺序：
+ * otter-connector-bootstrap.json，含 hub / code / expiresAt（服务端 bootstrap 端点
+ * 字段名）；pairingCode 作为兼容别名仍可解析。发现顺序：
  * ① 启动器同目录（用户手动放置）；② 下载目录（浏览器默认落点）里
  * `otter-connector-bootstrap*.json` 最新一份。只按精确前缀列目录、只读匹配文件，
  * 不扫描其他内容。过期文件只降级丢弃 code（hub 仍可用），坏文件整体忽略并提示。
@@ -62,8 +63,15 @@ export function normalizePairingCode(input: string): string | null {
   return PAIRING_CODE_PATTERN.test(normalized) ? normalized : null;
 }
 
+/** 提取预填码原文：服务端字段 code 优先，pairingCode 兼容别名（手写文件容错） */
+function extractRawPairingCode(obj: Record<string, unknown>): string | null {
+  if (typeof obj.code === "string") return obj.code;
+  if (typeof obj.pairingCode === "string") return obj.pairingCode;
+  return null;
+}
+
 /** 解析 bootstrap JSON 文本 → 预填内容（纯函数，可测）。
- *  过期（expiresAt 早于 now）只丢 pairingCode 保 hub；结构坏/字段非法返回空对象。 */
+ *  过期（expiresAt 早于 now）只丢码保 hub；结构坏/字段非法返回空对象。 */
 export function parseBootstrapJson(text: string, now: number): Omit<BootstrapPrefill, "source"> {
   let raw: unknown;
   try {
@@ -78,8 +86,9 @@ export function parseBootstrapJson(text: string, now: number): Omit<BootstrapPre
     const hub = normalizeHubUrl(obj.hub);
     if (hub) prefill.hub = hub;
   }
-  if (typeof obj.pairingCode === "string") {
-    const code = normalizePairingCode(obj.pairingCode);
+  const rawCode = extractRawPairingCode(obj);
+  if (rawCode !== null) {
+    const code = normalizePairingCode(rawCode);
     const expires = typeof obj.expiresAt === "string" ? Date.parse(obj.expiresAt) : Number.NaN;
     // 无 expiresAt 视为不可信预填（引导文件必带时效）；过期只丢码
     if (code && !Number.isNaN(expires) && expires > now) prefill.pairingCode = code;
