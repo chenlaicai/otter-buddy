@@ -3,47 +3,16 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { NAV_ROUTES } from '@contract/web/pages'
-import type { GlassProps, GlassMotionValue } from '@samasante/liquid-glass'
+import type { GlassLensProps } from './liquid-glass/glass-lens'
 
-const mocks = vi.hoisted(() => ({
-  animate: vi.fn(),
-  stop: vi.fn(),
-  glassProps: {} as GlassProps,
+const mocks = vi.hoisted(() => ({ lensProps: {} as GlassLensProps }))
+
+vi.mock('./liquid-glass/glass-lens', () => ({
+  GlassLens: (props: GlassLensProps) => {
+    mocks.lensProps = props
+    return <canvas data-testid="liquid-glass-lens" aria-hidden="true" />
+  },
 }))
-const signal = (value: unknown) => value as GlassMotionValue
-
-vi.mock('@samasante/liquid-glass', () => {
-  const glassValue = (initial: number) => {
-    let current = initial
-    const listeners = new Set<(value: number) => void>()
-    return {
-      get: () => current,
-      set: (value: number) => { current = value; listeners.forEach(listener => listener(value)) },
-      on: (_event: 'change', listener: (value: number) => void) => {
-        listeners.add(listener)
-        return () => listeners.delete(listener)
-      },
-    }
-  }
-  return {
-    Glass: ({ children, refract, ...props }: GlassProps) => {
-      mocks.glassProps = props
-      return <div data-testid="liquid-glass-lens"><div>{children}</div><div data-testid="refract-copy">{refract}</div></div>
-    },
-    glassValue,
-    deriveGlass: (dependencies: ReturnType<typeof glassValue>[], compute: () => number) => {
-      const derived = glassValue(compute())
-      dependencies.forEach(dependency => dependency.on('change', () => derived.set(compute())))
-      return derived
-    },
-    animateGlassValue: mocks.animate.mockImplementation((signal, target) => {
-      signal.set(target)
-      return { stop: mocks.stop }
-    }),
-    cubicBezier: () => (value: number) => value,
-    useLensWobble: vi.fn(),
-  }
-})
 
 import { TopBar } from './TopBar'
 
@@ -54,8 +23,6 @@ describe('TopBar 悬浮主导航', () => {
   }
 
   beforeEach(() => {
-    mocks.animate.mockClear()
-    mocks.stop.mockClear()
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
       matches: false,
       media: query,
@@ -67,49 +34,21 @@ describe('TopBar 悬浮主导航', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
-    vi.useRealTimers()
   })
 
-  function mockNavGeometry() {
-    const rect = (left: number, width: number) => ({
-      left, width, right: left + width, top: 0, bottom: 40, height: 40, x: left, y: 0,
-      toJSON: () => ({}),
-    }) as DOMRect
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      if (this.classList.contains('glass-nav')) return rect(100, 700)
-      if (this.classList.contains('glass-nav-item')) {
-        const index = NAV_ROUTES.findIndex(route => route.label ? this.textContent?.includes(route.label) : false)
-        return rect(100 + Math.max(0, index) * 100, 80)
-      }
-      return rect(100, 80)
-    })
-  }
-
-  it('左侧保留系统图标与系统名称，中央菜单只有一枚静止也折射的开源玻璃透镜', () => {
-    mockNavGeometry()
-    const { container } = render(<MemoryRouter><TopBar /></MemoryRouter>)
+  it('左侧保留系统图标与名称，中央导航使用开源 GlassLens 且只有一枚乳白静止选中块', () => {
+    const { container } = render(<MemoryRouter initialEntries={['/conversation']}><TopBar /></MemoryRouter>)
 
     expect(screen.getByRole('img', { name: 'Otter Buddy' })).toBeTruthy()
     expect(screen.getByTestId('system-brand').textContent).toBe('Otter Buddy')
-    expect(screen.getByText('Otter Buddy')).toBeTruthy()
-    expect(container.querySelector('header')?.classList.contains('glass-strong')).toBe(false)
-    expect(screen.getByRole('navigation', { name: '主导航' }).classList.contains('glass-nav')).toBe(true)
     expect(screen.getAllByTestId('liquid-glass-lens')).toHaveLength(1)
-    expect(container.querySelectorAll('.glass-nav-copy .glass-nav-static-surface')).toHaveLength(1)
-    expect(screen.getByTestId('refract-copy').querySelector('.glass-nav-copy')).not.toBeNull()
-    expect(screen.getByTestId('liquid-glass-lens').firstElementChild?.querySelector('.glass-nav-copy')).toBeNull()
-    expect(container.querySelectorAll('.glass-nav-item .glass-nav-copy')).toHaveLength(0)
-    expect(container.querySelector('feTurbulence')).toBeNull()
-    expect(mocks.glassProps.style?.position).toBe('absolute')
-    expect(mocks.glassProps.pixelUnits).toBe(true)
-    expect(mocks.glassProps.optics?.dispersion).toBe(0)
-    expect(mocks.glassProps.optics?.depth).toBe(0.72)
-    expect(mocks.glassProps.optics?.curvature).toBe(0.62)
-    expect(mocks.glassProps.optics?.restEdgeInsetShadow).toContain('inset 0 -6px 12px')
-    expect(signal(mocks.glassProps.unstable_lens?.edgeBias).get()).toBeCloseTo(0.5)
-    expect(signal(mocks.glassProps.scale).get()).toBeCloseTo(0.4088)
-    expect(signal(mocks.glassProps.unstable_lens?.tintOpacity).get()).toBeCloseTo(0.28)
+    expect(mocks.lensProps.value).toBe('/conversation')
+    expect(mocks.lensProps.disabled).toBe(false)
     expect(screen.getAllByRole('link')).toHaveLength(NAV_ROUTES.length)
+    expect(container.querySelectorAll('[data-glass-highlight]')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: '对话' }).querySelector('.glass-nav-highlight')).not.toBeNull()
+    expect(container.querySelector('feTurbulence')).toBeNull()
+    expect(container.querySelector('.glass-nav-copy')).toBeNull()
   })
 
   it('移除系统级执行机 badge，且不再请求执行机投影', () => {
@@ -122,75 +61,61 @@ describe('TopBar 悬浮主导航', () => {
     expect(screen.queryByText(/执行机：/)).toBeNull()
   })
 
-  it('保留当前对话导航的激活态', () => {
+  it('保留当前对话导航的激活态和真实链接语义', () => {
     render(<MemoryRouter initialEntries={['/conversation']}><TopBar /></MemoryRouter>)
 
-    expect(screen.getByRole('link', { name: '对话' }).classList.contains('nav-pill-active')).toBe(true)
+    const active = screen.getByRole('link', { name: '对话' })
+    expect(active.classList.contains('nav-pill-active')).toBe(true)
+    expect(active.getAttribute('role')).toBeNull()
+    expect(active.getAttribute('href')).toBe('/conversation')
+    expect(active.getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('link', { name: '设置' }).classList.contains('nav-pill-active')).toBe(false)
   })
 
-  it('位置、尺寸和 tint 使用独立信号，正反向都在目标项收缩', () => {
-    mockNavGeometry()
-    vi.useFakeTimers()
-    render(<MemoryRouter initialEntries={['/conversation']}><TopBar /></MemoryRouter>)
+  it('路由切换只更新开源透镜的 value 与静止高亮，不再创建手写动画', () => {
+    const { container } = render(<MemoryRouter initialEntries={['/conversation']}><TopBar /></MemoryRouter>)
 
     fireEvent.click(screen.getByRole('link', { name: '设置' }))
-    expect(mocks.animate).toHaveBeenCalledTimes(6)
-    expect(mocks.animate.mock.calls[0][1]).toBe(640)
-    expect(mocks.animate.mock.calls[0][2]).toMatchObject({ duration: 0.42 })
-    expect(mocks.animate.mock.calls[1][1]).toBe(92)
-    expect(mocks.animate.mock.calls[2][1]).toBe(43)
-    expect(mocks.animate.mock.calls[4][1]).toBe(0.08)
-
-    vi.advanceTimersByTime(240)
-    expect(mocks.animate).toHaveBeenCalledTimes(11)
-    expect(mocks.animate.mock.calls[6][1]).toBe(80)
-    expect(mocks.animate.mock.calls[7][1]).toBe(30)
-    expect(mocks.animate.mock.calls[9][1]).toBe(0.28)
-
-    fireEvent.click(screen.getByRole('link', { name: '对话' }))
-    expect(mocks.animate.mock.calls[11][1]).toBe(40)
-    expect(mocks.animate.mock.calls[11][2]).toMatchObject({ duration: 0.42 })
+    expect(mocks.lensProps.value).toBe('/settings')
+    expect(container.querySelectorAll('[data-glass-highlight]')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: '设置' }).querySelector('[data-glass-highlight]')).not.toBeNull()
+    expect(container.querySelectorAll('[data-glass-option]')).toHaveLength(NAV_ROUTES.length)
   })
 
-  it('减少动态效果时不创建运动动画，透镜直接到位', () => {
-    mockNavGeometry()
+  it('快速连点始终只保留最新目标与一枚静止高亮', () => {
+    const { container } = render(<MemoryRouter initialEntries={['/conversation']}><TopBar /></MemoryRouter>)
+
+    fireEvent.click(screen.getByRole('link', { name: '设置' }))
+    fireEvent.click(screen.getByRole('link', { name: '记忆召回' }))
+    fireEvent.click(screen.getByRole('link', { name: '健康面板' }))
+    expect(mocks.lensProps.value).toBe('/health')
+    expect(container.querySelectorAll('[data-glass-highlight]')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: '健康面板' }).querySelector('[data-glass-highlight]')).not.toBeNull()
+  })
+
+  it('减少透明度时禁用 WebGL 透镜，保留静态选中块', () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
-      matches: query === '(prefers-reduced-motion: reduce)',
+      matches: query === '(prefers-reduced-transparency: reduce)',
+      media: query,
       addEventListener: vi.fn(), removeEventListener: vi.fn(),
     })))
-    render(<MemoryRouter initialEntries={['/conversation']}><TopBar /></MemoryRouter>)
-    mocks.animate.mockClear()
+    const { container } = render(<MemoryRouter initialEntries={['/conversation']}><TopBar /></MemoryRouter>)
 
-    fireEvent.click(screen.getByRole('link', { name: '设置' }))
-    expect(mocks.animate).not.toHaveBeenCalled()
-    expect(signal(mocks.glassProps.center?.x).get()).toBeCloseTo((24 + 640) / 748)
-    expect(signal((mocks.glassProps.size as unknown[])[0]).get()).toBe(80)
+    expect(mocks.lensProps.disabled).toBe(true)
+    expect(container.querySelectorAll('[data-glass-highlight]')).toHaveLength(1)
   })
 
-  it('快速连点停止旧信号动画并接续到新目标', () => {
-    mockNavGeometry()
-    render(<MemoryRouter initialEntries={['/conversation']}><TopBar /></MemoryRouter>)
-    fireEvent.click(screen.getByRole('link', { name: '设置' }))
-    mocks.stop.mockClear()
-
-    fireEvent.click(screen.getByRole('link', { name: '对话' }))
-    expect(mocks.stop).toHaveBeenCalled()
-    expect(mocks.animate.mock.calls.at(-6)?.[1]).toBe(40)
-  })
-
-  it('无激活路由卸载旧透镜，对话详情仍激活对话入口', () => {
-    mockNavGeometry()
+  it('无激活路由清空透镜与静止高亮', () => {
     const { container } = render(
       <MemoryRouter initialEntries={['/settings']}>
         <TopBar />
         <NavigationButton to="/outside" />
       </MemoryRouter>,
     )
-    expect(screen.getByTestId('liquid-glass-lens')).toBeTruthy()
+    expect(mocks.lensProps.value).toBe('/settings')
     fireEvent.click(screen.getByRole('button', { name: '测试跳转' }))
-    expect(container.querySelector('[data-testid="liquid-glass-lens"]')).toBeNull()
-    expect(container.querySelectorAll('.glass-nav-selection')).toHaveLength(0)
+    expect(mocks.lensProps.value).toBeNull()
+    expect(container.querySelectorAll('[data-glass-highlight]')).toHaveLength(0)
   })
 
   it('对话详情保留对话入口激活态', () => {
@@ -201,33 +126,8 @@ describe('TopBar 悬浮主导航', () => {
       </MemoryRouter>,
     )
     fireEvent.click(screen.getByRole('button', { name: '测试跳转' }))
+    expect(mocks.lensProps.value).toBe('/conversation')
     expect(screen.getByRole('link', { name: '对话' }).dataset.active).toBe('true')
     expect(screen.getByRole('link', { name: '对话' }).getAttribute('aria-current')).toBe('page')
-  })
-
-  it('动画进行中 resize 取消旧动画并贴合当前目标', () => {
-    mockNavGeometry()
-    render(<MemoryRouter initialEntries={['/conversation']}><TopBar /></MemoryRouter>)
-    fireEvent.click(screen.getByRole('link', { name: '设置' }))
-    mocks.stop.mockClear()
-
-    fireEvent.resize(window)
-    expect(mocks.stop).toHaveBeenCalled()
-    expect(signal(mocks.glassProps.center?.x).get()).toBeCloseTo((24 + 640) / 748)
-    expect(signal((mocks.glassProps.size as unknown[])[0]).get()).toBe(80)
-  })
-
-  it('减少透明度时卸载折射库，保留实色选中块', () => {
-    mockNavGeometry()
-    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
-      matches: query === '(prefers-reduced-transparency: reduce)',
-      addEventListener: vi.fn(), removeEventListener: vi.fn(),
-    })))
-    const { container } = render(<MemoryRouter initialEntries={['/conversation']}><TopBar /></MemoryRouter>)
-
-    expect(container.querySelector('[data-testid="liquid-glass-lens"]')).toBeNull()
-    const selection = container.querySelector<HTMLElement>('.glass-nav-selection')!
-    expect(selection.style.left).toBe('0px')
-    expect(selection.style.width).toBe('80px')
   })
 })

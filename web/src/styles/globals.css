@@ -234,74 +234,20 @@ body {
   text-shadow: 0 1px 3px rgba(0,0,0,0.72);
 }
 
-/* 一级主导航：宽底座仅透明 veil，小面积选中透镜由 @samasante/liquid-glass
-   折射静止画布。真实菜单链接独立在上层，不参与 SVG displacement。 */
+/* 一级主导航：宽底座保持静止；bilalgursen/liquid-glass 的 GlassLens
+   以 WebGL2 绘制运动透镜，真实路由链接与乳白静止选中块保留独立语义。 */
 .glass-nav {
   position: relative;
-  border: 1px solid rgba(255,255,255,0.66);
-  box-shadow:
-    0 8px 22px rgba(30,30,30,0.10),
-    inset 0 1px 1px rgba(255,255,255,0.70),
-    inset 0 -1px 1px rgba(60,60,60,0.10);
-}
-.glass-nav-lens {
-  position: absolute;
-  z-index: 0;
-  margin: 0;
-  overflow: visible;
-  pointer-events: none;
-}
-.glass-nav-copy {
-  box-sizing: border-box;
-  width: 100%;
-  height: 100%;
-  padding: 24px;
-  background-color: var(--bg-base);
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),
-    var(--blob-1), var(--blob-2), var(--blob-3), var(--blob-4), var(--band);
-  background-attachment: fixed;
-}
-:root[data-custom-bg='true'] .glass-nav-copy {
-  background-image:
-    linear-gradient(rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32), rgba(var(--canvas-tint-rgb, 250, 247, 238), 0.32)),
-    var(--custom-bg-image);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-}
-.glass-nav-static-surface {
-  position: relative;
-  height: 40px;
-  overflow: hidden;
-  border-radius: 9999px;
-}
-.glass-nav-tint {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: var(--nav-glass-bg);
-}
-.glass-nav-item {
-  position: relative;
   isolation: isolate;
+  background: rgba(255, 255, 255, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  box-shadow:
+    0 8px 22px rgba(30, 30, 30, 0.12),
+    inset 0 1px 1px rgba(255, 255, 255, 0.56);
 }
-.glass-nav-item:not(.nav-pill-active):hover {
-  background: rgba(255,255,255,0.10);
-}
-:root[data-custom-bg='true'] .glass-nav-item {
-  color: rgba(255,255,255,0.90);
-  text-shadow: 0 1px 3px rgba(0,0,0,0.72);
-}
-.glass-nav-item.nav-pill-active {
-  background: transparent;
-}
-.glass-nav-item-content {
-  position: relative;
-  z-index: 2;
-}
-.nav-pill-active .glass-nav-item-content {
-  animation: glass-nav-content-arrive 290ms linear;
+:root[data-custom-bg='true'] .glass-nav {
+  background: rgba(255, 255, 255, 0.20);
+  border-color: rgba(255, 255, 255, 0.46);
 }
 .glass-nav-content {
   position: relative;
@@ -309,52 +255,54 @@ body {
   scrollbar-width: none;
 }
 .glass-nav-content::-webkit-scrollbar { display: none; }
-.glass-nav::before {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  z-index: 2;
-  border-radius: inherit;
-  pointer-events: none;
-  opacity: 0.16;
-  background: linear-gradient(105deg, rgba(255,255,255,0.42), rgba(255,255,255,0.08) 28%, transparent 52%, rgba(255,255,255,0.16) 82%, rgba(255,255,255,0.30));
+.glass-nav-item {
+  position: relative;
+  isolation: isolate;
 }
-.glass-nav::after {
-  content: '';
+.glass-nav-item:not(.nav-pill-active):hover {
+  background: rgba(255, 255, 255, 0.10);
+}
+.glass-nav-highlight {
   position: absolute;
   inset: 0;
-  z-index: 2;
-  border-radius: inherit;
-  padding: 1px;
-  pointer-events: none;
-  opacity: 0.24;
-  background: linear-gradient(115deg, rgba(255,255,255,0.96), rgba(255,255,255,0.18) 35%, rgba(104,79,50,0.24) 68%, rgba(255,255,255,0.68));
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-}
-/* 减少透明度时不渲染折射库，只保留实色目标块。 */
-.glass-nav-selection {
-  position: absolute;
-  top: 5px;
-  height: 30px;
   z-index: 0;
   border-radius: 9999px;
   pointer-events: none;
-  background: var(--nav-active-bg);
-  box-shadow: 0 2px 5px rgba(0,0,0,0.09);
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(45, 42, 38, 0.16),
+    0 4px 10px rgba(45, 42, 38, 0.12),
+    inset 0 1px 1px rgba(255, 255, 255, 0.90);
 }
-@keyframes glass-nav-content-arrive {
-  0%, 35% { opacity: 0.25; transform: scale(0.94); }
-  100% { opacity: 1; transform: scale(1); }
+.glass-nav[data-glass-moving] .glass-nav-highlight {
+  opacity: 0;
 }
-@media (prefers-reduced-motion: reduce) {
-  .nav-pill-active .glass-nav-item-content { animation: none; }
+.glass-nav-item-content {
+  position: relative;
+  z-index: 2;
 }
+.glass-nav[data-glass-traveling] .glass-nav-item.nav-pill-active {
+  color: #78716c;
+}
+:root[data-custom-bg='true'] .glass-nav-item {
+  color: rgba(255, 255, 255, 0.90);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.72);
+}
+:root[data-custom-bg='true'] .glass-nav-item.nav-pill-active {
+  color: #292524;
+  text-shadow: none;
+}
+:root[data-custom-bg='true'] .glass-nav[data-glass-traveling] .glass-nav-item.nav-pill-active {
+  color: rgba(255, 255, 255, 0.90);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.72);
+}
+/* 减少透明度时停用 WebGL 透镜，保留不透明的静态选中块。 */
 @media (prefers-reduced-transparency: reduce) {
-  .glass-nav-lens { display: none; }
-  .glass-nav::before, .glass-nav::after { display: none; }
+  .glass-nav canvas { display: none; }
+  .glass-nav-highlight {
+    background: var(--nav-active-bg);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.09);
+  }
 }
 
 /* L1 浮起面板：侧栏 */
