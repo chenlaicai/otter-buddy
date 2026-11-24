@@ -152,13 +152,28 @@ export function hasDeferredCardReference(text: string): boolean {
  *  的空壳形态机械不可证明，放通记边界——本闸的主目标是拦「卡片整体缺位」（事故
  *  本形态），卡片质量（按钮真实可按）由 get_html_card_contract 模板纪律与独立检视
  *  兜底，运行时真相由卡片回执（html-card-reply）事后可证。 */
-function submitSignalPresent(fenceHtml: string): boolean {
+function stripDisplayRegions(fenceHtml: string): string {
   return fenceHtml
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<code[\s\S]*?<\/code>/gi, "")
     .replace(/<pre[\s\S]*?<\/pre>/gi, "")
-    .replace(/<textarea[\s\S]*?<\/textarea>/gi, "")
-    .includes("otterCard.submit");
+    .replace(/<textarea[\s\S]*?<\/textarea>/gi, "");
+}
+
+function submitSignalPresent(fenceHtml: string): boolean {
+  return stripDisplayRegions(fenceHtml).includes("otterCard.submit");
+}
+
+/** 残留披露信号（弱字样，与提交信号同层）：
+ *  事故锚——#3824 现场，卡片字段齐全、按钮在场，但「私聊名片缺邮箱」这类**没做完的通用字段**
+ *  只在卡里写成一句旁注，按钮只有「合入」；搭档合入后才被追问出来（chenlaicai/otter-buddy#2013）。
+ *  闸只认「卡里到底提没提残留」，不判残留的严重度（严重度由搭档判）。
+ *  没有残留的卡写「无残留」即可——零残留也必须显式声明，省掉"是忘了写还是真没有"的歧义。 */
+const RESIDUAL_MARKERS = ["残留", "未完成项", "未处理项"];
+
+function residualSignalPresent(fenceHtml: string): boolean {
+  const visible = stripDisplayRegions(fenceHtml);
+  return RESIDUAL_MARKERS.some((marker) => visible.includes(marker));
 }
 
 /**
@@ -169,6 +184,16 @@ function submitSignalPresent(fenceHtml: string): boolean {
 export function decisionCardPresent(speakBodies: string[], collectFenceValues: (body: string) => string[]): boolean {
   return speakBodies.some((body) =>
     collectFenceValues(body).some((fence) => submitSignalPresent(fence)),
+  );
+}
+
+/**
+ * 残留披露在场判定：**同一张**决策卡（含提交信号）里必须出现残留披露字样——
+ * 不许把「残留」写进另一张不做决策的卡里蒙混，也不许只写在正文（正文不是搭档拍板时看的载体）。
+ */
+export function residualDisclosurePresent(speakBodies: string[], collectFenceValues: (body: string) => string[]): boolean {
+  return speakBodies.some((body) =>
+    collectFenceValues(body).some((fence) => submitSignalPresent(fence) && residualSignalPresent(fence)),
   );
 }
 
@@ -201,17 +226,30 @@ export function checkYieldGate(
   const surface = [...speakBodies, yieldReason ?? ""].join("\n");
   if (!hasPrReference(surface)) return null;
   if (!hasDecisionRequestWide(surface)) return null;
-  if (decisionCardPresent(speakBodies, collectFenceValues)) return null;
-  return PR_CARD_GATE_REJECTION;
+  if (!decisionCardPresent(speakBodies, collectFenceValues)) return PR_CARD_GATE_REJECTION;
+  // 卡有了还不够：卡里必须交代「还剩什么」——没有就写「无残留」。
+  if (!residualDisclosurePresent(speakBodies, collectFenceValues)) return RESIDUAL_DISCLOSURE_REJECTION;
+  return null;
 }
 
 /** 双闸共用的拒绝话术：给足模板让补卡一次到位（机械层自带教育，prompt 层失守时的兜底）。 */
 const PR_CARD_GATE_REJECTION = [
   "[错误] 本条呈递命中「PR 待拍板」形态（含 PR 引用与拍板请求措辞），但缺少带授权按钮的决策卡——搭档需要一张不读正文即可拍板的卡（20 分钟三次索取 pr卡片 的事故形态）。请补齐后重发：",
-  "1. 决策卡（html-card 围栏）：title 写「<PR号> <一句话结论>」（折叠态唯一可见行）；卡内字段：PR 状态（OPEN·CI·head）、一句话改动、验证证据（CI job/测试数）、检视结论（回执覆盖的 commit）、合入后动作；",
+  "1. 决策卡（html-card 围栏）：title 写「<PR号> <一句话结论>」（折叠态唯一可见行）；卡内字段：PR 状态（OPEN·CI·head）、一句话改动、验证证据（CI job/测试数）、检视结论（回执覆盖的 commit）、合入后动作、残留与后续（逐条标需要你介入/不需要，没有就写「无残留」）；",
   "2. 授权按钮：卡片脚本内 otterCard.submit({ summary: '<PR号>合入', data: { pr: <PR号> } })——summary 固定格式，搭档点按即成为 merge_pr 的合法授权源；",
   "3. 正文仍写 1-2 句结论 + PR URL 裸写独占一段（unfurl 预览卡）。",
   "本闸为机械校验：请求拍板的呈递缺决策卡即拦，补卡重发即放行；若本条并非呈递待拍板（如历史通报），调整措辞避开请求词即可。",
+].join("\n");
+
+/** 残留未披露的拒绝话术（chenlaicai/otter-buddy#2013）：
+ *  「卡片整体缺位」修好之后出现的新洞——卡齐了、按钮有了，但没做完的部分没上卡，
+ *  搭档在信息不全的前提下拍了拍板，事后才发现还缺能力。 */
+const RESIDUAL_DISCLOSURE_REJECTION = [
+  "[错误] 决策卡在场，但没有交代「还剩什么」——残留/后续事项未披露（#3824 事故形态：卡里只把能力缺口写成旁注、按钮只有「合入」，搭档合入后才追问出还没做）。请在**同一张决策卡**内补一节并把关键结论放进卡面：",
+  "1. 「残留与后续」逐条列：未完成的能力缺口、未验证项、衍生单，每条标注「需要你介入」或「不需要你介入」，并给出选项（补齐再合 / 带残留合入 + 后续登记）；",
+  "2. 确实没有残留就显式写「无残留」——不写不等于没有，闸不认沉默；",
+  "3. 残留项同时登记待办（matter），未清不得宣称「本单彻底结束」。",
+  "本闸只认卡内字样（弱信号），不判残留严重度：严重度由搭档判，不由獭判。",
 ].join("\n");
 
 /** 指代自足缺位的拒绝话术：决策节点必须复述载体，不许把搭档指回上一条。 */

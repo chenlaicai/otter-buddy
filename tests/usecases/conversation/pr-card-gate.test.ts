@@ -106,8 +106,8 @@ describe("#1952 主闸 checkYieldGate", () => {
     const err = checkYieldGate(["#1960 CI 绿"], "PR 待拍板，请授权合入", cardFenceValues);
     expect(err).toContain("决策卡");
   });
-  it("放行：决策卡在场", () => {
-    const card = ["```html-card title=\"PR 1960 合入决策\"", "<script>otterCard.submit({ summary: '1960合入' })</script>", "```"].join("\n");
+  it("放行：决策卡在场且交代了残留", () => {
+    const card = ["```html-card title=\"PR 1960 合入决策\"", "<div>残留与后续：无残留</div>", "<script>otterCard.submit({ summary: '1960合入' })</script>", "```"].join("\n");
     expect(checkYieldGate(["#1960 可以合入了", card], undefined, cardFenceValues)).toBeNull();
   });
   it("放行：已合入通报（过去式剔除）", () => {
@@ -119,6 +119,41 @@ describe("#1952 主闸 checkYieldGate", () => {
   it("fail-open：speakBodies 缺失时视为空（宁漏勿误）", () => {
     // 缺字段时不应抛异常——装配不完整的旧路径闸失效而非阻断
     expect(() => checkYieldGate([], undefined, cardFenceValues)).not.toThrow();
+  });
+});
+
+describe("#2013 决策卡必须披露残留（#3824 现场）", () => {
+  const cardWith = (inner: string) => ["```html-card title=\"PR 3850 合入决策\"", inner,
+    "<script>otterCard.submit({ summary: '3850合入' })</script>", "```"].join("\n");
+
+  it("拦截：卡在场、按钮在场，但没有「残留」字样（#3824 事故形态）", () => {
+    const err = checkYieldGate(["#3850 可以合入了", cardWith("<div>验证：CI 全绿</div>")], undefined, cardFenceValues);
+    expect(err).toContain("残留");
+  });
+
+  it("拦截：残留两个字只写在正文、不在决策卡里", () => {
+    const err = checkYieldGate(["#3850 残留两项待定调，可以合入了", cardWith("<div>验证：CI 全绿</div>")], undefined, cardFenceValues);
+    expect(err).toContain("残留");
+  });
+
+  it("拦截：残留只写在另一张不做决策的卡里（不许分散蒙混）", () => {
+    const noteCard = ["```html-card title=\"补充说明\"", "<div>残留：40×40 命中区</div>", "```"].join("\n");
+    const err = checkYieldGate(["#3850 可以合入了", noteCard, cardWith("<div>验证：CI 全绿</div>")], undefined, cardFenceValues);
+    expect(err).toContain("残留");
+  });
+
+  it("放行：显式写「无残留」", () => {
+    expect(checkYieldGate(["#3850 可以合入了", cardWith("<div>残留与后续：无残留</div>")], undefined, cardFenceValues)).toBeNull();
+  });
+
+  it("放行：逐条列出残留并分流", () => {
+    const card = cardWith("<div>残留与后续：①40×40 命中区 — 需要你介入 ②真机未验 — 不需要</div>");
+    expect(checkYieldGate(["#3850 可以合入了", card], undefined, cardFenceValues)).toBeNull();
+  });
+
+  it("展示区豁免：残留字样只出现在 code/pre 里不算披露", () => {
+    const card = cardWith("<pre>残留与后续：无残留</pre>");
+    expect(checkYieldGate(["#3850 可以合入了", card], undefined, cardFenceValues)).toContain("残留");
   });
 });
 
