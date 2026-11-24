@@ -156,9 +156,15 @@ export async function reconcileRunningInvokes(db: Database.Database, repos: Repo
       // 判据统一覆盖（中断后该獭已有新 invoke 即跳过——cron 重触发场景自然被挡）。
       // trigger_entry_id 为 NULL 的直调路径（无锚 invokeConversation）同样入队——
       // 队列只存 invoke 自身信息，恢复不依赖 trigger entry。
+      // #2016 链级 attempts：恢复 invoke 的 trigger_entry_id 指向父恢复 invoke，
+      // 入队继承父行 attempts；普通首闯/父行不存在仍为 0。新 invoke_id 不再把崩溃链计数重置。
       db.prepare(
-        "INSERT OR IGNORE INTO restart_pending_resumes (invoke_id, conversation_id, otter_id, trigger_entry_id, status, attempts, created_at) VALUES (?, ?, ?, ?, 'pending', 0, ?)",
-      ).run(invoke.id, invoke.conversationId, invoke.otterId, invoke.triggerEntryId, new Date().toISOString());
+        `INSERT OR IGNORE INTO restart_pending_resumes
+          (invoke_id, conversation_id, otter_id, trigger_entry_id, status, attempts, created_at)
+         SELECT ?, ?, ?, ?, 'pending',
+           COALESCE((SELECT parent.attempts FROM restart_pending_resumes AS parent WHERE parent.invoke_id = ?), 0),
+           ?`,
+      ).run(invoke.id, invoke.conversationId, invoke.otterId, invoke.triggerEntryId, invoke.triggerEntryId, new Date().toISOString());
       queued++;
     } catch (enqueueErr) {
       logger.warn("Failed to enqueue interrupted invoke for resume (non-fatal)", {

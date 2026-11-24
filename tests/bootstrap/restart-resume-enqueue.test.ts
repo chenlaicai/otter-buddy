@@ -44,8 +44,8 @@ describe("postInitDatabase 重启 reconcile 入队（F20260916b1ea）", () => {
     `).run(id, triggerEntryId, T0, restricted ? JSON.stringify({ externalProfile: 'restricted' }) : null);
   }
 
-  function queueRows(): Array<{ invoke_id: string; status: string; trigger_entry_id: string | null }> {
-    return db.prepare("SELECT invoke_id, status, trigger_entry_id FROM restart_pending_resumes").all() as Array<{ invoke_id: string; status: string; trigger_entry_id: string | null }>;
+  function queueRows(): Array<{ invoke_id: string; status: string; trigger_entry_id: string | null; attempts: number }> {
+    return db.prepare("SELECT invoke_id, status, trigger_entry_id, attempts FROM restart_pending_resumes").all() as Array<{ invoke_id: string; status: string; trigger_entry_id: string | null; attempts: number }>;
   }
 
   it("running invoke（user entry 触发）→ failed + pending 入队", async () => {
@@ -95,6 +95,31 @@ describe("postInitDatabase 重启 reconcile 入队（F20260916b1ea）", () => {
     const invoke = db.prepare("SELECT status FROM invokes WHERE id = 'invoke-external'").get() as { status: string };
     expect(invoke.status).toBe("failed");
     expect(queueRows()).toHaveLength(0);
+  });
+
+  it("恢复 invoke 入队继承父恢复行 attempts；普通首闯仍从 0 开始（#2016）", async () => {
+    insertEntry("entry-parent", "user", { yieldTargets: '["otter-1"]' });
+    insertRunningInvoke("invoke-parent", "entry-parent");
+    await postInitDatabase(db, repos, createTestLogger());
+    expect(queueRows()[0]).toMatchObject({ invoke_id: "invoke-parent", attempts: 0 });
+
+    // 父行可能已因「已有更新恢复」exhausted；其 attempts 仍是子恢复行的链级计数事实源。
+    db.prepare("UPDATE restart_pending_resumes SET attempts = 4, status = 'exhausted' WHERE invoke_id = 'invoke-parent'").run();
+    insertRunningInvoke("recovery-child", "invoke-parent");
+    await postInitDatabase(db, repos, createTestLogger());
+
+    const child = queueRows().find(row => row.invoke_id === "recovery-child");
+    expect(child).toMatchObject({ status: "pending", attempts: 4, trigger_entry_id: "invoke-parent" });
+    // 父行幂等不被子行入队改写。
+    expect(queueRows().find(row => row.invoke_id === "invoke-parent")?.attempts).toBe(4);
+
+    // 第 5 轮可认领；其再崩溃产生第 6 轮时继承 5，认领闸明确拒绝。
+    expect(await repos.resumePending.claimPendingResume("recovery-child", { token: "chain-5", bootEpoch: 100, pid: 100 })).toBe(true);
+    expect((await repos.resumePending.getByInvokeId("recovery-child"))?.attempts).toBe(5);
+    insertRunningInvoke("recovery-grandchild", "recovery-child");
+    await postInitDatabase(db, repos, createTestLogger());
+    expect(queueRows().find(row => row.invoke_id === "recovery-grandchild")?.attempts).toBe(5);
+    expect(await repos.resumePending.claimPendingResume("recovery-grandchild", { token: "chain-6", bootEpoch: 200, pid: 200 })).toBe(false);
   });
 
   it("无 running invoke：空转零副作用", async () => {

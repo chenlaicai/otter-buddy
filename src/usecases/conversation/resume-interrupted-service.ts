@@ -258,6 +258,26 @@ export class ResumeInterruptedService {
       const sameBootClaimed = row.claimToken != null && row.bootEpoch === this.bootEpoch;
       if (!sameBootClaimed) {
         await this.deps.resumePendingRepo.settleResume(item.invokeId, "exhausted", new Date().toISOString());
+        // 链级上限终态必须可观测：exhausted 之外另落 healing，防静默 crash-loop 烧配额。
+        this.deps.logger.warn("resume chain attempts exhausted", {
+          invokeId: item.invokeId, conversationId: item.conversationId, attempts: row.attempts,
+        });
+        if (this.deps.healingRepo) {
+          try {
+            await this.deps.healingRepo.create({
+              id: randomUUID(), messageId: "", conversationId: item.conversationId, otterId: item.otterId,
+              errorType: "other", severity: "high",
+              description: `恢复链已达 ${String(row.attempts)} 次上限，invoke ${item.invokeId} 已标记 exhausted，停止自动恢复`,
+              suggestion: "人工核查该恢复链的原始错误与 unknown 动作；确认前禁止自动重放 unsafe 动作",
+              context: { invokeId: item.invokeId, attempts: row.attempts, reason: "resume-chain-attempts-exhausted" },
+              status: "open", resolution: null, createdAt: new Date().toISOString(), resolvedAt: null,
+            });
+          } catch (err) {
+            this.deps.logger.warn("resume attempts exhausted healing write failed", {
+              invokeId: item.invokeId, error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
       } else {
         // claim_token 值消费——跳过时记录持有者令牌前缀（可观测：排查谁持有）
         this.deps.logger.warn("claim rejected: same-boot holder exists", {

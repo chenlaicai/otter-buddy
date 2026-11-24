@@ -370,16 +370,20 @@ describe("ResumeInterruptedService（F20260916b1ea invoke 模型重建）", () =
     expect(h.queueStatus(invokeId)).toBe("done");
   });
 
-  it("attempts 达上限（跨重启无限重试守卫，S1 修复）：exhausted 闭环不再恢复", async () => {
+  it("attempts 达上限（跨重启无限重试守卫，S1 修复）：exhausted + healing 告警，不再恢复", async () => {
     const invokeId = await h.seedInterrupted();
-    // 模拟恢复中崩溃五次：attempts 已自增到上限（MAX_RESUME_ATTEMPTS=5），status 仍 pending
+    // 模拟恢复链已达上限（MAX_RESUME_ATTEMPTS=5），status 仍 pending
     h.db.prepare("UPDATE restart_pending_resumes SET attempts = 5 WHERE invoke_id = ?").run(invokeId);
 
     const chain = stubChainEngine();
-    await h.buildService(chain).resume();
+    const healing = stubHealingRepo();
+    await h.buildService(chain, { healingRepo: healing }).resume();
 
     expect(chain.calls).toHaveLength(0);
     expect(h.queueStatus(invokeId)).toBe("exhausted");
+    const capEvent = healing.created.find((event) => (event as { description: string }).description.includes("恢复链已达 5 次上限"));
+    expect(capEvent).toMatchObject({ severity: "high", errorType: "other", status: "open" });
+    expect((capEvent as { context?: { invokeId?: string; attempts?: number } }).context).toMatchObject({ invokeId, attempts: 5 });
   });
 
   it("healing 落账：服务重启事件按中断数分级落账", async () => {
