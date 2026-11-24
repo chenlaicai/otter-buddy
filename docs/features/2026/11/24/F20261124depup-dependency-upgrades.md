@@ -102,9 +102,9 @@ Dependabot 分支已删除（`git push origin --delete`）。
 
 - 编号按合入日顺延：`F20261119depup` → `F20261124depup`；分支与历史 commit 保留旧号，
   文档 ID／路径／H1／PR 标题与最终 commit 使用新号。
-- 已 rebase 到最新 main `cdbb786788d6bf20984d2307dd0d95e2eddef6e8`，无冲突；diff 仍仅为
+- 已 rebase 到最新 main `4c867108c0d26c5bac404aa4f4ea2b886e1116bf`，无冲突；diff 仍仅为
   better-sqlite3 版本与 lockfile 元数据、本文档。
 - `npm ci`：PASS（560 packages）；better-sqlite3 13.2.0 native 模块加载及内存 DB 建表／写入／读取
   CRUD 复验通过。`npm run build`、`npm run lint`：PASS。
-- `npm test`：**526 文件 / 6812 测试全部通过**。
+- `npm test`：**526 文件 / 6817 测试全部通过**。
 - 11-18 旧 `check` 失败仅为 PR body 缺少 Rollback 与证据分层声明，非依赖或测试失败；定稿 body 已补齐。
