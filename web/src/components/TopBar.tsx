@@ -143,19 +143,19 @@ export function TopBar() {
     visibleRef.current = true
     setVisible(true)
     // 位置、速度形变、尺寸和灰色 tint 分开驱动；快速连点继承信号的当前值。
-    animateTo(mv.center, target.center, { duration: 0.29, ease: POSITION_EASE })
-    animateTo(mv.baseW, target.width + 12, { duration: 0.085, ease: POSITION_EASE })
-    animateTo(mv.baseH, EXPANDED_LENS_HEIGHT, { duration: 0.085, ease: POSITION_EASE })
-    animateTo(mv.radius, EXPANDED_LENS_HEIGHT / 2, { duration: 0.085, ease: POSITION_EASE })
-    animateTo(mv.tintOpacity, 0, { duration: 0.085, ease: SETTLE_EASE })
-    animateTo(mv.shadowOpacity, 1, { duration: 0.085, ease: SETTLE_EASE })
+    animateTo(mv.center, target.center, { duration: 0.42, ease: POSITION_EASE })
+    animateTo(mv.baseW, target.width + 12, { duration: 0.12, ease: POSITION_EASE })
+    animateTo(mv.baseH, EXPANDED_LENS_HEIGHT, { duration: 0.12, ease: POSITION_EASE })
+    animateTo(mv.radius, EXPANDED_LENS_HEIGHT / 2, { duration: 0.12, ease: POSITION_EASE })
+    animateTo(mv.tintOpacity, 0.08, { duration: 0.12, ease: SETTLE_EASE })
+    animateTo(mv.shadowOpacity, 1, { duration: 0.12, ease: SETTLE_EASE })
     collapseTimerRef.current = setTimeout(() => {
-      animateTo(mv.baseW, target.width, { duration: 0.14, ease: SETTLE_EASE })
-      animateTo(mv.baseH, REST_LENS_HEIGHT, { duration: 0.14, ease: SETTLE_EASE })
-      animateTo(mv.radius, REST_LENS_HEIGHT / 2, { duration: 0.14, ease: SETTLE_EASE })
-      animateTo(mv.tintOpacity, 0.28, { duration: 0.14, ease: SETTLE_EASE })
-      animateTo(mv.shadowOpacity, 0, { duration: 0.14, ease: SETTLE_EASE })
-    }, 160)
+      animateTo(mv.baseW, target.width, { duration: 0.16, ease: SETTLE_EASE })
+      animateTo(mv.baseH, REST_LENS_HEIGHT, { duration: 0.16, ease: SETTLE_EASE })
+      animateTo(mv.radius, REST_LENS_HEIGHT / 2, { duration: 0.16, ease: SETTLE_EASE })
+      animateTo(mv.tintOpacity, 0.28, { duration: 0.16, ease: SETTLE_EASE })
+      animateTo(mv.shadowOpacity, 0, { duration: 0.16, ease: SETTLE_EASE })
+    }, 240)
   }
 
   useLayoutEffect(() => {
@@ -217,8 +217,8 @@ export function TopBar() {
               specular: 1.05, sheenAngle: 40, sheenDark: false,
               glow: 0.12, glowSpread: 0.52, glowFalloff: 1.6,
               sheen: 0.62, sheenWidth: 1.6, sheenFalloff: 1.3,
-              edgeShadow: '0 3px 8px rgba(45,42,38,.13)',
-              edgeInsetShadow: '0 -3px 8px rgba(45,42,38,.08)',
+              edgeShadow: '0 5px 14px rgba(45,42,38,.20)',
+              edgeInsetShadow: '0 2px 3px rgba(255,255,255,.85)',
               restEdgeShadow: '0 4px 12px rgba(45,42,38,.14)',
               restEdgeInsetShadow: '0 2px 3px rgba(255,255,255,.90), inset 0 -6px 12px rgba(45,42,38,.10)',
             }}

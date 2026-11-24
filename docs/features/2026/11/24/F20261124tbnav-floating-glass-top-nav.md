@@ -54,7 +54,7 @@ causal_links:
 - opticScale 静止约 0.409、运动约 0.42，depth=0.72、curvature=0.62、bend=0.42；停下后不降低为平面材质。
 - 默认柔和画布上增强定向高光与静止态内外阴影：顶部高光、宽幅浅内阴影和柔和外投影共同读出体积，不用深色细描边冒充玻璃。
 
-位置由 `animateGlassValue` 驱动，`useLensWobble` 读取位置信号速度并派生 squash/stretch；尺寸、tint、shadow 分别使用独立信号。单次切换为 290ms 位置动画、85ms 展开和 160ms 后的 140ms 收缩。减少动态效果直接写目标值。
+位置由 `animateGlassValue` 驱动，`useLensWobble` 读取位置信号速度并派生 squash/stretch；尺寸、tint、shadow 分别使用独立信号。单次切换为 420ms 位置动画、120ms 展开和 240ms 后的 160ms 收缩；运动态保留 8% 轻微 tint 与高光/柔影，确保默认柔和画布上也能读出流动轨迹。减少动态效果直接写目标值。
 
 ### 布局与路由边界
 

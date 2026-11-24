@@ -137,12 +137,12 @@ describe('TopBar 悬浮主导航', () => {
     fireEvent.click(screen.getByRole('link', { name: '设置' }))
     expect(mocks.animate).toHaveBeenCalledTimes(6)
     expect(mocks.animate.mock.calls[0][1]).toBe(640)
-    expect(mocks.animate.mock.calls[0][2]).toMatchObject({ duration: 0.29 })
+    expect(mocks.animate.mock.calls[0][2]).toMatchObject({ duration: 0.42 })
     expect(mocks.animate.mock.calls[1][1]).toBe(92)
     expect(mocks.animate.mock.calls[2][1]).toBe(43)
-    expect(mocks.animate.mock.calls[4][1]).toBe(0)
+    expect(mocks.animate.mock.calls[4][1]).toBe(0.08)
 
-    vi.advanceTimersByTime(160)
+    vi.advanceTimersByTime(240)
     expect(mocks.animate).toHaveBeenCalledTimes(11)
     expect(mocks.animate.mock.calls[6][1]).toBe(80)
     expect(mocks.animate.mock.calls[7][1]).toBe(30)
@@ -150,7 +150,7 @@ describe('TopBar 悬浮主导航', () => {
 
     fireEvent.click(screen.getByRole('link', { name: '对话' }))
     expect(mocks.animate.mock.calls[11][1]).toBe(40)
-    expect(mocks.animate.mock.calls[11][2]).toMatchObject({ duration: 0.29 })
+    expect(mocks.animate.mock.calls[11][2]).toMatchObject({ duration: 0.42 })
   })
 
   it('减少动态效果时不创建运动动画，透镜直接到位', () => {
