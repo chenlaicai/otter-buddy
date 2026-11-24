@@ -24,8 +24,15 @@
  * 用法（packages/connector 打包分发后）：
  *   otter-connector --hub https://otter.example.com --pair <码> --name <设备名>   # 首启配对
  *   otter-connector --hub https://otter.example.com                              # 凭已存身份连接
+ *   （macOS 双击启动器 OtterConnector.command：无身份且交互终端 → 进入首启向导；
+ *   引导文件 otter-connector-bootstrap.json 可自动带入中枢地址与配对码——
+ *   见 first-run-wizard。device.json 额外记 hubUrl，后续无参双击自动重连。）
  * （仓内直跑构建产物：node packages/connector/dist/connector/main.js ...）
- * 身份落 ~/.otter/connector/device.json（deviceId + pairToken）。
+ * 身份落 ~/.otter/connector/device.json（deviceId + pairToken + hubUrl）。
+ *
+ * 单实例锁：同设备两实例并存会因 hub 顶替语义互踢（旧 sid 心跳失效 → 判死重连
+ * → 再顶替）进入重连风暴——启动时抢 ~/.otter/connector/instance.lock（内容=pid），
+ * 已有活实例直接人话退出；持锁进程已死则接管（见 instance-lock）。
  */
 
 import { WebSocket } from "ws";
@@ -45,14 +52,11 @@ import { WorkspaceActionExecutor } from "@frameworks/execution/workspace-action-
 import { ConnectorActionDispatcher } from "./action-dispatcher";
 import { ShellActionExecutor } from "./shell-action-executor";
 import { FileActionExecutor } from "./file-action-executor";
-
-interface DeviceIdentity {
-  deviceId: string;
-  pairToken: string;
-}
+import { acquireInstanceLock, releaseInstanceLock } from "./instance-lock";
+import { askHubUrl, isInteractive, runFirstRunWizard, type DeviceIdentity } from "./first-run-wizard";
 
 interface Args {
-  hub: string;
+  hub?: string;
   pair?: string;
   name?: string;
 }
@@ -72,11 +76,14 @@ function parseArgs(argv: string[]): Args {
     if (key === "pair") args.pair = value;
     if (key === "name") args.name = value;
   }
-  if (!args.hub) {
-    process.stderr.write("usage: main.js --hub <url> [--pair <code> --name <name>]\n");
-    process.exit(2);
-  }
-  return args as Args;
+  return args;
+}
+
+/** 非交互且无法确定身份/中枢时的退出（保持既有脚本化语义：exit 2） */
+function printUsageAndExit(): never {
+  process.stderr.write("usage: main.js --hub <url> [--pair <code> --name <name>]\n");
+  process.stderr.write("（或使用双击启动器进入首启向导）\n");
+  process.exit(2);
 }
 
 async function identityPath(): Promise<string> {
@@ -97,7 +104,9 @@ async function saveIdentity(identity: DeviceIdentity): Promise<void> {
   await writeFile(await identityPath(), JSON.stringify(identity, null, 2), "utf8");
 }
 
-/** 首启配对：一次性码换长效 token（核销失败即退出——fail-closed，码过期/重放不重试） */
+/** 首启配对：一次性码换长效 token（核销失败即退出——fail-closed，码过期/重放不重试）。
+ *  服务器响应契约不变（deviceId + pairToken）；hubUrl 由客户端侧并入身份文件，
+ *  让后续无参启动自动重连同一中枢。 */
 async function pairWithHub(hub: string, code: string, name: string): Promise<DeviceIdentity> {
   const res = await fetch(new URL("/api/connector/pair", hub), {
     method: "POST",
@@ -108,9 +117,10 @@ async function pairWithHub(hub: string, code: string, name: string): Promise<Dev
     const body = await res.text().catch(() => "");
     throw new Error(`pairing rejected (HTTP ${String(res.status)}): ${body}`);
   }
-  const data = await res.json() as DeviceIdentity;
-  await saveIdentity(data);
-  return data;
+  const data = await res.json() as { deviceId: string; pairToken: string };
+  const identity: DeviceIdentity = { ...data, hubUrl: hub };
+  await saveIdentity(identity);
+  return identity;
 }
 
 function log(message: string, meta?: Record<string, unknown>): void {
@@ -206,6 +216,8 @@ function registerSignalHandlersOnce(shutdown: () => Promise<void>): void {
         currentWs.send(JSON.stringify({ v: currentVersion, type: "offline", seq, sid: currentSid, data: {} }));
         log("offline requested", { signal });
       }
+      // 释放单实例锁（exit(0) 前 150ms 窗口内完成本地 rm；失败由下次启动接管兑底）
+      void releaseInstanceLock();
       setTimeout(() => process.exit(0), 150); // 一拍发送窗口后退出
     });
   };
@@ -318,18 +330,60 @@ function connectOnce(hub: string, identity: DeviceIdentity, runtime: ConnectorRu
   });
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv);
+/** 无身份时的获取路径：交互终端 → 首启向导；非交互 → usage 退出（脚本化语义不变）。 */
+async function obtainIdentityWhenMissing(): Promise<DeviceIdentity> {
+  if (!isInteractive()) {
+    process.stderr.write("no device identity: run with --pair <code> --name <name> --hub <url> first\n");
+    printUsageAndExit();
+  }
+  // 双击启动器首启：向导（预填发现→三问→核销），身份落盘含 hubUrl
+  const identity = await runFirstRunWizard({
+    // 引导文件发现起点：cwd——双击启动器会先 cd 到自身目录，「引导文件放同目录」天然成立；
+    // 手动 CLI 场景用户在哪个目录跑就在哪找（另有 ~/Downloads 兆底）
+    exeDir: process.cwd(),
+    pair: pairWithHub,
+  });
+  log("paired via first-run wizard", { deviceId: identity.deviceId });
+  return identity;
+}
+
+/** 启动期身份与中枢决策（含首启向导）：
+ *  优先级 —— CLI --pair/--hub（既有脚本化路径）> 首启向导（交互终端且无身份）
+ *  > 身份文件记住的 hubUrl > 交互补问 hub；非交互且无法确定 → usage 退出（脚本化语义不变）。
+ *  hubUrl 回写：换中枢/首次 --hub 连接时同步到 device.json（地址非秘密）。 */
+async function establishIdentityAndHub(args: Args): Promise<{ identity: DeviceIdentity; hub: string }> {
   let identity = await loadIdentity();
+  let hub = args.hub ?? null;
+
   if (args.pair) {
     if (!args.name) throw new Error("--pair requires --name");
-    identity = await pairWithHub(args.hub, args.pair, args.name);
+    if (!hub) throw new Error("--pair requires --hub");
+    identity = await pairWithHub(hub, args.pair, args.name);
     log("paired", { deviceId: identity.deviceId });
   }
-  if (!identity) {
-    process.stderr.write("no device identity: run with --pair <code> --name <name> first\n");
-    process.exit(2);
+
+  if (!identity) identity = await obtainIdentityWhenMissing();
+
+  if (!hub) hub = identity.hubUrl ?? null;
+  if (!hub) hub = isInteractive() ? await askHubUrl(identity.hubUrl) : printUsageAndExit();
+
+  if (identity.hubUrl !== hub) {
+    identity = { ...identity, hubUrl: hub };
+    await saveIdentity(identity);
   }
+  return { identity, hub };
+}
+
+async function main(): Promise<void> {
+  // 单实例锁先行（含向导场景：第二实例双击 → 明确退出而非互踢重连风暴）
+  const lock = await acquireInstanceLock();
+  if (!lock.ok) {
+    process.stderr.write(`本设备已有 OtterConnector 在运行（pid ${String(lock.pid)}）——请直接使用既有窗口。\n`);
+    process.stderr.write(`（如确认是误报，可删除 ${lock.path} 后重试）\n`);
+    process.exit(4);
+  }
+
+  const { identity, hub } = await establishIdentityAndHub(parseArgs(process.argv));
 
   // 断线自动重连：指数退避，重连=新会话（hub 侧 sid 代际隔离跨会话重放）
   const runtime = await buildRuntime(identity); // 执行栈（台账清扫后才开始执行动作）
@@ -345,13 +399,14 @@ async function main(): Promise<void> {
   });
   let backoff = RECONNECT_BASE_MS;
   for (;;) {
-    const outcome = await connectOnce(args.hub, identity, runtime);
+    const outcome = await connectOnce(hub, identity, runtime);
     if (outcome === "fatal") {
       process.stderr.write("protocol version incompatible with hub — upgrade connector (reconnect pointless)\n");
       process.exit(3);
     }
     if (exiting) { // （检视）：优雅退出中不顶替重连（防新会话被退出再带走）
       log("exit before reconnect", {});
+      await releaseInstanceLock();
       return;
     }
     log("reconnecting", { inMs: backoff });

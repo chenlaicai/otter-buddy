@@ -97,6 +97,18 @@ export const POLICY_TABLE: readonly PolicyRule[] = [
     policy: "write",
     note: "CLI 安装包不含设备秘密，登录 user 即可下载；匿名与 guest 不可读取中枢构建产物",
   },
+  {
+    methods: ["GET", "HEAD"],
+    path: /^\/api\/connector\/download\/app$/,
+    policy: "write",
+    note: "F20261124conon PR-B：可执行安装包（启动器+内嵌运行时+产物）不含设备秘密——与 CLI tarball 同档 user 可下；配对码只经 bootstrap 端点分发",
+  },
+  {
+    methods: ["POST"],
+    path: /^\/api\/connector\/download\/bootstrap$/,
+    policy: "admin",
+    note: "F20261124conon PR-B：引导文件内嵌一次性配对码（注册设备的秘密）与当前中枢地址——与签发同轨 admin；码的时效/单次核销语义不变，此端点只读验证不核销",
+  },
   // ── 族内例外（必须先于同族 admin 规则命中）──
   { methods: ["POST"], path: /^\/api\/otters\/[^/]+\/retry$/, policy: "write", note: "会话重试=用户级交互，非建散重启" },
   // POST :id/leave 已随死端点下线，正则 leave 分支休眠保留（零行为变化，防未来误挂时语义退化）
