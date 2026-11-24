@@ -95,13 +95,16 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     .split("\n")
     .some((l) => {
       if (!/⚠️\s*无法判定/.test(l)) return false;
-      const trailingAfterQuote = l.includes("」") ? l.slice(l.lastIndexOf("」") + 1) : l;
+      const hasQuote = l.includes("」");
+      const trailingAfterQuote = hasQuote ? l.slice(l.lastIndexOf("」") + 1) : l;
       const hasCurrentAdjudication =
-        /本轮|维持原判|沿用|照旧|仍判|继续判|留待|再观察|下轮|下次|销案搁置/.test(trailingAfterQuote);
+        /本轮|维持原判|沿用|照旧|仍判|继续判|留待|再观察|下轮|下次|销案搁置|继续按此/.test(trailingAfterQuote);
       const explicitHistoricalQuote =
         /^\s*[-*]?\s*(?:历史(?:评论)?|回查评论|原评论)(?:引用)?[：:]/.test(l) &&
         /首轮|2026-11-18|上轮|此前|曾因|已因/.test(l) &&
-        !hasCurrentAdjudication;
+        (hasQuote
+          ? /^[\s。，,；;、）)——\-·「」]*$/.test(trailingAfterQuote)
+          : !hasCurrentAdjudication);
       return !explicitHistoricalQuote;
     });
   const hedgeUnknown =
@@ -191,6 +194,13 @@ const BAD_HISTORY_REASSERT = GOOD_RECHECK.replace(
   "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」——维持原判，销案搁置",
 );
 
+// 退化形态 7（v9 复核）：同义复判逃逸——词表未列的「后续继续按此处理」；
+// 引文闭合后的实义尾接一律撤销豁免，不依赖词表枚举
+const BAD_HISTORY_REASSERT_V2 = GOOD_RECHECK.replace(
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」",
+  "- 历史评论：2026-11-18 首轮曾因同一原因判定为「⚠️ 无法判定」——本行后续继续按此处理",
+);
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -248,6 +258,14 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u7", 1, FIXTURE_INPUT, "user"),
         msg("st-o7", 2, BAD_HISTORY_REASSERT),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 7（v9 复核）：词表外同义复判——引文闭合后实义尾接一律拦
+      messages: [
+        msg("st-u8", 1, FIXTURE_INPUT, "user"),
+        msg("st-o8", 2, BAD_HISTORY_REASSERT_V2),
       ],
       expectedOk: false,
     },

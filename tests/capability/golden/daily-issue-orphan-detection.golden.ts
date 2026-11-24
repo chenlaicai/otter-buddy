@@ -102,13 +102,20 @@ export const assert: GoldenModule["assert"] = async ({ messages }) => {
     line.trim().replace(/^[-*]\s+/, "").replace(/\*\*/g, "").trim();
   const hasNonCounterAction = (line: string) => {
     const outsideQuote = line.replace(/「[^」\n]*」/g, "");
-    // 否定语境与时序状语剥离（v7 真实 transcript 校准）：计数行尾部的拒绝性声明
-    // （「不处理」「不重复开工」「不进孤儿段及清单正文」）与时序状语（「开工前仍
-    // 保留认领三问」）是对协议的复述强化，不是开工建议——先剥这两种结构再测词根，
-    // 避免把「声明不做」误判成「建议做」。窗口 12 字覆盖「不进孤儿段及清单正文」；
-    // 剥离后残留的正向建议词（「不进清单，但建议直接开工」的「建议直接开工」）仍拒。
+    // 否定语境与时序状语剥离（v7 transcript 校准；v9 复核加固）：计数行尾部的拒绝性
+    // 声明（「不处理」「不重复开工」「不进孤儿段及清单正文」）是对协议的复述强化，
+    // 不是开工建议——先剥这两种结构再测词根。加固（检视四反例）：
+    // ① 窗口在转折边界（但/而/却/只/即/便）停止，后续分句的正向动作词不受豁免；
+    // ② 负向前瞻保护——否定窗口内含显式建议词（建议/应当/应该/立即）时整段不剥
+    // （「不建议搁置应直接开工」「不是不处理而是建议立即处理」的「建议」是正向
+    // 建议的一部分，不能随否定被吞）。“不/未/勿…”窗内 12 字覆盖「不进孤儿段
+    // 及清单正文」；剥离后残留正向建议词仍拒（「不进清单，但建议直接开工」拦）。
+    const NEG_CLASS = "[^，。；;、）\n但而却只即便]";
     const negationStripped = outsideQuote.replace(
-      /(?:不|未|勿|莫|无|非|禁止|避免|不再|不会|无须|无需)[^，。；;、）\n]{0,12}/g,
+      new RegExp(
+        `(?:不|未|勿|莫|无|非|禁止|避免|不再|不会|无须|无需)(?!${NEG_CLASS}{0,12}(?:建议|应当|应该|立即))${NEG_CLASS}{0,12}`,
+        "g",
+      ),
       "",
     );
     const aspectualStripped = negationStripped.replace(
@@ -282,6 +289,18 @@ const BAD_NEGATED_SMUGGLE = GOOD_CHECKLIST.replace(
   "拍板搁置 1 条：#1805——不进清单正文，但建议直接开工",
 );
 
+// 退化形态 10（v9 复核加固）：无逗号转折粘连与否定+建议混排——否定窗口在转折边界
+// 停止、窗口含显式建议词时不剥，四形态均不得豁免
+const BAD_NEGATED_SMUGGLE_V2 = GOOD_CHECKLIST
+  .replace(
+    "在途 2 条（忽略）：#1803 → open PR #1955；#1804 → open PR #1958（不重复开工，开工前仍保留认领三问）",
+    "在途 2 条（忽略：#1803 ← PR #1955；#1804 ← PR #1958）——不重复开工但建议今天处理",
+  )
+  .replace(
+    "拍板搁置 1 条（#1805，搭档原话「这个别管」；不进孤儿段及清单正文，不处理）",
+    "拍板搁置 1 条：#1805——不是不处理而是建议立即处理",
+  );
+
 export const selftest: GoldenModule["selftest"] = {
   good: {
     messages: [
@@ -362,6 +381,14 @@ export const selftest: GoldenModule["selftest"] = {
       messages: [
         msg("st-u10", 1, FIXTURE_INPUT, "user"),
         msg("st-o10", 2, BAD_NEGATED_SMUGGLE),
+      ],
+      expectedOk: false,
+    },
+    {
+      // 退化形态 10（v9 复核）：无逗号转折粘连与否定+建议混排不得豁免
+      messages: [
+        msg("st-u11", 1, FIXTURE_INPUT, "user"),
+        msg("st-o11", 2, BAD_NEGATED_SMUGGLE_V2),
       ],
       expectedOk: false,
     },
